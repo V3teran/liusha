@@ -1,0 +1,48 @@
+services:
+  postgres:
+    # Use the newest pg tag pgvector publishes on build day (pg17 or newer).
+    image: pgvector/pgvector:pg17
+    container_name: liusha-postgres
+    environment:
+      POSTGRES_USER: liusha
+      POSTGRES_PASSWORD: liusha
+      POSTGRES_DB: liusha
+    ports:
+      - "5432:5432"
+    volumes:
+      - liusha-pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U liusha -d liusha"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    # Use current latest major (redis:8 as of 2026; bump on build day if newer exists).
+    image: redis:8
+    container_name: liusha-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - liusha-redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  asynqmon:
+    image: hibiken/asynqmon:latest
+    # asynqmon publishes amd64 only; run under emulation on arm64 hosts.
+    platform: linux/amd64
+    container_name: liusha-asynqmon
+    command: ["--redis-addr=redis:6379"]
+    ports:
+      - "8081:8080"
+    depends_on:
+      redis:
+        condition: service_healthy
+
+volumes:
+  liusha-pg:
+  liusha-redis:
