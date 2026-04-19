@@ -22,11 +22,17 @@ func (f ToolFunc) Call(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallT
 }
 
 // RegisterTool 向 MCP server 注册一个工具；同名重复注册返回错误。
+// 内部会强制用 ScopeGuard 包裹 handler，调用方即使忘记手动包装也不会绕过 scope 校验。
 func (s *Server) RegisterTool(name, description string, schema any, h ToolHandler) error {
 	if _, exists := s.tools[name]; exists {
 		return fmt.Errorf("工具 %q 已注册", name)
 	}
-	s.tools[name] = h
+	if s.policy == nil {
+		return fmt.Errorf("注册工具 %q 失败: scope policy 未配置", name)
+	}
+	// 强制 scope 守护：即便传入的已是 scopeGuard，再包一层也只是重复校验，语义不变。
+	guarded := WithScopeGuard(s.policy, h)
+	s.tools[name] = guarded
 
 	var rawSchema json.RawMessage
 	if schema != nil {
@@ -35,7 +41,7 @@ func (s *Server) RegisterTool(name, description string, schema any, h ToolHandle
 	}
 	tool := mcp.NewToolWithRawSchema(name, description, rawSchema)
 	s.mcp.AddTool(tool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		return h.Call(ctx, req)
+		return guarded.Call(ctx, req)
 	})
 	return nil
 }
