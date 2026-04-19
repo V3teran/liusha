@@ -1,0 +1,11 @@
+analysis_window:
+  time_seconds: 60
+  flow_count: 500
+
+api:
+  read_timeout_seconds: 15
+  write_timeout_seconds: 30
+
+postgres:
+  max_conns: 20
+  min_conns: 2
