@@ -43,6 +43,28 @@ services:
       redis:
         condition: service_healthy
 
+  # api 服务：由 cmd/api/Dockerfile 构建，依赖 postgres/redis 健康后再启动。
+  api:
+    image: liusha/api
+    build:
+      context: ..
+      dockerfile: cmd/api/Dockerfile
+    container_name: liusha-api
+    environment:
+      LIUSHA_POSTGRES_DSN: postgres://liusha:liusha@postgres:5432/liusha?sslmode=disable
+      LIUSHA_REDIS_ADDR: redis:6379
+      LIUSHA_API_ADDR: 0.0.0.0:8080
+      LIUSHA_ENV: development
+      LIUSHA_LOG_LEVEL: info
+      LIUSHA_CONFIG: /app/config/config.yaml
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+
 volumes:
   liusha-pg:
   liusha-redis:

@@ -72,7 +72,8 @@ func (s *Server) routes() {
 
 // Run 阻塞监听配置的地址；ErrServerClosed 视为优雅关停成功而非失败。
 func (s *Server) Run() error {
-	logx.From(context.Background()).Info().Str("addr", s.cfg.APIAddr).Msg("api 开始监听")
+	bootCtx := logx.WithTraceID(context.Background(), logx.NewTraceID())
+	logx.From(bootCtx).Info().Str("addr", s.cfg.APIAddr).Msg("api 开始监听")
 	if err := s.http.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}

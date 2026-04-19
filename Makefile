@@ -1,4 +1,4 @@
-.PHONY: up down logs migrate migrate-down run-api test test-unit test-integration lint fmt tidy
+.PHONY: up down logs migrate migrate-down run-api build-api test test-unit test-integration lint fmt tidy
 
 COMPOSE = docker compose -f deployments/docker-compose.yml
 MIGRATE_DSN ?= postgres://liusha:liusha@localhost:5432/liusha?sslmode=disable
@@ -24,6 +24,9 @@ migrate-down:
 
 run-api:
 	go run ./cmd/api
+
+build-api:
+	docker build -f cmd/api/Dockerfile -t liusha/api .
 
 test: test-unit test-integration
 

@@ -21,3 +21,4 @@ internal/web/dist/
 # Coverage
 coverage.out
 coverage.html
+/api
