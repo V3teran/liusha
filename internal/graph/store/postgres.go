@@ -43,10 +43,11 @@ func (s *Postgres) AddNode(ctx context.Context, n graphmodel.Node) error {
 }
 
 func (s *Postgres) AddEdge(ctx context.Context, e graphmodel.Edge) error {
+	// 按语义四元组去重：同一 engagement 内相同 src/dst/kind 只保留一条边。
 	_, err := s.pool.Exec(ctx, `
 		INSERT INTO graph_edge (id, engagement_id, src_id, dst_id, kind)
 		VALUES ($1, $2, $3, $4, $5)
-		ON CONFLICT DO NOTHING`,
+		ON CONFLICT (engagement_id, src_id, dst_id, kind) DO NOTHING`,
 		e.ID, e.EngagementID, e.SrcID, e.DstID, string(e.Kind),
 	)
 	if err != nil {

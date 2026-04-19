@@ -57,6 +57,56 @@ func TestIntegration_GraphStore_AddAndGet(t *testing.T) {
 	assert.Equal(t, "http://example.com/login", got.Payload["url"])
 }
 
+func TestIntegration_GraphStore_AddEdgeDedup(t *testing.T) {
+	if testing.Short() {
+		t.Skip("跳过集成测试")
+	}
+	ctx := context.Background()
+	pool, cleanup := newGraphTestPool(ctx, t)
+	t.Cleanup(cleanup)
+
+	engID := uuid.New()
+	_, err := pool.Exec(ctx,
+		`INSERT INTO engagement (id, tenant_id, mode, scope, status, version)
+         VALUES ($1, $2, 'proxy', '{}', 'active', 1)`,
+		engID, uuid.New(),
+	)
+	require.NoError(t, err)
+
+	st := store.NewPostgres(pool)
+
+	// 准备两个 node 作为 edge 的端点
+	src := graphmodel.Node{
+		ID: uuid.New(), EngagementID: engID,
+		Kind: graphmodel.KindSurface, Payload: map[string]any{"url": "http://dedup.test/a"},
+	}
+	dst := graphmodel.Node{
+		ID: uuid.New(), EngagementID: engID,
+		Kind: graphmodel.KindFinding, Payload: map[string]any{"title": "vuln"},
+	}
+	require.NoError(t, st.AddNode(ctx, src))
+	require.NoError(t, st.AddNode(ctx, dst))
+
+	// 连续三次插入相同语义关系（engagement/src/dst/kind 相同，每次 ID 不同）
+	for i := 0; i < 3; i++ {
+		e := graphmodel.Edge{
+			ID:           uuid.New(),
+			EngagementID: engID,
+			SrcID:        src.ID,
+			DstID:        dst.ID,
+			Kind:         graphmodel.EdgeFinding,
+		}
+		require.NoError(t, st.AddEdge(ctx, e))
+	}
+
+	var count int
+	require.NoError(t, pool.QueryRow(ctx,
+		`SELECT count(*) FROM graph_edge WHERE engagement_id=$1 AND src_id=$2 AND dst_id=$3 AND kind=$4`,
+		engID, src.ID, dst.ID, string(graphmodel.EdgeFinding),
+	).Scan(&count))
+	assert.Equal(t, 1, count, "同一语义关系应只保留一条")
+}
+
 func TestIntegration_GraphStore_DedupIgnore(t *testing.T) {
 	if testing.Short() {
 		t.Skip("跳过集成测试")
