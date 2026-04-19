@@ -1,0 +1,23 @@
+# Binaries
+/bin/
+cmd/*/dist/
+*.exe
+*.test
+*.out
+
+# Local env
+.env
+.env.local
+.env.*.local
+
+# Editor
+.vscode/
+.idea/
+.DS_Store
+
+# Embedded frontend build artifact (produced by liusha-ui, not checked in)
+internal/web/dist/
+
+# Coverage
+coverage.out
+coverage.html
