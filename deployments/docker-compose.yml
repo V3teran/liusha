@@ -65,6 +65,32 @@ services:
     ports:
       - "8080:8080"
 
+  # proxy 服务：采集指定 engagement 的 HTTP 流量并写入 Redis/Postgres。
+  # 启动前需设置 LIUSHA_ENGAGEMENT_ID 为目标 engagement 的 UUID。
+  proxy:
+    image: liusha/proxy
+    build:
+      context: ..
+      dockerfile: cmd/proxy/Dockerfile
+    container_name: liusha-proxy
+    environment:
+      LIUSHA_POSTGRES_DSN: postgres://liusha:liusha@postgres:5432/liusha?sslmode=disable
+      LIUSHA_REDIS_ADDR: redis:6379
+      LIUSHA_CONFIG: /app/config/config.yaml
+      LIUSHA_ENGAGEMENT_ID: ""
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "8888:8888"
+    volumes:
+      - liusha-proxy-flows:/data
+    profiles:
+      - proxy
+
 volumes:
   liusha-pg:
   liusha-redis:
+  liusha-proxy-flows:
