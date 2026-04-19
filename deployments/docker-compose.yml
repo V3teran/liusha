@@ -90,6 +90,38 @@ services:
     profiles:
       - proxy
 
+  # vuln-tools：持续运行的工具容器，mcp-server 通过 docker exec 调用其中的工具。
+  vuln-tools:
+    image: liusha/vuln-tools
+    build:
+      context: ..
+      dockerfile: docker/vuln-tools/Dockerfile
+    container_name: liusha-vuln-tools
+    command: ["sleep", "infinity"]
+    profiles:
+      - mcp
+
+  # mcp-server：通过 stdio 接入 Claude Desktop 的 MCP 服务端。
+  mcp-server:
+    image: liusha/mcp-server
+    build:
+      context: ..
+      dockerfile: cmd/mcp-server/Dockerfile
+    container_name: liusha-mcp-server
+    environment:
+      LIUSHA_POSTGRES_DSN: postgres://liusha:liusha@postgres:5432/liusha?sslmode=disable
+      LIUSHA_CONFIG: /app/config/config.yaml
+      LIUSHA_ENGAGEMENT_ID: ""
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      postgres:
+        condition: service_healthy
+      vuln-tools:
+        condition: service_started
+    profiles:
+      - mcp
+
 volumes:
   liusha-pg:
   liusha-redis:
