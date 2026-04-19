@@ -17,9 +17,9 @@ type ctxKey int
 const traceIDKey ctxKey = iota
 
 var (
-	writerMu         sync.RWMutex
-	writer io.Writer = os.Stderr
-	strict atomic.Bool
+	writerMu sync.RWMutex
+	writer   io.Writer = os.Stderr
+	strict   atomic.Bool
 )
 
 // Init 设置全局日志级别，并在开发模式下开启严格校验：
