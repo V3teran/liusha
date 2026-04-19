@@ -32,8 +32,8 @@ func TestTailer_ParsesLines(t *testing.T) {
 		require.Equal(t, "https://example.com/api", pf.URL)
 		require.Equal(t, "GET", pf.Method)
 		require.Equal(t, 200, pf.RespStatus)
-		require.Equal(t, []byte("hello"), pf.ReqBody)   // base64 "aGVsbG8=" = "hello"
-		require.Equal(t, []byte("{}"), pf.RespBody)     // base64 "e30=" = "{}"
+		require.Equal(t, []byte("hello"), pf.ReqBody) // base64 "aGVsbG8=" = "hello"
+		require.Equal(t, []byte("{}"), pf.RespBody)   // base64 "e30=" = "{}"
 		require.Equal(t, engID, pf.EngagementID)
 	case <-ctx.Done():
 		t.Fatal("超时未收到解析结果")

@@ -19,7 +19,7 @@ jobs:
         run: go vet ./...
       - name: gofmt
         run: |
-          diff=$(gofmt -l .)
+          diff=$(gofmt -l $(find . -name '*.go' -not -path './vendor/*'))
           if [ -n "$diff" ]; then
             echo "gofmt diff:" && echo "$diff" && exit 1
           fi
@@ -37,3 +37,9 @@ jobs:
       - uses: docker/setup-buildx-action@v3
       - name: build api image
         run: docker build -f cmd/api/Dockerfile -t liusha/api:ci .
+      - name: build proxy image
+        run: |
+          GOPATH=/tmp/proxify-xcompile GOOS=linux GOARCH=amd64 CGO_ENABLED=0 \
+            go install github.com/projectdiscovery/proxify/cmd/proxify@latest
+          mkdir -p bin && cp /tmp/proxify-xcompile/bin/linux_amd64/proxify bin/proxify
+          docker build -f cmd/proxy/Dockerfile -t liusha/proxy:ci .
