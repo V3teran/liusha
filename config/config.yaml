@@ -9,3 +9,9 @@ api:
 postgres:
   max_conns: 20
   min_conns: 2
+
+proxy:
+  addr: "0.0.0.0:8888"
+  flow_file: "/data/flows.jsonl"
+  batch_size: 50
+  flush_seconds: 5

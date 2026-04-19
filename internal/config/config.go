@@ -17,6 +17,7 @@ type Config struct {
 	AnalysisWindow AnalysisWindowConfig
 	API            APIConfig
 	Postgres       PostgresConfig
+	Proxy          ProxyConfig
 }
 
 type AnalysisWindowConfig struct {
@@ -32,6 +33,14 @@ type APIConfig struct {
 type PostgresConfig struct {
 	MaxConns int
 	MinConns int
+}
+
+// ProxyConfig 是 cmd/proxy 专用配置；cmd/api 不使用。
+type ProxyConfig struct {
+	Addr         string // 代理监听地址，如 0.0.0.0:8888
+	FlowFile     string // proxify 输出的 JSONL 文件路径
+	BatchSize    int    // 批量写 Postgres 的条数阈值
+	FlushSeconds int    // 批量写的时间间隔（秒）
 }
 
 var validEnvs = map[string]struct{}{
@@ -69,6 +78,12 @@ func Load(yamlPath string) (Config, error) {
 		Postgres: PostgresConfig{
 			MaxConns: v.GetInt("postgres.max_conns"),
 			MinConns: v.GetInt("postgres.min_conns"),
+		},
+		Proxy: ProxyConfig{
+			Addr:         v.GetString("proxy.addr"),
+			FlowFile:     v.GetString("proxy.flow_file"),
+			BatchSize:    v.GetInt("proxy.batch_size"),
+			FlushSeconds: v.GetInt("proxy.flush_seconds"),
 		},
 	}
 	if cfg.APIAddr == "" {
