@@ -98,27 +98,33 @@ func registerTools(srv *mcpserver.Server, runner *mcpserver.DockerRunner, policy
 		"required": []string{"target"},
 	}, nuclei)
 
-	ffuf := mcpserver.WithScopeGuard(policy, mcpserver.ToolFunc(
+	ffuf := mcpserver.ToolFunc(
 		func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			args := req.GetArguments()
 			target, _ := args["target"].(string)
-			wordlist, _ := args["wordlist"].(string)
-			if wordlist == "" {
-				wordlist = "/usr/share/wordlists/dirb/common.txt"
+			wordlistName, _ := args["wordlist_name"].(string)
+			// 白名单校验：禁止用户传任意路径，避免通过 ffuf 读取容器内任意文件。
+			wordlistPath, err := mcpserver.ResolveFfufWordlist(wordlistName)
+			if err != nil {
+				return nil, err
 			}
-			cmd := []string{"ffuf", "-u", target + "/FUZZ", "-w", wordlist, "-s"}
+			cmd := []string{"ffuf", "-u", target + "/FUZZ", "-w", wordlistPath, "-s"}
 			out, err := runner.Run(ctx, cmd)
 			if err != nil {
 				return nil, err
 			}
 			return mcp.NewToolResultText(out), nil
 		},
-	))
+	)
 	_ = srv.RegisterTool("ffuf_fuzz", "对目标 URL 进行目录爆破", map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"target":   map[string]any{"type": "string", "description": "目标 URL"},
-			"wordlist": map[string]any{"type": "string", "description": "字典文件路径（可选）"},
+			"target": map[string]any{"type": "string", "description": "目标 URL"},
+			"wordlist_name": map[string]any{
+				"type":        "string",
+				"enum":        mcpserver.FfufWordlistNames(),
+				"description": "字典枚举（common/big/raft-small），默认 common",
+			},
 		},
 		"required": []string{"target"},
 	}, ffuf)

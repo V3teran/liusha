@@ -21,6 +21,32 @@ func (f ToolFunc) Call(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallT
 	return f(ctx, req)
 }
 
+// ffufWordlists 将用户可选的 wordlist 名称映射到容器内真实路径。
+// 禁止用户直接传任意路径，防止通过 ffuf 读取容器内任意文件。
+var ffufWordlists = map[string]string{
+	"common":     "/usr/share/wordlists/dirb/common.txt",
+	"big":        "/usr/share/wordlists/dirb/big.txt",
+	"raft-small": "/usr/share/wordlists/seclists/raft-small-words.txt",
+}
+
+// ResolveFfufWordlist 根据枚举名称返回容器内字典文件路径；
+// 空字符串视为默认 "common"；未知名称返回错误。
+func ResolveFfufWordlist(name string) (string, error) {
+	if name == "" {
+		name = "common"
+	}
+	path, ok := ffufWordlists[name]
+	if !ok {
+		return "", fmt.Errorf("未知 wordlist_name %q；允许: common/big/raft-small", name)
+	}
+	return path, nil
+}
+
+// FfufWordlistNames 返回允许的 wordlist 枚举值（供 schema 构造）。
+func FfufWordlistNames() []string {
+	return []string{"common", "big", "raft-small"}
+}
+
 // RegisterTool 向 MCP server 注册一个工具；同名重复注册返回错误。
 // 内部会强制用 ScopeGuard 包裹 handler，调用方即使忘记手动包装也不会绕过 scope 校验。
 func (s *Server) RegisterTool(name, description string, schema any, h ToolHandler) error {
