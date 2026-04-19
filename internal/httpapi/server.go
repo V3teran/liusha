@@ -91,19 +91,11 @@ func respondError(c *gin.Context, status int, code, msg string) {
 	c.JSON(status, gin.H{"error": gin.H{"code": code, "message": msg}})
 }
 
-// 以下四个 handler 为占位，实际逻辑由 Task 13 填充；暂时统一返回 501 便于端到端拉通。
-func (s *Server) createEngagement(c *gin.Context) {
-	respondError(c, http.StatusNotImplemented, "not_implemented", "待 Task 13 实现")
-}
-func (s *Server) listEngagements(c *gin.Context) {
-	respondError(c, http.StatusNotImplemented, "not_implemented", "待 Task 13 实现")
-}
-func (s *Server) getEngagement(c *gin.Context) {
-	respondError(c, http.StatusNotImplemented, "not_implemented", "待 Task 13 实现")
-}
-func (s *Server) archiveEngagement(c *gin.Context) {
-	respondError(c, http.StatusNotImplemented, "not_implemented", "待 Task 13 实现")
-}
+// 四个 engagement handler 把 HTTP 契约层委托给 engagement_handler.go 中的具体实现。
+func (s *Server) createEngagement(c *gin.Context)  { s.createEngagementImpl(c) }
+func (s *Server) listEngagements(c *gin.Context)   { s.listEngagementsImpl(c) }
+func (s *Server) getEngagement(c *gin.Context)     { s.getEngagementImpl(c) }
+func (s *Server) archiveEngagement(c *gin.Context) { s.archiveEngagementImpl(c) }
 
 // 编译期断言：Postgres store 必须满足 handler 所需的最小接口。
 var _ EngagementStore = (*engstore.Postgres)(nil)
