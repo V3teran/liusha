@@ -1,0 +1,2 @@
+DROP TABLE IF EXISTS graph_edge;
+DROP TABLE IF EXISTS graph_node;
