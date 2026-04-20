@@ -371,6 +371,7 @@ github.com/pelletier/go-toml/v2/internal/tracker
 github.com/pelletier/go-toml/v2/unstable
 # github.com/pgvector/pgvector-go v0.3.0
 ## explicit; go 1.23.0
+github.com/pgvector/pgvector-go
 # github.com/pkg/errors v0.9.1
 ## explicit
 github.com/pkg/errors

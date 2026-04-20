@@ -57,6 +57,77 @@ func TestIntegration_GraphStore_AddAndGet(t *testing.T) {
 	assert.Equal(t, "http://example.com/login", got.Payload["url"])
 }
 
+func TestIntegration_GraphStore_AddNodeWithVector(t *testing.T) {
+	if testing.Short() {
+		t.Skip("跳过集成测试")
+	}
+	ctx := context.Background()
+	pool, cleanup := newGraphTestPool(ctx, t)
+	t.Cleanup(cleanup)
+
+	engID := uuid.New()
+	_, err := pool.Exec(ctx,
+		`INSERT INTO engagement (id, tenant_id, mode, scope, status, version)
+         VALUES ($1, $2, 'proxy', '{}', 'active', 1)`,
+		engID, uuid.New(),
+	)
+	require.NoError(t, err)
+
+	st := store.NewPostgres(pool)
+
+	vec := make([]float32, 1536)
+	for i := range vec {
+		vec[i] = float32(i%7) / 11.0
+	}
+	node := graphmodel.Node{
+		ID:             uuid.New(),
+		EngagementID:   engID,
+		Kind:           graphmodel.KindFinding,
+		Payload:        map[string]any{"title": "embedded finding"},
+		Vector:         vec,
+		EmbeddingModel: "text-embedding-3-small",
+	}
+	require.NoError(t, st.AddNode(ctx, node))
+
+	got, err := st.GetNode(ctx, node.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "text-embedding-3-small", got.EmbeddingModel)
+	require.Len(t, got.Vector, 1536)
+	assert.InDelta(t, vec[0], got.Vector[0], 1e-6)
+	assert.InDelta(t, vec[1535], got.Vector[1535], 1e-6)
+}
+
+func TestIntegration_GraphStore_AddNodeWithoutVector(t *testing.T) {
+	if testing.Short() {
+		t.Skip("跳过集成测试")
+	}
+	ctx := context.Background()
+	pool, cleanup := newGraphTestPool(ctx, t)
+	t.Cleanup(cleanup)
+
+	engID := uuid.New()
+	_, err := pool.Exec(ctx,
+		`INSERT INTO engagement (id, tenant_id, mode, scope, status, version)
+         VALUES ($1, $2, 'proxy', '{}', 'active', 1)`,
+		engID, uuid.New(),
+	)
+	require.NoError(t, err)
+
+	st := store.NewPostgres(pool)
+	node := graphmodel.Node{
+		ID:           uuid.New(),
+		EngagementID: engID,
+		Kind:         graphmodel.KindSurface,
+		Payload:      map[string]any{"url": "http://novec.test"},
+	}
+	require.NoError(t, st.AddNode(ctx, node))
+
+	got, err := st.GetNode(ctx, node.ID)
+	require.NoError(t, err)
+	assert.Nil(t, got.Vector)
+	assert.Empty(t, got.EmbeddingModel)
+}
+
 func TestIntegration_GraphStore_AddEdgeDedup(t *testing.T) {
 	if testing.Short() {
 		t.Skip("跳过集成测试")

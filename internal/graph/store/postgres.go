@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/pgvector/pgvector-go"
 
 	graphmodel "github.com/V3teran/liusha/internal/graph/model"
 )
@@ -30,11 +31,20 @@ func (s *Postgres) AddNode(ctx context.Context, n graphmodel.Node) error {
 	if n.DedupKey != "" {
 		dedupKey = &n.DedupKey
 	}
+	// vector / embedding_model 可选：无嵌入的节点写 NULL，HNSW 索引自动跳过。
+	var vecArg any
+	if n.Vector != nil {
+		vecArg = pgvector.NewVector(n.Vector)
+	}
+	var modelArg any
+	if n.EmbeddingModel != "" {
+		modelArg = n.EmbeddingModel
+	}
 	_, err = s.pool.Exec(ctx, `
-		INSERT INTO graph_node (id, engagement_id, kind, payload, dedup_key)
-		VALUES ($1, $2, $3, $4, $5)
+		INSERT INTO graph_node (id, engagement_id, kind, payload, vector, embedding_model, dedup_key)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
 		ON CONFLICT (engagement_id, dedup_key) WHERE dedup_key IS NOT NULL DO NOTHING`,
-		n.ID, n.EngagementID, string(n.Kind), payload, dedupKey,
+		n.ID, n.EngagementID, string(n.Kind), payload, vecArg, modelArg, dedupKey,
 	)
 	if err != nil {
 		return fmt.Errorf("插入 graph_node 失败: %w", err)
@@ -57,15 +67,20 @@ func (s *Postgres) AddEdge(ctx context.Context, e graphmodel.Edge) error {
 }
 
 func (s *Postgres) GetNode(ctx context.Context, id uuid.UUID) (graphmodel.Node, error) {
+	// vector/embedding_model 可能为 NULL，这里走 text 形式 + 指针配合 scanNode。
 	row := s.pool.QueryRow(ctx, `
-		SELECT id, engagement_id, kind, payload, COALESCE(dedup_key,''), created_at
+		SELECT id, engagement_id, kind, payload,
+		       vector::text, embedding_model,
+		       COALESCE(dedup_key,''), created_at
 		FROM graph_node WHERE id = $1`, id)
 	return scanNode(row)
 }
 
 func (s *Postgres) ListNodes(ctx context.Context, engID uuid.UUID, kind graphmodel.NodeKind) ([]graphmodel.Node, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT id, engagement_id, kind, payload, COALESCE(dedup_key,''), created_at
+		SELECT id, engagement_id, kind, payload,
+		       vector::text, embedding_model,
+		       COALESCE(dedup_key,''), created_at
 		FROM graph_node
 		WHERE engagement_id = $1 AND kind = $2
 		ORDER BY created_at DESC`, engID, string(kind))
@@ -109,12 +124,24 @@ func scanNode(row pgx.Row) (graphmodel.Node, error) {
 	var n graphmodel.Node
 	var rawPayload []byte
 	var kind string
-	if err := row.Scan(&n.ID, &n.EngagementID, &kind, &rawPayload, &n.DedupKey, &n.CreatedAt); err != nil {
+	var vectorText *string   // vector::text 可为 NULL，所以用指针
+	var embeddingModel *string // embedding_model 可为 NULL
+	if err := row.Scan(&n.ID, &n.EngagementID, &kind, &rawPayload, &vectorText, &embeddingModel, &n.DedupKey, &n.CreatedAt); err != nil {
 		return graphmodel.Node{}, fmt.Errorf("扫描 graph_node 失败: %w", err)
 	}
 	n.Kind = graphmodel.NodeKind(kind)
 	if err := json.Unmarshal(rawPayload, &n.Payload); err != nil {
 		return graphmodel.Node{}, fmt.Errorf("反序列化 payload 失败: %w", err)
+	}
+	if vectorText != nil {
+		var v pgvector.Vector
+		if err := v.Parse(*vectorText); err != nil {
+			return graphmodel.Node{}, fmt.Errorf("解析 vector 失败: %w", err)
+		}
+		n.Vector = v.Slice()
+	}
+	if embeddingModel != nil {
+		n.EmbeddingModel = *embeddingModel
 	}
 	return n, nil
 }
