@@ -1,4 +1,4 @@
-.PHONY: up down logs migrate migrate-down run-api build-api build-proxy build-mcp test test-unit test-integration lint fmt tidy
+.PHONY: up down logs migrate migrate-down run-api build-api build-proxy build-vuln-tools test test-unit test-integration lint fmt tidy
 
 COMPOSE = docker compose -f deployments/docker-compose.yml
 MIGRATE_DSN ?= postgres://liusha:liusha@localhost:5432/liusha?sslmode=disable
@@ -31,8 +31,8 @@ build-api:
 build-proxy:
 	docker build -f cmd/proxy/Dockerfile -t liusha/proxy .
 
-build-mcp:
-	docker build -f cmd/mcp-server/Dockerfile -t liusha/mcp-server .
+build-vuln-tools:
+	$(COMPOSE) --profile build-only build vuln-tools
 
 test: test-unit test-integration
 

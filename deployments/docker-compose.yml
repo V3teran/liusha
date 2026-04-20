@@ -90,35 +90,16 @@ services:
     profiles:
       - proxy
 
-  # vuln-tools：历史容器；保留定义仅供独立调试使用（mcp-server 现已内置工具，不再依赖此容器）。
+  # vuln-tools：一次性沙箱镜像。agent-worker 每次工具调用新建 --rm 容器跑，跑完销毁。
+  # 此处只负责构建 image，不作为长驻 service 启动，因此使用 build-only profile。
   vuln-tools:
     image: liusha/vuln-tools
     build:
       context: ..
       dockerfile: docker/vuln-tools/Dockerfile
-    container_name: liusha-vuln-tools
-    command: ["sleep", "infinity"]
     profiles:
-      - vuln-tools
-
-  # mcp-server：通过 stdio 接入 Claude Desktop 的 MCP 服务端。
-  # 工具（nuclei/ffuf/httpx）已打包进本镜像，通过 exec.Command 在本容器内执行，
-  # 不再挂载宿主机 docker.sock，消除容器逃逸风险。
-  mcp-server:
-    image: liusha/mcp-server
-    build:
-      context: ..
-      dockerfile: cmd/mcp-server/Dockerfile
-    container_name: liusha-mcp-server
-    environment:
-      LIUSHA_POSTGRES_DSN: postgres://liusha:liusha@postgres:5432/liusha?sslmode=disable
-      LIUSHA_CONFIG: /app/config/config.yaml
-      LIUSHA_ENGAGEMENT_ID: ""
-    depends_on:
-      postgres:
-        condition: service_healthy
-    profiles:
-      - mcp
+      - build-only
+    # 该 profile 永远不会被默认启动；跑 `docker compose --profile build-only build vuln-tools` 即可。
 
 volumes:
   liusha-pg:

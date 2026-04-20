@@ -43,5 +43,5 @@ jobs:
             go install github.com/projectdiscovery/proxify/cmd/proxify@latest
           mkdir -p bin && cp /tmp/proxify-xcompile/bin/linux_amd64/proxify bin/proxify
           docker build -f cmd/proxy/Dockerfile -t liusha/proxy:ci .
-      - name: build mcp-server image
-        run: docker build -f cmd/mcp-server/Dockerfile -t liusha/mcp-server:ci .
+      - name: build vuln-tools image
+        run: docker build -f docker/vuln-tools/Dockerfile -t liusha/vuln-tools:ci .
