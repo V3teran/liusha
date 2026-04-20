@@ -2291,13 +2291,14 @@ git tag v0.1.0-plan1
 git log --oneline | head -20
 ```
 
-Plan 1 complete. Plans 2–8 build on this foundation:
-- Plan 2: Proxy container + Proxify integration + http_flow ingestion
+Plan 1 complete. Plans 2–9 build on this foundation:
+- Plan 2: Proxy container + Proxify integration + http_flow ingestion ✅ landed
 - Plan 3: ~~mcp-server + vuln-tools:web image + MCP JSON-RPC~~ **[DEPRECATED 2026-04-20]** — 改为 `internal/tool/runner.DockerRunner`（代码层封装 docker SDK + 镜像/工具白名单 + 硬编码加固 HostConfig），已随 Plan 1 代码一并落地；`vuln-tools` 镜像构建（`docker/vuln-tools/Dockerfile`）保留，compose 里走 `profiles: ["build-only"]`
-- Plan 4: Agent runtime (Eino + Asynq) + ReAct loop
-- Plan 5: Phase 1 Roles (planner + web_recon + 5 hunters + chain_verifier)
-- Plan 6: Chain Matcher + 3 patterns (UPLOAD_LFI_RCE, SSRF_METADATA_CREDS, JWT_NONE_PRIVESC)
-- Plan 7: liusha-ui refactor (engagement/window/graph APIs, G6 attack graph)
-- Plan 8: E2E verification + DLQ + budget guards + tag v1.0.0
+- Plan 4: Attack Graph double-layer store (Redis hot 7d + Postgres cold, AnalysisWindow + AgentTask) ✅ landed
+- Plan 5: Agent Worker dry-run skeleton (Eino + Asynq ReAct loop, LoggingSink, 无工具调用, 无 graph 写入) — **doc ready, code pending**
+- Plan 6: Phase 1 Roles + DockerRunner 接入 + GraphSink (planner + web_recon + 5 hunters + chain_verifier)
+- Plan 7: Chain Matcher + 3 patterns (UPLOAD_LFI_RCE, SSRF_METADATA_CREDS, JWT_NONE_PRIVESC)
+- Plan 8: liusha-ui refactor (engagement/window/graph APIs, G6 attack graph)
+- Plan 9: E2E verification + DLQ + budget guards + tag v1.0.0
 
 ---
