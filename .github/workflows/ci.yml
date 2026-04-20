@@ -45,3 +45,5 @@ jobs:
           docker build -f cmd/proxy/Dockerfile -t liusha/proxy:ci .
       - name: build vuln-tools image
         run: docker build -f docker/vuln-tools/Dockerfile -t liusha/vuln-tools:ci .
+      - name: build agent-worker image
+        run: docker build -f cmd/agent-worker/Dockerfile -t liusha/agent-worker:ci .

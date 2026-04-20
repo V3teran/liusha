@@ -26,6 +26,7 @@ type nodeHotCache interface {
 // CachingStore 把冷/热存储拼成图谱节点的统一入口：
 //   - 写：冷存储权威落库；热缓存尽力而为（失败只打日志，不阻塞业务）。
 //   - 读：先查热缓存，miss 时回源冷存储，并把结果回填到热缓存。
+//
 // 这样既保证数据不丢，也保留了 7 天窗口的热读性能。
 type CachingStore struct {
 	cold   nodeColdStore

@@ -124,7 +124,7 @@ func scanNode(row pgx.Row) (graphmodel.Node, error) {
 	var n graphmodel.Node
 	var rawPayload []byte
 	var kind string
-	var vectorText *string   // vector::text 可为 NULL，所以用指针
+	var vectorText *string     // vector::text 可为 NULL，所以用指针
 	var embeddingModel *string // embedding_model 可为 NULL
 	if err := row.Scan(&n.ID, &n.EngagementID, &kind, &rawPayload, &vectorText, &embeddingModel, &n.DedupKey, &n.CreatedAt); err != nil {
 		return graphmodel.Node{}, fmt.Errorf("扫描 graph_node 失败: %w", err)

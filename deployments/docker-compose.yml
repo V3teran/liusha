@@ -101,6 +101,37 @@ services:
       - build-only
     # 该 profile 永远不会被默认启动；跑 `docker compose --profile build-only build vuln-tools` 即可。
 
+  # agent-worker：消费 Asynq 队列执行 ReAct 循环。
+  # Plan 5 骨架：Sink=LoggingSink，不落 graph_node；仅日志 + metrics + healthz。
+  # 启动前需设置 LIUSHA_DEEPSEEK_API_KEY（官方 DeepSeek 或 OneAPI/LiteLLM 网关 key）。
+  agent-worker:
+    image: liusha/agent-worker
+    build:
+      context: ..
+      dockerfile: cmd/agent-worker/Dockerfile
+    container_name: liusha-agent-worker
+    environment:
+      LIUSHA_POSTGRES_DSN: postgres://liusha:liusha@postgres:5432/liusha?sslmode=disable
+      LIUSHA_REDIS_ADDR: redis:6379
+      LIUSHA_CONFIG: /app/config/config.yaml
+      LIUSHA_ENV: development
+      LIUSHA_LOG_LEVEL: info
+      LIUSHA_DEEPSEEK_API_KEY: "${LIUSHA_DEEPSEEK_API_KEY}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "9090:9090"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:9090/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    profiles:
+      - agent
+
 volumes:
   liusha-pg:
   liusha-redis:
