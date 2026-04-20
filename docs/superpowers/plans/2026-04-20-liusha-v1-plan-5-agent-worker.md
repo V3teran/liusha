@@ -5,7 +5,7 @@
 **Goal（严格收敛）：** 构建 agent-worker 二进制的 **dry-run 骨架**：Asynq 任务队列基础设施 + Eino LLM 工厂 + ReAct 循环（Think→Act→Observe）+ **仅日志输出的 LoggingSink**。**本期不写 graph_node 落库**，仅记 structured log + 更新 AgentTask 状态，避免 LLM 无工具时产生幻觉节点污染 Plan 6 的真实图。
 
 **Non-goals（明确延后）：**
-- MCP 工具接入（Plan 6）
+- 工具接入：装配 `internal/tool/runner.DockerRunner` 到 agent-worker、把 `RunTool` 暴露给 Role 作为 ReAct 的 Act 通道（Plan 6）。注：原 Plan 3 "MCP Server" 方案已废弃，改由 `DockerRunner` 直连 `docker.sock`，相关 `vuln-tools` 镜像构建产物（`docker/vuln-tools/Dockerfile`）与代码层 runner 已随 Plan 1 落地。
 - Role DSL、ChainMatcher（Plan 6 / 7）
 - 真实 graph_node 落库、Finding 去重（Plan 6，等 ScopePolicy + 工具都具备后再动真格）
 - `input_node_ids` 真实加载节点 payload 作为 LLM 上下文（Plan 6）
@@ -540,7 +540,7 @@ git commit -m "feat(agent/llm): Eino+Claude Generator factory (single source of 
 - Create: `internal/agent/runtime/react.go`
 - Create: `internal/agent/runtime/react_test.go`
 
-**核心决定：** Plan 5 **不做真实 graph_node 落库**。Sink 实现为 `LoggingSink`：把 final answer / tool-call summary 记到 structured log，AgentTask 状态机走通（running → succeeded/failed），但 graph 图空空如也。Plan 6 接入 MCP 工具后，再替换成 `GraphSink`（调 CachingStore.AddNode）。
+**核心决定：** Plan 5 **不做真实 graph_node 落库**。Sink 实现为 `LoggingSink`：把 final answer / tool-call summary 记到 structured log，AgentTask 状态机走通（running → succeeded/failed），但 graph 图空空如也。Plan 6 把 `internal/tool/runner.DockerRunner` 接入 Role 的 Act 通道后，再把 Sink 替换成 `GraphSink`（调 CachingStore.AddNode）。
 
 - [ ] **Step 1: sink.go**
 
@@ -1288,7 +1288,7 @@ git tag v0.5.0-plan5
 | 项目 | 原计划 | 本期（骨架） | 延后到 |
 |---|---|---|---|
 | graph_node 落库 | NodeSink 真写 PG | LoggingSink 仅日志 | Plan 6 |
-| MCP 工具 | 未接入 | 未接入（占位响应） | Plan 6 |
+| DockerRunner 工具接入 | 未接入 | 未装配（Role 拿不到 tool handle） | Plan 6 |
 | EngagementID 闭包穿透 | nodeSink 内 uuid.Nil 骨架 | Sink 接口直接带 payload 字段 | — |
 | Generator 接口 | llm + runtime 各定义一份 | llm 唯一定义 | — |
 | Enqueue 幂等 | 注释说 Unique 但代码没写 | asynq.TaskID + asynq.Unique 真落实 | — |

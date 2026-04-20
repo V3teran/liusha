@@ -39,7 +39,7 @@
 - **单一技术栈**: Go 为主，Python 不参与
 - **多模入口**: v1 主打 Proxy 模式，v2 接入 Browser 模式 (浏览器自动化 + 视觉模型)，v3 接入 CTF 模式
 - **组合漏洞推理**: Attack Graph + Chain Matcher 解决 "单点扫不出、组合才能出" 的漏洞
-- **分布式**: 有状态组件 (postgres/redis/proxy) 独立容器；无状态服务 (`agent-worker` / `mcp-server`) 通过多副本消费 Asynq 队列实现水平扩展，不按 Role 物理拆分容器
+- **分布式**: 有状态组件 (postgres/redis/proxy) 独立容器；无状态服务 (`agent-worker`) 通过多副本消费 Asynq 队列实现水平扩展，不按 Role 物理拆分容器。工具执行不走独立 MCP 协议进程——由 agent-worker 内置的 `internal/tool/runner.DockerRunner` 直连 `docker.sock`，按需拉一次性 `liusha/vuln-tools` 容器 (AutoRemove)，白名单与 HostConfig 加固固化在代码层
 
 ---
 
@@ -199,7 +199,7 @@ var SQLIHunter = role.New("sqli_hunter").
 ```
 loop:
   Think    → LLM 接收 graph 最新上下文，输出 thought + action (tool_use)
-  Act      → 执行 action (via mcp-server / MCP JSON-RPC)
+  Act      → 执行 action (via `internal/tool/runner.DockerRunner`，一次性沙箱容器)
   Observe  → 接收 tool result 作为 observation，并写回 graph (新 Node + Edge)
 
 退出条件: StopPolicy.ShouldStop()
@@ -232,7 +232,7 @@ func (m *ChainMatcher) OnFindingObserved(engagementID uuid.UUID, newFinding Node
 
 ---
 
-## 4. 容器拓扑 (v1: 7 容器)
+## 4. 容器拓扑 (v1: 6 容器)
 
 ```
 ┌──────────────────────────────────────────────────────────┐
@@ -240,14 +240,15 @@ func (m *ChainMatcher) OnFindingObserved(engagementID uuid.UUID, newFinding Node
 └──────────────────────────────────────────────────────────┘
            │ HTTP/WS
            ▼
-┌──────────┐   ┌──────────────┐   ┌──────────────────┐
-│   api    │──▶│ agent-worker │──▶│   mcp-server     │
-│  (Gin)   │   │ (Eino+Asynq) │   │ (docker.sock)    │
-└──────────┘   └──────────────┘   └──────────────────┘
-     │                │                    │
-     │                │                    ▼
-     │                │            ephemeral tool container
-     │                │            (sqlmap/nuclei/...)
+┌──────────┐   ┌──────────────────────────────┐
+│   api    │──▶│         agent-worker         │
+│  (Gin)   │   │ (Eino + Asynq + DockerRunner)│
+└──────────┘   └──────────────┬───────────────┘
+     │                │       │ docker.sock (挂载)
+     │                │       ▼
+     │                │  ephemeral tool container
+     │                │  liusha/vuln-tools:latest
+     │                │  (nuclei/ffuf/httpx, --rm)
      ▼                ▼
 ┌──────────┐   ┌──────────────┐
 │  redis   │   │  postgres    │   ┌─────────┐
@@ -266,61 +267,75 @@ func (m *ChainMatcher) OnFindingObserved(engagementID uuid.UUID, newFinding Node
 | # | 容器 | 镜像 | 职责 |
 |---|---|---|---|
 | 1 | `api` | `liusha/api` (Go/Gin) | HTTP + WS、前端静态 `go:embed` 兜底 |
-| 2 | `agent-worker` | `liusha/agent-worker` (Go/Eino) | 所有 Role 合一、消费 Asynq，多副本横向扩展 |
-| 3 | `mcp-server` | `liusha/mcp-server` (Go) | 暴露标准 MCP (JSON-RPC) 协议给 `agent-worker`；内部经 `docker.sock` 拉临时工具容器 (DooD) |
-| 4 | `proxy` | `liusha/proxy` (基于 Proxify) | HTTPS MITM、flow 吐到 Redis 队列 |
-| 5 | `redis` | `redis:7` | Asynq 队列 + 热缓存 + 流量热层 |
-| 6 | `postgres` | `pgvector/pgvector:pg16` | 冷存储 + 向量 |
-| 7 | `asynqmon` | `hibiken/asynqmon` | 运维监控 |
+| 2 | `agent-worker` | `liusha/agent-worker` (Go/Eino) | 所有 Role 合一、消费 Asynq、内置 `DockerRunner` 直连 `docker.sock` 拉 `vuln-tools` 一次性容器，多副本横向扩展 |
+| 3 | `proxy` | `liusha/proxy` (基于 Proxify) | HTTPS MITM、flow 吐到 Redis 队列 |
+| 4 | `redis` | `redis:7` | Asynq 队列 + 热缓存 + 流量热层 |
+| 5 | `postgres` | `pgvector/pgvector:pg16` | 冷存储 + 向量 |
+| 6 | `asynqmon` | `hibiken/asynqmon` | 运维监控 |
 
-**安全边界**: 只有 `mcp-server` 挂 `docker.sock`，其他容器拿不到。Agent 被 prompt injection 也无法直接拉容器。
+此外还有一个**非运行时**的 `vuln-tools` 构建镜像 (`liusha/vuln-tools`)，仅由 `agent-worker` 在运行期 `ContainerCreate` 时引用，compose 里用 `profiles: ["build-only"]` 维护不启动。
+
+**安全边界**: 只有 `agent-worker` 挂 `docker.sock`，其它容器拿不到。所有工具调用的 ACL——镜像白名单、工具白名单、硬编码 `HostConfig` (`ReadonlyRootfs` / `CapDrop=ALL` / `no-new-privileges` / 非 root 用户 / 内存/PID/CPU 限额 / `AutoRemove`)——全部固化在 `internal/tool/runner.DockerRunner` 代码层，调用方 (Role / prompt) 无法覆写这些字段。Agent 被 prompt injection 也只能在白名单内调白名单工具，拉不出 shell、拉不出 host 网络、改不动 rootfs。
 
 ---
 
-## 5. 工具沙箱: mcp-server + DooD
+## 5. 工具沙箱: DockerRunner + 一次性容器
 
 ### 5.1 执行流程
 
 ```
-agent-worker → MCP JSON-RPC "tools/call" → mcp-server
-                                              │
-                                              ▼
-                                   docker.sock: run
-                                     image: liusha/vuln-tools:latest
-                                     cmd:   sqlmap -u {target} ...
-                                     rm:    true
-                                     net:   pentest_isolated
-                                              │
-                                              ▼
-                                   stdout/stderr → agent-worker
+agent-worker (Role 的 Act 阶段)
+       │
+       ▼
+internal/tool/runner.DockerRunner.RunTool(ctx, image, cmd)
+       │   ├─ 校验 image ∈ allowedImages
+       │   └─ 校验 cmd[0] ∈ allowedTools (nuclei/ffuf/httpx)
+       ▼
+docker.sock: ContainerCreate + ContainerStart
+       image:   liusha/vuln-tools:latest
+       cmd:     [工具, 参数...]
+       user:    nobody (非 root)
+       HostConfig (硬编码、不可覆写):
+         AutoRemove:     true            # 退出即销毁
+         ReadonlyRootfs: true
+         CapDrop:        [ALL]
+         SecurityOpt:    [no-new-privileges:true]
+         Resources:      Memory 512M / PidsLimit 128 / NanoCPUs 1
+         (不显式指定 NetworkMode → 默认 bridge，禁止 host 网络)
+       │
+       ▼
+ContainerWait → ContainerLogs (多路流 stdcopy.StdCopy 拆 stdout/stderr)
+       │
+       ▼
+stdout/stderr + exitCode → Role.Observe → 写 Graph
 ```
 
-### 5.2 vuln-tools 镜像分类
+**不走独立进程的理由**: MCP 协议本来解决的是跨进程/跨机器 JSON-RPC 契约。本项目工具都是内置 `vuln-tools` 镜像里的预编译二进制，调用方只有 agent-worker 一家，引入独立 `mcp-server` 容器和 JSON-RPC 往返只增加链路延迟与攻击面，没有收益——因此**在代码层直接封装 docker SDK**，保留了沙箱安全，去掉了中间协议层。
+
+### 5.2 vuln-tools 镜像内容 (v1 单镜像)
 
 | 分类 | 工具 |
 |---|---|
-| 网络扫描 | nmap, masscan, rustscan |
-| Web 指纹/爬 | httpx, subfinder, amass, feroxbuster, katana |
-| 漏洞模板 | nuclei, wpscan, wafw00f |
-| 注入 | sqlmap, dalfox, xsser, commix, tplmap |
-| 文件类 | dirsearch, gobuster, dotdotpwn |
-| 鉴权 | jwt_tool, hashcat, john |
-| SSRF/XXE | gopherus, ssrfmap |
-| 反序列化 | ysoserial, marshalsec |
+| Web 指纹/扫描 | `httpx` |
+| 目录模糊 | `ffuf` |
+| 漏洞模板 | `nuclei` |
 
-**v1 先打 `vuln-tools:web` 单镜像**，按需拆 `vuln-tools:net` / `vuln-tools:auth`。
+v1 严格收敛到 `nuclei + ffuf + httpx` 三工具 (projectdiscovery 全家桶的核心子集)，镜像 tag `liusha/vuln-tools:latest`。其它工具 (sqlmap / subfinder / katana / jwt_tool / ...) 在后续 plan 视需要再扩：扩的方式是**往 `runner.allowedTools` 白名单加条目 + 往 vuln-tools 镜像塞二进制**，不拆多镜像。
 
-### 5.3 MCP Server 抽象
+### 5.3 DockerRunner 抽象
 
 ```go
-// 对齐 MCP 规范: tools/list + tools/call (JSON-RPC 2.0)
-type MCPServer interface {
-    ListTools(ctx context.Context) ([]ToolSpec, error)
-    CallTool(ctx context.Context, name string, args json.RawMessage) (ToolResult, error)
+// internal/tool/runner/docker.go
+type DockerRunner struct {
+    cli dockerClient // 小接口，便于单测 fake
 }
+
+// RunTool 校验白名单后，在一次性容器内执行 cmd，返回 stdout/stderr。
+// 容器 HostConfig 由 hardenedHostConfig() 硬编码，调用方无法覆写。
+func (r *DockerRunner) RunTool(ctx context.Context, image string, cmd []string) (stdout, stderr string, err error)
 ```
 
-单个 `mcp-server` 进程实现 `MCPServer`，对 `agent-worker` 暴露标准 MCP 协议 (JSON-RPC 2.0 over stdio 或 HTTP SSE)，工具目录与实现解耦，未来可增量接入外部 MCP 生态 (如官方 filesystem/github server)。
+`dockerClient` 接口只暴露 `ContainerCreate / ContainerStart / ContainerWait / ContainerLogs` 四个方法，生产路径注入真实 `docker/client`，测试路径注入 fake 来断言 HostConfig 加固字段。这套抽象承担的是原设计 "MCP Server" 的角色——给上层统一的 "按名字调工具" 语义，但落点是 Go 函数调用而非网络协议。
 
 ---
 
@@ -355,7 +370,7 @@ type ScopePolicy interface {
 **三层强制**:
 1. Proxy 层: out-of-scope 直接透传不落库
 2. Agent 层: Role action 前过 ScopePolicy 校验
-3. Tool 层: `mcp-server` 启动容器前校验 target 参数
+3. Tool 层: `DockerRunner.RunTool` 启动容器前，Role 必须先把 target 参数过 `ScopePolicy`；白名单只解决 "能跑什么工具"，scope 解决 "能打什么目标"
 
 ---
 
@@ -478,8 +493,7 @@ liusha:lock:engagement:{id}        AnalysisWindow 切片互斥
 liusha/
 ├── cmd/
 │   ├── api/                    main.go (Gin + 前端 embed)
-│   ├── agent-worker/           main.go (Eino + Asynq consumer)
-│   ├── mcp-server/             main.go (MCP JSON-RPC server + docker client)
+│   ├── agent-worker/           main.go (Eino + Asynq consumer + DockerRunner 装配)
 │   └── proxy/                  main.go (Proxify wrapper)
 ├── internal/
 │   ├── httpapi/                HTTP + WebSocket handlers (REST 覆盖不到 WS, 避开 cmd/api 混淆)
@@ -498,7 +512,8 @@ liusha/
 │   │   └── store/              http_flow 持久化 (自有 store)
 │   ├── engagement/
 │   │   └── store/              engagement/window/task 持久化 (自有 store)
-│   ├── mcp/                    MCP client (agent-worker 侧) + server (mcp-server 侧) 共享实现
+│   ├── tool/
+│   │   └── runner/              DockerRunner + 镜像/工具白名单 + HostConfig 加固 (代码层 ACL)
 │   ├── proxy/                  Proxify 集成
 │   ├── scope/                  ScopePolicy 实现
 │   ├── ratelimit/              Redis 令牌桶
@@ -529,7 +544,7 @@ liusha/
 
 **注**:
 - role 的**结构**由 §3.4 Go DSL 定义 (代码即真源)；`config.yaml` 仅承载运行时开关 (启用哪些 role、模型路由覆盖)。**没有 `roles.yaml`** —— role 不是数据，是代码。
-- **一切实现放 `internal/`**，含 web 静态资源与 MCP 实现。**无 `pkg/`**：本项目不对外发布 Go 库，不需要公开 API 边界；避免 `pkg/` 沦为内部代码自由区 (project-layout 主流解读)。
+- **一切实现放 `internal/`**，含 web 静态资源与工具沙箱 (`internal/tool/runner`)。**无 `pkg/`**：本项目不对外发布 Go 库，不需要公开 API 边界；避免 `pkg/` 沦为内部代码自由区 (project-layout 主流解读)。
 - **Schema 迁移统一走 `db/migrations/`**，`CREATE TABLE` 不在应用代码里用字符串拼接，生产变更由 CI 执行 migrate up/down。
 
 ---
@@ -584,7 +599,7 @@ Provider 选择通过 `config/config.yaml` 覆盖。
 - `asynqmon` 看队列 + 死信队列 (DLQ)
 - Postgres 查 engagement/window/task 生命周期
 - 结构化日志 (zerolog) 输出到 stdout
-- **强制日志字段**: `trace_id` (W3C traceparent 透传, 跨 `api` → `agent-worker` → `mcp-server` → vuln-tools 全链路串联)、`engagement_id`、`window_id`、`task_id`、`role`。无 `trace_id` 的日志在 dev 环境直接 panic
+- **强制日志字段**: `trace_id` (W3C traceparent 透传, 跨 `api` → `agent-worker` → `DockerRunner` → vuln-tools 容器 全链路串联)、`engagement_id`、`window_id`、`task_id`、`role`。无 `trace_id` 的日志在 dev 环境直接 panic
 - **Asynq 可靠性**: 指数退避重试 (最多 5 次)，超限进 `retry` 队列人工处理；`UniqueOpt` 去重相同 `(role, input_node_ids_hash)` 任务 30min 内不重复入队
 - v1.1 计划接 Langfuse + OpenTelemetry tracing exporter (OTLP)
 

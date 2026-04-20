@@ -8,7 +8,7 @@
 
 **Tech Stack (latest stable only — no pinned patch versions in this plan):** Go latest stable (via `go-version: 'stable'` in CI and `golang:alpine` day-of-latest tag in Dockerfile), Gin, pgx/v5, golang-migrate/v4, Viper, zerolog, google/uuid, testify, testcontainers-go — all pulled with `go get <pkg>@latest`. Images: `pgvector/pgvector:pg17` (or newer pg tag available on build day), `redis:8` (or newer), `hibiken/asynqmon:latest`. Confirm each tag on the day tasks are executed; if upstream has a newer stable, use it.
 
-**Series Context:** This is Plan 1 of 8 (Foundation → Proxy/Proxify → mcp-server → Agent Runtime → Phase 1 Roles → Chain Matcher → Frontend → E2E+DLQ). It intentionally contains no agent, no Asynq worker, no MCP server, and no LLM wiring — those arrive in later plans. Plan 1 ships a thin but real vertical slice: HTTP → Postgres round-trip with migrations, tracing, and CI.
+**Series Context:** This is Plan 1 of 8 (Foundation → Proxy/Proxify → ~~mcp-server~~ *[DEPRECATED, see Plan 3 banner]* → Agent Runtime → Phase 1 Roles → Chain Matcher → Frontend → E2E+DLQ). Tool execution no longer uses a separate MCP server process; `agent-worker` directly invokes `internal/tool/runner.DockerRunner` via the Docker SDK to launch ephemeral `liusha/vuln-tools` containers. Plan 1 intentionally contains no agent, no Asynq worker, and no LLM wiring — those arrive in later plans. Plan 1 ships a thin but real vertical slice: HTTP → Postgres round-trip with migrations, tracing, and CI.
 
 **Spec Reference:** `docs/superpowers/specs/2026-04-18-liusha-refactor-design.md` §4 (containers), §7 (schema), §8 (layout), §11 (observability), §12 (config).
 
@@ -2293,7 +2293,7 @@ git log --oneline | head -20
 
 Plan 1 complete. Plans 2–8 build on this foundation:
 - Plan 2: Proxy container + Proxify integration + http_flow ingestion
-- Plan 3: mcp-server + vuln-tools:web image + MCP JSON-RPC
+- Plan 3: ~~mcp-server + vuln-tools:web image + MCP JSON-RPC~~ **[DEPRECATED 2026-04-20]** — 改为 `internal/tool/runner.DockerRunner`（代码层封装 docker SDK + 镜像/工具白名单 + 硬编码加固 HostConfig），已随 Plan 1 代码一并落地；`vuln-tools` 镜像构建（`docker/vuln-tools/Dockerfile`）保留，compose 里走 `profiles: ["build-only"]`
 - Plan 4: Agent runtime (Eino + Asynq) + ReAct loop
 - Plan 5: Phase 1 Roles (planner + web_recon + 5 hunters + chain_verifier)
 - Plan 6: Chain Matcher + 3 patterns (UPLOAD_LFI_RCE, SSRF_METADATA_CREDS, JWT_NONE_PRIVESC)

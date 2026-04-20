@@ -1,5 +1,25 @@
 # Liusha v1 — Plan 3/8: MCP Server + Vuln-Tools
 
+> ## ⚠️ DEPRECATED — 已废弃，不再执行
+>
+> **状态**：于 2026-04-20 废弃。本 Plan 下方的任务列表**不再执行**。
+>
+> **废弃原因**：架构层面判定独立 `mcp-server` 进程 + MCP JSON-RPC 协议是过度设计——工具调用方只有 `agent-worker` 一家，调的又全是内置 `liusha/vuln-tools` 镜像里的预编译二进制，中间套一层跨进程协议徒增链路延迟与攻击面。保留"按名字调工具"的语义，但落点改成 Go 函数调用。
+>
+> **后继方案**：
+> - **代码层抽象**：`internal/tool/runner.DockerRunner`（见 `internal/tool/runner/docker.go`，已落地于分支 `feat/v1-plan-1-foundation`，commit `ce6c20a`）。`DockerRunner.RunTool(ctx, image, cmd)` 校验镜像/工具白名单，在一次性容器（`AutoRemove=true`）内执行工具，硬编码 `ReadonlyRootfs / CapDrop=ALL / no-new-privileges / 非 root / Memory & PIDs & CPU 限额` 的 `HostConfig`，调用方（Role / prompt）无法覆写。
+> - **vuln-tools 镜像**：`docker/vuln-tools/Dockerfile`（本 Plan Task 7 产物保留），包含 `nuclei / ffuf / httpx`；在 compose 里用 `profiles: ["build-only"]` 构建但不启动（见 `deployments/docker-compose.yml`）。
+> - **docker.sock 挂载点**：搬到 `agent-worker` 容器（Plan 5 装配），不再是独立 `mcp-server`。
+> - **MCP 协议相关代码**（`cmd/mcp-server/`、`internal/mcpserver/`、`github.com/mark3labs/mcp-go` 依赖）已从仓库整块删除（commit `1673411`）。
+>
+> **Spec 同步**：`docs/superpowers/specs/2026-04-18-liusha-refactor-design.md` §4（容器拓扑已从 7 容器降为 6 容器，删除 `mcp-server` 节点）、§5（"工具沙箱"章节已重写为 `DockerRunner + 一次性容器`）、§8（目录布局已删除 `cmd/mcp-server/` 和 `internal/mcp/`，新增 `internal/tool/runner/`）。
+>
+> **下游 Plan 影响**：原计划 "Plan 3 输出 MCP Server，Plan 5 agent 接入 MCP 工具" 的依赖关系解除。新的依赖链：Plan 1 Foundation（已含 `DockerRunner` 代码） → Plan 5 agent-worker 里装配 `DockerRunner` → Role 直接 `runner.RunTool(ctx, "liusha/vuln-tools", []string{"nuclei", ...})`。
+>
+> **下方原文保留**仅作历史参考，**不要**按此执行。
+
+---
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 实现 JSON-RPC 2.0 MCP Server（`cmd/mcp-server`），暴露 `vuln-tools` 工具集（nuclei / ffuf / httpx），AI Agent 通过 MCP 协议调用扫描工具，scope 层强制校验确保只对 in-scope 目标执行。
