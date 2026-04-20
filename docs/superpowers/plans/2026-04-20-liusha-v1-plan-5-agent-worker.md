@@ -21,7 +21,7 @@
 - `github.com/cloudwego/eino-ext/components/model/deepseek`（DeepSeek provider，OpenAI 兼容）
 - `github.com/hibiken/asynq`（Redis 任务队列）
 - `github.com/jackc/pgx/v5` + `github.com/redis/go-redis/v9`（已在）
-- `github.com/prometheus/client_golang`（Task 6 metrics）
+- ~~`github.com/prometheus/client_golang`（Task 6 metrics）~~ — Task 6 已撤回（YAGNI，延后到 Plan 9）
 
 **Provider 决策（2026-04-20 更新）：** 原计划使用 Anthropic Claude，经与用户对齐改为 **DeepSeek**。决策依据：成本敏感（ReAct 循环多步调用）+ DeepSeek-V3.2 function calling 成熟 + 中文漏洞语料覆盖好。Plan 6 引入 **per-role 模型映射**：`planner`/`chain_verifier` 用 `deepseek-reasoner`（思考模式，推理强），`web_recon`/`hunter*` 用 `deepseek-chat`（非思考模式，快且便宜）。
 
@@ -59,12 +59,9 @@ liusha/
 ├── internal/config/
 │   ├── config.go               # +LLMConfig
 │   └── config_test.go
-├── internal/metrics/
-│   ├── metrics.go              # prometheus counters + histograms（Task 6）
-│   └── metrics_test.go
 ├── config/config.yaml          # +llm 块
 ├── cmd/agent-worker/
-│   ├── main.go                 # 装配 + /healthz HTTP server + /metrics
+│   ├── main.go                 # 装配 + /healthz HTTP server
 │   └── Dockerfile
 ├── deployments/docker-compose.yml
 ├── .github/workflows/ci.yml
@@ -893,12 +890,12 @@ git commit -m "feat(agent/runtime): ReAct loop with Sink interface + LoggingSink
 - Modify: `deployments/docker-compose.yml`
 - Modify: `.github/workflows/ci.yml`, `Makefile`
 
-- [ ] **Step 1: main.go（dry-run 骨架：Logging Sink + healthz + metrics）**
+- [ ] **Step 1: main.go（dry-run 骨架：Logging Sink + healthz）**
 
 ```go
 // cmd/agent-worker/main.go
 // agent-worker 启动 Asynq Server，消费 agent:run 任务，执行 ReAct 循环。
-// Plan 5 骨架：Sink=LoggingSink（不写 graph_node），/healthz HTTP 探针，/metrics Prometheus。
+// Plan 5 骨架：Sink=LoggingSink（不写 graph_node），仅暴露 /healthz 活性探针。
 package main
 
 import (
@@ -913,7 +910,6 @@ import (
 
 	"github.com/hibiken/asynq"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/redis/go-redis/v9"
 	"github.com/rs/zerolog/log"
 
@@ -973,7 +969,7 @@ func main() {
 		},
 	)
 
-	// 健康探针 + Prometheus metrics
+	// 健康探针（Plan 5 骨架仅 /healthz，Prometheus 延后到 Plan 9 E2E）
 	httpSrv := startHealthzServer(":9090")
 	defer func() {
 		shutdownCtx, c := context.WithTimeout(context.Background(), 3*time.Second)
@@ -1012,16 +1008,13 @@ func (r *reactRunnerImpl) Run(ctx context.Context, p worker.AgentRunPayload) err
 	})
 }
 
-// startHealthzServer 起一个最小 HTTP server：
-//   - GET /healthz 返回 200
-//   - GET /metrics 暴露 Prometheus metrics
+// startHealthzServer 起一个最小 HTTP server，暴露 /healthz 活性探针。
 func startHealthzServer(addr string) *http.Server {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
 	})
-	mux.Handle("/metrics", promhttp.Handler())
 
 	srv := &http.Server{Addr: addr, Handler: mux, ReadHeaderTimeout: 5 * time.Second}
 	go func() {
@@ -1076,7 +1069,7 @@ ENTRYPOINT ["/app/agent-worker"]
       postgres: { condition: service_healthy }
       redis:    { condition: service_healthy }
     ports:
-      - "9090:9090"  # /healthz + /metrics
+      - "9090:9090"  # /healthz
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:9090/healthz"]
       interval: 10s
@@ -1117,179 +1110,21 @@ gofmt 无输出，测试全 PASS。
 
 ```bash
 git add cmd/agent-worker/ deployments/docker-compose.yml .github/workflows/ci.yml Makefile
-git commit -m "feat(agent-worker): cmd binary with healthz/metrics, compose wiring"
+git commit -m "feat(agent-worker): cmd binary with healthz, compose wiring"
+git tag v0.5.0-plan5
 ```
 
 ---
 
-## Task 6: Metrics + Healthz 骨架
+## Task 6: ~~Metrics + Healthz 骨架~~ — **已撤回（DEPRECATED）**
 
-**Files:**
-- Create: `internal/metrics/metrics.go`
-- Create: `internal/metrics/metrics_test.go`
-- Modify: `internal/worker/handler.go`（埋点）
-- Modify: `internal/agent/runtime/react.go`（埋点）
+**状态：** 2026-04-20 用户驳回，本 Plan 不实现。
 
-**目标：** 暴露 agent-worker 的基本可观测性指标，让 Plan 6 接入工具后能直接看到 LLM 失败率、工具调用频次、任务耗时。
+**撤回原因：** 骨架阶段（Plan 5）没有 Prometheus scraper 消费端，引入 `prometheus/client_golang` + `/metrics` 端点属于 YAGNI 过度设计。`LoggingSink` 输出的结构化 zerolog 日志（role / status / step / duration）已覆盖当前可观测需求；真要做指标聚合时再引入。
 
-- [ ] **Step 1: metrics.go**
+**延后到：** Plan 9 端到端上线阶段——届时有真实 scrape target 和告警规则需求，再决定是继续用 Prometheus 还是直接对接已有可观测平台（OTLP / Loki / etc）。
 
-```go
-// internal/metrics/metrics.go
-package metrics
-
-import "github.com/prometheus/client_golang/prometheus"
-
-// Agent-worker 核心指标；用 MustRegister 直接注册到默认 registry。
-var (
-	// AgentTaskTotal 按 role + status 统计任务执行数。
-	AgentTaskTotal = prometheus.NewCounterVec(
-		prometheus.CounterOpts{
-			Name: "liusha_agent_task_total",
-			Help: "Agent 任务完成总数（按 role、status）",
-		},
-		[]string{"role", "status"},
-	)
-
-	// AgentTaskDuration 任务耗时分布（秒）。
-	AgentTaskDuration = prometheus.NewHistogramVec(
-		prometheus.HistogramOpts{
-			Name:    "liusha_agent_task_duration_seconds",
-			Help:    "Agent 任务端到端耗时",
-			Buckets: prometheus.DefBuckets,
-		},
-		[]string{"role"},
-	)
-
-	// ReActStepTotal 单任务循环次数分布。
-	ReActStepTotal = prometheus.NewHistogramVec(
-		prometheus.HistogramOpts{
-			Name:    "liusha_react_step_total",
-			Help:    "ReAct 单次任务的步数",
-			Buckets: []float64{1, 2, 3, 5, 8, 13, 20},
-		},
-		[]string{"role"},
-	)
-
-	// LLMErrorTotal LLM 调用失败计数。
-	LLMErrorTotal = prometheus.NewCounterVec(
-		prometheus.CounterOpts{
-			Name: "liusha_llm_error_total",
-			Help: "LLM Generate 失败计数（按 provider）",
-		},
-		[]string{"provider"},
-	)
-)
-
-func init() {
-	prometheus.MustRegister(AgentTaskTotal, AgentTaskDuration, ReActStepTotal, LLMErrorTotal)
-}
-```
-
-- [ ] **Step 2: metrics_test.go（单测注册防 panic）**
-
-```go
-// internal/metrics/metrics_test.go
-package metrics_test
-
-import (
-	"strings"
-	"testing"
-
-	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/testutil"
-	"github.com/stretchr/testify/assert"
-
-	m "github.com/V3teran/liusha/internal/metrics"
-)
-
-func TestAgentTaskTotal_Counts(t *testing.T) {
-	m.AgentTaskTotal.Reset()
-	m.AgentTaskTotal.WithLabelValues("web_recon", "succeeded").Inc()
-	m.AgentTaskTotal.WithLabelValues("web_recon", "succeeded").Inc()
-
-	out := testutil.ToFloat64(m.AgentTaskTotal.WithLabelValues("web_recon", "succeeded"))
-	assert.Equal(t, float64(2), out)
-}
-
-func TestMetricsRegisteredInDefaultRegistry(t *testing.T) {
-	// 触发 init；再次 Register 应 panic => 反向验证已注册
-	assert.Panics(t, func() {
-		prometheus.MustRegister(m.AgentTaskTotal)
-	})
-}
-
-func TestNames_AllStartWithLiushaPrefix(t *testing.T) {
-	cases := []string{
-		"liusha_agent_task_total",
-		"liusha_agent_task_duration_seconds",
-		"liusha_react_step_total",
-		"liusha_llm_error_total",
-	}
-	for _, name := range cases {
-		assert.True(t, strings.HasPrefix(name, "liusha_"), "metric name 必须以 liusha_ 前缀")
-	}
-}
-```
-
-- [ ] **Step 3: handler.go 埋点**
-
-```go
-// internal/worker/handler.go 添加 metrics 耗时和 status label
-// 注意：依赖 internal/metrics 包
-```
-
-在 `HandleAgentRun` 中包装：
-
-```go
-func HandleAgentRun(deps HandlerDeps) asynq.HandlerFunc {
-	return func(ctx context.Context, t *asynq.Task) error {
-		start := time.Now()
-		var p AgentRunPayload
-		if err := json.Unmarshal(t.Payload(), &p); err != nil {
-			return fmt.Errorf("反序列化 AgentRunPayload 失败: %w", err)
-		}
-		err := deps.Runner.Run(ctx, p)
-		status := "succeeded"
-		if err != nil {
-			status = "failed"
-		}
-		metrics.AgentTaskTotal.WithLabelValues(p.Role, status).Inc()
-		metrics.AgentTaskDuration.WithLabelValues(p.Role).Observe(time.Since(start).Seconds())
-		return err
-	}
-}
-```
-
-- [ ] **Step 4: react.go 埋点**
-
-- 循环结束记 `ReActStepTotal.Observe(step)`
-- LLM 失败记 `LLMErrorTotal.WithLabelValues("deepseek").Inc()`
-
-- [ ] **Step 5: 测试**
-
-```bash
-go get github.com/prometheus/client_golang@latest
-go mod tidy && go mod vendor
-go test -race ./internal/metrics/ ./internal/worker/ ./internal/agent/runtime/
-```
-
-- [ ] **Step 6: 验证 /metrics 端点**
-
-```bash
-go build ./cmd/agent-worker/
-# 手工起一下（需要 postgres/redis/deepseek_api_key）或单测 startHealthzServer
-curl -s localhost:9090/metrics | grep liusha_
-```
-
-- [ ] **Step 7: 提交并打标签**
-
-```bash
-git add internal/metrics/ internal/worker/handler.go internal/agent/runtime/react.go \
-        go.mod go.sum vendor/
-git commit -m "feat(agent-worker): Prometheus metrics + ReAct step/error instrumentation"
-git tag v0.5.0-plan5
-```
+**回滚动作：** 删除 `internal/metrics/`、`cmd/agent-worker/main.go` 的 `/metrics` handler 与 `promhttp` 导入、`go.mod` 的 `prometheus/client_golang` 依赖；`v0.5.0-plan5` tag 改到 Task 5 完成点打。
 
 ---
 
@@ -1305,8 +1140,8 @@ git tag v0.5.0-plan5
 | ReAct 循环 Think→Act→Observe + Sink 抽象 | Task 4 |
 | LoggingSink（Plan 5 不落 graph_node） | Task 4 |
 | cmd/agent-worker 二进制 + Dockerfile + compose | Task 5 |
-| /healthz + /metrics 探针 | Task 5 + Task 6 |
-| Prometheus 指标（task/duration/step/llm_error） | Task 6 |
+| /healthz 活性探针 | Task 5 |
+| ~~Prometheus 指标~~ | ~~Task 6~~ **已撤回（YAGNI，延后 Plan 9）** |
 | CI build step | Task 5 |
 
 ### 本期 dry-run scope 对比 v1 原计划
@@ -1320,7 +1155,7 @@ git tag v0.5.0-plan5
 | Enqueue 幂等 | 注释说 Unique 但代码没写 | asynq.TaskID + asynq.Unique 真落实 | — |
 | MaxSteps | 15 | 5 | Plan 6 可加大 |
 | 模型 ID | claude-sonnet-4-6（不存在） | deepseek-chat（Plan 5 骨架单值） | Plan 6 per-role 映射 |
-| 可观测性 | 无 | /healthz + /metrics + Prometheus | — |
+| 可观测性 | 无 | /healthz + LoggingSink 结构化日志（Prometheus 延后到 Plan 9） | Plan 9 |
 
 ### Placeholder scan
 
@@ -1337,5 +1172,5 @@ git tag v0.5.0-plan5
 ### 安全自查
 
 - `LIUSHA_DEEPSEEK_API_KEY` 从 env 读，不入代码、不入 config.yaml。
-- `/healthz` 和 `/metrics` 暴露 9090 端口，生产需通过 network policy 限制只给 Prometheus scraper 访问（文档说明）。
+- `/healthz` 暴露 9090 端口，骨架阶段仅作 k8s/compose liveness probe；Prometheus scrape 端延后到 Plan 9 再讨论暴露策略。
 - Asynq Unique 防重入，LLM 费用不会因 retry storm 爆炸。

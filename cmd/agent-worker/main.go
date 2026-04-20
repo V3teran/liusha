@@ -1,5 +1,5 @@
 // agent-worker 启动 Asynq Server，消费 agent:run 任务，执行 ReAct 循环。
-// Plan 5 骨架：Sink=LoggingSink（不写 graph_node），暴露 /healthz 与 /metrics。
+// Plan 5 骨架：Sink=LoggingSink（不写 graph_node），仅暴露 /healthz 活性探针。
 package main
 
 import (
@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/hibiken/asynq"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/rs/zerolog/log"
 
 	"github.com/V3teran/liusha/internal/agent/llm"
@@ -95,14 +94,13 @@ func (r *reactRunnerImpl) Run(ctx context.Context, p worker.AgentRunPayload) err
 	})
 }
 
-// startHealthzServer 起一个最小 HTTP server：/healthz 活性探针，/metrics Prometheus 指标。
+// startHealthzServer 起一个最小 HTTP server，暴露 /healthz 活性探针。
 func startHealthzServer(addr string) *http.Server {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
 	})
-	mux.Handle("/metrics", promhttp.Handler())
 
 	srv := &http.Server{Addr: addr, Handler: mux, ReadHeaderTimeout: 5 * time.Second}
 	go func() {
