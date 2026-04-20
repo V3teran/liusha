@@ -21,7 +21,6 @@
 - `github.com/cloudwego/eino-ext/components/model/deepseek`（DeepSeek provider，OpenAI 兼容）
 - `github.com/hibiken/asynq`（Redis 任务队列）
 - `github.com/jackc/pgx/v5` + `github.com/redis/go-redis/v9`（已在）
-- ~~`github.com/prometheus/client_golang`（Task 6 metrics）~~ — Task 6 已撤回（YAGNI，延后到 Plan 9）
 
 **Provider 决策（2026-04-20 更新）：** 原计划使用 Anthropic Claude，经与用户对齐改为 **DeepSeek**。决策依据：成本敏感（ReAct 循环多步调用）+ DeepSeek-V3.2 function calling 成熟 + 中文漏洞语料覆盖好。Plan 6 引入 **per-role 模型映射**：`planner`/`chain_verifier` 用 `deepseek-reasoner`（思考模式，推理强），`web_recon`/`hunter*` 用 `deepseek-chat`（非思考模式，快且便宜）。
 
@@ -969,7 +968,7 @@ func main() {
 		},
 	)
 
-	// 健康探针（Plan 5 骨架仅 /healthz，Prometheus 延后到 Plan 9 E2E）
+	// 健康探针
 	httpSrv := startHealthzServer(":9090")
 	defer func() {
 		shutdownCtx, c := context.WithTimeout(context.Background(), 3*time.Second)
@@ -1116,17 +1115,6 @@ git tag v0.5.0-plan5
 
 ---
 
-## Task 6: ~~Metrics + Healthz 骨架~~ — **已撤回（DEPRECATED）**
-
-**状态：** 2026-04-20 用户驳回，本 Plan 不实现。
-
-**撤回原因：** 骨架阶段（Plan 5）没有 Prometheus scraper 消费端，引入 `prometheus/client_golang` + `/metrics` 端点属于 YAGNI 过度设计。`LoggingSink` 输出的结构化 zerolog 日志（role / status / step / duration）已覆盖当前可观测需求；真要做指标聚合时再引入。
-
-**延后到：** Plan 9 端到端上线阶段——届时有真实 scrape target 和告警规则需求，再决定是继续用 Prometheus 还是直接对接已有可观测平台（OTLP / Loki / etc）。
-
-**回滚动作：** 删除 `internal/metrics/`、`cmd/agent-worker/main.go` 的 `/metrics` handler 与 `promhttp` 导入、`go.mod` 的 `prometheus/client_golang` 依赖；`v0.5.0-plan5` tag 改到 Task 5 完成点打。
-
----
 
 ## Self-Review
 
@@ -1141,7 +1129,6 @@ git tag v0.5.0-plan5
 | LoggingSink（Plan 5 不落 graph_node） | Task 4 |
 | cmd/agent-worker 二进制 + Dockerfile + compose | Task 5 |
 | /healthz 活性探针 | Task 5 |
-| ~~Prometheus 指标~~ | ~~Task 6~~ **已撤回（YAGNI，延后 Plan 9）** |
 | CI build step | Task 5 |
 
 ### 本期 dry-run scope 对比 v1 原计划
@@ -1155,7 +1142,7 @@ git tag v0.5.0-plan5
 | Enqueue 幂等 | 注释说 Unique 但代码没写 | asynq.TaskID + asynq.Unique 真落实 | — |
 | MaxSteps | 15 | 5 | Plan 6 可加大 |
 | 模型 ID | claude-sonnet-4-6（不存在） | deepseek-chat（Plan 5 骨架单值） | Plan 6 per-role 映射 |
-| 可观测性 | 无 | /healthz + LoggingSink 结构化日志（Prometheus 延后到 Plan 9） | Plan 9 |
+| 可观测性 | 无 | /healthz + LoggingSink 结构化日志 | — |
 
 ### Placeholder scan
 
@@ -1172,5 +1159,5 @@ git tag v0.5.0-plan5
 ### 安全自查
 
 - `LIUSHA_DEEPSEEK_API_KEY` 从 env 读，不入代码、不入 config.yaml。
-- `/healthz` 暴露 9090 端口，骨架阶段仅作 k8s/compose liveness probe；Prometheus scrape 端延后到 Plan 9 再讨论暴露策略。
+- `/healthz` 暴露 9090 端口，作 k8s/compose liveness probe。
 - Asynq Unique 防重入，LLM 费用不会因 retry storm 爆炸。

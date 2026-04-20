@@ -102,7 +102,7 @@ services:
     # 该 profile 永远不会被默认启动；跑 `docker compose --profile build-only build vuln-tools` 即可。
 
   # agent-worker：消费 Asynq 队列执行 ReAct 循环。
-  # Plan 5 骨架：Sink=LoggingSink，不落 graph_node；仅日志 + metrics + healthz。
+  # Plan 5 骨架：Sink=LoggingSink，不落 graph_node；仅结构化日志 + healthz 探针。
   # 启动前需设置 LIUSHA_DEEPSEEK_API_KEY（官方 DeepSeek 或 OneAPI/LiteLLM 网关 key）。
   agent-worker:
     image: liusha/agent-worker
