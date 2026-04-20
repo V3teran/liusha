@@ -15,3 +15,11 @@ proxy:
   flow_file: "/data/flows.jsonl"
   batch_size: 50
   flush_seconds: 5
+
+# LLM 配置；api_key 通过 env LIUSHA_DEEPSEEK_API_KEY 注入，不入库。
+# base_url 默认 https://api.deepseek.com，可改为 OneAPI / LiteLLM 网关。
+llm:
+  base_url: "https://api.deepseek.com"
+  default_model: "deepseek-chat"
+  max_tokens: 4096
+  max_steps: 5

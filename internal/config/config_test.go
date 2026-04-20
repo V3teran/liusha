@@ -26,6 +26,7 @@ func TestLoad_ReadsFromEnvAndYAML(t *testing.T) {
 	t.Setenv("LIUSHA_API_ADDR", "0.0.0.0:8080")
 	t.Setenv("LIUSHA_ENV", "development")
 	t.Setenv("LIUSHA_LOG_LEVEL", "debug")
+	t.Setenv("LIUSHA_DEEPSEEK_API_KEY", "sk-test")
 
 	cfg, err := config.Load(configPath(t))
 
@@ -48,6 +49,50 @@ func TestLoad_RejectsUnknownEnv(t *testing.T) {
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "env")
+}
+
+// TestLoad_LLMDefaults 验证未显式配置 LLM 时，使用 deepseek-chat + 官方 BaseURL 等默认值。
+func TestLoad_LLMDefaults(t *testing.T) {
+	t.Setenv("LIUSHA_POSTGRES_DSN", "postgres://u:p@localhost:5432/db?sslmode=disable")
+	t.Setenv("LIUSHA_REDIS_ADDR", "localhost:6379")
+	t.Setenv("LIUSHA_DEEPSEEK_API_KEY", "sk-test")
+	// 其余 LLM 字段不设置，走默认
+
+	cfg, err := config.Load(configPath(t))
+
+	require.NoError(t, err)
+	assert.Equal(t, "sk-test", cfg.LLM.APIKey)
+	assert.Equal(t, "https://api.deepseek.com", cfg.LLM.BaseURL)
+	assert.Equal(t, "deepseek-chat", cfg.LLM.DefaultModel)
+	assert.Equal(t, 4096, cfg.LLM.MaxTokens)
+	assert.Equal(t, 5, cfg.LLM.MaxSteps)
+}
+
+// TestLoad_LLMRequiresAPIKey 验证缺失 API Key 时快速失败。
+func TestLoad_LLMRequiresAPIKey(t *testing.T) {
+	t.Setenv("LIUSHA_POSTGRES_DSN", "postgres://u:p@localhost:5432/db?sslmode=disable")
+	t.Setenv("LIUSHA_REDIS_ADDR", "localhost:6379")
+	t.Setenv("LIUSHA_DEEPSEEK_API_KEY", "")
+
+	_, err := config.Load(configPath(t))
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "deepseek_api_key")
+}
+
+// TestLoad_LLMCustomBaseURL 验证可通过 env 覆盖 BaseURL（支持 OneAPI/LiteLLM 网关）。
+func TestLoad_LLMCustomBaseURL(t *testing.T) {
+	t.Setenv("LIUSHA_POSTGRES_DSN", "postgres://u:p@localhost:5432/db?sslmode=disable")
+	t.Setenv("LIUSHA_REDIS_ADDR", "localhost:6379")
+	t.Setenv("LIUSHA_DEEPSEEK_API_KEY", "sk-test")
+	t.Setenv("LIUSHA_LLM_BASE_URL", "https://oneapi.example.com/v1")
+	t.Setenv("LIUSHA_LLM_DEFAULT_MODEL", "deepseek-reasoner")
+
+	cfg, err := config.Load(configPath(t))
+
+	require.NoError(t, err)
+	assert.Equal(t, "https://oneapi.example.com/v1", cfg.LLM.BaseURL)
+	assert.Equal(t, "deepseek-reasoner", cfg.LLM.DefaultModel)
 }
 
 func configPath(t *testing.T) string {

@@ -18,6 +18,7 @@ type Config struct {
 	API            APIConfig
 	Postgres       PostgresConfig
 	Proxy          ProxyConfig
+	LLM            LLMConfig
 }
 
 type AnalysisWindowConfig struct {
@@ -41,6 +42,18 @@ type ProxyConfig struct {
 	FlowFile     string // proxify 输出的 JSONL 文件路径
 	BatchSize    int    // 批量写 Postgres 的条数阈值
 	FlushSeconds int    // 批量写的时间间隔（秒）
+}
+
+// LLMConfig 是 agent-worker 与其他需要大模型能力组件的共享配置。
+//
+// 默认 Provider 是 DeepSeek（V3.2，OpenAI 兼容），BaseURL 默认为官方端点，
+// 可被 env 覆盖以指向 OneAPI / LiteLLM 等自建网关。
+type LLMConfig struct {
+	APIKey       string // 必填；env: LIUSHA_DEEPSEEK_API_KEY
+	BaseURL      string // 可选；默认 https://api.deepseek.com
+	DefaultModel string // 可选；默认 deepseek-chat
+	MaxTokens    int    // 可选；默认 4096
+	MaxSteps     int    // ReAct 循环最大步数；可选；默认 5
 }
 
 var validEnvs = map[string]struct{}{
@@ -85,6 +98,13 @@ func Load(yamlPath string) (Config, error) {
 			BatchSize:    v.GetInt("proxy.batch_size"),
 			FlushSeconds: v.GetInt("proxy.flush_seconds"),
 		},
+		LLM: LLMConfig{
+			APIKey:       v.GetString("DEEPSEEK_API_KEY"),
+			BaseURL:      v.GetString("llm.base_url"),
+			DefaultModel: v.GetString("llm.default_model"),
+			MaxTokens:    v.GetInt("llm.max_tokens"),
+			MaxSteps:     v.GetInt("llm.max_steps"),
+		},
 	}
 	if cfg.APIAddr == "" {
 		cfg.APIAddr = "0.0.0.0:8080"
@@ -94,6 +114,18 @@ func Load(yamlPath string) (Config, error) {
 	}
 	if cfg.Env == "" {
 		cfg.Env = "development"
+	}
+	if cfg.LLM.BaseURL == "" {
+		cfg.LLM.BaseURL = "https://api.deepseek.com"
+	}
+	if cfg.LLM.DefaultModel == "" {
+		cfg.LLM.DefaultModel = "deepseek-chat"
+	}
+	if cfg.LLM.MaxTokens <= 0 {
+		cfg.LLM.MaxTokens = 4096
+	}
+	if cfg.LLM.MaxSteps <= 0 {
+		cfg.LLM.MaxSteps = 5
 	}
 
 	if err := cfg.validate(); err != nil {
@@ -118,6 +150,9 @@ func (c Config) validate() error {
 	}
 	if c.AnalysisWindow.FlowCount <= 0 {
 		errs = append(errs, "analysis_window.flow_count must be > 0")
+	}
+	if c.LLM.APIKey == "" {
+		errs = append(errs, "deepseek_api_key is required (set LIUSHA_DEEPSEEK_API_KEY)")
 	}
 	if len(errs) > 0 {
 		return errors.New("invalid config: " + strings.Join(errs, "; "))
