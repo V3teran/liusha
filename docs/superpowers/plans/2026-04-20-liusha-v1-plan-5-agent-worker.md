@@ -18,13 +18,17 @@
 
 **Tech Stack（全部 @latest）：**
 - `github.com/cloudwego/eino`（LLM 统一抽象）
-- `github.com/cloudwego/eino-ext/components/model/claude`（Anthropic provider）
+- `github.com/cloudwego/eino-ext/components/model/deepseek`（DeepSeek provider，OpenAI 兼容）
 - `github.com/hibiken/asynq`（Redis 任务队列）
 - `github.com/jackc/pgx/v5` + `github.com/redis/go-redis/v9`（已在）
 - `github.com/prometheus/client_golang`（Task 6 metrics）
 
+**Provider 决策（2026-04-20 更新）：** 原计划使用 Anthropic Claude，经与用户对齐改为 **DeepSeek**。决策依据：成本敏感（ReAct 循环多步调用）+ DeepSeek-V3.2 function calling 成熟 + 中文漏洞语料覆盖好。Plan 6 引入 **per-role 模型映射**：`planner`/`chain_verifier` 用 `deepseek-reasoner`（思考模式，推理强），`web_recon`/`hunter*` 用 `deepseek-chat`（非思考模式，快且便宜）。
+
 **关键默认值：**
-- 模型 ID：`claude-sonnet-4-5`（`claude-sonnet-4-6` 不存在，所有 prompt/config/docstring 一律写 4-5）
+- 模型 ID（Plan 5 骨架期单一默认值）：`deepseek-chat`（DeepSeek-V3.2 非思考模式）；Plan 6 按 Role 差异化
+- API BaseURL：`https://api.deepseek.com`（官方 OpenAI 兼容端点，但做成 config 可配置，兼容 OneAPI/LiteLLM 自建网关）
+- API Key env：`LIUSHA_DEEPSEEK_API_KEY`
 - MaxSteps：**5**（Plan 5 是骨架，无工具时不宜循环过多）
 - MaxRetry：3
 - Retention：24h
@@ -46,7 +50,7 @@ liusha/
 │   │   └── handler_test.go
 │   ├── agent/
 │   │   ├── llm/
-│   │   │   ├── factory.go      # Generator 接口（单一真源）+ NewClaude
+│   │   │   ├── factory.go      # Generator 接口（单一真源）+ NewDeepSeek
 │   │   │   └── factory_test.go
 │   │   └── runtime/
 │   │       ├── react.go        # RunParams + Run，使用 llm.Generator（不再重复定义接口）
@@ -370,10 +374,11 @@ git commit -m "feat(worker): Asynq task types, idempotent client, handler"
 
 ```go
 type LLMConfig struct {
-	AnthropicAPIKey string // 从 env LIUSHA_ANTHROPIC_API_KEY 读
-	DefaultModel    string
-	MaxTokens       int
-	MaxSteps        int
+	APIKey       string // 从 env LIUSHA_DEEPSEEK_API_KEY 读
+	BaseURL      string // DeepSeek 端点；默认 https://api.deepseek.com，可走自建网关
+	DefaultModel string // Plan 5 骨架期单一默认；Plan 6 引入 RoleModels map[string]string
+	MaxTokens    int
+	MaxSteps     int
 }
 ```
 
@@ -381,10 +386,11 @@ type LLMConfig struct {
 
 ```go
 LLM: LLMConfig{
-    AnthropicAPIKey: v.GetString("ANTHROPIC_API_KEY"),
-    DefaultModel:    v.GetString("llm.default_model"),
-    MaxTokens:       v.GetInt("llm.max_tokens"),
-    MaxSteps:        v.GetInt("llm.max_steps"),
+    APIKey:       v.GetString("DEEPSEEK_API_KEY"),
+    BaseURL:      v.GetString("llm.base_url"),
+    DefaultModel: v.GetString("llm.default_model"),
+    MaxTokens:    v.GetInt("llm.max_tokens"),
+    MaxSteps:     v.GetInt("llm.max_steps"),
 },
 ```
 
@@ -392,7 +398,10 @@ LLM: LLMConfig{
 
 ```go
 if cfg.LLM.DefaultModel == "" {
-    cfg.LLM.DefaultModel = "claude-sonnet-4-5"
+    cfg.LLM.DefaultModel = "deepseek-chat"
+}
+if cfg.LLM.BaseURL == "" {
+    cfg.LLM.BaseURL = "https://api.deepseek.com"
 }
 if cfg.LLM.MaxTokens <= 0 {
     cfg.LLM.MaxTokens = 4096
@@ -406,7 +415,8 @@ if cfg.LLM.MaxSteps <= 0 {
 
 ```yaml
 llm:
-  default_model: "claude-sonnet-4-5"
+  default_model: "deepseek-chat"
+  base_url: "https://api.deepseek.com"
   max_tokens: 4096
   max_steps: 5
 ```
@@ -414,7 +424,8 @@ llm:
 - [ ] **Step 3: config_test.go 追加断言**
 
 ```go
-assert.Equal(t, "claude-sonnet-4-5", cfg.LLM.DefaultModel)
+assert.Equal(t, "deepseek-chat", cfg.LLM.DefaultModel)
+assert.Equal(t, "https://api.deepseek.com", cfg.LLM.BaseURL)
 assert.Equal(t, 4096, cfg.LLM.MaxTokens)
 assert.Equal(t, 5, cfg.LLM.MaxSteps)
 ```
@@ -424,7 +435,7 @@ assert.Equal(t, 5, cfg.LLM.MaxSteps)
 ```bash
 go test -race -short ./internal/config/
 git add internal/config/ config/config.yaml
-git commit -m "feat(config): add LLMConfig (sonnet-4-5, maxSteps=5)"
+git commit -m "feat(config): add LLMConfig (DeepSeek deepseek-chat default, maxSteps=5)"
 ```
 
 ---
@@ -436,6 +447,8 @@ git commit -m "feat(config): add LLMConfig (sonnet-4-5, maxSteps=5)"
 - Create: `internal/agent/llm/factory_test.go`
 
 **关键约定：** `Generator` 接口**只在 `internal/agent/llm` 里定义一次**。`internal/agent/runtime/react.go` 直接 import 并引用 `llm.Generator`，不再重复定义。这样测试 stub 和生产实现满足同一个接口签名，避免两份接口 drift。
+
+**Provider：** DeepSeek（V3.2，OpenAI 兼容）。Plan 6 引入 per-role 模型映射时，`NewDeepSeek` 接受动态 `modelID` 即可，无需重构。
 
 - [ ] **Step 1: 失败测试**
 
@@ -450,17 +463,23 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestNewClaude_RejectsEmptyAPIKey(t *testing.T) {
-	_, err := llm.NewClaude("", "claude-sonnet-4-5", 1024)
+func TestNewDeepSeek_RejectsEmptyAPIKey(t *testing.T) {
+	_, err := llm.NewDeepSeek("", "https://api.deepseek.com", "deepseek-chat", 1024)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "api key")
+}
+
+func TestNewDeepSeek_RejectsEmptyBaseURL(t *testing.T) {
+	_, err := llm.NewDeepSeek("sk-xxx", "", "deepseek-chat", 1024)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "base url")
 }
 ```
 
 - [ ] **Step 2: 运行确认 FAIL**
 
 ```bash
-go test -run TestNewClaude_RejectsEmptyAPIKey ./internal/agent/llm/ 2>&1 | head -5
+go test -run TestNewDeepSeek ./internal/agent/llm/ 2>&1 | head -10
 ```
 
 - [ ] **Step 3: factory.go**
@@ -473,7 +492,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/cloudwego/eino-ext/components/model/claude"
+	"github.com/cloudwego/eino-ext/components/model/deepseek"
 	einoschema "github.com/cloudwego/eino/schema"
 )
 
@@ -483,29 +502,36 @@ type Generator interface {
 	Generate(ctx context.Context, msgs []*einoschema.Message) (*einoschema.Message, error)
 }
 
-type claudeAdapter struct {
-	inner *claude.ChatModel
+type deepseekAdapter struct {
+	inner *deepseek.ChatModel
 }
 
-func (a *claudeAdapter) Generate(ctx context.Context, msgs []*einoschema.Message) (*einoschema.Message, error) {
+func (a *deepseekAdapter) Generate(ctx context.Context, msgs []*einoschema.Message) (*einoschema.Message, error) {
 	return a.inner.Generate(ctx, msgs)
 }
 
-// NewClaude 创建 Anthropic Claude Generator（fail-fast：空 key 直接报错）。
-func NewClaude(apiKey, modelID string, maxTokens int) (Generator, error) {
+// NewDeepSeek 创建 DeepSeek Generator（fail-fast：空 key / 空 base url 直接报错）。
+//
+// Plan 5 骨架期所有 Role 共用同一个 Generator 实例。Plan 6 引入 per-role 映射时，
+// 按 Role 构造多个 Generator 实例，此工厂函数不变。
+func NewDeepSeek(apiKey, baseURL, modelID string, maxTokens int) (Generator, error) {
 	if apiKey == "" {
-		return nil, fmt.Errorf("anthropic api key 未配置 (LIUSHA_ANTHROPIC_API_KEY)")
+		return nil, fmt.Errorf("deepseek api key 未配置 (LIUSHA_DEEPSEEK_API_KEY)")
+	}
+	if baseURL == "" {
+		return nil, fmt.Errorf("deepseek base url 未配置")
 	}
 	ctx := context.Background()
-	m, err := claude.NewChatModel(ctx, &claude.Config{
+	m, err := deepseek.NewChatModel(ctx, &deepseek.ChatModelConfig{
 		APIKey:    apiKey,
 		Model:     modelID,
-		MaxTokens: &maxTokens,
+		BaseURL:   baseURL,
+		MaxTokens: maxTokens,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("初始化 Claude model 失败: %w", err)
+		return nil, fmt.Errorf("初始化 DeepSeek model 失败: %w", err)
 	}
-	return &claudeAdapter{inner: m}, nil
+	return &deepseekAdapter{inner: m}, nil
 }
 ```
 
@@ -513,14 +539,14 @@ func NewClaude(apiKey, modelID string, maxTokens int) (Generator, error) {
 
 ```bash
 go get github.com/cloudwego/eino@latest
-go get github.com/cloudwego/eino-ext/components/model/claude@latest
+go get github.com/cloudwego/eino-ext/components/model/deepseek@latest
 go mod tidy && go mod vendor
 ```
 
 - [ ] **Step 5: 测试 + 编译**
 
 ```bash
-go test -race -run TestNewClaude ./internal/agent/llm/
+go test -race -run TestNewDeepSeek ./internal/agent/llm/
 go build ./internal/agent/...
 ```
 
@@ -528,7 +554,7 @@ go build ./internal/agent/...
 
 ```bash
 git add internal/agent/llm/ go.mod go.sum vendor/
-git commit -m "feat(agent/llm): Eino+Claude Generator factory (single source of truth)"
+git commit -m "feat(agent/llm): Eino+DeepSeek Generator factory (single source of truth)"
 ```
 
 ---
@@ -910,8 +936,8 @@ func main() {
 	logx.Init(cfg.LogLevel, cfg.Env == "development")
 	bootCtx := logx.WithTraceID(context.Background(), logx.NewTraceID())
 
-	if cfg.LLM.AnthropicAPIKey == "" {
-		log.Fatal().Msg("LIUSHA_ANTHROPIC_API_KEY 未设置")
+	if cfg.LLM.APIKey == "" {
+		log.Fatal().Msg("LIUSHA_DEEPSEEK_API_KEY 未设置")
 	}
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -926,9 +952,9 @@ func main() {
 	rdb := redis.NewClient(&redis.Options{Addr: cfg.RedisAddr})
 	defer rdb.Close()
 
-	gen, err := llm.NewClaude(cfg.LLM.AnthropicAPIKey, cfg.LLM.DefaultModel, cfg.LLM.MaxTokens)
+	gen, err := llm.NewDeepSeek(cfg.LLM.APIKey, cfg.LLM.BaseURL, cfg.LLM.DefaultModel, cfg.LLM.MaxTokens)
 	if err != nil {
-		log.Fatal().Err(err).Msg("初始化 Eino Claude 失败")
+		log.Fatal().Err(err).Msg("初始化 Eino DeepSeek 失败")
 	}
 
 	// Plan 5：不落库，仅结构化日志；Plan 6 替换为 graphSink。
@@ -1045,7 +1071,7 @@ ENTRYPOINT ["/app/agent-worker"]
       LIUSHA_CONFIG: /app/config/config.yaml
       LIUSHA_ENV: development
       LIUSHA_LOG_LEVEL: info
-      LIUSHA_ANTHROPIC_API_KEY: "${LIUSHA_ANTHROPIC_API_KEY}"
+      LIUSHA_DEEPSEEK_API_KEY: "${LIUSHA_DEEPSEEK_API_KEY}"
     depends_on:
       postgres: { condition: service_healthy }
       redis:    { condition: service_healthy }
@@ -1238,7 +1264,7 @@ func HandleAgentRun(deps HandlerDeps) asynq.HandlerFunc {
 - [ ] **Step 4: react.go 埋点**
 
 - 循环结束记 `ReActStepTotal.Observe(step)`
-- LLM 失败记 `LLMErrorTotal.WithLabelValues("anthropic").Inc()`
+- LLM 失败记 `LLMErrorTotal.WithLabelValues("deepseek").Inc()`
 
 - [ ] **Step 5: 测试**
 
@@ -1252,7 +1278,7 @@ go test -race ./internal/metrics/ ./internal/worker/ ./internal/agent/runtime/
 
 ```bash
 go build ./cmd/agent-worker/
-# 手工起一下（需要 postgres/redis/anthropic_api_key）或单测 startHealthzServer
+# 手工起一下（需要 postgres/redis/deepseek_api_key）或单测 startHealthzServer
 curl -s localhost:9090/metrics | grep liusha_
 ```
 
@@ -1293,7 +1319,7 @@ git tag v0.5.0-plan5
 | Generator 接口 | llm + runtime 各定义一份 | llm 唯一定义 | — |
 | Enqueue 幂等 | 注释说 Unique 但代码没写 | asynq.TaskID + asynq.Unique 真落实 | — |
 | MaxSteps | 15 | 5 | Plan 6 可加大 |
-| 模型 ID | claude-sonnet-4-6（不存在） | claude-sonnet-4-5 | — |
+| 模型 ID | claude-sonnet-4-6（不存在） | deepseek-chat（Plan 5 骨架单值） | Plan 6 per-role 映射 |
 | 可观测性 | 无 | /healthz + /metrics + Prometheus | — |
 
 ### Placeholder scan
@@ -1310,6 +1336,6 @@ git tag v0.5.0-plan5
 
 ### 安全自查
 
-- `LIUSHA_ANTHROPIC_API_KEY` 从 env 读，不入代码、不入 config.yaml。
+- `LIUSHA_DEEPSEEK_API_KEY` 从 env 读，不入代码、不入 config.yaml。
 - `/healthz` 和 `/metrics` 暴露 9090 端口，生产需通过 network policy 限制只给 Prometheus scraper 访问（文档说明）。
 - Asynq Unique 防重入，LLM 费用不会因 retry storm 爆炸。

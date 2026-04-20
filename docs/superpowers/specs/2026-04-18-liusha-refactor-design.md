@@ -171,8 +171,8 @@ type ModeProfile struct {
 
 ```go
 var SQLIHunter = role.New("sqli_hunter").
-    Model(model.Sonnet46).
-    FallbackModels(model.DeepSeekV3, model.QwenMax).
+    Model(model.DeepSeekChat).
+    FallbackModels(model.QwenMax, model.Sonnet46).
     Prompt(embed.Load("prompts/sqli_hunter.md")).
     Tools(
         tools.SQLMap,
@@ -558,15 +558,17 @@ Go 生态里最接近 Python litellm 的是 **CloudWeGo Eino**，原生支持:
 - Tool calling 统一抽象
 - 失败回退链 (primary → fallback)
 
-### 9.2 模型分层策略
+### 9.2 模型分层策略（v1 默认 DeepSeek 家族，Anthropic/Qwen 作为 fallback）
 
-| 场景 | 推荐 |
-|---|---|
-| 最深推理 (`chain_verifier` 组合链验证、跨 engagement memory 综合) | **Opus 4.7** primary, Sonnet 4.6 fallback, DeepSeek-V3 二级 fallback |
-| 常规决策 (`planner`, `sqli/lfi/upload/auth/access_control` Hunter) | **Sonnet 4.6** primary, Qwen-Max fallback |
-| 轻量分类/指纹 (`web_recon` 辅助、URL 模板化判定) | **Haiku 4.5** primary, Qwen-Turbo fallback |
+| 场景 | v1 默认（primary） | Fallback 链 |
+|---|---|---|
+| 最深推理 (`chain_verifier` 组合链验证、跨 engagement memory 综合) | **deepseek-reasoner**（DeepSeek-V3.2 思考模式） | deepseek-chat → Sonnet 4.6 → Opus 4.7 |
+| 常规决策 (`planner`, `sqli/lfi/upload/auth/access_control` Hunter) | **deepseek-chat**（DeepSeek-V3.2 非思考模式） | Qwen-Max → Sonnet 4.6 |
+| 轻量分类/指纹 (`web_recon` 辅助、URL 模板化判定) | **deepseek-chat** | Qwen-Turbo → Haiku 4.5 |
 
-Provider 选择通过 `config/config.yaml` 覆盖。
+**v1 选型依据（2026-04-20 用户决策）：** 成本敏感（ReAct 多步循环每 engagement 累计 token 高）、DeepSeek-V3.2 function calling 成熟、中文漏洞语料覆盖好。Anthropic/Qwen 通过 Eino provider 抽象保留为 fallback，出问题可一键切换。
+
+Provider 选择通过 `config/config.yaml` 覆盖；API Key 从环境变量读取（`LIUSHA_DEEPSEEK_API_KEY` / `LIUSHA_ANTHROPIC_API_KEY` / `LIUSHA_QWEN_API_KEY`）。
 
 ---
 
