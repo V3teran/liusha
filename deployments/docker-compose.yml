@@ -90,7 +90,7 @@ services:
     profiles:
       - proxy
 
-  # vuln-tools：持续运行的工具容器，mcp-server 通过 docker exec 调用其中的工具。
+  # vuln-tools：历史容器；保留定义仅供独立调试使用（mcp-server 现已内置工具，不再依赖此容器）。
   vuln-tools:
     image: liusha/vuln-tools
     build:
@@ -99,9 +99,11 @@ services:
     container_name: liusha-vuln-tools
     command: ["sleep", "infinity"]
     profiles:
-      - mcp
+      - vuln-tools
 
   # mcp-server：通过 stdio 接入 Claude Desktop 的 MCP 服务端。
+  # 工具（nuclei/ffuf/httpx）已打包进本镜像，通过 exec.Command 在本容器内执行，
+  # 不再挂载宿主机 docker.sock，消除容器逃逸风险。
   mcp-server:
     image: liusha/mcp-server
     build:
@@ -112,13 +114,9 @@ services:
       LIUSHA_POSTGRES_DSN: postgres://liusha:liusha@postgres:5432/liusha?sslmode=disable
       LIUSHA_CONFIG: /app/config/config.yaml
       LIUSHA_ENGAGEMENT_ID: ""
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
     depends_on:
       postgres:
         condition: service_healthy
-      vuln-tools:
-        condition: service_started
     profiles:
       - mcp
 

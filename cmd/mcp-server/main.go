@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -15,6 +16,9 @@ import (
 	"github.com/V3teran/liusha/internal/mcpserver"
 	"github.com/V3teran/liusha/internal/scope"
 )
+
+// toolTimeout 是每个 MCP 工具调用的硬上限，防止扫描工具长时间阻塞会话。
+const toolTimeout = 10 * time.Minute
 
 func main() {
 	cfgPath := os.Getenv("LIUSHA_CONFIG")
@@ -54,17 +58,16 @@ func main() {
 		logx.From(ctx).Fatal().Err(err).Msg("构建 ScopePolicy 失败")
 	}
 
-	runner, err := mcpserver.NewDockerRunner("liusha-vuln-tools")
-	if err != nil {
-		logx.From(ctx).Fatal().Err(err).Msg("初始化 DockerRunner 失败")
-	}
+	// 直接在本容器内 fork 子进程执行工具（nuclei/ffuf/httpx 已随镜像安装），
+	// 不再挂载宿主机 docker.sock，避免 tool/prompt injection 提权为宿主机逃逸。
+	runner := mcpserver.NewExecRunner().AsRunner(toolTimeout)
 
 	srv, err := mcpserver.New(policy)
 	if err != nil {
 		logx.From(ctx).Fatal().Err(err).Msg("初始化 MCP server 失败")
 	}
 
-	registerTools(srv, runner, policy)
+	registerTools(srv, runner)
 
 	logx.From(ctx).Info().Msg("liusha-mcp-server 启动（stdio 模式）")
 	if err := srv.ServeStdio(); err != nil {
@@ -72,8 +75,9 @@ func main() {
 	}
 }
 
-func registerTools(srv *mcpserver.Server, runner *mcpserver.DockerRunner, policy *scope.Policy) {
-	nuclei := mcpserver.WithScopeGuard(policy, mcpserver.ToolFunc(
+// registerTools 注册三个 vuln-tools MCP 工具；scope 校验由 RegisterTool 内部强制包装。
+func registerTools(srv *mcpserver.Server, runner mcpserver.Runner) {
+	nuclei := mcpserver.ToolFunc(
 		func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			args := req.GetArguments()
 			target, _ := args["target"].(string)
@@ -88,7 +92,7 @@ func registerTools(srv *mcpserver.Server, runner *mcpserver.DockerRunner, policy
 			}
 			return mcp.NewToolResultText(out), nil
 		},
-	))
+	)
 	_ = srv.RegisterTool("nuclei_scan", "对目标 URL 运行 nuclei 漏洞扫描", map[string]any{
 		"type": "object",
 		"properties": map[string]any{
@@ -129,7 +133,7 @@ func registerTools(srv *mcpserver.Server, runner *mcpserver.DockerRunner, policy
 		"required": []string{"target"},
 	}, ffuf)
 
-	httpx := mcpserver.WithScopeGuard(policy, mcpserver.ToolFunc(
+	httpx := mcpserver.ToolFunc(
 		func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			args := req.GetArguments()
 			target, _ := args["target"].(string)
@@ -140,7 +144,7 @@ func registerTools(srv *mcpserver.Server, runner *mcpserver.DockerRunner, policy
 			}
 			return mcp.NewToolResultText(out), nil
 		},
-	))
+	)
 	_ = srv.RegisterTool("httpx_probe", "探测目标 URL 并返回响应元数据", map[string]any{
 		"type": "object",
 		"properties": map[string]any{
