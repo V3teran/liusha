@@ -41,6 +41,7 @@ type AgentTask struct {
 	InputNodeIDs  []uuid.UUID
 	OutputNodeIDs []uuid.UUID
 	CostMicroUSD  int64
+	CreatedAt     time.Time
 	StartedAt     *time.Time
 	EndedAt       *time.Time
 }
