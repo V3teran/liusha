@@ -52,10 +52,26 @@ type ProviderConfig struct {
 	SupportsVision bool   `mapstructure:"supports_vision"`
 }
 
+// ProxyConfig 控制 in-process MITM 切片 + 责任链过滤 + 聚合参数。
+//   - AllowHosts:           HostFilter 白名单（空=放行全部）
+//   - ExcludeMethods:       HTTP 方法黑名单（OPTIONS/HEAD/CONNECT 等）
+//   - ExcludeHosts:         Host 黑名单（支持 *.example.com）
+//   - ExcludeSuffixes:      URL 后缀黑名单（.css/.js/图片字体等）
+//   - ExcludeContentTypes:  Content-Type 黑名单（image/* 等）
+//   - OnlyStatusCodes:      仅放行的状态码（空=放行全部）
+//   - MaxRequestBodySize:   请求体大小上限（字节，0=不限）
+//   - MaxResponseBodySize:  响应体大小上限（字节，0=不限）
 type ProxyConfig struct {
 	WindowBatch         int      `mapstructure:"window_batch"`
 	WindowMaxAgeSeconds int      `mapstructure:"window_max_age_seconds"`
 	AllowHosts          []string `mapstructure:"allow_hosts"`
+	ExcludeMethods      []string `mapstructure:"exclude_methods"`
+	ExcludeHosts        []string `mapstructure:"exclude_hosts"`
+	ExcludeSuffixes     []string `mapstructure:"exclude_suffixes"`
+	ExcludeContentTypes []string `mapstructure:"exclude_content_types"`
+	OnlyStatusCodes     []int    `mapstructure:"only_status_codes"`
+	MaxRequestBodySize  int      `mapstructure:"max_request_body_size"`
+	MaxResponseBodySize int      `mapstructure:"max_response_body_size"`
 }
 
 type EngagementConfig struct {

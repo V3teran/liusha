@@ -1,0 +1,58 @@
+package filter
+
+import (
+	"net/http"
+
+	"github.com/V3teran/liusha/internal/config"
+)
+
+// TrafficFilter 责任链门面：构造时一次性根据 ProxyConfig 装好链；运行时不可变。
+//
+// 与 liusha2 不同：本项目无 RuntimeConfig 热更新；所有配置静态，链构建一次即复用，
+// 避免每条流量重建链造成的开销与不一致风险。
+type TrafficFilter struct {
+	chain               *Chain
+	maxRequestBodySize  int
+	maxResponseBodySize int
+}
+
+// NewTrafficFilter 按给定 ProxyConfig 一次性组装责任链。
+//
+//	链顺序（任一拒绝即终止）：
+//	  Method → Protocol(websocket) → Host(白+黑) → Suffix → ContentType → StatusCode → Size
+func NewTrafficFilter(cfg config.ProxyConfig) *TrafficFilter {
+	chain := NewChain()
+	if len(cfg.ExcludeMethods) > 0 {
+		chain.Add(NewMethodFilter(cfg.ExcludeMethods))
+	}
+	// WebSocket 等协议升级一律拦截（绝大多数代理场景下不应进入扫描流量）
+	chain.Add(NewProtocolFilter([]string{"websocket"}))
+	chain.Add(NewHostFilter(cfg.AllowHosts, cfg.ExcludeHosts))
+	if len(cfg.ExcludeSuffixes) > 0 {
+		chain.Add(NewSuffixFilter(cfg.ExcludeSuffixes))
+	}
+	if len(cfg.ExcludeContentTypes) > 0 {
+		chain.Add(NewContentTypeFilter(cfg.ExcludeContentTypes))
+	}
+	if len(cfg.OnlyStatusCodes) > 0 {
+		chain.Add(NewStatusCodeFilter(cfg.OnlyStatusCodes))
+	}
+	chain.Add(NewSizeFilter(cfg.MaxRequestBodySize, cfg.MaxResponseBodySize))
+
+	return &TrafficFilter{
+		chain:               chain,
+		maxRequestBodySize:  cfg.MaxRequestBodySize,
+		maxResponseBodySize: cfg.MaxResponseBodySize,
+	}
+}
+
+// ShouldProcess 统一入口：true=保留，false+reason=丢弃。
+func (f *TrafficFilter) ShouldProcess(req *http.Request, resp *http.Response) (bool, string) {
+	return f.chain.ShouldProcess(req, resp)
+}
+
+// MaxRequestBodySize body 截断阈值（字节，0=不限）。
+func (f *TrafficFilter) MaxRequestBodySize() int { return f.maxRequestBodySize }
+
+// MaxResponseBodySize body 截断阈值（字节，0=不限）。
+func (f *TrafficFilter) MaxResponseBodySize() int { return f.maxResponseBodySize }
