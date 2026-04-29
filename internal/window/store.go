@@ -121,6 +121,25 @@ func (s *Store) ListClosed(ctx context.Context, engagementID string, limit int) 
 	return out, nil
 }
 
+// GetByID 按主键读单个 window（含 flows jsonb 反序列化）。
+// 找不到时返回 pgx.ErrNoRows 包裹的错误，由 caller 决定语义。
+func (s *Store) GetByID(ctx context.Context, id string) (Window, error) {
+	row := s.pool.QueryRow(ctx, `
+		SELECT id, engagement_id, flows, status, started_at, closed_at
+		FROM traffic_window WHERE id=$1`, id)
+	var (
+		w     Window
+		flows []byte
+	)
+	if err := row.Scan(&w.ID, &w.EngagementID, &flows, &w.Status, &w.StartedAt, &w.ClosedAt); err != nil {
+		return Window{}, fmt.Errorf("get window %s: %w", id, err)
+	}
+	if err := json.Unmarshal(flows, &w.Flows); err != nil {
+		return Window{}, fmt.Errorf("unmarshal flows for window %s: %w", id, err)
+	}
+	return w, nil
+}
+
 // MarkConsumed 把 closed 窗口推进到 consumed。仅允许从 closed 转换；
 // 若当前不是 closed（still open 或已 consumed），返回错误。
 func (s *Store) MarkConsumed(ctx context.Context, id string) error {
