@@ -225,10 +225,21 @@ github.com/cloudwego/base64x/internal/rt
 ## explicit; go 1.18
 github.com/cloudwego/eino/callbacks
 github.com/cloudwego/eino/components
+github.com/cloudwego/eino/components/document
+github.com/cloudwego/eino/components/document/parser
+github.com/cloudwego/eino/components/embedding
+github.com/cloudwego/eino/components/indexer
 github.com/cloudwego/eino/components/model
+github.com/cloudwego/eino/components/prompt
+github.com/cloudwego/eino/components/retriever
+github.com/cloudwego/eino/components/tool
+github.com/cloudwego/eino/compose
 github.com/cloudwego/eino/internal
 github.com/cloudwego/eino/internal/callbacks
+github.com/cloudwego/eino/internal/core
 github.com/cloudwego/eino/internal/generic
+github.com/cloudwego/eino/internal/gmap
+github.com/cloudwego/eino/internal/gslice
 github.com/cloudwego/eino/internal/safe
 github.com/cloudwego/eino/internal/serialization
 github.com/cloudwego/eino/schema
@@ -238,6 +249,15 @@ github.com/cloudwego/eino-ext/components/model/claude
 # github.com/cloudwego/eino-ext/components/model/deepseek v0.1.5
 ## explicit; go 1.24.0
 github.com/cloudwego/eino-ext/components/model/deepseek
+# github.com/cloudwego/eino-ext/components/model/openai v0.1.13
+## explicit; go 1.18
+github.com/cloudwego/eino-ext/components/model/openai
+# github.com/cloudwego/eino-ext/components/model/qwen v0.1.9
+## explicit; go 1.18
+github.com/cloudwego/eino-ext/components/model/qwen
+# github.com/cloudwego/eino-ext/libs/acl/openai v0.1.17
+## explicit; go 1.18
+github.com/cloudwego/eino-ext/libs/acl/openai
 # github.com/cohesion-org/deepseek-go v1.3.4
 ## explicit; go 1.24.0
 github.com/cohesion-org/deepseek-go
@@ -288,6 +308,9 @@ github.com/ebitengine/purego/internal/xreflect
 # github.com/eino-contrib/jsonschema v1.0.3
 ## explicit; go 1.18
 github.com/eino-contrib/jsonschema
+# github.com/evanphx/json-patch v0.5.2
+## explicit; go 1.14
+github.com/evanphx/json-patch
 # github.com/felixge/httpsnoop v1.0.4
 ## explicit; go 1.13
 github.com/felixge/httpsnoop
@@ -410,6 +433,11 @@ github.com/mattn/go-isatty
 # github.com/mdelapenya/tlscert v0.2.0
 ## explicit; go 1.23
 github.com/mdelapenya/tlscert
+# github.com/meguminnnnnnnnn/go-openai v0.1.2
+## explicit; go 1.18
+github.com/meguminnnnnnnnn/go-openai
+github.com/meguminnnnnnnnn/go-openai/internal
+github.com/meguminnnnnnnnn/go-openai/jsonschema
 # github.com/moby/docker-image-spec v1.3.1
 ## explicit; go 1.18
 github.com/moby/docker-image-spec/specs-go/v1
