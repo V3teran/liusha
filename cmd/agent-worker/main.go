@@ -1,5 +1,5 @@
 // Package main 是 liusha agent-worker 进程入口：装配 config / pg / redis / stores /
-// LLM Router + asynq 消费者/生产者 + ReAct sniffer 角色 handler + healthz HTTP。
+// LLM Router + asynq 消费者 + ReAct sniffer 角色 handler + healthz HTTP。
 //
 // 黑客松借鉴闭环（plan 1 part3 §借鉴增量）：
 //   - LLM Router（T21.5）：按 cfg.LLM.Routes 路由 react.main / observer / distill 到不同 provider，
@@ -11,6 +11,9 @@
 // plan 2 T5 增量：按 p.Skill 选择 action 集 + skill loader 装载 SKILL.md：
 //   - p.Skill == ""           → 顶层 sniffer：7 通用 action + read_window + spawn_subtask
 //   - p.Skill == "vuln/web/bac" → BAC 子任务：7 通用 action + bac.Factory 4 个 action + BACValidator
+//
+// plan 3 T5 增量：mitm 代理 + filter/dedup/aggregator 拆分到独立的 cmd/proxy 进程；
+// agent-worker 仅作为 Asynq 消费者 + ReAct 引擎，故障隔离 + 独立扩缩。
 package main
 
 import (
@@ -76,7 +79,7 @@ const resultCompressBaseDir = "./engagement-store"
 // shutdownTimeout 是 healthz HTTP 优雅关闭的超时；asynq.Shutdown 自身阻塞直到 in-flight 任务结束。
 const shutdownTimeout = 5 * time.Second
 
-// flow body 截断阈值（spec §proxify 32 KiB；这里给 1 MiB / 2 MiB，远超 spec 让 BAC replay 拿全 body）。
+// flow body 截断阈值——agent-worker 只读 flow（BAC replay 拿原始 body），写入由 cmd/proxy 负责。
 const (
 	flowMaxRequestBody  = 1 << 20
 	flowMaxResponseBody = 2 << 20
@@ -204,6 +207,7 @@ func main() {
 	sig := <-stop
 	logger.Info().Str("signal", sig.String()).Msg("agent-worker shutting down")
 
+	// 关停顺序：asynq 收尾（阻塞等 in-flight task）→ healthz。
 	srv.Shutdown()
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancel()

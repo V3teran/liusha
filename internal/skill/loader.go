@@ -65,7 +65,9 @@ func (l *Loader) validateCognitiveMap(card *Card) error {
 	if card.CognitiveMap == "" {
 		return nil
 	}
-	cmPath := filepath.Join(l.root, card.CognitiveMap)
+	// cognitive_map 路径相对仓库根（cwd），不是相对 skill root
+	// 这样 SKILL.md 写 "docs/skills/bac/cognitive_map.md" 能直接打开
+	cmPath := filepath.Clean(card.CognitiveMap)
 	data, err := os.ReadFile(cmPath)
 	if err != nil {
 		return fmt.Errorf("cognitive_map %s: %w", cmPath, err)

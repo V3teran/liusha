@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# scripts/dev/run-svc.sh — host 侧并行跑 vulnapp + api + agent-worker
-# 三个进程合并到 logs/，Ctrl-C 全部关闭
+# scripts/dev/run-svc.sh — host 侧并行跑 vulnapp + proxy + api + agent-worker
+# 四个进程合并到 logs/，Ctrl-C 全部关闭
 
 set -euo pipefail
 cd "$(dirname "$0")/../.."
@@ -18,7 +18,7 @@ fi
 # host 侧地址（pg/redis 在 docker 暴露 5432/6379）
 export LIUSHA_POSTGRES_DSN="${LIUSHA_POSTGRES_DSN:-postgres://liusha:liusha@localhost:5432/liusha?sslmode=disable}"
 export LIUSHA_REDIS_ADDR="${LIUSHA_REDIS_ADDR:-localhost:6379}"
-export LIUSHA_API_ADDR="${LIUSHA_API_ADDR:-0.0.0.0:8080}"
+export LIUSHA_API_ADDR="${LIUSHA_API_ADDR:-0.0.0.0:8090}"  # 8080 易被 Burp Suite Pro 占用，dev 默认 :8090
 export LIUSHA_API_KEY="${LIUSHA_API_KEY:-changeme-dev-key}"
 export LIUSHA_ENV="${LIUSHA_ENV:-development}"
 export LIUSHA_LOG_LEVEL="${LIUSHA_LOG_LEVEL:-info}"
@@ -29,9 +29,9 @@ export LIUSHA_LLM_LIGHT_PROVIDER="${LIUSHA_LLM_LIGHT_PROVIDER:-deepseek}"
 export LIUSHA_LLM_FALLBACK_PROVIDER="${LIUSHA_LLM_FALLBACK_PROVIDER:-deepseek}"
 export LIUSHA_LLM_VISION_PROVIDER="${LIUSHA_LLM_VISION_PROVIDER:-deepseek}"
 
-# proxify_consumer：默认不启动（host 侧暂不读 docker volume 中的 jsonl）
-# e2e 测试用 LIUSHA_PROXIFY_JSONL=./logs/flows.jsonl 后续再支持
-export LIUSHA_PROXIFY_JSONL="${LIUSHA_PROXIFY_JSONL:-}"
+# proxy 进程参数
+export LIUSHA_PROXY_LISTEN_ADDR="${LIUSHA_PROXY_LISTEN_ADDR:-0.0.0.0:8888}"
+export LIUSHA_PROXY_HEALTHZ_ADDR="${LIUSHA_PROXY_HEALTHZ_ADDR:-:9091}"
 
 # api key 校验（必填）
 if [ -z "${DEEPSEEK_API_KEY:-}" ]; then
@@ -39,25 +39,31 @@ if [ -z "${DEEPSEEK_API_KEY:-}" ]; then
   exit 1
 fi
 
-echo "===== 启动 3 个 host 服务 ====="
+echo "===== 启动 4 个 host 服务 ====="
 echo "  config:        $LIUSHA_CONFIG"
 echo "  postgres:      $LIUSHA_POSTGRES_DSN"
 echo "  redis:         $LIUSHA_REDIS_ADDR"
+echo "  proxy:         $LIUSHA_PROXY_LISTEN_ADDR (mitm) / $LIUSHA_PROXY_HEALTHZ_ADDR (healthz)"
 echo "  llm overrides: light=$LIUSHA_LLM_LIGHT_PROVIDER fallback=$LIUSHA_LLM_FALLBACK_PROVIDER vision=$LIUSHA_LLM_VISION_PROVIDER"
 echo ""
 
-# 启动顺序：vulnapp → api → agent-worker（让 agent-worker 启动时其他依赖已健康）
-echo "[1/3] vulnapp on :8001"
+# 启动顺序：vulnapp → proxy → api → agent-worker
+echo "[1/4] vulnapp on :8001"
 go run ./cmd/vulnapp >logs/vulnapp.log 2>&1 &
 VULNAPP_PID=$!
 
 sleep 2
-echo "[2/3] api on :8080"
+echo "[2/4] proxy on :8888 (mitm) + $LIUSHA_PROXY_HEALTHZ_ADDR (healthz)"
+go run ./cmd/proxy >logs/proxy.log 2>&1 &
+PROXY_PID=$!
+
+sleep 2
+echo "[3/4] api on $LIUSHA_API_ADDR"
 go run ./cmd/api >logs/api.log 2>&1 &
 API_PID=$!
 
 sleep 2
-echo "[3/3] agent-worker on :9090"
+echo "[4/4] agent-worker on :9090"
 go run ./cmd/agent-worker >logs/agent-worker.log 2>&1 &
 WORKER_PID=$!
 
@@ -68,7 +74,7 @@ sleep 3
 cleanup() {
   echo ""
   echo "===== 关闭服务 ====="
-  for pid in "$WORKER_PID" "$API_PID" "$VULNAPP_PID"; do
+  for pid in "$WORKER_PID" "$API_PID" "$PROXY_PID" "$VULNAPP_PID"; do
     if kill -0 "$pid" 2>/dev/null; then
       kill "$pid" 2>/dev/null || true
     fi
@@ -79,9 +85,9 @@ cleanup() {
 trap cleanup INT TERM
 
 echo ""
-echo "✓ 三服务在跑（pids: vulnapp=$VULNAPP_PID api=$API_PID agent-worker=$WORKER_PID）"
+echo "✓ 四服务在跑（pids: vulnapp=$VULNAPP_PID proxy=$PROXY_PID api=$API_PID agent-worker=$WORKER_PID）"
 echo "  日志合并 tail（Ctrl-C 关闭服务+退出 tail）："
 echo ""
 
-# tail -F 三个日志
-tail -F logs/vulnapp.log logs/api.log logs/agent-worker.log
+# tail -F 四个日志
+tail -F logs/vulnapp.log logs/proxy.log logs/api.log logs/agent-worker.log

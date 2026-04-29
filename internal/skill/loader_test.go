@@ -177,6 +177,10 @@ func TestLoader_Load_RequiredActionsField(t *testing.T) {
 }
 
 // 黑客松扩展：cognitive_map 含 6 槽位 → 校验通过。
+//
+// 注意：loader 现在按 cwd 相对路径解析 cognitive_map（仓库实际布局是
+// docs/skills/bac/cognitive_map.md 相对仓库根），因此测试 t.Chdir 到 tempdir
+// 让 cognitive_map: docs/skills/bac/cognitive_map.md 能落到 tempdir 内。
 func TestLoader_Load_CognitiveMapPathExists(t *testing.T) {
 	body := `---
 name: vuln/web/bac
@@ -192,6 +196,7 @@ cognitive_map: docs/skills/bac/cognitive_map.md
 正文`
 	root := writeSkill(t, "vuln/web/bac", body)
 	writeCognitiveMap(t, root, "docs/skills/bac/cognitive_map.md", 6)
+	t.Chdir(root)
 
 	l := NewLoader(root)
 	c, err := l.Load("vuln/web/bac", anyDoneValidator)

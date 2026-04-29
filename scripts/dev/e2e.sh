@@ -14,7 +14,7 @@ if [ -f .env.local ]; then
 fi
 
 # host 侧地址
-export LIUSHA_API_BASE="${LIUSHA_API_BASE:-http://localhost:8080}"
+export LIUSHA_API_BASE="${LIUSHA_API_BASE:-http://localhost:8090}"  # 与 run-svc.sh 默认端口一致
 export LIUSHA_API_KEY="${LIUSHA_API_KEY:-changeme-dev-key}"
 export LIUSHA_PROXY_ADDR="${LIUSHA_PROXY_ADDR:-http://localhost:8888}"
 export LIUSHA_VULNAPP_BASE="${LIUSHA_VULNAPP_BASE:-http://localhost:8001}"

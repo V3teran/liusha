@@ -28,7 +28,7 @@ cp .env.example .env.local
 # OPENAI_API_KEY 可选（fallback_provider）
 ```
 
-### 2. 起完整栈（含 vulnapp + proxify + agent-worker）
+### 2. 起完整栈（含 vulnapp + proxy + agent-worker）
 
 ```bash
 docker compose -f deployments/docker-compose.yml --profile e2e --env-file .env.local up -d --build
@@ -40,7 +40,9 @@ docker compose -f deployments/docker-compose.yml --profile e2e --env-file .env.l
 docker compose -f deployments/docker-compose.yml ps
 ```
 
-期望看到 7 个 service（postgres/redis/api/asynqmon/proxify/vulnapp/agent-worker）全绿。
+期望看到 7 个 service（postgres/redis/asynqmon/api/proxy/agent-worker/vulnapp）全绿。
+其中 `proxy` 由 `cmd/proxy` 内嵌 proxify SDK + filter/dedup/aggregator 启动（监听 :8888 mitm，:9091 healthz），
+`agent-worker` 仅作为 Asynq 消费者 + ReAct 引擎（监听 :9090 healthz）。两者通过 redis 解耦——业界最佳实践，故障隔离 + 独立扩缩。
 
 ### 3. 跑触发器（约 6 分钟）
 
@@ -132,10 +134,10 @@ docker compose -f deployments/docker-compose.yml --profile e2e down -v
 
 ### findings 卡在 0 不增长
 - 看 `agent-worker` 日志：`docker compose logs -f agent-worker`
-- 看 `proxify` 日志确认流量经过：`docker compose logs proxify | grep vulnapp`
-- 看 `proxify_consumer`（在 agent-worker 内部）有没有解析 JSONL：
+- 看 `proxy` 日志确认流量经过：`docker compose logs proxy | grep vulnapp`
+- 看 proxy 进程 aggregator flush + sniffer enqueue：
   ```
-  grep -i "proxify_consumer\|new flow" agent-worker.log
+  grep -i "窗口关闭\|sniffer 入队\|aggregator" logs/proxy.log
   ```
 
 ### LLM 调用失败
