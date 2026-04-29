@@ -1,5 +1,5 @@
-// Package main 是 liusha agent-worker 进程入口：装配 config / pg / stores / LLM Router
-// + asynq 消费者 + ReAct sniffer 角色 handler + healthz HTTP。
+// Package main 是 liusha agent-worker 进程入口：装配 config / pg / redis / stores /
+// LLM Router + asynq 消费者/生产者 + ReAct sniffer 角色 handler + healthz HTTP。
 //
 // 黑客松借鉴闭环（plan 1 part3 §借鉴增量）：
 //   - LLM Router（T21.5）：按 cfg.LLM.Routes 路由 react.main / observer / distill 到不同 provider，
@@ -8,14 +8,16 @@
 //   - Action 中间件链（T22.5）：result_compress / loop_detect / done_validate 三层横切。
 //   - Observer（T23.5）：每 5 步用 light_provider 判官，决定 keep_going / steer / abort。
 //
-// plan 1 仅注册 sniffer 角色 + 通用 actions（done / read_state / write_fact|idea|hint /
-// write_finding / write_graph）；BAC actions（read_window / fetch_credentials 等）由 plan 2 加。
+// plan 2 T5 增量：按 p.Skill 选择 action 集 + skill loader 装载 SKILL.md：
+//   - p.Skill == ""           → 顶层 sniffer：7 通用 action + read_window + spawn_subtask
+//   - p.Skill == "vuln/web/bac" → BAC 子任务：7 通用 action + bac.Factory 4 个 action + BACValidator
 package main
 
 import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"os"
 	"os/signal"
@@ -25,32 +27,47 @@ import (
 	"github.com/V3teran/liusha/internal/agent/action"
 	"github.com/V3teran/liusha/internal/agent/action/middleware"
 	"github.com/V3teran/liusha/internal/agent/actions"
+	"github.com/V3teran/liusha/internal/agent/actions/bac"
+	"github.com/V3teran/liusha/internal/agent/actions/done_validator"
 	"github.com/V3teran/liusha/internal/agent/llm"
 	"github.com/V3teran/liusha/internal/agent/runtime"
 	"github.com/V3teran/liusha/internal/config"
+	"github.com/V3teran/liusha/internal/credential"
 	"github.com/V3teran/liusha/internal/db"
 	"github.com/V3teran/liusha/internal/engagement"
 	"github.com/V3teran/liusha/internal/finding"
+	"github.com/V3teran/liusha/internal/flow"
 	"github.com/V3teran/liusha/internal/graph"
 	"github.com/V3teran/liusha/internal/llmcall"
 	"github.com/V3teran/liusha/internal/logx"
 	"github.com/V3teran/liusha/internal/observability"
+	"github.com/V3teran/liusha/internal/replay"
 	"github.com/V3teran/liusha/internal/skill"
+	"github.com/V3teran/liusha/internal/spawner"
 	"github.com/V3teran/liusha/internal/task"
+	"github.com/V3teran/liusha/internal/window"
 	"github.com/V3teran/liusha/internal/worker"
 
 	"github.com/hibiken/asynq"
 )
 
-// snifferSystemPrompt 是 sniffer 角色的固定 system prompt。
+// snifferSystemPrompt 是 sniffer 主任务（p.Skill == ""）的固定 system prompt。
 //
-// 工具集合明确列出 plan 1 已注册的 7 个 action；BAC 工具集合（read_window /
-// fetch_credentials / replay_multi_identity / heuristic_check / compute_similarity）
-// 在 plan 2 才会扩展，这里只点名让 LLM 心里有数。
-const snifferSystemPrompt = `你是 sniffer 角色。每个任务对应一个 traffic_window。
-你能用 read_state / write_fact / write_idea / write_hint / write_finding / write_graph / done(reason)。
-plan 2 会扩展 read_window / fetch_credentials / replay_multi_identity / heuristic_check / compute_similarity 等。
-done 会被系统校验，调用前请确认目标已达成（或写明 reason 表示主动跳过）。`
+// BAC 子任务（p.Skill == "vuln/web/bac"）改用 SKILL.md 正文作为 system prompt，
+// 由 skill loader 在 handle() 内按需加载。
+const snifferSystemPrompt = `你是 sniffer 角色。每次任务输入对应一个 traffic_window。
+
+工作流程：
+1. read_window(window_id) → 拿当前窗口里的 N 条 flow 摘要
+2. 扫描可疑信号：
+   - URL 含 /admin/ /sys/，或参数含 ?uid= /:user_id/ → spawn_subtask(skill="vuln/web/bac", input={"flow_id":<id>,"host":<host>})
+3. 在所有可疑 flow 都已 spawn 之后 done({"reason":"window_consumed"})
+
+规则：
+- 同一窗口内每个 flow 只 spawn 一次
+- 单窗口最多 spawn 5 个子任务（避免炸开）
+- 不要直接判漏洞，那是 BAC skill 的工作
+- 没可疑就 done({"reason":"no_suspicious"})`
 
 // resultCompressBaseDir 是 result_compress 中间件落盘的根目录。
 // docker compose 中由 volume 挂在容器外，便于人类追溯大型 evidence。
@@ -58,6 +75,12 @@ const resultCompressBaseDir = "./engagement-store"
 
 // shutdownTimeout 是 healthz HTTP 优雅关闭的超时；asynq.Shutdown 自身阻塞直到 in-flight 任务结束。
 const shutdownTimeout = 5 * time.Second
+
+// flow body 截断阈值（spec §proxify 32 KiB；这里给 1 MiB / 2 MiB，远超 spec 让 BAC replay 拿全 body）。
+const (
+	flowMaxRequestBody  = 1 << 20
+	flowMaxResponseBody = 2 << 20
+)
 
 func main() {
 	logger := logx.New("agent-worker")
@@ -74,13 +97,41 @@ func main() {
 	}
 	defer pool.Close()
 
+	redisAddr := os.Getenv("LIUSHA_REDIS_ADDR")
+	rdb, err := db.NewRedis(ctx, redisAddr)
+	if err != nil {
+		logger.Fatal().Err(err).Msg("redis")
+	}
+	defer rdb.Close()
+
+	// Stores（pg + redis）
 	tasks := task.NewStore(pool)
 	engs := engagement.NewStore(pool)
 	finds := finding.NewStore(pool)
 	graphs := graph.NewStore(pool)
 	calls := llmcall.NewStore(pool)
+	flows := flow.NewStore(pool, flowMaxRequestBody, flowMaxResponseBody)
+	windows := window.NewStore(pool)
+	creds := credential.NewRedis(rdb)
+
+	// BAC factory（plan 2 T2）：creds + flows + replay engine。
+	replayEngine := replay.NewEngine(nil)
+	bacFactory := bac.NewFactory(creds, flows, replayEngine)
+
+	// worker.Client 生产者：spawner 通过它把子任务入队（与 asynq.Server 消费者共用 redis）。
+	wc := worker.NewClient(asynq.RedisClientOpt{Addr: redisAddr})
+	defer wc.Close()
+	sp := spawner.New(tasks, wc, spawner.Limits{
+		MaxChildrenPerParent:     10,
+		MaxInflightPerEngagement: 20,
+	})
+
+	// Skill loader（plan 1 T25）：启动时加载 BAC SKILL.md 校验 cognitive_map 6 槽位
+	// + done_validator key 已注册。失败立即 fatal，避免运行期 surprise。
 	skillLoader := skill.NewLoader(cfg.Skills.Root)
-	_ = skillLoader // plan 2 BAC skill 加载用；plan 1 仅占位以便 vet 不报 unused
+	if _, err := skillLoader.Load("vuln/web/bac", done_validator.IsRegistered); err != nil {
+		logger.Fatal().Err(err).Msg("load BAC skill")
+	}
 
 	// T21.5：LLM Router——所有 LLM 调用走 router.For(ctx, role, tools)，
 	// 自动按 cfg.LLM.Routes 路由 + retry/fallback。
@@ -101,6 +152,11 @@ func main() {
 		findings:    finds,
 		graphs:      graphs,
 		calls:       calls,
+		flows:       flows,
+		windows:     windows,
+		bacFactory:  bacFactory,
+		spawner:     sp,
+		skillLoader: skillLoader,
 		cfg:         cfg,
 		pricing:     observability.DefaultPricing,
 		router:      router,
@@ -113,7 +169,7 @@ func main() {
 	mux.Register(worker.RoleSniffer, h.handle)
 
 	srv := asynq.NewServer(
-		asynq.RedisClientOpt{Addr: os.Getenv("LIUSHA_REDIS_ADDR")},
+		asynq.RedisClientOpt{Addr: redisAddr},
 		asynq.Config{
 			Concurrency: 4,
 			Queues: map[string]int{
@@ -158,24 +214,34 @@ func main() {
 }
 
 // snifferHandler 持有所有跨任务共享依赖；handle() 内每个任务建独立 Registry + Generator。
+//
+// 注意 sniffer / BAC 共享一个 handler：handle() 内按 p.Skill 选择 action 集 + system prompt，
+// 这样不必为每种 skill 拉一个独立 worker 进程。
 type snifferHandler struct {
 	tasks       *task.Store
 	engagements *engagement.Store
 	findings    *finding.Store
 	graphs      *graph.Store
 	calls       *llmcall.Store
+	flows       *flow.Store
+	windows     *window.Store
+	bacFactory  *bac.Factory
+	spawner     *spawner.Spawner
+	skillLoader *skill.Loader
 	cfg         config.Config
 	pricing     llm.PricingProvider
 	router      *llm.Router // T21.5：多 provider 路由（react.main / observer / distill）
 	budget      runtime.Budget
 }
 
-// handle 是单个 sniffer 任务的处理入口：
+// handle 是单个 task 的处理入口（sniffer 主任务或 BAC 子任务）：
 //  1. 任务状态推进 pending → running
-//  2. 注册 7 个 action + 套上 3 层中间件（result_compress / loop_detect / done_validate）
-//  3. 通过 router 拿 react.main + observer Generator（observer 用 light_provider）
-//  4. runtime.Run 跑 ReAct 主循环
-//  5. result JSON 落库（含 observer_hints / done_force_count，用于审计）
+//  2. 注册 7 通用 action
+//  3. 按 p.Skill 选择附加 action 集 + system prompt + done validator
+//  4. 套上中间件链（result_compress / loop_detect / done_validate）
+//  5. 通过 router 拿 react.main + observer Generator
+//  6. runtime.Run 跑 ReAct 主循环
+//  7. result JSON 落库（含 observer_hints / done_force_count，用于审计）
 func (h snifferHandler) handle(ctx context.Context, p worker.Payload) error {
 	if err := h.tasks.SetRunning(ctx, p.TaskID); err != nil {
 		return err
@@ -190,12 +256,18 @@ func (h snifferHandler) handle(ctx context.Context, p worker.Payload) error {
 	_ = reg.Register(&actions.WriteFinding{Store: h.findings, EngagementID: p.EngagementID, TaskID: p.TaskID})
 	_ = reg.Register(&actions.WriteGraph{Store: h.graphs, EngagementID: p.EngagementID})
 
-	// T22.5：套上中间件链（result_compress / loop_detect / done_validate）。
-	// DoneValidate(nil) 安全回退到 AlwaysOK；plan 2 BAC 接入 Skill 后注入真 validator。
+	// 按 skill 选择 action 集 + system prompt + done validator。
+	systemPrompt, doneValidator, err := h.skillSetup(reg, p)
+	if err != nil {
+		_ = h.tasks.SetError(ctx, p.TaskID, err.Error())
+		return err
+	}
+
+	// T22.5：套上中间件链；done_validator 按 skill 注入（sniffer=nil → AlwaysOK，BAC=BACValidator）。
 	reg.Use(
 		middleware.ResultCompress(p.EngagementID, resultCompressBaseDir),
 		middleware.LoopDetect(),
-		middleware.DoneValidate(nil),
+		middleware.DoneValidate(doneValidator),
 	)
 
 	// 每个 task 一个全新 Generator（tools 一次绑定，避免跨 goroutine 竞争 BindTools 内部状态）。
@@ -227,7 +299,7 @@ func (h snifferHandler) handle(ctx context.Context, p worker.Payload) error {
 		LLM:                gen,
 		Actions:            reg,
 		Budget:             h.budget,
-		SystemPrompt:       snifferSystemPrompt,
+		SystemPrompt:       systemPrompt,
 		UserPrompt:         string(p.Input),
 		Observer:           observer,
 		ObserverEverySteps: 5,
@@ -254,6 +326,44 @@ func (h snifferHandler) handle(ctx context.Context, p worker.Payload) error {
 		"done_force_count": out.DoneForceCount,
 	})
 	return h.tasks.SetDone(ctx, p.TaskID, res)
+}
+
+// skillSetup 按 p.Skill 注册附加 action 集 + 选 system prompt + 实例化 DoneValidator。
+//
+//   - p.Skill == ""：顶层 sniffer——附加 read_window + spawn_subtask；done validator 用 nil（AlwaysOK）。
+//   - p.Skill == "vuln/web/bac"：BAC 子任务——附加 bac.Factory 4 个 action；
+//     system prompt 用 SKILL.md 正文；done validator 用 BACValidator（per-task 实例，绑 eid）。
+//   - 其它 skill：返回错误（plan 2 仅支持 BAC；后续 skill 走同样模式扩展）。
+func (h snifferHandler) skillSetup(
+	reg *action.Registry,
+	p worker.Payload,
+) (string, action.DoneValidator, error) {
+	switch p.Skill {
+	case "":
+		_ = reg.Register(&actions.ReadWindow{Windows: h.windows, Flows: h.flows})
+		_ = reg.Register(&actions.SpawnSubtask{
+			Engine:       h.spawner,
+			ParentTaskID: p.TaskID,
+			EngagementID: p.EngagementID,
+		})
+		// sniffer 不要 BAC actions（避免它直接搞 BAC，要走 spawn）；done validator nil → AlwaysOK。
+		return snifferSystemPrompt, nil, nil
+
+	case "vuln/web/bac":
+		if err := h.bacFactory.Register(reg, p.EngagementID); err != nil {
+			return "", nil, fmt.Errorf("register BAC actions: %w", err)
+		}
+		card, err := h.skillLoader.Load(p.Skill, done_validator.IsRegistered)
+		if err != nil {
+			return "", nil, fmt.Errorf("load skill %s: %w", p.Skill, err)
+		}
+		// per-task BACValidator：绑 engagement，避免跨任务污染。
+		validator := done_validator.NewBACValidator(h.engagements, h.findings, p.EngagementID)
+		return card.Body, validator, nil
+
+	default:
+		return "", nil, fmt.Errorf("unknown skill: %s", p.Skill)
+	}
 }
 
 // envOr 读取环境变量；空则返回 def。
