@@ -74,6 +74,27 @@ func (f *Factory) For(ctx context.Context, role string, tools []ToolSchema) (Gen
 	return g, nil
 }
 
+// forProviderKey 直接按 provider key 取/构造 Generator（绕开 routes 解析）。
+// 主要给 Router 构造 fallback 用：fallback_provider 字段是 provider key 而非 role。
+func (f *Factory) forProviderKey(ctx context.Context, providerKey string, tools []ToolSchema) (Generator, error) {
+	if providerKey == "" {
+		return nil, fmt.Errorf("llm.forProviderKey: provider key 为空")
+	}
+
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	if g, ok := f.cache[providerKey]; ok {
+		return g, nil
+	}
+	g, err := f.builder(ctx, f.cfg, providerKey, tools)
+	if err != nil {
+		return nil, fmt.Errorf("llm.forProviderKey(%q): %w", providerKey, err)
+	}
+	f.cache[providerKey] = g
+	return g, nil
+}
+
 // resolveProviderKey 把 role 解析到具体 provider key（"deepseek"/"anthropic"/...）。
 // 任何无法解析的中间步骤都回退 default_provider。
 func (f *Factory) resolveProviderKey(role string) string {
