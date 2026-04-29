@@ -1,0 +1,28 @@
+linters:
+  enable:
+    - gofmt
+    - govet
+    - gosimple
+    - staticcheck
+    - errcheck
+    - ineffassign
+    - misspell
+    - gocyclo
+    - goconst
+    - revive
+
+linters-settings:
+  gocyclo:
+    min-complexity: 20
+  revive:
+    rules:
+      - name: error-return
+        disabled: true
+      - name: unexported-return
+        disabled: true
+
+run:
+  deadline: 5m
+
+issues:
+  exclude-use-default: false
