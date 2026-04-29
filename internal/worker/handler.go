@@ -1,0 +1,57 @@
+package worker
+
+import (
+	"context"
+	"encoding/json"
+
+	"github.com/hibiken/asynq"
+)
+
+// Payload 是所有 agent 任务的统一载荷。
+//
+// Skill 为空表示主 sniffer 任务；非空表示由 sniffer 派发的 operator 子任务（execute_skill）。
+// Input 是该 skill 的入参（已序列化的 JSON），由各 skill 自行解释。
+type Payload struct {
+	TaskID       string          `json:"task_id"`
+	EngagementID string          `json:"engagement_id"`
+	Role         Role            `json:"role"`
+	Skill        string          `json:"skill,omitempty"`
+	Input        json.RawMessage `json:"input,omitempty"`
+}
+
+// RoleHandler 处理一个反序列化好的 Payload。
+type RoleHandler func(ctx context.Context, p Payload) error
+
+// Mux 按 Role 路由 asynq 任务到对应 handler。
+type Mux struct {
+	handlers map[Role]RoleHandler
+}
+
+// NewMux 创建一个空的 Mux。
+func NewMux() *Mux {
+	return &Mux{handlers: make(map[Role]RoleHandler)}
+}
+
+// Register 注册 role 对应的 handler。重复注册会覆盖旧值。
+func (m *Mux) Register(role Role, h RoleHandler) {
+	m.handlers[role] = h
+}
+
+// AsynqMux 返回一个 asynq.ServeMux：
+// 把所有 TaskTypeRun 任务反序列化为 Payload，并按 Role 分发到注册的 handler。
+// 未注册的 role 或 payload 损坏时返回 asynq.SkipRetry，避免重试风暴。
+func (m *Mux) AsynqMux() *asynq.ServeMux {
+	mux := asynq.NewServeMux()
+	mux.HandleFunc(TaskTypeRun, func(ctx context.Context, t *asynq.Task) error {
+		var p Payload
+		if err := json.Unmarshal(t.Payload(), &p); err != nil {
+			return asynq.SkipRetry
+		}
+		h, ok := m.handlers[p.Role]
+		if !ok {
+			return asynq.SkipRetry
+		}
+		return h(ctx, p)
+	})
+	return mux
+}
