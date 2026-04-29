@@ -9,6 +9,7 @@ cmd/*/dist/
 .env
 .env.local
 .env.*.local
+.env.docker
 
 # Editor
 .vscode/
