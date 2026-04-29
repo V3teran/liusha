@@ -1,0 +1,151 @@
+# liusha v1 docker-compose
+# 6 个 service：postgres / redis / asynqmon / api / agent-worker / proxify / vulnapp
+# 默认起 postgres/redis/asynqmon/api；用 --profile e2e 起完整栈（含 proxify + vulnapp + agent-worker）。
+# migrate 走 host 侧 Makefile（make migrate），不在 compose 里跑。
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg17
+    container_name: liusha-postgres
+    environment:
+      POSTGRES_USER: liusha
+      POSTGRES_PASSWORD: liusha
+      POSTGRES_DB: liusha
+    ports:
+      - "5432:5432"
+    volumes:
+      - liusha-pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U liusha -d liusha"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:8
+    container_name: liusha-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - liusha-redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  asynqmon:
+    image: hibiken/asynqmon:latest
+    platform: linux/amd64
+    container_name: liusha-asynqmon
+    command: ["--redis-addr=redis:6379"]
+    ports:
+      - "8081:8080"
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  api:
+    image: liusha/api
+    build:
+      context: ..
+      dockerfile: cmd/api/Dockerfile
+    container_name: liusha-api
+    environment:
+      LIUSHA_POSTGRES_DSN: postgres://liusha:liusha@postgres:5432/liusha?sslmode=disable
+      LIUSHA_REDIS_ADDR: redis:6379
+      LIUSHA_API_ADDR: 0.0.0.0:8080
+      LIUSHA_API_KEY: "${LIUSHA_API_KEY:-changeme-dev-key}"
+      LIUSHA_ENV: development
+      LIUSHA_LOG_LEVEL: info
+      LIUSHA_CONFIG: /app/config/config.yaml
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "--header=X-API-Key: ${LIUSHA_API_KEY:-changeme-dev-key}", "http://localhost:8080/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  # proxify：projectdiscovery 官方 MITM 代理。listen 8888，捕流量写 JSONL。
+  # filter DSL 直接写 command，命中即丢弃；agent-worker 容器 tail JSONL 消费。
+  proxify:
+    image: projectdiscovery/proxify:latest
+    container_name: liusha-proxify
+    command:
+      - "-output"
+      - "/data/flows.jsonl"
+      - "-match-condition"
+      - "request.method != 'OPTIONS' && request.method != 'HEAD' && request.method != 'CONNECT'"
+      - "-no-color"
+    ports:
+      - "8888:8888"
+    volumes:
+      - liusha-proxify-flows:/data
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    profiles:
+      - proxy
+      - e2e
+
+  # agent-worker：消费 Asynq 队列 + 进程内 goroutine 跑 proxify_consumer。
+  # 启动前需设 LIUSHA_DEEPSEEK_API_KEY（默认 LLM provider 的 key）。
+  agent-worker:
+    image: liusha/agent-worker
+    build:
+      context: ..
+      dockerfile: cmd/agent-worker/Dockerfile
+    container_name: liusha-agent-worker
+    environment:
+      LIUSHA_POSTGRES_DSN: postgres://liusha:liusha@postgres:5432/liusha?sslmode=disable
+      LIUSHA_REDIS_ADDR: redis:6379
+      LIUSHA_CONFIG: /app/config/config.yaml
+      LIUSHA_ENV: development
+      LIUSHA_LOG_LEVEL: info
+      LIUSHA_DEEPSEEK_API_KEY: "${LIUSHA_DEEPSEEK_API_KEY:-}"
+      LIUSHA_ANTHROPIC_API_KEY: "${LIUSHA_ANTHROPIC_API_KEY:-}"
+      LIUSHA_PROXIFY_JSONL: /data/flows.jsonl
+    volumes:
+      - liusha-proxify-flows:/data:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "9090:9090"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:9090/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    profiles:
+      - agent
+      - e2e
+
+  # vulnapp：BAC e2e 靶机（plan 1 T31）。仅 e2e profile 启动。
+  # hostname=vulnapp 让 agent-worker 在同一 network 内通过名字解析，
+  # 与 proxify_consumer 默认 host 别名一致。
+  vulnapp:
+    image: liusha/vulnapp
+    build:
+      context: ..
+      dockerfile: cmd/vulnapp/Dockerfile
+    container_name: liusha-vulnapp
+    hostname: vulnapp
+    ports:
+      - "8001:8001"
+    profiles:
+      - e2e
+
+volumes:
+  liusha-pg:
+  liusha-redis:
+  liusha-proxify-flows:
