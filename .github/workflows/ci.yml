@@ -1,0 +1,43 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    # 运行 vet/gofmt/单元+集成测试：集成用例里的 testcontainers 会在 ubuntu-latest 上拉起真实 pg17。
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: 'stable'
+          cache: true
+      - name: vet
+        run: go vet ./...
+      - name: gofmt
+        run: |
+          diff=$(gofmt -l $(find . -name '*.go' -not -path './vendor/*'))
+          if [ -n "$diff" ]; then
+            echo "gofmt diff:" && echo "$diff" && exit 1
+          fi
+      - name: unit tests
+        run: go test -race -short ./...
+      - name: integration tests
+        run: go test -race -run Integration ./...
+
+  build:
+    # 通过测试后再构建镜像，避免在失败的源码上浪费构建时间。
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: build api image
+        run: docker build -f cmd/api/Dockerfile -t liusha/api:ci .
+      - name: build agent-worker image
+        run: docker build -f cmd/agent-worker/Dockerfile -t liusha/agent-worker:ci .
+      - name: build vulnapp image
+        run: docker build -f cmd/vulnapp/Dockerfile -t liusha/vulnapp:ci .

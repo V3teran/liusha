@@ -1,0 +1,37 @@
+# Binaries
+/bin/
+cmd/*/dist/
+*.exe
+*.test
+*.out
+
+# Local env
+.env
+.env.local
+.env.*.local
+
+# Editor
+.vscode/
+.idea/
+.DS_Store
+
+# Embedded frontend build artifact (produced by liusha-ui, not checked in)
+internal/web/dist/
+
+# Coverage
+coverage.out
+coverage.html
+
+# cmd/* 二进制在仓库根目录的游离副本（`go build ./cmd/<x>` 默认输出于此）
+/api
+/agent-worker
+/vulnapp
+/e2e-bac
+
+# 第三方参考资料（设计已提炼到本地 docs/hks2.md / spec / plan，原始资料不入 git）
+/docs/Tsec-Hackathon-main/
+/docs/hks2.md
+/docs/无径之径*
+
+# engagement runtime store（result_compress middleware 落盘目录）
+/engagement-store/
