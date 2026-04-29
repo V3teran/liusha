@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	tcredis "github.com/testcontainers/testcontainers-go/modules/redis"
 	tcpostgres "github.com/testcontainers/testcontainers-go/modules/postgres"
+	tcredis "github.com/testcontainers/testcontainers-go/modules/redis"
 )
 
 func TestNewPgPool_Ping(t *testing.T) {
