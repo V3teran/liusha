@@ -271,7 +271,7 @@ func (h snifferHandler) handle(ctx context.Context, p worker.Payload) error {
 	)
 
 	// 每个 task 一个全新 Generator（tools 一次绑定，避免跨 goroutine 竞争 BindTools 内部状态）。
-	mainGen, err := h.router.For(ctx, "react.main", reg.Schemas())
+	mainGen, err := h.router.For(ctx, "react_main", reg.Schemas())
 	if err != nil {
 		_ = h.tasks.SetError(ctx, p.TaskID, err.Error())
 		return err
@@ -279,7 +279,7 @@ func (h snifferHandler) handle(ctx context.Context, p worker.Payload) error {
 
 	tid, eid := p.TaskID, p.EngagementID
 	gen := llm.Instrument(mainGen, h.calls,
-		llm.CallMeta{TaskID: &tid, EngagementID: &eid, RouteKey: "react.main"},
+		llm.CallMeta{TaskID: &tid, EngagementID: &eid, RouteKey: "react_main"},
 		h.pricing,
 	)
 

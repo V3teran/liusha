@@ -13,11 +13,11 @@ logs:
 	$(COMPOSE) logs -f --tail=100
 
 migrate:
-	go run -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate \
+	go run -mod=mod -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate \
 		-path db/migrations -database '$(MIGRATE_DSN)' up
 
 migrate-down:
-	go run -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate \
+	go run -mod=mod -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate \
 		-path db/migrations -database '$(MIGRATE_DSN)' down 1
 
 run-api:

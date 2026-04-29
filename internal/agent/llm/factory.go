@@ -1,7 +1,7 @@
 // Package llm 的 Factory 实现：role → field → provider key → Generator 路由 + 懒加载缓存。
 //
 // 黑客松借鉴创新 11（共识 E）：
-//   - 通过 cfg.LLM.Routes 表把抽象角色（"react.main"/"observer"/"distill"…）解耦到具体 provider，
+//   - 通过 cfg.LLM.Routes 表把抽象角色（"react_main"/"observer"/"distill"…）解耦到具体 provider，
 //     允许同一 role 在不同部署里换底层模型而不改代码。
 //   - field 名（"default_provider"/"light_provider"/"vision_provider"/"fallback_provider"）是
 //     LLMConfig 的 4 个字段抽象，通过 switch 解到当前 provider key。

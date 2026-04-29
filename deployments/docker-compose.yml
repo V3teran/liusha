@@ -80,8 +80,6 @@ services:
     command:
       - "-output"
       - "/data/flows.jsonl"
-      - "-match-condition"
-      - "request.method != 'OPTIONS' && request.method != 'HEAD' && request.method != 'CONNECT'"
       - "-no-color"
     ports:
       - "8888:8888"
@@ -107,8 +105,15 @@ services:
       LIUSHA_CONFIG: /app/config/config.yaml
       LIUSHA_ENV: development
       LIUSHA_LOG_LEVEL: info
-      LIUSHA_DEEPSEEK_API_KEY: "${LIUSHA_DEEPSEEK_API_KEY:-}"
-      LIUSHA_ANTHROPIC_API_KEY: "${LIUSHA_ANTHROPIC_API_KEY:-}"
+      # provider api_key（config.yaml 里 api_key_env 配的就是这些名字，不带 LIUSHA_ 前缀）
+      DEEPSEEK_API_KEY: "${DEEPSEEK_API_KEY:-}"
+      ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
+      OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
+      MOONSHOT_API_KEY: "${MOONSHOT_API_KEY:-}"
+      QWEN_API_KEY: "${QWEN_API_KEY:-}"
+      # 临时覆盖：把 light/fallback 都路由到 deepseek，避免 ANTHROPIC_API_KEY 空时 validate 失败
+      LIUSHA_LLM_LIGHT_PROVIDER: "${LIUSHA_LLM_LIGHT_PROVIDER:-deepseek}"
+      LIUSHA_LLM_FALLBACK_PROVIDER: "${LIUSHA_LLM_FALLBACK_PROVIDER:-deepseek}"
       LIUSHA_PROXIFY_JSONL: /data/flows.jsonl
     volumes:
       - liusha-proxify-flows:/data:ro

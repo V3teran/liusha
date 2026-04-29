@@ -65,7 +65,7 @@ func TestInstrument_AppendsCallOnSuccess(t *testing.T) {
 	g := Instrument(inner, sink, CallMeta{
 		TaskID:       &tid,
 		EngagementID: &eid,
-		RouteKey:     "react.main",
+		RouteKey:     "react_main",
 	}, fixedPricing{cost: 0.0042})
 
 	res, err := g.Generate(context.Background(), nil, nil)
@@ -100,7 +100,7 @@ func TestInstrument_AppendsCallOnSuccess(t *testing.T) {
 	if c.EngagementID == nil || *c.EngagementID != "eng-1" {
 		t.Fatalf("engagement id: %v", c.EngagementID)
 	}
-	if c.Role != "react.main" {
+	if c.Role != "react_main" {
 		t.Fatalf("expected role=react.main, got %q", c.Role)
 	}
 }
@@ -163,7 +163,7 @@ func TestInstrument_CostCalculatedFromPricing(t *testing.T) {
 	}
 	sink := &fakeSink{}
 	pr := &recordingPricing{ret: 0.0123}
-	g := Instrument(inner, sink, CallMeta{RouteKey: "react.main"}, pr)
+	g := Instrument(inner, sink, CallMeta{RouteKey: "react_main"}, pr)
 	if _, err := g.Generate(context.Background(), nil, nil); err != nil {
 		t.Fatal(err)
 	}
@@ -191,7 +191,7 @@ func TestInstrument_LatencyMeasured(t *testing.T) {
 		},
 	}
 	sink := &fakeSink{}
-	g := Instrument(inner, sink, CallMeta{RouteKey: "react.main"}, fixedPricing{cost: 0})
+	g := Instrument(inner, sink, CallMeta{RouteKey: "react_main"}, fixedPricing{cost: 0})
 	if _, err := g.Generate(context.Background(), nil, nil); err != nil {
 		t.Fatal(err)
 	}
@@ -203,7 +203,7 @@ func TestInstrument_LatencyMeasured(t *testing.T) {
 
 func TestInstrument_RouteKeyWritten(t *testing.T) {
 	t.Parallel()
-	cases := []string{"react.main", "observer", "distill", "compaction", "vision"}
+	cases := []string{"react_main", "observer", "distill", "compaction", "vision"}
 	for _, rk := range cases {
 		rk := rk
 		t.Run(rk, func(t *testing.T) {
@@ -237,7 +237,7 @@ func TestInstrument_SinkErrorDoesNotBlockGenerate(t *testing.T) {
 		},
 	}
 	sink := &fakeSink{appendErr: errors.New("db down")}
-	g := Instrument(inner, sink, CallMeta{RouteKey: "react.main"}, fixedPricing{cost: 0})
+	g := Instrument(inner, sink, CallMeta{RouteKey: "react_main"}, fixedPricing{cost: 0})
 
 	res, err := g.Generate(context.Background(), nil, nil)
 	if err != nil {

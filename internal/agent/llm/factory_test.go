@@ -44,7 +44,7 @@ func makeRoutedCfg() config.Config {
 			LightProvider:    "anthropic_haiku",
 			FallbackProvider: "qwen",
 			Routes: map[string]string{
-				"react.main": "default_provider",
+				"react_main": "default_provider",
 				"observer":   "light_provider",
 				"distill":    "light_provider",
 			},
@@ -63,7 +63,7 @@ func TestFactory_For_ReactMain(t *testing.T) {
 	builder, _ := newFakeBuilder()
 	f := NewFactoryWithBuilder(cfg, builder)
 
-	g, err := f.For(context.Background(), "react.main", nil)
+	g, err := f.For(context.Background(), "react_main", nil)
 	if err != nil {
 		t.Fatalf("For react.main 失败: %v", err)
 	}
@@ -111,11 +111,11 @@ func TestFactory_For_LazyCache(t *testing.T) {
 	builder, count := newFakeBuilder()
 	f := NewFactoryWithBuilder(cfg, builder)
 
-	g1, err := f.For(context.Background(), "react.main", nil)
+	g1, err := f.For(context.Background(), "react_main", nil)
 	if err != nil {
 		t.Fatalf("第一次 For 失败: %v", err)
 	}
-	g2, err := f.For(context.Background(), "react.main", nil)
+	g2, err := f.For(context.Background(), "react_main", nil)
 	if err != nil {
 		t.Fatalf("第二次 For 失败: %v", err)
 	}
@@ -195,7 +195,7 @@ func TestFactory_For_ConcurrentSameRole(t *testing.T) {
 		i := i
 		go func() {
 			defer wg.Done()
-			g, err := f.For(context.Background(), "react.main", nil)
+			g, err := f.For(context.Background(), "react_main", nil)
 			if err != nil {
 				t.Errorf("并发 For 失败: %v", err)
 				return

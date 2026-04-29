@@ -74,7 +74,7 @@ func TestStore_Append_WithRouteKey(t *testing.T) {
 		EngagementID: &eid,
 		Provider:     "deepseek",
 		Model:        "deepseek-reasoner",
-		Role:         "react.main",
+		Role:         "react_main",
 		CostUSD:      0.001,
 	}); err != nil {
 		t.Fatalf("append react.main: %v", err)
@@ -87,8 +87,8 @@ func TestStore_Append_WithRouteKey(t *testing.T) {
 	if got["observer"] != 2 {
 		t.Fatalf("observer 应为 2, got %d (full=%v)", got["observer"], got)
 	}
-	if got["react.main"] != 1 {
-		t.Fatalf("react.main 应为 1, got %d (full=%v)", got["react.main"], got)
+	if got["react_main"] != 1 {
+		t.Fatalf("react.main 应为 1, got %d (full=%v)", got["react_main"], got)
 	}
 }
 
@@ -101,7 +101,7 @@ func TestStore_SumCostByEngagement(t *testing.T) {
 		role string
 		cost float64
 	}{
-		{"react.main", 0.001234},
+		{"react_main", 0.001234},
 		{"observer", 0.000567},
 		{"distill", 0.002000},
 	}

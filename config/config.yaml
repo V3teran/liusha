@@ -27,8 +27,9 @@ llm:
   fallback_provider: openai
   max_steps: 30                 # ReAct 单任务步数上限，被 Role.Budget 覆盖
   max_tokens_per_call: 4096
+  # 注意：viper 用点 "." 作 yaml 嵌套分隔符，所以 route key 用下划线（react_main）而非 react.main
   routes:
-    react.main: default_provider
+    react_main: default_provider
     observer:   light_provider
     compaction: light_provider
     distill:    light_provider
