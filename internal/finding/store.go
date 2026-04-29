@@ -113,6 +113,21 @@ func (s *Store) ListByEngagement(ctx context.Context, engagementID string) ([]Fi
 	return out, nil
 }
 
+// HasDedupKey 报告 (engagement_id, dedup_key) 在 finding 表中是否存在。
+//
+// 用于 BACDoneValidator（黑客松借鉴共识 C）：当 LLM 声明 reason=finding_written 时，
+// 系统层不能轻信 LLM——必须校验对应 finding 已真正落库。
+func (s *Store) HasDedupKey(ctx context.Context, engagementID, dedupKey string) (bool, error) {
+	var exists bool
+	if err := s.pool.QueryRow(ctx,
+		`SELECT EXISTS (SELECT 1 FROM finding WHERE engagement_id=$1 AND dedup_key=$2)`,
+		engagementID, dedupKey,
+	).Scan(&exists); err != nil {
+		return false, fmt.Errorf("check finding dedup_key: %w", err)
+	}
+	return exists, nil
+}
+
 // fireSavedHooks 异步触发所有已订阅 hook：
 // - 用独立 context.Background() 避免 caller cancel 时 distill 也被 cancel
 // - 每个 hook 单独 goroutine，互不阻塞

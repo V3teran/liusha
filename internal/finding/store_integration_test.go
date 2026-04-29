@@ -174,6 +174,48 @@ func TestStore_OnSavedHook(t *testing.T) {
 	}
 }
 
+// TestStore_HasDedupKey 验证：Save 后 HasDedupKey 返 true；
+// 查不存在的 key 返 false；写入前同 key 也是 false。
+func TestStore_HasDedupKey(t *testing.T) {
+	ctx := context.Background()
+	s, eid := setup(t)
+	dk := "bac.horizontal_priv_esc:vulnapp:GET:/api/has/dedup"
+
+	exists, err := s.HasDedupKey(ctx, eid, dk)
+	if err != nil {
+		t.Fatalf("HasDedupKey 前置查询失败: %v", err)
+	}
+	if exists {
+		t.Fatalf("写入前不应存在: dk=%s", dk)
+	}
+
+	if _, err := s.Save(ctx, Finding{
+		EngagementID: eid,
+		Kind:         "bac.horizontal_priv_esc",
+		Severity:     SeverityHigh,
+		Title:        "GET /api/has/dedup",
+		DedupKey:     dk,
+	}); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+
+	exists, err = s.HasDedupKey(ctx, eid, dk)
+	if err != nil {
+		t.Fatalf("HasDedupKey 后置查询失败: %v", err)
+	}
+	if !exists {
+		t.Fatalf("写入后应存在: dk=%s", dk)
+	}
+
+	exists, err = s.HasDedupKey(ctx, eid, "bac.no_such_key:nope")
+	if err != nil {
+		t.Fatalf("HasDedupKey 不存在键查询失败: %v", err)
+	}
+	if exists {
+		t.Fatal("不存在的 dedup_key 不应返回 true")
+	}
+}
+
 // TestStore_OnSavedHook_MultipleSubscribers 验证：注册多个 hook 都能被异步触发。
 func TestStore_OnSavedHook_MultipleSubscribers(t *testing.T) {
 	ctx := context.Background()
