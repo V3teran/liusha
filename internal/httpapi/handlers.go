@@ -16,9 +16,17 @@ type CredentialsAPI interface {
 	Delete(ctx context.Context, host string) error
 }
 
-// EngagementsAPI 是 handlers 对 engagement store 的窄接口，仅需 Abort。
+// EngagementsAPI 是 handlers 对 engagement store 的窄接口。
+// LookupOrCreateProxy：按 host 懒查或创建 proxy 模式 active engagement，返回其 ID。
+// Abort：把 engagement 置为 aborted。
 type EngagementsAPI interface {
 	Abort(ctx context.Context, id string) error
+	LookupOrCreateProxy(ctx context.Context, host string) (string, error)
+}
+
+// CreateProxyRequest 是 POST /engagement/proxy 请求体。
+type CreateProxyRequest struct {
+	Host string `json:"host"`
 }
 
 // BatchSaveRequest 是 POST /credential/batch 请求体。
@@ -74,6 +82,28 @@ func deleteCredentialHandler(api CredentialsAPI) gin.HandlerFunc {
 			return
 		}
 		c.JSON(200, gin.H{"ok": true})
+	}
+}
+
+// createProxyHandler 处理 POST /engagement/proxy：按 host 懒查或创建 active engagement。
+// 同 host 重复调用幂等返回同一 engagement_id（语义由 store.LookupOrCreate 保证）。
+func createProxyHandler(api EngagementsAPI) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var req CreateProxyRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(400, gin.H{"error": err.Error()})
+			return
+		}
+		if req.Host == "" {
+			c.JSON(400, gin.H{"error": "host required"})
+			return
+		}
+		id, err := api.LookupOrCreateProxy(c.Request.Context(), req.Host)
+		if err != nil {
+			c.JSON(500, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(200, gin.H{"engagement_id": id})
 	}
 }
 

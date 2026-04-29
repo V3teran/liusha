@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -43,11 +44,24 @@ func (f *fakeCred) Delete(_ context.Context, host string) error {
 // fakeAbort 是 EngagementsAPI 的内存实现。
 type fakeAbort struct {
 	aborted []string
+
+	// LookupOrCreateProxy 行为控制
+	lookups   []string // 收到过的 host
+	lookupErr error    // 非 nil 时返回错误
 }
 
 func (f *fakeAbort) Abort(_ context.Context, id string) error {
 	f.aborted = append(f.aborted, id)
 	return nil
+}
+
+// LookupOrCreateProxy 简单 mock：返回 "eid-"+host，便于断言幂等性。
+func (f *fakeAbort) LookupOrCreateProxy(_ context.Context, host string) (string, error) {
+	f.lookups = append(f.lookups, host)
+	if f.lookupErr != nil {
+		return "", f.lookupErr
+	}
+	return "eid-" + host, nil
 }
 
 func newTestServer(t *testing.T, d Deps) *httptest.Server {
@@ -263,5 +277,130 @@ func TestEngagementAbort_RequiresAuth(t *testing.T) {
 	}
 	if len(fa.aborted) != 0 {
 		t.Fatalf("should not have called Abort: %v", fa.aborted)
+	}
+}
+
+// TestEngagementProxy_Created：POST /engagement/proxy 正常路径返回 engagement_id。
+func TestEngagementProxy_Created(t *testing.T) {
+	fa := &fakeAbort{}
+	srv := newTestServer(t, Deps{Engagements: fa})
+	defer srv.Close()
+
+	body, _ := json.Marshal(CreateProxyRequest{Host: "vulnapp"})
+	req, _ := http.NewRequest("POST", srv.URL+"/engagement/proxy", bytes.NewReader(body))
+	req.Header.Set("X-API-Key", "k")
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("do: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		b, _ := io.ReadAll(resp.Body)
+		t.Fatalf("status=%d body=%s", resp.StatusCode, string(b))
+	}
+	var out struct {
+		EngagementID string `json:"engagement_id"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if out.EngagementID != "eid-vulnapp" {
+		t.Fatalf("engagement_id=%q", out.EngagementID)
+	}
+	if len(fa.lookups) != 1 || fa.lookups[0] != "vulnapp" {
+		t.Fatalf("lookups=%v", fa.lookups)
+	}
+}
+
+// TestEngagementProxy_MissingHost：body 中无 host 应返回 400。
+func TestEngagementProxy_MissingHost(t *testing.T) {
+	fa := &fakeAbort{}
+	srv := newTestServer(t, Deps{Engagements: fa})
+	defer srv.Close()
+
+	body, _ := json.Marshal(CreateProxyRequest{Host: ""})
+	req, _ := http.NewRequest("POST", srv.URL+"/engagement/proxy", bytes.NewReader(body))
+	req.Header.Set("X-API-Key", "k")
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("do: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 400 {
+		t.Fatalf("status=%d", resp.StatusCode)
+	}
+	if len(fa.lookups) != 0 {
+		t.Fatalf("should not have called LookupOrCreateProxy: %v", fa.lookups)
+	}
+}
+
+// TestEngagementProxy_BadJSON：非法 JSON 应返回 400。
+func TestEngagementProxy_BadJSON(t *testing.T) {
+	fa := &fakeAbort{}
+	srv := newTestServer(t, Deps{Engagements: fa})
+	defer srv.Close()
+
+	req, _ := http.NewRequest("POST", srv.URL+"/engagement/proxy", bytes.NewReader([]byte("not json")))
+	req.Header.Set("X-API-Key", "k")
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("do: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 400 {
+		t.Fatalf("status=%d", resp.StatusCode)
+	}
+	if len(fa.lookups) != 0 {
+		t.Fatalf("should not have called LookupOrCreateProxy: %v", fa.lookups)
+	}
+}
+
+// TestEngagementProxy_RequiresAuth：缺 X-API-Key 应返回 401 且不调底层。
+func TestEngagementProxy_RequiresAuth(t *testing.T) {
+	fa := &fakeAbort{}
+	srv := newTestServer(t, Deps{Engagements: fa})
+	defer srv.Close()
+
+	body, _ := json.Marshal(CreateProxyRequest{Host: "vulnapp"})
+	req, _ := http.NewRequest("POST", srv.URL+"/engagement/proxy", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("do: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 401 {
+		t.Fatalf("status=%d", resp.StatusCode)
+	}
+	if len(fa.lookups) != 0 {
+		t.Fatalf("should not have called LookupOrCreateProxy: %v", fa.lookups)
+	}
+}
+
+// TestEngagementProxy_LookupError：底层报错应返回 500。
+func TestEngagementProxy_LookupError(t *testing.T) {
+	fa := &fakeAbort{lookupErr: errors.New("db boom")}
+	srv := newTestServer(t, Deps{Engagements: fa})
+	defer srv.Close()
+
+	body, _ := json.Marshal(CreateProxyRequest{Host: "vulnapp"})
+	req, _ := http.NewRequest("POST", srv.URL+"/engagement/proxy", bytes.NewReader(body))
+	req.Header.Set("X-API-Key", "k")
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("do: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 500 {
+		t.Fatalf("status=%d", resp.StatusCode)
 	}
 }

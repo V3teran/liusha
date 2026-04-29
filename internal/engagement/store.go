@@ -19,6 +19,17 @@ func NewStore(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
 // colsSelect 是所有 SELECT 路径的统一列序，与 scan() 的字段顺序一一对应。
 const colsSelect = "id, tenant_id, mode, scope_host, status, memory_facts, memory_ideas, memory_hints, created_at, last_activity_at"
 
+// LookupOrCreateProxy 是 LookupOrCreate 的便利包装：
+// tenant 固定 "default"、mode 固定 ModeProxy，仅返回 engagement ID。
+// 用于 httpapi POST /engagement/proxy 的窄接口实现。
+func (s *Store) LookupOrCreateProxy(ctx context.Context, host string) (string, error) {
+	e, err := s.LookupOrCreate(ctx, "default", host, ModeProxy)
+	if err != nil {
+		return "", err
+	}
+	return e.ID, nil
+}
+
 // LookupOrCreate 返回 (tenant, host) 下当前 active 的 engagement；
 // 若不存在则懒创建一行。这是 v1 唯一的 engagement 入口。
 func (s *Store) LookupOrCreate(ctx context.Context, tenant, host string, mode Mode) (Engagement, error) {

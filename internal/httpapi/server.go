@@ -30,6 +30,7 @@ func NewServer(d Deps) http.Handler {
 		r.DELETE("/credential", deleteCredentialHandler(d.Credentials))
 	}
 	if d.Engagements != nil {
+		r.POST("/engagement/proxy", createProxyHandler(d.Engagements))
 		r.POST("/engagement/:id/abort", abortHandler(d.Engagements))
 	}
 	return r
