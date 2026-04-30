@@ -3,7 +3,9 @@ package react
 import (
 	"context"
 	"encoding/json"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/V3teran/liusha/internal/tool"
 	"github.com/V3teran/liusha/internal/llm"
@@ -173,6 +175,74 @@ func TestRun_DoneValidateRejectsThenForce(t *testing.T) {
 	}
 	if out.DoneForceCount != 1 {
 		t.Fatalf("expected force=1, got %d", out.DoneForceCount)
+	}
+}
+
+// fnAction 是测试用可注入函数 action：让单个 tool_call 调度可观测（如并发计数）。
+type fnAction struct {
+	name string
+	fn   func(ctx context.Context, args json.RawMessage) (tool.Result, error)
+}
+
+func (a *fnAction) Name() string                    { return a.name }
+func (a *fnAction) Description() string             { return "" }
+func (a *fnAction) ParametersJSON() json.RawMessage { return json.RawMessage(`{"type":"object"}`) }
+func (a *fnAction) Execute(ctx context.Context, args json.RawMessage) (tool.Result, error) {
+	return a.fn(ctx, args)
+}
+
+func TestRun_ParallelToolCalls(t *testing.T) {
+	// 主 LLM 一轮返 3 个 tool_calls，runtime 应并行执行（concurrentMax ≥ 2）。
+	var concurrentMax atomic.Int32
+	var current atomic.Int32
+
+	multi := llm.Result{
+		ToolCalls: []llm.ToolCall{
+			{ID: "1", Name: "slow_tool", Arguments: json.RawMessage(`{}`)},
+			{ID: "2", Name: "slow_tool", Arguments: json.RawMessage(`{}`)},
+			{ID: "3", Name: "slow_tool", Arguments: json.RawMessage(`{}`)},
+		},
+		FinishReason: "tool_calls",
+	}
+	done := llm.Result{
+		ToolCalls:    []llm.ToolCall{{ID: "d", Name: "done", Arguments: json.RawMessage(`{}`)}},
+		FinishReason: "tool_calls",
+	}
+
+	gen := &scriptedGen{turns: []llm.Result{multi, done}}
+	reg := tool.NewRegistry()
+
+	slow := &fnAction{
+		name: "slow_tool",
+		fn: func(_ context.Context, _ json.RawMessage) (tool.Result, error) {
+			n := current.Add(1)
+			for {
+				cur := concurrentMax.Load()
+				if n <= cur || concurrentMax.CompareAndSwap(cur, n) {
+					break
+				}
+			}
+			time.Sleep(50 * time.Millisecond)
+			current.Add(-1)
+			return tool.Result{Summary: "ok"}, nil
+		},
+	}
+	if err := reg.Register(slow); err != nil {
+		t.Fatal(err)
+	}
+	if err := reg.Register(&captureAction{name: "done", res: tool.Result{Done: true}}); err != nil {
+		t.Fatal(err)
+	}
+
+	out, err := Run(context.Background(), Config{LLM: gen, Actions: reg, Budget: Budget{MaxSteps: 10}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.TerminateBy != "done" {
+		t.Fatalf("terminate=%q want done", out.TerminateBy)
+	}
+	if got := concurrentMax.Load(); got < 2 {
+		t.Fatalf("concurrentMax=%d want >=2 (parallel exec)", got)
 	}
 }
 

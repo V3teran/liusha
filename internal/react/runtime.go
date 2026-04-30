@@ -13,6 +13,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -170,10 +171,29 @@ func Run(ctx context.Context, cfg Config) (Outcome, error) {
 		}
 		msgs = append(msgs, llm.Message{Role: llm.RoleAssistant, ToolCalls: res.ToolCalls, Content: res.Content})
 
-		// 5) 逐个执行 tool call
+		// 5) 并行执行 tool_calls（多 spawn_skill 自动 goroutine 并发）
+		type toolExecResult struct {
+			tc  llm.ToolCall
+			res tool.Result
+			err error
+		}
+
+		results := make([]toolExecResult, len(res.ToolCalls))
+		var wg sync.WaitGroup
+		for i, tc := range res.ToolCalls {
+			wg.Add(1)
+			go func(i int, tc llm.ToolCall) {
+				defer wg.Done()
+				r, e := cfg.Actions.Execute(ctx, tc.Name, tc.Arguments)
+				results[i] = toolExecResult{tc: tc, res: r, err: e}
+			}(i, tc)
+		}
+		wg.Wait()
+
+		// 串行处理结果（保 tool_call_id 顺序、汇总 done）
 		var sawDone bool
-		for _, tc := range res.ToolCalls {
-			tcRes, execErr := cfg.Actions.Execute(ctx, tc.Name, tc.Arguments)
+		for _, r := range results {
+			tc, tcRes, execErr := r.tc, r.res, r.err
 
 			// DoneValidator 中间件抛错：注入 user msg 让 LLM 继续；超过阈值强制放行
 			if e, ok := IsDoneNotReady(execErr); ok {
