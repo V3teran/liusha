@@ -3,31 +3,55 @@ package proxy
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
-	"time"
 
 	"github.com/V3teran/liusha/internal/config"
 	"github.com/V3teran/liusha/internal/filter"
 	"github.com/rs/zerolog"
 )
 
-// 共用：构造一台有 dedup + sink 的 Server（不会真启 listener，仅做回调测试）。
-func newTestServer(t *testing.T, listenAddr, certDir string, cfg config.ProxyConfig) (*Server, *mockSink) {
+// fakePublisher 在内存中捕获 snapshot，避免单测起 Redis。
+type fakePublisher struct {
+	mu        sync.Mutex
+	snapshots []*TrafficSnapshot
+	failOn    error
+}
+
+func (p *fakePublisher) Publish(_ context.Context, snap *TrafficSnapshot) error {
+	if p.failOn != nil {
+		return p.failOn
+	}
+	p.mu.Lock()
+	p.snapshots = append(p.snapshots, snap)
+	p.mu.Unlock()
+	return nil
+}
+
+func (p *fakePublisher) Snapshots() []*TrafficSnapshot {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	out := make([]*TrafficSnapshot, len(p.snapshots))
+	copy(out, p.snapshots)
+	return out
+}
+
+// 共用：构造一台带 fake publisher 的 Server（不会真启 listener，仅做回调测试）。
+func newTestServer(t *testing.T, listenAddr, certDir string, cfg config.ProxyConfig) (*Server, *fakePublisher) {
 	t.Helper()
 	tf := filter.NewTrafficFilter(cfg)
-	sink := newMockSink()
-	dedup := NewTrafficDeduplicator()
-	agg := NewAggregator(time.Hour, time.Minute, 1000, dedup, sink)
+	pub := &fakePublisher{}
 
 	srv, err := NewServer(ServerDeps{
 		Filter:     tf,
-		Aggregator: agg,
+		Publisher:  pub,
 		Cfg:        cfg,
 		ListenAddr: listenAddr,
 		CertDir:    certDir,
@@ -36,7 +60,7 @@ func newTestServer(t *testing.T, listenAddr, certDir string, cfg config.ProxyCon
 	if err != nil {
 		t.Fatalf("NewServer 失败: %v", err)
 	}
-	return srv, sink
+	return srv, pub
 }
 
 // 默认放行全部的 cfg；上限设大避免误截断。
@@ -61,7 +85,6 @@ func TestNewServer_CertDirCreated(t *testing.T) {
 	if srv.certDir != tmp {
 		t.Fatalf("certDir 期望 %q, 实际 %q", tmp, srv.certDir)
 	}
-	// proxify 的 LoadCerts 会写两个文件
 	for _, name := range []string{"cacert.pem", "cakey.pem"} {
 		path := filepath.Join(tmp, name)
 		if _, err := os.Stat(path); err != nil {
@@ -72,35 +95,31 @@ func TestNewServer_CertDirCreated(t *testing.T) {
 
 func TestNewServer_NilDeps(t *testing.T) {
 	tmp := t.TempDir()
-	if _, err := NewServer(ServerDeps{Filter: nil, Aggregator: nil, CertDir: tmp}); err == nil {
-		t.Fatal("Filter / Aggregator 必填，应返回错误")
+	if _, err := NewServer(ServerDeps{Filter: nil, Publisher: nil, CertDir: tmp}); err == nil {
+		t.Fatal("Filter / Publisher 必填，应返回错误")
 	}
 }
 
-// 拒绝过滤：方法在黑名单 → snapshot 不入 aggregator。
+// 拒绝过滤：方法在黑名单 → snapshot 不入 publisher。
 func TestServer_OnResponse_FilterReject(t *testing.T) {
 	tmp := t.TempDir()
 	cfg := defaultCfg()
 	cfg.ExcludeMethods = []string{"OPTIONS"}
-	srv, sink := newTestServer(t, "127.0.0.1:0", tmp, cfg)
+	srv, pub := newTestServer(t, "127.0.0.1:0", tmp, cfg)
 
 	resp := makeResponse(t, "OPTIONS", "http://api.example.com/foo", nil, 200, []byte("{}"))
 	if err := srv.onResponse(resp, nil); err != nil {
 		t.Fatalf("onResponse 不应返回错误: %v", err)
 	}
-	// 同步 add，无 ticker；期望 0 条 pending
-	if got := srv.aggregator.Pending(); got != 0 {
-		t.Fatalf("被过滤的流量不应入 aggregator, pending=%d", got)
-	}
-	if got := sink.flushed.Load(); got != 0 {
-		t.Fatalf("被过滤的流量不应触发 flush, flushed=%d", got)
+	if got := len(pub.Snapshots()); got != 0 {
+		t.Fatalf("被过滤的流量不应 publish, snapshots=%d", got)
 	}
 }
 
 // 通过过滤：snapshot 字段正确填充。
 func TestServer_OnResponse_BuildSnapshot(t *testing.T) {
 	tmp := t.TempDir()
-	srv, _ := newTestServer(t, "127.0.0.1:0", tmp, defaultCfg())
+	srv, pub := newTestServer(t, "127.0.0.1:0", tmp, defaultCfg())
 
 	reqBody := []byte(`{"a":1}`)
 	respBody := []byte(`{"ok":true}`)
@@ -113,11 +132,11 @@ func TestServer_OnResponse_BuildSnapshot(t *testing.T) {
 		t.Fatalf("onResponse: %v", err)
 	}
 
-	if got := srv.aggregator.Pending(); got != 1 {
-		t.Fatalf("应有 1 条 snapshot, pending=%d", got)
+	snaps := pub.Snapshots()
+	if len(snaps) != 1 {
+		t.Fatalf("应有 1 条 snapshot, 实际 %d", len(snaps))
 	}
-
-	snap := srv.aggregator.snapshots[0]
+	snap := snaps[0]
 	if snap.Method != "POST" {
 		t.Errorf("Method=%q, 期望 POST", snap.Method)
 	}
@@ -166,7 +185,6 @@ func TestServer_OnResponse_BodyRebuild(t *testing.T) {
 		t.Fatalf("onResponse: %v", err)
 	}
 
-	// 重读 body：客户端模拟下游消费
 	got, err := io.ReadAll(resp.Body)
 	if err != nil {
 		t.Fatalf("重读 resp.Body: %v", err)
@@ -174,7 +192,6 @@ func TestServer_OnResponse_BodyRebuild(t *testing.T) {
 	if !bytes.Equal(got, respBody) {
 		t.Fatalf("resp.Body 重建失败: 期望 %q, 实际 %q", respBody, got)
 	}
-
 	gotReq, err := io.ReadAll(resp.Request.Body)
 	if err != nil {
 		t.Fatalf("重读 req.Body: %v", err)
@@ -189,7 +206,7 @@ func TestServer_OnResponse_BodyTruncated(t *testing.T) {
 	tmp := t.TempDir()
 	cfg := defaultCfg()
 	cfg.MaxResponseBodySize = 10
-	srv, _ := newTestServer(t, "127.0.0.1:0", tmp, cfg)
+	srv, pub := newTestServer(t, "127.0.0.1:0", tmp, cfg)
 
 	full := bytes.Repeat([]byte("A"), 20)
 	resp := makeResponse(t, "GET", "http://x.example.com/", nil, 200, full)
@@ -197,22 +214,32 @@ func TestServer_OnResponse_BodyTruncated(t *testing.T) {
 		t.Fatalf("onResponse: %v", err)
 	}
 
-	if got := srv.aggregator.Pending(); got != 1 {
-		t.Fatalf("pending=%d", got)
+	snaps := pub.Snapshots()
+	if len(snaps) != 1 {
+		t.Fatalf("snapshots=%d", len(snaps))
 	}
-	snap := srv.aggregator.snapshots[0]
-	if len(snap.ResponseBody) != 10 {
-		t.Fatalf("body 应被截断到 10 字节, 实际 %d", len(snap.ResponseBody))
+	if got := len(snaps[0].ResponseBody); got != 10 {
+		t.Fatalf("body 应被截断到 10 字节, 实际 %d", got)
+	}
+}
+
+// publish 失败不阻断转发：仅 warn，onResponse 仍返回 nil。
+func TestServer_OnResponse_PublishError_NotPropagated(t *testing.T) {
+	tmp := t.TempDir()
+	srv, pub := newTestServer(t, "127.0.0.1:0", tmp, defaultCfg())
+	pub.failOn = errors.New("synthetic-publish-fail")
+
+	resp := makeResponse(t, "GET", "http://x.example.com/", nil, 200, []byte("ok"))
+	if err := srv.onResponse(resp, nil); err != nil {
+		t.Fatalf("publish 失败应被吞，onResponse=%v", err)
 	}
 }
 
 func TestServer_RunCancellation(t *testing.T) {
-	// 启 listener 风险大（端口冲突），仅验证 ctx 取消立即返回。
 	tmp := t.TempDir()
 	srv, _ := newTestServer(t, "127.0.0.1:0", tmp, defaultCfg())
-
 	ctx, cancel := context.WithCancel(context.Background())
-	cancel() // 立即取消
+	cancel()
 	err := srv.Run(ctx)
 	if err == nil {
 		t.Fatal("ctx 已取消, Run 应返回错误")

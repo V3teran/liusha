@@ -153,25 +153,6 @@ func TestRun_ObserverInjectsHint(t *testing.T) {
 	}
 }
 
-func TestRun_LoopDetectorAbort(t *testing.T) {
-	// action 中间件（T22.5）抛 ErrLoopDetectorAbort，runtime 应 break with loop_detector_abort
-	repeat := llm.Result{
-		ToolCalls:    []llm.ToolCall{{ID: "r", Name: "noop", Arguments: json.RawMessage(`{"x":1}`)}},
-		FinishReason: "tool_calls",
-	}
-	gen := &scriptedGen{turns: []llm.Result{repeat}}
-	reg := action.NewRegistry()
-	_ = reg.Register(&captureAction{name: "noop", err: ErrLoopDetectorAbort})
-
-	out, err := Run(context.Background(), Config{LLM: gen, Actions: reg, Budget: Budget{MaxSteps: 10}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if out.TerminateBy != "loop_detector_abort" {
-		t.Fatalf("expected loop_detector_abort, got %q", out.TerminateBy)
-	}
-}
-
 func TestRun_DoneValidateRejectsThenForce(t *testing.T) {
 	// done 前 N 次被 done_validate middleware 拒绝（ErrDoneNotReady），runtime 注入 user msg；
 	// 累计达到 doneForceMaxRejects 后强制放行（done_force）。

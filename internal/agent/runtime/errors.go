@@ -1,6 +1,6 @@
-// Package runtime 提供 ReAct 循环的运行时错误（loop_detect / done_validate 中间件依赖）。
+// Package runtime 提供 ReAct 循环的运行时错误（done_validate 中间件依赖）。
 //
-// 注意：T22.5 仅落地 errors.go；ReAct 主循环（budget/runtime.go）由 T23 实现。
+// LoopDetector 已砍——MaxSteps + DoneValidator 是足够的死循环兜底。
 package runtime
 
 import (
@@ -8,9 +8,6 @@ import (
 	"fmt"
 	"strings"
 )
-
-// ErrLoopDetectorAbort 由 loop_detect 中间件抛出：连续 N 次同 hash 的动作调用被判定为死循环。
-var ErrLoopDetectorAbort = errors.New("loop detector: same action+args repeated, aborting")
 
 // ErrDoneNotReady 由 done_validate 中间件抛出：LLM 想 done 但 Skill 注册的 DoneValidator 拒绝。
 //

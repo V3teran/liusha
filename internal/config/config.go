@@ -42,7 +42,14 @@ type LLMConfig struct {
 	Routes           map[string]string `mapstructure:"routes"`
 }
 
+// ProviderConfig 一个 LLM provider 的连接参数。
+//
+//	Type 取值:
+//	  "openai_compat" 走 OpenAI 协议族（OpenAI/DeepSeek/Qwen/Moonshot/Groq/智谱/豆包 等）；
+//	  "anthropic"     走 Anthropic 原生 /v1/messages；
+//	  ""              视为 openai_compat（向后兼容）。
 type ProviderConfig struct {
+	Type           string `mapstructure:"type"`
 	BaseURL        string `mapstructure:"base_url"`
 	DefaultModel   string `mapstructure:"default_model"`
 	VisionModel    string `mapstructure:"vision_model"`

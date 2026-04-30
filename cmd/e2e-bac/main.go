@@ -48,13 +48,21 @@ func main() {
 	proxyAddr := envOr("LIUSHA_PROXY_ADDR", "http://localhost:8888")
 	vulnBase := envOr("LIUSHA_VULNAPP_BASE", "http://host.docker.internal:8001")
 
-	eid, err := createProxyEngagement(apiBase, apiKey, "vulnapp")
+	// scopeHost 从 vulnBase 提取（去端口）；与 cmd/proxy 落库时 snapshot.Host 必须一致，
+	// 否则 engagement.LookupOrCreate 会生成两条独立 engagement，BAC finding 落到错误的那条。
+	scopeHost, err := extractHost(vulnBase)
+	if err != nil {
+		logger.Fatal().Err(err).Msg("extract scope host from VULNAPP_BASE")
+	}
+	logger.Info().Str("scope_host", scopeHost).Str("vuln_base", vulnBase).Msg("scope host derived")
+
+	eid, err := createProxyEngagement(apiBase, apiKey, scopeHost)
 	if err != nil {
 		logger.Fatal().Err(err).Msg("create engagement")
 	}
 	logger.Info().Str("engagement_id", eid).Msg("engagement ready")
 
-	if err := saveCreds(apiBase, apiKey); err != nil {
+	if err := saveCreds(apiBase, apiKey, scopeHost); err != nil {
 		logger.Fatal().Err(err).Msg("save credentials")
 	}
 	logger.Info().Msg("credentials enrolled")
@@ -105,6 +113,21 @@ func envOr(k, def string) string {
 	return def
 }
 
+// extractHost 从绝对 URL 中提取 host（去端口）。
+// 与 cmd/proxy 的 stripPort 行为对齐——它会把 "host.docker.internal:8001" 截成 "host.docker.internal"，
+// 这样才能让 e2e 创建的 engagement 与 proxy 落库的 engagement 共享同一个 scope_host。
+func extractHost(rawURL string) (string, error) {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return "", fmt.Errorf("parse %q: %w", rawURL, err)
+	}
+	h := u.Hostname()
+	if h == "" {
+		return "", fmt.Errorf("URL %q 无 host", rawURL)
+	}
+	return h, nil
+}
+
 // createProxyEngagement 调 POST /engagement/proxy 拿 engagement_id；
 // 后端 LookupOrCreateProxy 同 host 幂等，重复调用不会产生新 engagement。
 func createProxyEngagement(base, key, host string) (string, error) {
@@ -133,19 +156,24 @@ func createProxyEngagement(base, key, host string) (string, error) {
 	return out.EngagementID, nil
 }
 
-// saveCreds 录入 vulnapp 三套身份的 session cookie；
+// saveCreds 录入 host 三套身份的 session cookie；
 // 写入是 host 维度全量替换语义，重复执行幂等。
-func saveCreds(base, key string) error {
-	body := []byte(`{
-	  "ttl_seconds": 0,
-	  "credentials": {
-	    "vulnapp": [
-	      {"name":"admin","role":"admin","credentials":[{"type":"headers","key":"Cookie","value":"session=admin_sess_a1b2c3"}]},
-	      {"name":"test","role":"user","credentials":[{"type":"headers","key":"Cookie","value":"session=test_sess_d4e5f6"}]},
-	      {"name":"m233241","role":"user","credentials":[{"type":"headers","key":"Cookie","value":"session=m233241_sess_g7h8i9"}]}
-	    ]
-	  }
-	}`)
+// host 必须与 cmd/proxy 看到的 snapshot.Host 一致（去端口形式）。
+func saveCreds(base, key, host string) error {
+	payload := map[string]any{
+		"ttl_seconds": 0,
+		"credentials": map[string]any{
+			host: []map[string]any{
+				{"name": "admin", "role": "admin", "credentials": []map[string]string{{"type": "headers", "key": "Cookie", "value": "session=admin_sess_a1b2c3"}}},
+				{"name": "test", "role": "user", "credentials": []map[string]string{{"type": "headers", "key": "Cookie", "value": "session=test_sess_d4e5f6"}}},
+				{"name": "m233241", "role": "user", "credentials": []map[string]string{{"type": "headers", "key": "Cookie", "value": "session=m233241_sess_g7h8i9"}}},
+			},
+		},
+	}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("marshal credentials: %w", err)
+	}
 	req, _ := http.NewRequest(http.MethodPost, base+"/credential/batch", bytes.NewReader(body))
 	req.Header.Set("X-API-Key", key)
 	req.Header.Set("Content-Type", "application/json")

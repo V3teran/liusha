@@ -40,6 +40,7 @@ import (
 	"github.com/V3teran/liusha/internal/engagement"
 	"github.com/V3teran/liusha/internal/finding"
 	"github.com/V3teran/liusha/internal/flow"
+	"github.com/V3teran/liusha/internal/flowconsumer"
 	"github.com/V3teran/liusha/internal/graph"
 	"github.com/V3teran/liusha/internal/llmcall"
 	"github.com/V3teran/liusha/internal/logx"
@@ -182,6 +183,26 @@ func main() {
 		},
 	)
 
+	// flowconsumer：消费 proxy XADD 进的流量事件 → 落库 + 切窗 + 入队 sniffer。
+	// Ager：兜底切窗（低流量场景下 batch 不满也能在 max_age 后触发分析）。
+	flowCtx, flowCancel := context.WithCancel(context.Background())
+	defer flowCancel()
+
+	flowConsumer, err := flowconsumer.NewConsumer(flowCtx, flowconsumer.Deps{
+		Redis:    rdb,
+		Engs:     engs,
+		Flows:    flows,
+		Windows:  windows,
+		Tasks:    tasks,
+		Enqueuer: wc,
+		Cfg:      cfg.Proxy,
+		Logger:   logger,
+	})
+	if err != nil {
+		logger.Fatal().Err(err).Msg("new flowconsumer")
+	}
+	flowAger := flowconsumer.NewAger(windows, tasks, wc, cfg.Proxy.WindowMaxAgeSeconds, logger)
+
 	hsMux := http.NewServeMux()
 	hsMux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`{"ok":true}`))
@@ -202,12 +223,25 @@ func main() {
 		}
 	}()
 
+	go func() {
+		if err := flowConsumer.Run(flowCtx); err != nil && !errors.Is(err, context.Canceled) {
+			logger.Error().Err(err).Msg("flowconsumer exited")
+		}
+	}()
+
+	go func() {
+		if err := flowAger.Run(flowCtx); err != nil && !errors.Is(err, context.Canceled) {
+			logger.Error().Err(err).Msg("flowconsumer ager exited")
+		}
+	}()
+
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
 	sig := <-stop
 	logger.Info().Str("signal", sig.String()).Msg("agent-worker shutting down")
 
-	// 关停顺序：asynq 收尾（阻塞等 in-flight task）→ healthz。
+	// 关停顺序：先停 flowconsumer / ager（不再产新 sniffer task）→ asynq 收尾（阻塞等 in-flight task）→ healthz。
+	flowCancel()
 	srv.Shutdown()
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancel()
@@ -215,6 +249,35 @@ func main() {
 		logger.Error().Err(err).Msg("healthz shutdown")
 	}
 	logger.Info().Msg("agent-worker stopped")
+}
+
+// buildUserPrompt 把 worker.Payload.Input（JSON）解析成明确的中文指令，引导 LLM 立即调工具。
+//
+// 业务背景：DeepSeek 等 chat 模型对"裸 JSON user prompt + system 指令"容易直接给文本回复
+// 而不调工具（terminate_by="no_tool_call" 一步退出）。把意图写成自然语言指令更稳。
+//
+// sniffer 主任务：读 window_id → 调 read_window 拿 flow → 对每个可疑 flow spawn BAC 子任务。
+// BAC 子任务：读 input.flow_id → 调 read_state / fetch_creds / replay → write_finding。
+func buildUserPrompt(p worker.Payload) string {
+	if p.Skill == "" {
+		var in struct {
+			WindowID string `json:"window_id"`
+		}
+		_ = json.Unmarshal(p.Input, &in)
+		return fmt.Sprintf(
+			`当前任务：分析 traffic_window（id=%s）。
+
+立刻按以下步骤调用工具，不要给文本回答：
+1. 调用 read_window，参数 {"window_id":"%s"}，拿到本窗口的 flow 列表（id/method/url/status/host）
+2. 对每个可疑 flow（URL 含 /admin/、/sys/，或 query/path 含 uid=、user_id、order/、profile 等身份相关参数），调 spawn_subtask，参数 {"skill":"vuln/web/bac","input":{"flow_id":<flow.id>,"host":"%s"}}
+3. 全部 spawn 完成后调 done，参数 {"reason":"window_consumed"}
+4. 没可疑就调 done，参数 {"reason":"no_suspicious"}
+
+约束：单窗口最多 5 个子任务；同一 flow 只 spawn 一次。`,
+			in.WindowID, in.WindowID, "")
+	}
+	// BAC / 其它 skill：input 已经包含 flow_id 等业务字段，直接给原文 + 一句指令前缀。
+	return fmt.Sprintf("立刻按 SKILL 流程调用工具，不要文本回答。input=%s", string(p.Input))
 }
 
 // snifferHandler 持有所有跨任务共享依赖；handle() 内每个任务建独立 Registry + Generator。
@@ -268,9 +331,9 @@ func (h snifferHandler) handle(ctx context.Context, p worker.Payload) error {
 	}
 
 	// T22.5：套上中间件链；done_validator 按 skill 注入（sniffer=nil → AlwaysOK，BAC=BACValidator）。
+	// LoopDetect 已砍——MaxSteps + DoneValidator 已是足够的死循环兜底。
 	reg.Use(
 		middleware.ResultCompress(p.EngagementID, resultCompressBaseDir),
-		middleware.LoopDetect(),
 		middleware.DoneValidate(doneValidator),
 	)
 
@@ -304,7 +367,7 @@ func (h snifferHandler) handle(ctx context.Context, p worker.Payload) error {
 		Actions:            reg,
 		Budget:             h.budget,
 		SystemPrompt:       systemPrompt,
-		UserPrompt:         string(p.Input),
+		UserPrompt:         buildUserPrompt(p),
 		Observer:           observer,
 		ObserverEverySteps: 5,
 		OnAbort: func(c context.Context) (bool, error) {

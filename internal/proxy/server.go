@@ -31,16 +31,22 @@ const (
 	defaultCertSubdir = ".liusha"
 )
 
-// Server 把 proxify SDK 当作进程内 MITM 代理，OnResponseCallback 触发 filter→snapshot→aggregator。
+// Server 把 proxify SDK 当作进程内 MITM 代理，OnResponseCallback 触发 filter→snapshot→publisher（XADD）。
 //
-// 设计要点：
+// 设计要点（业界最佳实践 - Stream-based）：
 //   - 不输出 jsonl 文件，所有切片留在内存（OutputFile/OutputJsonl 关闭）。
 //   - body 在回调中读完必须重建，否则下游客户端拿不到响应。
-//   - filter / aggregator 通过 deps 注入，便于单元测试不起 proxify。
+//   - 过滤通过后立即 XADD 到 Redis Stream；切窗 / 持久化 / 入队由消费者负责（解耦 + 无状态 proxy）。
+// SnapshotPublisher 抽象 publish 行为，便于单元测试不依赖 Redis。
+// 生产实现：proxy.Publisher（XADD 到 Redis Stream）。
+type SnapshotPublisher interface {
+	Publish(ctx context.Context, snap *TrafficSnapshot) error
+}
+
 type Server struct {
 	proxy      *proxify.Proxy
 	filter     *filter.TrafficFilter
-	aggregator *Aggregator
+	publisher  SnapshotPublisher
 	cfg        config.ProxyConfig
 	listenAddr string
 	certDir    string
@@ -50,7 +56,7 @@ type Server struct {
 // ServerDeps 注入服务依赖；ListenAddr / CertDir 为空时走默认值。
 type ServerDeps struct {
 	Filter     *filter.TrafficFilter
-	Aggregator *Aggregator
+	Publisher  SnapshotPublisher
 	Cfg        config.ProxyConfig
 	ListenAddr string
 	CertDir    string
@@ -62,8 +68,8 @@ func NewServer(deps ServerDeps) (*Server, error) {
 	if deps.Filter == nil {
 		return nil, errors.New("proxy.NewServer: Filter 必填")
 	}
-	if deps.Aggregator == nil {
-		return nil, errors.New("proxy.NewServer: Aggregator 必填")
+	if deps.Publisher == nil {
+		return nil, errors.New("proxy.NewServer: Publisher 必填")
 	}
 
 	listenAddr := strings.TrimSpace(deps.ListenAddr)
@@ -85,7 +91,7 @@ func NewServer(deps ServerDeps) (*Server, error) {
 
 	srv := &Server{
 		filter:     deps.Filter,
-		aggregator: deps.Aggregator,
+		publisher:  deps.Publisher,
 		cfg:        deps.Cfg,
 		listenAddr: listenAddr,
 		certDir:    certDir,
@@ -118,7 +124,7 @@ func NewServer(deps ServerDeps) (*Server, error) {
 // onResponse 是 proxify 的响应回调：
 //  1. 走 TrafficFilter；不通过即丢弃（return nil 不影响转发）。
 //  2. 读取 req/resp body 并重建（必须，否则代理会断），构造 TrafficSnapshot。
-//  3. 投递到 Aggregator；错误吞掉（聚合层不感知存储语义）。
+//  3. XADD 到 Redis Stream（FlowStream）；publish 失败仅 warn 不阻断转发。
 func (s *Server) onResponse(resp *http.Response, _ *martian.Context) error {
 	if resp == nil || resp.Request == nil {
 		return nil
@@ -150,9 +156,17 @@ func (s *Server) onResponse(resp *http.Response, _ *martian.Context) error {
 		return nil
 	}
 
-	// 3) 构造 snapshot
+	// 3) 构造 snapshot 并投递到 Stream
 	snap := buildSnapshot(req, resp, reqBody, respBody)
-	s.aggregator.Add(snap)
+	if err := s.publisher.Publish(req.Context(), snap); err != nil {
+		s.logger.Warn().Err(err).
+			Str("method", snap.Method).Str("host", snap.Host).Str("uri", snap.URI).
+			Msg("Publisher.Publish 失败（流量已丢弃）")
+		return nil
+	}
+	s.logger.Debug().
+		Str("method", snap.Method).Str("host", snap.Host).Str("uri", snap.URI).
+		Int("status", snap.StatusCode).Msg("flow 已投递到 stream")
 	return nil
 }
 
@@ -174,16 +188,14 @@ func (s *Server) Run(ctx context.Context) error {
 	}
 }
 
-// Stop 停止 proxify 并 flush aggregator。可重复调用。
+// Stop 停止 proxify。可重复调用。
 //
 // 注意：proxify v0.0.16 的 Stop() 是 no-op，listener 没有显式关闭点；
 // 因此调用方应在进程退出时依赖 listener 随进程关闭。
+// Publisher 是无状态的，无需关闭（rdb 由调用方关）。
 func (s *Server) Stop() {
 	if s.proxy != nil {
 		s.proxy.Stop()
-	}
-	if s.aggregator != nil {
-		s.aggregator.Stop()
 	}
 }
 

@@ -6,13 +6,6 @@ import (
 	"testing"
 )
 
-func TestErrLoopDetectorAbort_Identity(t *testing.T) {
-	wrapped := fmt.Errorf("外层包装: %w", ErrLoopDetectorAbort)
-	if !errors.Is(wrapped, ErrLoopDetectorAbort) {
-		t.Fatal("errors.Is 应该能识别被包装的 ErrLoopDetectorAbort")
-	}
-}
-
 func TestErrDoneNotReady_AsError(t *testing.T) {
 	missing := []string{"recon", "exploit"}
 	original := ErrDoneNotReady{Missing: missing}

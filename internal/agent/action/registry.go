@@ -2,7 +2,7 @@
 //
 // 设计要点（含黑客松借鉴）：
 //   - Action 是 LLM 可调用的工具单元，Execute 返回 Result（含 Done 终止信号 + Summary 摘要）。
-//   - Registry 在动作执行前后通过中间件链横切：result_compress / loop_detect / done_validate。
+//   - Registry 在动作执行前后通过中间件链横切：result_compress / done_validate。
 //   - 中间件顺序与 HTTP middleware 一致：先注册的在最外层（先 enter、后 exit）。
 package action
 

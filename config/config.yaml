@@ -38,8 +38,11 @@ llm:
 # 每个 provider 一节；只填要用的，其它留空即可
 # api_key_env 是从 env 读 key 的变量名
 providers:
+  # type: openai_compat → sashabaranov/go-openai 调 /v1/chat/completions
+  # type: anthropic     → anthropics/anthropic-sdk-go 调 /v1/messages
   deepseek:
-    base_url: https://api.deepseek.com
+    type: openai_compat
+    base_url: https://api.deepseek.com/v1
     default_model: deepseek-chat
     api_key_env: DEEPSEEK_API_KEY
     max_tokens: 4096
@@ -47,6 +50,7 @@ providers:
     supports_vision: false
 
   anthropic:
+    type: anthropic
     base_url: https://api.anthropic.com
     default_model: claude-sonnet-4-6
     vision_model: claude-haiku-4-5
@@ -56,6 +60,7 @@ providers:
     supports_vision: true
 
   anthropic_haiku:
+    type: anthropic
     base_url: https://api.anthropic.com
     default_model: claude-haiku-4-5
     api_key_env: ANTHROPIC_API_KEY
@@ -64,6 +69,7 @@ providers:
     supports_vision: true
 
   openai:
+    type: openai_compat
     base_url: https://api.openai.com/v1
     default_model: gpt-4o
     api_key_env: OPENAI_API_KEY
@@ -72,6 +78,7 @@ providers:
     supports_vision: true
 
   moonshot:
+    type: openai_compat
     base_url: https://api.moonshot.cn/v1
     default_model: kimi-k2-0905-preview
     api_key_env: MOONSHOT_API_KEY
@@ -80,6 +87,7 @@ providers:
     supports_vision: false
 
   qwen:
+    type: openai_compat
     base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
     default_model: qwen3-max
     api_key_env: QWEN_API_KEY
@@ -90,11 +98,13 @@ providers:
 # ---- proxy 内嵌 MITM + 责任链过滤 + 聚合参数 ----
 # proxify SDK 内嵌到 host 进程；filter/aggregator 由 liusha 自己控
 proxy:
-  window_batch: 20              # TrafficWindow 批大小上限
-  window_max_age_seconds: 30    # 窗口存活上限
+  window_batch: 20              # TrafficWindow 批大小上限（满即关闭 → 立即触发 sniffer）
+  window_max_age_seconds: 30    # ager 兜底：超过此秒数仍 open 的窗口会被强制关闭并入队 sniffer（低流量场景）
   allow_hosts:                  # HostFilter 白名单（空=放行全部）
-    - vulnapp                   # v1 e2e 靶机
-    - host.docker.internal      # 让 BAC replay 能从 agent-worker 出去打宿主机
+    - vulnapp                   # v1 e2e 靶机（docker 模式）
+    - host.docker.internal      # 容器内 agent-worker → host vulnapp（docker 模式）
+    - localhost                 # host 模式（cmd/proxy host 进程时直连 vulnapp）
+    - 127.0.0.1                 # host 模式 IP 直连
   exclude_methods:              # 方法黑名单
     - OPTIONS
     - HEAD

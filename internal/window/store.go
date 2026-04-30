@@ -89,6 +89,46 @@ func (s *Store) CloseExpired(ctx context.Context, engagementID string, maxAgeSec
 	return nil
 }
 
+// ClosedWindowRef 描述一次"刚被时间触发关闭"的窗口；ager 拿来批量入队 sniffer。
+type ClosedWindowRef struct {
+	EngagementID string
+	WindowID     string
+}
+
+// CloseStaleAll 全局扫描：把所有已超过 maxAgeSec 秒的 open window 批量置 closed，
+// 返回刚关闭的窗口列表（caller 据此 enqueue sniffer 任务）。
+//
+// 与 CloseExpired 相比的差异：
+//   - 跨 engagement，单条 UPDATE...RETURNING 完成
+//   - 返回 (eid, wid) 让 ager 知道要 enqueue 哪些窗口
+//
+// 调用方应在 ticker 中周期调用（如每 5s），用 maxAgeSec = config.proxy.window_max_age_seconds。
+func (s *Store) CloseStaleAll(ctx context.Context, maxAgeSec int) ([]ClosedWindowRef, error) {
+	rows, err := s.pool.Query(ctx, `
+		UPDATE traffic_window
+		SET status='closed', closed_at=now()
+		WHERE status='open'
+		  AND now() - started_at > make_interval(secs => $1)
+		RETURNING id, engagement_id`, maxAgeSec)
+	if err != nil {
+		return nil, fmt.Errorf("close stale windows: %w", err)
+	}
+	defer rows.Close()
+
+	var out []ClosedWindowRef
+	for rows.Next() {
+		var ref ClosedWindowRef
+		if err := rows.Scan(&ref.WindowID, &ref.EngagementID); err != nil {
+			return nil, fmt.Errorf("scan closed window: %w", err)
+		}
+		out = append(out, ref)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate closed windows: %w", err)
+	}
+	return out, nil
+}
+
 // ListClosed 列出指定 engagement 的 closed（未 consumed）窗口，按 started_at 升序。
 func (s *Store) ListClosed(ctx context.Context, engagementID string, limit int) ([]Window, error) {
 	rows, err := s.pool.Query(ctx, `

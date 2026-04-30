@@ -1,22 +1,34 @@
 // Package runtime 实现 ReAct 主循环。
 //
-// 设计要点（黑客松借鉴共识 A：去 Reflexion，由 Observer 替代）：
+// 设计要点：
 //   - 主循环：LLM 生成 → tool calls 经 Registry（含中间件链）执行 → 喂回历史 → 直到 done / 预算耗尽。
 //   - Observer hook：每 N=5 步触发，根据滑动窗判决 keep_going / steer_with_hint / abort_low_value。
-//   - LoopDetector：T22.5 中间件抛 ErrLoopDetectorAbort 时 runtime 直接终止。
 //   - DoneValidator：T22.5 中间件抛 ErrDoneNotReady 时 runtime 注入 user msg 让 LLM 继续；
 //     被拒达到 doneForceMaxRejects 后强制放行，避免死循环。
+//   - LoopDetector 已砍——MaxSteps + DoneValidator 是足够的兜底。
 package runtime
 
 import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"time"
+
+	"github.com/rs/zerolog"
 
 	"github.com/V3teran/liusha/internal/agent/action"
 	"github.com/V3teran/liusha/internal/agent/llm"
 )
+
+// debugLogger 仅在 LIUSHA_RUNTIME_DEBUG=1 时打印的诊断 logger，
+// 用于排查"step=1 no_tool_call"这类 LLM 行为问题。生产应保持关闭。
+var debugLogger = func() zerolog.Logger {
+	if os.Getenv("LIUSHA_RUNTIME_DEBUG") == "1" {
+		return zerolog.New(os.Stderr).With().Timestamp().Str("component", "runtime-debug").Logger()
+	}
+	return zerolog.Nop()
+}()
 
 const (
 	// doneForceMaxRejects 是 done 被 done_validate 中间件连续拒绝后强制放行的阈值。
@@ -42,7 +54,7 @@ type Config struct {
 // Outcome 是 Run 的产出，便于上层做埋点 / done 报告。
 //
 // TerminateBy 取值：done / done_force / max_steps / max_tokens / aborted /
-// observer_abort / loop_detector_abort / no_tool_call。
+// observer_abort / no_tool_call。
 type Outcome struct {
 	TerminateBy    string
 	TotalSteps     int
@@ -121,13 +133,34 @@ func Run(ctx context.Context, cfg Config) (Outcome, error) {
 
 		// 3) LLM 生成（单步 watchdog）
 		stepCtx, cancel := context.WithTimeout(ctx, time.Duration(cfg.Budget.WatchdogSeconds)*time.Second)
-		res, err := cfg.LLM.Generate(stepCtx, msgs, cfg.Actions.Schemas())
+		schemas := cfg.Actions.Schemas()
+		toolNames := make([]string, len(schemas))
+		for i, s := range schemas {
+			toolNames[i] = s.Name
+		}
+		debugLogger.Info().
+			Int("step", out.TotalSteps+1).
+			Int("msgs_count", len(msgs)).
+			Int("tools_count", len(schemas)).
+			Strs("tool_names", toolNames).
+			Msg("LLM Generate 调用")
+
+		res, err := cfg.LLM.Generate(stepCtx, msgs, schemas)
 		cancel()
 		if err != nil {
 			return out, fmt.Errorf("step %d generate: %w", out.TotalSteps+1, err)
 		}
 		out.TotalSteps++
 		out.TotalUsage = out.TotalUsage.Add(res.Usage)
+
+		debugLogger.Info().
+			Int("step", out.TotalSteps).
+			Str("finish_reason", res.FinishReason).
+			Int("tool_calls", len(res.ToolCalls)).
+			Str("content", res.Content).
+			Int("in_tokens", res.Usage.InTokens).
+			Int("out_tokens", res.Usage.OutTokens).
+			Msg("LLM Generate 返回")
 
 		// 4) 没有 tool call → LLM 想直接收口，结束循环
 		if len(res.ToolCalls) == 0 {
@@ -141,12 +174,6 @@ func Run(ctx context.Context, cfg Config) (Outcome, error) {
 		var sawDone bool
 		for _, tc := range res.ToolCalls {
 			tcRes, execErr := cfg.Actions.Execute(ctx, tc.Name, tc.Arguments)
-
-			// LoopDetector 中间件抛错：直接终止
-			if errors.Is(execErr, ErrLoopDetectorAbort) {
-				out.TerminateBy = "loop_detector_abort"
-				return out, nil
-			}
 
 			// DoneValidator 中间件抛错：注入 user msg 让 LLM 继续；超过阈值强制放行
 			if e, ok := IsDoneNotReady(execErr); ok {

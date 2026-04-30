@@ -1,0 +1,18 @@
+[90m10:41:22[0m [32mINF[0m [1magent-worker healthz listening[0m [36maddr=[0m:9090 [36mcomponent=[0magent-worker
+[90m10:41:22[0m [32mINF[0m [1masynq server starting[0m [36mcomponent=[0magent-worker
+asynq: pid=64056 2026/04/30 02:41:22.337986 INFO: Starting processing
+[90m10:41:22[0m [32mINF[0m [1mflowconsumer 已启动[0m [36mcomponent=[0magent-worker [36mgroup=[0mliusha-flowconsumer [36mstream=[0mliusha:flow_events
+asynq: pid=64056 2026/04/30 02:41:22.338065 INFO: Send signal TSTP to stop processing new tasks
+asynq: pid=64056 2026/04/30 02:41:22.338075 INFO: Send signal TERM or INT to terminate the process
+[90m10:41:22[0m [32mINF[0m [1mflowconsumer ager 已启动[0m [36mcomponent=[0magent-worker [36mmax_age_sec=[0m30 [36mtick=[0m5000
+[90m10:41:57[0m [32mINF[0m [1m窗口超时关闭（ager），已投递 sniffer 任务[0m [36mcomponent=[0magent-worker [36meid=[0m3366f1fc-fdca-4c2f-a7d2-faccc145d47f [36mtask_id=[0m3e4edbe0-5d1e-4fa4-8194-9f79e03143a6 [36mwindow_id=[0m8d207e52-4bcb-495f-8a22-47ef767d89a2
+{"level":"info","component":"runtime-debug","step":1,"msgs_count":2,"tools_count":9,"tool_names":["write_finding","spawn_subtask","done","read_state","write_graph","read_window","write_fact","write_idea","write_hint"],"time":"2026-04-30T10:41:57+08:00","message":"LLM Generate 调用"}
+{"level":"info","component":"runtime-debug","step":1,"finish_reason":"stop","tool_calls":0,"content":"{\"read_window\": {\"window_id\": \"8d207e52-4bcb-495f-8a22-47ef767d89a2\"}}","in_tokens":410,"out_tokens":35,"time":"2026-04-30T10:42:03+08:00","message":"LLM Generate 返回"}
+asynq: pid=64056 2026/04/30 05:47:04.877956 INFO: Stopping processor
+[90m13:47:04[0m [32mINF[0m [1magent-worker shutting down[0m [36mcomponent=[0magent-worker [36msignal=[0mterminated
+asynq: pid=64056 2026/04/30 05:47:04.879467 INFO: Starting graceful shutdown
+asynq: pid=64056 2026/04/30 05:47:06.109176 INFO: Processor stopped
+asynq: pid=64056 2026/04/30 05:47:06.109258 INFO: Waiting for all workers to finish...
+asynq: pid=64056 2026/04/30 05:47:06.109281 INFO: All workers have finished
+asynq: pid=64056 2026/04/30 05:47:06.113620 INFO: Exiting
+[90m13:47:06[0m [32mINF[0m [1magent-worker stopped[0m [36mcomponent=[0magent-worker

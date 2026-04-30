@@ -1,0 +1,30 @@
+[90m10:41:23[0m [32mINF[0m [1mscope host derived[0m [36mcomponent=[0me2e-bac [36mscope_host=[0mlocalhost [36mvuln_base=[0mhttp://localhost:8001
+[90m10:41:23[0m [32mINF[0m [1mengagement ready[0m [36mcomponent=[0me2e-bac [36mengagement_id=[0m3366f1fc-fdca-4c2f-a7d2-faccc145d47f
+[90m10:41:23[0m [32mINF[0m [1mcredentials enrolled[0m [36mcomponent=[0me2e-bac
+[90m10:41:23[0m [32mINF[0m [1mproxy traffic dispatched[0m [36mcomponent=[0me2e-bac [36mrequests=[0m18
+[90m10:41:23[0m [32mINF[0m [1mpoll[0m [36mbac=[0m0 [36mcomponent=[0me2e-bac [36mkinds=[0m{}
+[90m10:41:38[0m [32mINF[0m [1mpoll[0m [36mbac=[0m0 [36mcomponent=[0me2e-bac [36mkinds=[0m{}
+[90m10:41:53[0m [32mINF[0m [1mpoll[0m [36mbac=[0m0 [36mcomponent=[0me2e-bac [36mkinds=[0m{}
+[90m10:42:08[0m [32mINF[0m [1mpoll[0m [36mbac=[0m0 [36mcomponent=[0me2e-bac [36mkinds=[0m{}
+[90m10:42:23[0m [32mINF[0m [1mpoll[0m [36mbac=[0m0 [36mcomponent=[0me2e-bac [36mkinds=[0m{}
+[90m10:42:38[0m [32mINF[0m [1mpoll[0m [36mbac=[0m0 [36mcomponent=[0me2e-bac [36mkinds=[0m{}
+[90m10:42:53[0m [32mINF[0m [1mpoll[0m [36mbac=[0m0 [36mcomponent=[0me2e-bac [36mkinds=[0m{}
+[90m10:43:08[0m [32mINF[0m [1mpoll[0m [36mbac=[0m0 [36mcomponent=[0me2e-bac [36mkinds=[0m{}
+[90m10:43:23[0m [32mINF[0m [1mpoll[0m [36mbac=[0m0 [36mcomponent=[0me2e-bac [36mkinds=[0m{}
+[90m10:43:38[0m [32mINF[0m [1mpoll[0m [36mbac=[0m0 [36mcomponent=[0me2e-bac [36mkinds=[0m{}
+[90m10:43:53[0m [32mINF[0m [1mpoll[0m [36mbac=[0m0 [36mcomponent=[0me2e-bac [36mkinds=[0m{}
+[90m10:44:08[0m [32mINF[0m [1mpoll[0m [36mbac=[0m0 [36mcomponent=[0me2e-bac [36mkinds=[0m{}
+[90m10:44:23[0m [32mINF[0m [1mpoll[0m [36mbac=[0m0 [36mcomponent=[0me2e-bac [36mkinds=[0m{}
+[90m10:44:38[0m [32mINF[0m [1mpoll[0m [36mbac=[0m0 [36mcomponent=[0me2e-bac [36mkinds=[0m{}
+[90m10:44:53[0m [32mINF[0m [1mpoll[0m [36mbac=[0m0 [36mcomponent=[0me2e-bac [36mkinds=[0m{}
+[90m10:45:08[0m [32mINF[0m [1mpoll[0m [36mbac=[0m0 [36mcomponent=[0me2e-bac [36mkinds=[0m{}
+[90m10:45:23[0m [32mINF[0m [1mpoll[0m [36mbac=[0m0 [36mcomponent=[0me2e-bac [36mkinds=[0m{}
+[90m10:45:38[0m [32mINF[0m [1mpoll[0m [36mbac=[0m0 [36mcomponent=[0me2e-bac [36mkinds=[0m{}
+[90m10:45:53[0m [32mINF[0m [1mpoll[0m [36mbac=[0m0 [36mcomponent=[0me2e-bac [36mkinds=[0m{}
+[90m10:46:08[0m [32mINF[0m [1mpoll[0m [36mbac=[0m0 [36mcomponent=[0me2e-bac [36mkinds=[0m{}
+[90m10:46:23[0m [32mINF[0m [1mpoll[0m [36mbac=[0m0 [36mcomponent=[0me2e-bac [36mkinds=[0m{}
+[90m10:46:38[0m [32mINF[0m [1mpoll[0m [36mbac=[0m0 [36mcomponent=[0me2e-bac [36mkinds=[0m{}
+[90m10:46:53[0m [32mINF[0m [1mpoll[0m [36mbac=[0m0 [36mcomponent=[0me2e-bac [36mkinds=[0m{}
+[90m10:47:08[0m [32mINF[0m [1mpoll[0m [36mbac=[0m0 [36mcomponent=[0me2e-bac [36mkinds=[0m{}
+[90m10:47:23[0m [31mERR[0m [1me2e timeout: 未达 5 条 finding/3 类覆盖[0m [36mcomponent=[0me2e-bac
+exit status 1

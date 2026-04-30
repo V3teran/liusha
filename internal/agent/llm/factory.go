@@ -124,8 +124,17 @@ func lookupLLMField(c config.LLMConfig, field string) string {
 	return ""
 }
 
+// Provider 类型常量；与 config.providers.<key>.type 一致。
+const (
+	// ProviderTypeOpenAICompat 走 OpenAI 协议族（OpenAI/DeepSeek/Qwen/Moonshot/Together/Groq/智谱/豆包/Yi/...）。
+	ProviderTypeOpenAICompat = "openai_compat"
+	// ProviderTypeAnthropic 走 Anthropic 原生 /v1/messages 协议。
+	ProviderTypeAnthropic = "anthropic"
+)
+
 // BuildProvider 根据 cfg.Providers[providerKey] 构造 Generator。
 //
+// 按 ProviderConfig.Type 路由到 OpenAI 兼容（sashabaranov/go-openai）或 Anthropic 原生 SDK。
 // tools 一次性绑定（每个 task/调用上下文独立）。
 // APIKey 从 ProviderConfig.APIKeyEnv 指向的环境变量取，为空报错。
 func BuildProvider(ctx context.Context, cfg config.Config, providerKey string, tools []ToolSchema) (Generator, error) {
@@ -137,27 +146,16 @@ func BuildProvider(ctx context.Context, cfg config.Config, providerKey string, t
 	if apiKey == "" {
 		return nil, fmt.Errorf("env %s 为空（provider=%s）", pc.APIKeyEnv, providerKey)
 	}
-	switch providerKey {
-	case "deepseek":
-		return NewDeepSeek(ctx, DeepSeekConfig{
+	switch pc.Type {
+	case ProviderTypeOpenAICompat, "":
+		// 默认（type 为空）按 OpenAI 兼容协议；老配置无 type 字段时也能跑。
+		return NewOpenAICompat(ctx, providerKey, OpenAICompatConfig{
 			BaseURL: pc.BaseURL, Model: pc.DefaultModel, APIKey: apiKey, MaxTokens: pc.MaxTokens,
 		}, tools)
-	case "anthropic", "anthropic_haiku":
-		return NewClaude(ctx, ClaudeConfig{
-			BaseURL: pc.BaseURL, Model: pc.DefaultModel, APIKey: apiKey, MaxTokens: pc.MaxTokens,
-		}, tools)
-	case "openai":
-		return NewOpenAI(ctx, OpenAIConfig{
-			BaseURL: pc.BaseURL, Model: pc.DefaultModel, APIKey: apiKey, MaxTokens: pc.MaxTokens,
-		}, tools)
-	case "moonshot":
-		return NewMoonshotViaOpenAI(ctx, OpenAIConfig{
-			BaseURL: pc.BaseURL, Model: pc.DefaultModel, APIKey: apiKey, MaxTokens: pc.MaxTokens,
-		}, tools)
-	case "qwen":
-		return NewQwen(ctx, QwenConfig{
+	case ProviderTypeAnthropic:
+		return NewAnthropic(ctx, providerKey, AnthropicConfig{
 			BaseURL: pc.BaseURL, Model: pc.DefaultModel, APIKey: apiKey, MaxTokens: pc.MaxTokens,
 		}, tools)
 	}
-	return nil, fmt.Errorf("provider %q 未知（支持: deepseek / anthropic / anthropic_haiku / openai / moonshot / qwen）", providerKey)
+	return nil, fmt.Errorf("provider %q 类型 %q 未知（支持: openai_compat / anthropic）", providerKey, pc.Type)
 }
