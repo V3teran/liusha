@@ -40,16 +40,13 @@ import (
 	"github.com/V3teran/liusha/internal/engagement"
 	"github.com/V3teran/liusha/internal/finding"
 	"github.com/V3teran/liusha/internal/flow"
-	"github.com/V3teran/liusha/internal/ingestor"
 	"github.com/V3teran/liusha/internal/graph"
 	"github.com/V3teran/liusha/internal/llmcall"
 	"github.com/V3teran/liusha/internal/logx"
 	"github.com/V3teran/liusha/internal/observability"
 	"github.com/V3teran/liusha/internal/replay"
 	"github.com/V3teran/liusha/internal/skill"
-	"github.com/V3teran/liusha/internal/spawner"
 	"github.com/V3teran/liusha/internal/task"
-	"github.com/V3teran/liusha/internal/window"
 	"github.com/V3teran/liusha/internal/worker"
 
 	"github.com/hibiken/asynq"
@@ -115,20 +112,16 @@ func main() {
 	graphs := graph.NewStore(pool)
 	calls := llmcall.NewStore(pool)
 	flows := flow.NewStore(pool, flowMaxRequestBody, flowMaxResponseBody)
-	windows := window.NewStore(pool)
 	creds := credential.NewRedis(rdb)
 
 	// BAC factory（plan 2 T2）：creds + flows + replay engine。
 	replayEngine := replay.NewEngine(nil)
 	bacFactory := bac.NewFactory(creds, flows, replayEngine)
 
-	// worker.Client 生产者：spawner 通过它把子任务入队（与 asynq.Server 消费者共用 redis）。
+	// worker.Client 生产者：BAC 子任务暂时不再有上游派发器（v1.1 sniffer/spawner 已废止），
+	// 但 Asynq 消费者仍需要 redis 连接来消费外部入队的任务，保留 Client 以备 T15 改造。
 	wc := worker.NewClient(asynq.RedisClientOpt{Addr: redisAddr})
 	defer wc.Close()
-	sp := spawner.New(tasks, wc, spawner.Limits{
-		MaxChildrenPerParent:     10,
-		MaxInflightPerEngagement: 20,
-	})
 
 	// Skill loader（plan 1 T25）：启动时加载 BAC SKILL.md 校验 cognitive_map 6 槽位
 	// + done_validator key 已注册。失败立即 fatal，避免运行期 surprise。
@@ -157,9 +150,7 @@ func main() {
 		graphs:      graphs,
 		calls:       calls,
 		flows:       flows,
-		windows:     windows,
 		bacFactory:  bacFactory,
-		spawner:     sp,
 		skillLoader: skillLoader,
 		cfg:         cfg,
 		pricing:     observability.DefaultPricing,
@@ -183,25 +174,8 @@ func main() {
 		},
 	)
 
-	// flowconsumer：消费 proxy XADD 进的流量事件 → 落库 + 切窗 + 入队 sniffer。
-	// Ager：兜底切窗（低流量场景下 batch 不满也能在 max_age 后触发分析）。
-	flowCtx, flowCancel := context.WithCancel(context.Background())
-	defer flowCancel()
-
-	flowConsumer, err := ingestor.NewConsumer(flowCtx, ingestor.Deps{
-		Redis:    rdb,
-		Engs:     engs,
-		Flows:    flows,
-		Windows:  windows,
-		Tasks:    tasks,
-		Enqueuer: wc,
-		Cfg:      cfg.Proxy,
-		Logger:   logger,
-	})
-	if err != nil {
-		logger.Fatal().Err(err).Msg("new ingestor")
-	}
-	// v1.1：traffic_window 切窗机制废止；Ager 兜底已删除，待 T20 重写 scanner main 时统一调整。
+	// v1.1：traffic_window 切窗 + ingestor 消费者全部废止；scanner 仅作为 Asynq 消费者运行。
+	// 上游入队由外部触发（API 直接 enqueue 或 proxy 重写后续）；T20 重写 scanner main 时统一调整。
 
 	hsMux := http.NewServeMux()
 	hsMux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
@@ -223,19 +197,12 @@ func main() {
 		}
 	}()
 
-	go func() {
-		if err := flowConsumer.Run(flowCtx); err != nil && !errors.Is(err, context.Canceled) {
-			logger.Error().Err(err).Msg("flowconsumer exited")
-		}
-	}()
-
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
 	sig := <-stop
 	logger.Info().Str("signal", sig.String()).Msg("scanner shutting down")
 
-	// 关停顺序：先停 flowconsumer / ager（不再产新 sniffer task）→ asynq 收尾（阻塞等 in-flight task）→ healthz。
-	flowCancel()
+	// 关停顺序：asynq 收尾（阻塞等 in-flight task）→ healthz。
 	srv.Shutdown()
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancel()
@@ -285,9 +252,7 @@ type snifferHandler struct {
 	graphs      *graph.Store
 	calls       *llmcall.Store
 	flows       *flow.Store
-	windows     *window.Store
 	bacFactory  *bac.Factory
-	spawner     *spawner.Spawner
 	skillLoader *skill.Loader
 	cfg         config.Config
 	pricing     llm.PricingProvider
