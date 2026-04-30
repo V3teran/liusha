@@ -1,6 +1,7 @@
-// Package task 实现 agent_task 持久化层：每一次 skill 调用对应一行，
-// 状态机 pending → running → done|error|aborted；spawn_subtask 通过
-// parent_task_id 形成父子链（用于深度限制和并发计数）。
+// Package task 实现 agent_task 持久化层：每一次主 ReAct 调用对应一行，
+// 状态机 pending → running → done|error|aborted。
+//
+// v1.1：parent_task_id 列已删（子 ReAct 同进程嵌套不入 PG，无父子关系）。
 package task
 
 import (
@@ -23,7 +24,6 @@ const (
 type Task struct {
 	ID           string
 	EngagementID string
-	ParentTaskID *string
 	Role         string
 	Skill        string
 	Input        json.RawMessage
@@ -34,10 +34,9 @@ type Task struct {
 	UpdatedAt    time.Time
 }
 
-// NewParams 是 Store.Create 的入参。Skill / ParentTaskID / Budget 都可选。
+// NewParams 是 Store.Create 的入参。Skill / Budget 都可选。
 type NewParams struct {
 	EngagementID string
-	ParentTaskID *string
 	Role         string
 	Skill        string
 	Input        json.RawMessage

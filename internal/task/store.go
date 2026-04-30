@@ -15,7 +15,8 @@ type Store struct{ pool *pgxpool.Pool }
 func NewStore(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
 
 // colsSelect 是所有 SELECT 路径的统一列序，与 scanTask() 的字段顺序一一对应。
-const colsSelect = `id, engagement_id, parent_task_id, role, skill, input, budget, result, status, created_at, updated_at`
+// v1.1：删除 parent_task_id 列（子 ReAct 同进程嵌套，不再入 PG，无父子关系）。
+const colsSelect = `id, engagement_id, role, skill, input, budget, result, status, created_at, updated_at`
 
 // Create 插入一行 pending 任务，返回新 id。Input/Budget 为 nil 时落空对象。
 func (s *Store) Create(ctx context.Context, p NewParams) (string, error) {
@@ -27,10 +28,10 @@ func (s *Store) Create(ctx context.Context, p NewParams) (string, error) {
 	}
 	var id string
 	err := s.pool.QueryRow(ctx, `
-		INSERT INTO agent_task (engagement_id, parent_task_id, role, skill, input, budget)
-		VALUES ($1,$2,$3,$4,$5,$6)
+		INSERT INTO agent_task (engagement_id, role, skill, input, budget)
+		VALUES ($1,$2,$3,$4,$5)
 		RETURNING id`,
-		p.EngagementID, p.ParentTaskID, p.Role, p.Skill,
+		p.EngagementID, p.Role, p.Skill,
 		[]byte(p.Input), []byte(p.Budget),
 	).Scan(&id)
 	if err != nil {
@@ -136,18 +137,6 @@ func (s *Store) ListByEngagement(ctx context.Context, engagementID string, limit
 	return out, nil
 }
 
-// CountInflightChildren 统计某 parent 下处于 pending|running 的子任务数（用于 spawn 并发限制）。
-func (s *Store) CountInflightChildren(ctx context.Context, parentID string) (int, error) {
-	var n int
-	err := s.pool.QueryRow(ctx, `
-		SELECT count(*) FROM agent_task
-		WHERE parent_task_id=$1 AND status IN ('pending','running')`, parentID).Scan(&n)
-	if err != nil {
-		return 0, fmt.Errorf("count inflight children: %w", err)
-	}
-	return n, nil
-}
-
 // CountInflightInEngagement 统计 engagement 下处于 pending|running 的任务总数（全局并发上限）。
 func (s *Store) CountInflightInEngagement(ctx context.Context, engagementID string) (int, error) {
 	var n int
@@ -169,7 +158,7 @@ type scanner interface {
 func scanTask(r scanner, t *Task) error {
 	var input, budget, result []byte
 	if err := r.Scan(
-		&t.ID, &t.EngagementID, &t.ParentTaskID, &t.Role, &t.Skill,
+		&t.ID, &t.EngagementID, &t.Role, &t.Skill,
 		&input, &budget, &result, &t.Status, &t.CreatedAt, &t.UpdatedAt,
 	); err != nil {
 		return err
