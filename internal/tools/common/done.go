@@ -7,7 +7,7 @@
 //   - WriteFinding / WriteGraph 同样依赖窄接口（FindingStore / GraphStore），实参可换 mock。
 //   - WriteFinding 写库后由 finding.Store 内部异步 fire OnSaved hook（T11 机制），订阅
 //     由 main 装配阶段挂载（T30），不在本包责任范围。
-package actions
+package common
 
 import (
 	"context"

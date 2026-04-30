@@ -29,9 +29,9 @@ import (
 
 	"github.com/V3teran/liusha/internal/tool"
 	"github.com/V3teran/liusha/internal/tool/middleware"
-	"github.com/V3teran/liusha/internal/agent/actions"
-	"github.com/V3teran/liusha/internal/agent/actions/bac"
-	"github.com/V3teran/liusha/internal/agent/actions/done_validator"
+	"github.com/V3teran/liusha/internal/tools/common"
+	"github.com/V3teran/liusha/internal/tools/vuln/bac"
+	"github.com/V3teran/liusha/internal/tool/done_validator"
 	"github.com/V3teran/liusha/internal/llm"
 	"github.com/V3teran/liusha/internal/react"
 	"github.com/V3teran/liusha/internal/config"
@@ -315,13 +315,13 @@ func (h snifferHandler) handle(ctx context.Context, p worker.Payload) error {
 	}
 
 	reg := tool.NewRegistry()
-	_ = reg.Register(actions.Done{})
-	_ = reg.Register(&actions.ReadState{Store: h.engagements, EngagementID: p.EngagementID})
-	_ = reg.Register(&actions.WriteFact{Store: h.engagements, EngagementID: p.EngagementID})
-	_ = reg.Register(&actions.WriteIdea{Store: h.engagements, EngagementID: p.EngagementID})
-	_ = reg.Register(&actions.WriteHint{Store: h.engagements, EngagementID: p.EngagementID})
-	_ = reg.Register(&actions.WriteFinding{Store: h.findings, EngagementID: p.EngagementID, TaskID: p.TaskID})
-	_ = reg.Register(&actions.WriteGraph{Store: h.graphs, EngagementID: p.EngagementID})
+	_ = reg.Register(common.Done{})
+	_ = reg.Register(&common.ReadState{Store: h.engagements, EngagementID: p.EngagementID})
+	_ = reg.Register(&common.WriteFact{Store: h.engagements, EngagementID: p.EngagementID})
+	_ = reg.Register(&common.WriteIdea{Store: h.engagements, EngagementID: p.EngagementID})
+	_ = reg.Register(&common.WriteHint{Store: h.engagements, EngagementID: p.EngagementID})
+	_ = reg.Register(&common.WriteFinding{Store: h.findings, EngagementID: p.EngagementID, TaskID: p.TaskID})
+	_ = reg.Register(&common.WriteGraph{Store: h.graphs, EngagementID: p.EngagementID})
 
 	// 按 skill 选择 action 集 + system prompt + done validator。
 	systemPrompt, doneValidator, err := h.skillSetup(reg, p)
@@ -407,13 +407,7 @@ func (h snifferHandler) skillSetup(
 ) (string, tool.DoneValidator, error) {
 	switch p.Skill {
 	case "":
-		_ = reg.Register(&actions.ReadWindow{Windows: h.windows, Flows: h.flows})
-		_ = reg.Register(&actions.SpawnSubtask{
-			Engine:       h.spawner,
-			ParentTaskID: p.TaskID,
-			EngagementID: p.EngagementID,
-		})
-		// sniffer 不要 BAC actions（避免它直接搞 BAC，要走 spawn）；done validator nil → AlwaysOK。
+		// v1.1：sniffer/window/spawner 全部废止；保留分支占位待 T15 worker 简化时统一改写。
 		return snifferSystemPrompt, nil, nil
 
 	case "vuln/web/bac":
