@@ -1,19 +1,15 @@
-// Package main 是 liusha scanner 进程入口：装配 config / pg / redis / stores /
-// LLM Router + asynq 消费者 + ReAct sniffer 角色 handler + healthz HTTP。
+// Package main 是 liusha scanner 进程入口（v1.1 redesign）：
 //
-// 黑客松借鉴闭环（plan 1 part3 §借鉴增量）：
-//   - LLM Router（T21.5）：按 cfg.LLM.Routes 路由 react.main / observer / distill 到不同 provider，
-//     外层套 retry + fallback。
-//   - Distill hook（T23.5）：finding 写库后 light_provider 蒸馏成 ≤200 字 hint，落 memory_hints。
-//   - Action 中间件链（T22.5）：result_compress / loop_detect / done_validate 三层横切。
-//   - Observer（T23.5）：每 5 步用 light_provider 判官，决定 keep_going / steer / abort。
+//	职责：
+//	  1. 启 ingestor.Traffic goroutine：消费 Redis Stream → 启发式打分 → 入主 react 队列
+//	  2. 启 asynq.Server：消费 agent:react 队列，每个 task 跑 1 个主 ReAct
+//	  3. 主 ReAct 工具集：classify_traffic / spawn_skill(bac) / get_findings / common.{Done,ReadState,WriteFact,WriteIdea,WriteGraph}
+//	  4. spawn_skill(bac) → 同进程嵌套 BAC 子 ReAct（NewSubBuilder 装配）
+//	  5. healthz HTTP :9090；graceful shutdown
 //
-// plan 2 T5 增量：按 p.Skill 选择 action 集 + skill loader 装载 SKILL.md：
-//   - p.Skill == ""           → 顶层 sniffer：7 通用 action + read_window + spawn_subtask
-//   - p.Skill == "vuln/web/bac" → BAC 子任务：7 通用 action + bac.Factory 4 个 action + BACValidator
-//
-// plan 3 T5 增量：mitm 代理 + filter/dedup/aggregator 拆分到独立的 cmd/proxy 进程；
-// scanner 仅作为 Asynq 消费者 + ReAct 引擎，故障隔离 + 独立扩缩。
+//	并发：
+//	  asynq.Concurrency=6，6 个 goroutine 并发跑主 ReAct
+//	  单主 ReAct 内：runtime tool_calls 并行（多 spawn_skill 自动并发）
 package main
 
 import (
@@ -27,13 +23,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/V3teran/liusha/internal/tool"
-	"github.com/V3teran/liusha/internal/tool/middleware"
-	"github.com/V3teran/liusha/internal/tools/common"
-	"github.com/V3teran/liusha/internal/tools/vuln/bac"
-	"github.com/V3teran/liusha/internal/tool/done_validator"
-	"github.com/V3teran/liusha/internal/llm"
-	"github.com/V3teran/liusha/internal/react"
 	"github.com/V3teran/liusha/internal/config"
 	"github.com/V3teran/liusha/internal/credential"
 	"github.com/V3teran/liusha/internal/db"
@@ -41,46 +30,37 @@ import (
 	"github.com/V3teran/liusha/internal/finding"
 	"github.com/V3teran/liusha/internal/flow"
 	"github.com/V3teran/liusha/internal/graph"
+	"github.com/V3teran/liusha/internal/ingestor"
+	"github.com/V3teran/liusha/internal/llm"
 	"github.com/V3teran/liusha/internal/llmcall"
 	"github.com/V3teran/liusha/internal/logx"
 	"github.com/V3teran/liusha/internal/observability"
+	"github.com/V3teran/liusha/internal/react"
 	"github.com/V3teran/liusha/internal/replay"
 	"github.com/V3teran/liusha/internal/skill"
 	"github.com/V3teran/liusha/internal/task"
+	"github.com/V3teran/liusha/internal/tool"
+	"github.com/V3teran/liusha/internal/tool/done_validator"
+	"github.com/V3teran/liusha/internal/tool/middleware"
+	"github.com/V3teran/liusha/internal/tools/common"
+	"github.com/V3teran/liusha/internal/tools/mainreact"
+	"github.com/V3teran/liusha/internal/tools/vuln/bac"
 	"github.com/V3teran/liusha/internal/worker"
 
 	"github.com/hibiken/asynq"
+	"github.com/rs/zerolog"
 )
 
-// snifferSystemPrompt 是 sniffer 主任务（p.Skill == ""）的固定 system prompt。
-//
-// BAC 子任务（p.Skill == "vuln/web/bac"）改用 SKILL.md 正文作为 system prompt，
-// 由 skill loader 在 handle() 内按需加载。
-const snifferSystemPrompt = `你是 sniffer 角色。每次任务输入对应一个 traffic_window。
-
-工作流程：
-1. read_window(window_id) → 拿当前窗口里的 N 条 flow 摘要
-2. 扫描可疑信号：
-   - URL 含 /admin/ /sys/，或参数含 ?uid= /:user_id/ → spawn_subtask(skill="vuln/web/bac", input={"flow_id":<id>,"host":<host>})
-3. 在所有可疑 flow 都已 spawn 之后 done({"reason":"window_consumed"})
-
-规则：
-- 同一窗口内每个 flow 只 spawn 一次
-- 单窗口最多 spawn 5 个子任务（避免炸开）
-- 不要直接判漏洞，那是 BAC skill 的工作
-- 没可疑就 done({"reason":"no_suspicious"})`
-
-// resultCompressBaseDir 是 result_compress 中间件落盘的根目录。
-// docker compose 中由 volume 挂在容器外，便于人类追溯大型 evidence。
-const resultCompressBaseDir = "./engagement-store"
-
-// shutdownTimeout 是 healthz HTTP 优雅关闭的超时；asynq.Shutdown 自身阻塞直到 in-flight 任务结束。
-const shutdownTimeout = 5 * time.Second
-
-// flow body 截断阈值——scanner 只读 flow（BAC replay 拿原始 body），写入由 cmd/proxy 负责。
+// 默认参数。
 const (
-	flowMaxRequestBody  = 1 << 20
-	flowMaxResponseBody = 2 << 20
+	resultCompressBaseDir = "./engagement-store"
+	shutdownTimeout       = 5 * time.Second
+	flowMaxRequestBody    = 1 << 20
+	flowMaxResponseBody   = 2 << 20
+	mainMaxSteps          = 30
+	mainWatchdogSeconds   = 300
+	healthzAddr           = ":9090"
+	asynqConcurrency      = 6
 )
 
 func main() {
@@ -105,7 +85,7 @@ func main() {
 	}
 	defer rdb.Close()
 
-	// Stores（pg + redis）
+	// Stores。
 	tasks := task.NewStore(pool)
 	engs := engagement.NewStore(pool)
 	finds := finding.NewStore(pool)
@@ -114,61 +94,53 @@ func main() {
 	flows := flow.NewStore(pool, flowMaxRequestBody, flowMaxResponseBody)
 	creds := credential.NewRedis(rdb)
 
-	// BAC factory（plan 2 T2）：creds + flows + replay engine。
-	replayEngine := replay.NewEngine(nil)
-	bacFactory := bac.NewFactory(creds, flows, replayEngine)
-
-	// worker.Client 生产者：BAC 子任务暂时不再有上游派发器（v1.1 sniffer/spawner 已废止），
-	// 但 Asynq 消费者仍需要 redis 连接来消费外部入队的任务，保留 Client 以备 T15 改造。
-	wc := worker.NewClient(asynq.RedisClientOpt{Addr: redisAddr})
-	defer wc.Close()
-
-	// Skill loader（plan 1 T25）：启动时加载 BAC SKILL.md 校验 cognitive_map 6 槽位
-	// + done_validator key 已注册。失败立即 fatal，避免运行期 surprise。
+	// Skill loader 启动校验：BAC SKILL.md cognitive_map 6 槽位 + done_validator key 注册。
 	skillLoader := skill.NewLoader(cfg.Skills.Root)
 	if _, err := skillLoader.Load("vuln/web/bac", done_validator.IsRegistered); err != nil {
 		logger.Fatal().Err(err).Msg("load BAC skill")
 	}
 
-	// T21.5：LLM Router——所有 LLM 调用走 router.For(ctx, role)，
-	// 自动按 cfg.LLM.Routes 路由 + retry/fallback。
-	// T11：tools 不在 For 时绑定，统一在 Generate(ctx, msgs, tools) 时传，
-	// Generator 无状态，跨 task 共享底层 HTTP client（ClientPool）。
+	// Replay engine（BAC 子 ReAct 用）。
+	replayEngine := replay.NewEngine(nil)
+
+	// Asynq Client（消费侧不入队，但留给将来 dispatch / 重试用）。
+	wc := worker.NewClient(asynq.RedisClientOpt{Addr: redisAddr})
+	defer wc.Close()
+
+	// LLM Router（T11：Generator 无状态，ClientPool 共享 HTTP client）。
 	router := llm.NewRouter(llm.NewFactory(cfg))
 
-	// T23.5：Distill hook——finding 写库后异步触发，调 light_provider 蒸馏成 hint。
-	// distill 调用方自己决定是否传 tools（这里 distill 只调 chat 不需工具）。
+	// Distill hook（finding 命中 → light_provider 蒸馏 → memory_hints）。
 	distillGen, err := router.For(ctx, "distill")
 	if err != nil {
 		logger.Fatal().Err(err).Msg("router.For(distill)")
 	}
 	finds.OnSaved(react.NewDistillHook(distillGen, engs))
 
-	mux := worker.NewMux()
-	h := snifferHandler{
-		tasks:       tasks,
-		engagements: engs,
-		findings:    finds,
-		graphs:      graphs,
-		calls:       calls,
-		flows:       flows,
-		bacFactory:  bacFactory,
-		skillLoader: skillLoader,
-		cfg:         cfg,
-		pricing:     observability.DefaultPricing,
-		router:      router,
-		budget: react.Budget{
-			MaxSteps:        cfg.LLM.MaxSteps,
-			MaxTokens:       50_000,
-			WatchdogSeconds: 60,
-		},
+	// 主 ReAct handler。
+	h := handler{
+		tasks:        tasks,
+		engagements:  engs,
+		findings:     finds,
+		graphs:       graphs,
+		calls:        calls,
+		flows:        flows,
+		creds:        creds,
+		replayEngine: replayEngine,
+		skillLoader:  skillLoader,
+		cfg:          cfg,
+		pricing:      observability.DefaultPricing,
+		router:       router,
+		logger:       logger,
 	}
+
+	mux := worker.NewMux()
 	mux.Register(worker.RoleMain, h.handle)
 
 	srv := asynq.NewServer(
 		asynq.RedisClientOpt{Addr: redisAddr},
 		asynq.Config{
-			Concurrency: 6,
+			Concurrency: asynqConcurrency,
 			Queues: map[string]int{
 				worker.QueueMain:     5,
 				worker.QueueDispatch: 1,
@@ -176,14 +148,33 @@ func main() {
 		},
 	)
 
-	// v1.1：traffic_window 切窗 + ingestor 消费者全部废止；scanner 仅作为 Asynq 消费者运行。
-	// 上游入队由外部触发（API 直接 enqueue 或 proxy 重写后续）；T20 重写 scanner main 时统一调整。
+	// Ingestor goroutine：消费 Redis Stream（liusha:flow_events） → 启发式 → 入 main 队列。
+	flowCtx, flowCancel := context.WithCancel(context.Background())
+	defer flowCancel()
 
+	trafficIngestor, err := ingestor.NewTraffic(flowCtx, ingestor.Deps{
+		Redis:    rdb,
+		Engs:     engs,
+		Flows:    flows,
+		Tasks:    tasks,
+		Enqueuer: wc,
+		Logger:   logger,
+	})
+	if err != nil {
+		logger.Fatal().Err(err).Msg("new ingestor.traffic")
+	}
+	go func() {
+		if err := trafficIngestor.Run(flowCtx); err != nil && !errors.Is(err, context.Canceled) {
+			logger.Error().Err(err).Msg("ingestor.traffic exited")
+		}
+	}()
+
+	// healthz HTTP。
 	hsMux := http.NewServeMux()
 	hsMux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`{"ok":true}`))
 	})
-	hs := &http.Server{Addr: ":9090", Handler: hsMux, ReadHeaderTimeout: 5 * time.Second}
+	hs := &http.Server{Addr: healthzAddr, Handler: hsMux, ReadHeaderTimeout: 5 * time.Second}
 
 	go func() {
 		logger.Info().Str("addr", hs.Addr).Msg("scanner healthz listening")
@@ -204,7 +195,8 @@ func main() {
 	sig := <-stop
 	logger.Info().Str("signal", sig.String()).Msg("scanner shutting down")
 
-	// 关停顺序：asynq 收尾（阻塞等 in-flight task）→ healthz。
+	// 关停顺序：先停 ingestor（不再产新 task）→ asynq 收尾（阻塞等 in-flight task）→ healthz。
+	flowCancel()
 	srv.Shutdown()
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancel()
@@ -214,104 +206,97 @@ func main() {
 	logger.Info().Msg("scanner stopped")
 }
 
-// buildUserPrompt 把 worker.Payload.Input（JSON）解析成明确的中文指令，引导 LLM 立即调工具。
-//
-// 业务背景：DeepSeek 等 chat 模型对"裸 JSON user prompt + system 指令"容易直接给文本回复
-// 而不调工具（terminate_by="no_tool_call" 一步退出）。把意图写成自然语言指令更稳。
-//
-// sniffer 主任务：读 window_id → 调 read_window 拿 flow → 对每个可疑 flow spawn BAC 子任务。
-// BAC 子任务：读 input.flow_id → 调 read_state / fetch_creds / replay → write_finding。
-func buildUserPrompt(p worker.Payload) string {
-	if p.Skill == "" {
-		var in struct {
-			WindowID string `json:"window_id"`
-		}
-		_ = json.Unmarshal(p.Input, &in)
-		return fmt.Sprintf(
-			`当前任务：分析 traffic_window（id=%s）。
-
-立刻按以下步骤调用工具，不要给文本回答：
-1. 调用 read_window，参数 {"window_id":"%s"}，拿到本窗口的 flow 列表（id/method/url/status/host）
-2. 对每个可疑 flow（URL 含 /admin/、/sys/，或 query/path 含 uid=、user_id、order/、profile 等身份相关参数），调 spawn_subtask，参数 {"skill":"vuln/web/bac","input":{"flow_id":<flow.id>,"host":"%s"}}
-3. 全部 spawn 完成后调 done，参数 {"reason":"window_consumed"}
-4. 没可疑就调 done，参数 {"reason":"no_suspicious"}
-
-约束：单窗口最多 5 个子任务；同一 flow 只 spawn 一次。`,
-			in.WindowID, in.WindowID, "")
-	}
-	// BAC / 其它 skill：input 已经包含 flow_id 等业务字段，直接给原文 + 一句指令前缀。
-	return fmt.Sprintf("立刻按 SKILL 流程调用工具，不要文本回答。input=%s", string(p.Input))
+// handler 持有所有跨任务共享依赖；handle() 内每个任务建独立 Registry + Generator。
+type handler struct {
+	tasks        *task.Store
+	engagements  *engagement.Store
+	findings     *finding.Store
+	graphs       *graph.Store
+	calls        *llmcall.Store
+	flows        *flow.Store
+	creds        credential.Provider
+	replayEngine *replay.Engine
+	skillLoader  *skill.Loader
+	cfg          config.Config
+	pricing      llm.PricingProvider
+	router       *llm.Router
+	logger       zerolog.Logger
 }
 
-// snifferHandler 持有所有跨任务共享依赖；handle() 内每个任务建独立 Registry + Generator。
+// handle 是单个主 ReAct task 的处理入口。
 //
-// 注意 sniffer / BAC 共享一个 handler：handle() 内按 p.Skill 选择 action 集 + system prompt，
-// 这样不必为每种 skill 拉一个独立 worker 进程。
-type snifferHandler struct {
-	tasks       *task.Store
-	engagements *engagement.Store
-	findings    *finding.Store
-	graphs      *graph.Store
-	calls       *llmcall.Store
-	flows       *flow.Store
-	bacFactory  *bac.Factory
-	skillLoader *skill.Loader
-	cfg         config.Config
-	pricing     llm.PricingProvider
-	router      *llm.Router // T21.5：多 provider 路由（react.main / observer / distill）
-	budget      react.Budget
-}
-
-// handle 是单个 task 的处理入口（sniffer 主任务或 BAC 子任务）：
-//  1. 任务状态推进 pending → running
-//  2. 注册 7 通用 action
-//  3. 按 p.Skill 选择附加 action 集 + system prompt + done validator
-//  4. 套上中间件链（result_compress / loop_detect / done_validate）
-//  5. 通过 router 拿 react.main + observer Generator
-//  6. react.Run 跑 ReAct 主循环
-//  7. result JSON 落库（含 observer_hints / done_force_count，用于审计）
-func (h snifferHandler) handle(ctx context.Context, p worker.Payload) error {
+// payload.Input = {"mode":"traffic"|"site","entrypoint":{...}}。
+func (h handler) handle(ctx context.Context, p worker.Payload) error {
 	if err := h.tasks.SetRunning(ctx, p.TaskID); err != nil {
 		return err
 	}
 
-	reg := tool.NewRegistry()
-	_ = reg.Register(common.Done{})
-	_ = reg.Register(&common.ReadState{Store: h.engagements, EngagementID: p.EngagementID})
-	_ = reg.Register(&common.WriteFact{Store: h.engagements, EngagementID: p.EngagementID})
-	_ = reg.Register(&common.WriteIdea{Store: h.engagements, EngagementID: p.EngagementID})
-	_ = reg.Register(&common.WriteHint{Store: h.engagements, EngagementID: p.EngagementID})
-	_ = reg.Register(&common.WriteFinding{Store: h.findings, EngagementID: p.EngagementID, TaskID: p.TaskID})
-	_ = reg.Register(&common.WriteGraph{Store: h.graphs, EngagementID: p.EngagementID})
-
-	// 按 skill 选择 action 集 + system prompt + done validator。
-	systemPrompt, doneValidator, err := h.skillSetup(reg, p)
-	if err != nil {
+	var input struct {
+		Mode       string          `json:"mode"`
+		Entrypoint json.RawMessage `json:"entrypoint"`
+	}
+	if err := json.Unmarshal(p.Input, &input); err != nil {
 		_ = h.tasks.SetError(ctx, p.TaskID, err.Error())
 		return err
 	}
 
-	// T22.5：套上中间件链；done_validator 按 skill 注入（sniffer=nil → AlwaysOK，BAC=BACValidator）。
-	// LoopDetect 已砍——MaxSteps + DoneValidator 已是足够的死循环兜底。
-	reg.Use(
-		middleware.ResultCompress(p.EngagementID, resultCompressBaseDir),
-		middleware.DoneValidate(doneValidator),
-	)
+	switch input.Mode {
+	case "traffic":
+		return h.handleTraffic(ctx, p, input.Entrypoint)
+	case "site":
+		err := errors.New("site mode 未实现（v1.5）")
+		_ = h.tasks.SetError(ctx, p.TaskID, err.Error())
+		return err
+	default:
+		err := fmt.Errorf("unknown mode: %s", input.Mode)
+		_ = h.tasks.SetError(ctx, p.TaskID, err.Error())
+		return err
+	}
+}
 
-	// T11：Generator 无状态，每次 For 新建实例；tools 在 Generate 时通过 react.Run 动态传入。
-	mainGen, err := h.router.For(ctx, "react_main")
-	if err != nil {
+// handleTraffic 处理 mode=traffic 的主 ReAct（1 流量 → 1 主 ReAct）。
+//
+//	工具集（8 个）：
+//	  classify_traffic / spawn_skill / get_findings
+//	  + common.{Done, ReadState, WriteFact, WriteIdea, WriteGraph}
+//
+//	子 ReAct（spawn_skill）：
+//	  bac → bac.NewSubBuilder（装配 BAC 工具集 + SKILL.md system prompt + BACValidator）
+func (h handler) handleTraffic(ctx context.Context, p worker.Payload, entrypoint json.RawMessage) error {
+	var ep struct {
+		FlowID int64  `json:"flow_id"`
+		Host   string `json:"host"`
+		URL    string `json:"url"`
+		Method string `json:"method"`
+	}
+	if err := json.Unmarshal(entrypoint, &ep); err != nil {
 		_ = h.tasks.SetError(ctx, p.TaskID, err.Error())
 		return err
 	}
 
 	tid, eid := p.TaskID, p.EngagementID
-	gen := llm.Instrument(mainGen, h.calls,
+
+	// 主 + 子 LLM Generator（T11：每 task 新建无状态实例）。
+	mainRaw, err := h.router.For(ctx, "react_main")
+	if err != nil {
+		_ = h.tasks.SetError(ctx, p.TaskID, err.Error())
+		return err
+	}
+	mainGen := llm.Instrument(mainRaw, h.calls,
 		llm.CallMeta{TaskID: &tid, EngagementID: &eid, RouteKey: "react_main"},
 		h.pricing,
 	)
 
-	// T23.5：Observer 走 light_provider；observer 只输出 JSON 决策不需 tools。
+	subRaw, err := h.router.For(ctx, "react_main")
+	if err != nil {
+		_ = h.tasks.SetError(ctx, p.TaskID, err.Error())
+		return err
+	}
+	subGen := llm.Instrument(subRaw, h.calls,
+		llm.CallMeta{TaskID: &tid, EngagementID: &eid, RouteKey: "react_skill"},
+		h.pricing,
+	)
+
 	obsRaw, err := h.router.For(ctx, "observer")
 	if err != nil {
 		_ = h.tasks.SetError(ctx, p.TaskID, err.Error())
@@ -321,22 +306,60 @@ func (h snifferHandler) handle(ctx context.Context, p worker.Payload) error {
 		llm.CallMeta{TaskID: &tid, EngagementID: &eid, RouteKey: "observer"},
 		h.pricing,
 	)
+
+	// 子 ReAct SkillBuilder。
+	bacBuilder := bac.NewSubBuilder(bac.SubBuilderDeps{
+		Engagements: h.engagements,
+		Findings:    h.findings,
+		Credentials: h.creds,
+		Flows:       h.flows,
+		Replay:      h.replayEngine,
+		SkillLoader: h.skillLoader,
+	})
+
+	// 主 ReAct 工具集。
+	reg := tool.NewRegistry()
+	_ = reg.Register(common.Done{})
+	_ = reg.Register(&common.ReadState{Store: h.engagements, EngagementID: eid})
+	_ = reg.Register(&common.WriteFact{Store: h.engagements, EngagementID: eid})
+	_ = reg.Register(&common.WriteIdea{Store: h.engagements, EngagementID: eid})
+	_ = reg.Register(&common.WriteGraph{Store: h.graphs, EngagementID: eid})
+
+	// mainreact 元工具
+	_ = reg.Register(&mainreact.ClassifyTraffic{LLM: mainGen})
+	_ = reg.Register(&mainreact.SpawnSkill{
+		Builders:     map[string]mainreact.SkillBuilder{"bac": bacBuilder},
+		EngagementID: eid,
+		SubLLM:       subGen,
+	})
+	_ = reg.Register(&mainreact.GetFindings{Store: h.findings, EngagementID: eid})
+
+	// middleware：result_compress + done_validate(nil = AlwaysOK)。
+	reg.Use(
+		middleware.ResultCompress(eid, resultCompressBaseDir),
+		middleware.DoneValidate(nil),
+	)
+
 	observer := react.NewLLMObserver(obsGen, h.engagements, eid)
 
+	// 自动注入 hint 到 system prompt。
+	e, _ := h.engagements.GetByID(ctx, eid)
+	systemPrompt := buildMainSystemPrompt(e)
+
 	out, err := react.Run(ctx, react.Config{
-		LLM:                gen,
+		LLM:                mainGen,
 		Actions:            reg,
-		Budget:             h.budget,
+		Budget:             react.Budget{MaxSteps: mainMaxSteps, WatchdogSeconds: mainWatchdogSeconds},
 		SystemPrompt:       systemPrompt,
-		UserPrompt:         buildUserPrompt(p),
+		UserPrompt:         buildMainUserPrompt(ep),
 		Observer:           observer,
 		ObserverEverySteps: 5,
 		OnAbort: func(c context.Context) (bool, error) {
-			e, err := h.engagements.GetByID(c, eid)
+			eng, err := h.engagements.GetByID(c, eid)
 			if err != nil {
 				return false, err
 			}
-			return e.Status != engagement.StatusActive, nil
+			return eng.Status != engagement.StatusActive, nil
 		},
 	})
 	if err != nil {
@@ -356,36 +379,68 @@ func (h snifferHandler) handle(ctx context.Context, p worker.Payload) error {
 	return h.tasks.SetDone(ctx, p.TaskID, res)
 }
 
-// skillSetup 按 p.Skill 注册附加 action 集 + 选 system prompt + 实例化 DoneValidator。
-//
-//   - p.Skill == ""：顶层 sniffer——附加 read_window + spawn_subtask；done validator 用 nil（AlwaysOK）。
-//   - p.Skill == "vuln/web/bac"：BAC 子任务——附加 bac.Factory 4 个 action；
-//     system prompt 用 SKILL.md 正文；done validator 用 BACValidator（per-task 实例，绑 eid）。
-//   - 其它 skill：返回错误（plan 2 仅支持 BAC；后续 skill 走同样模式扩展）。
-func (h snifferHandler) skillSetup(
-	reg *tool.Registry,
-	p worker.Payload,
-) (string, tool.DoneValidator, error) {
-	switch p.Skill {
-	case "":
-		// v1.1：sniffer/window/spawner 全部废止；保留分支占位待 T15 worker 简化时统一改写。
-		return snifferSystemPrompt, nil, nil
+// buildMainSystemPrompt 主 ReAct 的 system prompt；自动注入 engagement.memory_hints。
+func buildMainSystemPrompt(e engagement.Engagement) string {
+	base := `你是渗透测试主 Agent。每个任务对应 1 条 HTTP 流量。
 
-	case "vuln/web/bac":
-		if err := h.bacFactory.Register(reg, p.EngagementID); err != nil {
-			return "", nil, fmt.Errorf("register BAC actions: %w", err)
-		}
-		card, err := h.skillLoader.Load(p.Skill, done_validator.IsRegistered)
-		if err != nil {
-			return "", nil, fmt.Errorf("load skill %s: %w", p.Skill, err)
-		}
-		// per-task BACValidator：绑 engagement，避免跨任务污染。
-		validator := done_validator.NewBACValidator(h.engagements, h.findings, p.EngagementID)
-		return card.Body, validator, nil
+工作流程：
+1. classify_traffic 让 LLM 判流量类型 + 输出可能漏洞清单（required_skills）
+2. 根据 required_skills 调 spawn_skill(skill_name, flow_id, ...)；
+   要测多个漏洞类型可在同一轮返回多个 spawn_skill（runtime 自动 goroutine 并行）
+3. 每个 spawn_skill 返回 summary（含 finding 数量），用 get_findings 看详情
+4. 必要时 write_fact / write_idea / write_graph 总结
+5. done({"reason":"all_skills_done"})
 
-	default:
-		return "", nil, fmt.Errorf("unknown skill: %s", p.Skill)
+约束：
+- 单 task 内最多 spawn 5 个 skill 子任务
+- 子任务无依赖时一轮多 spawn，有依赖时分多轮（先看 BAC 结果再决定 RCE）`
+
+	hints := extractHints(e.MemoryHints)
+	if len(hints) > 0 {
+		base += "\n\n[历史经验提示（仅供参考）]\n"
+		for _, h := range hints {
+			base += "- " + h + "\n"
+		}
 	}
+	return base
+}
+
+// extractHints 解析 engagement.memory_hints jsonb 字段，提取 content 列表。
+func extractHints(hintsJSON []byte) []string {
+	if len(hintsJSON) == 0 {
+		return nil
+	}
+	var data struct {
+		Hints []struct {
+			Content string `json:"content"`
+		} `json:"hints"`
+	}
+	if err := json.Unmarshal(hintsJSON, &data); err != nil {
+		return nil
+	}
+	out := make([]string, 0, len(data.Hints))
+	for _, h := range data.Hints {
+		if h.Content != "" {
+			out = append(out, h.Content)
+		}
+	}
+	return out
+}
+
+// buildMainUserPrompt 构造主 ReAct 的第一条 user message。
+func buildMainUserPrompt(ep struct {
+	FlowID int64  `json:"flow_id"`
+	Host   string `json:"host"`
+	URL    string `json:"url"`
+	Method string `json:"method"`
+}) string {
+	return fmt.Sprintf(`分析 flow_id=%d host=%s %s %s。
+
+立刻按系统步骤调用工具：
+1. 先 classify_traffic 拿漏洞清单
+2. spawn_skill 测每种漏洞
+3. get_findings 看汇总
+4. done`, ep.FlowID, ep.Host, ep.Method, ep.URL)
 }
 
 // envOr 读取环境变量；空则返回 def。
