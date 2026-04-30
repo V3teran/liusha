@@ -5,13 +5,13 @@ import (
 	"encoding/json"
 
 	"github.com/V3teran/liusha/internal/agent/action"
-	"github.com/V3teran/liusha/internal/agent/runtime"
+	"github.com/V3teran/liusha/internal/react"
 )
 
 // DoneValidate 工厂：返回仅在 name=="done" 时拦截的 ActionMiddleware。
 //
 // 黑客松借鉴共识 C（Done 系统层裁决）：让 Skill 自己声明"算不算完成"，而非让 LLM 自吹。
-// 不通过时抛 runtime.ErrDoneNotReady{Missing}，runtime 把 missing 喂回 Observer/LLM。
+// 不通过时抛 react.ErrDoneNotReady{Missing}，runtime 把 missing 喂回 Observer/LLM。
 //
 // validator==nil 时按 AlwaysOK 处理（防御 NPE）。
 func DoneValidate(validator action.DoneValidator) action.ActionMiddleware {
@@ -25,7 +25,7 @@ func DoneValidate(validator action.DoneValidator) action.ActionMiddleware {
 			}
 			ok, missing := validator.CanDone(ctx, args)
 			if !ok {
-				return action.Result{}, runtime.ErrDoneNotReady{Missing: missing}
+				return action.Result{}, react.ErrDoneNotReady{Missing: missing}
 			}
 			return next(ctx, name, args)
 		}

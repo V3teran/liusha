@@ -6,7 +6,7 @@
 //   - DoneValidator：T22.5 中间件抛 ErrDoneNotReady 时 runtime 注入 user msg 让 LLM 继续；
 //     被拒达到 doneForceMaxRejects 后强制放行，避免死循环。
 //   - LoopDetector 已砍——MaxSteps + DoneValidator 是足够的兜底。
-package runtime
+package react
 
 import (
 	"context"

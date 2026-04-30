@@ -1,7 +1,7 @@
 // Package runtime 提供 ReAct 循环的运行时错误（done_validate 中间件依赖）。
 //
 // LoopDetector 已砍——MaxSteps + DoneValidator 是足够的死循环兜底。
-package runtime
+package react
 
 import (
 	"errors"

@@ -33,7 +33,7 @@ import (
 	"github.com/V3teran/liusha/internal/agent/actions/bac"
 	"github.com/V3teran/liusha/internal/agent/actions/done_validator"
 	"github.com/V3teran/liusha/internal/agent/llm"
-	"github.com/V3teran/liusha/internal/agent/runtime"
+	"github.com/V3teran/liusha/internal/react"
 	"github.com/V3teran/liusha/internal/config"
 	"github.com/V3teran/liusha/internal/credential"
 	"github.com/V3teran/liusha/internal/db"
@@ -147,7 +147,7 @@ func main() {
 	if err != nil {
 		logger.Fatal().Err(err).Msg("router.For(distill)")
 	}
-	finds.OnSaved(runtime.NewDistillHook(distillGen, engs))
+	finds.OnSaved(react.NewDistillHook(distillGen, engs))
 
 	mux := worker.NewMux()
 	h := snifferHandler{
@@ -164,7 +164,7 @@ func main() {
 		cfg:         cfg,
 		pricing:     observability.DefaultPricing,
 		router:      router,
-		budget: runtime.Budget{
+		budget: react.Budget{
 			MaxSteps:        cfg.LLM.MaxSteps,
 			MaxTokens:       50_000,
 			WatchdogSeconds: 60,
@@ -298,7 +298,7 @@ type snifferHandler struct {
 	cfg         config.Config
 	pricing     llm.PricingProvider
 	router      *llm.Router // T21.5：多 provider 路由（react.main / observer / distill）
-	budget      runtime.Budget
+	budget      react.Budget
 }
 
 // handle 是单个 task 的处理入口（sniffer 主任务或 BAC 子任务）：
@@ -307,7 +307,7 @@ type snifferHandler struct {
 //  3. 按 p.Skill 选择附加 action 集 + system prompt + done validator
 //  4. 套上中间件链（result_compress / loop_detect / done_validate）
 //  5. 通过 router 拿 react.main + observer Generator
-//  6. runtime.Run 跑 ReAct 主循环
+//  6. react.Run 跑 ReAct 主循环
 //  7. result JSON 落库（含 observer_hints / done_force_count，用于审计）
 func (h snifferHandler) handle(ctx context.Context, p worker.Payload) error {
 	if err := h.tasks.SetRunning(ctx, p.TaskID); err != nil {
@@ -360,9 +360,9 @@ func (h snifferHandler) handle(ctx context.Context, p worker.Payload) error {
 		llm.CallMeta{TaskID: &tid, EngagementID: &eid, RouteKey: "observer"},
 		h.pricing,
 	)
-	observer := runtime.NewLLMObserver(obsGen, h.engagements, eid)
+	observer := react.NewLLMObserver(obsGen, h.engagements, eid)
 
-	out, err := runtime.Run(ctx, runtime.Config{
+	out, err := react.Run(ctx, react.Config{
 		LLM:                gen,
 		Actions:            reg,
 		Budget:             h.budget,

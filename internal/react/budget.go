@@ -1,4 +1,4 @@
-package runtime
+package react
 
 // Budget 控制 ReAct 循环的资源上限。
 //

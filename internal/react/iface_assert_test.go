@@ -1,4 +1,4 @@
-package runtime
+package react
 
 import (
 	"github.com/V3teran/liusha/internal/engagement"

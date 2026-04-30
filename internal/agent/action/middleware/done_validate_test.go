@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/V3teran/liusha/internal/agent/action"
-	"github.com/V3teran/liusha/internal/agent/runtime"
+	"github.com/V3teran/liusha/internal/react"
 )
 
 type fakeValidator struct {
@@ -75,7 +75,7 @@ func TestDoneValidate_DoneBlocked(t *testing.T) {
 	})
 
 	_, err := exec(context.Background(), "done", json.RawMessage(`{}`))
-	notReady, ok := runtime.IsDoneNotReady(err)
+	notReady, ok := react.IsDoneNotReady(err)
 	if !ok {
 		t.Fatalf("应抛 ErrDoneNotReady, 实际: %v", err)
 	}
@@ -96,7 +96,7 @@ func TestDoneValidate_NilValidatorSafe(t *testing.T) {
 
 	_, err := exec(context.Background(), "done", json.RawMessage(`{}`))
 	if err != nil {
-		if _, ok := runtime.IsDoneNotReady(err); ok {
+		if _, ok := react.IsDoneNotReady(err); ok {
 			t.Fatalf("nil validator 不应抛 ErrDoneNotReady: %v", err)
 		}
 	}
