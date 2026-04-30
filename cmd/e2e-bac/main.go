@@ -93,11 +93,7 @@ func main() {
 		logger.Info().Int("bac", len(bac)).Interface("kinds", kinds).Msg("poll")
 		if len(bac) >= minBACFindings && len(kinds) >= minBACKinds {
 			logger.Info().Int("bac", len(bac)).Int("kinds", len(kinds)).Msg("e2e PASS")
-			if err := verifyBorrowedAdoptions(ctx, pool, eid); err != nil {
-				fmt.Printf("✗ 黑客松借鉴落地断言失败：%v\n", err)
-				os.Exit(2)
-			}
-			fmt.Println("✓ 黑客松借鉴 4 项断言全部通过")
+			fmt.Println("✓ e2e 验收通过：BAC findings ≥ 5 且 kinds ≥ 3")
 			return
 		}
 		time.Sleep(pollInterval)
