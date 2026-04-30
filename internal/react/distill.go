@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/V3teran/liusha/internal/agent/llm"
+	"github.com/V3teran/liusha/internal/llm"
 	"github.com/V3teran/liusha/internal/finding"
 )
 

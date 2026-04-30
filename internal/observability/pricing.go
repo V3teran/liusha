@@ -10,7 +10,7 @@
 // 即 CachedTokens 视为额外计费项，复用 input 单价 × 折扣系数。
 package observability
 
-import "github.com/V3teran/liusha/internal/agent/llm"
+import "github.com/V3teran/liusha/internal/llm"
 
 // ModelPrice 是某个 provider/model 组合的单价定义。
 // InputPerMUSD / OutputPerMUSD 单位为 USD per 1M tokens。

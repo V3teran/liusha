@@ -18,7 +18,7 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/V3teran/liusha/internal/agent/action"
-	"github.com/V3teran/liusha/internal/agent/llm"
+	"github.com/V3teran/liusha/internal/llm"
 )
 
 // debugLogger 仅在 LIUSHA_RUNTIME_DEBUG=1 时打印的诊断 logger，

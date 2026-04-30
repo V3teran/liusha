@@ -7,7 +7,7 @@ import (
 	"log/slog"
 	"strings"
 
-	"github.com/V3teran/liusha/internal/agent/llm"
+	"github.com/V3teran/liusha/internal/llm"
 )
 
 // StateReader 是 LLMObserver 读取 engagement 三层 memory 的最小依赖。

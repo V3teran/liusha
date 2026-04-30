@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/V3teran/liusha/internal/agent/llm"
+	"github.com/V3teran/liusha/internal/llm"
 )
 
 // mockGen 是供 observer / distill 测试使用的最小 LLM Generator。

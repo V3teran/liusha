@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/V3teran/liusha/internal/agent/action"
-	"github.com/V3teran/liusha/internal/agent/llm"
+	"github.com/V3teran/liusha/internal/llm"
 )
 
 // scriptedGen 是按预设脚本回放 Result 的 mock Generator。

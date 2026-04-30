@@ -4,7 +4,7 @@ import (
 	"math"
 	"testing"
 
-	"github.com/V3teran/liusha/internal/agent/llm"
+	"github.com/V3teran/liusha/internal/llm"
 )
 
 // TestEstimate_DeepSeek 验证 deepseek-chat 的基础单价计算

@@ -12,7 +12,7 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/V3teran/liusha/internal/agent/llm"
+	"github.com/V3teran/liusha/internal/llm"
 )
 
 // Result 是动作执行的结果。

@@ -32,7 +32,7 @@ import (
 	"github.com/V3teran/liusha/internal/agent/actions"
 	"github.com/V3teran/liusha/internal/agent/actions/bac"
 	"github.com/V3teran/liusha/internal/agent/actions/done_validator"
-	"github.com/V3teran/liusha/internal/agent/llm"
+	"github.com/V3teran/liusha/internal/llm"
 	"github.com/V3teran/liusha/internal/react"
 	"github.com/V3teran/liusha/internal/config"
 	"github.com/V3teran/liusha/internal/credential"
