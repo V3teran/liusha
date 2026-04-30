@@ -100,12 +100,21 @@ func (g *openAICompatGen) Generate(ctx context.Context, msgs []Message, tools []
 //
 // Role 直接映射（system/user/assistant/tool）；assistant 的 tool_calls 与
 // tool 的 tool_call_id 都按 OpenAI 协议保留。
+//
+// DeepSeek 兼容性：assistant + tool_calls 但 content 空时，DeepSeek 严格校验
+// 会报 "missing field content" 400。OpenAI 的 ChatCompletionMessage.Content 是
+// `omitempty`，空 string 会被序列化器省略 → 这里在该场景下塞一个空格保留字段。
 func toOpenAIMessages(in []Message) ([]openai.ChatCompletionMessage, error) {
 	out := make([]openai.ChatCompletionMessage, 0, len(in))
 	for _, m := range in {
+		content := m.Content
+		// 兼容 DeepSeek 等严格 OpenAI 协议实现：assistant+tool_calls 必须含 content 字段。
+		if content == "" && m.Role == RoleAssistant && len(m.ToolCalls) > 0 {
+			content = " "
+		}
 		om := openai.ChatCompletionMessage{
 			Role:       string(m.Role),
-			Content:    m.Content,
+			Content:    content,
 			Name:       m.Name,
 			ToolCallID: m.ToolCallID,
 		}
