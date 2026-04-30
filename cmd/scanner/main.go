@@ -130,13 +130,15 @@ func main() {
 		logger.Fatal().Err(err).Msg("load BAC skill")
 	}
 
-	// T21.5：LLM Router——所有 LLM 调用走 router.For(ctx, role, tools)，
+	// T21.5：LLM Router——所有 LLM 调用走 router.For(ctx, role)，
 	// 自动按 cfg.LLM.Routes 路由 + retry/fallback。
+	// T11：tools 不在 For 时绑定，统一在 Generate(ctx, msgs, tools) 时传，
+	// Generator 无状态，跨 task 共享底层 HTTP client（ClientPool）。
 	router := llm.NewRouter(llm.NewFactory(cfg))
 
 	// T23.5：Distill hook——finding 写库后异步触发，调 light_provider 蒸馏成 hint。
-	// 这里 distill 不绑工具（只调 chat），tools=nil；router 内部按 "distill" 路由 + 缓存。
-	distillGen, err := router.For(ctx, "distill", nil)
+	// distill 调用方自己决定是否传 tools（这里 distill 只调 chat 不需工具）。
+	distillGen, err := router.For(ctx, "distill")
 	if err != nil {
 		logger.Fatal().Err(err).Msg("router.For(distill)")
 	}
@@ -296,8 +298,8 @@ func (h snifferHandler) handle(ctx context.Context, p worker.Payload) error {
 		middleware.DoneValidate(doneValidator),
 	)
 
-	// 每个 task 一个全新 Generator（tools 一次绑定，避免跨 goroutine 竞争 BindTools 内部状态）。
-	mainGen, err := h.router.For(ctx, "react_main", reg.Schemas())
+	// T11：Generator 无状态，每次 For 新建实例；tools 在 Generate 时通过 react.Run 动态传入。
+	mainGen, err := h.router.For(ctx, "react_main")
 	if err != nil {
 		_ = h.tasks.SetError(ctx, p.TaskID, err.Error())
 		return err
@@ -309,8 +311,8 @@ func (h snifferHandler) handle(ctx context.Context, p worker.Payload) error {
 		h.pricing,
 	)
 
-	// T23.5：Observer 走 light_provider；不绑 tools（observer 只输出 JSON 决策）。
-	obsRaw, err := h.router.For(ctx, "observer", nil)
+	// T23.5：Observer 走 light_provider；observer 只输出 JSON 决策不需 tools。
+	obsRaw, err := h.router.For(ctx, "observer")
 	if err != nil {
 		_ = h.tasks.SetError(ctx, p.TaskID, err.Error())
 		return err

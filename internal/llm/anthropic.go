@@ -14,31 +14,38 @@ import (
 	"fmt"
 
 	"github.com/anthropics/anthropic-sdk-go"
-	"github.com/anthropics/anthropic-sdk-go/option"
 )
 
 // AnthropicConfig 描述 Anthropic 连接参数。
+//
+// APIKey 字段保留是为了配置层面的向后兼容；NewAnthropic 不再读它——
+// 底层 *anthropic.Client 已带 apikey，由调用方从 ClientPool 注入。
 type AnthropicConfig struct {
 	BaseURL   string // 空 = 官方 https://api.anthropic.com
 	Model     string // 如 claude-sonnet-4-6
-	APIKey    string
-	MaxTokens int // Anthropic 这个字段必填，0 时本包默认填 4096
+	APIKey    string // 仅用于配置传递；client 已经从 ClientPool 注入
+	MaxTokens int    // Anthropic 这个字段必填，0 时本包默认填 4096
 }
 
 const anthropicDefaultMaxTokens = 4096
 
+// anthropicGen 实现 Generator。
+//
+// 无状态：tools 不再构造时绑定，而是每次 Generate(ctx, msgs, tools) 动态传入，
+// 修复 v1 Factory 缓存 Generator 导致跨 task tools 错乱的并发 bug。
 type anthropicGen struct {
 	client    anthropic.Client
 	model     anthropic.Model
 	maxTokens int64
-	tools     []anthropic.ToolUnionParam // 一次构造时绑定，Generate 复用
 	provider  string
 }
 
-// NewAnthropic 构造 Anthropic Generator；tools 在此一次绑定。
-func NewAnthropic(_ context.Context, providerKey string, c AnthropicConfig, tools []ToolSchema) (Generator, error) {
-	if c.APIKey == "" {
-		return nil, errors.New("Anthropic: APIKey 必填")
+// NewAnthropic 构造无状态 Generator。
+//
+// client 由调用方从 ClientPool 取（共享 HTTP 连接池）；tools 不在此绑定。
+func NewAnthropic(_ context.Context, providerKey string, c AnthropicConfig, client *anthropic.Client) (Generator, error) {
+	if client == nil {
+		return nil, errors.New("Anthropic: client 必填（从 ClientPool 取）")
 	}
 	if c.Model == "" {
 		return nil, errors.New("Anthropic: Model 必填")
@@ -47,23 +54,10 @@ func NewAnthropic(_ context.Context, providerKey string, c AnthropicConfig, tool
 	if maxTokens <= 0 {
 		maxTokens = anthropicDefaultMaxTokens
 	}
-
-	opts := []option.RequestOption{option.WithAPIKey(c.APIKey)}
-	if c.BaseURL != "" {
-		opts = append(opts, option.WithBaseURL(c.BaseURL))
-	}
-	cli := anthropic.NewClient(opts...)
-
-	anthropicTools, err := toAnthropicTools(tools)
-	if err != nil {
-		return nil, fmt.Errorf("convert tools: %w", err)
-	}
-
 	return &anthropicGen{
-		client:    cli,
+		client:    *client,
 		model:     anthropic.Model(c.Model),
 		maxTokens: int64(maxTokens),
-		tools:     anthropicTools,
 		provider:  providerKey,
 	}, nil
 }
@@ -71,11 +65,15 @@ func NewAnthropic(_ context.Context, providerKey string, c AnthropicConfig, tool
 func (g *anthropicGen) Provider() string { return g.provider }
 func (g *anthropicGen) Model() string    { return string(g.model) }
 
-// Generate 发起一次 messages 调用；tools 参数被忽略（已在 New 时绑定）。
-func (g *anthropicGen) Generate(ctx context.Context, msgs []Message, _ []ToolSchema) (Result, error) {
+// Generate 发起一次 messages 调用；tools 每次动态传入。
+func (g *anthropicGen) Generate(ctx context.Context, msgs []Message, tools []ToolSchema) (Result, error) {
 	systemBlocks, anthropicMsgs, err := toAnthropicMessages(msgs)
 	if err != nil {
 		return Result{}, fmt.Errorf("convert messages: %w", err)
+	}
+	anthropicTools, err := toAnthropicTools(tools)
+	if err != nil {
+		return Result{}, fmt.Errorf("convert tools: %w", err)
 	}
 
 	req := anthropic.MessageNewParams{
@@ -86,8 +84,8 @@ func (g *anthropicGen) Generate(ctx context.Context, msgs []Message, _ []ToolSch
 	if len(systemBlocks) > 0 {
 		req.System = systemBlocks
 	}
-	if len(g.tools) > 0 {
-		req.Tools = g.tools
+	if len(anthropicTools) > 0 {
+		req.Tools = anthropicTools
 	}
 
 	resp, err := g.client.Messages.New(ctx, req)

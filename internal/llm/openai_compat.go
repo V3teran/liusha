@@ -20,49 +20,42 @@ import (
 )
 
 // OpenAICompatConfig 描述一个 OpenAI 兼容 provider 的连接参数。
+//
+// APIKey 字段保留是为了配置层面的向后兼容；NewOpenAICompat 不再读它——
+// 底层 *openai.Client 已带 apikey，由调用方从 ClientPool 注入。
 type OpenAICompatConfig struct {
 	BaseURL   string // 如 https://api.deepseek.com/v1 ；空 = OpenAI 官方
 	Model     string // 如 deepseek-chat、qwen3-max
-	APIKey    string
-	MaxTokens int // 0 = 走 provider 默认
+	APIKey    string // 仅用于配置传递；client 已经从 ClientPool 注入
+	MaxTokens int    // 0 = 走 provider 默认
 }
 
 // openAICompatGen 实现 Generator，跨 OpenAI 协议族复用同一份逻辑。
+//
+// 无状态：tools 不再构造时绑定，而是每次 Generate(ctx, msgs, tools) 动态传入，
+// 修复 v1 Factory 缓存 Generator 导致跨 task tools 错乱的并发 bug。
 type openAICompatGen struct {
 	client    *openai.Client
 	model     string
 	maxTokens int
-	tools     []openai.Tool // 一次构造时绑定，Generate 复用
 	provider  string
 }
 
-// NewOpenAICompat 构造 OpenAI 兼容 Generator；tools 在此一次绑定。
+// NewOpenAICompat 构造无状态 Generator。
 //
-//	providerKey 用作 Provider() / instrument 标记（如 "deepseek"）。
-//	tools 可为 nil（observer / distill 类不绑工具的角色）。
-func NewOpenAICompat(_ context.Context, providerKey string, c OpenAICompatConfig, tools []ToolSchema) (Generator, error) {
-	if c.APIKey == "" {
-		return nil, errors.New("OpenAICompat: APIKey 必填")
+// client 由调用方从 ClientPool 取（共享 HTTP 连接池）；tools 不在此绑定。
+// providerKey 用作 Provider() / instrument 标记（如 "deepseek"）。
+func NewOpenAICompat(_ context.Context, providerKey string, c OpenAICompatConfig, client *openai.Client) (Generator, error) {
+	if client == nil {
+		return nil, errors.New("OpenAICompat: client 必填（从 ClientPool 取）")
 	}
 	if c.Model == "" {
 		return nil, errors.New("OpenAICompat: Model 必填")
 	}
-	cfg := openai.DefaultConfig(c.APIKey)
-	if c.BaseURL != "" {
-		cfg.BaseURL = c.BaseURL
-	}
-	cli := openai.NewClientWithConfig(cfg)
-
-	openaiTools, err := toOpenAITools(tools)
-	if err != nil {
-		return nil, fmt.Errorf("convert tools: %w", err)
-	}
-
 	return &openAICompatGen{
-		client:    cli,
+		client:    client,
 		model:     c.Model,
 		maxTokens: c.MaxTokens,
-		tools:     openaiTools,
 		provider:  providerKey,
 	}, nil
 }
@@ -71,11 +64,15 @@ func NewOpenAICompat(_ context.Context, providerKey string, c OpenAICompatConfig
 func (g *openAICompatGen) Provider() string { return g.provider }
 func (g *openAICompatGen) Model() string    { return g.model }
 
-// Generate 发起一次 chat completion；tools 参数被忽略（已在 New 时绑定）。
-func (g *openAICompatGen) Generate(ctx context.Context, msgs []Message, _ []ToolSchema) (Result, error) {
+// Generate 发起一次 chat completion；tools 每次动态传入。
+func (g *openAICompatGen) Generate(ctx context.Context, msgs []Message, tools []ToolSchema) (Result, error) {
 	openaiMsgs, err := toOpenAIMessages(msgs)
 	if err != nil {
 		return Result{}, fmt.Errorf("convert messages: %w", err)
+	}
+	openaiTools, err := toOpenAITools(tools)
+	if err != nil {
+		return Result{}, fmt.Errorf("convert tools: %w", err)
 	}
 
 	req := openai.ChatCompletionRequest{
@@ -85,8 +82,8 @@ func (g *openAICompatGen) Generate(ctx context.Context, msgs []Message, _ []Tool
 	if g.maxTokens > 0 {
 		req.MaxTokens = g.maxTokens
 	}
-	if len(g.tools) > 0 {
-		req.Tools = g.tools
+	if len(openaiTools) > 0 {
+		req.Tools = openaiTools
 	}
 
 	resp, err := g.client.CreateChatCompletion(ctx, req)

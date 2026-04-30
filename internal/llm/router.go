@@ -28,23 +28,26 @@ func NewRouterWithOptions(factory *Factory, opts RetryOptions) *Router {
 	return &Router{factory: factory, opts: opts}
 }
 
-// For 解析 role → primary Generator（经 Factory 缓存），同时构造 fallback Generator
+// For 解析 role → primary Generator（每次新建无状态实例），同时构造 fallback Generator
 // （fallback_provider 字段配置；为空则不套 fallback），最后用 WithRetry 包成最终 Generator。
+//
+// 注意：tools 不在此处绑定。调用方在 g.Generate(ctx, msgs, tools) 时动态传入，
+// 修复 v1 Factory 缓存 Generator 导致跨 task tools 错乱的并发 bug。
 //
 // fallback 解析规则：
 //   - 取 cfg.LLM.FallbackProvider 字段值（provider key，如 "qwen"）
-//   - 通过 Factory 内部按 provider key 缓存的构造路径取（与 primary 共享缓存）
+//   - 通过 Factory 按 provider key 直接构造（与 primary 共享底层 ClientPool 内的 HTTP client）
 //   - fallback 为空 string 时不传 fallback（WithRetry 收 nil 后耗尽即抛）
 //   - fallback 实例本身不套 retry：避免循环重试 / 双层 backoff
-func (r *Router) For(ctx context.Context, role string, tools []ToolSchema) (Generator, error) {
-	primary, err := r.factory.For(ctx, role, tools)
+func (r *Router) For(ctx context.Context, role string) (Generator, error) {
+	primary, err := r.factory.For(ctx, role)
 	if err != nil {
 		return nil, err
 	}
 
 	var fallback Generator
 	if fbKey := r.factory.cfg.LLM.FallbackProvider; fbKey != "" {
-		fb, fbErr := r.factory.forProviderKey(ctx, fbKey, tools)
+		fb, fbErr := r.factory.forProviderKey(ctx, fbKey)
 		if fbErr == nil {
 			fallback = fb
 		}

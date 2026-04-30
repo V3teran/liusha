@@ -29,7 +29,7 @@ func routerCfg() config.Config {
 
 // builderFromMap：用预置 mockGen map 构造 Builder（按 providerKey 分发）。
 func builderFromMap(gens map[string]Generator) Builder {
-	return func(ctx context.Context, cfg config.Config, providerKey string, tools []ToolSchema) (Generator, error) {
+	return func(_ context.Context, _ config.Config, providerKey string, _ *ClientPool) (Generator, error) {
 		if g, ok := gens[providerKey]; ok {
 			return g, nil
 		}
@@ -49,7 +49,7 @@ func TestRouter_For_RoutesAndWraps(t *testing.T) {
 	factory := NewFactoryWithBuilder(cfg, builder)
 	r := NewRouter(factory)
 
-	g, err := r.For(context.Background(), "react_main", nil)
+	g, err := r.For(context.Background(), "react_main")
 	if err != nil {
 		t.Fatalf("For react.main 失败: %v", err)
 	}
@@ -68,7 +68,7 @@ func TestRouter_For_ObserverRoutesLight(t *testing.T) {
 	factory := NewFactoryWithBuilder(cfg, builder)
 	r := NewRouter(factory)
 
-	g, err := r.For(context.Background(), "observer", nil)
+	g, err := r.For(context.Background(), "observer")
 	if err != nil {
 		t.Fatalf("For observer 失败: %v", err)
 	}
@@ -84,7 +84,7 @@ func TestRouter_For_UnknownFallsBackToDefault(t *testing.T) {
 	factory := NewFactoryWithBuilder(cfg, builder)
 	r := NewRouter(factory)
 
-	g, err := r.For(context.Background(), "totally.unknown", nil)
+	g, err := r.For(context.Background(), "totally.unknown")
 	if err != nil {
 		t.Fatalf("For unknown 失败: %v", err)
 	}
@@ -106,7 +106,7 @@ func TestRouter_For_FallbackTriggers(t *testing.T) {
 	factory := NewFactoryWithBuilder(cfg, builder)
 	r := NewRouterWithOptions(factory, noSleep())
 
-	g, err := r.For(context.Background(), "react_main", nil)
+	g, err := r.For(context.Background(), "react_main")
 	if err != nil {
 		t.Fatalf("For 失败: %v", err)
 	}
@@ -136,7 +136,7 @@ func TestRouter_For_NoFallbackConfigured(t *testing.T) {
 	factory := NewFactoryWithBuilder(cfg, builder)
 	r := NewRouterWithOptions(factory, noSleep())
 
-	g, err := r.For(context.Background(), "react_main", nil)
+	g, err := r.For(context.Background(), "react_main")
 	if err != nil {
 		t.Fatalf("For 失败: %v", err)
 	}

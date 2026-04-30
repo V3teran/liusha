@@ -1,6 +1,11 @@
-// Package llm 的 Factory 实现：role → field → provider key → Generator 路由 + 懒加载缓存。
+// Package llm 的 Factory 实现：role → field → provider key → 无状态 Generator 路由。
 //
-// 黑客松借鉴创新 11（共识 E）：
+// v1.1（T11）改造：
+//   - 不再缓存 Generator（避免 v1 跨 task tools 错乱 bug）。
+//   - 通过 ClientPool 单例化底层 *openai.Client / *anthropic.Client，
+//     共享 HTTP 连接池；Generator 本身无状态、每次 For 新建。
+//
+// 路由规则（spec §8.4 + T19 黑客松借鉴）：
 //   - 通过 cfg.LLM.Routes 表把抽象角色（"react_main"/"observer"/"distill"…）解耦到具体 provider，
 //     允许同一 role 在不同部署里换底层模型而不改代码。
 //   - field 名（"default_provider"/"light_provider"/"vision_provider"/"fallback_provider"）是
@@ -12,24 +17,29 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"sync"
 
 	"github.com/V3teran/liusha/internal/config"
 )
 
-// Builder 抽象 provider 构造逻辑，便于测试注入 mock。
-type Builder func(ctx context.Context, cfg config.Config, providerKey string, tools []ToolSchema) (Generator, error)
+// Provider 类型常量；与 config.providers.<key>.type 一致。
+const (
+	// ProviderTypeOpenAICompat 走 OpenAI 协议族（OpenAI/DeepSeek/Qwen/Moonshot/Together/Groq/智谱/豆包/Yi/...）。
+	ProviderTypeOpenAICompat = "openai_compat"
+	// ProviderTypeAnthropic 走 Anthropic 原生 /v1/messages 协议。
+	ProviderTypeAnthropic = "anthropic"
+)
 
-// Factory 按 role 路由 + 懒加载缓存 Generator。
+// Builder 抽象 provider 构造逻辑，便于测试注入 mock。
 //
-// 不直接持有 LLM client；按需通过 builder 构造，按 provider key 缓存。
-// 同一 provider key 在多个 role 之间共享同一 Generator 实例（共享内部 ChatModel）。
+// 第 4 参 pool 让 Builder 能复用 ClientPool 内的共享 client；
+// 测试 mock 可忽略 pool 直接返回 stub Generator。
+type Builder func(ctx context.Context, cfg config.Config, providerKey string, pool *ClientPool) (Generator, error)
+
+// Factory 按 role 路由出无状态 Generator（每 task 新建，共享底层 HTTP client）。
 type Factory struct {
 	cfg     config.Config
+	pool    *ClientPool
 	builder Builder
-
-	mu    sync.Mutex
-	cache map[string]Generator // provider key → Generator
 }
 
 // NewFactory 用默认 BuildProvider 构造一个 Factory。
@@ -39,59 +49,40 @@ func NewFactory(cfg config.Config) *Factory {
 
 // NewFactoryWithBuilder 用自定义 builder 构造，便于测试。
 func NewFactoryWithBuilder(cfg config.Config, builder Builder) *Factory {
-	return &Factory{
-		cfg:     cfg,
-		builder: builder,
-		cache:   make(map[string]Generator),
-	}
+	return &Factory{cfg: cfg, pool: NewClientPool(), builder: builder}
 }
 
-// For 按 role 解析 provider key 并返回缓存的 Generator（首次调用懒构造）。
+// For 按 role 解析 provider key 并返回 Generator（每次新建无状态实例）。
 //
-// 路由规则（spec §8.4 + T19 黑客松借鉴）：
+// 重要：tools 不在此处绑定，调用方在 Generate(ctx, msgs, tools) 时传入。
+//
+// 路由规则：
 //  1. routes[role] = field name（如 "default_provider"）
 //  2. field name → cfg.LLM 对应字段（如 cfg.LLM.DefaultProvider = "deepseek"）
 //  3. 若 field 名未识别或字段值为空 → 回退 default_provider
 //  4. role 不在 routes 表 → 直接走 default_provider
-//  5. 按 provider key 缓存（同 key 多 role 共享）
-func (f *Factory) For(ctx context.Context, role string, tools []ToolSchema) (Generator, error) {
+func (f *Factory) For(ctx context.Context, role string) (Generator, error) {
 	providerKey := f.resolveProviderKey(role)
 	if providerKey == "" {
 		return nil, fmt.Errorf("llm.For(%q): default_provider 未配置", role)
 	}
-
-	f.mu.Lock()
-	defer f.mu.Unlock()
-
-	if g, ok := f.cache[providerKey]; ok {
-		return g, nil
-	}
-	g, err := f.builder(ctx, f.cfg, providerKey, tools)
+	g, err := f.builder(ctx, f.cfg, providerKey, f.pool)
 	if err != nil {
 		return nil, fmt.Errorf("llm.For(%q): build provider %q: %w", role, providerKey, err)
 	}
-	f.cache[providerKey] = g
 	return g, nil
 }
 
-// forProviderKey 直接按 provider key 取/构造 Generator（绕开 routes 解析）。
+// forProviderKey 直接按 provider key 取 Generator（绕开 routes 解析）。
 // 主要给 Router 构造 fallback 用：fallback_provider 字段是 provider key 而非 role。
-func (f *Factory) forProviderKey(ctx context.Context, providerKey string, tools []ToolSchema) (Generator, error) {
+func (f *Factory) forProviderKey(ctx context.Context, providerKey string) (Generator, error) {
 	if providerKey == "" {
 		return nil, fmt.Errorf("llm.forProviderKey: provider key 为空")
 	}
-
-	f.mu.Lock()
-	defer f.mu.Unlock()
-
-	if g, ok := f.cache[providerKey]; ok {
-		return g, nil
-	}
-	g, err := f.builder(ctx, f.cfg, providerKey, tools)
+	g, err := f.builder(ctx, f.cfg, providerKey, f.pool)
 	if err != nil {
 		return nil, fmt.Errorf("llm.forProviderKey(%q): %w", providerKey, err)
 	}
-	f.cache[providerKey] = g
 	return g, nil
 }
 
@@ -124,20 +115,11 @@ func lookupLLMField(c config.LLMConfig, field string) string {
 	return ""
 }
 
-// Provider 类型常量；与 config.providers.<key>.type 一致。
-const (
-	// ProviderTypeOpenAICompat 走 OpenAI 协议族（OpenAI/DeepSeek/Qwen/Moonshot/Together/Groq/智谱/豆包/Yi/...）。
-	ProviderTypeOpenAICompat = "openai_compat"
-	// ProviderTypeAnthropic 走 Anthropic 原生 /v1/messages 协议。
-	ProviderTypeAnthropic = "anthropic"
-)
-
-// BuildProvider 根据 cfg.Providers[providerKey] 构造 Generator。
+// BuildProvider 用 ClientPool 共享 HTTP client，构造无状态 Generator。
 //
 // 按 ProviderConfig.Type 路由到 OpenAI 兼容（sashabaranov/go-openai）或 Anthropic 原生 SDK。
-// tools 一次性绑定（每个 task/调用上下文独立）。
 // APIKey 从 ProviderConfig.APIKeyEnv 指向的环境变量取，为空报错。
-func BuildProvider(ctx context.Context, cfg config.Config, providerKey string, tools []ToolSchema) (Generator, error) {
+func BuildProvider(ctx context.Context, cfg config.Config, providerKey string, pool *ClientPool) (Generator, error) {
 	pc, ok := cfg.Providers[providerKey]
 	if !ok {
 		return nil, fmt.Errorf("provider %q 未在 config.providers 中配置", providerKey)
@@ -149,13 +131,21 @@ func BuildProvider(ctx context.Context, cfg config.Config, providerKey string, t
 	switch pc.Type {
 	case ProviderTypeOpenAICompat, "":
 		// 默认（type 为空）按 OpenAI 兼容协议；老配置无 type 字段时也能跑。
+		cli, err := pool.GetOrCreateOpenAI(pc.BaseURL, apiKey)
+		if err != nil {
+			return nil, fmt.Errorf("provider %q: %w", providerKey, err)
+		}
 		return NewOpenAICompat(ctx, providerKey, OpenAICompatConfig{
 			BaseURL: pc.BaseURL, Model: pc.DefaultModel, APIKey: apiKey, MaxTokens: pc.MaxTokens,
-		}, tools)
+		}, cli)
 	case ProviderTypeAnthropic:
+		cli, err := pool.GetOrCreateAnthropic(pc.BaseURL, apiKey)
+		if err != nil {
+			return nil, fmt.Errorf("provider %q: %w", providerKey, err)
+		}
 		return NewAnthropic(ctx, providerKey, AnthropicConfig{
 			BaseURL: pc.BaseURL, Model: pc.DefaultModel, APIKey: apiKey, MaxTokens: pc.MaxTokens,
-		}, tools)
+		}, cli)
 	}
 	return nil, fmt.Errorf("provider %q 类型 %q 未知（支持: openai_compat / anthropic）", providerKey, pc.Type)
 }

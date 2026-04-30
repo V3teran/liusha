@@ -18,14 +18,16 @@ type fakeGen struct {
 
 func (g *fakeGen) Provider() string { return g.provider }
 func (g *fakeGen) Model() string    { return g.model }
-func (g *fakeGen) Generate(ctx context.Context, msgs []Message, _ []ToolSchema) (Result, error) {
+func (g *fakeGen) Generate(_ context.Context, _ []Message, _ []ToolSchema) (Result, error) {
 	return Result{Provider: g.provider, Model: g.model}, nil
 }
 
-// newFakeBuilder 返回一个 Builder + 调用计数器，便于测懒加载缓存。
+// newFakeBuilder 返回一个 Builder + 调用计数器，便于断言 builder 被调几次。
+//
+// T11 后 Factory 不再缓存 Generator，每次 For 都触发 builder。
 func newFakeBuilder() (Builder, *int64) {
 	var count int64
-	b := func(ctx context.Context, cfg config.Config, providerKey string, tools []ToolSchema) (Generator, error) {
+	b := func(_ context.Context, cfg config.Config, providerKey string, _ *ClientPool) (Generator, error) {
 		atomic.AddInt64(&count, 1)
 		pc, ok := cfg.Providers[providerKey]
 		if !ok {
@@ -63,7 +65,7 @@ func TestFactory_For_ReactMain(t *testing.T) {
 	builder, _ := newFakeBuilder()
 	f := NewFactoryWithBuilder(cfg, builder)
 
-	g, err := f.For(context.Background(), "react_main", nil)
+	g, err := f.For(context.Background(), "react_main")
 	if err != nil {
 		t.Fatalf("For react.main 失败: %v", err)
 	}
@@ -81,7 +83,7 @@ func TestFactory_For_Observer(t *testing.T) {
 	builder, _ := newFakeBuilder()
 	f := NewFactoryWithBuilder(cfg, builder)
 
-	g, err := f.For(context.Background(), "observer", nil)
+	g, err := f.For(context.Background(), "observer")
 	if err != nil {
 		t.Fatalf("For observer 失败: %v", err)
 	}
@@ -96,7 +98,7 @@ func TestFactory_For_UnknownRoleFallsBackToDefault(t *testing.T) {
 	builder, _ := newFakeBuilder()
 	f := NewFactoryWithBuilder(cfg, builder)
 
-	g, err := f.For(context.Background(), "totally.unknown.role", nil)
+	g, err := f.For(context.Background(), "totally.unknown.role")
 	if err != nil {
 		t.Fatalf("For 未知 role 失败: %v", err)
 	}
@@ -105,47 +107,27 @@ func TestFactory_For_UnknownRoleFallsBackToDefault(t *testing.T) {
 	}
 }
 
-// TestFactory_For_LazyCache：同一 role 调两次只构造一次
-func TestFactory_For_LazyCache(t *testing.T) {
+// TestFactory_For_NoCache：T11 起 Factory 不再缓存 Generator——每次 For 调 builder 一次。
+//
+// 同 role 两次调用应返回新实例（不同指针），builder 被调 2 次。
+func TestFactory_For_NoCache(t *testing.T) {
 	cfg := makeRoutedCfg()
 	builder, count := newFakeBuilder()
 	f := NewFactoryWithBuilder(cfg, builder)
 
-	g1, err := f.For(context.Background(), "react_main", nil)
+	g1, err := f.For(context.Background(), "react_main")
 	if err != nil {
 		t.Fatalf("第一次 For 失败: %v", err)
 	}
-	g2, err := f.For(context.Background(), "react_main", nil)
+	g2, err := f.For(context.Background(), "react_main")
 	if err != nil {
 		t.Fatalf("第二次 For 失败: %v", err)
 	}
-	if g1 != g2 {
-		t.Errorf("懒加载缓存应返回同一实例")
+	if g1 == g2 {
+		t.Errorf("T11 后 Factory 不再缓存，应返回不同实例")
 	}
-	if got := atomic.LoadInt64(count); got != 1 {
-		t.Errorf("Builder 应仅被调用 1 次，实际 %d", got)
-	}
-}
-
-// TestFactory_For_DifferentRolesSameProvider：两个 role 解析到同一 provider key 共享同一 Generator
-func TestFactory_For_DifferentRolesSameProvider(t *testing.T) {
-	cfg := makeRoutedCfg()
-	builder, count := newFakeBuilder()
-	f := NewFactoryWithBuilder(cfg, builder)
-
-	g1, err := f.For(context.Background(), "observer", nil)
-	if err != nil {
-		t.Fatalf("For observer 失败: %v", err)
-	}
-	g2, err := f.For(context.Background(), "distill", nil)
-	if err != nil {
-		t.Fatalf("For distill 失败: %v", err)
-	}
-	if g1 != g2 {
-		t.Errorf("observer / distill 都路由 light_provider，应共享缓存的 Generator")
-	}
-	if got := atomic.LoadInt64(count); got != 1 {
-		t.Errorf("Builder 应仅被调用 1 次，实际 %d", got)
+	if got := atomic.LoadInt64(count); got != 2 {
+		t.Errorf("Builder 应被调 2 次，实际 %d", got)
 	}
 }
 
@@ -156,7 +138,7 @@ func TestFactory_For_FallbackProviderRoute(t *testing.T) {
 	builder, _ := newFakeBuilder()
 	f := NewFactoryWithBuilder(cfg, builder)
 
-	g, err := f.For(context.Background(), "retry", nil)
+	g, err := f.For(context.Background(), "retry")
 	if err != nil {
 		t.Fatalf("For retry 失败: %v", err)
 	}
@@ -172,7 +154,7 @@ func TestFactory_For_EmptyTargetFieldFallsBack(t *testing.T) {
 	builder, _ := newFakeBuilder()
 	f := NewFactoryWithBuilder(cfg, builder)
 
-	g, err := f.For(context.Background(), "observer", nil)
+	g, err := f.For(context.Background(), "observer")
 	if err != nil {
 		t.Fatalf("For observer 失败: %v", err)
 	}
@@ -181,38 +163,27 @@ func TestFactory_For_EmptyTargetFieldFallsBack(t *testing.T) {
 	}
 }
 
-// TestFactory_For_ConcurrentSameRole：并发调同一 role，Builder 仅被触发一次
-func TestFactory_For_ConcurrentSameRole(t *testing.T) {
+// TestFactory_For_ConcurrentSafe：并发调同一 role 不应 panic / data race。
+//
+// T11 后 Factory 不再持有 Generator 缓存（无锁），底层 ClientPool 自带 mutex；
+// 这里仅验证并发调用不出错，不再断言 builder 调用次数。
+func TestFactory_For_ConcurrentSafe(t *testing.T) {
 	cfg := makeRoutedCfg()
-	builder, count := newFakeBuilder()
+	builder, _ := newFakeBuilder()
 	f := NewFactoryWithBuilder(cfg, builder)
 
 	const N = 32
 	var wg sync.WaitGroup
 	wg.Add(N)
-	results := make([]Generator, N)
 	for i := 0; i < N; i++ {
-		i := i
 		go func() {
 			defer wg.Done()
-			g, err := f.For(context.Background(), "react_main", nil)
-			if err != nil {
+			if _, err := f.For(context.Background(), "react_main"); err != nil {
 				t.Errorf("并发 For 失败: %v", err)
-				return
 			}
-			results[i] = g
 		}()
 	}
 	wg.Wait()
-
-	for i := 1; i < N; i++ {
-		if results[i] != results[0] {
-			t.Errorf("并发 For 应返回同一实例")
-		}
-	}
-	if got := atomic.LoadInt64(count); got != 1 {
-		t.Errorf("并发场景 Builder 应仅被调用 1 次，实际 %d", got)
-	}
 }
 
 // TestBuildProvider_KnownProvidersBuildOK：表驱动校验 5 个 provider 都能构造
@@ -220,16 +191,17 @@ func TestBuildProvider_KnownProvidersBuildOK(t *testing.T) {
 	cfg := config.Config{
 		Providers: map[string]config.ProviderConfig{
 			"deepseek":  {BaseURL: "https://api.deepseek.com", DefaultModel: "deepseek-chat", APIKeyEnv: "DEEPSEEK_API_KEY", MaxTokens: 4096},
-			"anthropic": {BaseURL: "https://api.anthropic.com", DefaultModel: "claude-sonnet-4-6", APIKeyEnv: "ANTHROPIC_API_KEY", MaxTokens: 8192},
+			"anthropic": {Type: ProviderTypeAnthropic, BaseURL: "https://api.anthropic.com", DefaultModel: "claude-sonnet-4-6", APIKeyEnv: "ANTHROPIC_API_KEY", MaxTokens: 8192},
 			"openai":    {BaseURL: "https://api.openai.com/v1", DefaultModel: "gpt-4o", APIKeyEnv: "OPENAI_API_KEY", MaxTokens: 4096},
 			"moonshot":  {BaseURL: "https://api.moonshot.cn/v1", DefaultModel: "kimi-k2-0905-preview", APIKeyEnv: "MOONSHOT_API_KEY", MaxTokens: 4096},
 			"qwen":      {BaseURL: "https://dashscope.aliyuncs.com/compatible-mode/v1", DefaultModel: "qwen3-max", APIKeyEnv: "QWEN_API_KEY", MaxTokens: 4096},
 		},
 	}
+	pool := NewClientPool()
 	for _, p := range []string{"deepseek", "anthropic", "openai", "moonshot", "qwen"} {
 		t.Run(p, func(t *testing.T) {
 			t.Setenv(cfg.Providers[p].APIKeyEnv, "fake-key")
-			g, err := BuildProvider(context.Background(), cfg, p, nil)
+			g, err := BuildProvider(context.Background(), cfg, p, pool)
 			if err != nil {
 				t.Fatalf("build %s: %v", p, err)
 			}
@@ -246,7 +218,7 @@ func TestBuildProvider_MissingKey(t *testing.T) {
 		"deepseek": {DefaultModel: "deepseek-chat", APIKeyEnv: "DEEPSEEK_API_KEY"},
 	}}
 	t.Setenv("DEEPSEEK_API_KEY", "")
-	if _, err := BuildProvider(context.Background(), cfg, "deepseek", nil); err == nil {
+	if _, err := BuildProvider(context.Background(), cfg, "deepseek", NewClientPool()); err == nil {
 		t.Fatal("应在 key 为空时报错")
 	}
 }
@@ -254,7 +226,7 @@ func TestBuildProvider_MissingKey(t *testing.T) {
 // TestBuildProvider_UnknownProvider：未知 provider key 报错
 func TestBuildProvider_UnknownProvider(t *testing.T) {
 	cfg := config.Config{Providers: map[string]config.ProviderConfig{}}
-	if _, err := BuildProvider(context.Background(), cfg, "no_such_provider", nil); err == nil {
+	if _, err := BuildProvider(context.Background(), cfg, "no_such_provider", NewClientPool()); err == nil {
 		t.Fatal("未知 provider 应报错")
 	}
 }
