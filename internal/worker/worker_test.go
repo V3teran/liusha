@@ -22,11 +22,11 @@ func newTestClient(t *testing.T) (*Client, *miniredis.Miniredis) {
 }
 
 func TestRole_Queue(t *testing.T) {
-	if got := RoleSniffer.Queue(); got != QueueSniffer {
-		t.Fatalf("RoleSniffer.Queue() = %q, want %q", got, QueueSniffer)
+	if got := RoleMain.Queue(); got != QueueMain {
+		t.Fatalf("RoleMain.Queue() = %q, want %q", got, QueueMain)
 	}
-	if got := RoleOperator.Queue(); got != QueueOperator {
-		t.Fatalf("RoleOperator.Queue() = %q, want %q", got, QueueOperator)
+	if got := RoleDispatch.Queue(); got != QueueDispatch {
+		t.Fatalf("RoleDispatch.Queue() = %q, want %q", got, QueueDispatch)
 	}
 }
 
@@ -35,8 +35,8 @@ func TestClient_Enqueue_RoutesQueue(t *testing.T) {
 
 	id, q, err := c.Enqueue(
 		context.Background(),
-		RoleSniffer,
-		Payload{TaskID: "task-1", EngagementID: "eng-1", Role: RoleSniffer},
+		RoleMain,
+		Payload{TaskID: "task-1", EngagementID: "eng-1", Role: RoleMain},
 	)
 	if err != nil {
 		t.Fatalf("Enqueue err = %v", err)
@@ -44,24 +44,24 @@ func TestClient_Enqueue_RoutesQueue(t *testing.T) {
 	if id == "" {
 		t.Fatalf("expected non-empty task id")
 	}
-	if q != QueueSniffer {
-		t.Fatalf("queue = %q, want %q", q, QueueSniffer)
+	if q != QueueMain {
+		t.Fatalf("queue = %q, want %q", q, QueueMain)
 	}
 }
 
-func TestClient_Enqueue_OperatorQueue(t *testing.T) {
+func TestClient_Enqueue_DispatchQueue(t *testing.T) {
 	c, _ := newTestClient(t)
 
 	_, q, err := c.Enqueue(
 		context.Background(),
-		RoleOperator,
-		Payload{TaskID: "task-op-1", EngagementID: "eng-1", Role: RoleOperator},
+		RoleDispatch,
+		Payload{TaskID: "task-op-1", EngagementID: "eng-1", Role: RoleDispatch},
 	)
 	if err != nil {
 		t.Fatalf("Enqueue err = %v", err)
 	}
-	if q != QueueOperator {
-		t.Fatalf("queue = %q, want %q", q, QueueOperator)
+	if q != QueueDispatch {
+		t.Fatalf("queue = %q, want %q", q, QueueDispatch)
 	}
 }
 
@@ -69,12 +69,12 @@ func TestClient_Enqueue_OperatorQueue(t *testing.T) {
 func TestClient_Enqueue_Idempotent(t *testing.T) {
 	c, _ := newTestClient(t)
 	ctx := context.Background()
-	p := Payload{TaskID: "dup-1", EngagementID: "eng-1", Role: RoleSniffer}
+	p := Payload{TaskID: "dup-1", EngagementID: "eng-1", Role: RoleMain}
 
-	if _, _, err := c.Enqueue(ctx, RoleSniffer, p); err != nil {
+	if _, _, err := c.Enqueue(ctx, RoleMain, p); err != nil {
 		t.Fatalf("first enqueue err = %v", err)
 	}
-	_, _, err := c.Enqueue(ctx, RoleSniffer, p)
+	_, _, err := c.Enqueue(ctx, RoleMain, p)
 	if err == nil {
 		t.Fatalf("expected error on duplicate TaskID, got nil")
 	}
@@ -86,7 +86,7 @@ func TestClient_Enqueue_Idempotent(t *testing.T) {
 func TestMux_Register_AndAsynqMux(t *testing.T) {
 	m := NewMux()
 	called := false
-	m.Register(RoleSniffer, func(ctx context.Context, p Payload) error {
+	m.Register(RoleMain, func(ctx context.Context, p Payload) error {
 		called = true
 		return nil
 	})
@@ -97,7 +97,7 @@ func TestMux_Register_AndAsynqMux(t *testing.T) {
 	}
 
 	// 直接调用 ServeMux.ProcessTask 验证路由 + 反序列化。
-	payloadBytes, err := json.Marshal(Payload{TaskID: "t1", Role: RoleSniffer})
+	payloadBytes, err := json.Marshal(Payload{TaskID: "t1", Role: RoleMain})
 	if err != nil {
 		t.Fatalf("marshal payload: %v", err)
 	}
@@ -106,7 +106,7 @@ func TestMux_Register_AndAsynqMux(t *testing.T) {
 		t.Fatalf("ProcessTask err = %v", err)
 	}
 	if !called {
-		t.Fatalf("sniffer handler should have been called")
+		t.Fatalf("main handler should have been called")
 	}
 }
 
@@ -115,7 +115,7 @@ func TestMux_UnknownRole_SkipsRetry(t *testing.T) {
 	m := NewMux()
 	mux := m.AsynqMux()
 
-	payloadBytes, _ := json.Marshal(Payload{TaskID: "t1", Role: RoleOperator})
+	payloadBytes, _ := json.Marshal(Payload{TaskID: "t1", Role: RoleDispatch})
 	task := asynq.NewTask(TaskTypeRun, payloadBytes)
 
 	err := mux.ProcessTask(context.Background(), task)
@@ -139,7 +139,7 @@ func TestEndToEnd_EnqueueAndProcess(t *testing.T) {
 	)
 
 	m := NewMux()
-	m.Register(RoleSniffer, func(_ context.Context, p Payload) error {
+	m.Register(RoleMain, func(_ context.Context, p Payload) error {
 		mu.Lock()
 		received = p
 		mu.Unlock()
@@ -154,15 +154,15 @@ func TestEndToEnd_EnqueueAndProcess(t *testing.T) {
 		asynq.RedisClientOpt{Addr: mr.Addr()},
 		asynq.Config{
 			Concurrency: 1,
-			Queues:      map[string]int{QueueSniffer: 5, QueueOperator: 1},
+			Queues:      map[string]int{QueueMain: 5, QueueDispatch: 1},
 			Logger:      discardLogger{},
 		},
 	)
 	go func() { _ = srv.Run(m.AsynqMux()) }()
 	t.Cleanup(srv.Shutdown)
 
-	want := Payload{TaskID: "e2e-1", EngagementID: "eng-e2e", Role: RoleSniffer, Skill: "sqli"}
-	if _, _, err := c.Enqueue(ctx, RoleSniffer, want); err != nil {
+	want := Payload{TaskID: "e2e-1", EngagementID: "eng-e2e", Role: RoleMain, Skill: "sqli"}
+	if _, _, err := c.Enqueue(ctx, RoleMain, want); err != nil {
 		t.Fatalf("Enqueue err = %v", err)
 	}
 

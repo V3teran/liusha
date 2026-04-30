@@ -163,15 +163,15 @@ func main() {
 			WatchdogSeconds: 60,
 		},
 	}
-	mux.Register(worker.RoleSniffer, h.handle)
+	mux.Register(worker.RoleMain, h.handle)
 
 	srv := asynq.NewServer(
 		asynq.RedisClientOpt{Addr: redisAddr},
 		asynq.Config{
-			Concurrency: 4,
+			Concurrency: 6,
 			Queues: map[string]int{
-				worker.QueueSniffer:  5,
-				worker.QueueOperator: 1,
+				worker.QueueMain:     5,
+				worker.QueueDispatch: 1,
 			},
 		},
 	)
