@@ -40,7 +40,7 @@ import (
 	"github.com/V3teran/liusha/internal/engagement"
 	"github.com/V3teran/liusha/internal/finding"
 	"github.com/V3teran/liusha/internal/flow"
-	"github.com/V3teran/liusha/internal/flowconsumer"
+	"github.com/V3teran/liusha/internal/ingestor"
 	"github.com/V3teran/liusha/internal/graph"
 	"github.com/V3teran/liusha/internal/llmcall"
 	"github.com/V3teran/liusha/internal/logx"
@@ -188,7 +188,7 @@ func main() {
 	flowCtx, flowCancel := context.WithCancel(context.Background())
 	defer flowCancel()
 
-	flowConsumer, err := flowconsumer.NewConsumer(flowCtx, flowconsumer.Deps{
+	flowConsumer, err := ingestor.NewConsumer(flowCtx, ingestor.Deps{
 		Redis:    rdb,
 		Engs:     engs,
 		Flows:    flows,
@@ -199,9 +199,9 @@ func main() {
 		Logger:   logger,
 	})
 	if err != nil {
-		logger.Fatal().Err(err).Msg("new flowconsumer")
+		logger.Fatal().Err(err).Msg("new ingestor")
 	}
-	flowAger := flowconsumer.NewAger(windows, tasks, wc, cfg.Proxy.WindowMaxAgeSeconds, logger)
+	// v1.1：traffic_window 切窗机制废止；Ager 兜底已删除，待 T20 重写 scanner main 时统一调整。
 
 	hsMux := http.NewServeMux()
 	hsMux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
@@ -226,12 +226,6 @@ func main() {
 	go func() {
 		if err := flowConsumer.Run(flowCtx); err != nil && !errors.Is(err, context.Canceled) {
 			logger.Error().Err(err).Msg("flowconsumer exited")
-		}
-	}()
-
-	go func() {
-		if err := flowAger.Run(flowCtx); err != nil && !errors.Is(err, context.Canceled) {
-			logger.Error().Err(err).Msg("flowconsumer ager exited")
 		}
 	}()
 

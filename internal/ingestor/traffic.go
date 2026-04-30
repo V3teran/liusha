@@ -1,14 +1,13 @@
-// Package flowconsumer 是 Stream 流量消费者：
+// Package ingestor 是 Stream 流量消费者：
 //
 // 业界最佳实践（Stream-based）：proxy 进程无状态把过滤后的 snapshot XADD 到 Redis Stream；
-// flowconsumer 作为消费者把每条 snap 落库（engagement/http_flow/traffic_window）+ 切窗 +
+// ingestor 作为消费者把每条 snap 落库（engagement/http_flow/traffic_window）+ 切窗 +
 // 投递 Asynq sniffer 任务。
 //
-// 在 cmd/agent-worker 进程内以 goroutine 运行：
+// 在 scanner 进程内以 goroutine 运行：
 //
 //	consumer.Run(ctx)  // 阻塞 XREADGROUP，处理 snap → ack
-//	ager.Run(ctx)      // 5s 周期 CloseStaleAll → enqueue sniffer
-package flowconsumer
+package ingestor
 
 import (
 	"context"
@@ -74,7 +73,7 @@ type Deps struct {
 // NewConsumer 构造 Consumer 并 ensure consumer group 存在（idempotent）。
 func NewConsumer(ctx context.Context, deps Deps) (*Consumer, error) {
 	if deps.Redis == nil || deps.Engs == nil || deps.Flows == nil || deps.Windows == nil || deps.Tasks == nil || deps.Enqueuer == nil {
-		return nil, errors.New("flowconsumer.NewConsumer: redis/engs/flows/windows/tasks/enqueuer 必填")
+		return nil, errors.New("ingestor.NewConsumer: redis/engs/flows/windows/tasks/enqueuer 必填")
 	}
 	c := &Consumer{
 		rdb:     deps.Redis,
