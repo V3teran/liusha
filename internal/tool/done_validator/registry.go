@@ -4,7 +4,7 @@
 //   - 这里只放具体 validator（如 BACValidator）+ 一个 key 集合 registry。
 //   - registry 仅作"key 合法性"快速检查：skill loader 在加载 SKILL.md 时调
 //     IsRegistered(key) 验证 frontmatter 的 done_validator 字段。
-//   - 实际的 validator 实例由 cmd/agent-worker 在装配 ReAct task 时按需构造
+//   - 实际的 validator 实例由 cmd/scanner 在装配 ReAct task 时按需构造
 //     （因为 BACValidator 依赖 per-task 的 engagementID）。
 //
 // 这样拆分的原因：

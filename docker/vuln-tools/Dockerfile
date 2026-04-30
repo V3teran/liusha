@@ -1,6 +1,6 @@
 # vuln-tools：一次性沙箱镜像，基于 Kali rolling。
 #
-# 运行模式：agent-worker 通过 docker API 新建 --rm 容器，
+# 运行模式：scanner 通过 docker API 新建 --rm 容器，
 # 指定 cmd = [<tool>, <args...>]，跑完立即销毁。
 # 不设 CMD —— 由调用方显式提供；ENTRYPOINT 仅接 tini 做 SIGTERM 传递。
 #
@@ -30,7 +30,7 @@ RUN apt-get update \
  && apt-get clean \
  && rm -rf /var/lib/apt/lists/*
 
-# httpx-toolkit 的二进制叫 httpx-toolkit；agent-worker 白名单里是 "httpx"，
+# httpx-toolkit 的二进制叫 httpx-toolkit；scanner 白名单里是 "httpx"，
 # 这里软链一刀对齐，避免调用方还得感知包名差异。
 RUN ln -sf /usr/bin/httpx-toolkit /usr/local/bin/httpx
 

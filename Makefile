@@ -1,4 +1,4 @@
-.PHONY: up down logs migrate migrate-down run-api build-api build-proxy build-agent-worker build-vulnapp test test-unit test-integration lint fmt tidy vet e2e-bac
+.PHONY: up down logs migrate migrate-down run-api build-api build-proxy build-scanner build-vulnapp test test-unit test-integration lint fmt tidy vet e2e-bac
 
 COMPOSE = docker compose -f deployments/docker-compose.yml
 MIGRATE_DSN ?= postgres://liusha:liusha@localhost:5432/liusha?sslmode=disable
@@ -29,8 +29,8 @@ build-api:
 build-proxy:
 	docker build -f cmd/proxy/Dockerfile -t liusha/proxy .
 
-build-agent-worker:
-	docker build -f cmd/agent-worker/Dockerfile -t liusha/agent-worker .
+build-scanner:
+	docker build -f cmd/scanner/Dockerfile -t liusha/scanner .
 
 build-vulnapp:
 	docker build -f cmd/vulnapp/Dockerfile -t liusha/vulnapp .

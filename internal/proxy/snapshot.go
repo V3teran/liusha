@@ -3,7 +3,7 @@
 // 数据流（Stream-based 业界最佳实践）：
 //
 //	cmd/proxy onResponse → filter → publisher.Publish (XADD liusha:flow_events)
-//	cmd/agent-worker flowconsumer → XREADGROUP → eng.LookupOrCreate + flow.Append + window.OpenOrAppend → enqueue sniffer
+//	cmd/scanner flowconsumer → XREADGROUP → eng.LookupOrCreate + flow.Append + window.OpenOrAppend → enqueue sniffer
 //
 // proxy 进程无状态、可水平扩展；窗口逻辑集中在消费者。
 package proxy

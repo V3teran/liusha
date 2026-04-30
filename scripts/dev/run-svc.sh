@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# scripts/dev/run-svc.sh — host 侧并行跑 vulnapp + proxy + api + agent-worker
+# scripts/dev/run-svc.sh — host 侧并行跑 vulnapp + proxy + api + scanner
 # 四个进程合并到 logs/，Ctrl-C 全部关闭
 
 set -euo pipefail
@@ -47,7 +47,7 @@ echo "  proxy:         $LIUSHA_PROXY_LISTEN_ADDR (mitm) / $LIUSHA_PROXY_HEALTHZ_
 echo "  llm overrides: light=$LIUSHA_LLM_LIGHT_PROVIDER fallback=$LIUSHA_LLM_FALLBACK_PROVIDER vision=$LIUSHA_LLM_VISION_PROVIDER"
 echo ""
 
-# 启动顺序：vulnapp → proxy → api → agent-worker
+# 启动顺序：vulnapp → proxy → api → scanner
 echo "[1/4] vulnapp on :8001"
 go run ./cmd/vulnapp >logs/vulnapp.log 2>&1 &
 VULNAPP_PID=$!
@@ -63,8 +63,8 @@ go run ./cmd/api >logs/api.log 2>&1 &
 API_PID=$!
 
 sleep 2
-echo "[4/4] agent-worker on :9090"
-go run ./cmd/agent-worker >logs/agent-worker.log 2>&1 &
+echo "[4/4] scanner on :9090"
+go run ./cmd/scanner >logs/scanner.log 2>&1 &
 WORKER_PID=$!
 
 # 等服务起来
@@ -85,9 +85,9 @@ cleanup() {
 trap cleanup INT TERM
 
 echo ""
-echo "✓ 四服务在跑（pids: vulnapp=$VULNAPP_PID proxy=$PROXY_PID api=$API_PID agent-worker=$WORKER_PID）"
+echo "✓ 四服务在跑（pids: vulnapp=$VULNAPP_PID proxy=$PROXY_PID api=$API_PID scanner=$WORKER_PID）"
 echo "  日志合并 tail（Ctrl-C 关闭服务+退出 tail）："
 echo ""
 
 # tail -F 四个日志
-tail -F logs/vulnapp.log logs/proxy.log logs/api.log logs/agent-worker.log
+tail -F logs/vulnapp.log logs/proxy.log logs/api.log logs/scanner.log

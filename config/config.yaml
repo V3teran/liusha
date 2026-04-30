@@ -102,7 +102,7 @@ proxy:
   window_max_age_seconds: 30    # ager 兜底：超过此秒数仍 open 的窗口会被强制关闭并入队 sniffer（低流量场景）
   allow_hosts:                  # HostFilter 白名单（空=放行全部）
     - vulnapp                   # v1 e2e 靶机（docker 模式）
-    - host.docker.internal      # 容器内 agent-worker → host vulnapp（docker 模式）
+    - host.docker.internal      # 容器内 scanner → host vulnapp（docker 模式）
     - localhost                 # host 模式（cmd/proxy host 进程时直连 vulnapp）
     - 127.0.0.1                 # host 模式 IP 直连
   exclude_methods:              # 方法黑名单

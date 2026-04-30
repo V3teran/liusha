@@ -5,7 +5,7 @@
 ## 前置确认（已完成 ✅）
 
 - docker 容器：`liusha-postgres`（pgvector pg17 healthy）+ `liusha-redis`（redis:8 healthy）
-- 镜像 build：`liusha/api:latest` + `liusha/agent-worker:latest` 已存在
+- 镜像 build：`liusha/api:latest` + `liusha/scanner:latest` 已存在
 - 数据库 schema：8 业务表 + `schema_migrations` 全部 migrate 完毕
 - 三层 memory（`memory_facts/ideas/hints`）+ `llm_call.role` 字段全部正确建立
 
@@ -28,7 +28,7 @@ cp .env.example .env.local
 # OPENAI_API_KEY 可选（fallback_provider）
 ```
 
-### 2. 起完整栈（含 vulnapp + proxy + agent-worker）
+### 2. 起完整栈（含 vulnapp + proxy + scanner）
 
 ```bash
 docker compose -f deployments/docker-compose.yml --profile e2e --env-file .env.local up -d --build
@@ -40,9 +40,9 @@ docker compose -f deployments/docker-compose.yml --profile e2e --env-file .env.l
 docker compose -f deployments/docker-compose.yml ps
 ```
 
-期望看到 7 个 service（postgres/redis/asynqmon/api/proxy/agent-worker/vulnapp）全绿。
+期望看到 7 个 service（postgres/redis/asynqmon/api/proxy/scanner/vulnapp）全绿。
 其中 `proxy` 由 `cmd/proxy` 内嵌 proxify SDK + filter/dedup/aggregator 启动（监听 :8888 mitm，:9091 healthz），
-`agent-worker` 仅作为 Asynq 消费者 + ReAct 引擎（监听 :9090 healthz）。两者通过 redis 解耦——业界最佳实践，故障隔离 + 独立扩缩。
+`scanner` 仅作为 Asynq 消费者 + ReAct 引擎（监听 :9090 healthz）。两者通过 redis 解耦——业界最佳实践，故障隔离 + 独立扩缩。
 
 ### 3. 跑触发器（约 6 分钟）
 
@@ -65,7 +65,7 @@ engagement_id=...
 ✓ credentials enrolled
 ✓ 18 requests sent through proxy
 findings: 0 (BAC: 0)
-findings: 1 (BAC: 1)   ← agent-worker sniffer + BAC subtask 跑起来了
+findings: 1 (BAC: 1)   ← scanner sniffer + BAC subtask 跑起来了
 findings: 3 (BAC: 3)
 findings: 5 (BAC: 5)   ← 退出条件
 ✓ 5 findings + 3 类齐全
@@ -133,7 +133,7 @@ docker compose -f deployments/docker-compose.yml --profile e2e down -v
 - 确认 `LIUSHA_API_KEY` 与 .env.local 一致
 
 ### findings 卡在 0 不增长
-- 看 `agent-worker` 日志：`docker compose logs -f agent-worker`
+- 看 `scanner` 日志：`docker compose logs -f scanner`
 - 看 `proxy` 日志确认流量经过：`docker compose logs proxy | grep vulnapp`
 - 看 proxy 进程 aggregator flush + sniffer enqueue：
   ```
@@ -142,7 +142,7 @@ docker compose -f deployments/docker-compose.yml --profile e2e down -v
 
 ### LLM 调用失败
 - DEEPSEEK_API_KEY 是否有效：`curl -H "Authorization: Bearer $DEEPSEEK_API_KEY" https://api.deepseek.com/chat/completions ...`
-- 看 `agent-worker` 日志中的 4xx/5xx 错误码
+- 看 `scanner` 日志中的 4xx/5xx 错误码
 - T21.5 RetryDecorator 应自动重试 + fallback；如果 fallback_provider 也挂，整个 task 才会 error
 
 ### 黑客松断言失败

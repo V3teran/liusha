@@ -12,7 +12,7 @@ import (
 // FlowStream 是 proxy → consumer 之间的 Redis Stream 名。
 //
 // 业界最佳实践：proxy 进程无状态，过滤后的快照一律 XADD 进入此流；
-// 消费者（agent-worker flowconsumer）做切窗 / 落库 / Asynq 入队。
+// 消费者（scanner ingestor）做切窗 / 落库 / Asynq 入队。
 const FlowStream = "liusha:flow_events"
 
 // streamMaxLen 是 XADD 自动裁剪老条目的上限（~ 近似），避免长期堆积撑满 Redis 内存。

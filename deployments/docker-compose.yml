@@ -1,8 +1,8 @@
 # liusha v1 docker-compose
-# 6 个 service：postgres / redis / asynqmon / api / proxy / agent-worker（+ vulnapp e2e profile）
-# 默认起 postgres/redis/asynqmon/api；用 --profile e2e 起完整栈（含 proxy + agent-worker + vulnapp）。
+# 6 个 service：postgres / redis / asynqmon / api / proxy / scanner（+ vulnapp e2e profile）
+# 默认起 postgres/redis/asynqmon/api；用 --profile e2e 起完整栈（含 proxy + scanner + vulnapp）。
 # proxy（cmd/proxy）：内嵌 proxify SDK 的 MITM + filter/dedup/aggregator + Asynq 生产者，监听 8888。
-# agent-worker（cmd/agent-worker）：Asynq 消费者 + ReAct 引擎，监听 9090（healthz）。
+# scanner（cmd/scanner）：Asynq 消费者 + ReAct 引擎，监听 9090（healthz）。
 # 业界最佳实践：proxy 与 worker 独立进程，故障隔离 + 独立扩缩。
 # migrate 走 host 侧 Makefile（make migrate），不在 compose 里跑。
 
@@ -111,14 +111,14 @@ services:
       - proxy
       - e2e
 
-  # agent-worker：Asynq 消费者 + ReAct 引擎（不再装 mitm，已拆到 cmd/proxy）。
+  # scanner：Asynq 消费者 + ReAct 引擎（不再装 mitm，已拆到 cmd/proxy）。
   # 启动前需设 LIUSHA_DEEPSEEK_API_KEY（默认 LLM provider 的 key）。
-  agent-worker:
-    image: liusha/agent-worker
+  scanner:
+    image: liusha/scanner
     build:
       context: ..
-      dockerfile: cmd/agent-worker/Dockerfile
-    container_name: liusha-agent-worker
+      dockerfile: cmd/scanner/Dockerfile
+    container_name: liusha-scanner
     environment:
       LIUSHA_POSTGRES_DSN: postgres://liusha:liusha@postgres:5432/liusha?sslmode=disable
       LIUSHA_REDIS_ADDR: redis:6379
@@ -153,7 +153,7 @@ services:
       - e2e
 
   # vulnapp：BAC e2e 靶机（plan 1 T31）。仅 e2e profile 启动。
-  # hostname=vulnapp 让 proxy / agent-worker 在同一 network 内通过名字解析。
+  # hostname=vulnapp 让 proxy / scanner 在同一 network 内通过名字解析。
   vulnapp:
     image: liusha/vulnapp
     build:

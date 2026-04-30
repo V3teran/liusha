@@ -6,11 +6,11 @@
 //  2. filter.NewTrafficFilter
 //  3. proxy.NewPublisher（XADD 到 Redis Stream `liusha:flow_events`，MAXLEN ~ 100k）
 //  4. proxy.NewServer + Run（监听 LIUSHA_PROXY_LISTEN_ADDR，默认 0.0.0.0:8888）
-//  5. healthz HTTP（默认 :9091，与 agent-worker :9090 错开）
+//  5. healthz HTTP（默认 :9091，与 scanner :9090 错开）
 //  6. graceful shutdown（SIGINT/SIGTERM → proxyServer.Stop + 关 redis）
 //
 // 业务逻辑（engagement.LookupOrCreate / flow.Append / window.OpenOrAppend / Asynq 入队）
-// 全部在 cmd/agent-worker 内的 flowconsumer 包，proxy 只生产事件不做存储。
+// 全部在 cmd/scanner 内的 flowconsumer 包，proxy 只生产事件不做存储。
 package main
 
 import (
@@ -74,7 +74,7 @@ func main() {
 	proxyCtx, proxyCancel := context.WithCancel(context.Background())
 	defer proxyCancel()
 
-	// healthz HTTP：默认 :9091，避免与 agent-worker :9090 冲突。
+	// healthz HTTP：默认 :9091，避免与 scanner :9090 冲突。
 	hsAddr := envOr("LIUSHA_PROXY_HEALTHZ_ADDR", ":9091")
 	hsMux := http.NewServeMux()
 	hsMux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {

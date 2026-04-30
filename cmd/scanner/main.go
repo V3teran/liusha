@@ -1,4 +1,4 @@
-// Package main 是 liusha agent-worker 进程入口：装配 config / pg / redis / stores /
+// Package main 是 liusha scanner 进程入口：装配 config / pg / redis / stores /
 // LLM Router + asynq 消费者 + ReAct sniffer 角色 handler + healthz HTTP。
 //
 // 黑客松借鉴闭环（plan 1 part3 §借鉴增量）：
@@ -13,7 +13,7 @@
 //   - p.Skill == "vuln/web/bac" → BAC 子任务：7 通用 action + bac.Factory 4 个 action + BACValidator
 //
 // plan 3 T5 增量：mitm 代理 + filter/dedup/aggregator 拆分到独立的 cmd/proxy 进程；
-// agent-worker 仅作为 Asynq 消费者 + ReAct 引擎，故障隔离 + 独立扩缩。
+// scanner 仅作为 Asynq 消费者 + ReAct 引擎，故障隔离 + 独立扩缩。
 package main
 
 import (
@@ -80,14 +80,14 @@ const resultCompressBaseDir = "./engagement-store"
 // shutdownTimeout 是 healthz HTTP 优雅关闭的超时；asynq.Shutdown 自身阻塞直到 in-flight 任务结束。
 const shutdownTimeout = 5 * time.Second
 
-// flow body 截断阈值——agent-worker 只读 flow（BAC replay 拿原始 body），写入由 cmd/proxy 负责。
+// flow body 截断阈值——scanner 只读 flow（BAC replay 拿原始 body），写入由 cmd/proxy 负责。
 const (
 	flowMaxRequestBody  = 1 << 20
 	flowMaxResponseBody = 2 << 20
 )
 
 func main() {
-	logger := logx.New("agent-worker")
+	logger := logx.New("scanner")
 	ctx := context.Background()
 
 	cfg, err := config.Load(envOr("LIUSHA_CONFIG", "./config/config.yaml"))
@@ -210,7 +210,7 @@ func main() {
 	hs := &http.Server{Addr: ":9090", Handler: hsMux, ReadHeaderTimeout: 5 * time.Second}
 
 	go func() {
-		logger.Info().Str("addr", hs.Addr).Msg("agent-worker healthz listening")
+		logger.Info().Str("addr", hs.Addr).Msg("scanner healthz listening")
 		if err := hs.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			logger.Error().Err(err).Msg("healthz serve")
 		}
@@ -232,7 +232,7 @@ func main() {
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
 	sig := <-stop
-	logger.Info().Str("signal", sig.String()).Msg("agent-worker shutting down")
+	logger.Info().Str("signal", sig.String()).Msg("scanner shutting down")
 
 	// 关停顺序：先停 flowconsumer / ager（不再产新 sniffer task）→ asynq 收尾（阻塞等 in-flight task）→ healthz。
 	flowCancel()
@@ -242,7 +242,7 @@ func main() {
 	if err := hs.Shutdown(shutdownCtx); err != nil {
 		logger.Error().Err(err).Msg("healthz shutdown")
 	}
-	logger.Info().Msg("agent-worker stopped")
+	logger.Info().Msg("scanner stopped")
 }
 
 // buildUserPrompt 把 worker.Payload.Input（JSON）解析成明确的中文指令，引导 LLM 立即调工具。

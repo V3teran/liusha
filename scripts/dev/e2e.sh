@@ -38,12 +38,12 @@ if ! curl -sf "${LIUSHA_VULNAPP_BASE}/" -o /dev/null -m 2 2>/dev/null && \
 fi
 echo "  ✓ vulnapp 可达"
 
-# 3. agent-worker healthz
+# 3. scanner healthz
 if ! curl -sf http://localhost:9090/healthz >/dev/null; then
-  echo "✗ agent-worker 不可达 :9090"
+  echo "✗ scanner 不可达 :9090"
   exit 1
 fi
-echo "  ✓ agent-worker healthy"
+echo "  ✓ scanner healthy"
 
 # 4. proxify 8888 端口（docker）
 if ! nc -z localhost 8888 2>/dev/null; then
@@ -63,7 +63,7 @@ if [ $RC -eq 0 ]; then
 else
   echo "✗ e2e 失败（exit $RC）"
   echo "  排查："
-  echo "    1. logs/agent-worker.log 看 ReAct 循环是否跑"
+  echo "    1. logs/scanner.log 看 ReAct 循环是否跑"
   echo "    2. logs/api.log 看 sniffer enqueue 是否成功"
   echo "    3. docker exec liusha-postgres psql -U liusha -d liusha -c 'SELECT kind,severity,dedup_key FROM finding;'"
 fi

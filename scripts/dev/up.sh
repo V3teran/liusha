@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # scripts/dev/up.sh — 起基础设施（postgres + redis + proxify），然后 migrate
-# host 侧 vulnapp/api/agent-worker 不在本脚本启动（用 run-svc.sh）
+# host 侧 vulnapp/api/scanner 不在本脚本启动（用 run-svc.sh）
 
 set -euo pipefail
 cd "$(dirname "$0")/../.."
@@ -30,6 +30,6 @@ docker compose -f deployments/docker-compose.yml ps --format "table {{.Name}}\t{
 
 echo ""
 echo "✓ 基础设施就绪。下一步："
-echo "    ./scripts/dev/run-svc.sh        # 起 vulnapp + api + agent-worker（host 侧）"
+echo "    ./scripts/dev/run-svc.sh        # 起 vulnapp + api + scanner（host 侧）"
 echo "    ./scripts/dev/e2e.sh            # 跑 e2e-bac 触发器（另一个终端）"
 echo "    ./scripts/dev/down.sh           # 关基础设施"

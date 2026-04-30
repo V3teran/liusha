@@ -6,7 +6,7 @@
 //  3. 设 HTTP_PROXY=proxify(8888)，向 vulnapp 打 18 次请求覆盖 5 类 BAC 场景；
 //  4. 轮询 finding 表，直到出现 ≥5 条 bac.* finding 且至少 3 类齐全，否则 6 分钟超时退出 1。
 //
-// 本程序假设完整 docker-compose stack（含 proxify + vulnapp + agent-worker）已就绪——
+// 本程序假设完整 docker-compose stack（含 proxify + vulnapp + scanner）已就绪——
 // 它只负责"敲门 + 验收"，不负责拉起依赖。容器编排由 Task 10 的 e2e 脚本/profile 处理。
 package main
 
