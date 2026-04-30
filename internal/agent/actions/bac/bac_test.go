@@ -10,7 +10,7 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/V3teran/liusha/internal/agent/action"
+	"github.com/V3teran/liusha/internal/tool"
 	"github.com/V3teran/liusha/internal/credential"
 	"github.com/V3teran/liusha/internal/flow"
 	"github.com/V3teran/liusha/internal/replay"
@@ -334,7 +334,7 @@ func TestFactory_CreateActions_SharesSession(t *testing.T) {
 		t.Fatalf("应返回 4 个 action，got %d", len(acts))
 	}
 
-	names := make(map[string]action.Action, len(acts))
+	names := make(map[string]tool.Action, len(acts))
 	for _, a := range acts {
 		names[a.Name()] = a
 	}
@@ -368,7 +368,7 @@ func TestFactory_Register_AllNames(t *testing.T) {
 	eng := replay.NewEngine(http.DefaultClient)
 	f := NewFactory(prov, flows, eng)
 
-	reg := action.NewRegistry()
+	reg := tool.NewRegistry()
 	if err := f.Register(reg, "eng-2"); err != nil {
 		t.Fatalf("Register err=%v", err)
 	}

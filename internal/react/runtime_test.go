@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/V3teran/liusha/internal/agent/action"
+	"github.com/V3teran/liusha/internal/tool"
 	"github.com/V3teran/liusha/internal/llm"
 )
 
@@ -27,17 +27,17 @@ func (s *scriptedGen) Generate(_ context.Context, _ []llm.Message, _ []llm.ToolS
 type captureAction struct {
 	name   string
 	called int
-	res    action.Result
+	res    tool.Result
 	err    error
 }
 
 func (a *captureAction) Name() string                    { return a.name }
 func (a *captureAction) Description() string             { return a.name }
 func (a *captureAction) ParametersJSON() json.RawMessage { return json.RawMessage(`{"type":"object"}`) }
-func (a *captureAction) Execute(_ context.Context, _ json.RawMessage) (action.Result, error) {
+func (a *captureAction) Execute(_ context.Context, _ json.RawMessage) (tool.Result, error) {
 	a.called++
 	if a.err != nil {
-		return action.Result{}, a.err
+		return tool.Result{}, a.err
 	}
 	return a.res, nil
 }
@@ -58,8 +58,8 @@ func TestRun_StopsOnDone(t *testing.T) {
 	gen := &scriptedGen{turns: []llm.Result{
 		{ToolCalls: []llm.ToolCall{{ID: "1", Name: "done", Arguments: json.RawMessage(`{"reason":"ok"}`)}}, FinishReason: "tool_calls"},
 	}}
-	reg := action.NewRegistry()
-	doneAct := &captureAction{name: "done", res: action.Result{Done: true}}
+	reg := tool.NewRegistry()
+	doneAct := &captureAction{name: "done", res: tool.Result{Done: true}}
 	_ = reg.Register(doneAct)
 
 	out, err := Run(context.Background(), Config{
@@ -80,7 +80,7 @@ func TestRun_StopsOnMaxSteps(t *testing.T) {
 		FinishReason: "tool_calls",
 	}
 	gen := &scriptedGen{turns: []llm.Result{loopCall, loopCall, loopCall}}
-	reg := action.NewRegistry()
+	reg := tool.NewRegistry()
 	_ = reg.Register(&captureAction{name: "noop"})
 
 	out, err := Run(context.Background(), Config{
@@ -101,7 +101,7 @@ func TestRun_ObserverAbortsLowValue(t *testing.T) {
 		FinishReason: "tool_calls",
 	}
 	gen := &scriptedGen{turns: []llm.Result{noop, noop, noop, noop, noop, noop, noop}}
-	reg := action.NewRegistry()
+	reg := tool.NewRegistry()
 	_ = reg.Register(&captureAction{name: "noop"})
 
 	obs := &fakeObserver{verdicts: []Verdict{{Decision: VerdictAbort}}}
@@ -132,9 +132,9 @@ func TestRun_ObserverInjectsHint(t *testing.T) {
 		FinishReason: "tool_calls",
 	}
 	gen := &scriptedGen{turns: []llm.Result{noop, noop, noop, noop, noop, terminate}}
-	reg := action.NewRegistry()
+	reg := tool.NewRegistry()
 	_ = reg.Register(&captureAction{name: "noop"})
-	_ = reg.Register(&captureAction{name: "done", res: action.Result{Done: true}})
+	_ = reg.Register(&captureAction{name: "done", res: tool.Result{Done: true}})
 
 	obs := &fakeObserver{verdicts: []Verdict{{Decision: VerdictSteer, Hint: "改向 X"}}}
 	out, err := Run(context.Background(), Config{
@@ -161,7 +161,7 @@ func TestRun_DoneValidateRejectsThenForce(t *testing.T) {
 		FinishReason: "tool_calls",
 	}
 	gen := &scriptedGen{turns: []llm.Result{doneCall, doneCall, doneCall, doneCall}}
-	reg := action.NewRegistry()
+	reg := tool.NewRegistry()
 	_ = reg.Register(&captureAction{name: "done", err: ErrDoneNotReady{Missing: []string{"replay_multi_identity"}}})
 
 	out, err := Run(context.Background(), Config{LLM: gen, Actions: reg, Budget: Budget{MaxSteps: 10}})
@@ -183,7 +183,7 @@ func TestRun_OnAbort(t *testing.T) {
 		FinishReason: "tool_calls",
 	}
 	gen := &scriptedGen{turns: []llm.Result{noop, noop}}
-	reg := action.NewRegistry()
+	reg := tool.NewRegistry()
 	_ = reg.Register(&captureAction{name: "noop"})
 
 	out, err := Run(context.Background(), Config{

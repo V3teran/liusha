@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/V3teran/liusha/internal/agent/action"
+	"github.com/V3teran/liusha/internal/tool"
 	"github.com/V3teran/liusha/internal/replay"
 )
 
@@ -70,20 +70,20 @@ type replayOutput struct {
 }
 
 // Execute 解析 args → 取 flow → 校验身份 → 并发重放 → 写 Session → 返回瘦摘要。
-func (a *ReplayMultiIdentity) Execute(ctx context.Context, args json.RawMessage) (action.Result, error) {
+func (a *ReplayMultiIdentity) Execute(ctx context.Context, args json.RawMessage) (tool.Result, error) {
 	var in struct {
 		FlowID      int64  `json:"flow_id"`
 		Host        string `json:"host"`
 		Concurrency int    `json:"concurrency"`
 	}
 	if err := json.Unmarshal(args, &in); err != nil {
-		return action.Result{}, fmt.Errorf("解析 replay_multi_identity 参数失败: %w", err)
+		return tool.Result{}, fmt.Errorf("解析 replay_multi_identity 参数失败: %w", err)
 	}
 	if in.FlowID <= 0 {
-		return action.Result{}, fmt.Errorf("flow_id 必填且 > 0")
+		return tool.Result{}, fmt.Errorf("flow_id 必填且 > 0")
 	}
 	if len(a.Session.Identities) == 0 {
-		return action.Result{}, fmt.Errorf("session.Identities 为空，请先调 fetch_credentials")
+		return tool.Result{}, fmt.Errorf("session.Identities 为空，请先调 fetch_credentials")
 	}
 	if in.Concurrency <= 0 {
 		in.Concurrency = defaultConcurrency
@@ -91,7 +91,7 @@ func (a *ReplayMultiIdentity) Execute(ctx context.Context, args json.RawMessage)
 
 	f, err := a.Flows.GetByID(ctx, in.FlowID)
 	if err != nil {
-		return action.Result{}, fmt.Errorf("读取 flow %d 失败: %w", in.FlowID, err)
+		return tool.Result{}, fmt.Errorf("读取 flow %d 失败: %w", in.FlowID, err)
 	}
 
 	raw := replay.RawRequest{
@@ -102,7 +102,7 @@ func (a *ReplayMultiIdentity) Execute(ctx context.Context, args json.RawMessage)
 	}
 	resps, err := a.Engine.ReplayMultiIdentity(ctx, raw, a.Session.Identities, in.Concurrency)
 	if err != nil {
-		return action.Result{}, fmt.Errorf("并发重放 flow %d 失败: %w", in.FlowID, err)
+		return tool.Result{}, fmt.Errorf("并发重放 flow %d 失败: %w", in.FlowID, err)
 	}
 
 	// 全 body 入 Session（供后续 heuristic / similarity）；瘦摘要喂 LLM。
@@ -126,9 +126,9 @@ func (a *ReplayMultiIdentity) Execute(ctx context.Context, args json.RawMessage)
 	}
 	enc, err := json.Marshal(out)
 	if err != nil {
-		return action.Result{}, fmt.Errorf("序列化 replay_multi_identity 输出失败: %w", err)
+		return tool.Result{}, fmt.Errorf("序列化 replay_multi_identity 输出失败: %w", err)
 	}
-	return action.Result{
+	return tool.Result{
 		Output:  enc,
 		Summary: fmt.Sprintf("replay_multi_identity flow=%d count=%d", f.ID, len(resps)),
 	}, nil

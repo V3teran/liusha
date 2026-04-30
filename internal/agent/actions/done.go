@@ -13,7 +13,7 @@ import (
 	"context"
 	"encoding/json"
 
-	"github.com/V3teran/liusha/internal/agent/action"
+	"github.com/V3teran/liusha/internal/tool"
 )
 
 // Done 是终止 ReAct 循环的动作。Result.Done=true 由 runtime 直接退出主循环。
@@ -36,9 +36,9 @@ func (Done) ParametersJSON() json.RawMessage {
 }
 
 // Execute 直接返回 Done=true；args 即使为 nil 也回吐为空 JSON 对象。
-func (Done) Execute(_ context.Context, args json.RawMessage) (action.Result, error) {
+func (Done) Execute(_ context.Context, args json.RawMessage) (tool.Result, error) {
 	if len(args) == 0 {
 		args = json.RawMessage(`{}`)
 	}
-	return action.Result{Done: true, Output: args}, nil
+	return tool.Result{Done: true, Output: args}, nil
 }

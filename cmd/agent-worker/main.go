@@ -27,8 +27,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/V3teran/liusha/internal/agent/action"
-	"github.com/V3teran/liusha/internal/agent/action/middleware"
+	"github.com/V3teran/liusha/internal/tool"
+	"github.com/V3teran/liusha/internal/tool/middleware"
 	"github.com/V3teran/liusha/internal/agent/actions"
 	"github.com/V3teran/liusha/internal/agent/actions/bac"
 	"github.com/V3teran/liusha/internal/agent/actions/done_validator"
@@ -314,7 +314,7 @@ func (h snifferHandler) handle(ctx context.Context, p worker.Payload) error {
 		return err
 	}
 
-	reg := action.NewRegistry()
+	reg := tool.NewRegistry()
 	_ = reg.Register(actions.Done{})
 	_ = reg.Register(&actions.ReadState{Store: h.engagements, EngagementID: p.EngagementID})
 	_ = reg.Register(&actions.WriteFact{Store: h.engagements, EngagementID: p.EngagementID})
@@ -402,9 +402,9 @@ func (h snifferHandler) handle(ctx context.Context, p worker.Payload) error {
 //     system prompt 用 SKILL.md 正文；done validator 用 BACValidator（per-task 实例，绑 eid）。
 //   - 其它 skill：返回错误（plan 2 仅支持 BAC；后续 skill 走同样模式扩展）。
 func (h snifferHandler) skillSetup(
-	reg *action.Registry,
+	reg *tool.Registry,
 	p worker.Payload,
-) (string, action.DoneValidator, error) {
+) (string, tool.DoneValidator, error) {
 	switch p.Skill {
 	case "":
 		_ = reg.Register(&actions.ReadWindow{Windows: h.windows, Flows: h.flows})

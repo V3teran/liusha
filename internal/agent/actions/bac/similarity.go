@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/V3teran/liusha/internal/agent/action"
+	"github.com/V3teran/liusha/internal/tool"
 	"github.com/V3teran/liusha/internal/heuristic"
 )
 
@@ -59,18 +59,18 @@ type similarityOutput struct {
 }
 
 // Execute 解析 args → 取 LastResponses → 两两算结构相似度 → 返回矩阵 + 摘要。
-func (a *ComputeSimilarity) Execute(_ context.Context, args json.RawMessage) (action.Result, error) {
+func (a *ComputeSimilarity) Execute(_ context.Context, args json.RawMessage) (tool.Result, error) {
 	var in struct {
 		Algorithm string  `json:"algorithm"`
 		Threshold float64 `json:"threshold"`
 	}
 	if len(args) > 0 {
 		if err := json.Unmarshal(args, &in); err != nil {
-			return action.Result{}, fmt.Errorf("解析 compute_similarity 参数失败: %w", err)
+			return tool.Result{}, fmt.Errorf("解析 compute_similarity 参数失败: %w", err)
 		}
 	}
 	if len(a.Session.LastResponses) == 0 {
-		return action.Result{}, fmt.Errorf("session.LastResponses 为空，请先调 replay_multi_identity")
+		return tool.Result{}, fmt.Errorf("session.LastResponses 为空，请先调 replay_multi_identity")
 	}
 	if in.Threshold <= 0 {
 		in.Threshold = defaultThreshold
@@ -119,9 +119,9 @@ func (a *ComputeSimilarity) Execute(_ context.Context, args json.RawMessage) (ac
 	}
 	enc, err := json.Marshal(out)
 	if err != nil {
-		return action.Result{}, fmt.Errorf("序列化 compute_similarity 输出失败: %w", err)
+		return tool.Result{}, fmt.Errorf("序列化 compute_similarity 输出失败: %w", err)
 	}
-	return action.Result{
+	return tool.Result{
 		Output: enc,
 		Summary: fmt.Sprintf("compute_similarity n=%d max=%.2f all_below=%v",
 			n, maxPair.Score, allBelow),

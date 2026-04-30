@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/V3teran/liusha/internal/agent/action"
+	"github.com/V3teran/liusha/internal/tool"
 	"github.com/V3teran/liusha/internal/finding"
 )
 
@@ -55,7 +55,7 @@ func (a *WriteFinding) ParametersJSON() json.RawMessage {
 }
 
 // Execute 解析参数 → 构造 finding.Finding → Store.Save → 返回 {id, dedup_key}。
-func (a *WriteFinding) Execute(ctx context.Context, args json.RawMessage) (action.Result, error) {
+func (a *WriteFinding) Execute(ctx context.Context, args json.RawMessage) (tool.Result, error) {
 	var in struct {
 		Kind       string          `json:"kind"`
 		Severity   string          `json:"severity"`
@@ -68,13 +68,13 @@ func (a *WriteFinding) Execute(ctx context.Context, args json.RawMessage) (actio
 		DedupKey   string          `json:"dedup_key"`
 	}
 	if err := json.Unmarshal(args, &in); err != nil {
-		return action.Result{}, fmt.Errorf("解析 write_finding 参数失败: %w", err)
+		return tool.Result{}, fmt.Errorf("解析 write_finding 参数失败: %w", err)
 	}
 	if in.DedupKey == "" {
-		return action.Result{}, fmt.Errorf("dedup_key 必填")
+		return tool.Result{}, fmt.Errorf("dedup_key 必填")
 	}
 	if in.Kind == "" || in.Title == "" {
-		return action.Result{}, fmt.Errorf("kind 与 title 都不能为空")
+		return tool.Result{}, fmt.Errorf("kind 与 title 都不能为空")
 	}
 
 	// TaskID 可空：空字符串 → nil 指针，避免 FK 不存在的 task。
@@ -98,9 +98,9 @@ func (a *WriteFinding) Execute(ctx context.Context, args json.RawMessage) (actio
 		DedupKey:     in.DedupKey,
 	})
 	if err != nil {
-		return action.Result{}, fmt.Errorf("保存 finding 失败: %w", err)
+		return tool.Result{}, fmt.Errorf("保存 finding 失败: %w", err)
 	}
 
 	out, _ := json.Marshal(map[string]string{"id": saved.ID, "dedup_key": saved.DedupKey})
-	return action.Result{Output: out}, nil
+	return tool.Result{Output: out}, nil
 }

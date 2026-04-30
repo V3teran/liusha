@@ -28,7 +28,7 @@ func NewLoader(root string) *Loader {
 
 // Load 读 root/<name>/SKILL.md，解析 frontmatter + body，跑校验，返回 Card。
 //
-// doneValidatorRegistered 由调用方注入（一般指向 action.Registry.HasDoneValidator）；
+// doneValidatorRegistered 由调用方注入（一般指向 tool.Registry.HasDoneValidator）；
 // 这样 skill 包不必反向依赖 action 包。
 func (l *Loader) Load(name string, doneValidatorRegistered func(key string) bool) (*Card, error) {
 	full := filepath.Join(l.root, name, "SKILL.md")

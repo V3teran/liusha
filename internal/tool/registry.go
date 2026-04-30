@@ -4,7 +4,7 @@
 //   - Action 是 LLM 可调用的工具单元，Execute 返回 Result（含 Done 终止信号 + Summary 摘要）。
 //   - Registry 在动作执行前后通过中间件链横切：result_compress / done_validate。
 //   - 中间件顺序与 HTTP middleware 一致：先注册的在最外层（先 enter、后 exit）。
-package action
+package tool
 
 import (
 	"context"
@@ -37,14 +37,14 @@ type Action interface {
 // ActionExecutor 是去掉 Action 实例后的执行函数签名，用于中间件链。
 type ActionExecutor func(ctx context.Context, name string, args json.RawMessage) (Result, error)
 
-// ActionMiddleware 是一层装饰：包住 next 返回新的 Executor。
-type ActionMiddleware func(next ActionExecutor) ActionExecutor
+// Middleware 是一层装饰：包住 next 返回新的 Executor。
+type Middleware func(next ActionExecutor) ActionExecutor
 
 // Registry 持有已注册的 Action 与中间件链，是 ReAct runtime 唯一的动作入口。
 type Registry struct {
 	lock        sync.RWMutex
 	actions     map[string]Action
-	middlewares []ActionMiddleware
+	middlewares []Middleware
 }
 
 // NewRegistry 创建空注册表。
@@ -73,7 +73,7 @@ func (r *Registry) Has(name string) bool {
 }
 
 // Use 追加中间件；先注册的在最外层（与 HTTP middleware 一致）。
-func (r *Registry) Use(mw ...ActionMiddleware) {
+func (r *Registry) Use(mw ...Middleware) {
 	if len(mw) == 0 {
 		return
 	}
@@ -114,7 +114,7 @@ func (r *Registry) Execute(ctx context.Context, name string, args json.RawMessag
 
 	// 快照中间件切片，避免 Execute 进行时被 Use 改写。
 	r.lock.RLock()
-	mw := make([]ActionMiddleware, len(r.middlewares))
+	mw := make([]Middleware, len(r.middlewares))
 	copy(mw, r.middlewares)
 	r.lock.RUnlock()
 

@@ -3,7 +3,7 @@ package bac
 import (
 	"fmt"
 
-	"github.com/V3teran/liusha/internal/agent/action"
+	"github.com/V3teran/liusha/internal/tool"
 	"github.com/V3teran/liusha/internal/credential"
 	"github.com/V3teran/liusha/internal/replay"
 )
@@ -26,9 +26,9 @@ func NewFactory(creds credential.Provider, flows FlowReader, eng *replay.Engine)
 //
 // engagementID 当前不参与构造，只作 future tagging / 日志锚点（保留给 plan T3 的 skill 装配用）；
 // 不影响 action 行为。
-func (f *Factory) CreateActions(_ string) []action.Action {
+func (f *Factory) CreateActions(_ string) []tool.Action {
 	session := &Session{}
-	return []action.Action{
+	return []tool.Action{
 		&FetchCredentials{Provider: f.creds, Session: session},
 		&ReplayMultiIdentity{Engine: f.replay, Flows: f.flows, Session: session},
 		&HeuristicCheck{Session: session},
@@ -40,9 +40,9 @@ func (f *Factory) CreateActions(_ string) []action.Action {
 //
 // 用于 BAC skill 装配阶段（plan 2 T3 会调用）：
 //
-//	reg := action.NewRegistry()
+//	reg := tool.NewRegistry()
 //	if err := bacFactory.Register(reg, eng.ID); err != nil { ... }
-func (f *Factory) Register(reg *action.Registry, engagementID string) error {
+func (f *Factory) Register(reg *tool.Registry, engagementID string) error {
 	for _, a := range f.CreateActions(engagementID) {
 		if err := reg.Register(a); err != nil {
 			return fmt.Errorf("注册 BAC action %q 失败: %w", a.Name(), err)

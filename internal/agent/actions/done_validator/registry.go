@@ -1,6 +1,6 @@
 // Package done_validator 收纳各 Skill 的 Done 校验器实现（黑客松借鉴共识 C：Done 系统层裁决）。
 //
-// 与 internal/agent/action.DoneValidator interface 的关系：
+// 与 internal/agent/tool.DoneValidator interface 的关系：
 //   - 这里只放具体 validator（如 BACValidator）+ 一个 key 集合 registry。
 //   - registry 仅作"key 合法性"快速检查：skill loader 在加载 SKILL.md 时调
 //     IsRegistered(key) 验证 frontmatter 的 done_validator 字段。

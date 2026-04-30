@@ -17,7 +17,7 @@ import (
 
 	"github.com/rs/zerolog"
 
-	"github.com/V3teran/liusha/internal/agent/action"
+	"github.com/V3teran/liusha/internal/tool"
 	"github.com/V3teran/liusha/internal/llm"
 )
 
@@ -42,7 +42,7 @@ const (
 //   - Observer 默认 NoopObserver；ObserverEverySteps 默认 5。
 type Config struct {
 	LLM                llm.Generator
-	Actions            *action.Registry
+	Actions            *tool.Registry
 	Budget             Budget
 	SystemPrompt       string
 	UserPrompt         string

@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/V3teran/liusha/internal/agent/action"
+	"github.com/V3teran/liusha/internal/tool"
 	"github.com/V3teran/liusha/internal/flow"
 	"github.com/V3teran/liusha/internal/window"
 )
@@ -70,20 +70,20 @@ type readWindowOutput struct {
 }
 
 // Execute 解析 args → 拉窗口 → 反查每条 flow → MarkConsumed → 返回摘要。
-func (a *ReadWindow) Execute(ctx context.Context, args json.RawMessage) (action.Result, error) {
+func (a *ReadWindow) Execute(ctx context.Context, args json.RawMessage) (tool.Result, error) {
 	var in struct {
 		WindowID string `json:"window_id"`
 	}
 	if err := json.Unmarshal(args, &in); err != nil {
-		return action.Result{}, fmt.Errorf("解析 read_window 参数失败: %w", err)
+		return tool.Result{}, fmt.Errorf("解析 read_window 参数失败: %w", err)
 	}
 	if in.WindowID == "" {
-		return action.Result{}, fmt.Errorf("window_id 必填")
+		return tool.Result{}, fmt.Errorf("window_id 必填")
 	}
 
 	w, err := a.Windows.GetByID(ctx, in.WindowID)
 	if err != nil {
-		return action.Result{}, fmt.Errorf("读取窗口 %s 失败: %w", in.WindowID, err)
+		return tool.Result{}, fmt.Errorf("读取窗口 %s 失败: %w", in.WindowID, err)
 	}
 
 	out := readWindowOutput{WindowID: in.WindowID, Flows: make([]flowSummary, 0, len(w.Flows))}
@@ -103,15 +103,15 @@ func (a *ReadWindow) Execute(ctx context.Context, args json.RawMessage) (action.
 
 	// 即使 LLM 不读 result，也已推进 consumed —— 防重复消费。
 	if err := a.Windows.MarkConsumed(ctx, in.WindowID); err != nil {
-		return action.Result{}, fmt.Errorf("标记窗口 %s consumed 失败: %w", in.WindowID, err)
+		return tool.Result{}, fmt.Errorf("标记窗口 %s consumed 失败: %w", in.WindowID, err)
 	}
 	out.Consumed = true
 
 	enc, err := json.Marshal(out)
 	if err != nil {
-		return action.Result{}, fmt.Errorf("序列化 read_window 输出失败: %w", err)
+		return tool.Result{}, fmt.Errorf("序列化 read_window 输出失败: %w", err)
 	}
-	return action.Result{
+	return tool.Result{
 		Output:  enc,
 		Summary: buildSummary(in.WindowID, out.Flows),
 	}, nil

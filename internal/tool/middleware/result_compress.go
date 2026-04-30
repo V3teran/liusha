@@ -13,7 +13,7 @@ import (
 	"path/filepath"
 	"sync/atomic"
 
-	"github.com/V3teran/liusha/internal/agent/action"
+	"github.com/V3teran/liusha/internal/tool"
 	"github.com/V3teran/liusha/internal/logx"
 )
 
@@ -26,16 +26,16 @@ const snippetSize = 400
 // summarySize 是写入 Result.Summary 的长度，喂给 Observer 滑动窗。
 const summarySize = 200
 
-// ResultCompress 工厂：返回一个把大 Output 落盘 + 替换为元数据 JSON 的 ActionMiddleware。
+// ResultCompress 工厂：返回一个把大 Output 落盘 + 替换为元数据 JSON 的 Middleware。
 //
 // engagementID 用于隔离不同任务的产物目录；baseDir 是落盘根目录（如 engagement-store）。
 // 落盘失败时透传原 result + 打印 warn，不阻断 ReAct 主流程。
-func ResultCompress(engagementID, baseDir string) action.ActionMiddleware {
+func ResultCompress(engagementID, baseDir string) tool.Middleware {
 	logger := logx.New("action.result_compress")
 	var seq atomic.Uint64
 
-	return func(next action.ActionExecutor) action.ActionExecutor {
-		return func(ctx context.Context, name string, args json.RawMessage) (action.Result, error) {
+	return func(next tool.ActionExecutor) tool.ActionExecutor {
+		return func(ctx context.Context, name string, args json.RawMessage) (tool.Result, error) {
 			res, err := next(ctx, name, args)
 			if err != nil {
 				return res, err
@@ -76,7 +76,7 @@ func ResultCompress(engagementID, baseDir string) action.ActionMiddleware {
 			if len(summary) > summarySize {
 				summary = summary[:summarySize]
 			}
-			return action.Result{
+			return tool.Result{
 				Output:  encoded,
 				Summary: summary,
 				Done:    res.Done,

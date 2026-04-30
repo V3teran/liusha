@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/V3teran/liusha/internal/agent/action"
+	"github.com/V3teran/liusha/internal/tool"
 )
 
 // SpawnEngine 是 SpawnSubtask 依赖的最小接口：把"创建子任务+入队"封装为一次调用。
@@ -52,19 +52,19 @@ func (a *SpawnSubtask) ParametersJSON() json.RawMessage {
 // Execute 解析 args → 调 Engine.Spawn → 返回 {child_task_id}。
 //
 // 失败语义：
-//   - args 非法 JSON / skill 缺失 → action.Result{} + error（不调用 Engine）
+//   - args 非法 JSON / skill 缺失 → tool.Result{} + error（不调用 Engine）
 //   - Engine.Spawn 返错（depth、inflight 限额、DB / Redis 故障）→ 错误透传
-func (a *SpawnSubtask) Execute(ctx context.Context, args json.RawMessage) (action.Result, error) {
+func (a *SpawnSubtask) Execute(ctx context.Context, args json.RawMessage) (tool.Result, error) {
 	var in struct {
 		Skill  string          `json:"skill"`
 		Input  json.RawMessage `json:"input"`
 		Budget json.RawMessage `json:"budget"`
 	}
 	if err := json.Unmarshal(args, &in); err != nil {
-		return action.Result{}, fmt.Errorf("解析 spawn_subtask 参数失败: %w", err)
+		return tool.Result{}, fmt.Errorf("解析 spawn_subtask 参数失败: %w", err)
 	}
 	if in.Skill == "" {
-		return action.Result{}, fmt.Errorf("skill 必填")
+		return tool.Result{}, fmt.Errorf("skill 必填")
 	}
 	// input 缺省给空对象，避免下游 unmarshal nil。
 	if len(in.Input) == 0 {
@@ -73,11 +73,11 @@ func (a *SpawnSubtask) Execute(ctx context.Context, args json.RawMessage) (actio
 
 	childID, err := a.Engine.Spawn(ctx, a.ParentTaskID, in.Skill, in.Input, in.Budget)
 	if err != nil {
-		return action.Result{}, fmt.Errorf("spawn child task: %w", err)
+		return tool.Result{}, fmt.Errorf("spawn child task: %w", err)
 	}
 
 	out, _ := json.Marshal(map[string]string{"child_task_id": childID})
-	return action.Result{
+	return tool.Result{
 		Output:  out,
 		Summary: fmt.Sprintf("spawn skill=%s child=%s", in.Skill, childID),
 	}, nil

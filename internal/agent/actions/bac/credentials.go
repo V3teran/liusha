@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/V3teran/liusha/internal/agent/action"
+	"github.com/V3teran/liusha/internal/tool"
 	"github.com/V3teran/liusha/internal/credential"
 )
 
@@ -56,20 +56,20 @@ type fetchOutput struct {
 }
 
 // Execute 解析 args → Provider.GetIdentitiesByHost → 写 Session → 返回瘦摘要。
-func (a *FetchCredentials) Execute(ctx context.Context, args json.RawMessage) (action.Result, error) {
+func (a *FetchCredentials) Execute(ctx context.Context, args json.RawMessage) (tool.Result, error) {
 	var in struct {
 		Host string `json:"host"`
 	}
 	if err := json.Unmarshal(args, &in); err != nil {
-		return action.Result{}, fmt.Errorf("解析 fetch_credentials 参数失败: %w", err)
+		return tool.Result{}, fmt.Errorf("解析 fetch_credentials 参数失败: %w", err)
 	}
 	if in.Host == "" {
-		return action.Result{}, fmt.Errorf("host 必填")
+		return tool.Result{}, fmt.Errorf("host 必填")
 	}
 
 	ids, err := a.Provider.GetIdentitiesByHost(ctx, in.Host)
 	if err != nil {
-		return action.Result{}, fmt.Errorf("获取身份列表 host=%s: %w", in.Host, err)
+		return tool.Result{}, fmt.Errorf("获取身份列表 host=%s: %w", in.Host, err)
 	}
 
 	a.Session.Identities = ids
@@ -84,9 +84,9 @@ func (a *FetchCredentials) Execute(ctx context.Context, args json.RawMessage) (a
 	}
 	enc, err := json.Marshal(out)
 	if err != nil {
-		return action.Result{}, fmt.Errorf("序列化 fetch_credentials 输出失败: %w", err)
+		return tool.Result{}, fmt.Errorf("序列化 fetch_credentials 输出失败: %w", err)
 	}
-	return action.Result{
+	return tool.Result{
 		Output:  enc,
 		Summary: fmt.Sprintf("fetch_credentials host=%s identities=%d", in.Host, len(ids)),
 	}, nil
