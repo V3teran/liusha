@@ -161,11 +161,15 @@ func TestServer_OnResponse_BuildSnapshot(t *testing.T) {
 	if snap.ID == "" || len(snap.ID) != 64 {
 		t.Errorf("ID 期望 sha256 十六进制（64 字符）, 实际 %q", snap.ID)
 	}
-	if snap.ResponseHeaders["set-cookie"] != "a=1,b=2" {
-		t.Errorf("多值 header 拼接异常: %q", snap.ResponseHeaders["set-cookie"])
+	// Set-Cookie 必须保留独立多值条目（RFC 6265），不能被合并 join。
+	gotCookies := snap.ResponseHeaders["set-cookie"]
+	if len(gotCookies) != 2 || gotCookies[0] != "a=1" || gotCookies[1] != "b=2" {
+		t.Errorf("Set-Cookie 多值切片错: %#v, 期望 [a=1, b=2]", gotCookies)
 	}
-	if snap.ResponseHeaders["content-type"] != "application/json" {
-		t.Errorf("Content-Type lower-case 失败: %v", snap.ResponseHeaders)
+	// 单值 header 仍以单元素切片返回（与 http.Header 原 shape 一致）。
+	gotCT := snap.ResponseHeaders["content-type"]
+	if len(gotCT) != 1 || gotCT[0] != "application/json" {
+		t.Errorf("Content-Type lower-case 失败: %#v", gotCT)
 	}
 	if snap.Timestamp.IsZero() {
 		t.Error("Timestamp 应被设置")

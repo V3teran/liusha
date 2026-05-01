@@ -62,6 +62,16 @@ services:
       LIUSHA_ENV: development
       LIUSHA_LOG_LEVEL: info
       LIUSHA_CONFIG: /app/config/config.yaml
+      # LLM provider key：cfg.LLM.Validate() 启动时强校验所有 provider 的 key，
+      # 即使 api 进程不直接调 LLM 也必须传，否则启动崩溃。
+      DEEPSEEK_API_KEY: "${DEEPSEEK_API_KEY:-}"
+      ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
+      OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
+      MOONSHOT_API_KEY: "${MOONSHOT_API_KEY:-}"
+      QWEN_API_KEY: "${QWEN_API_KEY:-}"
+      LIUSHA_LLM_LIGHT_PROVIDER: "${LIUSHA_LLM_LIGHT_PROVIDER:-deepseek}"
+      LIUSHA_LLM_FALLBACK_PROVIDER: "${LIUSHA_LLM_FALLBACK_PROVIDER:-deepseek}"
+      LIUSHA_LLM_VISION_PROVIDER: "${LIUSHA_LLM_VISION_PROVIDER:-deepseek}"
     depends_on:
       postgres:
         condition: service_healthy
@@ -90,6 +100,15 @@ services:
       LIUSHA_LOG_LEVEL: info
       LIUSHA_PROXY_LISTEN_ADDR: 0.0.0.0:8888
       LIUSHA_PROXY_CERT_DIR: /app/certs
+      # LLM provider key：cfg.LLM.Validate() 启动时强校验，proxy 进程虽不调 LLM 也必须传。
+      DEEPSEEK_API_KEY: "${DEEPSEEK_API_KEY:-}"
+      ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
+      OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
+      MOONSHOT_API_KEY: "${MOONSHOT_API_KEY:-}"
+      QWEN_API_KEY: "${QWEN_API_KEY:-}"
+      LIUSHA_LLM_LIGHT_PROVIDER: "${LIUSHA_LLM_LIGHT_PROVIDER:-deepseek}"
+      LIUSHA_LLM_FALLBACK_PROVIDER: "${LIUSHA_LLM_FALLBACK_PROVIDER:-deepseek}"
+      LIUSHA_LLM_VISION_PROVIDER: "${LIUSHA_LLM_VISION_PROVIDER:-deepseek}"
     volumes:
       - liusha-proxy-certs:/app/certs
     ports:
@@ -134,6 +153,7 @@ services:
       # 临时覆盖：把 light/fallback 都路由到 deepseek，避免 ANTHROPIC_API_KEY 空时 validate 失败
       LIUSHA_LLM_LIGHT_PROVIDER: "${LIUSHA_LLM_LIGHT_PROVIDER:-deepseek}"
       LIUSHA_LLM_FALLBACK_PROVIDER: "${LIUSHA_LLM_FALLBACK_PROVIDER:-deepseek}"
+      LIUSHA_LLM_VISION_PROVIDER: "${LIUSHA_LLM_VISION_PROVIDER:-deepseek}"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:

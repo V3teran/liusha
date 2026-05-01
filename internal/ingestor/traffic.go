@@ -1,9 +1,11 @@
 // Package ingestor 是 Stream 流量摄入器：
 //
-//	proxy XADD → liusha:flow_events
-//	ingestor.Traffic XREADGROUP → 落库 http_flow → 启发式打分 →
-//	    score >= threshold → tasks.Create(role=main) →
-//	    Asynq react queue → scanner 主 ReAct
+//	proxy 责任链放行 → XADD → liusha:flow_events
+//	ingestor.Traffic XREADGROUP → 落库 http_flow →
+//	    tasks.Create(role=main) → Asynq react queue → scanner 主 ReAct
+//
+// 这里不再做二次过滤：是否丢弃流量完全由 proxy 端 filter chain 决定，
+// ingestor 只负责把 proxy 已放行的流量入库 + 入主队列。
 package ingestor
 
 import (
@@ -19,7 +21,6 @@ import (
 
 	"github.com/V3teran/liusha/internal/engagement"
 	"github.com/V3teran/liusha/internal/flow"
-	"github.com/V3teran/liusha/internal/heuristic"
 	"github.com/V3teran/liusha/internal/proxy"
 	"github.com/V3teran/liusha/internal/task"
 	"github.com/V3teran/liusha/internal/worker"
@@ -117,7 +118,10 @@ func (t *Traffic) Run(ctx context.Context) error {
 	}
 }
 
-// handleMessage 处理单条 stream entry：落 http_flow + 启发式打分 + 入主任务。
+// handleMessage 处理单条 stream entry：落 http_flow + 入主任务。
+//
+// 不做二次过滤：proxy 端 filter chain 已经把无关流量（静态资源、心跳、
+// websocket、超大 body 等）拦在外面，能进 stream 的都直接入主 ReAct 队列。
 func (t *Traffic) handleMessage(ctx context.Context, msg redis.XMessage) {
 	defer func() {
 		if err := t.rdb.XAck(ctx, t.stream, t.group, msg.ID).Err(); err != nil {
@@ -147,17 +151,7 @@ func (t *Traffic) handleMessage(ctx context.Context, msg redis.XMessage) {
 		return
 	}
 
-	// 2) 启发式打分；< threshold → 不入队
-	score := heuristic.Score(snapshotFlow{snap: &snap})
-	if score < heuristic.Threshold() {
-		t.logger.Debug().
-			Int("score", score).
-			Str("url", snap.URI).
-			Msg("启发式过滤：分数不足，不入主队列")
-		return
-	}
-
-	// 3) 创建主 react task + 入 Asynq
+	// 2) 创建主 react task + 入 Asynq
 	if err := t.enqueueMain(ctx, eng.ID, flowID, &snap); err != nil {
 		t.logger.Warn().Err(err).Str("eid", eng.ID).Int64("flow_id", flowID).Msg("主任务入队失败")
 		return
@@ -165,17 +159,9 @@ func (t *Traffic) handleMessage(ctx context.Context, msg redis.XMessage) {
 	t.logger.Info().
 		Str("eid", eng.ID).
 		Int64("flow_id", flowID).
-		Int("score", score).
 		Str("method", snap.Method).Str("url", snap.URI).
 		Msg("流量已入主 ReAct 队列")
 }
-
-// snapshotFlow 实现 heuristic.Flow（包级 helper，不导出）。
-type snapshotFlow struct{ snap *proxy.TrafficSnapshot }
-
-func (s snapshotFlow) GetMethod() string         { return s.snap.Method }
-func (s snapshotFlow) GetURL() string            { return s.snap.URI }
-func (s snapshotFlow) GetHeader(k string) string { return s.snap.RequestHeaders[strings.ToLower(k)] }
 
 func (t *Traffic) appendFlow(ctx context.Context, eid string, snap *proxy.TrafficSnapshot) (int64, error) {
 	reqH, _ := json.Marshal(snap.RequestHeaders)

@@ -112,7 +112,7 @@ required_actions:
 }
 ```
 
-`dedup_key` 中 path 必须模板化：`/api/order/7` → `/api/order/:id`；UUID → `:uuid`。写库后系统自动触发 distill（写 hint 入 `memory_hints`，下次同 engagement 优先读）。
+`dedup_key` 中 path 必须模板化：`/api/bac/order/7` → `/api/bac/order/:id`；UUID → `:uuid`。写库后系统自动触发 distill（写 hint 入 `memory_hints`，下次同 engagement 优先读）。
 
 ### Step 7：write_graph
 
@@ -143,6 +143,6 @@ required_actions:
 
 | 接口 | dedup_key |
 |---|---|
-| GET /api/order/7（用 test cookie） | `bac.horizontal_priv_esc:vulnapp:GET:/api/order/:id` |
-| POST /api/admin/user/delete（无 cookie） | `bac.unauthorized_access:vulnapp:POST:/api/admin/user/delete` |
-| GET /api/admin/users（test 用户） | `bac.vertical_priv_esc:vulnapp:GET:/api/admin/users` |
+| GET /api/bac/order/7（用 test cookie） | `bac.horizontal_priv_esc:vulnapp:GET:/api/bac/order/:id` |
+| POST /api/bac/admin/delete（无 cookie） | `bac.unauthorized_access:vulnapp:POST:/api/bac/admin/delete` |
+| GET /api/bac/admin/users（test 用户） | `bac.vertical_priv_esc:vulnapp:GET:/api/bac/admin/users` |

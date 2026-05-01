@@ -276,17 +276,18 @@ func buildSnapshot(req *http.Request, resp *http.Response, reqBody, respBody []b
 		Scheme:          scheme,
 		URI:             uri,
 		StatusCode:      resp.StatusCode,
-		RequestHeaders:  flattenHeaders(req.Header),
-		ResponseHeaders: flattenHeaders(resp.Header),
+		RequestHeaders:  flattenRequestHeaders(req.Header),
+		ResponseHeaders: flattenResponseHeaders(resp.Header),
 		RequestBody:     reqBody,
 		ResponseBody:    respBody,
 		Timestamp:       time.Now().UTC(),
 	}
 }
 
-// flattenHeaders 把 http.Header（map[string][]string）拍成 map[string]string，多值用 "," 拼。
-// key 全部小写化，便于后续匹配（与 TrafficSnapshot 文档一致）。
-func flattenHeaders(h http.Header) map[string]string {
+// flattenRequestHeaders 把请求头拍平成 map[string]string，多值用 "," join。
+// HTTP/1.1 请求头无多 header 行场景（Cookie/Accept 等内部已用 ; 或 , 分隔），
+// 用 string 简化下游使用（sniffer 不需要类型断言）。key 全部小写化便于匹配。
+func flattenRequestHeaders(h http.Header) map[string]string {
 	if len(h) == 0 {
 		return nil
 	}
@@ -298,6 +299,25 @@ func flattenHeaders(h http.Header) map[string]string {
 			continue
 		}
 		out[key] = strings.Join(vs, ",")
+	}
+	return out
+}
+
+// flattenResponseHeaders 保留响应头多值切片，与 http.Header 原 shape 对齐。
+//
+// 关键原因：Set-Cookie 按 RFC 6265 必须独立多行，且 cookie value 内允许逗号 —— ", " join
+// 会让 "a=1; Path=/, b=2; Path=/" 形态的拼接破坏后续 cookie 解析。这里深拷贝切片，
+// 避免下游意外修改影响 http.Header 内部状态。key 全部小写化便于匹配。
+func flattenResponseHeaders(h http.Header) map[string][]string {
+	if len(h) == 0 {
+		return nil
+	}
+	out := make(map[string][]string, len(h))
+	for k, vs := range h {
+		key := strings.ToLower(k)
+		cp := make([]string, len(vs))
+		copy(cp, vs)
+		out[key] = cp
 	}
 	return out
 }

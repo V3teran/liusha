@@ -87,8 +87,13 @@ func (f *ProtocolFilter) ShouldProcess(req *http.Request, resp *http.Response) (
 	return true, ""
 }
 
-// HostFilter Host 白名单 + 黑名单（黑名单优先；白名单空=放行全部）。
-// 支持前缀通配 *.example.com。
+// HostFilter Host 白名单 + 黑名单。
+//
+// 语义：
+//   - 黑名单优先：host 命中 excludeHosts 立即拒。
+//   - 白名单空=放行全部（仅黑名单生效）。
+//   - 白名单非空：host 必须命中 includeHosts 才放行，否则拒。
+//   - 两个名单都支持前缀通配 *.example.com（即 example.com 自身 + 任意子域）。
 type HostFilter struct {
 	includePatterns []string
 	excludePatterns []string
@@ -185,7 +190,10 @@ func (f *ContentTypeFilter) ShouldProcess(_ *http.Request, resp *http.Response) 
 }
 
 // matchContentType 支持 "image/*" 前缀匹配与精确匹配（忽略 charset 等参数）。
+// 大小写不敏感（HTTP 头允许 mixed case，例如 `Image/PNG`、`Application/JSON`）。
 func matchContentType(contentType, pattern string) bool {
+	contentType = strings.ToLower(contentType)
+	pattern = strings.ToLower(pattern)
 	if strings.HasSuffix(pattern, "/*") {
 		prefix := strings.TrimSuffix(pattern, "/*")
 		return strings.HasPrefix(contentType, prefix+"/") || strings.HasPrefix(contentType, prefix+";")
@@ -198,27 +206,29 @@ func matchContentType(contentType, pattern string) bool {
 	return base == pattern
 }
 
-// StatusCodeFilter 仅放行指定状态码；空集合=放行全部。
+// StatusCodeFilter 状态码黑名单：命中 excludeCodes 即拒；空集合=放行全部。
 type StatusCodeFilter struct {
-	allowedCodes map[int]struct{}
+	excludeCodes map[int]struct{}
 }
 
-func NewStatusCodeFilter(allowedCodes []int) *StatusCodeFilter {
-	m := make(map[int]struct{}, len(allowedCodes))
-	for _, c := range allowedCodes {
+// NewStatusCodeFilter 创建状态码黑名单过滤器。
+// excludeCodes 为空时该过滤器对全部响应放行。
+func NewStatusCodeFilter(excludeCodes []int) *StatusCodeFilter {
+	m := make(map[int]struct{}, len(excludeCodes))
+	for _, c := range excludeCodes {
 		m[c] = struct{}{}
 	}
-	return &StatusCodeFilter{allowedCodes: m}
+	return &StatusCodeFilter{excludeCodes: m}
 }
 
 func (f *StatusCodeFilter) ShouldProcess(_ *http.Request, resp *http.Response) (bool, string) {
-	if len(f.allowedCodes) == 0 || resp == nil {
+	if len(f.excludeCodes) == 0 || resp == nil {
 		return true, ""
 	}
-	if _, ok := f.allowedCodes[resp.StatusCode]; ok {
-		return true, ""
+	if _, hit := f.excludeCodes[resp.StatusCode]; hit {
+		return false, fmt.Sprintf("excluded status code: %d", resp.StatusCode)
 	}
-	return false, fmt.Sprintf("status code not allowed: %d", resp.StatusCode)
+	return true, ""
 }
 
 // SizeFilter 请求体/响应体大小上限（0=不限）。

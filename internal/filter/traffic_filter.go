@@ -19,14 +19,18 @@ type TrafficFilter struct {
 // NewTrafficFilter 按给定 ProxyConfig 一次性组装责任链。
 //
 //	链顺序（任一拒绝即终止）：
-//	  Method → Protocol(websocket) → Host(白+黑) → Suffix → ContentType → StatusCode → Size
+//	  Method → Protocol → Host(白+黑) → Suffix → ContentType → StatusCode → Size
 func NewTrafficFilter(cfg config.ProxyConfig) *TrafficFilter {
 	chain := NewChain()
 	if len(cfg.ExcludeMethods) > 0 {
 		chain.Add(NewMethodFilter(cfg.ExcludeMethods))
 	}
-	// WebSocket 等协议升级一律拦截（绝大多数代理场景下不应进入扫描流量）
-	chain.Add(NewProtocolFilter([]string{"websocket"}))
+	// 协议升级黑名单：未配置时兜底拦 websocket（绝大多数代理场景下不应进入扫描流量）。
+	upgradeProtocols := cfg.ExcludeUpgradeProtocols
+	if len(upgradeProtocols) == 0 {
+		upgradeProtocols = []string{"websocket"}
+	}
+	chain.Add(NewProtocolFilter(upgradeProtocols))
 	chain.Add(NewHostFilter(cfg.AllowHosts, cfg.ExcludeHosts))
 	if len(cfg.ExcludeSuffixes) > 0 {
 		chain.Add(NewSuffixFilter(cfg.ExcludeSuffixes))
@@ -34,8 +38,8 @@ func NewTrafficFilter(cfg config.ProxyConfig) *TrafficFilter {
 	if len(cfg.ExcludeContentTypes) > 0 {
 		chain.Add(NewContentTypeFilter(cfg.ExcludeContentTypes))
 	}
-	if len(cfg.OnlyStatusCodes) > 0 {
-		chain.Add(NewStatusCodeFilter(cfg.OnlyStatusCodes))
+	if len(cfg.ExcludeStatusCodes) > 0 {
+		chain.Add(NewStatusCodeFilter(cfg.ExcludeStatusCodes))
 	}
 	chain.Add(NewSizeFilter(cfg.MaxRequestBodySize, cfg.MaxResponseBodySize))
 

@@ -3,8 +3,8 @@
 // 完整流程：
 //  1. 通过 POST /engagement/proxy 懒创建 vulnapp engagement（与 proxify_consumer 端共用同一 host 索引，幂等）；
 //  2. 通过 POST /credential/batch 录入 admin/test/m233241 三套 cookie 凭证；
-//  3. 设 HTTP_PROXY=proxify(8888)，向 vulnapp 打 18 次请求覆盖 5 类 BAC 场景；
-//  4. 轮询 finding 表，直到出现 ≥5 条 bac.* finding 且至少 3 类齐全，否则 6 分钟超时退出 1。
+//  3. 设 HTTP_PROXY=proxify(8888)，向 vulnapp 打 13 次请求覆盖 4 类 BAC 端点（horizontal/vertical/unauthorized/baseline）；
+//  4. 轮询 finding 表，直到出现 ≥3 条 bac.* finding 且至少 3 类齐全，否则 6 分钟超时退出 1。
 //
 // 本程序假设完整 docker-compose stack（含 proxify + vulnapp + scanner）已就绪——
 // 它只负责"敲门 + 验收"，不负责拉起依赖。容器编排由 Task 10 的 e2e 脚本/profile 处理。
@@ -33,7 +33,9 @@ const (
 	pollInterval = 15 * time.Second
 	pollDeadline = 6 * time.Minute
 	// minBACFindings 是退出码 0 的最低 finding 数门槛。
-	minBACFindings = 5
+	// vulnapp 简化为"4 类端点各 1 个"后，预期产 3 个 finding（horizontal/vertical/unauthorized 各 1，
+	// baseline /profile 走 done(all_similar) 不产 finding）。
+	minBACFindings = 3
 	// minBACKinds 是退出码 0 的最低 finding 类别覆盖度门槛。
 	minBACKinds = 3
 )
@@ -195,44 +197,38 @@ type proxyCall struct {
 	Body   string
 }
 
-// proxyRequests 返回 18 个固定调用，覆盖 5 类 BAC 场景：
+// proxyRequests 返回 13 个固定调用，覆盖 4 类 BAC 端点：
 //
-//	profile（baseline 健康路径）、user/info IDOR、order 读 IDOR、
-//	order/cancel 写 IDOR、admin 垂直越权（含未授权 anonymous）。
+//	/api/bac/profile        baseline (不应触发 finding，作流量基线)
+//	/api/bac/order/7        horizontal_priv_esc（订单 owner=test，被其他身份读到即越权）
+//	/api/bac/admin/users    vertical_priv_esc（普通用户访问管理端点）
+//	/api/bac/admin/delete   unauthorized_access（含 anonymous，无 cookie 也能调）
 //
-// 每类 ×3 身份保证 Replayer 拿到同 endpoint 的多身份对照样本。
+// 前 3 类各 ×3 身份（admin/test/m233241）保证 Replayer 拿到多身份对照样本；
+// admin/delete 加 1 个 anonymous 触发未授权访问。
 // 顺序无依赖；后续可由配置驱动而不影响调用方。
 func proxyRequests() []proxyCall {
 	return []proxyCall{
-		// 1. baseline /api/profile：每个身份各取自己的资料（不应触发 finding，作流量基线）
-		{"admin", "admin_sess_a1b2c3", http.MethodGet, "/api/profile", ""},
-		{"test", "test_sess_d4e5f6", http.MethodGet, "/api/profile", ""},
-		{"m233241", "m233241_sess_g7h8i9", http.MethodGet, "/api/profile", ""},
+		// 1. baseline /api/bac/profile：每个身份各取自己的资料（不应触发 finding，作流量基线）
+		{"admin", "admin_sess_a1b2c3", http.MethodGet, "/api/bac/profile", ""},
+		{"test", "test_sess_d4e5f6", http.MethodGet, "/api/bac/profile", ""},
+		{"m233241", "m233241_sess_g7h8i9", http.MethodGet, "/api/bac/profile", ""},
 
-		// 2. /api/user/info?uid=1：低权限身份读 uid=1 资料 → 水平越权
-		{"admin", "admin_sess_a1b2c3", http.MethodGet, "/api/user/info?uid=1", ""},
-		{"test", "test_sess_d4e5f6", http.MethodGet, "/api/user/info?uid=1", ""},
-		{"m233241", "m233241_sess_g7h8i9", http.MethodGet, "/api/user/info?uid=1", ""},
+		// 2. /api/bac/order/7：他人订单读 → 水平越权（owner=test，被 admin/m233241 读到）
+		{"admin", "admin_sess_a1b2c3", http.MethodGet, "/api/bac/order/7", ""},
+		{"test", "test_sess_d4e5f6", http.MethodGet, "/api/bac/order/7", ""},
+		{"m233241", "m233241_sess_g7h8i9", http.MethodGet, "/api/bac/order/7", ""},
 
-		// 3. /api/order/7：他人订单读 → IDOR
-		{"admin", "admin_sess_a1b2c3", http.MethodGet, "/api/order/7", ""},
-		{"test", "test_sess_d4e5f6", http.MethodGet, "/api/order/7", ""},
-		{"m233241", "m233241_sess_g7h8i9", http.MethodGet, "/api/order/7", ""},
+		// 3. /api/bac/admin/users：垂直越权（test/m233241 访问 admin 端点）
+		{"admin", "admin_sess_a1b2c3", http.MethodGet, "/api/bac/admin/users", ""},
+		{"test", "test_sess_d4e5f6", http.MethodGet, "/api/bac/admin/users", ""},
+		{"m233241", "m233241_sess_g7h8i9", http.MethodGet, "/api/bac/admin/users", ""},
 
-		// 4. POST /api/order/cancel：他人订单写 → 状态变更越权
-		{"admin", "admin_sess_a1b2c3", http.MethodPost, "/api/order/cancel", `{"order_id":"7"}`},
-		{"test", "test_sess_d4e5f6", http.MethodPost, "/api/order/cancel", `{"order_id":"7"}`},
-		{"m233241", "m233241_sess_g7h8i9", http.MethodPost, "/api/order/cancel", `{"order_id":"7"}`},
-
-		// 5. /api/admin/users：垂直越权（普通用户访问管理端点）
-		{"admin", "admin_sess_a1b2c3", http.MethodGet, "/api/admin/users", ""},
-		{"test", "test_sess_d4e5f6", http.MethodGet, "/api/admin/users", ""},
-		{"m233241", "m233241_sess_g7h8i9", http.MethodGet, "/api/admin/users", ""},
-
-		// 6. POST /api/admin/user/delete：高危管理动作，含未授权（anonymous 无 cookie）
-		{"admin", "admin_sess_a1b2c3", http.MethodPost, "/api/admin/user/delete", `{"uid":"1"}`},
-		{"test", "test_sess_d4e5f6", http.MethodPost, "/api/admin/user/delete", `{"uid":"1"}`},
-		{"anonymous", "", http.MethodPost, "/api/admin/user/delete", `{"uid":"1"}`},
+		// 4. POST /api/bac/admin/delete：未授权访问（anonymous 无 cookie 也能成功）
+		{"admin", "admin_sess_a1b2c3", http.MethodPost, "/api/bac/admin/delete", `{"uid":"1"}`},
+		{"test", "test_sess_d4e5f6", http.MethodPost, "/api/bac/admin/delete", `{"uid":"1"}`},
+		{"m233241", "m233241_sess_g7h8i9", http.MethodPost, "/api/bac/admin/delete", `{"uid":"1"}`},
+		{"anonymous", "", http.MethodPost, "/api/bac/admin/delete", `{"uid":"1"}`},
 	}
 }
 

@@ -4,9 +4,9 @@
 
 哪类请求 / 流量特征触发本 skill：
 
-- URL 路径含 `/admin/`、`/sys/`、`/api/admin/*`
+- URL 路径含 `/api/bac/`（vulnapp 测试前缀）、`/admin/`、`/sys/`
 - URL 含数字/UUID 参数：`?uid=123` / `?orderid=abc-...` / `/:user_id/` / `/:order_id/`
-- POST/PUT/DELETE 改动其他用户的资源（`/api/order/cancel` body 含 oid）
+- POST/DELETE 高危管理动作（如 `/api/bac/admin/delete` body 含 uid）
 
 ## 2. 类型矩阵
 

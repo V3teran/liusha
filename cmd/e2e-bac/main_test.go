@@ -8,13 +8,11 @@ import (
 	"github.com/V3teran/liusha/internal/finding"
 )
 
-// 18 个调用 = 6 个 endpoint × 3 身份（其中 admin/user/delete 第 3 条改为 anonymous）。
-// 实际分布：profile×3 + user/info×3 + order/7×3 + cancel×3 + admin/users×3 + admin/delete×3 = 18。
-const wantProxyRequests = 18
+// 13 个调用 = profile×3 + order/7×3 + admin/users×3 + admin/delete×3 + 1 anonymous。
+const wantProxyRequests = 13
 
-// TestProxyRequests_Has18 锁住调用集大小：18 是退出码 0 的最低样本量门槛
-// （5 finding × 3 类 + replayer 对照样本余量）；改动需同步调整 e2e 脚本预算。
-func TestProxyRequests_Has18(t *testing.T) {
+// TestProxyRequests_HasExpectedCount 锁住调用集大小，改动需同步调整 e2e 脚本预算。
+func TestProxyRequests_HasExpectedCount(t *testing.T) {
 	got := proxyRequests()
 	if len(got) != wantProxyRequests {
 		t.Fatalf("proxyRequests() len = %d, want %d", len(got), wantProxyRequests)
@@ -40,15 +38,14 @@ func TestProxyRequests_AllValid(t *testing.T) {
 	}
 }
 
-// TestProxyRequests_Covers5Endpoints 锁住"5 类 BAC 场景"覆盖度——
-// 即使后续调整调用总数，5 类端点也必须保留，否则 worker 出不齐 3 类 finding。
-func TestProxyRequests_Covers5Endpoints(t *testing.T) {
+// TestProxyRequests_Covers4Endpoints 锁住"4 类 BAC 场景"覆盖度（baseline + 三类越权）——
+// 即使后续调整调用总数，4 类端点也必须保留，否则 worker 出不齐 3 类 finding。
+func TestProxyRequests_Covers4Endpoints(t *testing.T) {
 	want := []string{
-		"/api/user/info",
-		"/api/order/7",
-		"/api/order/cancel",
-		"/api/admin/users",
-		"/api/admin/user/delete",
+		"/api/bac/profile",       // baseline
+		"/api/bac/order/7",       // horizontal_priv_esc
+		"/api/bac/admin/users",   // vertical_priv_esc
+		"/api/bac/admin/delete",  // unauthorized_access
 	}
 	got := proxyRequests()
 	for _, prefix := range want {

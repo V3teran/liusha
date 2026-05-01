@@ -181,20 +181,30 @@ func TestContentTypeFilter(t *testing.T) {
 }
 
 func TestStatusCodeFilter(t *testing.T) {
-	t.Run("空白名单全放行", func(t *testing.T) {
+	t.Run("空黑名单全放行", func(t *testing.T) {
 		f := NewStatusCodeFilter(nil)
 		ok, _ := f.ShouldProcess(nil, mkResp(500, "", 0))
 		if !ok {
-			t.Fatalf("空白名单应全放行")
+			t.Fatalf("空黑名单应全放行")
 		}
 	})
-	t.Run("仅 200/302", func(t *testing.T) {
-		f := NewStatusCodeFilter([]int{200, 302})
+	t.Run("黑名单含 404/500", func(t *testing.T) {
+		f := NewStatusCodeFilter([]int{404, 500})
 		if ok, _ := f.ShouldProcess(nil, mkResp(200, "", 0)); !ok {
-			t.Errorf("200 应放行")
+			t.Errorf("200 不在黑名单应放行")
 		}
 		if ok, reason := f.ShouldProcess(nil, mkResp(404, "", 0)); ok || !strings.Contains(reason, "404") {
-			t.Errorf("404 应拦且 reason 含状态码; reason=%q", reason)
+			t.Errorf("404 应被拦且 reason 含状态码; reason=%q", reason)
+		}
+		if ok, reason := f.ShouldProcess(nil, mkResp(500, "", 0)); ok || !strings.Contains(reason, "500") {
+			t.Errorf("500 应被拦; reason=%q", reason)
+		}
+	})
+	t.Run("nil resp 放行", func(t *testing.T) {
+		f := NewStatusCodeFilter([]int{500})
+		ok, _ := f.ShouldProcess(nil, nil)
+		if !ok {
+			t.Fatalf("nil resp 应放行")
 		}
 	})
 }
@@ -268,13 +278,14 @@ func TestChain_AddBuilder(t *testing.T) {
 
 func TestTrafficFilter_Construction(t *testing.T) {
 	cfg := config.ProxyConfig{
-		AllowHosts:          []string{"vulnapp"},
-		ExcludeMethods:      []string{"OPTIONS", "HEAD"},
-		ExcludeSuffixes:     []string{".css", ".js"},
-		ExcludeContentTypes: []string{"image/*"},
-		OnlyStatusCodes:     []int{200, 302},
-		MaxRequestBodySize:  1024,
-		MaxResponseBodySize: 2048,
+		AllowHosts:              []string{"vulnapp"},
+		ExcludeMethods:          []string{"OPTIONS", "HEAD"},
+		ExcludeUpgradeProtocols: []string{"websocket"},
+		ExcludeSuffixes:         []string{".css", ".js"},
+		ExcludeContentTypes:     []string{"image/*"},
+		ExcludeStatusCodes:      []int{404, 500},
+		MaxRequestBodySize:      1024,
+		MaxResponseBodySize:     2048,
 	}
 	tf := NewTrafficFilter(cfg)
 
@@ -289,7 +300,8 @@ func TestTrafficFilter_Construction(t *testing.T) {
 		{"非白名单 host 拦", mkReq("GET", "evil.com", "/", nil, 0), mkResp(200, "application/json", 0), false},
 		{".css 后缀拦", mkReq("GET", "vulnapp", "/static/app.css", nil, 0), mkResp(200, "text/css", 0), false},
 		{"image 拦", mkReq("GET", "vulnapp", "/img/logo", nil, 0), mkResp(200, "image/png", 100), false},
-		{"状态码不在白名单", mkReq("GET", "vulnapp", "/", nil, 0), mkResp(404, "application/json", 0), false},
+		{"状态码 404 在黑名单被拦", mkReq("GET", "vulnapp", "/", nil, 0), mkResp(404, "application/json", 0), false},
+		{"状态码 200 不在黑名单放行", mkReq("GET", "vulnapp", "/api/x", nil, 0), mkResp(200, "application/json", 0), true},
 		{"req body 过大", mkReq("POST", "vulnapp", "/upload", nil, 5000), mkResp(200, "application/json", 0), false},
 	}
 

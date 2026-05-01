@@ -101,17 +101,19 @@ providers:
 proxy:
   window_batch: 20              # TrafficWindow 批大小上限（满即关闭 → 立即触发 sniffer）
   window_max_age_seconds: 30    # ager 兜底：超过此秒数仍 open 的窗口会被强制关闭并入队 sniffer（低流量场景）
-  allow_hosts:                  # HostFilter 白名单（空=放行全部）
+  allow_hosts:                  # HostFilter 白名单（空=放行全部；支持 *.example.com 前缀通配 + 其裸根域）
     - vulnapp                   # v1 e2e 靶机（docker 模式）
     - host.docker.internal      # 容器内 scanner → host vulnapp（docker 模式）
     - localhost                 # host 模式（cmd/proxy host 进程时直连 vulnapp）
     - 127.0.0.1                 # host 模式 IP 直连
-  exclude_methods:              # 方法黑名单
+  exclude_methods:              # HTTP 方法黑名单
     - OPTIONS
     - HEAD
     - CONNECT
-  exclude_hosts: []             # Host 黑名单（支持 *.example.com）
-  exclude_suffixes:             # 静态资源后缀黑名单
+  exclude_hosts: []             # Host 黑名单（支持 *.example.com，黑名单优先于白名单）
+  exclude_upgrade_protocols:    # Upgrade 协议黑名单（空时仍兜底拦 websocket）
+    - websocket
+  exclude_suffixes:             # 静态资源后缀黑名单（大小写不敏感）
     - .css
     - .js
     - .png
@@ -120,8 +122,8 @@ proxy:
     - .ico
     - .woff
     - .woff2
-  exclude_content_types: []     # Content-Type 黑名单
-  only_status_codes: []         # 仅放行的状态码（空=放行全部）
+  exclude_content_types: []     # Content-Type 黑名单（支持 image/* 通配；大小写不敏感）
+  exclude_status_codes: []      # 状态码黑名单（命中即拒；空=放行全部状态码）
   max_request_body_size: 1048576   # 1 MiB
   max_response_body_size: 2097152  # 2 MiB
 
