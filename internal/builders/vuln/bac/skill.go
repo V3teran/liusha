@@ -31,16 +31,18 @@ type SubBuilderDeps struct {
 	SkillLoader *skill.Loader
 }
 
-// 子 ReAct 默认参数。
+// 子 ReAct 兜底参数。MaxSteps 由 SKILL.md frontmatter budget.max_steps 驱动；
+// 当 budget 缺失或 ≤0 时使用此默认值。
 const (
-	subMaxSteps        = 15
+	defaultSubMaxSteps = 15
 	subWatchdogSeconds = 60
 	resultCompressDir  = "/tmp/liusha-react-compress"
 )
 
 // NewSubBuilder 构造 BAC SkillBuilder 闭包。
 //
-// scanner 启动时调用一次，注册到 spawn.SpawnSkill.Builders["bac"]。
+// scanner 启动时调用一次，注册到 spawn.SpawnSkill.Builders["vuln/web/bac"]
+// （key 与 SKILL.md frontmatter `name` 一致，CC 风格 path-style 唯一标识）。
 //
 // 子 ReAct 工具集：
 //
@@ -65,8 +67,10 @@ func NewSubBuilder(deps SubBuilderDeps) func(ctx context.Context, p skill.Builde
 			return react.Config{}, fmt.Errorf("register sniffer actions: %w", err)
 		}
 
-		// skill loader 加载 SKILL.md 正文当 system prompt
-		card, err := deps.SkillLoader.Load("vuln/web/bac", done_validator.IsRegistered)
+		// skill loader 加载 SKILL.md（命中缓存 0 IO）+ cognitive_map.md 内容（CC 风格）。
+		// 这里传 reg.Has 让 required_actions cross-check 启用——
+		// 此时 Registry 已注册完所有 sniffer + common 工具，校验有意义。
+		card, err := deps.SkillLoader.Load("vuln/web/bac", done_validator.IsRegistered, reg.Has)
 		if err != nil {
 			return react.Config{}, fmt.Errorf("load skill: %w", err)
 		}
@@ -79,17 +83,25 @@ func NewSubBuilder(deps SubBuilderDeps) func(ctx context.Context, p skill.Builde
 		)
 
 		// 同步读取当前 engagement memory_hints，把 distill 写入的跨 task 经验拼到 user prompt。
-		// 设计要点：
-		//   - 子 prober Step 0 之前就让 LLM 看到 hints，不依赖 read_state tool 时序
-		//   - 读失败仅 warn 不阻塞 spawn（子 prober 没 hint 也能跑）
-		//   - hints 可能为空（首次 spawn / 同 engagement 还无 finding），prompt 自然降级
 		hintsBlock := loadHintsForPrompt(ctx, deps.Engagements, p.EngagementID)
+
+		// SystemPrompt = SKILL.md body + cognitive_map.md 正文（CC 风格让 LLM 看到完整 6 槽位）
+		systemPrompt := card.Body
+		if card.CognitiveMapBody != "" {
+			systemPrompt += "\n\n## 6 槽位认知地图\n" + card.CognitiveMapBody
+		}
+
+		// MaxSteps 优先取 SKILL.md frontmatter budget.max_steps（CC 风格让配置生效）
+		maxSteps := card.Budget.MaxSteps
+		if maxSteps <= 0 {
+			maxSteps = defaultSubMaxSteps
+		}
 
 		return react.Config{
 			LLM:          p.LLM,
 			Actions:      reg,
-			Budget:       react.Budget{MaxSteps: subMaxSteps, WatchdogSeconds: subWatchdogSeconds},
-			SystemPrompt: card.Body,
+			Budget:       react.Budget{MaxSteps: maxSteps, WatchdogSeconds: subWatchdogSeconds},
+			SystemPrompt: systemPrompt,
 			UserPrompt:   buildUserPrompt(p, hintsBlock),
 		}, nil
 	}

@@ -89,14 +89,24 @@ func (l *Loader) Index() ([]string, error) {
 	return names, nil
 }
 
-// Load 读 root/<name>/SKILL.md，解析 frontmatter + body，跑校验，返回 Card。
+// Load 读 root/<name>/SKILL.md，解析 frontmatter + body，跑校验，返回完整 Card。
 //
-// 命中 cardCache 直接返回（含 Body，已校验过）；
-// 未命中 → 读文件、校验 cognitive_map + done_validator、缓存进 cardCache。
+// 命中 cardCache 直接返回（含 Body 与 CognitiveMapBody，已校验过）；
+// 未命中 → 读 SKILL.md + 读 cognitive_map.md + 全套校验 + 缓存进 cardCache。
 //
-// doneValidatorRegistered 由调用方注入（一般指向 tool.Registry.HasDoneValidator）；
-// 这样 skill 包不必反向依赖 action 包。
-func (l *Loader) Load(name string, doneValidatorRegistered func(key string) bool) (*Card, error) {
+// 校验项（CC 风格 v1.1）：
+//  1. cognitive_map 文件存在 + ≥6 个槽位标题（同时把 markdown 正文读入 CognitiveMapBody）
+//  2. done_validator 已在 ActionRegistry 注册
+//  3. required_actions 列表中每项都已在 ActionRegistry 注册（actionRegistered 回调判定）
+//
+// 回调由调用方注入（避免 skill 包反向依赖 action 包）：
+//   - doneValidatorRegistered: 一般 = tool.Registry.HasDoneValidator
+//   - actionRegistered:        一般 = tool.Registry.HasAction（nil 时跳过此项校验）
+func (l *Loader) Load(
+	name string,
+	doneValidatorRegistered func(key string) bool,
+	actionRegistered func(name string) bool,
+) (*Card, error) {
 	if v, ok := l.cardCache.Load(name); ok {
 		return v.(*Card), nil
 	}
@@ -118,10 +128,13 @@ func (l *Loader) Load(name string, doneValidatorRegistered func(key string) bool
 	}
 	card.Body = string(body)
 
-	if err := l.validateCognitiveMap(&card); err != nil {
+	if err := l.validateAndLoadCognitiveMap(&card); err != nil {
 		return nil, err
 	}
 	if err := validateDoneValidator(&card, doneValidatorRegistered); err != nil {
+		return nil, err
+	}
+	if err := validateRequiredActions(&card, actionRegistered); err != nil {
 		return nil, err
 	}
 
@@ -140,10 +153,26 @@ func (l *Loader) MetaOnly(name string) (*Card, bool) {
 	return &c, true
 }
 
-// validateCognitiveMap 校验 cognitive_map 文件存在且含 ≥ 6 个槽位标题。
+// List 返回所有已 Index 的 skill 元数据列表（仅 frontmatter，Body 为空）。
+// 主 ReAct 用此构造 system prompt catalog —— LLM 自动看到所有可用 skill。
 //
-// 6 槽位用正则 (?m)^##\s+\d+\. 计数（黑客松借鉴 cairn / DGRS 等队伍设计）。
-func (l *Loader) validateCognitiveMap(card *Card) error {
+// CC 风格关键 API：调用方加 SKILL.md 文件 + 注册 builder = skill 立即可被 LLM 发现。
+func (l *Loader) List() []*Card {
+	var out []*Card
+	l.metaCache.Range(func(_, v any) bool {
+		c := *v.(*Card)
+		out = append(out, &c)
+		return true
+	})
+	return out
+}
+
+// validateAndLoadCognitiveMap 校验 cognitive_map 文件 + 把 markdown 正文读入 Card.CognitiveMapBody。
+//
+// CC 风格 v1.1：cognitive_map 不再只是装饰——内容会被注入子 ReAct system prompt。
+//
+// 6 槽位用正则 (?m)^##\s+\d+\. 计数（业界共识：感知/假设/证据/推理/验证/收尾）。
+func (l *Loader) validateAndLoadCognitiveMap(card *Card) error {
 	if card.CognitiveMap == "" {
 		return nil
 	}
@@ -158,6 +187,7 @@ func (l *Loader) validateCognitiveMap(card *Card) error {
 			cmPath, cognitiveMapMinSlots, got,
 		)
 	}
+	card.CognitiveMapBody = string(data)
 	return nil
 }
 
@@ -174,6 +204,26 @@ func validateDoneValidator(card *Card, registered func(key string) bool) error {
 			"done_validator %q 未在 ActionRegistry 注册，请检查 Skill 是否启动前 Register",
 			card.DoneValidator,
 		)
+	}
+	return nil
+}
+
+// validateRequiredActions cross-check frontmatter required_actions 与运行时 Registry。
+//
+// CC 风格 v1.1：避免 SKILL.md 写"调 X 工具"但 X 没注册 → 子 ReAct 跑到一半 LLM 调到不存在的工具。
+// actionRegistered=nil 时跳过此校验（向后兼容场景，例如启动期 Registry 还没填）。
+func validateRequiredActions(card *Card, registered func(name string) bool) error {
+	if registered == nil || len(card.RequiredActions) == 0 {
+		return nil
+	}
+	var missing []string
+	for _, name := range card.RequiredActions {
+		if !registered(name) {
+			missing = append(missing, name)
+		}
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf("skill %q required_actions 未注册: %v", card.Name, missing)
 	}
 	return nil
 }

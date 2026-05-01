@@ -102,7 +102,7 @@ required_actions: [fetch_credentials, replay_multi_identity]
 正文`
 	root := writeSkill(t, "vuln/web/bac", body)
 	l := NewLoader(root)
-	c, err := l.Load("vuln/web/bac", anyDoneValidator)
+	c, err := l.Load("vuln/web/bac", anyDoneValidator, nil)
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
@@ -134,7 +134,7 @@ name: [unclosed
 正文`
 	root := writeSkill(t, "broken", body)
 	l := NewLoader(root)
-	if _, err := l.Load("broken", anyDoneValidator); err == nil {
+	if _, err := l.Load("broken", anyDoneValidator, nil); err == nil {
 		t.Fatal("expected yaml parse error, got nil")
 	}
 }
@@ -145,7 +145,7 @@ func TestLoader_Load_MissingFrontmatter(t *testing.T) {
 没有分隔符的纯正文`
 	root := writeSkill(t, "noheader", body)
 	l := NewLoader(root)
-	_, err := l.Load("noheader", anyDoneValidator)
+	_, err := l.Load("noheader", anyDoneValidator, nil)
 	if err == nil {
 		t.Fatal("expected missing-frontmatter error")
 	}
@@ -158,7 +158,7 @@ func TestLoader_Load_MissingFrontmatter(t *testing.T) {
 func TestLoader_Load_RequiredActionsField(t *testing.T) {
 	root := writeSkill(t, "vuln/web/bac", validBody)
 	l := NewLoader(root)
-	c, err := l.Load("vuln/web/bac", anyDoneValidator)
+	c, err := l.Load("vuln/web/bac", anyDoneValidator, nil)
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
@@ -199,7 +199,7 @@ cognitive_map: docs/skills/bac/cognitive_map.md
 	t.Chdir(root)
 
 	l := NewLoader(root)
-	c, err := l.Load("vuln/web/bac", anyDoneValidator)
+	c, err := l.Load("vuln/web/bac", anyDoneValidator, nil)
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
@@ -224,7 +224,7 @@ cognitive_map: cm.md
 	writeCognitiveMap(t, root, "cm.md", 5)
 
 	l := NewLoader(root)
-	_, err := l.Load("x", anyDoneValidator)
+	_, err := l.Load("x", anyDoneValidator, nil)
 	if err == nil {
 		t.Fatal("expected error: cognitive_map missing slots")
 	}
@@ -247,7 +247,7 @@ cognitive_map: not/exist.md
 正文`
 	root := writeSkill(t, "x", body)
 	l := NewLoader(root)
-	_, err := l.Load("x", anyDoneValidator)
+	_, err := l.Load("x", anyDoneValidator, nil)
 	if err == nil {
 		t.Fatal("expected error: cognitive_map file not exist")
 	}
@@ -271,7 +271,7 @@ done_validator: bac_v1
 	root := writeSkill(t, "x", body)
 	l := NewLoader(root)
 	noneRegistered := func(string) bool { return false }
-	_, err := l.Load("x", noneRegistered)
+	_, err := l.Load("x", noneRegistered, nil)
 	if err == nil {
 		t.Fatal("expected error: done_validator not registered")
 	}
@@ -295,7 +295,7 @@ done_validator: bac_v1
 	root := writeSkill(t, "x", body)
 	l := NewLoader(root)
 	registered := func(key string) bool { return key == "bac_v1" }
-	c, err := l.Load("x", registered)
+	c, err := l.Load("x", registered, nil)
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
@@ -308,7 +308,7 @@ done_validator: bac_v1
 func TestLoader_Load_SkillNotFound(t *testing.T) {
 	root := t.TempDir()
 	l := NewLoader(root)
-	_, err := l.Load("nope", anyDoneValidator)
+	_, err := l.Load("nope", anyDoneValidator, nil)
 	if err == nil {
 		t.Fatal("expected file not found error")
 	}

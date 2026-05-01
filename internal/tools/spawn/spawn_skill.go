@@ -1,7 +1,8 @@
 // Package spawn 提供主 ReAct 的 spawn_skill 工具：按 skill 名嵌套调用子 ReAct（同进程同步）。
 //
-// 与 tools/traffic（业务工具）分离：spawn 只是"派发器"，不属于业务工具；
-// 与 internal/skill 包解耦：Builder/BuilderParams 类型定义在 skill 包，spawn 只消费类型。
+// CC 风格 v1.1：tool 的 Description 与 ParametersJSON 都从 Catalog 动态生成，
+// 主 LLM 直接通过 frontmatter description + enum 知道有哪些 skill 可用，
+// 加 SKILL.md + 注册 builder = 立即可被 LLM 发现，无需改 prompt 字符串。
 package spawn
 
 import (
@@ -9,6 +10,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
+	"strings"
 
 	"github.com/V3teran/liusha/internal/llm"
 	"github.com/V3teran/liusha/internal/react"
@@ -20,34 +23,68 @@ import (
 //
 // 多个 spawn_skill 在主 LLM 同一轮返回时，runtime tool_calls 并行框架（T12）
 // 会启 N 个 goroutine 并行跑（每个 goroutine 独立调 SpawnSkill.Execute）。
+//
+// Catalog 为可选字段，传入后 Description / ParametersJSON 自动按真实 skill 列表生成；
+// 留空则降级为通用描述 + 自由字符串 enum（仅供单元测试场景）。
 type SpawnSkill struct {
 	Builders     map[string]skill.Builder
 	EngagementID string
 	SubLLM       llm.Generator
+	Catalog      []*skill.Card
 }
 
 // Name 返回工具名 "spawn_skill"。
 func (a *SpawnSkill) Name() string { return "spawn_skill" }
 
-// Description 给 LLM 的工具描述。
+// Description 给 LLM 的工具描述——按 Catalog 动态展开"name: description"清单。
+//
+// CC 风格：LLM 看一眼工具描述就知道有什么 skill 可调，省去硬编码 system prompt 列表。
 func (a *SpawnSkill) Description() string {
-	return "嵌套调用某个 skill 的子 ReAct 完成漏洞测试。" +
-		"支持的 skill 由调用方注册（如 'bac'）。子 ReAct 完成后返 summary。"
+	if len(a.Catalog) == 0 {
+		return "嵌套调用某个 skill 的子 ReAct 完成漏洞测试。子 ReAct 完成后返 summary。"
+	}
+	var b strings.Builder
+	b.WriteString("嵌套调用某个 skill 的子 ReAct 完成漏洞测试。当前可用 skill：\n")
+	cards := sortedCatalog(a.Catalog)
+	for _, c := range cards {
+		fmt.Fprintf(&b, "- %s: %s\n", c.Name, c.Description)
+	}
+	b.WriteString("根据流量特征选择合适的 skill；可一轮返回多个 spawn_skill（自动并行）。")
+	return b.String()
 }
 
-// ParametersJSON 工具入参 JSON Schema。
+// ParametersJSON：skill 字段用 enum 限定为 Catalog 中已存在的 name；
+// 主 LLM 模型按 OpenAI tool schema 严格校验，写错 skill 名直接被拒。
 func (a *SpawnSkill) ParametersJSON() json.RawMessage {
-	return json.RawMessage(`{
+	skillProp := `{"type":"string","description":"要调用的 skill 名"}`
+	if len(a.Catalog) > 0 {
+		cards := sortedCatalog(a.Catalog)
+		names := make([]string, len(cards))
+		for i, c := range cards {
+			names[i] = c.Name
+		}
+		enum, _ := json.Marshal(names)
+		skillProp = fmt.Sprintf(`{"type":"string","enum":%s,"description":"要调用的 skill 名（必须是 enum 中之一）"}`, string(enum))
+	}
+	return json.RawMessage(fmt.Sprintf(`{
         "type":"object",
         "properties":{
-            "skill":{"type":"string","description":"如 bac/sqli/xss"},
+            "skill":%s,
             "flow_id":{"type":"integer"},
             "host":{"type":"string"},
             "url":{"type":"string"},
             "method":{"type":"string"}
         },
         "required":["skill","flow_id","host"]
-    }`)
+    }`, skillProp))
+}
+
+// sortedCatalog 按 name 字典序排序 catalog 副本，避免 LLM 看到不稳定顺序破坏 prompt cache。
+func sortedCatalog(in []*skill.Card) []*skill.Card {
+	out := make([]*skill.Card, len(in))
+	copy(out, in)
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out
 }
 
 // Execute 装配子 ReAct + 同进程同步嵌套跑 + 返 summary。

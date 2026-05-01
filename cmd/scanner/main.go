@@ -20,6 +20,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sort"
 	"syscall"
 	"time"
 
@@ -106,7 +107,8 @@ func main() {
 		logger.Fatal().Err(err).Msg("skill.Index 启动扫描失败")
 	}
 	logger.Info().Strs("skills", skillNames).Msg("skill index loaded")
-	if _, err := skillLoader.Load("vuln/web/bac", done_validator.IsRegistered); err != nil {
+	// 启动期 Registry 还没装配，required_actions 校验放到 spawn 时（builder 内传 reg.Has）。
+	if _, err := skillLoader.Load("vuln/web/bac", done_validator.IsRegistered, nil); err != nil {
 		logger.Fatal().Err(err).Msg("load BAC skill")
 	}
 
@@ -344,10 +346,13 @@ func (h handler) handleTraffic(ctx context.Context, p worker.Payload, entrypoint
 
 	// mainreact 元工具
 	_ = reg.Register(&traffic.ClassifyTraffic{LLM: mainGen})
+	// CC 风格：把 skill catalog 注入 SpawnSkill —— Description / ParametersJSON 自动列出
+	// 所有可用 skill（含每条 frontmatter 的 description），LLM 自主发现
 	_ = reg.Register(&spawn.SpawnSkill{
-		Builders:     map[string]skill.Builder{"bac": bacBuilder},
+		Builders:     map[string]skill.Builder{"vuln/web/bac": bacBuilder},
 		EngagementID: eid,
 		SubLLM:       subGen,
+		Catalog:      h.skillLoader.List(),
 	})
 	_ = reg.Register(&traffic.GetFindings{Store: h.findings, EngagementID: eid})
 
@@ -359,9 +364,9 @@ func (h handler) handleTraffic(ctx context.Context, p worker.Payload, entrypoint
 
 	observer := react.NewLLMObserver(obsGen, h.engagements, eid)
 
-	// 自动注入 hint 到 system prompt。
+	// 自动注入 hint + catalog 到 main system prompt（CC 风格自动发现）。
 	e, _ := h.engagements.GetByID(ctx, eid)
-	systemPrompt := buildMainSystemPrompt(e)
+	systemPrompt := buildMainSystemPrompt(e, h.skillLoader.List())
 
 	out, err := react.Run(ctx, react.Config{
 		LLM:                mainGen,
@@ -396,8 +401,10 @@ func (h handler) handleTraffic(ctx context.Context, p worker.Payload, entrypoint
 	return h.tasks.SetDone(ctx, p.TaskID, res)
 }
 
-// buildMainSystemPrompt 主 ReAct 的 system prompt；自动注入 engagement.memory_hints。
-func buildMainSystemPrompt(e engagement.Engagement) string {
+// buildMainSystemPrompt 主 ReAct 的 system prompt；自动展开 skill catalog + engagement.memory_hints。
+//
+// CC 风格：catalog 段从 skillLoader.List() 动态生成，加 SKILL.md 文件 → LLM 自动看到。
+func buildMainSystemPrompt(e engagement.Engagement, catalog []*skill.Card) string {
 	base := `你是渗透测试主 Agent。每个任务对应 1 条 HTTP 流量。
 
 工作流程：
@@ -411,6 +418,17 @@ func buildMainSystemPrompt(e engagement.Engagement) string {
 约束：
 - 单 task 内最多 spawn 5 个 skill 子任务
 - 子任务无依赖时一轮多 spawn，有依赖时分多轮（先看 BAC 结果再决定 RCE）`
+
+	if len(catalog) > 0 {
+		base += "\n\n## 可用 Skill（来自 SKILL.md 自动发现）\n"
+		// 排序保证 prompt cache 稳定（同 LLM hit 同样字节）
+		cards := make([]*skill.Card, len(catalog))
+		copy(cards, catalog)
+		sort.Slice(cards, func(i, j int) bool { return cards[i].Name < cards[j].Name })
+		for _, c := range cards {
+			base += fmt.Sprintf("- **%s**: %s\n", c.Name, c.Description)
+		}
+	}
 
 	hints := extractHints(e.MemoryHints)
 	if len(hints) > 0 {
