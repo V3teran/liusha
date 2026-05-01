@@ -246,6 +246,76 @@ func TestRun_ParallelToolCalls(t *testing.T) {
 	}
 }
 
+// capturingGen 是按脚本回放 + 记录每次收到 msgs 的 mock Generator，
+// 用于验证 runtime 喂给下一轮 LLM 的消息序列符合协议不变量。
+type capturingGen struct {
+	turns      []llm.Result
+	cursor     int
+	msgsByTurn [][]llm.Message
+}
+
+func (s *capturingGen) Provider() string { return "capturing" }
+func (s *capturingGen) Model() string    { return "x" }
+func (s *capturingGen) Generate(_ context.Context, msgs []llm.Message, _ []llm.ToolSchema) (llm.Result, error) {
+	cp := make([]llm.Message, len(msgs))
+	copy(cp, msgs)
+	s.msgsByTurn = append(s.msgsByTurn, cp)
+	r := s.turns[s.cursor]
+	s.cursor++
+	return r, nil
+}
+
+// TestRun_DoneNotReady_ToolMessageBackfill 锁定 OpenAI 协议族不变量：
+// assistant 消息含 N 个 tool_calls 时，下一轮 LLM 收到的 msgs 中必须含
+// N 条对应 tool_call_id 的 RoleTool 消息——即使其中某个 tool_call 是 done
+// 且被 done_validate middleware 抛 ErrDoneNotReady 拒绝。
+//
+// 回归原因：DeepSeek 等严格 OpenAI 协议实现会对缺漏的 tool message 直接 400
+// "insufficient tool messages following tool_calls"，必须回填错误体。
+func TestRun_DoneNotReady_ToolMessageBackfill(t *testing.T) {
+	doneCall := llm.Result{
+		ToolCalls:    []llm.ToolCall{{ID: "done-1", Name: "done", Arguments: json.RawMessage(`{}`)}},
+		FinishReason: "tool_calls",
+	}
+	// 第 2 轮 LLM 没再调 done，直接结束（runtime 走 no_tool_call 分支）。
+	gen := &capturingGen{turns: []llm.Result{
+		doneCall,
+		{Content: "ok"},
+	}}
+	reg := tool.NewRegistry()
+	_ = reg.Register(&captureAction{name: "done", err: ErrDoneNotReady{Missing: []string{"fetch_credentials"}}})
+
+	out, err := Run(context.Background(), Config{LLM: gen, Actions: reg, Budget: Budget{MaxSteps: 5}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.TerminateBy != "no_tool_call" {
+		t.Fatalf("terminate=%q want no_tool_call (第 2 轮 LLM 没调 tool)", out.TerminateBy)
+	}
+
+	// 校验第 2 轮 LLM 收到的 msgs：必须含 ToolCallID="done-1" 的 RoleTool 消息。
+	if len(gen.msgsByTurn) < 2 {
+		t.Fatalf("LLM 应至少被调 2 次, 实际 %d", len(gen.msgsByTurn))
+	}
+	turn2 := gen.msgsByTurn[1]
+	var toolMsgFound bool
+	for _, m := range turn2 {
+		if m.Role == llm.RoleTool && m.ToolCallID == "done-1" {
+			toolMsgFound = true
+			if m.Name != "done" {
+				t.Errorf("tool message Name=%q want done", m.Name)
+			}
+			if m.Content == "" {
+				t.Errorf("tool message Content 不应为空（OpenAI 协议要求）")
+			}
+			break
+		}
+	}
+	if !toolMsgFound {
+		t.Fatalf("第 2 轮 msgs 缺失 ToolCallID=done-1 的 tool message —— DeepSeek 会 400")
+	}
+}
+
 func TestRun_OnAbort(t *testing.T) {
 	// OnAbort 返回 (true, nil) 时应当终止，terminate_by="aborted"。
 	noop := llm.Result{

@@ -10,6 +10,7 @@ package react
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -203,6 +204,19 @@ func Run(ctx context.Context, cfg Config) (Outcome, error) {
 					out.DoneForceCount = 1
 					return out, nil
 				}
+				// 必须先回填 done 这次 tool_call 对应的 tool message —— 否则 assistant
+				// 含 N 个 tool_calls 但只有 N-1 个 tool message，DeepSeek 等严格 OpenAI
+				// 协议实现会 400 "insufficient tool messages following tool_calls"。
+				obsBody, _ := json.Marshal(map[string]any{
+					"error":   "done_not_ready",
+					"missing": e.Missing,
+				})
+				msgs = append(msgs, llm.Message{
+					Role:       llm.RoleTool,
+					ToolCallID: tc.ID,
+					Name:       tc.Name,
+					Content:    string(obsBody),
+				})
 				msgs = append(msgs, llm.Message{
 					Role:    llm.RoleUser,
 					Content: fmt.Sprintf("你声称完成但未达终止条件 [missing: %v]，继续工作。", e.Missing),
