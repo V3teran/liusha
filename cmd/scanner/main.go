@@ -95,8 +95,16 @@ func main() {
 	flows := flow.NewStore(pool, flowMaxRequestBody, flowMaxResponseBody)
 	creds := credential.NewRedis(rdb)
 
-	// Skill loader 启动校验：BAC SKILL.md cognitive_map 6 槽位 + done_validator key 注册。
+	// Skill loader：CC 风格渐进加载——
+	//   1. Index() 启动扫 skills root，预解析所有 SKILL.md 的 frontmatter（不读 body）
+	//   2. Load("vuln/web/bac") 校验 cognitive_map 6 槽位 + done_validator 注册（同步首个 body 进缓存）
+	//   3. spawn_skill 每次调用走缓存，0 文件 IO
 	skillLoader := skill.NewLoader(cfg.Skills.Root)
+	skillNames, err := skillLoader.Index()
+	if err != nil {
+		logger.Fatal().Err(err).Msg("skill.Index 启动扫描失败")
+	}
+	logger.Info().Strs("skills", skillNames).Msg("skill index loaded")
 	if _, err := skillLoader.Load("vuln/web/bac", done_validator.IsRegistered); err != nil {
 		logger.Fatal().Err(err).Msg("load BAC skill")
 	}
@@ -112,10 +120,17 @@ func main() {
 	router := llm.NewRouter(llm.NewFactory(cfg))
 
 	// Distill hook（finding 命中 → light_provider 蒸馏 → memory_hints）。
-	distillGen, err := router.For(ctx, "distill")
+	// 用 Instrument 包装：让 distill LLM 调用也写入 llm_call 表（修复 v1.1 bug：原本绕过审计）。
+	distillRaw, err := router.For(ctx, "distill")
 	if err != nil {
 		logger.Fatal().Err(err).Msg("router.For(distill)")
 	}
+	distillGen := llm.Instrument(
+		distillRaw,
+		calls,
+		llm.CallMeta{RouteKey: "distill"},
+		observability.DefaultPricing,
+	)
 	finds.OnSaved(react.NewDistillHook(distillGen, engs))
 
 	// 主 ReAct handler。
@@ -136,14 +151,14 @@ func main() {
 	}
 
 	mux := worker.NewMux()
-	mux.Register(worker.RoleMain, h.handle)
+	mux.Register(worker.RoleOrchestrator, h.handle)
 
 	srv := asynq.NewServer(
 		asynq.RedisClientOpt{Addr: redisAddr},
 		asynq.Config{
 			Concurrency: asynqConcurrency,
 			Queues: map[string]int{
-				worker.QueueMain:     5,
+				worker.QueueOrchestrator:     5,
 				worker.QueueDispatch: 1,
 			},
 		},
@@ -278,23 +293,23 @@ func (h handler) handleTraffic(ctx context.Context, p worker.Payload, entrypoint
 	tid, eid := p.TaskID, p.EngagementID
 
 	// 主 + 子 LLM Generator（T11：每 task 新建无状态实例）。
-	mainRaw, err := h.router.For(ctx, "react_main")
+	mainRaw, err := h.router.For(ctx, "orchestrator")
 	if err != nil {
 		_ = h.tasks.SetError(ctx, p.TaskID, err.Error())
 		return err
 	}
 	mainGen := llm.Instrument(mainRaw, h.calls,
-		llm.CallMeta{TaskID: &tid, EngagementID: &eid, RouteKey: "react_main"},
+		llm.CallMeta{TaskID: &tid, EngagementID: &eid, RouteKey: "orchestrator"},
 		h.pricing,
 	)
 
-	subRaw, err := h.router.For(ctx, "react_main")
+	subRaw, err := h.router.For(ctx, "prober")
 	if err != nil {
 		_ = h.tasks.SetError(ctx, p.TaskID, err.Error())
 		return err
 	}
 	subGen := llm.Instrument(subRaw, h.calls,
-		llm.CallMeta{TaskID: &tid, EngagementID: &eid, RouteKey: "react_skill"},
+		llm.CallMeta{TaskID: &tid, EngagementID: &eid, RouteKey: "prober"},
 		h.pricing,
 	)
 

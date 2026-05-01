@@ -27,14 +27,14 @@ llm:
   fallback_provider: openai
   max_steps: 30                 # ReAct 单任务步数上限，被 Role.Budget 覆盖
   max_tokens_per_call: 4096
-  # 注意：viper 用点 "." 作 yaml 嵌套分隔符，所以 route key 用下划线（react_main）而非 react.main
-  # v1.1 routes：react_main 主 + react_skill 子 + observer + distill + vision
+  # 注意：viper 用点 "." 作 yaml 嵌套分隔符，所以 route key 用下划线避免歧义。
+  # v1.1 routes：orchestrator 主协调 + prober 子探针 + observer + distill + vision
   routes:
-    react_main:  default_provider
-    react_skill: default_provider
-    observer:    light_provider
-    distill:     light_provider
-    vision:      vision_provider
+    orchestrator: default_provider
+    prober:       default_provider
+    observer:     light_provider
+    distill:      light_provider
+    vision:       vision_provider
 
 # 每个 provider 一节；只填要用的，其它留空即可
 # api_key_env 是从 env 读 key 的变量名

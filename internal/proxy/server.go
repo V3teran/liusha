@@ -268,6 +268,13 @@ func buildSnapshot(req *http.Request, resp *http.Response, reqBody, respBody []b
 		uri = req.URL.Path
 	}
 
+	// 拆解：path 用于 dedup 模板化；query 多值 map 用于 sniffer/replay 结构化操作。
+	// req.URL.Query() 返回 url.Values（即 map[string][]string）；空 query 时不写入字段（json omitempty）。
+	var query map[string][]string
+	if q := req.URL.Query(); len(q) > 0 {
+		query = q
+	}
+
 	return &TrafficSnapshot{
 		ID:              generateSnapshotID(req.Method, host, uri, reqBody),
 		Host:            host,
@@ -275,6 +282,8 @@ func buildSnapshot(req *http.Request, resp *http.Response, reqBody, respBody []b
 		Method:          req.Method,
 		Scheme:          scheme,
 		URI:             uri,
+		Path:            req.URL.Path,
+		Query:           query,
 		StatusCode:      resp.StatusCode,
 		RequestHeaders:  flattenRequestHeaders(req.Header),
 		ResponseHeaders: flattenResponseHeaders(resp.Header),

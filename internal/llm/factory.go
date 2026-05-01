@@ -6,7 +6,7 @@
 //     共享 HTTP 连接池；Generator 本身无状态、每次 For 新建。
 //
 // 路由规则（spec §8.4 + T19 黑客松借鉴）：
-//   - 通过 cfg.LLM.Routes 表把抽象角色（"react_main"/"observer"/"distill"…）解耦到具体 provider，
+//   - 通过 cfg.LLM.Routes 表把抽象角色（"orchestrator"/"prober"/"observer"/"distill"…）解耦到具体 provider，
 //     允许同一 role 在不同部署里换底层模型而不改代码。
 //   - field 名（"default_provider"/"light_provider"/"vision_provider"/"fallback_provider"）是
 //     LLMConfig 的 4 个字段抽象，通过 switch 解到当前 provider key。

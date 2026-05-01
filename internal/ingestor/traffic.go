@@ -193,7 +193,7 @@ func (t *Traffic) enqueueMain(ctx context.Context, eid string, flowID int64, sna
 
 	tid, err := t.tasks.Create(ctx, task.NewParams{
 		EngagementID: eid,
-		Role:         string(worker.RoleMain),
+		Role:         string(worker.RoleOrchestrator),
 		Skill:        "",
 		Input:        payloadInput,
 	})
@@ -201,7 +201,7 @@ func (t *Traffic) enqueueMain(ctx context.Context, eid string, flowID int64, sna
 		return fmt.Errorf("tasks.Create: %w", err)
 	}
 
-	if _, _, err := t.enq.Enqueue(ctx, worker.RoleMain, worker.Payload{
+	if _, _, err := t.enq.Enqueue(ctx, worker.RoleOrchestrator, worker.Payload{
 		TaskID:       tid,
 		EngagementID: eid,
 		Input:        payloadInput,
