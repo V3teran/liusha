@@ -245,14 +245,14 @@ func readAndRebuildBody(bodyPtr *io.ReadCloser, maxSize int) ([]byte, error) {
 
 // buildSnapshot 把 net/http 请求 + 响应 + 已读 body 拼成 TrafficSnapshot。
 func buildSnapshot(req *http.Request, resp *http.Response, reqBody, respBody []byte) *TrafficSnapshot {
-	host := req.URL.Host
-	if host == "" {
-		host = req.Host
+	hostPort := req.URL.Host
+	if hostPort == "" {
+		hostPort = req.Host
 	}
-	if host == "" {
-		host = req.Header.Get("Host")
+	if hostPort == "" {
+		hostPort = req.Header.Get("Host")
 	}
-	host = stripPort(host)
+	host := stripPort(hostPort)
 
 	scheme := strings.ToLower(req.URL.Scheme)
 	if scheme == "" {
@@ -271,6 +271,7 @@ func buildSnapshot(req *http.Request, resp *http.Response, reqBody, respBody []b
 	return &TrafficSnapshot{
 		ID:              generateSnapshotID(req.Method, host, uri, reqBody),
 		Host:            host,
+		HostPort:        hostPort,
 		Method:          req.Method,
 		Scheme:          scheme,
 		URI:             uri,

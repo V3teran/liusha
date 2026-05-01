@@ -12,10 +12,11 @@ import "time"
 
 // TrafficSnapshot 一条 HTTP 流量在 Redis Stream / 消费者侧的可序列化快照。
 //
-// 字段构成（11 个）：
+// 字段构成：
 //
 //	ID              全局唯一 id（uuid 等，由 proxy.Server 生成）
-//	Host            host header（去端口）
+//	Host            host header（去端口，用作 engagement 索引：scope_host）
+//	HostPort        host:port 原文（用于 fullURL 重放定位真实端口；空则由消费者退化到 Host）
 //	Method          GET/POST/...
 //	Scheme          http / https
 //	URI             含 query 的完整 path
@@ -28,6 +29,7 @@ import "time"
 type TrafficSnapshot struct {
 	ID              string            `json:"id"`
 	Host            string            `json:"host"`
+	HostPort        string            `json:"host_port,omitempty"`
 	Method          string            `json:"method"`
 	Scheme          string            `json:"scheme"`
 	URI             string            `json:"uri"`

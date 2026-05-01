@@ -226,11 +226,16 @@ func (t *Traffic) enqueueMain(ctx context.Context, eid string, flowID int64, sna
 }
 
 func fullURL(s *proxy.TrafficSnapshot) string {
-	if s.Scheme != "" && s.Host != "" {
-		return s.Scheme + "://" + s.Host + s.URI
+	// 优先用 HostPort（保留原始端口，BAC replay 才能拼对）；缺时退化到 Host。
+	host := s.HostPort
+	if host == "" {
+		host = s.Host
 	}
-	if s.Host != "" {
-		return "//" + s.Host + s.URI
+	if s.Scheme != "" && host != "" {
+		return s.Scheme + "://" + host + s.URI
+	}
+	if host != "" {
+		return "//" + host + s.URI
 	}
 	return s.URI
 }

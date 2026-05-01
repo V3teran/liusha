@@ -13,12 +13,13 @@ const (
 )
 
 // 队列名（asynq Queue），priority 在消费端 Server.Config.Queues 配置。
+// 所有 liusha 项目的 redis key 统一加 `liusha:` 前缀，便于单 redis 实例多项目共享。
 const (
-	QueueMain     = "agent:react"
-	QueueDispatch = "agent:dispatch"
+	QueueMain     = "liusha:react"
+	QueueDispatch = "liusha:dispatch"
 )
 
-const TaskTypeRun = "agent:run"
+const TaskTypeRun = "liusha:run"
 
 // Queue 把 Role 映射到对应的 asynq queue 名。
 func (r Role) Queue() string {

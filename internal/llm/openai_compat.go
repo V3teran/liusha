@@ -108,8 +108,9 @@ func toOpenAIMessages(in []Message) ([]openai.ChatCompletionMessage, error) {
 	out := make([]openai.ChatCompletionMessage, 0, len(in))
 	for _, m := range in {
 		content := m.Content
-		// 兼容 DeepSeek 等严格 OpenAI 协议实现：assistant+tool_calls 必须含 content 字段。
-		if content == "" && m.Role == RoleAssistant && len(m.ToolCalls) > 0 {
+		// 兼容 DeepSeek 等严格 OpenAI 协议实现：每条 message 必须含 content 字段（OpenAI 协议默认 omitempty）。
+		// 涵盖：assistant+tool_calls 时 content 空 / tool_result Output 为空 / 其它边角空 content。
+		if content == "" {
 			content = " "
 		}
 		om := openai.ChatCompletionMessage{
