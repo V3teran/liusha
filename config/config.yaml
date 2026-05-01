@@ -27,14 +27,17 @@ llm:
   fallback_provider: openai
   max_steps: 30                 # ReAct 单任务步数上限，被 Role.Budget 覆盖
   max_tokens_per_call: 4096
-  # 注意：viper 用点 "." 作 yaml 嵌套分隔符，所以 route key 用下划线避免歧义。
-  # v1.1 routes：orchestrator 主协调 + prober 子探针 + observer + distill + vision
-  routes:
-    orchestrator: default_provider
-    prober:       default_provider
-    observer:     light_provider
-    distill:      light_provider
-    vision:       vision_provider
+  # 双 namespace（v1.1 改造）：把"真 agent"与"single-shot utility"语义分开。
+  #   - agents     有 lifecycle + system prompt + tool loop（orchestrator/prober/observer）
+  #   - utilities  single-shot transform，无循环、无 tool（distill/未来 compactor 等）
+  # 运行时合并视图：router.For 同时查 agents + utilities，未命中回退 default_provider。
+  agents:
+    orchestrator: default_provider   # 主 ReAct（分类流量、派发 prober、收尾）
+    prober:       default_provider   # 子 ReAct（漏洞探针：BAC / 未来 SQLi/SSRF/IDOR）
+    observer:     light_provider     # 旁路过程判官（每 5 步评估方向）
+  utilities:
+    distill:      light_provider     # finding → ≤200 字 hint，落 memory_hints
+    vision:       vision_provider    # 多模态视觉（未启用）
 
 # 每个 provider 一节；只填要用的，其它留空即可
 # api_key_env 是从 env 读 key 的变量名

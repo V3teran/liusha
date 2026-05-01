@@ -45,10 +45,12 @@ func makeRoutedCfg() config.Config {
 			DefaultProvider:  "deepseek",
 			LightProvider:    "anthropic_haiku",
 			FallbackProvider: "qwen",
-			Routes: map[string]string{
-				"react_main": "default_provider",
-				"observer":   "light_provider",
-				"distill":    "light_provider",
+			Agents: map[string]string{
+				"orchestrator": "default_provider",
+				"observer":     "light_provider",
+			},
+			Utilities: map[string]string{
+				"distill": "light_provider",
 			},
 		},
 		Providers: map[string]config.ProviderConfig{
@@ -65,7 +67,7 @@ func TestFactory_For_ReactMain(t *testing.T) {
 	builder, _ := newFakeBuilder()
 	f := NewFactoryWithBuilder(cfg, builder)
 
-	g, err := f.For(context.Background(), "react_main")
+	g, err := f.For(context.Background(), "orchestrator")
 	if err != nil {
 		t.Fatalf("For react.main 失败: %v", err)
 	}
@@ -115,11 +117,11 @@ func TestFactory_For_NoCache(t *testing.T) {
 	builder, count := newFakeBuilder()
 	f := NewFactoryWithBuilder(cfg, builder)
 
-	g1, err := f.For(context.Background(), "react_main")
+	g1, err := f.For(context.Background(), "orchestrator")
 	if err != nil {
 		t.Fatalf("第一次 For 失败: %v", err)
 	}
-	g2, err := f.For(context.Background(), "react_main")
+	g2, err := f.For(context.Background(), "orchestrator")
 	if err != nil {
 		t.Fatalf("第二次 For 失败: %v", err)
 	}
@@ -134,7 +136,10 @@ func TestFactory_For_NoCache(t *testing.T) {
 // TestFactory_For_FallbackProviderRoute：route 指向 fallback_provider 解析到 qwen
 func TestFactory_For_FallbackProviderRoute(t *testing.T) {
 	cfg := makeRoutedCfg()
-	cfg.LLM.Routes["retry"] = "fallback_provider"
+	if cfg.LLM.Agents == nil {
+		cfg.LLM.Agents = map[string]string{}
+	}
+	cfg.LLM.Agents["retry"] = "fallback_provider"
 	builder, _ := newFakeBuilder()
 	f := NewFactoryWithBuilder(cfg, builder)
 
@@ -178,7 +183,7 @@ func TestFactory_For_ConcurrentSafe(t *testing.T) {
 	for i := 0; i < N; i++ {
 		go func() {
 			defer wg.Done()
-			if _, err := f.For(context.Background(), "react_main"); err != nil {
+			if _, err := f.For(context.Background(), "orchestrator"); err != nil {
 				t.Errorf("并发 For 失败: %v", err)
 			}
 		}()

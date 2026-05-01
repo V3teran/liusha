@@ -1,16 +1,15 @@
 // Package llm 的 Factory 实现：role → field → provider key → 无状态 Generator 路由。
 //
-// v1.1（T11）改造：
-//   - 不再缓存 Generator（避免 v1 跨 task tools 错乱 bug）。
-//   - 通过 ClientPool 单例化底层 *openai.Client / *anthropic.Client，
-//     共享 HTTP 连接池；Generator 本身无状态、每次 For 新建。
+// v1.1 改造：
+//   - 不再缓存 Generator（避免跨 task tools 错乱 bug）；ClientPool 共享底层 HTTP client。
+//   - 双 namespace 路由：agents（orchestrator/prober/observer）vs utilities（distill/vision/...）
+//     调用 Router.For(ctx, "orchestrator") 合并查找两个 map，对调用方透明。
 //
-// 路由规则（spec §8.4 + T19 黑客松借鉴）：
-//   - 通过 cfg.LLM.Routes 表把抽象角色（"orchestrator"/"prober"/"observer"/"distill"…）解耦到具体 provider，
-//     允许同一 role 在不同部署里换底层模型而不改代码。
-//   - field 名（"default_provider"/"light_provider"/"vision_provider"/"fallback_provider"）是
-//     LLMConfig 的 4 个字段抽象，通过 switch 解到当前 provider key。
-//   - 未在 routes 列表的 role 一律回退 default_provider，保证 runtime 永远拿得到 Generator。
+// 路由规则：
+//   - cfg.LLM.Agents[role] 或 cfg.LLM.Utilities[role] = field name（如 "default_provider"）
+//   - field name → cfg.LLM 对应字段（如 cfg.LLM.DefaultProvider = "deepseek"）
+//   - 若 field 名未识别或字段值为空 → 回退 default_provider
+//   - role 不在任何 namespace → 直接走 default_provider
 package llm
 
 import (
@@ -87,9 +86,14 @@ func (f *Factory) forProviderKey(ctx context.Context, providerKey string) (Gener
 }
 
 // resolveProviderKey 把 role 解析到具体 provider key（"deepseek"/"anthropic"/...）。
-// 任何无法解析的中间步骤都回退 default_provider。
+//
+// 查找顺序：Agents → Utilities → 回退 default_provider。
+// 同一 role 不应同时出现在两个 namespace（重复时 Agents 优先；启动校验未来可加）。
 func (f *Factory) resolveProviderKey(role string) string {
-	field, ok := f.cfg.LLM.Routes[role]
+	field, ok := f.cfg.LLM.Agents[role]
+	if !ok {
+		field, ok = f.cfg.LLM.Utilities[role]
+	}
 	if !ok {
 		return f.cfg.LLM.DefaultProvider
 	}

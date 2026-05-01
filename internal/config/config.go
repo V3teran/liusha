@@ -30,8 +30,14 @@ type PostgresConfig struct {
 	MinConns int `mapstructure:"min_conns"`
 }
 
-// LLMConfig 包含主/轻/视觉/降级 4 个 provider 字段 + 路由表。
-// light_provider / fallback_provider / routes 是黑客松借鉴新增（创新 11 + 共识 E）。
+// LLMConfig 包含主/轻/视觉/降级 4 个 provider 字段 + 双 namespace 路由表。
+//
+// v1.1 双 namespace（替代单 routes 平铺）：
+//   - Agents     有 lifecycle + system prompt + tool loop（orchestrator/prober/observer）
+//   - Utilities  single-shot transform，无循环（distill / vision / 未来 compactor 等）
+//
+// 运行时 Router.For 合并查找两个 map，未命中回退 default_provider；
+// 拆分仅在 yaml 与统计/限额维度有意义，不影响调用方。
 type LLMConfig struct {
 	DefaultProvider  string            `mapstructure:"default_provider"`
 	LightProvider    string            `mapstructure:"light_provider"`
@@ -39,7 +45,8 @@ type LLMConfig struct {
 	FallbackProvider string            `mapstructure:"fallback_provider"`
 	MaxSteps         int               `mapstructure:"max_steps"`
 	MaxTokensPerCall int               `mapstructure:"max_tokens_per_call"`
-	Routes           map[string]string `mapstructure:"routes"`
+	Agents           map[string]string `mapstructure:"agents"`
+	Utilities        map[string]string `mapstructure:"utilities"`
 }
 
 // ProviderConfig 一个 LLM provider 的连接参数。
