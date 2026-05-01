@@ -41,7 +41,15 @@ func (s *Store) OnSaved(hook SavedHook) {
 
 // Save 按 (engagement_id, dedup_key) UNIQUE 幂等写入 finding。
 // 冲突时合并 evidence（jsonb || EXCLUDED.evidence，顶层键合并新值覆盖）+ 推进 updated_at。
-// 返回新插入或合并后的 Finding；成功后异步触发已注册的 OnSaved hook（不阻塞返回）。
+// 返回新插入或合并后的 Finding。
+//
+// OnSaved hook 仅在**首次 INSERT** 触发，UPDATE（合并旧 finding）不再触发——
+// 否则同一 dedup_key 被 LLM 重复 write_finding 时会反复触发 distill 蒸馏，
+// 导致成本/审计放大（v1.1 实测 3 finding 触发 21 次 distill）。
+//
+// 用 PG 系统列 xmax 判断：
+//   - xmax = 0 表示这行是本事务新创建（RETURNING 路径走 INSERT）
+//   - xmax != 0 表示由 ON CONFLICT 路径更新（被本事务 update）
 func (s *Store) Save(ctx context.Context, f Finding) (Finding, error) {
 	if f.Severity == "" {
 		f.Severity = SeverityMedium
@@ -62,17 +70,20 @@ func (s *Store) Save(ctx context.Context, f Finding) (Finding, error) {
 		ON CONFLICT (engagement_id, dedup_key) DO UPDATE
 		  SET evidence   = finding.evidence || EXCLUDED.evidence,
 		      updated_at = now()
-		RETURNING `+colsSelect,
+		RETURNING `+colsSelect+`, (xmax = 0) AS is_insert`,
 		f.EngagementID, f.TaskID, f.Kind, f.Severity, f.Title,
 		[]byte(f.Target), []byte(f.Evidence), []byte(f.Payload),
 		f.Tool, f.Confidence, f.DedupKey)
 
 	var saved Finding
-	if err := scan(row, &saved); err != nil {
+	var isInsert bool
+	if err := scanWithInsertFlag(row, &saved, &isInsert); err != nil {
 		return Finding{}, fmt.Errorf("save finding: %w", err)
 	}
 
-	s.fireSavedHooks(saved)
+	if isInsert {
+		s.fireSavedHooks(saved)
+	}
 	return saved, nil
 }
 
@@ -156,6 +167,22 @@ func scan(r scanner, f *Finding) error {
 		&f.ID, &f.EngagementID, &f.TaskID, &f.Kind, &f.Severity, &f.Title,
 		&target, &evidence, &payload, &f.Tool, &f.Confidence, &f.DedupKey,
 		&f.CreatedAt, &f.UpdatedAt,
+	); err != nil {
+		return err
+	}
+	f.Target, f.Evidence, f.Payload = target, evidence, payload
+	return nil
+}
+
+// scanWithInsertFlag 多扫一个 (xmax = 0) bool，仅 Save() 路径用——
+// 区分 ON CONFLICT 是首次 INSERT 还是 UPDATE 合并。
+func scanWithInsertFlag(r scanner, f *Finding, isInsert *bool) error {
+	var target, evidence, payload []byte
+	if err := r.Scan(
+		&f.ID, &f.EngagementID, &f.TaskID, &f.Kind, &f.Severity, &f.Title,
+		&target, &evidence, &payload, &f.Tool, &f.Confidence, &f.DedupKey,
+		&f.CreatedAt, &f.UpdatedAt,
+		isInsert,
 	); err != nil {
 		return err
 	}
