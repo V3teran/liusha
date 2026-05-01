@@ -1,6 +1,6 @@
-// Package bac 提供 BAC（Broken Access Control，越权）skill 的 4 个专属 action：
-// fetch_credentials / replay_multi_identity / heuristic_check / compute_similarity，
-// 以及一个 Factory 把它们绑定到同一个 Session 上。
+// Package sniffer 提供漏洞探针通用工具集（4 个 action + Factory），
+// 被各 vuln skill（BAC、未来 SQLi/SSRF/IDOR…）共享：
+// fetch_credentials / replay_multi_identity / heuristic_check / compute_similarity。
 //
 // 设计要点（含黑客松借鉴）：
 //   - 4 个 action 通过共享 *Session 在 task 内部传递"上一次的 responses"，
@@ -8,7 +8,8 @@
 //   - 任何 action 不返回 raw body：ReplayMultiIdentity 只回 body_hint（≤400 byte）；
 //     完整 body 留在 *Session 内供后续 heuristic / similarity 使用。
 //   - Factory.CreateActions 每次调用产生独立 *Session，按 engagement / task 隔离。
-package bac
+//   - skill 差异在判定逻辑（SKILL.md prompt + done_validator），探针工具复用。
+package sniffer
 
 import (
 	"context"

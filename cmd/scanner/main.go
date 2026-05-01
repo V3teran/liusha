@@ -42,9 +42,10 @@ import (
 	"github.com/V3teran/liusha/internal/tool"
 	"github.com/V3teran/liusha/internal/tool/done_validator"
 	"github.com/V3teran/liusha/internal/tool/middleware"
+	bac "github.com/V3teran/liusha/internal/builders/vuln/bac"
 	"github.com/V3teran/liusha/internal/tools/common"
-	"github.com/V3teran/liusha/internal/tools/mainreact"
-	"github.com/V3teran/liusha/internal/tools/vuln/bac"
+	"github.com/V3teran/liusha/internal/tools/spawn"
+	"github.com/V3teran/liusha/internal/tools/traffic"
 	"github.com/V3teran/liusha/internal/worker"
 
 	"github.com/hibiken/asynq"
@@ -326,13 +327,13 @@ func (h handler) handleTraffic(ctx context.Context, p worker.Payload, entrypoint
 	_ = reg.Register(&common.WriteGraph{Store: h.graphs, EngagementID: eid})
 
 	// mainreact 元工具
-	_ = reg.Register(&mainreact.ClassifyTraffic{LLM: mainGen})
-	_ = reg.Register(&mainreact.SpawnSkill{
-		Builders:     map[string]mainreact.SkillBuilder{"bac": bacBuilder},
+	_ = reg.Register(&traffic.ClassifyTraffic{LLM: mainGen})
+	_ = reg.Register(&spawn.SpawnSkill{
+		Builders:     map[string]skill.Builder{"bac": bacBuilder},
 		EngagementID: eid,
 		SubLLM:       subGen,
 	})
-	_ = reg.Register(&mainreact.GetFindings{Store: h.findings, EngagementID: eid})
+	_ = reg.Register(&traffic.GetFindings{Store: h.findings, EngagementID: eid})
 
 	// middleware：result_compress + done_validate(nil = AlwaysOK)。
 	reg.Use(

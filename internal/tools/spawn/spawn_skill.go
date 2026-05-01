@@ -1,4 +1,8 @@
-package mainreact
+// Package spawn 提供主 ReAct 的 spawn_skill 工具：按 skill 名嵌套调用子 ReAct（同进程同步）。
+//
+// 与 tools/traffic（业务工具）分离：spawn 只是"派发器"，不属于业务工具；
+// 与 internal/skill 包解耦：Builder/BuilderParams 类型定义在 skill 包，spawn 只消费类型。
+package spawn
 
 import (
 	"context"
@@ -8,30 +12,16 @@ import (
 
 	"github.com/V3teran/liusha/internal/llm"
 	"github.com/V3teran/liusha/internal/react"
+	"github.com/V3teran/liusha/internal/skill"
 	"github.com/V3teran/liusha/internal/tool"
 )
-
-// SkillBuilder 为某个 skill 装配子 ReAct Config。
-//
-// scanner 启动时按 skill 名注册到 SpawnSkill.Builders（如 "bac" → bac.NewSubBuilder）。
-type SkillBuilder func(ctx context.Context, params SkillParams) (react.Config, error)
-
-// SkillParams 子 ReAct 启动参数。
-type SkillParams struct {
-	EngagementID string
-	FlowID       int64
-	Host         string
-	URL          string
-	Method       string
-	LLM          llm.Generator
-}
 
 // SpawnSkill 工具：同进程嵌套调用子 ReAct（同步阻塞）。
 //
 // 多个 spawn_skill 在主 LLM 同一轮返回时，runtime tool_calls 并行框架（T12）
 // 会启 N 个 goroutine 并行跑（每个 goroutine 独立调 SpawnSkill.Execute）。
 type SpawnSkill struct {
-	Builders     map[string]SkillBuilder
+	Builders     map[string]skill.Builder
 	EngagementID string
 	SubLLM       llm.Generator
 }
@@ -80,7 +70,7 @@ func (a *SpawnSkill) Execute(ctx context.Context, args json.RawMessage) (tool.Re
 		return tool.Result{}, fmt.Errorf("unknown skill: %s", in.Skill)
 	}
 
-	cfg, err := builder(ctx, SkillParams{
+	cfg, err := builder(ctx, skill.BuilderParams{
 		EngagementID: a.EngagementID,
 		FlowID:       in.FlowID,
 		Host:         in.Host,

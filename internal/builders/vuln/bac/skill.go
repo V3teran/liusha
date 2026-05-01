@@ -16,7 +16,7 @@ import (
 	"github.com/V3teran/liusha/internal/tool/done_validator"
 	"github.com/V3teran/liusha/internal/tool/middleware"
 	"github.com/V3teran/liusha/internal/tools/common"
-	"github.com/V3teran/liusha/internal/tools/mainreact"
+	"github.com/V3teran/liusha/internal/tools/sniffer"
 )
 
 // SubBuilderDeps BAC SkillBuilder 的依赖注入。
@@ -38,16 +38,16 @@ const (
 
 // NewSubBuilder 构造 BAC SkillBuilder 闭包。
 //
-// scanner 启动时调用一次，注册到 mainreact.SpawnSkill.Builders["bac"]。
+// scanner 启动时调用一次，注册到 spawn.SpawnSkill.Builders["bac"]。
 //
 // 子 ReAct 工具集：
 //
-//	common: read_state / write_fact / write_idea / write_finding / done
-//	bac:    fetch_creds / replay / diff / heuristic_match (factory.Register 提供)
-func NewSubBuilder(deps SubBuilderDeps) func(ctx context.Context, p mainreact.SkillParams) (react.Config, error) {
-	factory := NewFactory(deps.Credentials, deps.Flows, deps.Replay)
+//	common:  read_state / write_fact / write_idea / write_finding / done
+//	sniffer: fetch_credentials / replay_multi_identity / heuristic_check / compute_similarity
+func NewSubBuilder(deps SubBuilderDeps) func(ctx context.Context, p skill.BuilderParams) (react.Config, error) {
+	factory := sniffer.NewFactory(deps.Credentials, deps.Flows, deps.Replay)
 
-	return func(ctx context.Context, p mainreact.SkillParams) (react.Config, error) {
+	return func(ctx context.Context, p skill.BuilderParams) (react.Config, error) {
 		reg := tool.NewRegistry()
 
 		// common tools
@@ -57,9 +57,10 @@ func NewSubBuilder(deps SubBuilderDeps) func(ctx context.Context, p mainreact.Sk
 		_ = reg.Register(&common.WriteIdea{Store: deps.Engagements, EngagementID: p.EngagementID})
 		_ = reg.Register(&common.WriteFinding{Store: deps.Findings, EngagementID: p.EngagementID})
 
-		// bac-specific tools
+		// 漏洞探针通用工具（fetch_credentials / replay / heuristic / similarity）
+		// 由 sniffer 包提供，所有 vuln skill 共享。
 		if err := factory.Register(reg, p.EngagementID); err != nil {
-			return react.Config{}, fmt.Errorf("register bac actions: %w", err)
+			return react.Config{}, fmt.Errorf("register sniffer actions: %w", err)
 		}
 
 		// skill loader 加载 SKILL.md 正文当 system prompt
@@ -86,7 +87,7 @@ func NewSubBuilder(deps SubBuilderDeps) func(ctx context.Context, p mainreact.Sk
 }
 
 // buildUserPrompt 构造子 ReAct 第一条 user message。
-func buildUserPrompt(p mainreact.SkillParams) string {
+func buildUserPrompt(p skill.BuilderParams) string {
 	return "测试 flow_id=" + strconv.FormatInt(p.FlowID, 10) +
 		" host=" + p.Host + " " + p.Method + " " + p.URL +
 		"。立刻按 BAC SKILL.md 流程调用工具，不要文本回答。"

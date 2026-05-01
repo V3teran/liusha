@@ -1,7 +1,8 @@
-// Package mainreact 提供主 ReAct 用的元工具：classify_traffic / spawn_skill / get_findings。
+// Package traffic 提供主 ReAct 的流量业务工具：classify_traffic / get_findings。
 //
-// 包名用 mainreact 而非 main：避免与 Go main package 冲突；语义为「主 ReAct 元工具」。
-package mainreact
+// 与 tools/spawn（派发器）拆分：traffic 包内是分析/查询流量的具体业务工具，
+// 不持有 skill builder 类型（已迁到 internal/skill 包）。
+package traffic
 
 import (
 	"context"

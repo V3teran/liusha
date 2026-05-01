@@ -63,12 +63,21 @@ required_actions:
 - `write_idea({direction, status:"failed"})`
 - `done({"reason":"heuristic_skip"})`
 
-### Step 4：compute_similarity(threshold=0.3)
+### Step 4：compute_similarity（默认 min_threshold=0.6, high_threshold=0.9）
 
-拿 N×N 相似度矩阵：
+工具直接产出 verdict 三态（**不再返回 N×N 矩阵，由工具层算法做硬判定**）：
 
-- 全部 pair 相似度 < threshold 且无显著状态码差异 → `write_fact({category:"boundary", content:"similarity 全低于阈值"})` → `write_idea(direction, status:"failed")` → `done({"reason":"all_similar"})`。
-- 否则进入 Step 5。
+- `verdict="all_below_threshold"`（所有 pair 相似度都低于 min_threshold，工具层判定**无越权信号**）：
+  - `write_fact({category:"boundary", content:"similarity 全低于阈值，跨身份响应差异显著"})`
+  - `write_idea(direction, status:"failed")`
+  - `done({"reason":"all_similar"})` —— **短路结束，不进 Step 5**。
+- `verdict="high_similarity_pair"` 或 `"ambiguous"`：进入 Step 5 LLM 语义判定，**注意：高相似 ≠ 越权**。
+  公开接口（如 `/api/banner` `/health`）、错误页（5xx）、登录页等也会高相似但不是越权。
+  必须结合 endpoint 性质 + body 内容（是否私有业务数据）综合判断。
+
+工具输出关键字段（参考决策）：
+- `suspicious_pairs[]`：score >= min_threshold 的身份对，含 `{a, b, score, length_ratio}`。
+- `summary.max_score / above_high_threshold / above_min_threshold`：分布概览。
 
 ### Step 5：判定漏洞类型（按优先级，命中即返回）
 

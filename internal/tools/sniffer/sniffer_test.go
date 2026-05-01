@@ -1,4 +1,4 @@
-package bac
+package sniffer
 
 import (
 	"context"
@@ -270,54 +270,146 @@ func TestComputeSimilarity_RequiresPriorReplay(t *testing.T) {
 	}
 }
 
-func TestComputeSimilarity_AllBelowThreshold(t *testing.T) {
+// similarityResult 是 sniffer_test.go 内部解码 ComputeSimilarity 输出用的视图。
+type similarityResult struct {
+	Algorithm       string  `json:"algorithm"`
+	MinThreshold    float64 `json:"min_threshold"`
+	HighThreshold   float64 `json:"high_threshold"`
+	Verdict         string  `json:"verdict"`
+	SuspiciousPairs []struct {
+		A           string  `json:"a"`
+		B           string  `json:"b"`
+		Score       float64 `json:"score"`
+		LengthRatio float64 `json:"length_ratio"`
+	} `json:"suspicious_pairs"`
+	Summary struct {
+		TotalPairs int     `json:"total_pairs"`
+		MaxScore   float64 `json:"max_score"`
+		MinScore   float64 `json:"min_score"`
+		AboveHigh  int     `json:"above_high_threshold"`
+		AboveMin   int     `json:"above_min_threshold"`
+	} `json:"summary"`
+}
+
+func TestComputeSimilarity_AllBelowThreshold_VerdictShortCircuit(t *testing.T) {
+	// 三个内容毫不相关的 body：所有 pair 应低于 min_threshold=0.6
+	// → verdict=all_below_threshold（让 SKILL.md 直接 done(all_similar) 短路，不进 LLM）。
 	session := &Session{LastResponses: []replay.Response{
 		{IdentityName: "admin", StatusCode: 200, Body: []byte("alice profile data")},
 		{IdentityName: "user", StatusCode: 200, Body: []byte("bob profile content")},
 		{IdentityName: "anonymous", StatusCode: 401, Body: []byte("please login first")},
 	}}
 	a := &ComputeSimilarity{Session: session}
-	out, err := a.Execute(context.Background(), json.RawMessage(`{"algorithm":"structural","threshold":0.9}`))
+	out, err := a.Execute(context.Background(), json.RawMessage(`{}`))
 	if err != nil {
 		t.Fatal(err)
 	}
-	var got struct {
-		Matrix            [][]float64 `json:"matrix"`
-		AllBelowThreshold bool        `json:"all_below_threshold"`
-		MaxPair           struct {
-			A     string  `json:"a"`
-			B     string  `json:"b"`
-			Score float64 `json:"score"`
-		} `json:"max_pair"`
-	}
+	var got similarityResult
 	if err := json.Unmarshal(out.Output, &got); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	if len(got.Matrix) != 3 || len(got.Matrix[0]) != 3 {
-		t.Fatalf("matrix 应为 3x3: %v", got.Matrix)
+	if got.Verdict != "all_below_threshold" {
+		t.Fatalf("应 verdict=all_below_threshold，实际=%q  payload=%s", got.Verdict, string(out.Output))
 	}
-	if !got.AllBelowThreshold {
-		t.Fatalf("阈值 0.9 下应 all_below_threshold=true: %s", string(out.Output))
+	if len(got.SuspiciousPairs) != 0 {
+		t.Fatalf("无相似对时不应有 suspicious_pairs，实际=%d", len(got.SuspiciousPairs))
 	}
-	if got.MaxPair.A == "" || got.MaxPair.B == "" {
-		t.Fatalf("max_pair 应填充: %+v", got.MaxPair)
+	if got.Summary.TotalPairs != 3 {
+		t.Fatalf("3 身份应有 3 pair，实际=%d", got.Summary.TotalPairs)
 	}
 }
 
-func TestComputeSimilarity_HighSimilarityFlagsBreak(t *testing.T) {
+func TestComputeSimilarity_HighSimilarityVerdict(t *testing.T) {
+	// 三身份 body 完全相同：max=1.0 ≥ high_threshold=0.9
+	// → verdict=high_similarity_pair（疑似越权，但要 LLM 排除公开接口/错误页假阳性）。
 	session := &Session{LastResponses: []replay.Response{
 		{IdentityName: "admin", StatusCode: 200, Body: []byte("private order data 12345")},
 		{IdentityName: "user", StatusCode: 200, Body: []byte("private order data 12345")},
 		{IdentityName: "anonymous", StatusCode: 200, Body: []byte("private order data 12345")},
 	}}
 	a := &ComputeSimilarity{Session: session}
-	out, _ := a.Execute(context.Background(), json.RawMessage(`{"threshold":0.5}`))
-	var got struct {
-		AllBelowThreshold bool `json:"all_below_threshold"`
+	out, err := a.Execute(context.Background(), json.RawMessage(`{}`))
+	if err != nil {
+		t.Fatal(err)
 	}
-	_ = json.Unmarshal(out.Output, &got)
-	if got.AllBelowThreshold {
-		t.Fatalf("三条相同 body 在阈值 0.5 下不应 all_below_threshold=true: %s", string(out.Output))
+	var got similarityResult
+	if err := json.Unmarshal(out.Output, &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if got.Verdict != "high_similarity_pair" {
+		t.Fatalf("应 verdict=high_similarity_pair，实际=%q payload=%s", got.Verdict, string(out.Output))
+	}
+	if len(got.SuspiciousPairs) != 3 {
+		t.Fatalf("3 身份完全相同应有 3 个 pair 进 suspicious_pairs，实际=%d", len(got.SuspiciousPairs))
+	}
+	if got.Summary.AboveHigh != 3 {
+		t.Fatalf("Summary.AboveHigh 应=3，实际=%d", got.Summary.AboveHigh)
+	}
+}
+
+func TestComputeSimilarity_AmbiguousBetweenThresholds(t *testing.T) {
+	// 两个 body 共享部分 token（jaccard ≈ 0.7-0.8），落在 [0.6, 0.9) 区间。
+	session := &Session{LastResponses: []replay.Response{
+		{IdentityName: "admin", StatusCode: 200, Body: []byte("alpha beta gamma delta epsilon zeta")},
+		{IdentityName: "user", StatusCode: 200, Body: []byte("alpha beta gamma delta epsilon eta")},
+	}}
+	a := &ComputeSimilarity{Session: session}
+	out, err := a.Execute(context.Background(), json.RawMessage(`{}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got similarityResult
+	if err := json.Unmarshal(out.Output, &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if got.Verdict != "ambiguous" {
+		t.Fatalf("应 verdict=ambiguous，实际=%q max=%v", got.Verdict, got.Summary.MaxScore)
+	}
+	if len(got.SuspiciousPairs) != 1 {
+		t.Fatalf("应 1 个 suspicious_pair，实际=%d", len(got.SuspiciousPairs))
+	}
+}
+
+func TestComputeSimilarity_LengthRatioShortCircuit(t *testing.T) {
+	// 一个 5 字节、一个 500 字节，length_ratio=0.01 < gate=0.3 → score 强制为 0，
+	// 即使 token 有重叠也判为 all_below_threshold。
+	short := []byte("hello")
+	long := make([]byte, 0, 500)
+	for i := 0; i < 50; i++ {
+		long = append(long, []byte("hello world ")...)
+	}
+	session := &Session{LastResponses: []replay.Response{
+		{IdentityName: "admin", StatusCode: 200, Body: short},
+		{IdentityName: "user", StatusCode: 500, Body: long},
+	}}
+	a := &ComputeSimilarity{Session: session}
+	out, err := a.Execute(context.Background(), json.RawMessage(`{}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got similarityResult
+	if err := json.Unmarshal(out.Output, &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if got.Verdict != "all_below_threshold" {
+		t.Fatalf("length-gate 应短路为 all_below_threshold，实际=%q max=%v",
+			got.Verdict, got.Summary.MaxScore)
+	}
+	if got.Summary.MaxScore != 0 {
+		t.Fatalf("length-gate 命中时 score 应为 0，实际=%v", got.Summary.MaxScore)
+	}
+}
+
+func TestComputeSimilarity_ThresholdValidation(t *testing.T) {
+	// high_threshold < min_threshold 应直接报错。
+	session := &Session{LastResponses: []replay.Response{
+		{IdentityName: "a", Body: []byte("x")},
+		{IdentityName: "b", Body: []byte("y")},
+	}}
+	a := &ComputeSimilarity{Session: session}
+	_, err := a.Execute(context.Background(), json.RawMessage(`{"min_threshold":0.9,"high_threshold":0.5}`))
+	if err == nil {
+		t.Fatal("high_threshold < min_threshold 应报错")
 	}
 }
 
