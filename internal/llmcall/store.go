@@ -16,17 +16,27 @@ func NewStore(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
 // Append 插入一条 LLM 调用记录，返回新 id。
 // TaskID / EngagementID 为 nil 时落 NULL（外键 ON DELETE SET NULL）。
 // Role 为空时按 schema 默认 ”；写入时显式传入便于 CountByRole 聚合。
+// MessagesJSON / ResultJSON 为 nil 时回填空 jsonb（'[]' / '{}'），保证 NOT NULL 列约束。
 func (s *Store) Append(ctx context.Context, c Call) (int64, error) {
+	msgs := c.MessagesJSON
+	if len(msgs) == 0 {
+		msgs = []byte("[]")
+	}
+	res := c.ResultJSON
+	if len(res) == 0 {
+		res = []byte("{}")
+	}
 	var id int64
 	err := s.pool.QueryRow(ctx, `
 		INSERT INTO llm_call
 			(task_id, engagement_id, provider, model, in_tokens, out_tokens, cached_tokens,
-			 cost_usd, latency_ms, finish_reason, error, role)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+			 cost_usd, latency_ms, finish_reason, error, role, messages_json, result_json)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
 		RETURNING id`,
 		c.TaskID, c.EngagementID, c.Provider, c.Model,
 		c.InTokens, c.OutTokens, c.CachedTokens,
 		c.CostUSD, c.LatencyMs, c.FinishReason, c.Error, c.Role,
+		msgs, res,
 	).Scan(&id)
 	if err != nil {
 		return 0, fmt.Errorf("insert llm_call: %w", err)

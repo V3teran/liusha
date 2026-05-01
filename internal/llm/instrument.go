@@ -10,6 +10,7 @@ package llm
 
 import (
 	"context"
+	"encoding/json"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -95,6 +96,18 @@ func (i *instrumented) Generate(ctx context.Context, msgs []Message, tools []Too
 		call.Error = err.Error()
 	} else if i.pricing != nil {
 		call.CostUSD = i.pricing.Estimate(i.inner.Provider(), i.inner.Model(), res.Usage)
+	}
+
+	// 序列化输入/输出落库（B2 全量审计）。失败仅 warn，不阻塞 Generate 返回。
+	if b, mErr := json.Marshal(msgs); mErr == nil {
+		call.MessagesJSON = b
+	} else {
+		i.log.Warn().Err(mErr).Msg("messages_json marshal 失败（落库回退默认值）")
+	}
+	if b, mErr := json.Marshal(res); mErr == nil {
+		call.ResultJSON = b
+	} else {
+		i.log.Warn().Err(mErr).Msg("result_json marshal 失败（落库回退默认值）")
 	}
 
 	// 埋点用独立的 ctx：业务 ctx 可能因取消而无法落库。
