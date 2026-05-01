@@ -92,6 +92,7 @@ func main() {
 	finds := finding.NewStore(pool)
 	graphs := graph.NewStore(pool)
 	calls := llmcall.NewStore(pool)
+	defer func() { _ = calls.Close() }() // 排空 batch buffer，避免最近 ~1s 的审计丢失
 	flows := flow.NewStore(pool, flowMaxRequestBody, flowMaxResponseBody)
 	creds := credential.NewRedis(rdb)
 
