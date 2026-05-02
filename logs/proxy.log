@@ -1,5 +1,0 @@
-[90m09:30:22[0m [32mINF[0m [1mproxy healthz listening[0m [36maddr=[0m:9091 [36mcomponent=[0mproxy
-[90m09:30:22[0m [32mINF[0m [1mmitm proxy starting[0m [36maddr=[0m0.0.0.0:8888 [36mcomponent=[0mproxy
-[90m09:30:22[0m [32mINF[0m [1mMITM 代理已启动[0m [36maddr=[0m0.0.0.0:8888 [36mcert_dir=[0m/Users/Xlbula/.liusha [36mcomponent=[0mproxy
-[90m13:47:04[0m [32mINF[0m [1mproxy shutting down[0m [36mcomponent=[0mproxy [36msignal=[0mterminated
-[90m13:47:04[0m [32mINF[0m [1mproxy stopped[0m [36mcomponent=[0mproxy
