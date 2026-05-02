@@ -25,7 +25,7 @@ import (
 	"github.com/V3teran/liusha/internal/llm"
 	"github.com/V3teran/liusha/internal/react"
 	"github.com/V3teran/liusha/internal/skill"
-	"github.com/V3teran/liusha/internal/tool"
+	"github.com/V3teran/liusha/internal/toolfx"
 )
 
 // Delegate 工具：把流量委托给某个 skill 的子 ReAct（同步阻塞）。
@@ -118,7 +118,7 @@ func sortedCatalog(in []*skill.Card) []*skill.Card {
 //
 // credential_locations 由主 LLM 在调 delegate 时透传（来自上游 classify_traffic
 // 输出），子 ReAct 用它构造带占位 token 的 anonymous 假认证身份。
-func (a *Delegate) Execute(ctx context.Context, args json.RawMessage) (tool.Result, error) {
+func (a *Delegate) Execute(ctx context.Context, args json.RawMessage) (toolfx.Result, error) {
 	var in struct {
 		Skill               string                          `json:"skill"`
 		FlowID              int64                           `json:"flow_id"`
@@ -128,14 +128,14 @@ func (a *Delegate) Execute(ctx context.Context, args json.RawMessage) (tool.Resu
 		CredentialLocations []credential.CredentialLocation `json:"credential_locations"`
 	}
 	if err := json.Unmarshal(args, &in); err != nil {
-		return tool.Result{}, fmt.Errorf("decode args: %w", err)
+		return toolfx.Result{}, fmt.Errorf("decode args: %w", err)
 	}
 	if in.Skill == "" || in.FlowID == 0 || in.Host == "" {
-		return tool.Result{}, errors.New("skill/flow_id/host 必填")
+		return toolfx.Result{}, errors.New("skill/flow_id/host 必填")
 	}
 	builder, ok := a.Builders[in.Skill]
 	if !ok {
-		return tool.Result{}, fmt.Errorf("unknown skill: %s", in.Skill)
+		return toolfx.Result{}, fmt.Errorf("unknown skill: %s", in.Skill)
 	}
 
 	cfg, err := builder(ctx, skill.BuilderParams{
@@ -149,16 +149,16 @@ func (a *Delegate) Execute(ctx context.Context, args json.RawMessage) (tool.Resu
 		CredentialLocations: in.CredentialLocations,
 	})
 	if err != nil {
-		return tool.Result{}, fmt.Errorf("build skill %s: %w", in.Skill, err)
+		return toolfx.Result{}, fmt.Errorf("build skill %s: %w", in.Skill, err)
 	}
 
 	sub, err := react.Run(ctx, cfg)
 	if err != nil {
-		return tool.Result{}, fmt.Errorf("sub-react %s: %w", in.Skill, err)
+		return toolfx.Result{}, fmt.Errorf("sub-react %s: %w", in.Skill, err)
 	}
 
 	summary := fmt.Sprintf("skill=%s steps=%d terminate=%s usage=in:%d/out:%d",
 		in.Skill, sub.TotalSteps, sub.TerminateBy,
 		sub.TotalUsage.InTokens, sub.TotalUsage.OutTokens)
-	return tool.Result{Summary: summary}, nil
+	return toolfx.Result{Summary: summary}, nil
 }

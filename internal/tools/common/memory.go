@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/V3teran/liusha/internal/tool"
+	"github.com/V3teran/liusha/internal/toolfx"
 )
 
 // MemoryStore 是 engagement memory 三层（facts / ideas / hints）的最小访问接口。
@@ -45,12 +45,12 @@ func (a *ReadState) ParametersJSON() json.RawMessage {
 }
 
 // Execute 调 Store.ReadState 并把字节流原样塞进 Output。
-func (a *ReadState) Execute(ctx context.Context, _ json.RawMessage) (tool.Result, error) {
+func (a *ReadState) Execute(ctx context.Context, _ json.RawMessage) (toolfx.Result, error) {
 	state, err := a.Store.ReadState(ctx, a.EngagementID)
 	if err != nil {
-		return tool.Result{}, fmt.Errorf("读取 memory 状态失败: %w", err)
+		return toolfx.Result{}, fmt.Errorf("读取 memory 状态失败: %w", err)
 	}
-	return tool.Result{Output: state}, nil
+	return toolfx.Result{Output: state}, nil
 }
 
 // WriteFact — 追加一条事实（evidence 或 boundary）到 memory_facts。
@@ -83,25 +83,25 @@ func (a *WriteFact) ParametersJSON() json.RawMessage {
 }
 
 // Execute 解析参数 → 校验 category → 序列化 entry → AppendFact。
-func (a *WriteFact) Execute(ctx context.Context, args json.RawMessage) (tool.Result, error) {
+func (a *WriteFact) Execute(ctx context.Context, args json.RawMessage) (toolfx.Result, error) {
 	var p struct {
 		Category string `json:"category"`
 		Content  string `json:"content"`
 	}
 	if err := json.Unmarshal(args, &p); err != nil {
-		return tool.Result{}, fmt.Errorf("解析 write_fact 参数失败: %w", err)
+		return toolfx.Result{}, fmt.Errorf("解析 write_fact 参数失败: %w", err)
 	}
 	if p.Category != "evidence" && p.Category != "boundary" {
-		return tool.Result{}, fmt.Errorf("非法 category %q，必须是 evidence|boundary", p.Category)
+		return toolfx.Result{}, fmt.Errorf("非法 category %q，必须是 evidence|boundary", p.Category)
 	}
 	if p.Content == "" {
-		return tool.Result{}, fmt.Errorf("content 不能为空")
+		return toolfx.Result{}, fmt.Errorf("content 不能为空")
 	}
 	entry, _ := json.Marshal(map[string]any{"category": p.Category, "content": p.Content})
 	if err := a.Store.AppendFact(ctx, a.EngagementID, entry); err != nil {
-		return tool.Result{}, fmt.Errorf("追加 fact 失败: %w", err)
+		return toolfx.Result{}, fmt.Errorf("追加 fact 失败: %w", err)
 	}
-	return tool.Result{Output: json.RawMessage(`{"ok":true}`)}, nil
+	return toolfx.Result{Output: json.RawMessage(`{"ok":true}`)}, nil
 }
 
 // WriteIdea — 追加/更新一条假设到 memory_ideas（status: pending|testing|verified|failed）。
@@ -131,27 +131,27 @@ func (a *WriteIdea) ParametersJSON() json.RawMessage {
 }
 
 // Execute 解析 → 校验 status 枚举 → AppendIdea。
-func (a *WriteIdea) Execute(ctx context.Context, args json.RawMessage) (tool.Result, error) {
+func (a *WriteIdea) Execute(ctx context.Context, args json.RawMessage) (toolfx.Result, error) {
 	var p struct {
 		Direction string `json:"direction"`
 		Status    string `json:"status"`
 	}
 	if err := json.Unmarshal(args, &p); err != nil {
-		return tool.Result{}, fmt.Errorf("解析 write_idea 参数失败: %w", err)
+		return toolfx.Result{}, fmt.Errorf("解析 write_idea 参数失败: %w", err)
 	}
 	if p.Direction == "" {
-		return tool.Result{}, fmt.Errorf("direction 不能为空")
+		return toolfx.Result{}, fmt.Errorf("direction 不能为空")
 	}
 	switch p.Status {
 	case "pending", "testing", "verified", "failed":
 	default:
-		return tool.Result{}, fmt.Errorf("非法 status %q，必须是 pending|testing|verified|failed", p.Status)
+		return toolfx.Result{}, fmt.Errorf("非法 status %q，必须是 pending|testing|verified|failed", p.Status)
 	}
 	entry, _ := json.Marshal(map[string]any{"direction": p.Direction, "status": p.Status})
 	if err := a.Store.AppendIdea(ctx, a.EngagementID, entry); err != nil {
-		return tool.Result{}, fmt.Errorf("追加 idea 失败: %w", err)
+		return toolfx.Result{}, fmt.Errorf("追加 idea 失败: %w", err)
 	}
-	return tool.Result{Output: json.RawMessage(`{"ok":true}`)}, nil
+	return toolfx.Result{Output: json.RawMessage(`{"ok":true}`)}, nil
 }
 
 // hintPriorityDefault 是 priority 缺省值（中等优先级）。
@@ -194,23 +194,23 @@ func (a *WriteHint) ParametersJSON() json.RawMessage {
 }
 
 // Execute 解析 → 校验 priority 范围 → AppendHint。priority=0 视为未填，落默认 5。
-func (a *WriteHint) Execute(ctx context.Context, args json.RawMessage) (tool.Result, error) {
+func (a *WriteHint) Execute(ctx context.Context, args json.RawMessage) (toolfx.Result, error) {
 	var p struct {
 		FromSkill string `json:"from_skill"`
 		Content   string `json:"content"`
 		Priority  int    `json:"priority"`
 	}
 	if err := json.Unmarshal(args, &p); err != nil {
-		return tool.Result{}, fmt.Errorf("解析 write_hint 参数失败: %w", err)
+		return toolfx.Result{}, fmt.Errorf("解析 write_hint 参数失败: %w", err)
 	}
 	if p.FromSkill == "" || p.Content == "" {
-		return tool.Result{}, fmt.Errorf("from_skill 与 content 都不能为空")
+		return toolfx.Result{}, fmt.Errorf("from_skill 与 content 都不能为空")
 	}
 	if p.Priority == 0 {
 		p.Priority = hintPriorityDefault
 	}
 	if p.Priority < hintPriorityMin || p.Priority > hintPriorityMax {
-		return tool.Result{}, fmt.Errorf("priority %d 越界，须在 [%d,%d]",
+		return toolfx.Result{}, fmt.Errorf("priority %d 越界，须在 [%d,%d]",
 			p.Priority, hintPriorityMin, hintPriorityMax)
 	}
 	entry, _ := json.Marshal(map[string]any{
@@ -219,7 +219,7 @@ func (a *WriteHint) Execute(ctx context.Context, args json.RawMessage) (tool.Res
 		"priority":   p.Priority,
 	})
 	if err := a.Store.AppendHint(ctx, a.EngagementID, entry); err != nil {
-		return tool.Result{}, fmt.Errorf("追加 hint 失败: %w", err)
+		return toolfx.Result{}, fmt.Errorf("追加 hint 失败: %w", err)
 	}
-	return tool.Result{Output: json.RawMessage(`{"ok":true}`)}, nil
+	return toolfx.Result{Output: json.RawMessage(`{"ok":true}`)}, nil
 }

@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/V3teran/liusha/internal/tool"
+	"github.com/V3teran/liusha/internal/toolfx"
 	"github.com/V3teran/liusha/internal/react"
 )
 
@@ -24,9 +24,9 @@ func TestDoneValidate_NotDone(t *testing.T) {
 	v := &fakeValidator{ok: false, missing: []string{"recon"}}
 	mw := DoneValidate(v)
 	called := false
-	exec := mw(func(_ context.Context, _ string, _ json.RawMessage) (tool.Result, error) {
+	exec := mw(func(_ context.Context, _ string, _ json.RawMessage) (toolfx.Result, error) {
 		called = true
-		return tool.Result{Output: []byte(`{}`)}, nil
+		return toolfx.Result{Output: []byte(`{}`)}, nil
 	})
 
 	_, err := exec(context.Background(), "scan", json.RawMessage(`{}`))
@@ -45,9 +45,9 @@ func TestDoneValidate_DoneOK(t *testing.T) {
 	v := &fakeValidator{ok: true}
 	mw := DoneValidate(v)
 	called := false
-	exec := mw(func(_ context.Context, _ string, _ json.RawMessage) (tool.Result, error) {
+	exec := mw(func(_ context.Context, _ string, _ json.RawMessage) (toolfx.Result, error) {
 		called = true
-		return tool.Result{Done: true, Output: []byte(`{}`)}, nil
+		return toolfx.Result{Done: true, Output: []byte(`{}`)}, nil
 	})
 
 	res, err := exec(context.Background(), "done", json.RawMessage(`{}`))
@@ -69,9 +69,9 @@ func TestDoneValidate_DoneBlocked(t *testing.T) {
 	v := &fakeValidator{ok: false, missing: []string{"recon", "exploit"}}
 	mw := DoneValidate(v)
 	called := false
-	exec := mw(func(_ context.Context, _ string, _ json.RawMessage) (tool.Result, error) {
+	exec := mw(func(_ context.Context, _ string, _ json.RawMessage) (toolfx.Result, error) {
 		called = true
-		return tool.Result{}, nil
+		return toolfx.Result{}, nil
 	})
 
 	_, err := exec(context.Background(), "done", json.RawMessage(`{}`))
@@ -90,8 +90,8 @@ func TestDoneValidate_DoneBlocked(t *testing.T) {
 func TestDoneValidate_NilValidatorSafe(t *testing.T) {
 	// 防御：nil validator 应当行为同 AlwaysOK（避免 NPE）。
 	mw := DoneValidate(nil)
-	exec := mw(func(_ context.Context, _ string, _ json.RawMessage) (tool.Result, error) {
-		return tool.Result{Done: true}, nil
+	exec := mw(func(_ context.Context, _ string, _ json.RawMessage) (toolfx.Result, error) {
+		return toolfx.Result{Done: true}, nil
 	})
 
 	_, err := exec(context.Background(), "done", json.RawMessage(`{}`))

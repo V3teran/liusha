@@ -13,7 +13,7 @@ import (
 	"path/filepath"
 	"sync/atomic"
 
-	"github.com/V3teran/liusha/internal/tool"
+	"github.com/V3teran/liusha/internal/toolfx"
 	"github.com/V3teran/liusha/internal/logx"
 )
 
@@ -30,12 +30,12 @@ const summarySize = 200
 //
 // engagementID 用于隔离不同任务的产物目录；baseDir 是落盘根目录（如 engagement-store）。
 // 落盘失败时透传原 result + 打印 warn，不阻断 ReAct 主流程。
-func ResultCompress(engagementID, baseDir string) tool.Middleware {
+func ResultCompress(engagementID, baseDir string) toolfx.Middleware {
 	logger := logx.New("action.result_compress")
 	var seq atomic.Uint64
 
-	return func(next tool.ActionExecutor) tool.ActionExecutor {
-		return func(ctx context.Context, name string, args json.RawMessage) (tool.Result, error) {
+	return func(next toolfx.ActionExecutor) toolfx.ActionExecutor {
+		return func(ctx context.Context, name string, args json.RawMessage) (toolfx.Result, error) {
 			res, err := next(ctx, name, args)
 			if err != nil {
 				return res, err
@@ -76,7 +76,7 @@ func ResultCompress(engagementID, baseDir string) tool.Middleware {
 			if len(summary) > summarySize {
 				summary = summary[:summarySize]
 			}
-			return tool.Result{
+			return toolfx.Result{
 				Output:  encoded,
 				Summary: summary,
 				Done:    res.Done,

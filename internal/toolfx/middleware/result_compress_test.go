@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/V3teran/liusha/internal/tool"
+	"github.com/V3teran/liusha/internal/toolfx"
 )
 
 // makeBigOutput 构造指定大小的可读字节（重复 ASCII 模式，便于 hash 比对）。
@@ -23,9 +23,9 @@ func makeBigOutput(size int) []byte {
 }
 
 // stubExecutor 返回固定 Result 的 base executor，用于驱动中间件测试。
-func stubExecutor(out []byte, summary string) tool.ActionExecutor {
-	return func(_ context.Context, _ string, _ json.RawMessage) (tool.Result, error) {
-		return tool.Result{Output: out, Summary: summary}, nil
+func stubExecutor(out []byte, summary string) toolfx.ActionExecutor {
+	return func(_ context.Context, _ string, _ json.RawMessage) (toolfx.Result, error) {
+		return toolfx.Result{Output: out, Summary: summary}, nil
 	}
 }
 

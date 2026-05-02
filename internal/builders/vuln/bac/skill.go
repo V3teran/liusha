@@ -14,29 +14,33 @@ import (
 	"github.com/V3teran/liusha/internal/react"
 	"github.com/V3teran/liusha/internal/replay"
 	"github.com/V3teran/liusha/internal/skill"
-	"github.com/V3teran/liusha/internal/tool"
-	"github.com/V3teran/liusha/internal/tool/done_validator"
-	"github.com/V3teran/liusha/internal/tool/middleware"
+	"github.com/V3teran/liusha/internal/toolfx"
+	"github.com/V3teran/liusha/internal/toolfx/done_validator"
+	"github.com/V3teran/liusha/internal/toolfx/middleware"
 	"github.com/V3teran/liusha/internal/tools/common"
 	"github.com/V3teran/liusha/internal/tools/probe"
 )
 
 // SubBuilderDeps BAC SkillBuilder 的依赖注入。
+//
+// ResultCompressDir 为 result_compress middleware 的落盘目录；
+// 空时退化到 defaultResultCompressDir（避免 /tmp 在容器只读 fs 上 silent fallback）。
 type SubBuilderDeps struct {
-	Engagements *engagement.Store
-	Findings    *finding.Store
-	Credentials credential.Provider
-	Flows       *flow.Store
-	Replay      *replay.Engine
-	SkillLoader *skill.Loader
+	Engagements       *engagement.Store
+	Findings          *finding.Store
+	Credentials       credential.Provider
+	Flows             *flow.Store
+	Replay            *replay.Engine
+	SkillLoader       *skill.Loader
+	ResultCompressDir string
 }
 
 // 子 ReAct 兜底参数。MaxSteps 由 SKILL.md frontmatter budget.max_steps 驱动；
 // 当 budget 缺失或 ≤0 时使用此默认值。
 const (
-	defaultSubMaxSteps = 15
-	subWatchdogSeconds = 60
-	resultCompressDir  = "/tmp/liusha-react-compress"
+	defaultSubMaxSteps       = 15
+	subWatchdogSeconds       = 60
+	defaultResultCompressDir = "./engagement-store"
 )
 
 // NewSubBuilder 构造 BAC SkillBuilder 闭包。
@@ -52,7 +56,7 @@ func NewSubBuilder(deps SubBuilderDeps) func(ctx context.Context, p skill.Builde
 	factory := probe.NewFactory(deps.Credentials, deps.Flows, deps.Replay)
 
 	return func(ctx context.Context, p skill.BuilderParams) (react.Config, error) {
-		reg := tool.NewRegistry()
+		reg := toolfx.NewRegistry()
 
 		// common tools
 		_ = reg.Register(common.Done{})
@@ -78,8 +82,12 @@ func NewSubBuilder(deps SubBuilderDeps) func(ctx context.Context, p skill.Builde
 		validator := done_validator.NewBACValidator(deps.Engagements, deps.Findings, p.EngagementID)
 
 		// middleware: result_compress + done_validate（LoopDetect 已砍）
+		compressDir := deps.ResultCompressDir
+		if compressDir == "" {
+			compressDir = defaultResultCompressDir
+		}
 		reg.Use(
-			middleware.ResultCompress(p.EngagementID, resultCompressDir),
+			middleware.ResultCompress(p.EngagementID, compressDir),
 			middleware.DoneValidate(validator),
 		)
 

@@ -7,7 +7,7 @@ import (
 	"fmt"
 
 	"github.com/V3teran/liusha/internal/finding"
-	"github.com/V3teran/liusha/internal/tool"
+	"github.com/V3teran/liusha/internal/toolfx"
 )
 
 // GetFindings 主 ReAct 用：查 PG 当前 engagement 已有 findings 摘要。
@@ -33,18 +33,18 @@ func (a *GetFindings) ParametersJSON() json.RawMessage {
 }
 
 // Execute 列出 engagement 下所有 finding 摘要。
-func (a *GetFindings) Execute(ctx context.Context, _ json.RawMessage) (tool.Result, error) {
+func (a *GetFindings) Execute(ctx context.Context, _ json.RawMessage) (toolfx.Result, error) {
 	if a.Store == nil || a.EngagementID == "" {
-		return tool.Result{}, errors.New("GetFindings: store/eid 必填")
+		return toolfx.Result{}, errors.New("GetFindings: store/eid 必填")
 	}
 	fs, err := a.Store.ListByEngagement(ctx, a.EngagementID)
 	if err != nil {
-		return tool.Result{}, err
+		return toolfx.Result{}, err
 	}
 	summary := fmt.Sprintf("findings=%d:", len(fs))
 	for _, f := range fs {
 		summary += fmt.Sprintf("\n- id=%s kind=%s severity=%s title=%s",
 			f.ID, f.Kind, f.Severity, f.Title)
 	}
-	return tool.Result{Summary: summary}, nil
+	return toolfx.Result{Summary: summary}, nil
 }

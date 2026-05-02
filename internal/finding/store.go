@@ -72,7 +72,7 @@ func (s *Store) Save(ctx context.Context, f Finding) (Finding, error) {
 		      updated_at = now()
 		RETURNING `+colsSelect+`, (xmax = 0) AS is_insert`,
 		f.EngagementID, f.TaskID, f.Kind, f.Severity, f.Title,
-		[]byte(f.Target), []byte(f.Evidence), []byte(f.Payload),
+		f.Target, f.Evidence, f.Payload,
 		f.Tool, f.Confidence, f.DedupKey)
 
 	var saved Finding

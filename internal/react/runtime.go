@@ -19,7 +19,7 @@ import (
 
 	"github.com/rs/zerolog"
 
-	"github.com/V3teran/liusha/internal/tool"
+	"github.com/V3teran/liusha/internal/toolfx"
 	"github.com/V3teran/liusha/internal/llm"
 )
 
@@ -44,7 +44,7 @@ const (
 //   - Observer 默认 NoopObserver；ObserverEverySteps 默认 5。
 type Config struct {
 	LLM                llm.Generator
-	Actions            *tool.Registry
+	Actions            *toolfx.Registry
 	Budget             Budget
 	SystemPrompt       string
 	UserPrompt         string
@@ -175,7 +175,7 @@ func Run(ctx context.Context, cfg Config) (Outcome, error) {
 		// 5) 并行执行 tool_calls（多 spawn_skill 自动 goroutine 并发）
 		type toolExecResult struct {
 			tc  llm.ToolCall
-			res tool.Result
+			res toolfx.Result
 			err error
 		}
 

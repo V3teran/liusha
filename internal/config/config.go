@@ -18,6 +18,7 @@ type Config struct {
 	Proxy      ProxyConfig               `mapstructure:"proxy"`
 	Engagement EngagementConfig          `mapstructure:"engagement"`
 	Skills     SkillsConfig              `mapstructure:"skills"`
+	Scanner    ScannerConfig             `mapstructure:"scanner"`
 }
 
 type APIConfig struct {
@@ -98,6 +99,20 @@ type EngagementConfig struct {
 
 type SkillsConfig struct {
 	Root string `mapstructure:"root"`
+}
+
+// ScannerConfig 是 cmd/scanner 进程的运行时参数（之前散落 main.go const 块）。
+//
+// 0 值字段在 main.go 启动期 fallback 到默认，避免 yaml 缺字段时进程拒启动。
+type ScannerConfig struct {
+	MainMaxSteps           int    `mapstructure:"main_max_steps"`
+	MainWatchdogSeconds    int    `mapstructure:"main_watchdog_seconds"`
+	AsynqConcurrency       int    `mapstructure:"asynq_concurrency"`
+	ShutdownTimeoutSeconds int    `mapstructure:"shutdown_timeout_seconds"`
+	HealthzAddr            string `mapstructure:"healthz_addr"`
+	ResultCompressDir      string `mapstructure:"result_compress_dir"`
+	FlowMaxRequestBody     int    `mapstructure:"flow_max_request_body"`
+	FlowMaxResponseBody    int    `mapstructure:"flow_max_response_body"`
 }
 
 // Load 从 path 读取 YAML，应用 LIUSHA_ ENV 覆盖，反序列化并校验。

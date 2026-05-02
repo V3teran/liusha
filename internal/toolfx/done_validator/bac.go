@@ -4,11 +4,11 @@ import (
 	"context"
 	"encoding/json"
 
-	"github.com/V3teran/liusha/internal/tool"
+	"github.com/V3teran/liusha/internal/toolfx"
 )
 
-// 编译期断言：BACValidator 必须实现 tool.DoneValidator 接口。
-var _ tool.DoneValidator = (*BACValidator)(nil)
+// 编译期断言：BACValidator 必须实现 toolfx.DoneValidator 接口。
+var _ toolfx.DoneValidator = (*BACValidator)(nil)
 
 // FactReader 抽象 memory 三层 JSON 的只读访问，由 engagement.Store 自动满足。
 //
@@ -51,7 +51,7 @@ func NewBACValidator(state FactReader, findings FindingChecker, eid string) *BAC
 	return &BACValidator{state: state, findings: findings, eid: eid}
 }
 
-// CanDone 实现 tool.DoneValidator interface。
+// CanDone 实现 toolfx.DoneValidator interface。
 //
 // 判定流程（任意一项不满足都返回 missing 列表，让 LLM 知道还缺什么）：
 //  1. args 必须能解析出 reason 字段；

@@ -3,7 +3,7 @@ package probe
 import (
 	"fmt"
 
-	"github.com/V3teran/liusha/internal/tool"
+	"github.com/V3teran/liusha/internal/toolfx"
 	"github.com/V3teran/liusha/internal/credential"
 	"github.com/V3teran/liusha/internal/replay"
 )
@@ -29,9 +29,9 @@ func NewFactory(creds credential.Provider, flows FlowReader, eng *replay.Engine)
 //
 // locations 来自上游 classify_traffic 输出（经 delegate 透传），用于 FetchCredentials
 // 构造带占位 token 的 anonymous 假认证；为空时 anonymous 退化为"完全无凭证"。
-func (f *Factory) CreateActions(_ string, locations []credential.CredentialLocation) []tool.Action {
+func (f *Factory) CreateActions(_ string, locations []credential.CredentialLocation) []toolfx.Action {
 	session := &Session{}
-	return []tool.Action{
+	return []toolfx.Action{
 		&FetchCredentials{Provider: f.creds, Session: session, Locations: locations},
 		&ReplayMultiIdentity{Engine: f.replay, Flows: f.flows, Session: session},
 		&HeuristicCheck{Session: session},
@@ -43,9 +43,9 @@ func (f *Factory) CreateActions(_ string, locations []credential.CredentialLocat
 //
 // 用于 BAC skill 装配阶段：
 //
-//	reg := tool.NewRegistry()
+//	reg := toolfx.NewRegistry()
 //	if err := bacFactory.Register(reg, eng.ID, params.CredentialLocations); err != nil { ... }
-func (f *Factory) Register(reg *tool.Registry, engagementID string, locations []credential.CredentialLocation) error {
+func (f *Factory) Register(reg *toolfx.Registry, engagementID string, locations []credential.CredentialLocation) error {
 	for _, a := range f.CreateActions(engagementID, locations) {
 		if err := reg.Register(a); err != nil {
 			return fmt.Errorf("注册 BAC action %q 失败: %w", a.Name(), err)

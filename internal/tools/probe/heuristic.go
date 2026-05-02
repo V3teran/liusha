@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/V3teran/liusha/internal/tool"
+	"github.com/V3teran/liusha/internal/toolfx"
 	"github.com/V3teran/liusha/internal/heuristic"
 	"github.com/V3teran/liusha/internal/replay"
 )
@@ -51,17 +51,17 @@ type heuristicOutput struct {
 }
 
 // Execute 解析 args → 取 Session.LastResponses → 按序跑 rule → 命中即返回。
-func (a *HeuristicCheck) Execute(_ context.Context, args json.RawMessage) (tool.Result, error) {
+func (a *HeuristicCheck) Execute(_ context.Context, args json.RawMessage) (toolfx.Result, error) {
 	var in struct {
 		Rules []string `json:"rules"`
 	}
 	if len(args) > 0 {
 		if err := json.Unmarshal(args, &in); err != nil {
-			return tool.Result{}, fmt.Errorf("解析 heuristic_check 参数失败: %w", err)
+			return toolfx.Result{}, fmt.Errorf("解析 heuristic_check 参数失败: %w", err)
 		}
 	}
 	if len(a.Session.LastResponses) == 0 {
-		return tool.Result{}, fmt.Errorf("session.LastResponses 为空，请先调 replay_multi_identity")
+		return toolfx.Result{}, fmt.Errorf("session.LastResponses 为空，请先调 replay_multi_identity")
 	}
 	if len(in.Rules) == 0 {
 		in.Rules = defaultHeuristicRules
@@ -99,14 +99,14 @@ func lookupRule(name string) (heuristic.Rule, bool) {
 	}
 }
 
-func marshalHeuristic(out heuristicOutput) (tool.Result, error) {
+func marshalHeuristic(out heuristicOutput) (toolfx.Result, error) {
 	enc, err := json.Marshal(out)
 	if err != nil {
-		return tool.Result{}, fmt.Errorf("序列化 heuristic_check 输出失败: %w", err)
+		return toolfx.Result{}, fmt.Errorf("序列化 heuristic_check 输出失败: %w", err)
 	}
 	summary := "heuristic_check skip=false"
 	if out.Skip {
 		summary = fmt.Sprintf("heuristic_check skip=true rule=%s", out.HitRule)
 	}
-	return tool.Result{Output: enc, Summary: summary}, nil
+	return toolfx.Result{Output: enc, Summary: summary}, nil
 }

@@ -6,7 +6,7 @@ import (
 	"fmt"
 
 	"github.com/V3teran/liusha/internal/heuristic"
-	"github.com/V3teran/liusha/internal/tool"
+	"github.com/V3teran/liusha/internal/toolfx"
 )
 
 // 阈值默认（可由 LLM 通过参数覆盖）。
@@ -95,18 +95,18 @@ type similarityOutput struct {
 }
 
 // Execute 解析 args → 取 LastResponses → 两两算 length-gate + Jaccard → 出 verdict + suspicious_pairs。
-func (a *ComputeSimilarity) Execute(_ context.Context, args json.RawMessage) (tool.Result, error) {
+func (a *ComputeSimilarity) Execute(_ context.Context, args json.RawMessage) (toolfx.Result, error) {
 	var in struct {
 		MinThreshold  float64 `json:"min_threshold"`
 		HighThreshold float64 `json:"high_threshold"`
 	}
 	if len(args) > 0 {
 		if err := json.Unmarshal(args, &in); err != nil {
-			return tool.Result{}, fmt.Errorf("解析 compute_similarity 参数失败: %w", err)
+			return toolfx.Result{}, fmt.Errorf("解析 compute_similarity 参数失败: %w", err)
 		}
 	}
 	if len(a.Session.LastResponses) == 0 {
-		return tool.Result{}, fmt.Errorf("session.LastResponses 为空，请先调 replay_multi_identity")
+		return toolfx.Result{}, fmt.Errorf("session.LastResponses 为空，请先调 replay_multi_identity")
 	}
 	if in.MinThreshold <= 0 {
 		in.MinThreshold = defaultMinThreshold
@@ -115,7 +115,7 @@ func (a *ComputeSimilarity) Execute(_ context.Context, args json.RawMessage) (to
 		in.HighThreshold = defaultHighThreshold
 	}
 	if in.HighThreshold < in.MinThreshold {
-		return tool.Result{}, fmt.Errorf("high_threshold (%v) 不能小于 min_threshold (%v)", in.HighThreshold, in.MinThreshold)
+		return toolfx.Result{}, fmt.Errorf("high_threshold (%v) 不能小于 min_threshold (%v)", in.HighThreshold, in.MinThreshold)
 	}
 
 	rs := a.Session.LastResponses
@@ -201,12 +201,12 @@ func (a *ComputeSimilarity) Execute(_ context.Context, args json.RawMessage) (to
 }
 
 // marshalResult 序列化输出 + 拼一行 Summary 给 react/log 看（不进 LLM 回上下文，避免冗余）。
-func marshalResult(out similarityOutput, n int) (tool.Result, error) {
+func marshalResult(out similarityOutput, n int) (toolfx.Result, error) {
 	enc, err := json.Marshal(out)
 	if err != nil {
-		return tool.Result{}, fmt.Errorf("序列化 compute_similarity 输出失败: %w", err)
+		return toolfx.Result{}, fmt.Errorf("序列化 compute_similarity 输出失败: %w", err)
 	}
-	return tool.Result{
+	return toolfx.Result{
 		Output: enc,
 		Summary: fmt.Sprintf(
 			"compute_similarity n=%d verdict=%s max=%.2f above_min=%d above_high=%d",

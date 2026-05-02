@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/V3teran/liusha/internal/tool"
+	"github.com/V3teran/liusha/internal/toolfx"
 	"github.com/V3teran/liusha/internal/graph"
 )
 
@@ -52,7 +52,7 @@ func (a *WriteGraph) ParametersJSON() json.RawMessage {
 }
 
 // Execute 解析参数 → 先 upsert 全部 node 收集 dedup_key→id 映射 → 再 upsert edge。
-func (a *WriteGraph) Execute(ctx context.Context, args json.RawMessage) (tool.Result, error) {
+func (a *WriteGraph) Execute(ctx context.Context, args json.RawMessage) (toolfx.Result, error) {
 	var in struct {
 		Nodes []struct {
 			Kind     string          `json:"kind"`
@@ -67,14 +67,14 @@ func (a *WriteGraph) Execute(ctx context.Context, args json.RawMessage) (tool.Re
 		} `json:"edges"`
 	}
 	if err := json.Unmarshal(args, &in); err != nil {
-		return tool.Result{}, fmt.Errorf("解析 write_graph 参数失败: %w", err)
+		return toolfx.Result{}, fmt.Errorf("解析 write_graph 参数失败: %w", err)
 	}
 
 	// dedup_key → 新落库的 node id；edge 引用 from/to 时优先查这里。
 	nodeIDs := make(map[string]string, len(in.Nodes))
 	for _, n := range in.Nodes {
 		if n.Kind == "" || n.DedupKey == "" {
-			return tool.Result{}, fmt.Errorf("node 必须同时给出 kind 与 dedup_key")
+			return toolfx.Result{}, fmt.Errorf("node 必须同时给出 kind 与 dedup_key")
 		}
 		node, err := a.Store.UpsertNode(ctx, graph.NodeParams{
 			EngagementID: a.EngagementID,
@@ -83,14 +83,14 @@ func (a *WriteGraph) Execute(ctx context.Context, args json.RawMessage) (tool.Re
 			Payload:      n.Payload,
 		})
 		if err != nil {
-			return tool.Result{}, fmt.Errorf("upsert node %q: %w", n.DedupKey, err)
+			return toolfx.Result{}, fmt.Errorf("upsert node %q: %w", n.DedupKey, err)
 		}
 		nodeIDs[n.DedupKey] = node.ID
 	}
 
 	for _, e := range in.Edges {
 		if e.From == "" || e.To == "" || e.Kind == "" {
-			return tool.Result{}, fmt.Errorf("edge 必须同时给出 from / to / kind")
+			return toolfx.Result{}, fmt.Errorf("edge 必须同时给出 from / to / kind")
 		}
 		// 解析 from / to：先查本次新建的映射，否则当作历史 UUID 直接使用。
 		from, ok := nodeIDs[e.From]
@@ -108,10 +108,10 @@ func (a *WriteGraph) Execute(ctx context.Context, args json.RawMessage) (tool.Re
 			Kind:         e.Kind,
 			Payload:      e.Payload,
 		}); err != nil {
-			return tool.Result{}, fmt.Errorf("upsert edge %s->%s: %w", e.From, e.To, err)
+			return toolfx.Result{}, fmt.Errorf("upsert edge %s->%s: %w", e.From, e.To, err)
 		}
 	}
 
 	out, _ := json.Marshal(map[string]int{"nodes": len(in.Nodes), "edges": len(in.Edges)})
-	return tool.Result{Output: out}, nil
+	return toolfx.Result{Output: out}, nil
 }

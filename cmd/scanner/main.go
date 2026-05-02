@@ -40,8 +40,8 @@ import (
 	"github.com/V3teran/liusha/internal/replay"
 	"github.com/V3teran/liusha/internal/skill"
 	"github.com/V3teran/liusha/internal/task"
-	"github.com/V3teran/liusha/internal/tool"
-	"github.com/V3teran/liusha/internal/tool/middleware"
+	"github.com/V3teran/liusha/internal/toolfx"
+	"github.com/V3teran/liusha/internal/toolfx/middleware"
 	bac "github.com/V3teran/liusha/internal/builders/vuln/bac"
 	"github.com/V3teran/liusha/internal/tools/common"
 	"github.com/V3teran/liusha/internal/tools/delegate"
@@ -52,17 +52,48 @@ import (
 	"github.com/rs/zerolog"
 )
 
-// 默认参数。
-const (
-	resultCompressBaseDir = "./engagement-store"
-	shutdownTimeout       = 5 * time.Second
-	flowMaxRequestBody    = 1 << 20
-	flowMaxResponseBody   = 2 << 20
-	mainMaxSteps          = 30
-	mainWatchdogSeconds   = 300
-	healthzAddr           = ":9090"
-	asynqConcurrency      = 6
-)
+// scannerDefaults 是 ScannerConfig 缺字段时的回退默认。
+//
+// 选 0 值 fallback（而非 yaml 必填校验）让 dev 模式 yaml 可省略 scanner 节直接跑。
+var scannerDefaults = config.ScannerConfig{
+	MainMaxSteps:           30,
+	MainWatchdogSeconds:    300,
+	AsynqConcurrency:       6,
+	ShutdownTimeoutSeconds: 5,
+	HealthzAddr:            ":9090",
+	ResultCompressDir:      "./engagement-store",
+	FlowMaxRequestBody:     1 << 20, // 1 MiB
+	FlowMaxResponseBody:    2 << 20, // 2 MiB
+}
+
+// applyScannerDefaults 把 cfg.Scanner 的零值字段补默认（per-field fallback，而非整段 fallback）。
+func applyScannerDefaults(c config.ScannerConfig) config.ScannerConfig {
+	if c.MainMaxSteps == 0 {
+		c.MainMaxSteps = scannerDefaults.MainMaxSteps
+	}
+	if c.MainWatchdogSeconds == 0 {
+		c.MainWatchdogSeconds = scannerDefaults.MainWatchdogSeconds
+	}
+	if c.AsynqConcurrency == 0 {
+		c.AsynqConcurrency = scannerDefaults.AsynqConcurrency
+	}
+	if c.ShutdownTimeoutSeconds == 0 {
+		c.ShutdownTimeoutSeconds = scannerDefaults.ShutdownTimeoutSeconds
+	}
+	if c.HealthzAddr == "" {
+		c.HealthzAddr = scannerDefaults.HealthzAddr
+	}
+	if c.ResultCompressDir == "" {
+		c.ResultCompressDir = scannerDefaults.ResultCompressDir
+	}
+	if c.FlowMaxRequestBody == 0 {
+		c.FlowMaxRequestBody = scannerDefaults.FlowMaxRequestBody
+	}
+	if c.FlowMaxResponseBody == 0 {
+		c.FlowMaxResponseBody = scannerDefaults.FlowMaxResponseBody
+	}
+	return c
+}
 
 func main() {
 	logger := logx.New("scanner")
@@ -72,6 +103,7 @@ func main() {
 	if err != nil {
 		logger.Fatal().Err(err).Msg("load config")
 	}
+	scannerCfg := applyScannerDefaults(cfg.Scanner)
 
 	pool, err := db.NewPgPool(ctx, os.Getenv("LIUSHA_POSTGRES_DSN"), cfg.Postgres.MaxConns, cfg.Postgres.MinConns)
 	if err != nil {
@@ -93,7 +125,7 @@ func main() {
 	graphs := graph.NewStore(pool)
 	calls := llmcall.NewStore(pool)
 	defer func() { _ = calls.Close() }() // 排空 batch buffer，避免最近 ~1s 的审计丢失
-	flows := flow.NewStore(pool, flowMaxRequestBody, flowMaxResponseBody)
+	flows := flow.NewStore(pool, scannerCfg.FlowMaxRequestBody, scannerCfg.FlowMaxResponseBody)
 	creds := credential.NewRedis(rdb)
 
 	// Skill loader：CC 风格渐进加载——
@@ -152,6 +184,7 @@ func main() {
 		replayEngine: replayEngine,
 		skillLoader:  skillLoader,
 		cfg:          cfg,
+		scannerCfg:   scannerCfg,
 		pricing:      observability.DefaultPricing,
 		router:       router,
 		logger:       logger,
@@ -163,7 +196,7 @@ func main() {
 	srv := asynq.NewServer(
 		asynq.RedisClientOpt{Addr: redisAddr},
 		asynq.Config{
-			Concurrency: asynqConcurrency,
+			Concurrency: scannerCfg.AsynqConcurrency,
 			Queues: map[string]int{
 				worker.QueueOrchestrator:     5,
 				worker.QueueDispatch: 1,
@@ -197,7 +230,7 @@ func main() {
 	hsMux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`{"ok":true}`))
 	})
-	hs := &http.Server{Addr: healthzAddr, Handler: hsMux, ReadHeaderTimeout: 5 * time.Second}
+	hs := &http.Server{Addr: scannerCfg.HealthzAddr, Handler: hsMux, ReadHeaderTimeout: 5 * time.Second}
 
 	go func() {
 		logger.Info().Str("addr", hs.Addr).Msg("scanner healthz listening")
@@ -221,7 +254,7 @@ func main() {
 	// 关停顺序：先停 ingestor（不再产新 task）→ asynq 收尾（阻塞等 in-flight task）→ healthz。
 	flowCancel()
 	srv.Shutdown()
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), time.Duration(scannerCfg.ShutdownTimeoutSeconds)*time.Second)
 	defer cancel()
 	if err := hs.Shutdown(shutdownCtx); err != nil {
 		logger.Error().Err(err).Msg("healthz shutdown")
@@ -241,9 +274,18 @@ type handler struct {
 	replayEngine *replay.Engine
 	skillLoader  *skill.Loader
 	cfg          config.Config
+	scannerCfg   config.ScannerConfig
 	pricing      llm.PricingProvider
 	router       *llm.Router
 	logger       zerolog.Logger
+}
+
+// failTask 把错误标记到 task 表（SetError 失败不传播），返回原 err 链便于 caller `return`。
+//
+// 统一收口"出错时打 task 状态 + 返回 err"两步，避免每个 error path 重复 8 行模板。
+func (h handler) failTask(ctx context.Context, taskID string, err error) error {
+	_ = h.tasks.SetError(ctx, taskID, err.Error())
+	return err
 }
 
 // handle 是单个主 ReAct task 的处理入口。
@@ -259,8 +301,7 @@ func (h handler) handle(ctx context.Context, p worker.Payload) error {
 		Entrypoint json.RawMessage `json:"entrypoint"`
 	}
 	if err := json.Unmarshal(p.Input, &input); err != nil {
-		_ = h.tasks.SetError(ctx, p.TaskID, err.Error())
-		return err
+		return h.failTask(ctx, p.TaskID, err)
 	}
 
 	switch input.Mode {
@@ -268,12 +309,10 @@ func (h handler) handle(ctx context.Context, p worker.Payload) error {
 		return h.handleTraffic(ctx, p, input.Entrypoint)
 	case "site":
 		err := errors.New("site mode 未实现（v1.5）")
-		_ = h.tasks.SetError(ctx, p.TaskID, err.Error())
-		return err
+		return h.failTask(ctx, p.TaskID, err)
 	default:
 		err := fmt.Errorf("unknown mode: %s", input.Mode)
-		_ = h.tasks.SetError(ctx, p.TaskID, err.Error())
-		return err
+		return h.failTask(ctx, p.TaskID, err)
 	}
 }
 
@@ -293,8 +332,7 @@ func (h handler) handleTraffic(ctx context.Context, p worker.Payload, entrypoint
 		Method string `json:"method"`
 	}
 	if err := json.Unmarshal(entrypoint, &ep); err != nil {
-		_ = h.tasks.SetError(ctx, p.TaskID, err.Error())
-		return err
+		return h.failTask(ctx, p.TaskID, err)
 	}
 
 	tid, eid := p.TaskID, p.EngagementID
@@ -302,8 +340,7 @@ func (h handler) handleTraffic(ctx context.Context, p worker.Payload, entrypoint
 	// 主 + 子 LLM Generator（T11：每 task 新建无状态实例）。
 	mainRaw, err := h.router.For(ctx, "orchestrator")
 	if err != nil {
-		_ = h.tasks.SetError(ctx, p.TaskID, err.Error())
-		return err
+		return h.failTask(ctx, p.TaskID, err)
 	}
 	mainGen := llm.Instrument(mainRaw, h.calls,
 		llm.CallMeta{TaskID: &tid, EngagementID: &eid, RouteKey: "orchestrator"},
@@ -312,8 +349,7 @@ func (h handler) handleTraffic(ctx context.Context, p worker.Payload, entrypoint
 
 	subRaw, err := h.router.For(ctx, "hunter")
 	if err != nil {
-		_ = h.tasks.SetError(ctx, p.TaskID, err.Error())
-		return err
+		return h.failTask(ctx, p.TaskID, err)
 	}
 	subGen := llm.Instrument(subRaw, h.calls,
 		llm.CallMeta{TaskID: &tid, EngagementID: &eid, RouteKey: "hunter"},
@@ -322,8 +358,7 @@ func (h handler) handleTraffic(ctx context.Context, p worker.Payload, entrypoint
 
 	obsRaw, err := h.router.For(ctx, "observer")
 	if err != nil {
-		_ = h.tasks.SetError(ctx, p.TaskID, err.Error())
-		return err
+		return h.failTask(ctx, p.TaskID, err)
 	}
 	obsGen := llm.Instrument(obsRaw, h.calls,
 		llm.CallMeta{TaskID: &tid, EngagementID: &eid, RouteKey: "observer"},
@@ -332,21 +367,33 @@ func (h handler) handleTraffic(ctx context.Context, p worker.Payload, entrypoint
 
 	// 子 ReAct SkillBuilder。
 	bacBuilder := bac.NewSubBuilder(bac.SubBuilderDeps{
-		Engagements: h.engagements,
-		Findings:    h.findings,
-		Credentials: h.creds,
-		Flows:       h.flows,
-		Replay:      h.replayEngine,
-		SkillLoader: h.skillLoader,
+		Engagements:       h.engagements,
+		Findings:          h.findings,
+		Credentials:       h.creds,
+		Flows:             h.flows,
+		Replay:            h.replayEngine,
+		SkillLoader:       h.skillLoader,
+		ResultCompressDir: h.scannerCfg.ResultCompressDir,
 	})
 
 	// 主 ReAct 工具集。
-	reg := tool.NewRegistry()
-	_ = reg.Register(common.Done{})
-	_ = reg.Register(&common.ReadState{Store: h.engagements, EngagementID: eid})
-	_ = reg.Register(&common.WriteFact{Store: h.engagements, EngagementID: eid})
-	_ = reg.Register(&common.WriteIdea{Store: h.engagements, EngagementID: eid})
-	_ = reg.Register(&common.WriteGraph{Store: h.graphs, EngagementID: eid})
+	reg := toolfx.NewRegistry()
+	// mustReg 累积 register 错误：任一失败标记 regErr 后续 register 跳过；
+	// 全部尝试完后统一返 failTask（一次启动暴露所有重名/工具构造问题）。
+	var regErr error
+	mustReg := func(a toolfx.Action) {
+		if regErr != nil {
+			return
+		}
+		if err := reg.Register(a); err != nil {
+			regErr = fmt.Errorf("register %T: %w", a, err)
+		}
+	}
+	mustReg(common.Done{})
+	mustReg(&common.ReadState{Store: h.engagements, EngagementID: eid})
+	mustReg(&common.WriteFact{Store: h.engagements, EngagementID: eid})
+	mustReg(&common.WriteIdea{Store: h.engagements, EngagementID: eid})
+	mustReg(&common.WriteGraph{Store: h.graphs, EngagementID: eid})
 
 	// observer 提前创建：注入主 ReAct + delegate 工具（让其转给子 ReAct 共享判官）
 	observer := react.NewLLMObserver(obsGen, h.engagements, eid)
@@ -354,7 +401,7 @@ func (h handler) handleTraffic(ctx context.Context, p worker.Payload, entrypoint
 	// 主 ReAct 元工具
 	// classify_traffic 工具持 Flows + Loader：内部按 flow_id 拉完整流量并智能截断后调 LLM，
 	// 调用方只需传 flow_id，避免主 LLM "瞎传 headers/body 字段"。
-	_ = reg.Register(&traffic.ClassifyTraffic{
+	mustReg(&traffic.ClassifyTraffic{
 		LLM:    mainGen,
 		Flows:  h.flows,
 		Loader: h.skillLoader,
@@ -366,18 +413,21 @@ func (h handler) handleTraffic(ctx context.Context, p worker.Payload, entrypoint
 	// 过滤 classify-traffic：它是 orchestrator 内部 prompt（被 ClassifyTraffic 工具消费），
 	// 不是可 delegate 的子 skill；混进 catalog 会让主 LLM 误派任务。
 	delegateCatalog := filterDelegateCatalog(h.skillLoader.List())
-	_ = reg.Register(&delegate.Delegate{
+	mustReg(&delegate.Delegate{
 		Builders:     map[string]skill.Builder{"vuln-web-bac": bacBuilder},
 		EngagementID: eid,
 		SubLLM:       subGen,
 		Catalog:      delegateCatalog,
 		Observer:     observer,
 	})
-	_ = reg.Register(&traffic.GetFindings{Store: h.findings, EngagementID: eid})
+	mustReg(&traffic.GetFindings{Store: h.findings, EngagementID: eid})
+	if regErr != nil {
+		return h.failTask(ctx, p.TaskID, regErr)
+	}
 
 	// middleware：result_compress + done_validate(nil = AlwaysOK)。
 	reg.Use(
-		middleware.ResultCompress(eid, resultCompressBaseDir),
+		middleware.ResultCompress(eid, h.scannerCfg.ResultCompressDir),
 		middleware.DoneValidate(nil),
 	)
 
@@ -389,7 +439,7 @@ func (h handler) handleTraffic(ctx context.Context, p worker.Payload, entrypoint
 	out, err := react.Run(ctx, react.Config{
 		LLM:                mainGen,
 		Actions:            reg,
-		Budget:             react.Budget{MaxSteps: mainMaxSteps, WatchdogSeconds: mainWatchdogSeconds},
+		Budget:             react.Budget{MaxSteps: h.scannerCfg.MainMaxSteps, WatchdogSeconds: h.scannerCfg.MainWatchdogSeconds},
 		SystemPrompt:       systemPrompt,
 		UserPrompt:         buildMainUserPrompt(ep),
 		Observer:           observer,
@@ -403,11 +453,10 @@ func (h handler) handleTraffic(ctx context.Context, p worker.Payload, entrypoint
 		},
 	})
 	if err != nil {
-		_ = h.tasks.SetError(ctx, p.TaskID, err.Error())
-		return err
+		return h.failTask(ctx, p.TaskID, err)
 	}
 
-	res, _ := json.Marshal(map[string]any{
+	res, err := json.Marshal(map[string]any{
 		"terminate_by":     out.TerminateBy,
 		"total_steps":      out.TotalSteps,
 		"total_in":         out.TotalUsage.InTokens,
@@ -416,6 +465,9 @@ func (h handler) handleTraffic(ctx context.Context, p worker.Payload, entrypoint
 		"observer_hints":   out.ObserverHints,
 		"done_force_count": out.DoneForceCount,
 	})
+	if err != nil {
+		return h.failTask(ctx, p.TaskID, fmt.Errorf("marshal task result: %w", err))
+	}
 	return h.tasks.SetDone(ctx, p.TaskID, res)
 }
 

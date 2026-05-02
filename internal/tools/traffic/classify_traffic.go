@@ -12,10 +12,11 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/V3teran/liusha/internal/clip"
 	"github.com/V3teran/liusha/internal/flow"
 	"github.com/V3teran/liusha/internal/llm"
 	"github.com/V3teran/liusha/internal/skill"
-	"github.com/V3teran/liusha/internal/tool"
+	"github.com/V3teran/liusha/internal/toolfx"
 )
 
 // FlowReader 是 classify_traffic 依赖的最小 flow 读接口，由 *flow.Store 自动满足。
@@ -125,46 +126,46 @@ type classifyInputData struct {
 }
 
 // Execute 解析 args（仅 flow_id）→ 拉 flow → 智能截断 → 拼 prompt → 调 LLM → 返回原始 JSON content。
-func (a *ClassifyTraffic) Execute(ctx context.Context, args json.RawMessage) (tool.Result, error) {
+func (a *ClassifyTraffic) Execute(ctx context.Context, args json.RawMessage) (toolfx.Result, error) {
 	var in struct {
 		FlowID int64 `json:"flow_id"`
 	}
 	if err := json.Unmarshal(args, &in); err != nil {
-		return tool.Result{}, fmt.Errorf("decode args: %w", err)
+		return toolfx.Result{}, fmt.Errorf("decode args: %w", err)
 	}
 	if in.FlowID <= 0 {
-		return tool.Result{}, errors.New("flow_id 必填且 > 0")
+		return toolfx.Result{}, errors.New("flow_id 必填且 > 0")
 	}
 	if a.LLM == nil || a.Flows == nil || a.Loader == nil {
-		return tool.Result{}, errors.New("ClassifyTraffic: LLM/Flows/Loader 都必须装配")
+		return toolfx.Result{}, errors.New("ClassifyTraffic: LLM/Flows/Loader 都必须装配")
 	}
 
 	f, err := a.Flows.GetByID(ctx, in.FlowID)
 	if err != nil {
-		return tool.Result{}, fmt.Errorf("拉取 flow %d: %w", in.FlowID, err)
+		return toolfx.Result{}, fmt.Errorf("拉取 flow %d: %w", in.FlowID, err)
 	}
 
 	card, err := a.Loader.Load(classifyTrafficSkillName)
 	if err != nil {
-		return tool.Result{}, fmt.Errorf("加载 classify-traffic skill: %w", err)
+		return toolfx.Result{}, fmt.Errorf("加载 classify-traffic skill: %w", err)
 	}
 
 	input := buildClassifyInput(f)
 	inputJSON, err := json.MarshalIndent(input, "", "  ")
 	if err != nil {
-		return tool.Result{}, fmt.Errorf("序列化截断后流量: %w", err)
+		return toolfx.Result{}, fmt.Errorf("序列化截断后流量: %w", err)
 	}
 
 	prompt := strings.Replace(card.Body, "$INPUT_DATA$", string(inputJSON), 1)
 
 	res, err := a.LLM.Generate(ctx, []llm.Message{{Role: llm.RoleUser, Content: prompt}}, nil)
 	if err != nil {
-		return tool.Result{}, fmt.Errorf("classify_traffic LLM: %w", err)
+		return toolfx.Result{}, fmt.Errorf("classify_traffic LLM: %w", err)
 	}
 
 	// 透传 LLM 原始 content 给主 ReAct LLM；主 LLM 解析里面的 required_skills /
 	// credential_locations 后做下一步决策（短路 done 或 delegate）。
-	return tool.Result{
+	return toolfx.Result{
 		Output:  json.RawMessage(res.Content),
 		Summary: fmt.Sprintf("classify_traffic flow=%d %s %s", f.ID, f.Method, f.URL),
 	}, nil
@@ -172,12 +173,7 @@ func (a *ClassifyTraffic) Execute(ctx context.Context, args json.RawMessage) (to
 
 // buildClassifyInput 把 flow 转成喂 LLM 的截断后结构。
 //
-// 截断策略（激进）：
-//   - request_headers：完整 keys；敏感 header（Cookie/Authorization 等）value → "<redacted len=N>"；其他 value 截 30 字符
-//   - query_params：完整 keys；value 截 30 字符
-//   - request_body：JSON 解析成功 → keys 全保留，string value 截 20 字符；非 JSON → 截 256 字节
-//   - response_headers：只保留 Content-Type
-//   - response_body：截 512 字节（前 400 + 尾部 112，捕获分页 / 总数信号）
+// 截断策略详见 internal/clip 包；保守阈值（query/body string ≤100 字符，response body 4KB）。
 func buildClassifyInput(f flow.Flow) classifyInputData {
 	uri, query := splitURIAndQuery(f.URL)
 	return classifyInputData{
@@ -185,10 +181,10 @@ func buildClassifyInput(f flow.Flow) classifyInputData {
 		URI:             uri,
 		Status:          f.StatusCode,
 		RequestHeaders:  redactSensitiveHeaders(parseHeaders(f.RequestHeaders), maxQueryValueLen),
-		QueryParams:     truncateStringMap(query, maxQueryValueLen),
+		QueryParams:     clip.StringMap(query, maxQueryValueLen),
 		ResponseHeaders: pickContentType(parseHeaders(f.ResponseHeaders)),
-		RequestBody:     summarizeRequestBody(f.RequestBody),
-		ResponseBody:    summarizeResponseBody(f.ResponseBody),
+		RequestBody:     clip.RequestBody(f.RequestBody, maxBodyStringValueLen, maxRawBodyBytes),
+		ResponseBody:    clip.ResponseBody(f.ResponseBody, maxResponseBodyBytes, responseBodyTailBytes),
 	}
 }
 
@@ -250,10 +246,10 @@ func redactSensitiveHeaders(in map[string]string, maxValueLen int) map[string]st
 	out := make(map[string]string, len(in))
 	for k, v := range in {
 		if _, sensitive := sensitiveHeaderNames[strings.ToLower(k)]; sensitive {
-			out[k] = fmt.Sprintf("<redacted len=%d>", len(v))
+			out[k] = clip.Redact(v)
 			continue
 		}
-		out[k] = truncateString(v, maxValueLen)
+		out[k] = clip.String(v, maxValueLen)
 	}
 	return out
 }
@@ -272,82 +268,3 @@ func pickContentType(in map[string]string) map[string]string {
 	return out
 }
 
-// truncateStringMap 对 map 中所有 value 截到 max 字符。
-func truncateStringMap(in map[string]string, max int) map[string]string {
-	if in == nil {
-		return nil
-	}
-	out := make(map[string]string, len(in))
-	for k, v := range in {
-		out[k] = truncateString(v, max)
-	}
-	return out
-}
-
-// summarizeRequestBody 处理请求 body：
-//   - 空 → 返回 `{}`
-//   - JSON → 解析后保留所有 key，string value 截 20 字符；其他类型保留
-//   - 非 JSON → 截 256 字节，包成 {"_raw":"..."} 给 LLM
-func summarizeRequestBody(body []byte) json.RawMessage {
-	if len(body) == 0 {
-		return json.RawMessage(`{}`)
-	}
-	var parsed any
-	if err := json.Unmarshal(body, &parsed); err == nil {
-		shrunk := shrinkJSONValue(parsed, maxBodyStringValueLen)
-		out, err := json.Marshal(shrunk)
-		if err == nil {
-			return out
-		}
-	}
-	raw := truncateString(string(body), maxRawBodyBytes)
-	out, _ := json.Marshal(map[string]string{"_raw": raw})
-	return out
-}
-
-// shrinkJSONValue 递归遍历 JSON 值，把所有 string 截到 max 字符；其他类型不动。
-func shrinkJSONValue(v any, max int) any {
-	switch t := v.(type) {
-	case string:
-		return truncateString(t, max)
-	case map[string]any:
-		out := make(map[string]any, len(t))
-		for k, val := range t {
-			out[k] = shrinkJSONValue(val, max)
-		}
-		return out
-	case []any:
-		out := make([]any, len(t))
-		for i, val := range t {
-			out[i] = shrinkJSONValue(val, max)
-		}
-		return out
-	default:
-		return v
-	}
-}
-
-// summarizeResponseBody 截响应 body 到 maxResponseBodyBytes：
-//   - len <= max → 原样返回
-//   - 否则前 (max - tail) 字节 + "...<truncated>..." + 尾部 tail 字节
-func summarizeResponseBody(body []byte) string {
-	if len(body) == 0 {
-		return ""
-	}
-	if len(body) <= maxResponseBodyBytes {
-		return string(body)
-	}
-	headLen := maxResponseBodyBytes - responseBodyTailBytes
-	if headLen < 0 {
-		headLen = 0
-	}
-	return string(body[:headLen]) + "...<truncated>..." + string(body[len(body)-responseBodyTailBytes:])
-}
-
-// truncateString 把字符串截到 n 个字符（粗截断；按 byte 计数）。
-func truncateString(s string, n int) string {
-	if len(s) <= n {
-		return s
-	}
-	return s[:n] + "..."
-}

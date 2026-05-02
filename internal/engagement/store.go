@@ -130,21 +130,21 @@ func scan(r scanner, e *Engagement) error {
 type keyFn func(entry []byte) (string, error)
 
 // factCategoryToKey 解析 entry.category 并映射到 memory_facts 子键。
+//
+// 走 typed Category 枚举：未登记的 category 直接报错，避免 silent typo
+// （如 "evidance" 拼错原本会被 default 分支静默吞掉）。
 func factCategoryToKey(entry []byte) (string, error) {
 	var p struct {
-		Category string `json:"category"`
+		Category Category `json:"category"`
 	}
 	if err := json.Unmarshal(entry, &p); err != nil {
 		return "", fmt.Errorf("parse fact entry: %w", err)
 	}
-	switch p.Category {
-	case "evidence":
-		return "evidence", nil
-	case "boundary":
-		return "boundaries", nil
-	default:
-		return "", fmt.Errorf("invalid fact category %q", p.Category)
+	key, ok := p.Category.memoryKey()
+	if !ok {
+		return "", fmt.Errorf("invalid fact category %q (registered: evidence, boundary)", p.Category)
 	}
+	return key, nil
 }
 
 // fixedKey 返回一个总是产出固定子键的 keyFn（适用于 ideas/hints 这类只有一个数组的列）。

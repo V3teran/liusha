@@ -138,3 +138,15 @@ engagement:
 # ---- skills 外部目录 ----
 skills:
   root: ./skills
+
+# ---- cmd/scanner 进程运行时参数 ----
+# 之前散落 main.go const 块；统一到 yaml 后可按环境覆盖（如 prod 调高 concurrency）
+scanner:
+  main_max_steps: 30                       # 单个主 ReAct 循环步数上限
+  main_watchdog_seconds: 300               # 单个主 ReAct 看门狗超时（秒）
+  asynq_concurrency: 6                     # asynq 消费者并发数（同时跑的主 ReAct 数）
+  shutdown_timeout_seconds: 5              # graceful shutdown 超时
+  healthz_addr: ":9090"                    # /healthz HTTP 监听地址
+  result_compress_dir: ./engagement-store  # result_compress middleware 落盘目录
+  flow_max_request_body: 1048576           # 1 MiB；flow.Store 入库截断阈值
+  flow_max_response_body: 2097152          # 2 MiB；flow.Store 入库截断阈值

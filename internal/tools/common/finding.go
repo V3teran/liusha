@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/V3teran/liusha/internal/tool"
+	"github.com/V3teran/liusha/internal/toolfx"
 	"github.com/V3teran/liusha/internal/finding"
 )
 
@@ -55,7 +55,7 @@ func (a *WriteFinding) ParametersJSON() json.RawMessage {
 }
 
 // Execute 解析参数 → 构造 finding.Finding → Store.Save → 返回 {id, dedup_key}。
-func (a *WriteFinding) Execute(ctx context.Context, args json.RawMessage) (tool.Result, error) {
+func (a *WriteFinding) Execute(ctx context.Context, args json.RawMessage) (toolfx.Result, error) {
 	var in struct {
 		Kind       string          `json:"kind"`
 		Severity   string          `json:"severity"`
@@ -68,13 +68,13 @@ func (a *WriteFinding) Execute(ctx context.Context, args json.RawMessage) (tool.
 		DedupKey   string          `json:"dedup_key"`
 	}
 	if err := json.Unmarshal(args, &in); err != nil {
-		return tool.Result{}, fmt.Errorf("解析 write_finding 参数失败: %w", err)
+		return toolfx.Result{}, fmt.Errorf("解析 write_finding 参数失败: %w", err)
 	}
 	if in.DedupKey == "" {
-		return tool.Result{}, fmt.Errorf("dedup_key 必填")
+		return toolfx.Result{}, fmt.Errorf("dedup_key 必填")
 	}
 	if in.Kind == "" || in.Title == "" {
-		return tool.Result{}, fmt.Errorf("kind 与 title 都不能为空")
+		return toolfx.Result{}, fmt.Errorf("kind 与 title 都不能为空")
 	}
 
 	// 工具层强制重写 dedup_key 中的 path（数字 / UUID / 长 hex → :id / :uuid / :hex），
@@ -102,9 +102,9 @@ func (a *WriteFinding) Execute(ctx context.Context, args json.RawMessage) (tool.
 		DedupKey:     in.DedupKey,
 	})
 	if err != nil {
-		return tool.Result{}, fmt.Errorf("保存 finding 失败: %w", err)
+		return toolfx.Result{}, fmt.Errorf("保存 finding 失败: %w", err)
 	}
 
 	out, _ := json.Marshal(map[string]string{"id": saved.ID, "dedup_key": saved.DedupKey})
-	return tool.Result{Output: out}, nil
+	return toolfx.Result{Output: out}, nil
 }
