@@ -7,6 +7,43 @@ package credential
 // anonymous 不会被持久化，由 Provider 在读取路径上即时注入。
 const AnonymousName = "anonymous"
 
+// AnonymousPlaceholderToken 是 anonymous 在认证位置填充的占位 token。
+//
+// 设计意图（对标 liusha2）：anonymous 不是"完全无 cookie"的请求，而是"带占位 token 的假认证"
+// 请求——这样能精确触发服务端的"token 校验失败"分支，而不是走"未登录"分支。
+// 如果服务端两条分支返回不同（如未登录直接 200 公开内容，token 失败才 401），
+// 完全无 cookie 的 anonymous 会漏掉真正的认证缺陷。
+const AnonymousPlaceholderToken = "lstoken"
+
+// CredentialLocation 描述凭证在请求中的位置（Type + Key），不含 Value。
+//
+// 由 orchestrator (classify_traffic 工具) 通过 LLM 分析流量产出，
+// 经 delegate 透传到 BAC 子 ReAct，用于 BuildAnonymous 构造带占位 token 的假认证 anonymous。
+type CredentialLocation struct {
+	Type CredentialType `json:"type"`
+	Key  string         `json:"key"`
+}
+
+// BuildAnonymous 根据 credential_locations 构造一个 anonymous 身份。
+//
+// 当 locations 非空时，每个 location 会生成一条占位 credential（value=AnonymousPlaceholderToken）；
+// 当 locations 为空时，返回的 anonymous 不带任何 credential（向后兼容旧行为：完全无 cookie 请求）。
+func BuildAnonymous(locations []CredentialLocation) Identity {
+	creds := make([]Credential, 0, len(locations))
+	for _, loc := range locations {
+		creds = append(creds, Credential{
+			Type:  loc.Type,
+			Key:   loc.Key,
+			Value: AnonymousPlaceholderToken,
+		})
+	}
+	return Identity{
+		Name:        AnonymousName,
+		Role:        AnonymousName,
+		Credentials: creds,
+	}
+}
+
 // CredentialType 描述凭证注入位置，与 HTTP 请求结构对齐。
 type CredentialType string
 

@@ -11,6 +11,7 @@ package skill
 import (
 	"context"
 
+	"github.com/V3teran/liusha/internal/credential"
 	"github.com/V3teran/liusha/internal/llm"
 	"github.com/V3teran/liusha/internal/react"
 )
@@ -20,16 +21,21 @@ import (
 // scanner 启动时按 skill 名注册到 Delegate.Builders（如 "vuln-web-bac" → bac.NewSubBuilder）。
 type Builder func(ctx context.Context, params BuilderParams) (react.Config, error)
 
-// BuilderParams 子 ReAct 启动参数（由 scan_vuln 工具从 LLM 调用参数解析后传入）。
+// BuilderParams 子 ReAct 启动参数（由 delegate 工具从 LLM 调用参数解析后传入）。
 //
 // Observer 由调用方注入（一般是主 ReAct 的同实例 observer），
 // 让子 ReAct 也享受过程判官（每 5 步评估、abort/steer），跟主 ReAct 行为一致。
+//
+// CredentialLocations 由主 ReAct 上游 classify_traffic 工具识别后透传，描述
+// "原始流量在哪些位置携带凭证"——子 ReAct 用它构造带占位 token 的 anonymous 假认证。
+// 为空时，子 ReAct 退化为旧行为（anonymous 不带任何 credential）。
 type BuilderParams struct {
-	EngagementID string
-	FlowID       int64
-	Host         string
-	URL          string
-	Method       string
-	LLM          llm.Generator
-	Observer     react.Observer
+	EngagementID        string
+	FlowID              int64
+	Host                string
+	URL                 string
+	Method              string
+	LLM                 llm.Generator
+	Observer            react.Observer
+	CredentialLocations []credential.CredentialLocation
 }

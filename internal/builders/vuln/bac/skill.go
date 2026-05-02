@@ -63,7 +63,9 @@ func NewSubBuilder(deps SubBuilderDeps) func(ctx context.Context, p skill.Builde
 
 		// 漏洞探针通用工具（fetch_credentials / replay / heuristic / similarity）
 		// 由 probe 包提供，所有 vuln skill 共享。
-		if err := factory.Register(reg, p.EngagementID); err != nil {
+		// CredentialLocations 来自 BuilderParams（上游 classify_traffic 透传），
+		// FetchCredentials 用它构造带占位 token 的 anonymous 假认证。
+		if err := factory.Register(reg, p.EngagementID, p.CredentialLocations); err != nil {
 			return react.Config{}, fmt.Errorf("register probe actions: %w", err)
 		}
 

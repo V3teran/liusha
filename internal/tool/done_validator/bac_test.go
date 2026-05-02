@@ -119,7 +119,7 @@ func TestBACValidator_RejectEmptyState(t *testing.T) {
 		&fakeFindingChecker{},
 		"eid-1",
 	)
-	ok, missing := v.CanDone(context.Background(), json.RawMessage(`{"reason":"all_similar"}`))
+	ok, missing := v.CanDone(context.Background(), json.RawMessage(`{"reason":"all_differ"}`))
 	if ok {
 		t.Fatal("state 空应拒绝")
 	}
@@ -128,8 +128,8 @@ func TestBACValidator_RejectEmptyState(t *testing.T) {
 	}
 }
 
-// TestBACValidator_AcceptAllSimilar —— state 含 evidence + boundary，reason=all_similar。
-func TestBACValidator_AcceptAllSimilar(t *testing.T) {
+// TestBACValidator_AcceptAllDiffer —— state 含 evidence + boundary，reason=all_differ。
+func TestBACValidator_AcceptAllDiffer(t *testing.T) {
 	v := NewBACValidator(
 		&fakeFactReader{state: stateWithEvidence(
 			[]string{"replay 3 identities, all 200"},
@@ -138,7 +138,7 @@ func TestBACValidator_AcceptAllSimilar(t *testing.T) {
 		&fakeFindingChecker{},
 		"eid-1",
 	)
-	ok, missing := v.CanDone(context.Background(), json.RawMessage(`{"reason":"all_similar"}`))
+	ok, missing := v.CanDone(context.Background(), json.RawMessage(`{"reason":"all_differ"}`))
 	if !ok {
 		t.Fatalf("应放行，但拒绝 missing=%v", missing)
 	}
@@ -226,7 +226,7 @@ func TestBACValidator_StateReadError(t *testing.T) {
 		"eid-1",
 	)
 	ok, missing := v.CanDone(context.Background(),
-		json.RawMessage(`{"reason":"all_similar"}`))
+		json.RawMessage(`{"reason":"all_differ"}`))
 	if ok {
 		t.Fatal("ReadState 报错应拒绝")
 	}

@@ -293,7 +293,7 @@ type similarityResult struct {
 
 func TestComputeSimilarity_AllBelowThreshold_VerdictShortCircuit(t *testing.T) {
 	// 三个内容毫不相关的 body：所有 pair 应低于 min_threshold=0.6
-	// → verdict=all_below_threshold（让 SKILL.md 直接 done(all_similar) 短路，不进 LLM）。
+	// → verdict=all_below_threshold（让 SKILL.md 直接 done(all_differ) 短路，不进 LLM）。
 	session := &Session{LastResponses: []replay.Response{
 		{IdentityName: "admin", StatusCode: 200, Body: []byte("alice profile data")},
 		{IdentityName: "user", StatusCode: 200, Body: []byte("bob profile content")},
@@ -421,7 +421,7 @@ func TestFactory_CreateActions_SharesSession(t *testing.T) {
 	eng := replay.NewEngine(http.DefaultClient)
 
 	f := NewFactory(prov, flows, eng)
-	acts := f.CreateActions("eng-1")
+	acts := f.CreateActions("eng-1", nil)
 	if len(acts) != 4 {
 		t.Fatalf("应返回 4 个 action，got %d", len(acts))
 	}
@@ -461,7 +461,7 @@ func TestFactory_Register_AllNames(t *testing.T) {
 	f := NewFactory(prov, flows, eng)
 
 	reg := tool.NewRegistry()
-	if err := f.Register(reg, "eng-2"); err != nil {
+	if err := f.Register(reg, "eng-2", nil); err != nil {
 		t.Fatalf("Register err=%v", err)
 	}
 	for _, want := range []string{"fetch_credentials", "replay_multi_identity", "heuristic_check", "compute_similarity"} {

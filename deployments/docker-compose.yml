@@ -1,6 +1,6 @@
 # liusha v1 docker-compose
-# 6 个 service：postgres / redis / asynqmon / api / proxy / scanner（+ vulnapp e2e profile）
-# 默认起 postgres/redis/asynqmon/api；用 --profile e2e 起完整栈（含 proxy + scanner + vulnapp）。
+# 5 个 service：postgres / redis / api / proxy / scanner（+ vulnapp e2e profile）
+# 默认起 postgres/redis/api；用 --profile e2e 起完整栈（含 proxy + scanner + vulnapp）。
 # proxy（cmd/proxy）：内嵌 proxify SDK 的 MITM + filter/dedup/aggregator + Asynq 生产者，监听 8888。
 # scanner（cmd/scanner）：Asynq 消费者 + ReAct 引擎，监听 9090（healthz）。
 # 业界最佳实践：proxy 与 worker 独立进程，故障隔离 + 独立扩缩。
@@ -36,17 +36,6 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
-
-  asynqmon:
-    image: hibiken/asynqmon:latest
-    platform: linux/amd64
-    container_name: liusha-asynqmon
-    command: ["--redis-addr=redis:6379"]
-    ports:
-      - "8081:8080"
-    depends_on:
-      redis:
-        condition: service_healthy
 
   api:
     image: liusha/api

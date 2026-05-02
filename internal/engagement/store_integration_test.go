@@ -76,7 +76,7 @@ func TestStore_AppendAndReadState(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := s.AppendFact(ctx, e.ID,
-		[]byte(`{"category":"boundary","content":"all_similar at threshold 0.3"}`)); err != nil {
+		[]byte(`{"category":"boundary","content":"all_differ at threshold 0.3"}`)); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.AppendIdea(ctx, e.ID,

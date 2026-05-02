@@ -26,12 +26,12 @@ type FindingChecker interface {
 
 // validReasons 列出 BAC done 允许的退出原因，对应 spec §6.1：
 //   - finding_written：写完一条 finding 即可收手；
-//   - all_similar：所有候选端点跨身份响应高度相似（无越权信号）；
+//   - all_differ：所有候选端点跨身份响应差异显著（认证起作用，无越权信号）；
 //   - heuristic_skip：启发式判定无须深探（如静态资源）；
 //   - no_pattern_match：完整 4 步走完仍未命中已知 BAC 模式。
 var validReasons = map[string]struct{}{
 	"finding_written":  {},
-	"all_similar":      {},
+	"all_differ":       {},
 	"heuristic_skip":   {},
 	"no_pattern_match": {},
 }

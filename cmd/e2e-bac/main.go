@@ -34,7 +34,7 @@ const (
 	pollDeadline = 6 * time.Minute
 	// minBACFindings 是退出码 0 的最低 finding 数门槛。
 	// vulnapp 简化为"4 类端点各 1 个"后，预期产 3 个 finding（horizontal/vertical/unauthorized 各 1，
-	// baseline /profile 走 done(all_similar) 不产 finding）。
+	// baseline /profile 走 done(all_differ) 不产 finding）。
 	minBACFindings = 3
 	// minBACKinds 是退出码 0 的最低 finding 类别覆盖度门槛。
 	minBACKinds = 3

@@ -110,6 +110,11 @@ func main() {
 	if _, err := skillLoader.Load("vuln-web-bac"); err != nil {
 		logger.Fatal().Err(err).Msg("load BAC skill")
 	}
+	// classify-traffic 是 orchestrator 内部 prompt（非可 delegate 的子 skill）：
+	// 由 ClassifyTraffic 工具内部 Load body 当 prompt 用。预热避免首次调用文件 IO。
+	if _, err := skillLoader.Load("classify-traffic"); err != nil {
+		logger.Fatal().Err(err).Msg("load classify-traffic skill")
+	}
 
 	// Replay engine（BAC 子 ReAct 用）。
 	replayEngine := replay.NewEngine(nil)
@@ -347,15 +352,25 @@ func (h handler) handleTraffic(ctx context.Context, p worker.Payload, entrypoint
 	observer := react.NewLLMObserver(obsGen, h.engagements, eid)
 
 	// 主 ReAct 元工具
-	_ = reg.Register(&traffic.ClassifyTraffic{LLM: mainGen})
+	// classify_traffic 工具持 Flows + Loader：内部按 flow_id 拉完整流量并智能截断后调 LLM，
+	// 调用方只需传 flow_id，避免主 LLM "瞎传 headers/body 字段"。
+	_ = reg.Register(&traffic.ClassifyTraffic{
+		LLM:    mainGen,
+		Flows:  h.flows,
+		Loader: h.skillLoader,
+	})
 	// CC 风格：把 skill catalog 注入 Delegate —— Description / ParametersJSON 自动列出
 	// 所有可用 skill（含每条 frontmatter 的 description），LLM 自主发现。
 	// Observer 透传给子 ReAct，让子 ReAct 也享受过程判官（每 5 步评估）。
+	//
+	// 过滤 classify-traffic：它是 orchestrator 内部 prompt（被 ClassifyTraffic 工具消费），
+	// 不是可 delegate 的子 skill；混进 catalog 会让主 LLM 误派任务。
+	delegateCatalog := filterDelegateCatalog(h.skillLoader.List())
 	_ = reg.Register(&delegate.Delegate{
 		Builders:     map[string]skill.Builder{"vuln-web-bac": bacBuilder},
 		EngagementID: eid,
 		SubLLM:       subGen,
-		Catalog:      h.skillLoader.List(),
+		Catalog:      delegateCatalog,
 		Observer:     observer,
 	})
 	_ = reg.Register(&traffic.GetFindings{Store: h.findings, EngagementID: eid})
@@ -367,8 +382,9 @@ func (h handler) handleTraffic(ctx context.Context, p worker.Payload, entrypoint
 	)
 
 	// 自动注入 hint + catalog 到 main system prompt（CC 风格自动发现）。
+	// catalog 用 filterDelegateCatalog 过滤后的版本（与 delegate 工具看到的一致）。
 	e, _ := h.engagements.GetByID(ctx, eid)
-	systemPrompt := buildMainSystemPrompt(e, h.skillLoader.List())
+	systemPrompt := buildMainSystemPrompt(e, delegateCatalog)
 
 	out, err := react.Run(ctx, react.Config{
 		LLM:                mainGen,
@@ -410,12 +426,19 @@ func buildMainSystemPrompt(e engagement.Engagement, catalog []*skill.Card) strin
 	base := `你是渗透测试主 Agent。每个任务对应 1 条 HTTP 流量。
 
 工作流程：
-1. classify_traffic 让 LLM 判流量类型 + 输出可能漏洞清单（required_skills）
-2. 根据 required_skills 调 delegate(skill_name, flow_id, ...)；
-   要测多个漏洞类型可在同一轮返回多个 delegate（runtime 自动 goroutine 并行）
-3. 每个 delegate 返回 summary（含 finding 数量），用 get_findings 看详情
-4. 必要时 write_fact / write_idea / write_graph 总结
-5. done({"reason":"all_skills_done"})
+1. classify_traffic(flow_id) → 拿 JSON：
+   {operation, resource_scope, attack_surfaces, carries_auth,
+    credential_locations, required_skills, reasoning}
+2. 短路判断：
+   - required_skills 为空（公开接口 / 无认证 / 无攻击面）→ 直接
+     done({"reason":"no_required_skills"})，不要 delegate
+3. 否则按 required_skills 调 delegate(skill, flow_id, host,
+   credential_locations=<上一步的 credential_locations 原样透传>)；
+   要测多个漏洞类型可在同一轮返回多个 delegate（runtime 自动 goroutine 并行）。
+   credential_locations 必须透传——子 ReAct 用它构造带占位 token 的 anonymous 假认证。
+4. 每个 delegate 返回 summary（含 finding 数量），用 get_findings 看详情
+5. 必要时 write_fact / write_idea / write_graph 总结
+6. done({"reason":"all_skills_done"})
 
 约束：
 - 单 task 内最多 spawn 5 个 skill 子任务
@@ -440,6 +463,25 @@ func buildMainSystemPrompt(e engagement.Engagement, catalog []*skill.Card) strin
 		}
 	}
 	return base
+}
+
+// filterDelegateCatalog 把内部 prompt skill（如 classify-traffic）从 catalog 中剔除，
+// 避免主 LLM 误以为它们是可 delegate 的子 skill。
+//
+// 当前过滤名单是硬编码（仅 classify-traffic 一个）；如未来新增更多内部 prompt skill，
+// 可改为按 frontmatter 字段（如 internal:true）过滤。
+func filterDelegateCatalog(in []*skill.Card) []*skill.Card {
+	out := make([]*skill.Card, 0, len(in))
+	for _, c := range in {
+		if c == nil {
+			continue
+		}
+		if c.Name == "classify-traffic" {
+			continue
+		}
+		out = append(out, c)
+	}
+	return out
 }
 
 // extractHints 解析 engagement.memory_hints jsonb 字段，提取 content 列表。

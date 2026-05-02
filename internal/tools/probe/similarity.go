@@ -21,7 +21,7 @@ const (
 )
 
 // verdict 三态：
-//   - all_below_threshold：所有 pair 都低于 min_threshold → 工具层判定无越权，可直接 done(all_similar)。
+//   - all_below_threshold：所有 pair 都低于 min_threshold → 工具层判定无越权，可直接 done(all_differ)。
 //   - high_similarity_pair：至少一个 pair >= high_threshold → 疑似越权，但需 LLM 排除假阳性
 //     （公开接口 /banner /health；错误页；登录页等同样会高相似）。
 //   - ambiguous：所有命中都在 [min, high) 区间 → LLM 看 suspicious_pairs 分值判定。
@@ -49,7 +49,7 @@ func (a *ComputeSimilarity) Name() string { return "compute_similarity" }
 // Description 给 LLM 看的简介，强调"verdict 直接定结论"的语义。
 func (a *ComputeSimilarity) Description() string {
 	return "对上一次 replay 的多身份响应两两算 token Jaccard 相似度，直接产出 verdict：" +
-		"all_below_threshold（所有 pair 低于低阈，工具层判定无越权，可 done(all_similar)）；" +
+		"all_below_threshold（所有 pair 低于低阈，工具层判定无越权，可 done(all_differ)）；" +
 		"high_similarity_pair（任一 pair 高于高阈，疑似越权，但需 LLM 排除公开接口/错误页等假阳性）；" +
 		"ambiguous（在中间区，LLM 看 suspicious_pairs 具体分值判定）。" +
 		"返回 suspicious_pairs（score >= min_threshold 的身份对）+ summary，不返回 N×N 矩阵。"

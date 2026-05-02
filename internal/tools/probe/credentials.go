@@ -16,9 +16,14 @@ import (
 //   - 喂给后续 ReplayMultiIdentity 时还得二次序列化。
 //
 // 全身份留在 Session.Identities 里，供 ReplayMultiIdentity 直接读取。
+//
+// Locations 来自上游 classify_traffic 输出（经 delegate.BuilderParams 透传）；
+// 非空时用 credential.BuildAnonymous(Locations) 替换 Provider 注入的"完全无凭证 anonymous"，
+// 让重放时 anonymous 携带占位 token 触发服务端的"token 校验失败"分支。
 type FetchCredentials struct {
-	Provider credential.Provider
-	Session  *Session
+	Provider  credential.Provider
+	Session   *Session
+	Locations []credential.CredentialLocation
 }
 
 // Name 返回动作名 "fetch_credentials"。
@@ -70,6 +75,24 @@ func (a *FetchCredentials) Execute(ctx context.Context, args json.RawMessage) (t
 	ids, err := a.Provider.GetIdentitiesByHost(ctx, in.Host)
 	if err != nil {
 		return tool.Result{}, fmt.Errorf("获取身份列表 host=%s: %w", in.Host, err)
+	}
+
+	// 若上游传了 credential_locations，用占位 token 重建 anonymous 身份，
+	// 让重放时 anonymous 是"假认证请求"而不是"完全无 cookie"——
+	// 能精确触发服务端的"token 校验失败"分支，避免漏报。
+	if len(a.Locations) > 0 {
+		anon := credential.BuildAnonymous(a.Locations)
+		replaced := false
+		for i, id := range ids {
+			if id.Name == credential.AnonymousName {
+				ids[i] = anon
+				replaced = true
+				break
+			}
+		}
+		if !replaced {
+			ids = append(ids, anon)
+		}
 	}
 
 	a.Session.Identities = ids

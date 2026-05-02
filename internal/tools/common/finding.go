@@ -77,6 +77,10 @@ func (a *WriteFinding) Execute(ctx context.Context, args json.RawMessage) (tool.
 		return tool.Result{}, fmt.Errorf("kind 与 title 都不能为空")
 	}
 
+	// 工具层强制重写 dedup_key 中的 path（数字 / UUID / 长 hex → :id / :uuid / :hex），
+	// 避免 LLM 拼错 path 模板导致同 endpoint 不同实例重复入库。
+	in.DedupKey = finding.NormalizeDedupKey(in.DedupKey)
+
 	// TaskID 可空：空字符串 → nil 指针，避免 FK 不存在的 task。
 	var taskPtr *string
 	if a.TaskID != "" {

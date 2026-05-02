@@ -26,10 +26,13 @@ func NewFactory(creds credential.Provider, flows FlowReader, eng *replay.Engine)
 //
 // engagementID 当前不参与构造，只作 future tagging / 日志锚点（保留给 plan T3 的 skill 装配用）；
 // 不影响 action 行为。
-func (f *Factory) CreateActions(_ string) []tool.Action {
+//
+// locations 来自上游 classify_traffic 输出（经 delegate 透传），用于 FetchCredentials
+// 构造带占位 token 的 anonymous 假认证；为空时 anonymous 退化为"完全无凭证"。
+func (f *Factory) CreateActions(_ string, locations []credential.CredentialLocation) []tool.Action {
 	session := &Session{}
 	return []tool.Action{
-		&FetchCredentials{Provider: f.creds, Session: session},
+		&FetchCredentials{Provider: f.creds, Session: session, Locations: locations},
 		&ReplayMultiIdentity{Engine: f.replay, Flows: f.flows, Session: session},
 		&HeuristicCheck{Session: session},
 		&ComputeSimilarity{Session: session},
@@ -38,12 +41,12 @@ func (f *Factory) CreateActions(_ string) []tool.Action {
 
 // Register 把 CreateActions 产物全部注册进给定 Registry；任一 Register 失败立即返回。
 //
-// 用于 BAC skill 装配阶段（plan 2 T3 会调用）：
+// 用于 BAC skill 装配阶段：
 //
 //	reg := tool.NewRegistry()
-//	if err := bacFactory.Register(reg, eng.ID); err != nil { ... }
-func (f *Factory) Register(reg *tool.Registry, engagementID string) error {
-	for _, a := range f.CreateActions(engagementID) {
+//	if err := bacFactory.Register(reg, eng.ID, params.CredentialLocations); err != nil { ... }
+func (f *Factory) Register(reg *tool.Registry, engagementID string, locations []credential.CredentialLocation) error {
+	for _, a := range f.CreateActions(engagementID, locations) {
 		if err := reg.Register(a); err != nil {
 			return fmt.Errorf("注册 BAC action %q 失败: %w", a.Name(), err)
 		}

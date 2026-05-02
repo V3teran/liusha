@@ -40,7 +40,7 @@ docker compose -f deployments/docker-compose.yml --profile e2e --env-file .env.l
 docker compose -f deployments/docker-compose.yml ps
 ```
 
-期望看到 7 个 service（postgres/redis/asynqmon/api/proxy/scanner/vulnapp）全绿。
+期望看到 6 个 service（postgres/redis/api/proxy/scanner/vulnapp）全绿。
 其中 `proxy` 由 `cmd/proxy` 内嵌 proxify SDK + filter/dedup/aggregator 启动（监听 :8888 mitm，:9091 healthz），
 `scanner` 仅作为 Asynq 消费者 + ReAct 引擎（监听 :9090 healthz）。两者通过 redis 解耦——业界最佳实践，故障隔离 + 独立扩缩。
 

@@ -21,6 +21,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/V3teran/liusha/internal/credential"
 	"github.com/V3teran/liusha/internal/llm"
 	"github.com/V3teran/liusha/internal/react"
 	"github.com/V3teran/liusha/internal/skill"
@@ -85,7 +86,19 @@ func (a *Delegate) ParametersJSON() json.RawMessage {
             "flow_id":{"type":"integer"},
             "host":{"type":"string"},
             "url":{"type":"string"},
-            "method":{"type":"string"}
+            "method":{"type":"string"},
+            "credential_locations":{
+                "type":"array",
+                "description":"上游 classify_traffic 输出的 credential_locations 透传给子 ReAct（用于构造带占位 token 的 anonymous）。可选；缺失时子 ReAct 用空凭证 anonymous（旧行为）。",
+                "items":{
+                    "type":"object",
+                    "properties":{
+                        "type":{"type":"string","enum":["headers","query","body"]},
+                        "key":{"type":"string"}
+                    },
+                    "required":["type","key"]
+                }
+            }
         },
         "required":["skill","flow_id","host"]
     }`, skillProp))
@@ -102,13 +115,17 @@ func sortedCatalog(in []*skill.Card) []*skill.Card {
 // Execute 装配子 ReAct + 同进程同步嵌套跑 + 返 summary。
 //
 // 子 ReAct 复用主 ReAct 的 Observer 实例（同 engagement，每 5 步过程判官评估）。
+//
+// credential_locations 由主 LLM 在调 delegate 时透传（来自上游 classify_traffic
+// 输出），子 ReAct 用它构造带占位 token 的 anonymous 假认证身份。
 func (a *Delegate) Execute(ctx context.Context, args json.RawMessage) (tool.Result, error) {
 	var in struct {
-		Skill  string `json:"skill"`
-		FlowID int64  `json:"flow_id"`
-		Host   string `json:"host"`
-		URL    string `json:"url"`
-		Method string `json:"method"`
+		Skill               string                          `json:"skill"`
+		FlowID              int64                           `json:"flow_id"`
+		Host                string                          `json:"host"`
+		URL                 string                          `json:"url"`
+		Method              string                          `json:"method"`
+		CredentialLocations []credential.CredentialLocation `json:"credential_locations"`
 	}
 	if err := json.Unmarshal(args, &in); err != nil {
 		return tool.Result{}, fmt.Errorf("decode args: %w", err)
@@ -122,13 +139,14 @@ func (a *Delegate) Execute(ctx context.Context, args json.RawMessage) (tool.Resu
 	}
 
 	cfg, err := builder(ctx, skill.BuilderParams{
-		EngagementID: a.EngagementID,
-		FlowID:       in.FlowID,
-		Host:         in.Host,
-		URL:          in.URL,
-		Method:       in.Method,
-		LLM:          a.SubLLM,
-		Observer:     a.Observer,
+		EngagementID:        a.EngagementID,
+		FlowID:              in.FlowID,
+		Host:                in.Host,
+		URL:                 in.URL,
+		Method:              in.Method,
+		LLM:                 a.SubLLM,
+		Observer:            a.Observer,
+		CredentialLocations: in.CredentialLocations,
 	})
 	if err != nil {
 		return tool.Result{}, fmt.Errorf("build skill %s: %w", in.Skill, err)
