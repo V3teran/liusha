@@ -5,7 +5,7 @@ description: |
   - 未授权访问：未经身份验证的用户能访问需要认证的资源
   - 垂直越权：低权限用户能访问需要更高权限才能访问的资源
   - 水平越权：用户能访问其他同级用户的私有资源（资源有明确所有者）
-  适用场景：任何需要访问控制的 API —— 通常是携带认证凭证（Cookie/Authorization等）
+  适用场景：任何需要访问控制的 API —— 通常是携带认证凭证（Cookie/Authorization 等）
   或响应中含业务/用户数据的接口。判定基于多身份重放后的响应差异，
   不依赖路径模式匹配。
 ---
@@ -20,7 +20,7 @@ description: |
 
 无论其他身份是高权限还是低权限，无论有多少身份能访问，**只要 anonymous 能成功访问，就必须且只能判定为 `bac.unauthorized_access`**，不可判定为 `vertical_priv_esc` 或 `horizontal_priv_esc`。这是不可绕过的最高优先级规则。
 
-理由：anonymous 能访问 = 认证机制失效，这是比"权限粒度错误"更严重的问题。即使路径含 `/admin/`、即使多个低权限用户也能访问，只要 anonymous 能访问，根因都是认证失效。
+理由：anonymous 能访问 = 认证机制失效，这是比"权限粒度错误"更严重的根因。即使路径含 `/admin/`、即使多个低权限用户也能访问，只要 anonymous 能访问，根因都是认证失效。
 
 ## 漏洞类型（finding.kind）
 
@@ -84,11 +84,12 @@ anonymous 是带占位 token（`lstoken`）的"假认证请求"——上游 orch
 ### Step 0：准备（read_state + write_idea）
 
 1. 调 `read_state()` 读三层 memory（含上次 distill 的 `memory_hints`）。
+   **若 hints 中已有同 `<host>:<method>:<path-template>` 的 finding 记录** → 跳过本轮：`write_idea(direction, status:"failed")` → `done({"reason":"no_pattern_match"})`。
 2. 写一条 `write_idea({direction: "<host><method><path>", status: "pending"})` 标记本轮假设。
 
 ### Step 1：fetch_credentials(host)
 
-拿全部身份（含自动注入的 `anonymous`）。**不要再额外创建 anonymous**。
+调用 `fetch_credentials(host)` 拿全部身份（含自动注入的 anonymous）。
 
 ### Step 2：replay_multi_identity(flow_id, host, concurrency=5)
 
@@ -104,12 +105,17 @@ anonymous 是带占位 token（`lstoken`）的"假认证请求"——上游 orch
 
 ### Step 4：compute_similarity（默认 min_threshold=0.6, high_threshold=0.9）
 
-工具直接产出 verdict 三态（**不再返回 N×N 矩阵，由工具层算法做硬判定**）：
+工具直接产出 verdict 三态（**不再返回 N×N 矩阵，由工具层算法做硬判定**）。
 
-- `verdict="all_below_threshold"`（所有 pair 相似度都低于 min_threshold，工具层判定**无越权信号**）：
+**前置短路检查**：在按 verdict 分支前，先看 Step 2 重放结果中 anonymous 是否"成功访问"（按上文双重判断标准）。**若 anonymous 成功 → 跳过本短路，直接进 Step 5**——anonymous 拿到部分业务数据 + admin 拿到完整数据时响应形态会差异显著（verdict=all_below_threshold），但仍是真 unauthorized_access 漏洞，不能短路。
+
+否则按 verdict 分支：
+
+- `verdict="all_below_threshold"`（所有 pair 相似度都低于 min_threshold，即"所有响应差异都很大"——意味着访问控制按身份返回不同数据，**正常**）：
   - `write_fact({category:"boundary", content:"similarity 全低于阈值，跨身份响应差异显著"})`
   - `write_idea(direction, status:"failed")`
-  - `done({"reason":"all_differ"})` —— **短路结束，不进 Step 5**。
+  - `done({"reason":"all_differ"})` —— 短路结束，不进 Step 5。
+  - 命名说明：verdict 字面是 "all below threshold"（数学描述），done reason `all_differ` 是业务描述（"所有响应差异显著"），两者语义一致。
 - `verdict="high_similarity_pair"` 或 `"ambiguous"`：进入 Step 5 LLM 语义判定，**注意：高相似 ≠ 越权**。
   公开接口（如 `/api/banner` `/health`）、错误页（5xx）、登录页等也会高相似但不是越权。
   必须结合 endpoint 性质 + body 内容（是否私有业务数据）综合判断。
@@ -128,8 +134,9 @@ anonymous 是带占位 token（`lstoken`）的"假认证请求"——上游 orch
 
 ┌─ 5.1 anonymous_success == true？
 │   └─ YES → 判定 bac.unauthorized_access（最高优先级，立即返回）
-│            violating_identities = ["anonymous", ...non_anon_success]
-│            （第一个元素必须是字符串 "anonymous"）
+│            violating_identities = ["anonymous"] + non_anon_success 中的低权限身份
+│            （第一个元素必须是 "anonymous"；合法访问的高权限身份如 admin
+│             访问 admin 接口**不**计入 violators，因为它本来就该能访问）
 │
 └─ NO → 进入越权判断
     │
@@ -146,6 +153,9 @@ anonymous 是带占位 token（`lstoken`）的"假认证请求"——上游 orch
         │
         ├─ 5.4 资源是用户私有 + ≥2 同级身份成功访问相同数据？
         │      （需 ≥2 同 role 非 anonymous 身份，响应高相似 ≥ threshold）
+        │      前提：URI/body 含明确资源 ID（如 /order/7、{"oid":"O1003"}）；
+        │      /me/profile 这种"按 caller 取数据"的私有接口天然不构成水平越权
+        │      （每个身份各取自己的，响应必然不同，5.4 不会触发）
         │   └─ YES → 判定 bac.horizontal_priv_esc
         │            violating_identities = 能访问的同级身份列表
         │
@@ -183,12 +193,7 @@ anonymous 是带占位 token（`lstoken`）的"假认证请求"——上游 orch
 
 写库后系统自动触发 distill（写 hint 入 `memory_hints`，下次同 engagement 优先读）。
 
-### Step 7：write_graph
-
-- node `endpoint`（dedup_key=`<host>:<method>:<path-template>`）。
-- edge `endpoint -bac-> finding_id`。
-
-### Step 8：write_idea + done
+### Step 7：write_idea + done
 
 - 命中漏洞：`write_idea(direction, status:"verified")` → `done({"reason":"finding_written", "dedup_key":"..."})`。
 - 未命中：`write_idea(direction, status:"failed")` → `done({"reason":"no_pattern_match"})`。
@@ -212,19 +217,19 @@ anonymous 是带占位 token（`lstoken`）的"假认证请求"——上游 orch
 
 宁可漏报（false negative，下次扫到同 endpoint 再判），不要误报（false positive，污染 distill 和 hint，影响后续判断）。
 
-## done 系统校验（不通过则被注入 user message 继续）
+## done 系统校验
 
-- 必须已调过：`fetch_credentials` + `replay_multi_identity` + `heuristic_check` + `compute_similarity` 全套。
+系统强约束（不通过则被注入 user message 让你继续）：
+
+- 必须已调过：`fetch_credentials` + `replay_multi_identity` + `heuristic_check` + `compute_similarity` 全套（或在 Step 0 / Step 3 短路 done 时跳过部分）。
 - `done.reason` 必须 ∈ `{finding_written, all_differ, heuristic_skip, no_pattern_match}`。
 - `reason=finding_written` 时，args 必须含 `dedup_key`，且 finding 表中存在对应记录。
 
 ## 常见坑
 
 1. **不要拿原始 body 直接判定**：用相似度 + 状态码 + 内容性质（业务数据 vs 错误消息）三个信号综合，禁止 LLM 直接读原文判定漏洞。
-2. **anonymous 反误判**：见上文核心规则。**示例 1** 专门演示这个坑。
-3. **path 模板化**：`dedup_key` 的 path 一定要把数字 ID / UUID 替换为 `:id` / `:uuid`，否则同接口不同实例重复入库。
-4. **3xx 重定向**：见上文"成功访问"判定标准的条件 1。
-5. **超 budget 立刻 done**：max_steps=10、max_tokens=15000；若 Step 5 已判定，剩 1 步直接 `done`。
+2. **3xx 重定向**：见上文"成功访问"判定标准的条件 1。
+3. **超 budget 立刻 done**：单 BAC 子 ReAct max_steps=15；若 Step 5 已判定，剩 1-2 步直接走 Step 6→7 写 finding + done。
 
 ## 完整示例
 
@@ -243,6 +248,7 @@ endpoint: POST /api/bac/admin/delete
 **错误判定 B**：多个用户都能访问 → `horizontal_priv_esc` ❌
 
 **正确判定**：anonymous 能成功访问 → `bac.unauthorized_access` ✅
+**violating_identities 不含 admin**：admin 访问 admin 接口是合法的，不算 violator。
 
 ```json
 {
@@ -257,7 +263,7 @@ endpoint: POST /api/bac/admin/delete
       {"identity": "test", "status_code": 200},
       {"identity": "m233241", "status_code": 200}
     ],
-    "reasoning": "anonymous 能成功执行删除操作，认证机制完全失效。低权限用户也能访问只是认证失效的副作用，不构成独立的越权漏洞。"
+    "reasoning": "anonymous 能成功执行删除操作，认证机制完全失效。低权限用户也能访问只是认证失效的副作用，不构成独立的越权漏洞。admin 合法访问不计入 violators。"
   },
   "confidence": "unverified",
   "dedup_key": "bac.unauthorized_access:vulnapp:POST:/api/bac/admin/delete"
@@ -332,9 +338,9 @@ endpoint: GET /api/user/profile
 - user2:     200, {"user_id":456,"name":"Bob"}
 ```
 
-**判定**：anonymous 被拒绝；user1/user2 各自返回不同数据（access control 正常）→ 无漏洞 → `done({"reason":"no_pattern_match"})`
+**判定**：anonymous 被拒绝；user1/user2 各自返回不同数据（access control 正常）→ 无漏洞 → `done({"reason":"all_differ"})`
 
-注：Step 4 的 compute_similarity 应该先短路（响应差异显著，verdict=`all_below_threshold`），不会进 Step 5。
+注：Step 4 的 anonymous 前置短路检查通过（anonymous 401 被正确拒绝），Step 4 verdict 为 `all_below_threshold`（响应差异显著），走 done(all_differ) 路径。
 
 ### 示例 5：3xx 重定向（被正确拒绝）
 
@@ -346,11 +352,3 @@ endpoint: GET /api/admin/settings
 ```
 
 **判定**：anonymous 和 user1 都 302→/login，按"成功访问"条件 1 视为被拒绝；只有 admin 能访问 → 访问控制正常 → 无漏洞
-
-## 示例 dedup_key
-
-| 接口 | dedup_key |
-|---|---|
-| GET /api/bac/order/7（同级用户都能访问） | `bac.horizontal_priv_esc:vulnapp:GET:/api/bac/order/:id` |
-| POST /api/bac/admin/delete（anonymous 也能访问） | `bac.unauthorized_access:vulnapp:POST:/api/bac/admin/delete` |
-| GET /api/bac/admin/users（test 用户能访问） | `bac.vertical_priv_esc:vulnapp:GET:/api/bac/admin/users` |
