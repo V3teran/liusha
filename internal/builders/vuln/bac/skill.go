@@ -18,7 +18,7 @@ import (
 	"github.com/V3teran/liusha/internal/tool/done_validator"
 	"github.com/V3teran/liusha/internal/tool/middleware"
 	"github.com/V3teran/liusha/internal/tools/common"
-	"github.com/V3teran/liusha/internal/tools/sniffer"
+	"github.com/V3teran/liusha/internal/tools/probe"
 )
 
 // SubBuilderDeps BAC SkillBuilder 的依赖注入。
@@ -47,9 +47,9 @@ const (
 // 子 ReAct 工具集：
 //
 //	common:  read_state / write_fact / write_idea / write_finding / done
-//	sniffer: fetch_credentials / replay_multi_identity / heuristic_check / compute_similarity
+//	probe: fetch_credentials / replay_multi_identity / heuristic_check / compute_similarity
 func NewSubBuilder(deps SubBuilderDeps) func(ctx context.Context, p skill.BuilderParams) (react.Config, error) {
-	factory := sniffer.NewFactory(deps.Credentials, deps.Flows, deps.Replay)
+	factory := probe.NewFactory(deps.Credentials, deps.Flows, deps.Replay)
 
 	return func(ctx context.Context, p skill.BuilderParams) (react.Config, error) {
 		reg := tool.NewRegistry()
@@ -62,9 +62,9 @@ func NewSubBuilder(deps SubBuilderDeps) func(ctx context.Context, p skill.Builde
 		_ = reg.Register(&common.WriteFinding{Store: deps.Findings, EngagementID: p.EngagementID})
 
 		// 漏洞探针通用工具（fetch_credentials / replay / heuristic / similarity）
-		// 由 sniffer 包提供，所有 vuln skill 共享。
+		// 由 probe 包提供，所有 vuln skill 共享。
 		if err := factory.Register(reg, p.EngagementID); err != nil {
-			return react.Config{}, fmt.Errorf("register sniffer actions: %w", err)
+			return react.Config{}, fmt.Errorf("register probe actions: %w", err)
 		}
 
 		// skill loader 加载 SKILL.md（命中缓存 0 IO）。

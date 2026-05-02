@@ -1,15 +1,20 @@
-// Package sniffer 提供漏洞探针通用工具集（4 个 action + Factory），
-// 被各 vuln skill（BAC、未来 SQLi/SSRF/IDOR…）共享：
+// Package probe 提供边界类漏洞主动探针工具集（4 个 action + Factory），
+// 被各 vuln skill（BAC、未来 IDOR/认证绕过/SSRF…）共享：
 // fetch_credentials / replay_multi_identity / heuristic_check / compute_similarity。
 //
-// 设计要点（含黑客松借鉴）：
+// 命名说明（业界最佳实践）：
+//   - "probe" = 主动发请求测试目标（OWASP Active Scanner 标准术语）
+//   - 不叫 "sniffer"（被动抓包语义错位）
+//   - 跟 LLM RouteKey "prober"（执行 probe 的子 ReAct）形成对应
+//
+// 设计要点：
 //   - 4 个 action 通过共享 *Session 在 task 内部传递"上一次的 responses"，
-//     避免让 LLM 在每一步重复读取/序列化全部 replay body（同 result_compress 精神）。
+//     避免让 LLM 在每一步重复读取/序列化全部 replay body。
 //   - 任何 action 不返回 raw body：ReplayMultiIdentity 只回 body_hint（≤400 byte）；
 //     完整 body 留在 *Session 内供后续 heuristic / similarity 使用。
 //   - Factory.CreateActions 每次调用产生独立 *Session，按 engagement / task 隔离。
-//   - skill 差异在判定逻辑（SKILL.md prompt + done_validator），探针工具复用。
-package sniffer
+//   - skill 差异在判定逻辑（SKILL.md prompt + builder 装配的 done_validator），探针工具复用。
+package probe
 
 import (
 	"context"
