@@ -67,12 +67,7 @@ func itoa(n int) string {
 const validBody = `---
 name: vuln/web/bac
 description: BAC（未授权 / 垂直越权 / 水平越权）
-applies_to:
-  - role: sniffer
-budget:
-  max_steps: 10
-  max_tokens: 15000
-required_actions:
+allowed-tools:
   - fetch_credentials
   - replay_multi_identity
   - heuristic_check
@@ -92,12 +87,7 @@ func TestLoader_Load_Basic(t *testing.T) {
 	body := `---
 name: vuln/web/bac
 description: BAC
-applies_to:
-  - role: sniffer
-budget:
-  max_steps: 10
-  max_tokens: 15000
-required_actions: [fetch_credentials, replay_multi_identity]
+allowed-tools: [fetch_credentials, replay_multi_identity]
 ---
 正文`
 	root := writeSkill(t, "vuln/web/bac", body)
@@ -112,14 +102,8 @@ required_actions: [fetch_credentials, replay_multi_identity]
 	if c.Description != "BAC" {
 		t.Errorf("desc=%q", c.Description)
 	}
-	if len(c.AppliesTo) != 1 || c.AppliesTo[0].Role != "sniffer" {
-		t.Errorf("applies_to=%+v", c.AppliesTo)
-	}
-	if c.Budget.MaxSteps != 10 || c.Budget.MaxTokens != 15000 {
-		t.Errorf("budget=%+v", c.Budget)
-	}
-	if len(c.RequiredActions) != 2 {
-		t.Errorf("required_actions=%v", c.RequiredActions)
+	if len(c.AllowedTools) != 2 {
+		t.Errorf("allowed-tools=%v", c.AllowedTools)
 	}
 	if !strings.Contains(c.Body, "正文") {
 		t.Errorf("body=%q", c.Body)
@@ -154,8 +138,8 @@ func TestLoader_Load_MissingFrontmatter(t *testing.T) {
 	}
 }
 
-// TestLoader_Load_RequiredActionsField：required_actions 数组解析正确。
-func TestLoader_Load_RequiredActionsField(t *testing.T) {
+// TestLoader_Load_AllowedToolsField：allowed-tools 数组解析正确（CC 风格白名单）。
+func TestLoader_Load_AllowedToolsField(t *testing.T) {
 	root := writeSkill(t, "vuln/web/bac", validBody)
 	l := NewLoader(root)
 	c, err := l.Load("vuln/web/bac", anyDoneValidator, nil)
@@ -166,12 +150,12 @@ func TestLoader_Load_RequiredActionsField(t *testing.T) {
 		"fetch_credentials", "replay_multi_identity", "heuristic_check",
 		"compute_similarity", "write_finding", "write_graph", "done",
 	}
-	if len(c.RequiredActions) != len(want) {
-		t.Fatalf("required_actions len=%d, want=%d", len(c.RequiredActions), len(want))
+	if len(c.AllowedTools) != len(want) {
+		t.Fatalf("allowed-tools len=%d, want=%d", len(c.AllowedTools), len(want))
 	}
 	for i, a := range want {
-		if c.RequiredActions[i] != a {
-			t.Errorf("required_actions[%d]=%q, want=%q", i, c.RequiredActions[i], a)
+		if c.AllowedTools[i] != a {
+			t.Errorf("allowed-tools[%d]=%q, want=%q", i, c.AllowedTools[i], a)
 		}
 	}
 }
@@ -189,10 +173,7 @@ func TestLoader_Load_DoneValidator_NotRegistered(t *testing.T) {
 	body := `---
 name: x
 description: x
-applies_to:
-  - role: sniffer
-budget: {max_steps: 1, max_tokens: 1}
-required_actions: [done]
+allowed-tools: [done]
 done_validator: bac_v1
 ---
 正文`
@@ -213,10 +194,7 @@ func TestLoader_Load_DoneValidator_Registered(t *testing.T) {
 	body := `---
 name: x
 description: x
-applies_to:
-  - role: sniffer
-budget: {max_steps: 1, max_tokens: 1}
-required_actions: [done]
+allowed-tools: [done]
 done_validator: bac_v1
 ---
 正文`

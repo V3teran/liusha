@@ -1,13 +1,13 @@
 ---
 name: vuln/web/bac
-description: BAC（未授权 / 垂直越权 / 水平越权）
-applies_to:
-  - role: sniffer
-budget:
-  max_steps: 10
-  max_tokens: 15000
-done_validator: bac_v1
-required_actions:
+description: |
+  Web 应用 BAC（访问控制失效）漏洞检测。检测三种子类型：
+  - 未授权访问（anonymous 能访问需登录的资源）
+  - 垂直越权（低权限角色访问高权限资源，如 /admin/ /sys/）
+  - 水平越权（同级用户访问其他用户的私有数据）
+  适用场景：URL 含资源 ID（/api/order/:id）/ 路径含 /admin/ /sys/ /
+  携带认证凭证（Cookie/Authorization）的 API。
+allowed-tools:
   - read_state
   - write_fact
   - write_idea
@@ -18,6 +18,7 @@ required_actions:
   - write_finding
   - write_graph
   - done
+done_validator: bac_v1
 ---
 
 # BAC（访问控制失效）检测

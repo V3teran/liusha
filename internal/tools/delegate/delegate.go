@@ -1,9 +1,17 @@
-// Package scan 提供主 ReAct 的 scan_vuln 工具：按 skill 名启动一个漏洞扫描子 ReAct（同进程同步）。
+// Package delegate 提供主 ReAct 的 delegate 工具：
+// 把一条流量委托给某个 skill 的子 ReAct 完成（同进程同步嵌套）。
 //
-// CC 风格 v1.1：tool 的 Description 与 ParametersJSON 都从 Catalog 动态生成，
-// 主 LLM 直接通过 frontmatter description + enum 知道有哪些 skill 可用，
+// 命名理由（业界最佳实践对照）：
+//   - CrewAI 用 `delegate` —— 角色之间委托任务
+//   - LangGraph 用 `transfer_to_<agent>` —— 转移控制权
+//   - OpenAI Swarm 同上
+//   - Anthropic 多 agent 论文用 `dispatch_subagent`
+// 选 `delegate` 因业界最普及，跨框架理解一致，未来加 recon / exploit / report
+// 等非漏洞 skill 也合用。
+//
+// CC 风格：tool 的 Description 与 ParametersJSON 都从 Catalog 动态生成，
 // 加 SKILL.md + 注册 builder = 立即可被 LLM 发现，无需改 prompt 字符串。
-package scan
+package delegate
 
 import (
 	"context"
@@ -19,17 +27,17 @@ import (
 	"github.com/V3teran/liusha/internal/tool"
 )
 
-// ScanVuln 工具：启动一个漏洞扫描子 ReAct（同步阻塞）。
+// Delegate 工具：把流量委托给某个 skill 的子 ReAct（同步阻塞）。
 //
-// 多个 scan_vuln 在主 LLM 同一轮返回时，runtime tool_calls 并行框架
-// 会启 N 个 goroutine 并行跑（每个独立调 ScanVuln.Execute）。
+// 多个 delegate 在主 LLM 同一轮返回时，runtime tool_calls 并行框架
+// 会启 N 个 goroutine 并行跑（每个独立调 Delegate.Execute）。
 //
 // 字段：
 //   - Builders   skill 名 → SubBuilder 闭包；启动期 main.go 注册
 //   - Catalog    可用 skill 元数据（来自 Loader.List），驱动 Description / Parameters 动态生成
 //   - SubLLM     给子 ReAct 用的 LLM Generator（已 Instrument 装饰，role=prober）
 //   - Observer   注入子 ReAct 的过程判官（与主 ReAct 共享同一 observer 实例）
-type ScanVuln struct {
+type Delegate struct {
 	Builders     map[string]skill.Builder
 	EngagementID string
 	SubLLM       llm.Generator
@@ -37,30 +45,30 @@ type ScanVuln struct {
 	Observer     react.Observer
 }
 
-// Name 返回工具名 "scan_vuln"。
-func (a *ScanVuln) Name() string { return "scan_vuln" }
+// Name 返回工具名 "delegate"。
+func (a *Delegate) Name() string { return "delegate" }
 
 // Description 给 LLM 的工具描述——按 Catalog 动态展开"name: description"清单。
 //
 // CC 风格：LLM 看一眼工具描述就知道有什么 skill 可调，省去硬编码 system prompt 列表。
-func (a *ScanVuln) Description() string {
+func (a *Delegate) Description() string {
 	if len(a.Catalog) == 0 {
-		return "对一条流量启动一种漏洞扫描子 ReAct。子完成后返 summary。"
+		return "把当前流量委托给某个 skill 的子 ReAct 完成（同步阻塞）。子完成后返 summary。"
 	}
 	var b strings.Builder
-	b.WriteString("对一条流量启动一种漏洞扫描子 ReAct。当前可用 skill：\n")
+	b.WriteString("把当前流量委托给某个 skill 的子 ReAct 完成（同步阻塞）。当前可用 skill：\n")
 	cards := sortedCatalog(a.Catalog)
 	for _, c := range cards {
 		fmt.Fprintf(&b, "- %s: %s\n", c.Name, c.Description)
 	}
-	b.WriteString("根据流量特征选择合适的 skill；可一轮返回多个 scan_vuln（自动并行）。")
+	b.WriteString("根据流量特征选择合适的 skill；可一轮返回多个 delegate（自动并行）。")
 	return b.String()
 }
 
 // ParametersJSON：skill 字段用 enum 限定为 Catalog 中已存在的 name。
 // 主 LLM 按 OpenAI tool schema 严格校验，写错 skill 名直接被拒。
-func (a *ScanVuln) ParametersJSON() json.RawMessage {
-	skillProp := `{"type":"string","description":"要调用的 skill 名"}`
+func (a *Delegate) ParametersJSON() json.RawMessage {
+	skillProp := `{"type":"string","description":"要委托给的 skill 名"}`
 	if len(a.Catalog) > 0 {
 		cards := sortedCatalog(a.Catalog)
 		names := make([]string, len(cards))
@@ -68,7 +76,7 @@ func (a *ScanVuln) ParametersJSON() json.RawMessage {
 			names[i] = c.Name
 		}
 		enum, _ := json.Marshal(names)
-		skillProp = fmt.Sprintf(`{"type":"string","enum":%s,"description":"要调用的 skill 名（必须是 enum 中之一）"}`, string(enum))
+		skillProp = fmt.Sprintf(`{"type":"string","enum":%s,"description":"要委托给的 skill 名（必须是 enum 中之一）"}`, string(enum))
 	}
 	return json.RawMessage(fmt.Sprintf(`{
         "type":"object",
@@ -94,7 +102,7 @@ func sortedCatalog(in []*skill.Card) []*skill.Card {
 // Execute 装配子 ReAct + 同进程同步嵌套跑 + 返 summary。
 //
 // 子 ReAct 复用主 ReAct 的 Observer 实例（同 engagement，每 5 步过程判官评估）。
-func (a *ScanVuln) Execute(ctx context.Context, args json.RawMessage) (tool.Result, error) {
+func (a *Delegate) Execute(ctx context.Context, args json.RawMessage) (tool.Result, error) {
 	var in struct {
 		Skill  string `json:"skill"`
 		FlowID int64  `json:"flow_id"`

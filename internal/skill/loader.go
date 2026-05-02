@@ -130,7 +130,7 @@ func (l *Loader) Load(
 	if err := validateDoneValidator(&card, doneValidatorRegistered); err != nil {
 		return nil, err
 	}
-	if err := validateRequiredActions(&card, actionRegistered); err != nil {
+	if err := validateAllowedTools(&card, actionRegistered); err != nil {
 		return nil, err
 	}
 
@@ -180,22 +180,23 @@ func validateDoneValidator(card *Card, registered func(key string) bool) error {
 	return nil
 }
 
-// validateRequiredActions cross-check frontmatter required_actions 与运行时 Registry。
+// validateAllowedTools cross-check frontmatter allowed-tools 与运行时 Registry。
 //
-// CC 风格 v1.1：避免 SKILL.md 写"调 X 工具"但 X 没注册 → 子 ReAct 跑到一半 LLM 调到不存在的工具。
-// actionRegistered=nil 时跳过此校验（向后兼容场景，例如启动期 Registry 还没填）。
-func validateRequiredActions(card *Card, registered func(name string) bool) error {
-	if registered == nil || len(card.RequiredActions) == 0 {
+// CC 风格：白名单语义——SKILL.md 声明此 skill 只能用这些工具，
+// 启动期校验所有工具都已注册（避免 LLM 调到不存在的工具）。
+// actionRegistered=nil 时跳过此校验（启动期 Registry 还没填的场景）。
+func validateAllowedTools(card *Card, registered func(name string) bool) error {
+	if registered == nil || len(card.AllowedTools) == 0 {
 		return nil
 	}
 	var missing []string
-	for _, name := range card.RequiredActions {
+	for _, name := range card.AllowedTools {
 		if !registered(name) {
 			missing = append(missing, name)
 		}
 	}
 	if len(missing) > 0 {
-		return fmt.Errorf("skill %q required_actions 未注册: %v", card.Name, missing)
+		return fmt.Errorf("skill %q allowed-tools 未注册: %v", card.Name, missing)
 	}
 	return nil
 }

@@ -89,11 +89,9 @@ func NewSubBuilder(deps SubBuilderDeps) func(ctx context.Context, p skill.Builde
 		// 6 槽位内容已合并入 body，避免冗余浪费 token）。
 		systemPrompt := card.Body
 
-		// MaxSteps 优先取 SKILL.md frontmatter budget.max_steps（CC 风格让配置生效）
-		maxSteps := card.Budget.MaxSteps
-		if maxSteps <= 0 {
-			maxSteps = defaultSubMaxSteps
-		}
+		// MaxSteps 用代码默认（业界做法：runtime budget 不放 SKILL.md frontmatter，
+		// SKILL.md 只声明能力 + 描述；budget 在 config.yaml 或代码层）。
+		maxSteps := defaultSubMaxSteps
 
 		return react.Config{
 			LLM:                p.LLM,
