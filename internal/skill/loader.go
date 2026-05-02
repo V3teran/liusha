@@ -88,24 +88,14 @@ func (l *Loader) Index() ([]string, error) {
 	return names, nil
 }
 
-// Load 读 root/<name>/SKILL.md，解析 frontmatter + body，跑校验，返回完整 Card。
+// Load 读 root/<name>/SKILL.md，解析 frontmatter + body，返回完整 Card。
 //
-// 命中 cardCache 直接返回（含 Body 与 CognitiveMapBody，已校验过）；
-// 未命中 → 读 SKILL.md + 读 cognitive_map.md + 全套校验 + 缓存进 cardCache。
+// 命中 cardCache 直接返回；未命中 → 读 SKILL.md + 缓存。
 //
-// 校验项（CC 风格 v1.1）：
-//  1. cognitive_map 文件存在 + ≥6 个槽位标题（同时把 markdown 正文读入 CognitiveMapBody）
-//  2. done_validator 已在 ActionRegistry 注册
-//  3. required_actions 列表中每项都已在 ActionRegistry 注册（actionRegistered 回调判定）
-//
-// 回调由调用方注入（避免 skill 包反向依赖 action 包）：
-//   - doneValidatorRegistered: 一般 = tool.Registry.HasDoneValidator
-//   - actionRegistered:        一般 = tool.Registry.HasAction（nil 时跳过此项校验）
-func (l *Loader) Load(
-	name string,
-	doneValidatorRegistered func(key string) bool,
-	actionRegistered func(name string) bool,
-) (*Card, error) {
+// 设计简化（v1.1 末次精简）：
+//   - 不再有启动期 cross-check（allowed-tools / done_validator 字段已删）
+//   - builder 是唯一真理来源：register 什么工具就能用什么；NewBACValidator 直接装配
+func (l *Loader) Load(name string) (*Card, error) {
 	if v, ok := l.cardCache.Load(name); ok {
 		return v.(*Card), nil
 	}
@@ -126,13 +116,6 @@ func (l *Loader) Load(
 		return nil, fmt.Errorf("yaml 解析 %s: %w", full, err)
 	}
 	card.Body = string(body)
-
-	if err := validateDoneValidator(&card, doneValidatorRegistered); err != nil {
-		return nil, err
-	}
-	if err := validateAllowedTools(&card, actionRegistered); err != nil {
-		return nil, err
-	}
 
 	l.cardCache.Store(name, &card)
 	return &card, nil
@@ -161,44 +144,6 @@ func (l *Loader) List() []*Card {
 		return true
 	})
 	return out
-}
-
-// validateDoneValidator 检查 done_validator key 已在 registry 注册。
-func validateDoneValidator(card *Card, registered func(key string) bool) error {
-	if card.DoneValidator == "" {
-		return nil
-	}
-	if registered == nil {
-		return errors.New("done_validator 校验回调未注入")
-	}
-	if !registered(card.DoneValidator) {
-		return fmt.Errorf(
-			"done_validator %q 未在 ActionRegistry 注册，请检查 Skill 是否启动前 Register",
-			card.DoneValidator,
-		)
-	}
-	return nil
-}
-
-// validateAllowedTools cross-check frontmatter allowed-tools 与运行时 Registry。
-//
-// CC 风格：白名单语义——SKILL.md 声明此 skill 只能用这些工具，
-// 启动期校验所有工具都已注册（避免 LLM 调到不存在的工具）。
-// actionRegistered=nil 时跳过此校验（启动期 Registry 还没填的场景）。
-func validateAllowedTools(card *Card, registered func(name string) bool) error {
-	if registered == nil || len(card.AllowedTools) == 0 {
-		return nil
-	}
-	var missing []string
-	for _, name := range card.AllowedTools {
-		if !registered(name) {
-			missing = append(missing, name)
-		}
-	}
-	if len(missing) > 0 {
-		return fmt.Errorf("skill %q allowed-tools 未注册: %v", card.Name, missing)
-	}
-	return nil
 }
 
 var (

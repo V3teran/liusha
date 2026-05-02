@@ -41,7 +41,6 @@ import (
 	"github.com/V3teran/liusha/internal/skill"
 	"github.com/V3teran/liusha/internal/task"
 	"github.com/V3teran/liusha/internal/tool"
-	"github.com/V3teran/liusha/internal/tool/done_validator"
 	"github.com/V3teran/liusha/internal/tool/middleware"
 	bac "github.com/V3teran/liusha/internal/builders/vuln/bac"
 	"github.com/V3teran/liusha/internal/tools/common"
@@ -99,7 +98,7 @@ func main() {
 
 	// Skill loader：CC 风格渐进加载——
 	//   1. Index() 启动扫 skills root，预解析所有 SKILL.md 的 frontmatter（不读 body）
-	//   2. Load("vuln-web-bac") 校验 cognitive_map 6 槽位 + done_validator 注册（同步首个 body 进缓存）
+	//   2. Load("vuln-web-bac") 预热（同步首个 body 进缓存）
 	//   3. delegate 每次调用走缓存，0 文件 IO
 	skillLoader := skill.NewLoader(cfg.Skills.Root)
 	skillNames, err := skillLoader.Index()
@@ -107,8 +106,8 @@ func main() {
 		logger.Fatal().Err(err).Msg("skill.Index 启动扫描失败")
 	}
 	logger.Info().Strs("skills", skillNames).Msg("skill index loaded")
-	// 启动期 Registry 还没装配，required_actions 校验放到 spawn 时（builder 内传 reg.Has）。
-	if _, err := skillLoader.Load("vuln-web-bac", done_validator.IsRegistered, nil); err != nil {
+	// 启动期预热：Load 一次让 BAC SKILL.md 进 cardCache（spawn 时 0 文件 IO）。
+	if _, err := skillLoader.Load("vuln-web-bac"); err != nil {
 		logger.Fatal().Err(err).Msg("load BAC skill")
 	}
 

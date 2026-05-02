@@ -92,7 +92,7 @@ allowed-tools: [fetch_credentials, replay_multi_identity]
 正文`
 	root := writeSkill(t, "vuln-web-bac", body)
 	l := NewLoader(root)
-	c, err := l.Load("vuln-web-bac", anyDoneValidator, nil)
+	c, err := l.Load("vuln-web-bac")
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
@@ -101,9 +101,6 @@ allowed-tools: [fetch_credentials, replay_multi_identity]
 	}
 	if c.Description != "BAC" {
 		t.Errorf("desc=%q", c.Description)
-	}
-	if len(c.AllowedTools) != 2 {
-		t.Errorf("allowed-tools=%v", c.AllowedTools)
 	}
 	if !strings.Contains(c.Body, "正文") {
 		t.Errorf("body=%q", c.Body)
@@ -118,7 +115,7 @@ name: [unclosed
 正文`
 	root := writeSkill(t, "broken", body)
 	l := NewLoader(root)
-	if _, err := l.Load("broken", anyDoneValidator, nil); err == nil {
+	if _, err := l.Load("broken"); err == nil {
 		t.Fatal("expected yaml parse error, got nil")
 	}
 }
@@ -129,7 +126,7 @@ func TestLoader_Load_MissingFrontmatter(t *testing.T) {
 没有分隔符的纯正文`
 	root := writeSkill(t, "noheader", body)
 	l := NewLoader(root)
-	_, err := l.Load("noheader", anyDoneValidator, nil)
+	_, err := l.Load("noheader")
 	if err == nil {
 		t.Fatal("expected missing-frontmatter error")
 	}
@@ -138,83 +135,16 @@ func TestLoader_Load_MissingFrontmatter(t *testing.T) {
 	}
 }
 
-// TestLoader_Load_AllowedToolsField：allowed-tools 数组解析正确（CC 风格白名单）。
-func TestLoader_Load_AllowedToolsField(t *testing.T) {
-	root := writeSkill(t, "vuln-web-bac", validBody)
-	l := NewLoader(root)
-	c, err := l.Load("vuln-web-bac", anyDoneValidator, nil)
-	if err != nil {
-		t.Fatalf("Load: %v", err)
-	}
-	want := []string{
-		"fetch_credentials", "replay_multi_identity", "heuristic_check",
-		"compute_similarity", "write_finding", "write_graph", "done",
-	}
-	if len(c.AllowedTools) != len(want) {
-		t.Fatalf("allowed-tools len=%d, want=%d", len(c.AllowedTools), len(want))
-	}
-	for i, a := range want {
-		if c.AllowedTools[i] != a {
-			t.Errorf("allowed-tools[%d]=%q, want=%q", i, c.AllowedTools[i], a)
-		}
-	}
-}
-
-// 黑客松扩展：cognitive_map 含 6 槽位 → 校验通过。
-//
-// v1.1 末删除 cognitive_map 字段后，相关 3 个测试已废弃：
-//   - TestLoader_Load_CognitiveMapPathExists
-//   - TestLoader_Load_CognitiveMap_Missing6Slots
-//   - TestLoader_Load_CognitiveMap_FileNotExist
-// 内容已合并入 SKILL.md body 单一来源。
-
-// 黑客松扩展：done_validator 未注册 → 报错。
-func TestLoader_Load_DoneValidator_NotRegistered(t *testing.T) {
-	body := `---
-name: x
-description: x
-allowed-tools: [done]
-done_validator: bac_v1
----
-正文`
-	root := writeSkill(t, "x", body)
-	l := NewLoader(root)
-	noneRegistered := func(string) bool { return false }
-	_, err := l.Load("x", noneRegistered, nil)
-	if err == nil {
-		t.Fatal("expected error: done_validator not registered")
-	}
-	if !strings.Contains(err.Error(), "done_validator") {
-		t.Errorf("err should mention done_validator, got: %v", err)
-	}
-}
-
-// 黑客松扩展：done_validator 已注册 → 通过。
-func TestLoader_Load_DoneValidator_Registered(t *testing.T) {
-	body := `---
-name: x
-description: x
-allowed-tools: [done]
-done_validator: bac_v1
----
-正文`
-	root := writeSkill(t, "x", body)
-	l := NewLoader(root)
-	registered := func(key string) bool { return key == "bac_v1" }
-	c, err := l.Load("x", registered, nil)
-	if err != nil {
-		t.Fatalf("Load: %v", err)
-	}
-	if c.DoneValidator != "bac_v1" {
-		t.Errorf("done_validator=%q", c.DoneValidator)
-	}
-}
+// v1.1 末次精简：删除 allowed-tools / done_validator frontmatter 字段，
+// 相关 3 个测试已废弃（TestLoader_Load_AllowedToolsField /
+// TestLoader_Load_DoneValidator_NotRegistered/Registered）。
+// 理由：builder 是唯一真理来源，frontmatter 重复声明已删除。
 
 // 文件不存在
 func TestLoader_Load_SkillNotFound(t *testing.T) {
 	root := t.TempDir()
 	l := NewLoader(root)
-	_, err := l.Load("nope", anyDoneValidator, nil)
+	_, err := l.Load("nope")
 	if err == nil {
 		t.Fatal("expected file not found error")
 	}

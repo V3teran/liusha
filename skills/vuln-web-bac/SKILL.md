@@ -7,18 +7,6 @@ description: |
   - 水平越权（同级用户访问其他用户的私有数据）
   适用场景：URL 含资源 ID（/api/order/:id）/ 路径含 /admin/ /sys/ /
   携带认证凭证（Cookie/Authorization）的 API。
-allowed-tools:
-  - read_state
-  - write_fact
-  - write_idea
-  - fetch_credentials
-  - replay_multi_identity
-  - heuristic_check
-  - compute_similarity
-  - write_finding
-  - write_graph
-  - done
-done_validator: bac_v1
 ---
 
 # BAC（访问控制失效）检测

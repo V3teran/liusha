@@ -67,10 +67,9 @@ func NewSubBuilder(deps SubBuilderDeps) func(ctx context.Context, p skill.Builde
 			return react.Config{}, fmt.Errorf("register sniffer actions: %w", err)
 		}
 
-		// skill loader 加载 SKILL.md（命中缓存 0 IO）+ cognitive_map.md 内容（CC 风格）。
-		// 这里传 reg.Has 让 required_actions cross-check 启用——
-		// 此时 Registry 已注册完所有 sniffer + common 工具，校验有意义。
-		card, err := deps.SkillLoader.Load("vuln-web-bac", done_validator.IsRegistered, reg.Has)
+		// skill loader 加载 SKILL.md（命中缓存 0 IO）。
+		// 极简后 Load 不再需要 cb 参数（builder 是唯一真理来源）。
+		card, err := deps.SkillLoader.Load("vuln-web-bac")
 		if err != nil {
 			return react.Config{}, fmt.Errorf("load skill: %w", err)
 		}
