@@ -85,11 +85,9 @@ func NewSubBuilder(deps SubBuilderDeps) func(ctx context.Context, p skill.Builde
 		// 同步读取当前 engagement memory_hints，把 distill 写入的跨 task 经验拼到 user prompt。
 		hintsBlock := loadHintsForPrompt(ctx, deps.Engagements, p.EngagementID)
 
-		// SystemPrompt = SKILL.md body + cognitive_map.md 正文（CC 风格让 LLM 看到完整 6 槽位）
+		// SystemPrompt = SKILL.md body 单一来源（v1.1 末删除 cognitive_map 字段，
+		// 6 槽位内容已合并入 body，避免冗余浪费 token）。
 		systemPrompt := card.Body
-		if card.CognitiveMapBody != "" {
-			systemPrompt += "\n\n## 6 槽位认知地图\n" + card.CognitiveMapBody
-		}
 
 		// MaxSteps 优先取 SKILL.md frontmatter budget.max_steps（CC 风格让配置生效）
 		maxSteps := card.Budget.MaxSteps
@@ -98,11 +96,13 @@ func NewSubBuilder(deps SubBuilderDeps) func(ctx context.Context, p skill.Builde
 		}
 
 		return react.Config{
-			LLM:          p.LLM,
-			Actions:      reg,
-			Budget:       react.Budget{MaxSteps: maxSteps, WatchdogSeconds: subWatchdogSeconds},
-			SystemPrompt: systemPrompt,
-			UserPrompt:   buildUserPrompt(p, hintsBlock),
+			LLM:                p.LLM,
+			Actions:            reg,
+			Budget:             react.Budget{MaxSteps: maxSteps, WatchdogSeconds: subWatchdogSeconds},
+			SystemPrompt:       systemPrompt,
+			UserPrompt:         buildUserPrompt(p, hintsBlock),
+			Observer:           p.Observer, // 子 ReAct 复用主 ReAct 的 observer 实例
+			ObserverEverySteps: 5,
 		}, nil
 	}
 }

@@ -178,83 +178,11 @@ func TestLoader_Load_RequiredActionsField(t *testing.T) {
 
 // 黑客松扩展：cognitive_map 含 6 槽位 → 校验通过。
 //
-// 注意：loader 现在按 cwd 相对路径解析 cognitive_map（仓库实际布局是
-// docs/skills/bac/cognitive_map.md 相对仓库根），因此测试 t.Chdir 到 tempdir
-// 让 cognitive_map: docs/skills/bac/cognitive_map.md 能落到 tempdir 内。
-func TestLoader_Load_CognitiveMapPathExists(t *testing.T) {
-	body := `---
-name: vuln/web/bac
-description: BAC
-applies_to:
-  - role: sniffer
-budget:
-  max_steps: 10
-  max_tokens: 15000
-required_actions: [done]
-cognitive_map: docs/skills/bac/cognitive_map.md
----
-正文`
-	root := writeSkill(t, "vuln/web/bac", body)
-	writeCognitiveMap(t, root, "docs/skills/bac/cognitive_map.md", 6)
-	t.Chdir(root)
-
-	l := NewLoader(root)
-	c, err := l.Load("vuln/web/bac", anyDoneValidator, nil)
-	if err != nil {
-		t.Fatalf("Load: %v", err)
-	}
-	if c.CognitiveMap != "docs/skills/bac/cognitive_map.md" {
-		t.Errorf("cognitive_map=%q", c.CognitiveMap)
-	}
-}
-
-// 黑客松扩展：cognitive_map 只有 5 槽位 → 报错。
-func TestLoader_Load_CognitiveMap_Missing6Slots(t *testing.T) {
-	body := `---
-name: x
-description: x
-applies_to:
-  - role: sniffer
-budget: {max_steps: 1, max_tokens: 1}
-required_actions: [done]
-cognitive_map: cm.md
----
-正文`
-	root := writeSkill(t, "x", body)
-	writeCognitiveMap(t, root, "cm.md", 5)
-
-	l := NewLoader(root)
-	_, err := l.Load("x", anyDoneValidator, nil)
-	if err == nil {
-		t.Fatal("expected error: cognitive_map missing slots")
-	}
-	if !strings.Contains(err.Error(), "cognitive_map") {
-		t.Errorf("err should mention cognitive_map, got: %v", err)
-	}
-}
-
-// 黑客松扩展：cognitive_map 文件不存在 → 报错。
-func TestLoader_Load_CognitiveMap_FileNotExist(t *testing.T) {
-	body := `---
-name: x
-description: x
-applies_to:
-  - role: sniffer
-budget: {max_steps: 1, max_tokens: 1}
-required_actions: [done]
-cognitive_map: not/exist.md
----
-正文`
-	root := writeSkill(t, "x", body)
-	l := NewLoader(root)
-	_, err := l.Load("x", anyDoneValidator, nil)
-	if err == nil {
-		t.Fatal("expected error: cognitive_map file not exist")
-	}
-	if !strings.Contains(err.Error(), "cognitive_map") {
-		t.Errorf("err should mention cognitive_map, got: %v", err)
-	}
-}
+// v1.1 末删除 cognitive_map 字段后，相关 3 个测试已废弃：
+//   - TestLoader_Load_CognitiveMapPathExists
+//   - TestLoader_Load_CognitiveMap_Missing6Slots
+//   - TestLoader_Load_CognitiveMap_FileNotExist
+// 内容已合并入 SKILL.md body 单一来源。
 
 // 黑客松扩展：done_validator 未注册 → 报错。
 func TestLoader_Load_DoneValidator_NotRegistered(t *testing.T) {

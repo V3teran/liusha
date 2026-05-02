@@ -7,7 +7,6 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"sync"
 
@@ -128,9 +127,6 @@ func (l *Loader) Load(
 	}
 	card.Body = string(body)
 
-	if err := l.validateAndLoadCognitiveMap(&card); err != nil {
-		return nil, err
-	}
 	if err := validateDoneValidator(&card, doneValidatorRegistered); err != nil {
 		return nil, err
 	}
@@ -165,30 +161,6 @@ func (l *Loader) List() []*Card {
 		return true
 	})
 	return out
-}
-
-// validateAndLoadCognitiveMap 校验 cognitive_map 文件 + 把 markdown 正文读入 Card.CognitiveMapBody。
-//
-// CC 风格 v1.1：cognitive_map 不再只是装饰——内容会被注入子 ReAct system prompt。
-//
-// 6 槽位用正则 (?m)^##\s+\d+\. 计数（业界共识：感知/假设/证据/推理/验证/收尾）。
-func (l *Loader) validateAndLoadCognitiveMap(card *Card) error {
-	if card.CognitiveMap == "" {
-		return nil
-	}
-	cmPath := filepath.Clean(card.CognitiveMap)
-	data, err := os.ReadFile(cmPath)
-	if err != nil {
-		return fmt.Errorf("cognitive_map %s: %w", cmPath, err)
-	}
-	if got := countCognitiveSlots(data); got < cognitiveMapMinSlots {
-		return fmt.Errorf(
-			"cognitive_map %s 槽位不足：需要 ≥ %d 个 '## N.' 标题，实际 %d 个",
-			cmPath, cognitiveMapMinSlots, got,
-		)
-	}
-	card.CognitiveMapBody = string(data)
-	return nil
 }
 
 // validateDoneValidator 检查 done_validator key 已在 registry 注册。
@@ -226,15 +198,6 @@ func validateRequiredActions(card *Card, registered func(name string) bool) erro
 		return fmt.Errorf("skill %q required_actions 未注册: %v", card.Name, missing)
 	}
 	return nil
-}
-
-// 6 槽位是黑客松共识：感知 / 假设 / 证据 / 推理 / 验证 / 收尾。
-const cognitiveMapMinSlots = 6
-
-var cognitiveSlotRe = regexp.MustCompile(`(?m)^##\s+\d+\.`)
-
-func countCognitiveSlots(data []byte) int {
-	return len(cognitiveSlotRe.FindAll(data, -1))
 }
 
 var (

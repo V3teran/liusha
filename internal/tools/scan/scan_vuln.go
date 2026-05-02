@@ -1,9 +1,9 @@
-// Package spawn 提供主 ReAct 的 spawn_skill 工具：按 skill 名嵌套调用子 ReAct（同进程同步）。
+// Package scan 提供主 ReAct 的 scan_vuln 工具：按 skill 名启动一个漏洞扫描子 ReAct（同进程同步）。
 //
 // CC 风格 v1.1：tool 的 Description 与 ParametersJSON 都从 Catalog 动态生成，
 // 主 LLM 直接通过 frontmatter description + enum 知道有哪些 skill 可用，
 // 加 SKILL.md + 注册 builder = 立即可被 LLM 发现，无需改 prompt 字符串。
-package spawn
+package scan
 
 import (
 	"context"
@@ -19,43 +19,47 @@ import (
 	"github.com/V3teran/liusha/internal/tool"
 )
 
-// SpawnSkill 工具：同进程嵌套调用子 ReAct（同步阻塞）。
+// ScanVuln 工具：启动一个漏洞扫描子 ReAct（同步阻塞）。
 //
-// 多个 spawn_skill 在主 LLM 同一轮返回时，runtime tool_calls 并行框架（T12）
-// 会启 N 个 goroutine 并行跑（每个 goroutine 独立调 SpawnSkill.Execute）。
+// 多个 scan_vuln 在主 LLM 同一轮返回时，runtime tool_calls 并行框架
+// 会启 N 个 goroutine 并行跑（每个独立调 ScanVuln.Execute）。
 //
-// Catalog 为可选字段，传入后 Description / ParametersJSON 自动按真实 skill 列表生成；
-// 留空则降级为通用描述 + 自由字符串 enum（仅供单元测试场景）。
-type SpawnSkill struct {
+// 字段：
+//   - Builders   skill 名 → SubBuilder 闭包；启动期 main.go 注册
+//   - Catalog    可用 skill 元数据（来自 Loader.List），驱动 Description / Parameters 动态生成
+//   - SubLLM     给子 ReAct 用的 LLM Generator（已 Instrument 装饰，role=prober）
+//   - Observer   注入子 ReAct 的过程判官（与主 ReAct 共享同一 observer 实例）
+type ScanVuln struct {
 	Builders     map[string]skill.Builder
 	EngagementID string
 	SubLLM       llm.Generator
 	Catalog      []*skill.Card
+	Observer     react.Observer
 }
 
-// Name 返回工具名 "spawn_skill"。
-func (a *SpawnSkill) Name() string { return "spawn_skill" }
+// Name 返回工具名 "scan_vuln"。
+func (a *ScanVuln) Name() string { return "scan_vuln" }
 
 // Description 给 LLM 的工具描述——按 Catalog 动态展开"name: description"清单。
 //
 // CC 风格：LLM 看一眼工具描述就知道有什么 skill 可调，省去硬编码 system prompt 列表。
-func (a *SpawnSkill) Description() string {
+func (a *ScanVuln) Description() string {
 	if len(a.Catalog) == 0 {
-		return "嵌套调用某个 skill 的子 ReAct 完成漏洞测试。子 ReAct 完成后返 summary。"
+		return "对一条流量启动一种漏洞扫描子 ReAct。子完成后返 summary。"
 	}
 	var b strings.Builder
-	b.WriteString("嵌套调用某个 skill 的子 ReAct 完成漏洞测试。当前可用 skill：\n")
+	b.WriteString("对一条流量启动一种漏洞扫描子 ReAct。当前可用 skill：\n")
 	cards := sortedCatalog(a.Catalog)
 	for _, c := range cards {
 		fmt.Fprintf(&b, "- %s: %s\n", c.Name, c.Description)
 	}
-	b.WriteString("根据流量特征选择合适的 skill；可一轮返回多个 spawn_skill（自动并行）。")
+	b.WriteString("根据流量特征选择合适的 skill；可一轮返回多个 scan_vuln（自动并行）。")
 	return b.String()
 }
 
-// ParametersJSON：skill 字段用 enum 限定为 Catalog 中已存在的 name；
-// 主 LLM 模型按 OpenAI tool schema 严格校验，写错 skill 名直接被拒。
-func (a *SpawnSkill) ParametersJSON() json.RawMessage {
+// ParametersJSON：skill 字段用 enum 限定为 Catalog 中已存在的 name。
+// 主 LLM 按 OpenAI tool schema 严格校验，写错 skill 名直接被拒。
+func (a *ScanVuln) ParametersJSON() json.RawMessage {
 	skillProp := `{"type":"string","description":"要调用的 skill 名"}`
 	if len(a.Catalog) > 0 {
 		cards := sortedCatalog(a.Catalog)
@@ -88,7 +92,9 @@ func sortedCatalog(in []*skill.Card) []*skill.Card {
 }
 
 // Execute 装配子 ReAct + 同进程同步嵌套跑 + 返 summary。
-func (a *SpawnSkill) Execute(ctx context.Context, args json.RawMessage) (tool.Result, error) {
+//
+// 子 ReAct 复用主 ReAct 的 Observer 实例（同 engagement，每 5 步过程判官评估）。
+func (a *ScanVuln) Execute(ctx context.Context, args json.RawMessage) (tool.Result, error) {
 	var in struct {
 		Skill  string `json:"skill"`
 		FlowID int64  `json:"flow_id"`
@@ -114,6 +120,7 @@ func (a *SpawnSkill) Execute(ctx context.Context, args json.RawMessage) (tool.Re
 		URL:          in.URL,
 		Method:       in.Method,
 		LLM:          a.SubLLM,
+		Observer:     a.Observer,
 	})
 	if err != nil {
 		return tool.Result{}, fmt.Errorf("build skill %s: %w", in.Skill, err)

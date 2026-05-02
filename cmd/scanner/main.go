@@ -3,13 +3,13 @@
 //	职责：
 //	  1. 启 ingestor.Traffic goroutine：消费 Redis Stream → 启发式打分 → 入主 react 队列
 //	  2. 启 asynq.Server：消费 agent:react 队列，每个 task 跑 1 个主 ReAct
-//	  3. 主 ReAct 工具集：classify_traffic / spawn_skill(bac) / get_findings / common.{Done,ReadState,WriteFact,WriteIdea,WriteGraph}
-//	  4. spawn_skill(bac) → 同进程嵌套 BAC 子 ReAct（NewSubBuilder 装配）
+//	  3. 主 ReAct 工具集：classify_traffic / scan_vuln(bac) / get_findings / common.{Done,ReadState,WriteFact,WriteIdea,WriteGraph}
+//	  4. scan_vuln(bac) → 同进程嵌套 BAC 子 ReAct（NewSubBuilder 装配）
 //	  5. healthz HTTP :9090；graceful shutdown
 //
 //	并发：
 //	  asynq.Concurrency=6，6 个 goroutine 并发跑主 ReAct
-//	  单主 ReAct 内：runtime tool_calls 并行（多 spawn_skill 自动并发）
+//	  单主 ReAct 内：runtime tool_calls 并行（多 scan_vuln 自动并发）
 package main
 
 import (
@@ -45,7 +45,7 @@ import (
 	"github.com/V3teran/liusha/internal/tool/middleware"
 	bac "github.com/V3teran/liusha/internal/builders/vuln/bac"
 	"github.com/V3teran/liusha/internal/tools/common"
-	"github.com/V3teran/liusha/internal/tools/spawn"
+	"github.com/V3teran/liusha/internal/tools/scan"
 	"github.com/V3teran/liusha/internal/tools/traffic"
 	"github.com/V3teran/liusha/internal/worker"
 
@@ -100,7 +100,7 @@ func main() {
 	// Skill loader：CC 风格渐进加载——
 	//   1. Index() 启动扫 skills root，预解析所有 SKILL.md 的 frontmatter（不读 body）
 	//   2. Load("vuln/web/bac") 校验 cognitive_map 6 槽位 + done_validator 注册（同步首个 body 进缓存）
-	//   3. spawn_skill 每次调用走缓存，0 文件 IO
+	//   3. scan_vuln 每次调用走缓存，0 文件 IO
 	skillLoader := skill.NewLoader(cfg.Skills.Root)
 	skillNames, err := skillLoader.Index()
 	if err != nil {
@@ -276,10 +276,10 @@ func (h handler) handle(ctx context.Context, p worker.Payload) error {
 // handleTraffic 处理 mode=traffic 的主 ReAct（1 流量 → 1 主 ReAct）。
 //
 //	工具集（8 个）：
-//	  classify_traffic / spawn_skill / get_findings
+//	  classify_traffic / scan_vuln / get_findings
 //	  + common.{Done, ReadState, WriteFact, WriteIdea, WriteGraph}
 //
-//	子 ReAct（spawn_skill）：
+//	子 ReAct（scan_vuln）：
 //	  bac → bac.NewSubBuilder（装配 BAC 工具集 + SKILL.md system prompt + BACValidator）
 func (h handler) handleTraffic(ctx context.Context, p worker.Payload, entrypoint json.RawMessage) error {
 	var ep struct {
@@ -344,15 +344,20 @@ func (h handler) handleTraffic(ctx context.Context, p worker.Payload, entrypoint
 	_ = reg.Register(&common.WriteIdea{Store: h.engagements, EngagementID: eid})
 	_ = reg.Register(&common.WriteGraph{Store: h.graphs, EngagementID: eid})
 
-	// mainreact 元工具
+	// observer 提前创建：注入主 ReAct + scan_vuln 工具（让其转给子 ReAct 共享判官）
+	observer := react.NewLLMObserver(obsGen, h.engagements, eid)
+
+	// 主 ReAct 元工具
 	_ = reg.Register(&traffic.ClassifyTraffic{LLM: mainGen})
-	// CC 风格：把 skill catalog 注入 SpawnSkill —— Description / ParametersJSON 自动列出
-	// 所有可用 skill（含每条 frontmatter 的 description），LLM 自主发现
-	_ = reg.Register(&spawn.SpawnSkill{
+	// CC 风格：把 skill catalog 注入 ScanVuln —— Description / ParametersJSON 自动列出
+	// 所有可用 skill（含每条 frontmatter 的 description），LLM 自主发现。
+	// Observer 透传给子 ReAct，让子 ReAct 也享受过程判官（每 5 步评估）。
+	_ = reg.Register(&scan.ScanVuln{
 		Builders:     map[string]skill.Builder{"vuln/web/bac": bacBuilder},
 		EngagementID: eid,
 		SubLLM:       subGen,
 		Catalog:      h.skillLoader.List(),
+		Observer:     observer,
 	})
 	_ = reg.Register(&traffic.GetFindings{Store: h.findings, EngagementID: eid})
 
@@ -361,8 +366,6 @@ func (h handler) handleTraffic(ctx context.Context, p worker.Payload, entrypoint
 		middleware.ResultCompress(eid, resultCompressBaseDir),
 		middleware.DoneValidate(nil),
 	)
-
-	observer := react.NewLLMObserver(obsGen, h.engagements, eid)
 
 	// 自动注入 hint + catalog 到 main system prompt（CC 风格自动发现）。
 	e, _ := h.engagements.GetByID(ctx, eid)
@@ -409,9 +412,9 @@ func buildMainSystemPrompt(e engagement.Engagement, catalog []*skill.Card) strin
 
 工作流程：
 1. classify_traffic 让 LLM 判流量类型 + 输出可能漏洞清单（required_skills）
-2. 根据 required_skills 调 spawn_skill(skill_name, flow_id, ...)；
-   要测多个漏洞类型可在同一轮返回多个 spawn_skill（runtime 自动 goroutine 并行）
-3. 每个 spawn_skill 返回 summary（含 finding 数量），用 get_findings 看详情
+2. 根据 required_skills 调 scan_vuln(skill_name, flow_id, ...)；
+   要测多个漏洞类型可在同一轮返回多个 scan_vuln（runtime 自动 goroutine 并行）
+3. 每个 scan_vuln 返回 summary（含 finding 数量），用 get_findings 看详情
 4. 必要时 write_fact / write_idea / write_graph 总结
 5. done({"reason":"all_skills_done"})
 
@@ -473,7 +476,7 @@ func buildMainUserPrompt(ep struct {
 
 立刻按系统步骤调用工具：
 1. 先 classify_traffic 拿漏洞清单
-2. spawn_skill 测每种漏洞
+2. scan_vuln 测每种漏洞
 3. get_findings 看汇总
 4. done`, ep.FlowID, ep.Host, ep.Method, ep.URL)
 }

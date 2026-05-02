@@ -2,11 +2,10 @@
 // 与 Loader 同包：skill 包代表"skill 系统"——加载 SKILL.md（Card / Loader）
 // 与装配可执行 react.Config（Builder）两个职责合并在一处。
 //
-// 历史上这两个类型放在 internal/tools/mainreact 包（spawn_skill.go 内），
-// 但语义上它们是"skill 的装配契约"，与 spawn_skill 这个具体工具解耦后：
-//   - tools/spawn 只负责"按 skill 名调 Builder + 跑子 ReAct"；
-//   - builders/vuln/<kind> 实现具体 skill 的 Builder；
-//   - 两者通过 skill.Builder 类型解耦。
+// 解耦关系：
+//   - tools/scan 只负责"按 skill 名调 Builder + 跑子 ReAct"
+//   - builders/vuln/<kind> 实现具体 skill 的 Builder
+//   - 两者通过 skill.Builder 类型解耦
 package skill
 
 import (
@@ -18,10 +17,13 @@ import (
 
 // Builder 为某个 skill 装配子 ReAct Config。
 //
-// scanner 启动时按 skill 名注册到 SpawnSkill.Builders（如 "bac" → bac.NewSubBuilder）。
+// scanner 启动时按 skill 名注册到 ScanVuln.Builders（如 "vuln/web/bac" → bac.NewSubBuilder）。
 type Builder func(ctx context.Context, params BuilderParams) (react.Config, error)
 
-// BuilderParams 子 ReAct 启动参数（由 spawn_skill 工具从 LLM 调用参数解析后传入）。
+// BuilderParams 子 ReAct 启动参数（由 scan_vuln 工具从 LLM 调用参数解析后传入）。
+//
+// Observer 由调用方注入（一般是主 ReAct 的同实例 observer），
+// 让子 ReAct 也享受过程判官（每 5 步评估、abort/steer），跟主 ReAct 行为一致。
 type BuilderParams struct {
 	EngagementID string
 	FlowID       int64
@@ -29,4 +31,5 @@ type BuilderParams struct {
 	URL          string
 	Method       string
 	LLM          llm.Generator
+	Observer     react.Observer
 }

@@ -14,8 +14,5 @@ WORKDIR /app
 COPY --from=build /out/scanner /app/scanner
 COPY config /app/config
 COPY skills /app/skills
-# SKILL.md frontmatter 的 cognitive_map: docs/skills/bac/cognitive_map.md 是相对 cwd（容器内 /app），
-# loader 启动校验需要这个路径文件存在。
-COPY docs/skills /app/docs/skills
 EXPOSE 9090
 ENTRYPOINT ["/app/scanner"]

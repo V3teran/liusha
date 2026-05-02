@@ -7,7 +7,6 @@ budget:
   max_steps: 10
   max_tokens: 15000
 done_validator: bac_v1
-cognitive_map: docs/skills/bac/cognitive_map.md
 required_actions:
   - read_state
   - write_fact
