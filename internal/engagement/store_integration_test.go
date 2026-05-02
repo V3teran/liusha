@@ -84,7 +84,7 @@ func TestStore_AppendAndReadState(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := s.AppendHint(ctx, e.ID,
-		[]byte(`{"from_skill":"vuln/web/bac","content":"hint content","priority":7}`)); err != nil {
+		[]byte(`{"from_skill":"vuln-web-bac","content":"hint content","priority":7}`)); err != nil {
 		t.Fatal(err)
 	}
 

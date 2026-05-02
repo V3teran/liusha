@@ -1,7 +1,7 @@
 // Package skill 负责加载 SKILL.md（frontmatter + 正文），返回 Card 描述。
 //
 // CC 风格精简 frontmatter（v1.1 末次裁剪，4 字段）：
-//   - name            机器 ID（path-style，如 vuln/web/bac）
+//   - name            机器 ID（kebab-case 与文件夹名一致，如 vuln-web-bac）
 //   - description     LLM 用此描述自动发现 skill
 //   - allowed-tools   白名单（替代 required_actions，与 CC 语义一致）
 //   - done_validator  liusha 特有 done 校验 key

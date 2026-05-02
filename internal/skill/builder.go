@@ -17,7 +17,7 @@ import (
 
 // Builder 为某个 skill 装配子 ReAct Config。
 //
-// scanner 启动时按 skill 名注册到 ScanVuln.Builders（如 "vuln/web/bac" → bac.NewSubBuilder）。
+// scanner 启动时按 skill 名注册到 Delegate.Builders（如 "vuln-web-bac" → bac.NewSubBuilder）。
 type Builder func(ctx context.Context, params BuilderParams) (react.Config, error)
 
 // BuilderParams 子 ReAct 启动参数（由 scan_vuln 工具从 LLM 调用参数解析后传入）。

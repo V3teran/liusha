@@ -1,5 +1,5 @@
 ---
-name: vuln/web/bac
+name: vuln-web-bac
 description: |
   Web 应用 BAC（访问控制失效）漏洞检测。检测三种子类型：
   - 未授权访问（anonymous 能访问需登录的资源）

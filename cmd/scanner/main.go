@@ -99,7 +99,7 @@ func main() {
 
 	// Skill loader：CC 风格渐进加载——
 	//   1. Index() 启动扫 skills root，预解析所有 SKILL.md 的 frontmatter（不读 body）
-	//   2. Load("vuln/web/bac") 校验 cognitive_map 6 槽位 + done_validator 注册（同步首个 body 进缓存）
+	//   2. Load("vuln-web-bac") 校验 cognitive_map 6 槽位 + done_validator 注册（同步首个 body 进缓存）
 	//   3. delegate 每次调用走缓存，0 文件 IO
 	skillLoader := skill.NewLoader(cfg.Skills.Root)
 	skillNames, err := skillLoader.Index()
@@ -108,7 +108,7 @@ func main() {
 	}
 	logger.Info().Strs("skills", skillNames).Msg("skill index loaded")
 	// 启动期 Registry 还没装配，required_actions 校验放到 spawn 时（builder 内传 reg.Has）。
-	if _, err := skillLoader.Load("vuln/web/bac", done_validator.IsRegistered, nil); err != nil {
+	if _, err := skillLoader.Load("vuln-web-bac", done_validator.IsRegistered, nil); err != nil {
 		logger.Fatal().Err(err).Msg("load BAC skill")
 	}
 
@@ -353,7 +353,7 @@ func (h handler) handleTraffic(ctx context.Context, p worker.Payload, entrypoint
 	// 所有可用 skill（含每条 frontmatter 的 description），LLM 自主发现。
 	// Observer 透传给子 ReAct，让子 ReAct 也享受过程判官（每 5 步评估）。
 	_ = reg.Register(&delegate.Delegate{
-		Builders:     map[string]skill.Builder{"vuln/web/bac": bacBuilder},
+		Builders:     map[string]skill.Builder{"vuln-web-bac": bacBuilder},
 		EngagementID: eid,
 		SubLLM:       subGen,
 		Catalog:      h.skillLoader.List(),

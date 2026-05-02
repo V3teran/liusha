@@ -196,7 +196,7 @@ func TestWriteHint_AppendsHint(t *testing.T) {
 	m := &fakeMem{}
 	wr := &WriteHint{Store: m, EngagementID: "e"}
 	_, err := wr.Execute(context.Background(),
-		json.RawMessage(`{"from_skill":"vuln/web/bac","content":"先看 /admin","priority":7}`))
+		json.RawMessage(`{"from_skill":"vuln-web-bac","content":"先看 /admin","priority":7}`))
 	if err != nil {
 		t.Fatalf("err=%v", err)
 	}
