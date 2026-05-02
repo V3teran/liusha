@@ -305,13 +305,13 @@ func (h handler) handleTraffic(ctx context.Context, p worker.Payload, entrypoint
 		h.pricing,
 	)
 
-	subRaw, err := h.router.For(ctx, "prober")
+	subRaw, err := h.router.For(ctx, "hunter")
 	if err != nil {
 		_ = h.tasks.SetError(ctx, p.TaskID, err.Error())
 		return err
 	}
 	subGen := llm.Instrument(subRaw, h.calls,
-		llm.CallMeta{TaskID: &tid, EngagementID: &eid, RouteKey: "prober"},
+		llm.CallMeta{TaskID: &tid, EngagementID: &eid, RouteKey: "hunter"},
 		h.pricing,
 	)
 

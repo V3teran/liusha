@@ -33,7 +33,7 @@ type PostgresConfig struct {
 // LLMConfig 包含主/轻/视觉/降级 4 个 provider 字段 + 双 namespace 路由表。
 //
 // v1.1 双 namespace（替代单 routes 平铺）：
-//   - Agents     有 lifecycle + system prompt + tool loop（orchestrator/prober/observer）
+//   - Agents     有 lifecycle + system prompt + tool loop（orchestrator/hunter/observer）
 //   - Utilities  single-shot transform，无循环（distill / vision / 未来 compactor 等）
 //
 // 运行时 Router.For 合并查找两个 map，未命中回退 default_provider；

@@ -35,7 +35,7 @@ import (
 // 字段：
 //   - Builders   skill 名 → SubBuilder 闭包；启动期 main.go 注册
 //   - Catalog    可用 skill 元数据（来自 Loader.List），驱动 Description / Parameters 动态生成
-//   - SubLLM     给子 ReAct 用的 LLM Generator（已 Instrument 装饰，role=prober）
+//   - SubLLM     给子 ReAct 用的 LLM Generator（已 Instrument 装饰，role=hunter）
 //   - Observer   注入子 ReAct 的过程判官（与主 ReAct 共享同一 observer 实例）
 type Delegate struct {
 	Builders     map[string]skill.Builder

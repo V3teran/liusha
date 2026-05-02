@@ -28,12 +28,12 @@ llm:
   max_steps: 30                 # ReAct 单任务步数上限，被 Role.Budget 覆盖
   max_tokens_per_call: 4096
   # 双 namespace（v1.1 改造）：把"真 agent"与"single-shot utility"语义分开。
-  #   - agents     有 lifecycle + system prompt + tool loop（orchestrator/prober/observer）
+  #   - agents     有 lifecycle + system prompt + tool loop（orchestrator/hunter/observer）
   #   - utilities  single-shot transform，无循环、无 tool（distill/未来 compactor 等）
   # 运行时合并视图：router.For 同时查 agents + utilities，未命中回退 default_provider。
   agents:
-    orchestrator: default_provider   # 主 ReAct（分类流量、派发 prober、收尾）
-    prober:       default_provider   # 子 ReAct（漏洞探针：BAC / 未来 SQLi/SSRF/IDOR）
+    orchestrator: default_provider   # 主 ReAct（分类流量、派发 hunter、收尾）
+    hunter:       default_provider   # 子 ReAct（漏洞猎手：BAC / 未来 SQLi/SSRF/IDOR）
     observer:     light_provider     # 旁路过程判官（每 5 步评估方向）
   utilities:
     distill:      light_provider     # finding → ≤200 字 hint，落 memory_hints

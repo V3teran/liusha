@@ -5,12 +5,12 @@ package worker
 // Role 表示一个任务由哪种 agent 执行。
 //
 // 命名约定（v1.1 重命名）：
-//   - orchestrator = 主 ReAct 协调者（分类流量 + 派发 prober skill + 收尾），不亲自做漏洞探测
+//   - orchestrator = 主 ReAct 协调者（分类流量 + 派发 hunter skill + 收尾），不亲自做漏洞探测
 //   - dispatch     = 备用调度队列（v1.5+ 优先级或专属队列）
 type Role string
 
 const (
-	// RoleOrchestrator 主 ReAct 协调任务：分类流量、派发 prober skill、收尾。
+	// RoleOrchestrator 主 ReAct 协调任务：分类流量、派发 hunter skill、收尾。
 	RoleOrchestrator Role = "orchestrator"
 	// RoleDispatch 备用调度队列（v1.5+ 优先级或专属队列）。
 	RoleDispatch Role = "dispatch"

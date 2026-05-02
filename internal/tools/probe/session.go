@@ -5,7 +5,7 @@
 // 命名说明（业界最佳实践）：
 //   - "probe" = 主动发请求测试目标（OWASP Active Scanner 标准术语）
 //   - 不叫 "sniffer"（被动抓包语义错位）
-//   - 跟 LLM RouteKey "prober"（执行 probe 的子 ReAct）形成对应
+//   - 跟 LLM RouteKey "hunter"（执行 probe 的漏洞猎手 = 子 ReAct）形成对应
 //
 // 设计要点：
 //   - 4 个 action 通过共享 *Session 在 task 内部传递"上一次的 responses"，

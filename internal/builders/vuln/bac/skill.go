@@ -119,7 +119,7 @@ func buildUserPrompt(p skill.BuilderParams, hintsBlock string) string {
 
 // loadHintsForPrompt 同步读 engagement.memory_hints.hints[] 拼成可读文本。
 //
-// 失败任何一步都返回空字符串（让子 prober 退化到无 hint 形态），避免单点故障阻塞 spawn。
+// 失败任何一步都返回空字符串（让子 hunter 退化到无 hint 形态），避免单点故障阻塞 spawn。
 func loadHintsForPrompt(ctx context.Context, engs *engagement.Store, eid string) string {
 	if engs == nil || eid == "" {
 		return ""
