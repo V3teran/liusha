@@ -1,13 +1,15 @@
 // Package observability 提供成本核算与遥测相关的工具。
 //
 // pricing.go 内置 spec §8.2 的 LLM 单价表，按 (provider, model, usage)
-// 计算单次调用的 USD 成本。cache 折扣按 plan 给定的"加项"语义实现：
+// 计算单次调用的 USD 成本。
 //
-//	cost = in/M * input_price
-//	     + out/M * output_price
-//	     + cached/M * input_price * cache_discount
+// cached_tokens 在不同 provider 的语义不同：
+//   - Anthropic: cache_read_input_tokens 与 input_tokens 独立返回（"加项"）
+//     cost = in/M * in_price + out/M * out_price + cached/M * in_price * cache_discount
+//   - OpenAI / DeepSeek: prompt_tokens_details.cached_tokens ⊆ prompt_tokens（"子集"）
+//     cost = (in-cached)/M * in_price + cached/M * in_price * cache_discount + out/M * out_price
 //
-// 即 CachedTokens 视为额外计费项，复用 input 单价 × 折扣系数。
+// 由 ModelPrice.CachedInIn 控制：true=子集语义，false=加项语义。
 package observability
 
 import "github.com/V3teran/liusha/internal/llm"
@@ -15,10 +17,15 @@ import "github.com/V3teran/liusha/internal/llm"
 // ModelPrice 是某个 provider/model 组合的单价定义。
 // InputPerMUSD / OutputPerMUSD 单位为 USD per 1M tokens。
 // CacheDiscount 为 input 缓存命中部分相对原价的折扣系数（例如 0.10 表示 10% 原价）。
+//
+// CachedInIn 标记 Usage.CachedTokens 是否已被计入 InTokens：
+//   - true（OpenAI/DeepSeek）：CachedTokens ⊆ InTokens；Estimate 先减再分别计价。
+//   - false（Anthropic 默认）：CachedTokens 与 InTokens 独立返回；Estimate 加项处理。
 type ModelPrice struct {
 	InputPerMUSD  float64
 	OutputPerMUSD float64
 	CacheDiscount float64
+	CachedInIn    bool
 }
 
 // Pricing 是 ModelPrice 的查找表 + 成本估算实现。
@@ -31,9 +38,12 @@ const tokensPerMillion = 1_000_000.0
 
 // DefaultPricing 是 spec §8.2 内置的默认单价表。
 // 包含 deepseek-chat / claude-sonnet-4-6 / claude-haiku-4-5 三个生产模型。
+//
+// CachedInIn 区分计费语义：deepseek 用 OpenAI 兼容接口（cached ⊆ in）；
+// anthropic 原生 API（cached 独立返回）。
 var DefaultPricing = Pricing{
 	table: map[string]ModelPrice{
-		"deepseek/deepseek-chat":      {InputPerMUSD: 0.27, OutputPerMUSD: 1.10, CacheDiscount: 0.10},
+		"deepseek/deepseek-chat":      {InputPerMUSD: 0.27, OutputPerMUSD: 1.10, CacheDiscount: 0.10, CachedInIn: true},
 		"anthropic/claude-sonnet-4-6": {InputPerMUSD: 3.00, OutputPerMUSD: 15.00, CacheDiscount: 0.30},
 		"anthropic/claude-haiku-4-5":  {InputPerMUSD: 1.00, OutputPerMUSD: 5.00, CacheDiscount: 0.30},
 	},
@@ -47,12 +57,22 @@ func (p Pricing) Lookup(provider, model string) (ModelPrice, bool) {
 
 // Estimate 计算单次调用的 USD 成本。
 // 未命中单价表时返回 0（不报错，由上层决定是否记录 warning）。
+//
+// CachedInIn=true 时（OpenAI/DeepSeek）：cached ⊆ in_tokens，先减再分别计价；
+// CachedInIn=false 时（Anthropic）：cached 独立计价（"加项"）。
 func (p Pricing) Estimate(provider, model string, u llm.Usage) float64 {
 	mp, ok := p.Lookup(provider, model)
 	if !ok {
 		return 0
 	}
-	in := float64(u.InTokens) / tokensPerMillion * mp.InputPerMUSD
+	uncachedIn := u.InTokens
+	if mp.CachedInIn {
+		uncachedIn -= u.CachedTokens
+		if uncachedIn < 0 {
+			uncachedIn = 0
+		}
+	}
+	in := float64(uncachedIn) / tokensPerMillion * mp.InputPerMUSD
 	out := float64(u.OutTokens) / tokensPerMillion * mp.OutputPerMUSD
 	cached := float64(u.CachedTokens) / tokensPerMillion * mp.InputPerMUSD * mp.CacheDiscount
 	return in + out + cached
