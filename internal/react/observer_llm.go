@@ -75,13 +75,34 @@ func (o *LLMObserver) Evaluate(ctx context.Context, window []StepRecord) Verdict
 		return Verdict{Decision: VerdictKeepGoing}
 	}
 
-	switch dec.Decision {
-	case VerdictKeepGoing, VerdictSteer, VerdictAbort:
-		return Verdict{Decision: dec.Decision, Hint: dec.Hint}
-	default:
-		slog.Warn("observer unknown decision", "decision", dec.Decision, "engagement_id", o.engagementID)
-		return Verdict{Decision: VerdictKeepGoing}
+	if v := normalizeDecision(dec.Decision); v != "" {
+		return Verdict{Decision: v, Hint: dec.Hint}
 	}
+	slog.Warn("observer unknown decision", "decision", dec.Decision, "engagement_id", o.engagementID)
+	return Verdict{Decision: VerdictKeepGoing}
+}
+
+// normalizeDecision 把 LLM 输出的 decision 字段归一化到 3 种合法值。
+//
+// 设计原因：LLM 偶发 typo（如 "kepp_going" 漏字母）/ 大小写差异 / 含连字符变体
+// 会被旧 strict switch 直接拒绝（VerdictKeepGoing 兜底但打 warn）。这里用宽松匹配吸收
+// 常见变体，避免噪音日志：
+//   - 包含 "abort" → abort_low_value
+//   - 包含 "steer" → steer_with_hint
+//   - 包含 "keep" / "going" / "kepp" → keep_going（覆盖 LLM 拼写错误）
+//
+// 完全无法识别返回 ""，让 caller 仍 fallback keep_going + warn（保留可观测性）。
+func normalizeDecision(raw string) string {
+	s := strings.ToLower(strings.TrimSpace(raw))
+	switch {
+	case strings.Contains(s, "abort"):
+		return VerdictAbort
+	case strings.Contains(s, "steer"):
+		return VerdictSteer
+	case strings.Contains(s, "keep"), strings.Contains(s, "going"), strings.Contains(s, "kepp"):
+		return VerdictKeepGoing
+	}
+	return ""
 }
 
 // readStateOrNil 读三层 memory；失败或 store nil 时返回 nil 让 prompt 省略状态板段。

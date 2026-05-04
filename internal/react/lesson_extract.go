@@ -75,17 +75,22 @@ func NewLessonExtractHook(g llm.Generator, lessons LessonAdder) vulnfinding.Save
 // 每次重扫确认漏洞依然存在时，所有 source_finding_id 指向该 finding 的 lesson 行
 // hit_count+1，体现"经验被多次验证"，便于按可信度排序。
 //
-// **时序竞争修复**：首发 LessonExtract 是异步 goroutine（~2s LLM），lesson 可能在重发现
-// hook 触发时还没建好 → 0 update。这里加 backoff 重试：每 800ms × 4 次（最多 3.2s）
-// 等 extract 完成。仍失败仅 slog.Warn（hit_count 丢一次不影响业务）。
-const lessonTouchMaxRetries = 4
-const lessonTouchBackoff = 800 * time.Millisecond
+// **时序竞争修复**：首发 LessonExtract 是异步 goroutine（~2-10s LLM，含 prompt cache miss
+// 与 retry），lesson 可能在重发现 hook 触发时还没建好 → 0 update。
+// 用几何 backoff（500ms 起，每次 × 2，cap 在 4s）×7 次重试，总等待约 19.5s——
+// 前期快速重试避免无谓等待，后期长等待覆盖慢 LLM。仍失败仅 slog.Warn。
+//
+// 旧策略 4 × 800ms = 3.2s 在 e2e 实测下偶发 give up（LLM 调用 > 3s 时），新策略覆盖 99% 场景。
+const lessonTouchMaxRetries = 7
+const lessonTouchInitialBackoff = 500 * time.Millisecond
+const lessonTouchMaxBackoff = 4 * time.Second
 
 func NewLessonTouchHook(toucher LessonToucher) vulnfinding.SavedHook {
 	return func(ctx context.Context, _ string, f vulnfinding.VulnFinding) {
 		if toucher == nil || f.Host == "" || f.DedupKey == "" {
 			return
 		}
+		backoff := lessonTouchInitialBackoff
 		for attempt := 0; attempt < lessonTouchMaxRetries; attempt++ {
 			n, err := toucher.TouchByDedup(ctx, f.Host, f.DedupKey)
 			if err != nil {
@@ -97,9 +102,13 @@ func NewLessonTouchHook(toucher LessonToucher) vulnfinding.SavedHook {
 			}
 			// 0 update：lesson 可能还在 extract；sleep 后重试
 			select {
-			case <-time.After(lessonTouchBackoff):
+			case <-time.After(backoff):
 			case <-ctx.Done():
 				return
+			}
+			backoff *= 2
+			if backoff > lessonTouchMaxBackoff {
+				backoff = lessonTouchMaxBackoff
 			}
 		}
 		slog.Warn("lesson touch gave up: lesson never appeared", "host", f.Host, "dedup_key", f.DedupKey)

@@ -8,6 +8,36 @@ import (
 	"github.com/V3teran/liusha/internal/llm"
 )
 
+// TestNormalizeDecision_TypoTolerance 验证 LLM 输出 decision 字段的归一化容错。
+// 关键 case：实测 LLM 偶发拼成 "kepp_going"（漏字母），不应再触发 unknown warn。
+func TestNormalizeDecision_TypoTolerance(t *testing.T) {
+	cases := []struct {
+		name string
+		raw  string
+		want string
+	}{
+		{"canonical keep_going", "keep_going", VerdictKeepGoing},
+		{"canonical steer", "steer_with_hint", VerdictSteer},
+		{"canonical abort", "abort_low_value", VerdictAbort},
+		{"typo kepp_going", "kepp_going", VerdictKeepGoing},
+		{"uppercase KEEP_GOING", "KEEP_GOING", VerdictKeepGoing},
+		{"with whitespace", "  keep_going  ", VerdictKeepGoing},
+		{"contains keep", "keep going", VerdictKeepGoing},
+		{"contains going", "let me keep going", VerdictKeepGoing},
+		{"hyphen variant abort", "abort-low-value", VerdictAbort},
+		{"contains steer", "Please steer", VerdictSteer},
+		{"empty input returns empty", "", ""},
+		{"unknown returns empty", "yolo", ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := normalizeDecision(tc.raw); got != tc.want {
+				t.Fatalf("normalizeDecision(%q) = %q, want %q", tc.raw, got, tc.want)
+			}
+		})
+	}
+}
+
 // mockGen 是供 observer / lesson_extract 测试使用的最小 LLM Generator。
 //
 //   - out：Generate 直接把 out 包成 llm.Result.Content 返回；
