@@ -99,12 +99,17 @@ func (i *instrumented) Generate(ctx context.Context, msgs []Message, tools []Too
 	}
 
 	// 序列化输入/输出落库（B2 全量审计）。失败仅 warn，不阻塞 Generate 返回。
-	if b, mErr := json.Marshal(msgs); mErr == nil {
+	//
+	// sanitize 修复 LLM 偶发返回非法 JSON 的 ToolCall.Arguments（典型：DeepSeek
+	// 截断或带余字符）。json.RawMessage.MarshalJSON 会 validate，遇非法字节直接
+	// 整个 marshal 失败，audit JSON 全丢；sanitize 把非法 Arguments 包装成合法
+	// {"_raw_invalid":"<原字节>"}，保留可读痕迹。
+	if b, mErr := json.Marshal(sanitizeMessages(msgs)); mErr == nil {
 		call.MessagesJSON = b
 	} else {
 		i.log.Warn().Err(mErr).Msg("messages_json marshal 失败（落库回退默认值）")
 	}
-	if b, mErr := json.Marshal(res); mErr == nil {
+	if b, mErr := json.Marshal(sanitizeResult(res)); mErr == nil {
 		call.ResultJSON = b
 	} else {
 		i.log.Warn().Err(mErr).Msg("result_json marshal 失败（落库回退默认值）")
@@ -120,4 +125,45 @@ func (i *instrumented) Generate(ctx context.Context, msgs []Message, tools []Too
 			Msg("llm_call append 失败（不阻塞 Generate 返回）")
 	}
 	return res, err
+}
+
+// sanitizeMessages 返回 msgs 的浅拷贝，所有 ToolCall.Arguments 经 sanitizeToolCalls 兜底。
+// msgs 本身（业务路径）不受影响。
+func sanitizeMessages(msgs []Message) []Message {
+	if len(msgs) == 0 {
+		return msgs
+	}
+	out := make([]Message, len(msgs))
+	for i, m := range msgs {
+		out[i] = m
+		if len(m.ToolCalls) > 0 {
+			out[i].ToolCalls = sanitizeToolCalls(m.ToolCalls)
+		}
+	}
+	return out
+}
+
+// sanitizeResult 返回 res 副本，ToolCall.Arguments 经 sanitizeToolCalls 兜底。
+func sanitizeResult(res Result) Result {
+	res.ToolCalls = sanitizeToolCalls(res.ToolCalls)
+	return res
+}
+
+// sanitizeToolCalls 把每个非法 RawMessage 替换为合法 JSON {"_raw_invalid":"<原字节>"}。
+// 合法 RawMessage 透传不变。返回浅拷贝避免污染业务路径。
+func sanitizeToolCalls(tcs []ToolCall) []ToolCall {
+	if len(tcs) == 0 {
+		return tcs
+	}
+	out := make([]ToolCall, len(tcs))
+	for i, tc := range tcs {
+		out[i] = tc
+		if len(tc.Arguments) == 0 || json.Valid(tc.Arguments) {
+			continue
+		}
+		// 包装成合法 JSON 保留原字节痕迹；marshal map[string]string 不会失败。
+		wrapped, _ := json.Marshal(map[string]string{"_raw_invalid": string(tc.Arguments)})
+		out[i].Arguments = wrapped
+	}
+	return out
 }

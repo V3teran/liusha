@@ -2,12 +2,59 @@ package llm
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/V3teran/liusha/internal/llminvocation"
 )
+
+// TestSanitizeToolCalls_ValidPassThrough 合法 JSON 透传不变。
+func TestSanitizeToolCalls_ValidPassThrough(t *testing.T) {
+	in := []ToolCall{{ID: "1", Name: "x", Arguments: json.RawMessage(`{"k":"v"}`)}}
+	out := sanitizeToolCalls(in)
+	if string(out[0].Arguments) != `{"k":"v"}` {
+		t.Fatalf("合法 RawMessage 应原样透传，got %s", out[0].Arguments)
+	}
+}
+
+// TestSanitizeToolCalls_InvalidWrapped 非法 JSON 应被包装成 {"_raw_invalid":"..."}。
+// 真实场景：DeepSeek 返回截断的 ToolCall.Arguments 字符串。
+func TestSanitizeToolCalls_InvalidWrapped(t *testing.T) {
+	bad := json.RawMessage(`{"flow_id":1,abc`)
+	in := []ToolCall{{ID: "1", Name: "x", Arguments: bad}}
+	out := sanitizeToolCalls(in)
+	if !json.Valid(out[0].Arguments) {
+		t.Fatalf("sanitize 后必须是合法 JSON，got %s", out[0].Arguments)
+	}
+	if !strings.Contains(string(out[0].Arguments), `"_raw_invalid"`) {
+		t.Fatalf("应含 _raw_invalid 标记保留原字节，got %s", out[0].Arguments)
+	}
+	// 业务路径：原 in 切片不变（sanitize 用浅拷贝）
+	if string(in[0].Arguments) != `{"flow_id":1,abc` {
+		t.Fatalf("原 in[0].Arguments 不应被修改")
+	}
+}
+
+// TestSanitizeResult_MarshalSucceedsAfterSanitize 端到端：先前会让 json.Marshal(res)
+// 整个失败的非法 RawMessage，sanitize 后应能正确序列化。
+func TestSanitizeResult_MarshalSucceedsAfterSanitize(t *testing.T) {
+	res := Result{
+		Content: "hi",
+		ToolCalls: []ToolCall{
+			{ID: "good", Name: "ok", Arguments: json.RawMessage(`{"a":1}`)},
+			{ID: "bad", Name: "ok", Arguments: json.RawMessage(`not-json`)},
+		},
+	}
+	if _, err := json.Marshal(res); err == nil {
+		t.Fatal("setup 不对：原 res 应 marshal 失败才有意义")
+	}
+	if _, err := json.Marshal(sanitizeResult(res)); err != nil {
+		t.Fatalf("sanitize 后必须 marshal 成功，got %v", err)
+	}
+}
 
 // stubGen 用于测试：可注入返回结果、错误和延迟。
 type stubGen struct {
