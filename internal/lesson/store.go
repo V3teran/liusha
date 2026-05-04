@@ -17,7 +17,8 @@ type Store struct{ pool *pgxpool.Pool }
 func NewStore(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
 
 // colsSelect 是所有 SELECT / RETURNING 路径的统一列序，与 scan() 字段一一对应。
-const colsSelect = "id, tenant_id, host, content, content_hash, priority, source_engagement_id, source_finding_id, hit_count, created_at, updated_at"
+// v0011：加 payload jsonb 列（漏改导致 "got 11 and 12" 落库错误）。
+const colsSelect = "id, tenant_id, host, content, content_hash, priority, source_engagement_id, source_finding_id, hit_count, payload, created_at, updated_at"
 
 // ContentHash 计算给定 content 的 SHA-256 hex 字符串（64 字符）。
 //
@@ -127,7 +128,7 @@ func (s *Store) TouchByDedup(ctx context.Context, host, dedupKey string) (int64,
 	tag, err := s.pool.Exec(ctx, `
 		UPDATE host_lesson SET hit_count = hit_count + 1, updated_at = now()
 		WHERE source_finding_id IN (
-			SELECT id FROM finding
+			SELECT id FROM vuln_finding
 			WHERE host=$1 AND dedup_key=$2
 			ORDER BY created_at ASC
 			LIMIT 1

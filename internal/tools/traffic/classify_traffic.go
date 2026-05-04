@@ -26,6 +26,22 @@ import (
 // classifyTrafficLog 包级 logger（与 instrument.go 同样模式：避免每次 Execute 触发 logx.New）。
 var classifyTrafficLog zerolog.Logger = logx.New("tools.classify_traffic")
 
+// stripJSONFence 剥离 LLM 常见的 markdown 代码块外壳（```json ... ``` 或 ``` ... ```）。
+//
+// 实测 deepseek/anthropic 在 prompt 要求"返回 JSON"时仍会习惯性加 fence；
+// json.Unmarshal 看到反引号直接 fail。先 trim 空白，再剥前后 fence，再 trim 一次。
+// 没有 fence 时原样返回。
+func stripJSONFence(s string) string {
+	s = strings.TrimSpace(s)
+	if strings.HasPrefix(s, "```json") {
+		s = strings.TrimPrefix(s, "```json")
+	} else if strings.HasPrefix(s, "```") {
+		s = strings.TrimPrefix(s, "```")
+	}
+	s = strings.TrimSuffix(s, "```")
+	return strings.TrimSpace(s)
+}
+
 // FlowReader 是 classify_traffic 依赖的最小 flow 读接口，由 *flow.Store 自动满足。
 // 局部定义在 consumer 侧（Go idiom: accept interfaces, return structs）。
 type FlowReader interface {
@@ -211,8 +227,9 @@ func (a *ClassifyTraffic) appendDecision(flowID int64, content string) {
 	if a.Decisions == nil || a.EngagementID == "" {
 		return
 	}
+	cleaned := stripJSONFence(content)
 	var out classifyOutput
-	if err := json.Unmarshal([]byte(content), &out); err != nil {
+	if err := json.Unmarshal([]byte(cleaned), &out); err != nil {
 		classifyTrafficLog.Warn().Err(err).Int64("flow_id", flowID).
 			Msg("flow_decision: 解析 LLM JSON 失败，跳过落库")
 		return
