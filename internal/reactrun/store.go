@@ -1,4 +1,4 @@
-package task
+package reactrun
 
 import (
 	"context"
@@ -6,36 +6,64 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/V3teran/liusha/internal/logx"
 )
 
+// engagementCounter 是 Create 成功后用于 best-effort 维护 engagement.react_run_count
+// 的最小接口；*engagement.Store 自动满足。
+type engagementCounter interface {
+	IncrementReactRunCount(ctx context.Context, id string, n int) error
+}
+
+// reactrunLog 包级 logger，用于 best-effort 计数失败的 warn。
+var reactrunLog = logx.New("reactrun")
+
 // Store 封装 agent_task 表的所有持久化操作。
-type Store struct{ pool *pgxpool.Pool }
+type Store struct {
+	pool *pgxpool.Pool
+
+	// engCounter 可空：装配时通过 WithCounter 注入；Create 成功后 best-effort
+	// 给 engagement.react_run_count +1（失败仅 warn，Abort 时 SELECT count(*) 兜底）。
+	engCounter engagementCounter
+}
 
 // NewStore 用 pgxpool 构造 Store。
 func NewStore(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
 
+// WithCounter 链式注入 engagement 计数维护器；返回原 Store 便于装配。
+func (s *Store) WithCounter(c engagementCounter) *Store {
+	s.engCounter = c
+	return s
+}
+
 // colsSelect 是所有 SELECT 路径的统一列序，与 scanTask() 的字段顺序一一对应。
 // v1.1：删除 parent_task_id 列（子 ReAct 同进程嵌套，不再入 PG，无父子关系）。
-const colsSelect = `id, engagement_id, role, skill, input, budget, result, status, created_at, updated_at`
+// v0010：删除 budget 列（NewParams.Budget 永远 nil，是死字段）。
+const colsSelect = `id, engagement_id, role, skill, input, result, status, created_at, updated_at`
 
-// Create 插入一行 pending 任务，返回新 id。Input/Budget 为 nil 时落空对象。
+// Create 插入一行 pending 任务，返回新 id。Input 为 nil 时落空对象。
 func (s *Store) Create(ctx context.Context, p NewParams) (string, error) {
 	if p.Input == nil {
 		p.Input = json.RawMessage("{}")
 	}
-	if p.Budget == nil {
-		p.Budget = json.RawMessage("{}")
-	}
 	var id string
 	err := s.pool.QueryRow(ctx, `
-		INSERT INTO agent_task (engagement_id, role, skill, input, budget)
-		VALUES ($1,$2,$3,$4,$5)
+		INSERT INTO react_run (engagement_id, role, skill, input)
+		VALUES ($1,$2,$3,$4)
 		RETURNING id`,
 		p.EngagementID, p.Role, p.Skill,
-		[]byte(p.Input), []byte(p.Budget),
+		[]byte(p.Input),
 	).Scan(&id)
 	if err != nil {
 		return "", fmt.Errorf("insert task: %w", err)
+	}
+	// best-effort 维护 engagement.react_run_count（失败仅 warn 不影响业务返回）。
+	if s.engCounter != nil && p.EngagementID != "" {
+		if err := s.engCounter.IncrementReactRunCount(context.Background(), p.EngagementID, 1); err != nil {
+			reactrunLog.Warn().Err(err).Str("engagement_id", p.EngagementID).
+				Msg("engagement.react_run_count 增量维护失败（Abort 时会重算兜底）")
+		}
 	}
 	return id, nil
 }
@@ -43,7 +71,7 @@ func (s *Store) Create(ctx context.Context, p NewParams) (string, error) {
 // SetRunning 把 pending 任务推进到 running；非 pending 视为非法转换。
 func (s *Store) SetRunning(ctx context.Context, id string) error {
 	tag, err := s.pool.Exec(ctx, `
-		UPDATE agent_task SET status='running', updated_at=now()
+		UPDATE react_run SET status='running', updated_at=now()
 		WHERE id=$1 AND status='pending'`, id)
 	if err != nil {
 		return fmt.Errorf("set running %s: %w", id, err)
@@ -60,7 +88,7 @@ func (s *Store) SetDone(ctx context.Context, id string, result json.RawMessage) 
 		result = json.RawMessage("{}")
 	}
 	tag, err := s.pool.Exec(ctx, `
-		UPDATE agent_task SET status='done', result=$1, updated_at=now()
+		UPDATE react_run SET status='done', result=$1, updated_at=now()
 		WHERE id=$2 AND status IN ('pending','running')`, []byte(result), id)
 	if err != nil {
 		return fmt.Errorf("set done %s: %w", id, err)
@@ -75,7 +103,7 @@ func (s *Store) SetDone(ctx context.Context, id string, result json.RawMessage) 
 func (s *Store) SetError(ctx context.Context, id string, errMsg string) error {
 	body, _ := json.Marshal(map[string]string{"error": errMsg})
 	tag, err := s.pool.Exec(ctx, `
-		UPDATE agent_task SET status='error', result=$1, updated_at=now()
+		UPDATE react_run SET status='error', result=$1, updated_at=now()
 		WHERE id=$2 AND status IN ('pending','running')`, body, id)
 	if err != nil {
 		return fmt.Errorf("set error %s: %w", id, err)
@@ -89,7 +117,7 @@ func (s *Store) SetError(ctx context.Context, id string, errMsg string) error {
 // SetAborted 把 pending|running 任务推进到 aborted（用于 engagement abort 级联）。
 func (s *Store) SetAborted(ctx context.Context, id string) error {
 	tag, err := s.pool.Exec(ctx, `
-		UPDATE agent_task SET status='aborted', updated_at=now()
+		UPDATE react_run SET status='aborted', updated_at=now()
 		WHERE id=$1 AND status IN ('pending','running')`, id)
 	if err != nil {
 		return fmt.Errorf("set aborted %s: %w", id, err)
@@ -101,20 +129,20 @@ func (s *Store) SetAborted(ctx context.Context, id string) error {
 }
 
 // GetByID 按主键读取任务行。
-func (s *Store) GetByID(ctx context.Context, id string) (Task, error) {
-	row := s.pool.QueryRow(ctx, `SELECT `+colsSelect+` FROM agent_task WHERE id=$1`, id)
-	var t Task
+func (s *Store) GetByID(ctx context.Context, id string) (ReactRun, error) {
+	row := s.pool.QueryRow(ctx, `SELECT `+colsSelect+` FROM react_run WHERE id=$1`, id)
+	var t ReactRun
 	if err := scanTask(row, &t); err != nil {
-		return Task{}, fmt.Errorf("get task %s: %w", id, err)
+		return ReactRun{}, fmt.Errorf("get task %s: %w", id, err)
 	}
 	return t, nil
 }
 
 // ListByEngagement 按 created_at 升序列出 engagement 的任务，最多 limit 条。
-func (s *Store) ListByEngagement(ctx context.Context, engagementID string, limit int) ([]Task, error) {
+func (s *Store) ListByEngagement(ctx context.Context, engagementID string, limit int) ([]ReactRun, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT `+colsSelect+`
-		FROM agent_task
+		FROM react_run
 		WHERE engagement_id=$1
 		ORDER BY created_at ASC
 		LIMIT $2`, engagementID, limit)
@@ -123,9 +151,9 @@ func (s *Store) ListByEngagement(ctx context.Context, engagementID string, limit
 	}
 	defer rows.Close()
 
-	var out []Task
+	var out []ReactRun
 	for rows.Next() {
-		var t Task
+		var t ReactRun
 		if err := scanTask(rows, &t); err != nil {
 			return nil, fmt.Errorf("scan task: %w", err)
 		}
@@ -141,7 +169,7 @@ func (s *Store) ListByEngagement(ctx context.Context, engagementID string, limit
 func (s *Store) CountInflightInEngagement(ctx context.Context, engagementID string) (int, error) {
 	var n int
 	err := s.pool.QueryRow(ctx, `
-		SELECT count(*) FROM agent_task
+		SELECT count(*) FROM react_run
 		WHERE engagement_id=$1 AND status IN ('pending','running')`, engagementID).Scan(&n)
 	if err != nil {
 		return 0, fmt.Errorf("count inflight in engagement: %w", err)
@@ -155,14 +183,14 @@ type scanner interface {
 }
 
 // scanTask 是 colsSelect 列序的统一反序列化点。
-func scanTask(r scanner, t *Task) error {
-	var input, budget, result []byte
+func scanTask(r scanner, t *ReactRun) error {
+	var input, result []byte
 	if err := r.Scan(
 		&t.ID, &t.EngagementID, &t.Role, &t.Skill,
-		&input, &budget, &result, &t.Status, &t.CreatedAt, &t.UpdatedAt,
+		&input, &result, &t.Status, &t.CreatedAt, &t.UpdatedAt,
 	); err != nil {
 		return err
 	}
-	t.Input, t.Budget, t.Result = input, budget, result
+	t.Input, t.Result = input, result
 	return nil
 }

@@ -1,6 +1,6 @@
 //go:build integration
 
-package llmcall
+package llminvocation
 
 import (
 	"context"
@@ -22,12 +22,15 @@ func setup(t *testing.T) (*Store, string) {
 	return NewStore(pool), e.ID
 }
 
-// TestStore_Append_Basic 验证：插一条普通 LLM 调用，返回的 id 非 0。
+// TestStore_Append_Basic 验证：插一条普通 LLM 调用无错误。
+//
+// v1.1 异步改造后 Append 永远返 id=0（store.go:25 注释），所以不再断言 id；
+// 真正的"行写进去了吗"由后面的 SumCost/CountByRole 测试覆盖。
 func TestStore_Append_Basic(t *testing.T) {
 	ctx := context.Background()
 	s, eid := setup(t)
 
-	id, err := s.Append(ctx, Call{
+	if _, err := s.Append(ctx, Invocation{
 		EngagementID: &eid,
 		Provider:     "deepseek",
 		Model:        "deepseek-chat",
@@ -37,22 +40,30 @@ func TestStore_Append_Basic(t *testing.T) {
 		CostUSD:      0.00041,
 		LatencyMs:    850,
 		FinishReason: "stop",
-	})
-	if err != nil {
+	}); err != nil {
 		t.Fatalf("append: %v", err)
 	}
-	if id == 0 {
-		t.Fatalf("append 返回 id=0, 应为非零")
+	if err := s.Flush(ctx); err != nil {
+		t.Fatalf("flush: %v", err)
+	}
+
+	// 验真：Sum 应反映写入的 cost
+	got, err := s.SumCostByEngagement(ctx, eid)
+	if err != nil {
+		t.Fatalf("sum: %v", err)
+	}
+	if diff := got - 0.00041; diff > 1e-9 || diff < -1e-9 {
+		t.Fatalf("sum 不匹配: got=%.9f want=0.00041", got)
 	}
 }
 
 // TestStore_Append_WithRouteKey 验证：role 字段正确写入 + CountByRole 按 role 分组。
-// 黑客松借鉴：T21 Instrument 的 RouteKey 维度（react.main / observer / distill / compaction / vision）。
+// 黑客松借鉴：T21 Instrument 的 RouteKey 维度（react.main / observer / lesson_extract / compaction / vision）。
 func TestStore_Append_WithRouteKey(t *testing.T) {
 	ctx := context.Background()
 	s, eid := setup(t)
 
-	if _, err := s.Append(ctx, Call{
+	if _, err := s.Append(ctx, Invocation{
 		EngagementID: &eid,
 		Provider:     "deepseek",
 		Model:        "deepseek-chat",
@@ -61,7 +72,7 @@ func TestStore_Append_WithRouteKey(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("append observer: %v", err)
 	}
-	if _, err := s.Append(ctx, Call{
+	if _, err := s.Append(ctx, Invocation{
 		EngagementID: &eid,
 		Provider:     "deepseek",
 		Model:        "deepseek-chat",
@@ -70,7 +81,7 @@ func TestStore_Append_WithRouteKey(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("append observer 2: %v", err)
 	}
-	if _, err := s.Append(ctx, Call{
+	if _, err := s.Append(ctx, Invocation{
 		EngagementID: &eid,
 		Provider:     "deepseek",
 		Model:        "deepseek-reasoner",
@@ -78,6 +89,11 @@ func TestStore_Append_WithRouteKey(t *testing.T) {
 		CostUSD:      0.001,
 	}); err != nil {
 		t.Fatalf("append react.main: %v", err)
+	}
+
+	// 异步 batch 写：Flush 同步等 worker 落盘，避免 CountByRole 看到空表
+	if err := s.Flush(ctx); err != nil {
+		t.Fatalf("flush: %v", err)
 	}
 
 	got, err := s.CountByRole(ctx, eid)
@@ -103,11 +119,11 @@ func TestStore_SumCostByEngagement(t *testing.T) {
 	}{
 		{"react_main", 0.001234},
 		{"observer", 0.000567},
-		{"distill", 0.002000},
+		{"lesson_extract", 0.002000},
 	}
 	var want float64
 	for _, c := range costs {
-		if _, err := s.Append(ctx, Call{
+		if _, err := s.Append(ctx, Invocation{
 			EngagementID: &eid,
 			Provider:     "deepseek",
 			Model:        "deepseek-chat",
@@ -117,6 +133,11 @@ func TestStore_SumCostByEngagement(t *testing.T) {
 			t.Fatalf("append %s: %v", c.role, err)
 		}
 		want += c.cost
+	}
+
+	// 异步 batch 写：Flush 同步等 worker 落盘，避免 SumCost 看到 0
+	if err := s.Flush(ctx); err != nil {
+		t.Fatalf("flush: %v", err)
 	}
 
 	got, err := s.SumCostByEngagement(ctx, eid)

@@ -6,15 +6,17 @@ import (
 	"errors"
 	"slices"
 	"testing"
+
+	"github.com/V3teran/liusha/internal/engagement"
 )
 
-// fakeFactReader 用 ReadState 返回固定的 State JSON（或注入 err）。
+// fakeFactReader 实现 FactReader（v1.2：只需 ReadStateScoped），返回固定 State 或 err。
 type fakeFactReader struct {
 	state []byte
 	err   error
 }
 
-func (f *fakeFactReader) ReadState(_ context.Context, _ string) ([]byte, error) {
+func (f *fakeFactReader) ReadStateScoped(_ context.Context, _ string, _ engagement.ReadOpts) ([]byte, error) {
 	if f.err != nil {
 		return nil, f.err
 	}
@@ -38,43 +40,34 @@ func (f *fakeFindingChecker) HasDedupKey(_ context.Context, eid, key string) (bo
 	return f.exists, nil
 }
 
-// stateWithEvidence 构造一个有 evidence + boundary 的 memory_facts JSON。
+// stateWithEvidence 构造 v1.2 notes 结构的 State JSON：
+// 把 evidence 内容写成 kind=observation 的 notes，boundary 写成 kind=boundary，
+// 都标记 task_id="tid-1"（与测试构造的 BACValidator 一致）。
 func stateWithEvidence(evidence, boundary []string) []byte {
-	type fact struct {
-		Category string `json:"category"`
-		Content  string `json:"content"`
+	type note struct {
+		Kind    string `json:"kind"`
+		Content string `json:"content"`
+		TaskID  string `json:"task_id"`
 	}
-	facts := map[string]any{}
-	if len(evidence) > 0 {
-		evs := make([]fact, 0, len(evidence))
-		for _, c := range evidence {
-			evs = append(evs, fact{Category: "evidence", Content: c})
-		}
-		facts["evidence"] = evs
+	notes := []note{}
+	for _, c := range evidence {
+		notes = append(notes, note{Kind: "observation", Content: c, TaskID: "tid-1"})
 	}
-	if len(boundary) > 0 {
-		bds := make([]fact, 0, len(boundary))
-		for _, c := range boundary {
-			bds = append(bds, fact{Category: "boundary", Content: c})
-		}
-		facts["boundaries"] = bds
+	for _, c := range boundary {
+		notes = append(notes, note{Kind: "boundary", Content: c, TaskID: "tid-1"})
 	}
-	factsRaw, _ := json.Marshal(facts)
+	notesRaw, _ := json.Marshal(map[string]any{"notes": notes})
 	state := map[string]json.RawMessage{
-		"facts": factsRaw,
-		"ideas": json.RawMessage(`{}`),
-		"hints": json.RawMessage(`{}`),
+		"notes": notesRaw,
 	}
 	out, _ := json.Marshal(state)
 	return out
 }
 
-// emptyState 构造一个 facts/ideas/hints 全空的 State。
+// emptyState 构造一个 notes 空的 State。
 func emptyState() []byte {
 	state := map[string]json.RawMessage{
-		"facts": json.RawMessage(`{}`),
-		"ideas": json.RawMessage(`{}`),
-		"hints": json.RawMessage(`{}`),
+		"notes": json.RawMessage(`{}`),
 	}
 	out, _ := json.Marshal(state)
 	return out
@@ -86,6 +79,7 @@ func TestBACValidator_RejectMissingReason(t *testing.T) {
 		&fakeFactReader{state: stateWithEvidence([]string{"e1"}, []string{"b1"})},
 		&fakeFindingChecker{},
 		"eid-1",
+		"tid-1",
 	)
 	ok, missing := v.CanDone(context.Background(), json.RawMessage(`{}`))
 	if ok {
@@ -102,6 +96,7 @@ func TestBACValidator_RejectInvalidReason(t *testing.T) {
 		&fakeFactReader{state: stateWithEvidence([]string{"e1"}, []string{"b1"})},
 		&fakeFindingChecker{},
 		"eid-1",
+		"tid-1",
 	)
 	ok, missing := v.CanDone(context.Background(), json.RawMessage(`{"reason":"garbage"}`))
 	if ok {
@@ -118,6 +113,7 @@ func TestBACValidator_RejectEmptyState(t *testing.T) {
 		&fakeFactReader{state: emptyState()},
 		&fakeFindingChecker{},
 		"eid-1",
+		"tid-1",
 	)
 	ok, missing := v.CanDone(context.Background(), json.RawMessage(`{"reason":"all_differ"}`))
 	if ok {
@@ -137,6 +133,7 @@ func TestBACValidator_AcceptAllDiffer(t *testing.T) {
 		)},
 		&fakeFindingChecker{},
 		"eid-1",
+		"tid-1",
 	)
 	ok, missing := v.CanDone(context.Background(), json.RawMessage(`{"reason":"all_differ"}`))
 	if !ok {
@@ -156,6 +153,7 @@ func TestBACValidator_AcceptHeuristicSkip(t *testing.T) {
 		)},
 		&fakeFindingChecker{},
 		"eid-1",
+		"tid-1",
 	)
 	ok, _ := v.CanDone(context.Background(), json.RawMessage(`{"reason":"heuristic_skip"}`))
 	if !ok {
@@ -170,6 +168,7 @@ func TestBACValidator_FindingWrittenButMissing(t *testing.T) {
 		&fakeFactReader{state: stateWithEvidence([]string{"e1"}, []string{"b1"})},
 		checker,
 		"eid-x",
+		"tid-x",
 	)
 	ok, missing := v.CanDone(context.Background(),
 		json.RawMessage(`{"reason":"finding_written","dedup_key":"bac.h:host:GET:/api/o/:id"}`))
@@ -193,6 +192,7 @@ func TestBACValidator_FindingWrittenWithoutDedupKey(t *testing.T) {
 		&fakeFactReader{state: stateWithEvidence([]string{"e1"}, []string{"b1"})},
 		&fakeFindingChecker{exists: true},
 		"eid-1",
+		"tid-1",
 	)
 	ok, missing := v.CanDone(context.Background(),
 		json.RawMessage(`{"reason":"finding_written"}`))
@@ -210,6 +210,7 @@ func TestBACValidator_FindingWrittenOK(t *testing.T) {
 		&fakeFactReader{state: stateWithEvidence([]string{"e1"}, []string{"b1"})},
 		&fakeFindingChecker{exists: true},
 		"eid-1",
+		"tid-1",
 	)
 	ok, missing := v.CanDone(context.Background(),
 		json.RawMessage(`{"reason":"finding_written","dedup_key":"bac.h:host:GET:/x"}`))
@@ -224,6 +225,7 @@ func TestBACValidator_StateReadError(t *testing.T) {
 		&fakeFactReader{err: errors.New("db down")},
 		&fakeFindingChecker{},
 		"eid-1",
+		"tid-1",
 	)
 	ok, missing := v.CanDone(context.Background(),
 		json.RawMessage(`{"reason":"all_differ"}`))
@@ -241,6 +243,7 @@ func TestBACValidator_FindingCheckerError(t *testing.T) {
 		&fakeFactReader{state: stateWithEvidence([]string{"e1"}, nil)},
 		&fakeFindingChecker{err: errors.New("db down")},
 		"eid-1",
+		"tid-1",
 	)
 	ok, missing := v.CanDone(context.Background(),
 		json.RawMessage(`{"reason":"finding_written","dedup_key":"k"}`))
@@ -258,6 +261,7 @@ func TestBACValidator_AcceptNoPatternMatch(t *testing.T) {
 		&fakeFactReader{state: stateWithEvidence([]string{"e1"}, nil)},
 		&fakeFindingChecker{},
 		"eid-1",
+		"tid-1",
 	)
 	ok, missing := v.CanDone(context.Background(),
 		json.RawMessage(`{"reason":"no_pattern_match"}`))
@@ -272,6 +276,7 @@ func TestBACValidator_RejectMalformedArgs(t *testing.T) {
 		&fakeFactReader{state: stateWithEvidence([]string{"e1"}, nil)},
 		&fakeFindingChecker{},
 		"eid-1",
+		"tid-1",
 	)
 	ok, missing := v.CanDone(context.Background(), json.RawMessage(`not json`))
 	if ok {

@@ -8,54 +8,47 @@ import (
 	"testing"
 
 	"github.com/V3teran/liusha/internal/engagement"
-	"github.com/V3teran/liusha/internal/finding"
+	"github.com/V3teran/liusha/internal/vulnfinding"
 	"github.com/V3teran/liusha/internal/graph"
 )
 
-// 编译期接口断言：保证 engagement.Store / finding.Store / graph.Store
+// 编译期接口断言：保证 engagement.Store / vulnfinding.Store / graph.Store
 // 自动满足本包定义的窄接口。任意签名漂移都会在 go build/test 阶段立刻失败。
 var (
 	_ MemoryStore  = (*engagement.Store)(nil)
-	_ FindingStore = (*finding.Store)(nil)
+	_ FindingStore = (*vulnfinding.Store)(nil)
 	_ GraphStore   = (*graph.Store)(nil)
 )
 
-// fakeMem 是 MemoryStore 的内存实现，按追加顺序保留 entries。
+// fakeMem 是 MemoryStore 的内存实现，按追加顺序保留 notes。
 type fakeMem struct {
 	state []byte
-	facts [][]byte
-	ideas [][]byte
-	hints [][]byte
+	notes [][]byte
 }
 
 func (f *fakeMem) ReadState(_ context.Context, _ string) ([]byte, error) { return f.state, nil }
-func (f *fakeMem) AppendFact(_ context.Context, _ string, e []byte) error {
-	f.facts = append(f.facts, append([]byte(nil), e...))
-	return nil
+func (f *fakeMem) ReadStateScoped(_ context.Context, _ string, _ engagement.ReadOpts) ([]byte, error) {
+	return f.state, nil
 }
-func (f *fakeMem) AppendIdea(_ context.Context, _ string, e []byte) error {
-	f.ideas = append(f.ideas, append([]byte(nil), e...))
-	return nil
-}
-func (f *fakeMem) AppendHint(_ context.Context, _ string, e []byte) error {
-	f.hints = append(f.hints, append([]byte(nil), e...))
+func (f *fakeMem) AppendNote(_ context.Context, _ string, e []byte) error {
+	f.notes = append(f.notes, append([]byte(nil), e...))
 	return nil
 }
 
 // fakeFinding 是 FindingStore 的内存实现，记录最后一次 Save 的入参。
 type fakeFinding struct {
-	saved finding.Finding
+	saved vulnfinding.VulnFinding
 	id    string
 }
 
-func (f *fakeFinding) Save(_ context.Context, in finding.Finding) (finding.Finding, error) {
+func (f *fakeFinding) Save(_ context.Context, in vulnfinding.VulnFinding) (vulnfinding.VulnFinding, bool, error) {
 	f.saved = in
 	if f.id == "" {
 		f.id = "finding-id-stub"
 	}
 	saved := in
 	saved.ID = f.id
-	return saved, nil
+	return saved, true, nil
 }
 
 // fakeGraph 是 GraphStore 的内存实现，按 dedup_key 分配伪 ID。
@@ -126,107 +119,80 @@ func TestReadState_ReturnsState(t *testing.T) {
 	}
 }
 
-// ---------- WriteFact ----------
+// ---------- TakeNote ----------
 
-func TestWriteFact_AppendsEvidence(t *testing.T) {
+func TestTakeNote_AppendsObservation(t *testing.T) {
 	m := &fakeMem{}
-	wr := &WriteFact{Store: m, EngagementID: "e"}
+	wr := &TakeNote{Store: m, EngagementID: "e", TaskID: "task-x"}
 	_, err := wr.Execute(context.Background(),
-		json.RawMessage(`{"category":"evidence","content":"endpoint X returned 401"}`))
+		json.RawMessage(`{"kind":"observation","content":"endpoint X returned 401"}`))
 	if err != nil {
 		t.Fatalf("err=%v", err)
 	}
-	if len(m.facts) != 1 {
-		t.Fatalf("应追加 1 条 fact，got %d", len(m.facts))
+	if len(m.notes) != 1 {
+		t.Fatalf("应追加 1 条 note，got %d", len(m.notes))
 	}
-	if !strings.Contains(string(m.facts[0]), "evidence") {
-		t.Fatalf("entry 缺少 category=evidence: %s", string(m.facts[0]))
+	if !strings.Contains(string(m.notes[0]), "observation") {
+		t.Fatalf("entry 缺少 kind=observation: %s", string(m.notes[0]))
+	}
+	if !strings.Contains(string(m.notes[0]), "task-x") {
+		t.Fatalf("entry 缺少 task_id 标记: %s", string(m.notes[0]))
 	}
 }
 
-func TestWriteFact_RejectsInvalidCategory(t *testing.T) {
+func TestTakeNote_AppendsHypothesisWithStatus(t *testing.T) {
 	m := &fakeMem{}
-	wr := &WriteFact{Store: m, EngagementID: "e"}
+	wr := &TakeNote{Store: m, EngagementID: "e", TaskID: "task-x"}
 	_, err := wr.Execute(context.Background(),
-		json.RawMessage(`{"category":"junk","content":"x"}`))
-	if err == nil {
-		t.Fatal("非法 category 应报错")
+		json.RawMessage(`{"kind":"hypothesis","content":"GET /admin","status":"testing"}`))
+	if err != nil {
+		t.Fatalf("err=%v", err)
 	}
-	if len(m.facts) != 0 {
-		t.Fatalf("校验失败仍写入: %v", m.facts)
+	if len(m.notes) != 1 {
+		t.Fatalf("应追加 1 条 note，got %d", len(m.notes))
+	}
+	if !strings.Contains(string(m.notes[0]), `"status":"testing"`) {
+		t.Fatalf("entry 缺少 status=testing: %s", string(m.notes[0]))
 	}
 }
 
-func TestWriteFact_RejectsEmptyContent(t *testing.T) {
-	wr := &WriteFact{Store: &fakeMem{}, EngagementID: "e"}
+func TestTakeNote_RejectsInvalidKind(t *testing.T) {
+	m := &fakeMem{}
+	wr := &TakeNote{Store: m, EngagementID: "e"}
 	_, err := wr.Execute(context.Background(),
-		json.RawMessage(`{"category":"evidence","content":""}`))
+		json.RawMessage(`{"kind":"junk","content":"x"}`))
+	if err == nil {
+		t.Fatal("非法 kind 应报错")
+	}
+	if len(m.notes) != 0 {
+		t.Fatalf("校验失败仍写入: %v", m.notes)
+	}
+}
+
+func TestTakeNote_RejectsEmptyContent(t *testing.T) {
+	wr := &TakeNote{Store: &fakeMem{}, EngagementID: "e"}
+	_, err := wr.Execute(context.Background(),
+		json.RawMessage(`{"kind":"observation","content":""}`))
 	if err == nil {
 		t.Fatal("空 content 应报错")
 	}
 }
 
-// ---------- WriteIdea ----------
-
-func TestWriteIdea_AppendsHypothesis(t *testing.T) {
-	m := &fakeMem{}
-	wr := &WriteIdea{Store: m, EngagementID: "e"}
+func TestTakeNote_RejectsStatusOnNonHypothesis(t *testing.T) {
+	wr := &TakeNote{Store: &fakeMem{}, EngagementID: "e"}
 	_, err := wr.Execute(context.Background(),
-		json.RawMessage(`{"direction":"GET /admin","status":"testing"}`))
-	if err != nil {
-		t.Fatalf("err=%v", err)
-	}
-	if len(m.ideas) != 1 {
-		t.Fatalf("应追加 1 条 idea，got %d", len(m.ideas))
+		json.RawMessage(`{"kind":"observation","content":"x","status":"verified"}`))
+	if err == nil {
+		t.Fatal("status 仅 hypothesis 时可填，应报错")
 	}
 }
 
-func TestWriteIdea_RejectsInvalidStatus(t *testing.T) {
-	wr := &WriteIdea{Store: &fakeMem{}, EngagementID: "e"}
+func TestTakeNote_RejectsInvalidStatus(t *testing.T) {
+	wr := &TakeNote{Store: &fakeMem{}, EngagementID: "e"}
 	_, err := wr.Execute(context.Background(),
-		json.RawMessage(`{"direction":"x","status":"foo"}`))
+		json.RawMessage(`{"kind":"hypothesis","content":"x","status":"foo"}`))
 	if err == nil {
 		t.Fatal("非法 status 应报错")
-	}
-}
-
-// ---------- WriteHint ----------
-
-func TestWriteHint_AppendsHint(t *testing.T) {
-	m := &fakeMem{}
-	wr := &WriteHint{Store: m, EngagementID: "e"}
-	_, err := wr.Execute(context.Background(),
-		json.RawMessage(`{"from_skill":"vuln-web-bac","content":"先看 /admin","priority":7}`))
-	if err != nil {
-		t.Fatalf("err=%v", err)
-	}
-	if len(m.hints) != 1 {
-		t.Fatalf("应追加 1 条 hint，got %d", len(m.hints))
-	}
-	if !strings.Contains(string(m.hints[0]), `"priority":7`) {
-		t.Fatalf("priority 未保留: %s", string(m.hints[0]))
-	}
-}
-
-func TestWriteHint_DefaultsPriorityWhenZero(t *testing.T) {
-	m := &fakeMem{}
-	wr := &WriteHint{Store: m, EngagementID: "e"}
-	_, err := wr.Execute(context.Background(),
-		json.RawMessage(`{"from_skill":"obs","content":"x"}`))
-	if err != nil {
-		t.Fatalf("err=%v", err)
-	}
-	if !strings.Contains(string(m.hints[0]), `"priority":5`) {
-		t.Fatalf("缺省 priority 应为 5，entry=%s", string(m.hints[0]))
-	}
-}
-
-func TestWriteHint_RejectsOutOfRangePriority(t *testing.T) {
-	wr := &WriteHint{Store: &fakeMem{}, EngagementID: "e"}
-	_, err := wr.Execute(context.Background(),
-		json.RawMessage(`{"from_skill":"x","content":"x","priority":99}`))
-	if err == nil {
-		t.Fatal("priority=99 越界应报错")
 	}
 }
 
@@ -255,7 +221,7 @@ func TestWriteFinding_CallsStoreSave(t *testing.T) {
 	if st.saved.TaskID == nil || *st.saved.TaskID != "task-1" {
 		t.Fatalf("TaskID 未透传: %+v", st.saved.TaskID)
 	}
-	if st.saved.DedupKey != "sqli|/login|email" || st.saved.Severity != finding.SeverityHigh {
+	if st.saved.DedupKey != "sqli|/login|email" || st.saved.Severity != vulnfinding.SeverityHigh {
 		t.Fatalf("字段未透传: %+v", st.saved)
 	}
 	var out struct {
@@ -287,8 +253,8 @@ func TestWriteFinding_PropagatesStoreError(t *testing.T) {
 
 type erroringFinding struct{}
 
-func (erroringFinding) Save(_ context.Context, _ finding.Finding) (finding.Finding, error) {
-	return finding.Finding{}, errors.New("boom")
+func (erroringFinding) Save(_ context.Context, _ vulnfinding.VulnFinding) (vulnfinding.VulnFinding, bool, error) {
+	return vulnfinding.VulnFinding{}, false, errors.New("boom")
 }
 
 // ---------- WriteGraph ----------

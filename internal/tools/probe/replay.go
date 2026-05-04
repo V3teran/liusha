@@ -7,26 +7,26 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/V3teran/liusha/internal/toolfx"
 	"github.com/V3teran/liusha/internal/replay"
+	"github.com/V3teran/liusha/internal/toolfx"
 )
 
 // bodyHintMaxBytes 是 LLM 看到的 body 摘要最大字节数：
-// 完整 body 留在 Session.LastResponses 里供 heuristic / similarity 使用，
+// 完整 body 留在 ProbeState.LastResponses 里供 heuristic / similarity 使用，
 // 喂回 LLM 的 tool message 必须截断（黑客松借鉴 D：result_compress）。
 const bodyHintMaxBytes = 400
 
 // defaultConcurrency 与 replay.Engine 内部默认值保持一致，避免 schema/实际行为漂移。
 const defaultConcurrency = 5
 
-// ReplayMultiIdentity — BAC ReAct 第二步：用 Session.Identities 全身份并发重放一条 flow。
+// ReplayMultiIdentity — BAC ReAct 第二步：用 ProbeState.Identities 全身份并发重放一条 flow。
 //
-// 前置：必须先调 fetch_credentials 写满 Session.Identities，否则报错。
-// 副作用：写 Session.LastFlow + Session.LastResponses，供 heuristic_check / compute_similarity 直接读取。
+// 前置：必须先调 fetch_credentials 写满 ProbeState.Identities，否则报错。
+// 副作用：写 ProbeState.LastFlow + ProbeState.LastResponses，供 heuristic_check / compute_similarity 直接读取。
 type ReplayMultiIdentity struct {
-	Engine  *replay.Engine
-	Flows   FlowReader
-	Session *Session
+	Engine *replay.Engine
+	Flows  FlowReader
+	State  *ProbeState
 }
 
 // Name 返回动作名 "replay_multi_identity"。
@@ -34,7 +34,7 @@ func (a *ReplayMultiIdentity) Name() string { return "replay_multi_identity" }
 
 // Description 给 LLM 看的简介。
 func (a *ReplayMultiIdentity) Description() string {
-	return "用 Session 内全部身份并发重放一条 flow（必须先调 fetch_credentials），返回各身份的 body_hint（≤400 byte）。"
+	return "用 ProbeState 内全部身份并发重放一条 flow（必须先调 fetch_credentials），返回各身份的 body_hint（≤400 byte）。"
 }
 
 // ParametersJSON 给出 flow_id / host 必填 + concurrency 默认 5 的 schema。
@@ -52,7 +52,7 @@ func (a *ReplayMultiIdentity) ParametersJSON() json.RawMessage {
 
 // respSummary 是返回给 LLM 的瘦响应摘要：
 //   - 不含完整 body，只有 ≤400 byte 的 hint。
-//   - 完整 body / Headers 留在 Session.LastResponses 里给 heuristic / similarity。
+//   - 完整 body / Headers 留在 ProbeState.LastResponses 里给 heuristic / similarity。
 type respSummary struct {
 	Identity   string `json:"identity"`
 	StatusCode int    `json:"status_code"`
@@ -69,7 +69,7 @@ type replayOutput struct {
 	Responses []respSummary `json:"responses"`
 }
 
-// Execute 解析 args → 取 flow → 校验身份 → 并发重放 → 写 Session → 返回瘦摘要。
+// Execute 解析 args → 取 flow → 校验身份 → 并发重放 → 写 ProbeState → 返回瘦摘要。
 func (a *ReplayMultiIdentity) Execute(ctx context.Context, args json.RawMessage) (toolfx.Result, error) {
 	var in struct {
 		FlowID      int64  `json:"flow_id"`
@@ -82,8 +82,8 @@ func (a *ReplayMultiIdentity) Execute(ctx context.Context, args json.RawMessage)
 	if in.FlowID <= 0 {
 		return toolfx.Result{}, fmt.Errorf("flow_id 必填且 > 0")
 	}
-	if len(a.Session.Identities) == 0 {
-		return toolfx.Result{}, fmt.Errorf("session.Identities 为空，请先调 fetch_credentials")
+	if len(a.State.Identities) == 0 {
+		return toolfx.Result{}, fmt.Errorf("state.Identities 为空，请先调 fetch_credentials")
 	}
 	if in.Concurrency <= 0 {
 		in.Concurrency = defaultConcurrency
@@ -100,14 +100,14 @@ func (a *ReplayMultiIdentity) Execute(ctx context.Context, args json.RawMessage)
 		Headers: rebuildHeaders(f.RequestHeaders),
 		Body:    f.RequestBody,
 	}
-	resps, err := a.Engine.ReplayMultiIdentity(ctx, raw, a.Session.Identities, in.Concurrency)
+	resps, err := a.Engine.ReplayMultiIdentity(ctx, raw, a.State.Identities, in.Concurrency)
 	if err != nil {
 		return toolfx.Result{}, fmt.Errorf("并发重放 flow %d 失败: %w", in.FlowID, err)
 	}
 
-	// 全 body 入 Session（供后续 heuristic / similarity）；瘦摘要喂 LLM。
-	a.Session.LastResponses = resps
-	a.Session.LastFlow = f
+	// 全 body 入 ProbeState（供后续 heuristic / similarity）；瘦摘要喂 LLM。
+	a.State.LastResponses = resps
+	a.State.LastFlow = f
 
 	out := replayOutput{
 		FlowID:    f.ID,

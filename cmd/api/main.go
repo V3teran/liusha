@@ -45,14 +45,14 @@ func main() {
 	defer func() { _ = rdb.Close() }()
 
 	credAPI := credential.NewRedis(rdb)
-	engAPI := engagement.NewStore(pool)
+	engStore := engagement.NewStore(pool)
 
 	srv := &http.Server{
 		Addr: envOr("LIUSHA_API_ADDR", "0.0.0.0:8080"),
 		Handler: httpapi.NewServer(httpapi.Deps{
 			APIKey:      os.Getenv("LIUSHA_API_KEY"),
 			Credentials: credAPI,
-			Engagements: engAPI,
+			Engagements: engagementAPIAdapter{engStore},
 		}),
 		ReadTimeout:  time.Duration(cfg.API.ReadTimeoutSeconds) * time.Second,
 		WriteTimeout: time.Duration(cfg.API.WriteTimeoutSeconds) * time.Second,
@@ -84,4 +84,18 @@ func envOr(k, def string) string {
 		return v
 	}
 	return def
+}
+
+// engagementAPIAdapter 把 *engagement.Store 适配到 httpapi.EngagementsAPI 窄接口。
+//
+// HTTP API 不暴露 errMsg：用户主动取消 engagement 即视为正常结束，
+// abort 调用恒传 ""；store 层完整签名（含 errMsg）保留给 scanner 内部用。
+type engagementAPIAdapter struct{ s *engagement.Store }
+
+func (a engagementAPIAdapter) Abort(ctx context.Context, id string) error {
+	return a.s.Abort(ctx, id, "")
+}
+
+func (a engagementAPIAdapter) LookupOrCreateProxy(ctx context.Context, host string) (string, error) {
+	return a.s.LookupOrCreateProxy(ctx, host)
 }

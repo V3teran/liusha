@@ -16,7 +16,7 @@ postgres:
 
 # ---- LLM 多 provider 路由（黑客松借鉴：创新 11）----
 # default_provider:  主 ReAct（sniffer / 子任务）共用，重模型
-# light_provider:    Observer / Compaction / Distill 走的轻模型，省成本
+# light_provider:    Observer / Compaction / LessonExtract 走的轻模型，省成本
 # vision_provider:   v1.5 的 browser.screenshot 用，v1 仅作为备用主 LLM
 # fallback_provider: 429/529 退避耗尽后切到，retry 中间件用
 # routes:            按角色路由到 provider；未列角色用 default_provider
@@ -29,14 +29,14 @@ llm:
   max_tokens_per_call: 4096
   # 双 namespace（v1.1 改造）：把"真 agent"与"single-shot utility"语义分开。
   #   - agents     有 lifecycle + system prompt + tool loop（orchestrator/hunter/observer）
-  #   - utilities  single-shot transform，无循环、无 tool（distill/未来 compactor 等）
+  #   - utilities  single-shot transform，无循环、无 tool（lesson_extract/未来 compactor 等）
   # 运行时合并视图：router.For 同时查 agents + utilities，未命中回退 default_provider。
   agents:
     orchestrator: default_provider   # 主 ReAct（分类流量、派发 hunter、收尾）
     hunter:       default_provider   # 子 ReAct（漏洞猎手：BAC / 未来 SQLi/SSRF/IDOR）
     observer:     light_provider     # 旁路过程判官（每 5 步评估方向）
   utilities:
-    distill:      light_provider     # finding → ≤200 字 hint，落 memory_hints
+    lesson_extract: light_provider   # finding → ≤500 字 lesson，落 host_lesson
     vision:       vision_provider    # 多模态视觉（未启用）
 
 # 每个 provider 一节；只填要用的，其它留空即可

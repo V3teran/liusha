@@ -25,8 +25,23 @@ import (
 	"github.com/V3teran/liusha/internal/llm"
 	"github.com/V3teran/liusha/internal/react"
 	"github.com/V3teran/liusha/internal/skill"
+	"github.com/V3teran/liusha/internal/reactrun"
 	"github.com/V3teran/liusha/internal/toolfx"
 )
+
+// TaskRecorder 抽象 sub-task 生命周期写库，由 *reactrun.Store 自动满足。
+//
+// 让 delegate 把每次 spawn 的 sub-react 落 agent_task 一行，是为了：
+//   - 让 finding.task_id (FK→agent_task) 能挂上具体 sub-task 而不是父 orchestrator task
+//   - SQL 直接查"哪个子 task 用了哪个 skill 跑出什么结果"（agent_task.skill / .result）
+//
+// 不挂 LLM-call 的 task_id（仍走父 task）——那是另一层改造，需要重 Instrument SubLLM。
+type TaskRecorder interface {
+	Create(ctx context.Context, p reactrun.NewParams) (string, error)
+	SetRunning(ctx context.Context, id string) error
+	SetDone(ctx context.Context, id string, result json.RawMessage) error
+	SetError(ctx context.Context, id string, errMsg string) error
+}
 
 // Delegate 工具：把流量委托给某个 skill 的子 ReAct（同步阻塞）。
 //
@@ -34,16 +49,25 @@ import (
 // 会启 N 个 goroutine 并行跑（每个独立调 Delegate.Execute）。
 //
 // 字段：
-//   - Builders   skill 名 → SubBuilder 闭包；启动期 main.go 注册
-//   - Catalog    可用 skill 元数据（来自 Loader.List），驱动 Description / Parameters 动态生成
-//   - SubLLM     给子 ReAct 用的 LLM Generator（已 Instrument 装饰，role=hunter）
-//   - Observer   注入子 ReAct 的过程判官（与主 ReAct 共享同一 observer 实例）
+//   - Builders     skill 名 → SubBuilder 闭包；启动期 main.go 注册
+//   - Catalog      可用 skill 元数据（来自 Loader.List），驱动 Description / Parameters 动态生成
+//   - SubLLM       给子 ReAct 用的 LLM Generator（已 Instrument 装饰，role=hunter）；
+//                  SubLLMFor 非 nil 时本字段忽略
+//   - Observer     注入子 ReAct 的过程判官；ObserverFor 非 nil 时本字段忽略
+//   - Tasks        sub-task 生命周期写库；nil 时退化到 ad-hoc UUID（finding.task_id 仍 NULL）
+//   - SubLLMFor    可选闭包：用 sub-task uuid 现场 Instrument SubLLM，让 hunter 的
+//                  llm_call.task_id 挂在 sub-task 而不是父 orchestrator task
+//   - ObserverFor  可选闭包：用 sub-task uuid 现场建 Observer（其内部 LLM 也 Instrument
+//                  到 sub-task 上，让 observer 的 llm_call.task_id 也归到 sub-task）
 type Delegate struct {
 	Builders     map[string]skill.Builder
 	EngagementID string
 	SubLLM       llm.Generator
 	Catalog      []*skill.Card
 	Observer     react.Observer
+	Tasks        TaskRecorder
+	SubLLMFor    func(taskID string) llm.Generator
+	ObserverFor  func(taskID string) react.Observer
 }
 
 // Name 返回工具名 "delegate"。
@@ -138,27 +162,126 @@ func (a *Delegate) Execute(ctx context.Context, args json.RawMessage) (toolfx.Re
 		return toolfx.Result{}, fmt.Errorf("unknown skill: %s", in.Skill)
 	}
 
+	// sub-task 入 agent_task 表（role=hunter）：拿真 PG UUID 作为 BuilderParams.TaskID，
+	// 让 finding.task_id (FK→agent_task) 能合法引用，不再永远 NULL。
+	subTaskID, err := a.recordSubTaskStart(ctx, in)
+	if err != nil {
+		return toolfx.Result{}, fmt.Errorf("record sub-task start: %w", err)
+	}
+
+	// 用 sub-task uuid 重 Instrument hunter LLM + observer，让它们的 llm_call.task_id
+	// 挂在 sub-task 上而不是父 orchestrator task。
+	// maker 为 nil（旧装配/单测）时降级到固定字段。
+	subLLM := a.SubLLM
+	if a.SubLLMFor != nil && subTaskID != "" {
+		subLLM = a.SubLLMFor(subTaskID)
+	}
+	subObserver := a.Observer
+	if a.ObserverFor != nil && subTaskID != "" {
+		subObserver = a.ObserverFor(subTaskID)
+	}
+
 	cfg, err := builder(ctx, skill.BuilderParams{
 		EngagementID:        a.EngagementID,
+		TaskID:              subTaskID,
 		FlowID:              in.FlowID,
 		Host:                in.Host,
 		URL:                 in.URL,
 		Method:              in.Method,
-		LLM:                 a.SubLLM,
-		Observer:            a.Observer,
+		LLM:                 subLLM,
+		Observer:            subObserver,
 		CredentialLocations: in.CredentialLocations,
 	})
 	if err != nil {
+		a.recordSubTaskError(ctx, subTaskID, err)
 		return toolfx.Result{}, fmt.Errorf("build skill %s: %w", in.Skill, err)
 	}
 
 	sub, err := react.Run(ctx, cfg)
 	if err != nil {
+		a.recordSubTaskError(ctx, subTaskID, err)
 		return toolfx.Result{}, fmt.Errorf("sub-react %s: %w", in.Skill, err)
 	}
+
+	a.recordSubTaskDone(ctx, subTaskID, in.Skill, sub)
 
 	summary := fmt.Sprintf("skill=%s steps=%d terminate=%s usage=in:%d/out:%d",
 		in.Skill, sub.TotalSteps, sub.TerminateBy,
 		sub.TotalUsage.InTokens, sub.TotalUsage.OutTokens)
 	return toolfx.Result{Summary: summary}, nil
+}
+
+// subTaskInput 是 delegate 透传给 builder 的入参快照，落到 agent_task.input。
+type subTaskInput struct {
+	Skill               string                          `json:"skill"`
+	FlowID              int64                           `json:"flow_id"`
+	Host                string                          `json:"host"`
+	URL                 string                          `json:"url"`
+	Method              string                          `json:"method"`
+	CredentialLocations []credential.CredentialLocation `json:"credential_locations,omitempty"`
+}
+
+// recordSubTaskStart 写 agent_task 行并 SetRunning。
+//
+// Tasks==nil 时退化：返空 string，BuilderParams.TaskID 为空，finding.task_id 仍是 NULL。
+// 这是单元测试场景；生产路径 main.go 必传 Tasks。
+func (a *Delegate) recordSubTaskStart(ctx context.Context, in struct {
+	Skill               string                          `json:"skill"`
+	FlowID              int64                           `json:"flow_id"`
+	Host                string                          `json:"host"`
+	URL                 string                          `json:"url"`
+	Method              string                          `json:"method"`
+	CredentialLocations []credential.CredentialLocation `json:"credential_locations"`
+}) (string, error) {
+	if a.Tasks == nil {
+		return "", nil
+	}
+	inputJSON, err := json.Marshal(subTaskInput{
+		Skill:               in.Skill,
+		FlowID:              in.FlowID,
+		Host:                in.Host,
+		URL:                 in.URL,
+		Method:              in.Method,
+		CredentialLocations: in.CredentialLocations,
+	})
+	if err != nil {
+		return "", fmt.Errorf("marshal sub-task input: %w", err)
+	}
+	id, err := a.Tasks.Create(ctx, reactrun.NewParams{
+		EngagementID: a.EngagementID,
+		Role:         "hunter",
+		Skill:        in.Skill,
+		Input:        inputJSON,
+	})
+	if err != nil {
+		return "", fmt.Errorf("create sub-task: %w", err)
+	}
+	if err := a.Tasks.SetRunning(ctx, id); err != nil {
+		return id, fmt.Errorf("set sub-task running: %w", err)
+	}
+	return id, nil
+}
+
+// recordSubTaskDone 把 sub-task 推进到 done，写入 result。
+// 失败仅警告级别（不应阻塞 sub-react 真正的成功返回给主 LLM）。
+func (a *Delegate) recordSubTaskDone(ctx context.Context, id, skillName string, sub react.Outcome) {
+	if a.Tasks == nil || id == "" {
+		return
+	}
+	result, _ := json.Marshal(map[string]any{
+		"skill":        skillName,
+		"steps":        sub.TotalSteps,
+		"terminate_by": sub.TerminateBy,
+		"in_tokens":    sub.TotalUsage.InTokens,
+		"out_tokens":   sub.TotalUsage.OutTokens,
+	})
+	_ = a.Tasks.SetDone(ctx, id, result)
+}
+
+// recordSubTaskError 把 sub-task 推进到 error（best-effort）。
+func (a *Delegate) recordSubTaskError(ctx context.Context, id string, err error) {
+	if a.Tasks == nil || id == "" {
+		return
+	}
+	_ = a.Tasks.SetError(ctx, id, err.Error())
 }

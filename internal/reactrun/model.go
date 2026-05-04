@@ -2,7 +2,7 @@
 // 状态机 pending → running → done|error|aborted。
 //
 // v1.1：parent_task_id 列已删（子 ReAct 同进程嵌套不入 PG，无父子关系）。
-package task
+package reactrun
 
 import (
 	"encoding/json"
@@ -20,25 +20,23 @@ const (
 	StatusError   Status = "error"
 )
 
-// Task 是 agent_task 表行的 Go 表示。Result 在终态前为空 jsonb '{}'。
-type Task struct {
+// ReactRun 是 agent_task 表行的 Go 表示。Result 在终态前为空 jsonb '{}'。
+type ReactRun struct {
 	ID           string
 	EngagementID string
 	Role         string
 	Skill        string
 	Input        json.RawMessage
-	Budget       json.RawMessage
 	Result       json.RawMessage
 	Status       Status
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
 }
 
-// NewParams 是 Store.Create 的入参。Skill / Budget 都可选。
+// NewParams 是 Store.Create 的入参。Skill 可选。
 type NewParams struct {
 	EngagementID string
 	Role         string
 	Skill        string
 	Input        json.RawMessage
-	Budget       json.RawMessage
 }

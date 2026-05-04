@@ -1,6 +1,6 @@
 //go:build integration
 
-package task
+package reactrun
 
 import (
 	"context"
@@ -127,70 +127,6 @@ func TestStore_TerminalIsSticky(t *testing.T) {
 	}
 }
 
-// TestStore_ParentChild 验证：spawn_subtask 时 parent_task_id 正确写入，
-// 父任务可通过 ListByEngagement 一并看到。
-func TestStore_ParentChild(t *testing.T) {
-	ctx := context.Background()
-	s, eid := setup(t)
-
-	parentID, err := s.Create(ctx, NewParams{EngagementID: eid, Role: "bac"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	childID, err := s.Create(ctx, NewParams{
-		EngagementID: eid,
-		ParentTaskID: &parentID,
-		Role:         "sqli",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	child, _ := s.GetByID(ctx, childID)
-	if child.ParentTaskID == nil || *child.ParentTaskID != parentID {
-		t.Fatalf("child.ParentTaskID 不匹配: %+v want %s", child.ParentTaskID, parentID)
-	}
-
-	list, err := s.ListByEngagement(ctx, eid, 10)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(list) != 2 {
-		t.Fatalf("expected 2 tasks, got %d", len(list))
-	}
-}
-
-// TestStore_InflightCounters 验证：父子并发计数器在状态推进时正确收敛。
-func TestStore_InflightCounters(t *testing.T) {
-	ctx := context.Background()
-	s, eid := setup(t)
-	parentID, _ := s.Create(ctx, NewParams{EngagementID: eid, Role: "bac"})
-	c1, _ := s.Create(ctx, NewParams{EngagementID: eid, ParentTaskID: &parentID, Role: "sqli"})
-	_, _ = s.Create(ctx, NewParams{EngagementID: eid, ParentTaskID: &parentID, Role: "sqli"})
-
-	n, err := s.CountInflightChildren(ctx, parentID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if n != 2 {
-		t.Fatalf("inflight children=%d, want 2", n)
-	}
-
-	if err := s.SetRunning(ctx, c1); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.SetDone(ctx, c1, json.RawMessage(`{}`)); err != nil {
-		t.Fatal(err)
-	}
-
-	n, _ = s.CountInflightChildren(ctx, parentID)
-	if n != 1 {
-		t.Fatalf("after one done, inflight=%d, want 1", n)
-	}
-
-	total, _ := s.CountInflightInEngagement(ctx, eid)
-	// parent (pending) + 1 remaining child (pending) = 2
-	if total != 2 {
-		t.Fatalf("engagement inflight=%d, want 2", total)
-	}
-}
+// v1.1 移除：原 TestStore_ParentChild + TestStore_InflightCounters 测的是
+// parent_task_id 列 + CountInflightChildren 方法；v1.1 redesign 已把这俩从
+// 生产代码删除（子 ReAct 同进程嵌套不入 PG），测试同步删。

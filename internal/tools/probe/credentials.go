@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/V3teran/liusha/internal/toolfx"
 	"github.com/V3teran/liusha/internal/credential"
+	"github.com/V3teran/liusha/internal/toolfx"
 )
 
 // FetchCredentials — BAC ReAct 第一步：拉目标 host 全部活身份（含 anonymous）。
@@ -15,14 +15,14 @@ import (
 //   - 让 LLM 在 tool message 里看到密钥（token 浪费 + 安全风险）。
 //   - 喂给后续 ReplayMultiIdentity 时还得二次序列化。
 //
-// 全身份留在 Session.Identities 里，供 ReplayMultiIdentity 直接读取。
+// 全身份留在 ProbeState.Identities 里，供 ReplayMultiIdentity 直接读取。
 //
 // Locations 来自上游 classify_traffic 输出（经 delegate.BuilderParams 透传）；
 // 非空时用 credential.BuildAnonymous(Locations) 替换 Provider 注入的"完全无凭证 anonymous"，
 // 让重放时 anonymous 携带占位 token 触发服务端的"token 校验失败"分支。
 type FetchCredentials struct {
 	Provider  credential.Provider
-	Session   *Session
+	State     *ProbeState
 	Locations []credential.CredentialLocation
 }
 
@@ -31,7 +31,7 @@ func (a *FetchCredentials) Name() string { return "fetch_credentials" }
 
 // Description 给 LLM 看的简介。
 func (a *FetchCredentials) Description() string {
-	return "拉取目标 host 的全部活身份（含 anonymous），仅返回身份名/角色/是否有凭证；raw value 不出 session。"
+	return "拉取目标 host 的全部活身份（含 anonymous），仅返回身份名/角色/是否有凭证；raw value 不外泄。"
 }
 
 // ParametersJSON 给出 host 必填 schema。
@@ -60,7 +60,7 @@ type fetchOutput struct {
 	Identities []identitySummary `json:"identities"`
 }
 
-// Execute 解析 args → Provider.GetIdentitiesByHost → 写 Session → 返回瘦摘要。
+// Execute 解析 args → Provider.GetIdentitiesByHost → 写 ProbeState → 返回瘦摘要。
 func (a *FetchCredentials) Execute(ctx context.Context, args json.RawMessage) (toolfx.Result, error) {
 	var in struct {
 		Host string `json:"host"`
@@ -95,7 +95,7 @@ func (a *FetchCredentials) Execute(ctx context.Context, args json.RawMessage) (t
 		}
 	}
 
-	a.Session.Identities = ids
+	a.State.Identities = ids
 
 	out := fetchOutput{Host: in.Host, Identities: make([]identitySummary, 0, len(ids))}
 	for _, id := range ids {

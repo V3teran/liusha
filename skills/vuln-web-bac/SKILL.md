@@ -71,44 +71,36 @@ Identity 含 `role` 字段。判定原则：
 
 ## 步骤
 
-### Step 0：read_state + 检查是否已扫过
+### Step 0：read_state + 标记假设
 
-1. 调 `read_state()` 读三层 memory（含 `memory_hints`）。
-2. **若 hints 中已有同 `<host>:<method>:<path-template>` 的 finding 记录** → 跳过本轮：
-   - `write_fact({category:"boundary", content:"hint 命中 <key>，跳过同 endpoint 重扫"})`
-   - `write_idea(direction, status:"failed")`
-   - `done({"reason":"no_pattern_match"})`
-3. 否则 `write_idea({direction:"<host><method><path>", status:"pending"})` 标记本轮假设。
+1. 调 `read_state()` 读三层 memory（facts/ideas/hints）。`memory_hints` 是 distill 从过往 finding 浓缩的自由文本经验（≤200 字），用作**避坑/扩展方向参考**——例如"该 host 的 admin 接口对低权限身份开放"。把它们当作背景知识读一遍，影响后续 Step 4/5 的判定取舍。
+2. `take_note({kind:"hypothesis", content:"测 <host><method><path>", status:"pending"})` 标记本轮假设，进 Step 1。
 
-### Step 1：fetch_credentials(host)
+注：去重不在 SKILL 层做。同 endpoint 已扫过的 dedup 由调度层在派 task 前过滤；hints 里出现过的 endpoint 文本只作软参考，**不要**据此跳过本 task。
 
-拿全部身份（含 anonymous）。
+### Step 1：fetch_credentials
 
-### Step 2：replay_multi_identity(flow_id, host, concurrency=5)
+### Step 2：replay_multi_identity
 
-多身份并发重放，得到 N 份响应。后调 `write_fact({category:"evidence", content:"endpoint <X> N 身份重放摘要"})`。
+调用后必须 `take_note({kind:"observation", content:"endpoint <X> N 身份重放摘要"})`，让 done 校验拿到证据。
 
-### Step 3：heuristic_check(rules=[all_denied, all_empty, all_auth_error])
+### Step 3：heuristic_check
 
-命中任一规则 → 立即结束（防误报）：
-- `write_fact({category:"boundary", content:"heuristic 命中 <RULE>"})`
-- `write_idea(direction, status:"failed")`
+`skip=true` → 立即结束（防误报）：
+- `take_note({kind:"boundary", content:"heuristic 命中 <RULE>"})`
+- `take_note({kind:"hypothesis", content:"<host><method><path>", status:"failed"})`
 - `done({"reason":"heuristic_skip"})`
 
-### Step 4：compute_similarity（默认 min=0.6, high=0.9）
+### Step 4：compute_similarity
 
-工具产出 verdict 三态。
+**前置检查（BAC 专属，不能让相似度短路掉真阳）**：先看 Step 2 中 anonymous 是否"成功访问"（按双重判定）。**若 anonymous 成功 → 跳过 verdict 分支，直接进 Step 5**——anonymous 拿到部分数据 + admin 拿到完整数据时响应差异显著会触发 `all_below_threshold`，但这仍是真 unauthorized_access。
 
-**前置检查**：先看 Step 2 中 anonymous 是否"成功访问"（按双重判定）。**若 anonymous 成功 → 跳过 verdict 分支，直接进 Step 5**——anonymous 拿到部分数据 + admin 拿到完整数据时响应差异显著会触发 `all_below_threshold`，但这仍是真 unauthorized_access，不能让相似度短路。
-
-否则按 verdict：
-- `all_below_threshold`（所有 pair 都低相似 = 响应差异显著 = 访问控制按身份分发不同数据 = **正常**）：
-  - `write_fact({category:"boundary", content:"similarity 全低于阈值"})`
-  - `write_idea(direction, status:"failed")`
+否则按 verdict 映射 BAC 动作：
+- `all_below_threshold` → **访问控制正常**（按身份分发不同数据）：
+  - `take_note({kind:"boundary", content:"similarity 全低于阈值"})`
+  - `take_note({kind:"hypothesis", content:"<host><method><path>", status:"failed"})`
   - `done({"reason":"all_differ"})` → 不进 Step 5
-- `high_similarity_pair` / `ambiguous` → 进 Step 5（**注意：高相似 ≠ 越权**；公开接口 `/api/banner` `/health`、错误页、登录页都会高相似）
-
-工具输出参考：`suspicious_pairs[]`（score ≥ min 的身份对，含 `{a, b, score, length_ratio}`）+ `summary`。
+- `high_similarity_pair` / `ambiguous` → 进 Step 5（**注意：高相似 ≠ 越权**；公开接口 `/api/banner` `/health`、错误页、登录页都会高相似，要靠 Step 5 决策树排除）
 
 ### Step 5：判定漏洞类型（决策树，按顺序）
 
@@ -170,10 +162,10 @@ severity 按上文"漏洞类型"表映射。
 
 写库后系统自动触发 distill（写 hint 入 `memory_hints`，下次同 engagement 复用）。
 
-### Step 7：write_idea + done
+### Step 7：take_note + done
 
-- 命中漏洞：`write_idea(direction, status:"verified")` → `done({"reason":"finding_written", "dedup_key":"..."})`
-- 未命中：`write_idea(direction, status:"failed")` → `done({"reason":"no_pattern_match"})`
+- 命中漏洞：`take_note({kind:"hypothesis", content:"<host><method><path>", status:"verified"})` → `done({"reason":"finding_written", "dedup_key":"..."})`
+- 未命中：`take_note({kind:"hypothesis", content:"<host><method><path>", status:"failed"})` → `done({"reason":"no_pattern_match"})`
 
 ## 判定置信度（决定是否写 finding）
 

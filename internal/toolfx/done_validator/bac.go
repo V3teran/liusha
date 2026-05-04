@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 
+	"github.com/V3teran/liusha/internal/engagement"
 	"github.com/V3teran/liusha/internal/toolfx"
 )
 
@@ -12,13 +13,14 @@ var _ toolfx.DoneValidator = (*BACValidator)(nil)
 
 // FactReader 抽象 memory 三层 JSON 的只读访问，由 engagement.Store 自动满足。
 //
-// 这里只声明 ReadState 一个方法（小接口原则）：BACValidator 仅需读 facts 看
-// 是否有 evidence/boundaries，不参与写入。
+// v1.2 关键修复（task scope 隔离）：用 ReadStateScoped 而非 ReadState——
+// 否则跨 task 在同一 engagement 内运行时，validator 会看到其他 task 写的 evidence
+// 而误判本 task 已"完成"，让什么都没干的 task 也能 done 通过。
 type FactReader interface {
-	ReadState(ctx context.Context, engagementID string) ([]byte, error)
+	ReadStateScoped(ctx context.Context, engagementID string, opts engagement.ReadOpts) ([]byte, error)
 }
 
-// FindingChecker 抽象 finding 表的 dedup_key 查询，由 finding.Store 自动满足。
+// FindingChecker 抽象 finding 表的 dedup_key 查询，由 vulnfinding.Store 自动满足。
 // 用 1-method 的小接口隔离，便于在测试里注入 fake。
 type FindingChecker interface {
 	HasDedupKey(ctx context.Context, engagementID, dedupKey string) (bool, error)
@@ -38,17 +40,23 @@ var validReasons = map[string]struct{}{
 
 // BACValidator 是 BAC skill 的 done 系统层裁决器（黑客松借鉴共识 C）。
 //
-// 每个 ReAct task 实例化一份（持 engagementID），不共用全局单例——这样既能让
-// fact/finding 查询绑到具体 engagement，也避免并发任务互相污染状态。
+// 每个 ReAct task 实例化一份（持 engagementID + taskID），不共用全局单例——
+// 既能让 fact/finding 查询绑到具体 engagement，也通过 taskID 隔离同 engagement
+// 并发 task 的 facts 串扰（v1.2 关键修复：原 ReadState 全量读会让 B 看到 A 的 evidence
+// 误判已完成）。
 type BACValidator struct {
 	state    FactReader
 	findings FindingChecker
 	eid      string
+	taskID   string
 }
 
 // NewBACValidator 装配一个 BACValidator 实例。state/findings 都不能为 nil（构造方负责）。
-func NewBACValidator(state FactReader, findings FindingChecker, eid string) *BACValidator {
-	return &BACValidator{state: state, findings: findings, eid: eid}
+//
+// taskID 来自 BuilderParams.TaskID（delegate 生成 UUID）；空字符串退化为 engagement
+// 全量读（仅向后兼容；正常装配路径不应空）。
+func NewBACValidator(state FactReader, findings FindingChecker, eid, taskID string) *BACValidator {
+	return &BACValidator{state: state, findings: findings, eid: eid, taskID: taskID}
 }
 
 // CanDone 实现 toolfx.DoneValidator interface。
@@ -56,7 +64,7 @@ func NewBACValidator(state FactReader, findings FindingChecker, eid string) *BAC
 // 判定流程（任意一项不满足都返回 missing 列表，让 LLM 知道还缺什么）：
 //  1. args 必须能解析出 reason 字段；
 //  2. reason 必须 ∈ validReasons；
-//  3. memory_facts 必须至少含 1 条 evidence 或 1 条 boundary（说明 4 个工具至少跑过 1 个并写过 fact）；
+//  3. engagement.memory_notes 中本 task 写过的 note 必须至少含 1 条 kind=observation 或 boundary（说明 4 个工具至少跑过 1 个并 take_note）；
 //  4. 若 reason=finding_written：args 必须含 dedup_key，且 finding 表能查到该 key。
 func (v *BACValidator) CanDone(ctx context.Context, args json.RawMessage) (bool, []string) {
 	var missing []string
@@ -74,11 +82,11 @@ func (v *BACValidator) CanDone(ctx context.Context, args json.RawMessage) (bool,
 		missing = append(missing, "valid_reason")
 	}
 
-	// 读 state 看是否至少跑过一个写 fact 的工具。
-	stateBytes, err := v.state.ReadState(ctx, v.eid)
+	// 读 state 看是否至少跑过一个写 fact 的工具——按 task 视图，避免跨 task 串扰。
+	stateBytes, err := v.state.ReadStateScoped(ctx, v.eid, engagement.ReadOpts{TaskID: v.taskID})
 	if err != nil {
 		missing = append(missing, "state_read_error")
-	} else if !hasEvidenceOrBoundary(stateBytes) {
+	} else if !hasEvidenceOrBoundary(stateBytes, v.taskID) {
 		missing = append(missing, "evidence_or_boundary")
 	}
 
@@ -100,29 +108,40 @@ func (v *BACValidator) CanDone(ctx context.Context, args json.RawMessage) (bool,
 	return len(missing) == 0, missing
 }
 
-// hasEvidenceOrBoundary 判断 state.facts 下 evidence 或 boundaries 数组是否至少有 1 条。
+// hasEvidenceOrBoundary 判断本 task 是否在 engagement.memory_notes 写过至少 1 条
+// kind ∈ {observation, boundary} 的 note。
 //
-// State JSON 结构（来自 engagement.Store.ReadState）：
+// State JSON 结构（v1.2 收尾后，来自 engagement.Store.ReadStateScoped）：
 //
 //	{
-//	  "facts": {"evidence": [...], "boundaries": [...]},
-//	  "ideas": {...}, "hints": {...}
+//	  "notes": {"notes": [{"kind":"observation|hypothesis|boundary","content":"...","task_id":"..."}]}
 //	}
 //
-// 任一数组非空即视为"BAC 工具至少跑过一轮"。
-func hasEvidenceOrBoundary(stateBytes []byte) bool {
+// 严格按 task_id 匹配——避免跨 task 串扰（A 写过 B 没干活也能 done 通过）。
+// taskID 为空时退化为"engagement 内任意 observation/boundary 即可"（向后兼容，但生产路径不应空）。
+func hasEvidenceOrBoundary(stateBytes []byte, taskID string) bool {
 	var s struct {
-		Facts json.RawMessage `json:"facts"`
+		Notes json.RawMessage `json:"notes"`
 	}
 	if err := json.Unmarshal(stateBytes, &s); err != nil {
 		return false
 	}
-	var facts struct {
-		Evidence   []json.RawMessage `json:"evidence"`
-		Boundaries []json.RawMessage `json:"boundaries"`
+	var box struct {
+		Notes []struct {
+			Kind   string `json:"kind"`
+			TaskID string `json:"task_id"`
+		} `json:"notes"`
 	}
-	if err := json.Unmarshal(s.Facts, &facts); err != nil {
+	if err := json.Unmarshal(s.Notes, &box); err != nil {
 		return false
 	}
-	return len(facts.Evidence) > 0 || len(facts.Boundaries) > 0
+	for _, n := range box.Notes {
+		if n.Kind != "observation" && n.Kind != "boundary" {
+			continue
+		}
+		if taskID == "" || n.TaskID == taskID {
+			return true
+		}
+	}
+	return false
 }

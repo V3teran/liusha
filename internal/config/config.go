@@ -35,7 +35,7 @@ type PostgresConfig struct {
 //
 // v1.1 双 namespace（替代单 routes 平铺）：
 //   - Agents     有 lifecycle + system prompt + tool loop（orchestrator/hunter/observer）
-//   - Utilities  single-shot transform，无循环（distill / vision / 未来 compactor 等）
+//   - Utilities  single-shot transform，无循环（lesson_extract / vision / 未来 compactor 等）
 //
 // 运行时 Router.For 合并查找两个 map，未命中回退 default_provider；
 // 拆分仅在 yaml 与统计/限额维度有意义，不影响调用方。

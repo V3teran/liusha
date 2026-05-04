@@ -6,7 +6,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/V3teran/liusha/internal/finding"
+	"github.com/V3teran/liusha/internal/vulnfinding"
 	"github.com/V3teran/liusha/internal/toolfx"
 )
 
@@ -15,7 +15,7 @@ import (
 // 主 LLM 在 spawn_skill 多次后用此工具汇总当前已发现的漏洞条目，
 // 据此决定还要继续测哪些 / done 收尾。
 type GetFindings struct {
-	Store        *finding.Store
+	Store        *vulnfinding.Store
 	EngagementID string
 }
 

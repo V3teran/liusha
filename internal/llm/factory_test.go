@@ -50,7 +50,7 @@ func makeRoutedCfg() config.Config {
 				"observer":     "light_provider",
 			},
 			Utilities: map[string]string{
-				"distill": "light_provider",
+				"lesson_extract": "light_provider",
 			},
 		},
 		Providers: map[string]config.ProviderConfig{

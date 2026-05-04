@@ -5,20 +5,20 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/V3teran/liusha/internal/toolfx"
 	"github.com/V3teran/liusha/internal/heuristic"
 	"github.com/V3teran/liusha/internal/replay"
+	"github.com/V3teran/liusha/internal/toolfx"
 )
 
 // defaultHeuristicRules 是没指定 rules 时按序尝试的全部启发式规则。
 var defaultHeuristicRules = []string{"all_denied", "all_empty", "all_auth_error"}
 
-// HeuristicCheck — BAC ReAct 第三步：对 Session.LastResponses 跑短路规则。
+// HeuristicCheck — BAC ReAct 第三步：对 ProbeState.LastResponses 跑短路规则。
 //
 // 命中任意一条 rule 即返回 skip=true + 命中规则名 + reason，
 // 上层（LLM）据此跳过昂贵的相似度计算与 finding 提交。
 type HeuristicCheck struct {
-	Session *Session
+	State *ProbeState
 }
 
 // Name 返回动作名 "heuristic_check"。
@@ -50,7 +50,7 @@ type heuristicOutput struct {
 	Reason  string `json:"reason,omitempty"`
 }
 
-// Execute 解析 args → 取 Session.LastResponses → 按序跑 rule → 命中即返回。
+// Execute 解析 args → 取 ProbeState.LastResponses → 按序跑 rule → 命中即返回。
 func (a *HeuristicCheck) Execute(_ context.Context, args json.RawMessage) (toolfx.Result, error) {
 	var in struct {
 		Rules []string `json:"rules"`
@@ -60,8 +60,8 @@ func (a *HeuristicCheck) Execute(_ context.Context, args json.RawMessage) (toolf
 			return toolfx.Result{}, fmt.Errorf("解析 heuristic_check 参数失败: %w", err)
 		}
 	}
-	if len(a.Session.LastResponses) == 0 {
-		return toolfx.Result{}, fmt.Errorf("session.LastResponses 为空，请先调 replay_multi_identity")
+	if len(a.State.LastResponses) == 0 {
+		return toolfx.Result{}, fmt.Errorf("state.LastResponses 为空，请先调 replay_multi_identity")
 	}
 	if len(in.Rules) == 0 {
 		in.Rules = defaultHeuristicRules
@@ -73,7 +73,7 @@ func (a *HeuristicCheck) Execute(_ context.Context, args json.RawMessage) (toolf
 			// 未知规则名静默跳过；schema 已用 enum 约束，这里只是双保险。
 			continue
 		}
-		if skip, reason := rule(a.Session.LastResponses); skip {
+		if skip, reason := rule(a.State.LastResponses); skip {
 			return marshalHeuristic(heuristicOutput{Skip: true, HitRule: name, Reason: reason})
 		}
 	}

@@ -22,7 +22,7 @@ func (f *fakeValidator) CanDone(_ context.Context, _ json.RawMessage) (bool, []s
 
 func TestDoneValidate_NotDone(t *testing.T) {
 	v := &fakeValidator{ok: false, missing: []string{"recon"}}
-	mw := DoneValidate(v)
+	mw := DoneValidate(v, nil)
 	called := false
 	exec := mw(func(_ context.Context, _ string, _ json.RawMessage) (toolfx.Result, error) {
 		called = true
@@ -43,7 +43,7 @@ func TestDoneValidate_NotDone(t *testing.T) {
 
 func TestDoneValidate_DoneOK(t *testing.T) {
 	v := &fakeValidator{ok: true}
-	mw := DoneValidate(v)
+	mw := DoneValidate(v, nil)
 	called := false
 	exec := mw(func(_ context.Context, _ string, _ json.RawMessage) (toolfx.Result, error) {
 		called = true
@@ -67,7 +67,7 @@ func TestDoneValidate_DoneOK(t *testing.T) {
 
 func TestDoneValidate_DoneBlocked(t *testing.T) {
 	v := &fakeValidator{ok: false, missing: []string{"recon", "exploit"}}
-	mw := DoneValidate(v)
+	mw := DoneValidate(v, nil)
 	called := false
 	exec := mw(func(_ context.Context, _ string, _ json.RawMessage) (toolfx.Result, error) {
 		called = true
@@ -89,7 +89,7 @@ func TestDoneValidate_DoneBlocked(t *testing.T) {
 
 func TestDoneValidate_NilValidatorSafe(t *testing.T) {
 	// 防御：nil validator 应当行为同 AlwaysOK（避免 NPE）。
-	mw := DoneValidate(nil)
+	mw := DoneValidate(nil, nil)
 	exec := mw(func(_ context.Context, _ string, _ json.RawMessage) (toolfx.Result, error) {
 		return toolfx.Result{Done: true}, nil
 	})

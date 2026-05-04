@@ -31,7 +31,7 @@ const (
 	verdictAmbiguous = "ambiguous"
 )
 
-// ComputeSimilarity — 漏洞探针通用工具：对 Session.LastResponses 两两算 token Jaccard 相似度。
+// ComputeSimilarity — 漏洞探针通用工具：对 ProbeState.LastResponses 两两算 token Jaccard 相似度。
 //
 // 与上一版关键差异（本轮重写）：
 //   - **不再返回 N×N 矩阵交给 LLM 解读**：算法直接产出 verdict（三态），LLM 只看结论 + 可疑对。
@@ -40,7 +40,7 @@ const (
 //     （5xx 错误页 vs 数据页一般差 10x，无需算具体相似度）。
 //   - **suspicious_pairs 替代矩阵**：仅返回 score >= min_threshold 的 pair，附带 length_ratio。
 type ComputeSimilarity struct {
-	Session *Session
+	State *ProbeState
 }
 
 // Name 返回动作名 "compute_similarity"。
@@ -105,8 +105,8 @@ func (a *ComputeSimilarity) Execute(_ context.Context, args json.RawMessage) (to
 			return toolfx.Result{}, fmt.Errorf("解析 compute_similarity 参数失败: %w", err)
 		}
 	}
-	if len(a.Session.LastResponses) == 0 {
-		return toolfx.Result{}, fmt.Errorf("session.LastResponses 为空，请先调 replay_multi_identity")
+	if len(a.State.LastResponses) == 0 {
+		return toolfx.Result{}, fmt.Errorf("state.LastResponses 为空，请先调 replay_multi_identity")
 	}
 	if in.MinThreshold <= 0 {
 		in.MinThreshold = defaultMinThreshold
@@ -118,7 +118,7 @@ func (a *ComputeSimilarity) Execute(_ context.Context, args json.RawMessage) (to
 		return toolfx.Result{}, fmt.Errorf("high_threshold (%v) 不能小于 min_threshold (%v)", in.HighThreshold, in.MinThreshold)
 	}
 
-	rs := a.Session.LastResponses
+	rs := a.State.LastResponses
 	n := len(rs)
 	identities := make([]string, n)
 	for i := range rs {

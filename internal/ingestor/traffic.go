@@ -22,7 +22,7 @@ import (
 	"github.com/V3teran/liusha/internal/engagement"
 	"github.com/V3teran/liusha/internal/flow"
 	"github.com/V3teran/liusha/internal/proxy"
-	"github.com/V3teran/liusha/internal/task"
+	"github.com/V3teran/liusha/internal/reactrun"
 	"github.com/V3teran/liusha/internal/worker"
 )
 
@@ -36,26 +36,31 @@ const (
 
 // Traffic 是流量入口的 Stream 消费者。
 type Traffic struct {
-	rdb    *redis.Client
-	stream string
-	group  string
-	name   string
-	engs   *engagement.Store
-	flows  *flow.Store
-	tasks  *task.Store
-	enq    *worker.Client
-	logger zerolog.Logger
+	rdb     *redis.Client
+	stream  string
+	group   string
+	name    string
+	engs    *engagement.Store
+	rotator *engagement.Rotator
+	flows   *flow.Store
+	tasks   *reactrun.Store
+	enq     *worker.Client
+	logger  zerolog.Logger
 }
 
 // Deps 注入。
+//
+// Rotator 可空：空时走 engs.LookupOrCreate（旧行为）；
+// 非空时走 rotator.EnsureActive，proxy 模式按阈值滚动 engagement。
 type Deps struct {
 	Redis    *redis.Client
 	Stream   string
 	Group    string
 	Consumer string
 	Engs     *engagement.Store
+	Rotator  *engagement.Rotator
 	Flows    *flow.Store
-	Tasks    *task.Store
+	Tasks    *reactrun.Store
 	Enqueuer *worker.Client
 	Logger   zerolog.Logger
 }
@@ -67,15 +72,16 @@ func NewTraffic(ctx context.Context, deps Deps) (*Traffic, error) {
 		return nil, errors.New("ingestor.NewTraffic: redis/engs/flows/tasks/enqueuer 必填")
 	}
 	t := &Traffic{
-		rdb:    deps.Redis,
-		stream: pickNonEmpty(deps.Stream, proxy.FlowStream),
-		group:  pickNonEmpty(deps.Group, defaultGroup),
-		name:   pickNonEmpty(deps.Consumer, defaultConsumerName),
-		engs:   deps.Engs,
-		flows:  deps.Flows,
-		tasks:  deps.Tasks,
-		enq:    deps.Enqueuer,
-		logger: deps.Logger,
+		rdb:     deps.Redis,
+		stream:  pickNonEmpty(deps.Stream, proxy.FlowStream),
+		group:   pickNonEmpty(deps.Group, defaultGroup),
+		name:    pickNonEmpty(deps.Consumer, defaultConsumerName),
+		engs:    deps.Engs,
+		rotator: deps.Rotator,
+		flows:   deps.Flows,
+		tasks:   deps.Tasks,
+		enq:     deps.Enqueuer,
+		logger:  deps.Logger,
 	}
 	if err := t.rdb.XGroupCreateMkStream(ctx, t.stream, t.group, "$").Err(); err != nil {
 		if !strings.Contains(err.Error(), "BUSYGROUP") {
@@ -140,24 +146,37 @@ func (t *Traffic) handleMessage(ctx context.Context, msg redis.XMessage) {
 	}
 
 	// 1) 落 engagement + http_flow
-	eng, err := t.engs.LookupOrCreate(ctx, defaultTenant, snap.Host, engagement.ModeProxy)
-	if err != nil {
-		t.logger.Warn().Err(err).Str("host", snap.Host).Msg("engagement.LookupOrCreate 失败")
+	// rotator 非 nil 时由它决定是否轮转（proxy 模式按阈值），否则退化到 engs.LookupOrCreate。
+	var (
+		eid    string
+		ensErr error
+	)
+	if t.rotator != nil {
+		eid, ensErr = t.rotator.EnsureActive(ctx, defaultTenant, snap.Host, engagement.ModeProxy)
+	} else {
+		var eng engagement.Engagement
+		eng, ensErr = t.engs.LookupOrCreate(ctx, defaultTenant, snap.Host, engagement.ModeProxy)
+		if ensErr == nil {
+			eid = eng.ID
+		}
+	}
+	if err := ensErr; err != nil {
+		t.logger.Warn().Err(err).Str("host", snap.Host).Msg("engagement EnsureActive/LookupOrCreate 失败")
 		return
 	}
-	flowID, err := t.appendFlow(ctx, eng.ID, &snap)
+	flowID, err := t.appendFlow(ctx, eid, &snap)
 	if err != nil {
 		t.logger.Warn().Err(err).Msg("flow.Append 失败")
 		return
 	}
 
 	// 2) 创建主 react task + 入 Asynq
-	if err := t.enqueueMain(ctx, eng.ID, flowID, &snap); err != nil {
-		t.logger.Warn().Err(err).Str("eid", eng.ID).Int64("flow_id", flowID).Msg("主任务入队失败")
+	if err := t.enqueueMain(ctx, eid, flowID, &snap); err != nil {
+		t.logger.Warn().Err(err).Str("eid", eid).Int64("flow_id", flowID).Msg("主任务入队失败")
 		return
 	}
 	t.logger.Info().
-		Str("eid", eng.ID).
+		Str("eid", eid).
 		Int64("flow_id", flowID).
 		Str("method", snap.Method).Str("url", snap.URI).
 		Msg("流量已入主 ReAct 队列")
@@ -191,10 +210,10 @@ func (t *Traffic) enqueueMain(ctx context.Context, eid string, flowID int64, sna
 		"entrypoint": json.RawMessage(entrypoint),
 	})
 
-	tid, err := t.tasks.Create(ctx, task.NewParams{
+	tid, err := t.tasks.Create(ctx, reactrun.NewParams{
 		EngagementID: eid,
 		Role:         string(worker.RoleOrchestrator),
-		Skill:        "",
+		Skill:        "orchestrator", // 与 skills/orchestrator/SKILL.md frontmatter name 一致
 		Input:        payloadInput,
 	})
 	if err != nil {

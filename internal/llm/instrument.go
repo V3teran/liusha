@@ -5,7 +5,7 @@
 //   - 失败路径仍写库（Error 字段非空），便于故障率统计。
 //   - sink.Append 失败仅打 warn 日志，不向上抛 —— 埋点失败不应阻塞业务返回。
 //   - CallMeta.RouteKey（黑客松借鉴）写入 llm_call.role，按 react.main /
-//     observer / distill / compaction / vision 维度聚合成本（spec §8.2 + part3 §借鉴增量）。
+//     observer / lesson_extract / compaction / vision 维度聚合成本（spec §8.2 + part3 §借鉴增量）。
 package llm
 
 import (
@@ -15,20 +15,20 @@ import (
 
 	"github.com/rs/zerolog"
 
-	"github.com/V3teran/liusha/internal/llmcall"
+	"github.com/V3teran/liusha/internal/llminvocation"
 	"github.com/V3teran/liusha/internal/logx"
 )
 
 // CallSink 抽象 llm_call 持久化层，便于测试注入 mock。
-// 实参为 *llmcall.Store（其 Append 方法签名一致）。
+// 实参为 *llminvocation.Store（其 Append 方法签名一致）。
 type CallSink interface {
-	Append(ctx context.Context, c llmcall.Call) (int64, error)
+	Append(ctx context.Context, c llminvocation.Invocation) (int64, error)
 }
 
 // CallMeta 是单次 Generate 的上下文标签集，由 runtime 填充。
 //
 // RouteKey 为黑客松借鉴字段：写入 llm_call.role，
-// 取值如 "orchestrator" / "hunter" / "observer" / "distill" / "vision"，
+// 取值如 "orchestrator" / "hunter" / "observer" / "lesson_extract" / "vision"，
 // 便于按角色维度统计成本和路由生效情况。
 type CallMeta struct {
 	TaskID       *string
@@ -80,7 +80,7 @@ func (i *instrumented) Generate(ctx context.Context, msgs []Message, tools []Too
 	res, err := i.inner.Generate(ctx, msgs, tools)
 	latency := time.Since(start)
 
-	call := llmcall.Call{
+	call := llminvocation.Invocation{
 		TaskID:       i.meta.TaskID,
 		EngagementID: i.meta.EngagementID,
 		Provider:     i.inner.Provider(),

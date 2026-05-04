@@ -7,7 +7,18 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/V3teran/liusha/internal/logx"
 )
+
+// engagementCounter 是 Append/AppendBatch 成功后用于 best-effort 维护
+// engagement.flow_count 的最小接口；*engagement.Store 自动满足。
+type engagementCounter interface {
+	IncrementFlowCount(ctx context.Context, id string, n int) error
+}
+
+// flowLog 包级 logger，用于 best-effort 计数失败的 warn。
+var flowLog = logx.New("flow")
 
 // Store 封装 http_flow 表的所有持久化操作。
 // maxReqBody / maxRespBody <= 0 表示不截断。
@@ -15,6 +26,10 @@ type Store struct {
 	pool        *pgxpool.Pool
 	maxReqBody  int
 	maxRespBody int
+
+	// engCounter 可空：装配时通过 WithCounter 注入；写入成功后 best-effort
+	// 给 engagement.flow_count +N（失败仅 warn，Abort 时 SELECT count(*) 兜底）。
+	engCounter engagementCounter
 }
 
 // NewStore 构造 Store。建议 maxReqBody=maxRespBody=32*1024（spec 32 KiB 截断阈值）。
@@ -22,40 +37,47 @@ func NewStore(pool *pgxpool.Pool, maxReqBody, maxRespBody int) *Store {
 	return &Store{pool: pool, maxReqBody: maxReqBody, maxRespBody: maxRespBody}
 }
 
+// WithCounter 链式注入 engagement 计数维护器；返回原 Store 便于装配。
+func (s *Store) WithCounter(c engagementCounter) *Store {
+	s.engCounter = c
+	return s
+}
+
 // flowSelectCols 是 GetByID 的统一列序，与 scanFlow() 字段一一对应。
 const flowSelectCols = "id, engagement_id, ts, method, url, request_headers, request_body, " +
-	"request_truncated, status_code, response_headers, response_body, response_truncated"
+	"status_code, response_headers, response_body"
 
 // summaryCols 是 ListByEngagement 的瘦列序，刻意不含 body / headers，避免大 payload。
-const summaryCols = "id, engagement_id, ts, method, url, status_code, request_truncated, response_truncated"
+const summaryCols = "id, engagement_id, ts, method, url, status_code"
 
 // copyFromCols 是 CopyFrom 写入的列名顺序，必须与每行 []any 的元素顺序严格对齐。
 var copyFromCols = []string{
 	"engagement_id", "method", "url",
-	"request_headers", "request_body", "request_truncated",
-	"status_code", "response_headers", "response_body", "response_truncated",
+	"request_headers", "request_body",
+	"status_code", "response_headers", "response_body",
 }
 
 // Append 单条插入（带截断），返回 bigserial id。
 func (s *Store) Append(ctx context.Context, f Flow) (int64, error) {
-	reqBody, reqTrunc := truncate(f.RequestBody, s.maxReqBody)
-	respBody, respTrunc := truncate(f.ResponseBody, s.maxRespBody)
+	reqBody, _ := truncate(f.RequestBody, s.maxReqBody)
+	respBody, _ := truncate(f.ResponseBody, s.maxRespBody)
 	reqH := normalizeHeaders(f.RequestHeaders)
 	respH := normalizeHeaders(f.ResponseHeaders)
 
 	var id int64
 	err := s.pool.QueryRow(ctx, `
 		INSERT INTO http_flow
-			(engagement_id, method, url, request_headers, request_body, request_truncated,
-			 status_code, response_headers, response_body, response_truncated)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+			(engagement_id, method, url, request_headers, request_body,
+			 status_code, response_headers, response_body)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
 		RETURNING id`,
 		f.EngagementID, f.Method, f.URL,
-		reqH, reqBody, reqTrunc,
-		f.StatusCode, respH, respBody, respTrunc).Scan(&id)
+		reqH, reqBody,
+		f.StatusCode, respH, respBody).Scan(&id)
 	if err != nil {
 		return 0, fmt.Errorf("append flow: %w", err)
 	}
+	s.bumpEngagementCount(f.EngagementID, 1)
 	return id, nil
 }
 
@@ -67,12 +89,12 @@ func (s *Store) AppendBatch(ctx context.Context, flows []Flow) error {
 	}
 	rows := make([][]any, len(flows))
 	for i, f := range flows {
-		reqBody, reqTrunc := truncate(f.RequestBody, s.maxReqBody)
-		respBody, respTrunc := truncate(f.ResponseBody, s.maxRespBody)
+		reqBody, _ := truncate(f.RequestBody, s.maxReqBody)
+		respBody, _ := truncate(f.ResponseBody, s.maxRespBody)
 		rows[i] = []any{
 			f.EngagementID, f.Method, f.URL,
-			normalizeHeaders(f.RequestHeaders), reqBody, reqTrunc,
-			f.StatusCode, normalizeHeaders(f.ResponseHeaders), respBody, respTrunc,
+			normalizeHeaders(f.RequestHeaders), reqBody,
+			f.StatusCode, normalizeHeaders(f.ResponseHeaders), respBody,
 		}
 	}
 	_, err := s.pool.CopyFrom(ctx,
@@ -82,7 +104,27 @@ func (s *Store) AppendBatch(ctx context.Context, flows []Flow) error {
 	if err != nil {
 		return fmt.Errorf("copy from http_flow: %w", err)
 	}
+	// 批量按 engagement_id 聚合后各自 +N（一次扫描通常只有一个 engagement，Map 几乎只 1 项）
+	counts := make(map[string]int, 1)
+	for _, f := range flows {
+		counts[f.EngagementID]++
+	}
+	for eid, n := range counts {
+		s.bumpEngagementCount(eid, n)
+	}
 	return nil
+}
+
+// bumpEngagementCount 是 best-effort 维护 engagement.flow_count 的唯一调用点；
+// engCounter 未注入或 n=0 直接跳过；context.Background 与业务 ctx 解耦。
+func (s *Store) bumpEngagementCount(engagementID string, n int) {
+	if s.engCounter == nil || n == 0 || engagementID == "" {
+		return
+	}
+	if err := s.engCounter.IncrementFlowCount(context.Background(), engagementID, n); err != nil {
+		flowLog.Warn().Err(err).Str("engagement_id", engagementID).Int("n", n).
+			Msg("engagement.flow_count 增量维护失败（Abort 时会重算兜底）")
+	}
 }
 
 // GetByID 读单行（含 body bytea）。
@@ -113,7 +155,7 @@ func (s *Store) ListByEngagement(ctx context.Context, engagementID string, limit
 	for rows.Next() {
 		var sum FlowSummary
 		if err := rows.Scan(&sum.ID, &sum.EngagementID, &sum.Ts, &sum.Method, &sum.URL,
-			&sum.StatusCode, &sum.RequestTruncated, &sum.ResponseTruncated); err != nil {
+			&sum.StatusCode); err != nil {
 			return nil, fmt.Errorf("scan flow summary: %w", err)
 		}
 		out = append(out, sum)
@@ -133,8 +175,8 @@ type scanner interface {
 func scanFlow(r scanner, f *Flow) error {
 	var reqH, respH []byte
 	if err := r.Scan(&f.ID, &f.EngagementID, &f.Ts, &f.Method, &f.URL,
-		&reqH, &f.RequestBody, &f.RequestTruncated,
-		&f.StatusCode, &respH, &f.ResponseBody, &f.ResponseTruncated); err != nil {
+		&reqH, &f.RequestBody,
+		&f.StatusCode, &respH, &f.ResponseBody); err != nil {
 		return err
 	}
 	f.RequestHeaders = json.RawMessage(reqH)

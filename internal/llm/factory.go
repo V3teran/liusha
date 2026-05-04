@@ -2,7 +2,7 @@
 //
 // v1.1 改造：
 //   - 不再缓存 Generator（避免跨 task tools 错乱 bug）；ClientPool 共享底层 HTTP client。
-//   - 双 namespace 路由：agents（orchestrator/hunter/observer）vs utilities（distill/vision/...）
+//   - 双 namespace 路由：agents（orchestrator/hunter/observer）vs utilities（lesson_extract/vision/...）
 //     调用 Router.For(ctx, "orchestrator") 合并查找两个 map，对调用方透明。
 //
 // 路由规则：

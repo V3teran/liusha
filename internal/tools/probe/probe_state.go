@@ -8,11 +8,11 @@
 //   - 跟 LLM RouteKey "hunter"（执行 probe 的漏洞猎手 = 子 ReAct）形成对应
 //
 // 设计要点：
-//   - 4 个 action 通过共享 *Session 在 task 内部传递"上一次的 responses"，
+//   - 4 个 action 通过共享 *ProbeState 在 task 内部传递"上一次的 responses"，
 //     避免让 LLM 在每一步重复读取/序列化全部 replay body。
 //   - 任何 action 不返回 raw body：ReplayMultiIdentity 只回 body_hint（≤400 byte）；
-//     完整 body 留在 *Session 内供后续 heuristic / similarity 使用。
-//   - Factory.CreateActions 每次调用产生独立 *Session，按 engagement / task 隔离。
+//     完整 body 留在 *ProbeState 内供后续 heuristic / similarity 使用。
+//   - Factory.CreateActions 每次调用产生独立 *ProbeState，按 engagement / task 隔离。
 //   - skill 差异在判定逻辑（SKILL.md prompt + builder 装配的 done_validator），探针工具复用。
 package probe
 
@@ -24,13 +24,14 @@ import (
 	"github.com/V3teran/liusha/internal/replay"
 )
 
-// Session 是一个 BAC task 内 4 个 action 共享的状态：
+// ProbeState 是一个 BAC task 内 4 个 action 共享的本地状态本：
 //   - Identities：FetchCredentials 写入；ReplayMultiIdentity 读取。
 //   - LastResponses + LastFlow：ReplayMultiIdentity 写入；
 //     HeuristicCheck / ComputeSimilarity 读取。
 //
-// Session 不做并发保护：BAC ReAct 循环里 action 串行执行（一次工具调用一个）。
-type Session struct {
+// 命名避开 "Session"（与 HTTP session/credential 概念重叠易误读）。
+// ProbeState 不做并发保护：BAC ReAct 循环里 action 串行执行（一次工具调用一个）。
+type ProbeState struct {
 	Identities    []credential.Identity
 	LastResponses []replay.Response
 	LastFlow      flow.Flow

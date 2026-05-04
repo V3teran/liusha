@@ -1,7 +1,7 @@
 //go:build integration
 
 // Package dbtest 提供共享的集成测试夹具：
-// 启动 pgvector/pgvector:pg17 容器并自动应用 0001_init.up.sql。
+// 启动 pgvector/pgvector:pg17 容器并按字典序应用全部 db/migrations/*.up.sql。
 // 使用方式：在 *_integration_test.go 中调用 NewPgPool(t)。
 package dbtest
 
@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"testing"
 	"time"
 
@@ -44,14 +45,28 @@ func NewPgPool(t *testing.T) *pgxpool.Pool {
 	}
 	t.Cleanup(pool.Close)
 
-	sqlBytes, err := os.ReadFile(repoPath("db/migrations/0001_init.up.sql"))
-	if err != nil {
-		t.Fatalf("读取迁移文件失败: %v", err)
-	}
-	if _, err := pool.Exec(ctx, string(sqlBytes)); err != nil {
-		t.Fatalf("应用迁移失败: %v", err)
-	}
+	applyAllMigrations(ctx, t, pool)
 	return pool
+}
+
+// applyAllMigrations 按字典序依次执行 db/migrations/*.up.sql。
+// 之前只跑 0001 的写法在 v1.1+ 列查询时全部失败。
+func applyAllMigrations(ctx context.Context, t *testing.T, pool *pgxpool.Pool) {
+	t.Helper()
+	files, err := filepath.Glob(filepath.Join(repoPath("db/migrations"), "*.up.sql"))
+	if err != nil {
+		t.Fatalf("glob 迁移文件失败: %v", err)
+	}
+	sort.Strings(files)
+	for _, f := range files {
+		b, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatalf("读取 %s 失败: %v", f, err)
+		}
+		if _, err := pool.Exec(ctx, string(b)); err != nil {
+			t.Fatalf("应用 %s 失败: %v", filepath.Base(f), err)
+		}
+	}
 }
 
 // repoPath 解析仓库相对路径（从本文件所在目录回退两级到 repo root）。

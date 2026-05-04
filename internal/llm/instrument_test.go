@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/V3teran/liusha/internal/llmcall"
+	"github.com/V3teran/liusha/internal/llminvocation"
 )
 
 // stubGen 用于测试：可注入返回结果、错误和延迟。
@@ -30,11 +30,11 @@ func (f *stubGen) Model() string    { return f.model }
 
 // fakeSink 收集 Append 的调用，测试用。
 type fakeSink struct {
-	calls     []llmcall.Call
+	calls     []llminvocation.Invocation
 	appendErr error
 }
 
-func (s *fakeSink) Append(_ context.Context, c llmcall.Call) (int64, error) {
+func (s *fakeSink) Append(_ context.Context, c llminvocation.Invocation) (int64, error) {
 	s.calls = append(s.calls, c)
 	if s.appendErr != nil {
 		return 0, s.appendErr
@@ -203,7 +203,7 @@ func TestInstrument_LatencyMeasured(t *testing.T) {
 
 func TestInstrument_RouteKeyWritten(t *testing.T) {
 	t.Parallel()
-	cases := []string{"react_main", "observer", "distill", "compaction", "vision"}
+	cases := []string{"react_main", "observer", "lesson_extract", "compaction", "vision"}
 	for _, rk := range cases {
 		rk := rk
 		t.Run(rk, func(t *testing.T) {

@@ -351,7 +351,7 @@ func stripPort(host string) string {
 	return host
 }
 
-// generateSnapshotID = sha256(method | host | uri | body) 的十六进制；与 TrafficDeduplicator.CalculateHash 同算法，
+// generateSnapshotID = sha256(method | host | uri | body) 的十六进制摘要，
 // 便于跨进程识别同一条流量。
 func generateSnapshotID(method, host, uri string, body []byte) string {
 	h := sha256.New()

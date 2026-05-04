@@ -10,10 +10,10 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/V3teran/liusha/internal/toolfx"
 	"github.com/V3teran/liusha/internal/credential"
 	"github.com/V3teran/liusha/internal/flow"
 	"github.com/V3teran/liusha/internal/replay"
+	"github.com/V3teran/liusha/internal/toolfx"
 )
 
 // 编译期接口断言：真实 *flow.Store 应能直接喂进 Factory.FlowReader。
@@ -62,15 +62,15 @@ func (f *fakeFlowReader) GetByID(_ context.Context, id int64) (flow.Flow, error)
 
 // ---------- FetchCredentials ----------
 
-func TestFetchCredentials_PopulatesSessionAndOmitsRawValues(t *testing.T) {
+func TestFetchCredentials_PopulatesStateAndOmitsRawValues(t *testing.T) {
 	prov := &fakeProvider{identities: []credential.Identity{
 		{Name: "admin", Role: "admin", Credentials: []credential.Credential{
 			{Type: credential.TypeHeaders, Key: "Cookie", Value: "session=admin_secret_value"},
 		}},
 		{Name: credential.AnonymousName},
 	}}
-	session := &Session{}
-	a := &FetchCredentials{Provider: prov, Session: session}
+	state := &ProbeState{}
+	a := &FetchCredentials{Provider: prov, State: state}
 
 	out, err := a.Execute(context.Background(), json.RawMessage(`{"host":"example.com"}`))
 	if err != nil {
@@ -79,8 +79,8 @@ func TestFetchCredentials_PopulatesSessionAndOmitsRawValues(t *testing.T) {
 	if prov.gotHost != "example.com" {
 		t.Fatalf("host 未透传到 Provider: %q", prov.gotHost)
 	}
-	if len(session.Identities) != 2 {
-		t.Fatalf("session.Identities 应有 2 个，got %d", len(session.Identities))
+	if len(state.Identities) != 2 {
+		t.Fatalf("state.Identities 应有 2 个，got %d", len(state.Identities))
 	}
 	// 输出不应泄漏 raw value（防 token 浪费 + 防误打印密钥）。
 	if strings.Contains(string(out.Output), "admin_secret_value") {
@@ -92,7 +92,7 @@ func TestFetchCredentials_PopulatesSessionAndOmitsRawValues(t *testing.T) {
 }
 
 func TestFetchCredentials_RejectsEmptyHost(t *testing.T) {
-	a := &FetchCredentials{Provider: &fakeProvider{}, Session: &Session{}}
+	a := &FetchCredentials{Provider: &fakeProvider{}, State: &ProbeState{}}
 	_, err := a.Execute(context.Background(), json.RawMessage(`{"host":""}`))
 	if err == nil {
 		t.Fatal("空 host 应报错")
@@ -103,9 +103,9 @@ func TestFetchCredentials_RejectsEmptyHost(t *testing.T) {
 
 func TestReplayMultiIdentity_RequiresFetchCredentialsFirst(t *testing.T) {
 	a := &ReplayMultiIdentity{
-		Engine:  replay.NewEngine(http.DefaultClient),
-		Flows:   &fakeFlowReader{flows: map[int64]flow.Flow{1: {ID: 1, Method: "GET", URL: "http://x/"}}},
-		Session: &Session{},
+		Engine: replay.NewEngine(http.DefaultClient),
+		Flows:  &fakeFlowReader{flows: map[int64]flow.Flow{1: {ID: 1, Method: "GET", URL: "http://x/"}}},
+		State:  &ProbeState{},
 	}
 	_, err := a.Execute(context.Background(), json.RawMessage(`{"flow_id":1,"host":"x"}`))
 	if err == nil {
@@ -116,7 +116,7 @@ func TestReplayMultiIdentity_RequiresFetchCredentialsFirst(t *testing.T) {
 	}
 }
 
-func TestReplayMultiIdentity_PopulatesSessionWithBodyHint(t *testing.T) {
+func TestReplayMultiIdentity_PopulatesStateWithBodyHint(t *testing.T) {
 	var hits atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		hits.Add(1)
@@ -125,7 +125,7 @@ func TestReplayMultiIdentity_PopulatesSessionWithBodyHint(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	session := &Session{
+	state := &ProbeState{
 		Identities: []credential.Identity{
 			{Name: "admin"},
 			{Name: "user"},
@@ -139,9 +139,9 @@ func TestReplayMultiIdentity_PopulatesSessionWithBodyHint(t *testing.T) {
 		},
 	}}
 	a := &ReplayMultiIdentity{
-		Engine:  replay.NewEngine(srv.Client()),
-		Flows:   flows,
-		Session: session,
+		Engine: replay.NewEngine(srv.Client()),
+		Flows:  flows,
+		State:  state,
 	}
 
 	out, err := a.Execute(context.Background(), json.RawMessage(`{"flow_id":7,"host":"example.com","concurrency":3}`))
@@ -151,11 +151,11 @@ func TestReplayMultiIdentity_PopulatesSessionWithBodyHint(t *testing.T) {
 	if hits.Load() != 3 {
 		t.Fatalf("应命中 3 次（3 身份），got %d", hits.Load())
 	}
-	if len(session.LastResponses) != 3 {
-		t.Fatalf("session.LastResponses 应写 3 条，got %d", len(session.LastResponses))
+	if len(state.LastResponses) != 3 {
+		t.Fatalf("state.LastResponses 应写 3 条，got %d", len(state.LastResponses))
 	}
-	if session.LastFlow.ID != 7 {
-		t.Fatalf("session.LastFlow 未写入: %+v", session.LastFlow)
+	if state.LastFlow.ID != 7 {
+		t.Fatalf("state.LastFlow 未写入: %+v", state.LastFlow)
 	}
 	if !strings.Contains(string(out.Output), "body_hint") {
 		t.Fatalf("Output 应含 body_hint: %s", string(out.Output))
@@ -184,14 +184,14 @@ func TestReplayMultiIdentity_BodyHintTruncatedAt400(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	session := &Session{Identities: []credential.Identity{{Name: "a"}}}
+	state := &ProbeState{Identities: []credential.Identity{{Name: "a"}}}
 	flows := &fakeFlowReader{flows: map[int64]flow.Flow{
 		1: {ID: 1, Method: "GET", URL: srv.URL + "/x"},
 	}}
 	a := &ReplayMultiIdentity{
-		Engine:  replay.NewEngine(srv.Client()),
-		Flows:   flows,
-		Session: session,
+		Engine: replay.NewEngine(srv.Client()),
+		Flows:  flows,
+		State:  state,
 	}
 	out, err := a.Execute(context.Background(), json.RawMessage(`{"flow_id":1,"host":"x"}`))
 	if err != nil {
@@ -214,7 +214,7 @@ func TestReplayMultiIdentity_BodyHintTruncatedAt400(t *testing.T) {
 // ---------- HeuristicCheck ----------
 
 func TestHeuristicCheck_RequiresPriorReplay(t *testing.T) {
-	a := &HeuristicCheck{Session: &Session{}}
+	a := &HeuristicCheck{State: &ProbeState{}}
 	_, err := a.Execute(context.Background(), json.RawMessage(`{}`))
 	if err == nil {
 		t.Fatal("LastResponses 为空时应报错")
@@ -222,11 +222,11 @@ func TestHeuristicCheck_RequiresPriorReplay(t *testing.T) {
 }
 
 func TestHeuristicCheck_AllDenied_HitsSkip(t *testing.T) {
-	session := &Session{LastResponses: []replay.Response{
+	state := &ProbeState{LastResponses: []replay.Response{
 		{IdentityName: "a", StatusCode: 403},
 		{IdentityName: "b", StatusCode: 401},
 	}}
-	a := &HeuristicCheck{Session: session}
+	a := &HeuristicCheck{State: state}
 	out, err := a.Execute(context.Background(), json.RawMessage(`{"rules":["all_denied"]}`))
 	if err != nil {
 		t.Fatal(err)
@@ -246,11 +246,11 @@ func TestHeuristicCheck_AllDenied_HitsSkip(t *testing.T) {
 }
 
 func TestHeuristicCheck_NoHitWithMixedStatus(t *testing.T) {
-	session := &Session{LastResponses: []replay.Response{
+	state := &ProbeState{LastResponses: []replay.Response{
 		{IdentityName: "a", StatusCode: 200, Body: []byte(`{"data":1}`)},
 		{IdentityName: "b", StatusCode: 403, Body: []byte(`forbidden`)},
 	}}
-	a := &HeuristicCheck{Session: session}
+	a := &HeuristicCheck{State: state}
 	out, err := a.Execute(context.Background(), json.RawMessage(`{}`))
 	if err != nil {
 		t.Fatal(err)
@@ -263,14 +263,14 @@ func TestHeuristicCheck_NoHitWithMixedStatus(t *testing.T) {
 // ---------- ComputeSimilarity ----------
 
 func TestComputeSimilarity_RequiresPriorReplay(t *testing.T) {
-	a := &ComputeSimilarity{Session: &Session{}}
+	a := &ComputeSimilarity{State: &ProbeState{}}
 	_, err := a.Execute(context.Background(), json.RawMessage(`{}`))
 	if err == nil {
 		t.Fatal("LastResponses 为空时应报错")
 	}
 }
 
-// similarityResult 是 sniffer_test.go 内部解码 ComputeSimilarity 输出用的视图。
+// similarityResult 是 probe_test.go 内部解码 ComputeSimilarity 输出用的视图。
 type similarityResult struct {
 	Algorithm       string  `json:"algorithm"`
 	MinThreshold    float64 `json:"min_threshold"`
@@ -294,12 +294,12 @@ type similarityResult struct {
 func TestComputeSimilarity_AllBelowThreshold_VerdictShortCircuit(t *testing.T) {
 	// 三个内容毫不相关的 body：所有 pair 应低于 min_threshold=0.6
 	// → verdict=all_below_threshold（让 SKILL.md 直接 done(all_differ) 短路，不进 LLM）。
-	session := &Session{LastResponses: []replay.Response{
+	state := &ProbeState{LastResponses: []replay.Response{
 		{IdentityName: "admin", StatusCode: 200, Body: []byte("alice profile data")},
 		{IdentityName: "user", StatusCode: 200, Body: []byte("bob profile content")},
 		{IdentityName: "anonymous", StatusCode: 401, Body: []byte("please login first")},
 	}}
-	a := &ComputeSimilarity{Session: session}
+	a := &ComputeSimilarity{State: state}
 	out, err := a.Execute(context.Background(), json.RawMessage(`{}`))
 	if err != nil {
 		t.Fatal(err)
@@ -322,12 +322,12 @@ func TestComputeSimilarity_AllBelowThreshold_VerdictShortCircuit(t *testing.T) {
 func TestComputeSimilarity_HighSimilarityVerdict(t *testing.T) {
 	// 三身份 body 完全相同：max=1.0 ≥ high_threshold=0.9
 	// → verdict=high_similarity_pair（疑似越权，但要 LLM 排除公开接口/错误页假阳性）。
-	session := &Session{LastResponses: []replay.Response{
+	state := &ProbeState{LastResponses: []replay.Response{
 		{IdentityName: "admin", StatusCode: 200, Body: []byte("private order data 12345")},
 		{IdentityName: "user", StatusCode: 200, Body: []byte("private order data 12345")},
 		{IdentityName: "anonymous", StatusCode: 200, Body: []byte("private order data 12345")},
 	}}
-	a := &ComputeSimilarity{Session: session}
+	a := &ComputeSimilarity{State: state}
 	out, err := a.Execute(context.Background(), json.RawMessage(`{}`))
 	if err != nil {
 		t.Fatal(err)
@@ -349,11 +349,11 @@ func TestComputeSimilarity_HighSimilarityVerdict(t *testing.T) {
 
 func TestComputeSimilarity_AmbiguousBetweenThresholds(t *testing.T) {
 	// 两个 body 共享部分 token（jaccard ≈ 0.7-0.8），落在 [0.6, 0.9) 区间。
-	session := &Session{LastResponses: []replay.Response{
+	state := &ProbeState{LastResponses: []replay.Response{
 		{IdentityName: "admin", StatusCode: 200, Body: []byte("alpha beta gamma delta epsilon zeta")},
 		{IdentityName: "user", StatusCode: 200, Body: []byte("alpha beta gamma delta epsilon eta")},
 	}}
-	a := &ComputeSimilarity{Session: session}
+	a := &ComputeSimilarity{State: state}
 	out, err := a.Execute(context.Background(), json.RawMessage(`{}`))
 	if err != nil {
 		t.Fatal(err)
@@ -378,11 +378,11 @@ func TestComputeSimilarity_LengthRatioShortCircuit(t *testing.T) {
 	for i := 0; i < 50; i++ {
 		long = append(long, []byte("hello world ")...)
 	}
-	session := &Session{LastResponses: []replay.Response{
+	state := &ProbeState{LastResponses: []replay.Response{
 		{IdentityName: "admin", StatusCode: 200, Body: short},
 		{IdentityName: "user", StatusCode: 500, Body: long},
 	}}
-	a := &ComputeSimilarity{Session: session}
+	a := &ComputeSimilarity{State: state}
 	out, err := a.Execute(context.Background(), json.RawMessage(`{}`))
 	if err != nil {
 		t.Fatal(err)
@@ -402,11 +402,11 @@ func TestComputeSimilarity_LengthRatioShortCircuit(t *testing.T) {
 
 func TestComputeSimilarity_ThresholdValidation(t *testing.T) {
 	// high_threshold < min_threshold 应直接报错。
-	session := &Session{LastResponses: []replay.Response{
+	state := &ProbeState{LastResponses: []replay.Response{
 		{IdentityName: "a", Body: []byte("x")},
 		{IdentityName: "b", Body: []byte("y")},
 	}}
-	a := &ComputeSimilarity{Session: session}
+	a := &ComputeSimilarity{State: state}
 	_, err := a.Execute(context.Background(), json.RawMessage(`{"min_threshold":0.9,"high_threshold":0.5}`))
 	if err == nil {
 		t.Fatal("high_threshold < min_threshold 应报错")
@@ -415,7 +415,7 @@ func TestComputeSimilarity_ThresholdValidation(t *testing.T) {
 
 // ---------- Factory ----------
 
-func TestFactory_CreateActions_SharesSession(t *testing.T) {
+func TestFactory_CreateActions_SharesState(t *testing.T) {
 	prov := &fakeProvider{identities: []credential.Identity{{Name: "x"}}}
 	flows := &fakeFlowReader{}
 	eng := replay.NewEngine(http.DefaultClient)
@@ -446,11 +446,11 @@ func TestFactory_CreateActions_SharesSession(t *testing.T) {
 	rm := names["replay_multi_identity"].(*ReplayMultiIdentity)
 	hc := names["heuristic_check"].(*HeuristicCheck)
 	cs := names["compute_similarity"].(*ComputeSimilarity)
-	if fc.Session != rm.Session || rm.Session != hc.Session || hc.Session != cs.Session {
-		t.Fatal("4 个 action 应共享同一个 *Session")
+	if fc.State != rm.State || rm.State != hc.State || hc.State != cs.State {
+		t.Fatal("4 个 action 应共享同一个 *ProbeState")
 	}
-	if len(fc.Session.Identities) != 1 {
-		t.Fatalf("fetch 写入应可被其他 action 读到：Identities=%d", len(fc.Session.Identities))
+	if len(fc.State.Identities) != 1 {
+		t.Fatalf("fetch 写入应可被其他 action 读到：Identities=%d", len(fc.State.Identities))
 	}
 }
 

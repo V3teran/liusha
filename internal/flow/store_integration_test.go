@@ -53,14 +53,11 @@ func TestStore_Append_TruncatesLargeBody(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get: %v", err)
 	}
-	if !got.RequestTruncated || !got.ResponseTruncated {
-		t.Fatalf("expect both truncated=true, got req=%v resp=%v", got.RequestTruncated, got.ResponseTruncated)
-	}
 	if len(got.RequestBody) != 1024 {
-		t.Fatalf("req body len: want 1024, got %d", len(got.RequestBody))
+		t.Fatalf("req body len: want 1024 (truncated), got %d", len(got.RequestBody))
 	}
 	if len(got.ResponseBody) != 2048 {
-		t.Fatalf("resp body len: want 2048, got %d", len(got.ResponseBody))
+		t.Fatalf("resp body len: want 2048 (truncated), got %d", len(got.ResponseBody))
 	}
 	if !bytes.Equal(got.RequestBody, big[:1024]) {
 		t.Fatalf("req body bytes mismatch")
@@ -73,7 +70,7 @@ func TestStore_Append_TruncatesLargeBody(t *testing.T) {
 	}
 }
 
-// TestStore_Append_SmallBodyNoTruncation 验证：未达 max 的 body 原样保留，标志位 false。
+// TestStore_Append_SmallBodyNoTruncation 验证：未达 max 的 body 原样保留。
 func TestStore_Append_SmallBodyNoTruncation(t *testing.T) {
 	ctx := context.Background()
 	s, eid := setup(t)
@@ -92,9 +89,6 @@ func TestStore_Append_SmallBodyNoTruncation(t *testing.T) {
 	got, err := s.GetByID(ctx, id)
 	if err != nil {
 		t.Fatalf("get: %v", err)
-	}
-	if got.RequestTruncated || got.ResponseTruncated {
-		t.Fatalf("expect both truncated=false, got req=%v resp=%v", got.RequestTruncated, got.ResponseTruncated)
 	}
 	if !bytes.Equal(got.RequestBody, small) {
 		t.Fatalf("req body roundtrip mismatch: %q", got.RequestBody)
@@ -125,22 +119,27 @@ func TestStore_AppendBatch_CopyFrom(t *testing.T) {
 		t.Fatalf("expect 3 rows, got %d", len(list))
 	}
 
-	// /a 两侧都小；/b response 大；/c 两侧都大
-	wantTrunc := map[string][2]bool{
-		"/a": {false, false},
-		"/b": {false, true},
-		"/c": {true, true},
+	// summary 不含 body，按 GetByID 拿 body 做 len 校验间接验证截断。
+	// /a 两侧都小（reqBody 1）；/b response 截到 2048；/c req 截到 1024 + resp 截到 2048
+	wantBodyLen := map[string][2]int{
+		"/a": {1, 0},
+		"/b": {0, 2048},
+		"/c": {1024, 2048},
 	}
 	for _, sum := range list {
-		want, ok := wantTrunc[sum.URL]
+		want, ok := wantBodyLen[sum.URL]
 		if !ok {
 			t.Fatalf("unexpected url %q", sum.URL)
 		}
-		if sum.RequestTruncated != want[0] || sum.ResponseTruncated != want[1] {
-			t.Fatalf("url=%s trunc want %v, got req=%v resp=%v", sum.URL, want, sum.RequestTruncated, sum.ResponseTruncated)
-		}
 		if sum.ID <= 0 {
 			t.Fatalf("expect id > 0 for %s", sum.URL)
+		}
+		got, err := s.GetByID(ctx, sum.ID)
+		if err != nil {
+			t.Fatalf("get %s: %v", sum.URL, err)
+		}
+		if len(got.RequestBody) != want[0] || len(got.ResponseBody) != want[1] {
+			t.Fatalf("url=%s body len want %v, got req=%d resp=%d", sum.URL, want, len(got.RequestBody), len(got.ResponseBody))
 		}
 	}
 }

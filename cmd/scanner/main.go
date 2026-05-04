@@ -3,7 +3,7 @@
 //	职责：
 //	  1. 启 ingestor.Traffic goroutine：消费 Redis Stream → 启发式打分 → 入主 react 队列
 //	  2. 启 asynq.Server：消费 agent:react 队列，每个 task 跑 1 个主 ReAct
-//	  3. 主 ReAct 工具集：classify_traffic / delegate(bac) / get_findings / common.{Done,ReadState,WriteFact,WriteIdea,WriteGraph}
+//	  3. 主 ReAct 工具集：classify_traffic / delegate(bac) / get_findings / common.{Done,ReadState,TakeNote,WriteGraph}
 //	  4. delegate(bac) → 同进程嵌套 BAC 子 ReAct（NewSubBuilder 装配）
 //	  5. healthz HTTP :9090；graceful shutdown
 //
@@ -28,18 +28,20 @@ import (
 	"github.com/V3teran/liusha/internal/credential"
 	"github.com/V3teran/liusha/internal/db"
 	"github.com/V3teran/liusha/internal/engagement"
-	"github.com/V3teran/liusha/internal/finding"
 	"github.com/V3teran/liusha/internal/flow"
+	"github.com/V3teran/liusha/internal/flowdecision"
+	"github.com/V3teran/liusha/internal/vulnfinding"
 	"github.com/V3teran/liusha/internal/graph"
 	"github.com/V3teran/liusha/internal/ingestor"
+	"github.com/V3teran/liusha/internal/lesson"
 	"github.com/V3teran/liusha/internal/llm"
-	"github.com/V3teran/liusha/internal/llmcall"
+	"github.com/V3teran/liusha/internal/llminvocation"
 	"github.com/V3teran/liusha/internal/logx"
 	"github.com/V3teran/liusha/internal/observability"
 	"github.com/V3teran/liusha/internal/react"
 	"github.com/V3teran/liusha/internal/replay"
 	"github.com/V3teran/liusha/internal/skill"
-	"github.com/V3teran/liusha/internal/task"
+	"github.com/V3teran/liusha/internal/reactrun"
 	"github.com/V3teran/liusha/internal/toolfx"
 	"github.com/V3teran/liusha/internal/toolfx/middleware"
 	bac "github.com/V3teran/liusha/internal/builders/vuln/bac"
@@ -118,14 +120,16 @@ func main() {
 	}
 	defer rdb.Close()
 
-	// Stores。
-	tasks := task.NewStore(pool)
+	// Stores。装配顺序：先 engs（被其它 3 个 store 注入为 counter），再 tasks/finds/flows。
 	engs := engagement.NewStore(pool)
-	finds := finding.NewStore(pool)
+	tasks := reactrun.NewStore(pool).WithCounter(engs)
+	finds := vulnfinding.NewStore(pool).WithCounter(engs)
 	graphs := graph.NewStore(pool)
-	calls := llmcall.NewStore(pool)
+	calls := llminvocation.NewStore(pool)
+	lessons := lesson.NewStore(pool)
+	decisions := flowdecision.NewStore(pool)
 	defer func() { _ = calls.Close() }() // 排空 batch buffer，避免最近 ~1s 的审计丢失
-	flows := flow.NewStore(pool, scannerCfg.FlowMaxRequestBody, scannerCfg.FlowMaxResponseBody)
+	flows := flow.NewStore(pool, scannerCfg.FlowMaxRequestBody, scannerCfg.FlowMaxResponseBody).WithCounter(engs)
 	creds := credential.NewRedis(rdb)
 
 	// Skill loader：CC 风格渐进加载——
@@ -158,28 +162,33 @@ func main() {
 	// LLM Router（T11：Generator 无状态，ClientPool 共享 HTTP client）。
 	router := llm.NewRouter(llm.NewFactory(cfg))
 
-	// Distill hook（finding 命中 → light_provider 蒸馏 → memory_hints）。
-	// 用 Instrument 包装：让 distill LLM 调用也写入 llm_call 表（修复 v1.1 bug：原本绕过审计）。
-	distillRaw, err := router.For(ctx, "distill")
+	// LessonExtract hook（finding 命中 → light_provider 提取 → host_lesson 跨 engagement 知识库）。
+	// 用 Instrument 包装：让 lesson_extract LLM 调用也写入 llm_call 表（修复 v1.1 bug：原本绕过审计）。
+	extractRaw, err := router.For(ctx, "lesson_extract")
 	if err != nil {
-		logger.Fatal().Err(err).Msg("router.For(distill)")
+		logger.Fatal().Err(err).Msg("router.For(lesson_extract)")
 	}
-	distillGen := llm.Instrument(
-		distillRaw,
+	extractGen := llm.Instrument(
+		extractRaw,
 		calls,
-		llm.CallMeta{RouteKey: "distill"},
+		llm.CallMeta{RouteKey: "lesson_extract"},
 		observability.DefaultPricing,
 	)
-	finds.OnSaved(react.NewDistillHook(distillGen, engs))
+	// 首次发现 → 提取写 host_lesson（仅 LLM 一次调用）
+	finds.OnSaved(react.NewLessonExtractHook(extractGen, lessons))
+	// 重发现 → 给对应 lesson hit_count+1（无 LLM；体现经验被复用）
+	finds.OnReSaved(react.NewLessonTouchHook(lessons))
 
 	// 主 ReAct handler。
 	h := handler{
 		tasks:        tasks,
 		engagements:  engs,
 		findings:     finds,
+		lessons:      lessons,
 		graphs:       graphs,
 		calls:        calls,
 		flows:        flows,
+		decisions:    decisions,
 		creds:        creds,
 		replayEngine: replayEngine,
 		skillLoader:  skillLoader,
@@ -208,9 +217,14 @@ func main() {
 	flowCtx, flowCancel := context.WithCancel(context.Background())
 	defer flowCancel()
 
+	// proxy 模式 engagement 滚动（24h / 1MiB / 100 finding 任一触发）；
+	// 整站模式（mode != proxy）由 Rotator 直通，不轮转。
+	rotator := engagement.NewRotator(engs, finds, engagement.RotateLimits{})
+
 	trafficIngestor, err := ingestor.NewTraffic(flowCtx, ingestor.Deps{
 		Redis:    rdb,
 		Engs:     engs,
+		Rotator:  rotator,
 		Flows:    flows,
 		Tasks:    tasks,
 		Enqueuer: wc,
@@ -264,12 +278,14 @@ func main() {
 
 // handler 持有所有跨任务共享依赖；handle() 内每个任务建独立 Registry + Generator。
 type handler struct {
-	tasks        *task.Store
+	tasks        *reactrun.Store
 	engagements  *engagement.Store
-	findings     *finding.Store
+	findings     *vulnfinding.Store
+	lessons      *lesson.Store
 	graphs       *graph.Store
-	calls        *llmcall.Store
+	calls        *llminvocation.Store
 	flows        *flow.Store
+	decisions    *flowdecision.Store
 	creds        credential.Provider
 	replayEngine *replay.Engine
 	skillLoader  *skill.Loader
@@ -320,7 +336,7 @@ func (h handler) handle(ctx context.Context, p worker.Payload) error {
 //
 //	工具集（8 个）：
 //	  classify_traffic / delegate / get_findings
-//	  + common.{Done, ReadState, WriteFact, WriteIdea, WriteGraph}
+//	  + common.{Done, ReadState, TakeNote, WriteGraph}
 //
 //	子 ReAct（delegate）：
 //	  bac → bac.NewSubBuilder（装配 BAC 工具集 + SKILL.md system prompt + BACValidator）
@@ -369,6 +385,7 @@ func (h handler) handleTraffic(ctx context.Context, p worker.Payload, entrypoint
 	bacBuilder := bac.NewSubBuilder(bac.SubBuilderDeps{
 		Engagements:       h.engagements,
 		Findings:          h.findings,
+		Lessons:           h.lessons,
 		Credentials:       h.creds,
 		Flows:             h.flows,
 		Replay:            h.replayEngine,
@@ -390,9 +407,8 @@ func (h handler) handleTraffic(ctx context.Context, p worker.Payload, entrypoint
 		}
 	}
 	mustReg(common.Done{})
-	mustReg(&common.ReadState{Store: h.engagements, EngagementID: eid})
-	mustReg(&common.WriteFact{Store: h.engagements, EngagementID: eid})
-	mustReg(&common.WriteIdea{Store: h.engagements, EngagementID: eid})
+	mustReg(&common.ReadState{Store: h.engagements, EngagementID: eid, TaskID: tid})
+	mustReg(&common.TakeNote{Store: h.engagements, EngagementID: eid, TaskID: tid})
 	mustReg(&common.WriteGraph{Store: h.graphs, EngagementID: eid})
 
 	// observer 提前创建：注入主 ReAct + delegate 工具（让其转给子 ReAct 共享判官）
@@ -402,9 +418,11 @@ func (h handler) handleTraffic(ctx context.Context, p worker.Payload, entrypoint
 	// classify_traffic 工具持 Flows + Loader：内部按 flow_id 拉完整流量并智能截断后调 LLM，
 	// 调用方只需传 flow_id，避免主 LLM "瞎传 headers/body 字段"。
 	mustReg(&traffic.ClassifyTraffic{
-		LLM:    mainGen,
-		Flows:  h.flows,
-		Loader: h.skillLoader,
+		LLM:          mainGen,
+		Flows:        h.flows,
+		Loader:       h.skillLoader,
+		Decisions:    h.decisions,
+		EngagementID: eid,
 	})
 	// CC 风格：把 skill catalog 注入 Delegate —— Description / ParametersJSON 自动列出
 	// 所有可用 skill（含每条 frontmatter 的 description），LLM 自主发现。
@@ -416,9 +434,27 @@ func (h handler) handleTraffic(ctx context.Context, p worker.Payload, entrypoint
 	mustReg(&delegate.Delegate{
 		Builders:     map[string]skill.Builder{"vuln-web-bac": bacBuilder},
 		EngagementID: eid,
-		SubLLM:       subGen,
+		SubLLM:       subGen,   // 兜底（maker 为 nil 时用）
 		Catalog:      delegateCatalog,
-		Observer:     observer,
+		Observer:     observer, // 兜底
+		Tasks:        h.tasks,
+		// 现场用 sub-task uuid Instrument，让 hunter/observer 的 llm_call.task_id
+		// 真正挂在 sub-task 上（之前都挂在父 orchestrator tid）。
+		SubLLMFor: func(subTaskID string) llm.Generator {
+			tid := subTaskID
+			return llm.Instrument(subRaw, h.calls,
+				llm.CallMeta{TaskID: &tid, EngagementID: &eid, RouteKey: "hunter"},
+				h.pricing,
+			)
+		},
+		ObserverFor: func(subTaskID string) react.Observer {
+			tid := subTaskID
+			subObsGen := llm.Instrument(obsRaw, h.calls,
+				llm.CallMeta{TaskID: &tid, EngagementID: &eid, RouteKey: "observer"},
+				h.pricing,
+			)
+			return react.NewLLMObserver(subObsGen, h.engagements, eid)
+		},
 	})
 	mustReg(&traffic.GetFindings{Store: h.findings, EngagementID: eid})
 	if regErr != nil {
@@ -426,15 +462,14 @@ func (h handler) handleTraffic(ctx context.Context, p worker.Payload, entrypoint
 	}
 
 	// middleware：result_compress + done_validate(nil = AlwaysOK)。
+	// v1.2 收尾：notes 改 engagement-scope 后不再 prune，pruneHook 删除。
 	reg.Use(
 		middleware.ResultCompress(eid, h.scannerCfg.ResultCompressDir),
-		middleware.DoneValidate(nil),
+		middleware.DoneValidate(nil, nil),
 	)
 
-	// 自动注入 hint + catalog 到 main system prompt（CC 风格自动发现）。
-	// catalog 用 filterDelegateCatalog 过滤后的版本（与 delegate 工具看到的一致）。
-	e, _ := h.engagements.GetByID(ctx, eid)
-	systemPrompt := buildMainSystemPrompt(e, delegateCatalog)
+	// catalog + system prompt（CC 风格自动发现）；prompt body 从 skills/orchestrator/SKILL.md 加载。
+	systemPrompt := buildMainSystemPrompt(h.skillLoader, delegateCatalog)
 
 	out, err := react.Run(ctx, react.Config{
 		LLM:                mainGen,
@@ -471,34 +506,22 @@ func (h handler) handleTraffic(ctx context.Context, p worker.Payload, entrypoint
 	return h.tasks.SetDone(ctx, p.TaskID, res)
 }
 
-// buildMainSystemPrompt 主 ReAct 的 system prompt；自动展开 skill catalog + engagement.memory_hints。
+// buildMainSystemPrompt 主 ReAct 的 system prompt。
 //
-// CC 风格：catalog 段从 skillLoader.List() 动态生成，加 SKILL.md 文件 → LLM 自动看到。
-func buildMainSystemPrompt(e engagement.Engagement, catalog []*skill.Card) string {
-	base := `你是渗透测试主 Agent。每个任务对应 1 条 HTTP 流量。
-
-工作流程：
-1. classify_traffic(flow_id) → 拿 JSON：
-   {operation, resource_scope, attack_surfaces, carries_auth,
-    credential_locations, required_skills, reasoning}
-2. 短路判断：
-   - required_skills 为空（公开接口 / 无认证 / 无攻击面）→ 直接
-     done({"reason":"no_required_skills"})，不要 delegate
-3. 否则按 required_skills 调 delegate(skill, flow_id, host,
-   credential_locations=<上一步的 credential_locations 原样透传>)；
-   要测多个漏洞类型可在同一轮返回多个 delegate（runtime 自动 goroutine 并行）。
-   credential_locations 必须透传——子 ReAct 用它构造带占位 token 的 anonymous 假认证。
-4. 每个 delegate 返回 summary（含 finding 数量），用 get_findings 看详情
-5. 必要时 write_fact / write_idea / write_graph 总结
-6. done({"reason":"all_skills_done"})
-
-约束：
-- 单 task 内最多 spawn 5 个 skill 子任务
-- 子任务无依赖时一轮多 spawn，有依赖时分多轮（先看 BAC 结果再决定 RCE）`
+// v1.2 改造：
+//   - base 内容从 skills/orchestrator/SKILL.md 加载（不再硬编码）
+//   - 砍 lessons 加载——主 ReAct 是调度员，不需要懂具体 payload，让子 ReAct 自己看 host_lesson
+//   - 仅保留 catalog 动态展开（CC 风格：加 SKILL.md → LLM 自动看到）
+//
+// loader.Load 命中 cache 后 0 IO；首次启动后 base 字符串恒定，prompt cache 稳定。
+func buildMainSystemPrompt(loader *skill.Loader, catalog []*skill.Card) string {
+	base := defaultMainPrompt
+	if card, err := loader.Load("orchestrator"); err == nil && card.Body != "" {
+		base = card.Body
+	}
 
 	if len(catalog) > 0 {
 		base += "\n\n## 可用 Skill（来自 SKILL.md 自动发现）\n"
-		// 排序保证 prompt cache 稳定（同 LLM hit 同样字节）
 		cards := make([]*skill.Card, len(catalog))
 		copy(cards, catalog)
 		sort.Slice(cards, func(i, j int) bool { return cards[i].Name < cards[j].Name })
@@ -506,54 +529,31 @@ func buildMainSystemPrompt(e engagement.Engagement, catalog []*skill.Card) strin
 			base += fmt.Sprintf("- **%s**: %s\n", c.Name, c.Description)
 		}
 	}
-
-	hints := extractHints(e.MemoryHints)
-	if len(hints) > 0 {
-		base += "\n\n[历史经验提示（仅供参考）]\n"
-		for _, h := range hints {
-			base += "- " + h + "\n"
-		}
-	}
 	return base
 }
 
-// filterDelegateCatalog 把内部 prompt skill（如 classify-traffic）从 catalog 中剔除，
+// defaultMainPrompt 是 skills/orchestrator/SKILL.md 加载失败时的兜底。
+// 正常路径不会用到——loader.Load 失败说明部署残缺，但仍返回最小 base 让 ReAct 跑起来。
+const defaultMainPrompt = "你是渗透测试主 Agent。按 classify_traffic + delegate 流程处理流量。"
+
+// filterDelegateCatalog 把内部 prompt skill 从 catalog 中剔除，
 // 避免主 LLM 误以为它们是可 delegate 的子 skill。
 //
-// 当前过滤名单是硬编码（仅 classify-traffic 一个）；如未来新增更多内部 prompt skill，
-// 可改为按 frontmatter 字段（如 internal:true）过滤。
+// 当前过滤：
+//   - classify-traffic：是 ClassifyTraffic 工具内部 prompt
+//   - orchestrator：本 ReAct 自身的 system prompt，更不能 delegate 给自己
+//
+// 未来新增更多内部 prompt skill 可改为按 frontmatter 字段（如 internal:true）过滤。
 func filterDelegateCatalog(in []*skill.Card) []*skill.Card {
 	out := make([]*skill.Card, 0, len(in))
 	for _, c := range in {
 		if c == nil {
 			continue
 		}
-		if c.Name == "classify-traffic" {
+		if c.Name == "classify-traffic" || c.Name == "orchestrator" {
 			continue
 		}
 		out = append(out, c)
-	}
-	return out
-}
-
-// extractHints 解析 engagement.memory_hints jsonb 字段，提取 content 列表。
-func extractHints(hintsJSON []byte) []string {
-	if len(hintsJSON) == 0 {
-		return nil
-	}
-	var data struct {
-		Hints []struct {
-			Content string `json:"content"`
-		} `json:"hints"`
-	}
-	if err := json.Unmarshal(hintsJSON, &data); err != nil {
-		return nil
-	}
-	out := make([]string, 0, len(data.Hints))
-	for _, h := range data.Hints {
-		if h.Content != "" {
-			out = append(out, h.Content)
-		}
 	}
 	return out
 }

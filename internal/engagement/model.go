@@ -1,6 +1,6 @@
 // Package engagement 实现 engagement 聚合根的 model 与 store。
 // engagement 是一次"扫描会话"，按 (tenant, scope_host) 懒创建；active 唯一。
-// 三层 memory（facts / ideas / hints）实现黑客松借鉴的状态板。
+// memory_notes（kind=observation/hypothesis/boundary）作为 engagement-scope 状态板。
 package engagement
 
 import (
@@ -14,13 +14,8 @@ type Mode string
 // Status 表示 engagement 的生命周期状态。
 type Status string
 
-// Category 是 memory_facts entry 的子类。AppendFact 按此映射到 jsonb 子键
-// （CategoryEvidence → "evidence" 数组；CategoryBoundary → "boundaries" 数组）。
-//
-// 用 typed enum 替代 raw string 让新增类别（如 future "attack_surface"）必须
-// 经过类型 + memoryKey() 显式登记，避免 silent typo。
-type Category string
-
+// v1.2 收尾：原 Category 类型 + memoryKey 已删——facts/ideas 合并 notes 后，
+// kind 的 enum 校验在 internal/tools/common/memory.go 的 take_note 工具层做。
 const (
 	ModeProxy   Mode = "proxy"
 	ModeBrowser Mode = "browser"
@@ -28,44 +23,47 @@ const (
 	StatusActive   Status = "active"
 	StatusAborted  Status = "aborted"
 	StatusArchived Status = "archived"
-
-	CategoryEvidence Category = "evidence"
-	CategoryBoundary Category = "boundary"
 )
 
-// memoryKey 返回 Category 在 memory_facts jsonb 的子键名。
-//
-// 设计：jsonb 子键名复数（"evidence" 单数巧合，"boundaries" 复数表数组），
-// 与 BAC SKILL.md 调用方约定的 entry.category 单数命名解耦。
-func (c Category) memoryKey() (string, bool) {
-	switch c {
-	case CategoryEvidence:
-		return "evidence", true
-	case CategoryBoundary:
-		return "boundaries", true
-	default:
-		return "", false
-	}
-}
-
 // Engagement 是 engagement 表行的 Go 表示。
-// MemoryFacts/Ideas/Hints 是 jsonb 列的原始字节，调用方按需 unmarshal。
+//
+// v0010：删除 LastActivityAt 字段（Touch() 无人调用、仅 Abort 时设一次但无下游消费者）。
+// v0015：加 EndedAt / ErrorMessage / *Count 字段（借鉴 liusha2 task 表的进度统计）。
+//   - EndedAt 仅 Abort 时填；active 状态保持 nil。
+//   - *Count 字段 active 期间由 vulnfinding/flow/reactrun 写路径 best-effort 增量；
+//     Abort 时事务内 SELECT count(*) 重算精确兜底。
 type Engagement struct {
-	ID             string
-	TenantID       string
-	Mode           Mode
-	ScopeHost      string
-	Status         Status
-	MemoryFacts    []byte // jsonb: {evidence: [...], boundaries: [...]}
-	MemoryIdeas    []byte // jsonb: {hypotheses: [{direction, status, ts}]}
-	MemoryHints    []byte // jsonb: {hints: [{from_skill, content, priority, ts}]}
-	CreatedAt      time.Time
-	LastActivityAt time.Time
+	ID            string
+	TenantID      string
+	Mode          Mode
+	ScopeHost     string
+	Status        Status
+	MemoryNotes   []byte // jsonb: {notes: [{kind, content, status?, task_id, scope}]}
+	CreatedAt     time.Time
+	EndedAt       *time.Time
+	ErrorMessage  string
+	FlowCount     int
+	FindingCount  int
+	ReactRunCount int
 }
 
-// State 是 ReadState action 返回的合并视图，对应 spec §3.4 字段。
+// State 是 ReadState action 返回的视图。
+//
+// notes 单层（kind enum 区分 observation/hypothesis/boundary）。
 type State struct {
-	Facts json.RawMessage `json:"facts"`
-	Ideas json.RawMessage `json:"ideas"`
-	Hints json.RawMessage `json:"hints"`
+	Notes json.RawMessage `json:"notes"`
+}
+
+// ReadOpts 是 Store.ReadStateScoped 的可选过滤/截断参数。
+//
+// TaskID 非空时不强过滤 entry——所有 engagement-scope 的 notes 全返（跨 task 共享）；
+// done_validator 凭 entry 的 task_id 字段自行判定是否本 task 写过。
+//
+// NotesLimit：
+//   - 0 → 用默认（100）
+//   - > 0 → 取末尾 N 条
+//   - < 0 → 不截断
+type ReadOpts struct {
+	TaskID     string
+	NotesLimit int
 }

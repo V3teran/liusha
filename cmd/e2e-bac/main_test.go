@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/V3teran/liusha/internal/finding"
+	"github.com/V3teran/liusha/internal/vulnfinding"
 )
 
 // 13 个调用 = profile×3 + order/7×3 + admin/users×3 + admin/delete×3 + 1 anonymous。
@@ -67,7 +67,7 @@ func TestProxyRequests_Covers4Endpoints(t *testing.T) {
 func TestFilterBAC(t *testing.T) {
 	tests := []struct {
 		name string
-		in   []finding.Finding
+		in   []vulnfinding.VulnFinding
 		want int
 	}{
 		{
@@ -77,7 +77,7 @@ func TestFilterBAC(t *testing.T) {
 		},
 		{
 			name: "纯 BAC",
-			in: []finding.Finding{
+			in: []vulnfinding.VulnFinding{
 				{Kind: "bac.horizontal_priv_esc"},
 				{Kind: "bac.vertical_priv_esc"},
 				{Kind: "bac.idor_read"},
@@ -86,7 +86,7 @@ func TestFilterBAC(t *testing.T) {
 		},
 		{
 			name: "纯非 BAC",
-			in: []finding.Finding{
+			in: []vulnfinding.VulnFinding{
 				{Kind: "leak.api_key"},
 				{Kind: "debug.endpoint"},
 			},
@@ -94,7 +94,7 @@ func TestFilterBAC(t *testing.T) {
 		},
 		{
 			name: "混合",
-			in: []finding.Finding{
+			in: []vulnfinding.VulnFinding{
 				{Kind: "bac.horizontal_priv_esc"},
 				{Kind: "leak.api_key"},
 				{Kind: "bac.idor_write"},
@@ -105,7 +105,7 @@ func TestFilterBAC(t *testing.T) {
 		},
 		{
 			name: "前缀近似但不匹配（bac 不带点）",
-			in: []finding.Finding{
+			in: []vulnfinding.VulnFinding{
 				{Kind: "background.scan"},
 				{Kind: "bac"},
 			},
@@ -130,7 +130,7 @@ func TestFilterBAC(t *testing.T) {
 
 // TestCountKinds 锁住"至少 N 类齐全"门槛的核心计数语义。
 func TestCountKinds(t *testing.T) {
-	in := []finding.Finding{
+	in := []vulnfinding.VulnFinding{
 		{Kind: "bac.horizontal_priv_esc"},
 		{Kind: "bac.horizontal_priv_esc"},
 		{Kind: "bac.vertical_priv_esc"},

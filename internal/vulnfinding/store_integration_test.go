@@ -1,6 +1,6 @@
 //go:build integration
 
-package finding
+package vulnfinding
 
 import (
 	"context"
@@ -29,18 +29,21 @@ func TestStore_Save_NewFinding(t *testing.T) {
 	ctx := context.Background()
 	s, eid := setup(t)
 
-	f, err := s.Save(ctx, Finding{
+	f, isFirst, err := s.Save(ctx, VulnFinding{
 		EngagementID: eid,
+		Host:         "h",
 		Kind:         "bac.horizontal_priv_esc",
 		Severity:     SeverityHigh,
 		Title:        "GET /api/order/:oid",
 		Target:       json.RawMessage(`{"url":"/api/order/7"}`),
 		Evidence:     json.RawMessage(`{"violating":["test"]}`),
-		Tool:         "bac_probe",
 		DedupKey:     "bac.horizontal_priv_esc:vulnapp:GET:/api/order/:oid",
 	})
 	if err != nil {
 		t.Fatalf("save 新 finding 失败: %v", err)
+	}
+	if !isFirst {
+		t.Fatalf("第一次写入应 isFirstSeen=true")
 	}
 	if f.ID == "" {
 		t.Fatalf("save 后 ID 应非空")
@@ -59,21 +62,19 @@ func TestStore_Save_NewFinding(t *testing.T) {
 	if got.ID != f.ID {
 		t.Fatalf("GetByID id 不匹配: %s vs %s", got.ID, f.ID)
 	}
-	if got.Tool != "bac_probe" {
-		t.Fatalf("Tool 字段未保存: %+v", got)
-	}
 }
 
-// TestStore_Save_OnConflictMergesEvidence 验证：同 dedup_key 第二次 Save，
-// evidence 被 jsonb || 合并（旧字段保留 + 新字段加入），返回的 Finding 是合并后的；
-// updated_at 推进；ListByEngagement 仍只有 1 行。
-func TestStore_Save_OnConflictMergesEvidence(t *testing.T) {
+// TestStore_Save_AppendOnly_Rediscovery 验证 v1.2 append-only 语义：
+// 同 (host, dedup_key) 第二次 Save 不再 UPSERT 合并 evidence，而是插入新行；
+// 第一次 isFirstSeen=true，第二次 false；ListByEngagement 走 DISTINCT ON dedup 视图仍返 1 行。
+func TestStore_Save_AppendOnly_Rediscovery(t *testing.T) {
 	ctx := context.Background()
 	s, eid := setup(t)
 	dk := "bac.horizontal_priv_esc:vulnapp:GET:/api/order/:oid"
 
-	a, err := s.Save(ctx, Finding{
+	a, isFirstA, err := s.Save(ctx, VulnFinding{
 		EngagementID: eid,
+		Host:         "h",
 		Kind:         "bac.horizontal_priv_esc",
 		Severity:     SeverityHigh,
 		Title:        "GET /api/order/:oid",
@@ -84,12 +85,15 @@ func TestStore_Save_OnConflictMergesEvidence(t *testing.T) {
 	if err != nil {
 		t.Fatalf("first save: %v", err)
 	}
+	if !isFirstA {
+		t.Fatalf("第一次 save 应 isFirstSeen=true")
+	}
 
-	// 让 updated_at 有足够分辨率推进。
 	time.Sleep(10 * time.Millisecond)
 
-	b, err := s.Save(ctx, Finding{
+	b, isFirstB, err := s.Save(ctx, VulnFinding{
 		EngagementID: eid,
+		Host:         "h",
 		Kind:         "bac.horizontal_priv_esc",
 		Severity:     SeverityHigh,
 		Title:        "GET /api/order/:oid",
@@ -100,36 +104,35 @@ func TestStore_Save_OnConflictMergesEvidence(t *testing.T) {
 	if err != nil {
 		t.Fatalf("second save: %v", err)
 	}
-	if a.ID != b.ID {
-		t.Fatalf("UNIQUE 失效，应返回同一 ID, got %s vs %s", a.ID, b.ID)
+	if isFirstB {
+		t.Fatalf("第二次 save 应 isFirstSeen=false (append-only 重发现)")
 	}
-	if b.UpdatedAt.Before(a.UpdatedAt) {
-		t.Fatalf("updated_at 不应倒退: %v vs %v", a.UpdatedAt, b.UpdatedAt)
+	if a.ID == b.ID {
+		t.Fatalf("append-only 应插入新行，ID 必须不同: a=%s b=%s", a.ID, b.ID)
 	}
 
+	// b 是新行，evidence 不应继承 a 的字段（不再 merge）
 	var ev map[string]any
 	if err := json.Unmarshal(b.Evidence, &ev); err != nil {
 		t.Fatalf("evidence 不是合法 json: %v", err)
 	}
-	// 旧字段 first 必须保留（jsonb || 顶层合并语义）。
-	if v, _ := ev["first"].(bool); !v {
-		t.Fatalf("evidence.first 应保留: %+v", ev)
+	if _, ok := ev["first"]; ok {
+		t.Fatalf("append-only 不应合并 a 的字段，但 b.evidence 含 first: %+v", ev)
 	}
-	// 新字段 second 必须并入。
 	if v, _ := ev["second"].(bool); !v {
-		t.Fatalf("evidence.second 应并入: %+v", ev)
-	}
-	// violating 在 jsonb 顶层 || 下会被新值覆盖，仅断言 key 存在。
-	if _, ok := ev["violating"]; !ok {
-		t.Fatalf("evidence.violating 缺失: %+v", ev)
+		t.Fatalf("b.evidence.second 应存在: %+v", ev)
 	}
 
+	// ListByEngagement 走 DISTINCT ON dedup 视图（取最新一行）
 	all, err := s.ListByEngagement(ctx, eid)
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
 	if len(all) != 1 {
-		t.Fatalf("dedup 后应仅有 1 行, got %d", len(all))
+		t.Fatalf("DISTINCT ON dedup 后应仅 1 行, got %d", len(all))
+	}
+	if all[0].ID != b.ID {
+		t.Fatalf("应返回最新行 (b.ID=%s), got %s", b.ID, all[0].ID)
 	}
 }
 
@@ -138,16 +141,17 @@ func TestStore_OnSavedHook(t *testing.T) {
 	ctx := context.Background()
 	s, eid := setup(t)
 
-	got := make(chan Finding, 4)
-	s.OnSaved(func(_ context.Context, hookEID string, f Finding) {
+	got := make(chan VulnFinding, 4)
+	s.OnSaved(func(_ context.Context, hookEID string, f VulnFinding) {
 		if hookEID != eid {
 			t.Errorf("hook eid 不匹配: %s vs %s", hookEID, eid)
 		}
 		got <- f
 	})
 
-	saved, err := s.Save(ctx, Finding{
+	saved, _, err := s.Save(ctx, VulnFinding{
 		EngagementID: eid,
+		Host:         "h",
 		Kind:         "demo.kind",
 		Severity:     SeverityMedium,
 		Title:        "demo",
@@ -189,8 +193,9 @@ func TestStore_HasDedupKey(t *testing.T) {
 		t.Fatalf("写入前不应存在: dk=%s", dk)
 	}
 
-	if _, err := s.Save(ctx, Finding{
+	if _, _, err := s.Save(ctx, VulnFinding{
 		EngagementID: eid,
+		Host:         "h",
 		Kind:         "bac.horizontal_priv_esc",
 		Severity:     SeverityHigh,
 		Title:        "GET /api/has/dedup",
@@ -223,11 +228,11 @@ func TestStore_OnSavedHook_MultipleSubscribers(t *testing.T) {
 
 	c1 := make(chan struct{}, 1)
 	c2 := make(chan struct{}, 1)
-	s.OnSaved(func(_ context.Context, _ string, _ Finding) { c1 <- struct{}{} })
-	s.OnSaved(func(_ context.Context, _ string, _ Finding) { c2 <- struct{}{} })
+	s.OnSaved(func(_ context.Context, _ string, _ VulnFinding) { c1 <- struct{}{} })
+	s.OnSaved(func(_ context.Context, _ string, _ VulnFinding) { c2 <- struct{}{} })
 
-	if _, err := s.Save(ctx, Finding{
-		EngagementID: eid, Kind: "k", Severity: SeverityLow, Title: "t", DedupKey: "multi:1",
+	if _, _, err := s.Save(ctx, VulnFinding{
+		EngagementID: eid, Host: "h", Kind: "k", Severity: SeverityLow, Title: "t", DedupKey: "multi:1",
 	}); err != nil {
 		t.Fatalf("save: %v", err)
 	}

@@ -4,9 +4,14 @@ import (
 	"context"
 	"encoding/json"
 
-	"github.com/V3teran/liusha/internal/toolfx"
 	"github.com/V3teran/liusha/internal/react"
+	"github.com/V3teran/liusha/internal/toolfx"
 )
+
+// DoneSuccessHook 在 done 校验通过后被调用（done 工具实际执行前）。
+// 用途：done 通过后的轻量清理/审计（v1.2 收尾后已无内置消费者，调用方传 nil 即可）。
+// hook 内错误自行 swallow，不应影响 done 路径。
+type DoneSuccessHook func(ctx context.Context, args json.RawMessage)
 
 // DoneValidate 工厂：返回仅在 name=="done" 时拦截的 Middleware。
 //
@@ -14,7 +19,8 @@ import (
 // 不通过时抛 react.ErrDoneNotReady{Missing}，runtime 把 missing 喂回 Observer/LLM。
 //
 // validator==nil 时按 AlwaysOK 处理（防御 NPE）。
-func DoneValidate(validator toolfx.DoneValidator) toolfx.Middleware {
+// onSuccess==nil 时跳过钩子；非 nil 时在校验通过、forward 到 next 之前调用。
+func DoneValidate(validator toolfx.DoneValidator, onSuccess DoneSuccessHook) toolfx.Middleware {
 	if validator == nil {
 		validator = toolfx.AlwaysOK{}
 	}
@@ -26,6 +32,9 @@ func DoneValidate(validator toolfx.DoneValidator) toolfx.Middleware {
 			ok, missing := validator.CanDone(ctx, args)
 			if !ok {
 				return toolfx.Result{}, react.ErrDoneNotReady{Missing: missing}
+			}
+			if onSuccess != nil {
+				onSuccess(ctx, args)
 			}
 			return next(ctx, name, args)
 		}

@@ -156,7 +156,7 @@ func TestRedis_PermanentTTL(t *testing.T) {
 		t.Fatalf("batch save: %v", err)
 	}
 
-	d, err := p.client.TTL(ctx, key("perm", "alice")).Result()
+	d, err := p.client.TTL(ctx, hashKey("perm")).Result()
 	if err != nil {
 		t.Fatalf("ttl: %v", err)
 	}
@@ -269,13 +269,13 @@ func TestRedis_BatchSave_SkipsAnonymous(t *testing.T) {
 		t.Fatalf("batch save: %v", err)
 	}
 
-	// 直接探测 key：anonymous key 不应存在。
-	exists, err := p.client.Exists(ctx, key("h", AnonymousName)).Result()
+	// 直接探测 hash field：anonymous field 不应被写入（hash 本身因为 real 存在）。
+	exists, err := p.client.HExists(ctx, hashKey("h"), AnonymousName).Result()
 	if err != nil {
-		t.Fatalf("exists: %v", err)
+		t.Fatalf("hexists: %v", err)
 	}
-	if exists != 0 {
-		t.Fatalf("anonymous 不应被持久化")
+	if exists {
+		t.Fatalf("anonymous field 不应被持久化")
 	}
 
 	got, err := p.GetIdentitiesByHost(ctx, "h")

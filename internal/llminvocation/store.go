@@ -1,4 +1,4 @@
-package llmcall
+package llminvocation
 
 import (
 	"context"
@@ -16,7 +16,7 @@ import (
 // Store 封装 llm_call 表的所有持久化操作。
 //
 // 写入采用 channel + 后台 worker 批量 INSERT 模式（v1.1 性能改造）：
-//   - Append 把 Call 推到 buffered channel 立即返回，Generate 路径 0 阻塞
+//   - Append 把 Invocation 推到 buffered channel 立即返回，Generate 路径 0 阻塞
 //   - 后台 worker 累积 batchSize=100 行或 flushInterval=1s 触发一次批量 INSERT
 //   - Close() 优雅关闭：停 worker + 清空剩余 buffer + 最后一次 flush
 //
@@ -27,7 +27,7 @@ import (
 //   - 一致性场景（如 SumCostByEngagement / CountByRole）调用方需先调 Flush() 同步等待。
 type Store struct {
 	pool   *pgxpool.Pool
-	ch     chan Call
+	ch     chan Invocation
 	closed chan struct{}
 	wg     sync.WaitGroup
 	log    zerolog.Logger
@@ -45,7 +45,7 @@ const (
 func NewStore(pool *pgxpool.Pool) *Store {
 	s := &Store{
 		pool:   pool,
-		ch:     make(chan Call, defaultBufferSize),
+		ch:     make(chan Invocation, defaultBufferSize),
 		closed: make(chan struct{}),
 		log:    logx.New("llmcall.store"),
 	}
@@ -54,9 +54,9 @@ func NewStore(pool *pgxpool.Pool) *Store {
 	return s
 }
 
-// Append 把 Call 推到内部 channel；channel 满则丢一行并 warn（不阻塞 Generate）。
+// Append 把 Invocation 推到内部 channel；channel 满则丢一行并 warn（不阻塞 Generate）。
 // 返回 id 永远为 0（异步路径无 RETURNING id），与同步版本保持签名兼容。
-func (s *Store) Append(ctx context.Context, c Call) (int64, error) {
+func (s *Store) Append(ctx context.Context, c Invocation) (int64, error) {
 	if len(c.MessagesJSON) == 0 {
 		c.MessagesJSON = []byte("[]")
 	}
@@ -115,7 +115,7 @@ func (s *Store) run() {
 	ticker := time.NewTicker(defaultFlushInterval)
 	defer ticker.Stop()
 
-	batch := make([]Call, 0, defaultBatchSize)
+	batch := make([]Invocation, 0, defaultBatchSize)
 	flush := func() {
 		if len(batch) == 0 {
 			return
@@ -154,7 +154,7 @@ func (s *Store) run() {
 }
 
 // copyFromBatch 用 pgx CopyFrom 批量写入；比逐行 INSERT 快 10-100x。
-func (s *Store) copyFromBatch(ctx context.Context, batch []Call) error {
+func (s *Store) copyFromBatch(ctx context.Context, batch []Invocation) error {
 	rows := make([][]any, len(batch))
 	for i, c := range batch {
 		rows[i] = []any{
@@ -166,7 +166,7 @@ func (s *Store) copyFromBatch(ctx context.Context, batch []Call) error {
 	}
 	_, err := s.pool.CopyFrom(
 		ctx,
-		pgx.Identifier{"llm_call"},
+		pgx.Identifier{"llm_invocation"},
 		[]string{
 			"task_id", "engagement_id", "provider", "model",
 			"in_tokens", "out_tokens", "cached_tokens",
@@ -188,7 +188,7 @@ func (s *Store) SumCostByEngagement(ctx context.Context, engagementID string) (f
 	var v float64
 	err := s.pool.QueryRow(ctx, `
 		SELECT COALESCE(SUM(cost_usd), 0)::float8
-		FROM llm_call
+		FROM llm_invocation
 		WHERE engagement_id=$1`, engagementID).Scan(&v)
 	if err != nil {
 		return 0, fmt.Errorf("sum llm_call cost: %w", err)
@@ -200,7 +200,7 @@ func (s *Store) SumCostByEngagement(ctx context.Context, engagementID string) (f
 func (s *Store) CountByRole(ctx context.Context, engagementID string) (map[string]int, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT role, count(*)
-		FROM llm_call
+		FROM llm_invocation
 		WHERE engagement_id=$1
 		GROUP BY role`, engagementID)
 	if err != nil {

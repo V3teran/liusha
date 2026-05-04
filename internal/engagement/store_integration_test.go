@@ -43,7 +43,7 @@ func TestStore_Abort(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Abort(ctx, e.ID); err != nil {
+	if err := s.Abort(ctx, e.ID, ""); err != nil {
 		t.Fatal(err)
 	}
 	got, err := s.GetByID(ctx, e.ID)
@@ -59,10 +59,9 @@ func TestStore_Abort(t *testing.T) {
 	}
 }
 
-// TestStore_AppendAndReadState 验证三层 memory 的 Append + ReadState：
-// 写 2 条 fact（evidence + boundary）、1 条 idea、1 条 hint；
-// ReadState 返回的 JSON 必须包含 evidence/boundaries/hypotheses/hints 四个 key。
-func TestStore_AppendAndReadState(t *testing.T) {
+// TestStore_AppendNoteAndReadState 验证 v1.2 notes 单层 Append + ReadState：
+// 写 3 条 note（observation + boundary + hypothesis），ReadState 返回 JSON 含 notes key 且 3 条全在。
+func TestStore_AppendNoteAndReadState(t *testing.T) {
 	ctx := context.Background()
 	pool := dbtest.NewPgPool(t)
 	s := NewStore(pool)
@@ -71,20 +70,16 @@ func TestStore_AppendAndReadState(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := s.AppendFact(ctx, e.ID,
-		[]byte(`{"category":"evidence","content":"endpoint X 401"}`)); err != nil {
+	if err := s.AppendNote(ctx, e.ID,
+		[]byte(`{"kind":"observation","content":"endpoint X 401","task_id":"t1","scope":"engagement"}`)); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.AppendFact(ctx, e.ID,
-		[]byte(`{"category":"boundary","content":"all_differ at threshold 0.3"}`)); err != nil {
+	if err := s.AppendNote(ctx, e.ID,
+		[]byte(`{"kind":"boundary","content":"all_differ at threshold 0.3","task_id":"t1","scope":"engagement"}`)); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.AppendIdea(ctx, e.ID,
-		[]byte(`{"direction":"GET /admin","status":"testing"}`)); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.AppendHint(ctx, e.ID,
-		[]byte(`{"from_skill":"vuln-web-bac","content":"hint content","priority":7}`)); err != nil {
+	if err := s.AppendNote(ctx, e.ID,
+		[]byte(`{"kind":"hypothesis","content":"GET /admin","status":"testing","task_id":"t2","scope":"engagement"}`)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -93,10 +88,10 @@ func TestStore_AppendAndReadState(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := string(state)
-	if !strings.Contains(got, `"evidence"`) ||
-		!strings.Contains(got, `"boundaries"`) ||
-		!strings.Contains(got, `"hypotheses"`) ||
-		!strings.Contains(got, `"hints"`) {
-		t.Fatalf("state missing keys: %s", got)
+	if !strings.Contains(got, `"notes"`) ||
+		!strings.Contains(got, "endpoint X 401") ||
+		!strings.Contains(got, "all_differ") ||
+		!strings.Contains(got, "GET /admin") {
+		t.Fatalf("state missing notes/contents: %s", got)
 	}
 }

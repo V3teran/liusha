@@ -1,4 +1,4 @@
-package finding
+package vulnfinding
 
 import (
 	"regexp"

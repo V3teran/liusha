@@ -23,12 +23,12 @@ import (
 	"time"
 
 	"github.com/V3teran/liusha/internal/db"
-	"github.com/V3teran/liusha/internal/finding"
+	"github.com/V3teran/liusha/internal/vulnfinding"
 	"github.com/V3teran/liusha/internal/logx"
 )
 
 // pollInterval 是 finding 轮询节拍；总超时 pollDeadline。
-// 节奏取自 plan §9：15s tick × 6min budget — 给 worker（observer + distill + replayer）留足端到端时间。
+// 节奏取自 plan §9：15s tick × 6min budget — 给 worker（observer + lesson_extract + replayer）留足端到端时间。
 const (
 	pollInterval = 15 * time.Second
 	pollDeadline = 6 * time.Minute
@@ -80,7 +80,7 @@ func main() {
 		logger.Fatal().Err(err).Msg("pg")
 	}
 	defer pool.Close()
-	store := finding.NewStore(pool)
+	store := vulnfinding.NewStore(pool)
 
 	deadline := time.Now().Add(pollDeadline)
 	for time.Now().Before(deadline) {
@@ -271,8 +271,8 @@ func drive(proxyAddr, vulnBase string, calls []proxyCall) error {
 }
 
 // filterBAC 过滤 kind 以 "bac." 开头的 finding；其它 kind（如 leak.*、debug.*）跳过。
-func filterBAC(all []finding.Finding) []finding.Finding {
-	out := make([]finding.Finding, 0, len(all))
+func filterBAC(all []vulnfinding.VulnFinding) []vulnfinding.VulnFinding {
+	out := make([]vulnfinding.VulnFinding, 0, len(all))
 	for _, f := range all {
 		if strings.HasPrefix(f.Kind, "bac.") {
 			out = append(out, f)
@@ -282,7 +282,7 @@ func filterBAC(all []finding.Finding) []finding.Finding {
 }
 
 // countKinds 统计 finding 切片中各 kind 的出现次数；用于"至少 N 类齐全"门槛。
-func countKinds(fs []finding.Finding) map[string]int {
+func countKinds(fs []vulnfinding.VulnFinding) map[string]int {
 	out := make(map[string]int, len(fs))
 	for _, f := range fs {
 		out[f.Kind]++

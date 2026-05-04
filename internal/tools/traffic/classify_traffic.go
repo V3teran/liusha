@@ -12,12 +12,19 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/rs/zerolog"
+
 	"github.com/V3teran/liusha/internal/clip"
 	"github.com/V3teran/liusha/internal/flow"
+	"github.com/V3teran/liusha/internal/flowdecision"
 	"github.com/V3teran/liusha/internal/llm"
+	"github.com/V3teran/liusha/internal/logx"
 	"github.com/V3teran/liusha/internal/skill"
 	"github.com/V3teran/liusha/internal/toolfx"
 )
+
+// classifyTrafficLog 包级 logger（与 instrument.go 同样模式：避免每次 Execute 触发 logx.New）。
+var classifyTrafficLog zerolog.Logger = logx.New("tools.classify_traffic")
 
 // FlowReader 是 classify_traffic 依赖的最小 flow 读接口，由 *flow.Store 自动满足。
 // 局部定义在 consumer 侧（Go idiom: accept interfaces, return structs）。
@@ -86,6 +93,24 @@ type ClassifyTraffic struct {
 	LLM    llm.Generator
 	Flows  FlowReader
 	Loader *skill.Loader
+
+	// Decisions 可空：装配时注入则把 LLM 输出 best-effort 落 flow_decision；
+	// nil 退化为旧行为（仅透传 Output 给主 ReAct，不持久化）。
+	// EngagementID 同时为空时也跳过落库（无外键归属）。
+	Decisions    *flowdecision.Store
+	EngagementID string
+}
+
+// classifyOutput 与 skills/classify-traffic/SKILL.md 约定的 LLM 输出 JSON 一一对应。
+// jsonb 字段以 RawMessage 透传，避免 LLM 出意外结构时落库失败（容错优先）。
+type classifyOutput struct {
+	Operation           string          `json:"operation"`
+	ResourceScope       string          `json:"resource_scope"`
+	AttackSurfaces      json.RawMessage `json:"attack_surfaces"`
+	CarriesAuth         bool            `json:"carries_auth"`
+	CredentialLocations json.RawMessage `json:"credential_locations"`
+	RequiredSkills      json.RawMessage `json:"required_skills"`
+	Reasoning           string          `json:"reasoning"`
 }
 
 // Name 返回工具名 "classify_traffic"。
@@ -163,12 +188,57 @@ func (a *ClassifyTraffic) Execute(ctx context.Context, args json.RawMessage) (to
 		return toolfx.Result{}, fmt.Errorf("classify_traffic LLM: %w", err)
 	}
 
+	// best-effort 把 LLM 输出落 flow_decision（非阻塞 Execute 返回）；
+	// 失败仅 warn，行为对外不变。
+	a.appendDecision(in.FlowID, res.Content)
+
 	// 透传 LLM 原始 content 给主 ReAct LLM；主 LLM 解析里面的 required_skills /
 	// credential_locations 后做下一步决策（短路 done 或 delegate）。
 	return toolfx.Result{
 		Output:  json.RawMessage(res.Content),
 		Summary: fmt.Sprintf("classify_traffic flow=%d %s %s", f.ID, f.Method, f.URL),
 	}, nil
+}
+
+// appendDecision 解析 LLM JSON 输出并 best-effort 落 flow_decision。
+//
+// 任何失败（store 未注入 / EngagementID 为空 / JSON 解析失败 / DB 写入失败）
+// 都仅打 warn 日志，不返回错误。落库用 context.Background() 与业务 ctx 解耦，
+// 避免业务 ctx 取消时埋点丢失（与 internal/llm/instrument.go 同样策略）。
+//
+// resource_scope 不属于 enum 集合时强制回退为 "unknown"（CHECK 约束兜底）。
+func (a *ClassifyTraffic) appendDecision(flowID int64, content string) {
+	if a.Decisions == nil || a.EngagementID == "" {
+		return
+	}
+	var out classifyOutput
+	if err := json.Unmarshal([]byte(content), &out); err != nil {
+		classifyTrafficLog.Warn().Err(err).Int64("flow_id", flowID).
+			Msg("flow_decision: 解析 LLM JSON 失败，跳过落库")
+		return
+	}
+	scope := flowdecision.ResourceScope(out.ResourceScope)
+	switch scope {
+	case flowdecision.ResourceScopePrivate,
+		flowdecision.ResourceScopePublic,
+		flowdecision.ResourceScopeUnknown:
+	default:
+		scope = flowdecision.ResourceScopeUnknown
+	}
+	if _, err := a.Decisions.Append(context.Background(), flowdecision.Decision{
+		EngagementID:        a.EngagementID,
+		FlowID:              flowID,
+		Operation:           out.Operation,
+		ResourceScope:       scope,
+		AttackSurfaces:      out.AttackSurfaces,
+		CarriesAuth:         out.CarriesAuth,
+		CredentialLocations: out.CredentialLocations,
+		RequiredSkills:      out.RequiredSkills,
+		Reasoning:           out.Reasoning,
+	}); err != nil {
+		classifyTrafficLog.Warn().Err(err).Int64("flow_id", flowID).
+			Msg("flow_decision: 写库失败（不阻塞 Execute）")
+	}
 }
 
 // buildClassifyInput 把 flow 转成喂 LLM 的截断后结构。

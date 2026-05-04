@@ -5,30 +5,55 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/V3teran/liusha/internal/engagement"
 	"github.com/V3teran/liusha/internal/toolfx"
 )
 
-// MemoryStore 是 engagement memory 三层（facts / ideas / hints）的最小访问接口。
+// MemoryStore 是 engagement memory（notes 单层）的最小访问接口。
 //
-// 由 internal/engagement.Store 自动满足（plan 1 part2 T6）。这里以接口形式声明而非
-// 直接依赖具体类型，是为了：
-//  1. 单元测试可注入 fake；
-//  2. 未来若 memory 后端切换（如 Redis 缓冲），调用方无需改动。
+// 由 internal/engagement.Store 自动满足。
+//
+// v1.2 收尾：原 facts/ideas 双层合成单一 notes（kind enum 区分 observation/hypothesis/boundary）；
+// 删除 AppendFact/AppendIdea/AppendHint 三个旧方法。
 type MemoryStore interface {
-	// ReadState 一次返回 {facts, ideas, hints} 三层合并后的 JSON 字节流。
 	ReadState(ctx context.Context, engagementID string) ([]byte, error)
-	// AppendFact 追加一条事实条目（仅追加，不修改）。
-	AppendFact(ctx context.Context, engagementID string, entry []byte) error
-	// AppendIdea 追加一条假设条目。
-	AppendIdea(ctx context.Context, engagementID string, entry []byte) error
-	// AppendHint 追加一条提示条目。
-	AppendHint(ctx context.Context, engagementID string, entry []byte) error
+	ReadStateScoped(ctx context.Context, engagementID string, opts engagement.ReadOpts) ([]byte, error)
+	AppendNote(ctx context.Context, engagementID string, entry []byte) error
 }
 
-// ReadState — 一次读取 memory 三层（facts/ideas/hints）。
+// scopeEngagement 是 entry jsonb 中 scope 字段的固定值（v1.2 收尾后 notes 永远 engagement-scope）。
+const scopeEngagement = "engagement"
+
+// noteKindObservation/Hypothesis/Boundary 是 take_note 工具 kind 字段的合法枚举。
+const (
+	NoteKindObservation = "observation"
+	NoteKindHypothesis  = "hypothesis"
+	NoteKindBoundary    = "boundary"
+)
+
+// validNoteKinds 用于 enum 校验。
+var validNoteKinds = map[string]struct{}{
+	NoteKindObservation: {},
+	NoteKindHypothesis:  {},
+	NoteKindBoundary:    {},
+}
+
+// validHypothesisStatus 是 hypothesis kind 时 status 字段的合法枚举。
+var validHypothesisStatus = map[string]struct{}{
+	"pending":  {},
+	"testing":  {},
+	"verified": {},
+	"failed":   {},
+}
+
+// ReadState — 一次读取 engagement memory_notes（带 NotesLimit 截断）。
+//
+// TaskID 字段保留为接口对称性使用，当前不参与过滤——notes 是 engagement-scope 共享，
+// 所有 task 都能看到所有 notes；done_validator 凭 entry.task_id 判定本 task 是否写过。
 type ReadState struct {
 	Store        MemoryStore
 	EngagementID string
+	TaskID       string // 保留字段（不再用于 scope 过滤；done_validator 自查 entry.task_id）
 }
 
 // Name 返回动作名 "read_state"。
@@ -36,190 +61,97 @@ func (a *ReadState) Name() string { return "read_state" }
 
 // Description 提供给 LLM 的简介。
 func (a *ReadState) Description() string {
-	return "读取 engagement memory 三层（facts/ideas/hints）合并后的 JSON 状态"
+	return "读取 engagement memory_notes（同 host 跨 task 共享的工作笔记/假设/边界）"
 }
 
-// ParametersJSON 返回空对象 schema：read_state 不需要参数。
+// ParametersJSON 返回空对象 schema。
 func (a *ReadState) ParametersJSON() json.RawMessage {
 	return json.RawMessage(`{"type":"object","properties":{}}`)
 }
 
-// Execute 调 Store.ReadState 并把字节流原样塞进 Output。
+// Execute 调 Store.ReadStateScoped 并把字节流原样塞进 Output。
 func (a *ReadState) Execute(ctx context.Context, _ json.RawMessage) (toolfx.Result, error) {
-	state, err := a.Store.ReadState(ctx, a.EngagementID)
+	state, err := a.Store.ReadStateScoped(ctx, a.EngagementID, engagement.ReadOpts{TaskID: a.TaskID})
 	if err != nil {
 		return toolfx.Result{}, fmt.Errorf("读取 memory 状态失败: %w", err)
 	}
 	return toolfx.Result{Output: state}, nil
 }
 
-// WriteFact — 追加一条事实（evidence 或 boundary）到 memory_facts。
+// TakeNote — LLM 主动留笔记到 engagement memory_notes。
 //
-// category 必须 ∈ {"evidence","boundary"}，否则报错；后端 engagement.Store 还会再做一次
-// 校验（双层防御）。
-type WriteFact struct {
+// 三种 kind：
+//   - observation: 看到的事实/证据（替代旧 evidence）
+//   - hypothesis:  探索假设/方向（带 status: pending|testing|verified|failed）
+//   - boundary:    观察到的边界条件（替代旧 boundary）
+//
+// scope 永远 engagement（per host 跨 task 共享）；entry 自带 task_id 标记写入者，
+// done_validator 凭它判断本 task 是否真写过。
+type TakeNote struct {
 	Store        MemoryStore
 	EngagementID string
+	TaskID       string
 }
 
-// Name 返回动作名 "write_fact"。
-func (a *WriteFact) Name() string { return "write_fact" }
+// Name 返回动作名 "take_note"。
+func (a *TakeNote) Name() string { return "take_note" }
 
 // Description 提供给 LLM 的简介。
-func (a *WriteFact) Description() string {
-	return "追加一条事实（category=evidence|boundary）到 memory_facts，只追加不修改"
+func (a *TakeNote) Description() string {
+	return "记一条工作笔记到 engagement memory_notes（同 host 跨 task 共享）：observation=证据，hypothesis=假设，boundary=边界"
 }
 
-// ParametersJSON 给出 category 枚举 + content 必填字段。
-func (a *WriteFact) ParametersJSON() json.RawMessage {
+// ParametersJSON 给出 kind 枚举 + content 必填 + status 可选枚举。
+func (a *TakeNote) ParametersJSON() json.RawMessage {
 	return json.RawMessage(`{
   "type":"object",
   "properties":{
-    "category":{"type":"string","enum":["evidence","boundary"]},
-    "content":{"type":"string"}
+    "kind":{"type":"string","enum":["observation","hypothesis","boundary"]},
+    "content":{"type":"string"},
+    "status":{"type":"string","enum":["pending","testing","verified","failed"],"description":"仅 kind=hypothesis 时使用"}
   },
-  "required":["category","content"]
+  "required":["kind","content"]
 }`)
 }
 
-// Execute 解析参数 → 校验 category → 序列化 entry → AppendFact。
-func (a *WriteFact) Execute(ctx context.Context, args json.RawMessage) (toolfx.Result, error) {
+// Execute 解析 → 校验 enum → 序列化 entry → AppendNote。
+func (a *TakeNote) Execute(ctx context.Context, args json.RawMessage) (toolfx.Result, error) {
 	var p struct {
-		Category string `json:"category"`
-		Content  string `json:"content"`
+		Kind    string `json:"kind"`
+		Content string `json:"content"`
+		Status  string `json:"status"`
 	}
 	if err := json.Unmarshal(args, &p); err != nil {
-		return toolfx.Result{}, fmt.Errorf("解析 write_fact 参数失败: %w", err)
+		return toolfx.Result{}, fmt.Errorf("解析 take_note 参数失败: %w", err)
 	}
-	if p.Category != "evidence" && p.Category != "boundary" {
-		return toolfx.Result{}, fmt.Errorf("非法 category %q，必须是 evidence|boundary", p.Category)
+	if _, ok := validNoteKinds[p.Kind]; !ok {
+		return toolfx.Result{}, fmt.Errorf("非法 kind %q，必须是 observation|hypothesis|boundary", p.Kind)
 	}
 	if p.Content == "" {
 		return toolfx.Result{}, fmt.Errorf("content 不能为空")
 	}
-	entry, _ := json.Marshal(map[string]any{"category": p.Category, "content": p.Content})
-	if err := a.Store.AppendFact(ctx, a.EngagementID, entry); err != nil {
-		return toolfx.Result{}, fmt.Errorf("追加 fact 失败: %w", err)
+	if p.Status != "" {
+		if _, ok := validHypothesisStatus[p.Status]; !ok {
+			return toolfx.Result{}, fmt.Errorf("非法 status %q，必须是 pending|testing|verified|failed", p.Status)
+		}
+		if p.Kind != NoteKindHypothesis {
+			return toolfx.Result{}, fmt.Errorf("status 仅 kind=hypothesis 时可填，当前 kind=%q", p.Kind)
+		}
 	}
-	return toolfx.Result{Output: json.RawMessage(`{"ok":true}`)}, nil
-}
 
-// WriteIdea — 追加/更新一条假设到 memory_ideas（status: pending|testing|verified|failed）。
-type WriteIdea struct {
-	Store        MemoryStore
-	EngagementID string
-}
-
-// Name 返回动作名 "write_idea"。
-func (a *WriteIdea) Name() string { return "write_idea" }
-
-// Description 提供给 LLM 的简介。
-func (a *WriteIdea) Description() string {
-	return "追加/更新一条假设到 memory_ideas，status ∈ pending|testing|verified|failed"
-}
-
-// ParametersJSON 给出 direction + status 枚举字段。
-func (a *WriteIdea) ParametersJSON() json.RawMessage {
-	return json.RawMessage(`{
-  "type":"object",
-  "properties":{
-    "direction":{"type":"string"},
-    "status":{"type":"string","enum":["pending","testing","verified","failed"]}
-  },
-  "required":["direction","status"]
-}`)
-}
-
-// Execute 解析 → 校验 status 枚举 → AppendIdea。
-func (a *WriteIdea) Execute(ctx context.Context, args json.RawMessage) (toolfx.Result, error) {
-	var p struct {
-		Direction string `json:"direction"`
-		Status    string `json:"status"`
+	entryMap := map[string]any{
+		"kind":    p.Kind,
+		"content": p.Content,
+		"scope":   scopeEngagement,
+		"task_id": a.TaskID,
 	}
-	if err := json.Unmarshal(args, &p); err != nil {
-		return toolfx.Result{}, fmt.Errorf("解析 write_idea 参数失败: %w", err)
+	if p.Status != "" {
+		entryMap["status"] = p.Status
 	}
-	if p.Direction == "" {
-		return toolfx.Result{}, fmt.Errorf("direction 不能为空")
-	}
-	switch p.Status {
-	case "pending", "testing", "verified", "failed":
-	default:
-		return toolfx.Result{}, fmt.Errorf("非法 status %q，必须是 pending|testing|verified|failed", p.Status)
-	}
-	entry, _ := json.Marshal(map[string]any{"direction": p.Direction, "status": p.Status})
-	if err := a.Store.AppendIdea(ctx, a.EngagementID, entry); err != nil {
-		return toolfx.Result{}, fmt.Errorf("追加 idea 失败: %w", err)
-	}
-	return toolfx.Result{Output: json.RawMessage(`{"ok":true}`)}, nil
-}
+	entry, _ := json.Marshal(entryMap)
 
-// hintPriorityDefault 是 priority 缺省值（中等优先级）。
-const hintPriorityDefault = 5
-
-// hintPriorityMin / Max 是合法 priority 范围（含端点），与 ParametersJSON schema 一致。
-const (
-	hintPriorityMin = 1
-	hintPriorityMax = 10
-)
-
-// WriteHint — 追加一条提示到 memory_hints。
-//
-// 系统态主体（Observer / DoneValidator / Distill）也通过此 action 写入 hint，
-// from_skill 字段用于区分来源。
-type WriteHint struct {
-	Store        MemoryStore
-	EngagementID string
-}
-
-// Name 返回动作名 "write_hint"。
-func (a *WriteHint) Name() string { return "write_hint" }
-
-// Description 提供给 LLM 的简介。
-func (a *WriteHint) Description() string {
-	return "追加一条提示到 memory_hints（priority 1-10，越大越优先；缺省 5）"
-}
-
-// ParametersJSON 给出 from_skill+content 必填，priority 1-10 可选。
-func (a *WriteHint) ParametersJSON() json.RawMessage {
-	return json.RawMessage(`{
-  "type":"object",
-  "properties":{
-    "from_skill":{"type":"string"},
-    "content":{"type":"string"},
-    "priority":{"type":"integer","minimum":1,"maximum":10}
-  },
-  "required":["from_skill","content"]
-}`)
-}
-
-// Execute 解析 → 校验 priority 范围 → AppendHint。priority=0 视为未填，落默认 5。
-func (a *WriteHint) Execute(ctx context.Context, args json.RawMessage) (toolfx.Result, error) {
-	var p struct {
-		FromSkill string `json:"from_skill"`
-		Content   string `json:"content"`
-		Priority  int    `json:"priority"`
-	}
-	if err := json.Unmarshal(args, &p); err != nil {
-		return toolfx.Result{}, fmt.Errorf("解析 write_hint 参数失败: %w", err)
-	}
-	if p.FromSkill == "" || p.Content == "" {
-		return toolfx.Result{}, fmt.Errorf("from_skill 与 content 都不能为空")
-	}
-	if p.Priority == 0 {
-		p.Priority = hintPriorityDefault
-	}
-	if p.Priority < hintPriorityMin || p.Priority > hintPriorityMax {
-		return toolfx.Result{}, fmt.Errorf("priority %d 越界，须在 [%d,%d]",
-			p.Priority, hintPriorityMin, hintPriorityMax)
-	}
-	entry, _ := json.Marshal(map[string]any{
-		"from_skill": p.FromSkill,
-		"content":    p.Content,
-		"priority":   p.Priority,
-	})
-	if err := a.Store.AppendHint(ctx, a.EngagementID, entry); err != nil {
-		return toolfx.Result{}, fmt.Errorf("追加 hint 失败: %w", err)
+	if err := a.Store.AppendNote(ctx, a.EngagementID, entry); err != nil {
+		return toolfx.Result{}, fmt.Errorf("追加 note 失败: %w", err)
 	}
 	return toolfx.Result{Output: json.RawMessage(`{"ok":true}`)}, nil
 }

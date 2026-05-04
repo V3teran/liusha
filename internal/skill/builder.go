@@ -31,6 +31,7 @@ type Builder func(ctx context.Context, params BuilderParams) (react.Config, erro
 // 为空时，子 ReAct 退化为旧行为（anonymous 不带任何 credential）。
 type BuilderParams struct {
 	EngagementID        string
+	TaskID              string // sub-ReAct 唯一标识，用于 memory entry scope 隔离 + task-scope GC
 	FlowID              int64
 	Host                string
 	URL                 string
