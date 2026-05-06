@@ -54,10 +54,24 @@ echo ""
 
 # 预清旧 dev 进程：避免端口被旧 nohup/run-svc 进程占着导致新启动 fatal "address
 # already in use"，进而出现"半新半旧"的混跑栈（曾踩坑：proxy/api 留旧版，
-# scanner/vulnapp 用新版，调试极难）。先 SIGTERM 再 SIGKILL，全部静默 best-effort。
-pkill -f 'cmd/(api|scanner|proxy|vulnapp)' 2>/dev/null || true
+# scanner/vulnapp 用新版，调试极难）。
+#
+# 按端口杀（不靠 cmdline 模式）：go run 的 build cache 路径形如
+# /Users/.../go-build/<hash>-d/scanner，没有 "cmd/" 或 "exe/" 字样，
+# 匹配模式不可靠；按 5 个目标端口找 PID 精确 kill 才稳。先 SIGTERM 再 SIGKILL。
+for port in 8001 8888 8090 9090 9091; do
+  pid=$(lsof -nP -iTCP:"$port" -sTCP:LISTEN -t 2>/dev/null | head -1) || true
+  if [ -n "$pid" ]; then
+    kill "$pid" 2>/dev/null || true
+  fi
+done
 sleep 1
-pkill -9 -f 'exe/(api|scanner|proxy|vulnapp)' 2>/dev/null || true
+for port in 8001 8888 8090 9090 9091; do
+  pid=$(lsof -nP -iTCP:"$port" -sTCP:LISTEN -t 2>/dev/null | head -1) || true
+  if [ -n "$pid" ]; then
+    kill -9 "$pid" 2>/dev/null || true
+  fi
+done
 sleep 1
 
 # 端口预检：5 个目标端口任一仍被占（不属于本脚本管理）→ 立即报错退出，
