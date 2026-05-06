@@ -438,8 +438,17 @@ func (h handler) handleTraffic(ctx context.Context, p worker.Payload, entrypoint
 	// 主 ReAct 元工具
 	// classify_traffic 工具持 Flows + Loader：内部按 flow_id 拉完整流量并智能截断后调 LLM，
 	// 调用方只需传 flow_id，避免主 LLM "瞎传 headers/body 字段"。
+	//
+	// 单独 Instrument 一份：RouteKey="classify_traffic"，让审计粒度清晰区分
+	// "orchestrator 决策步" vs "classify_traffic 工具内部 LLM 分析"——之前共用
+	// mainGen 时所有 classify 调用被记成 orchestrator role，混淆 cost/调用统计。
+	// 共享同一 mainRaw Generator（无状态，ClientPool 复用底层 HTTP client）。
+	classifyGen := llm.Instrument(mainRaw, h.calls,
+		llm.CallMeta{TaskID: &tid, EngagementID: &eid, RouteKey: "classify_traffic"},
+		h.pricing,
+	)
 	mustReg(&traffic.ClassifyTraffic{
-		LLM:          mainGen,
+		LLM:          classifyGen,
 		Flows:        h.flows,
 		Loader:       h.skillLoader,
 		Decisions:    h.decisions,
