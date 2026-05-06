@@ -56,14 +56,16 @@ fmt:
 tidy:
 	go mod tidy
 
-# e2e 通用触发器：默认 bac profile，可用 PROFILE=sqli 切换
-# 示例：make e2e PROFILE=sqli  /  make e2e-bac  /  make e2e-sqli
-PROFILE ?= bac
+# e2e 通用触发器：
+#   make e2e              # 不带参 = 跑全部已知 profile
+#   make e2e-bac          # 仅 bac
+#   make e2e-sqli         # 仅 sqli
+#   go run ./cmd/e2e bac sqli   # 多选（直接调 binary）
 e2e:
-	LIUSHA_E2E_PROFILE=$(PROFILE) go run ./cmd/e2e
+	go run ./cmd/e2e
 
 e2e-bac:
-	$(MAKE) e2e PROFILE=bac
+	go run ./cmd/e2e bac
 
 e2e-sqli:
-	$(MAKE) e2e PROFILE=sqli
+	go run ./cmd/e2e sqli

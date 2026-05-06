@@ -119,6 +119,46 @@ func TestEnvOr(t *testing.T) {
 	}
 }
 
+// TestSelectProfiles 锁住 CLI args 解析行为：空 = 全部、多选、去重、未知报错。
+func TestSelectProfiles(t *testing.T) {
+	cases := []struct {
+		name    string
+		args    []string
+		want    []string // 期望的 profile 名（按返回顺序）
+		wantErr bool
+	}{
+		{"空 args 返回全部 profile（字典序）", nil, []string{"bac", "sqli"}, false},
+		{"单选 bac", []string{"bac"}, []string{"bac"}, false},
+		{"单选 sqli", []string{"sqli"}, []string{"sqli"}, false},
+		{"多选保留输入顺序", []string{"sqli", "bac"}, []string{"sqli", "bac"}, false},
+		{"重复参数自动去重", []string{"bac", "bac", "sqli"}, []string{"bac", "sqli"}, false},
+		{"大小写/空格不敏感", []string{" BAC ", "Sqli"}, []string{"bac", "sqli"}, false},
+		{"未知 profile 报错", []string{"xxx"}, nil, true},
+		{"混入未知则整体失败", []string{"bac", "xxx"}, nil, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := selectProfiles(tc.args)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatal("期望 err，得到 nil")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("意外错误: %v", err)
+			}
+			gotNames := make([]string, len(got))
+			for i, p := range got {
+				gotNames[i] = p.name
+			}
+			if strings.Join(gotNames, ",") != strings.Join(tc.want, ",") {
+				t.Fatalf("got=%v want=%v", gotNames, tc.want)
+			}
+		})
+	}
+}
+
 // repoSamplePath 找到 examples/sample_bac_raw.json：cmd/e2e 跑 go test 时
 // 工作目录是该包目录，需向上回到仓库根。
 func repoSamplePath(t *testing.T) string {

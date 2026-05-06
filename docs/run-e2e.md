@@ -1,179 +1,117 @@
-# Liusha v1 e2e 跑法
+# Liusha e2e 跑法
 
-> Plan 2 T10 完整 e2e 流程。前置阶段（核心栈起 + migrate + schema 验证）已自动跑通，本文档指引剩余 4 步——真正消耗 LLM API key 的部分留给你手动跑。
+端到端验收触发器 `cmd/e2e`：建 engagement → 一次预录全 profile 凭证 → 发样本流量 →
+轮询 finding 直到达标。每个 profile 独立 engagement、串行跑。
 
-## 前置确认（已完成 ✅）
+## 1. 准备
 
-- docker 容器：`liusha-postgres`（pgvector pg17 healthy）+ `liusha-redis`（redis:8 healthy）
-- 镜像 build：`liusha/api:latest` + `liusha/scanner:latest` 已存在
-- 数据库 schema：8 业务表 + `schema_migrations` 全部 migrate 完毕
-- 三层 memory（`memory_facts/ideas/hints`）+ `llm_call.role` 字段全部正确建立
-
-如果 docker 容器不在了：
+确认基础设施已起：
 
 ```bash
-make up   # 起 postgres + redis
+make up        # postgres + redis（docker）
 make migrate
 ```
 
-## 完整 e2e 跑法（消耗 LLM API key）
-
-### 1. 准备 .env.local
+`.env.local` 至少需要：
 
 ```bash
-cp .env.example .env.local
-# 编辑 .env.local，填入 DEEPSEEK_API_KEY 和 ANTHROPIC_API_KEY
-# DEEPSEEK_API_KEY 必填（默认主 LLM）
-# ANTHROPIC_API_KEY 可选（用于 light_provider 跑 Observer/Distill）
-# OPENAI_API_KEY 可选（fallback_provider）
+DEEPSEEK_API_KEY=sk-...
+LIUSHA_API_KEY=changeme-dev-key   # 与 run-svc.sh 默认一致
 ```
 
-### 2. 起完整栈（含 vulnapp + proxy + scanner）
+## 2. 起 host 服务
+
+`run-svc.sh` 并行起 4 个 host 进程（vulnapp:8001 / proxy:8888+9091 / api:8090 / scanner:9090），日志写 `logs/{vulnapp,proxy,api,scanner}.log`：
 
 ```bash
-docker compose -f deployments/docker-compose.yml --profile e2e --env-file .env.local up -d --build
+./scripts/dev/run-svc.sh    # 占用一个终端
 ```
 
-约 30-60 秒，等所有 service healthy：
+## 3. 跑触发器
+
+**最常用三种用法**（另开终端）：
 
 ```bash
-docker compose -f deployments/docker-compose.yml ps
+make e2e             # 不带参 = 跑全部 profile（bac + sqli）
+make e2e-bac         # 仅 bac
+make e2e-sqli        # 仅 sqli
 ```
 
-期望看到 6 个 service（postgres/redis/api/proxy/scanner/vulnapp）全绿。
-其中 `proxy` 由 `cmd/proxy` 内嵌 proxify SDK + filter/dedup/aggregator 启动（监听 :8888 mitm，:9091 healthz），
-`scanner` 仅作为 Asynq 消费者 + ReAct 引擎（监听 :9090 healthz）。两者通过 redis 解耦——业界最佳实践，故障隔离 + 独立扩缩。
-
-### 3. 跑触发器（约 6 分钟）
+**多选 / 自定义参数**（直接调 binary 或脚本）：
 
 ```bash
-make e2e            # 默认 bac profile
-make e2e-sqli       # 切到 SQLi profile
-make e2e PROFILE=sqli  # 显式指定 profile（任意支持的 vuln type）
+go run ./cmd/e2e bac sqli              # 多选，串行跑
+./scripts/dev/e2e.sh bac sqli          # 同上 + 前置健康检查
+./scripts/dev/e2e.sh                   # 无参 = 全部
 ```
 
-或直接：
+**关键行为**：
+
+- **启动期一次预录所有 profile 全部 host 的凭证**——不论本次跑哪些 profile，凭证池都会被填好（localhost 三身份 + 49.234.23.42 admin）。
+- 每个 profile 独立建 engagement、独立轮询 finding。
+- 任一 profile 失败 → 退出码 = 失败 profile 数；全部成功 → 退出码 0。
+
+## 4. 内置 profile
+
+| 名 | 样本 | scope_host | 身份 | 验收门槛 |
+|----|------|-----------|------|---------|
+| bac | examples/sample_bac_raw.json | localhost | admin / test / m233241 | ≥3 finding，3 类齐全（unauthorized + vertical + horizontal）|
+| sqli | examples/sample_sqli_raw.json | 49.234.23.42 (DVWA) | admin (PHPSESSID) | ≥1 finding（如 sqli.error_based）|
+
+## 5. 加新漏洞类型
+
+1. `cmd/e2e/main.go:profiles` map 加一行（`name / defaultSamples / kindPrefix / minFindings / minKinds / credsForHost`）
+2. `examples/sample_<vuln>_raw.json` 写样本流量（一组 raw HTTP/1.1 字符串数组）
+3. 可选：`Makefile` 加 `e2e-<vuln>` 别名
+
+## 6. 检查结果
 
 ```bash
-DEEPSEEK_API_KEY=$DEEPSEEK_API_KEY \
-LIUSHA_POSTGRES_DSN=postgres://liusha:liusha@localhost:5432/liusha?sslmode=disable \
-LIUSHA_E2E_PROFILE=bac \
-go run ./cmd/e2e
-```
-
-预期日志：
-
-```
-engagement_id=...
-✓ credentials enrolled
-✓ 18 requests sent through proxy
-findings: 0 (BAC: 0)
-findings: 1 (BAC: 1)   ← scanner sniffer + BAC subtask 跑起来了
-findings: 3 (BAC: 3)
-findings: 5 (BAC: 5)   ← 退出条件
-✓ 5 findings + 3 类齐全
-✓ 黑客松借鉴 4 项断言全部通过
-```
-
-退出 code：
-- `0` 成功
-- `1` timeout（6min 内未拿到 5 finding）
-- `2` 黑客松借鉴断言失败
-
-### 4. 检查结果
-
-```bash
-# 查 findings
+# 漏洞汇总
 docker exec liusha-postgres psql -U liusha -d liusha -c "
-  SELECT kind, severity, title, dedup_key
-  FROM finding
-  WHERE engagement_id IN (SELECT id FROM engagement WHERE scope_host='vulnapp')
-  ORDER BY created_at;"
+  SELECT kind, severity, confidence, title
+  FROM vuln_finding
+  ORDER BY created_at DESC;"
 
-# 查 LLM 成本
+# LLM 成本
 docker exec liusha-postgres psql -U liusha -d liusha -c "
-  SELECT role, COUNT(*) AS calls, ROUND(SUM(cost_usd)::numeric, 6) AS cost
-  FROM llm_call
-  WHERE engagement_id IN (SELECT id FROM engagement WHERE scope_host='vulnapp')
-  GROUP BY role
+  SELECT route_key, COUNT(*) AS calls, ROUND(SUM(cost_usd)::numeric, 6) AS cost
+  FROM llm_invocation
+  GROUP BY route_key
   ORDER BY cost DESC;"
 
-# 查 memory 三层
+# host_lesson（finding 蒸馏出的跨 engagement 经验）
 docker exec liusha-postgres psql -U liusha -d liusha -c "
-  SELECT
-    jsonb_array_length(COALESCE(memory_facts->'evidence', '[]'::jsonb)) AS facts_evidence,
-    jsonb_array_length(COALESCE(memory_facts->'boundaries', '[]'::jsonb)) AS facts_boundaries,
-    jsonb_array_length(COALESCE(memory_ideas->'hypotheses', '[]'::jsonb)) AS ideas,
-    jsonb_array_length(COALESCE(memory_hints->'hints', '[]'::jsonb)) AS hints
-  FROM engagement WHERE scope_host='vulnapp';"
+  SELECT host, content
+  FROM host_lesson
+  ORDER BY priority DESC, hit_count DESC;"
 ```
 
-### 5. 关闭栈
+## 7. 排查
+
+### `e2e timeout: 未达 finding/类覆盖门槛`
+- `tail -F logs/scanner.log` 看 ReAct 循环
+- DB 看 http_flow 是否有数据：`SELECT count(*) FROM http_flow;`——为 0 表示流量未通过 proxy 落库
+- Redis stream 是否在消费：`docker exec liusha-redis redis-cli XLEN liusha:flow_events`
+
+### `connection refused`
+- `curl -sf http://localhost:8090/healthz` 检查 api
+- 确认 `LIUSHA_API_KEY` 与 `.env.local` 一致
+
+### LLM 调用 4xx/5xx
+- DEEPSEEK_API_KEY 是否有效
+- `logs/scanner.log` 里 grep `error.*deepseek`
+
+### Redis FLUSHDB 后 ingestor NOGROUP
+- 重建 consumer group：`docker exec liusha-redis redis-cli XGROUP CREATE liusha:flow_events liusha-ingestor 0`
+- 或重启 scanner 让其在启动期重建
+
+## 8. 关停
 
 ```bash
-docker compose -f deployments/docker-compose.yml --profile e2e down -v
+# 在 run-svc.sh 终端按 Ctrl-C；或手动：
+pkill -f 'cmd/(api|scanner|proxy|vulnapp)'
+
+# 关基础设施
+make down
 ```
-
-`-v` 删掉 volume（pg/redis 数据 + proxify JSONL）；下次跑要重新 `make migrate`。
-
-### 6. 生产形态（prod overlay）
-
-dev 默认是 console + 容器内文件双写。生产部署叠加 `docker-compose.prod.yml` 切到 12-factor 标准（**只 stdout JSON、不落盘**，由外部 collector 抓走）：
-
-```bash
-docker compose -f deployments/docker-compose.yml \
-               -f deployments/docker-compose.prod.yml \
-               --profile e2e --env-file .env.prod up -d
-```
-
-差异：
-- `LIUSHA_ENV=production` → stdout 走 JSON
-- `LIUSHA_LOG_TO_FILE=false` → 容器内不落盘，避免 pod 重启丢日志
-
-观察方式：`docker logs` / `kubectl logs` / Loki / ELK，按 `service` / `instance` / `level` 字段过滤。
-
-## 期望结果（成功标志）
-
-| 验收项 | 期望 | 来源 |
-|---|---|---|
-| BAC findings | ≥ 5 条 | spec §10.2 + plan 2 T9 |
-| 漏洞类型齐全 | unauthorized / vertical / horizontal 三类 | spec §10.2 |
-| `memory_facts` 非空 | evidence 数组 ≥ 1 条 + boundaries 数组 ≥ 1 条 | 黑客松借鉴 B（三层 memory） |
-| `memory_ideas` 非空 | hypotheses 数组 ≥ 1 条 | 黑客松借鉴 B |
-| `memory_hints` 非空 | distill hint 至少 1 条（from_skill='vuln/web/bac'） | 黑客松借鉴 F8（经验自蒸馏） |
-| `llm_call.role` 多元 | observer 或 distill 至少 1 次（光走 react.main 不算） | 黑客松借鉴 F11（多模型路由） |
-| 异常终止 | observer_abort + done_force 数 = 0 | 黑客松借鉴 A/C 不该误触发 |
-| 总成本 | < $0.50（v1 预算） | spec §11 |
-
-## 排查
-
-### 触发器报"connection refused"
-- 确认 `liusha-api` 容器健康：`docker compose ps`
-- 确认 `LIUSHA_API_KEY` 与 .env.local 一致
-
-### findings 卡在 0 不增长
-- 看 `scanner` 日志：`docker compose logs -f scanner`
-- 看 `proxy` 日志确认流量经过：`docker compose logs proxy | grep vulnapp`
-- 看 proxy 进程 aggregator flush + sniffer enqueue：
-  ```
-  grep -i "窗口关闭\|sniffer 入队\|aggregator" logs/proxy.log
-  ```
-
-### LLM 调用失败
-- DEEPSEEK_API_KEY 是否有效：`curl -H "Authorization: Bearer $DEEPSEEK_API_KEY" https://api.deepseek.com/chat/completions ...`
-- 看 `scanner` 日志中的 4xx/5xx 错误码
-- T21.5 RetryDecorator 应自动重试 + fallback；如果 fallback_provider 也挂，整个 task 才会 error
-
-### 黑客松断言失败
-- `verify_borrowed.go` 输出哪条不通过：
-  - `memory 三层有空` → BAC SKILL.md 引导可能太弱，sniffer 没调 write_fact/idea
-  - `无 BAC distill hint` → finding.OnSaved hook 未触发（看 distill log）
-  - `无 observer/distill llm_call` → Router 路由没生效（cfg.LLM.Routes 缺）
-  - `出现 observer_abort/done_force` → BAC SKILL.md 步骤导致 LLM 死循环或被 LoopDetector 拦下
-
-## v1 范围之外（v1.5 / v2 才做）
-
-- SQLi 检测（vuln/web/sqli skill）
-- browser 模式（operator 角色 + browser.* actions）
-- 多 sniffer 并发 + sibling 协作（黑客松全局 idea 共享）
-- 多模型路由动态调度（按当前成本预算）

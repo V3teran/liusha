@@ -35,14 +35,15 @@ func createProxyEngagement(base, key, host string) (string, error) {
 	return out.EngagementID, nil
 }
 
-// saveCreds 录入 host 身份的 session cookie。host 必须与 proxy 看到的
-// snapshot.Host 一致（去端口形式）；creds 由 profile 决定具体身份组。
-func saveCreds(base, key, host string, creds []credentialEntry) error {
+// saveCredsBatch 一次录入多 host 凭证（host → []credentialEntry 映射）。
+// 各 host 必须与 proxy 看到的 snapshot.Host 一致（去端口形式）。
+func saveCredsBatch(base, key string, hostCreds map[string][]credentialEntry) error {
+	if len(hostCreds) == 0 {
+		return nil
+	}
 	payload := map[string]any{
 		"ttl_seconds": 0,
-		"credentials": map[string]any{
-			host: creds,
-		},
+		"credentials": hostCreds,
 	}
 	body, err := json.Marshal(payload)
 	if err != nil {
