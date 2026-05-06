@@ -1,14 +1,23 @@
 #!/usr/bin/env bash
 # scripts/dev/e2e.sh [profile…] — 跑 e2e 触发器（host 侧），需要 run-svc.sh 在另一个终端跑着
-# 流程：启动期一次预录全部 host 凭证 → 串行跑选中的 profile（建 engagement → 发样本 → 轮询 finding）
+# 流程：清空 db/redis/logs → 健康检查 → 启动期一次预录全部 host 凭证 → 串行跑选中的 profile
 # 用法：
 #   ./scripts/dev/e2e.sh             # 不带参 = 跑全部 profile（bac + sqli）
 #   ./scripts/dev/e2e.sh bac         # 仅 bac
 #   ./scripts/dev/e2e.sh sqli        # 仅 sqli
 #   ./scripts/dev/e2e.sh bac sqli    # 多选
+#
+# 清空范围：
+#   - postgres：9 张业务表 TRUNCATE（schema 保留）
+#   - redis：FLUSHDB；并立即 XGROUP CREATE MKSTREAM 重建 ingestor consumer group
+#     （否则 scanner Run loop 会一直报 NOGROUP，因为它没自动重建逻辑）
+#   - logs：清 logs/*.log + logs/*.stderr（lumberjack 重新落盘）
 
 set -euo pipefail
 cd "$(dirname "$0")/../.."
+
+PG_CONTAINER="${LIUSHA_PG_CONTAINER:-liusha-postgres}"
+REDIS_CONTAINER="${LIUSHA_REDIS_CONTAINER:-liusha-redis}"
 
 # load .env.local
 if [ -f .env.local ]; then
@@ -56,6 +65,31 @@ if ! nc -z localhost 8888 2>/dev/null; then
 else
   echo "  ✓ proxify 端口可达"
 fi
+
+echo ""
+echo "===== 清空 db / redis / logs ====="
+
+# postgres：9 张业务表 TRUNCATE（schema 保留），任一表/容器不存在则失败但不阻断
+if docker exec "$PG_CONTAINER" psql -U liusha -d liusha -c \
+    "TRUNCATE TABLE vuln_finding, host_lesson, llm_invocation, react_run, flow_decision, http_flow, graph_edge, graph_node, engagement CASCADE;" \
+    >/dev/null 2>&1; then
+  echo "  ✓ postgres 9 张业务表已 truncate"
+else
+  echo "  ⚠ postgres truncate 失败（容器 $PG_CONTAINER 不在？）"
+fi
+
+# redis FLUSHDB → 立即重建 ingestor consumer group（不重建 scanner 会一直报 NOGROUP）
+if docker exec "$REDIS_CONTAINER" redis-cli FLUSHDB >/dev/null 2>&1; then
+  echo "  ✓ redis FLUSHDB"
+  docker exec "$REDIS_CONTAINER" redis-cli XGROUP CREATE liusha:flow_events liusha-ingestor 0 MKSTREAM \
+    >/dev/null 2>&1 || true
+  echo "  ✓ ingestor consumer group 已重建（XGROUP CREATE MKSTREAM）"
+else
+  echo "  ⚠ redis FLUSHDB 失败（容器 $REDIS_CONTAINER 不在？）"
+fi
+
+# logs 清空（lumberjack 会自动重新落盘）
+rm -f logs/*.log logs/*.stderr 2>/dev/null && echo "  ✓ logs 已清空"
 
 echo ""
 if [ $# -eq 0 ]; then
