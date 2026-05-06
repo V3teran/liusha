@@ -65,7 +65,7 @@ func itoa(n int) string {
 }
 
 const validBody = `---
-name: vuln-web-bac
+name: vuln/web/bac
 description: BAC（未授权 / 垂直越权 / 水平越权）
 allowed-tools:
   - fetch_credentials
@@ -85,18 +85,18 @@ func anyDoneValidator(string) bool { return true }
 // TestLoader_Load_Basic：读一个最小有效 SKILL.md，断言核心字段。
 func TestLoader_Load_Basic(t *testing.T) {
 	body := `---
-name: vuln-web-bac
+name: vuln/web/bac
 description: BAC
 allowed-tools: [fetch_credentials, replay_multi_identity]
 ---
 正文`
-	root := writeSkill(t, "vuln-web-bac", body)
+	root := writeSkill(t, "vuln/web/bac", body)
 	l := NewLoader(root)
-	c, err := l.Load("vuln-web-bac")
+	c, err := l.Load("vuln/web/bac")
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if c.Name != "vuln-web-bac" {
+	if c.Name != "vuln/web/bac" {
 		t.Errorf("name=%q", c.Name)
 	}
 	if c.Description != "BAC" {

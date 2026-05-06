@@ -115,7 +115,7 @@ func TestBACValidator_RejectEmptyState(t *testing.T) {
 		"eid-1",
 		"tid-1",
 	)
-	ok, missing := v.CanDone(context.Background(), json.RawMessage(`{"reason":"all_differ"}`))
+	ok, missing := v.CanDone(context.Background(), json.RawMessage(`{"reason":"no_pattern_match"}`))
 	if ok {
 		t.Fatal("state 空应拒绝")
 	}
@@ -124,8 +124,8 @@ func TestBACValidator_RejectEmptyState(t *testing.T) {
 	}
 }
 
-// TestBACValidator_AcceptAllDiffer —— state 含 evidence + boundary，reason=all_differ。
-func TestBACValidator_AcceptAllDiffer(t *testing.T) {
+// TestBACValidator_RejectLegacyAllDiffer —— agentic 简化后 all_differ 已下线，应拒绝。
+func TestBACValidator_RejectLegacyAllDiffer(t *testing.T) {
 	v := NewBACValidator(
 		&fakeFactReader{state: stateWithEvidence(
 			[]string{"replay 3 identities, all 200"},
@@ -136,16 +136,16 @@ func TestBACValidator_AcceptAllDiffer(t *testing.T) {
 		"tid-1",
 	)
 	ok, missing := v.CanDone(context.Background(), json.RawMessage(`{"reason":"all_differ"}`))
-	if !ok {
-		t.Fatalf("应放行，但拒绝 missing=%v", missing)
+	if ok {
+		t.Fatal("legacy all_differ 已下线应拒绝")
 	}
-	if len(missing) != 0 {
-		t.Fatalf("missing 应空: %v", missing)
+	if !slices.Contains(missing, "valid_reason") {
+		t.Fatalf("missing 应含 valid_reason: %v", missing)
 	}
 }
 
-// TestBACValidator_AcceptHeuristicSkip —— heuristic_skip 也是合法 reason。
-func TestBACValidator_AcceptHeuristicSkip(t *testing.T) {
+// TestBACValidator_RejectLegacyHeuristicSkip —— agentic 简化后 heuristic_skip 已下线，应拒绝。
+func TestBACValidator_RejectLegacyHeuristicSkip(t *testing.T) {
 	v := NewBACValidator(
 		&fakeFactReader{state: stateWithEvidence(
 			[]string{"static asset path /static/x.png"},
@@ -155,9 +155,12 @@ func TestBACValidator_AcceptHeuristicSkip(t *testing.T) {
 		"eid-1",
 		"tid-1",
 	)
-	ok, _ := v.CanDone(context.Background(), json.RawMessage(`{"reason":"heuristic_skip"}`))
-	if !ok {
-		t.Fatal("heuristic_skip 应放行")
+	ok, missing := v.CanDone(context.Background(), json.RawMessage(`{"reason":"heuristic_skip"}`))
+	if ok {
+		t.Fatal("legacy heuristic_skip 已下线应拒绝")
+	}
+	if !slices.Contains(missing, "valid_reason") {
+		t.Fatalf("missing 应含 valid_reason: %v", missing)
 	}
 }
 
@@ -228,7 +231,7 @@ func TestBACValidator_StateReadError(t *testing.T) {
 		"tid-1",
 	)
 	ok, missing := v.CanDone(context.Background(),
-		json.RawMessage(`{"reason":"all_differ"}`))
+		json.RawMessage(`{"reason":"no_pattern_match"}`))
 	if ok {
 		t.Fatal("ReadState 报错应拒绝")
 	}

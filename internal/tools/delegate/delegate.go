@@ -6,6 +6,7 @@
 //   - LangGraph 用 `transfer_to_<agent>` —— 转移控制权
 //   - OpenAI Swarm 同上
 //   - Anthropic 多 agent 论文用 `dispatch_subagent`
+//
 // 选 `delegate` 因业界最普及，跨框架理解一致，未来加 recon / exploit / report
 // 等非漏洞 skill 也合用。
 //
@@ -22,12 +23,20 @@ import (
 	"strings"
 
 	"github.com/V3teran/liusha/internal/credential"
+	"github.com/V3teran/liusha/internal/flow"
 	"github.com/V3teran/liusha/internal/llm"
 	"github.com/V3teran/liusha/internal/react"
-	"github.com/V3teran/liusha/internal/skill"
 	"github.com/V3teran/liusha/internal/reactrun"
+	"github.com/V3teran/liusha/internal/skill"
 	"github.com/V3teran/liusha/internal/toolfx"
 )
+
+// FlowReader 是 delegate 拉完整 flow 详情用的最小读接口，由 *flow.Store 自动满足。
+// 子 ReAct 经 BuilderParams.RequestHeaders/RequestBody 一次性看到完整流量
+// （agentic 路线核心：让 LLM 自识别注入点 / 凭证位 / 响应回显模式）。
+type FlowReader interface {
+	GetByID(ctx context.Context, id int64) (flow.Flow, error)
+}
 
 // TaskRecorder 抽象 sub-task 生命周期写库，由 *reactrun.Store 自动满足。
 //
@@ -52,13 +61,13 @@ type TaskRecorder interface {
 //   - Builders     skill 名 → SubBuilder 闭包；启动期 main.go 注册
 //   - Catalog      可用 skill 元数据（来自 Loader.List），驱动 Description / Parameters 动态生成
 //   - SubLLM       给子 ReAct 用的 LLM Generator（已 Instrument 装饰，role=hunter）；
-//                  SubLLMFor 非 nil 时本字段忽略
+//     SubLLMFor 非 nil 时本字段忽略
 //   - Observer     注入子 ReAct 的过程判官；ObserverFor 非 nil 时本字段忽略
 //   - Tasks        sub-task 生命周期写库；nil 时退化到 ad-hoc UUID（finding.task_id 仍 NULL）
 //   - SubLLMFor    可选闭包：用 sub-task uuid 现场 Instrument SubLLM，让 hunter 的
-//                  llm_call.task_id 挂在 sub-task 而不是父 orchestrator task
+//     llm_call.task_id 挂在 sub-task 而不是父 orchestrator task
 //   - ObserverFor  可选闭包：用 sub-task uuid 现场建 Observer（其内部 LLM 也 Instrument
-//                  到 sub-task 上，让 observer 的 llm_call.task_id 也归到 sub-task）
+//     到 sub-task 上，让 observer 的 llm_call.task_id 也归到 sub-task）
 type Delegate struct {
 	Builders     map[string]skill.Builder
 	EngagementID string
@@ -68,6 +77,11 @@ type Delegate struct {
 	Tasks        TaskRecorder
 	SubLLMFor    func(taskID string) llm.Generator
 	ObserverFor  func(taskID string) react.Observer
+
+	// Flows 用于 spawn 时拉完整 flow 详情填进 BuilderParams（headers + body），
+	// 让子 ReAct 在 user prompt 一次性看到完整流量。nil 时降级——子 builder 自行
+	// fallback（user prompt 仅含 method/url/host）。生产路径 main.go 必传。
+	Flows FlowReader
 }
 
 // Name 返回工具名 "delegate"。
@@ -181,6 +195,22 @@ func (a *Delegate) Execute(ctx context.Context, args json.RawMessage) (toolfx.Re
 		subObserver = a.ObserverFor(subTaskID)
 	}
 
+	// 拉完整 flow 详情（headers + body）填进 BuilderParams——agentic 路线下子 ReAct
+	// LLM 看 user prompt 直接识别注入点 / 凭证位 / 响应回显模式，不再走代码层
+	// extract_injection_points 工具。Flows == nil 时（单测）降级，BuilderParams 这两
+	// 字段为空，子 builder 自行 fallback。
+	var reqHeaders json.RawMessage
+	var reqBody []byte
+	if a.Flows != nil {
+		f, ferr := a.Flows.GetByID(ctx, in.FlowID)
+		if ferr != nil {
+			a.recordSubTaskError(ctx, subTaskID, ferr)
+			return toolfx.Result{}, fmt.Errorf("load flow %d: %w", in.FlowID, ferr)
+		}
+		reqHeaders = f.RequestHeaders
+		reqBody = f.RequestBody
+	}
+
 	cfg, err := builder(ctx, skill.BuilderParams{
 		EngagementID:        a.EngagementID,
 		TaskID:              subTaskID,
@@ -191,6 +221,8 @@ func (a *Delegate) Execute(ctx context.Context, args json.RawMessage) (toolfx.Re
 		LLM:                 subLLM,
 		Observer:            subObserver,
 		CredentialLocations: in.CredentialLocations,
+		RequestHeaders:      reqHeaders,
+		RequestBody:         reqBody,
 	})
 	if err != nil {
 		a.recordSubTaskError(ctx, subTaskID, err)

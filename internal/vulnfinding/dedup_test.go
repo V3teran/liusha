@@ -64,6 +64,26 @@ func TestNormalizeDedupKey(t *testing.T) {
 			in:   "kind:host",
 			want: "kind:host",
 		},
+		{
+			name: "host 含端口（IP:port）应去端口",
+			in:   "sqli.error_based:49.234.23.42:8888:GET:/vulnerabilities/sqli/:id",
+			want: "sqli.error_based:49.234.23.42:GET:/vulnerabilities/sqli/:id",
+		},
+		{
+			name: "host 含端口（域名:port）应去端口",
+			in:   "sqli.error_based:example.com:8443:POST:/api/login",
+			want: "sqli.error_based:example.com:POST:/api/login",
+		},
+		{
+			name: "host 不带端口保持原样",
+			in:   "sqli.error_based:49.234.23.42:GET:/vulnerabilities/sqli/:id",
+			want: "sqli.error_based:49.234.23.42:GET:/vulnerabilities/sqli/:id",
+		},
+		{
+			name: "BAC 现有用例 host 不带端口不受影响",
+			in:   "bac.unauthorized_access:vulnapp:POST:/api/admin/delete",
+			want: "bac.unauthorized_access:vulnapp:POST:/api/admin/delete",
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -78,11 +98,11 @@ func TestNormalizeDedupKey(t *testing.T) {
 // TestTemplatizePath 直接测 path-only 函数。
 func TestTemplatizePath(t *testing.T) {
 	cases := map[string]string{
-		"/api/order/7":                                   "/api/order/:id",
+		"/api/order/7": "/api/order/:id",
 		"/api/file/550e8400-e29b-41d4-a716-446655440000": "/api/file/:uuid",
-		"/api/admin/users":                               "/api/admin/users",
-		"/api/sha/abc123def4567890abcd":                  "/api/sha/:hex",
-		"":                                               "",
+		"/api/admin/users":              "/api/admin/users",
+		"/api/sha/abc123def4567890abcd": "/api/sha/:hex",
+		"":                              "",
 	}
 	for in, want := range cases {
 		if got := TemplatizePath(in); got != want {

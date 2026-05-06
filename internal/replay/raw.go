@@ -15,9 +15,19 @@ type RawRequest struct {
 	Body    []byte
 }
 
-// Response 是单次重放结果；按 Identity 维度回传，错误以 ErrorMessage 暴露给上层做归并。
+// OriginalIdentityName 是注入到响应列表中的"原始抓包响应"伪身份名。
+// 下划线包裹避免与真实身份名（admin / anonymous / user）冲突；
+// 启发式与相似度规则以它为锚点判断"非授权身份是否拿到了原用户能看到的数据"。
+const OriginalIdentityName = "_original_"
+
+// Response 是单次重放结果；按 Identity × Variant 维度回传，错误以 ErrorMessage 暴露给上层做归并。
+//
+// VariantName 是请求变体的标识：
+//   - BAC 场景：仅"原样重放"，所有响应 VariantName=BaselineVariantName
+//   - SQLi 场景：identity=admin × variants=[baseline, err_quote, bool_true, ...]，VariantName 标记具体 payload
 type Response struct {
 	IdentityName string
+	VariantName  string
 	StatusCode   int
 	Headers      http.Header
 	Body         []byte

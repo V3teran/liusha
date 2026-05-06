@@ -6,8 +6,8 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/V3teran/liusha/internal/vulnfinding"
 	"github.com/V3teran/liusha/internal/toolfx"
+	"github.com/V3teran/liusha/internal/vulnfinding"
 )
 
 // GetFindings 主 ReAct 用：查 PG 当前 engagement 已有 findings 摘要。

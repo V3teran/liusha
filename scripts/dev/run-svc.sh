@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # scripts/dev/run-svc.sh — host 侧并行跑 vulnapp + proxy + api + scanner
-# 四个进程合并到 logs/，Ctrl-C 全部关闭
+# 应用层（logx）自管落盘到 logs/{service}.log（lumberjack 轮转），shell 不再重定向。
+# Ctrl-C 全部关闭
 
 set -euo pipefail
 cd "$(dirname "$0")/../.."
@@ -22,6 +23,10 @@ export LIUSHA_API_ADDR="${LIUSHA_API_ADDR:-0.0.0.0:8090}"  # 8080 易被 Burp Su
 export LIUSHA_API_KEY="${LIUSHA_API_KEY:-changeme-dev-key}"
 export LIUSHA_ENV="${LIUSHA_ENV:-development}"
 export LIUSHA_LOG_LEVEL="${LIUSHA_LOG_LEVEL:-info}"
+export LIUSHA_LOG_DIR="${LIUSHA_LOG_DIR:-logs}"
+# 多进程并行跑：stdout 易刷屏，dev 默认只走 file，需要时 tail -F logs/*.log
+export LIUSHA_LOG_TO_STDOUT="${LIUSHA_LOG_TO_STDOUT:-false}"
+export LIUSHA_LOG_TO_FILE="${LIUSHA_LOG_TO_FILE:-true}"
 export LIUSHA_CONFIG="${LIUSHA_CONFIG:-./config/config.yaml}"
 
 # dev 覆盖：把 light/fallback/vision 全路由到 deepseek，绕开 ANTHROPIC/OPENAI key 校验
@@ -48,23 +53,24 @@ echo "  llm overrides: light=$LIUSHA_LLM_LIGHT_PROVIDER fallback=$LIUSHA_LLM_FAL
 echo ""
 
 # 启动顺序：vulnapp → proxy → api → scanner
+# 应用层 logx 直接写 logs/{service}.log；shell 这里 stderr 兜底捕获 panic 前的早期输出
 echo "[1/4] vulnapp on :8001"
-go run ./cmd/vulnapp >logs/vulnapp.log 2>&1 &
+go run ./cmd/vulnapp 2>logs/vulnapp.stderr &
 VULNAPP_PID=$!
 
 sleep 2
 echo "[2/4] proxy on :8888 (mitm) + $LIUSHA_PROXY_HEALTHZ_ADDR (healthz)"
-go run ./cmd/proxy >logs/proxy.log 2>&1 &
+go run ./cmd/proxy 2>logs/proxy.stderr &
 PROXY_PID=$!
 
 sleep 2
 echo "[3/4] api on $LIUSHA_API_ADDR"
-go run ./cmd/api >logs/api.log 2>&1 &
+go run ./cmd/api 2>logs/api.stderr &
 API_PID=$!
 
 sleep 2
 echo "[4/4] scanner on :9090"
-go run ./cmd/scanner >logs/scanner.log 2>&1 &
+go run ./cmd/scanner 2>logs/scanner.stderr &
 WORKER_PID=$!
 
 # 等服务起来
@@ -89,5 +95,13 @@ echo "✓ 四服务在跑（pids: vulnapp=$VULNAPP_PID proxy=$PROXY_PID api=$API
 echo "  日志合并 tail（Ctrl-C 关闭服务+退出 tail）："
 echo ""
 
-# tail -F 四个日志
+# logx 自管落盘：等待文件出现后再 tail（避免 tail 启动时 lumberjack 还没创建文件）
+for f in logs/vulnapp.log logs/proxy.log logs/api.log logs/scanner.log; do
+  for _ in $(seq 1 20); do
+    [ -f "$f" ] && break
+    sleep 0.5
+  done
+done
+
+# tail -F 四个日志（go-stack panic 等会落到 *.stderr，需要时再单独看）
 tail -F logs/vulnapp.log logs/proxy.log logs/api.log logs/scanner.log

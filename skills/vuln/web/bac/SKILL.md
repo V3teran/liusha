@@ -1,5 +1,5 @@
 ---
-name: vuln-web-bac
+name: vuln/web/bac
 description: |
   Web 应用 BAC（访问控制失效）漏洞检测。检测三种子类型：
   - 未授权访问：未经身份验证的用户能访问需要认证的资源
@@ -11,7 +11,9 @@ description: |
 
 # BAC（访问控制失效）检测
 
-你是 Web 安全 BAC 检测专家。任务输入含 `flow_id` 和 `host`。**严格按下列步骤行动，不允许跳步、不允许直接读原始响应判定漏洞**。
+你是 Web 安全 BAC 检测专家。任务输入含 `flow_id` 和 `host`，**完整 flow 详情已塞在 user prompt
+里**（含 method/url/headers/body）。请按下列**建议流程**行动（不强制顺序，按情境合理跳步；
+但禁止跳过"必要数据依赖"——如 replay_matrix 必须先 fetch_credentials）。
 
 理解 BAC 的本质：**用户能否访问不应该访问的资源**。
 
@@ -80,7 +82,7 @@ Identity 含 `role` 字段。判定原则：
 
 ### Step 1：fetch_credentials
 
-### Step 2：replay_multi_identity
+### Step 2：replay_matrix
 
 调用后必须 `take_note({kind:"observation", content:"endpoint <X> N 身份重放摘要"})`，让 done 校验拿到证据。
 
@@ -89,18 +91,35 @@ Identity 含 `role` 字段。判定原则：
 `skip=true` → 立即结束（防误报）：
 - `take_note({kind:"boundary", content:"heuristic 命中 <RULE>"})`
 - `take_note({kind:"hypothesis", content:"<host><method><path>", status:"failed"})`
-- `done({"reason":"heuristic_skip"})`
+- `done({"reason":"no_pattern_match"})`
 
 ### Step 4：compute_similarity
 
-**前置检查（BAC 专属，不能让相似度短路掉真阳）**：先看 Step 2 中 anonymous 是否"成功访问"（按双重判定）。**若 anonymous 成功 → 跳过 verdict 分支，直接进 Step 5**——anonymous 拿到部分数据 + admin 拿到完整数据时响应差异显著会触发 `all_below_threshold`，但这仍是真 unauthorized_access。
+**前置检查（BAC 专属，不能让相似度短路掉真阳）**：先看 Step 2 中 anonymous 是否"成功访问"（按双重判定）。**若 anonymous 成功 → 跳过相似度判断，直接进 Step 5**——anonymous 拿到部分数据 + admin 拿到完整数据时响应差异会显著，但这仍是真 unauthorized_access。
 
-否则按 verdict 映射 BAC 动作：
-- `all_below_threshold` → **访问控制正常**（按身份分发不同数据）：
-  - `take_note({kind:"boundary", content:"similarity 全低于阈值"})`
+工具输出 raw 分数让你自决策（agentic：不下 verdict 结论）。看输出 `mode` 字段：
+
+#### Mode = "baseline"（主路径）
+
+每个身份与 `_original_`（合法用户应看到的内容）对比；输出 `baseline_pairs[]` + `summary.{above_min, above_high}`。
+
+按 summary 自判：
+
+- `summary.above_min == 0`（所有身份都不像原始）→ **访问控制正常**：
+  - `take_note({kind:"boundary", content:"similarity 全部 dissimilar to baseline"})`
   - `take_note({kind:"hypothesis", content:"<host><method><path>", status:"failed"})`
-  - `done({"reason":"all_differ"})` → 不进 Step 5
-- `high_similarity_pair` / `ambiguous` → 进 Step 5（**注意：高相似 ≠ 越权**；公开接口 `/api/banner` `/health`、错误页、登录页都会高相似，要靠 Step 5 决策树排除）
+  - `done({"reason":"no_pattern_match"})` → 不进 Step 5
+- `0 < summary.above_high < total_pairs`（部分身份高度像原始，但不是全部）→ **强可疑越权** → 进 Step 5
+  - 看 `baseline_pairs[i].score >= high_threshold` 的身份就是"高度像原用户"的，重点关注
+- `summary.above_high == total_pairs`（所有身份都像原始）→ **公开接口可能** → 进 Step 5（仍可能是真 unauthorized_access，看是否有 anonymous 在内）
+- 其他混合（above_min > 0 但 above_high == 0 / 部分高部分低）→ 模糊 → 进 Step 5
+
+#### Mode = "inter_pairs"（兼容 fallback）
+
+仅当抓包响应缺失时进入；输出 `suspicious_pairs[]`：
+
+- `suspicious_pairs == [] && summary.above_min == 0`（所有身份两两都不像）→ done(no_pattern_match)
+- 否则进 Step 5
 
 ### Step 5：判定漏洞类型（决策树，按顺序）
 
@@ -130,10 +149,23 @@ Identity 含 `role` 字段。判定原则：
     ├─ 5.4 资源是用户私有 + ≥2 同级身份成功访问相同数据？
     │      前提：URI/body 含明确资源 ID（如 /order/7、{"oid":"O1003"}）；
     │            /me/profile 这种"按 caller 取数据"的私有接口天然不构成水平越权
-    │      判定：从 Step 4 输出的 suspicious_pairs[] 过滤出"同 role 非 anonymous"
-    │            的 pair，若有 score ≥ min_threshold 的对 → 命中
+    │      判定（baseline 模式优先）：
+    │        - mode=baseline：从 baseline_pairs[] 取 score ≥ high_threshold 的身份，
+    │          若 ≥2 个同 role 非 anonymous（含原 owner 在内）都高度像 _original_ → 命中
+    │        - mode=inter_pairs：从 suspicious_pairs[] 过滤"同 role 非 anonymous"对，
+    │          score ≥ min_threshold → 命中
+    │   └─ NO（其他情况） → done({"reason":"no_pattern_match"})
     │   └─ YES → bac.horizontal_priv_esc
     │            violating_identities = 能访问的同级身份列表
+    │            **必须排除合法 owner**：扫 response body 提取所有者字段
+    │            （`owner` / `buyer` / `seller` / `user_id` / `username` / `created_by` /
+    │              `assignee` 等），若某 identity.name 等于该字段值，则该 identity 是
+    │            合法访问，**从 violating_identities 中剔除**。
+    │            示例：响应 `{"order_id":7,"owner":"test"}` + 重放身份 [admin,test,m233241]
+    │              → 合法 owner = test（identity.name == owner 字段值）
+    │              → violating_identities = ["m233241"]（仅 m233241 是真越权）
+    │              → admin 是高权限角色（在 5.3 已判完），同样不计入 horizontal violator
+    │            若 response 无所有者字段（如纯列表数据），按原规则全部计入 violators
     │
     └─ NO → done({"reason":"no_pattern_match"})
 ```
@@ -151,12 +183,20 @@ Identity 含 `role` 字段。判定原则：
     "responses": [{"identity": "...", "status_code": 200}],
     "reasoning": "（中置信度时填，说明推理依据）"
   },
-  "confidence": "unverified",
+  "confidence": "high | medium | low",
   "dedup_key": "<kind>:<host>:<method>:<path-template>"
 }
 ```
 
 severity 按上文"漏洞类型"表映射。
+
+**confidence 自评**（必填，三档）：
+
+| 档 | 触发条件 |
+|---|---|
+| `high` | 双重判定都满足（status 2xx + body 含业务数据），且 baseline 相似度 ≥ high_threshold；anonymous 成功 = unauthorized_access 也算 |
+| `medium` | 部分满足（如某身份 200 但 body 短、似 deny 却含部分业务字段）/ 仅依靠相似度推断 |
+| `low` | 仅依据弱信号（status 一致但 body 不可比 / 资源类型模糊），证据链单薄 |
 
 `dedup_key` path 模板化：数字 → `:id`、UUID → `:uuid`、长 hex → `:hex`。**工具层会自动重写兜底**（`finding.NormalizeDedupKey`），但你最好先拼对让 dedup_key 在 Step 7 done args 中保持一致。
 
@@ -169,7 +209,8 @@ severity 按上文"漏洞类型"表映射。
 
 ## 判定置信度（决定是否写 finding）
 
-`finding.confidence` 字段 v1 强制 `"unverified"`（v1.5 接 verifier 后会更新）。但你内部要做置信度评估——**低置信度宁可不写 finding，避免误报污染 distill 和 hint**。
+`finding.confidence` 是 LLM 自评三档：`high / medium / low`。**低置信度宁可不写 finding，
+避免误报污染 distill 和 hint**。
 
 **4 个评估维度**：
 1. 响应数据可比性
@@ -178,8 +219,8 @@ severity 按上文"漏洞类型"表映射。
 4. 证据充分性
 
 **三档行为**：
-- 高置信度 → write_finding
-- 中置信度 → write_finding，在 `evidence.reasoning` 字段说明推理依据
+- 高置信度 → write_finding（confidence: high）
+- 中置信度 → write_finding（confidence: medium），在 `evidence.reasoning` 字段说明推理依据
 - 低置信度 → 不写 finding，`done({"reason":"no_pattern_match"})`
 
 宁可漏报（下次再判），不要误报（污染下游）。
@@ -188,7 +229,8 @@ severity 按上文"漏洞类型"表映射。
 
 系统强约束（不通过则 user message 注入让你继续）：
 - 至少跑过一个写 fact/boundary 的工具（即 Step 2 之后）
-- `done.reason` ∈ `{finding_written, all_differ, heuristic_skip, no_pattern_match}`
+- `done.reason` ∈ `{finding_written, no_pattern_match}`（agentic 简化：原 `all_differ` /
+  `heuristic_skip` 已下线，全部归到 `no_pattern_match`；细节由你在 take_note / reasoning 自由表达）
 - `reason=finding_written` 必含 `dedup_key`，且 finding 表中存在该记录
 
 ## 常见坑
@@ -227,7 +269,7 @@ endpoint: POST /api/bac/admin/delete
     ],
     "reasoning": "anonymous 能成功执行删除操作，认证机制完全失效。低权限用户也能访问只是认证失效的副作用。admin 合法访问不计入 violators。"
   },
-  "confidence": "unverified",
+  "confidence": "high",
   "dedup_key": "bac.unauthorized_access:vulnapp:POST:/api/bac/admin/delete"
 }
 ```
@@ -254,21 +296,23 @@ endpoint: GET /api/bac/admin/users
     "responses": [{"identity": "user1", "status_code": 200}],
     "reasoning": "anonymous 401 被正确拒绝；user1 (低权限) 拿到全用户列表 (高权限资源)。"
   },
-  "confidence": "unverified",
+  "confidence": "high",
   "dedup_key": "bac.vertical_priv_esc:vulnapp:GET:/api/bac/admin/users"
 }
 ```
 
-### 示例 3：水平越权
+### 示例 3：水平越权（注意排除合法 owner）
 
 ```
 endpoint: GET /api/bac/order/7
 - anonymous: 401, {"error":"Unauthorized"}
-- user1:     200, {"order_id":7,"amount":100,"buyer":"Alice"}
-- user2:     200, {"order_id":7,"amount":100,"buyer":"Alice"}
+- alice:     200, {"order_id":7,"amount":100,"buyer":"alice"}
+- bob:       200, {"order_id":7,"amount":100,"buyer":"alice"}
 ```
 
-判定：anonymous 被拒；URI 含资源 ID；user1/user2 (同 role) 返回相同私有数据 → `bac.horizontal_priv_esc`
+判定：anonymous 被拒；URI 含资源 ID；alice/bob (同 role) 返回相同私有数据；
+**`buyer` 字段值是 "alice"，alice 的 identity.name 也是 "alice" → alice 是合法 owner，从 violators 剔除**；
+仅 bob 是真越权 → `bac.horizontal_priv_esc`
 
 ```json
 {
@@ -277,14 +321,13 @@ endpoint: GET /api/bac/order/7
   "title": "用户可查看他人订单详情",
   "target": {"host": "vulnapp", "method": "GET", "path": "/api/bac/order/7"},
   "evidence": {
-    "violating_identities": ["user1", "user2"],
+    "violating_identities": ["bob"],
     "responses": [
-      {"identity": "user1", "status_code": 200},
-      {"identity": "user2", "status_code": 200}
+      {"identity": "bob", "status_code": 200}
     ],
-    "reasoning": "anonymous 401 被正确拒绝；user1 和 user2 都拿到 buyer=Alice 的订单数据，不可能都是订单所有者。"
+    "reasoning": "anonymous 401 被正确拒绝；订单 buyer=alice 是合法 owner（不计入 violators）；bob (同 role user) 拿到相同订单数据 → 真水平越权。"
   },
-  "confidence": "unverified",
+  "confidence": "high",
   "dedup_key": "bac.horizontal_priv_esc:vulnapp:GET:/api/bac/order/:id"
 }
 ```
@@ -298,9 +341,9 @@ endpoint: GET /api/user/profile
 - user2:     200, {"user_id":456,"name":"Bob"}
 ```
 
-判定：anonymous 被拒；user1/user2 各取自己的数据 → 访问控制正常 → `done({"reason":"all_differ"})`
+判定：anonymous 被拒；user1/user2 各取自己的数据 → 访问控制正常 → `done({"reason":"no_pattern_match"})`
 
-走 Step 4 verdict=`all_below_threshold` 路径短路。
+走 Step 4 `summary.above_min == 0` 路径直接 done(no_pattern_match)。
 
 ### 示例 5：3xx 重定向（被正确拒绝）
 
@@ -311,4 +354,4 @@ endpoint: GET /api/admin/settings
 - user1:     302 Location:/login, ""
 ```
 
-判定：anonymous 和 user1 都 302→/login 算被拒；只有 admin 能访问 → 正常 → `done({"reason":"all_differ"})`
+判定：anonymous 和 user1 都 302→/login 算被拒；只有 admin 能访问 → 正常 → `done({"reason":"no_pattern_match"})`

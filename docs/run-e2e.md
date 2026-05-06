@@ -113,6 +113,22 @@ docker compose -f deployments/docker-compose.yml --profile e2e down -v
 
 `-v` 删掉 volume（pg/redis 数据 + proxify JSONL）；下次跑要重新 `make migrate`。
 
+### 6. 生产形态（prod overlay）
+
+dev 默认是 console + 容器内文件双写。生产部署叠加 `docker-compose.prod.yml` 切到 12-factor 标准（**只 stdout JSON、不落盘**，由外部 collector 抓走）：
+
+```bash
+docker compose -f deployments/docker-compose.yml \
+               -f deployments/docker-compose.prod.yml \
+               --profile e2e --env-file .env.prod up -d
+```
+
+差异：
+- `LIUSHA_ENV=production` → stdout 走 JSON
+- `LIUSHA_LOG_TO_FILE=false` → 容器内不落盘，避免 pod 重启丢日志
+
+观察方式：`docker logs` / `kubectl logs` / Loki / ELK，按 `service` / `instance` / `level` 字段过滤。
+
 ## 期望结果（成功标志）
 
 | 验收项 | 期望 | 来源 |

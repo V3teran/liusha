@@ -105,8 +105,9 @@ func (s *Store) Save(ctx context.Context, f VulnFinding) (VulnFinding, bool, err
 	if f.Severity == "" {
 		f.Severity = SeverityMedium
 	}
+	// agentic 路线：confidence 必填——LLM 按 high/medium/low 自评，不再有占位 "unverified" 兜底
 	if f.Confidence == "" {
-		f.Confidence = ConfidenceUnverified
+		return VulnFinding{}, false, fmt.Errorf("finding.Confidence 必填（high|medium|low）")
 	}
 	for _, p := range []*json.RawMessage{&f.Target, &f.Evidence} {
 		if *p == nil {

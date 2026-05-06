@@ -34,7 +34,7 @@ func TestEngagement_ProgressCounters_EndToEnd(t *testing.T) {
 
 	// 写 1 条 reactrun
 	tid, err := tasks.Create(ctx, reactrun.NewParams{
-		EngagementID: e.ID, Role: "orchestrator", Skill: "vuln-web-bac",
+		EngagementID: e.ID, Role: "orchestrator", Skill: "vuln/web/bac",
 	})
 	if err != nil {
 		t.Fatal(err)

@@ -63,8 +63,9 @@ const classifyTrafficSkillName = "classify-traffic"
 //   - operation（业务语义）—— 依赖 url + body 语义
 //
 // 策略：keys 全保留；string value 给足空间（>= 100 字符能完整体现业务字段语义）；
-//      response_body 4KB（前 3.5KB + 尾 0.5KB），保留分页 / 总数 / 用户列表全貌；
-//      敏感 header value 仍直接 redact（安全要求，不是性能优化）。
+//
+//	response_body 4KB（前 3.5KB + 尾 0.5KB），保留分页 / 总数 / 用户列表全貌；
+//	敏感 header value 仍直接 redact（安全要求，不是性能优化）。
 //
 // 预估单次 LLM input：~1500-3000 token（含 SKILL.md prompt ~3000 token + 流量数据 ~1500 token）。
 const (
@@ -354,4 +355,3 @@ func pickContentType(in map[string]string) map[string]string {
 	}
 	return out
 }
-

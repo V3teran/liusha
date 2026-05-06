@@ -37,6 +37,7 @@ const (
 //   - 不输出 jsonl 文件，所有切片留在内存（OutputFile/OutputJsonl 关闭）。
 //   - body 在回调中读完必须重建，否则下游客户端拿不到响应。
 //   - 过滤通过后立即 XADD 到 Redis Stream；切窗 / 持久化 / 入队由消费者负责（解耦 + 无状态 proxy）。
+//
 // SnapshotPublisher 抽象 publish 行为，便于单元测试不依赖 Redis。
 // 生产实现：proxy.Publisher（XADD 到 Redis Stream）。
 type SnapshotPublisher interface {

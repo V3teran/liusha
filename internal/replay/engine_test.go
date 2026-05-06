@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -202,7 +203,7 @@ func TestEngine_ReplayWithIdentity_DoesNotMutateInput(t *testing.T) {
 	}
 }
 
-func TestEngine_ReplayMultiIdentity_Concurrency(t *testing.T) {
+func TestEngine_ReplayMatrix_BaselineConcurrency(t *testing.T) {
 	var hits atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		hits.Add(1)
@@ -213,7 +214,7 @@ func TestEngine_ReplayMultiIdentity_Concurrency(t *testing.T) {
 	raw := RawRequest{Method: "GET", URL: srv.URL + "/", Headers: http.Header{}}
 	ids := []credential.Identity{{Name: "a"}, {Name: "b"}, {Name: "c"}}
 
-	res, err := NewEngine(srv.Client()).ReplayMultiIdentity(context.Background(), raw, ids, 2)
+	res, err := NewEngine(srv.Client()).ReplayMatrix(context.Background(), raw, ids, nil, 2)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -231,7 +232,7 @@ func TestEngine_ReplayMultiIdentity_Concurrency(t *testing.T) {
 	}
 }
 
-func TestEngine_ReplayMultiIdentity_ZeroConcurrencyDegrades(t *testing.T) {
+func TestEngine_ReplayMatrix_ZeroConcurrencyDegrades(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(200)
 	}))
@@ -241,11 +242,225 @@ func TestEngine_ReplayMultiIdentity_ZeroConcurrencyDegrades(t *testing.T) {
 	ids := []credential.Identity{{Name: "x"}, {Name: "y"}}
 
 	// 0 / 负数应降级为内部默认值（不应死锁，不应报错）。
-	res, err := NewEngine(srv.Client()).ReplayMultiIdentity(context.Background(), raw, ids, 0)
+	res, err := NewEngine(srv.Client()).ReplayMatrix(context.Background(), raw, ids, nil, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(res) != 2 {
 		t.Fatalf("len=%d", len(res))
+	}
+}
+
+// ---------- ReplayMatrix ----------
+
+func TestEngine_ReplayMatrix_SingleBaselineVariant(t *testing.T) {
+	// 单 baseline variant 时返回值应按 ids 顺序、每条 VariantName="baseline"。
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(200)
+	}))
+	defer srv.Close()
+
+	raw := RawRequest{Method: "GET", URL: srv.URL + "/", Headers: http.Header{}}
+	ids := []credential.Identity{{Name: "a"}, {Name: "b"}, {Name: "c"}}
+	res, err := NewEngine(srv.Client()).ReplayMatrix(context.Background(), raw, ids, nil, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res) != 3 {
+		t.Fatalf("len=%d", len(res))
+	}
+	for i, want := range []string{"a", "b", "c"} {
+		if res[i].IdentityName != want {
+			t.Fatalf("res[%d].IdentityName=%q want %q", i, res[i].IdentityName, want)
+		}
+		if res[i].VariantName != BaselineVariantName {
+			t.Fatalf("res[%d].VariantName=%q want baseline", i, res[i].VariantName)
+		}
+	}
+}
+
+func TestEngine_ReplayMatrix_CartesianOrder(t *testing.T) {
+	// identity × variant 笛卡尔积，identity 外层、variant 内层：
+	// out[0]=(a,baseline) out[1]=(a,vX) out[2]=(b,baseline) out[3]=(b,vX) ...
+	var hits atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hits.Add(1)
+		w.WriteHeader(200)
+	}))
+	defer srv.Close()
+
+	raw := RawRequest{Method: "GET", URL: srv.URL + "/", Headers: http.Header{}}
+	ids := []credential.Identity{{Name: "a"}, {Name: "b"}, {Name: "c"}}
+	variants := []Variant{
+		DefaultBaselineVariant(),
+		{Name: "vX", Mutation: Mutation{Type: MutationPassthrough}},
+	}
+
+	res, err := NewEngine(srv.Client()).ReplayMatrix(context.Background(), raw, ids, variants, 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res) != 6 {
+		t.Fatalf("len=%d want 6 (3 ids × 2 variants)", len(res))
+	}
+	if hits.Load() != 6 {
+		t.Fatalf("hits=%d want 6", hits.Load())
+	}
+	expectations := []struct{ id, v string }{
+		{"a", "baseline"}, {"a", "vX"},
+		{"b", "baseline"}, {"b", "vX"},
+		{"c", "baseline"}, {"c", "vX"},
+	}
+	for i, want := range expectations {
+		if res[i].IdentityName != want.id || res[i].VariantName != want.v {
+			t.Fatalf("res[%d]=(%q,%q) want (%q,%q)",
+				i, res[i].IdentityName, res[i].VariantName, want.id, want.v)
+		}
+	}
+}
+
+func TestEngine_ReplayMatrix_UnsupportedMutation_PerCellError(t *testing.T) {
+	// 不支持的 mutation 类型只让该 cell 失败（ErrorMessage 暴露），不影响其他 cell。
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(200)
+	}))
+	defer srv.Close()
+
+	raw := RawRequest{Method: "GET", URL: srv.URL + "/", Headers: http.Header{}}
+	ids := []credential.Identity{{Name: "a"}}
+	variants := []Variant{
+		DefaultBaselineVariant(),
+		{Name: "bad", Mutation: Mutation{Type: "param_inject"}}, // Step 1 还没实现
+	}
+
+	res, err := NewEngine(srv.Client()).ReplayMatrix(context.Background(), raw, ids, variants, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res) != 2 {
+		t.Fatalf("len=%d", len(res))
+	}
+	if res[0].VariantName != "baseline" || res[0].StatusCode != 200 {
+		t.Fatalf("baseline cell 应正常: %+v", res[0])
+	}
+	if res[1].VariantName != "bad" || res[1].ErrorMessage == "" {
+		t.Fatalf("不支持 mutation 应返回 ErrorMessage，got %+v", res[1])
+	}
+}
+
+// ---------- ApplyMutation: param_inject ----------
+
+func TestApplyMutation_ParamInject_QueryReplace(t *testing.T) {
+	raw := RawRequest{Method: "GET", URL: "http://x/api?id=7&keep=1", Headers: http.Header{}}
+	m := Mutation{Type: MutationParamInject, Where: WhereQuery, Field: "id", Value: "1' OR '1'='1"}
+	out, err := ApplyMutation(raw, m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.URL, "id=1%27+OR+%271%27%3D%271") {
+		t.Fatalf("query 应包含编码后的 payload，实际 %q", out.URL)
+	}
+	if !strings.Contains(out.URL, "keep=1") {
+		t.Fatalf("其他 query 字段不应丢失: %q", out.URL)
+	}
+	// 入参不应被修改（深拷贝语义）
+	if raw.URL != "http://x/api?id=7&keep=1" {
+		t.Fatalf("input raw 被污染: %q", raw.URL)
+	}
+}
+
+func TestApplyMutation_ParamInject_QueryAppend(t *testing.T) {
+	raw := RawRequest{Method: "GET", URL: "http://x/api?id=7", Headers: http.Header{}}
+	m := Mutation{Type: MutationParamInject, Where: WhereQuery, Field: "id", Value: "' AND 1=1--", Mode: ModeAppend}
+	out, err := ApplyMutation(raw, m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// append 模式应保留原值并拼接 payload
+	if !strings.Contains(out.URL, "id=7%27") {
+		t.Fatalf("append 模式应在原值 7 后追加 payload，实际 %q", out.URL)
+	}
+}
+
+func TestApplyMutation_ParamInject_BodyJSON(t *testing.T) {
+	raw := RawRequest{
+		Method:  "POST",
+		URL:     "http://x/api",
+		Headers: http.Header{"Content-Type": {"application/json"}},
+		Body:    []byte(`{"username":"alice","keep":"y"}`),
+	}
+	m := Mutation{Type: MutationParamInject, Where: WhereBodyJSON, Field: "username", Value: "alice' OR '1'='1"}
+	out, err := ApplyMutation(raw, m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var parsed map[string]any
+	if err := json.Unmarshal(out.Body, &parsed); err != nil {
+		t.Fatalf("body 不再是合法 JSON: %v", err)
+	}
+	if parsed["username"] != "alice' OR '1'='1" {
+		t.Fatalf("username 未替换: %v", parsed["username"])
+	}
+	if parsed["keep"] != "y" {
+		t.Fatalf("其他字段不应丢失: %v", parsed["keep"])
+	}
+}
+
+func TestApplyMutation_ParamInject_BodyForm(t *testing.T) {
+	raw := RawRequest{
+		Method:  "POST",
+		URL:     "http://x/login",
+		Headers: http.Header{"Content-Type": {"application/x-www-form-urlencoded"}},
+		Body:    []byte("username=alice&password=x"),
+	}
+	m := Mutation{Type: MutationParamInject, Where: WhereBodyForm, Field: "username", Value: "admin'--"}
+	out, err := ApplyMutation(raw, m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	values, _ := url.ParseQuery(string(out.Body))
+	if values.Get("username") != "admin'--" {
+		t.Fatalf("form username 未替换: %v", values.Get("username"))
+	}
+	if values.Get("password") != "x" {
+		t.Fatalf("其他字段不应丢失: %v", values.Get("password"))
+	}
+}
+
+func TestApplyMutation_ParamInject_RejectsEmptyField(t *testing.T) {
+	raw := RawRequest{Method: "GET", URL: "http://x/", Headers: http.Header{}}
+	m := Mutation{Type: MutationParamInject, Where: WhereQuery, Value: "x"}
+	if _, err := ApplyMutation(raw, m); err == nil {
+		t.Fatal("空 field 应报错")
+	}
+}
+
+func TestApplyMutation_ParamInject_UnsupportedWhere(t *testing.T) {
+	raw := RawRequest{Method: "GET", URL: "http://x/", Headers: http.Header{}}
+	m := Mutation{Type: MutationParamInject, Where: "header_inject", Field: "X-Test", Value: "v"}
+	if _, err := ApplyMutation(raw, m); err == nil {
+		t.Fatal("未支持的 where 应报错")
+	}
+}
+
+func TestEngine_ReplayMatrix_EmptyVariants_DegradesToBaseline(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(200)
+	}))
+	defer srv.Close()
+
+	raw := RawRequest{Method: "GET", URL: srv.URL + "/", Headers: http.Header{}}
+	ids := []credential.Identity{{Name: "x"}}
+
+	// 传 nil variants 应自动用 baseline 兜底。
+	res, _ := NewEngine(srv.Client()).ReplayMatrix(context.Background(), raw, ids, nil, 1)
+	if len(res) != 1 || res[0].VariantName != BaselineVariantName {
+		t.Fatalf("nil variants 应退化为 baseline，got %+v", res)
+	}
+
+	// 传空切片同样应退化。
+	res2, _ := NewEngine(srv.Client()).ReplayMatrix(context.Background(), raw, ids, []Variant{}, 1)
+	if len(res2) != 1 || res2[0].VariantName != BaselineVariantName {
+		t.Fatalf("空 variants 应退化为 baseline，got %+v", res2)
 	}
 }

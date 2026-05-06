@@ -13,12 +13,16 @@ import (
 	"path/filepath"
 	"sync/atomic"
 
-	"github.com/V3teran/liusha/internal/toolfx"
 	"github.com/V3teran/liusha/internal/logx"
+	"github.com/V3teran/liusha/internal/toolfx"
 )
 
 // resultCompressThreshold 是触发落盘的字节阈值——超过即压缩。
-const resultCompressThreshold = 2 * 1024
+//
+// 4 KB 经验值：让"工具结构化结果（escalate_sqlmap 输出 < 2 KB / run_adhoc_command
+// 双 1.5 KB tail 总 ~3 KB）"原样喂给 LLM；BAC ReplayMatrix 的 N 身份 × M 变体 ×
+// 2 KB body_hint 仍会触发压缩（这是设计意图——多身份矩阵本就该走压缩路径）。
+const resultCompressThreshold = 4 * 1024
 
 // snippetSize 是元数据中保留的可读片段长度。
 const snippetSize = 400

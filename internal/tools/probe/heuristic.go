@@ -11,7 +11,13 @@ import (
 )
 
 // defaultHeuristicRules 是没指定 rules 时按序尝试的全部启发式规则。
-var defaultHeuristicRules = []string{"all_denied", "all_empty", "all_auth_error"}
+// 仅保留"业务层 BAC 失败"短路三条；相似度类判定由 compute_similarity 工具承担，
+// SQLi 类"有漏洞短路"已下线（误报率高且与 BAC 短路语义反向，让 LLM 直接读 body 判定）。
+var defaultHeuristicRules = []string{
+	"all_denied",
+	"all_empty",
+	"all_auth_error",
+}
 
 // HeuristicCheck — BAC ReAct 第三步：对 ProbeState.LastResponses 跑短路规则。
 //
@@ -61,19 +67,22 @@ func (a *HeuristicCheck) Execute(_ context.Context, args json.RawMessage) (toolf
 		}
 	}
 	if len(a.State.LastResponses) == 0 {
-		return toolfx.Result{}, fmt.Errorf("state.LastResponses 为空，请先调 replay_multi_identity")
+		return toolfx.Result{}, fmt.Errorf("state.LastResponses 为空，请先调 replay_matrix")
 	}
 	if len(in.Rules) == 0 {
 		in.Rules = defaultHeuristicRules
 	}
 
+	// AllResponses 把 LastFlow 抓包响应作为 _original_ 锚点注入头部；
+	// 没有抓包响应时退化为原 LastResponses，baseline 类规则会自身退化为 false。
+	responses := a.State.AllResponses()
 	for _, name := range in.Rules {
 		rule, ok := lookupRule(name)
 		if !ok {
 			// 未知规则名静默跳过；schema 已用 enum 约束，这里只是双保险。
 			continue
 		}
-		if skip, reason := rule(a.State.LastResponses); skip {
+		if skip, reason := rule(responses); skip {
 			return marshalHeuristic(heuristicOutput{Skip: true, HitRule: name, Reason: reason})
 		}
 	}
@@ -83,7 +92,7 @@ func (a *HeuristicCheck) Execute(_ context.Context, args json.RawMessage) (toolf
 // lookupRule 把字符串名映射到 heuristic.Rule。
 //
 // all_auth_error 用 DefaultAuthKeywords（关键词列表 spec §7.3 已固定）；
-// 后续若 BAC skill 需要自定义关键词，可在此扩展为 (rules, keywords) 形态。
+// 后续若 BAC skill 需要自定义关键词，可在此扩展为 (rules, opts) 形态。
 func lookupRule(name string) (heuristic.Rule, bool) {
 	switch name {
 	case "all_denied":

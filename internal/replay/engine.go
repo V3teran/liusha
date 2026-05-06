@@ -77,32 +77,53 @@ func (e *Engine) ReplayWithIdentity(ctx context.Context, raw RawRequest, id cred
 	}, nil
 }
 
-// ReplayMultiIdentity 受控并发地用 ids 全量重放同一份 raw；返回切片顺序与 ids 严格对齐。
-// concurrency <= 0 时使用 defaultConcurrency 兜底。单次失败不会中止其他身份，
-// 错误信息以 Response.ErrorMessage 暴露。
-func (e *Engine) ReplayMultiIdentity(
+// ReplayMatrix 受控并发地用 identities × variants 笛卡尔积重放同一份 raw。
+// 返回切片顺序：identity 外层 × variant 内层 → out[i*nVar+j] = (ids[i], variants[j]) 的响应。
+//
+// concurrency <= 0 时使用 defaultConcurrency 兜底。单 cell 失败不会中止其他 cell，
+// 错误信息以 Response.ErrorMessage 暴露；ApplyMutation 返回的错误同样写进 ErrorMessage 不中止。
+//
+// variants 为空时退化为单一 baseline variant（仅做身份替换，不变形请求）。
+func (e *Engine) ReplayMatrix(
 	ctx context.Context,
 	raw RawRequest,
 	ids []credential.Identity,
+	variants []Variant,
 	concurrency int,
 ) ([]Response, error) {
 	if concurrency <= 0 {
 		concurrency = defaultConcurrency
 	}
-	out := make([]Response, len(ids))
+	if len(variants) == 0 {
+		variants = []Variant{DefaultBaselineVariant()}
+	}
+	nVar := len(variants)
+	out := make([]Response, len(ids)*nVar)
 	sem := make(chan struct{}, concurrency)
 	var wg sync.WaitGroup
 
 	for i, id := range ids {
-		wg.Add(1)
-		sem <- struct{}{}
-		go func(idx int, identity credential.Identity) {
-			defer wg.Done()
-			defer func() { <-sem }()
-			// ReplayWithIdentity 已把错误塞进 Response.ErrorMessage，这里忽略 err 不影响顺序对齐。
-			r, _ := e.ReplayWithIdentity(ctx, raw, identity)
-			out[idx] = r
-		}(i, id)
+		for j, v := range variants {
+			wg.Add(1)
+			sem <- struct{}{}
+			go func(idx int, identity credential.Identity, variant Variant) {
+				defer wg.Done()
+				defer func() { <-sem }()
+				mutated, mErr := ApplyMutation(raw, variant.Mutation)
+				if mErr != nil {
+					out[idx] = Response{
+						IdentityName: identity.Name,
+						VariantName:  variant.Name,
+						ErrorMessage: mErr.Error(),
+					}
+					return
+				}
+				// ReplayWithIdentity 已把错误塞进 Response.ErrorMessage，这里忽略 err 不影响顺序对齐。
+				r, _ := e.ReplayWithIdentity(ctx, mutated, identity)
+				r.VariantName = variant.Name
+				out[idx] = r
+			}(i*nVar+j, id, v)
+		}
 	}
 	wg.Wait()
 	return out, nil

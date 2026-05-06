@@ -2,13 +2,13 @@ package bac
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
 
 	"github.com/V3teran/liusha/internal/credential"
 	"github.com/V3teran/liusha/internal/engagement"
-	"github.com/V3teran/liusha/internal/vulnfinding"
 	"github.com/V3teran/liusha/internal/flow"
 	"github.com/V3teran/liusha/internal/lesson"
 	"github.com/V3teran/liusha/internal/react"
@@ -19,6 +19,7 @@ import (
 	"github.com/V3teran/liusha/internal/toolfx/middleware"
 	"github.com/V3teran/liusha/internal/tools/common"
 	"github.com/V3teran/liusha/internal/tools/probe"
+	"github.com/V3teran/liusha/internal/vulnfinding"
 )
 
 // SubBuilderDeps BAC SkillBuilder 的依赖注入。
@@ -46,13 +47,13 @@ const (
 
 // NewSubBuilder 构造 BAC SkillBuilder 闭包。
 //
-// scanner 启动时调用一次，注册到 spawn.SpawnSkill.Builders["vuln-web-bac"]
+// scanner 启动时调用一次，注册到 spawn.SpawnSkill.Builders["vuln/web/bac"]
 // （key 与 SKILL.md frontmatter `name` 一致，CC 风格 path-style 唯一标识）。
 //
 // 子 ReAct 工具集：
 //
 //	common:  read_state / write_fact / write_idea / write_finding / done
-//	probe: fetch_credentials / replay_multi_identity / heuristic_check / compute_similarity
+//	probe: fetch_credentials / replay_matrix / heuristic_check / compute_similarity
 func NewSubBuilder(deps SubBuilderDeps) func(ctx context.Context, p skill.BuilderParams) (react.Config, error) {
 	factory := probe.NewFactory(deps.Credentials, deps.Flows, deps.Replay)
 
@@ -85,7 +86,7 @@ func NewSubBuilder(deps SubBuilderDeps) func(ctx context.Context, p skill.Builde
 
 		// skill loader 加载 SKILL.md（命中缓存 0 IO）。
 		// 极简后 Load 不再需要 cb 参数（builder 是唯一真理来源）。
-		card, err := deps.SkillLoader.Load("vuln-web-bac")
+		card, err := deps.SkillLoader.Load("vuln/web/bac")
 		if err != nil {
 			return react.Config{}, fmt.Errorf("load skill: %w", err)
 		}
@@ -128,16 +129,65 @@ func NewSubBuilder(deps SubBuilderDeps) func(ctx context.Context, p skill.Builde
 
 // buildUserPrompt 构造子 ReAct 第一条 user message。
 //
+// 除 base 指令外，把完整 flow 详情（headers + body）摆给 LLM——agentic 路线下让它
+// 自识别凭证位 / 越权目标字段 / 资源归属，无需依赖代码层 helper 工具。
+//
 // lessonsBlock：跨 engagement 长期 host_lesson（lesson_extract 蒸馏经验，含具体 payload/手法）。
-// 为空时降级跳过该小节，只返 base 指令。
+// 为空时降级跳过该小节。
 func buildUserPrompt(p skill.BuilderParams, lessonsBlock string) string {
 	var b strings.Builder
 	b.WriteString("测试 flow_id=" + strconv.FormatInt(p.FlowID, 10) +
 		" host=" + p.Host + " " + p.Method + " " + p.URL +
-		"。立刻按 BAC SKILL.md 流程调用工具，不要文本回答。")
+		"。按 BAC SKILL.md 建议流程行动，不要文本回答。\n\n")
+	b.WriteString(formatFlowDetail(p.Method, p.URL, p.RequestHeaders, p.RequestBody))
 	if lessonsBlock != "" {
 		b.WriteString("\n\n## Host 历史经验（跨 engagement 长期知识库，可能含旧情报；带具体 payload/手法可直接复用）\n")
 		b.WriteString(lessonsBlock)
+	}
+	return b.String()
+}
+
+// formatFlowDetail 把 flow 三件套（method/url/headers/body）渲成 markdown 段落。
+//
+// 与 SQLi builder 同语义（10 行 duplicate；后续可提取到共享 helper 包）。
+// LLM 看完整 headers + body 自识别：query/path/body 字段、cookie/auth 形态、content-type。
+const flowBodyPromptLimit = 2000
+
+func formatFlowDetail(method, url string, headers json.RawMessage, body []byte) string {
+	var b strings.Builder
+	b.WriteString("## 流量详情\n\n")
+	b.WriteString("```\n")
+	b.WriteString(strings.ToUpper(method))
+	b.WriteString(" ")
+	b.WriteString(url)
+	b.WriteString("\n```\n\n")
+
+	b.WriteString("### Request Headers\n\n")
+	if len(headers) == 0 {
+		b.WriteString("（无 headers）\n")
+	} else if pretty, err := json.MarshalIndent(headers, "", "  "); err == nil && len(pretty) > 0 {
+		b.WriteString("```json\n")
+		b.Write(pretty)
+		b.WriteString("\n```\n")
+	} else {
+		b.WriteString("```\n")
+		b.Write(headers)
+		b.WriteString("\n```\n")
+	}
+
+	b.WriteString("\n### Request Body")
+	switch {
+	case len(body) == 0:
+		b.WriteString("\n\n（空）\n")
+	case len(body) > flowBodyPromptLimit:
+		fmt.Fprintf(&b, "（截断到前 %d 字节，原总长 %d）\n\n", flowBodyPromptLimit, len(body))
+		b.WriteString("```\n")
+		b.Write(body[:flowBodyPromptLimit])
+		b.WriteString("\n```\n")
+	default:
+		b.WriteString("\n\n```\n")
+		b.Write(body)
+		b.WriteString("\n```\n")
 	}
 	return b.String()
 }
@@ -161,4 +211,3 @@ func loadLessonsForPrompt(ctx context.Context, store *lesson.Store, host string)
 	}
 	return b.String()
 }
-

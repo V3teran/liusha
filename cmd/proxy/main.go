@@ -49,7 +49,8 @@ func main() {
 	defer rdb.Close()
 
 	// 内嵌 MITM 代理装配链：filter → publisher → proxy.Server
-	listenAddr := envOr("LIUSHA_PROXY_LISTEN_ADDR", "0.0.0.0:8888")
+	publicAddr := envOr("LIUSHA_PROXY_LISTEN_ADDR", "0.0.0.0:8888")
+	internalAddr := envOr("LIUSHA_PROXY_INTERNAL_ADDR", "127.0.0.1:18888")
 	certDir := envOr("LIUSHA_PROXY_CERT_DIR", "") // 空则 proxy.Server 内部默认 $HOME/.liusha
 	proxyCfg := cfg.Proxy
 
@@ -59,11 +60,13 @@ func main() {
 		logger.Fatal().Err(err).Msg("new publisher")
 	}
 
+	// proxify 监听 internal loopback；公开端口由 sanitizer 接管，
+	// 把 relative URI 客户端报文 patch 成 absolute form 后透传给 proxify。
 	proxyServer, err := proxy.NewServer(proxy.ServerDeps{
 		Filter:     trafficFilter,
 		Publisher:  publisher,
 		Cfg:        proxyCfg,
-		ListenAddr: listenAddr,
+		ListenAddr: internalAddr,
 		CertDir:    certDir,
 		Logger:     logger,
 	})
@@ -90,9 +93,17 @@ func main() {
 	}()
 
 	go func() {
-		logger.Info().Str("addr", listenAddr).Msg("mitm proxy starting")
+		logger.Info().Str("internal", internalAddr).Msg("mitm proxy starting")
 		if err := proxyServer.Run(proxyCtx); err != nil && !errors.Is(err, context.Canceled) {
 			logger.Error().Err(err).Msg("mitm proxy exited")
+		}
+	}()
+
+	// sanitizer：公开端口接客户端，patch relative URI 后转给 proxify loopback。
+	go func() {
+		logger.Info().Str("public", publicAddr).Str("upstream", internalAddr).Msg("uri sanitizer listening")
+		if err := proxy.RunSanitizingForwarder(publicAddr, internalAddr); err != nil {
+			logger.Error().Err(err).Msg("uri sanitizer exited")
 		}
 	}()
 

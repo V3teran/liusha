@@ -14,37 +14,69 @@ import (
 // bodyHintMaxBytes 是 LLM 看到的 body 摘要最大字节数：
 // 完整 body 留在 ProbeState.LastResponses 里供 heuristic / similarity 使用，
 // 喂回 LLM 的 tool message 必须截断（黑客松借鉴 D：result_compress）。
-const bodyHintMaxBytes = 400
+//
+// 2000 byte 是权衡值：SQLi 场景下 LLM 需要直接看响应体识别 SQL 错误回显 / 布尔差分，
+// 400 byte 经常被 HTML 头部（<!DOCTYPE html><head>...</head>）吃光看不到关键正文；
+// 提到 2000 让 DVWA 等典型靶场的注入证据落在窗口内，同时仍足够防止超长响应撑爆 context。
+const bodyHintMaxBytes = 2000
 
 // defaultConcurrency 与 replay.Engine 内部默认值保持一致，避免 schema/实际行为漂移。
 const defaultConcurrency = 5
 
-// ReplayMultiIdentity — BAC ReAct 第二步：用 ProbeState.Identities 全身份并发重放一条 flow。
+// ReplayMatrix — 漏洞探针通用工具：用 ProbeState.Identities × variants 笛卡尔积并发重放一条 flow。
 //
 // 前置：必须先调 fetch_credentials 写满 ProbeState.Identities，否则报错。
 // 副作用：写 ProbeState.LastFlow + ProbeState.LastResponses，供 heuristic_check / compute_similarity 直接读取。
-type ReplayMultiIdentity struct {
+//
+// BAC 用法：identities=[全身份, 4 个] × variants=[baseline] → 4 条响应（仅身份替换不变形）。
+// SQLi 用法（Step 2 起）：identities=[admin] × variants=[baseline, err_quote, bool_true, ...] → N 条响应。
+type ReplayMatrix struct {
 	Engine *replay.Engine
 	Flows  FlowReader
 	State  *ProbeState
 }
 
-// Name 返回动作名 "replay_multi_identity"。
-func (a *ReplayMultiIdentity) Name() string { return "replay_multi_identity" }
+// Name 返回动作名 "replay_matrix"。
+func (a *ReplayMatrix) Name() string { return "replay_matrix" }
 
-// Description 给 LLM 看的简介。
-func (a *ReplayMultiIdentity) Description() string {
-	return "用 ProbeState 内全部身份并发重放一条 flow（必须先调 fetch_credentials），返回各身份的 body_hint（≤400 byte）。"
+// Description 给 LLM 看的简介，强调 identity × variant 笛卡尔积语义。
+func (a *ReplayMatrix) Description() string {
+	return "用 ProbeState 内身份 × 请求变体笛卡尔积并发重放一条 flow（必须先调 fetch_credentials）。" +
+		"variants 缺省时退化为单一 baseline（仅身份替换不变形请求）。" +
+		"返回各 cell 的 body_hint（≤400 byte）；完整 body 留在 state 里给 heuristic / similarity。"
 }
 
-// ParametersJSON 给出 flow_id / host 必填 + concurrency 默认 5 的 schema。
-func (a *ReplayMultiIdentity) ParametersJSON() json.RawMessage {
+// ParametersJSON 给出 flow_id / host 必填 + concurrency 默认 5 的 schema；
+// variants 可选，缺省时使用单一 baseline variant。
+func (a *ReplayMatrix) ParametersJSON() json.RawMessage {
 	return json.RawMessage(`{
   "type":"object",
   "properties": {
     "flow_id":{"type":"integer","description":"http_flow.id（int64）"},
     "host":{"type":"string","description":"目标 host，仅用于结果展示"},
-    "concurrency":{"type":"integer","default":5,"minimum":1,"description":"并发上限"}
+    "concurrency":{"type":"integer","default":5,"minimum":1,"description":"并发上限"},
+    "variants":{
+      "type":"array",
+      "description":"请求变体列表；缺省时单一 baseline（passthrough）。每项含 name + mutation。",
+      "items":{
+        "type":"object",
+        "properties":{
+          "name":{"type":"string"},
+          "mutation":{
+            "type":"object",
+            "properties":{
+              "type":{"type":"string","enum":["passthrough","param_inject"],"description":"passthrough=仅替换身份不变形；param_inject=向指定字段注入 payload"},
+              "where":{"type":"string","enum":["query","body_json","body_form","path_param"],"description":"param_inject 时必填：注入位置"},
+              "field":{"type":"string","description":"param_inject 时必填：字段名（取自 extract_injection_points 的 key）"},
+              "value":{"type":"string","description":"param_inject 时必填：payload 字符串，如 \" AND 1=1--\""},
+              "mode":{"type":"string","enum":["replace","append"],"default":"replace","description":"replace=用 value 替换原字段值；append=拼接到原值后（保 SQL 闭合）"}
+            },
+            "required":["type"]
+          }
+        },
+        "required":["name","mutation"]
+      }
+    }
   },
   "required":["flow_id","host"]
 }`)
@@ -53,8 +85,10 @@ func (a *ReplayMultiIdentity) ParametersJSON() json.RawMessage {
 // respSummary 是返回给 LLM 的瘦响应摘要：
 //   - 不含完整 body，只有 ≤400 byte 的 hint。
 //   - 完整 body / Headers 留在 ProbeState.LastResponses 里给 heuristic / similarity。
+//   - identity × variant 二维标签同时返回，方便 LLM 定位 cell。
 type respSummary struct {
 	Identity   string `json:"identity"`
+	Variant    string `json:"variant"`
 	StatusCode int    `json:"status_code"`
 	BodyHint   string `json:"body_hint,omitempty"`
 	Error      string `json:"error,omitempty"`
@@ -69,15 +103,16 @@ type replayOutput struct {
 	Responses []respSummary `json:"responses"`
 }
 
-// Execute 解析 args → 取 flow → 校验身份 → 并发重放 → 写 ProbeState → 返回瘦摘要。
-func (a *ReplayMultiIdentity) Execute(ctx context.Context, args json.RawMessage) (toolfx.Result, error) {
+// Execute 解析 args → 取 flow → 校验身份 → 笛卡尔积并发重放 → 写 ProbeState → 返回瘦摘要。
+func (a *ReplayMatrix) Execute(ctx context.Context, args json.RawMessage) (toolfx.Result, error) {
 	var in struct {
-		FlowID      int64  `json:"flow_id"`
-		Host        string `json:"host"`
-		Concurrency int    `json:"concurrency"`
+		FlowID      int64            `json:"flow_id"`
+		Host        string           `json:"host"`
+		Concurrency int              `json:"concurrency"`
+		Variants    []replay.Variant `json:"variants"`
 	}
 	if err := json.Unmarshal(args, &in); err != nil {
-		return toolfx.Result{}, fmt.Errorf("解析 replay_multi_identity 参数失败: %w", err)
+		return toolfx.Result{}, fmt.Errorf("解析 replay_matrix 参数失败: %w", err)
 	}
 	if in.FlowID <= 0 {
 		return toolfx.Result{}, fmt.Errorf("flow_id 必填且 > 0")
@@ -100,9 +135,9 @@ func (a *ReplayMultiIdentity) Execute(ctx context.Context, args json.RawMessage)
 		Headers: rebuildHeaders(f.RequestHeaders),
 		Body:    f.RequestBody,
 	}
-	resps, err := a.Engine.ReplayMultiIdentity(ctx, raw, a.State.Identities, in.Concurrency)
+	resps, err := a.Engine.ReplayMatrix(ctx, raw, a.State.Identities, in.Variants, in.Concurrency)
 	if err != nil {
-		return toolfx.Result{}, fmt.Errorf("并发重放 flow %d 失败: %w", in.FlowID, err)
+		return toolfx.Result{}, fmt.Errorf("矩阵重放 flow %d 失败: %w", in.FlowID, err)
 	}
 
 	// 全 body 入 ProbeState（供后续 heuristic / similarity）；瘦摘要喂 LLM。
@@ -119,6 +154,7 @@ func (a *ReplayMultiIdentity) Execute(ctx context.Context, args json.RawMessage)
 	for _, r := range resps {
 		out.Responses = append(out.Responses, respSummary{
 			Identity:   r.IdentityName,
+			Variant:    r.VariantName,
 			StatusCode: r.StatusCode,
 			BodyHint:   truncateBytes(r.Body, bodyHintMaxBytes),
 			Error:      r.ErrorMessage,
@@ -126,11 +162,11 @@ func (a *ReplayMultiIdentity) Execute(ctx context.Context, args json.RawMessage)
 	}
 	enc, err := json.Marshal(out)
 	if err != nil {
-		return toolfx.Result{}, fmt.Errorf("序列化 replay_multi_identity 输出失败: %w", err)
+		return toolfx.Result{}, fmt.Errorf("序列化 replay_matrix 输出失败: %w", err)
 	}
 	return toolfx.Result{
 		Output:  enc,
-		Summary: fmt.Sprintf("replay_multi_identity flow=%d count=%d", f.ID, len(resps)),
+		Summary: fmt.Sprintf("replay_matrix flow=%d count=%d", f.ID, len(resps)),
 	}, nil
 }
 

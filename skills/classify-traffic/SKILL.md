@@ -15,9 +15,10 @@ description: |
 
 ## 支持的扫描类型
 
-- **vuln-web-bac**：访问控制失效（未授权访问、水平越权、垂直越权）
+- **vuln/web/bac**：访问控制失效（未授权访问、水平越权、垂直越权）
+- **vuln/web/sqli**：SQL 注入（错误注入、布尔差分注入）
 
-未来会扩展（vuln-web-sqli / vuln-web-xss 等），由 catalog 自动发现。
+未来会扩展（vuln-web-xss / vuln-web-ssrf 等），由 catalog 自动发现。
 
 ## 认证信息识别
 
@@ -34,6 +35,9 @@ description: |
 - 检查 `query_params`：有无 `token`、`api_key`、`access_token`、`session`、`sid` 等参数
 - 检查 `request_body`：有无 `token`、`session`、`credentials` 等认证字段
 - 将找到的每个认证字段作为一条记录，`type` ∈ `{headers, query, body}`，`key` 为字段名
+- **关键**：`key` 字段**必须用 lowercase**（如 `cookie` 而非 `Cookie`、`authorization` 而非 `Authorization`）。
+  proxy 入库时已把 header key 标准化为 lowercase；下游 BAC 重放替换凭证按 lowercase 匹配，
+  大写会导致替换失败、误判 anonymous → 漏报漏洞
 
 ## 资源类型判断
 
@@ -58,13 +62,19 @@ description: |
 数组，描述请求中可能存在注入点的位置和类型，**不包含响应类型**：
 
 - **query** — URI 含 `?` 且后面有参数
-- **path_param** — URI 路径中含数字或 ID（如 `/users/123/profile`）
+- **path_param** — URI 路径中含数字或 ID（如 `/users/123/profile`、`/order/7`、`/items/abc-123`）
 - **json** — 请求 Content-Type 为 `application/json`
 - **xml** — 请求 Content-Type 为 `application/xml` / `text/xml`
 - **file** — 请求 Content-Type 为 `multipart/form-data`，或路径语义表明文件操作
 - **form** — 请求 Content-Type 为 `application/x-www-form-urlencoded`
 
 无任何攻击面 → 空数组 `[]`。一个请求可有多个（如 `["query", "json"]`）。
+
+**判定 path_param 的具体规则**（避免同 URL 输出抖动）：
+- URI 任意 `/` 之间的段含**数字**（如 `/order/7`）→ 必加 `path_param`
+- URI 任意段为 **UUID**（含 `-` 的 8-4-4-4-12 格式）→ 必加 `path_param`
+- URI 任意段为 **长 hex**（≥16 字符 0-9a-f）→ 必加 `path_param`
+- URI 全是英文单词（`/api/users/me/profile`）→ 不加
 
 ## 操作类型（operation）
 
@@ -77,7 +87,7 @@ description: |
 
 ## 扫描决策规则
 
-### vuln-web-bac
+### vuln/web/bac
 
 理解越权漏洞的本质：**用户能否访问或操作不属于自己的资源**。
 
@@ -87,6 +97,29 @@ description: |
 2. **请求成功执行**：HTTP 状态码为 2xx（200-299）
 
 > 注：暂不基于 `resource_scope=private` 过滤，避免因判断不准确导致漏报。
+
+### vuln/web/sqli
+
+理解 SQL 注入漏洞的本质：**用户输入未经充分转义就拼到 SQL 语句里，攻击者可以改变查询语义**。
+
+**触发 SQLi 扫描的必要条件（必须全部满足）**：
+
+1. **存在用户输入参数**：`attack_surfaces` 含至少一个 `query` / `path_param` / `json` / `form`（`xml` / `file` 暂不支持，先跳过）
+2. **响应像是被服务端真正处理过**：response_body 非空且不是连接级错误页（如 nginx "502 Bad Gateway"、proxify "connection refused"）
+
+> **不要用 status_code 作为过滤条件**：SQLi 信号在响应**内容**里——
+>   - 200 + body 含 MySQL 语法错误 → 强 SQLi 证据（DVWA 典型）
+>   - 500 + body 含 SQL 异常堆栈 → 同样是强证据
+>   - 500 + 通用错误页（无 SQL 关键字）→ 普通服务端报错，不必扫
+>   - 2xx 漂亮响应但参数不变形 → 仍要扫（布尔差分注入靠 payload 探测）
+>
+> 关键判定锚点是 response_body 的"是否是真实业务/SQL 错误响应"，子 ReAct 后续的
+> heuristic_check + compute_similarity 会进一步分辨。
+
+> 与 BAC 不同，**SQLi 不要求 `carries_auth=true`**——公开接口（如 `/api/products?id=1`）一样可能存在 SQLi。
+> 路径段为纯字母（如 `/profile`、`/admin`）时仅靠 `path_param` 触发会被工具层过滤；只有 query/body 注入面也算合理触发。
+
+**两个扫描可并存**：当同时满足 BAC 和 SQLi 条件时，`required_skills` 数组同时含 `["vuln/web/bac", "vuln/web/sqli"]`，orchestrator 会并发 delegate 两个子 ReAct。
 
 ## 示例
 
@@ -113,7 +146,7 @@ description: |
   "attack_surfaces": ["path_param"],
   "carries_auth": true,
   "credential_locations": [{"type": "headers", "key": "Cookie"}],
-  "required_skills": ["vuln-web-bac"],
+  "required_skills": ["vuln/web/bac"],
   "reasoning": "用户资料接口，携带 Cookie 认证，URI 含路径参数 (用户 ID 123)，响应含敏感数据 (email)，需测试访问控制失效漏洞。"
 }
 ```
@@ -141,8 +174,8 @@ description: |
   "attack_surfaces": ["json"],
   "carries_auth": true,
   "credential_locations": [{"type": "headers", "key": "Authorization"}],
-  "required_skills": ["vuln-web-bac"],
-  "reasoning": "管理员删除用户接口，携带 Bearer Token 认证，请求体是 JSON，需测试访问控制失效漏洞。"
+  "required_skills": ["vuln/web/bac", "vuln/web/sqli"],
+  "reasoning": "管理员删除用户接口，携带 Bearer Token 认证，请求体是 JSON 含 uid 字段——既可能 BAC（删别人 uid）也可能 SQLi（uid 拼到 SQL）。"
 }
 ```
 
@@ -169,8 +202,8 @@ description: |
   "attack_surfaces": ["query"],
   "carries_auth": false,
   "credential_locations": [],
-  "required_skills": [],
-  "reasoning": "公开商品列表接口，URI 含查询参数 (category, sort)，无任何认证字段，不需要扫描访问控制失效漏洞。"
+  "required_skills": ["vuln/web/sqli"],
+  "reasoning": "公开商品列表接口，URI 含查询参数 (category, sort)，无认证字段不触发 BAC；但 query 参数可能拼到 SQL，需要 SQLi 扫描。"
 }
 ```
 
@@ -197,8 +230,8 @@ description: |
   "attack_surfaces": ["json"],
   "carries_auth": true,
   "credential_locations": [{"type": "headers", "key": "Cookie"}],
-  "required_skills": ["vuln-web-bac"],
-  "reasoning": "订单取消接口，携带 Cookie 认证，请求体含订单 ID (O1003)，需测试访问控制失效漏洞。"
+  "required_skills": ["vuln/web/bac", "vuln/web/sqli"],
+  "reasoning": "订单取消接口，携带 Cookie 认证，请求体含订单 ID (O1003)；BAC 测越权访问他人订单，SQLi 测 oid 字段是否被拼到 SQL。"
 }
 ```
 
@@ -225,8 +258,8 @@ description: |
   "attack_surfaces": ["query", "json"],
   "carries_auth": true,
   "credential_locations": [{"type": "headers", "key": "Authorization"}],
-  "required_skills": ["vuln-web-bac"],
-  "reasoning": "用户更新接口，URI 含查询参数 uid=123，请求体是 JSON 含更新数据，携带 Bearer Token 认证，需测试访问控制失效漏洞。attack_surfaces 含 query + json 两个攻击面。"
+  "required_skills": ["vuln/web/bac", "vuln/web/sqli"],
+  "reasoning": "用户更新接口，URI 含查询参数 uid=123 + JSON body 含更新数据，携带 Bearer Token 认证。BAC 测改他人 uid；SQLi 测 query 与 body 字段是否拼到 SQL。两个攻击面 + 两类漏洞同时触发。"
 }
 ```
 
@@ -243,7 +276,7 @@ description: |
   "attack_surfaces": ["json", "xml", "file", "form", "query", "path_param"],
   "carries_auth": true,
   "credential_locations": [{"type": "headers|query|body", "key": "字段名"}],
-  "required_skills": ["vuln-web-bac"],
+  "required_skills": ["vuln/web/bac", "vuln/web/sqli"],
   "reasoning": "详细说明判断依据，引用具体字段值，不得编造"
 }
 ```
@@ -255,7 +288,7 @@ description: |
 - `attack_surfaces` 必填，字符串数组；无攻击面用空数组 `[]`
 - `carries_auth` 必填，布尔值
 - `credential_locations` 必填，数组；`carries_auth=false` 时固定 `[]`
-- `required_skills` 字符串数组，目前可选项：`["vuln-web-bac"]`；无需扫描时空数组 `[]`
+- `required_skills` 字符串数组，目前可选项：`vuln/web/bac` / `vuln/web/sqli`（可同时含多项）；无需扫描时空数组 `[]`
 - `reasoning` 推理过程，引用实际字段值
 
 ## 任务

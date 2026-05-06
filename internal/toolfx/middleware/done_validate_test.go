@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/V3teran/liusha/internal/toolfx"
 	"github.com/V3teran/liusha/internal/react"
+	"github.com/V3teran/liusha/internal/toolfx"
 )
 
 type fakeValidator struct {

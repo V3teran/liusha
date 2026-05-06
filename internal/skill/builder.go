@@ -10,6 +10,7 @@ package skill
 
 import (
 	"context"
+	"encoding/json"
 
 	"github.com/V3teran/liusha/internal/credential"
 	"github.com/V3teran/liusha/internal/llm"
@@ -18,7 +19,7 @@ import (
 
 // Builder 为某个 skill 装配子 ReAct Config。
 //
-// scanner 启动时按 skill 名注册到 Delegate.Builders（如 "vuln-web-bac" → bac.NewSubBuilder）。
+// scanner 启动时按 skill 名注册到 Delegate.Builders（如 "vuln/web/bac" → bac.NewSubBuilder）。
 type Builder func(ctx context.Context, params BuilderParams) (react.Config, error)
 
 // BuilderParams 子 ReAct 启动参数（由 delegate 工具从 LLM 调用参数解析后传入）。
@@ -39,4 +40,14 @@ type BuilderParams struct {
 	LLM                 llm.Generator
 	Observer            react.Observer
 	CredentialLocations []credential.CredentialLocation
+
+	// RequestHeaders / RequestBody 由 delegate 从 flow.Store 读 flow 详情后填入，
+	// 让子 ReAct 在 user prompt 一次性看到完整流量（无需调 read_flow / extract_injection_points
+	// 工具二次解析）——agentic 路线核心：把"原始材料"摆给 LLM，让它自己识别注入点 / 凭证位 /
+	// 响应回显模式等。
+	//
+	// RequestHeaders：jsonb 原始 header map（key/value），由 builder 自行截断/sanitize（当前不脱敏）。
+	// RequestBody：bytea 原始 body 字节（可能含二进制；builder 输出到 user prompt 时自行截断 ≤ N KB）。
+	RequestHeaders json.RawMessage
+	RequestBody    []byte
 }

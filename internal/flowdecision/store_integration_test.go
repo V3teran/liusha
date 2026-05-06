@@ -43,7 +43,7 @@ func TestStore_Append_Roundtrip(t *testing.T) {
 		AttackSurfaces:      json.RawMessage(`["json","query"]`),
 		CarriesAuth:         true,
 		CredentialLocations: json.RawMessage(`[{"type":"headers","key":"Cookie"}]`),
-		RequiredSkills:      json.RawMessage(`["vuln-web-bac"]`),
+		RequiredSkills:      json.RawMessage(`["vuln/web/bac"]`),
 		Reasoning:           "endpoint returns user PII",
 	})
 	if err != nil {

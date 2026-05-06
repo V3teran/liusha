@@ -8,8 +8,8 @@ import (
 	"testing"
 
 	"github.com/V3teran/liusha/internal/engagement"
-	"github.com/V3teran/liusha/internal/vulnfinding"
 	"github.com/V3teran/liusha/internal/graph"
+	"github.com/V3teran/liusha/internal/vulnfinding"
 )
 
 // 编译期接口断言：保证 engagement.Store / vulnfinding.Store / graph.Store

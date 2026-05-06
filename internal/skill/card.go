@@ -1,7 +1,7 @@
 // Package skill 负责加载 SKILL.md（frontmatter + 正文），返回 Card 描述。
 //
 // 极简 frontmatter（仅 2 字段）：
-//   - name         机器 ID（kebab-case 与文件夹名一致，如 vuln-web-bac）
+//   - name         机器 ID（kebab-case 与文件夹名一致，如 vuln/web/bac）
 //   - description  LLM 用此描述自动发现 skill；进 main system prompt catalog
 //
 // 已删除字段（builder 是唯一真理来源，frontmatter 重复声明已精简）：

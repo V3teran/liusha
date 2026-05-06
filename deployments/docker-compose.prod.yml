@@ -1,0 +1,39 @@
+# 生产形态 overlay：与 docker-compose.yml 叠加使用
+#
+# 用法：
+#   docker compose -f deployments/docker-compose.yml \
+#                  -f deployments/docker-compose.prod.yml \
+#                  --profile e2e --env-file .env.prod up -d
+#
+# 与默认（dev）的差异：
+#   - LIUSHA_ENV=production   → stdout 走 JSON 单行（不再彩色 console）
+#   - LIUSHA_LOG_FORMAT=json  → 显式锁死，避免被其它环境变量翻转
+#   - LIUSHA_LOG_TO_FILE=false → 不在容器内落盘；由 fluent-bit / vector / promtail
+#                                抓 docker logs / k8s logs 转发到 ELK/Loki
+#
+# 12-factor 标准做法：容器只往 stdout 输出结构化日志，由外部 collector 接管。
+
+services:
+  api:
+    environment:
+      LIUSHA_ENV: production
+      LIUSHA_LOG_FORMAT: json
+      LIUSHA_LOG_TO_FILE: "false"
+
+  proxy:
+    environment:
+      LIUSHA_ENV: production
+      LIUSHA_LOG_FORMAT: json
+      LIUSHA_LOG_TO_FILE: "false"
+
+  scanner:
+    environment:
+      LIUSHA_ENV: production
+      LIUSHA_LOG_FORMAT: json
+      LIUSHA_LOG_TO_FILE: "false"
+
+  vulnapp:
+    environment:
+      LIUSHA_ENV: production
+      LIUSHA_LOG_FORMAT: json
+      LIUSHA_LOG_TO_FILE: "false"

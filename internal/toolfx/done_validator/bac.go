@@ -26,15 +26,16 @@ type FindingChecker interface {
 	HasDedupKey(ctx context.Context, engagementID, dedupKey string) (bool, error)
 }
 
-// validReasons 列出 BAC done 允许的退出原因，对应 spec §6.1：
-//   - finding_written：写完一条 finding 即可收手；
-//   - all_differ：所有候选端点跨身份响应差异显著（认证起作用，无越权信号）；
-//   - heuristic_skip：启发式判定无须深探（如静态资源）；
-//   - no_pattern_match：完整 4 步走完仍未命中已知 BAC 模式。
+// validReasons 列出 done 允许的退出原因（agentic 路线简化：从 4 类缩到 2 类）。
+//
+//   - finding_written：写完一条 finding 即可收手；必校验 dedup_key 真存在
+//   - no_pattern_match：未命中漏洞（含原 all_differ / heuristic_skip 等"无漏洞"情况；
+//     具体细节由 LLM 在 take_note / finding.evidence.reasoning 自由表达，不再用 enum 区分）
+//
+// 简化理由：原 4 类把 telemetry 标签塞进 reason enum 限制了 LLM 表达。agentic 路线下
+// LLM 用自然语言描述细节，工具层只校验"是否真完成"。
 var validReasons = map[string]struct{}{
 	"finding_written":  {},
-	"all_differ":       {},
-	"heuristic_skip":   {},
 	"no_pattern_match": {},
 }
 

@@ -23,7 +23,7 @@ type FindingStore interface {
 // 合并 evidence。
 //
 // Host 由 builder 从 BuilderParams.Host 注入（不让 LLM 自填，避免拼错）；
-// 用作 finding.Host 列填充（migration 0004 强约束 NOT NULL CHECK <>''）。
+// 用作 finding.Host 列填充（migration 0004 强约束 NOT NULL CHECK <>”）。
 type WriteFinding struct {
 	Store        FindingStore
 	EngagementID string
@@ -50,10 +50,10 @@ func (a *WriteFinding) ParametersJSON() json.RawMessage {
     "title":{"type":"string"},
     "target":{"type":"object"},
     "evidence":{"type":"object"},
-    "confidence":{"type":"string","enum":["unverified","verified","rejected"]},
+    "confidence":{"type":"string","enum":["high","medium","low"],"description":"自评置信度：high=具名工具默认参数即坐实；medium=升级参数/自构 PoC 复测才坐实，或仅强 body 关键字；low=仅相似度差分/弱关键字"},
     "dedup_key":{"type":"string"}
   },
-  "required":["kind","severity","title","dedup_key"]
+  "required":["kind","severity","title","confidence","dedup_key"]
 }`)
 }
 

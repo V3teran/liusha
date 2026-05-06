@@ -8,7 +8,7 @@ import (
 
 // BACEvidence 是 kind="bac.*" 漏洞 evidence jsonb 的标准 schema。
 //
-// 字段约定来源：skills/vuln-web-bac/SKILL.md "示例" 与 "Step 7" 定义的 evidence 结构。
+// 字段约定来源：skills/vuln/web/bac/SKILL.md "示例" 与 "Step 7" 定义的 evidence 结构。
 // 通过 ValidateEvidence 在 WriteFinding 工具层强制——LLM 写错字段名时直接拒绝，
 // 避免 evidence jsonb 因 LLM 心情不同变成结构散乱的 string-bag。
 type BACEvidence struct {

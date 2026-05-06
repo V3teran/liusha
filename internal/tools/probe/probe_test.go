@@ -99,10 +99,10 @@ func TestFetchCredentials_RejectsEmptyHost(t *testing.T) {
 	}
 }
 
-// ---------- ReplayMultiIdentity ----------
+// ---------- ReplayMatrix ----------
 
-func TestReplayMultiIdentity_RequiresFetchCredentialsFirst(t *testing.T) {
-	a := &ReplayMultiIdentity{
+func TestReplayMatrix_RequiresFetchCredentialsFirst(t *testing.T) {
+	a := &ReplayMatrix{
 		Engine: replay.NewEngine(http.DefaultClient),
 		Flows:  &fakeFlowReader{flows: map[int64]flow.Flow{1: {ID: 1, Method: "GET", URL: "http://x/"}}},
 		State:  &ProbeState{},
@@ -116,7 +116,7 @@ func TestReplayMultiIdentity_RequiresFetchCredentialsFirst(t *testing.T) {
 	}
 }
 
-func TestReplayMultiIdentity_PopulatesStateWithBodyHint(t *testing.T) {
+func TestReplayMatrix_PopulatesStateWithBodyHint(t *testing.T) {
 	var hits atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		hits.Add(1)
@@ -138,7 +138,7 @@ func TestReplayMultiIdentity_PopulatesStateWithBodyHint(t *testing.T) {
 			RequestHeaders: json.RawMessage(`{"Accept":"application/json"}`),
 		},
 	}}
-	a := &ReplayMultiIdentity{
+	a := &ReplayMatrix{
 		Engine: replay.NewEngine(srv.Client()),
 		Flows:  flows,
 		State:  state,
@@ -177,8 +177,8 @@ func TestReplayMultiIdentity_PopulatesStateWithBodyHint(t *testing.T) {
 	}
 }
 
-func TestReplayMultiIdentity_BodyHintTruncatedAt400(t *testing.T) {
-	huge := strings.Repeat("X", 2000)
+func TestReplayMatrix_BodyHintTruncatedAt2000(t *testing.T) {
+	huge := strings.Repeat("X", 5000)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(huge))
 	}))
@@ -188,7 +188,7 @@ func TestReplayMultiIdentity_BodyHintTruncatedAt400(t *testing.T) {
 	flows := &fakeFlowReader{flows: map[int64]flow.Flow{
 		1: {ID: 1, Method: "GET", URL: srv.URL + "/x"},
 	}}
-	a := &ReplayMultiIdentity{
+	a := &ReplayMatrix{
 		Engine: replay.NewEngine(srv.Client()),
 		Flows:  flows,
 		State:  state,
@@ -206,8 +206,8 @@ func TestReplayMultiIdentity_BodyHintTruncatedAt400(t *testing.T) {
 	if len(got.Responses) != 1 {
 		t.Fatalf("got=%d", len(got.Responses))
 	}
-	if l := len(got.Responses[0].BodyHint); l == 0 || l > 400 {
-		t.Fatalf("body_hint 应被截到 ≤400，got %d", l)
+	if l := len(got.Responses[0].BodyHint); l == 0 || l > 2000 {
+		t.Fatalf("body_hint 应被截到 ≤2000，got %d", l)
 	}
 }
 
@@ -270,12 +270,11 @@ func TestComputeSimilarity_RequiresPriorReplay(t *testing.T) {
 	}
 }
 
-// similarityResult 是 probe_test.go 内部解码 ComputeSimilarity 输出用的视图。
+// similarityResult 是 probe_test.go 内部解码 ComputeSimilarity 输出用的视图（agentic：无 verdict）。
 type similarityResult struct {
 	Algorithm       string  `json:"algorithm"`
 	MinThreshold    float64 `json:"min_threshold"`
 	HighThreshold   float64 `json:"high_threshold"`
-	Verdict         string  `json:"verdict"`
 	SuspiciousPairs []struct {
 		A           string  `json:"a"`
 		B           string  `json:"b"`
@@ -291,9 +290,9 @@ type similarityResult struct {
 	} `json:"summary"`
 }
 
-func TestComputeSimilarity_AllBelowThreshold_VerdictShortCircuit(t *testing.T) {
+func TestComputeSimilarity_AllBelowThreshold(t *testing.T) {
 	// 三个内容毫不相关的 body：所有 pair 应低于 min_threshold=0.6
-	// → verdict=all_below_threshold（让 SKILL.md 直接 done(all_differ) 短路，不进 LLM）。
+	// LLM 看 above_min=0 / max_score < 0.6 自判"无身份相似" → done(no_pattern_match)。
 	state := &ProbeState{LastResponses: []replay.Response{
 		{IdentityName: "admin", StatusCode: 200, Body: []byte("alice profile data")},
 		{IdentityName: "user", StatusCode: 200, Body: []byte("bob profile content")},
@@ -308,8 +307,8 @@ func TestComputeSimilarity_AllBelowThreshold_VerdictShortCircuit(t *testing.T) {
 	if err := json.Unmarshal(out.Output, &got); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	if got.Verdict != "all_below_threshold" {
-		t.Fatalf("应 verdict=all_below_threshold，实际=%q  payload=%s", got.Verdict, string(out.Output))
+	if got.Summary.AboveMin != 0 {
+		t.Fatalf("无相似对时 above_min 应=0，实际=%d", got.Summary.AboveMin)
 	}
 	if len(got.SuspiciousPairs) != 0 {
 		t.Fatalf("无相似对时不应有 suspicious_pairs，实际=%d", len(got.SuspiciousPairs))
@@ -319,9 +318,9 @@ func TestComputeSimilarity_AllBelowThreshold_VerdictShortCircuit(t *testing.T) {
 	}
 }
 
-func TestComputeSimilarity_HighSimilarityVerdict(t *testing.T) {
-	// 三身份 body 完全相同：max=1.0 ≥ high_threshold=0.9
-	// → verdict=high_similarity_pair（疑似越权，但要 LLM 排除公开接口/错误页假阳性）。
+func TestComputeSimilarity_HighSimilarity(t *testing.T) {
+	// 三身份 body 完全相同：max=1.0 ≥ high_threshold=0.9，above_high=3
+	// LLM 看到所有 pair score=1.0 自判"疑似越权"（或公开接口，由 SKILL 决策）。
 	state := &ProbeState{LastResponses: []replay.Response{
 		{IdentityName: "admin", StatusCode: 200, Body: []byte("private order data 12345")},
 		{IdentityName: "user", StatusCode: 200, Body: []byte("private order data 12345")},
@@ -336,14 +335,14 @@ func TestComputeSimilarity_HighSimilarityVerdict(t *testing.T) {
 	if err := json.Unmarshal(out.Output, &got); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	if got.Verdict != "high_similarity_pair" {
-		t.Fatalf("应 verdict=high_similarity_pair，实际=%q payload=%s", got.Verdict, string(out.Output))
-	}
 	if len(got.SuspiciousPairs) != 3 {
 		t.Fatalf("3 身份完全相同应有 3 个 pair 进 suspicious_pairs，实际=%d", len(got.SuspiciousPairs))
 	}
 	if got.Summary.AboveHigh != 3 {
 		t.Fatalf("Summary.AboveHigh 应=3，实际=%d", got.Summary.AboveHigh)
+	}
+	if got.Summary.MaxScore < 0.99 {
+		t.Fatalf("max_score 应=1.0（完全相同 body），实际=%v", got.Summary.MaxScore)
 	}
 }
 
@@ -362,8 +361,9 @@ func TestComputeSimilarity_AmbiguousBetweenThresholds(t *testing.T) {
 	if err := json.Unmarshal(out.Output, &got); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	if got.Verdict != "ambiguous" {
-		t.Fatalf("应 verdict=ambiguous，实际=%q max=%v", got.Verdict, got.Summary.MaxScore)
+	if got.Summary.AboveMin != 1 || got.Summary.AboveHigh != 0 {
+		t.Fatalf("应 above_min=1 / above_high=0（[min,high) 模糊区），实际 above_min=%d above_high=%d max=%v",
+			got.Summary.AboveMin, got.Summary.AboveHigh, got.Summary.MaxScore)
 	}
 	if len(got.SuspiciousPairs) != 1 {
 		t.Fatalf("应 1 个 suspicious_pair，实际=%d", len(got.SuspiciousPairs))
@@ -391,12 +391,186 @@ func TestComputeSimilarity_LengthRatioShortCircuit(t *testing.T) {
 	if err := json.Unmarshal(out.Output, &got); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	if got.Verdict != "all_below_threshold" {
-		t.Fatalf("length-gate 应短路为 all_below_threshold，实际=%q max=%v",
-			got.Verdict, got.Summary.MaxScore)
+	if got.Summary.AboveMin != 0 {
+		t.Fatalf("length-gate 命中时 above_min 应=0，实际=%d max=%v",
+			got.Summary.AboveMin, got.Summary.MaxScore)
 	}
 	if got.Summary.MaxScore != 0 {
 		t.Fatalf("length-gate 命中时 score 应为 0，实际=%v", got.Summary.MaxScore)
+	}
+}
+
+// ---------- ComputeSimilarity (baseline 模式：含 _original_ 锚点) ----------
+
+// baselineSimilarityResult 是 baseline 模式下 ComputeSimilarity 输出的解码视图（agentic：无 verdict）。
+type baselineSimilarityResult struct {
+	Algorithm     string   `json:"algorithm"`
+	Mode          string   `json:"mode"`
+	Baseline      string   `json:"baseline"`
+	Identities    []string `json:"identities"`
+	BaselinePairs []struct {
+		A           string  `json:"a"`
+		B           string  `json:"b"`
+		Score       float64 `json:"score"`
+		LengthRatio float64 `json:"length_ratio"`
+	} `json:"baseline_pairs"`
+	Summary struct {
+		TotalPairs int     `json:"total_pairs"`
+		MaxScore   float64 `json:"max_score"`
+		MinScore   float64 `json:"min_score"`
+		AboveHigh  int     `json:"above_high_threshold"`
+		AboveMin   int     `json:"above_min_threshold"`
+	} `json:"summary"`
+}
+
+func TestComputeSimilarity_Baseline_AllDissimilar_ShortCircuit(t *testing.T) {
+	// 抓包原始：合法用户看到的私有订单数据；3 个 replay 全部 401 错误页 → 全不像 baseline。
+	state := &ProbeState{
+		LastFlow: flow.Flow{
+			ID:           42,
+			StatusCode:   200,
+			ResponseBody: []byte(`{"order_id":7,"buyer":"alice","amount":100}`),
+		},
+		LastResponses: []replay.Response{
+			{IdentityName: "admin", StatusCode: 401, Body: []byte(`{"error":"unauthorized"}`)},
+			{IdentityName: "user", StatusCode: 401, Body: []byte(`{"error":"forbidden"}`)},
+			{IdentityName: credential.AnonymousName, StatusCode: 401, Body: []byte(`{"error":"login required"}`)},
+		},
+	}
+	a := &ComputeSimilarity{State: state}
+	out, err := a.Execute(context.Background(), json.RawMessage(`{}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got baselineSimilarityResult
+	if err := json.Unmarshal(out.Output, &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if got.Mode != "baseline" {
+		t.Fatalf("应 mode=baseline，实际=%q", got.Mode)
+	}
+	if got.Summary.AboveMin != 0 {
+		t.Fatalf("所有身份均不像原始时 above_min 应=0，实际=%d", got.Summary.AboveMin)
+	}
+	if got.Baseline != replay.OriginalIdentityName {
+		t.Fatalf("baseline 应=%q，实际=%q", replay.OriginalIdentityName, got.Baseline)
+	}
+	for _, name := range got.Identities {
+		if name == replay.OriginalIdentityName {
+			t.Fatalf("identities 不应含 _original_，实际=%v", got.Identities)
+		}
+	}
+	if len(got.BaselinePairs) != 3 {
+		t.Fatalf("应有 3 个 baseline_pair（每 replay 一个），实际=%d", len(got.BaselinePairs))
+	}
+	for _, p := range got.BaselinePairs {
+		if p.A != replay.OriginalIdentityName {
+			t.Fatalf("baseline_pair.A 应固定=%q，实际=%q", replay.OriginalIdentityName, p.A)
+		}
+	}
+}
+
+func TestComputeSimilarity_Baseline_SomeMatch_StrongSignal(t *testing.T) {
+	// admin 看到了原 buyer 的私有数据（horizontal 越权信号）；user/anon 被拒。
+	body := []byte(`{"order_id":7,"buyer":"alice","amount":100}`)
+	state := &ProbeState{
+		LastFlow: flow.Flow{ID: 1, StatusCode: 200, ResponseBody: body},
+		LastResponses: []replay.Response{
+			{IdentityName: "admin", StatusCode: 200, Body: body},
+			{IdentityName: "user", StatusCode: 401, Body: []byte(`{"error":"forbidden"}`)},
+			{IdentityName: credential.AnonymousName, StatusCode: 401, Body: []byte(`{"error":"login"}`)},
+		},
+	}
+	a := &ComputeSimilarity{State: state}
+	out, err := a.Execute(context.Background(), json.RawMessage(`{}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got baselineSimilarityResult
+	_ = json.Unmarshal(out.Output, &got)
+	if got.Summary.AboveHigh != 1 {
+		t.Fatalf("应 above_high=1（仅 admin 高度匹配），实际=%d payload=%s",
+			got.Summary.AboveHigh, string(out.Output))
+	}
+	if got.Summary.AboveHigh == got.Summary.TotalPairs {
+		t.Fatalf("不应 above_high == total（不是公开接口），above_high=%d total=%d",
+			got.Summary.AboveHigh, got.Summary.TotalPairs)
+	}
+}
+
+func TestComputeSimilarity_Baseline_AllMatch_PublicEndpoint(t *testing.T) {
+	// 公开接口：所有身份都看到与原始相同的数据 → all_match_baseline（提示公开接口可能）。
+	body := []byte(`{"banner":"welcome","version":"v1.2"}`)
+	state := &ProbeState{
+		LastFlow: flow.Flow{ID: 1, StatusCode: 200, ResponseBody: body},
+		LastResponses: []replay.Response{
+			{IdentityName: "admin", StatusCode: 200, Body: body},
+			{IdentityName: "user", StatusCode: 200, Body: body},
+			{IdentityName: credential.AnonymousName, StatusCode: 200, Body: body},
+		},
+	}
+	a := &ComputeSimilarity{State: state}
+	out, err := a.Execute(context.Background(), json.RawMessage(`{}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got baselineSimilarityResult
+	_ = json.Unmarshal(out.Output, &got)
+	if got.Summary.AboveHigh != 3 || got.Summary.TotalPairs != 3 {
+		t.Fatalf("应 above_high=3 == total=3（公开接口），实际 above_high=%d total=%d",
+			got.Summary.AboveHigh, got.Summary.TotalPairs)
+	}
+}
+
+func TestComputeSimilarity_Baseline_Ambiguous_NoneAboveHigh(t *testing.T) {
+	// 中间区：admin 中度相似（同 schema 但部分值不同），其他被拒。
+	state := &ProbeState{
+		LastFlow: flow.Flow{
+			ID: 1, StatusCode: 200,
+			ResponseBody: []byte(`{"order_id":7,"buyer":"alice","amount":100}`),
+		},
+		LastResponses: []replay.Response{
+			// 同 schema，部分值不同 → JSON-aware 算分应在 [0.6, 0.9) 区间。
+			{IdentityName: "admin", StatusCode: 200, Body: []byte(`{"order_id":99,"buyer":"alice","amount":100}`)},
+			{IdentityName: "user", StatusCode: 401, Body: []byte(`{"error":"forbidden"}`)},
+		},
+	}
+	a := &ComputeSimilarity{State: state}
+	out, err := a.Execute(context.Background(), json.RawMessage(`{}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got baselineSimilarityResult
+	_ = json.Unmarshal(out.Output, &got)
+	if got.Summary.AboveMin == 0 || got.Summary.AboveHigh > 0 {
+		t.Fatalf("应 above_min>=1 / above_high=0（[min,high) 模糊区），实际 above_min=%d above_high=%d max=%v",
+			got.Summary.AboveMin, got.Summary.AboveHigh, got.Summary.MaxScore)
+	}
+}
+
+func TestComputeSimilarity_Baseline_FallsBackWhenNoOriginal(t *testing.T) {
+	// 没有 LastFlow → AllResponses 不注入 baseline → 走 inter_pairs fallback。
+	state := &ProbeState{LastResponses: []replay.Response{
+		{IdentityName: "admin", StatusCode: 200, Body: []byte("alpha beta")},
+		{IdentityName: "user", StatusCode: 200, Body: []byte("gamma delta")},
+	}}
+	a := &ComputeSimilarity{State: state}
+	out, err := a.Execute(context.Background(), json.RawMessage(`{}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got struct {
+		Mode    string `json:"mode"`
+		Summary struct {
+			AboveMin int `json:"above_min_threshold"`
+		} `json:"summary"`
+	}
+	_ = json.Unmarshal(out.Output, &got)
+	if got.Mode != "inter_pairs" {
+		t.Fatalf("无 baseline 应回到 inter_pairs 模式，实际=%q", got.Mode)
+	}
+	if got.Summary.AboveMin != 0 {
+		t.Fatalf("两个 body 完全不同应 above_min=0，实际=%d", got.Summary.AboveMin)
 	}
 }
 
@@ -410,6 +584,78 @@ func TestComputeSimilarity_ThresholdValidation(t *testing.T) {
 	_, err := a.Execute(context.Background(), json.RawMessage(`{"min_threshold":0.9,"high_threshold":0.5}`))
 	if err == nil {
 		t.Fatal("high_threshold < min_threshold 应报错")
+	}
+}
+
+// ---------- ProbeState.AllResponses ----------
+
+func TestProbeState_AllResponses_NoFlow_ReturnsLastResponsesOnly(t *testing.T) {
+	state := &ProbeState{LastResponses: []replay.Response{
+		{IdentityName: "admin", StatusCode: 200, Body: []byte(`{"x":1}`)},
+		{IdentityName: "user", StatusCode: 200, Body: []byte(`{"x":2}`)},
+	}}
+	got := state.AllResponses()
+	if len(got) != 2 {
+		t.Fatalf("无 LastFlow 应返回 2 条（原 LastResponses），got %d", len(got))
+	}
+	for _, r := range got {
+		if r.IdentityName == OriginalIdentityName {
+			t.Fatalf("无 LastFlow 不应注入 _original_，got %+v", r)
+		}
+	}
+}
+
+func TestProbeState_AllResponses_EmptyResponseBody_ReturnsLastResponsesOnly(t *testing.T) {
+	state := &ProbeState{
+		LastFlow:      flow.Flow{ID: 7, StatusCode: 200, ResponseBody: nil},
+		LastResponses: []replay.Response{{IdentityName: "admin", Body: []byte("x")}},
+	}
+	got := state.AllResponses()
+	if len(got) != 1 {
+		t.Fatalf("空 ResponseBody 不应注入 _original_，got %d", len(got))
+	}
+}
+
+func TestProbeState_AllResponses_PrependsOriginal(t *testing.T) {
+	state := &ProbeState{
+		LastFlow: flow.Flow{
+			ID:           42,
+			StatusCode:   200,
+			ResponseBody: []byte(`{"order_id":"O1003","owner":"alice"}`),
+		},
+		LastResponses: []replay.Response{
+			{IdentityName: "admin", StatusCode: 200, Body: []byte(`{"order_id":"O1003"}`)},
+			{IdentityName: credential.AnonymousName, StatusCode: 401, Body: []byte(`{"err":"unauthorized"}`)},
+		},
+	}
+	got := state.AllResponses()
+	if len(got) != 3 {
+		t.Fatalf("应在头部注入 _original_，got len=%d", len(got))
+	}
+	if got[0].IdentityName != OriginalIdentityName {
+		t.Fatalf("头部应是 _original_，got %q", got[0].IdentityName)
+	}
+	if got[0].StatusCode != 200 {
+		t.Fatalf("baseline 应继承 LastFlow.StatusCode=200，got %d", got[0].StatusCode)
+	}
+	if string(got[0].Body) != `{"order_id":"O1003","owner":"alice"}` {
+		t.Fatalf("baseline.Body 应来自 LastFlow.ResponseBody，got %q", string(got[0].Body))
+	}
+	if got[1].IdentityName != "admin" || got[2].IdentityName != credential.AnonymousName {
+		t.Fatalf("原 LastResponses 顺序应保留，got [%s, %s]", got[1].IdentityName, got[2].IdentityName)
+	}
+}
+
+func TestProbeState_AllResponses_ReturnsFreshSlice(t *testing.T) {
+	// 防别名 bug：返回的切片即使 append 也不应修改 state.LastResponses。
+	state := &ProbeState{
+		LastFlow:      flow.Flow{ID: 1, StatusCode: 200, ResponseBody: []byte("x")},
+		LastResponses: []replay.Response{{IdentityName: "a"}},
+	}
+	got := state.AllResponses()
+	got = append(got, replay.Response{IdentityName: "intruder"})
+	if len(state.LastResponses) != 1 {
+		t.Fatalf("外部 append 不应污染 state.LastResponses，got len=%d", len(state.LastResponses))
 	}
 }
 
@@ -430,7 +676,7 @@ func TestFactory_CreateActions_SharesState(t *testing.T) {
 	for _, a := range acts {
 		names[a.Name()] = a
 	}
-	for _, want := range []string{"fetch_credentials", "replay_multi_identity", "heuristic_check", "compute_similarity"} {
+	for _, want := range []string{"fetch_credentials", "replay_matrix", "heuristic_check", "compute_similarity"} {
 		if _, ok := names[want]; !ok {
 			t.Fatalf("缺少 action: %s", want)
 		}
@@ -443,7 +689,7 @@ func TestFactory_CreateActions_SharesState(t *testing.T) {
 		t.Fatalf("fetch err=%v", err)
 	}
 	fc := names["fetch_credentials"].(*FetchCredentials)
-	rm := names["replay_multi_identity"].(*ReplayMultiIdentity)
+	rm := names["replay_matrix"].(*ReplayMatrix)
 	hc := names["heuristic_check"].(*HeuristicCheck)
 	cs := names["compute_similarity"].(*ComputeSimilarity)
 	if fc.State != rm.State || rm.State != hc.State || hc.State != cs.State {
@@ -464,7 +710,7 @@ func TestFactory_Register_AllNames(t *testing.T) {
 	if err := f.Register(reg, "eng-2", nil); err != nil {
 		t.Fatalf("Register err=%v", err)
 	}
-	for _, want := range []string{"fetch_credentials", "replay_multi_identity", "heuristic_check", "compute_similarity"} {
+	for _, want := range []string{"fetch_credentials", "replay_matrix", "heuristic_check", "compute_similarity"} {
 		if !reg.Has(want) {
 			t.Fatalf("Registry 应有 %s", want)
 		}

@@ -41,6 +41,7 @@ func TestEstimate_Anthropic_CacheDiscount(t *testing.T) {
 //   - cached  : 800K/M * 0.27 * 0.10        = 0.0216
 //   - out     : 100K/M * 1.10               = 0.110
 //   - total                                  = 0.1856
+//
 // 旧公式（错误"加项"）会算成 1M*0.27 + 100K/M*1.10 + 800K*0.27*0.10 = 0.4016。
 func TestEstimate_DeepSeek_CachedSubtracts(t *testing.T) {
 	got := DefaultPricing.Estimate("deepseek", "deepseek-chat", llm.Usage{

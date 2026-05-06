@@ -19,15 +19,15 @@ import (
 
 	"github.com/rs/zerolog"
 
-	"github.com/V3teran/liusha/internal/toolfx"
 	"github.com/V3teran/liusha/internal/llm"
+	"github.com/V3teran/liusha/internal/toolfx"
 )
 
 // debugLogger 仅在 LIUSHA_RUNTIME_DEBUG=1 时打印的诊断 logger，
 // 用于排查"step=1 no_tool_call"这类 LLM 行为问题。生产应保持关闭。
 var debugLogger = func() zerolog.Logger {
 	if os.Getenv("LIUSHA_RUNTIME_DEBUG") == "1" {
-		return zerolog.New(os.Stderr).With().Timestamp().Str("component", "runtime-debug").Logger()
+		return zerolog.New(os.Stderr).With().Timestamp().Str("service", "runtime-debug").Logger()
 	}
 	return zerolog.Nop()
 }()

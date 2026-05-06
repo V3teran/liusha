@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/V3teran/liusha/internal/vulnfinding"
 	"github.com/V3teran/liusha/internal/lesson"
 	"github.com/V3teran/liusha/internal/llm"
+	"github.com/V3teran/liusha/internal/vulnfinding"
 )
 
 // LessonAdder 是 LessonExtractHook 写 host_lesson 的最小依赖。

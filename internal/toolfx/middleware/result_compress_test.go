@@ -134,7 +134,7 @@ func TestResultCompress_DiskFailure(t *testing.T) {
 func TestResultCompress_SequentialNumbering(t *testing.T) {
 	dir := t.TempDir()
 	mw := ResultCompress("eng-seq", dir)
-	exec := mw(stubExecutor(makeBigOutput(3*1024), ""))
+	exec := mw(stubExecutor(makeBigOutput(5*1024), ""))
 
 	paths := make([]string, 0, 3)
 	for i := 0; i < 3; i++ {

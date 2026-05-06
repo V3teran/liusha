@@ -166,3 +166,72 @@ func TestStructuralSimilarity_SimilarReturnsHigh(t *testing.T) {
 		t.Fatalf("差一个 token 应 > 0.7，实际 %v", v)
 	}
 }
+
+// JSON-aware 加权路径测试。
+
+func TestStructuralSimilarity_JSON_IdenticalReturns1(t *testing.T) {
+	a := `{"order_id":7,"buyer":"alice","amount":100}`
+	b := `{"order_id":7,"buyer":"alice","amount":100}`
+	if v := StructuralSimilarity(a, b); v != 1.0 {
+		t.Fatalf("完全相同的 JSON 应 = 1.0，实际 %v", v)
+	}
+}
+
+func TestStructuralSimilarity_JSON_KeyOrderIgnored(t *testing.T) {
+	// 字段顺序不同但内容相同 → 应非常高（path/value 集合相同；length 也接近）。
+	a := `{"order_id":7,"buyer":"alice","amount":100}`
+	b := `{"amount":100,"order_id":7,"buyer":"alice"}`
+	v := StructuralSimilarity(a, b)
+	if v < 0.95 {
+		t.Fatalf("仅键序差异应 >= 0.95，实际 %v", v)
+	}
+}
+
+func TestStructuralSimilarity_JSON_DifferentValuesDropScore(t *testing.T) {
+	// 同 schema 不同值（公开列表 / 错误页 vs 私有数据的对比模式）：
+	// pathSim 高，valueSim 低，最终落在中段，明显 < 0.8。
+	a := `{"order_id":7,"buyer":"alice","amount":100}`
+	b := `{"order_id":99,"buyer":"bob","amount":555}`
+	v := StructuralSimilarity(a, b)
+	if v >= 0.8 {
+		t.Fatalf("同 schema 完全不同值应 < 0.8（valueSim 起主导），实际 %v", v)
+	}
+	if v < 0.3 {
+		t.Fatalf("path 全相同时不应 < 0.3，实际 %v", v)
+	}
+}
+
+func TestStructuralSimilarity_JSON_DifferentShape_VeryLow(t *testing.T) {
+	// 业务数据 vs 错误页：路径全不同 + 值全不同 → < 0.3，给 ComputeSimilarity 的 baseline 模式输出极低分。
+	a := `{"order_id":7,"buyer":"alice","amount":100}`
+	b := `{"error":"unauthorized"}`
+	v := StructuralSimilarity(a, b)
+	if v >= 0.3 {
+		t.Fatalf("业务数据 vs 错误页应 < 0.3，实际 %v", v)
+	}
+}
+
+func TestStructuralSimilarity_JSON_ArrayLengthIgnored(t *testing.T) {
+	// 列表只看第一个元素形态：长度差异不应让相似度暴跌。
+	a := `[{"id":1,"name":"a"}]`
+	b := `[{"id":1,"name":"a"},{"id":2,"name":"b"},{"id":3,"name":"c"}]`
+	v := StructuralSimilarity(a, b)
+	if v < 0.4 {
+		t.Fatalf("列表长度差异不应让 sim 跌到 < 0.4（path/value 仍重叠），实际 %v", v)
+	}
+}
+
+func TestStructuralSimilarity_JSON_FallsBackOnNonJSON(t *testing.T) {
+	// 一端是 JSON 一端是纯文本 → 走 fallback，按 token Jaccard 计算。
+	v := StructuralSimilarity(`{"x":1}`, "plain text response")
+	if v >= 0.3 {
+		t.Fatalf("JSON vs 纯文本应低相似度，实际 %v", v)
+	}
+}
+
+func TestStructuralSimilarity_JSON_EmptyObjects(t *testing.T) {
+	// 双空对象：path/value 都空 → 退化为 length（lenSim=1.0），pathSim=valueSim=1.0 → 整体 1.0。
+	if v := StructuralSimilarity("{}", "{}"); v != 1.0 {
+		t.Fatalf("两个空对象（短路命中 a==b）应 = 1.0，实际 %v", v)
+	}
+}

@@ -109,6 +109,7 @@ proxy:
     - host.docker.internal      # 容器内 scanner → host vulnapp（docker 模式）
     - localhost                 # host 模式（cmd/proxy host 进程时直连 vulnapp）
     - 127.0.0.1                 # host 模式 IP 直连
+    - 49.234.23.42              # 公网 DVWA SQLi 靶场（e2e SQLi profile）
   exclude_methods:              # HTTP 方法黑名单
     - OPTIONS
     - HEAD

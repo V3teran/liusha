@@ -1,21 +1,29 @@
-// Package main 是 liusha BAC 端到端验收触发器：
+// Package main 是 liusha 端到端验收触发器（支持 BAC / SQLi 两套 profile）。
 //
 // 完整流程：
-//  1. 通过 POST /engagement/proxy 懒创建 vulnapp engagement（与 proxify_consumer 端共用同一 host 索引，幂等）；
-//  2. 通过 POST /credential/batch 录入 admin/test/m233241 三套 cookie 凭证；
-//  3. 设 HTTP_PROXY=proxify(8888)，向 vulnapp 打 13 次请求覆盖 4 类 BAC 端点（horizontal/vertical/unauthorized/baseline）；
-//  4. 轮询 finding 表，直到出现 ≥3 条 bac.* finding 且至少 3 类齐全，否则 6 分钟超时退出 1。
+//  1. POST /engagement/proxy 懒创建 engagement（同 host 幂等）
+//  2. POST /credential/batch 录身份（profile 决定具体身份集）
+//  3. 读 sample 文件（一组 raw HTTP/1.1 报文）
+//  4. 用 net.Dial 直连 proxify(:8888) 写 raw bytes（proxy 内置 sanitizer 会做
+//     relative→absolute URI 改写），不解析 headers/body
+//  5. 轮询 finding 表，直到 ≥minFindings 条 <kindPrefix>* 且 ≥minKinds 类齐全
 //
-// 本程序假设完整 docker-compose stack（含 proxify + vulnapp + scanner）已就绪——
-// 它只负责"敲门 + 验收"，不负责拉起依赖。容器编排由 Task 10 的 e2e 脚本/profile 处理。
+// Profile 切换：
+//   - LIUSHA_E2E_PROFILE=bac（默认）：4 条 admin 流量 → 期望 ≥3 条 bac.* finding 3 类齐全
+//   - LIUSHA_E2E_PROFILE=sqli：DVWA SQLi 单条流量 → 期望 ≥1 条 sqli.* finding
+//
+// 设计：e2e-bac 只发起"用户正常流量"，漏洞由子 ReAct 内部 fetch_credentials +
+// replay_matrix 多身份/多 payload 重放发现。
 package main
 
 import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -23,22 +31,72 @@ import (
 	"time"
 
 	"github.com/V3teran/liusha/internal/db"
-	"github.com/V3teran/liusha/internal/vulnfinding"
 	"github.com/V3teran/liusha/internal/logx"
+	"github.com/V3teran/liusha/internal/vulnfinding"
 )
 
-// pollInterval 是 finding 轮询节拍；总超时 pollDeadline。
-// 节奏取自 plan §9：15s tick × 6min budget — 给 worker（observer + lesson_extract + replayer）留足端到端时间。
 const (
 	pollInterval = 15 * time.Second
 	pollDeadline = 6 * time.Minute
-	// minBACFindings 是退出码 0 的最低 finding 数门槛。
-	// vulnapp 简化为"4 类端点各 1 个"后，预期产 3 个 finding（horizontal/vertical/unauthorized 各 1，
-	// baseline /profile 走 done(all_differ) 不产 finding）。
-	minBACFindings = 3
-	// minBACKinds 是退出码 0 的最低 finding 类别覆盖度门槛。
-	minBACKinds = 3
+	dialTimeout  = 10 * time.Second
+	rawIOTimeout = 100 * time.Second
 )
+
+// credentialEntry 是 /credential/batch 单条身份记录的结构。
+type credentialEntry struct {
+	Name        string              `json:"name"`
+	Role        string              `json:"role"`
+	Credentials []map[string]string `json:"credentials"`
+}
+
+// profile 描述一个 e2e 验收剧本（BAC / SQLi）：sample 文件 + 身份集 + 验收门槛。
+type profile struct {
+	name           string
+	defaultSamples string
+	kindPrefix     string
+	minFindings    int
+	minKinds       int
+	// credsForHost 接收 scope_host 返回该 host 的身份列表（profile 自决定身份组）。
+	credsForHost func(host string) []credentialEntry
+}
+
+var profiles = map[string]profile{
+	"bac": {
+		name:           "bac",
+		defaultSamples: "examples/sample_bac_raw.json",
+		kindPrefix:     "bac.",
+		minFindings:    3,
+		minKinds:       3,
+		credsForHost: func(_ string) []credentialEntry {
+			return []credentialEntry{
+				{Name: "admin", Role: "admin", Credentials: []map[string]string{
+					{"type": "headers", "key": "Cookie", "value": "session=admin_sess_a1b2c3"},
+				}},
+				{Name: "test", Role: "user", Credentials: []map[string]string{
+					{"type": "headers", "key": "Cookie", "value": "session=test_sess_d4e5f6"},
+				}},
+				{Name: "m233241", Role: "user", Credentials: []map[string]string{
+					{"type": "headers", "key": "Cookie", "value": "session=m233241_sess_g7h8i9"},
+				}},
+			}
+		},
+	},
+	"sqli": {
+		name:           "sqli",
+		defaultSamples: "examples/sample_sqli_raw.json",
+		kindPrefix:     "sqli.",
+		minFindings:    1,
+		minKinds:       1,
+		// DVWA 风格：单一已认证 admin 身份（PHPSESSID + security=low 双 cookie 拼成一行）。
+		credsForHost: func(_ string) []credentialEntry {
+			return []credentialEntry{
+				{Name: "admin", Role: "admin", Credentials: []map[string]string{
+					{"type": "headers", "key": "Cookie", "value": "PHPSESSID=333lg0l6qt4p9u48aktuquo5r3; security=low"},
+				}},
+			}
+		},
+	},
+}
 
 func main() {
 	logger := logx.New("e2e-bac")
@@ -47,16 +105,36 @@ func main() {
 	apiBase := envOr("LIUSHA_API_BASE", "http://localhost:8080")
 	apiKey := envOr("LIUSHA_API_KEY", "changeme-dev-key")
 	pgDSN := envOr("LIUSHA_POSTGRES_DSN", "postgres://liusha:liusha@localhost:5432/liusha?sslmode=disable")
-	proxyAddr := envOr("LIUSHA_PROXY_ADDR", "http://localhost:8888")
+	proxyURL := envOr("LIUSHA_PROXY_ADDR", "http://localhost:8888")
 	vulnBase := envOr("LIUSHA_VULNAPP_BASE", "http://host.docker.internal:8001")
 
-	// scopeHost 从 vulnBase 提取（去端口）；与 cmd/proxy 落库时 snapshot.Host 必须一致，
-	// 否则 engagement.LookupOrCreate 会生成两条独立 engagement，BAC finding 落到错误的那条。
-	scopeHost, err := extractHost(vulnBase)
+	prof, err := selectProfile(envOr("LIUSHA_E2E_PROFILE", "bac"))
 	if err != nil {
-		logger.Fatal().Err(err).Msg("extract scope host from VULNAPP_BASE")
+		logger.Fatal().Err(err).Msg("select profile")
 	}
-	logger.Info().Str("scope_host", scopeHost).Str("vuln_base", vulnBase).Msg("scope host derived")
+	samplesPath := envOr("LIUSHA_E2E_SAMPLES", prof.defaultSamples)
+
+	proxyHostPort, err := extractHostPort(proxyURL)
+	if err != nil {
+		logger.Fatal().Err(err).Msg("parse proxy addr")
+	}
+
+	samples, err := loadRawSamples(samplesPath)
+	if err != nil {
+		logger.Fatal().Err(err).Msg("load samples")
+	}
+
+	scopeHost, err := resolveScopeHost(vulnBase, samples)
+	if err != nil {
+		logger.Fatal().Err(err).Msg("resolve scope host")
+	}
+	logger.Info().
+		Str("profile", prof.name).
+		Str("scope_host", scopeHost).
+		Str("proxy", proxyHostPort).
+		Str("samples", samplesPath).
+		Int("sample_count", len(samples)).
+		Msg("e2e starting")
 
 	eid, err := createProxyEngagement(apiBase, apiKey, scopeHost)
 	if err != nil {
@@ -64,16 +142,19 @@ func main() {
 	}
 	logger.Info().Str("engagement_id", eid).Msg("engagement ready")
 
-	if err := saveCreds(apiBase, apiKey, scopeHost); err != nil {
+	if err := saveCreds(apiBase, apiKey, scopeHost, prof.credsForHost(scopeHost)); err != nil {
 		logger.Fatal().Err(err).Msg("save credentials")
 	}
 	logger.Info().Msg("credentials enrolled")
 
-	calls := proxyRequests()
-	if err := drive(proxyAddr, vulnBase, calls); err != nil {
-		logger.Fatal().Err(err).Msg("drive vulnapp")
+	logger.Info().Int("samples", len(samples)).Msg("samples loaded")
+
+	for i, raw := range samples {
+		if err := dispatchRaw(proxyHostPort, raw); err != nil {
+			logger.Fatal().Err(err).Int("idx", i).Msg("dispatch raw")
+		}
+		logger.Info().Int("idx", i).Msg("raw dispatched via proxy")
 	}
-	logger.Info().Int("requests", len(calls)).Msg("proxy traffic dispatched")
 
 	pool, err := db.NewPgPool(ctx, pgDSN, 5, 1)
 	if err != nil {
@@ -90,18 +171,79 @@ func main() {
 			time.Sleep(pollInterval)
 			continue
 		}
-		bac := filterBAC(all)
-		kinds := countKinds(bac)
-		logger.Info().Int("bac", len(bac)).Interface("kinds", kinds).Msg("poll")
-		if len(bac) >= minBACFindings && len(kinds) >= minBACKinds {
-			logger.Info().Int("bac", len(bac)).Int("kinds", len(kinds)).Msg("e2e PASS")
-			fmt.Println("✓ e2e 验收通过：BAC findings ≥ 5 且 kinds ≥ 3")
+		matched := filterByPrefix(all, prof.kindPrefix)
+		kinds := countKinds(matched)
+		logger.Info().
+			Str("profile", prof.name).
+			Int("count", len(matched)).
+			Interface("kinds", kinds).
+			Msg("poll")
+		if len(matched) >= prof.minFindings && len(kinds) >= prof.minKinds {
+			logger.Info().Int("count", len(matched)).Int("kinds", len(kinds)).Msg("e2e PASS")
+			fmt.Printf("✓ e2e 验收通过：%s findings=%d kinds=%d\n", prof.name, len(matched), len(kinds))
 			return
 		}
 		time.Sleep(pollInterval)
 	}
-	logger.Error().Msg("e2e timeout: 未达 5 条 finding/3 类覆盖")
+	logger.Error().Msg("e2e timeout: 未达 finding/类覆盖门槛")
 	os.Exit(1)
+}
+
+// selectProfile 按名字解析 profile；未知值报错（避免静默退化）。
+func selectProfile(name string) (profile, error) {
+	p, ok := profiles[strings.ToLower(strings.TrimSpace(name))]
+	if !ok {
+		known := make([]string, 0, len(profiles))
+		for k := range profiles {
+			known = append(known, k)
+		}
+		return profile{}, fmt.Errorf("未知 profile %q（可选：%s）", name, strings.Join(known, ", "))
+	}
+	return p, nil
+}
+
+// resolveScopeHost 决定 engagement scope_host：
+//
+//	优先级：env LIUSHA_E2E_SCOPE_HOST > 首条样本的 Host: 头去端口 > vulnBase URL 的 host
+//
+// 这样 SQLi 用外网 DVWA 时无需配 LIUSHA_VULNAPP_BASE，BAC 用本地 vulnapp 时也不破坏旧行为。
+func resolveScopeHost(vulnBase string, samples []string) (string, error) {
+	if v := os.Getenv("LIUSHA_E2E_SCOPE_HOST"); v != "" {
+		return v, nil
+	}
+	if len(samples) > 0 {
+		if h := extractHostFromRaw(samples[0]); h != "" {
+			return stripPort(h), nil
+		}
+	}
+	return extractHost(vulnBase)
+}
+
+// extractHostFromRaw 从一条 raw HTTP/1.1 报文里抓 Host: 头值（去端口前的原始字符串）。
+// 不做严格 RFC 解析——CRLF 换行 + 空格大小写不敏感即可。
+func extractHostFromRaw(raw string) string {
+	for _, line := range strings.Split(raw, "\r\n") {
+		if line == "" {
+			break
+		}
+		colon := strings.IndexByte(line, ':')
+		if colon < 0 {
+			continue
+		}
+		key := strings.TrimSpace(line[:colon])
+		if strings.EqualFold(key, "host") {
+			return strings.TrimSpace(line[colon+1:])
+		}
+	}
+	return ""
+}
+
+// stripPort 去掉 host 末尾的 :port（保留纯主机名/IP，与 proxy 落库 snapshot.Host 对齐）。
+func stripPort(host string) string {
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		return h
+	}
+	return host
 }
 
 func envOr(k, def string) string {
@@ -111,9 +253,7 @@ func envOr(k, def string) string {
 	return def
 }
 
-// extractHost 从绝对 URL 中提取 host（去端口）。
-// 与 cmd/proxy 的 stripPort 行为对齐——它会把 "host.docker.internal:8001" 截成 "host.docker.internal"，
-// 这样才能让 e2e 创建的 engagement 与 proxy 落库的 engagement 共享同一个 scope_host。
+// extractHost 从 URL 提取去端口的 host（与 proxy 落库 snapshot.Host 对齐）。
 func extractHost(rawURL string) (string, error) {
 	u, err := url.Parse(rawURL)
 	if err != nil {
@@ -126,8 +266,92 @@ func extractHost(rawURL string) (string, error) {
 	return h, nil
 }
 
-// createProxyEngagement 调 POST /engagement/proxy 拿 engagement_id；
-// 后端 LookupOrCreateProxy 同 host 幂等，重复调用不会产生新 engagement。
+// extractHostPort 从代理 URL 提取 host:port，net.Dial 用。
+func extractHostPort(rawURL string) (string, error) {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return "", fmt.Errorf("parse %q: %w", rawURL, err)
+	}
+	if u.Host == "" {
+		return "", fmt.Errorf("URL %q 无 host:port", rawURL)
+	}
+	return u.Host, nil
+}
+
+// loadRawSamples 读 raw HTTP 报文样本数组（每条是一份完整的 HTTP/1.1 报文字符串）。
+func loadRawSamples(path string) ([]string, error) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read %s: %w", path, err)
+	}
+	var out []string
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return nil, fmt.Errorf("decode %s: %w", path, err)
+	}
+	if len(out) == 0 {
+		return nil, fmt.Errorf("%s 空数组", path)
+	}
+	return out, nil
+}
+
+// dispatchRaw 把 raw HTTP/1.1 报文通过 proxy 转发到目标。
+// 写出前注入 Connection: close 头（若用户 sample 中没有），让上游响应完即关连接 →
+// io.Copy 立即拿到 EOF，避免 keepalive 等 100s timeout 让 proxify 误标 502。
+func dispatchRaw(proxyHostPort, rawRequest string) error {
+	conn, err := net.DialTimeout("tcp", proxyHostPort, dialTimeout)
+	if err != nil {
+		return fmt.Errorf("dial proxy %s: %w", proxyHostPort, err)
+	}
+	defer func() { _ = conn.Close() }()
+	_ = conn.SetDeadline(time.Now().Add(rawIOTimeout))
+
+	patched := ensureConnectionClose(rawRequest)
+	if _, err := conn.Write([]byte(patched)); err != nil {
+		return fmt.Errorf("write raw: %w", err)
+	}
+	if _, err := io.Copy(io.Discard, conn); err != nil && !isExpectedReadEnd(err) {
+		return fmt.Errorf("read response: %w", err)
+	}
+	return nil
+}
+
+// ensureConnectionClose 在 raw HTTP/1.1 报文头末尾追加 Connection: close 头。
+// 已含同名头（任何大小写）则原样返回。无 \r\n\r\n 分隔（畸形）也原样返回。
+//
+// 这是为绕过 HTTP/1.1 默认 keepalive：proxify 转发上游响应后保持连接，client
+// 的 io.Copy 等不到 EOF → 走 100s deadline → proxify 把整个 transaction 标 502。
+func ensureConnectionClose(raw string) string {
+	const headEnd = "\r\n\r\n"
+	idx := strings.Index(raw, headEnd)
+	if idx < 0 {
+		return raw
+	}
+	head := raw[:idx]
+	for _, line := range strings.Split(head, "\r\n") {
+		colon := strings.IndexByte(line, ':')
+		if colon < 0 {
+			continue
+		}
+		if strings.EqualFold(strings.TrimSpace(line[:colon]), "connection") {
+			return raw
+		}
+	}
+	return head + "\r\nConnection: close" + raw[idx:]
+}
+
+// isExpectedReadEnd 把代理写完响应主动关连接的情形当正常。
+func isExpectedReadEnd(err error) bool {
+	if err == nil || errors.Is(err, io.EOF) {
+		return true
+	}
+	var ne net.Error
+	if errors.As(err, &ne) && ne.Timeout() {
+		return true
+	}
+	return strings.Contains(err.Error(), "use of closed network connection")
+}
+
+// createProxyEngagement 调 POST /engagement/proxy 拿 engagement_id；同 host 幂等。
 func createProxyEngagement(base, key, host string) (string, error) {
 	body, _ := json.Marshal(map[string]string{"host": host})
 	req, _ := http.NewRequest(http.MethodPost, base+"/engagement/proxy", bytes.NewReader(body))
@@ -154,18 +378,13 @@ func createProxyEngagement(base, key, host string) (string, error) {
 	return out.EngagementID, nil
 }
 
-// saveCreds 录入 host 三套身份的 session cookie；
-// 写入是 host 维度全量替换语义，重复执行幂等。
-// host 必须与 cmd/proxy 看到的 snapshot.Host 一致（去端口形式）。
-func saveCreds(base, key, host string) error {
+// saveCreds 录入 host 身份的 session cookie。host 必须与 proxy 看到的
+// snapshot.Host 一致（去端口形式）；creds 由 profile 决定具体身份组。
+func saveCreds(base, key, host string, creds []credentialEntry) error {
 	payload := map[string]any{
 		"ttl_seconds": 0,
 		"credentials": map[string]any{
-			host: []map[string]any{
-				{"name": "admin", "role": "admin", "credentials": []map[string]string{{"type": "headers", "key": "Cookie", "value": "session=admin_sess_a1b2c3"}}},
-				{"name": "test", "role": "user", "credentials": []map[string]string{{"type": "headers", "key": "Cookie", "value": "session=test_sess_d4e5f6"}}},
-				{"name": "m233241", "role": "user", "credentials": []map[string]string{{"type": "headers", "key": "Cookie", "value": "session=m233241_sess_g7h8i9"}}},
-			},
+			host: creds,
 		},
 	}
 	body, err := json.Marshal(payload)
@@ -187,101 +406,18 @@ func saveCreds(base, key, host string) error {
 	return nil
 }
 
-// proxyCall 描述一次"经 proxify 转发到 vulnapp"的请求形态；
-// Sess=="" 表示 anonymous（不附 cookie），用于触发"未授权访问"类场景。
-type proxyCall struct {
-	Name   string
-	Sess   string
-	Method string
-	Path   string
-	Body   string
-}
-
-// proxyRequests 返回 13 个固定调用，覆盖 4 类 BAC 端点：
-//
-//	/api/bac/profile        baseline (不应触发 finding，作流量基线)
-//	/api/bac/order/7        horizontal_priv_esc（订单 owner=test，被其他身份读到即越权）
-//	/api/bac/admin/users    vertical_priv_esc（普通用户访问管理端点）
-//	/api/bac/admin/delete   unauthorized_access（含 anonymous，无 cookie 也能调）
-//
-// 前 3 类各 ×3 身份（admin/test/m233241）保证 Replayer 拿到多身份对照样本；
-// admin/delete 加 1 个 anonymous 触发未授权访问。
-// 顺序无依赖；后续可由配置驱动而不影响调用方。
-func proxyRequests() []proxyCall {
-	return []proxyCall{
-		// 1. baseline /api/bac/profile：每个身份各取自己的资料（不应触发 finding，作流量基线）
-		{"admin", "admin_sess_a1b2c3", http.MethodGet, "/api/bac/profile", ""},
-		{"test", "test_sess_d4e5f6", http.MethodGet, "/api/bac/profile", ""},
-		{"m233241", "m233241_sess_g7h8i9", http.MethodGet, "/api/bac/profile", ""},
-
-		// 2. /api/bac/order/7：他人订单读 → 水平越权（owner=test，被 admin/m233241 读到）
-		{"admin", "admin_sess_a1b2c3", http.MethodGet, "/api/bac/order/7", ""},
-		{"test", "test_sess_d4e5f6", http.MethodGet, "/api/bac/order/7", ""},
-		{"m233241", "m233241_sess_g7h8i9", http.MethodGet, "/api/bac/order/7", ""},
-
-		// 3. /api/bac/admin/users：垂直越权（test/m233241 访问 admin 端点）
-		{"admin", "admin_sess_a1b2c3", http.MethodGet, "/api/bac/admin/users", ""},
-		{"test", "test_sess_d4e5f6", http.MethodGet, "/api/bac/admin/users", ""},
-		{"m233241", "m233241_sess_g7h8i9", http.MethodGet, "/api/bac/admin/users", ""},
-
-		// 4. POST /api/bac/admin/delete：未授权访问（anonymous 无 cookie 也能成功）
-		{"admin", "admin_sess_a1b2c3", http.MethodPost, "/api/bac/admin/delete", `{"uid":"1"}`},
-		{"test", "test_sess_d4e5f6", http.MethodPost, "/api/bac/admin/delete", `{"uid":"1"}`},
-		{"m233241", "m233241_sess_g7h8i9", http.MethodPost, "/api/bac/admin/delete", `{"uid":"1"}`},
-		{"anonymous", "", http.MethodPost, "/api/bac/admin/delete", `{"uid":"1"}`},
-	}
-}
-
-// drive 把所有 proxyCall 通过 proxify HTTP 代理打到 vulnapp。
-// 每个请求带 100s timeout（含 proxify 内部 LLM sniffer 的写盘耗时）；
-// 任一请求失败立即返回，让上层 logger.Fatal 终止——避免后续轮询白等。
-func drive(proxyAddr, vulnBase string, calls []proxyCall) error {
-	parsedProxy, err := url.Parse(proxyAddr)
-	if err != nil {
-		return fmt.Errorf("parse proxy addr %q: %w", proxyAddr, err)
-	}
-	client := &http.Client{
-		Timeout:   100 * time.Second,
-		Transport: &http.Transport{Proxy: http.ProxyURL(parsedProxy)},
-	}
-
-	for _, c := range calls {
-		var body io.Reader
-		if c.Body != "" {
-			body = bytes.NewReader([]byte(c.Body))
-		}
-		req, err := http.NewRequest(c.Method, vulnBase+c.Path, body)
-		if err != nil {
-			return fmt.Errorf("build %s %s: %w", c.Method, c.Path, err)
-		}
-		if c.Body != "" {
-			req.Header.Set("Content-Type", "application/json")
-		}
-		if c.Sess != "" {
-			req.AddCookie(&http.Cookie{Name: "session", Value: c.Sess})
-		}
-		resp, err := client.Do(req)
-		if err != nil {
-			return fmt.Errorf("call %s %s %s: %w", c.Name, c.Method, c.Path, err)
-		}
-		_, _ = io.Copy(io.Discard, resp.Body)
-		_ = resp.Body.Close()
-	}
-	return nil
-}
-
-// filterBAC 过滤 kind 以 "bac." 开头的 finding；其它 kind（如 leak.*、debug.*）跳过。
-func filterBAC(all []vulnfinding.VulnFinding) []vulnfinding.VulnFinding {
+// filterByPrefix 过滤 kind 以 prefix 开头的 finding（profile 用）。
+func filterByPrefix(all []vulnfinding.VulnFinding, prefix string) []vulnfinding.VulnFinding {
 	out := make([]vulnfinding.VulnFinding, 0, len(all))
 	for _, f := range all {
-		if strings.HasPrefix(f.Kind, "bac.") {
+		if strings.HasPrefix(f.Kind, prefix) {
 			out = append(out, f)
 		}
 	}
 	return out
 }
 
-// countKinds 统计 finding 切片中各 kind 的出现次数；用于"至少 N 类齐全"门槛。
+// countKinds 统计 finding 切片中各 kind 的出现次数。
 func countKinds(fs []vulnfinding.VulnFinding) map[string]int {
 	out := make(map[string]int, len(fs))
 	for _, f := range fs {

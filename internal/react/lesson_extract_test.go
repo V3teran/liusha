@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/V3teran/liusha/internal/vulnfinding"
 	"github.com/V3teran/liusha/internal/lesson"
+	"github.com/V3teran/liusha/internal/vulnfinding"
 )
 
 // lessonAdderSpy 在 lesson_extract 测试里替代真 *lesson.Store。

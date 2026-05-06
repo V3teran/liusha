@@ -24,13 +24,14 @@ import (
 	"syscall"
 	"time"
 
+	bac "github.com/V3teran/liusha/internal/builders/vuln/bac"
+	sqlibuilder "github.com/V3teran/liusha/internal/builders/vuln/sqli"
 	"github.com/V3teran/liusha/internal/config"
 	"github.com/V3teran/liusha/internal/credential"
 	"github.com/V3teran/liusha/internal/db"
 	"github.com/V3teran/liusha/internal/engagement"
 	"github.com/V3teran/liusha/internal/flow"
 	"github.com/V3teran/liusha/internal/flowdecision"
-	"github.com/V3teran/liusha/internal/vulnfinding"
 	"github.com/V3teran/liusha/internal/graph"
 	"github.com/V3teran/liusha/internal/ingestor"
 	"github.com/V3teran/liusha/internal/lesson"
@@ -39,15 +40,16 @@ import (
 	"github.com/V3teran/liusha/internal/logx"
 	"github.com/V3teran/liusha/internal/observability"
 	"github.com/V3teran/liusha/internal/react"
+	"github.com/V3teran/liusha/internal/reactrun"
 	"github.com/V3teran/liusha/internal/replay"
 	"github.com/V3teran/liusha/internal/skill"
-	"github.com/V3teran/liusha/internal/reactrun"
 	"github.com/V3teran/liusha/internal/toolfx"
 	"github.com/V3teran/liusha/internal/toolfx/middleware"
-	bac "github.com/V3teran/liusha/internal/builders/vuln/bac"
 	"github.com/V3teran/liusha/internal/tools/common"
 	"github.com/V3teran/liusha/internal/tools/delegate"
+	"github.com/V3teran/liusha/internal/tools/runners"
 	"github.com/V3teran/liusha/internal/tools/traffic"
+	"github.com/V3teran/liusha/internal/vulnfinding"
 	"github.com/V3teran/liusha/internal/worker"
 
 	"github.com/hibiken/asynq"
@@ -134,7 +136,7 @@ func main() {
 
 	// Skill loader：CC 风格渐进加载——
 	//   1. Index() 启动扫 skills root，预解析所有 SKILL.md 的 frontmatter（不读 body）
-	//   2. Load("vuln-web-bac") 预热（同步首个 body 进缓存）
+	//   2. Load("vuln/web/bac") 预热（同步首个 body 进缓存）
 	//   3. delegate 每次调用走缓存，0 文件 IO
 	skillLoader := skill.NewLoader(cfg.Skills.Root)
 	skillNames, err := skillLoader.Index()
@@ -143,8 +145,11 @@ func main() {
 	}
 	logger.Info().Strs("skills", skillNames).Msg("skill index loaded")
 	// 启动期预热：Load 一次让 BAC SKILL.md 进 cardCache（spawn 时 0 文件 IO）。
-	if _, err := skillLoader.Load("vuln-web-bac"); err != nil {
+	if _, err := skillLoader.Load("vuln/web/bac"); err != nil {
 		logger.Fatal().Err(err).Msg("load BAC skill")
+	}
+	if _, err := skillLoader.Load("vuln/web/sqli"); err != nil {
+		logger.Fatal().Err(err).Msg("load SQLi skill")
 	}
 	// classify-traffic 是 orchestrator 内部 prompt（非可 delegate 的子 skill）：
 	// 由 ClassifyTraffic 工具内部 Load body 当 prompt 用。预热避免首次调用文件 IO。
@@ -207,8 +212,8 @@ func main() {
 		asynq.Config{
 			Concurrency: scannerCfg.AsynqConcurrency,
 			Queues: map[string]int{
-				worker.QueueOrchestrator:     5,
-				worker.QueueDispatch: 1,
+				worker.QueueOrchestrator: 5,
+				worker.QueueDispatch:     1,
 			},
 		},
 	)
@@ -392,6 +397,21 @@ func (h handler) handleTraffic(ctx context.Context, p worker.Payload, entrypoint
 		SkillLoader:       h.skillLoader,
 		ResultCompressDir: h.scannerCfg.ResultCompressDir,
 	})
+	sqliBuilder := sqlibuilder.NewSubBuilder(sqlibuilder.SubBuilderDeps{
+		Engagements:       h.engagements,
+		Findings:          h.findings,
+		Lessons:           h.lessons,
+		Credentials:       h.creds,
+		Flows:             h.flows,
+		Replay:            h.replayEngine,
+		SkillLoader:       h.skillLoader,
+		ResultCompressDir: h.scannerCfg.ResultCompressDir,
+
+		// 重型工具：默认 docker_runner + liusha/pentools:v1。docker 不可用时
+		// docker_runner 调用层会返回 err，escalate_sqlmap 不强制依赖。
+		DockerRunner:  runners.NewDockerRunner(),
+		PentoolsImage: "liusha/pentools:v1",
+	})
 
 	// 主 ReAct 工具集。
 	reg := toolfx.NewRegistry()
@@ -432,12 +452,18 @@ func (h handler) handleTraffic(ctx context.Context, p worker.Payload, entrypoint
 	// 不是可 delegate 的子 skill；混进 catalog 会让主 LLM 误派任务。
 	delegateCatalog := filterDelegateCatalog(h.skillLoader.List())
 	mustReg(&delegate.Delegate{
-		Builders:     map[string]skill.Builder{"vuln-web-bac": bacBuilder},
+		Builders: map[string]skill.Builder{
+			"vuln/web/bac":  bacBuilder,
+			"vuln/web/sqli": sqliBuilder,
+		},
 		EngagementID: eid,
-		SubLLM:       subGen,   // 兜底（maker 为 nil 时用）
+		SubLLM:       subGen, // 兜底（maker 为 nil 时用）
 		Catalog:      delegateCatalog,
 		Observer:     observer, // 兜底
 		Tasks:        h.tasks,
+		// agentic 路线：spawn 时拉完整 flow 详情（headers + body）填进 BuilderParams，
+		// 让子 ReAct LLM 在 user prompt 一次性看到完整流量自识别注入点 / 凭证位等。
+		Flows: h.flows,
 		// 现场用 sub-task uuid Instrument，让 hunter/observer 的 llm_call.task_id
 		// 真正挂在 sub-task 上（之前都挂在父 orchestrator tid）。
 		SubLLMFor: func(subTaskID string) llm.Generator {

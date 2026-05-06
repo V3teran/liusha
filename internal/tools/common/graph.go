@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/V3teran/liusha/internal/toolfx"
 	"github.com/V3teran/liusha/internal/graph"
+	"github.com/V3teran/liusha/internal/toolfx"
 )
 
 // GraphStore 是 WriteGraph 依赖的最小接口。

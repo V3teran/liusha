@@ -1,157 +1,112 @@
 package main
 
 import (
-	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/V3teran/liusha/internal/vulnfinding"
 )
 
-// 13 个调用 = profile×3 + order/7×3 + admin/users×3 + admin/delete×3 + 1 anonymous。
-const wantProxyRequests = 13
+// 4 条样本：profile (baseline) + order/7 (horizontal) + admin/users (vertical) + admin/delete (unauthorized)。
+const wantSamples = 4
 
-// TestProxyRequests_HasExpectedCount 锁住调用集大小，改动需同步调整 e2e 脚本预算。
-func TestProxyRequests_HasExpectedCount(t *testing.T) {
-	got := proxyRequests()
-	if len(got) != wantProxyRequests {
-		t.Fatalf("proxyRequests() len = %d, want %d", len(got), wantProxyRequests)
+// TestSampleFile_HasExpectedCount 锁住样本数量；改动需同步调整 e2e 预算。
+func TestSampleFile_HasExpectedCount(t *testing.T) {
+	samples, err := loadRawSamples(repoSamplePath(t))
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if len(samples) != wantSamples {
+		t.Fatalf("len = %d, want %d", len(samples), wantSamples)
 	}
 }
 
-// TestProxyRequests_AllValid 校验每条记录字段完整性：method 仅 GET/POST、path 以 / 开头、
-// 仅 anonymous 允许 Sess 为空、有 body 必须是 POST。
-func TestProxyRequests_AllValid(t *testing.T) {
-	for i, c := range proxyRequests() {
-		if c.Method != http.MethodGet && c.Method != http.MethodPost {
-			t.Errorf("[%d] %s: method = %q, want GET or POST", i, c.Name, c.Method)
-		}
-		if c.Path == "" || c.Path[0] != '/' {
-			t.Errorf("[%d] %s: path = %q, want absolute path", i, c.Name, c.Path)
-		}
-		if c.Sess == "" && c.Name != "anonymous" {
-			t.Errorf("[%d] %s: empty Sess but name != anonymous", i, c.Name)
-		}
-		if c.Body != "" && c.Method != http.MethodPost {
-			t.Errorf("[%d] %s: body present but method = %s", i, c.Name, c.Method)
-		}
+// TestSampleFile_Covers4Endpoints 锁住"4 类 BAC 场景"覆盖度。
+func TestSampleFile_Covers4Endpoints(t *testing.T) {
+	samples, err := loadRawSamples(repoSamplePath(t))
+	if err != nil {
+		t.Fatalf("load: %v", err)
 	}
-}
-
-// TestProxyRequests_Covers4Endpoints 锁住"4 类 BAC 场景"覆盖度（baseline + 三类越权）——
-// 即使后续调整调用总数，4 类端点也必须保留，否则 worker 出不齐 3 类 finding。
-func TestProxyRequests_Covers4Endpoints(t *testing.T) {
 	want := []string{
-		"/api/bac/profile",       // baseline
-		"/api/bac/order/7",       // horizontal_priv_esc
-		"/api/bac/admin/users",   // vertical_priv_esc
-		"/api/bac/admin/delete",  // unauthorized_access
+		"/api/bac/profile",      // baseline
+		"/api/bac/order/7",      // horizontal_priv_esc
+		"/api/bac/admin/users",  // vertical_priv_esc
+		"/api/bac/admin/delete", // unauthorized_access
 	}
-	got := proxyRequests()
-	for _, prefix := range want {
+	for _, p := range want {
 		hit := false
-		for _, c := range got {
-			if strings.HasPrefix(c.Path, prefix) {
+		for _, s := range samples {
+			if strings.Contains(s, p) {
 				hit = true
 				break
 			}
 		}
 		if !hit {
-			t.Errorf("缺少 BAC 场景 endpoint: %s", prefix)
+			t.Errorf("缺少 BAC 场景 endpoint: %s", p)
 		}
 	}
 }
 
-// TestFilterBAC 验证过滤器：仅保留 kind 以 "bac." 开头的 finding；
-// 同时验证空切片不 panic、纯非 BAC 切片返回空。
+// TestSampleFile_AllAdminCookie 锁住"用户正常流量"语义：
+// 全部样本都用 admin cookie，e2e-bac 不主动模拟 anonymous 攻击；
+// 漏洞由 BAC 子 ReAct fetch_credentials + replay_matrix 内部发现。
+func TestSampleFile_AllAdminCookie(t *testing.T) {
+	samples, err := loadRawSamples(repoSamplePath(t))
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	for i, s := range samples {
+		if !strings.Contains(s, "session=admin_sess_a1b2c3") {
+			t.Errorf("[%d] 应使用 admin cookie 模拟正常流量", i)
+		}
+	}
+}
+
 func TestFilterBAC(t *testing.T) {
 	tests := []struct {
 		name string
 		in   []vulnfinding.VulnFinding
 		want int
 	}{
-		{
-			name: "nil 切片",
-			in:   nil,
-			want: 0,
-		},
-		{
-			name: "纯 BAC",
-			in: []vulnfinding.VulnFinding{
-				{Kind: "bac.horizontal_priv_esc"},
-				{Kind: "bac.vertical_priv_esc"},
-				{Kind: "bac.idor_read"},
-			},
-			want: 3,
-		},
-		{
-			name: "纯非 BAC",
-			in: []vulnfinding.VulnFinding{
-				{Kind: "leak.api_key"},
-				{Kind: "debug.endpoint"},
-			},
-			want: 0,
-		},
-		{
-			name: "混合",
-			in: []vulnfinding.VulnFinding{
-				{Kind: "bac.horizontal_priv_esc"},
-				{Kind: "leak.api_key"},
-				{Kind: "bac.idor_write"},
-				{Kind: "debug.endpoint"},
-				{Kind: "bac.vertical_priv_esc"},
-			},
-			want: 3,
-		},
-		{
-			name: "前缀近似但不匹配（bac 不带点）",
-			in: []vulnfinding.VulnFinding{
-				{Kind: "background.scan"},
-				{Kind: "bac"},
-			},
-			want: 0,
-		},
+		{"nil", nil, 0},
+		{"纯 BAC", []vulnfinding.VulnFinding{{Kind: "bac.horizontal_priv_esc"}, {Kind: "bac.vertical_priv_esc"}}, 2},
+		{"纯非 BAC", []vulnfinding.VulnFinding{{Kind: "leak.api_key"}}, 0},
+		{"混合", []vulnfinding.VulnFinding{{Kind: "bac.horizontal_priv_esc"}, {Kind: "leak.api_key"}, {Kind: "bac.vertical_priv_esc"}}, 2},
+		{"前缀近似但不匹配", []vulnfinding.VulnFinding{{Kind: "background.scan"}, {Kind: "bac"}}, 0},
 	}
-
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := filterBAC(tc.in)
+			got := filterByPrefix(tc.in, "bac.")
 			if len(got) != tc.want {
-				t.Fatalf("filterBAC() len = %d, want %d", len(got), tc.want)
+				t.Fatalf("len = %d, want %d", len(got), tc.want)
 			}
 			for _, f := range got {
 				if !strings.HasPrefix(f.Kind, "bac.") {
-					t.Errorf("filterBAC() 返回非 bac.* kind: %q", f.Kind)
+					t.Errorf("非 bac.* kind: %q", f.Kind)
 				}
 			}
 		})
 	}
 }
 
-// TestCountKinds 锁住"至少 N 类齐全"门槛的核心计数语义。
 func TestCountKinds(t *testing.T) {
 	in := []vulnfinding.VulnFinding{
 		{Kind: "bac.horizontal_priv_esc"},
 		{Kind: "bac.horizontal_priv_esc"},
 		{Kind: "bac.vertical_priv_esc"},
-		{Kind: "bac.idor_read"},
+		{Kind: "bac.unauthorized_access"},
 	}
 	got := countKinds(in)
 	if len(got) != 3 {
-		t.Fatalf("countKinds() 类别数 = %d, want 3", len(got))
+		t.Fatalf("类别数 = %d, want 3", len(got))
 	}
 	if got["bac.horizontal_priv_esc"] != 2 {
-		t.Errorf("horizontal_priv_esc 计数 = %d, want 2", got["bac.horizontal_priv_esc"])
-	}
-	if got["bac.vertical_priv_esc"] != 1 {
-		t.Errorf("vertical_priv_esc 计数 = %d, want 1", got["bac.vertical_priv_esc"])
-	}
-	if got["bac.idor_read"] != 1 {
-		t.Errorf("idor_read 计数 = %d, want 1", got["bac.idor_read"])
+		t.Errorf("horizontal 计数 = %d, want 2", got["bac.horizontal_priv_esc"])
 	}
 }
 
-// TestEnvOr 验证：env 已设取 env，未设/空串取默认。
 func TestEnvOr(t *testing.T) {
 	const k = "LIUSHA_E2E_BAC_TEST_KEY"
 	t.Setenv(k, "")
@@ -162,4 +117,16 @@ func TestEnvOr(t *testing.T) {
 	if got := envOr(k, "default"); got != "override" {
 		t.Errorf("envOr(set) = %q, want override", got)
 	}
+}
+
+// repoSamplePath 找到 examples/sample_bac_raw.json：cmd/e2e-bac 跑 go test 时
+// 工作目录是该包目录，需向上回到仓库根。
+func repoSamplePath(t *testing.T) string {
+	t.Helper()
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	root := filepath.Join(wd, "..", "..")
+	return filepath.Join(root, "examples", "sample_bac_raw.json")
 }

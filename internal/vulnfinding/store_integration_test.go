@@ -37,6 +37,7 @@ func TestStore_Save_NewFinding(t *testing.T) {
 		Title:        "GET /api/order/:oid",
 		Target:       json.RawMessage(`{"url":"/api/order/7"}`),
 		Evidence:     json.RawMessage(`{"violating":["test"]}`),
+		Confidence:   ConfidenceHigh,
 		DedupKey:     "bac.horizontal_priv_esc:vulnapp:GET:/api/order/:oid",
 	})
 	if err != nil {
@@ -51,8 +52,8 @@ func TestStore_Save_NewFinding(t *testing.T) {
 	if f.Severity != SeverityHigh {
 		t.Fatalf("severity 应为 high, got %s", f.Severity)
 	}
-	if f.Confidence != ConfidenceUnverified {
-		t.Fatalf("confidence 缺省应为 unverified, got %s", f.Confidence)
+	if f.Confidence != ConfidenceHigh {
+		t.Fatalf("confidence 应为 high（fixture 显式传入）, got %s", f.Confidence)
 	}
 
 	got, err := s.GetByID(ctx, f.ID)

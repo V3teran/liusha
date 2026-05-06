@@ -6,39 +6,30 @@ import (
 	"fmt"
 
 	"github.com/V3teran/liusha/internal/heuristic"
+	"github.com/V3teran/liusha/internal/replay"
 	"github.com/V3teran/liusha/internal/toolfx"
 )
 
 // 阈值默认（可由 LLM 通过参数覆盖）。
-//   - min_threshold：低阈。所有 pair 低于此值 → verdict=all_below_threshold（无越权信号，可短路）。
-//   - high_threshold：高阈。任一 pair 不低于此值 → verdict=high_similarity_pair（疑似越权，需 LLM 判定真假阳）。
-//   - 中间区 [min, high) → verdict=ambiguous（让 LLM 看具体分值）。
-//   - length_ratio_gate：先看响应长度比，差距过大直接判 score=0（省 Jaccard 计算）。
+//   - min_threshold：低阈，区分"几乎不像 baseline"和"略有重叠"。
+//   - high_threshold：高阈，区分"高度像 baseline"和"模糊重叠"。
+//   - lengthRatioGate：长度差距过大（< 0.3）时跳过 JSON/Jaccard 计算（5xx 错误页 vs 数据页一般差 10x）。
 const (
 	defaultMinThreshold  = 0.6
 	defaultHighThreshold = 0.9
 	lengthRatioGate      = 0.3
 )
 
-// verdict 三态：
-//   - all_below_threshold：所有 pair 都低于 min_threshold → 工具层判定无越权，可直接 done(all_differ)。
-//   - high_similarity_pair：至少一个 pair >= high_threshold → 疑似越权，但需 LLM 排除假阳性
-//     （公开接口 /banner /health；错误页；登录页等同样会高相似）。
-//   - ambiguous：所有命中都在 [min, high) 区间 → LLM 看 suspicious_pairs 分值判定。
-const (
-	verdictAllBelow  = "all_below_threshold"
-	verdictHighSim   = "high_similarity_pair"
-	verdictAmbiguous = "ambiguous"
-)
-
-// ComputeSimilarity — 漏洞探针通用工具：对 ProbeState.LastResponses 两两算 token Jaccard 相似度。
+// ComputeSimilarity 是漏洞探针通用工具（agentic 路线：只输出 raw 分数，由 LLM 自决策）。
 //
-// 与上一版关键差异（本轮重写）：
-//   - **不再返回 N×N 矩阵交给 LLM 解读**：算法直接产出 verdict（三态），LLM 只看结论 + 可疑对。
-//     这样能用算法干掉确定的负例（节省 LLM 调用），保留可疑正例让 LLM 二次确认（避免假阳性）。
-//   - **加 length-ratio 短路**：长度差距 > 3.3x 的 pair 直接判 score=0，跳过 Jaccard 计算
-//     （5xx 错误页 vs 数据页一般差 10x，无需算具体相似度）。
-//   - **suspicious_pairs 替代矩阵**：仅返回 score >= min_threshold 的 pair，附带 length_ratio。
+// 优先 baseline-centric 路径：
+//   - 当 ProbeState 含原始抓包响应（LastFlow.ResponseBody）→ 以 _original_ 为锚点，
+//     每个 replay 与 baseline 算一次 StructuralSimilarity，输出每对 score 让 LLM 自判。
+//   - 当无原始响应 → 退回 N×N 两两比较，输出 score >= min_threshold 的可疑对让 LLM 自判。
+//
+// 工具不下"verdict 结论"——这是 agentic 路线核心：把数学客观值（相似度分数）交给 LLM，
+// 让模型按 SKILL 决策树自己判断（如所有 replay 都不像 baseline = 无漏洞；admin 像 baseline
+// 但其他都不像 = 强越权信号；所有 replay 都像 baseline = 公开接口可能等）。
 type ComputeSimilarity struct {
 	State *ProbeState
 }
@@ -46,32 +37,33 @@ type ComputeSimilarity struct {
 // Name 返回动作名 "compute_similarity"。
 func (a *ComputeSimilarity) Name() string { return "compute_similarity" }
 
-// Description 给 LLM 看的简介，强调"verdict 直接定结论"的语义。
+// Description 给 LLM 看的简介，强调"输出分数让 LLM 决策"的语义。
 func (a *ComputeSimilarity) Description() string {
-	return "对上一次 replay 的多身份响应两两算 token Jaccard 相似度，直接产出 verdict：" +
-		"all_below_threshold（所有 pair 低于低阈，工具层判定无越权，可 done(all_differ)）；" +
-		"high_similarity_pair（任一 pair 高于高阈，疑似越权，但需 LLM 排除公开接口/错误页等假阳性）；" +
-		"ambiguous（在中间区，LLM 看 suspicious_pairs 具体分值判定）。" +
-		"返回 suspicious_pairs（score >= min_threshold 的身份对）+ summary，不返回 N×N 矩阵。"
+	return "对上一次 replay 的多身份响应算结构相似度，输出每对 score 让 LLM 自判。" +
+		"优先走 baseline 模式（每个身份与原始抓包响应对比，输出 baseline_pairs[]）；" +
+		"无原始响应时退回 inter_pairs 模式（输出 score >= min_threshold 的可疑两两对）。" +
+		"工具不下结论——LLM 看 score 分布按 SKILL 决策树判越权 / 公开接口 / 无漏洞等。"
 }
 
-// ParametersJSON：min_threshold + high_threshold（双阈值，verdict 三态语义）。
+// ParametersJSON：min_threshold + high_threshold（双阈值，仅作为筛选 suspicious_pairs 的标尺）。
 func (a *ComputeSimilarity) ParametersJSON() json.RawMessage {
 	return json.RawMessage(`{
   "type":"object",
   "properties": {
-    "min_threshold":{"type":"number","default":0.6,"minimum":0,"maximum":1,"description":"低阈：所有 pair 低于此值 → verdict=all_below_threshold（无越权信号，可短路 done）"},
-    "high_threshold":{"type":"number","default":0.9,"minimum":0,"maximum":1,"description":"高阈：任一 pair 不低于此值 → verdict=high_similarity_pair（疑似越权，需 LLM 判真假阳）"}
+    "min_threshold":{"type":"number","default":0.6,"minimum":0,"maximum":1,"description":"低阈：suspicious_pairs 仅含 score >= 此值的对（fallback 模式）"},
+    "high_threshold":{"type":"number","default":0.9,"minimum":0,"maximum":1,"description":"高阈：summary.above_high_threshold 计数用"}
   }
 }`)
 }
 
-// pairScore 是单个身份对的相似度评分；只在命中 min_threshold 时进入 suspicious_pairs。
+// pairScore 是单个相似度对的评分。
+//   - baseline 模式：A 固定 = "_original_"，B = replay 身份名
+//   - fallback 模式：A、B 均为 replay 身份名
 type pairScore struct {
 	A           string  `json:"a"`
 	B           string  `json:"b"`
 	Score       float64 `json:"score"`
-	LengthRatio float64 `json:"length_ratio"` // min(|a|,|b|)/max(|a|,|b|)，给 LLM 参考
+	LengthRatio float64 `json:"length_ratio"`
 }
 
 // summary 是统计摘要，让 LLM 一眼看清整体分布。
@@ -84,29 +76,51 @@ type summary struct {
 }
 
 // similarityOutput 是 Result.Output 的统一结构。
+//   - Mode = "baseline"：BaselinePairs 含每个 replay 与 _original_ 的对比；SuspiciousPairs 为空。
+//   - Mode = "inter_pairs"：SuspiciousPairs 含 score>=min 的 replay 两两对；BaselinePairs 为空。
+//
+// 不再含 verdict 字段——LLM 看 baseline_pairs / suspicious_pairs / summary 自决策。
 type similarityOutput struct {
 	Algorithm       string      `json:"algorithm"`
+	Mode            string      `json:"mode"`
+	Baseline        string      `json:"baseline,omitempty"`
 	MinThreshold    float64     `json:"min_threshold"`
 	HighThreshold   float64     `json:"high_threshold"`
 	Identities      []string    `json:"identities"`
-	Verdict         string      `json:"verdict"`
-	SuspiciousPairs []pairScore `json:"suspicious_pairs"`
+	BaselinePairs   []pairScore `json:"baseline_pairs,omitempty"`
+	SuspiciousPairs []pairScore `json:"suspicious_pairs,omitempty"`
 	Summary         summary     `json:"summary"`
 }
 
-// Execute 解析 args → 取 LastResponses → 两两算 length-gate + Jaccard → 出 verdict + suspicious_pairs。
+// Execute 解析 args → 选 baseline 模式或 fallback → 算分 → 返回结构化 score。
 func (a *ComputeSimilarity) Execute(_ context.Context, args json.RawMessage) (toolfx.Result, error) {
-	var in struct {
-		MinThreshold  float64 `json:"min_threshold"`
-		HighThreshold float64 `json:"high_threshold"`
-	}
-	if len(args) > 0 {
-		if err := json.Unmarshal(args, &in); err != nil {
-			return toolfx.Result{}, fmt.Errorf("解析 compute_similarity 参数失败: %w", err)
-		}
+	in, err := parseSimilarityArgs(args)
+	if err != nil {
+		return toolfx.Result{}, err
 	}
 	if len(a.State.LastResponses) == 0 {
-		return toolfx.Result{}, fmt.Errorf("state.LastResponses 为空，请先调 replay_multi_identity")
+		return toolfx.Result{}, fmt.Errorf("state.LastResponses 为空，请先调 replay_matrix")
+	}
+
+	all := a.State.AllResponses()
+	if baselineIdx := findBaselineIdx(all); baselineIdx >= 0 {
+		return computeBaselineMode(all, baselineIdx, in)
+	}
+	return computeInterPairsMode(a.State.LastResponses, in)
+}
+
+// similarityArgs 是 ParametersJSON 解析结果，独立类型方便测试。
+type similarityArgs struct {
+	MinThreshold  float64 `json:"min_threshold"`
+	HighThreshold float64 `json:"high_threshold"`
+}
+
+func parseSimilarityArgs(args json.RawMessage) (similarityArgs, error) {
+	var in similarityArgs
+	if len(args) > 0 {
+		if err := json.Unmarshal(args, &in); err != nil {
+			return in, fmt.Errorf("解析 compute_similarity 参数失败: %w", err)
+		}
 	}
 	if in.MinThreshold <= 0 {
 		in.MinThreshold = defaultMinThreshold
@@ -115,10 +129,97 @@ func (a *ComputeSimilarity) Execute(_ context.Context, args json.RawMessage) (to
 		in.HighThreshold = defaultHighThreshold
 	}
 	if in.HighThreshold < in.MinThreshold {
-		return toolfx.Result{}, fmt.Errorf("high_threshold (%v) 不能小于 min_threshold (%v)", in.HighThreshold, in.MinThreshold)
+		return in, fmt.Errorf("high_threshold (%v) 不能小于 min_threshold (%v)", in.HighThreshold, in.MinThreshold)
+	}
+	return in, nil
+}
+
+// findBaselineIdx 在响应列表里找到 _original_ 锚点的下标，未找到返回 -1。
+func findBaselineIdx(rs []replay.Response) int {
+	for i := range rs {
+		if rs[i].IdentityName == replay.OriginalIdentityName {
+			return i
+		}
+	}
+	return -1
+}
+
+// computeBaselineMode 是 baseline-centric 主路径：每个非锚点响应与 baseline 算一次相似度。
+func computeBaselineMode(all []replay.Response, baselineIdx int, in similarityArgs) (toolfx.Result, error) {
+	baseline := all[baselineIdx]
+	replays := make([]replay.Response, 0, len(all)-1)
+	for i, r := range all {
+		if i != baselineIdx {
+			replays = append(replays, r)
+		}
 	}
 
-	rs := a.State.LastResponses
+	identities := make([]string, len(replays))
+	for i := range replays {
+		identities[i] = replays[i].IdentityName
+	}
+
+	out := similarityOutput{
+		Algorithm:     "structural_v2",
+		Mode:          "baseline",
+		Baseline:      baseline.IdentityName,
+		MinThreshold:  in.MinThreshold,
+		HighThreshold: in.HighThreshold,
+		Identities:    identities,
+		BaselinePairs: []pairScore{},
+	}
+
+	// 没有 replay → 无对比；空摘要返回，LLM 看到 BaselinePairs=[] 自己判定。
+	if len(replays) == 0 {
+		out.Summary = summary{}
+		return marshalResult(out, 1)
+	}
+
+	maxScore := -1.0
+	minScore := 2.0
+	aboveHigh := 0
+	aboveMin := 0
+	for _, r := range replays {
+		la, lb := len(baseline.Body), len(r.Body)
+		lr := lengthRatio(la, lb)
+		var score float64
+		if lr < lengthRatioGate {
+			score = 0
+		} else {
+			score = heuristic.StructuralSimilarity(string(baseline.Body), string(r.Body))
+		}
+		if score > maxScore {
+			maxScore = score
+		}
+		if score < minScore {
+			minScore = score
+		}
+		if score >= in.HighThreshold {
+			aboveHigh++
+		}
+		if score >= in.MinThreshold {
+			aboveMin++
+		}
+		out.BaselinePairs = append(out.BaselinePairs, pairScore{
+			A:           baseline.IdentityName,
+			B:           r.IdentityName,
+			Score:       score,
+			LengthRatio: lr,
+		})
+	}
+
+	out.Summary = summary{
+		TotalPairs: len(replays),
+		MaxScore:   maxScore,
+		MinScore:   minScore,
+		AboveHigh:  aboveHigh,
+		AboveMin:   aboveMin,
+	}
+	return marshalResult(out, len(all))
+}
+
+// computeInterPairsMode 是无 baseline 时的 fallback：N×N 两两比较，仅输出 score >= min 的对。
+func computeInterPairsMode(rs []replay.Response, in similarityArgs) (toolfx.Result, error) {
 	n := len(rs)
 	identities := make([]string, n)
 	for i := range rs {
@@ -126,16 +227,15 @@ func (a *ComputeSimilarity) Execute(_ context.Context, args json.RawMessage) (to
 	}
 
 	out := similarityOutput{
-		Algorithm:       "jaccard_token+length_gate",
+		Algorithm:       "structural_v2",
+		Mode:            "inter_pairs",
 		MinThreshold:    in.MinThreshold,
 		HighThreshold:   in.HighThreshold,
 		Identities:      identities,
 		SuspiciousPairs: []pairScore{},
 	}
 
-	// 单一身份没有 pair：当 verdict=all_below_threshold（无对比，直接判无越权信号）。
 	if n < 2 {
-		out.Verdict = verdictAllBelow
 		out.Summary = summary{MinScore: 1.0}
 		return marshalResult(out, n)
 	}
@@ -150,15 +250,12 @@ func (a *ComputeSimilarity) Execute(_ context.Context, args json.RawMessage) (to
 			totalPairs++
 			la, lb := len(rs[i].Body), len(rs[j].Body)
 			lr := lengthRatio(la, lb)
-
 			var score float64
 			if lr < lengthRatioGate {
-				// 长度差距太大 → 直接判不相似，跳过 Jaccard（省 CPU）。
 				score = 0
 			} else {
 				score = heuristic.StructuralSimilarity(string(rs[i].Body), string(rs[j].Body))
 			}
-
 			if score > maxScore {
 				maxScore = score
 			}
@@ -180,15 +277,6 @@ func (a *ComputeSimilarity) Execute(_ context.Context, args json.RawMessage) (to
 		}
 	}
 
-	switch {
-	case aboveHigh > 0:
-		out.Verdict = verdictHighSim
-	case aboveMin > 0:
-		out.Verdict = verdictAmbiguous
-	default:
-		out.Verdict = verdictAllBelow
-	}
-
 	out.Summary = summary{
 		TotalPairs: totalPairs,
 		MaxScore:   maxScore,
@@ -196,11 +284,10 @@ func (a *ComputeSimilarity) Execute(_ context.Context, args json.RawMessage) (to
 		AboveHigh:  aboveHigh,
 		AboveMin:   aboveMin,
 	}
-
 	return marshalResult(out, n)
 }
 
-// marshalResult 序列化输出 + 拼一行 Summary 给 react/log 看（不进 LLM 回上下文，避免冗余）。
+// marshalResult 序列化输出 + 拼一行 Summary 给 react/log 看。
 func marshalResult(out similarityOutput, n int) (toolfx.Result, error) {
 	enc, err := json.Marshal(out)
 	if err != nil {
@@ -209,8 +296,8 @@ func marshalResult(out similarityOutput, n int) (toolfx.Result, error) {
 	return toolfx.Result{
 		Output: enc,
 		Summary: fmt.Sprintf(
-			"compute_similarity n=%d verdict=%s max=%.2f above_min=%d above_high=%d",
-			n, out.Verdict, out.Summary.MaxScore, out.Summary.AboveMin, out.Summary.AboveHigh,
+			"compute_similarity mode=%s n=%d max=%.2f above_min=%d above_high=%d",
+			out.Mode, n, out.Summary.MaxScore, out.Summary.AboveMin, out.Summary.AboveHigh,
 		),
 	}, nil
 }
