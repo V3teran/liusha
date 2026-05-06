@@ -301,11 +301,12 @@ type handler struct {
 	logger       zerolog.Logger
 }
 
-// failTask 把错误标记到 task 表（SetError 失败不传播），返回原 err 链便于 caller `return`。
-//
-// 统一收口"出错时打 task 状态 + 返回 err"两步，避免每个 error path 重复 8 行模板。
+// failTask 把错误标记到 task 表（SetError 失败仅 warn 不传播），返回原 err 链便于 caller `return`。
 func (h handler) failTask(ctx context.Context, taskID string, err error) error {
-	_ = h.tasks.SetError(ctx, taskID, err.Error())
+	if setErr := h.tasks.SetError(ctx, taskID, err.Error()); setErr != nil {
+		h.logger.Warn().Err(setErr).Str("task_id", taskID).
+			Msg("SetError 失败（task 留在 running，原始错误已透传给 caller）")
+	}
 	return err
 }
 

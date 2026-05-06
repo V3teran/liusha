@@ -1,7 +1,7 @@
 // Package runners 提供"在容器里跑外部工具"的通用底座。
 //
 // 当前唯一实现：DockerRunner（用 docker CLI exec，避开 docker SDK 依赖）。
-// 上层（如 internal/tools/external/sqlmap.go）只关心 RunSpec/RunResult，
+// 上层（如 internal/tools/external.RunCommand）只关心 RunSpec/RunResult，
 // 不需要懂 docker flag 细节。
 package runners
 
@@ -30,9 +30,9 @@ import (
 type RunSpec struct {
 	Image string
 	Cmd   []string
-	// ContainerName 是 docker --name 值（如 "liusha-sqlmap-fe113e01"），
+	// ContainerName 是 docker --name 值（如 "liusha-shell-default-a1b2c3d4"），
 	// 让运维 docker ps / docker logs 能直接定位某次扫描；空值由 docker 自动生成。
-	// caller 必须保证唯一性（docker --name 重复会报错）；通常拼 task UUID 前 8 位。
+	// caller 必须保证唯一性（docker --name 重复会报错）。
 	ContainerName string
 	Workdir       string
 	Network       string

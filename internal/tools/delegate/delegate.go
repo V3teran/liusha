@@ -22,14 +22,21 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/rs/zerolog"
+
 	"github.com/V3teran/liusha/internal/credential"
 	"github.com/V3teran/liusha/internal/flow"
 	"github.com/V3teran/liusha/internal/llm"
+	"github.com/V3teran/liusha/internal/logx"
 	"github.com/V3teran/liusha/internal/react"
 	"github.com/V3teran/liusha/internal/reactrun"
 	"github.com/V3teran/liusha/internal/skill"
 	"github.com/V3teran/liusha/internal/toolfx"
 )
+
+// delegateLog 包级 logger（与 instrument.go / classify_traffic.go 同模式：
+// 避免每次调用触发 logx.New）。
+var delegateLog zerolog.Logger = logx.New("tools.delegate")
 
 // FlowReader 是 delegate 拉完整 flow 详情用的最小读接口，由 *flow.Store 自动满足。
 // 子 ReAct 经 BuilderParams.RequestHeaders/RequestBody 一次性看到完整流量
@@ -294,8 +301,7 @@ func (a *Delegate) recordSubTaskStart(ctx context.Context, in struct {
 	return id, nil
 }
 
-// recordSubTaskDone 把 sub-task 推进到 done，写入 result。
-// 失败仅警告级别（不应阻塞 sub-react 真正的成功返回给主 LLM）。
+// recordSubTaskDone 把 sub-task 推进到 done，写入 result（best-effort：失败仅 warn）。
 func (a *Delegate) recordSubTaskDone(ctx context.Context, id, skillName string, sub react.Outcome) {
 	if a.Tasks == nil || id == "" {
 		return
@@ -307,13 +313,19 @@ func (a *Delegate) recordSubTaskDone(ctx context.Context, id, skillName string, 
 		"in_tokens":    sub.TotalUsage.InTokens,
 		"out_tokens":   sub.TotalUsage.OutTokens,
 	})
-	_ = a.Tasks.SetDone(ctx, id, result)
+	if err := a.Tasks.SetDone(ctx, id, result); err != nil {
+		delegateLog.Warn().Err(err).Str("sub_task_id", id).Str("skill", skillName).
+			Msg("sub-task SetDone 失败（task 留在 running，不阻塞主 ReAct）")
+	}
 }
 
-// recordSubTaskError 把 sub-task 推进到 error（best-effort）。
-func (a *Delegate) recordSubTaskError(ctx context.Context, id string, err error) {
+// recordSubTaskError 把 sub-task 推进到 error（best-effort：失败仅 warn）。
+func (a *Delegate) recordSubTaskError(ctx context.Context, id string, origErr error) {
 	if a.Tasks == nil || id == "" {
 		return
 	}
-	_ = a.Tasks.SetError(ctx, id, err.Error())
+	if err := a.Tasks.SetError(ctx, id, origErr.Error()); err != nil {
+		delegateLog.Warn().Err(err).Str("sub_task_id", id).
+			Msg("sub-task SetError 失败（task 留在 running，不阻塞主 ReAct）")
+	}
 }
