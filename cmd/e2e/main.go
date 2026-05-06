@@ -1,19 +1,21 @@
-// Package main 是 liusha 端到端验收触发器（支持 BAC / SQLi 两套 profile）。
+// Package main 是 liusha 端到端验收触发器，按 profile 选漏洞类型与样本。
 //
 // 完整流程：
 //  1. POST /engagement/proxy 懒创建 engagement（同 host 幂等）
 //  2. POST /credential/batch 录身份（profile 决定具体身份集）
 //  3. 读 sample 文件（一组 raw HTTP/1.1 报文）
-//  4. 用 net.Dial 直连 proxify(:8888) 写 raw bytes（proxy 内置 sanitizer 会做
+//  4. 用 net.Dial 直连 proxify(:8888) 写 raw bytes（proxy 内置 sanitizer 做
 //     relative→absolute URI 改写），不解析 headers/body
 //  5. 轮询 finding 表，直到 ≥minFindings 条 <kindPrefix>* 且 ≥minKinds 类齐全
 //
 // Profile 切换：
-//   - LIUSHA_E2E_PROFILE=bac（默认）：4 条 admin 流量 → 期望 ≥3 条 bac.* finding 3 类齐全
-//   - LIUSHA_E2E_PROFILE=sqli：DVWA SQLi 单条流量 → 期望 ≥1 条 sqli.* finding
+//   - LIUSHA_E2E_PROFILE=bac（默认）：3 身份正常流量 → 期望 ≥3 条 bac.* / 3 类齐全
+//   - LIUSHA_E2E_PROFILE=sqli       ：DVWA 单流量      → 期望 ≥1 条 sqli.*
 //
-// 设计：e2e-bac 只发起"用户正常流量"，漏洞由子 ReAct 内部 fetch_credentials +
-// replay_matrix 多身份/多 payload 重放发现。
+// 触发器只发起"用户正常流量"——具体漏洞由子 ReAct 内部 fetch_credentials +
+// replay_matrix（BAC）或 run_command 容器化沙箱（SQLi）多 payload 重放发现。
+//
+// 想加新漏洞类型：profiles map 加一行 + 写 examples/sample_<vuln>_raw.json 即可。
 package main
 
 import (
@@ -99,7 +101,7 @@ var profiles = map[string]profile{
 }
 
 func main() {
-	logger := logx.New("e2e-bac")
+	logger := logx.New("e2e")
 	ctx := context.Background()
 
 	apiBase := envOr("LIUSHA_API_BASE", "http://localhost:8080")

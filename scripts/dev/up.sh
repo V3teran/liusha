@@ -31,5 +31,5 @@ docker compose -f deployments/docker-compose.yml ps --format "table {{.Name}}\t{
 echo ""
 echo "✓ 基础设施就绪。下一步："
 echo "    ./scripts/dev/run-svc.sh        # 起 vulnapp + api + scanner（host 侧）"
-echo "    ./scripts/dev/e2e.sh            # 跑 e2e-bac 触发器（另一个终端）"
+echo "    ./scripts/dev/e2e.sh [bac|sqli] # 跑 e2e 触发器（profile 默认 bac，另一个终端）"
 echo "    ./scripts/dev/down.sh           # 关基础设施"

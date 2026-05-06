@@ -91,7 +91,7 @@ func splitDedupKey(rawKey string) (kind, host, method, path string, ok bool) {
 }
 
 // stripHostPort 去掉 host 末尾的 :port；纯主机名/IP 不变。
-// 与 e2e-bac 同名 helper 同语义，独立实现避免跨包依赖。
+// 与 cmd/e2e 同名 helper 同语义，独立实现避免跨包依赖。
 func stripHostPort(host string) string {
 	if h, _, err := net.SplitHostPort(host); err == nil {
 		return h

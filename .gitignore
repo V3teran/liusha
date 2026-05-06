@@ -27,7 +27,7 @@ coverage.html
 /api
 /agent-worker
 /vulnapp
-/e2e-bac
+/e2e
 
 # 第三方参考资料（设计已提炼到本地 docs/hks2.md / spec / plan，原始资料不入 git）
 /docs/Tsec-Hackathon-main/

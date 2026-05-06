@@ -47,7 +47,9 @@ docker compose -f deployments/docker-compose.yml ps
 ### 3. 跑触发器（约 6 分钟）
 
 ```bash
-make e2e-bac
+make e2e            # 默认 bac profile
+make e2e-sqli       # 切到 SQLi profile
+make e2e PROFILE=sqli  # 显式指定 profile（任意支持的 vuln type）
 ```
 
 或直接：
@@ -55,7 +57,8 @@ make e2e-bac
 ```bash
 DEEPSEEK_API_KEY=$DEEPSEEK_API_KEY \
 LIUSHA_POSTGRES_DSN=postgres://liusha:liusha@localhost:5432/liusha?sslmode=disable \
-go run ./cmd/e2e-bac
+LIUSHA_E2E_PROFILE=bac \
+go run ./cmd/e2e
 ```
 
 预期日志：

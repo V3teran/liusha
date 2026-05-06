@@ -1,4 +1,4 @@
-.PHONY: up down logs migrate migrate-down run-api build-api build-proxy build-scanner build-vulnapp test test-unit test-integration lint fmt tidy vet e2e-bac
+.PHONY: up down logs migrate migrate-down run-api build-api build-proxy build-scanner build-vulnapp test test-unit test-integration lint fmt tidy vet e2e e2e-bac e2e-sqli
 
 COMPOSE = docker compose -f deployments/docker-compose.yml
 MIGRATE_DSN ?= postgres://liusha:liusha@localhost:5432/liusha?sslmode=disable
@@ -56,5 +56,14 @@ fmt:
 tidy:
 	go mod tidy
 
+# e2e 通用触发器：默认 bac profile，可用 PROFILE=sqli 切换
+# 示例：make e2e PROFILE=sqli  /  make e2e-bac  /  make e2e-sqli
+PROFILE ?= bac
+e2e:
+	LIUSHA_E2E_PROFILE=$(PROFILE) go run ./cmd/e2e
+
 e2e-bac:
-	go run ./cmd/e2e-bac
+	$(MAKE) e2e PROFILE=bac
+
+e2e-sqli:
+	$(MAKE) e2e PROFILE=sqli

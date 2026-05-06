@@ -1,9 +1,12 @@
 #!/usr/bin/env bash
-# scripts/dev/e2e.sh — 跑 e2e-bac 触发器（host 侧），需要 run-svc.sh 在另一个终端跑着
-# 流程：建 engagement → 录凭证 → 18 代理请求 → 轮询 finding + 4 项黑客松断言
+# scripts/dev/e2e.sh [profile] — 跑 e2e 触发器（host 侧），需要 run-svc.sh 在另一个终端跑着
+# 流程：建 engagement → 录凭证 → 按 profile 发样本流量 → 轮询 finding 直到达标
+# profile：bac（默认）/ sqli；新漏洞类型在 cmd/e2e 的 profiles map 加一行即可
 
 set -euo pipefail
 cd "$(dirname "$0")/../.."
+
+PROFILE="${1:-bac}"
 
 # load .env.local
 if [ -f .env.local ]; then
@@ -53,19 +56,18 @@ else
 fi
 
 echo ""
-echo "===== 跑 e2e-bac 触发器（约 6 分钟）====="
-go run ./cmd/e2e-bac
+echo "===== 跑 e2e 触发器 profile=${PROFILE}（约 1-6 分钟）====="
+LIUSHA_E2E_PROFILE="$PROFILE" go run ./cmd/e2e
 RC=$?
 
 echo ""
 if [ $RC -eq 0 ]; then
-  echo "🎉 e2e PASS（≥5 finding + 黑客松 4 项断言全过）"
+  echo "🎉 e2e PASS（profile=${PROFILE}）"
 else
-  echo "✗ e2e 失败（exit $RC）"
+  echo "✗ e2e 失败（exit $RC, profile=${PROFILE}）"
   echo "  排查："
   echo "    1. logs/scanner.log 看 ReAct 循环是否跑"
-  echo "    2. logs/api.log 看 sniffer enqueue 是否成功"
-  echo "    3. docker exec liusha-postgres psql -U liusha -d liusha -c 'SELECT kind,severity,dedup_key FROM finding;'"
+  echo "    2. docker exec liusha-postgres psql -U liusha -d liusha -c 'SELECT kind,severity,dedup_key FROM vuln_finding;'"
 fi
 
 exit $RC

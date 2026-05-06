@@ -50,7 +50,7 @@ func TestSampleFile_Covers4Endpoints(t *testing.T) {
 }
 
 // TestSampleFile_AllAdminCookie 锁住"用户正常流量"语义：
-// 全部样本都用 admin cookie，e2e-bac 不主动模拟 anonymous 攻击；
+// 全部样本都用 admin cookie，触发器不主动模拟 anonymous 攻击；
 // 漏洞由 BAC 子 ReAct fetch_credentials + replay_matrix 内部发现。
 func TestSampleFile_AllAdminCookie(t *testing.T) {
 	samples, err := loadRawSamples(repoSamplePath(t))
@@ -108,7 +108,7 @@ func TestCountKinds(t *testing.T) {
 }
 
 func TestEnvOr(t *testing.T) {
-	const k = "LIUSHA_E2E_BAC_TEST_KEY"
+	const k = "LIUSHA_E2E_TEST_KEY"
 	t.Setenv(k, "")
 	if got := envOr(k, "default"); got != "default" {
 		t.Errorf("envOr(空) = %q, want default", got)
@@ -119,7 +119,7 @@ func TestEnvOr(t *testing.T) {
 	}
 }
 
-// repoSamplePath 找到 examples/sample_bac_raw.json：cmd/e2e-bac 跑 go test 时
+// repoSamplePath 找到 examples/sample_bac_raw.json：cmd/e2e 跑 go test 时
 // 工作目录是该包目录，需向上回到仓库根。
 func repoSamplePath(t *testing.T) string {
 	t.Helper()
