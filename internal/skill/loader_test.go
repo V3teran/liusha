@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-// 工具：在 t.TempDir 下落 SKILL.md / cognitive_map.md，返回 root 路径。
+// writeSkill 在 t.TempDir 下落 root/<name>/SKILL.md，返回 root 路径。
 func writeSkill(t *testing.T, name, body string) string {
 	t.Helper()
 	root := t.TempDir()
@@ -74,12 +74,7 @@ func TestLoader_Load_MissingFrontmatter(t *testing.T) {
 	}
 }
 
-// v1.1 末次精简：删除 allowed-tools / done_validator frontmatter 字段，
-// 相关 3 个测试已废弃（TestLoader_Load_AllowedToolsField /
-// TestLoader_Load_DoneValidator_NotRegistered/Registered）。
-// 理由：builder 是唯一真理来源，frontmatter 重复声明已删除。
-
-// 文件不存在
+// TestLoader_Load_SkillNotFound：name 对应的 SKILL.md 不存在 → ReadFile 错误。
 func TestLoader_Load_SkillNotFound(t *testing.T) {
 	root := t.TempDir()
 	l := NewLoader(root)

@@ -38,8 +38,6 @@ func (s *Store) WithCounter(c engagementCounter) *Store {
 }
 
 // colsSelect 是所有 SELECT 路径的统一列序，与 scanTask() 的字段顺序一一对应。
-// v1.1：删除 parent_task_id 列（子 ReAct 同进程嵌套，不再入 PG，无父子关系）。
-// v0010：删除 budget 列（NewParams.Budget 永远 nil，是死字段）。
 const colsSelect = `id, engagement_id, role, skill, input, result, status, created_at, updated_at`
 
 // Create 插入一行 pending 任务，返回新 id。Input 为 nil 时落空对象。

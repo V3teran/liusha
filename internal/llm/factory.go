@@ -1,9 +1,9 @@
 // Package llm 的 Factory 实现：role → field → provider key → 无状态 Generator 路由。
 //
-// v1.1 改造：
-//   - 不再缓存 Generator（避免跨 task tools 错乱 bug）；ClientPool 共享底层 HTTP client。
-//   - 双 namespace 路由：agents（orchestrator/hunter/observer）vs utilities（lesson_extract/vision/...）
-//     调用 Router.For(ctx, "orchestrator") 合并查找两个 map，对调用方透明。
+// 关键不变量：
+//   - Generator 不缓存（避免跨 task tools 错乱），底层 HTTP client 由 ClientPool 共享。
+//   - 双 namespace 路由：agents（orchestrator/hunter/observer）vs utilities（lesson_extract/vision/...）；
+//     调用方 Router.For(ctx, role) 透明合并查找两个 map。
 //
 // 路由规则：
 //   - cfg.LLM.Agents[role] 或 cfg.LLM.Utilities[role] = field name（如 "default_provider"）

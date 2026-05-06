@@ -13,22 +13,12 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// Loader 从 root 目录加载 SKILL.md，提供 CC 风格的渐进式加载：
+// Loader 从 root 目录加载 SKILL.md，CC 风格的渐进式加载：
 //
-//	Index()           启动时 walk root，预解析所有 SKILL.md 的 frontmatter（不读 body）→ 进 metaCache
-//	Load(name)        懒加载完整 Card：未命中 → ReadFile + 解析 + 校验 + 缓存进 cardCache
-//	                  命中 cardCache 直接返回（每 spawn_skill 调用 0 文件 IO）
+//	Index()    启动时 walk root，预解析所有 frontmatter（不读 body）→ metaCache
+//	Load(name) 懒加载完整 Card：命中 cardCache 直接返回（0 文件 IO）
 //
-// 启动校验：
-//  1. frontmatter 解析成功
-//  2. cognitive_map（如配置）文件存在 + 含 ≥ 6 个 ^##\s+\d+\. 标题（黑客松 6 槽位）
-//  3. done_validator（如配置）必须在 ActionRegistry 已注册（通过回调判断）
-//
-// 设计要点：
-//   - 启动时 Index() 把所有 SKILL.md 的 frontmatter 全扫一遍——发现配置错误 fail-fast，
-//     而不是等到 spawn_skill("xxx") 才报。
-//   - Load() 第一次按需读 body 后写入 cardCache；后续命中直接返回。
-//   - 并发安全：sync.Map 双层缓存。
+// 启动期 Index() 全扫 frontmatter——配置错误 fail-fast；并发安全（sync.Map 双层缓存）。
 type Loader struct {
 	root      string
 	metaCache sync.Map // key=name, val=*Card（metadata only, Body 为空）
@@ -41,13 +31,7 @@ func NewLoader(root string) *Loader {
 }
 
 // Index 启动时遍历 root，把每个 <name>/SKILL.md 的 frontmatter 解析进 metaCache。
-//
-// CC 风格：metadata always loaded（启动期校验 + 路由可见），body lazy load。
-//
-// 返回：发现的 skill 名列表（按字典序）。任一 SKILL.md 解析失败 → 立即 error，启动 fail-fast。
-//
-// 注意：该方法不校验 cognitive_map / done_validator——这些校验在 Load 时按需做，
-// 因为 done_validator 注册依赖 tool.Registry，而 Index 在 main 装配早期跑（Registry 还未填）。
+// 返回 skill 名列表（按字典序）；任一 SKILL.md 解析失败 → 立即 error，启动 fail-fast。
 func (l *Loader) Index() ([]string, error) {
 	var names []string
 	err := filepath.WalkDir(l.root, func(path string, d fs.DirEntry, err error) error {
@@ -89,12 +73,7 @@ func (l *Loader) Index() ([]string, error) {
 }
 
 // Load 读 root/<name>/SKILL.md，解析 frontmatter + body，返回完整 Card。
-//
 // 命中 cardCache 直接返回；未命中 → 读 SKILL.md + 缓存。
-//
-// 设计简化（v1.1 末次精简）：
-//   - 不再有启动期 cross-check（allowed-tools / done_validator 字段已删）
-//   - builder 是唯一真理来源：register 什么工具就能用什么；NewBACValidator 直接装配
 func (l *Loader) Load(name string) (*Card, error) {
 	if v, ok := l.cardCache.Load(name); ok {
 		return v.(*Card), nil

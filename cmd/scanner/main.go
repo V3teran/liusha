@@ -488,7 +488,6 @@ func (h handler) handleTraffic(ctx context.Context, p worker.Payload, entrypoint
 	}
 
 	// middleware：result_compress + done_validate(nil = AlwaysOK)。
-	// v1.2 收尾：notes 改 engagement-scope 后不再 prune，pruneHook 删除。
 	reg.Use(
 		middleware.ResultCompress(eid, h.scannerCfg.ResultCompressDir),
 		middleware.DoneValidate(nil, nil),

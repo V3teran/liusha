@@ -14,8 +14,8 @@ type Mode string
 // Status 表示 engagement 的生命周期状态。
 type Status string
 
-// v1.2 收尾：原 Category 类型 + memoryKey 已删——facts/ideas 合并 notes 后，
-// kind 的 enum 校验在 internal/tools/common/memory.go 的 take_note 工具层做。
+// notes 的 kind 枚举（observation/hypothesis/boundary）校验在
+// internal/tools/common/memory.go 的 take_note 工具层做。
 const (
 	ModeProxy   Mode = "proxy"
 	ModeBrowser Mode = "browser"

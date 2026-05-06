@@ -1,7 +1,7 @@
-// Package task 实现 agent_task 持久化层：每一次主 ReAct 调用对应一行，
-// 状态机 pending → running → done|error|aborted。
+// Package reactrun 实现 agent_task 持久化层：每次主 ReAct 调用对应一行，
+// 状态机 pending → running → done | error | aborted。
 //
-// v1.1：parent_task_id 列已删（子 ReAct 同进程嵌套不入 PG，无父子关系）。
+// 注意：子 ReAct 同进程嵌套，不入 PG，没有父子关系（无 parent_task_id 列）。
 package reactrun
 
 import (

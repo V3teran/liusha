@@ -1,11 +1,8 @@
 // Package lesson 是 host_lesson 表的 Go 模型与持久化层。
 //
-// 跨 engagement 长期目标知识库（v1.2）：lesson_extract 蒸馏 finding 时单写本表，
+// 跨 engagement 长期知识库：lesson_extract 蒸馏 finding 时单写本表，
 // 子 ReAct 装配时按 (tenant, host) 加载 top-N 当背景知识；finding 重发现时
 // hit_count++ 体现可信度。
-//
-// v1.2 收尾：原 engagement.memory_hints 层已删——lesson_extract 不再双写，唯一长期
-// 经验层就是 host_lesson；列保留在 engagement 表 schema 但不读不写。
 package lesson
 
 import (

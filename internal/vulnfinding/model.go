@@ -20,11 +20,7 @@ const (
 	SeverityCritical Severity = "critical"
 )
 
-// Confidence 是 finding.confidence 文本枚举（agentic 路线：LLM 自评置信度三态）。
-//
-// 旧值 unverified / verified / rejected 已下线——前者是占位语义（v1 未启用人工/自动验证流程），
-// 后两者要等验证证书流程上线后再加。当前 LLM 写 finding 时按 verification_path 与信号强度
-// 自评 high / medium / low：
+// Confidence 是 finding.confidence 文本枚举——LLM 自评置信度三态：
 //
 //   - high   ：原生工具（如 sqlmap）默认参数即坐实
 //   - medium ：升级参数 / 自构 PoC 复测才坐实，或仅有强 body_hint 关键字
