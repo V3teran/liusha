@@ -21,67 +21,6 @@ func writeSkill(t *testing.T, name, body string) string {
 	return root
 }
 
-// 写一个含 N 个 ^##\s+\d+\. 标题的 cognitive_map 到 root/relPath
-func writeCognitiveMap(t *testing.T, root, relPath string, slots int) {
-	t.Helper()
-	full := filepath.Join(root, relPath)
-	if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
-		t.Fatalf("mkdir: %v", err)
-	}
-	var b strings.Builder
-	b.WriteString("# Cognitive Map\n\n")
-	for i := 1; i <= slots; i++ {
-		b.WriteString("## ")
-		b.WriteString(itoa(i))
-		b.WriteString(". 槽位 ")
-		b.WriteString(itoa(i))
-		b.WriteString("\n\n占位说明\n\n")
-	}
-	if err := os.WriteFile(full, []byte(b.String()), 0o644); err != nil {
-		t.Fatalf("write cognitive_map: %v", err)
-	}
-}
-
-func itoa(n int) string {
-	if n == 0 {
-		return "0"
-	}
-	neg := n < 0
-	if neg {
-		n = -n
-	}
-	var buf [20]byte
-	i := len(buf)
-	for n > 0 {
-		i--
-		buf[i] = byte('0' + n%10)
-		n /= 10
-	}
-	if neg {
-		i--
-		buf[i] = '-'
-	}
-	return string(buf[i:])
-}
-
-const validBody = `---
-name: vuln/web/bac
-description: BAC（未授权 / 垂直越权 / 水平越权）
-allowed-tools:
-  - fetch_credentials
-  - replay_multi_identity
-  - heuristic_check
-  - compute_similarity
-  - write_finding
-  - write_graph
-  - done
----
-# 你是 BAC 检测器
-正文：步骤指引、判定逻辑。`
-
-// 默认所有 done_validator key 都已注册（用于不关心 done_validator 校验的测试）
-func anyDoneValidator(string) bool { return true }
-
 // TestLoader_Load_Basic：读一个最小有效 SKILL.md，断言核心字段。
 func TestLoader_Load_Basic(t *testing.T) {
 	body := `---

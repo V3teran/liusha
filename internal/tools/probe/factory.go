@@ -28,14 +28,7 @@ type Option func(*registerOpts)
 
 // registerOpts 内部状态，仅在 factory.go 内消费。
 type registerOpts struct {
-	skipHeuristic  bool
 	skipSimilarity bool
-}
-
-// WithoutHeuristic 跳过 HeuristicCheck 注册。
-// 适用：完全不需要业务层短路判定的 skill（保留扩展位，目前 BAC/SQLi 都用 heuristic）。
-func WithoutHeuristic() Option {
-	return func(o *registerOpts) { o.skipHeuristic = true }
 }
 
 // WithoutSimilarity 跳过 ComputeSimilarity 注册。
@@ -64,9 +57,7 @@ func (f *Factory) CreateActions(_ string, locations []credential.CredentialLocat
 		&FetchCredentials{Provider: f.creds, State: state, Locations: locations},
 		&ReplayMatrix{Engine: f.replay, Flows: f.flows, State: state},
 	}
-	if !o.skipHeuristic {
-		actions = append(actions, &HeuristicCheck{State: state})
-	}
+	actions = append(actions, &HeuristicCheck{State: state})
 	if !o.skipSimilarity {
 		actions = append(actions, &ComputeSimilarity{State: state})
 	}
