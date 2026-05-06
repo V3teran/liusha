@@ -48,7 +48,7 @@ func StructuralSimilarity(a, b string) float64 {
 func jsonSimilarity(a, b interface{}, lenA, lenB int) float64 {
 	pathSim := jaccardSets(extractFieldPaths(a, ""), extractFieldPaths(b, ""))
 	valueSim := jaccardSets(extractLeafValues(a), extractLeafValues(b))
-	lenSim := lengthRatioFloat(lenA, lenB)
+	lenSim := LengthRatio(lenA, lenB)
 	return jsonWeightStructure*pathSim + jsonWeightValue*valueSim + jsonWeightLength*lenSim
 }
 
@@ -122,8 +122,9 @@ func jaccardSets(a, b map[string]struct{}) float64 {
 	return float64(inter) / float64(union)
 }
 
-// lengthRatioFloat 返回 min/max；两端皆 0 时视为 1.0。
-func lengthRatioFloat(a, b int) float64 {
+// LengthRatio 返回 min(|a|,|b|) / max(|a|,|b|)；两端皆 0 时视为 1.0。
+// 通用工具函数：用于 jsonSimilarity 的长度因子，也用于 probe 等长度短路判定。
+func LengthRatio(a, b int) float64 {
 	if a == 0 && b == 0 {
 		return 1.0
 	}

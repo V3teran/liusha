@@ -181,7 +181,7 @@ func computeBaselineMode(all []replay.Response, baselineIdx int, in similarityAr
 	aboveMin := 0
 	for _, r := range replays {
 		la, lb := len(baseline.Body), len(r.Body)
-		lr := lengthRatio(la, lb)
+		lr := heuristic.LengthRatio(la, lb)
 		var score float64
 		if lr < lengthRatioGate {
 			score = 0
@@ -249,7 +249,7 @@ func computeInterPairsMode(rs []replay.Response, in similarityArgs) (toolfx.Resu
 		for j := i + 1; j < n; j++ {
 			totalPairs++
 			la, lb := len(rs[i].Body), len(rs[j].Body)
-			lr := lengthRatio(la, lb)
+			lr := heuristic.LengthRatio(la, lb)
 			var score float64
 			if lr < lengthRatioGate {
 				score = 0
@@ -302,16 +302,3 @@ func marshalResult(out similarityOutput, n int) (toolfx.Result, error) {
 	}, nil
 }
 
-// lengthRatio 返回 min(|a|,|b|) / max(|a|,|b|)，两端都为 0 时视为完全相同。
-func lengthRatio(a, b int) float64 {
-	if a == 0 && b == 0 {
-		return 1.0
-	}
-	if a == 0 || b == 0 {
-		return 0
-	}
-	if a < b {
-		return float64(a) / float64(b)
-	}
-	return float64(b) / float64(a)
-}

@@ -13,11 +13,10 @@ package sqli
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"strconv"
 	"strings"
 
+	vuln "github.com/V3teran/liusha/internal/builders/vuln"
 	"github.com/V3teran/liusha/internal/credential"
 	"github.com/V3teran/liusha/internal/engagement"
 	"github.com/V3teran/liusha/internal/flow"
@@ -54,12 +53,7 @@ type SubBuilderDeps struct {
 	ScanNetwork   string                // 默认空（docker bridge）
 }
 
-const (
-	defaultSubMaxSteps       = 15
-	subWatchdogSeconds       = 60
-	defaultResultCompressDir = "./engagement-store"
-	skillName                = "vuln/web/sqli"
-)
+const skillName = "vuln/web/sqli"
 
 // NewSubBuilder 构造 SQLi SkillBuilder 闭包。
 //
@@ -133,108 +127,25 @@ func NewSubBuilder(deps SubBuilderDeps) func(ctx context.Context, p skill.Builde
 
 		compressDir := deps.ResultCompressDir
 		if compressDir == "" {
-			compressDir = defaultResultCompressDir
+			compressDir = vuln.DefaultResultCompressDir
 		}
 		reg.Use(
 			middleware.ResultCompress(p.EngagementID, compressDir),
 			middleware.DoneValidate(validator, nil),
 		)
 
-		lessonsBlock := loadLessonsForPrompt(ctx, deps.Lessons, p.Host)
+		lessonsBlock := vuln.LoadLessonsForPrompt(ctx, deps.Lessons, p.Host)
 		systemPrompt := strings.Join(systemPromptParts, "")
-		maxSteps := defaultSubMaxSteps
 
 		return react.Config{
 			LLM:                p.LLM,
 			Actions:            reg,
-			Budget:             react.Budget{MaxSteps: maxSteps, WatchdogSeconds: subWatchdogSeconds},
+			Budget:             react.Budget{MaxSteps: vuln.DefaultSubMaxSteps, WatchdogSeconds: vuln.SubWatchdogSeconds},
 			SystemPrompt:       systemPrompt,
-			UserPrompt:         buildUserPrompt(p, lessonsBlock),
+			UserPrompt:         vuln.BuildUserPrompt(p, "SQLi", lessonsBlock),
 			Observer:           p.Observer,
 			ObserverEverySteps: 5,
 		}, nil
 	}
 }
 
-// buildUserPrompt 拼 user prompt——除基础指令外，把完整 flow 详情（headers + body）
-// 摆给 LLM，让它自识别注入点 / 凭证位 / 响应回显模式（agentic 路线）。
-//
-// flow 详情的尺寸权衡：
-//   - Headers 转 indent JSON 输出；通常 < 1 KB
-//   - Body 截 ≤ 2 KB（与 replay_matrix body_hint 阈值对齐）；非 utf8 字节 fallback 为
-//     不可读片段——caller LLM 会按场景决定是否重要
-func buildUserPrompt(p skill.BuilderParams, lessonsBlock string) string {
-	var b strings.Builder
-	b.WriteString("测试 flow_id=" + strconv.FormatInt(p.FlowID, 10) +
-		" host=" + p.Host + " " + p.Method + " " + p.URL +
-		"。按 SQLi SKILL.md 建议流程行动，不要文本回答。\n\n")
-	b.WriteString(formatFlowDetail(p.Method, p.URL, p.RequestHeaders, p.RequestBody))
-	if lessonsBlock != "" {
-		b.WriteString("\n\n## Host 历史经验（跨 engagement 长期知识库，可能含旧情报；带具体 payload/手法可直接复用）\n")
-		b.WriteString(lessonsBlock)
-	}
-	return b.String()
-}
-
-// formatFlowDetail 把 flow 三件套（method/url/headers/body）渲成 markdown 段落。
-//
-// LLM 看完整 headers + body 自己识别：query/path/body 候选注入点、cookie/auth 形态、
-// content-type 决定 payload 编码、response 回显推断（如果有的话由 replay_matrix 出）。
-const flowBodyPromptLimit = 2000
-
-func formatFlowDetail(method, url string, headers json.RawMessage, body []byte) string {
-	var b strings.Builder
-	b.WriteString("## 流量详情\n\n")
-	b.WriteString("```\n")
-	b.WriteString(strings.ToUpper(method))
-	b.WriteString(" ")
-	b.WriteString(url)
-	b.WriteString("\n```\n\n")
-
-	b.WriteString("### Request Headers\n\n")
-	if len(headers) == 0 {
-		b.WriteString("（无 headers）\n")
-	} else if pretty, err := json.MarshalIndent(headers, "", "  "); err == nil && len(pretty) > 0 {
-		b.WriteString("```json\n")
-		b.Write(pretty)
-		b.WriteString("\n```\n")
-	} else {
-		b.WriteString("```\n")
-		b.Write(headers)
-		b.WriteString("\n```\n")
-	}
-
-	b.WriteString("\n### Request Body")
-	switch {
-	case len(body) == 0:
-		b.WriteString("\n\n（空）\n")
-	case len(body) > flowBodyPromptLimit:
-		fmt.Fprintf(&b, "（截断到前 %d 字节，原总长 %d）\n\n", flowBodyPromptLimit, len(body))
-		b.WriteString("```\n")
-		b.Write(body[:flowBodyPromptLimit])
-		b.WriteString("\n```\n")
-	default:
-		b.WriteString("\n\n```\n")
-		b.Write(body)
-		b.WriteString("\n```\n")
-	}
-	return b.String()
-}
-
-const lessonsPromptLimit = 20
-
-// loadLessonsForPrompt 同步读 host_lesson top-N 拼成可读文本（与 BAC 同构）。
-func loadLessonsForPrompt(ctx context.Context, store *lesson.Store, host string) string {
-	if store == nil || host == "" {
-		return ""
-	}
-	lessons, err := store.ListByHost(ctx, "default", host, lessonsPromptLimit)
-	if err != nil || len(lessons) == 0 {
-		return ""
-	}
-	var b strings.Builder
-	for i, l := range lessons {
-		fmt.Fprintf(&b, "%d. (priority=%d, hits=%d) %s\n", i+1, l.Priority, l.HitCount, l.Content)
-	}
-	return b.String()
-}
