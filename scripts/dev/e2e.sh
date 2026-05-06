@@ -88,8 +88,15 @@ else
   echo "  ⚠ redis FLUSHDB 失败（容器 $REDIS_CONTAINER 不在？）"
 fi
 
-# logs 清空（lumberjack 会自动重新落盘）
-rm -f logs/*.log logs/*.stderr 2>/dev/null && echo "  ✓ logs 已清空"
+# logs 清空：truncate-in-place（: > file）保留 inode/fd，避免 unlink 服务正在写的
+# 文件——lumberjack 不感知外部 unlink，会继续写入"已删除"的 inode（运维 tail/grep
+# 看不到，但磁盘空间被占）。truncate 让大小归零、fd 仍有效。
+truncated=0
+shopt -s nullglob 2>/dev/null || true
+for f in logs/*.log logs/*.stderr; do
+  : > "$f" 2>/dev/null && truncated=$((truncated + 1))
+done
+echo "  ✓ logs 已清空（truncate ${truncated} 个文件）"
 
 echo ""
 if [ $# -eq 0 ]; then

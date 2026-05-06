@@ -319,3 +319,102 @@ func TestWriteGraph_RejectsIncompleteNode(t *testing.T) {
 		t.Fatal("空 dedup_key 应报错")
 	}
 }
+
+// TestWriteGraph_FindingDedupKey_Normalized 锁住 finding 节点 dedup_key 规范化：
+// LLM 在不同 sub-task 各起 dedup_key（finding_xxx / vuln:xxx / vuln_bac_yyy）
+// 时落库的 dedup_key 都归一到 "finding:<payload.kind>"，避免同一漏洞写入多行。
+func TestWriteGraph_FindingDedupKey_Normalized(t *testing.T) {
+	g := &fakeGraph{}
+	wr := &WriteGraph{Store: g, EngagementID: "e"}
+	args := json.RawMessage(`{"nodes":[
+		{"kind":"finding","dedup_key":"finding_horizontal_priv_esc","payload":{"kind":"bac.horizontal_priv_esc"}},
+		{"kind":"finding","dedup_key":"vuln:bac.horizontal","payload":{"kind":"bac.horizontal_priv_esc"}},
+		{"kind":"finding","dedup_key":"vuln_bac_horizontal","payload":{"kind":"bac.horizontal_priv_esc"}}
+	]}`)
+	if _, err := wr.Execute(context.Background(), args); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if len(g.nodes) != 3 {
+		t.Fatalf("3 个 LLM 入参应都 upsert 一次，实际 %d", len(g.nodes))
+	}
+	for i, n := range g.nodes {
+		if n.DedupKey != "finding:bac.horizontal_priv_esc" {
+			t.Errorf("nodes[%d].DedupKey=%q，期望 finding:bac.horizontal_priv_esc", i, n.DedupKey)
+		}
+	}
+}
+
+// TestWriteGraph_FindingDedupKey_FallbackOnMissingPayload 锁住 payload 缺 kind
+// 时退化用 LLM 原 dedup_key（不破坏 LLM 当前自由度，仅尽力规范化）。
+func TestWriteGraph_FindingDedupKey_FallbackOnMissingPayload(t *testing.T) {
+	cases := []struct {
+		name    string
+		args    string
+		wantKey string
+	}{
+		{"无 payload", `{"nodes":[{"kind":"finding","dedup_key":"orig_key"}]}`, "orig_key"},
+		{"payload 缺 kind", `{"nodes":[{"kind":"finding","dedup_key":"orig_key","payload":{"severity":"high"}}]}`, "orig_key"},
+		{"payload kind 空字符串", `{"nodes":[{"kind":"finding","dedup_key":"orig_key","payload":{"kind":""}}]}`, "orig_key"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			g := &fakeGraph{}
+			wr := &WriteGraph{Store: g, EngagementID: "e"}
+			if _, err := wr.Execute(context.Background(), json.RawMessage(tc.args)); err != nil {
+				t.Fatalf("Execute: %v", err)
+			}
+			if len(g.nodes) != 1 || g.nodes[0].DedupKey != tc.wantKey {
+				t.Errorf("DedupKey=%q，期望 %q", g.nodes[0].DedupKey, tc.wantKey)
+			}
+		})
+	}
+}
+
+// TestWriteGraph_NonFindingKindUntouched 锁住非 finding 节点 dedup_key 不被改写。
+func TestWriteGraph_NonFindingKindUntouched(t *testing.T) {
+	g := &fakeGraph{}
+	wr := &WriteGraph{Store: g, EngagementID: "e"}
+	args := json.RawMessage(`{"nodes":[
+		{"kind":"http_endpoint","dedup_key":"GET:/api/x","payload":{"kind":"bac.foo"}},
+		{"kind":"http_flow","dedup_key":"flow:42","payload":{}},
+		{"kind":"parameter","dedup_key":"id","payload":null}
+	]}`)
+	if _, err := wr.Execute(context.Background(), args); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	want := []string{"GET:/api/x", "flow:42", "id"}
+	for i, n := range g.nodes {
+		if n.DedupKey != want[i] {
+			t.Errorf("nodes[%d].DedupKey=%q，期望 %q（非 finding 不应改写）", i, n.DedupKey, want[i])
+		}
+	}
+}
+
+// TestWriteGraph_FindingEdgeReferenceStillResolves 锁住 dedup_key 规范化后
+// edge 引用 LLM 传的原 key 仍能解析到新建 node ID（解耦设计）。
+func TestWriteGraph_FindingEdgeReferenceStillResolves(t *testing.T) {
+	g := &fakeGraph{}
+	wr := &WriteGraph{Store: g, EngagementID: "e"}
+	args := json.RawMessage(`{
+		"nodes":[
+			{"kind":"http_endpoint","dedup_key":"ep1"},
+			{"kind":"finding","dedup_key":"vuln_bac_horizontal","payload":{"kind":"bac.horizontal_priv_esc"}}
+		],
+		"edges":[
+			{"from":"ep1","to":"vuln_bac_horizontal","kind":"has_finding"}
+		]
+	}`)
+	if _, err := wr.Execute(context.Background(), args); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if len(g.edges) != 1 {
+		t.Fatalf("expect 1 edge, got %d", len(g.edges))
+	}
+	// edge.ToID 应是 fakeGraph 给规范化 dedup_key 分配的 stub id "node-finding:bac.horizontal_priv_esc"
+	if g.edges[0].ToID != "node-finding:bac.horizontal_priv_esc" {
+		t.Errorf("edge.ToID=%q，期望解析到规范化 finding 节点", g.edges[0].ToID)
+	}
+	if g.edges[0].FromID != "node-ep1" {
+		t.Errorf("edge.FromID=%q，期望 node-ep1", g.edges[0].FromID)
+	}
+}

@@ -71,15 +71,21 @@ func (a *WriteGraph) Execute(ctx context.Context, args json.RawMessage) (toolfx.
 	}
 
 	// dedup_key → 新落库的 node id；edge 引用 from/to 时优先查这里。
+	// nodeIDs 用 LLM 传入的原 dedup_key 当 key（让后续 edge 引用沿用 LLM 写法），
+	// 而 graph_node 落库时用规范化 dedup_key——两者解耦，让 LLM 行为不一致不污染库。
 	nodeIDs := make(map[string]string, len(in.Nodes))
 	for _, n := range in.Nodes {
 		if n.Kind == "" || n.DedupKey == "" {
 			return toolfx.Result{}, fmt.Errorf("node 必须同时给出 kind 与 dedup_key")
 		}
+		// finding 节点 LLM 多 sub-task 各自起 dedup_key（finding_xxx / vuln:xxx /
+		// vuln_bac_yyy 混用）会让同一漏洞落库 N 行。规范化为 "finding:<payload.kind>"
+		// 让 (eid, kind, dedup_key) 唯一索引兜底去重；payload 缺 kind 时退化用 LLM 原值。
+		storedKey := normalizeFindingDedupKey(n.Kind, n.DedupKey, n.Payload)
 		node, err := a.Store.UpsertNode(ctx, graph.NodeParams{
 			EngagementID: a.EngagementID,
 			Kind:         n.Kind,
-			DedupKey:     n.DedupKey,
+			DedupKey:     storedKey,
 			Payload:      n.Payload,
 		})
 		if err != nil {
@@ -114,4 +120,28 @@ func (a *WriteGraph) Execute(ctx context.Context, args json.RawMessage) (toolfx.
 
 	out, _ := json.Marshal(map[string]int{"nodes": len(in.Nodes), "edges": len(in.Edges)})
 	return toolfx.Result{Output: out}, nil
+}
+
+// normalizeFindingDedupKey 规范化 finding 类节点的 dedup_key。
+//
+// 现状：LLM 在不同 sub-task 里给同一漏洞起不同 dedup_key（finding_xxx /
+// vuln:xxx / vuln_bac_yyy），(engagement_id, kind, dedup_key) 唯一索引
+// 起不到去重作用，graph_node 出现 11 行重复 finding 节点。
+//
+// 规则：仅 kind=="finding" 时拦截，从 payload.kind 拼 "finding:<vuln_kind>"；
+// payload 缺 kind / 解析失败时透传 LLM 原 dedup_key（不破坏其他 kind 节点）。
+func normalizeFindingDedupKey(nodeKind, rawKey string, payload json.RawMessage) string {
+	if nodeKind != "finding" {
+		return rawKey
+	}
+	if len(payload) == 0 {
+		return rawKey
+	}
+	var p struct {
+		Kind string `json:"kind"`
+	}
+	if err := json.Unmarshal(payload, &p); err != nil || p.Kind == "" {
+		return rawKey
+	}
+	return "finding:" + p.Kind
 }
