@@ -112,6 +112,13 @@ func (t *Traffic) Run(ctx context.Context) error {
 			if errors.Is(err, redis.Nil) || errors.Is(err, context.Canceled) {
 				continue
 			}
+			// 自愈：FLUSHDB / redis 容器重建会让 stream + group 一起消失，
+			// 启动期的 XGroupCreateMkStream 不再生效。检测到 NOGROUP 主动重建。
+			if isNoGroupErr(err) {
+				t.recreateGroup(ctx)
+				time.Sleep(500 * time.Millisecond)
+				continue
+			}
 			t.logger.Warn().Err(err).Msg("XREADGROUP 失败")
 			time.Sleep(500 * time.Millisecond)
 			continue
@@ -250,4 +257,26 @@ func pickNonEmpty(v, def string) string {
 		return def
 	}
 	return v
+}
+
+// isNoGroupErr 检测 XREADGROUP 在 stream/consumer group 不存在时返回的错误。
+// FLUSHDB / 容器重建后必然命中——上层据此触发自愈重建。
+func isNoGroupErr(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "NOGROUP")
+}
+
+// recreateGroup 在 NOGROUP 自愈分支调用——MKSTREAM 让空 stream 一并创建；
+// 起点 "0" 而非 "$"，确保自愈与 publisher XADD 之间存在 race 时不漏消息。
+// BUSYGROUP 表示并发自愈竞争，已被另一进程恢复，忽略即可。
+func (t *Traffic) recreateGroup(ctx context.Context) {
+	err := t.rdb.XGroupCreateMkStream(ctx, t.stream, t.group, "0").Err()
+	if err == nil {
+		t.logger.Info().Str("stream", t.stream).Str("group", t.group).
+			Msg("检测到 NOGROUP → 已自愈重建 consumer group")
+		return
+	}
+	if strings.Contains(err.Error(), "BUSYGROUP") {
+		return
+	}
+	t.logger.Warn().Err(err).Msg("自愈重建 consumer group 失败")
 }
