@@ -19,15 +19,8 @@
 package main
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
-	"errors"
 	"fmt"
-	"io"
-	"net"
-	"net/http"
-	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -221,191 +214,11 @@ func resolveScopeHost(vulnBase string, samples []string) (string, error) {
 	return extractHost(vulnBase)
 }
 
-// extractHostFromRaw 从一条 raw HTTP/1.1 报文里抓 Host: 头值（去端口前的原始字符串）。
-// 不做严格 RFC 解析——CRLF 换行 + 空格大小写不敏感即可。
-func extractHostFromRaw(raw string) string {
-	for _, line := range strings.Split(raw, "\r\n") {
-		if line == "" {
-			break
-		}
-		colon := strings.IndexByte(line, ':')
-		if colon < 0 {
-			continue
-		}
-		key := strings.TrimSpace(line[:colon])
-		if strings.EqualFold(key, "host") {
-			return strings.TrimSpace(line[colon+1:])
-		}
-	}
-	return ""
-}
-
-// stripPort 去掉 host 末尾的 :port（保留纯主机名/IP，与 proxy 落库 snapshot.Host 对齐）。
-func stripPort(host string) string {
-	if h, _, err := net.SplitHostPort(host); err == nil {
-		return h
-	}
-	return host
-}
-
 func envOr(k, def string) string {
 	if v := os.Getenv(k); v != "" {
 		return v
 	}
 	return def
-}
-
-// extractHost 从 URL 提取去端口的 host（与 proxy 落库 snapshot.Host 对齐）。
-func extractHost(rawURL string) (string, error) {
-	u, err := url.Parse(rawURL)
-	if err != nil {
-		return "", fmt.Errorf("parse %q: %w", rawURL, err)
-	}
-	h := u.Hostname()
-	if h == "" {
-		return "", fmt.Errorf("URL %q 无 host", rawURL)
-	}
-	return h, nil
-}
-
-// extractHostPort 从代理 URL 提取 host:port，net.Dial 用。
-func extractHostPort(rawURL string) (string, error) {
-	u, err := url.Parse(rawURL)
-	if err != nil {
-		return "", fmt.Errorf("parse %q: %w", rawURL, err)
-	}
-	if u.Host == "" {
-		return "", fmt.Errorf("URL %q 无 host:port", rawURL)
-	}
-	return u.Host, nil
-}
-
-// loadRawSamples 读 raw HTTP 报文样本数组（每条是一份完整的 HTTP/1.1 报文字符串）。
-func loadRawSamples(path string) ([]string, error) {
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("read %s: %w", path, err)
-	}
-	var out []string
-	if err := json.Unmarshal(raw, &out); err != nil {
-		return nil, fmt.Errorf("decode %s: %w", path, err)
-	}
-	if len(out) == 0 {
-		return nil, fmt.Errorf("%s 空数组", path)
-	}
-	return out, nil
-}
-
-// dispatchRaw 把 raw HTTP/1.1 报文通过 proxy 转发到目标。
-// 写出前注入 Connection: close 头（若用户 sample 中没有），让上游响应完即关连接 →
-// io.Copy 立即拿到 EOF，避免 keepalive 等 100s timeout 让 proxify 误标 502。
-func dispatchRaw(proxyHostPort, rawRequest string) error {
-	conn, err := net.DialTimeout("tcp", proxyHostPort, dialTimeout)
-	if err != nil {
-		return fmt.Errorf("dial proxy %s: %w", proxyHostPort, err)
-	}
-	defer func() { _ = conn.Close() }()
-	_ = conn.SetDeadline(time.Now().Add(rawIOTimeout))
-
-	patched := ensureConnectionClose(rawRequest)
-	if _, err := conn.Write([]byte(patched)); err != nil {
-		return fmt.Errorf("write raw: %w", err)
-	}
-	if _, err := io.Copy(io.Discard, conn); err != nil && !isExpectedReadEnd(err) {
-		return fmt.Errorf("read response: %w", err)
-	}
-	return nil
-}
-
-// ensureConnectionClose 在 raw HTTP/1.1 报文头末尾追加 Connection: close 头。
-// 已含同名头（任何大小写）则原样返回。无 \r\n\r\n 分隔（畸形）也原样返回。
-//
-// 这是为绕过 HTTP/1.1 默认 keepalive：proxify 转发上游响应后保持连接，client
-// 的 io.Copy 等不到 EOF → 走 100s deadline → proxify 把整个 transaction 标 502。
-func ensureConnectionClose(raw string) string {
-	const headEnd = "\r\n\r\n"
-	idx := strings.Index(raw, headEnd)
-	if idx < 0 {
-		return raw
-	}
-	head := raw[:idx]
-	for _, line := range strings.Split(head, "\r\n") {
-		colon := strings.IndexByte(line, ':')
-		if colon < 0 {
-			continue
-		}
-		if strings.EqualFold(strings.TrimSpace(line[:colon]), "connection") {
-			return raw
-		}
-	}
-	return head + "\r\nConnection: close" + raw[idx:]
-}
-
-// isExpectedReadEnd 把代理写完响应主动关连接的情形当正常。
-func isExpectedReadEnd(err error) bool {
-	if err == nil || errors.Is(err, io.EOF) {
-		return true
-	}
-	var ne net.Error
-	if errors.As(err, &ne) && ne.Timeout() {
-		return true
-	}
-	return strings.Contains(err.Error(), "use of closed network connection")
-}
-
-// createProxyEngagement 调 POST /engagement/proxy 拿 engagement_id；同 host 幂等。
-func createProxyEngagement(base, key, host string) (string, error) {
-	body, _ := json.Marshal(map[string]string{"host": host})
-	req, _ := http.NewRequest(http.MethodPost, base+"/engagement/proxy", bytes.NewReader(body))
-	req.Header.Set("X-API-Key", key)
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("post engagement/proxy: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusOK {
-		raw, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("engagement/proxy %d: %s", resp.StatusCode, string(raw))
-	}
-	var out struct {
-		EngagementID string `json:"engagement_id"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
-		return "", fmt.Errorf("decode engagement/proxy: %w", err)
-	}
-	if out.EngagementID == "" {
-		return "", fmt.Errorf("engagement/proxy returned empty engagement_id")
-	}
-	return out.EngagementID, nil
-}
-
-// saveCreds 录入 host 身份的 session cookie。host 必须与 proxy 看到的
-// snapshot.Host 一致（去端口形式）；creds 由 profile 决定具体身份组。
-func saveCreds(base, key, host string, creds []credentialEntry) error {
-	payload := map[string]any{
-		"ttl_seconds": 0,
-		"credentials": map[string]any{
-			host: creds,
-		},
-	}
-	body, err := json.Marshal(payload)
-	if err != nil {
-		return fmt.Errorf("marshal credentials: %w", err)
-	}
-	req, _ := http.NewRequest(http.MethodPost, base+"/credential/batch", bytes.NewReader(body))
-	req.Header.Set("X-API-Key", key)
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("post credential/batch: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusOK {
-		raw, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("credential/batch %d: %s", resp.StatusCode, string(raw))
-	}
-	return nil
 }
 
 // filterByPrefix 过滤 kind 以 prefix 开头的 finding（profile 用）。
