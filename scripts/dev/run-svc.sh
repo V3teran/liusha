@@ -91,7 +91,7 @@ cleanup() {
 trap cleanup INT TERM
 
 echo ""
-echo "✓ 四服务在跑（pids: vulnapp=$VULNAPP_PID proxy=$PROXY_PID api=$API_PID scanner=$WORKER_PID）"
+echo "✓ 四服务在跑（pids: vulnapp=${VULNAPP_PID} proxy=${PROXY_PID} api=${API_PID} scanner=${WORKER_PID}）"
 echo "  日志合并 tail（Ctrl-C 关闭服务+退出 tail）："
 echo ""
 
