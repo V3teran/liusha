@@ -4,6 +4,7 @@ description: |
   Web SQL 注入漏洞检测（agentic 路线）。LLM 看 user prompt 里完整 flow 详情自识别注入点，
   发起 5 变体重放后直读 body_hint 找 SQL 错误回显与布尔差分；强信号交由 run_command 在沙箱
   容器里跑 sqlmap / curl / python3 坐实。工具 CLI 用法见已注入的 tooling 手册。
+applicable_param_locations: [query, path_param, body_json, body_form]
 ---
 
 # SQL 注入检测（agentic 路线）
@@ -30,7 +31,7 @@ SQLi 信号在响应**内容**里，不在 status code 里。**绝不要把"stat
 
 | 场景 | status | body | 判定 |
 |---|---|---|---|
-| DVWA 典型 | 200 | `<pre>You have an error in your SQL syntax...</pre>` | 强证据 → `sqli.error_based` |
+| 经典 PHP+MySQL 错误回显 | 200 | `<pre>You have an error in your SQL syntax...</pre>` | 强证据 → `sqli.error_based` |
 | 应用未 catch SQL 异常 | 500 | body 含 `SQLException` / `pg_query():` 等 | 强证据 → `sqli.error_based` |
 | 通用错误页 | 500 | "Internal Server Error" 静态 HTML | 不是 SQLi 信号 |
 | WAF 拦截 | 403 | "blocked by WAF" | 应用层有防护，本路径打不到 |
@@ -39,8 +40,8 @@ SQLi 信号在响应**内容**里，不在 status code 里。**绝不要把"stat
 
 判定主轴：
 
-1. `replay_matrix` 的 `body_hint`（≤2000 byte）是 SQL 错误关键字 / 布尔差分的主要依据
-2. `heuristic_check` 仅用于"业务层全失败"短路（admin 都被拒 / body 全空 / 全 auth_error）
+1. `run_replay` 的 `body_hint`（≤8000 byte）是 SQL 错误关键字 / 布尔差分的主要依据
+2. `check_heuristics` 仅用于"业务层全失败"短路（admin 都被拒 / body 全空 / 全 auth_error）
 3. status_code 仅作辅助信息（写进 evidence reasoning），**不参与触发逻辑**
 
 ## 漏洞类型（finding.kind）
@@ -55,7 +56,7 @@ SQLi 信号在响应**内容**里，不在 status code 里。**绝不要把"stat
 ## 建议流程（不强制顺序，按情境合理跳步）
 
 > 流程是**指南而非教条**。常规情况按 0→7 走；如果某步明显多余可跳过（例如 flow 没任何参数
-> 直接 done(no_pattern_match)）。但禁止跳过"必要数据依赖"——如 replay_matrix 必须先 fetch_credentials。
+> 直接 done(no_pattern_match)）。但禁止跳过"必要数据依赖"——如 run_replay 必须先 fetch_credentials。
 
 ### Step 0：read_state + 标记假设
 
@@ -68,7 +69,7 @@ SQLi 信号在响应**内容**里，不在 status code 里。**绝不要把"stat
 {"host": "<host>", "roles": ["admin"]}
 ```
 
-SQLi 只需 1 个**已认证**身份。`roles=["admin"]` 节省 ProbeState 噪声；DVWA 等靶场必须带登录态。
+SQLi 只需 1 个**已认证**身份。`roles=["admin"]` 节省 ProbeState 噪声；带认证的接口（cookie/token 鉴权）必须用真实凭证重放，否则可能被服务端拦在认证层、看不到 SQL 行为。
 返回 `identities=[]` 时改试 `roles=["user"]`；都没有 → done(no_pattern_match)。
 
 ### Step 2：直接看 user prompt 里 flow 详情，自识别候选注入点
@@ -78,8 +79,6 @@ SQLi 只需 1 个**已认证**身份。`roles=["admin"]` 节省 ProbeState 噪�
 - **query 字段**：URL `?` 后的 key=value
 - **path 段**：`/api/users/123/orders/uuid` 中的数字段 / UUID 段
 - **body json/form 字段**：按 Content-Type 解析
-
-**排除控制字段**（不是真用户输入）：`submit / csrf_token / _csrf / _token / page / size / limit / offset / sort / order / per_page` 等。
 
 **判 type_hint**（决定 payload 形态）：
 
@@ -94,7 +93,7 @@ SQLi 只需 1 个**已认证**身份。`roles=["admin"]` 节省 ProbeState 噪�
 无任何候选字段 → done(no_pattern_match)。
 有 ≥ 1 个 → 选最可能的一个进 Step 3（业务 ID 类如 `id` / `oid` 比 `page` / `limit` 优先）。
 
-### Step 3：replay_matrix —— 1 身份 × 5-7 变体
+### Step 3：run_replay —— 1 身份 × 5-7 变体
 
 按你识别的 type_hint 选 payload 模板（**参考表，不强制**）：
 
@@ -104,7 +103,7 @@ SQLi 只需 1 个**已认证**身份。`roles=["admin"]` 节省 ProbeState 噪�
 | `string` / `uuid` / `hex` | baseline / `'`(append) / `' OR '1'='1`(append) / `' AND '1'='1`(append) / `' AND '1'='2`(append) |
 | 时间盲注（无 hint，仅当 baseline/err 都看不出差异时再加） | `' AND IF(1=1,SLEEP(3),0)--`(append) |
 
-调 `replay_matrix`（admin × 上面挑的 5-7 个 variant 并发重放）：
+调 `run_replay`（admin × 上面挑的 5-7 个 variant 并发重放）：
 
 ```json
 {
@@ -125,13 +124,13 @@ SQLi 只需 1 个**已认证**身份。`roles=["admin"]` 节省 ProbeState 噪�
 
 ### Step 4：直读 body_hint + 可选 heuristic 早退
 
-直接看 `replay_matrix` 返回的 `responses[*].body_hint`（每条 ≤2000 byte），按规则判：
+直接看 `run_replay` 返回的 `responses[*].body_hint`（每条 ≤8000 byte），按规则判：
 
 - 任一 variant body_hint 含 SQL 语法错误关键字（`you have an error in your sql syntax` /
   `pg_query():` / `unclosed quotation mark` / `unrecognized token` / `ora-00933` /
   `incorrect syntax near` 等）→ **error-based 强信号** → 进 Step 5
 - `bool_true` 与 `baseline` 体量/内容相近，`bool_false` 显著不同 → **boolean-based 中信号** → 进 Step 5
-- 都没明显信号 → 可选调 `heuristic_check({"rules":["all_denied","all_empty","all_auth_error"]})`：
+- 都没明显信号 → 可选调 `check_heuristics({"rules":["all_denied","all_empty","all_auth_error"]})`：
   - skip=true（admin 全拒 / 全空 / 全 auth_error）→ done(no_pattern_match)
   - skip=false → 没 SQLi 信号也没业务层失败 → done(no_pattern_match)
 
@@ -160,8 +159,23 @@ SQLi 只需 1 个**已认证**身份。`roles=["admin"]` 节省 ProbeState 噪�
 - error-based 信号 + 默认否认 → `--technique=E --level=5 --risk=2`
 - 布尔差分信号 → `--technique=B --level=3 --string="<bool_true 独有关键词>"`
 - 时间侧信道信号 → `--technique=T --time-sec=5 --level=3`
-- 怀疑 WAF → 加 `--tamper=space2comment,between` 等
 - 必带 `--flush-session`，否则 sqlmap 复用上次否认结果
+
+#### WAF / 防护检测 → tamper 决策
+
+**先升级 level/risk/technique，仍否认时再判 WAF**——避免一上来就 tamper 把信号搅乱。
+
+判 WAF 的依据来自 sqlmap stdout_tail / stderr_tail 或 Step 3 baseline 响应特征：
+
+| 响应特征 | 推断 | 推荐 tamper |
+|---|---|---|
+| 403 / body 含 `blocked` / `forbidden` / `attack detected` | 通用 WAF | `space2comment,between` |
+| body 含 `Cloudflare` / `Akamai` / `Imperva` / `Sucuri` 等厂商标识 | CDN-WAF | `space2comment,randomcase,between` |
+| 406 Not Acceptable / 应用层字符过滤 | 字符黑名单 | `charencode` 或 `apostrophenullencode` |
+| 429 Too Many Requests | 速率限制（不是 WAF） | 加 `--threads=1 --delay=2`，**不上 tamper** |
+| 默认否认但无 WAF 特征 | 单纯 payload 不够强 | 仅升级 level/risk/technique，**先不上 tamper** |
+
+策略：先选 1 个最匹配的 tamper 跑；仍否认则可加第 2 个组合（如 `space2comment,randomcase`）；超过 2 个 tamper 仍失败 → 进 Step 5b 自构。tamper 速查表与组合示例见 `tooling/sqlmap` 手册。
 
 ```json
 {
@@ -174,10 +188,11 @@ SQLi 只需 1 个**已认证**身份。`roles=["admin"]` 节省 ProbeState 噪�
 - 升级坐实 → Step 6（`verification_path: "sqlmap_upgrade"`，confidence: medium 或 high 视证据强度）
 - 仍否认 → 进 Step 5b 用 curl/python3 自构
 
-### Step 5b：run_command —— curl / python3 自构 PoC（max 3 次）
+### Step 5b：run_command —— curl / python3 自构 PoC（max 10 次）
 
 仅在 Step 5a 升级 sqlmap 仍否认/超时但 Step 4 已有明确 SQL 错误信号时进入。**严格自律**：
-本步骤累计调用 ≤ 3 次，超过即进 Step 6 用 body_hint 兜底。
+本步骤累计调用 ≤ 10 次，超过即进 Step 6 用 body_hint 兜底。
+（10 次预算允许：长度差分 baseline+1=2、布尔二分提取 6-8 次、时间盲二分 5-6 次等场景）
 
 | 信号 | 推荐工具 | 手册 |
 |---|---|---|
@@ -234,6 +249,7 @@ SQLi 只需 1 个**已认证**身份。`roles=["admin"]` 节省 ProbeState 噪�
   - Title 含 `boolean-based blind` 或仅 bool_true/bool_false 差分 → `sqli.boolean_based`
 
 `dedup_key` path 模板化（数字 → `:id`、UUID → `:uuid`、长 hex → `:hex`），后接注入点 key。
+**host 段保留端口**（多端口部署区分依据），如 `sqli.error_based:api.example.com:8080:GET:/api/v1/products:id`。
 
 ### Step 7：take_note + done
 
@@ -266,51 +282,53 @@ SQLi 只需 1 个**已认证**身份。`roles=["admin"]` 节省 ProbeState 噪�
 1. **type_hint=numeric 不需要引号闭合**：payload 可以是 ` AND 1=1--`；type_hint=string 才要 `' AND '1'='1`
 2. **mode=append 关键**：mode=replace 把整个值替换，常打不到注入点
 3. **path_param 暂不支持**：跳过这类字段
-4. **DVWA 必须带 cookie**：fetch_credentials 拿 admin 后，replay_matrix identity 必填
+4. **已认证接口必须带 cookie/token**：fetch_credentials 拿 admin 后，run_replay identity 必填；缺凭证服务端会拦在 401/403，看不到 SQL 行为
 5. **run_command 写 sqlmap/curl/python3 前先看对应工具手册**——别凭训练记忆瞎拼 flag
-6. **run_command 调用预算**：Step 5（默认 1 次）+ Step 5a（升级 1 次）+ Step 5b（≤3 次）= 整轮 max ≤5 次
+6. **run_command 调用预算**：Step 5（默认 1 次）+ Step 5a（升级 1 次）+ Step 5b（≤10 次）= 整轮 max ≤12 次
 7. **stdout_tail 1.5KB 装不下时**：用 `sh` 手册示范的 `2>&1 | grep -E '...' | head -20` 在容器里 grep 后再返
 8. **shell 引号嵌套**：command 字符串里 cookie / payload 含单引号时务必转义；不确定时用 `sh -c '...'` 包一层
 9. **identity 名字必须和 fetch_credentials 返回的 name 一致**：例如 `admin` vs `admin_v2`，错了会退化为 anonymous
 
 ## 完整示例
 
-### 示例 1：DVWA SQLi 默认 sqlmap 即坐实（high confidence）
+> 下面示例用 `api.example.com:8080` 等通用占位符；实际跑时把 user prompt 里的真实 host/path/cookie 套进去即可。
+
+### 示例 1：默认 sqlmap 即坐实（high confidence）
 
 ```
-Step 1 fetch_credentials({"host":"49.234.23.42","roles":["admin"]}) → identities=[admin]
+Step 1 fetch_credentials({"host":"api.example.com:8080","roles":["admin"]}) → identities=[admin]
 Step 2 看 user prompt 流量详情：
-  GET /vulnerabilities/sqli/?id=1&Submit=Submit
-  Headers Cookie: PHPSESSID=...; security=low
-  → 候选注入点：query.id（type_hint=numeric）；query.Submit 是控制字段排除
-Step 3 replay_matrix 5 variants（id 是 numeric，按 numeric 模板挑）
+  GET /api/v1/products?id=1&category=books
+  Headers Cookie: session=<token>
+  → 候选注入点：query.id（type_hint=numeric）；query.category 也可候选但优先级低
+Step 3 run_replay 5 variants（id 是 numeric，按 numeric 模板挑）
 Step 4 body_hint err_quote 含 "You have an error in your SQL syntax" → 强信号 error-based
 
 Step 5 run_command:
-  command="sqlmap -u 'http://49.234.23.42:8888/vulnerabilities/sqli/?id=1&Submit=Submit' -p id --cookie='PHPSESSID=...; security=low' --batch --disable-coloring --level=2"
+  command="sqlmap -u 'http://api.example.com:8080/api/v1/products?id=1&category=books' -p id --cookie='session=<token>' --batch --disable-coloring --level=2"
   tag="sqlmap-default", timeout_seconds=180
 
   stdout_tail 含：
     Title: MySQL >= 5.0 AND error-based - WHERE...
     Payload: id=1' AND (SELECT 2472 FROM(SELECT COUNT(*),CONCAT(0x71...
-    back-end DBMS: MySQL >= 5.0 (MariaDB fork)
+    back-end DBMS: MySQL >= 5.0
 
 Step 6 write_finding:
 {
   "kind": "sqli.error_based",
   "severity": "high",
-  "title": "DVWA SQLi 接口 id 参数存在 SQL 注入（MySQL）",
-  "target": {"host":"49.234.23.42","method":"GET","path":"/vulnerabilities/sqli/"},
+  "title": "/api/v1/products id 参数存在 SQL 注入（MySQL）",
+  "target": {"host":"api.example.com:8080","method":"GET","path":"/api/v1/products"},
   "evidence": {
     "injection_point": {"location":"query","key":"id","type_hint":"numeric"},
     "trigger_payload": "id=1' AND (SELECT 2472 FROM(SELECT COUNT(*),CONCAT(0x71...",
-    "dbms": "MySQL >= 5.0 (MariaDB fork)",
+    "dbms": "MySQL >= 5.0",
     "evidence_excerpt": "Title: MySQL >= 5.0 AND error-based - WHERE...",
     "verification_path": "sqlmap_default",
     "reasoning": "err_quote 触发 MySQL 语法错误回显；sqlmap 默认 level=2 即坐实，stdout 含完整 Title/Payload/DBMS"
   },
   "confidence": "high",
-  "dedup_key": "sqli.error_based:49.234.23.42:GET:/vulnerabilities/sqli/:id"
+  "dedup_key": "sqli.error_based:api.example.com:8080:GET:/api/v1/products:id"
 }
 ```
 
@@ -331,10 +349,10 @@ Step 6 write_finding（verification_path: "sqlmap_upgrade", confidence: "medium"
 
 ```
 Step 5 + Step 5a 都说 not injectable
-Step 4 body_hint err_quote 含 "Warning: mysql_fetch_array() expects parameter 1..."
+Step 4 body_hint err_quote 含数据库 driver 警告（如 "Warning: mysql_fetch_array() expects parameter 1..." / "Database query failed: ..."）
 
-Step 5b run_command (1/3):
-  command="T=$(curl -s -o /dev/null -b 'PHPSESSID=...; security=low' -w '%{size_download}' 'http://x/y?id=1 AND 1=1-- -'); F=$(curl -s -o /dev/null -b 'PHPSESSID=...; security=low' -w '%{size_download}' 'http://x/y?id=1 AND 1=2-- -'); echo true=$T false=$F"
+Step 5b run_command (1/10):
+  command="T=$(curl -s -o /dev/null -b 'session=<token>' -w '%{size_download}' 'http://api.example.com:8080/api/v1/products?id=1 AND 1=1-- -'); F=$(curl -s -o /dev/null -b 'session=<token>' -w '%{size_download}' 'http://api.example.com:8080/api/v1/products?id=1 AND 1=2-- -'); echo true=$T false=$F"
   tag="curl-bool-diff", timeout_seconds=30
   → stdout_tail: "true=4823 false=219" → 数量级差异，布尔注入坐实
 
@@ -347,6 +365,6 @@ Step 6 write_finding（kind="sqli.boolean_based",
 
 ```
 Step 4 body_hint 全部 5 个 variant 返回相同业务 JSON，无 SQL 错误关键字、无明显差分
-（可选）heuristic_check → skip=false（business 没失败）
+（可选）check_heuristics → skip=false（business 没失败）
 判定：应用做了参数化或转义 → done(no_pattern_match)，不写 finding
 ```

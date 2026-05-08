@@ -11,6 +11,21 @@ description: |
 sqlmap 是 SQL 注入自动化工具，命令形态 `sqlmap -u <URL> -p <字段> [--cookie ...] [...]`。
 通过 `run_command(command="sqlmap ...")` 在沙箱容器里跑。
 
+## ⚠️ 容器内 host 改写规则（必读）
+
+`run_command` 在 docker 沙箱里跑，容器内 `127.0.0.1` / `localhost` 指向**容器自己**，不是宿主机。
+拼 sqlmap `-u` 时**必须**改写：
+
+| user prompt 里的 host 形态 | sqlmap `-u` 实际写 |
+|---|---|
+| `127.0.0.1:<port>` / `localhost:<port>`（环回地址） | `host.docker.internal:<port>` |
+| 私网 IP（`10.*` / `172.16-31.*` / `192.168.*`，宿主机本身的 LAN IP） | `host.docker.internal:<port>` |
+| 公网 IP / 公网域名（如 `api.example.com`、`203.0.113.5:443`） | 原样保留 |
+| 内网域名（如 `internal.app.local`） | 原样保留——只要容器 DNS 能解析就行 |
+
+curl / python3 / sh 工具调本地（宿主）服务时**同样适用**这条改写。
+判断标准：**目标是否就跑在执行 scanner 的同一台机器上**——是 → 改写；否 → 原样。
+
 ## 核心调用模板
 
 ```
@@ -23,15 +38,20 @@ sqlmap -u "<URL>" -p <field> --cookie="<cookie>" --batch --disable-coloring [其
 - `--disable-coloring`：禁掉 ANSI 颜色码，stdout_tail 才能干净 grep
 - `-p <field>`：指定测试参数；不指定会扫所有，慢且嘈
 
+⚠️ **`-u` URL 必须完整（最常见假阴性来源）**：
+即使 query 中有 `Submit` / `csrf_token` / `page` 等"控制字段"，**也要原样保留在 URL 里**——很多后端（PHP form / GET 表单 / 框架路由）**只在所有原始 query 齐全时才执行业务逻辑**。漏掉这些 → sqlmap 各 payload 拿到的都是空表单 / 错误页 → 判 "not injectable"（典型假阴）。
+`-p <field>` 只决定**测哪个参数**，不影响 URL 完整性。
+
 ## 关键参数速查
 
 ### 目标 / 凭证
 
 | 参数 | 用途 | 示例 |
 |---|---|---|
-| `-u` | 目标 URL | `-u "http://x/y?id=1"` |
+| `-u` | 目标 URL | `-u "http://api.example.com/v1/products?id=1"` |
 | `-p` | 测试参数名 | `-p id` |
-| `--cookie` | 认证 cookie | `--cookie="PHPSESSID=xxx; security=low"` |
+| `--cookie` | 认证 cookie | `--cookie="session=<token>"`（看 user prompt 里实际 cookie 名/值套用） |
+| `--header` | 自定义 header（含 Authorization、X-API-Key 等 token 鉴权） | `--header="Authorization: Bearer <token>"` |
 | `--user-agent` | 自定义 UA | `--user-agent="..."` |
 | `--data` | POST body | `--data="user=admin&pass=x"` |
 | `--method` | HTTP 方法 | `--method=PUT` |
@@ -92,7 +112,7 @@ sqlmap 跑成功时，stdout 会出现这些关键短语——LLM 读 `stdout_ta
 |---|---|---|
 | `Title:` | 注入类型 | `Title: MySQL >= 5.0 AND error-based - WHERE...` |
 | `Payload:` | 精确触发 payload | `Payload: id=1' AND (SELECT 2472 FROM ...` |
-| `back-end DBMS` | 数据库类型 | `back-end DBMS: MySQL >= 5.0 (MariaDB fork)` |
+| `back-end DBMS` | 数据库类型 | `back-end DBMS: MySQL >= 5.0` / `PostgreSQL` / `Oracle` |
 | `Type:` | 技术分类 | `Type: error-based` / `Type: time-based blind` |
 | `parameter ... is vulnerable` | 直接确认句 | `parameter 'id' is vulnerable` |
 | `sqlmap identified the following injection point` | 找到入口 | 后续若干行就是 Title/Type/Payload |
@@ -112,7 +132,7 @@ sqlmap 跑成功时，stdout 会出现这些关键短语——LLM 读 `stdout_ta
 ### 起点 1：默认 level=1 / risk=1
 
 ```bash
-sqlmap -u "http://x/y?id=1" -p id --cookie="..." --batch --disable-coloring
+sqlmap -u "http://api.example.com/v1/products?id=1" -p id --cookie="session=<token>" --batch --disable-coloring
 ```
 
 90% 普通 SQLi 默认即坐实。**先跑这条**，再考虑升级。
@@ -167,23 +187,24 @@ sqlmap -u "..." -p id --batch --flush-session --disable-coloring [...]
 
 ## 实战示例
 
-### 示例 1：DVWA GET 注入
+### 示例 1：GET query 参数（cookie 鉴权）
 
 ```
 run_command({
-  "command": "sqlmap -u 'http://49.234.23.42:8888/vulnerabilities/sqli/?id=1&Submit=Submit' -p id --cookie='PHPSESSID=abc123; security=low' --batch --disable-coloring --level=2",
+  "command": "sqlmap -u 'http://api.example.com/v1/products?id=1&category=books' -p id --cookie='session=<token>' --batch --disable-coloring --level=2",
   "tag": "sqlmap-default",
   "timeout_seconds": 180
 })
 ```
 
-期望 stdout_tail 含 `Title: MySQL >= 5.0 AND error-based - WHERE...` → vulnerable=true。
+期望 stdout_tail 含 `Title: ... error-based - WHERE...` → vulnerable=true。
+（实际 host/path/cookie 名按 user prompt 里抓到的真实值套用。）
 
-### 示例 2：POST JSON
+### 示例 2：POST JSON（Bearer token 鉴权）
 
 ```
 run_command({
-  "command": "sqlmap -u 'http://x/api/login' --data='{\"user\":\"admin\",\"pass\":\"x\"}' --header='Content-Type: application/json' -p user --batch --disable-coloring",
+  "command": "sqlmap -u 'http://api.example.com/v1/login' --data='{\"user\":\"admin\",\"pass\":\"x\"}' --header='Content-Type: application/json' --header='Authorization: Bearer <token>' -p user --batch --disable-coloring",
   "tag": "sqlmap-json"
 })
 ```
@@ -194,7 +215,7 @@ run_command({
 
 ```
 run_command({
-  "command": "sqlmap -u 'http://x/y?id=1' -p id --cookie='...' --batch --disable-coloring --level=5 --risk=3 --tamper=space2comment,between --technique=BE --flush-session",
+  "command": "sqlmap -u 'http://api.example.com/v1/products?id=1' -p id --cookie='session=<token>' --batch --disable-coloring --level=5 --risk=3 --tamper=space2comment,between --technique=BE --flush-session",
   "tag": "sqlmap-upgrade",
   "timeout_seconds": 300
 })
@@ -216,7 +237,7 @@ run_command({
 1. **不带 `--batch` 必卡死**：sqlmap 会问"do you want to keep testing the others (Y/n)"，stdin 没法答 → 容器 timeout
 2. **不带 `--disable-coloring` 时 stdout 含 ANSI 转义码**：grep `Title:` 会失败因为字符串里塞了 `\x1b[36m`
 3. **缓存陷阱**：跑过一次后改参数再跑 sqlmap 直接读缓存。要清就 `--flush-session`
-4. **`-p` 必传**：不传扫所有参数，DVWA 这种含 Submit / 隐藏字段的接口会浪费 80% 时间扫无关字段
+4. **`-p` 必传**：不传扫所有参数（含表单的 csrf_token / submit / page 等无意义字段），会浪费 80% 时间扫无关字段
 5. **timeout 估算**：默认 level=1 大概 30-90s；level=5 + tamper + 多 technique 可能 200-500s。本工具 timeout 上限 300s，所以激进扫 splits 成两次跑（先 technique=E，再 technique=BT）
 6. **`--threads >5` 慎用**：易触发 rate-limit / WAF，sqlmap 的"is the back-end DBMS"探测会误判
 7. **`--technique` 字符顺序无关**：`BE` 和 `EB` 等价；但**不传等于跑全部**——务必显式传需要的
