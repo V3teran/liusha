@@ -31,24 +31,28 @@ fi
 export LIUSHA_API_BASE="${LIUSHA_API_BASE:-http://localhost:8090}"  # 与 run-svc.sh 默认端口一致
 export LIUSHA_API_KEY="${LIUSHA_API_KEY:-changeme-dev-key}"
 export LIUSHA_PROXY_ADDR="${LIUSHA_PROXY_ADDR:-http://localhost:8888}"
-export LIUSHA_VULNAPP_BASE="${LIUSHA_VULNAPP_BASE:-http://localhost:8001}"
+export LIUSHA_VULNAPP_BASE="${LIUSHA_VULNAPP_BASE:-http://127.0.0.1:8001}"
 export LIUSHA_POSTGRES_DSN="${LIUSHA_POSTGRES_DSN:-postgres://liusha:liusha@localhost:5432/liusha?sslmode=disable}"
 
 echo "===== 1/5 清空 db / redis ====="
 
 # postgres：9 张业务表 TRUNCATE（schema 保留），任一表/容器不存在则失败但不阻断
 if docker exec "$PG_CONTAINER" psql -U liusha -d liusha -c \
-    "TRUNCATE TABLE vuln_finding, host_lesson, llm_invocation, react_run, flow_decision, http_flow, graph_edge, graph_node, engagement CASCADE;" \
+    "TRUNCATE TABLE finding, lesson, llm_invocation, agent_run, flow_facts, http_flow, graph_edge, graph_node, engagement CASCADE;" \
     >/dev/null 2>&1; then
   echo "  ✓ postgres 9 张业务表已 truncate"
 else
   echo "  ⚠ postgres truncate 失败（容器 $PG_CONTAINER 不在？）"
 fi
 
+# engagement-store/<engagement_id>/ 是 ResultCompress middleware 的落盘目录；
+# truncate 后 DB 中 engagement 已不存在，对应子目录变孤儿，清掉避免无限堆积。
+rm -rf engagement-store/*/ 2>/dev/null || true
+
 # redis FLUSHDB → 立即重建 ingestor consumer group
 if docker exec "$REDIS_CONTAINER" redis-cli FLUSHDB >/dev/null 2>&1; then
   echo "  ✓ redis FLUSHDB"
-  docker exec "$REDIS_CONTAINER" redis-cli XGROUP CREATE liusha:flow_events liusha-ingestor 0 MKSTREAM \
+  docker exec "$REDIS_CONTAINER" redis-cli XGROUP CREATE flow_events liusha-ingestor 0 MKSTREAM \
     >/dev/null 2>&1 || true
   echo "  ✓ ingestor consumer group 已重建（XGROUP CREATE MKSTREAM）"
 else

@@ -8,8 +8,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/V3teran/liusha/internal/config"
+	"github.com/V3teran/liusha/internal/finding"
 	"github.com/V3teran/liusha/internal/lesson"
-	"github.com/V3teran/liusha/internal/vulnfinding"
 )
 
 // lessonAdderSpy 在 lesson_extract 测试里替代真 *lesson.Store。
@@ -39,8 +40,8 @@ func (s *lessonAdderSpy) snapshot() (int, lesson.Lesson) {
 	return s.calls, s.last
 }
 
-func makeFinding() vulnfinding.VulnFinding {
-	return vulnfinding.VulnFinding{
+func makeFinding() finding.VulnFinding {
+	return finding.VulnFinding{
 		ID:           "fid-abc",
 		EngagementID: "eid-123",
 		Host:         "vulnapp.test",
@@ -55,7 +56,7 @@ func TestLessonExtractHook_AddsLesson(t *testing.T) {
 	gen := &mockGen{out: "对 sqli 类似端点优先尝试时间盲注。"}
 	spy := &lessonAdderSpy{}
 
-	hook := NewLessonExtractHook(gen, spy)
+	hook := NewLessonExtractHook(gen, spy, config.LessonConfig{})
 	hook(context.Background(), "eid-123", makeFinding())
 
 	calls, last := spy.snapshot()
@@ -81,7 +82,7 @@ func TestLessonExtractHook_LLMFailure(t *testing.T) {
 	gen := &mockGen{err: errors.New("llm 502")}
 	spy := &lessonAdderSpy{}
 
-	hook := NewLessonExtractHook(gen, spy)
+	hook := NewLessonExtractHook(gen, spy, config.LessonConfig{})
 
 	defer func() {
 		if r := recover(); r != nil {
@@ -100,7 +101,7 @@ func TestLessonExtractHook_AddFailureSwallowed(t *testing.T) {
 	gen := &mockGen{out: "提示内容"}
 	spy := &lessonAdderSpy{err: errors.New("db down")}
 
-	hook := NewLessonExtractHook(gen, spy)
+	hook := NewLessonExtractHook(gen, spy, config.LessonConfig{})
 
 	defer func() {
 		if r := recover(); r != nil {
@@ -119,7 +120,7 @@ func TestLessonExtractHook_EmptyContentSkipped(t *testing.T) {
 	gen := &mockGen{out: "   "}
 	spy := &lessonAdderSpy{}
 
-	hook := NewLessonExtractHook(gen, spy)
+	hook := NewLessonExtractHook(gen, spy, config.LessonConfig{})
 	hook(context.Background(), "eid-123", makeFinding())
 
 	if calls, _ := spy.snapshot(); calls != 0 {
@@ -131,7 +132,7 @@ func TestLessonExtractHook_NilLessonAdderSkipsLLM(t *testing.T) {
 	// nil LessonAdder → 跳过整个 extract，不浪费 LLM 调用
 	gen := &mockGen{out: "would-be-content"}
 
-	hook := NewLessonExtractHook(gen, nil)
+	hook := NewLessonExtractHook(gen, nil, config.LessonConfig{})
 	hook(context.Background(), "eid-123", makeFinding())
 
 	if gen.lastMsgs != nil {
@@ -140,14 +141,14 @@ func TestLessonExtractHook_NilLessonAdderSkipsLLM(t *testing.T) {
 }
 
 func TestLessonExtractHook_EmptyHostSkipsLLM(t *testing.T) {
-	// finding.Host 空 → 跳过 extract（host_lesson 必填 host 列）
+	// finding.Host 空 → 跳过 extract（lesson 必填 host 列）
 	gen := &mockGen{out: "ok"}
 	spy := &lessonAdderSpy{}
 
 	f := makeFinding()
 	f.Host = ""
 
-	hook := NewLessonExtractHook(gen, spy)
+	hook := NewLessonExtractHook(gen, spy, config.LessonConfig{})
 	hook(context.Background(), "eid-123", f)
 
 	if gen.lastMsgs != nil {
@@ -182,7 +183,7 @@ func (s *lessonToucherSpy) TouchByDedup(_ context.Context, host, dedupKey string
 
 func TestLessonTouchHook_TouchesByDedup(t *testing.T) {
 	spy := &lessonToucherSpy{}
-	hook := NewLessonTouchHook(spy)
+	hook := NewLessonTouchHook(spy, config.LessonConfig{})
 
 	hook(context.Background(), "eid-x", makeFinding())
 
@@ -198,7 +199,7 @@ func TestLessonTouchHook_TouchesByDedup(t *testing.T) {
 }
 
 func TestLessonTouchHook_NilToucherNoOp(t *testing.T) {
-	hook := NewLessonTouchHook(nil)
+	hook := NewLessonTouchHook(nil, config.LessonConfig{})
 	defer func() {
 		if r := recover(); r != nil {
 			t.Fatalf("nil toucher 不应 panic，实际 %v", r)
@@ -209,7 +210,7 @@ func TestLessonTouchHook_NilToucherNoOp(t *testing.T) {
 
 func TestLessonTouchHook_EmptyHostOrDedupNoOp(t *testing.T) {
 	spy := &lessonToucherSpy{}
-	hook := NewLessonTouchHook(spy)
+	hook := NewLessonTouchHook(spy, config.LessonConfig{})
 
 	f := makeFinding()
 	f.Host = ""
@@ -230,7 +231,7 @@ func TestLessonTouchHook_EmptyHostOrDedupNoOp(t *testing.T) {
 func TestLessonExtractHook_FinishesWithinDeadline(t *testing.T) {
 	gen := &mockGen{out: "ok"}
 	spy := &lessonAdderSpy{}
-	hook := NewLessonExtractHook(gen, spy)
+	hook := NewLessonExtractHook(gen, spy, config.LessonConfig{})
 
 	done := make(chan struct{})
 	go func() {

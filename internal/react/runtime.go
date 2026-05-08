@@ -13,29 +13,21 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"sync"
 	"time"
 
-	"github.com/rs/zerolog"
-
 	"github.com/V3teran/liusha/internal/llm"
-	"github.com/V3teran/liusha/internal/toolfx"
+	"github.com/V3teran/liusha/internal/logx"
+	"github.com/V3teran/liusha/internal/toolruntime"
 )
 
-// debugLogger 仅在 LIUSHA_RUNTIME_DEBUG=1 时打印的诊断 logger，
-// 用于排查"step=1 no_tool_call"这类 LLM 行为问题。生产应保持关闭。
-var debugLogger = func() zerolog.Logger {
-	if os.Getenv("LIUSHA_RUNTIME_DEBUG") == "1" {
-		return zerolog.New(os.Stderr).With().Timestamp().Str("service", "runtime-debug").Logger()
-	}
-	return zerolog.Nop()
-}()
+// debugLogger 步级日志（LLM Generate / tool_calls / finish_reason 等），走 logx 统一落 file。
+// 默认 Info 级；生产想降噪用 LIUSHA_LOG_LEVEL=warn 整体降级，无需独立开关。
+var debugLogger = logx.New("react.runtime")
 
-const (
-	// doneForceMaxRejects 是 done 被 done_validate 中间件连续拒绝后强制放行的阈值。
-	doneForceMaxRejects = 3
-)
+// fallbackDoneForceMaxRejects：Config.DoneForceMaxRejects 为 0 时使用。
+// 正常路径由 cmd/scanner 从 cfg.React.DoneForceMaxRejects 注入。
+const fallbackDoneForceMaxRejects = 3
 
 // Config 是 Run 的入参。
 //
@@ -43,14 +35,15 @@ const (
 //   - OnAbort 用于外部主动停机（cron 任务取消、用户 Ctrl+C 等），返回 (true, nil) 即终止。
 //   - Observer 默认 NoopObserver；ObserverEverySteps 默认 5。
 type Config struct {
-	LLM                llm.Generator
-	Actions            *toolfx.Registry
-	Budget             Budget
-	SystemPrompt       string
-	UserPrompt         string
-	OnAbort            func(ctx context.Context) (bool, error)
-	Observer           Observer
-	ObserverEverySteps int
+	LLM                 llm.Generator
+	Actions             *toolfx.Registry
+	Budget              Budget
+	SystemPrompt        string
+	UserPrompt          string
+	OnAbort             func(ctx context.Context) (bool, error)
+	Observer            Observer
+	ObserverEverySteps  int
+	DoneForceMaxRejects int // ≤0 → fallbackDoneForceMaxRejects
 }
 
 // Outcome 是 Run 的产出，便于上层做埋点 / done 报告。
@@ -87,6 +80,9 @@ func Run(ctx context.Context, cfg Config) (Outcome, error) {
 	}
 	if cfg.ObserverEverySteps <= 0 {
 		cfg.ObserverEverySteps = 5
+	}
+	if cfg.DoneForceMaxRejects <= 0 {
+		cfg.DoneForceMaxRejects = fallbackDoneForceMaxRejects
 	}
 
 	msgs := make([]llm.Message, 0, 4)
@@ -199,7 +195,7 @@ func Run(ctx context.Context, cfg Config) (Outcome, error) {
 			// DoneValidator 中间件抛错：注入 user msg 让 LLM 继续；超过阈值强制放行
 			if e, ok := IsDoneNotReady(execErr); ok {
 				doneRejectCount++
-				if doneRejectCount >= doneForceMaxRejects {
+				if doneRejectCount >= cfg.DoneForceMaxRejects {
 					out.TerminateBy = "done_force"
 					out.DoneForceCount = 1
 					return out, nil

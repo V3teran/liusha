@@ -34,7 +34,7 @@ func TestEngine_ReplayWithIdentity_HeadersSwap(t *testing.T) {
 		},
 	}
 
-	resp, err := NewEngine(srv.Client()).ReplayWithIdentity(context.Background(), raw, id)
+	resp, err := NewEngine(srv.Client(), 0).ReplayWithIdentity(context.Background(), raw, id)
 	if err != nil {
 		t.Fatalf("replay err: %v", err)
 	}
@@ -68,7 +68,7 @@ func TestEngine_ReplayWithIdentity_QuerySwap(t *testing.T) {
 		},
 	}
 
-	if _, err := NewEngine(srv.Client()).ReplayWithIdentity(context.Background(), raw, id); err != nil {
+	if _, err := NewEngine(srv.Client(), 0).ReplayWithIdentity(context.Background(), raw, id); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(seenURL, "uid=B") {
@@ -100,7 +100,7 @@ func TestEngine_ReplayWithIdentity_BodyFormURLEncoded(t *testing.T) {
 		},
 	}
 
-	if _, err := NewEngine(srv.Client()).ReplayWithIdentity(context.Background(), raw, id); err != nil {
+	if _, err := NewEngine(srv.Client(), 0).ReplayWithIdentity(context.Background(), raw, id); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(seenBody, "username=bob") {
@@ -131,7 +131,7 @@ func TestEngine_ReplayWithIdentity_BodyJSON(t *testing.T) {
 		},
 	}
 
-	if _, err := NewEngine(srv.Client()).ReplayWithIdentity(context.Background(), raw, id); err != nil {
+	if _, err := NewEngine(srv.Client(), 0).ReplayWithIdentity(context.Background(), raw, id); err != nil {
 		t.Fatal(err)
 	}
 	var parsed map[string]any
@@ -161,7 +161,7 @@ func TestEngine_ReplayWithIdentity_AnonymousNoOp(t *testing.T) {
 	}
 	id := credential.Identity{Name: credential.AnonymousName}
 
-	if _, err := NewEngine(srv.Client()).ReplayWithIdentity(context.Background(), raw, id); err != nil {
+	if _, err := NewEngine(srv.Client(), 0).ReplayWithIdentity(context.Background(), raw, id); err != nil {
 		t.Fatal(err)
 	}
 	if seenAuth != "" {
@@ -189,7 +189,7 @@ func TestEngine_ReplayWithIdentity_DoesNotMutateInput(t *testing.T) {
 		},
 	}
 
-	if _, err := NewEngine(srv.Client()).ReplayWithIdentity(context.Background(), raw, id); err != nil {
+	if _, err := NewEngine(srv.Client(), 0).ReplayWithIdentity(context.Background(), raw, id); err != nil {
 		t.Fatal(err)
 	}
 	if got := originalHeaders.Get("Cookie"); got != "session=old" {
@@ -214,7 +214,7 @@ func TestEngine_ReplayMatrix_BaselineConcurrency(t *testing.T) {
 	raw := RawRequest{Method: "GET", URL: srv.URL + "/", Headers: http.Header{}}
 	ids := []credential.Identity{{Name: "a"}, {Name: "b"}, {Name: "c"}}
 
-	res, err := NewEngine(srv.Client()).ReplayMatrix(context.Background(), raw, ids, nil, 2)
+	res, err := NewEngine(srv.Client(), 0).ReplayMatrix(context.Background(), raw, ids, nil, 2)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -242,7 +242,7 @@ func TestEngine_ReplayMatrix_ZeroConcurrencyDegrades(t *testing.T) {
 	ids := []credential.Identity{{Name: "x"}, {Name: "y"}}
 
 	// 0 / 负数应降级为内部默认值（不应死锁，不应报错）。
-	res, err := NewEngine(srv.Client()).ReplayMatrix(context.Background(), raw, ids, nil, 0)
+	res, err := NewEngine(srv.Client(), 0).ReplayMatrix(context.Background(), raw, ids, nil, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -262,7 +262,7 @@ func TestEngine_ReplayMatrix_SingleBaselineVariant(t *testing.T) {
 
 	raw := RawRequest{Method: "GET", URL: srv.URL + "/", Headers: http.Header{}}
 	ids := []credential.Identity{{Name: "a"}, {Name: "b"}, {Name: "c"}}
-	res, err := NewEngine(srv.Client()).ReplayMatrix(context.Background(), raw, ids, nil, 2)
+	res, err := NewEngine(srv.Client(), 0).ReplayMatrix(context.Background(), raw, ids, nil, 2)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -296,7 +296,7 @@ func TestEngine_ReplayMatrix_CartesianOrder(t *testing.T) {
 		{Name: "vX", Mutation: Mutation{Type: MutationPassthrough}},
 	}
 
-	res, err := NewEngine(srv.Client()).ReplayMatrix(context.Background(), raw, ids, variants, 4)
+	res, err := NewEngine(srv.Client(), 0).ReplayMatrix(context.Background(), raw, ids, variants, 4)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -333,7 +333,7 @@ func TestEngine_ReplayMatrix_UnsupportedMutation_PerCellError(t *testing.T) {
 		{Name: "bad", Mutation: Mutation{Type: "param_inject"}}, // Step 1 还没实现
 	}
 
-	res, err := NewEngine(srv.Client()).ReplayMatrix(context.Background(), raw, ids, variants, 2)
+	res, err := NewEngine(srv.Client(), 0).ReplayMatrix(context.Background(), raw, ids, variants, 2)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -453,13 +453,13 @@ func TestEngine_ReplayMatrix_EmptyVariants_DegradesToBaseline(t *testing.T) {
 	ids := []credential.Identity{{Name: "x"}}
 
 	// 传 nil variants 应自动用 baseline 兜底。
-	res, _ := NewEngine(srv.Client()).ReplayMatrix(context.Background(), raw, ids, nil, 1)
+	res, _ := NewEngine(srv.Client(), 0).ReplayMatrix(context.Background(), raw, ids, nil, 1)
 	if len(res) != 1 || res[0].VariantName != BaselineVariantName {
 		t.Fatalf("nil variants 应退化为 baseline，got %+v", res)
 	}
 
 	// 传空切片同样应退化。
-	res2, _ := NewEngine(srv.Client()).ReplayMatrix(context.Background(), raw, ids, []Variant{}, 1)
+	res2, _ := NewEngine(srv.Client(), 0).ReplayMatrix(context.Background(), raw, ids, []Variant{}, 1)
 	if len(res2) != 1 || res2[0].VariantName != BaselineVariantName {
 		t.Fatalf("空 variants 应退化为 baseline，got %+v", res2)
 	}

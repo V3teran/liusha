@@ -1,4 +1,4 @@
-// Package lesson 是 host_lesson 表的 Go 模型与持久化层。
+// Package lesson 是 lesson 表的 Go 模型与持久化层。
 //
 // 跨 engagement 长期知识库：lesson_extract 蒸馏 finding 时单写本表，
 // 子 ReAct 装配时按 (tenant, host) 加载 top-N 当背景知识；finding 重发现时
@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-// Lesson 是 host_lesson 表行的 Go 表示。
+// Lesson 是 lesson 表行的 Go 表示。
 //
 // SourceEngagementID / SourceFindingID 用 *string：FK ON DELETE SET NULL；
 // 旧 engagement 被删后 lesson 仍保留（知识不应随 engagement 销毁）。

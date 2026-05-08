@@ -12,7 +12,7 @@ import (
 // Skill 为空表示主 sniffer 任务；非空表示由 sniffer 派发的 operator 子任务（execute_skill）。
 // Input 是该 skill 的入参（已序列化的 JSON），由各 skill 自行解释。
 type Payload struct {
-	TaskID       string          `json:"task_id"`
+	TaskID       string          `json:"agent_run_id"`
 	EngagementID string          `json:"engagement_id"`
 	Role         Role            `json:"role"`
 	Skill        string          `json:"skill,omitempty"`

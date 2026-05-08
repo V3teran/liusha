@@ -17,7 +17,7 @@ import (
 type Flow struct {
 	ID              int64
 	EngagementID    string
-	Ts              time.Time
+	CreatedAt       time.Time
 	Method          string
 	URL             string
 	RequestHeaders  json.RawMessage
@@ -32,7 +32,7 @@ type Flow struct {
 type FlowSummary struct {
 	ID           int64
 	EngagementID string
-	Ts           time.Time
+	CreatedAt    time.Time
 	Method       string
 	URL          string
 	StatusCode   int

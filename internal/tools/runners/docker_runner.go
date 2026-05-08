@@ -55,9 +55,9 @@ type RunResult struct {
 	TimedOut bool
 }
 
-// defaultConcurrency 是同时跑容器数的默认上限——避免 host CPU/mem 被多并发 sqlmap
+// fallbackConcurrency 是同时跑容器数的默认上限——避免 host CPU/mem 被多并发 sqlmap
 // 等长任务打满。可由 NewDockerRunner(WithConcurrency(n)) 覆盖。
-const defaultConcurrency = 5
+const fallbackConcurrency = 5
 
 // DockerRunner 是 docker CLI 实现。除并发 semaphore 外无内部状态，可全局共享单例。
 type DockerRunner struct {
@@ -72,22 +72,22 @@ type DockerRunner struct {
 // Option 是 NewDockerRunner 的函数式选项。
 type Option func(*DockerRunner)
 
-// WithConcurrency 覆盖默认并发上限（n <= 0 时退化为 defaultConcurrency）。
+// WithConcurrency 覆盖默认并发上限（n <= 0 时退化为 fallbackConcurrency）。
 func WithConcurrency(n int) Option {
 	return func(r *DockerRunner) {
 		if n <= 0 {
-			n = defaultConcurrency
+			n = fallbackConcurrency
 		}
 		r.sem = make(chan struct{}, n)
 	}
 }
 
-// NewDockerRunner 构造默认 runner（并发上限 defaultConcurrency=5）。
+// NewDockerRunner 构造默认 runner（并发上限 fallbackConcurrency=5）。
 // 可选传 Option 覆盖默认值。
 func NewDockerRunner(opts ...Option) *DockerRunner {
 	r := &DockerRunner{
 		DockerBin: "docker",
-		sem:       make(chan struct{}, defaultConcurrency),
+		sem:       make(chan struct{}, fallbackConcurrency),
 	}
 	for _, opt := range opts {
 		opt(r)
@@ -170,6 +170,9 @@ func (r *DockerRunner) RunAndWait(ctx context.Context, spec RunSpec) (RunResult,
 // 顺序：run [flags...] image [cmd...]
 func buildDockerArgs(spec RunSpec) []string {
 	args := []string{"run", "-i"} // -i 让容器 stdin 可读（多数工具不需要，但避免某些工具 abort）
+	// 让容器内 host.docker.internal 解析到宿主网关——sqlmap 等工具打 host 上的 :8001/:4280 必需。
+	// macOS Docker Desktop 默认已加；Linux 必须显式注入。--network=host 时 docker 会自动忽略此 flag。
+	args = append(args, "--add-host=host.docker.internal:host-gateway")
 	if spec.AutoRemove {
 		args = append(args, "--rm")
 	}

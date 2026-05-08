@@ -10,7 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// Store 封装 host_lesson 表的所有持久化操作。
+// Store 封装 lesson 表的所有持久化操作。
 type Store struct{ pool *pgxpool.Pool }
 
 // NewStore 用 pgxpool 构造 Store。
@@ -18,7 +18,8 @@ func NewStore(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
 
 // colsSelect 是所有 SELECT / RETURNING 路径的统一列序，与 scan() 字段一一对应。
 // v0011：加 payload jsonb 列（漏改导致 "got 11 and 12" 落库错误）。
-const colsSelect = "id, tenant_id, host, content, content_hash, priority, source_engagement_id, source_finding_id, hit_count, payload, created_at, updated_at"
+// v0017：列名 payload → structured_payload；Go 字段 Lesson.Payload 保持向后兼容。
+const colsSelect = "id, tenant_id, host, content, content_hash, priority, source_engagement_id, source_finding_id, hit_count, structured_payload, created_at, updated_at"
 
 // ContentHash 计算给定 content 的 SHA-256 hex 字符串（64 字符）。
 //
@@ -53,14 +54,14 @@ func (s *Store) Add(ctx context.Context, l Lesson) (Lesson, error) {
 	}
 
 	row := s.pool.QueryRow(ctx, `
-		INSERT INTO host_lesson
-			(tenant_id, host, content, content_hash, priority, source_engagement_id, source_finding_id, payload)
+		INSERT INTO lesson
+			(tenant_id, host, content, content_hash, priority, source_engagement_id, source_finding_id, structured_payload)
 		VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
 		ON CONFLICT (tenant_id, host, content_hash) DO UPDATE
-		  SET priority   = GREATEST(host_lesson.priority, EXCLUDED.priority),
-		      hit_count  = host_lesson.hit_count + 1,
-		      payload    = EXCLUDED.payload,
-		      updated_at = now()
+		  SET priority           = GREATEST(lesson.priority, EXCLUDED.priority),
+		      hit_count          = lesson.hit_count + 1,
+		      structured_payload = EXCLUDED.structured_payload,
+		      updated_at         = now()
 		RETURNING `+colsSelect,
 		l.TenantID, l.Host, l.Content, l.ContentHash, l.Priority,
 		l.SourceEngagementID, l.SourceFindingID, l.Payload)
@@ -87,7 +88,7 @@ func (s *Store) ListByHost(ctx context.Context, tenant, host string, limit int) 
 	}
 	rows, err := s.pool.Query(ctx, `
 		SELECT `+colsSelect+`
-		FROM host_lesson
+		FROM lesson
 		WHERE tenant_id=$1 AND host=$2
 		ORDER BY priority DESC, updated_at DESC
 		LIMIT $3`, tenant, host, limit)
@@ -113,10 +114,10 @@ func (s *Store) ListByHost(ctx context.Context, tenant, host string, limit int) 
 // TouchByDedup 按 (host, dedup_key) 找首发 finding 关联的 lesson，hit_count+1。
 //
 // v1.2 关键修复：finding 改 append-only 后，重发现的 finding.ID 是新行 ID，
-// 与 host_lesson.source_finding_id（指向首发 finding）永远不匹配，旧的
+// 与 lesson.source_finding_id（指向首发 finding）永远不匹配，旧的
 // TouchByFinding(findingID) 永远 0 update。改成按 (host, dedup_key) 反查首发 ID 即可。
 //
-// 触发时机：vulnfinding.Store.OnReSaved（重发现路径）—— 表示"这条经验对应的漏洞被
+// 触发时机：finding.Store.OnReSaved（重发现路径）—— 表示"这条经验对应的漏洞被
 // 又一次扫描验证存在"。hit_count 反映复用次数，可作为可信度排序依据。
 //
 // host 或 dedupKey 空时跳过；首发 finding 已被 hard delete 或没蒸馏过 lesson 时
@@ -126,9 +127,9 @@ func (s *Store) TouchByDedup(ctx context.Context, host, dedupKey string) (int64,
 		return 0, nil
 	}
 	tag, err := s.pool.Exec(ctx, `
-		UPDATE host_lesson SET hit_count = hit_count + 1, updated_at = now()
+		UPDATE lesson SET hit_count = hit_count + 1, updated_at = now()
 		WHERE source_finding_id IN (
-			SELECT id FROM vuln_finding
+			SELECT id FROM finding
 			WHERE host=$1 AND dedup_key=$2
 			ORDER BY created_at ASC
 			LIMIT 1
@@ -151,9 +152,9 @@ func (s *Store) Prune(ctx context.Context, tenant, host string, keep int) error 
 		tenant = "default"
 	}
 	_, err := s.pool.Exec(ctx, `
-		DELETE FROM host_lesson
+		DELETE FROM lesson
 		WHERE id IN (
-			SELECT id FROM host_lesson
+			SELECT id FROM lesson
 			WHERE tenant_id=$1 AND host=$2
 			ORDER BY priority DESC, updated_at DESC
 			OFFSET $3

@@ -3,9 +3,10 @@ package probe
 import (
 	"fmt"
 
+	"github.com/V3teran/liusha/internal/config"
 	"github.com/V3teran/liusha/internal/credential"
 	"github.com/V3teran/liusha/internal/replay"
-	"github.com/V3teran/liusha/internal/toolfx"
+	"github.com/V3teran/liusha/internal/toolruntime"
 )
 
 // Factory 把 BAC 4 个 action 的共同依赖（creds / flows / replay engine）打包，
@@ -29,6 +30,9 @@ type Option func(*registerOpts)
 // registerOpts 内部状态，仅在 factory.go 内消费。
 type registerOpts struct {
 	skipSimilarity bool
+	cfg            config.ProbeConfig
+	cfgSet         bool
+	authKeywords   []string
 }
 
 // WithoutSimilarity 跳过 ComputeSimilarity 注册。
@@ -37,10 +41,28 @@ func WithoutSimilarity() Option {
 	return func(o *registerOpts) { o.skipSimilarity = true }
 }
 
+// WithConfig 把 cfg.Probe 注入到 ReplayMatrix / ComputeSimilarity 的可选字段。
+// 零值字段由两个 action 内部 fallback 兜底。
+func WithConfig(cfg config.ProbeConfig) Option {
+	return func(o *registerOpts) {
+		o.cfg = cfg
+		o.cfgSet = true
+	}
+}
+
+// WithAuthKeywords 把 cfg.Heuristic.AuthKeywords 透传给 HeuristicCheck，
+// 让 all_auth_error 规则使用 yaml 自定义关键词清单。
+// keywords 为 nil/空时 heuristic.AllAuthError 内部回退 heuristic.DefaultAuthKeywords。
+func WithAuthKeywords(keywords []string) Option {
+	return func(o *registerOpts) {
+		o.authKeywords = keywords
+	}
+}
+
 // CreateActions 为一个 task 创建共享同一 *ProbeState 的 action 列表。
 //
-// 默认返回 4 个（fetch_credentials / replay_matrix / heuristic_check / compute_similarity）；
-// 传 opts 可裁剪。fetch_credentials 与 replay_matrix 是核心永远注册——
+// 默认返回 4 个（fetch_credentials / run_replay / check_heuristics / compute_similarity）；
+// 传 opts 可裁剪。fetch_credentials 与 run_replay 是核心永远注册——
 // 删除其中任一会导致下游工具无 state 可读。
 //
 // engagementID 当前不参与构造，只作 future tagging / 日志锚点；不影响 action 行为。
@@ -53,13 +75,24 @@ func (f *Factory) CreateActions(_ string, locations []credential.CredentialLocat
 		opt(&o)
 	}
 	state := &ProbeState{}
+	replayer := &ReplayMatrix{Engine: f.replay, Flows: f.flows, State: state}
+	if o.cfgSet {
+		replayer.BodyHintMaxBytes = o.cfg.BodyHintMaxBytes
+		replayer.DefaultConcurrency = o.cfg.DefaultConcurrency
+	}
 	actions := []toolfx.Action{
 		&FetchCredentials{Provider: f.creds, State: state, Locations: locations},
-		&ReplayMatrix{Engine: f.replay, Flows: f.flows, State: state},
+		replayer,
 	}
-	actions = append(actions, &HeuristicCheck{State: state})
+	actions = append(actions, &HeuristicCheck{State: state, AuthKeywords: o.authKeywords})
 	if !o.skipSimilarity {
-		actions = append(actions, &ComputeSimilarity{State: state})
+		sim := &ComputeSimilarity{State: state}
+		if o.cfgSet {
+			sim.MinThreshold = o.cfg.SimilarityMinThreshold
+			sim.HighThreshold = o.cfg.SimilarityHighThreshold
+			sim.LengthRatioGate = o.cfg.LengthRatioGate
+		}
+		actions = append(actions, sim)
 	}
 	return actions
 }

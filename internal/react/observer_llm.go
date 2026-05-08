@@ -22,10 +22,35 @@ type StateReader interface {
 //   - 不阻塞主循环：LLM 错 / JSON 解析失败 / 非法 decision 一律回退 keep_going；
 //   - 紧凑 prompt：只把最近窗口（含 ObsSummary）+ 三层 memory 拼成 ≤ 几百 token；
 //   - 严格 JSON 输出契约：`{"decision":"...","hint":"..."}`，三种合法值。
+// fallback 截断阈值：caller 未注入对应字段时使用。
+const (
+	fallbackObserverArgsTruncate = 80
+	fallbackObserverObsTruncate  = 120
+)
+
 type LLMObserver struct {
 	llm          llm.Generator
 	state        StateReader
 	engagementID string
+
+	// 可选字段：caller 通常从 cfg.React.{ObserverArgsTruncate, ObserverObsTruncate} 注入。
+	// 零值走 fallback 常量。
+	ArgsTruncate int
+	ObsTruncate  int
+}
+
+func (o *LLMObserver) effectiveArgsTruncate() int {
+	if o.ArgsTruncate > 0 {
+		return o.ArgsTruncate
+	}
+	return fallbackObserverArgsTruncate
+}
+
+func (o *LLMObserver) effectiveObsTruncate() int {
+	if o.ObsTruncate > 0 {
+		return o.ObsTruncate
+	}
+	return fallbackObserverObsTruncate
 }
 
 // NewLLMObserver 用 router.For("observer") 路由出的 light Generator + engagement store 构造。
@@ -57,7 +82,7 @@ type observerDecision struct {
 // 任何失败路径（store 读失败 / LLM 调用失败 / JSON 解析失败 / decision 非法）
 // 都返回 keep_going，避免阻塞主循环——失败本身已写 warn 日志。
 func (o *LLMObserver) Evaluate(ctx context.Context, window []StepRecord) Verdict {
-	user := buildObserverPrompt(window, o.readStateOrNil(ctx))
+	user := buildObserverPrompt(window, o.readStateOrNil(ctx), o.effectiveArgsTruncate(), o.effectiveObsTruncate())
 
 	res, err := o.llm.Generate(ctx, []llm.Message{
 		{Role: llm.RoleSystem, Content: observerSystemPrompt},
@@ -122,11 +147,12 @@ func (o *LLMObserver) readStateOrNil(ctx context.Context) []byte {
 //
 //   - window 为空时仍能产出 prompt（空 window 段）；
 //   - state 为 nil 时省略状态板段。
-func buildObserverPrompt(window []StepRecord, state []byte) string {
+//   - argsTruncate / obsTruncate 来自 LLMObserver 的可选字段，控制喂 LLM 的字节数。
+func buildObserverPrompt(window []StepRecord, state []byte, argsTruncate, obsTruncate int) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "最近 %d 步动作：\n", len(window))
 	for i, w := range window {
-		fmt.Fprintf(&b, "%d. %s(%s) → %s\n", i+1, w.ActionName, truncate(string(w.Args), 80), truncate(w.ObsSummary, 120))
+		fmt.Fprintf(&b, "%d. %s(%s) → %s\n", i+1, w.ActionName, truncate(string(w.Args), argsTruncate), truncate(w.ObsSummary, obsTruncate))
 	}
 	if len(state) > 0 {
 		b.WriteString("\n当前状态板（facts/ideas/hints）：\n")

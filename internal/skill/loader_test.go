@@ -83,3 +83,51 @@ func TestLoader_Load_SkillNotFound(t *testing.T) {
 		t.Fatal("expected file not found error")
 	}
 }
+
+// TestLoader_Load_TriggerMetadata：声明触发元数据时正确解析。
+func TestLoader_Load_TriggerMetadata(t *testing.T) {
+	body := `---
+name: vuln/web/bac
+description: BAC
+requires_auth: true
+applicable_param_locations: [query, path_param, json, form]
+---
+正文`
+	root := writeSkill(t, "vuln/web/bac", body)
+	c, err := NewLoader(root).Load("vuln/web/bac")
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if !c.RequiresAuth {
+		t.Errorf("requires_auth=%v, want true", c.RequiresAuth)
+	}
+	want := []string{"query", "path_param", "json", "form"}
+	if len(c.ApplicableParamLocations) != len(want) {
+		t.Fatalf("params len=%d, want %d", len(c.ApplicableParamLocations), len(want))
+	}
+	for i, s := range want {
+		if c.ApplicableParamLocations[i] != s {
+			t.Errorf("params[%d]=%q, want %q", i, c.ApplicableParamLocations[i], s)
+		}
+	}
+}
+
+// TestLoader_Load_NoTriggerMetadata：未声明触发元数据时为零值（不限制）。
+func TestLoader_Load_NoTriggerMetadata(t *testing.T) {
+	body := `---
+name: vuln/web/sqli
+description: SQLi
+---
+正文`
+	root := writeSkill(t, "vuln/web/sqli", body)
+	c, err := NewLoader(root).Load("vuln/web/sqli")
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if c.RequiresAuth {
+		t.Errorf("requires_auth=%v, want false (default)", c.RequiresAuth)
+	}
+	if len(c.ApplicableParamLocations) != 0 {
+		t.Errorf("params=%v, want empty (default)", c.ApplicableParamLocations)
+	}
+}

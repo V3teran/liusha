@@ -16,20 +16,28 @@ import (
 	"github.com/V3teran/liusha/internal/logx"
 )
 
-// defaultConcurrency 在调用方传入 0 / 负数时兜底，避免 semaphore 死锁。
-const defaultConcurrency = 5
+// fallbackConcurrency 在调用方传入 0 / 负数时兜底，避免 semaphore 死锁。
+const fallbackConcurrency = 5
 
 // Engine 持有共享的 *http.Client；timeout 由调用方通过 ctx 控制，不在这里 hardcode。
+//
+// defaultConcurrency 是 ReplayMatrix 在调用方未指定 concurrency 时的兜底值；
+// 由 cmd/scanner 从 cfg.Replay.Concurrency 注入。
 type Engine struct {
-	client *http.Client
+	client             *http.Client
+	defaultConcurrency int
 }
 
-// NewEngine 构造一个 Engine。client 为 nil 时回退到 http.DefaultClient。
-func NewEngine(client *http.Client) *Engine {
+// NewEngine 构造一个 Engine。client 为 nil 时回退 http.DefaultClient；
+// concurrency ≤ 0 时回退 fallbackConcurrency。
+func NewEngine(client *http.Client, concurrency int) *Engine {
 	if client == nil {
 		client = http.DefaultClient
 	}
-	return &Engine{client: client}
+	if concurrency <= 0 {
+		concurrency = fallbackConcurrency
+	}
+	return &Engine{client: client, defaultConcurrency: concurrency}
 }
 
 // ReplayWithIdentity 按 id 中的 Credentials 替换 raw 的对应位置后发出请求。
@@ -92,7 +100,10 @@ func (e *Engine) ReplayMatrix(
 	concurrency int,
 ) ([]Response, error) {
 	if concurrency <= 0 {
-		concurrency = defaultConcurrency
+		concurrency = e.defaultConcurrency
+		if concurrency <= 0 {
+			concurrency = fallbackConcurrency
+		}
 	}
 	if len(variants) == 0 {
 		variants = []Variant{DefaultBaselineVariant()}

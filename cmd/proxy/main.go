@@ -29,9 +29,6 @@ import (
 	"github.com/V3teran/liusha/internal/proxy"
 )
 
-// shutdownTimeout 是 healthz HTTP 优雅关闭的超时。
-const shutdownTimeout = 5 * time.Second
-
 func main() {
 	logger := logx.New("proxy")
 	ctx := context.Background()
@@ -42,20 +39,22 @@ func main() {
 	}
 
 	redisAddr := os.Getenv("LIUSHA_REDIS_ADDR")
-	rdb, err := db.NewRedis(ctx, redisAddr)
+	rdb, err := db.NewRedis(ctx, redisAddr, cfg.Redis)
 	if err != nil {
 		logger.Fatal().Err(err).Msg("redis")
 	}
 	defer rdb.Close()
 
-	// 内嵌 MITM 代理装配链：filter → publisher → proxy.Server
-	publicAddr := envOr("LIUSHA_PROXY_LISTEN_ADDR", "0.0.0.0:8888")
-	internalAddr := envOr("LIUSHA_PROXY_INTERNAL_ADDR", "127.0.0.1:18888")
-	certDir := envOr("LIUSHA_PROXY_CERT_DIR", "") // 空则 proxy.Server 内部默认 $HOME/.liusha
 	proxyCfg := cfg.Proxy
 
+	// 内嵌 MITM 代理装配链：filter → publisher → proxy.Server
+	// ENV 仍可临时覆盖 yaml；空 ENV → 走 yaml；yaml 也空 → ApplyDefaults 兜底。
+	publicAddr := envOr("LIUSHA_PROXY_LISTEN_ADDR", proxyCfg.ListenAddr)
+	internalAddr := envOr("LIUSHA_PROXY_INTERNAL_ADDR", proxyCfg.InternalAddr)
+	certDir := envOr("LIUSHA_PROXY_CERT_DIR", "") // 空则 proxy.Server 用 $HOME/<cert_subdir>
+
 	trafficFilter := filter.NewTrafficFilter(proxyCfg)
-	publisher, err := proxy.NewPublisher(rdb)
+	publisher, err := proxy.NewPublisher(rdb, proxyCfg.StreamName, int64(proxyCfg.StreamMaxLen))
 	if err != nil {
 		logger.Fatal().Err(err).Msg("new publisher")
 	}
@@ -78,12 +77,16 @@ func main() {
 	defer proxyCancel()
 
 	// healthz HTTP：默认 :9091，避免与 scanner :9090 冲突。
-	hsAddr := envOr("LIUSHA_PROXY_HEALTHZ_ADDR", ":9091")
+	hsAddr := envOr("LIUSHA_PROXY_HEALTHZ_ADDR", proxyCfg.HealthzAddr)
 	hsMux := http.NewServeMux()
 	hsMux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`{"ok":true}`))
 	})
-	hs := &http.Server{Addr: hsAddr, Handler: hsMux, ReadHeaderTimeout: 5 * time.Second}
+	hs := &http.Server{
+		Addr:              hsAddr,
+		Handler:           hsMux,
+		ReadHeaderTimeout: time.Duration(cfg.API.ReadHeaderTimeoutSeconds) * time.Second,
+	}
 
 	go func() {
 		logger.Info().Str("addr", hs.Addr).Msg("proxy healthz listening")
@@ -114,6 +117,7 @@ func main() {
 
 	proxyServer.Stop()
 	proxyCancel()
+	shutdownTimeout := time.Duration(proxyCfg.ShutdownTimeoutSeconds) * time.Second
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancel()
 	if err := hs.Shutdown(shutdownCtx); err != nil {

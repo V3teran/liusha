@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/rs/zerolog"
 
@@ -29,9 +30,9 @@ import (
 	"github.com/V3teran/liusha/internal/llm"
 	"github.com/V3teran/liusha/internal/logx"
 	"github.com/V3teran/liusha/internal/react"
-	"github.com/V3teran/liusha/internal/reactrun"
+	"github.com/V3teran/liusha/internal/agentrun"
 	"github.com/V3teran/liusha/internal/skill"
-	"github.com/V3teran/liusha/internal/toolfx"
+	"github.com/V3teran/liusha/internal/toolruntime"
 )
 
 // delegateLog 包级 logger（与 instrument.go / classify_traffic.go 同模式：
@@ -45,7 +46,7 @@ type FlowReader interface {
 	GetByID(ctx context.Context, id int64) (flow.Flow, error)
 }
 
-// TaskRecorder 抽象 sub-task 生命周期写库，由 *reactrun.Store 自动满足。
+// TaskRecorder 抽象 sub-task 生命周期写库，由 *agentrun.Store 自动满足。
 //
 // 让 delegate 把每次 spawn 的 sub-react 落 agent_task 一行，是为了：
 //   - 让 finding.task_id (FK→agent_task) 能挂上具体 sub-task 而不是父 orchestrator task
@@ -53,7 +54,7 @@ type FlowReader interface {
 //
 // 不挂 LLM-call 的 task_id（仍走父 task）——那是另一层改造，需要重 Instrument SubLLM。
 type TaskRecorder interface {
-	Create(ctx context.Context, p reactrun.NewParams) (string, error)
+	Create(ctx context.Context, p agentrun.NewParams) (string, error)
 	SetRunning(ctx context.Context, id string) error
 	SetDone(ctx context.Context, id string, result json.RawMessage) error
 	SetError(ctx context.Context, id string, errMsg string) error
@@ -75,7 +76,7 @@ type TaskRecorder interface {
 //     llm_call.task_id 挂在 sub-task 而不是父 orchestrator task
 //   - ObserverFor  可选闭包：用 sub-task uuid 现场建 Observer（其内部 LLM 也 Instrument
 //     到 sub-task 上，让 observer 的 llm_call.task_id 也归到 sub-task）
-type Delegate struct {
+type Tool struct {
 	Builders     map[string]skill.Builder
 	EngagementID string
 	SubLLM       llm.Generator
@@ -89,15 +90,19 @@ type Delegate struct {
 	// 让子 ReAct 在 user prompt 一次性看到完整流量。nil 时降级——子 builder 自行
 	// fallback（user prompt 仅含 method/url/host）。生产路径 main.go 必传。
 	Flows FlowReader
+
+	// SubTaskTimeoutSeconds 子 ReAct 整体超时（秒）；0 = 不限（继承父 ctx）。
+	// 由 cmd/scanner 从 cfg.Vuln.SubTaskTimeoutSeconds 注入；防 hunter 卡死无总上限。
+	SubTaskTimeoutSeconds int
 }
 
 // Name 返回工具名 "delegate"。
-func (a *Delegate) Name() string { return "delegate" }
+func (a *Tool) Name() string { return "delegate" }
 
 // Description 给 LLM 的工具描述——按 Catalog 动态展开"name: description"清单。
 //
 // CC 风格：LLM 看一眼工具描述就知道有什么 skill 可调，省去硬编码 system prompt 列表。
-func (a *Delegate) Description() string {
+func (a *Tool) Description() string {
 	if len(a.Catalog) == 0 {
 		return "把当前流量委托给某个 skill 的子 ReAct 完成（同步阻塞）。子完成后返 summary。"
 	}
@@ -113,7 +118,7 @@ func (a *Delegate) Description() string {
 
 // ParametersJSON：skill 字段用 enum 限定为 Catalog 中已存在的 name。
 // 主 LLM 按 OpenAI tool schema 严格校验，写错 skill 名直接被拒。
-func (a *Delegate) ParametersJSON() json.RawMessage {
+func (a *Tool) ParametersJSON() json.RawMessage {
 	skillProp := `{"type":"string","description":"要委托给的 skill 名"}`
 	if len(a.Catalog) > 0 {
 		cards := sortedCatalog(a.Catalog)
@@ -163,7 +168,7 @@ func sortedCatalog(in []*skill.Card) []*skill.Card {
 //
 // credential_locations 由主 LLM 在调 delegate 时透传（来自上游 classify_traffic
 // 输出），子 ReAct 用它构造带占位 token 的 anonymous 假认证身份。
-func (a *Delegate) Execute(ctx context.Context, args json.RawMessage) (toolfx.Result, error) {
+func (a *Tool) Execute(ctx context.Context, args json.RawMessage) (toolfx.Result, error) {
 	var in struct {
 		Skill               string                          `json:"skill"`
 		FlowID              int64                           `json:"flow_id"`
@@ -189,6 +194,15 @@ func (a *Delegate) Execute(ctx context.Context, args json.RawMessage) (toolfx.Re
 	if err != nil {
 		return toolfx.Result{}, fmt.Errorf("record sub-task start: %w", err)
 	}
+
+	spawnStart := time.Now()
+	delegateLog.Info().
+		Str("sub_skill", in.Skill).
+		Int64("flow_id", in.FlowID).
+		Str("host", in.Host).
+		Str("sub_task_id", subTaskID).
+		Str("engagement_id", a.EngagementID).
+		Msg("delegate spawn ▶ sub-react starting")
 
 	// 用 sub-task uuid 重 Instrument hunter LLM + observer，让它们的 llm_call.task_id
 	// 挂在 sub-task 上而不是父 orchestrator task。
@@ -236,13 +250,30 @@ func (a *Delegate) Execute(ctx context.Context, args json.RawMessage) (toolfx.Re
 		return toolfx.Result{}, fmt.Errorf("build skill %s: %w", in.Skill, err)
 	}
 
-	sub, err := react.Run(ctx, cfg)
+	// 子 ReAct 整体超时：防 sqlmap 卡死等慢路径让 hunter 无限挂起。
+	subCtx := ctx
+	if a.SubTaskTimeoutSeconds > 0 {
+		var subCancel context.CancelFunc
+		subCtx, subCancel = context.WithTimeout(ctx, time.Duration(a.SubTaskTimeoutSeconds)*time.Second)
+		defer subCancel()
+	}
+	sub, err := react.Run(subCtx, cfg)
 	if err != nil {
 		a.recordSubTaskError(ctx, subTaskID, err)
 		return toolfx.Result{}, fmt.Errorf("sub-react %s: %w", in.Skill, err)
 	}
 
 	a.recordSubTaskDone(ctx, subTaskID, in.Skill, sub)
+
+	delegateLog.Info().
+		Str("sub_skill", in.Skill).
+		Str("sub_task_id", subTaskID).
+		Int("sub_total_steps", sub.TotalSteps).
+		Str("sub_terminate_by", sub.TerminateBy).
+		Int("in_tokens", sub.TotalUsage.InTokens).
+		Int("out_tokens", sub.TotalUsage.OutTokens).
+		Dur("duration", time.Since(spawnStart)).
+		Msg("delegate spawn ◀ sub-react done")
 
 	summary := fmt.Sprintf("skill=%s steps=%d terminate=%s usage=in:%d/out:%d",
 		in.Skill, sub.TotalSteps, sub.TerminateBy,
@@ -264,7 +295,7 @@ type subTaskInput struct {
 //
 // Tasks==nil 时退化：返空 string，BuilderParams.TaskID 为空，finding.task_id 仍是 NULL。
 // 这是单元测试场景；生产路径 main.go 必传 Tasks。
-func (a *Delegate) recordSubTaskStart(ctx context.Context, in struct {
+func (a *Tool) recordSubTaskStart(ctx context.Context, in struct {
 	Skill               string                          `json:"skill"`
 	FlowID              int64                           `json:"flow_id"`
 	Host                string                          `json:"host"`
@@ -286,7 +317,7 @@ func (a *Delegate) recordSubTaskStart(ctx context.Context, in struct {
 	if err != nil {
 		return "", fmt.Errorf("marshal sub-task input: %w", err)
 	}
-	id, err := a.Tasks.Create(ctx, reactrun.NewParams{
+	id, err := a.Tasks.Create(ctx, agentrun.NewParams{
 		EngagementID: a.EngagementID,
 		Role:         "hunter",
 		Skill:        in.Skill,
@@ -302,7 +333,7 @@ func (a *Delegate) recordSubTaskStart(ctx context.Context, in struct {
 }
 
 // recordSubTaskDone 把 sub-task 推进到 done，写入 result（best-effort：失败仅 warn）。
-func (a *Delegate) recordSubTaskDone(ctx context.Context, id, skillName string, sub react.Outcome) {
+func (a *Tool) recordSubTaskDone(ctx context.Context, id, skillName string, sub react.Outcome) {
 	if a.Tasks == nil || id == "" {
 		return
 	}
@@ -320,7 +351,7 @@ func (a *Delegate) recordSubTaskDone(ctx context.Context, id, skillName string, 
 }
 
 // recordSubTaskError 把 sub-task 推进到 error（best-effort：失败仅 warn）。
-func (a *Delegate) recordSubTaskError(ctx context.Context, id string, origErr error) {
+func (a *Tool) recordSubTaskError(ctx context.Context, id string, origErr error) {
 	if a.Tasks == nil || id == "" {
 		return
 	}

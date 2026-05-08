@@ -1,5 +1,5 @@
 // Package engagement 实现 engagement 聚合根的 model 与 store。
-// engagement 是一次"扫描会话"，按 (tenant, scope_host) 懒创建；active 唯一。
+// engagement 是一次"扫描会话"，按 (tenant, target_host) 懒创建；active 唯一。
 // memory_notes（kind=observation/hypothesis/boundary）作为 engagement-scope 状态板。
 package engagement
 
@@ -36,15 +36,15 @@ type Engagement struct {
 	ID            string
 	TenantID      string
 	Mode          Mode
-	ScopeHost     string
+	TargetHost     string
 	Status        Status
-	MemoryNotes   []byte // jsonb: {notes: [{kind, content, status?, task_id, scope}]}
+	MemoryNotes   []byte // jsonb: {notes: [{kind, content, status?, agent_run_id, scope}]}
 	CreatedAt     time.Time
 	EndedAt       *time.Time
 	ErrorMessage  string
 	FlowCount     int
 	FindingCount  int
-	ReactRunCount int
+	AgentRunCount int
 }
 
 // State 是 ReadState action 返回的视图。

@@ -7,35 +7,35 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/V3teran/liusha/internal/vulnfinding"
+	"github.com/V3teran/liusha/internal/finding"
 )
 
 // fakeLister 实现 findingsLister 用于单测，避免拉起 PG。
 type fakeLister struct {
-	rows []vulnfinding.VulnFinding
+	rows []finding.VulnFinding
 	err  error
 }
 
-func (f *fakeLister) ListByEngagement(_ context.Context, _ string) ([]vulnfinding.VulnFinding, error) {
+func (f *fakeLister) ListByEngagement(_ context.Context, _ string) ([]finding.VulnFinding, error) {
 	return f.rows, f.err
 }
 
 // TestGetFindings_Output_NonEmpty 锁住核心 bug：Output 必须有内容，否则 LLM
 // 看到的 tool message content 是空——会误判"未发现漏洞"。
 func TestGetFindings_Output_NonEmpty(t *testing.T) {
-	store := &fakeLister{rows: []vulnfinding.VulnFinding{
+	store := &fakeLister{rows: []finding.VulnFinding{
 		{
 			ID:         "f1",
 			Kind:       "bac.unauthorized_access",
-			Severity:   vulnfinding.SeverityCritical,
-			Confidence: vulnfinding.ConfidenceHigh,
+			Severity:   finding.SeverityCritical,
+			Confidence: finding.ConfidenceHigh,
 			Title:      "管理接口未授权",
 		},
 		{
 			ID:         "f2",
 			Kind:       "bac.horizontal_priv_esc",
-			Severity:   vulnfinding.SeverityHigh,
-			Confidence: vulnfinding.ConfidenceHigh,
+			Severity:   finding.SeverityHigh,
+			Confidence: finding.ConfidenceHigh,
 			Title:      "用户可看他人订单",
 		},
 	}}

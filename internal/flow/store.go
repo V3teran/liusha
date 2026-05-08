@@ -44,11 +44,11 @@ func (s *Store) WithCounter(c engagementCounter) *Store {
 }
 
 // flowSelectCols 是 GetByID 的统一列序，与 scanFlow() 字段一一对应。
-const flowSelectCols = "id, engagement_id, ts, method, url, request_headers, request_body, " +
+const flowSelectCols = "id, engagement_id, created_at, method, url, request_headers, request_body, " +
 	"status_code, response_headers, response_body"
 
 // summaryCols 是 ListByEngagement 的瘦列序，刻意不含 body / headers，避免大 payload。
-const summaryCols = "id, engagement_id, ts, method, url, status_code"
+const summaryCols = "id, engagement_id, created_at, method, url, status_code"
 
 // copyFromCols 是 CopyFrom 写入的列名顺序，必须与每行 []any 的元素顺序严格对齐。
 var copyFromCols = []string{
@@ -144,7 +144,7 @@ func (s *Store) ListByEngagement(ctx context.Context, engagementID string, limit
 		SELECT `+summaryCols+`
 		FROM http_flow
 		WHERE engagement_id=$1
-		ORDER BY ts ASC, id ASC
+		ORDER BY created_at ASC, id ASC
 		LIMIT $2 OFFSET $3`, engagementID, limit, offset)
 	if err != nil {
 		return nil, fmt.Errorf("list flows: %w", err)
@@ -154,7 +154,7 @@ func (s *Store) ListByEngagement(ctx context.Context, engagementID string, limit
 	var out []FlowSummary
 	for rows.Next() {
 		var sum FlowSummary
-		if err := rows.Scan(&sum.ID, &sum.EngagementID, &sum.Ts, &sum.Method, &sum.URL,
+		if err := rows.Scan(&sum.ID, &sum.EngagementID, &sum.CreatedAt, &sum.Method, &sum.URL,
 			&sum.StatusCode); err != nil {
 			return nil, fmt.Errorf("scan flow summary: %w", err)
 		}
@@ -174,7 +174,7 @@ type scanner interface {
 // scanFlow 是 flowSelectCols 列序的统一反序列化点。
 func scanFlow(r scanner, f *Flow) error {
 	var reqH, respH []byte
-	if err := r.Scan(&f.ID, &f.EngagementID, &f.Ts, &f.Method, &f.URL,
+	if err := r.Scan(&f.ID, &f.EngagementID, &f.CreatedAt, &f.Method, &f.URL,
 		&reqH, &f.RequestBody,
 		&f.StatusCode, &respH, &f.ResponseBody); err != nil {
 		return err

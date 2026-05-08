@@ -15,7 +15,7 @@ func TestBuildDockerArgs_Basic(t *testing.T) {
 		AutoRemove: true,
 	}
 	got := buildDockerArgs(spec)
-	want := []string{"run", "-i", "--rm", "alpine:3.19", "echo", "hello"}
+	want := []string{"run", "-i", "--add-host=host.docker.internal:host-gateway", "--rm", "alpine:3.19", "echo", "hello"}
 	if !strSliceEqual(got, want) {
 		t.Fatalf("got %v want %v", got, want)
 	}
@@ -36,7 +36,7 @@ func TestBuildDockerArgs_Full(t *testing.T) {
 	// 不强行断言完整顺序（env map 顺序非确定），只挑关键 flag。
 	joined := strings.Join(got, " ")
 	for _, want := range []string{
-		"run -i --rm",
+		"run -i --add-host=host.docker.internal:host-gateway --rm",
 		"-v /tmp/x:/work",
 		"--network liusha_scan_net",
 		"-e FOO=bar",
@@ -62,8 +62,8 @@ func TestNewDockerRunner_DefaultConcurrency(t *testing.T) {
 	if r.sem == nil {
 		t.Fatal("sem 应被初始化")
 	}
-	if cap(r.sem) != defaultConcurrency {
-		t.Fatalf("默认并发应为 %d，实际 %d", defaultConcurrency, cap(r.sem))
+	if cap(r.sem) != fallbackConcurrency {
+		t.Fatalf("默认并发应为 %d，实际 %d", fallbackConcurrency, cap(r.sem))
 	}
 }
 
@@ -74,7 +74,7 @@ func TestNewDockerRunner_WithConcurrency(t *testing.T) {
 	}
 	// n<=0 退化默认
 	r2 := NewDockerRunner(WithConcurrency(0))
-	if cap(r2.sem) != defaultConcurrency {
+	if cap(r2.sem) != fallbackConcurrency {
 		t.Fatalf("n<=0 应退化为默认，实际 %d", cap(r2.sem))
 	}
 }
@@ -87,7 +87,7 @@ func TestBuildDockerArgs_ContainerName(t *testing.T) {
 		AutoRemove:    true,
 	}
 	got := buildDockerArgs(spec)
-	want := []string{"run", "-i", "--rm", "--name", "liusha-sqlmap-abc12345", "alpine:3.19", "true"}
+	want := []string{"run", "-i", "--add-host=host.docker.internal:host-gateway", "--rm", "--name", "liusha-sqlmap-abc12345", "alpine:3.19", "true"}
 	if !strSliceEqual(got, want) {
 		t.Fatalf("got %v want %v", got, want)
 	}

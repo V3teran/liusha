@@ -25,7 +25,7 @@ func setup(t *testing.T) (*Store, string) {
 // TestStore_Append_Basic 验证：插一条普通 LLM 调用无错误。
 //
 // v1.1 异步改造后 Append 永远返 id=0（store.go:25 注释），所以不再断言 id；
-// 真正的"行写进去了吗"由后面的 SumCost/CountByRole 测试覆盖。
+// 真正的"行写进去了吗"由后面的 SumCost/CountByCallPurpose 测试覆盖。
 func TestStore_Append_Basic(t *testing.T) {
 	ctx := context.Background()
 	s, eid := setup(t)
@@ -57,7 +57,7 @@ func TestStore_Append_Basic(t *testing.T) {
 	}
 }
 
-// TestStore_Append_WithRouteKey 验证：role 字段正确写入 + CountByRole 按 role 分组。
+// TestStore_Append_WithRouteKey 验证：role 字段正确写入 + CountByCallPurpose 按 role 分组。
 // 黑客松借鉴：T21 Instrument 的 RouteKey 维度（react.main / observer / lesson_extract / compaction / vision）。
 func TestStore_Append_WithRouteKey(t *testing.T) {
 	ctx := context.Background()
@@ -67,7 +67,7 @@ func TestStore_Append_WithRouteKey(t *testing.T) {
 		EngagementID: &eid,
 		Provider:     "deepseek",
 		Model:        "deepseek-chat",
-		Role:         "observer",
+		CallPurpose:"observer",
 		CostUSD:      0.0001,
 	}); err != nil {
 		t.Fatalf("append observer: %v", err)
@@ -76,7 +76,7 @@ func TestStore_Append_WithRouteKey(t *testing.T) {
 		EngagementID: &eid,
 		Provider:     "deepseek",
 		Model:        "deepseek-chat",
-		Role:         "observer",
+		CallPurpose:"observer",
 		CostUSD:      0.0002,
 	}); err != nil {
 		t.Fatalf("append observer 2: %v", err)
@@ -85,18 +85,18 @@ func TestStore_Append_WithRouteKey(t *testing.T) {
 		EngagementID: &eid,
 		Provider:     "deepseek",
 		Model:        "deepseek-reasoner",
-		Role:         "react_main",
+		CallPurpose:"react_main",
 		CostUSD:      0.001,
 	}); err != nil {
 		t.Fatalf("append react.main: %v", err)
 	}
 
-	// 异步 batch 写：Flush 同步等 worker 落盘，避免 CountByRole 看到空表
+	// 异步 batch 写：Flush 同步等 worker 落盘，避免 CountByCallPurpose 看到空表
 	if err := s.Flush(ctx); err != nil {
 		t.Fatalf("flush: %v", err)
 	}
 
-	got, err := s.CountByRole(ctx, eid)
+	got, err := s.CountByCallPurpose(ctx, eid)
 	if err != nil {
 		t.Fatalf("count by role: %v", err)
 	}
@@ -127,7 +127,7 @@ func TestStore_SumCostByEngagement(t *testing.T) {
 			EngagementID: &eid,
 			Provider:     "deepseek",
 			Model:        "deepseek-chat",
-			Role:         c.role,
+			CallPurpose:c.role,
 			CostUSD:      c.cost,
 		}); err != nil {
 			t.Fatalf("append %s: %v", c.role, err)

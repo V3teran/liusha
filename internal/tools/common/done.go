@@ -5,7 +5,7 @@
 //   - Memory actions 只依赖小接口（MemoryStore），便于单测；engagement.Store 自动满足
 //     接口（plan 1 part2 T6 已落库三个 Append 方法 + ReadState）。
 //   - WriteFinding / WriteGraph 同样依赖窄接口（FindingStore / GraphStore），实参可换 mock。
-//   - WriteFinding 写库后由 vulnfinding.Store 内部异步 fire OnSaved hook（T11 机制），订阅
+//   - WriteFinding 写库后由 finding.Store 内部异步 fire OnSaved hook（T11 机制），订阅
 //     由 main 装配阶段挂载（T30），不在本包责任范围。
 package common
 
@@ -13,7 +13,7 @@ import (
 	"context"
 	"encoding/json"
 
-	"github.com/V3teran/liusha/internal/toolfx"
+	"github.com/V3teran/liusha/internal/toolruntime"
 )
 
 // Done 是终止 ReAct 循环的动作。Result.Done=true 由 runtime 直接退出主循环。

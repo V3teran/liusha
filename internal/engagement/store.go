@@ -11,15 +11,51 @@ import (
 )
 
 // Store 封装 engagement 表的所有持久化操作。
-type Store struct{ pool *pgxpool.Pool }
+//
+// maxEntries 控制 memory_notes 数组每次 append 后的滚动裁剪上限；
+// defaultNotesLimit 控制 ReadStateScoped 在 opts.NotesLimit=0 时的默认截断长度。
+// 两者均通过 WithLimits 链式注入，零值时回退到 fallbackMaxEntries / fallbackDefaultNotesLimit。
+type Store struct {
+	pool              *pgxpool.Pool
+	maxEntries        int
+	defaultNotesLimit int
+}
 
-// NewStore 用 pgxpool 构造 Store。
+// NewStore 用 pgxpool 构造 Store；阈值字段为 0，由 WithLimits 注入或运行时回退兜底。
 func NewStore(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
+
+// WithLimits 链式注入 memory_notes 滚动 / 读取截断阈值。
+// 任一参数 ≤ 0 时该字段保持当前值（最终运行时再回退 fallback）。
+func (s *Store) WithLimits(maxEntries, defaultNotesLimit int) *Store {
+	if maxEntries > 0 {
+		s.maxEntries = maxEntries
+	}
+	if defaultNotesLimit > 0 {
+		s.defaultNotesLimit = defaultNotesLimit
+	}
+	return s
+}
+
+// effectiveMaxEntries / effectiveDefaultNotesLimit 在零值字段下回退到 fallback 常量，
+// 让旧 caller（仅 NewStore(pool)）继续工作。
+func (s *Store) effectiveMaxEntries() int {
+	if s.maxEntries > 0 {
+		return s.maxEntries
+	}
+	return fallbackMaxEntries
+}
+
+func (s *Store) effectiveDefaultNotesLimit() int {
+	if s.defaultNotesLimit > 0 {
+		return s.defaultNotesLimit
+	}
+	return fallbackDefaultNotesLimit
+}
 
 // colsSelect 是所有 SELECT 路径的统一列序，与 scan() 的字段顺序一一对应。
 // v0015：新增 ended_at / error_message / *_count 字段。
-const colsSelect = "id, tenant_id, mode, scope_host, status, memory_notes, created_at, " +
-	"ended_at, error_message, flow_count, finding_count, react_run_count"
+const colsSelect = "id, tenant_id, mode, target_host, status, memory_notes, created_at, " +
+	"ended_at, error_message, flow_count, finding_count, agent_run_count"
 
 // LookupOrCreateProxy 是 LookupOrCreate 的便利包装。
 func (s *Store) LookupOrCreateProxy(ctx context.Context, host string) (string, error) {
@@ -35,7 +71,7 @@ func (s *Store) LookupOrCreate(ctx context.Context, tenant, host string, mode Mo
 	row := s.pool.QueryRow(ctx, `
 		SELECT `+colsSelect+`
 		FROM engagement
-		WHERE tenant_id=$1 AND scope_host=$2 AND status='active'
+		WHERE tenant_id=$1 AND target_host=$2 AND status='active'
 		LIMIT 1`, tenant, host)
 	var e Engagement
 	err := scan(row, &e)
@@ -46,7 +82,7 @@ func (s *Store) LookupOrCreate(ctx context.Context, tenant, host string, mode Mo
 		return Engagement{}, fmt.Errorf("lookup engagement: %w", err)
 	}
 	row = s.pool.QueryRow(ctx, `
-		INSERT INTO engagement (tenant_id, mode, scope_host, status)
+		INSERT INTO engagement (tenant_id, mode, target_host, status)
 		VALUES ($1,$2,$3,'active')
 		RETURNING `+colsSelect, tenant, mode, host)
 	if err := scan(row, &e); err != nil {
@@ -75,9 +111,9 @@ func (s *Store) Abort(ctx context.Context, id, errMsg string) error {
 			status='aborted',
 			ended_at=now(),
 			error_message=$1,
-			flow_count=(SELECT count(*) FROM http_flow      WHERE engagement_id=$2),
-			finding_count=(SELECT count(*) FROM vuln_finding WHERE engagement_id=$2),
-			react_run_count=(SELECT count(*) FROM react_run  WHERE engagement_id=$2)
+			flow_count=(SELECT count(*) FROM http_flow WHERE engagement_id=$2),
+			finding_count=(SELECT count(*) FROM finding   WHERE engagement_id=$2),
+			agent_run_count=(SELECT count(*) FROM agent_run WHERE engagement_id=$2)
 		WHERE id=$2`, errMsg, id)
 	if err != nil {
 		return fmt.Errorf("abort engagement %s: %w", id, err)
@@ -85,7 +121,7 @@ func (s *Store) Abort(ctx context.Context, id, errMsg string) error {
 	return nil
 }
 
-// IncrementFlowCount / IncrementFindingCount / IncrementReactRunCount 用于
+// IncrementFlowCount / IncrementFindingCount / IncrementAgentRunCount 用于
 // vulnfinding/flow/reactrun 写路径上 best-effort 维护 active 期间的实时计数。
 //
 // 单条 +1 路径，调用方若失败仅日志（与 LLM instrument 同模式）；
@@ -98,8 +134,8 @@ func (s *Store) IncrementFindingCount(ctx context.Context, id string, n int) err
 	return s.incrementCounter(ctx, id, "finding_count", n)
 }
 
-func (s *Store) IncrementReactRunCount(ctx context.Context, id string, n int) error {
-	return s.incrementCounter(ctx, id, "react_run_count", n)
+func (s *Store) IncrementAgentRunCount(ctx context.Context, id string, n int) error {
+	return s.incrementCounter(ctx, id, "agent_run_count", n)
 }
 
 // incrementCounter 是 3 个 IncrementXxx 的共用实现；col 由调用方控制（白名单内值），
@@ -137,13 +173,13 @@ func (s *Store) ReadStateScoped(ctx context.Context, id string, opts ReadOpts) (
 		return nil, fmt.Errorf("read state %s: %w", id, err)
 	}
 
-	notes = trimNotes(notes, defaultIfZero(opts.NotesLimit, defaultNotesLimit))
+	notes = trimNotes(notes, defaultIfZero(opts.NotesLimit, s.effectiveDefaultNotesLimit()))
 	return json.Marshal(State{Notes: notes})
 }
 
 // AppendNote 追加一条 note 到 memory_notes.notes 数组。
 //
-// entry 形如 {"kind":"observation|hypothesis|boundary","content":"...","status":"...","task_id":"...","scope":"engagement"}；
+// entry 形如 {"kind":"observation|hypothesis|boundary","content":"...","status":"...","agent_run_id":"...","scope":"engagement"}；
 // store 不解析也不强制结构——take_note 工具层已 enum 校验。
 func (s *Store) AppendNote(ctx context.Context, id string, entry []byte) error {
 	return s.appendInto(ctx, id, "memory_notes", entry, fixedKey("notes"))
@@ -156,10 +192,10 @@ type scanner interface {
 
 // scan 是 colsSelect 列序的统一反序列化点。
 func scan(r scanner, e *Engagement) error {
-	return r.Scan(&e.ID, &e.TenantID, &e.Mode, &e.ScopeHost, &e.Status,
+	return r.Scan(&e.ID, &e.TenantID, &e.Mode, &e.TargetHost, &e.Status,
 		&e.MemoryNotes, &e.CreatedAt,
 		&e.EndedAt, &e.ErrorMessage,
-		&e.FlowCount, &e.FindingCount, &e.ReactRunCount)
+		&e.FlowCount, &e.FindingCount, &e.AgentRunCount)
 }
 
 // keyFn 把 entry 字节流映射为目标 jsonb 子键名。
@@ -170,11 +206,14 @@ func fixedKey(k string) keyFn {
 	return func([]byte) (string, error) { return k, nil }
 }
 
-// 最大保留 notes 条数；超过则裁剪到末尾 maxEntries 条。
-const maxEntries = 200
-
-// 默认 ReadStateScoped 截断值；0 入参时使用。负数表示不截断。
-const defaultNotesLimit = 100
+// fallbackMaxEntries 是 Store.maxEntries 为 0 时的兜底值（保留 notes 末尾 N 条）。
+// fallbackDefaultNotesLimit 是 ReadStateScoped 在 Store.defaultNotesLimit 与 opts 都为 0 时的兜底。
+// 正常路径由 cmd/scanner 通过 .WithLimits(cfg.Engagement.MaxMemoryNotesEntries, cfg.Engagement.DefaultNotesLimit) 注入。
+// 与 yaml engagement.max_memory_notes_entries / default_notes_limit 同步（稳健激进方案）。
+const (
+	fallbackMaxEntries        = 300
+	fallbackDefaultNotesLimit = 200
+)
 
 func defaultIfZero(v, d int) int {
 	if v == 0 {
@@ -200,6 +239,7 @@ func (s *Store) appendInto(ctx context.Context, id, col string, entry []byte, kf
 	if _, err := s.pool.Exec(ctx, q, "{"+key+"}", key, entry, id); err != nil {
 		return fmt.Errorf("append %s: %w", col, err)
 	}
+	maxN := s.effectiveMaxEntries()
 	trim := fmt.Sprintf(`
 		UPDATE engagement
 		SET %s = jsonb_set(%s, $1,
@@ -213,7 +253,7 @@ func (s *Store) appendInto(ctx context.Context, id, col string, entry []byte, kf
 				)
 				ELSE %s->$2
 			END)
-		WHERE id=$3`, col, col, col, maxEntries, col, col, maxEntries, col)
+		WHERE id=$3`, col, col, col, maxN, col, col, maxN, col)
 	_, _ = s.pool.Exec(ctx, trim, "{"+key+"}", key, id)
 	return nil
 }

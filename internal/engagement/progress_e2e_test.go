@@ -11,8 +11,8 @@ import (
 	"github.com/V3teran/liusha/internal/dbtest"
 	"github.com/V3teran/liusha/internal/engagement"
 	"github.com/V3teran/liusha/internal/flow"
-	"github.com/V3teran/liusha/internal/reactrun"
-	"github.com/V3teran/liusha/internal/vulnfinding"
+	"github.com/V3teran/liusha/internal/agentrun"
+	"github.com/V3teran/liusha/internal/finding"
 )
 
 // TestEngagement_ProgressCounters_EndToEnd 验证：
@@ -23,9 +23,9 @@ func TestEngagement_ProgressCounters_EndToEnd(t *testing.T) {
 	pool := dbtest.NewPgPool(t)
 
 	engs := engagement.NewStore(pool)
-	tasks := reactrun.NewStore(pool).WithCounter(engs)
+	tasks := agentrun.NewStore(pool).WithCounter(engs)
 	flows := flow.NewStore(pool, 0, 0).WithCounter(engs)
-	finds := vulnfinding.NewStore(pool).WithCounter(engs)
+	finds := finding.NewStore(pool).WithCounter(engs)
 
 	e, err := engs.LookupOrCreate(ctx, "default", "h", engagement.ModeProxy)
 	if err != nil {
@@ -33,7 +33,7 @@ func TestEngagement_ProgressCounters_EndToEnd(t *testing.T) {
 	}
 
 	// 写 1 条 reactrun
-	tid, err := tasks.Create(ctx, reactrun.NewParams{
+	tid, err := tasks.Create(ctx, agentrun.NewParams{
 		EngagementID: e.ID, Role: "orchestrator", Skill: "vuln/web/bac",
 	})
 	if err != nil {
@@ -49,7 +49,7 @@ func TestEngagement_ProgressCounters_EndToEnd(t *testing.T) {
 	}
 
 	// 写 1 条 vuln_finding
-	if _, _, err := finds.Save(ctx, vulnfinding.VulnFinding{
+	if _, _, err := finds.Save(ctx, finding.VulnFinding{
 		EngagementID: e.ID, TaskID: &tid, SourceFlowID: &fid,
 		Host: "h", Kind: "BAC", Title: "t", DedupKey: "k",
 	}); err != nil {
@@ -61,9 +61,9 @@ func TestEngagement_ProgressCounters_EndToEnd(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.FlowCount != 1 || got.FindingCount != 1 || got.ReactRunCount != 1 {
+	if got.FlowCount != 1 || got.FindingCount != 1 || got.AgentRunCount != 1 {
 		t.Fatalf("active counters: flow=%d finding=%d react=%d",
-			got.FlowCount, got.FindingCount, got.ReactRunCount)
+			got.FlowCount, got.FindingCount, got.AgentRunCount)
 	}
 	if got.EndedAt != nil {
 		t.Fatalf("active EndedAt should be nil, got %v", got.EndedAt)
@@ -86,8 +86,8 @@ func TestEngagement_ProgressCounters_EndToEnd(t *testing.T) {
 	if got.ErrorMessage != "explode" {
 		t.Fatalf("ErrorMessage: %q", got.ErrorMessage)
 	}
-	if got.FlowCount != 1 || got.FindingCount != 1 || got.ReactRunCount != 1 {
+	if got.FlowCount != 1 || got.FindingCount != 1 || got.AgentRunCount != 1 {
 		t.Fatalf("post-abort recompute: flow=%d finding=%d react=%d",
-			got.FlowCount, got.FindingCount, got.ReactRunCount)
+			got.FlowCount, got.FindingCount, got.AgentRunCount)
 	}
 }

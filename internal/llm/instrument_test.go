@@ -147,8 +147,8 @@ func TestInstrument_AppendsCallOnSuccess(t *testing.T) {
 	if c.EngagementID == nil || *c.EngagementID != "eng-1" {
 		t.Fatalf("engagement id: %v", c.EngagementID)
 	}
-	if c.Role != "react_main" {
-		t.Fatalf("expected role=react.main, got %q", c.Role)
+	if c.CallPurpose != "react_main" {
+		t.Fatalf("expected call_purpose=react_main, got %q", c.CallPurpose)
 	}
 }
 
@@ -177,8 +177,8 @@ func TestInstrument_AppendsCallOnError(t *testing.T) {
 	if c.CostUSD != 0 {
 		t.Fatalf("expected zero cost on error, got %v", c.CostUSD)
 	}
-	if c.Role != "observer" {
-		t.Fatalf("expected role=observer, got %q", c.Role)
+	if c.CallPurpose != "observer" {
+		t.Fatalf("expected call_purpose=observer, got %q", c.CallPurpose)
 	}
 }
 
@@ -265,8 +265,8 @@ func TestInstrument_RouteKeyWritten(t *testing.T) {
 			if _, err := g.Generate(context.Background(), nil, nil); err != nil {
 				t.Fatal(err)
 			}
-			if got := sink.calls[0].Role; got != rk {
-				t.Fatalf("expected role=%q, got %q", rk, got)
+			if got := sink.calls[0].CallPurpose; got != rk {
+				t.Fatalf("expected call_purpose=%q, got %q", rk, got)
 			}
 		})
 	}

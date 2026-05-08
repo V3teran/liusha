@@ -25,10 +25,11 @@ import (
 	"github.com/rs/zerolog"
 )
 
-// 默认值（避免 magic numbers 散落各处）。
+// 兜底常量：caller 未通过 ServerDeps 传入对应字段时使用。
+// 正常路径由 cmd/proxy 从 config.ProxyConfig 注入，因此这里仅作为调用方失误时的最后防线。
 const (
-	defaultListenAddr = "0.0.0.0:8888"
-	defaultCertSubdir = ".liusha"
+	fallbackListenAddr = "0.0.0.0:8888"
+	fallbackCertSubdir = ".liusha"
 )
 
 // Server 把 proxify SDK 当作进程内 MITM 代理，OnResponseCallback 触发 filter→snapshot→publisher（XADD）。
@@ -75,7 +76,7 @@ func NewServer(deps ServerDeps) (*Server, error) {
 
 	listenAddr := strings.TrimSpace(deps.ListenAddr)
 	if listenAddr == "" {
-		listenAddr = defaultListenAddr
+		listenAddr = fallbackListenAddr
 	}
 
 	certDir, err := resolveCertDir(deps.CertDir)
@@ -208,7 +209,7 @@ func resolveCertDir(dir string) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		return filepath.Join(home, defaultCertSubdir), nil
+		return filepath.Join(home, fallbackCertSubdir), nil
 	}
 	if strings.HasPrefix(dir, "~/") {
 		home, err := os.UserHomeDir()
@@ -253,7 +254,9 @@ func buildSnapshot(req *http.Request, resp *http.Response, reqBody, respBody []b
 	if hostPort == "" {
 		hostPort = req.Header.Get("Host")
 	}
-	host := stripPort(hostPort)
+	// snapshot.Host 全链路含端口：credentials key / finding.dedup_key 据此区分多端口部署。
+	// 原 stripPort 调用已下线；过滤链白名单匹配由 HostFilter 内部 stripPort 处理（chain.go:114）。
+	host := hostPort
 
 	scheme := strings.ToLower(req.URL.Scheme)
 	if scheme == "" {
@@ -330,26 +333,6 @@ func flattenResponseHeaders(h http.Header) map[string][]string {
 		out[key] = cp
 	}
 	return out
-}
-
-// stripPort 去掉 host 末尾的端口（IPv6 暂只处理 ":port" 形式，liusha 流量场景足够）。
-func stripPort(host string) string {
-	if host == "" {
-		return host
-	}
-	// IPv6 地址形如 [::1]:8080
-	if strings.HasPrefix(host, "[") {
-		if idx := strings.LastIndex(host, "]"); idx > 0 {
-			return host[:idx+1]
-		}
-	}
-	if idx := strings.LastIndex(host, ":"); idx > 0 {
-		// 排除 scheme 中的 ":"
-		if !strings.ContainsRune(host[idx+1:], ':') {
-			return host[:idx]
-		}
-	}
-	return host
 }
 
 // generateSnapshotID = sha256(method | host | uri | body) 的十六进制摘要，

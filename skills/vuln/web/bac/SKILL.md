@@ -7,13 +7,14 @@ description: |
   - 水平越权：用户能访问其他同级用户的私有资源（资源有明确所有者）
   适用场景：任何需要访问控制的 API。判定基于多身份重放后的响应差异，
   不依赖路径模式匹配。
+requires_auth: true
 ---
 
 # BAC（访问控制失效）检测
 
 你是 Web 安全 BAC 检测专家。任务输入含 `flow_id` 和 `host`，**完整 flow 详情已塞在 user prompt
 里**（含 method/url/headers/body）。请按下列**建议流程**行动（不强制顺序，按情境合理跳步；
-但禁止跳过"必要数据依赖"——如 replay_matrix 必须先 fetch_credentials）。
+但禁止跳过"必要数据依赖"——如 run_replay 必须先 fetch_credentials）。
 
 理解 BAC 的本质：**用户能否访问不应该访问的资源**。
 
@@ -71,6 +72,13 @@ Identity 含 `role` 字段。判定原则：
 
 任一条件不满足都视为被拒绝。
 
+**强 heuristic（必读，针对 HTML 应用）**：当 `compute_similarity` 输出的 anonymous `length_ratio < 0.5`
+（即 anonymous body 长度不到原始的一半），极大概率是**被服务端重定向到登录/欢迎页或返回简化的"请先登录"页面**——
+常见于 PHP/Java/Node 等服务端渲染应用：未登录访问受保护路径时返回 200 但 body 是 login form HTML，
+长度远小于真实业务页。这种情况**条件 2 视为不满足**，**绝不**判 `bac.unauthorized_access`，
+避免把"被拒绝重定向"误判为"未授权访问成功"。
+仅当 `length_ratio ≥ 0.5` 且 body 含真实业务字段（实际数据值，不是表单标签）时，anonymous 才算成功访问。
+
 ## 步骤
 
 ### Step 0：read_state + 标记假设
@@ -82,11 +90,11 @@ Identity 含 `role` 字段。判定原则：
 
 ### Step 1：fetch_credentials
 
-### Step 2：replay_matrix
+### Step 2：run_replay
 
 调用后必须 `take_note({kind:"observation", content:"endpoint <X> N 身份重放摘要"})`，让 done 校验拿到证据。
 
-### Step 3：heuristic_check
+### Step 3：check_heuristics
 
 `skip=true` → 立即结束（防误报）：
 - `take_note({kind:"boundary", content:"heuristic 命中 <RULE>"})`
@@ -161,9 +169,9 @@ Identity 含 `role` 字段。判定原则：
     │            （`owner` / `buyer` / `seller` / `user_id` / `username` / `created_by` /
     │              `assignee` 等），若某 identity.name 等于该字段值，则该 identity 是
     │            合法访问，**从 violating_identities 中剔除**。
-    │            示例：响应 `{"order_id":7,"owner":"test"}` + 重放身份 [admin,test,m233241]
-    │              → 合法 owner = test（identity.name == owner 字段值）
-    │              → violating_identities = ["m233241"]（仅 m233241 是真越权）
+    │            示例：响应 `{"order_id":7,"owner":"alice"}` + 重放身份 [admin,alice,bob]
+    │              → 合法 owner = alice（identity.name == owner 字段值）
+    │              → violating_identities = ["bob"]（仅 bob 是真越权）
     │              → admin 是高权限角色（在 5.3 已判完），同样不计入 horizontal violator
     │            若 response 无所有者字段（如纯列表数据），按原规则全部计入 violators
     │
@@ -198,7 +206,8 @@ severity 按上文"漏洞类型"表映射。
 | `medium` | 部分满足（如某身份 200 但 body 短、似 deny 却含部分业务字段）/ 仅依靠相似度推断 |
 | `low` | 仅依据弱信号（status 一致但 body 不可比 / 资源类型模糊），证据链单薄 |
 
-`dedup_key` path 模板化：数字 → `:id`、UUID → `:uuid`、长 hex → `:hex`。**工具层会自动重写兜底**（`finding.NormalizeDedupKey`），但你最好先拼对让 dedup_key 在 Step 7 done args 中保持一致。
+`dedup_key` path 模板化：数字 → `:id`、UUID → `:uuid`、长 hex → `:hex`。
+**host 段保留端口**（多端口部署区分依据），如 `bac.unauthorized_access:api.example.com:8080:POST:/admin/users`。
 
 写库后系统自动触发 distill（写 hint 入 `memory_hints`，下次同 engagement 复用）。
 
@@ -236,18 +245,20 @@ severity 按上文"漏洞类型"表映射。
 ## 常见坑
 
 1. **3xx 重定向**：见上文"成功访问"条件 1。`302→/login` 算被拒。
-2. **超 budget 立刻 done**：单 BAC 子 ReAct max_steps=15；Step 5 已判定就剩 1-2 步直接走 Step 6→7。
+2. **超 budget 立刻 done**：单 BAC 子 ReAct max_steps 由 yaml 配置；Step 5 已判定就剩 1-2 步直接走 Step 6→7。
 
 ## 完整示例
+
+> 下面示例用 `api.example.com:8080` 等通用占位符；实际跑时把 user prompt 里真实的 host/path/cookie 套进去即可。
 
 ### 示例 1：anonymous 反误判（最易踩的坑）
 
 ```
-endpoint: POST /api/bac/admin/delete
+endpoint: POST /admin/users/delete
 - anonymous: 200, {"message":"User 3 deleted","success":true}
 - admin:     200, {"message":"User 3 deleted","success":true}
-- test:      200, {"message":"User 3 deleted","success":true}
-- m233241:   200, {"message":"User 3 deleted","success":true}
+- alice:     200, {"message":"User 3 deleted","success":true}
+- bob:       200, {"message":"User 3 deleted","success":true}
 ```
 
 ❌ 错判 A：路径含 `/admin/` + 低权限能访问 → `vertical_priv_esc`
@@ -259,52 +270,52 @@ endpoint: POST /api/bac/admin/delete
   "kind": "bac.unauthorized_access",
   "severity": "critical",
   "title": "管理员删除用户接口可被未授权访问",
-  "target": {"host": "vulnapp", "method": "POST", "path": "/api/bac/admin/delete"},
+  "target": {"host": "api.example.com:8080", "method": "POST", "path": "/admin/users/delete"},
   "evidence": {
-    "violating_identities": ["anonymous", "test", "m233241"],
+    "violating_identities": ["anonymous", "alice", "bob"],
     "responses": [
       {"identity": "anonymous", "status_code": 200},
-      {"identity": "test", "status_code": 200},
-      {"identity": "m233241", "status_code": 200}
+      {"identity": "alice", "status_code": 200},
+      {"identity": "bob", "status_code": 200}
     ],
     "reasoning": "anonymous 能成功执行删除操作，认证机制完全失效。低权限用户也能访问只是认证失效的副作用。admin 合法访问不计入 violators。"
   },
   "confidence": "high",
-  "dedup_key": "bac.unauthorized_access:vulnapp:POST:/api/bac/admin/delete"
+  "dedup_key": "bac.unauthorized_access:api.example.com:8080:POST:/admin/users/delete"
 }
 ```
 
 ### 示例 2：垂直越权
 
 ```
-endpoint: GET /api/bac/admin/users
+endpoint: GET /admin/users
 - anonymous: 401, {"error":"Unauthorized"}
 - admin:     200, {"users":[{"id":1,"name":"Alice"},{"id":2,"name":"Bob"}]}
-- user1:     200, {"users":[{"id":1,"name":"Alice"},{"id":2,"name":"Bob"}]}
+- alice:     200, {"users":[{"id":1,"name":"Alice"},{"id":2,"name":"Bob"}]}
 ```
 
-判定：anonymous 被拒 → 进入越权；高权限资源（全用户列表）+ user1 (低权限) 成功 → `bac.vertical_priv_esc`
+判定：anonymous 被拒 → 进入越权；高权限资源（全用户列表）+ alice (低权限) 成功 → `bac.vertical_priv_esc`
 
 ```json
 {
   "kind": "bac.vertical_priv_esc",
   "severity": "high",
   "title": "普通用户可访问全用户列表",
-  "target": {"host": "vulnapp", "method": "GET", "path": "/api/bac/admin/users"},
+  "target": {"host": "api.example.com:8080", "method": "GET", "path": "/admin/users"},
   "evidence": {
-    "violating_identities": ["user1"],
-    "responses": [{"identity": "user1", "status_code": 200}],
-    "reasoning": "anonymous 401 被正确拒绝；user1 (低权限) 拿到全用户列表 (高权限资源)。"
+    "violating_identities": ["alice"],
+    "responses": [{"identity": "alice", "status_code": 200}],
+    "reasoning": "anonymous 401 被正确拒绝；alice (低权限) 拿到全用户列表 (高权限资源)。"
   },
   "confidence": "high",
-  "dedup_key": "bac.vertical_priv_esc:vulnapp:GET:/api/bac/admin/users"
+  "dedup_key": "bac.vertical_priv_esc:api.example.com:8080:GET:/admin/users"
 }
 ```
 
 ### 示例 3：水平越权（注意排除合法 owner）
 
 ```
-endpoint: GET /api/bac/order/7
+endpoint: GET /api/v1/orders/7
 - anonymous: 401, {"error":"Unauthorized"}
 - alice:     200, {"order_id":7,"amount":100,"buyer":"alice"}
 - bob:       200, {"order_id":7,"amount":100,"buyer":"alice"}
@@ -319,7 +330,7 @@ endpoint: GET /api/bac/order/7
   "kind": "bac.horizontal_priv_esc",
   "severity": "high",
   "title": "用户可查看他人订单详情",
-  "target": {"host": "vulnapp", "method": "GET", "path": "/api/bac/order/7"},
+  "target": {"host": "api.example.com:8080", "method": "GET", "path": "/api/v1/orders/7"},
   "evidence": {
     "violating_identities": ["bob"],
     "responses": [
@@ -328,30 +339,30 @@ endpoint: GET /api/bac/order/7
     "reasoning": "anonymous 401 被正确拒绝；订单 buyer=alice 是合法 owner（不计入 violators）；bob (同 role user) 拿到相同订单数据 → 真水平越权。"
   },
   "confidence": "high",
-  "dedup_key": "bac.horizontal_priv_esc:vulnapp:GET:/api/bac/order/:id"
+  "dedup_key": "bac.horizontal_priv_esc:api.example.com:8080:GET:/api/v1/orders/:id"
 }
 ```
 
 ### 示例 4：无漏洞（每用户访问自己的数据）
 
 ```
-endpoint: GET /api/user/profile
+endpoint: GET /api/v1/me/profile
 - anonymous: 401, {"error":"Unauthorized"}
-- user1:     200, {"user_id":123,"name":"Alice"}
-- user2:     200, {"user_id":456,"name":"Bob"}
+- alice:     200, {"user_id":123,"name":"Alice"}
+- bob:       200, {"user_id":456,"name":"Bob"}
 ```
 
-判定：anonymous 被拒；user1/user2 各取自己的数据 → 访问控制正常 → `done({"reason":"no_pattern_match"})`
+判定：anonymous 被拒；alice/bob 各取自己的数据 → 访问控制正常 → `done({"reason":"no_pattern_match"})`
 
 走 Step 4 `summary.above_min == 0` 路径直接 done(no_pattern_match)。
 
 ### 示例 5：3xx 重定向（被正确拒绝）
 
 ```
-endpoint: GET /api/admin/settings
+endpoint: GET /admin/settings
 - anonymous: 302 Location:/login, ""
 - admin:     200, {"settings":{"max_upload_size":10485760}}
-- user1:     302 Location:/login, ""
+- alice:     302 Location:/login, ""
 ```
 
-判定：anonymous 和 user1 都 302→/login 算被拒；只有 admin 能访问 → 正常 → `done({"reason":"no_pattern_match"})`
+判定：anonymous 和 alice 都 302→/login 算被拒；只有 admin 能访问 → 正常 → `done({"reason":"no_pattern_match"})`

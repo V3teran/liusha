@@ -5,16 +5,16 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/V3teran/liusha/internal/toolfx"
-	"github.com/V3teran/liusha/internal/vulnfinding"
+	"github.com/V3teran/liusha/internal/toolruntime"
+	"github.com/V3teran/liusha/internal/finding"
 )
 
 // FindingStore 是 WriteFinding 依赖的最小接口。
 //
-// 由 *vulnfinding.Store 自动满足。Save 是 append-only：每次都 INSERT 新行，
+// 由 *finding.Store 自动满足。Save 是 append-only：每次都 INSERT 新行，
 // 返回 (Finding, isFirstSeen, error)；异步触发 OnSaved（首次发现）或 OnReSaved（重发现）钩子。
 type FindingStore interface {
-	Save(ctx context.Context, f vulnfinding.VulnFinding) (vulnfinding.VulnFinding, bool, error)
+	Save(ctx context.Context, f finding.VulnFinding) (finding.VulnFinding, bool, error)
 }
 
 // WriteFinding — 写或合并一条漏洞 finding。
@@ -57,7 +57,7 @@ func (a *WriteFinding) ParametersJSON() json.RawMessage {
 }`)
 }
 
-// Execute 解析参数 → 构造 vulnfinding.VulnFinding → Store.Save → 返回 {id, dedup_key}。
+// Execute 解析参数 → 构造 finding.VulnFinding → Store.Save → 返回 {id, dedup_key}。
 func (a *WriteFinding) Execute(ctx context.Context, args json.RawMessage) (toolfx.Result, error) {
 	var in struct {
 		Kind       string          `json:"kind"`
@@ -80,12 +80,12 @@ func (a *WriteFinding) Execute(ctx context.Context, args json.RawMessage) (toolf
 
 	// 工具层强制重写 dedup_key 中的 path（数字 / UUID / 长 hex → :id / :uuid / :hex），
 	// 避免 LLM 拼错 path 模板导致同 endpoint 不同实例重复入库。
-	in.DedupKey = vulnfinding.NormalizeDedupKey(in.DedupKey)
+	in.DedupKey = finding.NormalizeDedupKey(in.DedupKey)
 
 	// 工具层强制 evidence schema：kind="bac.*" 必须满足 BACEvidence 必填字段；
 	// 其他 kind 暂不约束（YAGNI，等加 SSRF/IDOR 时扩展）。校验失败拒绝写库，
 	// 让 LLM 看到结构错误后重试，避免 evidence 字段散乱。
-	if err := vulnfinding.ValidateEvidence(in.Kind, in.Evidence); err != nil {
+	if err := finding.ValidateEvidence(in.Kind, in.Evidence); err != nil {
 		return toolfx.Result{}, fmt.Errorf("evidence schema 校验失败: %w", err)
 	}
 
@@ -102,17 +102,17 @@ func (a *WriteFinding) Execute(ctx context.Context, args json.RawMessage) (toolf
 		flowPtr = &fid
 	}
 
-	saved, _, err := a.Store.Save(ctx, vulnfinding.VulnFinding{
+	saved, _, err := a.Store.Save(ctx, finding.VulnFinding{
 		EngagementID: a.EngagementID,
 		TaskID:       taskPtr,
 		SourceFlowID: flowPtr,
 		Host:         a.Host,
 		Kind:         in.Kind,
-		Severity:     vulnfinding.Severity(in.Severity),
+		Severity:     finding.Severity(in.Severity),
 		Title:        in.Title,
 		Target:       in.Target,
 		Evidence:     in.Evidence,
-		Confidence:   vulnfinding.Confidence(in.Confidence),
+		Confidence:   finding.Confidence(in.Confidence),
 		DedupKey:     in.DedupKey,
 	})
 	if err != nil {

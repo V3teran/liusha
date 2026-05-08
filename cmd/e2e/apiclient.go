@@ -36,7 +36,7 @@ func createProxyEngagement(base, key, host string) (string, error) {
 }
 
 // saveCredsBatch 一次录入多 host 凭证（host → []credentialEntry 映射）。
-// 各 host 必须与 proxy 看到的 snapshot.Host 一致（去端口形式）。
+// 各 host 必须与 proxy 看到的 snapshot.Host 一致（v1.1 后含端口形式，如 "localhost:8001"）。
 func saveCredsBatch(base, key string, hostCreds map[string][]credentialEntry) error {
 	if len(hostCreds) == 0 {
 		return nil

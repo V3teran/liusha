@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/V3teran/liusha/internal/vulnfinding"
+	"github.com/V3teran/liusha/internal/finding"
 )
 
 // 4 条样本：profile (baseline) + order/7 (horizontal) + admin/users (vertical) + admin/delete (unauthorized)。
@@ -51,7 +51,7 @@ func TestSampleFile_Covers4Endpoints(t *testing.T) {
 
 // TestSampleFile_AllAdminCookie 锁住"用户正常流量"语义：
 // 全部样本都用 admin cookie，触发器不主动模拟 anonymous 攻击；
-// 漏洞由 BAC 子 ReAct fetch_credentials + replay_matrix 内部发现。
+// 漏洞由 BAC 子 ReAct fetch_credentials + run_replay 内部发现。
 func TestSampleFile_AllAdminCookie(t *testing.T) {
 	samples, err := loadRawSamples(repoSamplePath(t))
 	if err != nil {
@@ -67,14 +67,14 @@ func TestSampleFile_AllAdminCookie(t *testing.T) {
 func TestFilterBAC(t *testing.T) {
 	tests := []struct {
 		name string
-		in   []vulnfinding.VulnFinding
+		in   []finding.VulnFinding
 		want int
 	}{
 		{"nil", nil, 0},
-		{"纯 BAC", []vulnfinding.VulnFinding{{Kind: "bac.horizontal_priv_esc"}, {Kind: "bac.vertical_priv_esc"}}, 2},
-		{"纯非 BAC", []vulnfinding.VulnFinding{{Kind: "leak.api_key"}}, 0},
-		{"混合", []vulnfinding.VulnFinding{{Kind: "bac.horizontal_priv_esc"}, {Kind: "leak.api_key"}, {Kind: "bac.vertical_priv_esc"}}, 2},
-		{"前缀近似但不匹配", []vulnfinding.VulnFinding{{Kind: "background.scan"}, {Kind: "bac"}}, 0},
+		{"纯 BAC", []finding.VulnFinding{{Kind: "bac.horizontal_priv_esc"}, {Kind: "bac.vertical_priv_esc"}}, 2},
+		{"纯非 BAC", []finding.VulnFinding{{Kind: "leak.api_key"}}, 0},
+		{"混合", []finding.VulnFinding{{Kind: "bac.horizontal_priv_esc"}, {Kind: "leak.api_key"}, {Kind: "bac.vertical_priv_esc"}}, 2},
+		{"前缀近似但不匹配", []finding.VulnFinding{{Kind: "background.scan"}, {Kind: "bac"}}, 0},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -92,7 +92,7 @@ func TestFilterBAC(t *testing.T) {
 }
 
 func TestCountKinds(t *testing.T) {
-	in := []vulnfinding.VulnFinding{
+	in := []finding.VulnFinding{
 		{Kind: "bac.horizontal_priv_esc"},
 		{Kind: "bac.horizontal_priv_esc"},
 		{Kind: "bac.vertical_priv_esc"},

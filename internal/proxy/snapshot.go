@@ -21,7 +21,7 @@ import "time"
 // 字段构成：
 //
 //	ID              全局唯一 id（uuid 等，由 proxy.Server 生成）
-//	Host            host header（去端口，用作 engagement 索引：scope_host）
+//	Host            host header（去端口，用作 engagement 索引：target_host）
 //	HostPort        host:port 原文（用于 fullURL 重放定位真实端口；空则由消费者退化到 Host）
 //	Method          GET/POST/...
 //	Scheme          http / https

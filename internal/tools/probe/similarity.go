@@ -7,17 +7,15 @@ import (
 
 	"github.com/V3teran/liusha/internal/heuristic"
 	"github.com/V3teran/liusha/internal/replay"
-	"github.com/V3teran/liusha/internal/toolfx"
+	"github.com/V3teran/liusha/internal/toolruntime"
 )
 
-// 阈值默认（可由 LLM 通过参数覆盖）。
-//   - min_threshold：低阈，区分"几乎不像 baseline"和"略有重叠"。
-//   - high_threshold：高阈，区分"高度像 baseline"和"模糊重叠"。
-//   - lengthRatioGate：长度差距过大（< 0.3）时跳过 JSON/Jaccard 计算（5xx 错误页 vs 数据页一般差 10x）。
+// fallback 阈值：caller 未通过 ComputeSimilarity 字段注入时使用。
+// 正常路径由 cmd/scanner 从 cfg.Probe 注入（probe.Factory 装配时透传）。
 const (
-	defaultMinThreshold  = 0.6
-	defaultHighThreshold = 0.9
-	lengthRatioGate      = 0.3
+	fallbackMinThreshold    = 0.6
+	fallbackHighThreshold   = 0.9
+	fallbackLengthRatioGate = 0.3
 )
 
 // ComputeSimilarity 是漏洞探针通用工具（agentic 路线：只输出 raw 分数，由 LLM 自决策）。
@@ -32,6 +30,32 @@ const (
 // 但其他都不像 = 强越权信号；所有 replay 都像 baseline = 公开接口可能等）。
 type ComputeSimilarity struct {
 	State *ProbeState
+
+	// v1.3：可选注入；零值走 fallback 常量，由 cmd/scanner 从 cfg.Probe 装配。
+	MinThreshold    float64
+	HighThreshold   float64
+	LengthRatioGate float64
+}
+
+func (a *ComputeSimilarity) effectiveMinThreshold() float64 {
+	if a.MinThreshold > 0 {
+		return a.MinThreshold
+	}
+	return fallbackMinThreshold
+}
+
+func (a *ComputeSimilarity) effectiveHighThreshold() float64 {
+	if a.HighThreshold > 0 {
+		return a.HighThreshold
+	}
+	return fallbackHighThreshold
+}
+
+func (a *ComputeSimilarity) effectiveLengthRatioGate() float64 {
+	if a.LengthRatioGate > 0 {
+		return a.LengthRatioGate
+	}
+	return fallbackLengthRatioGate
 }
 
 // Name 返回动作名 "compute_similarity"。
@@ -94,19 +118,19 @@ type similarityOutput struct {
 
 // Execute 解析 args → 选 baseline 模式或 fallback → 算分 → 返回结构化 score。
 func (a *ComputeSimilarity) Execute(_ context.Context, args json.RawMessage) (toolfx.Result, error) {
-	in, err := parseSimilarityArgs(args)
+	in, err := a.parseSimilarityArgs(args)
 	if err != nil {
 		return toolfx.Result{}, err
 	}
 	if len(a.State.LastResponses) == 0 {
-		return toolfx.Result{}, fmt.Errorf("state.LastResponses 为空，请先调 replay_matrix")
+		return toolfx.Result{}, fmt.Errorf("state.LastResponses 为空，请先调 run_replay")
 	}
 
 	all := a.State.AllResponses()
 	if baselineIdx := findBaselineIdx(all); baselineIdx >= 0 {
-		return computeBaselineMode(all, baselineIdx, in)
+		return a.computeBaselineMode(all, baselineIdx, in)
 	}
-	return computeInterPairsMode(a.State.LastResponses, in)
+	return a.computeInterPairsMode(a.State.LastResponses, in)
 }
 
 // similarityArgs 是 ParametersJSON 解析结果，独立类型方便测试。
@@ -115,7 +139,7 @@ type similarityArgs struct {
 	HighThreshold float64 `json:"high_threshold"`
 }
 
-func parseSimilarityArgs(args json.RawMessage) (similarityArgs, error) {
+func (a *ComputeSimilarity) parseSimilarityArgs(args json.RawMessage) (similarityArgs, error) {
 	var in similarityArgs
 	if len(args) > 0 {
 		if err := json.Unmarshal(args, &in); err != nil {
@@ -123,10 +147,10 @@ func parseSimilarityArgs(args json.RawMessage) (similarityArgs, error) {
 		}
 	}
 	if in.MinThreshold <= 0 {
-		in.MinThreshold = defaultMinThreshold
+		in.MinThreshold = a.effectiveMinThreshold()
 	}
 	if in.HighThreshold <= 0 {
-		in.HighThreshold = defaultHighThreshold
+		in.HighThreshold = a.effectiveHighThreshold()
 	}
 	if in.HighThreshold < in.MinThreshold {
 		return in, fmt.Errorf("high_threshold (%v) 不能小于 min_threshold (%v)", in.HighThreshold, in.MinThreshold)
@@ -145,7 +169,7 @@ func findBaselineIdx(rs []replay.Response) int {
 }
 
 // computeBaselineMode 是 baseline-centric 主路径：每个非锚点响应与 baseline 算一次相似度。
-func computeBaselineMode(all []replay.Response, baselineIdx int, in similarityArgs) (toolfx.Result, error) {
+func (a *ComputeSimilarity) computeBaselineMode(all []replay.Response, baselineIdx int, in similarityArgs) (toolfx.Result, error) {
 	baseline := all[baselineIdx]
 	replays := make([]replay.Response, 0, len(all)-1)
 	for i, r := range all {
@@ -183,7 +207,7 @@ func computeBaselineMode(all []replay.Response, baselineIdx int, in similarityAr
 		la, lb := len(baseline.Body), len(r.Body)
 		lr := heuristic.LengthRatio(la, lb)
 		var score float64
-		if lr < lengthRatioGate {
+		if lr < a.effectiveLengthRatioGate() {
 			score = 0
 		} else {
 			score = heuristic.StructuralSimilarity(string(baseline.Body), string(r.Body))
@@ -219,7 +243,7 @@ func computeBaselineMode(all []replay.Response, baselineIdx int, in similarityAr
 }
 
 // computeInterPairsMode 是无 baseline 时的 fallback：N×N 两两比较，仅输出 score >= min 的对。
-func computeInterPairsMode(rs []replay.Response, in similarityArgs) (toolfx.Result, error) {
+func (a *ComputeSimilarity) computeInterPairsMode(rs []replay.Response, in similarityArgs) (toolfx.Result, error) {
 	n := len(rs)
 	identities := make([]string, n)
 	for i := range rs {
@@ -251,7 +275,7 @@ func computeInterPairsMode(rs []replay.Response, in similarityArgs) (toolfx.Resu
 			la, lb := len(rs[i].Body), len(rs[j].Body)
 			lr := heuristic.LengthRatio(la, lb)
 			var score float64
-			if lr < lengthRatioGate {
+			if lr < a.effectiveLengthRatioGate() {
 				score = 0
 			} else {
 				score = heuristic.StructuralSimilarity(string(rs[i].Body), string(rs[j].Body))

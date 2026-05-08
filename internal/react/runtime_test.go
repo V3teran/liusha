@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/V3teran/liusha/internal/llm"
-	"github.com/V3teran/liusha/internal/toolfx"
+	"github.com/V3teran/liusha/internal/toolruntime"
 )
 
 // scriptedGen 是按预设脚本回放 Result 的 mock Generator。

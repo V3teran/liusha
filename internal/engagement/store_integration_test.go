@@ -71,15 +71,15 @@ func TestStore_AppendNoteAndReadState(t *testing.T) {
 	}
 
 	if err := s.AppendNote(ctx, e.ID,
-		[]byte(`{"kind":"observation","content":"endpoint X 401","task_id":"t1","scope":"engagement"}`)); err != nil {
+		[]byte(`{"kind":"observation","content":"endpoint X 401","agent_run_id":"t1","scope":"engagement"}`)); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.AppendNote(ctx, e.ID,
-		[]byte(`{"kind":"boundary","content":"all_differ at threshold 0.3","task_id":"t1","scope":"engagement"}`)); err != nil {
+		[]byte(`{"kind":"boundary","content":"all_differ at threshold 0.3","agent_run_id":"t1","scope":"engagement"}`)); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.AppendNote(ctx, e.ID,
-		[]byte(`{"kind":"hypothesis","content":"GET /admin","status":"testing","task_id":"t2","scope":"engagement"}`)); err != nil {
+		[]byte(`{"kind":"hypothesis","content":"GET /admin","status":"testing","agent_run_id":"t2","scope":"engagement"}`)); err != nil {
 		t.Fatal(err)
 	}
 

@@ -6,7 +6,7 @@ import (
 	"fmt"
 
 	"github.com/V3teran/liusha/internal/credential"
-	"github.com/V3teran/liusha/internal/toolfx"
+	"github.com/V3teran/liusha/internal/toolruntime"
 )
 
 // FetchCredentials — BAC ReAct 第一步：拉目标 host 全部活身份（含 anonymous）。

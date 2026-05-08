@@ -91,22 +91,22 @@ fi
 # 启动顺序：vulnapp → proxy → api → scanner
 # 应用层 logx 直接写 logs/{service}.log；shell 这里 stderr 兜底捕获 panic 前的早期输出
 echo "[1/4] vulnapp on :8001"
-go run ./cmd/vulnapp 2>logs/vulnapp.stderr &
+go run -mod=mod ./cmd/vulnapp 2>logs/vulnapp.stderr &
 VULNAPP_PID=$!
 
 sleep 2
 echo "[2/4] proxy on :8888 (mitm) + $LIUSHA_PROXY_HEALTHZ_ADDR (healthz)"
-go run ./cmd/proxy 2>logs/proxy.stderr &
+go run -mod=mod ./cmd/proxy 2>logs/proxy.stderr &
 PROXY_PID=$!
 
 sleep 2
 echo "[3/4] api on $LIUSHA_API_ADDR"
-go run ./cmd/api 2>logs/api.stderr &
+go run -mod=mod ./cmd/api 2>logs/api.stderr &
 API_PID=$!
 
 sleep 2
 echo "[4/4] scanner on :9090"
-go run ./cmd/scanner 2>logs/scanner.stderr &
+go run -mod=mod ./cmd/scanner 2>logs/scanner.stderr &
 WORKER_PID=$!
 
 # 等服务起来

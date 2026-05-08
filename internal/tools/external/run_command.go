@@ -21,24 +21,23 @@ import (
 	"strings"
 	"time"
 
-	"github.com/V3teran/liusha/internal/toolfx"
+	"github.com/V3teran/liusha/internal/toolruntime"
 	"github.com/V3teran/liusha/internal/tools/runners"
 )
 
-// 默认沙箱镜像，caller 经 SubBuilderDeps.PentoolsImage 传入时可覆盖。
-// 镜像内预装：sqlmap / curl / sh / python3 / jq + ca-certificates。
-const defaultSandboxImage = "liusha/pentools:1.0.0"
-
-// 参数边界。
+// fallback 常量：caller 未通过 RunCommand 字段（或 cfg.Sandbox）注入时使用。
+// 正常路径由 cmd/scanner 从 config.SandboxConfig 注入，此处仅作兜底。
 const (
-	runMinTimeoutSeconds = 30
-	runMaxTimeoutSeconds = 300
-	runDefaultTimeout    = 90 * time.Second
-	runDefaultMemMB      = 512
-	runDefaultCPUs       = 1.0
-	// 1.5 KB × 2 + 元数据 ≈ 3.2 KB，刚好压在 ResultCompress 4KB 阈值之下；
-	// 让 LLM 能直接拿到完整 tail 而非压缩后的 400B snippet。
-	runTailBytes = 1536
+	fallbackSandboxImage      = "liusha/pentools:1.0.0"
+	fallbackRunMinTimeoutSec  = 30
+	fallbackRunMaxTimeoutSec  = 300
+	fallbackRunDefaultTimeout = 90 * time.Second
+	fallbackRunDefaultMemMB   = 512
+	fallbackRunDefaultCPUs    = 1.0
+	// 8 KB × 2 + 元数据 ≈ 17 KB，刚刚过 ResultCompress 16KB 阈值时才触发压缩；
+	// 让 sqlmap level=5+tamper 等长输出的 Title/Payload 关键字段能完整保留。
+	// 与 yaml sandbox.run_tail_bytes 同步（稳健激进方案）。
+	fallbackRunTailBytes = 8192
 )
 
 // tagAllowedChars 限定 tag 字符集（仅 [a-z0-9-]）；不符即丢弃 tag 走默认 "default"，
@@ -69,8 +68,59 @@ var tagAllowedChars = func() map[byte]bool {
 // 工具内部不绑定任何漏洞类型。
 type RunCommand struct {
 	Runner  *runners.DockerRunner
-	Image   string // 沙箱镜像；空时用 defaultSandboxImage
+	Image   string // 沙箱镜像；空时用 fallbackSandboxImage
 	Network string // 默认空（docker bridge），可挂在 scan-only network 限制 scope
+
+	// v1.3：以下字段可选注入，零值即用 fallback 常量；正常路径由 cmd/scanner
+	// 从 config.SandboxConfig 装配。让运维不重编即可调整钳超时 / 内存 / CPU / tail。
+	MinTimeout     time.Duration // run_command 单次最小超时（钳）
+	MaxTimeout     time.Duration // run_command 单次最大超时（钳）
+	DefaultTimeout time.Duration // 未指定 timeout_seconds 时的默认值
+	DefaultMemMB   int           // 容器内存上限（MB）
+	DefaultCPUs    float64       // 容器 CPU 上限（核数）
+	TailBytes      int           // stdout/stderr 截尾字节数
+}
+
+func (a *RunCommand) effectiveMinTimeout() time.Duration {
+	if a.MinTimeout > 0 {
+		return a.MinTimeout
+	}
+	return fallbackRunMinTimeoutSec * time.Second
+}
+
+func (a *RunCommand) effectiveMaxTimeout() time.Duration {
+	if a.MaxTimeout > 0 {
+		return a.MaxTimeout
+	}
+	return fallbackRunMaxTimeoutSec * time.Second
+}
+
+func (a *RunCommand) effectiveDefaultTimeout() time.Duration {
+	if a.DefaultTimeout > 0 {
+		return a.DefaultTimeout
+	}
+	return fallbackRunDefaultTimeout
+}
+
+func (a *RunCommand) effectiveDefaultMemMB() int {
+	if a.DefaultMemMB > 0 {
+		return a.DefaultMemMB
+	}
+	return fallbackRunDefaultMemMB
+}
+
+func (a *RunCommand) effectiveDefaultCPUs() float64 {
+	if a.DefaultCPUs > 0 {
+		return a.DefaultCPUs
+	}
+	return fallbackRunDefaultCPUs
+}
+
+func (a *RunCommand) effectiveTailBytes() int {
+	if a.TailBytes > 0 {
+		return a.TailBytes
+	}
+	return fallbackRunTailBytes
 }
 
 // Name 返回动作名 "run_command"。
@@ -125,21 +175,23 @@ func (a *RunCommand) Execute(ctx context.Context, args json.RawMessage) (toolfx.
 		return toolfx.Result{}, fmt.Errorf("run_command: Runner 未注入")
 	}
 
-	timeout := runDefaultTimeout
+	timeout := a.effectiveDefaultTimeout()
 	if in.Timeout > 0 {
-		secs := in.Timeout
-		if secs < runMinTimeoutSeconds {
-			secs = runMinTimeoutSeconds
+		secs := time.Duration(in.Timeout) * time.Second
+		minTO := a.effectiveMinTimeout()
+		maxTO := a.effectiveMaxTimeout()
+		if secs < minTO {
+			secs = minTO
 		}
-		if secs > runMaxTimeoutSeconds {
-			secs = runMaxTimeoutSeconds
+		if secs > maxTO {
+			secs = maxTO
 		}
-		timeout = time.Duration(secs) * time.Second
+		timeout = secs
 	}
 
 	image := a.Image
 	if image == "" {
-		image = defaultSandboxImage
+		image = fallbackSandboxImage
 	}
 
 	tag := sanitizeTag(in.Tag)
@@ -152,8 +204,8 @@ func (a *RunCommand) Execute(ctx context.Context, args json.RawMessage) (toolfx.
 		Network:       a.Network,
 		AutoRemove:    true,
 		Timeout:       timeout,
-		MemLimit:      int64(runDefaultMemMB) * 1024 * 1024,
-		CPULimit:      runDefaultCPUs,
+		MemLimit:      int64(a.effectiveDefaultMemMB()) * 1024 * 1024,
+		CPULimit:      a.effectiveDefaultCPUs(),
 		Cmd:           []string{"sh", "-c", in.Command},
 	}
 
@@ -162,11 +214,12 @@ func (a *RunCommand) Execute(ctx context.Context, args json.RawMessage) (toolfx.
 		return toolfx.Result{}, fmt.Errorf("docker run shell tag=%s: %w", tag, err)
 	}
 
+	tailN := a.effectiveTailBytes()
 	out := runCommandOutput{
 		ExitCode:   res.ExitCode,
 		TimedOut:   res.TimedOut,
-		StdoutTail: tailString(res.Stdout, runTailBytes),
-		StderrTail: tailString(res.Stderr, runTailBytes),
+		StdoutTail: tailString(res.Stdout, tailN),
+		StderrTail: tailString(res.Stderr, tailN),
 	}
 	enc, err := json.Marshal(out)
 	if err != nil {

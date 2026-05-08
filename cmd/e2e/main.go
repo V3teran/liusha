@@ -13,11 +13,11 @@
 //  4. 轮询 finding 表直到 ≥minFindings 条 <kindPrefix>* 且 ≥minKinds 类齐全
 //
 // 内置 profile：
-//   - bac ：localhost 三身份正常流量 → 期望 ≥3 条 bac.* / 3 类齐全
-//   - sqli：DVWA 49.234.23.42 单流量 → 期望 ≥1 条 sqli.*
+//   - bac ：本地 vulnapp 多身份正常流量 → 期望 ≥3 条 bac.* / 3 类齐全
+//   - sqli：本地 DVWA 单流量（带认证 cookie） → 期望 ≥1 条 sqli.*
 //
 // 触发器只发起"用户正常流量"——具体漏洞由子 ReAct 内部 fetch_credentials +
-// replay_matrix（BAC）或 run_command 容器化沙箱（SQLi）多 payload 重放发现。
+// run_replay（BAC）或 run_command 容器化沙箱（SQLi）多 payload 重放发现。
 //
 // 想加新漏洞类型：profiles map 加一行 + 写 examples/sample_<vuln>_raw.json 即可。
 package main
@@ -27,6 +27,7 @@ import (
 	"fmt"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -35,15 +36,25 @@ import (
 
 	"github.com/V3teran/liusha/internal/db"
 	"github.com/V3teran/liusha/internal/logx"
-	"github.com/V3teran/liusha/internal/vulnfinding"
+	"github.com/V3teran/liusha/internal/finding"
 )
 
 const (
-	pollInterval = 15 * time.Second
-	pollDeadline = 6 * time.Minute
-	dialTimeout  = 10 * time.Second
-	rawIOTimeout = 100 * time.Second
+	pollInterval        = 15 * time.Second
+	defaultPollDeadline = 40 * time.Minute // 与 scanner.main_task_timeout_seconds (2400s) 对齐；让 main_task 在 e2e 超时前自然结束
+	dialTimeout         = 10 * time.Second
+	rawIOTimeout        = 100 * time.Second
 )
+
+// pollDeadline 从 ENV LIUSHA_E2E_POLL_DEADLINE_SECONDS 读取（开发期可调），缺省 12 分钟。
+func pollDeadline() time.Duration {
+	if v := os.Getenv("LIUSHA_E2E_POLL_DEADLINE_SECONDS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			return time.Duration(n) * time.Second
+		}
+	}
+	return defaultPollDeadline
+}
 
 // credentialEntry 是 /credential/batch 单条身份记录的结构。
 type credentialEntry struct {
@@ -59,7 +70,7 @@ type profile struct {
 	kindPrefix     string
 	minFindings    int
 	minKinds       int
-	// credsForHost 接收 scope_host 返回该 host 的身份列表（profile 自决定身份组）。
+	// credsForHost 接收 target_host 返回该 host 的身份列表（profile 自决定身份组）。
 	credsForHost func(host string) []credentialEntry
 }
 
@@ -90,11 +101,15 @@ var profiles = map[string]profile{
 		kindPrefix:     "sqli.",
 		minFindings:    1,
 		minKinds:       1,
-		// DVWA 风格：单一已认证 admin 身份（PHPSESSID + security=low 双 cookie 拼成一行）。
+		// DVWA 本地靶场（127.0.0.1:4280）：admin + gordonb（user）双身份。
+		// PHPSESSID + security=low 双 cookie 拼成一行；user 身份保留供 BAC/越权类检测使用。
 		credsForHost: func(_ string) []credentialEntry {
 			return []credentialEntry{
 				{Name: "admin", Role: "admin", Credentials: []map[string]string{
-					{"type": "headers", "key": "Cookie", "value": "PHPSESSID=333lg0l6qt4p9u48aktuquo5r3; security=low"},
+					{"type": "headers", "key": "Cookie", "value": "PHPSESSID=dd4dd708256807ae3f897e5e766c8690; security=low"},
+				}},
+				{Name: "gordonb", Role: "user", Credentials: []map[string]string{
+					{"type": "headers", "key": "Cookie", "value": "PHPSESSID=b60d180b75310080dca3347869033a80; security=low"},
 				}},
 			}
 		},
@@ -117,7 +132,7 @@ func main() {
 	apiKey := envOr("LIUSHA_API_KEY", "changeme-dev-key")
 	pgDSN := envOr("LIUSHA_POSTGRES_DSN", "postgres://liusha:liusha@localhost:5432/liusha?sslmode=disable")
 	proxyURL := envOr("LIUSHA_PROXY_ADDR", "http://localhost:8888")
-	vulnBase := envOr("LIUSHA_VULNAPP_BASE", "http://host.docker.internal:8001")
+	vulnBase := envOr("LIUSHA_VULNAPP_BASE", "http://127.0.0.1:8001")
 
 	selected, err := selectProfiles(os.Args[1:])
 	if err != nil {
@@ -143,7 +158,7 @@ func main() {
 	logger.Info().Msg("all credentials enrolled (across every known profile)")
 
 	// 3. 共享 PG pool（所有 profile 共用）
-	pool, err := db.NewPgPool(ctx, pgDSN, 5, 1)
+	pool, err := db.NewPgPool(ctx, pgDSN, 5, 1, 0, 0)
 	if err != nil {
 		logger.Fatal().Err(err).Msg("pg")
 	}
@@ -206,7 +221,7 @@ func selectProfiles(args []string) ([]profile, error) {
 	return out, nil
 }
 
-// buildPlans 为每个被选 profile 加载样本并解析 scope_host。
+// buildPlans 为每个被选 profile 加载样本并解析 target_host。
 func buildPlans(selected []profile, vulnBase string) ([]profilePlan, error) {
 	out := make([]profilePlan, 0, len(selected))
 	for _, p := range selected {
@@ -214,7 +229,7 @@ func buildPlans(selected []profile, vulnBase string) ([]profilePlan, error) {
 		if err != nil {
 			return nil, fmt.Errorf("load samples for %s: %w", p.name, err)
 		}
-		host, err := resolveScopeHost(vulnBase, samples)
+		host, err := resolveTargetHost(vulnBase, samples)
 		if err != nil {
 			return nil, fmt.Errorf("resolve scope host for %s: %w", p.name, err)
 		}
@@ -233,7 +248,7 @@ func enrollAllCreds(apiBase, apiKey, vulnBase string) error {
 		if err != nil {
 			return fmt.Errorf("load samples for %s: %w", p.name, err)
 		}
-		host, err := resolveScopeHost(vulnBase, samples)
+		host, err := resolveTargetHost(vulnBase, samples)
 		if err != nil {
 			return fmt.Errorf("resolve host for %s: %w", p.name, err)
 		}
@@ -246,7 +261,7 @@ func enrollAllCreds(apiBase, apiKey, vulnBase string) error {
 func runProfile(ctx context.Context, plan profilePlan, proxyHostPort, apiBase, apiKey string, pool *pgxpool.Pool, logger zerolog.Logger) error {
 	logger.Info().
 		Str("profile", plan.prof.name).
-		Str("scope_host", plan.host).
+		Str("target_host", plan.host).
 		Str("samples", plan.samplePth).
 		Int("sample_count", len(plan.samples)).
 		Msg("profile starting")
@@ -264,8 +279,8 @@ func runProfile(ctx context.Context, plan profilePlan, proxyHostPort, apiBase, a
 		logger.Info().Str("profile", plan.prof.name).Int("idx", i).Msg("raw dispatched")
 	}
 
-	store := vulnfinding.NewStore(pool)
-	deadline := time.Now().Add(pollDeadline)
+	store := finding.NewStore(pool)
+	deadline := time.Now().Add(pollDeadline())
 	for time.Now().Before(deadline) {
 		all, err := store.ListByEngagement(ctx, eid)
 		if err != nil {
@@ -294,18 +309,18 @@ func runProfile(ctx context.Context, plan profilePlan, proxyHostPort, apiBase, a
 	return fmt.Errorf("timeout: 未达 finding/类覆盖门槛")
 }
 
-// resolveScopeHost 决定 engagement scope_host：
+// resolveTargetHost 决定 engagement target_host：
 //
 //	优先级：env LIUSHA_E2E_SCOPE_HOST > 首条样本的 Host: 头去端口 > vulnBase URL 的 host
 //
-// 这样 SQLi 用外网 DVWA 时无需配 LIUSHA_VULNAPP_BASE，BAC 用本地 vulnapp 时也不破坏旧行为。
-func resolveScopeHost(vulnBase string, samples []string) (string, error) {
+// 这样不同 profile 用不同目标（如 SQLi 用本地 DVWA、BAC 用本地 vulnapp）时无需切 LIUSHA_VULNAPP_BASE。
+func resolveTargetHost(vulnBase string, samples []string) (string, error) {
 	if v := os.Getenv("LIUSHA_E2E_SCOPE_HOST"); v != "" {
 		return v, nil
 	}
 	if len(samples) > 0 {
 		if h := extractHostFromRaw(samples[0]); h != "" {
-			return stripPort(h), nil
+			return h, nil
 		}
 	}
 	return extractHost(vulnBase)
@@ -319,8 +334,8 @@ func envOr(k, def string) string {
 }
 
 // filterByPrefix 过滤 kind 以 prefix 开头的 finding（profile 用）。
-func filterByPrefix(all []vulnfinding.VulnFinding, prefix string) []vulnfinding.VulnFinding {
-	out := make([]vulnfinding.VulnFinding, 0, len(all))
+func filterByPrefix(all []finding.VulnFinding, prefix string) []finding.VulnFinding {
+	out := make([]finding.VulnFinding, 0, len(all))
 	for _, f := range all {
 		if strings.HasPrefix(f.Kind, prefix) {
 			out = append(out, f)
@@ -330,7 +345,7 @@ func filterByPrefix(all []vulnfinding.VulnFinding, prefix string) []vulnfinding.
 }
 
 // countKinds 统计 finding 切片中各 kind 的出现次数。
-func countKinds(fs []vulnfinding.VulnFinding) map[string]int {
+func countKinds(fs []finding.VulnFinding) map[string]int {
 	out := make(map[string]int, len(fs))
 	for _, f := range fs {
 		out[f.Kind]++

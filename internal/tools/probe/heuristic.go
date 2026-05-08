@@ -7,7 +7,7 @@ import (
 
 	"github.com/V3teran/liusha/internal/heuristic"
 	"github.com/V3teran/liusha/internal/replay"
-	"github.com/V3teran/liusha/internal/toolfx"
+	"github.com/V3teran/liusha/internal/toolruntime"
 )
 
 // defaultHeuristicRules 是没指定 rules 时按序尝试的全部启发式规则。
@@ -23,12 +23,16 @@ var defaultHeuristicRules = []string{
 //
 // 命中任意一条 rule 即返回 skip=true + 命中规则名 + reason，
 // 上层（LLM）据此跳过昂贵的相似度计算与 finding 提交。
+//
+// AuthKeywords 透传给 all_auth_error 规则；nil/空时 heuristic.AllAuthError 内部回退
+// 到 heuristic.DefaultAuthKeywords。caller 通常从 cfg.Heuristic.AuthKeywords 注入。
 type HeuristicCheck struct {
-	State *ProbeState
+	State        *ProbeState
+	AuthKeywords []string
 }
 
-// Name 返回动作名 "heuristic_check"。
-func (a *HeuristicCheck) Name() string { return "heuristic_check" }
+// Name 返回动作名 "check_heuristics"。
+func (a *HeuristicCheck) Name() string { return "check_heuristics" }
 
 // Description 给 LLM 看的简介。
 func (a *HeuristicCheck) Description() string {
@@ -63,11 +67,11 @@ func (a *HeuristicCheck) Execute(_ context.Context, args json.RawMessage) (toolf
 	}
 	if len(args) > 0 {
 		if err := json.Unmarshal(args, &in); err != nil {
-			return toolfx.Result{}, fmt.Errorf("解析 heuristic_check 参数失败: %w", err)
+			return toolfx.Result{}, fmt.Errorf("解析 check_heuristics 参数失败: %w", err)
 		}
 	}
 	if len(a.State.LastResponses) == 0 {
-		return toolfx.Result{}, fmt.Errorf("state.LastResponses 为空，请先调 replay_matrix")
+		return toolfx.Result{}, fmt.Errorf("state.LastResponses 为空，请先调 run_replay")
 	}
 	if len(in.Rules) == 0 {
 		in.Rules = defaultHeuristicRules
@@ -77,7 +81,7 @@ func (a *HeuristicCheck) Execute(_ context.Context, args json.RawMessage) (toolf
 	// 没有抓包响应时退化为原 LastResponses，baseline 类规则会自身退化为 false。
 	responses := a.State.AllResponses()
 	for _, name := range in.Rules {
-		rule, ok := lookupRule(name)
+		rule, ok := a.lookupRule(name)
 		if !ok {
 			// 未知规则名静默跳过；schema 已用 enum 约束，这里只是双保险。
 			continue
@@ -91,9 +95,9 @@ func (a *HeuristicCheck) Execute(_ context.Context, args json.RawMessage) (toolf
 
 // lookupRule 把字符串名映射到 heuristic.Rule。
 //
-// all_auth_error 用 DefaultAuthKeywords（关键词列表 spec §7.3 已固定）；
-// 后续若 BAC skill 需要自定义关键词，可在此扩展为 (rules, opts) 形态。
-func lookupRule(name string) (heuristic.Rule, bool) {
+// all_auth_error 用 a.AuthKeywords（cfg.Heuristic.AuthKeywords 透传）；
+// nil/空时由 heuristic.AllAuthError 内部回退 heuristic.DefaultAuthKeywords。
+func (a *HeuristicCheck) lookupRule(name string) (heuristic.Rule, bool) {
 	switch name {
 	case "all_denied":
 		return heuristic.AllDeniedByStatus, true
@@ -101,7 +105,7 @@ func lookupRule(name string) (heuristic.Rule, bool) {
 		return heuristic.AllEmptyResponse, true
 	case "all_auth_error":
 		return func(rs []replay.Response) (bool, string) {
-			return heuristic.AllAuthError(rs, nil)
+			return heuristic.AllAuthError(rs, a.AuthKeywords)
 		}, true
 	default:
 		return nil, false
@@ -111,11 +115,11 @@ func lookupRule(name string) (heuristic.Rule, bool) {
 func marshalHeuristic(out heuristicOutput) (toolfx.Result, error) {
 	enc, err := json.Marshal(out)
 	if err != nil {
-		return toolfx.Result{}, fmt.Errorf("序列化 heuristic_check 输出失败: %w", err)
+		return toolfx.Result{}, fmt.Errorf("序列化 check_heuristics 输出失败: %w", err)
 	}
-	summary := "heuristic_check skip=false"
+	summary := "check_heuristics skip=false"
 	if out.Skip {
-		summary = fmt.Sprintf("heuristic_check skip=true rule=%s", out.HitRule)
+		summary = fmt.Sprintf("check_heuristics skip=true rule=%s", out.HitRule)
 	}
 	return toolfx.Result{Output: enc, Summary: summary}, nil
 }

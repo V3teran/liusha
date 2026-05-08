@@ -20,9 +20,6 @@ import (
 	"github.com/V3teran/liusha/internal/logx"
 )
 
-// shutdownTimeout 是收到 SIGINT/SIGTERM 后给 in-flight 请求的最长 drain 时间。
-const shutdownTimeout = 5 * time.Second
-
 func main() {
 	logger := logx.New("api")
 	ctx := context.Background()
@@ -32,23 +29,30 @@ func main() {
 		logger.Fatal().Err(err).Msg("load config")
 	}
 
-	pool, err := db.NewPgPool(ctx, os.Getenv("LIUSHA_POSTGRES_DSN"), cfg.Postgres.MaxConns, cfg.Postgres.MinConns)
+	pool, err := db.NewPgPool(ctx, os.Getenv("LIUSHA_POSTGRES_DSN"),
+		cfg.Postgres.MaxConns, cfg.Postgres.MinConns,
+		cfg.Postgres.ConnectTimeoutSeconds, cfg.Postgres.MaxConnLifetimeSeconds)
 	if err != nil {
 		logger.Fatal().Err(err).Msg("pg")
 	}
 	defer pool.Close()
 
-	rdb, err := db.NewRedis(ctx, os.Getenv("LIUSHA_REDIS_ADDR"))
+	rdb, err := db.NewRedis(ctx, os.Getenv("LIUSHA_REDIS_ADDR"), cfg.Redis)
 	if err != nil {
 		logger.Fatal().Err(err).Msg("redis")
 	}
 	defer func() { _ = rdb.Close() }()
 
-	credAPI := credential.NewRedis(rdb)
-	engStore := engagement.NewStore(pool)
+	credAPI := credential.NewRedis(rdb, cfg.Credential.RedisKeyPrefix)
+	engStore := engagement.NewStore(pool).WithLimits(
+		cfg.Engagement.MaxMemoryNotesEntries,
+		cfg.Engagement.DefaultNotesLimit,
+	)
 
+	// 监听地址：优先 ENV（运维临时切换）→ yaml。
+	listenAddr := envOr("LIUSHA_API_ADDR", cfg.API.ListenAddr)
 	srv := &http.Server{
-		Addr: envOr("LIUSHA_API_ADDR", "0.0.0.0:8080"),
+		Addr: listenAddr,
 		Handler: httpapi.NewServer(httpapi.Deps{
 			APIKey:      os.Getenv("LIUSHA_API_KEY"),
 			Credentials: credAPI,
@@ -70,6 +74,7 @@ func main() {
 	sig := <-stop
 	logger.Info().Str("signal", sig.String()).Msg("api shutting down")
 
+	shutdownTimeout := time.Duration(cfg.API.ShutdownTimeoutSeconds) * time.Second
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancel()
 	if err := srv.Shutdown(shutdownCtx); err != nil {

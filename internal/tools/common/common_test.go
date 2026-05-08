@@ -9,14 +9,14 @@ import (
 
 	"github.com/V3teran/liusha/internal/engagement"
 	"github.com/V3teran/liusha/internal/graph"
-	"github.com/V3teran/liusha/internal/vulnfinding"
+	"github.com/V3teran/liusha/internal/finding"
 )
 
-// 编译期接口断言：保证 engagement.Store / vulnfinding.Store / graph.Store
+// 编译期接口断言：保证 engagement.Store / finding.Store / graph.Store
 // 自动满足本包定义的窄接口。任意签名漂移都会在 go build/test 阶段立刻失败。
 var (
 	_ MemoryStore  = (*engagement.Store)(nil)
-	_ FindingStore = (*vulnfinding.Store)(nil)
+	_ FindingStore = (*finding.Store)(nil)
 	_ GraphStore   = (*graph.Store)(nil)
 )
 
@@ -37,11 +37,11 @@ func (f *fakeMem) AppendNote(_ context.Context, _ string, e []byte) error {
 
 // fakeFinding 是 FindingStore 的内存实现，记录最后一次 Save 的入参。
 type fakeFinding struct {
-	saved vulnfinding.VulnFinding
+	saved finding.VulnFinding
 	id    string
 }
 
-func (f *fakeFinding) Save(_ context.Context, in vulnfinding.VulnFinding) (vulnfinding.VulnFinding, bool, error) {
+func (f *fakeFinding) Save(_ context.Context, in finding.VulnFinding) (finding.VulnFinding, bool, error) {
 	f.saved = in
 	if f.id == "" {
 		f.id = "finding-id-stub"
@@ -221,7 +221,7 @@ func TestWriteFinding_CallsStoreSave(t *testing.T) {
 	if st.saved.TaskID == nil || *st.saved.TaskID != "task-1" {
 		t.Fatalf("TaskID 未透传: %+v", st.saved.TaskID)
 	}
-	if st.saved.DedupKey != "sqli|/login|email" || st.saved.Severity != vulnfinding.SeverityHigh {
+	if st.saved.DedupKey != "sqli|/login|email" || st.saved.Severity != finding.SeverityHigh {
 		t.Fatalf("字段未透传: %+v", st.saved)
 	}
 	var out struct {
@@ -253,8 +253,8 @@ func TestWriteFinding_PropagatesStoreError(t *testing.T) {
 
 type erroringFinding struct{}
 
-func (erroringFinding) Save(_ context.Context, _ vulnfinding.VulnFinding) (vulnfinding.VulnFinding, bool, error) {
-	return vulnfinding.VulnFinding{}, false, errors.New("boom")
+func (erroringFinding) Save(_ context.Context, _ finding.VulnFinding) (finding.VulnFinding, bool, error) {
+	return finding.VulnFinding{}, false, errors.New("boom")
 }
 
 // ---------- WriteGraph ----------

@@ -1,11 +1,14 @@
 // Package ingestor 是 Stream 流量摄入器：
 //
-//	proxy 责任链放行 → XADD → liusha:flow_events
+//	proxy 责任链放行 → XADD → <stream_name>
 //	ingestor.Traffic XREADGROUP → 落库 http_flow →
 //	    tasks.Create(role=main) → Asynq react queue → scanner 主 ReAct
 //
 // 这里不再做二次过滤：是否丢弃流量完全由 proxy 端 filter chain 决定，
 // ingestor 只负责把 proxy 已放行的流量入库 + 入主队列。
+//
+// 所有运行参数（consumer group/name、batch、block、retry 延迟、tenant）
+// 通过 config.IngestorConfig + Deps.Tenant 注入；零值由 caller 走 ApplyDefaults 兜底。
 package ingestor
 
 import (
@@ -19,48 +22,50 @@ import (
 	"github.com/redis/go-redis/v9"
 	"github.com/rs/zerolog"
 
+	"github.com/V3teran/liusha/internal/agentrun"
+	"github.com/V3teran/liusha/internal/config"
 	"github.com/V3teran/liusha/internal/engagement"
 	"github.com/V3teran/liusha/internal/flow"
 	"github.com/V3teran/liusha/internal/proxy"
-	"github.com/V3teran/liusha/internal/reactrun"
 	"github.com/V3teran/liusha/internal/worker"
-)
-
-const (
-	defaultGroup        = "liusha-ingestor"
-	defaultConsumerName = "ingestor-1"
-	readBatch           = 16
-	readBlockTimeout    = 1 * time.Second
-	defaultTenant       = "default"
 )
 
 // Traffic 是流量入口的 Stream 消费者。
 type Traffic struct {
-	rdb     *redis.Client
-	stream  string
-	group   string
-	name    string
-	engs    *engagement.Store
-	rotator *engagement.Rotator
-	flows   *flow.Store
-	tasks   *reactrun.Store
-	enq     *worker.Client
-	logger  zerolog.Logger
+	rdb           *redis.Client
+	stream        string
+	group         string
+	name          string
+	tenant        string
+	readBatch     int64
+	readBlock     time.Duration
+	retryDelay    time.Duration
+	recreateDelay time.Duration
+	engs          *engagement.Store
+	rotator       *engagement.Rotator
+	flows         *flow.Store
+	tasks         *agentrun.Store
+	enq           *worker.Client
+	logger        zerolog.Logger
 }
 
 // Deps 注入。
+//
+// Stream 必填（来自 cfg.Proxy.StreamName，proxy/ingestor 之间约定）；
+// Cfg 提供 group/consumer/batch/block/retry 等运行参数（缺省值已由 ApplyDefaults 兜底）；
+// Tenant 控制 engagement 多租户隔离，空时回退 "default"。
 //
 // Rotator 可空：空时走 engs.LookupOrCreate（旧行为）；
 // 非空时走 rotator.EnsureActive，proxy 模式按阈值滚动 engagement。
 type Deps struct {
 	Redis    *redis.Client
+	Cfg      config.IngestorConfig
 	Stream   string
-	Group    string
-	Consumer string
+	Tenant   string
 	Engs     *engagement.Store
 	Rotator  *engagement.Rotator
 	Flows    *flow.Store
-	Tasks    *reactrun.Store
+	Tasks    *agentrun.Store
 	Enqueuer *worker.Client
 	Logger   zerolog.Logger
 }
@@ -71,17 +76,29 @@ func NewTraffic(ctx context.Context, deps Deps) (*Traffic, error) {
 		deps.Tasks == nil || deps.Enqueuer == nil {
 		return nil, errors.New("ingestor.NewTraffic: redis/engs/flows/tasks/enqueuer 必填")
 	}
+	if strings.TrimSpace(deps.Stream) == "" {
+		return nil, errors.New("ingestor.NewTraffic: stream 必填（应来自 cfg.Proxy.StreamName）")
+	}
+	tenant := strings.TrimSpace(deps.Tenant)
+	if tenant == "" {
+		tenant = "default"
+	}
 	t := &Traffic{
-		rdb:     deps.Redis,
-		stream:  pickNonEmpty(deps.Stream, proxy.FlowStream),
-		group:   pickNonEmpty(deps.Group, defaultGroup),
-		name:    pickNonEmpty(deps.Consumer, defaultConsumerName),
-		engs:    deps.Engs,
-		rotator: deps.Rotator,
-		flows:   deps.Flows,
-		tasks:   deps.Tasks,
-		enq:     deps.Enqueuer,
-		logger:  deps.Logger,
+		rdb:           deps.Redis,
+		stream:        deps.Stream,
+		group:         deps.Cfg.ConsumerGroup,
+		name:          deps.Cfg.ConsumerName,
+		tenant:        tenant,
+		readBatch:     int64(deps.Cfg.ReadBatch),
+		readBlock:     time.Duration(deps.Cfg.ReadBlockTimeoutMs) * time.Millisecond,
+		retryDelay:    time.Duration(deps.Cfg.RetryDelayMs) * time.Millisecond,
+		recreateDelay: time.Duration(deps.Cfg.RecreateGroupDelayMs) * time.Millisecond,
+		engs:          deps.Engs,
+		rotator:       deps.Rotator,
+		flows:         deps.Flows,
+		tasks:         deps.Tasks,
+		enq:           deps.Enqueuer,
+		logger:        deps.Logger,
 	}
 	if err := t.rdb.XGroupCreateMkStream(ctx, t.stream, t.group, "$").Err(); err != nil {
 		if !strings.Contains(err.Error(), "BUSYGROUP") {
@@ -105,8 +122,8 @@ func (t *Traffic) Run(ctx context.Context) error {
 			Group:    t.group,
 			Consumer: t.name,
 			Streams:  []string{t.stream, ">"},
-			Count:    readBatch,
-			Block:    readBlockTimeout,
+			Count:    t.readBatch,
+			Block:    t.readBlock,
 		}).Result()
 		if err != nil {
 			if errors.Is(err, redis.Nil) || errors.Is(err, context.Canceled) {
@@ -116,11 +133,11 @@ func (t *Traffic) Run(ctx context.Context) error {
 			// 启动期的 XGroupCreateMkStream 不再生效。检测到 NOGROUP 主动重建。
 			if isNoGroupErr(err) {
 				t.recreateGroup(ctx)
-				time.Sleep(500 * time.Millisecond)
+				time.Sleep(t.recreateDelay)
 				continue
 			}
 			t.logger.Warn().Err(err).Msg("XREADGROUP 失败")
-			time.Sleep(500 * time.Millisecond)
+			time.Sleep(t.retryDelay)
 			continue
 		}
 		for _, s := range streams {
@@ -159,10 +176,10 @@ func (t *Traffic) handleMessage(ctx context.Context, msg redis.XMessage) {
 		ensErr error
 	)
 	if t.rotator != nil {
-		eid, ensErr = t.rotator.EnsureActive(ctx, defaultTenant, snap.Host, engagement.ModeProxy)
+		eid, ensErr = t.rotator.EnsureActive(ctx, t.tenant, snap.Host, engagement.ModeProxy)
 	} else {
 		var eng engagement.Engagement
-		eng, ensErr = t.engs.LookupOrCreate(ctx, defaultTenant, snap.Host, engagement.ModeProxy)
+		eng, ensErr = t.engs.LookupOrCreate(ctx, t.tenant, snap.Host, engagement.ModeProxy)
 		if ensErr == nil {
 			eid = eng.ID
 		}
@@ -194,7 +211,7 @@ func (t *Traffic) appendFlow(ctx context.Context, eid string, snap *proxy.Traffi
 	respH, _ := json.Marshal(snap.ResponseHeaders)
 	return t.flows.Append(ctx, flow.Flow{
 		EngagementID:    eid,
-		Ts:              snap.Timestamp,
+		CreatedAt:       snap.Timestamp,
 		Method:          snap.Method,
 		URL:             fullURL(snap),
 		RequestHeaders:  reqH,
@@ -217,10 +234,10 @@ func (t *Traffic) enqueueMain(ctx context.Context, eid string, flowID int64, sna
 		"entrypoint": json.RawMessage(entrypoint),
 	})
 
-	tid, err := t.tasks.Create(ctx, reactrun.NewParams{
+	tid, err := t.tasks.Create(ctx, agentrun.NewParams{
 		EngagementID: eid,
 		Role:         string(worker.RoleOrchestrator),
-		Skill:        "orchestrator", // 与 skills/orchestrator/SKILL.md frontmatter name 一致
+		Skill:        "orchestrator",
 		Input:        payloadInput,
 	})
 	if err != nil {
@@ -238,7 +255,6 @@ func (t *Traffic) enqueueMain(ctx context.Context, eid string, flowID int64, sna
 }
 
 func fullURL(s *proxy.TrafficSnapshot) string {
-	// 优先用 HostPort（保留原始端口，BAC replay 才能拼对）；缺时退化到 Host。
 	host := s.HostPort
 	if host == "" {
 		host = s.Host
@@ -250,13 +266,6 @@ func fullURL(s *proxy.TrafficSnapshot) string {
 		return "//" + host + s.URI
 	}
 	return s.URI
-}
-
-func pickNonEmpty(v, def string) string {
-	if strings.TrimSpace(v) == "" {
-		return def
-	}
-	return v
 }
 
 // isNoGroupErr 检测 XREADGROUP 在 stream/consumer group 不存在时返回的错误。

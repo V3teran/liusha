@@ -13,7 +13,7 @@ import (
 	"github.com/V3teran/liusha/internal/credential"
 	"github.com/V3teran/liusha/internal/flow"
 	"github.com/V3teran/liusha/internal/replay"
-	"github.com/V3teran/liusha/internal/toolfx"
+	"github.com/V3teran/liusha/internal/toolruntime"
 )
 
 // 编译期接口断言：真实 *flow.Store 应能直接喂进 Factory.FlowReader。
@@ -103,7 +103,7 @@ func TestFetchCredentials_RejectsEmptyHost(t *testing.T) {
 
 func TestReplayMatrix_RequiresFetchCredentialsFirst(t *testing.T) {
 	a := &ReplayMatrix{
-		Engine: replay.NewEngine(http.DefaultClient),
+		Engine: replay.NewEngine(http.DefaultClient, 0),
 		Flows:  &fakeFlowReader{flows: map[int64]flow.Flow{1: {ID: 1, Method: "GET", URL: "http://x/"}}},
 		State:  &ProbeState{},
 	}
@@ -139,7 +139,7 @@ func TestReplayMatrix_PopulatesStateWithBodyHint(t *testing.T) {
 		},
 	}}
 	a := &ReplayMatrix{
-		Engine: replay.NewEngine(srv.Client()),
+		Engine: replay.NewEngine(srv.Client(), 0),
 		Flows:  flows,
 		State:  state,
 	}
@@ -177,8 +177,8 @@ func TestReplayMatrix_PopulatesStateWithBodyHint(t *testing.T) {
 	}
 }
 
-func TestReplayMatrix_BodyHintTruncatedAt2000(t *testing.T) {
-	huge := strings.Repeat("X", 5000)
+func TestReplayMatrix_BodyHintTruncatedAt8192(t *testing.T) {
+	huge := strings.Repeat("X", 10000)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(huge))
 	}))
@@ -189,7 +189,7 @@ func TestReplayMatrix_BodyHintTruncatedAt2000(t *testing.T) {
 		1: {ID: 1, Method: "GET", URL: srv.URL + "/x"},
 	}}
 	a := &ReplayMatrix{
-		Engine: replay.NewEngine(srv.Client()),
+		Engine: replay.NewEngine(srv.Client(), 0),
 		Flows:  flows,
 		State:  state,
 	}
@@ -206,8 +206,8 @@ func TestReplayMatrix_BodyHintTruncatedAt2000(t *testing.T) {
 	if len(got.Responses) != 1 {
 		t.Fatalf("got=%d", len(got.Responses))
 	}
-	if l := len(got.Responses[0].BodyHint); l == 0 || l > 2000 {
-		t.Fatalf("body_hint 应被截到 ≤2000，got %d", l)
+	if l := len(got.Responses[0].BodyHint); l == 0 || l > 8192 {
+		t.Fatalf("body_hint 应被截到 ≤8192，got %d", l)
 	}
 }
 
@@ -664,7 +664,7 @@ func TestProbeState_AllResponses_ReturnsFreshSlice(t *testing.T) {
 func TestFactory_CreateActions_SharesState(t *testing.T) {
 	prov := &fakeProvider{identities: []credential.Identity{{Name: "x"}}}
 	flows := &fakeFlowReader{}
-	eng := replay.NewEngine(http.DefaultClient)
+	eng := replay.NewEngine(http.DefaultClient, 0)
 
 	f := NewFactory(prov, flows, eng)
 	acts := f.CreateActions("eng-1", nil)
@@ -676,7 +676,7 @@ func TestFactory_CreateActions_SharesState(t *testing.T) {
 	for _, a := range acts {
 		names[a.Name()] = a
 	}
-	for _, want := range []string{"fetch_credentials", "replay_matrix", "heuristic_check", "compute_similarity"} {
+	for _, want := range []string{"fetch_credentials", "run_replay", "check_heuristics", "compute_similarity"} {
 		if _, ok := names[want]; !ok {
 			t.Fatalf("缺少 action: %s", want)
 		}
@@ -689,8 +689,8 @@ func TestFactory_CreateActions_SharesState(t *testing.T) {
 		t.Fatalf("fetch err=%v", err)
 	}
 	fc := names["fetch_credentials"].(*FetchCredentials)
-	rm := names["replay_matrix"].(*ReplayMatrix)
-	hc := names["heuristic_check"].(*HeuristicCheck)
+	rm := names["run_replay"].(*ReplayMatrix)
+	hc := names["check_heuristics"].(*HeuristicCheck)
 	cs := names["compute_similarity"].(*ComputeSimilarity)
 	if fc.State != rm.State || rm.State != hc.State || hc.State != cs.State {
 		t.Fatal("4 个 action 应共享同一个 *ProbeState")
@@ -703,14 +703,14 @@ func TestFactory_CreateActions_SharesState(t *testing.T) {
 func TestFactory_Register_AllNames(t *testing.T) {
 	prov := &fakeProvider{}
 	flows := &fakeFlowReader{}
-	eng := replay.NewEngine(http.DefaultClient)
+	eng := replay.NewEngine(http.DefaultClient, 0)
 	f := NewFactory(prov, flows, eng)
 
 	reg := toolfx.NewRegistry()
 	if err := f.Register(reg, "eng-2", nil); err != nil {
 		t.Fatalf("Register err=%v", err)
 	}
-	for _, want := range []string{"fetch_credentials", "replay_matrix", "heuristic_check", "compute_similarity"} {
+	for _, want := range []string{"fetch_credentials", "run_replay", "check_heuristics", "compute_similarity"} {
 		if !reg.Has(want) {
 			t.Fatalf("Registry 应有 %s", want)
 		}

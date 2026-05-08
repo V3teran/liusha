@@ -90,7 +90,7 @@ func (i *instrumented) Generate(ctx context.Context, msgs []Message, tools []Too
 		CachedTokens: res.Usage.CachedTokens,
 		LatencyMs:    int(latency.Milliseconds()),
 		FinishReason: res.FinishReason,
-		Role:         i.meta.RouteKey,
+		CallPurpose:  i.meta.RouteKey,
 	}
 	if err != nil {
 		call.Error = err.Error()
@@ -105,14 +105,14 @@ func (i *instrumented) Generate(ctx context.Context, msgs []Message, tools []Too
 	// 整个 marshal 失败，audit JSON 全丢；sanitize 把非法 Arguments 包装成合法
 	// {"_raw_invalid":"<原字节>"}，保留可读痕迹。
 	if b, mErr := json.Marshal(sanitizeMessages(msgs)); mErr == nil {
-		call.MessagesJSON = b
+		call.Messages = b
 	} else {
-		i.log.Warn().Err(mErr).Msg("messages_json marshal 失败（落库回退默认值）")
+		i.log.Warn().Err(mErr).Msg("messages marshal 失败（落库回退默认值）")
 	}
 	if b, mErr := json.Marshal(sanitizeResult(res)); mErr == nil {
-		call.ResultJSON = b
+		call.Result = b
 	} else {
-		i.log.Warn().Err(mErr).Msg("result_json marshal 失败（落库回退默认值）")
+		i.log.Warn().Err(mErr).Msg("result marshal 失败（落库回退默认值）")
 	}
 
 	// 埋点用独立的 ctx：业务 ctx 可能因取消而无法落库。
@@ -121,8 +121,8 @@ func (i *instrumented) Generate(ctx context.Context, msgs []Message, tools []Too
 			Err(sinkErr).
 			Str("provider", call.Provider).
 			Str("model", call.Model).
-			Str("role", call.Role).
-			Msg("llm_call append 失败（不阻塞 Generate 返回）")
+			Str("call_purpose", call.CallPurpose).
+			Msg("llm_invocation append 失败（不阻塞 Generate 返回）")
 	}
 	return res, err
 }

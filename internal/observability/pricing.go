@@ -12,7 +12,10 @@
 // 由 ModelPrice.CachedInIn 控制：true=子集语义，false=加项语义。
 package observability
 
-import "github.com/V3teran/liusha/internal/llm"
+import (
+	"github.com/V3teran/liusha/internal/config"
+	"github.com/V3teran/liusha/internal/llm"
+)
 
 // ModelPrice 是某个 provider/model 组合的单价定义。
 // InputPerMUSD / OutputPerMUSD 单位为 USD per 1M tokens。
@@ -36,17 +39,25 @@ type Pricing struct {
 // tokensPerMillion 是 1M tokens 的归一化分母，避免在公式里散落魔法数。
 const tokensPerMillion = 1_000_000.0
 
-// DefaultPricing 是 spec §8.2 内置的默认单价表。
-// 包含 deepseek-chat / claude-sonnet-4-6 / claude-haiku-4-5 三个生产模型。
+// NewPricing 用 yaml 配置构造 Pricing。
 //
-// CachedInIn 区分计费语义：deepseek 用 OpenAI 兼容接口（cached ⊆ in）；
-// anthropic 原生 API（cached 独立返回）。
-var DefaultPricing = Pricing{
-	table: map[string]ModelPrice{
-		"deepseek/deepseek-chat":      {InputPerMUSD: 0.27, OutputPerMUSD: 1.10, CacheDiscount: 0.10, CachedInIn: true},
-		"anthropic/claude-sonnet-4-6": {InputPerMUSD: 3.00, OutputPerMUSD: 15.00, CacheDiscount: 0.30},
-		"anthropic/claude-haiku-4-5":  {InputPerMUSD: 1.00, OutputPerMUSD: 5.00, CacheDiscount: 0.30},
-	},
+// 设计意图（v1.3）：单价单位/折扣/缓存语义全部从 config.PricingConfig 注入，
+// 让运维不重编即可维护单价表（provider 季度降价 / 加新模型 / 跨环境差异）。
+// caller 通常这样用：`pricing := observability.NewPricing(cfg.Pricing)` 一次构造，
+// 透传给 llm.Instrument / handler.pricing 字段；后续 Lookup/Estimate 0 IO 命中内存表。
+//
+// 入参 c 字段为空时由 config.ApplyDefaults 兜底（包含 spec §8.2 三模型基准）。
+func NewPricing(c config.PricingConfig) Pricing {
+	table := make(map[string]ModelPrice, len(c.Models))
+	for k, m := range c.Models {
+		table[k] = ModelPrice{
+			InputPerMUSD:  m.InputPerMUSD,
+			OutputPerMUSD: m.OutputPerMUSD,
+			CacheDiscount: m.CacheDiscount,
+			CachedInIn:    m.CachedInIn,
+		}
+	}
+	return Pricing{table: table}
 }
 
 // Lookup 按 (provider, model) 返回 ModelPrice；未命中返回 (zero, false)。

@@ -1,6 +1,6 @@
 // Package probe 提供边界类漏洞主动探针工具集（4 个 action + Factory），
 // 被各 vuln skill（BAC、未来 IDOR/认证绕过/SSRF…）共享：
-// fetch_credentials / replay_matrix / heuristic_check / compute_similarity。
+// fetch_credentials / run_replay / check_heuristics / compute_similarity。
 //
 // 命名说明（业界最佳实践）：
 //   - "probe" = 主动发请求测试目标（OWASP Active Scanner 标准术语）

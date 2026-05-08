@@ -15,6 +15,8 @@ import (
 	"net"
 	"strings"
 	"time"
+
+	"github.com/V3teran/liusha/internal/config"
 )
 
 // HTTPError 是上游 HTTP 错误的统一表示。
@@ -66,6 +68,21 @@ func DefaultRetryOptions() RetryOptions {
 		Backoff5xx:    []time.Duration{1 * time.Second, 4 * time.Second},
 		BackoffNet:    []time.Duration{1 * time.Second, 3 * time.Second},
 		Backoff529:    0, // 立即重试
+	}
+}
+
+// RetryOptionsFromConfig 把 yaml 配置（秒数列表 + 毫秒）翻译成 RetryOptions。
+// 任一字段为 0 由 ApplyDefaults 兜底，调用方可放心透传。
+func RetryOptionsFromConfig(c config.RetryConfig) RetryOptions {
+	return RetryOptions{
+		MaxRetries429: c.Max429,
+		MaxRetries529: c.Max529,
+		MaxRetries5xx: c.Max5xx,
+		MaxRetriesNet: c.MaxNet,
+		Backoff429:    config.AsDurations(c.Backoff429Seconds),
+		Backoff5xx:    config.AsDurations(c.Backoff5xxSeconds),
+		BackoffNet:    config.AsDurations(c.BackoffNetSeconds),
+		Backoff529:    time.Duration(c.Backoff529Millisec) * time.Millisecond,
 	}
 }
 

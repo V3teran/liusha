@@ -74,8 +74,8 @@ func defaultCfg() config.ProxyConfig {
 func TestNewServer_DefaultListenAddr(t *testing.T) {
 	tmp := t.TempDir()
 	srv, _ := newTestServer(t, "", tmp, defaultCfg())
-	if srv.listenAddr != defaultListenAddr {
-		t.Fatalf("期望默认监听地址 %q, 实际 %q", defaultListenAddr, srv.listenAddr)
+	if srv.listenAddr != fallbackListenAddr {
+		t.Fatalf("期望默认监听地址 %q, 实际 %q", fallbackListenAddr, srv.listenAddr)
 	}
 }
 

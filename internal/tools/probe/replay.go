@@ -8,25 +8,23 @@ import (
 	"strings"
 
 	"github.com/V3teran/liusha/internal/replay"
-	"github.com/V3teran/liusha/internal/toolfx"
+	"github.com/V3teran/liusha/internal/toolruntime"
 )
 
-// bodyHintMaxBytes 是 LLM 看到的 body 摘要最大字节数：
-// 完整 body 留在 ProbeState.LastResponses 里供 heuristic / similarity 使用，
-// 喂回 LLM 的 tool message 必须截断（黑客松借鉴 D：result_compress）。
-//
-// 2000 byte 是权衡值：SQLi 场景下 LLM 需要直接看响应体识别 SQL 错误回显 / 布尔差分，
-// 400 byte 经常被 HTML 头部（<!DOCTYPE html><head>...</head>）吃光看不到关键正文；
-// 提到 2000 让 DVWA 等典型靶场的注入证据落在窗口内，同时仍足够防止超长响应撑爆 context。
-const bodyHintMaxBytes = 2000
-
-// defaultConcurrency 与 replay.Engine 内部默认值保持一致，避免 schema/实际行为漂移。
-const defaultConcurrency = 5
+// fallback 常量：caller 未通过 ReplayMatrix 字段注入时使用。
+// 正常路径由 cmd/scanner 从 cfg.Probe 注入（probe.Factory 装配时透传）。
+const (
+	// fallbackBodyHintMaxBytes：8192 byte 给 SQLi error-based 留足空间——HTML 报错常在
+	// 响应中后段，2KB 经常被 nav/css/header 吃光看不到 SQL 错误关键字。与 yaml
+	// vuln.flow_body_prompt_limit 对齐（同级粒度：原始 body vs 重放 body）。
+	fallbackBodyHintMaxBytes   = 8192
+	fallbackDefaultConcurrency = 5
+)
 
 // ReplayMatrix — 漏洞探针通用工具：用 ProbeState.Identities × variants 笛卡尔积并发重放一条 flow。
 //
 // 前置：必须先调 fetch_credentials 写满 ProbeState.Identities，否则报错。
-// 副作用：写 ProbeState.LastFlow + ProbeState.LastResponses，供 heuristic_check / compute_similarity 直接读取。
+// 副作用：写 ProbeState.LastFlow + ProbeState.LastResponses，供 check_heuristics / compute_similarity 直接读取。
 //
 // BAC 用法：identities=[全身份, 4 个] × variants=[baseline] → 4 条响应（仅身份替换不变形）。
 // SQLi 用法（Step 2 起）：identities=[admin] × variants=[baseline, err_quote, bool_true, ...] → N 条响应。
@@ -34,10 +32,28 @@ type ReplayMatrix struct {
 	Engine *replay.Engine
 	Flows  FlowReader
 	State  *ProbeState
+
+	// v1.3：可选注入；零值走 fallback 常量，由 cmd/scanner 从 cfg.Probe 装配。
+	BodyHintMaxBytes   int
+	DefaultConcurrency int
 }
 
-// Name 返回动作名 "replay_matrix"。
-func (a *ReplayMatrix) Name() string { return "replay_matrix" }
+func (a *ReplayMatrix) effectiveBodyHintMaxBytes() int {
+	if a.BodyHintMaxBytes > 0 {
+		return a.BodyHintMaxBytes
+	}
+	return fallbackBodyHintMaxBytes
+}
+
+func (a *ReplayMatrix) effectiveDefaultConcurrency() int {
+	if a.DefaultConcurrency > 0 {
+		return a.DefaultConcurrency
+	}
+	return fallbackDefaultConcurrency
+}
+
+// Name 返回动作名 "run_replay"。
+func (a *ReplayMatrix) Name() string { return "run_replay" }
 
 // Description 给 LLM 看的简介，强调 identity × variant 笛卡尔积语义。
 func (a *ReplayMatrix) Description() string {
@@ -112,7 +128,7 @@ func (a *ReplayMatrix) Execute(ctx context.Context, args json.RawMessage) (toolf
 		Variants    []replay.Variant `json:"variants"`
 	}
 	if err := json.Unmarshal(args, &in); err != nil {
-		return toolfx.Result{}, fmt.Errorf("解析 replay_matrix 参数失败: %w", err)
+		return toolfx.Result{}, fmt.Errorf("解析 run_replay 参数失败: %w", err)
 	}
 	if in.FlowID <= 0 {
 		return toolfx.Result{}, fmt.Errorf("flow_id 必填且 > 0")
@@ -121,7 +137,7 @@ func (a *ReplayMatrix) Execute(ctx context.Context, args json.RawMessage) (toolf
 		return toolfx.Result{}, fmt.Errorf("state.Identities 为空，请先调 fetch_credentials")
 	}
 	if in.Concurrency <= 0 {
-		in.Concurrency = defaultConcurrency
+		in.Concurrency = a.effectiveDefaultConcurrency()
 	}
 
 	f, err := a.Flows.GetByID(ctx, in.FlowID)
@@ -151,22 +167,23 @@ func (a *ReplayMatrix) Execute(ctx context.Context, args json.RawMessage) (toolf
 		Count:     len(resps),
 		Responses: make([]respSummary, 0, len(resps)),
 	}
+	hintN := a.effectiveBodyHintMaxBytes()
 	for _, r := range resps {
 		out.Responses = append(out.Responses, respSummary{
 			Identity:   r.IdentityName,
 			Variant:    r.VariantName,
 			StatusCode: r.StatusCode,
-			BodyHint:   truncateBytes(r.Body, bodyHintMaxBytes),
+			BodyHint:   truncateBytes(r.Body, hintN),
 			Error:      r.ErrorMessage,
 		})
 	}
 	enc, err := json.Marshal(out)
 	if err != nil {
-		return toolfx.Result{}, fmt.Errorf("序列化 replay_matrix 输出失败: %w", err)
+		return toolfx.Result{}, fmt.Errorf("序列化 run_replay 输出失败: %w", err)
 	}
 	return toolfx.Result{
 		Output:  enc,
-		Summary: fmt.Sprintf("replay_matrix flow=%d count=%d", f.ID, len(resps)),
+		Summary: fmt.Sprintf("run_replay flow=%d count=%d", f.ID, len(resps)),
 	}, nil
 }
 

@@ -6,7 +6,7 @@ import (
 	"fmt"
 
 	"github.com/V3teran/liusha/internal/engagement"
-	"github.com/V3teran/liusha/internal/toolfx"
+	"github.com/V3teran/liusha/internal/toolruntime"
 )
 
 // MemoryStore 是 engagement memory（notes 单层）的最小访问接口。
@@ -143,7 +143,7 @@ func (a *TakeNote) Execute(ctx context.Context, args json.RawMessage) (toolfx.Re
 		"kind":    p.Kind,
 		"content": p.Content,
 		"scope":   scopeEngagement,
-		"task_id": a.TaskID,
+		"agent_run_id": a.TaskID,
 	}
 	if p.Status != "" {
 		entryMap["status"] = p.Status

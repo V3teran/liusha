@@ -6,14 +6,14 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/V3teran/liusha/internal/toolfx"
-	"github.com/V3teran/liusha/internal/vulnfinding"
+	"github.com/V3teran/liusha/internal/toolruntime"
+	"github.com/V3teran/liusha/internal/finding"
 )
 
-// findingsLister 是 GetFindings 依赖的最小读接口，由 *vulnfinding.Store 自动满足。
+// findingsLister 是 GetFindings 依赖的最小读接口，由 *finding.Store 自动满足。
 // 局部定义在 consumer 侧（Go idiom: accept interfaces, return structs）+ 让单测可注入 fake。
 type findingsLister interface {
-	ListByEngagement(ctx context.Context, engagementID string) ([]vulnfinding.VulnFinding, error)
+	ListByEngagement(ctx context.Context, engagementID string) ([]finding.VulnFinding, error)
 }
 
 // GetFindings 主 ReAct 用：查 PG 当前 engagement 已有 findings 摘要。

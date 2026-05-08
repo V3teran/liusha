@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/rs/zerolog"
 
+	"github.com/V3teran/liusha/internal/config"
 	"github.com/V3teran/liusha/internal/logx"
 )
 
@@ -26,28 +27,57 @@ import (
 //   - 进程崩溃可能丢 buffer 内未 flush 的行（最差 100 行 / 1s）；这是行为日志非交易，可接受。
 //   - 一致性场景（如 SumCostByEngagement / CountByRole）调用方需先调 Flush() 同步等待。
 type Store struct {
-	pool   *pgxpool.Pool
-	ch     chan Invocation
-	closed chan struct{}
-	wg     sync.WaitGroup
-	log    zerolog.Logger
+	pool          *pgxpool.Pool
+	ch            chan Invocation
+	closed        chan struct{}
+	wg            sync.WaitGroup
+	log           zerolog.Logger
+	batchSize     int
+	flushInterval time.Duration
+	insertTimeout time.Duration
 }
 
-// 默认参数（本轮固定值；未来可加 NewStoreWithOptions 暴露）。
+// fallback 参数（caller 用 NewStore(pool) 旧路径时使用，
+// 与 v1.1 上线时的初始默认值保持一致避免性能/审计回归）。
 const (
-	defaultBufferSize    = 1024
-	defaultBatchSize     = 100
-	defaultFlushInterval = 1 * time.Second
+	fallbackBufferSize    = 1024
+	fallbackBatchSize     = 100
+	fallbackFlushInterval = 1 * time.Second
+	fallbackInsertTimeout = 5 * time.Second
 )
 
-// NewStore 用 pgxpool 构造 Store 并启动后台 batch worker。
+// NewStore 用 pgxpool 构造 Store 并启动后台 batch worker。等价于 NewStoreWithConfig(pool, {})。
 // 进程退出前必须调用 Close() 排空 buffer，否则丢失最近写入。
 func NewStore(pool *pgxpool.Pool) *Store {
+	return NewStoreWithConfig(pool, config.InvocationConfig{})
+}
+
+// NewStoreWithConfig 用 yaml 配置构造 Store；任一字段为 0 时回退到 fallback 常量。
+func NewStoreWithConfig(pool *pgxpool.Pool, c config.InvocationConfig) *Store {
+	bufSize := c.BufferSize
+	if bufSize <= 0 {
+		bufSize = fallbackBufferSize
+	}
+	batchSize := c.BatchSize
+	if batchSize <= 0 {
+		batchSize = fallbackBatchSize
+	}
+	flush := time.Duration(c.FlushIntervalMs) * time.Millisecond
+	if flush <= 0 {
+		flush = fallbackFlushInterval
+	}
+	insertTO := time.Duration(c.InsertTimeoutSec) * time.Second
+	if insertTO <= 0 {
+		insertTO = fallbackInsertTimeout
+	}
 	s := &Store{
-		pool:   pool,
-		ch:     make(chan Invocation, defaultBufferSize),
-		closed: make(chan struct{}),
-		log:    logx.New("llmcall.store"),
+		pool:          pool,
+		ch:            make(chan Invocation, bufSize),
+		closed:        make(chan struct{}),
+		log:           logx.New("llmcall.store"),
+		batchSize:     batchSize,
+		flushInterval: flush,
+		insertTimeout: insertTO,
 	}
 	s.wg.Add(1)
 	go s.run()
@@ -57,11 +87,11 @@ func NewStore(pool *pgxpool.Pool) *Store {
 // Append 把 Invocation 推到内部 channel；channel 满则丢一行并 warn（不阻塞 Generate）。
 // 返回 id 永远为 0（异步路径无 RETURNING id），与同步版本保持签名兼容。
 func (s *Store) Append(ctx context.Context, c Invocation) (int64, error) {
-	if len(c.MessagesJSON) == 0 {
-		c.MessagesJSON = []byte("[]")
+	if len(c.Messages) == 0 {
+		c.Messages = []byte("[]")
 	}
-	if len(c.ResultJSON) == 0 {
-		c.ResultJSON = []byte("{}")
+	if len(c.Result) == 0 {
+		c.Result = []byte("{}")
 	}
 	select {
 	case s.ch <- c:
@@ -71,8 +101,8 @@ func (s *Store) Append(ctx context.Context, c Invocation) (int64, error) {
 	default:
 		// channel 满（>1024 条）→ 丢这条，说明 LLM 调用速率超 worker batch 写盘吞吐。
 		s.log.Warn().
-			Str("provider", c.Provider).Str("model", c.Model).Str("role", c.Role).
-			Msg("llm_call buffer 满，丢弃一条审计记录")
+			Str("provider", c.Provider).Str("model", c.Model).Str("call_purpose", c.CallPurpose).
+			Msg("llm_invocation buffer 满，丢弃一条审计记录")
 		return 0, nil
 	}
 }
@@ -83,7 +113,7 @@ func (s *Store) Flush(ctx context.Context) error {
 		if len(s.ch) == 0 {
 			// channel 空了；再等 flushInterval 让 worker 把最后一批 commit
 			select {
-			case <-time.After(defaultFlushInterval + 100*time.Millisecond):
+			case <-time.After(s.flushInterval + 100*time.Millisecond):
 				return nil
 			case <-ctx.Done():
 				return ctx.Err()
@@ -112,16 +142,16 @@ func (s *Store) Close() error {
 // run 是后台 worker：累积 batch 满 / 定时 flush；收到 closed 信号则 drain 后退出。
 func (s *Store) run() {
 	defer s.wg.Done()
-	ticker := time.NewTicker(defaultFlushInterval)
+	ticker := time.NewTicker(s.flushInterval)
 	defer ticker.Stop()
 
-	batch := make([]Invocation, 0, defaultBatchSize)
+	batch := make([]Invocation, 0, s.batchSize)
 	flush := func() {
 		if len(batch) == 0 {
 			return
 		}
 		// 用独立 ctx：caller 路径 ctx 取消不应阻断埋点。
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), s.insertTimeout)
 		defer cancel()
 		if err := s.copyFromBatch(ctx, batch); err != nil {
 			s.log.Warn().Err(err).Int("rows", len(batch)).Msg("llm_call batch insert 失败")
@@ -133,7 +163,7 @@ func (s *Store) run() {
 		select {
 		case c := <-s.ch:
 			batch = append(batch, c)
-			if len(batch) >= defaultBatchSize {
+			if len(batch) >= s.batchSize {
 				flush()
 			}
 		case <-ticker.C:
@@ -160,23 +190,23 @@ func (s *Store) copyFromBatch(ctx context.Context, batch []Invocation) error {
 		rows[i] = []any{
 			c.TaskID, c.EngagementID, c.Provider, c.Model,
 			c.InTokens, c.OutTokens, c.CachedTokens,
-			c.CostUSD, c.LatencyMs, c.FinishReason, c.Error, c.Role,
-			c.MessagesJSON, c.ResultJSON,
+			c.CostUSD, c.LatencyMs, c.FinishReason, c.Error, c.CallPurpose,
+			c.Messages, c.Result,
 		}
 	}
 	_, err := s.pool.CopyFrom(
 		ctx,
 		pgx.Identifier{"llm_invocation"},
 		[]string{
-			"task_id", "engagement_id", "provider", "model",
+			"agent_run_id", "engagement_id", "provider", "model",
 			"in_tokens", "out_tokens", "cached_tokens",
-			"cost_usd", "latency_ms", "finish_reason", "error", "role",
-			"messages_json", "result_json",
+			"cost_usd", "latency_ms", "finish_reason", "error_message", "call_purpose",
+			"messages", "result",
 		},
 		pgx.CopyFromRows(rows),
 	)
 	if err != nil {
-		return fmt.Errorf("copyFrom llm_call: %w", err)
+		return fmt.Errorf("copyFrom llm_invocation: %w", err)
 	}
 	return nil
 }
@@ -196,29 +226,29 @@ func (s *Store) SumCostByEngagement(ctx context.Context, engagementID string) (f
 	return v, nil
 }
 
-// CountByRole 按 role 维度聚合 engagement 下的调用次数，便于验证多模型路由生效。
-func (s *Store) CountByRole(ctx context.Context, engagementID string) (map[string]int, error) {
+// CountByCallPurpose 按 call_purpose 维度聚合 engagement 下的调用次数，便于验证多模型路由生效。
+func (s *Store) CountByCallPurpose(ctx context.Context, engagementID string) (map[string]int, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT role, count(*)
+		SELECT call_purpose, count(*)
 		FROM llm_invocation
 		WHERE engagement_id=$1
-		GROUP BY role`, engagementID)
+		GROUP BY call_purpose`, engagementID)
 	if err != nil {
-		return nil, fmt.Errorf("count llm_call by role: %w", err)
+		return nil, fmt.Errorf("count llm_invocation by call_purpose: %w", err)
 	}
 	defer rows.Close()
 
 	out := make(map[string]int)
 	for rows.Next() {
-		var role string
+		var purpose string
 		var n int
-		if err := rows.Scan(&role, &n); err != nil {
-			return nil, fmt.Errorf("scan role count: %w", err)
+		if err := rows.Scan(&purpose, &n); err != nil {
+			return nil, fmt.Errorf("scan call_purpose count: %w", err)
 		}
-		out[role] = n
+		out[purpose] = n
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate role counts: %w", err)
+		return nil, fmt.Errorf("iterate call_purpose counts: %w", err)
 	}
 	return out, nil
 }

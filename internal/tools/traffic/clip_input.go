@@ -5,28 +5,42 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/V3teran/liusha/internal/clip"
+	"github.com/V3teran/liusha/internal/clipper"
+	"github.com/V3teran/liusha/internal/config"
 	"github.com/V3teran/liusha/internal/flow"
 )
 
-// 截断阈值（保守版）：在节省 token 与保留 LLM 判断信号之间偏后者。
-//
-// 关键判断点对截断敏感度：
-//   - credential_locations（认证字段名）：只看 key，截断不影响
-//   - attack_surfaces（query/body 结构 + Content-Type）：看 keys + Content-Type，截断不影响
-//   - resource_scope（私有 vs 公开）：依赖 response_body 业务数据语义，截短会损失判断质量
-//   - operation（业务语义）：依赖 url + body 语义
-//
-// 策略：keys 全保留；string value 给足空间（≥100 字符体现业务字段语义）；
-// response_body 4KB（前 3.5KB + 尾 0.5KB）保留分页/总数/列表全貌；
-// 敏感 header value 直接 redact（安全要求，非性能优化）。
+// fallback 截断阈值：caller 未注入 cfg.Classify 时使用，与 yaml 默认值
+// (config.go applyClassifyDefaults) 同步——稳健激进方案。
 const (
-	maxQueryValueLen      = 100  // 单个 query value 截断长度
-	maxBodyStringValueLen = 100  // JSON body 中 string value 截断长度
-	maxRawBodyBytes       = 2048 // 非 JSON request body 截断字节数
-	maxResponseBodyBytes  = 4096 // 响应 body 截断字节数（前缀 + 尾部）
-	responseBodyTailBytes = 512  // 截断后保留的尾部字节数
+	fallbackMaxQueryValueLen      = 256
+	fallbackMaxBodyStringValueLen = 256
+	fallbackMaxRawBodyBytes       = 4096
+	fallbackMaxResponseBodyBytes  = 8192
+	fallbackResponseBodyTailBytes = 1024
 )
+
+// effectiveClassify 把 zero 字段 fallback 到对应常量。
+// caller 通常用 cfg.Classify 经 ApplyDefaults 兜底后已无 zero 字段；保留兜底防止
+// 测试构造空 ClassifyConfig 时出现 0 截断导致 LLM 输入完全空。
+func effectiveClassify(c config.ClassifyConfig) config.ClassifyConfig {
+	if c.MaxQueryValueLen <= 0 {
+		c.MaxQueryValueLen = fallbackMaxQueryValueLen
+	}
+	if c.MaxBodyStringValueLen <= 0 {
+		c.MaxBodyStringValueLen = fallbackMaxBodyStringValueLen
+	}
+	if c.MaxRawBodyBytes <= 0 {
+		c.MaxRawBodyBytes = fallbackMaxRawBodyBytes
+	}
+	if c.MaxResponseBodyBytes <= 0 {
+		c.MaxResponseBodyBytes = fallbackMaxResponseBodyBytes
+	}
+	if c.ResponseBodyTailBytes <= 0 {
+		c.ResponseBodyTailBytes = fallbackResponseBodyTailBytes
+	}
+	return c
+}
 
 // sensitiveHeaderNames 是 value 会被 redact 的请求头集合（小写比较）。
 // LLM 只需要看 key 识别 credential_locations，真凭证不该入 LLM context。
@@ -56,17 +70,19 @@ type classifyInputData struct {
 }
 
 // buildClassifyInput 把 flow 转成喂 LLM 的截断后结构。
-func buildClassifyInput(f flow.Flow) classifyInputData {
+// cfg 由 caller 从 cfg.Classify 注入（零值字段自动 fallback 到 v1 上线初始值）。
+func buildClassifyInput(f flow.Flow, cfg config.ClassifyConfig) classifyInputData {
+	c := effectiveClassify(cfg)
 	uri, query := splitURIAndQuery(f.URL)
 	return classifyInputData{
 		Method:          f.Method,
 		URI:             uri,
 		Status:          f.StatusCode,
-		RequestHeaders:  redactSensitiveHeaders(parseHeaders(f.RequestHeaders), maxQueryValueLen),
-		QueryParams:     clip.StringMap(query, maxQueryValueLen),
+		RequestHeaders:  redactSensitiveHeaders(parseHeaders(f.RequestHeaders), c.MaxQueryValueLen),
+		QueryParams:     clip.StringMap(query, c.MaxQueryValueLen),
 		ResponseHeaders: pickContentType(parseHeaders(f.ResponseHeaders)),
-		RequestBody:     clip.RequestBody(f.RequestBody, maxBodyStringValueLen, maxRawBodyBytes),
-		ResponseBody:    clip.ResponseBody(f.ResponseBody, maxResponseBodyBytes, responseBodyTailBytes),
+		RequestBody:     clip.RequestBody(f.RequestBody, c.MaxBodyStringValueLen, c.MaxRawBodyBytes),
+		ResponseBody:    clip.ResponseBody(f.ResponseBody, c.MaxResponseBodyBytes, c.ResponseBodyTailBytes),
 	}
 }
 
