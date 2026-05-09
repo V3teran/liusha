@@ -64,6 +64,12 @@ func (f *fakeAbort) LookupOrCreateProxy(_ context.Context, host string) (string,
 	return "eid-" + host, nil
 }
 
+// List 简单 mock：返回固定 1 条 stub summary，足以让现有测试通过 typecheck；
+// 真正的 List handler 行为校验留给将来按需补 TestListEngagements_*。
+func (f *fakeAbort) List(_ context.Context, host string, _ int) ([]EngagementSummary, error) {
+	return []EngagementSummary{{ID: "stub-eid", TargetHost: host, Status: "active"}}, nil
+}
+
 func newTestServer(t *testing.T, d Deps) *httptest.Server {
 	t.Helper()
 	if d.APIKey == "" {

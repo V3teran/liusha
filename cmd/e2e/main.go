@@ -16,8 +16,8 @@
 //   - bac ：本地 vulnapp 多身份正常流量 → 期望 ≥3 条 bac.* / 3 类齐全
 //   - sqli：本地 DVWA 单流量（带认证 cookie） → 期望 ≥1 条 sqli.*
 //
-// 触发器只发起"用户正常流量"——具体漏洞由子 ReAct 内部 fetch_credentials +
-// run_replay（BAC）或 run_command 容器化沙箱（SQLi）多 payload 重放发现。
+// 触发器只发起"用户正常流量"——具体漏洞由 hunter agent 用 credentials/run_command
+// 自由组合工具挖掘（v0024 agentic-lean：单层 agent，无预设流程）。
 //
 // 想加新漏洞类型：profiles map 加一行 + 写 examples/sample_<vuln>_raw.json 即可。
 package main
@@ -151,7 +151,7 @@ func main() {
 	}
 
 	// 2. 启动期一次预录所有 profile（不只是被选的）的全部 host 凭证。
-	//    这样无论本次跑哪个 profile，子 ReAct fetch_credentials 都有完整身份池可用。
+	//    这样无论本次跑哪个 profile，hunter agent 调 credentials() 都能拿到完整身份池。
 	if err := enrollAllCreds(apiBase, apiKey, vulnBase); err != nil {
 		logger.Fatal().Err(err).Msg("enroll all credentials")
 	}
@@ -239,8 +239,8 @@ func buildPlans(selected []profile, vulnBase string) ([]profilePlan, error) {
 }
 
 // enrollAllCreds 一次写入"所有已注册 profile"对应 host 的全部身份。
-// 不论 args 选了哪些 profile，这里都把所有 profile 的凭证池预填——子 ReAct
-// fetch_credentials 在 SKILL 中可能跨 profile 引用，提前录入更省事。
+// 不论 args 选了哪些 profile，这里都把所有 profile 的凭证池预填——hunter agent
+// 的 credentials 工具可能跨 profile 拉取，提前录入更省事。
 func enrollAllCreds(apiBase, apiKey, vulnBase string) error {
 	hostCreds := map[string][]credentialEntry{}
 	for _, p := range profiles {
@@ -333,22 +333,19 @@ func envOr(k, def string) string {
 	return def
 }
 
-// filterByPrefix 过滤 kind 以 prefix 开头的 finding（profile 用）。
-func filterByPrefix(all []finding.VulnFinding, prefix string) []finding.VulnFinding {
-	out := make([]finding.VulnFinding, 0, len(all))
-	for _, f := range all {
-		if strings.HasPrefix(f.Kind, prefix) {
-			out = append(out, f)
-		}
-	}
-	return out
+// filterByPrefix（v0024 agentic-lean）：finding.kind 已删——LLM 自由命名，
+// 不再按结构化前缀过滤。直接返回全部 finding；e2e 判定看 minFindings 即可。
+// 签名保留以避免改 main_test.go。
+func filterByPrefix(all []finding.VulnFinding, _ string) []finding.VulnFinding {
+	return all
 }
 
-// countKinds 统计 finding 切片中各 kind 的出现次数。
+// countKinds（v0024 agentic-lean）：finding.kind 已删；改按 severity 分组，
+// e2e profile.minKinds 现在表示"期望的 severity 等级数"。
 func countKinds(fs []finding.VulnFinding) map[string]int {
 	out := make(map[string]int, len(fs))
 	for _, f := range fs {
-		out[f.Kind]++
+		out[f.Severity]++
 	}
 	return out
 }

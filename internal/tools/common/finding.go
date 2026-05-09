@@ -5,120 +5,94 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/V3teran/liusha/internal/toolruntime"
 	"github.com/V3teran/liusha/internal/finding"
+	"github.com/V3teran/liusha/internal/toolruntime"
 )
 
-// FindingStore 是 WriteFinding 依赖的最小接口。
-//
-// 由 *finding.Store 自动满足。Save 是 append-only：每次都 INSERT 新行，
-// 返回 (Finding, isFirstSeen, error)；异步触发 OnSaved（首次发现）或 OnReSaved（重发现）钩子。
+// FindingStore 是 WriteFinding 工具依赖的最小接口。
 type FindingStore interface {
-	Save(ctx context.Context, f finding.VulnFinding) (finding.VulnFinding, bool, error)
+	Save(ctx context.Context, f finding.VulnFinding) (finding.VulnFinding, error)
 }
 
-// WriteFinding — 写或合并一条漏洞 finding。
+// WriteFinding — 写一条漏洞 finding（append-only）。
 //
-// dedup_key 必填；v1.2 改为 (host, dedup_key) 全局唯一去重，跨 engagement 同 endpoint
-// 合并 evidence。
+// v0024 agentic-lean：summary 自由文本是漏洞主体，severity 自由文本，evidence 可选。
+// 不再有 kind / confidence / dedup_key 字段——dedup 由 LLM 自决（写前调 findings() 看已有的）。
 //
-// Host 由 builder 从 BuilderParams.Host 注入（不让 LLM 自填，避免拼错）；
-// 用作 finding.Host 列填充（migration 0004 强约束 NOT NULL CHECK <>”）。
+// Host 由调用方注入（hunter builder 从 BuilderParams.Host），不让 LLM 自填避免拼错。
 type WriteFinding struct {
 	Store        FindingStore
 	EngagementID string
-	TaskID       string // 可空，空字符串表示无关联 task
+	TaskID       string // 可空
 	Host         string // builder 注入；空时 Save 报错
-	FlowID       int64  // 触发本次 sub-task 的 http_flow.id；0 表示不关联（如主 ReAct 直发）
+	FlowID       int64  // 触发本次 hunter 的 http_flow.id；0 表示不关联
 }
 
-// Name 返回动作名 "write_finding"。
+// Name 返回动作名 "finding"。
 func (a *WriteFinding) Name() string { return "write_finding" }
 
 // Description 提供给 LLM 的简介。
 func (a *WriteFinding) Description() string {
-	return "写一条漏洞 finding（append-only）。dedup_key 必填；evidence 承载证据 jsonb。"
+	return "写一条漏洞 finding。**summary 是核心**：自由文本描述发现是什么、怎么验证、推理依据。" +
+		"severity 自由文本（建议 critical/high/medium/low/info 保持配色一致；其他值 UI 退化为蓝色）。" +
+		"evidence 选填（复杂证据走 jsonb，简单的写在 summary 里）。" +
+		"**写之前先 findings() 查 host 已有的**——同一漏洞别重复写。"
 }
 
-// ParametersJSON 给出 finding 完整字段 schema。
+// ParametersJSON 给出 finding 字段 schema（v0024 lean）。
 func (a *WriteFinding) ParametersJSON() json.RawMessage {
 	return json.RawMessage(`{
   "type":"object",
   "properties": {
-    "kind":{"type":"string"},
-    "severity":{"type":"string","enum":["info","low","medium","high","critical"]},
-    "title":{"type":"string"},
-    "target":{"type":"object"},
-    "evidence":{"type":"object"},
-    "confidence":{"type":"string","enum":["high","medium","low"],"description":"自评置信度：high=具名工具默认参数即坐实；medium=升级参数/自构 PoC 复测才坐实，或仅强 body 关键字；low=仅相似度差分/弱关键字"},
-    "dedup_key":{"type":"string"}
+    "summary":{"type":"string","description":"自由文本描述漏洞核心：是什么 / 怎么验证 / 推理依据。第一行（≤72 chars）会被 UI/Label 当短标题用（git commit convention）。"},
+    "severity":{"type":"string","description":"自由文本（建议 critical/high/medium/low/info 保持前端配色一致）"},
+    "target":{"type":"object","description":"目标元数据 jsonb（如 {host,method,path}），UI 显示用"},
+    "evidence":{"type":"object","description":"可选：复杂结构化证据 jsonb；简单证据写在 summary 即可"}
   },
-  "required":["kind","severity","title","confidence","dedup_key"]
+  "required":["summary"]
 }`)
 }
 
-// Execute 解析参数 → 构造 finding.VulnFinding → Store.Save → 返回 {id, dedup_key}。
+// Execute 解析参数 → 构造 finding.VulnFinding → Store.Save → 返回 {id}。
 func (a *WriteFinding) Execute(ctx context.Context, args json.RawMessage) (toolfx.Result, error) {
 	var in struct {
-		Kind       string          `json:"kind"`
-		Severity   string          `json:"severity"`
-		Title      string          `json:"title"`
-		Target     json.RawMessage `json:"target"`
-		Evidence   json.RawMessage `json:"evidence"`
-		Confidence string          `json:"confidence"`
-		DedupKey   string          `json:"dedup_key"`
+		Summary  string          `json:"summary"`
+		Severity string          `json:"severity"`
+		Target   json.RawMessage `json:"target"`
+		Evidence json.RawMessage `json:"evidence"`
 	}
 	if err := json.Unmarshal(args, &in); err != nil {
-		return toolfx.Result{}, fmt.Errorf("解析 write_finding 参数失败: %w", err)
+		return toolfx.Result{}, fmt.Errorf("解析 finding 参数失败: %w", err)
 	}
-	if in.DedupKey == "" {
-		return toolfx.Result{}, fmt.Errorf("dedup_key 必填")
-	}
-	if in.Kind == "" || in.Title == "" {
-		return toolfx.Result{}, fmt.Errorf("kind 与 title 都不能为空")
+	if in.Summary == "" {
+		return toolfx.Result{}, fmt.Errorf("summary 必填（自由文本描述漏洞核心）")
 	}
 
-	// 工具层强制重写 dedup_key 中的 path（数字 / UUID / 长 hex → :id / :uuid / :hex），
-	// 避免 LLM 拼错 path 模板导致同 endpoint 不同实例重复入库。
-	in.DedupKey = finding.NormalizeDedupKey(in.DedupKey)
-
-	// 工具层强制 evidence schema：kind="bac.*" 必须满足 BACEvidence 必填字段；
-	// 其他 kind 暂不约束（YAGNI，等加 SSRF/IDOR 时扩展）。校验失败拒绝写库，
-	// 让 LLM 看到结构错误后重试，避免 evidence 字段散乱。
-	if err := finding.ValidateEvidence(in.Kind, in.Evidence); err != nil {
-		return toolfx.Result{}, fmt.Errorf("evidence schema 校验失败: %w", err)
-	}
-
-	// TaskID 可空：空字符串 → nil 指针，避免 FK 不存在的 task。
 	var taskPtr *string
 	if a.TaskID != "" {
 		t := a.TaskID
 		taskPtr = &t
 	}
-	// FlowID 可空：0 → nil 指针（主 ReAct 直发 finding 不绑定具体流量时）。
 	var flowPtr *int64
 	if a.FlowID != 0 {
 		fid := a.FlowID
 		flowPtr = &fid
 	}
 
-	saved, _, err := a.Store.Save(ctx, finding.VulnFinding{
+	saved, err := a.Store.Save(ctx, finding.VulnFinding{
 		EngagementID: a.EngagementID,
 		TaskID:       taskPtr,
 		SourceFlowID: flowPtr,
 		Host:         a.Host,
-		Kind:         in.Kind,
-		Severity:     finding.Severity(in.Severity),
-		Title:        in.Title,
+		Severity:     in.Severity,
+		Summary:      in.Summary,
 		Target:       in.Target,
 		Evidence:     in.Evidence,
-		Confidence:   finding.Confidence(in.Confidence),
-		DedupKey:     in.DedupKey,
 	})
 	if err != nil {
 		return toolfx.Result{}, fmt.Errorf("保存 finding 失败: %w", err)
 	}
 
-	out, _ := json.Marshal(map[string]string{"id": saved.ID, "dedup_key": saved.DedupKey})
+	out, _ := json.Marshal(map[string]string{"id": saved.ID})
 	return toolfx.Result{Output: out}, nil
 }

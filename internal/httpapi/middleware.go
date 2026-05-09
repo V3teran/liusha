@@ -9,12 +9,21 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// RequireAPIKey 校验 X-API-Key 请求头。/healthz 路径放行（通过 FullPath 后缀匹配）。
+// RequireAPIKey 校验 X-API-Key 请求头。/healthz 与 /viewer/* 路径放行。
 // 比较使用 crypto/subtle.ConstantTimeCompare 避免 timing 侧信道。
+//
+// /viewer/* 放行原因：静态前端资产（HTML/JS/CSS）需要被浏览器作为子资源加载，
+// 浏览器不会给 <script src=> / <link href=> 自动添加自定义 header。
+// 真正敏感的数据接口（/graph/:eid 等）仍受保护。
 func RequireAPIKey(expected string) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// /healthz 直接放行；FullPath 是注册路由模板，匹配后缀即可（兼容子路径前缀场景）。
-		if strings.HasSuffix(c.FullPath(), "/healthz") {
+		// /healthz、/viewer/*、/viewer-config.json 直接放行；FullPath 是注册路由模板。
+		// /viewer-config.json 不放在 /viewer/ 之下：Gin 路由树不允许同前缀下既有具名
+		// 路径又有 StaticFS catch-all（panic: catch-all conflicts），所以放同级。
+		fp := c.FullPath()
+		if strings.HasSuffix(fp, "/healthz") ||
+			strings.HasPrefix(fp, "/viewer/") ||
+			fp == "/viewer-config.json" {
 			c.Next()
 			return
 		}

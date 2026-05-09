@@ -31,13 +31,8 @@ type Config struct {
 	Skills      SkillsConfig              `mapstructure:"skills"`
 	Scanner     ScannerConfig             `mapstructure:"scanner"`
 	React       ReactConfig               `mapstructure:"react"`
-	Vuln        VulnConfig                `mapstructure:"vuln"`
-	Probe       ProbeConfig               `mapstructure:"probe"`
 	Sandbox     SandboxConfig             `mapstructure:"sandbox"`
 	Toolruntime ToolruntimeConfig         `mapstructure:"toolruntime"`
-	Replay      ReplayConfig              `mapstructure:"replay"`
-	Heuristic   HeuristicConfig           `mapstructure:"heuristic"`
-	Classify    ClassifyConfig            `mapstructure:"classify"`
 	Lesson      LessonConfig              `mapstructure:"lesson"`
 }
 
@@ -240,24 +235,6 @@ type ReactConfig struct {
 	ObserverObsTruncate  int `mapstructure:"observer_obs_truncate"`  // 喂 observer LLM 的 ObsSummary 截断字节数
 }
 
-// VulnConfig 漏洞子 ReAct 通用参数（SQLi/BAC 共用）。
-type VulnConfig struct {
-	SubMaxSteps           int `mapstructure:"sub_max_steps"`
-	SubTaskTimeoutSeconds int `mapstructure:"sub_task_timeout_seconds"` // 单个子 ReAct 任务整体超时（delegate 派发时 WithTimeout）
-	SubWatchdogSeconds    int `mapstructure:"sub_watchdog_seconds"`
-	FlowBodyPromptLimit   int `mapstructure:"flow_body_prompt_limit"`
-	LessonsPromptLimit    int `mapstructure:"lessons_prompt_limit"`
-}
-
-// ProbeConfig 漏洞探针工具参数（probe.ReplayMatrix / ComputeSimilarity）。
-type ProbeConfig struct {
-	BodyHintMaxBytes        int     `mapstructure:"body_hint_max_bytes"`
-	DefaultConcurrency      int     `mapstructure:"default_concurrency"`
-	SimilarityMinThreshold  float64 `mapstructure:"similarity_min_threshold"`
-	SimilarityHighThreshold float64 `mapstructure:"similarity_high_threshold"`
-	LengthRatioGate         float64 `mapstructure:"length_ratio_gate"`
-}
-
 // SandboxConfig 容器化执行参数（external.RunCommand + DockerRunner）。
 type SandboxConfig struct {
 	DefaultImage             string  `mapstructure:"default_image"`
@@ -280,30 +257,6 @@ type ToolruntimeConfig struct {
 	ResultCompressSnippet     int `mapstructure:"result_compress_snippet"`
 	ResultCompressSummary     int `mapstructure:"result_compress_summary"`
 	ToolExecuteTimeoutSeconds int `mapstructure:"tool_execute_timeout_seconds"` // 单次 tool Execute 兜底超时（middleware 层 WithTimeout，防 fetch_credentials/check_heuristics 等本地工具卡死）
-}
-
-// ReplayConfig 是 replay.Engine 参数。
-type ReplayConfig struct {
-	Concurrency        int `mapstructure:"concurrency"`
-	HTTPTimeoutSeconds int `mapstructure:"http_timeout_seconds"` // 单次重放 HTTP 调用上限；0 → 不超时（不推荐）
-}
-
-// HeuristicConfig 是 heuristic 关键词清单。
-type HeuristicConfig struct {
-	AuthKeywords []string `mapstructure:"auth_keywords"`
-}
-
-// ClassifyConfig 是 classify_traffic 工具喂 LLM 前的 flow 截断阈值。
-//
-// 在节省 token 与保留 LLM 判断信号之间偏后者：keys 全保留；
-// string value 给足空间体现业务字段语义；response_body 保留分页/总数/列表全貌；
-// 敏感 header value 直接 redact（安全要求，非性能优化）。
-type ClassifyConfig struct {
-	MaxQueryValueLen      int `mapstructure:"max_query_value_len"`      // 单个 query value 截断长度
-	MaxBodyStringValueLen int `mapstructure:"max_body_string_value_len"` // JSON body 中 string value 截断长度
-	MaxRawBodyBytes       int `mapstructure:"max_raw_body_bytes"`       // 非 JSON request body 截断字节数
-	MaxResponseBodyBytes  int `mapstructure:"max_response_body_bytes"`  // 响应 body 截断字节数（前缀 + 尾部）
-	ResponseBodyTailBytes int `mapstructure:"response_body_tail_bytes"` // 截断后保留的尾部字节数
 }
 
 // LessonConfig 是 lesson 提取与 touch 重试参数（react/lesson_extract）。
@@ -352,33 +305,9 @@ func (c *Config) ApplyDefaults() {
 	c.Skills = applySkillsDefaults(c.Skills)
 	c.Scanner = applyScannerDefaults(c.Scanner)
 	c.React = applyReactDefaults(c.React)
-	c.Vuln = applyVulnDefaults(c.Vuln)
-	c.Probe = applyProbeDefaults(c.Probe)
 	c.Sandbox = applySandboxDefaults(c.Sandbox)
 	c.Toolruntime = applyToolruntimeDefaults(c.Toolruntime)
-	c.Replay = applyReplayDefaults(c.Replay)
-	c.Heuristic = applyHeuristicDefaults(c.Heuristic)
-	c.Classify = applyClassifyDefaults(c.Classify)
 	c.Lesson = applyLessonDefaults(c.Lesson)
-}
-
-func applyClassifyDefaults(c ClassifyConfig) ClassifyConfig {
-	if c.MaxQueryValueLen == 0 {
-		c.MaxQueryValueLen = 256
-	}
-	if c.MaxBodyStringValueLen == 0 {
-		c.MaxBodyStringValueLen = 256
-	}
-	if c.MaxRawBodyBytes == 0 {
-		c.MaxRawBodyBytes = 4096
-	}
-	if c.MaxResponseBodyBytes == 0 {
-		c.MaxResponseBodyBytes = 8192
-	}
-	if c.ResponseBodyTailBytes == 0 {
-		c.ResponseBodyTailBytes = 1024
-	}
-	return c
 }
 
 func applyLessonDefaults(c LessonConfig) LessonConfig {
@@ -692,44 +621,6 @@ func applyReactDefaults(c ReactConfig) ReactConfig {
 	return c
 }
 
-func applyVulnDefaults(c VulnConfig) VulnConfig {
-	if c.SubMaxSteps == 0 {
-		c.SubMaxSteps = 30
-	}
-	if c.SubTaskTimeoutSeconds == 0 {
-		c.SubTaskTimeoutSeconds = 3600 // 60 分钟（≥ tool_execute_timeout=1800×2，给 sub_max_steps=30 + sqlmap 多次升级充足空间）
-	}
-	if c.SubWatchdogSeconds == 0 {
-		c.SubWatchdogSeconds = 120
-	}
-	if c.FlowBodyPromptLimit == 0 {
-		c.FlowBodyPromptLimit = 8192
-	}
-	if c.LessonsPromptLimit == 0 {
-		c.LessonsPromptLimit = 40
-	}
-	return c
-}
-
-func applyProbeDefaults(c ProbeConfig) ProbeConfig {
-	if c.BodyHintMaxBytes == 0 {
-		c.BodyHintMaxBytes = 8192
-	}
-	if c.DefaultConcurrency == 0 {
-		c.DefaultConcurrency = 5
-	}
-	if c.SimilarityMinThreshold == 0 {
-		c.SimilarityMinThreshold = 0.6
-	}
-	if c.SimilarityHighThreshold == 0 {
-		c.SimilarityHighThreshold = 0.9
-	}
-	if c.LengthRatioGate == 0 {
-		c.LengthRatioGate = 0.3
-	}
-	return c
-}
-
 func applySandboxDefaults(c SandboxConfig) SandboxConfig {
 	if c.DefaultImage == "" {
 		c.DefaultImage = "liusha/pentools:1.0.0"
@@ -771,39 +662,6 @@ func applyToolruntimeDefaults(c ToolruntimeConfig) ToolruntimeConfig {
 	if c.ToolExecuteTimeoutSeconds == 0 {
 		// 1800s = 30 分钟。给 sqlmap 升级 + 多 variant 重放充足上限。
 		c.ToolExecuteTimeoutSeconds = 1800
-	}
-	return c
-}
-
-func applyReplayDefaults(c ReplayConfig) ReplayConfig {
-	if c.Concurrency == 0 {
-		c.Concurrency = 5
-	}
-	if c.HTTPTimeoutSeconds == 0 {
-		c.HTTPTimeoutSeconds = 30
-	}
-	return c
-}
-
-// DefaultAuthKeywords 是 BAC AllAuthError 默认匹配的鉴权关键词（25 个，spec §7.3）。
-// 中英文混合，运行时 AllAuthError 会做 lowercase 处理。
-func DefaultAuthKeywords() []string {
-	return []string{
-		// 中文（11）
-		"未登录", "请登录", "登录后", "需要登录", "请先登录",
-		"无权访问", "权限不足", "未授权", "无权操作", "拒绝访问", "禁止访问",
-		// 中英混合（3）
-		"会话过期", "token 已过期", "token expired",
-		// 英文（11）
-		"login required", "please login", "not authorized", "unauthorized",
-		"forbidden", "permission denied", "access denied",
-		"session expired", "invalid token", "authentication required", "auth required",
-	}
-}
-
-func applyHeuristicDefaults(c HeuristicConfig) HeuristicConfig {
-	if len(c.AuthKeywords) == 0 {
-		c.AuthKeywords = DefaultAuthKeywords()
 	}
 	return c
 }

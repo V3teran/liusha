@@ -34,7 +34,7 @@ type RotateLimits struct {
 
 // fallbackRotateLimits 是 RotateLimits 字段缺省时的兜底值。
 //   - 24h 一轮：覆盖一次工作日浏览量
-//   - 1 MiB jsonb：read_state 输出再大就把 LLM context 压垮
+//   - 1 MiB jsonb：read_notes 输出再大就把 LLM context 压垮
 //   - 300 findings：中型目标一轮可能积累几百条，过早轮转会切断 lesson 沉淀链
 //
 // 正常路径由 cmd/scanner 通过 RotateLimitsFromConfig 从 yaml 注入；

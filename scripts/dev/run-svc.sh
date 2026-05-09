@@ -21,6 +21,9 @@ export LIUSHA_POSTGRES_DSN="${LIUSHA_POSTGRES_DSN:-postgres://liusha:liusha@loca
 export LIUSHA_REDIS_ADDR="${LIUSHA_REDIS_ADDR:-localhost:6379}"
 export LIUSHA_API_ADDR="${LIUSHA_API_ADDR:-0.0.0.0:8090}"  # 8080 易被 Burp Suite Pro 占用，dev 默认 :8090
 export LIUSHA_API_KEY="${LIUSHA_API_KEY:-changeme-dev-key}"
+# dev 便利：viewer SPA 启动时拉 /viewer/config.json 自动填 X-API-Key 到输入框，
+# 不用手贴。production 环境严禁设此变量（会把 API key 通过未鉴权端点暴露）。
+export LIUSHA_VIEWER_DEV_KEY="${LIUSHA_VIEWER_DEV_KEY:-1}"
 export LIUSHA_ENV="${LIUSHA_ENV:-development}"
 export LIUSHA_LOG_LEVEL="${LIUSHA_LOG_LEVEL:-info}"
 export LIUSHA_LOG_DIR="${LIUSHA_LOG_DIR:-logs}"
@@ -128,6 +131,10 @@ trap cleanup INT TERM
 
 echo ""
 echo "✓ 四服务在跑（pids: vulnapp=${VULNAPP_PID} proxy=${PROXY_PID} api=${API_PID} scanner=${WORKER_PID}）"
+echo ""
+echo "📊 graph viewer：http://${LIUSHA_API_ADDR/0.0.0.0/localhost}/viewer/index.html"
+echo "  (X-API-Key=${LIUSHA_API_KEY}，engagement_id 跑完 e2e 后从 finding 表查)"
+echo ""
 echo "  日志合并 tail（Ctrl-C 关闭服务+退出 tail）："
 echo ""
 

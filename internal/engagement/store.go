@@ -91,6 +91,51 @@ func (s *Store) LookupOrCreate(ctx context.Context, tenant, host string, mode Mo
 	return e, nil
 }
 
+// 列表查询的限制：默认 20，硬上限 200（防 caller 传巨大 limit 拖死 DB）。
+const (
+	defaultListLimit = 20
+	maxListLimit     = 200
+)
+
+// List 按 created_at DESC 列出最近的 engagements；host 为空时不过滤；
+// limit<=0 时回退到 defaultListLimit（20），>maxListLimit（200）截到 maxListLimit。
+//
+// 主要给 viewer/前端做下拉列表用：返回全部字段，前端自己挑展示哪些。
+func (s *Store) List(ctx context.Context, host string, limit int) ([]Engagement, error) {
+	if limit <= 0 {
+		limit = defaultListLimit
+	}
+	if limit > maxListLimit {
+		limit = maxListLimit
+	}
+
+	var rows pgx.Rows
+	var err error
+	if host == "" {
+		rows, err = s.pool.Query(ctx,
+			"SELECT "+colsSelect+" FROM engagement ORDER BY created_at DESC LIMIT $1",
+			limit)
+	} else {
+		rows, err = s.pool.Query(ctx,
+			"SELECT "+colsSelect+" FROM engagement WHERE target_host=$1 ORDER BY created_at DESC LIMIT $2",
+			host, limit)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("list engagements: %w", err)
+	}
+	defer rows.Close()
+
+	var out []Engagement
+	for rows.Next() {
+		var e Engagement
+		if err := scan(rows, &e); err != nil {
+			return nil, fmt.Errorf("scan engagement: %w", err)
+		}
+		out = append(out, e)
+	}
+	return out, rows.Err()
+}
+
 // GetByID 按主键读取（不限 status）。
 func (s *Store) GetByID(ctx context.Context, id string) (Engagement, error) {
 	row := s.pool.QueryRow(ctx, "SELECT "+colsSelect+" FROM engagement WHERE id=$1", id)
@@ -180,7 +225,7 @@ func (s *Store) ReadStateScoped(ctx context.Context, id string, opts ReadOpts) (
 // AppendNote 追加一条 note 到 memory_notes.notes 数组。
 //
 // entry 形如 {"kind":"observation|hypothesis|boundary","content":"...","status":"...","agent_run_id":"...","scope":"engagement"}；
-// store 不解析也不强制结构——take_note 工具层已 enum 校验。
+// store 不解析也不强制结构——write_memory 工具层负责语义。
 func (s *Store) AppendNote(ctx context.Context, id string, entry []byte) error {
 	return s.appendInto(ctx, id, "memory_notes", entry, fixedKey("notes"))
 }

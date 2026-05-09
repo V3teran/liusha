@@ -208,10 +208,10 @@ asynq:servers:{<host:pid:uuid>}
 
 | 工具 Name() | Go 类型 | 备注 |
 |---|---|---|
-| `read_state` | `common.ReadState` | 读 engagement memory |
-| `take_note` | `common.TakeNote` | 写 memory |
+| `read_notes` | `common.ReadNotes` | 读 engagement memory_notes |
+| `write_note` | `common.WriteNote` | 写一条 memory_note |
 | `write_finding` | `common.WriteFinding` | 写漏洞 finding |
-| `write_graph` | `common.WriteGraph` | 写知识图谱 |
+| `relate_findings` | `common.RelateFindings` | 声明 finding 间 enables 边（组合漏洞推理）|
 | `done` | `common.Done` | 终结 ReAct |
 | `classify_traffic` | `traffic.Classifier` | 流量事实提取（曾 `ClassifyTraffic`，stutter 已修） |
 | `get_findings` | `traffic.GetFindings` | 复核 engagement findings |
@@ -323,9 +323,10 @@ private / public / unknown
 query / path_param / body_json / body_form / body_xml / body_file
 ```
 
-### graph_node.kind / graph_edge.kind
+### finding_relation.kind
 
-LLM 自由产出（schema-less），不 enum 约束。常见值参考已落库数据。
+固定枚举：`enables`（A 是 B 的前提，组合漏洞推理）。0020 迁移砍掉了之前
+schema-less 的 graph_node/graph_edge，原因详见迁移注释。
 
 ---
 
@@ -418,11 +419,11 @@ TaskTypeRun       = "agent.run"      // dot 分隔，避免与 asynq 内部 ":" 
 
 ### 9 张业务表
 
-`engagement` / `http_flow` / `flow_facts` / `agent_run` / `finding` / `lesson` / `graph_node` / `graph_edge` / `llm_invocation`
+`engagement` / `http_flow` / `flow_facts` / `agent_run` / `finding` / `finding_relation` / `lesson` / `llm_invocation`
 
 ### 28 个 internal 包
 
-`agentrun` / `builder` / `clipper` / `config` / `credential` / `db` / `dbtest` / `engagement` / `filter` / `finding` / `flow` / `flowfacts` / `graph` / `heuristic` / `httpapi` / `ingestor` / `lesson` / `llm` / `llminvocation` / `logx` / `observability` / `proxy` / `react` / `replay` / `skill` / `toolruntime` / `tools/*` / `worker`
+`agentrun` / `builder` / `clipper` / `config` / `credential` / `db` / `dbtest` / `engagement` / `filter` / `finding` / `flow` / `flowfacts` / `graphview` / `heuristic` / `httpapi` / `ingestor` / `lesson` / `llm` / `llminvocation` / `logx` / `observability` / `proxy` / `react` / `replay` / `skill` / `toolruntime` / `tools/*` / `worker`
 
 ### 5 个二进制
 
@@ -434,4 +435,4 @@ TaskTypeRun       = "agent.run"      // dot 分隔，避免与 asynq 内部 ":" 
 
 ### 13 个工具
 
-`read_state` / `take_note` / `write_finding` / `write_graph` / `done` / `classify_traffic` / `get_findings` / `delegate` / `fetch_credentials` / `run_replay` / `check_heuristics` / `compute_similarity` / `run_command`
+`read_notes` / `write_note` / `write_finding` / `relate_findings` / `done` / `classify_traffic` / `get_findings` / `delegate` / `fetch_credentials` / `run_replay` / `check_heuristics` / `compute_similarity` / `run_command`

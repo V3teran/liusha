@@ -1,7 +1,9 @@
-// Package finding 实现 finding 表持久化层：
-// 以 (engagement_id, dedup_key) 为 UNIQUE 去重键，
-// Save 路径冲突时合并 evidence（jsonb || EXCLUDED.evidence）+ 推进 updated_at；
-// 新发现/合并后通过 OnSaved hook 异步广播给订阅者（如 T23.5 LessonExtract）。
+// Package finding 实现 finding 表持久化层（v0024 agentic-lean）：
+// 自由文本 summary 主体 + 自由文本 severity（前端按前缀配色）+ 可选 evidence jsonb。
+// 不再有 kind / confidence / dedup_key 强结构化约束——LLM 自决全部表达。
+//
+// dedup 由 LLM 调用方自决：写 finding 前先 findings() 查 host 已有的，自己判要不要再写。
+// Save 是 append-only：每次都 INSERT 新行；OnSaved hook 触发 lesson 蒸馏。
 package finding
 
 import (
@@ -9,53 +11,24 @@ import (
 	"time"
 )
 
-// Severity 是 finding.severity 文本枚举。
-type Severity string
-
-const (
-	SeverityInfo     Severity = "info"
-	SeverityLow      Severity = "low"
-	SeverityMedium   Severity = "medium"
-	SeverityHigh     Severity = "high"
-	SeverityCritical Severity = "critical"
-)
-
-// Confidence 是 finding.confidence 文本枚举——LLM 自评置信度三态：
+// VulnFinding 是 finding 表行的 Go 表示（v0024 lean schema）。
 //
-//   - high   ：原生工具（如 sqlmap）默认参数即坐实
-//   - medium ：升级参数 / 自构 PoC 复测才坐实，或仅有强 body_hint 关键字
-//   - low    ：仅相似度差分 / 弱关键字，证据链单薄
-type Confidence string
-
-const (
-	ConfidenceHigh   Confidence = "high"
-	ConfidenceMedium Confidence = "medium"
-	ConfidenceLow    Confidence = "low"
-)
-
-// VulnFinding 是 finding 表行的 Go 表示。
+// Host 必填；Save 内空字符串校验防漏填。
+// SourceFlowID 可空（不绑定具体流量时 nil）。
 // Target / Evidence 为 nil 时 Save 自动落空对象 '{}'。
-//
-// Host 是从 target.host 提取的显式列（v1.2 加），用于 (host, dedup_key) 全局唯一索引
-// 跨 engagement 去重；caller 必填非空（Save 内部空字符串校验防漏填）。
-//
-// SourceFlowID 指向触发本次 finding 的 http_flow.id（FK SET NULL）。可空：
-// 主 ReAct 直发 finding 不带 flow_id 时 nil；存量 finding 也是 nil。
-//
-// v0010：删除 Tool/Payload/UpdatedAt 字段（深度复审：tool 永远空、payload 永远 '{}'、
-// append-only 后 updated_at 永远 = created_at）。
 type VulnFinding struct {
 	ID           string
 	EngagementID string
 	TaskID       *string
 	SourceFlowID *int64
 	Host         string
-	Kind         string
-	Severity     Severity
-	Title        string
-	Target       json.RawMessage
-	Evidence     json.RawMessage
-	Confidence   Confidence
-	DedupKey     string
-	CreatedAt    time.Time
+	// Severity 自由文本（建议 critical/high/medium/low/info 保持配色一致；
+	// 其他值前端配色退化为蓝色）。v0024 删除 enum CHECK 约束。
+	Severity string
+	// Summary 是漏洞描述的核心载体：自由文本写发现是什么 / 怎么验证 / 推理依据。
+	// 工具层（write_finding）强制非空。
+	Summary   string
+	Target    json.RawMessage
+	Evidence  json.RawMessage
+	CreatedAt time.Time
 }

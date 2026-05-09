@@ -16,8 +16,11 @@ import (
 	"github.com/V3teran/liusha/internal/credential"
 	"github.com/V3teran/liusha/internal/db"
 	"github.com/V3teran/liusha/internal/engagement"
+	"github.com/V3teran/liusha/internal/finding"
+	"github.com/V3teran/liusha/internal/graphview"
 	"github.com/V3teran/liusha/internal/httpapi"
 	"github.com/V3teran/liusha/internal/logx"
+	"github.com/V3teran/liusha/web"
 )
 
 func main() {
@@ -48,15 +51,20 @@ func main() {
 		cfg.Engagement.MaxMemoryNotesEntries,
 		cfg.Engagement.DefaultNotesLimit,
 	)
+	findStore := finding.NewStore(pool)
+	projector := &graphview.Projector{Findings: findStore, Engagements: engStore}
 
 	// 监听地址：优先 ENV（运维临时切换）→ yaml。
 	listenAddr := envOr("LIUSHA_API_ADDR", cfg.API.ListenAddr)
 	srv := &http.Server{
 		Addr: listenAddr,
 		Handler: httpapi.NewServer(httpapi.Deps{
-			APIKey:      os.Getenv("LIUSHA_API_KEY"),
-			Credentials: credAPI,
-			Engagements: engagementAPIAdapter{engStore},
+			APIKey:            os.Getenv("LIUSHA_API_KEY"),
+			Credentials:       credAPI,
+			Engagements:       engagementAPIAdapter{engStore},
+			Graph:             projector,
+			StaticFS:          web.ViewerFS(),
+			EnableDevAutofill: envOr("LIUSHA_VIEWER_DEV_KEY", "") != "",
 		}),
 		ReadTimeout:  time.Duration(cfg.API.ReadTimeoutSeconds) * time.Second,
 		WriteTimeout: time.Duration(cfg.API.WriteTimeoutSeconds) * time.Second,
@@ -103,4 +111,32 @@ func (a engagementAPIAdapter) Abort(ctx context.Context, id string) error {
 
 func (a engagementAPIAdapter) LookupOrCreateProxy(ctx context.Context, host string) (string, error) {
 	return a.s.LookupOrCreateProxy(ctx, host)
+}
+
+// List 适配 engagement.Store.List → httpapi.EngagementSummary。
+// 不直接返回 engagement.Engagement 完整结构，避免泄露 memory_notes 等大字段到前端。
+func (a engagementAPIAdapter) List(ctx context.Context, host string, limit int) ([]httpapi.EngagementSummary, error) {
+	rows, err := a.s.List(ctx, host, limit)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]httpapi.EngagementSummary, 0, len(rows))
+	for _, e := range rows {
+		summary := httpapi.EngagementSummary{
+			ID:            e.ID,
+			TargetHost:    e.TargetHost,
+			Status:        string(e.Status),
+			Mode:          string(e.Mode),
+			FlowCount:     e.FlowCount,
+			FindingCount:  e.FindingCount,
+			AgentRunCount: e.AgentRunCount,
+			CreatedAt:     e.CreatedAt.Format(time.RFC3339),
+			ErrorMessage:  e.ErrorMessage,
+		}
+		if e.EndedAt != nil {
+			summary.EndedAt = e.EndedAt.Format(time.RFC3339)
+		}
+		out = append(out, summary)
+	}
+	return out, nil
 }

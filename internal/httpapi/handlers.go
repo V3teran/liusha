@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/gin-gonic/gin"
 
@@ -19,9 +20,26 @@ type CredentialsAPI interface {
 // EngagementsAPI 是 handlers 对 engagement store 的窄接口。
 // LookupOrCreateProxy：按 host 懒查或创建 proxy 模式 active engagement，返回其 ID。
 // Abort：把 engagement 置为 aborted。
+// List：按 host 过滤（空字符串=全部）+ created_at DESC 列最近 N 个；前端 viewer 下拉用。
 type EngagementsAPI interface {
 	Abort(ctx context.Context, id string) error
 	LookupOrCreateProxy(ctx context.Context, host string) (string, error)
+	List(ctx context.Context, host string, limit int) ([]EngagementSummary, error)
+}
+
+// EngagementSummary 是 List 返回行——只暴露前端 viewer 需要的字段，
+// 不直接返回 engagement.Engagement 完整结构（避免泄露 memory_notes 等大字段 + 减小响应体）。
+type EngagementSummary struct {
+	ID            string `json:"id"`
+	TargetHost    string `json:"target_host"`
+	Status        string `json:"status"`
+	Mode          string `json:"mode"`
+	FlowCount     int    `json:"flow_count"`
+	FindingCount  int    `json:"finding_count"`
+	AgentRunCount int    `json:"agent_run_count"`
+	CreatedAt     string `json:"created_at"`             // RFC3339
+	EndedAt       string `json:"ended_at,omitempty"`     // RFC3339（可空）
+	ErrorMessage  string `json:"error_message,omitempty"`
 }
 
 // CreateProxyRequest 是 POST /engagement/proxy 请求体。
@@ -104,6 +122,25 @@ func createProxyHandler(api EngagementsAPI) gin.HandlerFunc {
 			return
 		}
 		c.JSON(200, gin.H{"engagement_id": id})
+	}
+}
+
+// listEngagementsHandler 处理 GET /engagement?host=<optional>&limit=<optional>。
+// 返回最近 N 个 engagement 摘要，前端用作下拉选择。
+func listEngagementsHandler(api EngagementsAPI) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		host := c.Query("host")
+		limit := 0
+		if v := c.Query("limit"); v != "" {
+			// 容错：解析失败时让 store 端用默认值，不在 handler 里校验数字范围。
+			_, _ = fmt.Sscanf(v, "%d", &limit)
+		}
+		list, err := api.List(c.Request.Context(), host, limit)
+		if err != nil {
+			c.JSON(500, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(200, gin.H{"engagements": list})
 	}
 }
 

@@ -30,7 +30,7 @@ type FindingChecker interface {
 //
 //   - finding_written：写完一条 finding 即可收手；必校验 dedup_key 真存在
 //   - no_pattern_match：未命中漏洞（含原 all_differ / heuristic_skip 等"无漏洞"情况；
-//     具体细节由 LLM 在 take_note / finding.evidence.reasoning 自由表达，不再用 enum 区分）
+//     具体细节由 LLM 在 write_note / finding.evidence.reasoning 自由表达，不再用 enum 区分）
 //
 // 简化理由：原 4 类把 telemetry 标签塞进 reason enum 限制了 LLM 表达。agentic 路线下
 // LLM 用自然语言描述细节，工具层只校验"是否真完成"。
@@ -65,7 +65,7 @@ func NewBACValidator(state FactReader, findings FindingChecker, eid, taskID stri
 // 判定流程（任意一项不满足都返回 missing 列表，让 LLM 知道还缺什么）：
 //  1. args 必须能解析出 reason 字段；
 //  2. reason 必须 ∈ validReasons；
-//  3. engagement.memory_notes 中本 task 写过的 note 必须至少含 1 条 kind=observation 或 boundary（说明 4 个工具至少跑过 1 个并 take_note）；
+//  3. engagement.memory_notes 中本 task 写过的 note 必须至少含 1 条 kind=observation 或 boundary（说明 4 个工具至少跑过 1 个并 write_note）；
 //  4. 若 reason=finding_written：args 必须含 dedup_key，且 finding 表能查到该 key。
 func (v *BACValidator) CanDone(ctx context.Context, args json.RawMessage) (bool, []string) {
 	var missing []string

@@ -1,12 +1,12 @@
 // Package actions 实现 ReAct 循环里通用的 Action 集合：
-// done / read_state / write_fact / write_idea / write_hint / write_finding / write_graph。
+// done / read_notes / write_note / write_finding / write_graph。
 //
-// 设计要点（含黑客松借鉴）：
-//   - Memory actions 只依赖小接口（MemoryStore），便于单测；engagement.Store 自动满足
-//     接口（plan 1 part2 T6 已落库三个 Append 方法 + ReadState）。
+// 设计要点：
+//   - Memory actions（ReadNotes/WriteNote）只依赖小接口 MemoryStore，便于单测；
+//     engagement.Store 自动满足该接口（ReadStateScoped + AppendNote）。
 //   - WriteFinding / WriteGraph 同样依赖窄接口（FindingStore / GraphStore），实参可换 mock。
-//   - WriteFinding 写库后由 finding.Store 内部异步 fire OnSaved hook（T11 机制），订阅
-//     由 main 装配阶段挂载（T30），不在本包责任范围。
+//   - WriteFinding 写库后由 finding.Store 内部异步 fire OnSaved hook，订阅由 main
+//     装配阶段挂载，不在本包责任范围。
 package common
 
 import (
