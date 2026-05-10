@@ -40,11 +40,15 @@ func (a *ReadFindings) ParametersJSON() json.RawMessage {
 }
 
 // findingItem 是给 LLM 看的瘦摘要项。
+//
+// SourceFlowID 让 LLM 区分"同流量内已有 finding"——decide write_finding 新增 /
+// update_finding 改进 / done 跳过 三分支。
 type findingItem struct {
-	ID        string    `json:"id"`
-	Severity  string    `json:"severity"`
-	Summary   string    `json:"summary"`
-	CreatedAt time.Time `json:"created_at"`
+	ID           string    `json:"id"`
+	Severity     string    `json:"severity"`
+	Summary      string    `json:"summary"`
+	SourceFlowID *int64    `json:"source_flow_id,omitempty"`
+	CreatedAt    time.Time `json:"created_at"`
 }
 
 // Execute 列出 host 全部 finding 摘要。
@@ -64,10 +68,11 @@ func (a *ReadFindings) Execute(ctx context.Context, _ json.RawMessage) (toolfx.R
 	items := make([]findingItem, 0, len(fs))
 	for _, f := range fs {
 		items = append(items, findingItem{
-			ID:        f.ID,
-			Severity:  f.Severity,
-			Summary:   f.Summary,
-			CreatedAt: f.CreatedAt,
+			ID:           f.ID,
+			Severity:     f.Severity,
+			Summary:      f.Summary,
+			SourceFlowID: f.SourceFlowID,
+			CreatedAt:    f.CreatedAt,
 		})
 	}
 	output, err := json.Marshal(map[string]any{

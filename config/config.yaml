@@ -256,7 +256,7 @@ scanner:
   healthz_addr: ":9090"                    # /healthz HTTP 监听地址
   flow_max_request_body: 2097152           # 2 MiB；flow.Store 入库截断阈值（与 proxy.max_request_body_size 对齐）
   flow_max_response_body: 8388608          # 8 MiB；flow.Store 入库截断阈值（与 proxy.max_response_body_size 对齐）
-  queue_orchestrator_weight: 5             # asynq 队列优先级权重（数字越大越优先）
+  queue_hunter_weight: 5                   # asynq 队列优先级权重（数字越大越优先）
   queue_dispatch_weight: 1
 
 # ---- 主 ReAct 循环参数 ----

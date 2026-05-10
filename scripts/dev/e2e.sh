@@ -54,11 +54,11 @@ echo "===== 2/6 清空 db / redis ====="
 # 旧 engagement 被 LookupOrCreate 复用，agent_run_count 累积到 6）。
 # finding_relation 排在 finding 之前防 FK 顺序问题（CASCADE 也兜底，显式列出更清晰）。
 if ! docker exec "$PG_CONTAINER" psql -U liusha -d liusha -c \
-    "TRUNCATE TABLE finding_relation, finding, lesson, llm_invocation, agent_run, flow_facts, http_flow, engagement CASCADE;"; then
+    "TRUNCATE TABLE finding_relation, finding, lesson, llm_invocation, agent_run, http_flow, engagement CASCADE;"; then
   echo "  ✗ postgres TRUNCATE 失败 — 看上面 psql 错误（常见原因：容器不在 / schema 不一致 / migrate 未跑）"
   exit 1
 fi
-echo "  ✓ postgres 8 张业务表已 truncate"
+echo "  ✓ postgres 7 张业务表已 truncate"
 
 # engagement-store/<engagement_id>/ 是 ResultCompress middleware 的落盘目录；
 # truncate 后 DB 中 engagement 已不存在，对应子目录变孤儿，清掉避免无限堆积。

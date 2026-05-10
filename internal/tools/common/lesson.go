@@ -36,8 +36,10 @@ func (a *WriteLesson) Name() string { return "write_lesson" }
 // Description 提供给 LLM 的简介。
 func (a *WriteLesson) Description() string {
 	return "写一条长期经验到 lesson 表（跨 engagement 持久化，下次扫同 host 自动注入 user prompt）。" +
-		"**何时用**：发现新颖的 payload / 绕过技巧 / 业务特定模式（如『此 host 接受 X-Forwarded-For 头改写身份』），" +
-		"值得下次扫描时复用。**不要写**：通用 OWASP 知识、单次易失内容（用 write_memory 即可）。" +
+		"**何时用**：**值得下次扫描复用**的 payload / endpoint / 业务模式——" +
+		"即便是常见漏洞类型（如 SQLi/XSS），只要包含本 host 特定细节" +
+		"（如『此 host 的 /api/x 用 id 参数注入；UNION 列数=2；DBMS=MariaDB』），下次扫直接照做就值得记。" +
+		"**不要写**：通用 OWASP 理论知识、本 task 内的临时状态（用 write_memory 即可）。" +
 		"content 必填（≤500 字，含具体 payload + endpoint + 触发条件）；priority 1-10 默认 5。"
 }
 

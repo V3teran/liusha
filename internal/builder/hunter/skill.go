@@ -78,6 +78,7 @@ func NewBuilder(deps Deps) skill.Builder {
 			Host:         p.Host,
 			FlowID:       p.FlowID,
 		})
+		_ = reg.Register(&common.UpdateFinding{Store: deps.Findings})
 		_ = reg.Register(&common.ReadRelations{Store: deps.Findings, EngagementID: p.EngagementID})
 		_ = reg.Register(&common.WriteRelation{Store: deps.Findings})
 		_ = reg.Register(&common.ReadLessons{Store: deps.Lessons, Tenant: deps.Tenant, Host: p.Host})

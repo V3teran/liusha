@@ -144,14 +144,14 @@ func main() {
 	}
 
 	mux := worker.NewMux()
-	mux.Register(worker.RoleOrchestrator, h.handle)
+	mux.Register(worker.RoleHunter, h.handle)
 
 	srv := asynq.NewServer(
 		asynq.RedisClientOpt{Addr: redisAddr},
 		asynq.Config{
 			Concurrency: scannerCfg.AsynqConcurrency,
 			Queues: map[string]int{
-				worker.QueueOrchestrator: scannerCfg.QueueOrchestratorWeight,
+				worker.QueueHunter: scannerCfg.QueueHunterWeight,
 				worker.QueueDispatch:     scannerCfg.QueueDispatchWeight,
 			},
 		},

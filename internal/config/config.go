@@ -223,7 +223,7 @@ type ScannerConfig struct {
 	FlowMaxResponseBody    int    `mapstructure:"flow_max_response_body"`
 
 	// asynq queue 优先级权重（数字越大优先级越高）
-	QueueOrchestratorWeight int `mapstructure:"queue_orchestrator_weight"`
+	QueueHunterWeight int `mapstructure:"queue_hunter_weight"`
 	QueueDispatchWeight     int `mapstructure:"queue_dispatch_weight"`
 }
 
@@ -596,8 +596,8 @@ func applyScannerDefaults(c ScannerConfig) ScannerConfig {
 	if c.FlowMaxResponseBody == 0 {
 		c.FlowMaxResponseBody = 8 << 20
 	}
-	if c.QueueOrchestratorWeight == 0 {
-		c.QueueOrchestratorWeight = 5
+	if c.QueueHunterWeight == 0 {
+		c.QueueHunterWeight = 5
 	}
 	if c.QueueDispatchWeight == 0 {
 		c.QueueDispatchWeight = 1

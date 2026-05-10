@@ -22,8 +22,8 @@ func newTestClient(t *testing.T) (*Client, *miniredis.Miniredis) {
 }
 
 func TestRole_Queue(t *testing.T) {
-	if got := RoleOrchestrator.Queue(); got != QueueOrchestrator {
-		t.Fatalf("RoleOrchestrator.Queue() = %q, want %q", got, QueueOrchestrator)
+	if got := RoleHunter.Queue(); got != QueueHunter {
+		t.Fatalf("RoleHunter.Queue() = %q, want %q", got, QueueHunter)
 	}
 	if got := RoleDispatch.Queue(); got != QueueDispatch {
 		t.Fatalf("RoleDispatch.Queue() = %q, want %q", got, QueueDispatch)
@@ -35,8 +35,8 @@ func TestClient_Enqueue_RoutesQueue(t *testing.T) {
 
 	id, q, err := c.Enqueue(
 		context.Background(),
-		RoleOrchestrator,
-		Payload{TaskID: "task-1", EngagementID: "eng-1", Role: RoleOrchestrator},
+		RoleHunter,
+		Payload{TaskID: "task-1", EngagementID: "eng-1", Role: RoleHunter},
 	)
 	if err != nil {
 		t.Fatalf("Enqueue err = %v", err)
@@ -44,8 +44,8 @@ func TestClient_Enqueue_RoutesQueue(t *testing.T) {
 	if id == "" {
 		t.Fatalf("expected non-empty task id")
 	}
-	if q != QueueOrchestrator {
-		t.Fatalf("queue = %q, want %q", q, QueueOrchestrator)
+	if q != QueueHunter {
+		t.Fatalf("queue = %q, want %q", q, QueueHunter)
 	}
 }
 
@@ -69,12 +69,12 @@ func TestClient_Enqueue_DispatchQueue(t *testing.T) {
 func TestClient_Enqueue_Idempotent(t *testing.T) {
 	c, _ := newTestClient(t)
 	ctx := context.Background()
-	p := Payload{TaskID: "dup-1", EngagementID: "eng-1", Role: RoleOrchestrator}
+	p := Payload{TaskID: "dup-1", EngagementID: "eng-1", Role: RoleHunter}
 
-	if _, _, err := c.Enqueue(ctx, RoleOrchestrator, p); err != nil {
+	if _, _, err := c.Enqueue(ctx, RoleHunter, p); err != nil {
 		t.Fatalf("first enqueue err = %v", err)
 	}
-	_, _, err := c.Enqueue(ctx, RoleOrchestrator, p)
+	_, _, err := c.Enqueue(ctx, RoleHunter, p)
 	if err == nil {
 		t.Fatalf("expected error on duplicate TaskID, got nil")
 	}
@@ -86,7 +86,7 @@ func TestClient_Enqueue_Idempotent(t *testing.T) {
 func TestMux_Register_AndAsynqMux(t *testing.T) {
 	m := NewMux()
 	called := false
-	m.Register(RoleOrchestrator, func(ctx context.Context, p Payload) error {
+	m.Register(RoleHunter, func(ctx context.Context, p Payload) error {
 		called = true
 		return nil
 	})
@@ -97,7 +97,7 @@ func TestMux_Register_AndAsynqMux(t *testing.T) {
 	}
 
 	// 直接调用 ServeMux.ProcessTask 验证路由 + 反序列化。
-	payloadBytes, err := json.Marshal(Payload{TaskID: "t1", Role: RoleOrchestrator})
+	payloadBytes, err := json.Marshal(Payload{TaskID: "t1", Role: RoleHunter})
 	if err != nil {
 		t.Fatalf("marshal payload: %v", err)
 	}
@@ -139,7 +139,7 @@ func TestEndToEnd_EnqueueAndProcess(t *testing.T) {
 	)
 
 	m := NewMux()
-	m.Register(RoleOrchestrator, func(_ context.Context, p Payload) error {
+	m.Register(RoleHunter, func(_ context.Context, p Payload) error {
 		mu.Lock()
 		received = p
 		mu.Unlock()
@@ -154,15 +154,15 @@ func TestEndToEnd_EnqueueAndProcess(t *testing.T) {
 		asynq.RedisClientOpt{Addr: mr.Addr()},
 		asynq.Config{
 			Concurrency: 1,
-			Queues:      map[string]int{QueueOrchestrator: 5, QueueDispatch: 1},
+			Queues:      map[string]int{QueueHunter: 5, QueueDispatch: 1},
 			Logger:      discardLogger{},
 		},
 	)
 	go func() { _ = srv.Run(m.AsynqMux()) }()
 	t.Cleanup(srv.Shutdown)
 
-	want := Payload{TaskID: "e2e-1", EngagementID: "eng-e2e", Role: RoleOrchestrator, Skill: "sqli"}
-	if _, _, err := c.Enqueue(ctx, RoleOrchestrator, want); err != nil {
+	want := Payload{TaskID: "e2e-1", EngagementID: "eng-e2e", Role: RoleHunter, Skill: "sqli"}
+	if _, _, err := c.Enqueue(ctx, RoleHunter, want); err != nil {
 		t.Fatalf("Enqueue err = %v", err)
 	}
 

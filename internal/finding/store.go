@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 
 	"github.com/jackc/pgx/v5"
@@ -124,6 +125,68 @@ func (s *Store) Save(ctx context.Context, f VulnFinding) (VulnFinding, error) {
 		Msg("finding saved ✓")
 	s.fireSavedHooks(saved)
 	return saved, nil
+}
+
+// Update 部分更新一条 finding 的可变字段（summary / severity / target / evidence）。
+//
+// 设计意图：read_findings 看到等价但更有价值（更详细 PoC / 更精准描述 / 更高 severity）
+// 时，update_finding 工具调本方法覆盖；created_at 保持首次发现时间不变。
+//
+// 字段语义：传空字符串 / nil 表示**不更新该字段**（zero-value 跳过，保留原值）。
+// summary 强制非空（finding lean schema 核心字段）。
+//
+// id 必填；finding 不存在返错。
+func (s *Store) Update(ctx context.Context, id, summary, severity string, target, evidence json.RawMessage) error {
+	if id == "" {
+		return fmt.Errorf("finding.Update: id 必填")
+	}
+
+	// 动态拼 SET 子句，传入空值的字段不动
+	sets := make([]string, 0, 4)
+	args := make([]any, 0, 5)
+	argIdx := 1
+
+	if summary != "" {
+		sets = append(sets, fmt.Sprintf("summary = $%d", argIdx))
+		args = append(args, summary)
+		argIdx++
+	}
+	if severity != "" {
+		sets = append(sets, fmt.Sprintf("severity = $%d", argIdx))
+		args = append(args, severity)
+		argIdx++
+	}
+	if len(target) > 0 {
+		sets = append(sets, fmt.Sprintf("target = $%d", argIdx))
+		args = append(args, target)
+		argIdx++
+	}
+	if len(evidence) > 0 {
+		sets = append(sets, fmt.Sprintf("evidence = $%d", argIdx))
+		args = append(args, evidence)
+		argIdx++
+	}
+
+	if len(sets) == 0 {
+		return fmt.Errorf("finding.Update: 至少提供一个可更新字段（summary/severity/target/evidence）")
+	}
+
+	args = append(args, id)
+	q := fmt.Sprintf(`UPDATE finding SET %s WHERE id = $%d`, strings.Join(sets, ", "), argIdx)
+
+	tag, err := s.pool.Exec(ctx, q, args...)
+	if err != nil {
+		return fmt.Errorf("update finding %s: %w", id, err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("update finding %s: not found", id)
+	}
+
+	findingLog.Info().
+		Str("finding_id", id).
+		Int("fields_updated", len(sets)).
+		Msg("finding updated ✓")
+	return nil
 }
 
 // GetByID 按主键读取 finding。

@@ -29,11 +29,12 @@ func (a *WriteRelation) Name() string { return "write_relation" }
 
 // Description 提供给 LLM 的简介。
 func (a *WriteRelation) Description() string {
-	return "显式声明 finding A 是 finding B 的前提（enables 关系，组合漏洞推理）。" +
-		"**何时用**：发现两条 finding 间有依赖（A 不存在时 B 无法复现），" +
-		"如 SQLi 拿到 admin cookie 后才能测出某 BAC。" +
-		"from/to 都是 finding ID（先用 findings() 查 ID）；reason 自由文本说明依赖逻辑。" +
-		"渲染到 graph viewer 的 enables 边，方便看组合攻击链。"
+	return "显式声明 finding A 是 finding B 的前提（enables 关系，**跨流量组合漏洞**——1+1≥2）。" +
+		"**何时用**：当前流量挖到的漏洞 + read_findings 看到的他人流量历史 finding，" +
+		"两者组合能放大危害（A 单独存在不致命、B 单独存在低危，但 A→B 链能拿系统/数据）。" +
+		"典型：流量 X 暴露 admin cookie（A）+ 流量 Y 的越权接口（B）→ 用 A 的 cookie 走 B 接口拿全数据。" +
+		"from/to 都是 finding ID（read_findings 拿）；reason 自由文本写为何 A 是 B 的前提。" +
+		"**单流量内同一漏洞的多个 finding 不要 relate**——那是 dedup 问题不是组合。"
 }
 
 // ParametersJSON 给出 from/to 必填 + reason 可选 schema。

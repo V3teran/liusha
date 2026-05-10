@@ -33,10 +33,14 @@ func (a *WriteFinding) Name() string { return "write_finding" }
 
 // Description 提供给 LLM 的简介。
 func (a *WriteFinding) Description() string {
-	return "写一条漏洞 finding。**summary 是核心**：自由文本描述发现是什么、怎么验证、推理依据。" +
-		"severity 自由文本（建议 critical/high/medium/low/info 保持配色一致；其他值 UI 退化为蓝色）。" +
+	return "写一条**新**漏洞 finding。summary 自由文本描述发现是什么、怎么验证、推理依据；" +
+		"severity 自由文本（建议 critical/high/medium/low/info 保持配色一致；其他值 UI 退化为蓝色）；" +
 		"evidence 选填（复杂证据走 jsonb，简单的写在 summary 里）。" +
-		"**写之前先 findings() 查 host 已有的**——同一漏洞别重复写。"
+		"\n\n**调用前必先 read_findings() 查 host 已有的，按 source_flow_id 区分是否同流量**——三分支：" +
+		"\n1. 同 source_flow_id + 同类型漏洞 + **当前更有价值**（更详细 PoC / 更精准描述 / 更高 severity）" +
+		"→ **改调 update_finding(id=...)** 覆盖原条目（不要 write 新条目）；" +
+		"\n2. 同 source_flow_id + 同类型漏洞 + 当前**不更有价值** → **done() 跳过**，别写也别 update；" +
+		"\n3. 不同类型漏洞 / 不同 flow → **本工具 write_finding 新建**。"
 }
 
 // ParametersJSON 给出 finding 字段 schema（v0024 lean）。

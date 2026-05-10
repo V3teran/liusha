@@ -236,15 +236,15 @@ func (t *Traffic) enqueueMain(ctx context.Context, eid string, flowID int64, sna
 
 	tid, err := t.tasks.Create(ctx, agentrun.NewParams{
 		EngagementID: eid,
-		Role:         string(worker.RoleOrchestrator),
-		Skill:        "orchestrator",
+		Role:         string(worker.RoleHunter),
+		Skill:        "hunter",
 		Input:        payloadInput,
 	})
 	if err != nil {
 		return fmt.Errorf("tasks.Create: %w", err)
 	}
 
-	if _, _, err := t.enq.Enqueue(ctx, worker.RoleOrchestrator, worker.Payload{
+	if _, _, err := t.enq.Enqueue(ctx, worker.RoleHunter, worker.Payload{
 		TaskID:       tid,
 		EngagementID: eid,
 		Input:        payloadInput,
