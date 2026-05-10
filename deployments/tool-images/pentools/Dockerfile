@@ -46,6 +46,8 @@ ENV DEBIAN_FRONTEND=noninteractive \
 
 # 加 apt 重试配置——清华源在 docker desktop macOS 上偶尔丢连接（之前
 # openjdk-21 ~150MB 在 507s 处 connection failed），没 retry 整层 abort。
+# 注：/etc/wgetrc 配置移到 wget 装好之后（Layer 1a 之后），避免 dpkg 安装
+# wget 包时跟预置的 wgetrc 冲突。
 RUN echo 'Acquire::Retries "5";' > /etc/apt/apt.conf.d/80-retries \
  && echo 'Acquire::http::Timeout "120";' >> /etc/apt/apt.conf.d/80-retries \
  && echo 'Acquire::https::Timeout "120";' >> /etc/apt/apt.conf.d/80-retries
@@ -69,6 +71,7 @@ RUN sed -i \
         nmap \
         python3 \
         python3-pip \
+        python3-setuptools \
         jq \
         curl \
         wget \
@@ -81,6 +84,11 @@ RUN sed -i \
  && hydra -h 2>&1 | head -2 \
  && nmap --version | head -1 \
  && php --version | head -1
+
+# Layer 1a.5: 全局 wgetrc retry——GitHub release download 在 docker desktop
+# gvisor 网络偶发 404/timeout（之前 ysoserial 多次失败）；所有 wget 命令统一重试。
+# 必须在 Layer 1a wget 装好后才能写（否则 dpkg 装 wget 时冲突）。
+RUN printf 'tries=5\nwaitretry=10\ntimeout=60\nretry-connrefused=on\n' >> /etc/wgetrc
 
 # Layer 1b: JRE 单独装——~150MB 大包，单独 layer 让失败可重试不全量重 build。
 RUN apt-get update \
