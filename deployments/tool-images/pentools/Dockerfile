@@ -28,12 +28,21 @@
 #
 # 体积预估 ~700-900 MB（含 nuclei-templates 80MB / SecLists 子集 30MB / JRE 200MB / PHP 25MB）。
 
-FROM ubuntu:latest
+# 强制 amd64 base——
+# 大部分渗透工具（ysoserial / dalfox / 部分 Go release）amd64 binary 才齐全；
+# arm64 上跑 amd64 binary 走 rosetta 转译，dalfox 之前因 elf interp 缺失报错。
+# 用 amd64 base 整套环境对齐，所有 amd64 binary 直接兼容。
+# macOS arm64 host 跑此镜像全程 rosetta 转译（慢但稳定）。
+FROM --platform=linux/amd64 ubuntu:latest
 
 ENV DEBIAN_FRONTEND=noninteractive \
     PIP_BREAK_SYSTEM_PACKAGES=1 \
     PIP_NO_CACHE_DIR=1 \
-    PIP_DISABLE_PIP_VERSION_CHECK=1
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple \
+    PIP_TRUSTED_HOST=pypi.tuna.tsinghua.edu.cn \
+    PIP_RETRIES=5 \
+    PIP_TIMEOUT=60
 
 # 加 apt 重试配置——清华源在 docker desktop macOS 上偶尔丢连接（之前
 # openjdk-21 ~150MB 在 507s 处 connection failed），没 retry 整层 abort。
@@ -212,15 +221,18 @@ RUN git clone --depth 1 https://github.com/ambionics/phpggc.git /opt/phpggc \
  && chmod +x /usr/local/bin/phpggc /opt/phpggc/phpggc \
  && phpggc -h 2>&1 | head -1 || true
 
-# ysoserial 也用 gh-latest；fallback 到 0.0.6（实际多年未更新仍是这个）
+# ysoserial 用 gh-latest；fallback 到 0.0.6（实际多年未更新仍是这个）。
+# wget 失败时显式 abort（之前用 || true 吞错导致 jar 0 字节静默通过）。
 RUN set -e \
  && v=$(gh-latest frohoff/ysoserial 0.0.6) \
  && echo "[gh-latest] ysoserial=$v" \
- && wget -q "https://github.com/frohoff/ysoserial/releases/download/v$v/ysoserial-$v-all.jar" \
-        -O /opt/ysoserial.jar \
+ && url="https://github.com/frohoff/ysoserial/releases/download/v$v/ysoserial-all.jar" \
+ && wget "$url" -O /opt/ysoserial.jar \
+ && [ -s /opt/ysoserial.jar ] || { echo "[FATAL] ysoserial jar 下载失败/空: $url"; exit 1; } \
  && printf '#!/bin/sh\nexec java -jar /opt/ysoserial.jar "$@"\n' > /usr/local/bin/ysoserial \
  && chmod +x /usr/local/bin/ysoserial \
- && ysoserial 2>&1 | head -1 || true
+ && ls -la /opt/ysoserial.jar /usr/local/bin/ysoserial \
+ && ysoserial 2>&1 | head -1
 
 # Layer 7: SecLists wordlist——
 # 多次尝试都失败（sparse-checkout / wget single files 在 docker desktop
