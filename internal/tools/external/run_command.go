@@ -28,7 +28,7 @@ import (
 // fallback 常量：caller 未通过 RunCommand 字段（或 cfg.Sandbox）注入时使用。
 // 正常路径由 cmd/scanner 从 config.SandboxConfig 注入，此处仅作兜底。
 const (
-	fallbackSandboxImage      = "liusha/pentools:1.0.0"
+	fallbackSandboxImage      = "liusha/pentools:latest"
 	fallbackRunMinTimeoutSec  = 30
 	fallbackRunMaxTimeoutSec  = 300
 	fallbackRunDefaultTimeout = 90 * time.Second

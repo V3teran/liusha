@@ -623,7 +623,7 @@ func applyReactDefaults(c ReactConfig) ReactConfig {
 
 func applySandboxDefaults(c SandboxConfig) SandboxConfig {
 	if c.DefaultImage == "" {
-		c.DefaultImage = "liusha/pentools:1.0.0"
+		c.DefaultImage = "liusha/pentools:latest"
 	}
 	if c.RunMinTimeoutSeconds == 0 {
 		c.RunMinTimeoutSeconds = 30

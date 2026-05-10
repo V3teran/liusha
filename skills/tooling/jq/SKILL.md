@@ -1,5 +1,6 @@
 ---
 name: jq
+category: utility
 description: JSON 解析/提取/重构。LLM 完全熟悉操作符——本手册只列项目策略 + 写 finding 红线。配合 curl pipe 用，避免自己 grep JSON 跑偏。
 ---
 

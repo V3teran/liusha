@@ -44,7 +44,7 @@ type Deps struct {
 
 	// 容器化沙箱执行器（run_command 工具的运行时）。
 	DockerRunner  *runners.DockerRunner // nil 时 run_command 不注册
-	PentoolsImage string                // 默认 liusha/pentools:1.0.0
+	PentoolsImage string                // 默认 liusha/pentools:latest
 	ScanNetwork   string                // 默认空（docker bridge）
 
 	SandboxCfg config.SandboxConfig
@@ -206,17 +206,43 @@ func buildUserPrompt(ctx context.Context, deps Deps, p skill.BuilderParams) stri
 	return b.String()
 }
 
+// categoryOrder 是 Tier 1 工具索引段的固定渲染顺序——
+// 与 PTES/OWASP 渗透阶段流水线对齐：侦察 → 发现 → 漏扫 → 利用 → 辅助。
+// 顺序固定让 prompt cache 命中率最高（同一批工具集 → 同一 prefix）。
+// 未在本表内的 category（含空值）→ 落入末尾的"未分类"组，提醒维护者补 frontmatter。
+var categoryOrder = []struct {
+	Key   string
+	Label string
+}{
+	{"recon", "recon（侦察 — 资产/服务/技术栈发现）"},
+	{"discovery", "discovery（内容/参数发现）"},
+	{"vulnscan", "vulnscan（自动化模板漏扫）"},
+	{"injection", "injection（注入类专项）"},
+	{"deserialization", "deserialization（反序列化 payload 生成）"},
+	{"auth", "auth（认证/凭证攻击）"},
+	{"sast", "sast（源码静态分析）"},
+	{"utility", "utility（通用辅助：HTTP/JSON/脚本/OOB）"},
+}
+
 // buildToolingCatalog 从 ToolingLoader 拉所有已 Index 的工具 frontmatter，
-// 拼成 markdown 索引段。Loader 为 nil 或无工具时返回空串（不污染 prompt）。
+// 按 Card.Category 分组渲染 markdown 索引段。
+// Loader 为 nil 或无工具时返回空串（不污染 prompt）。
 //
 // 输出形如：
 //
-//	## 可用外部工具（沙箱内预装）
+//	## 可用外部工具（沙箱内预装；run_command 调用）
+//	**沙箱网络约束**：...
+//	需要详细用法时调 read_tooling_skill(name="<name>") 拉完整手册。
 //
-//	需要详细用法时调 `read_tooling_skill(name="<name>")` 拉完整手册。
+//	### recon（侦察 — 资产/服务/技术栈发现）
+//	- **subfinder**: ...
+//	- **httpx**: ...
 //
-//	- **sqlmap**: SQL 注入自动探测/利用——...
-//	- **curl**: 原生 HTTP 客户端——...
+//	### injection（注入类专项）
+//	- **sqlmap**: ...
+//	- **dalfox**: ...
+//
+// 每组内 name 字典序；空组不渲染；未匹配 categoryOrder 的工具落入"未分类"组。
 func buildToolingCatalog(loader *skill.Loader) string {
 	if loader == nil {
 		return ""
@@ -225,13 +251,15 @@ func buildToolingCatalog(loader *skill.Loader) string {
 	if len(cards) == 0 {
 		return ""
 	}
-	// 按 name 字典序排序——稳定 prompt 顺序，prompt 缓存命中率更高。
-	sortedCards := make([]*skill.Card, 0, len(cards))
-	sortedCards = append(sortedCards, cards...)
-	for i := 1; i < len(sortedCards); i++ {
-		for j := i; j > 0 && sortedCards[j-1].Name > sortedCards[j].Name; j-- {
-			sortedCards[j-1], sortedCards[j] = sortedCards[j], sortedCards[j-1]
-		}
+
+	// 按 Category 分桶。
+	buckets := make(map[string][]*skill.Card, len(categoryOrder)+1)
+	for _, c := range cards {
+		buckets[c.Category] = append(buckets[c.Category], c)
+	}
+	// 每桶内按 name 字典序——稳定 prompt 顺序，prompt cache 友好。
+	for k := range buckets {
+		sortCardsByName(buckets[k])
 	}
 
 	var b strings.Builder
@@ -239,11 +267,60 @@ func buildToolingCatalog(loader *skill.Loader) string {
 	b.WriteString("**沙箱网络约束**：容器内 `127.0.0.1` / `localhost` = 容器自己，**不是宿主**。" +
 		"调外部工具访问流量里的 host 时，把 url 里的 `127.0.0.1` / `localhost` 替换为 `host.docker.internal`" +
 		"（已注入容器 hosts；写 finding 时仍用原 url 标真实坐标）。\n\n")
-	b.WriteString("需要详细用法时调 `read_tooling_skill(name=\"<name>\")` 拉完整手册（环境约束 / 项目策略 / 写 finding 红线 / 决策边界）。\n\n")
-	for _, c := range sortedCards {
-		fmt.Fprintf(&b, "- **%s**: %s\n", c.Name, c.Description)
+	b.WriteString("需要详细用法时调 `read_tooling_skill(name=\"<name>\")` 拉完整手册（环境约束 / 项目策略 / 写 finding 红线 / 决策边界）。\n")
+
+	// 按固定顺序渲染已知分类。
+	for _, cat := range categoryOrder {
+		group := buckets[cat.Key]
+		if len(group) == 0 {
+			continue
+		}
+		fmt.Fprintf(&b, "\n### %s\n\n", cat.Label)
+		for _, c := range group {
+			fmt.Fprintf(&b, "- **%s**: %s\n", c.Name, c.Description)
+		}
+		delete(buckets, cat.Key)
 	}
+
+	// 剩余 category 视作"未分类"——提醒维护者补 frontmatter。
+	if len(buckets) > 0 {
+		b.WriteString("\n### 未分类（建议补 frontmatter category 字段）\n\n")
+		rest := make([]string, 0, len(buckets))
+		for k := range buckets {
+			rest = append(rest, k)
+		}
+		sortStrings(rest)
+		for _, k := range rest {
+			for _, c := range buckets[k] {
+				if k == "" {
+					fmt.Fprintf(&b, "- **%s**: %s\n", c.Name, c.Description)
+				} else {
+					fmt.Fprintf(&b, "- **%s** (category=%s): %s\n", c.Name, k, c.Description)
+				}
+			}
+		}
+	}
+
 	return b.String()
+}
+
+// sortCardsByName 按 Name 字段对 *Card 切片做插入排序——切片小（每分类
+// 1-5 条），插排开销可忽略，省一个 sort 包 import。
+func sortCardsByName(cs []*skill.Card) {
+	for i := 1; i < len(cs); i++ {
+		for j := i; j > 0 && cs[j-1].Name > cs[j].Name; j-- {
+			cs[j-1], cs[j] = cs[j], cs[j-1]
+		}
+	}
+}
+
+// sortStrings 按字典序对字符串切片排序——同样小切片插排。
+func sortStrings(ss []string) {
+	for i := 1; i < len(ss); i++ {
+		for j := i; j > 0 && ss[j-1] > ss[j]; j-- {
+			ss[j-1], ss[j] = ss[j], ss[j-1]
+		}
+	}
 }
 
 func writeHeadersBlock(b *strings.Builder, headers json.RawMessage) {

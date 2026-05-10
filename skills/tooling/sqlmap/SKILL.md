@@ -1,5 +1,6 @@
 ---
 name: sqlmap
+category: injection
 description: SQL 注入自动探测/利用。LLM 已熟悉 CLI——本手册只列沙箱环境约束 + 项目策略 + 写 finding 红线 + 决策边界。常见 web SQLi 首选；GraphQL/NoSQL 不归它管。
 ---
 

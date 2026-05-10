@@ -1,5 +1,6 @@
 ---
 name: curl
+category: utility
 description: 原生 HTTP 客户端。LLM 完全熟悉——本手册只列沙箱网络约束 + 写 finding 红线。所有漏洞验证的瑞士军刀，sqlmap/python3 之前先用 curl 探 baseline。
 ---
 

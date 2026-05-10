@@ -10,8 +10,16 @@ package skill
 
 // Card 是 SKILL.md 的内存形态：frontmatter + 正文 Body。
 type Card struct {
-	Name                     string   `yaml:"name"`
-	Description              string   `yaml:"description"`
+	Name        string `yaml:"name"`
+	Description string `yaml:"description"`
+
+	// Category 是 tooling 工具的领域归属（如 recon / discovery / vulnscan /
+	// injection / deserialization / auth / sast / utility），只对 tooling
+	// SKILL 有意义；hunter 主 SKILL 留空。
+	// hunter buildToolingCatalog 按本字段分组渲染 Tier 1 工具索引段。
+	// 空值落入"未分类"组，渲染顺序最后。
+	Category string `yaml:"category,omitempty"`
+
 	RequiresAuth             bool     `yaml:"requires_auth,omitempty"`
 	ApplicableParamLocations []string `yaml:"applicable_param_locations,omitempty"`
 	Body                     string   `yaml:"-"`

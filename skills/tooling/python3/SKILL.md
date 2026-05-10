@@ -1,5 +1,6 @@
 ---
 name: python3
+category: utility
 description: 自定义脚本兜底——sqlmap/curl 搞不定的场景（GraphQL/NoSQL 注入、复杂登录链、并发 fuzz、二阶段 payload、自定义编码绕过）。LLM 已熟悉 Python——本手册只列沙箱关键约束。
 ---
 
