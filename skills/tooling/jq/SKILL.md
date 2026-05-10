@@ -8,7 +8,7 @@ description: JSON 解析/提取/重构。LLM 完全熟悉操作符——本手�
 ## 项目策略
 
 - 响应是 HTML/XML/纯文本时 **不要用 jq**——会报 `parse error`，换 `grep`/`sed`/`python3`。
-- 大响应（>4KB）先 `head -c 4096` 截断再 pipe jq，避免 jq 把整个 body 加载进内存。
+- 大响应防 stdout 8KB tail 被无关字段占满：用 `jq -c '.field'` 流式提单字段，或 `jq '...' | head -c 4096` 限输出长度。
 - 探未知 schema 时先 `jq 'keys'` / `jq 'paths' | head -50`，别一次 `jq '.'` 印整段。
 
 ## 写 finding 红线

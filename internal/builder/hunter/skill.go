@@ -201,7 +201,7 @@ func buildUserPrompt(ctx context.Context, deps Deps, p skill.BuilderParams) stri
 	}
 
 	// 段 5: 行动指令
-	b.WriteString("\n\n→ 找出这条流量涉及的所有漏洞，用 `finding(...)` 入库；完成或确认无漏洞调 `done()`。")
+	b.WriteString("\n\n→ 找出这条流量涉及的所有漏洞，用 `write_finding(...)` 入库；完成或确认无漏洞调 `done()`。")
 
 	return b.String()
 }
