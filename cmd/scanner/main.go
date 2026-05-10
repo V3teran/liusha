@@ -17,6 +17,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -96,6 +97,24 @@ func main() {
 		logger.Fatal().Err(err).Msg("load hunter skill")
 	}
 
+	// Tooling loader（Progressive Disclosure）：root=skills/tooling，
+	// 每个子目录一份 SKILL.md = 一个外部 CLI 工具的完整手册。
+	// hunter buildUserPrompt 用 List() 拼"工具索引"段（Tier 1）；
+	// LLM 调 read_tooling_skill(name) 拿完整 body（Tier 2）。
+	// 目录不存在或扫描失败 → 置 nil，hunter 自动 fallback 不注入索引段、不注册工具。
+	toolingLoader := skill.NewLoader(filepath.Join(cfg.Skills.Root, "tooling"))
+	if _, err := toolingLoader.Index(); err != nil {
+		logger.Warn().Err(err).Str("root", filepath.Join(cfg.Skills.Root, "tooling")).
+			Msg("tooling skill index 失败（read_tooling_skill 与工具索引段将不可用）")
+		toolingLoader = nil
+	} else {
+		toolingNames := make([]string, 0)
+		for _, c := range toolingLoader.List() {
+			toolingNames = append(toolingNames, c.Name)
+		}
+		logger.Info().Strs("tooling_skills", toolingNames).Msg("tooling skill index loaded")
+	}
+
 	// Asynq Client
 	wc := worker.NewClient(asynq.RedisClientOpt{Addr: redisAddr})
 	defer wc.Close()
@@ -116,6 +135,7 @@ func main() {
 		Lessons:                   lessons,
 		Credentials:               creds,
 		SkillLoader:               skillLoader,
+		ToolingLoader:             toolingLoader,
 		DockerRunner:              dockerRunner,
 		PentoolsImage:             cfg.Sandbox.DefaultImage,
 		ScanNetwork:               cfg.Sandbox.ScanNetwork,

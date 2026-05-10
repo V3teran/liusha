@@ -36,6 +36,12 @@ type Deps struct {
 	Credentials credential.Provider
 	SkillLoader *skill.Loader
 
+	// ToolingLoader root 指向 skills/tooling/，给 read_tooling_skill 用 +
+	// buildUserPrompt 启动期扫 frontmatter 注入"工具索引"段（Progressive
+	// Disclosure：常驻索引省 token，详情按需 read_tooling_skill 拉）。
+	// nil 时不注入索引段、不注册 read_tooling_skill 工具（向后兼容）。
+	ToolingLoader *skill.Loader
+
 	// 容器化沙箱执行器（run_command 工具的运行时）。
 	DockerRunner  *runners.DockerRunner // nil 时 run_command 不注册
 	PentoolsImage string                // 默认 liusha/pentools:1.0.0
@@ -84,6 +90,12 @@ func NewBuilder(deps Deps) skill.Builder {
 		_ = reg.Register(&common.ReadLessons{Store: deps.Lessons, Tenant: deps.Tenant, Host: p.Host})
 		_ = reg.Register(&common.WriteLesson{Store: deps.Lessons, Tenant: deps.Tenant, Host: p.Host})
 		_ = reg.Register(common.Done{})
+
+		// Progressive Disclosure Tier 2：LLM 看 user prompt 工具索引选中工具后
+		// 调本工具拿完整 SKILL.md。Loader 由 cmd/scanner 单独装配（root=skills/tooling）。
+		if deps.ToolingLoader != nil {
+			_ = reg.Register(&common.ReadToolingSkill{Loader: deps.ToolingLoader})
+		}
 
 		if deps.DockerRunner != nil {
 			s := deps.SandboxCfg
@@ -180,9 +192,57 @@ func buildUserPrompt(ctx context.Context, deps Deps, p skill.BuilderParams) stri
 		b.WriteString(knowledge)
 	}
 
+	// 段 4.5: Tier 1 工具索引（Progressive Disclosure）——
+	// 列出沙箱内所有可调外部 CLI 工具的 name + 一句话用途。
+	// 详情按需调 read_tooling_skill(name) 拉，不在 prompt 常驻。
+	if catalog := buildToolingCatalog(deps.ToolingLoader); catalog != "" {
+		b.WriteString("\n\n")
+		b.WriteString(catalog)
+	}
+
 	// 段 5: 行动指令
 	b.WriteString("\n\n→ 找出这条流量涉及的所有漏洞，用 `finding(...)` 入库；完成或确认无漏洞调 `done()`。")
 
+	return b.String()
+}
+
+// buildToolingCatalog 从 ToolingLoader 拉所有已 Index 的工具 frontmatter，
+// 拼成 markdown 索引段。Loader 为 nil 或无工具时返回空串（不污染 prompt）。
+//
+// 输出形如：
+//
+//	## 可用外部工具（沙箱内预装）
+//
+//	需要详细用法时调 `read_tooling_skill(name="<name>")` 拉完整手册。
+//
+//	- **sqlmap**: SQL 注入自动探测/利用——...
+//	- **curl**: 原生 HTTP 客户端——...
+func buildToolingCatalog(loader *skill.Loader) string {
+	if loader == nil {
+		return ""
+	}
+	cards := loader.List()
+	if len(cards) == 0 {
+		return ""
+	}
+	// 按 name 字典序排序——稳定 prompt 顺序，prompt 缓存命中率更高。
+	sortedCards := make([]*skill.Card, 0, len(cards))
+	sortedCards = append(sortedCards, cards...)
+	for i := 1; i < len(sortedCards); i++ {
+		for j := i; j > 0 && sortedCards[j-1].Name > sortedCards[j].Name; j-- {
+			sortedCards[j-1], sortedCards[j] = sortedCards[j], sortedCards[j-1]
+		}
+	}
+
+	var b strings.Builder
+	b.WriteString("## 可用外部工具（沙箱内预装；run_command 调用）\n\n")
+	b.WriteString("**沙箱网络约束**：容器内 `127.0.0.1` / `localhost` = 容器自己，**不是宿主**。" +
+		"调外部工具访问流量里的 host 时，把 url 里的 `127.0.0.1` / `localhost` 替换为 `host.docker.internal`" +
+		"（已注入容器 hosts；写 finding 时仍用原 url 标真实坐标）。\n\n")
+	b.WriteString("需要详细用法时调 `read_tooling_skill(name=\"<name>\")` 拉完整手册（环境约束 / 项目策略 / 写 finding 红线 / 决策边界）。\n\n")
+	for _, c := range sortedCards {
+		fmt.Fprintf(&b, "- **%s**: %s\n", c.Name, c.Description)
+	}
 	return b.String()
 }
 
