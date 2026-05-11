@@ -272,7 +272,7 @@ func buildSnapshot(req *http.Request, resp *http.Response, reqBody, respBody []b
 		uri = req.URL.Path
 	}
 
-	// 拆解：path 用于 dedup 模板化；query 多值 map 用于 sniffer/replay 结构化操作。
+	// 拆解：path 用于 dedup 模板化；query 多值 map 用于 sniffer 结构化操作。
 	// req.URL.Query() 返回 url.Values（即 map[string][]string）；空 query 时不写入字段（json omitempty）。
 	var query map[string][]string
 	if q := req.URL.Query(); len(q) > 0 {

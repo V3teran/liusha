@@ -128,7 +128,7 @@ func TestBACValidator_RejectEmptyState(t *testing.T) {
 func TestBACValidator_RejectLegacyAllDiffer(t *testing.T) {
 	v := NewBACValidator(
 		&fakeFactReader{state: stateWithEvidence(
-			[]string{"replay 3 identities, all 200"},
+			[]string{"3 identities tested, all 200"},
 			[]string{"similarity 0.95 across identities"},
 		)},
 		&fakeFindingChecker{},

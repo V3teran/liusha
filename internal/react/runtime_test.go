@@ -164,7 +164,7 @@ func TestRun_DoneValidateRejectsThenForce(t *testing.T) {
 	}
 	gen := &scriptedGen{turns: []llm.Result{doneCall, doneCall, doneCall, doneCall}}
 	reg := toolfx.NewRegistry()
-	_ = reg.Register(&captureAction{name: "done", err: ErrDoneNotReady{Missing: []string{"replay_multi_identity"}}})
+	_ = reg.Register(&captureAction{name: "done", err: ErrDoneNotReady{Missing: []string{"valid_reason"}}})
 
 	out, err := Run(context.Background(), Config{LLM: gen, Actions: reg, Budget: Budget{MaxSteps: 10}})
 	if err != nil {

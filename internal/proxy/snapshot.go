@@ -16,7 +16,7 @@ import "time"
 //
 //	URI    保留原始字符串（含 query，重放时需要原顺序，对签名服务端友好）
 //	Path   path 部分（不含 query），用作 dedup_key 模板化 + sniffer 路由判断
-//	Query  parsed query 多值 map，sniffer/replay 直接结构化操作（IDOR 改 user_id 等）
+//	Query  parsed query 多值 map，sniffer 直接结构化操作（IDOR 改 user_id 等）
 //
 // 字段构成：
 //

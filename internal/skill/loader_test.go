@@ -26,7 +26,7 @@ func TestLoader_Load_Basic(t *testing.T) {
 	body := `---
 name: vuln/web/bac
 description: BAC
-allowed-tools: [fetch_credentials, replay_multi_identity]
+allowed-tools: [read_credentials, write_finding]
 ---
 正文`
 	root := writeSkill(t, "vuln/web/bac", body)

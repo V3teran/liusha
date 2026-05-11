@@ -651,7 +651,7 @@ func applySandboxDefaults(c SandboxConfig) SandboxConfig {
 
 func applyToolruntimeDefaults(c ToolruntimeConfig) ToolruntimeConfig {
 	if c.ResultCompressThreshold == 0 {
-		c.ResultCompressThreshold = 64 * 1024 // 64KB；与 sandbox.run_tail_bytes×2 + run_replay 5 variant matrix 留余量
+		c.ResultCompressThreshold = 64 * 1024 // 64KB；与 sandbox.run_tail_bytes×2 留余量
 	}
 	if c.ResultCompressSnippet == 0 {
 		c.ResultCompressSnippet = 16 * 1024 // 16KB；截断后喂 LLM 的概览大小

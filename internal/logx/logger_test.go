@@ -149,7 +149,7 @@ func TestE2E_ProcessAggregation(t *testing.T) {
 	// 模拟 scanner 进程：cmd 入口 logger + 7 个包级 logger
 	services := []string{
 		"scanner",
-		"flow", "vulnfinding", "reactrun", "replay",
+		"flow", "vulnfinding", "reactrun",
 		"llm.instrument", "llmcall.store", "tools.classify_traffic",
 	}
 	for _, s := range services {

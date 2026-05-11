@@ -12,9 +12,9 @@ import (
 
 // fallback 阈值：caller 传 0 时使用。
 const (
-	// fallbackThreshold = 64 KB：与 sandbox.run_tail_bytes×2 + run_replay 5 variant matrix 留余量。
+	// fallbackThreshold = 64 KB：与 sandbox.run_tail_bytes×2 留余量。
 	fallbackThreshold = 64 * 1024
-	// fallbackSnippet = 16 KB：截断后喂 LLM 的概览大小（足够看清完整 sqlmap stdout / 多 variant 矩阵）。
+	// fallbackSnippet = 16 KB：截断后喂 LLM 的概览大小（足够看清完整 sqlmap stdout）。
 	fallbackSnippet = 16 * 1024
 	// fallbackSummary = 1 KB：Result.Summary 长度（喂 Observer 滑动窗用）。
 	fallbackSummary = 1024
