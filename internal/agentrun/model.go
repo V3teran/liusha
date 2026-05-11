@@ -25,7 +25,6 @@ type ReactRun struct {
 	ID           string
 	EngagementID string
 	Role         string
-	Skill        string
 	Input        json.RawMessage
 	Result       json.RawMessage
 	Status       Status
@@ -33,10 +32,9 @@ type ReactRun struct {
 	UpdatedAt    time.Time
 }
 
-// NewParams 是 Store.Create 的入参。Skill 可选。
+// NewParams 是 Store.Create 的入参。
 type NewParams struct {
 	EngagementID string
 	Role         string
-	Skill        string
 	Input        json.RawMessage
 }

@@ -38,7 +38,7 @@ func (s *Store) WithCounter(c engagementCounter) *Store {
 }
 
 // colsSelect 是所有 SELECT 路径的统一列序，与 scanTask() 的字段顺序一一对应。
-const colsSelect = `id, engagement_id, role, skill, input, result, status, created_at, updated_at`
+const colsSelect = `id, engagement_id, role, input, result, status, created_at, updated_at`
 
 // Create 插入一行 pending 任务，返回新 id。Input 为 nil 时落空对象。
 func (s *Store) Create(ctx context.Context, p NewParams) (string, error) {
@@ -47,10 +47,10 @@ func (s *Store) Create(ctx context.Context, p NewParams) (string, error) {
 	}
 	var id string
 	err := s.pool.QueryRow(ctx, `
-		INSERT INTO agent_run (engagement_id, role, skill, input)
-		VALUES ($1,$2,$3,$4)
+		INSERT INTO agent_run (engagement_id, role, input)
+		VALUES ($1,$2,$3)
 		RETURNING id`,
-		p.EngagementID, p.Role, p.Skill,
+		p.EngagementID, p.Role,
 		[]byte(p.Input),
 	).Scan(&id)
 	if err != nil {
@@ -184,7 +184,7 @@ type scanner interface {
 func scanTask(r scanner, t *ReactRun) error {
 	var input, result []byte
 	if err := r.Scan(
-		&t.ID, &t.EngagementID, &t.Role, &t.Skill,
+		&t.ID, &t.EngagementID, &t.Role,
 		&input, &result, &t.Status, &t.CreatedAt, &t.UpdatedAt,
 	); err != nil {
 		return err

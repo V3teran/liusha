@@ -33,14 +33,7 @@ func (a *WriteFinding) Name() string { return "write_finding" }
 
 // Description 提供给 LLM 的简介。
 func (a *WriteFinding) Description() string {
-	return "写一条**新**漏洞 finding。summary 自由文本描述发现是什么、怎么验证、推理依据；" +
-		"severity 自由文本（建议 critical/high/medium/low/info 保持配色一致；其他值 UI 退化为蓝色）；" +
-		"evidence 选填（复杂证据走 jsonb，简单的写在 summary 里）。" +
-		"\n\n**调用前必先 read_findings() 查 host 已有的，按 source_flow_id 区分是否同流量**——三分支：" +
-		"\n1. 同 source_flow_id + 同类型漏洞 + **当前更有价值**（更详细 PoC / 更精准描述 / 更高 severity）" +
-		"→ **改调 update_finding(id=...)** 覆盖原条目（不要 write 新条目）；" +
-		"\n2. 同 source_flow_id + 同类型漏洞 + 当前**不更有价值** → **done() 跳过**，别写也别 update；" +
-		"\n3. 不同类型漏洞 / 不同 flow → **本工具 write_finding 新建**。"
+	return "写一条**新**漏洞 finding。**summary 是一行短标题（git commit subject 风格，≤500 chars 无换行）；详情/复现/payload 全进 evidence**；severity 建议 critical/high/medium/low/info（其他值 UI 退化为蓝色）。"
 }
 
 // ParametersJSON 给出 finding 字段 schema（v0024 lean）。
@@ -48,10 +41,10 @@ func (a *WriteFinding) ParametersJSON() json.RawMessage {
 	return json.RawMessage(`{
   "type":"object",
   "properties": {
-    "summary":{"type":"string","description":"自由文本描述漏洞核心：是什么 / 怎么验证 / 推理依据。第一行（≤72 chars）会被 UI/Label 当短标题用（git commit convention）。"},
+    "summary":{"type":"string","maxLength":500,"description":"**一行**短标题（≤500 chars，无换行；git commit subject 风格）：'<漏洞类型> in <path> — <核心机理>'。详情/复现/payload 全进 evidence，**禁止**复制到 summary。DB 有 check 约束（单行 + ≤500），违反会拒收。"},
     "severity":{"type":"string","description":"自由文本（建议 critical/high/medium/low/info 保持前端配色一致）"},
-    "target":{"type":"object","description":"目标元数据 jsonb（如 {host,method,path}），UI 显示用"},
-    "evidence":{"type":"object","description":"可选：复杂结构化证据 jsonb；简单证据写在 summary 即可"}
+    "target":{"type":"object","description":"目标元数据 jsonb（如 {host,method,path,parameter}），UI 显示用"},
+    "evidence":{"type":"object","description":"结构化证据 jsonb：放完整工具输出片段（sqlmap Parameter:/Type:/Payload:、nuclei matcher、curl 响应等）+ repro_cmd + dump 数据。**summary 之外的所有内容都进这里。**"}
   },
   "required":["summary"]
 }`)

@@ -28,7 +28,7 @@ type CallSink interface {
 // CallMeta 是单次 Generate 的上下文标签集，由 runtime 填充。
 //
 // RouteKey 为黑客松借鉴字段：写入 llm_call.role，
-// 取值如 "orchestrator" / "hunter" / "observer" / "lesson_extract" / "vision"，
+// 取值如 "hunter" / "observer" / "lesson_extract"，
 // 便于按角色维度统计成本和路由生效情况。
 type CallMeta struct {
 	TaskID       *string
