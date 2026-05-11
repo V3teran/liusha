@@ -1,10 +1,12 @@
 // Package main 是 liusha 端到端验收触发器，按 profile 选漏洞类型与样本。
 //
 // CLI 用法：
-//   go run ./cmd/e2e            # 不加参数 = 跑所有 profile
-//   go run ./cmd/e2e bac        # 只跑 bac
-//   go run ./cmd/e2e sqli       # 只跑 sqli
-//   go run ./cmd/e2e bac sqli   # 多选
+//
+//	go run ./cmd/e2e               # 不加参数 = 跑所有 profile
+//	go run ./cmd/e2e bac           # 只跑 bac
+//	go run ./cmd/e2e sqli          # 只跑 sqli
+//	go run ./cmd/e2e xss           # 只跑 xss
+//	go run ./cmd/e2e bac sqli xss  # 多选
 //
 // 流程（每个 profile 独立跑）：
 //  1. POST /credential/batch 一次预录所有 profile 全部 host 的凭证（启动期，不论 args）
@@ -14,7 +16,8 @@
 //
 // 内置 profile：
 //   - bac ：本地 vulnapp 多身份正常流量 → 期望 ≥3 条 bac.* / 3 类齐全
-//   - sqli：本地 DVWA 单流量（带认证 cookie） → 期望 ≥1 条 sqli.*
+//   - sqli：远程 DVWA SQLi（含 sqli + sqli_blind 两条流量） → 期望 ≥1 条 sqli.*
+//   - xss ：远程 DVWA XSS（reflected / stored / DOM 三条流量） → 期望 ≥1 条 xss.*
 //
 // 触发器只发起"用户正常流量"——具体漏洞由 hunter agent 用 credentials/run_command
 // 自由组合工具挖掘（v0024 agentic-lean：单层 agent，无预设流程）。
@@ -35,8 +38,8 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/V3teran/liusha/internal/db"
-	"github.com/V3teran/liusha/internal/logx"
 	"github.com/V3teran/liusha/internal/finding"
+	"github.com/V3teran/liusha/internal/logx"
 )
 
 const (
@@ -101,15 +104,28 @@ var profiles = map[string]profile{
 		kindPrefix:     "sqli.",
 		minFindings:    1,
 		minKinds:       1,
-		// DVWA 本地靶场（127.0.0.1:4280）：admin + gordonb（user）双身份。
-		// PHPSESSID + security=low 双 cookie 拼成一行；user 身份保留供 BAC/越权类检测使用。
+		// DVWA 远程靶场（111.229.193.40:34280）：仅 admin 身份。
+		// PHPSESSID + security=low 双 cookie 拼成一行；旧 gordonb 身份的 cookie 在新靶机上无效，
+		// 需要时让用户在远程 DVWA 重新登录拿 cookie 再补回来。
 		credsForHost: func(_ string) []credentialEntry {
 			return []credentialEntry{
 				{Name: "admin", Role: "admin", Credentials: []map[string]string{
-					{"type": "headers", "key": "Cookie", "value": "PHPSESSID=dd4dd708256807ae3f897e5e766c8690; security=low"},
+					{"type": "headers", "key": "Cookie", "value": "PHPSESSID=f0be9e4b2148f43da74884680ecbfd96; security=low"},
 				}},
-				{Name: "gordonb", Role: "user", Credentials: []map[string]string{
-					{"type": "headers", "key": "Cookie", "value": "PHPSESSID=b60d180b75310080dca3347869033a80; security=low"},
+			}
+		},
+	},
+	"xss": {
+		name:           "xss",
+		defaultSamples: "examples/sample_xss_raw.json",
+		kindPrefix:     "xss.",
+		minFindings:    3, // 3 条样本（reflected/stored/DOM）期望各出 1 finding，等齐才 PASS
+		minKinds:       1,
+		// 同 DVWA 远程靶场，admin 同凭证；3 条样本覆盖 reflected (xss_r) / stored (xss_s) / DOM (xss_d) 三种场景。
+		credsForHost: func(_ string) []credentialEntry {
+			return []credentialEntry{
+				{Name: "admin", Role: "admin", Credentials: []map[string]string{
+					{"type": "headers", "key": "Cookie", "value": "PHPSESSID=f0be9e4b2148f43da74884680ecbfd96; security=low"},
 				}},
 			}
 		},
@@ -132,7 +148,7 @@ func main() {
 	apiKey := envOr("LIUSHA_API_KEY", "changeme-dev-key")
 	pgDSN := envOr("LIUSHA_POSTGRES_DSN", "postgres://liusha:liusha@localhost:5432/liusha?sslmode=disable")
 	proxyURL := envOr("LIUSHA_PROXY_ADDR", "http://localhost:8888")
-	vulnBase := envOr("LIUSHA_VULNAPP_BASE", "http://127.0.0.1:8001")
+	vulnBase := envOr("LIUSHA_VULNAPP_BASE", "http://111.229.193.40:38001")
 
 	selected, err := selectProfiles(os.Args[1:])
 	if err != nil {

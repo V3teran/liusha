@@ -22,6 +22,7 @@ package main
 
 import (
 	"net/http"
+	"os"
 
 	"github.com/V3teran/liusha/internal/logx"
 	"github.com/gin-gonic/gin"
@@ -200,8 +201,13 @@ func main() {
 			Msg("request")
 	})
 
-	logger.Info().Str("addr", ":8001").Msg("vulnapp listening")
-	if err := r.Run(":8001"); err != nil {
+	// 监听端口可通过 VULNAPP_ADDR 覆盖（如远程部署到非默认端口：VULNAPP_ADDR=:38001）。
+	addr := os.Getenv("VULNAPP_ADDR")
+	if addr == "" {
+		addr = ":8001"
+	}
+	logger.Info().Str("addr", addr).Msg("vulnapp listening")
+	if err := r.Run(addr); err != nil {
 		logger.Fatal().Err(err).Msg("server exited")
 	}
 }

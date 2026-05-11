@@ -2,10 +2,11 @@
 # scripts/dev/e2e.sh [profile…] — 跑 e2e 触发器（host 侧）；自动管理 dev 栈生命周期
 # 流程：清空 db/redis → 关 service → 清 logs → 重启 service → 等 healthz → 跑 e2e
 # 用法：
-#   ./scripts/dev/e2e.sh             # 不带参 = 跑全部 profile（bac + sqli）
-#   ./scripts/dev/e2e.sh bac         # 仅 bac
-#   ./scripts/dev/e2e.sh sqli        # 仅 sqli
-#   ./scripts/dev/e2e.sh bac sqli    # 多选
+#   ./scripts/dev/e2e.sh                # 不带参 = 跑全部 profile（bac + sqli + xss）
+#   ./scripts/dev/e2e.sh bac            # 仅 bac
+#   ./scripts/dev/e2e.sh sqli           # 仅 sqli
+#   ./scripts/dev/e2e.sh xss            # 仅 xss
+#   ./scripts/dev/e2e.sh bac sqli xss   # 多选
 #
 # 清空范围（每次执行都做一次）：
 #   - postgres：9 张业务表 TRUNCATE（schema 保留）
@@ -31,7 +32,7 @@ fi
 export LIUSHA_API_BASE="${LIUSHA_API_BASE:-http://localhost:8090}"  # 与 run-svc.sh 默认端口一致
 export LIUSHA_API_KEY="${LIUSHA_API_KEY:-changeme-dev-key}"
 export LIUSHA_PROXY_ADDR="${LIUSHA_PROXY_ADDR:-http://localhost:8888}"
-export LIUSHA_VULNAPP_BASE="${LIUSHA_VULNAPP_BASE:-http://127.0.0.1:8001}"
+export LIUSHA_VULNAPP_BASE="${LIUSHA_VULNAPP_BASE:-http://111.229.193.40:38001}"
 export LIUSHA_POSTGRES_DSN="${LIUSHA_POSTGRES_DSN:-postgres://liusha:liusha@localhost:5432/liusha?sslmode=disable}"
 
 echo "===== 1/6 跑 migrate（确保 schema 跟得上代码改动）====="
