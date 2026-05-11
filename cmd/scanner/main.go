@@ -112,6 +112,24 @@ func main() {
 		logger.Info().Strs("tooling_skills", toolingNames).Msg("tooling skill index loaded")
 	}
 
+	// Vuln loader（Progressive Disclosure）：root=skills/vuln，
+	// 每个子目录一份 SKILL.md = 一种漏洞类型的挖掘指南。
+	// hunter buildUserPrompt 用 List() 拼"漏洞挖掘指南索引"段（Tier 1）；
+	// LLM 按 recon_checklist 判完方向后调 read_vuln_skill(name) 拿完整 body（Tier 2）。
+	// 目录不存在或扫描失败 → 置 nil，hunter 自动 fallback 不注入索引段、不注册工具。
+	vulnLoader := skill.NewLoader(filepath.Join(cfg.Skills.Root, "vuln"))
+	if _, err := vulnLoader.Index(); err != nil {
+		logger.Warn().Err(err).Str("root", filepath.Join(cfg.Skills.Root, "vuln")).
+			Msg("vuln skill index 失败（read_vuln_skill 与漏洞挖掘指南索引段将不可用）")
+		vulnLoader = nil
+	} else {
+		vulnNames := make([]string, 0)
+		for _, c := range vulnLoader.List() {
+			vulnNames = append(vulnNames, c.Name)
+		}
+		logger.Info().Strs("vuln_skills", vulnNames).Msg("vuln skill index loaded")
+	}
+
 	// Asynq Client
 	wc := worker.NewClient(asynq.RedisClientOpt{Addr: redisAddr})
 	defer wc.Close()
@@ -133,6 +151,7 @@ func main() {
 		Credentials:               creds,
 		SkillLoader:               skillLoader,
 		ToolingLoader:             toolingLoader,
+		VulnLoader:                vulnLoader,
 		DockerRunner:              dockerRunner,
 		PentoolsImage:             cfg.Sandbox.DefaultImage,
 		ScanNetwork:               cfg.Sandbox.ScanNetwork,
