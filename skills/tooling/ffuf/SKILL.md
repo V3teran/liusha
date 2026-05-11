@@ -8,7 +8,7 @@ description: 通用 web fuzzer——任意位置 FUZZ 占位符替换 wordlist�
 
 ## 沙箱环境
 
-- **网络**：访问宿主用 `host.docker.internal`。
+- **网络**：bridge 出网，url 用 e2e 灌入的真实 host:port 即可。
 - **超时**：`-timeout 10` 单请求；`-rate 200`/秒控速防 WAF 触发。
 - **wordlist 路径**：业界标准在 `/opt/SecLists/`（已挂在镜像）：
   - 目录：`/opt/SecLists/Discovery/Web-Content/common.txt` (~4k 行)、`raft-medium-directories.txt` (~30k)

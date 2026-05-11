@@ -8,14 +8,14 @@ description: 端口扫描 + 服务指纹 + NSE 脚本（半个漏扫器）。LLM
 
 ## 沙箱环境
 
-- **网络**：访问宿主用 `host.docker.internal`；扫公网 IP 直接走 bridge。
+- **网络**：bridge 出网，target 用 e2e 灌入的真实 host:port 即可。
 - **超时**：默认 SYN scan 全 65k 端口耗时长——必加 `-T4` 或限范围 `-p 1-10000`。
 - **NSE 脚本**：`/usr/share/nmap/scripts/` 全套已装；指定 `--script <name>` 调用。
 - **输出**：`-oG -` grepable 比 XML 适合 LLM 解析；普通文本也行（每行 `PORT/STATE SERVICE`）。
 
 ## 项目策略
 
-- **快速 baseline**：`nmap -T4 -p- --min-rate 1000 host.docker.internal`（全端口 ~30s）
+- **快速 baseline**：`nmap -T4 -p- --min-rate 1000 <target>`（全端口 ~30s）
 - **服务指纹**：发现开端口后跑 `-sV -p <found>` 拿版本（用于 CVE 关联）
 - **OS 探测** `-O`：要 root 权限，沙箱默认非 root 跑不了 → 跳过
 - **跳过 ping** `-Pn`：宿主可能 ICMP 关，必加避免误判 down

@@ -8,7 +8,7 @@ description: HTTP 探活 + 指纹 + tech detection。给 url 列表 → 输出�
 
 ## 沙箱环境
 
-- **网络**：完全出网，访问 host 服务用 `host.docker.internal`。
+- **网络**：完全出网，url 用 e2e 灌入的真实 host:port 即可。
 - **超时**：`-timeout 10` 单 url，`-rate-limit 100`/秒；列表 1k+ url 时拆 run_command。
 - **输出**：**必加 `-json` + `-silent`**——LLM 解析 line-delimited JSON 比文本表格快 10 倍。
 

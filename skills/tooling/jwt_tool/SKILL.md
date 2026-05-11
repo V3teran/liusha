@@ -9,7 +9,7 @@ description: JWT 攻击瑞士军刀——解码/伪造/None 算法/算法混淆/
 ## 沙箱环境
 
 - **运行时**：python3 + git clone 到 `/opt/jwt_tool`，通过 `/usr/local/bin/jwt_tool` 包装脚本调用。
-- **网络**：本地解码/伪造无需网；`-I` 模式发请求验证用 host.docker.internal。
+- **网络**：本地解码/伪造无需网；`-I` 模式发请求验证用 e2e 灌入的真实 host:port。
 - **超时**：基础解码瞬时；`-C` 弱 secret 爆破依字典大小（10k 词典 ~30s）。
 - **wordlist**：`/opt/SecLists/Passwords/jwt.secrets.list`（如不存在用 `/opt/SecLists/Passwords/Common-Credentials/10k-most-common.txt`）。
 

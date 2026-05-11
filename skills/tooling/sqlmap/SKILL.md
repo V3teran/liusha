@@ -8,7 +8,7 @@ description: SQL 注入自动探测/利用。LLM 已熟悉 CLI——本手册只
 
 ## 沙箱环境
 
-- **网络**：容器内 `127.0.0.1` / `localhost` = 容器自己，**不是宿主**。访问 host 服务必须把 url 里的 `127.0.0.1` / `localhost` 替换为 `host.docker.internal`（已在容器 hosts 文件注入）。
+- **网络**：bridge 出网，url 直接用 e2e 灌入的真实 host:port。
 - **超时**：单次 run_command ≤ 300s。`--level 5` + `--technique=BEUSTQ` 跑不完——拆步走（先 `-p <param> --level 3`，命中再升）。
 - **资源**：512MB RAM / 1 CPU。`--threads` 别超 4。
 - **输出**：stdout/stderr 各只保留尾 8KB。`--dump` 大表前先用 `--count` 看大小，别拖全表。
@@ -22,7 +22,7 @@ description: SQL 注入自动探测/利用。LLM 已熟悉 CLI——本手册只
 
 ## 写 finding 红线
 
-`evidence` 必须含**完整 sqlmap 输出片段**（带 `Parameter:` / `Type:` / `Payload:` 三行），不要只写 "SQLi found"。`url` 用宿主可访问形式（即 `127.0.0.1:4280` 这种 e2e 灌入的原 url），不是容器内的 `host.docker.internal:4280`——前者才是真实漏洞坐标。
+`evidence` 必须含**完整 sqlmap 输出片段**（带 `Parameter:` / `Type:` / `Payload:` 三行），不要只写 "SQLi found"。`url` 直接用 e2e 灌入的真实 host:port。
 
 ## 决策边界（什么时候**不要**用 sqlmap）
 

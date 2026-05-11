@@ -8,7 +8,7 @@ description: 自定义脚本兜底——sqlmap/curl 搞不定的场景（GraphQL
 
 ## 沙箱环境
 
-- **网络**：容器内 `127.0.0.1` / `localhost` = 容器自己。访问 host 服务必须用 `host.docker.internal`。
+- **网络**：bridge 出网，url 直接用 e2e 灌入的真实 host:port。
 - **第三方库**：镜像里**只有 stdlib**——没有 `requests` / `httpx` / `aiohttp` / `beautifulsoup4`。HTTP 请求只能 `urllib.request`。要装额外包 pipe `pip install --quiet --break-system-packages <pkg> &&`，但耗时（30-60s）+ 容器 300s 上限要权衡，能用 stdlib 优先 stdlib。
 - **超时**：单次 run_command ≤ 300s。脚本里给每个 `urlopen` 加 `timeout=10`，别让网络挂死整个脚本。
 - **资源**：512MB RAM / 1 CPU；并发用 `ThreadPoolExecutor(max_workers=10)` 上限。
@@ -17,7 +17,7 @@ description: 自定义脚本兜底——sqlmap/curl 搞不定的场景（GraphQL
 
 ## 写 finding 红线
 
-`evidence.repro_cmd` 把整段 `python3 -c '...'` 放进去，包含**所有 import + 完整 payload**。脚本里的 url 必须用宿主可访问形式（`127.0.0.1:4280`），不是容器内 `host.docker.internal`——前者才是漏洞真实坐标。
+`evidence.repro_cmd` 把整段 `python3 -c '...'` 放进去，包含**所有 import + 完整 payload**。url 直接用 e2e 灌入的真实 host:port。
 
 ## 决策边界（什么时候**不要**写 python3）
 

@@ -8,14 +8,14 @@ description: XSS 自动探测 + 利用——支持反射/存储/DOM XSS。Go 实
 
 ## 沙箱环境
 
-- **网络**：访问宿主用 `host.docker.internal`。
+- **网络**：bridge 出网，url 用 e2e 灌入的真实 host:port 即可。
 - **超时**：`-w 10` 并发 worker；单参数 ~10-30s，多参数线性增长。
 - **输出**：`--format json` JSON 输出 + `-S`（silent）；`-o /tmp/dalfox.json` 写文件。
 - **headless 限制**：DOM XSS 检测需要 chromium，沙箱**没装**——dalfox 自动降级到 reflected only，DOM 漏洞挖不到。
 
 ## 项目策略
 
-- **基本调用**：`dalfox url 'http://host.docker.internal:4280/x?q=test' --format json -S`
+- **基本调用**：`dalfox url 'http://<target>:4280/x?q=test' --format json -S`
 - **POST/JSON body**：`dalfox url ... -X POST -d 'q=test'` 或 `-d '{"q":"test"}'` + `-H 'Content-Type: application/json'`
 - **`pipe` 模式批量**：`echo url1 url2 | dalfox pipe --format json -S`
 - **`--mining-dom` / `--mining-dict`**：默认开启的参数挖掘已够用；不必额外加

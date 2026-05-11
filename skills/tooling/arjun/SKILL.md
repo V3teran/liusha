@@ -8,13 +8,13 @@ description: HTTP 隐藏参数发现——爆 25k+ 参数名 wordlist 找接口�
 
 ## 沙箱环境
 
-- **网络**：访问宿主用 `host.docker.internal`。
+- **网络**：bridge 出网，url 用 e2e 灌入的真实 host:port 即可。
 - **超时**：单 endpoint 跑 25k 参数 ~2-5min，跨 GET/POST/JSON 三种位置，权衡 react step 预算。
 - **输出**：`-oJ /tmp/arjun.json` JSON 输出 + `-q` quiet；不加 -q 进度条占 stdout。
 
 ## 项目策略
 
-- **基本调用**：`arjun -u http://host.docker.internal:4280/api/x -m GET -oJ /tmp/arjun.json -q`
+- **基本调用**：`arjun -u http://<target>:4280/api/x -m GET -oJ /tmp/arjun.json -q`
 - **`-m GET/POST/JSON/XML`**：默认 GET，要测多种位置时分别跑；POST/JSON 命中率比 GET 更高（管理面常用 POST）
 - **`-w <wordlist>`**：默认内置 25k；要更激进可用 `/opt/SecLists/Discovery/Web-Content/burp-parameter-names.txt`
 - **`--passive`**：从 wayback machine 拉历史参数 —— 公网目标有用，本地靶场无意义

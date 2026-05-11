@@ -8,14 +8,14 @@ description: 现代 Web 爬虫——爬一个起点 url 拿全部站内链接 + 
 
 ## 沙箱环境
 
-- **网络**：访问宿主服务用 `host.docker.internal:<port>`。
+- **网络**：bridge 出网，url 用 e2e 灌入的真实 host:port 即可。
 - **超时**：默认深度 3、并发 10，单站 30-90s；可加 `-d 2` 减深度提速。
 - **JS 解析**：默认 `-jc` 关；开启 `-jc` 会启 headless（沙箱无 chromium，`-jc` 会失败）→ **不开**，用 katana 只爬 HTML 链接。
 - **输出**：`-jsonl -silent` 一行一个 url 最适合 LLM 后续 pipe httpx/nuclei。
 
 ## 项目策略
 
-- **常用组合**：`katana -u http://host.docker.internal:4280 -d 3 -silent -jsonl`
+- **常用组合**：`katana -u http://<target>:4280 -d 3 -silent -jsonl`
 - **避免污染目标**：`-no-sandbox`/`-headless` 沙箱不可用，跳过；只走 HTTP 静态爬。
 - **去重**：默认开启 dedup；不需要再加 `-uniq`。
 - 大型 SPA（React/Vue 单页应用）→ katana 静态爬抓不到 JS 路由 → 改用 LLM 看 JS 文件 + python3 + LinkFinder 思路手撸（沙箱没装 LinkFinder，LLM 用 grep 凑活）。

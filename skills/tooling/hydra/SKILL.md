@@ -8,7 +8,7 @@ description: 弱口令爆破——支持 50+ 协议（http-form/http-basic/http-
 
 ## 沙箱环境
 
-- **网络**：访问宿主用 `host.docker.internal`。
+- **网络**：bridge 出网，target 用 e2e 灌入的真实 host:port 即可。
 - **超时**：默认 16 线程；爆 100k 密码 ~5-10min，依目标响应速度。**先小字典 100-1k 试，命中再扩**。
 - **wordlist**：`/opt/SecLists/Passwords/Common-Credentials/10-million-password-list-top-{100,1000,10000}.txt` 渐进式上量；用户名 `/opt/SecLists/Usernames/top-usernames-shortlist.txt`。
 - **输出**：默认 stdout 含 `[80][http-post-form] host: ... login: admin password: ...` 格式，`grep '^\['` 提结果。
@@ -19,13 +19,13 @@ description: 弱口令爆破——支持 50+ 协议（http-form/http-basic/http-
 
 - **`http-get-form`** / **`http-post-form`** —— Form 登录爆破（最常见）
   ```sh
-  hydra -L users.txt -P passes.txt host.docker.internal http-post-form \
+  hydra -L users.txt -P passes.txt <target> http-post-form \
     "/login:user=^USER^&pass=^PASS^:F=Invalid"
   ```
   关键：`F=<失败标识>` 或 `S=<成功标识>`——必须**先 curl 试一个错的**看错误响应里的关键字
 - **`http-basic`** / **`http-digest`** —— Basic / Digest auth 头
   ```sh
-  hydra -L users.txt -P passes.txt host.docker.internal http-basic
+  hydra -L users.txt -P passes.txt <target> http-basic
   ```
 - **`https-*`** 同理（前缀 https）
 

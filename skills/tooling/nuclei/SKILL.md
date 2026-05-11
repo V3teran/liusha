@@ -8,7 +8,7 @@ description: 模板化漏扫引擎——业界事实标准。10k+ 模板覆盖 C
 
 ## 沙箱环境
 
-- **网络**：访问宿主用 `host.docker.internal`。
+- **网络**：bridge 出网，url 用 e2e 灌入的真实 host:port 即可。
 - **超时**：默认全模板跑 5-10min；必加 `-timeout 5 -retries 1` 单请求钳。
 - **模板路径**：`/root/.config/nuclei-templates`（镜像构建时已 update-templates 预拉）。
 - **输出**：**必加 `-jsonl -silent`**——一行一记录 JSON，LLM 解析最快。`-no-color` 也加（沙箱无 tty）。
@@ -20,7 +20,7 @@ description: 模板化漏扫引擎——业界事实标准。10k+ 模板覆盖 C
   - `-severity high,critical` 只跑高危
   - `-tags <category>` 按场景筛：`cve,sqli,xss,rce,ssrf,lfi,xxe,exposure,misconfig`
   - `-id <template-id>` 已知特定漏洞时直接命中
-- **常用组合**：`nuclei -u http://host.docker.internal:4280 -severity high,critical -jsonl -silent -timeout 5`
+- **常用组合**：`nuclei -u http://<target>:4280 -severity high,critical -jsonl -silent -timeout 5`
 - **自带探活**：`-l urls.txt` 内置 HTTP 探活，无需先 httpx
 - **interactsh 联动**：`-interactsh-url https://oast.fun` 启自家 OOB（默认就是这域名），blind ssrf/xxe/rce 需要
 

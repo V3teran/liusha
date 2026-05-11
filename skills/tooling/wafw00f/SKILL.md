@@ -8,13 +8,13 @@ description: WAF 指纹识别（CloudFlare/Akamai/AWS WAF/F5 BIG-IP/...）。挖
 
 ## 沙箱环境
 
-- **网络**：访问宿主用 `host.docker.internal`。
+- **网络**：bridge 出网，url 用 e2e 灌入的真实 host:port 即可。
 - **超时**：单次 ~5-15s（发数十个探测请求看 WAF 行为）。
 - **输出**：`-o output.json` 写文件（容器内随手）；或直接看 stdout 的 "is behind <WAF>" 字样。
 
 ## 项目策略
 
-- **基本调用**：`wafw00f http://host.docker.internal:4280` —— 一行搞定。
+- **基本调用**：`wafw00f http://<target>:4280` —— 一行搞定。
 - **`-a`**：识别**所有**WAF（默认只报第一个匹配），命中多 WAF 链路时有用。
 - **`-i targets.txt`**：批量。
 - **`-v` verbose** 可看每个 WAF 的探测细节，但产生大量 stdout，慎用（8KB tail 可能截断）。
