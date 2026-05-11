@@ -72,6 +72,9 @@ func (a *UpdateFinding) Execute(ctx context.Context, args json.RawMessage) (tool
 	if in.ID == "" {
 		return toolfx.Result{}, errors.New("id 必填")
 	}
+	// 同 write_finding：unwrap LLM 误传的 JSON-encoded string，保证 jsonb 列存 object 形态。
+	in.Target = normalizeJSONObject(in.Target)
+	in.Evidence = normalizeJSONObject(in.Evidence)
 
 	if err := a.Store.Update(ctx, in.ID, in.Summary, in.Severity, in.Target, in.Evidence); err != nil {
 		return toolfx.Result{}, fmt.Errorf("更新 finding 失败: %w", err)
