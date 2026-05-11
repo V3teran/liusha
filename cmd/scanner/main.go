@@ -37,6 +37,7 @@ import (
 	"github.com/V3teran/liusha/internal/observability"
 	"github.com/V3teran/liusha/internal/react"
 	"github.com/V3teran/liusha/internal/skill"
+	"github.com/V3teran/liusha/internal/tools/manifest"
 	"github.com/V3teran/liusha/internal/tools/runners"
 	"github.com/V3teran/liusha/internal/worker"
 
@@ -112,6 +113,17 @@ func main() {
 		logger.Info().Strs("tooling_skills", toolingNames).Msg("tooling skill index loaded")
 	}
 
+	// Tools manifest（tools.yaml）：与 Dockerfile 装的 binary 严格对应——
+	// hunter 用它渲染 SystemPrompt 的 tooling_catalog 段（Tier 1 索引）。
+	// 与 SKILL.md frontmatter 解耦：删 SKILL ≠ 工具消失。
+	// 路径可通过 LIUSHA_TOOLS_MANIFEST_PATH env override，缺省 deployments/tool-images/pentools/tools.yaml。
+	toolsManifestPath := envOr("LIUSHA_TOOLS_MANIFEST_PATH", "deployments/tool-images/pentools/tools.yaml")
+	toolsManifest, err := manifest.Load(toolsManifestPath)
+	if err != nil {
+		logger.Fatal().Err(err).Str("path", toolsManifestPath).Msg("tools.yaml 加载失败——LLM 看不到沙箱工具会无法 ReAct，fail-fast")
+	}
+	logger.Info().Strs("tools", toolsManifest.Names()).Int("count", len(toolsManifest.Tools)).Str("path", toolsManifestPath).Msg("tools manifest loaded")
+
 	// Vuln loader（Progressive Disclosure）：root=skills/vuln，
 	// 每个子目录一份 SKILL.md = 一种漏洞类型的挖掘指南。
 	// hunter buildUserPrompt 用 List() 拼"漏洞挖掘指南索引"段（Tier 1）；
@@ -151,6 +163,7 @@ func main() {
 		Credentials:               creds,
 		SkillLoader:               skillLoader,
 		ToolingLoader:             toolingLoader,
+		ToolsManifest:             toolsManifest,
 		VulnLoader:                vulnLoader,
 		DockerRunner:              dockerRunner,
 		PentoolsImage:             cfg.Sandbox.DefaultImage,

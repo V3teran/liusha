@@ -25,6 +25,7 @@ import (
 	"github.com/V3teran/liusha/internal/toolruntime/middleware"
 	"github.com/V3teran/liusha/internal/tools/common"
 	"github.com/V3teran/liusha/internal/tools/external"
+	"github.com/V3teran/liusha/internal/tools/manifest"
 	"github.com/V3teran/liusha/internal/tools/runners"
 )
 
@@ -36,11 +37,16 @@ type Deps struct {
 	Credentials credential.Provider
 	SkillLoader *skill.Loader
 
-	// ToolingLoader root 指向 skills/tooling/，给 read_tooling_skill 用 +
-	// buildUserPrompt 启动期扫 frontmatter 注入"工具索引"段（Progressive
-	// Disclosure：常驻索引省 token，详情按需 read_tooling_skill 拉）。
-	// nil 时不注入索引段、不注册 read_tooling_skill 工具（向后兼容）。
+	// ToolingLoader root 指向 skills/tooling/，给 read_tooling_skill 工具用（按需读 SKILL.md 详细手册）。
+	// nil 时不注册 read_tooling_skill 工具（向后兼容）。
+	// 注意：工具索引段（Tier 1）不再扫 SKILL.md frontmatter 拼，而是读 ToolsManifest——
+	// 这样"工具是否存在"与"工具是否有 SKILL 详细手册"解耦：删 SKILL 不等于工具消失。
 	ToolingLoader *skill.Loader
+
+	// ToolsManifest 是 deployments/tool-images/pentools/tools.yaml 解析后的清单——
+	// 与 Dockerfile 装的 binary 严格对应，hunter 用它渲染 SystemPrompt 的 tooling_catalog 段。
+	// nil 时不注入索引段（LLM 看不到沙箱有哪些工具，应在 scanner 启动期 fail-fast）。
+	ToolsManifest *manifest.Manifest
 
 	// VulnLoader root 指向 skills/vuln/，给 read_vuln_skill 用 +
 	// buildUserPrompt 启动期扫 frontmatter 注入"漏洞挖掘指南索引"段。
@@ -210,9 +216,9 @@ func buildUserPrompt(ctx context.Context, deps Deps, p skill.BuilderParams) stri
 	}
 
 	// 段 4.5: Tier 1 工具索引（Progressive Disclosure）——
-	// 列出沙箱内所有可调外部 CLI 工具的 name + 一句话用途。
-	// 详情按需调 read_tooling_skill(name) 拉，不在 prompt 常驻。
-	if catalog := buildToolingCatalog(deps.ToolingLoader); catalog != "" {
+	// 列出沙箱内所有可调外部 CLI 工具的 name + 一句话用途，来源 tools.yaml（与 Dockerfile 同步）。
+	// 详情按需调 read_tooling_skill(name) 拉 SKILL.md，不在 prompt 常驻。
+	if catalog := buildToolingCatalog(deps.ToolsManifest); catalog != "" {
 		b.WriteString("\n\n")
 		b.WriteString(catalog)
 	}
@@ -259,26 +265,65 @@ var vulnCategoryOrder = []categoryItem{
 	{"web", "web（Web 应用漏洞）"},
 }
 
-// buildToolingCatalog 渲染工具索引段（薄 wrapper —— 委托 buildCatalog）。
+// buildToolingCatalog 渲染工具索引段——从 ToolsManifest（tools.yaml）按 category 分组渲染。
+//
+// 与 buildVulnCatalog 不同：vuln 仍扫 SKILL.md frontmatter（每个漏洞一个 SKILL，1:1 对应），
+// 而 tooling 解耦——工具是否存在由 manifest（Dockerfile 同步）决定，SKILL.md 仅是可选详细手册。
 //
 // 输出形如：
 //
 //	## 可用外部工具（沙箱内预装；run_command 调用）
 //	**沙箱网络约束**：...
-//	需要详细用法时调 read_tooling_skill(name="<name>") 拉完整手册。
+//	需要详细用法时调 read_tooling_skill(name="<name>") 拉完整手册（仅复杂工具有 SKILL）。
 //
 //	### recon（侦察 — 资产/服务/技术栈发现）
 //	- **subfinder**: ...
 //	- **httpx**: ...
-//
-//	### injection（注入类专项）
-//	- **sqlmap**: ...
-//	- **dalfox**: ...
-func buildToolingCatalog(loader *skill.Loader) string {
-	header := "## 可用外部工具（沙箱内预装；run_command 调用）\n\n" +
-		"**沙箱网络约束**：容器走 bridge 出网，访问目标时 url 直接用流量里的真实 host:port\n" +
-		"需要详细用法时调 `read_tooling_skill(name=\"<name>\")` 拉完整手册（环境约束 / 项目策略 / 写 finding 红线 / 决策边界）。\n"
-	return buildCatalog(loader, header, toolingCategoryOrder)
+func buildToolingCatalog(m *manifest.Manifest) string {
+	if m == nil || len(m.Tools) == 0 {
+		return ""
+	}
+
+	var b strings.Builder
+	b.WriteString("## 可用外部工具（沙箱内预装；run_command 调用）\n\n")
+	b.WriteString("**沙箱网络约束**：容器走 bridge 出网，访问目标时 url 直接用流量里的真实 host:port\n")
+	b.WriteString("需要详细用法时调 `read_tooling_skill(name=\"<name>\")` 拉完整手册（仅复杂工具有 SKILL，简单工具靠 `--help` 即可）。\n")
+
+	buckets := m.ByCategory()
+
+	// 按 toolingCategoryOrder 固定顺序渲染——稳定 prompt 顺序，prompt cache 友好。
+	for _, cat := range toolingCategoryOrder {
+		group := buckets[cat.Key]
+		if len(group) == 0 {
+			continue
+		}
+		fmt.Fprintf(&b, "\n### %s\n\n", cat.Label)
+		for _, t := range group {
+			fmt.Fprintf(&b, "- **%s**: %s\n", t.Name, t.Description)
+		}
+		delete(buckets, cat.Key)
+	}
+
+	// 剩余 category 视作"未分类"——提醒维护者补 toolingCategoryOrder 或 tools.yaml category 字段。
+	if len(buckets) > 0 {
+		b.WriteString("\n### 未分类（建议补 tools.yaml category 或 toolingCategoryOrder）\n\n")
+		rest := make([]string, 0, len(buckets))
+		for k := range buckets {
+			rest = append(rest, k)
+		}
+		sortStrings(rest)
+		for _, k := range rest {
+			for _, t := range buckets[k] {
+				if k == "" {
+					fmt.Fprintf(&b, "- **%s**: %s\n", t.Name, t.Description)
+				} else {
+					fmt.Fprintf(&b, "- **%s** (category=%s): %s\n", t.Name, k, t.Description)
+				}
+			}
+		}
+	}
+
+	return b.String()
 }
 
 // buildCatalog 是 tooling / vuln 索引段的公共渲染逻辑：
