@@ -21,7 +21,7 @@ import (
 	"github.com/V3teran/liusha/internal/lesson"
 	"github.com/V3teran/liusha/internal/react"
 	"github.com/V3teran/liusha/internal/skill"
-	"github.com/V3teran/liusha/internal/toolruntime"
+	toolfx "github.com/V3teran/liusha/internal/toolruntime"
 	"github.com/V3teran/liusha/internal/toolruntime/middleware"
 	"github.com/V3teran/liusha/internal/tools/common"
 	"github.com/V3teran/liusha/internal/tools/external"
@@ -41,6 +41,12 @@ type Deps struct {
 	// Disclosure：常驻索引省 token，详情按需 read_tooling_skill 拉）。
 	// nil 时不注入索引段、不注册 read_tooling_skill 工具（向后兼容）。
 	ToolingLoader *skill.Loader
+
+	// VulnLoader root 指向 skills/vuln/，给 read_vuln_skill 用 +
+	// buildUserPrompt 启动期扫 frontmatter 注入"漏洞挖掘指南索引"段。
+	// 与 ToolingLoader 同模式：常驻极简索引（无 category 分组），详情按需
+	// read_vuln_skill 拉。nil 时不注入索引段、不注册 read_vuln_skill 工具。
+	VulnLoader *skill.Loader
 
 	// 容器化沙箱执行器（run_command 工具的运行时）。
 	DockerRunner  *runners.DockerRunner // nil 时 run_command 不注册
@@ -95,6 +101,13 @@ func NewBuilder(deps Deps) skill.Builder {
 		// 调本工具拿完整 SKILL.md。Loader 由 cmd/scanner 单独装配（root=skills/tooling）。
 		if deps.ToolingLoader != nil {
 			_ = reg.Register(&common.ReadToolingSkill{Loader: deps.ToolingLoader})
+		}
+
+		// Progressive Disclosure Tier 2（漏洞挖掘指南）：LLM 按 recon_checklist
+		// 判完流量方向后，调本工具拿对应漏洞类型完整 SKILL.md。
+		// Loader root=skills/vuln，由 cmd/scanner 单独装配。
+		if deps.VulnLoader != nil {
+			_ = reg.Register(&common.ReadVulnSkill{Loader: deps.VulnLoader})
 		}
 
 		if deps.DockerRunner != nil {
@@ -159,10 +172,14 @@ func buildUserPrompt(ctx context.Context, deps Deps, p skill.BuilderParams) stri
 	var b strings.Builder
 
 	// 段 1: 请求
+	// raw HTTP/1.1 协议形式打印——含 Host 头，LLM 不需要猜 target，
+	// 直接拼 `http://{Host}{URL}` 喂给 sqlmap/curl 等工具即可。
 	b.WriteString("## 流量请求\n\n```\n")
 	b.WriteString(strings.ToUpper(p.Method))
 	b.WriteString(" ")
 	b.WriteString(p.URL)
+	b.WriteString(" HTTP/1.1\nHost: ")
+	b.WriteString(p.Host)
 	b.WriteString("\n```\n\n### Request Headers\n\n")
 	writeHeadersBlock(&b, p.RequestHeaders)
 	b.WriteString("\n### Request Body")
@@ -200,20 +217,31 @@ func buildUserPrompt(ctx context.Context, deps Deps, p skill.BuilderParams) stri
 		b.WriteString(catalog)
 	}
 
+	// 段 4.6: Tier 1 漏洞挖掘指南索引——按 category 分组（与 tooling 同模式）。
+	// 详情按需调 read_vuln_skill(name) 拉，不在 prompt 常驻。
+	if catalog := buildVulnCatalog(deps.VulnLoader); catalog != "" {
+		b.WriteString("\n\n")
+		b.WriteString(catalog)
+	}
+
 	// 段 5: 行动指令
 	b.WriteString("\n\n→ 找出这条流量涉及的所有漏洞，用 `write_finding(...)` 入库；完成或确认无漏洞调 `done()`。")
 
 	return b.String()
 }
 
-// categoryOrder 是 Tier 1 工具索引段的固定渲染顺序——
+// categoryItem 是索引段的分类条目（key + 渲染 label）。
+// tooling 与 vuln 各维护一份独立的 categoryOrder，buildCatalog 统一渲染。
+type categoryItem struct {
+	Key   string
+	Label string
+}
+
+// toolingCategoryOrder 是工具索引段的固定渲染顺序——
 // 与 PTES/OWASP 渗透阶段流水线对齐：侦察 → 发现 → 漏扫 → 利用 → 辅助。
 // 顺序固定让 prompt cache 命中率最高（同一批工具集 → 同一 prefix）。
 // 未在本表内的 category（含空值）→ 落入末尾的"未分类"组，提醒维护者补 frontmatter。
-var categoryOrder = []struct {
-	Key   string
-	Label string
-}{
+var toolingCategoryOrder = []categoryItem{
 	{"recon", "recon（侦察 — 资产/服务/技术栈发现）"},
 	{"discovery", "discovery（内容/参数发现）"},
 	{"vulnscan", "vulnscan（自动化模板漏扫）"},
@@ -224,9 +252,14 @@ var categoryOrder = []struct {
 	{"utility", "utility（通用辅助：HTTP/JSON/脚本/OOB）"},
 }
 
-// buildToolingCatalog 从 ToolingLoader 拉所有已 Index 的工具 frontmatter，
-// 按 Card.Category 分组渲染 markdown 索引段。
-// Loader 为 nil 或无工具时返回空串（不污染 prompt）。
+// vulnCategoryOrder 是漏洞挖掘指南索引段的固定渲染顺序——
+// 按"领域 + 形态"切分；未来扩展到 cloud/container/post-exploit 时在此追加 key。
+// 当前阶段（web 主导）只有一类，但分组结构与 tooling 保持一致，框架先立起来。
+var vulnCategoryOrder = []categoryItem{
+	{"web", "web（Web 应用漏洞）"},
+}
+
+// buildToolingCatalog 渲染工具索引段（薄 wrapper —— 委托 buildCatalog）。
 //
 // 输出形如：
 //
@@ -241,9 +274,20 @@ var categoryOrder = []struct {
 //	### injection（注入类专项）
 //	- **sqlmap**: ...
 //	- **dalfox**: ...
-//
-// 每组内 name 字典序；空组不渲染；未匹配 categoryOrder 的工具落入"未分类"组。
 func buildToolingCatalog(loader *skill.Loader) string {
+	header := "## 可用外部工具（沙箱内预装；run_command 调用）\n\n" +
+		"**沙箱网络约束**：容器走 bridge 出网，访问目标时 url 直接用流量里的真实 host:port\n" +
+		"需要详细用法时调 `read_tooling_skill(name=\"<name>\")` 拉完整手册（环境约束 / 项目策略 / 写 finding 红线 / 决策边界）。\n"
+	return buildCatalog(loader, header, toolingCategoryOrder)
+}
+
+// buildCatalog 是 tooling / vuln 索引段的公共渲染逻辑：
+// 按 Card.Category 分桶 → 按 order 固定顺序渲染已知分类 → 未匹配的落
+// "未分类"组提醒维护者补 frontmatter。每组内 name 字典序；空组不渲染。
+//
+// Loader 为 nil 或 List() 为空时返回空串（不污染 prompt）。
+// header 由调用方提供（含末尾换行），buildCatalog 不额外加分隔。
+func buildCatalog(loader *skill.Loader, header string, order []categoryItem) string {
 	if loader == nil {
 		return ""
 	}
@@ -253,7 +297,7 @@ func buildToolingCatalog(loader *skill.Loader) string {
 	}
 
 	// 按 Category 分桶。
-	buckets := make(map[string][]*skill.Card, len(categoryOrder)+1)
+	buckets := make(map[string][]*skill.Card, len(order)+1)
 	for _, c := range cards {
 		buckets[c.Category] = append(buckets[c.Category], c)
 	}
@@ -263,14 +307,10 @@ func buildToolingCatalog(loader *skill.Loader) string {
 	}
 
 	var b strings.Builder
-	b.WriteString("## 可用外部工具（沙箱内预装；run_command 调用）\n\n")
-	b.WriteString("**沙箱网络约束**：容器内 `127.0.0.1` / `localhost` = 容器自己，**不是宿主**。" +
-		"调外部工具访问流量里的 host 时，把 url 里的 `127.0.0.1` / `localhost` 替换为 `host.docker.internal`" +
-		"（已注入容器 hosts；写 finding 时仍用原 url 标真实坐标）。\n\n")
-	b.WriteString("需要详细用法时调 `read_tooling_skill(name=\"<name>\")` 拉完整手册（环境约束 / 项目策略 / 写 finding 红线 / 决策边界）。\n")
+	b.WriteString(header)
 
 	// 按固定顺序渲染已知分类。
-	for _, cat := range categoryOrder {
+	for _, cat := range order {
 		group := buckets[cat.Key]
 		if len(group) == 0 {
 			continue
@@ -302,6 +342,22 @@ func buildToolingCatalog(loader *skill.Loader) string {
 	}
 
 	return b.String()
+}
+
+// buildVulnCatalog 渲染漏洞挖掘指南索引段（薄 wrapper —— 委托 buildCatalog）。
+//
+// 与 tooling 同模式：按 vulnCategoryOrder 分组渲染；当前阶段（web 主导）
+// 只有一类，但分组结构与 tooling 保持一致，框架先立起来。
+//
+// 输出形如：
+//
+//	## 可用漏洞挖掘指南（按 recon_checklist 判完方向后，read_vuln_skill 拉详细）
+//
+//	### web（Web 应用漏洞）
+//	- **bac**: 访问控制失效（Broken Access Control）...
+func buildVulnCatalog(loader *skill.Loader) string {
+	header := "## 可用漏洞挖掘指南（按 recon_checklist 判完方向后，read_vuln_skill 拉详细）\n"
+	return buildCatalog(loader, header, vulnCategoryOrder)
 }
 
 // sortCardsByName 按 Name 字段对 *Card 切片做插入排序——切片小（每分类
