@@ -86,16 +86,16 @@ func TestRedis_BatchSaveAndGet(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get vulnapp: %v", err)
 	}
-	if !equalSlices(names(got1), []string{"admin", AnonymousName, "user"}) {
-		t.Fatalf("vulnapp 身份应为 [admin, anonymous, user], got=%v", names(got1))
+	if !equalSlices(names(got1), []string{"admin", "user"}) {
+		t.Fatalf("vulnapp 身份应为 [admin, user], got=%v", names(got1))
 	}
 
 	got2, err := p.GetIdentitiesByHost(ctx, "another")
 	if err != nil {
 		t.Fatalf("get another: %v", err)
 	}
-	if !equalSlices(names(got2), []string{"alice", AnonymousName, "bob"}) {
-		t.Fatalf("another 身份应为 [alice, anonymous, bob], got=%v", names(got2))
+	if !equalSlices(names(got2), []string{"alice", "bob"}) {
+		t.Fatalf("another 身份应为 [alice, bob], got=%v", names(got2))
 	}
 
 	// 校验 credential 字段被正确反序列化。
@@ -105,15 +105,10 @@ func TestRedis_BatchSaveAndGet(t *testing.T) {
 				t.Fatalf("admin credentials 反序列化错误: %+v", id.Credentials)
 			}
 		}
-		if id.Name == AnonymousName {
-			if len(id.Credentials) != 0 {
-				t.Fatalf("anonymous 不应有 credentials, got=%+v", id.Credentials)
-			}
-		}
 	}
 }
 
-// TestRedis_TTL 验证：ttl=1 秒后取不到（除 anonymous 以外）。
+// TestRedis_TTL 验证：ttl=1 秒后取不到。
 func TestRedis_TTL(t *testing.T) {
 	ctx := context.Background()
 	p := newProvider(t)
@@ -124,13 +119,13 @@ func TestRedis_TTL(t *testing.T) {
 		t.Fatalf("batch save: %v", err)
 	}
 
-	// 立即查询应能取到 u（+ anonymous）。
+	// 立即查询应能取到 u。
 	got, err := p.GetIdentitiesByHost(ctx, "h")
 	if err != nil {
 		t.Fatalf("get before ttl: %v", err)
 	}
-	if !equalSlices(names(got), []string{AnonymousName, "u"}) {
-		t.Fatalf("过期前应为 [anonymous, u], got=%v", names(got))
+	if !equalSlices(names(got), []string{"u"}) {
+		t.Fatalf("过期前应为 [u], got=%v", names(got))
 	}
 
 	// 等待过期。
@@ -140,8 +135,8 @@ func TestRedis_TTL(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get after ttl: %v", err)
 	}
-	if !equalSlices(names(got), []string{AnonymousName}) {
-		t.Fatalf("过期后只应剩 anonymous, got=%v", names(got))
+	if !equalSlices(names(got), []string{}) {
+		t.Fatalf("过期后应为空, got=%v", names(got))
 	}
 }
 
@@ -166,7 +161,7 @@ func TestRedis_PermanentTTL(t *testing.T) {
 	}
 }
 
-// TestRedis_Delete 验证：删 host 后取空（仍然返回 anonymous）。
+// TestRedis_Delete 验证：删 host 后取空。
 func TestRedis_Delete(t *testing.T) {
 	ctx := context.Background()
 	p := newProvider(t)
@@ -188,8 +183,8 @@ func TestRedis_Delete(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get after delete: %v", err)
 	}
-	if !equalSlices(names(got), []string{AnonymousName}) {
-		t.Fatalf("删除后只应剩 anonymous, got=%v", names(got))
+	if !equalSlices(names(got), []string{}) {
+		t.Fatalf("删除后应为空, got=%v", names(got))
 	}
 }
 
@@ -231,7 +226,7 @@ func TestRedis_BatchSave_OverwriteExisting(t *testing.T) {
 	}
 }
 
-// TestRedis_List 验证：List 返回 map[host][]Identity，包含 anonymous。
+// TestRedis_List 验证：List 返回 map[host][]Identity。
 func TestRedis_List(t *testing.T) {
 	ctx := context.Background()
 	p := newProvider(t)
@@ -250,7 +245,7 @@ func TestRedis_List(t *testing.T) {
 	if !ok {
 		t.Fatalf("List 结果应包含 host=h, got keys=%v", got)
 	}
-	if !equalSlices(names(ids), []string{"alice", AnonymousName}) {
+	if !equalSlices(names(ids), []string{"alice"}) {
 		t.Fatalf("List 内容错误, got=%v", names(ids))
 	}
 }
@@ -282,7 +277,7 @@ func TestRedis_BatchSave_SkipsAnonymous(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get: %v", err)
 	}
-	if !equalSlices(names(got), []string{AnonymousName, "real"}) {
-		t.Fatalf("应为 [anonymous, real], got=%v", names(got))
+	if !equalSlices(names(got), []string{"real"}) {
+		t.Fatalf("应为 [real], got=%v", names(got))
 	}
 }

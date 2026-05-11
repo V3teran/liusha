@@ -29,16 +29,33 @@ BAC 的核心动作只有一个：**多身份重放对比**。用什么身份、
 - **非匿名身份数 = 1**：仍然**只能测 Unauthorized**——vertical 越权需要 ≥1 高 + ≥1 低权限，horizontal 越权需要 ≥2 个同级用户，单一非匿名身份**两类都凑不出**
 - **非匿名身份数 ≥ 2**：才能展开 vertical / horizontal 测试
 
-## 重要前提：凭证替换的"多位置"语义
+## 重要前提：anonymous 是 LLM 临时构造的测试概念
 
-`read_credentials` 返回的每个 Identity 带一个 `credentials` 数组——可以同时有多条 `{type, key, value}`（如 Cookie + Authorization Bearer + X-CSRF-Token 三件套并存）。重放时**必须把这个数组里所有位置都替换成目标身份的对应值**，漏一个就是假阳性（残留旧身份的认证还能进，得到的不是"目标身份能进"的结论）。
+`read_credentials` 返回的列表里**不含 anonymous**——anonymous 不是预录入的"半成品身份"，而是你在挖洞时按需构造的测试请求形态。每个 Identity 带一个 `credentials` 数组，可以同时有多条 `{type, key, value}`（如 Cookie + Authorization Bearer + X-CSRF-Token 三件套并存）。
 
-### anonymous 的两种状态
+### 构造 anonymous 的两种分支
 
-`read_credentials` 返回的 anonymous identity 有**两种**形态，区别决定你怎么做：
+按 `read_credentials` 返回的真实身份数量分流：
 
-1. **`credentials` 数组非空**（系统已预录入该 host 的凭证位置）→ 数组里每条 `{type, key, value="lstoken"}` 就是**精确的替换清单**。照搬这个清单，按 type（headers/query/body）+ key（字段名）注入 `lstoken` 即可。**全部位置都注**，一个都不能漏。
-2. **`credentials` 数组为空**（系统未预录入）→ 你自己看流量里哪些字段是认证性质（headers 的 Cookie / Authorization / X-Token、query 的 token / api_key、body 的 password / credentials 等），把识别到的所有认证位置都替换成 `lstoken`。
+**分支 A：列表里有 ≥1 个真实身份**（不管多少个）→ **拿任一身份的 `credentials` 数组作模板**
+
+例如 `admin.credentials = [{type:headers, key:Cookie, value:"session=admin_xyz"}, {type:headers, key:Authorization, value:"Bearer abc..."}]`，照这个结构构造 anonymous：
+
+- 同样的 `type` + `key`
+- 每条 `value` **整段替换为 `lstoken`**（不保留 `name=` 前缀，不保留 `Bearer ` 前缀）
+- 即 anonymous 重放请求里 `Cookie: lstoken` / `Authorization: lstoken`
+
+**全部位置都要注入**，漏一个就是假阳性（残留旧身份的认证还能进，得到的不是"匿名能进"的结论）。
+
+**分支 B：列表为空**（该 host 无任何预录入身份）→ **从原始流量自己识别凭证位置**
+
+看流量请求里哪些字段是认证性质：
+
+- `headers` 的 Cookie / Authorization / X-Token / X-Auth-Token / X-Api-Key 等
+- `query` 的 token / api_key / access_token / key 等
+- `body` 的 password / credentials / token 等
+
+把识别到的**所有**认证位置整段替换为 `lstoken`，构造 anonymous 重放请求。
 
 ### 为什么用 `lstoken` 而不是直接删凭证
 

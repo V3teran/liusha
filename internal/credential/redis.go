@@ -52,7 +52,8 @@ func (r *RedisProvider) BatchSave(ctx context.Context, byHost map[string][]Ident
 		// 收集本 host 所有 (name, json) 对，一次 HSET 写入。
 		fields := make(map[string]any, len(ids))
 		for _, id := range ids {
-			// anonymous 不持久化，由 GetIdentitiesByHost 注入。
+			// 防御性跳过：anonymous 不是持久化身份（是 LLM 临时构造的测试概念），
+			// caller 误传也不污染存储。
 			if id.Name == AnonymousName {
 				continue
 			}
@@ -77,10 +78,13 @@ func (r *RedisProvider) BatchSave(ctx context.Context, byHost map[string][]Ident
 	return nil
 }
 
-// GetIdentitiesByHost 返回 host 下全部身份；总是包含 anonymous。
+// GetIdentitiesByHost 返回 host 下所有预录入的真实身份。
+//
+// 不注入 anonymous：anonymous 是 LLM 在挖洞时临时构造的测试概念（从任一真实
+// 身份的 credentials 数组拿模板、整段替换 value 为 lstoken），不是持久化对象。
 // 反序列化失败的字段会被跳过（容错），避免脏数据阻塞读取。
 func (r *RedisProvider) GetIdentitiesByHost(ctx context.Context, host string) ([]Identity, error) {
-	out := []Identity{{Name: AnonymousName, Role: AnonymousName}}
+	out := []Identity{}
 
 	res, err := r.client.HGetAll(ctx, r.hashKey(host)).Result()
 	if err != nil {
