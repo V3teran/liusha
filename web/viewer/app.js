@@ -182,6 +182,16 @@ async function loadGraph() {
 
   try {
     const res = await fetch(url, { headers: { 'X-API-Key': apikey } });
+    if (res.status === 404) {
+      // engagement 已不在 DB（被 truncate / 已归档）→ 清 stale localStorage、
+      // 重拉列表自动选最新；不要让用户手动改下拉。
+      console.warn(`graph 404: engagement ${eid} 已不存在，清 stale eid 并重拉列表`);
+      localStorage.removeItem(STORAGE_KEYS.eid);
+      setStatus('error', 'STALE EID, RELOADING');
+      $('#btn-load').disabled = false;
+      await loadEngagementList(/*autoLoadGraph=*/ true);
+      return;
+    }
     if (!res.ok) {
       const txt = await res.text();
       setStatus('error', `HTTP ${res.status}`);
@@ -210,12 +220,21 @@ function setStatus(kind, label) {
 
 function renderAll() {
   const v = state.view;
-  $('#meta-engagement').textContent = `${v.host || '-'} · ${v.engagement_id.slice(0, 8)}`;
-  $('#meta-counts').textContent = `${v.nodes.length} nodes · ${v.edges.length} edges`;
-  $('#empty-hint').style.display = v.nodes.length <= 2 ? 'flex' : 'none';
+  // 防御性 null-guard：后端在某些路径（空 engagement / 投影器异常）可能返
+  // nodes/edges 字段为 null 而非 []，直接 .length 会抛 TypeError。
+  if (!v) {
+    setStatus('error', 'NO VIEW');
+    return;
+  }
+  const nodes = v.nodes || [];
+  const edges = v.edges || [];
+  const eidShort = v.engagement_id ? v.engagement_id.slice(0, 8) : '-';
+  $('#meta-engagement').textContent = `${v.host || '-'} · ${eidShort}`;
+  $('#meta-counts').textContent = `${nodes.length} nodes · ${edges.length} edges`;
+  $('#empty-hint').style.display = nodes.length <= 2 ? 'flex' : 'none';
 
-  renderGraph(v);
-  renderFindings(v);
+  renderGraph({ ...v, nodes, edges });
+  renderFindings({ ...v, nodes, edges });
   $('#panel-raw').textContent = JSON.stringify(v, null, 2);
 }
 

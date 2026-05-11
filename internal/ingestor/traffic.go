@@ -237,7 +237,6 @@ func (t *Traffic) enqueueMain(ctx context.Context, eid string, flowID int64, sna
 	tid, err := t.tasks.Create(ctx, agentrun.NewParams{
 		EngagementID: eid,
 		Role:         string(worker.RoleHunter),
-		Skill:        "hunter",
 		Input:        payloadInput,
 	})
 	if err != nil {

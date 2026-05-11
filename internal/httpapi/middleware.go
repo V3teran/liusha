@@ -21,9 +21,16 @@ func RequireAPIKey(expected string) gin.HandlerFunc {
 		// /viewer-config.json 不放在 /viewer/ 之下：Gin 路由树不允许同前缀下既有具名
 		// 路径又有 StaticFS catch-all（panic: catch-all conflicts），所以放同级。
 		fp := c.FullPath()
+		// FullPath 是 *已注册路由* 模板；未注册路由（如 dev autofill 关闭时的
+		// /viewer-config.json）会返回空串——必须用 URL.Path 兜底，否则会 401
+		// 而非 404，混淆"未配置 dev"与"鉴权失败"。
+		path := c.Request.URL.Path
 		if strings.HasSuffix(fp, "/healthz") ||
 			strings.HasPrefix(fp, "/viewer/") ||
-			fp == "/viewer-config.json" {
+			fp == "/viewer-config.json" ||
+			path == "/viewer-config.json" ||
+			path == "/favicon.ico" {
+			// favicon.ico 浏览器自动拉，没注册即 404；不走鉴权避免污染 401 日志。
 			c.Next()
 			return
 		}

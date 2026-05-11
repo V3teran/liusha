@@ -161,7 +161,7 @@ func TestEndToEnd_EnqueueAndProcess(t *testing.T) {
 	go func() { _ = srv.Run(m.AsynqMux()) }()
 	t.Cleanup(srv.Shutdown)
 
-	want := Payload{TaskID: "e2e-1", EngagementID: "eng-e2e", Role: RoleHunter, Skill: "sqli"}
+	want := Payload{TaskID: "e2e-1", EngagementID: "eng-e2e", Role: RoleHunter}
 	if _, _, err := c.Enqueue(ctx, RoleHunter, want); err != nil {
 		t.Fatalf("Enqueue err = %v", err)
 	}
@@ -175,7 +175,7 @@ func TestEndToEnd_EnqueueAndProcess(t *testing.T) {
 	mu.Lock()
 	got := received
 	mu.Unlock()
-	if got.TaskID != want.TaskID || got.Role != want.Role || got.Skill != want.Skill {
+	if got.TaskID != want.TaskID || got.Role != want.Role {
 		t.Fatalf("received payload = %+v, want %+v", got, want)
 	}
 }

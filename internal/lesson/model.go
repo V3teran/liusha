@@ -15,6 +15,10 @@ import (
 const (
 	KindLesson = "lesson"
 	KindHint   = "hint"
+
+	// HostGlobalHint 是 hint 的特殊 host 值——表示对所有 host 通用的业务规则。
+	// 与具体 host 一起被 ListByHostWithGlobalHints 拉取。
+	HostGlobalHint = "*"
 )
 
 // Lesson 是 lesson 表行的 Go 表示。
