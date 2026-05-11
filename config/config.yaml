@@ -265,7 +265,7 @@ react:
 sandbox:
   default_image: liusha/pentools:latest    # 默认沙箱镜像（17 工具+SecLists；build 即升级到 GitHub 最新版本）
   run_min_timeout_seconds: 30              # run_command 单次最小超时（钳）
-  run_max_timeout_seconds: 300             # run_command 单次最大超时（钳）
+  run_max_timeout_seconds: 1800            # run_command 单次最大超时（钳）；1800s=30min 给 sqlmap time-based blind / 慢 fuzz 足够窗口
   run_default_timeout_seconds: 90          # run_command 默认超时
   run_default_mem_mb: 512                  # 容器内存上限（MB）
   run_default_cpus: 1.0                    # 容器 CPU 上限（核数）

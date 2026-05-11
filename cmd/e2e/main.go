@@ -2,11 +2,14 @@
 //
 // CLI 用法：
 //
-//	go run ./cmd/e2e               # 不加参数 = 跑所有 profile
-//	go run ./cmd/e2e bac           # 只跑 bac
-//	go run ./cmd/e2e sqli          # 只跑 sqli
-//	go run ./cmd/e2e xss           # 只跑 xss
-//	go run ./cmd/e2e bac sqli xss  # 多选
+//	go run ./cmd/e2e                              # 不加参数 = 跑所有 profile
+//	go run ./cmd/e2e bac                          # 只跑 bac（业务向访问控制）
+//	go run ./cmd/e2e sqli                         # 只跑 sqli
+//	go run ./cmd/e2e xss                          # 只跑 xss（reflected/stored/DOM）
+//	go run ./cmd/e2e brute                        # 只跑 brute（暴力破解）
+//	go run ./cmd/e2e path-traversal               # 只跑 path-traversal（任意文件读取/CWE-22）
+//	go run ./cmd/e2e unrestricted-upload          # 只跑 unrestricted-upload（CWE-434）
+//	go run ./cmd/e2e bac sqli xss                 # 多选
 //
 // 流程（每个 profile 独立跑）：
 //  1. POST /credential/batch 一次预录所有 profile 全部 host 的凭证（启动期，不论 args）
@@ -14,10 +17,16 @@
 //  3. 读 sample 文件 → net.Dial 直连 proxify 写 raw bytes（不解析 headers/body）
 //  4. 轮询 finding 表直到 ≥minFindings 条 <kindPrefix>* 且 ≥minKinds 类齐全
 //
-// 内置 profile：
-//   - bac ：本地 vulnapp 多身份正常流量 → 期望 ≥3 条 bac.* / 3 类齐全
-//   - sqli：远程 DVWA SQLi（含 sqli + sqli_blind 两条流量） → 期望 ≥1 条 sqli.*
-//   - xss ：远程 DVWA XSS（reflected / stored / DOM 三条流量） → 期望 ≥1 条 xss.*
+// 内置 profile（6 个）：
+//   - bac                ：本地 vulnapp 多身份正常流量 → 期望 ≥3 条 finding / 2 类 severity 齐全
+//   - sqli               ：远程 DVWA SQLi → 期望 ≥1 条
+//   - xss                ：远程 DVWA XSS（reflected/stored/DOM 三条样本）→ 期望 ≥3 条
+//   - brute              ：远程 DVWA 暴力破解 → 期望 ≥1 条
+//   - path-traversal     ：远程 DVWA 路径遍历（OWASP CWE-22）→ 期望 ≥1 条
+//   - unrestricted-upload：远程 DVWA 任意文件上传（OWASP CWE-434）→ 期望 ≥1 条
+//
+// 注：e2e 数据已证实 LLM 对常规漏洞（sqli/xss/path-traversal/upload/brute）自身知识充分，
+// 删 vuln SKILL 后表现不降反升。这些 profile 保留作为镜像/架构回归测试的流量基线。
 //
 // 触发器只发起"用户正常流量"——具体漏洞由 hunter agent 用 credentials/run_command
 // 自由组合工具挖掘（v0024 agentic-lean：单层 agent，无预设流程）。
@@ -37,6 +46,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/rs/zerolog"
 
+	"github.com/V3teran/liusha/internal/agentrun"
 	"github.com/V3teran/liusha/internal/db"
 	"github.com/V3teran/liusha/internal/finding"
 	"github.com/V3teran/liusha/internal/logx"
@@ -104,7 +114,7 @@ var profiles = map[string]profile{
 		name:           "sqli",
 		defaultSamples: "examples/sample_sqli_raw.json",
 		kindPrefix:     "sqli.",
-		minFindings:    1,
+		minFindings:    2, // 2 条 sample（sqli + sqli_blind）期望各产 1 finding
 		minKinds:       1,
 		// DVWA 远程靶场（111.229.193.40:34280）：仅 admin 身份。
 		// PHPSESSID + security=low 双 cookie 拼成一行；旧 gordonb 身份的 cookie 在新靶机上无效，
@@ -147,13 +157,13 @@ var profiles = map[string]profile{
 			}
 		},
 	},
-	"fi": {
-		name:           "fi",
-		defaultSamples: "examples/sample_fi_raw.json",
-		kindPrefix:     "fi.",
+	"path-traversal": {
+		name:           "path-traversal",
+		defaultSamples: "examples/sample_path-traversal_raw.json",
+		kindPrefix:     "path-traversal.",
 		minFindings:    1,
 		minKinds:       1,
-		// 同 DVWA 远程靶场。/vulnerabilities/fi/?page= 是任意文件包含（LFI）漏洞。
+		// 同 DVWA 远程靶场。/vulnerabilities/fi/?page= 是路径遍历 / 任意文件读取漏洞（OWASP CWE-22）。
 		credsForHost: func(_ string) []credentialEntry {
 			return []credentialEntry{
 				{Name: "admin", Role: "admin", Credentials: []map[string]string{
@@ -162,13 +172,13 @@ var profiles = map[string]profile{
 			}
 		},
 	},
-	"upload": {
-		name:           "upload",
-		defaultSamples: "examples/sample_upload_raw.json",
-		kindPrefix:     "upload.",
+	"unrestricted-upload": {
+		name:           "unrestricted-upload",
+		defaultSamples: "examples/sample_unrestricted-upload_raw.json",
+		kindPrefix:     "unrestricted-upload.",
 		minFindings:    1,
 		minKinds:       1,
-		// 同 DVWA 远程靶场。/vulnerabilities/upload/ 是任意文件上传漏洞。
+		// 同 DVWA 远程靶场。/vulnerabilities/upload/ 是 Unrestricted File Upload（OWASP CWE-434）。
 		credsForHost: func(_ string) []credentialEntry {
 			return []credentialEntry{
 				{Name: "admin", Role: "admin", Credentials: []map[string]string{
@@ -343,6 +353,7 @@ func runProfile(ctx context.Context, plan profilePlan, proxyHostPort, apiBase, a
 	}
 
 	store := finding.NewStore(pool)
+	agentRunStore := agentrun.NewStore(pool)
 	deadline := time.Now().Add(pollDeadline())
 	for time.Now().Before(deadline) {
 		all, err := store.ListByEngagement(ctx, eid)
@@ -353,12 +364,33 @@ func runProfile(ctx context.Context, plan profilePlan, proxyHostPort, apiBase, a
 		}
 		matched := filterByPrefix(all, plan.prof.kindPrefix)
 		kinds := countKinds(matched)
+
+		// agent_run 完成度（每个 sample 对应 1 个 react 循环；e2e PASS 前要等所有 react 收手，
+		// 避免"第 1 个 react 已挖出 finding 满足门槛 → e2e 立即 exit → 第 2 个 react 还卡在
+		// time-based blind 等长任务里"的假阳性 PASS）。
+		unfinishedRuns := -1 // -1 表示查询失败；正常应 ≥ 0
+		if runs, runErr := agentRunStore.ListByEngagement(ctx, eid, 100); runErr == nil {
+			unfinishedRuns = 0
+			for _, r := range runs {
+				if r.Status == "pending" || r.Status == "running" {
+					unfinishedRuns++
+				}
+			}
+		}
+
 		logger.Info().
 			Str("profile", plan.prof.name).
 			Int("count", len(matched)).
 			Interface("kinds", kinds).
+			Int("unfinished_runs", unfinishedRuns).
 			Msg("poll")
-		if len(matched) >= plan.prof.minFindings && len(kinds) >= plan.prof.minKinds {
+
+		// PASS = finding 门槛满足 AND 所有 agent_run 都 done（无 pending/running 剩余）。
+		// agent_run 查询失败（unfinishedRuns=-1）时退化为仅看 finding 门槛——
+		// 防止 DB 临时抖动让所有 e2e profile 全 FAIL。
+		findingsOK := len(matched) >= plan.prof.minFindings && len(kinds) >= plan.prof.minKinds
+		runsOK := unfinishedRuns == 0 || unfinishedRuns == -1
+		if findingsOK && runsOK {
 			logger.Info().
 				Str("profile", plan.prof.name).
 				Int("count", len(matched)).
@@ -369,7 +401,7 @@ func runProfile(ctx context.Context, plan profilePlan, proxyHostPort, apiBase, a
 		}
 		time.Sleep(pollInterval)
 	}
-	return fmt.Errorf("timeout: 未达 finding/类覆盖门槛")
+	return fmt.Errorf("timeout: 未达 finding/类覆盖门槛（或仍有 agent_run pending/running 未收手）")
 }
 
 // resolveTargetHost 决定 engagement target_host：

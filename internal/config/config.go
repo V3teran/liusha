@@ -629,7 +629,7 @@ func applySandboxDefaults(c SandboxConfig) SandboxConfig {
 		c.RunMinTimeoutSeconds = 30
 	}
 	if c.RunMaxTimeoutSeconds == 0 {
-		c.RunMaxTimeoutSeconds = 300
+		c.RunMaxTimeoutSeconds = 1800
 	}
 	if c.RunDefaultTimeoutSeconds == 0 {
 		c.RunDefaultTimeoutSeconds = 90

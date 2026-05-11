@@ -135,16 +135,23 @@ func (a *RunCommand) Description() string {
 }
 
 // ParametersJSON：command 必填；timeout_seconds / tag 可选。
+//
+// timeout 的 minimum / maximum / default 从 cfg.Sandbox 注入的 a.MinTimeout / MaxTimeout /
+// DefaultTimeout 动态生成——不再 hardcode 300，否则 LLM 看到 schema 上限就不会传超过。
+// 之前曾因 hardcode max=300 + sqlmap time-based blind 需要 30min 而集体卡 300s 上限重试。
 func (a *RunCommand) ParametersJSON() json.RawMessage {
-	return json.RawMessage(`{
+	minSec := int(a.effectiveMinTimeout().Seconds())
+	maxSec := int(a.effectiveMaxTimeout().Seconds())
+	defSec := int(a.effectiveDefaultTimeout().Seconds())
+	return json.RawMessage(fmt.Sprintf(`{
   "type":"object",
   "properties": {
     "command":{"type":"string","minLength":1,"description":"完整 shell 命令；走 sh -c 解析（可用管道、重定向）。例如：sqlmap -u 'http://x/y?id=1' -p id --batch --level 5"},
-    "timeout_seconds":{"type":"integer","minimum":30,"maximum":300,"default":90,"description":"硬超时（秒），钳到 [30,300]"},
+    "timeout_seconds":{"type":"integer","minimum":%d,"maximum":%d,"default":%d,"description":"硬超时（秒），钳到 [%d,%d]；sqlmap time-based blind / 慢 fuzz 等长任务请显式传更大值（如 1200-1800）"},
     "tag":{"type":"string","pattern":"^[a-z0-9-]{1,32}$","description":"可选运维标签，作容器名后缀（如 'sqlmap-l5'、'curl-blind'）；不传或非法时用 'default'"}
   },
   "required":["command"]
-}`)
+}`, minSec, maxSec, defSec, minSec, maxSec))
 }
 
 // runCommandOutput 是 toolfx.Result.Output 的 JSON 结构。
