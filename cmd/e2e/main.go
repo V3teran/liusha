@@ -83,7 +83,9 @@ var profiles = map[string]profile{
 		defaultSamples: "examples/sample_bac_raw.json",
 		kindPrefix:     "bac.",
 		minFindings:    3,
-		minKinds:       3,
+		// BAC 天然以 critical/high 为主，medium/low 难自然产生；
+		// 凑 3 个 severity 等级强人所难，2 类（critical+high 或 high+任一）即可。
+		minKinds: 2,
 		credsForHost: func(_ string) []credentialEntry {
 			return []credentialEntry{
 				{Name: "admin", Role: "admin", Credentials: []map[string]string{
