@@ -78,9 +78,6 @@ func main() {
 	finds := finding.NewStore(pool).WithCounter(engs)
 	calls := llminvocation.NewStoreWithConfig(pool, cfg.LLM.Invocation)
 	lessons := lesson.NewStore(pool)
-	if err := lesson.SeedDefaultHints(ctx, lessons); err != nil {
-		logger.Warn().Err(err).Msg("seed default hints 失败（业务规则 hint 未入库，agent 将看不到 liusha 自定义判定逻辑）")
-	}
 	defer func() { _ = calls.Close() }()
 	flows := flow.NewStore(pool, scannerCfg.FlowMaxRequestBody, scannerCfg.FlowMaxResponseBody).WithCounter(engs)
 	creds := credential.NewRedis(rdb, cfg.Credential.RedisKeyPrefix)
