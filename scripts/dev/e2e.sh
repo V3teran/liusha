@@ -2,11 +2,14 @@
 # scripts/dev/e2e.sh [profile…] — 跑 e2e 触发器（host 侧）；自动管理 dev 栈生命周期
 # 流程：清空 db/redis → 关 service → 清 logs → 重启 service → 等 healthz → 跑 e2e
 # 用法：
-#   ./scripts/dev/e2e.sh                # 不带参 = 跑全部 profile（bac + sqli + xss）
-#   ./scripts/dev/e2e.sh bac            # 仅 bac
-#   ./scripts/dev/e2e.sh sqli           # 仅 sqli
-#   ./scripts/dev/e2e.sh xss            # 仅 xss
-#   ./scripts/dev/e2e.sh bac sqli xss   # 多选
+#   ./scripts/dev/e2e.sh                       # 不带参 = 跑全部 profile（按字典序：bac + brute + fi + sqli + upload + xss）
+#   ./scripts/dev/e2e.sh bac                   # 仅 bac
+#   ./scripts/dev/e2e.sh sqli                  # 仅 sqli
+#   ./scripts/dev/e2e.sh xss                   # 仅 xss
+#   ./scripts/dev/e2e.sh brute                 # 仅 brute（暴力破解）
+#   ./scripts/dev/e2e.sh fi                    # 仅 fi（任意文件包含）
+#   ./scripts/dev/e2e.sh upload                # 仅 upload（任意文件上传）
+#   ./scripts/dev/e2e.sh bac sqli xss          # 多选
 #
 # 清空范围（每次执行都做一次）：
 #   - postgres：9 张业务表 TRUNCATE（schema 保留）

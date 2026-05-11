@@ -132,6 +132,51 @@ var profiles = map[string]profile{
 			}
 		},
 	},
+	"brute": {
+		name:           "brute",
+		defaultSamples: "examples/sample_brute_raw.json",
+		kindPrefix:     "brute.",
+		minFindings:    1,
+		minKinds:       1,
+		// 同 DVWA 远程靶场。/vulnerabilities/brute/ 是登录表单类暴力破解漏洞。
+		credsForHost: func(_ string) []credentialEntry {
+			return []credentialEntry{
+				{Name: "admin", Role: "admin", Credentials: []map[string]string{
+					{"type": "headers", "key": "Cookie", "value": "PHPSESSID=f0be9e4b2148f43da74884680ecbfd96; security=low"},
+				}},
+			}
+		},
+	},
+	"fi": {
+		name:           "fi",
+		defaultSamples: "examples/sample_fi_raw.json",
+		kindPrefix:     "fi.",
+		minFindings:    1,
+		minKinds:       1,
+		// 同 DVWA 远程靶场。/vulnerabilities/fi/?page= 是任意文件包含（LFI）漏洞。
+		credsForHost: func(_ string) []credentialEntry {
+			return []credentialEntry{
+				{Name: "admin", Role: "admin", Credentials: []map[string]string{
+					{"type": "headers", "key": "Cookie", "value": "PHPSESSID=f0be9e4b2148f43da74884680ecbfd96; security=low"},
+				}},
+			}
+		},
+	},
+	"upload": {
+		name:           "upload",
+		defaultSamples: "examples/sample_upload_raw.json",
+		kindPrefix:     "upload.",
+		minFindings:    1,
+		minKinds:       1,
+		// 同 DVWA 远程靶场。/vulnerabilities/upload/ 是任意文件上传漏洞。
+		credsForHost: func(_ string) []credentialEntry {
+			return []credentialEntry{
+				{Name: "admin", Role: "admin", Credentials: []map[string]string{
+					{"type": "headers", "key": "Cookie", "value": "PHPSESSID=f0be9e4b2148f43da74884680ecbfd96; security=low"},
+				}},
+			}
+		},
+	},
 }
 
 // profilePlan 是单个 profile 的运行计划：解析后的 host + 加载好的样本。
