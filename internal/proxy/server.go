@@ -2,6 +2,8 @@ package proxy
 
 import (
 	"bytes"
+	"compress/flate"
+	"compress/gzip"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -158,6 +160,19 @@ func (s *Server) onResponse(resp *http.Response, _ *martian.Context) error {
 		return nil
 	}
 
+	// 2.5) 按 Content-Encoding 解压响应——避免 gzip 二进制流（含 ）
+	//      被原样塞进 user prompt 后写 jsonb 时被 PG 拒收。
+	if encoding := resp.Header.Get("Content-Encoding"); encoding != "" {
+		if decoded, derr := decompressIfEncoded(respBody, encoding); derr != nil {
+			s.logger.Warn().Err(derr).Str("encoding", encoding).
+				Msg("解压响应失败，保留原始字节（下游可能含二进制乱码）")
+		} else {
+			respBody = decoded
+			resp.Header.Del("Content-Encoding") // 解压后内容明文
+			resp.Header.Del("Content-Length")   // 长度已变
+		}
+	}
+
 	// 3) 构造 snapshot 并投递到 Stream
 	snap := buildSnapshot(req, resp, reqBody, respBody)
 	if err := s.publisher.Publish(req.Context(), snap); err != nil {
@@ -219,6 +234,46 @@ func resolveCertDir(dir string) (string, error) {
 		return filepath.Join(home, dir[2:]), nil
 	}
 	return dir, nil
+}
+
+// decompressIfEncoded 按 Content-Encoding 解压响应 body。
+//
+// 支持 gzip / deflate（标准库）。br（Brotli）需要第三方库（andybalholm/brotli），
+// 暂不支持——遇到时返回原样字节，调用方决定是否容忍。
+//
+// 设计动机：HTTP 服务端常按 Accept-Encoding 协商压缩响应（DVWA 等典型场景），
+// 压缩字节流含  /  等 binary，被原样塞进 user prompt 后写入 PG jsonb
+// 列会被拒收（PG 不允许 jsonb 字符串含  ）。在最早的 proxy 层解压一次，
+// 下游 flow / scanner / LLM 都用解压后的明文。
+//
+// 失败时返回原 body + error（让 caller 决定降级策略）。
+func decompressIfEncoded(body []byte, encoding string) ([]byte, error) {
+	encoding = strings.ToLower(strings.TrimSpace(encoding))
+	if encoding == "" || encoding == "identity" {
+		return body, nil
+	}
+	var reader io.Reader
+	switch encoding {
+	case "gzip":
+		gz, err := gzip.NewReader(bytes.NewReader(body))
+		if err != nil {
+			return body, fmt.Errorf("gzip.NewReader: %w", err)
+		}
+		defer gz.Close()
+		reader = gz
+	case "deflate":
+		fr := flate.NewReader(bytes.NewReader(body))
+		defer fr.Close()
+		reader = fr
+	default:
+		// br / zstd 等暂不支持——保留原始字节，下游若含二进制需自处理。
+		return body, nil
+	}
+	decoded, err := io.ReadAll(reader)
+	if err != nil {
+		return body, fmt.Errorf("read decompressed (%s): %w", encoding, err)
+	}
+	return decoded, nil
 }
 
 // readAndRebuildBody 读完 body 并重建 io.NopCloser，保证下游可继续读取。
