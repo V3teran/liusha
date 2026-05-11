@@ -84,6 +84,10 @@ function bindEvents() {
     btn.addEventListener('click', () => switchTab(btn.dataset.tab));
   });
 
+  // View 切换：Graph（图视图）/ LLM（调用审计全屏）
+  $('#btn-view-graph').addEventListener('click', () => switchView('graph'));
+  $('#btn-view-llm').addEventListener('click', () => switchView('llm'));
+
   ['input-host', 'input-apikey'].forEach((id) => {
     $('#' + id).addEventListener('keydown', (e) => {
       if (e.key === 'Enter') {
@@ -202,6 +206,8 @@ async function loadGraph() {
     state.view = view;
     renderAll();
     setStatus('active', 'ACTIVE');
+    // 异步拉 LLM invocation 审计——与 graph 同 engagement，失败不阻塞主流程。
+    loadInvocations(eid, apikey).catch((err) => console.warn('invocations load failed:', err));
   } catch (err) {
     setStatus('error', 'NETWORK ERROR');
     console.error(err);
@@ -379,6 +385,34 @@ function truncate(s, n) {
   return s.length > n ? s.slice(0, n - 1) + '…' : s;
 }
 
+/**
+ * 切换主视图：Graph（攻击图）/ LLM（调用审计全屏）。
+ * @param {'graph'|'llm'} view
+ */
+function switchView(view) {
+  const graphView = $('#view-graph');
+  const llmView = $('#view-llm');
+  const btnGraph = $('#btn-view-graph');
+  const btnLlm = $('#btn-view-llm');
+  if (view === 'llm') {
+    graphView.classList.add('hidden');
+    llmView.classList.remove('hidden');
+    btnGraph.classList.remove('active');
+    btnLlm.classList.add('active');
+    // 切到 LLM 时主动拉一次（如未加载过）
+    const eid = $('#select-eid').value || localStorage.getItem(STORAGE_KEYS.eid);
+    const apikey = $('#input-apikey').value;
+    if (eid && apikey) {
+      loadInvocations(eid, apikey).catch((err) => console.warn('invocations load failed:', err));
+    }
+  } else {
+    graphView.classList.remove('hidden');
+    llmView.classList.add('hidden');
+    btnGraph.classList.add('active');
+    btnLlm.classList.remove('active');
+  }
+}
+
 function escapeHtml(s) {
   return String(s)
     .replace(/&/g, '&amp;')
@@ -386,6 +420,122 @@ function escapeHtml(s) {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
+}
+
+// ---------- LLM invocation 审计（按 agent_run_id 分组）----------
+
+/**
+ * fetch /llm/invocations/:eid → 渲染到 #panel-invocations。
+ * 按 agent_run_id 分组折叠（<details>），点开展示完整 16 字段（含 messages / result jsonb）。
+ * @param {string} eid engagement_id
+ * @param {string} apikey X-API-Key
+ */
+async function loadInvocations(eid, apikey) {
+  const panel = $('#panel-invocations');
+  if (!panel) return;
+  panel.innerHTML = '<div class="empty">LOADING...</div>';
+  const res = await fetch(`/llm/invocations/${encodeURIComponent(eid)}`, {
+    headers: { 'X-API-Key': apikey },
+  });
+  if (!res.ok) {
+    panel.innerHTML = `<div class="empty">HTTP ${res.status}</div>`;
+    return;
+  }
+  const data = await res.json();
+  renderInvocations(data);
+}
+
+/**
+ * 渲染 invocation 分组到 #panel-invocations。
+ * @param {{engagement_id: string, total: number, groups: Array<{agent_run_id: string, count: number, invocations: Array}>}} data
+ */
+function renderInvocations(data) {
+  const panel = $('#panel-invocations');
+  if (!data || !Array.isArray(data.groups) || data.groups.length === 0) {
+    panel.innerHTML = '<div class="empty">该 engagement 暂无 LLM invocation</div>';
+    return;
+  }
+
+  const totalCost = data.groups.reduce((acc, g) => {
+    return acc + g.invocations.reduce((s, inv) => s + (inv.cost_usd || 0), 0);
+  }, 0);
+
+  const summary = `
+    <div class="inv-header">
+      <span><strong>${data.total}</strong> invocations</span>
+      <span>${data.groups.length} agent_run 分组</span>
+      <span>总成本 $${totalCost.toFixed(4)}</span>
+    </div>
+  `;
+
+  const groupsHtml = data.groups
+    .map((g) => renderInvocationGroup(g))
+    .join('');
+
+  panel.innerHTML = summary + groupsHtml;
+}
+
+function renderInvocationGroup(group) {
+  const arid = group.agent_run_id || 'unassigned';
+  const aridShort = arid === 'unassigned' ? arid : arid.slice(0, 8);
+  const inTokens = group.invocations.reduce((s, i) => s + (i.in_tokens || 0), 0);
+  const outTokens = group.invocations.reduce((s, i) => s + (i.out_tokens || 0), 0);
+  const cost = group.invocations.reduce((s, i) => s + (i.cost_usd || 0), 0);
+
+  const rows = group.invocations.map((inv, idx) => renderInvocationCard(inv, idx + 1)).join('');
+
+  return `
+    <details class="inv-group" open>
+      <summary>
+        <strong>agent_run ${escapeHtml(aridShort)}</strong>
+        · ${group.count} 步
+        · tok in=${inTokens} out=${outTokens}
+        · $${cost.toFixed(4)}
+      </summary>
+      <div class="inv-list">${rows}</div>
+    </details>
+  `;
+}
+
+function renderInvocationCard(inv, stepIdx) {
+  const time = inv.created_at ? inv.created_at.replace(/T/, ' ').replace(/\.\d+/, '').replace(/\+.*$/, '') : '';
+  const errBadge = inv.error_message
+    ? `<span class="inv-err">ERROR: ${escapeHtml(truncate(inv.error_message, 80))}</span>`
+    : '';
+
+  return `
+    <details class="inv-card">
+      <summary>
+        <span class="inv-step">#${stepIdx}</span>
+        <span class="inv-purpose">${escapeHtml(inv.call_purpose || '-')}</span>
+        <span class="inv-model">${escapeHtml(inv.provider)}/${escapeHtml(inv.model)}</span>
+        <span class="inv-tokens">in=${inv.in_tokens} out=${inv.out_tokens}${inv.cached_tokens ? ' cached=' + inv.cached_tokens : ''}</span>
+        <span class="inv-cost">$${(inv.cost_usd || 0).toFixed(6)}</span>
+        <span class="inv-lat">${inv.latency_ms}ms</span>
+        <span class="inv-finish">${escapeHtml(inv.finish_reason || '-')}</span>
+        <span class="inv-time">${time}</span>
+        ${errBadge}
+      </summary>
+      <dl class="inv-fields">
+        <dt>id</dt><dd>${inv.id}</dd>
+        <dt>agent_run_id</dt><dd>${escapeHtml(inv.agent_run_id || '(null)')}</dd>
+        <dt>engagement_id</dt><dd>${escapeHtml(inv.engagement_id || '(null)')}</dd>
+        <dt>provider</dt><dd>${escapeHtml(inv.provider)}</dd>
+        <dt>model</dt><dd>${escapeHtml(inv.model)}</dd>
+        <dt>call_purpose</dt><dd>${escapeHtml(inv.call_purpose || '')}</dd>
+        <dt>in_tokens</dt><dd>${inv.in_tokens}</dd>
+        <dt>out_tokens</dt><dd>${inv.out_tokens}</dd>
+        <dt>cached_tokens</dt><dd>${inv.cached_tokens}</dd>
+        <dt>cost_usd</dt><dd>$${inv.cost_usd}</dd>
+        <dt>latency_ms</dt><dd>${inv.latency_ms} ms</dd>
+        <dt>finish_reason</dt><dd>${escapeHtml(inv.finish_reason || '')}</dd>
+        <dt>error_message</dt><dd>${escapeHtml(inv.error_message || '')}</dd>
+        <dt>created_at</dt><dd>${escapeHtml(inv.created_at || '')}</dd>
+        <dt>messages (jsonb)</dt><dd><pre class="inv-json">${escapeHtml(JSON.stringify(inv.messages, null, 2))}</pre></dd>
+        <dt>result (jsonb)</dt><dd><pre class="inv-json">${escapeHtml(JSON.stringify(inv.result, null, 2))}</pre></dd>
+      </dl>
+    </details>
+  `;
 }
 
 init();

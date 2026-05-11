@@ -226,6 +226,46 @@ func (s *Store) SumCostByEngagement(ctx context.Context, engagementID string) (f
 	return v, nil
 }
 
+// ListByEngagement 列出 engagement 下所有 LLM invocation（按 created_at ASC）。
+//
+// 调用方有责任先 Flush() 等异步 buffer commit，否则可能缺最近 0-1s 的记录——
+// handler 路径上 Flush() 后再调本方法，保证 viewer 拿到完整审计快照。
+func (s *Store) ListByEngagement(ctx context.Context, engagementID string) ([]Invocation, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT id, agent_run_id, engagement_id, provider, model,
+		       in_tokens, out_tokens, cached_tokens,
+		       cost_usd, latency_ms, finish_reason, error_message, call_purpose,
+		       messages, result, created_at
+		FROM llm_invocation
+		WHERE engagement_id=$1
+		ORDER BY created_at ASC`, engagementID)
+	if err != nil {
+		return nil, fmt.Errorf("list llm_invocation: %w", err)
+	}
+	defer rows.Close()
+
+	var out []Invocation
+	for rows.Next() {
+		var v Invocation
+		var taskID, eid *string
+		if err := rows.Scan(
+			&v.ID, &taskID, &eid, &v.Provider, &v.Model,
+			&v.InTokens, &v.OutTokens, &v.CachedTokens,
+			&v.CostUSD, &v.LatencyMs, &v.FinishReason, &v.Error, &v.CallPurpose,
+			&v.Messages, &v.Result, &v.CreatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan llm_invocation: %w", err)
+		}
+		v.TaskID = taskID
+		v.EngagementID = eid
+		out = append(out, v)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate llm_invocation: %w", err)
+	}
+	return out, nil
+}
+
 // CountByCallPurpose 按 call_purpose 维度聚合 engagement 下的调用次数，便于验证多模型路由生效。
 func (s *Store) CountByCallPurpose(ctx context.Context, engagementID string) (map[string]int, error) {
 	rows, err := s.pool.Query(ctx, `

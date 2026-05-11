@@ -19,6 +19,7 @@ import (
 	"github.com/V3teran/liusha/internal/finding"
 	"github.com/V3teran/liusha/internal/graphview"
 	"github.com/V3teran/liusha/internal/httpapi"
+	"github.com/V3teran/liusha/internal/llminvocation"
 	"github.com/V3teran/liusha/internal/logx"
 	"github.com/V3teran/liusha/web"
 )
@@ -53,6 +54,8 @@ func main() {
 	)
 	findStore := finding.NewStore(pool)
 	projector := &graphview.Projector{Findings: findStore, Engagements: engStore}
+	invocationStore := llminvocation.NewStoreWithConfig(pool, cfg.LLM.Invocation)
+	defer func() { _ = invocationStore.Close() }()
 
 	// 监听地址：优先 ENV（运维临时切换）→ yaml。
 	listenAddr := envOr("LIUSHA_API_ADDR", cfg.API.ListenAddr)
@@ -63,6 +66,7 @@ func main() {
 			Credentials:       credAPI,
 			Engagements:       engagementAPIAdapter{engStore},
 			Graph:             projector,
+			Invocations:       invocationStore,
 			StaticFS:          web.ViewerFS(),
 			EnableDevAutofill: envOr("LIUSHA_VIEWER_DEV_KEY", "") != "",
 		}),

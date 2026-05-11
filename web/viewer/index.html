@@ -31,10 +31,14 @@
     </div>
     <div class="topbar-right">
       <span id="meta-counts">0 nodes · 0 edges</span>
+      <span class="view-toggle">
+        <button id="btn-view-graph" class="view-btn active">Graph</button>
+        <button id="btn-view-llm" class="view-btn">LLM</button>
+      </span>
     </div>
   </header>
 
-  <main class="main">
+  <main class="main" id="view-graph">
     <section class="graph-pane">
       <svg id="graph"><g></g></svg>
       <div id="empty-hint" class="empty-hint">
@@ -68,6 +72,12 @@
         <pre id="panel-raw" class="raw-json">—</pre>
       </section>
     </aside>
+  </main>
+
+  <main class="main-llm hidden" id="view-llm">
+    <div id="panel-invocations" class="invocations-fullscreen">
+      <div class="empty">加载 engagement 后展示 LLM 调用审计（按 agent_run_id 分组）</div>
+    </div>
   </main>
 
   <script type="module" src="app.js"></script>

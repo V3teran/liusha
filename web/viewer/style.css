@@ -375,3 +375,142 @@ html, body {
   fill: var(--bg);
   stroke: none;
 }
+
+/* ---------- View 切换（Graph / LLM）---------- */
+
+.view-toggle {
+  display: inline-flex;
+  margin-left: 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.view-btn {
+  padding: 4px 12px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.view-btn.active {
+  background: var(--color-accent, #2563eb);
+  color: #fff;
+}
+.view-btn:hover:not(.active) {
+  background: rgba(0, 0, 0, 0.04);
+}
+
+/* ---------- LLM 全屏视图 ---------- */
+
+.main-llm {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px;
+  background: var(--bg, #fff);
+}
+.main-llm.hidden { display: none; }
+
+.invocations-fullscreen {
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+.inv-header {
+  display: flex;
+  gap: 20px;
+  padding: 12px 16px;
+  margin-bottom: 16px;
+  background: #f8fafc;
+  border-radius: 8px;
+  font-size: 13px;
+  border: 1px solid var(--border);
+}
+
+/* agent_run 分组（按 agent_run_id） */
+.inv-group {
+  margin-bottom: 20px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+}
+.inv-group > summary {
+  padding: 12px 16px;
+  cursor: pointer;
+  font-size: 14px;
+  background: #eef2ff;
+  border-radius: 8px 8px 0 0;
+  user-select: none;
+}
+.inv-group[open] > summary { border-bottom: 1px solid var(--border); }
+.inv-group > summary strong { color: #1e40af; }
+.inv-list { padding: 8px 12px; }
+
+/* 单条 invocation 卡片 */
+.inv-card {
+  margin: 6px 0;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  background: #fafbfc;
+}
+.inv-card > summary {
+  padding: 8px 12px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  cursor: pointer;
+  font-size: 12px;
+  user-select: none;
+  font-family: 'SF Mono', Menlo, monospace;
+}
+.inv-card[open] > summary {
+  border-bottom: 1px solid #e2e8f0;
+  background: #f1f5f9;
+}
+.inv-step { font-weight: 700; color: #1e40af; min-width: 40px; }
+.inv-purpose { padding: 2px 6px; background: #dbeafe; border-radius: 3px; color: #1e3a8a; }
+.inv-model { padding: 2px 6px; background: #e0e7ff; border-radius: 3px; color: #3730a3; }
+.inv-tokens { color: #475569; }
+.inv-cost { color: #059669; font-weight: 600; }
+.inv-lat { color: #94a3b8; }
+.inv-finish { color: #64748b; }
+.inv-time { color: #94a3b8; font-size: 11px; }
+.inv-err { padding: 2px 6px; background: #fee2e2; color: #b91c1c; border-radius: 3px; font-weight: 600; }
+
+/* 展开后的 16 字段 + messages/result */
+.inv-fields {
+  padding: 16px;
+  display: grid;
+  grid-template-columns: 200px 1fr;
+  gap: 8px 16px;
+  margin: 0;
+  font-size: 12px;
+  background: #fff;
+}
+.inv-fields dt {
+  font-weight: 600;
+  color: var(--text-muted);
+  font-family: 'SF Mono', Menlo, monospace;
+}
+.inv-fields dd {
+  margin: 0;
+  word-break: break-all;
+  font-family: 'SF Mono', Menlo, monospace;
+}
+
+/* messages / result jsonb 的 prettify JSON 块（深色暗黑主题，方便看长文本）*/
+.inv-json {
+  max-height: 500px;
+  overflow: auto;
+  padding: 12px;
+  background: #0f172a;
+  color: #e2e8f0;
+  border-radius: 4px;
+  font-size: 11px;
+  line-height: 1.5;
+  font-family: 'SF Mono', Menlo, monospace;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+

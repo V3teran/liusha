@@ -13,6 +13,9 @@ type Deps struct {
 	Credentials CredentialsAPI
 	Engagements EngagementsAPI
 	Graph       GraphAPI
+	// Invocations 为 nil 时 /llm/invocations/:eid 路由不注册。
+	// 由 cmd/api 注入 *llminvocation.Store（自动满足 InvocationsAPI 窄接口）。
+	Invocations InvocationsAPI
 	// StaticFS 可选：注入时挂 / 路径 serve 静态前端（PR-3 graph viewer SPA）。
 	// 为 nil 时不注册——避免 cmd/api 之外的进程意外暴露前端资源。
 	StaticFS http.FileSystem
@@ -44,6 +47,9 @@ func NewServer(d Deps) http.Handler {
 	}
 	if d.Graph != nil {
 		r.GET("/graph/:engagement_id", graphHandler(d.Graph))
+	}
+	if d.Invocations != nil {
+		r.GET("/llm/invocations/:engagement_id", llmInvocationsHandler(d.Invocations))
 	}
 	if d.EnableDevAutofill && d.APIKey != "" {
 		// dev-only：viewer 启动时拉这个端点自动填充 API key。
