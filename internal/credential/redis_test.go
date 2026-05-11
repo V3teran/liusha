@@ -11,6 +11,7 @@ import (
 
 	tcredis "github.com/testcontainers/testcontainers-go/modules/redis"
 
+	"github.com/V3teran/liusha/internal/config"
 	"github.com/V3teran/liusha/internal/db"
 )
 
@@ -30,13 +31,13 @@ func newProvider(t *testing.T) *RedisProvider {
 	if err != nil {
 		t.Fatalf("获取 redis 连接串失败: %v", err)
 	}
-	client, err := db.NewRedis(ctx, strings.TrimPrefix(connStr, "redis://"))
+	client, err := db.NewRedis(ctx, strings.TrimPrefix(connStr, "redis://"), config.RedisConfig{})
 	if err != nil {
 		t.Fatalf("连接 redis 失败: %v", err)
 	}
 	t.Cleanup(func() { _ = client.Close() })
 
-	return NewRedis(client)
+	return NewRedis(client, "")
 }
 
 // names 提取 identity 列表的 Name 并排序，便于断言。
@@ -151,7 +152,7 @@ func TestRedis_PermanentTTL(t *testing.T) {
 		t.Fatalf("batch save: %v", err)
 	}
 
-	d, err := p.client.TTL(ctx, hashKey("perm")).Result()
+	d, err := p.client.TTL(ctx, p.hashKey("perm")).Result()
 	if err != nil {
 		t.Fatalf("ttl: %v", err)
 	}
@@ -265,7 +266,7 @@ func TestRedis_BatchSave_SkipsAnonymous(t *testing.T) {
 	}
 
 	// 直接探测 hash field：anonymous field 不应被写入（hash 本身因为 real 存在）。
-	exists, err := p.client.HExists(ctx, hashKey("h"), AnonymousName).Result()
+	exists, err := p.client.HExists(ctx, p.hashKey("h"), AnonymousName).Result()
 	if err != nil {
 		t.Fatalf("hexists: %v", err)
 	}
