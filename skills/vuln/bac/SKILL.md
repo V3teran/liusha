@@ -23,13 +23,30 @@ BAC 的核心动作只有一个：**多身份重放对比**。用什么身份、
 - 路径或 body 里出现资源标识符（任何 ID、文件名、用户名）→ 多半要测水平越权
 - 路径或角色语义指向特权域（管理后台、系统设置、批量操作）→ 多半要测垂直越权
 
-`read_credentials` 能拿到的身份组合往往是 anonymous + 若干普通用户 +（可能）管理员。怎么用、用几个，自己拿捏。**身份数量不足 2 个（只有 anonymous）时，只能判 Unauthorized，无法判越权类**——越权判定需要至少 2 个非匿名身份做对比。
+`read_credentials` 返回的身份组合常见形态：anonymous + 若干普通用户 +（可能）管理员。怎么用、用几个，自己拿捏，但有硬约束：
 
-## 重要前提：anonymous 与占位 token `lstoken`
+- **非匿名身份数 = 0**：只能测 Unauthorized（anonymous vs 流量自带身份）
+- **非匿名身份数 = 1**：仍然**只能测 Unauthorized**——vertical 越权需要 ≥1 高 + ≥1 低权限，horizontal 越权需要 ≥2 个同级用户，单一非匿名身份**两类都凑不出**
+- **非匿名身份数 ≥ 2**：才能展开 vertical / horizontal 测试
 
-测匿名访问时，按 `read_credentials` 工具的约定，用占位 token **`lstoken`** 替换 cookie 值跑 curl——这能精确触发服务端"token 校验失败"分支（比完全无 cookie 走"未登录"分支更接近真实未授权场景）。
+## 重要前提：凭证替换的"多位置"语义
 
-**`lstoken` 等同于无凭证**：anonymous 身份的请求头里看到 `Cookie: lstoken` 不代表认证成功，只是占位符。判断 anonymous 是否能成功访问时**只看响应状态码和响应内容，不看其请求头里的 Cookie 值**。
+`read_credentials` 返回的每个 Identity 带一个 `credentials` 数组——可以同时有多条 `{type, key, value}`（如 Cookie + Authorization Bearer + X-CSRF-Token 三件套并存）。重放时**必须把这个数组里所有位置都替换成目标身份的对应值**，漏一个就是假阳性（残留旧身份的认证还能进，得到的不是"目标身份能进"的结论）。
+
+### anonymous 的两种状态
+
+`read_credentials` 返回的 anonymous identity 有**两种**形态，区别决定你怎么做：
+
+1. **`credentials` 数组非空**（系统已预录入该 host 的凭证位置）→ 数组里每条 `{type, key, value="lstoken"}` 就是**精确的替换清单**。照搬这个清单，按 type（headers/query/body）+ key（字段名）注入 `lstoken` 即可。**全部位置都注**，一个都不能漏。
+2. **`credentials` 数组为空**（系统未预录入）→ 你自己看流量里哪些字段是认证性质（headers 的 Cookie / Authorization / X-Token、query 的 token / api_key、body 的 password / credentials 等），把识别到的所有认证位置都替换成 `lstoken`。
+
+### 为什么用 `lstoken` 而不是直接删凭证
+
+`lstoken` 精确触发服务端"token 校验失败"分支（比完全无凭证走"未登录"分支更接近真实未授权场景，有些应用对这两个分支处理不一样，只测后者会漏真实认证缺陷）。
+
+### 判定时的注意
+
+**`lstoken` 等同于无凭证**：anonymous 重放的请求里看到 `Cookie: lstoken` / `Authorization: lstoken` / `?token=lstoken` 不代表认证成功，只是占位符。判断 anonymous 是否能成功访问时**只看响应**（status + body），不看请求自己带了什么凭证字段值。
 
 ## 判定原则（关键 5 条，按优先级）
 
@@ -78,7 +95,7 @@ BAC 的核心动作只有一个：**多身份重放对比**。用什么身份、
 
 evidence 必须包含：
 
-- **multi-identity replay 矩阵**：每个测试身份的 status + 关键响应字段对比，不要只贴违规身份那一条
+- **multi-identity replay 矩阵**：每个测试身份的 status + 关键响应字段对比，不要只贴违规身份那一条；矩阵要明示**每个身份注入的所有凭证位置**（如果有 Cookie + Authorization 双位置，两条都要列），证明替换是完整的而不是只换了一条
 - **泄露的敏感字段名**（user_id / email / phone / token 等业务字段）
 - **repro_cmd**：用违规身份的最小化 curl 复现命令，别人 copy 就能跑出同结果
 - 涉及 anonymous 越权时，违规身份字面值就是 `anonymous`，不要写空串或 null
