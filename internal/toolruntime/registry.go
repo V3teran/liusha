@@ -64,14 +64,6 @@ func (r *Registry) Register(a Action) error {
 	return nil
 }
 
-// Has 报告是否已注册某动作。
-func (r *Registry) Has(name string) bool {
-	r.lock.RLock()
-	defer r.lock.RUnlock()
-	_, ok := r.actions[name]
-	return ok
-}
-
 // Use 追加中间件；先注册的在最外层（与 HTTP middleware 一致）。
 func (r *Registry) Use(mw ...Middleware) {
 	if len(mw) == 0 {

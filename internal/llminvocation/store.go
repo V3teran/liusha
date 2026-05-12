@@ -46,13 +46,8 @@ const (
 	fallbackInsertTimeout = 5 * time.Second
 )
 
-// NewStore 用 pgxpool 构造 Store 并启动后台 batch worker。等价于 NewStoreWithConfig(pool, {})。
+// NewStoreWithConfig 用 yaml 配置构造 Store 并启动后台 batch worker；任一字段为 0 时回退到 fallback 常量。
 // 进程退出前必须调用 Close() 排空 buffer，否则丢失最近写入。
-func NewStore(pool *pgxpool.Pool) *Store {
-	return NewStoreWithConfig(pool, config.InvocationConfig{})
-}
-
-// NewStoreWithConfig 用 yaml 配置构造 Store；任一字段为 0 时回退到 fallback 常量。
 func NewStoreWithConfig(pool *pgxpool.Pool, c config.InvocationConfig) *Store {
 	bufSize := c.BufferSize
 	if bufSize <= 0 {

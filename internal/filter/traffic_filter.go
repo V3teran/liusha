@@ -11,9 +11,7 @@ import (
 // 与 liusha2 不同：本项目无 RuntimeConfig 热更新；所有配置静态，链构建一次即复用，
 // 避免每条流量重建链造成的开销与不一致风险。
 type TrafficFilter struct {
-	chain               *Chain
-	maxRequestBodySize  int
-	maxResponseBodySize int
+	chain *Chain
 }
 
 // NewTrafficFilter 按给定 ProxyConfig 一次性组装责任链。
@@ -43,20 +41,10 @@ func NewTrafficFilter(cfg config.ProxyConfig) *TrafficFilter {
 	}
 	chain.Add(NewSizeFilter(cfg.MaxRequestBodySize, cfg.MaxResponseBodySize))
 
-	return &TrafficFilter{
-		chain:               chain,
-		maxRequestBodySize:  cfg.MaxRequestBodySize,
-		maxResponseBodySize: cfg.MaxResponseBodySize,
-	}
+	return &TrafficFilter{chain: chain}
 }
 
 // ShouldProcess 统一入口：true=保留，false+reason=丢弃。
 func (f *TrafficFilter) ShouldProcess(req *http.Request, resp *http.Response) (bool, string) {
 	return f.chain.ShouldProcess(req, resp)
 }
-
-// MaxRequestBodySize body 截断阈值（字节，0=不限）。
-func (f *TrafficFilter) MaxRequestBodySize() int { return f.maxRequestBodySize }
-
-// MaxResponseBodySize body 截断阈值（字节，0=不限）。
-func (f *TrafficFilter) MaxResponseBodySize() int { return f.maxResponseBodySize }

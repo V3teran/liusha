@@ -316,13 +316,6 @@ func TestTrafficFilter_Construction(t *testing.T) {
 			}
 		})
 	}
-
-	if got := tf.MaxRequestBodySize(); got != 1024 {
-		t.Errorf("MaxRequestBodySize=%d want 1024", got)
-	}
-	if got := tf.MaxResponseBodySize(); got != 2048 {
-		t.Errorf("MaxResponseBodySize=%d want 2048", got)
-	}
 }
 
 func TestTrafficFilter_EmptyConfig_PassesByDefault(t *testing.T) {
