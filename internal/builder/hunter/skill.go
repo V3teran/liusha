@@ -436,7 +436,13 @@ func buildCatalog(loader *skill.Loader, header string, order []categoryItem) str
 // 用法约束（按 recon_checklist 判完方向、read_vuln_skill 拉详情）在 hunter SKILL.md 里说。
 func buildVulnCatalog(loader *skill.Loader) string {
 	header := "## 可用漏洞挖掘指南索引\n"
-	return buildCatalog(loader, header, vulnCategoryOrder)
+	body := buildCatalog(loader, header, vulnCategoryOrder)
+	if body == "" {
+		return ""
+	}
+	// 明确告诉 LLM 不要凭"行业常识"猜不在列表的 name——SKILL 库可能不完整。
+	body += "\n> 列表外的漏洞类型**不要调** `read_vuln_skill`（会直接报错），凭工具知识 + sqlmap/dalfox/nuclei 等直接挖即可。\n"
+	return body
 }
 
 // sortCardsByName 按 Name 字段对 *Card 切片做插入排序——切片小（每分类

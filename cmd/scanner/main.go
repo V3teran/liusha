@@ -304,6 +304,17 @@ func (h handler) failTask(ctx context.Context, taskID string, err error) error {
 	return err
 }
 
+// abortTask 把 task 推进到 aborted 终态（observer 终止 / engagement 中止 / ctx 取消）。
+// 与 failTask 区别：aborted 是"主动收手"非错误，不应触发告警。
+func (h handler) abortTask(ctx context.Context, taskID, reason string) error {
+	if setErr := h.tasks.SetAborted(ctx, taskID); setErr != nil {
+		h.logger.Warn().Err(setErr).Str("agent_run_id", taskID).Str("reason", reason).
+			Msg("SetAborted 失败（task 留在 running）")
+	}
+	h.logger.Info().Str("agent_run_id", taskID).Str("reason", reason).Msg("task aborted")
+	return nil
+}
+
 // handle 是单个 hunter task 的处理入口。
 func (h handler) handle(ctx context.Context, p worker.Payload) (retErr error) {
 	if h.scannerCfg.MainTaskTimeoutSeconds > 0 {
@@ -429,7 +440,15 @@ func (h handler) handleTraffic(ctx context.Context, p worker.Payload, entrypoint
 
 	out, err := react.Run(ctx, cfg)
 	if err != nil {
+		// ctx 取消 / 截止视为主动 abort 非真错误
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return h.abortTask(ctx, p.TaskID, "ctx "+err.Error())
+		}
 		return h.failTask(ctx, p.TaskID, err)
+	}
+	// observer terminate / engagement aborted：走 SetAborted 而非 SetDone
+	if out.TerminateBy == "observer_terminate" || out.TerminateBy == "aborted" {
+		return h.abortTask(ctx, p.TaskID, out.TerminateBy)
 	}
 
 	res, err := json.Marshal(map[string]any{

@@ -48,6 +48,7 @@ description: 漏洞挖掘 agent。
 - ❌ summary 写长文报告 → DB 有 ≤500 单行 check，详情进 `evidence` jsonb
 - ❌ 串行发同类工具调用 → 独立任务请并发（一 turn 内多 tool_calls）
 - ❌ **写文件后跳过落地验证**：写 webshell / dump / payload 后**必先 `ls -la <path>` 看 size + 时间戳确认落地，再验证可执行**——直接 curl include 报 PHP 错就重写是误判（文件可能早写入，只是代码错）；写一次失败前先 ls 看上次到底落没落
+- ❌ **同一工具连 3 次超时/失败仍微调 flag 重试**：sqlmap blind 慢、nuclei 模板不匹配等场景，**第 3 次失败必须 pivot 换手法**（如 sqlmap blind 失败 → curl 手动 boolean fuzz 或直接 write_finding 不 dump；nuclei 无命中 → 改 sqlmap/dalfox 等）。微调 flag 重试不是探索，是死循环
 
 ## 知识沉淀
 

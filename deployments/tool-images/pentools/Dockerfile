@@ -26,7 +26,7 @@
 #   sast (2):            semgrep trufflehog
 #   utility (5):         curl python3 jq interactsh-client mysql
 #
-# 体积预估 ~890-1110 MB（含 nuclei-templates 80MB / SecLists 子集 30MB / JRE 200MB / PHP 25MB / Chrome 110MB + chromedriver 20MB / Python libs（HTTP/加密/SSH/selenium 等 16 个）~90MB）。
+# 体积预估 ~1.1-1.3 GB（含 nuclei-templates 80MB / SecLists 子集 30MB / JDK 350MB / PHP 25MB / Chrome 110MB + chromedriver 20MB / Python libs（HTTP/加密/SSH/selenium/pymysql 等 17 个）~90MB）。
 
 # 强制 amd64 base——
 # 大部分渗透工具（ysoserial / dalfox / 部分 Go release）amd64 binary 才齐全；
@@ -92,11 +92,14 @@ RUN sed -i \
 # 必须在 Layer 1a wget 装好后才能写（否则 dpkg 装 wget 时冲突）。
 RUN printf 'tries=5\nwaitretry=10\ntimeout=60\nretry-connrefused=on\n' >> /etc/wgetrc
 
-# Layer 1b: JRE 单独装——~150MB 大包，单独 layer 让失败可重试不全量重 build。
+# Layer 1b: JDK 单独装——~350MB 大包（含 javac 编译器 + JRE），单独 layer 让失败可重试不全量重 build。
+# 装 JDK 而非 JRE-headless 的原因：LLM 渗透场景偶发需要现场编译 Java（如自定义反序列化 gadget、
+# JNDI exploit class 文件），多 200MB 换"现场编译能力"对开发体验有意义。
 RUN apt-get update \
- && apt-get install -y --no-install-recommends default-jre-headless \
+ && apt-get install -y --no-install-recommends default-jdk-headless \
  && rm -rf /var/lib/apt/lists/* \
- && java -version 2>&1 | head -1
+ && java -version 2>&1 | head -1 \
+ && javac -version 2>&1 | head -1
 
 # Layer 1c: Google Chrome（dalfox / katana 等用 chromedp 的工具需要 chromium-style 浏览器）。
 # Ubuntu 24.04 默认 chromium 是 snap 包（docker 内不可用），改装 google-chrome-stable.deb。
@@ -115,16 +118,21 @@ RUN wget -q -O /tmp/chrome.deb https://dl.google.com/linux/direct/google-chrome-
 # 约 +20MB。
 RUN set -eu \
  && CHROME_VERSION=$(google-chrome --version | awk '{print $3}') \
+ && CHROME_MAJOR=$(echo "$CHROME_VERSION" | cut -d. -f1) \
+ && HARDCODE_FB="148.0.7778.97" \
  && URL="https://storage.googleapis.com/chrome-for-testing-public/${CHROME_VERSION}/linux64/chromedriver-linux64.zip" \
- && if ! wget -q --spider "$URL" 2>/dev/null; then \
-        FB=$(curl -s --max-time 15 "https://googlechromelabs.github.io/chrome-for-testing/LATEST_RELEASE_STABLE") ; \
-        [ -n "$FB" ] || { echo "[FATAL] chromedriver fallback version 查询失败"; exit 1 ; } ; \
-        echo "[chromedriver] Chrome=$CHROME_VERSION 精确版本不存在，fallback=$FB" ; \
+ && if ! wget -q --tries=3 --waitretry=10 --timeout=30 --spider "$URL"; then \
+        FB="" ; \
+        for ep in "LATEST_RELEASE_${CHROME_MAJOR}" "LATEST_RELEASE_STABLE"; do \
+            FB=$(curl -fsS --max-time 30 --retry 5 --retry-delay 5 "https://googlechromelabs.github.io/chrome-for-testing/${ep}" 2>/dev/null) || FB="" ; \
+            if [ -n "$FB" ]; then echo "[chromedriver] fallback via ${ep}=$FB"; break; fi ; \
+        done ; \
+        [ -n "$FB" ] || { FB="$HARDCODE_FB"; echo "[chromedriver] 所有在线 fallback 失败，用 hardcode=$FB" ; } ; \
         URL="https://storage.googleapis.com/chrome-for-testing-public/${FB}/linux64/chromedriver-linux64.zip" ; \
     else \
         echo "[chromedriver] 精确匹配 Chrome=$CHROME_VERSION" ; \
     fi \
- && wget -q "$URL" -O /tmp/cd.zip \
+ && wget -q --tries=5 --waitretry=15 --timeout=60 "$URL" -O /tmp/cd.zip \
  && [ -s /tmp/cd.zip ] || { echo "[FATAL] chromedriver 下载空: $URL"; exit 1 ; } \
  && unzip -q /tmp/cd.zip -d /tmp \
  && mv /tmp/chromedriver-linux64/chromedriver /usr/local/bin/chromedriver \

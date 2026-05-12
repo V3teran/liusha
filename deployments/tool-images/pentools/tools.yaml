@@ -50,7 +50,10 @@ tools:
   # ===== injection（注入类专项）=====
   - name: sqlmap
     category: injection
-    description: SQL 注入自动探测/利用。常见 web SQLi 首选；GraphQL/NoSQL 不归它管。
+    description: |
+      SQL 注入自动探测/利用。常见 web SQLi 首选；GraphQL/NoSQL 不归它管。
+      **blind/time-based 必加限速**：`--time-sec=1 --stop=5 -D <db> -T <table>`，**绝不整库 dump**（盲注每数据点千次 HTTP 请求，无限速会卡 10+ 分钟）；
+      单次 timeout 后**不要换 flag 重试 sqlmap**，改用 curl 手动 boolean fuzz 或直接 write_finding 不 dump。
   - name: dalfox
     category: injection
     description: XSS 自动探测 + 利用（反射/存储/DOM）。Go 实现，业界 XSS 之于 sqlmap。
