@@ -17,9 +17,8 @@ type FindingStore interface {
 
 // WriteFinding — 写一条漏洞 finding（append-only）。
 //
-// v0024 agentic-lean：summary 自由文本是漏洞主体，severity 自由文本，evidence 可选。
-// 不再有 kind / confidence / dedup_key 字段——dedup 由 LLM 自决（写前调 findings() 看已有的）。
-//
+// summary 是漏洞主体（自由文本），severity 自由文本，evidence 可选；
+// dedup 由 LLM 自决（写前调 read_findings 看已有的）。
 // Host 由调用方注入（hunter builder 从 BuilderParams.Host），不让 LLM 自填避免拼错。
 type WriteFinding struct {
 	Store        FindingStore
@@ -37,7 +36,7 @@ func (a *WriteFinding) Description() string {
 	return "写一条**新**漏洞 finding。**summary 是一行短标题（git commit subject 风格，≤500 chars 无换行）；详情/复现/payload 全进 evidence**；severity 建议 critical/high/medium/low/info（其他值 UI 退化为蓝色）。"
 }
 
-// ParametersJSON 给出 finding 字段 schema（v0024 lean）。
+// ParametersJSON 给出 finding 字段 schema。
 func (a *WriteFinding) ParametersJSON() json.RawMessage {
 	return json.RawMessage(`{
   "type":"object",

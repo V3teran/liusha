@@ -18,8 +18,7 @@ import (
 
 // Builder 为某个 skill 装配 ReAct Config。
 //
-// v0024 agentic-lean：单层 hunter agent——scanner 拉到 flow 直接调 hunter.NewBuilder
-// 拿 react.Config 跑 react.Run。不再有 orchestrator 主层 / sub-react 子层。
+// 单层 hunter agent：scanner 拉到 flow 直接调 hunter.NewBuilder 拿 react.Config 跑 react.Run。
 type Builder func(ctx context.Context, params BuilderParams) (react.Config, error)
 
 // BuilderParams hunter agent 启动参数。
@@ -41,7 +40,7 @@ type BuilderParams struct {
 	RequestHeaders json.RawMessage
 	RequestBody    []byte
 
-	// 响应 raw（v0024 加：让 hunter 一次性看到完整流量，省去 LLM 再调 curl 拉响应的开销）。
+	// 响应 raw：让 hunter 一次性看到完整流量，省去 LLM 再调 curl 拉响应的开销。
 	ResponseStatus  int
 	ResponseHeaders json.RawMessage
 	ResponseBody    []byte

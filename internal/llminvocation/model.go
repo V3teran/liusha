@@ -3,7 +3,7 @@
 //
 // v1.3 命名整改：
 //   - 列 role → call_purpose（与 OpenAI message.role 区分；这里是"调用目的"如
-//     orchestrator / hunter / observer / classify_traffic / lesson_extract）
+//     hunter / observer / lesson_extract 等）
 //   - 列 messages_json → messages（已是 jsonb 列，去 _json 后缀）
 //   - 列 result_json   → result（同上）
 package llminvocation
@@ -28,7 +28,7 @@ type Invocation struct {
 	LatencyMs    int
 	FinishReason string
 	Error        string
-	CallPurpose  string // 调用目的：orchestrator / hunter / observer / classify_traffic / lesson_extract；空 = 未分类
+	CallPurpose  string // 调用目的：hunter / observer / lesson_extract 等；空 = 未分类
 	Messages     []byte // jsonb：输入消息数组（[]llm.Message 序列化）
 	Result       []byte // jsonb：LLM 返回（llm.Result 序列化）
 	CreatedAt    time.Time

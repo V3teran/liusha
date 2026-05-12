@@ -1,7 +1,7 @@
 // Package credential 管理活凭证（live credentials）：按 host 维度索引身份与认证材料，
 // 由 Redis 后端持久化。
 //
-// 设计原则（v0024 之后）：anonymous 不是一个被持久化或预注入的"身份对象"——它是
+// 设计原则：anonymous 不是一个被持久化或预注入的"身份对象"——它是
 // LLM 在挖洞时临时构造的测试概念。GetIdentitiesByHost 只返回预录入的真实身份；
 // 测匿名访问时，LLM 自己从任一身份的 credentials 数组拿模板，整段把 value
 // 替换为占位 token（如 "lstoken"）构造重放请求。

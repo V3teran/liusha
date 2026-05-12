@@ -17,8 +17,6 @@ type RelationStore interface {
 }
 
 // WriteRelation — 显式声明两条 finding 之间的 enables 关系（组合漏洞依赖）。
-//
-// v0024 agentic：让 LLM 主动控图——发现「finding A 是 finding B 的前提」时调本工具，
 // 写一条 enables 边到 finding_relation 表，graph projector 渲染成图边。
 type WriteRelation struct {
 	Store RelationStore

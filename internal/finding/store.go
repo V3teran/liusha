@@ -29,11 +29,10 @@ type SavedHook func(ctx context.Context, engagementID string, f VulnFinding)
 
 // Store 封装 finding 表的所有持久化操作。
 //
-// v0024 agentic-lean：
-//   - 删 kind / confidence / dedup_key 列（信息融入 summary 自由文本）
+// 设计要点：
 //   - severity 自由文本（前端按前缀配色）
-//   - dedup 由 LLM 调用方自决（write 前调 findings() 自查）
-//   - 删 OnReSaved hook（无 dedup_key 后无法精准识别"重发现"；append-only 每次都触发 OnSaved）
+//   - dedup 由 LLM 调用方自决（write 前调 read_findings 自查）
+//   - INSERT 后触发 OnSaved 回调（lesson_extract 蒸馏挂这里）
 type Store struct {
 	pool *pgxpool.Pool
 
@@ -53,7 +52,6 @@ func (s *Store) WithCounter(c engagementCounter) *Store {
 }
 
 // colsSelect 是所有 SELECT / RETURNING 路径的统一列序，与 scan() 字段一一对应。
-// v0024：lean schema——删 kind/confidence/dedup_key 列。
 const colsSelect = "id, engagement_id, agent_run_id, source_flow_id, host, severity, summary, target, evidence, created_at"
 
 // OnSaved 注册 INSERT 后的异步回调（lesson_extract 蒸馏挂这里）。
@@ -202,8 +200,7 @@ func (s *Store) GetByID(ctx context.Context, id string) (VulnFinding, error) {
 
 // ListByEngagement 列出 engagement 下所有 finding（按 created_at desc）。
 //
-// v0024：去掉 DISTINCT ON (host, dedup_key) 因为 dedup_key 列已删；
-// dedup 由 LLM 写 finding 前自查 findings() 决定，Store 不做。
+// dedup 由 LLM 写 finding 前自查 read_findings 决定，Store 不做。
 func (s *Store) ListByEngagement(ctx context.Context, engagementID string) ([]VulnFinding, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT `+colsSelect+`

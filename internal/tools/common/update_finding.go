@@ -17,9 +17,8 @@ type FindingUpdater interface {
 
 // UpdateFinding — 部分更新一条已有 finding（覆盖 summary/severity/evidence/target）。
 //
-// v0024 agentic：当 read_findings 看到等价但你**有更有价值的新内容**
-// （更详细的 PoC / 更精准的描述 / 更高严重度），调本工具覆盖原 finding；
-// 完全等价 → done() 跳过；新漏洞 → write_finding 新建。
+// 当 read_findings 看到等价但你**有更有价值的新内容**（更详细的 PoC / 更精准的描述 /
+// 更高严重度），调本工具覆盖原 finding；完全等价 → done() 跳过；新漏洞 → write_finding 新建。
 //
 // created_at 保留首次发现时间不变；只覆盖你传的字段（空字段不动）。
 type UpdateFinding struct {

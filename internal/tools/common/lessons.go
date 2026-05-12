@@ -18,10 +18,7 @@ type lessonsLister interface {
 
 // ReadLessons — 列出本 task 目标 host 的全部历史经验（lesson 表，跨 engagement 持久化）。
 //
-// v0024 agentic：与 write_lesson 配对的读工具——hunter agent 可中途主动查
-// host 历史经验（启动注入是一次性，agent 想再回看时调本工具）。
-//
-// 注：跨 host 业务规则 hint（host='*' kind='hint'）已在 user prompt 启动时强制注入，
+// 启动时已注入一次到 user prompt（包含跨 host 业务规则 hint host='*'）；agent 想再回看时调本工具。
 // 本工具只拉 host-scoped lesson（kind=lesson 的 distill 经验 + host-scoped hint）。
 type ReadLessons struct {
 	Store  lessonsLister

@@ -29,7 +29,7 @@
 // 删 vuln SKILL 后表现不降反升。这些 profile 保留作为镜像/架构回归测试的流量基线。
 //
 // 触发器只发起"用户正常流量"——具体漏洞由 hunter agent 用 credentials/run_command
-// 自由组合工具挖掘（v0024 agentic-lean：单层 agent，无预设流程）。
+// 自由组合工具挖掘（无预设流程）。
 //
 // 想加新漏洞类型：profiles map 加一行 + 写 examples/sample_<vuln>_raw.json 即可。
 package main
@@ -428,15 +428,13 @@ func envOr(k, def string) string {
 	return def
 }
 
-// filterByPrefix（v0024 agentic-lean）：finding.kind 已删——LLM 自由命名，
-// 不再按结构化前缀过滤。直接返回全部 finding；e2e 判定看 minFindings 即可。
-// 签名保留以避免改 main_test.go。
+// filterByPrefix：LLM 自由命名 finding，不按结构化前缀过滤，直接返回全部；
+// e2e 判定看 minFindings 即可（签名保留以避免改 main_test.go）。
 func filterByPrefix(all []finding.VulnFinding, _ string) []finding.VulnFinding {
 	return all
 }
 
-// countKinds（v0024 agentic-lean）：finding.kind 已删；改按 severity 分组，
-// e2e profile.minKinds 现在表示"期望的 severity 等级数"。
+// countKinds：按 severity 分组——e2e profile.minKinds 表示"期望的 severity 等级数"。
 func countKinds(fs []finding.VulnFinding) map[string]int {
 	out := make(map[string]int, len(fs))
 	for _, f := range fs {

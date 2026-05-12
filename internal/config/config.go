@@ -262,7 +262,7 @@ type ToolruntimeConfig struct {
 	ResultCompressThreshold   int `mapstructure:"result_compress_threshold"`
 	ResultCompressSnippet     int `mapstructure:"result_compress_snippet"`
 	ResultCompressSummary     int `mapstructure:"result_compress_summary"`
-	ToolExecuteTimeoutSeconds int `mapstructure:"tool_execute_timeout_seconds"` // 单次 tool Execute 兜底超时（middleware 层 WithTimeout，防 fetch_credentials/check_heuristics 等本地工具卡死）
+	ToolExecuteTimeoutSeconds int `mapstructure:"tool_execute_timeout_seconds"` // 单次 tool Execute 兜底超时（middleware 层 WithTimeout，防本地工具卡死）
 }
 
 // LessonConfig 是 lesson 提取与 touch 重试参数（react/lesson_extract）。

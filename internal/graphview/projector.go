@@ -67,8 +67,7 @@ type View struct {
 // FindingReader 是投影器读 finding 表所需的最小接口。
 // *finding.Store 自动满足。
 //
-// v0024 agentic 最终态：finding_relation 表通过 0026 重建——LLM 用
-// write_relation 工具主动声明 finding 间 enables 关系，projector 渲染成图边。
+// LLM 用 write_relation 工具主动声明 finding 间 enables 关系，projector 渲染成图边。
 type FindingReader interface {
 	ListByEngagement(ctx context.Context, engagementID string) ([]finding.VulnFinding, error)
 	ListRelationsByEngagement(ctx context.Context, engagementID string) ([]finding.Relation, error)

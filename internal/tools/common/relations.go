@@ -16,10 +16,7 @@ type relationsLister interface {
 	ListRelationsByEngagement(ctx context.Context, engagementID string) ([]finding.Relation, error)
 }
 
-// ReadRelations — 列出本 engagement 内所有 finding 之间的 enables 边（图拓扑）。
-//
-// v0024 agentic：与 write_relation 配对的读工具——hunter agent 想推理
-// "哪些 finding 已声明依赖、哪些是孤立的"时调用，看完整图拓扑。
+// ReadRelations — 列出本 engagement 内所有 finding 之间的 enables 边（图拓扑；与 write_relation 配对）。
 type ReadRelations struct {
 	Store        relationsLister
 	EngagementID string // builder 注入；空时 Execute 报错

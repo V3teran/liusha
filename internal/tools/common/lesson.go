@@ -18,11 +18,8 @@ type LessonAdder interface {
 
 // WriteLesson — 写一条长期经验到 lesson 表（kind=lesson，跨 engagement 持久化）。
 //
-// v0024 agentic-lean：替代旧 distill hook 的"系统自动二次 LLM 调用"模式——
-// hunter agent 写 finding 后顺手调 write_lesson 把经验沉淀（自决何时值得沉淀），
-// 省一次 LLM 调用 + 让 agent 自己判断"这是新颖经验吗"。
-//
-// host / tenant 由 builder 注入；LLM 只填 content（必填）+ priority（可选 1-10）+ payload（可选 jsonb）。
+// hunter agent 写 finding 后自决何时调本工具沉淀经验（"这条值得下次复用吗"）。
+// host / tenant 由 builder 注入；LLM 只填 content（必填）+ kind/priority/payload（可选）。
 // (tenant, host, content_hash) 唯一键 ON CONFLICT 幂等：同 content 重复写只 hit_count++。
 type WriteLesson struct {
 	Store  LessonAdder

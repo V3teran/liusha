@@ -1,6 +1,6 @@
 // Package skill 负责加载 SKILL.md（frontmatter + 正文），返回 Card 描述。
 //
-// v0024 agentic-lean：单层 hunter agent 架构——只剩 skills/hunter/SKILL.md 一个 SKILL。
+// 单层 hunter agent 架构：只剩 skills/hunter/SKILL.md 一个 SKILL。
 // frontmatter 必填字段：
 //   - name                          机器 ID（与文件夹名一致，如 hunter）
 //   - description                   一句话描述（保留供未来多 skill 时进 catalog 用）

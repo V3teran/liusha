@@ -1,7 +1,7 @@
-// Package hunter 是 v0024 agentic-lean 的唯一 ReAct skill builder：
+// Package hunter 是当前唯一的 ReAct skill builder：
 // scanner 拉到 flow 后调 NewBuilder(deps)(ctx, params) 拿 react.Config 跑 react.Run。
 //
-// 单层架构：无 orchestrator 主层 / sub-react 子层。hunter agent 接到一条流量
+// 单层架构：hunter agent 接到一条流量
 // （request + response + 凭证 + 已有 finding + hint）后，自由组合下列工具挖漏洞：
 //
 //	必装（11 个）:

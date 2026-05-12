@@ -14,8 +14,7 @@ type Mode string
 // Status 表示 engagement 的生命周期状态。
 type Status string
 
-// notes v0024 起为纯自由文本（删 kind enum）；写入由
-// internal/tools/common/memory.go 的 write_memory 工具完成。
+// notes 为纯自由文本；写入由 internal/tools/common/memory.go 的 write_memory 工具完成。
 const (
 	ModeProxy   Mode = "proxy"
 	ModeBrowser Mode = "browser"

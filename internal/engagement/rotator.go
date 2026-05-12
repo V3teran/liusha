@@ -57,7 +57,7 @@ func RotateLimitsFromConfig(c config.EngagementConfig) RotateLimits {
 
 // Rotator 包装 LookupOrCreate，给 proxy 模式按阈值自动滚动 engagement。
 //
-// 整站模式（mode != ModeProxy）直通；orchestrator 自决何时 close。
+// 整站模式（mode != ModeProxy）直通；由上层逻辑自决何时 close。
 type Rotator struct {
 	engs   *Store
 	finds  FindingCounter

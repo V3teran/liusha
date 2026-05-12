@@ -11,8 +11,8 @@ import (
 
 // ReadCredentials — 拉取本 task 目标 host 的全部预录入真实身份（含 cookie/token raw value）。
 //
-// v0024 agentic-lean：替代旧 fetch_credentials 工具——
-//   - 删除 roles/names 过滤（LLM 自己看返回结果筛选）
+// 设计要点：
+//   - 无 roles/names 过滤（LLM 自己看返回结果筛选）
 //   - 不返回 anonymous（anonymous 是 LLM 临时构造的测试概念，不是持久化身份）
 //   - host 由 builder 注入（per-task 绑定），LLM 不传参
 type ReadCredentials struct {

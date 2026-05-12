@@ -16,10 +16,7 @@ type MemoryStore interface {
 	AppendNote(ctx context.Context, engagementID string, entry []byte) error
 }
 
-// ReadMemory — 一次读取 engagement memory_notes 共享黑板（自由文本）。
-//
-// v0024 agentic-lean：删除 observation/hypothesis/boundary kind 三类约定——
-// 黑板是纯自由文本，LLM 想写什么写什么。
+// ReadMemory — 一次读取 engagement memory_notes 共享黑板（纯自由文本，LLM 想写什么写什么）。
 type ReadMemory struct {
 	Store        MemoryStore
 	EngagementID string
@@ -48,9 +45,7 @@ func (a *ReadMemory) Execute(ctx context.Context, _ json.RawMessage) (toolfx.Res
 	return toolfx.Result{Output: state}, nil
 }
 
-// WriteMemory — 写一条自由文本到 engagement memory_notes 共享黑板。
-//
-// v0024 agentic-lean：删除 kind/status enum，纯文本追加。
+// WriteMemory — 写一条自由文本到 engagement memory_notes 共享黑板（纯文本追加）。
 type WriteMemory struct {
 	Store        MemoryStore
 	EngagementID string

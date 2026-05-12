@@ -17,9 +17,7 @@ type findingsLister interface {
 	ListByHost(ctx context.Context, host string, limit int) ([]finding.VulnFinding, error)
 }
 
-// ReadFindings — 列出本 task 目标 host 的全部已有 finding（dedup 参考）。
-//
-// v0024 agentic：与 write_finding 配对的读工具，命名风格统一动词前缀。
+// ReadFindings — 列出本 task 目标 host 的全部已有 finding（dedup 参考；与 write_finding 配对）。
 type ReadFindings struct {
 	Store findingsLister
 	Host  string // builder 注入；空时 Execute 报错

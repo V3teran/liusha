@@ -1,12 +1,9 @@
-// Package main 是 liusha scanner 进程入口（v0024 agentic-lean）：
+// Package main 是 liusha scanner 进程入口。
 //
 //	职责：
 //	  1. 启 ingestor.Traffic goroutine：消费 Redis Stream → 启发式打分 → 入 hunter 队列
-//	  2. 启 asynq.Server：消费 agent:react 队列，每个 task 跑 1 个 hunter agent（单层）
+//	  2. 启 asynq.Server：消费 agent:react 队列，每个 task 跑 1 个 hunter agent
 //	  3. healthz HTTP；graceful shutdown
-//
-// v0024 agentic 重构：删除 orchestrator + sub-react 双层架构，单一 hunter agent
-// 接 1 条流量（含 request + response + 凭证 + 已有 finding + hint）自由组合 7 个工具挖漏洞。
 package main
 
 import (
@@ -84,7 +81,7 @@ func main() {
 	creds := credential.NewRedis(rdb, cfg.Credential.RedisKeyPrefix)
 	pricing := observability.NewPricing(cfg.Pricing)
 
-	// Skill loader：v0024 单一 hunter skill。
+	// Skill loader：单一 hunter skill。
 	skillLoader := skill.NewLoader(cfg.Skills.Root)
 	skillNames, err := skillLoader.Index()
 	if err != nil {
@@ -149,13 +146,10 @@ func main() {
 	// LLM Router：yaml retry 配置接线（兜底 spec §8.5 退避表）
 	router := llm.NewRouterWithOptions(llm.NewFactory(cfg), llm.RetryOptionsFromConfig(cfg.LLM.Retry))
 
-	// v0024 final agentic：删除 distill hook——hunter agent 用 write_lesson 工具
-	// 自决何时沉淀长期经验（省一次 LLM 调用，让 agent 判断"值得不值得记"）。
-
 	// 容器化沙箱执行器（hunter run_command 工具用）
 	dockerRunner := runners.NewDockerRunner(runners.WithConcurrency(cfg.Sandbox.RunnerConcurrency))
 
-	// hunter builder（v0024 单一 agent；scanner 启动时构造一次）
+	// hunter builder：scanner 启动时构造一次
 	hunterBuilder := hunter.NewBuilder(hunter.Deps{
 		Engagements:               engs,
 		Findings:                  finds,
@@ -359,10 +353,8 @@ func (h handler) handle(ctx context.Context, p worker.Payload) (retErr error) {
 	}
 }
 
-// handleTraffic 处理 mode=traffic 的 hunter task（1 流量 → 1 hunter agent）。
-//
-// v0024 agentic-lean：单层 hunter——拉 flow 完整 raw（请求 + 响应）→ 装配 hunter
-// react.Config → 跑 react.Run。不再有 orchestrator + sub-react 双层。
+// handleTraffic 处理 mode=traffic 的 hunter task：拉 flow 完整 raw（请求 + 响应）
+// → 装配 hunter react.Config → 跑 react.Run（1 流量 → 1 hunter agent）。
 func (h handler) handleTraffic(ctx context.Context, p worker.Payload, entrypoint json.RawMessage) error {
 	var ep struct {
 		FlowID int64  `json:"flow_id"`
