@@ -70,6 +70,9 @@ tools:
   - name: jwt_tool
     category: auth
     description: JWT 攻击瑞士军刀——解码/伪造/None 算法/算法混淆/key confusion/弱 secret 暴破。
+  - name: mysql
+    category: auth
+    description: MySQL/MariaDB CLI 客户端——拿到 DB 凭证后直接连库验证/dump（mysql -h <host> -P <port> -u <user> -p<pass> -e "..."）。Python 等价：import pymysql（已预装）。
 
   # ===== sast（源码静态分析）=====
   - name: semgrep

@@ -16,7 +16,7 @@
 # 构建：
 #   docker build -t liusha/pentools:latest -f deployments/tool-images/pentools/Dockerfile .
 #
-# 工具清单（17 + 已有 4 = 21 个，按 8 类）：
+# 工具清单（22 个，按 8 类）：
 #   recon (5):           subfinder httpx katana nmap wafw00f
 #   discovery (3):       ffuf dirsearch arjun
 #   vulnscan (1):        nuclei
@@ -24,7 +24,7 @@
 #   deserialization (2): ysoserial phpggc
 #   auth (2):            hydra jwt_tool
 #   sast (2):            semgrep trufflehog
-#   utility (4):         curl python3 jq interactsh-client
+#   utility (5):         curl python3 jq interactsh-client mysql
 #
 # 体积预估 ~890-1110 MB（含 nuclei-templates 80MB / SecLists 子集 30MB / JRE 200MB / PHP 25MB / Chrome 110MB + chromedriver 20MB / Python libs（HTTP/加密/SSH/selenium 等 16 个）~90MB）。
 
@@ -79,11 +79,13 @@ RUN sed -i \
         git \
         ca-certificates \
         php-cli \
+        default-mysql-client \
  && rm -rf /var/lib/apt/lists/* \
  && sqlmap --version \
  && hydra -h 2>&1 | head -2 \
  && nmap --version | head -1 \
- && php --version | head -1
+ && php --version | head -1 \
+ && mysql --version
 
 # Layer 1a.5: 全局 wgetrc retry——GitHub release download 在 docker desktop
 # gvisor 网络偶发 404/timeout（之前 ysoserial 多次失败）；所有 wget 命令统一重试。
@@ -133,8 +135,10 @@ RUN set -eu \
 # Layer 2: Python 工具 + LLM 常用渗透/Web 三方库（pip 一次装齐）。
 # 工具（4 个）：dirsearch / arjun / wafw00f / semgrep
 # HTTP/HTML 三方库（5 个）：requests / httpx / aiohttp / beautifulsoup4 / lxml
-# 渗透常用（11 个）：urllib3 / websockets / websocket-client / pysocks / dnspython /
-#                    cryptography / pyjwt / pyyaml / xmltodict / paramiko / selenium
+# 渗透常用（12 个）：urllib3 / websockets / websocket-client / pysocks / dnspython /
+#                    cryptography / pyjwt / pyyaml / xmltodict / paramiko / selenium / pymysql
+# pymysql 是纯 Python 驱动（无 C 扩展），LLM 拿到 DB 凭证可直接 import pymysql；
+# 同时 apt 装了 default-mysql-client，CLI `mysql -h ...` 也可用，两种姿势齐备。
 # 设计哲学：LLM 写脚本默认 import 这些，不预装就强迫它降级用 stdlib 或浪费 round-trip 装包。
 # 用 PEP 668 --break-system-packages（已通过 ENV PIP_BREAK_SYSTEM_PACKAGES=1）。
 # semgrep 装完体积最大（~150MB 含规则集）；其他 lib 合计 +60-90MB。
@@ -159,11 +163,12 @@ RUN pip install --quiet \
         xmltodict \
         paramiko \
         selenium \
+        pymysql \
  && dirsearch --version 2>&1 | head -1 \
  && arjun --help 2>&1 | head -1 \
  && wafw00f --help 2>&1 | head -1 \
  && semgrep --version \
- && python3 -c 'import requests, httpx, aiohttp, bs4, lxml, urllib3, websockets, websocket, socks, dns, cryptography, jwt, yaml, xmltodict, paramiko, selenium; print("python libs OK (16 packages)")'
+ && python3 -c 'import requests, httpx, aiohttp, bs4, lxml, urllib3, websockets, websocket, socks, dns, cryptography, jwt, yaml, xmltodict, paramiko, selenium, pymysql; print("python libs OK (17 packages)")'
 
 # Layer 3: jwt_tool 不在 PyPI（pyjwt 是不同包）——git clone + 包装脚本到 /usr/local/bin。
 RUN git clone --depth 1 https://github.com/ticarpi/jwt_tool.git /opt/jwt_tool \
@@ -321,5 +326,5 @@ RUN echo "=== liusha/pentools:1.0.0 (内容 v1.1) 工具清单 ===" \
  && echo "deserialization: ysoserial (java) | phpggc (php)" \
  && echo "auth:            hydra | jwt_tool" \
  && echo "sast:            semgrep | trufflehog" \
- && echo "utility:         curl | python3 $(python3 --version) | jq | interactsh-client | google-chrome $(google-chrome --version | awk '{print $3}') | chromedriver $(chromedriver --version | awk '{print $2}')" \
+ && echo "utility:         curl | python3 $(python3 --version) | jq | interactsh-client | mysql $(mysql --version | awk '{print $5}' | tr -d ',') | google-chrome $(google-chrome --version | awk '{print $3}') | chromedriver $(chromedriver --version | awk '{print $2}')" \
  && echo "wordlist:        /opt/SecLists ($(du -sh /opt/SecLists 2>/dev/null | cut -f1))"
