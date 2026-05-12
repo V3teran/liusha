@@ -81,16 +81,8 @@ func main() {
 	creds := credential.NewRedis(rdb, cfg.Credential.RedisKeyPrefix)
 	pricing := observability.NewPricing(cfg.Pricing)
 
-	// Skill loader：单一 hunter skill。
-	skillLoader := skill.NewLoader(cfg.Skills.Root)
-	skillNames, err := skillLoader.Index()
-	if err != nil {
-		logger.Fatal().Err(err).Msg("skill.Index 启动扫描失败")
-	}
-	logger.Info().Strs("skills", skillNames).Msg("skill index loaded")
-	if _, err := skillLoader.Load("hunter"); err != nil {
-		logger.Fatal().Err(err).Msg("load hunter skill")
-	}
+	// hunter system prompt 已编译期 embed（internal/builder/hunter/system_prompt.md），
+	// 不再需要运行时 skill loader 加载——下面的 vuln/tooling loader 服务 Progressive Disclosure。
 
 	// Tooling loader（Progressive Disclosure）：root=skills/tooling，
 	// 每个子目录一份 SKILL.md = 一个外部 CLI 工具的完整手册。
@@ -155,7 +147,6 @@ func main() {
 		Findings:                  finds,
 		Lessons:                   lessons,
 		Credentials:               creds,
-		SkillLoader:               skillLoader,
 		ToolingLoader:             toolingLoader,
 		ToolsManifest:             toolsManifest,
 		VulnLoader:                vulnLoader,

@@ -1,8 +1,3 @@
----
-name: hunter
-description: 漏洞挖掘 agent。
----
-
 # 漏洞挖掘 agent
 
 ## 角色

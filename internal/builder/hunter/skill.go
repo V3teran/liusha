@@ -20,6 +20,7 @@ package hunter
 
 import (
 	"context"
+	_ "embed"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -41,13 +42,18 @@ import (
 	"github.com/V3teran/liusha/internal/tools/runners"
 )
 
+// hunterSystemPrompt 是编译期嵌入的 hunter agent system prompt。
+// 单一 agent 的 always-on 提示词与代码同路径管理（Strix 风格），改 prompt 走 PR + review。
+//
+//go:embed system_prompt.md
+var hunterSystemPrompt string
+
 // Deps hunter builder 的依赖注入。由 cmd/scanner/main.go 在启动时构造一份。
 type Deps struct {
 	Engagements *engagement.Store
 	Findings    *finding.Store
 	Lessons     *lesson.Store
 	Credentials credential.Provider
-	SkillLoader *skill.Loader
 
 	// ToolingLoader root 指向 skills/tooling/，给 read_tooling_skill 工具用（按需读 SKILL.md 详细手册）。
 	// nil 时不注册 read_tooling_skill 工具（向后兼容）。
@@ -90,8 +96,6 @@ type Deps struct {
 	FindingsLimit       int // user prompt 该 host 已有 finding 段显示条数；≤0 → 100
 	LessonsLimit        int // user prompt lesson + hint 段共用上限；≤0 → 100
 }
-
-const skillName = "hunter"
 
 // NewBuilder 构造 hunter SkillBuilder 闭包。scanner 启动时调用一次。
 func NewBuilder(deps Deps) skill.Builder {
@@ -157,11 +161,7 @@ func NewBuilder(deps Deps) skill.Builder {
 			return react.Config{}, fmt.Errorf("hunter register tools: %w", errors.Join(regErrs...))
 		}
 
-		card, err := deps.SkillLoader.Load(skillName)
-		if err != nil {
-			return react.Config{}, fmt.Errorf("load skill %q: %w", skillName, err)
-		}
-
+		// system prompt 来自包级 //go:embed system_prompt.md，无运行时 fs 失败路径
 		// agentic-lean：删除 done validator——不强制结构化 done.reason，agent 自由收手
 		reg.Use(
 			middleware.Observe(),
@@ -185,7 +185,7 @@ func NewBuilder(deps Deps) skill.Builder {
 			LLM:                 p.LLM,
 			Actions:             reg,
 			Budget:              react.Budget{MaxSteps: maxSteps, WatchdogSeconds: watchdog},
-			SystemPrompt:        card.Body,
+			SystemPrompt:        hunterSystemPrompt,
 			UserPrompt:          userPrompt,
 			Observer:            p.Observer,
 			ObserverEverySteps:  deps.ObserverEverySteps,
