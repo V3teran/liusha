@@ -118,10 +118,10 @@ func Run(ctx context.Context, cfg Config) (Outcome, error) {
 		if out.TotalSteps > 0 && out.TotalSteps%cfg.ObserverEverySteps == 0 {
 			v := cfg.Observer.Evaluate(ctx, window)
 			switch v.Decision {
-			case VerdictAbort:
-				out.TerminateBy = "observer_abort"
+			case VerdictTerminate:
+				out.TerminateBy = "observer_terminate"
 				return out, nil
-			case VerdictSteer:
+			case VerdictRedirect:
 				if v.Hint != "" {
 					msgs = append(msgs, llm.Message{Role: llm.RoleUser, Content: "提示：" + v.Hint})
 					out.ObserverHints++

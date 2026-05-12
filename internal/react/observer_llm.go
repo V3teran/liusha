@@ -16,11 +16,11 @@ type StateReader interface {
 	ReadState(ctx context.Context, id string) ([]byte, error)
 }
 
-// LLMObserver 用 light_provider LLM 在 ReAct 循环每 N 步做一次"判官"决策。
+// LLMObserver 用 light_provider LLM 在 ReAct 循环每 N 步做一次进度评估。
 //
-// 设计要点（黑客松借鉴共识 A）：
-//   - 不阻塞主循环：LLM 错 / JSON 解析失败 / 非法 decision 一律回退 keep_going；
-//   - 紧凑 prompt：只把最近窗口（含 ObsSummary）+ 三层 memory 拼成 ≤ 几百 token；
+// 设计要点：
+//   - 不阻塞主循环：LLM 错 / JSON 解析失败 / 非法 decision 一律回退 continue；
+//   - 紧凑 prompt：当前流量摘要 + 最近窗口（含 ObsSummary）+ 状态板，≤ 几百 token；
 //   - 严格 JSON 输出契约：`{"decision":"...","hint":"..."}`，三种合法值。
 // fallback 截断阈值：caller 未注入对应字段时使用。
 const (
@@ -37,6 +37,11 @@ type LLMObserver struct {
 	// 零值走 fallback 常量。
 	ArgsTruncate int
 	ObsTruncate  int
+
+	// FlowSummary 是当前流量任务的一句话摘要（如 "GET vulnapp.local/api/user?id=1"），
+	// 用于约束 observer 只评本流量进度，不要把 agent 推向其它流量任务。
+	// 零值时 prompt 省略该段——退化为旧"无 flow 上下文"行为。
+	FlowSummary string
 }
 
 func (o *LLMObserver) effectiveArgsTruncate() int {
@@ -60,16 +65,16 @@ func NewLLMObserver(g llm.Generator, store StateReader, engagementID string) *LL
 	return &LLMObserver{llm: g, state: store, engagementID: engagementID}
 }
 
-// observerSystemPrompt 是固定的判官 system 提示。约束输出严格 JSON。
-const observerSystemPrompt = `你是 ReAct 循环的"过程判官"。基于最近 N 步动作和当前状态板，判断主循环该如何继续。
+// observerSystemPrompt 约束 observer 只评本流量进度、输出严格 JSON。
+const observerSystemPrompt = `你是漏洞挖掘主 agent 的进度评估者。基于"当前流量任务摘要 + 最近 N 步动作 + 状态板"评估进度，只评本流量任务，不要把 agent 推向其它流量或别的 host。
 
 只能从以下三种 decision 中选一个：
-- "keep_going"：方向正确，继续当前路径。
-- "steer_with_hint"：方向偏了，给一句 ≤ 100 字的中文提示让它改向（写到 hint 字段）。
-- "abort_low_value"：明显在原地打转或完全偏题，建议直接终止。
+- "continue"：进度正常或主漏洞已落库进入收尾，继续当前路径。
+- "redirect"：当前路径有偏差，给一句 ≤ 100 字的中文方向提示（漏洞类型 / 验证阶段 / 验证手法层级，**禁止点具体工具名**，写到 hint 字段）。
+- "terminate"：当前流量任务已挖完或反复卡死无进展，建议主 agent 立即调 done()。
 
 严格只输出一个 JSON 对象，禁止任何多余文本：
-{"decision":"keep_going|steer_with_hint|abort_low_value","hint":"..."}`
+{"decision":"continue|redirect|terminate","hint":"..."}`
 
 // observerDecision 是 LLM 必须返回的 JSON 结构。
 type observerDecision struct {
@@ -82,7 +87,7 @@ type observerDecision struct {
 // 任何失败路径（store 读失败 / LLM 调用失败 / JSON 解析失败 / decision 非法）
 // 都返回 keep_going，避免阻塞主循环——失败本身已写 warn 日志。
 func (o *LLMObserver) Evaluate(ctx context.Context, window []StepRecord) Verdict {
-	user := buildObserverPrompt(window, o.readStateOrNil(ctx), o.effectiveArgsTruncate(), o.effectiveObsTruncate())
+	user := buildObserverPrompt(o.FlowSummary, window, o.readStateOrNil(ctx), o.effectiveArgsTruncate(), o.effectiveObsTruncate())
 
 	res, err := o.llm.Generate(ctx, []llm.Message{
 		{Role: llm.RoleSystem, Content: observerSystemPrompt},
@@ -90,42 +95,41 @@ func (o *LLMObserver) Evaluate(ctx context.Context, window []StepRecord) Verdict
 	}, nil)
 	if err != nil {
 		slog.Warn("observer llm call failed", "err", err, "engagement_id", o.engagementID)
-		return Verdict{Decision: VerdictKeepGoing}
+		return Verdict{Decision: VerdictContinue}
 	}
 
 	var dec observerDecision
 	content := strings.TrimSpace(res.Content)
 	if err := json.Unmarshal([]byte(content), &dec); err != nil {
 		slog.Warn("observer parse json failed", "raw", content, "engagement_id", o.engagementID)
-		return Verdict{Decision: VerdictKeepGoing}
+		return Verdict{Decision: VerdictContinue}
 	}
 
 	if v := normalizeDecision(dec.Decision); v != "" {
 		return Verdict{Decision: v, Hint: dec.Hint}
 	}
 	slog.Warn("observer unknown decision", "decision", dec.Decision, "engagement_id", o.engagementID)
-	return Verdict{Decision: VerdictKeepGoing}
+	return Verdict{Decision: VerdictContinue}
 }
 
 // normalizeDecision 把 LLM 输出的 decision 字段归一化到 3 种合法值。
 //
-// 设计原因：LLM 偶发 typo（如 "kepp_going" 漏字母）/ 大小写差异 / 含连字符变体
-// 会被旧 strict switch 直接拒绝（VerdictKeepGoing 兜底但打 warn）。这里用宽松匹配吸收
-// 常见变体，避免噪音日志：
-//   - 包含 "abort" → abort_low_value
-//   - 包含 "steer" → steer_with_hint
-//   - 包含 "keep" / "going" / "kepp" → keep_going（覆盖 LLM 拼写错误）
+// 设计原因：LLM 偶发 typo / 大小写差异 / 含连字符或下划线变体会被 strict switch
+// 直接拒绝。这里用宽松匹配吸收常见变体，避免噪音日志：
+//   - 包含 "terminate" / "abort" / "stop"   → terminate
+//   - 包含 "redirect"  / "steer"  / "adjust" → redirect
+//   - 包含 "continue"  / "keep"   / "go"     → continue
 //
-// 完全无法识别返回 ""，让 caller 仍 fallback keep_going + warn（保留可观测性）。
+// 完全无法识别返回 ""，让 caller 仍 fallback continue + warn（保留可观测性）。
 func normalizeDecision(raw string) string {
 	s := strings.ToLower(strings.TrimSpace(raw))
 	switch {
-	case strings.Contains(s, "abort"):
-		return VerdictAbort
-	case strings.Contains(s, "steer"):
-		return VerdictSteer
-	case strings.Contains(s, "keep"), strings.Contains(s, "going"), strings.Contains(s, "kepp"):
-		return VerdictKeepGoing
+	case strings.Contains(s, "terminate"), strings.Contains(s, "abort"), strings.Contains(s, "stop"):
+		return VerdictTerminate
+	case strings.Contains(s, "redirect"), strings.Contains(s, "steer"), strings.Contains(s, "adjust"):
+		return VerdictRedirect
+	case strings.Contains(s, "continue"), strings.Contains(s, "keep"), strings.Contains(s, "go"):
+		return VerdictContinue
 	}
 	return ""
 }
@@ -143,13 +147,17 @@ func (o *LLMObserver) readStateOrNil(ctx context.Context) []byte {
 	return data
 }
 
-// buildObserverPrompt 把 window + state 拼成单条 user 消息。
+// buildObserverPrompt 把 flow 摘要 + window + state 拼成单条 user 消息。
 //
+//   - flowSummary 为空时省略段头（向后兼容旧调用方）；
 //   - window 为空时仍能产出 prompt（空 window 段）；
 //   - state 为 nil 时省略状态板段。
 //   - argsTruncate / obsTruncate 来自 LLMObserver 的可选字段，控制喂 LLM 的字节数。
-func buildObserverPrompt(window []StepRecord, state []byte, argsTruncate, obsTruncate int) string {
+func buildObserverPrompt(flowSummary string, window []StepRecord, state []byte, argsTruncate, obsTruncate int) string {
 	var b strings.Builder
+	if flowSummary != "" {
+		fmt.Fprintf(&b, "当前流量任务：%s\n\n", flowSummary)
+	}
 	fmt.Fprintf(&b, "最近 %d 步动作：\n", len(window))
 	for i, w := range window {
 		fmt.Fprintf(&b, "%d. %s(%s) → %s\n", i+1, w.ActionName, truncate(string(w.Args), argsTruncate), truncate(w.ObsSummary, obsTruncate))

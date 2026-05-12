@@ -27,7 +27,7 @@ const (
 // Engagement 是 engagement 表行的 Go 表示。
 //
 // v0010：删除 LastActivityAt 字段（Touch() 无人调用、仅 Abort 时设一次但无下游消费者）。
-// v0015：加 EndedAt / ErrorMessage / *Count 字段（借鉴 liusha2 task 表的进度统计）。
+// v0015：加 EndedAt / ErrorMessage / *Count 字段做进度统计。
 //   - EndedAt 仅 Abort 时填；active 状态保持 nil。
 //   - *Count 字段 active 期间由 vulnfinding/flow/reactrun 写路径 best-effort 增量；
 //     Abort 时事务内 SELECT count(*) 重算精确兜底。

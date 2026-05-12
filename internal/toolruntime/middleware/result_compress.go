@@ -1,6 +1,6 @@
 // Package middleware 提供 ReAct Action 横切层。
 //
-// 设计来源：黑客松借鉴共识 C（Done 系统层裁决）、D（工具结果压缩）。
+// 设计要点：工具结果压缩——大输出存盘 + tail 摘要回传，控 LLM 上下文体积。
 package middleware
 
 import (

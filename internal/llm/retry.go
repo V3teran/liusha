@@ -1,6 +1,6 @@
 // retry.go：Generator 装饰器，按 spec §8.5 错误码退避表自动重试 + 切 fallback。
 //
-// 设计要点（黑客松借鉴创新 11 + 共识 E）：
+// 设计要点：
 //   - 装饰器外层嵌套：Router → Retry → Instrument → Provider；
 //     Retry 不感知 Instrument，可独立 unit-test。
 //   - 错误识别优先 *HTTPError 显式类型；不可解析时回退启发式（err.Error() 含状态码字符串）。

@@ -58,7 +58,7 @@ func TestStore_Append_Basic(t *testing.T) {
 }
 
 // TestStore_Append_WithRouteKey 验证：role 字段正确写入 + CountByCallPurpose 按 role 分组。
-// 黑客松借鉴：T21 Instrument 的 RouteKey 维度（react.main / observer / lesson_extract / compaction / vision）。
+// Instrument 的 RouteKey 维度：hunter / observer / lesson_extract 等，按 role 聚合成本。
 func TestStore_Append_WithRouteKey(t *testing.T) {
 	ctx := context.Background()
 	s, eid := setup(t)

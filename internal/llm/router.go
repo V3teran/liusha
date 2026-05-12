@@ -1,6 +1,6 @@
 // router.go：基于 Factory 的多 provider 路由层 + retry/fallback 装配。
 //
-// 设计要点（黑客松借鉴创新 11 + 共识 E）：
+// 设计要点：
 //   - Router 只装饰 Factory.For，不重新解析路由：Factory 已实现 routes/role 解析。
 //   - 每次 For 都把 fallback_provider 一次性构造好（不再套 retry，避免双重重试）。
 //   - opts 默认走 spec §8.5 退避表，可通过 NewRouterWithOptions 注入测试用零延迟版本。

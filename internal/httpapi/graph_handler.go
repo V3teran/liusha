@@ -17,7 +17,7 @@ type GraphAPI interface {
 
 // graphHandler 处理 GET /graph/:engagement_id?host=<optional>。
 //
-// 返回 Cairn 风格的图视图 JSON：origin / endpoint / parameter / finding / goal 节点
+// 返回图视图 JSON：origin / endpoint / parameter / finding / goal 节点
 // + has_param / vulnerable_to / enables / contributes_to 边。
 //
 // host 缺省时由投影器内部回落到 engagement.target_host——前端常见用法是 GET /graph/:eid。

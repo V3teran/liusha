@@ -126,7 +126,7 @@ func (s *Store) ListByHost(ctx context.Context, tenant, host string, limit int) 
 // 迁到 lesson 表 (host='*', kind='hint') 行，启动时由 SeedDefaultHints 同步入库；
 // 子 ReAct 装配 prompt 时与具体 host 的 lesson 一起渲染。
 //
-// 借鉴 Cairn Hint 的"业务规则与执行流程解耦"思路（不抄实现）。
+// 设计理念：业务规则与执行流程解耦——hint 由人工/LLM 写入，agent 调用时透明注入 prompt。
 //
 // tenant 必填（空时报错）。limit ≤ 0 用默认 20。
 func (s *Store) ListGlobalHints(ctx context.Context, tenant string, limit int) ([]Lesson, error) {

@@ -390,6 +390,8 @@ func (h handler) handleTraffic(ctx context.Context, p worker.Payload, entrypoint
 	observer := react.NewLLMObserver(obsGen, h.engagements, eid)
 	observer.ArgsTruncate = h.cfg.React.ObserverArgsTruncate
 	observer.ObsTruncate = h.cfg.React.ObserverObsTruncate
+	// FlowSummary 约束 observer 只评本流量任务，避免跨流量推方向
+	observer.FlowSummary = fmt.Sprintf("%s %s%s", ep.Method, ep.Host, ep.URL)
 
 	// 拉 flow 完整 raw（请求 + 响应）填 BuilderParams
 	fl, err := h.flows.GetByID(ctx, ep.FlowID)

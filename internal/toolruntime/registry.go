@@ -1,6 +1,6 @@
 // Package action 定义 ReAct 循环里的"动作"（工具）抽象与注册表。
 //
-// 设计要点（含黑客松借鉴）：
+// 设计要点：
 //   - Action 是 LLM 可调用的工具单元，Execute 返回 Result（含 Done 终止信号 + Summary 摘要）。
 //   - Registry 在动作执行前后通过中间件链横切：result_compress / done_validate。
 //   - 中间件顺序与 HTTP middleware 一致：先注册的在最外层（先 enter、后 exit）。
@@ -19,7 +19,7 @@ import (
 //
 // Output 是 JSON 编码的工具返回值，会作为 tool message 喂回 LLM。
 // Done = true 时 runtime 应终止 ReAct 循环（如 submit_finding 提交完成）。
-// Summary 是 ≤200 字的摘要，供 Observer 滑动窗用于压缩历史（黑客松借鉴 result_compress）。
+// Summary 是 ≤200 字的摘要，供 Observer 滑动窗用于压缩历史。
 type Result struct {
 	Output  json.RawMessage
 	Done    bool

@@ -1,9 +1,9 @@
 // Package graphview 是图视图投影器：从 finding + finding_relation + flow + engagement
-// 几张事实表实时拼出 Cairn 风格的图（origin / endpoint / parameter / finding / goal
+// 几张事实表实时拼出图视图（origin / endpoint / parameter / finding / goal
 // 节点 + has_param / vulnerable_to / enables / contributes_to 边），
 // **不独立存储**——所有节点边都是查询时派生，避免数据漂移。
 //
-// 借鉴第 3 名 Bytex/Cairn 的设计：图的节点种类 = Fact 的最小表达，原图本身就够用。
+// 设计理念：图的节点种类 = Fact 的最小表达，原图本身就够用。
 // 我们的投影器只是把已有事实换个视角呈现。
 package graphview
 

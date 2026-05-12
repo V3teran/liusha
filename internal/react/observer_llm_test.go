@@ -9,23 +9,22 @@ import (
 )
 
 // TestNormalizeDecision_TypoTolerance 验证 LLM 输出 decision 字段的归一化容错。
-// 关键 case：实测 LLM 偶发拼成 "kepp_going"（漏字母），不应再触发 unknown warn。
+// 关键 case：实测 LLM 偶发拼写变体不应再触发 unknown warn。
 func TestNormalizeDecision_TypoTolerance(t *testing.T) {
 	cases := []struct {
 		name string
 		raw  string
 		want string
 	}{
-		{"canonical keep_going", "keep_going", VerdictKeepGoing},
-		{"canonical steer", "steer_with_hint", VerdictSteer},
-		{"canonical abort", "abort_low_value", VerdictAbort},
-		{"typo kepp_going", "kepp_going", VerdictKeepGoing},
-		{"uppercase KEEP_GOING", "KEEP_GOING", VerdictKeepGoing},
-		{"with whitespace", "  keep_going  ", VerdictKeepGoing},
-		{"contains keep", "keep going", VerdictKeepGoing},
-		{"contains going", "let me keep going", VerdictKeepGoing},
-		{"hyphen variant abort", "abort-low-value", VerdictAbort},
-		{"contains steer", "Please steer", VerdictSteer},
+		{"canonical continue", "continue", VerdictContinue},
+		{"canonical redirect", "redirect", VerdictRedirect},
+		{"canonical terminate", "terminate", VerdictTerminate},
+		{"uppercase CONTINUE", "CONTINUE", VerdictContinue},
+		{"with whitespace", "  continue  ", VerdictContinue},
+		{"contains keep", "keep going", VerdictContinue},
+		{"contains keep substr", "let me keep going", VerdictContinue},
+		{"hyphen variant terminate", "abort-now", VerdictTerminate},
+		{"contains steer alias", "Please steer", VerdictRedirect},
 		{"empty input returns empty", "", ""},
 		{"unknown returns empty", "yolo", ""},
 	}
@@ -75,30 +74,30 @@ func TestLLMObserver_KeepGoingOnInvalidJSON(t *testing.T) {
 
 	v := obs.Evaluate(context.Background(), nil)
 
-	if v.Decision != VerdictKeepGoing {
-		t.Fatalf("解析失败应回退 keep_going，实际 %q", v.Decision)
+	if v.Decision != VerdictContinue {
+		t.Fatalf("解析失败应回退 continue，实际 %q", v.Decision)
 	}
 }
 
 func TestLLMObserver_AbortDecision(t *testing.T) {
-	gen := &mockGen{out: `{"decision":"abort_low_value","hint":""}`}
+	gen := &mockGen{out: `{"decision":"terminate","hint":""}`}
 	obs := NewLLMObserver(gen, nil, "eid")
 
 	v := obs.Evaluate(context.Background(), []StepRecord{{ActionName: "noop"}})
 
-	if v.Decision != VerdictAbort {
-		t.Fatalf("期望 abort_low_value，实际 %q", v.Decision)
+	if v.Decision != VerdictTerminate {
+		t.Fatalf("期望 terminate，实际 %q", v.Decision)
 	}
 }
 
 func TestLLMObserver_SteerWithHint(t *testing.T) {
-	gen := &mockGen{out: `{"decision":"steer_with_hint","hint":"改向 X"}`}
+	gen := &mockGen{out: `{"decision":"redirect","hint":"改向 X"}`}
 	obs := NewLLMObserver(gen, nil, "eid")
 
 	v := obs.Evaluate(context.Background(), []StepRecord{{ActionName: "scan"}})
 
-	if v.Decision != VerdictSteer {
-		t.Fatalf("期望 steer_with_hint，实际 %q", v.Decision)
+	if v.Decision != VerdictRedirect {
+		t.Fatalf("期望 redirect，实际 %q", v.Decision)
 	}
 	if v.Hint != "改向 X" {
 		t.Fatalf("hint 透传错，实际 %q", v.Hint)
@@ -111,8 +110,8 @@ func TestLLMObserver_UnknownDecisionFallsBack(t *testing.T) {
 
 	v := obs.Evaluate(context.Background(), []StepRecord{{ActionName: "noop"}})
 
-	if v.Decision != VerdictKeepGoing {
-		t.Fatalf("非法 decision 应回退 keep_going，实际 %q", v.Decision)
+	if v.Decision != VerdictContinue {
+		t.Fatalf("非法 decision 应回退 continue，实际 %q", v.Decision)
 	}
 }
 
@@ -122,14 +121,14 @@ func TestLLMObserver_LLMError(t *testing.T) {
 
 	v := obs.Evaluate(context.Background(), []StepRecord{{ActionName: "noop"}})
 
-	if v.Decision != VerdictKeepGoing {
-		t.Fatalf("LLM 错误应回退 keep_going，实际 %q", v.Decision)
+	if v.Decision != VerdictContinue {
+		t.Fatalf("LLM 错误应回退 continue，实际 %q", v.Decision)
 	}
 }
 
 func TestLLMObserver_WindowEmpty(t *testing.T) {
 	// window=nil + nil store：仍应正常工作，不 panic
-	gen := &mockGen{out: `{"decision":"keep_going","hint":""}`}
+	gen := &mockGen{out: `{"decision":"continue","hint":""}`}
 	obs := NewLLMObserver(gen, nil, "eid")
 
 	defer func() {
@@ -139,21 +138,21 @@ func TestLLMObserver_WindowEmpty(t *testing.T) {
 	}()
 
 	v := obs.Evaluate(context.Background(), nil)
-	if v.Decision != VerdictKeepGoing {
-		t.Fatalf("期望 keep_going，实际 %q", v.Decision)
+	if v.Decision != VerdictContinue {
+		t.Fatalf("期望 continue，实际 %q", v.Decision)
 	}
 }
 
 func TestLLMObserver_StateReadFailureFallsThrough(t *testing.T) {
 	// store ReadState 返回错误：observer 应跳过 state，仍调 LLM
-	gen := &mockGen{out: `{"decision":"keep_going","hint":""}`}
+	gen := &mockGen{out: `{"decision":"continue","hint":""}`}
 	store := &stateReaderStub{err: errors.New("db down")}
 	obs := NewLLMObserver(gen, store, "eid")
 
 	v := obs.Evaluate(context.Background(), []StepRecord{{ActionName: "scan"}})
 
-	if v.Decision != VerdictKeepGoing {
-		t.Fatalf("期望 keep_going，实际 %q", v.Decision)
+	if v.Decision != VerdictContinue {
+		t.Fatalf("期望 continue，实际 %q", v.Decision)
 	}
 	if len(gen.lastMsgs) == 0 {
 		t.Fatalf("store 失败时仍应调 LLM")

@@ -97,7 +97,7 @@ func TestRun_StopsOnMaxSteps(t *testing.T) {
 }
 
 func TestRun_ObserverAbortsLowValue(t *testing.T) {
-	// 6 步循环，每 5 步触发一次 Observer；第一次返回 abort_low_value，应当 break
+	// 6 步循环，每 5 步触发一次 Observer；第一次返回 terminate，应当 break
 	noop := llm.Result{
 		ToolCalls:    []llm.ToolCall{{ID: "n", Name: "noop", Arguments: json.RawMessage(`{}`)}},
 		FinishReason: "tool_calls",
@@ -106,7 +106,7 @@ func TestRun_ObserverAbortsLowValue(t *testing.T) {
 	reg := toolfx.NewRegistry()
 	_ = reg.Register(&captureAction{name: "noop"})
 
-	obs := &fakeObserver{verdicts: []Verdict{{Decision: VerdictAbort}}}
+	obs := &fakeObserver{verdicts: []Verdict{{Decision: VerdictTerminate}}}
 	out, err := Run(context.Background(), Config{
 		LLM: gen, Actions: reg,
 		Budget:   Budget{MaxSteps: 30},
@@ -115,8 +115,8 @@ func TestRun_ObserverAbortsLowValue(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if out.TerminateBy != "observer_abort" {
-		t.Fatalf("expected terminate_by=observer_abort, got %q", out.TerminateBy)
+	if out.TerminateBy != "observer_terminate" {
+		t.Fatalf("expected terminate_by=observer_terminate, got %q", out.TerminateBy)
 	}
 	if obs.calls != 1 {
 		t.Fatalf("expected observer 1 call, got %d", obs.calls)
@@ -124,7 +124,7 @@ func TestRun_ObserverAbortsLowValue(t *testing.T) {
 }
 
 func TestRun_ObserverInjectsHint(t *testing.T) {
-	// Observer 返回 steer_with_hint，runtime 计数 +1 并继续；最终 done
+	// Observer 返回 redirect，runtime 计数 +1 并继续；最终 done
 	noop := llm.Result{
 		ToolCalls:    []llm.ToolCall{{ID: "n", Name: "noop", Arguments: json.RawMessage(`{}`)}},
 		FinishReason: "tool_calls",
@@ -138,7 +138,7 @@ func TestRun_ObserverInjectsHint(t *testing.T) {
 	_ = reg.Register(&captureAction{name: "noop"})
 	_ = reg.Register(&captureAction{name: "done", res: toolfx.Result{Done: true}})
 
-	obs := &fakeObserver{verdicts: []Verdict{{Decision: VerdictSteer, Hint: "改向 X"}}}
+	obs := &fakeObserver{verdicts: []Verdict{{Decision: VerdictRedirect, Hint: "改向 X"}}}
 	out, err := Run(context.Background(), Config{
 		LLM: gen, Actions: reg,
 		Budget:   Budget{MaxSteps: 30},
