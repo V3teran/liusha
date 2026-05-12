@@ -115,17 +115,28 @@ func Run(ctx context.Context, cfg Config) (Outcome, error) {
 		}
 
 		// 2) Observer hook：每 N 步触发一次（开局不触发）
+		//
+		// observer 不能强中断主循环——曾观察到 agent 已挖到漏洞但还没 write_finding 时
+		// 被 terminate 掐死，丢失 finding。terminate / redirect 统一注入 hint，让 LLM
+		// 自决是否 done()；MaxSteps 兜底防死循环。
 		if out.TotalSteps > 0 && out.TotalSteps%cfg.ObserverEverySteps == 0 {
 			v := cfg.Observer.Evaluate(ctx, window)
+			var hint string
 			switch v.Decision {
 			case VerdictTerminate:
-				out.TerminateBy = "observer_terminate"
-				return out, nil
+				hint = v.Hint
+				if hint == "" {
+					hint = "任务已完成，请立即调用 done()。如尚未 write_finding 务必先调。"
+				}
+				hint = "**强建议结束**：" + hint
 			case VerdictRedirect:
 				if v.Hint != "" {
-					msgs = append(msgs, llm.Message{Role: llm.RoleUser, Content: "提示：" + v.Hint})
-					out.ObserverHints++
+					hint = "提示：" + v.Hint
 				}
+			}
+			if hint != "" {
+				msgs = append(msgs, llm.Message{Role: llm.RoleUser, Content: hint})
+				out.ObserverHints++
 			}
 		}
 

@@ -437,8 +437,9 @@ func (h handler) handleTraffic(ctx context.Context, p worker.Payload, entrypoint
 		}
 		return h.failTask(ctx, p.TaskID, err)
 	}
-	// observer terminate / engagement aborted：走 SetAborted 而非 SetDone
-	if out.TerminateBy == "observer_terminate" || out.TerminateBy == "aborted" {
+	// engagement aborted（OnAbort 触发）：走 SetAborted 而非 SetDone。
+	// observer terminate 不再强中断（改注入 hint），所以此分支只剩 engagement-level abort。
+	if out.TerminateBy == "aborted" {
 		return h.abortTask(ctx, p.TaskID, out.TerminateBy)
 	}
 

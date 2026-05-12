@@ -96,17 +96,24 @@ func TestRun_StopsOnMaxSteps(t *testing.T) {
 	}
 }
 
-func TestRun_ObserverAbortsLowValue(t *testing.T) {
-	// 6 步循环，每 5 步触发一次 Observer；第一次返回 terminate，应当 break
+func TestRun_ObserverTerminateInjectsHint(t *testing.T) {
+	// observer terminate 不再 break 主循环——改注入强 hint，让 LLM 自决 done()。
+	// 场景：跑 5 步 noop，第 6 步前 observer 触发 terminate → 注入 hint → LLM 看到后下一步调 done。
 	noop := llm.Result{
 		ToolCalls:    []llm.ToolCall{{ID: "n", Name: "noop", Arguments: json.RawMessage(`{}`)}},
 		FinishReason: "tool_calls",
 	}
-	gen := &scriptedGen{turns: []llm.Result{noop, noop, noop, noop, noop, noop, noop}}
+	doneCall := llm.Result{
+		ToolCalls:    []llm.ToolCall{{ID: "d", Name: "done", Arguments: json.RawMessage(`{"reason":"observer hinted"}`)}},
+		FinishReason: "tool_calls",
+	}
+	// 5 noop + 1 done（第 6 turn LLM 看到 observer hint 后乖乖 done）
+	gen := &scriptedGen{turns: []llm.Result{noop, noop, noop, noop, noop, doneCall}}
 	reg := toolfx.NewRegistry()
 	_ = reg.Register(&captureAction{name: "noop"})
+	_ = reg.Register(&captureAction{name: "done", res: toolfx.Result{Done: true}})
 
-	obs := &fakeObserver{verdicts: []Verdict{{Decision: VerdictTerminate}}}
+	obs := &fakeObserver{verdicts: []Verdict{{Decision: VerdictTerminate, Hint: "done now"}}}
 	out, err := Run(context.Background(), Config{
 		LLM: gen, Actions: reg,
 		Budget:   Budget{MaxSteps: 30},
@@ -115,11 +122,11 @@ func TestRun_ObserverAbortsLowValue(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if out.TerminateBy != "observer_terminate" {
-		t.Fatalf("expected terminate_by=observer_terminate, got %q", out.TerminateBy)
+	if out.TerminateBy == "observer_terminate" {
+		t.Fatalf("observer terminate 应注入 hint 不应 break；实际 terminate_by=%q", out.TerminateBy)
 	}
-	if obs.calls != 1 {
-		t.Fatalf("expected observer 1 call, got %d", obs.calls)
+	if out.ObserverHints == 0 {
+		t.Fatalf("expected ObserverHints>0（terminate 注入 hint），实际 %d", out.ObserverHints)
 	}
 }
 

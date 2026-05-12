@@ -131,14 +131,17 @@ func NewBuilder(deps Deps) skill.Builder {
 
 		// Progressive Disclosure Tier 2：LLM 看 user prompt 工具索引选中工具后
 		// 调本工具拿完整 SKILL.md。Loader 由 cmd/scanner 单独装配（root=skills/tooling）。
-		if deps.ToolingLoader != nil {
+		// 仅当 catalog 非空时才注册 read_tooling_skill——
+		// 工具不暴露给 LLM，避免它凭"行业常识"猜不存在的 name 浪费 round-trip。
+		if deps.ToolingLoader != nil && len(deps.ToolingLoader.List()) > 0 {
 			must(&common.ReadToolingSkill{Loader: deps.ToolingLoader})
 		}
 
 		// Progressive Disclosure Tier 2（漏洞挖掘指南）：LLM 按 recon_checklist
 		// 判完流量方向后，调本工具拿对应漏洞类型完整 SKILL.md。
 		// Loader root=skills/vuln，由 cmd/scanner 单独装配。
-		if deps.VulnLoader != nil {
+		// 仅当 catalog 非空时才注册 read_vuln_skill——同上 P4 教训。
+		if deps.VulnLoader != nil && len(deps.VulnLoader.List()) > 0 {
 			must(&common.ReadVulnSkill{Loader: deps.VulnLoader})
 		}
 
