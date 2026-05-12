@@ -2,14 +2,26 @@
 // scanner 拉到 flow 后调 NewBuilder(deps)(ctx, params) 拿 react.Config 跑 react.Run。
 //
 // 单层架构：无 orchestrator 主层 / sub-react 子层。hunter agent 接到一条流量
-// （request + response + 凭证 + 已有 finding + hint），自由组合 7 个工具
-// （run_command / read_memory / write_memory / credentials / findings / finding / done）
-// 挖出该流量涉及的所有漏洞。
+// （request + response + 凭证 + 已有 finding + hint）后，自由组合下列工具挖漏洞：
+//
+//	必装（11 个）:
+//	  read_memory / write_memory                — task 内中间状态
+//	  read_credentials                          — 拿该 host 凭证
+//	  read_findings / write_finding / update_finding — finding 读写
+//	  read_relations / write_relation           — finding 依赖图
+//	  read_lessons / write_lesson               — 跨 engagement 经验
+//	  done                                      — 收尾
+//
+//	可选（3 个，Deps.*Loader / DockerRunner nil 时跳过）:
+//	  read_tooling_skill                        — 拉 skills/tooling/<name>/SKILL.md
+//	  read_vuln_skill                           — 拉 skills/vuln/<name>/SKILL.md
+//	  run_command                               — 沙箱跑外部 CLI
 package hunter
 
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -56,7 +68,7 @@ type Deps struct {
 
 	// 容器化沙箱执行器（run_command 工具的运行时）。
 	DockerRunner  *runners.DockerRunner // nil 时 run_command 不注册
-	PentoolsImage string                // 默认 liusha/pentools:latest
+	PentoolsImage string                // 由 cfg.Sandbox.DefaultImage 注入（config 默认 liusha/pentools:latest）；空时由 RunCommand fallback 兜底
 	ScanNetwork   string                // 默认空（docker bridge）
 
 	SandboxCfg config.SandboxConfig
@@ -75,7 +87,8 @@ type Deps struct {
 
 	// Prompt 拼装预算
 	UserPromptBodyLimit int // 请求/响应 body 单段截断字节数；≤0 → 8192
-	HintsLimit          int // 注入 user prompt 的 hint 条数；≤0 → 20
+	FindingsLimit       int // user prompt 该 host 已有 finding 段显示条数；≤0 → 100
+	LessonsLimit        int // user prompt lesson + hint 段共用上限；≤0 → 100
 }
 
 const skillName = "hunter"
@@ -85,40 +98,49 @@ func NewBuilder(deps Deps) skill.Builder {
 	return func(ctx context.Context, p skill.BuilderParams) (react.Config, error) {
 		reg := toolfx.NewRegistry()
 
-		_ = reg.Register(&common.ReadMemory{Store: deps.Engagements, EngagementID: p.EngagementID, TaskID: p.TaskID})
-		_ = reg.Register(&common.WriteMemory{Store: deps.Engagements, EngagementID: p.EngagementID, TaskID: p.TaskID})
-		_ = reg.Register(&common.ReadCredentials{Provider: deps.Credentials, Host: p.Host})
-		_ = reg.Register(&common.ReadFindings{Store: deps.Findings, Host: p.Host})
-		_ = reg.Register(&common.WriteFinding{
+		// 累积所有 register error 一次性返回——之前 `_ = reg.Register(...)` 静默
+		// 吞掉 duplicate name / schema 验证错，agent 端只表现为"工具调不出"难排查。
+		var regErrs []error
+		must := func(act toolfx.Action) {
+			if err := reg.Register(act); err != nil {
+				regErrs = append(regErrs, fmt.Errorf("register %s: %w", act.Name(), err))
+			}
+		}
+
+		must(&common.ReadMemory{Store: deps.Engagements, EngagementID: p.EngagementID, TaskID: p.TaskID})
+		must(&common.WriteMemory{Store: deps.Engagements, EngagementID: p.EngagementID, TaskID: p.TaskID})
+		must(&common.ReadCredentials{Provider: deps.Credentials, Host: p.Host})
+		must(&common.ReadFindings{Store: deps.Findings, Host: p.Host})
+		must(&common.WriteFinding{
 			Store:        deps.Findings,
 			EngagementID: p.EngagementID,
 			TaskID:       p.TaskID,
 			Host:         p.Host,
 			FlowID:       p.FlowID,
 		})
-		_ = reg.Register(&common.UpdateFinding{Store: deps.Findings})
-		_ = reg.Register(&common.ReadRelations{Store: deps.Findings, EngagementID: p.EngagementID})
-		_ = reg.Register(&common.WriteRelation{Store: deps.Findings})
-		_ = reg.Register(&common.ReadLessons{Store: deps.Lessons, Tenant: deps.Tenant, Host: p.Host})
-		_ = reg.Register(&common.WriteLesson{Store: deps.Lessons, Tenant: deps.Tenant, Host: p.Host})
-		_ = reg.Register(common.Done{})
+		must(&common.UpdateFinding{Store: deps.Findings})
+		must(&common.ReadRelations{Store: deps.Findings, EngagementID: p.EngagementID})
+		must(&common.WriteRelation{Store: deps.Findings})
+		must(&common.ReadLessons{Store: deps.Lessons, Tenant: deps.Tenant, Host: p.Host})
+		must(&common.WriteLesson{Store: deps.Lessons, Tenant: deps.Tenant, Host: p.Host})
+		must(common.Done{})
 
 		// Progressive Disclosure Tier 2：LLM 看 user prompt 工具索引选中工具后
 		// 调本工具拿完整 SKILL.md。Loader 由 cmd/scanner 单独装配（root=skills/tooling）。
 		if deps.ToolingLoader != nil {
-			_ = reg.Register(&common.ReadToolingSkill{Loader: deps.ToolingLoader})
+			must(&common.ReadToolingSkill{Loader: deps.ToolingLoader})
 		}
 
 		// Progressive Disclosure Tier 2（漏洞挖掘指南）：LLM 按 recon_checklist
 		// 判完流量方向后，调本工具拿对应漏洞类型完整 SKILL.md。
 		// Loader root=skills/vuln，由 cmd/scanner 单独装配。
 		if deps.VulnLoader != nil {
-			_ = reg.Register(&common.ReadVulnSkill{Loader: deps.VulnLoader})
+			must(&common.ReadVulnSkill{Loader: deps.VulnLoader})
 		}
 
 		if deps.DockerRunner != nil {
 			s := deps.SandboxCfg
-			_ = reg.Register(&external.RunCommand{
+			must(&external.RunCommand{
 				Runner:         deps.DockerRunner,
 				Image:          deps.PentoolsImage,
 				Network:        deps.ScanNetwork,
@@ -131,6 +153,10 @@ func NewBuilder(deps Deps) skill.Builder {
 			})
 		}
 
+		if len(regErrs) > 0 {
+			return react.Config{}, fmt.Errorf("hunter register tools: %w", errors.Join(regErrs...))
+		}
+
 		card, err := deps.SkillLoader.Load(skillName)
 		if err != nil {
 			return react.Config{}, fmt.Errorf("load skill %q: %w", skillName, err)
@@ -140,6 +166,7 @@ func NewBuilder(deps Deps) skill.Builder {
 		reg.Use(
 			middleware.Observe(),
 			middleware.Timeout(deps.ToolExecuteTimeoutSeconds),
+			// (0,0,0) → 全部使用 result_compress 内置的 fallback 阈值/snippet/summary。
 			middleware.ResultCompress(0, 0, 0),
 		)
 
@@ -168,7 +195,8 @@ func NewBuilder(deps Deps) skill.Builder {
 }
 
 // buildUserPrompt 拼接 hunter agent 的第一条 user message：
-// 流量请求 + 流量响应 + 该 host 已有 finding + lesson/hint + 行动指令。
+// 流量请求 + 流量响应 + 该 host 已有 finding + lesson/hint + 工具索引 + 漏洞指南索引。
+// 不再追加"行动指令"——agent 目标 / 工作流 / 反模式都在 hunter SKILL.md（system prompt）里写，不在每次 user prompt 重复。
 func buildUserPrompt(ctx context.Context, deps Deps, p skill.BuilderParams) string {
 	bodyLimit := deps.UserPromptBodyLimit
 	if bodyLimit <= 0 {
@@ -203,14 +231,23 @@ func buildUserPrompt(ctx context.Context, deps Deps, p skill.BuilderParams) stri
 	b.WriteString("\n### Response Body")
 	writeBodyBlock(&b, p.ResponseBody, bodyLimit)
 
+	findingsLimit := deps.FindingsLimit
+	if findingsLimit <= 0 {
+		findingsLimit = 100
+	}
+	lessonsLimit := deps.LessonsLimit
+	if lessonsLimit <= 0 {
+		lessonsLimit = 100
+	}
+
 	// 段 3: 该 host 已有 finding
-	if existing := loadExistingFindings(ctx, deps.Findings, p.Host); existing != "" {
-		b.WriteString("\n\n## 该 host 已有 finding（写新 finding 前先看，别重复）\n\n")
+	if existing := loadExistingFindings(ctx, deps.Findings, p.Host, findingsLimit); existing != "" {
+		b.WriteString("\n\n## 该 host 已有 finding\n\n")
 		b.WriteString(existing)
 	}
 
 	// 段 4: lesson + hint
-	if knowledge := loadKnowledgeForPrompt(ctx, deps.Lessons, deps.Tenant, p.Host, deps.HintsLimit); knowledge != "" {
+	if knowledge := loadKnowledgeForPrompt(ctx, deps.Lessons, deps.Tenant, p.Host, lessonsLimit); knowledge != "" {
 		b.WriteString("\n\n")
 		b.WriteString(knowledge)
 	}
@@ -229,9 +266,6 @@ func buildUserPrompt(ctx context.Context, deps Deps, p skill.BuilderParams) stri
 		b.WriteString("\n\n")
 		b.WriteString(catalog)
 	}
-
-	// 段 5: 行动指令
-	b.WriteString("\n\n→ 找出这条流量涉及的所有漏洞，用 `write_finding(...)` 入库；完成或确认无漏洞调 `done()`。")
 
 	return b.String()
 }
@@ -272,22 +306,20 @@ var vulnCategoryOrder = []categoryItem{
 //
 // 输出形如：
 //
-//	## 可用外部工具（沙箱内预装；run_command 调用）
-//	**沙箱网络约束**：...
-//	需要详细用法时调 read_tooling_skill(name="<name>") 拉完整手册（仅复杂工具有 SKILL）。
+//	## 可用外部工具索引
 //
 //	### recon（侦察 — 资产/服务/技术栈发现）
 //	- **subfinder**: ...
 //	- **httpx**: ...
+//
+// 用法约束（沙箱网络、read_tooling_skill 拉详细手册）在 hunter SKILL.md 里说，不在这段重复。
 func buildToolingCatalog(m *manifest.Manifest) string {
 	if m == nil || len(m.Tools) == 0 {
 		return ""
 	}
 
 	var b strings.Builder
-	b.WriteString("## 可用外部工具（沙箱内预装；run_command 调用）\n\n")
-	b.WriteString("**沙箱网络约束**：容器走 bridge 出网，访问目标时 url 直接用流量里的真实 host:port\n")
-	b.WriteString("需要详细用法时调 `read_tooling_skill(name=\"<name>\")` 拉完整手册（仅复杂工具有 SKILL，简单工具靠 `--help` 即可）。\n")
+	b.WriteString("## 可用外部工具索引\n")
 
 	buckets := m.ByCategory()
 
@@ -396,12 +428,14 @@ func buildCatalog(loader *skill.Loader, header string, order []categoryItem) str
 //
 // 输出形如：
 //
-//	## 可用漏洞挖掘指南（按 recon_checklist 判完方向后，read_vuln_skill 拉详细）
+//	## 可用漏洞挖掘指南索引
 //
 //	### web（Web 应用漏洞）
 //	- **bac**: 访问控制失效（Broken Access Control）...
+//
+// 用法约束（按 recon_checklist 判完方向、read_vuln_skill 拉详情）在 hunter SKILL.md 里说。
 func buildVulnCatalog(loader *skill.Loader) string {
-	header := "## 可用漏洞挖掘指南（按 recon_checklist 判完方向后，read_vuln_skill 拉详细）\n"
+	header := "## 可用漏洞挖掘指南索引\n"
 	return buildCatalog(loader, header, vulnCategoryOrder)
 }
 
@@ -456,19 +490,21 @@ func writeBodyBlock(b *strings.Builder, body []byte, limit int) {
 	}
 }
 
-// loadExistingFindings 拉 host 已有 finding 摘要（dedup 参考）；最多 20 条。
-func loadExistingFindings(ctx context.Context, store *finding.Store, host string) string {
-	if store == nil || host == "" {
+// loadExistingFindings 拉 host 已有 finding 摘要（dedup 参考）。
+// showLimit 由 caller 提供（来自 cfg.Engagement.FindingsLimitInPrompt，默认 100）。
+// SQL 拉 showLimit+1 条：前 showLimit 渲染给 LLM 看，第 showLimit+1 条仅用作"还有更多"信号。
+func loadExistingFindings(ctx context.Context, store *finding.Store, host string, showLimit int) string {
+	if store == nil || host == "" || showLimit <= 0 {
 		return ""
 	}
-	fs, err := store.ListByHost(ctx, host)
+	fs, err := store.ListByHost(ctx, host, showLimit+1)
 	if err != nil || len(fs) == 0 {
 		return ""
 	}
 	var b strings.Builder
 	for i, f := range fs {
-		if i >= 20 {
-			fmt.Fprintf(&b, "...（还有 %d 条；用 findings() 工具查全）\n", len(fs)-i)
+		if i >= showLimit {
+			b.WriteString("...（可能还有更多；用 read_findings 查全）\n")
 			break
 		}
 		fmt.Fprintf(&b, "- [%s] %s\n", f.Severity, firstLine(f.Summary, 120))
@@ -477,24 +513,33 @@ func loadExistingFindings(ctx context.Context, store *finding.Store, host string
 }
 
 // loadKnowledgeForPrompt 拉 host 历史经验 + 全局业务规则 hint。
+// limit 由 caller 提供（来自 cfg.Engagement.LessonsLimitInPrompt，默认 100）；
+// lesson 与 hint 各取 top-N（按 priority desc）共用此 limit。
 func loadKnowledgeForPrompt(ctx context.Context, store *lesson.Store, tenant, host string, limit int) string {
 	if store == nil {
 		return ""
 	}
 	if limit <= 0 {
-		limit = 20
+		limit = 100
 	}
 
 	var b strings.Builder
 
 	if host != "" {
 		if lessons, err := store.ListByHost(ctx, tenant, host, limit); err == nil && len(lessons) > 0 {
-			b.WriteString("## Host 历史经验（distill 蒸馏，可能含旧情报；带具体 payload/手法可直接复用）\n\n")
-			for i, l := range lessons {
+			// 先过滤再 numbering——避免跳号（如全局 hint 混进 host lessons 时）。
+			kept := make([]lesson.Lesson, 0, len(lessons))
+			for _, l := range lessons {
 				if l.Kind == lesson.KindHint && l.Host == lesson.HostGlobalHint {
 					continue
 				}
-				fmt.Fprintf(&b, "%d. (priority=%d, hits=%d) %s\n", i+1, l.Priority, l.HitCount, l.Content)
+				kept = append(kept, l)
+			}
+			if len(kept) > 0 {
+				b.WriteString("## Host 历史经验（distill 蒸馏，可能含旧情报；带具体 payload/手法可直接复用）\n\n")
+				for i, l := range kept {
+					fmt.Fprintf(&b, "%d. (priority=%d, hits=%d) %s\n", i+1, l.Priority, l.HitCount, l.Content)
+				}
 			}
 		}
 	}

@@ -195,6 +195,12 @@ type EngagementConfig struct {
 	MaxMemoryNotesEntries int `mapstructure:"max_memory_notes_entries"`
 	DefaultNotesLimit     int `mapstructure:"default_notes_limit"`
 
+	// hunter user prompt 拼装时的上限（避免 prompt 膨胀）。
+	// FindingsLimitInPrompt：该 host 已有 finding 段显示条数（dedup 参考；超出条数 LLM 用 read_findings 工具按需查）。
+	// LessonsLimitInPrompt：该 host 历史经验 + 跨 host 业务规则 hint 共用上限（按 priority desc）。
+	FindingsLimitInPrompt int `mapstructure:"findings_limit_in_prompt"`
+	LessonsLimitInPrompt  int `mapstructure:"lessons_limit_in_prompt"`
+
 	// DefaultTenant 是单租户场景下的兜底租户名；多租户后由 caller 显式传入。
 	// 影响 ingestor、engagement 自动创建、lesson 默认 tenant 等。
 	DefaultTenant string `mapstructure:"default_tenant"`
@@ -547,6 +553,12 @@ func applyEngagementDefaults(c EngagementConfig) EngagementConfig {
 	}
 	if c.DefaultNotesLimit == 0 {
 		c.DefaultNotesLimit = 200
+	}
+	if c.FindingsLimitInPrompt == 0 {
+		c.FindingsLimitInPrompt = 100
+	}
+	if c.LessonsLimitInPrompt == 0 {
+		c.LessonsLimitInPrompt = 100
 	}
 	if c.DefaultTenant == "" {
 		c.DefaultTenant = "default"

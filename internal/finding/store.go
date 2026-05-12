@@ -231,12 +231,15 @@ func (s *Store) ListByEngagement(ctx context.Context, engagementID string) ([]Vu
 
 // ListByHost 列出某 host 在所有 engagement 下的 finding（按 created_at desc）。
 // 用于 hunter agent user prompt 拼装"该 host 已有 finding"段，让 LLM 自决 dedup。
-func (s *Store) ListByHost(ctx context.Context, host string) ([]VulnFinding, error) {
-	rows, err := s.pool.Query(ctx, `
-		SELECT `+colsSelect+`
-		FROM finding
-		WHERE host = $1
-		ORDER BY created_at DESC`, host)
+// limit ≤ 0 表示不限制（read_findings 工具列全部）；> 0 时 SQL 加 LIMIT 避免拉超量数据。
+func (s *Store) ListByHost(ctx context.Context, host string, limit int) ([]VulnFinding, error) {
+	q := `SELECT ` + colsSelect + ` FROM finding WHERE host = $1 ORDER BY created_at DESC`
+	args := []any{host}
+	if limit > 0 {
+		q += ` LIMIT $2`
+		args = append(args, limit)
+	}
+	rows, err := s.pool.Query(ctx, q, args...)
 	if err != nil {
 		return nil, fmt.Errorf("list findings by host: %w", err)
 	}

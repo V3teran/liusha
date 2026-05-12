@@ -12,8 +12,9 @@ import (
 )
 
 // findingsLister 是 ReadFindings 工具依赖的最小读接口，由 *finding.Store 自动满足。
+// limit ≤ 0 = 不限制；> 0 = SQL LIMIT 限上限。
 type findingsLister interface {
-	ListByHost(ctx context.Context, host string) ([]finding.VulnFinding, error)
+	ListByHost(ctx context.Context, host string, limit int) ([]finding.VulnFinding, error)
 }
 
 // ReadFindings — 列出本 task 目标 host 的全部已有 finding（dedup 参考）。
@@ -60,7 +61,7 @@ func (a *ReadFindings) Execute(ctx context.Context, _ json.RawMessage) (toolfx.R
 		return toolfx.Result{}, errors.New("findings: Store nil")
 	}
 
-	fs, err := a.Store.ListByHost(ctx, a.Host)
+	fs, err := a.Store.ListByHost(ctx, a.Host, 0)
 	if err != nil {
 		return toolfx.Result{}, err
 	}

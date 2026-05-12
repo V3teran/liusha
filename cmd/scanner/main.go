@@ -146,8 +146,8 @@ func main() {
 	wc := worker.NewClient(asynq.RedisClientOpt{Addr: redisAddr})
 	defer wc.Close()
 
-	// LLM Router
-	router := llm.NewRouter(llm.NewFactory(cfg))
+	// LLM Router：yaml retry 配置接线（兜底 spec §8.5 退避表）
+	router := llm.NewRouterWithOptions(llm.NewFactory(cfg), llm.RetryOptionsFromConfig(cfg.LLM.Retry))
 
 	// v0024 final agentic：删除 distill hook——hunter agent 用 write_lesson 工具
 	// 自决何时沉淀长期经验（省一次 LLM 调用，让 agent 判断"值得不值得记"）。
@@ -175,6 +175,8 @@ func main() {
 		WatchdogSeconds:           scannerCfg.MainWatchdogSeconds,
 		ObserverEverySteps:        cfg.React.ObserverEverySteps,
 		DoneForceMaxRejects:       cfg.React.DoneForceMaxRejects,
+		FindingsLimit:             cfg.Engagement.FindingsLimitInPrompt,
+		LessonsLimit:              cfg.Engagement.LessonsLimitInPrompt,
 	})
 
 	// handler

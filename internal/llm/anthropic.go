@@ -45,10 +45,10 @@ type anthropicGen struct {
 // client 由调用方从 ClientPool 取（共享 HTTP 连接池）；tools 不在此绑定。
 func NewAnthropic(_ context.Context, providerKey string, c AnthropicConfig, client *anthropic.Client) (Generator, error) {
 	if client == nil {
-		return nil, errors.New("Anthropic: client 必填（从 ClientPool 取）")
+		return nil, errors.New("anthropic: client 必填（从 ClientPool 取）")
 	}
 	if c.Model == "" {
-		return nil, errors.New("Anthropic: Model 必填")
+		return nil, errors.New("anthropic: model 必填")
 	}
 	maxTokens := c.MaxTokens
 	if maxTokens <= 0 {

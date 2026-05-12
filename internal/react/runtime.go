@@ -67,7 +67,7 @@ func Run(ctx context.Context, cfg Config) (Outcome, error) {
 		return Outcome{}, errors.New("LLM generator nil")
 	}
 	if cfg.Actions == nil {
-		return Outcome{}, errors.New("Actions registry nil")
+		return Outcome{}, errors.New("actions registry nil")
 	}
 	if cfg.Budget.MaxSteps <= 0 {
 		cfg.Budget.MaxSteps = 30
@@ -162,7 +162,6 @@ func Run(ctx context.Context, cfg Config) (Outcome, error) {
 
 		// 4) 没有 tool call → LLM 想直接收口，结束循环
 		if len(res.ToolCalls) == 0 {
-			msgs = append(msgs, llm.Message{Role: llm.RoleAssistant, Content: res.Content})
 			out.TerminateBy = "no_tool_call"
 			return out, nil
 		}

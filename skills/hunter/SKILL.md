@@ -35,6 +35,7 @@ description: 漏洞挖掘 agent。
 1. **真实命中**：evidence **来自工具调用 stdout/stderr 真实输出**（sqlmap `Parameter:` / `Type:` / `Payload:` 三件套；nuclei `template-id` + `matcher-name`；curl 实际响应片段）。**禁止**从输入流量原文拼凑伪装。
 2. **工具未失败**：`run_command` 返 502 / connection refused / exit≠0 / 空响应 / 超时 → **视为未命中**。先排查再写；排查无果调 `done()` 说明"已尝试 X 未触发"，**不得**伪造 finding 凑数。
 3. **可复现**：`evidence.repro_cmd` 必须是别人 copy 就能跑出同结果的完整命令。
+4. **不重复已有 finding**：user prompt 段会列出该 host 已写的 finding。等价漏洞（同类型 + 同入口）→ 用 `update_finding` 补强证据，不要 `write_finding` 新建；完全等价无新信息 → 直接 `done()` 跳过。
 
 **违反后果**：假 finding 污染 lesson、误导后续 engagement、欺骗运营人员——比少写严重 100 倍。**宁可空手 `done()` 也不要伪造**。
 

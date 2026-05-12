@@ -35,20 +35,23 @@ func (a *WriteLesson) Name() string { return "write_lesson" }
 
 // Description 提供给 LLM 的简介。
 func (a *WriteLesson) Description() string {
-	return "写一条长期经验到 lesson 表（跨 engagement 持久化，下次扫同 host 自动注入 user prompt）。" +
-		"**何时用**：**值得下次扫描复用**的 payload / endpoint / 业务模式——" +
-		"即便是常见漏洞类型（如 SQLi/XSS），只要包含本 host 特定细节" +
-		"（如『此 host 的 /api/x 用 id 参数注入；UNION 列数=2；DBMS=MariaDB』），下次扫直接照做就值得记。" +
-		"**不要写**：通用 OWASP 理论知识、本 task 内的临时状态（用 write_memory 即可）。" +
-		"content 必填（≤500 字，含具体 payload + endpoint + 触发条件）；priority 1-10 默认 5。"
+	return "写一条长期经验到 lesson 表（跨 engagement 持久化，下次扫自动注入 user prompt）。" +
+		"**kind=lesson（默认）**：本 host 特定经验——下次扫同一 host 时注入。" +
+		"  何时用：值得下次复用的 payload / endpoint / 业务模式（如『此 host 的 /api/x 用 id 参数注入；UNION 列数=2；DBMS=MariaDB』）。" +
+		"**kind=hint**：跨 host 业务规则——对**所有** host 通用，每条扫描都注入到『跨 host 业务规则提醒（必须遵守）』段。" +
+		"  何时用：客户/业务约束（如『价格篡改要 ≥10% 才算 finding』『/admin/* 是已知未授权设计不写 finding』），**不是** OWASP 通用知识。" +
+		"  ⚠️ hint 影响所有未来 agent 的判定，误写代价高——只在**强证据**（如 read_lessons 显示历史多次确认）时才写。" +
+		"**不要写**：通用 OWASP 理论、本 task 临时状态（用 write_memory）。" +
+		"content 必填（≤500 字）；priority 1-10 默认 5。"
 }
 
-// ParametersJSON 给出 content 必填 + priority/payload 可选 schema。
+// ParametersJSON 给出 content 必填 + kind/priority/payload 可选 schema。
 func (a *WriteLesson) ParametersJSON() json.RawMessage {
 	return json.RawMessage(`{
   "type":"object",
   "properties":{
-    "content":{"type":"string","description":"自由文本经验（≤500 字，给下次 AI 看；含具体 payload / endpoint / 触发条件）"},
+    "content":{"type":"string","description":"自由文本经验（≤500 字，给下次 AI 看）"},
+    "kind":{"type":"string","enum":["lesson","hint"],"default":"lesson","description":"lesson=本 host 特定经验（默认）；hint=跨 host 业务规则（影响所有未来 agent，慎用）"},
     "priority":{"type":"integer","minimum":1,"maximum":10,"description":"优先级 1-10（默认 5；越大越优先注入下次 prompt）"},
     "payload":{"type":"object","description":"可选：结构化字段 jsonb（如 {method, url_template, payload_string, headers}），便于程序化复用"}
   },
@@ -70,6 +73,7 @@ func (a *WriteLesson) Execute(ctx context.Context, args json.RawMessage) (toolfx
 
 	var in struct {
 		Content  string          `json:"content"`
+		Kind     string          `json:"kind"`
 		Priority int             `json:"priority"`
 		Payload  json.RawMessage `json:"payload"`
 	}
@@ -80,10 +84,25 @@ func (a *WriteLesson) Execute(ctx context.Context, args json.RawMessage) (toolfx
 		return toolfx.Result{}, errors.New("content 必填")
 	}
 
+	// kind 决定写入语义：
+	//   - "lesson"（缺省）→ 本 host 经验，host 保留 builder 注入值。
+	//   - "hint"          → 跨 host 业务规则，host 强制覆盖为 HostGlobalHint("*")。
+	kind := lesson.KindLesson
+	host := a.Host
+	switch in.Kind {
+	case "", lesson.KindLesson:
+		// 默认分支：lesson。
+	case lesson.KindHint:
+		kind = lesson.KindHint
+		host = lesson.HostGlobalHint
+	default:
+		return toolfx.Result{}, fmt.Errorf("kind 取值非法 %q（仅支持 lesson | hint）", in.Kind)
+	}
+
 	saved, err := a.Store.Add(ctx, lesson.Lesson{
 		TenantID: a.Tenant,
-		Host:     a.Host,
-		Kind:     lesson.KindLesson,
+		Host:     host,
+		Kind:     kind,
 		Content:  in.Content,
 		Priority: in.Priority,
 		Payload:  in.Payload,

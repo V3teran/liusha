@@ -53,6 +53,9 @@ html, body {
   align-items: center;
   gap: 10px;
 }
+.topbar-left { flex-shrink: 0; }
+.topbar-center { flex: 1 1 auto; min-width: 0; flex-wrap: wrap; }
+.topbar-right { flex-shrink: 0; }
 
 .brand {
   font-weight: 600;
@@ -410,6 +413,7 @@ html, body {
   background: var(--bg, #fff);
 }
 .main-llm.hidden { display: none; }
+.main.hidden { display: none; }
 
 .invocations-fullscreen {
   max-width: 1400px;

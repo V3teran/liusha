@@ -230,6 +230,9 @@ engagement:
   # memory_notes 截断
   max_memory_notes_entries: 300     # appendInto 滚动到末尾保留条数
   default_notes_limit: 200          # ReadStateScoped 默认截断（输入 0 时使用）
+  # hunter user prompt 拼装上限（避免 prompt 膨胀；超出 LLM 用 read_findings/read_lessons 工具按需查）
+  findings_limit_in_prompt: 100     # 该 host 已有 finding 段显示条数
+  lessons_limit_in_prompt: 100      # 该 host 历史经验 + 跨 host 业务规则 hint 共用上限
   default_tenant: default           # 单租户兜底；多租户后由 caller 显式传 tenant
 
 # ---- credential.RedisProvider redis 前缀 ----
