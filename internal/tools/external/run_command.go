@@ -27,13 +27,13 @@ import (
 
 // fallback 常量：caller 未通过 RunCommand 字段（或 cfg.Sandbox）注入时使用。
 // 正常路径由 cmd/scanner 从 config.SandboxConfig 注入，此处仅作兜底。
+//
+// timeout 相关 fallback 已删：timeout_seconds 由 LLM 必传（schema required），
+// 上限钳由 RunCommand.MaxTimeoutSeconds 注入；缺失即编程错误，不再有 fallback。
 const (
-	fallbackSandboxImage      = "liusha/pentools:latest"
-	fallbackRunMinTimeoutSec  = 30
-	fallbackRunMaxTimeoutSec  = 300
-	fallbackRunDefaultTimeout = 90 * time.Second
-	fallbackRunDefaultMemMB   = 1024
-	fallbackRunDefaultCPUs    = 1.0
+	fallbackSandboxImage    = "liusha/pentools:latest"
+	fallbackRunDefaultMemMB = 1024
+	fallbackRunDefaultCPUs  = 1.0
 	// 8 KB × 2 + 元数据 ≈ 17 KB，刚刚过 ResultCompress 16KB 阈值时才触发压缩；
 	// 让 sqlmap level=5+tamper 等长输出的 Title/Payload 关键字段能完整保留。
 	// 与 yaml sandbox.run_tail_bytes 同步（稳健激进方案）。
@@ -71,35 +71,15 @@ type RunCommand struct {
 	Image   string // 沙箱镜像；空时用 fallbackSandboxImage
 	Network string // 默认空（docker bridge），可挂在 scan-only network 限制 scope
 
-	// v1.3：以下字段可选注入，零值即用 fallback 常量；正常路径由 cmd/scanner
-	// 从 config.SandboxConfig 装配。让运维不重编即可调整钳超时 / 内存 / CPU / tail。
-	MinTimeout     time.Duration // run_command 单次最小超时（钳）
-	MaxTimeout     time.Duration // run_command 单次最大超时（钳）
-	DefaultTimeout time.Duration // 未指定 timeout_seconds 时的默认值
-	DefaultMemMB   int           // 容器内存上限（MB）
-	DefaultCPUs    float64       // 容器 CPU 上限（核数）
-	TailBytes      int           // stdout/stderr 截尾字节数
-}
+	// MaxTimeoutSeconds 是 LLM 传入 timeout_seconds 的钳上限（秒）；
+	// 正常路径由 cmd/scanner 注入 cfg.Toolruntime.StepToolTimeoutSeconds（1800）。
+	// LLM 传更大值时直接钳到 MaxTimeoutSeconds。
+	MaxTimeoutSeconds int
 
-func (a *RunCommand) effectiveMinTimeout() time.Duration {
-	if a.MinTimeout > 0 {
-		return a.MinTimeout
-	}
-	return fallbackRunMinTimeoutSec * time.Second
-}
-
-func (a *RunCommand) effectiveMaxTimeout() time.Duration {
-	if a.MaxTimeout > 0 {
-		return a.MaxTimeout
-	}
-	return fallbackRunMaxTimeoutSec * time.Second
-}
-
-func (a *RunCommand) effectiveDefaultTimeout() time.Duration {
-	if a.DefaultTimeout > 0 {
-		return a.DefaultTimeout
-	}
-	return fallbackRunDefaultTimeout
+	// 容器资源 + 输出截断（零值即 fallback）。
+	DefaultMemMB int     // 容器内存上限（MB）
+	DefaultCPUs  float64 // 容器 CPU 上限（核数）
+	TailBytes    int     // stdout/stderr 截尾字节数
 }
 
 func (a *RunCommand) effectiveDefaultMemMB() int {
@@ -134,24 +114,26 @@ func (a *RunCommand) Description() string {
 		"tag 可选（小写字母数字短横，长度 ≤ 32），用作容器名后缀方便运维定位。"
 }
 
-// ParametersJSON：command 必填；timeout_seconds / tag 可选。
+// ParametersJSON：command / timeout_seconds / tag 均必填。
 //
-// timeout 的 minimum / maximum / default 从 cfg.Sandbox 注入的 a.MinTimeout / MaxTimeout /
-// DefaultTimeout 动态生成——不再 hardcode 300，否则 LLM 看到 schema 上限就不会传超过。
-// 之前曾因 hardcode max=300 + sqlmap time-based blind 需要 30min 而集体卡 300s 上限重试。
+// timeout_seconds 必传：每个工具的合理超时差异大（curl 15s vs sqlmap 600s），
+// 没有一个 default 能适配所有场景。LLM 必须根据 command 自决合理值。
+// 上限 = MaxTimeoutSeconds（从 cfg.Toolruntime.StepToolTimeoutSeconds 注入，1800s）。
+// 超上限 → Execute 钳到 MaxTimeoutSeconds；< 1 → Execute 报错。
 func (a *RunCommand) ParametersJSON() json.RawMessage {
-	minSec := int(a.effectiveMinTimeout().Seconds())
-	maxSec := int(a.effectiveMaxTimeout().Seconds())
-	defSec := int(a.effectiveDefaultTimeout().Seconds())
+	maxSec := a.MaxTimeoutSeconds
+	if maxSec <= 0 {
+		maxSec = 1800 // 兜底：caller 未注入时仍可工作
+	}
 	return json.RawMessage(fmt.Sprintf(`{
   "type":"object",
   "properties": {
     "command":{"type":"string","minLength":1,"description":"完整 shell 命令；走 sh -c 解析（可用管道、重定向）。例如：sqlmap -u 'http://x/y?id=1' -p id --batch --level 5"},
-    "timeout_seconds":{"type":"integer","minimum":%d,"maximum":%d,"default":%d,"description":"硬超时（秒），钳到 [%d,%d]；sqlmap time-based blind / 慢 fuzz 等长任务请显式传更大值（如 1200-1800）"},
-    "tag":{"type":"string","pattern":"^[a-z0-9-]{1,32}$","description":"可选运维标签，作容器名后缀（如 'sqlmap-l5'、'curl-blind'）；不传或非法时用 'default'"}
+    "timeout_seconds":{"type":"integer","minimum":1,"maximum":%d,"description":"本次命令硬超时（秒）。短命令(curl/cat/echo) 15s 够；中等(httpx/nuclei 轻扫) 60-180s；长跑(sqlmap/hydra) 300-900s；上限 %ds。错传过短会被 timed_out 终止，过长会被钳到上限"},
+    "tag":{"type":"string","pattern":"^[a-z0-9-]{1,32}$","description":"运维标签，作容器名后缀（如 'sqlmap-l5'、'curl-blind'）"}
   },
-  "required":["command"]
-}`, minSec, maxSec, defSec, minSec, maxSec))
+  "required":["command","timeout_seconds","tag"]
+}`, maxSec, maxSec))
 }
 
 // runCommandOutput 是 toolfx.Result.Output 的 JSON 结构。
@@ -181,19 +163,16 @@ func (a *RunCommand) Execute(ctx context.Context, args json.RawMessage) (toolfx.
 	if a.Runner == nil {
 		return toolfx.Result{}, fmt.Errorf("run_command: Runner 未注入")
 	}
+	if in.Timeout <= 0 {
+		return toolfx.Result{}, fmt.Errorf("timeout_seconds 必传且 > 0（每个工具合理 timeout 差异大，无统一 default）")
+	}
 
-	timeout := a.effectiveDefaultTimeout()
-	if in.Timeout > 0 {
-		secs := time.Duration(in.Timeout) * time.Second
-		minTO := a.effectiveMinTimeout()
-		maxTO := a.effectiveMaxTimeout()
-		if secs < minTO {
-			secs = minTO
+	timeout := time.Duration(in.Timeout) * time.Second
+	if a.MaxTimeoutSeconds > 0 {
+		maxTO := time.Duration(a.MaxTimeoutSeconds) * time.Second
+		if timeout > maxTO {
+			timeout = maxTO
 		}
-		if secs > maxTO {
-			secs = maxTO
-		}
-		timeout = secs
 	}
 
 	image := a.Image

@@ -246,8 +246,8 @@ skills:
 # ---- cmd/scanner 进程运行时参数 ----
 scanner:
   main_max_steps: 60                       # 单个主 ReAct 循环步数上限
-  main_task_timeout_seconds: 4200          # 单个主 ReAct 任务整体超时（asynq handler 入口 WithTimeout，70 分钟；≥ sub_task_timeout + 主 ReAct 自身收尾）
-  main_watchdog_seconds: 300               # 单个主 ReAct 单步 LLM Generate 看门狗（秒）
+  agent_run_timeout_seconds: 3600          # 整个 agent_run 整体超时（asynq handler 入口 WithTimeout，60 分钟，> step_tool）
+  step_llm_timeout_seconds: 300            # 单步 LLM Generate 看门狗（5 分钟）
   asynq_concurrency: 6                     # asynq 消费者并发数（同时跑的主 ReAct 数）
   asynq_shutdown_timeout_seconds: 30       # asynq.Shutdown 等 in-flight 主 ReAct 落地超时（超时后 asynq 强制中断）
   shutdown_timeout_seconds: 5              # graceful shutdown 超时（healthz/db pool 等）
@@ -267,9 +267,7 @@ react:
 # ---- 容器化执行参数（external.RunCommand + DockerRunner）----
 sandbox:
   default_image: liusha/pentools:latest    # 默认沙箱镜像（17 工具+SecLists；build 即升级到 GitHub 最新版本）
-  run_min_timeout_seconds: 30              # run_command 单次最小超时（钳）
-  run_max_timeout_seconds: 1800            # run_command 单次最大超时（钳）；1800s=30min 给 sqlmap time-based blind / 慢 fuzz 足够窗口
-  run_default_timeout_seconds: 90          # run_command 默认超时
+  # run_command 单次硬超时由 LLM 通过 timeout_seconds 必传，上限钳到 toolruntime.step_tool_timeout_seconds（1800s）
   run_default_mem_mb: 1024                 # 容器内存上限（MB）；512 跑 sqlmap dump 一律 exit 137 OOM，1024 给 sqlmap / 中型 fuzz 足够
   run_default_cpus: 1.0                    # 容器 CPU 上限（核数）
   run_tail_bytes: 8192                     # stdout/stderr 各保留尾部字节数（关键瓶颈：sqlmap level=5+tamper 输出经常超 1.5KB）
@@ -283,7 +281,7 @@ toolruntime:
   result_compress_threshold: 65536         # 64KB；工具 Output 超过此字节即截断（不落盘）；≥ 2 × sandbox.run_tail_bytes=8192 + run_replay 5 variant 矩阵余量
   result_compress_snippet: 16384           # 16KB；截断后喂 LLM 的 Output 概览大小（足够看清 sqlmap stdout / 多 variant 矩阵）
   result_compress_summary: 1024            # 1KB；Result.Summary（喂 Reviewer 滑动窗；与 react.reviewer_obs_truncate 对齐）
-  tool_execute_timeout_seconds: 1800       # 30 分钟；单次 tool Execute 兜底超时（middleware WithTimeout；防 sqlmap 升级 / fetch_credentials 等卡死。≥ sandbox.run_max_timeout_seconds=300，≤ sub_task_timeout=3600）
+  step_tool_timeout_seconds: 1800       # 单步 tool Execute 上限（30 分钟）；run_command 用此值钳 LLM 自传的 timeout_seconds；其他工具（write_finding 等）受 middleware WithTimeout 兜底。&lt; agent_run_timeout_seconds=3600
 
 # ---- classify_traffic 喂 LLM 前的 flow 截断阈值 ----
 # 设计原则：keys 全保留；string value 给足空间体现业务字段语义；

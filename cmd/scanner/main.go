@@ -155,9 +155,9 @@ func main() {
 		ScanNetwork:               cfg.Sandbox.ScanNetwork,
 		SandboxCfg:                cfg.Sandbox,
 		Tenant:                    cfg.Engagement.DefaultTenant,
-		ToolExecuteTimeoutSeconds: cfg.Toolruntime.ToolExecuteTimeoutSeconds,
+		StepToolTimeoutSeconds: cfg.Toolruntime.StepToolTimeoutSeconds,
 		MaxSteps:                  scannerCfg.MainMaxSteps,
-		WatchdogSeconds:           scannerCfg.MainWatchdogSeconds,
+		WatchdogSeconds:           scannerCfg.StepLLMTimeoutSeconds,
 		ReviewerEverySteps:        cfg.React.ReviewerEverySteps,
 		DoneForceMaxRejects:       cfg.React.DoneForceMaxRejects,
 		FindingsLimit:             cfg.Engagement.FindingsLimitInPrompt,
@@ -308,9 +308,9 @@ func (h handler) abortTask(ctx context.Context, taskID, reason string) error {
 
 // handle 是单个 hunter task 的处理入口。
 func (h handler) handle(ctx context.Context, p worker.Payload) (retErr error) {
-	if h.scannerCfg.MainTaskTimeoutSeconds > 0 {
+	if h.scannerCfg.AgentRunTimeoutSeconds > 0 {
 		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, time.Duration(h.scannerCfg.MainTaskTimeoutSeconds)*time.Second)
+		ctx, cancel = context.WithTimeout(ctx, time.Duration(h.scannerCfg.AgentRunTimeoutSeconds)*time.Second)
 		defer cancel()
 	}
 

@@ -25,7 +25,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/V3teran/liusha/internal/config"
 	"github.com/V3teran/liusha/internal/credential"
@@ -82,8 +81,8 @@ type Deps struct {
 	// Tenant 用于按 (tenant, host) 拉 lesson + (tenant, '*', kind=hint) 拉全局规则。
 	Tenant string
 
-	// ToolExecuteTimeoutSeconds 单次 tool Execute 兜底超时（秒）；0 = 不加 deadline。
-	ToolExecuteTimeoutSeconds int
+	// StepToolTimeoutSeconds 单次 tool Execute 兜底超时（秒）；0 = 不加 deadline。
+	StepToolTimeoutSeconds int
 
 	// 预算
 	MaxSteps            int
@@ -148,15 +147,13 @@ func NewBuilder(deps Deps) skill.Builder {
 		if deps.DockerRunner != nil {
 			s := deps.SandboxCfg
 			must(&external.RunCommand{
-				Runner:         deps.DockerRunner,
-				Image:          deps.PentoolsImage,
-				Network:        deps.ScanNetwork,
-				MinTimeout:     time.Duration(s.RunMinTimeoutSeconds) * time.Second,
-				MaxTimeout:     time.Duration(s.RunMaxTimeoutSeconds) * time.Second,
-				DefaultTimeout: time.Duration(s.RunDefaultTimeoutSeconds) * time.Second,
-				DefaultMemMB:   s.RunDefaultMemMB,
-				DefaultCPUs:    s.RunDefaultCPUs,
-				TailBytes:      s.RunTailBytes,
+				Runner:            deps.DockerRunner,
+				Image:             deps.PentoolsImage,
+				Network:           deps.ScanNetwork,
+				MaxTimeoutSeconds: deps.StepToolTimeoutSeconds,
+				DefaultMemMB:      s.RunDefaultMemMB,
+				DefaultCPUs:       s.RunDefaultCPUs,
+				TailBytes:         s.RunTailBytes,
 			})
 		}
 
@@ -168,7 +165,7 @@ func NewBuilder(deps Deps) skill.Builder {
 		// agentic-lean：删除 done validator——不强制结构化 done.reason，agent 自由收手
 		reg.Use(
 			middleware.Observe(),
-			middleware.Timeout(deps.ToolExecuteTimeoutSeconds),
+			middleware.Timeout(deps.StepToolTimeoutSeconds),
 			// (0,0,0) → 全部使用 result_compress 内置的 fallback 阈值/snippet/summary。
 			middleware.ResultCompress(0, 0, 0),
 		)

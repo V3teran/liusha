@@ -54,7 +54,7 @@ import (
 
 const (
 	pollInterval        = 15 * time.Second
-	defaultPollDeadline = 40 * time.Minute // 与 scanner.main_task_timeout_seconds (2400s) 对齐；让 main_task 在 e2e 超时前自然结束
+	defaultPollDeadline = 40 * time.Minute // 与 scanner.agent_run_timeout_seconds (2400s) 对齐；让 main_task 在 e2e 超时前自然结束
 	dialTimeout         = 10 * time.Second
 	rawIOTimeout        = 100 * time.Second
 )

@@ -17,8 +17,8 @@ import (
 //
 // timeoutSeconds <= 0 时退化 no-op（透传 ctx，不加 deadline）。
 //
-// 配置：cfg.Toolruntime.ToolExecuteTimeoutSeconds（默认 600s）；建议 ≥
-// sandbox.run_max_timeout_seconds（300s）让 run_command 不被外层先 cancel。
+// 配置：cfg.Toolruntime.StepToolTimeoutSeconds（默认 1800s）——单步 tool Execute 上限。
+// 同时也是 RunCommand.MaxTimeoutSeconds 钳上限（LLM 传 timeout_seconds 超过即钳到这个值）。
 func Timeout(timeoutSeconds int) toolfx.Middleware {
 	if timeoutSeconds <= 0 {
 		return func(next toolfx.ActionExecutor) toolfx.ActionExecutor { return next }

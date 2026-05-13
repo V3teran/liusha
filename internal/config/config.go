@@ -219,8 +219,8 @@ type SkillsConfig struct {
 // ScannerConfig 是 cmd/scanner 进程的运行时参数。
 type ScannerConfig struct {
 	MainMaxSteps               int    `mapstructure:"main_max_steps"`
-	MainTaskTimeoutSeconds     int    `mapstructure:"main_task_timeout_seconds"`     // 单个主 ReAct 任务整体超时（asynq handler 入口 WithTimeout）
-	MainWatchdogSeconds        int    `mapstructure:"main_watchdog_seconds"`
+	AgentRunTimeoutSeconds     int    `mapstructure:"agent_run_timeout_seconds"`     // 单个主 ReAct 任务整体超时（asynq handler 入口 WithTimeout）
+	StepLLMTimeoutSeconds        int    `mapstructure:"step_llm_timeout_seconds"`
 	AsynqConcurrency           int    `mapstructure:"asynq_concurrency"`
 	AsynqShutdownTimeoutSeconds int   `mapstructure:"asynq_shutdown_timeout_seconds"` // asynq.Shutdown 等 in-flight task 完成的超时
 	ShutdownTimeoutSeconds     int    `mapstructure:"shutdown_timeout_seconds"`
@@ -242,15 +242,15 @@ type ReactConfig struct {
 }
 
 // SandboxConfig 容器化执行参数（external.RunCommand + DockerRunner）。
+//
+// run_command 单次硬超时不再有 yaml 配置——LLM 通过 timeout_seconds 必传（schema required），
+// 上限由 ToolruntimeConfig.StepToolTimeoutSeconds 钳。
 type SandboxConfig struct {
-	DefaultImage             string  `mapstructure:"default_image"`
-	RunMinTimeoutSeconds     int     `mapstructure:"run_min_timeout_seconds"`
-	RunMaxTimeoutSeconds     int     `mapstructure:"run_max_timeout_seconds"`
-	RunDefaultTimeoutSeconds int     `mapstructure:"run_default_timeout_seconds"`
-	RunDefaultMemMB          int     `mapstructure:"run_default_mem_mb"`
-	RunDefaultCPUs           float64 `mapstructure:"run_default_cpus"`
-	RunTailBytes             int     `mapstructure:"run_tail_bytes"`
-	RunnerConcurrency        int     `mapstructure:"runner_concurrency"`
+	DefaultImage      string  `mapstructure:"default_image"`
+	RunDefaultMemMB   int     `mapstructure:"run_default_mem_mb"`
+	RunDefaultCPUs    float64 `mapstructure:"run_default_cpus"`
+	RunTailBytes      int     `mapstructure:"run_tail_bytes"`
+	RunnerConcurrency int     `mapstructure:"runner_concurrency"`
 
 	// ScanNetwork 限制扫描容器只能访问 scope hosts（如 docker network 名 "liusha_scan_net"）。
 	// 空字符串 → docker 默认 bridge（可访问公网）。
@@ -262,7 +262,7 @@ type ToolruntimeConfig struct {
 	ResultCompressThreshold   int `mapstructure:"result_compress_threshold"`
 	ResultCompressSnippet     int `mapstructure:"result_compress_snippet"`
 	ResultCompressSummary     int `mapstructure:"result_compress_summary"`
-	ToolExecuteTimeoutSeconds int `mapstructure:"tool_execute_timeout_seconds"` // 单次 tool Execute 兜底超时（middleware 层 WithTimeout，防本地工具卡死）
+	StepToolTimeoutSeconds int `mapstructure:"step_tool_timeout_seconds"` // 单次 tool Execute 兜底超时（middleware 层 WithTimeout，防本地工具卡死）
 }
 
 // LessonConfig 是 lesson 提取与 touch 重试参数（react/lesson_extract）。
@@ -584,11 +584,11 @@ func applyScannerDefaults(c ScannerConfig) ScannerConfig {
 	if c.MainMaxSteps == 0 {
 		c.MainMaxSteps = 60
 	}
-	if c.MainTaskTimeoutSeconds == 0 {
-		c.MainTaskTimeoutSeconds = 4200 // 70 分钟（≥ sub_task_timeout=3600 + 主 ReAct 自身收尾；与 tool_execute=1800 联动放大）
+	if c.AgentRunTimeoutSeconds == 0 {
+		c.AgentRunTimeoutSeconds = 3600 // 60 分钟（> step_tool=1800，留 30min buffer 给主 ReAct 收尾）
 	}
-	if c.MainWatchdogSeconds == 0 {
-		c.MainWatchdogSeconds = 300
+	if c.StepLLMTimeoutSeconds == 0 {
+		c.StepLLMTimeoutSeconds = 300
 	}
 	if c.AsynqConcurrency == 0 {
 		c.AsynqConcurrency = 6
@@ -637,15 +637,6 @@ func applySandboxDefaults(c SandboxConfig) SandboxConfig {
 	if c.DefaultImage == "" {
 		c.DefaultImage = "liusha/pentools:latest"
 	}
-	if c.RunMinTimeoutSeconds == 0 {
-		c.RunMinTimeoutSeconds = 30
-	}
-	if c.RunMaxTimeoutSeconds == 0 {
-		c.RunMaxTimeoutSeconds = 1800
-	}
-	if c.RunDefaultTimeoutSeconds == 0 {
-		c.RunDefaultTimeoutSeconds = 90
-	}
 	if c.RunDefaultMemMB == 0 {
 		c.RunDefaultMemMB = 1024
 	}
@@ -671,9 +662,9 @@ func applyToolruntimeDefaults(c ToolruntimeConfig) ToolruntimeConfig {
 	if c.ResultCompressSummary == 0 {
 		c.ResultCompressSummary = 1024 // 1KB；Result.Summary（Reviewer 滑动窗）
 	}
-	if c.ToolExecuteTimeoutSeconds == 0 {
+	if c.StepToolTimeoutSeconds == 0 {
 		// 1800s = 30 分钟。给 sqlmap 升级 + 多 variant 重放充足上限。
-		c.ToolExecuteTimeoutSeconds = 1800
+		c.StepToolTimeoutSeconds = 1800
 	}
 	return c
 }
