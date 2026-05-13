@@ -122,7 +122,7 @@ var profiles = map[string]profile{
 		credsForHost: func(_ string) []credentialEntry {
 			return []credentialEntry{
 				{Name: "admin", Role: "admin", Credentials: []map[string]string{
-					{"type": "headers", "key": "Cookie", "value": "PHPSESSID=f0be9e4b2148f43da74884680ecbfd96; security=low"},
+					{"type": "headers", "key": "Cookie", "value": "PHPSESSID=22202e2d9b3f169d26fef775c6077e10; security=low"},
 				}},
 			}
 		},
@@ -137,7 +137,7 @@ var profiles = map[string]profile{
 		credsForHost: func(_ string) []credentialEntry {
 			return []credentialEntry{
 				{Name: "admin", Role: "admin", Credentials: []map[string]string{
-					{"type": "headers", "key": "Cookie", "value": "PHPSESSID=f0be9e4b2148f43da74884680ecbfd96; security=low"},
+					{"type": "headers", "key": "Cookie", "value": "PHPSESSID=22202e2d9b3f169d26fef775c6077e10; security=low"},
 				}},
 			}
 		},
@@ -152,7 +152,7 @@ var profiles = map[string]profile{
 		credsForHost: func(_ string) []credentialEntry {
 			return []credentialEntry{
 				{Name: "admin", Role: "admin", Credentials: []map[string]string{
-					{"type": "headers", "key": "Cookie", "value": "PHPSESSID=f0be9e4b2148f43da74884680ecbfd96; security=low"},
+					{"type": "headers", "key": "Cookie", "value": "PHPSESSID=22202e2d9b3f169d26fef775c6077e10; security=low"},
 				}},
 			}
 		},
@@ -167,7 +167,7 @@ var profiles = map[string]profile{
 		credsForHost: func(_ string) []credentialEntry {
 			return []credentialEntry{
 				{Name: "admin", Role: "admin", Credentials: []map[string]string{
-					{"type": "headers", "key": "Cookie", "value": "PHPSESSID=f0be9e4b2148f43da74884680ecbfd96; security=low"},
+					{"type": "headers", "key": "Cookie", "value": "PHPSESSID=22202e2d9b3f169d26fef775c6077e10; security=low"},
 				}},
 			}
 		},
@@ -182,7 +182,7 @@ var profiles = map[string]profile{
 		credsForHost: func(_ string) []credentialEntry {
 			return []credentialEntry{
 				{Name: "admin", Role: "admin", Credentials: []map[string]string{
-					{"type": "headers", "key": "Cookie", "value": "PHPSESSID=f0be9e4b2148f43da74884680ecbfd96; security=low"},
+					{"type": "headers", "key": "Cookie", "value": "PHPSESSID=22202e2d9b3f169d26fef775c6077e10; security=low"},
 				}},
 			}
 		},
