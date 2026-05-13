@@ -46,15 +46,28 @@ func (a *ReadVulnSkill) Description() string {
 		"**不要凭行业常识猜**（SKILL 库可能不完整，列表外的传过来直接报错）。"
 }
 
-// ParametersJSON：name 必填。
+// ParametersJSON：name 必填，运行时从 Loader.List() 拼 enum 强约束。
+//
+// P6-1 修复：实测仅靠 description "不要凭行业常识猜" 不够（LLM 5/8 仍按渗透圈通用名瞎调 sqli/xss/lfi）。
+// schema 级 enum 让支持 strict tools 的 provider 在生成阶段就拒绝非 catalog 内 name；
+// 不支持 enum 的 provider 有 Execute 错误兜底（含 available list 反馈，见 Execute）。
+//
+// Loader nil 或空 catalog 时不应该调到这里——cmd/scanner 装配时已用 len(List())>0 守门。
 func (a *ReadVulnSkill) ParametersJSON() json.RawMessage {
-	return json.RawMessage(`{
+	var enum []string
+	if a.Loader != nil {
+		for _, c := range a.Loader.List() {
+			enum = append(enum, c.Name)
+		}
+	}
+	enumBytes, _ := json.Marshal(enum) // []string Marshal 不会失败
+	return json.RawMessage(fmt.Sprintf(`{
   "type":"object",
   "properties":{
-    "name":{"type":"string","minLength":1,"pattern":"^[a-z0-9-]+$","description":"漏洞类型名（小写字母数字短横;对应 skills/vuln/<name>/SKILL.md）"}
+    "name":{"type":"string","enum":%s,"description":"漏洞类型名（必须 enum 内）"}
   },
   "required":["name"]
-}`)
+}`, string(enumBytes)))
 }
 
 // vulnDocOutput 是 LLM 看到的结构化结果。
@@ -80,7 +93,12 @@ func (a *ReadVulnSkill) Execute(_ context.Context, args json.RawMessage) (toolfx
 
 	card, err := a.Loader.Load(in.Name)
 	if err != nil {
-		return toolfx.Result{}, fmt.Errorf("加载漏洞挖掘指南 %q 失败: %w", in.Name, err)
+		// P6-1 兜底：错误消息附 available list，让不支持 enum 的 provider 在失败一次后立即学到 catalog。
+		var available []string
+		for _, c := range a.Loader.List() {
+			available = append(available, c.Name)
+		}
+		return toolfx.Result{}, fmt.Errorf("漏洞类型 %q 不在 catalog（available=%v）—— 必须从 available 选，不要凭行业常识猜", in.Name, available)
 	}
 
 	out := vulnDocOutput{Name: in.Name, Body: card.Body}

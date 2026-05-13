@@ -46,15 +46,25 @@ func (a *ReadToolingSkill) Description() string {
 		"**不要凭行业常识猜**（工具镜像不完整或未装；列表外的传过来直接报错）。"
 }
 
-// ParametersJSON：name 必填。
+// ParametersJSON：name 必填，运行时从 Loader.List() 拼 enum 强约束。
+//
+// P6-1 修复：仅靠 description 不够，需要 schema 级 enum + Execute 错误兜底（双保险）。
+// 见 vuln.go 同名方法注释。
 func (a *ReadToolingSkill) ParametersJSON() json.RawMessage {
-	return json.RawMessage(`{
+	var enum []string
+	if a.Loader != nil {
+		for _, c := range a.Loader.List() {
+			enum = append(enum, c.Name)
+		}
+	}
+	enumBytes, _ := json.Marshal(enum)
+	return json.RawMessage(fmt.Sprintf(`{
   "type":"object",
   "properties":{
-    "name":{"type":"string","minLength":1,"pattern":"^[a-z0-9-]+$","description":"工具名（小写字母数字短横；对应 skills/tooling/<name>/SKILL.md）"}
+    "name":{"type":"string","enum":%s,"description":"工具名（必须 enum 内）"}
   },
   "required":["name"]
-}`)
+}`, string(enumBytes)))
 }
 
 // toolingDocOutput 是 LLM 看到的结构化结果。
@@ -80,7 +90,12 @@ func (a *ReadToolingSkill) Execute(_ context.Context, args json.RawMessage) (too
 
 	card, err := a.Loader.Load(in.Name)
 	if err != nil {
-		return toolfx.Result{}, fmt.Errorf("加载工具手册 %q 失败: %w", in.Name, err)
+		// P6-1 兜底：错误消息附 available list，让不支持 enum 的 provider 在失败一次后立即学到 catalog。
+		var available []string
+		for _, c := range a.Loader.List() {
+			available = append(available, c.Name)
+		}
+		return toolfx.Result{}, fmt.Errorf("工具名 %q 不在 catalog（available=%v）—— 必须从 available 选，不要凭行业常识猜", in.Name, available)
 	}
 
 	out := toolingDocOutput{Name: in.Name, Body: card.Body}

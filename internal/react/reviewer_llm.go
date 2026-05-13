@@ -83,6 +83,7 @@ const reviewerSystemPrompt = `你是漏洞挖掘主 agent 的进度评估者。�
 - "已挖 finding 数 ≥ 1" 是**强信号**：该流量任务已有落库证据，**禁止**发"尚未挖到 / 改换方向"的 redirect hint；通常应 continue 让 agent 写 lesson + done，或 terminate 收手。
 - 仅在 "已挖 finding 数 = 0" 且窗口里看到方向跑偏（如目标流量是 brute 却在做 SQLi）时才 redirect。
 - 最近 1 步可能含完整工具输出（不截断）—— 关键字（SUCCESS / vulnerable / uid= / 反射 payload 完整回显）出现即视为命中，即便 finding 还没落库也别催换向。
+- **命中但 finding 还没写**（关键字出现 + 已挖 finding 数 = 0）：必须 redirect，hint 必含"立即调用 write_finding 落库当前证据；后续扩展（dump 全表 / 提权链路）走 update_finding 补 evidence，不要继续验证后才写"。**禁止**输出"集中验证 / 继续验证 / 再确认"等鼓励延后落库的措辞。
 
 严格只输出一个 JSON 对象，禁止任何多余文本：
 {"decision":"continue|redirect|terminate","hint":"..."}`
