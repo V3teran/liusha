@@ -85,7 +85,7 @@ liusha/
 ### 类型（struct / interface）
 
 - **PascalCase**
-- **接口用 `+er` 模式**：`Reader`、`Checker`、`Counter`、`Adder`、`Toucher`、`Filter`、`Generator`、`Observer`
+- **接口用 `+er` 模式**：`Reader`、`Checker`、`Counter`、`Adder`、`Toucher`、`Filter`、`Generator`、`Reviewer`
 - **Acronym 全大写**：`URL`、`HTTP`、`JSON`、`LLM`、`BAC`、`SQL`（`URLParser` ✅，不是 `UrlParser`）
 - **不要 stutter**：`finding.Finding` 在领域内可接受（finding 是核心名词），但 `traffic.ClassifyTraffic` 必须改 `traffic.Classifier`
 
@@ -308,7 +308,7 @@ confidence: low / medium / high
 ### llm_invocation.call_purpose
 
 ```
-orchestrator / hunter / observer / classify_traffic / lesson_extract
+orchestrator / hunter / reviewer / classify_traffic / lesson_extract
 ```
 
 ### resource_scope

@@ -88,7 +88,7 @@ type Deps struct {
 	// 预算
 	MaxSteps            int
 	WatchdogSeconds     int
-	ObserverEverySteps  int
+	ReviewerEverySteps  int
 	DoneForceMaxRejects int
 
 	// Prompt 拼装预算
@@ -190,8 +190,8 @@ func NewBuilder(deps Deps) skill.Builder {
 			Budget:              react.Budget{MaxSteps: maxSteps, WatchdogSeconds: watchdog},
 			SystemPrompt:        hunterSystemPrompt,
 			UserPrompt:          userPrompt,
-			Observer:            p.Observer,
-			ObserverEverySteps:  deps.ObserverEverySteps,
+			Reviewer:            p.Reviewer,
+			ReviewerEverySteps:  deps.ReviewerEverySteps,
 			DoneForceMaxRejects: deps.DoneForceMaxRejects,
 		}, nil
 	}

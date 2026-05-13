@@ -44,13 +44,13 @@ func (a *captureAction) Execute(_ context.Context, _ json.RawMessage) (toolfx.Re
 	return a.res, nil
 }
 
-// fakeObserver 用于驱动 Observer 路径测试。
-type fakeObserver struct {
+// fakeReviewer 用于驱动 Reviewer 路径测试。
+type fakeReviewer struct {
 	verdicts []Verdict
 	calls    int
 }
 
-func (f *fakeObserver) Evaluate(ctx context.Context, window []StepRecord) Verdict {
+func (f *fakeReviewer) Evaluate(ctx context.Context, window []StepRecord) Verdict {
 	v := f.verdicts[f.calls%len(f.verdicts)]
 	f.calls++
 	return v
@@ -96,42 +96,42 @@ func TestRun_StopsOnMaxSteps(t *testing.T) {
 	}
 }
 
-func TestRun_ObserverTerminateInjectsHint(t *testing.T) {
-	// observer terminate 不再 break 主循环——改注入强 hint，让 LLM 自决 done()。
-	// 场景：跑 5 步 noop，第 6 步前 observer 触发 terminate → 注入 hint → LLM 看到后下一步调 done。
+func TestRun_ReviewerTerminateInjectsHint(t *testing.T) {
+	// reviewer terminate 不再 break 主循环——改注入强 hint，让 LLM 自决 done()。
+	// 场景：跑 5 步 noop，第 6 步前 reviewer 触发 terminate → 注入 hint → LLM 看到后下一步调 done。
 	noop := llm.Result{
 		ToolCalls:    []llm.ToolCall{{ID: "n", Name: "noop", Arguments: json.RawMessage(`{}`)}},
 		FinishReason: "tool_calls",
 	}
 	doneCall := llm.Result{
-		ToolCalls:    []llm.ToolCall{{ID: "d", Name: "done", Arguments: json.RawMessage(`{"reason":"observer hinted"}`)}},
+		ToolCalls:    []llm.ToolCall{{ID: "d", Name: "done", Arguments: json.RawMessage(`{"reason":"reviewer hinted"}`)}},
 		FinishReason: "tool_calls",
 	}
-	// 5 noop + 1 done（第 6 turn LLM 看到 observer hint 后乖乖 done）
+	// 5 noop + 1 done（第 6 turn LLM 看到 reviewer hint 后乖乖 done）
 	gen := &scriptedGen{turns: []llm.Result{noop, noop, noop, noop, noop, doneCall}}
 	reg := toolfx.NewRegistry()
 	_ = reg.Register(&captureAction{name: "noop"})
 	_ = reg.Register(&captureAction{name: "done", res: toolfx.Result{Done: true}})
 
-	obs := &fakeObserver{verdicts: []Verdict{{Decision: VerdictTerminate, Hint: "done now"}}}
+	r := &fakeReviewer{verdicts: []Verdict{{Decision: VerdictTerminate, Hint: "done now"}}}
 	out, err := Run(context.Background(), Config{
 		LLM: gen, Actions: reg,
 		Budget:   Budget{MaxSteps: 30},
-		Observer: obs, ObserverEverySteps: 5,
+		Reviewer: r, ReviewerEverySteps: 5,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if out.TerminateBy == "observer_terminate" {
-		t.Fatalf("observer terminate 应注入 hint 不应 break；实际 terminate_by=%q", out.TerminateBy)
+	if out.TerminateBy == "reviewer_terminate" {
+		t.Fatalf("reviewer terminate 应注入 hint 不应 break；实际 terminate_by=%q", out.TerminateBy)
 	}
-	if out.ObserverHints == 0 {
-		t.Fatalf("expected ObserverHints>0（terminate 注入 hint），实际 %d", out.ObserverHints)
+	if out.ReviewerHints == 0 {
+		t.Fatalf("expected ReviewerHints>0（terminate 注入 hint），实际 %d", out.ReviewerHints)
 	}
 }
 
-func TestRun_ObserverInjectsHint(t *testing.T) {
-	// Observer 返回 redirect，runtime 计数 +1 并继续；最终 done
+func TestRun_ReviewerInjectsHint(t *testing.T) {
+	// Reviewer 返回 redirect，runtime 计数 +1 并继续；最终 done
 	noop := llm.Result{
 		ToolCalls:    []llm.ToolCall{{ID: "n", Name: "noop", Arguments: json.RawMessage(`{}`)}},
 		FinishReason: "tool_calls",
@@ -145,11 +145,11 @@ func TestRun_ObserverInjectsHint(t *testing.T) {
 	_ = reg.Register(&captureAction{name: "noop"})
 	_ = reg.Register(&captureAction{name: "done", res: toolfx.Result{Done: true}})
 
-	obs := &fakeObserver{verdicts: []Verdict{{Decision: VerdictRedirect, Hint: "改向 X"}}}
+	r := &fakeReviewer{verdicts: []Verdict{{Decision: VerdictRedirect, Hint: "改向 X"}}}
 	out, err := Run(context.Background(), Config{
 		LLM: gen, Actions: reg,
 		Budget:   Budget{MaxSteps: 30},
-		Observer: obs, ObserverEverySteps: 5,
+		Reviewer: r, ReviewerEverySteps: 5,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -157,8 +157,8 @@ func TestRun_ObserverInjectsHint(t *testing.T) {
 	if out.TerminateBy != "done" {
 		t.Fatalf("expected done, got %q", out.TerminateBy)
 	}
-	if out.ObserverHints != 1 {
-		t.Fatalf("expected hints=1, got %d", out.ObserverHints)
+	if out.ReviewerHints != 1 {
+		t.Fatalf("expected hints=1, got %d", out.ReviewerHints)
 	}
 }
 

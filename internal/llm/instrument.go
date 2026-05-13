@@ -5,7 +5,7 @@
 //   - 失败路径仍写库（Error 字段非空），便于故障率统计。
 //   - sink.Append 失败仅打 warn 日志，不向上抛 —— 埋点失败不应阻塞业务返回。
 //   - CallMeta.RouteKey 写入 llm_invocation.call_purpose，按 hunter /
-//     observer / lesson_extract 等维度聚合成本。
+//     reviewer / lesson_extract 等维度聚合成本。
 package llm
 
 import (
@@ -28,7 +28,7 @@ type CallSink interface {
 // CallMeta 是单次 Generate 的上下文标签集，由 runtime 填充。
 //
 // RouteKey 写入 llm_invocation.call_purpose，
-// 取值如 "hunter" / "observer" / "lesson_extract"，
+// 取值如 "hunter" / "reviewer" / "lesson_extract"，
 // 便于按角色维度统计成本和路由生效情况。
 type CallMeta struct {
 	TaskID       *string

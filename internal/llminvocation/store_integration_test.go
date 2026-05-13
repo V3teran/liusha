@@ -58,7 +58,7 @@ func TestStore_Append_Basic(t *testing.T) {
 }
 
 // TestStore_Append_WithRouteKey 验证：role 字段正确写入 + CountByCallPurpose 按 role 分组。
-// Instrument 的 RouteKey 维度：hunter / observer / lesson_extract 等，按 role 聚合成本。
+// Instrument 的 RouteKey 维度：hunter / reviewer / lesson_extract 等，按 role 聚合成本。
 func TestStore_Append_WithRouteKey(t *testing.T) {
 	ctx := context.Background()
 	s, eid := setup(t)
@@ -67,19 +67,19 @@ func TestStore_Append_WithRouteKey(t *testing.T) {
 		EngagementID: &eid,
 		Provider:     "deepseek",
 		Model:        "deepseek-chat",
-		CallPurpose:"observer",
+		CallPurpose:"reviewer",
 		CostUSD:      0.0001,
 	}); err != nil {
-		t.Fatalf("append observer: %v", err)
+		t.Fatalf("append reviewer: %v", err)
 	}
 	if _, err := s.Append(ctx, Invocation{
 		EngagementID: &eid,
 		Provider:     "deepseek",
 		Model:        "deepseek-chat",
-		CallPurpose:"observer",
+		CallPurpose:"reviewer",
 		CostUSD:      0.0002,
 	}); err != nil {
-		t.Fatalf("append observer 2: %v", err)
+		t.Fatalf("append reviewer 2: %v", err)
 	}
 	if _, err := s.Append(ctx, Invocation{
 		EngagementID: &eid,
@@ -100,8 +100,8 @@ func TestStore_Append_WithRouteKey(t *testing.T) {
 	if err != nil {
 		t.Fatalf("count by role: %v", err)
 	}
-	if got["observer"] != 2 {
-		t.Fatalf("observer 应为 2, got %d (full=%v)", got["observer"], got)
+	if got["reviewer"] != 2 {
+		t.Fatalf("reviewer 应为 2, got %d (full=%v)", got["reviewer"], got)
 	}
 	if got["react_main"] != 1 {
 		t.Fatalf("react.main 应为 1, got %d (full=%v)", got["react_main"], got)
@@ -118,7 +118,7 @@ func TestStore_SumCostByEngagement(t *testing.T) {
 		cost float64
 	}{
 		{"react_main", 0.001234},
-		{"observer", 0.000567},
+		{"reviewer", 0.000567},
 		{"lesson_extract", 0.002000},
 	}
 	var want float64

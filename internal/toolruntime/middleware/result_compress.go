@@ -16,7 +16,7 @@ const (
 	fallbackThreshold = 64 * 1024
 	// fallbackSnippet = 16 KB：截断后喂 LLM 的概览大小（足够看清完整 sqlmap stdout）。
 	fallbackSnippet = 16 * 1024
-	// fallbackSummary = 1 KB：Result.Summary 长度（喂 Observer 滑动窗用）。
+	// fallbackSummary = 1 KB：Result.Summary 长度（喂 Reviewer 滑动窗用）。
 	fallbackSummary = 1024
 )
 
@@ -24,7 +24,7 @@ const (
 //
 // 当 Output > threshold 时：
 //   - Output 字段被截断为前 snippet 字节（直接喂回 LLM 的内容）
-//   - Summary 字段被设为前 summary 字节（喂 Observer 滑动窗的概要）
+//   - Summary 字段被设为前 summary 字节（喂 Reviewer 滑动窗的概要）
 //
 // threshold/snippet/summary 任一 ≤0 时使用上方 fallback 常量。
 //

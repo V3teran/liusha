@@ -33,13 +33,17 @@ type ReadVulnSkill struct {
 func (a *ReadVulnSkill) Name() string { return "read_vuln_skill" }
 
 // Description 给 LLM 看的简介。
+//
+// 设计要点：**禁止在 description 里举具体 name 例子**（如 sqli/xss/ssrf）——
+// 实测 LLM 会把例子当成"可用 name"瞎调（5/8 agent_run 中招），污染 Progressive Disclosure 单一来源。
+// 可用 name 完全由 user prompt 段「可用漏洞挖掘指南索引」（buildVulnCatalog 渲染）提供。
 func (a *ReadVulnSkill) Description() string {
-	return "拉取一个漏洞类型（如 bac / ssrf / xss）的完整挖掘指南。" +
-		"**使用场景**：按 recon_checklist 判完流量方向、确定要挖哪一/哪几类漏洞 → " +
+	return "拉取一个漏洞类型的完整挖掘指南。" +
+		"**使用场景**：判完流量方向、确定要挖哪一/哪几类漏洞 → " +
 		"调本工具拿完整 SKILL.md（漏洞本质 / 挖掘方向 / 判定原则 / 误报排除 / 写 finding 红线）→ " +
 		"再按指南调 run_command 实证。" +
-		"**name 取值**：必须是 user prompt『漏洞挖掘指南索引』里列出的 name（如 'bac'），" +
-		"传错或目录不存在直接报错。"
+		"**name 取值**：必须在 user prompt『可用漏洞挖掘指南索引』段列出，" +
+		"**不要凭行业常识猜**（SKILL 库可能不完整，列表外的传过来直接报错）。"
 }
 
 // ParametersJSON：name 必填。

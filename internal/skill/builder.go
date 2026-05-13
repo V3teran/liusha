@@ -24,7 +24,7 @@ type Builder func(ctx context.Context, params BuilderParams) (react.Config, erro
 // BuilderParams hunter agent 启动参数。
 //
 // scanner main loop 接到 flow 后填充：完整 raw 流量 (request + response) +
-// host + LLM Generator + Observer。hunter agent 在 user prompt 一次性看到
+// host + LLM Generator + Reviewer。hunter agent 在 user prompt 一次性看到
 // 全部材料（请求 + 响应），自由组合工具挖漏洞。
 type BuilderParams struct {
 	EngagementID string
@@ -34,7 +34,7 @@ type BuilderParams struct {
 	URL          string
 	Method       string
 	LLM          llm.Generator
-	Observer     react.Observer
+	Reviewer     react.Reviewer
 
 	// 请求 raw（builder 拼到 user prompt）。
 	RequestHeaders json.RawMessage

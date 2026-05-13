@@ -11,7 +11,7 @@ import (
 
 // ErrDoneNotReady 由 done_validate 中间件抛出：LLM 想 done 但 Skill 注册的 DoneValidator 拒绝。
 //
-// Missing 列出还缺哪些步骤/字段，runtime 会把它喂回 Observer 让 LLM 继续。
+// Missing 列出还缺哪些步骤/字段，runtime 会把它喂回 Reviewer 让 LLM 继续。
 type ErrDoneNotReady struct {
 	Missing []string
 }

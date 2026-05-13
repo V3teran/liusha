@@ -33,12 +33,17 @@ type ReadToolingSkill struct {
 func (a *ReadToolingSkill) Name() string { return "read_tooling_skill" }
 
 // Description 给 LLM 看的简介。
+//
+// 设计要点：**禁止在 description 里举具体 name 例子**——
+// 实测 LLM 会把例子当成"系统支持"的可用 name 瞎调，污染 Progressive Disclosure 单一来源。
+// 可用 name 完全由 user prompt 段「可用外部工具索引」（buildToolingCatalog 渲染）提供。
 func (a *ReadToolingSkill) Description() string {
-	return "拉取一个外部 CLI 工具（如 sqlmap / curl / python3 / jq）的完整使用手册。" +
+	return "拉取一个外部 CLI 工具的完整使用手册。" +
 		"**使用场景**：user prompt 末尾的『可用外部工具索引』看到某工具描述觉得对路 → " +
 		"调本工具拿完整 SKILL.md（参数表 / 输出 grep 关键词 / 常见坑 / 写 finding 红线）→ " +
 		"再调 run_command 跑命令。" +
-		"**name 取值**：必须是工具索引里列出的 name（如 'sqlmap'），传错或目录不存在直接报错。"
+		"**name 取值**：必须在 user prompt『可用外部工具索引』段列出，" +
+		"**不要凭行业常识猜**（工具镜像不完整或未装；列表外的传过来直接报错）。"
 }
 
 // ParametersJSON：name 必填。

@@ -235,10 +235,10 @@ type ScannerConfig struct {
 
 // ReactConfig 主 ReAct 循环参数。
 type ReactConfig struct {
-	ObserverEverySteps   int `mapstructure:"observer_every_steps"`
+	ReviewerEverySteps   int `mapstructure:"reviewer_every_steps"`
 	DoneForceMaxRejects  int `mapstructure:"done_force_max_rejects"`
-	ObserverArgsTruncate int `mapstructure:"observer_args_truncate"` // 喂 observer LLM 的 tool args 截断字节数
-	ObserverObsTruncate  int `mapstructure:"observer_obs_truncate"`  // 喂 observer LLM 的 ObsSummary 截断字节数
+	ReviewerArgsTruncate int `mapstructure:"reviewer_args_truncate"` // 喂 reviewer LLM 的 tool args 截断字节数
+	ReviewerObsTruncate  int `mapstructure:"reviewer_obs_truncate"`  // 喂 reviewer LLM 的 ObsSummary 截断字节数
 }
 
 // SandboxConfig 容器化执行参数（external.RunCommand + DockerRunner）。
@@ -618,17 +618,17 @@ func applyScannerDefaults(c ScannerConfig) ScannerConfig {
 }
 
 func applyReactDefaults(c ReactConfig) ReactConfig {
-	if c.ObserverEverySteps == 0 {
-		c.ObserverEverySteps = 5
+	if c.ReviewerEverySteps == 0 {
+		c.ReviewerEverySteps = 5
 	}
 	if c.DoneForceMaxRejects == 0 {
 		c.DoneForceMaxRejects = 3
 	}
-	if c.ObserverArgsTruncate == 0 {
-		c.ObserverArgsTruncate = 256
+	if c.ReviewerArgsTruncate == 0 {
+		c.ReviewerArgsTruncate = 256
 	}
-	if c.ObserverObsTruncate == 0 {
-		c.ObserverObsTruncate = 400
+	if c.ReviewerObsTruncate == 0 {
+		c.ReviewerObsTruncate = 400
 	}
 	return c
 }
@@ -647,7 +647,7 @@ func applySandboxDefaults(c SandboxConfig) SandboxConfig {
 		c.RunDefaultTimeoutSeconds = 90
 	}
 	if c.RunDefaultMemMB == 0 {
-		c.RunDefaultMemMB = 512
+		c.RunDefaultMemMB = 1024
 	}
 	if c.RunDefaultCPUs == 0 {
 		c.RunDefaultCPUs = 1.0
@@ -669,7 +669,7 @@ func applyToolruntimeDefaults(c ToolruntimeConfig) ToolruntimeConfig {
 		c.ResultCompressSnippet = 16 * 1024 // 16KB；截断后喂 LLM 的概览大小
 	}
 	if c.ResultCompressSummary == 0 {
-		c.ResultCompressSummary = 1024 // 1KB；Result.Summary（Observer 滑动窗）
+		c.ResultCompressSummary = 1024 // 1KB；Result.Summary（Reviewer 滑动窗）
 	}
 	if c.ToolExecuteTimeoutSeconds == 0 {
 		// 1800s = 30 分钟。给 sqlmap 升级 + 多 variant 重放充足上限。

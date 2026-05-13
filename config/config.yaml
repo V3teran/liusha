@@ -35,7 +35,7 @@ redis:
 
 # ---- LLM 多 provider 路由（黑客松借鉴：创新 11）----
 # default_provider:  主 ReAct（sniffer / 子任务）共用，重模型
-# light_provider:    Observer / Compaction / LessonExtract 走的轻模型，省成本
+# light_provider:    Reviewer / Compaction / LessonExtract 走的轻模型，省成本
 # vision_provider:   v1.5 的 browser.screenshot 用，v1 仅作为备用主 LLM
 # fallback_provider: 429/529 退避耗尽后切到，retry 中间件用
 llm:
@@ -48,7 +48,7 @@ llm:
   # 双 namespace（v1.1 改造）：把"真 agent"与"single-shot utility"语义分开。
   agents:
     hunter:       default_provider   # hunter ReAct（v0024 单层架构后唯一 agent）
-    observer:     light_provider     # 旁路过程判官（每 5 步评估方向）
+    reviewer:     light_provider     # 旁路过程判官（每 5 步评估方向）
   utilities:
     lesson_extract: light_provider   # finding → ≤500 字 lesson，落 host_lesson
 
@@ -259,10 +259,10 @@ scanner:
 
 # ---- 主 ReAct 循环参数 ----
 react:
-  observer_every_steps: 5                  # 每 N 步触发一次 Observer 评估
+  reviewer_every_steps: 5                  # 每 N 步触发一次 Reviewer 评估
   done_force_max_rejects: 3                # done 被 done_validate 连续拒绝 N 次后强制放行
-  observer_args_truncate: 256              # 喂 observer LLM 的 tool args 截断字节数（80B 看不出意图）
-  observer_obs_truncate: 400               # 喂 observer LLM 的 ObsSummary 截断字节数
+  reviewer_args_truncate: 256              # 喂 reviewer LLM 的 tool args 截断字节数（80B 看不出意图）
+  reviewer_obs_truncate: 400               # 喂 reviewer LLM 的 ObsSummary 截断字节数
 
 # ---- 容器化执行参数（external.RunCommand + DockerRunner）----
 sandbox:
@@ -270,7 +270,7 @@ sandbox:
   run_min_timeout_seconds: 30              # run_command 单次最小超时（钳）
   run_max_timeout_seconds: 1800            # run_command 单次最大超时（钳）；1800s=30min 给 sqlmap time-based blind / 慢 fuzz 足够窗口
   run_default_timeout_seconds: 90          # run_command 默认超时
-  run_default_mem_mb: 512                  # 容器内存上限（MB）
+  run_default_mem_mb: 1024                 # 容器内存上限（MB）；512 跑 sqlmap dump 一律 exit 137 OOM，1024 给 sqlmap / 中型 fuzz 足够
   run_default_cpus: 1.0                    # 容器 CPU 上限（核数）
   run_tail_bytes: 8192                     # stdout/stderr 各保留尾部字节数（关键瓶颈：sqlmap level=5+tamper 输出经常超 1.5KB）
   runner_concurrency: 5                    # DockerRunner 全局并发上限
@@ -282,7 +282,7 @@ sandbox:
 toolruntime:
   result_compress_threshold: 65536         # 64KB；工具 Output 超过此字节即截断（不落盘）；≥ 2 × sandbox.run_tail_bytes=8192 + run_replay 5 variant 矩阵余量
   result_compress_snippet: 16384           # 16KB；截断后喂 LLM 的 Output 概览大小（足够看清 sqlmap stdout / 多 variant 矩阵）
-  result_compress_summary: 1024            # 1KB；Result.Summary（喂 Observer 滑动窗；与 react.observer_obs_truncate 对齐）
+  result_compress_summary: 1024            # 1KB；Result.Summary（喂 Reviewer 滑动窗；与 react.reviewer_obs_truncate 对齐）
   tool_execute_timeout_seconds: 1800       # 30 分钟；单次 tool Execute 兜底超时（middleware WithTimeout；防 sqlmap 升级 / fetch_credentials 等卡死。≥ sandbox.run_max_timeout_seconds=300，≤ sub_task_timeout=3600）
 
 # ---- classify_traffic 喂 LLM 前的 flow 截断阈值 ----

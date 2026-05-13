@@ -3,6 +3,7 @@ package runners
 import (
 	"context"
 	"os/exec"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -145,6 +146,45 @@ func TestRunAndWait_NonZeroExit(t *testing.T) {
 	if res.ExitCode != 42 {
 		t.Fatalf("expected ExitCode=42 got %d", res.ExitCode)
 	}
+}
+
+// TestRunAndWait_TimeoutKillsContainer 验证 Timeout 触发后容器被显式 docker kill 杀死，
+// 不会留下孤儿容器在 daemon 里继续跑（context cancel 只杀 docker CLI 进程，容器需额外 kill）。
+func TestRunAndWait_TimeoutKillsContainer(t *testing.T) {
+	if _, err := exec.LookPath("docker"); err != nil {
+		t.Skip("docker 未安装")
+	}
+	if err := exec.Command("docker", "info").Run(); err != nil {
+		t.Skip("docker daemon 未启动")
+	}
+
+	containerName := "liusha-test-timeout-" + strconv.FormatInt(time.Now().UnixNano(), 16)
+	r := NewDockerRunner()
+	res, err := r.RunAndWait(context.Background(), RunSpec{
+		Image:         "alpine:3.19",
+		Cmd:           []string{"sleep", "60"},
+		ContainerName: containerName,
+		AutoRemove:    true,
+		Timeout:       2 * time.Second,
+	})
+	if err != nil {
+		t.Fatalf("RunAndWait err: %v", err)
+	}
+	if !res.TimedOut {
+		t.Fatalf("应触发 timeout，TimedOut=false")
+	}
+
+	// 容器名应 5s 内消失（kill 已发 + --rm 自动清理）。
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		out, _ := exec.Command("docker", "ps", "-a", "-q", "--filter", "name="+containerName).Output()
+		if len(strings.TrimSpace(string(out))) == 0 {
+			return
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	_ = exec.Command("docker", "rm", "-f", containerName).Run()
+	t.Fatalf("容器 %s 在 timeout 后 5s 内仍存在 — orphan 检测失败", containerName)
 }
 
 func strSliceEqual(a, b []string) bool {

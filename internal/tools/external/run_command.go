@@ -32,7 +32,7 @@ const (
 	fallbackRunMinTimeoutSec  = 30
 	fallbackRunMaxTimeoutSec  = 300
 	fallbackRunDefaultTimeout = 90 * time.Second
-	fallbackRunDefaultMemMB   = 512
+	fallbackRunDefaultMemMB   = 1024
 	fallbackRunDefaultCPUs    = 1.0
 	// 8 KB × 2 + 元数据 ≈ 17 KB，刚刚过 ResultCompress 16KB 阈值时才触发压缩；
 	// 让 sqlmap level=5+tamper 等长输出的 Title/Payload 关键字段能完整保留。

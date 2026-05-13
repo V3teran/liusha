@@ -267,6 +267,35 @@ func (s *Store) CountByEngagement(ctx context.Context, engagementID string) (int
 	return n, nil
 }
 
+// CountAndLatestByAgentRun 返回某 agent_run 已写 finding 总数 + 最新一条概要（id/severity/summary）。
+//
+// 用于 reviewer 评估 prompt 注入"该 agent_run 已挖到 N 个 finding，最新：…"，
+// 让 reviewer 不再因为 ObsSummary 截断丢失 SUCCESS 关键字而误判"未挖到"。
+//
+// 实现：单次 SQL 用 count(*) OVER () window，LIMIT 1 拿最新一行。
+//   - 0 行：count=0, latest=nil
+//   - ≥1 行：count=total, latest=最新一条（仅填 id/severity/summary/created_at，其余字段零值）
+func (s *Store) CountAndLatestByAgentRun(ctx context.Context, agentRunID string) (int, *VulnFinding, error) {
+	if agentRunID == "" {
+		return 0, nil, fmt.Errorf("CountAndLatestByAgentRun: agentRunID 必填")
+	}
+	row := s.pool.QueryRow(ctx, `
+		SELECT id, severity, summary, created_at, count(*) OVER () AS total
+		FROM finding
+		WHERE agent_run_id=$1
+		ORDER BY created_at DESC
+		LIMIT 1`, agentRunID)
+	var f VulnFinding
+	var total int
+	if err := row.Scan(&f.ID, &f.Severity, &f.Summary, &f.CreatedAt, &total); err != nil {
+		if err == pgx.ErrNoRows {
+			return 0, nil, nil
+		}
+		return 0, nil, fmt.Errorf("count and latest finding by agent_run: %w", err)
+	}
+	return total, &f, nil
+}
+
 // fireSavedHooks 异步触发所有 OnSaved 订阅。
 func (s *Store) fireSavedHooks(f VulnFinding) {
 	s.mu.RLock()

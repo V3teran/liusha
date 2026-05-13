@@ -2,7 +2,7 @@
 //
 // 关键不变量：
 //   - Generator 不缓存（避免跨 task tools 错乱），底层 HTTP client 由 ClientPool 共享。
-//   - 双 namespace 路由：agents（hunter/observer/...）vs utilities（lesson_extract/...）；
+//   - 双 namespace 路由：agents（hunter/reviewer/...）vs utilities（lesson_extract/...）；
 //     调用方 Router.For(ctx, role) 透明合并查找两个 map。
 //
 // 路由规则：

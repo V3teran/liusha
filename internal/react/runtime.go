@@ -2,7 +2,7 @@
 //
 // 设计要点：
 //   - 主循环：LLM 生成 → tool calls 经 Registry（含中间件链）执行 → 喂回历史 → 直到 done / 预算耗尽。
-//   - Observer hook：每 N=5 步触发，根据滑动窗判决 keep_going / steer_with_hint / abort_low_value。
+//   - Reviewer hook：每 N=5 步触发，根据滑动窗判决 keep_going / steer_with_hint / abort_low_value。
 //   - DoneValidator：T22.5 中间件抛 ErrDoneNotReady 时 runtime 注入 user msg 让 LLM 继续；
 //     被拒达到 doneForceMaxRejects 后强制放行，避免死循环。
 //   - LoopDetector 已砍——MaxSteps + DoneValidator 是足够的兜底。
@@ -33,7 +33,7 @@ const fallbackDoneForceMaxRejects = 3
 //
 //   - LLM / Actions 必填；其余字段有默认值（见 Run）。
 //   - OnAbort 用于外部主动停机（cron 任务取消、用户 Ctrl+C 等），返回 (true, nil) 即终止。
-//   - Observer 默认 NoopObserver；ObserverEverySteps 默认 5。
+//   - Reviewer 默认 NoopReviewer；ReviewerEverySteps 默认 5。
 type Config struct {
 	LLM                 llm.Generator
 	Actions             *toolfx.Registry
@@ -41,20 +41,20 @@ type Config struct {
 	SystemPrompt        string
 	UserPrompt          string
 	OnAbort             func(ctx context.Context) (bool, error)
-	Observer            Observer
-	ObserverEverySteps  int
+	Reviewer            Reviewer
+	ReviewerEverySteps  int
 	DoneForceMaxRejects int // ≤0 → fallbackDoneForceMaxRejects
 }
 
 // Outcome 是 Run 的产出，便于上层做埋点 / done 报告。
 //
 // TerminateBy 取值：done / done_force / max_steps / max_tokens / aborted /
-// observer_abort / no_tool_call。
+// reviewer_abort / no_tool_call。
 type Outcome struct {
 	TerminateBy    string
 	TotalSteps     int
 	TotalUsage     llm.Usage
-	ObserverHints  int
+	ReviewerHints  int
 	DoneForceCount int
 }
 
@@ -75,11 +75,11 @@ func Run(ctx context.Context, cfg Config) (Outcome, error) {
 	if cfg.Budget.WatchdogSeconds <= 0 {
 		cfg.Budget.WatchdogSeconds = 60
 	}
-	if cfg.Observer == nil {
-		cfg.Observer = NoopObserver{}
+	if cfg.Reviewer == nil {
+		cfg.Reviewer = NoopReviewer{}
 	}
-	if cfg.ObserverEverySteps <= 0 {
-		cfg.ObserverEverySteps = 5
+	if cfg.ReviewerEverySteps <= 0 {
+		cfg.ReviewerEverySteps = 5
 	}
 	if cfg.DoneForceMaxRejects <= 0 {
 		cfg.DoneForceMaxRejects = fallbackDoneForceMaxRejects
@@ -94,7 +94,7 @@ func Run(ctx context.Context, cfg Config) (Outcome, error) {
 	}
 
 	out := Outcome{}
-	window := make([]StepRecord, 0, cfg.ObserverEverySteps)
+	window := make([]StepRecord, 0, cfg.ReviewerEverySteps)
 	doneRejectCount := 0
 
 	for {
@@ -114,13 +114,13 @@ func Run(ctx context.Context, cfg Config) (Outcome, error) {
 			}
 		}
 
-		// 2) Observer hook：每 N 步触发一次（开局不触发）
+		// 2) Reviewer hook：每 N 步触发一次（开局不触发）
 		//
-		// observer 不能强中断主循环——曾观察到 agent 已挖到漏洞但还没 write_finding 时
+		// reviewer 不能强中断主循环——曾观察到 agent 已挖到漏洞但还没 write_finding 时
 		// 被 terminate 掐死，丢失 finding。terminate / redirect 统一注入 hint，让 LLM
 		// 自决是否 done()；MaxSteps 兜底防死循环。
-		if out.TotalSteps > 0 && out.TotalSteps%cfg.ObserverEverySteps == 0 {
-			v := cfg.Observer.Evaluate(ctx, window)
+		if out.TotalSteps > 0 && out.TotalSteps%cfg.ReviewerEverySteps == 0 {
+			v := cfg.Reviewer.Evaluate(ctx, window)
 			var hint string
 			switch v.Decision {
 			case VerdictTerminate:
@@ -136,7 +136,7 @@ func Run(ctx context.Context, cfg Config) (Outcome, error) {
 			}
 			if hint != "" {
 				msgs = append(msgs, llm.Message{Role: llm.RoleUser, Content: hint})
-				out.ObserverHints++
+				out.ReviewerHints++
 			}
 		}
 
@@ -244,14 +244,20 @@ func Run(ctx context.Context, cfg Config) (Outcome, error) {
 				sawDone = true
 			}
 
-			// 喂给 Observer 的滑动窗（仅保留最近 ObserverEverySteps*2 条，避免无限增长）
+			// 喂给 Reviewer 的滑动窗（仅保留最近 ReviewerEverySteps*2 条，避免无限增长）。
+			// FullObs 只对窗口末尾 1 条有意义（防 ObsSummary 截断丢 SUCCESS 关键字误判进度），
+			// append 新条目前先把上一条的 FullObs 清空——节内存且 prompt 只读末尾。
+			if n := len(window); n > 0 {
+				window[n-1].FullObs = ""
+			}
 			window = append(window, StepRecord{
 				StepIdx:    out.TotalSteps,
 				ActionName: tc.Name,
 				Args:       tc.Arguments,
 				ObsSummary: tcRes.Summary,
+				FullObs:    string(obs),
 			})
-			if maxLen := cfg.ObserverEverySteps * 2; len(window) > maxLen {
+			if maxLen := cfg.ReviewerEverySteps * 2; len(window) > maxLen {
 				window = window[len(window)-maxLen:]
 			}
 		}

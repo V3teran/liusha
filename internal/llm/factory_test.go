@@ -47,7 +47,7 @@ func makeRoutedCfg() config.Config {
 			FallbackProvider: "qwen",
 			Agents: map[string]string{
 				"orchestrator": "default_provider",
-				"observer":     "light_provider",
+				"reviewer":     "light_provider",
 			},
 			Utilities: map[string]string{
 				"lesson_extract": "light_provider",
@@ -79,15 +79,15 @@ func TestFactory_For_ReactMain(t *testing.T) {
 	}
 }
 
-// TestFactory_For_Observer：routes 含 observer -> light_provider -> anthropic_haiku
-func TestFactory_For_Observer(t *testing.T) {
+// TestFactory_For_Reviewer：routes 含 reviewer -> light_provider -> anthropic_haiku
+func TestFactory_For_Reviewer(t *testing.T) {
 	cfg := makeRoutedCfg()
 	builder, _ := newFakeBuilder()
 	f := NewFactoryWithBuilder(cfg, builder)
 
-	g, err := f.For(context.Background(), "observer")
+	g, err := f.For(context.Background(), "reviewer")
 	if err != nil {
-		t.Fatalf("For observer 失败: %v", err)
+		t.Fatalf("For reviewer 失败: %v", err)
 	}
 	if g.Provider() != "anthropic_haiku" {
 		t.Errorf("provider 应为 anthropic_haiku，实际 %s", g.Provider())
@@ -159,9 +159,9 @@ func TestFactory_For_EmptyTargetFieldFallsBack(t *testing.T) {
 	builder, _ := newFakeBuilder()
 	f := NewFactoryWithBuilder(cfg, builder)
 
-	g, err := f.For(context.Background(), "observer")
+	g, err := f.For(context.Background(), "reviewer")
 	if err != nil {
-		t.Fatalf("For observer 失败: %v", err)
+		t.Fatalf("For reviewer 失败: %v", err)
 	}
 	if g.Provider() != "deepseek" {
 		t.Errorf("light_provider 为空时应回退 default=deepseek，实际 %s", g.Provider())

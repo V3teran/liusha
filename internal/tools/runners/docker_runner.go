@@ -137,6 +137,15 @@ func (r *DockerRunner) RunAndWait(ctx context.Context, spec RunSpec) (RunResult,
 
 	err := cmd.Run()
 
+	// runCtx 取消时（timeout / 上游 cancel）兜底 docker kill：
+	// exec.CommandContext 只 SIGKILL docker CLI 进程，容器在 daemon 里仍跑（CLI 是 client，断 attach 不 stop 容器）。
+	// 用 fresh ctx 避免和已死的 runCtx 同步去世；no such container 是预期（--rm 已删），吞错。
+	if runCtx.Err() != nil && spec.ContainerName != "" {
+		killCtx, killCancel := context.WithTimeout(context.Background(), 3*time.Second)
+		_ = exec.CommandContext(killCtx, bin, "kill", spec.ContainerName).Run()
+		killCancel()
+	}
+
 	res := RunResult{
 		Stdout: stdout.String(),
 		Stderr: stderr.String(),

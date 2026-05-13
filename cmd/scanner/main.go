@@ -158,7 +158,7 @@ func main() {
 		ToolExecuteTimeoutSeconds: cfg.Toolruntime.ToolExecuteTimeoutSeconds,
 		MaxSteps:                  scannerCfg.MainMaxSteps,
 		WatchdogSeconds:           scannerCfg.MainWatchdogSeconds,
-		ObserverEverySteps:        cfg.React.ObserverEverySteps,
+		ReviewerEverySteps:        cfg.React.ReviewerEverySteps,
 		DoneForceMaxRejects:       cfg.React.DoneForceMaxRejects,
 		FindingsLimit:             cfg.Engagement.FindingsLimitInPrompt,
 		LessonsLimit:              cfg.Engagement.LessonsLimitInPrompt,
@@ -295,7 +295,7 @@ func (h handler) failTask(ctx context.Context, taskID string, err error) error {
 	return err
 }
 
-// abortTask 把 task 推进到 aborted 终态（observer 终止 / engagement 中止 / ctx 取消）。
+// abortTask 把 task 推进到 aborted 终态（reviewer 终止 / engagement 中止 / ctx 取消）。
 // 与 failTask 区别：aborted 是"主动收手"非错误，不应触发告警。
 func (h handler) abortTask(ctx context.Context, taskID, reason string) error {
 	if setErr := h.tasks.SetAborted(ctx, taskID); setErr != nil {
@@ -380,20 +380,30 @@ func (h handler) handleTraffic(ctx context.Context, p worker.Payload, entrypoint
 		h.pricing,
 	)
 
-	// observer
-	obsRaw, err := h.router.For(ctx, "observer")
+	// reviewer
+	reviewLLMRaw, err := h.router.For(ctx, "reviewer")
 	if err != nil {
 		return h.failTask(ctx, p.TaskID, err)
 	}
-	obsGen := llm.Instrument(obsRaw, h.calls,
-		llm.CallMeta{TaskID: &tid, EngagementID: &eid, RouteKey: "observer"},
+	reviewLLMGen := llm.Instrument(reviewLLMRaw, h.calls,
+		llm.CallMeta{TaskID: &tid, EngagementID: &eid, RouteKey: "reviewer"},
 		h.pricing,
 	)
-	observer := react.NewLLMObserver(obsGen, h.engagements, eid)
-	observer.ArgsTruncate = h.cfg.React.ObserverArgsTruncate
-	observer.ObsTruncate = h.cfg.React.ObserverObsTruncate
-	// FlowSummary 约束 observer 只评本流量任务，避免跨流量推方向
-	observer.FlowSummary = fmt.Sprintf("%s %s%s", ep.Method, ep.Host, ep.URL)
+	reviewer := react.NewLLMReviewer(reviewLLMGen, h.engagements, eid)
+	reviewer.ArgsTruncate = h.cfg.React.ReviewerArgsTruncate
+	reviewer.ObsTruncate = h.cfg.React.ReviewerObsTruncate
+	// FlowSummary 约束 reviewer 只评本流量任务，避免跨流量推方向
+	reviewer.FlowSummary = fmt.Sprintf("%s %s%s", ep.Method, ep.Host, ep.URL)
+	// FindingFetcher 让 reviewer 知道当前 agent_run 已挖到几个 finding + 最新一条概要，
+	// 防止 ObsSummary 截断丢 SUCCESS 关键字时 reviewer 误判"未挖到"发偏向 hint。
+	agentRunID := tid
+	reviewer.FindingFetcher = func(ctx context.Context) (int, string, string, error) {
+		n, latest, err := h.findings.CountAndLatestByAgentRun(ctx, agentRunID)
+		if err != nil || latest == nil {
+			return n, "", "", err
+		}
+		return n, latest.Severity, latest.Summary, nil
+	}
 
 	// 拉 flow 完整 raw（请求 + 响应）填 BuilderParams
 	fl, err := h.flows.GetByID(ctx, ep.FlowID)
@@ -409,7 +419,7 @@ func (h handler) handleTraffic(ctx context.Context, p worker.Payload, entrypoint
 		URL:             ep.URL,
 		Method:          ep.Method,
 		LLM:             hunterGen,
-		Observer:        observer,
+		Reviewer:        reviewer,
 		RequestHeaders:  fl.RequestHeaders,
 		RequestBody:     fl.RequestBody,
 		ResponseStatus:  fl.StatusCode,
@@ -438,7 +448,7 @@ func (h handler) handleTraffic(ctx context.Context, p worker.Payload, entrypoint
 		return h.failTask(ctx, p.TaskID, err)
 	}
 	// engagement aborted（OnAbort 触发）：走 SetAborted 而非 SetDone。
-	// observer terminate 不再强中断（改注入 hint），所以此分支只剩 engagement-level abort。
+	// reviewer terminate 不再强中断（改注入 hint），所以此分支只剩 engagement-level abort。
 	if out.TerminateBy == "aborted" {
 		return h.abortTask(ctx, p.TaskID, out.TerminateBy)
 	}
@@ -449,7 +459,7 @@ func (h handler) handleTraffic(ctx context.Context, p worker.Payload, entrypoint
 		"total_in":         out.TotalUsage.InTokens,
 		"total_out":        out.TotalUsage.OutTokens,
 		"total_cached":     out.TotalUsage.CachedTokens,
-		"observer_hints":   out.ObserverHints,
+		"reviewer_hints":   out.ReviewerHints,
 		"done_force_count": out.DoneForceCount,
 	})
 	if err != nil {

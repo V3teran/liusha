@@ -19,7 +19,7 @@ import (
 //
 // Output 是 JSON 编码的工具返回值，会作为 tool message 喂回 LLM。
 // Done = true 时 runtime 应终止 ReAct 循环（如 submit_finding 提交完成）。
-// Summary 是 ≤200 字的摘要，供 Observer 滑动窗用于压缩历史。
+// Summary 是 ≤200 字的摘要，供 Reviewer 滑动窗用于压缩历史。
 type Result struct {
 	Output  json.RawMessage
 	Done    bool
