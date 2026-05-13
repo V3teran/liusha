@@ -13,7 +13,7 @@ import (
 
 // lessonsLister 是 ReadLessons 工具依赖的最小读接口，由 *lesson.Store 自动满足。
 type lessonsLister interface {
-	ListByHost(ctx context.Context, tenant, host string, limit int) ([]lesson.Lesson, error)
+	ListByHost(ctx context.Context, host string, limit int) ([]lesson.Lesson, error)
 }
 
 // ReadLessons — 列出本 task 目标 host 的全部历史经验（lesson 表，跨 engagement 持久化）。
@@ -22,7 +22,6 @@ type lessonsLister interface {
 // 本工具只拉 host-scoped lesson（kind=lesson 的 distill 经验 + host-scoped hint）。
 type ReadLessons struct {
 	Store  lessonsLister
-	Tenant string // builder 注入
 	Host   string // builder 注入；空时 Execute 报错
 }
 
@@ -36,7 +35,7 @@ func (a *ReadLessons) Description() string {
 		"或拼新 PoC 前查 host 已知细节。返回按 priority desc + updated_at desc 排序的列表。"
 }
 
-// ParametersJSON 无入参（host/tenant 由 builder 注入）。
+// ParametersJSON 无入参（host 由 builder 注入）。
 func (a *ReadLessons) ParametersJSON() json.RawMessage {
 	return json.RawMessage(`{"type":"object","properties":{}}`)
 }
@@ -59,11 +58,8 @@ func (a *ReadLessons) Execute(ctx context.Context, _ json.RawMessage) (toolfx.Re
 	if a.Host == "" {
 		return toolfx.Result{}, errors.New("read_lessons: Host 必填（builder 注入失败）")
 	}
-	if a.Tenant == "" {
-		return toolfx.Result{}, errors.New("read_lessons: Tenant 必填（builder 注入失败）")
-	}
 
-	ls, err := a.Store.ListByHost(ctx, a.Tenant, a.Host, 50)
+	ls, err := a.Store.ListByHost(ctx, a.Host, 50)
 	if err != nil {
 		return toolfx.Result{}, err
 	}

@@ -191,8 +191,8 @@ type EngagementConfig struct {
 	MaxStateSizeBytes int `mapstructure:"max_state_size_bytes"`
 	MaxFindings       int `mapstructure:"max_findings"`
 
-	// memory_notes 截断
-	MaxMemoryNotesEntries int `mapstructure:"max_memory_notes_entries"`
+	// notes 截断
+	MaxNotesEntries int `mapstructure:"max_notes_entries"`
 	DefaultNotesLimit     int `mapstructure:"default_notes_limit"`
 
 	// hunter user prompt 拼装时的上限（避免 prompt 膨胀）。
@@ -201,9 +201,6 @@ type EngagementConfig struct {
 	FindingsLimitInPrompt int `mapstructure:"findings_limit_in_prompt"`
 	LessonsLimitInPrompt  int `mapstructure:"lessons_limit_in_prompt"`
 
-	// DefaultTenant 是单租户场景下的兜底租户名；多租户后由 caller 显式传入。
-	// 影响 ingestor、engagement 自动创建、lesson 默认 tenant 等。
-	DefaultTenant string `mapstructure:"default_tenant"`
 }
 
 // CredentialConfig 是 credential.RedisProvider 的 redis key 前缀。
@@ -548,8 +545,8 @@ func applyEngagementDefaults(c EngagementConfig) EngagementConfig {
 	if c.MaxFindings == 0 {
 		c.MaxFindings = 300
 	}
-	if c.MaxMemoryNotesEntries == 0 {
-		c.MaxMemoryNotesEntries = 300
+	if c.MaxNotesEntries == 0 {
+		c.MaxNotesEntries = 300
 	}
 	if c.DefaultNotesLimit == 0 {
 		c.DefaultNotesLimit = 200
@@ -559,9 +556,6 @@ func applyEngagementDefaults(c EngagementConfig) EngagementConfig {
 	}
 	if c.LessonsLimitInPrompt == 0 {
 		c.LessonsLimitInPrompt = 100
-	}
-	if c.DefaultTenant == "" {
-		c.DefaultTenant = "default"
 	}
 	return c
 }

@@ -28,7 +28,7 @@ type EngagementsAPI interface {
 }
 
 // EngagementSummary 是 List 返回行——只暴露前端 viewer 需要的字段，
-// 不直接返回 engagement.Engagement 完整结构（避免泄露 memory_notes 等大字段 + 减小响应体）。
+// 不直接返回 engagement.Engagement 完整结构（避免泄露 notes 等大字段 + 减小响应体）。
 type EngagementSummary struct {
 	ID            string `json:"id"`
 	TargetHost    string `json:"target_host"`

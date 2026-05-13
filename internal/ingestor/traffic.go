@@ -8,7 +8,7 @@
 // ingestor 只负责把 proxy 已放行的流量入库 + 入主队列。
 //
 // 所有运行参数（consumer group/name、batch、block、retry 延迟、tenant）
-// 通过 config.IngestorConfig + Deps.Tenant 注入；零值由 caller 走 ApplyDefaults 兜底。
+// 通过 config.IngestorConfig + 注入；零值由 caller 走 ApplyDefaults 兜底。
 package ingestor
 
 import (
@@ -36,7 +36,6 @@ type Traffic struct {
 	stream        string
 	group         string
 	name          string
-	tenant        string
 	readBatch     int64
 	readBlock     time.Duration
 	retryDelay    time.Duration
@@ -53,7 +52,6 @@ type Traffic struct {
 //
 // Stream 必填（来自 cfg.Proxy.StreamName，proxy/ingestor 之间约定）；
 // Cfg 提供 group/consumer/batch/block/retry 等运行参数（缺省值已由 ApplyDefaults 兜底）；
-// Tenant 控制 engagement 多租户隔离，空时回退 "default"。
 //
 // Rotator 可空：空时走 engs.LookupOrCreate（旧行为）；
 // 非空时走 rotator.EnsureActive，proxy 模式按阈值滚动 engagement。
@@ -79,16 +77,11 @@ func NewTraffic(ctx context.Context, deps Deps) (*Traffic, error) {
 	if strings.TrimSpace(deps.Stream) == "" {
 		return nil, errors.New("ingestor.NewTraffic: stream 必填（应来自 cfg.Proxy.StreamName）")
 	}
-	tenant := strings.TrimSpace(deps.Tenant)
-	if tenant == "" {
-		tenant = "default"
-	}
 	t := &Traffic{
 		rdb:           deps.Redis,
 		stream:        deps.Stream,
 		group:         deps.Cfg.ConsumerGroup,
 		name:          deps.Cfg.ConsumerName,
-		tenant:        tenant,
 		readBatch:     int64(deps.Cfg.ReadBatch),
 		readBlock:     time.Duration(deps.Cfg.ReadBlockTimeoutMs) * time.Millisecond,
 		retryDelay:    time.Duration(deps.Cfg.RetryDelayMs) * time.Millisecond,
@@ -176,10 +169,10 @@ func (t *Traffic) handleMessage(ctx context.Context, msg redis.XMessage) {
 		ensErr error
 	)
 	if t.rotator != nil {
-		eid, ensErr = t.rotator.EnsureActive(ctx, t.tenant, snap.Host, engagement.ModeProxy)
+		eid, ensErr = t.rotator.EnsureActive(ctx, snap.Host, engagement.ModeProxy)
 	} else {
 		var eng engagement.Engagement
-		eng, ensErr = t.engs.LookupOrCreate(ctx, t.tenant, snap.Host, engagement.ModeProxy)
+		eng, ensErr = t.engs.LookupOrCreate(ctx, snap.Host, engagement.ModeProxy)
 		if ensErr == nil {
 			eid = eng.ID
 		}

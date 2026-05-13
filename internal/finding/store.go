@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
-	"sync"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -21,23 +20,13 @@ type engagementCounter interface {
 // findingLog 包级 logger，用于 best-effort 计数失败的 warn。
 var findingLog = logx.New("vulnfinding")
 
-// SavedHook 是 Save 成功后的异步回调签名（用于 lesson_extract 蒸馏等订阅者）。
-//
-// caller 持久化路径不应被 hook 阻塞——Store 用独立 context + 新 goroutine 触发；
-// 实现方应自行 recover panic（Store 不替你兜底）。
-type SavedHook func(ctx context.Context, engagementID string, f VulnFinding)
-
 // Store 封装 finding 表的所有持久化操作。
 //
 // 设计要点：
 //   - severity 自由文本（前端按前缀配色）
 //   - dedup 由 LLM 调用方自决（write 前调 read_findings 自查）
-//   - INSERT 后触发 OnSaved 回调（lesson_extract 蒸馏挂这里）
 type Store struct {
 	pool *pgxpool.Pool
-
-	mu    sync.RWMutex
-	hooks []SavedHook
 
 	engCounter engagementCounter
 }
@@ -54,19 +43,9 @@ func (s *Store) WithCounter(c engagementCounter) *Store {
 // colsSelect 是所有 SELECT / RETURNING 路径的统一列序，与 scan() 字段一一对应。
 const colsSelect = "id, engagement_id, agent_run_id, source_flow_id, host, severity, summary, target, evidence, created_at"
 
-// OnSaved 注册 INSERT 后的异步回调（lesson_extract 蒸馏挂这里）。
-func (s *Store) OnSaved(hook SavedHook) {
-	if hook == nil {
-		return
-	}
-	s.mu.Lock()
-	s.hooks = append(s.hooks, hook)
-	s.mu.Unlock()
-}
-
 // Save 永远 INSERT 一行新 finding（append-only）。
 //
-// 流程：INSERT → commit → fireSavedHooks（lesson_extract 异步蒸馏）。
+// 流程：INSERT → commit → 维护 engagement.finding_count。
 // dedup 由调用方自决（写 finding 前先 findings() 看 host 已有的）；Store 不做去重。
 func (s *Store) Save(ctx context.Context, f VulnFinding) (VulnFinding, error) {
 	if f.Host == "" {
@@ -121,7 +100,6 @@ func (s *Store) Save(ctx context.Context, f VulnFinding) (VulnFinding, error) {
 		Str("engagement_id", saved.EngagementID).
 		Int("summary_len", len(saved.Summary)).
 		Msg("finding saved ✓")
-	s.fireSavedHooks(saved)
 	return saved, nil
 }
 
@@ -226,19 +204,32 @@ func (s *Store) ListByEngagement(ctx context.Context, engagementID string) ([]Vu
 	return out, nil
 }
 
-// ListByHost 列出某 host 在所有 engagement 下的 finding（按 created_at desc）。
-// 用于 hunter agent user prompt 拼装"该 host 已有 finding"段，让 LLM 自决 dedup。
-// limit ≤ 0 表示不限制（read_findings 工具列全部）；> 0 时 SQL 加 LIMIT 避免拉超量数据。
-func (s *Store) ListByHost(ctx context.Context, host string, limit int) ([]VulnFinding, error) {
-	q := `SELECT ` + colsSelect + ` FROM finding WHERE host = $1 ORDER BY created_at DESC`
-	args := []any{host}
+// CountByEngagement 返回某 engagement 下 finding 总数（用于 Rotator 阈值检查）。
+func (s *Store) CountByEngagement(ctx context.Context, engagementID string) (int, error) {
+	var n int
+	if err := s.pool.QueryRow(ctx,
+		`SELECT count(*) FROM finding WHERE engagement_id=$1`, engagementID,
+	).Scan(&n); err != nil {
+		return 0, fmt.Errorf("count findings by engagement: %w", err)
+	}
+	return n, nil
+}
+
+// ListByEngagementAndHost 列出当前 engagement + host 下的 finding（按 created_at desc）。
+//
+// 用于 hunter user prompt 段 3 注入"该 host 已有 finding"——隔离每次 engagement，
+// 不被历史扫描污染（旧实现 ListByHost 跨 engagement，已被 v1.1 重设计弃用）。
+// limit ≤ 0 不限制。
+func (s *Store) ListByEngagementAndHost(ctx context.Context, engagementID, host string, limit int) ([]VulnFinding, error) {
+	q := `SELECT ` + colsSelect + ` FROM finding WHERE engagement_id=$1 AND host=$2 ORDER BY created_at DESC`
+	args := []any{engagementID, host}
 	if limit > 0 {
-		q += ` LIMIT $2`
+		q += ` LIMIT $3`
 		args = append(args, limit)
 	}
 	rows, err := s.pool.Query(ctx, q, args...)
 	if err != nil {
-		return nil, fmt.Errorf("list findings by host: %w", err)
+		return nil, fmt.Errorf("list findings by engagement+host: %w", err)
 	}
 	defer rows.Close()
 
@@ -256,57 +247,34 @@ func (s *Store) ListByHost(ctx context.Context, host string, limit int) ([]VulnF
 	return out, nil
 }
 
-// CountByEngagement 返回某 engagement 下 finding 总数（用于 Rotator 阈值检查）。
-func (s *Store) CountByEngagement(ctx context.Context, engagementID string) (int, error) {
-	var n int
-	if err := s.pool.QueryRow(ctx,
-		`SELECT count(*) FROM finding WHERE engagement_id=$1`, engagementID,
-	).Scan(&n); err != nil {
-		return 0, fmt.Errorf("count findings by engagement: %w", err)
-	}
-	return n, nil
-}
-
-// CountAndLatestByAgentRun 返回某 agent_run 已写 finding 总数 + 最新一条概要（id/severity/summary）。
+// CountAndLatestByEngagementAndHost 返回 engagement+host 范围下 finding 总数 + 最新一条概要。
 //
-// 用于 reviewer 评估 prompt 注入"该 agent_run 已挖到 N 个 finding，最新：…"，
-// 让 reviewer 不再因为 ObsSummary 截断丢失 SUCCESS 关键字而误判"未挖到"。
+// 用于 reviewer 评估 prompt 注入"该 host 已有 N 个 finding，最新：…"——
+// reviewer 视野从"当前 agent_run"扩到"engagement 内本 host 全部"，符合"整个 host 状态做决策"直觉。
+// 同时不跨 engagement，保证每次扫描独立。
 //
 // 实现：单次 SQL 用 count(*) OVER () window，LIMIT 1 拿最新一行。
 //   - 0 行：count=0, latest=nil
-//   - ≥1 行：count=total, latest=最新一条（仅填 id/severity/summary/created_at，其余字段零值）
-func (s *Store) CountAndLatestByAgentRun(ctx context.Context, agentRunID string) (int, *VulnFinding, error) {
-	if agentRunID == "" {
-		return 0, nil, fmt.Errorf("CountAndLatestByAgentRun: agentRunID 必填")
+//   - ≥1 行：count=total, latest=最新一条（仅填 id/severity/summary/created_at）
+func (s *Store) CountAndLatestByEngagementAndHost(ctx context.Context, engagementID, host string) (int, *VulnFinding, error) {
+	if engagementID == "" || host == "" {
+		return 0, nil, fmt.Errorf("CountAndLatestByEngagementAndHost: engagementID + host 都必填")
 	}
 	row := s.pool.QueryRow(ctx, `
 		SELECT id, severity, summary, created_at, count(*) OVER () AS total
 		FROM finding
-		WHERE agent_run_id=$1
+		WHERE engagement_id=$1 AND host=$2
 		ORDER BY created_at DESC
-		LIMIT 1`, agentRunID)
+		LIMIT 1`, engagementID, host)
 	var f VulnFinding
 	var total int
 	if err := row.Scan(&f.ID, &f.Severity, &f.Summary, &f.CreatedAt, &total); err != nil {
 		if err == pgx.ErrNoRows {
 			return 0, nil, nil
 		}
-		return 0, nil, fmt.Errorf("count and latest finding by agent_run: %w", err)
+		return 0, nil, fmt.Errorf("count and latest finding by engagement+host: %w", err)
 	}
 	return total, &f, nil
-}
-
-// fireSavedHooks 异步触发所有 OnSaved 订阅。
-func (s *Store) fireSavedHooks(f VulnFinding) {
-	s.mu.RLock()
-	snapshot := make([]SavedHook, len(s.hooks))
-	copy(snapshot, s.hooks)
-	s.mu.RUnlock()
-
-	for _, hook := range snapshot {
-		h := hook
-		go h(context.Background(), f.EngagementID, f)
-	}
 }
 
 // scanner 抽象 pgx.Row / pgx.Rows 的 Scan 方法。

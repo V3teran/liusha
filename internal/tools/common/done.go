@@ -2,11 +2,9 @@
 // done / read_notes / write_note / write_finding / write_graph。
 //
 // 设计要点：
-//   - Memory actions（ReadNotes/WriteNote）只依赖小接口 MemoryStore，便于单测；
-//     engagement.Store 自动满足该接口（ReadStateScoped + AppendNote）。
+//   - Note actions（ReadNote/WriteNote）只依赖小接口 NoteStore，便于单测；
+//     engagement.Store 自动满足该接口（ReadNotesScoped + AppendNote）。
 //   - WriteFinding / WriteGraph 同样依赖窄接口（FindingStore / GraphStore），实参可换 mock。
-//   - WriteFinding 写库后由 finding.Store 内部异步 fire OnSaved hook，订阅由 main
-//     装配阶段挂载，不在本包责任范围。
 package common
 
 import (

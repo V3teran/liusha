@@ -32,8 +32,16 @@ type WriteFinding struct {
 func (a *WriteFinding) Name() string { return "write_finding" }
 
 // Description 提供给 LLM 的简介。
+//
+// 设计分工：
+//   - description（本函数）：格式约束（summary 单行 ≤500 / evidence jsonb / severity 取值）+ 一行质量红线提示
+//   - hunter system_prompt"## 写 finding 必须满足"：4 条详细 behavioral rules（真实命中 / 工具未失败 / 可复现 / 不重复）
+// LLM 选工具时看 description 的格式细节，调用前已被 system_prompt 全局规则约束，互不重复。
 func (a *WriteFinding) Description() string {
-	return "写一条**新**漏洞 finding。**summary 是一行短标题（git commit subject 风格，≤500 chars 无换行）；详情/复现/payload 全进 evidence**；severity 建议 critical/high/medium/low/info（其他值 UI 退化为蓝色）。"
+	return "写一条**新**漏洞 finding。" +
+		"**格式**：summary 一行短标题（≤500 chars 无换行）；详情/复现/payload 全进 evidence jsonb；" +
+		"severity 建议 critical/high/medium/low/info（其他值 UI 退化为蓝色）。" +
+		"**质量**：evidence 必须含可复现的 repro_cmd；工具失败/超时不许伪造——详见 system prompt 的 4 条红线。"
 }
 
 // ParametersJSON 给出 finding 字段 schema。

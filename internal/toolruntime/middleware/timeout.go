@@ -10,7 +10,7 @@ import (
 
 // Timeout 给每个 tool Execute 套一个兜底超时。
 //
-// 设计动机：read_credentials / read_findings / write_finding / read_memory 等
+// 设计动机：read_credentials / read_findings / write_finding / read_note 等
 // 本地工具默认无 timeout——一旦 redis/pg 卡死就把整个 ReAct 拖死。run_command 内部
 // 自带 spec.Timeout 钳，但仍依赖 caller 正确设置。本 middleware 在外层兜底，零
 // timeout 工具也至少 N 秒退出。

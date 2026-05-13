@@ -49,7 +49,7 @@ func main() {
 
 	credAPI := credential.NewRedis(rdb, cfg.Credential.RedisKeyPrefix)
 	engStore := engagement.NewStore(pool).WithLimits(
-		cfg.Engagement.MaxMemoryNotesEntries,
+		cfg.Engagement.MaxNotesEntries,
 		cfg.Engagement.DefaultNotesLimit,
 	)
 	findStore := finding.NewStore(pool)
@@ -118,7 +118,7 @@ func (a engagementAPIAdapter) LookupOrCreateProxy(ctx context.Context, host stri
 }
 
 // List 适配 engagement.Store.List → httpapi.EngagementSummary。
-// 不直接返回 engagement.Engagement 完整结构，避免泄露 memory_notes 等大字段到前端。
+// 不直接返回 engagement.Engagement 完整结构，避免泄露 notes 等大字段到前端。
 func (a engagementAPIAdapter) List(ctx context.Context, host string, limit int) ([]httpapi.EngagementSummary, error) {
 	rows, err := a.s.List(ctx, host, limit)
 	if err != nil {

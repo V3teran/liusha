@@ -59,9 +59,9 @@ func TestStore_Abort(t *testing.T) {
 	}
 }
 
-// TestStore_AppendNoteAndReadState 验证 v1.2 notes 单层 Append + ReadState：
-// 写 3 条 note（observation + boundary + hypothesis），ReadState 返回 JSON 含 notes key 且 3 条全在。
-func TestStore_AppendNoteAndReadState(t *testing.T) {
+// TestStore_AppendNoteAndReadNotes 验证 v1.2 notes 单层 Append + ReadNotes：
+// 写 3 条 note（observation + boundary + hypothesis），ReadNotes 返回 JSON 含 notes key 且 3 条全在。
+func TestStore_AppendNoteAndReadNotes(t *testing.T) {
 	ctx := context.Background()
 	pool := dbtest.NewPgPool(t)
 	s := NewStore(pool)
@@ -83,7 +83,7 @@ func TestStore_AppendNoteAndReadState(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	state, err := s.ReadState(ctx, e.ID)
+	state, err := s.ReadNotes(ctx, e.ID)
 	if err != nil {
 		t.Fatal(err)
 	}

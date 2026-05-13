@@ -19,11 +19,10 @@ type LessonAdder interface {
 // WriteLesson — 写一条长期经验到 lesson 表（kind=lesson，跨 engagement 持久化）。
 //
 // hunter agent 写 finding 后自决何时调本工具沉淀经验（"这条值得下次复用吗"）。
-// host / tenant 由 builder 注入；LLM 只填 content（必填）+ kind/priority/payload（可选）。
-// (tenant, host, content_hash) 唯一键 ON CONFLICT 幂等：同 content 重复写只 hit_count++。
+// host 由 builder 注入；LLM 只填 content（必填）+ kind/priority/payload（可选）。
+// (host, content_hash) 唯一键 ON CONFLICT 幂等：同 content 重复写只 hit_count++。
 type WriteLesson struct {
 	Store  LessonAdder
-	Tenant string // builder 注入（cfg.Engagement.DefaultTenant）
 	Host   string // builder 注入（per-task host）
 }
 
@@ -32,14 +31,18 @@ func (a *WriteLesson) Name() string { return "write_lesson" }
 
 // Description 提供给 LLM 的简介。
 func (a *WriteLesson) Description() string {
-	return "写一条长期经验到 lesson 表（跨 engagement 持久化，下次扫自动注入 user prompt）。" +
-		"**kind=lesson（默认）**：本 host 特定经验——下次扫同一 host 时注入。" +
-		"  何时用：值得下次复用的 payload / endpoint / 业务模式（如『此 host 的 /api/x 用 id 参数注入；UNION 列数=2；DBMS=MariaDB』）。" +
-		"**kind=hint**：跨 host 业务规则——对**所有** host 通用，每条扫描都注入到『跨 host 业务规则提醒（必须遵守）』段。" +
-		"  何时用：客户/业务约束（如『价格篡改要 ≥10% 才算 finding』『/admin/* 是已知未授权设计不写 finding』），**不是** OWASP 通用知识。" +
-		"  ⚠️ hint 影响所有未来 agent 的判定，误写代价高——只在**强证据**（如 read_lessons 显示历史多次确认）时才写。" +
-		"**不要写**：通用 OWASP 理论、本 task 临时状态（用 write_memory）。" +
-		"content 必填（≤500 字）；priority 1-10 默认 5。"
+	return "写一条「跨 engagement 长期经验」到 lesson 库" +
+		"（按 host 永久累积，下次扫同一 host 自动注入 user prompt；同 content_hash 自动 dedup）。" +
+		"\n\n【必写】下次扫描同 host / 同类目标能复用的知识：" +
+		"\n- 目标默认/常用凭据（如『此 host 默认 admin:password』）" +
+		"\n- 工具调用 pattern（如『DVWA login.php 必须先 GET 拿 user_token 再 POST』）" +
+		"\n- 系统级稳定怪癖的通用解（不变的目标特性，如『/api/x 用 id 参数注入；UNION 列数=2；DBMS=MariaDB』）" +
+		"\n- kind=hint：跨 host 业务规则（如『价格篡改 ≥10% 才算 finding』）。⚠️ hint 影响所有未来 agent，只在强证据时写。" +
+		"\n\n【禁写】请改用对应工具：" +
+		"\n- 本次具体漏洞细节（漏洞 PoC）→ write_finding" +
+		"\n- 一次性事实（本次 session、临时 cookie、当前状态）→ write_note" +
+		"\n- 通用 OWASP 理论 / LLM 已知知识（浪费长期存储）" +
+		"\ncontent 必填（≤500 字）；priority 1-10 默认 5。"
 }
 
 // ParametersJSON 给出 content 必填 + kind/priority/payload 可选 schema。
@@ -63,9 +66,6 @@ func (a *WriteLesson) Execute(ctx context.Context, args json.RawMessage) (toolfx
 	}
 	if a.Host == "" {
 		return toolfx.Result{}, errors.New("write_lesson: Host 必填（builder 注入失败）")
-	}
-	if a.Tenant == "" {
-		return toolfx.Result{}, errors.New("write_lesson: Tenant 必填（builder 注入失败）")
 	}
 
 	var in struct {
@@ -97,7 +97,7 @@ func (a *WriteLesson) Execute(ctx context.Context, args json.RawMessage) (toolfx
 	}
 
 	saved, err := a.Store.Add(ctx, lesson.Lesson{
-		TenantID: a.Tenant,
+		
 		Host:     host,
 		Kind:     kind,
 		Content:  in.Content,

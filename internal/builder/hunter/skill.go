@@ -5,7 +5,7 @@
 // （request + response + 凭证 + 已有 finding + hint）后，自由组合下列工具挖漏洞：
 //
 //	必装（11 个）:
-//	  read_memory / write_memory                — task 内中间状态
+//	  read_note / write_note                — task 内中间状态
 //	  read_credentials                          — 拿该 host 凭证
 //	  read_findings / write_finding / update_finding — finding 读写
 //	  read_relations / write_relation           — finding 依赖图
@@ -78,8 +78,6 @@ type Deps struct {
 
 	SandboxCfg config.SandboxConfig
 
-	// Tenant 用于按 (tenant, host) 拉 lesson + (tenant, '*', kind=hint) 拉全局规则。
-	Tenant string
 
 	// StepToolTimeoutSeconds 单次 tool Execute 兜底超时（秒）；0 = 不加 deadline。
 	StepToolTimeoutSeconds int
@@ -110,10 +108,10 @@ func NewBuilder(deps Deps) skill.Builder {
 			}
 		}
 
-		must(&common.ReadMemory{Store: deps.Engagements, EngagementID: p.EngagementID, TaskID: p.TaskID})
-		must(&common.WriteMemory{Store: deps.Engagements, EngagementID: p.EngagementID, TaskID: p.TaskID})
+		must(&common.ReadNote{Store: deps.Engagements, EngagementID: p.EngagementID, TaskID: p.TaskID})
+		must(&common.WriteNote{Store: deps.Engagements, EngagementID: p.EngagementID, TaskID: p.TaskID})
 		must(&common.ReadCredentials{Provider: deps.Credentials, Host: p.Host})
-		must(&common.ReadFindings{Store: deps.Findings, Host: p.Host})
+		must(&common.ReadFindings{Store: deps.Findings, EngagementID: p.EngagementID, Host: p.Host})
 		must(&common.WriteFinding{
 			Store:        deps.Findings,
 			EngagementID: p.EngagementID,
@@ -124,8 +122,8 @@ func NewBuilder(deps Deps) skill.Builder {
 		must(&common.UpdateFinding{Store: deps.Findings})
 		must(&common.ReadRelations{Store: deps.Findings, EngagementID: p.EngagementID})
 		must(&common.WriteRelation{Store: deps.Findings})
-		must(&common.ReadLessons{Store: deps.Lessons, Tenant: deps.Tenant, Host: p.Host})
-		must(&common.WriteLesson{Store: deps.Lessons, Tenant: deps.Tenant, Host: p.Host})
+		must(&common.ReadLessons{Store: deps.Lessons, Host: p.Host})
+		must(&common.WriteLesson{Store: deps.Lessons, Host: p.Host})
 		must(common.Done{})
 
 		// Progressive Disclosure Tier 2：LLM 看 user prompt 工具索引选中工具后
@@ -240,14 +238,21 @@ func buildUserPrompt(ctx context.Context, deps Deps, p skill.BuilderParams) stri
 		lessonsLimit = 100
 	}
 
-	// 段 3: 该 host 已有 finding
-	if existing := loadExistingFindings(ctx, deps.Findings, p.Host, findingsLimit); existing != "" {
-		b.WriteString("\n\n## 该 host 已有 finding\n\n")
+	// 段 3: 该 host 已有 finding（限本次 engagement，不跨次扫描）
+	if existing := loadExistingFindings(ctx, deps.Findings, p.EngagementID, p.Host, findingsLimit); existing != "" {
+		b.WriteString("\n\n## 该 host 已有 finding（本次扫描内）\n\n")
 		b.WriteString(existing)
 	}
 
-	// 段 4: lesson + hint
-	if knowledge := loadKnowledgeForPrompt(ctx, deps.Lessons, deps.Tenant, p.Host, lessonsLimit); knowledge != "" {
+	// 段 3.5: 本次扫描笔记板（engagement 内同 host 工作笔记）
+	// 内容由其他 hunter task 通过 write_note 写入——临时凭据/状态、目标怪癖、小惊喜、失败死路。
+	if notes := loadEngagementNotes(ctx, deps.Engagements, p.EngagementID); notes != "" {
+		b.WriteString("\n\n## 本次扫描笔记板（engagement 内同 host）\n\n")
+		b.WriteString(notes)
+	}
+
+	// 段 4: lesson + hint（跨 engagement 长期经验）
+	if knowledge := loadKnowledgeForPrompt(ctx, deps.Lessons, p.Host, lessonsLimit); knowledge != "" {
 		b.WriteString("\n\n")
 		b.WriteString(knowledge)
 	}
@@ -496,14 +501,16 @@ func writeBodyBlock(b *strings.Builder, body []byte, limit int) {
 	}
 }
 
-// loadExistingFindings 拉 host 已有 finding 摘要（dedup 参考）。
-// showLimit 由 caller 提供（来自 cfg.Engagement.FindingsLimitInPrompt，默认 100）。
-// SQL 拉 showLimit+1 条：前 showLimit 渲染给 LLM 看，第 showLimit+1 条仅用作"还有更多"信号。
-func loadExistingFindings(ctx context.Context, store *finding.Store, host string, showLimit int) string {
-	if store == nil || host == "" || showLimit <= 0 {
+// loadExistingFindings 拉「engagement + host」已有 finding 摘要（dedup 参考）。
+//
+// v1.1 重设计：从跨 engagement 收窄到 engagement+host——每次扫描独立，不被历史污染。
+// 跨次扫描的复用走 lesson（用 loadKnowledgeForPrompt 注入段 4）。
+// showLimit 由 caller 提供；SQL 拉 showLimit+1 条做"还有更多"信号。
+func loadExistingFindings(ctx context.Context, store *finding.Store, engagementID, host string, showLimit int) string {
+	if store == nil || engagementID == "" || host == "" || showLimit <= 0 {
 		return ""
 	}
-	fs, err := store.ListByHost(ctx, host, showLimit+1)
+	fs, err := store.ListByEngagementAndHost(ctx, engagementID, host, showLimit+1)
 	if err != nil || len(fs) == 0 {
 		return ""
 	}
@@ -518,10 +525,43 @@ func loadExistingFindings(ctx context.Context, store *finding.Store, host string
 	return b.String()
 }
 
+// loadEngagementNotes 拉本次扫描的 notes（短期工作内存）渲染给 hunter user prompt。
+//
+// 范围：engagement 内（host 隐含——一个 engagement 1:1 host）。
+// 注入到 user prompt 让 hunter 看到同 engagement 内其他 hunter task 写的笔记
+// （临时凭据/状态、目标怪癖、小惊喜、失败死路），避免每个 agent 从零摸索。
+func loadEngagementNotes(ctx context.Context, store *engagement.Store, engagementID string) string {
+	if store == nil || engagementID == "" {
+		return ""
+	}
+	raw, err := store.ReadNotesScoped(ctx, engagementID, engagement.ReadOpts{})
+	if err != nil || len(raw) == 0 {
+		return ""
+	}
+	// raw 形如 {"notes": [{"content":"...","agent_run_id":"..."}, ...]}
+	var parsed struct {
+		Notes []struct {
+			Content    string `json:"content"`
+			AgentRunID string `json:"agent_run_id"`
+		} `json:"notes"`
+	}
+	if err := json.Unmarshal(raw, &parsed); err != nil {
+		return ""
+	}
+	if len(parsed.Notes) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	for _, n := range parsed.Notes {
+		fmt.Fprintf(&b, "- %s\n", firstLine(n.Content, 200))
+	}
+	return b.String()
+}
+
 // loadKnowledgeForPrompt 拉 host 历史经验 + 全局业务规则 hint。
 // limit 由 caller 提供（来自 cfg.Engagement.LessonsLimitInPrompt，默认 100）；
 // lesson 与 hint 各取 top-N（按 priority desc）共用此 limit。
-func loadKnowledgeForPrompt(ctx context.Context, store *lesson.Store, tenant, host string, limit int) string {
+func loadKnowledgeForPrompt(ctx context.Context, store *lesson.Store, host string, limit int) string {
 	if store == nil {
 		return ""
 	}
@@ -532,7 +572,7 @@ func loadKnowledgeForPrompt(ctx context.Context, store *lesson.Store, tenant, ho
 	var b strings.Builder
 
 	if host != "" {
-		if lessons, err := store.ListByHost(ctx, tenant, host, limit); err == nil && len(lessons) > 0 {
+		if lessons, err := store.ListByHost(ctx, host, limit); err == nil && len(lessons) > 0 {
 			// 先过滤再 numbering——避免跳号（如全局 hint 混进 host lessons 时）。
 			kept := make([]lesson.Lesson, 0, len(lessons))
 			for _, l := range lessons {
@@ -550,7 +590,7 @@ func loadKnowledgeForPrompt(ctx context.Context, store *lesson.Store, tenant, ho
 		}
 	}
 
-	if hints, err := store.ListGlobalHints(ctx, tenant, limit); err == nil && len(hints) > 0 {
+	if hints, err := store.ListGlobalHints(ctx, limit); err == nil && len(hints) > 0 {
 		if b.Len() > 0 {
 			b.WriteString("\n")
 		}

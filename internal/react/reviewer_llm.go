@@ -10,10 +10,10 @@ import (
 	"github.com/V3teran/liusha/internal/llm"
 )
 
-// StateReader 是 LLMReviewer 读取 engagement 三层 memory 的最小依赖。
+// NotesReader 是 LLMReviewer 读取 engagement 三层 memory 的最小依赖。
 // *engagement.Store 隐式满足该接口，测试可注入 stub。
-type StateReader interface {
-	ReadState(ctx context.Context, id string) ([]byte, error)
+type NotesReader interface {
+	ReadNotes(ctx context.Context, id string) ([]byte, error)
 }
 
 // LLMReviewer 用 light_provider LLM 在 ReAct 循环每 N 步做一次进度评估。
@@ -30,7 +30,7 @@ const (
 
 type LLMReviewer struct {
 	llm          llm.Generator
-	state        StateReader
+	notes        NotesReader
 	engagementID string
 
 	// 可选字段：caller 通常从 cfg.React.{ReviewerArgsTruncate, ReviewerObsTruncate} 注入。
@@ -43,11 +43,17 @@ type LLMReviewer struct {
 	// 零值时 prompt 省略该段——退化为旧"无 flow 上下文"行为。
 	FlowSummary string
 
-	// FindingFetcher 是可选 hook：返回当前 agent_run 已写 finding 总数 + 最新一条概要（severity/summary）。
-	// 由 scanner 装配处用 closure 适配 *finding.Store.CountAndLatestByAgentRun，避免本包反向 import finding 造成 cycle。
-	// nil 时 reviewer prompt 不注入 finding 进度段——退化为"reviewer 看不到 finding 进展"行为。
-	// 关键作用：让 reviewer 不再因为 ObsSummary 截断丢失 SUCCESS 关键字而误判"未挖到"。
+	// FindingFetcher 是可选 hook：返回当前 engagement + host 范围内 finding 总数 + 最新一条概要。
+	// 由 scanner 装配处用 closure 适配 *finding.Store.CountAndLatestByEngagementAndHost。
+	// nil 时 reviewer prompt 不注入 finding 进度段。
+	// 关键作用：reviewer 视野扩到 engagement+host 全部，符合"整个 host 状态做决策"直觉；不跨 engagement 隔离每次扫描。
 	FindingFetcher func(ctx context.Context) (count int, latestSeverity, latestSummary string, err error)
+
+	// LessonFetcher 是可选 hook：返回该 host 历史 lesson（跨 engagement 长期经验）。
+	// 由 scanner 装配处用 closure 适配 *lesson.Store.ListByHost。
+	// nil 时 reviewer prompt 不注入 lesson 段。
+	// 关键作用：reviewer 用 lesson 给出更精准方向修正 hint；仅服务方向修正，不参与"是否 terminate"决策。
+	LessonFetcher func(ctx context.Context) ([]string, error)
 }
 
 func (o *LLMReviewer) effectiveArgsTruncate() int {
@@ -67,8 +73,8 @@ func (o *LLMReviewer) effectiveObsTruncate() int {
 // NewLLMReviewer 用 router.For("reviewer") 路由出的 light Generator + engagement store 构造。
 //
 // store 可为 nil（测试场景），此时 prompt 中省略 memory 状态板。
-func NewLLMReviewer(g llm.Generator, store StateReader, engagementID string) *LLMReviewer {
-	return &LLMReviewer{llm: g, state: store, engagementID: engagementID}
+func NewLLMReviewer(g llm.Generator, store NotesReader, engagementID string) *LLMReviewer {
+	return &LLMReviewer{llm: g, notes: store, engagementID: engagementID}
 }
 
 // reviewerSystemPrompt 约束 reviewer 只评本流量进度、输出严格 JSON。
@@ -84,6 +90,7 @@ const reviewerSystemPrompt = `你是漏洞挖掘主 agent 的进度评估者。�
 - 仅在 "已挖 finding 数 = 0" 且窗口里看到方向跑偏（如目标流量是 brute 却在做 SQLi）时才 redirect。
 - 最近 1 步可能含完整工具输出（不截断）—— 关键字（SUCCESS / vulnerable / uid= / 反射 payload 完整回显）出现即视为命中，即便 finding 还没落库也别催换向。
 - **命中但 finding 还没写**（关键字出现 + 已挖 finding 数 = 0）：必须 redirect，hint 必含"立即调用 write_finding 落库当前证据；后续扩展（dump 全表 / 提权链路）走 update_finding 补 evidence，不要继续验证后才写"。**禁止**输出"集中验证 / 继续验证 / 再确认"等鼓励延后落库的措辞。
+- **lesson 段（若存在）是参考**：LLM 出现"踩过的坑"行为时（如反复试错误密码），redirect hint 可引用 lesson 解法（如"试 admin:password，见历史经验"）。lesson **不参与 terminate 判定**，只服务方向修正。
 
 严格只输出一个 JSON 对象，禁止任何多余文本：
 {"decision":"continue|redirect|terminate","hint":"..."}`
@@ -102,8 +109,9 @@ func (o *LLMReviewer) Evaluate(ctx context.Context, window []StepRecord) Verdict
 	user := buildReviewerPrompt(
 		o.FlowSummary,
 		window,
-		o.readStateOrNil(ctx),
+		o.readNotesOrNil(ctx),
 		o.fetchFindingsSection(ctx),
+		o.fetchLessonsSection(ctx),
 		o.effectiveArgsTruncate(),
 		o.effectiveObsTruncate(),
 	)
@@ -153,12 +161,12 @@ func normalizeDecision(raw string) string {
 	return ""
 }
 
-// readStateOrNil 读三层 memory；失败或 store nil 时返回 nil 让 prompt 省略状态板段。
-func (o *LLMReviewer) readStateOrNil(ctx context.Context) []byte {
-	if o.state == nil {
+// readNotesOrNil 读三层 memory；失败或 store nil 时返回 nil 让 prompt 省略状态板段。
+func (o *LLMReviewer) readNotesOrNil(ctx context.Context) []byte {
+	if o.notes == nil {
 		return nil
 	}
-	data, err := o.state.ReadState(ctx, o.engagementID)
+	data, err := o.notes.ReadNotes(ctx, o.engagementID)
 	if err != nil {
 		slog.Warn("reviewer read state failed", "err", err, "engagement_id", o.engagementID)
 		return nil
@@ -190,16 +198,47 @@ func (o *LLMReviewer) fetchFindingsSection(ctx context.Context) string {
 	return fmt.Sprintf("已挖 finding 数：%d（最新 [%s] %s）", count, sev, truncate(sum, 200))
 }
 
-// buildReviewerPrompt 把 flow 摘要 + window + state + findings 段拼成单条 user 消息。
+// fetchLessonsSection 调 LessonFetcher 拿该 host 历史 lesson，渲染成 prompt 段；
+// nil hook / 0 条 / 错误 → 返回空串。
+//
+// 渲染示例：
+//
+//	## 该 host 历史经验（lesson，跨 engagement 累积）
+//	- [p7] DVWA 默认密码 admin:password，优先试
+//	- [p7] DVWA security=low 需 cookie 强带覆盖 server 强制 impossible
+func (o *LLMReviewer) fetchLessonsSection(ctx context.Context) string {
+	if o.LessonFetcher == nil {
+		return ""
+	}
+	lessons, err := o.LessonFetcher(ctx)
+	if err != nil {
+		slog.Warn("reviewer fetch lessons failed", "err", err, "engagement_id", o.engagementID)
+		return ""
+	}
+	if len(lessons) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("## 该 host 历史经验（lesson，跨 engagement 累积）\n")
+	for _, l := range lessons {
+		b.WriteString("- ")
+		b.WriteString(l)
+		b.WriteString("\n")
+	}
+	return b.String()
+}
+
+// buildReviewerPrompt 把 flow 摘要 + window + notes + findings + lessons 段拼成单条 user 消息。
 //
 //   - flowSummary 为空时省略段头（向后兼容旧调用方）；
 //   - window 为空时仍能产出 prompt（空 window 段）；
-//   - state 为 nil 时省略状态板段；
+//   - notes 为 nil 时省略本次扫描笔记板段；
 //   - findingsSection 为空时省略 finding 进度段（FindingFetcher nil / 出错 / 0 finding 都可能为空）；
+//   - lessonsSection 为空时省略 lesson 段（LessonFetcher nil / 出错 / 0 条都可能为空）；
 //   - argsTruncate / obsTruncate 来自 LLMReviewer 的可选字段，控制喂 LLM 的字节数；
 //   - 最近 1 步（window 末尾）若 FullObs 非空，用 FullObs 整段（不截断）替代 ObsSummary，
 //     让 reviewer 看到 SUCCESS/vulnerable/uid= 等关键字防止摘要丢失误判。
-func buildReviewerPrompt(flowSummary string, window []StepRecord, state []byte, findingsSection string, argsTruncate, obsTruncate int) string {
+func buildReviewerPrompt(flowSummary string, window []StepRecord, notes []byte, findingsSection, lessonsSection string, argsTruncate, obsTruncate int) string {
 	var b strings.Builder
 	if flowSummary != "" {
 		fmt.Fprintf(&b, "当前流量任务：%s\n\n", flowSummary)
@@ -218,9 +257,13 @@ func buildReviewerPrompt(flowSummary string, window []StepRecord, state []byte, 
 		b.WriteString(findingsSection)
 		b.WriteString("\n")
 	}
-	if len(state) > 0 {
-		b.WriteString("\n当前状态板（facts/ideas/hints）：\n")
-		b.Write(state)
+	if lessonsSection != "" {
+		b.WriteString("\n")
+		b.WriteString(lessonsSection)
+	}
+	if len(notes) > 0 {
+		b.WriteString("\n本次扫描笔记板（engagement 内同 host 工作笔记）：\n")
+		b.Write(notes)
 	}
 	b.WriteString("\n\n请按 system 约束的 JSON 输出。")
 	return b.String()

@@ -65,7 +65,7 @@ type stateReaderStub struct {
 	err error
 }
 
-func (s *stateReaderStub) ReadState(_ context.Context, _ string) ([]byte, error) {
+func (s *stateReaderStub) ReadNotes(_ context.Context, _ string) ([]byte, error) {
 	return s.out, s.err
 }
 
@@ -145,7 +145,7 @@ func TestLLMReviewer_WindowEmpty(t *testing.T) {
 }
 
 func TestLLMReviewer_StateReadFailureFallsThrough(t *testing.T) {
-	// store ReadState 返回错误：reviewer 应跳过 state，仍调 LLM
+	// store ReadNotes 返回错误：reviewer 应跳过 state，仍调 LLM
 	gen := &mockGen{out: `{"decision":"continue","hint":""}`}
 	store := &stateReaderStub{err: errors.New("db down")}
 	r := NewLLMReviewer(gen, store, "eid")

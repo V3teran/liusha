@@ -12,8 +12,8 @@ import (
 
 // Store 封装 engagement 表的所有持久化操作。
 //
-// maxEntries 控制 memory_notes 数组每次 append 后的滚动裁剪上限；
-// defaultNotesLimit 控制 ReadStateScoped 在 opts.NotesLimit=0 时的默认截断长度。
+// maxEntries 控制 notes 数组每次 append 后的滚动裁剪上限；
+// defaultNotesLimit 控制 ReadNotesScoped 在 opts.NotesLimit=0 时的默认截断长度。
 // 两者均通过 WithLimits 链式注入，零值时回退到 fallbackMaxEntries / fallbackDefaultNotesLimit。
 type Store struct {
 	pool              *pgxpool.Pool
@@ -24,7 +24,7 @@ type Store struct {
 // NewStore 用 pgxpool 构造 Store；阈值字段为 0，由 WithLimits 注入或运行时回退兜底。
 func NewStore(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
 
-// WithLimits 链式注入 memory_notes 滚动 / 读取截断阈值。
+// WithLimits 链式注入 notes 滚动 / 读取截断阈值。
 // 任一参数 ≤ 0 时该字段保持当前值（最终运行时再回退 fallback）。
 func (s *Store) WithLimits(maxEntries, defaultNotesLimit int) *Store {
 	if maxEntries > 0 {
@@ -53,26 +53,26 @@ func (s *Store) effectiveDefaultNotesLimit() int {
 }
 
 // colsSelect 是所有 SELECT 路径的统一列序，与 scan() 的字段顺序一一对应。
-// v0015：新增 ended_at / error_message / *_count 字段。
-const colsSelect = "id, tenant_id, mode, target_host, status, memory_notes, created_at, " +
+// v0030：删除 tenant_id 列（单租户阶段冗余）。
+const colsSelect = "id, mode, target_host, status, notes, created_at, " +
 	"ended_at, error_message, flow_count, finding_count, agent_run_count"
 
 // LookupOrCreateProxy 是 LookupOrCreate 的便利包装。
 func (s *Store) LookupOrCreateProxy(ctx context.Context, host string) (string, error) {
-	e, err := s.LookupOrCreate(ctx, "default", host, ModeProxy)
+	e, err := s.LookupOrCreate(ctx, host, ModeProxy)
 	if err != nil {
 		return "", err
 	}
 	return e.ID, nil
 }
 
-// LookupOrCreate 返回 (tenant, host) 下当前 active engagement；不存在则懒创建。
-func (s *Store) LookupOrCreate(ctx context.Context, tenant, host string, mode Mode) (Engagement, error) {
+// LookupOrCreate 返回 host 下当前 active engagement；不存在则懒创建。
+func (s *Store) LookupOrCreate(ctx context.Context, host string, mode Mode) (Engagement, error) {
 	row := s.pool.QueryRow(ctx, `
 		SELECT `+colsSelect+`
 		FROM engagement
-		WHERE tenant_id=$1 AND target_host=$2 AND status='active'
-		LIMIT 1`, tenant, host)
+		WHERE target_host=$1 AND status='active'
+		LIMIT 1`, host)
 	var e Engagement
 	err := scan(row, &e)
 	if err == nil {
@@ -82,9 +82,9 @@ func (s *Store) LookupOrCreate(ctx context.Context, tenant, host string, mode Mo
 		return Engagement{}, fmt.Errorf("lookup engagement: %w", err)
 	}
 	row = s.pool.QueryRow(ctx, `
-		INSERT INTO engagement (tenant_id, mode, target_host, status)
-		VALUES ($1,$2,$3,'active')
-		RETURNING `+colsSelect, tenant, mode, host)
+		INSERT INTO engagement (mode, target_host, status)
+		VALUES ($1,$2,'active')
+		RETURNING `+colsSelect, mode, host)
 	if err := scan(row, &e); err != nil {
 		return Engagement{}, fmt.Errorf("insert engagement: %w", err)
 	}
@@ -196,38 +196,38 @@ func (s *Store) incrementCounter(ctx context.Context, id, col string, n int) err
 	return nil
 }
 
-// ReadState 一次读取 memory_notes（不过滤；admin/debug 用途）。
+// ReadNotes 一次读取 notes（不过滤；admin/debug 用途）。
 //
-// 子 ReAct 应改用 ReadStateScoped 拿到带 NotesLimit 截断的视图。
-func (s *Store) ReadState(ctx context.Context, id string) ([]byte, error) {
-	return s.ReadStateScoped(ctx, id, ReadOpts{})
+// 子 ReAct 应改用 ReadNotesScoped 拿到带 NotesLimit 截断的视图。
+func (s *Store) ReadNotes(ctx context.Context, id string) ([]byte, error) {
+	return s.ReadNotesScoped(ctx, id, ReadOpts{})
 }
 
-// ReadStateScoped 读 memory_notes 并按 NotesLimit 截断。
+// ReadNotesScoped 读 notes 并按 NotesLimit 截断。
 //
 // v1.2 收尾：notes 是 engagement-scope 共享（per host），所有 task 共看；
 // done_validator 凭 entry.task_id 字段判定本 task 是否写过（不在此过滤）。
 //
 // jsonb 已被 appendInto 滚动到 maxEntries 内，读全量然后 Go 侧截断。
-func (s *Store) ReadStateScoped(ctx context.Context, id string, opts ReadOpts) ([]byte, error) {
+func (s *Store) ReadNotesScoped(ctx context.Context, id string, opts ReadOpts) ([]byte, error) {
 	var notes []byte
 	err := s.pool.QueryRow(ctx,
-		`SELECT memory_notes FROM engagement WHERE id=$1`, id).
+		`SELECT notes FROM engagement WHERE id=$1`, id).
 		Scan(&notes)
 	if err != nil {
 		return nil, fmt.Errorf("read state %s: %w", id, err)
 	}
 
 	notes = trimNotes(notes, defaultIfZero(opts.NotesLimit, s.effectiveDefaultNotesLimit()))
-	return json.Marshal(State{Notes: notes})
+	return json.Marshal(Notes{Notes: notes})
 }
 
-// AppendNote 追加一条 note 到 memory_notes.notes 数组。
+// AppendNote 追加一条 note 到 notes.notes 数组。
 //
 // entry 形如 {"kind":"observation|hypothesis|boundary","content":"...","status":"...","agent_run_id":"...","scope":"engagement"}；
-// store 不解析也不强制结构——write_memory 工具层负责语义。
+// store 不解析也不强制结构——write_note 工具层负责语义。
 func (s *Store) AppendNote(ctx context.Context, id string, entry []byte) error {
-	return s.appendInto(ctx, id, "memory_notes", entry, fixedKey("notes"))
+	return s.appendInto(ctx, id, "notes", entry, fixedKey("notes"))
 }
 
 // scanner 抽象 pgx.Row / pgx.Rows 的 Scan 方法。
@@ -237,8 +237,8 @@ type scanner interface {
 
 // scan 是 colsSelect 列序的统一反序列化点。
 func scan(r scanner, e *Engagement) error {
-	return r.Scan(&e.ID, &e.TenantID, &e.Mode, &e.TargetHost, &e.Status,
-		&e.MemoryNotes, &e.CreatedAt,
+	return r.Scan(&e.ID, &e.Mode, &e.TargetHost, &e.Status,
+		&e.Notes, &e.CreatedAt,
 		&e.EndedAt, &e.ErrorMessage,
 		&e.FlowCount, &e.FindingCount, &e.AgentRunCount)
 }
@@ -252,9 +252,9 @@ func fixedKey(k string) keyFn {
 }
 
 // fallbackMaxEntries 是 Store.maxEntries 为 0 时的兜底值（保留 notes 末尾 N 条）。
-// fallbackDefaultNotesLimit 是 ReadStateScoped 在 Store.defaultNotesLimit 与 opts 都为 0 时的兜底。
-// 正常路径由 cmd/scanner 通过 .WithLimits(cfg.Engagement.MaxMemoryNotesEntries, cfg.Engagement.DefaultNotesLimit) 注入。
-// 与 yaml engagement.max_memory_notes_entries / default_notes_limit 同步（稳健激进方案）。
+// fallbackDefaultNotesLimit 是 ReadNotesScoped 在 Store.defaultNotesLimit 与 opts 都为 0 时的兜底。
+// 正常路径由 cmd/scanner 通过 .WithLimits(cfg.Engagement.MaxNotesEntries, cfg.Engagement.DefaultNotesLimit) 注入。
+// 与 yaml engagement.max_notes_entries / default_notes_limit 同步（稳健激进方案）。
 const (
 	fallbackMaxEntries        = 300
 	fallbackDefaultNotesLimit = 200
@@ -305,7 +305,7 @@ func (s *Store) appendInto(ctx context.Context, id, col string, entry []byte, kf
 
 // trimNotes 把 {notes:[...]} 的 notes 数组截到末尾 limit 条；limit ≤ 0 视为不截断。
 //
-// 容错：raw 解析失败原值返回，保证 ReadStateScoped 不崩。
+// 容错：raw 解析失败原值返回，保证 ReadNotesScoped 不崩。
 func trimNotes(raw []byte, limit int) []byte {
 	if len(raw) == 0 || limit <= 0 {
 		return raw

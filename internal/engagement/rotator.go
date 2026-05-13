@@ -20,7 +20,7 @@ type FindingCounter interface {
 //
 // 任一阈值命中即触发轮转：
 //   - MaxAge：从 CreatedAt 起 elapsed 超过此值
-//   - MaxStateSize：memory_notes jsonb 字节数超过此值
+//   - MaxStateSize：notes jsonb 字节数超过此值
 //   - MaxFindings：当前 engagement 累计 finding 数超过此值
 //
 // 注：原有 HintCarryTopN 字段已删除（v1.2 P2 复审）——lesson 表已是更优的
@@ -87,8 +87,8 @@ func NewRotator(engs *Store, finds FindingCounter, limits RotateLimits) *Rotator
 //  2. 若 mode != proxy 直通返回（整站模式不轮转）
 //  3. 若 mode == proxy：检查阈值；命中则 abort 旧 + create 新 engagement（hint 不 carry，
 //     由 lesson 表跨 engagement 持久化覆盖该角色）
-func (r *Rotator) EnsureActive(ctx context.Context, tenant, host string, mode Mode) (string, error) {
-	eng, err := r.engs.LookupOrCreate(ctx, tenant, host, mode)
+func (r *Rotator) EnsureActive(ctx context.Context, host string, mode Mode) (string, error) {
+	eng, err := r.engs.LookupOrCreate(ctx, host, mode)
 	if err != nil {
 		return "", err
 	}
@@ -127,7 +127,7 @@ func (r *Rotator) ageExceeded(eng Engagement) bool {
 }
 
 func (r *Rotator) stateSizeExceeded(eng Engagement) bool {
-	return len(eng.MemoryNotes) >= r.limits.MaxStateSize
+	return len(eng.Notes) >= r.limits.MaxStateSize
 }
 
 func (r *Rotator) findingCountExceeded(ctx context.Context, eng Engagement) bool {
@@ -153,7 +153,7 @@ func (r *Rotator) rotate(ctx context.Context, oldEng Engagement) (string, error)
 	if err := r.engs.Abort(ctx, oldEng.ID, ""); err != nil {
 		return "", fmt.Errorf("rotate: abort old engagement %s: %w", oldEng.ID, err)
 	}
-	newEng, err := r.engs.LookupOrCreate(ctx, oldEng.TenantID, oldEng.TargetHost, oldEng.Mode)
+	newEng, err := r.engs.LookupOrCreate(ctx, oldEng.TargetHost, oldEng.Mode)
 	if err != nil {
 		return "", fmt.Errorf("rotate: create new engagement: %w", err)
 	}

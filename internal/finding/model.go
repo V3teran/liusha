@@ -3,7 +3,7 @@
 // LLM 自决全部表达（无 kind / confidence / dedup_key 等强结构化约束）。
 //
 // dedup 由 LLM 调用方自决：写 finding 前先 findings() 查 host 已有的，自己判要不要再写。
-// Save 是 append-only：每次都 INSERT 新行；OnSaved hook 触发 lesson 蒸馏。
+// Save 是 append-only：每次都 INSERT 新行。
 package finding
 
 import (

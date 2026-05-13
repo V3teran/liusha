@@ -1,6 +1,6 @@
 // Package engagement 实现 engagement 聚合根的 model 与 store。
 // engagement 是一次"扫描会话"，按 (tenant, target_host) 懒创建；active 唯一。
-// memory_notes（kind=observation/hypothesis/boundary）作为 engagement-scope 状态板。
+// notes（kind=observation/hypothesis/boundary）作为 engagement-scope 状态板。
 package engagement
 
 import (
@@ -14,7 +14,7 @@ type Mode string
 // Status 表示 engagement 的生命周期状态。
 type Status string
 
-// notes 为纯自由文本；写入由 internal/tools/common/memory.go 的 write_memory 工具完成。
+// notes 为纯自由文本；写入由 internal/tools/common/memory.go 的 write_note 工具完成。
 const (
 	ModeProxy   Mode = "proxy"
 	ModeBrowser Mode = "browser"
@@ -32,13 +32,12 @@ const (
 //   - *Count 字段 active 期间由 vulnfinding/flow/reactrun 写路径 best-effort 增量；
 //     Abort 时事务内 SELECT count(*) 重算精确兜底。
 type Engagement struct {
-	ID            string
-	TenantID      string
-	Mode          Mode
-	TargetHost     string
-	Status        Status
-	MemoryNotes   []byte // jsonb: {notes: [{kind, content, status?, agent_run_id, scope}]}
-	CreatedAt     time.Time
+	ID           string
+	Mode         Mode
+	TargetHost   string
+	Status       Status
+	Notes        []byte // jsonb: {notes: [{kind, content, status?, agent_run_id, scope}]}
+	CreatedAt    time.Time
 	EndedAt       *time.Time
 	ErrorMessage  string
 	FlowCount     int
@@ -46,14 +45,14 @@ type Engagement struct {
 	AgentRunCount int
 }
 
-// State 是 ReadState action 返回的视图。
+// Notes 是 ReadNotes action 返回的视图。
 //
 // notes 单层（kind enum 区分 observation/hypothesis/boundary）。
-type State struct {
+type Notes struct {
 	Notes json.RawMessage `json:"notes"`
 }
 
-// ReadOpts 是 Store.ReadStateScoped 的可选过滤/截断参数。
+// ReadOpts 是 Store.ReadNotesScoped 的可选过滤/截断参数。
 //
 // TaskID 非空时不强过滤 entry——所有 engagement-scope 的 notes 全返（跨 task 共享）；
 // done_validator 凭 entry 的 task_id 字段自行判定是否本 task 写过。

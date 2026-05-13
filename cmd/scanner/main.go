@@ -69,7 +69,7 @@ func main() {
 
 	// Stores
 	engs := engagement.NewStore(pool).WithLimits(
-		cfg.Engagement.MaxMemoryNotesEntries,
+		cfg.Engagement.MaxNotesEntries,
 		cfg.Engagement.DefaultNotesLimit,
 	)
 	tasks := agentrun.NewStore(pool).WithCounter(engs)
@@ -154,7 +154,6 @@ func main() {
 		PentoolsImage:             cfg.Sandbox.DefaultImage,
 		ScanNetwork:               cfg.Sandbox.ScanNetwork,
 		SandboxCfg:                cfg.Sandbox,
-		Tenant:                    cfg.Engagement.DefaultTenant,
 		StepToolTimeoutSeconds: cfg.Toolruntime.StepToolTimeoutSeconds,
 		MaxSteps:                  scannerCfg.MainMaxSteps,
 		WatchdogSeconds:           scannerCfg.StepLLMTimeoutSeconds,
@@ -169,6 +168,7 @@ func main() {
 		tasks:         tasks,
 		engagements:   engs,
 		findings:      finds,
+		lessons:       lessons,
 		flows:         flows,
 		calls:         calls,
 		cfg:           cfg,
@@ -203,7 +203,6 @@ func main() {
 		Redis:    rdb,
 		Cfg:      cfg.Ingestor,
 		Stream:   cfg.Proxy.StreamName,
-		Tenant:   cfg.Engagement.DefaultTenant,
 		Engs:     engs,
 		Rotator:  rotator,
 		Flows:    flows,
@@ -276,6 +275,7 @@ type handler struct {
 	tasks         *agentrun.Store
 	engagements   *engagement.Store
 	findings      *finding.Store
+	lessons       *lesson.Store // reviewer LessonFetcher 用：拉该 host 历史 lesson 给 reviewer 做方向修正
 	flows         *flow.Store
 	calls         *llminvocation.Store
 	cfg           config.Config
@@ -394,15 +394,28 @@ func (h handler) handleTraffic(ctx context.Context, p worker.Payload, entrypoint
 	reviewer.ObsTruncate = h.cfg.React.ReviewerObsTruncate
 	// FlowSummary 约束 reviewer 只评本流量任务，避免跨流量推方向
 	reviewer.FlowSummary = fmt.Sprintf("%s %s%s", ep.Method, ep.Host, ep.URL)
-	// FindingFetcher 让 reviewer 知道当前 agent_run 已挖到几个 finding + 最新一条概要，
-	// 防止 ObsSummary 截断丢 SUCCESS 关键字时 reviewer 误判"未挖到"发偏向 hint。
-	agentRunID := tid
+	// FindingFetcher 让 reviewer 看到 engagement + host 范围内所有 finding（不跨 engagement）。
+	// 视野从"当前 agent_run"扩到"本次扫描内本 host 全部"，符合"整个 host 状态做决策"直觉。
+	hostForFetchers := ep.Host
 	reviewer.FindingFetcher = func(ctx context.Context) (int, string, string, error) {
-		n, latest, err := h.findings.CountAndLatestByAgentRun(ctx, agentRunID)
+		n, latest, err := h.findings.CountAndLatestByEngagementAndHost(ctx, eid, hostForFetchers)
 		if err != nil || latest == nil {
 			return n, "", "", err
 		}
 		return n, latest.Severity, latest.Summary, nil
+	}
+	// LessonFetcher 让 reviewer 看到该 host 历史 lesson（跨 engagement 长期经验），
+	// 用于方向修正 hint。lesson 是经验，不参与"是否 terminate"决策。
+	reviewer.LessonFetcher = func(ctx context.Context) ([]string, error) {
+		lessons, err := h.lessons.ListByHost(ctx, hostForFetchers, 10)
+		if err != nil {
+			return nil, err
+		}
+		out := make([]string, 0, len(lessons))
+		for _, l := range lessons {
+			out = append(out, fmt.Sprintf("[p%d] %s", l.Priority, l.Content))
+		}
+		return out, nil
 	}
 
 	// 拉 flow 完整 raw（请求 + 响应）填 BuilderParams

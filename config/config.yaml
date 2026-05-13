@@ -225,15 +225,14 @@ engagement:
   sweeper_interval_seconds: 600     # sweeper 轮询周期
   # Rotator 三阈值（proxy 模式滚动新 engagement，任一命中即触发）
   max_age_hours: 24                 # 从 CreatedAt 起超过此小时数即滚动
-  max_state_size_bytes: 2097152     # memory_notes jsonb 字节数超过即滚动（2 MiB）
+  max_state_size_bytes: 2097152     # notes jsonb 字节数超过即滚动（2 MiB）
   max_findings: 300                 # 累计 finding 数超过即滚动（中型目标一轮可能积累几百条，过早轮转会切断 lesson 沉淀链）
-  # memory_notes 截断
-  max_memory_notes_entries: 300     # appendInto 滚动到末尾保留条数
-  default_notes_limit: 200          # ReadStateScoped 默认截断（输入 0 时使用）
+  # notes 截断
+  max_notes_entries: 300     # appendInto 滚动到末尾保留条数
+  default_notes_limit: 200          # ReadNotesScoped 默认截断（输入 0 时使用）
   # hunter user prompt 拼装上限（避免 prompt 膨胀；超出 LLM 用 read_findings/read_lessons 工具按需查）
   findings_limit_in_prompt: 100     # 该 host 已有 finding 段显示条数
   lessons_limit_in_prompt: 100      # 该 host 历史经验 + 跨 host 业务规则 hint 共用上限
-  default_tenant: default           # 单租户兜底；多租户后由 caller 显式传 tenant
 
 # ---- credential.RedisProvider redis 前缀 ----
 credential:

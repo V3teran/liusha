@@ -136,7 +136,7 @@ type FindingHelper struct{...}       // "Helper" 通常多余
 | 错误 | `error_message`（text） | 不要简写为 `error` |
 | 状态 | `status`（text + CHECK） | enum 值用 snake_case：`pending`/`running`/`done` |
 | 单位 | 带后缀 | `cost_usd` (numeric)、`latency_ms` (integer) |
-| jsonb | 直接列名（无 `_json` 后缀） | `messages`、`result`、`memory_notes` |
+| jsonb | 直接列名（无 `_json` 后缀） | `messages`、`result`、`notes` |
 | 作用域 | 实义动词 | `target_host`（不是 `scope_host`） |
 
 ### 索引/约束命名
@@ -208,8 +208,8 @@ asynq:servers:{<host:pid:uuid>}
 
 | 工具 Name() | Go 类型 | 备注 |
 |---|---|---|
-| `read_notes` | `common.ReadNotes` | 读 engagement memory_notes |
-| `write_note` | `common.WriteNote` | 写一条 memory_note |
+| `read_note` | `common.ReadNote` | 读 engagement notes |
+| `write_note` | `common.WriteNote` | 写一条 note |
 | `write_finding` | `common.WriteFinding` | 写漏洞 finding |
 | `relate_findings` | `common.RelateFindings` | 声明 finding 间 enables 边（组合漏洞推理）|
 | `done` | `common.Done` | 终结 ReAct |

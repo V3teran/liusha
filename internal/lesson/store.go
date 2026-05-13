@@ -17,10 +17,8 @@ type Store struct{ pool *pgxpool.Pool }
 func NewStore(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
 
 // colsSelect 是所有 SELECT / RETURNING 路径的统一列序，与 scan() 字段一一对应。
-// v0011：加 payload jsonb 列（漏改导致 "got 11 and 12" 落库错误）。
-// v0017：列名 payload → structured_payload；Go 字段 Lesson.Payload 保持向后兼容。
-// v0022：加 kind 列（lesson | hint），位置在 host 之后保持语义聚集。
-const colsSelect = "id, tenant_id, host, kind, content, content_hash, priority, source_engagement_id, source_finding_id, hit_count, structured_payload, created_at, updated_at"
+// v0030：删除 tenant_id 列（单租户阶段冗余）。
+const colsSelect = "id, host, kind, content, content_hash, priority, source_engagement_id, source_finding_id, hit_count, structured_payload, created_at, updated_at"
 
 // ContentHash 计算给定 content 的 SHA-256 hex 字符串（64 字符）。
 //
@@ -30,17 +28,14 @@ func ContentHash(content string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// Add UPSERT by (tenant, host, content_hash)：
+// Add UPSERT by (host, content_hash)：
 //   - 新内容 → INSERT，返回新建 Lesson
 //   - 重复内容 → UPDATE：priority 取较大值；hit_count++；updated_at = now()
 //
-// caller 必填：TenantID、Host、Kind（KindLesson 或 KindHint）、Content。
+// caller 必填：Host、Kind（KindLesson 或 KindHint）、Content。
 // 可空：SourceEngagementID / SourceFindingID（仅追溯用）。
 // Priority 越界（< 1 或 > 10）clamp 到默认值 5。
 func (s *Store) Add(ctx context.Context, l Lesson) (Lesson, error) {
-	if l.TenantID == "" {
-		return Lesson{}, fmt.Errorf("lesson.Add: TenantID 必填")
-	}
 	if l.Host == "" {
 		return Lesson{}, fmt.Errorf("lesson.Add: Host 必填")
 	}
@@ -60,15 +55,15 @@ func (s *Store) Add(ctx context.Context, l Lesson) (Lesson, error) {
 
 	row := s.pool.QueryRow(ctx, `
 		INSERT INTO lesson
-			(tenant_id, host, kind, content, content_hash, priority, source_engagement_id, source_finding_id, structured_payload)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
-		ON CONFLICT (tenant_id, host, content_hash) DO UPDATE
+			(host, kind, content, content_hash, priority, source_engagement_id, source_finding_id, structured_payload)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+		ON CONFLICT (host, content_hash) DO UPDATE
 		  SET priority           = GREATEST(lesson.priority, EXCLUDED.priority),
 		      hit_count          = lesson.hit_count + 1,
 		      structured_payload = EXCLUDED.structured_payload,
 		      updated_at         = now()
 		RETURNING `+colsSelect,
-		l.TenantID, l.Host, l.Kind, l.Content, l.ContentHash, l.Priority,
+		l.Host, l.Kind, l.Content, l.ContentHash, l.Priority,
 		l.SourceEngagementID, l.SourceFindingID, l.Payload)
 
 	var saved Lesson
@@ -78,16 +73,11 @@ func (s *Store) Add(ctx context.Context, l Lesson) (Lesson, error) {
 	return saved, nil
 }
 
-// ListByHost 按 (tenant, host) 拉 top-N lesson（含全部 kind），按 priority desc, updated_at desc。
+// ListByHost 按 host 拉 top-N lesson（含全部 kind），按 priority desc, updated_at desc。
 //
-// 不按 kind 过滤——caller 需要分段渲染时自行按 l.Kind 区分（参考 builder/vuln/shared.go
-// 的 LoadLessonsForPrompt：把 lesson kind 与 hint kind 分两段注入 prompt）。
-//
-// limit ≤ 0 用默认 20。tenant / host 必填（空时报错）。
-func (s *Store) ListByHost(ctx context.Context, tenant, host string, limit int) ([]Lesson, error) {
-	if tenant == "" {
-		return nil, fmt.Errorf("lesson.ListByHost: tenant 必填")
-	}
+// 不按 kind 过滤——caller 需要分段渲染时自行按 l.Kind 区分。
+// limit ≤ 0 用默认 20。host 必填（空时报错）。
+func (s *Store) ListByHost(ctx context.Context, host string, limit int) ([]Lesson, error) {
 	if host == "" {
 		return nil, fmt.Errorf("lesson.ListByHost: host 必填")
 	}
@@ -97,9 +87,9 @@ func (s *Store) ListByHost(ctx context.Context, tenant, host string, limit int) 
 	rows, err := s.pool.Query(ctx, `
 		SELECT `+colsSelect+`
 		FROM lesson
-		WHERE tenant_id=$1 AND host=$2
+		WHERE host=$1
 		ORDER BY priority DESC, updated_at DESC
-		LIMIT $3`, tenant, host, limit)
+		LIMIT $2`, host, limit)
 	if err != nil {
 		return nil, fmt.Errorf("list lessons by host: %w", err)
 	}
@@ -119,29 +109,22 @@ func (s *Store) ListByHost(ctx context.Context, tenant, host string, limit int) 
 	return out, nil
 }
 
-// ListGlobalHints 拉 (tenant, host=HostGlobalHint, kind=KindHint) 的全局业务规则 hint top-N。
+// ListGlobalHints 拉 (host=HostGlobalHint, kind=KindHint) 的全局业务规则 hint top-N。
 //
-// 设计意图（v0022）：业务规则数据化——把原本写死在 SKILL.md 里的硬规则
-// （如 BAC anonymous 优先级、合法 owner 剔除、length_ratio<0.5 反误判等）
-// 迁到 lesson 表 (host='*', kind='hint') 行，启动时由 SeedDefaultHints 同步入库；
-// 子 ReAct 装配 prompt 时与具体 host 的 lesson 一起渲染。
+// 设计意图：业务规则数据化——把硬规则迁到 lesson 表 (host='*', kind='hint') 行，
+// 启动时由 SeedDefaultHints 同步入库；hunter 装配 prompt 时与具体 host lesson 一起渲染。
 //
-// 设计理念：业务规则与执行流程解耦——hint 由人工/LLM 写入，agent 调用时透明注入 prompt。
-//
-// tenant 必填（空时报错）。limit ≤ 0 用默认 20。
-func (s *Store) ListGlobalHints(ctx context.Context, tenant string, limit int) ([]Lesson, error) {
-	if tenant == "" {
-		return nil, fmt.Errorf("lesson.ListGlobalHints: tenant 必填")
-	}
+// limit ≤ 0 用默认 20。
+func (s *Store) ListGlobalHints(ctx context.Context, limit int) ([]Lesson, error) {
 	if limit <= 0 {
 		limit = 20
 	}
 	rows, err := s.pool.Query(ctx, `
 		SELECT `+colsSelect+`
 		FROM lesson
-		WHERE tenant_id=$1 AND host=$2 AND kind=$3
+		WHERE host=$1 AND kind=$2
 		ORDER BY priority DESC, updated_at DESC
-		LIMIT $4`, tenant, HostGlobalHint, KindHint, limit)
+		LIMIT $3`, HostGlobalHint, KindHint, limit)
 	if err != nil {
 		return nil, fmt.Errorf("list global hints: %w", err)
 	}
@@ -161,14 +144,11 @@ func (s *Store) ListGlobalHints(ctx context.Context, tenant string, limit int) (
 	return out, nil
 }
 
-// Prune 保留 (tenant, host) 下 top-N 条 lesson（按 priority desc, updated_at desc），
+// Prune 保留 host 下 top-N 条 lesson（按 priority desc, updated_at desc），
 // 超出的删除。用于后台 LRU eviction，避免单 host lesson 无限增长。
 //
 // keep ≤ 0 时跳过（无操作）；空 host 跳过。
-func (s *Store) Prune(ctx context.Context, tenant, host string, keep int) error {
-	if tenant == "" {
-		return fmt.Errorf("lesson.Prune: tenant 必填")
-	}
+func (s *Store) Prune(ctx context.Context, host string, keep int) error {
 	if host == "" {
 		return fmt.Errorf("lesson.Prune: host 必填")
 	}
@@ -179,10 +159,10 @@ func (s *Store) Prune(ctx context.Context, tenant, host string, keep int) error 
 		DELETE FROM lesson
 		WHERE id IN (
 			SELECT id FROM lesson
-			WHERE tenant_id=$1 AND host=$2
+			WHERE host=$1
 			ORDER BY priority DESC, updated_at DESC
-			OFFSET $3
-		)`, tenant, host, keep)
+			OFFSET $2
+		)`, host, keep)
 	if err != nil {
 		return fmt.Errorf("prune lessons: %w", err)
 	}
@@ -198,7 +178,7 @@ type scanner interface {
 func scan(r scanner, l *Lesson) error {
 	var payload []byte
 	if err := r.Scan(
-		&l.ID, &l.TenantID, &l.Host, &l.Kind, &l.Content, &l.ContentHash,
+		&l.ID, &l.Host, &l.Kind, &l.Content, &l.ContentHash,
 		&l.Priority, &l.SourceEngagementID, &l.SourceFindingID,
 		&l.HitCount, &payload, &l.CreatedAt, &l.UpdatedAt,
 	); err != nil {
