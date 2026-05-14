@@ -234,8 +234,12 @@ engagement:
 # 设计建议：ttl_hours 应 ≥ engagement.max_age_hours，否则 notes 会比 engagement 更早过期。
 notes:
   redis_key_prefix: "liusha:note:"  # Redis key 前缀
-  max_entries: 200                  # 单一闸：AppendNote 后 LTRIM 末尾 N 条；ReadNotes 取全部
+  max_entries: 200                  # 蒸馏失败兜底硬上限（LTRIM 保留末尾 N）
   ttl_hours: 24                     # 仅在 key 首次创建时设 TTL（ExpireNX，从创建起算固定窗口），与 max_age_hours 同步
+  # 蒸馏参数：超阈值时调 light LLM 把前 N 条压缩成 1 条 summary，保留早期语义
+  compact_threshold: 200            # LLEN 超过此值触发蒸馏
+  compact_batch_size: 100           # 每次蒸馏前 N 条（保留剩余 ≥ threshold-batch+1 条供后续累积）
+  compact_timeout_seconds: 30       # 单次蒸馏（含 LLM 调用）超时；超时退化为 LTRIM
 
 # ---- credential.RedisProvider redis 前缀 ----
 credential:
@@ -265,6 +269,8 @@ react:
   done_force_max_rejects: 3                # done 被 done_validate 连续拒绝 N 次后强制放行
   reviewer_args_truncate: 256              # 喂 reviewer LLM 的 tool args 截断字节数（80B 看不出意图）
   reviewer_obs_truncate: 400               # 喂 reviewer LLM 的 ObsSummary 截断字节数
+  reviewer_findings_limit: 30              # reviewer 看 host 已有 finding 段条数（按 created_at DESC）
+  reviewer_lessons_limit: 30               # reviewer 看 host lesson 段条数（按 priority DESC）
 
 # ---- 容器化执行参数（external.RunCommand + DockerRunner）----
 sandbox:

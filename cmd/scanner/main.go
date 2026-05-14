@@ -78,9 +78,12 @@ func main() {
 	flows := flow.NewStore(pool, scannerCfg.FlowMaxRequestBody, scannerCfg.FlowMaxResponseBody).WithCounter(engs)
 	creds := credential.NewRedis(rdb, cfg.Credential.RedisKeyPrefix)
 	noteStore := notes.NewRedis(rdb, notes.Config{
-		KeyPrefix:  cfg.Notes.RedisKeyPrefix,
-		MaxEntries: cfg.Notes.MaxEntries,
-		TTL:        time.Duration(cfg.Notes.TTLHours) * time.Hour,
+		KeyPrefix:        cfg.Notes.RedisKeyPrefix,
+		MaxEntries:       cfg.Notes.MaxEntries,
+		TTL:              time.Duration(cfg.Notes.TTLHours) * time.Hour,
+		CompactThreshold: cfg.Notes.CompactThreshold,
+		CompactBatchSize: cfg.Notes.CompactBatchSize,
+		CompactTimeout:   time.Duration(cfg.Notes.CompactTimeoutSeconds) * time.Second,
 	})
 	pricing := observability.NewPricing(cfg.Pricing)
 
@@ -140,6 +143,14 @@ func main() {
 
 	// LLM Router：yaml retry 配置接线（兜底 spec §8.5 退避表）
 	router := llm.NewRouterWithOptions(llm.NewFactory(cfg), llm.RetryOptionsFromConfig(cfg.LLM.Retry))
+
+	// notes Compactor：复用 reviewer 路由（light LLM，通常 Haiku），
+	// 超阈值时蒸馏老 note 为 summary。失败由 noteStore 内部 fallback 到 LTRIM。
+	compactorGen, err := router.For(ctx, "reviewer")
+	if err != nil {
+		logger.Fatal().Err(err).Msg("notes compactor: router.For(reviewer) 失败")
+	}
+	noteStore.WithCompactor(notes.NewLLMCompactor(compactorGen))
 
 	// 容器化沙箱执行器（hunter run_command 工具用）
 	dockerRunner := runners.NewDockerRunner(runners.WithConcurrency(cfg.Sandbox.RunnerConcurrency))
@@ -405,7 +416,7 @@ func (h handler) handleTraffic(ctx context.Context, p worker.Payload, entrypoint
 	// 流量先挖到了 finding）。terminate 判定完全交给 reviewer 基于 window 行为推理。
 	hostForFetchers := ep.Host
 	reviewer.HostFindingsFetcher = func(ctx context.Context) ([]string, error) {
-		fs, err := h.findings.ListByEngagementAndHost(ctx, eid, hostForFetchers, 10)
+		fs, err := h.findings.ListByEngagementAndHost(ctx, eid, hostForFetchers, h.cfg.React.ReviewerFindingsLimit)
 		if err != nil {
 			return nil, err
 		}
@@ -418,7 +429,7 @@ func (h handler) handleTraffic(ctx context.Context, p worker.Payload, entrypoint
 	// LessonFetcher 让 reviewer 看到该 host 历史 lesson（跨 engagement 长期经验），
 	// 用于方向修正 hint。lesson 是经验，不参与"是否 terminate"决策。
 	reviewer.LessonFetcher = func(ctx context.Context) ([]string, error) {
-		lessons, err := h.lessons.ListByHost(ctx, hostForFetchers, 10)
+		lessons, err := h.lessons.ListByHost(ctx, hostForFetchers, h.cfg.React.ReviewerLessonsLimit)
 		if err != nil {
 			return nil, err
 		}

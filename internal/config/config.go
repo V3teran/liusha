@@ -207,8 +207,13 @@ type EngagementConfig struct {
 // 与 engagement.CreatedAt + MaxAge 时间点严格同步消失。手动调整两者时应保持一致。
 type NotesConfig struct {
 	RedisKeyPrefix string `mapstructure:"redis_key_prefix"`
-	MaxEntries     int    `mapstructure:"max_entries"`
+	MaxEntries     int    `mapstructure:"max_entries"` // Compactor 失败时 LTRIM 兜底
 	TTLHours       int    `mapstructure:"ttl_hours"`
+
+	// 蒸馏参数：LLEN > CompactThreshold 时触发 LLM 蒸馏前 CompactBatchSize 条。
+	CompactThreshold      int `mapstructure:"compact_threshold"`
+	CompactBatchSize      int `mapstructure:"compact_batch_size"`
+	CompactTimeoutSeconds int `mapstructure:"compact_timeout_seconds"`
 }
 
 // CredentialConfig 是 credential.RedisProvider 的 redis key 前缀。
@@ -244,6 +249,12 @@ type ReactConfig struct {
 	DoneForceMaxRejects  int `mapstructure:"done_force_max_rejects"`
 	ReviewerArgsTruncate int `mapstructure:"reviewer_args_truncate"` // 喂 reviewer LLM 的 tool args 截断字节数
 	ReviewerObsTruncate  int `mapstructure:"reviewer_obs_truncate"`  // 喂 reviewer LLM 的 ObsSummary 截断字节数
+
+	// reviewer prompt 背景段拉取数量上限（按 created_at DESC / priority DESC 各自排序）。
+	// 与 hunter 的 findings_limit_in_prompt / lessons_limit_in_prompt 解耦——
+	// reviewer 是轻量评估，看少量背景即可；hunter 干活需更全。
+	ReviewerFindingsLimit int `mapstructure:"reviewer_findings_limit"`
+	ReviewerLessonsLimit  int `mapstructure:"reviewer_lessons_limit"`
 }
 
 // SandboxConfig 容器化执行参数（external.RunCommand + DockerRunner）。
@@ -539,6 +550,15 @@ func applyNotesDefaults(c NotesConfig) NotesConfig {
 	if c.TTLHours == 0 {
 		c.TTLHours = 24
 	}
+	if c.CompactThreshold == 0 {
+		c.CompactThreshold = 200
+	}
+	if c.CompactBatchSize == 0 {
+		c.CompactBatchSize = 100
+	}
+	if c.CompactTimeoutSeconds == 0 {
+		c.CompactTimeoutSeconds = 30
+	}
 	return c
 }
 
@@ -605,6 +625,12 @@ func applyReactDefaults(c ReactConfig) ReactConfig {
 	}
 	if c.ReviewerObsTruncate == 0 {
 		c.ReviewerObsTruncate = 400
+	}
+	if c.ReviewerFindingsLimit == 0 {
+		c.ReviewerFindingsLimit = 30
+	}
+	if c.ReviewerLessonsLimit == 0 {
+		c.ReviewerLessonsLimit = 30
 	}
 	return c
 }

@@ -75,7 +75,10 @@ func (a *WriteNote) Description() string {
 		"\n\n【禁写】请改用对应工具：" +
 		"\n- 漏洞 PoC（具体可复现的漏洞）→ write_finding" +
 		"\n- 通用经验（默认密码、工具调用 pattern、稳定的目标特性）→ write_lesson" +
-		"\n- 已写入 finding 的内容（重复浪费 prompt 字数）"
+		"\n- 已写入 finding 的内容（重复浪费 prompt 字数）" +
+		"\n\n【自律】写前先 read_notes 确认无同义条，避免重复贴；" +
+		"板满 200 条时老条目会被自动蒸馏成摘要（语义保留但细节丢失），" +
+		"关键发现请尽早 promote 到 finding/lesson。"
 }
 
 // ParametersJSON 给出 content 必填 schema。
