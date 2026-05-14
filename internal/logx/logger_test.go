@@ -150,7 +150,7 @@ func TestE2E_ProcessAggregation(t *testing.T) {
 	services := []string{
 		"scanner",
 		"flow", "vulnfinding", "reactrun",
-		"llm.instrument", "llmcall.store", "tools.classify_traffic",
+		"llm.instrument", "llmcall.store", "tools.run_command",
 	}
 	for _, s := range services {
 		l := New(s)

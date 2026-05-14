@@ -143,7 +143,7 @@ func (r *Rotator) findingCountExceeded(ctx context.Context, eng Engagement) bool
 
 // rotate 关旧 engagement + 建新。返回新 engagement_id。
 //
-// 不再 carry hint：lesson 表已是 lesson_extract 双写的长期持久化层，新 engagement
+// 不再 carry hint：lesson 表本身已是按 host 持久化的长期知识层，新 engagement
 // 通过 loadLessonsForPrompt 自动读取；这里再 carry 会重复。
 //
 // 失败处理：

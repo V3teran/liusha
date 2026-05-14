@@ -38,7 +38,7 @@ func TestNormalizeDecision_TypoTolerance(t *testing.T) {
 	}
 }
 
-// mockGen 是供 reviewer / lesson_extract 测试使用的最小 LLM Generator。
+// mockGen 是供 reviewer 测试使用的最小 LLM Generator。
 //
 //   - out：Generate 直接把 out 包成 llm.Result.Content 返回；
 //   - err：非 nil 时 Generate 返回该错误（覆盖网络失败路径）；

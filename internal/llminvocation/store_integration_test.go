@@ -58,7 +58,7 @@ func TestStore_Append_Basic(t *testing.T) {
 }
 
 // TestStore_Append_WithRouteKey 验证：role 字段正确写入 + CountByCallPurpose 按 role 分组。
-// Instrument 的 RouteKey 维度：hunter / reviewer / lesson_extract 等，按 role 聚合成本。
+// Instrument 的 RouteKey 维度：hunter / reviewer 等，按 role 聚合成本。
 func TestStore_Append_WithRouteKey(t *testing.T) {
 	ctx := context.Background()
 	s, eid := setup(t)
@@ -117,9 +117,9 @@ func TestStore_SumCostByEngagement(t *testing.T) {
 		role string
 		cost float64
 	}{
-		{"react_main", 0.001234},
+		{"hunter", 0.001234},
 		{"reviewer", 0.000567},
-		{"lesson_extract", 0.002000},
+		{"react_main", 0.002000},
 	}
 	var want float64
 	for _, c := range costs {

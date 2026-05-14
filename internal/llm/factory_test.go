@@ -49,9 +49,6 @@ func makeRoutedCfg() config.Config {
 				"orchestrator": "default_provider",
 				"reviewer":     "light_provider",
 			},
-			Utilities: map[string]string{
-				"lesson_extract": "light_provider",
-			},
 		},
 		Providers: map[string]config.ProviderConfig{
 			"deepseek":        {DefaultModel: "deepseek-chat", APIKeyEnv: "DEEPSEEK_API_KEY"},

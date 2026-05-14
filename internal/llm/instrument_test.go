@@ -250,7 +250,7 @@ func TestInstrument_LatencyMeasured(t *testing.T) {
 
 func TestInstrument_RouteKeyWritten(t *testing.T) {
 	t.Parallel()
-	cases := []string{"react_main", "reviewer", "lesson_extract", "compaction", "vision"}
+	cases := []string{"hunter", "reviewer", "compaction", "vision"}
 	for _, rk := range cases {
 		rk := rk
 		t.Run(rk, func(t *testing.T) {

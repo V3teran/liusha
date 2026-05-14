@@ -33,7 +33,6 @@ type Config struct {
 	React       ReactConfig               `mapstructure:"react"`
 	Sandbox     SandboxConfig             `mapstructure:"sandbox"`
 	Toolruntime ToolruntimeConfig         `mapstructure:"toolruntime"`
-	Lesson      LessonConfig              `mapstructure:"lesson"`
 }
 
 // APIConfig 是 cmd/api 的 HTTP 入口参数。
@@ -262,15 +261,6 @@ type ToolruntimeConfig struct {
 	StepToolTimeoutSeconds int `mapstructure:"step_tool_timeout_seconds"` // 单次 tool Execute 兜底超时（middleware 层 WithTimeout，防本地工具卡死）
 }
 
-// LessonConfig 是 lesson 提取与 touch 重试参数（react/lesson_extract）。
-type LessonConfig struct {
-	ExtractedPriority      int `mapstructure:"extracted_priority"`        // LessonExtract 写入 lesson 时的固定优先级（中-高）
-	ExtractTimeoutSeconds  int `mapstructure:"extract_timeout_seconds"`   // extractLesson 整体超时（hook 用 context.Background()，业务级兜底）
-	TouchMaxRetries        int `mapstructure:"touch_max_retries"`         // hit_count 重试次数（首发 lesson 异步写入存在时序竞争）
-	TouchInitialBackoffMs  int `mapstructure:"touch_initial_backoff_ms"`  // 首次重试 backoff
-	TouchMaxBackoffMs      int `mapstructure:"touch_max_backoff_ms"`      // 重试 backoff 上限（几何递增 cap）
-}
-
 // Load 从 path 读取 YAML，应用 LIUSHA_ ENV 覆盖，反序列化、应用默认值并校验。
 func Load(path string) (Config, error) {
 	v := viper.New()
@@ -310,27 +300,8 @@ func (c *Config) ApplyDefaults() {
 	c.React = applyReactDefaults(c.React)
 	c.Sandbox = applySandboxDefaults(c.Sandbox)
 	c.Toolruntime = applyToolruntimeDefaults(c.Toolruntime)
-	c.Lesson = applyLessonDefaults(c.Lesson)
 }
 
-func applyLessonDefaults(c LessonConfig) LessonConfig {
-	if c.ExtractedPriority == 0 {
-		c.ExtractedPriority = 7
-	}
-	if c.ExtractTimeoutSeconds == 0 {
-		c.ExtractTimeoutSeconds = 60 // hook 用 context.Background()；防 LLM 调用永久挂起
-	}
-	if c.TouchMaxRetries == 0 {
-		c.TouchMaxRetries = 7
-	}
-	if c.TouchInitialBackoffMs == 0 {
-		c.TouchInitialBackoffMs = 500
-	}
-	if c.TouchMaxBackoffMs == 0 {
-		c.TouchMaxBackoffMs = 4000
-	}
-	return c
-}
 
 func applyAPIDefaults(c APIConfig) APIConfig {
 	if c.ReadTimeoutSeconds == 0 {

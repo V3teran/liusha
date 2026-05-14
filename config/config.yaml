@@ -35,7 +35,7 @@ redis:
 
 # ---- LLM 多 provider 路由（黑客松借鉴：创新 11）----
 # default_provider:  主 ReAct（sniffer / 子任务）共用，重模型
-# light_provider:    Reviewer / Compaction / LessonExtract 走的轻模型，省成本
+# light_provider:    Reviewer / Compaction 走的轻模型，省成本
 # vision_provider:   v1.5 的 browser.screenshot 用，v1 仅作为备用主 LLM
 # fallback_provider: 429/529 退避耗尽后切到，retry 中间件用
 llm:
@@ -49,8 +49,6 @@ llm:
   agents:
     hunter:       default_provider   # hunter ReAct（v0024 单层架构后唯一 agent）
     reviewer:     light_provider     # 旁路过程判官（每 5 步评估方向）
-  utilities:
-    lesson_extract: light_provider   # finding → ≤500 字 lesson，落 host_lesson
 
   # spec §8.5 错误码退避表（429/529/5xx/网络超时）
   retry:
@@ -277,25 +275,10 @@ sandbox:
 # 不变量：result_compress_threshold ≥ 2 × sandbox.run_tail_bytes（确保 stdout+stderr 满载也不立即触发压缩）
 # v1.3：result_compress 不再落盘，只做"超阈值截断后喂 LLM"——engagement-store/*.txt 已下线（无下游消费方）
 toolruntime:
-  result_compress_threshold: 65536         # 64KB；工具 Output 超过此字节即截断（不落盘）；≥ 2 × sandbox.run_tail_bytes=8192 + run_replay 5 variant 矩阵余量
+  result_compress_threshold: 65536         # 64KB；工具 Output 超过此字节即截断（不落盘）；≥ 2 × sandbox.run_tail_bytes=8192，留矩阵/多 variant 余量
   result_compress_snippet: 16384           # 16KB；截断后喂 LLM 的 Output 概览大小（足够看清 sqlmap stdout / 多 variant 矩阵）
   result_compress_summary: 1024            # 1KB；Result.Summary（喂 Reviewer 滑动窗；与 react.reviewer_obs_truncate 对齐）
   step_tool_timeout_seconds: 1800       # 单步 tool Execute 上限（30 分钟）；run_command 用此值钳 LLM 自传的 timeout_seconds；其他工具（write_finding 等）受 middleware WithTimeout 兜底。&lt; agent_run_timeout_seconds=3600
-
-# ---- classify_traffic 喂 LLM 前的 flow 截断阈值 ----
-# 设计原则：keys 全保留；string value 给足空间体现业务字段语义；
-# 敏感 header value 直接 redact（cookie/authorization/token 等，安全要求）。
-# 不变量：max_raw_body_bytes ≤ proxy.max_request_body_size；max_response_body_bytes ≤ proxy.max_response_body_size；
-#         response_body_tail_bytes < max_response_body_bytes（前+尾结构）。
-# ---- lesson 提取与 touch 重试参数 ----
-# 首发 LessonExtract 是异步 LLM 调用（~2-10s），重发现 hook 触发时 lesson 可能未建好；
-# 几何 backoff（默认 500ms→1s→2s→4s→4s→4s→4s = 19.5s 总）覆盖慢 LLM。
-lesson:
-  extracted_priority: 7                  # LessonExtract 写入 lesson 时的固定优先级（中-高）
-  extract_timeout_seconds: 60            # extractLesson 整体超时（hook 用 context.Background()，业务级兜底防 LLM 永久挂起）
-  touch_max_retries: 7                   # hit_count 重试次数
-  touch_initial_backoff_ms: 500          # 首次重试 backoff
-  touch_max_backoff_ms: 4000             # 重试 backoff 上限（几何递增 cap）
 
 # ---- heuristic 关键词清单 ----
 # yaml 化便于按业务扩中文/小语种关键词，AllAuthError 运行时 lowercase 匹配
