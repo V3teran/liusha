@@ -16,30 +16,31 @@ type NoteStore interface {
 	AppendNote(ctx context.Context, engagementID string, entry []byte) error
 }
 
-// ReadNote — 一次读取 engagement notes 共享黑板（短期记忆，本次扫描内）。
-type ReadNote struct {
+// ReadNotes — 一次读取 engagement notes 共享黑板（短期记忆，本次扫描内）。
+// 命名与 read_findings / read_lessons / read_credentials 等一致用复数（读多条 note）。
+type ReadNotes struct {
 	Store        NoteStore
 	EngagementID string
 	TaskID       string
 }
 
-// Name 返回工具名 "read_note"。
-func (a *ReadNote) Name() string { return "read_note" }
+// Name 返回工具名 "read_notes"。
+func (a *ReadNotes) Name() string { return "read_notes" }
 
 // Description 提供给 LLM 的简介。
-func (a *ReadNote) Description() string {
+func (a *ReadNotes) Description() string {
 	return "读取本次扫描（engagement）共享笔记板——与同 host 其他 hunter task 共享的过程性事实。" +
 		"读到的内容包括：本次拿到的临时凭据/状态、目标实例当前怪癖、扫描中发现的小惊喜、失败死路。" +
 		"engagement 关闭即过期，不跨次扫描。"
 }
 
 // ParametersJSON 返回空对象 schema。
-func (a *ReadNote) ParametersJSON() json.RawMessage {
+func (a *ReadNotes) ParametersJSON() json.RawMessage {
 	return json.RawMessage(`{"type":"object","properties":{}}`)
 }
 
 // Execute 调 Store.ReadNotesScoped 并返回字节流。
-func (a *ReadNote) Execute(ctx context.Context, _ json.RawMessage) (toolfx.Result, error) {
+func (a *ReadNotes) Execute(ctx context.Context, _ json.RawMessage) (toolfx.Result, error) {
 	state, err := a.Store.ReadNotesScoped(ctx, a.EngagementID, engagement.ReadOpts{TaskID: a.TaskID})
 	if err != nil {
 		return toolfx.Result{}, fmt.Errorf("读取 note 失败: %w", err)

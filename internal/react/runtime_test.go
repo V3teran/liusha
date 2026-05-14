@@ -290,7 +290,7 @@ func TestRun_DoneNotReady_ToolMessageBackfill(t *testing.T) {
 		{Content: "ok"},
 	}}
 	reg := toolfx.NewRegistry()
-	_ = reg.Register(&captureAction{name: "done", err: ErrDoneNotReady{Missing: []string{"fetch_credentials"}}})
+	_ = reg.Register(&captureAction{name: "done", err: ErrDoneNotReady{Missing: []string{"read_credentials"}}})
 
 	out, err := Run(context.Background(), Config{LLM: gen, Actions: reg, Budget: Budget{MaxSteps: 5}})
 	if err != nil {

@@ -5,7 +5,7 @@
 // （request + response + 凭证 + 已有 finding + hint）后，自由组合下列工具挖漏洞：
 //
 //	必装（11 个）:
-//	  read_note / write_note                — task 内中间状态
+//	  read_notes / write_note                   — task 内中间状态
 //	  read_credentials                          — 拿该 host 凭证
 //	  read_findings / write_finding / update_finding — finding 读写
 //	  read_relations / write_relation           — finding 依赖图
@@ -108,7 +108,7 @@ func NewBuilder(deps Deps) skill.Builder {
 			}
 		}
 
-		must(&common.ReadNote{Store: deps.Engagements, EngagementID: p.EngagementID, TaskID: p.TaskID})
+		must(&common.ReadNotes{Store: deps.Engagements, EngagementID: p.EngagementID, TaskID: p.TaskID})
 		must(&common.WriteNote{Store: deps.Engagements, EngagementID: p.EngagementID, TaskID: p.TaskID})
 		must(&common.ReadCredentials{Provider: deps.Credentials, Host: p.Host})
 		must(&common.ReadFindings{Store: deps.Findings, EngagementID: p.EngagementID, Host: p.Host})
