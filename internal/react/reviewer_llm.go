@@ -10,8 +10,8 @@ import (
 	"github.com/V3teran/liusha/internal/llm"
 )
 
-// NotesReader 是 LLMReviewer 读取 engagement 三层 memory 的最小依赖。
-// *engagement.Store 隐式满足该接口，测试可注入 stub。
+// NotesReader 是 LLMReviewer 读取 engagement 共享笔记板的最小依赖。
+// *notes.RedisStore 隐式满足该接口（internal/notes 包），测试可注入 stub。
 type NotesReader interface {
 	ReadNotes(ctx context.Context, id string) ([]byte, error)
 }
@@ -74,9 +74,9 @@ func (o *LLMReviewer) effectiveObsTruncate() int {
 	return fallbackReviewerObsTruncate
 }
 
-// NewLLMReviewer 用 router.For("reviewer") 路由出的 light Generator + engagement store 构造。
+// NewLLMReviewer 用 router.For("reviewer") 路由出的 light Generator + notes store 构造。
 //
-// store 可为 nil（测试场景），此时 prompt 中省略 memory 状态板。
+// store 可为 nil（测试场景），此时 prompt 中省略笔记板段。
 func NewLLMReviewer(g llm.Generator, store NotesReader, engagementID string) *LLMReviewer {
 	return &LLMReviewer{llm: g, notes: store, engagementID: engagementID}
 }
@@ -181,7 +181,7 @@ func normalizeDecision(raw string) string {
 	return ""
 }
 
-// readNotesOrNil 读三层 memory；失败或 store nil 时返回 nil 让 prompt 省略状态板段。
+// readNotesOrNil 读 engagement 共享笔记板；失败或 store nil 时返回 nil 让 prompt 省略笔记板段。
 func (o *LLMReviewer) readNotesOrNil(ctx context.Context) []byte {
 	if o.notes == nil {
 		return nil

@@ -33,6 +33,7 @@ type Config struct {
 	React       ReactConfig               `mapstructure:"react"`
 	Sandbox     SandboxConfig             `mapstructure:"sandbox"`
 	Toolruntime ToolruntimeConfig         `mapstructure:"toolruntime"`
+	Notes       NotesConfig               `mapstructure:"notes"`
 }
 
 // APIConfig 是 cmd/api 的 HTTP 入口参数。
@@ -185,14 +186,10 @@ type EngagementConfig struct {
 	IdleTimeoutHours       int `mapstructure:"idle_timeout_hours"`
 	SweeperIntervalSeconds int `mapstructure:"sweeper_interval_seconds"`
 
-	// Rotator 三阈值（proxy 模式）
-	MaxAgeHours       int `mapstructure:"max_age_hours"`
-	MaxStateSizeBytes int `mapstructure:"max_state_size_bytes"`
-	MaxFindings       int `mapstructure:"max_findings"`
-
-	// notes 截断
-	MaxNotesEntries int `mapstructure:"max_notes_entries"`
-	DefaultNotesLimit     int `mapstructure:"default_notes_limit"`
+	// Rotator 单一阈值（proxy 模式）。
+	// 历史 MaxStateSizeBytes / MaxFindings 已删——notes 走 Redis TTL 自治，
+	// finding 计数本身不应触发轮转。
+	MaxAgeHours int `mapstructure:"max_age_hours"`
 
 	// hunter user prompt 拼装时的上限（避免 prompt 膨胀）。
 	// FindingsLimitInPrompt：该 host 已有 finding 段显示条数（dedup 参考；超出条数 LLM 用 read_findings 工具按需查）。
@@ -200,6 +197,17 @@ type EngagementConfig struct {
 	FindingsLimitInPrompt int `mapstructure:"findings_limit_in_prompt"`
 	LessonsLimitInPrompt  int `mapstructure:"lessons_limit_in_prompt"`
 
+}
+
+// NotesConfig 是 internal/notes 包 Redis 共享存储参数。
+// engagement 内同 host 跨 task 共享的 hunter 工作笔记板。
+//
+// TTLHours 联动 EngagementConfig.MaxAgeHours——两者默认都是 24h；
+// 若手动调整 MaxAgeHours，请同步调整 TTLHours 避免 notes 比 engagement 更早过期。
+type NotesConfig struct {
+	RedisKeyPrefix string `mapstructure:"redis_key_prefix"`
+	MaxEntries     int    `mapstructure:"max_entries"`
+	TTLHours       int    `mapstructure:"ttl_hours"`
 }
 
 // CredentialConfig 是 credential.RedisProvider 的 redis key 前缀。
@@ -294,6 +302,7 @@ func (c *Config) ApplyDefaults() {
 	c.Proxy = applyProxyDefaults(c.Proxy)
 	c.Ingestor = applyIngestorDefaults(c.Ingestor)
 	c.Engagement = applyEngagementDefaults(c.Engagement)
+	c.Notes = applyNotesDefaults(c.Notes)
 	c.Credential = applyCredentialDefaults(c.Credential)
 	c.Skills = applySkillsDefaults(c.Skills)
 	c.Scanner = applyScannerDefaults(c.Scanner)
@@ -510,23 +519,24 @@ func applyEngagementDefaults(c EngagementConfig) EngagementConfig {
 	if c.MaxAgeHours == 0 {
 		c.MaxAgeHours = 24
 	}
-	if c.MaxStateSizeBytes == 0 {
-		c.MaxStateSizeBytes = 2 << 20 // 2 MiB
-	}
-	if c.MaxFindings == 0 {
-		c.MaxFindings = 300
-	}
-	if c.MaxNotesEntries == 0 {
-		c.MaxNotesEntries = 300
-	}
-	if c.DefaultNotesLimit == 0 {
-		c.DefaultNotesLimit = 200
-	}
 	if c.FindingsLimitInPrompt == 0 {
 		c.FindingsLimitInPrompt = 100
 	}
 	if c.LessonsLimitInPrompt == 0 {
 		c.LessonsLimitInPrompt = 100
+	}
+	return c
+}
+
+func applyNotesDefaults(c NotesConfig) NotesConfig {
+	if c.RedisKeyPrefix == "" {
+		c.RedisKeyPrefix = "liusha:note:"
+	}
+	if c.MaxEntries == 0 {
+		c.MaxEntries = 200
+	}
+	if c.TTLHours == 0 {
+		c.TTLHours = 24
 	}
 	return c
 }

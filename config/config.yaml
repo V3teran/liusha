@@ -221,16 +221,21 @@ ingestor:
 engagement:
   idle_timeout_hours: 24            # 空闲多久 sweeper 自动 abort
   sweeper_interval_seconds: 600     # sweeper 轮询周期
-  # Rotator 三阈值（proxy 模式滚动新 engagement，任一命中即触发）
+  # Rotator 单一阈值（proxy 模式按时间滚动新 engagement）
+  # 历史 max_state_size_bytes / max_findings 已删——notes 走 Redis TTL 自治，
+  # finding 计数本身不该触发轮转。
   max_age_hours: 24                 # 从 CreatedAt 起超过此小时数即滚动
-  max_state_size_bytes: 2097152     # notes jsonb 字节数超过即滚动（2 MiB）
-  max_findings: 300                 # 累计 finding 数超过即滚动（中型目标一轮可能积累几百条，过早轮转会切断 lesson 沉淀链）
-  # notes 截断
-  max_notes_entries: 300     # appendInto 滚动到末尾保留条数
-  default_notes_limit: 200          # ReadNotesScoped 默认截断（输入 0 时使用）
   # hunter user prompt 拼装上限（避免 prompt 膨胀；超出 LLM 用 read_findings/read_lessons 工具按需查）
   findings_limit_in_prompt: 100     # 该 host 已有 finding 段显示条数
   lessons_limit_in_prompt: 100      # 该 host 历史经验 + 跨 host 业务规则 hint 共用上限
+
+# ---- notes Redis 共享笔记板（engagement 内同 host 跨 task 共享）----
+# 实现：internal/notes 包；key=liusha:note:{engagement_id}，LIST 类型。
+# 设计建议：ttl_hours 应 ≥ engagement.max_age_hours，否则 notes 会比 engagement 更早过期。
+notes:
+  redis_key_prefix: "liusha:note:"  # Redis key 前缀
+  max_entries: 200                  # 单一闸：AppendNote 后 LTRIM 末尾 N 条；ReadNotes 取全部
+  ttl_hours: 24                     # 每次 AppendNote 后刷新 EXPIRE（与 max_age_hours 同步）
 
 # ---- credential.RedisProvider redis 前缀 ----
 credential:

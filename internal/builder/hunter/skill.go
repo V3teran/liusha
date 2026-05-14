@@ -28,9 +28,9 @@ import (
 
 	"github.com/V3teran/liusha/internal/config"
 	"github.com/V3teran/liusha/internal/credential"
-	"github.com/V3teran/liusha/internal/engagement"
 	"github.com/V3teran/liusha/internal/finding"
 	"github.com/V3teran/liusha/internal/lesson"
+	"github.com/V3teran/liusha/internal/notes"
 	"github.com/V3teran/liusha/internal/react"
 	"github.com/V3teran/liusha/internal/skill"
 	toolfx "github.com/V3teran/liusha/internal/toolruntime"
@@ -49,7 +49,7 @@ var hunterSystemPrompt string
 
 // Deps hunter builder 的依赖注入。由 cmd/scanner/main.go 在启动时构造一份。
 type Deps struct {
-	Engagements *engagement.Store
+	Notes       notes.Store // 短期工作笔记（Redis；engagement 内同 host 跨 task 共享）
 	Findings    *finding.Store
 	Lessons     *lesson.Store
 	Credentials credential.Provider
@@ -108,8 +108,8 @@ func NewBuilder(deps Deps) skill.Builder {
 			}
 		}
 
-		must(&common.ReadNotes{Store: deps.Engagements, EngagementID: p.EngagementID, TaskID: p.TaskID})
-		must(&common.WriteNote{Store: deps.Engagements, EngagementID: p.EngagementID, TaskID: p.TaskID})
+		must(&common.ReadNotes{Store: deps.Notes, EngagementID: p.EngagementID, TaskID: p.TaskID})
+		must(&common.WriteNote{Store: deps.Notes, EngagementID: p.EngagementID, TaskID: p.TaskID})
 		must(&common.ReadCredentials{Provider: deps.Credentials, Host: p.Host})
 		must(&common.ReadFindings{Store: deps.Findings, EngagementID: p.EngagementID, Host: p.Host})
 		must(&common.WriteFinding{
@@ -246,7 +246,7 @@ func buildUserPrompt(ctx context.Context, deps Deps, p skill.BuilderParams) stri
 
 	// 段 3.5: 本次扫描笔记板（engagement 内同 host 工作笔记）
 	// 内容由其他 hunter task 通过 write_note 写入——临时凭据/状态、目标怪癖、小惊喜、失败死路。
-	if notes := loadEngagementNotes(ctx, deps.Engagements, p.EngagementID); notes != "" {
+	if notes := loadEngagementNotes(ctx, deps.Notes, p.EngagementID); notes != "" {
 		b.WriteString("\n\n## 本次扫描笔记板（engagement 内同 host）\n\n")
 		b.WriteString(notes)
 	}
@@ -530,11 +530,11 @@ func loadExistingFindings(ctx context.Context, store *finding.Store, engagementI
 // 范围：engagement 内（host 隐含——一个 engagement 1:1 host）。
 // 注入到 user prompt 让 hunter 看到同 engagement 内其他 hunter task 写的笔记
 // （临时凭据/状态、目标怪癖、小惊喜、失败死路），避免每个 agent 从零摸索。
-func loadEngagementNotes(ctx context.Context, store *engagement.Store, engagementID string) string {
+func loadEngagementNotes(ctx context.Context, store notes.Store, engagementID string) string {
 	if store == nil || engagementID == "" {
 		return ""
 	}
-	raw, err := store.ReadNotesScoped(ctx, engagementID, engagement.ReadOpts{})
+	raw, err := store.ReadNotes(ctx, engagementID)
 	if err != nil || len(raw) == 0 {
 		return ""
 	}

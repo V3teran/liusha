@@ -3,7 +3,7 @@
 //
 // 设计要点：
 //   - Note actions（ReadNotes/WriteNote）只依赖小接口 NoteStore，便于单测；
-//     engagement.Store 自动满足该接口（ReadNotesScoped + AppendNote）。
+//     *notes.RedisStore 自动满足该接口（ReadNotes + AppendNote）。
 //   - WriteFinding / WriteGraph 同样依赖窄接口（FindingStore / GraphStore），实参可换 mock。
 package common
 

@@ -5,14 +5,13 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/V3teran/liusha/internal/engagement"
 	"github.com/V3teran/liusha/internal/toolruntime"
 )
 
-// NoteStore 是 engagement notes 黑板的最小访问接口。
-// 由 *engagement.Store 自动满足。
+// NoteStore 是 engagement notes 共享笔记板的最小访问接口。
+// 由 *notes.RedisStore 自动满足（internal/notes 包提供）。
 type NoteStore interface {
-	ReadNotesScoped(ctx context.Context, engagementID string, opts engagement.ReadOpts) ([]byte, error)
+	ReadNotes(ctx context.Context, engagementID string) ([]byte, error)
 	AppendNote(ctx context.Context, engagementID string, entry []byte) error
 }
 
@@ -30,7 +29,7 @@ func (a *ReadNotes) Name() string { return "read_notes" }
 // Description 提供给 LLM 的简介。
 func (a *ReadNotes) Description() string {
 	return "读取本次扫描（engagement）共享笔记板——与同 host 其他 hunter task 共享的过程性事实。" +
-		"读到的内容包括：本次拿到的临时凭据/状态、目标实例当前怪癖、扫描中发现的小惊喜、失败死路。" +
+		"读到的内容包括：目标实例当前怪癖、扫描中发现的小惊喜、失败死路。" +
 		"engagement 关闭即过期，不跨次扫描。"
 }
 
@@ -39,9 +38,9 @@ func (a *ReadNotes) ParametersJSON() json.RawMessage {
 	return json.RawMessage(`{"type":"object","properties":{}}`)
 }
 
-// Execute 调 Store.ReadNotesScoped 并返回字节流。
+// Execute 调 Store.ReadNotes 并返回字节流。
 func (a *ReadNotes) Execute(ctx context.Context, _ json.RawMessage) (toolfx.Result, error) {
-	state, err := a.Store.ReadNotesScoped(ctx, a.EngagementID, engagement.ReadOpts{TaskID: a.TaskID})
+	state, err := a.Store.ReadNotes(ctx, a.EngagementID)
 	if err != nil {
 		return toolfx.Result{}, fmt.Errorf("读取 note 失败: %w", err)
 	}
@@ -70,7 +69,6 @@ func (a *WriteNote) Description() string {
 	return "写一条「本次扫描」内的过程性事实到 engagement 共享笔记板" +
 		"（同 host 其他 hunter task 都能读到；engagement 关闭即过期，不跨次扫描）。" +
 		"\n\n【必写】只能在 note 留痕的事：" +
-		"\n- 临时凭据/状态：本次拿到的 session、cookie、token、有效凭证组合" +
 		"\n- 目标实例当前怪癖：本 host 现在的 server 行为（如『强制 security=impossible 需 cookie 覆盖』）" +
 		"\n- 小惊喜：扫描中发现的非漏洞但有价值的信号（待深挖的暴露端口、可疑 endpoint、奇怪报错、未来可能成为攻击面的线索）" +
 		"\n- 失败死路：什么打法不通，避免后续 agent 重蹈" +
@@ -85,7 +83,7 @@ func (a *WriteNote) ParametersJSON() json.RawMessage {
 	return json.RawMessage(`{
   "type":"object",
   "properties":{
-    "content":{"type":"string","minLength":1,"description":"本次扫描的过程性事实（临时凭据/状态/目标怪癖/小惊喜/失败死路）。漏洞 PoC 用 write_finding，通用经验用 write_lesson。"}
+    "content":{"type":"string","minLength":1,"description":"本次扫描的过程性事实（目标怪癖/小惊喜/失败死路）。漏洞 PoC 用 write_finding，通用经验用 write_lesson。"}
   },
   "required":["content"]
 }`)

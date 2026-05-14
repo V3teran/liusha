@@ -31,6 +31,7 @@ import (
 	"github.com/V3teran/liusha/internal/llm"
 	"github.com/V3teran/liusha/internal/llminvocation"
 	"github.com/V3teran/liusha/internal/logx"
+	"github.com/V3teran/liusha/internal/notes"
 	"github.com/V3teran/liusha/internal/observability"
 	"github.com/V3teran/liusha/internal/react"
 	"github.com/V3teran/liusha/internal/skill"
@@ -68,10 +69,7 @@ func main() {
 	defer rdb.Close()
 
 	// Stores
-	engs := engagement.NewStore(pool).WithLimits(
-		cfg.Engagement.MaxNotesEntries,
-		cfg.Engagement.DefaultNotesLimit,
-	)
+	engs := engagement.NewStore(pool)
 	tasks := agentrun.NewStore(pool).WithCounter(engs)
 	finds := finding.NewStore(pool).WithCounter(engs)
 	calls := llminvocation.NewStoreWithConfig(pool, cfg.LLM.Invocation)
@@ -79,6 +77,11 @@ func main() {
 	defer func() { _ = calls.Close() }()
 	flows := flow.NewStore(pool, scannerCfg.FlowMaxRequestBody, scannerCfg.FlowMaxResponseBody).WithCounter(engs)
 	creds := credential.NewRedis(rdb, cfg.Credential.RedisKeyPrefix)
+	noteStore := notes.NewRedis(rdb, notes.Config{
+		KeyPrefix:  cfg.Notes.RedisKeyPrefix,
+		MaxEntries: cfg.Notes.MaxEntries,
+		TTL:        time.Duration(cfg.Notes.TTLHours) * time.Hour,
+	})
 	pricing := observability.NewPricing(cfg.Pricing)
 
 	// hunter system prompt 已编译期 embed（internal/builder/hunter/system_prompt.md），
@@ -143,7 +146,7 @@ func main() {
 
 	// hunter builder：scanner 启动时构造一次
 	hunterBuilder := hunter.NewBuilder(hunter.Deps{
-		Engagements:               engs,
+		Notes:                     noteStore,
 		Findings:                  finds,
 		Lessons:                   lessons,
 		Credentials:               creds,
@@ -167,6 +170,7 @@ func main() {
 	h := handler{
 		tasks:         tasks,
 		engagements:   engs,
+		notes:         noteStore,
 		findings:      finds,
 		lessons:       lessons,
 		flows:         flows,
@@ -197,7 +201,7 @@ func main() {
 	flowCtx, flowCancel := context.WithCancel(context.Background())
 	defer flowCancel()
 
-	rotator := engagement.NewRotator(engs, finds, engagement.RotateLimitsFromConfig(cfg.Engagement))
+	rotator := engagement.NewRotator(engs, engagement.RotateLimitsFromConfig(cfg.Engagement))
 
 	trafficIngestor, err := ingestor.NewTraffic(flowCtx, ingestor.Deps{
 		Redis:    rdb,
@@ -274,6 +278,7 @@ func main() {
 type handler struct {
 	tasks         *agentrun.Store
 	engagements   *engagement.Store
+	notes         *notes.RedisStore // hunter 短期工作笔记板（engagement 内同 host 跨 task 共享）
 	findings      *finding.Store
 	lessons       *lesson.Store // reviewer LessonFetcher 用：拉该 host 历史 lesson 给 reviewer 做方向修正
 	flows         *flow.Store
@@ -389,7 +394,7 @@ func (h handler) handleTraffic(ctx context.Context, p worker.Payload, entrypoint
 		llm.CallMeta{TaskID: &tid, EngagementID: &eid, RouteKey: "reviewer"},
 		h.pricing,
 	)
-	reviewer := react.NewLLMReviewer(reviewLLMGen, h.engagements, eid)
+	reviewer := react.NewLLMReviewer(reviewLLMGen, h.notes, eid)
 	reviewer.ArgsTruncate = h.cfg.React.ReviewerArgsTruncate
 	reviewer.ObsTruncate = h.cfg.React.ReviewerObsTruncate
 	// FlowSummary 约束 reviewer 只评本流量任务，避免跨流量推方向

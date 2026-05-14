@@ -6,6 +6,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/V3teran/liusha/internal/config"
 	"github.com/V3teran/liusha/internal/dbtest"
 	"github.com/V3teran/liusha/internal/engagement"
 )
@@ -15,11 +16,11 @@ func setup(t *testing.T) (*Store, string) {
 	t.Helper()
 	pool := dbtest.NewPgPool(t)
 	es := engagement.NewStore(pool)
-	e, err := es.LookupOrCreate(context.Background(), "default", "h", engagement.ModeProxy)
+	e, err := es.LookupOrCreate(context.Background(), "h", engagement.ModeProxy)
 	if err != nil {
 		t.Fatalf("lookup engagement: %v", err)
 	}
-	return NewStore(pool), e.ID
+	return NewStoreWithConfig(pool, config.InvocationConfig{}), e.ID
 }
 
 // TestStore_Append_Basic 验证：插一条普通 LLM 调用无错误。

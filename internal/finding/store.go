@@ -204,17 +204,6 @@ func (s *Store) ListByEngagement(ctx context.Context, engagementID string) ([]Vu
 	return out, nil
 }
 
-// CountByEngagement 返回某 engagement 下 finding 总数（用于 Rotator 阈值检查）。
-func (s *Store) CountByEngagement(ctx context.Context, engagementID string) (int, error) {
-	var n int
-	if err := s.pool.QueryRow(ctx,
-		`SELECT count(*) FROM finding WHERE engagement_id=$1`, engagementID,
-	).Scan(&n); err != nil {
-		return 0, fmt.Errorf("count findings by engagement: %w", err)
-	}
-	return n, nil
-}
-
 // ListByEngagementAndHost 列出当前 engagement + host 下的 finding（按 created_at desc）。
 //
 // 用于 hunter user prompt 段 3 注入"该 host 已有 finding"——隔离每次 engagement，

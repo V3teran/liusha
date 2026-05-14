@@ -10,6 +10,8 @@ import (
 
 	tcpostgres "github.com/testcontainers/testcontainers-go/modules/postgres"
 	tcredis "github.com/testcontainers/testcontainers-go/modules/redis"
+
+	"github.com/V3teran/liusha/internal/config"
 )
 
 func TestNewPgPool_Ping(t *testing.T) {
@@ -28,7 +30,7 @@ func TestNewPgPool_Ping(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	pool, err := NewPgPool(ctx, dsn, 5, 1)
+	pool, err := NewPgPool(ctx, dsn, 5, 1, 5, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -50,7 +52,7 @@ func TestNewRedis_Ping(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	r, err := NewRedis(ctx, strings.TrimPrefix(addr, "redis://"))
+	r, err := NewRedis(ctx, strings.TrimPrefix(addr, "redis://"), config.RedisConfig{})
 	if err != nil {
 		t.Fatal(err)
 	}

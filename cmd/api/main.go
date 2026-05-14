@@ -48,10 +48,7 @@ func main() {
 	defer func() { _ = rdb.Close() }()
 
 	credAPI := credential.NewRedis(rdb, cfg.Credential.RedisKeyPrefix)
-	engStore := engagement.NewStore(pool).WithLimits(
-		cfg.Engagement.MaxNotesEntries,
-		cfg.Engagement.DefaultNotesLimit,
-	)
+	engStore := engagement.NewStore(pool)
 	findStore := finding.NewStore(pool)
 	projector := &graphview.Projector{Findings: findStore, Engagements: engStore}
 	invocationStore := llminvocation.NewStoreWithConfig(pool, cfg.LLM.Invocation)
