@@ -59,8 +59,8 @@ func TestStore_Abort(t *testing.T) {
 	}
 }
 
-// TestStore_AppendNoteAndReadNotes 验证 v1.2 notes 单层 Append + ReadNotes：
-// 写 3 条 note（observation + boundary + hypothesis），ReadNotes 返回 JSON 含 notes key 且 3 条全在。
+// TestStore_AppendNoteAndReadNotes 验证 notes 单层 Append + ReadNotes：
+// 写 3 条 note，ReadNotes 返回 JSON 含 notes key 且 3 条全在。
 func TestStore_AppendNoteAndReadNotes(t *testing.T) {
 	ctx := context.Background()
 	pool := dbtest.NewPgPool(t)
@@ -71,15 +71,15 @@ func TestStore_AppendNoteAndReadNotes(t *testing.T) {
 	}
 
 	if err := s.AppendNote(ctx, e.ID,
-		[]byte(`{"kind":"observation","content":"endpoint X 401","agent_run_id":"t1","scope":"engagement"}`)); err != nil {
+		[]byte(`{"content":"endpoint X 401","agent_run_id":"t1"}`)); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.AppendNote(ctx, e.ID,
-		[]byte(`{"kind":"boundary","content":"all_differ at threshold 0.3","agent_run_id":"t1","scope":"engagement"}`)); err != nil {
+		[]byte(`{"content":"all_differ at threshold 0.3","agent_run_id":"t1"}`)); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.AppendNote(ctx, e.ID,
-		[]byte(`{"kind":"hypothesis","content":"GET /admin","status":"testing","agent_run_id":"t2","scope":"engagement"}`)); err != nil {
+		[]byte(`{"content":"GET /admin","agent_run_id":"t2"}`)); err != nil {
 		t.Fatal(err)
 	}
 

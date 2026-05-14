@@ -2,7 +2,7 @@
 //
 // 设计要点：
 //   - 主循环：LLM 生成 → tool calls 经 Registry（含中间件链）执行 → 喂回历史 → 直到 done / 预算耗尽。
-//   - Reviewer hook：每 N=5 步触发，根据滑动窗判决 keep_going / steer_with_hint / abort_low_value。
+//   - Reviewer hook：每 N=5 步触发，根据滑动窗判决 continue / redirect / terminate。
 //   - DoneValidator：T22.5 中间件抛 ErrDoneNotReady 时 runtime 注入 user msg 让 LLM 继续；
 //     被拒达到 doneForceMaxRejects 后强制放行，避免死循环。
 //   - LoopDetector 已砍——MaxSteps + DoneValidator 是足够的兜底。

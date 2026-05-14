@@ -1,6 +1,6 @@
 // Package engagement 实现 engagement 聚合根的 model 与 store。
 // engagement 是一次"扫描会话"，按 (tenant, target_host) 懒创建；active 唯一。
-// notes（kind=observation/hypothesis/boundary）作为 engagement-scope 状态板。
+// notes 作为 engagement-scope 共享笔记板（纯文本追加，跨 task 共享）。
 package engagement
 
 import (
@@ -14,7 +14,7 @@ type Mode string
 // Status 表示 engagement 的生命周期状态。
 type Status string
 
-// notes 为纯自由文本；写入由 internal/tools/common/memory.go 的 write_note 工具完成。
+// notes 为纯自由文本；写入由 internal/tools/common/note.go 的 write_note 工具完成。
 const (
 	ModeProxy   Mode = "proxy"
 	ModeBrowser Mode = "browser"
@@ -36,7 +36,7 @@ type Engagement struct {
 	Mode         Mode
 	TargetHost   string
 	Status       Status
-	Notes        []byte // jsonb: {notes: [{kind, content, status?, agent_run_id, scope}]}
+	Notes        []byte // jsonb: {notes: [{content, agent_run_id}]}
 	CreatedAt    time.Time
 	EndedAt       *time.Time
 	ErrorMessage  string
@@ -47,7 +47,7 @@ type Engagement struct {
 
 // Notes 是 ReadNotes action 返回的视图。
 //
-// notes 单层（kind enum 区分 observation/hypothesis/boundary）。
+// notes 单层（纯文本 entry：content + agent_run_id）。
 type Notes struct {
 	Notes json.RawMessage `json:"notes"`
 }
@@ -55,7 +55,7 @@ type Notes struct {
 // ReadOpts 是 Store.ReadNotesScoped 的可选过滤/截断参数。
 //
 // TaskID 非空时不强过滤 entry——所有 engagement-scope 的 notes 全返（跨 task 共享）；
-// done_validator 凭 entry 的 task_id 字段自行判定是否本 task 写过。
+// done_validator 凭 entry 的 agent_run_id 字段自行判定是否本 task 写过。
 //
 // NotesLimit：
 //   - 0 → 用默认（100）

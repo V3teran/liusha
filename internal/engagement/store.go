@@ -206,7 +206,7 @@ func (s *Store) ReadNotes(ctx context.Context, id string) ([]byte, error) {
 // ReadNotesScoped 读 notes 并按 NotesLimit 截断。
 //
 // v1.2 收尾：notes 是 engagement-scope 共享（per host），所有 task 共看；
-// done_validator 凭 entry.task_id 字段判定本 task 是否写过（不在此过滤）。
+// done_validator 凭 entry.agent_run_id 字段判定本 task 是否写过（不在此过滤）。
 //
 // jsonb 已被 appendInto 滚动到 maxEntries 内，读全量然后 Go 侧截断。
 func (s *Store) ReadNotesScoped(ctx context.Context, id string, opts ReadOpts) ([]byte, error) {
@@ -224,7 +224,7 @@ func (s *Store) ReadNotesScoped(ctx context.Context, id string, opts ReadOpts) (
 
 // AppendNote 追加一条 note 到 notes.notes 数组。
 //
-// entry 形如 {"kind":"observation|hypothesis|boundary","content":"...","status":"...","agent_run_id":"...","scope":"engagement"}；
+// entry 形如 {"content":"...","agent_run_id":"..."}；
 // store 不解析也不强制结构——write_note 工具层负责语义。
 func (s *Store) AppendNote(ctx context.Context, id string, entry []byte) error {
 	return s.appendInto(ctx, id, "notes", entry, fixedKey("notes"))
