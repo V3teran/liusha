@@ -235,7 +235,7 @@ engagement:
 notes:
   redis_key_prefix: "liusha:note:"  # Redis key 前缀
   max_entries: 200                  # 单一闸：AppendNote 后 LTRIM 末尾 N 条；ReadNotes 取全部
-  ttl_hours: 24                     # 每次 AppendNote 后刷新 EXPIRE（与 max_age_hours 同步）
+  ttl_hours: 24                     # 仅在 key 首次创建时设 TTL（ExpireNX，从创建起算固定窗口），与 max_age_hours 同步
 
 # ---- credential.RedisProvider redis 前缀 ----
 credential:

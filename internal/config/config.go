@@ -202,8 +202,9 @@ type EngagementConfig struct {
 // NotesConfig 是 internal/notes 包 Redis 共享存储参数。
 // engagement 内同 host 跨 task 共享的 hunter 工作笔记板。
 //
-// TTLHours 联动 EngagementConfig.MaxAgeHours——两者默认都是 24h；
-// 若手动调整 MaxAgeHours，请同步调整 TTLHours 避免 notes 比 engagement 更早过期。
+// TTLHours 与 EngagementConfig.MaxAgeHours 默认都是 24h——AppendNote 用 ExpireNX
+// 仅在 key 首次创建时设 TTL（之后不刷新），让 notes 寿命从 key 创建起算固定窗口，
+// 与 engagement.CreatedAt + MaxAge 时间点严格同步消失。手动调整两者时应保持一致。
 type NotesConfig struct {
 	RedisKeyPrefix string `mapstructure:"redis_key_prefix"`
 	MaxEntries     int    `mapstructure:"max_entries"`
