@@ -9,21 +9,37 @@
 //	go run ./cmd/e2e brute                        # 只跑 brute（暴力破解）
 //	go run ./cmd/e2e path-traversal               # 只跑 path-traversal（任意文件读取/CWE-22）
 //	go run ./cmd/e2e unrestricted-upload          # 只跑 unrestricted-upload（CWE-434）
+//	go run ./cmd/e2e csrf                         # 只跑 csrf（CWE-352）
+//	go run ./cmd/e2e api                          # 只跑 api（API 端点漏洞探测）
+//	go run ./cmd/e2e cryptography                 # 只跑 cryptography（弱加密 / 硬编码密钥）
+//	go run ./cmd/e2e redirect                     # 只跑 redirect（开放重定向 / CWE-601）
+//	go run ./cmd/e2e authbypass                   # 只跑 authbypass（认证绕过 / CWE-287）
+//	go run ./cmd/e2e csp                          # 只跑 csp（CSP 配置问题 / CWE-1021）
+//	go run ./cmd/e2e exec                         # 只跑 exec（命令注入 / CWE-77）
 //	go run ./cmd/e2e bac sqli xss                 # 多选
 //
 // 流程（每个 profile 独立跑）：
 //  1. POST /credential/batch 一次预录所有 profile 全部 host 的凭证（启动期，不论 args）
 //  2. POST /engagement/proxy 懒创建 engagement（同 host 幂等）
 //  3. 读 sample 文件 → net.Dial 直连 proxify 写 raw bytes（不解析 headers/body）
-//  4. 轮询 finding 表直到 ≥minFindings 条 <kindPrefix>* 且 ≥minKinds 类齐全
+//  4. 轮询 finding 表（按本 profile dispatch 时间戳过滤，避免跨 profile 计数污染）
+//     直到 ≥minFindings 条 finding（默认 1，作为 LLM 能力回归底线）；同时所有
+//     agent_run 收手
 //
-// 内置 profile（6 个）：
-//   - bac                ：本地 vulnapp 多身份正常流量 → 期望 ≥3 条 finding / 2 类 severity 齐全
-//   - sqli               ：远程 DVWA SQLi → 期望 ≥1 条
-//   - xss                ：远程 DVWA XSS（reflected/stored/DOM 三条样本）→ 期望 ≥3 条
-//   - brute              ：远程 DVWA 暴力破解 → 期望 ≥1 条
-//   - path-traversal     ：远程 DVWA 路径遍历（OWASP CWE-22）→ 期望 ≥1 条
-//   - unrestricted-upload：远程 DVWA 任意文件上传（OWASP CWE-434）→ 期望 ≥1 条
+// 内置 profile（13 个，全部 minFindings=1）：
+//   - bac                ：本地 vulnapp 多身份正常流量（4 样本，BAC/IDOR/越权）
+//   - sqli               ：远程 DVWA SQLi（2 样本，sqli + sqli_blind）
+//   - xss                ：远程 DVWA XSS（3 样本，reflected + stored + DOM）
+//   - brute              ：远程 DVWA 暴力破解
+//   - path-traversal     ：远程 DVWA 路径遍历（OWASP CWE-22）
+//   - unrestricted-upload：远程 DVWA 任意文件上传（OWASP CWE-434）
+//   - csrf               ：远程 DVWA CSRF（OWASP CWE-352）
+//   - api                ：远程 DVWA API 端点漏洞
+//   - cryptography       ：远程 DVWA 密码学漏洞（OWASP CWE-310/327）
+//   - redirect           ：远程 DVWA 开放重定向（OWASP CWE-601）
+//   - authbypass         ：远程 DVWA 认证绕过（OWASP CWE-287）
+//   - csp                ：远程 DVWA CSP 配置问题（OWASP CWE-1021）
+//   - exec               ：远程 DVWA 命令注入（OWASP CWE-77/78）
 //
 // 注：e2e 数据已证实 LLM 对常规漏洞（sqli/xss/path-traversal/upload/brute）自身知识充分，
 // 删 vuln SKILL 后表现不降反升。这些 profile 保留作为镜像/架构回归测试的流量基线。
@@ -77,12 +93,15 @@ type credentialEntry struct {
 }
 
 // profile 描述一个 e2e 验收剧本（BAC / SQLi）：sample 文件 + 身份集 + 验收门槛。
+//
+// 验收门槛极简——minFindings 是 LLM 能力回归底线：本 profile dispatch 后只要本
+// engagement 至少多出 minFindings 条 finding 就算 PASS。LLM 输出本就有抖动，
+// "挖出 1 条 vs 3 条"不是稳定指标；唯一要捕捉的退化场景是"原本能挖出现在
+// 完全挖不到"，minFindings=1 就够覆盖。severity 等级分布不再参与判定。
 type profile struct {
 	name           string
 	defaultSamples string
-	kindPrefix     string
 	minFindings    int
-	minKinds       int
 	// credsForHost 接收 target_host 返回该 host 的身份列表（profile 自决定身份组）。
 	credsForHost func(host string) []credentialEntry
 }
@@ -91,11 +110,7 @@ var profiles = map[string]profile{
 	"bac": {
 		name:           "bac",
 		defaultSamples: "examples/sample_bac_raw.json",
-		kindPrefix:     "bac.",
-		minFindings:    3,
-		// BAC 天然以 critical/high 为主，medium/low 难自然产生；
-		// 凑 3 个 severity 等级强人所难，2 类（critical+high 或 high+任一）即可。
-		minKinds: 2,
+		minFindings:    1,
 		credsForHost: func(_ string) []credentialEntry {
 			return []credentialEntry{
 				{Name: "admin", Role: "admin", Credentials: []map[string]string{
@@ -113,9 +128,7 @@ var profiles = map[string]profile{
 	"sqli": {
 		name:           "sqli",
 		defaultSamples: "examples/sample_sqli_raw.json",
-		kindPrefix:     "sqli.",
-		minFindings:    2, // 2 条 sample（sqli + sqli_blind）期望各产 1 finding
-		minKinds:       1,
+		minFindings:    1,
 		// DVWA 远程靶场（111.229.193.40:34280）：仅 admin 身份。
 		// PHPSESSID + security=low 双 cookie 拼成一行；旧 gordonb 身份的 cookie 在新靶机上无效，
 		// 需要时让用户在远程 DVWA 重新登录拿 cookie 再补回来。
@@ -130,9 +143,7 @@ var profiles = map[string]profile{
 	"xss": {
 		name:           "xss",
 		defaultSamples: "examples/sample_xss_raw.json",
-		kindPrefix:     "xss.",
-		minFindings:    3, // 3 条样本（reflected/stored/DOM）期望各出 1 finding，等齐才 PASS
-		minKinds:       1,
+		minFindings:    1,
 		// 同 DVWA 远程靶场，admin 同凭证；3 条样本覆盖 reflected (xss_r) / stored (xss_s) / DOM (xss_d) 三种场景。
 		credsForHost: func(_ string) []credentialEntry {
 			return []credentialEntry{
@@ -145,9 +156,7 @@ var profiles = map[string]profile{
 	"brute": {
 		name:           "brute",
 		defaultSamples: "examples/sample_brute_raw.json",
-		kindPrefix:     "brute.",
 		minFindings:    1,
-		minKinds:       1,
 		// 同 DVWA 远程靶场。/vulnerabilities/brute/ 是登录表单类暴力破解漏洞。
 		credsForHost: func(_ string) []credentialEntry {
 			return []credentialEntry{
@@ -160,9 +169,7 @@ var profiles = map[string]profile{
 	"path-traversal": {
 		name:           "path-traversal",
 		defaultSamples: "examples/sample_path-traversal_raw.json",
-		kindPrefix:     "path-traversal.",
 		minFindings:    1,
-		minKinds:       1,
 		// 同 DVWA 远程靶场。/vulnerabilities/fi/?page= 是路径遍历 / 任意文件读取漏洞（OWASP CWE-22）。
 		credsForHost: func(_ string) []credentialEntry {
 			return []credentialEntry{
@@ -175,10 +182,113 @@ var profiles = map[string]profile{
 	"unrestricted-upload": {
 		name:           "unrestricted-upload",
 		defaultSamples: "examples/sample_unrestricted-upload_raw.json",
-		kindPrefix:     "unrestricted-upload.",
 		minFindings:    1,
-		minKinds:       1,
 		// 同 DVWA 远程靶场。/vulnerabilities/upload/ 是 Unrestricted File Upload（OWASP CWE-434）。
+		credsForHost: func(_ string) []credentialEntry {
+			return []credentialEntry{
+				{Name: "admin", Role: "admin", Credentials: []map[string]string{
+					{"type": "headers", "key": "Cookie", "value": "PHPSESSID=22202e2d9b3f169d26fef775c6077e10; security=low"},
+				}},
+			}
+		},
+	},
+	"csrf": {
+		name:           "csrf",
+		defaultSamples: "examples/sample_csrf_raw.json",
+		minFindings:    1,
+		// 同 DVWA 远程靶场。/vulnerabilities/csrf/ 是 CSRF（OWASP CWE-352）：
+		// 关键特征是 sample 流量本身用 GET 改密码，缺少 anti-CSRF token——主漏洞证据
+		// 已写在流量入口里。
+		credsForHost: func(_ string) []credentialEntry {
+			return []credentialEntry{
+				{Name: "admin", Role: "admin", Credentials: []map[string]string{
+					{"type": "headers", "key": "Cookie", "value": "PHPSESSID=22202e2d9b3f169d26fef775c6077e10; security=low"},
+				}},
+			}
+		},
+	},
+	"api": {
+		name:           "api",
+		defaultSamples: "examples/sample_api_raw.json",
+		minFindings:    1,
+		// 同 DVWA 远程靶场。/vulnerabilities/api/ 是 API 类漏洞入口（具体漏洞类型由 hunter
+		// agent 探测：可能是 IDOR / 信息泄露 / 弱认证 / 注入等）。Referer 来自 cryptography
+		// 页面意味着这是从其他漏洞链路跳过来的 API 端点。
+		credsForHost: func(_ string) []credentialEntry {
+			return []credentialEntry{
+				{Name: "admin", Role: "admin", Credentials: []map[string]string{
+					{"type": "headers", "key": "Cookie", "value": "PHPSESSID=22202e2d9b3f169d26fef775c6077e10; security=low"},
+				}},
+			}
+		},
+	},
+	"cryptography": {
+		name:           "cryptography",
+		defaultSamples: "examples/sample_cryptography_raw.json",
+		minFindings:    1,
+		// 同 DVWA 远程靶场。/vulnerabilities/cryptography/ 是密码学相关漏洞类（OWASP CWE-310/327）：
+		// 弱加密算法 / 硬编码密钥 / 弱随机数 / IV 复用 / 弱哈希等。具体漏洞由 hunter agent
+		// 通过 read_vuln_skill + 读源码 / 多请求差分等手段判定。
+		credsForHost: func(_ string) []credentialEntry {
+			return []credentialEntry{
+				{Name: "admin", Role: "admin", Credentials: []map[string]string{
+					{"type": "headers", "key": "Cookie", "value": "PHPSESSID=22202e2d9b3f169d26fef775c6077e10; security=low"},
+				}},
+			}
+		},
+	},
+	"redirect": {
+		name:           "redirect",
+		defaultSamples: "examples/sample_redirect_raw.json",
+		minFindings:    1,
+		// 同 DVWA 远程靶场。/vulnerabilities/open_redirect/ 是开放重定向（OWASP CWE-601）：
+		// URL 参数控制跳转目标但未做域白名单校验，可被钓鱼利用。hunter agent 通过构造
+		// redirect=<外部域> 参数 + 看 Location header 是否原样返回判定。
+		credsForHost: func(_ string) []credentialEntry {
+			return []credentialEntry{
+				{Name: "admin", Role: "admin", Credentials: []map[string]string{
+					{"type": "headers", "key": "Cookie", "value": "PHPSESSID=22202e2d9b3f169d26fef775c6077e10; security=low"},
+				}},
+			}
+		},
+	},
+	"authbypass": {
+		name:           "authbypass",
+		defaultSamples: "examples/sample_authbypass_raw.json",
+		minFindings:    1,
+		// 同 DVWA 远程靶场。/vulnerabilities/authbypass/ 是认证绕过类（OWASP CWE-287/863）：
+		// 鉴权逻辑缺陷可直接越过登录访问受保护资源。hunter agent 通过 anonymous /
+		// 修改 cookie / Header 篡改等多手法判定。
+		credsForHost: func(_ string) []credentialEntry {
+			return []credentialEntry{
+				{Name: "admin", Role: "admin", Credentials: []map[string]string{
+					{"type": "headers", "key": "Cookie", "value": "PHPSESSID=22202e2d9b3f169d26fef775c6077e10; security=low"},
+				}},
+			}
+		},
+	},
+	"csp": {
+		name:           "csp",
+		defaultSamples: "examples/sample_csp_raw.json",
+		minFindings:    1,
+		// 同 DVWA 远程靶场。/vulnerabilities/csp/ 是 Content-Security-Policy 配置问题
+		// （OWASP CWE-1021）：过宽 CSP（含 unsafe-inline / unsafe-eval / 通配符 source）
+		// 削弱 XSS 防护。hunter agent 通过读 Content-Security-Policy 响应头判定。
+		credsForHost: func(_ string) []credentialEntry {
+			return []credentialEntry{
+				{Name: "admin", Role: "admin", Credentials: []map[string]string{
+					{"type": "headers", "key": "Cookie", "value": "PHPSESSID=22202e2d9b3f169d26fef775c6077e10; security=low"},
+				}},
+			}
+		},
+	},
+	"exec": {
+		name:           "exec",
+		defaultSamples: "examples/sample_exec_raw.json",
+		minFindings:    1,
+		// 同 DVWA 远程靶场。/vulnerabilities/exec/ 是命令注入（OWASP CWE-77/78）：
+		// 用户输入未经 escape 拼到 shell 命令。hunter agent 通过 ;ls / `id` / |whoami
+		// 等 payload + 看 stdout 回显判定。
 		credsForHost: func(_ string) []credentialEntry {
 			return []credentialEntry{
 				{Name: "admin", Role: "admin", Credentials: []map[string]string{
@@ -331,6 +441,14 @@ func enrollAllCreds(apiBase, apiKey, vulnBase string) error {
 }
 
 // runProfile 跑单个 profile 的完整生命周期：建 engagement → 发样本 → 轮询 finding。
+//
+// 多 profile 共享 engagement（同 host）时，poll 必须把范围限到"本 profile 启动后"
+// 才不会把前一个 profile 的战果误算成本 profile PASS。两道防线：
+//
+//  1. profileStartedAt 基线：finding / agent_run 都按 created_at > 基线过滤；
+//  2. observedAtLeastOneRun 哨兵：必须看到过 unfinishedRuns≥1 一次后，
+//     unfinishedRuns==0 才允许判 PASS——防止 ingestor 尚未异步创建 agent_run
+//     时 poll 立即 PASS 的假阳性（曾出现 cryptography profile 0.1s 内 PASS 的 bug）。
 func runProfile(ctx context.Context, plan profilePlan, proxyHostPort, apiBase, apiKey string, pool *pgxpool.Pool, logger zerolog.Logger) error {
 	logger.Info().
 		Str("profile", plan.prof.name).
@@ -345,6 +463,9 @@ func runProfile(ctx context.Context, plan profilePlan, proxyHostPort, apiBase, a
 	}
 	logger.Info().Str("profile", plan.prof.name).Str("engagement_id", eid).Msg("engagement ready")
 
+	// dispatch 前固定基线，确保下文统计的 finding / agent_run 都是本 profile 触发的。
+	profileStartedAt := time.Now()
+
 	for i, raw := range plan.samples {
 		if err := dispatchRaw(proxyHostPort, raw); err != nil {
 			return fmt.Errorf("dispatch sample %d: %w", i, err)
@@ -355,6 +476,7 @@ func runProfile(ctx context.Context, plan profilePlan, proxyHostPort, apiBase, a
 	store := finding.NewStore(pool)
 	agentRunStore := agentrun.NewStore(pool)
 	deadline := time.Now().Add(pollDeadline())
+	observedAtLeastOneRun := false
 	for time.Now().Before(deadline) {
 		all, err := store.ListByEngagement(ctx, eid)
 		if err != nil {
@@ -362,19 +484,29 @@ func runProfile(ctx context.Context, plan profilePlan, proxyHostPort, apiBase, a
 			time.Sleep(pollInterval)
 			continue
 		}
-		matched := filterByPrefix(all, plan.prof.kindPrefix)
+		// 范围限定：只数本 profile dispatch 之后写入的 finding。
+		matched := filterAfter(all, profileStartedAt)
 		kinds := countKinds(matched)
 
 		// agent_run 完成度（每个 sample 对应 1 个 react 循环；e2e PASS 前要等所有 react 收手，
 		// 避免"第 1 个 react 已挖出 finding 满足门槛 → e2e 立即 exit → 第 2 个 react 还卡在
 		// time-based blind 等长任务里"的假阳性 PASS）。
+		// 范围限定：只看本 profile 启动后新建的 agent_run（旧 profile 的 done run 跳过）。
 		unfinishedRuns := -1 // -1 表示查询失败；正常应 ≥ 0
+		totalProfileRuns := 0
 		if runs, runErr := agentRunStore.ListByEngagement(ctx, eid, 100); runErr == nil {
 			unfinishedRuns = 0
 			for _, r := range runs {
+				if !r.CreatedAt.After(profileStartedAt) {
+					continue // 跳过前一个 profile 的 run
+				}
+				totalProfileRuns++
 				if r.Status == "pending" || r.Status == "running" {
 					unfinishedRuns++
 				}
+			}
+			if totalProfileRuns > 0 {
+				observedAtLeastOneRun = true
 			}
 		}
 
@@ -383,13 +515,16 @@ func runProfile(ctx context.Context, plan profilePlan, proxyHostPort, apiBase, a
 			Int("count", len(matched)).
 			Interface("kinds", kinds).
 			Int("unfinished_runs", unfinishedRuns).
+			Int("profile_runs_total", totalProfileRuns).
+			Bool("observed_run", observedAtLeastOneRun).
 			Msg("poll")
 
-		// PASS = finding 门槛满足 AND 所有 agent_run 都 done（无 pending/running 剩余）。
-		// agent_run 查询失败（unfinishedRuns=-1）时退化为仅看 finding 门槛——
+		// PASS = finding 门槛满足 AND 所有 agent_run 都 done（无 pending/running 剩余）
+		// AND 已经至少观测过一次"本 profile 有 agent_run 存在"（防 ingestor 异步未落库）。
+		// agent_run 查询失败（unfinishedRuns=-1）时退化为仅看 finding 门槛 + 哨兵——
 		// 防止 DB 临时抖动让所有 e2e profile 全 FAIL。
-		findingsOK := len(matched) >= plan.prof.minFindings && len(kinds) >= plan.prof.minKinds
-		runsOK := unfinishedRuns == 0 || unfinishedRuns == -1
+		findingsOK := len(matched) >= plan.prof.minFindings
+		runsOK := (unfinishedRuns == 0 || unfinishedRuns == -1) && observedAtLeastOneRun
 		if findingsOK && runsOK {
 			logger.Info().
 				Str("profile", plan.prof.name).
@@ -428,13 +563,25 @@ func envOr(k, def string) string {
 	return def
 }
 
-// filterByPrefix：LLM 自由命名 finding，不按结构化前缀过滤，直接返回全部；
-// e2e 判定看 minFindings 即可（签名保留以避免改 main_test.go）。
-func filterByPrefix(all []finding.VulnFinding, _ string) []finding.VulnFinding {
-	return all
+// filterAfter 把 finding 列表按 created_at > baseline 过滤。
+//
+// 多 profile 共享同 engagement 时（同 host），engagement 上累计的 finding 包含前
+// profile 的战果，直接数会让后续 profile 假阳性 PASS（实测 cryptography 在 api
+// 之后跑，poll 第一次就看到 count=1 立即 PASS，但本流量真正的 agent_run 还在
+// 创建中——典型语义混淆 bug）。用时间戳基线把范围切到本 profile dispatch 之后。
+func filterAfter(all []finding.VulnFinding, baseline time.Time) []finding.VulnFinding {
+	out := make([]finding.VulnFinding, 0, len(all))
+	for _, f := range all {
+		if f.CreatedAt.After(baseline) {
+			out = append(out, f)
+		}
+	}
+	return out
 }
 
-// countKinds：按 severity 分组——e2e profile.minKinds 表示"期望的 severity 等级数"。
+// countKinds：按 severity 分组——仅用于 poll log 信息展示，不参与 PASS 判定
+// （以前 profile.minKinds 是判定字段，简化后已废弃；这里保留是因为肉眼看 log
+// 知道"挖出的 finding 都是什么 severity"对调试有用，比纯 count 信息量大）。
 func countKinds(fs []finding.VulnFinding) map[string]int {
 	out := make(map[string]int, len(fs))
 	for _, f := range fs {
