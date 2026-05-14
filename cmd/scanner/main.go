@@ -394,15 +394,21 @@ func (h handler) handleTraffic(ctx context.Context, p worker.Payload, entrypoint
 	reviewer.ObsTruncate = h.cfg.React.ReviewerObsTruncate
 	// FlowSummary 约束 reviewer 只评本流量任务，避免跨流量推方向
 	reviewer.FlowSummary = fmt.Sprintf("%s %s%s", ep.Method, ep.Host, ep.URL)
-	// FindingFetcher 让 reviewer 看到 engagement + host 范围内所有 finding（不跨 engagement）。
-	// 视野从"当前 agent_run"扩到"本次扫描内本 host 全部"，符合"整个 host 状态做决策"直觉。
+	// HostFindingsFetcher 让 reviewer 看到 engagement + host 范围内已有 finding 列表（背景参考）。
+	// 列表仅作背景知识：reviewer 知道本 host 漏洞面，但**不**把"已有 N 条"误当成本流量任务进度——
+	// 避免历史 bug（bac/profile 真无漏洞的流量被误推 terminate / 编造 hint，因为同 host 别的
+	// 流量先挖到了 finding）。terminate 判定完全交给 reviewer 基于 window 行为推理。
 	hostForFetchers := ep.Host
-	reviewer.FindingFetcher = func(ctx context.Context) (int, string, string, error) {
-		n, latest, err := h.findings.CountAndLatestByEngagementAndHost(ctx, eid, hostForFetchers)
-		if err != nil || latest == nil {
-			return n, "", "", err
+	reviewer.HostFindingsFetcher = func(ctx context.Context) ([]string, error) {
+		fs, err := h.findings.ListByEngagementAndHost(ctx, eid, hostForFetchers, 10)
+		if err != nil {
+			return nil, err
 		}
-		return n, latest.Severity, latest.Summary, nil
+		out := make([]string, 0, len(fs))
+		for _, f := range fs {
+			out = append(out, fmt.Sprintf("[%s] %s", f.Severity, f.Summary))
+		}
+		return out, nil
 	}
 	// LessonFetcher 让 reviewer 看到该 host 历史 lesson（跨 engagement 长期经验），
 	// 用于方向修正 hint。lesson 是经验，不参与"是否 terminate"决策。

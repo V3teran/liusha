@@ -160,33 +160,59 @@ func TestLLMReviewer_StateReadFailureFallsThrough(t *testing.T) {
 	}
 }
 
-// TestLLMReviewer_FindingFetcher_Nil：FindingFetcher 未注入 → prompt 不含 finding 段
-func TestLLMReviewer_FindingFetcher_Nil(t *testing.T) {
+// TestLLMReviewer_HostFindingsFetcher_Nil：未注入 → prompt 不含 host finding 段
+func TestLLMReviewer_HostFindingsFetcher_Nil(t *testing.T) {
 	gen := &mockGen{out: `{"decision":"continue","hint":""}`}
 	r := NewLLMReviewer(gen, nil, "eid")
 	r.Evaluate(context.Background(), []StepRecord{{ActionName: "scan"}})
 
 	user := gen.lastMsgs[1].Content
+	if strings.Contains(user, "已有 finding") {
+		t.Fatalf("HostFindingsFetcher nil 时不应注入 host finding 段，prompt: %s", user)
+	}
+	// 反例：确保旧"已挖 finding 数"段彻底消失（防止回归）
 	if strings.Contains(user, "已挖 finding 数") {
-		t.Fatalf("FindingFetcher nil 时不应注入 finding 段，prompt: %s", user)
+		t.Fatalf("旧'已挖 finding 数'段不应再出现（D 方案已删除），prompt: %s", user)
 	}
 }
 
-// TestLLMReviewer_FindingFetcher_HasCount：count>0 + 最新一条 → prompt 含完整段
-func TestLLMReviewer_FindingFetcher_HasCount(t *testing.T) {
+// TestLLMReviewer_HostFindingsFetcher_RendersListOnly：渲染为列表，不带 count 等暗示进度的措辞
+func TestLLMReviewer_HostFindingsFetcher_RendersListOnly(t *testing.T) {
 	gen := &mockGen{out: `{"decision":"continue","hint":""}`}
 	r := NewLLMReviewer(gen, nil, "eid")
-	r.FindingFetcher = func(_ context.Context) (int, string, string, error) {
-		return 2, "critical", "SQL Injection in /sqli/ — UNION dump dvwa.users", nil
+	r.HostFindingsFetcher = func(_ context.Context) ([]string, error) {
+		return []string{
+			"[critical] IDOR in /api/bac/order/7",
+			"[high] Vertical priv esc in /api/bac/admin/users",
+		}, nil
 	}
 	r.Evaluate(context.Background(), []StepRecord{{ActionName: "scan"}})
 
 	user := gen.lastMsgs[1].Content
-	if !strings.Contains(user, "已挖 finding 数：2") {
-		t.Fatalf("应含 '已挖 finding 数：2'，prompt: %s", user)
+	if !strings.Contains(user, "已有 finding") || !strings.Contains(user, "不**作 terminate 信号") {
+		t.Fatalf("应渲染'背景参考'段头，prompt: %s", user)
 	}
-	if !strings.Contains(user, "critical") || !strings.Contains(user, "SQL Injection") {
-		t.Fatalf("应含最新 finding severity + summary，prompt: %s", user)
+	if !strings.Contains(user, "[critical] IDOR") || !strings.Contains(user, "[high] Vertical priv esc") {
+		t.Fatalf("应含列表项，prompt: %s", user)
+	}
+	// 关键反例：D 方案核心约束——不能出现"已挖 finding 数"这种带 count 的措辞
+	if strings.Contains(user, "已挖 finding 数") {
+		t.Fatalf("HostFindings 段不应含'已挖 finding 数'(回归 bac/profile 误推 done 的 bug)，prompt: %s", user)
+	}
+}
+
+// TestLLMReviewer_HostFindingsFetcher_EmptyListNoSection：返回空列表 → 不渲染段头
+func TestLLMReviewer_HostFindingsFetcher_EmptyListNoSection(t *testing.T) {
+	gen := &mockGen{out: `{"decision":"continue","hint":""}`}
+	r := NewLLMReviewer(gen, nil, "eid")
+	r.HostFindingsFetcher = func(_ context.Context) ([]string, error) {
+		return nil, nil
+	}
+	r.Evaluate(context.Background(), []StepRecord{{ActionName: "scan"}})
+
+	user := gen.lastMsgs[1].Content
+	if strings.Contains(user, "已有 finding") {
+		t.Fatalf("空列表不应渲染段头，prompt: %s", user)
 	}
 }
 

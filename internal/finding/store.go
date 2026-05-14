@@ -247,36 +247,6 @@ func (s *Store) ListByEngagementAndHost(ctx context.Context, engagementID, host 
 	return out, nil
 }
 
-// CountAndLatestByEngagementAndHost 返回 engagement+host 范围下 finding 总数 + 最新一条概要。
-//
-// 用于 reviewer 评估 prompt 注入"该 host 已有 N 个 finding，最新：…"——
-// reviewer 视野从"当前 agent_run"扩到"engagement 内本 host 全部"，符合"整个 host 状态做决策"直觉。
-// 同时不跨 engagement，保证每次扫描独立。
-//
-// 实现：单次 SQL 用 count(*) OVER () window，LIMIT 1 拿最新一行。
-//   - 0 行：count=0, latest=nil
-//   - ≥1 行：count=total, latest=最新一条（仅填 id/severity/summary/created_at）
-func (s *Store) CountAndLatestByEngagementAndHost(ctx context.Context, engagementID, host string) (int, *VulnFinding, error) {
-	if engagementID == "" || host == "" {
-		return 0, nil, fmt.Errorf("CountAndLatestByEngagementAndHost: engagementID + host 都必填")
-	}
-	row := s.pool.QueryRow(ctx, `
-		SELECT id, severity, summary, created_at, count(*) OVER () AS total
-		FROM finding
-		WHERE engagement_id=$1 AND host=$2
-		ORDER BY created_at DESC
-		LIMIT 1`, engagementID, host)
-	var f VulnFinding
-	var total int
-	if err := row.Scan(&f.ID, &f.Severity, &f.Summary, &f.CreatedAt, &total); err != nil {
-		if err == pgx.ErrNoRows {
-			return 0, nil, nil
-		}
-		return 0, nil, fmt.Errorf("count and latest finding by engagement+host: %w", err)
-	}
-	return total, &f, nil
-}
-
 // scanner 抽象 pgx.Row / pgx.Rows 的 Scan 方法。
 type scanner interface {
 	Scan(dest ...any) error
