@@ -45,15 +45,14 @@ func (a *WriteLesson) Description() string {
 		"\ncontent 必填（≤500 字）；priority 1-10 默认 5。"
 }
 
-// ParametersJSON 给出 content 必填 + kind/priority/payload 可选 schema。
+// ParametersJSON 给出 content 必填 + kind/priority 可选 schema。
 func (a *WriteLesson) ParametersJSON() json.RawMessage {
 	return json.RawMessage(`{
   "type":"object",
   "properties":{
     "content":{"type":"string","description":"自由文本经验（≤500 字，给下次 AI 看）"},
     "kind":{"type":"string","enum":["lesson","hint"],"default":"lesson","description":"lesson=本 host 特定经验（默认）；hint=跨 host 业务规则（影响所有未来 agent，慎用）"},
-    "priority":{"type":"integer","minimum":1,"maximum":10,"description":"优先级 1-10（默认 5；越大越优先注入下次 prompt）"},
-    "payload":{"type":"object","description":"可选：结构化字段 jsonb（如 {method, url_template, payload_string, headers}），便于程序化复用"}
+    "priority":{"type":"integer","minimum":1,"maximum":10,"description":"优先级 1-10（默认 5；越大越优先注入下次 prompt）"}
   },
   "required":["content"]
 }`)
@@ -69,10 +68,9 @@ func (a *WriteLesson) Execute(ctx context.Context, args json.RawMessage) (toolfx
 	}
 
 	var in struct {
-		Content  string          `json:"content"`
-		Kind     string          `json:"kind"`
-		Priority int             `json:"priority"`
-		Payload  json.RawMessage `json:"payload"`
+		Content  string `json:"content"`
+		Kind     string `json:"kind"`
+		Priority int    `json:"priority"`
 	}
 	if err := json.Unmarshal(args, &in); err != nil {
 		return toolfx.Result{}, fmt.Errorf("解析 write_lesson 参数失败: %w", err)
@@ -97,12 +95,10 @@ func (a *WriteLesson) Execute(ctx context.Context, args json.RawMessage) (toolfx
 	}
 
 	saved, err := a.Store.Add(ctx, lesson.Lesson{
-		
 		Host:     host,
 		Kind:     kind,
 		Content:  in.Content,
 		Priority: in.Priority,
-		Payload:  in.Payload,
 	})
 	if err != nil {
 		return toolfx.Result{}, fmt.Errorf("保存 lesson 失败: %w", err)

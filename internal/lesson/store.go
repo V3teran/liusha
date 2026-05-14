@@ -17,8 +17,9 @@ type Store struct{ pool *pgxpool.Pool }
 func NewStore(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
 
 // colsSelect 是所有 SELECT / RETURNING 路径的统一列序，与 scan() 字段一一对应。
-// v0030：删除 tenant_id 列（单租户阶段冗余）。
-const colsSelect = "id, host, kind, content, content_hash, priority, source_engagement_id, source_finding_id, hit_count, structured_payload, created_at, updated_at"
+// v0030：删 tenant_id（单租户）；v0031：删 source_engagement_id / source_finding_id /
+// structured_payload（实测从未写入实际值的死字段）。
+const colsSelect = "id, host, kind, content, content_hash, priority, hit_count, created_at, updated_at"
 
 // ContentHash 计算给定 content 的 SHA-256 hex 字符串（64 字符）。
 //
@@ -33,7 +34,6 @@ func ContentHash(content string) string {
 //   - 重复内容 → UPDATE：priority 取较大值；hit_count++；updated_at = now()
 //
 // caller 必填：Host、Kind（KindLesson 或 KindHint）、Content。
-// 可空：SourceEngagementID / SourceFindingID（仅追溯用）。
 // Priority 越界（< 1 或 > 10）clamp 到默认值 5。
 func (s *Store) Add(ctx context.Context, l Lesson) (Lesson, error) {
 	if l.Host == "" {
@@ -49,22 +49,17 @@ func (s *Store) Add(ctx context.Context, l Lesson) (Lesson, error) {
 		l.Priority = 5
 	}
 	l.ContentHash = ContentHash(l.Content)
-	if len(l.Payload) == 0 {
-		l.Payload = []byte("{}")
-	}
 
 	row := s.pool.QueryRow(ctx, `
 		INSERT INTO lesson
-			(host, kind, content, content_hash, priority, source_engagement_id, source_finding_id, structured_payload)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+			(host, kind, content, content_hash, priority)
+		VALUES ($1,$2,$3,$4,$5)
 		ON CONFLICT (host, content_hash) DO UPDATE
-		  SET priority           = GREATEST(lesson.priority, EXCLUDED.priority),
-		      hit_count          = lesson.hit_count + 1,
-		      structured_payload = EXCLUDED.structured_payload,
-		      updated_at         = now()
+		  SET priority   = GREATEST(lesson.priority, EXCLUDED.priority),
+		      hit_count  = lesson.hit_count + 1,
+		      updated_at = now()
 		RETURNING `+colsSelect,
-		l.Host, l.Kind, l.Content, l.ContentHash, l.Priority,
-		l.SourceEngagementID, l.SourceFindingID, l.Payload)
+		l.Host, l.Kind, l.Content, l.ContentHash, l.Priority)
 
 	var saved Lesson
 	if err := scan(row, &saved); err != nil {
@@ -176,14 +171,8 @@ type scanner interface {
 
 // scan 是 colsSelect 列序的统一反序列化点。
 func scan(r scanner, l *Lesson) error {
-	var payload []byte
-	if err := r.Scan(
+	return r.Scan(
 		&l.ID, &l.Host, &l.Kind, &l.Content, &l.ContentHash,
-		&l.Priority, &l.SourceEngagementID, &l.SourceFindingID,
-		&l.HitCount, &payload, &l.CreatedAt, &l.UpdatedAt,
-	); err != nil {
-		return err
-	}
-	l.Payload = payload
-	return nil
+		&l.Priority, &l.HitCount, &l.CreatedAt, &l.UpdatedAt,
+	)
 }

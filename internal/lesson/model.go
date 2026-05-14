@@ -23,25 +23,16 @@ const (
 
 // Lesson 是 lesson 表行的 Go 表示。
 //
-// SourceEngagementID / SourceFindingID 用 *string：FK ON DELETE SET NULL；
-// 旧 engagement 被删后 lesson 仍保留（知识不应随 engagement 销毁）。
-//
 // Content：自由文本经验（中文，给下次 AI 看）。
-// Payload：结构化字段 jsonb（method/url_template/payload_string/headers/notes），
-// 便于程序化消费（聚类/统计/重放）。空 jsonb '{}' 时 lesson 仍可用。
-//
 // Kind（v0022 加）：lesson | hint。caller 必填（Add 路径校验非空）。
 type Lesson struct {
-	ID                 string
-	Host               string
-	Kind               string // v0022：lesson | hint
-	Content            string
-	ContentHash        string // SHA-256 hex（64 字符）
-	Priority           int    // 1-10，越大越优先
-	SourceEngagementID *string
-	SourceFindingID    *string
-	HitCount           int
-	Payload            []byte // jsonb raw；调用方 json.Marshal 后传入
-	CreatedAt          time.Time
-	UpdatedAt          time.Time
+	ID          string
+	Host        string
+	Kind        string // v0022：lesson | hint
+	Content     string
+	ContentHash string // SHA-256 hex（64 字符）
+	Priority    int    // 1-10，越大越优先
+	HitCount    int
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
 }
