@@ -104,7 +104,7 @@ type profile struct {
 	name           string
 	defaultSamples string
 	minFindings    int
-	// credsForHost 接收 target_host 返回该 host 的身份列表（profile 自决定身份组）。
+	// credsForHost 接收样本所属 host 返回该 host 的身份列表（profile 自决定身份组）。
 	credsForHost func(host string) []credentialEntry
 }
 
@@ -398,7 +398,7 @@ func selectProfiles(args []string) ([]profile, error) {
 	return out, nil
 }
 
-// buildPlans 为每个被选 profile 加载样本并解析 target_host。
+// buildPlans 为每个被选 profile 加载样本并解析其 host（仅 e2e 内部用，详见 resolveSampleHost）。
 func buildPlans(selected []profile, vulnBase string) ([]profilePlan, error) {
 	out := make([]profilePlan, 0, len(selected))
 	for _, p := range selected {
@@ -406,7 +406,7 @@ func buildPlans(selected []profile, vulnBase string) ([]profilePlan, error) {
 		if err != nil {
 			return nil, fmt.Errorf("load samples for %s: %w", p.name, err)
 		}
-		host, err := resolveTargetHost(vulnBase, samples)
+		host, err := resolveSampleHost(vulnBase, samples)
 		if err != nil {
 			return nil, fmt.Errorf("resolve scope host for %s: %w", p.name, err)
 		}
@@ -425,7 +425,7 @@ func enrollAllCreds(apiBase, apiKey, vulnBase string) error {
 		if err != nil {
 			return fmt.Errorf("load samples for %s: %w", p.name, err)
 		}
-		host, err := resolveTargetHost(vulnBase, samples)
+		host, err := resolveSampleHost(vulnBase, samples)
 		if err != nil {
 			return fmt.Errorf("resolve host for %s: %w", p.name, err)
 		}
@@ -580,12 +580,14 @@ func runAllUnified(ctx context.Context, plans []profilePlan, proxyHostPort, apiB
 	return fmt.Errorf("unified timeout: findings=%d/%d, unfinished_runs=%d, total_runs=%d", lastTotalFindings, totalMinFindings, lastUnfinished, lastTotalRuns)
 }
 
-// resolveTargetHost 决定 engagement target_host：
+// resolveSampleHost 决定本 profile 样本流量所属的 host（用于建凭证 / 给 hunter
+// task 注入）。v0033 起 engagement 不再 per-host，此 host 仅供 e2e 内部建凭证、
+// 校验 finding.host 对得上用。
 //
 //	优先级：env LIUSHA_E2E_SCOPE_HOST > 首条样本的 Host: 头去端口 > vulnBase URL 的 host
 //
 // 这样不同 profile 用不同目标（如 SQLi 用本地 DVWA、BAC 用本地 vulnapp）时无需切 LIUSHA_VULNAPP_BASE。
-func resolveTargetHost(vulnBase string, samples []string) (string, error) {
+func resolveSampleHost(vulnBase string, samples []string) (string, error) {
 	if v := os.Getenv("LIUSHA_E2E_SCOPE_HOST"); v != "" {
 		return v, nil
 	}

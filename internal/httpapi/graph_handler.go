@@ -20,7 +20,8 @@ type GraphAPI interface {
 // 返回图视图 JSON：origin / endpoint / parameter / finding / goal 节点
 // + has_param / vulnerable_to / enables / contributes_to 边。
 //
-// host 缺省时由投影器内部回落到 engagement.target_host——前端常见用法是 GET /graph/:eid。
+// v0033 起 engagement 可挂多 host：host 缺省时 Projector 列跨 host 的全部 finding；
+// 传 ?host=xxx 时按 finding.host 过滤——前端 viewer 通常带 host 选择器调用。
 func graphHandler(api GraphAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		eid := c.Param("engagement_id")

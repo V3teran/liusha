@@ -1,4 +1,4 @@
-# liusha 沙箱预装工具清单（21 个）
+# liusha 沙箱预装工具清单（22 个）
 #
 # 单一来源：与同目录 Dockerfile 同步维护——
 # Dockerfile 装的 binary 与本 yaml 列出的 tools 应严格对应（可加 CI lint 校对）。

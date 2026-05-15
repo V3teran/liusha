@@ -37,14 +37,22 @@ func RotateLimitsFromConfig(c config.EngagementConfig) RotateLimits {
 //   - notes Redis key：新 UUID 自动是新 key（旧 key 留着等 TTL）
 //   - finding/flow/agent_run 计数：按新 engagement_id 自然从 0 重计
 //   - lesson/credential：跨 engagement 持久化，不轮转
+// engStore 是 Rotator 对底层 *Store 的最小依赖切面（unexported，本包测试可 stub）。
+// *Store 通过 duck typing 自动满足。
+type engStore interface {
+	LookupActiveProxy(ctx context.Context) (Engagement, bool, error)
+	CreateProxySession(ctx context.Context, ttl time.Duration) (Engagement, error)
+	Abort(ctx context.Context, id, errMsg string) error
+}
+
 type Rotator struct {
-	engs   *Store
+	engs   engStore
 	limits RotateLimits
 	now    func() time.Time // 测试可注入；nil 用 time.Now
 }
 
 // NewRotator 构造 Rotator。engs 必填；limits.MaxAge ≤0 时回退 fallback 24h。
-func NewRotator(engs *Store, limits RotateLimits) *Rotator {
+func NewRotator(engs engStore, limits RotateLimits) *Rotator {
 	if limits.MaxAge <= 0 {
 		limits.MaxAge = fallbackRotateLimits.MaxAge
 	}

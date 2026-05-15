@@ -87,11 +87,12 @@ type Projector struct {
 
 // Project 投影 (engagementID, host) 范围的图。
 //
-// host 为空时沿用 engagement.target_host（最常见用法：扫描器只关心当前 engagement
-// 自己的目标 host）。
+// v0033 起 engagement 不再 per-host（可挂多 host），host 参数语义：
+//   - 非空：按 finding.host 过滤，只投影该 host 下的图
+//   - 空：列本 engagement 跨 host 的全部 finding（多 host 时图可能较杂）
 //
 // 步骤：
-//  1. 拉 engagement 元数据（target host / created_at 等做 origin 节点 payload）
+//  1. 拉 engagement 元数据（created_at / mode / status 等做 origin 节点 payload）
 //  2. 拉本 engagement 全部 finding（已 dedup）
 //  3. 拉本 engagement 全部 finding_relation（enables 边）
 //  4. 按 finding.target 派生 endpoint / parameter 节点（dedup_key 由 Go 端规范化）
