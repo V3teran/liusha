@@ -61,7 +61,7 @@ func main() {
 		Handler: httpapi.NewServer(httpapi.Deps{
 			APIKey:            os.Getenv("LIUSHA_API_KEY"),
 			Credentials:       credAPI,
-			Engagements:       engagementAPIAdapter{engStore},
+			Engagements:       engagementAPIAdapter{s: engStore, proxyTTL: time.Duration(cfg.Engagement.MaxAgeHours) * time.Hour},
 			Graph:             projector,
 			Invocations:       invocationStore,
 			StaticFS:          web.ViewerFS(),
@@ -104,20 +104,29 @@ func envOr(k, def string) string {
 //
 // HTTP API 不暴露 errMsg：用户主动取消 engagement 即视为正常结束，
 // abort 调用恒传 ""；store 层完整签名（含 errMsg）保留给 scanner 内部用。
-type engagementAPIAdapter struct{ s *engagement.Store }
+//
+// proxyTTL 来自 cfg.Engagement.MaxAgeHours——proxy session 新建时写入 expires_at。
+type engagementAPIAdapter struct {
+	s        *engagement.Store
+	proxyTTL time.Duration
+}
 
 func (a engagementAPIAdapter) Abort(ctx context.Context, id string) error {
 	return a.s.Abort(ctx, id, "")
 }
 
-func (a engagementAPIAdapter) LookupOrCreateProxy(ctx context.Context, host string) (string, error) {
-	return a.s.LookupOrCreateProxy(ctx, host)
+func (a engagementAPIAdapter) EnsureProxySession(ctx context.Context) (string, error) {
+	eng, err := a.s.LookupOrCreateProxySession(ctx, a.proxyTTL)
+	if err != nil {
+		return "", err
+	}
+	return eng.ID, nil
 }
 
 // List 适配 engagement.Store.List → httpapi.EngagementSummary。
-// 不直接返回 engagement.Engagement 完整结构，避免泄露 notes 等大字段到前端。
-func (a engagementAPIAdapter) List(ctx context.Context, host string, limit int) ([]httpapi.EngagementSummary, error) {
-	rows, err := a.s.List(ctx, host, limit)
+// 不直接返回 engagement.Engagement 完整结构，避免泄露大字段到前端。
+func (a engagementAPIAdapter) List(ctx context.Context, limit int) ([]httpapi.EngagementSummary, error) {
+	rows, err := a.s.List(ctx, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -125,7 +134,7 @@ func (a engagementAPIAdapter) List(ctx context.Context, host string, limit int) 
 	for _, e := range rows {
 		summary := httpapi.EngagementSummary{
 			ID:            e.ID,
-			TargetHost:    e.TargetHost,
+			Scope:         string(e.Scope),
 			Status:        string(e.Status),
 			Mode:          string(e.Mode),
 			FlowCount:     e.FlowCount,
@@ -133,6 +142,9 @@ func (a engagementAPIAdapter) List(ctx context.Context, host string, limit int) 
 			AgentRunCount: e.AgentRunCount,
 			CreatedAt:     e.CreatedAt.Format(time.RFC3339),
 			ErrorMessage:  e.ErrorMessage,
+		}
+		if e.ExpiresAt != nil {
+			summary.ExpiresAt = e.ExpiresAt.Format(time.RFC3339)
 		}
 		if e.EndedAt != nil {
 			summary.EndedAt = e.EndedAt.Format(time.RFC3339)

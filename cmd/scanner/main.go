@@ -218,7 +218,6 @@ func main() {
 		Redis:    rdb,
 		Cfg:      cfg.Ingestor,
 		Stream:   cfg.Proxy.StreamName,
-		Engs:     engs,
 		Rotator:  rotator,
 		Flows:    flows,
 		Tasks:    tasks,
@@ -405,7 +404,9 @@ func (h handler) handleTraffic(ctx context.Context, p worker.Payload, entrypoint
 		llm.CallMeta{TaskID: &tid, EngagementID: &eid, RouteKey: "reviewer"},
 		h.pricing,
 	)
-	reviewer := react.NewLLMReviewer(reviewLLMGen, h.notes, eid)
+	// hostForFetchers 提前定义：v0033 后 reviewer 也需 host 做 notes 范围隔离。
+	hostForFetchers := ep.Host
+	reviewer := react.NewLLMReviewer(reviewLLMGen, h.notes, eid, hostForFetchers)
 	reviewer.ArgsTruncate = h.cfg.React.ReviewerArgsTruncate
 	reviewer.ObsTruncate = h.cfg.React.ReviewerObsTruncate
 	// FlowSummary 约束 reviewer 只评本流量任务，避免跨流量推方向
@@ -414,7 +415,6 @@ func (h handler) handleTraffic(ctx context.Context, p worker.Payload, entrypoint
 	// 列表仅作背景知识：reviewer 知道本 host 漏洞面，但**不**把"已有 N 条"误当成本流量任务进度——
 	// 避免历史 bug（bac/profile 真无漏洞的流量被误推 terminate / 编造 hint，因为同 host 别的
 	// 流量先挖到了 finding）。terminate 判定完全交给 reviewer 基于 window 行为推理。
-	hostForFetchers := ep.Host
 	reviewer.HostFindingsFetcher = func(ctx context.Context) ([]string, error) {
 		fs, err := h.findings.ListByEngagementAndHost(ctx, eid, hostForFetchers, h.cfg.React.ReviewerFindingsLimit)
 		if err != nil {

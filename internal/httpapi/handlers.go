@@ -18,33 +18,33 @@ type CredentialsAPI interface {
 }
 
 // EngagementsAPI 是 handlers 对 engagement store 的窄接口。
-// LookupOrCreateProxy：按 host 懒查或创建 proxy 模式 active engagement，返回其 ID。
+// EnsureProxySession：返回当前 active proxy session（不存在则建新），不带 host。
 // Abort：把 engagement 置为 aborted。
-// List：按 host 过滤（空字符串=全部）+ created_at DESC 列最近 N 个；前端 viewer 下拉用。
+// List：按 created_at DESC 列最近 N 个；前端 viewer 下拉用。
+//
+// v0033：proxy session 不再 per-host，单个 active proxy 容纳所有 host 流量。
 type EngagementsAPI interface {
 	Abort(ctx context.Context, id string) error
-	LookupOrCreateProxy(ctx context.Context, host string) (string, error)
-	List(ctx context.Context, host string, limit int) ([]EngagementSummary, error)
+	EnsureProxySession(ctx context.Context) (string, error)
+	List(ctx context.Context, limit int) ([]EngagementSummary, error)
 }
 
 // EngagementSummary 是 List 返回行——只暴露前端 viewer 需要的字段，
-// 不直接返回 engagement.Engagement 完整结构（避免泄露 notes 等大字段 + 减小响应体）。
+// 不直接返回 engagement.Engagement 完整结构（避免泄露大字段 + 减小响应体）。
+//
+// v0033：删除 TargetHost，加 Scope（jsonb 字符串）+ ExpiresAt（RFC3339）。
 type EngagementSummary struct {
 	ID            string `json:"id"`
-	TargetHost    string `json:"target_host"`
+	Scope         string `json:"scope"`                   // jsonb raw（如 {"any":true} / {"hosts":[...]}）
 	Status        string `json:"status"`
 	Mode          string `json:"mode"`
 	FlowCount     int    `json:"flow_count"`
 	FindingCount  int    `json:"finding_count"`
 	AgentRunCount int    `json:"agent_run_count"`
-	CreatedAt     string `json:"created_at"`             // RFC3339
-	EndedAt       string `json:"ended_at,omitempty"`     // RFC3339（可空）
+	CreatedAt     string `json:"created_at"`              // RFC3339
+	ExpiresAt     string `json:"expires_at,omitempty"`    // RFC3339（proxy 模式）；browser 为空
+	EndedAt       string `json:"ended_at,omitempty"`      // RFC3339（可空）
 	ErrorMessage  string `json:"error_message,omitempty"`
-}
-
-// CreateProxyRequest 是 POST /engagement/proxy 请求体。
-type CreateProxyRequest struct {
-	Host string `json:"host"`
 }
 
 // BatchSaveRequest 是 POST /credential/batch 请求体。
@@ -103,20 +103,12 @@ func deleteCredentialHandler(api CredentialsAPI) gin.HandlerFunc {
 	}
 }
 
-// createProxyHandler 处理 POST /engagement/proxy：按 host 懒查或创建 active engagement。
-// 同 host 重复调用幂等返回同一 engagement_id（语义由 store.LookupOrCreate 保证）。
+// createProxyHandler 处理 POST /engagement/proxy：返回当前 active proxy session
+// （不存在则建新）。v0033 起 proxy session 不再 per-host，请求体为空 {}。
+// 幂等：重复调用在 TTL 窗口内返回同一 engagement_id；过期由 ingestor 内部 Rotator 轮转。
 func createProxyHandler(api EngagementsAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		var req CreateProxyRequest
-		if err := c.ShouldBindJSON(&req); err != nil {
-			c.JSON(400, gin.H{"error": err.Error()})
-			return
-		}
-		if req.Host == "" {
-			c.JSON(400, gin.H{"error": "host required"})
-			return
-		}
-		id, err := api.LookupOrCreateProxy(c.Request.Context(), req.Host)
+		id, err := api.EnsureProxySession(c.Request.Context())
 		if err != nil {
 			c.JSON(500, gin.H{"error": err.Error()})
 			return
@@ -125,17 +117,17 @@ func createProxyHandler(api EngagementsAPI) gin.HandlerFunc {
 	}
 }
 
-// listEngagementsHandler 处理 GET /engagement?host=<optional>&limit=<optional>。
+// listEngagementsHandler 处理 GET /engagement?limit=<optional>。
 // 返回最近 N 个 engagement 摘要，前端用作下拉选择。
+// v0033：删除 ?host= 过滤——按 host 查找请改走 finding/flow 子资源接口。
 func listEngagementsHandler(api EngagementsAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		host := c.Query("host")
 		limit := 0
 		if v := c.Query("limit"); v != "" {
 			// 容错：解析失败时让 store 端用默认值，不在 handler 里校验数字范围。
 			_, _ = fmt.Sscanf(v, "%d", &limit)
 		}
-		list, err := api.List(c.Request.Context(), host, limit)
+		list, err := api.List(c.Request.Context(), limit)
 		if err != nil {
 			c.JSON(500, gin.H{"error": err.Error()})
 			return

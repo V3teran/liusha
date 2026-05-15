@@ -2,8 +2,10 @@ package engagement
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -21,39 +23,78 @@ type Store struct {
 func NewStore(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
 
 // colsSelect 是所有 SELECT 路径的统一列序，与 scan() 的字段顺序一一对应。
-const colsSelect = "id, mode, target_host, status, created_at, " +
+// v0033：target_host 字段删除，加 scope / expires_at。
+const colsSelect = "id, mode, scope, status, created_at, expires_at, " +
 	"ended_at, error_message, flow_count, finding_count, agent_run_count"
 
-// LookupOrCreateProxy 是 LookupOrCreate 的便利包装。
-func (s *Store) LookupOrCreateProxy(ctx context.Context, host string) (string, error) {
-	e, err := s.LookupOrCreate(ctx, host, ModeProxy)
-	if err != nil {
-		return "", err
-	}
-	return e.ID, nil
-}
+// proxyDefaultScope 是 proxy session 的默认 scope（接受任意 host 流量）。
+var proxyDefaultScope = json.RawMessage(`{"any":true}`)
 
-// LookupOrCreate 返回 host 下当前 active engagement；不存在则懒创建。
-func (s *Store) LookupOrCreate(ctx context.Context, host string, mode Mode) (Engagement, error) {
+// LookupActiveProxy 找当前 active proxy session。
+// 不存在时返回 (Engagement{}, false, nil)，非空错误才表示真异常。
+//
+// 唯一索引 engagement_active_proxy_uniq 保证最多 1 行。
+func (s *Store) LookupActiveProxy(ctx context.Context) (Engagement, bool, error) {
 	row := s.pool.QueryRow(ctx, `
 		SELECT `+colsSelect+`
 		FROM engagement
-		WHERE target_host=$1 AND status='active'
-		LIMIT 1`, host)
+		WHERE status='active' AND mode='proxy'
+		LIMIT 1`)
 	var e Engagement
 	err := scan(row, &e)
-	if err == nil {
-		return e, nil
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Engagement{}, false, nil
 	}
-	if !errors.Is(err, pgx.ErrNoRows) {
-		return Engagement{}, fmt.Errorf("lookup engagement: %w", err)
+	if err != nil {
+		return Engagement{}, false, fmt.Errorf("lookup active proxy: %w", err)
 	}
-	row = s.pool.QueryRow(ctx, `
-		INSERT INTO engagement (mode, target_host, status)
-		VALUES ($1,$2,'active')
-		RETURNING `+colsSelect, mode, host)
+	return e, true, nil
+}
+
+// CreateProxySession 建一个新的 proxy session。expires_at = now + ttl。
+//
+// 唯一索引 engagement_active_proxy_uniq 会拒绝并发创建：若已有 active proxy
+// session，本调用会返回唯一约束错误。caller（Rotator）需先 LookupActiveProxy
+// 判断，必要时先 Abort 旧的再调本方法。
+func (s *Store) CreateProxySession(ctx context.Context, ttl time.Duration) (Engagement, error) {
+	row := s.pool.QueryRow(ctx, `
+		INSERT INTO engagement (mode, scope, status, expires_at)
+		VALUES ('proxy', $1, 'active', now() + ($2::text)::interval)
+		RETURNING `+colsSelect, proxyDefaultScope, fmt.Sprintf("%d seconds", int(ttl.Seconds())))
+	var e Engagement
 	if err := scan(row, &e); err != nil {
-		return Engagement{}, fmt.Errorf("insert engagement: %w", err)
+		return Engagement{}, fmt.Errorf("create proxy session: %w", err)
+	}
+	return e, nil
+}
+
+// LookupOrCreateProxySession 是业务入口便利方法：找当前 active proxy session，
+// 不存在则建新。给 httpapi createProxyHandler / 其他业务入口用；
+// Rotator 内部不应使用本方法（无法判断是否需要轮转）。
+func (s *Store) LookupOrCreateProxySession(ctx context.Context, ttl time.Duration) (Engagement, error) {
+	if eng, ok, err := s.LookupActiveProxy(ctx); err != nil {
+		return Engagement{}, err
+	} else if ok {
+		return eng, nil
+	}
+	return s.CreateProxySession(ctx, ttl)
+}
+
+// CreateBrowserScan 建一个 browser 模式 engagement（每次主动扫描独立）。
+// scope 必须是合法 jsonb（如 {"hosts":["example.com"]}）；ExpiresAt 为 nil。
+//
+// 无唯一约束：可并行多个 browser 扫描。
+func (s *Store) CreateBrowserScan(ctx context.Context, scope json.RawMessage) (Engagement, error) {
+	if len(scope) == 0 {
+		scope = json.RawMessage(`{}`)
+	}
+	row := s.pool.QueryRow(ctx, `
+		INSERT INTO engagement (mode, scope, status)
+		VALUES ('browser', $1, 'active')
+		RETURNING `+colsSelect, scope)
+	var e Engagement
+	if err := scan(row, &e); err != nil {
+		return Engagement{}, fmt.Errorf("create browser scan: %w", err)
 	}
 	return e, nil
 }
@@ -64,11 +105,12 @@ const (
 	maxListLimit     = 200
 )
 
-// List 按 created_at DESC 列出最近的 engagements；host 为空时不过滤；
+// List 按 created_at DESC 列出最近的 engagements。
 // limit<=0 时回退到 defaultListLimit（20），>maxListLimit（200）截到 maxListLimit。
 //
-// 主要给 viewer/前端做下拉列表用：返回全部字段，前端自己挑展示哪些。
-func (s *Store) List(ctx context.Context, host string, limit int) ([]Engagement, error) {
+// v0033：删除 host 过滤参数——engagement 不再 per-host，按 host 查找应改走
+// finding/flow 等子资源（它们都按 host 索引）。
+func (s *Store) List(ctx context.Context, limit int) ([]Engagement, error) {
 	if limit <= 0 {
 		limit = defaultListLimit
 	}
@@ -76,17 +118,9 @@ func (s *Store) List(ctx context.Context, host string, limit int) ([]Engagement,
 		limit = maxListLimit
 	}
 
-	var rows pgx.Rows
-	var err error
-	if host == "" {
-		rows, err = s.pool.Query(ctx,
-			"SELECT "+colsSelect+" FROM engagement ORDER BY created_at DESC LIMIT $1",
-			limit)
-	} else {
-		rows, err = s.pool.Query(ctx,
-			"SELECT "+colsSelect+" FROM engagement WHERE target_host=$1 ORDER BY created_at DESC LIMIT $2",
-			host, limit)
-	}
+	rows, err := s.pool.Query(ctx,
+		"SELECT "+colsSelect+" FROM engagement ORDER BY created_at DESC LIMIT $1",
+		limit)
 	if err != nil {
 		return nil, fmt.Errorf("list engagements: %w", err)
 	}
@@ -169,9 +203,10 @@ type scanner interface {
 }
 
 // scan 是 colsSelect 列序的统一反序列化点。
+// v0033：target_host 字段删除，scope/expires_at 加入。
 func scan(r scanner, e *Engagement) error {
-	return r.Scan(&e.ID, &e.Mode, &e.TargetHost, &e.Status,
-		&e.CreatedAt,
+	return r.Scan(&e.ID, &e.Mode, &e.Scope, &e.Status,
+		&e.CreatedAt, &e.ExpiresAt,
 		&e.EndedAt, &e.ErrorMessage,
 		&e.FlowCount, &e.FindingCount, &e.AgentRunCount)
 }

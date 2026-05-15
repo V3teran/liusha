@@ -5,6 +5,7 @@ package llminvocation
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/V3teran/liusha/internal/config"
 	"github.com/V3teran/liusha/internal/dbtest"
@@ -16,7 +17,7 @@ func setup(t *testing.T) (*Store, string) {
 	t.Helper()
 	pool := dbtest.NewPgPool(t)
 	es := engagement.NewStore(pool)
-	e, err := es.LookupOrCreate(context.Background(), "h", engagement.ModeProxy)
+	e, err := es.LookupOrCreateProxySession(context.Background(), 24*time.Hour)
 	if err != nil {
 		t.Fatalf("lookup engagement: %v", err)
 	}

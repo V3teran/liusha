@@ -64,12 +64,12 @@ func TestAppendThenRead(t *testing.T) {
 		[]byte(`{"content":"c","agent_run_id":"t2"}`),
 	}
 	for _, e := range entries {
-		if err := s.AppendNote(ctx, "eng-1", e); err != nil {
+		if err := s.AppendNote(ctx, "eng-1", "h1", e); err != nil {
 			t.Fatalf("AppendNote: %v", err)
 		}
 	}
 
-	got, err := s.ReadNotes(ctx, "eng-1")
+	got, err := s.ReadNotes(ctx, "eng-1", "h1")
 	if err != nil {
 		t.Fatalf("ReadNotes: %v", err)
 	}
@@ -89,6 +89,35 @@ func TestAppendThenRead(t *testing.T) {
 	}
 }
 
+// TestHostIsolation 同 engagement 不同 host 互不干扰。v0033 关键不变量。
+func TestHostIsolation(t *testing.T) {
+	s, _ := newTestStore(t, Config{KeyPrefix: "test:note:"})
+	ctx := context.Background()
+
+	_ = s.AppendNote(ctx, "eng-iso", "hostA", []byte(`{"content":"a-only"}`))
+	_ = s.AppendNote(ctx, "eng-iso", "hostB", []byte(`{"content":"b-only"}`))
+	_ = s.AppendNote(ctx, "eng-iso", "hostA", []byte(`{"content":"a-again"}`))
+
+	gotA, _ := s.ReadNotes(ctx, "eng-iso", "hostA")
+	gotB, _ := s.ReadNotes(ctx, "eng-iso", "hostB")
+
+	var pa, pb struct {
+		Notes []json.RawMessage `json:"notes"`
+	}
+	_ = json.Unmarshal(gotA, &pa)
+	_ = json.Unmarshal(gotB, &pb)
+
+	if len(pa.Notes) != 2 {
+		t.Fatalf("hostA 期望 2 条，实际 %d: %s", len(pa.Notes), gotA)
+	}
+	if len(pb.Notes) != 1 {
+		t.Fatalf("hostB 期望 1 条，实际 %d: %s", len(pb.Notes), gotB)
+	}
+	if string(pb.Notes[0]) != `{"content":"b-only"}` {
+		t.Fatalf("hostB 不应混入 hostA 内容，实际 %s", pb.Notes[0])
+	}
+}
+
 // TestFallbackTrimWithoutCompactor 未注入 Compactor 时超阈值直接 LTRIM 兜底。
 // 防 key 无限增长——安全网行为。
 func TestFallbackTrimWithoutCompactor(t *testing.T) {
@@ -101,12 +130,12 @@ func TestFallbackTrimWithoutCompactor(t *testing.T) {
 
 	for i := 0; i < 10; i++ {
 		e := []byte(fmt.Sprintf(`{"content":"n%d","agent_run_id":"t"}`, i))
-		if err := s.AppendNote(ctx, "eng-2", e); err != nil {
+		if err := s.AppendNote(ctx, "eng-2", "h1", e); err != nil {
 			t.Fatalf("AppendNote: %v", err)
 		}
 	}
 
-	got, _ := s.ReadNotes(ctx, "eng-2")
+	got, _ := s.ReadNotes(ctx, "eng-2", "h1")
 	var parsed struct {
 		Notes []json.RawMessage `json:"notes"`
 	}
@@ -139,7 +168,7 @@ func TestCompactorTriggered(t *testing.T) {
 
 	for i := 0; i < 6; i++ {
 		e := []byte(fmt.Sprintf(`{"content":"n%d","agent_run_id":"t"}`, i))
-		if err := s.AppendNote(ctx, "eng-3", e); err != nil {
+		if err := s.AppendNote(ctx, "eng-3", "h1", e); err != nil {
 			t.Fatalf("AppendNote: %v", err)
 		}
 	}
@@ -148,7 +177,7 @@ func TestCompactorTriggered(t *testing.T) {
 		t.Fatalf("Compactor 应被调 1 次，实际 %d", got)
 	}
 
-	got, _ := s.ReadNotes(ctx, "eng-3")
+	got, _ := s.ReadNotes(ctx, "eng-3", "h1")
 	var parsed struct {
 		Notes []json.RawMessage `json:"notes"`
 	}
@@ -181,14 +210,14 @@ func TestCompactorFailureFallback(t *testing.T) {
 
 	for i := 0; i < 6; i++ {
 		e := []byte(fmt.Sprintf(`{"content":"n%d","agent_run_id":"t"}`, i))
-		_ = s.AppendNote(ctx, "eng-4", e)
+		_ = s.AppendNote(ctx, "eng-4", "h1", e)
 	}
 
 	if atomic.LoadInt32(&fc.calls) == 0 {
 		t.Fatal("Compactor 应被调（即便失败）")
 	}
 
-	got, _ := s.ReadNotes(ctx, "eng-4")
+	got, _ := s.ReadNotes(ctx, "eng-4", "h1")
 	var parsed struct {
 		Notes []json.RawMessage `json:"notes"`
 	}
@@ -222,7 +251,7 @@ func TestConcurrentCompactionLock(t *testing.T) {
 	ctx := context.Background()
 
 	for i := 0; i < 6; i++ {
-		_ = s.AppendNote(ctx, "eng-5", []byte(fmt.Sprintf(`{"content":"x%d","agent_run_id":"t"}`, i)))
+		_ = s.AppendNote(ctx, "eng-5", "h1", []byte(fmt.Sprintf(`{"content":"x%d","agent_run_id":"t"}`, i)))
 	}
 	calls := atomic.LoadInt32(&fc.calls)
 	if calls > 1 {
@@ -235,19 +264,20 @@ func TestTTLSetOnceNotRefreshed(t *testing.T) {
 	s, mr := newTestStore(t, Config{KeyPrefix: "test:note:", TTL: 10 * time.Second})
 	ctx := context.Background()
 
-	if err := s.AppendNote(ctx, "eng-6", []byte(`{"content":"a"}`)); err != nil {
+	const k = "test:note:eng-6:h1"
+	if err := s.AppendNote(ctx, "eng-6", "h1", []byte(`{"content":"a"}`)); err != nil {
 		t.Fatal(err)
 	}
-	ttl1 := mr.TTL("test:note:eng-6")
+	ttl1 := mr.TTL(k)
 	if ttl1 <= 0 || ttl1 > 10*time.Second {
 		t.Fatalf("首次 TTL 期望 ≤10s，实际 %v", ttl1)
 	}
 
 	mr.FastForward(4 * time.Second)
-	if err := s.AppendNote(ctx, "eng-6", []byte(`{"content":"b"}`)); err != nil {
+	if err := s.AppendNote(ctx, "eng-6", "h1", []byte(`{"content":"b"}`)); err != nil {
 		t.Fatal(err)
 	}
-	ttl2 := mr.TTL("test:note:eng-6")
+	ttl2 := mr.TTL(k)
 	if ttl2 > 6*time.Second {
 		t.Fatalf("ExpireNX 应不刷新 TTL，期望 ≤6s，实际 %v", ttl2)
 	}
@@ -256,7 +286,7 @@ func TestTTLSetOnceNotRefreshed(t *testing.T) {
 	}
 
 	mr.FastForward(7 * time.Second)
-	if mr.Exists("test:note:eng-6") {
+	if mr.Exists(k) {
 		t.Fatalf("过 TTL 后 key 应消失")
 	}
 }
@@ -266,7 +296,7 @@ func TestReadEmptyKey(t *testing.T) {
 	s, _ := newTestStore(t, Config{KeyPrefix: "test:note:"})
 	ctx := context.Background()
 
-	got, err := s.ReadNotes(ctx, "eng-empty")
+	got, err := s.ReadNotes(ctx, "eng-empty", "h1")
 	if err != nil {
 		t.Fatalf("空 key 不应报错: %v", err)
 	}
@@ -276,19 +306,25 @@ func TestReadEmptyKey(t *testing.T) {
 	}
 }
 
-// TestEmptyArgs engagementID 或 entry 为空时返回错误。
+// TestEmptyArgs engagementID / host / entry 任一为空时返回错误。
 func TestEmptyArgs(t *testing.T) {
 	s, _ := newTestStore(t, Config{KeyPrefix: "test:note:"})
 	ctx := context.Background()
 
-	if err := s.AppendNote(ctx, "", []byte("x")); err == nil {
+	if err := s.AppendNote(ctx, "", "h1", []byte("x")); err == nil {
 		t.Fatal("空 engagementID 应报错")
 	}
-	if err := s.AppendNote(ctx, "eng", nil); err == nil {
+	if err := s.AppendNote(ctx, "eng", "", []byte("x")); err == nil {
+		t.Fatal("空 host 应报错")
+	}
+	if err := s.AppendNote(ctx, "eng", "h1", nil); err == nil {
 		t.Fatal("空 entry 应报错")
 	}
-	if _, err := s.ReadNotes(ctx, ""); err == nil {
+	if _, err := s.ReadNotes(ctx, "", "h1"); err == nil {
 		t.Fatal("空 engagementID 读取应报错")
+	}
+	if _, err := s.ReadNotes(ctx, "eng", ""); err == nil {
+		t.Fatal("空 host 读取应报错")
 	}
 }
 
@@ -297,11 +333,11 @@ func TestFallbackDefaults(t *testing.T) {
 	s, mr := newTestStore(t, Config{})
 	ctx := context.Background()
 
-	_ = s.AppendNote(ctx, "eng-7", []byte(`{"content":"x"}`))
-	if !mr.Exists("liusha:note:eng-7") {
+	_ = s.AppendNote(ctx, "eng-7", "h1", []byte(`{"content":"x"}`))
+	if !mr.Exists("liusha:note:eng-7:h1") {
 		t.Fatal("空 Config 应使用 fallbackKeyPrefix=liusha:note:")
 	}
-	ttl := mr.TTL("liusha:note:eng-7")
+	ttl := mr.TTL("liusha:note:eng-7:h1")
 	if ttl <= 23*time.Hour || ttl > 24*time.Hour {
 		t.Fatalf("空 Config TTL 应≈24h，实际 %v", ttl)
 	}

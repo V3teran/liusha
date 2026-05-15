@@ -155,7 +155,7 @@ if [ $RC -eq 0 ]; then
   echo "  浏览器：${LIUSHA_API_BASE}/viewer/index.html"
   echo "  engagement_id 列表："
   echo "    docker exec ${PG_CONTAINER} psql -U liusha -d liusha -c \\"
-  echo "      \"SELECT id, target_host, status FROM engagement ORDER BY created_at DESC;\""
+  echo "      \"SELECT id, mode, scope, status, expires_at FROM engagement ORDER BY created_at DESC;\""
   echo ""
   echo "  组合漏洞 enables 边："
   echo "    docker exec ${PG_CONTAINER} psql -U liusha -d liusha -c \\"

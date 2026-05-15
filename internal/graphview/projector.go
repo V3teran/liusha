@@ -106,10 +106,9 @@ func (p *Projector) Project(ctx context.Context, engagementID, host string) (Vie
 	if err != nil {
 		return View{}, fmt.Errorf("engagement.GetByID: %w", err)
 	}
+	// v0033：engagement 不再 per-host，删除 eng.TargetHost fallback。
+	// host 为空表示「列本 engagement 跨 host 的全部 finding」，由下方 host 过滤分支跳过。
 	effectiveHost := host
-	if effectiveHost == "" {
-		effectiveHost = eng.TargetHost
-	}
 
 	findings, err := p.Findings.ListByEngagement(ctx, engagementID)
 	if err != nil {

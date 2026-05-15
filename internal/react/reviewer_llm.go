@@ -12,8 +12,11 @@ import (
 
 // NotesReader 是 LLMReviewer 读取 engagement 共享笔记板的最小依赖。
 // *notes.RedisStore 隐式满足该接口（internal/notes 包），测试可注入 stub。
+//
+// v0033：加 host 参数——reviewer 是 per-task 实例化（绑当前 task 的 host），
+// 只读本 host 笔记，不会跨 host 串扰。
 type NotesReader interface {
-	ReadNotes(ctx context.Context, id string) ([]byte, error)
+	ReadNotes(ctx context.Context, id, host string) ([]byte, error)
 }
 
 // LLMReviewer 用 light_provider LLM 在 ReAct 循环每 N 步做一次进度评估。
@@ -32,6 +35,7 @@ type LLMReviewer struct {
 	llm          llm.Generator
 	notes        NotesReader
 	engagementID string
+	host         string // v0033：per-task 绑定 host，读 notes 时只读本 host 范围
 
 	// 可选字段：caller 通常从 cfg.React.{ReviewerArgsTruncate, ReviewerObsTruncate} 注入。
 	// 零值走 fallback 常量。
@@ -77,8 +81,9 @@ func (o *LLMReviewer) effectiveObsTruncate() int {
 // NewLLMReviewer 用 router.For("reviewer") 路由出的 light Generator + notes store 构造。
 //
 // store 可为 nil（测试场景），此时 prompt 中省略笔记板段。
-func NewLLMReviewer(g llm.Generator, store NotesReader, engagementID string) *LLMReviewer {
-	return &LLMReviewer{llm: g, notes: store, engagementID: engagementID}
+// v0033：host 必填——reviewer 是 per-task，绑定当前 task 的 host 用于 notes 范围隔离。
+func NewLLMReviewer(g llm.Generator, store NotesReader, engagementID, host string) *LLMReviewer {
+	return &LLMReviewer{llm: g, notes: store, engagementID: engagementID, host: host}
 }
 
 // reviewerSystemPrompt 约束 reviewer 只评本流量进度、输出严格 JSON。
@@ -181,14 +186,14 @@ func normalizeDecision(raw string) string {
 	return ""
 }
 
-// readNotesOrNil 读 engagement 共享笔记板；失败或 store nil 时返回 nil 让 prompt 省略笔记板段。
+// readNotesOrNil 读 (engagement, host) 共享笔记板；失败或 store/host 空时返回 nil 让 prompt 省略笔记板段。
 func (o *LLMReviewer) readNotesOrNil(ctx context.Context) []byte {
-	if o.notes == nil {
+	if o.notes == nil || o.host == "" {
 		return nil
 	}
-	data, err := o.notes.ReadNotes(ctx, o.engagementID)
+	data, err := o.notes.ReadNotes(ctx, o.engagementID, o.host)
 	if err != nil {
-		slog.Warn("reviewer read state failed", "err", err, "engagement_id", o.engagementID)
+		slog.Warn("reviewer read state failed", "err", err, "engagement_id", o.engagementID, "host", o.host)
 		return nil
 	}
 	return data

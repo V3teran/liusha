@@ -65,13 +65,13 @@ type stateReaderStub struct {
 	err error
 }
 
-func (s *stateReaderStub) ReadNotes(_ context.Context, _ string) ([]byte, error) {
+func (s *stateReaderStub) ReadNotes(_ context.Context, _, _ string) ([]byte, error) {
 	return s.out, s.err
 }
 
 func TestLLMReviewer_KeepGoingOnInvalidJSON(t *testing.T) {
 	gen := &mockGen{out: "not json"}
-	r := NewLLMReviewer(gen, nil, "eid")
+	r := NewLLMReviewer(gen, nil, "eid", "h")
 
 	v := r.Evaluate(context.Background(), nil)
 
@@ -82,7 +82,7 @@ func TestLLMReviewer_KeepGoingOnInvalidJSON(t *testing.T) {
 
 func TestLLMReviewer_AbortDecision(t *testing.T) {
 	gen := &mockGen{out: `{"decision":"terminate","hint":""}`}
-	r := NewLLMReviewer(gen, nil, "eid")
+	r := NewLLMReviewer(gen, nil, "eid", "h")
 
 	v := r.Evaluate(context.Background(), []StepRecord{{ActionName: "noop"}})
 
@@ -93,7 +93,7 @@ func TestLLMReviewer_AbortDecision(t *testing.T) {
 
 func TestLLMReviewer_SteerWithHint(t *testing.T) {
 	gen := &mockGen{out: `{"decision":"redirect","hint":"改向 X"}`}
-	r := NewLLMReviewer(gen, nil, "eid")
+	r := NewLLMReviewer(gen, nil, "eid", "h")
 
 	v := r.Evaluate(context.Background(), []StepRecord{{ActionName: "scan"}})
 
@@ -107,7 +107,7 @@ func TestLLMReviewer_SteerWithHint(t *testing.T) {
 
 func TestLLMReviewer_UnknownDecisionFallsBack(t *testing.T) {
 	gen := &mockGen{out: `{"decision":"unknown","hint":""}`}
-	r := NewLLMReviewer(gen, nil, "eid")
+	r := NewLLMReviewer(gen, nil, "eid", "h")
 
 	v := r.Evaluate(context.Background(), []StepRecord{{ActionName: "noop"}})
 
@@ -118,7 +118,7 @@ func TestLLMReviewer_UnknownDecisionFallsBack(t *testing.T) {
 
 func TestLLMReviewer_LLMError(t *testing.T) {
 	gen := &mockGen{err: errors.New("network down")}
-	r := NewLLMReviewer(gen, nil, "eid")
+	r := NewLLMReviewer(gen, nil, "eid", "h")
 
 	v := r.Evaluate(context.Background(), []StepRecord{{ActionName: "noop"}})
 
@@ -130,7 +130,7 @@ func TestLLMReviewer_LLMError(t *testing.T) {
 func TestLLMReviewer_WindowEmpty(t *testing.T) {
 	// window=nil + nil store：仍应正常工作，不 panic
 	gen := &mockGen{out: `{"decision":"continue","hint":""}`}
-	r := NewLLMReviewer(gen, nil, "eid")
+	r := NewLLMReviewer(gen, nil, "eid", "h")
 
 	defer func() {
 		if r := recover(); r != nil {
@@ -148,7 +148,7 @@ func TestLLMReviewer_StateReadFailureFallsThrough(t *testing.T) {
 	// store ReadNotes 返回错误：reviewer 应跳过 state，仍调 LLM
 	gen := &mockGen{out: `{"decision":"continue","hint":""}`}
 	store := &stateReaderStub{err: errors.New("db down")}
-	r := NewLLMReviewer(gen, store, "eid")
+	r := NewLLMReviewer(gen, store, "eid", "h")
 
 	v := r.Evaluate(context.Background(), []StepRecord{{ActionName: "scan"}})
 
@@ -163,7 +163,7 @@ func TestLLMReviewer_StateReadFailureFallsThrough(t *testing.T) {
 // TestLLMReviewer_HostFindingsFetcher_Nil：未注入 → prompt 不含 host finding 段
 func TestLLMReviewer_HostFindingsFetcher_Nil(t *testing.T) {
 	gen := &mockGen{out: `{"decision":"continue","hint":""}`}
-	r := NewLLMReviewer(gen, nil, "eid")
+	r := NewLLMReviewer(gen, nil, "eid", "h")
 	r.Evaluate(context.Background(), []StepRecord{{ActionName: "scan"}})
 
 	user := gen.lastMsgs[1].Content
@@ -179,7 +179,7 @@ func TestLLMReviewer_HostFindingsFetcher_Nil(t *testing.T) {
 // TestLLMReviewer_HostFindingsFetcher_RendersListOnly：渲染为列表，不带 count 等暗示进度的措辞
 func TestLLMReviewer_HostFindingsFetcher_RendersListOnly(t *testing.T) {
 	gen := &mockGen{out: `{"decision":"continue","hint":""}`}
-	r := NewLLMReviewer(gen, nil, "eid")
+	r := NewLLMReviewer(gen, nil, "eid", "h")
 	r.HostFindingsFetcher = func(_ context.Context) ([]string, error) {
 		return []string{
 			"[critical] IDOR in /api/bac/order/7",
@@ -204,7 +204,7 @@ func TestLLMReviewer_HostFindingsFetcher_RendersListOnly(t *testing.T) {
 // TestLLMReviewer_HostFindingsFetcher_EmptyListNoSection：返回空列表 → 不渲染段头
 func TestLLMReviewer_HostFindingsFetcher_EmptyListNoSection(t *testing.T) {
 	gen := &mockGen{out: `{"decision":"continue","hint":""}`}
-	r := NewLLMReviewer(gen, nil, "eid")
+	r := NewLLMReviewer(gen, nil, "eid", "h")
 	r.HostFindingsFetcher = func(_ context.Context) ([]string, error) {
 		return nil, nil
 	}
@@ -219,7 +219,7 @@ func TestLLMReviewer_HostFindingsFetcher_EmptyListNoSection(t *testing.T) {
 // TestLLMReviewer_FullObs_UsedForLastStep：末尾 1 步 FullObs 非空 → 用 FullObs 而非 ObsSummary
 func TestLLMReviewer_FullObs_UsedForLastStep(t *testing.T) {
 	gen := &mockGen{out: `{"decision":"continue","hint":""}`}
-	r := NewLLMReviewer(gen, nil, "eid")
+	r := NewLLMReviewer(gen, nil, "eid", "h")
 	window := []StepRecord{
 		{StepIdx: 1, ActionName: "run_command", Args: []byte(`{"x":1}`), ObsSummary: "old summary 1"},
 		{StepIdx: 2, ActionName: "run_command", Args: []byte(`{"x":2}`), ObsSummary: "TRUNCATED", FullObs: "RAW: SUCCESS: admin:password"},

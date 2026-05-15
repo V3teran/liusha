@@ -10,19 +10,14 @@ import (
 
 // RotateLimits 控制 proxy 模式 engagement 何时滚动新一份。
 //
-// 单一阈值 MaxAge：从 CreatedAt 起 elapsed 超过此值即触发轮转。
-// 历史 MaxStateSize（notes jsonb 字节）和 MaxFindings（累计 finding 数）阈值已删——
-// notes 走 Redis TTL 自治，finding 计数本身不应触发轮转（中型目标几百条很常见，
-// 提前轮转无实际收益且引入"轮转时机与 TTL 不对齐"问题）。
+// 单一阈值 MaxAge：作为新建 proxy session 的 TTL（expires_at = now + MaxAge）；
+// 判断轮转则直接看 DB 里的 expires_at 字段，不再依赖 CreatedAt + MaxAge 推算。
 type RotateLimits struct {
 	MaxAge time.Duration
 }
 
 // fallbackRotateLimits 是 RotateLimits 字段缺省时的兜底值。
 //   - 24h 一轮：覆盖一次工作日浏览量；与 notes TTL 严格对齐
-//
-// 正常路径由 cmd/scanner 通过 RotateLimitsFromConfig 从 yaml 注入；
-// 这里仅作为 caller 失误时的最后防线。
 var fallbackRotateLimits = RotateLimits{
 	MaxAge: 24 * time.Hour,
 }
@@ -35,13 +30,13 @@ func RotateLimitsFromConfig(c config.EngagementConfig) RotateLimits {
 	}
 }
 
-// Rotator 包装 LookupOrCreate，给 proxy 模式按 MaxAge 自动滚动 engagement。
+// Rotator 给 proxy 模式按 expires_at 自动滚动 engagement。
 //
-// 整站模式（mode != ModeProxy）直通；由上层逻辑自决何时 close。
+// 整站（browser）模式不经过 Rotator：每次主动 CreateBrowserScan，按需 Abort。
 //
-// 轮转的"内容"：
+// 轮转的「内容」：
 //   - engagement 表：旧行 status=aborted（行保留作历史档案）+ 新行 status=active 新 UUID
-//   - notes Redis key：新 UUID 自动是新 key（旧 key 留着等 24h TTL）
+//   - notes Redis key：新 UUID 自动是新 key（旧 key 留着等 TTL）
 //   - finding/flow/agent_run 计数：按新 engagement_id 自然从 0 重计
 //   - lesson/credential：跨 engagement 持久化，不轮转
 type Rotator struct {
@@ -58,50 +53,57 @@ func NewRotator(engs *Store, limits RotateLimits) *Rotator {
 	return &Rotator{engs: engs, limits: limits}
 }
 
-// EnsureActive 返回当前 host 应使用的 active engagement_id。
+// EnsureProxySession 返回当前 active proxy session 的 engagement_id。
 //
 // 流程：
-//  1. LookupOrCreate 拿到当前 active engagement
-//  2. 若 mode != proxy 直通返回（整站模式不轮转）
-//  3. 若 mode == proxy：检查 MaxAge；命中则 abort 旧 + create 新
-func (r *Rotator) EnsureActive(ctx context.Context, host string, mode Mode) (string, error) {
-	eng, err := r.engs.LookupOrCreate(ctx, host, mode)
+//  1. LookupActiveProxy 看是否已有
+//  2. 没有：CreateProxySession(MaxAge) 建新
+//  3. 已有 & expires_at 未过期：直接返回
+//  4. 已有 & 已过期：Abort 旧 + CreateProxySession 建新
+//
+// v0033：删除 host 参数——proxy session 接受任意 host 流量，按时间窗轮转。
+func (r *Rotator) EnsureProxySession(ctx context.Context) (string, error) {
+	eng, ok, err := r.engs.LookupActiveProxy(ctx)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("lookup active proxy: %w", err)
 	}
-	if eng.Mode != ModeProxy {
-		return eng.ID, nil
+	if !ok {
+		newEng, err := r.engs.CreateProxySession(ctx, r.limits.MaxAge)
+		if err != nil {
+			return "", fmt.Errorf("create proxy session: %w", err)
+		}
+		return newEng.ID, nil
 	}
-	if !r.ageExceeded(eng) {
+	if !r.expired(eng) {
 		return eng.ID, nil
 	}
 	return r.rotate(ctx, eng)
 }
 
-func (r *Rotator) ageExceeded(eng Engagement) bool {
+// expired 判断 engagement 是否已超时间窗。
+// ExpiresAt 为 nil 时（理论上 proxy 模式不应出现）视作永不过期。
+func (r *Rotator) expired(eng Engagement) bool {
+	if eng.ExpiresAt == nil {
+		return false
+	}
 	now := time.Now
 	if r.now != nil {
 		now = r.now
 	}
-	return now().Sub(eng.CreatedAt) >= r.limits.MaxAge
+	return now().After(*eng.ExpiresAt)
 }
 
-// rotate 关旧 engagement + 建新。返回新 engagement_id。
+// rotate 关旧 proxy session + 建新。返回新 engagement_id。
 //
-// 旧 engagement 行保留在表里（status=aborted）作历史档案——
-// lesson/credential 按 host 跨 engagement 持久化，新 engagement 仍能查到。
-// notes Redis key 不主动 DEL，等 24h TTL 自然过期。
-//
-// 失败处理：
-//   - Abort 失败：返错（旧 engagement 没正确 close 会破坏 active 唯一约束）
-//   - LookupOrCreate（建新）失败：返错
+// 旧 engagement 行保留在表里（status=aborted）作历史档案。
+// notes Redis key 不主动 DEL，等 TTL 自然过期。
 func (r *Rotator) rotate(ctx context.Context, oldEng Engagement) (string, error) {
 	if err := r.engs.Abort(ctx, oldEng.ID, ""); err != nil {
 		return "", fmt.Errorf("rotate: abort old engagement %s: %w", oldEng.ID, err)
 	}
-	newEng, err := r.engs.LookupOrCreate(ctx, oldEng.TargetHost, oldEng.Mode)
+	newEng, err := r.engs.CreateProxySession(ctx, r.limits.MaxAge)
 	if err != nil {
-		return "", fmt.Errorf("rotate: create new engagement: %w", err)
+		return "", fmt.Errorf("rotate: create new proxy session: %w", err)
 	}
 	return newEng.ID, nil
 }

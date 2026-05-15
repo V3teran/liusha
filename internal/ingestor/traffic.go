@@ -40,7 +40,6 @@ type Traffic struct {
 	readBlock     time.Duration
 	retryDelay    time.Duration
 	recreateDelay time.Duration
-	engs          *engagement.Store
 	rotator       *engagement.Rotator
 	flows         *flow.Store
 	tasks         *agentrun.Store
@@ -52,15 +51,12 @@ type Traffic struct {
 //
 // Stream 必填（来自 cfg.Proxy.StreamName，proxy/ingestor 之间约定）；
 // Cfg 提供 group/consumer/batch/block/retry 等运行参数（缺省值已由 ApplyDefaults 兜底）；
-//
-// Rotator 可空：空时走 engs.LookupOrCreate（旧行为）；
-// 非空时走 rotator.EnsureActive，proxy 模式按阈值滚动 engagement。
+// Rotator 必填：v0033 后 proxy session 不再 per-host，必须经 Rotator 统一管理。
 type Deps struct {
 	Redis    *redis.Client
 	Cfg      config.IngestorConfig
 	Stream   string
 	Tenant   string
-	Engs     *engagement.Store
 	Rotator  *engagement.Rotator
 	Flows    *flow.Store
 	Tasks    *agentrun.Store
@@ -70,9 +66,9 @@ type Deps struct {
 
 // NewTraffic 构造并 ensure consumer group 存在。
 func NewTraffic(ctx context.Context, deps Deps) (*Traffic, error) {
-	if deps.Redis == nil || deps.Engs == nil || deps.Flows == nil ||
+	if deps.Redis == nil || deps.Rotator == nil || deps.Flows == nil ||
 		deps.Tasks == nil || deps.Enqueuer == nil {
-		return nil, errors.New("ingestor.NewTraffic: redis/engs/flows/tasks/enqueuer 必填")
+		return nil, errors.New("ingestor.NewTraffic: redis/rotator/flows/tasks/enqueuer 必填")
 	}
 	if strings.TrimSpace(deps.Stream) == "" {
 		return nil, errors.New("ingestor.NewTraffic: stream 必填（应来自 cfg.Proxy.StreamName）")
@@ -86,7 +82,6 @@ func NewTraffic(ctx context.Context, deps Deps) (*Traffic, error) {
 		readBlock:     time.Duration(deps.Cfg.ReadBlockTimeoutMs) * time.Millisecond,
 		retryDelay:    time.Duration(deps.Cfg.RetryDelayMs) * time.Millisecond,
 		recreateDelay: time.Duration(deps.Cfg.RecreateGroupDelayMs) * time.Millisecond,
-		engs:          deps.Engs,
 		rotator:       deps.Rotator,
 		flows:         deps.Flows,
 		tasks:         deps.Tasks,
@@ -163,22 +158,10 @@ func (t *Traffic) handleMessage(ctx context.Context, msg redis.XMessage) {
 	}
 
 	// 1) 落 engagement + http_flow
-	// rotator 非 nil 时由它决定是否轮转（proxy 模式按阈值），否则退化到 engs.LookupOrCreate。
-	var (
-		eid    string
-		ensErr error
-	)
-	if t.rotator != nil {
-		eid, ensErr = t.rotator.EnsureActive(ctx, snap.Host, engagement.ModeProxy)
-	} else {
-		var eng engagement.Engagement
-		eng, ensErr = t.engs.LookupOrCreate(ctx, snap.Host, engagement.ModeProxy)
-		if ensErr == nil {
-			eid = eng.ID
-		}
-	}
-	if err := ensErr; err != nil {
-		t.logger.Warn().Err(err).Str("host", snap.Host).Msg("engagement EnsureActive/LookupOrCreate 失败")
+	// proxy session 接受任意 host 流量，按 expires_at 由 Rotator 自动轮转。
+	eid, ensErr := t.rotator.EnsureProxySession(ctx)
+	if ensErr != nil {
+		t.logger.Warn().Err(ensErr).Str("host", snap.Host).Msg("engagement EnsureProxySession 失败")
 		return
 	}
 	flowID, err := t.appendFlow(ctx, eid, &snap)
