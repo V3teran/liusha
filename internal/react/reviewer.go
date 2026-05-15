@@ -22,7 +22,7 @@ type Verdict struct {
 
 // StepRecord 是滑动窗喂给 Reviewer 的最近 N 步记录。
 //
-// ObsSummary 由 result_compress 中间件填充（≤200 字摘要）—— 多数 step 用它即可。
+// ObsSummary 字段保留：tool Action 可在 Result.Summary 主动设 ≤200 字摘要——多数 step 用它即可。
 // FullObs 是工具完整输出（不截断）—— 仅最近 1 步（window 末尾）填，让 reviewer 能看到
 // 关键字（SUCCESS/vulnerable/uid=）防止摘要截断误判进度。零值时 buildReviewerPrompt 回退 ObsSummary。
 type StepRecord struct {

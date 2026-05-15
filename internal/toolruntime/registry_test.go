@@ -76,30 +76,30 @@ func TestRegistry_Execute_BasicAction(t *testing.T) {
 	}
 }
 
-func TestRegistry_Use_MiddlewareWrapsExecution(t *testing.T) {
+func TestRegistry_Use_InterceptorWrapsExecution(t *testing.T) {
 	r := NewRegistry()
 	if err := r.Register(fakeAction{name: "echo"}); err != nil {
 		t.Fatalf("注册失败: %v", err)
 	}
 
 	var counter int32
-	mw := func(next ActionExecutor) ActionExecutor {
+	itc := func(next ActionExecutor) ActionExecutor {
 		return func(ctx context.Context, name string, args json.RawMessage) (Result, error) {
 			atomic.AddInt32(&counter, 1)
 			return next(ctx, name, args)
 		}
 	}
-	r.Use(mw)
+	r.Use(itc)
 
 	if _, err := r.Execute(context.Background(), "echo", json.RawMessage(`{}`)); err != nil {
 		t.Fatalf("Execute 失败: %v", err)
 	}
 	if atomic.LoadInt32(&counter) != 1 {
-		t.Fatalf("中间件应该被调用 1 次, 实际: %d", counter)
+		t.Fatalf("Interceptor 应该被调用 1 次, 实际: %d", counter)
 	}
 }
 
-func TestRegistry_Use_MultipleMiddlewareInOrder(t *testing.T) {
+func TestRegistry_Use_MultipleInterceptorsInOrder(t *testing.T) {
 	r := NewRegistry()
 	if err := r.Register(fakeAction{name: "echo"}); err != nil {
 		t.Fatalf("注册失败: %v", err)

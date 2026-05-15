@@ -281,9 +281,9 @@ sandbox:
   runner_concurrency: 5                    # DockerRunner 全局并发上限
   scan_network: ""                         # 限制扫描容器网络（如 "liusha_scan_net"）；空 = docker 默认 bridge
 
-# ---- toolruntime 中间件参数 ----
+# ---- toolruntime Interceptor 参数 ----
 toolruntime:
-  step_tool_timeout_seconds: 1800       # 单步 tool Execute 上限（30 分钟）；run_command 用此值钳 LLM 自传的 timeout_seconds；其他工具（write_finding 等）受 middleware WithTimeout 兜底。&lt; agent_run_timeout_seconds=3600
+  step_tool_timeout_seconds: 1800       # 单步 tool Execute 上限（30 分钟）；run_command 用此值钳 LLM 自传的 timeout_seconds；其他工具（write_finding 等）受 Interceptor 层 WithTimeout 兜底。&lt; agent_run_timeout_seconds=3600
 
 # ---- heuristic 关键词清单 ----
 # yaml 化便于按业务扩中文/小语种关键词，AllAuthError 运行时 lowercase 匹配

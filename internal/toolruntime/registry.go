@@ -1,9 +1,12 @@
-// Package action 定义 ReAct 循环里的"动作"（工具）抽象与注册表。
+// Package toolfx 定义 ReAct 循环里的"动作"（工具）抽象与注册表。
 //
 // 设计要点：
 //   - Action 是 LLM 可调用的工具单元，Execute 返回 Result（含 Done 终止信号 + Summary 摘要）。
-//   - Registry 在动作执行前后通过中间件链横切：Observe / Timeout。
-//   - 中间件顺序与 HTTP middleware 一致：先注册的在最外层（先 enter、后 exit）。
+//   - Registry 在动作执行前后通过 Interceptor 链横切：Observe / Timeout（详见
+//     internal/toolruntime/interceptor 包）。命名向 grpc-go 的 UnaryInterceptor 对齐，
+//     与 internal/httpapi 的 gin middleware 区分开——本包是"RPC 风格的方法拦截"，
+//     不是"HTTP 请求拦截"。
+//   - Interceptor 顺序：先注册的在最外层（先 enter、后 exit），洋葱模型。
 package toolfx
 
 import (
@@ -34,17 +37,18 @@ type Action interface {
 	Execute(ctx context.Context, args json.RawMessage) (Result, error)
 }
 
-// ActionExecutor 是去掉 Action 实例后的执行函数签名，用于中间件链。
+// ActionExecutor 是去掉 Action 实例后的执行函数签名，用于 Interceptor 链。
 type ActionExecutor func(ctx context.Context, name string, args json.RawMessage) (Result, error)
 
-// Middleware 是一层装饰：包住 next 返回新的 Executor。
-type Middleware func(next ActionExecutor) ActionExecutor
+// Interceptor 是一层装饰：包住 next 返回新的 Executor。命名向 grpc-go 的
+// UnaryServerInterceptor 对齐，本包是 RPC 风格方法拦截，区别于 HTTP middleware。
+type Interceptor func(next ActionExecutor) ActionExecutor
 
-// Registry 持有已注册的 Action 与中间件链，是 ReAct runtime 唯一的动作入口。
+// Registry 持有已注册的 Action 与 Interceptor 链，是 ReAct runtime 唯一的动作入口。
 type Registry struct {
-	lock        sync.RWMutex
-	actions     map[string]Action
-	middlewares []Middleware
+	lock         sync.RWMutex
+	actions      map[string]Action
+	interceptors []Interceptor
 }
 
 // NewRegistry 创建空注册表。
@@ -64,14 +68,14 @@ func (r *Registry) Register(a Action) error {
 	return nil
 }
 
-// Use 追加中间件；先注册的在最外层（与 HTTP middleware 一致）。
-func (r *Registry) Use(mw ...Middleware) {
-	if len(mw) == 0 {
+// Use 追加 Interceptor；先注册的在最外层（洋葱模型）。
+func (r *Registry) Use(itc ...Interceptor) {
+	if len(itc) == 0 {
 		return
 	}
 	r.lock.Lock()
 	defer r.lock.Unlock()
-	r.middlewares = append(r.middlewares, mw...)
+	r.interceptors = append(r.interceptors, itc...)
 }
 
 // Schemas 返回所有已注册动作的 ToolSchema，喂给 LLM 用。
@@ -89,9 +93,9 @@ func (r *Registry) Schemas() []llm.ToolSchema {
 	return out
 }
 
-// Execute 经过中间件链调用指定动作。
+// Execute 经过 Interceptor 链调用指定动作。
 //
-// 链构造：base → mw[n-1] → ... → mw[0]，最先 Use 的在最外层。
+// 链构造：base → itc[n-1] → ... → itc[0]，最先 Use 的在最外层。
 func (r *Registry) Execute(ctx context.Context, name string, args json.RawMessage) (Result, error) {
 	// 基础 executor：从 actions map 找到目标并执行。
 	base := func(ctx context.Context, name string, args json.RawMessage) (Result, error) {
@@ -104,15 +108,15 @@ func (r *Registry) Execute(ctx context.Context, name string, args json.RawMessag
 		return a.Execute(ctx, args)
 	}
 
-	// 快照中间件切片，避免 Execute 进行时被 Use 改写。
+	// 快照 Interceptor 切片，避免 Execute 进行时被 Use 改写。
 	r.lock.RLock()
-	mw := make([]Middleware, len(r.middlewares))
-	copy(mw, r.middlewares)
+	itc := make([]Interceptor, len(r.interceptors))
+	copy(itc, r.interceptors)
 	r.lock.RUnlock()
 
 	wrapped := base
-	for i := len(mw) - 1; i >= 0; i-- {
-		wrapped = mw[i](wrapped)
+	for i := len(itc) - 1; i >= 0; i-- {
+		wrapped = itc[i](wrapped)
 	}
 	return wrapped(ctx, name, args)
 }

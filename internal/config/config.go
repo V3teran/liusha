@@ -273,9 +273,9 @@ type SandboxConfig struct {
 	ScanNetwork string `mapstructure:"scan_network"`
 }
 
-// ToolruntimeConfig 是 toolruntime/middleware 参数。
+// ToolruntimeConfig 是 toolruntime/interceptor 参数。
 type ToolruntimeConfig struct {
-	StepToolTimeoutSeconds int `mapstructure:"step_tool_timeout_seconds"` // 单次 tool Execute 兜底超时（middleware 层 WithTimeout，防本地工具卡死）
+	StepToolTimeoutSeconds int `mapstructure:"step_tool_timeout_seconds"` // 单次 tool Execute 兜底超时（Interceptor 层 WithTimeout，防本地工具卡死）
 }
 
 // Load 从 path 读取 YAML，应用 LIUSHA_ ENV 覆盖，反序列化、应用默认值并校验。

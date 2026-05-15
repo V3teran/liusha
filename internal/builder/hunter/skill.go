@@ -34,7 +34,7 @@ import (
 	"github.com/V3teran/liusha/internal/react"
 	"github.com/V3teran/liusha/internal/skill"
 	toolfx "github.com/V3teran/liusha/internal/toolruntime"
-	"github.com/V3teran/liusha/internal/toolruntime/middleware"
+	"github.com/V3teran/liusha/internal/toolruntime/interceptor"
 	"github.com/V3teran/liusha/internal/tools/common"
 	"github.com/V3teran/liusha/internal/tools/external"
 	"github.com/V3teran/liusha/internal/tools/manifest"
@@ -163,8 +163,8 @@ func NewBuilder(deps Deps) skill.Builder {
 		// run_command 内部 tail_bytes（8KB×2）已经把单次 Output 钳在 ~17KB，
 		// 不需要再加一层截断。
 		reg.Use(
-			middleware.Observe(),
-			middleware.Timeout(deps.StepToolTimeoutSeconds),
+			interceptor.Observe(),
+			interceptor.Timeout(deps.StepToolTimeoutSeconds),
 		)
 
 		userPrompt := buildUserPrompt(ctx, deps, p)

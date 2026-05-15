@@ -1,5 +1,9 @@
 // Package httpapi 提供 liusha 控制面 HTTP API：健康检查、凭证 CRUD、engagement 终止。
-// 所有非 /healthz 路由强制 X-API-Key 认证，由 RequireAPIKey 中间件统一拦截。
+// 所有非 /healthz 路由强制 X-API-Key 认证，由 RequireAPIKey gin middleware 统一拦截。
+//
+// 注意 middleware 命名：本包的 middleware 是标准 HTTP 域（gin/express 一致约定）；
+// 与 internal/toolruntime/interceptor（ReAct tool 拦截链）是两套独立机制，
+// 后者借鉴 grpc-go 的 Interceptor 命名以避免混淆。
 package httpapi
 
 import (
