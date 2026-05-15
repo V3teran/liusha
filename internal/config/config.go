@@ -247,7 +247,6 @@ type ScannerConfig struct {
 // ReactConfig 主 ReAct 循环参数。
 type ReactConfig struct {
 	ReviewerEverySteps   int `mapstructure:"reviewer_every_steps"`
-	DoneForceMaxRejects  int `mapstructure:"done_force_max_rejects"`
 	ReviewerArgsTruncate int `mapstructure:"reviewer_args_truncate"` // 喂 reviewer LLM 的 tool args 截断字节数
 	ReviewerObsTruncate  int `mapstructure:"reviewer_obs_truncate"`  // 喂 reviewer LLM 的 ObsSummary 截断字节数
 
@@ -276,9 +275,6 @@ type SandboxConfig struct {
 
 // ToolruntimeConfig 是 toolruntime/middleware 参数。
 type ToolruntimeConfig struct {
-	ResultCompressThreshold   int `mapstructure:"result_compress_threshold"`
-	ResultCompressSnippet     int `mapstructure:"result_compress_snippet"`
-	ResultCompressSummary     int `mapstructure:"result_compress_summary"`
 	StepToolTimeoutSeconds int `mapstructure:"step_tool_timeout_seconds"` // 单次 tool Execute 兜底超时（middleware 层 WithTimeout，防本地工具卡死）
 }
 
@@ -615,9 +611,6 @@ func applyReactDefaults(c ReactConfig) ReactConfig {
 	if c.ReviewerEverySteps == 0 {
 		c.ReviewerEverySteps = 5
 	}
-	if c.DoneForceMaxRejects == 0 {
-		c.DoneForceMaxRejects = 3
-	}
 	if c.ReviewerArgsTruncate == 0 {
 		c.ReviewerArgsTruncate = 256
 	}
@@ -653,15 +646,6 @@ func applySandboxDefaults(c SandboxConfig) SandboxConfig {
 }
 
 func applyToolruntimeDefaults(c ToolruntimeConfig) ToolruntimeConfig {
-	if c.ResultCompressThreshold == 0 {
-		c.ResultCompressThreshold = 64 * 1024 // 64KB；与 sandbox.run_tail_bytes×2 留余量
-	}
-	if c.ResultCompressSnippet == 0 {
-		c.ResultCompressSnippet = 16 * 1024 // 16KB；截断后喂 LLM 的概览大小
-	}
-	if c.ResultCompressSummary == 0 {
-		c.ResultCompressSummary = 1024 // 1KB；Result.Summary（Reviewer 滑动窗）
-	}
 	if c.StepToolTimeoutSeconds == 0 {
 		// 1800s = 30 分钟。给 sqlmap 升级 + 多 variant 重放充足上限。
 		c.StepToolTimeoutSeconds = 1800

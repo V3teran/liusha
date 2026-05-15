@@ -34,7 +34,7 @@ const (
 	fallbackSandboxImage    = "liusha/pentools:latest"
 	fallbackRunDefaultMemMB = 1024
 	fallbackRunDefaultCPUs  = 1.0
-	// 8 KB × 2 + 元数据 ≈ 17 KB，刚刚过 ResultCompress 16KB 阈值时才触发压缩；
+	// 8 KB × 2 + 元数据 ≈ 17 KB——单次 tool Output 由此天然钳住，
 	// 让 sqlmap level=5+tamper 等长输出的 Title/Payload 关键字段能完整保留。
 	// 与 yaml sandbox.run_tail_bytes 同步（稳健激进方案）。
 	fallbackRunTailBytes = 8192

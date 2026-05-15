@@ -83,10 +83,9 @@ type Deps struct {
 	StepToolTimeoutSeconds int
 
 	// 预算
-	MaxSteps            int
-	WatchdogSeconds     int
-	ReviewerEverySteps  int
-	DoneForceMaxRejects int
+	MaxSteps           int
+	WatchdogSeconds    int
+	ReviewerEverySteps int
 
 	// Prompt 拼装预算
 	UserPromptBodyLimit int // 请求/响应 body 单段截断字节数；≤0 → 8192
@@ -160,12 +159,12 @@ func NewBuilder(deps Deps) skill.Builder {
 		}
 
 		// system prompt 来自包级 //go:embed system_prompt.md，无运行时 fs 失败路径
-		// agentic-lean：删除 done validator——不强制结构化 done.reason，agent 自由收手
+		// agentic-lean：done validator / result_compress 已删——hunter 自由收手，
+		// run_command 内部 tail_bytes（8KB×2）已经把单次 Output 钳在 ~17KB，
+		// 不需要再加一层截断。
 		reg.Use(
 			middleware.Observe(),
 			middleware.Timeout(deps.StepToolTimeoutSeconds),
-			// (0,0,0) → 全部使用 result_compress 内置的 fallback 阈值/snippet/summary。
-			middleware.ResultCompress(0, 0, 0),
 		)
 
 		userPrompt := buildUserPrompt(ctx, deps, p)
@@ -180,14 +179,13 @@ func NewBuilder(deps Deps) skill.Builder {
 		}
 
 		return react.Config{
-			LLM:                 p.LLM,
-			Actions:             reg,
-			Budget:              react.Budget{MaxSteps: maxSteps, WatchdogSeconds: watchdog},
-			SystemPrompt:        hunterSystemPrompt,
-			UserPrompt:          userPrompt,
-			Reviewer:            p.Reviewer,
-			ReviewerEverySteps:  deps.ReviewerEverySteps,
-			DoneForceMaxRejects: deps.DoneForceMaxRejects,
+			LLM:                p.LLM,
+			Actions:            reg,
+			Budget:             react.Budget{MaxSteps: maxSteps, WatchdogSeconds: watchdog},
+			SystemPrompt:       hunterSystemPrompt,
+			UserPrompt:         userPrompt,
+			Reviewer:           p.Reviewer,
+			ReviewerEverySteps: deps.ReviewerEverySteps,
 		}, nil
 	}
 }

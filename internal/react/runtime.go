@@ -3,14 +3,12 @@
 // 设计要点：
 //   - 主循环：LLM 生成 → tool calls 经 Registry（含中间件链）执行 → 喂回历史 → 直到 done / 预算耗尽。
 //   - Reviewer hook：每 N=5 步触发，根据滑动窗判决 continue / redirect / terminate。
-//   - DoneValidator：T22.5 中间件抛 ErrDoneNotReady 时 runtime 注入 user msg 让 LLM 继续；
-//     被拒达到 doneForceMaxRejects 后强制放行，避免死循环。
-//   - LoopDetector 已砍——MaxSteps + DoneValidator 是足够的兜底。
+//   - agentic-lean：不强制结构化 done.reason / 不卡 done validator，LLM 自由收手；
+//     MaxSteps + WatchdogSeconds + ctx cancel 是足够的死循环兜底。
 package react
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"sync"
@@ -25,37 +23,30 @@ import (
 // 默认 Info 级；生产想降噪用 LIUSHA_LOG_LEVEL=warn 整体降级，无需独立开关。
 var debugLogger = logx.New("react.runtime")
 
-// fallbackDoneForceMaxRejects：Config.DoneForceMaxRejects 为 0 时使用。
-// 正常路径由 cmd/scanner 从 cfg.React.DoneForceMaxRejects 注入。
-const fallbackDoneForceMaxRejects = 3
-
 // Config 是 Run 的入参。
 //
 //   - LLM / Actions 必填；其余字段有默认值（见 Run）。
 //   - OnAbort 用于外部主动停机（cron 任务取消、用户 Ctrl+C 等），返回 (true, nil) 即终止。
 //   - Reviewer 默认 NoopReviewer；ReviewerEverySteps 默认 5。
 type Config struct {
-	LLM                 llm.Generator
-	Actions             *toolfx.Registry
-	Budget              Budget
-	SystemPrompt        string
-	UserPrompt          string
-	OnAbort             func(ctx context.Context) (bool, error)
-	Reviewer            Reviewer
-	ReviewerEverySteps  int
-	DoneForceMaxRejects int // ≤0 → fallbackDoneForceMaxRejects
+	LLM                llm.Generator
+	Actions            *toolfx.Registry
+	Budget             Budget
+	SystemPrompt       string
+	UserPrompt         string
+	OnAbort            func(ctx context.Context) (bool, error)
+	Reviewer           Reviewer
+	ReviewerEverySteps int
 }
 
 // Outcome 是 Run 的产出，便于上层做埋点 / done 报告。
 //
-// TerminateBy 取值：done / done_force / max_steps / max_tokens / aborted /
-// reviewer_abort / no_tool_call。
+// TerminateBy 取值：done / max_steps / max_tokens / aborted / no_tool_call。
 type Outcome struct {
-	TerminateBy    string
-	TotalSteps     int
-	TotalUsage     llm.Usage
-	ReviewerHints  int
-	DoneForceCount int
+	TerminateBy   string
+	TotalSteps    int
+	TotalUsage    llm.Usage
+	ReviewerHints int
 }
 
 // Run 执行 ReAct 主循环直到终止条件命中。
@@ -81,9 +72,6 @@ func Run(ctx context.Context, cfg Config) (Outcome, error) {
 	if cfg.ReviewerEverySteps <= 0 {
 		cfg.ReviewerEverySteps = 5
 	}
-	if cfg.DoneForceMaxRejects <= 0 {
-		cfg.DoneForceMaxRejects = fallbackDoneForceMaxRejects
-	}
 
 	msgs := make([]llm.Message, 0, 4)
 	if cfg.SystemPrompt != "" {
@@ -95,7 +83,6 @@ func Run(ctx context.Context, cfg Config) (Outcome, error) {
 
 	out := Outcome{}
 	window := make([]StepRecord, 0, cfg.ReviewerEverySteps)
-	doneRejectCount := 0
 
 	for {
 		// 1) 预算 / 取消检查
@@ -201,34 +188,6 @@ func Run(ctx context.Context, cfg Config) (Outcome, error) {
 		var sawDone bool
 		for _, r := range results {
 			tc, tcRes, execErr := r.tc, r.res, r.err
-
-			// DoneValidator 中间件抛错：注入 user msg 让 LLM 继续；超过阈值强制放行
-			if e, ok := IsDoneNotReady(execErr); ok {
-				doneRejectCount++
-				if doneRejectCount >= cfg.DoneForceMaxRejects {
-					out.TerminateBy = "done_force"
-					out.DoneForceCount = 1
-					return out, nil
-				}
-				// 必须先回填 done 这次 tool_call 对应的 tool message —— 否则 assistant
-				// 含 N 个 tool_calls 但只有 N-1 个 tool message，DeepSeek 等严格 OpenAI
-				// 协议实现会 400 "insufficient tool messages following tool_calls"。
-				obsBody, _ := json.Marshal(map[string]any{
-					"error":   "done_not_ready",
-					"missing": e.Missing,
-				})
-				msgs = append(msgs, llm.Message{
-					Role:       llm.RoleTool,
-					ToolCallID: tc.ID,
-					Name:       tc.Name,
-					Content:    string(obsBody),
-				})
-				msgs = append(msgs, llm.Message{
-					Role:    llm.RoleUser,
-					Content: fmt.Sprintf("你声称完成但未达终止条件 [missing: %v]，继续工作。", e.Missing),
-				})
-				continue
-			}
 
 			obs := tcRes.Output
 			if execErr != nil {

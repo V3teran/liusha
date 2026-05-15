@@ -17,7 +17,7 @@ var observeLog zerolog.Logger = logx.New("toolruntime.observe")
 // Observe 给每个 tool Execute 加 enter/exit 关键步骤埋点。
 //
 // 关键事实：name / args 长度 / 耗时 / err 状态 / output 长度 / done 信号。
-// 放最外层（time/compress/done_validate 之外），保证整次调用全程时间都被计在内。
+// 放最外层（Timeout 之外），保证整次调用全程时间都被计在内。
 func Observe() toolfx.Middleware {
 	return func(next toolfx.ActionExecutor) toolfx.ActionExecutor {
 		return func(ctx context.Context, name string, args json.RawMessage) (toolfx.Result, error) {

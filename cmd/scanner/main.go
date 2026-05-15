@@ -172,7 +172,6 @@ func main() {
 		MaxSteps:                  scannerCfg.MainMaxSteps,
 		WatchdogSeconds:           scannerCfg.StepLLMTimeoutSeconds,
 		ReviewerEverySteps:        cfg.React.ReviewerEverySteps,
-		DoneForceMaxRejects:       cfg.React.DoneForceMaxRejects,
 		FindingsLimit:             cfg.Engagement.FindingsLimitInPrompt,
 		LessonsLimit:              cfg.Engagement.LessonsLimitInPrompt,
 	})
@@ -515,7 +514,6 @@ func (h handler) handleTraffic(ctx context.Context, p worker.Payload, entrypoint
 		"total_out":        out.TotalUsage.OutTokens,
 		"total_cached":     out.TotalUsage.CachedTokens,
 		"reviewer_hints":   out.ReviewerHints,
-		"done_force_count": out.DoneForceCount,
 	})
 	if err != nil {
 		return h.failTask(ctx, p.TaskID, fmt.Errorf("marshal task result: %w", err))

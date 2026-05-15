@@ -266,7 +266,6 @@ scanner:
 # ---- 主 ReAct 循环参数 ----
 react:
   reviewer_every_steps: 5                  # 每 N 步触发一次 Reviewer 评估
-  done_force_max_rejects: 3                # done 被 done_validate 连续拒绝 N 次后强制放行
   reviewer_args_truncate: 256              # 喂 reviewer LLM 的 tool args 截断字节数（80B 看不出意图）
   reviewer_obs_truncate: 400               # 喂 reviewer LLM 的 ObsSummary 截断字节数
   reviewer_findings_limit: 30              # reviewer 看 host 已有 finding 段条数（按 created_at DESC）
@@ -283,12 +282,7 @@ sandbox:
   scan_network: ""                         # 限制扫描容器网络（如 "liusha_scan_net"）；空 = docker 默认 bridge
 
 # ---- toolruntime 中间件参数 ----
-# 不变量：result_compress_threshold ≥ 2 × sandbox.run_tail_bytes（确保 stdout+stderr 满载也不立即触发压缩）
-# v1.3：result_compress 不再落盘，只做"超阈值截断后喂 LLM"——engagement-store/*.txt 已下线（无下游消费方）
 toolruntime:
-  result_compress_threshold: 65536         # 64KB；工具 Output 超过此字节即截断（不落盘）；≥ 2 × sandbox.run_tail_bytes=8192，留矩阵/多 variant 余量
-  result_compress_snippet: 16384           # 16KB；截断后喂 LLM 的 Output 概览大小（足够看清 sqlmap stdout / 多 variant 矩阵）
-  result_compress_summary: 1024            # 1KB；Result.Summary（喂 Reviewer 滑动窗；与 react.reviewer_obs_truncate 对齐）
   step_tool_timeout_seconds: 1800       # 单步 tool Execute 上限（30 分钟）；run_command 用此值钳 LLM 自传的 timeout_seconds；其他工具（write_finding 等）受 middleware WithTimeout 兜底。&lt; agent_run_timeout_seconds=3600
 
 # ---- heuristic 关键词清单 ----
