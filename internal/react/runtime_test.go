@@ -25,7 +25,7 @@ func (s *scriptedGen) Generate(_ context.Context, _ []llm.Message, _ []llm.ToolS
 	return r, nil
 }
 
-// captureAction 是 mock Action：可注入 err 模拟中间件异常。
+// captureAction 是 mock Action：可注入 err 模拟 Interceptor 异常。
 type captureAction struct {
 	name   string
 	called int
