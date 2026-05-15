@@ -233,6 +233,26 @@ func main() {
 		}
 	}()
 
+	// Rotator sweeper goroutine：与「懒轮换」（流量进来时 EnsureProxySession 检查 expires_at）
+	// 互补——无流量场景下也能保证「24h 一到必关」，避免 PG 堆积陈旧 active 行 + viewer 看僵尸 session。
+	go func() {
+		interval := time.Duration(cfg.Engagement.SweeperIntervalSeconds) * time.Second
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-flowCtx.Done():
+				return
+			case <-ticker.C:
+				if n, err := rotator.Sweep(flowCtx); err != nil {
+					logger.Warn().Err(err).Msg("engagement sweep failed")
+				} else if n > 0 {
+					logger.Info().Int("aborted", n).Msg("engagement sweep aborted expired session")
+				}
+			}
+		}
+	}()
+
 	// healthz HTTP
 	hsMux := http.NewServeMux()
 	hsMux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {

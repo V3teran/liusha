@@ -183,12 +183,13 @@ type IngestorConfig struct {
 
 // EngagementConfig 是 engagement 懒创建 + 滚动归档参数。
 type EngagementConfig struct {
-	IdleTimeoutHours       int `mapstructure:"idle_timeout_hours"`
+	// SweeperIntervalSeconds：Rotator.Sweep 定时 goroutine 触发周期，
+	// 用于主动 abort 已过期但还挂 active 的 proxy session（无流量时仍能换）。
 	SweeperIntervalSeconds int `mapstructure:"sweeper_interval_seconds"`
 
 	// Rotator 单一阈值（proxy 模式）。
-	// 历史 MaxStateSizeBytes / MaxFindings 已删——notes 走 Redis TTL 自治，
-	// finding 计数本身不应触发轮转。
+	// 历史 IdleTimeoutHours（v0033 前空闲超时）/ MaxStateSizeBytes / MaxFindings 已删——
+	// notes 走 Redis TTL 自治，finding 计数本身不应触发轮转。
 	MaxAgeHours int `mapstructure:"max_age_hours"`
 
 	// hunter user prompt 拼装时的上限（避免 prompt 膨胀）。
@@ -522,9 +523,6 @@ func applyIngestorDefaults(c IngestorConfig) IngestorConfig {
 }
 
 func applyEngagementDefaults(c EngagementConfig) EngagementConfig {
-	if c.IdleTimeoutHours == 0 {
-		c.IdleTimeoutHours = 24
-	}
 	if c.SweeperIntervalSeconds == 0 {
 		c.SweeperIntervalSeconds = 600
 	}

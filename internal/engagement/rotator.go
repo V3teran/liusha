@@ -105,3 +105,30 @@ func (r *Rotator) rotate(ctx context.Context, oldEng Engagement) (string, error)
 	}
 	return newEng.ID, nil
 }
+
+// Sweep 主动清理已过期的 active proxy session。
+//
+// 与 EnsureProxySession 的「懒轮换」互补：懒轮换依赖流量进来才检查，无流量时
+// 旧 engagement 一直挂 active 状态——Sweep 由 scanner 定时 goroutine 触发，
+// 保证「时间到必关」语义，避免：
+//   - 长时间无流量后 PG 里堆积陈旧 active 行
+//   - viewer 拿到"已过期但还 active"的僵尸 engagement
+//   - notes Redis TTL 早就过期，但 active engagement 还在
+//
+// 实现：拿当前 active proxy（唯一索引保证最多 1 行），过期则 Abort，不重建——
+// 重建依然交给下次流量进来时的 EnsureProxySession 链路（无流量时不浪费建空 session）。
+//
+// 返回值：本次实际 abort 的数量（0 或 1）。错误 caller 自决定是否告警。
+func (r *Rotator) Sweep(ctx context.Context) (int, error) {
+	eng, ok, err := r.engs.LookupActiveProxy(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("sweep: lookup active proxy: %w", err)
+	}
+	if !ok || !r.expired(eng) {
+		return 0, nil
+	}
+	if err := r.engs.Abort(ctx, eng.ID, ""); err != nil {
+		return 0, fmt.Errorf("sweep: abort expired %s: %w", eng.ID, err)
+	}
+	return 1, nil
+}

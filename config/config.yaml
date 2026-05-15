@@ -219,8 +219,8 @@ ingestor:
 
 # ---- engagement 懒创建 + 24h 归档 + Rotator 阈值 ----
 engagement:
-  idle_timeout_hours: 24            # 空闲多久 sweeper 自动 abort
-  sweeper_interval_seconds: 600     # sweeper 轮询周期
+  # Rotator.Sweep 定时 goroutine 触发周期（主动 abort 过期 active proxy session）
+  sweeper_interval_seconds: 600
   # Rotator 单一阈值（proxy 模式按时间滚动新 engagement）
   # 历史 max_state_size_bytes / max_findings 已删——notes 走 Redis TTL 自治，
   # finding 计数本身不该触发轮转。
