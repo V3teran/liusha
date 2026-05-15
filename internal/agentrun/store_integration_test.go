@@ -128,6 +128,3 @@ func TestStore_TerminalIsSticky(t *testing.T) {
 	}
 }
 
-// v1.1 移除：原 TestStore_ParentChild + TestStore_InflightCounters 测的是
-// parent_task_id 列 + CountInflightChildren 方法；v1.1 redesign 已把这俩从
-// 生产代码删除（子 ReAct 同进程嵌套不入 PG），测试同步删。

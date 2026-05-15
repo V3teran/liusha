@@ -16,8 +16,8 @@ import (
 
 // Done 是终止 ReAct 循环的动作。Result.Done=true 由 runtime 直接退出主循环。
 //
-// agentic-lean：不做语义校验（done_validator 已删），args 原样回吐到 Result.Output
-// 供 Reviewer / 任务汇总使用。LLM 自由收手，MaxSteps 兜死循环。
+// 不做语义校验：args 原样回吐到 Result.Output 供 Reviewer / 任务汇总使用。
+// LLM 自由收手，MaxSteps 兜死循环。
 type Done struct{}
 
 // Name 返回动作名 "done"。

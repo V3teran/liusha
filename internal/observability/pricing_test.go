@@ -9,7 +9,7 @@ import (
 )
 
 // testPricing 提供测试用的默认单价表（包含 spec §8.2 三模型基准）。
-// v1.3 改造后 DefaultPricing 不再是包级变量，测试自行用 config 兜底重建。
+// DefaultPricing 不是包级变量，测试自行用 config 兜底重建。
 var testPricing = NewPricing(config.DefaultPricing())
 
 // TestEstimate_DeepSeek 验证 deepseek-chat 的基础单价计算

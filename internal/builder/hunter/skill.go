@@ -158,10 +158,9 @@ func NewBuilder(deps Deps) skill.Builder {
 			return react.Config{}, fmt.Errorf("hunter register tools: %w", errors.Join(regErrs...))
 		}
 
-		// system prompt 来自包级 //go:embed system_prompt.md，无运行时 fs 失败路径
-		// agentic-lean：done validator / result_compress 已删——hunter 自由收手，
-		// run_command 内部 tail_bytes（8KB×2）已经把单次 Output 钳在 ~17KB，
-		// 不需要再加一层截断。
+		// system prompt 来自包级 //go:embed system_prompt.md，无运行时 fs 失败路径。
+		// hunter 自由收手——run_command 内部 tail_bytes (8KB×2) 已把单次 Output
+		// 钳在 ~17KB，不需要再加一层截断。
 		reg.Use(
 			interceptor.Observe(),
 			interceptor.Timeout(deps.StepToolTimeoutSeconds),
@@ -501,8 +500,8 @@ func writeBodyBlock(b *strings.Builder, body []byte, limit int) {
 
 // loadExistingFindings 拉「engagement + host」已有 finding 摘要（dedup 参考）。
 //
-// v1.1 重设计：从跨 engagement 收窄到 engagement+host——每次扫描独立，不被历史污染。
-// 跨次扫描的复用走 lesson（用 loadKnowledgeForPrompt 注入段 4）。
+// 范围限 engagement+host，每次扫描独立，不被跨次扫描的历史污染（复用走 lesson，
+// 由 loadKnowledgeForPrompt 注入段 4）。
 // showLimit 由 caller 提供；SQL 拉 showLimit+1 条做"还有更多"信号。
 func loadExistingFindings(ctx context.Context, store *finding.Store, engagementID, host string, showLimit int) string {
 	if store == nil || engagementID == "" || host == "" || showLimit <= 0 {
@@ -526,10 +525,10 @@ func loadExistingFindings(ctx context.Context, store *finding.Store, engagementI
 // loadEngagementNotes 拉本次扫描 (engagement, host) 范围的 notes（短期工作内存）
 // 渲染给 hunter user prompt。
 //
-// v0033：engagement 可挂多 host，notes 按 (eid, host) 切分——本函数只读本 host 的笔记，
-// 不会混入其他 host 的怪癖/死路。
-// 注入到 user prompt 让 hunter 看到同 (engagement, host) 内其他 hunter task 写的笔记
-// （临时凭据/状态、目标怪癖、小惊喜、失败死路），避免每个 agent 从零摸索。
+// notes 按 (eid, host) 切分——本函数只读本 host 的笔记，不会混入其他 host 的
+// 怪癖/死路。注入到 user prompt 让 hunter 看到同 (engagement, host) 内其他
+// hunter task 写的笔记（临时凭据/状态、目标怪癖、小惊喜、失败死路），避免每个
+// agent 从零摸索。
 func loadEngagementNotes(ctx context.Context, store notes.Store, engagementID, host string) string {
 	if store == nil || engagementID == "" || host == "" {
 		return ""

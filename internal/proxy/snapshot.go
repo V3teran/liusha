@@ -12,7 +12,7 @@ import "time"
 
 // TrafficSnapshot 一条 HTTP 流量在 Redis Stream / 消费者侧的可序列化快照。
 //
-// URI 拆解（v1.1）：
+// URI 拆解：
 //
 //	URI    保留原始字符串（含 query，重放时需要原顺序，对签名服务端友好）
 //	Path   path 部分（不含 query），用作 dedup_key 模板化 + sniffer 路由判断
@@ -21,7 +21,7 @@ import "time"
 // 字段构成：
 //
 //	ID              全局唯一 id（uuid 等，由 proxy.Server 生成）
-//	Host            host header（去端口）；finding/lesson/note 按 host 切分，但 engagement 不再 per-host (v0033)
+//	Host            host header（去端口）；finding/lesson/note 按 host 切分（engagement 不 per-host）
 //	HostPort        host:port 原文（用于 fullURL 重放定位真实端口；空则由消费者退化到 Host）
 //	Method          GET/POST/...
 //	Scheme          http / https

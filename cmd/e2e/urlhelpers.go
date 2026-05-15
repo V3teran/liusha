@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-// extractHost 从 URL 提取 host（含端口，与 proxy 落库 snapshot.Host 对齐——v1.1 后全链路含端口）。
+// extractHost 从 URL 提取 host（含端口，与 proxy 落库 snapshot.Host 对齐——全链路含端口）。
 func extractHost(rawURL string) (string, error) {
 	u, err := url.Parse(rawURL)
 	if err != nil {

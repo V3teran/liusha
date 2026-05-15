@@ -26,7 +26,7 @@ func setup(t *testing.T) (*Store, string) {
 
 // TestStore_Append_Basic 验证：插一条普通 LLM 调用无错误。
 //
-// v1.1 异步改造后 Append 永远返 id=0（store.go:25 注释），所以不再断言 id；
+// 异步 batch 写入路径下 Append 永远返 id=0（详见 store.go），不再断言 id；
 // 真正的"行写进去了吗"由后面的 SumCost/CountByCallPurpose 测试覆盖。
 func TestStore_Append_Basic(t *testing.T) {
 	ctx := context.Background()

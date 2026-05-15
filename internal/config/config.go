@@ -1,7 +1,7 @@
 // Package config 用 viper 加载 YAML 配置 + ENV 覆盖 + 启动校验。
 //
-// v1.3 改造：把散落在各包的硬编码常量统一收敛到本文件。
 // 设计原则：
+//   - 所有可调参数统一收敛到本文件，避免散落各包的硬编码常量
 //   - 每个 sub-struct 字段缺省值由 ApplyDefaults() 兜底，避免 yaml 缺字段时进程拒启动
 //   - 仅 LLM provider key（DefaultProvider 等）做强制 validate（密钥读取必须有 provider 信息）
 //   - ENV 覆盖前缀 LIUSHA_，二级用 _ 分隔（如 LIUSHA_LLM_DEFAULT_PROVIDER）
@@ -187,8 +187,7 @@ type EngagementConfig struct {
 	// 用于主动 abort 已过期但还挂 active 的 proxy session（无流量时仍能换）。
 	SweeperIntervalSeconds int `mapstructure:"sweeper_interval_seconds"`
 
-	// Rotator 单一阈值（proxy 模式）。
-	// 历史 IdleTimeoutHours（v0033 前空闲超时）/ MaxStateSizeBytes / MaxFindings 已删——
+	// Rotator 单一阈值（proxy 模式）：从 created_at 起超过此小时数即滚动新 engagement。
 	// notes 走 Redis TTL 自治，finding 计数本身不应触发轮转。
 	MaxAgeHours int `mapstructure:"max_age_hours"`
 

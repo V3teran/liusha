@@ -23,7 +23,6 @@ type Store struct {
 func NewStore(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
 
 // colsSelect 是所有 SELECT 路径的统一列序，与 scan() 的字段顺序一一对应。
-// v0033：target_host 字段删除，加 scope / expires_at。
 const colsSelect = "id, mode, scope, status, created_at, expires_at, " +
 	"ended_at, error_message, flow_count, finding_count, agent_run_count"
 
@@ -88,9 +87,7 @@ const (
 
 // List 按 created_at DESC 列出最近的 engagements。
 // limit<=0 时回退到 defaultListLimit（20），>maxListLimit（200）截到 maxListLimit。
-//
-// v0033：删除 host 过滤参数——engagement 不再 per-host，按 host 查找应改走
-// finding/flow 等子资源（它们都按 host 索引）。
+// 按 host 查找走 finding/flow 等子资源（它们都按 host 索引）。
 func (s *Store) List(ctx context.Context, limit int) ([]Engagement, error) {
 	if limit <= 0 {
 		limit = defaultListLimit
@@ -184,7 +181,6 @@ type scanner interface {
 }
 
 // scan 是 colsSelect 列序的统一反序列化点。
-// v0033：target_host 字段删除，scope/expires_at 加入。
 func scan(r scanner, e *Engagement) error {
 	return r.Scan(&e.ID, &e.Mode, &e.Scope, &e.Status,
 		&e.CreatedAt, &e.ExpiresAt,

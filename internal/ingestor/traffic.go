@@ -51,7 +51,7 @@ type Traffic struct {
 //
 // Stream 必填（来自 cfg.Proxy.StreamName，proxy/ingestor 之间约定）；
 // Cfg 提供 group/consumer/batch/block/retry 等运行参数（缺省值已由 ApplyDefaults 兜底）；
-// Rotator 必填：v0033 后 proxy session 不再 per-host，必须经 Rotator 统一管理。
+// Rotator 必填：proxy session 不 per-host，必须经 Rotator 统一管理。
 type Deps struct {
 	Redis    *redis.Client
 	Cfg      config.IngestorConfig

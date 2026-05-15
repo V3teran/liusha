@@ -10,8 +10,7 @@ import (
 
 // NoteStore 是 engagement notes 共享笔记板的最小访问接口。
 // 由 *notes.RedisStore 自动满足（internal/notes 包提供）。
-//
-// v0033：所有方法加 host 参数——engagement 可挂多 host，notes 按 (eid, host) 切分。
+// engagement 可挂多 host，notes 按 (eid, host) 切分。
 type NoteStore interface {
 	ReadNotes(ctx context.Context, engagementID, host string) ([]byte, error)
 	AppendNote(ctx context.Context, engagementID, host string, entry []byte) error

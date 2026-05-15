@@ -207,7 +207,7 @@ func (s *Store) ListByEngagement(ctx context.Context, engagementID string) ([]Vu
 // ListByEngagementAndHost 列出当前 engagement + host 下的 finding（按 created_at desc）。
 //
 // 用于 hunter user prompt 段 3 注入"该 host 已有 finding"——隔离每次 engagement，
-// 不被历史扫描污染（旧实现 ListByHost 跨 engagement，已被 v1.1 重设计弃用）。
+// 不被跨次扫描的历史污染。
 // limit ≤ 0 不限制。
 func (s *Store) ListByEngagementAndHost(ctx context.Context, engagementID, host string, limit int) ([]VulnFinding, error) {
 	q := `SELECT ` + colsSelect + ` FROM finding WHERE engagement_id=$1 AND host=$2 ORDER BY created_at DESC`

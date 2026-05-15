@@ -5,8 +5,8 @@
 //   - lesson (internal/lesson)：跨 engagement / 按 host 持久化长期经验，PG。
 //   - finding (internal/finding)：漏洞 PoC 结论，PG。
 //
-// v0033：engagement 可挂多 host（proxy 模式接受任意 host 流量），notes 按
-// (engagement_id, host) 二维切分隔离 hunter 工作面——host A 的 fact 不会污染 host B。
+// engagement 可挂多 host（proxy 模式接受任意 host 流量），notes 按
+// (engagement_id, host) 二维切分——host A 的 fact 不会污染 host B。
 //
 // key=liusha:note:{engagement_id}:{host}，LIST 类型；每条 element 是 JSON bytes
 // （形如 {"content":"...","agent_run_id":"..."}），store 不解析也不强制结构——
@@ -31,8 +31,7 @@ import (
 //
 // 同时被 internal/tools/common/note.go 的 NoteStore 与
 // internal/react/reviewer_llm.go 的 NotesReader 隐式满足。
-//
-// v0033：所有方法加 host 参数——同 engagement 多 host 切分隔离。
+// 所有方法带 host 参数——同 engagement 多 host 切分隔离。
 type Store interface {
 	AppendNote(ctx context.Context, engagementID, host string, entry []byte) error
 	ReadNotes(ctx context.Context, engagementID, host string) ([]byte, error)

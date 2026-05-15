@@ -87,7 +87,7 @@ type Projector struct {
 
 // Project 投影 (engagementID, host) 范围的图。
 //
-// v0033 起 engagement 不再 per-host（可挂多 host），host 参数语义：
+// engagement 可挂多 host，host 参数语义：
 //   - 非空：按 finding.host 过滤，只投影该 host 下的图
 //   - 空：列本 engagement 跨 host 的全部 finding（多 host 时图可能较杂）
 //
@@ -107,7 +107,6 @@ func (p *Projector) Project(ctx context.Context, engagementID, host string) (Vie
 	if err != nil {
 		return View{}, fmt.Errorf("engagement.GetByID: %w", err)
 	}
-	// v0033：engagement 不再 per-host，删除 eng.TargetHost fallback。
 	// host 为空表示「列本 engagement 跨 host 的全部 finding」，由下方 host 过滤分支跳过。
 	effectiveHost := host
 
@@ -249,8 +248,8 @@ func (p *Projector) Project(ctx context.Context, engagementID, host string) (Vie
 // findingNode 把 finding 行渲染成节点；payload 含 severity / confidence / kind / summary 等
 // 让前端能着色 + 显示 tooltip。
 //
-// v0023：原 Label 取 f.Title（已删）；现取 f.Summary 第一行（≤72 chars），参考
-// git commit message convention——第一行充当短标题，完整 summary 通过 payload 给前端。
+// Label 取 f.Summary 第一行（≤72 chars），参考 git commit message convention——
+// 第一行充当短标题，完整 summary 通过 payload 给前端。
 func findingNode(id string, f finding.VulnFinding) Node {
 	return Node{
 		ID:    id,

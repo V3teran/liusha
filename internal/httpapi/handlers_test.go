@@ -287,7 +287,7 @@ func TestEngagementAbort_RequiresAuth(t *testing.T) {
 }
 
 // TestEngagementProxy_Created：POST /engagement/proxy 正常路径返回 engagement_id。
-// v0033：请求体为空——proxy session 不再 per-host。
+// 请求体为空——proxy session 不 per-host。
 func TestEngagementProxy_Created(t *testing.T) {
 	fa := &fakeAbort{}
 	srv := newTestServer(t, Deps{Engagements: fa})

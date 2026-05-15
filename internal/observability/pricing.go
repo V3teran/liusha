@@ -41,7 +41,7 @@ const tokensPerMillion = 1_000_000.0
 
 // NewPricing 用 yaml 配置构造 Pricing。
 //
-// 设计意图（v1.3）：单价单位/折扣/缓存语义全部从 config.PricingConfig 注入，
+// 设计意图：单价单位/折扣/缓存语义全部从 config.PricingConfig 注入，
 // 让运维不重编即可维护单价表（provider 季度降价 / 加新模型 / 跨环境差异）。
 // caller 通常这样用：`pricing := observability.NewPricing(cfg.Pricing)` 一次构造，
 // 透传给 llm.Instrument / handler.pricing 字段；后续 Lookup/Estimate 0 IO 命中内存表。

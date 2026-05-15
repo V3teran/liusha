@@ -3,8 +3,8 @@
 // 设计要点：
 //   - 主循环：LLM 生成 → tool calls 经 Registry（含 Interceptor 链）执行 → 喂回历史 → 直到 done / 预算耗尽。
 //   - Reviewer hook：每 N=5 步触发，根据滑动窗判决 continue / redirect / terminate。
-//   - agentic-lean：不强制结构化 done.reason / 不卡 done validator，LLM 自由收手；
-//     MaxSteps + WatchdogSeconds + ctx cancel 是足够的死循环兜底。
+//   - LLM 自由收手（不强制结构化 done.reason）；MaxSteps + WatchdogSeconds + ctx
+//     cancel 是死循环兜底。
 package react
 
 import (

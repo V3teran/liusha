@@ -22,7 +22,7 @@ type CredentialsAPI interface {
 // Abort：把 engagement 置为 aborted。
 // List：按 created_at DESC 列最近 N 个；前端 viewer 下拉用。
 //
-// v0033：proxy session 不再 per-host，单个 active proxy 容纳所有 host 流量。
+// proxy session 不 per-host，单个 active proxy 容纳所有 host 流量。
 type EngagementsAPI interface {
 	Abort(ctx context.Context, id string) error
 	EnsureProxySession(ctx context.Context) (string, error)
@@ -31,8 +31,6 @@ type EngagementsAPI interface {
 
 // EngagementSummary 是 List 返回行——只暴露前端 viewer 需要的字段，
 // 不直接返回 engagement.Engagement 完整结构（避免泄露大字段 + 减小响应体）。
-//
-// v0033：删除 TargetHost，加 Scope（jsonb 字符串）+ ExpiresAt（RFC3339）。
 type EngagementSummary struct {
 	ID            string `json:"id"`
 	Scope         string `json:"scope"`                   // jsonb raw（如 {"any":true} / {"hosts":[...]}）
@@ -42,7 +40,7 @@ type EngagementSummary struct {
 	FindingCount  int    `json:"finding_count"`
 	AgentRunCount int    `json:"agent_run_count"`
 	CreatedAt     string `json:"created_at"`              // RFC3339
-	ExpiresAt     string `json:"expires_at,omitempty"`    // RFC3339；v0034 起 proxy 模式必填
+	ExpiresAt     string `json:"expires_at,omitempty"`    // RFC3339 proxy session 必填
 	EndedAt       string `json:"ended_at,omitempty"`      // RFC3339（可空）
 	ErrorMessage  string `json:"error_message,omitempty"`
 }
@@ -104,7 +102,7 @@ func deleteCredentialHandler(api CredentialsAPI) gin.HandlerFunc {
 }
 
 // createProxyHandler 处理 POST /engagement/proxy：返回当前 active proxy session
-// （不存在则建新）。v0033 起 proxy session 不再 per-host，请求体为空 {}。
+// （不存在则建新）。proxy session 不 per-host，请求体为空 {}。
 // 幂等：重复调用在 TTL 窗口内返回同一 engagement_id；过期由 ingestor 内部 Rotator 轮转。
 func createProxyHandler(api EngagementsAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -119,7 +117,7 @@ func createProxyHandler(api EngagementsAPI) gin.HandlerFunc {
 
 // listEngagementsHandler 处理 GET /engagement?limit=<optional>。
 // 返回最近 N 个 engagement 摘要，前端用作下拉选择。
-// v0033：删除 ?host= 过滤——按 host 查找请改走 finding/flow 子资源接口。
+// 按 host 查找请改走 finding/flow 子资源接口。
 func listEngagementsHandler(api EngagementsAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		limit := 0

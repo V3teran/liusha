@@ -2,10 +2,7 @@
 //
 // 设计要点：
 //   - Action 是 LLM 可调用的工具单元，Execute 返回 Result（含 Done 终止信号 + Summary 摘要）。
-//   - Registry 在动作执行前后通过 Interceptor 链横切：Observe / Timeout（详见
-//     internal/toolruntime/interceptor 包）。命名向 grpc-go 的 UnaryInterceptor 对齐，
-//     与 internal/httpapi 的 gin middleware 区分开——本包是"RPC 风格的方法拦截"，
-//     不是"HTTP 请求拦截"。
+//   - Registry 在动作执行前后通过 Interceptor 链横切（详见 internal/toolruntime/interceptor）。
 //   - Interceptor 顺序：先注册的在最外层（先 enter、后 exit），洋葱模型。
 package toolfx
 
@@ -40,8 +37,7 @@ type Action interface {
 // ActionExecutor 是去掉 Action 实例后的执行函数签名，用于 Interceptor 链。
 type ActionExecutor func(ctx context.Context, name string, args json.RawMessage) (Result, error)
 
-// Interceptor 是一层装饰：包住 next 返回新的 Executor。命名向 grpc-go 的
-// UnaryServerInterceptor 对齐，本包是 RPC 风格方法拦截，区别于 HTTP middleware。
+// Interceptor 是一层装饰：包住 next 返回新的 Executor。
 type Interceptor func(next ActionExecutor) ActionExecutor
 
 // Registry 持有已注册的 Action 与 Interceptor 链，是 ReAct runtime 唯一的动作入口。

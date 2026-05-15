@@ -67,7 +67,7 @@ func NewRotator(engs engStore, limits RotateLimits) *Rotator {
 //  3. 已有 & expires_at 未过期：直接返回
 //  4. 已有 & 已过期：Abort 旧 + CreateProxySession 建新
 //
-// v0033：删除 host 参数——proxy session 接受任意 host 流量，按时间窗轮转。
+// proxy session 接受任意 host 流量，按时间窗轮转。
 func (r *Rotator) EnsureProxySession(ctx context.Context) (string, error) {
 	eng, ok, err := r.engs.LookupActiveProxy(ctx)
 	if err != nil {

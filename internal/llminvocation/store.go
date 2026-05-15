@@ -16,7 +16,7 @@ import (
 
 // Store 封装 llm_call 表的所有持久化操作。
 //
-// 写入采用 channel + 后台 worker 批量 INSERT 模式（v1.1 性能改造）：
+// 写入采用 channel + 后台 worker 批量 INSERT 模式（性能优化）：
 //   - Append 把 Invocation 推到 buffered channel 立即返回，Generate 路径 0 阻塞
 //   - 后台 worker 累积 batchSize=100 行或 flushInterval=1s 触发一次批量 INSERT
 //   - Close() 优雅关闭：停 worker + 清空剩余 buffer + 最后一次 flush
@@ -37,8 +37,7 @@ type Store struct {
 	insertTimeout time.Duration
 }
 
-// fallback 参数（caller 用 NewStore(pool) 旧路径时使用，
-// 与 v1.1 上线时的初始默认值保持一致避免性能/审计回归）。
+// fallback 参数（caller 用 NewStore(pool) 不带 config 路径时使用）。
 const (
 	fallbackBufferSize    = 1024
 	fallbackBatchSize     = 100

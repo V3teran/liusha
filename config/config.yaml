@@ -1,5 +1,5 @@
 # ============================================================================
-# Liusha v1 主配置（v1.3 收敛：所有可调参数统一到本文件，避免散落代码 const）
+# Liusha 主配置（所有可调参数统一到本文件，避免散落代码 const）
 #   - 仅放非敏感、可入库的开关与默认值
 #   - 所有 *_API_KEY 走 env，本文件不出现密钥
 #   - env 用 LIUSHA_ 前缀，支持二级覆盖
@@ -45,7 +45,7 @@ llm:
   fallback_provider: openai
   max_steps: 30                 # ReAct 单任务步数上限，被 Role.Budget 覆盖
   max_tokens_per_call: 4096
-  # 双 namespace（v1.1 改造）：把"真 agent"与"single-shot utility"语义分开。
+  # 双 namespace：把"真 agent"与"single-shot utility"语义分开。
   agents:
     hunter:       default_provider   # hunter ReAct（v0024 单层架构后唯一 agent）
     reviewer:     light_provider     # 旁路过程判官（每 5 步评估方向）
@@ -61,7 +61,7 @@ llm:
     backoff_net_seconds: [1, 3]
     backoff_529_ms: 0                # 529 立即重试
 
-  # llm_invocation 异步 batch 写入（v1.1 性能改造，Generate 路径 0 阻塞）
+  # llm_invocation 异步 batch 写入：Generate 路径 0 阻塞
   invocation:
     buffer_size: 1024                # channel 缓冲；满则丢一行（warn）
     batch_size: 100                  # 累积此行数即触发 flush

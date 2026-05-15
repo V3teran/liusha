@@ -310,7 +310,7 @@ func buildSnapshot(req *http.Request, resp *http.Response, reqBody, respBody []b
 		hostPort = req.Header.Get("Host")
 	}
 	// snapshot.Host 全链路含端口：credentials key / finding.dedup_key 据此区分多端口部署。
-	// 原 stripPort 调用已下线；过滤链白名单匹配由 HostFilter 内部 stripPort 处理（chain.go:114）。
+	// 过滤链白名单匹配由 HostFilter 内部 stripPort 处理（chain.go:114）。
 	host := hostPort
 
 	scheme := strings.ToLower(req.URL.Scheme)

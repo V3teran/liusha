@@ -49,8 +49,8 @@ func NewPgPool(t *testing.T) *pgxpool.Pool {
 	return pool
 }
 
-// applyAllMigrations 按字典序依次执行 db/migrations/*.up.sql。
-// 之前只跑 0001 的写法在 v1.1+ 列查询时全部失败。
+// applyAllMigrations 按字典序依次执行 db/migrations/*.up.sql，
+// 保证 integration test 跟最新 schema 同步。
 func applyAllMigrations(ctx context.Context, t *testing.T, pool *pgxpool.Pool) {
 	t.Helper()
 	files, err := filepath.Glob(filepath.Join(repoPath("db/migrations"), "*.up.sql"))

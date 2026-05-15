@@ -1,11 +1,9 @@
 // Package llminvocation 实现 llm_invocation 表持久化层：每一次外部 LLM 调用
 // （含失败）落一行用于成本核算 + 路由审计。
 //
-// v1.3 命名整改：
-//   - 列 role → call_purpose（与 OpenAI message.role 区分；这里是"调用目的"如
-//     hunter / reviewer 等）
-//   - 列 messages_json → messages（已是 jsonb 列，去 _json 后缀）
-//   - 列 result_json   → result（同上）
+// 列命名约定：
+//   - call_purpose 是"调用目的"（如 hunter / reviewer），与 OpenAI message.role 区分
+//   - messages / result 是 jsonb 列（完整输入/输出 payload，审计回放用）
 package llminvocation
 
 import "time"

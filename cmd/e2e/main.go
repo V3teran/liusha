@@ -581,8 +581,8 @@ func runAllUnified(ctx context.Context, plans []profilePlan, proxyHostPort, apiB
 }
 
 // resolveSampleHost 决定本 profile 样本流量所属的 host（用于建凭证 / 给 hunter
-// task 注入）。v0033 起 engagement 不再 per-host，此 host 仅供 e2e 内部建凭证、
-// 校验 finding.host 对得上用。
+// task 注入）。engagement 不 per-host，此 host 仅供 e2e 内部建凭证、校验
+// finding.host 对得上用。
 //
 //	优先级：env LIUSHA_E2E_SCOPE_HOST > 首条样本的 Host: 头去端口 > vulnBase URL 的 host
 //
