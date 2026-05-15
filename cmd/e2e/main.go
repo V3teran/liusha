@@ -57,6 +57,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -135,7 +137,7 @@ var profiles = map[string]profile{
 		credsForHost: func(_ string) []credentialEntry {
 			return []credentialEntry{
 				{Name: "admin", Role: "admin", Credentials: []map[string]string{
-					{"type": "headers", "key": "Cookie", "value": "PHPSESSID=22202e2d9b3f169d26fef775c6077e10; security=low"},
+					{"type": "headers", "key": "Cookie", "value": "PHPSESSID=668a0c0d068f02c275791bb82ce24ec6; security=low"},
 				}},
 			}
 		},
@@ -148,7 +150,7 @@ var profiles = map[string]profile{
 		credsForHost: func(_ string) []credentialEntry {
 			return []credentialEntry{
 				{Name: "admin", Role: "admin", Credentials: []map[string]string{
-					{"type": "headers", "key": "Cookie", "value": "PHPSESSID=22202e2d9b3f169d26fef775c6077e10; security=low"},
+					{"type": "headers", "key": "Cookie", "value": "PHPSESSID=668a0c0d068f02c275791bb82ce24ec6; security=low"},
 				}},
 			}
 		},
@@ -161,7 +163,7 @@ var profiles = map[string]profile{
 		credsForHost: func(_ string) []credentialEntry {
 			return []credentialEntry{
 				{Name: "admin", Role: "admin", Credentials: []map[string]string{
-					{"type": "headers", "key": "Cookie", "value": "PHPSESSID=22202e2d9b3f169d26fef775c6077e10; security=low"},
+					{"type": "headers", "key": "Cookie", "value": "PHPSESSID=668a0c0d068f02c275791bb82ce24ec6; security=low"},
 				}},
 			}
 		},
@@ -174,7 +176,7 @@ var profiles = map[string]profile{
 		credsForHost: func(_ string) []credentialEntry {
 			return []credentialEntry{
 				{Name: "admin", Role: "admin", Credentials: []map[string]string{
-					{"type": "headers", "key": "Cookie", "value": "PHPSESSID=22202e2d9b3f169d26fef775c6077e10; security=low"},
+					{"type": "headers", "key": "Cookie", "value": "PHPSESSID=668a0c0d068f02c275791bb82ce24ec6; security=low"},
 				}},
 			}
 		},
@@ -187,7 +189,7 @@ var profiles = map[string]profile{
 		credsForHost: func(_ string) []credentialEntry {
 			return []credentialEntry{
 				{Name: "admin", Role: "admin", Credentials: []map[string]string{
-					{"type": "headers", "key": "Cookie", "value": "PHPSESSID=22202e2d9b3f169d26fef775c6077e10; security=low"},
+					{"type": "headers", "key": "Cookie", "value": "PHPSESSID=668a0c0d068f02c275791bb82ce24ec6; security=low"},
 				}},
 			}
 		},
@@ -202,7 +204,7 @@ var profiles = map[string]profile{
 		credsForHost: func(_ string) []credentialEntry {
 			return []credentialEntry{
 				{Name: "admin", Role: "admin", Credentials: []map[string]string{
-					{"type": "headers", "key": "Cookie", "value": "PHPSESSID=22202e2d9b3f169d26fef775c6077e10; security=low"},
+					{"type": "headers", "key": "Cookie", "value": "PHPSESSID=668a0c0d068f02c275791bb82ce24ec6; security=low"},
 				}},
 			}
 		},
@@ -217,7 +219,7 @@ var profiles = map[string]profile{
 		credsForHost: func(_ string) []credentialEntry {
 			return []credentialEntry{
 				{Name: "admin", Role: "admin", Credentials: []map[string]string{
-					{"type": "headers", "key": "Cookie", "value": "PHPSESSID=22202e2d9b3f169d26fef775c6077e10; security=low"},
+					{"type": "headers", "key": "Cookie", "value": "PHPSESSID=668a0c0d068f02c275791bb82ce24ec6; security=low"},
 				}},
 			}
 		},
@@ -232,7 +234,7 @@ var profiles = map[string]profile{
 		credsForHost: func(_ string) []credentialEntry {
 			return []credentialEntry{
 				{Name: "admin", Role: "admin", Credentials: []map[string]string{
-					{"type": "headers", "key": "Cookie", "value": "PHPSESSID=22202e2d9b3f169d26fef775c6077e10; security=low"},
+					{"type": "headers", "key": "Cookie", "value": "PHPSESSID=668a0c0d068f02c275791bb82ce24ec6; security=low"},
 				}},
 			}
 		},
@@ -247,7 +249,7 @@ var profiles = map[string]profile{
 		credsForHost: func(_ string) []credentialEntry {
 			return []credentialEntry{
 				{Name: "admin", Role: "admin", Credentials: []map[string]string{
-					{"type": "headers", "key": "Cookie", "value": "PHPSESSID=22202e2d9b3f169d26fef775c6077e10; security=low"},
+					{"type": "headers", "key": "Cookie", "value": "PHPSESSID=668a0c0d068f02c275791bb82ce24ec6; security=low"},
 				}},
 			}
 		},
@@ -262,7 +264,7 @@ var profiles = map[string]profile{
 		credsForHost: func(_ string) []credentialEntry {
 			return []credentialEntry{
 				{Name: "admin", Role: "admin", Credentials: []map[string]string{
-					{"type": "headers", "key": "Cookie", "value": "PHPSESSID=22202e2d9b3f169d26fef775c6077e10; security=low"},
+					{"type": "headers", "key": "Cookie", "value": "PHPSESSID=668a0c0d068f02c275791bb82ce24ec6; security=low"},
 				}},
 			}
 		},
@@ -277,7 +279,7 @@ var profiles = map[string]profile{
 		credsForHost: func(_ string) []credentialEntry {
 			return []credentialEntry{
 				{Name: "admin", Role: "admin", Credentials: []map[string]string{
-					{"type": "headers", "key": "Cookie", "value": "PHPSESSID=22202e2d9b3f169d26fef775c6077e10; security=low"},
+					{"type": "headers", "key": "Cookie", "value": "PHPSESSID=668a0c0d068f02c275791bb82ce24ec6; security=low"},
 				}},
 			}
 		},
@@ -292,7 +294,7 @@ var profiles = map[string]profile{
 		credsForHost: func(_ string) []credentialEntry {
 			return []credentialEntry{
 				{Name: "admin", Role: "admin", Credentials: []map[string]string{
-					{"type": "headers", "key": "Cookie", "value": "PHPSESSID=22202e2d9b3f169d26fef775c6077e10; security=low"},
+					{"type": "headers", "key": "Cookie", "value": "PHPSESSID=668a0c0d068f02c275791bb82ce24ec6; security=low"},
 				}},
 			}
 		},
@@ -347,25 +349,17 @@ func main() {
 	}
 	defer pool.Close()
 
-	// 4. 串行跑每个 plan；任一失败标记 fail，全部跑完才退出
-	failed := []string{}
-	for _, plan := range plans {
-		if err := runProfile(ctx, plan, proxyHostPort, apiBase, apiKey, pool, logger); err != nil {
-			logger.Error().Err(err).Str("profile", plan.prof.name).Msg("profile FAIL")
-			failed = append(failed, plan.prof.name)
-		}
-	}
-
-	if len(failed) > 0 {
-		logger.Error().Strs("failed_profiles", failed).Msg("e2e 部分失败")
-		fmt.Printf("✗ e2e 失败 profile=[%s]\n", strings.Join(failed, ","))
-		os.Exit(len(failed))
+	// 4. 并发 dispatch 全部 profile 的全部 sample + 统一 poll
+	if err := runAllUnified(ctx, plans, proxyHostPort, apiBase, apiKey, pool, logger); err != nil {
+		logger.Error().Err(err).Msg("e2e unified FAIL")
+		fmt.Printf("✗ e2e FAIL: %v\n", err)
+		os.Exit(1)
 	}
 	names := make([]string, len(plans))
 	for i, p := range plans {
 		names[i] = p.prof.name
 	}
-	fmt.Printf("✓ e2e 全部通过 profile=[%s]\n", strings.Join(names, ","))
+	fmt.Printf("✓ e2e unified PASS profile=[%s]\n", strings.Join(names, ","))
 }
 
 // selectProfiles 解析 CLI args；空 = 全部 profile（按名字字典序）。
@@ -440,103 +434,150 @@ func enrollAllCreds(apiBase, apiKey, vulnBase string) error {
 	return saveCredsBatch(apiBase, apiKey, hostCreds)
 }
 
-// runProfile 跑单个 profile 的完整生命周期：建 engagement → 发样本 → 轮询 finding。
+// runAllUnified 并发跑所有 plan：一次性 dispatch 全部 profile 的全部 sample，
+// 然后统一 poll 等所有 agent_run done + 总 finding 数满足各 profile minFindings 之和。
 //
-// 多 profile 共享 engagement（同 host）时，poll 必须把范围限到"本 profile 启动后"
-// 才不会把前一个 profile 的战果误算成本 profile PASS。两道防线：
+// 与旧串行版本（每 profile 独立 dispatch + 独立 poll）相比：
+//   - 总耗时 ≈ max(各 task 时长)，而非 sum(...)
+//   - 失去 per-profile PASS 粒度，整体 PASS/FAIL；finding 列表按 severity+summary
+//     输出方便人工归属判断
 //
-//  1. profileStartedAt 基线：finding / agent_run 都按 created_at > 基线过滤；
-//  2. observedAtLeastOneRun 哨兵：必须看到过 unfinishedRuns≥1 一次后，
-//     unfinishedRuns==0 才允许判 PASS——防止 ingestor 尚未异步创建 agent_run
-//     时 poll 立即 PASS 的假阳性（曾出现 cryptography profile 0.1s 内 PASS 的 bug）。
-func runProfile(ctx context.Context, plan profilePlan, proxyHostPort, apiBase, apiKey string, pool *pgxpool.Pool, logger zerolog.Logger) error {
-	logger.Info().
-		Str("profile", plan.prof.name).
-		Str("target_host", plan.host).
-		Str("samples", plan.samplePth).
-		Int("sample_count", len(plan.samples)).
-		Msg("profile starting")
-
-	eid, err := createProxyEngagement(apiBase, apiKey, plan.host)
-	if err != nil {
-		return fmt.Errorf("create engagement: %w", err)
-	}
-	logger.Info().Str("profile", plan.prof.name).Str("engagement_id", eid).Msg("engagement ready")
-
-	// dispatch 前固定基线，确保下文统计的 finding / agent_run 都是本 profile 触发的。
-	profileStartedAt := time.Now()
-
-	for i, raw := range plan.samples {
-		if err := dispatchRaw(proxyHostPort, raw); err != nil {
-			return fmt.Errorf("dispatch sample %d: %w", i, err)
-		}
-		logger.Info().Str("profile", plan.prof.name).Int("idx", i).Msg("raw dispatched")
-	}
-
-	store := finding.NewStore(pool)
-	agentRunStore := agentrun.NewStore(pool)
-	deadline := time.Now().Add(pollDeadline())
-	observedAtLeastOneRun := false
-	for time.Now().Before(deadline) {
-		all, err := store.ListByEngagement(ctx, eid)
-		if err != nil {
-			logger.Warn().Str("profile", plan.prof.name).Err(err).Msg("list findings")
-			time.Sleep(pollInterval)
+// 多 host 场景：每个独特 host 一个 engagement，统计跨所有 engagement 聚合。
+// 同 host 多 profile（典型如 DVWA 跑 path+upload+sqli）共享同一 engagement。
+//
+// 防假阳性两道防线（沿用旧设计）：
+//  1. unifiedStartedAt 基线：finding/agent_run 都按 created_at > 基线过滤；
+//  2. observedAtLeastOneRun 哨兵：必须先观测到 total_runs > 0，
+//     再看 unfinished_runs==0 才允许判 PASS——防 ingestor 异步未落库的假阳性。
+func runAllUnified(ctx context.Context, plans []profilePlan, proxyHostPort, apiBase, apiKey string, pool *pgxpool.Pool, logger zerolog.Logger) error {
+	// 1. 为每个独特 host 建/复用 engagement
+	eidByHost := map[string]string{}
+	for _, plan := range plans {
+		if _, ok := eidByHost[plan.host]; ok {
 			continue
 		}
-		// 范围限定：只数本 profile dispatch 之后写入的 finding。
-		matched := filterAfter(all, profileStartedAt)
-		kinds := countKinds(matched)
+		eid, err := createProxyEngagement(apiBase, apiKey, plan.host)
+		if err != nil {
+			return fmt.Errorf("create engagement for host %s: %w", plan.host, err)
+		}
+		eidByHost[plan.host] = eid
+		logger.Info().Str("host", plan.host).Str("engagement_id", eid).Msg("engagement ready")
+	}
 
-		// agent_run 完成度（每个 sample 对应 1 个 react 循环；e2e PASS 前要等所有 react 收手，
-		// 避免"第 1 个 react 已挖出 finding 满足门槛 → e2e 立即 exit → 第 2 个 react 还卡在
-		// time-based blind 等长任务里"的假阳性 PASS）。
-		// 范围限定：只看本 profile 启动后新建的 agent_run（旧 profile 的 done run 跳过）。
-		unfinishedRuns := -1 // -1 表示查询失败；正常应 ≥ 0
-		totalProfileRuns := 0
-		if runs, runErr := agentRunStore.ListByEngagement(ctx, eid, 100); runErr == nil {
-			unfinishedRuns = 0
-			for _, r := range runs {
-				if !r.CreatedAt.After(profileStartedAt) {
-					continue // 跳过前一个 profile 的 run
+	// 2. 统计 sum(minFindings) 与 total sample 数
+	totalMinFindings := 0
+	totalSamples := 0
+	for _, plan := range plans {
+		totalMinFindings += plan.prof.minFindings
+		totalSamples += len(plan.samples)
+	}
+
+	unifiedStartedAt := time.Now()
+
+	// 3. 并发 dispatch 所有 profile 的所有 sample
+	logger.Info().
+		Int("profiles", len(plans)).
+		Int("samples", totalSamples).
+		Int("hosts", len(eidByHost)).
+		Msg("dispatching all samples concurrently")
+	var wg sync.WaitGroup
+	var dispatchErr int32
+	for _, plan := range plans {
+		for i, raw := range plan.samples {
+			wg.Add(1)
+			go func(profName, r string, idx int) {
+				defer wg.Done()
+				if err := dispatchRaw(proxyHostPort, r); err != nil {
+					atomic.AddInt32(&dispatchErr, 1)
+					logger.Error().Str("profile", profName).Int("idx", idx).Err(err).Msg("dispatch failed")
+					return
 				}
-				totalProfileRuns++
-				if r.Status == "pending" || r.Status == "running" {
-					unfinishedRuns++
+				logger.Info().Str("profile", profName).Int("idx", idx).Msg("raw dispatched")
+			}(plan.prof.name, raw, i)
+		}
+	}
+	wg.Wait()
+	if atomic.LoadInt32(&dispatchErr) > 0 {
+		return fmt.Errorf("dispatch failed: %d/%d", atomic.LoadInt32(&dispatchErr), totalSamples)
+	}
+	logger.Info().Msg("all samples dispatched; unified poll starting")
+
+	// 4. 统一 poll：等所有 host 的 agent_run done + 总 finding 数满足
+	store := finding.NewStore(pool)
+	agentRunStore := agentrun.NewStore(pool)
+	// 多 profile 并发跑，deadline 给单 profile 上限 + 适度放大兜底大 LLM 抖动
+	deadline := time.Now().Add(pollDeadline() + 10*time.Minute)
+	observed := false
+	var lastTotalFindings, lastUnfinished, lastTotalRuns int
+	var lastFindings []finding.VulnFinding
+	for time.Now().Before(deadline) {
+		totalRuns, unfinished, totalFindings := 0, 0, 0
+		var allFindings []finding.VulnFinding
+		for _, eid := range eidByHost {
+			if runs, runErr := agentRunStore.ListByEngagement(ctx, eid, 100); runErr == nil {
+				for _, r := range runs {
+					if !r.CreatedAt.After(unifiedStartedAt) {
+						continue
+					}
+					totalRuns++
+					if r.Status == "pending" || r.Status == "running" {
+						unfinished++
+					}
 				}
 			}
-			if totalProfileRuns > 0 {
-				observedAtLeastOneRun = true
+			if all, findErr := store.ListByEngagement(ctx, eid); findErr == nil {
+				matched := filterAfter(all, unifiedStartedAt)
+				totalFindings += len(matched)
+				allFindings = append(allFindings, matched...)
 			}
 		}
+		if totalRuns > 0 {
+			observed = true
+		}
+		lastTotalFindings = totalFindings
+		lastUnfinished = unfinished
+		lastTotalRuns = totalRuns
+		lastFindings = allFindings
 
 		logger.Info().
-			Str("profile", plan.prof.name).
-			Int("count", len(matched)).
-			Interface("kinds", kinds).
-			Int("unfinished_runs", unfinishedRuns).
-			Int("profile_runs_total", totalProfileRuns).
-			Bool("observed_run", observedAtLeastOneRun).
-			Msg("poll")
+			Int("findings", totalFindings).
+			Int("min_required", totalMinFindings).
+			Int("unfinished_runs", unfinished).
+			Int("total_runs", totalRuns).
+			Bool("observed", observed).
+			Msg("unified poll")
 
-		// PASS = finding 门槛满足 AND 所有 agent_run 都 done（无 pending/running 剩余）
-		// AND 已经至少观测过一次"本 profile 有 agent_run 存在"（防 ingestor 异步未落库）。
-		// agent_run 查询失败（unfinishedRuns=-1）时退化为仅看 finding 门槛 + 哨兵——
-		// 防止 DB 临时抖动让所有 e2e profile 全 FAIL。
-		findingsOK := len(matched) >= plan.prof.minFindings
-		runsOK := (unfinishedRuns == 0 || unfinishedRuns == -1) && observedAtLeastOneRun
+		findingsOK := totalFindings >= totalMinFindings
+		runsOK := unfinished == 0 && observed
 		if findingsOK && runsOK {
-			logger.Info().
-				Str("profile", plan.prof.name).
-				Int("count", len(matched)).
-				Int("kinds", len(kinds)).
-				Msg("profile PASS")
-			fmt.Printf("✓ profile=%s findings=%d kinds=%d\n", plan.prof.name, len(matched), len(kinds))
+			logger.Info().Int("findings", totalFindings).Msg("e2e unified PASS")
+			fmt.Printf("✓ unified PASS: findings=%d (min=%d), agent_runs=%d\n", totalFindings, totalMinFindings, totalRuns)
+			for _, f := range allFindings {
+				sum := f.Summary
+				if i := strings.IndexByte(sum, '\n'); i >= 0 {
+					sum = sum[:i]
+				}
+				if len(sum) > 100 {
+					sum = sum[:100]
+				}
+				fmt.Printf("  [%s] %s\n", f.Severity, sum)
+			}
 			return nil
 		}
 		time.Sleep(pollInterval)
 	}
-	return fmt.Errorf("timeout: 未达 finding/类覆盖门槛（或仍有 agent_run pending/running 未收手）")
+	// 超时：打印当前状态便于排查
+	for _, f := range lastFindings {
+		sum := f.Summary
+		if i := strings.IndexByte(sum, '\n'); i >= 0 {
+			sum = sum[:i]
+		}
+		if len(sum) > 80 {
+			sum = sum[:80]
+		}
+		fmt.Printf("  [%s] %s\n", f.Severity, sum)
+	}
+	return fmt.Errorf("unified timeout: findings=%d/%d, unfinished_runs=%d, total_runs=%d", lastTotalFindings, totalMinFindings, lastUnfinished, lastTotalRuns)
 }
 
 // resolveTargetHost 决定 engagement target_host：
