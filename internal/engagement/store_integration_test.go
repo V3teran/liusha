@@ -62,26 +62,3 @@ func TestStore_Abort(t *testing.T) {
 	}
 }
 
-// TestStore_CreateBrowserScan 验证 browser 模式独立创建，无 ExpiresAt，可并行。
-func TestStore_CreateBrowserScan(t *testing.T) {
-	ctx := context.Background()
-	pool := dbtest.NewPgPool(t)
-	s := NewStore(pool)
-
-	scope := []byte(`{"hosts":["example.com"]}`)
-	e1, err := s.CreateBrowserScan(ctx, scope)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if e1.Mode != ModeBrowser || e1.Status != StatusActive || e1.ExpiresAt != nil {
-		t.Fatalf("unexpected: %+v", e1)
-	}
-	// 第二个 browser scan 应能并存（无唯一约束）
-	e2, err := s.CreateBrowserScan(ctx, scope)
-	if err != nil {
-		t.Fatalf("browser 模式应允许并行: %v", err)
-	}
-	if e1.ID == e2.ID {
-		t.Fatal("browser scan 应是独立行")
-	}
-}

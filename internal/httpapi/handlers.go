@@ -42,7 +42,7 @@ type EngagementSummary struct {
 	FindingCount  int    `json:"finding_count"`
 	AgentRunCount int    `json:"agent_run_count"`
 	CreatedAt     string `json:"created_at"`              // RFC3339
-	ExpiresAt     string `json:"expires_at,omitempty"`    // RFC3339（proxy 模式）；browser 为空
+	ExpiresAt     string `json:"expires_at,omitempty"`    // RFC3339；v0034 起 proxy 模式必填
 	EndedAt       string `json:"ended_at,omitempty"`      // RFC3339（可空）
 	ErrorMessage  string `json:"error_message,omitempty"`
 }

@@ -32,8 +32,6 @@ func RotateLimitsFromConfig(c config.EngagementConfig) RotateLimits {
 
 // Rotator 给 proxy 模式按 expires_at 自动滚动 engagement。
 //
-// 整站（browser）模式不经过 Rotator：每次主动 CreateBrowserScan，按需 Abort。
-//
 // 轮转的「内容」：
 //   - engagement 表：旧行 status=aborted（行保留作历史档案）+ 新行 status=active 新 UUID
 //   - notes Redis key：新 UUID 自动是新 key（旧 key 留着等 TTL）

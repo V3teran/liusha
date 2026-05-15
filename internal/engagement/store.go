@@ -80,25 +80,6 @@ func (s *Store) LookupOrCreateProxySession(ctx context.Context, ttl time.Duratio
 	return s.CreateProxySession(ctx, ttl)
 }
 
-// CreateBrowserScan 建一个 browser 模式 engagement（每次主动扫描独立）。
-// scope 必须是合法 jsonb（如 {"hosts":["example.com"]}）；ExpiresAt 为 nil。
-//
-// 无唯一约束：可并行多个 browser 扫描。
-func (s *Store) CreateBrowserScan(ctx context.Context, scope json.RawMessage) (Engagement, error) {
-	if len(scope) == 0 {
-		scope = json.RawMessage(`{}`)
-	}
-	row := s.pool.QueryRow(ctx, `
-		INSERT INTO engagement (mode, scope, status)
-		VALUES ('browser', $1, 'active')
-		RETURNING `+colsSelect, scope)
-	var e Engagement
-	if err := scan(row, &e); err != nil {
-		return Engagement{}, fmt.Errorf("create browser scan: %w", err)
-	}
-	return e, nil
-}
-
 // 列表查询的限制：默认 20，硬上限 200（防 caller 传巨大 limit 拖死 DB）。
 const (
 	defaultListLimit = 20
