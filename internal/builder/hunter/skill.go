@@ -12,10 +12,10 @@
 //	  read_lessons / write_lesson               — 跨 engagement 经验
 //	  done                                      — 收尾
 //
-//	可选（3 个，Deps.*Loader / DockerRunner nil 时跳过）:
+//	可选（3 个，Deps.*Loader / params.Sandbox nil 时跳过）:
 //	  read_tooling_skill                        — 拉 skills/tooling/<name>/SKILL.md
 //	  read_vuln_skill                           — 拉 skills/vuln/<name>/SKILL.md
-//	  run_command                               — 沙箱跑外部 CLI
+//	  run_command                               — 沙箱跑外部 CLI（含 browser-use 浏览器交互）
 package hunter
 
 import (
@@ -38,7 +38,6 @@ import (
 	"github.com/V3teran/liusha/internal/tools/common"
 	"github.com/V3teran/liusha/internal/tools/external"
 	"github.com/V3teran/liusha/internal/tools/manifest"
-	"github.com/V3teran/liusha/internal/tools/runners"
 )
 
 // hunterSystemPrompt 是编译期嵌入的 hunter agent system prompt。
@@ -71,11 +70,9 @@ type Deps struct {
 	// read_vuln_skill 拉。nil 时不注入索引段、不注册 read_vuln_skill 工具。
 	VulnLoader *skill.Loader
 
-	// 容器化沙箱执行器（run_command 工具的运行时）。
-	DockerRunner  *runners.DockerRunner // nil 时 run_command 不注册
-	PentoolsImage string                // 由 cfg.Sandbox.DefaultImage 注入（config 默认 liusha/pentools:latest）；空时由 RunCommand fallback 兜底
-	ScanNetwork   string                // 默认空（docker bridge）
-
+	// run_command 工具运行时配置（实际 sandbox.Client 由 p.Sandbox 传入，per agent run）。
+	// 这里只放静态配置，不持有 client：client 生命周期 = agent run 生命周期，
+	// 由 cmd/scanner handleTraffic 通过 Launcher.Spawn/Destroy 管理。
 	SandboxCfg config.SandboxConfig
 
 
@@ -141,16 +138,14 @@ func NewBuilder(deps Deps) skill.Builder {
 			must(&common.ReadVulnSkill{Loader: deps.VulnLoader})
 		}
 
-		if deps.DockerRunner != nil {
-			s := deps.SandboxCfg
+		// run_command 工具运行时绑定到本次 agent run 的 sandbox 容器。
+		// p.Sandbox 由 cmd/scanner handleTraffic 调 Launcher.Spawn(runID) 后注入；
+		// nil 时跳过注册，避免 LLM 调到没 sandbox 的工具（如 dev/test 场景）。
+		if p.Sandbox != nil {
 			must(&external.RunCommand{
-				Runner:            deps.DockerRunner,
-				Image:             deps.PentoolsImage,
-				Network:           deps.ScanNetwork,
+				Sandbox:           p.Sandbox,
 				MaxTimeoutSeconds: deps.StepToolTimeoutSeconds,
-				DefaultMemMB:      s.RunDefaultMemMB,
-				DefaultCPUs:       s.RunDefaultCPUs,
-				TailBytes:         s.RunTailBytes,
+				TailBytes:         deps.SandboxCfg.RunTailBytes,
 			})
 		}
 

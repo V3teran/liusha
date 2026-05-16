@@ -256,20 +256,21 @@ type ReactConfig struct {
 	ReviewerLessonsLimit  int `mapstructure:"reviewer_lessons_limit"`
 }
 
-// SandboxConfig 容器化执行参数（external.RunCommand + DockerRunner）。
+// SandboxConfig 容器化执行参数（sandbox.Launcher + external.RunCommand）。
 //
 // run_command 单次硬超时不再有 yaml 配置——LLM 通过 timeout_seconds 必传（schema required），
 // 上限由 ToolruntimeConfig.StepToolTimeoutSeconds 钳。
+//
+// 容器内存 / CPU / 并发数等运行时参数下放到 sandbox.DockerLauncher 内部硬编码
+// （per-agent-run 容器模型下这些参数没有按 engagement 调整的需求）。
+// 见 docs/superpowers/specs/2026-05-16-sandbox-server-design.md。
 type SandboxConfig struct {
-	DefaultImage      string  `mapstructure:"default_image"`
-	RunDefaultMemMB   int     `mapstructure:"run_default_mem_mb"`
-	RunDefaultCPUs    float64 `mapstructure:"run_default_cpus"`
-	RunTailBytes      int     `mapstructure:"run_tail_bytes"`
-	RunnerConcurrency int     `mapstructure:"runner_concurrency"`
+	// DefaultImage 是 sandbox 镜像 tag（由 sandbox.NewDockerLauncher 用）。
+	DefaultImage string `mapstructure:"default_image"`
 
-	// ScanNetwork 限制扫描容器只能访问 scope hosts（如 docker network 名 "liusha_scan_net"）。
-	// 空字符串 → docker 默认 bridge（可访问公网）。
-	ScanNetwork string `mapstructure:"scan_network"`
+	// RunTailBytes 是主进程 RunCommand 对 stdout/stderr 截尾的字节数。
+	// sandbox-server 返回完整 stdout，截尾在主进程层（贴近 LLM context 管理）。
+	RunTailBytes int `mapstructure:"run_tail_bytes"`
 }
 
 // ToolruntimeConfig 是 toolruntime/interceptor 参数。
@@ -629,17 +630,8 @@ func applySandboxDefaults(c SandboxConfig) SandboxConfig {
 	if c.DefaultImage == "" {
 		c.DefaultImage = "liusha/pentools:latest"
 	}
-	if c.RunDefaultMemMB == 0 {
-		c.RunDefaultMemMB = 1024
-	}
-	if c.RunDefaultCPUs == 0 {
-		c.RunDefaultCPUs = 1.0
-	}
 	if c.RunTailBytes == 0 {
 		c.RunTailBytes = 8192
-	}
-	if c.RunnerConcurrency == 0 {
-		c.RunnerConcurrency = 5
 	}
 	return c
 }

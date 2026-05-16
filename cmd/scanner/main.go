@@ -34,9 +34,9 @@ import (
 	"github.com/V3teran/liusha/internal/notes"
 	"github.com/V3teran/liusha/internal/observability"
 	"github.com/V3teran/liusha/internal/react"
+	"github.com/V3teran/liusha/internal/sandbox"
 	"github.com/V3teran/liusha/internal/skill"
 	"github.com/V3teran/liusha/internal/tools/manifest"
-	"github.com/V3teran/liusha/internal/tools/runners"
 	"github.com/V3teran/liusha/internal/worker"
 
 	"github.com/hibiken/asynq"
@@ -152,28 +152,31 @@ func main() {
 	}
 	noteStore.WithCompactor(notes.NewLLMCompactor(compactorGen))
 
-	// 容器化沙箱执行器（hunter run_command 工具用）
-	dockerRunner := runners.NewDockerRunner(runners.WithConcurrency(cfg.Sandbox.RunnerConcurrency))
+	// 容器化沙箱启动器（管理 sandbox 容器生命周期：per agent run 一个容器）。
+	// 启动时一次性清理上次进程崩前残留的孤儿容器——max lifetime 4h + Destroy 失败兜底。
+	launcher := sandbox.NewDockerLauncher(cfg.Sandbox.DefaultImage)
+	if err := launcher.CleanupOrphans(ctx); err != nil {
+		logger.Warn().Err(err).Msg("CleanupOrphans 失败（非致命，max lifetime 兜底）")
+	}
 
-	// hunter builder：scanner 启动时构造一次
+	// hunter builder：scanner 启动时构造一次。
+	// run_command 工具的 sandbox.Client 由 handleTraffic 每次 Spawn 后通过
+	// skill.BuilderParams.Sandbox 注入——不持有在 Deps 里。
 	hunterBuilder := hunter.NewBuilder(hunter.Deps{
-		Notes:                     noteStore,
-		Findings:                  finds,
-		Lessons:                   lessons,
-		Credentials:               creds,
-		ToolingLoader:             toolingLoader,
-		ToolsManifest:             toolsManifest,
-		VulnLoader:                vulnLoader,
-		DockerRunner:              dockerRunner,
-		PentoolsImage:             cfg.Sandbox.DefaultImage,
-		ScanNetwork:               cfg.Sandbox.ScanNetwork,
-		SandboxCfg:                cfg.Sandbox,
+		Notes:                  noteStore,
+		Findings:               finds,
+		Lessons:                lessons,
+		Credentials:            creds,
+		ToolingLoader:          toolingLoader,
+		ToolsManifest:          toolsManifest,
+		VulnLoader:             vulnLoader,
+		SandboxCfg:             cfg.Sandbox,
 		StepToolTimeoutSeconds: cfg.Toolruntime.StepToolTimeoutSeconds,
-		MaxSteps:                  scannerCfg.MainMaxSteps,
-		WatchdogSeconds:           scannerCfg.StepLLMTimeoutSeconds,
-		ReviewerEverySteps:        cfg.React.ReviewerEverySteps,
-		FindingsLimit:             cfg.Engagement.FindingsLimitInPrompt,
-		LessonsLimit:              cfg.Engagement.LessonsLimitInPrompt,
+		MaxSteps:               scannerCfg.MainMaxSteps,
+		WatchdogSeconds:        scannerCfg.StepLLMTimeoutSeconds,
+		ReviewerEverySteps:     cfg.React.ReviewerEverySteps,
+		FindingsLimit:          cfg.Engagement.FindingsLimitInPrompt,
+		LessonsLimit:           cfg.Engagement.LessonsLimitInPrompt,
 	})
 
 	// handler
@@ -190,6 +193,7 @@ func main() {
 		pricing:       pricing,
 		router:        router,
 		hunterBuilder: hunterBuilder,
+		launcher:      launcher,
 		logger:        logger,
 	}
 
@@ -317,6 +321,7 @@ type handler struct {
 	pricing       llm.PricingProvider
 	router        *llm.Router
 	hunterBuilder skill.Builder
+	launcher      sandbox.Launcher
 	logger        zerolog.Logger
 }
 
@@ -465,6 +470,23 @@ func (h handler) handleTraffic(ctx context.Context, p worker.Payload, entrypoint
 		return h.failTask(ctx, p.TaskID, fmt.Errorf("flows.GetByID(%d): %w", ep.FlowID, err))
 	}
 
+	// 为本次 agent run 启动 sandbox 容器：spawn → 等 healthz → 返回 Client。
+	// defer Destroy 保证 react.Run 结束后容器被回收（正常 / 异常 / panic 路径都覆盖）；
+	// 失败时由 sandbox-server max lifetime 4h + 下次 scanner 启动 CleanupOrphans 兜底。
+	sandboxClient, err := h.launcher.Spawn(ctx, p.TaskID)
+	if err != nil {
+		return h.failTask(ctx, p.TaskID, fmt.Errorf("launcher.Spawn(%s): %w", p.TaskID, err))
+	}
+	defer func() {
+		// 用独立 ctx：handle ctx 可能已被 cancel（abort 路径），仍需销毁容器
+		destroyCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if err := h.launcher.Destroy(destroyCtx, p.TaskID); err != nil {
+			h.logger.Warn().Err(err).Str("agent_run_id", p.TaskID).
+				Msg("launcher.Destroy 失败（max lifetime / 下次启动 CleanupOrphans 兜底）")
+		}
+	}()
+
 	cfg, err := h.hunterBuilder(ctx, skill.BuilderParams{
 		EngagementID:    eid,
 		TaskID:          tid,
@@ -479,6 +501,7 @@ func (h handler) handleTraffic(ctx context.Context, p worker.Payload, entrypoint
 		ResponseStatus:  fl.StatusCode,
 		ResponseHeaders: fl.ResponseHeaders,
 		ResponseBody:    fl.ResponseBody,
+		Sandbox:         sandboxClient,
 	})
 	if err != nil {
 		return h.failTask(ctx, p.TaskID, err)

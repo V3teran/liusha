@@ -7,41 +7,31 @@
 // 取舍说明：
 //   - 输出非结构化（LLM 自 grep 找 Title:/Payload:/dbms 等关键词）——决策面交给模型
 //   - 工具集易扩（加 nuclei/nikto 只需写 skills/tooling/<tool>/SKILL.md，不动 Go）
-//   - 容器化隔离（每次扫描独立 --rm 容器，AutoRemove 退出即清理）
-//   - 安全边界：DockerRunner 全局并发 sem + 单次 timeout 钳到 [30, 300]，无网络隔离
-//     依赖 caller 用 a.Network 限制（如挂在 liusha_scan_net 限定 scope hosts）
+//   - 容器化隔离：通过 sandbox-server HTTP RPC 跑命令——每个 agent run 一个独立长会话容器
+//     （由 internal/sandbox.Launcher 管理生命周期），单次 /exec 内部独立 OUTPUT_DIR 临时目录
+//   - 安全边界：sandbox-server 端单工具 timeout 钳到 MaxTimeoutSeconds；附件上限
+//     200KB/file, 1MB 总, 5 文件（避免 LLM context 爆炸）
+//
+// 见 docs/superpowers/specs/2026-05-16-sandbox-server-design.md
 package external
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"strings"
-	"time"
 
-	"github.com/V3teran/liusha/internal/toolruntime"
-	"github.com/V3teran/liusha/internal/tools/runners"
+	"github.com/V3teran/liusha/internal/sandbox"
+	toolfx "github.com/V3teran/liusha/internal/toolruntime"
 )
 
-// fallback 常量：caller 未通过 RunCommand 字段（或 cfg.Sandbox）注入时使用。
-// 正常路径由 cmd/scanner 从 config.SandboxConfig 注入，此处仅作兜底。
-//
-// timeout 相关 fallback 已删：timeout_seconds 由 LLM 必传（schema required），
-// 上限钳由 RunCommand.MaxTimeoutSeconds 注入；缺失即编程错误，不再有 fallback。
-const (
-	fallbackSandboxImage    = "liusha/pentools:latest"
-	fallbackRunDefaultMemMB = 1024
-	fallbackRunDefaultCPUs  = 1.0
-	// 8 KB × 2 + 元数据 ≈ 17 KB——单次 tool Output 由此天然钳住，
-	// 让 sqlmap level=5+tamper 等长输出的 Title/Payload 关键字段能完整保留。
-	// 与 yaml sandbox.run_tail_bytes 同步（稳健激进方案）。
-	fallbackRunTailBytes = 8192
-)
+// fallbackRunTailBytes 是 caller 未通过 TailBytes 注入时的默认值——
+// 8 KB × 2 + 元数据 ≈ 17 KB，让 sqlmap level=5+tamper 等长输出的 Title/Payload
+// 关键字段能完整保留。与 yaml sandbox.run_tail_bytes 同步。
+const fallbackRunTailBytes = 8192
 
 // tagAllowedChars 限定 tag 字符集（仅 [a-z0-9-]）；不符即丢弃 tag 走默认 "default"，
-// 防止容器名注入或过长。
+// 防止容器内进程命名注入或过长。
 var tagAllowedChars = func() map[byte]bool {
 	m := make(map[byte]bool, 64)
 	for c := byte('a'); c <= 'z'; c++ {
@@ -57,43 +47,30 @@ var tagAllowedChars = func() map[byte]bool {
 // RunCommand 是跨漏洞类型共享的容器化命令执行器。
 //
 // 设计意图：LLM 看 skills/tooling/<tool>/SKILL.md 学到工具用法，自己拼 shell 命令
-// （sqlmap -u ... / curl -X POST ... / python3 -c "..."），然后调 run_command(command=..., tag=...)。
-// 输出原文 stdout/stderr 各 1.5 KB tail 给 LLM，由 LLM 自决策是否命中、写 finding。
+// （sqlmap -u ... / curl -X POST ... / browser-use open ... / python3 -c "..."），
+// 然后调 run_command(command=..., tag=...)。
+// 输出原文 stdout/stderr 各 TailBytes tail + 附件（写到 $OUTPUT_DIR 的文件）给 LLM。
 //
 // 与具名 wrapper（已废弃的 escalate_sqlmap）的对比：
 //   - wrapper：代码层固定 CLI 形态 + 正则提结构化字段；LLM 不接触 CLI
 //   - RunCommand：LLM 拼完整 CLI；输出由 LLM 自读自解析；代码层不假设任何工具
 //
 // 跨漏洞复用：SQLi / BAC / SSRF / RCE / XSS 等所有 vuln skill builder 都注册它，
-// 工具内部不绑定任何漏洞类型。
+// 工具内部不绑定任何漏洞类型。浏览器交互通过 `browser-use ...` CLI 命令调用，
+// 不另起具名工具。
 type RunCommand struct {
-	Runner  *runners.DockerRunner
-	Image   string // 沙箱镜像；空时用 fallbackSandboxImage
-	Network string // 默认空（docker bridge），可挂在 scan-only network 限制 scope
+	// Sandbox 是当前 agent run 绑定的 sandbox-server HTTP RPC client。
+	// 由 hunter Builder 闭包从 skill.BuilderParams.Sandbox 注入。
+	Sandbox sandbox.Client
 
 	// MaxTimeoutSeconds 是 LLM 传入 timeout_seconds 的钳上限（秒）；
 	// 正常路径由 cmd/scanner 注入 cfg.Toolruntime.StepToolTimeoutSeconds（1800）。
 	// LLM 传更大值时直接钳到 MaxTimeoutSeconds。
 	MaxTimeoutSeconds int
 
-	// 容器资源 + 输出截断（零值即 fallback）。
-	DefaultMemMB int     // 容器内存上限（MB）
-	DefaultCPUs  float64 // 容器 CPU 上限（核数）
-	TailBytes    int     // stdout/stderr 截尾字节数
-}
-
-func (a *RunCommand) effectiveDefaultMemMB() int {
-	if a.DefaultMemMB > 0 {
-		return a.DefaultMemMB
-	}
-	return fallbackRunDefaultMemMB
-}
-
-func (a *RunCommand) effectiveDefaultCPUs() float64 {
-	if a.DefaultCPUs > 0 {
-		return a.DefaultCPUs
-	}
-	return fallbackRunDefaultCPUs
+	// TailBytes 是 stdout/stderr 截尾字节数（零值即 fallbackRunTailBytes）。
+	// 截尾在主进程层做，sandbox-server 返回完整 stdout——LLM context 管理贴近主进程更直接。
+	TailBytes int
 }
 
 func (a *RunCommand) effectiveTailBytes() int {
@@ -109,9 +86,13 @@ func (a *RunCommand) Name() string { return "run_command" }
 // Description 给 LLM 看的简介。
 func (a *RunCommand) Description() string {
 	return "在沙箱容器里跑一条 shell 命令（sh -c <command>），用于 LLM 自决策的工具调用。" +
-		"command 走 sh 解析（支持 |、&&、>、<、$()）；输出 stdout/stderr 各截 1.5KB tail。" +
-		"工具用法见 system prompt 内置的工具手册（sqlmap / curl / python3 / sh）。" +
-		"tag 可选（小写字母数字短横，长度 ≤ 32），用作容器名后缀方便运维定位。"
+		"command 走 sh 解析（支持 |、&&、>、<、$()）；输出 stdout/stderr 各截 ~8KB tail。" +
+		"工具用法见 system prompt 内置的工具手册（sqlmap / curl / nuclei / browser-use / python3 / sh 等）。" +
+		"tag 必填（小写字母数字短横，长度 ≤ 32），用作运维诊断标签。" +
+		"环境变量 $OUTPUT_DIR：写到 $OUTPUT_DIR/xxx 的二进制/大文件会作为 base64 附件返回" +
+		"（上限 200KB/文件, 1MB 总量, 5 文件）。文本类输出直接走 stdout 即可，不要重复写文件。" +
+		"典型用法：浏览器截图 `browser-use screenshot $OUTPUT_DIR/shot.png`；" +
+		"抓包 `tcpdump -w $OUTPUT_DIR/x.pcap`；下载 `wget -O $OUTPUT_DIR/x.bin URL`。"
 }
 
 // ParametersJSON：command / timeout_seconds / tag 均必填。
@@ -128,9 +109,9 @@ func (a *RunCommand) ParametersJSON() json.RawMessage {
 	return json.RawMessage(fmt.Sprintf(`{
   "type":"object",
   "properties": {
-    "command":{"type":"string","minLength":1,"description":"完整 shell 命令；走 sh -c 解析（可用管道、重定向）。例如：sqlmap -u 'http://x/y?id=1' -p id --batch --level 5"},
+    "command":{"type":"string","minLength":1,"description":"完整 shell 命令；走 sh -c 解析（可用管道、重定向、$env）。例如：sqlmap -u 'http://x/y?id=1' -p id --batch --level 5；或 browser-use open https://x.com"},
     "timeout_seconds":{"type":"integer","minimum":1,"maximum":%d,"description":"本次命令硬超时（秒）。短命令(curl/cat/echo) 15s 够；中等(httpx/nuclei 轻扫) 60-180s；长跑(sqlmap/hydra) 300-900s；上限 %ds。错传过短会被 timed_out 终止，过长会被钳到上限"},
-    "tag":{"type":"string","pattern":"^[a-z0-9-]{1,32}$","description":"运维标签，作容器名后缀（如 'sqlmap-l5'、'curl-blind'）"}
+    "tag":{"type":"string","pattern":"^[a-z0-9-]{1,32}$","description":"运维标签（如 'sqlmap-l5'、'browser-nav'），仅用于诊断"}
   },
   "required":["command","timeout_seconds","tag"]
 }`, maxSec, maxSec))
@@ -139,15 +120,18 @@ func (a *RunCommand) ParametersJSON() json.RawMessage {
 // runCommandOutput 是 toolfx.Result.Output 的 JSON 结构。
 //
 // 字段最小化：只给 LLM"它写的命令跑出来怎样"——不假设任何工具的输出形态。
-// LLM 自己 grep stdout_tail 找 Title:/Payload:/back-end DBMS 等关键词。
+// LLM 自己 grep stdout_tail 找 Title:/Payload:/back-end DBMS 等关键词；
+// 二进制产物（截图等）在 files 数组里，文本产物本来就走 stdout 不重复出现。
 type runCommandOutput struct {
-	ExitCode   int    `json:"exit_code"`
-	TimedOut   bool   `json:"timed_out"`
-	StdoutTail string `json:"stdout_tail,omitempty"`
-	StderrTail string `json:"stderr_tail,omitempty"`
+	ExitCode   int                  `json:"exit_code"`
+	TimedOut   bool                 `json:"timed_out"`
+	StdoutTail string               `json:"stdout_tail,omitempty"`
+	StderrTail string               `json:"stderr_tail,omitempty"`
+	Files      []sandbox.Attachment `json:"files,omitempty"`
+	Warnings   []string             `json:"warnings,omitempty"`
 }
 
-// Execute 钳超时 → 校验 tag → docker run sh -c <command> → 截 tail → 返结构化结果。
+// Execute 校验参数 → 钳 timeout → 调 Sandbox.Exec → 截 tail → 返结构化结果。
 func (a *RunCommand) Execute(ctx context.Context, args json.RawMessage) (toolfx.Result, error) {
 	var in struct {
 		Command string `json:"command"`
@@ -160,44 +144,27 @@ func (a *RunCommand) Execute(ctx context.Context, args json.RawMessage) (toolfx.
 	if strings.TrimSpace(in.Command) == "" {
 		return toolfx.Result{}, fmt.Errorf("command 必填且非空")
 	}
-	if a.Runner == nil {
-		return toolfx.Result{}, fmt.Errorf("run_command: Runner 未注入")
+	if a.Sandbox == nil {
+		return toolfx.Result{}, fmt.Errorf("run_command: Sandbox 未注入")
 	}
 	if in.Timeout <= 0 {
 		return toolfx.Result{}, fmt.Errorf("timeout_seconds 必传且 > 0（每个工具合理 timeout 差异大，无统一 default）")
 	}
-
-	timeout := time.Duration(in.Timeout) * time.Second
-	if a.MaxTimeoutSeconds > 0 {
-		maxTO := time.Duration(a.MaxTimeoutSeconds) * time.Second
-		if timeout > maxTO {
-			timeout = maxTO
-		}
-	}
-
-	image := a.Image
-	if image == "" {
-		image = fallbackSandboxImage
+	if a.MaxTimeoutSeconds > 0 && in.Timeout > a.MaxTimeoutSeconds {
+		in.Timeout = a.MaxTimeoutSeconds
 	}
 
 	tag := sanitizeTag(in.Tag)
 
-	// 容器名：liusha-shell-<tag>-<hex>。"shell" 表"sh -c 沙箱"，与未来可能的具名
-	// wrapper（如 liusha-burp-<hex>）形成对比；tag 让 docker ps 一眼区分 LLM 跑的是啥。
-	spec := runners.RunSpec{
-		Image:         image,
-		ContainerName: "liusha-shell-" + tag + "-" + randSandboxHex(),
-		Network:       a.Network,
-		AutoRemove:    true,
-		Timeout:       timeout,
-		MemLimit:      int64(a.effectiveDefaultMemMB()) * 1024 * 1024,
-		CPULimit:      a.effectiveDefaultCPUs(),
-		Cmd:           []string{"sh", "-c", in.Command},
-	}
-
-	res, err := a.Runner.RunAndWait(ctx, spec)
+	// HTTP 同步调用——sandbox-server 端用 r.Context() 接 ctx，超时由 sandbox-server
+	// 内部 exec.CommandContext 钳到 in.Timeout，主进程层 ctx 只是兜底（如 agent abort）。
+	res, err := a.Sandbox.Exec(ctx, sandbox.ExecRequest{
+		Command:        in.Command,
+		TimeoutSeconds: in.Timeout,
+		Tag:            tag,
+	})
 	if err != nil {
-		return toolfx.Result{}, fmt.Errorf("docker run shell tag=%s: %w", tag, err)
+		return toolfx.Result{}, fmt.Errorf("sandbox exec tag=%s: %w", tag, err)
 	}
 
 	tailN := a.effectiveTailBytes()
@@ -206,17 +173,19 @@ func (a *RunCommand) Execute(ctx context.Context, args json.RawMessage) (toolfx.
 		TimedOut:   res.TimedOut,
 		StdoutTail: tailString(res.Stdout, tailN),
 		StderrTail: tailString(res.Stderr, tailN),
+		Files:      res.Files,
+		Warnings:   res.Warnings,
 	}
 	enc, err := json.Marshal(out)
 	if err != nil {
 		return toolfx.Result{}, fmt.Errorf("marshal output: %w", err)
 	}
-	summary := fmt.Sprintf("run_command tag=%s exit=%d timeout=%v", tag, out.ExitCode, out.TimedOut)
+	summary := fmt.Sprintf("run_command tag=%s exit=%d timed_out=%v files=%d",
+		tag, out.ExitCode, out.TimedOut, len(out.Files))
 	return toolfx.Result{Output: enc, Summary: summary}, nil
 }
 
 // sanitizeTag 把 LLM 传入的 tag 收紧到 [a-z0-9-]{1,32}；为空 / 含非法字符 → "default"。
-// 防止容器名注入或过长。
 func sanitizeTag(s string) string {
 	if s == "" {
 		return "default"
@@ -233,20 +202,9 @@ func sanitizeTag(s string) string {
 }
 
 // tailString 返回 s 末尾 n 字符（防止超长输出撑爆 LLM context）。
-// 改名避免与未来其他 helper 冲突。
 func tailString(s string, n int) string {
 	if len(s) <= n {
 		return s
 	}
 	return "…" + s[len(s)-n:]
-}
-
-// randSandboxHex 返回 8 位 hex 随机串，用作容器名唯一后缀。
-// 失败兜底用 nano timestamp（极不可能命中，但避免 panic）。
-func randSandboxHex() string {
-	var b [4]byte
-	if _, err := rand.Read(b[:]); err != nil {
-		return fmt.Sprintf("%08x", time.Now().UnixNano()&0xffffffff)
-	}
-	return hex.EncodeToString(b[:])
 }

@@ -1,22 +1,25 @@
 # liusha pentools 镜像（tag liusha/pentools:latest）：
-# 把渗透常用 CLI 工具集成到单一镜像，让 docker_runner 通过统一 image
-# 跑 sqlmap / nuclei / ffuf / ... 不同工具。
+# all-in-one 沙箱镜像 = pentest 工具集 + browser-use（含 playwright chromium）+
+# sandbox-server（Go，容器 PID 1，主进程通过 HTTP RPC 调用）。
 #
 # 设计要点：
 #   - 单镜像而非"一工具一镜像"：apt 共享底层、layer 复用，磁盘占用小
-#   - WORKDIR 留给 docker_runner 用 -v workdir:/work mount
-#   - 不内置 ENTRYPOINT：让 docker_runner 直接 `docker run image <tool> <args>`，
-#     避免 ENTRYPOINT/CMD 与 RunSpec.Cmd 干扰
-#   - 多 layer 设计：apt → pip → wget Go 二进制 → nuclei 模板 → 反序列化 → wordlist
-#     失败可单层重试，不全量重 build
+#   - **CMD = /usr/local/bin/sandbox-server**（容器 PID 1）：长会话容器模型，
+#     主进程通过 :8080 HTTP RPC 调用 /exec 跑 sh -c 命令。
+#     旧的"无 ENTRYPOINT + docker_runner 直接传 Cmd"模式作废——见 design doc：
+#     docs/superpowers/specs/2026-05-16-sandbox-server-design.md 决策 1/3/5
+#   - 多 layer 设计：apt → pip → browser-use → wget Go 二进制 → nuclei 模板 →
+#     反序列化 → wordlist → sandbox-server 二进制。失败可单层重试。
 #   - **Go 二进制 + ysoserial 用 GitHub API releases/latest 动态拉最新**——
 #     build 即升级，无需手动改 ARG；fallback 默认值兜底 API 不可达
 #   - **base = ubuntu:latest**：自动跟随官方最新 LTS（2026-04 后 = 26.04）
+#   - **multi-stage build**：Stage 0（golang:alpine）编译 sandbox-server，
+#     Stage 1 拷贝二进制；最终镜像不含 Go 工具链
 #
 # 构建：
 #   docker build -t liusha/pentools:latest -f deployments/tool-images/pentools/Dockerfile .
 #
-# 工具清单（22 个，按 8 类）：
+# 工具清单（22 个，按 9 类）：
 #   recon (5):           subfinder httpx katana nmap wafw00f
 #   discovery (3):       ffuf dirsearch arjun
 #   vulnscan (1):        nuclei
@@ -24,10 +27,26 @@
 #   deserialization (2): ysoserial phpggc
 #   auth (2):            hydra jwt_tool
 #   sast (2):            semgrep trufflehog
+#   browser (1):         browser-use (含 playwright chromium，LLM 通过 run_command 调用)
 #   utility (5):         curl python3 jq interactsh-client mysql
 #
-# 体积预估 ~1.1-1.3 GB（含 nuclei-templates 80MB / SecLists 子集 30MB / JDK 350MB / PHP 25MB / Chrome 110MB + chromedriver 20MB / Python libs（HTTP/加密/SSH/selenium/pymysql 等 17 个）~90MB）。
+# 体积预估 ~1.4-1.7 GB（含 nuclei-templates 80MB / SecLists 子集 30MB / JDK 350MB /
+# PHP 25MB / Chrome 110MB / playwright chromium 150MB / browser-use+依赖 50MB /
+# Python libs ~90MB / sandbox-server <20MB）。
+# 删除：chromedriver 20MB（selenium 配套，已被 browser-use 替代）。
 
+# Stage 0: sandbox-server 编译（multi-stage，产物拷到最终镜像 /usr/local/bin）。
+# 强制 amd64 与运行时一致；vendored deps 离线 build。
+FROM --platform=linux/amd64 golang:1.25-alpine AS sandbox-builder
+WORKDIR /src
+COPY go.mod go.sum ./
+COPY vendor ./vendor
+COPY cmd/sandbox-server cmd/sandbox-server
+COPY internal/sandbox internal/sandbox
+ENV CGO_ENABLED=0
+RUN go build -mod=vendor -o /out/sandbox-server ./cmd/sandbox-server
+
+# Stage 1: 运行镜像。
 # 强制 amd64 base——
 # 大部分渗透工具（ysoserial / dalfox / 部分 Go release）amd64 binary 才齐全；
 # arm64 上跑 amd64 binary 走 rosetta 转译，dalfox 之前因 elf interp 缺失报错。
@@ -112,39 +131,15 @@ RUN wget -q -O /tmp/chrome.deb https://dl.google.com/linux/direct/google-chrome-
  && rm -rf /var/lib/apt/lists/* \
  && google-chrome --version
 
-# Layer 1d: chromedriver（selenium 必需；dalfox/katana 用 chromedp 不依赖它，但 LLM 写
-# Python selenium 脚本会调用 selenium-manager 在线下载，容器首次跑可能卡——预装最稳）。
-# 策略：先试和 Chrome 完全匹配的版本（Chrome for Testing storage），失败用 LATEST_RELEASE_STABLE 兜底。
-# 约 +20MB。
-RUN set -eu \
- && CHROME_VERSION=$(google-chrome --version | awk '{print $3}') \
- && CHROME_MAJOR=$(echo "$CHROME_VERSION" | cut -d. -f1) \
- && HARDCODE_FB="148.0.7778.97" \
- && URL="https://storage.googleapis.com/chrome-for-testing-public/${CHROME_VERSION}/linux64/chromedriver-linux64.zip" \
- && if ! wget -q --tries=3 --waitretry=10 --timeout=30 --spider "$URL"; then \
-        FB="" ; \
-        for ep in "LATEST_RELEASE_${CHROME_MAJOR}" "LATEST_RELEASE_STABLE"; do \
-            FB=$(curl -fsS --max-time 30 --retry 5 --retry-delay 5 "https://googlechromelabs.github.io/chrome-for-testing/${ep}" 2>/dev/null) || FB="" ; \
-            if [ -n "$FB" ]; then echo "[chromedriver] fallback via ${ep}=$FB"; break; fi ; \
-        done ; \
-        [ -n "$FB" ] || { FB="$HARDCODE_FB"; echo "[chromedriver] 所有在线 fallback 失败，用 hardcode=$FB" ; } ; \
-        URL="https://storage.googleapis.com/chrome-for-testing-public/${FB}/linux64/chromedriver-linux64.zip" ; \
-    else \
-        echo "[chromedriver] 精确匹配 Chrome=$CHROME_VERSION" ; \
-    fi \
- && wget -q --tries=5 --waitretry=15 --timeout=60 "$URL" -O /tmp/cd.zip \
- && [ -s /tmp/cd.zip ] || { echo "[FATAL] chromedriver 下载空: $URL"; exit 1 ; } \
- && unzip -q /tmp/cd.zip -d /tmp \
- && mv /tmp/chromedriver-linux64/chromedriver /usr/local/bin/chromedriver \
- && chmod +x /usr/local/bin/chromedriver \
- && rm -rf /tmp/cd.zip /tmp/chromedriver-linux64 \
- && chromedriver --version
+# Layer 1d 已删除：之前装 chromedriver 是为 selenium 配套，
+# 现在改用 browser-use[cli]（基于 playwright，自带 chromium 管理），无需 chromedriver。
 
 # Layer 2: Python 工具 + LLM 常用渗透/Web 三方库（pip 一次装齐）。
 # 工具（4 个）：dirsearch / arjun / wafw00f / semgrep
 # HTTP/HTML 三方库（5 个）：requests / httpx / aiohttp / beautifulsoup4 / lxml
-# 渗透常用（12 个）：urllib3 / websockets / websocket-client / pysocks / dnspython /
-#                    cryptography / pyjwt / pyyaml / xmltodict / paramiko / selenium / pymysql
+# 渗透常用（11 个）：urllib3 / websockets / websocket-client / pysocks / dnspython /
+#                    cryptography / pyjwt / pyyaml / xmltodict / paramiko / pymysql
+# 浏览器自动化改走 Layer 2.5 的 browser-use[cli]（包 playwright），selenium 删除（grep 项目无引用）。
 # pymysql 是纯 Python 驱动（无 C 扩展），LLM 拿到 DB 凭证可直接 import pymysql；
 # 同时 apt 装了 default-mysql-client，CLI `mysql -h ...` 也可用，两种姿势齐备。
 # 设计哲学：LLM 写脚本默认 import 这些，不预装就强迫它降级用 stdlib 或浪费 round-trip 装包。
@@ -170,13 +165,25 @@ RUN pip install --quiet \
         pyyaml \
         xmltodict \
         paramiko \
-        selenium \
         pymysql \
  && dirsearch --version 2>&1 | head -1 \
  && arjun --help 2>&1 | head -1 \
  && wafw00f --help 2>&1 | head -1 \
  && semgrep --version \
- && python3 -c 'import requests, httpx, aiohttp, bs4, lxml, urllib3, websockets, websocket, socks, dns, cryptography, jwt, yaml, xmltodict, paramiko, selenium, pymysql; print("python libs OK (17 packages)")'
+ && python3 -c 'import requests, httpx, aiohttp, bs4, lxml, urllib3, websockets, websocket, socks, dns, cryptography, jwt, yaml, xmltodict, paramiko, pymysql; print("python libs OK (16 packages)")'
+
+# Layer 2.5: browser-use CLI（替代 selenium + chromedriver）。
+# browser-use 是 LLM-friendly 浏览器自动化框架，自带 CLI（browser-use open/state/click/...）
+# 和 session 自动管理（chrome 生命周期由 browser-use 内部托管，无需我们 spawn）。
+# - pip 装 browser-use[cli] 拉 browser-use + playwright + 依赖（~50MB Python 包）
+# - playwright install chromium 拉 playwright 自家 chromium（~150MB），不复用现有
+#   google-chrome 因为 playwright 默认用自家 chromium 兼容性最稳
+# - playwright install-deps 装系统依赖（libnss3 等），部分已被 Layer 1c chrome.deb 拉过
+# 总体 +~250MB。LLM 通过 run_command "browser-use ..." 调用。
+RUN pip install --quiet 'browser-use[cli]' \
+ && playwright install chromium \
+ && playwright install-deps chromium 2>/dev/null || true \
+ && browser-use --version 2>&1 | head -3 || true
 
 # Layer 3: jwt_tool 不在 PyPI（pyjwt 是不同包）——git clone + 包装脚本到 /usr/local/bin。
 RUN git clone --depth 1 https://github.com/ticarpi/jwt_tool.git /opt/jwt_tool \
@@ -323,10 +330,16 @@ RUN set -e \
         > /opt/SecLists/README.md \
  && echo "SecLists 占位创建完毕（运行时按需拉取）"
 
+# Layer 8: sandbox-server 二进制（从 stage 0 sandbox-builder 拷贝）。
+# 这是容器 PID 1，主进程通过 :8080 HTTP RPC 调用——见 design doc：
+# docs/superpowers/specs/2026-05-16-sandbox-server-design.md
+COPY --from=sandbox-builder /out/sandbox-server /usr/local/bin/sandbox-server
+RUN chmod +x /usr/local/bin/sandbox-server && test -x /usr/local/bin/sandbox-server
+
 WORKDIR /work
 
 # 摘要打印——build 完确认装齐。
-RUN echo "=== liusha/pentools:1.0.0 (内容 v1.1) 工具清单 ===" \
+RUN echo "=== liusha/pentools (sandbox-server + browser-use) 工具清单 ===" \
  && echo "recon:           subfinder | httpx | katana | nmap | wafw00f" \
  && echo "discovery:       ffuf | dirsearch | arjun" \
  && echo "vulnscan:        nuclei (templates: $(ls /root/.config/nuclei-templates 2>/dev/null | wc -l) dirs)" \
@@ -334,5 +347,13 @@ RUN echo "=== liusha/pentools:1.0.0 (内容 v1.1) 工具清单 ===" \
  && echo "deserialization: ysoserial (java) | phpggc (php)" \
  && echo "auth:            hydra | jwt_tool" \
  && echo "sast:            semgrep | trufflehog" \
- && echo "utility:         curl | python3 $(python3 --version) | jq | interactsh-client | mysql $(mysql --version | awk '{print $5}' | tr -d ',') | google-chrome $(google-chrome --version | awk '{print $3}') | chromedriver $(chromedriver --version | awk '{print $2}')" \
- && echo "wordlist:        /opt/SecLists ($(du -sh /opt/SecLists 2>/dev/null | cut -f1))"
+ && echo "browser:         browser-use $(browser-use --version 2>&1 | head -1 || echo '?') | playwright chromium" \
+ && echo "utility:         curl | python3 $(python3 --version) | jq | interactsh-client | mysql $(mysql --version | awk '{print $5}' | tr -d ',') | google-chrome $(google-chrome --version | awk '{print $3}')" \
+ && echo "wordlist:        /opt/SecLists ($(du -sh /opt/SecLists 2>/dev/null | cut -f1))" \
+ && echo "entrypoint:      /usr/local/bin/sandbox-server (PID 1, :8080)"
+
+EXPOSE 8080
+
+# CMD 启动 sandbox-server——容器 PID 1，主进程通过 docker network 内 :8080 调用。
+# 用 exec form 让 SIGTERM 直达进程（不经过 sh），优雅 shutdown 才能工作。
+CMD ["/usr/local/bin/sandbox-server"]

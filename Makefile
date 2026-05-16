@@ -1,4 +1,4 @@
-.PHONY: up down logs migrate migrate-down run-api build-api build-proxy build-scanner build-vulnapp test test-unit test-integration lint fmt tidy vet e2e e2e-bac e2e-sqli
+.PHONY: up down logs migrate migrate-down run-api run-scanner build-api build-proxy build-scanner build-vulnapp build-pentools test test-unit test-integration lint fmt tidy vet e2e e2e-bac e2e-sqli
 
 COMPOSE = docker compose -f deployments/docker-compose.yml
 MIGRATE_DSN ?= postgres://liusha:liusha@localhost:5432/liusha?sslmode=disable
@@ -23,6 +23,11 @@ migrate-down:
 run-api:
 	go run ./cmd/api
 
+# A1 部署方案：scanner 跑在 host（开发 + production 当前形态），
+# 用 host 的 docker daemon 起 sandbox 容器。需 host 上有 PG/Redis（`make up`）+ pentools 镜像（`make build-pentools`）。
+run-scanner:
+	go run ./cmd/scanner
+
 build-api:
 	docker build -f cmd/api/Dockerfile -t liusha/api .
 
@@ -34,6 +39,12 @@ build-scanner:
 
 build-vulnapp:
 	docker build -f cmd/vulnapp/Dockerfile -t liusha/vulnapp .
+
+# sandbox 镜像（all-in-one：sandbox-server PID 1 + browser-use + pentest 工具集）。
+# multi-stage build：stage 0 编译 sandbox-server Go 二进制；stage 1 装 chrome/python/工具/拷贝二进制。
+# 体积 ~1.5GB；首次 build ~10-20 分钟（拉 ubuntu/golang base + apt + pip + wget releases）。
+build-pentools:
+	docker build -t liusha/pentools:latest -f deployments/tool-images/pentools/Dockerfile .
 
 test: test-unit test-integration
 

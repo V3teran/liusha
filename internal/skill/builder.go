@@ -14,6 +14,7 @@ import (
 
 	"github.com/V3teran/liusha/internal/llm"
 	"github.com/V3teran/liusha/internal/react"
+	"github.com/V3teran/liusha/internal/sandbox"
 )
 
 // Builder 为某个 skill 装配 ReAct Config。
@@ -44,4 +45,10 @@ type BuilderParams struct {
 	ResponseStatus  int
 	ResponseHeaders json.RawMessage
 	ResponseBody    []byte
+
+	// Sandbox 是本次 agent run 绑定的 sandbox-server HTTP RPC client。
+	// 由 cmd/scanner handleTraffic 在 Launcher.Spawn 后填入；run 结束 defer Destroy。
+	// hunter Builder 闭包用此 client 注入 RunCommand.Sandbox。
+	// nil 时 hunter 不注册 run_command 工具（向后兼容，避免 LLM 调不到工具）。
+	Sandbox sandbox.Client
 }

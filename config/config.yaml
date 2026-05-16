@@ -271,15 +271,14 @@ react:
   reviewer_findings_limit: 30              # reviewer 看 host 已有 finding 段条数（按 created_at DESC）
   reviewer_lessons_limit: 30               # reviewer 看 host lesson 段条数（按 priority DESC）
 
-# ---- 容器化执行参数（external.RunCommand + DockerRunner）----
+# ---- 容器化执行参数（sandbox.Launcher + external.RunCommand）----
+# 容器内存/CPU/并发数等运行时参数下放到 sandbox.DockerLauncher 内部硬编码
+# （per-agent-run 容器模型下这些参数没有按 engagement 调整的需求）。
+# 见 docs/superpowers/specs/2026-05-16-sandbox-server-design.md
 sandbox:
-  default_image: liusha/pentools:latest    # 默认沙箱镜像（17 工具+SecLists；build 即升级到 GitHub 最新版本）
+  default_image: liusha/pentools:latest    # 默认沙箱镜像（含 sandbox-server PID 1 + browser-use + 全套 pentest 工具）
   # run_command 单次硬超时由 LLM 通过 timeout_seconds 必传，上限钳到 toolruntime.step_tool_timeout_seconds（1800s）
-  run_default_mem_mb: 1024                 # 容器内存上限（MB）；512 跑 sqlmap dump 一律 exit 137 OOM，1024 给 sqlmap / 中型 fuzz 足够
-  run_default_cpus: 1.0                    # 容器 CPU 上限（核数）
-  run_tail_bytes: 8192                     # stdout/stderr 各保留尾部字节数（关键瓶颈：sqlmap level=5+tamper 输出经常超 1.5KB）
-  runner_concurrency: 5                    # DockerRunner 全局并发上限
-  scan_network: ""                         # 限制扫描容器网络（如 "liusha_scan_net"）；空 = docker 默认 bridge
+  run_tail_bytes: 8192                     # 主进程 RunCommand 对 stdout/stderr 截尾字节数；sandbox-server 返回完整 stdout，截尾在主进程层
 
 # ---- toolruntime Interceptor 参数 ----
 toolruntime:
