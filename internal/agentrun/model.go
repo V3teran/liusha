@@ -1,7 +1,11 @@
-// Package reactrun 实现 agent_task 持久化层：每次主 ReAct 调用对应一行，
+// Package agentrun 实现 agent_run 持久化层：每次 ReAct 调用对应一行，
 // 状态机 pending → running → done | error | aborted。
 //
-// 注意：子 ReAct 同进程嵌套，不入 PG，没有父子关系（无 parent_task_id 列）。
+// 父子关系（subtask swarm）：
+//   - 父 / 独立任务：parent_id = NULL（Go 层 ParentID = ""）
+//   - 子任务：parent_id 指向父 agent_run.id；子任务**不**入 asynq，
+//     由 internal/subtask 包在父 goroutine 内手动调 Store.Create 写入
+//     并通过 ListByParent 暴露给父的 list_children 工具。
 package agentrun
 
 import (
@@ -20,10 +24,12 @@ const (
 	StatusError   Status = "error"
 )
 
-// ReactRun 是 agent_task 表行的 Go 表示。Result 在终态前为空 jsonb '{}'。
+// ReactRun 是 agent_run 表行的 Go 表示。Result 在终态前为空 jsonb '{}'。
+// ParentID 空表示独立/根任务；非空时指向父 agent_run.id（subtask swarm）。
 type ReactRun struct {
 	ID           string
 	EngagementID string
+	ParentID     string
 	Role         string
 	Input        json.RawMessage
 	Result       json.RawMessage
@@ -33,8 +39,10 @@ type ReactRun struct {
 }
 
 // NewParams 是 Store.Create 的入参。
+// ParentID 留空表示独立/根任务；填值时 INSERT 写入 parent_id 列（subtask 用）。
 type NewParams struct {
 	EngagementID string
 	Role         string
 	Input        json.RawMessage
+	ParentID     string
 }

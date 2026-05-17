@@ -566,6 +566,14 @@ func (h handler) handlePassive(ctx context.Context, p worker.Payload, entrypoint
 //
 // sandbox 生命周期 / reviewer 装配 / OnAbort / 终态处理完全对称 passive。
 func (h handler) handleActive(ctx context.Context, p worker.Payload, entrypoint json.RawMessage) error {
+	// 子任务（subtask swarm）永远在父 goroutine 内跑（internal/subtask 包），
+	// **不**入 asynq 队列。真到这里说明 enqueue 调用方误把子 Payload 入队 →
+	// 立即 fail-fast，防止子任务被独立 worker 错跑（容器 / parent_id 都对不上）。
+	if p.ParentTaskID != "" {
+		return h.failTask(ctx, p.TaskID,
+			fmt.Errorf("child task %s reached asynq handler (parent=%s); 子任务必须在父 goroutine 内跑", p.TaskID, p.ParentTaskID))
+	}
+
 	var ep struct {
 		Brief string `json:"brief"`
 	}
@@ -648,6 +656,7 @@ func (h handler) handleActive(ctx context.Context, p worker.Payload, entrypoint 
 	cfg, err := h.hunterBuilder(ctx, skill.BuilderParams{
 		EngagementID: eid,
 		TaskID:       tid,
+		ParentTaskID: p.ParentTaskID, // 父独立 active 总是空；预留给未来如果走 asynq 路径的子（当前 fail-fast 拒绝）
 		Host:         virtualHost,
 		LLM:          hunterGen,
 		Reviewer:     reviewer,

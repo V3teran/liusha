@@ -38,19 +38,21 @@ func (s *Store) WithCounter(c engagementCounter) *Store {
 }
 
 // colsSelect 是所有 SELECT 路径的统一列序，与 scanTask() 的字段顺序一一对应。
-const colsSelect = `id, engagement_id, role, input, result, status, created_at, updated_at`
+// parent_id 用 COALESCE 把 NULL 折成空串 → Go 层 ReactRun.ParentID = ""（独立任务）。
+const colsSelect = `id, engagement_id, COALESCE(parent_id::text, '') AS parent_id, role, input, result, status, created_at, updated_at`
 
 // Create 插入一行 pending 任务，返回新 id。Input 为 nil 时落空对象。
+// ParentID 空串用 NULLIF 转 PG NULL，匹配 0037 partial index（WHERE parent_id IS NOT NULL）。
 func (s *Store) Create(ctx context.Context, p NewParams) (string, error) {
 	if p.Input == nil {
 		p.Input = json.RawMessage("{}")
 	}
 	var id string
 	err := s.pool.QueryRow(ctx, `
-		INSERT INTO agent_run (engagement_id, role, input)
-		VALUES ($1,$2,$3)
+		INSERT INTO agent_run (engagement_id, parent_id, role, input)
+		VALUES ($1, NULLIF($2, '')::uuid, $3, $4)
 		RETURNING id`,
-		p.EngagementID, p.Role,
+		p.EngagementID, p.ParentID, p.Role,
 		[]byte(p.Input),
 	).Scan(&id)
 	if err != nil {
@@ -163,6 +165,36 @@ func (s *Store) ListByEngagement(ctx context.Context, engagementID string, limit
 	return out, nil
 }
 
+// ListByParent 按 created_at 升序列出 parentID 的所有子任务。
+//
+// subtask swarm 的 list_children 工具调用入口：返回父在本进程内 spawn 的子任务全集
+// （含 pending / running / 终态）。无 limit——业务侧 max_children 已 hard cap（默认 10），
+// 全返本身就只 10 条数量级。
+func (s *Store) ListByParent(ctx context.Context, parentID string) ([]ReactRun, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT `+colsSelect+`
+		FROM agent_run
+		WHERE parent_id = $1::uuid
+		ORDER BY created_at ASC`, parentID)
+	if err != nil {
+		return nil, fmt.Errorf("list tasks by parent: %w", err)
+	}
+	defer rows.Close()
+
+	var out []ReactRun
+	for rows.Next() {
+		var t ReactRun
+		if err := scanTask(rows, &t); err != nil {
+			return nil, fmt.Errorf("scan task: %w", err)
+		}
+		out = append(out, t)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate tasks: %w", err)
+	}
+	return out, nil
+}
+
 // CountInflightInEngagement 统计 engagement 下处于 pending|running 的任务总数（全局并发上限）。
 func (s *Store) CountInflightInEngagement(ctx context.Context, engagementID string) (int, error) {
 	var n int
@@ -184,7 +216,7 @@ type scanner interface {
 func scanTask(r scanner, t *ReactRun) error {
 	var input, result []byte
 	if err := r.Scan(
-		&t.ID, &t.EngagementID, &t.Role,
+		&t.ID, &t.EngagementID, &t.ParentID, &t.Role,
 		&input, &result, &t.Status, &t.CreatedAt, &t.UpdatedAt,
 	); err != nil {
 		return err

@@ -35,6 +35,10 @@ type Builder func(ctx context.Context, params BuilderParams) (react.Config, erro
 type BuilderParams struct {
 	EngagementID string
 	TaskID       string
+	// ParentTaskID 非空表示本任务是 active 父 spawn 的子任务（subtask swarm）。
+	// 父任务 / 独立任务此字段为空。hunter builder（PR3）按此字段决定是否注册
+	// spawn_child / list_children 工具——子任务不再 spawn（max_depth=1）。
+	ParentTaskID string
 	Host         string
 	LLM          llm.Generator
 	Reviewer     react.Reviewer

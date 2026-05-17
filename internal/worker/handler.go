@@ -10,9 +10,15 @@ import (
 // Payload 是所有 agent 任务的统一载荷。
 //
 // Input 是该 task 的入参（已序列化的 JSON），由 handler 自行解释。
+//
+// ParentTaskID 标识父任务 id（subtask swarm）；空表示独立任务/根任务。
+// 设计约束：子任务永远在父 goroutine 内跑（subtask 包内），**不**入 asynq——
+// 因此正常情况下入队 Payload.ParentTaskID 永远为空。handleActive 头部对非空值
+// fail-fast 兜底，防止误入队污染队列。
 type Payload struct {
 	TaskID       string          `json:"agent_run_id"`
 	EngagementID string          `json:"engagement_id"`
+	ParentTaskID string          `json:"parent_task_id,omitempty"`
 	Role         Role            `json:"role"`
 	Input        json.RawMessage `json:"input,omitempty"`
 }

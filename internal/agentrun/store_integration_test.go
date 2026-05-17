@@ -128,3 +128,97 @@ func TestStore_TerminalIsSticky(t *testing.T) {
 	}
 }
 
+// TestStore_CreateWithParent 验证：NewParams.ParentID 写入 + GetByID 读出往返一致。
+func TestStore_CreateWithParent(t *testing.T) {
+	ctx := context.Background()
+	s, eid := setup(t)
+
+	parentID, err := s.Create(ctx, NewParams{EngagementID: eid, Role: "hunter"})
+	if err != nil {
+		t.Fatalf("create parent: %v", err)
+	}
+
+	childID, err := s.Create(ctx, NewParams{
+		EngagementID: eid,
+		Role:         "hunter",
+		ParentID:     parentID,
+	})
+	if err != nil {
+		t.Fatalf("create child: %v", err)
+	}
+
+	got, err := s.GetByID(ctx, childID)
+	if err != nil {
+		t.Fatalf("get child: %v", err)
+	}
+	if got.ParentID != parentID {
+		t.Fatalf("child.ParentID=%q, want %q", got.ParentID, parentID)
+	}
+
+	// 父任务自己 ParentID 必须为空（独立/根任务）
+	gotParent, err := s.GetByID(ctx, parentID)
+	if err != nil {
+		t.Fatalf("get parent: %v", err)
+	}
+	if gotParent.ParentID != "" {
+		t.Fatalf("parent.ParentID=%q, want empty", gotParent.ParentID)
+	}
+}
+
+// TestStore_ListByParent 4 case：空 / 单子 / 多子（顺序）/ parent 不存在。
+func TestStore_ListByParent(t *testing.T) {
+	ctx := context.Background()
+	s, eid := setup(t)
+
+	parentID, err := s.Create(ctx, NewParams{EngagementID: eid, Role: "hunter"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// case 1: 0 子
+	got, err := s.ListByParent(ctx, parentID)
+	if err != nil {
+		t.Fatalf("list empty: %v", err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("无子时应返回空，got %d 条", len(got))
+	}
+
+	// case 2: 1 子
+	child1, err := s.Create(ctx, NewParams{EngagementID: eid, Role: "hunter", ParentID: parentID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err = s.ListByParent(ctx, parentID)
+	if err != nil {
+		t.Fatalf("list one: %v", err)
+	}
+	if len(got) != 1 || got[0].ID != child1 {
+		t.Fatalf("应只返回 child1，got %+v", got)
+	}
+
+	// case 3: 多子按 created_at 升序
+	time.Sleep(2 * time.Millisecond) // 避免 PG now() 同微秒
+	child2, err := s.Create(ctx, NewParams{EngagementID: eid, Role: "hunter", ParentID: parentID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err = s.ListByParent(ctx, parentID)
+	if err != nil {
+		t.Fatalf("list two: %v", err)
+	}
+	if len(got) != 2 || got[0].ID != child1 || got[1].ID != child2 {
+		t.Fatalf("应按 created_at 升序返回 [child1, child2]，got %+v", got)
+	}
+
+	// case 4: parent 不存在 → 空切片，不报错
+	missing := "00000000-0000-0000-0000-000000000000"
+	got, err = s.ListByParent(ctx, missing)
+	if err != nil {
+		t.Fatalf("list missing parent: %v", err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("不存在 parent 应返回空，got %d 条", len(got))
+	}
+}
+
