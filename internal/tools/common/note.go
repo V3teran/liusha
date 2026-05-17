@@ -69,12 +69,15 @@ func (a *WriteNote) Name() string { return "write_note" }
 //
 // description 重点说"只能在 note 留痕的事"和"禁写"边界，防 LLM 把漏洞 PoC 误写进 note。
 func (a *WriteNote) Description() string {
-	return "写一条「本次扫描」内的过程性事实到 engagement 共享笔记板" +
-		"（同 host 其他 hunter task 都能读到；engagement 关闭即过期，不跨次扫描）。" +
+	return "写一条过程性事实到本 (engagement + host) 信息黑板——" +
+		"\npassive 模式：同 host 跨多个 hunter task 共享；" +
+		"\nactive 模式：当前长任务内 step 间外置记忆（防 ReAct context 滑窗压缩丢失早期决策；" +
+		"任务超 20 步建议主动写 note 留痕关键中间状态）。engagement 关闭即过期。" +
 		"\n\n【必写】只能在 note 留痕的事：" +
 		"\n- 目标实例当前怪癖：本 host 现在的 server 行为（如『强制 security=impossible 需 cookie 覆盖』）" +
 		"\n- 小惊喜：扫描中发现的非漏洞但有价值的信号（待深挖的暴露端口、可疑 endpoint、奇怪报错、未来可能成为攻击面的线索）" +
 		"\n- 失败死路：什么打法不通，避免后续 agent 重蹈" +
+		"\n- active 长任务关键中间状态：拿到的 cookie/token、上传的 webshell 路径、已测过的攻击路径（防上下文压缩后忘）" +
 		"\n\n【禁写】请改用对应工具：" +
 		"\n- 漏洞 PoC（具体可复现的漏洞）→ write_finding" +
 		"\n- 通用经验（默认密码、工具调用 pattern、稳定的目标特性）→ write_lesson" +

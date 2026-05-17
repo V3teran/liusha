@@ -15,6 +15,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"regexp"
 	"syscall"
 	"time"
 
@@ -576,8 +577,9 @@ func (h handler) handleActive(ctx context.Context, p worker.Payload, entrypoint 
 	}
 
 	tid, eid := p.TaskID, p.EngagementID
-	// 虚拟 host：active 模式没有先验目标，用 eid 当 notes/findings 切分键。
-	virtualHost := eid
+	// 优先从 brief 抽真实 URL host（如 target.com:8080），让 lesson/finding/note
+	// 按真站点身份切分跨 task 复用；抽不到回退 engagement_id 兜底（lesson 跨 task 失效）。
+	virtualHost := extractHostFromBrief(ep.Brief, eid)
 
 	// hunter LLM Generator——active 模式路由到 vision_provider（默认 anthropic），
 	// 因为 active hunter 可能调 browser-use screenshot 把图喂回 LLM；deepseek 走
@@ -697,4 +699,26 @@ func envOr(k, def string) string {
 		return v
 	}
 	return def
+}
+
+// briefHostRe 匹配 http(s):// 后到 / 或 空白 之前的 host (含端口)。
+//
+// 例子（捕获组 [1]）：
+//
+//	"测试 http://target.com:8080/login.php" → "target.com:8080"
+//	"扫 https://api.foo.io/v1"             → "api.foo.io"
+//	"test bar.com"                          → 无匹配（缺 http(s):// 前缀）
+var briefHostRe = regexp.MustCompile(`https?://([^/\s]+)`)
+
+// extractHostFromBrief 从 active brief 抽 URL host 当 (engagement, host) 切分键。
+//
+// 抽不到时回退 fallback（engagement_id 兜底），此时 lesson 跨 task 复用失效。
+// 这是按 brief 自然语言的弱契约设计：让 active 任务能自动按真实站点身份归档
+// note/finding/lesson，同时不破坏"自然语言 brief"的简单 API。
+func extractHostFromBrief(brief, fallback string) string {
+	m := briefHostRe.FindStringSubmatch(brief)
+	if len(m) < 2 {
+		return fallback
+	}
+	return m[1]
 }
