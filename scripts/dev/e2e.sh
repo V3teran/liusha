@@ -95,8 +95,14 @@ for port in 8001 8888 8090 9090 9091; do
     kill -9 "$pid" 2>/dev/null || true
   fi
 done
+# pkill 兜底：scanner 启动若 healthz :9090 端口冲突会保留 exe 进程但不绑端口
+# → lsof 找不到 → 老 binary 留下与 asynq 抢任务（曾踩坑：上次 commit 67f1c24
+# extractHostFromBrief 没生效就是因为老 scanner 拿到了 task 用旧逻辑跑）。
+# -9 强杀所有 scanner exe + go run 父进程兜底。
+pkill -9 -f 'exe/scanner' 2>/dev/null || true
+pkill -9 -f 'go run.*cmd/scanner' 2>/dev/null || true
 sleep 1
-echo "  ✓ 旧 service 已关停（端口 8001/8888/8090/9090/9091 释放）"
+echo "  ✓ 旧 service 已关停（端口 8001/8888/8090/9090/9091 释放 + scanner 进程兜底 pkill）"
 
 echo ""
 echo "===== 4/6 清 logs（fd 已释放，rm 真正删除）====="

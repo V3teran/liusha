@@ -123,12 +123,9 @@ type activeProfile struct {
 // 当前只内置 1 个 demo (xss)——用户实际用 active 模式时，按需追加新 profile 即可。
 var activeProfiles = map[string]activeProfile{
 	"xss": {
-		name: "xss",
-		// 末尾的截图要求是 e2e 视觉链路验证用（让 LLM 真调 browser-use screenshot
-		// 触发 sandbox → run_command → react.runtime ContentParts → multimodal LLM
-		// 完整链路），不是引导漏洞挖掘方向。
-		brief:       "测试网站 http://111.229.193.40:34280/login.php，账号 admin/password，只测试 XSS 漏洞。请用 browser-use screenshot $OUTPUT_DIR/xxx.png 至少截 2 张关键页面作为视觉证据。",
-		minFindings: 1,
+		name:        "xss",
+		brief:       "测试网站 http://111.229.193.40:34280/login.php，账号 admin/password，要测试 File Upload、XSS、File Inclusion 漏洞",
+		minFindings: 3,
 	},
 }
 
