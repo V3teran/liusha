@@ -3,7 +3,7 @@
 // 数据流（Stream-based 业界最佳实践）：
 //
 //	cmd/proxy onResponse → filter → publisher.Publish (XADD liusha:flow_events)
-//	cmd/scanner ingestor → XREADGROUP → Rotator.EnsureProxySession + flow.Append + 入 hunter 队列
+//	cmd/scanner ingestor → XREADGROUP → Rotator.EnsurePassiveSession + flow.Append + 入 hunter 队列
 //
 // proxy 进程无状态、可水平扩展；engagement 选取/轮转逻辑集中在 scanner 端。
 package proxy

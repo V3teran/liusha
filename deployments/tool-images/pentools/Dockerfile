@@ -12,7 +12,10 @@
 #     反序列化 → wordlist → sandbox-server 二进制。失败可单层重试。
 #   - **Go 二进制 + ysoserial 用 GitHub API releases/latest 动态拉最新**——
 #     build 即升级，无需手动改 ARG；fallback 默认值兜底 API 不可达
-#   - **base = ubuntu:latest**：自动跟随官方最新 LTS（2026-04 后 = 26.04）
+#   - **base = ubuntu:24.04 LTS**（锁死，不跟 latest）：
+#     原因——ubuntu:latest 当前是 26.04 LTS 自带 Python 3.14，而 browser-use 0.12.x 用了
+#     被 3.14 移除的 asyncio.get_event_loop() 老 API，CLI 静默失败（见 browser-use issue #4447）。
+#     24.04 LTS 自带 Python 3.12，browser-use 正常工作；24.04 支持到 2029-04 长期可靠。
 #   - **multi-stage build**：Stage 0（golang:alpine）编译 sandbox-server，
 #     Stage 1 拷贝二进制；最终镜像不含 Go 工具链
 #
@@ -36,8 +39,8 @@
 # 删除：chromedriver 20MB（selenium 配套，已被 browser-use 替代）。
 
 # Stage 0: sandbox-server 编译（multi-stage，产物拷到最终镜像 /usr/local/bin）。
-# 强制 amd64 与运行时一致；vendored deps 离线 build。
-FROM --platform=linux/amd64 golang:1.25-alpine AS sandbox-builder
+# 跟 host arch（CGO_ENABLED=0 纯 Go，跨 arch 编译无障碍）；vendored deps 离线 build。
+FROM golang:1.25-alpine AS sandbox-builder
 WORKDIR /src
 COPY go.mod go.sum ./
 COPY vendor ./vendor
@@ -47,12 +50,10 @@ ENV CGO_ENABLED=0
 RUN go build -mod=vendor -o /out/sandbox-server ./cmd/sandbox-server
 
 # Stage 1: 运行镜像。
-# 强制 amd64 base——
-# 大部分渗透工具（ysoserial / dalfox / 部分 Go release）amd64 binary 才齐全；
-# arm64 上跑 amd64 binary 走 rosetta 转译，dalfox 之前因 elf interp 缺失报错。
-# 用 amd64 base 整套环境对齐，所有 amd64 binary 直接兼容。
-# macOS arm64 host 跑此镜像全程 rosetta 转译（慢但稳定）。
-FROM --platform=linux/amd64 ubuntu:latest
+# base arch 跟 host（多架构 manifest），让 Mac arm64 / linux amd64 都能 native 跑。
+# 所有 wget 的 Go release 用 TARGETARCH 变量拉对应 arch binary（buildx 自动注入）；
+# google-chrome 仅 amd64 有官方 deb——arm64 上跳过，依靠 playwright chromium（含 arm64 native build）。
+FROM ubuntu:24.04
 
 ENV DEBIAN_FRONTEND=noninteractive \
     PIP_BREAK_SYSTEM_PACKAGES=1 \
@@ -122,14 +123,21 @@ RUN apt-get update \
 
 # Layer 1c: Google Chrome（dalfox / katana 等用 chromedp 的工具需要 chromium-style 浏览器）。
 # Ubuntu 24.04 默认 chromium 是 snap 包（docker 内不可用），改装 google-chrome-stable.deb。
+# google-chrome 仅 amd64 有官方 deb——arm64 build 时跳过本层，依靠 Layer 2.5 playwright
+# chromium（arm64 有 native build），并在 2.5 后做 /usr/local/bin/chromium symlink 让 chromedp 系工具找到。
 # chromedp 自动查找 google-chrome / chromium / chrome；apt-get install 一条 deb 会自动拉运行时依赖。
-# 约 +110MB；失败单独 layer 可重试。
-RUN wget -q -O /tmp/chrome.deb https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb \
- && apt-get update \
- && apt-get install -y --no-install-recommends /tmp/chrome.deb \
- && rm /tmp/chrome.deb \
- && rm -rf /var/lib/apt/lists/* \
- && google-chrome --version
+# amd64 约 +110MB；失败单独 layer 可重试。
+ARG TARGETARCH
+RUN if [ "$TARGETARCH" = "amd64" ]; then \
+        wget -q -O /tmp/chrome.deb https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb \
+     && apt-get update \
+     && apt-get install -y --no-install-recommends /tmp/chrome.deb \
+     && rm /tmp/chrome.deb \
+     && rm -rf /var/lib/apt/lists/* \
+     && google-chrome --version ; \
+    else \
+        echo "[Layer 1c] TARGETARCH=$TARGETARCH 跳过 google-chrome（无 arm64 deb）；依靠 Layer 2.5 playwright chromium" ; \
+    fi
 
 # Layer 1d 已删除：之前装 chromedriver 是为 selenium 配套，
 # 现在改用 browser-use[cli]（基于 playwright，自带 chromium 管理），无需 chromedriver。
@@ -180,10 +188,21 @@ RUN pip install --quiet \
 #   google-chrome 因为 playwright 默认用自家 chromium 兼容性最稳
 # - playwright install-deps 装系统依赖（libnss3 等），部分已被 Layer 1c chrome.deb 拉过
 # 总体 +~250MB。LLM 通过 run_command "browser-use ..." 调用。
-RUN pip install --quiet 'browser-use[cli]' \
+RUN set -e \
+ # browser-use[cli] 不再自动拉 playwright（cli.py:23 spawn `uvx playwright install`），
+ # 我们显式装 uv（提供 uvx 兜底）+ playwright，避免 LLM 跑 browser-use 时按需装失败。
+ && pip install --quiet 'browser-use[cli]' uv playwright \
  && playwright install chromium \
- && playwright install-deps chromium 2>/dev/null || true \
- && browser-use --version 2>&1 | head -3 || true
+ && (playwright install-deps chromium 2>/dev/null || true) \
+ && (browser-use --version 2>&1 | head -3 || true) \
+ # symlink playwright chromium binary 到 PATH——arm64 上没 google-chrome 时
+ # dalfox/katana 等 chromedp 系工具用此作为 chromium 入口；amd64 上是冗余（已有 google-chrome）但无害。
+ # arm64 playwright build 可能是 headless_shell（headless 专版），amd64 通常是 chrome。
+ && PW_CHROMIUM=$(find /root/.cache/ms-playwright -type f \( -name chrome -o -name headless_shell \) 2>/dev/null | head -1) \
+ && [ -n "$PW_CHROMIUM" ] || { echo "[FATAL] playwright chromium binary 未找到"; ls -la /root/.cache/ms-playwright/ 2>&1; exit 1; } \
+ && ln -sf "$PW_CHROMIUM" /usr/local/bin/chromium \
+ && ls -la /usr/local/bin/chromium \
+ && /usr/local/bin/chromium --version 2>&1 | head -1
 
 # Layer 3: jwt_tool 不在 PyPI（pyjwt 是不同包）——git clone + 包装脚本到 /usr/local/bin。
 RUN git clone --depth 1 https://github.com/ticarpi/jwt_tool.git /opt/jwt_tool \
@@ -196,7 +215,7 @@ RUN git clone --depth 1 https://github.com/ticarpi/jwt_tool.git /opt/jwt_tool \
 # 不装 golang SDK 省 ~800MB——直接拉官方 release 二进制。
 # 用 GitHub API 查询 latest tag 而非固定 ARG，**build 即升级**。
 # API 无认证 60 次/小时 quota；本 layer 9 次调用（8 工具 + 后置 ysoserial），余量充足。
-ARG TARGETARCH=amd64
+ARG TARGETARCH
 
 # Helper 函数：跟 GitHub /releases/latest 的 302 重定向拿最新 tag（去前导 v）。
 # 不走 api.github.com（容器内常限速 403），用 github.com HTTP redirect 头。
@@ -348,7 +367,7 @@ RUN echo "=== liusha/pentools (sandbox-server + browser-use) 工具清单 ===" \
  && echo "auth:            hydra | jwt_tool" \
  && echo "sast:            semgrep | trufflehog" \
  && echo "browser:         browser-use $(browser-use --version 2>&1 | head -1 || echo '?') | playwright chromium" \
- && echo "utility:         curl | python3 $(python3 --version) | jq | interactsh-client | mysql $(mysql --version | awk '{print $5}' | tr -d ',') | google-chrome $(google-chrome --version | awk '{print $3}')" \
+ && echo "utility:         curl | python3 $(python3 --version) | jq | interactsh-client | mysql $(mysql --version | awk '{print $5}' | tr -d ',') | chromium $(google-chrome --version 2>/dev/null | awk '{print $3}' || /usr/local/bin/chromium --version 2>/dev/null | awk '{print $2}' || echo '?')" \
  && echo "wordlist:        /opt/SecLists ($(du -sh /opt/SecLists 2>/dev/null | cut -f1))" \
  && echo "entrypoint:      /usr/local/bin/sandbox-server (PID 1, :8080)"
 

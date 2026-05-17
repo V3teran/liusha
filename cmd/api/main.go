@@ -6,12 +6,15 @@ package main
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
+	"github.com/V3teran/liusha/internal/agentrun"
 	"github.com/V3teran/liusha/internal/config"
 	"github.com/V3teran/liusha/internal/credential"
 	"github.com/V3teran/liusha/internal/db"
@@ -21,7 +24,10 @@ import (
 	"github.com/V3teran/liusha/internal/httpapi"
 	"github.com/V3teran/liusha/internal/llminvocation"
 	"github.com/V3teran/liusha/internal/logx"
+	"github.com/V3teran/liusha/internal/worker"
 	"github.com/V3teran/liusha/web"
+
+	"github.com/hibiken/asynq"
 )
 
 func main() {
@@ -54,6 +60,13 @@ func main() {
 	invocationStore := llminvocation.NewStoreWithConfig(pool, cfg.LLM.Invocation)
 	defer func() { _ = invocationStore.Close() }()
 
+	// Active 模式装配：agentrun store + asynq 入队器。
+	// 计数 best-effort 维护到 engagement.agent_run_count（与 scanner 一致）。
+	taskStore := agentrun.NewStore(pool).WithCounter(engStore)
+	enq := worker.NewClient(asynq.RedisClientOpt{Addr: os.Getenv("LIUSHA_REDIS_ADDR")})
+	defer enq.Close()
+	activeAdapter := &activeScanAdapter{engs: engStore, tasks: taskStore, enq: enq}
+
 	// 监听地址：优先 ENV（运维临时切换）→ yaml。
 	listenAddr := envOr("LIUSHA_API_ADDR", cfg.API.ListenAddr)
 	srv := &http.Server{
@@ -61,9 +74,10 @@ func main() {
 		Handler: httpapi.NewServer(httpapi.Deps{
 			APIKey:            os.Getenv("LIUSHA_API_KEY"),
 			Credentials:       credAPI,
-			Engagements:       engagementAPIAdapter{s: engStore, proxyTTL: time.Duration(cfg.Engagement.MaxAgeHours) * time.Hour},
+			Engagements:       engagementAPIAdapter{s: engStore, passiveTTL: time.Duration(cfg.Engagement.MaxAgeHours) * time.Hour},
 			Graph:             projector,
 			Invocations:       invocationStore,
+			ActiveScan:        activeAdapter,
 			StaticFS:          web.ViewerFS(),
 			EnableDevAutofill: envOr("LIUSHA_VIEWER_DEV_KEY", "") != "",
 		}),
@@ -105,18 +119,18 @@ func envOr(k, def string) string {
 // HTTP API 不暴露 errMsg：用户主动取消 engagement 即视为正常结束，
 // abort 调用恒传 ""；store 层完整签名（含 errMsg）保留给 scanner 内部用。
 //
-// proxyTTL 来自 cfg.Engagement.MaxAgeHours——proxy session 新建时写入 expires_at。
+// passiveTTL 来自 cfg.Engagement.MaxAgeHours——passive session 新建时写入 expires_at。
 type engagementAPIAdapter struct {
-	s        *engagement.Store
-	proxyTTL time.Duration
+	s          *engagement.Store
+	passiveTTL time.Duration
 }
 
 func (a engagementAPIAdapter) Abort(ctx context.Context, id string) error {
 	return a.s.Abort(ctx, id, "")
 }
 
-func (a engagementAPIAdapter) EnsureProxySession(ctx context.Context) (string, error) {
-	eng, err := a.s.LookupOrCreateProxySession(ctx, a.proxyTTL)
+func (a engagementAPIAdapter) EnsurePassiveSession(ctx context.Context) (string, error) {
+	eng, err := a.s.LookupOrCreatePassiveSession(ctx, a.passiveTTL)
 	if err != nil {
 		return "", err
 	}
@@ -152,4 +166,54 @@ func (a engagementAPIAdapter) List(ctx context.Context, limit int) ([]httpapi.En
 		out = append(out, summary)
 	}
 	return out, nil
+}
+
+// activeScanAdapter 把 engagement.Store + agentrun.Store + worker.Client 组合成
+// httpapi.ActiveScanAPI 一站式入口：建 active engagement → 建 hunter agent_run → 入 asynq 队列。
+//
+// 任一步失败都不留中间状态（前面失败直接返错；engagement 已建但 enqueue 失败会留
+// active engagement，由用户手动 abort 或后续 sweeper——保持简单不上事务，与
+// passive 模式 ingestor.enqueueMain 一致语义）。
+type activeScanAdapter struct {
+	engs  *engagement.Store
+	tasks *agentrun.Store
+	enq   *worker.Client
+}
+
+func (a *activeScanAdapter) CreateActiveScan(ctx context.Context, brief string) (string, string, error) {
+	// scope 与 entrypoint 都只装 brief 原文——目标 URL / host 由 hunter LLM
+	// 从 brief 自然语言里自行识别（不在 API 层做 NL parser）。
+	body, err := json.Marshal(map[string]string{"brief": brief})
+	if err != nil {
+		return "", "", fmt.Errorf("marshal brief: %w", err)
+	}
+	eng, err := a.engs.CreateActiveSession(ctx, body)
+	if err != nil {
+		return "", "", err
+	}
+	payloadInput, err := json.Marshal(map[string]any{
+		"mode":       "active",
+		"entrypoint": json.RawMessage(body),
+	})
+	if err != nil {
+		return "", "", fmt.Errorf("marshal payload: %w", err)
+	}
+
+	tid, err := a.tasks.Create(ctx, agentrun.NewParams{
+		EngagementID: eng.ID,
+		Role:         string(worker.RoleHunter),
+		Input:        payloadInput,
+	})
+	if err != nil {
+		return "", "", fmt.Errorf("create agent_run: %w", err)
+	}
+
+	if _, _, err := a.enq.Enqueue(ctx, worker.RoleHunter, worker.Payload{
+		TaskID:       tid,
+		EngagementID: eng.ID,
+		Input:        payloadInput,
+	}); err != nil {
+		return "", "", fmt.Errorf("enqueue: %w", err)
+	}
+	return eng.ID, tid, nil
 }

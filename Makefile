@@ -1,4 +1,4 @@
-.PHONY: up down logs migrate migrate-down run-api run-scanner build-api build-proxy build-scanner build-vulnapp build-pentools test test-unit test-integration lint fmt tidy vet e2e e2e-bac e2e-sqli
+.PHONY: up down logs migrate migrate-down run-api run-scanner build-api build-proxy build-scanner build-vulnapp build-pentools test test-unit test-integration lint fmt tidy vet e2e e2e-bac e2e-sqli e2e-active
 
 COMPOSE = docker compose -f deployments/docker-compose.yml
 MIGRATE_DSN ?= postgres://liusha:liusha@localhost:5432/liusha?sslmode=disable
@@ -67,11 +67,12 @@ fmt:
 tidy:
 	go mod tidy
 
-# e2e 通用触发器：
-#   make e2e              # 不带参 = 跑全部已知 profile
-#   make e2e-bac          # 仅 bac
-#   make e2e-sqli         # 仅 sqli
-#   go run ./cmd/e2e bac sqli   # 多选（直接调 binary）
+# e2e 通用触发器（args 用前缀区分 passive/active 两种模式）：
+#   make e2e              # 不带参 = 跑全部 passive profile
+#   make e2e-bac          # 仅 passive bac
+#   make e2e-sqli         # 仅 passive sqli
+#   make e2e-active       # 仅 active:xss（自然语言 brief 喂 hunter LLM）
+#   go run ./cmd/e2e bac sqli active:xss   # 混合（直接调 binary）
 e2e:
 	go run ./cmd/e2e
 
@@ -80,3 +81,6 @@ e2e-bac:
 
 e2e-sqli:
 	go run ./cmd/e2e sqli
+
+e2e-active:
+	go run ./cmd/e2e active:xss

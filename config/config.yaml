@@ -221,7 +221,7 @@ ingestor:
 engagement:
   # Rotator.Sweep 定时 goroutine 触发周期（主动 abort 过期 active proxy session）
   sweeper_interval_seconds: 600
-  # Rotator 单一阈值（proxy 模式按时间滚动新 engagement）
+  # Rotator 单一阈值（passive 模式按时间滚动新 engagement）
   # 历史 max_state_size_bytes / max_findings 已删——notes 走 Redis TTL 自治，
   # finding 计数本身不该触发轮转。
   max_age_hours: 24                 # 从 CreatedAt 起超过此小时数即滚动
@@ -252,7 +252,8 @@ skills:
 # ---- cmd/scanner 进程运行时参数 ----
 scanner:
   main_max_steps: 60                       # 单个主 ReAct 循环步数上限
-  agent_run_timeout_seconds: 3600          # 整个 agent_run 整体超时（asynq handler 入口 WithTimeout，60 分钟，> step_tool）
+  agent_run_timeout_seconds: 3600          # passive 模式 agent_run 整体超时（asynq handler 入口 WithTimeout，60 分钟，> step_tool）
+  active_agent_run_timeout_seconds: 14400  # active 模式 agent_run 整体超时（4 小时，对齐 sandbox max lifetime；站点扫描爬+测耗时长）
   step_llm_timeout_seconds: 300            # 单步 LLM Generate 看门狗（5 分钟）
   asynq_concurrency: 6                     # asynq 消费者并发数（同时跑的主 ReAct 数）
   asynq_shutdown_timeout_seconds: 30       # asynq.Shutdown 等 in-flight 主 ReAct 落地超时（超时后 asynq 强制中断）

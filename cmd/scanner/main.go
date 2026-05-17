@@ -160,7 +160,7 @@ func main() {
 	}
 
 	// hunter builder：scanner 启动时构造一次。
-	// run_command 工具的 sandbox.Client 由 handleTraffic 每次 Spawn 后通过
+	// run_command 工具的 sandbox.Client 由 handlePassive/handleActive 每次 Spawn 后通过
 	// skill.BuilderParams.Sandbox 注入——不持有在 Deps 里。
 	hunterBuilder := hunter.NewBuilder(hunter.Deps{
 		Notes:                  noteStore,
@@ -236,7 +236,7 @@ func main() {
 		}
 	}()
 
-	// Rotator sweeper goroutine：与「懒轮换」（流量进来时 EnsureProxySession 检查 expires_at）
+	// Rotator sweeper goroutine：与「懒轮换」（流量进来时 EnsurePassiveSession 检查 expires_at）
 	// 互补——无流量场景下也能保证「24h 一到必关」，避免 PG 堆积陈旧 active 行 + viewer 看僵尸 session。
 	go func() {
 		interval := time.Duration(cfg.Engagement.SweeperIntervalSeconds) * time.Second
@@ -346,13 +346,11 @@ func (h handler) abortTask(ctx context.Context, taskID, reason string) error {
 }
 
 // handle 是单个 hunter task 的处理入口。
+//
+// timeout 按 mode 分档：passive 用 AgentRunTimeoutSeconds（默认 1h），
+// active 用 ActiveAgentRunTimeoutSeconds（默认 4h，对齐 sandbox max lifetime）。
+// 站点扫描爬+测耗时远超单条流量，独立配置避免被 passive timeout 一刀切断。
 func (h handler) handle(ctx context.Context, p worker.Payload) (retErr error) {
-	if h.scannerCfg.AgentRunTimeoutSeconds > 0 {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, time.Duration(h.scannerCfg.AgentRunTimeoutSeconds)*time.Second)
-		defer cancel()
-	}
-
 	taskStart := time.Now()
 	h.logger.Info().
 		Str("agent_run_id", p.TaskID).
@@ -382,21 +380,32 @@ func (h handler) handle(ctx context.Context, p worker.Payload) (retErr error) {
 		return h.failTask(ctx, p.TaskID, err)
 	}
 
+	// 按 mode 选 timeout（解析 input 后才知道 mode；未知 mode 用 passive 兜底，
+	// switch default 会立即报错，无超时浪费）。
+	timeout := h.scannerCfg.AgentRunTimeoutSeconds
+	if input.Mode == "active" {
+		timeout = h.scannerCfg.ActiveAgentRunTimeoutSeconds
+	}
+	if timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, time.Duration(timeout)*time.Second)
+		defer cancel()
+	}
+
 	switch input.Mode {
-	case "traffic":
-		return h.handleTraffic(ctx, p, input.Entrypoint)
-	case "site":
-		err := errors.New("site mode 未实现")
-		return h.failTask(ctx, p.TaskID, err)
+	case "passive":
+		return h.handlePassive(ctx, p, input.Entrypoint)
+	case "active":
+		return h.handleActive(ctx, p, input.Entrypoint)
 	default:
 		err := fmt.Errorf("unknown mode: %s", input.Mode)
 		return h.failTask(ctx, p.TaskID, err)
 	}
 }
 
-// handleTraffic 处理 mode=traffic 的 hunter task：拉 flow 完整 raw（请求 + 响应）
+// handlePassive 处理 mode=passive 的 hunter task：拉 flow 完整 raw（请求 + 响应）
 // → 装配 hunter react.Config → 跑 react.Run（1 流量 → 1 hunter agent）。
-func (h handler) handleTraffic(ctx context.Context, p worker.Payload, entrypoint json.RawMessage) error {
+func (h handler) handlePassive(ctx context.Context, p worker.Payload, entrypoint json.RawMessage) error {
 	var ep struct {
 		FlowID int64  `json:"flow_id"`
 		Host   string `json:"host"`
@@ -537,6 +546,140 @@ func (h handler) handleTraffic(ctx context.Context, p worker.Payload, entrypoint
 		"total_out":        out.TotalUsage.OutTokens,
 		"total_cached":     out.TotalUsage.CachedTokens,
 		"reviewer_hints":   out.ReviewerHints,
+	})
+	if err != nil {
+		return h.failTask(ctx, p.TaskID, fmt.Errorf("marshal task result: %w", err))
+	}
+	return h.tasks.SetDone(ctx, p.TaskID, res)
+}
+
+// handleActive 处理 mode=active 的 hunter task：把 brief 自然语言整段喂 hunter，
+// 由 LLM 自行从 brief 识别目标 URL / 凭据 / 测试范围。
+//
+// 与 handlePassive 差异：
+//   - 跳过 flows.GetByID（active 无 flow）
+//   - BuilderParams 走 active 字段（Brief 而非 Request*/Response*）
+//   - Host 用 engagement_id 当虚拟 host（notes/findings 按 engagement 切分；
+//     lesson 跨 engagement 复用对 active 价值小，trade-off 可接受）
+//
+// sandbox 生命周期 / reviewer 装配 / OnAbort / 终态处理完全对称 passive。
+func (h handler) handleActive(ctx context.Context, p worker.Payload, entrypoint json.RawMessage) error {
+	var ep struct {
+		Brief string `json:"brief"`
+	}
+	if err := json.Unmarshal(entrypoint, &ep); err != nil {
+		return h.failTask(ctx, p.TaskID, err)
+	}
+	if ep.Brief == "" {
+		return h.failTask(ctx, p.TaskID, fmt.Errorf("active entrypoint 缺 brief"))
+	}
+
+	tid, eid := p.TaskID, p.EngagementID
+	// 虚拟 host：active 模式没有先验目标，用 eid 当 notes/findings 切分键。
+	virtualHost := eid
+
+	// hunter LLM Generator
+	hunterRaw, err := h.router.For(ctx, "hunter")
+	if err != nil {
+		return h.failTask(ctx, p.TaskID, err)
+	}
+	hunterGen := llm.Instrument(hunterRaw, h.calls,
+		llm.CallMeta{TaskID: &tid, EngagementID: &eid, RouteKey: "hunter"},
+		h.pricing,
+	)
+
+	// reviewer
+	reviewLLMRaw, err := h.router.For(ctx, "reviewer")
+	if err != nil {
+		return h.failTask(ctx, p.TaskID, err)
+	}
+	reviewLLMGen := llm.Instrument(reviewLLMRaw, h.calls,
+		llm.CallMeta{TaskID: &tid, EngagementID: &eid, RouteKey: "reviewer"},
+		h.pricing,
+	)
+	reviewer := react.NewLLMReviewer(reviewLLMGen, h.notes, eid, virtualHost)
+	reviewer.ArgsTruncate = h.cfg.React.ReviewerArgsTruncate
+	reviewer.ObsTruncate = h.cfg.React.ReviewerObsTruncate
+	// FlowSummary 用 engagement 标识让 reviewer 知道是 active 站点任务
+	reviewer.FlowSummary = "ACTIVE eid=" + eid
+	reviewer.HostFindingsFetcher = func(ctx context.Context) ([]string, error) {
+		fs, err := h.findings.ListByEngagementAndHost(ctx, eid, virtualHost, h.cfg.React.ReviewerFindingsLimit)
+		if err != nil {
+			return nil, err
+		}
+		out := make([]string, 0, len(fs))
+		for _, f := range fs {
+			out = append(out, fmt.Sprintf("[%s] %s", f.Severity, f.Summary))
+		}
+		return out, nil
+	}
+	reviewer.LessonFetcher = func(ctx context.Context) ([]string, error) {
+		lessons, err := h.lessons.ListByHost(ctx, virtualHost, h.cfg.React.ReviewerLessonsLimit)
+		if err != nil {
+			return nil, err
+		}
+		out := make([]string, 0, len(lessons))
+		for _, l := range lessons {
+			out = append(out, fmt.Sprintf("[p%d] %s", l.Priority, l.Content))
+		}
+		return out, nil
+	}
+
+	// 为本次 agent run 启动 sandbox 容器（与 traffic 完全对称）。
+	sandboxClient, err := h.launcher.Spawn(ctx, p.TaskID)
+	if err != nil {
+		return h.failTask(ctx, p.TaskID, fmt.Errorf("launcher.Spawn(%s): %w", p.TaskID, err))
+	}
+	defer func() {
+		destroyCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if err := h.launcher.Destroy(destroyCtx, p.TaskID); err != nil {
+			h.logger.Warn().Err(err).Str("agent_run_id", p.TaskID).
+				Msg("launcher.Destroy 失败（max lifetime / 下次启动 CleanupOrphans 兜底）")
+		}
+	}()
+
+	cfg, err := h.hunterBuilder(ctx, skill.BuilderParams{
+		EngagementID: eid,
+		TaskID:       tid,
+		Host:         virtualHost,
+		LLM:          hunterGen,
+		Reviewer:     reviewer,
+		Mode:         "active",
+		Brief:        ep.Brief,
+		Sandbox:      sandboxClient,
+	})
+	if err != nil {
+		return h.failTask(ctx, p.TaskID, err)
+	}
+
+	// engagement 中止时让 react.Run 自然停（与 traffic 一致）
+	cfg.OnAbort = func(c context.Context) (bool, error) {
+		eng, err := h.engagements.GetByID(c, eid)
+		if err != nil {
+			return false, err
+		}
+		return eng.Status != engagement.StatusActive, nil
+	}
+
+	out, err := react.Run(ctx, cfg)
+	if err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return h.abortTask(ctx, p.TaskID, "ctx "+err.Error())
+		}
+		return h.failTask(ctx, p.TaskID, err)
+	}
+	if out.TerminateBy == "aborted" {
+		return h.abortTask(ctx, p.TaskID, out.TerminateBy)
+	}
+
+	res, err := json.Marshal(map[string]any{
+		"terminate_by":   out.TerminateBy,
+		"total_steps":    out.TotalSteps,
+		"total_in":       out.TotalUsage.InTokens,
+		"total_out":      out.TotalUsage.OutTokens,
+		"total_cached":   out.TotalUsage.CachedTokens,
+		"reviewer_hints": out.ReviewerHints,
 	})
 	if err != nil {
 		return h.failTask(ctx, p.TaskID, fmt.Errorf("marshal task result: %w", err))

@@ -24,30 +24,40 @@ type Builder func(ctx context.Context, params BuilderParams) (react.Config, erro
 
 // BuilderParams hunter agent 启动参数。
 //
-// scanner main loop 接到 flow 后填充：完整 raw 流量 (request + response) +
-// host + LLM Generator + Reviewer。hunter agent 在 user prompt 一次性看到
-// 全部材料（请求 + 响应），自由组合工具挖漏洞。
+// 两种模式：
+//   - passive: scanner ingestor 拉到 flow 后填 FlowID/URL/Method + Request*/Response*，
+//     hunter user prompt 拼完整 raw 流量（请求 + 响应）；Host = 流量真实 host。
+//   - active: httpapi /scan/active 入口填 Brief（用户自然语言整段），目标 URL/host/凭据/
+//     测试范围全部塞在 brief 里由 LLM 自己识别；Host = engagement_id（虚拟 host，
+//     用于 notes/findings/lessons 按 engagement 切分）。
+//
+// Mode 决定 builder 内部 user prompt 渲染分支与工具注册（如 active 不挂 read_credentials）。
 type BuilderParams struct {
 	EngagementID string
 	TaskID       string
-	FlowID       int64
 	Host         string
-	URL          string
-	Method       string
 	LLM          llm.Generator
 	Reviewer     react.Reviewer
 
-	// 请求 raw（builder 拼到 user prompt）。
-	RequestHeaders json.RawMessage
-	RequestBody    []byte
+	// Mode 区分入口形态："passive" | "active"。
+	Mode string
 
-	// 响应 raw：让 hunter 一次性看到完整流量，省去 LLM 再调 curl 拉响应的开销。
+	// Passive 模式独有：原始 HTTP 流量（请求 + 响应）。
+	FlowID          int64
+	URL             string
+	Method          string
+	RequestHeaders  json.RawMessage
+	RequestBody     []byte
 	ResponseStatus  int
 	ResponseHeaders json.RawMessage
 	ResponseBody    []byte
 
+	// Active 模式独有：用户自然语言任务简报（含目标 URL/凭据/测试方向等所有信息）。
+	// hunter 把 Brief 整段塞 user prompt，由 LLM 自决目标识别 / 登录方式 / 扫描策略。
+	Brief string
+
 	// Sandbox 是本次 agent run 绑定的 sandbox-server HTTP RPC client。
-	// 由 cmd/scanner handleTraffic 在 Launcher.Spawn 后填入；run 结束 defer Destroy。
+	// 由 cmd/scanner 在 Launcher.Spawn 后填入；run 结束 defer Destroy。
 	// hunter Builder 闭包用此 client 注入 RunCommand.Sandbox。
 	// nil 时 hunter 不注册 run_command 工具（向后兼容，避免 LLM 调不到工具）。
 	Sandbox sandbox.Client

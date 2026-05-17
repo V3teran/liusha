@@ -8,9 +8,9 @@ import (
 	"github.com/V3teran/liusha/internal/config"
 )
 
-// RotateLimits 控制 proxy 模式 engagement 何时滚动新一份。
+// RotateLimits 控制 passive 模式 engagement 何时滚动新一份。
 //
-// 单一阈值 MaxAge：作为新建 proxy session 的 TTL（expires_at = now + MaxAge）；
+// 单一阈值 MaxAge：作为新建 passive session 的 TTL（expires_at = now + MaxAge）；
 // 判断轮转则直接看 DB 里的 expires_at 字段，不再依赖 CreatedAt + MaxAge 推算。
 type RotateLimits struct {
 	MaxAge time.Duration
@@ -30,7 +30,7 @@ func RotateLimitsFromConfig(c config.EngagementConfig) RotateLimits {
 	}
 }
 
-// Rotator 给 proxy 模式按 expires_at 自动滚动 engagement。
+// Rotator 给 passive 模式按 expires_at 自动滚动 engagement。
 //
 // 轮转的「内容」：
 //   - engagement 表：旧行 status=aborted（行保留作历史档案）+ 新行 status=active 新 UUID
@@ -40,8 +40,8 @@ func RotateLimitsFromConfig(c config.EngagementConfig) RotateLimits {
 // engStore 是 Rotator 对底层 *Store 的最小依赖切面（unexported，本包测试可 stub）。
 // *Store 通过 duck typing 自动满足。
 type engStore interface {
-	LookupActiveProxy(ctx context.Context) (Engagement, bool, error)
-	CreateProxySession(ctx context.Context, ttl time.Duration) (Engagement, error)
+	LookupActivePassive(ctx context.Context) (Engagement, bool, error)
+	CreatePassiveSession(ctx context.Context, ttl time.Duration) (Engagement, error)
 	Abort(ctx context.Context, id, errMsg string) error
 }
 
@@ -59,24 +59,24 @@ func NewRotator(engs engStore, limits RotateLimits) *Rotator {
 	return &Rotator{engs: engs, limits: limits}
 }
 
-// EnsureProxySession 返回当前 active proxy session 的 engagement_id。
+// EnsurePassiveSession 返回当前 active passive session 的 engagement_id。
 //
 // 流程：
-//  1. LookupActiveProxy 看是否已有
-//  2. 没有：CreateProxySession(MaxAge) 建新
+//  1. LookupActivePassive 看是否已有
+//  2. 没有：CreatePassiveSession(MaxAge) 建新
 //  3. 已有 & expires_at 未过期：直接返回
-//  4. 已有 & 已过期：Abort 旧 + CreateProxySession 建新
+//  4. 已有 & 已过期：Abort 旧 + CreatePassiveSession 建新
 //
-// proxy session 接受任意 host 流量，按时间窗轮转。
-func (r *Rotator) EnsureProxySession(ctx context.Context) (string, error) {
-	eng, ok, err := r.engs.LookupActiveProxy(ctx)
+// passive session 接受任意 host 流量，按时间窗轮转。
+func (r *Rotator) EnsurePassiveSession(ctx context.Context) (string, error) {
+	eng, ok, err := r.engs.LookupActivePassive(ctx)
 	if err != nil {
-		return "", fmt.Errorf("lookup active proxy: %w", err)
+		return "", fmt.Errorf("lookup active passive: %w", err)
 	}
 	if !ok {
-		newEng, err := r.engs.CreateProxySession(ctx, r.limits.MaxAge)
+		newEng, err := r.engs.CreatePassiveSession(ctx, r.limits.MaxAge)
 		if err != nil {
-			return "", fmt.Errorf("create proxy session: %w", err)
+			return "", fmt.Errorf("create passive session: %w", err)
 		}
 		return newEng.ID, nil
 	}
@@ -87,7 +87,7 @@ func (r *Rotator) EnsureProxySession(ctx context.Context) (string, error) {
 }
 
 // expired 判断 engagement 是否已超时间窗。
-// ExpiresAt 为 nil 时（理论上 proxy 模式不应出现）视作永不过期。
+// ExpiresAt 为 nil 时（理论上 passive 模式不应出现）视作永不过期。
 func (r *Rotator) expired(eng Engagement) bool {
 	if eng.ExpiresAt == nil {
 		return false
@@ -99,7 +99,7 @@ func (r *Rotator) expired(eng Engagement) bool {
 	return now().After(*eng.ExpiresAt)
 }
 
-// rotate 关旧 proxy session + 建新。返回新 engagement_id。
+// rotate 关旧 passive session + 建新。返回新 engagement_id。
 //
 // 旧 engagement 行保留在表里（status=aborted）作历史档案。
 // notes Redis key 不主动 DEL，等 TTL 自然过期。
@@ -107,30 +107,30 @@ func (r *Rotator) rotate(ctx context.Context, oldEng Engagement) (string, error)
 	if err := r.engs.Abort(ctx, oldEng.ID, ""); err != nil {
 		return "", fmt.Errorf("rotate: abort old engagement %s: %w", oldEng.ID, err)
 	}
-	newEng, err := r.engs.CreateProxySession(ctx, r.limits.MaxAge)
+	newEng, err := r.engs.CreatePassiveSession(ctx, r.limits.MaxAge)
 	if err != nil {
-		return "", fmt.Errorf("rotate: create new proxy session: %w", err)
+		return "", fmt.Errorf("rotate: create new passive session: %w", err)
 	}
 	return newEng.ID, nil
 }
 
-// Sweep 主动清理已过期的 active proxy session。
+// Sweep 主动清理已过期的 active passive session。
 //
-// 与 EnsureProxySession 的「懒轮换」互补：懒轮换依赖流量进来才检查，无流量时
+// 与 EnsurePassiveSession 的「懒轮换」互补：懒轮换依赖流量进来才检查，无流量时
 // 旧 engagement 一直挂 active 状态——Sweep 由 scanner 定时 goroutine 触发，
 // 保证「时间到必关」语义，避免：
 //   - 长时间无流量后 PG 里堆积陈旧 active 行
 //   - viewer 拿到"已过期但还 active"的僵尸 engagement
 //   - notes Redis TTL 早就过期，但 active engagement 还在
 //
-// 实现：拿当前 active proxy（唯一索引保证最多 1 行），过期则 Abort，不重建——
-// 重建依然交给下次流量进来时的 EnsureProxySession 链路（无流量时不浪费建空 session）。
+// 实现：拿当前 active passive（唯一索引保证最多 1 行），过期则 Abort，不重建——
+// 重建依然交给下次流量进来时的 EnsurePassiveSession 链路（无流量时不浪费建空 session）。
 //
 // 返回值：本次实际 abort 的数量（0 或 1）。错误 caller 自决定是否告警。
 func (r *Rotator) Sweep(ctx context.Context) (int, error) {
-	eng, ok, err := r.engs.LookupActiveProxy(ctx)
+	eng, ok, err := r.engs.LookupActivePassive(ctx)
 	if err != nil {
-		return 0, fmt.Errorf("sweep: lookup active proxy: %w", err)
+		return 0, fmt.Errorf("sweep: lookup active passive: %w", err)
 	}
 	if !ok || !r.expired(eng) {
 		return 0, nil

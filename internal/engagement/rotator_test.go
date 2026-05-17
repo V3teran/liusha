@@ -9,12 +9,12 @@ import (
 
 // stubStore 是 engStore 接口的内存实现，用于 Rotator 单测。
 type stubStore struct {
-	// LookupActiveProxy 返回值
+	// LookupActivePassive 返回值
 	activeEng Engagement
 	hasActive bool
 	lookupErr error
 
-	// CreateProxySession 行为
+	// CreatePassiveSession 行为
 	createdEng Engagement
 	createErr  error
 	createTTLs []time.Duration
@@ -24,11 +24,11 @@ type stubStore struct {
 	abortErr error
 }
 
-func (s *stubStore) LookupActiveProxy(_ context.Context) (Engagement, bool, error) {
+func (s *stubStore) LookupActivePassive(_ context.Context) (Engagement, bool, error) {
 	return s.activeEng, s.hasActive, s.lookupErr
 }
 
-func (s *stubStore) CreateProxySession(_ context.Context, ttl time.Duration) (Engagement, error) {
+func (s *stubStore) CreatePassiveSession(_ context.Context, ttl time.Duration) (Engagement, error) {
 	s.createTTLs = append(s.createTTLs, ttl)
 	if s.createErr != nil {
 		return Engagement{}, s.createErr
@@ -44,15 +44,15 @@ func (s *stubStore) Abort(_ context.Context, id, _ string) error {
 // fixedNow 固定时间钩，避免依赖墙钟。
 func fixedNow(t time.Time) func() time.Time { return func() time.Time { return t } }
 
-// ----- EnsureProxySession -----
+// ----- EnsurePassiveSession -----
 
-func TestEnsureProxySession_NoActive_CreatesNew(t *testing.T) {
+func TestEnsurePassiveSession_NoActive_CreatesNew(t *testing.T) {
 	s := &stubStore{
 		hasActive:  false,
 		createdEng: Engagement{ID: "new-1"},
 	}
 	r := NewRotator(s, RotateLimits{MaxAge: 2 * time.Hour})
-	id, err := r.EnsureProxySession(context.Background())
+	id, err := r.EnsurePassiveSession(context.Background())
 	if err != nil || id != "new-1" {
 		t.Fatalf("want new-1/no-err, got %q err=%v", id, err)
 	}
@@ -64,7 +64,7 @@ func TestEnsureProxySession_NoActive_CreatesNew(t *testing.T) {
 	}
 }
 
-func TestEnsureProxySession_ActiveNotExpired_ReturnsExisting(t *testing.T) {
+func TestEnsurePassiveSession_ActiveNotExpired_ReturnsExisting(t *testing.T) {
 	now := time.Date(2026, 5, 15, 12, 0, 0, 0, time.UTC)
 	futureExp := now.Add(10 * time.Hour)
 	s := &stubStore{
@@ -73,7 +73,7 @@ func TestEnsureProxySession_ActiveNotExpired_ReturnsExisting(t *testing.T) {
 	}
 	r := NewRotator(s, RotateLimits{MaxAge: 24 * time.Hour})
 	r.now = fixedNow(now)
-	id, err := r.EnsureProxySession(context.Background())
+	id, err := r.EnsurePassiveSession(context.Background())
 	if err != nil || id != "old-1" {
 		t.Fatalf("未过期应返旧 id old-1，实际 %q err=%v", id, err)
 	}
@@ -82,7 +82,7 @@ func TestEnsureProxySession_ActiveNotExpired_ReturnsExisting(t *testing.T) {
 	}
 }
 
-func TestEnsureProxySession_ActiveExpired_Rotates(t *testing.T) {
+func TestEnsurePassiveSession_ActiveExpired_Rotates(t *testing.T) {
 	now := time.Date(2026, 5, 15, 12, 0, 0, 0, time.UTC)
 	pastExp := now.Add(-1 * time.Hour) // 已过期 1h
 	s := &stubStore{
@@ -92,7 +92,7 @@ func TestEnsureProxySession_ActiveExpired_Rotates(t *testing.T) {
 	}
 	r := NewRotator(s, RotateLimits{MaxAge: 24 * time.Hour})
 	r.now = fixedNow(now)
-	id, err := r.EnsureProxySession(context.Background())
+	id, err := r.EnsurePassiveSession(context.Background())
 	if err != nil || id != "new-2" {
 		t.Fatalf("过期应轮转返 new-2，实际 %q err=%v", id, err)
 	}

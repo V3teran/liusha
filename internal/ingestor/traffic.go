@@ -51,7 +51,7 @@ type Traffic struct {
 //
 // Stream 必填（来自 cfg.Proxy.StreamName，proxy/ingestor 之间约定）；
 // Cfg 提供 group/consumer/batch/block/retry 等运行参数（缺省值已由 ApplyDefaults 兜底）；
-// Rotator 必填：proxy session 不 per-host，必须经 Rotator 统一管理。
+// Rotator 必填：passive session 不 per-host，必须经 Rotator 统一管理。
 type Deps struct {
 	Redis    *redis.Client
 	Cfg      config.IngestorConfig
@@ -158,10 +158,10 @@ func (t *Traffic) handleMessage(ctx context.Context, msg redis.XMessage) {
 	}
 
 	// 1) 落 engagement + http_flow
-	// proxy session 接受任意 host 流量，按 expires_at 由 Rotator 自动轮转。
-	eid, ensErr := t.rotator.EnsureProxySession(ctx)
+	// passive session 接受任意 host 流量，按 expires_at 由 Rotator 自动轮转。
+	eid, ensErr := t.rotator.EnsurePassiveSession(ctx)
 	if ensErr != nil {
-		t.logger.Warn().Err(ensErr).Str("host", snap.Host).Msg("engagement EnsureProxySession 失败")
+		t.logger.Warn().Err(ensErr).Str("host", snap.Host).Msg("engagement EnsurePassiveSession 失败")
 		return
 	}
 	flowID, err := t.appendFlow(ctx, eid, &snap)
@@ -206,7 +206,7 @@ func (t *Traffic) enqueueMain(ctx context.Context, eid string, flowID int64, sna
 		"url":     snap.URI,
 	})
 	payloadInput, _ := json.Marshal(map[string]any{
-		"mode":       "traffic",
+		"mode":       "passive",
 		"entrypoint": json.RawMessage(entrypoint),
 	})
 

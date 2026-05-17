@@ -9,7 +9,7 @@
 //  5. healthz HTTP（默认 :9091，与 scanner :9090 错开）
 //  6. graceful shutdown（SIGINT/SIGTERM → proxyServer.Stop + 关 redis）
 //
-// 业务逻辑（Rotator.EnsureProxySession / flow.Append / Asynq 入队）
+// 业务逻辑（Rotator.EnsurePassiveSession / flow.Append / Asynq 入队）
 // 全部在 cmd/scanner 内的 ingestor 包，proxy 只生产事件不做存储。
 package main
 

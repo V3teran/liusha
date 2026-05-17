@@ -7,7 +7,7 @@ import (
 )
 
 // Deps 是 NewServer 的注入参数集合。
-// Credentials / Engagements / Graph 为 nil 时对应路由不注册（部分场景测试用）。
+// Credentials / Engagements / Graph / ActiveScan 为 nil 时对应路由不注册（部分场景测试用）。
 type Deps struct {
 	APIKey      string
 	Credentials CredentialsAPI
@@ -16,6 +16,9 @@ type Deps struct {
 	// Invocations 为 nil 时 /llm/invocations/:eid 路由不注册。
 	// 由 cmd/api 注入 *llminvocation.Store（自动满足 InvocationsAPI 窄接口）。
 	Invocations InvocationsAPI
+	// ActiveScan 为 nil 时 /scan/active 路由不注册。
+	// 由 cmd/api 注入自定义 adapter（包 engagement.Store + agentrun.Store + worker.Client）。
+	ActiveScan ActiveScanAPI
 	// StaticFS 可选：注入时挂 / 路径 serve 静态前端（PR-3 graph viewer SPA）。
 	// 为 nil 时不注册——避免 cmd/api 之外的进程意外暴露前端资源。
 	StaticFS http.FileSystem
@@ -41,7 +44,7 @@ func NewServer(d Deps) http.Handler {
 		r.DELETE("/credential", deleteCredentialHandler(d.Credentials))
 	}
 	if d.Engagements != nil {
-		r.POST("/engagement/proxy", createProxyHandler(d.Engagements))
+		r.POST("/scan/passive", passiveScanHandler(d.Engagements))
 		r.POST("/engagement/:id/abort", abortHandler(d.Engagements))
 		r.GET("/engagement", listEngagementsHandler(d.Engagements))
 	}
@@ -50,6 +53,9 @@ func NewServer(d Deps) http.Handler {
 	}
 	if d.Invocations != nil {
 		r.GET("/llm/invocations/:engagement_id", llmInvocationsHandler(d.Invocations))
+	}
+	if d.ActiveScan != nil {
+		r.POST("/scan/active", activeScanHandler(d.ActiveScan))
 	}
 	if d.EnableDevAutofill && d.APIKey != "" {
 		// dev-only：viewer 启动时拉这个端点自动填充 API key。

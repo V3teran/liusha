@@ -5,7 +5,7 @@
 //   - lesson (internal/lesson)：跨 engagement / 按 host 持久化长期经验，PG。
 //   - finding (internal/finding)：漏洞 PoC 结论，PG。
 //
-// engagement 可挂多 host（proxy 模式接受任意 host 流量），notes 按
+// engagement 可挂多 host（passive 模式接受任意 host 流量），notes 按
 // (engagement_id, host) 二维切分——host A 的 fact 不会污染 host B。
 //
 // key=liusha:note:{engagement_id}:{host}，LIST 类型；每条 element 是 JSON bytes

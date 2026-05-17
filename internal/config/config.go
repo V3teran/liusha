@@ -184,10 +184,10 @@ type IngestorConfig struct {
 // EngagementConfig 是 engagement 懒创建 + 滚动归档参数。
 type EngagementConfig struct {
 	// SweeperIntervalSeconds：Rotator.Sweep 定时 goroutine 触发周期，
-	// 用于主动 abort 已过期但还挂 active 的 proxy session（无流量时仍能换）。
+	// 用于主动 abort 已过期但还挂 active 的 passive session（无流量时仍能换）。
 	SweeperIntervalSeconds int `mapstructure:"sweeper_interval_seconds"`
 
-	// Rotator 单一阈值（proxy 模式）：从 created_at 起超过此小时数即滚动新 engagement。
+	// Rotator 单一阈值（passive 模式）：从 created_at 起超过此小时数即滚动新 engagement。
 	// notes 走 Redis TTL 自治，finding 计数本身不应触发轮转。
 	MaxAgeHours int `mapstructure:"max_age_hours"`
 
@@ -229,7 +229,8 @@ type SkillsConfig struct {
 // ScannerConfig 是 cmd/scanner 进程的运行时参数。
 type ScannerConfig struct {
 	MainMaxSteps               int    `mapstructure:"main_max_steps"`
-	AgentRunTimeoutSeconds     int    `mapstructure:"agent_run_timeout_seconds"`     // 单个主 ReAct 任务整体超时（asynq handler 入口 WithTimeout）
+	AgentRunTimeoutSeconds       int    `mapstructure:"agent_run_timeout_seconds"`        // passive 模式单个 hunter task 整体超时（asynq handler 入口 WithTimeout）
+	ActiveAgentRunTimeoutSeconds int    `mapstructure:"active_agent_run_timeout_seconds"` // active 模式整体超时——站点扫描爬+测耗时长，独立配置（默认 4h，对齐 sandbox max lifetime）
 	StepLLMTimeoutSeconds        int    `mapstructure:"step_llm_timeout_seconds"`
 	AsynqConcurrency           int    `mapstructure:"asynq_concurrency"`
 	AsynqShutdownTimeoutSeconds int   `mapstructure:"asynq_shutdown_timeout_seconds"` // asynq.Shutdown 等 in-flight task 完成的超时
@@ -576,6 +577,9 @@ func applyScannerDefaults(c ScannerConfig) ScannerConfig {
 	}
 	if c.AgentRunTimeoutSeconds == 0 {
 		c.AgentRunTimeoutSeconds = 3600 // 60 分钟（> step_tool=1800，留 30min buffer 给主 ReAct 收尾）
+	}
+	if c.ActiveAgentRunTimeoutSeconds == 0 {
+		c.ActiveAgentRunTimeoutSeconds = 14400 // 4 小时（站点扫描爬+测耗时长；对齐 sandbox max lifetime 4h）
 	}
 	if c.StepLLMTimeoutSeconds == 0 {
 		c.StepLLMTimeoutSeconds = 300

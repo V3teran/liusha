@@ -45,7 +45,7 @@ func (f *fakeCred) Delete(_ context.Context, host string) error {
 type fakeAbort struct {
 	aborted []string
 
-	// EnsureProxySession 行为控制
+	// EnsurePassiveSession 行为控制
 	ensureCalls int   // 调用次数
 	ensureErr   error // 非 nil 时返回错误
 }
@@ -55,13 +55,13 @@ func (f *fakeAbort) Abort(_ context.Context, id string) error {
 	return nil
 }
 
-// EnsureProxySession 简单 mock：返回固定 eid，便于断言调用次数。
-func (f *fakeAbort) EnsureProxySession(_ context.Context) (string, error) {
+// EnsurePassiveSession 简单 mock：返回固定 eid，便于断言调用次数。
+func (f *fakeAbort) EnsurePassiveSession(_ context.Context) (string, error) {
 	f.ensureCalls++
 	if f.ensureErr != nil {
 		return "", f.ensureErr
 	}
-	return "eid-proxy", nil
+	return "eid-passive", nil
 }
 
 // List 简单 mock：返回固定 1 条 stub summary，足以让现有测试通过 typecheck；
@@ -286,14 +286,14 @@ func TestEngagementAbort_RequiresAuth(t *testing.T) {
 	}
 }
 
-// TestEngagementProxy_Created：POST /engagement/proxy 正常路径返回 engagement_id。
-// 请求体为空——proxy session 不 per-host。
-func TestEngagementProxy_Created(t *testing.T) {
+// TestPassiveScan_Created：POST /scan/passive 正常路径返回 engagement_id。
+// 请求体为空——passive session 不 per-host。
+func TestPassiveScan_Created(t *testing.T) {
 	fa := &fakeAbort{}
 	srv := newTestServer(t, Deps{Engagements: fa})
 	defer srv.Close()
 
-	req, _ := http.NewRequest("POST", srv.URL+"/engagement/proxy", bytes.NewReader([]byte("{}")))
+	req, _ := http.NewRequest("POST", srv.URL+"/scan/passive", bytes.NewReader([]byte("{}")))
 	req.Header.Set("X-API-Key", "k")
 	req.Header.Set("Content-Type", "application/json")
 
@@ -312,7 +312,7 @@ func TestEngagementProxy_Created(t *testing.T) {
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if out.EngagementID != "eid-proxy" {
+	if out.EngagementID != "eid-passive" {
 		t.Fatalf("engagement_id=%q", out.EngagementID)
 	}
 	if fa.ensureCalls != 1 {
@@ -320,13 +320,13 @@ func TestEngagementProxy_Created(t *testing.T) {
 	}
 }
 
-// TestEngagementProxy_RequiresAuth：缺 X-API-Key 应返回 401 且不调底层。
-func TestEngagementProxy_RequiresAuth(t *testing.T) {
+// TestPassiveScan_RequiresAuth：缺 X-API-Key 应返回 401 且不调底层。
+func TestPassiveScan_RequiresAuth(t *testing.T) {
 	fa := &fakeAbort{}
 	srv := newTestServer(t, Deps{Engagements: fa})
 	defer srv.Close()
 
-	req, _ := http.NewRequest("POST", srv.URL+"/engagement/proxy", bytes.NewReader([]byte("{}")))
+	req, _ := http.NewRequest("POST", srv.URL+"/scan/passive", bytes.NewReader([]byte("{}")))
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := http.DefaultClient.Do(req)
@@ -338,17 +338,152 @@ func TestEngagementProxy_RequiresAuth(t *testing.T) {
 		t.Fatalf("status=%d", resp.StatusCode)
 	}
 	if fa.ensureCalls != 0 {
-		t.Fatalf("should not have called EnsureProxySession: ensureCalls=%d", fa.ensureCalls)
+		t.Fatalf("should not have called EnsurePassiveSession: ensureCalls=%d", fa.ensureCalls)
 	}
 }
 
-// TestEngagementProxy_LookupError：底层报错应返回 500。
-func TestEngagementProxy_LookupError(t *testing.T) {
+// TestPassiveScan_LookupError：底层报错应返回 500。
+func TestPassiveScan_LookupError(t *testing.T) {
 	fa := &fakeAbort{ensureErr: errors.New("db boom")}
 	srv := newTestServer(t, Deps{Engagements: fa})
 	defer srv.Close()
 
-	req, _ := http.NewRequest("POST", srv.URL+"/engagement/proxy", bytes.NewReader([]byte("{}")))
+	req, _ := http.NewRequest("POST", srv.URL+"/scan/passive", bytes.NewReader([]byte("{}")))
+	req.Header.Set("X-API-Key", "k")
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("do: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 500 {
+		t.Fatalf("status=%d", resp.StatusCode)
+	}
+}
+
+// fakeActiveScan 是 ActiveScanAPI 的内存实现：记录最近一次 CreateActiveScan 入参，可注入 err。
+type fakeActiveScan struct {
+	gotBrief          string
+	calls             int
+	err               error
+	retEID, retTaskID string
+}
+
+func (f *fakeActiveScan) CreateActiveScan(_ context.Context, brief string) (string, string, error) {
+	f.calls++
+	f.gotBrief = brief
+	if f.err != nil {
+		return "", "", f.err
+	}
+	eid := f.retEID
+	if eid == "" {
+		eid = "eid-active"
+	}
+	tid := f.retTaskID
+	if tid == "" {
+		tid = "task-active"
+	}
+	return eid, tid, nil
+}
+
+// TestActiveScan_Created：正常路径 → 200 + {engagement_id, agent_run_id}；fake 记录 brief 原文。
+func TestActiveScan_Created(t *testing.T) {
+	fs := &fakeActiveScan{}
+	srv := newTestServer(t, Deps{ActiveScan: fs})
+	defer srv.Close()
+
+	brief := "测试网站 http://111.229.193.40:34280/login.php，账号 admin/password，只测 XSS"
+	body, _ := json.Marshal(CreateActiveScanRequest{Brief: brief})
+	req, _ := http.NewRequest("POST", srv.URL+"/scan/active", bytes.NewReader(body))
+	req.Header.Set("X-API-Key", "k")
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("do: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		b, _ := io.ReadAll(resp.Body)
+		t.Fatalf("status=%d body=%s", resp.StatusCode, string(b))
+	}
+	var out struct {
+		EngagementID string `json:"engagement_id"`
+		AgentRunID   string `json:"agent_run_id"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if out.EngagementID != "eid-active" || out.AgentRunID != "task-active" {
+		t.Fatalf("ids: eid=%q tid=%q", out.EngagementID, out.AgentRunID)
+	}
+	if fs.calls != 1 {
+		t.Fatalf("calls=%d, want 1", fs.calls)
+	}
+	if fs.gotBrief != brief {
+		t.Fatalf("gotBrief mismatch: got=%q want=%q", fs.gotBrief, brief)
+	}
+}
+
+// TestActiveScan_MissingBrief：brief 缺失或全空白 → 400。
+func TestActiveScan_MissingBrief(t *testing.T) {
+	cases := []string{"", "   "}
+	for _, b := range cases {
+		fs := &fakeActiveScan{}
+		srv := newTestServer(t, Deps{ActiveScan: fs})
+
+		body, _ := json.Marshal(CreateActiveScanRequest{Brief: b})
+		req, _ := http.NewRequest("POST", srv.URL+"/scan/active", bytes.NewReader(body))
+		req.Header.Set("X-API-Key", "k")
+		req.Header.Set("Content-Type", "application/json")
+
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatalf("brief=%q do: %v", b, err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != 400 {
+			t.Fatalf("brief=%q status=%d, want 400", b, resp.StatusCode)
+		}
+		if fs.calls != 0 {
+			t.Fatalf("brief=%q 不应调底层: calls=%d", b, fs.calls)
+		}
+		srv.Close()
+	}
+}
+
+// TestActiveScan_RequiresAuth：缺 X-API-Key → 401。
+func TestActiveScan_RequiresAuth(t *testing.T) {
+	fs := &fakeActiveScan{}
+	srv := newTestServer(t, Deps{ActiveScan: fs})
+	defer srv.Close()
+
+	body, _ := json.Marshal(CreateActiveScanRequest{Brief: "测试 https://x.com"})
+	req, _ := http.NewRequest("POST", srv.URL+"/scan/active", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("do: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 401 {
+		t.Fatalf("status=%d", resp.StatusCode)
+	}
+	if fs.calls != 0 {
+		t.Fatalf("不应调底层: calls=%d", fs.calls)
+	}
+}
+
+// TestActiveScan_BackendError：底层报错 → 500。
+func TestActiveScan_BackendError(t *testing.T) {
+	fs := &fakeActiveScan{err: errors.New("db boom")}
+	srv := newTestServer(t, Deps{ActiveScan: fs})
+	defer srv.Close()
+
+	body, _ := json.Marshal(CreateActiveScanRequest{Brief: "测试 https://x.com"})
+	req, _ := http.NewRequest("POST", srv.URL+"/scan/active", bytes.NewReader(body))
 	req.Header.Set("X-API-Key", "k")
 	req.Header.Set("Content-Type", "application/json")
 

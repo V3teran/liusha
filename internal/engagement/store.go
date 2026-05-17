@@ -26,18 +26,18 @@ func NewStore(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
 const colsSelect = "id, mode, scope, status, created_at, expires_at, " +
 	"ended_at, error_message, flow_count, finding_count, agent_run_count"
 
-// proxyDefaultScope 是 proxy session 的默认 scope（接受任意 host 流量）。
-var proxyDefaultScope = json.RawMessage(`{"any":true}`)
+// passiveDefaultScope 是 passive session 的默认 scope（接受任意 host 流量）。
+var passiveDefaultScope = json.RawMessage(`{"any":true}`)
 
-// LookupActiveProxy 找当前 active proxy session。
+// LookupActivePassive 找当前 active passive session。
 // 不存在时返回 (Engagement{}, false, nil)，非空错误才表示真异常。
 //
-// 唯一索引 engagement_active_proxy_uniq 保证最多 1 行。
-func (s *Store) LookupActiveProxy(ctx context.Context) (Engagement, bool, error) {
+// 唯一索引 engagement_active_passive_uniq 保证最多 1 行。
+func (s *Store) LookupActivePassive(ctx context.Context) (Engagement, bool, error) {
 	row := s.pool.QueryRow(ctx, `
 		SELECT `+colsSelect+`
 		FROM engagement
-		WHERE status='active' AND mode='proxy'
+		WHERE status='active' AND mode='passive'
 		LIMIT 1`)
 	var e Engagement
 	err := scan(row, &e)
@@ -45,38 +45,59 @@ func (s *Store) LookupActiveProxy(ctx context.Context) (Engagement, bool, error)
 		return Engagement{}, false, nil
 	}
 	if err != nil {
-		return Engagement{}, false, fmt.Errorf("lookup active proxy: %w", err)
+		return Engagement{}, false, fmt.Errorf("lookup active passive: %w", err)
 	}
 	return e, true, nil
 }
 
-// CreateProxySession 建一个新的 proxy session。expires_at = now + ttl。
+// CreatePassiveSession 建一个新的 passive session。expires_at = now + ttl。
 //
-// 唯一索引 engagement_active_proxy_uniq 会拒绝并发创建：若已有 active proxy
-// session，本调用会返回唯一约束错误。caller（Rotator）需先 LookupActiveProxy
+// 唯一索引 engagement_active_passive_uniq 会拒绝并发创建：若已有 active passive
+// session，本调用会返回唯一约束错误。caller（Rotator）需先 LookupActivePassive
 // 判断，必要时先 Abort 旧的再调本方法。
-func (s *Store) CreateProxySession(ctx context.Context, ttl time.Duration) (Engagement, error) {
+func (s *Store) CreatePassiveSession(ctx context.Context, ttl time.Duration) (Engagement, error) {
 	row := s.pool.QueryRow(ctx, `
 		INSERT INTO engagement (mode, scope, status, expires_at)
-		VALUES ('proxy', $1, 'active', now() + ($2::text)::interval)
-		RETURNING `+colsSelect, proxyDefaultScope, fmt.Sprintf("%d seconds", int(ttl.Seconds())))
+		VALUES ('passive', $1, 'active', now() + ($2::text)::interval)
+		RETURNING `+colsSelect, passiveDefaultScope, fmt.Sprintf("%d seconds", int(ttl.Seconds())))
 	var e Engagement
 	if err := scan(row, &e); err != nil {
-		return Engagement{}, fmt.Errorf("create proxy session: %w", err)
+		return Engagement{}, fmt.Errorf("create passive session: %w", err)
 	}
 	return e, nil
 }
 
-// LookupOrCreateProxySession 是业务入口便利方法：找当前 active proxy session，
-// 不存在则建新。给 httpapi createProxyHandler / 其他业务入口用；
+// LookupOrCreatePassiveSession 是业务入口便利方法：找当前 active passive session，
+// 不存在则建新。给 httpapi passiveScanHandler / 其他业务入口用；
 // Rotator 内部不应使用本方法（无法判断是否需要轮转）。
-func (s *Store) LookupOrCreateProxySession(ctx context.Context, ttl time.Duration) (Engagement, error) {
-	if eng, ok, err := s.LookupActiveProxy(ctx); err != nil {
+func (s *Store) LookupOrCreatePassiveSession(ctx context.Context, ttl time.Duration) (Engagement, error) {
+	if eng, ok, err := s.LookupActivePassive(ctx); err != nil {
 		return Engagement{}, err
 	} else if ok {
 		return eng, nil
 	}
-	return s.CreateProxySession(ctx, ttl)
+	return s.CreatePassiveSession(ctx, ttl)
+}
+
+// CreateActiveSession 建一个 active engagement——主动扫描场景。
+//
+// scope 由 caller 序列化好（标准形态 {"brief":"..."}）。
+// 不设 expires_at：active 任务跑完即终态，无时间窗轮转。
+// 不受 engagement_active_passive_uniq 唯一索引限制（该索引 WHERE mode='passive'），
+// 可并发创建多个 active engagement。
+func (s *Store) CreateActiveSession(ctx context.Context, scope json.RawMessage) (Engagement, error) {
+	if len(scope) == 0 {
+		return Engagement{}, fmt.Errorf("create active session: scope 必填")
+	}
+	row := s.pool.QueryRow(ctx, `
+		INSERT INTO engagement (mode, scope, status)
+		VALUES ('active', $1, 'active')
+		RETURNING `+colsSelect, []byte(scope))
+	var e Engagement
+	if err := scan(row, &e); err != nil {
+		return Engagement{}, fmt.Errorf("create active session: %w", err)
+	}
+	return e, nil
 }
 
 // 列表查询的限制：默认 20，硬上限 200（防 caller 传巨大 limit 拖死 DB）。

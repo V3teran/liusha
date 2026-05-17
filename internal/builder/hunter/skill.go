@@ -72,7 +72,7 @@ type Deps struct {
 
 	// run_command 工具运行时配置（实际 sandbox.Client 由 p.Sandbox 传入，per agent run）。
 	// 这里只放静态配置，不持有 client：client 生命周期 = agent run 生命周期，
-	// 由 cmd/scanner handleTraffic 通过 Launcher.Spawn/Destroy 管理。
+	// 由 cmd/scanner handlePassive/handleActive 通过 Launcher.Spawn/Destroy 管理。
 	SandboxCfg config.SandboxConfig
 
 
@@ -106,7 +106,11 @@ func NewBuilder(deps Deps) skill.Builder {
 
 		must(&common.ReadNotes{Store: deps.Notes, EngagementID: p.EngagementID, Host: p.Host, TaskID: p.TaskID})
 		must(&common.WriteNote{Store: deps.Notes, EngagementID: p.EngagementID, Host: p.Host, TaskID: p.TaskID})
-		must(&common.ReadCredentials{Provider: deps.Credentials, Host: p.Host})
+		// read_credentials 仅 passive 模式注册：passive 流量已绑 host，从 redis credential
+		// store 拉对应身份重放/重试天经地义。active 模式账号密码走自然语言 brief，不复用此机制。
+		if p.Mode != "active" {
+			must(&common.ReadCredentials{Provider: deps.Credentials, Host: p.Host})
+		}
 		must(&common.ReadFindings{Store: deps.Findings, EngagementID: p.EngagementID, Host: p.Host})
 		must(&common.WriteFinding{
 			Store:        deps.Findings,
@@ -139,7 +143,7 @@ func NewBuilder(deps Deps) skill.Builder {
 		}
 
 		// run_command 工具运行时绑定到本次 agent run 的 sandbox 容器。
-		// p.Sandbox 由 cmd/scanner handleTraffic 调 Launcher.Spawn(runID) 后注入；
+		// p.Sandbox 由 cmd/scanner handlePassive/handleActive 调 Launcher.Spawn(runID) 后注入；
 		// nil 时跳过注册，避免 LLM 调到没 sandbox 的工具（如 dev/test 场景）。
 		if p.Sandbox != nil {
 			must(&external.RunCommand{
@@ -184,9 +188,14 @@ func NewBuilder(deps Deps) skill.Builder {
 	}
 }
 
-// buildUserPrompt 拼接 hunter agent 的第一条 user message：
-// 流量请求 + 流量响应 + 该 host 已有 finding + lesson/hint + 工具索引 + 漏洞指南索引。
-// 不再追加"行动指令"——agent 目标 / 工作流 / 反模式都在 hunter SKILL.md（system prompt）里写，不在每次 user prompt 重复。
+// buildUserPrompt 拼接 hunter agent 的第一条 user message。
+//
+// 两种入口形态共用段 3 起的"已有 finding / 笔记板 / lesson+hint / 工具索引 / 漏洞指南索引"：
+//   - passive: 段 1/2 = 流量请求 + 流量响应（raw HTTP/1.1）
+//   - active:  段 1   = 站点任务（brief 自然语言整段）
+//
+// 不在 user prompt 重复"行动指令"——agent 目标 / 工作流 / 反模式都在
+// hunter system prompt（system_prompt.md）里，active 模式 LLM 自决怎么爬怎么测。
 func buildUserPrompt(ctx context.Context, deps Deps, p skill.BuilderParams) string {
 	bodyLimit := deps.UserPromptBodyLimit
 	if bodyLimit <= 0 {
@@ -195,31 +204,54 @@ func buildUserPrompt(ctx context.Context, deps Deps, p skill.BuilderParams) stri
 
 	var b strings.Builder
 
-	// 段 1: 请求
-	// raw HTTP/1.1 协议形式打印——含 Host 头，LLM 不需要猜 target，
-	// 直接拼 `http://{Host}{URL}` 喂给 sqlmap/curl 等工具即可。
-	b.WriteString("## 流量请求\n\n```\n")
-	b.WriteString(strings.ToUpper(p.Method))
-	b.WriteString(" ")
-	b.WriteString(p.URL)
-	b.WriteString(" HTTP/1.1\nHost: ")
-	b.WriteString(p.Host)
-	b.WriteString("\n```\n\n### Request Headers\n\n")
-	writeHeadersBlock(&b, p.RequestHeaders)
-	b.WriteString("\n### Request Body")
-	writeBodyBlock(&b, p.RequestBody, bodyLimit)
+	if p.Mode == "active" {
+		// Active 模式——brief 自然语言主导 + 强制 browser-use 链路验证。
+		// 目标 URL / host / 凭据 / 测试范围全在 brief 里由 LLM 自己识别；
+		// 必做项清单确保 LLM 真实走浏览器自动化（否则 DVWA 这种 curl-friendly
+		// 靶它就全用 curl 验证完事，浏览器链路无从验证）。
+		fmt.Fprintf(&b, `## 站点任务（browser-use 链路验证模式）
 
-	// 段 2: 响应
-	b.WriteString("\n\n## 流量响应\n\n```\nHTTP/1.1 ")
-	if p.ResponseStatus > 0 {
-		fmt.Fprintf(&b, "%d", p.ResponseStatus)
+%s
+
+> **本任务强制使用 browser-use 完成关键交互**——目的是验证浏览器自动化链路。
+> 必做项（缺一不可）：
+>   1. `+"`browser-use open <url>`"+` 打开目标站点（替代用 curl 拿首页）
+>   2. 浏览器内完成登录流程（用 `+"`browser-use input` / `click`"+`，不是 curl 模拟）
+>   3. 至少 1 次 `+"`browser-use screenshot $OUTPUT_DIR/<name>.png`"+` 截图（验证附件返回链路）
+>   4. DOM XSS 用 `+"`browser-use eval`"+` 注入 JS 验证真实执行（不是看响应里有 payload 就算）
+>
+> chromium 首次 cold start 约 25-30s（docker 内）——**第 1 个 browser-use 命令的 timeout_seconds 至少传 60**，
+> 否则 30s watchdog 几乎贴边失败；后续命令 session 复用，几秒就够。
+> 不会的子命令先跑 `+"`browser-use --help`"+` 自查。
+> sqlmap / dalfox / nuclei 等扫描器仍可辅助使用（它们内部不走浏览器，不冲突）。
+`, p.Brief)
 	} else {
-		b.WriteString("(unknown)")
+		// 段 1: 请求
+		// raw HTTP/1.1 协议形式打印——含 Host 头，LLM 不需要猜 target，
+		// 直接拼 `http://{Host}{URL}` 喂给 sqlmap/curl 等工具即可。
+		b.WriteString("## 流量请求\n\n```\n")
+		b.WriteString(strings.ToUpper(p.Method))
+		b.WriteString(" ")
+		b.WriteString(p.URL)
+		b.WriteString(" HTTP/1.1\nHost: ")
+		b.WriteString(p.Host)
+		b.WriteString("\n```\n\n### Request Headers\n\n")
+		writeHeadersBlock(&b, p.RequestHeaders)
+		b.WriteString("\n### Request Body")
+		writeBodyBlock(&b, p.RequestBody, bodyLimit)
+
+		// 段 2: 响应
+		b.WriteString("\n\n## 流量响应\n\n```\nHTTP/1.1 ")
+		if p.ResponseStatus > 0 {
+			fmt.Fprintf(&b, "%d", p.ResponseStatus)
+		} else {
+			b.WriteString("(unknown)")
+		}
+		b.WriteString("\n```\n\n### Response Headers\n\n")
+		writeHeadersBlock(&b, p.ResponseHeaders)
+		b.WriteString("\n### Response Body")
+		writeBodyBlock(&b, p.ResponseBody, bodyLimit)
 	}
-	b.WriteString("\n```\n\n### Response Headers\n\n")
-	writeHeadersBlock(&b, p.ResponseHeaders)
-	b.WriteString("\n### Response Body")
-	writeBodyBlock(&b, p.ResponseBody, bodyLimit)
 
 	findingsLimit := deps.FindingsLimit
 	if findingsLimit <= 0 {

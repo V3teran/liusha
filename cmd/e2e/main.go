@@ -1,32 +1,26 @@
-// Package main 是 liusha 端到端验收触发器，按 profile 选漏洞类型与样本。
+// Package main 是 liusha 端到端验收触发器，覆盖 passive + active 两种模式。
 //
-// CLI 用法：
+// CLI 用法（args 用前缀区分模式）：
 //
-//	go run ./cmd/e2e                              # 不加参数 = 跑所有 profile
-//	go run ./cmd/e2e bac                          # 只跑 bac（业务向访问控制）
-//	go run ./cmd/e2e sqli                         # 只跑 sqli
-//	go run ./cmd/e2e xss                          # 只跑 xss（reflected/stored/DOM）
-//	go run ./cmd/e2e brute                        # 只跑 brute（暴力破解）
-//	go run ./cmd/e2e path-traversal               # 只跑 path-traversal（任意文件读取/CWE-22）
-//	go run ./cmd/e2e unrestricted-upload          # 只跑 unrestricted-upload（CWE-434）
-//	go run ./cmd/e2e csrf                         # 只跑 csrf（CWE-352）
-//	go run ./cmd/e2e api                          # 只跑 api（API 端点漏洞探测）
-//	go run ./cmd/e2e cryptography                 # 只跑 cryptography（弱加密 / 硬编码密钥）
-//	go run ./cmd/e2e redirect                     # 只跑 redirect（开放重定向 / CWE-601）
-//	go run ./cmd/e2e authbypass                   # 只跑 authbypass（认证绕过 / CWE-287）
-//	go run ./cmd/e2e csp                          # 只跑 csp（CSP 配置问题 / CWE-1021）
-//	go run ./cmd/e2e exec                         # 只跑 exec（命令注入 / CWE-77）
-//	go run ./cmd/e2e bac sqli xss                 # 多选
+//	go run ./cmd/e2e                              # 不加参数 = 跑所有 passive profile
+//	go run ./cmd/e2e bac                          # 只跑 passive bac（业务向访问控制）
+//	go run ./cmd/e2e sqli                         # 只跑 passive sqli
+//	go run ./cmd/e2e xss                          # 只跑 passive xss（reflected/stored/DOM）
+//	go run ./cmd/e2e bac sqli xss                 # passive 多选
+//	go run ./cmd/e2e active:xss                   # 只跑 active xss（自然语言 brief 喂 hunter LLM）
+//	go run ./cmd/e2e sqli active:xss              # 混合：passive sqli + active xss
 //
-// 流程（每个 profile 独立跑）：
-//  1. POST /credential/batch 一次预录所有 profile 全部 host 的凭证（启动期，不论 args）
-//  2. POST /engagement/proxy 懒创建 engagement（同 host 幂等）
+// Passive 流程（每个 profile 独立跑）：
+//  1. POST /credential/batch 一次预录所有 passive profile 全部 host 的凭证（启动期）
+//  2. POST /scan/passive 懒创建 engagement（同 host 幂等）
 //  3. 读 sample 文件 → net.Dial 直连 proxify 写 raw bytes（不解析 headers/body）
-//  4. 轮询 finding 表（按本 profile dispatch 时间戳过滤，避免跨 profile 计数污染）
-//     直到 ≥minFindings 条 finding（默认 1，作为 LLM 能力回归底线）；同时所有
-//     agent_run 收手
+//  4. 轮询 finding 表 + agent_run 收手 → ≥minFindings 为 PASS
 //
-// 内置 profile（13 个，全部 minFindings=1）：
+// Active 流程（按选中顺序串行跑）：
+//  1. POST /scan/active body={"brief":"<自然语言任务简报>"} → 拿 (engagement_id, agent_run_id)
+//  2. 轮询同 engagement 的 finding + agent_run → ≥minFindings 为 PASS
+//
+// 内置 passive profile（13 个，全部 minFindings=1）：
 //   - bac                ：本地 vulnapp 多身份正常流量（4 样本，BAC/IDOR/越权）
 //   - sqli               ：远程 DVWA SQLi（2 样本，sqli + sqli_blind）
 //   - xss                ：远程 DVWA XSS（3 样本，reflected + stored + DOM）
@@ -41,13 +35,18 @@
 //   - csp                ：远程 DVWA CSP 配置问题（OWASP CWE-1021）
 //   - exec               ：远程 DVWA 命令注入（OWASP CWE-77/78）
 //
+// 内置 active profile（1 个 demo）：
+//   - active:xss         ：远程 DVWA login.php → 自然语言指令"账号 admin/password，只测 XSS"
+//
 // 注：e2e 数据已证实 LLM 对常规漏洞（sqli/xss/path-traversal/upload/brute）自身知识充分，
-// 删 vuln SKILL 后表现不降反升。这些 profile 保留作为镜像/架构回归测试的流量基线。
+// 删 vuln SKILL 后表现不降反升。passive profile 保留作为镜像/架构回归测试的流量基线。
 //
-// 触发器只发起"用户正常流量"——具体漏洞由 hunter agent 用 credentials/run_command
-// 自由组合工具挖掘（无预设流程）。
+// Passive 触发器只发起"用户正常流量"——具体漏洞由 hunter agent 用 credentials/run_command
+// 自由组合工具挖掘（无预设流程）；active 模式则把 brief 自然语言直接喂 LLM 自主扫描。
 //
-// 想加新漏洞类型：profiles map 加一行 + 写 examples/sample_<vuln>_raw.json 即可。
+// 想加新漏洞类型：
+//   - passive：profiles map 加一行 + 写 examples/sample_<vuln>_raw.json
+//   - active： activeProfiles map 加一行（带 brief 自然语言描述）
 package main
 
 import (
@@ -94,7 +93,7 @@ type credentialEntry struct {
 	Credentials []map[string]string `json:"credentials"`
 }
 
-// profile 描述一个 e2e 验收剧本（BAC / SQLi）：sample 文件 + 身份集 + 验收门槛。
+// profile 描述一个 passive 模式 e2e 验收剧本（BAC / SQLi）：sample 文件 + 身份集 + 验收门槛。
 //
 // 验收门槛极简——minFindings 是 LLM 能力回归底线：本 profile dispatch 后只要本
 // engagement 至少多出 minFindings 条 finding 就算 PASS。LLM 输出本就有抖动，
@@ -106,6 +105,28 @@ type profile struct {
 	minFindings    int
 	// credsForHost 接收样本所属 host 返回该 host 的身份列表（profile 自决定身份组）。
 	credsForHost func(host string) []credentialEntry
+}
+
+// activeProfile 描述一个 active 模式 e2e 验收剧本：自然语言任务简报 + 验收门槛。
+//
+// 与 passive 的 profile 不同——active 没有 sample 流量文件，直接把 brief 自然
+// 语言（含目标 URL/凭据/测试方向）整段 POST /scan/active 喂给 hunter LLM，由
+// LLM 自行识别 + 自主扫描。
+type activeProfile struct {
+	name        string
+	brief       string
+	minFindings int
+}
+
+// activeProfiles 是 active 模式 e2e 验收剧本集，args 用前缀 active:<name> 选择。
+//
+// 当前只内置 1 个 demo (xss)——用户实际用 active 模式时，按需追加新 profile 即可。
+var activeProfiles = map[string]activeProfile{
+	"xss": {
+		name:        "xss",
+		brief:       "测试网站 http://111.229.193.40:34280/login.php，账号 admin/password，只测试 XSS 漏洞",
+		minFindings: 1,
+	},
 }
 
 var profiles = map[string]profile{
@@ -319,83 +340,214 @@ func main() {
 	proxyURL := envOr("LIUSHA_PROXY_ADDR", "http://localhost:8888")
 	vulnBase := envOr("LIUSHA_VULNAPP_BASE", "http://111.229.193.40:38001")
 
-	selected, err := selectProfiles(os.Args[1:])
+	// args 用前缀区分两种模式: "active:xss" → active；其他 → passive。
+	passiveSel, activeSel, err := selectProfiles(os.Args[1:])
 	if err != nil {
 		logger.Fatal().Err(err).Msg("select profiles")
 	}
-
-	proxyHostPort, err := extractHostPort(proxyURL)
-	if err != nil {
-		logger.Fatal().Err(err).Msg("parse proxy addr")
+	if len(passiveSel) == 0 && len(activeSel) == 0 {
+		logger.Fatal().Msg("无 profile 可跑（passive + active 均空）")
 	}
 
-	// 1. 准备所有被选 profile 的 plan（加载样本 / 解析 host）
-	plans, err := buildPlans(selected, vulnBase)
-	if err != nil {
-		logger.Fatal().Err(err).Msg("build plans")
-	}
-
-	// 2. 启动期一次预录所有 profile（不只是被选的）的全部 host 凭证。
-	//    这样无论本次跑哪个 profile，hunter agent 调 credentials() 都能拿到完整身份池。
-	if err := enrollAllCreds(apiBase, apiKey, vulnBase); err != nil {
-		logger.Fatal().Err(err).Msg("enroll all credentials")
-	}
-	logger.Info().Msg("all credentials enrolled (across every known profile)")
-
-	// 3. 共享 PG pool（所有 profile 共用）
+	// 共享 PG pool（passive / active 均用）
 	pool, err := db.NewPgPool(ctx, pgDSN, 5, 1, 0, 0)
 	if err != nil {
 		logger.Fatal().Err(err).Msg("pg")
 	}
 	defer pool.Close()
 
-	// 4. 并发 dispatch 全部 profile 的全部 sample + 统一 poll
-	if err := runAllUnified(ctx, plans, proxyHostPort, apiBase, apiKey, pool, logger); err != nil {
-		logger.Error().Err(err).Msg("e2e unified FAIL")
-		fmt.Printf("✗ e2e FAIL: %v\n", err)
-		os.Exit(1)
+	// ---- Passive 流水线 ----
+	if len(passiveSel) > 0 {
+		proxyHostPort, err := extractHostPort(proxyURL)
+		if err != nil {
+			logger.Fatal().Err(err).Msg("parse proxy addr")
+		}
+		plans, err := buildPlans(passiveSel, vulnBase)
+		if err != nil {
+			logger.Fatal().Err(err).Msg("build plans")
+		}
+		// 启动期一次预录所有 passive profile（不只是被选的）的全部 host 凭证。
+		if err := enrollAllCreds(apiBase, apiKey, vulnBase); err != nil {
+			logger.Fatal().Err(err).Msg("enroll all credentials")
+		}
+		logger.Info().Msg("all credentials enrolled (across every known passive profile)")
+
+		if err := runAllUnified(ctx, plans, proxyHostPort, apiBase, apiKey, pool, logger); err != nil {
+			logger.Error().Err(err).Msg("e2e passive FAIL")
+			fmt.Printf("✗ e2e passive FAIL: %v\n", err)
+			os.Exit(1)
+		}
+		names := make([]string, len(plans))
+		for i, p := range plans {
+			names[i] = p.prof.name
+		}
+		fmt.Printf("✓ e2e passive PASS profile=[%s]\n", strings.Join(names, ","))
 	}
-	names := make([]string, len(plans))
-	for i, p := range plans {
-		names[i] = p.prof.name
+
+	// ---- Active 流水线 ----
+	if len(activeSel) > 0 {
+		if err := runActiveProfiles(ctx, activeSel, apiBase, apiKey, pool, logger); err != nil {
+			logger.Error().Err(err).Msg("e2e active FAIL")
+			fmt.Printf("✗ e2e active FAIL: %v\n", err)
+			os.Exit(1)
+		}
+		names := make([]string, len(activeSel))
+		for i, p := range activeSel {
+			names[i] = p.name
+		}
+		fmt.Printf("✓ e2e active PASS profile=[%s]\n", strings.Join(names, ","))
 	}
-	fmt.Printf("✓ e2e unified PASS profile=[%s]\n", strings.Join(names, ","))
 }
 
-// selectProfiles 解析 CLI args；空 = 全部 profile（按名字字典序）。
-// 未知 profile 立即报错，避免静默忽略。
-func selectProfiles(args []string) ([]profile, error) {
+// selectProfiles 解析 CLI args 拆成 (passive, active) 两组。
+//
+// args 前缀语义：
+//   - "active:<name>" → 选 activeProfiles[name]
+//   - 其他            → 选 profiles[name]（passive）
+//
+// 空 args = 跑全部 passive profile（active 必须显式 `active:xxx` 选，避免无意中
+// 触发耗资源的真实站点扫描）。未知 profile 立即报错，避免静默忽略。
+func selectProfiles(args []string) ([]profile, []activeProfile, error) {
 	if len(args) == 0 {
 		all := make([]profile, 0, len(profiles))
 		for _, p := range profiles {
 			all = append(all, p)
 		}
 		sort.Slice(all, func(i, j int) bool { return all[i].name < all[j].name })
-		return all, nil
+		return all, nil, nil
 	}
-	out := make([]profile, 0, len(args))
-	seen := map[string]struct{}{}
+	passive := make([]profile, 0, len(args))
+	active := make([]activeProfile, 0, len(args))
+	seenPassive := map[string]struct{}{}
+	seenActive := map[string]struct{}{}
 	for _, a := range args {
-		key := strings.ToLower(strings.TrimSpace(a))
-		if key == "" {
+		raw := strings.ToLower(strings.TrimSpace(a))
+		if raw == "" {
 			continue
 		}
-		p, ok := profiles[key]
+		if strings.HasPrefix(raw, "active:") {
+			key := strings.TrimPrefix(raw, "active:")
+			ap, ok := activeProfiles[key]
+			if !ok {
+				known := make([]string, 0, len(activeProfiles))
+				for k := range activeProfiles {
+					known = append(known, k)
+				}
+				sort.Strings(known)
+				return nil, nil, fmt.Errorf("未知 active profile %q（可选: active:%s）", a, strings.Join(known, " | active:"))
+			}
+			if _, dup := seenActive[key]; dup {
+				continue
+			}
+			seenActive[key] = struct{}{}
+			active = append(active, ap)
+			continue
+		}
+		p, ok := profiles[raw]
 		if !ok {
 			known := make([]string, 0, len(profiles))
 			for k := range profiles {
 				known = append(known, k)
 			}
 			sort.Strings(known)
-			return nil, fmt.Errorf("未知 profile %q（可选：%s）", a, strings.Join(known, ", "))
+			return nil, nil, fmt.Errorf("未知 profile %q（可选: %s 或 active:<name>）", a, strings.Join(known, ", "))
 		}
-		if _, dup := seen[key]; dup {
+		if _, dup := seenPassive[raw]; dup {
 			continue
 		}
-		seen[key] = struct{}{}
-		out = append(out, p)
+		seenPassive[raw] = struct{}{}
+		passive = append(passive, p)
 	}
-	return out, nil
+	return passive, active, nil
+}
+
+// runActiveProfiles 顺序跑被选的 active profile：调 POST /scan/active → 轮询
+// finding 数。与 passive 流水线共用 PG pool / pollDeadline。
+//
+// 不并发跑——active 任务普遍长（默认 4h），并发既无意义（仍占满 sandbox/LLM 配额）
+// 又会让日志难读。多 profile 按选中顺序串行。
+func runActiveProfiles(ctx context.Context, profs []activeProfile, apiBase, apiKey string, pool *pgxpool.Pool, logger zerolog.Logger) error {
+	store := finding.NewStore(pool)
+	agentRunStore := agentrun.NewStore(pool)
+
+	for _, ap := range profs {
+		eid, taskID, err := createActiveScan(apiBase, apiKey, ap.brief)
+		if err != nil {
+			return fmt.Errorf("active profile %s: createActiveScan: %w", ap.name, err)
+		}
+		logger.Info().
+			Str("profile", ap.name).
+			Str("engagement_id", eid).
+			Str("agent_run_id", taskID).
+			Msg("active scan dispatched")
+
+		startedAt := time.Now()
+		deadline := time.Now().Add(pollDeadline() + 10*time.Minute)
+		observed := false
+		var lastFindings []finding.VulnFinding
+		var lastTotal, lastUnfinished int
+		for time.Now().Before(deadline) {
+			runs, runErr := agentRunStore.ListByEngagement(ctx, eid, 100)
+			unfinished, totalRuns := 0, 0
+			if runErr == nil {
+				for _, r := range runs {
+					if !r.CreatedAt.After(startedAt) {
+						continue
+					}
+					totalRuns++
+					if r.Status == "pending" || r.Status == "running" {
+						unfinished++
+					}
+				}
+			}
+			all, findErr := store.ListByEngagement(ctx, eid)
+			var matched []finding.VulnFinding
+			if findErr == nil {
+				matched = filterAfter(all, startedAt)
+			}
+			lastFindings = matched
+			lastTotal = len(matched)
+			lastUnfinished = unfinished
+			if totalRuns > 0 {
+				observed = true
+			}
+
+			logger.Info().
+				Str("profile", ap.name).
+				Int("findings", lastTotal).
+				Int("min_required", ap.minFindings).
+				Int("unfinished_runs", unfinished).
+				Int("total_runs", totalRuns).
+				Bool("observed", observed).
+				Msg("active poll")
+
+			if observed && unfinished == 0 && lastTotal >= ap.minFindings {
+				logger.Info().
+					Str("profile", ap.name).
+					Int("findings", lastTotal).
+					Msg("active profile PASS")
+				fmt.Printf("✓ active profile=%s PASS: findings=%d (min=%d)\n", ap.name, lastTotal, ap.minFindings)
+				for _, f := range lastFindings {
+					sum := f.Summary
+					if i := strings.IndexByte(sum, '\n'); i >= 0 {
+						sum = sum[:i]
+					}
+					if len(sum) > 100 {
+						sum = sum[:100] + "..."
+					}
+					fmt.Printf("  - [%s] %s\n", f.Severity, sum)
+				}
+				goto nextProfile
+			}
+			time.Sleep(pollInterval)
+		}
+
+		// 超时未达标
+		return fmt.Errorf("active profile %s 超时未 PASS: findings=%d (min=%d), unfinished_runs=%d",
+			ap.name, lastTotal, ap.minFindings, lastUnfinished)
+	nextProfile:
+	}
+	return nil
 }
 
 // buildPlans 为每个被选 profile 加载样本并解析其 host（仅 e2e 内部用，详见 resolveSampleHost）。
@@ -456,7 +608,7 @@ func runAllUnified(ctx context.Context, plans []profilePlan, proxyHostPort, apiB
 		if _, ok := eidByHost[plan.host]; ok {
 			continue
 		}
-		eid, err := createProxyEngagement(apiBase, apiKey, plan.host)
+		eid, err := createPassiveScan(apiBase, apiKey, plan.host)
 		if err != nil {
 			return fmt.Errorf("create engagement for host %s: %w", plan.host, err)
 		}

@@ -19,7 +19,7 @@ func setup(t *testing.T) (*Store, string) {
 	t.Helper()
 	pool := dbtest.NewPgPool(t)
 	es := engagement.NewStore(pool)
-	e, err := es.LookupOrCreateProxySession(context.Background(), 24*time.Hour)
+	e, err := es.LookupOrCreatePassiveSession(context.Background(), 24*time.Hour)
 	if err != nil {
 		t.Fatalf("lookup engagement: %v", err)
 	}

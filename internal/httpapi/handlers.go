@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 
@@ -18,14 +19,14 @@ type CredentialsAPI interface {
 }
 
 // EngagementsAPI 是 handlers 对 engagement store 的窄接口。
-// EnsureProxySession：返回当前 active proxy session（不存在则建新），不带 host。
+// EnsurePassiveSession：返回当前 active passive session（不存在则建新），不带 host。
 // Abort：把 engagement 置为 aborted。
 // List：按 created_at DESC 列最近 N 个；前端 viewer 下拉用。
 //
-// proxy session 不 per-host，单个 active proxy 容纳所有 host 流量。
+// passive session 不 per-host，单个 active passive 容纳所有 host 流量。
 type EngagementsAPI interface {
 	Abort(ctx context.Context, id string) error
-	EnsureProxySession(ctx context.Context) (string, error)
+	EnsurePassiveSession(ctx context.Context) (string, error)
 	List(ctx context.Context, limit int) ([]EngagementSummary, error)
 }
 
@@ -101,12 +102,14 @@ func deleteCredentialHandler(api CredentialsAPI) gin.HandlerFunc {
 	}
 }
 
-// createProxyHandler 处理 POST /engagement/proxy：返回当前 active proxy session
-// （不存在则建新）。proxy session 不 per-host，请求体为空 {}。
+// passiveScanHandler 处理 POST /scan/passive：返回当前 active passive session
+// （不存在则建新）。passive session 不 per-host，请求体为空 {}。
 // 幂等：重复调用在 TTL 窗口内返回同一 engagement_id；过期由 ingestor 内部 Rotator 轮转。
-func createProxyHandler(api EngagementsAPI) gin.HandlerFunc {
+//
+// 与 activeScanHandler 路径对仗：/scan/passive 开"被动接流量入口"，/scan/active 触发"主动扫描"。
+func passiveScanHandler(api EngagementsAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		id, err := api.EnsureProxySession(c.Request.Context())
+		id, err := api.EnsurePassiveSession(c.Request.Context())
 		if err != nil {
 			c.JSON(500, gin.H{"error": err.Error()})
 			return
@@ -149,5 +152,56 @@ func abortHandler(api EngagementsAPI) gin.HandlerFunc {
 			return
 		}
 		c.JSON(200, gin.H{"ok": true})
+	}
+}
+
+// ActiveScanAPI 是 handlers 对 active 模式扫描入口的窄接口。
+// CreateActiveScan 一站式做三件事：建 active engagement、建 hunter agent_run、入 asynq 队列；
+// 由 cmd/api 的 adapter 用 engagement.Store + agentrun.Store + worker.Client 实现。
+type ActiveScanAPI interface {
+	CreateActiveScan(ctx context.Context, brief string) (engagementID, agentRunID string, err error)
+}
+
+// CreateActiveScanRequest 是 POST /scan/active 请求体。
+//
+// Brief 必填——用户自然语言任务简报，含目标 URL/IP / 账号密码 / 测试方向等全部信息。
+// 后端不解析 brief（不抽 URL、不做 NL parser），整段透传给 hunter LLM 自行识别。
+//
+// 例：
+//
+//	{"brief": "测试网站 http://111.229.193.40:34280/login.php，账号 admin/password，只测 XSS"}
+//
+// 这种"一句话"形态便于将来接通微信 / 飞书 / 钉钉机器人——平台原文直接转发即可。
+type CreateActiveScanRequest struct {
+	Brief string `json:"brief"`
+}
+
+// activeScanHandler 处理 POST /scan/active：校验 brief 非空 + 调 ActiveScanAPI 起任务。
+//
+// 成功返 200 + {engagement_id, agent_run_id}；调用方据此查任务进度
+// （viewer / GET /llm/invocations/:engagement_id）。
+// 不等任务完成——异步 ReAct 由 scanner 进程消费。
+func activeScanHandler(api ActiveScanAPI) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var req CreateActiveScanRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(400, gin.H{"error": err.Error()})
+			return
+		}
+		brief := strings.TrimSpace(req.Brief)
+		if brief == "" {
+			c.JSON(400, gin.H{"error": "brief required"})
+			return
+		}
+
+		eid, taskID, err := api.CreateActiveScan(c.Request.Context(), brief)
+		if err != nil {
+			c.JSON(500, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(200, gin.H{
+			"engagement_id": eid,
+			"agent_run_id":  taskID,
+		})
 	}
 }
