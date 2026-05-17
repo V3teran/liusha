@@ -23,6 +23,14 @@ import (
 // 默认 Info 级；生产想降噪用 LIUSHA_LOG_LEVEL=warn 整体降级，无需独立开关。
 var debugLogger = logx.New("react.runtime")
 
+// maxImagesInHistory 是 multimodal message 历史中保留的最大图片张数。
+// 超过的最早 image_url 块在 LLM Generate 前被替换为 "[Previously attached image removed...]"
+// 文本占位（类比 strix MemoryCompressor max_images=3，但 liusha 截图按需触发故放宽到 5）。
+const maxImagesInHistory = 5
+
+// imageRemovedPlaceholder 是 compressImages 替换被剔除图后填入的文本，提示 LLM 该位置曾有截图。
+const imageRemovedPlaceholder = "[Previously attached image removed to preserve context]"
+
 // Config 是 Run 的入参。
 //
 //   - LLM / Actions 必填；其余字段有默认值（见 Run）。
@@ -141,6 +149,10 @@ func Run(ctx context.Context, cfg Config) (Outcome, error) {
 			Strs("tool_names", toolNames).
 			Msg("LLM Generate 调用")
 
+		// 多模态历史压缩：只保留最近 maxImagesInHistory 张图，更早的 image_url 块换文本占位。
+		// 防止长 task（active 60+ 步含截图）context 被图撑爆 — 类比 strix max_images=3 设计。
+		compressImages(msgs, maxImagesInHistory)
+
 		res, err := cfg.LLM.Generate(stepCtx, msgs, schemas)
 		cancel()
 		if err != nil {
@@ -193,12 +205,28 @@ func Run(ctx context.Context, cfg Config) (Outcome, error) {
 			if execErr != nil {
 				obs = []byte(fmt.Sprintf(`{"error":%q}`, execErr.Error()))
 			}
-			msgs = append(msgs, llm.Message{
+			// 含图 tool result 用 ContentParts 路径——Anthropic tool_result 可含 image block；
+			// OpenAI 协议族走 openai_compat strip-and-degrade，LLM 看到 [Image removed] 占位文本。
+			// 纯文本（passive / 非截图 active）走老 Content 路径，与 OpenAI 协议族 100% 兼容。
+			toolMsg := llm.Message{
 				Role:       llm.RoleTool,
 				ToolCallID: tc.ID,
 				Name:       tc.Name,
-				Content:    string(obs),
-			})
+			}
+			if len(tcRes.Images) > 0 {
+				parts := make([]llm.ContentPart, 0, 1+len(tcRes.Images))
+				parts = append(parts, llm.ContentPart{Type: "text", Text: string(obs)})
+				for i := range tcRes.Images {
+					parts = append(parts, llm.ContentPart{
+						Type:     "image_url",
+						ImageURL: &tcRes.Images[i],
+					})
+				}
+				toolMsg.ContentParts = parts
+			} else {
+				toolMsg.Content = string(obs)
+			}
+			msgs = append(msgs, toolMsg)
 			if tcRes.Done || tc.Name == "done" {
 				sawDone = true
 			}
@@ -224,6 +252,37 @@ func Run(ctx context.Context, cfg Config) (Outcome, error) {
 		if sawDone {
 			out.TerminateBy = "done"
 			return out, nil
+		}
+	}
+}
+
+// compressImages 倒序遍历 msgs，保留最近 maxImages 张 image_url；更早的 image_url
+// 块原地替换为 imageRemovedPlaceholder 文本占位。
+//
+// 与 strix MemoryCompressor._handle_images 等价：保留视觉历史的近期决策上下文，
+// 阶段性卸下旧图避免 context 撑爆（每张 ~50KB base64）。in-place 修改 msgs，
+// 不分配新 slice 减小 GC 压力。
+func compressImages(msgs []llm.Message, maxImages int) {
+	if maxImages <= 0 {
+		return
+	}
+	imageCount := 0
+	for i := len(msgs) - 1; i >= 0; i-- {
+		parts := msgs[i].ContentParts
+		if len(parts) == 0 {
+			continue
+		}
+		for j := range parts {
+			if parts[j].Type != "image_url" {
+				continue
+			}
+			if imageCount >= maxImages {
+				parts[j].Type = "text"
+				parts[j].Text = imageRemovedPlaceholder
+				parts[j].ImageURL = nil
+			} else {
+				imageCount++
+			}
 		}
 	}
 }

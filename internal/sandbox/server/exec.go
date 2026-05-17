@@ -19,16 +19,24 @@ import (
 	"github.com/V3teran/liusha/internal/sandbox"
 )
 
+// sharedOutputDir 是容器内全局共享的附件目录——所有 /exec 注入同一路径作 $OUTPUT_DIR。
+//
+// 改自原 per-exec 临时目录方案：容器本身就是 per-agent-run 隔离（cmd/scanner spawn
+// 一个新容器跑一个 task），不需要再在容器内 per-exec 隔离。共享后 LLM 可以跨 exec
+// 引用 / 列举之前 exec 写的文件（之前 defer RemoveAll 让 LLM 浪费多步 find 文件）。
+//
+// task 容器销毁时整个目录自然消失，无残留泄露风险。
+const sharedOutputDir = "/tmp/sandbox-output"
+
 // handleExec 处理 POST /exec：sh -c 命令 + OUTPUT_DIR 附件机制。
 //
 // 流程：
 //  1. 解析 ExecRequest，校验必填
-//  2. 创建独立目录 /tmp/exec-<id>/output（注入 $OUTPUT_DIR 环境变量）
+//  2. ensure 共享目录 /tmp/sandbox-output 存在（容器内跨 exec 共享，注入为 $OUTPUT_DIR）
 //  3. exec.CommandContext 跑 sh -c（带 timeout）
-//  4. 扫描 output 目录 b64 编码 + 应用上限（命令崩溃也扫，半成品有诊断价值）
-//  5. defer 销毁临时目录
+//  4. 扫描 output 目录 b64 编码 + 仅返本次 exec 新增/修改文件（modtime 过滤），命令崩溃也扫
 //
-// 并发安全：每次 /exec 独立 uuid 目录，多请求互不干扰。
+// 并发安全：sandbox-server 是 per-agent-run 容器进程，本来就是单线程串行处理 /exec。
 func (s *Server) handleExec(w http.ResponseWriter, r *http.Request) {
 	var req sandbox.ExecRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -44,15 +52,14 @@ func (s *Server) handleExec(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 独立工作目录，每次 /exec 隔离避免并发污染
-	execID := newExecID()
-	workDir := filepath.Join(os.TempDir(), "exec-"+execID)
-	outputDir := filepath.Join(workDir, "output")
+	// 共享目录：容器生命周期内持久；LLM 跨多次 /exec 可引用历史文件
+	outputDir := sharedOutputDir
 	if err := os.MkdirAll(outputDir, 0o777); err != nil {
-		writeError(w, http.StatusInternalServerError, "create workdir: %v", err)
+		writeError(w, http.StatusInternalServerError, "create shared output dir: %v", err)
 		return
 	}
-	defer os.RemoveAll(workDir)
+	// 记录命令开始时间——collectAttachments 用此过滤"本次 exec 新增/修改"的文件
+	execStart := time.Now()
 
 	// 命令超时控制——r.Context() 让客户端断开/取消能传到 sh 子进程
 	timeout := time.Duration(req.TimeoutSeconds) * time.Second
@@ -93,8 +100,9 @@ func (s *Server) handleExec(w http.ResponseWriter, r *http.Request) {
 		res.TimedOut = true
 	}
 
-	// 扫描产物——命令崩溃也扫，半成品有诊断价值
-	files, warnings := collectAttachments(outputDir)
+	// 扫描产物——命令崩溃也扫，半成品有诊断价值。
+	// 仅返本次 exec 新增/修改文件（modtime > execStart），避免共享目录下历史文件重复返。
+	files, warnings := collectAttachments(outputDir, execStart)
 	res.Files = files
 	res.Warnings = warnings
 
@@ -103,14 +111,16 @@ func (s *Server) handleExec(w http.ResponseWriter, r *http.Request) {
 
 // collectAttachments 扫描 outputDir 顶层（不递归），返回 b64 编码的附件列表。
 //
+// since 过滤：仅返 modtime ≥ since 的文件（"本次 exec 新增/修改"），跳过历史文件。
+// 共享目录方案下不加 modtime 过滤会让每次 /exec 都重复返之前所有图，撑爆 HTTP。
+//
 // 应用上限：
-//   - 单文件 > maxFileSize：返回 warning，不入 files
-//   - 总大小 > maxTotalSize：剩余文件全 warning
-//   - 数量 > maxFileCount：剩余文件全 warning
+//   - 总大小 > maxTotalSize（10MB）：剩余文件全 warning
+//   - 数量 > maxFileCount（5）：剩余文件全 warning
 //   - 子目录：返回 warning（不递归扫描，避免 chrome cache 等噪音）
 //
 // LLM 想保留产物的命令把文件写到 $OUTPUT_DIR 顶层即可。
-func collectAttachments(outputDir string) ([]sandbox.Attachment, []string) {
+func collectAttachments(outputDir string, since time.Time) ([]sandbox.Attachment, []string) {
 	entries, err := os.ReadDir(outputDir)
 	if err != nil {
 		return nil, []string{fmt.Sprintf("scan output dir: %v", err)}
@@ -135,11 +145,12 @@ func collectAttachments(outputDir string) ([]sandbox.Attachment, []string) {
 			warnings = append(warnings, fmt.Sprintf("stat '%s': %v", e.Name(), err))
 			continue
 		}
-		size := info.Size()
-		if size > maxFileSize {
-			warnings = append(warnings, fmt.Sprintf("file '%s' (%dKB) exceeded per-file limit %dKB, skipped", e.Name(), size/1024, maxFileSize/1024))
+		// modtime 过滤：共享目录下历史文件（其它 exec 写的）跳过。
+		// 用 .Before(since) 不用 < since：单调时钟避免边界 1ns 漂移。
+		if info.ModTime().Before(since) {
 			continue
 		}
+		size := info.Size()
 		if total+size > maxTotalSize {
 			warnings = append(warnings, fmt.Sprintf("file '%s' skipped (would exceed total limit %dKB)", e.Name(), maxTotalSize/1024))
 			continue

@@ -142,6 +142,61 @@ func toAnthropicMessages(in []Message) ([]anthropic.TextBlockParam, []anthropic.
 	return systemBlocks, out, nil
 }
 
+// contentPartsToAnthropicBlocks 把内部 ContentPart[] 转成 Anthropic user message blocks。
+// 用于 RoleUser 含图场景。
+func contentPartsToAnthropicBlocks(parts []ContentPart) ([]anthropic.ContentBlockParamUnion, error) {
+	out := make([]anthropic.ContentBlockParamUnion, 0, len(parts))
+	for _, p := range parts {
+		switch p.Type {
+		case "text":
+			if p.Text != "" {
+				out = append(out, anthropic.NewTextBlock(p.Text))
+			}
+		case "image_url":
+			if p.ImageURL == nil || p.ImageURL.Base64Data == "" {
+				return nil, errors.New("image_url part: ImageURL/Base64Data 必填")
+			}
+			out = append(out, anthropic.NewImageBlockBase64(p.ImageURL.MediaType, p.ImageURL.Base64Data))
+		default:
+			return nil, fmt.Errorf("unsupported content part type: %q", p.Type)
+		}
+	}
+	return out, nil
+}
+
+// contentPartsToToolResultContent 转成 Anthropic ToolResultBlockParamContentUnion[]。
+// 用于 RoleTool 含图场景（tool_result 子 content）。
+func contentPartsToToolResultContent(parts []ContentPart) ([]anthropic.ToolResultBlockParamContentUnion, error) {
+	out := make([]anthropic.ToolResultBlockParamContentUnion, 0, len(parts))
+	for _, p := range parts {
+		switch p.Type {
+		case "text":
+			if p.Text != "" {
+				out = append(out, anthropic.ToolResultBlockParamContentUnion{
+					OfText: &anthropic.TextBlockParam{Text: p.Text},
+				})
+			}
+		case "image_url":
+			if p.ImageURL == nil || p.ImageURL.Base64Data == "" {
+				return nil, errors.New("image_url part: ImageURL/Base64Data 必填")
+			}
+			out = append(out, anthropic.ToolResultBlockParamContentUnion{
+				OfImage: &anthropic.ImageBlockParam{
+					Source: anthropic.ImageBlockParamSourceUnion{
+						OfBase64: &anthropic.Base64ImageSourceParam{
+							Data:      p.ImageURL.Base64Data,
+							MediaType: anthropic.Base64ImageSourceMediaType(p.ImageURL.MediaType),
+						},
+					},
+				},
+			})
+		default:
+			return nil, fmt.Errorf("unsupported content part type: %q", p.Type)
+		}
+	}
+	return out, nil
+}
+
 // toAnthropicTools 把 ToolSchema 转成 Anthropic ToolUnionParam（OfTool 路径）。
 //
 // 关键：Anthropic 的 ToolInputSchemaParam 预设 type=object，

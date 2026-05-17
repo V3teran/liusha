@@ -10,7 +10,12 @@ package llm
 import (
 	"context"
 	"encoding/json"
+	"errors"
 )
+
+// ErrVisionUnsupported 当 caller 传入含 image_url 的 ContentParts，但 provider 不支持视觉时返。
+// 调用方应路由到 vision_provider 或 fail-fast。
+var ErrVisionUnsupported = errors.New("llm: provider 不支持 vision，含图 message 需路由到 vision_provider")
 
 // Role 是消息角色。
 type Role string
@@ -23,12 +28,32 @@ const (
 )
 
 // Message 是一次对话中的一条消息。
+//
+// Content 与 ContentParts 互斥：纯文本走 Content（默认路径）；含图/多模态走 ContentParts。
+// ContentParts 非空时 provider 必须支持 vision；否则 Generate 返 ErrVisionUnsupported。
 type Message struct {
-	Role       Role       `json:"role"`
-	Content    string     `json:"content,omitempty"`
-	Name       string     `json:"name,omitempty"`
-	ToolCallID string     `json:"tool_call_id,omitempty"`
-	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
+	Role         Role          `json:"role"`
+	Content      string        `json:"content,omitempty"`
+	ContentParts []ContentPart `json:"content_parts,omitempty"`
+	Name         string        `json:"name,omitempty"`
+	ToolCallID   string        `json:"tool_call_id,omitempty"`
+	ToolCalls    []ToolCall    `json:"tool_calls,omitempty"`
+}
+
+// ContentPart 是 multimodal message 的内容块。Type ∈ {"text", "image_url"}。
+//   - text：Text 字段有效
+//   - image_url：ImageURL 字段有效
+type ContentPart struct {
+	Type     string        `json:"type"`
+	Text     string        `json:"text,omitempty"`
+	ImageURL *ImageContent `json:"image_url,omitempty"`
+}
+
+// ImageContent 是图片内容（base64 内联，无外部 URL 避免沙箱网络依赖）。
+// MediaType 形如 "image/png" / "image/jpeg"。
+type ImageContent struct {
+	MediaType  string `json:"media_type"`
+	Base64Data string `json:"base64_data"`
 }
 
 // ToolCall 是模型请求调用工具的结构。Arguments 为 JSON 串（OpenAI 风格）。

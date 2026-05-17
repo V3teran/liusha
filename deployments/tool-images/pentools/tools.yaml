@@ -85,10 +85,15 @@ tools:
     category: sast
     description: Secrets 扫描——源码 / git 历史 / 文件系统 / S3 bucket 找硬编码 API key / token / 凭证。
 
-  # ===== utility（通用辅助：HTTP/JSON/脚本/OOB）=====
+  # ===== utility（通用辅助：HTTP/JSON/脚本/OOB/Browser）=====
   - name: curl
     category: utility
-    description: 原生 HTTP 客户端。所有漏洞验证的瑞士军刀，sqlmap/python3 之前先用 curl 探 baseline。
+    description: |
+      原生 HTTP 客户端。所有漏洞验证的瑞士军刀，sqlmap/python3 之前先用 curl 探 baseline。
+      Cookie 跨工具桥接：browser-use 浏览器 session 和 curl 是独立 cookie jar，
+      要从浏览器拿登录态给 curl 用：先 `browser-use cookies get`，再用 `-b "name=value;..."`
+      手拼 / 或转 Netscape cookies.txt（curl -b cookies.txt）。CSRF token 类 form 字段
+      须先 `curl GET` 拿页面 → grep token 值 → POST 带上。
   - name: python3
     category: utility
     description: 自定义脚本兜底（GraphQL/NoSQL 注入、复杂登录链、并发 fuzz、二阶段 payload、自定义编码绕过）。
@@ -98,3 +103,16 @@ tools:
   - name: interactsh-client
     category: utility
     description: OOB（Out-Of-Band）回调检测——拿 oast.fun 子域名作 callback 钩子。Blind SSRF/RCE/XXE/XSS 唯一通用挖法。
+  - name: browser-use
+    category: utility
+    description: |
+      无头 Chromium 浏览器自动化（CLI 包装 playwright，已预装）。子命令：
+      open <url> / state（DOM 索引树）/ click <idx> / input <idx> <text> / type <text> /
+      select <idx> <value> / scroll / back / keys / hover / dblclick / rightclick /
+      eval <js>（页面 context 执行 JS 返回末值）/ extract（LLM 抽取数据）/
+      python（执行 Playwright Python 代码，可访问 page/context/browser API）/
+      screenshot <path> / cookies / wait / get / close。
+      session 持久（同 sandbox 内多次调用共用浏览器状态），close 显式关闭。
+      约定：screenshot 必须写到 $OUTPUT_DIR/xxx.png（沙箱只扫该目录把图作为附件回传给 LLM；
+      写到 /tmp 等其它路径的图不会进 LLM 上下文）。chromium 首次 cold start 约 25-30s，
+      第 1 个 browser-use 命令的 timeout_seconds 至少传 60，后续 session 复用 15s 够用。

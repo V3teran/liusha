@@ -40,11 +40,33 @@ import (
 	"github.com/V3teran/liusha/internal/tools/manifest"
 )
 
-// hunterSystemPrompt 是编译期嵌入的 hunter agent system prompt。
-// 单一 agent 的 always-on 提示词与代码同路径管理（Strix 风格），改 prompt 走 PR + review。
+// hunter agent system prompt 按 mode 拆三段编译期嵌入：
+//   - shared：通用规则（角色 / 写 finding 铁律 / mode-invariant 反模式）
+//   - passive：流量驱动入口形态 + 401→read_credentials 反模式
+//   - active：brief 驱动入口形态 + 环境就绪声明（browser-use 已预装）
 //
-//go:embed system_prompt.md
-var hunterSystemPrompt string
+// 拆 3 段避免 active 模式 LLM 看到 "给定一条 HTTP 流量" / "调 read_credentials"
+// 等与运行时事实矛盾的指令（active 入口是 brief，且 read_credentials 不注册）。
+// 改 prompt 仍走 PR + review，与代码同路径管理（Strix 风格）。
+//
+//go:embed system_prompt_shared.md
+var hunterSystemPromptShared string
+
+//go:embed system_prompt_passive.md
+var hunterSystemPromptPassive string
+
+//go:embed system_prompt_active.md
+var hunterSystemPromptActive string
+
+// buildSystemPrompt 按 mode 拼接 shared + addendum。
+// 未知 mode 回退 passive（与历史默认一致）。
+func buildSystemPrompt(mode string) string {
+	addendum := hunterSystemPromptPassive
+	if mode == "active" {
+		addendum = hunterSystemPromptActive
+	}
+	return hunterSystemPromptShared + "\n" + addendum
+}
 
 // Deps hunter builder 的依赖注入。由 cmd/scanner/main.go 在启动时构造一份。
 type Deps struct {
@@ -79,8 +101,9 @@ type Deps struct {
 	// StepToolTimeoutSeconds 单次 tool Execute 兜底超时（秒）；0 = 不加 deadline。
 	StepToolTimeoutSeconds int
 
-	// 预算
-	MaxSteps           int
+	// 预算——按 mode 分流：passive 流量驱动 60 步够；active 站点扫描深挖需 300 步（strix 同款）
+	PassiveMaxSteps    int
+	ActiveMaxSteps     int
 	WatchdogSeconds    int
 	ReviewerEverySteps int
 
@@ -157,7 +180,7 @@ func NewBuilder(deps Deps) skill.Builder {
 			return react.Config{}, fmt.Errorf("hunter register tools: %w", errors.Join(regErrs...))
 		}
 
-		// system prompt 来自包级 //go:embed system_prompt.md，无运行时 fs 失败路径。
+		// system prompt 来自包级 //go:embed system_prompt_{shared,passive,active}.md，无运行时 fs 失败路径。
 		// hunter 自由收手——run_command 内部 tail_bytes (8KB×2) 已把单次 Output
 		// 钳在 ~17KB，不需要再加一层截断。
 		reg.Use(
@@ -167,7 +190,11 @@ func NewBuilder(deps Deps) skill.Builder {
 
 		userPrompt := buildUserPrompt(ctx, deps, p)
 
-		maxSteps := deps.MaxSteps
+		// 按 mode 选 max_steps——active 站点扫描需 300 步深挖；passive 单流量 60 步足
+		maxSteps := deps.PassiveMaxSteps
+		if p.Mode == "active" {
+			maxSteps = deps.ActiveMaxSteps
+		}
 		if maxSteps <= 0 {
 			maxSteps = 30
 		}
@@ -180,7 +207,7 @@ func NewBuilder(deps Deps) skill.Builder {
 			LLM:                p.LLM,
 			Actions:            reg,
 			Budget:             react.Budget{MaxSteps: maxSteps, WatchdogSeconds: watchdog},
-			SystemPrompt:       hunterSystemPrompt,
+			SystemPrompt:       buildSystemPrompt(p.Mode),
 			UserPrompt:         userPrompt,
 			Reviewer:           p.Reviewer,
 			ReviewerEverySteps: deps.ReviewerEverySteps,
@@ -195,7 +222,8 @@ func NewBuilder(deps Deps) skill.Builder {
 //   - active:  段 1   = 站点任务（brief 自然语言整段）
 //
 // 不在 user prompt 重复"行动指令"——agent 目标 / 工作流 / 反模式都在
-// hunter system prompt（system_prompt.md）里，active 模式 LLM 自决怎么爬怎么测。
+// hunter system prompt（system_prompt_{shared,passive,active}.md）里，
+// active 模式 LLM 自决怎么爬怎么测。
 func buildUserPrompt(ctx context.Context, deps Deps, p skill.BuilderParams) string {
 	bodyLimit := deps.UserPromptBodyLimit
 	if bodyLimit <= 0 {
@@ -205,26 +233,9 @@ func buildUserPrompt(ctx context.Context, deps Deps, p skill.BuilderParams) stri
 	var b strings.Builder
 
 	if p.Mode == "active" {
-		// Active 模式——brief 自然语言主导 + 强制 browser-use 链路验证。
-		// 目标 URL / host / 凭据 / 测试范围全在 brief 里由 LLM 自己识别；
-		// 必做项清单确保 LLM 真实走浏览器自动化（否则 DVWA 这种 curl-friendly
-		// 靶它就全用 curl 验证完事，浏览器链路无从验证）。
-		fmt.Fprintf(&b, `## 站点任务（browser-use 链路验证模式）
-
-%s
-
-> **本任务强制使用 browser-use 完成关键交互**——目的是验证浏览器自动化链路。
-> 必做项（缺一不可）：
->   1. `+"`browser-use open <url>`"+` 打开目标站点（替代用 curl 拿首页）
->   2. 浏览器内完成登录流程（用 `+"`browser-use input` / `click`"+`，不是 curl 模拟）
->   3. 至少 1 次 `+"`browser-use screenshot $OUTPUT_DIR/<name>.png`"+` 截图（验证附件返回链路）
->   4. DOM XSS 用 `+"`browser-use eval`"+` 注入 JS 验证真实执行（不是看响应里有 payload 就算）
->
-> chromium 首次 cold start 约 25-30s（docker 内）——**第 1 个 browser-use 命令的 timeout_seconds 至少传 60**，
-> 否则 30s watchdog 几乎贴边失败；后续命令 session 复用，几秒就够。
-> 不会的子命令先跑 `+"`browser-use --help`"+` 自查。
-> sqlmap / dalfox / nuclei 等扫描器仍可辅助使用（它们内部不走浏览器，不冲突）。
-`, p.Brief)
+		// Active 模式——brief 自然语言主导，LLM 按 brief 自主规划。
+		// 入口形态/环境就绪在 system_prompt_active.md 里说，user prompt 只透传 brief。
+		fmt.Fprintf(&b, "## 站点任务\n\n%s\n", p.Brief)
 	} else {
 		// 段 1: 请求
 		// raw HTTP/1.1 协议形式打印——含 Host 头，LLM 不需要猜 target，

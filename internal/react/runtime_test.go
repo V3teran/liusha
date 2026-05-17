@@ -255,3 +255,77 @@ func TestRun_OnAbort(t *testing.T) {
 		t.Fatalf("expected 0 steps before abort, got %d", out.TotalSteps)
 	}
 }
+
+// TestCompressImages_KeepsRecentN 验证倒序保留最近 N 张图，更早的换占位文本。
+// 8 条 message 各 1 张图，maxImages=5 时：最后 5 张原样保留，前 3 张换 placeholder。
+func TestCompressImages_KeepsRecentN(t *testing.T) {
+	mkMsg := func(idx int) llm.Message {
+		return llm.Message{
+			Role: llm.RoleTool,
+			ContentParts: []llm.ContentPart{
+				{Type: "text", Text: "obs-" + string(rune('0'+idx))},
+				{Type: "image_url", ImageURL: &llm.ImageContent{
+					MediaType: "image/png", Base64Data: "data-" + string(rune('0'+idx)),
+				}},
+			},
+		}
+	}
+	msgs := make([]llm.Message, 8)
+	for i := range msgs {
+		msgs[i] = mkMsg(i)
+	}
+
+	compressImages(msgs, 5)
+
+	var realImages, placeholders int
+	for _, m := range msgs {
+		for _, p := range m.ContentParts {
+			if p.Type == "image_url" && p.ImageURL != nil && p.ImageURL.Base64Data != "" {
+				realImages++
+			}
+			if p.Type == "text" && p.Text == imageRemovedPlaceholder {
+				placeholders++
+			}
+		}
+	}
+	if realImages != 5 {
+		t.Errorf("应保留 5 张真图，实际 %d", realImages)
+	}
+	if placeholders != 3 {
+		t.Errorf("应有 3 个占位，实际 %d", placeholders)
+	}
+	// 倒序保留：最后 5 条 (idx 3-7) 应为真图，前 3 条 (idx 0-2) 应为占位
+	for i := 0; i < 3; i++ {
+		if msgs[i].ContentParts[1].Type != "text" {
+			t.Errorf("msgs[%d] 应为占位 type=text，实际 %s", i, msgs[i].ContentParts[1].Type)
+		}
+	}
+	for i := 3; i < 8; i++ {
+		if msgs[i].ContentParts[1].Type != "image_url" {
+			t.Errorf("msgs[%d] 应保留 image_url，实际 %s", i, msgs[i].ContentParts[1].Type)
+		}
+	}
+}
+
+// TestCompressImages_NoOp 验证图数 ≤ max 时不动 + maxImages=0 时跳过。
+func TestCompressImages_NoOp(t *testing.T) {
+	mkImg := func() llm.Message {
+		return llm.Message{Role: llm.RoleTool, ContentParts: []llm.ContentPart{
+			{Type: "image_url", ImageURL: &llm.ImageContent{MediaType: "image/png", Base64Data: "x"}},
+		}}
+	}
+	// 3 张 + max=5 → 全保留
+	msgs := []llm.Message{mkImg(), mkImg(), mkImg()}
+	compressImages(msgs, 5)
+	for i, m := range msgs {
+		if m.ContentParts[0].Type != "image_url" {
+			t.Errorf("msgs[%d] 不应被改，实际 type=%s", i, m.ContentParts[0].Type)
+		}
+	}
+	// maxImages=0 → 早返
+	msgs2 := []llm.Message{mkImg()}
+	compressImages(msgs2, 0)
+	if msgs2[0].ContentParts[0].Type != "image_url" {
+		t.Errorf("maxImages=0 不应动 msg，实际 type=%s", msgs2[0].ContentParts[0].Type)
+	}
+}

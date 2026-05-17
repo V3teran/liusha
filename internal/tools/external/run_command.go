@@ -19,8 +19,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"strings"
 
+	"github.com/V3teran/liusha/internal/llm"
 	"github.com/V3teran/liusha/internal/sandbox"
 	toolfx "github.com/V3teran/liusha/internal/toolruntime"
 )
@@ -117,18 +119,46 @@ func (a *RunCommand) ParametersJSON() json.RawMessage {
 }`, maxSec, maxSec))
 }
 
+// fileMeta 是 runCommandOutput.Files 的轻量元信息——只 name + 原始字节数 + 是否图。
+//
+// 关键：不含 b64！图片真 base64 仅走 toolfx.Result.Images → react.runtime 拼 ContentParts
+// 的 image_url block 进 multimodal message。文本里只列 name/bytes 让 LLM 知道有这个产物，
+// 避免 b64 文本在 Output JSON 里重复消化（与 strix `[Image data extracted - see attached]` 同款）。
+type fileMeta struct {
+	Name  string `json:"name"`
+	Bytes int    `json:"bytes,omitempty"`
+	Image bool   `json:"image,omitempty"` // true → 已作为 multimodal image_url 附件回传给 LLM
+}
+
 // runCommandOutput 是 toolfx.Result.Output 的 JSON 结构。
 //
 // 字段最小化：只给 LLM"它写的命令跑出来怎样"——不假设任何工具的输出形态。
 // LLM 自己 grep stdout_tail 找 Title:/Payload:/back-end DBMS 等关键词；
-// 二进制产物（截图等）在 files 数组里，文本产物本来就走 stdout 不重复出现。
+// 二进制产物（截图等）在 files 数组里只列元信息，真内容图走 image_url 文本走 stdout。
 type runCommandOutput struct {
-	ExitCode   int                  `json:"exit_code"`
-	TimedOut   bool                 `json:"timed_out"`
-	StdoutTail string               `json:"stdout_tail,omitempty"`
-	StderrTail string               `json:"stderr_tail,omitempty"`
-	Files      []sandbox.Attachment `json:"files,omitempty"`
-	Warnings   []string             `json:"warnings,omitempty"`
+	ExitCode   int        `json:"exit_code"`
+	TimedOut   bool       `json:"timed_out"`
+	StdoutTail string     `json:"stdout_tail,omitempty"`
+	StderrTail string     `json:"stderr_tail,omitempty"`
+	Files      []fileMeta `json:"files,omitempty"`
+	Warnings   []string   `json:"warnings,omitempty"`
+}
+
+// toFileMetas 把 sandbox 附件转成轻量元信息——剥离 b64，按扩展名标记 image。
+// b64 原大小约 = len(b64) * 3 / 4（精确点要扣 padding，估算够 LLM 决策用）。
+func toFileMetas(files []sandbox.Attachment) []fileMeta {
+	if len(files) == 0 {
+		return nil
+	}
+	out := make([]fileMeta, len(files))
+	for i, f := range files {
+		out[i] = fileMeta{
+			Name:  f.Name,
+			Bytes: len(f.B64) * 3 / 4,
+			Image: imageMediaTypeFromName(f.Name) != "",
+		}
+	}
+	return out
 }
 
 // Execute 校验参数 → 钳 timeout → 调 Sandbox.Exec → 截 tail → 返结构化结果。
@@ -173,7 +203,7 @@ func (a *RunCommand) Execute(ctx context.Context, args json.RawMessage) (toolfx.
 		TimedOut:   res.TimedOut,
 		StdoutTail: tailString(res.Stdout, tailN),
 		StderrTail: tailString(res.Stderr, tailN),
-		Files:      res.Files,
+		Files:      toFileMetas(res.Files),
 		Warnings:   res.Warnings,
 	}
 	enc, err := json.Marshal(out)
@@ -182,7 +212,45 @@ func (a *RunCommand) Execute(ctx context.Context, args json.RawMessage) (toolfx.
 	}
 	summary := fmt.Sprintf("run_command tag=%s exit=%d timed_out=%v files=%d",
 		tag, out.ExitCode, out.TimedOut, len(out.Files))
-	return toolfx.Result{Output: enc, Summary: summary}, nil
+	// 自动从附件提取图片转成 llm.ImageContent——sandbox-server 已经把 $OUTPUT_DIR/* base64 化，
+	// 这里只做扩展名识别 + MediaType 推断。Result.Images 非空 → react.runtime 走 multimodal 路径。
+	// 非图片附件继续走 Output.files（让 LLM 在文本里看到附件清单）。
+	return toolfx.Result{Output: enc, Summary: summary, Images: extractImagesFromFiles(res.Files)}, nil
+}
+
+// extractImagesFromFiles 从 sandbox 附件中筛出图片文件（按扩展名），转成 llm.ImageContent。
+// 仅识别 png/jpg/jpeg/gif/webp 五种 — 与 Anthropic Base64ImageSourceMediaType 支持集对齐。
+func extractImagesFromFiles(files []sandbox.Attachment) []llm.ImageContent {
+	if len(files) == 0 {
+		return nil
+	}
+	var out []llm.ImageContent
+	for _, f := range files {
+		mt := imageMediaTypeFromName(f.Name)
+		if mt == "" || f.B64 == "" {
+			continue
+		}
+		out = append(out, llm.ImageContent{
+			MediaType:  mt,
+			Base64Data: f.B64,
+		})
+	}
+	return out
+}
+
+// imageMediaTypeFromName 按扩展名（大小写不敏感）返回 MIME；非图片扩展返 ""。
+func imageMediaTypeFromName(name string) string {
+	switch strings.ToLower(filepath.Ext(name)) {
+	case ".png":
+		return "image/png"
+	case ".jpg", ".jpeg":
+		return "image/jpeg"
+	case ".gif":
+		return "image/gif"
+	case ".webp":
+		return "image/webp"
+	}
+	return ""
 }
 
 // sanitizeTag 把 LLM 传入的 tag 收紧到 [a-z0-9-]{1,32}；为空 / 含非法字符 → "default"。

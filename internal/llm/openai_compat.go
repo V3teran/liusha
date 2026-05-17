@@ -15,6 +15,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	openai "github.com/sashabaranov/go-openai"
 )
@@ -108,6 +109,15 @@ func toOpenAIMessages(in []Message) ([]openai.ChatCompletionMessage, error) {
 	out := make([]openai.ChatCompletionMessage, 0, len(in))
 	for _, m := range in {
 		content := m.Content
+		// 多模态降级：deepseek-chat / v4 系列等 OpenAI 协议族目前不支持 vision_url
+		// 协议字段（DeepSeek 公共 API 确认无 vision，2026-05）。
+		// 与 strix _strip_images 对齐：合并所有 text part、把 image_url 换成占位文本，
+		// 让 LLM 知道这里曾经截过图但当前 provider 看不到——可决定换 curl 验证或调 state 拿 DOM。
+		// 未来 OpenAI vision-capable 模型（gpt-4o / Kimi-K2.6 等 OpenAI 协议族真支持 vision）
+		// 启用时，按 provider supports_vision 字段切换走真 MultiContent 路径。
+		if len(m.ContentParts) > 0 {
+			content = stripImagesToText(m.ContentParts)
+		}
 		// 兼容 DeepSeek 等严格 OpenAI 协议实现：每条 message 必须含 content 字段（OpenAI 协议默认 omitempty）。
 		// 涵盖：assistant+tool_calls 时 content 空 / tool_result Output 为空 / 其它边角空 content。
 		if content == "" {
@@ -135,6 +145,24 @@ func toOpenAIMessages(in []Message) ([]openai.ChatCompletionMessage, error) {
 		out = append(out, om)
 	}
 	return out, nil
+}
+
+// stripImagesToText 把 ContentParts 降级成 OpenAI 兼容的 string content。
+// text part 原样合并；image_url part 替换成占位文本（与 strix _strip_images 对齐）。
+// LLM 看到占位文本知道这里曾经有图——可决定换种验证方式（curl/state/eval）。
+func stripImagesToText(parts []ContentPart) string {
+	pieces := make([]string, 0, len(parts))
+	for _, p := range parts {
+		switch p.Type {
+		case "text":
+			if p.Text != "" {
+				pieces = append(pieces, p.Text)
+			}
+		case "image_url":
+			pieces = append(pieces, "[Image removed - model doesn't support vision]")
+		}
+	}
+	return strings.Join(pieces, "\n")
 }
 
 // toOpenAITools 把内部 ToolSchema 转成 OpenAI Tool。

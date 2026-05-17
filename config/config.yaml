@@ -47,8 +47,9 @@ llm:
   max_tokens_per_call: 4096
   # 双 namespace：把"真 agent"与"single-shot utility"语义分开。
   agents:
-    hunter:       default_provider   # hunter ReAct（v0024 单层架构后唯一 agent）
-    reviewer:     light_provider     # 旁路过程判官（每 5 步评估方向）
+    hunter:        default_provider   # passive hunter ReAct（流量驱动，纯文本路径）
+    hunter_vision: vision_provider    # active hunter ReAct（可含 browser-use 截图，走 multimodal provider）
+    reviewer:      light_provider     # 旁路过程判官（每 5 步评估方向）
 
   # spec §8.5 错误码退避表（429/529/5xx/网络超时）
   retry:
@@ -251,7 +252,8 @@ skills:
 
 # ---- cmd/scanner 进程运行时参数 ----
 scanner:
-  main_max_steps: 60                       # 单个主 ReAct 循环步数上限
+  passive_max_steps: 60                    # passive 模式 ReAct 步数上限（流量驱动单类型挖掘够用）
+  active_max_steps: 300                    # active 模式 ReAct 步数上限（站点级扫描深挖，与 strix max_iterations=300 对齐）
   agent_run_timeout_seconds: 3600          # passive 模式 agent_run 整体超时（asynq handler 入口 WithTimeout，60 分钟，> step_tool）
   active_agent_run_timeout_seconds: 14400  # active 模式 agent_run 整体超时（4 小时，对齐 sandbox max lifetime；站点扫描爬+测耗时长）
   step_llm_timeout_seconds: 300            # 单步 LLM Generate 看门狗（5 分钟）

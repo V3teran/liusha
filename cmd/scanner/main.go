@@ -172,7 +172,8 @@ func main() {
 		VulnLoader:             vulnLoader,
 		SandboxCfg:             cfg.Sandbox,
 		StepToolTimeoutSeconds: cfg.Toolruntime.StepToolTimeoutSeconds,
-		MaxSteps:               scannerCfg.MainMaxSteps,
+		PassiveMaxSteps:        scannerCfg.PassiveMaxSteps,
+		ActiveMaxSteps:         scannerCfg.ActiveMaxSteps,
 		WatchdogSeconds:        scannerCfg.StepLLMTimeoutSeconds,
 		ReviewerEverySteps:     cfg.React.ReviewerEverySteps,
 		FindingsLimit:          cfg.Engagement.FindingsLimitInPrompt,
@@ -578,13 +579,16 @@ func (h handler) handleActive(ctx context.Context, p worker.Payload, entrypoint 
 	// 虚拟 host：active 模式没有先验目标，用 eid 当 notes/findings 切分键。
 	virtualHost := eid
 
-	// hunter LLM Generator
-	hunterRaw, err := h.router.For(ctx, "hunter")
+	// hunter LLM Generator——active 模式路由到 vision_provider（默认 anthropic），
+	// 因为 active hunter 可能调 browser-use screenshot 把图喂回 LLM；deepseek 走
+	// openai_compat 不支持 multimodal，会触发 ErrVisionUnsupported。passive 模式
+	// 几乎不会用到截图，继续走 default_provider（deepseek）省成本。
+	hunterRaw, err := h.router.For(ctx, "hunter_vision")
 	if err != nil {
 		return h.failTask(ctx, p.TaskID, err)
 	}
 	hunterGen := llm.Instrument(hunterRaw, h.calls,
-		llm.CallMeta{TaskID: &tid, EngagementID: &eid, RouteKey: "hunter"},
+		llm.CallMeta{TaskID: &tid, EngagementID: &eid, RouteKey: "hunter_vision"},
 		h.pricing,
 	)
 

@@ -2,14 +2,16 @@
 # scripts/dev/e2e.sh [profile…] — 跑 e2e 触发器（host 侧）；自动管理 dev 栈生命周期
 # 流程：清空 db/redis → 关 service → 清 logs → 重启 service → 等 healthz → 跑 e2e
 # 用法：
-#   ./scripts/dev/e2e.sh                       # 不带参 = 跑全部 profile（按字典序：bac + brute + path-traversal + sqli + unrestricted-upload + xss）
-#   ./scripts/dev/e2e.sh bac                   # 仅 bac（业务向访问控制）
-#   ./scripts/dev/e2e.sh sqli                  # 仅 sqli
-#   ./scripts/dev/e2e.sh xss                   # 仅 xss
-#   ./scripts/dev/e2e.sh brute                 # 仅 brute（暴力破解）
-#   ./scripts/dev/e2e.sh path-traversal        # 仅 path-traversal（任意文件读取/CWE-22）
-#   ./scripts/dev/e2e.sh unrestricted-upload   # 仅 unrestricted-upload（任意文件上传/CWE-434）
-#   ./scripts/dev/e2e.sh bac sqli xss          # 多选
+#   ./scripts/dev/e2e.sh                       # 不带参 = 跑全部 passive profile（按字典序：bac + brute + path-traversal + sqli + unrestricted-upload + xss）
+#   ./scripts/dev/e2e.sh bac                   # passive 仅 bac（业务向访问控制）
+#   ./scripts/dev/e2e.sh sqli                  # passive 仅 sqli
+#   ./scripts/dev/e2e.sh xss                   # passive 仅 xss
+#   ./scripts/dev/e2e.sh brute                 # passive 仅 brute（暴力破解）
+#   ./scripts/dev/e2e.sh path-traversal        # passive 仅 path-traversal（任意文件读取/CWE-22）
+#   ./scripts/dev/e2e.sh unrestricted-upload   # passive 仅 unrestricted-upload（任意文件上传/CWE-434）
+#   ./scripts/dev/e2e.sh bac sqli xss          # passive 多选
+#   ./scripts/dev/e2e.sh active:xss            # active 模式：自然语言 brief 喂 hunter（含 browser-use 截图链路）
+#   ./scripts/dev/e2e.sh bac active:xss        # passive + active 混合
 #
 # 清空范围（每次执行都做一次）：
 #   - postgres：9 张业务表 TRUNCATE（schema 保留）
