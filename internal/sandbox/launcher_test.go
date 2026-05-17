@@ -61,6 +61,7 @@ func TestDockerLauncher_SpawnExecDestroy(t *testing.T) {
 	})
 
 	res, err := client.Exec(ctx, ExecRequest{
+		TaskID:         runID,
 		Command:        "echo from-test && echo err-test >&2",
 		TimeoutSeconds: 5,
 		Tag:            "integration",
@@ -102,6 +103,7 @@ func TestDockerLauncher_OutputDirAttachment(t *testing.T) {
 	})
 
 	res, err := client.Exec(ctx, ExecRequest{
+		TaskID:         runID,
 		Command:        `printf 'file-content\n' > "$OUTPUT_DIR/test.txt"`,
 		TimeoutSeconds: 5,
 		Tag:            "attach",
@@ -141,6 +143,7 @@ func TestDockerLauncher_Timeout(t *testing.T) {
 	})
 
 	res, err := client.Exec(ctx, ExecRequest{
+		TaskID:         runID,
 		Command:        "sleep 10",
 		TimeoutSeconds: 1,
 		Tag:            "to",

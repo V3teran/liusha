@@ -2,9 +2,7 @@ package server
 
 import (
 	"context"
-	"crypto/rand"
 	"encoding/base64"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -19,14 +17,25 @@ import (
 	"github.com/V3teran/liusha/internal/sandbox"
 )
 
-// sharedOutputDir 是容器内全局共享的附件目录——所有 /exec 注入同一路径作 $OUTPUT_DIR。
+// outputDirRoot / workdirRoot 是 per-task 文件隔离的根目录。
 //
-// 改自原 per-exec 临时目录方案：容器本身就是 per-agent-run 隔离（cmd/scanner spawn
-// 一个新容器跑一个 task），不需要再在容器内 per-exec 隔离。共享后 LLM 可以跨 exec
-// 引用 / 列举之前 exec 写的文件（之前 defer RemoveAll 让 LLM 浪费多步 find 文件）。
+// v1.3：单 task 1 容器，所有 /exec 共享 /tmp/sandbox-output（同 task 内跨 exec 复用文件）。
+// v1.4 subtask swarm：父子共享同一容器（避免账号 cookie 顶掉），但父子并发跑命令会
+// 互相串扰——modtime 过滤无法分清"父刚写的 vs 子刚写的"；wget -O ./x.html 类命令会互覆。
 //
-// task 容器销毁时整个目录自然消失，无残留泄露风险。
-const sharedOutputDir = "/tmp/sandbox-output"
+// 隔离设计：
+//   - OUTPUT_DIR = /tmp/sandbox-output/<TaskID>/  → 附件按 task 切，collectAttachments 只扫本 task 子目录
+//   - cwd        = /workspace/<TaskID>/           → LLM 写相对路径自动落到 per-task workdir
+//   - 共享：home 目录（cookies / auth state）、二进制工具 — 这是父子共享容器的目的
+//
+// task 容器销毁时整个目录树自然消失，无残留泄露风险。
+// var（非 const）便于 server 包内单测用 t.TempDir() override：
+// 单元测试在 host 跑，/workspace 等容器路径主机不存在/无权限 → mkdir 500。
+// sandbox-server 单线程串行处理 /exec，无并发改 root 场景。
+var (
+	outputDirRoot = "/tmp/sandbox-output"
+	workdirRoot   = "/workspace"
+)
 
 // handleExec 处理 POST /exec：sh -c 命令 + OUTPUT_DIR 附件机制。
 //
@@ -43,6 +52,14 @@ func (s *Server) handleExec(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "decode request: %v", err)
 		return
 	}
+	if req.TaskID == "" {
+		writeError(w, http.StatusBadRequest, "task_id required (subtask swarm 按 task 切目录隔离)")
+		return
+	}
+	if !isPathSafeTaskID(req.TaskID) {
+		writeError(w, http.StatusBadRequest, "task_id must be [A-Za-z0-9._-]{1,64}")
+		return
+	}
 	if req.Command == "" {
 		writeError(w, http.StatusBadRequest, "command required")
 		return
@@ -52,13 +69,19 @@ func (s *Server) handleExec(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 共享目录：容器生命周期内持久；LLM 跨多次 /exec 可引用历史文件
-	outputDir := sharedOutputDir
+	// per-task 隔离：父子共享容器但文件互不串扰（同 task 内跨 exec 仍共享 outputDir）
+	outputDir := filepath.Join(outputDirRoot, req.TaskID)
+	workdir := filepath.Join(workdirRoot, req.TaskID)
 	if err := os.MkdirAll(outputDir, 0o777); err != nil {
-		writeError(w, http.StatusInternalServerError, "create shared output dir: %v", err)
+		writeError(w, http.StatusInternalServerError, "create output dir: %v", err)
+		return
+	}
+	if err := os.MkdirAll(workdir, 0o777); err != nil {
+		writeError(w, http.StatusInternalServerError, "create workdir: %v", err)
 		return
 	}
 	// 记录命令开始时间——collectAttachments 用此过滤"本次 exec 新增/修改"的文件
+	// （per-task 隔离后仍需 modtime 过滤：同 task 多次 exec 旧文件不重复返）
 	execStart := time.Now()
 
 	// 命令超时控制——r.Context() 让客户端断开/取消能传到 sh 子进程
@@ -67,6 +90,7 @@ func (s *Server) handleExec(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 
 	cmd := exec.CommandContext(cmdCtx, "sh", "-c", req.Command)
+	cmd.Dir = workdir
 	cmd.Env = append(os.Environ(), "OUTPUT_DIR="+outputDir)
 
 	// 让 sh 成为新进程组 leader；ctx 超时时 cmd.Cancel 杀整个进程组——
@@ -169,12 +193,25 @@ func collectAttachments(outputDir string, since time.Time) ([]sandbox.Attachment
 	return files, warnings
 }
 
-// newExecID 返回唯一执行 ID（16 hex 字符），用于隔离临时目录。
-// 失败兜底走 timestamp（极不可能命中，避免 panic）。
-func newExecID() string {
-	var b [8]byte
-	if _, err := rand.Read(b[:]); err != nil {
-		return fmt.Sprintf("%x", time.Now().UnixNano())
+// isPathSafeTaskID 校验 TaskID 是否仅含 path-safe 字符（[A-Za-z0-9._-]{1,64}）。
+//
+// 防 path traversal：req.TaskID 由 LLM 调用方注入 → server 端直接 filepath.Join
+// 拼路径，若不校验可被 `../../etc/passwd` 类输入逃逸到 /workspace 根之外。
+// 合法 agent_run id 是 uuid（36 字符含连字符），天然匹配本字符集。
+func isPathSafeTaskID(s string) bool {
+	if len(s) == 0 || len(s) > 64 {
+		return false
 	}
-	return hex.EncodeToString(b[:])
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch {
+		case c >= 'a' && c <= 'z':
+		case c >= 'A' && c <= 'Z':
+		case c >= '0' && c <= '9':
+		case c == '.' || c == '_' || c == '-':
+		default:
+			return false
+		}
+	}
+	return true
 }

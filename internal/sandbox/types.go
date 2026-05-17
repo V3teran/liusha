@@ -9,10 +9,14 @@ package sandbox
 // ExecRequest 是 POST /exec 的请求体。
 //
 // 字段语义：
+//   - TaskID：本次 exec 归属的 agent_run id（subtask swarm 后父子共享容器，
+//     用此字段切 cwd（/workspace/<TaskID>/）与 OUTPUT_DIR（/tmp/sandbox-output/<TaskID>/）
+//     防文件互串扰；必填，server 端校验空值 400）
 //   - Command：sh -c 解析的完整命令（支持管道 / 重定向 / $env）
 //   - TimeoutSeconds：本次命令硬超时（秒），超时被 SIGKILL
 //   - Tag：运维标签（如 "sqlmap-l5"），仅用于日志/诊断，不影响执行
 type ExecRequest struct {
+	TaskID         string `json:"task_id"`
 	Command        string `json:"command"`
 	TimeoutSeconds int    `json:"timeout_seconds"`
 	Tag            string `json:"tag,omitempty"`

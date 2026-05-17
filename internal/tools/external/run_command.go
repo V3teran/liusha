@@ -65,6 +65,11 @@ type RunCommand struct {
 	// 由 hunter Builder 闭包从 skill.BuilderParams.Sandbox 注入。
 	Sandbox sandbox.Client
 
+	// TaskID 是本次 agent_run 的 id（必填，builder 从 BuilderParams.TaskID 注入）。
+	// 透传到 ExecRequest.TaskID 让 sandbox-server 按 task 切 cwd / OUTPUT_DIR
+	// 防 subtask swarm 父子共享容器时的文件互串扰。
+	TaskID string
+
 	// MaxTimeoutSeconds 是 LLM 传入 timeout_seconds 的钳上限（秒）；
 	// 正常路径由 cmd/scanner 注入 cfg.Toolruntime.StepToolTimeoutSeconds（1800）。
 	// LLM 传更大值时直接钳到 MaxTimeoutSeconds。
@@ -177,6 +182,9 @@ func (a *RunCommand) Execute(ctx context.Context, args json.RawMessage) (toolfx.
 	if a.Sandbox == nil {
 		return toolfx.Result{}, fmt.Errorf("run_command: Sandbox 未注入")
 	}
+	if a.TaskID == "" {
+		return toolfx.Result{}, fmt.Errorf("run_command: TaskID 未注入（builder 装配缺漏）")
+	}
 	if in.Timeout <= 0 {
 		return toolfx.Result{}, fmt.Errorf("timeout_seconds 必传且 > 0（每个工具合理 timeout 差异大，无统一 default）")
 	}
@@ -189,6 +197,7 @@ func (a *RunCommand) Execute(ctx context.Context, args json.RawMessage) (toolfx.
 	// HTTP 同步调用——sandbox-server 端用 r.Context() 接 ctx，超时由 sandbox-server
 	// 内部 exec.CommandContext 钳到 in.Timeout，主进程层 ctx 只是兜底（如 agent abort）。
 	res, err := a.Sandbox.Exec(ctx, sandbox.ExecRequest{
+		TaskID:         a.TaskID,
 		Command:        in.Command,
 		TimeoutSeconds: in.Timeout,
 		Tag:            tag,

@@ -171,6 +171,7 @@ func NewBuilder(deps Deps) skill.Builder {
 		if p.Sandbox != nil {
 			must(&external.RunCommand{
 				Sandbox:           p.Sandbox,
+				TaskID:            p.TaskID, // sandbox-server 按此切 cwd / OUTPUT_DIR（PR2 subtask 隔离）
 				MaxTimeoutSeconds: deps.StepToolTimeoutSeconds,
 				TailBytes:         deps.SandboxCfg.RunTailBytes,
 			})
