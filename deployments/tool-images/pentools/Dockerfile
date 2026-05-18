@@ -204,6 +204,13 @@ RUN set -e \
  && ls -la /usr/local/bin/chromium \
  && /usr/local/bin/chromium --version 2>&1 | head -1
 
+# Layer 2.6: browser-use-tab wrapper（每 task 独立 tab，共享 chromium daemon）
+# 见脚本头部注释；依赖 TASK_ID env（sandbox-server 注入）+ browser-use CLI + flock。
+COPY deployments/tool-images/pentools/browser-use-tab /usr/local/bin/browser-use-tab
+RUN chmod +x /usr/local/bin/browser-use-tab \
+ && ls -la /usr/local/bin/browser-use-tab \
+ && head -3 /usr/local/bin/browser-use-tab
+
 # Layer 3: jwt_tool 不在 PyPI（pyjwt 是不同包）——git clone + 包装脚本到 /usr/local/bin。
 RUN git clone --depth 1 https://github.com/ticarpi/jwt_tool.git /opt/jwt_tool \
  && pip install --quiet -r /opt/jwt_tool/requirements.txt \

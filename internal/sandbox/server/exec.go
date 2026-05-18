@@ -91,7 +91,10 @@ func (s *Server) handleExec(w http.ResponseWriter, r *http.Request) {
 
 	cmd := exec.CommandContext(cmdCtx, "sh", "-c", req.Command)
 	cmd.Dir = workdir
-	cmd.Env = append(os.Environ(), "OUTPUT_DIR="+outputDir)
+	cmd.Env = append(os.Environ(),
+		"OUTPUT_DIR="+outputDir,
+		"TASK_ID="+req.TaskID, // PR6: browser-use-tab wrapper 用此区分多 task 独立 tab
+	)
 
 	// 让 sh 成为新进程组 leader；ctx 超时时 cmd.Cancel 杀整个进程组——
 	// 防止 sh 被 SIGKILL 后子进程（sqlmap/tail/...）孤儿化继续持有 stdout pipe，

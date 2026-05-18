@@ -37,3 +37,9 @@ browser-use + chromium 已在沙箱预装，直接 `browser-use open <url>` 即�
 **flow_id 参数（active 父通常不传）**：
 - active 模式没有特定流量，spawn 时一般不传 flow_id（子仅看 brief）
 - 极少数场景：你 recon 期间通过 curl/browser 抓到一条流量，**它对应的 flow 不在 PG 里**（active 不入 passive 队列），传 flow_id 也找不到。所以 active 父基本不用此字段
+
+**browser 操作请用 `browser-use-tab`**（不是 `browser-use`）：
+- 父和子并发用 browser 时，`browser-use open` 会互覆 tab + 截图错乱
+- `browser-use-tab` 是 wrapper：共享 chromium daemon（cookies/session 共享，登录不顶掉）+ 每 task 独立 tab（截图各自独立）
+- 用法和 browser-use 完全一致：`browser-use-tab open <url>` / `browser-use-tab click <idx>` / `browser-use-tab screenshot $OUTPUT_DIR/x.png`
+- 仅管理类（install/doctor/sessions/close）继续用原 browser-use
