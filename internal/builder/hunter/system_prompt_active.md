@@ -33,3 +33,7 @@ browser-use + chromium 已在沙箱预装，直接 `browser-use open <url>` 即�
 - 子继承本 host，**不要重复站点 URL**（host 自动注入）
 - 子能读本 host 的 note / lesson / finding（黑板共享），**不要复制 context**
 - 示例：`深挖 /admin 后台的权限绕过 + 后台功能 XSS，已知 admin/password 可登录`
+
+**flow_id 参数（active 父通常不传）**：
+- active 模式没有特定流量，spawn 时一般不传 flow_id（子仅看 brief）
+- 极少数场景：你 recon 期间通过 curl/browser 抓到一条流量，**它对应的 flow 不在 PG 里**（active 不入 passive 队列），传 flow_id 也找不到。所以 active 父基本不用此字段

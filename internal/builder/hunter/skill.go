@@ -158,11 +158,12 @@ func NewBuilder(deps Deps) skill.Builder {
 		must(&common.ReadLessons{Store: deps.Lessons, Host: p.Host})
 		must(&common.WriteLesson{Store: deps.Lessons, Host: p.Host})
 
-		// subtask swarm：仅 active 父任务（Mode=="active" && ParentTaskID=="") 注册
-		// spawn_child / list_children；子任务（ParentTaskID 非空）不注册防递归（max_depth=1）；
-		// passive 路径不需要并行派单。父任务 Done 装 PreDoneCheck 拒绝"子未完先 done"。
+		// subtask swarm：所有父任务（ParentTaskID=="" — passive 父也包括）注册
+		// spawn_child / list_children；子任务（ParentTaskID 非空）不注册防递归（max_depth=1）。
+		// 父任务 Done 装 PreDoneCheck 拒绝"子未完先 done"。
+		// passive 父开 spawn 让"一个流量多种漏洞类型"也能并行深挖；子默认 active 模式（brief 驱动）。
 		var spawnerRegistry *subtask.Registry
-		if p.Mode == "active" && p.ParentTaskID == "" && deps.SpawnerFactory != nil {
+		if p.ParentTaskID == "" && deps.SpawnerFactory != nil {
 			spawner, registry, err := deps.SpawnerFactory(ctx, p)
 			if err != nil {
 				return react.Config{}, fmt.Errorf("subtask spawner factory: %w", err)
@@ -269,11 +270,11 @@ func buildUserPrompt(ctx context.Context, deps Deps, p skill.BuilderParams) stri
 
 	var b strings.Builder
 
-	if p.Mode == "active" {
-		// Active 模式——brief 自然语言主导，LLM 按 brief 自主规划。
-		// 入口形态/环境就绪在 system_prompt_active.md 里说，user prompt 只透传 brief。
-		fmt.Fprintf(&b, "## 站点任务\n\n%s\n", p.Brief)
-	} else {
+	// 字段触发渲染（不再 Mode-driven）：
+	//   - RequestHeaders 非空或 URL 非空 → 渲染 raw HTTP 段（passive 父 / 带 flow_id 的子）
+	//   - Brief 非空 → 渲染 brief 段（active 父 / 所有子）
+	// 两者可并存：passive 父 spawn 子带 flow_id 时，子同时看到 raw HTTP + brief。
+	if len(p.RequestHeaders) > 0 || p.URL != "" {
 		// 段 1: 请求
 		// raw HTTP/1.1 协议形式打印——含 Host 头，LLM 不需要猜 target，
 		// 直接拼 `http://{Host}{URL}` 喂给 sqlmap/curl 等工具即可。
@@ -299,6 +300,14 @@ func buildUserPrompt(ctx context.Context, deps Deps, p skill.BuilderParams) stri
 		writeHeadersBlock(&b, p.ResponseHeaders)
 		b.WriteString("\n### Response Body")
 		writeBodyBlock(&b, p.ResponseBody, bodyLimit)
+	}
+	if p.Brief != "" {
+		// 段 3 (active 父独有) 或 段 1 (子任务无 flow): 自然语言 brief。
+		// 子任务 brief 是父 LLM 写的指令；如父同时传 flow_id，本段位于流量段之后。
+		if b.Len() > 0 {
+			b.WriteString("\n\n")
+		}
+		fmt.Fprintf(&b, "## 站点任务\n\n%s\n", p.Brief)
 	}
 
 	findingsLimit := deps.FindingsLimit

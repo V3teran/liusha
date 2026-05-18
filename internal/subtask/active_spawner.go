@@ -8,6 +8,7 @@ import (
 
 	"github.com/V3teran/liusha/internal/agentrun"
 	"github.com/V3teran/liusha/internal/finding"
+	"github.com/V3teran/liusha/internal/flow"
 	"github.com/V3teran/liusha/internal/lesson"
 	"github.com/V3teran/liusha/internal/llm"
 	"github.com/V3teran/liusha/internal/llminvocation"
@@ -37,6 +38,8 @@ type ActiveSpawnerConfig struct {
 	Findings  *finding.Store
 	Lessons   *lesson.Store
 	Calls     *llminvocation.Store
+	// Flows 可空（active 父无 flow）；FlowID>0 时调 GetByID 拉 raw HTTP 填子 BuilderParams。
+	Flows *flow.Store
 
 	// 短期记忆
 	Notes notes.Store
@@ -79,15 +82,20 @@ func NewActiveSpawner(parentCtx context.Context, cfg ActiveSpawnerConfig) *Activ
 }
 
 // Spawn 创建一行 child agent_run + 启 goroutine 跑子 react.Run，立即返回 childTaskID（异步）。
-func (s *ActiveSpawner) Spawn(ctx context.Context, brief string) (string, error) {
+// opts.FlowID>0 时子能在 user prompt 看到完整 raw HTTP（passive 父常用）。
+func (s *ActiveSpawner) Spawn(ctx context.Context, brief string, opts SpawnOptions) (string, error) {
 	if s.cfg.Registry.Count() >= s.cfg.MaxChildren {
 		return "", ErrMaxChildren
 	}
 
-	// PG agent_run 行（pending）
+	// PG agent_run 行（pending）— input 记录 brief + flow_id（可空）
+	entrypoint := map[string]any{"brief": brief}
+	if opts.FlowID > 0 {
+		entrypoint["flow_id"] = opts.FlowID
+	}
 	payloadInput, err := json.Marshal(map[string]any{
 		"mode":       "active",
-		"entrypoint": map[string]string{"brief": brief},
+		"entrypoint": entrypoint,
 	})
 	if err != nil {
 		return "", fmt.Errorf("marshal child payload: %w", err)
@@ -111,14 +119,15 @@ func (s *ActiveSpawner) Spawn(ctx context.Context, brief string) (string, error)
 
 	// 父 ctx 派生子 ctx——父 abort / engagement abort / parent timeout 自动级联
 	childCtx, cancel := context.WithCancel(s.parentCtx)
-	go s.runChild(childCtx, cancel, childTID, brief, handle)
+	go s.runChild(childCtx, cancel, childTID, brief, opts.FlowID, handle)
 
 	return childTID, nil
 }
 
 // runChild 在独立 goroutine 内装配 + 跑子 react.Run。
 // 任何路径（成功 / 失败 / panic / abort）都更新 handle 状态 + PG agent_run 行。
-func (s *ActiveSpawner) runChild(ctx context.Context, cancel context.CancelFunc, childTID, brief string, handle *Handle) {
+// flowID>0 时拉 flow 填 BuilderParams，让子 user prompt 渲染 raw HTTP 段 + brief 段。
+func (s *ActiveSpawner) runChild(ctx context.Context, cancel context.CancelFunc, childTID, brief string, flowID int64, handle *Handle) {
 	defer cancel()
 	defer func() {
 		if r := recover(); r != nil {
@@ -180,7 +189,7 @@ func (s *ActiveSpawner) runChild(ctx context.Context, cancel context.CancelFunc,
 	}
 
 	// 装配 BuilderParams——ParentTaskID 非空让 hunter builder 不注册 spawn/list（max_depth=1）
-	cfg, err := s.cfg.HunterBuilder(ctx, skill.BuilderParams{
+	bp := skill.BuilderParams{
 		EngagementID: eid,
 		TaskID:       childTID,
 		ParentTaskID: s.cfg.ParentTaskID,
@@ -190,7 +199,28 @@ func (s *ActiveSpawner) runChild(ctx context.Context, cancel context.CancelFunc,
 		Mode:         "active",
 		Brief:        brief,
 		Sandbox:      s.cfg.SandboxClient,
-	})
+	}
+
+	// 父传 flow_id 时拉 flow 填到 BuilderParams——子 buildUserPrompt 字段触发渲染 raw HTTP 段。
+	// Flows 为 nil（active 父场景未注入）或 GetByID 失败时降级到纯 brief 模式（仅 warn）。
+	if flowID > 0 && s.cfg.Flows != nil {
+		fl, ferr := s.cfg.Flows.GetByID(ctx, flowID)
+		if ferr != nil {
+			handle.MarkFailed(fmt.Errorf("拉父流量 flow_id=%d 失败: %w", flowID, ferr))
+			_ = s.cfg.AgentRuns.SetError(context.Background(), childTID, ferr.Error())
+			return
+		}
+		bp.FlowID = fl.ID
+		bp.URL = fl.URL
+		bp.Method = fl.Method
+		bp.RequestHeaders = fl.RequestHeaders
+		bp.RequestBody = fl.RequestBody
+		bp.ResponseStatus = fl.StatusCode
+		bp.ResponseHeaders = fl.ResponseHeaders
+		bp.ResponseBody = fl.ResponseBody
+	}
+
+	cfg, err := s.cfg.HunterBuilder(ctx, bp)
 	if err != nil {
 		s.markFailed(childTID, handle, fmt.Errorf("hunter builder: %w", err))
 		return

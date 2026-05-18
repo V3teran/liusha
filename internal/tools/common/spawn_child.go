@@ -33,12 +33,13 @@ func (a SpawnChild) Description() string {
 		"\n【done 约束】所有子完成你才能 done — 否则 done 工具会拒绝（你需先 list_children 等子完成）。"
 }
 
-// ParametersJSON 给出 brief 必填 schema（maxLength 1000）。
+// ParametersJSON 给出 brief 必填 + flow_id 可选 schema（maxLength 1000）。
 func (a SpawnChild) ParametersJSON() json.RawMessage {
 	return json.RawMessage(`{
   "type":"object",
   "properties":{
-    "brief":{"type":"string","minLength":10,"maxLength":1000,"description":"子任务自然语言描述，如 '深挖 /admin 后台的权限绕过 + 后台功能 XSS，已知 admin/password 可登录'"}
+    "brief":{"type":"string","minLength":10,"maxLength":1000,"description":"子任务自然语言描述，如 '深挖 /admin 后台的权限绕过 + 后台功能 XSS，已知 admin/password 可登录'"},
+    "flow_id":{"type":"integer","description":"可选——父 passive 任务传自己的 flow_id，子能在 user prompt 看到完整 raw HTTP 请求+响应（最高信息密度）。active 父无 flow 留空即可，子仅看 brief。"}
   },
   "required":["brief"]
 }`)
@@ -50,7 +51,8 @@ func (a SpawnChild) Execute(ctx context.Context, args json.RawMessage) (toolfx.R
 		return toolfx.Result{}, errors.New("spawn_child: Spawner 未注入")
 	}
 	var in struct {
-		Brief string `json:"brief"`
+		Brief  string `json:"brief"`
+		FlowID int64  `json:"flow_id"`
 	}
 	if err := json.Unmarshal(args, &in); err != nil {
 		return toolfx.Result{}, fmt.Errorf("解析 spawn_child 参数失败: %w", err)
@@ -59,7 +61,7 @@ func (a SpawnChild) Execute(ctx context.Context, args json.RawMessage) (toolfx.R
 		return toolfx.Result{}, errors.New("brief 必填")
 	}
 
-	childTID, err := a.Spawner.Spawn(ctx, in.Brief)
+	childTID, err := a.Spawner.Spawn(ctx, in.Brief, subtask.SpawnOptions{FlowID: in.FlowID})
 	if errors.Is(err, subtask.ErrMaxChildren) {
 		return toolfx.Result{}, fmt.Errorf("已达 max_children=%d 上限，调 list_children 看子进度，等部分子完成再 spawn", a.MaxChildren)
 	}

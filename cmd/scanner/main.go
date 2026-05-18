@@ -181,6 +181,7 @@ func main() {
 			Lessons:               lessons,
 			Calls:                 calls,
 			Notes:                 noteStore,
+			Flows:                 flows, // PR5: 子 spawn 时若传 flow_id 拉父流量给子
 			Router:                router,
 			Pricing:               pricing,
 			HunterBuilder:         hunterBuilder, // 晚绑定 — handleActive 执行时已就绪
@@ -535,6 +536,7 @@ func (h handler) handlePassive(ctx context.Context, p worker.Payload, entrypoint
 	cfg, err := h.hunterBuilder(ctx, skill.BuilderParams{
 		EngagementID:    eid,
 		TaskID:          tid,
+		Mode:            "passive", // PR5: 显式传，让 buildSystemPrompt 不走默认 fallback
 		FlowID:          ep.FlowID,
 		Host:            ep.Host,
 		URL:             ep.URL,
