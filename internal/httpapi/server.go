@@ -61,9 +61,6 @@ func NewServer(d Deps) http.Handler {
 	if d.AgentRuns != nil {
 		r.GET("/agent_runs/:engagement_id", agentRunsHandler(d.AgentRuns))
 	}
-	if d.AgentRuns != nil {
-		r.GET("/agent_runs/:engagement_id", agentRunsHandler(d.AgentRuns))
-	}
 	if d.ActiveScan != nil {
 		r.POST("/scan/active", activeScanHandler(d.ActiveScan))
 	}
