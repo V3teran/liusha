@@ -227,7 +227,10 @@ func Run(ctx context.Context, cfg Config) (Outcome, error) {
 				toolMsg.Content = string(obs)
 			}
 			msgs = append(msgs, toolMsg)
-			if tcRes.Done || tc.Name == "done" {
+			// 只信 tcRes.Done（工具 Execute 成功显式标记终止）——不再用 tc.Name=="done"
+			// 兜底，否则 done 工具 PreDoneCheck 拒绝（execErr != nil + tcRes.Done=false）
+			// 也会因名字匹配触发终止，让 PR3 subtask swarm "父等子" 闸形同虚设。
+			if tcRes.Done {
 				sawDone = true
 			}
 
