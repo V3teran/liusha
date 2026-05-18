@@ -37,6 +37,7 @@ import (
 	"github.com/V3teran/liusha/internal/react"
 	"github.com/V3teran/liusha/internal/sandbox"
 	"github.com/V3teran/liusha/internal/skill"
+	"github.com/V3teran/liusha/internal/subtask"
 	"github.com/V3teran/liusha/internal/tools/manifest"
 	"github.com/V3teran/liusha/internal/worker"
 
@@ -163,7 +164,38 @@ func main() {
 	// hunter builder：scanner 启动时构造一次。
 	// run_command 工具的 sandbox.Client 由 handlePassive/handleActive 每次 Spawn 后通过
 	// skill.BuilderParams.Sandbox 注入——不持有在 Deps 里。
-	hunterBuilder := hunter.NewBuilder(hunter.Deps{
+	//
+	// 用 var + 后赋值模式装 hunterBuilder：spawnerFactory 闭包需在调用期捕获 hunterBuilder
+	// 自身（spawner 装配子任务时调 HunterBuilder 复用 builder 逻辑）——NewBuilder 返回值赋
+	// 给 var 后，闭包在 builder 闭包真实执行时（handleActive 路径）才 deref 到已就绪的值。
+	var hunterBuilder skill.Builder
+
+	spawnerFactory := func(parentCtx context.Context, p skill.BuilderParams) (subtask.Spawner, *subtask.Registry, error) {
+		registry := subtask.NewRegistry()
+		spawner := subtask.NewActiveSpawner(parentCtx, subtask.ActiveSpawnerConfig{
+			ParentTaskID:          p.TaskID,
+			EngagementID:          p.EngagementID,
+			Host:                  p.Host,
+			AgentRuns:             tasks,
+			Findings:              finds,
+			Lessons:               lessons,
+			Calls:                 calls,
+			Notes:                 noteStore,
+			Router:                router,
+			Pricing:               pricing,
+			HunterBuilder:         hunterBuilder, // 晚绑定 — handleActive 执行时已就绪
+			SandboxClient:         p.Sandbox,
+			Registry:              registry,
+			MaxChildren:           scannerCfg.MaxChildren,
+			ReviewerArgsTruncate:  cfg.React.ReviewerArgsTruncate,
+			ReviewerObsTruncate:   cfg.React.ReviewerObsTruncate,
+			ReviewerFindingsLimit: cfg.React.ReviewerFindingsLimit,
+			ReviewerLessonsLimit:  cfg.React.ReviewerLessonsLimit,
+		})
+		return spawner, registry, nil
+	}
+
+	hunterBuilder = hunter.NewBuilder(hunter.Deps{
 		Notes:                  noteStore,
 		Findings:               finds,
 		Lessons:                lessons,
@@ -179,6 +211,8 @@ func main() {
 		ReviewerEverySteps:     cfg.React.ReviewerEverySteps,
 		FindingsLimit:          cfg.Engagement.FindingsLimitInPrompt,
 		LessonsLimit:           cfg.Engagement.LessonsLimitInPrompt,
+		SpawnerFactory:         spawnerFactory,
+		MaxChildren:            scannerCfg.MaxChildren,
 	})
 
 	// handler

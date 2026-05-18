@@ -33,6 +33,7 @@ import (
 	"github.com/V3teran/liusha/internal/notes"
 	"github.com/V3teran/liusha/internal/react"
 	"github.com/V3teran/liusha/internal/skill"
+	"github.com/V3teran/liusha/internal/subtask"
 	toolfx "github.com/V3teran/liusha/internal/toolruntime"
 	"github.com/V3teran/liusha/internal/toolruntime/interceptor"
 	"github.com/V3teran/liusha/internal/tools/common"
@@ -107,6 +108,15 @@ type Deps struct {
 	WatchdogSeconds    int
 	ReviewerEverySteps int
 
+	// SpawnerFactory 为 active 父任务装配 subtask.Spawner + Registry（subtask swarm）。
+	// 由 cmd/scanner 注入：闭包捕获 router/stores/calls/pricing 等所有装配子任务所需依赖。
+	// nil 时 active 父任务不注册 spawn_child / list_children 工具（向后兼容 / 单测场景）。
+	SpawnerFactory func(parentCtx context.Context, p skill.BuilderParams) (subtask.Spawner, *subtask.Registry, error)
+
+	// MaxChildren 是 SpawnChild 工具错误消息提示用的 hint 值——
+	// 真正的闸由 SpawnerFactory 返回的 spawner 内部 ActiveSpawnerConfig.MaxChildren 控制。
+	MaxChildren int
+
 	// Prompt 拼装预算
 	UserPromptBodyLimit int // 请求/响应 body 单段截断字节数；≤0 → 8192
 	FindingsLimit       int // user prompt 该 host 已有 finding 段显示条数；≤0 → 100
@@ -147,7 +157,33 @@ func NewBuilder(deps Deps) skill.Builder {
 		must(&common.WriteRelation{Store: deps.Findings})
 		must(&common.ReadLessons{Store: deps.Lessons, Host: p.Host})
 		must(&common.WriteLesson{Store: deps.Lessons, Host: p.Host})
-		must(common.Done{})
+
+		// subtask swarm：仅 active 父任务（Mode=="active" && ParentTaskID=="") 注册
+		// spawn_child / list_children；子任务（ParentTaskID 非空）不注册防递归（max_depth=1）；
+		// passive 路径不需要并行派单。父任务 Done 装 PreDoneCheck 拒绝"子未完先 done"。
+		var spawnerRegistry *subtask.Registry
+		if p.Mode == "active" && p.ParentTaskID == "" && deps.SpawnerFactory != nil {
+			spawner, registry, err := deps.SpawnerFactory(ctx, p)
+			if err != nil {
+				return react.Config{}, fmt.Errorf("subtask spawner factory: %w", err)
+			}
+			spawnerRegistry = registry
+			must(common.SpawnChild{Spawner: spawner, MaxChildren: deps.MaxChildren})
+			must(common.ListChildren{Registry: registry})
+		}
+
+		if spawnerRegistry != nil {
+			must(common.Done{
+				PreDoneCheck: func(_ context.Context) error {
+					if spawnerRegistry.HasRunning() {
+						return fmt.Errorf("仍有子任务未完成；先调 list_children 看进度，等所有子 done/failed 后再调 done")
+					}
+					return nil
+				},
+			})
+		} else {
+			must(common.Done{})
+		}
 
 		// Progressive Disclosure Tier 2：LLM 看 user prompt 工具索引选中工具后
 		// 调本工具拿完整 SKILL.md。Loader 由 cmd/scanner 单独装配（root=skills/tooling）。

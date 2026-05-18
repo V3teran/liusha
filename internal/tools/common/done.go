@@ -18,23 +18,35 @@ import (
 //
 // 不做语义校验：args 原样回吐到 Result.Output 供 Reviewer / 任务汇总使用。
 // LLM 自由收手，MaxSteps 兜死循环。
-type Done struct{}
+//
+// PreDoneCheck 是可选的前置闸：非 nil 返错时 Execute 拒绝完成（错误透传给 LLM）。
+// 用于 subtask swarm：父 LLM 调 done 时若有 active children → 返错强制父先调
+// list_children 监控子进度，等子全完才能真 done。零值（nil）= 无闸，等价旧行为。
+type Done struct {
+	PreDoneCheck func(ctx context.Context) error
+}
 
 // Name 返回动作名 "done"。
-func (Done) Name() string { return "done" }
+func (a Done) Name() string { return "done" }
 
 // Description 是 LLM tool schema 的 description 字段。
-func (Done) Description() string {
+func (a Done) Description() string {
 	return "终止当前任务，args 中可带 reason / summary（供 Reviewer / 报告参考）"
 }
 
 // ParametersJSON 返回 JSON Schema：reason / summary 都是可选字符串。
-func (Done) ParametersJSON() json.RawMessage {
+func (a Done) ParametersJSON() json.RawMessage {
 	return json.RawMessage(`{"type":"object","properties":{"reason":{"type":"string"},"summary":{"type":"string"}}}`)
 }
 
-// Execute 直接返回 Done=true；args 即使为 nil 也回吐为空 JSON 对象。
-func (Done) Execute(_ context.Context, args json.RawMessage) (toolfx.Result, error) {
+// Execute 先调 PreDoneCheck（如有），通过后返回 Done=true。
+// args 即使为 nil 也回吐为空 JSON 对象。
+func (a Done) Execute(ctx context.Context, args json.RawMessage) (toolfx.Result, error) {
+	if a.PreDoneCheck != nil {
+		if err := a.PreDoneCheck(ctx); err != nil {
+			return toolfx.Result{}, err
+		}
+	}
 	if len(args) == 0 {
 		args = json.RawMessage(`{}`)
 	}
