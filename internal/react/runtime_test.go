@@ -76,6 +76,74 @@ func TestRun_StopsOnDone(t *testing.T) {
 	}
 }
 
+// scriptedAction 按调用次序返回预设 (res, err)。
+type scriptedAction struct {
+	name      string
+	responses []struct {
+		res toolfx.Result
+		err error
+	}
+	called int
+}
+
+func (a *scriptedAction) Name() string                    { return a.name }
+func (a *scriptedAction) Description() string             { return a.name }
+func (a *scriptedAction) ParametersJSON() json.RawMessage { return json.RawMessage(`{"type":"object"}`) }
+func (a *scriptedAction) Execute(_ context.Context, _ json.RawMessage) (toolfx.Result, error) {
+	r := a.responses[a.called]
+	a.called++
+	return r.res, r.err
+}
+
+// stringErr 是测试用最简 error wrapper（避免引 errors 包）。
+type stringErr string
+
+func (e stringErr) Error() string { return string(e) }
+
+// TestRun_DoneFailureDoesNotTerminate 回归测试 — 修复 commit aa292f0：
+//
+// 场景：done 工具的 PreDoneCheck（PR3 subtask swarm "父等子" 闸）第 1 次
+// 返 err 拒绝，第 2 次返 Done:true 通过。
+// 修复前 bug：runtime.go 用 `tc.Name == "done"` 兜底，让任何名为 done
+// 的工具调用都强制 sawDone=true → 主循环第 1 步就退出，PreDoneCheck 形同虚设。
+// 修复后：只信 tcRes.Done，错误透传 LLM，循环正确进入第 2 步。
+func TestRun_DoneFailureDoesNotTerminate(t *testing.T) {
+	gen := &scriptedGen{turns: []llm.Result{
+		// 第 1 步：LLM 调 done → PreDoneCheck 拒绝（err 透传）
+		{ToolCalls: []llm.ToolCall{{ID: "1", Name: "done", Arguments: json.RawMessage(`{}`)}}, FinishReason: "tool_calls"},
+		// 第 2 步：LLM 看到错误后再调 done → PreDoneCheck 通过
+		{ToolCalls: []llm.ToolCall{{ID: "2", Name: "done", Arguments: json.RawMessage(`{}`)}}, FinishReason: "tool_calls"},
+	}}
+	reg := toolfx.NewRegistry()
+	doneAct := &scriptedAction{
+		name: "done",
+		responses: []struct {
+			res toolfx.Result
+			err error
+		}{
+			{res: toolfx.Result{}, err: stringErr("仍有子任务未完成")},
+			{res: toolfx.Result{Done: true}, err: nil},
+		},
+	}
+	_ = reg.Register(doneAct)
+
+	out, err := Run(context.Background(), Config{
+		LLM: gen, Actions: reg, Budget: Budget{MaxSteps: 5},
+	})
+	if err != nil {
+		t.Fatalf("Run err: %v", err)
+	}
+	if doneAct.called != 2 {
+		t.Fatalf("done 应被调 2 次（第 1 次被拒绝、第 2 次通过），实际 %d 次", doneAct.called)
+	}
+	if out.TotalSteps != 2 {
+		t.Fatalf("TotalSteps=%d, want 2（第 1 步 done 失败不应终止循环）", out.TotalSteps)
+	}
+	if out.TerminateBy != "done" {
+		t.Fatalf("TerminateBy=%q, want done", out.TerminateBy)
+	}
+}
+
 func TestRun_StopsOnMaxSteps(t *testing.T) {
 	loopCall := llm.Result{
 		ToolCalls:    []llm.ToolCall{{ID: "x", Name: "noop", Arguments: json.RawMessage(`{}`)}},
