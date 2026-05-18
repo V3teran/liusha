@@ -87,6 +87,7 @@ function bindEvents() {
   // View 切换：Graph（图视图）/ LLM（调用审计全屏）
   $('#btn-view-graph').addEventListener('click', () => switchView('graph'));
   $('#btn-view-llm').addEventListener('click', () => switchView('llm'));
+  $('#btn-view-tasks').addEventListener('click', () => switchView('tasks'));
 
   ['input-host', 'input-apikey'].forEach((id) => {
     $('#' + id).addEventListener('keydown', (e) => {
@@ -392,24 +393,37 @@ function truncate(s, n) {
 function switchView(view) {
   const graphView = $('#view-graph');
   const llmView = $('#view-llm');
+  const tasksView = $('#view-tasks');
   const btnGraph = $('#btn-view-graph');
   const btnLlm = $('#btn-view-llm');
+  const btnTasks = $('#btn-view-tasks');
+
+  // 全部先重置
+  graphView.classList.add('hidden');
+  llmView.classList.add('hidden');
+  tasksView.classList.add('hidden');
+  btnGraph.classList.remove('active');
+  btnLlm.classList.remove('active');
+  btnTasks.classList.remove('active');
+
+  const eid = $('#select-eid').value || localStorage.getItem(STORAGE_KEYS.eid);
+  const apikey = $('#input-apikey').value;
+
   if (view === 'llm') {
-    graphView.classList.add('hidden');
     llmView.classList.remove('hidden');
-    btnGraph.classList.remove('active');
     btnLlm.classList.add('active');
-    // 切到 LLM 时主动拉一次（如未加载过）
-    const eid = $('#select-eid').value || localStorage.getItem(STORAGE_KEYS.eid);
-    const apikey = $('#input-apikey').value;
     if (eid && apikey) {
       loadInvocations(eid, apikey).catch((err) => console.warn('invocations load failed:', err));
     }
+  } else if (view === 'tasks') {
+    tasksView.classList.remove('hidden');
+    btnTasks.classList.add('active');
+    if (eid && apikey) {
+      loadAgentRuns(eid, apikey).catch((err) => console.warn('agent_runs load failed:', err));
+    }
   } else {
     graphView.classList.remove('hidden');
-    llmView.classList.add('hidden');
     btnGraph.classList.add('active');
-    btnLlm.classList.remove('active');
   }
 }
 
@@ -536,6 +550,91 @@ function renderInvocationCard(inv, stepIdx) {
       </dl>
     </details>
   `;
+}
+
+// ---------- Agent run 父子树（subtask swarm 可观测）----------
+
+/**
+ * fetch /agent_runs/:eid → 按 parent_id 拼树 → 渲染嵌套 ul。
+ * 根节点 = parent_id 为空的 agent_run（独立 task 或父 active）。
+ * @param {string} eid engagement_id
+ * @param {string} apikey X-API-Key
+ */
+async function loadAgentRuns(eid, apikey) {
+  const panel = $('#panel-tasks');
+  if (!panel) return;
+  panel.innerHTML = '<div class="empty">LOADING...</div>';
+  const res = await fetch(`/agent_runs/${encodeURIComponent(eid)}`, {
+    headers: { 'X-API-Key': apikey },
+  });
+  if (!res.ok) {
+    panel.innerHTML = `<div class="empty">load failed: ${res.status}</div>`;
+    return;
+  }
+  const data = await res.json();
+  const runs = data.runs || [];
+  if (runs.length === 0) {
+    panel.innerHTML = `<div class="empty">无 agent_run 记录</div>`;
+    return;
+  }
+
+  // 按 parent_id 拼树
+  const byId = {};
+  const roots = [];
+  for (const r of runs) {
+    byId[r.id] = { ...r, children: [] };
+  }
+  for (const r of runs) {
+    if (r.parent_id && byId[r.parent_id]) {
+      byId[r.parent_id].children.push(byId[r.id]);
+    } else {
+      roots.push(byId[r.id]);
+    }
+  }
+
+  panel.innerHTML = `
+    <div class="tasks-header">total=${data.total} · roots=${roots.length}</div>
+    <ul class="task-tree">${roots.map(renderTaskNode).join('')}</ul>
+  `;
+}
+
+/**
+ * 递归渲染单个 agent_run 节点 + 嵌套子树。
+ * @param {object} node 含 children 字段的 agent_run
+ * @returns {string} HTML
+ */
+function renderTaskNode(node) {
+  const short = node.id.slice(0, 8);
+  const status = node.status;
+  const result = node.result || {};
+  const input = node.input || {};
+  const meta = [];
+  if (result.total_steps) meta.push(`steps=${result.total_steps}`);
+  if (result.terminate_by) meta.push(`by=${result.terminate_by}`);
+  if (result.total_in) meta.push(`in=${result.total_in}`);
+  if (result.total_out) meta.push(`out=${result.total_out}`);
+
+  let briefSnippet = '';
+  const ep = input.entrypoint;
+  if (ep) {
+    if (typeof ep === 'object') {
+      if (ep.brief) briefSnippet = ` · ${ep.brief.slice(0, 80)}`;
+      else if (ep.url) briefSnippet = ` · ${ep.method || ''} ${String(ep.url).slice(0, 70)}`;
+    }
+  }
+
+  const childrenHtml = node.children.length
+    ? `<ul class="task-children">${node.children.map(renderTaskNode).join('')}</ul>`
+    : '';
+
+  return `<li class="task-node status-${escapeHtml(status)}">
+    <code class="task-id">${escapeHtml(short)}</code>
+    <span class="task-role">[${escapeHtml(node.role)}]</span>
+    <span class="task-status task-status-${escapeHtml(status)}">${escapeHtml(status)}</span>
+    ${meta.length ? `<span class="task-meta">${escapeHtml(meta.join(' · '))}</span>` : ''}
+    <span class="task-brief">${escapeHtml(briefSnippet)}</span>
+    ${childrenHtml}
+  </li>`;
 }
 
 init();

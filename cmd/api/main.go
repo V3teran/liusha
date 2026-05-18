@@ -77,6 +77,7 @@ func main() {
 			Engagements:       engagementAPIAdapter{s: engStore, passiveTTL: time.Duration(cfg.Engagement.MaxAgeHours) * time.Hour},
 			Graph:             projector,
 			Invocations:       invocationStore,
+			AgentRuns:         taskStore, // PR4: viewer 拼父子树用
 			ActiveScan:        activeAdapter,
 			StaticFS:          web.ViewerFS(),
 			EnableDevAutofill: envOr("LIUSHA_VIEWER_DEV_KEY", "") != "",
