@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/V3teran/liusha/internal/engagement"
+	"github.com/V3teran/liusha/internal/activescan"
 	"github.com/V3teran/liusha/internal/finding"
 	"github.com/V3teran/liusha/internal/llm"
 	"github.com/V3teran/liusha/internal/react"
@@ -152,12 +152,14 @@ func (h handler) handleActive(ctx context.Context, p worker.Payload, entrypoint 
 		return h.failTask(ctx, p.TaskID, err)
 	}
 
+	// OnAbort 切到新表：worker.Payload.EngagementID 现在为空（B6.2），用 oid 查
+	// active_scan.Status。oid 必非空——cmd/api 单源走 activescan.Create。
 	cfg.OnAbort = func(c context.Context) (bool, error) {
-		eng, err := h.engagements.GetByID(c, eid)
+		sc, err := h.activeScans.GetByID(c, oid)
 		if err != nil {
 			return false, err
 		}
-		return eng.Status != engagement.StatusActive, nil
+		return sc.Status != activescan.StatusActive, nil
 	}
 
 	out, err := react.Run(parentCtx, cfg)

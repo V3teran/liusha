@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/V3teran/liusha/internal/engagement"
 	"github.com/V3teran/liusha/internal/finding"
+	"github.com/V3teran/liusha/internal/passivesession"
 	"github.com/V3teran/liusha/internal/llm"
 	"github.com/V3teran/liusha/internal/react"
 	"github.com/V3teran/liusha/internal/skill"
@@ -153,12 +153,14 @@ func (h handler) handlePassive(ctx context.Context, p worker.Payload, entrypoint
 	}
 
 	// engagement 中止时让 react.Run 自然停
+	// OnAbort 切到新表：worker.Payload.EngagementID 现在为空（B6.3），用 oid 查
+	// passive_session.Status。oid 必非空——ingestor 单源走 passive.LookupOrCreate。
 	cfg.OnAbort = func(c context.Context) (bool, error) {
-		eng, err := h.engagements.GetByID(c, eid)
+		sess, err := h.passiveSessions.GetByID(c, oid)
 		if err != nil {
 			return false, err
 		}
-		return eng.Status != engagement.StatusActive, nil
+		return sess.Status != passivesession.StatusActive, nil
 	}
 
 	out, err := react.Run(ctx, cfg)
