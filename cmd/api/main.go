@@ -71,7 +71,7 @@ func main() {
 	taskStore := agentrun.NewStore(pool).WithCounter(engStore)
 	enq := worker.NewClient(asynq.RedisClientOpt{Addr: os.Getenv("LIUSHA_REDIS_ADDR")})
 	defer enq.Close()
-	activeAdapter := &activeScanAdapter{engs: engStore, activeScans: activeScanStore, tasks: taskStore, enq: enq}
+	activeAdapter := &activeScanAdapter{activeScans: activeScanStore, tasks: taskStore, enq: enq}
 
 	// 监听地址：优先 ENV（运维临时切换）→ yaml。
 	listenAddr := envx.OrDefault("LIUSHA_API_ADDR", cfg.API.ListenAddr)
@@ -222,10 +222,8 @@ func (a engagementAPIAdapter) List(ctx context.Context, limit int) ([]httpapi.En
 // 任一步失败都不留中间状态（前面失败直接返错；engagement 已建但 enqueue 失败会留
 // active engagement，由用户手动 abort 或后续 sweeper——保持简单不上事务，与
 // passive 模式 ingestor.enqueueMain 一致语义）。
-// 双轨期：engs（旧 unified）与 activeScans（新 polymorphic）并存。
-// CreateActiveScan 同时建两边表行；新行 ID 作为 agent_run.owner_id 落库。
+// 单源：仅 active_scan 表（0040 DROP FK 后旧 engagement 路径正式弃用）。
 type activeScanAdapter struct {
-	engs        *engagement.Store
 	activeScans *activescan.Store
 	tasks       *agentrun.Store
 	enq         *worker.Client
@@ -238,16 +236,11 @@ func (a *activeScanAdapter) CreateActiveScan(ctx context.Context, brief string) 
 	if err != nil {
 		return "", "", fmt.Errorf("marshal brief: %w", err)
 	}
-	eng, err := a.engs.CreateActiveSession(ctx, body)
+	// 单源：仅写 active_scan 表（旧 engagement 路径在 0040 FK DROP 后正式弃用）。
+	// target_host 留空——暂不在 API 层 parse brief，hunter LLM 从 brief 自识别。
+	sc, err := a.activeScans.Create(ctx, brief, "")
 	if err != nil {
-		return "", "", err
-	}
-	// 双轨：新 active_scan 表行；target_host 留空（暂不在 API 层 parse brief）。
-	// 失败时 silent fallback——双轨期允许部分 active 缺失新 owner_id，旧 engagement 仍生效。
-	// adapter 无 logger 注入，故不打日志；commit B5 切读时该路径已转主，失败应升级 fail-fast。
-	activeScanID := ""
-	if sc, asErr := a.activeScans.Create(ctx, brief, ""); asErr == nil {
-		activeScanID = sc.ID
+		return "", "", fmt.Errorf("create active_scan: %w", err)
 	}
 	payloadInput, err := json.Marshal(map[string]any{
 		"mode":       "active",
@@ -258,9 +251,9 @@ func (a *activeScanAdapter) CreateActiveScan(ctx context.Context, brief string) 
 	}
 
 	tid, err := a.tasks.Create(ctx, agentrun.NewParams{
-		EngagementID: eng.ID,
-		OwnerType:    "active_scan", // 双轨：空 activeScanID 由 store NULLIF 折成 NULL
-		OwnerID:      activeScanID,
+		EngagementID: "", // 0039 已 DROP NOT NULL；store NULLIF 折空串到 NULL
+		OwnerType:    "active_scan",
+		OwnerID:      sc.ID,
 		Role:         string(worker.RoleHunter),
 		Input:        payloadInput,
 	})
@@ -274,12 +267,12 @@ func (a *activeScanAdapter) CreateActiveScan(ctx context.Context, brief string) 
 	// MaxRetry(0)：active 父跑挂就跑挂，让用户手动 abort + 重新触发，不重试。
 	if _, _, err := a.enq.Enqueue(ctx, worker.RoleHunter, worker.Payload{
 		TaskID:       tid,
-		EngagementID: eng.ID,
-		OwnerType:    "active_scan", // 双轨：activeScanID 空时 OwnerID 空，JSON omit
-		OwnerID:      activeScanID,
+		EngagementID: "", // 同上
+		OwnerType:    "active_scan",
+		OwnerID:      sc.ID,
 		Input:        payloadInput,
 	}, asynq.MaxRetry(0)); err != nil {
 		return "", "", fmt.Errorf("enqueue: %w", err)
 	}
-	return eng.ID, tid, nil
+	return sc.ID, tid, nil
 }
