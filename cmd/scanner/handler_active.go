@@ -69,6 +69,8 @@ func (h handler) handleActive(ctx context.Context, p worker.Payload, entrypoint 
 		llm.CallMeta{TaskID: &tid, EngagementID: &eid, OwnerType: otPtr, OwnerID: oidPtr, RouteKey: "reviewer"},
 		h.pricing,
 	)
+	// notes key 保留 engagement_id：与 BuilderParams.EngagementID（finding FK 要求真值）一致。
+	// B5+ 完成 finding FK 解耦后再统一切到 owner_id。
 	reviewer := react.NewLLMReviewer(reviewLLMGen, h.notes, eid, virtualHost)
 	reviewer.ArgsTruncate = h.cfg.React.ReviewerArgsTruncate
 	reviewer.ObsTruncate = h.cfg.React.ReviewerObsTruncate
@@ -134,8 +136,8 @@ func (h handler) handleActive(ctx context.Context, p worker.Payload, entrypoint 
 	}()
 
 	cfg, err := h.hunterBuilder(parentCtx, skill.BuilderParams{
-		EngagementID: eid,
-		OwnerType:    ot, // 双轨期透传；空 = 旧路径
+		EngagementID: eid, // 保持 engagement.id 真值（finding 表 engagement_id 仍有 FK）
+		OwnerType:    ot,  // 双轨期透传；空 = 旧路径
 		OwnerID:      oid,
 		TaskID:       tid,
 		ParentTaskID: p.ParentTaskID, // active asynq 入口父任务总是空；非空表示由 subtask 包内 ActiveSpawner 在父 goroutine 内派的子
