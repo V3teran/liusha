@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sort"
 	"syscall"
 	"time"
 
@@ -26,6 +27,7 @@ import (
 	"github.com/V3teran/liusha/internal/httpapi"
 	"github.com/V3teran/liusha/internal/llminvocation"
 	"github.com/V3teran/liusha/internal/logx"
+	"github.com/V3teran/liusha/internal/passivesession"
 	"github.com/V3teran/liusha/internal/worker"
 	"github.com/V3teran/liusha/web"
 
@@ -57,7 +59,8 @@ func main() {
 
 	credAPI := credential.NewRedis(rdb, cfg.Credential.RedisKeyPrefix)
 	engStore := engagement.NewStore(pool)
-	activeScanStore := activescan.NewStore(pool) // 双轨期新表 store
+	passiveSessionStore := passivesession.NewStore(pool) // 双轨期新表 store
+	activeScanStore := activescan.NewStore(pool)
 	findStore := finding.NewStore(pool)
 	projector := &graphview.Projector{Findings: findStore, Engagements: engStore}
 	invocationStore := llminvocation.NewStoreWithConfig(pool, cfg.LLM.Invocation)
@@ -77,7 +80,12 @@ func main() {
 		Handler: httpapi.NewServer(httpapi.Deps{
 			APIKey:            os.Getenv("LIUSHA_API_KEY"),
 			Credentials:       credAPI,
-			Engagements:       engagementAPIAdapter{s: engStore, passiveTTL: time.Duration(cfg.Engagement.MaxAgeHours) * time.Hour},
+			Engagements: engagementAPIAdapter{
+				s:          engStore,
+				passive:    passiveSessionStore,
+				active:     activeScanStore,
+				passiveTTL: time.Duration(cfg.Engagement.MaxAgeHours) * time.Hour,
+			},
 			Graph:             projector,
 			Invocations:       invocationStore,
 			AgentRuns:         taskStore, // viewer 拼父子树用（按 parent_id）
@@ -118,11 +126,22 @@ func main() {
 // passiveTTL 来自 cfg.Engagement.MaxAgeHours——passive session 新建时写入 expires_at。
 type engagementAPIAdapter struct {
 	s          *engagement.Store
+	passive    *passivesession.Store // 双轨读路径：List 合并新表，Abort 试两表
+	active     *activescan.Store
 	passiveTTL time.Duration
 }
 
+// Abort 双试：先 passive 表，否则 active 表；都没命中则报错。
+// HTTP API 不区分 mode，用户只给 ID 不给 type，故试两表是必要的。
+// errMsg 恒空（用户主动 abort 视为正常结束；store 完整签名留给 scanner 内部用）。
 func (a engagementAPIAdapter) Abort(ctx context.Context, id string) error {
-	return a.s.Abort(ctx, id, "")
+	if _, err := a.passive.GetByID(ctx, id); err == nil {
+		return a.passive.Abort(ctx, id, "")
+	}
+	if _, err := a.active.GetByID(ctx, id); err == nil {
+		return a.active.Abort(ctx, id, "")
+	}
+	return fmt.Errorf("session %s not found in passive_session or active_scan", id)
 }
 
 func (a engagementAPIAdapter) EnsurePassiveSession(ctx context.Context) (string, error) {
@@ -133,33 +152,66 @@ func (a engagementAPIAdapter) EnsurePassiveSession(ctx context.Context) (string,
 	return eng.ID, nil
 }
 
-// List 适配 engagement.Store.List → httpapi.EngagementSummary。
-// 不直接返回 engagement.Engagement 完整结构，避免泄露大字段到前端。
+// List 合并 passive_session + active_scan 两新表 → httpapi.EngagementSummary。
+//
+// 双轨期：旧 engagement.Store 不再读，由新表数据直接返回。每个 sub-list 各取 limit 条，
+// 合并后按 CreatedAt desc 排，最终截到 limit。Mode 字段标记来源表（"passive"/"active"），
+// 前端 viewer 用 Mode 区分展示。
 func (a engagementAPIAdapter) List(ctx context.Context, limit int) ([]httpapi.EngagementSummary, error) {
-	rows, err := a.s.List(ctx, limit)
-	if err != nil {
-		return nil, err
+	if limit <= 0 {
+		limit = 20
 	}
-	out := make([]httpapi.EngagementSummary, 0, len(rows))
-	for _, e := range rows {
-		summary := httpapi.EngagementSummary{
-			ID:            e.ID,
-			Scope:         string(e.Scope),
-			Status:        string(e.Status),
-			Mode:          string(e.Mode),
-			FlowCount:     e.FlowCount,
-			FindingCount:  e.FindingCount,
-			AgentRunCount: e.AgentRunCount,
-			CreatedAt:     e.CreatedAt.Format(time.RFC3339),
-			ErrorMessage:  e.ErrorMessage,
+	// 各取 limit 条；后面合并截断保证 desc 排序正确（边界 case：单表都新过另一表的最旧 N）。
+	passives, err := a.passive.List(ctx, limit)
+	if err != nil {
+		return nil, fmt.Errorf("list passive sessions: %w", err)
+	}
+	actives, err := a.active.List(ctx, limit)
+	if err != nil {
+		return nil, fmt.Errorf("list active scans: %w", err)
+	}
+
+	out := make([]httpapi.EngagementSummary, 0, len(passives)+len(actives))
+	for _, p := range passives {
+		scopeJSON, _ := json.Marshal(map[string]string{"host": p.Host})
+		s := httpapi.EngagementSummary{
+			ID:            p.ID,
+			Scope:         string(scopeJSON),
+			Status:        string(p.Status),
+			Mode:          "passive",
+			FlowCount:     p.FlowCount,
+			FindingCount:  p.FindingCount,
+			AgentRunCount: p.AgentRunCount,
+			CreatedAt:     p.CreatedAt.Format(time.RFC3339),
+			ExpiresAt:     p.ExpiresAt.Format(time.RFC3339),
+			ErrorMessage:  p.ErrorMessage,
 		}
-		if e.ExpiresAt != nil {
-			summary.ExpiresAt = e.ExpiresAt.Format(time.RFC3339)
+		if p.EndedAt != nil {
+			s.EndedAt = p.EndedAt.Format(time.RFC3339)
 		}
-		if e.EndedAt != nil {
-			summary.EndedAt = e.EndedAt.Format(time.RFC3339)
+		out = append(out, s)
+	}
+	for _, sc := range actives {
+		scopeJSON, _ := json.Marshal(map[string]string{"brief": sc.Brief})
+		s := httpapi.EngagementSummary{
+			ID:            sc.ID,
+			Scope:         string(scopeJSON),
+			Status:        string(sc.Status),
+			Mode:          "active",
+			FindingCount:  sc.FindingCount,
+			AgentRunCount: sc.AgentRunCount,
+			CreatedAt:     sc.CreatedAt.Format(time.RFC3339),
+			ErrorMessage:  sc.ErrorMessage,
 		}
-		out = append(out, summary)
+		if sc.EndedAt != nil {
+			s.EndedAt = sc.EndedAt.Format(time.RFC3339)
+		}
+		out = append(out, s)
+	}
+	// 按 CreatedAt desc 排——比较字符串即可（RFC3339 lexicographic order = chronological order）。
+	sort.Slice(out, func(i, j int) bool { return out[i].CreatedAt > out[j].CreatedAt })
+	if len(out) > limit {
+		out = out[:limit]
 	}
 	return out, nil
 }
