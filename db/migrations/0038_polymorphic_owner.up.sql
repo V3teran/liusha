@@ -1,4 +1,4 @@
--- 0038: DDD 重构 — 拆 engagement 为 passive_session + active_scan + 5 张共享表改 polymorphic owner。
+-- 0038: DDD 重构 — 新建 passive_session + active_scan，3 张共享表加 polymorphic owner（双轨）。
 --
 -- 设计动因：
 --   - engagement 单表混了 2 种 mode 的字段（active.flow_count 永远 0、
@@ -6,13 +6,16 @@
 --   - finding.host 在 active 下回退 engagement_id 致 lesson 跨 engagement 复用静默失效
 --   - active.brief 埋 jsonb 失去 SQL 可查询性
 --
--- 本 migration 破坏式（用户授权清空数据）：
---   1. 新建 passive_session + active_scan（替代 engagement）
---   2. agent_run / finding / llm_invocation 改 polymorphic owner（owner_type + owner_id 二字段）
---   3. http_flow.engagement_id 改名 passive_session_id（active 不入此表）
---   4. DROP TABLE engagement
+-- 本 migration 采用 **incremental 双轨**策略（非破坏式）：
+--   1. 新建 passive_session + active_scan 表
+--   2. agent_run / finding / llm_invocation 加 owner_type + owner_id（NULL，与 engagement_id 共存）
+--   3. http_flow 加 passive_session_id（NULL，与 engagement_id 共存）
+--   4. **保留** engagement 表 + 所有旧 engagement_id 列
 --
--- 共享表（不变）：lesson、finding_relation——本来就跨模式通用。
+-- 后续切换步骤（在新 commit 完成）：
+--   B. caller 写路径改用新 store，写新表 + 新 owner 列
+--   C. caller 读路径切到新 store
+--   D. 数据回填 + DROP 旧列 + DROP TABLE engagement（在 0039+ migration）
 
 -- 1. passive_session：流量驱动的持续监控会话（host 是核心实体）
 CREATE TABLE passive_session (
@@ -47,33 +50,29 @@ CREATE TABLE active_scan (
 );
 CREATE INDEX active_scan_status_idx ON active_scan (status, created_at DESC);
 
--- 3. agent_run / finding / llm_invocation 改 polymorphic owner
-ALTER TABLE agent_run DROP CONSTRAINT IF EXISTS agent_run_engagement_id_fkey;
-ALTER TABLE agent_run DROP COLUMN engagement_id;
-ALTER TABLE agent_run ADD COLUMN owner_type text NOT NULL
-    CHECK (owner_type IN ('passive_session','active_scan'));
-ALTER TABLE agent_run ADD COLUMN owner_id uuid NOT NULL;
-CREATE INDEX agent_run_owner_idx ON agent_run (owner_type, owner_id, created_at DESC);
+-- 3. agent_run / finding / llm_invocation 加 polymorphic owner 列（与 engagement_id 双轨共存）
+--    - owner_type / owner_id 都 NULL：表示走旧 engagement 路径
+--    - owner_type / owner_id 都非 NULL：表示新路径（commit B 切换后写入）
+ALTER TABLE agent_run ADD COLUMN owner_type text
+    CHECK (owner_type IS NULL OR owner_type IN ('passive_session','active_scan'));
+ALTER TABLE agent_run ADD COLUMN owner_id uuid;
+CREATE INDEX agent_run_owner_idx ON agent_run (owner_type, owner_id, created_at DESC)
+    WHERE owner_type IS NOT NULL;
 
-ALTER TABLE finding DROP CONSTRAINT IF EXISTS finding_engagement_id_fkey;
-ALTER TABLE finding DROP COLUMN engagement_id;
-ALTER TABLE finding ADD COLUMN owner_type text NOT NULL
-    CHECK (owner_type IN ('passive_session','active_scan'));
-ALTER TABLE finding ADD COLUMN owner_id uuid NOT NULL;
-CREATE INDEX finding_owner_idx ON finding (owner_type, owner_id, created_at DESC);
+ALTER TABLE finding ADD COLUMN owner_type text
+    CHECK (owner_type IS NULL OR owner_type IN ('passive_session','active_scan'));
+ALTER TABLE finding ADD COLUMN owner_id uuid;
+CREATE INDEX finding_owner_idx ON finding (owner_type, owner_id, created_at DESC)
+    WHERE owner_type IS NOT NULL;
 
-ALTER TABLE llm_invocation DROP CONSTRAINT IF EXISTS llm_invocation_engagement_id_fkey;
-ALTER TABLE llm_invocation DROP COLUMN engagement_id;
-ALTER TABLE llm_invocation ADD COLUMN owner_type text NOT NULL
-    CHECK (owner_type IN ('passive_session','active_scan'));
-ALTER TABLE llm_invocation ADD COLUMN owner_id uuid NOT NULL;
-CREATE INDEX llm_invocation_owner_idx ON llm_invocation (owner_type, owner_id);
+ALTER TABLE llm_invocation ADD COLUMN owner_type text
+    CHECK (owner_type IS NULL OR owner_type IN ('passive_session','active_scan'));
+ALTER TABLE llm_invocation ADD COLUMN owner_id uuid;
+CREATE INDEX llm_invocation_owner_idx ON llm_invocation (owner_type, owner_id)
+    WHERE owner_type IS NOT NULL;
 
--- 4. http_flow 改用 passive_session_id（active 不入此表，所以 FK 直接到 passive_session）
-ALTER TABLE http_flow DROP CONSTRAINT IF EXISTS http_flow_engagement_id_fkey;
-ALTER TABLE http_flow RENAME COLUMN engagement_id TO passive_session_id;
-ALTER TABLE http_flow ADD CONSTRAINT http_flow_session_fkey
-    FOREIGN KEY (passive_session_id) REFERENCES passive_session(id) ON DELETE CASCADE;
-
--- 5. 删旧 engagement 表（破坏式，用户授权清空数据）
-DROP TABLE engagement;
+-- 4. http_flow 加 passive_session_id（与 engagement_id 双轨）
+ALTER TABLE http_flow ADD COLUMN passive_session_id uuid
+    REFERENCES passive_session(id) ON DELETE CASCADE;
+CREATE INDEX http_flow_passive_session_idx ON http_flow (passive_session_id)
+    WHERE passive_session_id IS NOT NULL;
