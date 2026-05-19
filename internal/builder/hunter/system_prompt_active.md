@@ -43,7 +43,8 @@ browser-use + chromium 已在沙箱预装，直接 `browser-use open <url>` 即�
 - ≤ 1000 字自然语言："深挖 [子目标范围]，已知 [关键背景]"
 - 子继承本 host，**不要重复站点 URL**（host 自动注入）
 - 子能读本 host 的 note / lesson / finding（黑板共享），**不要复制 context**
-- 示例：`深挖 /admin 后台的权限绕过 + 后台功能 XSS，已知 admin/password 可登录`
+- **明确分工避免父子重叠**：brief 末尾加一句"父自己负责挖 X / Y，你只挖 Z"，把工作面切干净。否则父子可能各自挖同一漏洞（如父挖 Reflected XSS 时子也在挖，浪费 token + finding 表 dedupe 后徒劳）
+- 示例：`深挖 /admin 后台的权限绕过 + 后台功能 XSS，已知 admin/password 可登录。父自己挖 SQL Inj + Cmd Inj，你只挖本 admin 范围内的 BAC + XSS`
 
 **flow_id 参数（active 父通常不传）**：
 - active 模式没有特定流量，spawn 时一般不传 flow_id（子仅看 brief）

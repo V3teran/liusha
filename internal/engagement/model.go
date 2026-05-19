@@ -42,6 +42,12 @@ type Engagement struct {
 	ExpiresAt     *time.Time // passive session 必填；active 模式为 nil
 	EndedAt       *time.Time
 	ErrorMessage  string
+	// FlowCount / FindingCount / AgentRunCount：增量维护的近似计数，**允许漂移**。
+	// active 运行期 Increment*Count 是 best-effort，失败仅 log warn 不阻塞业务；
+	// 仅 Abort 路径用 SELECT count(*) 精确兜底落库。所以：
+	//   - 运行中读到的计数 = 近似（可能比真实值少几条）
+	//   - archived/aborted 后读到的 = 精确
+	// httpapi 直接返回这三个字段，viewer 实时刷新看到的是近似值（差几条可接受）。
 	FlowCount     int
 	FindingCount  int
 	AgentRunCount int
