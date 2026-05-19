@@ -7,8 +7,8 @@
 //	go run ./cmd/e2e sqli                         # 只跑 passive sqli
 //	go run ./cmd/e2e xss                          # 只跑 passive xss（reflected/stored/DOM）
 //	go run ./cmd/e2e bac sqli xss                 # passive 多选
-//	go run ./cmd/e2e active:xss                   # 只跑 active xss（自然语言 brief 喂 hunter LLM）
-//	go run ./cmd/e2e sqli active:xss              # 混合：passive sqli + active xss
+//	go run ./cmd/e2e active:full                  # 只跑 active full（开放性 brief 压测 LLM 自主 recon + swarm）
+//	go run ./cmd/e2e sqli active:full             # 混合：passive sqli + active full
 //
 // Passive 流程（每个 profile 独立跑）：
 //  1. POST /credential/batch 一次预录所有 passive profile 全部 host 的凭证（启动期）
@@ -35,8 +35,8 @@
 //   - csp                ：远程 DVWA CSP 配置问题（OWASP CWE-1021）
 //   - exec               ：远程 DVWA 命令注入（OWASP CWE-77/78）
 //
-// 内置 active profile（1 个 demo）：
-//   - active:xss         ：远程 DVWA login.php → 自然语言指令"账号 admin/password，只测 XSS"
+// 内置 active profile（1 个）：
+//   - active:full        ：远程 DVWA login.php → 开放 brief"挖出尽可能多的漏洞"压测 swarm + 自主 recon
 //
 // 注：e2e 数据已证实 LLM 对常规漏洞（sqli/xss/path-traversal/upload/brute）自身知识充分，
 // 删 vuln SKILL 后表现不降反升。passive profile 保留作为镜像/架构回归测试的流量基线。
@@ -121,11 +121,14 @@ type activeProfile struct {
 // activeProfiles 是 active 模式 e2e 验收剧本集，args 用前缀 active:<name> 选择。
 //
 // 当前只内置 1 个 demo (xss)——用户实际用 active 模式时，按需追加新 profile 即可。
+// 开放性 brief——只给入口 + 凭证，不剧透漏洞类型 / 独立漏洞页面。
+// 压测 LLM 自主 recon 能力 + swarm spawn 决策（多攻击面应触发 spawn_child）。
+// minFindings=8 防 LLM 拿少量 finding 就 done，逼它走完 spawn 路径。
 var activeProfiles = map[string]activeProfile{
-	"xss": {
-		name:        "xss",
-		brief:       "测试网站 http://111.229.193.40:34280/login.php，账号 admin/password，要测试 File Upload、XSS、File Inclusion 漏洞",
-		minFindings: 3,
+	"full": {
+		name:        "full",
+		brief:       "测试网站 http://111.229.193.40:34280/login.php，账号 admin/password。挖出尽可能多的漏洞，无类型限制。",
+		minFindings: 8,
 	},
 }
 
@@ -340,7 +343,7 @@ func main() {
 	proxyURL := envOr("LIUSHA_PROXY_ADDR", "http://localhost:8888")
 	vulnBase := envOr("LIUSHA_VULNAPP_BASE", "http://111.229.193.40:38001")
 
-	// args 用前缀区分两种模式: "active:xss" → active；其他 → passive。
+	// args 用前缀区分两种模式: "active:full" → active；其他 → passive。
 	passiveSel, activeSel, err := selectProfiles(os.Args[1:])
 	if err != nil {
 		logger.Fatal().Err(err).Msg("select profiles")
@@ -490,10 +493,11 @@ func runActiveProfiles(ctx context.Context, profs []activeProfile, apiBase, apiK
 			runs, runErr := agentRunStore.ListByEngagement(ctx, eid, 100)
 			unfinished, totalRuns := 0, 0
 			if runErr == nil {
+				// active 每次都新建 engagement——eid 已唯一定位本次 run 全集（父 + spawn 的子）。
+				// 不再用 startedAt 时间窗过滤 agent_run：dispatched 返回前 server 端 PG now()
+				// 已先于 Go time.Now() 触发，父 run.CreatedAt < startedAt → After() = false
+				// → 父被误滤 → total_runs=0 → observed 永远 false → e2e 超时不 PASS。
 				for _, r := range runs {
-					if !r.CreatedAt.After(startedAt) {
-						continue
-					}
 					totalRuns++
 					if r.Status == "pending" || r.Status == "running" {
 						unfinished++

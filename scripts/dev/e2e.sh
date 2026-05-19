@@ -10,8 +10,8 @@
 #   ./scripts/dev/e2e.sh path-traversal        # passive 仅 path-traversal（任意文件读取/CWE-22）
 #   ./scripts/dev/e2e.sh unrestricted-upload   # passive 仅 unrestricted-upload（任意文件上传/CWE-434）
 #   ./scripts/dev/e2e.sh bac sqli xss          # passive 多选
-#   ./scripts/dev/e2e.sh active:xss            # active 模式：自然语言 brief 喂 hunter（含 browser-use 截图链路）
-#   ./scripts/dev/e2e.sh bac active:xss        # passive + active 混合
+#   ./scripts/dev/e2e.sh active:full           # active 模式：开放性 brief 压测 LLM 自主 recon + swarm 决策
+#   ./scripts/dev/e2e.sh bac active:full       # passive + active 混合
 #
 # 清空范围（每次执行都做一次）：
 #   - postgres：9 张业务表 TRUNCATE（schema 保留）

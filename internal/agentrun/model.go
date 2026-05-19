@@ -4,8 +4,9 @@
 // 父子关系（subtask swarm）：
 //   - 父 / 独立任务：parent_id = NULL（Go 层 ParentID = ""）
 //   - 子任务：parent_id 指向父 agent_run.id；子任务**不**入 asynq，
-//     由 internal/subtask 包在父 goroutine 内手动调 Store.Create 写入
-//     并通过 ListByParent 暴露给父的 list_children 工具。
+//     由 internal/subtask 包在父 goroutine 内手动调 Store.Create 写入。
+//     list_children 工具从 subtask.Registry 内存读，不查 PG（PG parent_id 列只供
+//     viewer 树渲染 + ListByEngagement 一并取父子）。
 package agentrun
 
 import (

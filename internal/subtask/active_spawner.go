@@ -84,8 +84,12 @@ func NewActiveSpawner(parentCtx context.Context, cfg ActiveSpawnerConfig) *Activ
 // Spawn 创建一行 child agent_run + 启 goroutine 跑子 react.Run，立即返回 childTaskID（异步）。
 // opts.FlowID>0 时子能在 user prompt 看到完整 raw HTTP（passive 父常用）。
 func (s *ActiveSpawner) Spawn(ctx context.Context, brief string, opts SpawnOptions) (string, error) {
-	if s.cfg.Registry.Count() >= s.cfg.MaxChildren {
-		return "", ErrMaxChildren
+	// max_children 是"同时并发上限"：只数 running 子，已 done/failed 的不占额
+	// → LLM 视角下 list_children 看见"全 done"时 quota 真的释放了，可以继续 spawn。
+	// 错误消息内嵌当前 running / max，spawn_child 工具直接透传给 LLM 看。
+	if running := s.cfg.Registry.RunningCount(); running >= s.cfg.MaxChildren {
+		return "", fmt.Errorf("%w: 已有 %d running 子（max=%d），调 list_children 等部分完成再 spawn",
+			ErrMaxChildren, running, s.cfg.MaxChildren)
 	}
 
 	// PG agent_run 行（pending）— input 记录 brief + flow_id（可空）
@@ -110,7 +114,9 @@ func (s *ActiveSpawner) Spawn(ctx context.Context, brief string, opts SpawnOptio
 		return "", fmt.Errorf("agentrun.Create(child): %w", err)
 	}
 
-	// pending → running（与 asynq 路径对齐）
+	// pending → running 必须在 Registry.Register 之前——否则 SetRunning 失败时
+	// handle 已 Register 但 goroutine 没启 → 永 running 句柄污染 RunningCount/PreDoneCheck
+	// → 父 done 永卡。
 	if err := s.cfg.AgentRuns.SetRunning(ctx, childTID); err != nil {
 		return "", fmt.Errorf("agentrun.SetRunning(child): %w", err)
 	}
@@ -119,7 +125,14 @@ func (s *ActiveSpawner) Spawn(ctx context.Context, brief string, opts SpawnOptio
 
 	// 父 ctx 派生子 ctx——父 abort / engagement abort / parent timeout 自动级联
 	childCtx, cancel := context.WithCancel(s.parentCtx)
-	go s.runChild(childCtx, cancel, childTID, brief, opts.FlowID, handle)
+	// trackGoroutine / untrackGoroutine 让 Registry.WaitAll 能等所有子 goroutine 退出
+	// → handleActive 在父 react.Run 返回（含 max_steps）后能确保子全退再 Destroy 容器，
+	//   避免孤儿 goroutine 在已销毁容器上调 /exec。
+	s.cfg.Registry.trackGoroutine()
+	go func() {
+		defer s.cfg.Registry.untrackGoroutine()
+		s.runChild(childCtx, cancel, childTID, brief, opts.FlowID, handle)
+	}()
 
 	return childTID, nil
 }

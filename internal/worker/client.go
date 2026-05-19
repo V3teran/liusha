@@ -24,8 +24,10 @@ func (c *Client) Close() error { return c.c.Close() }
 // Enqueue 投递一个任务到 role 对应的队列。
 //
 // 幂等：用 p.TaskID 作为 asynq 的 task ID，重复 Enqueue 同一 TaskID 会返回 asynq.ErrTaskIDConflict。
+// opts 透传给 asynq.NewTask（如 asynq.MaxRetry(0) 用于 active 父任务禁止重试——
+// active 4h × asynq 默认 25 retry = 4 天死循环，且 retry 接管必弄 PG 僵尸态）。
 // 返回 (asynq 分配的 task ID, queue 名, error)。
-func (c *Client) Enqueue(ctx context.Context, role Role, p Payload) (string, string, error) {
+func (c *Client) Enqueue(ctx context.Context, role Role, p Payload, opts ...asynq.Option) (string, string, error) {
 	if p.TaskID == "" {
 		return "", "", fmt.Errorf("worker: payload.TaskID 不能为空")
 	}
@@ -37,12 +39,11 @@ func (c *Client) Enqueue(ctx context.Context, role Role, p Payload) (string, str
 		return "", "", fmt.Errorf("worker: 序列化 payload 失败: %w", err)
 	}
 
-	task := asynq.NewTask(
-		TaskTypeRun,
-		body,
+	taskOpts := append([]asynq.Option{
 		asynq.Queue(role.Queue()),
 		asynq.TaskID(p.TaskID),
-	)
+	}, opts...)
+	task := asynq.NewTask(TaskTypeRun, body, taskOpts...)
 
 	info, err := c.c.EnqueueContext(ctx, task)
 	if err != nil {

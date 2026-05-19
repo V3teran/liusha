@@ -4,7 +4,6 @@ package httpapi
 import (
 	"context"
 	"encoding/json"
-	"strings"
 
 	"github.com/gin-gonic/gin"
 
@@ -43,12 +42,11 @@ func agentRunsHandler(api AgentRunsAPI) gin.HandlerFunc {
 			return
 		}
 
+		// ListByEngagement 在 0 行时返 (空切片, nil)，不返 ErrNoRows——
+		// "engagement 不存在"与"engagement 存在但 0 run"响应相同（total:0, runs:[]），
+		// 这对 viewer 树渲染足够（前端基于 total=0 显示"无任务"）。
 		runs, err := api.ListByEngagement(c.Request.Context(), eid, 500)
 		if err != nil {
-			if strings.Contains(err.Error(), "no rows in result set") {
-				c.JSON(404, gin.H{"error": "engagement not found", "engagement_id": eid})
-				return
-			}
 			c.JSON(500, gin.H{"error": err.Error()})
 			return
 		}

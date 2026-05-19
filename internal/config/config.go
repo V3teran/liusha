@@ -229,8 +229,7 @@ type SkillsConfig struct {
 // ScannerConfig 是 cmd/scanner 进程的运行时参数。
 type ScannerConfig struct {
 	PassiveMaxSteps              int    `mapstructure:"passive_max_steps"`                // passive 模式 ReAct 步数上限（流量驱动单类型挖掘 60 步够）
-	ActiveMaxSteps               int    `mapstructure:"active_max_steps"`                 // active 模式 ReAct 步数上限（与 strix max_iterations=300 对齐，站点扫描需深挖）
-	ChildMaxSteps                int    `mapstructure:"child_max_steps"`                  // subtask swarm 子 active 任务 ReAct 步数上限（子 brief 窄，150 步够）
+	ActiveMaxSteps               int    `mapstructure:"active_max_steps"`                 // active 模式 ReAct 步数上限（与 strix max_iterations=300 对齐）；子 active 任务复用同一上限
 	MaxChildren                  int    `mapstructure:"max_children"`                     // subtask swarm 父任务 spawn 子任务上限（防 LLM 失控；默认 10）
 	AgentRunTimeoutSeconds       int    `mapstructure:"agent_run_timeout_seconds"`        // passive 模式单个 hunter task 整体超时（asynq handler 入口 WithTimeout）
 	ActiveAgentRunTimeoutSeconds int    `mapstructure:"active_agent_run_timeout_seconds"` // active 模式整体超时——站点扫描爬+测耗时长，独立配置（默认 4h，对齐 sandbox max lifetime）
@@ -577,9 +576,6 @@ func applySkillsDefaults(c SkillsConfig) SkillsConfig {
 func applyScannerDefaults(c ScannerConfig) ScannerConfig {
 	if c.PassiveMaxSteps == 0 {
 		c.PassiveMaxSteps = 60
-	}
-	if c.ChildMaxSteps == 0 {
-		c.ChildMaxSteps = 150 // 子 brief 窄，150 步够；不用与 ActiveMaxSteps 一样大
 	}
 	if c.MaxChildren == 0 {
 		c.MaxChildren = 10 // strix swarm 经验：5-10 个 specialist 是 sweet spot

@@ -25,6 +25,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/V3teran/liusha/internal/config"
 	"github.com/V3teran/liusha/internal/credential"
@@ -98,7 +99,6 @@ type Deps struct {
 	// 由 cmd/scanner handlePassive/handleActive 通过 Launcher.Spawn/Destroy 管理。
 	SandboxCfg config.SandboxConfig
 
-
 	// StepToolTimeoutSeconds 单次 tool Execute 兜底超时（秒）；0 = 不加 deadline。
 	StepToolTimeoutSeconds int
 
@@ -108,14 +108,11 @@ type Deps struct {
 	WatchdogSeconds    int
 	ReviewerEverySteps int
 
-	// SpawnerFactory 为 active 父任务装配 subtask.Spawner + Registry（subtask swarm）。
+	// SpawnerFactory 为父任务装配 subtask.Spawner + Registry（subtask swarm）。
 	// 由 cmd/scanner 注入：闭包捕获 router/stores/calls/pricing 等所有装配子任务所需依赖。
-	// nil 时 active 父任务不注册 spawn_child / list_children 工具（向后兼容 / 单测场景）。
+	// nil 时父任务不注册 spawn_child / list_children 工具（向后兼容 / 单测场景）。
+	// max_children 闸值在 spawner 内部持有，闸触发的 wrapped error 已含数字提示。
 	SpawnerFactory func(parentCtx context.Context, p skill.BuilderParams) (subtask.Spawner, *subtask.Registry, error)
-
-	// MaxChildren 是 SpawnChild 工具错误消息提示用的 hint 值——
-	// 真正的闸由 SpawnerFactory 返回的 spawner 内部 ActiveSpawnerConfig.MaxChildren 控制。
-	MaxChildren int
 
 	// Prompt 拼装预算
 	UserPromptBodyLimit int // 请求/响应 body 单段截断字节数；≤0 → 8192
@@ -158,28 +155,48 @@ func NewBuilder(deps Deps) skill.Builder {
 		must(&common.ReadLessons{Store: deps.Lessons, Host: p.Host})
 		must(&common.WriteLesson{Store: deps.Lessons, Host: p.Host})
 
-		// subtask swarm：所有父任务（ParentTaskID=="" — passive 父也包括）注册
-		// spawn_child / list_children；子任务（ParentTaskID 非空）不注册防递归（max_depth=1）。
+		// subtask swarm：**仅 active 父**注册 spawn_child / list_children。
+		// 子任务（ParentTaskID 非空）不注册防递归（max_depth=1）。
 		// 父任务 Done 装 PreDoneCheck 拒绝"子未完先 done"。
-		// passive 父开 spawn 让"一个流量多种漏洞类型"也能并行深挖；子默认 active 模式（brief 驱动）。
+		// passive 不开 spawn 的原因：passive 60 步预算 + 子常 100+ 步 → 父来不及等子完
+		//   就会 max_steps 退出（H3 修过孤儿 goroutine，但仍违反"父等子"语义）。
+		//   passive 场景"1 流量挖多类型"应由流量分发器拆多个 active 任务，不该 swarm。
 		var spawnerRegistry *subtask.Registry
-		if p.ParentTaskID == "" && deps.SpawnerFactory != nil {
+		if p.Mode == "active" && p.ParentTaskID == "" && deps.SpawnerFactory != nil {
 			spawner, registry, err := deps.SpawnerFactory(ctx, p)
 			if err != nil {
 				return react.Config{}, fmt.Errorf("subtask spawner factory: %w", err)
 			}
 			spawnerRegistry = registry
-			must(common.SpawnChild{Spawner: spawner, MaxChildren: deps.MaxChildren})
+			must(common.SpawnChild{Spawner: spawner})
 			must(common.ListChildren{Registry: registry})
 		}
 
 		if spawnerRegistry != nil {
 			must(common.Done{
 				PreDoneCheck: func(_ context.Context) error {
-					if spawnerRegistry.HasRunning() {
-						return fmt.Errorf("仍有子任务未完成；先调 list_children 看进度，等所有子 done/failed 后再调 done")
+					// 不诱导 polling：错误消息**自含** running 子摘要（taskID 前缀 + 已跑秒数），
+					// LLM 看 error 即得到 list_children 该给的信息；明确建议挖新链路 / read_findings /
+					// 写 lesson，过段时间再试 done，避免空转 polling 烧 token。
+					snaps := spawnerRegistry.Snapshot()
+					var running []string
+					now := time.Now()
+					for _, s := range snaps {
+						if s.Status != subtask.StatusRunning {
+							continue
+						}
+						elapsed := int(now.Sub(s.SpawnedAt).Seconds())
+						short := s.TaskID
+						if len(short) > 8 {
+							short = short[:8]
+						}
+						running = append(running, fmt.Sprintf("%s(%ds)", short, elapsed))
 					}
-					return nil
+					if len(running) == 0 {
+						return nil
+					}
+					return fmt.Errorf("仍有 %d 个 running 子: %s。**不要调 list_children polling**——子 finding 已通过共享黑板冒给你（read_findings 看），现在去：(a) 用子已挖出的发现作引子挖新链路；(b) 完善 finding/写 lesson；(c) 过段时间再试 done。子完了再调 done 即可",
+						len(running), strings.Join(running, ", "))
 				},
 			})
 		} else {

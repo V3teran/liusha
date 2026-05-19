@@ -93,7 +93,7 @@ func (s *Server) handleExec(w http.ResponseWriter, r *http.Request) {
 	cmd.Dir = workdir
 	cmd.Env = append(os.Environ(),
 		"OUTPUT_DIR="+outputDir,
-		"TASK_ID="+req.TaskID, // PR6: browser-use-tab wrapper 用此区分多 task 独立 tab
+		"TASK_ID="+req.TaskID, // browser-use-tab wrapper 用此区分多 task 独立 tab
 	)
 
 	// 让 sh 成为新进程组 leader；ctx 超时时 cmd.Cancel 杀整个进程组——

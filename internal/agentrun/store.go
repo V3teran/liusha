@@ -165,36 +165,6 @@ func (s *Store) ListByEngagement(ctx context.Context, engagementID string, limit
 	return out, nil
 }
 
-// ListByParent 按 created_at 升序列出 parentID 的所有子任务。
-//
-// subtask swarm 的 list_children 工具调用入口：返回父在本进程内 spawn 的子任务全集
-// （含 pending / running / 终态）。无 limit——业务侧 max_children 已 hard cap（默认 10），
-// 全返本身就只 10 条数量级。
-func (s *Store) ListByParent(ctx context.Context, parentID string) ([]ReactRun, error) {
-	rows, err := s.pool.Query(ctx, `
-		SELECT `+colsSelect+`
-		FROM agent_run
-		WHERE parent_id = $1::uuid
-		ORDER BY created_at ASC`, parentID)
-	if err != nil {
-		return nil, fmt.Errorf("list tasks by parent: %w", err)
-	}
-	defer rows.Close()
-
-	var out []ReactRun
-	for rows.Next() {
-		var t ReactRun
-		if err := scanTask(rows, &t); err != nil {
-			return nil, fmt.Errorf("scan task: %w", err)
-		}
-		out = append(out, t)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate tasks: %w", err)
-	}
-	return out, nil
-}
-
 // CountInflightInEngagement 统计 engagement 下处于 pending|running 的任务总数（全局并发上限）。
 func (s *Store) CountInflightInEngagement(ctx context.Context, engagementID string) (int, error) {
 	var n int

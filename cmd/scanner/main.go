@@ -4,6 +4,13 @@
 //	  1. 启 ingestor.Traffic goroutine：消费 Redis Stream → 启发式打分 → 入 hunter 队列
 //	  2. 启 asynq.Server：消费 agent:react 队列，每个 task 跑 1 个 hunter agent
 //	  3. healthz HTTP；graceful shutdown
+//
+// **部署约束：scanner 当前是单实例**。subtask swarm 用 in-process parentRegistries
+// (sync.Map) 持有父任务的 Registry + 子 goroutine——父任务一旦被 asynq 路由到本进程，
+// 它派的所有子任务也只在本进程内跑（共享 ctx 树 + sandbox 容器 + WaitAll 清理）。
+// 多实例部署需先实现 Registry 跨进程协同（如 Redis-backed Registry）才能解锁。
+// active 父任务在 enqueue 时已设 asynq.MaxRetry(0)，crash 后不重试——配合本约束
+// 避免"父在 A 实例 crash → asynq retry 给 B → B 看不到 A 内存的子 Registry"僵尸场景。
 package main
 
 import (
@@ -16,6 +23,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"regexp"
+	"sync"
 	"syscall"
 	"time"
 
@@ -170,8 +178,15 @@ func main() {
 	// 给 var 后，闭包在 builder 闭包真实执行时（handleActive 路径）才 deref 到已就绪的值。
 	var hunterBuilder skill.Builder
 
+	// parentRegistries：父 taskID → 子任务 Registry。spawnerFactory LoadOrStore；
+	// handleActive 在 react.Run 返回后 LoadAndDelete + cancel + WaitAll。
+	parentRegistries := &sync.Map{}
+
 	spawnerFactory := func(parentCtx context.Context, p skill.BuilderParams) (subtask.Spawner, *subtask.Registry, error) {
 		registry := subtask.NewRegistry()
+		// 每父任务 builder 只调一次（reviewer redirect 走 hint 注入不重建 builder），
+		// 不存在重入路径——Store 直接覆盖即可，不加 LoadOrStore 防御（YAGNI）。
+		parentRegistries.Store(p.TaskID, registry)
 		spawner := subtask.NewActiveSpawner(parentCtx, subtask.ActiveSpawnerConfig{
 			ParentTaskID:          p.TaskID,
 			EngagementID:          p.EngagementID,
@@ -181,7 +196,7 @@ func main() {
 			Lessons:               lessons,
 			Calls:                 calls,
 			Notes:                 noteStore,
-			Flows:                 flows, // PR5: 子 spawn 时若传 flow_id 拉父流量给子
+			Flows:                 flows, // 子 spawn 时若传 flow_id 拉父流量给子（passive 父用，active 父通常不传）
 			Router:                router,
 			Pricing:               pricing,
 			HunterBuilder:         hunterBuilder, // 晚绑定 — handleActive 执行时已就绪
@@ -213,25 +228,25 @@ func main() {
 		FindingsLimit:          cfg.Engagement.FindingsLimitInPrompt,
 		LessonsLimit:           cfg.Engagement.LessonsLimitInPrompt,
 		SpawnerFactory:         spawnerFactory,
-		MaxChildren:            scannerCfg.MaxChildren,
 	})
 
 	// handler
 	h := handler{
-		tasks:         tasks,
-		engagements:   engs,
-		notes:         noteStore,
-		findings:      finds,
-		lessons:       lessons,
-		flows:         flows,
-		calls:         calls,
-		cfg:           cfg,
-		scannerCfg:    scannerCfg,
-		pricing:       pricing,
-		router:        router,
-		hunterBuilder: hunterBuilder,
-		launcher:      launcher,
-		logger:        logger,
+		tasks:            tasks,
+		engagements:      engs,
+		notes:            noteStore,
+		findings:         finds,
+		lessons:          lessons,
+		flows:            flows,
+		calls:            calls,
+		cfg:              cfg,
+		scannerCfg:       scannerCfg,
+		pricing:          pricing,
+		router:           router,
+		hunterBuilder:    hunterBuilder,
+		launcher:         launcher,
+		logger:           logger,
+		parentRegistries: parentRegistries,
 	}
 
 	mux := worker.NewMux()
@@ -242,8 +257,8 @@ func main() {
 		asynq.Config{
 			Concurrency: scannerCfg.AsynqConcurrency,
 			Queues: map[string]int{
-				worker.QueueHunter: scannerCfg.QueueHunterWeight,
-				worker.QueueDispatch:     scannerCfg.QueueDispatchWeight,
+				worker.QueueHunter:   scannerCfg.QueueHunterWeight,
+				worker.QueueDispatch: scannerCfg.QueueDispatchWeight,
 			},
 		},
 	)
@@ -360,6 +375,10 @@ type handler struct {
 	hunterBuilder skill.Builder
 	launcher      sandbox.Launcher
 	logger        zerolog.Logger
+	// parentRegistries 索引父 taskID → 子任务 Registry（subtask swarm）。
+	// spawnerFactory 闭包 Store；handle{Passive,Active} 在 react.Run 返回后 LoadAndDelete
+	// + cancel 父 ctx + WaitAll，确保子 goroutine 全退再 Destroy sandbox，防孤儿。
+	parentRegistries *sync.Map
 }
 
 // failTask 把错误标记到 task 表。
@@ -404,6 +423,18 @@ func (h handler) handle(ctx context.Context, p worker.Payload) (retErr error) {
 			Dur("duration", time.Since(taskStart)).
 			Msg("asynq task ◀ exit")
 	}()
+
+	// 入口检查：asynq 重试场景（PG status 已非 pending）→ SkipRetry。
+	// 防 active 父被重试时新 Registry 空 → PreDoneCheck 永放行 → 旧 PG 子僵尸 + 矛盾态。
+	// passive 任务被重试时同样不该重做（一条流量挖一次就够）。
+	// GetByID 错误（PG 短时不可用等）不阻塞——让 SetRunning 走正常错误路径。
+	if run, getErr := h.tasks.GetByID(ctx, p.TaskID); getErr == nil && run.Status != agentrun.StatusPending {
+		h.logger.Warn().
+			Str("agent_run_id", p.TaskID).
+			Str("status", string(run.Status)).
+			Msg("asynq task 已被处理过，跳过重试（防 PG 僵尸 + 矛盾态）")
+		return asynq.SkipRetry
+	}
 
 	if err := h.tasks.SetRunning(ctx, p.TaskID); err != nil {
 		return err
@@ -533,10 +564,12 @@ func (h handler) handlePassive(ctx context.Context, p worker.Payload, entrypoint
 		}
 	}()
 
+	// passive 父不开 spawn（M1：skill.go SpawnerFactory 守卫 Mode=="active"），
+	// 所以无 parentRegistries Store / 无子 goroutine，不需要 H3 的 cancel+WaitAll。
 	cfg, err := h.hunterBuilder(ctx, skill.BuilderParams{
 		EngagementID:    eid,
 		TaskID:          tid,
-		Mode:            "passive", // PR5: 显式传，让 buildSystemPrompt 不走默认 fallback
+		Mode:            "passive", // 显式传，让 buildSystemPrompt 不走默认 fallback
 		FlowID:          ep.FlowID,
 		Host:            ep.Host,
 		URL:             ep.URL,
@@ -578,12 +611,12 @@ func (h handler) handlePassive(ctx context.Context, p worker.Payload, entrypoint
 	}
 
 	res, err := json.Marshal(map[string]any{
-		"terminate_by":     out.TerminateBy,
-		"total_steps":      out.TotalSteps,
-		"total_in":         out.TotalUsage.InTokens,
-		"total_out":        out.TotalUsage.OutTokens,
-		"total_cached":     out.TotalUsage.CachedTokens,
-		"reviewer_hints":   out.ReviewerHints,
+		"terminate_by":   out.TerminateBy,
+		"total_steps":    out.TotalSteps,
+		"total_in":       out.TotalUsage.InTokens,
+		"total_out":      out.TotalUsage.OutTokens,
+		"total_cached":   out.TotalUsage.CachedTokens,
+		"reviewer_hints": out.ReviewerHints,
 	})
 	if err != nil {
 		return h.failTask(ctx, p.TaskID, fmt.Errorf("marshal task result: %w", err))
@@ -602,13 +635,9 @@ func (h handler) handlePassive(ctx context.Context, p worker.Payload, entrypoint
 //
 // sandbox 生命周期 / reviewer 装配 / OnAbort / 终态处理完全对称 passive。
 func (h handler) handleActive(ctx context.Context, p worker.Payload, entrypoint json.RawMessage) error {
-	// 子任务（subtask swarm）永远在父 goroutine 内跑（internal/subtask 包），
-	// **不**入 asynq 队列。真到这里说明 enqueue 调用方误把子 Payload 入队 →
-	// 立即 fail-fast，防止子任务被独立 worker 错跑（容器 / parent_id 都对不上）。
-	if p.ParentTaskID != "" {
-		return h.failTask(ctx, p.TaskID,
-			fmt.Errorf("child task %s reached asynq handler (parent=%s); 子任务必须在父 goroutine 内跑", p.TaskID, p.ParentTaskID))
-	}
+	// 子任务（subtask swarm）永远在父 goroutine 内跑（internal/subtask 包），不入 asynq 队列。
+	// 不需要 `p.ParentTaskID != ""` fail-fast——repo 内 enqueue 调用方（ingestor + httpapi）
+	// 都不填 ParentTaskID（grep 0 处），死分支用 YAGNI 原则删除。
 
 	var ep struct {
 		Brief string `json:"brief"`
@@ -689,10 +718,24 @@ func (h handler) handleActive(ctx context.Context, p worker.Payload, entrypoint 
 		}
 	}()
 
-	cfg, err := h.hunterBuilder(ctx, skill.BuilderParams{
+	// H3：见 handlePassive 同名注释
+	parentCtx, cancelParent := context.WithCancel(ctx)
+	defer func() {
+		cancelParent()
+		if reg, ok := h.parentRegistries.LoadAndDelete(p.TaskID); ok {
+			waitCtx, waitCancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer waitCancel()
+			if !reg.(*subtask.Registry).WaitAll(waitCtx) {
+				h.logger.Warn().Str("agent_run_id", p.TaskID).
+					Msg("子 goroutine 30s 未全退（容器即将销毁可能孤儿）")
+			}
+		}
+	}()
+
+	cfg, err := h.hunterBuilder(parentCtx, skill.BuilderParams{
 		EngagementID: eid,
 		TaskID:       tid,
-		ParentTaskID: p.ParentTaskID, // 父独立 active 总是空；预留给未来如果走 asynq 路径的子（当前 fail-fast 拒绝）
+		ParentTaskID: p.ParentTaskID, // active asynq 入口父任务总是空；非空表示由 subtask 包内 ActiveSpawner 在父 goroutine 内派的子
 		Host:         virtualHost,
 		LLM:          hunterGen,
 		Reviewer:     reviewer,
@@ -713,7 +756,7 @@ func (h handler) handleActive(ctx context.Context, p worker.Payload, entrypoint 
 		return eng.Status != engagement.StatusActive, nil
 	}
 
-	out, err := react.Run(ctx, cfg)
+	out, err := react.Run(parentCtx, cfg)
 	if err != nil {
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			return h.abortTask(ctx, p.TaskID, "ctx "+err.Error())

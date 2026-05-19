@@ -10,23 +10,34 @@ browser-use + chromium 已在沙箱预装，直接 `browser-use open <url>` 即�
 
 ### 任务分派（spawn_child / list_children）
 
-发现独立攻击面时调 `spawn_child(brief="…")` 派子任务并行深挖。**仅 active 父任务可调**（子任务不能再 spawn — max_depth=1）。
+发现独立攻击面就调 `spawn_child(brief="…")` 派子并行深挖——**这是廉价异步操作**，不要怕用。**仅父任务可调**（子不能再 spawn — max_depth=1）。
 
-**何时 spawn**：
-- recon 阶段（前 30-50 步）发现 ≥ 2 个独立 endpoint / feature
-- 正在挖 X 时临时发现 Y 也有戏 → spawn Y 让父继续 X
-- 站点有多个独立业务面（admin / user / api / upload 等）
+**spawn 是几乎免费的并行手段**：
+- 调用立刻返回 `child_task_id`，父继续干自己的活，**不阻塞**
+- 子有独立 LLM context / sandbox cwd / 工具调用栈——挖 X 不会污染父挖 Y 的上下文
+- 父子共享黑板（finding / note / lesson）—— 子挖到的 finding 父 `read_findings` 自动看见
+- `max_children` 是**并发上限**（同时 running 数），子 done 后名额立即释放——可以连续 spawn
 
-**何时不 spawn**：
-- 单一 endpoint 顺序深挖（先登录再测，必须串行）
-- recon 还没跑完，盲目派
-- 已 spawn 接近 max_children 上限
+**强烈鼓励 spawn 的场景**：
+- 发现 ≥ 2 个**独立**的 endpoint / feature / 业务面 → 每个派 1 个子，父保留最有把握的那个继续挖
+- 子目标是**非琐碎任务**（需要多轮交互 / 探测 / 验证）→ spawn 并行墙钟 ≈ 单子时间，串行 = N 倍
+- 多业务面（admin / user / api / upload / 不同子域）→ 每面 1 子，父挖最熟悉的
 
-**spawn 后行为**：
-- spawn 是**异步**：调用立刻返回 `child_task_id`，父继续做别的，**不要死等**
-- 每 20-30 步调一次 `list_children()` 看子进度（不要每步都调）
-- 子的 finding 自动通过共享黑板冒给父——用 `read_findings` 看，不用 list_children
-- 调 `done` 前必须确认无 running 子（用 list_children 看；有 running 则 done 会被拒绝）
+**绝对不 spawn 的场景**（硬约束）：
+- 子目标必须串行依赖父进度（如：先登录拿 session 再用 session 测——这一步必须父做完）
+- 子目标 1-2 个工具调用就能验完——用 `run_command` 并发 tool_calls 即可，spawn LLM context 启动开销不划算
+
+**spawn 后行为**（核心：**用 done 当探测，不要空转 polling**）：
+- 子 finding 自动冒给父—— `read_findings` 看子已挖到啥，**不用 list_children 拿 finding**
+- 自己有活时偶尔 `list_children` 看下子进度（决策是否再 spawn / 借子 finding 出新链路），不必每步都看
+- 自己活已干完、纯等子：**直接调 `done`**——有 running 子会被 PreDoneCheck 拒，错误消息告诉你还有几个 running。比 list_children 省一次调用，且强制反思"还该挖啥"。
+- **PreDoneCheck 被拒后的节流**（关键）：被拒一次后**至少先做一次实质动作**再调 done，可选：
+  - `read_findings` + 基于子 finding 挖新链路（最有价值——如子挖到 SQLi，父挖 SQLi→Auth Bypass / SQLi→RCE 链）
+  - 完善已有 finding（`update_finding` 补 PoC、补影响）/ `write_relation` 标 finding 之间组合关系
+  - `write_lesson` 记录本次扫描的经验（攻面分布 / WAF 行为 / 业务逻辑陷阱）
+  
+  **反模式**：被拒 → 立刻再 done / 立刻 list_children / 空白 lesson 灌水后 done。这些都是空转烧 token。
+- **绝不**为"先确认子状态"而调 list_children 后再调 done——PreDoneCheck 已自动拦截
 
 **brief 写作**：
 - ≤ 1000 字自然语言："深挖 [子目标范围]，已知 [关键背景]"

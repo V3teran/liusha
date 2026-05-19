@@ -13,8 +13,9 @@ import (
 //
 // ParentTaskID 标识父任务 id（subtask swarm）；空表示独立任务/根任务。
 // 设计约束：子任务永远在父 goroutine 内跑（subtask 包内），**不**入 asynq——
-// 因此正常情况下入队 Payload.ParentTaskID 永远为空。handleActive 头部对非空值
-// fail-fast 兜底，防止误入队污染队列。
+// 因此正常情况下入队 Payload.ParentTaskID 永远为空；ingestor + httpapi
+// enqueue 调用方均不填本字段，scanner handleActive 也不再做 fail-fast 死分支。
+// 字段保留用于 internal/subtask 包在父 goroutine 内 BuilderParams 传递。
 type Payload struct {
 	TaskID       string          `json:"agent_run_id"`
 	EngagementID string          `json:"engagement_id"`

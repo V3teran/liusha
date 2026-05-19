@@ -44,7 +44,7 @@ type ChildSnapshot struct {
 }
 
 // Outcome 是子 react.Run 的最小完成信息。
-// 与 internal/react.Outcome 解耦——subtask 包不 import react，避免循环依赖。
+// 与 internal/react.Outcome 解耦——subtask 只需 2 字段，不依赖 react 内部的 Usage/Hints 等。
 type Outcome struct {
 	TerminateBy string
 	TotalSteps  int
