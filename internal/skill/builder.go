@@ -33,10 +33,9 @@ type Builder func(ctx context.Context, params BuilderParams) (react.Config, erro
 //
 // Mode 决定 builder 内部 user prompt 渲染分支与工具注册（如 active 不挂 read_credentials）。
 type BuilderParams struct {
-	EngagementID string
-	OwnerType    string // 双轨：'passive_session' / 'active_scan'；空 = 旧路径
-	OwnerID      string
-	TaskID       string
+	OwnerType string // 'passive_session' / 'active_scan'
+	OwnerID   string // passive_session.id / active_scan.id（也用作 notes/lesson key + finding.engagement_id 冗余列）
+	TaskID    string
 	// ParentTaskID 非空表示本任务是 active 父 spawn 的子任务（subtask swarm）。
 	// 父任务 / 独立任务此字段为空。hunter builder（PR3）按此字段决定是否注册
 	// spawn_child / list_children 工具——子任务不再 spawn（max_depth=1）。

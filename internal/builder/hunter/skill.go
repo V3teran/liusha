@@ -133,8 +133,8 @@ func NewBuilder(deps Deps) skill.Builder {
 			}
 		}
 
-		must(&common.ReadNotes{Store: deps.Notes, EngagementID: p.EngagementID, Host: p.Host, TaskID: p.TaskID})
-		must(&common.WriteNote{Store: deps.Notes, EngagementID: p.EngagementID, Host: p.Host, TaskID: p.TaskID})
+		must(&common.ReadNotes{Store: deps.Notes, EngagementID: p.OwnerID, Host: p.Host, TaskID: p.TaskID})
+		must(&common.WriteNote{Store: deps.Notes, EngagementID: p.OwnerID, Host: p.Host, TaskID: p.TaskID})
 		// read_credentials 仅 passive 模式注册：passive 流量已绑 host，从 redis credential
 		// store 拉对应身份重放/重试天经地义。active 模式账号密码走自然语言 brief，不复用此机制。
 		if p.Mode != "active" {
@@ -142,16 +142,15 @@ func NewBuilder(deps Deps) skill.Builder {
 		}
 		must(&common.ReadFindings{Store: deps.Findings, OwnerType: p.OwnerType, OwnerID: p.OwnerID, Host: p.Host})
 		must(&common.WriteFinding{
-			Store:        deps.Findings,
-			EngagementID: p.EngagementID,
-			OwnerType:    p.OwnerType, // 双轨期透传；空 = 旧路径
-			OwnerID:      p.OwnerID,
-			TaskID:       p.TaskID,
-			Host:         p.Host,
-			FlowID:       p.FlowID,
+			Store:     deps.Findings,
+			OwnerType: p.OwnerType,
+			OwnerID:   p.OwnerID,
+			TaskID:    p.TaskID,
+			Host:      p.Host,
+			FlowID:    p.FlowID,
 		})
 		must(&common.UpdateFinding{Store: deps.Findings})
-		must(&common.ReadRelations{Store: deps.Findings, EngagementID: p.EngagementID})
+		must(&common.ReadRelations{Store: deps.Findings, EngagementID: p.OwnerID})
 		must(&common.WriteRelation{Store: deps.Findings})
 		must(&common.ReadLessons{Store: deps.Lessons, Host: p.Host})
 		must(&common.WriteLesson{Store: deps.Lessons, Host: p.Host})

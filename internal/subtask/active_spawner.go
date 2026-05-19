@@ -30,8 +30,7 @@ var ErrMaxChildren = errors.New("max_children reached")
 type ActiveSpawnerConfig struct {
 	// 任务身份
 	ParentTaskID string
-	EngagementID string
-	OwnerType    string // 双轨期与父任务对齐；'passive_session' / 'active_scan'；空 = 旧路径
+	OwnerType    string // 与父任务对齐；'passive_session' / 'active_scan'
 	OwnerID      string
 	Host         string
 
@@ -107,12 +106,11 @@ func (s *ActiveSpawner) Spawn(ctx context.Context, brief string, opts SpawnOptio
 		return "", fmt.Errorf("marshal child payload: %w", err)
 	}
 	childTID, err := s.cfg.AgentRuns.Create(ctx, agentrun.NewParams{
-		EngagementID: s.cfg.EngagementID,
-		OwnerType:    s.cfg.OwnerType, // 双轨：与父任务对齐
-		OwnerID:      s.cfg.OwnerID,
-		Role:         string(worker.RoleHunter),
-		Input:        payloadInput,
-		ParentID:     s.cfg.ParentTaskID,
+		OwnerType: s.cfg.OwnerType, // 与父任务对齐
+		OwnerID:   s.cfg.OwnerID,
+		Role:      string(worker.RoleHunter),
+		Input:     payloadInput,
+		ParentID:  s.cfg.ParentTaskID,
 	})
 	if err != nil {
 		return "", fmt.Errorf("agentrun.Create(child): %w", err)
@@ -155,8 +153,7 @@ func (s *ActiveSpawner) runChild(ctx context.Context, cancel context.CancelFunc,
 		}
 	}()
 
-	eid := s.cfg.EngagementID
-	// 双轨期 owner 透传给 llm_invocation；CallMeta.OwnerType/OwnerID 是 *string 类型
+	// owner 透传给 llm_invocation；CallMeta.OwnerType/OwnerID 是 *string 类型
 	ot, oid := s.cfg.OwnerType, s.cfg.OwnerID
 	var otPtr, oidPtr *string
 	if ot != "" {
@@ -173,7 +170,7 @@ func (s *ActiveSpawner) runChild(ctx context.Context, cancel context.CancelFunc,
 		return
 	}
 	hunterGen := llm.Instrument(hunterRaw, s.cfg.Calls,
-		llm.CallMeta{TaskID: &childTID, EngagementID: &eid, OwnerType: otPtr, OwnerID: oidPtr, RouteKey: "hunter_vision"},
+		llm.CallMeta{TaskID: &childTID, OwnerType: otPtr, OwnerID: oidPtr, RouteKey: "hunter_vision"},
 		s.cfg.Pricing,
 	)
 
@@ -184,22 +181,16 @@ func (s *ActiveSpawner) runChild(ctx context.Context, cancel context.CancelFunc,
 		return
 	}
 	reviewLLMGen := llm.Instrument(reviewLLMRaw, s.cfg.Calls,
-		llm.CallMeta{TaskID: &childTID, EngagementID: &eid, OwnerType: otPtr, OwnerID: oidPtr, RouteKey: "reviewer"},
+		llm.CallMeta{TaskID: &childTID, OwnerType: otPtr, OwnerID: oidPtr, RouteKey: "reviewer"},
 		s.cfg.Pricing,
 	)
-	reviewer := react.NewLLMReviewer(reviewLLMGen, s.cfg.Notes, eid, s.cfg.Host)
+	// reviewer notes key 用 owner_id（与 finding/lesson 切分一致）
+	reviewer := react.NewLLMReviewer(reviewLLMGen, s.cfg.Notes, oid, s.cfg.Host)
 	reviewer.ArgsTruncate = s.cfg.ReviewerArgsTruncate
 	reviewer.ObsTruncate = s.cfg.ReviewerObsTruncate
-	reviewer.FlowSummary = "ACTIVE child eid=" + eid + " parent=" + s.cfg.ParentTaskID
+	reviewer.FlowSummary = "ACTIVE child owner=" + oid + " parent=" + s.cfg.ParentTaskID
 	reviewer.HostFindingsFetcher = func(ctx context.Context) ([]string, error) {
-		// 双轨切读：owner 优先，engagement fallback（同 handler_active/passive 模式）
-		var fs []finding.VulnFinding
-		var err error
-		if ot != "" && oid != "" {
-			fs, err = s.cfg.Findings.ListByOwnerAndHost(ctx, ot, oid, s.cfg.Host, s.cfg.ReviewerFindingsLimit)
-		} else {
-			fs, err = s.cfg.Findings.ListByEngagementAndHost(ctx, eid, s.cfg.Host, s.cfg.ReviewerFindingsLimit)
-		}
+		fs, err := s.cfg.Findings.ListByOwnerAndHost(ctx, ot, oid, s.cfg.Host, s.cfg.ReviewerFindingsLimit)
 		if err != nil {
 			return nil, err
 		}
@@ -223,10 +214,9 @@ func (s *ActiveSpawner) runChild(ctx context.Context, cancel context.CancelFunc,
 
 	// 装配 BuilderParams——ParentTaskID 非空让 hunter builder 不注册 spawn/list（max_depth=1）
 	bp := skill.BuilderParams{
-		EngagementID: eid,
-		OwnerType:    ot, // 双轨：与父任务对齐
-		OwnerID:      oid,
-		TaskID:       childTID,
+		OwnerType: ot, // 与父任务对齐
+		OwnerID:   oid,
+		TaskID:    childTID,
 		ParentTaskID: s.cfg.ParentTaskID,
 		Host:         s.cfg.Host,
 		LLM:          hunterGen,

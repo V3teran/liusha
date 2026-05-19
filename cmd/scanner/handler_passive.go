@@ -128,7 +128,6 @@ func (h handler) handlePassive(ctx context.Context, p worker.Payload, entrypoint
 	// passive 父不开 spawn（M1：skill.go SpawnerFactory 守卫 Mode=="active"），
 	// 无 parentRegistries Store / 无子 goroutine，不需要 H3 的 cancel+WaitAll。
 	cfg, err := h.hunterBuilder(ctx, skill.BuilderParams{
-		EngagementID:    oid, // 0040 FK DROP 后字段语义=notes/lesson key + finding.engagement_id 冗余列；用 owner_id 让切分一致
 		OwnerType:       ot,
 		OwnerID:         oid,
 		TaskID:          tid,

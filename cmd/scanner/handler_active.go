@@ -135,10 +135,9 @@ func (h handler) handleActive(ctx context.Context, p worker.Payload, entrypoint 
 	}()
 
 	cfg, err := h.hunterBuilder(parentCtx, skill.BuilderParams{
-		EngagementID: oid, // 0040 FK DROP 后字段语义=notes/lesson key + finding.engagement_id 冗余列；用 owner_id 让切分一致
-		OwnerType:    ot,
-		OwnerID:      oid,
-		TaskID:       tid,
+		OwnerType: ot,
+		OwnerID:   oid,
+		TaskID:    tid,
 		ParentTaskID: p.ParentTaskID, // active asynq 入口父任务总是空；非空表示由 subtask 包内 ActiveSpawner 在父 goroutine 内派的子
 		Host:         virtualHost,
 		LLM:          hunterGen,

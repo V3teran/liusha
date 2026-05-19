@@ -78,7 +78,7 @@ func buildUserPrompt(ctx context.Context, deps Deps, p skill.BuilderParams) stri
 
 	// 段 3.5: 本次扫描笔记板（engagement 内同 host 工作笔记）
 	// 内容由其他 hunter task 通过 write_note 写入——临时凭据/状态、目标怪癖、小惊喜、失败死路。
-	if notes := loadEngagementNotes(ctx, deps.Notes, p.EngagementID, p.Host); notes != "" {
+	if notes := loadEngagementNotes(ctx, deps.Notes, p.OwnerID, p.Host); notes != "" {
 		b.WriteString("\n\n## 本次扫描笔记板（engagement 内同 host）\n\n")
 		b.WriteString(notes)
 	}
