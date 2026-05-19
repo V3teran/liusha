@@ -56,7 +56,7 @@ func (s *Store) Create(ctx context.Context, p NewParams) (string, error) {
 	var id string
 	err := s.pool.QueryRow(ctx, `
 		INSERT INTO agent_run (engagement_id, owner_type, owner_id, parent_id, role, input)
-		VALUES ($1, NULLIF($2, ''), NULLIF($3, '')::uuid, NULLIF($4, '')::uuid, $5, $6)
+		VALUES (NULLIF($1, '')::uuid, NULLIF($2, ''), NULLIF($3, '')::uuid, NULLIF($4, '')::uuid, $5, $6)
 		RETURNING id`,
 		p.EngagementID, p.OwnerType, p.OwnerID, p.ParentID, p.Role,
 		[]byte(p.Input),

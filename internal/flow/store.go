@@ -70,7 +70,7 @@ func (s *Store) Append(ctx context.Context, f Flow) (int64, error) {
 		INSERT INTO http_flow
 			(engagement_id, passive_session_id, method, url, request_headers, request_body,
 			 status_code, response_headers, response_body)
-		VALUES ($1, NULLIF($2,'')::uuid, $3,$4,$5,$6,$7,$8,$9)
+		VALUES (NULLIF($1,'')::uuid, NULLIF($2,'')::uuid, $3,$4,$5,$6,$7,$8,$9)
 		RETURNING id`,
 		f.EngagementID, f.PassiveSessionID, f.Method, f.URL,
 		reqH, reqBody,
@@ -92,13 +92,16 @@ func (s *Store) AppendBatch(ctx context.Context, flows []Flow) error {
 	for i, f := range flows {
 		reqBody, _ := truncate(f.RequestBody, s.maxReqBody)
 		respBody, _ := truncate(f.ResponseBody, s.maxRespBody)
-		// CopyFrom passive_session_id：空串 → nil 写 NULL；非空 → 字符串（pgx 解析 uuid）
-		var passSessArg any
+		// CopyFrom engagement_id / passive_session_id：空串 → nil 写 NULL；非空 → 字符串（pgx 解析 uuid）
+		var engArg, passSessArg any
+		if f.EngagementID != "" {
+			engArg = f.EngagementID
+		}
 		if f.PassiveSessionID != "" {
 			passSessArg = f.PassiveSessionID
 		}
 		rows[i] = []any{
-			f.EngagementID, passSessArg, f.Method, f.URL,
+			engArg, passSessArg, f.Method, f.URL,
 			normalizeHeaders(f.RequestHeaders), reqBody,
 			f.StatusCode, normalizeHeaders(f.ResponseHeaders), respBody,
 		}

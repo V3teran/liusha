@@ -76,7 +76,7 @@ func (s *Store) Save(ctx context.Context, f VulnFinding) (VulnFinding, error) {
 	row := tx.QueryRow(ctx, `
 		INSERT INTO finding
 			(engagement_id, owner_type, owner_id, agent_run_id, source_flow_id, host, severity, summary, target, evidence)
-		VALUES ($1, NULLIF($2,''), NULLIF($3,'')::uuid, $4,$5,$6,$7,$8,$9,$10)
+		VALUES (NULLIF($1,'')::uuid, NULLIF($2,''), NULLIF($3,'')::uuid, $4,$5,$6,$7,$8,$9,$10)
 		RETURNING `+colsSelect,
 		f.EngagementID, f.OwnerType, f.OwnerID,
 		f.TaskID, f.SourceFlowID, f.Host, f.Severity,
