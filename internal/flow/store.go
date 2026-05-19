@@ -44,20 +44,17 @@ func (s *Store) WithCounter(c engagementCounter) *Store {
 }
 
 // flowSelectCols 是 GetByID 的统一列序，与 scanFlow() 字段一一对应。
-// 双轨期：engagement_id 列可为 NULL（0039 DROP NOT NULL），COALESCE 折空。
-const flowSelectCols = "id, COALESCE(engagement_id::text, ''), COALESCE(passive_session_id::text, ''), " +
+const flowSelectCols = "id, passive_session_id::text, " +
 	"created_at, method, url, request_headers, request_body, " +
 	"status_code, response_headers, response_body"
 
 // summaryCols 是 ListByEngagement 的瘦列序，刻意不含 body / headers，避免大 payload。
-// 双轨期：FlowSummary.EngagementID 字段实际接 owner_id（passive_session.id），通过
-// COALESCE 把两列折成单一 text；旧 row 优先 engagement_id，新 row 走 passive_session_id。
-const summaryCols = "id, COALESCE(engagement_id::text, passive_session_id::text, ''), created_at, method, url, status_code"
+// FlowSummary.EngagementID 字段实际接 passive_session.id（字段名保留以避免破坏前端 viewer）。
+const summaryCols = "id, passive_session_id::text, created_at, method, url, status_code"
 
 // copyFromCols 是 CopyFrom 写入的列名顺序，必须与每行 []any 的元素顺序严格对齐。
-// 双轨：passive_session_id 与 engagement_id 共存；caller 未填 = nil → NULL。
 var copyFromCols = []string{
-	"engagement_id", "passive_session_id", "method", "url",
+	"passive_session_id", "method", "url",
 	"request_headers", "request_body",
 	"status_code", "response_headers", "response_body",
 }
@@ -72,17 +69,17 @@ func (s *Store) Append(ctx context.Context, f Flow) (int64, error) {
 	var id int64
 	err := s.pool.QueryRow(ctx, `
 		INSERT INTO http_flow
-			(engagement_id, passive_session_id, method, url, request_headers, request_body,
+			(passive_session_id, method, url, request_headers, request_body,
 			 status_code, response_headers, response_body)
-		VALUES (NULLIF($1,'')::uuid, NULLIF($2,'')::uuid, $3,$4,$5,$6,$7,$8,$9)
+		VALUES ($1::uuid, $2,$3,$4,$5,$6,$7,$8)
 		RETURNING id`,
-		f.EngagementID, f.PassiveSessionID, f.Method, f.URL,
+		f.PassiveSessionID, f.Method, f.URL,
 		reqH, reqBody,
 		f.StatusCode, respH, respBody).Scan(&id)
 	if err != nil {
 		return 0, fmt.Errorf("append flow: %w", err)
 	}
-	s.bumpEngagementCount(f.EngagementID, 1)
+	s.bumpEngagementCount(f.PassiveSessionID, 1)
 	return id, nil
 }
 
@@ -96,16 +93,8 @@ func (s *Store) AppendBatch(ctx context.Context, flows []Flow) error {
 	for i, f := range flows {
 		reqBody, _ := truncate(f.RequestBody, s.maxReqBody)
 		respBody, _ := truncate(f.ResponseBody, s.maxRespBody)
-		// CopyFrom engagement_id / passive_session_id：空串 → nil 写 NULL；非空 → 字符串（pgx 解析 uuid）
-		var engArg, passSessArg any
-		if f.EngagementID != "" {
-			engArg = f.EngagementID
-		}
-		if f.PassiveSessionID != "" {
-			passSessArg = f.PassiveSessionID
-		}
 		rows[i] = []any{
-			engArg, passSessArg, f.Method, f.URL,
+			f.PassiveSessionID, f.Method, f.URL,
 			normalizeHeaders(f.RequestHeaders), reqBody,
 			f.StatusCode, normalizeHeaders(f.ResponseHeaders), respBody,
 		}
@@ -117,26 +106,26 @@ func (s *Store) AppendBatch(ctx context.Context, flows []Flow) error {
 	if err != nil {
 		return fmt.Errorf("copy from http_flow: %w", err)
 	}
-	// 批量按 engagement_id 聚合后各自 +N（一次扫描通常只有一个 engagement，Map 几乎只 1 项）
+	// 批量按 passive_session_id 聚合后各自 +N
 	counts := make(map[string]int, 1)
 	for _, f := range flows {
-		counts[f.EngagementID]++
+		counts[f.PassiveSessionID]++
 	}
-	for eid, n := range counts {
-		s.bumpEngagementCount(eid, n)
+	for sid, n := range counts {
+		s.bumpEngagementCount(sid, n)
 	}
 	return nil
 }
 
-// bumpEngagementCount 是 best-effort 维护 engagement.flow_count 的唯一调用点；
+// bumpEngagementCount 是 best-effort 维护 passive_session.flow_count 的唯一调用点；
 // engCounter 未注入或 n=0 直接跳过；context.Background 与业务 ctx 解耦。
-func (s *Store) bumpEngagementCount(engagementID string, n int) {
-	if s.engCounter == nil || n == 0 || engagementID == "" {
+func (s *Store) bumpEngagementCount(passiveSessionID string, n int) {
+	if s.engCounter == nil || n == 0 || passiveSessionID == "" {
 		return
 	}
-	if err := s.engCounter.IncrementFlowCount(context.Background(), engagementID, n); err != nil {
-		flowLog.Warn().Err(err).Str("engagement_id", engagementID).Int("n", n).
-			Msg("engagement.flow_count 增量维护失败（Abort 时会重算兜底）")
+	if err := s.engCounter.IncrementFlowCount(context.Background(), passiveSessionID, n); err != nil {
+		flowLog.Warn().Err(err).Str("passive_session_id", passiveSessionID).Int("n", n).
+			Msg("passive_session.flow_count 增量维护失败（Abort 时会重算兜底）")
 	}
 }
 
@@ -159,7 +148,7 @@ func (s *Store) ListByEngagement(ctx context.Context, engagementID string, limit
 	rows, err := s.pool.Query(ctx, `
 		SELECT `+summaryCols+`
 		FROM http_flow
-		WHERE engagement_id=$1 OR passive_session_id=$1::uuid
+		WHERE passive_session_id=$1::uuid
 		ORDER BY created_at ASC, id ASC
 		LIMIT $2 OFFSET $3`, engagementID, limit, offset)
 	if err != nil {
@@ -170,7 +159,7 @@ func (s *Store) ListByEngagement(ctx context.Context, engagementID string, limit
 	var out []FlowSummary
 	for rows.Next() {
 		var sum FlowSummary
-		if err := rows.Scan(&sum.ID, &sum.EngagementID, &sum.CreatedAt, &sum.Method, &sum.URL,
+		if err := rows.Scan(&sum.ID, &sum.PassiveSessionID, &sum.CreatedAt, &sum.Method, &sum.URL,
 			&sum.StatusCode); err != nil {
 			return nil, fmt.Errorf("scan flow summary: %w", err)
 		}
@@ -190,7 +179,7 @@ type scanner interface {
 // scanFlow 是 flowSelectCols 列序的统一反序列化点。
 func scanFlow(r scanner, f *Flow) error {
 	var reqH, respH []byte
-	if err := r.Scan(&f.ID, &f.EngagementID, &f.PassiveSessionID, &f.CreatedAt, &f.Method, &f.URL,
+	if err := r.Scan(&f.ID, &f.PassiveSessionID, &f.CreatedAt, &f.Method, &f.URL,
 		&reqH, &f.RequestBody,
 		&f.StatusCode, &respH, &f.ResponseBody); err != nil {
 		return err

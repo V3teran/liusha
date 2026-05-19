@@ -171,14 +171,14 @@ func (t *Traffic) handleMessage(ctx context.Context, msg redis.XMessage) {
 		return
 	}
 	passSessID := sess.ID
-	flowID, err := t.appendFlow(ctx, "", passSessID, &snap)
+	flowID, err := t.appendFlow(ctx, passSessID, &snap)
 	if err != nil {
 		t.logger.Warn().Err(err).Msg("flow.Append 失败")
 		return
 	}
 
-	// 2) 创建主 react task + 入 Asynq（EngagementID 留空串，store NULLIF NULL）
-	if err := t.enqueueMain(ctx, "", passSessID, flowID, &snap); err != nil {
+	// 2) 创建主 react task + 入 Asynq
+	if err := t.enqueueMain(ctx, passSessID, flowID, &snap); err != nil {
 		t.logger.Warn().Err(err).Str("passive_session_id", passSessID).Int64("flow_id", flowID).Msg("主任务入队失败")
 		return
 	}
@@ -189,12 +189,11 @@ func (t *Traffic) handleMessage(ctx context.Context, msg redis.XMessage) {
 		Msg("流量已入主 ReAct 队列")
 }
 
-func (t *Traffic) appendFlow(ctx context.Context, eid, passSessID string, snap *proxy.TrafficSnapshot) (int64, error) {
+func (t *Traffic) appendFlow(ctx context.Context, passSessID string, snap *proxy.TrafficSnapshot) (int64, error) {
 	reqH, _ := json.Marshal(snap.RequestHeaders)
 	respH, _ := json.Marshal(snap.ResponseHeaders)
 	return t.flows.Append(ctx, flow.Flow{
-		EngagementID:     eid,
-		PassiveSessionID: passSessID, // 双轨期可空（passive LookupOrCreate 失败时）
+		PassiveSessionID: passSessID,
 		CreatedAt:        snap.Timestamp,
 		Method:           snap.Method,
 		URL:              fullURL(snap),
@@ -206,7 +205,7 @@ func (t *Traffic) appendFlow(ctx context.Context, eid, passSessID string, snap *
 	})
 }
 
-func (t *Traffic) enqueueMain(ctx context.Context, eid, passSessID string, flowID int64, snap *proxy.TrafficSnapshot) error {
+func (t *Traffic) enqueueMain(ctx context.Context, passSessID string, flowID int64, snap *proxy.TrafficSnapshot) error {
 	entrypoint, _ := json.Marshal(map[string]any{
 		"flow_id": flowID,
 		"host":    snap.Host,
@@ -219,22 +218,20 @@ func (t *Traffic) enqueueMain(ctx context.Context, eid, passSessID string, flowI
 	})
 
 	tid, err := t.tasks.Create(ctx, agentrun.NewParams{
-		EngagementID: eid,
-		OwnerType:    "passive_session", // 双轨：空 passSessID 由 store NULLIF 折成 NULL
-		OwnerID:      passSessID,
-		Role:         string(worker.RoleHunter),
-		Input:        payloadInput,
+		OwnerType: "passive_session",
+		OwnerID:   passSessID,
+		Role:      string(worker.RoleHunter),
+		Input:     payloadInput,
 	})
 	if err != nil {
 		return fmt.Errorf("tasks.Create: %w", err)
 	}
 
 	if _, _, err := t.enq.Enqueue(ctx, worker.RoleHunter, worker.Payload{
-		TaskID:       tid,
-		EngagementID: eid,
-		OwnerType:    "passive_session", // 双轨：passSessID 空时 OwnerID 空，JSON omit
-		OwnerID:      passSessID,
-		Input:        payloadInput,
+		TaskID:    tid,
+		OwnerType: "passive_session",
+		OwnerID:   passSessID,
+		Input:     payloadInput,
 	}); err != nil {
 		return fmt.Errorf("enq.Enqueue: %w", err)
 	}

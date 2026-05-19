@@ -21,13 +21,12 @@ type FindingStore interface {
 // dedup 由 LLM 自决（写前调 read_findings 看已有的）。
 // Host 由调用方注入（hunter builder 从 BuilderParams.Host），不让 LLM 自填避免拼错。
 type WriteFinding struct {
-	Store        FindingStore
-	EngagementID string
-	OwnerType    string // 双轨：'passive_session' / 'active_scan'；空 = 旧路径
-	OwnerID      string
-	TaskID       string // 可空
-	Host         string // builder 注入；空时 Save 报错
-	FlowID       int64  // 触发本次 hunter 的 http_flow.id；0 表示不关联
+	Store     FindingStore
+	OwnerType string // 'passive_session' / 'active_scan'
+	OwnerID   string
+	TaskID    string // 可空
+	Host      string // builder 注入；空时 Save 报错
+	FlowID    int64  // 触发本次 hunter 的 http_flow.id；0 表示不关联
 }
 
 // Name 返回工具名 "write_finding"。
@@ -90,8 +89,7 @@ func (a *WriteFinding) Execute(ctx context.Context, args json.RawMessage) (toolf
 	}
 
 	saved, err := a.Store.Save(ctx, finding.VulnFinding{
-		EngagementID: a.EngagementID,
-		OwnerType:    a.OwnerType, // 双轨：空串 → store NULLIF NULL
+		OwnerType:    a.OwnerType,
 		OwnerID:      a.OwnerID,
 		TaskID:       taskPtr,
 		SourceFlowID: flowPtr,

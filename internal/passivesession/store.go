@@ -19,8 +19,9 @@ type Store struct {
 func NewStore(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
 
 // colsSelect 是所有 SELECT 路径的统一列序，与 scan() 字段顺序一一对应。
+// error_message 用 COALESCE 折 NULL → '' （Session.ErrorMessage 是 string 不接 NULL）。
 const colsSelect = "id, host, status, created_at, expires_at, " +
-	"ended_at, error_message, flow_count, finding_count, agent_run_count"
+	"ended_at, COALESCE(error_message, ''), flow_count, finding_count, agent_run_count"
 
 // LookupActiveByHost 找指定 host 的 active session。
 // 不存在时返回 (Session{}, false, nil)，非空错误才表示真异常。

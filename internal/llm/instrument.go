@@ -31,11 +31,10 @@ type CallSink interface {
 // 取值如 "hunter" / "reviewer"，
 // 便于按角色维度统计成本和路由生效情况。
 type CallMeta struct {
-	TaskID       *string
-	EngagementID *string
-	OwnerType    *string // 'passive_session' / 'active_scan'；nil = 旧路径
-	OwnerID      *string // 双轨期新填，commit B5 之后取代 EngagementID
-	RouteKey     string
+	TaskID    *string
+	OwnerType *string // 'passive_session' / 'active_scan'
+	OwnerID   *string // passive_session.id / active_scan.id
+	RouteKey  string
 }
 
 // PricingProvider 抽象成本估算。
@@ -83,11 +82,10 @@ func (i *instrumented) Generate(ctx context.Context, msgs []Message, tools []Too
 	latency := time.Since(start)
 
 	call := llminvocation.Invocation{
-		TaskID:       i.meta.TaskID,
-		EngagementID: i.meta.EngagementID,
-		OwnerType:    i.meta.OwnerType,
-		OwnerID:      i.meta.OwnerID,
-		Provider:     i.inner.Provider(),
+		TaskID:    i.meta.TaskID,
+		OwnerType: i.meta.OwnerType,
+		OwnerID:   i.meta.OwnerID,
+		Provider:  i.inner.Provider(),
 		Model:        i.inner.Model(),
 		InTokens:     res.Usage.InTokens,
 		OutTokens:    res.Usage.OutTokens,

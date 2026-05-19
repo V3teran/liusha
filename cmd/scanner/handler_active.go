@@ -56,7 +56,7 @@ func (h handler) handleActive(ctx context.Context, p worker.Payload, entrypoint 
 		return h.failTask(ctx, p.TaskID, err)
 	}
 	hunterGen := llm.Instrument(hunterRaw, h.calls,
-		llm.CallMeta{TaskID: &tid, EngagementID: &eid, OwnerType: otPtr, OwnerID: oidPtr, RouteKey: "hunter_vision"},
+		llm.CallMeta{TaskID: &tid, OwnerType: otPtr, OwnerID: oidPtr, RouteKey: "hunter_vision"},
 		h.pricing,
 	)
 
@@ -66,7 +66,7 @@ func (h handler) handleActive(ctx context.Context, p worker.Payload, entrypoint 
 		return h.failTask(ctx, p.TaskID, err)
 	}
 	reviewLLMGen := llm.Instrument(reviewLLMRaw, h.calls,
-		llm.CallMeta{TaskID: &tid, EngagementID: &eid, OwnerType: otPtr, OwnerID: oidPtr, RouteKey: "reviewer"},
+		llm.CallMeta{TaskID: &tid, OwnerType: otPtr, OwnerID: oidPtr, RouteKey: "reviewer"},
 		h.pricing,
 	)
 	// notes key 用 owner_id（与 BuilderParams.EngagementID 一致；0040 FK DROP 后 finding 无 FK 约束）

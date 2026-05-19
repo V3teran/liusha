@@ -245,11 +245,10 @@ func (a *activeScanAdapter) CreateActiveScan(ctx context.Context, brief string) 
 	}
 
 	tid, err := a.tasks.Create(ctx, agentrun.NewParams{
-		EngagementID: "", // 0039 已 DROP NOT NULL；store NULLIF 折空串到 NULL
-		OwnerType:    "active_scan",
-		OwnerID:      sc.ID,
-		Role:         string(worker.RoleHunter),
-		Input:        payloadInput,
+		OwnerType: "active_scan",
+		OwnerID:   sc.ID,
+		Role:      string(worker.RoleHunter),
+		Input:     payloadInput,
 	})
 	if err != nil {
 		return "", "", fmt.Errorf("create agent_run: %w", err)
@@ -260,11 +259,10 @@ func (a *activeScanAdapter) CreateActiveScan(ctx context.Context, brief string) 
 	// status=running 僵尸态 + viewer 看到"父 done + 子 running"矛盾。
 	// MaxRetry(0)：active 父跑挂就跑挂，让用户手动 abort + 重新触发，不重试。
 	if _, _, err := a.enq.Enqueue(ctx, worker.RoleHunter, worker.Payload{
-		TaskID:       tid,
-		EngagementID: "", // 同上
-		OwnerType:    "active_scan",
-		OwnerID:      sc.ID,
-		Input:        payloadInput,
+		TaskID:    tid,
+		OwnerType: "active_scan",
+		OwnerID:   sc.ID,
+		Input:     payloadInput,
 	}, asynq.MaxRetry(0)); err != nil {
 		return "", "", fmt.Errorf("enqueue: %w", err)
 	}

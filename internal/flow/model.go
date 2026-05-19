@@ -11,16 +11,10 @@ import (
 
 // Flow 是 http_flow 表行的 Go 表示。
 // RequestHeaders / ResponseHeaders 走 jsonb；RequestBody / ResponseBody 走 bytea。
-//
-// v0010：删除 RequestTruncated/ResponseTruncated 字段（proxy 写库前裁完已不打 flag，
-// 永远 false）。
-// 双轨期：EngagementID（旧）与 PassiveSessionID（新 polymorphic owner）并存。
 // active scan 不入 http_flow 表，故无 OwnerType 二字段——这里只走 passive。
-// commit B5 之后 DROP engagement_id。
 type Flow struct {
 	ID               int64
-	EngagementID     string // 旧字段，待 DROP
-	PassiveSessionID string // 新字段，空串 = 旧路径
+	PassiveSessionID string
 	CreatedAt        time.Time
 	Method           string
 	URL              string
@@ -34,10 +28,10 @@ type Flow struct {
 // FlowSummary 是 ListByEngagement 的瘦行：不含 body / headers，
 // 避免一次查询把数十 MiB bytea 拖入内存。
 type FlowSummary struct {
-	ID           int64
-	EngagementID string
-	CreatedAt    time.Time
-	Method       string
-	URL          string
-	StatusCode   int
+	ID               int64
+	PassiveSessionID string
+	CreatedAt        time.Time
+	Method           string
+	URL              string
+	StatusCode       int
 }

@@ -41,10 +41,7 @@ func (s *Store) WithCounter(c engagementCounter) *Store {
 }
 
 // colsSelect 是所有 SELECT / RETURNING 路径的统一列序，与 scan() 字段一一对应。
-// owner_type/owner_id 双轨：未填则空串（COALESCE 折叠 NULL）。
-const colsSelect = "id, engagement_id, " +
-	"COALESCE(owner_type, '') AS owner_type, " +
-	"COALESCE(owner_id::text, '') AS owner_id, " +
+const colsSelect = "id, owner_type, owner_id::text AS owner_id, " +
 	"agent_run_id, source_flow_id, host, severity, summary, target, evidence, created_at"
 
 // Save 永远 INSERT 一行新 finding（append-only）。
@@ -75,10 +72,10 @@ func (s *Store) Save(ctx context.Context, f VulnFinding) (VulnFinding, error) {
 
 	row := tx.QueryRow(ctx, `
 		INSERT INTO finding
-			(engagement_id, owner_type, owner_id, agent_run_id, source_flow_id, host, severity, summary, target, evidence)
-		VALUES (NULLIF($1,'')::uuid, NULLIF($2,''), NULLIF($3,'')::uuid, $4,$5,$6,$7,$8,$9,$10)
+			(owner_type, owner_id, agent_run_id, source_flow_id, host, severity, summary, target, evidence)
+		VALUES ($1, $2::uuid, $3,$4,$5,$6,$7,$8,$9)
 		RETURNING `+colsSelect,
-		f.EngagementID, f.OwnerType, f.OwnerID,
+		f.OwnerType, f.OwnerID,
 		f.TaskID, f.SourceFlowID, f.Host, f.Severity,
 		f.Summary, f.Target, f.Evidence)
 
@@ -92,9 +89,9 @@ func (s *Store) Save(ctx context.Context, f VulnFinding) (VulnFinding, error) {
 	}
 
 	if s.engCounter != nil {
-		if err := s.engCounter.IncrementFindingCount(context.Background(), saved.EngagementID, 1); err != nil {
-			findingLog.Warn().Err(err).Str("engagement_id", saved.EngagementID).
-				Msg("engagement.finding_count 增量维护失败")
+		if err := s.engCounter.IncrementFindingCount(context.Background(), saved.OwnerID, 1); err != nil {
+			findingLog.Warn().Err(err).Str("owner_id", saved.OwnerID).
+				Msg("owner.finding_count 增量维护失败")
 		}
 	}
 
@@ -102,7 +99,7 @@ func (s *Store) Save(ctx context.Context, f VulnFinding) (VulnFinding, error) {
 		Str("finding_id", saved.ID).
 		Str("severity", saved.Severity).
 		Str("host", saved.Host).
-		Str("engagement_id", saved.EngagementID).
+		Str("owner_id", saved.OwnerID).
 		Int("summary_len", len(saved.Summary)).
 		Msg("finding saved ✓")
 	return saved, nil
@@ -190,7 +187,7 @@ func (s *Store) ListByEngagement(ctx context.Context, engagementID string) ([]Vu
 	rows, err := s.pool.Query(ctx, `
 		SELECT `+colsSelect+`
 		FROM finding
-		WHERE engagement_id=$1 OR owner_id=$1::uuid
+		WHERE owner_id=$1::uuid
 		ORDER BY created_at DESC`, engagementID)
 	if err != nil {
 		return nil, fmt.Errorf("list findings: %w", err)
@@ -268,7 +265,7 @@ func (s *Store) ListByOwnerAndHost(ctx context.Context, ownerType, ownerID, host
 // limit ≤ 0 不限制。
 func (s *Store) ListByEngagementAndHost(ctx context.Context, engagementID, host string, limit int) ([]VulnFinding, error) {
 	// 双轨切读：ID 可以是旧 engagement.id 或新 owner_id。
-	q := `SELECT ` + colsSelect + ` FROM finding WHERE (engagement_id=$1 OR owner_id=$1::uuid) AND host=$2 ORDER BY created_at DESC`
+	q := `SELECT ` + colsSelect + ` FROM finding WHERE owner_id=$1::uuid AND host=$2 ORDER BY created_at DESC`
 	args := []any{engagementID, host}
 	if limit > 0 {
 		q += ` LIMIT $3`
@@ -303,7 +300,7 @@ type scanner interface {
 func scan(r scanner, f *VulnFinding) error {
 	var target, evidence []byte
 	if err := r.Scan(
-		&f.ID, &f.EngagementID,
+		&f.ID,
 		&f.OwnerType, &f.OwnerID,
 		&f.TaskID, &f.SourceFlowID, &f.Host, &f.Severity,
 		&f.Summary, &target, &evidence,

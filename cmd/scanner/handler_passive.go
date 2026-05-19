@@ -46,7 +46,7 @@ func (h handler) handlePassive(ctx context.Context, p worker.Payload, entrypoint
 		return h.failTask(ctx, p.TaskID, err)
 	}
 	hunterGen := llm.Instrument(hunterRaw, h.calls,
-		llm.CallMeta{TaskID: &tid, EngagementID: &eid, OwnerType: otPtr, OwnerID: oidPtr, RouteKey: "hunter"},
+		llm.CallMeta{TaskID: &tid, OwnerType: otPtr, OwnerID: oidPtr, RouteKey: "hunter"},
 		h.pricing,
 	)
 
@@ -56,7 +56,7 @@ func (h handler) handlePassive(ctx context.Context, p worker.Payload, entrypoint
 		return h.failTask(ctx, p.TaskID, err)
 	}
 	reviewLLMGen := llm.Instrument(reviewLLMRaw, h.calls,
-		llm.CallMeta{TaskID: &tid, EngagementID: &eid, OwnerType: otPtr, OwnerID: oidPtr, RouteKey: "reviewer"},
+		llm.CallMeta{TaskID: &tid, OwnerType: otPtr, OwnerID: oidPtr, RouteKey: "reviewer"},
 		h.pricing,
 	)
 	// hostForFetchers 提前定义：reviewer 需要 host 做 notes 范围隔离。

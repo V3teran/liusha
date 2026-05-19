@@ -39,36 +39,35 @@ func (s *Store) WithCounter(c engagementCounter) *Store {
 
 // colsSelect 是所有 SELECT 路径的统一列序，与 scanTask() 的字段顺序一一对应。
 // parent_id 用 COALESCE 把 NULL 折成空串 → Go 层 ReactRun.ParentID = ""（独立任务）。
-// owner_type/owner_id 同 COALESCE（双轨期未填则空串）。
-const colsSelect = `id, engagement_id, ` +
-	`COALESCE(owner_type, '') AS owner_type, ` +
-	`COALESCE(owner_id::text, '') AS owner_id, ` +
+const colsSelect = `id, ` +
+	`owner_type, ` +
+	`owner_id::text AS owner_id, ` +
 	`COALESCE(parent_id::text, '') AS parent_id, ` +
 	`role, input, result, status, created_at, updated_at`
 
 // Create 插入一行 pending 任务，返回新 id。Input 为 nil 时落空对象。
 // ParentID 空串用 NULLIF 转 PG NULL，匹配 0037 partial index（WHERE parent_id IS NOT NULL）。
-// 双轨：engagement_id 必填；owner_type/owner_id 可空（commit B 切换后非空）。
+// 0041 之后 owner_type/owner_id NOT NULL，必填。
 func (s *Store) Create(ctx context.Context, p NewParams) (string, error) {
 	if p.Input == nil {
 		p.Input = json.RawMessage("{}")
 	}
 	var id string
 	err := s.pool.QueryRow(ctx, `
-		INSERT INTO agent_run (engagement_id, owner_type, owner_id, parent_id, role, input)
-		VALUES (NULLIF($1, '')::uuid, NULLIF($2, ''), NULLIF($3, '')::uuid, NULLIF($4, '')::uuid, $5, $6)
+		INSERT INTO agent_run (owner_type, owner_id, parent_id, role, input)
+		VALUES ($1, $2::uuid, NULLIF($3, '')::uuid, $4, $5)
 		RETURNING id`,
-		p.EngagementID, p.OwnerType, p.OwnerID, p.ParentID, p.Role,
+		p.OwnerType, p.OwnerID, p.ParentID, p.Role,
 		[]byte(p.Input),
 	).Scan(&id)
 	if err != nil {
 		return "", fmt.Errorf("insert task: %w", err)
 	}
-	// best-effort 维护 engagement.agent_run_count（失败仅 warn 不影响业务返回）。
-	if s.engCounter != nil && p.EngagementID != "" {
-		if err := s.engCounter.IncrementAgentRunCount(context.Background(), p.EngagementID, 1); err != nil {
-			agentrunLog.Warn().Err(err).Str("engagement_id", p.EngagementID).
-				Msg("engagement.agent_run_count 增量维护失败（Abort 时会重算兜底）")
+	// best-effort 维护 passive_session/active_scan.agent_run_count
+	if s.engCounter != nil && p.OwnerID != "" {
+		if err := s.engCounter.IncrementAgentRunCount(context.Background(), p.OwnerID, 1); err != nil {
+			agentrunLog.Warn().Err(err).Str("owner_id", p.OwnerID).
+				Msg("owner.agent_run_count 增量维护失败（Abort 时会重算兜底）")
 		}
 	}
 	return id, nil
@@ -144,16 +143,13 @@ func (s *Store) GetByID(ctx context.Context, id string) (ReactRun, error) {
 	return t, nil
 }
 
-// ListByEngagement 按 created_at 升序列出某 engagement / owner 的任务，最多 limit 条。
-//
-// 双轨切读：参数 ID 实际可能是旧 engagement.id 或新 owner_id（passive_session.id /
-// active_scan.id）。SQL OR 条件让 viewer 传 List 返回的新 owner_id 时也能找到匹配行。
-// commit B5 完成数据回填 + DROP 旧列后，本方法可改名为 ListByOwner。
+// ListByEngagement 按 created_at 升序列出 owner 的任务，最多 limit 条。
+// 方法名保留向后兼容；参数 ID 是 owner_id（passive_session.id / active_scan.id）。
 func (s *Store) ListByEngagement(ctx context.Context, engagementID string, limit int) ([]ReactRun, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT `+colsSelect+`
 		FROM agent_run
-		WHERE engagement_id=$1 OR owner_id=$1::uuid
+		WHERE owner_id=$1::uuid
 		ORDER BY created_at ASC
 		LIMIT $2`, engagementID, limit)
 	if err != nil {
@@ -175,13 +171,13 @@ func (s *Store) ListByEngagement(ctx context.Context, engagementID string, limit
 	return out, nil
 }
 
-// CountInflightInEngagement 统计 engagement / owner 下处于 pending|running 的任务总数。
-// 双轨切读：ID 可为 engagement.id 或 owner_id。
+// CountInflightInEngagement 统计 owner 下处于 pending|running 的任务总数。
+// 方法名保留向后兼容；参数 ID 是 owner_id。
 func (s *Store) CountInflightInEngagement(ctx context.Context, engagementID string) (int, error) {
 	var n int
 	err := s.pool.QueryRow(ctx, `
 		SELECT count(*) FROM agent_run
-		WHERE (engagement_id=$1 OR owner_id=$1::uuid) AND status IN ('pending','running')`, engagementID).Scan(&n)
+		WHERE owner_id=$1::uuid AND status IN ('pending','running')`, engagementID).Scan(&n)
 	if err != nil {
 		return 0, fmt.Errorf("count inflight in engagement: %w", err)
 	}
@@ -238,7 +234,7 @@ type scanner interface {
 func scanTask(r scanner, t *ReactRun) error {
 	var input, result []byte
 	if err := r.Scan(
-		&t.ID, &t.EngagementID,
+		&t.ID,
 		&t.OwnerType, &t.OwnerID,
 		&t.ParentID, &t.Role,
 		&input, &result, &t.Status, &t.CreatedAt, &t.UpdatedAt,

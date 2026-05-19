@@ -178,12 +178,11 @@ func (s *Store) run() {
 }
 
 // copyFromBatch 用 pgx CopyFrom 批量写入；比逐行 INSERT 快 10-100x。
-// 双轨：owner_type/owner_id 与 engagement_id 共存；caller 未填新字段时 nil 写 NULL。
 func (s *Store) copyFromBatch(ctx context.Context, batch []Invocation) error {
 	rows := make([][]any, len(batch))
 	for i, c := range batch {
 		rows[i] = []any{
-			c.TaskID, c.EngagementID, c.OwnerType, c.OwnerID,
+			c.TaskID, c.OwnerType, c.OwnerID,
 			c.Provider, c.Model,
 			c.InTokens, c.OutTokens, c.CachedTokens,
 			c.CostUSD, c.LatencyMs, c.FinishReason, c.Error, c.CallPurpose,
@@ -194,7 +193,7 @@ func (s *Store) copyFromBatch(ctx context.Context, batch []Invocation) error {
 		ctx,
 		pgx.Identifier{"llm_invocation"},
 		[]string{
-			"agent_run_id", "engagement_id", "owner_type", "owner_id",
+			"agent_run_id", "owner_type", "owner_id",
 			"provider", "model",
 			"in_tokens", "out_tokens", "cached_tokens",
 			"cost_usd", "latency_ms", "finish_reason", "error_message", "call_purpose",
@@ -217,7 +216,7 @@ func (s *Store) SumCostByEngagement(ctx context.Context, engagementID string) (f
 	err := s.pool.QueryRow(ctx, `
 		SELECT COALESCE(SUM(cost_usd), 0)::float8
 		FROM llm_invocation
-		WHERE engagement_id=$1 OR owner_id=$1::uuid`, engagementID).Scan(&v)
+		WHERE owner_id=$1::uuid`, engagementID).Scan(&v)
 	if err != nil {
 		return 0, fmt.Errorf("sum llm_call cost: %w", err)
 	}
@@ -228,20 +227,17 @@ func (s *Store) SumCostByEngagement(ctx context.Context, engagementID string) (f
 //
 // 调用方有责任先 Flush() 等异步 buffer commit，否则可能缺最近 0-1s 的记录——
 // handler 路径上 Flush() 后再调本方法，保证 viewer 拿到完整审计快照。
-// ListByEngagement 列出 engagement / owner 下所有 LLM invocation（按 created_at ASC）。
-//
-// 双轨切读：参数 ID 可以是旧 engagement.id 或新 owner_id（passive_session.id /
-// active_scan.id）。SQL OR 让 viewer 传新 owner_id 时也命中。commit B5 完成数据回填 +
-// DROP 旧列后可改名 ListByOwner（已有专用 ListByOwner 走纯 owner 路径）。
+// ListByEngagement 列出 owner 下所有 LLM invocation（按 created_at ASC）。
+// 方法名保留向后兼容；参数 ID 是 owner_id。
 func (s *Store) ListByEngagement(ctx context.Context, engagementID string) ([]Invocation, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT id, agent_run_id, engagement_id, owner_type, owner_id::text,
+		SELECT id, agent_run_id, owner_type, owner_id::text,
 		       provider, model,
 		       in_tokens, out_tokens, cached_tokens,
 		       cost_usd, latency_ms, finish_reason, error_message, call_purpose,
 		       messages, result, created_at
 		FROM llm_invocation
-		WHERE engagement_id=$1 OR owner_id=$1::uuid
+		WHERE owner_id=$1::uuid
 		ORDER BY created_at ASC`, engagementID)
 	if err != nil {
 		return nil, fmt.Errorf("list llm_invocation: %w", err)
@@ -251,9 +247,9 @@ func (s *Store) ListByEngagement(ctx context.Context, engagementID string) ([]In
 	var out []Invocation
 	for rows.Next() {
 		var v Invocation
-		var taskID, eid, ownerType, ownerID *string
+		var taskID, ownerType, ownerID *string
 		if err := rows.Scan(
-			&v.ID, &taskID, &eid, &ownerType, &ownerID,
+			&v.ID, &taskID, &ownerType, &ownerID,
 			&v.Provider, &v.Model,
 			&v.InTokens, &v.OutTokens, &v.CachedTokens,
 			&v.CostUSD, &v.LatencyMs, &v.FinishReason, &v.Error, &v.CallPurpose,
@@ -262,7 +258,6 @@ func (s *Store) ListByEngagement(ctx context.Context, engagementID string) ([]In
 			return nil, fmt.Errorf("scan llm_invocation: %w", err)
 		}
 		v.TaskID = taskID
-		v.EngagementID = eid
 		v.OwnerType = ownerType
 		v.OwnerID = ownerID
 		out = append(out, v)
@@ -288,10 +283,9 @@ func (s *Store) SumCostByOwner(ctx context.Context, ownerType, ownerID string) (
 }
 
 // ListByOwner 列出 owner 下所有 LLM invocation（按 created_at ASC）。
-// 新 polymorphic 路径——commit B5 切读后取代 ListByEngagement。
 func (s *Store) ListByOwner(ctx context.Context, ownerType, ownerID string) ([]Invocation, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT id, agent_run_id, engagement_id, owner_type, owner_id::text,
+		SELECT id, agent_run_id, owner_type, owner_id::text,
 		       provider, model,
 		       in_tokens, out_tokens, cached_tokens,
 		       cost_usd, latency_ms, finish_reason, error_message, call_purpose,
@@ -307,9 +301,9 @@ func (s *Store) ListByOwner(ctx context.Context, ownerType, ownerID string) ([]I
 	var out []Invocation
 	for rows.Next() {
 		var v Invocation
-		var taskID, eid, ot, oid *string
+		var taskID, ot, oid *string
 		if err := rows.Scan(
-			&v.ID, &taskID, &eid, &ot, &oid,
+			&v.ID, &taskID, &ot, &oid,
 			&v.Provider, &v.Model,
 			&v.InTokens, &v.OutTokens, &v.CachedTokens,
 			&v.CostUSD, &v.LatencyMs, &v.FinishReason, &v.Error, &v.CallPurpose,
@@ -318,7 +312,6 @@ func (s *Store) ListByOwner(ctx context.Context, ownerType, ownerID string) ([]I
 			return nil, fmt.Errorf("scan llm_invocation: %w", err)
 		}
 		v.TaskID = taskID
-		v.EngagementID = eid
 		v.OwnerType = ot
 		v.OwnerID = oid
 		out = append(out, v)
@@ -357,7 +350,7 @@ func (s *Store) CountByCallPurpose(ctx context.Context, engagementID string) (ma
 	rows, err := s.pool.Query(ctx, `
 		SELECT call_purpose, count(*)
 		FROM llm_invocation
-		WHERE engagement_id=$1 OR owner_id=$1::uuid
+		WHERE owner_id=$1::uuid
 		GROUP BY call_purpose`, engagementID)
 	if err != nil {
 		return nil, fmt.Errorf("count llm_invocation by call_purpose: %w", err)

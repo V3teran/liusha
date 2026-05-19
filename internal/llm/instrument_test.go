@@ -108,11 +108,13 @@ func TestInstrument_AppendsCallOnSuccess(t *testing.T) {
 		},
 	}
 	sink := &fakeSink{}
-	tid, eid := "task-1", "eng-1"
+	tid, oid := "task-1", "owner-1"
+	ot := "passive_session"
 	g := Instrument(inner, sink, CallMeta{
-		TaskID:       &tid,
-		EngagementID: &eid,
-		RouteKey:     "react_main",
+		TaskID:    &tid,
+		OwnerType: &ot,
+		OwnerID:   &oid,
+		RouteKey:  "react_main",
 	}, fixedPricing{cost: 0.0042})
 
 	res, err := g.Generate(context.Background(), nil, nil)
@@ -144,8 +146,8 @@ func TestInstrument_AppendsCallOnSuccess(t *testing.T) {
 	if c.TaskID == nil || *c.TaskID != "task-1" {
 		t.Fatalf("task id: %v", c.TaskID)
 	}
-	if c.EngagementID == nil || *c.EngagementID != "eng-1" {
-		t.Fatalf("engagement id: %v", c.EngagementID)
+	if c.OwnerID == nil || *c.OwnerID != "owner-1" {
+		t.Fatalf("owner id: %v", c.OwnerID)
 	}
 	if c.CallPurpose != "react_main" {
 		t.Fatalf("expected call_purpose=react_main, got %q", c.CallPurpose)
