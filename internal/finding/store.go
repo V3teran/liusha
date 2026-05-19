@@ -209,6 +209,56 @@ func (s *Store) ListByEngagement(ctx context.Context, engagementID string) ([]Vu
 	return out, nil
 }
 
+// ListByOwner 列出 owner（passive_session / active_scan）下所有 finding（按 created_at desc）。
+// 新 polymorphic 路径——commit B5 切读后取代 ListByEngagement。
+func (s *Store) ListByOwner(ctx context.Context, ownerType, ownerID string) ([]VulnFinding, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT `+colsSelect+`
+		FROM finding
+		WHERE owner_type=$1 AND owner_id=$2::uuid
+		ORDER BY created_at DESC`, ownerType, ownerID)
+	if err != nil {
+		return nil, fmt.Errorf("list findings by owner: %w", err)
+	}
+	defer rows.Close()
+
+	var out []VulnFinding
+	for rows.Next() {
+		var f VulnFinding
+		if err := scan(rows, &f); err != nil {
+			return nil, fmt.Errorf("scan finding: %w", err)
+		}
+		out = append(out, f)
+	}
+	return out, rows.Err()
+}
+
+// ListByOwnerAndHost 列出 owner + host 下的 finding（按 created_at desc）。
+// 新 polymorphic 路径——commit B5 切读后取代 ListByEngagementAndHost。
+func (s *Store) ListByOwnerAndHost(ctx context.Context, ownerType, ownerID, host string, limit int) ([]VulnFinding, error) {
+	q := `SELECT ` + colsSelect + ` FROM finding WHERE owner_type=$1 AND owner_id=$2::uuid AND host=$3 ORDER BY created_at DESC`
+	args := []any{ownerType, ownerID, host}
+	if limit > 0 {
+		q += ` LIMIT $4`
+		args = append(args, limit)
+	}
+	rows, err := s.pool.Query(ctx, q, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list findings by owner+host: %w", err)
+	}
+	defer rows.Close()
+
+	var out []VulnFinding
+	for rows.Next() {
+		var f VulnFinding
+		if err := scan(rows, &f); err != nil {
+			return nil, fmt.Errorf("scan finding: %w", err)
+		}
+		out = append(out, f)
+	}
+	return out, rows.Err()
+}
+
 // ListByEngagementAndHost 列出当前 engagement + host 下的 finding（按 created_at desc）。
 //
 // 用于 hunter user prompt 段 3 注入"该 host 已有 finding"——隔离每次 engagement，

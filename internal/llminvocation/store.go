@@ -267,6 +267,84 @@ func (s *Store) ListByEngagement(ctx context.Context, engagementID string) ([]In
 	return out, nil
 }
 
+// SumCostByOwner 返回指定 owner 下所有 LLM 调用的成本总和（美元）。
+// 新 polymorphic 路径——commit B5 切读后取代 SumCostByEngagement。
+func (s *Store) SumCostByOwner(ctx context.Context, ownerType, ownerID string) (float64, error) {
+	var v float64
+	err := s.pool.QueryRow(ctx, `
+		SELECT COALESCE(SUM(cost_usd), 0)::float8
+		FROM llm_invocation
+		WHERE owner_type=$1 AND owner_id=$2::uuid`, ownerType, ownerID).Scan(&v)
+	if err != nil {
+		return 0, fmt.Errorf("sum llm_invocation cost by owner: %w", err)
+	}
+	return v, nil
+}
+
+// ListByOwner 列出 owner 下所有 LLM invocation（按 created_at ASC）。
+// 新 polymorphic 路径——commit B5 切读后取代 ListByEngagement。
+func (s *Store) ListByOwner(ctx context.Context, ownerType, ownerID string) ([]Invocation, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT id, agent_run_id, engagement_id, owner_type, owner_id::text,
+		       provider, model,
+		       in_tokens, out_tokens, cached_tokens,
+		       cost_usd, latency_ms, finish_reason, error_message, call_purpose,
+		       messages, result, created_at
+		FROM llm_invocation
+		WHERE owner_type=$1 AND owner_id=$2::uuid
+		ORDER BY created_at ASC`, ownerType, ownerID)
+	if err != nil {
+		return nil, fmt.Errorf("list llm_invocation by owner: %w", err)
+	}
+	defer rows.Close()
+
+	var out []Invocation
+	for rows.Next() {
+		var v Invocation
+		var taskID, eid, ot, oid *string
+		if err := rows.Scan(
+			&v.ID, &taskID, &eid, &ot, &oid,
+			&v.Provider, &v.Model,
+			&v.InTokens, &v.OutTokens, &v.CachedTokens,
+			&v.CostUSD, &v.LatencyMs, &v.FinishReason, &v.Error, &v.CallPurpose,
+			&v.Messages, &v.Result, &v.CreatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan llm_invocation: %w", err)
+		}
+		v.TaskID = taskID
+		v.EngagementID = eid
+		v.OwnerType = ot
+		v.OwnerID = oid
+		out = append(out, v)
+	}
+	return out, rows.Err()
+}
+
+// CountByCallPurposeByOwner 按 call_purpose 维度聚合 owner 下的调用次数。
+// 新 polymorphic 路径——commit B5 切读后取代 CountByCallPurpose。
+func (s *Store) CountByCallPurposeByOwner(ctx context.Context, ownerType, ownerID string) (map[string]int, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT call_purpose, count(*)
+		FROM llm_invocation
+		WHERE owner_type=$1 AND owner_id=$2::uuid
+		GROUP BY call_purpose`, ownerType, ownerID)
+	if err != nil {
+		return nil, fmt.Errorf("count llm_invocation by call_purpose by owner: %w", err)
+	}
+	defer rows.Close()
+
+	out := make(map[string]int)
+	for rows.Next() {
+		var purpose string
+		var n int
+		if err := rows.Scan(&purpose, &n); err != nil {
+			return nil, fmt.Errorf("scan call_purpose count: %w", err)
+		}
+		out[purpose] = n
+	}
+	return out, rows.Err()
+}
+
 // CountByCallPurpose 按 call_purpose 维度聚合 engagement 下的调用次数，便于验证多模型路由生效。
 func (s *Store) CountByCallPurpose(ctx context.Context, engagementID string) (map[string]int, error) {
 	rows, err := s.pool.Query(ctx, `

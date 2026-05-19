@@ -62,7 +62,7 @@ func main() {
 	passiveSessionStore := passivesession.NewStore(pool) // 双轨期新表 store
 	activeScanStore := activescan.NewStore(pool)
 	findStore := finding.NewStore(pool)
-	projector := &graphview.Projector{Findings: findStore, Engagements: engStore}
+	projector := &graphview.Projector{Findings: findStore, Passive: passiveSessionStore, Active: activeScanStore}
 	invocationStore := llminvocation.NewStoreWithConfig(pool, cfg.LLM.Invocation)
 	defer func() { _ = invocationStore.Close() }()
 

@@ -16,7 +16,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/V3teran/liusha/internal/engagement"
+	"github.com/V3teran/liusha/internal/activescan"
+	"github.com/V3teran/liusha/internal/passivesession"
 	"github.com/V3teran/liusha/internal/finding"
 )
 
@@ -69,20 +70,26 @@ type View struct {
 //
 // LLM 用 write_relation 工具主动声明 finding 间 enables 关系，projector 渲染成图边。
 type FindingReader interface {
-	ListByEngagement(ctx context.Context, engagementID string) ([]finding.VulnFinding, error)
+	ListByOwner(ctx context.Context, ownerType, ownerID string) ([]finding.VulnFinding, error)
 	ListRelationsByEngagement(ctx context.Context, engagementID string) ([]finding.Relation, error)
 }
 
-// EngagementReader 是投影器读 engagement 元数据所需的最小接口。
-// *engagement.Store 自动满足。
-type EngagementReader interface {
-	GetByID(ctx context.Context, id string) (engagement.Engagement, error)
+// PassiveReader / ActiveReader 是投影器读 owner 元数据所需的最小接口。
+// *passivesession.Store / *activescan.Store 自动满足。
+type PassiveReader interface {
+	GetByID(ctx context.Context, id string) (passivesession.Session, error)
+}
+
+// ActiveReader 同上的 active_scan 表读接口。
+type ActiveReader interface {
+	GetByID(ctx context.Context, id string) (activescan.Scan, error)
 }
 
 // Projector 是无状态投影器；可全局共享一份。
 type Projector struct {
-	Findings    FindingReader
-	Engagements EngagementReader
+	Findings FindingReader
+	Passive  PassiveReader
+	Active   ActiveReader
 }
 
 // Project 投影 (engagementID, host) 范围的图。
@@ -103,17 +110,27 @@ func (p *Projector) Project(ctx context.Context, engagementID, host string) (Vie
 		return View{}, fmt.Errorf("engagement_id 不能为空")
 	}
 
-	eng, err := p.Engagements.GetByID(ctx, engagementID)
-	if err != nil {
-		return View{}, fmt.Errorf("engagement.GetByID: %w", err)
+	// 双轨切读：engagementID 参数实际语义改为 ownerID（passive_session.id / active_scan.id）。
+	// 双试两表确定 ownerType + 拉元数据（created_at / mode / status）。
+	var ownerType, modeStr, statusStr string
+	var createdAt time.Time
+	if sess, err := p.Passive.GetByID(ctx, engagementID); err == nil {
+		ownerType, modeStr, statusStr, createdAt = "passive_session", "passive", string(sess.Status), sess.CreatedAt
+	} else if sc, aerr := p.Active.GetByID(ctx, engagementID); aerr == nil {
+		ownerType, modeStr, statusStr, createdAt = "active_scan", "active", string(sc.Status), sc.CreatedAt
+	} else {
+		return View{}, fmt.Errorf("owner %s not found in passive_session or active_scan", engagementID)
 	}
-	// host 为空表示「列本 engagement 跨 host 的全部 finding」，由下方 host 过滤分支跳过。
+
+	// host 为空表示「列本 owner 跨 host 的全部 finding」，由下方 host 过滤分支跳过。
 	effectiveHost := host
 
-	findings, err := p.Findings.ListByEngagement(ctx, engagementID)
+	findings, err := p.Findings.ListByOwner(ctx, ownerType, engagementID)
 	if err != nil {
-		return View{}, fmt.Errorf("finding.ListByEngagement: %w", err)
+		return View{}, fmt.Errorf("finding.ListByOwner: %w", err)
 	}
+	// relation 表 owner 列暂未加，仍按 engagement_id 查；过渡期 active relation 可能查不到
+	// （新 finding 的 engagement_id 与旧 engagement 关联，relation 写入仍走旧路径，此处兼容）。
 	relations, err := p.Findings.ListRelationsByEngagement(ctx, engagementID)
 	if err != nil {
 		return View{}, fmt.Errorf("finding.ListRelationsByEngagement: %w", err)
@@ -146,10 +163,11 @@ func (p *Projector) Project(ctx context.Context, engagementID, host string) (Vie
 			Label: effectiveHost,
 			Payload: map[string]any{
 				"target_host":   effectiveHost,
-				"engagement_id": engagementID,
-				"started_at":    eng.CreatedAt,
-				"mode":          string(eng.Mode),
-				"status":        string(eng.Status),
+				"engagement_id": engagementID, // 字段名保持兼容前端 viewer；值是 owner_id
+				"owner_type":    ownerType,
+				"started_at":    createdAt,
+				"mode":          modeStr,
+				"status":        statusStr,
 			},
 		},
 		Node{
