@@ -24,7 +24,6 @@ import (
 
 	"github.com/V3teran/liusha/internal/agentrun"
 	"github.com/V3teran/liusha/internal/config"
-	"github.com/V3teran/liusha/internal/engagement"
 	"github.com/V3teran/liusha/internal/passivesession"
 	"github.com/V3teran/liusha/internal/flow"
 	"github.com/V3teran/liusha/internal/proxy"
@@ -41,8 +40,7 @@ type Traffic struct {
 	readBlock     time.Duration
 	retryDelay    time.Duration
 	recreateDelay time.Duration
-	rotator       *engagement.Rotator
-	passive       *passivesession.Store // 双轨：流量入口 LookupOrCreate by host
+	passive       *passivesession.Store // 流量入口 LookupOrCreate by host
 	passiveTTL    time.Duration
 	flows         *flow.Store
 	tasks         *agentrun.Store
@@ -54,15 +52,14 @@ type Traffic struct {
 //
 // Stream 必填（来自 cfg.Proxy.StreamName，proxy/ingestor 之间约定）；
 // Cfg 提供 group/consumer/batch/block/retry 等运行参数（缺省值已由 ApplyDefaults 兜底）；
-// Rotator 必填：passive session 不 per-host，必须经 Rotator 统一管理。
+// Passive + PassiveTTL：流量入口按 host LookupOrCreate passive_session（1 host 1 active）。
 type Deps struct {
 	Redis      *redis.Client
 	Cfg        config.IngestorConfig
 	Stream     string
 	Tenant     string
-	Rotator    *engagement.Rotator
-	Passive    *passivesession.Store // 双轨期新表 store，按 host LookupOrCreate
-	PassiveTTL time.Duration         // passive session 过期窗口（同 engagement.MaxAge）
+	Passive    *passivesession.Store // 流量入口 LookupOrCreate by host
+	PassiveTTL time.Duration         // passive session 过期窗口
 	Flows      *flow.Store
 	Tasks      *agentrun.Store
 	Enqueuer   *worker.Client
@@ -71,9 +68,9 @@ type Deps struct {
 
 // NewTraffic 构造并 ensure consumer group 存在。
 func NewTraffic(ctx context.Context, deps Deps) (*Traffic, error) {
-	if deps.Redis == nil || deps.Rotator == nil || deps.Passive == nil ||
+	if deps.Redis == nil || deps.Passive == nil ||
 		deps.Flows == nil || deps.Tasks == nil || deps.Enqueuer == nil {
-		return nil, errors.New("ingestor.NewTraffic: redis/rotator/passive/flows/tasks/enqueuer 必填")
+		return nil, errors.New("ingestor.NewTraffic: redis/passive/flows/tasks/enqueuer 必填")
 	}
 	if deps.PassiveTTL <= 0 {
 		return nil, errors.New("ingestor.NewTraffic: passiveTTL 必填且 > 0")
@@ -90,7 +87,6 @@ func NewTraffic(ctx context.Context, deps Deps) (*Traffic, error) {
 		readBlock:     time.Duration(deps.Cfg.ReadBlockTimeoutMs) * time.Millisecond,
 		retryDelay:    time.Duration(deps.Cfg.RetryDelayMs) * time.Millisecond,
 		recreateDelay: time.Duration(deps.Cfg.RecreateGroupDelayMs) * time.Millisecond,
-		rotator:       deps.Rotator,
 		passive:       deps.Passive,
 		passiveTTL:    deps.PassiveTTL,
 		flows:         deps.Flows,
@@ -167,34 +163,27 @@ func (t *Traffic) handleMessage(ctx context.Context, msg redis.XMessage) {
 		return
 	}
 
-	// 1) 落 engagement + http_flow
-	// passive session 接受任意 host 流量，按 expires_at 由 Rotator 自动轮转。
-	eid, ensErr := t.rotator.EnsurePassiveSession(ctx)
-	if ensErr != nil {
-		t.logger.Warn().Err(ensErr).Str("host", snap.Host).Msg("engagement EnsurePassiveSession 失败")
+	// 1) 单源：passive_session 表 LookupOrCreate by host（1 host 1 active session）。
+	// 旧 engagement.Rotator 路径已弃用（0040 FK DROP 后正式切换）。
+	sess, lkErr := t.passive.LookupOrCreate(ctx, snap.Host, t.passiveTTL)
+	if lkErr != nil {
+		t.logger.Warn().Err(lkErr).Str("host", snap.Host).Msg("passive_session LookupOrCreate 失败，跳过本流量")
 		return
 	}
-	// 双轨：新 passive_session 表 LookupOrCreate by host（1 host 1 active session）。
-	// 失败仅 warn 不阻塞旧路径——双轨期允许部分流量缺失新 owner_id。
-	passSessID := ""
-	if sess, lkErr := t.passive.LookupOrCreate(ctx, snap.Host, t.passiveTTL); lkErr != nil {
-		t.logger.Warn().Err(lkErr).Str("host", snap.Host).Msg("passive_session LookupOrCreate 失败（双轨：旧 engagement 仍生效）")
-	} else {
-		passSessID = sess.ID
-	}
-	flowID, err := t.appendFlow(ctx, eid, passSessID, &snap)
+	passSessID := sess.ID
+	flowID, err := t.appendFlow(ctx, "", passSessID, &snap)
 	if err != nil {
 		t.logger.Warn().Err(err).Msg("flow.Append 失败")
 		return
 	}
 
-	// 2) 创建主 react task + 入 Asynq
-	if err := t.enqueueMain(ctx, eid, passSessID, flowID, &snap); err != nil {
-		t.logger.Warn().Err(err).Str("eid", eid).Int64("flow_id", flowID).Msg("主任务入队失败")
+	// 2) 创建主 react task + 入 Asynq（EngagementID 留空串，store NULLIF NULL）
+	if err := t.enqueueMain(ctx, "", passSessID, flowID, &snap); err != nil {
+		t.logger.Warn().Err(err).Str("passive_session_id", passSessID).Int64("flow_id", flowID).Msg("主任务入队失败")
 		return
 	}
 	t.logger.Info().
-		Str("eid", eid).
+		Str("passive_session_id", passSessID).
 		Int64("flow_id", flowID).
 		Str("method", snap.Method).Str("url", snap.URI).
 		Msg("流量已入主 ReAct 队列")

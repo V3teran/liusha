@@ -278,7 +278,6 @@ func main() {
 		Redis:      rdb,
 		Cfg:        cfg.Ingestor,
 		Stream:     cfg.Proxy.StreamName,
-		Rotator:    rotator,
 		Passive:    passSess,
 		PassiveTTL: time.Duration(cfg.Engagement.MaxAgeHours) * time.Hour,
 		Flows:      flows,
