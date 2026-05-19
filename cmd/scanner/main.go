@@ -292,10 +292,26 @@ func main() {
 		}
 	}()
 
-	// TODO(B7+): passive_session sweeper（替代旧 engagement.Rotator.Sweep）。
-	// 旧 rotator 已删除（cmd/scanner 不再依赖 engagement 包），需在 passivesession.Store
-	// 加 Sweep 方法（关闭 expires_at < now() 的 active session）并启 ticker goroutine。
-	// 当前过期 session 仅靠 Abort 手动关闭 / 不会自动失活——无流量场景下会堆积。
+	// passive_session sweeper goroutine：与「懒轮换」（流量进来时 LookupOrCreate 检查 host
+	// 已有 active）互补——无流量场景下也能保证「TTL 一到必关」，避免 PG 堆积陈旧 active 行 +
+	// viewer 看僵尸 session。
+	go func() {
+		interval := time.Duration(cfg.Engagement.SweeperIntervalSeconds) * time.Second
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-flowCtx.Done():
+				return
+			case <-ticker.C:
+				if n, err := passSess.Sweep(flowCtx); err != nil {
+					logger.Warn().Err(err).Msg("passive_session sweep failed")
+				} else if n > 0 {
+					logger.Info().Int("aborted", n).Msg("passive_session sweep aborted expired session")
+				}
+			}
+		}
+	}()
 
 	// healthz HTTP
 	hsMux := http.NewServeMux()

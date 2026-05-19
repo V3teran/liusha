@@ -139,6 +139,27 @@ func (s *Store) Abort(ctx context.Context, id, errMsg string) error {
 	return nil
 }
 
+// Sweep 关闭所有 expires_at 已过期的 active session（status → aborted）。
+// 与"懒轮换"（流量进来时 LookupOrCreate 检查 host 已有 active）互补——无流量场景下
+// 也能保证「TTL 一到必关」，避免 PG 堆积陈旧 active 行 + viewer 看僵尸 session。
+//
+// 返回本次扫到的过期 session 数（已 abort）。计数列子查询重算精确兜底（同 Abort 路径）。
+func (s *Store) Sweep(ctx context.Context) (int, error) {
+	tag, err := s.pool.Exec(ctx, `
+		UPDATE passive_session SET
+			status='aborted',
+			ended_at=now(),
+			error_message='expired',
+			flow_count=(SELECT count(*) FROM http_flow WHERE passive_session_id=passive_session.id),
+			finding_count=(SELECT count(*) FROM finding WHERE owner_type='passive_session' AND owner_id=passive_session.id),
+			agent_run_count=(SELECT count(*) FROM agent_run WHERE owner_type='passive_session' AND owner_id=passive_session.id)
+		WHERE status='active' AND expires_at < now()`)
+	if err != nil {
+		return 0, fmt.Errorf("sweep passive_session: %w", err)
+	}
+	return int(tag.RowsAffected()), nil
+}
+
 // IncrementFlowCount / IncrementFindingCount / IncrementAgentRunCount 用于
 // best-effort 维护运行期实时计数；失败仅 log warn 不阻塞业务，Abort 精确兜底。
 func (s *Store) IncrementFlowCount(ctx context.Context, id string, n int) error {
