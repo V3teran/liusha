@@ -3,9 +3,9 @@
 // 数据流（Stream-based 业界最佳实践）：
 //
 //	cmd/proxy onResponse → filter → publisher.Publish (XADD liusha:flow_events)
-//	cmd/scanner ingestor → XREADGROUP → Rotator.EnsurePassiveSession + flow.Append + 入 hunter 队列
+//	cmd/scanner ingestor → XREADGROUP → passive_session.LookupOrCreate(host) + flow.Append + 入 hunter 队列
 //
-// proxy 进程无状态、可水平扩展；engagement 选取/轮转逻辑集中在 scanner 端。
+// proxy 进程无状态、可水平扩展；passive_session 创建/轮转逻辑集中在 scanner 端。
 package proxy
 
 import "time"
@@ -21,7 +21,7 @@ import "time"
 // 字段构成：
 //
 //	ID              全局唯一 id（uuid 等，由 proxy.Server 生成）
-//	Host            host header（去端口）；finding/lesson/note 按 host 切分（engagement 不 per-host）
+//	Host            host header（去端口）；finding/lesson/note 按 host 切分；passive_session 也 per-host
 //	HostPort        host:port 原文（用于 fullURL 重放定位真实端口；空则由消费者退化到 Host）
 //	Method          GET/POST/...
 //	Scheme          http / https
