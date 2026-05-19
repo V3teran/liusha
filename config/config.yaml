@@ -218,21 +218,19 @@ ingestor:
   retry_delay_ms: 500               # XREADGROUP 失败重试延迟
   recreate_group_delay_ms: 500      # NOGROUP 自愈重建后等待 ms
 
-# ---- engagement 懒创建 + 24h 归档 + Rotator 阈值 ----
+# ---- passive_session 生命周期参数（yaml section 名 'engagement' 保留兼容旧 schema）----
 engagement:
-  # Rotator.Sweep 定时 goroutine 触发周期（主动 abort 过期 active proxy session）
+  # passive_session sweeper 定时 goroutine 触发周期（主动 abort 过期 active passive session）
   sweeper_interval_seconds: 600
-  # Rotator 单一阈值（passive 模式按时间滚动新 engagement）
-  # 历史 max_state_size_bytes / max_findings 已删——notes 走 Redis TTL 自治，
-  # finding 计数本身不该触发轮转。
-  max_age_hours: 24                 # 从 CreatedAt 起超过此小时数即滚动
+  # passive_session TTL：created_at 起超过此小时数即被 sweeper abort
+  max_age_hours: 24
   # hunter user prompt 拼装上限（避免 prompt 膨胀；超出 LLM 用 read_findings/read_lessons 工具按需查）
   findings_limit_in_prompt: 100     # 该 host 已有 finding 段显示条数
   lessons_limit_in_prompt: 100      # 该 host 历史经验 + 跨 host 业务规则 hint 共用上限
 
-# ---- notes Redis 共享笔记板（engagement 内同 host 跨 task 共享）----
-# 实现：internal/notes 包；key=liusha:note:{engagement_id}，LIST 类型。
-# 设计建议：ttl_hours 应 ≥ engagement.max_age_hours，否则 notes 会比 engagement 更早过期。
+# ---- notes Redis 共享笔记板（owner 内同 host 跨 task 共享）----
+# 实现：internal/notes 包；key=liusha:note:{owner_id}:{host}，LIST 类型。
+# 设计建议：ttl_hours 应 ≥ engagement.max_age_hours，否则 notes 会比 passive_session 更早过期。
 notes:
   redis_key_prefix: "liusha:note:"  # Redis key 前缀
   max_entries: 200                  # 蒸馏失败兜底硬上限（LTRIM 保留末尾 N）

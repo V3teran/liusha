@@ -181,14 +181,16 @@ type IngestorConfig struct {
 	RecreateGroupDelayMs int    `mapstructure:"recreate_group_delay_ms"`
 }
 
-// EngagementConfig 是 engagement 懒创建 + 滚动归档参数。
+// EngagementConfig 是 passive_session 生命周期参数（旧名保留 yaml schema 兼容）。
+// v1.1 DDD 重构后 engagement 表已删，但配置 section name 保留以避免破坏现有 yaml；
+// 字段语义全部针对 passive_session。
 type EngagementConfig struct {
-	// SweeperIntervalSeconds：Rotator.Sweep 定时 goroutine 触发周期，
+	// SweeperIntervalSeconds：passive_session sweeper 定时 goroutine 触发周期，
 	// 用于主动 abort 已过期但还挂 active 的 passive session（无流量时仍能换）。
 	SweeperIntervalSeconds int `mapstructure:"sweeper_interval_seconds"`
 
-	// Rotator 单一阈值（passive 模式）：从 created_at 起超过此小时数即滚动新 engagement。
-	// notes 走 Redis TTL 自治，finding 计数本身不应触发轮转。
+	// passive_session 单一 TTL 阈值：created_at 起超过此小时数即被 sweeper abort。
+	// notes 走 Redis TTL 自治，finding 计数本身不触发轮转。
 	MaxAgeHours int `mapstructure:"max_age_hours"`
 
 	// hunter user prompt 拼装时的上限（避免 prompt 膨胀）。
