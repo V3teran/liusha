@@ -140,7 +140,7 @@ func NewBuilder(deps Deps) skill.Builder {
 		if p.Mode != "active" {
 			must(&common.ReadCredentials{Provider: deps.Credentials, Host: p.Host})
 		}
-		must(&common.ReadFindings{Store: deps.Findings, EngagementID: p.EngagementID, Host: p.Host})
+		must(&common.ReadFindings{Store: deps.Findings, OwnerType: p.OwnerType, OwnerID: p.OwnerID, Host: p.Host})
 		must(&common.WriteFinding{
 			Store:        deps.Findings,
 			EngagementID: p.EngagementID,

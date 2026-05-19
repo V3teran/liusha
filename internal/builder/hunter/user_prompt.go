@@ -71,7 +71,7 @@ func buildUserPrompt(ctx context.Context, deps Deps, p skill.BuilderParams) stri
 	}
 
 	// 段 3: 该 host 已有 finding（限本次 engagement，不跨次扫描）
-	if existing := loadExistingFindings(ctx, deps.Findings, p.EngagementID, p.Host, findingsLimit); existing != "" {
+	if existing := loadExistingFindings(ctx, deps.Findings, p.OwnerType, p.OwnerID, p.Host, findingsLimit); existing != "" {
 		b.WriteString("\n\n## 该 host 已有 finding（本次扫描内）\n\n")
 		b.WriteString(existing)
 	}
@@ -338,11 +338,14 @@ func writeBodyBlock(b *strings.Builder, body []byte, limit int) {
 // 范围限 engagement+host，每次扫描独立，不被跨次扫描的历史污染（复用走 lesson，
 // 由 loadKnowledgeForPrompt 注入段 4）。
 // showLimit 由 caller 提供；SQL 拉 showLimit+1 条做"还有更多"信号。
-func loadExistingFindings(ctx context.Context, store *finding.Store, engagementID, host string, showLimit int) string {
-	if store == nil || engagementID == "" || host == "" || showLimit <= 0 {
+//
+// 双轨切读：按 (ownerType, ownerID) 查 finding（passive_session / active_scan 维度）。
+// 任一为空（旧 enqueue 路径未填）则跳过——可接受过渡期损失，回显需 B5+ 数据回填。
+func loadExistingFindings(ctx context.Context, store *finding.Store, ownerType, ownerID, host string, showLimit int) string {
+	if store == nil || ownerType == "" || ownerID == "" || host == "" || showLimit <= 0 {
 		return ""
 	}
-	fs, err := store.ListByEngagementAndHost(ctx, engagementID, host, showLimit+1)
+	fs, err := store.ListByOwnerAndHost(ctx, ownerType, ownerID, host, showLimit+1)
 	if err != nil || len(fs) == 0 {
 		return ""
 	}

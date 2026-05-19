@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/V3teran/liusha/internal/engagement"
+	"github.com/V3teran/liusha/internal/finding"
 	"github.com/V3teran/liusha/internal/llm"
 	"github.com/V3teran/liusha/internal/react"
 	"github.com/V3teran/liusha/internal/skill"
@@ -70,7 +71,14 @@ func (h handler) handlePassive(ctx context.Context, p worker.Payload, entrypoint
 	// 否则同 host 别的流量先挖到 finding 时，本流量（如 bac/profile 真无漏洞）会被误推
 	// terminate / 编造 hint。terminate 判定完全交给 reviewer 基于 window 行为推理。
 	reviewer.HostFindingsFetcher = func(ctx context.Context) ([]string, error) {
-		fs, err := h.findings.ListByEngagementAndHost(ctx, eid, hostForFetchers, h.cfg.React.ReviewerFindingsLimit)
+		// 双轨切读：优先 (ownerType, ownerID)；空时（旧 enqueue 路径）回退 engagementID。
+		var fs []finding.VulnFinding
+		var err error
+		if ot != "" && oid != "" {
+			fs, err = h.findings.ListByOwnerAndHost(ctx, ot, oid, hostForFetchers, h.cfg.React.ReviewerFindingsLimit)
+		} else {
+			fs, err = h.findings.ListByEngagementAndHost(ctx, eid, hostForFetchers, h.cfg.React.ReviewerFindingsLimit)
+		}
 		if err != nil {
 			return nil, err
 		}
