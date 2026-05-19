@@ -31,6 +31,7 @@ import (
 	"github.com/V3teran/liusha/internal/credential"
 	"github.com/V3teran/liusha/internal/db"
 	"github.com/V3teran/liusha/internal/engagement"
+	"github.com/V3teran/liusha/internal/envx"
 	"github.com/V3teran/liusha/internal/finding"
 	"github.com/V3teran/liusha/internal/flow"
 	"github.com/V3teran/liusha/internal/ingestor"
@@ -53,7 +54,7 @@ func main() {
 	logger := logx.New("scanner")
 	ctx := context.Background()
 
-	cfg, err := config.Load(envOr("LIUSHA_CONFIG", "./config/config.yaml"))
+	cfg, err := config.Load(envx.OrDefault("LIUSHA_CONFIG", "./config/config.yaml"))
 	if err != nil {
 		logger.Fatal().Err(err).Msg("load config")
 	}
@@ -118,7 +119,7 @@ func main() {
 	// hunter 用它渲染 SystemPrompt 的 tooling_catalog 段（Tier 1 索引）。
 	// 与 SKILL.md frontmatter 解耦：删 SKILL ≠ 工具消失。
 	// 路径可通过 LIUSHA_TOOLS_MANIFEST_PATH env override，缺省 deployments/tool-images/pentools/tools.yaml。
-	toolsManifestPath := envOr("LIUSHA_TOOLS_MANIFEST_PATH", "deployments/tool-images/pentools/tools.yaml")
+	toolsManifestPath := envx.OrDefault("LIUSHA_TOOLS_MANIFEST_PATH", "deployments/tool-images/pentools/tools.yaml")
 	toolsManifest, err := manifest.Load(toolsManifestPath)
 	if err != nil {
 		logger.Fatal().Err(err).Str("path", toolsManifestPath).Msg("tools.yaml 加载失败——LLM 看不到沙箱工具会无法 ReAct，fail-fast")
@@ -359,13 +360,6 @@ func main() {
 // handlePassive 在 handler_passive.go；handleActive 在 handler_active.go。
 
 
-// envOr 读取环境变量；空则返回 def。
-func envOr(k, def string) string {
-	if v := os.Getenv(k); v != "" {
-		return v
-	}
-	return def
-}
 
 // briefHostRe 匹配 http(s):// 后到 / 或 空白 之前的 host (含端口)。
 //

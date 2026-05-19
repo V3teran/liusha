@@ -19,6 +19,7 @@ import (
 	"github.com/V3teran/liusha/internal/credential"
 	"github.com/V3teran/liusha/internal/db"
 	"github.com/V3teran/liusha/internal/engagement"
+	"github.com/V3teran/liusha/internal/envx"
 	"github.com/V3teran/liusha/internal/finding"
 	"github.com/V3teran/liusha/internal/graphview"
 	"github.com/V3teran/liusha/internal/httpapi"
@@ -34,7 +35,7 @@ func main() {
 	logger := logx.New("api")
 	ctx := context.Background()
 
-	cfg, err := config.Load(envOr("LIUSHA_CONFIG", "./config/config.yaml"))
+	cfg, err := config.Load(envx.OrDefault("LIUSHA_CONFIG", "./config/config.yaml"))
 	if err != nil {
 		logger.Fatal().Err(err).Msg("load config")
 	}
@@ -68,7 +69,7 @@ func main() {
 	activeAdapter := &activeScanAdapter{engs: engStore, tasks: taskStore, enq: enq}
 
 	// 监听地址：优先 ENV（运维临时切换）→ yaml。
-	listenAddr := envOr("LIUSHA_API_ADDR", cfg.API.ListenAddr)
+	listenAddr := envx.OrDefault("LIUSHA_API_ADDR", cfg.API.ListenAddr)
 	srv := &http.Server{
 		Addr: listenAddr,
 		Handler: httpapi.NewServer(httpapi.Deps{
@@ -80,7 +81,7 @@ func main() {
 			AgentRuns:         taskStore, // viewer 拼父子树用（按 parent_id）
 			ActiveScan:        activeAdapter,
 			StaticFS:          web.ViewerFS(),
-			EnableDevAutofill: envOr("LIUSHA_VIEWER_DEV_KEY", "") != "",
+			EnableDevAutofill: envx.OrDefault("LIUSHA_VIEWER_DEV_KEY", "") != "",
 		}),
 		ReadTimeout:  time.Duration(cfg.API.ReadTimeoutSeconds) * time.Second,
 		WriteTimeout: time.Duration(cfg.API.WriteTimeoutSeconds) * time.Second,
@@ -107,13 +108,6 @@ func main() {
 	logger.Info().Msg("api stopped")
 }
 
-// envOr 读取环境变量；空则返回 def。
-func envOr(k, def string) string {
-	if v := os.Getenv(k); v != "" {
-		return v
-	}
-	return def
-}
 
 // engagementAPIAdapter 把 *engagement.Store 适配到 httpapi.EngagementsAPI 窄接口。
 //

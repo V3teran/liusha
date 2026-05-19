@@ -58,6 +58,7 @@ import (
 	"time"
 
 	"github.com/V3teran/liusha/internal/db"
+	"github.com/V3teran/liusha/internal/envx"
 	"github.com/V3teran/liusha/internal/finding"
 	"github.com/V3teran/liusha/internal/logx"
 )
@@ -85,11 +86,11 @@ func main() {
 	logger := logx.New("e2e")
 	ctx := context.Background()
 
-	apiBase := envOr("LIUSHA_API_BASE", "http://localhost:8080")
-	apiKey := envOr("LIUSHA_API_KEY", "changeme-dev-key")
-	pgDSN := envOr("LIUSHA_POSTGRES_DSN", "postgres://liusha:liusha@localhost:5432/liusha?sslmode=disable")
-	proxyURL := envOr("LIUSHA_PROXY_ADDR", "http://localhost:8888")
-	vulnBase := envOr("LIUSHA_VULNAPP_BASE", "http://111.229.193.40:38001")
+	apiBase := envx.OrDefault("LIUSHA_API_BASE", "http://localhost:8080")
+	apiKey := envx.OrDefault("LIUSHA_API_KEY", "changeme-dev-key")
+	pgDSN := envx.OrDefault("LIUSHA_POSTGRES_DSN", "postgres://liusha:liusha@localhost:5432/liusha?sslmode=disable")
+	proxyURL := envx.OrDefault("LIUSHA_PROXY_ADDR", "http://localhost:8888")
+	vulnBase := envx.OrDefault("LIUSHA_VULNAPP_BASE", "http://111.229.193.40:38001")
 
 	// args 用前缀区分两种模式: "active:full" → active；其他 → passive。
 	passiveSel, activeSel, err := selectProfiles(os.Args[1:])
@@ -158,13 +159,6 @@ func main() {
 //
 // 空 args = 跑全部 passive profile（active 必须显式 `active:xxx` 选，避免无意中
 // 触发耗资源的真实站点扫描）。未知 profile 立即报错，避免静默忽略。
-
-func envOr(k, def string) string {
-	if v := os.Getenv(k); v != "" {
-		return v
-	}
-	return def
-}
 
 // filterAfter 把 finding 列表按 created_at > baseline 过滤。
 //

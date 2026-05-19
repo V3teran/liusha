@@ -24,6 +24,7 @@ import (
 
 	"github.com/V3teran/liusha/internal/config"
 	"github.com/V3teran/liusha/internal/db"
+	"github.com/V3teran/liusha/internal/envx"
 	"github.com/V3teran/liusha/internal/filter"
 	"github.com/V3teran/liusha/internal/logx"
 	"github.com/V3teran/liusha/internal/proxy"
@@ -33,7 +34,7 @@ func main() {
 	logger := logx.New("proxy")
 	ctx := context.Background()
 
-	cfg, err := config.Load(envOr("LIUSHA_CONFIG", "./config/config.yaml"))
+	cfg, err := config.Load(envx.OrDefault("LIUSHA_CONFIG", "./config/config.yaml"))
 	if err != nil {
 		logger.Fatal().Err(err).Msg("load config")
 	}
@@ -49,9 +50,9 @@ func main() {
 
 	// 内嵌 MITM 代理装配链：filter → publisher → proxy.Server
 	// ENV 仍可临时覆盖 yaml；空 ENV → 走 yaml；yaml 也空 → ApplyDefaults 兜底。
-	publicAddr := envOr("LIUSHA_PROXY_LISTEN_ADDR", proxyCfg.ListenAddr)
-	internalAddr := envOr("LIUSHA_PROXY_INTERNAL_ADDR", proxyCfg.InternalAddr)
-	certDir := envOr("LIUSHA_PROXY_CERT_DIR", "") // 空则 proxy.Server 用 $HOME/<cert_subdir>
+	publicAddr := envx.OrDefault("LIUSHA_PROXY_LISTEN_ADDR", proxyCfg.ListenAddr)
+	internalAddr := envx.OrDefault("LIUSHA_PROXY_INTERNAL_ADDR", proxyCfg.InternalAddr)
+	certDir := envx.OrDefault("LIUSHA_PROXY_CERT_DIR", "") // 空则 proxy.Server 用 $HOME/<cert_subdir>
 
 	trafficFilter := filter.NewTrafficFilter(proxyCfg)
 	publisher, err := proxy.NewPublisher(rdb, proxyCfg.StreamName, int64(proxyCfg.StreamMaxLen))
@@ -77,7 +78,7 @@ func main() {
 	defer proxyCancel()
 
 	// healthz HTTP：默认 :9091，避免与 scanner :9090 冲突。
-	hsAddr := envOr("LIUSHA_PROXY_HEALTHZ_ADDR", proxyCfg.HealthzAddr)
+	hsAddr := envx.OrDefault("LIUSHA_PROXY_HEALTHZ_ADDR", proxyCfg.HealthzAddr)
 	hsMux := http.NewServeMux()
 	hsMux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`{"ok":true}`))
@@ -126,10 +127,3 @@ func main() {
 	logger.Info().Msg("proxy stopped")
 }
 
-// envOr 读取环境变量；空则返回 def。
-func envOr(k, def string) string {
-	if v := os.Getenv(k); v != "" {
-		return v
-	}
-	return def
-}
