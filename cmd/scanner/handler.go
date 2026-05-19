@@ -13,7 +13,6 @@ import (
 	"github.com/V3teran/liusha/internal/activescan"
 	"github.com/V3teran/liusha/internal/agentrun"
 	"github.com/V3teran/liusha/internal/config"
-	"github.com/V3teran/liusha/internal/engagement"
 	"github.com/V3teran/liusha/internal/finding"
 	"github.com/V3teran/liusha/internal/flow"
 	"github.com/V3teran/liusha/internal/lesson"
@@ -27,12 +26,8 @@ import (
 )
 
 // handler 持有所有跨任务共享依赖。
-//
-// 双轨期：engagements（旧 unified store）与 passiveSessions/activeScans（新 polymorphic
-// stores）并存。commit B3 入口处 LookupOrCreate 双写到两边表。
 type handler struct {
 	tasks           *agentrun.Store
-	engagements     *engagement.Store
 	passiveSessions *passivesession.Store
 	activeScans     *activescan.Store
 	notes           *notes.RedisStore

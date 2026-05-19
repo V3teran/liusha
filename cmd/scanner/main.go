@@ -31,7 +31,6 @@ import (
 	"github.com/V3teran/liusha/internal/config"
 	"github.com/V3teran/liusha/internal/credential"
 	"github.com/V3teran/liusha/internal/db"
-	"github.com/V3teran/liusha/internal/engagement"
 	"github.com/V3teran/liusha/internal/envx"
 	"github.com/V3teran/liusha/internal/finding"
 	"github.com/V3teran/liusha/internal/flow"
@@ -78,7 +77,6 @@ func main() {
 	defer rdb.Close()
 
 	// Stores
-	engs := engagement.NewStore(pool)         // 仅 handler.engagements 字段保留（待 0041 后移除）
 	passSess := passivesession.NewStore(pool) // passive session store
 	actScan := activescan.NewStore(pool)      // active scan store
 	// dualCounter 让 agentrun/finding/flow 的 *_count 增量同时更新 passive_session 和 active_scan
@@ -239,7 +237,6 @@ func main() {
 	// handler
 	h := handler{
 		tasks:            tasks,
-		engagements:      engs,
 		passiveSessions:  passSess,
 		activeScans:      actScan,
 		notes:            noteStore,
@@ -275,8 +272,6 @@ func main() {
 	flowCtx, flowCancel := context.WithCancel(context.Background())
 	defer flowCancel()
 
-	rotator := engagement.NewRotator(engs, engagement.RotateLimitsFromConfig(cfg.Engagement))
-
 	trafficIngestor, err := ingestor.NewTraffic(flowCtx, ingestor.Deps{
 		Redis:      rdb,
 		Cfg:        cfg.Ingestor,
@@ -297,25 +292,10 @@ func main() {
 		}
 	}()
 
-	// Rotator sweeper goroutine：与「懒轮换」（流量进来时 EnsurePassiveSession 检查 expires_at）
-	// 互补——无流量场景下也能保证「24h 一到必关」，避免 PG 堆积陈旧 active 行 + viewer 看僵尸 session。
-	go func() {
-		interval := time.Duration(cfg.Engagement.SweeperIntervalSeconds) * time.Second
-		ticker := time.NewTicker(interval)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-flowCtx.Done():
-				return
-			case <-ticker.C:
-				if n, err := rotator.Sweep(flowCtx); err != nil {
-					logger.Warn().Err(err).Msg("engagement sweep failed")
-				} else if n > 0 {
-					logger.Info().Int("aborted", n).Msg("engagement sweep aborted expired session")
-				}
-			}
-		}
-	}()
+	// TODO(B7+): passive_session sweeper（替代旧 engagement.Rotator.Sweep）。
+	// 旧 rotator 已删除（cmd/scanner 不再依赖 engagement 包），需在 passivesession.Store
+	// 加 Sweep 方法（关闭 expires_at < now() 的 active session）并启 ticker goroutine。
+	// 当前过期 session 仅靠 Abort 手动关闭 / 不会自动失活——无流量场景下会堆积。
 
 	// healthz HTTP
 	hsMux := http.NewServeMux()
