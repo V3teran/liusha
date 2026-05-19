@@ -20,7 +20,6 @@ import (
 	"github.com/V3teran/liusha/internal/config"
 	"github.com/V3teran/liusha/internal/credential"
 	"github.com/V3teran/liusha/internal/db"
-	"github.com/V3teran/liusha/internal/engagement"
 	"github.com/V3teran/liusha/internal/envx"
 	"github.com/V3teran/liusha/internal/finding"
 	"github.com/V3teran/liusha/internal/graphview"
@@ -58,8 +57,7 @@ func main() {
 	defer func() { _ = rdb.Close() }()
 
 	credAPI := credential.NewRedis(rdb, cfg.Credential.RedisKeyPrefix)
-	engStore := engagement.NewStore(pool)
-	passiveSessionStore := passivesession.NewStore(pool) // 双轨期新表 store
+	passiveSessionStore := passivesession.NewStore(pool)
 	activeScanStore := activescan.NewStore(pool)
 	findStore := finding.NewStore(pool)
 	projector := &graphview.Projector{Findings: findStore, Passive: passiveSessionStore, Active: activeScanStore}
@@ -67,8 +65,8 @@ func main() {
 	defer func() { _ = invocationStore.Close() }()
 
 	// Active 模式装配：agentrun store + asynq 入队器。
-	// 计数 best-effort 维护到 engagement.agent_run_count（与 scanner 一致）。
-	taskStore := agentrun.NewStore(pool).WithCounter(engStore)
+	// 计数 best-effort 维护到 active_scan.agent_run_count（cmd/api 只创建 active scans）。
+	taskStore := agentrun.NewStore(pool).WithCounter(activeScanStore)
 	enq := worker.NewClient(asynq.RedisClientOpt{Addr: os.Getenv("LIUSHA_REDIS_ADDR")})
 	defer enq.Close()
 	activeAdapter := &activeScanAdapter{activeScans: activeScanStore, tasks: taskStore, enq: enq}
@@ -81,10 +79,8 @@ func main() {
 			APIKey:            os.Getenv("LIUSHA_API_KEY"),
 			Credentials:       credAPI,
 			Engagements: engagementAPIAdapter{
-				s:          engStore,
-				passive:    passiveSessionStore,
-				active:     activeScanStore,
-				passiveTTL: time.Duration(cfg.Engagement.MaxAgeHours) * time.Hour,
+				passive: passiveSessionStore,
+				active:  activeScanStore,
 			},
 			Graph:             projector,
 			Invocations:       invocationStore,
@@ -123,12 +119,11 @@ func main() {
 // HTTP API 不暴露 errMsg：用户主动取消 engagement 即视为正常结束，
 // abort 调用恒传 ""；store 层完整签名（含 errMsg）保留给 scanner 内部用。
 //
-// passiveTTL 来自 cfg.Engagement.MaxAgeHours——passive session 新建时写入 expires_at。
+// 已剥离 engagement.Store——passive_session 现在 per-host 由 ingestor 流量入口
+// LookupOrCreate；EnsurePassiveSession 仅作"代理准备就绪"信号 stub。
 type engagementAPIAdapter struct {
-	s          *engagement.Store
-	passive    *passivesession.Store // 双轨读路径：List 合并新表，Abort 试两表
-	active     *activescan.Store
-	passiveTTL time.Duration
+	passive *passivesession.Store // List 合并新表，Abort 试两表
+	active  *activescan.Store
 }
 
 // Abort 双试：先 passive 表，否则 active 表；都没命中则报错。
@@ -144,12 +139,11 @@ func (a engagementAPIAdapter) Abort(ctx context.Context, id string) error {
 	return fmt.Errorf("session %s not found in passive_session or active_scan", id)
 }
 
+// EnsurePassiveSession 历史路径：mitmproxy 启动期预热 passive session 拿 engagement_id。
+// 新模型下 passive_session 按 host 由 ingestor 流量入口自创建——本 API 仅作"代理就绪"
+// 信号返回空 ID（客户端可忽略此值）。保留 endpoint 兼容旧 client 不报错。
 func (a engagementAPIAdapter) EnsurePassiveSession(ctx context.Context) (string, error) {
-	eng, err := a.s.LookupOrCreatePassiveSession(ctx, a.passiveTTL)
-	if err != nil {
-		return "", err
-	}
-	return eng.ID, nil
+	return "", nil
 }
 
 // List 合并 passive_session + active_scan 两新表 → httpapi.EngagementSummary。
