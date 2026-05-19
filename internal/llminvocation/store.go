@@ -208,15 +208,16 @@ func (s *Store) copyFromBatch(ctx context.Context, batch []Invocation) error {
 	return nil
 }
 
-// SumCostByEngagement 返回指定 engagement 下所有 LLM 调用的成本总和（美元）。
+// SumCostByEngagement 返回指定 engagement / owner 下所有 LLM 调用的成本总和（美元）。
 //
+// 双轨切读：ID 可为 engagement.id 或 owner_id。
 // 注意：异步 buffer 内未 flush 的成本不算入 —— caller 若要严格一致需先 Flush()。
 func (s *Store) SumCostByEngagement(ctx context.Context, engagementID string) (float64, error) {
 	var v float64
 	err := s.pool.QueryRow(ctx, `
 		SELECT COALESCE(SUM(cost_usd), 0)::float8
 		FROM llm_invocation
-		WHERE engagement_id=$1`, engagementID).Scan(&v)
+		WHERE engagement_id=$1 OR owner_id=$1::uuid`, engagementID).Scan(&v)
 	if err != nil {
 		return 0, fmt.Errorf("sum llm_call cost: %w", err)
 	}
@@ -227,6 +228,11 @@ func (s *Store) SumCostByEngagement(ctx context.Context, engagementID string) (f
 //
 // 调用方有责任先 Flush() 等异步 buffer commit，否则可能缺最近 0-1s 的记录——
 // handler 路径上 Flush() 后再调本方法，保证 viewer 拿到完整审计快照。
+// ListByEngagement 列出 engagement / owner 下所有 LLM invocation（按 created_at ASC）。
+//
+// 双轨切读：参数 ID 可以是旧 engagement.id 或新 owner_id（passive_session.id /
+// active_scan.id）。SQL OR 让 viewer 传新 owner_id 时也命中。commit B5 完成数据回填 +
+// DROP 旧列后可改名 ListByOwner（已有专用 ListByOwner 走纯 owner 路径）。
 func (s *Store) ListByEngagement(ctx context.Context, engagementID string) ([]Invocation, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT id, agent_run_id, engagement_id, owner_type, owner_id::text,
@@ -235,7 +241,7 @@ func (s *Store) ListByEngagement(ctx context.Context, engagementID string) ([]In
 		       cost_usd, latency_ms, finish_reason, error_message, call_purpose,
 		       messages, result, created_at
 		FROM llm_invocation
-		WHERE engagement_id=$1
+		WHERE engagement_id=$1 OR owner_id=$1::uuid
 		ORDER BY created_at ASC`, engagementID)
 	if err != nil {
 		return nil, fmt.Errorf("list llm_invocation: %w", err)
@@ -345,12 +351,13 @@ func (s *Store) CountByCallPurposeByOwner(ctx context.Context, ownerType, ownerI
 	return out, rows.Err()
 }
 
-// CountByCallPurpose 按 call_purpose 维度聚合 engagement 下的调用次数，便于验证多模型路由生效。
+// CountByCallPurpose 按 call_purpose 维度聚合 engagement / owner 下的调用次数。
+// 双轨切读：ID 可为 engagement.id 或 owner_id。
 func (s *Store) CountByCallPurpose(ctx context.Context, engagementID string) (map[string]int, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT call_purpose, count(*)
 		FROM llm_invocation
-		WHERE engagement_id=$1
+		WHERE engagement_id=$1 OR owner_id=$1::uuid
 		GROUP BY call_purpose`, engagementID)
 	if err != nil {
 		return nil, fmt.Errorf("count llm_invocation by call_purpose: %w", err)

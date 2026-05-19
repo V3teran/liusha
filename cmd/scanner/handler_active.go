@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/V3teran/liusha/internal/engagement"
+	"github.com/V3teran/liusha/internal/finding"
 	"github.com/V3teran/liusha/internal/llm"
 	"github.com/V3teran/liusha/internal/react"
 	"github.com/V3teran/liusha/internal/skill"
@@ -73,7 +74,14 @@ func (h handler) handleActive(ctx context.Context, p worker.Payload, entrypoint 
 	reviewer.ObsTruncate = h.cfg.React.ReviewerObsTruncate
 	reviewer.FlowSummary = "ACTIVE eid=" + eid
 	reviewer.HostFindingsFetcher = func(ctx context.Context) ([]string, error) {
-		fs, err := h.findings.ListByEngagementAndHost(ctx, eid, virtualHost, h.cfg.React.ReviewerFindingsLimit)
+		// 双轨切读：优先 (ownerType, ownerID)；空时（旧 enqueue 路径）回退 engagementID。
+		var fs []finding.VulnFinding
+		var err error
+		if ot != "" && oid != "" {
+			fs, err = h.findings.ListByOwnerAndHost(ctx, ot, oid, virtualHost, h.cfg.React.ReviewerFindingsLimit)
+		} else {
+			fs, err = h.findings.ListByEngagementAndHost(ctx, eid, virtualHost, h.cfg.React.ReviewerFindingsLimit)
+		}
 		if err != nil {
 			return nil, err
 		}

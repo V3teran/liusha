@@ -181,14 +181,16 @@ func (s *Store) GetByID(ctx context.Context, id string) (VulnFinding, error) {
 	return f, nil
 }
 
-// ListByEngagement 列出 engagement 下所有 finding（按 created_at desc）。
+// ListByEngagement 列出 engagement / owner 下所有 finding（按 created_at desc）。
 //
+// 双轨切读：参数 ID 可以是旧 engagement.id 或新 owner_id。SQL OR 让 viewer 传新 owner_id 时
+// 也命中。专用 ListByOwner 走纯 owner 路径；本方法保留兼容旧 caller。
 // dedup 由 LLM 写 finding 前自查 read_findings 决定，Store 不做。
 func (s *Store) ListByEngagement(ctx context.Context, engagementID string) ([]VulnFinding, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT `+colsSelect+`
 		FROM finding
-		WHERE engagement_id = $1
+		WHERE engagement_id=$1 OR owner_id=$1::uuid
 		ORDER BY created_at DESC`, engagementID)
 	if err != nil {
 		return nil, fmt.Errorf("list findings: %w", err)
@@ -265,7 +267,8 @@ func (s *Store) ListByOwnerAndHost(ctx context.Context, ownerType, ownerID, host
 // 不被跨次扫描的历史污染。
 // limit ≤ 0 不限制。
 func (s *Store) ListByEngagementAndHost(ctx context.Context, engagementID, host string, limit int) ([]VulnFinding, error) {
-	q := `SELECT ` + colsSelect + ` FROM finding WHERE engagement_id=$1 AND host=$2 ORDER BY created_at DESC`
+	// 双轨切读：ID 可以是旧 engagement.id 或新 owner_id。
+	q := `SELECT ` + colsSelect + ` FROM finding WHERE (engagement_id=$1 OR owner_id=$1::uuid) AND host=$2 ORDER BY created_at DESC`
 	args := []any{engagementID, host}
 	if limit > 0 {
 		q += ` LIMIT $3`

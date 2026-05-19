@@ -144,12 +144,16 @@ func (s *Store) GetByID(ctx context.Context, id string) (ReactRun, error) {
 	return t, nil
 }
 
-// ListByEngagement 按 created_at 升序列出 engagement 的任务，最多 limit 条。
+// ListByEngagement 按 created_at 升序列出某 engagement / owner 的任务，最多 limit 条。
+//
+// 双轨切读：参数 ID 实际可能是旧 engagement.id 或新 owner_id（passive_session.id /
+// active_scan.id）。SQL OR 条件让 viewer 传 List 返回的新 owner_id 时也能找到匹配行。
+// commit B5 完成数据回填 + DROP 旧列后，本方法可改名为 ListByOwner。
 func (s *Store) ListByEngagement(ctx context.Context, engagementID string, limit int) ([]ReactRun, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT `+colsSelect+`
 		FROM agent_run
-		WHERE engagement_id=$1
+		WHERE engagement_id=$1 OR owner_id=$1::uuid
 		ORDER BY created_at ASC
 		LIMIT $2`, engagementID, limit)
 	if err != nil {
@@ -171,12 +175,13 @@ func (s *Store) ListByEngagement(ctx context.Context, engagementID string, limit
 	return out, nil
 }
 
-// CountInflightInEngagement 统计 engagement 下处于 pending|running 的任务总数（全局并发上限）。
+// CountInflightInEngagement 统计 engagement / owner 下处于 pending|running 的任务总数。
+// 双轨切读：ID 可为 engagement.id 或 owner_id。
 func (s *Store) CountInflightInEngagement(ctx context.Context, engagementID string) (int, error) {
 	var n int
 	err := s.pool.QueryRow(ctx, `
 		SELECT count(*) FROM agent_run
-		WHERE engagement_id=$1 AND status IN ('pending','running')`, engagementID).Scan(&n)
+		WHERE (engagement_id=$1 OR owner_id=$1::uuid) AND status IN ('pending','running')`, engagementID).Scan(&n)
 	if err != nil {
 		return 0, fmt.Errorf("count inflight in engagement: %w", err)
 	}
