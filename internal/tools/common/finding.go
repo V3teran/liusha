@@ -23,6 +23,8 @@ type FindingStore interface {
 type WriteFinding struct {
 	Store        FindingStore
 	EngagementID string
+	OwnerType    string // 双轨：'passive_session' / 'active_scan'；空 = 旧路径
+	OwnerID      string
 	TaskID       string // 可空
 	Host         string // builder 注入；空时 Save 报错
 	FlowID       int64  // 触发本次 hunter 的 http_flow.id；0 表示不关联
@@ -89,6 +91,8 @@ func (a *WriteFinding) Execute(ctx context.Context, args json.RawMessage) (toolf
 
 	saved, err := a.Store.Save(ctx, finding.VulnFinding{
 		EngagementID: a.EngagementID,
+		OwnerType:    a.OwnerType, // 双轨：空串 → store NULLIF NULL
+		OwnerID:      a.OwnerID,
 		TaskID:       taskPtr,
 		SourceFlowID: flowPtr,
 		Host:         a.Host,

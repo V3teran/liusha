@@ -127,6 +127,8 @@ func (h handler) handleActive(ctx context.Context, p worker.Payload, entrypoint 
 
 	cfg, err := h.hunterBuilder(parentCtx, skill.BuilderParams{
 		EngagementID: eid,
+		OwnerType:    ot, // 双轨期透传；空 = 旧路径
+		OwnerID:      oid,
 		TaskID:       tid,
 		ParentTaskID: p.ParentTaskID, // active asynq 入口父任务总是空；非空表示由 subtask 包内 ActiveSpawner 在父 goroutine 内派的子
 		Host:         virtualHost,

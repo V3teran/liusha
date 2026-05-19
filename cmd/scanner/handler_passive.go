@@ -120,6 +120,8 @@ func (h handler) handlePassive(ctx context.Context, p worker.Payload, entrypoint
 	// 无 parentRegistries Store / 无子 goroutine，不需要 H3 的 cancel+WaitAll。
 	cfg, err := h.hunterBuilder(ctx, skill.BuilderParams{
 		EngagementID:    eid,
+		OwnerType:       ot, // 双轨期透传；空 = 旧路径
+		OwnerID:         oid,
 		TaskID:          tid,
 		Mode:            "passive",
 		FlowID:          ep.FlowID,

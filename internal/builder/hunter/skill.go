@@ -144,6 +144,8 @@ func NewBuilder(deps Deps) skill.Builder {
 		must(&common.WriteFinding{
 			Store:        deps.Findings,
 			EngagementID: p.EngagementID,
+			OwnerType:    p.OwnerType, // 双轨期透传；空 = 旧路径
+			OwnerID:      p.OwnerID,
 			TaskID:       p.TaskID,
 			Host:         p.Host,
 			FlowID:       p.FlowID,
