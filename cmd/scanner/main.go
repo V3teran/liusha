@@ -191,6 +191,8 @@ func main() {
 		spawner := subtask.NewActiveSpawner(parentCtx, subtask.ActiveSpawnerConfig{
 			ParentTaskID:          p.TaskID,
 			EngagementID:          p.EngagementID,
+			OwnerType:             p.OwnerType, // 双轨：与父任务对齐
+			OwnerID:               p.OwnerID,
 			Host:                  p.Host,
 			AgentRuns:             tasks,
 			Findings:              finds,
