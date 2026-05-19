@@ -28,6 +28,16 @@ func (h handler) handlePassive(ctx context.Context, p worker.Payload, entrypoint
 	}
 
 	tid, eid := p.TaskID, p.EngagementID
+	// 双轨期：p.OwnerType/OwnerID 可能空（旧 enqueue 路径 / passive LookupOrCreate 失败）。
+	// CallMeta.OwnerType/OwnerID 仅在非空时填指针，否则保 nil → llm_invocation 列写 NULL。
+	ot, oid := p.OwnerType, p.OwnerID
+	var otPtr, oidPtr *string
+	if ot != "" {
+		otPtr = &ot
+	}
+	if oid != "" {
+		oidPtr = &oid
+	}
 
 	// hunter LLM Generator
 	hunterRaw, err := h.router.For(ctx, "hunter")
@@ -35,7 +45,7 @@ func (h handler) handlePassive(ctx context.Context, p worker.Payload, entrypoint
 		return h.failTask(ctx, p.TaskID, err)
 	}
 	hunterGen := llm.Instrument(hunterRaw, h.calls,
-		llm.CallMeta{TaskID: &tid, EngagementID: &eid, RouteKey: "hunter"},
+		llm.CallMeta{TaskID: &tid, EngagementID: &eid, OwnerType: otPtr, OwnerID: oidPtr, RouteKey: "hunter"},
 		h.pricing,
 	)
 
@@ -45,7 +55,7 @@ func (h handler) handlePassive(ctx context.Context, p worker.Payload, entrypoint
 		return h.failTask(ctx, p.TaskID, err)
 	}
 	reviewLLMGen := llm.Instrument(reviewLLMRaw, h.calls,
-		llm.CallMeta{TaskID: &tid, EngagementID: &eid, RouteKey: "reviewer"},
+		llm.CallMeta{TaskID: &tid, EngagementID: &eid, OwnerType: otPtr, OwnerID: oidPtr, RouteKey: "reviewer"},
 		h.pricing,
 	)
 	// hostForFetchers 提前定义：reviewer 需要 host 做 notes 范围隔离。

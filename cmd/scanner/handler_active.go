@@ -35,6 +35,15 @@ func (h handler) handleActive(ctx context.Context, p worker.Payload, entrypoint 
 	}
 
 	tid, eid := p.TaskID, p.EngagementID
+	// 双轨期：CallMeta.OwnerType/OwnerID 仅在非空时填指针，否则保 nil → llm_invocation 列写 NULL。
+	ot, oid := p.OwnerType, p.OwnerID
+	var otPtr, oidPtr *string
+	if ot != "" {
+		otPtr = &ot
+	}
+	if oid != "" {
+		oidPtr = &oid
+	}
 	// 优先从 brief 抽真实 URL host（如 target.com:8080），让 lesson/finding/note
 	// 按真站点身份切分跨 task 复用；抽不到回退 engagement_id 兜底（lesson 跨 task 失效）。
 	virtualHost := extractHostFromBrief(ep.Brief, eid)
@@ -46,7 +55,7 @@ func (h handler) handleActive(ctx context.Context, p worker.Payload, entrypoint 
 		return h.failTask(ctx, p.TaskID, err)
 	}
 	hunterGen := llm.Instrument(hunterRaw, h.calls,
-		llm.CallMeta{TaskID: &tid, EngagementID: &eid, RouteKey: "hunter_vision"},
+		llm.CallMeta{TaskID: &tid, EngagementID: &eid, OwnerType: otPtr, OwnerID: oidPtr, RouteKey: "hunter_vision"},
 		h.pricing,
 	)
 
@@ -56,7 +65,7 @@ func (h handler) handleActive(ctx context.Context, p worker.Payload, entrypoint 
 		return h.failTask(ctx, p.TaskID, err)
 	}
 	reviewLLMGen := llm.Instrument(reviewLLMRaw, h.calls,
-		llm.CallMeta{TaskID: &tid, EngagementID: &eid, RouteKey: "reviewer"},
+		llm.CallMeta{TaskID: &tid, EngagementID: &eid, OwnerType: otPtr, OwnerID: oidPtr, RouteKey: "reviewer"},
 		h.pricing,
 	)
 	reviewer := react.NewLLMReviewer(reviewLLMGen, h.notes, eid, virtualHost)

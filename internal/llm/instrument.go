@@ -33,6 +33,8 @@ type CallSink interface {
 type CallMeta struct {
 	TaskID       *string
 	EngagementID *string
+	OwnerType    *string // 'passive_session' / 'active_scan'；nil = 旧路径
+	OwnerID      *string // 双轨期新填，commit B5 之后取代 EngagementID
 	RouteKey     string
 }
 
@@ -83,6 +85,8 @@ func (i *instrumented) Generate(ctx context.Context, msgs []Message, tools []Too
 	call := llminvocation.Invocation{
 		TaskID:       i.meta.TaskID,
 		EngagementID: i.meta.EngagementID,
+		OwnerType:    i.meta.OwnerType,
+		OwnerID:      i.meta.OwnerID,
 		Provider:     i.inner.Provider(),
 		Model:        i.inner.Model(),
 		InTokens:     res.Usage.InTokens,

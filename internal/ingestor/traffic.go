@@ -243,6 +243,8 @@ func (t *Traffic) enqueueMain(ctx context.Context, eid, passSessID string, flowI
 	if _, _, err := t.enq.Enqueue(ctx, worker.RoleHunter, worker.Payload{
 		TaskID:       tid,
 		EngagementID: eid,
+		OwnerType:    "passive_session", // 双轨：passSessID 空时 OwnerID 空，JSON omit
+		OwnerID:      passSessID,
 		Input:        payloadInput,
 	}); err != nil {
 		return fmt.Errorf("enq.Enqueue: %w", err)

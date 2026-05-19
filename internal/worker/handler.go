@@ -19,6 +19,8 @@ import (
 type Payload struct {
 	TaskID       string          `json:"agent_run_id"`
 	EngagementID string          `json:"engagement_id"`
+	OwnerType    string          `json:"owner_type,omitempty"` // 'passive_session' / 'active_scan'；空 = 旧路径
+	OwnerID      string          `json:"owner_id,omitempty"`   // 双轨期新填，commit B5 之后取代 EngagementID
 	ParentTaskID string          `json:"parent_task_id,omitempty"`
 	Role         Role            `json:"role"`
 	Input        json.RawMessage `json:"input,omitempty"`

@@ -223,6 +223,8 @@ func (a *activeScanAdapter) CreateActiveScan(ctx context.Context, brief string) 
 	if _, _, err := a.enq.Enqueue(ctx, worker.RoleHunter, worker.Payload{
 		TaskID:       tid,
 		EngagementID: eng.ID,
+		OwnerType:    "active_scan", // 双轨：activeScanID 空时 OwnerID 空，JSON omit
+		OwnerID:      activeScanID,
 		Input:        payloadInput,
 	}, asynq.MaxRetry(0)); err != nil {
 		return "", "", fmt.Errorf("enqueue: %w", err)
