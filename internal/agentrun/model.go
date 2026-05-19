@@ -31,9 +31,14 @@ const (
 
 // ReactRun 是 agent_run 表行的 Go 表示。Result 在终态前为空 jsonb '{}'。
 // ParentID 空表示独立/根任务；非空时指向父 agent_run.id（subtask swarm）。
+//
+// 双轨期：EngagementID（旧）与 OwnerType+OwnerID（新 polymorphic）并存。
+// 0038 之后 caller 可写双轨，commit B5 之后 DROP engagement_id。
 type ReactRun struct {
 	ID           string
-	EngagementID string
+	EngagementID string // 旧字段，待 DROP（commit B5）
+	OwnerType    string // 新字段，'passive_session' 或 'active_scan'（空 = 旧路径）
+	OwnerID      string // 新字段，passive_session.id / active_scan.id（空 = 旧路径）
 	ParentID     string
 	Role         string
 	Input        json.RawMessage
@@ -45,8 +50,12 @@ type ReactRun struct {
 
 // NewParams 是 Store.Create 的入参。
 // ParentID 留空表示独立/根任务；填值时 INSERT 写入 parent_id 列（subtask 用）。
+//
+// 双轨：EngagementID 必填（NOT NULL 列）；OwnerType+OwnerID 可空（commit B 切换后填）。
 type NewParams struct {
 	EngagementID string
+	OwnerType    string // 可空——'passive_session' / 'active_scan'
+	OwnerID      string // 可空
 	Role         string
 	Input        json.RawMessage
 	ParentID     string

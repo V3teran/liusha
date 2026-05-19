@@ -16,9 +16,13 @@ import (
 // Host 必填；Save 内空字符串校验防漏填。
 // SourceFlowID 可空（不绑定具体流量时 nil）。
 // Target / Evidence 为 nil 时 Save 自动落空对象 '{}'。
+// 双轨期：EngagementID（旧）与 OwnerType+OwnerID（新 polymorphic）并存。
+// commit B5 之后 DROP engagement_id。
 type VulnFinding struct {
 	ID           string
-	EngagementID string
+	EngagementID string // 旧字段，待 DROP
+	OwnerType    string // 'passive_session' / 'active_scan'（空 = 旧路径）
+	OwnerID      string
 	TaskID       *string
 	SourceFlowID *int64
 	Host         string

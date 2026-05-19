@@ -178,11 +178,13 @@ func (s *Store) run() {
 }
 
 // copyFromBatch 用 pgx CopyFrom 批量写入；比逐行 INSERT 快 10-100x。
+// 双轨：owner_type/owner_id 与 engagement_id 共存；caller 未填新字段时 nil 写 NULL。
 func (s *Store) copyFromBatch(ctx context.Context, batch []Invocation) error {
 	rows := make([][]any, len(batch))
 	for i, c := range batch {
 		rows[i] = []any{
-			c.TaskID, c.EngagementID, c.Provider, c.Model,
+			c.TaskID, c.EngagementID, c.OwnerType, c.OwnerID,
+			c.Provider, c.Model,
 			c.InTokens, c.OutTokens, c.CachedTokens,
 			c.CostUSD, c.LatencyMs, c.FinishReason, c.Error, c.CallPurpose,
 			c.Messages, c.Result,
@@ -192,7 +194,8 @@ func (s *Store) copyFromBatch(ctx context.Context, batch []Invocation) error {
 		ctx,
 		pgx.Identifier{"llm_invocation"},
 		[]string{
-			"agent_run_id", "engagement_id", "provider", "model",
+			"agent_run_id", "engagement_id", "owner_type", "owner_id",
+			"provider", "model",
 			"in_tokens", "out_tokens", "cached_tokens",
 			"cost_usd", "latency_ms", "finish_reason", "error_message", "call_purpose",
 			"messages", "result",
@@ -226,7 +229,8 @@ func (s *Store) SumCostByEngagement(ctx context.Context, engagementID string) (f
 // handler 路径上 Flush() 后再调本方法，保证 viewer 拿到完整审计快照。
 func (s *Store) ListByEngagement(ctx context.Context, engagementID string) ([]Invocation, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT id, agent_run_id, engagement_id, provider, model,
+		SELECT id, agent_run_id, engagement_id, owner_type, owner_id::text,
+		       provider, model,
 		       in_tokens, out_tokens, cached_tokens,
 		       cost_usd, latency_ms, finish_reason, error_message, call_purpose,
 		       messages, result, created_at
@@ -241,9 +245,10 @@ func (s *Store) ListByEngagement(ctx context.Context, engagementID string) ([]In
 	var out []Invocation
 	for rows.Next() {
 		var v Invocation
-		var taskID, eid *string
+		var taskID, eid, ownerType, ownerID *string
 		if err := rows.Scan(
-			&v.ID, &taskID, &eid, &v.Provider, &v.Model,
+			&v.ID, &taskID, &eid, &ownerType, &ownerID,
+			&v.Provider, &v.Model,
 			&v.InTokens, &v.OutTokens, &v.CachedTokens,
 			&v.CostUSD, &v.LatencyMs, &v.FinishReason, &v.Error, &v.CallPurpose,
 			&v.Messages, &v.Result, &v.CreatedAt,
@@ -252,6 +257,8 @@ func (s *Store) ListByEngagement(ctx context.Context, engagementID string) ([]In
 		}
 		v.TaskID = taskID
 		v.EngagementID = eid
+		v.OwnerType = ownerType
+		v.OwnerID = ownerID
 		out = append(out, v)
 	}
 	if err := rows.Err(); err != nil {

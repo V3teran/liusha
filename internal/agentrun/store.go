@@ -39,20 +39,26 @@ func (s *Store) WithCounter(c engagementCounter) *Store {
 
 // colsSelect 是所有 SELECT 路径的统一列序，与 scanTask() 的字段顺序一一对应。
 // parent_id 用 COALESCE 把 NULL 折成空串 → Go 层 ReactRun.ParentID = ""（独立任务）。
-const colsSelect = `id, engagement_id, COALESCE(parent_id::text, '') AS parent_id, role, input, result, status, created_at, updated_at`
+// owner_type/owner_id 同 COALESCE（双轨期未填则空串）。
+const colsSelect = `id, engagement_id, ` +
+	`COALESCE(owner_type, '') AS owner_type, ` +
+	`COALESCE(owner_id::text, '') AS owner_id, ` +
+	`COALESCE(parent_id::text, '') AS parent_id, ` +
+	`role, input, result, status, created_at, updated_at`
 
 // Create 插入一行 pending 任务，返回新 id。Input 为 nil 时落空对象。
 // ParentID 空串用 NULLIF 转 PG NULL，匹配 0037 partial index（WHERE parent_id IS NOT NULL）。
+// 双轨：engagement_id 必填；owner_type/owner_id 可空（commit B 切换后非空）。
 func (s *Store) Create(ctx context.Context, p NewParams) (string, error) {
 	if p.Input == nil {
 		p.Input = json.RawMessage("{}")
 	}
 	var id string
 	err := s.pool.QueryRow(ctx, `
-		INSERT INTO agent_run (engagement_id, parent_id, role, input)
-		VALUES ($1, NULLIF($2, '')::uuid, $3, $4)
+		INSERT INTO agent_run (engagement_id, owner_type, owner_id, parent_id, role, input)
+		VALUES ($1, NULLIF($2, ''), NULLIF($3, '')::uuid, NULLIF($4, '')::uuid, $5, $6)
 		RETURNING id`,
-		p.EngagementID, p.ParentID, p.Role,
+		p.EngagementID, p.OwnerType, p.OwnerID, p.ParentID, p.Role,
 		[]byte(p.Input),
 	).Scan(&id)
 	if err != nil {
@@ -177,6 +183,47 @@ func (s *Store) CountInflightInEngagement(ctx context.Context, engagementID stri
 	return n, nil
 }
 
+// ListByOwner 按 created_at 升序列出 owner（passive_session / active_scan）下的任务。
+// 新 polymorphic 路径——commit B 切换后取代 ListByEngagement。
+func (s *Store) ListByOwner(ctx context.Context, ownerType, ownerID string, limit int) ([]ReactRun, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT `+colsSelect+`
+		FROM agent_run
+		WHERE owner_type=$1 AND owner_id=$2::uuid
+		ORDER BY created_at ASC
+		LIMIT $3`, ownerType, ownerID, limit)
+	if err != nil {
+		return nil, fmt.Errorf("list tasks by owner: %w", err)
+	}
+	defer rows.Close()
+
+	var out []ReactRun
+	for rows.Next() {
+		var t ReactRun
+		if err := scanTask(rows, &t); err != nil {
+			return nil, fmt.Errorf("scan task: %w", err)
+		}
+		out = append(out, t)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate tasks: %w", err)
+	}
+	return out, nil
+}
+
+// CountInflightInOwner 统计 owner 下处于 pending|running 的任务总数（新 polymorphic 路径）。
+func (s *Store) CountInflightInOwner(ctx context.Context, ownerType, ownerID string) (int, error) {
+	var n int
+	err := s.pool.QueryRow(ctx, `
+		SELECT count(*) FROM agent_run
+		WHERE owner_type=$1 AND owner_id=$2::uuid AND status IN ('pending','running')`,
+		ownerType, ownerID).Scan(&n)
+	if err != nil {
+		return 0, fmt.Errorf("count inflight in owner: %w", err)
+	}
+	return n, nil
+}
+
 // scanner 抽象 pgx.Row / pgx.Rows 的 Scan 方法。
 type scanner interface {
 	Scan(dest ...any) error
@@ -186,7 +233,9 @@ type scanner interface {
 func scanTask(r scanner, t *ReactRun) error {
 	var input, result []byte
 	if err := r.Scan(
-		&t.ID, &t.EngagementID, &t.ParentID, &t.Role,
+		&t.ID, &t.EngagementID,
+		&t.OwnerType, &t.OwnerID,
+		&t.ParentID, &t.Role,
 		&input, &result, &t.Status, &t.CreatedAt, &t.UpdatedAt,
 	); err != nil {
 		return err

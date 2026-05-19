@@ -41,7 +41,11 @@ func (s *Store) WithCounter(c engagementCounter) *Store {
 }
 
 // colsSelect 是所有 SELECT / RETURNING 路径的统一列序，与 scan() 字段一一对应。
-const colsSelect = "id, engagement_id, agent_run_id, source_flow_id, host, severity, summary, target, evidence, created_at"
+// owner_type/owner_id 双轨：未填则空串（COALESCE 折叠 NULL）。
+const colsSelect = "id, engagement_id, " +
+	"COALESCE(owner_type, '') AS owner_type, " +
+	"COALESCE(owner_id::text, '') AS owner_id, " +
+	"agent_run_id, source_flow_id, host, severity, summary, target, evidence, created_at"
 
 // Save 永远 INSERT 一行新 finding（append-only）。
 //
@@ -71,10 +75,11 @@ func (s *Store) Save(ctx context.Context, f VulnFinding) (VulnFinding, error) {
 
 	row := tx.QueryRow(ctx, `
 		INSERT INTO finding
-			(engagement_id, agent_run_id, source_flow_id, host, severity, summary, target, evidence)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+			(engagement_id, owner_type, owner_id, agent_run_id, source_flow_id, host, severity, summary, target, evidence)
+		VALUES ($1, NULLIF($2,''), NULLIF($3,'')::uuid, $4,$5,$6,$7,$8,$9,$10)
 		RETURNING `+colsSelect,
-		f.EngagementID, f.TaskID, f.SourceFlowID, f.Host, f.Severity,
+		f.EngagementID, f.OwnerType, f.OwnerID,
+		f.TaskID, f.SourceFlowID, f.Host, f.Severity,
 		f.Summary, f.Target, f.Evidence)
 
 	var saved VulnFinding
@@ -245,7 +250,9 @@ type scanner interface {
 func scan(r scanner, f *VulnFinding) error {
 	var target, evidence []byte
 	if err := r.Scan(
-		&f.ID, &f.EngagementID, &f.TaskID, &f.SourceFlowID, &f.Host, &f.Severity,
+		&f.ID, &f.EngagementID,
+		&f.OwnerType, &f.OwnerID,
+		&f.TaskID, &f.SourceFlowID, &f.Host, &f.Severity,
 		&f.Summary, &target, &evidence,
 		&f.CreatedAt,
 	); err != nil {
