@@ -51,8 +51,9 @@ const flowSelectCols = "id, engagement_id, created_at, method, url, request_head
 const summaryCols = "id, engagement_id, created_at, method, url, status_code"
 
 // copyFromCols 是 CopyFrom 写入的列名顺序，必须与每行 []any 的元素顺序严格对齐。
+// 双轨：passive_session_id 与 engagement_id 共存；caller 未填 = nil → NULL。
 var copyFromCols = []string{
-	"engagement_id", "method", "url",
+	"engagement_id", "passive_session_id", "method", "url",
 	"request_headers", "request_body",
 	"status_code", "response_headers", "response_body",
 }
@@ -67,11 +68,11 @@ func (s *Store) Append(ctx context.Context, f Flow) (int64, error) {
 	var id int64
 	err := s.pool.QueryRow(ctx, `
 		INSERT INTO http_flow
-			(engagement_id, method, url, request_headers, request_body,
+			(engagement_id, passive_session_id, method, url, request_headers, request_body,
 			 status_code, response_headers, response_body)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+		VALUES ($1, NULLIF($2,'')::uuid, $3,$4,$5,$6,$7,$8,$9)
 		RETURNING id`,
-		f.EngagementID, f.Method, f.URL,
+		f.EngagementID, f.PassiveSessionID, f.Method, f.URL,
 		reqH, reqBody,
 		f.StatusCode, respH, respBody).Scan(&id)
 	if err != nil {
@@ -91,8 +92,13 @@ func (s *Store) AppendBatch(ctx context.Context, flows []Flow) error {
 	for i, f := range flows {
 		reqBody, _ := truncate(f.RequestBody, s.maxReqBody)
 		respBody, _ := truncate(f.ResponseBody, s.maxRespBody)
+		// CopyFrom passive_session_id：空串 → nil 写 NULL；非空 → 字符串（pgx 解析 uuid）
+		var passSessArg any
+		if f.PassiveSessionID != "" {
+			passSessArg = f.PassiveSessionID
+		}
 		rows[i] = []any{
-			f.EngagementID, f.Method, f.URL,
+			f.EngagementID, passSessArg, f.Method, f.URL,
 			normalizeHeaders(f.RequestHeaders), reqBody,
 			f.StatusCode, normalizeHeaders(f.ResponseHeaders), respBody,
 		}

@@ -10,6 +10,7 @@ import (
 	"github.com/hibiken/asynq"
 	"github.com/rs/zerolog"
 
+	"github.com/V3teran/liusha/internal/activescan"
 	"github.com/V3teran/liusha/internal/agentrun"
 	"github.com/V3teran/liusha/internal/config"
 	"github.com/V3teran/liusha/internal/engagement"
@@ -19,27 +20,33 @@ import (
 	"github.com/V3teran/liusha/internal/llm"
 	"github.com/V3teran/liusha/internal/llminvocation"
 	"github.com/V3teran/liusha/internal/notes"
+	"github.com/V3teran/liusha/internal/passivesession"
 	"github.com/V3teran/liusha/internal/sandbox"
 	"github.com/V3teran/liusha/internal/skill"
 	"github.com/V3teran/liusha/internal/worker"
 )
 
 // handler 持有所有跨任务共享依赖。
+//
+// 双轨期：engagements（旧 unified store）与 passiveSessions/activeScans（新 polymorphic
+// stores）并存。commit B3 入口处 LookupOrCreate 双写到两边表。
 type handler struct {
-	tasks         *agentrun.Store
-	engagements   *engagement.Store
-	notes         *notes.RedisStore
-	findings      *finding.Store
-	lessons       *lesson.Store
-	flows         *flow.Store
-	calls         *llminvocation.Store
-	cfg           config.Config
-	scannerCfg    config.ScannerConfig
-	pricing       llm.PricingProvider
-	router        *llm.Router
-	hunterBuilder skill.Builder
-	launcher      sandbox.Launcher
-	logger        zerolog.Logger
+	tasks           *agentrun.Store
+	engagements     *engagement.Store
+	passiveSessions *passivesession.Store
+	activeScans     *activescan.Store
+	notes           *notes.RedisStore
+	findings        *finding.Store
+	lessons         *lesson.Store
+	flows           *flow.Store
+	calls           *llminvocation.Store
+	cfg             config.Config
+	scannerCfg      config.ScannerConfig
+	pricing         llm.PricingProvider
+	router          *llm.Router
+	hunterBuilder   skill.Builder
+	launcher        sandbox.Launcher
+	logger          zerolog.Logger
 	// parentRegistries 索引父 taskID → 子任务 Registry（subtask swarm）。
 	// spawnerFactory 闭包 Store；handleActive 在 react.Run 返回后 LoadAndDelete
 	// + cancel 父 ctx + WaitAll，确保子 goroutine 全退再 Destroy sandbox，防孤儿。

@@ -14,17 +14,21 @@ import (
 //
 // v0010：删除 RequestTruncated/ResponseTruncated 字段（proxy 写库前裁完已不打 flag，
 // 永远 false）。
+// 双轨期：EngagementID（旧）与 PassiveSessionID（新 polymorphic owner）并存。
+// active scan 不入 http_flow 表，故无 OwnerType 二字段——这里只走 passive。
+// commit B5 之后 DROP engagement_id。
 type Flow struct {
-	ID              int64
-	EngagementID    string
-	CreatedAt       time.Time
-	Method          string
-	URL             string
-	RequestHeaders  json.RawMessage
-	RequestBody     []byte
-	StatusCode      int
-	ResponseHeaders json.RawMessage
-	ResponseBody    []byte
+	ID               int64
+	EngagementID     string // 旧字段，待 DROP
+	PassiveSessionID string // 新字段，空串 = 旧路径
+	CreatedAt        time.Time
+	Method           string
+	URL              string
+	RequestHeaders   json.RawMessage
+	RequestBody      []byte
+	StatusCode       int
+	ResponseHeaders  json.RawMessage
+	ResponseBody     []byte
 }
 
 // FlowSummary 是 ListByEngagement 的瘦行：不含 body / headers，

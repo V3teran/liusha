@@ -25,6 +25,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/V3teran/liusha/internal/activescan"
 	"github.com/V3teran/liusha/internal/agentrun"
 	"github.com/V3teran/liusha/internal/builder/hunter"
 	"github.com/V3teran/liusha/internal/config"
@@ -41,6 +42,7 @@ import (
 	"github.com/V3teran/liusha/internal/logx"
 	"github.com/V3teran/liusha/internal/notes"
 	"github.com/V3teran/liusha/internal/observability"
+	"github.com/V3teran/liusha/internal/passivesession"
 	"github.com/V3teran/liusha/internal/sandbox"
 	"github.com/V3teran/liusha/internal/skill"
 	"github.com/V3teran/liusha/internal/subtask"
@@ -77,6 +79,8 @@ func main() {
 
 	// Stores
 	engs := engagement.NewStore(pool)
+	passSess := passivesession.NewStore(pool) // 双轨期新表 store；commit B3 切 caller
+	actScan := activescan.NewStore(pool)      // 双轨期新表 store；commit B3 切 caller
 	tasks := agentrun.NewStore(pool).WithCounter(engs)
 	finds := finding.NewStore(pool).WithCounter(engs)
 	calls := llminvocation.NewStoreWithConfig(pool, cfg.LLM.Invocation)
@@ -231,6 +235,8 @@ func main() {
 	h := handler{
 		tasks:            tasks,
 		engagements:      engs,
+		passiveSessions:  passSess,
+		activeScans:      actScan,
 		notes:            noteStore,
 		findings:         finds,
 		lessons:          lessons,
@@ -267,14 +273,16 @@ func main() {
 	rotator := engagement.NewRotator(engs, engagement.RotateLimitsFromConfig(cfg.Engagement))
 
 	trafficIngestor, err := ingestor.NewTraffic(flowCtx, ingestor.Deps{
-		Redis:    rdb,
-		Cfg:      cfg.Ingestor,
-		Stream:   cfg.Proxy.StreamName,
-		Rotator:  rotator,
-		Flows:    flows,
-		Tasks:    tasks,
-		Enqueuer: wc,
-		Logger:   logger,
+		Redis:      rdb,
+		Cfg:        cfg.Ingestor,
+		Stream:     cfg.Proxy.StreamName,
+		Rotator:    rotator,
+		Passive:    passSess,
+		PassiveTTL: time.Duration(cfg.Engagement.MaxAgeHours) * time.Hour,
+		Flows:      flows,
+		Tasks:      tasks,
+		Enqueuer:   wc,
+		Logger:     logger,
 	})
 	if err != nil {
 		logger.Fatal().Err(err).Msg("new ingestor.traffic")
@@ -358,8 +366,6 @@ func main() {
 
 // handler struct + failTask/abortTask/handle 入口 已抽到 handler.go。
 // handlePassive 在 handler_passive.go；handleActive 在 handler_active.go。
-
-
 
 // briefHostRe 匹配 http(s):// 后到 / 或 空白 之前的 host (含端口)。
 //
