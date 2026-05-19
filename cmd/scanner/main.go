@@ -78,15 +78,18 @@ func main() {
 	defer rdb.Close()
 
 	// Stores
-	engs := engagement.NewStore(pool)
-	passSess := passivesession.NewStore(pool) // 双轨期新表 store；commit B3 切 caller
-	actScan := activescan.NewStore(pool)      // 双轨期新表 store；commit B3 切 caller
-	tasks := agentrun.NewStore(pool).WithCounter(engs)
-	finds := finding.NewStore(pool).WithCounter(engs)
+	engs := engagement.NewStore(pool)         // 仅 handler.engagements 字段保留（待 0041 后移除）
+	passSess := passivesession.NewStore(pool) // passive session store
+	actScan := activescan.NewStore(pool)      // active scan store
+	// dualCounter 让 agentrun/finding/flow 的 *_count 增量同时更新 passive_session 和 active_scan
+	// 两表（按 OwnerID 命中其中一张表，另一张 0 行 UPDATE 无害）。
+	dual := &dualOwnerCounter{passive: passSess, active: actScan}
+	tasks := agentrun.NewStore(pool).WithCounter(dual)
+	finds := finding.NewStore(pool).WithCounter(dual)
 	calls := llminvocation.NewStoreWithConfig(pool, cfg.LLM.Invocation)
 	lessons := lesson.NewStore(pool)
 	defer func() { _ = calls.Close() }()
-	flows := flow.NewStore(pool, scannerCfg.FlowMaxRequestBody, scannerCfg.FlowMaxResponseBody).WithCounter(engs)
+	flows := flow.NewStore(pool, scannerCfg.FlowMaxRequestBody, scannerCfg.FlowMaxResponseBody).WithCounter(dual)
 	creds := credential.NewRedis(rdb, cfg.Credential.RedisKeyPrefix)
 	noteStore := notes.NewRedis(rdb, notes.Config{
 		KeyPrefix:        cfg.Notes.RedisKeyPrefix,
@@ -367,6 +370,32 @@ func main() {
 
 // handler struct + failTask/abortTask/handle 入口 已抽到 handler.go。
 // handlePassive 在 handler_passive.go；handleActive 在 handler_active.go。
+
+// dualOwnerCounter 让 agentrun/finding/flow.Store 的 best-effort 计数维护同时尝试
+// passive_session 和 active_scan 两表（按 owner_id 命中其一，另一表 0 行 UPDATE 无害）。
+// 满足 agentrun.engagementCounter / finding.engagementCounter / flow.engagementCounter
+// 三个窄接口（同形态 Increment{Flow,Finding,AgentRun}Count）。
+type dualOwnerCounter struct {
+	passive *passivesession.Store
+	active  *activescan.Store
+}
+
+func (d *dualOwnerCounter) IncrementFlowCount(ctx context.Context, id string, n int) error {
+	// flow 只挂 passive（active 不入 http_flow 表），active 表无 flow_count 列
+	return d.passive.IncrementFlowCount(ctx, id, n)
+}
+
+func (d *dualOwnerCounter) IncrementFindingCount(ctx context.Context, id string, n int) error {
+	_ = d.passive.IncrementFindingCount(ctx, id, n)
+	_ = d.active.IncrementFindingCount(ctx, id, n)
+	return nil
+}
+
+func (d *dualOwnerCounter) IncrementAgentRunCount(ctx context.Context, id string, n int) error {
+	_ = d.passive.IncrementAgentRunCount(ctx, id, n)
+	_ = d.active.IncrementAgentRunCount(ctx, id, n)
+	return nil
+}
 
 // briefHostRe 匹配 http(s):// 后到 / 或 空白 之前的 host (含端口)。
 //
