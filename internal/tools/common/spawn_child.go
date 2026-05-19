@@ -23,7 +23,6 @@ type SpawnChild struct {
 // Name 返回工具名 "spawn_child"。
 func (a SpawnChild) Name() string { return "spawn_child" }
 
-// Description 提供给 LLM 的简介。
 func (a SpawnChild) Description() string {
 	return "派一个子 active hunter 并行深挖某个独立攻击面。立即返回 child_task_id（异步），" +
 		"父继续做别的；子的 finding 自动通过共享黑板（read_findings）冒给父——**不要 polling list_children**。" +

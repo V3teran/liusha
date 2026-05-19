@@ -25,7 +25,6 @@ type ReadRelations struct {
 // Name 返回工具名 "read_relations"。
 func (a *ReadRelations) Name() string { return "read_relations" }
 
-// Description 提供给 LLM 的简介。
 func (a *ReadRelations) Description() string {
 	return "列出本 engagement 内所有 finding 之间的 enables 边（write_relation 写入的图拓扑）。" +
 		"**何时用**：推理组合漏洞时想看哪些 finding 已声明依赖、哪些孤立；" +

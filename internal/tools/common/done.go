@@ -26,10 +26,9 @@ type Done struct {
 	PreDoneCheck func(ctx context.Context) error
 }
 
-// Name 返回动作名 "done"。
+// Name 返回工具名 "done"。
 func (a Done) Name() string { return "done" }
 
-// Description 是 LLM tool schema 的 description 字段。
 func (a Done) Description() string {
 	return "终止当前任务，args 中可带 reason / summary（供 Reviewer / 报告参考）"
 }

@@ -30,7 +30,6 @@ type ReadFindings struct {
 // Name 返回工具名 "read_findings"。
 func (a *ReadFindings) Name() string { return "read_findings" }
 
-// Description 提供给 LLM 的简介。
 func (a *ReadFindings) Description() string {
 	return "列出「本次扫描」(engagement + host) 已有的全部 finding（id/severity/summary/created_at）。" +
 		"**写 finding 前必查**——同 host 同一漏洞别重复写。" +

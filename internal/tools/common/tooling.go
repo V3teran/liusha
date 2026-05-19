@@ -32,7 +32,6 @@ type ReadToolingSkill struct {
 // Name 返回工具名 "read_tooling_skill"。
 func (a *ReadToolingSkill) Name() string { return "read_tooling_skill" }
 
-// Description 给 LLM 看的简介。
 //
 // 设计要点：**禁止在 description 里举具体 name 例子**——
 // 实测 LLM 会把例子当成"系统支持"的可用 name 瞎调，污染 Progressive Disclosure 单一来源。

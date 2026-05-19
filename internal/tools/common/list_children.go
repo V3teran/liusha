@@ -18,7 +18,6 @@ type ListChildren struct {
 // Name 返回工具名 "list_children"。
 func (a ListChildren) Name() string { return "list_children" }
 
-// Description 提供给 LLM 的简介。
 func (a ListChildren) Description() string {
 	return "列出本父任务派的所有子任务状态（running/done/failed + 步数 + 失败原因）。" +
 		"\n\n【何时调】实在好奇子进度时调一次；**不要 polling**。" +

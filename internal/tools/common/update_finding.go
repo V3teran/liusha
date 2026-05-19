@@ -28,7 +28,6 @@ type UpdateFinding struct {
 // Name 返回工具名 "update_finding"。
 func (a *UpdateFinding) Name() string { return "update_finding" }
 
-// Description 提供给 LLM 的简介。
 func (a *UpdateFinding) Description() string {
 	return "更新一条已有 finding（保留 created_at 首次发现时间，只覆盖你传的字段）。" +
 		"**何时用**：read_findings 看到等价 finding，**但你的新发现更有价值**——" +

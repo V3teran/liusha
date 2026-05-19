@@ -28,10 +28,9 @@ type WriteFinding struct {
 	FlowID       int64  // 触发本次 hunter 的 http_flow.id；0 表示不关联
 }
 
-// Name 返回动作名 "finding"。
+// Name 返回工具名 "write_finding"。
 func (a *WriteFinding) Name() string { return "write_finding" }
 
-// Description 提供给 LLM 的简介。
 //
 // 设计分工：
 //   - description（本函数）：格式约束（summary 单行 ≤500 / evidence jsonb / severity 取值）+ 一行质量红线提示

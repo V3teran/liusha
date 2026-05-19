@@ -28,7 +28,6 @@ type ReadLessons struct {
 // Name 返回工具名 "read_lessons"。
 func (a *ReadLessons) Name() string { return "read_lessons" }
 
-// Description 提供给 LLM 的简介。
 func (a *ReadLessons) Description() string {
 	return "列出本 task 目标 host 的全部历史经验（lesson 表，跨 engagement 累积）。" +
 		"host 来源：passive 是真实 HTTP host；active 是 brief 抽取的 URL host（抽不到时回退 eid，lesson 跨 task 复用失效）。" +

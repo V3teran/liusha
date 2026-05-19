@@ -25,7 +25,6 @@ type WriteRelation struct {
 // Name 返回工具名 "write_relation"。
 func (a *WriteRelation) Name() string { return "write_relation" }
 
-// Description 提供给 LLM 的简介。
 func (a *WriteRelation) Description() string {
 	return "显式声明 finding A 是 finding B 的前提（enables 关系，**跨流量组合漏洞**——1+1≥2）。" +
 		"**何时用**：当前流量挖到的漏洞 + read_findings 看到的他人流量历史 finding，" +

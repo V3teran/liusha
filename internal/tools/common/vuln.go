@@ -32,7 +32,6 @@ type ReadVulnSkill struct {
 // Name 返回工具名 "read_vuln_skill"。
 func (a *ReadVulnSkill) Name() string { return "read_vuln_skill" }
 
-// Description 给 LLM 看的简介。
 //
 // 设计要点：**禁止在 description 里举具体 name 例子**（如 sqli/xss/ssrf）——
 // 实测 LLM 会把例子当成"可用 name"瞎调（5/8 agent_run 中招），污染 Progressive Disclosure 单一来源。

@@ -23,7 +23,6 @@ type ReadCredentials struct {
 // Name 返回工具名 "read_credentials"。
 func (a *ReadCredentials) Name() string { return "read_credentials" }
 
-// Description 提供给 LLM 的简介。
 func (a *ReadCredentials) Description() string {
 	return "拉取本 task 目标 host 的全部预录入真实身份（含 cookie/token/body 字段值，可直接拼请求）。" +
 		"**何时用**：流量请求带 cookie/token/Authorization 等认证字段，且你想用其他身份重放（测越权、" +

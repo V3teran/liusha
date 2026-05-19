@@ -29,7 +29,6 @@ type WriteLesson struct {
 // Name 返回工具名 "write_lesson"。
 func (a *WriteLesson) Name() string { return "write_lesson" }
 
-// Description 提供给 LLM 的简介。
 func (a *WriteLesson) Description() string {
 	return "写一条「跨 engagement 长期经验」到 lesson 库" +
 		"（按 host 永久累积，下次扫同一 host 自动注入 user prompt；同 content_hash 自动 dedup）。" +

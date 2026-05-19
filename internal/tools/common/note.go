@@ -28,7 +28,6 @@ type ReadNotes struct {
 // Name 返回工具名 "read_notes"。
 func (a *ReadNotes) Name() string { return "read_notes" }
 
-// Description 提供给 LLM 的简介。
 func (a *ReadNotes) Description() string {
 	return "读取本次扫描（engagement）共享笔记板——与同 host 其他 hunter task 共享的过程性事实。" +
 		"读到的内容包括：目标实例当前怪癖、扫描中发现的小惊喜、失败死路。" +
@@ -60,7 +59,6 @@ type WriteNote struct {
 // Name 返回工具名 "write_note"。
 func (a *WriteNote) Name() string { return "write_note" }
 
-// Description 提供给 LLM 的简介。
 //
 // 设计意图：明确区分 finding / note / lesson 三类记忆——
 //   - finding（结构化漏洞 PoC）

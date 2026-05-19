@@ -87,10 +87,9 @@ func (a *RunCommand) effectiveTailBytes() int {
 	return fallbackRunTailBytes
 }
 
-// Name 返回动作名 "run_command"。
+// Name 返回工具名 "run_command"。
 func (a *RunCommand) Name() string { return "run_command" }
 
-// Description 给 LLM 看的简介。
 func (a *RunCommand) Description() string {
 	return "在沙箱容器里跑一条 shell 命令（sh -c <command>），用于 LLM 自决策的工具调用。" +
 		"command 走 sh 解析（支持 |、&&、>、<、$()）；输出 stdout/stderr 各截 ~8KB tail。" +
