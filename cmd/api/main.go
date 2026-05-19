@@ -14,6 +14,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/V3teran/liusha/internal/activescan"
 	"github.com/V3teran/liusha/internal/agentrun"
 	"github.com/V3teran/liusha/internal/config"
 	"github.com/V3teran/liusha/internal/credential"
@@ -56,6 +57,7 @@ func main() {
 
 	credAPI := credential.NewRedis(rdb, cfg.Credential.RedisKeyPrefix)
 	engStore := engagement.NewStore(pool)
+	activeScanStore := activescan.NewStore(pool) // 双轨期新表 store
 	findStore := finding.NewStore(pool)
 	projector := &graphview.Projector{Findings: findStore, Engagements: engStore}
 	invocationStore := llminvocation.NewStoreWithConfig(pool, cfg.LLM.Invocation)
@@ -66,7 +68,7 @@ func main() {
 	taskStore := agentrun.NewStore(pool).WithCounter(engStore)
 	enq := worker.NewClient(asynq.RedisClientOpt{Addr: os.Getenv("LIUSHA_REDIS_ADDR")})
 	defer enq.Close()
-	activeAdapter := &activeScanAdapter{engs: engStore, tasks: taskStore, enq: enq}
+	activeAdapter := &activeScanAdapter{engs: engStore, activeScans: activeScanStore, tasks: taskStore, enq: enq}
 
 	// 监听地址：优先 ENV（运维临时切换）→ yaml。
 	listenAddr := envx.OrDefault("LIUSHA_API_ADDR", cfg.API.ListenAddr)
@@ -107,7 +109,6 @@ func main() {
 	}
 	logger.Info().Msg("api stopped")
 }
-
 
 // engagementAPIAdapter 把 *engagement.Store 适配到 httpapi.EngagementsAPI 窄接口。
 //
@@ -169,10 +170,13 @@ func (a engagementAPIAdapter) List(ctx context.Context, limit int) ([]httpapi.En
 // 任一步失败都不留中间状态（前面失败直接返错；engagement 已建但 enqueue 失败会留
 // active engagement，由用户手动 abort 或后续 sweeper——保持简单不上事务，与
 // passive 模式 ingestor.enqueueMain 一致语义）。
+// 双轨期：engs（旧 unified）与 activeScans（新 polymorphic）并存。
+// CreateActiveScan 同时建两边表行；新行 ID 作为 agent_run.owner_id 落库。
 type activeScanAdapter struct {
-	engs  *engagement.Store
-	tasks *agentrun.Store
-	enq   *worker.Client
+	engs        *engagement.Store
+	activeScans *activescan.Store
+	tasks       *agentrun.Store
+	enq         *worker.Client
 }
 
 func (a *activeScanAdapter) CreateActiveScan(ctx context.Context, brief string) (string, string, error) {
@@ -186,6 +190,13 @@ func (a *activeScanAdapter) CreateActiveScan(ctx context.Context, brief string) 
 	if err != nil {
 		return "", "", err
 	}
+	// 双轨：新 active_scan 表行；target_host 留空（暂不在 API 层 parse brief）。
+	// 失败时 silent fallback——双轨期允许部分 active 缺失新 owner_id，旧 engagement 仍生效。
+	// adapter 无 logger 注入，故不打日志；commit B5 切读时该路径已转主，失败应升级 fail-fast。
+	activeScanID := ""
+	if sc, asErr := a.activeScans.Create(ctx, brief, ""); asErr == nil {
+		activeScanID = sc.ID
+	}
 	payloadInput, err := json.Marshal(map[string]any{
 		"mode":       "active",
 		"entrypoint": json.RawMessage(body),
@@ -196,6 +207,8 @@ func (a *activeScanAdapter) CreateActiveScan(ctx context.Context, brief string) 
 
 	tid, err := a.tasks.Create(ctx, agentrun.NewParams{
 		EngagementID: eng.ID,
+		OwnerType:    "active_scan", // 双轨：空 activeScanID 由 store NULLIF 折成 NULL
+		OwnerID:      activeScanID,
 		Role:         string(worker.RoleHunter),
 		Input:        payloadInput,
 	})
