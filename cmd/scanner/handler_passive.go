@@ -61,10 +61,8 @@ func (h handler) handlePassive(ctx context.Context, p worker.Payload, entrypoint
 	)
 	// hostForFetchers 提前定义：reviewer 需要 host 做 notes 范围隔离。
 	hostForFetchers := ep.Host
-	// notes key 保留 engagement_id：与 BuilderParams.EngagementID（finding 表 FK 要求真值）一致，
-	// 避免 reviewer notes 切到 owner_id 与 ReadNote/WriteNote tools（用 BuilderParams.EngagementID）
-	// 切到 engagement_id 不同步。B5+ 完成 finding FK 解耦后再统一改 owner_id。
-	reviewer := react.NewLLMReviewer(reviewLLMGen, h.notes, eid, hostForFetchers)
+	// notes key 用 owner_id（与 BuilderParams.EngagementID 一致；0040 FK DROP 后 finding 无 FK 约束）
+	reviewer := react.NewLLMReviewer(reviewLLMGen, h.notes, oid, hostForFetchers)
 	reviewer.ArgsTruncate = h.cfg.React.ReviewerArgsTruncate
 	reviewer.ObsTruncate = h.cfg.React.ReviewerObsTruncate
 	// FlowSummary 约束 reviewer 只评本流量任务，避免跨流量推方向
@@ -130,8 +128,8 @@ func (h handler) handlePassive(ctx context.Context, p worker.Payload, entrypoint
 	// passive 父不开 spawn（M1：skill.go SpawnerFactory 守卫 Mode=="active"），
 	// 无 parentRegistries Store / 无子 goroutine，不需要 H3 的 cancel+WaitAll。
 	cfg, err := h.hunterBuilder(ctx, skill.BuilderParams{
-		EngagementID:    eid, // 保持 engagement.id 真值（finding 表 engagement_id 仍有 FK）
-		OwnerType:       ot,  // 双轨期透传；空 = 旧路径
+		EngagementID:    oid, // 0040 FK DROP 后字段语义=notes/lesson key + finding.engagement_id 冗余列；用 owner_id 让切分一致
+		OwnerType:       ot,
 		OwnerID:         oid,
 		TaskID:          tid,
 		Mode:            "passive",

@@ -69,9 +69,8 @@ func (h handler) handleActive(ctx context.Context, p worker.Payload, entrypoint 
 		llm.CallMeta{TaskID: &tid, EngagementID: &eid, OwnerType: otPtr, OwnerID: oidPtr, RouteKey: "reviewer"},
 		h.pricing,
 	)
-	// notes key 保留 engagement_id：与 BuilderParams.EngagementID（finding FK 要求真值）一致。
-	// B5+ 完成 finding FK 解耦后再统一切到 owner_id。
-	reviewer := react.NewLLMReviewer(reviewLLMGen, h.notes, eid, virtualHost)
+	// notes key 用 owner_id（与 BuilderParams.EngagementID 一致；0040 FK DROP 后 finding 无 FK 约束）
+	reviewer := react.NewLLMReviewer(reviewLLMGen, h.notes, oid, virtualHost)
 	reviewer.ArgsTruncate = h.cfg.React.ReviewerArgsTruncate
 	reviewer.ObsTruncate = h.cfg.React.ReviewerObsTruncate
 	reviewer.FlowSummary = "ACTIVE eid=" + eid
@@ -136,8 +135,8 @@ func (h handler) handleActive(ctx context.Context, p worker.Payload, entrypoint 
 	}()
 
 	cfg, err := h.hunterBuilder(parentCtx, skill.BuilderParams{
-		EngagementID: eid, // 保持 engagement.id 真值（finding 表 engagement_id 仍有 FK）
-		OwnerType:    ot,  // 双轨期透传；空 = 旧路径
+		EngagementID: oid, // 0040 FK DROP 后字段语义=notes/lesson key + finding.engagement_id 冗余列；用 owner_id 让切分一致
+		OwnerType:    ot,
 		OwnerID:      oid,
 		TaskID:       tid,
 		ParentTaskID: p.ParentTaskID, // active asynq 入口父任务总是空；非空表示由 subtask 包内 ActiveSpawner 在父 goroutine 内派的子
