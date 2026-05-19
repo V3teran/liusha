@@ -10,38 +10,37 @@ import (
 	"time"
 
 	"github.com/V3teran/liusha/internal/dbtest"
-	"github.com/V3teran/liusha/internal/engagement"
+	"github.com/V3teran/liusha/internal/passivesession"
 )
 
-// setup 启动 Postgres 容器、懒建 engagement，返回 (Store, engagementID)。
+// setup 启动 Postgres 容器、建 passive_session，返回 (Store, passiveSessionID)。
 // maxReqBody=1024 / maxRespBody=2048 用于覆盖截断测试。
 func setup(t *testing.T) (*Store, string) {
 	t.Helper()
 	pool := dbtest.NewPgPool(t)
-	es := engagement.NewStore(pool)
-	e, err := es.LookupOrCreatePassiveSession(context.Background(), 24*time.Hour)
+	ps := passivesession.NewStore(pool)
+	sess, err := ps.LookupOrCreate(context.Background(), "test.example.com", 24*time.Hour)
 	if err != nil {
-		t.Fatalf("lookup engagement: %v", err)
+		t.Fatalf("create passive_session: %v", err)
 	}
-	return NewStore(pool, 1024, 2048), e.ID
+	return NewStore(pool, 1024, 2048), sess.ID
 }
 
-// TestStore_Append_TruncatesLargeBody 验证：超过 max 的 body 被截断到精确 max 字节，
-// truncated 标志位置 true，bytea 字段往返一致。
+// TestStore_Append_TruncatesLargeBody 验证：超过 max 的 body 被截断到精确 max 字节。
 func TestStore_Append_TruncatesLargeBody(t *testing.T) {
 	ctx := context.Background()
-	s, eid := setup(t)
+	s, sid := setup(t)
 
 	big := bytes.Repeat([]byte("x"), 5000)
 	id, err := s.Append(ctx, Flow{
-		EngagementID:    eid,
-		Method:          "POST",
-		URL:             "/api/x",
-		RequestHeaders:  json.RawMessage(`{"x":"1"}`),
-		RequestBody:     big,
-		StatusCode:      200,
-		ResponseHeaders: json.RawMessage(`{"y":"2"}`),
-		ResponseBody:    big,
+		PassiveSessionID: sid,
+		Method:           "POST",
+		URL:              "/api/x",
+		RequestHeaders:   json.RawMessage(`{"x":"1"}`),
+		RequestBody:      big,
+		StatusCode:       200,
+		ResponseHeaders:  json.RawMessage(`{"y":"2"}`),
+		ResponseBody:     big,
 	})
 	if err != nil {
 		t.Fatalf("append: %v", err)
@@ -74,15 +73,15 @@ func TestStore_Append_TruncatesLargeBody(t *testing.T) {
 // TestStore_Append_SmallBodyNoTruncation 验证：未达 max 的 body 原样保留。
 func TestStore_Append_SmallBodyNoTruncation(t *testing.T) {
 	ctx := context.Background()
-	s, eid := setup(t)
+	s, sid := setup(t)
 
 	small := []byte("hello")
 	id, err := s.Append(ctx, Flow{
-		EngagementID: eid,
-		Method:       "GET",
-		URL:          "/health",
-		RequestBody:  small,
-		StatusCode:   204,
+		PassiveSessionID: sid,
+		Method:           "GET",
+		URL:              "/health",
+		RequestBody:      small,
+		StatusCode:       204,
 	})
 	if err != nil {
 		t.Fatalf("append: %v", err)
@@ -100,19 +99,20 @@ func TestStore_Append_SmallBodyNoTruncation(t *testing.T) {
 // 且批内大 body 同样按 max 截断。
 func TestStore_AppendBatch_CopyFrom(t *testing.T) {
 	ctx := context.Background()
-	s, eid := setup(t)
+	s, sid := setup(t)
 
 	big := bytes.Repeat([]byte("y"), 3000)
 	flows := []Flow{
-		{EngagementID: eid, Method: "GET", URL: "/a", StatusCode: 200, RequestBody: []byte("a")},
-		{EngagementID: eid, Method: "GET", URL: "/b", StatusCode: 404, ResponseBody: big},
-		{EngagementID: eid, Method: "POST", URL: "/c", StatusCode: 500, RequestBody: big, ResponseBody: big},
+		{PassiveSessionID: sid, Method: "GET", URL: "/a", StatusCode: 200, RequestBody: []byte("a")},
+		{PassiveSessionID: sid, Method: "GET", URL: "/b", StatusCode: 404, ResponseBody: big},
+		{PassiveSessionID: sid, Method: "POST", URL: "/c", StatusCode: 500, RequestBody: big, ResponseBody: big},
 	}
 	if err := s.AppendBatch(ctx, flows); err != nil {
 		t.Fatalf("append batch: %v", err)
 	}
 
-	list, err := s.ListByEngagement(ctx, eid, 100, 0)
+	// ListByEngagement SQL 通过 OR passive_session_id 命中（commit B5.4 兼容查询）。
+	list, err := s.ListByEngagement(ctx, sid, 100, 0)
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
@@ -120,8 +120,6 @@ func TestStore_AppendBatch_CopyFrom(t *testing.T) {
 		t.Fatalf("expect 3 rows, got %d", len(list))
 	}
 
-	// summary 不含 body，按 GetByID 拿 body 做 len 校验间接验证截断。
-	// /a 两侧都小（reqBody 1）；/b response 截到 2048；/c req 截到 1024 + resp 截到 2048
 	wantBodyLen := map[string][2]int{
 		"/a": {1, 0},
 		"/b": {0, 2048},
@@ -160,23 +158,23 @@ func TestStore_AppendBatch_Empty(t *testing.T) {
 // TestStore_ListByEngagement_Pagination 验证：limit / offset 起作用，按 ts 升序。
 func TestStore_ListByEngagement_Pagination(t *testing.T) {
 	ctx := context.Background()
-	s, eid := setup(t)
+	s, sid := setup(t)
 
 	urls := []string{"/p1", "/p2", "/p3", "/p4", "/p5"}
 	for _, u := range urls {
-		if _, err := s.Append(ctx, Flow{EngagementID: eid, Method: "GET", URL: u, StatusCode: 200}); err != nil {
+		if _, err := s.Append(ctx, Flow{PassiveSessionID: sid, Method: "GET", URL: u, StatusCode: 200}); err != nil {
 			t.Fatalf("seed: %v", err)
 		}
 	}
 
-	page1, err := s.ListByEngagement(ctx, eid, 2, 0)
+	page1, err := s.ListByEngagement(ctx, sid, 2, 0)
 	if err != nil {
 		t.Fatalf("page1: %v", err)
 	}
 	if len(page1) != 2 || page1[0].URL != "/p1" || page1[1].URL != "/p2" {
 		t.Fatalf("page1 unexpected: %+v", page1)
 	}
-	page2, err := s.ListByEngagement(ctx, eid, 2, 2)
+	page2, err := s.ListByEngagement(ctx, sid, 2, 2)
 	if err != nil {
 		t.Fatalf("page2: %v", err)
 	}

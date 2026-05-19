@@ -9,30 +9,31 @@ import (
 	"time"
 
 	"github.com/V3teran/liusha/internal/dbtest"
-	"github.com/V3teran/liusha/internal/engagement"
+	"github.com/V3teran/liusha/internal/passivesession"
 )
 
-// setup 启动一次性 Postgres，懒创建 engagement，返回 (Store, engagementID)。
-func setup(t *testing.T) (*Store, string) {
+// setup 启动一次性 Postgres，建 passive_session，返回 (Store, ownerType, ownerID)。
+func setup(t *testing.T) (*Store, string, string) {
 	t.Helper()
 	pool := dbtest.NewPgPool(t)
-	es := engagement.NewStore(pool)
-	e, err := es.LookupOrCreatePassiveSession(context.Background(), 24*time.Hour)
+	ps := passivesession.NewStore(pool)
+	sess, err := ps.LookupOrCreate(context.Background(), "test.example.com", 24*time.Hour)
 	if err != nil {
-		t.Fatalf("lookup engagement: %v", err)
+		t.Fatalf("create passive_session: %v", err)
 	}
-	return NewStore(pool), e.ID
+	return NewStore(pool), "passive_session", sess.ID
 }
 
 // TestStore_CreateThenComplete 验证：pending → running → done 完整生命周期。
 func TestStore_CreateThenComplete(t *testing.T) {
 	ctx := context.Background()
-	s, eid := setup(t)
+	s, ot, oid := setup(t)
 
 	id, err := s.Create(ctx, NewParams{
-		EngagementID: eid,
-		Role:         "sniffer",
-		Input:        json.RawMessage(`{"window_id":"w1"}`),
+		OwnerType: ot,
+		OwnerID:   oid,
+		Role:      "sniffer",
+		Input:     json.RawMessage(`{"window_id":"w1"}`),
 	})
 	if err != nil {
 		t.Fatalf("create: %v", err)
@@ -73,8 +74,8 @@ func TestStore_CreateThenComplete(t *testing.T) {
 // TestStore_SetError 验证：error 终态会把错误信息序列化进 result。
 func TestStore_SetError(t *testing.T) {
 	ctx := context.Background()
-	s, eid := setup(t)
-	id, err := s.Create(ctx, NewParams{EngagementID: eid, Role: "sqli"})
+	s, ot, oid := setup(t)
+	id, err := s.Create(ctx, NewParams{OwnerType: ot, OwnerID: oid, Role: "sqli"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -98,8 +99,8 @@ func TestStore_SetError(t *testing.T) {
 // TestStore_SetAborted 验证：aborted 终态可达。
 func TestStore_SetAborted(t *testing.T) {
 	ctx := context.Background()
-	s, eid := setup(t)
-	id, err := s.Create(ctx, NewParams{EngagementID: eid, Role: "sniffer"})
+	s, ot, oid := setup(t)
+	id, err := s.Create(ctx, NewParams{OwnerType: ot, OwnerID: oid, Role: "sniffer"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -115,8 +116,8 @@ func TestStore_SetAborted(t *testing.T) {
 // TestStore_TerminalIsSticky 验证：done/error/aborted 终态后再 SetRunning 应该报错。
 func TestStore_TerminalIsSticky(t *testing.T) {
 	ctx := context.Background()
-	s, eid := setup(t)
-	id, err := s.Create(ctx, NewParams{EngagementID: eid, Role: "sniffer"})
+	s, ot, oid := setup(t)
+	id, err := s.Create(ctx, NewParams{OwnerType: ot, OwnerID: oid, Role: "sniffer"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -131,17 +132,18 @@ func TestStore_TerminalIsSticky(t *testing.T) {
 // TestStore_CreateWithParent 验证：NewParams.ParentID 写入 + GetByID 读出往返一致。
 func TestStore_CreateWithParent(t *testing.T) {
 	ctx := context.Background()
-	s, eid := setup(t)
+	s, ot, oid := setup(t)
 
-	parentID, err := s.Create(ctx, NewParams{EngagementID: eid, Role: "hunter"})
+	parentID, err := s.Create(ctx, NewParams{OwnerType: ot, OwnerID: oid, Role: "hunter"})
 	if err != nil {
 		t.Fatalf("create parent: %v", err)
 	}
 
 	childID, err := s.Create(ctx, NewParams{
-		EngagementID: eid,
-		Role:         "hunter",
-		ParentID:     parentID,
+		OwnerType: ot,
+		OwnerID:   oid,
+		Role:      "hunter",
+		ParentID:  parentID,
 	})
 	if err != nil {
 		t.Fatalf("create child: %v", err)
