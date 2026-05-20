@@ -40,7 +40,7 @@ func runActiveProfiles(ctx context.Context, profs []activeProfile, apiBase, apiK
 		}
 		logger.Info().
 			Str("profile", ap.name).
-			Str("engagement_id", eid).
+			Str("owner_id", eid).
 			Str("agent_run_id", taskID).
 			Msg("active scan dispatched")
 
@@ -177,7 +177,7 @@ func runAllUnified(ctx context.Context, plans []profilePlan, proxyHostPort, apiB
 			return fmt.Errorf("create engagement for host %s: %w", plan.host, err)
 		}
 		eidByHost[plan.host] = eid
-		logger.Info().Str("host", plan.host).Str("engagement_id", eid).Msg("engagement ready")
+		logger.Info().Str("host", plan.host).Str("owner_id", eid).Msg("engagement ready")
 	}
 
 	// 2. 统计 sum(minFindings) 与 total sample 数

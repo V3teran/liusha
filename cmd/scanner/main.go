@@ -403,7 +403,7 @@ var briefHostRe = regexp.MustCompile(`https?://([^/\s]+)`)
 
 // extractHostFromBrief 从 active brief 抽 URL host 当 (engagement, host) 切分键。
 //
-// 抽不到时回退 fallback（engagement_id 兜底），此时 lesson 跨 task 复用失效。
+// 抽不到时回退 fallback（owner_id 兜底），此时 lesson 跨 task 复用失效。
 // 这是按 brief 自然语言的弱契约设计：让 active 任务能自动按真实站点身份归档
 // note/finding/lesson，同时不破坏"自然语言 brief"的简单 API。
 func extractHostFromBrief(brief, fallback string) string {

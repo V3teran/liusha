@@ -139,7 +139,7 @@ func (a engagementAPIAdapter) Abort(ctx context.Context, id string) error {
 	return fmt.Errorf("session %s not found in passive_session or active_scan", id)
 }
 
-// EnsurePassiveSession 历史路径：mitmproxy 启动期预热 passive session 拿 engagement_id。
+// EnsurePassiveSession 历史路径：mitmproxy 启动期预热 passive session 拿 owner_id。
 // 新模型下 passive_session 按 host 由 ingestor 流量入口自创建——本 API 仅作"代理就绪"
 // 信号返回空 ID（客户端可忽略此值）。保留 endpoint 兼容旧 client 不报错。
 func (a engagementAPIAdapter) EnsurePassiveSession(ctx context.Context) (string, error) {
