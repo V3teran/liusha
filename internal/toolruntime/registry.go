@@ -102,7 +102,20 @@ func (r *Registry) Execute(ctx context.Context, name string, args json.RawMessag
 		a, ok := r.actions[name]
 		r.lock.RUnlock()
 		if !ok {
-			return Result{}, fmt.Errorf("action 未注册: %s", name)
+			// 帮 LLM 自纠错：列已注册工具 + 提示沙箱 CLI 走 run_command。
+			// hunter LLM 偶尔幻觉直接调 sandbox 工具名（如 sqlmap / browser-use-tab），
+			// 这里给一句友好提示让它下一步换正确工具。
+			r.lock.RLock()
+			names := make([]string, 0, len(r.actions))
+			for n := range r.actions {
+				names = append(names, n)
+			}
+			r.lock.RUnlock()
+			return Result{}, fmt.Errorf(
+				"action 未注册: %q — 沙箱 CLI（如 sqlmap / nuclei / browser-use / browser-use-tab）必须通过 run_command 调用，"+
+					"格式 run_command{tool=\"%s\", args=\"...\"}。已注册工具：%v",
+				name, name, names,
+			)
 		}
 		return a.Execute(ctx, args)
 	}
