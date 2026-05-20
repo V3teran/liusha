@@ -20,7 +20,7 @@ type NoteStore interface {
 // 命名与 read_findings / read_lessons / read_credentials 等一致用复数（读多条 note）。
 type ReadNotes struct {
 	Store        NoteStore
-	EngagementID string
+	OwnerID string
 	Host         string
 	TaskID       string
 }
@@ -41,7 +41,7 @@ func (a *ReadNotes) ParametersJSON() json.RawMessage {
 
 // Execute 调 Store.ReadNotes 并返回字节流。
 func (a *ReadNotes) Execute(ctx context.Context, _ json.RawMessage) (toolfx.Result, error) {
-	state, err := a.Store.ReadNotes(ctx, a.EngagementID, a.Host)
+	state, err := a.Store.ReadNotes(ctx, a.OwnerID, a.Host)
 	if err != nil {
 		return toolfx.Result{}, fmt.Errorf("读取 note 失败: %w", err)
 	}
@@ -51,7 +51,7 @@ func (a *ReadNotes) Execute(ctx context.Context, _ json.RawMessage) (toolfx.Resu
 // WriteNote — 写一条短期记忆到 (engagement, host) notes 共享黑板（纯文本追加）。
 type WriteNote struct {
 	Store        NoteStore
-	EngagementID string
+	OwnerID string
 	Host         string
 	TaskID       string
 }
@@ -113,7 +113,7 @@ func (a *WriteNote) Execute(ctx context.Context, args json.RawMessage) (toolfx.R
 		"agent_run_id": a.TaskID,
 	})
 
-	if err := a.Store.AppendNote(ctx, a.EngagementID, a.Host, entry); err != nil {
+	if err := a.Store.AppendNote(ctx, a.OwnerID, a.Host, entry); err != nil {
 		return toolfx.Result{}, fmt.Errorf("追加 note 失败: %w", err)
 	}
 	return toolfx.Result{Output: json.RawMessage(`{"ok":true}`)}, nil

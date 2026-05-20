@@ -21,7 +21,7 @@ type findingsLister interface {
 }
 
 // ReadFindings — 列出「本次扫描」(owner + host) 已有的全部 finding（dedup 参考；与 write_finding 配对）。
-// 双轨切读：按 (OwnerType, OwnerID) 过滤；commit B5.2 起替代 EngagementID。
+// 双轨切读：按 (OwnerType, OwnerID) 过滤；commit B5.2 起替代 owner_id。
 type ReadFindings struct {
 	Store     findingsLister
 	OwnerType string // 'passive_session' / 'active_scan'；builder 注入
@@ -39,7 +39,7 @@ func (a *ReadFindings) Description() string {
 		"返回按 created_at desc 排序的列表。"
 }
 
-// ParametersJSON 无入参（engagement_id + host 由 builder 注入）。
+// ParametersJSON 无入参（owner_id + host 由 builder 注入）。
 func (a *ReadFindings) ParametersJSON() json.RawMessage {
 	return json.RawMessage(`{"type":"object","properties":{}}`)
 }

@@ -19,7 +19,7 @@ type relationsLister interface {
 // ReadRelations — 列出本 engagement 内所有 finding 之间的 enables 边（图拓扑；与 write_relation 配对）。
 type ReadRelations struct {
 	Store        relationsLister
-	EngagementID string // builder 注入；空时 Execute 报错
+	OwnerID string // builder 注入；空时 Execute 报错
 }
 
 // Name 返回工具名 "read_relations"。
@@ -31,7 +31,7 @@ func (a *ReadRelations) Description() string {
 		"或写新 enables 边前查重避免冗余。返回 [{from, to, reason, created_at}]。"
 }
 
-// ParametersJSON 无入参（engagement_id 由 builder 注入）。
+// ParametersJSON 无入参（owner_id 由 builder 注入）。
 func (a *ReadRelations) ParametersJSON() json.RawMessage {
 	return json.RawMessage(`{"type":"object","properties":{}}`)
 }
@@ -49,11 +49,11 @@ func (a *ReadRelations) Execute(ctx context.Context, _ json.RawMessage) (toolfx.
 	if a.Store == nil {
 		return toolfx.Result{}, errors.New("read_relations: Store nil")
 	}
-	if a.EngagementID == "" {
-		return toolfx.Result{}, errors.New("read_relations: EngagementID 必填（builder 注入失败）")
+	if a.OwnerID == "" {
+		return toolfx.Result{}, errors.New("read_relations: OwnerID 必填（builder 注入失败）")
 	}
 
-	rs, err := a.Store.ListRelationsByEngagement(ctx, a.EngagementID)
+	rs, err := a.Store.ListRelationsByEngagement(ctx, a.OwnerID)
 	if err != nil {
 		return toolfx.Result{}, err
 	}
