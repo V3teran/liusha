@@ -34,7 +34,7 @@ func (s *Store) Create(ctx context.Context, p NewParams) (string, error) {
 	}
 	var id string
 	err := s.pool.QueryRow(ctx, `
-		INSERT INTO agent_run (owner_type, owner_id, parent_id, role, input)
+		INSERT INTO agent_task (owner_type, owner_id, parent_id, role, input)
 		VALUES ($1, $2::uuid, NULLIF($3, '')::uuid, $4, $5)
 		RETURNING id`,
 		p.OwnerType, p.OwnerID, p.ParentID, p.Role,
@@ -49,7 +49,7 @@ func (s *Store) Create(ctx context.Context, p NewParams) (string, error) {
 // SetRunning 把 pending 任务推进到 running；非 pending 视为非法转换。
 func (s *Store) SetRunning(ctx context.Context, id string) error {
 	tag, err := s.pool.Exec(ctx, `
-		UPDATE agent_run SET status='running', updated_at=now()
+		UPDATE agent_task SET status='running', updated_at=now()
 		WHERE id=$1 AND status='pending'`, id)
 	if err != nil {
 		return fmt.Errorf("set running %s: %w", id, err)
@@ -66,7 +66,7 @@ func (s *Store) SetDone(ctx context.Context, id string, result json.RawMessage) 
 		result = json.RawMessage("{}")
 	}
 	tag, err := s.pool.Exec(ctx, `
-		UPDATE agent_run SET status='done', result=$1, updated_at=now()
+		UPDATE agent_task SET status='done', result=$1, updated_at=now()
 		WHERE id=$2 AND status IN ('pending','running')`, []byte(result), id)
 	if err != nil {
 		return fmt.Errorf("set done %s: %w", id, err)
@@ -81,7 +81,7 @@ func (s *Store) SetDone(ctx context.Context, id string, result json.RawMessage) 
 func (s *Store) SetError(ctx context.Context, id string, errMsg string) error {
 	body, _ := json.Marshal(map[string]string{"error": errMsg})
 	tag, err := s.pool.Exec(ctx, `
-		UPDATE agent_run SET status='error', result=$1, updated_at=now()
+		UPDATE agent_task SET status='error', result=$1, updated_at=now()
 		WHERE id=$2 AND status IN ('pending','running')`, body, id)
 	if err != nil {
 		return fmt.Errorf("set error %s: %w", id, err)
@@ -95,7 +95,7 @@ func (s *Store) SetError(ctx context.Context, id string, errMsg string) error {
 // SetAborted 把 pending|running 任务推进到 aborted（用于 owner abort 级联）。
 func (s *Store) SetAborted(ctx context.Context, id string) error {
 	tag, err := s.pool.Exec(ctx, `
-		UPDATE agent_run SET status='aborted', updated_at=now()
+		UPDATE agent_task SET status='aborted', updated_at=now()
 		WHERE id=$1 AND status IN ('pending','running')`, id)
 	if err != nil {
 		return fmt.Errorf("set aborted %s: %w", id, err)
@@ -108,7 +108,7 @@ func (s *Store) SetAborted(ctx context.Context, id string) error {
 
 // GetByID 按主键读取任务行。
 func (s *Store) GetByID(ctx context.Context, id string) (ReactRun, error) {
-	row := s.pool.QueryRow(ctx, `SELECT `+colsSelect+` FROM agent_run WHERE id=$1`, id)
+	row := s.pool.QueryRow(ctx, `SELECT `+colsSelect+` FROM agent_task WHERE id=$1`, id)
 	var t ReactRun
 	if err := scanTask(row, &t); err != nil {
 		return ReactRun{}, fmt.Errorf("get task %s: %w", id, err)
@@ -120,7 +120,7 @@ func (s *Store) GetByID(ctx context.Context, id string) (ReactRun, error) {
 func (s *Store) ListByOwnerID(ctx context.Context, ownerID string, limit int) ([]ReactRun, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT `+colsSelect+`
-		FROM agent_run
+		FROM agent_task
 		WHERE owner_id=$1::uuid
 		ORDER BY created_at ASC
 		LIMIT $2`, ownerID, limit)
@@ -147,7 +147,7 @@ func (s *Store) ListByOwnerID(ctx context.Context, ownerID string, limit int) ([
 func (s *Store) CountInflightByOwnerID(ctx context.Context, ownerID string) (int, error) {
 	var n int
 	err := s.pool.QueryRow(ctx, `
-		SELECT count(*) FROM agent_run
+		SELECT count(*) FROM agent_task
 		WHERE owner_id=$1::uuid AND status IN ('pending','running')`, ownerID).Scan(&n)
 	if err != nil {
 		return 0, fmt.Errorf("count inflight by owner_id: %w", err)
@@ -160,7 +160,7 @@ func (s *Store) CountInflightByOwnerID(ctx context.Context, ownerID string) (int
 func (s *Store) ListByOwner(ctx context.Context, ownerType, ownerID string, limit int) ([]ReactRun, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT `+colsSelect+`
-		FROM agent_run
+		FROM agent_task
 		WHERE owner_type=$1 AND owner_id=$2::uuid
 		ORDER BY created_at ASC
 		LIMIT $3`, ownerType, ownerID, limit)
@@ -187,7 +187,7 @@ func (s *Store) ListByOwner(ctx context.Context, ownerType, ownerID string, limi
 func (s *Store) CountInflightByOwner(ctx context.Context, ownerType, ownerID string) (int, error) {
 	var n int
 	err := s.pool.QueryRow(ctx, `
-		SELECT count(*) FROM agent_run
+		SELECT count(*) FROM agent_task
 		WHERE owner_type=$1 AND owner_id=$2::uuid AND status IN ('pending','running')`,
 		ownerType, ownerID).Scan(&n)
 	if err != nil {

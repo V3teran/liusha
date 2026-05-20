@@ -245,7 +245,7 @@ func (a *activeScanAdapter) CreateActiveScan(ctx context.Context, brief string) 
 		Input:     payloadInput,
 	})
 	if err != nil {
-		return "", "", fmt.Errorf("create agent_run: %w", err)
+		return "", "", fmt.Errorf("create agent_task: %w", err)
 	}
 
 	// active 父任务跑 ~4h，asynq 默认 retry 25 次 → 4 天死循环；且 retry 接管时

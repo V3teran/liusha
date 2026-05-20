@@ -29,7 +29,7 @@ const (
 	StatusError   Status = "error"
 )
 
-// ReactRun 是 agent_run 表行的 Go 表示。Result 在终态前为空 jsonb '{}'。
+// ReactRun 是 agent_task 表行的 Go 表示。Result 在终态前为空 jsonb '{}'。
 // ParentID 空表示独立/根任务；非空时指向父 agent_run.id（subtask swarm）。
 type ReactRun struct {
 	ID        string
