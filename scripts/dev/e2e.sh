@@ -54,17 +54,16 @@ fi
 echo ""
 echo "===== 2/6 清空 db / redis ====="
 
-# postgres：8 张业务表 TRUNCATE（schema 保留）。
-# 错误**不再静默**——TRUNCATE 任一表失败会立即 exit，避免旧 session / finding
-# 残留导致 e2e 跑在污染数据上（曾踩坑：finding_relation 表未建时 TRUNCATE 整体回滚，
-# 旧 session 被 LookupOrCreate 复用，agent_run_count 累积到 6）。
+# postgres：10 张业务表 TRUNCATE（schema 保留）。
+# 错误**不再静默**——TRUNCATE 任一表失败会立即 exit，避免旧 session / finding 残留。
 # finding_relation 排在 finding 之前防 FK 顺序问题（CASCADE 也兜底，显式列出更清晰）。
+# 0043 后表名 agent_task（旧 agent_run），0046 加 tool_invocation，0047 加 audit_log。
 if ! docker exec "$PG_CONTAINER" psql -U liusha -d liusha -c \
-    "TRUNCATE TABLE finding_relation, finding, lesson, llm_invocation, agent_run, http_flow, passive_session, active_scan CASCADE;"; then
+    "TRUNCATE TABLE finding_relation, finding, lesson, llm_invocation, tool_invocation, audit_log, agent_task, http_flow, passive_session, active_scan CASCADE;"; then
   echo "  ✗ postgres TRUNCATE 失败 — 看上面 psql 错误（常见原因：容器不在 / schema 不一致 / migrate 未跑）"
   exit 1
 fi
-echo "  ✓ postgres 7 张业务表已 truncate"
+echo "  ✓ postgres 10 张业务表已 truncate"
 
 # session-store/<owner_id>/ 是 ResultCompress middleware 的落盘目录；
 # truncate 后 DB 中 session 已不存在，对应子目录变孤儿，清掉避免无限堆积。
