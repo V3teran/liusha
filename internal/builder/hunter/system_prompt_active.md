@@ -43,7 +43,8 @@ browser-use + chromium 已在沙箱预装，直接 `browser-use open <url>` 即�
 - ≤ 1000 字自然语言："深挖 [子目标范围]，已知 [关键背景]"
 - 子继承本 host，**不要重复站点 URL**（host 自动注入）
 - 子能读本 host 的 note / lesson / finding（黑板共享），**不要复制 context**
-- **明确分工避免父子重叠**：brief 末尾加一句"父自己负责挖 X / Y，你只挖 Z"，把工作面切干净。否则父子可能各自挖同一漏洞（如父挖 Reflected XSS 时子也在挖，浪费 token + finding 表 dedupe 后徒劳）
+- **明确分工避免父子重叠**（关键！）：brief 末尾**必须**加一句"父自己负责挖 X / Y，你只挖 Z"，把工作面切干净。否则父子各自挖同一漏洞会触发 0048 DB 层 dedup——重复 finding 无声合并，浪费父子双方 token + tool call + 容器资源。e2e 数据显示无分工时父子重复率 ~44%。
+- **spawn 后父让出该攻击面**：派子挖 SQLi 后，父**不再**对该 endpoint 跑 sqlmap/curl 探测——除非子明显卡住（list_children 看到 5 分钟无进展）才考虑接管。子有自主权 + 独立 LLM context，**比父并行试效率更高**。
 - 示例：`深挖 /admin 后台的权限绕过 + 后台功能 XSS，已知 admin/password 可登录。父自己挖 SQL Inj + Cmd Inj，你只挖本 admin 范围内的 BAC + XSS`
 
 **flow_id 参数（active 父通常不传）**：

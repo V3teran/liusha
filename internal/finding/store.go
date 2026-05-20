@@ -58,11 +58,16 @@ func (s *Store) Save(ctx context.Context, f VulnFinding) (VulnFinding, error) {
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck // commit 后 rollback 是 no-op
 
+	// 0048 加了 UNIQUE(owner_id, dedup_key) — dedup_key 是 host+summary 前 60 字 lower 生成列。
+	// 父子 agent 并发写同一漏洞时，ON CONFLICT 保留首个写入（first_seen_at 取较早），后续 dup
+	// 不报错而是返回 existing 行——LLM 视角 Save 始终幂等成功，dedup 在 DB 层无声完成。
 	row := tx.QueryRow(ctx, `
 		INSERT INTO finding
 			(owner_type, owner_id, agent_run_id, source_flow_id, host, severity, summary, target, evidence,
 			 cwe_id, owasp_category, remediation)
 		VALUES ($1, $2::uuid, $3,$4,$5,$6,$7,$8,$9, NULLIF($10,''), NULLIF($11,''), NULLIF($12,''))
+		ON CONFLICT (owner_id, dedup_key) DO UPDATE
+		SET first_seen_at = LEAST(finding.first_seen_at, EXCLUDED.first_seen_at)
 		RETURNING `+colsSelect,
 		f.OwnerType, f.OwnerID,
 		f.TaskID, f.SourceFlowID, f.Host, f.Severity,
@@ -71,15 +76,21 @@ func (s *Store) Save(ctx context.Context, f VulnFinding) (VulnFinding, error) {
 
 	var saved VulnFinding
 	if err := scan(row, &saved); err != nil {
-		return VulnFinding{}, fmt.Errorf("insert finding: %w", err)
+		return VulnFinding{}, fmt.Errorf("upsert finding: %w", err)
 	}
 
 	if err := tx.Commit(ctx); err != nil {
 		return VulnFinding{}, fmt.Errorf("commit: %w", err)
 	}
 
-	findingLog.Info().
-		Str("finding_id", saved.ID).
+	// dup 命中：DB 层把后续重复写无声合并到已有行；saved 是 existing 行内容。
+	// agent_run_id 不会被覆盖（DO UPDATE 只动 first_seen_at），所以 saved.TaskID 反映首次写入者。
+	dedupHit := f.TaskID != nil && saved.TaskID != nil && *f.TaskID != *saved.TaskID
+	ev := findingLog.Info()
+	if dedupHit {
+		ev = ev.Bool("dedup_hit", true)
+	}
+	ev.Str("finding_id", saved.ID).
 		Str("severity", saved.Severity).
 		Str("host", saved.Host).
 		Str("owner_id", saved.OwnerID).
