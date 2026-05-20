@@ -50,7 +50,7 @@ func runActiveProfiles(ctx context.Context, profs []activeProfile, apiBase, apiK
 		var lastFindings []finding.VulnFinding
 		var lastTotal, lastUnfinished int
 		for time.Now().Before(deadline) {
-			runs, runErr := agentRunStore.ListByEngagement(ctx, eid, 100)
+			runs, runErr := agentRunStore.ListByOwnerID(ctx, eid, 100)
 			unfinished, totalRuns := 0, 0
 			if runErr == nil {
 				// active 每次都新建 session——eid 已唯一定位本次 run 全集（父 + spawn 的子）。
@@ -64,7 +64,7 @@ func runActiveProfiles(ctx context.Context, profs []activeProfile, apiBase, apiK
 					}
 				}
 			}
-			all, findErr := store.ListByEngagement(ctx, eid)
+			all, findErr := store.ListByOwnerID(ctx, eid)
 			var matched []finding.VulnFinding
 			if findErr == nil {
 				matched = filterAfter(all, startedAt)
@@ -230,7 +230,7 @@ func runAllUnified(ctx context.Context, plans []profilePlan, proxyHostPort, apiB
 		totalRuns, unfinished, totalFindings := 0, 0, 0
 		var allFindings []finding.VulnFinding
 		for _, eid := range eidByHost {
-			if runs, runErr := agentRunStore.ListByEngagement(ctx, eid, 100); runErr == nil {
+			if runs, runErr := agentRunStore.ListByOwnerID(ctx, eid, 100); runErr == nil {
 				for _, r := range runs {
 					if !r.CreatedAt.After(unifiedStartedAt) {
 						continue
@@ -241,7 +241,7 @@ func runAllUnified(ctx context.Context, plans []profilePlan, proxyHostPort, apiB
 					}
 				}
 			}
-			if all, findErr := store.ListByEngagement(ctx, eid); findErr == nil {
+			if all, findErr := store.ListByOwnerID(ctx, eid); findErr == nil {
 				matched := filterAfter(all, unifiedStartedAt)
 				totalFindings += len(matched)
 				allFindings = append(allFindings, matched...)

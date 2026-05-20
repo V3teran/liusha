@@ -47,7 +47,7 @@ type LLMReviewer struct {
 
 	// HostFindingsFetcher 是可选 hook：返回当前 engagement + host 范围内已有 finding 列表
 	// （每条形如 "[severity] summary"，前 N 条）。由 scanner 装配处用 closure 适配
-	// *finding.Store.ListByEngagementAndHost。nil 时 reviewer prompt 不注入 finding 段。
+	// *finding.Store.ListByOwnerAndHost。nil 时 reviewer prompt 不注入 finding 段。
 	//
 	// 关键设计：列表**仅作背景参考**，不返回 count、不参与 terminate 判定。
 	// reviewer 判定 terminate/redirect/continue 必须基于 window 行为本身——

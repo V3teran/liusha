@@ -12,8 +12,8 @@ import (
 	"github.com/V3teran/liusha/internal/logx"
 )
 
-// engagementCounter 是 Save 成功后用于 best-effort 维护 engagement.finding_count 的最小接口。
-type engagementCounter interface {
+// ownerCounter 是 Save 成功后用于 best-effort 维护 engagement.finding_count 的最小接口。
+type ownerCounter interface {
 	IncrementFindingCount(ctx context.Context, id string, n int) error
 }
 
@@ -28,14 +28,14 @@ var findingLog = logx.New("vulnfinding")
 type Store struct {
 	pool *pgxpool.Pool
 
-	engCounter engagementCounter
+	engCounter ownerCounter
 }
 
 // NewStore 用 pgxpool 构造 Store。
 func NewStore(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
 
 // WithCounter 链式注入 engagement 计数维护器。
-func (s *Store) WithCounter(c engagementCounter) *Store {
+func (s *Store) WithCounter(c ownerCounter) *Store {
 	s.engCounter = c
 	return s
 }
@@ -178,17 +178,18 @@ func (s *Store) GetByID(ctx context.Context, id string) (VulnFinding, error) {
 	return f, nil
 }
 
-// ListByEngagement 列出 engagement / owner 下所有 finding（按 created_at desc）。
+// ListByOwnerID 列出 owner_id 下所有 finding（按 created_at desc）。
 //
-// 双轨切读：参数 ID 可以是旧 owner_id。SQL OR 让 viewer 传新 owner_id 时
-// 也命中。专用 ListByOwner 走纯 owner 路径；本方法保留兼容旧 caller。
+// 仅按 owner_id (UUID) 过滤——无 owner_type，适用于 caller 仅持有 ID 的场景
+// （如 HTTP URL `:owner_id` 参数）。利用 owner_id UUID 全局唯一性；polymorphic
+// 索引 (owner_type, owner_id, ...) 需 leading column 不会被命中，必要时另加单列索引。
 // dedup 由 LLM 写 finding 前自查 read_findings 决定，Store 不做。
-func (s *Store) ListByEngagement(ctx context.Context, engagementID string) ([]VulnFinding, error) {
+func (s *Store) ListByOwnerID(ctx context.Context, ownerID string) ([]VulnFinding, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT `+colsSelect+`
 		FROM finding
 		WHERE owner_id=$1::uuid
-		ORDER BY created_at DESC`, engagementID)
+		ORDER BY created_at DESC`, ownerID)
 	if err != nil {
 		return nil, fmt.Errorf("list findings: %w", err)
 	}
@@ -209,7 +210,7 @@ func (s *Store) ListByEngagement(ctx context.Context, engagementID string) ([]Vu
 }
 
 // ListByOwner 列出 owner（passive_session / active_scan）下所有 finding（按 created_at desc）。
-// 新 polymorphic 路径——commit B5 切读后取代 ListByEngagement。
+// 新 polymorphic 路径——commit B5 切读后取代 ListByOwner。
 func (s *Store) ListByOwner(ctx context.Context, ownerType, ownerID string) ([]VulnFinding, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT `+colsSelect+`
@@ -233,7 +234,7 @@ func (s *Store) ListByOwner(ctx context.Context, ownerType, ownerID string) ([]V
 }
 
 // ListByOwnerAndHost 列出 owner + host 下的 finding（按 created_at desc）。
-// 新 polymorphic 路径——commit B5 切读后取代 ListByEngagementAndHost。
+// 新 polymorphic 路径——commit B5 切读后取代 ListByOwnerAndHost。
 func (s *Store) ListByOwnerAndHost(ctx context.Context, ownerType, ownerID, host string, limit int) ([]VulnFinding, error) {
 	q := `SELECT ` + colsSelect + ` FROM finding WHERE owner_type=$1 AND owner_id=$2::uuid AND host=$3 ORDER BY created_at DESC`
 	args := []any{ownerType, ownerID, host}
@@ -258,22 +259,21 @@ func (s *Store) ListByOwnerAndHost(ctx context.Context, ownerType, ownerID, host
 	return out, rows.Err()
 }
 
-// ListByEngagementAndHost 列出当前 engagement + host 下的 finding（按 created_at desc）。
+// ListByOwnerIDAndHost 列出当前 owner_id + host 下的 finding（按 created_at desc）。
 //
-// 用于 hunter user prompt 段 3 注入"该 host 已有 finding"——隔离每次 engagement，
-// 不被跨次扫描的历史污染。
+// 用于 hunter user prompt 段 3 注入"该 host 已有 finding"——按 owner 隔离避免跨次
+// 扫描的历史污染。仅按 owner_id 过滤（无 owner_type），与 ListByOwnerID 同语义。
 // limit ≤ 0 不限制。
-func (s *Store) ListByEngagementAndHost(ctx context.Context, engagementID, host string, limit int) ([]VulnFinding, error) {
-	// 双轨切读：ID 可以是旧 owner_id。
+func (s *Store) ListByOwnerIDAndHost(ctx context.Context, ownerID, host string, limit int) ([]VulnFinding, error) {
 	q := `SELECT ` + colsSelect + ` FROM finding WHERE owner_id=$1::uuid AND host=$2 ORDER BY created_at DESC`
-	args := []any{engagementID, host}
+	args := []any{ownerID, host}
 	if limit > 0 {
 		q += ` LIMIT $3`
 		args = append(args, limit)
 	}
 	rows, err := s.pool.Query(ctx, q, args...)
 	if err != nil {
-		return nil, fmt.Errorf("list findings by engagement+host: %w", err)
+		return nil, fmt.Errorf("list findings by owner_id+host: %w", err)
 	}
 	defer rows.Close()
 

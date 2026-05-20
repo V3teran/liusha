@@ -11,9 +11,9 @@ import (
 	"github.com/V3teran/liusha/internal/logx"
 )
 
-// engagementCounter 是 Append/AppendBatch 成功后用于 best-effort 维护
+// ownerCounter 是 Append/AppendBatch 成功后用于 best-effort 维护
 // engagement.flow_count 的最小接口；*engagement.Store 自动满足。
-type engagementCounter interface {
+type ownerCounter interface {
 	IncrementFlowCount(ctx context.Context, id string, n int) error
 }
 
@@ -29,7 +29,7 @@ type Store struct {
 
 	// engCounter 可空：装配时通过 WithCounter 注入；写入成功后 best-effort
 	// 给 engagement.flow_count +N（失败仅 warn，Abort 时 SELECT count(*) 兜底）。
-	engCounter engagementCounter
+	engCounter ownerCounter
 }
 
 // NewStore 构造 Store。建议 maxReqBody=maxRespBody=32*1024（spec 32 KiB 截断阈值）。
@@ -38,7 +38,7 @@ func NewStore(pool *pgxpool.Pool, maxReqBody, maxRespBody int) *Store {
 }
 
 // WithCounter 链式注入 engagement 计数维护器；返回原 Store 便于装配。
-func (s *Store) WithCounter(c engagementCounter) *Store {
+func (s *Store) WithCounter(c ownerCounter) *Store {
 	s.engCounter = c
 	return s
 }
@@ -48,8 +48,8 @@ const flowSelectCols = "id, passive_session_id::text, " +
 	"created_at, method, url, request_headers, request_body, " +
 	"status_code, response_headers, response_body"
 
-// summaryCols 是 ListByEngagement 的瘦列序，刻意不含 body / headers，避免大 payload。
-// FlowSummary.EngagementID 字段实际接 passive_session.id（字段名保留以避免破坏前端 viewer）。
+// summaryCols 是 ListByOwner 的瘦列序，刻意不含 body / headers，避免大 payload。
+// FlowSummary.PassiveSessionID 字段直接对应 passive_session.id（前端 viewer 通过 JSON tag 取值）。
 const summaryCols = "id, passive_session_id::text, created_at, method, url, status_code"
 
 // copyFromCols 是 CopyFrom 写入的列名顺序，必须与每行 []any 的元素顺序严格对齐。
@@ -79,7 +79,7 @@ func (s *Store) Append(ctx context.Context, f Flow) (int64, error) {
 	if err != nil {
 		return 0, fmt.Errorf("append flow: %w", err)
 	}
-	s.bumpEngagementCount(f.PassiveSessionID, 1)
+	s.bumpOwnerCount(f.PassiveSessionID, 1)
 	return id, nil
 }
 
@@ -112,14 +112,14 @@ func (s *Store) AppendBatch(ctx context.Context, flows []Flow) error {
 		counts[f.PassiveSessionID]++
 	}
 	for sid, n := range counts {
-		s.bumpEngagementCount(sid, n)
+		s.bumpOwnerCount(sid, n)
 	}
 	return nil
 }
 
-// bumpEngagementCount 是 best-effort 维护 passive_session.flow_count 的唯一调用点；
+// bumpOwnerCount 是 best-effort 维护 passive_session.flow_count 的唯一调用点；
 // engCounter 未注入或 n=0 直接跳过；context.Background 与业务 ctx 解耦。
-func (s *Store) bumpEngagementCount(passiveSessionID string, n int) {
+func (s *Store) bumpOwnerCount(passiveSessionID string, n int) {
 	if s.engCounter == nil || n == 0 || passiveSessionID == "" {
 		return
 	}
@@ -140,11 +140,11 @@ func (s *Store) GetByID(ctx context.Context, id int64) (Flow, error) {
 	return f, nil
 }
 
-// ListByEngagement 按 (ts, id) 升序分页列出 engagement / passive_session 的瘦摘要（不含 body / headers）。
+// ListByOwner 按 (ts, id) 升序分页列出 engagement / passive_session 的瘦摘要（不含 body / headers）。
 //
 // 双轨切读：参数 ID 可以是旧 engagement.id 或新 passive_session.id。SQL OR 让 viewer 传新 ID
 // 时也命中。commit B5+ 完成数据回填后可改名为 ListByOwner。
-func (s *Store) ListByEngagement(ctx context.Context, engagementID string, limit, offset int) ([]FlowSummary, error) {
+func (s *Store) ListByOwner(ctx context.Context, engagementID string, limit, offset int) ([]FlowSummary, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT `+summaryCols+`
 		FROM http_flow

@@ -368,7 +368,7 @@ func main() {
 
 // dualOwnerCounter 让 agentrun/finding/flow.Store 的 best-effort 计数维护同时尝试
 // passive_session 和 active_scan 两表（按 owner_id 命中其一，另一表 0 行 UPDATE 无害）。
-// 满足 agentrun.engagementCounter / finding.engagementCounter / flow.engagementCounter
+// 满足 agentrun.ownerCounter / finding.ownerCounter / flow.ownerCounter
 // 三个窄接口（同形态 Increment{Flow,Finding,AgentRun}Count）。
 type dualOwnerCounter struct {
 	passive *passivesession.Store

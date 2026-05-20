@@ -6,7 +6,7 @@
 //   - 子任务：parent_id 指向父 agent_run.id；子任务**不**入 asynq，
 //     由 internal/subtask 包在父 goroutine 内手动调 Store.Create 写入。
 //     list_children 工具从 subtask.Registry 内存读，不查 PG（PG parent_id 列只供
-//     viewer 树渲染 + ListByEngagement 一并取父子）。
+//     viewer 树渲染 + ListByOwner 一并取父子）。
 //   - **崩溃恢复语义**：scanner 进程重启后，PG `parent_id` 列仅供展示——内存
 //     Registry 已丢，list_children 工具看不到崩溃前的子；active 父走 asynq
 //     MaxRetry(0) 不再重试，handle 入口 GetByID 见 status != pending 直接 SkipRetry。

@@ -7,11 +7,11 @@ import (
 )
 
 // Deps 是 NewServer 的注入参数集合。
-// Credentials / Engagements / Graph / ActiveScan 为 nil 时对应路由不注册（部分场景测试用）。
+// Credentials / Owners / Graph / ActiveScan 为 nil 时对应路由不注册（部分场景测试用）。
 type Deps struct {
 	APIKey      string
 	Credentials CredentialsAPI
-	Engagements EngagementsAPI
+	Owners OwnersAPI
 	Graph       GraphAPI
 	// Invocations 为 nil 时 /llm/invocations/:eid 路由不注册。
 	// 由 cmd/api 注入 *llminvocation.Store（自动满足 InvocationsAPI 窄接口）。
@@ -47,10 +47,10 @@ func NewServer(d Deps) http.Handler {
 		r.GET("/credential", listCredentialHandler(d.Credentials))
 		r.DELETE("/credential", deleteCredentialHandler(d.Credentials))
 	}
-	if d.Engagements != nil {
-		r.POST("/scan/passive", passiveScanHandler(d.Engagements))
-		r.POST("/session/:id/abort", abortHandler(d.Engagements))
-		r.GET("/session", listEngagementsHandler(d.Engagements))
+	if d.Owners != nil {
+		r.POST("/scan/passive", passiveScanHandler(d.Owners))
+		r.POST("/session/:id/abort", abortHandler(d.Owners))
+		r.GET("/session", listSessionsHandler(d.Owners))
 	}
 	if d.Graph != nil {
 		r.GET("/graph/:owner_id", graphHandler(d.Graph))

@@ -13,7 +13,7 @@ import (
 
 // relationsLister 是 ReadRelations 工具依赖的最小读接口，由 *finding.Store 自动满足。
 type relationsLister interface {
-	ListRelationsByEngagement(ctx context.Context, engagementID string) ([]finding.Relation, error)
+	ListRelationsByOwner(ctx context.Context, engagementID string) ([]finding.Relation, error)
 }
 
 // ReadRelations — 列出本 owner 内所有 finding 之间的 enables 边（图拓扑；与 write_relation 配对）。
@@ -53,7 +53,7 @@ func (a *ReadRelations) Execute(ctx context.Context, _ json.RawMessage) (toolfx.
 		return toolfx.Result{}, errors.New("read_relations: OwnerID 必填（builder 注入失败）")
 	}
 
-	rs, err := a.Store.ListRelationsByEngagement(ctx, a.OwnerID)
+	rs, err := a.Store.ListRelationsByOwner(ctx, a.OwnerID)
 	if err != nil {
 		return toolfx.Result{}, err
 	}

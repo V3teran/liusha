@@ -10,9 +10,9 @@ import (
 	"github.com/V3teran/liusha/internal/logx"
 )
 
-// engagementCounter 是 Create 成功后用于 best-effort 维护 engagement.agent_run_count
+// ownerCounter 是 Create 成功后用于 best-effort 维护 engagement.agent_run_count
 // 的最小接口；*engagement.Store 自动满足。
-type engagementCounter interface {
+type ownerCounter interface {
 	IncrementAgentRunCount(ctx context.Context, id string, n int) error
 }
 
@@ -25,14 +25,14 @@ type Store struct {
 
 	// engCounter 可空：装配时通过 WithCounter 注入；Create 成功后 best-effort
 	// 给 engagement.agent_run_count +1（失败仅 warn，Abort 时 SELECT count(*) 兜底）。
-	engCounter engagementCounter
+	engCounter ownerCounter
 }
 
 // NewStore 用 pgxpool 构造 Store。
 func NewStore(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
 
 // WithCounter 链式注入 engagement 计数维护器；返回原 Store 便于装配。
-func (s *Store) WithCounter(c engagementCounter) *Store {
+func (s *Store) WithCounter(c ownerCounter) *Store {
 	s.engCounter = c
 	return s
 }
@@ -143,15 +143,14 @@ func (s *Store) GetByID(ctx context.Context, id string) (ReactRun, error) {
 	return t, nil
 }
 
-// ListByEngagement 按 created_at 升序列出 owner 的任务，最多 limit 条。
-// 方法名保留向后兼容；参数 ID 是 owner_id（passive_session.id / active_scan.id）。
-func (s *Store) ListByEngagement(ctx context.Context, engagementID string, limit int) ([]ReactRun, error) {
+// ListByOwnerID 按 created_at 升序列出 owner_id 下的任务，最多 limit 条。
+func (s *Store) ListByOwnerID(ctx context.Context, ownerID string, limit int) ([]ReactRun, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT `+colsSelect+`
 		FROM agent_run
 		WHERE owner_id=$1::uuid
 		ORDER BY created_at ASC
-		LIMIT $2`, engagementID, limit)
+		LIMIT $2`, ownerID, limit)
 	if err != nil {
 		return nil, fmt.Errorf("list tasks: %w", err)
 	}
@@ -171,21 +170,20 @@ func (s *Store) ListByEngagement(ctx context.Context, engagementID string, limit
 	return out, nil
 }
 
-// CountInflightInEngagement 统计 owner 下处于 pending|running 的任务总数。
-// 方法名保留向后兼容；参数 ID 是 owner_id。
-func (s *Store) CountInflightInEngagement(ctx context.Context, engagementID string) (int, error) {
+// CountInflightByOwnerID 统计 owner_id 下处于 pending|running 的任务总数。
+func (s *Store) CountInflightByOwnerID(ctx context.Context, ownerID string) (int, error) {
 	var n int
 	err := s.pool.QueryRow(ctx, `
 		SELECT count(*) FROM agent_run
-		WHERE owner_id=$1::uuid AND status IN ('pending','running')`, engagementID).Scan(&n)
+		WHERE owner_id=$1::uuid AND status IN ('pending','running')`, ownerID).Scan(&n)
 	if err != nil {
-		return 0, fmt.Errorf("count inflight in engagement: %w", err)
+		return 0, fmt.Errorf("count inflight by owner_id: %w", err)
 	}
 	return n, nil
 }
 
-// ListByOwner 按 created_at 升序列出 owner（passive_session / active_scan）下的任务。
-// 新 polymorphic 路径——commit B 切换后取代 ListByEngagement。
+// ListByOwner 按 owner_type+owner_id 升序列出任务（polymorphic canonical 路径）。
+// 新 polymorphic 路径——commit B 切换后取代 ListByOwner。
 func (s *Store) ListByOwner(ctx context.Context, ownerType, ownerID string, limit int) ([]ReactRun, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT `+colsSelect+`
@@ -212,8 +210,8 @@ func (s *Store) ListByOwner(ctx context.Context, ownerType, ownerID string, limi
 	return out, nil
 }
 
-// CountInflightInOwner 统计 owner 下处于 pending|running 的任务总数（新 polymorphic 路径）。
-func (s *Store) CountInflightInOwner(ctx context.Context, ownerType, ownerID string) (int, error) {
+// CountInflightByOwner 统计 owner（owner_type+owner_id）下处于 pending|running 的任务总数。
+func (s *Store) CountInflightByOwner(ctx context.Context, ownerType, ownerID string) (int, error) {
 	var n int
 	err := s.pool.QueryRow(ctx, `
 		SELECT count(*) FROM agent_run

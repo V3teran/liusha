@@ -95,7 +95,7 @@ func TestStore_Append_SmallBodyNoTruncation(t *testing.T) {
 	}
 }
 
-// TestStore_AppendBatch_CopyFrom 验证：CopyFrom 批插 N 条，所有行可被 ListByEngagement 检出，
+// TestStore_AppendBatch_CopyFrom 验证：CopyFrom 批插 N 条，所有行可被 ListByOwner 检出，
 // 且批内大 body 同样按 max 截断。
 func TestStore_AppendBatch_CopyFrom(t *testing.T) {
 	ctx := context.Background()
@@ -111,8 +111,8 @@ func TestStore_AppendBatch_CopyFrom(t *testing.T) {
 		t.Fatalf("append batch: %v", err)
 	}
 
-	// ListByEngagement SQL 通过 OR passive_session_id 命中（commit B5.4 兼容查询）。
-	list, err := s.ListByEngagement(ctx, sid, 100, 0)
+	// ListByOwner SQL 通过 OR passive_session_id 命中（commit B5.4 兼容查询）。
+	list, err := s.ListByOwner(ctx, sid, 100, 0)
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
@@ -155,8 +155,8 @@ func TestStore_AppendBatch_Empty(t *testing.T) {
 	}
 }
 
-// TestStore_ListByEngagement_Pagination 验证：limit / offset 起作用，按 ts 升序。
-func TestStore_ListByEngagement_Pagination(t *testing.T) {
+// TestStore_ListByOwner_Pagination 验证：limit / offset 起作用，按 ts 升序。
+func TestStore_ListByOwner_Pagination(t *testing.T) {
 	ctx := context.Background()
 	s, sid := setup(t)
 
@@ -167,14 +167,14 @@ func TestStore_ListByEngagement_Pagination(t *testing.T) {
 		}
 	}
 
-	page1, err := s.ListByEngagement(ctx, sid, 2, 0)
+	page1, err := s.ListByOwner(ctx, sid, 2, 0)
 	if err != nil {
 		t.Fatalf("page1: %v", err)
 	}
 	if len(page1) != 2 || page1[0].URL != "/p1" || page1[1].URL != "/p2" {
 		t.Fatalf("page1 unexpected: %+v", page1)
 	}
-	page2, err := s.ListByEngagement(ctx, sid, 2, 2)
+	page2, err := s.ListByOwner(ctx, sid, 2, 2)
 	if err != nil {
 		t.Fatalf("page2: %v", err)
 	}

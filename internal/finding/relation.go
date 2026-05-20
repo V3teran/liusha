@@ -58,11 +58,11 @@ func (s *Store) SaveRelation(ctx context.Context, fromID, toID, reason string) (
 	return r, nil
 }
 
-// ListRelationsByEngagement 列出本 owner 下所有 finding 之间的 relation。
+// ListRelationsByOwner 列出本 owner 下所有 finding 之间的 relation。
 // 方法名保留向后兼容；参数 ID 是 owner_id。
 //
 // JOIN finding 表过滤——只返回 from/to 都在本 owner 内的边。
-func (s *Store) ListRelationsByEngagement(ctx context.Context, engagementID string) ([]Relation, error) {
+func (s *Store) ListRelationsByOwner(ctx context.Context, engagementID string) ([]Relation, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT r.id, r.from_finding_id, r.to_finding_id, r.kind, r.payload, r.created_at
 		FROM finding_relation r

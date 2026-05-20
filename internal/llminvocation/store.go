@@ -25,7 +25,7 @@ import (
 //   - Append 返回的 id 现为 0（异步路径不再有 RETURNING id）；调用方 instrument.go
 //     已忽略 id（仅记日志），故签名保留兼容。
 //   - 进程崩溃可能丢 buffer 内未 flush 的行（最差 100 行 / 1s）；这是行为日志非交易，可接受。
-//   - 一致性场景（如 SumCostByEngagement / CountByRole）调用方需先调 Flush() 同步等待。
+//   - 一致性场景（如 SumCostByOwner / CountByRole）调用方需先调 Flush() 同步等待。
 type Store struct {
 	pool          *pgxpool.Pool
 	ch            chan Invocation
@@ -207,29 +207,29 @@ func (s *Store) copyFromBatch(ctx context.Context, batch []Invocation) error {
 	return nil
 }
 
-// SumCostByEngagement 返回指定 engagement / owner 下所有 LLM 调用的成本总和（美元）。
+// SumCostByOwner 返回指定 engagement / owner 下所有 LLM 调用的成本总和（美元）。
 //
 // 双轨切读：ID 可为 engagement.id 或 owner_id。
 // 注意：异步 buffer 内未 flush 的成本不算入 —— caller 若要严格一致需先 Flush()。
-func (s *Store) SumCostByEngagement(ctx context.Context, engagementID string) (float64, error) {
+func (s *Store) SumCostByOwnerID(ctx context.Context, ownerID string) (float64, error) {
 	var v float64
 	err := s.pool.QueryRow(ctx, `
 		SELECT COALESCE(SUM(cost_usd), 0)::float8
 		FROM llm_invocation
-		WHERE owner_id=$1::uuid`, engagementID).Scan(&v)
+		WHERE owner_id=$1::uuid`, ownerID).Scan(&v)
 	if err != nil {
 		return 0, fmt.Errorf("sum llm_call cost: %w", err)
 	}
 	return v, nil
 }
 
-// ListByEngagement 列出 engagement 下所有 LLM invocation（按 created_at ASC）。
+// ListByOwner 列出 engagement 下所有 LLM invocation（按 created_at ASC）。
 //
 // 调用方有责任先 Flush() 等异步 buffer commit，否则可能缺最近 0-1s 的记录——
 // handler 路径上 Flush() 后再调本方法，保证 viewer 拿到完整审计快照。
-// ListByEngagement 列出 owner 下所有 LLM invocation（按 created_at ASC）。
+// ListByOwner 列出 owner 下所有 LLM invocation（按 created_at ASC）。
 // 方法名保留向后兼容；参数 ID 是 owner_id。
-func (s *Store) ListByEngagement(ctx context.Context, engagementID string) ([]Invocation, error) {
+func (s *Store) ListByOwnerID(ctx context.Context, ownerID string) ([]Invocation, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT id, agent_run_id, owner_type, owner_id::text,
 		       provider, model,
@@ -238,7 +238,7 @@ func (s *Store) ListByEngagement(ctx context.Context, engagementID string) ([]In
 		       messages, result, created_at
 		FROM llm_invocation
 		WHERE owner_id=$1::uuid
-		ORDER BY created_at ASC`, engagementID)
+		ORDER BY created_at ASC`, ownerID)
 	if err != nil {
 		return nil, fmt.Errorf("list llm_invocation: %w", err)
 	}
@@ -269,7 +269,7 @@ func (s *Store) ListByEngagement(ctx context.Context, engagementID string) ([]In
 }
 
 // SumCostByOwner 返回指定 owner 下所有 LLM 调用的成本总和（美元）。
-// 新 polymorphic 路径——commit B5 切读后取代 SumCostByEngagement。
+// 新 polymorphic 路径——commit B5 切读后取代 SumCostByOwner。
 func (s *Store) SumCostByOwner(ctx context.Context, ownerType, ownerID string) (float64, error) {
 	var v float64
 	err := s.pool.QueryRow(ctx, `
@@ -345,13 +345,13 @@ func (s *Store) CountByCallPurposeByOwner(ctx context.Context, ownerType, ownerI
 }
 
 // CountByCallPurpose 按 call_purpose 维度聚合 engagement / owner 下的调用次数。
-// 双轨切读：ID 可为 engagement.id 或 owner_id。
-func (s *Store) CountByCallPurpose(ctx context.Context, engagementID string) (map[string]int, error) {
+// CountByCallPurposeByOwnerID 仅按 owner_id 聚合统计 call_purpose 分布。
+func (s *Store) CountByCallPurposeByOwnerID(ctx context.Context, ownerID string) (map[string]int, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT call_purpose, count(*)
 		FROM llm_invocation
 		WHERE owner_id=$1::uuid
-		GROUP BY call_purpose`, engagementID)
+		GROUP BY call_purpose`, ownerID)
 	if err != nil {
 		return nil, fmt.Errorf("count llm_invocation by call_purpose: %w", err)
 	}

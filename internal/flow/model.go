@@ -25,7 +25,7 @@ type Flow struct {
 	ResponseBody     []byte
 }
 
-// FlowSummary 是 ListByEngagement 的瘦行：不含 body / headers，
+// FlowSummary 是 ListByOwner 的瘦行：不含 body / headers，
 // 避免一次查询把数十 MiB bytea 拖入内存。
 type FlowSummary struct {
 	ID               int64

@@ -78,7 +78,7 @@ func buildUserPrompt(ctx context.Context, deps Deps, p skill.BuilderParams) stri
 
 	// 段 3.5: 本次扫描笔记板（owner 内同 host 工作笔记）
 	// 内容由其他 hunter task 通过 write_note 写入——临时凭据/状态、目标怪癖、小惊喜、失败死路。
-	if notes := loadEngagementNotes(ctx, deps.Notes, p.OwnerID, p.Host); notes != "" {
+	if notes := loadOwnerNotes(ctx, deps.Notes, p.OwnerID, p.Host); notes != "" {
 		b.WriteString("\n\n## 本次扫描笔记板（owner 内同 host）\n\n")
 		b.WriteString(notes)
 	}
@@ -360,14 +360,14 @@ func loadExistingFindings(ctx context.Context, store *finding.Store, ownerType, 
 	return b.String()
 }
 
-// loadEngagementNotes 拉本次扫描 (engagement, host) 范围的 notes（短期工作内存）
+// loadOwnerNotes 拉本次扫描 (engagement, host) 范围的 notes（短期工作内存）
 // 渲染给 hunter user prompt。
 //
 // notes 按 (eid, host) 切分——本函数只读本 host 的笔记，不会混入其他 host 的
 // 怪癖/死路。注入到 user prompt 让 hunter 看到同 (engagement, host) 内其他
 // hunter task 写的笔记（临时凭据/状态、目标怪癖、小惊喜、失败死路），避免每个
 // agent 从零摸索。
-func loadEngagementNotes(ctx context.Context, store notes.Store, engagementID, host string) string {
+func loadOwnerNotes(ctx context.Context, store notes.Store, engagementID, host string) string {
 	if store == nil || engagementID == "" || host == "" {
 		return ""
 	}

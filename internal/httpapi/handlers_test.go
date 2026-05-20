@@ -41,7 +41,7 @@ func (f *fakeCred) Delete(_ context.Context, host string) error {
 	return nil
 }
 
-// fakeAbort 是 EngagementsAPI 的内存实现。
+// fakeAbort 是 OwnersAPI 的内存实现。
 type fakeAbort struct {
 	aborted []string
 
@@ -65,9 +65,9 @@ func (f *fakeAbort) EnsurePassiveSession(_ context.Context) (string, error) {
 }
 
 // List 简单 mock：返回固定 1 条 stub summary，足以让现有测试通过 typecheck；
-// 真正的 List handler 行为校验留给将来按需补 TestListEngagements_*。
-func (f *fakeAbort) List(_ context.Context, _ int) ([]EngagementSummary, error) {
-	return []EngagementSummary{{ID: "stub-eid", Scope: `{"any":true}`, Status: "active"}}, nil
+// 真正的 List handler 行为校验留给将来按需补 TestListSessions_*。
+func (f *fakeAbort) List(_ context.Context, _ int) ([]OwnerSummary, error) {
+	return []OwnerSummary{{ID: "stub-eid", Scope: `{"any":true}`, Status: "active"}}, nil
 }
 
 func newTestServer(t *testing.T, d Deps) *httptest.Server {
@@ -247,9 +247,9 @@ func TestCredentialDelete(t *testing.T) {
 	}
 }
 
-func TestEngagementAbort(t *testing.T) {
+func TestSessionAbort(t *testing.T) {
 	fa := &fakeAbort{}
-	srv := newTestServer(t, Deps{Engagements: fa})
+	srv := newTestServer(t, Deps{Owners: fa})
 	defer srv.Close()
 
 	req, _ := http.NewRequest("POST", srv.URL+"/session/eid-1/abort", nil)
@@ -267,9 +267,9 @@ func TestEngagementAbort(t *testing.T) {
 	}
 }
 
-func TestEngagementAbort_RequiresAuth(t *testing.T) {
+func TestSessionAbort_RequiresAuth(t *testing.T) {
 	fa := &fakeAbort{}
-	srv := newTestServer(t, Deps{Engagements: fa})
+	srv := newTestServer(t, Deps{Owners: fa})
 	defer srv.Close()
 
 	req, _ := http.NewRequest("POST", srv.URL+"/session/eid-1/abort", nil)
@@ -290,7 +290,7 @@ func TestEngagementAbort_RequiresAuth(t *testing.T) {
 // 请求体为空——passive session 不 per-host。
 func TestPassiveScan_Created(t *testing.T) {
 	fa := &fakeAbort{}
-	srv := newTestServer(t, Deps{Engagements: fa})
+	srv := newTestServer(t, Deps{Owners: fa})
 	defer srv.Close()
 
 	req, _ := http.NewRequest("POST", srv.URL+"/scan/passive", bytes.NewReader([]byte("{}")))
@@ -323,7 +323,7 @@ func TestPassiveScan_Created(t *testing.T) {
 // TestPassiveScan_RequiresAuth：缺 X-API-Key 应返回 401 且不调底层。
 func TestPassiveScan_RequiresAuth(t *testing.T) {
 	fa := &fakeAbort{}
-	srv := newTestServer(t, Deps{Engagements: fa})
+	srv := newTestServer(t, Deps{Owners: fa})
 	defer srv.Close()
 
 	req, _ := http.NewRequest("POST", srv.URL+"/scan/passive", bytes.NewReader([]byte("{}")))
@@ -345,7 +345,7 @@ func TestPassiveScan_RequiresAuth(t *testing.T) {
 // TestPassiveScan_LookupError：底层报错应返回 500。
 func TestPassiveScan_LookupError(t *testing.T) {
 	fa := &fakeAbort{ensureErr: errors.New("db boom")}
-	srv := newTestServer(t, Deps{Engagements: fa})
+	srv := newTestServer(t, Deps{Owners: fa})
 	defer srv.Close()
 
 	req, _ := http.NewRequest("POST", srv.URL+"/scan/passive", bytes.NewReader([]byte("{}")))

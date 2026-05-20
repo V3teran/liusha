@@ -12,7 +12,7 @@ import (
 
 // AgentRunsAPI 是 handler 依赖的窄接口；*agentrun.Store 自动满足。
 type AgentRunsAPI interface {
-	ListByEngagement(ctx context.Context, engagementID string, limit int) ([]agentrun.ReactRun, error)
+	ListByOwnerID(ctx context.Context, ownerID string, limit int) ([]agentrun.ReactRun, error)
 }
 
 // agentRunsHandler 处理 GET /agent_runs/:owner_id。
@@ -42,10 +42,10 @@ func agentRunsHandler(api AgentRunsAPI) gin.HandlerFunc {
 			return
 		}
 
-		// ListByEngagement 在 0 行时返 (空切片, nil)，不返 ErrNoRows——
+		// ListByOwner 在 0 行时返 (空切片, nil)，不返 ErrNoRows——
 		// "engagement 不存在"与"engagement 存在但 0 run"响应相同（total:0, runs:[]），
 		// 这对 viewer 树渲染足够（前端基于 total=0 显示"无任务"）。
-		runs, err := api.ListByEngagement(c.Request.Context(), eid, 500)
+		runs, err := api.ListByOwnerID(c.Request.Context(), eid, 500)
 		if err != nil {
 			c.JSON(500, gin.H{"error": err.Error()})
 			return

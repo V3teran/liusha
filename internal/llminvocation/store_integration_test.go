@@ -47,8 +47,8 @@ func TestStore_Append_Basic(t *testing.T) {
 		t.Fatalf("flush: %v", err)
 	}
 
-	// SumCostByEngagement SQL 加 OR owner_id 兼容，传 owner_id 命中
-	got, err := s.SumCostByEngagement(ctx, oid)
+	// SumCostByOwner SQL 加 OR owner_id 兼容，传 owner_id 命中
+	got, err := s.SumCostByOwnerID(ctx, oid)
 	if err != nil {
 		t.Fatalf("sum: %v", err)
 	}
@@ -97,7 +97,7 @@ func TestStore_Append_WithRouteKey(t *testing.T) {
 		t.Fatalf("flush: %v", err)
 	}
 
-	got, err := s.CountByCallPurpose(ctx, oid)
+	got, err := s.CountByCallPurposeByOwnerID(ctx, oid)
 	if err != nil {
 		t.Fatalf("count by role: %v", err)
 	}
@@ -109,8 +109,8 @@ func TestStore_Append_WithRouteKey(t *testing.T) {
 	}
 }
 
-// TestStore_SumCostByEngagement 验证：插 3 条不同 role 的 call，sum 等于三者之和。
-func TestStore_SumCostByEngagement(t *testing.T) {
+// TestStore_SumCostByOwner 验证：插 3 条不同 role 的 call，sum 等于三者之和。
+func TestStore_SumCostByOwnerID(t *testing.T) {
 	ctx := context.Background()
 	s, ot, oid := setup(t)
 
@@ -141,7 +141,7 @@ func TestStore_SumCostByEngagement(t *testing.T) {
 		t.Fatalf("flush: %v", err)
 	}
 
-	got, err := s.SumCostByEngagement(ctx, oid)
+	got, err := s.SumCostByOwnerID(ctx, oid)
 	if err != nil {
 		t.Fatalf("sum cost: %v", err)
 	}
@@ -151,12 +151,12 @@ func TestStore_SumCostByEngagement(t *testing.T) {
 	}
 }
 
-// TestStore_SumCostByEngagement_Empty 验证：无任何 call 时返回 0，不报错。
-func TestStore_SumCostByEngagement_Empty(t *testing.T) {
+// TestStore_SumCostByOwnerID_Empty 验证：无任何 call 时返回 0，不报错。
+func TestStore_SumCostByOwnerID_Empty(t *testing.T) {
 	ctx := context.Background()
 	s, _, oid := setup(t)
 
-	got, err := s.SumCostByEngagement(ctx, oid)
+	got, err := s.SumCostByOwnerID(ctx, oid)
 	if err != nil {
 		t.Fatalf("sum cost on empty: %v", err)
 	}

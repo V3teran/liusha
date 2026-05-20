@@ -61,7 +61,7 @@ func (h handler) handleActive(ctx context.Context, p worker.Payload, entrypoint 
 		llm.CallMeta{TaskID: &tid, OwnerType: otPtr, OwnerID: oidPtr, RouteKey: "reviewer"},
 		h.pricing,
 	)
-	// notes key 用 owner_id（与 BuilderParams.EngagementID 一致；0040 FK DROP 后 finding 无 FK 约束）
+	// notes key 用 owner_id（与 BuilderParams.OwnerID 一致；0040 FK DROP 后 finding 无 FK 约束）
 	reviewer := react.NewLLMReviewer(reviewLLMGen, h.notes, oid, virtualHost)
 	reviewer.ArgsTruncate = h.cfg.React.ReviewerArgsTruncate
 	reviewer.ObsTruncate = h.cfg.React.ReviewerObsTruncate
@@ -135,7 +135,7 @@ func (h handler) handleActive(ctx context.Context, p worker.Payload, entrypoint 
 		return h.failTask(ctx, p.TaskID, err)
 	}
 
-	// OnAbort 切到新表：worker.Payload.EngagementID 现在为空（B6.2），用 oid 查
+	// OnAbort 切到新表：worker.Payload.OwnerID 现在为空（B6.2），用 oid 查
 	// active_scan.Status。oid 必非空——cmd/api 单源走 activescan.Create。
 	cfg.OnAbort = func(c context.Context) (bool, error) {
 		sc, err := h.activeScans.GetByID(c, oid)

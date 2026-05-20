@@ -18,21 +18,21 @@ type CredentialsAPI interface {
 	Delete(ctx context.Context, host string) error
 }
 
-// EngagementsAPI 是 handlers 对 engagement store 的窄接口。
+// OwnersAPI 是 handlers 对 engagement store 的窄接口。
 // EnsurePassiveSession：返回当前 active passive session（不存在则建新），不带 host。
 // Abort：把 engagement 置为 aborted。
 // List：按 created_at DESC 列最近 N 个；前端 viewer 下拉用。
 //
 // passive session 不 per-host，单个 active passive 容纳所有 host 流量。
-type EngagementsAPI interface {
+type OwnersAPI interface {
 	Abort(ctx context.Context, id string) error
 	EnsurePassiveSession(ctx context.Context) (string, error)
-	List(ctx context.Context, limit int) ([]EngagementSummary, error)
+	List(ctx context.Context, limit int) ([]OwnerSummary, error)
 }
 
-// EngagementSummary 是 List 返回行——只暴露前端 viewer 需要的字段，
-// 不直接返回 engagement.Engagement 完整结构（避免泄露大字段 + 减小响应体）。
-type EngagementSummary struct {
+// OwnerSummary 是 List 返回行——只暴露前端 viewer 需要的字段，
+// 不直接返回 passive_session/active_scan 完整结构（避免泄露大字段 + 减小响应体）。
+type OwnerSummary struct {
 	ID            string `json:"id"`
 	Scope         string `json:"scope"`                   // jsonb raw（如 {"any":true} / {"hosts":[...]}）
 	Status        string `json:"status"`
@@ -107,7 +107,7 @@ func deleteCredentialHandler(api CredentialsAPI) gin.HandlerFunc {
 // 幂等：重复调用在 TTL 窗口内返回同一 owner_id；过期由 ingestor 内部 Rotator 轮转。
 //
 // 与 activeScanHandler 路径对仗：/scan/passive 开"被动接流量入口"，/scan/active 触发"主动扫描"。
-func passiveScanHandler(api EngagementsAPI) gin.HandlerFunc {
+func passiveScanHandler(api OwnersAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id, err := api.EnsurePassiveSession(c.Request.Context())
 		if err != nil {
@@ -118,10 +118,10 @@ func passiveScanHandler(api EngagementsAPI) gin.HandlerFunc {
 	}
 }
 
-// listEngagementsHandler 处理 GET /engagement?limit=<optional>。
+// listSessionsHandler 处理 GET /engagement?limit=<optional>。
 // 返回最近 N 个 engagement 摘要，前端用作下拉选择。
 // 按 host 查找请改走 finding/flow 子资源接口。
-func listEngagementsHandler(api EngagementsAPI) gin.HandlerFunc {
+func listSessionsHandler(api OwnersAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		limit := 0
 		if v := c.Query("limit"); v != "" {
@@ -140,7 +140,7 @@ func listEngagementsHandler(api EngagementsAPI) gin.HandlerFunc {
 // abortHandler 把指定 engagement 置为 aborted。
 // 底层 store 对未知 ID 当前返回成功（UPDATE 影响 0 行），保持原语义；
 // 如需 404 区分需调用方先 GetByID，本层不强加策略。
-func abortHandler(api EngagementsAPI) gin.HandlerFunc {
+func abortHandler(api OwnersAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id := c.Param("id")
 		if id == "" {

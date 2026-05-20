@@ -52,7 +52,7 @@ func (h handler) handlePassive(ctx context.Context, p worker.Payload, entrypoint
 	)
 	// hostForFetchers 提前定义：reviewer 需要 host 做 notes 范围隔离。
 	hostForFetchers := ep.Host
-	// notes key 用 owner_id（与 BuilderParams.EngagementID 一致；0040 FK DROP 后 finding 无 FK 约束）
+	// notes key 用 owner_id（与 BuilderParams.OwnerID 一致；0040 FK DROP 后 finding 无 FK 约束）
 	reviewer := react.NewLLMReviewer(reviewLLMGen, h.notes, oid, hostForFetchers)
 	reviewer.ArgsTruncate = h.cfg.React.ReviewerArgsTruncate
 	reviewer.ObsTruncate = h.cfg.React.ReviewerObsTruncate
@@ -134,7 +134,7 @@ func (h handler) handlePassive(ctx context.Context, p worker.Payload, entrypoint
 	}
 
 	// owner 中止时让 react.Run 自然停
-	// OnAbort 切到新表：worker.Payload.EngagementID 现在为空（B6.3），用 oid 查
+	// OnAbort 切到新表：worker.Payload.OwnerID 现在为空（B6.3），用 oid 查
 	// passive_session.Status。oid 必非空——ingestor 单源走 passive.LookupOrCreate。
 	cfg.OnAbort = func(c context.Context) (bool, error) {
 		sess, err := h.passiveSessions.GetByID(c, oid)

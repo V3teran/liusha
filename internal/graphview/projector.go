@@ -71,7 +71,7 @@ type View struct {
 // LLM 用 write_relation 工具主动声明 finding 间 enables 关系，projector 渲染成图边。
 type FindingReader interface {
 	ListByOwner(ctx context.Context, ownerType, ownerID string) ([]finding.VulnFinding, error)
-	ListRelationsByEngagement(ctx context.Context, engagementID string) ([]finding.Relation, error)
+	ListRelationsByOwner(ctx context.Context, engagementID string) ([]finding.Relation, error)
 }
 
 // PassiveReader / ActiveReader 是投影器读 owner 元数据所需的最小接口。
@@ -131,12 +131,12 @@ func (p *Projector) Project(ctx context.Context, engagementID, host string) (Vie
 	}
 	// relation 表 owner 列暂未加，仍按 owner_id 查；过渡期 active relation 可能查不到
 	// （新 finding 的 owner_id 与旧 engagement 关联，relation 写入仍走旧路径，此处兼容）。
-	relations, err := p.Findings.ListRelationsByEngagement(ctx, engagementID)
+	relations, err := p.Findings.ListRelationsByOwner(ctx, engagementID)
 	if err != nil {
-		return View{}, fmt.Errorf("finding.ListRelationsByEngagement: %w", err)
+		return View{}, fmt.Errorf("finding.ListRelationsByOwner: %w", err)
 	}
 
-	// host 过滤：finding.host 可能跨多个值（虽然 ListByEngagement 已过滤一次）。
+	// host 过滤：finding.host 可能跨多个值（虽然 ListByOwner 已过滤一次）。
 	if effectiveHost != "" {
 		filtered := findings[:0]
 		for _, f := range findings {

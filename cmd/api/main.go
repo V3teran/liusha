@@ -78,7 +78,7 @@ func main() {
 		Handler: httpapi.NewServer(httpapi.Deps{
 			APIKey:            os.Getenv("LIUSHA_API_KEY"),
 			Credentials:       credAPI,
-			Engagements: engagementAPIAdapter{
+			Owners: ownerAPIAdapter{
 				passive: passiveSessionStore,
 				active:  activeScanStore,
 			},
@@ -114,14 +114,14 @@ func main() {
 	logger.Info().Msg("api stopped")
 }
 
-// engagementAPIAdapter 把 *engagement.Store 适配到 httpapi.EngagementsAPI 窄接口。
+// ownerAPIAdapter 把 *engagement.Store 适配到 httpapi.OwnersAPI 窄接口。
 //
 // HTTP API 不暴露 errMsg：用户主动取消 engagement 即视为正常结束，
 // abort 调用恒传 ""；store 层完整签名（含 errMsg）保留给 scanner 内部用。
 //
 // 已剥离 engagement.Store——passive_session 现在 per-host 由 ingestor 流量入口
 // LookupOrCreate；EnsurePassiveSession 仅作"代理准备就绪"信号 stub。
-type engagementAPIAdapter struct {
+type ownerAPIAdapter struct {
 	passive *passivesession.Store // List 合并新表，Abort 试两表
 	active  *activescan.Store
 }
@@ -129,7 +129,7 @@ type engagementAPIAdapter struct {
 // Abort 双试：先 passive 表，否则 active 表；都没命中则报错。
 // HTTP API 不区分 mode，用户只给 ID 不给 type，故试两表是必要的。
 // errMsg 恒空（用户主动 abort 视为正常结束；store 完整签名留给 scanner 内部用）。
-func (a engagementAPIAdapter) Abort(ctx context.Context, id string) error {
+func (a ownerAPIAdapter) Abort(ctx context.Context, id string) error {
 	if _, err := a.passive.GetByID(ctx, id); err == nil {
 		return a.passive.Abort(ctx, id, "")
 	}
@@ -142,16 +142,16 @@ func (a engagementAPIAdapter) Abort(ctx context.Context, id string) error {
 // EnsurePassiveSession 历史路径：mitmproxy 启动期预热 passive session 拿 owner_id。
 // 新模型下 passive_session 按 host 由 ingestor 流量入口自创建——本 API 仅作"代理就绪"
 // 信号返回空 ID（客户端可忽略此值）。保留 endpoint 兼容旧 client 不报错。
-func (a engagementAPIAdapter) EnsurePassiveSession(ctx context.Context) (string, error) {
+func (a ownerAPIAdapter) EnsurePassiveSession(ctx context.Context) (string, error) {
 	return "", nil
 }
 
-// List 合并 passive_session + active_scan 两新表 → httpapi.EngagementSummary。
+// List 合并 passive_session + active_scan 两新表 → httpapi.OwnerSummary。
 //
 // 双轨期：旧 engagement.Store 不再读，由新表数据直接返回。每个 sub-list 各取 limit 条，
 // 合并后按 CreatedAt desc 排，最终截到 limit。Mode 字段标记来源表（"passive"/"active"），
 // 前端 viewer 用 Mode 区分展示。
-func (a engagementAPIAdapter) List(ctx context.Context, limit int) ([]httpapi.EngagementSummary, error) {
+func (a ownerAPIAdapter) List(ctx context.Context, limit int) ([]httpapi.OwnerSummary, error) {
 	if limit <= 0 {
 		limit = 20
 	}
@@ -165,10 +165,10 @@ func (a engagementAPIAdapter) List(ctx context.Context, limit int) ([]httpapi.En
 		return nil, fmt.Errorf("list active scans: %w", err)
 	}
 
-	out := make([]httpapi.EngagementSummary, 0, len(passives)+len(actives))
+	out := make([]httpapi.OwnerSummary, 0, len(passives)+len(actives))
 	for _, p := range passives {
 		scopeJSON, _ := json.Marshal(map[string]string{"host": p.Host})
-		s := httpapi.EngagementSummary{
+		s := httpapi.OwnerSummary{
 			ID:            p.ID,
 			Scope:         string(scopeJSON),
 			Status:        string(p.Status),
@@ -187,7 +187,7 @@ func (a engagementAPIAdapter) List(ctx context.Context, limit int) ([]httpapi.En
 	}
 	for _, sc := range actives {
 		scopeJSON, _ := json.Marshal(map[string]string{"brief": sc.Brief})
-		s := httpapi.EngagementSummary{
+		s := httpapi.OwnerSummary{
 			ID:            sc.ID,
 			Scope:         string(scopeJSON),
 			Status:        string(sc.Status),
