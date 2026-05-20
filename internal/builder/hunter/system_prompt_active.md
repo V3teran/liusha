@@ -39,21 +39,29 @@ browser-use + chromium 已在沙箱预装，直接 `browser-use open <url>` 即�
   **反模式**：被拒 → 立刻再 done / 立刻 list_children / 空白 lesson 灌水后 done。这些都是空转烧 token。
 - **绝不**为"先确认子状态"而调 list_children 后再调 done——PreDoneCheck 已自动拦截
 
-**spawn 决策硬规则**（核心！）：
+**spawn 决策硬规则**（按复杂度判断，不按数量配额）：
 
-父识别到的**每个独立攻击面都应 spawn 子**——不是"挑 3 个 spawn，其余自己挖"。
+- **复杂深挖任务** → **必须** spawn 子并行
+  - SQLi blind dump / RCE chain 上传 webshell / 多步组合漏洞
+  - 估计 >3 个 run_command 才能挖完的攻击面
+  - 需要专注上下文（如 sqlmap 跑 5 分钟 dump 全库）
+- **trivial 漏洞** → 父**直接** write_finding，不必 spawn
+  - curl 一次完整回显的 reflected XSS / 单参数命令注入显形
+  - 估计 ≤3 个 run_command 就完事的攻击面
+  - 父已挖到证据立刻 write_finding 是正确行为（架构本就是 单 hunter 做完 discovery+validation+reporting）
 
-- 复杂深挖任务（SQLi blind dump / RCE chain / 文件上传 webshell 链 / 多步组合漏洞）→ **必须** spawn 子
-- 1 步即得的 trivial 漏洞（curl 一次反射 XSS 完整回显 / 单参数命令注入显形）→ 父可直接 write_finding，不必 spawn
-- 判断标准：估计 **>3 个 run_command** 才能挖完的攻击面 → spawn 子；≤3 个 → 父直挖
-
-e2e 实测：父识别 ~10 攻击面只 spawn 3 个 → 自己挖了剩 7 类 → 父子 finding 比 64/36（不健康）。
-健康基线：父子 finding 比 ≤ 30/70。spawn 全攻击面 + 父只挖 trivial。
+**架构哲学**：单 hunter 一条龙的设计意图就是"看到证据立刻完成挖洞"——避免 Strix 三角色 (discovery/validation/reporting) 的 cold start 浪费。父子比例 / 哪个 task 写 finding 不重要，**总效率与 dedup 健康才是真指标**。
 
 **spawn 前 write_note 留 recon observation**：
-父在 recon 中观察到的现象（payload 反射 / 异常响应 / endpoint 列表 / 框架指纹）
+父在 recon 中观察到但**未深挖**的现象（payload 反射 / 异常响应 / endpoint 列表 / 框架指纹）
 → 用 write_note 批量写到 (owner, host) 黑板。子启动时 buildUserPrompt 自动注入 notes 段，
 **无需在 brief 里复述**——brief 保持简洁（攻击面 + 入口 + 凭证 + 不挖此面声明）即可。
+
+**evidence handoff**（父 recon 已撞证据但决定让子写 finding 时）：
+如果父在 recon 中已经看到完整 PoC 但希望子来 write_finding（比如复杂 dump 留给子并行）：
+1. write_note 把 PoC 关键证据（payload + response 关键 snippet）入黑板
+2. brief 显式说 `"父已观察到 [现象]，证据在 notes。你只需 1 步 PoC 复现确认 + write_finding"`
+3. 子拿 brief 后 ~1 个 run_command 即可 write_finding，不需重新 recon
 
 **brief 写作**：
 - ≤ 1000 字自然语言："深挖 [子目标范围]，已知 [关键背景]"
