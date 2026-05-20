@@ -18,7 +18,7 @@ func NewStore(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
 // colsSelect 是所有 SELECT 路径的统一列序，与 scan() 字段顺序一一对应。
 // error_message 用 COALESCE 折 NULL → '' （Scan.ErrorMessage 是 string 不接 NULL）。
 const colsSelect = "id, brief, target_host, status, created_at, " +
-	"ended_at, COALESCE(error_message, ''), finding_count, agent_run_count"
+	"ended_at, COALESCE(error_message, '')"
 
 // Create 建一个新 active scan。
 //
@@ -89,32 +89,19 @@ func (s *Store) GetByID(ctx context.Context, id string) (Scan, error) {
 	return sc, nil
 }
 
-// Abort 把 scan 置为 aborted，同时写入 ended_at / error_message，
-// 子查询重算 finding_count / agent_run_count 做精确兜底。
-//
-// 注意 polymorphic owner：finding / agent_run 走 (owner_type='active_scan', owner_id) 过滤。
-// active 不入 http_flow 表，无 flow_count。
+// Abort 把 scan 置为 aborted，写 ended_at / error_message。
+// 0042 后无 *_count 兜底——读路径直接查附属表。
 func (s *Store) Abort(ctx context.Context, id, errMsg string) error {
 	_, err := s.pool.Exec(ctx, `
 		UPDATE active_scan SET
 			status='aborted',
 			ended_at=now(),
-			error_message=$1,
-			finding_count=(SELECT count(*) FROM finding
-			               WHERE owner_type='active_scan' AND owner_id=$2),
-			agent_run_count=(SELECT count(*) FROM agent_run
-			                 WHERE owner_type='active_scan' AND owner_id=$2)
+			error_message=$1
 		WHERE id=$2`, errMsg, id)
 	if err != nil {
 		return fmt.Errorf("abort active scan %s: %w", id, err)
 	}
 	return nil
-}
-
-// IncrementFindingCount / IncrementAgentRunCount 用于 best-effort 维护运行期实时计数；
-// 失败仅 log warn 不阻塞业务，Abort 精确兜底。
-func (s *Store) IncrementFindingCount(ctx context.Context, id string, n int) error {
-	return s.incrementCounter(ctx, id, "finding_count", n)
 }
 
 func (s *Store) IncrementAgentRunCount(ctx context.Context, id string, n int) error {
@@ -145,8 +132,7 @@ func scan(r scanner, sc *Scan) error {
 	var targetHost *string
 	if err := r.Scan(&sc.ID, &sc.Brief, &targetHost, &sc.Status,
 		&sc.CreatedAt,
-		&sc.EndedAt, &sc.ErrorMessage,
-		&sc.FindingCount, &sc.AgentRunCount); err != nil {
+		&sc.EndedAt, &sc.ErrorMessage); err != nil {
 		return err
 	}
 	if targetHost != nil {

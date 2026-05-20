@@ -25,18 +25,13 @@ const (
 
 // Session 是 passive_session 表行的 Go 表示。
 //
-// FlowCount / FindingCount / AgentRunCount：增量维护的近似计数，**允许漂移**。
-// 运行期 Increment*Count 是 best-effort，失败仅 log warn 不阻塞业务；
-// 仅 Abort 路径用 SELECT count(*) 精确兜底落库。
+// 0042 删除冗余 *_count 列：读路径直接查附属表（SELECT count(*) FROM finding WHERE owner_id=...）。
 type Session struct {
-	ID            string
-	Host          string
-	Status        Status
-	CreatedAt     time.Time
-	ExpiresAt     time.Time
-	EndedAt       *time.Time
-	ErrorMessage  string
-	FlowCount     int
-	FindingCount  int
-	AgentRunCount int
+	ID           string
+	Host         string
+	Status       Status
+	CreatedAt    time.Time
+	ExpiresAt    time.Time
+	EndedAt      *time.Time
+	ErrorMessage string
 }

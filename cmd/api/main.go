@@ -65,8 +65,7 @@ func main() {
 	defer func() { _ = invocationStore.Close() }()
 
 	// Active 模式装配：agentrun store + asynq 入队器。
-	// 计数 best-effort 维护到 active_scan.agent_run_count（cmd/api 只创建 active scans）。
-	taskStore := agentrun.NewStore(pool).WithCounter(activeScanStore)
+	taskStore := agentrun.NewStore(pool)
 	enq := worker.NewClient(asynq.RedisClientOpt{Addr: os.Getenv("LIUSHA_REDIS_ADDR")})
 	defer enq.Close()
 	activeAdapter := &activeScanAdapter{activeScans: activeScanStore, tasks: taskStore, enq: enq}
@@ -169,16 +168,13 @@ func (a ownerAPIAdapter) List(ctx context.Context, limit int) ([]httpapi.OwnerSu
 	for _, p := range passives {
 		scopeJSON, _ := json.Marshal(map[string]string{"host": p.Host})
 		s := httpapi.OwnerSummary{
-			ID:            p.ID,
-			Scope:         string(scopeJSON),
-			Status:        string(p.Status),
-			Mode:          "passive",
-			FlowCount:     p.FlowCount,
-			FindingCount:  p.FindingCount,
-			AgentRunCount: p.AgentRunCount,
-			CreatedAt:     p.CreatedAt.Format(time.RFC3339),
-			ExpiresAt:     p.ExpiresAt.Format(time.RFC3339),
-			ErrorMessage:  p.ErrorMessage,
+			ID:           p.ID,
+			Scope:        string(scopeJSON),
+			Status:       string(p.Status),
+			Mode:         "passive",
+			CreatedAt:    p.CreatedAt.Format(time.RFC3339),
+			ExpiresAt:    p.ExpiresAt.Format(time.RFC3339),
+			ErrorMessage: p.ErrorMessage,
 		}
 		if p.EndedAt != nil {
 			s.EndedAt = p.EndedAt.Format(time.RFC3339)
@@ -192,8 +188,6 @@ func (a ownerAPIAdapter) List(ctx context.Context, limit int) ([]httpapi.OwnerSu
 			Scope:         string(scopeJSON),
 			Status:        string(sc.Status),
 			Mode:          "active",
-			FindingCount:  sc.FindingCount,
-			AgentRunCount: sc.AgentRunCount,
 			CreatedAt:     sc.CreatedAt.Format(time.RFC3339),
 			ErrorMessage:  sc.ErrorMessage,
 		}

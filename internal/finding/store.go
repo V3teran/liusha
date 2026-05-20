@@ -12,12 +12,7 @@ import (
 	"github.com/V3teran/liusha/internal/logx"
 )
 
-// ownerCounter 是 Save 成功后用于 best-effort 维护 owner.finding_count 的最小接口。
-type ownerCounter interface {
-	IncrementFindingCount(ctx context.Context, id string, n int) error
-}
-
-// findingLog 包级 logger，用于 best-effort 计数失败的 warn。
+// findingLog 包级 logger，用于 Save 路径的 info / warn 记录。
 var findingLog = logx.New("vulnfinding")
 
 // Store 封装 finding 表的所有持久化操作。
@@ -27,18 +22,10 @@ var findingLog = logx.New("vulnfinding")
 //   - dedup 由 LLM 调用方自决（write 前调 read_findings 自查）
 type Store struct {
 	pool *pgxpool.Pool
-
-	engCounter ownerCounter
 }
 
 // NewStore 用 pgxpool 构造 Store。
 func NewStore(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
-
-// WithCounter 链式注入 owner 计数维护器。
-func (s *Store) WithCounter(c ownerCounter) *Store {
-	s.engCounter = c
-	return s
-}
 
 // colsSelect 是所有 SELECT / RETURNING 路径的统一列序，与 scan() 字段一一对应。
 const colsSelect = "id, owner_type, owner_id::text AS owner_id, " +
@@ -46,7 +33,7 @@ const colsSelect = "id, owner_type, owner_id::text AS owner_id, " +
 
 // Save 永远 INSERT 一行新 finding（append-only）。
 //
-// 流程：INSERT → commit → 维护 owner.finding_count。
+// 流程：INSERT → commit。
 // dedup 由调用方自决（写 finding 前先 findings() 看 host 已有的）；Store 不做去重。
 func (s *Store) Save(ctx context.Context, f VulnFinding) (VulnFinding, error) {
 	if f.Host == "" {
@@ -86,13 +73,6 @@ func (s *Store) Save(ctx context.Context, f VulnFinding) (VulnFinding, error) {
 
 	if err := tx.Commit(ctx); err != nil {
 		return VulnFinding{}, fmt.Errorf("commit: %w", err)
-	}
-
-	if s.engCounter != nil {
-		if err := s.engCounter.IncrementFindingCount(context.Background(), saved.OwnerID, 1); err != nil {
-			findingLog.Warn().Err(err).Str("owner_id", saved.OwnerID).
-				Msg("owner.finding_count 增量维护失败")
-		}
 	}
 
 	findingLog.Info().

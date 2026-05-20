@@ -7,35 +7,15 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/V3teran/liusha/internal/logx"
 )
-
-// ownerCounter 是 Create 成功后用于 best-effort 维护 owner.agent_run_count
-// 的最小接口；owner store (passive_session/active_scan) 自动满足。
-type ownerCounter interface {
-	IncrementAgentRunCount(ctx context.Context, id string, n int) error
-}
-
-// agentrunLog 包级 logger，用于 best-effort 计数失败的 warn。
-var agentrunLog = logx.New("reactrun")
 
 // Store 封装 agent_task 表的所有持久化操作。
 type Store struct {
 	pool *pgxpool.Pool
-
-	// engCounter 可空：装配时通过 WithCounter 注入；Create 成功后 best-effort
-	// 给 owner.agent_run_count +1（失败仅 warn，Abort 时 SELECT count(*) 兜底）。
-	engCounter ownerCounter
 }
 
 // NewStore 用 pgxpool 构造 Store。
 func NewStore(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
-
-// WithCounter 链式注入 owner 计数维护器；返回原 Store 便于装配。
-func (s *Store) WithCounter(c ownerCounter) *Store {
-	s.engCounter = c
-	return s
-}
 
 // colsSelect 是所有 SELECT 路径的统一列序，与 scanTask() 的字段顺序一一对应。
 // parent_id 用 COALESCE 把 NULL 折成空串 → Go 层 ReactRun.ParentID = ""（独立任务）。
@@ -62,13 +42,6 @@ func (s *Store) Create(ctx context.Context, p NewParams) (string, error) {
 	).Scan(&id)
 	if err != nil {
 		return "", fmt.Errorf("insert task: %w", err)
-	}
-	// best-effort 维护 passive_session/active_scan.agent_run_count
-	if s.engCounter != nil && p.OwnerID != "" {
-		if err := s.engCounter.IncrementAgentRunCount(context.Background(), p.OwnerID, 1); err != nil {
-			agentrunLog.Warn().Err(err).Str("owner_id", p.OwnerID).
-				Msg("owner.agent_run_count 增量维护失败（Abort 时会重算兜底）")
-		}
 	}
 	return id, nil
 }

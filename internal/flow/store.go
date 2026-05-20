@@ -8,17 +8,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/V3teran/liusha/internal/logx"
 )
-
-// ownerCounter 是 Append/AppendBatch 成功后用于 best-effort 维护
-// owner.flow_count 的最小接口；owner store (passive_session/active_scan) 自动满足。
-type ownerCounter interface {
-	IncrementFlowCount(ctx context.Context, id string, n int) error
-}
-
-// flowLog 包级 logger，用于 best-effort 计数失败的 warn。
-var flowLog = logx.New("flow")
 
 // Store 封装 http_flow 表的所有持久化操作。
 // maxReqBody / maxRespBody <= 0 表示不截断。
@@ -26,21 +16,11 @@ type Store struct {
 	pool        *pgxpool.Pool
 	maxReqBody  int
 	maxRespBody int
-
-	// engCounter 可空：装配时通过 WithCounter 注入；写入成功后 best-effort
-	// 给 owner.flow_count +N（失败仅 warn，Abort 时 SELECT count(*) 兜底）。
-	engCounter ownerCounter
 }
 
 // NewStore 构造 Store。建议 maxReqBody=maxRespBody=32*1024（spec 32 KiB 截断阈值）。
 func NewStore(pool *pgxpool.Pool, maxReqBody, maxRespBody int) *Store {
 	return &Store{pool: pool, maxReqBody: maxReqBody, maxRespBody: maxRespBody}
-}
-
-// WithCounter 链式注入 owner 计数维护器；返回原 Store 便于装配。
-func (s *Store) WithCounter(c ownerCounter) *Store {
-	s.engCounter = c
-	return s
 }
 
 // flowSelectCols 是 GetByID 的统一列序，与 scanFlow() 字段一一对应。
@@ -79,7 +59,6 @@ func (s *Store) Append(ctx context.Context, f Flow) (int64, error) {
 	if err != nil {
 		return 0, fmt.Errorf("append flow: %w", err)
 	}
-	s.bumpOwnerCount(f.PassiveSessionID, 1)
 	return id, nil
 }
 
@@ -106,27 +85,7 @@ func (s *Store) AppendBatch(ctx context.Context, flows []Flow) error {
 	if err != nil {
 		return fmt.Errorf("copy from http_flow: %w", err)
 	}
-	// 批量按 passive_session_id 聚合后各自 +N
-	counts := make(map[string]int, 1)
-	for _, f := range flows {
-		counts[f.PassiveSessionID]++
-	}
-	for sid, n := range counts {
-		s.bumpOwnerCount(sid, n)
-	}
 	return nil
-}
-
-// bumpOwnerCount 是 best-effort 维护 passive_session.flow_count 的唯一调用点；
-// engCounter 未注入或 n=0 直接跳过；context.Background 与业务 ctx 解耦。
-func (s *Store) bumpOwnerCount(passiveSessionID string, n int) {
-	if s.engCounter == nil || n == 0 || passiveSessionID == "" {
-		return
-	}
-	if err := s.engCounter.IncrementFlowCount(context.Background(), passiveSessionID, n); err != nil {
-		flowLog.Warn().Err(err).Str("passive_session_id", passiveSessionID).Int("n", n).
-			Msg("passive_session.flow_count 增量维护失败（Abort 时会重算兜底）")
-	}
 }
 
 // GetByID 读单行（含 body bytea）。

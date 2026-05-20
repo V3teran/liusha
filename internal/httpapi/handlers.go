@@ -37,9 +37,6 @@ type OwnerSummary struct {
 	Scope         string `json:"scope"`                   // jsonb raw（如 {"any":true} / {"hosts":[...]}）
 	Status        string `json:"status"`
 	Mode          string `json:"mode"`
-	FlowCount     int    `json:"flow_count"`
-	FindingCount  int    `json:"finding_count"`
-	AgentRunCount int    `json:"agent_run_count"`
 	CreatedAt     string `json:"created_at"`              // RFC3339
 	ExpiresAt     string `json:"expires_at,omitempty"`    // RFC3339 proxy session 必填
 	EndedAt       string `json:"ended_at,omitempty"`      // RFC3339（可空）
