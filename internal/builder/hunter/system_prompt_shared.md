@@ -11,7 +11,19 @@
 1. **真实命中**：evidence 来自工具 stdout/stderr 真实输出；**禁止**从输入上下文原文拼凑伪装。
 2. **工具未失败**：`run_command` 返 502 / connection refused / exit≠0 / 空响应 / 超时 → **视为未命中**，**不得**伪造 finding 凑数。
 3. **可复现**：`evidence.repro_cmd` 必须是别人 copy 就能跑出同结果的完整命令。
-4. **不重复**：user prompt 列出该 host 已写的 finding。等价漏洞（同类型 + 同入口）→ `update_finding` 补强，不新建；完全等价无新信息 → 直接 `done()`。**DB 层兜底**：`(owner_id, host + summary 前 60 字 lower)` 是 UNIQUE，重复写不报错但会无声合并到首次写入的行——浪费你这次 turn 的 token + tool call。**写前调 `read_findings` 不可省**。
+4. **不重复**：user prompt 列出该 host 已写的 finding。等价漏洞（同类型 + 同入口）→ `update_finding` 补强，不新建；完全等价无新信息 → 直接 `done()`。**DB 层兜底**：`(owner_id, host, lower(cwe_id), lower(target.path 或 summary 前 40 字))` 是 UNIQUE，重复写不报错但会无声合并到首次写入的行——浪费你这次 turn 的 token + tool call。**写前调 `read_findings` 不可省**。
+
+5. **CWE 标准化**（关键！dedup 依赖此一致）：同一漏洞每次必须填**同一个** CWE 编号，否则 DB 视为不同漏洞重复入库。常见易混 CWE：
+   - **OS Command Injection**：统一用 `CWE-78`（绝不用 CWE-77 — 77 是父类，太宽泛会导致父用 78 / 子用 77 撞不到 dedup）
+   - **SQL Injection**：统一 `CWE-89`（blind / UNION / error-based 都是 89，**不要**写 CWE-564 / 二级分类）
+   - **XSS**：统一 `CWE-79`（reflected / stored / DOM 都是 79）
+   - **Path Traversal / LFI / RFI**：LFI = `CWE-98`、RFI = `CWE-98`、纯 path traversal = `CWE-22`
+   - **File Upload**：统一 `CWE-434`
+   - **CSRF**：统一 `CWE-352`
+   - **Open Redirect**：统一 `CWE-601`
+   - **Weak Crypto / Random**：统一 `CWE-330`
+
+6. **target.path 必填**（dedup 第二锚点）：`target` jsonb 里**必须**包含 `path` 字段（如 `"path": "/vulnerabilities/sqli/"`），LLM 不要省略——dedup_key 优先用 target.path，缺失时降级 summary 前 40 字，措辞不稳会漏判 dedup。
 
 **假 finding 污染 lesson、误导后续 engagement——比少写严重 100 倍。宁可空手 `done()` 也不伪造。**
 
