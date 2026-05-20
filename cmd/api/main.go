@@ -17,6 +17,7 @@ import (
 
 	"github.com/V3teran/liusha/internal/activescan"
 	"github.com/V3teran/liusha/internal/agentrun"
+	"github.com/V3teran/liusha/internal/audit"
 	"github.com/V3teran/liusha/internal/config"
 	"github.com/V3teran/liusha/internal/credential"
 	"github.com/V3teran/liusha/internal/db"
@@ -68,7 +69,8 @@ func main() {
 	taskStore := agentrun.NewStore(pool)
 	enq := worker.NewClient(asynq.RedisClientOpt{Addr: os.Getenv("LIUSHA_REDIS_ADDR")})
 	defer enq.Close()
-	activeAdapter := &activeScanAdapter{activeScans: activeScanStore, tasks: taskStore, enq: enq}
+	auditStore := audit.NewStore(pool) // 0047：owner abort / create 审计
+	activeAdapter := &activeScanAdapter{activeScans: activeScanStore, tasks: taskStore, enq: enq, audit: auditStore}
 
 	// 监听地址：优先 ENV（运维临时切换）→ yaml。
 	listenAddr := envx.OrDefault("LIUSHA_API_ADDR", cfg.API.ListenAddr)
@@ -80,6 +82,7 @@ func main() {
 			Owners: ownerAPIAdapter{
 				passive: passiveSessionStore,
 				active:  activeScanStore,
+				audit:   auditStore,
 			},
 			Graph:             projector,
 			Invocations:       invocationStore,
@@ -123,19 +126,42 @@ func main() {
 type ownerAPIAdapter struct {
 	passive *passivesession.Store // List 合并新表，Abort 试两表
 	active  *activescan.Store
+	audit   *audit.Store // 0047：abort 写审计事件；nil 时跳过（向后兼容）
 }
 
 // Abort 双试：先 passive 表，否则 active 表；都没命中则报错。
 // HTTP API 不区分 mode，用户只给 ID 不给 type，故试两表是必要的。
 // errMsg 恒空（用户主动 abort 视为正常结束；store 完整签名留给 scanner 内部用）。
+// 0047：成功 abort 后写 audit_log（actor=api_user，target_kind=passive_session/active_scan）。
 func (a ownerAPIAdapter) Abort(ctx context.Context, id string) error {
 	if _, err := a.passive.GetByID(ctx, id); err == nil {
-		return a.passive.Abort(ctx, id, "")
+		if err := a.passive.Abort(ctx, id, ""); err != nil {
+			return err
+		}
+		a.writeAudit(ctx, audit.ActionOwnerAbort, "passive_session", id)
+		return nil
 	}
 	if _, err := a.active.GetByID(ctx, id); err == nil {
-		return a.active.Abort(ctx, id, "")
+		if err := a.active.Abort(ctx, id, ""); err != nil {
+			return err
+		}
+		a.writeAudit(ctx, audit.ActionOwnerAbort, "active_scan", id)
+		return nil
 	}
 	return fmt.Errorf("session %s not found in passive_session or active_scan", id)
+}
+
+// writeAudit best-effort 写审计事件；失败仅吞错不阻塞业务。
+func (a ownerAPIAdapter) writeAudit(ctx context.Context, action, kind, id string) {
+	if a.audit == nil {
+		return
+	}
+	_, _ = a.audit.Append(ctx, audit.Event{
+		Actor:      audit.ActorAPIUser,
+		Action:     action,
+		TargetKind: kind,
+		TargetID:   id,
+	})
 }
 
 // EnsurePassiveSession 历史路径：mitmproxy 启动期预热 passive session 拿 owner_id。
@@ -215,6 +241,7 @@ type activeScanAdapter struct {
 	activeScans *activescan.Store
 	tasks       *agentrun.Store
 	enq         *worker.Client
+	audit       *audit.Store // 0047：create 写审计事件；nil 跳过
 }
 
 func (a *activeScanAdapter) CreateActiveScan(ctx context.Context, brief string) (string, string, error) {
@@ -260,5 +287,26 @@ func (a *activeScanAdapter) CreateActiveScan(ctx context.Context, brief string) 
 	}, asynq.MaxRetry(0)); err != nil {
 		return "", "", fmt.Errorf("enqueue: %w", err)
 	}
+
+	// 0047：active scan 创建成功 → 审计事件。metadata 记 brief 前 200 字便于事后查
+	// （完整 brief 在 active_scan.brief 列）。
+	if a.audit != nil {
+		briefPreview := brief
+		if len(briefPreview) > 200 {
+			briefPreview = briefPreview[:200]
+		}
+		meta, _ := json.Marshal(map[string]string{"brief_preview": briefPreview, "agent_task_id": tid})
+		if _, err := a.audit.Append(ctx, audit.Event{
+			Actor:      audit.ActorAPIUser,
+			Action:     audit.ActionOwnerCreate,
+			TargetKind: "active_scan",
+			TargetID:   sc.ID,
+			Metadata:   meta,
+		}); err != nil {
+			// best-effort：审计失败不阻塞业务返回
+			_ = err
+		}
+	}
+
 	return sc.ID, tid, nil
 }
