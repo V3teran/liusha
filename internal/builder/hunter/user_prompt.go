@@ -396,7 +396,7 @@ func loadEngagementNotes(ctx context.Context, store notes.Store, engagementID, h
 }
 
 // loadKnowledgeForPrompt 拉 host 历史经验 + 全局业务规则 hint。
-// limit 由 caller 提供（来自 cfg.Engagement.LessonsLimitInPrompt，默认 100）；
+// limit 由 caller 提供（来自 cfg.Session.LessonsLimitInPrompt，默认 100）；
 // lesson 与 hint 各取 top-N（按 priority desc）共用此 limit。
 func loadKnowledgeForPrompt(ctx context.Context, store *lesson.Store, host string, limit int) string {
 	if store == nil {

@@ -155,13 +155,7 @@ func (s *ActiveSpawner) runChild(ctx context.Context, cancel context.CancelFunc,
 
 	// owner 透传给 llm_invocation；CallMeta.OwnerType/OwnerID 是 *string 类型
 	ot, oid := s.cfg.OwnerType, s.cfg.OwnerID
-	var otPtr, oidPtr *string
-	if ot != "" {
-		otPtr = &ot
-	}
-	if oid != "" {
-		oidPtr = &oid
-	}
+	otPtr, oidPtr := &ot, &oid
 
 	// hunter LLM
 	hunterRaw, err := s.cfg.Router.For(ctx, "hunter_vision")

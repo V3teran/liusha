@@ -228,8 +228,8 @@ func main() {
 		ActiveMaxSteps:         scannerCfg.ActiveMaxSteps,
 		WatchdogSeconds:        scannerCfg.StepLLMTimeoutSeconds,
 		ReviewerEverySteps:     cfg.React.ReviewerEverySteps,
-		FindingsLimit:          cfg.Engagement.FindingsLimitInPrompt,
-		LessonsLimit:           cfg.Engagement.LessonsLimitInPrompt,
+		FindingsLimit:          cfg.Session.FindingsLimitInPrompt,
+		LessonsLimit:           cfg.Session.LessonsLimitInPrompt,
 		SpawnerFactory:         spawnerFactory,
 	})
 
@@ -276,7 +276,7 @@ func main() {
 		Cfg:        cfg.Ingestor,
 		Stream:     cfg.Proxy.StreamName,
 		Passive:    passSess,
-		PassiveTTL: time.Duration(cfg.Engagement.MaxAgeHours) * time.Hour,
+		PassiveTTL: time.Duration(cfg.Session.MaxAgeHours) * time.Hour,
 		Flows:      flows,
 		Tasks:      tasks,
 		Enqueuer:   wc,
@@ -295,7 +295,7 @@ func main() {
 	// 已有 active）互补——无流量场景下也能保证「TTL 一到必关」，避免 PG 堆积陈旧 active 行 +
 	// viewer 看僵尸 session。
 	go func() {
-		interval := time.Duration(cfg.Engagement.SweeperIntervalSeconds) * time.Second
+		interval := time.Duration(cfg.Session.SweeperIntervalSeconds) * time.Second
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
 		for {

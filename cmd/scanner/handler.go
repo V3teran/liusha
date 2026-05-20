@@ -76,7 +76,8 @@ func (h handler) handle(ctx context.Context, p worker.Payload) (retErr error) {
 	taskStart := time.Now()
 	h.logger.Info().
 		Str("agent_run_id", p.TaskID).
-		Str("engagement_id", p.EngagementID).
+		Str("owner_type", p.OwnerType).
+		Str("owner_id", p.OwnerID).
 		Str("role", string(p.Role)).
 		Msg("asynq task ▶ enter")
 	defer func() {
@@ -85,7 +86,7 @@ func (h handler) handle(ctx context.Context, p worker.Payload) (retErr error) {
 			ev = h.logger.Warn().Err(retErr)
 		}
 		ev.Str("agent_run_id", p.TaskID).
-			Str("engagement_id", p.EngagementID).
+			Str("owner_id", p.OwnerID).
 			Dur("duration", time.Since(taskStart)).
 			Msg("asynq task ◀ exit")
 	}()

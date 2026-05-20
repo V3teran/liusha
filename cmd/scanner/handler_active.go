@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/V3teran/liusha/internal/activescan"
-	"github.com/V3teran/liusha/internal/finding"
 	"github.com/V3teran/liusha/internal/llm"
 	"github.com/V3teran/liusha/internal/react"
 	"github.com/V3teran/liusha/internal/skill"
@@ -35,19 +34,12 @@ func (h handler) handleActive(ctx context.Context, p worker.Payload, entrypoint 
 		return h.failTask(ctx, p.TaskID, fmt.Errorf("active entrypoint 缺 brief"))
 	}
 
-	tid, eid := p.TaskID, p.EngagementID
-	// 双轨期：CallMeta.OwnerType/OwnerID 仅在非空时填指针，否则保 nil → llm_invocation 列写 NULL。
+	tid := p.TaskID
 	ot, oid := p.OwnerType, p.OwnerID
-	var otPtr, oidPtr *string
-	if ot != "" {
-		otPtr = &ot
-	}
-	if oid != "" {
-		oidPtr = &oid
-	}
+	otPtr, oidPtr := &ot, &oid
 	// 优先从 brief 抽真实 URL host（如 target.com:8080），让 lesson/finding/note
-	// 按真站点身份切分跨 task 复用；抽不到回退 engagement_id 兜底（lesson 跨 task 失效）。
-	virtualHost := extractHostFromBrief(ep.Brief, eid)
+	// 按真站点身份切分跨 task 复用；抽不到回退 owner_id 兜底（lesson 跨 task 失效）。
+	virtualHost := extractHostFromBrief(ep.Brief, oid)
 
 	// hunter LLM——active 路由 vision_provider（默认 anthropic），支持 browser-use 截图。
 	// deepseek 走 openai_compat 不支持 multimodal，触发 ErrVisionUnsupported。
@@ -73,16 +65,9 @@ func (h handler) handleActive(ctx context.Context, p worker.Payload, entrypoint 
 	reviewer := react.NewLLMReviewer(reviewLLMGen, h.notes, oid, virtualHost)
 	reviewer.ArgsTruncate = h.cfg.React.ReviewerArgsTruncate
 	reviewer.ObsTruncate = h.cfg.React.ReviewerObsTruncate
-	reviewer.FlowSummary = "ACTIVE eid=" + eid
+	reviewer.FlowSummary = "ACTIVE owner=" + oid
 	reviewer.HostFindingsFetcher = func(ctx context.Context) ([]string, error) {
-		// 双轨切读：优先 (ownerType, ownerID)；空时（旧 enqueue 路径）回退 engagementID。
-		var fs []finding.VulnFinding
-		var err error
-		if ot != "" && oid != "" {
-			fs, err = h.findings.ListByOwnerAndHost(ctx, ot, oid, virtualHost, h.cfg.React.ReviewerFindingsLimit)
-		} else {
-			fs, err = h.findings.ListByEngagementAndHost(ctx, eid, virtualHost, h.cfg.React.ReviewerFindingsLimit)
-		}
+		fs, err := h.findings.ListByOwnerAndHost(ctx, ot, oid, virtualHost, h.cfg.React.ReviewerFindingsLimit)
 		if err != nil {
 			return nil, err
 		}

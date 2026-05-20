@@ -18,9 +18,8 @@ import (
 // 字段保留用于 internal/subtask 包在父 goroutine 内 BuilderParams 传递。
 type Payload struct {
 	TaskID       string          `json:"agent_run_id"`
-	EngagementID string          `json:"engagement_id"`
-	OwnerType    string          `json:"owner_type,omitempty"` // 'passive_session' / 'active_scan'；空 = 旧路径
-	OwnerID      string          `json:"owner_id,omitempty"`   // 双轨期新填，commit B5 之后取代 EngagementID
+	OwnerType    string          `json:"owner_type"` // 'passive_session' / 'active_scan'
+	OwnerID      string          `json:"owner_id"`   // passive_session.id / active_scan.id
 	ParentTaskID string          `json:"parent_task_id,omitempty"`
 	Role         Role            `json:"role"`
 	Input        json.RawMessage `json:"input,omitempty"`

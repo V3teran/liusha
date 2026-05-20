@@ -7,9 +7,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/V3teran/liusha/internal/finding"
-	"github.com/V3teran/liusha/internal/passivesession"
 	"github.com/V3teran/liusha/internal/llm"
+	"github.com/V3teran/liusha/internal/passivesession"
 	"github.com/V3teran/liusha/internal/react"
 	"github.com/V3teran/liusha/internal/skill"
 	"github.com/V3teran/liusha/internal/worker"
@@ -28,17 +27,9 @@ func (h handler) handlePassive(ctx context.Context, p worker.Payload, entrypoint
 		return h.failTask(ctx, p.TaskID, err)
 	}
 
-	tid, eid := p.TaskID, p.EngagementID
-	// 双轨期：p.OwnerType/OwnerID 可能空（旧 enqueue 路径 / passive LookupOrCreate 失败）。
-	// CallMeta.OwnerType/OwnerID 仅在非空时填指针，否则保 nil → llm_invocation 列写 NULL。
+	tid := p.TaskID
 	ot, oid := p.OwnerType, p.OwnerID
-	var otPtr, oidPtr *string
-	if ot != "" {
-		otPtr = &ot
-	}
-	if oid != "" {
-		oidPtr = &oid
-	}
+	otPtr, oidPtr := &ot, &oid
 
 	// hunter LLM Generator
 	hunterRaw, err := h.router.For(ctx, "hunter")
@@ -72,14 +63,7 @@ func (h handler) handlePassive(ctx context.Context, p worker.Payload, entrypoint
 	// 否则同 host 别的流量先挖到 finding 时，本流量（如 bac/profile 真无漏洞）会被误推
 	// terminate / 编造 hint。terminate 判定完全交给 reviewer 基于 window 行为推理。
 	reviewer.HostFindingsFetcher = func(ctx context.Context) ([]string, error) {
-		// 双轨切读：优先 (ownerType, ownerID)；空时（旧 enqueue 路径）回退 engagementID。
-		var fs []finding.VulnFinding
-		var err error
-		if ot != "" && oid != "" {
-			fs, err = h.findings.ListByOwnerAndHost(ctx, ot, oid, hostForFetchers, h.cfg.React.ReviewerFindingsLimit)
-		} else {
-			fs, err = h.findings.ListByEngagementAndHost(ctx, eid, hostForFetchers, h.cfg.React.ReviewerFindingsLimit)
-		}
+		fs, err := h.findings.ListByOwnerAndHost(ctx, ot, oid, hostForFetchers, h.cfg.React.ReviewerFindingsLimit)
 		if err != nil {
 			return nil, err
 		}

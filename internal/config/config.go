@@ -26,7 +26,7 @@ type Config struct {
 	Pricing     PricingConfig             `mapstructure:"pricing"`
 	Proxy       ProxyConfig               `mapstructure:"proxy"`
 	Ingestor    IngestorConfig            `mapstructure:"ingestor"`
-	Engagement  EngagementConfig          `mapstructure:"engagement"`
+	Session     SessionConfig             `mapstructure:"session"`
 	Credential  CredentialConfig          `mapstructure:"credential"`
 	Skills      SkillsConfig              `mapstructure:"skills"`
 	Scanner     ScannerConfig             `mapstructure:"scanner"`
@@ -181,10 +181,8 @@ type IngestorConfig struct {
 	RecreateGroupDelayMs int    `mapstructure:"recreate_group_delay_ms"`
 }
 
-// EngagementConfig 是 passive_session 生命周期参数（旧名保留 yaml schema 兼容）。
-// v1.1 DDD 重构后 engagement 表已删，但配置 section name 保留以避免破坏现有 yaml；
-// 字段语义全部针对 passive_session。
-type EngagementConfig struct {
+// SessionConfig 是 passive_session 生命周期 + hunter prompt 上限参数。
+type SessionConfig struct {
 	// SweeperIntervalSeconds：passive_session sweeper 定时 goroutine 触发周期，
 	// 用于主动 abort 已过期但还挂 active 的 passive session（无流量时仍能换）。
 	SweeperIntervalSeconds int `mapstructure:"sweeper_interval_seconds"`
@@ -204,7 +202,7 @@ type EngagementConfig struct {
 // NotesConfig 是 internal/notes 包 Redis 共享存储参数。
 // engagement 内同 host 跨 task 共享的 hunter 工作笔记板。
 //
-// TTLHours 与 EngagementConfig.MaxAgeHours 默认都是 24h——AppendNote 用 ExpireNX
+// TTLHours 与 SessionConfig.MaxAgeHours 默认都是 24h——AppendNote 用 ExpireNX
 // 仅在 key 首次创建时设 TTL（之后不刷新），让 notes 寿命从 key 创建起算固定窗口，
 // 与 engagement.CreatedAt + MaxAge 时间点严格同步消失。手动调整两者时应保持一致。
 type NotesConfig struct {
@@ -315,7 +313,7 @@ func (c *Config) ApplyDefaults() {
 	c.Pricing = applyPricingDefaults(c.Pricing)
 	c.Proxy = applyProxyDefaults(c.Proxy)
 	c.Ingestor = applyIngestorDefaults(c.Ingestor)
-	c.Engagement = applyEngagementDefaults(c.Engagement)
+	c.Session = applySessionDefaults(c.Session)
 	c.Notes = applyNotesDefaults(c.Notes)
 	c.Credential = applyCredentialDefaults(c.Credential)
 	c.Skills = applySkillsDefaults(c.Skills)
@@ -523,7 +521,7 @@ func applyIngestorDefaults(c IngestorConfig) IngestorConfig {
 	return c
 }
 
-func applyEngagementDefaults(c EngagementConfig) EngagementConfig {
+func applySessionDefaults(c SessionConfig) SessionConfig {
 	if c.SweeperIntervalSeconds == 0 {
 		c.SweeperIntervalSeconds = 600
 	}
