@@ -22,23 +22,17 @@ const colsSelect = "id, brief, target_host, status, created_at, " +
 
 // Create 建一个新 active scan。
 //
-// brief 必填（用户自然语言任务简报）；targetHost 可空（某些 brief 不绑单 host）。
-// 无唯一约束限制，可并发多个 active scan。
+// brief 必填（用户自然语言任务简报）；targetHost 0045 起 NOT NULL DEFAULT ''，
+// 调用方未识别目标 host 时直接传 ""。无唯一约束，可并发多个 active scan。
 // 不设 expires_at：active 任务跑完即终态，无时间窗轮转。
 func (s *Store) Create(ctx context.Context, brief, targetHost string) (Scan, error) {
 	if brief == "" {
 		return Scan{}, fmt.Errorf("create active scan: brief 必填")
 	}
-	var targetHostArg any
-	if targetHost == "" {
-		targetHostArg = nil
-	} else {
-		targetHostArg = targetHost
-	}
 	row := s.pool.QueryRow(ctx, `
 		INSERT INTO active_scan (brief, target_host, status)
 		VALUES ($1, $2, 'active')
-		RETURNING `+colsSelect, brief, targetHostArg)
+		RETURNING `+colsSelect, brief, targetHost)
 	var sc Scan
 	if err := scan(row, &sc); err != nil {
 		return Scan{}, fmt.Errorf("create active scan: %w", err)
@@ -100,22 +94,6 @@ func (s *Store) Abort(ctx context.Context, id, errMsg string) error {
 		WHERE id=$2`, errMsg, id)
 	if err != nil {
 		return fmt.Errorf("abort active scan %s: %w", id, err)
-	}
-	return nil
-}
-
-func (s *Store) IncrementAgentRunCount(ctx context.Context, id string, n int) error {
-	return s.incrementCounter(ctx, id, "agent_run_count", n)
-}
-
-// incrementCounter 是 2 个 IncrementXxx 的共用实现；col 白名单值，无 SQL 注入风险。
-func (s *Store) incrementCounter(ctx context.Context, id, col string, n int) error {
-	if n == 0 {
-		return nil
-	}
-	q := fmt.Sprintf(`UPDATE active_scan SET %s = %s + $1 WHERE id=$2`, col, col)
-	if _, err := s.pool.Exec(ctx, q, n, id); err != nil {
-		return fmt.Errorf("increment %s: %w", col, err)
 	}
 	return nil
 }

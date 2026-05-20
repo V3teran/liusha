@@ -39,10 +39,7 @@ func (s *Store) Append(ctx context.Context, v Invocation) (int64, error) {
 	if len(args) == 0 {
 		args = json.RawMessage("{}")
 	}
-	preview := v.OutputPreview
-	if len(preview) > previewMax {
-		preview = preview[:previewMax]
-	}
+	preview := truncateUTF8(v.OutputPreview, previewMax)
 	var errMsg any
 	if v.ErrorMessage != "" {
 		errMsg = v.ErrorMessage
@@ -114,6 +111,29 @@ func (s *Store) CountByName(ctx context.Context, ownerID string) (map[string]int
 		out[name] = n
 	}
 	return out, rows.Err()
+}
+
+// truncateUTF8 按字节上限截断，但保证不切到 multi-byte rune 中间——
+// PG text 列要求合法 UTF-8，原始 string(bytes)[:max] 若切到 0xe6 0x97 (3-byte rune 中间)
+// 会触发 SQLSTATE 22021。本函数从 max 处向前回退到上一个完整 rune 边界。
+func truncateUTF8(s string, max int) string {
+	if len(s) <= max {
+		return s
+	}
+	// 向前回退到 ASCII 字节或 UTF-8 leading byte（0xxxxxxx 或 11xxxxxx）。
+	// continuation byte 是 10xxxxxx，必须跳过。
+	for end := max; end > 0; end-- {
+		b := s[end-1]
+		if b < 0x80 || b >= 0xC0 {
+			// 该位置是 ASCII 或 leading byte——但 leading byte 自己也要看它能否容下完整 rune。
+			// 简化处理：如果 end-1 是 leading byte，再退一位（不含本 rune）。
+			if b >= 0xC0 {
+				return s[:end-1]
+			}
+			return s[:end]
+		}
+	}
+	return ""
 }
 
 // collect 通用列表收集器。
