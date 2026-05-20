@@ -19,8 +19,7 @@ type Status string
 
 const (
 	StatusActive   Status = "active"
-	StatusAborted  Status = "aborted"
-	StatusArchived Status = "archived"
+	StatusAborted Status = "aborted"
 )
 
 // Session 是 passive_session 表行的 Go 表示。

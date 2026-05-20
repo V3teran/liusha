@@ -24,17 +24,17 @@ func NewStore(pool *pgxpool.Pool, maxReqBody, maxRespBody int) *Store {
 }
 
 // flowSelectCols 是 GetByID 的统一列序，与 scanFlow() 字段一一对应。
-const flowSelectCols = "id, passive_session_id::text, " +
+const flowSelectCols = "id, passive_session_id::text, host, " +
 	"created_at, method, url, request_headers, request_body, " +
 	"status_code, response_headers, response_body"
 
 // summaryCols 是 ListByOwner 的瘦列序，刻意不含 body / headers，避免大 payload。
 // FlowSummary.PassiveSessionID 字段直接对应 passive_session.id（前端 viewer 通过 JSON tag 取值）。
-const summaryCols = "id, passive_session_id::text, created_at, method, url, status_code"
+const summaryCols = "id, passive_session_id::text, host, created_at, method, url, status_code"
 
 // copyFromCols 是 CopyFrom 写入的列名顺序，必须与每行 []any 的元素顺序严格对齐。
 var copyFromCols = []string{
-	"passive_session_id", "method", "url",
+	"passive_session_id", "host", "method", "url",
 	"request_headers", "request_body",
 	"status_code", "response_headers", "response_body",
 }
@@ -47,13 +47,17 @@ func (s *Store) Append(ctx context.Context, f Flow) (int64, error) {
 	respH := normalizeHeaders(f.ResponseHeaders)
 
 	var id int64
+	host := f.Host
+	if host == "" {
+		host = extractHost(f.URL)
+	}
 	err := s.pool.QueryRow(ctx, `
 		INSERT INTO http_flow
-			(passive_session_id, method, url, request_headers, request_body,
+			(passive_session_id, host, method, url, request_headers, request_body,
 			 status_code, response_headers, response_body)
-		VALUES ($1::uuid, $2,$3,$4,$5,$6,$7,$8)
+		VALUES ($1::uuid, $2,$3,$4,$5,$6,$7,$8,$9)
 		RETURNING id`,
-		f.PassiveSessionID, f.Method, f.URL,
+		f.PassiveSessionID, host, f.Method, f.URL,
 		reqH, reqBody,
 		f.StatusCode, respH, respBody).Scan(&id)
 	if err != nil {
@@ -72,8 +76,12 @@ func (s *Store) AppendBatch(ctx context.Context, flows []Flow) error {
 	for i, f := range flows {
 		reqBody, _ := truncate(f.RequestBody, s.maxReqBody)
 		respBody, _ := truncate(f.ResponseBody, s.maxRespBody)
+		host := f.Host
+		if host == "" {
+			host = extractHost(f.URL)
+		}
 		rows[i] = []any{
-			f.PassiveSessionID, f.Method, f.URL,
+			f.PassiveSessionID, host, f.Method, f.URL,
 			normalizeHeaders(f.RequestHeaders), reqBody,
 			f.StatusCode, normalizeHeaders(f.ResponseHeaders), respBody,
 		}
@@ -118,7 +126,7 @@ func (s *Store) ListByOwner(ctx context.Context, ownerID string, limit, offset i
 	var out []FlowSummary
 	for rows.Next() {
 		var sum FlowSummary
-		if err := rows.Scan(&sum.ID, &sum.PassiveSessionID, &sum.CreatedAt, &sum.Method, &sum.URL,
+		if err := rows.Scan(&sum.ID, &sum.PassiveSessionID, &sum.Host, &sum.CreatedAt, &sum.Method, &sum.URL,
 			&sum.StatusCode); err != nil {
 			return nil, fmt.Errorf("scan flow summary: %w", err)
 		}
@@ -138,7 +146,7 @@ type scanner interface {
 // scanFlow 是 flowSelectCols 列序的统一反序列化点。
 func scanFlow(r scanner, f *Flow) error {
 	var reqH, respH []byte
-	if err := r.Scan(&f.ID, &f.PassiveSessionID, &f.CreatedAt, &f.Method, &f.URL,
+	if err := r.Scan(&f.ID, &f.PassiveSessionID, &f.Host, &f.CreatedAt, &f.Method, &f.URL,
 		&reqH, &f.RequestBody,
 		&f.StatusCode, &respH, &f.ResponseBody); err != nil {
 		return err
@@ -165,4 +173,25 @@ func normalizeHeaders(h json.RawMessage) []byte {
 		return []byte("{}")
 	}
 	return []byte(h)
+}
+
+// extractHost 从 URL 提取 host 部分（不含 port / path / query）。
+// 与 0045 PG migration 的 substring regex 等价：scheme 可选，遇到 :/?# 中止。
+func extractHost(rawURL string) string {
+	if rawURL == "" {
+		return ""
+	}
+	s := rawURL
+	for _, prefix := range []string{"https://", "http://"} {
+		if len(s) > len(prefix) && s[:len(prefix)] == prefix {
+			s = s[len(prefix):]
+			break
+		}
+	}
+	for i, r := range s {
+		if r == '/' || r == ':' || r == '?' || r == '#' {
+			return s[:i]
+		}
+	}
+	return s
 }

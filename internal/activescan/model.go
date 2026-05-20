@@ -19,8 +19,7 @@ type Status string
 
 const (
 	StatusActive   Status = "active"
-	StatusAborted  Status = "aborted"
-	StatusArchived Status = "archived"
+	StatusAborted Status = "aborted"
 )
 
 // Scan 是 active_scan 表行的 Go 表示。

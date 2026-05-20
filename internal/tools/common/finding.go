@@ -52,7 +52,10 @@ func (a *WriteFinding) ParametersJSON() json.RawMessage {
     "summary":{"type":"string","maxLength":500,"description":"**一行**短标题（≤500 chars，无换行；git commit subject 风格）：'<漏洞类型> in <path> — <核心机理>'。详情/复现/payload 全进 evidence，**禁止**复制到 summary。DB 有 check 约束（单行 + ≤500），违反会拒收。"},
     "severity":{"type":"string","description":"自由文本（建议 critical/high/medium/low/info 保持前端配色一致）"},
     "target":{"type":"object","description":"目标元数据 jsonb（如 {host,method,path,parameter}），UI 显示用。**直接传 JSON object，不要再 string-encode 一层**（错例：\"{\\\"host\\\":\\\"...\\\"}\"；正确：{\"host\":\"...\"}）。"},
-    "evidence":{"type":"object","description":"结构化证据 jsonb：放完整工具输出片段（sqlmap Parameter:/Type:/Payload:、nuclei matcher、curl 响应等）+ repro_cmd + dump 数据。**summary 之外的所有内容都进这里。** **直接传 JSON object，不要再 string-encode 一层**（错例：\"{\\\"vulnerability_type\\\":\\\"...\\\"}\"；正确：{\"vulnerability_type\":\"...\"}）。"}
+    "evidence":{"type":"object","description":"结构化证据 jsonb：放完整工具输出片段（sqlmap Parameter:/Type:/Payload:、nuclei matcher、curl 响应等）+ repro_cmd + dump 数据。**summary 之外的所有内容都进这里。** **直接传 JSON object，不要再 string-encode 一层**（错例：\"{\\\"vulnerability_type\\\":\\\"...\\\"}\"；正确：{\"vulnerability_type\":\"...\"}）。"},
+    "cwe_id":{"type":"string","description":"可选 CWE 编号（格式 'CWE-89'），用于跨扫描去重和报告分类。不确定可省略。"},
+    "owasp_category":{"type":"string","description":"可选 OWASP Top 10 类别（格式 'A03:2021'），用于按行业标准分类。不确定可省略。"},
+    "remediation":{"type":"string","description":"可选修复建议（自然语言，1-3 句）；evidence 仍存 PoC。"}
   },
   "required":["summary"]
 }`)
@@ -61,10 +64,13 @@ func (a *WriteFinding) ParametersJSON() json.RawMessage {
 // Execute 解析参数 → 构造 finding.VulnFinding → Store.Save → 返回 {id}。
 func (a *WriteFinding) Execute(ctx context.Context, args json.RawMessage) (toolfx.Result, error) {
 	var in struct {
-		Summary  string          `json:"summary"`
-		Severity string          `json:"severity"`
-		Target   json.RawMessage `json:"target"`
-		Evidence json.RawMessage `json:"evidence"`
+		Summary       string          `json:"summary"`
+		Severity      string          `json:"severity"`
+		Target        json.RawMessage `json:"target"`
+		Evidence      json.RawMessage `json:"evidence"`
+		CWEID         string          `json:"cwe_id"`
+		OWASPCategory string          `json:"owasp_category"`
+		Remediation   string          `json:"remediation"`
 	}
 	if err := json.Unmarshal(args, &in); err != nil {
 		return toolfx.Result{}, fmt.Errorf("解析 finding 参数失败: %w", err)
@@ -89,15 +95,18 @@ func (a *WriteFinding) Execute(ctx context.Context, args json.RawMessage) (toolf
 	}
 
 	saved, err := a.Store.Save(ctx, finding.VulnFinding{
-		OwnerType:    a.OwnerType,
-		OwnerID:      a.OwnerID,
-		TaskID:       taskPtr,
-		SourceFlowID: flowPtr,
-		Host:         a.Host,
-		Severity:     in.Severity,
-		Summary:      in.Summary,
-		Target:       in.Target,
-		Evidence:     in.Evidence,
+		OwnerType:     a.OwnerType,
+		OwnerID:       a.OwnerID,
+		TaskID:        taskPtr,
+		SourceFlowID:  flowPtr,
+		Host:          a.Host,
+		Severity:      in.Severity,
+		Summary:       in.Summary,
+		Target:        in.Target,
+		Evidence:      in.Evidence,
+		CWEID:         in.CWEID,
+		OWASPCategory: in.OWASPCategory,
+		Remediation:   in.Remediation,
 	})
 	if err != nil {
 		return toolfx.Result{}, fmt.Errorf("保存 finding 失败: %w", err)

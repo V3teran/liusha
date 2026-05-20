@@ -29,7 +29,8 @@ func NewStore(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
 
 // colsSelect 是所有 SELECT / RETURNING 路径的统一列序，与 scan() 字段一一对应。
 const colsSelect = "id, owner_type, owner_id::text AS owner_id, " +
-	"agent_run_id, source_flow_id, host, severity, summary, target, evidence, created_at"
+	"agent_run_id, source_flow_id, host, severity, summary, target, evidence, " +
+	"COALESCE(cwe_id, ''), COALESCE(owasp_category, ''), first_seen_at, COALESCE(remediation, ''), created_at"
 
 // Save 永远 INSERT 一行新 finding（append-only）。
 //
@@ -59,12 +60,14 @@ func (s *Store) Save(ctx context.Context, f VulnFinding) (VulnFinding, error) {
 
 	row := tx.QueryRow(ctx, `
 		INSERT INTO finding
-			(owner_type, owner_id, agent_run_id, source_flow_id, host, severity, summary, target, evidence)
-		VALUES ($1, $2::uuid, $3,$4,$5,$6,$7,$8,$9)
+			(owner_type, owner_id, agent_run_id, source_flow_id, host, severity, summary, target, evidence,
+			 cwe_id, owasp_category, remediation)
+		VALUES ($1, $2::uuid, $3,$4,$5,$6,$7,$8,$9, NULLIF($10,''), NULLIF($11,''), NULLIF($12,''))
 		RETURNING `+colsSelect,
 		f.OwnerType, f.OwnerID,
 		f.TaskID, f.SourceFlowID, f.Host, f.Severity,
-		f.Summary, f.Target, f.Evidence)
+		f.Summary, f.Target, f.Evidence,
+		f.CWEID, f.OWASPCategory, f.Remediation)
 
 	var saved VulnFinding
 	if err := scan(row, &saved); err != nil {
@@ -277,17 +280,20 @@ type scanner interface {
 }
 
 // scan 是 colsSelect 列序的统一反序列化点。
+// taskID / sourceFlowID 用指针接住 NULL；TaskID 是 *string 保留 nil，SourceFlowID 是 *int64 同。
 func scan(r scanner, f *VulnFinding) error {
-	var target, evidence []byte
+	var taskID *string
+	var sourceFlowID *int64
 	if err := r.Scan(
-		&f.ID,
-		&f.OwnerType, &f.OwnerID,
-		&f.TaskID, &f.SourceFlowID, &f.Host, &f.Severity,
-		&f.Summary, &target, &evidence,
+		&f.ID, &f.OwnerType, &f.OwnerID,
+		&taskID, &sourceFlowID, &f.Host, &f.Severity,
+		&f.Summary, &f.Target, &f.Evidence,
+		&f.CWEID, &f.OWASPCategory, &f.FirstSeenAt, &f.Remediation,
 		&f.CreatedAt,
 	); err != nil {
 		return err
 	}
-	f.Target, f.Evidence = target, evidence
+	f.TaskID = taskID
+	f.SourceFlowID = sourceFlowID
 	return nil
 }

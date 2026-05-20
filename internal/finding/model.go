@@ -31,5 +31,10 @@ type VulnFinding struct {
 	Summary   string
 	Target    json.RawMessage
 	Evidence  json.RawMessage
+	// 元数据字段（0045 加入）
+	CWEID          string // 例 "CWE-89"
+	OWASPCategory  string // 例 "A03:2021"
+	FirstSeenAt    time.Time // 首次发现时间——dedup Update 不变；新建时与 CreatedAt 一致
+	Remediation    string // 修复建议自然语言；evidence 仍存 PoC
 	CreatedAt time.Time
 }

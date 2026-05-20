@@ -15,6 +15,7 @@ import (
 type Flow struct {
 	ID               int64
 	PassiveSessionID string
+	Host             string
 	CreatedAt        time.Time
 	Method           string
 	URL              string
@@ -30,6 +31,7 @@ type Flow struct {
 type FlowSummary struct {
 	ID               int64
 	PassiveSessionID string
+	Host             string
 	CreatedAt        time.Time
 	Method           string
 	URL              string
