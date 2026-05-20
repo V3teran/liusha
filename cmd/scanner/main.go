@@ -38,6 +38,7 @@ import (
 	"github.com/V3teran/liusha/internal/lesson"
 	"github.com/V3teran/liusha/internal/llm"
 	"github.com/V3teran/liusha/internal/llminvocation"
+	"github.com/V3teran/liusha/internal/toolinvocation"
 	"github.com/V3teran/liusha/internal/logx"
 	"github.com/V3teran/liusha/internal/notes"
 	"github.com/V3teran/liusha/internal/observability"
@@ -81,6 +82,7 @@ func main() {
 	actScan := activescan.NewStore(pool)      // active scan store
 	tasks := agentrun.NewStore(pool)
 	finds := finding.NewStore(pool)
+	toolCalls := toolinvocation.NewStore(pool)
 	calls := llminvocation.NewStoreWithConfig(pool, cfg.LLM.Invocation)
 	lessons := lesson.NewStore(pool)
 	defer func() { _ = calls.Close() }()
@@ -216,6 +218,7 @@ func main() {
 		Findings:               finds,
 		Lessons:                lessons,
 		Credentials:            creds,
+		ToolInvocations:        toolCalls,
 		ToolingLoader:          toolingLoader,
 		ToolsManifest:          toolsManifest,
 		VulnLoader:             vulnLoader,

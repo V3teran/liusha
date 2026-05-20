@@ -34,6 +34,7 @@ import (
 	"github.com/V3teran/liusha/internal/react"
 	"github.com/V3teran/liusha/internal/skill"
 	"github.com/V3teran/liusha/internal/subtask"
+	"github.com/V3teran/liusha/internal/toolinvocation"
 	toolfx "github.com/V3teran/liusha/internal/toolruntime"
 	"github.com/V3teran/liusha/internal/toolruntime/interceptor"
 	"github.com/V3teran/liusha/internal/tools/common"
@@ -75,6 +76,10 @@ type Deps struct {
 	Findings    *finding.Store
 	Lessons     *lesson.Store
 	Credentials credential.Provider
+
+	// ToolInvocations 为 Record interceptor 提供 PG 持久化能力——每次 Execute
+	// 在 enter/exit 边界写一行 tool_invocation。nil 时跳过 telemetry。
+	ToolInvocations *toolinvocation.Store
 
 	// ToolingLoader root 指向 skills/tooling/，给 read_tooling_skill 工具用（按需读 SKILL.md 详细手册）。
 	// nil 时不注册 read_tooling_skill 工具（向后兼容）。
@@ -240,6 +245,7 @@ func NewBuilder(deps Deps) skill.Builder {
 		// 钳在 ~17KB，不需要再加一层截断。
 		reg.Use(
 			interceptor.Observe(),
+			interceptor.Record(deps.ToolInvocations, p.TaskID, p.OwnerType, p.OwnerID),
 			interceptor.Timeout(deps.StepToolTimeoutSeconds),
 		)
 
