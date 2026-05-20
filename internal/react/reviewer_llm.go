@@ -144,21 +144,21 @@ func (o *LLMReviewer) Evaluate(ctx context.Context, window []StepRecord) Verdict
 		{Role: llm.RoleUser, Content: user},
 	}, nil)
 	if err != nil {
-		slog.Warn("reviewer llm call failed", "err", err, "engagement_id", o.engagementID)
+		slog.Warn("reviewer llm call failed", "err", err, "owner_id", o.engagementID)
 		return Verdict{Decision: VerdictContinue}
 	}
 
 	var dec reviewerDecision
 	content := strings.TrimSpace(res.Content)
 	if err := json.Unmarshal([]byte(content), &dec); err != nil {
-		slog.Warn("reviewer parse json failed", "raw", content, "engagement_id", o.engagementID)
+		slog.Warn("reviewer parse json failed", "raw", content, "owner_id", o.engagementID)
 		return Verdict{Decision: VerdictContinue}
 	}
 
 	if v := normalizeDecision(dec.Decision); v != "" {
 		return Verdict{Decision: v, Hint: dec.Hint}
 	}
-	slog.Warn("reviewer unknown decision", "decision", dec.Decision, "engagement_id", o.engagementID)
+	slog.Warn("reviewer unknown decision", "decision", dec.Decision, "owner_id", o.engagementID)
 	return Verdict{Decision: VerdictContinue}
 }
 
@@ -191,7 +191,7 @@ func (o *LLMReviewer) readNotesOrNil(ctx context.Context) []byte {
 	}
 	data, err := o.notes.ReadNotes(ctx, o.engagementID, o.host)
 	if err != nil {
-		slog.Warn("reviewer read state failed", "err", err, "engagement_id", o.engagementID, "host", o.host)
+		slog.Warn("reviewer read state failed", "err", err, "owner_id", o.engagementID, "host", o.host)
 		return nil
 	}
 	return data
@@ -215,7 +215,7 @@ func (o *LLMReviewer) fetchHostFindingsSection(ctx context.Context) string {
 	}
 	items, err := o.HostFindingsFetcher(ctx)
 	if err != nil {
-		slog.Warn("reviewer fetch host findings failed", "err", err, "engagement_id", o.engagementID)
+		slog.Warn("reviewer fetch host findings failed", "err", err, "owner_id", o.engagementID)
 		return ""
 	}
 	if len(items) == 0 {
@@ -245,7 +245,7 @@ func (o *LLMReviewer) fetchLessonsSection(ctx context.Context) string {
 	}
 	lessons, err := o.LessonFetcher(ctx)
 	if err != nil {
-		slog.Warn("reviewer fetch lessons failed", "err", err, "engagement_id", o.engagementID)
+		slog.Warn("reviewer fetch lessons failed", "err", err, "owner_id", o.engagementID)
 		return ""
 	}
 	if len(lessons) == 0 {

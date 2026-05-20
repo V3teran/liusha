@@ -163,7 +163,7 @@ func (p *Projector) Project(ctx context.Context, engagementID, host string) (Vie
 			Label: effectiveHost,
 			Payload: map[string]any{
 				"target_host":   effectiveHost,
-				"engagement_id": engagementID, // 字段名保持兼容前端 viewer；值是 owner_id
+				"owner_id": engagementID,
 				"owner_type":    ownerType,
 				"started_at":    createdAt,
 				"mode":          modeStr,
