@@ -16,7 +16,7 @@ type LessonAdder interface {
 	Add(ctx context.Context, l lesson.Lesson) (lesson.Lesson, error)
 }
 
-// WriteLesson — 写一条长期经验到 lesson 表（kind=lesson，跨 engagement 持久化）。
+// WriteLesson — 写一条长期经验到 lesson 表（kind=lesson，跨 owner 持久化）。
 //
 // hunter agent 写 finding 后自决何时调本工具沉淀经验（"这条值得下次复用吗"）。
 // host 由 builder 注入；LLM 只填 content（必填）+ kind/priority/payload（可选）。
@@ -30,7 +30,7 @@ type WriteLesson struct {
 func (a *WriteLesson) Name() string { return "write_lesson" }
 
 func (a *WriteLesson) Description() string {
-	return "写一条「跨 engagement 长期经验」到 lesson 库" +
+	return "写一条「跨 owner 长期经验」到 lesson 库" +
 		"（按 host 永久累积，下次扫同一 host 自动注入 user prompt；同 content_hash 自动 dedup）。" +
 		"\n\nhost 维度：passive 模式是真实 HTTP host（如 target.com:8080），跨 task 复用度高；" +
 		"active 模式是 brief 里抽取的 URL host，抽不到时回退 owner_id 兜底（此情况 lesson 跨 task 复用失效，建议优先用 note）。" +

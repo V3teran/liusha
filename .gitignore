@@ -40,8 +40,8 @@ coverage.html
 /docs/hks2.md
 /docs/无径之径*
 
-# engagement runtime store（result_compress middleware 落盘目录）
-/engagement-store/
+# session runtime store（result_compress middleware 落盘目录）
+/session-store/
 
 # Runtime logs / pids（host 进程 + proxify 流量 dump，每次 dev 启动覆盖）
 /logs/

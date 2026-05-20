@@ -96,12 +96,12 @@ type Projector struct {
 //
 // engagement 可挂多 host，host 参数语义：
 //   - 非空：按 finding.host 过滤，只投影该 host 下的图
-//   - 空：列本 engagement 跨 host 的全部 finding（多 host 时图可能较杂）
+//   - 空：列本 owner 跨 host 的全部 finding（多 host 时图可能较杂）
 //
 // 步骤：
 //  1. 拉 engagement 元数据（created_at / mode / status 等做 origin 节点 payload）
-//  2. 拉本 engagement 全部 finding（已 dedup）
-//  3. 拉本 engagement 全部 finding_relation（enables 边）
+//  2. 拉本 owner 全部 finding（已 dedup）
+//  3. 拉本 owner 全部 finding_relation（enables 边）
 //  4. 按 finding.target 派生 endpoint / parameter 节点（dedup_key 由 Go 端规范化）
 //  5. 拼出 origin → endpoint → parameter → finding → goal 主链
 //  6. 加 finding_relation 提供的 enables 边
@@ -129,8 +129,8 @@ func (p *Projector) Project(ctx context.Context, engagementID, host string) (Vie
 	if err != nil {
 		return View{}, fmt.Errorf("finding.ListByOwner: %w", err)
 	}
-	// relation 表 owner 列暂未加，仍按 engagement_id 查；过渡期 active relation 可能查不到
-	// （新 finding 的 engagement_id 与旧 engagement 关联，relation 写入仍走旧路径，此处兼容）。
+	// relation 表 owner 列暂未加，仍按 owner_id 查；过渡期 active relation 可能查不到
+	// （新 finding 的 owner_id 与旧 engagement 关联，relation 写入仍走旧路径，此处兼容）。
 	relations, err := p.Findings.ListRelationsByEngagement(ctx, engagementID)
 	if err != nil {
 		return View{}, fmt.Errorf("finding.ListRelationsByEngagement: %w", err)

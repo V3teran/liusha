@@ -28,13 +28,13 @@ type Builder func(ctx context.Context, params BuilderParams) (react.Config, erro
 //   - passive: scanner ingestor 拉到 flow 后填 FlowID/URL/Method + Request*/Response*，
 //     hunter user prompt 拼完整 raw 流量（请求 + 响应）；Host = 流量真实 host。
 //   - active: httpapi /scan/active 入口填 Brief（用户自然语言整段），目标 URL/host/凭据/
-//     测试范围全部塞在 brief 里由 LLM 自己识别；Host = engagement_id（虚拟 host，
+//     测试范围全部塞在 brief 里由 LLM 自己识别；Host = owner_id（虚拟 host，
 //     用于 notes/findings/lessons 按 engagement 切分）。
 //
 // Mode 决定 builder 内部 user prompt 渲染分支与工具注册（如 active 不挂 read_credentials）。
 type BuilderParams struct {
 	OwnerType string // 'passive_session' / 'active_scan'
-	OwnerID   string // passive_session.id / active_scan.id（也用作 notes/lesson key + finding.engagement_id 冗余列）
+	OwnerID   string // passive_session.id / active_scan.id（也用作 notes/lesson key + finding.owner_id 冗余列）
 	TaskID    string
 	// ParentTaskID 非空表示本任务是 active 父 spawn 的子任务（subtask swarm）。
 	// 父任务 / 独立任务此字段为空。hunter builder（PR3）按此字段决定是否注册

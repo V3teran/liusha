@@ -1,5 +1,5 @@
 // Package flow 实现 http_flow 表的持久化层：
-// 抓取代理在 engagement 内观测到的每一次请求/响应（含 headers + body）。
+// 抓取代理在 owner 内观测到的每一次请求/响应（含 headers + body）。
 // 大 body 在 Append/AppendBatch 内按 maxReqBody / maxRespBody 截断（v0010 后不再
 // 单独打 truncated flag；body 长度 < max 即未截断，按需 caller 自查 len()）。
 package flow

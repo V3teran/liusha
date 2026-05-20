@@ -55,7 +55,7 @@ type LLMReviewer struct {
 	// 然后催 done，bac/profile 真无漏洞的流量被误推 terminate / 编造 hint）。
 	HostFindingsFetcher func(ctx context.Context) ([]string, error)
 
-	// LessonFetcher 是可选 hook：返回该 host 历史 lesson（跨 engagement 长期经验）。
+	// LessonFetcher 是可选 hook：返回该 host 历史 lesson（跨 owner 长期经验）。
 	// 由 scanner 装配处用 closure 适配 *lesson.Store.ListByHost。
 	// nil 时 reviewer prompt 不注入 lesson 段。
 	// 关键作用：reviewer 用 lesson 给出更精准方向修正 hint；仅服务方向修正，不参与"是否 terminate"决策。
@@ -236,7 +236,7 @@ func (o *LLMReviewer) fetchHostFindingsSection(ctx context.Context) string {
 //
 // 渲染示例：
 //
-//	## 该 host 历史经验（lesson，跨 engagement 累积）
+//	## 该 host 历史经验（lesson，跨 owner 累积）
 //	- [p7] DVWA 默认密码 admin:password，优先试
 //	- [p7] DVWA security=low 需 cookie 强带覆盖 server 强制 impossible
 func (o *LLMReviewer) fetchLessonsSection(ctx context.Context) string {
@@ -252,7 +252,7 @@ func (o *LLMReviewer) fetchLessonsSection(ctx context.Context) string {
 		return ""
 	}
 	var b strings.Builder
-	b.WriteString("## 该 host 历史经验（lesson，跨 engagement 累积）\n")
+	b.WriteString("## 该 host 历史经验（lesson，跨 owner 累积）\n")
 	for _, l := range lessons {
 		b.WriteString("- ")
 		b.WriteString(l)
@@ -294,7 +294,7 @@ func buildReviewerPrompt(flowSummary string, window []StepRecord, notes []byte, 
 		b.WriteString(lessonsSection)
 	}
 	if len(notes) > 0 {
-		b.WriteString("\n本次扫描笔记板（engagement 内同 host 工作笔记）：\n")
+		b.WriteString("\n本次扫描笔记板（owner 内同 host 工作笔记）：\n")
 		b.Write(notes)
 	}
 	b.WriteString("\n\n请按 system 约束的 JSON 输出。")

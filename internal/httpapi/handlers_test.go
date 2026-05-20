@@ -286,7 +286,7 @@ func TestEngagementAbort_RequiresAuth(t *testing.T) {
 	}
 }
 
-// TestPassiveScan_Created：POST /scan/passive 正常路径返回 engagement_id。
+// TestPassiveScan_Created：POST /scan/passive 正常路径返回 owner_id。
 // 请求体为空——passive session 不 per-host。
 func TestPassiveScan_Created(t *testing.T) {
 	fa := &fakeAbort{}
@@ -387,7 +387,7 @@ func (f *fakeActiveScan) CreateActiveScan(_ context.Context, brief string) (stri
 	return eid, tid, nil
 }
 
-// TestActiveScan_Created：正常路径 → 200 + {engagement_id, agent_run_id}；fake 记录 brief 原文。
+// TestActiveScan_Created：正常路径 → 200 + {owner_id, agent_run_id}；fake 记录 brief 原文。
 func TestActiveScan_Created(t *testing.T) {
 	fs := &fakeActiveScan{}
 	srv := newTestServer(t, Deps{ActiveScan: fs})

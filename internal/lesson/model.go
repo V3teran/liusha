@@ -1,6 +1,6 @@
 // Package lesson 是 lesson 表的 Go 模型与持久化层。
 //
-// 跨 engagement 长期知识库：LLM 主动 write_lesson 写本表，
+// 跨 owner 长期知识库：LLM 主动 write_lesson 写本表，
 // hunter 装配时按 host 加载 top-N 当背景知识；重复 content 时
 // hit_count++ 体现可信度。
 package lesson

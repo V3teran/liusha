@@ -1,14 +1,14 @@
 // Package notes 实现 hunter 短期工作笔记的 Redis 共享存储。
 //
 // 短期记忆 vs 长期记忆 边界：
-//   - notes (本包)：engagement 内同 host 跨 task 共享，TTL 自动过期，不入 PG。
-//   - lesson (internal/lesson)：跨 engagement / 按 host 持久化长期经验，PG。
+//   - notes (本包)：owner 内同 host 跨 task 共享，TTL 自动过期，不入 PG。
+//   - lesson (internal/lesson)：跨 owner / 按 host 持久化长期经验，PG。
 //   - finding (internal/finding)：漏洞 PoC 结论，PG。
 //
 // engagement 可挂多 host（passive 模式接受任意 host 流量），notes 按
-// (engagement_id, host) 二维切分——host A 的 fact 不会污染 host B。
+// (owner_id, host) 二维切分——host A 的 fact 不会污染 host B。
 //
-// key=liusha:note:{engagement_id}:{host}，LIST 类型；每条 element 是 JSON bytes
+// key=liusha:note:{owner_id}:{host}，LIST 类型；每条 element 是 JSON bytes
 // （形如 {"content":"...","agent_run_id":"..."}），store 不解析也不强制结构——
 // write_note 工具层负责语义。
 //
@@ -31,7 +31,7 @@ import (
 //
 // 同时被 internal/tools/common/note.go 的 NoteStore 与
 // internal/react/reviewer_llm.go 的 NotesReader 隐式满足。
-// 所有方法带 host 参数——同 engagement 多 host 切分隔离。
+// 所有方法带 host 参数——同 owner 多 host 切分隔离。
 type Store interface {
 	AppendNote(ctx context.Context, engagementID, host string, entry []byte) error
 	ReadNotes(ctx context.Context, engagementID, host string) ([]byte, error)

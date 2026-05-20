@@ -73,7 +73,7 @@ func (h handler) handlePassive(ctx context.Context, p worker.Payload, entrypoint
 		}
 		return out, nil
 	}
-	// LessonFetcher 让 reviewer 看到该 host 历史 lesson（跨 engagement 长期经验），
+	// LessonFetcher 让 reviewer 看到该 host 历史 lesson（跨 owner 长期经验），
 	// 用于方向修正 hint。lesson 是经验，不参与"是否 terminate"决策。
 	reviewer.LessonFetcher = func(ctx context.Context) ([]string, error) {
 		lessons, err := h.lessons.ListByHost(ctx, hostForFetchers, h.cfg.React.ReviewerLessonsLimit)
@@ -133,7 +133,7 @@ func (h handler) handlePassive(ctx context.Context, p worker.Payload, entrypoint
 		return h.failTask(ctx, p.TaskID, err)
 	}
 
-	// engagement 中止时让 react.Run 自然停
+	// owner 中止时让 react.Run 自然停
 	// OnAbort 切到新表：worker.Payload.EngagementID 现在为空（B6.3），用 oid 查
 	// passive_session.Status。oid 必非空——ingestor 单源走 passive.LookupOrCreate。
 	cfg.OnAbort = func(c context.Context) (bool, error) {

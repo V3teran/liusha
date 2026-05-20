@@ -4,8 +4,8 @@
 // 启动流程（自动化）：
 //   1. fetch /viewer/config.json → 若 dev 模式开（LIUSHA_VIEWER_DEV_KEY=1），
 //      把 api_key 填到输入框；否则用 localStorage 旧值
-//   2. fetch /engagement → 拉最近 engagement 列表，填进 <select> 下拉
-//   3. 默选最新 engagement → fetch /graph/<eid> 渲染
+//   2. fetch /session → 拉最近 session 列表，填进 <select> 下拉
+//   3. 默选最新 session → fetch /graph/<eid> 渲染
 //   4. 用户切下拉 / 改 host / 点"加载" / 勾"自动刷新" 都触发对应动作
 
 const $ = (sel) => document.querySelector(sel);
@@ -19,7 +19,7 @@ const state = {
   view: null,
   selectedNodeID: null,
   autoTimer: null,
-  engagements: [],
+  sessions: [],
 };
 
 // ---------- 初始化 ----------
@@ -34,7 +34,7 @@ async function init() {
 
   bindEvents();
 
-  // 初次加载 engagement 列表，填下拉，默选最新，自动 render
+  // 初次加载 session 列表，填下拉，默选最新，自动 render
   await loadEngagementList(/*autoLoadGraph=*/ true);
 }
 
@@ -104,7 +104,7 @@ function persistInputs() {
   localStorage.setItem(STORAGE_KEYS.apikey, $('#input-apikey').value);
 }
 
-// ---------- engagement 列表 ----------
+// ---------- session 列表 ----------
 
 async function loadEngagementList(autoLoadGraph) {
   const apikey = $('#input-apikey').value;
@@ -115,7 +115,7 @@ async function loadEngagementList(autoLoadGraph) {
   }
 
   setStatus('loading', 'LIST...');
-  const url = host ? `/engagement?host=${encodeURIComponent(host)}` : '/engagement';
+  const url = host ? `/session?host=${encodeURIComponent(host)}` : '/session';
 
   try {
     const res = await fetch(url, { headers: { 'X-API-Key': apikey } });
@@ -124,19 +124,19 @@ async function loadEngagementList(autoLoadGraph) {
       return;
     }
     const data = await res.json();
-    state.engagements = data.engagements || [];
+    state.sessions = data.sessions || [];
     populateSelect();
 
-    if (autoLoadGraph && state.engagements.length > 0) {
+    if (autoLoadGraph && state.sessions.length > 0) {
       // 优先恢复 localStorage 里的 eid（如果还在列表里）；否则选最新（第 0 个）
       const remembered = localStorage.getItem(STORAGE_KEYS.eid);
-      const stillExists = state.engagements.find((e) => e.id === remembered);
-      const target = stillExists ? remembered : state.engagements[0].id;
+      const stillExists = state.sessions.find((e) => e.id === remembered);
+      const target = stillExists ? remembered : state.sessions[0].id;
       $('#select-eid').value = target;
       localStorage.setItem(STORAGE_KEYS.eid, target);
       await loadGraph();
     } else {
-      setStatus('idle', `LIST OK (${state.engagements.length})`);
+      setStatus('idle', `LIST OK (${state.sessions.length})`);
     }
   } catch (err) {
     setStatus('error', 'LIST NETWORK ERROR');
@@ -147,12 +147,12 @@ async function loadEngagementList(autoLoadGraph) {
 function populateSelect() {
   const sel = $('#select-eid');
   sel.innerHTML = '';
-  if (state.engagements.length === 0) {
-    sel.innerHTML = '<option value="">— 暂无 engagement —</option>';
+  if (state.sessions.length === 0) {
+    sel.innerHTML = '<option value="">— 暂无 session —</option>';
     return;
   }
-  sel.innerHTML = '<option value="">— 选择 engagement —</option>';
-  for (const e of state.engagements) {
+  sel.innerHTML = '<option value="">— 选择 session —</option>';
+  for (const e of state.sessions) {
     const opt = document.createElement('option');
     opt.value = e.id;
     const time = e.created_at ? e.created_at.replace(/T/, ' ').replace(/\+.*$/, '') : '';
@@ -188,9 +188,9 @@ async function loadGraph() {
   try {
     const res = await fetch(url, { headers: { 'X-API-Key': apikey } });
     if (res.status === 404) {
-      // engagement 已不在 DB（被 truncate / 已归档）→ 清 stale localStorage、
+      // session 已不在 DB（被 truncate / 已归档）→ 清 stale localStorage、
       // 重拉列表自动选最新；不要让用户手动改下拉。
-      console.warn(`graph 404: engagement ${eid} 已不存在，清 stale eid 并重拉列表`);
+      console.warn(`graph 404: session ${eid} 已不存在，清 stale eid 并重拉列表`);
       localStorage.removeItem(STORAGE_KEYS.eid);
       setStatus('error', 'STALE EID, RELOADING');
       $('#btn-load').disabled = false;
@@ -207,7 +207,7 @@ async function loadGraph() {
     state.view = view;
     renderAll();
     setStatus('active', 'ACTIVE');
-    // 异步拉 LLM invocation 审计——与 graph 同 engagement，失败不阻塞主流程。
+    // 异步拉 LLM invocation 审计——与 graph 同 session，失败不阻塞主流程。
     loadInvocations(eid, apikey).catch((err) => console.warn('invocations load failed:', err));
   } catch (err) {
     setStatus('error', 'NETWORK ERROR');
@@ -227,7 +227,7 @@ function setStatus(kind, label) {
 
 function renderAll() {
   const v = state.view;
-  // 防御性 null-guard：后端在某些路径（空 engagement / 投影器异常）可能返
+  // 防御性 null-guard：后端在某些路径（空 session / 投影器异常）可能返
   // nodes/edges 字段为 null 而非 []，直接 .length 会抛 TypeError。
   if (!v) {
     setStatus('error', 'NO VIEW');
@@ -235,8 +235,8 @@ function renderAll() {
   }
   const nodes = v.nodes || [];
   const edges = v.edges || [];
-  const eidShort = v.engagement_id ? v.engagement_id.slice(0, 8) : '-';
-  $('#meta-engagement').textContent = `${v.host || '-'} · ${eidShort}`;
+  const eidShort = v.owner_id ? v.owner_id.slice(0, 8) : '-';
+  $('#meta-session').textContent = `${v.host || '-'} · ${eidShort}`;
   $('#meta-counts').textContent = `${nodes.length} nodes · ${edges.length} edges`;
   $('#empty-hint').style.display = nodes.length <= 2 ? 'flex' : 'none';
 
@@ -441,7 +441,7 @@ function escapeHtml(s) {
 /**
  * fetch /llm/invocations/:eid → 渲染到 #panel-invocations。
  * 按 agent_run_id 分组折叠（<details>），点开展示完整 16 字段（含 messages / result jsonb）。
- * @param {string} eid engagement_id
+ * @param {string} eid owner_id
  * @param {string} apikey X-API-Key
  */
 async function loadInvocations(eid, apikey) {
@@ -461,12 +461,12 @@ async function loadInvocations(eid, apikey) {
 
 /**
  * 渲染 invocation 分组到 #panel-invocations。
- * @param {{engagement_id: string, total: number, groups: Array<{agent_run_id: string, count: number, invocations: Array}>}} data
+ * @param {{owner_id: string, total: number, groups: Array<{agent_run_id: string, count: number, invocations: Array}>}} data
  */
 function renderInvocations(data) {
   const panel = $('#panel-invocations');
   if (!data || !Array.isArray(data.groups) || data.groups.length === 0) {
-    panel.innerHTML = '<div class="empty">该 engagement 暂无 LLM invocation</div>';
+    panel.innerHTML = '<div class="empty">该 session 暂无 LLM invocation</div>';
     return;
   }
 
@@ -533,7 +533,7 @@ function renderInvocationCard(inv, stepIdx) {
       <dl class="inv-fields">
         <dt>id</dt><dd>${inv.id}</dd>
         <dt>agent_run_id</dt><dd>${escapeHtml(inv.agent_run_id || '(null)')}</dd>
-        <dt>engagement_id</dt><dd>${escapeHtml(inv.engagement_id || '(null)')}</dd>
+        <dt>owner_id</dt><dd>${escapeHtml(inv.owner_id || '(null)')}</dd>
         <dt>provider</dt><dd>${escapeHtml(inv.provider)}</dd>
         <dt>model</dt><dd>${escapeHtml(inv.model)}</dd>
         <dt>call_purpose</dt><dd>${escapeHtml(inv.call_purpose || '')}</dd>
@@ -557,7 +557,7 @@ function renderInvocationCard(inv, stepIdx) {
 /**
  * fetch /agent_runs/:eid → 按 parent_id 拼树 → 渲染嵌套 ul。
  * 根节点 = parent_id 为空的 agent_run（独立 task 或父 active）。
- * @param {string} eid engagement_id
+ * @param {string} eid owner_id
  * @param {string} apikey X-API-Key
  */
 async function loadAgentRuns(eid, apikey) {

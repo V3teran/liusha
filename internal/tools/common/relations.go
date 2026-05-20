@@ -16,7 +16,7 @@ type relationsLister interface {
 	ListRelationsByEngagement(ctx context.Context, engagementID string) ([]finding.Relation, error)
 }
 
-// ReadRelations — 列出本 engagement 内所有 finding 之间的 enables 边（图拓扑；与 write_relation 配对）。
+// ReadRelations — 列出本 owner 内所有 finding 之间的 enables 边（图拓扑；与 write_relation 配对）。
 type ReadRelations struct {
 	Store        relationsLister
 	OwnerID string // builder 注入；空时 Execute 报错
@@ -26,7 +26,7 @@ type ReadRelations struct {
 func (a *ReadRelations) Name() string { return "read_relations" }
 
 func (a *ReadRelations) Description() string {
-	return "列出本 engagement 内所有 finding 之间的 enables 边（write_relation 写入的图拓扑）。" +
+	return "列出本 owner 内所有 finding 之间的 enables 边（write_relation 写入的图拓扑）。" +
 		"**何时用**：推理组合漏洞时想看哪些 finding 已声明依赖、哪些孤立；" +
 		"或写新 enables 边前查重避免冗余。返回 [{from, to, reason, created_at}]。"
 }

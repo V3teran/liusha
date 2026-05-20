@@ -21,7 +21,7 @@ import (
 // 与 handlePassive 差异：
 //   - 跳过 flows.GetByID（active 无 flow）
 //   - BuilderParams 走 active 字段（Brief 而非 Request*/Response*）
-//   - Host 用 brief 抽出的 URL host 当切分键（抽不到回退 engagement_id）
+//   - Host 用 brief 抽出的 URL host 当切分键（抽不到回退 owner_id）
 //   - 启用 subtask swarm：parentRegistries Store + react.Run 返回后 cancel+WaitAll
 func (h handler) handleActive(ctx context.Context, p worker.Payload, entrypoint json.RawMessage) error {
 	var ep struct {

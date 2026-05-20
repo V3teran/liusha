@@ -57,7 +57,7 @@ func (h handler) failTask(ctx context.Context, taskID string, err error) error {
 	return err
 }
 
-// abortTask 把 task 推进到 aborted 终态（reviewer 终止 / engagement 中止 / ctx 取消）。
+// abortTask 把 task 推进到 aborted 终态（reviewer 终止 / owner 中止 / ctx 取消）。
 // 与 failTask 区别：aborted 是"主动收手"非错误，不应触发告警。
 func (h handler) abortTask(ctx context.Context, taskID, reason string) error {
 	if setErr := h.tasks.SetAborted(ctx, taskID); setErr != nil {

@@ -18,7 +18,7 @@
 //
 // Active 流程（按选中顺序串行跑）：
 //  1. POST /scan/active body={"brief":"<自然语言任务简报>"} → 拿 (owner_id, agent_run_id)
-//  2. 轮询同 engagement 的 finding + agent_run → ≥minFindings 为 PASS
+//  2. 轮询同 owner 的 finding + agent_run → ≥minFindings 为 PASS
 //
 // 内置 passive profile（13 个，全部 minFindings=1）：
 //   - bac                ：本地 vulnapp 多身份正常流量（4 样本，BAC/IDOR/越权）
@@ -162,7 +162,7 @@ func main() {
 
 // filterAfter 把 finding 列表按 created_at > baseline 过滤。
 //
-// 多 profile 共享同 engagement 时（同 host），engagement 上累计的 finding 包含前
+// 多 profile 共享同 owner 时（同 host），engagement 上累计的 finding 包含前
 // profile 的战果，直接数会让后续 profile 假阳性 PASS（实测 cryptography 在 api
 // 之后跑，poll 第一次就看到 count=1 立即 PASS，但本流量真正的 agent_run 还在
 // 创建中——典型语义混淆 bug）。用时间戳基线把范围切到本 profile dispatch 之后。

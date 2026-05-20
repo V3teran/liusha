@@ -275,7 +275,7 @@ react:
 
 # ---- 容器化执行参数（sandbox.Launcher + external.RunCommand）----
 # 容器内存/CPU/并发数等运行时参数下放到 sandbox.DockerLauncher 内部硬编码
-# （per-agent-run 容器模型下这些参数没有按 engagement 调整的需求）。
+# （per-agent-run 容器模型下这些参数没有按 session 调整的需求）。
 # 见 docs/superpowers/specs/2026-05-16-sandbox-server-design.md
 sandbox:
   default_image: liusha/pentools:latest    # 默认沙箱镜像（含 sandbox-server PID 1 + browser-use + 全套 pentest 工具）

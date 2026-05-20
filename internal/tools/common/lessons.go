@@ -16,7 +16,7 @@ type lessonsLister interface {
 	ListByHost(ctx context.Context, host string, limit int) ([]lesson.Lesson, error)
 }
 
-// ReadLessons — 列出本 task 目标 host 的全部历史经验（lesson 表，跨 engagement 持久化）。
+// ReadLessons — 列出本 task 目标 host 的全部历史经验（lesson 表，跨 owner 持久化）。
 //
 // 启动时已注入一次到 user prompt（包含跨 host 业务规则 hint host='*'）；agent 想再回看时调本工具。
 // 本工具只拉 host-scoped lesson（kind=lesson 的 distill 经验 + host-scoped hint）。
@@ -29,7 +29,7 @@ type ReadLessons struct {
 func (a *ReadLessons) Name() string { return "read_lessons" }
 
 func (a *ReadLessons) Description() string {
-	return "列出本 task 目标 host 的全部历史经验（lesson 表，跨 engagement 累积）。" +
+	return "列出本 task 目标 host 的全部历史经验（lesson 表，跨 owner 累积）。" +
 		"host 来源：passive 是真实 HTTP host；active 是 brief 抽取的 URL host（抽不到时回退 eid，lesson 跨 task 复用失效）。" +
 		"\n**何时用**：挖到一半想回看类似经验、想确认某种 payload 是否之前用过、" +
 		"或拼新 PoC 前查 host 已知细节。返回按 priority desc + updated_at desc 排序的列表。"

@@ -35,7 +35,7 @@ func (a *ReadFindings) Name() string { return "read_findings" }
 func (a *ReadFindings) Description() string {
 	return "列出「本次扫描」(engagement + host) 已有的全部 finding（id/severity/summary/created_at）。" +
 		"**写 finding 前必查**——同 host 同一漏洞别重复写。" +
-		"范围限 engagement 内，不跨次扫描（跨次复用走 lesson）。" +
+		"范围限 owner 内，不跨次扫描（跨次复用走 lesson）。" +
 		"返回按 created_at desc 排序的列表。"
 }
 

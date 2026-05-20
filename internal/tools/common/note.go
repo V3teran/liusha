@@ -31,7 +31,7 @@ func (a *ReadNotes) Name() string { return "read_notes" }
 func (a *ReadNotes) Description() string {
 	return "读取本次扫描（engagement）共享笔记板——与同 host 其他 hunter task 共享的过程性事实。" +
 		"读到的内容包括：目标实例当前怪癖、扫描中发现的小惊喜、失败死路。" +
-		"engagement 关闭即过期，不跨次扫描。"
+		"owner 关闭即过期，不跨次扫描。"
 }
 
 // ParametersJSON 返回空对象 schema。
@@ -70,7 +70,7 @@ func (a *WriteNote) Description() string {
 	return "写一条过程性事实到本 (engagement + host) 信息黑板——" +
 		"\npassive 模式：同 host 跨多个 hunter task 共享；" +
 		"\nactive 模式：当前长任务内 step 间外置记忆（防 ReAct context 滑窗压缩丢失早期决策；" +
-		"任务超 20 步建议主动写 note 留痕关键中间状态）。engagement 关闭即过期。" +
+		"任务超 20 步建议主动写 note 留痕关键中间状态）。owner 关闭即过期。" +
 		"\n\n【必写】只能在 note 留痕的事：" +
 		"\n- 目标实例当前怪癖：本 host 现在的 server 行为（如『强制 security=impossible 需 cookie 覆盖』）" +
 		"\n- 小惊喜：扫描中发现的非漏洞但有价值的信号（待深挖的暴露端口、可疑 endpoint、奇怪报错、未来可能成为攻击面的线索）" +

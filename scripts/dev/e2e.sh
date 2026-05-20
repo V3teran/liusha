@@ -42,7 +42,7 @@ export LIUSHA_POSTGRES_DSN="${LIUSHA_POSTGRES_DSN:-postgres://liusha:liusha@loca
 
 echo "===== 1/6 跑 migrate（确保 schema 跟得上代码改动）====="
 # migrate 必须在 TRUNCATE 之前——否则代码里新增的表（如 finding_relation）尚未创建，
-# TRUNCATE 是原子的会整体失败，旧数据残留 → engagement 复用、finding 累积、e2e 不可信。
+# TRUNCATE 是原子的会整体失败，旧数据残留 → session 复用、finding 累积、e2e 不可信。
 # make migrate 幂等：已应用的 noop。
 if make migrate 2>&1 | tail -5; then
   echo "  ✓ migrate 完成（含已应用的 noop）"
@@ -55,20 +55,20 @@ echo ""
 echo "===== 2/6 清空 db / redis ====="
 
 # postgres：8 张业务表 TRUNCATE（schema 保留）。
-# 错误**不再静默**——TRUNCATE 任一表失败会立即 exit，避免旧 engagement / finding
+# 错误**不再静默**——TRUNCATE 任一表失败会立即 exit，避免旧 session / finding
 # 残留导致 e2e 跑在污染数据上（曾踩坑：finding_relation 表未建时 TRUNCATE 整体回滚，
-# 旧 engagement 被 LookupOrCreate 复用，agent_run_count 累积到 6）。
+# 旧 session 被 LookupOrCreate 复用，agent_run_count 累积到 6）。
 # finding_relation 排在 finding 之前防 FK 顺序问题（CASCADE 也兜底，显式列出更清晰）。
 if ! docker exec "$PG_CONTAINER" psql -U liusha -d liusha -c \
-    "TRUNCATE TABLE finding_relation, finding, lesson, llm_invocation, agent_run, http_flow, engagement CASCADE;"; then
+    "TRUNCATE TABLE finding_relation, finding, lesson, llm_invocation, agent_run, http_flow, passive_session, active_scan CASCADE;"; then
   echo "  ✗ postgres TRUNCATE 失败 — 看上面 psql 错误（常见原因：容器不在 / schema 不一致 / migrate 未跑）"
   exit 1
 fi
 echo "  ✓ postgres 7 张业务表已 truncate"
 
-# engagement-store/<engagement_id>/ 是 ResultCompress middleware 的落盘目录；
-# truncate 后 DB 中 engagement 已不存在，对应子目录变孤儿，清掉避免无限堆积。
-rm -rf engagement-store/*/ 2>/dev/null || true
+# session-store/<owner_id>/ 是 ResultCompress middleware 的落盘目录；
+# truncate 后 DB 中 session 已不存在，对应子目录变孤儿，清掉避免无限堆积。
+rm -rf session-store/*/ 2>/dev/null || true
 
 # redis FLUSHDB → 立即重建 ingestor consumer group
 if docker exec "$REDIS_CONTAINER" redis-cli FLUSHDB >/dev/null 2>&1; then
@@ -132,10 +132,10 @@ while [ $SECONDS -lt $deadline ]; do
     echo "  ✓ 4 service 全部 healthy"
     echo ""
     echo "  📊 graph viewer：${LIUSHA_API_BASE}/viewer/index.html"
-    echo "     在浏览器打开，填 engagement_id + X-API-Key (=${LIUSHA_API_KEY})，勾"每 5s 刷新"边扫边看。"
-    echo "     engagement_id 跑完 e2e 后从 finding 表查："
+    echo "     在浏览器打开，填 owner_id + X-API-Key (=${LIUSHA_API_KEY})，勾"每 5s 刷新"边扫边看。"
+    echo "     owner_id 跑完 e2e 后从 finding 表查："
     echo "       docker exec ${PG_CONTAINER} psql -U liusha -d liusha -c \\"
-    echo "         \"SELECT DISTINCT engagement_id FROM finding ORDER BY engagement_id;\""
+    echo "         \"SELECT DISTINCT owner_id FROM finding ORDER BY owner_id;\""
     break
   fi
   sleep 2
@@ -161,9 +161,9 @@ if [ $RC -eq 0 ]; then
   echo ""
   echo "📊 看图："
   echo "  浏览器：${LIUSHA_API_BASE}/viewer/index.html"
-  echo "  engagement_id 列表："
+  echo "  owner_id 列表："
   echo "    docker exec ${PG_CONTAINER} psql -U liusha -d liusha -c \\"
-  echo "      \"SELECT id, mode, scope, status, expires_at FROM engagement ORDER BY created_at DESC;\""
+  echo "      \"SELECT id, host, status, expires_at FROM passive_session ORDER BY created_at DESC;\""
   echo ""
   echo "  组合漏洞 enables 边："
   echo "    docker exec ${PG_CONTAINER} psql -U liusha -d liusha -c \\"

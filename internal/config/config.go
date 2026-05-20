@@ -200,7 +200,7 @@ type SessionConfig struct {
 }
 
 // NotesConfig 是 internal/notes 包 Redis 共享存储参数。
-// engagement 内同 host 跨 task 共享的 hunter 工作笔记板。
+// owner 内同 host 跨 task 共享的 hunter 工作笔记板。
 //
 // TTLHours 与 SessionConfig.MaxAgeHours 默认都是 24h——AppendNote 用 ExpireNX
 // 仅在 key 首次创建时设 TTL（之后不刷新），让 notes 寿命从 key 创建起算固定窗口，

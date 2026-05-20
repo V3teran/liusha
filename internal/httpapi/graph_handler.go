@@ -33,7 +33,7 @@ func graphHandler(api GraphAPI) gin.HandlerFunc {
 		view, err := api.Project(c.Request.Context(), eid, host)
 		if err != nil {
 			// engagement 不存在（被 truncate 或 typo）→ 404 而非 500，
-			// 让前端能据状态码区分"该 engagement 没了"与"服务器真坏"。
+			// 让前端能据状态码区分"该 owner 没了"与"服务器真坏"。
 			if strings.Contains(err.Error(), "no rows in result set") {
 				c.JSON(404, gin.H{"error": "engagement not found", "owner_id": eid})
 				return

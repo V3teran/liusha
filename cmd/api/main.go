@@ -211,10 +211,10 @@ func (a engagementAPIAdapter) List(ctx context.Context, limit int) ([]httpapi.En
 }
 
 // activeScanAdapter 把 engagement.Store + agentrun.Store + worker.Client 组合成
-// httpapi.ActiveScanAPI 一站式入口：建 active engagement → 建 hunter agent_run → 入 asynq 队列。
+// httpapi.ActiveScanAPI 一站式入口：建 active scan → 建 hunter agent_run → 入 asynq 队列。
 //
 // 任一步失败都不留中间状态（前面失败直接返错；engagement 已建但 enqueue 失败会留
-// active engagement，由用户手动 abort 或后续 sweeper——保持简单不上事务，与
+// active scan，由用户手动 abort 或后续 sweeper——保持简单不上事务，与
 // passive 模式 ingestor.enqueueMain 一致语义）。
 // 单源：仅 active_scan 表（0040 DROP FK 后旧 engagement 路径正式弃用）。
 type activeScanAdapter struct {

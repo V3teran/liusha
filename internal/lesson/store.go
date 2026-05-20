@@ -17,7 +17,7 @@ type Store struct{ pool *pgxpool.Pool }
 func NewStore(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
 
 // colsSelect 是所有 SELECT / RETURNING 路径的统一列序，与 scan() 字段一一对应。
-// v0030：删 tenant_id（单租户）；v0031：删 source_engagement_id / source_finding_id /
+// v0030：删 tenant_id（单租户）；v0031：删 source_owner_id / source_finding_id /
 // structured_payload（实测从未写入实际值的死字段）。
 const colsSelect = "id, host, kind, content, content_hash, priority, hit_count, created_at, updated_at"
 

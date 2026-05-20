@@ -8,7 +8,7 @@ import (
 	"net/http"
 )
 
-// createPassiveScan 调 POST /scan/passive 拿 engagement_id；同 host 幂等。
+// createPassiveScan 调 POST /scan/passive 拿 owner_id；同 host 幂等。
 // 与 createActiveScan 对仗：passive 开"被动接流量入口"，active 触发"主动扫描"。
 func createPassiveScan(base, key, host string) (string, error) {
 	body, _ := json.Marshal(map[string]string{"host": host})
@@ -36,7 +36,7 @@ func createPassiveScan(base, key, host string) (string, error) {
 	return out.OwnerID, nil
 }
 
-// createActiveScan 调 POST /scan/active 拿 (engagement_id, agent_run_id)。
+// createActiveScan 调 POST /scan/active 拿 (owner_id, agent_run_id)。
 // brief 是用户自然语言任务简报（含目标 URL/IP / 账号密码 / 测试方向等），
 // 后端不解析，整段透传给 hunter LLM。
 func createActiveScan(base, key, brief string) (string, string, error) {

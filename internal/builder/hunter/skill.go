@@ -9,7 +9,7 @@
 //	  read_credentials                          — 拿该 host 凭证
 //	  read_findings / write_finding / update_finding — finding 读写
 //	  read_relations / write_relation           — finding 依赖图
-//	  read_lessons / write_lesson               — 跨 engagement 经验
+//	  read_lessons / write_lesson               — 跨 owner 经验
 //	  done                                      — 收尾
 //
 //	可选（3 个，Deps.*Loader / params.Sandbox nil 时跳过）:
@@ -71,7 +71,7 @@ func buildSystemPrompt(mode string) string {
 
 // Deps hunter builder 的依赖注入。由 cmd/scanner/main.go 在启动时构造一份。
 type Deps struct {
-	Notes       notes.Store // 短期工作笔记（Redis；engagement 内同 host 跨 task 共享）
+	Notes       notes.Store // 短期工作笔记（Redis；owner 内同 host 跨 task 共享）
 	Findings    *finding.Store
 	Lessons     *lesson.Store
 	Credentials credential.Provider

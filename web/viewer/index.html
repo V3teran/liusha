@@ -18,14 +18,14 @@
         <button id="btn-view-tasks" class="view-btn">Tasks</button>
       </span>
       <span class="separator">·</span>
-      <span id="meta-engagement" class="meta-eng">—</span>
+      <span id="meta-session" class="meta-session">—</span>
       <span id="meta-status" class="status status-idle">IDLE</span>
     </div>
     <div class="topbar-center">
-      <select id="select-eid" title="选择 engagement">
-        <option value="">— 选择 engagement —</option>
+      <select id="select-eid" title="选择 session">
+        <option value="">— 选择 session —</option>
       </select>
-      <button id="btn-refresh-list" title="重新拉 engagement 列表">↻</button>
+      <button id="btn-refresh-list" title="重新拉 session 列表">↻</button>
       <input id="input-host" placeholder="host filter (可选)" />
       <input id="input-apikey" type="password" placeholder="X-API-Key" />
       <button id="btn-load">加载</button>
@@ -44,7 +44,7 @@
       <svg id="graph"><g></g></svg>
       <div id="empty-hint" class="empty-hint">
         <h2>欢迎使用 liusha graph viewer</h2>
-        <p>填写 engagement_id 与 X-API-Key，点"加载"即可查看本次扫描的攻击图。</p>
+        <p>填写 owner_id 与 X-API-Key，点"加载"即可查看本次扫描的攻击图。</p>
         <div class="legend">
           <span class="dot dot-origin"></span> origin
           <span class="dot dot-endpoint"></span> endpoint
@@ -77,13 +77,13 @@
 
   <main class="main-llm hidden" id="view-llm">
     <div id="panel-invocations" class="invocations-fullscreen">
-      <div class="empty">加载 engagement 后展示 LLM 调用审计（按 agent_run_id 分组）</div>
+      <div class="empty">加载 session 后展示 LLM 调用审计（按 agent_run_id 分组）</div>
     </div>
   </main>
 
   <main class="main-llm hidden" id="view-tasks">
     <div id="panel-tasks" class="invocations-fullscreen">
-      <div class="empty">加载 engagement 后展示 agent_run 父子树（subtask swarm 可观测）</div>
+      <div class="empty">加载 session 后展示 agent_run 父子树（subtask swarm 可观测）</div>
     </div>
   </main>
 

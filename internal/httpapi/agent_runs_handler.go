@@ -17,7 +17,7 @@ type AgentRunsAPI interface {
 
 // agentRunsHandler 处理 GET /agent_runs/:owner_id。
 //
-// 返回该 engagement 下所有 agent_run 行，按 created_at ASC 排序（父先 spawn → 子后入）。
+// 返回该 owner 下所有 agent_run 行，按 created_at ASC 排序（父先 spawn → 子后入）。
 // 前端 viewer 按 parent_id 拼父子树渲染（PR4）：根节点 parent_id="" / NULL。
 //
 // 响应结构：
@@ -38,7 +38,7 @@ func agentRunsHandler(api AgentRunsAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		eid := c.Param("owner_id")
 		if eid == "" {
-			c.JSON(400, gin.H{"error": "engagement_id required"})
+			c.JSON(400, gin.H{"error": "owner_id required"})
 			return
 		}
 

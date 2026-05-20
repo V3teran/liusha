@@ -89,7 +89,7 @@ func TestAppendThenRead(t *testing.T) {
 	}
 }
 
-// TestHostIsolation 同 engagement 不同 host 互不干扰（关键不变量）。
+// TestHostIsolation 同 owner 不同 host 互不干扰（关键不变量）。
 func TestHostIsolation(t *testing.T) {
 	s, _ := newTestStore(t, Config{KeyPrefix: "test:note:"})
 	ctx := context.Background()

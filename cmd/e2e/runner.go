@@ -53,7 +53,7 @@ func runActiveProfiles(ctx context.Context, profs []activeProfile, apiBase, apiK
 			runs, runErr := agentRunStore.ListByEngagement(ctx, eid, 100)
 			unfinished, totalRuns := 0, 0
 			if runErr == nil {
-				// active 每次都新建 engagement——eid 已唯一定位本次 run 全集（父 + spawn 的子）。
+				// active 每次都新建 session——eid 已唯一定位本次 run 全集（父 + spawn 的子）。
 				// 不再用 startedAt 时间窗过滤 agent_run：dispatched 返回前 server 端 PG now()
 				// 已先于 Go time.Now() 触发，父 run.CreatedAt < startedAt → After() = false
 				// → 父被误滤 → total_runs=0 → observed 永远 false → e2e 超时不 PASS。
@@ -166,7 +166,7 @@ func enrollAllCreds(apiBase, apiKey, vulnBase string) error {
 //  2. observedAtLeastOneRun 哨兵：必须先观测到 total_runs > 0，
 //     再看 unfinished_runs==0 才允许判 PASS——防 ingestor 异步未落库的假阳性。
 func runAllUnified(ctx context.Context, plans []profilePlan, proxyHostPort, apiBase, apiKey string, pool *pgxpool.Pool, logger zerolog.Logger) error {
-	// 1. 为每个独特 host 建/复用 engagement
+	// 1. 为每个独特 host 建/复用 session
 	eidByHost := map[string]string{}
 	for _, plan := range plans {
 		if _, ok := eidByHost[plan.host]; ok {
@@ -174,10 +174,10 @@ func runAllUnified(ctx context.Context, plans []profilePlan, proxyHostPort, apiB
 		}
 		eid, err := createPassiveScan(apiBase, apiKey, plan.host)
 		if err != nil {
-			return fmt.Errorf("create engagement for host %s: %w", plan.host, err)
+			return fmt.Errorf("create session for host %s: %w", plan.host, err)
 		}
 		eidByHost[plan.host] = eid
-		logger.Info().Str("host", plan.host).Str("owner_id", eid).Msg("engagement ready")
+		logger.Info().Str("host", plan.host).Str("owner_id", eid).Msg("session ready")
 	}
 
 	// 2. 统计 sum(minFindings) 与 total sample 数

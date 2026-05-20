@@ -19,7 +19,7 @@ type InvocationsAPI interface {
 
 // llmInvocationsHandler 处理 GET /llm/invocations/:owner_id。
 //
-// 返回该 engagement 下所有 llm_invocation 行，**按 agent_run_id 分组**，
+// 返回该 owner 下所有 llm_invocation 行，**按 agent_run_id 分组**，
 // 每组内按 created_at ASC（与 react step 顺序一致）。agent_run_id 为 NULL
 // 的归到 "unassigned" 分组。
 //
@@ -42,7 +42,7 @@ func llmInvocationsHandler(api InvocationsAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		eid := c.Param("owner_id")
 		if eid == "" {
-			c.JSON(400, gin.H{"error": "engagement_id required"})
+			c.JSON(400, gin.H{"error": "owner_id required"})
 			return
 		}
 		_ = api.Flush(c.Request.Context())

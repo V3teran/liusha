@@ -104,7 +104,7 @@ func deleteCredentialHandler(api CredentialsAPI) gin.HandlerFunc {
 
 // passiveScanHandler 处理 POST /scan/passive：返回当前 active passive session
 // （不存在则建新）。passive session 不 per-host，请求体为空 {}。
-// 幂等：重复调用在 TTL 窗口内返回同一 engagement_id；过期由 ingestor 内部 Rotator 轮转。
+// 幂等：重复调用在 TTL 窗口内返回同一 owner_id；过期由 ingestor 内部 Rotator 轮转。
 //
 // 与 activeScanHandler 路径对仗：/scan/passive 开"被动接流量入口"，/scan/active 触发"主动扫描"。
 func passiveScanHandler(api EngagementsAPI) gin.HandlerFunc {
@@ -156,7 +156,7 @@ func abortHandler(api EngagementsAPI) gin.HandlerFunc {
 }
 
 // ActiveScanAPI 是 handlers 对 active 模式扫描入口的窄接口。
-// CreateActiveScan 一站式做三件事：建 active engagement、建 hunter agent_run、入 asynq 队列；
+// CreateActiveScan 一站式做三件事：建 active scan、建 hunter agent_run、入 asynq 队列；
 // 由 cmd/api 的 adapter 用 engagement.Store + agentrun.Store + worker.Client 实现。
 type ActiveScanAPI interface {
 	CreateActiveScan(ctx context.Context, brief string) (engagementID, agentRunID string, err error)
@@ -178,7 +178,7 @@ type CreateActiveScanRequest struct {
 
 // activeScanHandler 处理 POST /scan/active：校验 brief 非空 + 调 ActiveScanAPI 起任务。
 //
-// 成功返 200 + {engagement_id, agent_run_id}；调用方据此查任务进度
+// 成功返 200 + {owner_id, agent_run_id}；调用方据此查任务进度
 // （viewer / GET /llm/invocations/:owner_id）。
 // 不等任务完成——异步 ReAct 由 scanner 进程消费。
 func activeScanHandler(api ActiveScanAPI) gin.HandlerFunc {
