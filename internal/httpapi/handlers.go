@@ -133,7 +133,7 @@ func listEngagementsHandler(api EngagementsAPI) gin.HandlerFunc {
 			c.JSON(500, gin.H{"error": err.Error()})
 			return
 		}
-		c.JSON(200, gin.H{"engagements": list})
+		c.JSON(200, gin.H{"sessions": list})
 	}
 }
 

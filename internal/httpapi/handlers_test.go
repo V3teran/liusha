@@ -252,7 +252,7 @@ func TestEngagementAbort(t *testing.T) {
 	srv := newTestServer(t, Deps{Engagements: fa})
 	defer srv.Close()
 
-	req, _ := http.NewRequest("POST", srv.URL+"/engagement/eid-1/abort", nil)
+	req, _ := http.NewRequest("POST", srv.URL+"/session/eid-1/abort", nil)
 	req.Header.Set("X-API-Key", "k")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -272,7 +272,7 @@ func TestEngagementAbort_RequiresAuth(t *testing.T) {
 	srv := newTestServer(t, Deps{Engagements: fa})
 	defer srv.Close()
 
-	req, _ := http.NewRequest("POST", srv.URL+"/engagement/eid-1/abort", nil)
+	req, _ := http.NewRequest("POST", srv.URL+"/session/eid-1/abort", nil)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("do: %v", err)

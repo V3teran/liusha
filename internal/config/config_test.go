@@ -18,7 +18,7 @@ providers:
   deepseek:  {base_url: https://api.deepseek.com,  default_model: deepseek-chat,    api_key_env: DEEPSEEK_API_KEY,  max_tokens: 4096, supports_tools: true,  supports_vision: false}
   anthropic: {base_url: https://api.anthropic.com, default_model: claude-sonnet-4-6, vision_model: claude-haiku-4-5, api_key_env: ANTHROPIC_API_KEY, max_tokens: 8192, supports_tools: true, supports_vision: true}
 proxy: {window_batch: 20, window_max_age_seconds: 30, allow_hosts: [vulnapp]}
-engagement: {sweeper_interval_seconds: 600}
+session: {sweeper_interval_seconds: 600}
 skills: {root: ./skills}
 `
 

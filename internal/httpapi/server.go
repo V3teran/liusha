@@ -49,8 +49,8 @@ func NewServer(d Deps) http.Handler {
 	}
 	if d.Engagements != nil {
 		r.POST("/scan/passive", passiveScanHandler(d.Engagements))
-		r.POST("/engagement/:id/abort", abortHandler(d.Engagements))
-		r.GET("/engagement", listEngagementsHandler(d.Engagements))
+		r.POST("/session/:id/abort", abortHandler(d.Engagements))
+		r.GET("/session", listEngagementsHandler(d.Engagements))
 	}
 	if d.Graph != nil {
 		r.GET("/graph/:owner_id", graphHandler(d.Graph))
