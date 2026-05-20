@@ -33,7 +33,7 @@ type AgentRunsAPI interface {
 //	  }]
 //	}
 //
-// limit 硬编码 500——单 engagement 一般几十到几百 agent_run，500 远超实际需求。
+// limit 硬编码 500——单  owner 一般几十到几百 agent_run，500 远超实际需求。
 func agentRunsHandler(api AgentRunsAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		eid := c.Param("owner_id")
@@ -43,7 +43,7 @@ func agentRunsHandler(api AgentRunsAPI) gin.HandlerFunc {
 		}
 
 		// ListByOwner 在 0 行时返 (空切片, nil)，不返 ErrNoRows——
-		// "engagement 不存在"与"engagement 存在但 0 run"响应相同（total:0, runs:[]），
+		// "owner 不存在"与" owner 存在但 0 run"响应相同（total:0, runs:[]），
 		// 这对 viewer 树渲染足够（前端基于 total=0 显示"无任务"）。
 		runs, err := api.ListByOwnerID(c.Request.Context(), eid, 500)
 		if err != nil {

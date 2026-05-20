@@ -204,7 +204,7 @@ type SessionConfig struct {
 //
 // TTLHours 与 SessionConfig.MaxAgeHours 默认都是 24h——AppendNote 用 ExpireNX
 // 仅在 key 首次创建时设 TTL（之后不刷新），让 notes 寿命从 key 创建起算固定窗口，
-// 与 engagement.CreatedAt + MaxAge 时间点严格同步消失。手动调整两者时应保持一致。
+// 与 owner.CreatedAt + MaxAge 时间点严格同步消失。手动调整两者时应保持一致。
 type NotesConfig struct {
 	RedisKeyPrefix string `mapstructure:"redis_key_prefix"`
 	MaxEntries     int    `mapstructure:"max_entries"` // Compactor 失败时 LTRIM 兜底
@@ -265,7 +265,7 @@ type ReactConfig struct {
 // 上限由 ToolruntimeConfig.StepToolTimeoutSeconds 钳。
 //
 // 容器内存 / CPU / 并发数等运行时参数下放到 sandbox.DockerLauncher 内部硬编码
-// （per-agent-run 容器模型下这些参数没有按 engagement 调整的需求）。
+// （per-agent-run 容器模型下这些参数没有按  owner 调整的需求）。
 // 见 docs/superpowers/specs/2026-05-16-sandbox-server-design.md。
 type SandboxConfig struct {
 	// DefaultImage 是 sandbox 镜像 tag（由 sandbox.NewDockerLauncher 用）。

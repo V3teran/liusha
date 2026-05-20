@@ -12,7 +12,7 @@
 //
 // Passive 流程（每个 profile 独立跑）：
 //  1. POST /credential/batch 一次预录所有 passive profile 全部 host 的凭证（启动期）
-//  2. POST /scan/passive 懒创建 engagement（同 host 幂等）
+//  2. POST /scan/passive 懒创建 passive_session（同 host 幂等）
 //  3. 读 sample 文件 → net.Dial 直连 proxify 写 raw bytes（不解析 headers/body）
 //  4. 轮询 finding 表 + agent_run 收手 → ≥minFindings 为 PASS
 //
@@ -162,7 +162,7 @@ func main() {
 
 // filterAfter 把 finding 列表按 created_at > baseline 过滤。
 //
-// 多 profile 共享同 owner 时（同 host），engagement 上累计的 finding 包含前
+// 多 profile 共享同 owner 时（同 host），owner 上累计的 finding 包含前
 // profile 的战果，直接数会让后续 profile 假阳性 PASS（实测 cryptography 在 api
 // 之后跑，poll 第一次就看到 count=1 立即 PASS，但本流量真正的 agent_run 还在
 // 创建中——典型语义混淆 bug）。用时间戳基线把范围切到本 profile dispatch 之后。

@@ -16,7 +16,7 @@ type credentialEntry struct {
 // profile 描述一个 passive 模式 e2e 验收剧本（BAC / SQLi）：sample 文件 + 身份集 + 验收门槛。
 //
 // 验收门槛极简——minFindings 是 LLM 能力回归底线：本 profile dispatch 后只要本
-// engagement 至少多出 minFindings 条 finding 就算 PASS。LLM 输出本就有抖动，
+// owner 至少多出 minFindings 条 finding 就算 PASS。LLM 输出本就有抖动，
 // "挖出 1 条 vs 3 条"不是稳定指标；唯一要捕捉的退化场景是"原本能挖出现在
 // 完全挖不到"，minFindings=1 就够覆盖。severity 等级分布不再参与判定。
 type profile struct {

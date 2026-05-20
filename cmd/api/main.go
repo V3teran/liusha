@@ -114,12 +114,12 @@ func main() {
 	logger.Info().Msg("api stopped")
 }
 
-// ownerAPIAdapter 把 *engagement.Store 适配到 httpapi.OwnersAPI 窄接口。
+// ownerAPIAdapter 把 owner store (passive_session/active_scan) 适配到 httpapi.OwnersAPI 窄接口。
 //
-// HTTP API 不暴露 errMsg：用户主动取消 engagement 即视为正常结束，
+// HTTP API 不暴露 errMsg：用户主动取消  owner 即视为正常结束，
 // abort 调用恒传 ""；store 层完整签名（含 errMsg）保留给 scanner 内部用。
 //
-// 已剥离 engagement.Store——passive_session 现在 per-host 由 ingestor 流量入口
+// 已剥离 owner store——passive_session 现在 per-host 由 ingestor 流量入口
 // LookupOrCreate；EnsurePassiveSession 仅作"代理准备就绪"信号 stub。
 type ownerAPIAdapter struct {
 	passive *passivesession.Store // List 合并新表，Abort 试两表
@@ -148,7 +148,7 @@ func (a ownerAPIAdapter) EnsurePassiveSession(ctx context.Context) (string, erro
 
 // List 合并 passive_session + active_scan 两新表 → httpapi.OwnerSummary。
 //
-// 双轨期：旧 engagement.Store 不再读，由新表数据直接返回。每个 sub-list 各取 limit 条，
+// 双轨期：旧 owner store 不再读，由新表数据直接返回。每个 sub-list 各取 limit 条，
 // 合并后按 CreatedAt desc 排，最终截到 limit。Mode 字段标记来源表（"passive"/"active"），
 // 前端 viewer 用 Mode 区分展示。
 func (a ownerAPIAdapter) List(ctx context.Context, limit int) ([]httpapi.OwnerSummary, error) {
@@ -210,13 +210,13 @@ func (a ownerAPIAdapter) List(ctx context.Context, limit int) ([]httpapi.OwnerSu
 	return out, nil
 }
 
-// activeScanAdapter 把 engagement.Store + agentrun.Store + worker.Client 组合成
+// activeScanAdapter 把 owner store + agentrun.Store + worker.Client 组合成
 // httpapi.ActiveScanAPI 一站式入口：建 active scan → 建 hunter agent_run → 入 asynq 队列。
 //
-// 任一步失败都不留中间状态（前面失败直接返错；engagement 已建但 enqueue 失败会留
+// 任一步失败都不留中间状态（前面失败直接返错；owner 已建但 enqueue 失败会留
 // active scan，由用户手动 abort 或后续 sweeper——保持简单不上事务，与
 // passive 模式 ingestor.enqueueMain 一致语义）。
-// 单源：仅 active_scan 表（0040 DROP FK 后旧 engagement 路径正式弃用）。
+// 单源：仅 active_scan 表（0040 DROP FK 后旧 owner 路径正式弃用）。
 type activeScanAdapter struct {
 	activeScans *activescan.Store
 	tasks       *agentrun.Store
@@ -230,7 +230,7 @@ func (a *activeScanAdapter) CreateActiveScan(ctx context.Context, brief string) 
 	if err != nil {
 		return "", "", fmt.Errorf("marshal brief: %w", err)
 	}
-	// 单源：仅写 active_scan 表（旧 engagement 路径在 0040 FK DROP 后正式弃用）。
+	// 单源：仅写 active_scan 表（旧 owner 路径在 0040 FK DROP 后正式弃用）。
 	// target_host 留空——暂不在 API 层 parse brief，hunter LLM 从 brief 自识别。
 	sc, err := a.activeScans.Create(ctx, brief, "")
 	if err != nil {

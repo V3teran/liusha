@@ -1,4 +1,4 @@
-// Package graphview 是图视图投影器：从 finding + finding_relation + flow + engagement
+// Package graphview 是图视图投影器：从 finding + finding_relation + flow + owner
 // 几张事实表实时拼出图视图（origin / endpoint / parameter / finding / goal
 // 节点 + has_param / vulnerable_to / enables / contributes_to 边），
 // **不独立存储**——所有节点边都是查询时派生，避免数据漂移。
@@ -71,7 +71,7 @@ type View struct {
 // LLM 用 write_relation 工具主动声明 finding 间 enables 关系，projector 渲染成图边。
 type FindingReader interface {
 	ListByOwner(ctx context.Context, ownerType, ownerID string) ([]finding.VulnFinding, error)
-	ListRelationsByOwner(ctx context.Context, engagementID string) ([]finding.Relation, error)
+	ListRelationsByOwner(ctx context.Context, ownerID string) ([]finding.Relation, error)
 }
 
 // PassiveReader / ActiveReader 是投影器读 owner 元数据所需的最小接口。
@@ -92,46 +92,46 @@ type Projector struct {
 	Active   ActiveReader
 }
 
-// Project 投影 (engagementID, host) 范围的图。
+// Project 投影 (ownerID, host) 范围的图。
 //
-// engagement 可挂多 host，host 参数语义：
+//  owner 可挂多 host，host 参数语义：
 //   - 非空：按 finding.host 过滤，只投影该 host 下的图
 //   - 空：列本 owner 跨 host 的全部 finding（多 host 时图可能较杂）
 //
 // 步骤：
-//  1. 拉 engagement 元数据（created_at / mode / status 等做 origin 节点 payload）
+//  1. 拉  owner 元数据（created_at / mode / status 等做 origin 节点 payload）
 //  2. 拉本 owner 全部 finding（已 dedup）
 //  3. 拉本 owner 全部 finding_relation（enables 边）
 //  4. 按 finding.target 派生 endpoint / parameter 节点（dedup_key 由 Go 端规范化）
 //  5. 拼出 origin → endpoint → parameter → finding → goal 主链
 //  6. 加 finding_relation 提供的 enables 边
-func (p *Projector) Project(ctx context.Context, engagementID, host string) (View, error) {
-	if engagementID == "" {
+func (p *Projector) Project(ctx context.Context, ownerID, host string) (View, error) {
+	if ownerID == "" {
 		return View{}, fmt.Errorf("owner_id 不能为空")
 	}
 
-	// 双轨切读：engagementID 参数实际语义改为 ownerID（passive_session.id / active_scan.id）。
+	// 双轨切读：ownerID 参数实际语义改为 ownerID（passive_session.id / active_scan.id）。
 	// 双试两表确定 ownerType + 拉元数据（created_at / mode / status）。
 	var ownerType, modeStr, statusStr string
 	var createdAt time.Time
-	if sess, err := p.Passive.GetByID(ctx, engagementID); err == nil {
+	if sess, err := p.Passive.GetByID(ctx, ownerID); err == nil {
 		ownerType, modeStr, statusStr, createdAt = "passive_session", "passive", string(sess.Status), sess.CreatedAt
-	} else if sc, aerr := p.Active.GetByID(ctx, engagementID); aerr == nil {
+	} else if sc, aerr := p.Active.GetByID(ctx, ownerID); aerr == nil {
 		ownerType, modeStr, statusStr, createdAt = "active_scan", "active", string(sc.Status), sc.CreatedAt
 	} else {
-		return View{}, fmt.Errorf("owner %s not found in passive_session or active_scan", engagementID)
+		return View{}, fmt.Errorf("owner %s not found in passive_session or active_scan", ownerID)
 	}
 
 	// host 为空表示「列本 owner 跨 host 的全部 finding」，由下方 host 过滤分支跳过。
 	effectiveHost := host
 
-	findings, err := p.Findings.ListByOwner(ctx, ownerType, engagementID)
+	findings, err := p.Findings.ListByOwner(ctx, ownerType, ownerID)
 	if err != nil {
 		return View{}, fmt.Errorf("finding.ListByOwner: %w", err)
 	}
 	// relation 表 owner 列暂未加，仍按 owner_id 查；过渡期 active relation 可能查不到
-	// （新 finding 的 owner_id 与旧 engagement 关联，relation 写入仍走旧路径，此处兼容）。
-	relations, err := p.Findings.ListRelationsByOwner(ctx, engagementID)
+	// （新 finding 的 owner_id 与旧 owner 关联，relation 写入仍走旧路径，此处兼容）。
+	relations, err := p.Findings.ListRelationsByOwner(ctx, ownerID)
 	if err != nil {
 		return View{}, fmt.Errorf("finding.ListRelationsByOwner: %w", err)
 	}
@@ -148,7 +148,7 @@ func (p *Projector) Project(ctx context.Context, engagementID, host string) (Vie
 	}
 
 	v := View{
-		OwnerID:     engagementID,
+		OwnerID:     ownerID,
 		Host:        effectiveHost,
 		GeneratedAt: time.Now().UTC(),
 	}
@@ -163,7 +163,7 @@ func (p *Projector) Project(ctx context.Context, engagementID, host string) (Vie
 			Label: effectiveHost,
 			Payload: map[string]any{
 				"target_host":   effectiveHost,
-				"owner_id": engagementID,
+				"owner_id": ownerID,
 				"owner_type":    ownerType,
 				"started_at":    createdAt,
 				"mode":          modeStr,

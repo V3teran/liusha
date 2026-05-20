@@ -18,9 +18,9 @@ type CredentialsAPI interface {
 	Delete(ctx context.Context, host string) error
 }
 
-// OwnersAPI 是 handlers 对 engagement store 的窄接口。
+// OwnersAPI 是 handlers 对  owner store 的窄接口。
 // EnsurePassiveSession：返回当前 active passive session（不存在则建新），不带 host。
-// Abort：把 engagement 置为 aborted。
+// Abort：把  owner 置为 aborted。
 // List：按 created_at DESC 列最近 N 个；前端 viewer 下拉用。
 //
 // passive session 不 per-host，单个 active passive 容纳所有 host 流量。
@@ -118,8 +118,8 @@ func passiveScanHandler(api OwnersAPI) gin.HandlerFunc {
 	}
 }
 
-// listSessionsHandler 处理 GET /engagement?limit=<optional>。
-// 返回最近 N 个 engagement 摘要，前端用作下拉选择。
+// listSessionsHandler 处理 GET /session?limit=<optional>。
+// 返回最近 N 个  owner 摘要，前端用作下拉选择。
 // 按 host 查找请改走 finding/flow 子资源接口。
 func listSessionsHandler(api OwnersAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -137,7 +137,7 @@ func listSessionsHandler(api OwnersAPI) gin.HandlerFunc {
 	}
 }
 
-// abortHandler 把指定 engagement 置为 aborted。
+// abortHandler 把指定  owner 置为 aborted。
 // 底层 store 对未知 ID 当前返回成功（UPDATE 影响 0 行），保持原语义；
 // 如需 404 区分需调用方先 GetByID，本层不强加策略。
 func abortHandler(api OwnersAPI) gin.HandlerFunc {
@@ -157,9 +157,9 @@ func abortHandler(api OwnersAPI) gin.HandlerFunc {
 
 // ActiveScanAPI 是 handlers 对 active 模式扫描入口的窄接口。
 // CreateActiveScan 一站式做三件事：建 active scan、建 hunter agent_run、入 asynq 队列；
-// 由 cmd/api 的 adapter 用 engagement.Store + agentrun.Store + worker.Client 实现。
+// 由 cmd/api 的 adapter 用 owner store + agentrun.Store + worker.Client 实现。
 type ActiveScanAPI interface {
-	CreateActiveScan(ctx context.Context, brief string) (engagementID, agentRunID string, err error)
+	CreateActiveScan(ctx context.Context, brief string) (ownerID, agentRunID string, err error)
 }
 
 // CreateActiveScanRequest 是 POST /scan/active 请求体。

@@ -29,7 +29,7 @@ type Builder func(ctx context.Context, params BuilderParams) (react.Config, erro
 //     hunter user prompt 拼完整 raw 流量（请求 + 响应）；Host = 流量真实 host。
 //   - active: httpapi /scan/active 入口填 Brief（用户自然语言整段），目标 URL/host/凭据/
 //     测试范围全部塞在 brief 里由 LLM 自己识别；Host = owner_id（虚拟 host，
-//     用于 notes/findings/lessons 按 engagement 切分）。
+//     用于 notes/findings/lessons 按  owner 切分）。
 //
 // Mode 决定 builder 内部 user prompt 渲染分支与工具注册（如 active 不挂 read_credentials）。
 type BuilderParams struct {

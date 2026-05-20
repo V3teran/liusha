@@ -10,8 +10,8 @@ import (
 	"github.com/V3teran/liusha/internal/logx"
 )
 
-// ownerCounter 是 Create 成功后用于 best-effort 维护 engagement.agent_run_count
-// 的最小接口；*engagement.Store 自动满足。
+// ownerCounter 是 Create 成功后用于 best-effort 维护 owner.agent_run_count
+// 的最小接口；owner store (passive_session/active_scan) 自动满足。
 type ownerCounter interface {
 	IncrementAgentRunCount(ctx context.Context, id string, n int) error
 }
@@ -24,14 +24,14 @@ type Store struct {
 	pool *pgxpool.Pool
 
 	// engCounter 可空：装配时通过 WithCounter 注入；Create 成功后 best-effort
-	// 给 engagement.agent_run_count +1（失败仅 warn，Abort 时 SELECT count(*) 兜底）。
+	// 给 owner.agent_run_count +1（失败仅 warn，Abort 时 SELECT count(*) 兜底）。
 	engCounter ownerCounter
 }
 
 // NewStore 用 pgxpool 构造 Store。
 func NewStore(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
 
-// WithCounter 链式注入 engagement 计数维护器；返回原 Store 便于装配。
+// WithCounter 链式注入 owner 计数维护器；返回原 Store 便于装配。
 func (s *Store) WithCounter(c ownerCounter) *Store {
 	s.engCounter = c
 	return s
@@ -119,7 +119,7 @@ func (s *Store) SetError(ctx context.Context, id string, errMsg string) error {
 	return nil
 }
 
-// SetAborted 把 pending|running 任务推进到 aborted（用于 engagement abort 级联）。
+// SetAborted 把 pending|running 任务推进到 aborted（用于 owner abort 级联）。
 func (s *Store) SetAborted(ctx context.Context, id string) error {
 	tag, err := s.pool.Exec(ctx, `
 		UPDATE agent_run SET status='aborted', updated_at=now()

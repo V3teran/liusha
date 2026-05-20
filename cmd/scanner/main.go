@@ -401,7 +401,7 @@ func (d *dualOwnerCounter) IncrementAgentRunCount(ctx context.Context, id string
 //	"test bar.com"                          → 无匹配（缺 http(s):// 前缀）
 var briefHostRe = regexp.MustCompile(`https?://([^/\s]+)`)
 
-// extractHostFromBrief 从 active brief 抽 URL host 当 (engagement, host) 切分键。
+// extractHostFromBrief 从 active brief 抽 URL host 当 (owner, host) 切分键。
 //
 // 抽不到时回退 fallback（owner_id 兜底），此时 lesson 跨 task 复用失效。
 // 这是按 brief 自然语言的弱契约设计：让 active 任务能自动按真实站点身份归档

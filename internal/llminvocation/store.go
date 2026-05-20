@@ -207,9 +207,9 @@ func (s *Store) copyFromBatch(ctx context.Context, batch []Invocation) error {
 	return nil
 }
 
-// SumCostByOwner 返回指定 engagement / owner 下所有 LLM 调用的成本总和（美元）。
+// SumCostByOwner 返回指定  owner / owner 下所有 LLM 调用的成本总和（美元）。
 //
-// 双轨切读：ID 可为 engagement.id 或 owner_id。
+// 双轨切读：ID 可为 owner.id 或 owner_id。
 // 注意：异步 buffer 内未 flush 的成本不算入 —— caller 若要严格一致需先 Flush()。
 func (s *Store) SumCostByOwnerID(ctx context.Context, ownerID string) (float64, error) {
 	var v float64
@@ -223,7 +223,7 @@ func (s *Store) SumCostByOwnerID(ctx context.Context, ownerID string) (float64, 
 	return v, nil
 }
 
-// ListByOwner 列出 engagement 下所有 LLM invocation（按 created_at ASC）。
+// ListByOwner 列出  owner 下所有 LLM invocation（按 created_at ASC）。
 //
 // 调用方有责任先 Flush() 等异步 buffer commit，否则可能缺最近 0-1s 的记录——
 // handler 路径上 Flush() 后再调本方法，保证 viewer 拿到完整审计快照。
@@ -344,7 +344,7 @@ func (s *Store) CountByCallPurposeByOwner(ctx context.Context, ownerType, ownerI
 	return out, rows.Err()
 }
 
-// CountByCallPurpose 按 call_purpose 维度聚合 engagement / owner 下的调用次数。
+// CountByCallPurpose 按 call_purpose 维度聚合  owner / owner 下的调用次数。
 // CountByCallPurposeByOwnerID 仅按 owner_id 聚合统计 call_purpose 分布。
 func (s *Store) CountByCallPurposeByOwnerID(ctx context.Context, ownerID string) (map[string]int, error) {
 	rows, err := s.pool.Query(ctx, `

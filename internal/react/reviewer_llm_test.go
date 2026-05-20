@@ -59,7 +59,7 @@ func (m *mockGen) Generate(_ context.Context, msgs []llm.Message, _ []llm.ToolSc
 	return llm.Result{Content: m.out}, nil
 }
 
-// stateReaderStub 在 reviewer 路径里替代真 *engagement.Store，便于注入测试数据。
+// stateReaderStub 在 reviewer 路径里替代真 owner store (passive_session/active_scan)，便于注入测试数据。
 type stateReaderStub struct {
 	out []byte
 	err error

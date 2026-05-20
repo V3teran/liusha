@@ -14,7 +14,7 @@ import (
 // findingsLister 是 ReadFindings 工具依赖的最小读接口，由 *finding.Store 自动满足。
 // limit ≤ 0 = 不限制；> 0 = SQL LIMIT 限上限。
 //
-// 范围：engagement + host，hunter / reviewer / read_findings 视野统一限本次扫描，
+// 范围：owner + host，hunter / reviewer / read_findings 视野统一限本次扫描，
 // 不被跨次扫描的历史污染（跨次复用走 lesson）。
 type findingsLister interface {
 	ListByOwnerAndHost(ctx context.Context, ownerType, ownerID, host string, limit int) ([]finding.VulnFinding, error)
@@ -33,7 +33,7 @@ type ReadFindings struct {
 func (a *ReadFindings) Name() string { return "read_findings" }
 
 func (a *ReadFindings) Description() string {
-	return "列出「本次扫描」(engagement + host) 已有的全部 finding（id/severity/summary/created_at）。" +
+	return "列出「本次扫描」(owner + host) 已有的全部 finding（id/severity/summary/created_at）。" +
 		"**写 finding 前必查**——同 host 同一漏洞别重复写。" +
 		"范围限 owner 内，不跨次扫描（跨次复用走 lesson）。" +
 		"返回按 created_at desc 排序的列表。"
@@ -56,7 +56,7 @@ type findingItem struct {
 	CreatedAt    time.Time `json:"created_at"`
 }
 
-// Execute 列出 engagement+host 全部 finding 摘要。
+// Execute 列出 owner+host 全部 finding 摘要。
 func (a *ReadFindings) Execute(ctx context.Context, _ json.RawMessage) (toolfx.Result, error) {
 	if a.OwnerType == "" || a.OwnerID == "" || a.Host == "" {
 		return toolfx.Result{}, errors.New("findings: OwnerType + OwnerID + Host 都必填（builder 注入失败）")

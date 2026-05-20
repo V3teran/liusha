@@ -71,7 +71,7 @@ type ActiveSpawnerConfig struct {
 // ActiveSpawner 实现 Spawner 接口——为 active 父任务派子 active 任务。
 //
 // parentCtx 是父 react.Run 的 ctx；子 ctx 由 WithCancel(parentCtx) 派生，
-// 父 abort / engagement abort / parent ctx timeout 都会自动级联到子。
+// 父 abort / owner abort / parent ctx timeout 都会自动级联到子。
 type ActiveSpawner struct {
 	cfg       ActiveSpawnerConfig
 	parentCtx context.Context
@@ -125,7 +125,7 @@ func (s *ActiveSpawner) Spawn(ctx context.Context, brief string, opts SpawnOptio
 
 	handle := s.cfg.Registry.Register(childTID, brief)
 
-	// 父 ctx 派生子 ctx——父 abort / engagement abort / parent timeout 自动级联
+	// 父 ctx 派生子 ctx——父 abort / owner abort / parent timeout 自动级联
 	childCtx, cancel := context.WithCancel(s.parentCtx)
 	// trackGoroutine / untrackGoroutine 让 Registry.WaitAll 能等所有子 goroutine 退出
 	// → handleActive 在父 react.Run 返回（含 max_steps）后能确保子全退再 Destroy 容器，
@@ -245,7 +245,7 @@ func (s *ActiveSpawner) runChild(ctx context.Context, cancel context.CancelFunc,
 		return
 	}
 
-	// 子继承父 ctx → engagement abort 时父 ctx cancel 自动传到这里
+	// 子继承父 ctx → owner abort 时父 ctx cancel 自动传到这里
 	out, runErr := react.Run(ctx, cfg)
 	if runErr != nil {
 		// ctx cancel / DeadlineExceeded 视为 abort——PG 写 SetAborted（非 SetError），

@@ -58,7 +58,7 @@ func (h handler) handlePassive(ctx context.Context, p worker.Payload, entrypoint
 	reviewer.ObsTruncate = h.cfg.React.ReviewerObsTruncate
 	// FlowSummary 约束 reviewer 只评本流量任务，避免跨流量推方向
 	reviewer.FlowSummary = fmt.Sprintf("%s %s%s", ep.Method, ep.Host, ep.URL)
-	// HostFindingsFetcher 让 reviewer 看到 engagement + host 范围内已有 finding 列表（背景参考）。
+	// HostFindingsFetcher 让 reviewer 看到 owner + host 范围内已有 finding 列表（背景参考）。
 	// 列表仅作背景知识：reviewer 知道本 host 漏洞面，但**不**把"已有 N 条"误当成本流量任务进度——
 	// 否则同 host 别的流量先挖到 finding 时，本流量（如 bac/profile 真无漏洞）会被误推
 	// terminate / 编造 hint。terminate 判定完全交给 reviewer 基于 window 行为推理。

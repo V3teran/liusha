@@ -13,7 +13,7 @@ import (
 
 // relationsLister 是 ReadRelations 工具依赖的最小读接口，由 *finding.Store 自动满足。
 type relationsLister interface {
-	ListRelationsByOwner(ctx context.Context, engagementID string) ([]finding.Relation, error)
+	ListRelationsByOwner(ctx context.Context, ownerID string) ([]finding.Relation, error)
 }
 
 // ReadRelations — 列出本 owner 内所有 finding 之间的 enables 边（图拓扑；与 write_relation 配对）。
@@ -44,7 +44,7 @@ type relationItem struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
-// Execute 列出 engagement 全部 enables 关系。
+// Execute 列出  owner 全部 enables 关系。
 func (a *ReadRelations) Execute(ctx context.Context, _ json.RawMessage) (toolfx.Result, error) {
 	if a.Store == nil {
 		return toolfx.Result{}, errors.New("read_relations: Store nil")

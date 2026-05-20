@@ -62,14 +62,14 @@ func (s *Store) SaveRelation(ctx context.Context, fromID, toID, reason string) (
 // 方法名保留向后兼容；参数 ID 是 owner_id。
 //
 // JOIN finding 表过滤——只返回 from/to 都在本 owner 内的边。
-func (s *Store) ListRelationsByOwner(ctx context.Context, engagementID string) ([]Relation, error) {
+func (s *Store) ListRelationsByOwner(ctx context.Context, ownerID string) ([]Relation, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT r.id, r.from_finding_id, r.to_finding_id, r.kind, r.payload, r.created_at
 		FROM finding_relation r
 		JOIN finding f1 ON f1.id = r.from_finding_id
 		JOIN finding f2 ON f2.id = r.to_finding_id
 		WHERE f1.owner_id=$1::uuid AND f2.owner_id=$1::uuid
-		ORDER BY r.created_at`, engagementID)
+		ORDER BY r.created_at`, ownerID)
 	if err != nil {
 		return nil, fmt.Errorf("list relations: %w", err)
 	}

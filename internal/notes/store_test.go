@@ -306,13 +306,13 @@ func TestReadEmptyKey(t *testing.T) {
 	}
 }
 
-// TestEmptyArgs engagementID / host / entry 任一为空时返回错误。
+// TestEmptyArgs ownerID / host / entry 任一为空时返回错误。
 func TestEmptyArgs(t *testing.T) {
 	s, _ := newTestStore(t, Config{KeyPrefix: "test:note:"})
 	ctx := context.Background()
 
 	if err := s.AppendNote(ctx, "", "h1", []byte("x")); err == nil {
-		t.Fatal("空 engagementID 应报错")
+		t.Fatal("空 ownerID 应报错")
 	}
 	if err := s.AppendNote(ctx, "eng", "", []byte("x")); err == nil {
 		t.Fatal("空 host 应报错")
@@ -321,7 +321,7 @@ func TestEmptyArgs(t *testing.T) {
 		t.Fatal("空 entry 应报错")
 	}
 	if _, err := s.ReadNotes(ctx, "", "h1"); err == nil {
-		t.Fatal("空 engagementID 读取应报错")
+		t.Fatal("空 ownerID 读取应报错")
 	}
 	if _, err := s.ReadNotes(ctx, "eng", ""); err == nil {
 		t.Fatal("空 host 读取应报错")

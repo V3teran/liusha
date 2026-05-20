@@ -12,7 +12,7 @@ import (
 )
 
 // ownerCounter 是 Append/AppendBatch 成功后用于 best-effort 维护
-// engagement.flow_count 的最小接口；*engagement.Store 自动满足。
+// owner.flow_count 的最小接口；owner store (passive_session/active_scan) 自动满足。
 type ownerCounter interface {
 	IncrementFlowCount(ctx context.Context, id string, n int) error
 }
@@ -28,7 +28,7 @@ type Store struct {
 	maxRespBody int
 
 	// engCounter 可空：装配时通过 WithCounter 注入；写入成功后 best-effort
-	// 给 engagement.flow_count +N（失败仅 warn，Abort 时 SELECT count(*) 兜底）。
+	// 给 owner.flow_count +N（失败仅 warn，Abort 时 SELECT count(*) 兜底）。
 	engCounter ownerCounter
 }
 
@@ -37,7 +37,7 @@ func NewStore(pool *pgxpool.Pool, maxReqBody, maxRespBody int) *Store {
 	return &Store{pool: pool, maxReqBody: maxReqBody, maxRespBody: maxRespBody}
 }
 
-// WithCounter 链式注入 engagement 计数维护器；返回原 Store 便于装配。
+// WithCounter 链式注入 owner 计数维护器；返回原 Store 便于装配。
 func (s *Store) WithCounter(c ownerCounter) *Store {
 	s.engCounter = c
 	return s
@@ -140,17 +140,17 @@ func (s *Store) GetByID(ctx context.Context, id int64) (Flow, error) {
 	return f, nil
 }
 
-// ListByOwner 按 (ts, id) 升序分页列出 engagement / passive_session 的瘦摘要（不含 body / headers）。
+// ListByOwner 按 (ts, id) 升序分页列出  owner / passive_session 的瘦摘要（不含 body / headers）。
 //
-// 双轨切读：参数 ID 可以是旧 engagement.id 或新 passive_session.id。SQL OR 让 viewer 传新 ID
+// 双轨切读：参数 ID 可以是旧 owner.id 或新 passive_session.id。SQL OR 让 viewer 传新 ID
 // 时也命中。commit B5+ 完成数据回填后可改名为 ListByOwner。
-func (s *Store) ListByOwner(ctx context.Context, engagementID string, limit, offset int) ([]FlowSummary, error) {
+func (s *Store) ListByOwner(ctx context.Context, ownerID string, limit, offset int) ([]FlowSummary, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT `+summaryCols+`
 		FROM http_flow
 		WHERE passive_session_id=$1::uuid
 		ORDER BY created_at ASC, id ASC
-		LIMIT $2 OFFSET $3`, engagementID, limit, offset)
+		LIMIT $2 OFFSET $3`, ownerID, limit, offset)
 	if err != nil {
 		return nil, fmt.Errorf("list flows: %w", err)
 	}

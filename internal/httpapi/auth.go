@@ -1,4 +1,4 @@
-// Package httpapi 提供 liusha 控制面 HTTP API：健康检查、凭证 CRUD、engagement 终止。
+// Package httpapi 提供 liusha 控制面 HTTP API：健康检查、凭证 CRUD、session 终止。
 // 所有非 /healthz 路由强制 X-API-Key 认证，由 RequireAPIKey gin middleware 统一拦截。
 package httpapi
 

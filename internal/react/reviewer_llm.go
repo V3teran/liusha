@@ -10,7 +10,7 @@ import (
 	"github.com/V3teran/liusha/internal/llm"
 )
 
-// NotesReader 是 LLMReviewer 读取 engagement 共享笔记板的最小依赖。
+// NotesReader 是 LLMReviewer 读取 owner 共享笔记板的最小依赖。
 // *notes.RedisStore 隐式满足该接口（internal/notes 包），测试可注入 stub。
 // reviewer 是 per-task 实例化（绑当前 task 的 host），只读本 host 笔记。
 type NotesReader interface {
@@ -32,7 +32,7 @@ const (
 type LLMReviewer struct {
 	llm          llm.Generator
 	notes        NotesReader
-	engagementID string
+	ownerID string
 	host         string // per-task 绑定 host，读 notes 时只读本 host 范围
 
 	// 可选字段：caller 通常从 cfg.React.{ReviewerArgsTruncate, ReviewerObsTruncate} 注入。
@@ -45,7 +45,7 @@ type LLMReviewer struct {
 	// 零值时 prompt 省略该段——退化为旧"无 flow 上下文"行为。
 	FlowSummary string
 
-	// HostFindingsFetcher 是可选 hook：返回当前 engagement + host 范围内已有 finding 列表
+	// HostFindingsFetcher 是可选 hook：返回当前 owner + host 范围内已有 finding 列表
 	// （每条形如 "[severity] summary"，前 N 条）。由 scanner 装配处用 closure 适配
 	// *finding.Store.ListByOwnerAndHost。nil 时 reviewer prompt 不注入 finding 段。
 	//
@@ -80,8 +80,8 @@ func (o *LLMReviewer) effectiveObsTruncate() int {
 //
 // store 可为 nil（测试场景），此时 prompt 中省略笔记板段。
 // host 必填——reviewer 是 per-task，绑定当前 task 的 host 用于 notes 范围隔离。
-func NewLLMReviewer(g llm.Generator, store NotesReader, engagementID, host string) *LLMReviewer {
-	return &LLMReviewer{llm: g, notes: store, engagementID: engagementID, host: host}
+func NewLLMReviewer(g llm.Generator, store NotesReader, ownerID, host string) *LLMReviewer {
+	return &LLMReviewer{llm: g, notes: store, ownerID: ownerID, host: host}
 }
 
 // reviewerSystemPrompt 约束 reviewer 只评本流量进度、输出严格 JSON。
@@ -144,21 +144,21 @@ func (o *LLMReviewer) Evaluate(ctx context.Context, window []StepRecord) Verdict
 		{Role: llm.RoleUser, Content: user},
 	}, nil)
 	if err != nil {
-		slog.Warn("reviewer llm call failed", "err", err, "owner_id", o.engagementID)
+		slog.Warn("reviewer llm call failed", "err", err, "owner_id", o.ownerID)
 		return Verdict{Decision: VerdictContinue}
 	}
 
 	var dec reviewerDecision
 	content := strings.TrimSpace(res.Content)
 	if err := json.Unmarshal([]byte(content), &dec); err != nil {
-		slog.Warn("reviewer parse json failed", "raw", content, "owner_id", o.engagementID)
+		slog.Warn("reviewer parse json failed", "raw", content, "owner_id", o.ownerID)
 		return Verdict{Decision: VerdictContinue}
 	}
 
 	if v := normalizeDecision(dec.Decision); v != "" {
 		return Verdict{Decision: v, Hint: dec.Hint}
 	}
-	slog.Warn("reviewer unknown decision", "decision", dec.Decision, "owner_id", o.engagementID)
+	slog.Warn("reviewer unknown decision", "decision", dec.Decision, "owner_id", o.ownerID)
 	return Verdict{Decision: VerdictContinue}
 }
 
@@ -184,14 +184,14 @@ func normalizeDecision(raw string) string {
 	return ""
 }
 
-// readNotesOrNil 读 (engagement, host) 共享笔记板；失败或 store/host 空时返回 nil 让 prompt 省略笔记板段。
+// readNotesOrNil 读 (owner, host) 共享笔记板；失败或 store/host 空时返回 nil 让 prompt 省略笔记板段。
 func (o *LLMReviewer) readNotesOrNil(ctx context.Context) []byte {
 	if o.notes == nil || o.host == "" {
 		return nil
 	}
-	data, err := o.notes.ReadNotes(ctx, o.engagementID, o.host)
+	data, err := o.notes.ReadNotes(ctx, o.ownerID, o.host)
 	if err != nil {
-		slog.Warn("reviewer read state failed", "err", err, "owner_id", o.engagementID, "host", o.host)
+		slog.Warn("reviewer read state failed", "err", err, "owner_id", o.ownerID, "host", o.host)
 		return nil
 	}
 	return data
@@ -215,7 +215,7 @@ func (o *LLMReviewer) fetchHostFindingsSection(ctx context.Context) string {
 	}
 	items, err := o.HostFindingsFetcher(ctx)
 	if err != nil {
-		slog.Warn("reviewer fetch host findings failed", "err", err, "owner_id", o.engagementID)
+		slog.Warn("reviewer fetch host findings failed", "err", err, "owner_id", o.ownerID)
 		return ""
 	}
 	if len(items) == 0 {
@@ -245,7 +245,7 @@ func (o *LLMReviewer) fetchLessonsSection(ctx context.Context) string {
 	}
 	lessons, err := o.LessonFetcher(ctx)
 	if err != nil {
-		slog.Warn("reviewer fetch lessons failed", "err", err, "owner_id", o.engagementID)
+		slog.Warn("reviewer fetch lessons failed", "err", err, "owner_id", o.ownerID)
 		return ""
 	}
 	if len(lessons) == 0 {

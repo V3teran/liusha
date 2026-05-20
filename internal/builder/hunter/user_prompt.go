@@ -70,7 +70,7 @@ func buildUserPrompt(ctx context.Context, deps Deps, p skill.BuilderParams) stri
 		lessonsLimit = 100
 	}
 
-	// 段 3: 该 host 已有 finding（限本次 engagement，不跨次扫描）
+	// 段 3: 该 host 已有 finding（限本次 owner，不跨次扫描）
 	if existing := loadExistingFindings(ctx, deps.Findings, p.OwnerType, p.OwnerID, p.Host, findingsLimit); existing != "" {
 		b.WriteString("\n\n## 该 host 已有 finding（本次扫描内）\n\n")
 		b.WriteString(existing)
@@ -333,9 +333,9 @@ func writeBodyBlock(b *strings.Builder, body []byte, limit int) {
 	}
 }
 
-// loadExistingFindings 拉「engagement + host」已有 finding 摘要（dedup 参考）。
+// loadExistingFindings 拉「owner + host」已有 finding 摘要（dedup 参考）。
 //
-// 范围限 engagement+host，每次扫描独立，不被跨次扫描的历史污染（复用走 lesson，
+// 范围限 owner+host，每次扫描独立，不被跨次扫描的历史污染（复用走 lesson，
 // 由 loadKnowledgeForPrompt 注入段 4）。
 // showLimit 由 caller 提供；SQL 拉 showLimit+1 条做"还有更多"信号。
 //
@@ -360,18 +360,18 @@ func loadExistingFindings(ctx context.Context, store *finding.Store, ownerType, 
 	return b.String()
 }
 
-// loadOwnerNotes 拉本次扫描 (engagement, host) 范围的 notes（短期工作内存）
+// loadOwnerNotes 拉本次扫描 (owner, host) 范围的 notes（短期工作内存）
 // 渲染给 hunter user prompt。
 //
 // notes 按 (eid, host) 切分——本函数只读本 host 的笔记，不会混入其他 host 的
-// 怪癖/死路。注入到 user prompt 让 hunter 看到同 (engagement, host) 内其他
+// 怪癖/死路。注入到 user prompt 让 hunter 看到同 (owner, host) 内其他
 // hunter task 写的笔记（临时凭据/状态、目标怪癖、小惊喜、失败死路），避免每个
 // agent 从零摸索。
-func loadOwnerNotes(ctx context.Context, store notes.Store, engagementID, host string) string {
-	if store == nil || engagementID == "" || host == "" {
+func loadOwnerNotes(ctx context.Context, store notes.Store, ownerID, host string) string {
+	if store == nil || ownerID == "" || host == "" {
 		return ""
 	}
-	raw, err := store.ReadNotes(ctx, engagementID, host)
+	raw, err := store.ReadNotes(ctx, ownerID, host)
 	if err != nil || len(raw) == 0 {
 		return ""
 	}

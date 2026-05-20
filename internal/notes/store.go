@@ -5,7 +5,7 @@
 //   - lesson (internal/lesson)：跨 owner / 按 host 持久化长期经验，PG。
 //   - finding (internal/finding)：漏洞 PoC 结论，PG。
 //
-// engagement 可挂多 host（passive 模式接受任意 host 流量），notes 按
+//  owner 可挂多 host（passive 模式接受任意 host 流量），notes 按
 // (owner_id, host) 二维切分——host A 的 fact 不会污染 host B。
 //
 // key=liusha:note:{owner_id}:{host}，LIST 类型；每条 element 是 JSON bytes
@@ -15,7 +15,7 @@
 // 容量管理：超过 CompactThreshold（默认 200）时调 Compactor（默认 LLM 蒸馏）把
 // 前 CompactBatchSize（默认 100）条压缩成 1 条 summary，保留早期信息语义。
 // Compactor 失败时退化为 LTRIM 末尾 MaxEntries 兜底，永不阻断 AppendNote。
-// 每个 (engagement, host) 独立蒸馏阈值 / 独立锁 / 独立 TTL。
+// 每个 (owner, host) 独立蒸馏阈值 / 独立锁 / 独立 TTL。
 package notes
 
 import (
@@ -33,8 +33,8 @@ import (
 // internal/react/reviewer_llm.go 的 NotesReader 隐式满足。
 // 所有方法带 host 参数——同 owner 多 host 切分隔离。
 type Store interface {
-	AppendNote(ctx context.Context, engagementID, host string, entry []byte) error
-	ReadNotes(ctx context.Context, engagementID, host string) ([]byte, error)
+	AppendNote(ctx context.Context, ownerID, host string, entry []byte) error
+	ReadNotes(ctx context.Context, ownerID, host string) ([]byte, error)
 }
 
 // Compactor 是 notes 蒸馏接口。
@@ -110,20 +110,20 @@ func (s *RedisStore) WithCompactor(c Compactor) *RedisStore {
 	return s
 }
 
-// key 拼成 liusha:note:{engagementID}:{host}——每个 (engagement, host) 独立 LIST。
-func (s *RedisStore) key(engagementID, host string) string {
-	return s.cfg.KeyPrefix + engagementID + ":" + host
+// key 拼成 liusha:note:{ownerID}:{host}——每个 (owner, host) 独立 LIST。
+func (s *RedisStore) key(ownerID, host string) string {
+	return s.cfg.KeyPrefix + ownerID + ":" + host
 }
 
-// AppendNote 追加一条 entry 到 (engagement, host) notes 列表末尾，
+// AppendNote 追加一条 entry 到 (owner, host) notes 列表末尾，
 // 刷新 TTL 并按需触发蒸馏。
 //
 // pipeline：RPUSH + ExpireNX + LLEN（一次 round-trip）。
 // LLEN 超过 CompactThreshold 时同步触发蒸馏（best-effort，失败 fallback LTRIM）。
 // 同步触发理由：触发频率低（几小时一次），阻塞 hunter 1-3s 可接受。
-func (s *RedisStore) AppendNote(ctx context.Context, engagementID, host string, entry []byte) error {
-	if engagementID == "" {
-		return fmt.Errorf("AppendNote: engagementID 不能为空")
+func (s *RedisStore) AppendNote(ctx context.Context, ownerID, host string, entry []byte) error {
+	if ownerID == "" {
+		return fmt.Errorf("AppendNote: ownerID 不能为空")
 	}
 	if host == "" {
 		return fmt.Errorf("AppendNote: host 不能为空")
@@ -131,7 +131,7 @@ func (s *RedisStore) AppendNote(ctx context.Context, engagementID, host string, 
 	if len(entry) == 0 {
 		return fmt.Errorf("AppendNote: entry 不能为空")
 	}
-	k := s.key(engagementID, host)
+	k := s.key(ownerID, host)
 
 	pipe := s.client.TxPipeline()
 	pipe.RPush(ctx, k, entry)
@@ -205,20 +205,20 @@ func (s *RedisStore) fallbackTrim(ctx context.Context, k string) {
 	_ = s.client.LTrim(ctx, k, int64(-s.cfg.MaxEntries), -1).Err()
 }
 
-// ReadNotes 读 (engagement, host) 范围全部 entry，包成 {"notes":[<raw entry>,...]} 返回。
+// ReadNotes 读 (owner, host) 范围全部 entry，包成 {"notes":[<raw entry>,...]} 返回。
 //
-// 输出格式与旧 engagement.Store.ReadNotes 保持一致——hunter/skill.go
+// 输出格式与旧 owner store.ReadNotes 保持一致——hunter/skill.go
 // 与 reviewer_llm.go 已按此结构 Unmarshal。
 //
 // key 不存在返回空数组 {"notes":[]}，不报错。
-func (s *RedisStore) ReadNotes(ctx context.Context, engagementID, host string) ([]byte, error) {
-	if engagementID == "" {
-		return nil, fmt.Errorf("ReadNotes: engagementID 不能为空")
+func (s *RedisStore) ReadNotes(ctx context.Context, ownerID, host string) ([]byte, error) {
+	if ownerID == "" {
+		return nil, fmt.Errorf("ReadNotes: ownerID 不能为空")
 	}
 	if host == "" {
 		return nil, fmt.Errorf("ReadNotes: host 不能为空")
 	}
-	k := s.key(engagementID, host)
+	k := s.key(ownerID, host)
 	items, err := s.client.LRange(ctx, k, 0, -1).Result()
 	if err != nil {
 		return nil, fmt.Errorf("read notes %s: %w", k, err)

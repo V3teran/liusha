@@ -50,7 +50,7 @@ func llmInvocationsHandler(api InvocationsAPI) gin.HandlerFunc {
 		invocations, err := api.ListByOwnerID(c.Request.Context(), eid)
 		if err != nil {
 			if strings.Contains(err.Error(), "no rows in result set") {
-				c.JSON(404, gin.H{"error": "engagement not found", "owner_id": eid})
+				c.JSON(404, gin.H{"error": "owner not found", "owner_id": eid})
 				return
 			}
 			c.JSON(500, gin.H{"error": err.Error()})

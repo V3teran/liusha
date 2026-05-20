@@ -8,15 +8,15 @@ import (
 	"github.com/V3teran/liusha/internal/toolruntime"
 )
 
-// NoteStore 是 engagement notes 共享笔记板的最小访问接口。
+// NoteStore 是  owner notes 共享笔记板的最小访问接口。
 // 由 *notes.RedisStore 自动满足（internal/notes 包提供）。
-// engagement 可挂多 host，notes 按 (eid, host) 切分。
+//  owner 可挂多 host，notes 按 (eid, host) 切分。
 type NoteStore interface {
-	ReadNotes(ctx context.Context, engagementID, host string) ([]byte, error)
-	AppendNote(ctx context.Context, engagementID, host string, entry []byte) error
+	ReadNotes(ctx context.Context, ownerID, host string) ([]byte, error)
+	AppendNote(ctx context.Context, ownerID, host string, entry []byte) error
 }
 
-// ReadNotes — 一次读取 (engagement, host) notes 共享黑板（短期记忆，本次扫描内）。
+// ReadNotes — 一次读取 (owner, host) notes 共享黑板（短期记忆，本次扫描内）。
 // 命名与 read_findings / read_lessons / read_credentials 等一致用复数（读多条 note）。
 type ReadNotes struct {
 	Store        NoteStore
@@ -29,7 +29,7 @@ type ReadNotes struct {
 func (a *ReadNotes) Name() string { return "read_notes" }
 
 func (a *ReadNotes) Description() string {
-	return "读取本次扫描（engagement）共享笔记板——与同 host 其他 hunter task 共享的过程性事实。" +
+	return "读取本次扫描（owner）共享笔记板——与同 host 其他 hunter task 共享的过程性事实。" +
 		"读到的内容包括：目标实例当前怪癖、扫描中发现的小惊喜、失败死路。" +
 		"owner 关闭即过期，不跨次扫描。"
 }
@@ -48,7 +48,7 @@ func (a *ReadNotes) Execute(ctx context.Context, _ json.RawMessage) (toolfx.Resu
 	return toolfx.Result{Output: state}, nil
 }
 
-// WriteNote — 写一条短期记忆到 (engagement, host) notes 共享黑板（纯文本追加）。
+// WriteNote — 写一条短期记忆到 (owner, host) notes 共享黑板（纯文本追加）。
 type WriteNote struct {
 	Store        NoteStore
 	OwnerID string
@@ -67,7 +67,7 @@ func (a *WriteNote) Name() string { return "write_note" }
 //
 // description 重点说"只能在 note 留痕的事"和"禁写"边界，防 LLM 把漏洞 PoC 误写进 note。
 func (a *WriteNote) Description() string {
-	return "写一条过程性事实到本 (engagement + host) 信息黑板——" +
+	return "写一条过程性事实到本 (owner + host) 信息黑板——" +
 		"\npassive 模式：同 host 跨多个 hunter task 共享；" +
 		"\nactive 模式：当前长任务内 step 间外置记忆（防 ReAct context 滑窗压缩丢失早期决策；" +
 		"任务超 20 步建议主动写 note 留痕关键中间状态）。owner 关闭即过期。" +

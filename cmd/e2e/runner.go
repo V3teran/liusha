@@ -158,8 +158,8 @@ func enrollAllCreds(apiBase, apiKey, vulnBase string) error {
 //   - 失去 per-profile PASS 粒度，整体 PASS/FAIL；finding 列表按 severity+summary
 //     输出方便人工归属判断
 //
-// 多 host 场景：每个独特 host 一个 engagement，统计跨所有 engagement 聚合。
-// 同 host 多 profile（典型如 DVWA 跑 path+upload+sqli）共享同一 engagement。
+// 多 host 场景：每个独特 host 一个 owner (passive_session)，统计跨所有 owner 聚合。
+// 同 host 多 profile（典型如 DVWA 跑 path+upload+sqli）共享同一 owner。
 //
 // 防假阳性两道防线（沿用旧设计）：
 //  1. unifiedStartedAt 基线：finding/agent_run 都按 created_at > 基线过滤；
@@ -297,7 +297,7 @@ func runAllUnified(ctx context.Context, plans []profilePlan, proxyHostPort, apiB
 }
 
 // resolveSampleHost 决定本 profile 样本流量所属的 host（用于建凭证 / 给 hunter
-// task 注入）。engagement 不 per-host，此 host 仅供 e2e 内部建凭证、校验
+// task 注入）。owner (passive_session) 不 per-host，此 host 仅供 e2e 内部建凭证、校验
 // finding.host 对得上用。
 //
 //	优先级：env LIUSHA_E2E_SCOPE_HOST > 首条样本的 Host: 头去端口 > vulnBase URL 的 host

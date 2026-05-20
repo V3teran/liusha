@@ -164,7 +164,7 @@ func (t *Traffic) handleMessage(ctx context.Context, msg redis.XMessage) {
 	}
 
 	// 1) 单源：passive_session 表 LookupOrCreate by host（1 host 1 active session）。
-	// 旧 engagement.Rotator 路径已弃用（0040 FK DROP 后正式切换）。
+	// 旧 legacy rotator 路径已弃用（0040 FK DROP 后正式切换）。
 	sess, lkErr := t.passive.LookupOrCreate(ctx, snap.Host, t.passiveTTL)
 	if lkErr != nil {
 		t.logger.Warn().Err(lkErr).Str("host", snap.Host).Msg("passive_session LookupOrCreate 失败，跳过本流量")

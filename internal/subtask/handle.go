@@ -10,7 +10,7 @@
 //	  └─ go func() { react.Run(childCtx) } → 子在父 goroutine 树内跑
 //	子完成 → handle.MarkDone(outcome) + agentrun.SetDone
 //
-// 共享：sandbox 容器 / engagement 黑板（notes/findings/lessons）— 父子同 (eid, host)。
+// 共享：sandbox 容器 /  owner 黑板（notes/findings/lessons）— 父子同 (eid, host)。
 // 隔离：子 ctx 由父 ctx WithCancel 派生（父 abort 自动级联）；子有独立 LLM context / reviewer。
 package subtask
 
