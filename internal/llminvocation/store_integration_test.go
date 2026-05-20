@@ -57,7 +57,7 @@ func TestStore_Append_Basic(t *testing.T) {
 	}
 }
 
-// TestStore_Append_WithRouteKey 验证：role 字段正确写入 + CountByCallPurpose 按 role 分组。
+// TestStore_Append_WithRouteKey 验证：role 字段正确写入 + CountByRole 按 role 分组。
 func TestStore_Append_WithRouteKey(t *testing.T) {
 	ctx := context.Background()
 	s, ot, oid := setup(t)
@@ -67,7 +67,7 @@ func TestStore_Append_WithRouteKey(t *testing.T) {
 		OwnerID:     &oid,
 		Provider:    "deepseek",
 		Model:       "deepseek-chat",
-		CallPurpose: "reviewer",
+		Role: "reviewer",
 		CostUSD:     0.0001,
 	}); err != nil {
 		t.Fatalf("append reviewer: %v", err)
@@ -77,7 +77,7 @@ func TestStore_Append_WithRouteKey(t *testing.T) {
 		OwnerID:     &oid,
 		Provider:    "deepseek",
 		Model:       "deepseek-chat",
-		CallPurpose: "reviewer",
+		Role: "reviewer",
 		CostUSD:     0.0002,
 	}); err != nil {
 		t.Fatalf("append reviewer 2: %v", err)
@@ -87,7 +87,7 @@ func TestStore_Append_WithRouteKey(t *testing.T) {
 		OwnerID:     &oid,
 		Provider:    "deepseek",
 		Model:       "deepseek-reasoner",
-		CallPurpose: "react_main",
+		Role: "react_main",
 		CostUSD:     0.001,
 	}); err != nil {
 		t.Fatalf("append react.main: %v", err)
@@ -97,7 +97,7 @@ func TestStore_Append_WithRouteKey(t *testing.T) {
 		t.Fatalf("flush: %v", err)
 	}
 
-	got, err := s.CountByCallPurposeByOwnerID(ctx, oid)
+	got, err := s.CountByRoleByOwnerID(ctx, oid)
 	if err != nil {
 		t.Fatalf("count by role: %v", err)
 	}
@@ -129,7 +129,7 @@ func TestStore_SumCostByOwnerID(t *testing.T) {
 			OwnerID:     &oid,
 			Provider:    "deepseek",
 			Model:       "deepseek-chat",
-			CallPurpose: c.role,
+			Role: c.role,
 			CostUSD:     c.cost,
 		}); err != nil {
 			t.Fatalf("append %s: %v", c.role, err)

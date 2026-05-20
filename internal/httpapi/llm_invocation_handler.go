@@ -84,7 +84,7 @@ func llmInvocationsHandler(api InvocationsAPI) gin.HandlerFunc {
 				"latency_ms":    v.LatencyMs,
 				"finish_reason": v.FinishReason,
 				"error_message": v.Error,
-				"call_purpose":  v.CallPurpose,
+				"role":          v.Role,
 				"messages":      json.RawMessage(rawOrEmpty(v.Messages, "[]")),
 				"result":        json.RawMessage(rawOrEmpty(v.Result, "{}")),
 				"created_at":    v.CreatedAt,

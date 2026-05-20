@@ -92,7 +92,7 @@ func (i *instrumented) Generate(ctx context.Context, msgs []Message, tools []Too
 		CachedTokens: res.Usage.CachedTokens,
 		LatencyMs:    int(latency.Milliseconds()),
 		FinishReason: res.FinishReason,
-		CallPurpose:  i.meta.RouteKey,
+		Role:         i.meta.RouteKey,
 	}
 	if err != nil {
 		call.Error = err.Error()
@@ -123,7 +123,7 @@ func (i *instrumented) Generate(ctx context.Context, msgs []Message, tools []Too
 			Err(sinkErr).
 			Str("provider", call.Provider).
 			Str("model", call.Model).
-			Str("call_purpose", call.CallPurpose).
+			Str("role", call.Role).
 			Msg("llm_invocation append 失败（不阻塞 Generate 返回）")
 	}
 	return res, err

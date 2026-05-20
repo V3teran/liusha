@@ -95,7 +95,7 @@ func (s *Store) Append(ctx context.Context, c Invocation) (int64, error) {
 	default:
 		// channel 满（>1024 条）→ 丢这条，说明 LLM 调用速率超 worker batch 写盘吞吐。
 		s.log.Warn().
-			Str("provider", c.Provider).Str("model", c.Model).Str("call_purpose", c.CallPurpose).
+			Str("provider", c.Provider).Str("model", c.Model).Str("role", c.Role).
 			Msg("llm_invocation buffer 满，丢弃一条审计记录")
 		return 0, nil
 	}
@@ -185,7 +185,7 @@ func (s *Store) copyFromBatch(ctx context.Context, batch []Invocation) error {
 			c.TaskID, c.OwnerType, c.OwnerID,
 			c.Provider, c.Model,
 			c.InTokens, c.OutTokens, c.CachedTokens,
-			c.CostUSD, c.LatencyMs, c.FinishReason, c.Error, c.CallPurpose,
+			c.CostUSD, c.LatencyMs, c.FinishReason, c.Error, c.Role,
 			c.Messages, c.Result,
 		}
 	}
@@ -196,7 +196,7 @@ func (s *Store) copyFromBatch(ctx context.Context, batch []Invocation) error {
 			"agent_run_id", "owner_type", "owner_id",
 			"provider", "model",
 			"in_tokens", "out_tokens", "cached_tokens",
-			"cost_usd", "latency_ms", "finish_reason", "error_message", "call_purpose",
+			"cost_usd", "latency_ms", "finish_reason", "error_message", "role",
 			"messages", "result",
 		},
 		pgx.CopyFromRows(rows),
@@ -234,7 +234,7 @@ func (s *Store) ListByOwnerID(ctx context.Context, ownerID string) ([]Invocation
 		SELECT id, agent_run_id, owner_type, owner_id::text,
 		       provider, model,
 		       in_tokens, out_tokens, cached_tokens,
-		       cost_usd, latency_ms, finish_reason, error_message, call_purpose,
+		       cost_usd, latency_ms, finish_reason, error_message, role,
 		       messages, result, created_at
 		FROM llm_invocation
 		WHERE owner_id=$1::uuid
@@ -252,7 +252,7 @@ func (s *Store) ListByOwnerID(ctx context.Context, ownerID string) ([]Invocation
 			&v.ID, &taskID, &ownerType, &ownerID,
 			&v.Provider, &v.Model,
 			&v.InTokens, &v.OutTokens, &v.CachedTokens,
-			&v.CostUSD, &v.LatencyMs, &v.FinishReason, &v.Error, &v.CallPurpose,
+			&v.CostUSD, &v.LatencyMs, &v.FinishReason, &v.Error, &v.Role,
 			&v.Messages, &v.Result, &v.CreatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scan llm_invocation: %w", err)
@@ -288,7 +288,7 @@ func (s *Store) ListByOwner(ctx context.Context, ownerType, ownerID string) ([]I
 		SELECT id, agent_run_id, owner_type, owner_id::text,
 		       provider, model,
 		       in_tokens, out_tokens, cached_tokens,
-		       cost_usd, latency_ms, finish_reason, error_message, call_purpose,
+		       cost_usd, latency_ms, finish_reason, error_message, role,
 		       messages, result, created_at
 		FROM llm_invocation
 		WHERE owner_type=$1 AND owner_id=$2::uuid
@@ -306,7 +306,7 @@ func (s *Store) ListByOwner(ctx context.Context, ownerType, ownerID string) ([]I
 			&v.ID, &taskID, &ot, &oid,
 			&v.Provider, &v.Model,
 			&v.InTokens, &v.OutTokens, &v.CachedTokens,
-			&v.CostUSD, &v.LatencyMs, &v.FinishReason, &v.Error, &v.CallPurpose,
+			&v.CostUSD, &v.LatencyMs, &v.FinishReason, &v.Error, &v.Role,
 			&v.Messages, &v.Result, &v.CreatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scan llm_invocation: %w", err)
@@ -319,16 +319,16 @@ func (s *Store) ListByOwner(ctx context.Context, ownerType, ownerID string) ([]I
 	return out, rows.Err()
 }
 
-// CountByCallPurposeByOwner 按 call_purpose 维度聚合 owner 下的调用次数。
-// 新 polymorphic 路径——commit B5 切读后取代 CountByCallPurpose。
-func (s *Store) CountByCallPurposeByOwner(ctx context.Context, ownerType, ownerID string) (map[string]int, error) {
+// CountByRoleByOwner 按 role 维度聚合 owner 下的调用次数。
+
+func (s *Store) CountByRoleByOwner(ctx context.Context, ownerType, ownerID string) (map[string]int, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT call_purpose, count(*)
+		SELECT role, count(*)
 		FROM llm_invocation
 		WHERE owner_type=$1 AND owner_id=$2::uuid
-		GROUP BY call_purpose`, ownerType, ownerID)
+		GROUP BY role`, ownerType, ownerID)
 	if err != nil {
-		return nil, fmt.Errorf("count llm_invocation by call_purpose by owner: %w", err)
+		return nil, fmt.Errorf("count llm_invocation by role by owner: %w", err)
 	}
 	defer rows.Close()
 
@@ -337,23 +337,23 @@ func (s *Store) CountByCallPurposeByOwner(ctx context.Context, ownerType, ownerI
 		var purpose string
 		var n int
 		if err := rows.Scan(&purpose, &n); err != nil {
-			return nil, fmt.Errorf("scan call_purpose count: %w", err)
+			return nil, fmt.Errorf("scan role count: %w", err)
 		}
 		out[purpose] = n
 	}
 	return out, rows.Err()
 }
 
-// CountByCallPurpose 按 call_purpose 维度聚合  owner / owner 下的调用次数。
-// CountByCallPurposeByOwnerID 仅按 owner_id 聚合统计 call_purpose 分布。
-func (s *Store) CountByCallPurposeByOwnerID(ctx context.Context, ownerID string) (map[string]int, error) {
+// CountByRole 按 role 维度聚合  owner / owner 下的调用次数。
+// CountByRoleByOwnerID 仅按 owner_id 聚合统计 call_purpose 分布。
+func (s *Store) CountByRoleByOwnerID(ctx context.Context, ownerID string) (map[string]int, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT call_purpose, count(*)
+		SELECT role, count(*)
 		FROM llm_invocation
 		WHERE owner_id=$1::uuid
-		GROUP BY call_purpose`, ownerID)
+		GROUP BY role`, ownerID)
 	if err != nil {
-		return nil, fmt.Errorf("count llm_invocation by call_purpose: %w", err)
+		return nil, fmt.Errorf("count llm_invocation by role: %w", err)
 	}
 	defer rows.Close()
 
@@ -362,12 +362,12 @@ func (s *Store) CountByCallPurposeByOwnerID(ctx context.Context, ownerID string)
 		var purpose string
 		var n int
 		if err := rows.Scan(&purpose, &n); err != nil {
-			return nil, fmt.Errorf("scan call_purpose count: %w", err)
+			return nil, fmt.Errorf("scan role count: %w", err)
 		}
 		out[purpose] = n
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate call_purpose counts: %w", err)
+		return nil, fmt.Errorf("iterate role counts: %w", err)
 	}
 	return out, nil
 }
