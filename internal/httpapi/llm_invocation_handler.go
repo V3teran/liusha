@@ -17,7 +17,7 @@ type InvocationsAPI interface {
 	ListByEngagement(ctx context.Context, engagementID string) ([]llminvocation.Invocation, error)
 }
 
-// llmInvocationsHandler 处理 GET /llm/invocations/:engagement_id。
+// llmInvocationsHandler 处理 GET /llm/invocations/:owner_id。
 //
 // 返回该 engagement 下所有 llm_invocation 行，**按 agent_run_id 分组**，
 // 每组内按 created_at ASC（与 react step 顺序一致）。agent_run_id 为 NULL
@@ -26,7 +26,7 @@ type InvocationsAPI interface {
 // 响应结构（前端 viewer 消费）：
 //
 //	{
-//	  "engagement_id": "...",
+//	  "owner_id": "...",
 //	  "total": 19,
 //	  "groups": [
 //	    {
@@ -40,7 +40,7 @@ type InvocationsAPI interface {
 // 先调 Flush() 等异步 buffer commit，保证拿到完整审计。
 func llmInvocationsHandler(api InvocationsAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		eid := c.Param("engagement_id")
+		eid := c.Param("owner_id")
 		if eid == "" {
 			c.JSON(400, gin.H{"error": "engagement_id required"})
 			return
@@ -50,7 +50,7 @@ func llmInvocationsHandler(api InvocationsAPI) gin.HandlerFunc {
 		invocations, err := api.ListByEngagement(c.Request.Context(), eid)
 		if err != nil {
 			if strings.Contains(err.Error(), "no rows in result set") {
-				c.JSON(404, gin.H{"error": "engagement not found", "engagement_id": eid})
+				c.JSON(404, gin.H{"error": "engagement not found", "owner_id": eid})
 				return
 			}
 			c.JSON(500, gin.H{"error": err.Error()})
@@ -101,7 +101,7 @@ func llmInvocationsHandler(api InvocationsAPI) gin.HandlerFunc {
 		}
 
 		c.JSON(200, gin.H{
-			"engagement_id": eid,
+			"owner_id": eid,
 			"total":         len(invocations),
 			"groups":        out,
 		})

@@ -15,7 +15,7 @@ type GraphAPI interface {
 	Project(ctx context.Context, engagementID, host string) (graphview.View, error)
 }
 
-// graphHandler 处理 GET /graph/:engagement_id?host=<optional>。
+// graphHandler 处理 GET /graph/:owner_id?host=<optional>。
 //
 // 返回图视图 JSON：origin / endpoint / parameter / finding / goal 节点
 // + has_param / vulnerable_to / enables / contributes_to 边。
@@ -24,7 +24,7 @@ type GraphAPI interface {
 // 传 ?host=xxx 时按 finding.host 过滤——前端 viewer 通常带 host 选择器调用。
 func graphHandler(api GraphAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		eid := c.Param("engagement_id")
+		eid := c.Param("owner_id")
 		if eid == "" {
 			c.JSON(400, gin.H{"error": "engagement_id required"})
 			return
@@ -35,7 +35,7 @@ func graphHandler(api GraphAPI) gin.HandlerFunc {
 			// engagement 不存在（被 truncate 或 typo）→ 404 而非 500，
 			// 让前端能据状态码区分"该 engagement 没了"与"服务器真坏"。
 			if strings.Contains(err.Error(), "no rows in result set") {
-				c.JSON(404, gin.H{"error": "engagement not found", "engagement_id": eid})
+				c.JSON(404, gin.H{"error": "engagement not found", "owner_id": eid})
 				return
 			}
 			c.JSON(500, gin.H{"error": err.Error()})

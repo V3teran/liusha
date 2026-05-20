@@ -15,7 +15,7 @@ type AgentRunsAPI interface {
 	ListByEngagement(ctx context.Context, engagementID string, limit int) ([]agentrun.ReactRun, error)
 }
 
-// agentRunsHandler 处理 GET /agent_runs/:engagement_id。
+// agentRunsHandler 处理 GET /agent_runs/:owner_id。
 //
 // 返回该 engagement 下所有 agent_run 行，按 created_at ASC 排序（父先 spawn → 子后入）。
 // 前端 viewer 按 parent_id 拼父子树渲染（PR4）：根节点 parent_id="" / NULL。
@@ -23,7 +23,7 @@ type AgentRunsAPI interface {
 // 响应结构：
 //
 //	{
-//	  "engagement_id": "...",
+//	  "owner_id": "...",
 //	  "total": N,
 //	  "runs": [{
 //	    "id":"uuid", "parent_id":"uuid|''", "role":"hunter",
@@ -36,7 +36,7 @@ type AgentRunsAPI interface {
 // limit 硬编码 500——单 engagement 一般几十到几百 agent_run，500 远超实际需求。
 func agentRunsHandler(api AgentRunsAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		eid := c.Param("engagement_id")
+		eid := c.Param("owner_id")
 		if eid == "" {
 			c.JSON(400, gin.H{"error": "engagement_id required"})
 			return
@@ -66,7 +66,7 @@ func agentRunsHandler(api AgentRunsAPI) gin.HandlerFunc {
 		}
 
 		c.JSON(200, gin.H{
-			"engagement_id": eid,
+			"owner_id": eid,
 			"total":         len(runs),
 			"runs":          out,
 		})

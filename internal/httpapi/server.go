@@ -53,13 +53,13 @@ func NewServer(d Deps) http.Handler {
 		r.GET("/engagement", listEngagementsHandler(d.Engagements))
 	}
 	if d.Graph != nil {
-		r.GET("/graph/:engagement_id", graphHandler(d.Graph))
+		r.GET("/graph/:owner_id", graphHandler(d.Graph))
 	}
 	if d.Invocations != nil {
-		r.GET("/llm/invocations/:engagement_id", llmInvocationsHandler(d.Invocations))
+		r.GET("/llm/invocations/:owner_id", llmInvocationsHandler(d.Invocations))
 	}
 	if d.AgentRuns != nil {
-		r.GET("/agent_runs/:engagement_id", agentRunsHandler(d.AgentRuns))
+		r.GET("/agent_runs/:owner_id", agentRunsHandler(d.AgentRuns))
 	}
 	if d.ActiveScan != nil {
 		r.POST("/scan/active", activeScanHandler(d.ActiveScan))

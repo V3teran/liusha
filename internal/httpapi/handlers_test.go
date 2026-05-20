@@ -307,13 +307,13 @@ func TestPassiveScan_Created(t *testing.T) {
 		t.Fatalf("status=%d body=%s", resp.StatusCode, string(b))
 	}
 	var out struct {
-		EngagementID string `json:"engagement_id"`
+		OwnerID string `json:"owner_id"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if out.EngagementID != "eid-passive" {
-		t.Fatalf("engagement_id=%q", out.EngagementID)
+	if out.OwnerID != "eid-passive" {
+		t.Fatalf("owner_id=%q", out.OwnerID)
 	}
 	if fa.ensureCalls != 1 {
 		t.Fatalf("ensureCalls=%d, want 1", fa.ensureCalls)
@@ -409,14 +409,14 @@ func TestActiveScan_Created(t *testing.T) {
 		t.Fatalf("status=%d body=%s", resp.StatusCode, string(b))
 	}
 	var out struct {
-		EngagementID string `json:"engagement_id"`
-		AgentRunID   string `json:"agent_run_id"`
+		OwnerID    string `json:"owner_id"`
+		AgentRunID string `json:"agent_run_id"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if out.EngagementID != "eid-active" || out.AgentRunID != "task-active" {
-		t.Fatalf("ids: eid=%q tid=%q", out.EngagementID, out.AgentRunID)
+	if out.OwnerID != "eid-active" || out.AgentRunID != "task-active" {
+		t.Fatalf("ids: oid=%q tid=%q", out.OwnerID, out.AgentRunID)
 	}
 	if fs.calls != 1 {
 		t.Fatalf("calls=%d, want 1", fs.calls)

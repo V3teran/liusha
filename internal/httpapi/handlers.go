@@ -114,7 +114,7 @@ func passiveScanHandler(api EngagementsAPI) gin.HandlerFunc {
 			c.JSON(500, gin.H{"error": err.Error()})
 			return
 		}
-		c.JSON(200, gin.H{"engagement_id": id})
+		c.JSON(200, gin.H{"owner_id": id})
 	}
 }
 
@@ -179,7 +179,7 @@ type CreateActiveScanRequest struct {
 // activeScanHandler 处理 POST /scan/active：校验 brief 非空 + 调 ActiveScanAPI 起任务。
 //
 // 成功返 200 + {engagement_id, agent_run_id}；调用方据此查任务进度
-// （viewer / GET /llm/invocations/:engagement_id）。
+// （viewer / GET /llm/invocations/:owner_id）。
 // 不等任务完成——异步 ReAct 由 scanner 进程消费。
 func activeScanHandler(api ActiveScanAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -200,7 +200,7 @@ func activeScanHandler(api ActiveScanAPI) gin.HandlerFunc {
 			return
 		}
 		c.JSON(200, gin.H{
-			"engagement_id": eid,
+			"owner_id": eid,
 			"agent_run_id":  taskID,
 		})
 	}

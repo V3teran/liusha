@@ -25,15 +25,15 @@ func createPassiveScan(base, key, host string) (string, error) {
 		return "", fmt.Errorf("scan/passive %d: %s", resp.StatusCode, string(raw))
 	}
 	var out struct {
-		EngagementID string `json:"engagement_id"`
+		OwnerID string `json:"owner_id"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
 		return "", fmt.Errorf("decode scan/passive: %w", err)
 	}
-	if out.EngagementID == "" {
-		return "", fmt.Errorf("scan/passive returned empty engagement_id")
+	if out.OwnerID == "" {
+		return "", fmt.Errorf("scan/passive returned empty owner_id")
 	}
-	return out.EngagementID, nil
+	return out.OwnerID, nil
 }
 
 // createActiveScan 调 POST /scan/active 拿 (engagement_id, agent_run_id)。
@@ -54,16 +54,16 @@ func createActiveScan(base, key, brief string) (string, string, error) {
 		return "", "", fmt.Errorf("scan/active %d: %s", resp.StatusCode, string(raw))
 	}
 	var out struct {
-		EngagementID string `json:"engagement_id"`
+		OwnerID string `json:"owner_id"`
 		AgentRunID   string `json:"agent_run_id"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
 		return "", "", fmt.Errorf("decode scan/active: %w", err)
 	}
-	if out.EngagementID == "" || out.AgentRunID == "" {
+	if out.OwnerID == "" || out.AgentRunID == "" {
 		return "", "", fmt.Errorf("scan/active returned empty ids")
 	}
-	return out.EngagementID, out.AgentRunID, nil
+	return out.OwnerID, out.AgentRunID, nil
 }
 
 // saveCredsBatch 一次录入多 host 凭证（host → []credentialEntry 映射）。
