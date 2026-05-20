@@ -58,8 +58,8 @@ type Edge struct {
 
 // View 是单次投影的完整图。
 type View struct {
-	EngagementID string    `json:"engagement_id"`
-	Host         string    `json:"host"`
+	OwnerID     string    `json:"owner_id"`
+	Host        string    `json:"host"`
 	GeneratedAt  time.Time `json:"generated_at"`
 	Nodes        []Node    `json:"nodes"`
 	Edges        []Edge    `json:"edges"`
@@ -148,9 +148,9 @@ func (p *Projector) Project(ctx context.Context, engagementID, host string) (Vie
 	}
 
 	v := View{
-		EngagementID: engagementID,
-		Host:         effectiveHost,
-		GeneratedAt:  time.Now().UTC(),
+		OwnerID:     engagementID,
+		Host:        effectiveHost,
+		GeneratedAt: time.Now().UTC(),
 	}
 
 	// origin / goal 永远存在。
