@@ -26,7 +26,7 @@ func graphHandler(api GraphAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		eid := c.Param("owner_id")
 		if eid == "" {
-			c.JSON(400, gin.H{"error": "engagement_id required"})
+			c.JSON(400, gin.H{"error": "owner_id required"})
 			return
 		}
 		host := c.Query("host")

@@ -107,7 +107,7 @@ type Projector struct {
 //  6. 加 finding_relation 提供的 enables 边
 func (p *Projector) Project(ctx context.Context, engagementID, host string) (View, error) {
 	if engagementID == "" {
-		return View{}, fmt.Errorf("engagement_id 不能为空")
+		return View{}, fmt.Errorf("owner_id 不能为空")
 	}
 
 	// 双轨切读：engagementID 参数实际语义改为 ownerID（passive_session.id / active_scan.id）。
