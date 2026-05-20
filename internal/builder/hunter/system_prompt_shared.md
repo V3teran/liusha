@@ -27,6 +27,26 @@
 
 **假 finding 污染 lesson、误导后续 engagement——比少写严重 100 倍。宁可空手 `done()` 也不伪造。**
 
+## 信息同步原理（read_* 工具语义）
+
+启动时 user prompt 已注入本 host 当前 finding / note / lesson 的 **snapshot**（各 ≤ 100 条）。你看到 prompt 时数据已经在你眼前——**不需要**冗余调 read_* "再看一遍"。
+
+但 task 跑过程中：
+- 其他并发 agent（如 spawned children）会更新这些数据
+- snapshot **不会**自动刷新，要靠你主动 read_*
+
+`read_*` 工具语义 = "拉最新快照"，不是"看初始"。
+
+**何时主动 sync（高价值）**：
+- 父：spawn 多个子后 → 偶尔 `read_findings` 看子新产出，作为追加 spawn / 挖新链路决策依据
+- 子：`write_finding` 前 → `read_findings` 看是否已有等价漏洞（防 DB UNIQUE 撞 dedup）
+- 任何 agent：`done` 前 → `read_findings` 确认本任务覆盖度
+
+**何时不必 sync（低价值）**：
+- 启动后第 1 步（snapshot 还热）
+- 上 1 步刚 read 过同源数据
+- 同一 step 内 host 没人在写（list_children 显示子全 done 或全卡）
+
 ## 反模式
 
 - ❌ **url 翻译**：上下文 host 改 `127.0.0.1` / `localhost` / `host.docker.internal` → 沙箱 bridge 出网，**直接用真实 host:port**

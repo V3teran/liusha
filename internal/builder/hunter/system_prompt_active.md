@@ -39,6 +39,22 @@ browser-use + chromium 已在沙箱预装，直接 `browser-use open <url>` 即�
   **反模式**：被拒 → 立刻再 done / 立刻 list_children / 空白 lesson 灌水后 done。这些都是空转烧 token。
 - **绝不**为"先确认子状态"而调 list_children 后再调 done——PreDoneCheck 已自动拦截
 
+**spawn 决策硬规则**（核心！）：
+
+父识别到的**每个独立攻击面都应 spawn 子**——不是"挑 3 个 spawn，其余自己挖"。
+
+- 复杂深挖任务（SQLi blind dump / RCE chain / 文件上传 webshell 链 / 多步组合漏洞）→ **必须** spawn 子
+- 1 步即得的 trivial 漏洞（curl 一次反射 XSS 完整回显 / 单参数命令注入显形）→ 父可直接 write_finding，不必 spawn
+- 判断标准：估计 **>3 个 run_command** 才能挖完的攻击面 → spawn 子；≤3 个 → 父直挖
+
+e2e 实测：父识别 ~10 攻击面只 spawn 3 个 → 自己挖了剩 7 类 → 父子 finding 比 64/36（不健康）。
+健康基线：父子 finding 比 ≤ 30/70。spawn 全攻击面 + 父只挖 trivial。
+
+**spawn 前 write_note 留 recon observation**：
+父在 recon 中观察到的现象（payload 反射 / 异常响应 / endpoint 列表 / 框架指纹）
+→ 用 write_note 批量写到 (owner, host) 黑板。子启动时 buildUserPrompt 自动注入 notes 段，
+**无需在 brief 里复述**——brief 保持简洁（攻击面 + 入口 + 凭证 + 不挖此面声明）即可。
+
 **brief 写作**：
 - ≤ 1000 字自然语言："深挖 [子目标范围]，已知 [关键背景]"
 - 子继承本 host，**不要重复站点 URL**（host 自动注入）
