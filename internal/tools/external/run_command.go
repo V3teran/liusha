@@ -103,7 +103,7 @@ func (a *RunCommand) Description() string {
 
 // ParametersJSON：command / timeout_seconds / tag 均必填。
 //
-// timeout_seconds 必传：每个工具的合理超时差异大（curl 15s vs sqlmap 600s），
+// timeout_seconds 必填：每个工具的合理超时差异大（curl 15s vs sqlmap 600s），
 // 没有一个 default 能适配所有场景。LLM 必须根据 command 自决合理值。
 // 上限 = MaxTimeoutSeconds（从 cfg.Toolruntime.StepToolTimeoutSeconds 注入，1800s）。
 // 超上限 → Execute 钳到 MaxTimeoutSeconds；< 1 → Execute 报错。
@@ -185,7 +185,7 @@ func (a *RunCommand) Execute(ctx context.Context, args json.RawMessage) (toolfx.
 		return toolfx.Result{}, fmt.Errorf("run_command: TaskID 未注入（builder 装配缺漏）")
 	}
 	if in.Timeout <= 0 {
-		return toolfx.Result{}, fmt.Errorf("timeout_seconds 必传且 > 0（每个工具合理 timeout 差异大，无统一 default）")
+		return toolfx.Result{}, fmt.Errorf("timeout_seconds 必填且 > 0（每个工具合理 timeout 差异大，无统一 default）")
 	}
 	if a.MaxTimeoutSeconds > 0 && in.Timeout > a.MaxTimeoutSeconds {
 		in.Timeout = a.MaxTimeoutSeconds

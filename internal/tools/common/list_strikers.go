@@ -52,10 +52,10 @@ func (a ListStrikers) Execute(_ context.Context, _ json.RawMessage) (toolfx.Resu
 		"total_count":   len(snaps),
 		"running_count": runningCount,
 		"shown_count":   len(visible),
-		"children":      visible,
+		"strikers":      visible,
 	})
 	if err != nil {
-		return toolfx.Result{}, fmt.Errorf("marshal children: %w", err)
+		return toolfx.Result{}, fmt.Errorf("marshal strikers: %w", err)
 	}
 	summary := fmt.Sprintf("list_strikers total=%d running=%d shown=%d", len(snaps), runningCount, len(visible))
 	return toolfx.Result{Output: out, Summary: summary}, nil

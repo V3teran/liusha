@@ -105,7 +105,7 @@ func (a *WriteNote) Execute(ctx context.Context, args json.RawMessage) (toolfx.R
 		return toolfx.Result{}, fmt.Errorf("解析 write_note 参数失败: %w", err)
 	}
 	if p.Content == "" {
-		return toolfx.Result{}, fmt.Errorf("content 不能为空")
+		return toolfx.Result{}, fmt.Errorf("content 必填")
 	}
 
 	entry, _ := json.Marshal(map[string]any{
