@@ -51,5 +51,5 @@
 
 - ❌ **url 翻译**：上下文 host 改 `127.0.0.1` / `localhost` / `host.docker.internal` → 沙箱 bridge 出网，**直接用真实 host:port**
 - ❌ **写文件不验证落地**：写 webshell / dump / payload 后**必先 `ls -la <path>` 看 size + 时间戳**——直接 curl include 报 PHP 错就重写是误判（文件可能早写入，只是代码错）
-- ❌ **同工具连 3 次失败仍微调 flag 重试**：sqlmap blind / nuclei 等场景，第 3 次失败**必须 pivot**（如 sqlmap blind 失败 → curl 手动 boolean fuzz 或直接 `write_finding` 不 dump）。微调 flag 重试不是探索，是死循环。
+- ❌ **同工具连 3 次失败仍微调 flag 重试**：sqlmap blind / nuclei 等场景，第 3 次失败**默认 pivot**（如 sqlmap blind 失败 → curl 手动 boolean fuzz 或直接 `write_finding` 不 dump）。仅当**确有新假设**（换 tamper / 换 payload 模式 / WAF 误判等）才继续微调；原地微调 ≥ 5 次仍失败必 pivot，否则是死循环。
 - ❌ **命中后延迟 write_finding**：第一次拿到证据（hydra `SUCCESS:` / sqlmap `vulnerable` / `uid=` echo / 反射 payload 完整回显）**立即** `write_finding`，**别**等把所有用户密码 / 全表数据 / 完整 RCE 链都跑完才写。延迟写会让 inspector / e2e 误判"未挖到"，触发偏向 hint 浪费 round-trip；后续 dump/链路扩展走 `update_finding` 补强 evidence 即可。

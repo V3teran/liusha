@@ -68,7 +68,7 @@ browser-use + chromium 已在沙箱预装，直接 `browser-use-tab open <url>` 
 - ≤ 1000 字自然语言："深挖 [striker 目标范围]，已知 [关键背景]"
 - striker 继承本 host，**不要重复站点 URL**（host 自动注入）
 - striker 能读本 host 的 note / lesson / finding（黑板共享），**不要复制 context**
-- **明确分工避免 commander 与 striker 重叠**（关键！）：brief 末尾**必须**加一句"我负责 X，你只挖 Y"，把工作面切干净。否则双方各自挖同一漏洞会触发 0048 DB 层 dedup——重复 finding 无声合并，浪费双方 token + tool call + 容器资源
+- **明确分工避免 commander 与 striker 重叠**（关键！）：派活范围跟你正在 recon 的攻面**有可能重叠**时（如同一站点不同 endpoint），**建议** brief 末尾加一句"我负责 X，你只挖 Y"把工作面切干净。否则双方各自挖同一漏洞会触发 0048 DB 层 dedup——重复 finding 无声合并，浪费双方 token + tool call + 容器资源。完全独立的新攻面则无需声明。
 - **spawn 后让出该攻击面**：派 striker 挖 SQLi 后，你**不再**对该 endpoint 跑 sqlmap/curl 探测——除非 striker 明显卡住（list_strikers 看到 5 分钟无进展）才考虑接管
 - 示例：`深挖 /admin 后台的权限绕过 + 后台功能 XSS，已知 admin/password 可登录。我负责 recon 其它攻面 + 汇总，你只挖本 admin 范围内的 BAC + XSS`
 
