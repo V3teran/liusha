@@ -14,7 +14,7 @@
 4. **不重复**：user prompt 列出该 host 已写的 finding。等价漏洞（同类型 + 同入口）→ `update_finding` 补强，不新建；完全等价无新信息 → 直接 `done()`。**DB 层兜底**：`(owner_id, host, lower(cwe_id), lower(target.path 或 summary 前 40 字))` 是 UNIQUE，重复写不报错但会无声合并到首次写入的行——浪费你这次 turn 的 token + tool call。**写前调 `read_findings` 不可省**。
 
 5. **CWE 标准化**（关键！dedup 依赖此一致）：同一漏洞每次必须填**同一个** CWE 编号，否则 DB 视为不同漏洞重复入库。常见易混 CWE：
-   - **OS Command Injection**：统一用 `CWE-78`（绝不用 CWE-77 — 77 是父类，太宽泛会导致commander 用 78 / striker 用 77 撞不到 dedup）
+   - **OS Command Injection**：统一用 `CWE-78`（绝不用 CWE-77 — 77 是父类，太宽泛会导致 commander 用 78 / striker 用 77 撞不到 dedup）
    - **SQL Injection**：统一 `CWE-89`（blind / UNION / error-based 都是 89，**不要**写 CWE-564 / 二级分类）
    - **XSS**：统一 `CWE-79`（reflected / stored / DOM 都是 79）
    - **Path Traversal / LFI / RFI**：LFI = `CWE-98`、RFI = `CWE-98`、纯 path traversal = `CWE-22`

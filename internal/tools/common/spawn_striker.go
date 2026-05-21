@@ -38,8 +38,8 @@ func (a SpawnStriker) ParametersJSON() json.RawMessage {
 	return json.RawMessage(`{
   "type":"object",
   "properties":{
-    "brief":{"type":"string","minLength":10,"maxLength":1000,"description":"striker自然语言描述，如 '深挖 /admin 后台的权限绕过 + 后台功能 XSS，已知 admin/password 可登录'"},
-    "flow_id":{"type":"integer","description":"可选——tracker传自己的 flow_id，striker 能在 user prompt 看到完整 raw HTTP 请求+响应（最高信息密度）。commander无 flow 留空即可，striker 仅看 brief。"}
+    "brief":{"type":"string","minLength":10,"maxLength":1000,"description":"striker 自然语言描述，如 '深挖 /admin 后台的权限绕过 + 后台功能 XSS，已知 admin/password 可登录'"},
+    "flow_id":{"type":"integer","description":"可选——tracker 传自己的 flow_id，striker 能在 user prompt 看到完整 raw HTTP 请求+响应（最高信息密度）。commander 无 flow 留空即可，striker 仅看 brief。"}
   },
   "required":["brief"]
 }`)
