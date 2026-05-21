@@ -20,6 +20,7 @@ import (
 	"github.com/V3teran/liusha/internal/audit"
 	"github.com/V3teran/liusha/internal/config"
 	"github.com/V3teran/liusha/internal/credential"
+	"github.com/V3teran/liusha/internal/owner"
 	"github.com/V3teran/liusha/internal/db"
 	"github.com/V3teran/liusha/internal/envx"
 	"github.com/V3teran/liusha/internal/finding"
@@ -138,14 +139,14 @@ func (a ownerAPIAdapter) Abort(ctx context.Context, id string) error {
 		if err := a.passive.Abort(ctx, id, ""); err != nil {
 			return err
 		}
-		a.writeAudit(ctx, audit.ActionOwnerAbort, "passive_session", id)
+		a.writeAudit(ctx, audit.ActionOwnerAbort, owner.Passive, id)
 		return nil
 	}
 	if _, err := a.active.GetByID(ctx, id); err == nil {
 		if err := a.active.Abort(ctx, id, ""); err != nil {
 			return err
 		}
-		a.writeAudit(ctx, audit.ActionOwnerAbort, "active_scan", id)
+		a.writeAudit(ctx, audit.ActionOwnerAbort, owner.Active, id)
 		return nil
 	}
 	return fmt.Errorf("session %s not found in passive_session or active_scan", id)
@@ -266,7 +267,7 @@ func (a *activeScanAdapter) CreateActiveScan(ctx context.Context, brief string) 
 	}
 
 	tid, err := a.tasks.Create(ctx, agentrun.NewParams{
-		OwnerType: "active_scan",
+		OwnerType: owner.Active,
 		OwnerID:   sc.ID,
 		Role:      "commander",
 		Input:     payloadInput,
@@ -281,7 +282,7 @@ func (a *activeScanAdapter) CreateActiveScan(ctx context.Context, brief string) 
 	// MaxRetry(0)：commander跑挂就跑挂，让用户手动 abort + 重新触发，不重试。
 	if _, _, err := a.enq.Enqueue(ctx, worker.RoleHunter, worker.Payload{
 		TaskID:    tid,
-		OwnerType: "active_scan",
+		OwnerType: owner.Active,
 		OwnerID:   sc.ID,
 		Input:     payloadInput,
 	}, asynq.MaxRetry(0)); err != nil {
@@ -299,7 +300,7 @@ func (a *activeScanAdapter) CreateActiveScan(ctx context.Context, brief string) 
 		if _, err := a.audit.Append(ctx, audit.Event{
 			Actor:      audit.ActorAPIUser,
 			Action:     audit.ActionOwnerCreate,
-			TargetKind: "active_scan",
+			TargetKind: owner.Active,
 			TargetID:   sc.ID,
 			Metadata:   meta,
 		}); err != nil {

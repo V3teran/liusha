@@ -19,6 +19,7 @@ import (
 	"github.com/V3teran/liusha/internal/activescan"
 	"github.com/V3teran/liusha/internal/passivesession"
 	"github.com/V3teran/liusha/internal/finding"
+	"github.com/V3teran/liusha/internal/owner"
 )
 
 // Node kind 枚举（节点 kind 白名单——避免 LLM 自由起 kind 翻车的历史）。
@@ -115,9 +116,9 @@ func (p *Projector) Project(ctx context.Context, ownerID, host string) (View, er
 	var ownerType, modeStr, statusStr string
 	var createdAt time.Time
 	if sess, err := p.Passive.GetByID(ctx, ownerID); err == nil {
-		ownerType, modeStr, statusStr, createdAt = "passive_session", "passive", string(sess.Status), sess.CreatedAt
+		ownerType, modeStr, statusStr, createdAt = owner.Passive, "passive", string(sess.Status), sess.CreatedAt
 	} else if sc, aerr := p.Active.GetByID(ctx, ownerID); aerr == nil {
-		ownerType, modeStr, statusStr, createdAt = "active_scan", "active", string(sc.Status), sc.CreatedAt
+		ownerType, modeStr, statusStr, createdAt = owner.Active, "active", string(sc.Status), sc.CreatedAt
 	} else {
 		return View{}, fmt.Errorf("owner %s not found in passive_session or active_scan", ownerID)
 	}

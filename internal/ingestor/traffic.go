@@ -26,6 +26,7 @@ import (
 	"github.com/V3teran/liusha/internal/config"
 	"github.com/V3teran/liusha/internal/passivesession"
 	"github.com/V3teran/liusha/internal/flow"
+	"github.com/V3teran/liusha/internal/owner"
 	"github.com/V3teran/liusha/internal/proxy"
 	"github.com/V3teran/liusha/internal/worker"
 )
@@ -218,7 +219,7 @@ func (t *Traffic) enqueueMain(ctx context.Context, passSessID string, flowID int
 	})
 
 	tid, err := t.tasks.Create(ctx, agentrun.NewParams{
-		OwnerType: "passive_session",
+		OwnerType: owner.Passive,
 		OwnerID:   passSessID,
 		Role:      "tracker",
 		Input:     payloadInput,
@@ -229,7 +230,7 @@ func (t *Traffic) enqueueMain(ctx context.Context, passSessID string, flowID int
 
 	if _, _, err := t.enq.Enqueue(ctx, worker.RoleHunter, worker.Payload{
 		TaskID:    tid,
-		OwnerType: "passive_session",
+		OwnerType: owner.Passive,
 		OwnerID:   passSessID,
 		Input:     payloadInput,
 	}); err != nil {
