@@ -1,0 +1,8 @@
+DROP TABLE IF EXISTS llm_call;
+DROP TABLE IF EXISTS http_flow;
+DROP TABLE IF EXISTS finding;
+DROP TABLE IF EXISTS graph_edge;
+DROP TABLE IF EXISTS graph_node;
+DROP TABLE IF EXISTS agent_task;
+DROP TABLE IF EXISTS traffic_window;
+DROP TABLE IF EXISTS engagement;

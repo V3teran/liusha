@@ -17,6 +17,7 @@ import (
 	"github.com/goccy/go-yaml/parser"
 	"github.com/goccy/go-yaml/printer"
 	"github.com/goccy/go-yaml/token"
+	"golang.org/x/xerrors"
 )
 
 const (
@@ -28,29 +29,24 @@ const (
 type Encoder struct {
 	writer                     io.Writer
 	opts                       []EncodeOption
+	indent                     int
+	indentSequence             bool
 	singleQuote                bool
 	isFlowStyle                bool
 	isJSONStyle                bool
 	useJSONMarshaler           bool
-	enableSmartAnchor          bool
-	aliasRefToName             map[uintptr]string
-	anchorRefToName            map[uintptr]string
-	anchorNameMap              map[string]struct{}
 	anchorCallback             func(*ast.AnchorNode, interface{}) error
-	customMarshalerMap         map[reflect.Type]func(context.Context, interface{}) ([]byte, error)
-	omitZero                   bool
-	omitEmpty                  bool
-	autoInt                    bool
+	anchorPtrToNameMap         map[uintptr]string
+	customMarshalerMap         map[reflect.Type]func(interface{}) ([]byte, error)
 	useLiteralStyleIfMultiline bool
 	commentMap                 map[*Path][]*Comment
 	written                    bool
 
-	line           int
-	column         int
-	offset         int
-	indentNum      int
-	indentLevel    int
-	indentSequence bool
+	line        int
+	column      int
+	offset      int
+	indentNum   int
+	indentLevel int
 }
 
 // NewEncoder returns a new encoder that writes to w.
@@ -59,14 +55,12 @@ func NewEncoder(w io.Writer, opts ...EncodeOption) *Encoder {
 	return &Encoder{
 		writer:             w,
 		opts:               opts,
-		customMarshalerMap: map[reflect.Type]func(context.Context, interface{}) ([]byte, error){},
+		indent:             DefaultIndentSpaces,
+		anchorPtrToNameMap: map[uintptr]string{},
+		customMarshalerMap: map[reflect.Type]func(interface{}) ([]byte, error){},
 		line:               1,
 		column:             1,
 		offset:             0,
-		indentNum:          DefaultIndentSpaces,
-		anchorRefToName:    make(map[uintptr]string),
-		anchorNameMap:      make(map[string]struct{}),
-		aliasRefToName:     make(map[uintptr]string),
 	}
 }
 
@@ -90,19 +84,19 @@ func (e *Encoder) Encode(v interface{}) error {
 func (e *Encoder) EncodeContext(ctx context.Context, v interface{}) error {
 	node, err := e.EncodeToNodeContext(ctx, v)
 	if err != nil {
-		return err
+		return errors.Wrapf(err, "failed to encode to node")
 	}
 	if err := e.setCommentByCommentMap(node); err != nil {
-		return err
+		return errors.Wrapf(err, "failed to set comment by comment map")
 	}
 	if !e.written {
 		e.written = true
 	} else {
 		// write document separator
-		_, _ = e.writer.Write([]byte("---\n"))
+		e.writer.Write([]byte("---\n"))
 	}
 	var p printer.Printer
-	_, _ = e.writer.Write(p.PrintNode(node))
+	e.writer.Write(p.PrintNode(node))
 	return nil
 }
 
@@ -115,19 +109,12 @@ func (e *Encoder) EncodeToNode(v interface{}) (ast.Node, error) {
 func (e *Encoder) EncodeToNodeContext(ctx context.Context, v interface{}) (ast.Node, error) {
 	for _, opt := range e.opts {
 		if err := opt(e); err != nil {
-			return nil, err
+			return nil, errors.Wrapf(err, "failed to run option for encoder")
 		}
-	}
-	if e.enableSmartAnchor {
-		// during the first encoding, store all mappings between alias addresses and their names.
-		if _, err := e.encodeValue(ctx, reflect.ValueOf(v), 1); err != nil {
-			return nil, err
-		}
-		e.clearSmartAnchorRef()
 	}
 	node, err := e.encodeValue(ctx, reflect.ValueOf(v), 1)
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrapf(err, "failed to encode value")
 	}
 	return node, nil
 }
@@ -139,7 +126,7 @@ func (e *Encoder) setCommentByCommentMap(node ast.Node) error {
 	for path, comments := range e.commentMap {
 		n, err := path.FilterNode(node)
 		if err != nil {
-			return err
+			return errors.Wrapf(err, "failed to filter node")
 		}
 		if n == nil {
 			continue
@@ -153,15 +140,15 @@ func (e *Encoder) setCommentByCommentMap(node ast.Node) error {
 			switch comment.Position {
 			case CommentHeadPosition:
 				if err := e.setHeadComment(node, n, commentGroup); err != nil {
-					return err
+					return errors.Wrapf(err, "failed to set head comment")
 				}
 			case CommentLinePosition:
 				if err := e.setLineComment(node, n, commentGroup); err != nil {
-					return err
+					return errors.Wrapf(err, "failed to set line comment")
 				}
 			case CommentFootPosition:
 				if err := e.setFootComment(node, n, commentGroup); err != nil {
-					return err
+					return errors.Wrapf(err, "failed to set foot comment")
 				}
 			default:
 				return ErrUnknownCommentPositionType
@@ -179,11 +166,11 @@ func (e *Encoder) setHeadComment(node ast.Node, filtered ast.Node, comment *ast.
 	switch p := parent.(type) {
 	case *ast.MappingValueNode:
 		if err := p.SetComment(comment); err != nil {
-			return err
+			return errors.Wrapf(err, "failed to set comment")
 		}
 	case *ast.MappingNode:
 		if err := p.SetComment(comment); err != nil {
-			return err
+			return errors.Wrapf(err, "failed to set comment")
 		}
 	case *ast.SequenceNode:
 		if len(p.ValueHeadComments) == 0 {
@@ -209,11 +196,11 @@ func (e *Encoder) setLineComment(node ast.Node, filtered ast.Node, comment *ast.
 		// Line comment cannot be set for mapping value node.
 		// It should probably be set for the parent map node
 		if err := e.setLineCommentToParentMapNode(node, filtered, comment); err != nil {
-			return err
+			return errors.Wrapf(err, "failed to set line comment to parent node")
 		}
 	default:
 		if err := filtered.SetComment(comment); err != nil {
-			return err
+			return errors.Wrapf(err, "failed to set comment")
 		}
 	}
 	return nil
@@ -227,11 +214,11 @@ func (e *Encoder) setLineCommentToParentMapNode(node ast.Node, filtered ast.Node
 	switch p := parent.(type) {
 	case *ast.MappingValueNode:
 		if err := p.Key.SetComment(comment); err != nil {
-			return err
+			return errors.Wrapf(err, "failed to set comment")
 		}
 	case *ast.MappingNode:
 		if err := p.SetComment(comment); err != nil {
-			return err
+			return errors.Wrapf(err, "failed to set comment")
 		}
 	default:
 		return ErrUnsupportedLinePositionType(parent)
@@ -260,7 +247,7 @@ func (e *Encoder) setFootComment(node ast.Node, filtered ast.Node, comment *ast.
 func (e *Encoder) encodeDocument(doc []byte) (ast.Node, error) {
 	f, err := parser.ParseBytes(doc, 0)
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrapf(err, "failed to parse yaml")
 	}
 	for _, docNode := range f.Docs {
 		if docNode.Body != nil {
@@ -301,7 +288,7 @@ func (e *Encoder) existsTypeInCustomMarshalerMap(t reflect.Type) bool {
 	return false
 }
 
-func (e *Encoder) marshalerFromCustomMarshalerMap(t reflect.Type) (func(context.Context, interface{}) ([]byte, error), bool) {
+func (e *Encoder) marshalerFromCustomMarshalerMap(t reflect.Type) (func(interface{}) ([]byte, error), bool) {
 	if marshaler, exists := e.customMarshalerMap[t]; exists {
 		return marshaler, exists
 	}
@@ -331,7 +318,7 @@ func (e *Encoder) canEncodeByMarshaler(v reflect.Value) bool {
 		return true
 	case InterfaceMarshaler:
 		return true
-	case time.Time, *time.Time:
+	case time.Time:
 		return true
 	case time.Duration:
 		return true
@@ -347,13 +334,13 @@ func (e *Encoder) encodeByMarshaler(ctx context.Context, v reflect.Value, column
 	iface := v.Interface()
 
 	if marshaler, exists := e.marshalerFromCustomMarshalerMap(v.Type()); exists {
-		doc, err := marshaler(ctx, iface)
+		doc, err := marshaler(iface)
 		if err != nil {
-			return nil, err
+			return nil, errors.Wrapf(err, "failed to MarshalYAML")
 		}
 		node, err := e.encodeDocument(doc)
 		if err != nil {
-			return nil, err
+			return nil, errors.Wrapf(err, "failed to encode document")
 		}
 		return node, nil
 	}
@@ -361,11 +348,11 @@ func (e *Encoder) encodeByMarshaler(ctx context.Context, v reflect.Value, column
 	if marshaler, ok := iface.(BytesMarshalerContext); ok {
 		doc, err := marshaler.MarshalYAML(ctx)
 		if err != nil {
-			return nil, err
+			return nil, errors.Wrapf(err, "failed to MarshalYAML")
 		}
 		node, err := e.encodeDocument(doc)
 		if err != nil {
-			return nil, err
+			return nil, errors.Wrapf(err, "failed to encode document")
 		}
 		return node, nil
 	}
@@ -373,11 +360,11 @@ func (e *Encoder) encodeByMarshaler(ctx context.Context, v reflect.Value, column
 	if marshaler, ok := iface.(BytesMarshaler); ok {
 		doc, err := marshaler.MarshalYAML()
 		if err != nil {
-			return nil, err
+			return nil, errors.Wrapf(err, "failed to MarshalYAML")
 		}
 		node, err := e.encodeDocument(doc)
 		if err != nil {
-			return nil, err
+			return nil, errors.Wrapf(err, "failed to encode document")
 		}
 		return node, nil
 	}
@@ -385,7 +372,7 @@ func (e *Encoder) encodeByMarshaler(ctx context.Context, v reflect.Value, column
 	if marshaler, ok := iface.(InterfaceMarshalerContext); ok {
 		marshalV, err := marshaler.MarshalYAML(ctx)
 		if err != nil {
-			return nil, err
+			return nil, errors.Wrapf(err, "failed to MarshalYAML")
 		}
 		return e.encodeValue(ctx, reflect.ValueOf(marshalV), column)
 	}
@@ -393,7 +380,7 @@ func (e *Encoder) encodeByMarshaler(ctx context.Context, v reflect.Value, column
 	if marshaler, ok := iface.(InterfaceMarshaler); ok {
 		marshalV, err := marshaler.MarshalYAML()
 		if err != nil {
-			return nil, err
+			return nil, errors.Wrapf(err, "failed to MarshalYAML")
 		}
 		return e.encodeValue(ctx, reflect.ValueOf(marshalV), column)
 	}
@@ -401,21 +388,20 @@ func (e *Encoder) encodeByMarshaler(ctx context.Context, v reflect.Value, column
 	if t, ok := iface.(time.Time); ok {
 		return e.encodeTime(t, column), nil
 	}
-	// Handle *time.Time explicitly since it implements TextMarshaler and shouldn't be treated as plain text
-	if t, ok := iface.(*time.Time); ok && t != nil {
-		return e.encodeTime(*t, column), nil
-	}
 
 	if t, ok := iface.(time.Duration); ok {
 		return e.encodeDuration(t, column), nil
 	}
 
 	if marshaler, ok := iface.(encoding.TextMarshaler); ok {
-		text, err := marshaler.MarshalText()
+		doc, err := marshaler.MarshalText()
 		if err != nil {
-			return nil, err
+			return nil, errors.Wrapf(err, "failed to MarshalText")
 		}
-		node := e.encodeString(string(text), column)
+		node, err := e.encodeDocument(doc)
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to encode document")
+		}
 		return node, nil
 	}
 
@@ -423,21 +409,21 @@ func (e *Encoder) encodeByMarshaler(ctx context.Context, v reflect.Value, column
 		if marshaler, ok := iface.(jsonMarshaler); ok {
 			jsonBytes, err := marshaler.MarshalJSON()
 			if err != nil {
-				return nil, err
+				return nil, errors.Wrapf(err, "failed to MarshalJSON")
 			}
 			doc, err := JSONToYAML(jsonBytes)
 			if err != nil {
-				return nil, err
+				return nil, errors.Wrapf(err, "failed to convert json to yaml")
 			}
 			node, err := e.encodeDocument(doc)
 			if err != nil {
-				return nil, err
+				return nil, errors.Wrapf(err, "failed to encode document")
 			}
 			return node, nil
 		}
 	}
 
-	return nil, errors.New("does not implemented Marshaler")
+	return nil, xerrors.Errorf("does not implemented Marshaler")
 }
 
 func (e *Encoder) encodeValue(ctx context.Context, v reflect.Value, column int) (ast.Node, error) {
@@ -447,7 +433,7 @@ func (e *Encoder) encodeValue(ctx context.Context, v reflect.Value, column int) 
 	if e.canEncodeByMarshaler(v) {
 		node, err := e.encodeByMarshaler(ctx, v, column)
 		if err != nil {
-			return nil, err
+			return nil, errors.Wrapf(err, "failed to encode by marshaler")
 		}
 		return node, nil
 	}
@@ -461,8 +447,12 @@ func (e *Encoder) encodeValue(ctx context.Context, v reflect.Value, column int) 
 	case reflect.Float64:
 		return e.encodeFloat(v.Float(), 64), nil
 	case reflect.Ptr:
-		if value := e.encodePtrAnchor(v, column); value != nil {
-			return value, nil
+		anchorName := e.anchorPtrToNameMap[v.Pointer()]
+		if anchorName != "" {
+			aliasName := anchorName
+			alias := ast.Alias(token.New("*", "*", e.pos(column)))
+			alias.Value = ast.String(token.New(aliasName, aliasName, e.pos(column)))
+			return alias, nil
 		}
 		return e.encodeValue(ctx, v.Elem(), column)
 	case reflect.Interface:
@@ -474,9 +464,6 @@ func (e *Encoder) encodeValue(ctx context.Context, v reflect.Value, column int) 
 	case reflect.Slice:
 		if mapSlice, ok := v.Interface().(MapSlice); ok {
 			return e.encodeMapSlice(ctx, mapSlice, column)
-		}
-		if value := e.encodePtrAnchor(v, column); value != nil {
-			return value, nil
 		}
 		return e.encodeSlice(ctx, v)
 	case reflect.Array:
@@ -492,25 +479,10 @@ func (e *Encoder) encodeValue(ctx context.Context, v reflect.Value, column int) 
 		}
 		return e.encodeStruct(ctx, v, column)
 	case reflect.Map:
-		if value := e.encodePtrAnchor(v, column); value != nil {
-			return value, nil
-		}
-		return e.encodeMap(ctx, v, column)
+		return e.encodeMap(ctx, v, column), nil
 	default:
-		return nil, fmt.Errorf("unknown value type %s", v.Type().String())
+		return nil, xerrors.Errorf("unknown value type %s", v.Type().String())
 	}
-}
-
-func (e *Encoder) encodePtrAnchor(v reflect.Value, column int) ast.Node {
-	anchorName, exists := e.getAnchor(v.Pointer())
-	if !exists {
-		return nil
-	}
-	aliasName := anchorName
-	alias := ast.Alias(token.New("*", "*", e.pos(column)))
-	alias.Value = ast.String(token.New(aliasName, aliasName, e.pos(column)))
-	e.setSmartAlias(aliasName, v.Pointer())
-	return alias
 }
 
 func (e *Encoder) pos(column int) *token.Position {
@@ -529,12 +501,12 @@ func (e *Encoder) encodeNil() *ast.NullNode {
 }
 
 func (e *Encoder) encodeInt(v int64) *ast.IntegerNode {
-	value := strconv.FormatInt(v, 10)
+	value := fmt.Sprint(v)
 	return ast.Integer(token.New(value, value, e.pos(e.column)))
 }
 
 func (e *Encoder) encodeUint(v uint64) *ast.IntegerNode {
-	value := strconv.FormatUint(v, 10)
+	value := fmt.Sprint(v)
 	return ast.Integer(token.New(value, value, e.pos(e.column)))
 }
 
@@ -551,9 +523,6 @@ func (e *Encoder) encodeFloat(v float64, bitSize int) ast.Node {
 	}
 	value := strconv.FormatFloat(v, 'g', -1, bitSize)
 	if !strings.Contains(value, ".") && !strings.Contains(value, "e") {
-		if e.autoInt {
-			return ast.Integer(token.New(value, value, e.pos(e.column)))
-		}
 		// append x.0 suffix to keep float value context
 		value = fmt.Sprintf("%s.0", value)
 	}
@@ -569,17 +538,6 @@ func (e *Encoder) isNeedQuoted(v string) bool {
 	}
 	if e.isFlowStyle && strings.ContainsAny(v, `]},'"`) {
 		return true
-	}
-	if e.isFlowStyle {
-		for i := 0; i < len(v); i++ {
-			if v[i] != ':' {
-				continue
-			}
-			if i+1 < len(v) && v[i+1] == '/' {
-				continue
-			}
-			return true
-		}
 	}
 	if token.IsNeedQuoted(v) {
 		return true
@@ -599,40 +557,44 @@ func (e *Encoder) encodeString(v string, column int) *ast.StringNode {
 }
 
 func (e *Encoder) encodeBool(v bool) *ast.BoolNode {
-	value := strconv.FormatBool(v)
+	value := fmt.Sprint(v)
 	return ast.Bool(token.New(value, value, e.pos(e.column)))
 }
 
 func (e *Encoder) encodeSlice(ctx context.Context, value reflect.Value) (*ast.SequenceNode, error) {
 	if e.indentSequence {
-		e.column += e.indentNum
-		defer func() { e.column -= e.indentNum }()
+		e.column += e.indent
 	}
 	column := e.column
 	sequence := ast.Sequence(token.New("-", "-", e.pos(column)), e.isFlowStyle)
 	for i := 0; i < value.Len(); i++ {
 		node, err := e.encodeValue(ctx, value.Index(i), column)
 		if err != nil {
-			return nil, err
+			return nil, errors.Wrapf(err, "failed to encode value for slice")
 		}
 		sequence.Values = append(sequence.Values, node)
+	}
+	if e.indentSequence {
+		e.column -= e.indent
 	}
 	return sequence, nil
 }
 
 func (e *Encoder) encodeArray(ctx context.Context, value reflect.Value) (*ast.SequenceNode, error) {
 	if e.indentSequence {
-		e.column += e.indentNum
-		defer func() { e.column -= e.indentNum }()
+		e.column += e.indent
 	}
 	column := e.column
 	sequence := ast.Sequence(token.New("-", "-", e.pos(column)), e.isFlowStyle)
 	for i := 0; i < value.Len(); i++ {
 		node, err := e.encodeValue(ctx, value.Index(i), column)
 		if err != nil {
-			return nil, err
+			return nil, errors.Wrapf(err, "failed to encode value for array")
 		}
 		sequence.Values = append(sequence.Values, node)
+	}
+	if e.indentSequence {
+		e.column -= e.indent
 	}
 	return sequence, nil
 }
@@ -642,13 +604,10 @@ func (e *Encoder) encodeMapItem(ctx context.Context, item MapItem, column int) (
 	v := reflect.ValueOf(item.Value)
 	value, err := e.encodeValue(ctx, v, column)
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrapf(err, "failed to encode MapItem")
 	}
 	if e.isMapNode(value) {
-		value.AddColumn(e.indentNum)
-	}
-	if e.isTagAndMapNode(value) {
-		value.AddColumn(e.indentNum)
+		value.AddColumn(e.indent)
 	}
 	return ast.MappingValue(
 		token.New("", "", e.pos(column)),
@@ -660,11 +619,11 @@ func (e *Encoder) encodeMapItem(ctx context.Context, item MapItem, column int) (
 func (e *Encoder) encodeMapSlice(ctx context.Context, value MapSlice, column int) (*ast.MappingNode, error) {
 	node := ast.Mapping(token.New("", "", e.pos(column)), e.isFlowStyle)
 	for _, item := range value {
-		encoded, err := e.encodeMapItem(ctx, item, column)
+		value, err := e.encodeMapItem(ctx, item, column)
 		if err != nil {
-			return nil, err
+			return nil, errors.Wrapf(err, "failed to encode MapItem for MapSlice")
 		}
-		node.Values = append(node.Values, encoded)
+		node.Values = append(node.Values, value)
 	}
 	return node, nil
 }
@@ -674,12 +633,7 @@ func (e *Encoder) isMapNode(node ast.Node) bool {
 	return ok
 }
 
-func (e *Encoder) isTagAndMapNode(node ast.Node) bool {
-	tn, ok := node.(*ast.TagNode)
-	return ok && e.isMapNode(tn.Value)
-}
-
-func (e *Encoder) encodeMap(ctx context.Context, value reflect.Value, column int) (ast.Node, error) {
+func (e *Encoder) encodeMap(ctx context.Context, value reflect.Value, column int) ast.Node {
 	node := ast.Mapping(token.New("", "", e.pos(column)), e.isFlowStyle)
 	keys := make([]interface{}, len(value.MapKeys()))
 	for i, k := range value.MapKeys() {
@@ -691,41 +645,20 @@ func (e *Encoder) encodeMap(ctx context.Context, value reflect.Value, column int
 	for _, key := range keys {
 		k := reflect.ValueOf(key)
 		v := value.MapIndex(k)
-		encoded, err := e.encodeValue(ctx, v, column)
+		value, err := e.encodeValue(ctx, v, column)
 		if err != nil {
-			return nil, err
+			return nil
 		}
-		if e.isMapNode(encoded) {
-			encoded.AddColumn(e.indentNum)
-		}
-		if e.isTagAndMapNode(encoded) {
-			encoded.AddColumn(e.indentNum)
-		}
-		keyText := fmt.Sprint(key)
-		vRef := e.toPointer(v)
-
-		// during the second encoding, an anchor is assigned if it is found to be used by an alias.
-		if aliasName, exists := e.getSmartAlias(vRef); exists {
-			anchorName := aliasName
-			anchorNode := ast.Anchor(token.New("&", "&", e.pos(column)))
-			anchorNode.Name = ast.String(token.New(anchorName, anchorName, e.pos(column)))
-			anchorNode.Value = encoded
-			encoded = anchorNode
-		}
-
-		kn, err := e.encodeValue(ctx, reflect.ValueOf(key), column)
-		keyNode, ok := kn.(ast.MapKeyNode)
-		if !ok || err != nil {
-			keyNode = e.encodeString(fmt.Sprint(key), column)
+		if e.isMapNode(value) {
+			value.AddColumn(e.indent)
 		}
 		node.Values = append(node.Values, ast.MappingValue(
 			nil,
-			keyNode,
-			encoded,
+			e.encodeString(fmt.Sprint(key), column),
+			value,
 		))
-		e.setSmartAnchor(vRef, keyText)
 	}
-	return node, nil
+	return node
 }
 
 // IsZeroer is used to check whether an object is zero to determine
@@ -735,7 +668,7 @@ type IsZeroer interface {
 	IsZero() bool
 }
 
-func (e *Encoder) isOmittedByOmitZero(v reflect.Value) bool {
+func (e *Encoder) isZeroValue(v reflect.Value) bool {
 	kind := v.Kind()
 	if z, ok := v.Interface().(IsZeroer); ok {
 		if (kind == reflect.Ptr || kind == reflect.Interface) && v.IsNil() {
@@ -746,72 +679,11 @@ func (e *Encoder) isOmittedByOmitZero(v reflect.Value) bool {
 	switch kind {
 	case reflect.String:
 		return len(v.String()) == 0
-	case reflect.Interface, reflect.Ptr, reflect.Slice, reflect.Map:
-		return v.IsNil()
-	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-		return v.Int() == 0
-	case reflect.Float32, reflect.Float64:
-		return v.Float() == 0
-	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
-		return v.Uint() == 0
-	case reflect.Bool:
-		return !v.Bool()
-	case reflect.Struct:
-		vt := v.Type()
-		for i := v.NumField() - 1; i >= 0; i-- {
-			if vt.Field(i).PkgPath != "" {
-				continue // private field
-			}
-			if !e.isOmittedByOmitZero(v.Field(i)) {
-				return false
-			}
-		}
-		return true
-	}
-	return false
-}
-
-func (e *Encoder) isOmittedByOmitEmptyOption(v reflect.Value) bool {
-	switch v.Kind() {
-	case reflect.String:
-		return len(v.String()) == 0
 	case reflect.Interface, reflect.Ptr:
 		return v.IsNil()
-	case reflect.Slice, reflect.Map:
+	case reflect.Slice:
 		return v.Len() == 0
-	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-		return v.Int() == 0
-	case reflect.Float32, reflect.Float64:
-		return v.Float() == 0
-	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
-		return v.Uint() == 0
-	case reflect.Bool:
-		return !v.Bool()
-	}
-	return false
-}
-
-// The current implementation of the omitempty tag combines the functionality of encoding/json's omitempty and omitzero tags.
-// This stems from a historical decision to respect the implementation of gopkg.in/yaml.v2, but it has caused confusion,
-// so we are working to integrate it into the functionality of encoding/json. (However, this will take some time.)
-// In the current implementation, in addition to the exclusion conditions of omitempty,
-// if a type implements IsZero, that implementation will be used.
-// Furthermore, for non-pointer structs, if all fields are eligible for exclusion,
-// the struct itself will also be excluded. These behaviors are originally the functionality of omitzero.
-func (e *Encoder) isOmittedByOmitEmptyTag(v reflect.Value) bool {
-	kind := v.Kind()
-	if z, ok := v.Interface().(IsZeroer); ok {
-		if (kind == reflect.Ptr || kind == reflect.Interface) && v.IsNil() {
-			return true
-		}
-		return z.IsZero()
-	}
-	switch kind {
-	case reflect.String:
-		return len(v.String()) == 0
-	case reflect.Interface, reflect.Ptr:
-		return v.IsNil()
-	case reflect.Slice, reflect.Map:
+	case reflect.Map:
 		return v.Len() == 0
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
 		return v.Int() == 0
@@ -827,7 +699,7 @@ func (e *Encoder) isOmittedByOmitEmptyTag(v reflect.Value) bool {
 			if vt.Field(i).PkgPath != "" {
 				continue // private field
 			}
-			if !e.isOmittedByOmitEmptyTag(v.Field(i)) {
+			if !e.isZeroValue(v.Field(i)) {
 				return false
 			}
 		}
@@ -858,14 +730,14 @@ func (e *Encoder) encodeAnchor(anchorName string, value ast.Node, fieldValue ref
 	anchorNode.Value = value
 	if e.anchorCallback != nil {
 		if err := e.anchorCallback(anchorNode, fieldValue.Interface()); err != nil {
-			return nil, err
+			return nil, errors.Wrapf(err, "failed to marshal anchor")
 		}
 		if snode, ok := anchorNode.Name.(*ast.StringNode); ok {
 			anchorName = snode.Value
 		}
 	}
 	if fieldValue.Kind() == reflect.Ptr {
-		e.setAnchor(fieldValue.Pointer(), anchorName)
+		e.anchorPtrToNameMap[fieldValue.Pointer()] = anchorName
 	}
 	return anchorNode, nil
 }
@@ -873,9 +745,9 @@ func (e *Encoder) encodeAnchor(anchorName string, value ast.Node, fieldValue ref
 func (e *Encoder) encodeStruct(ctx context.Context, value reflect.Value, column int) (ast.Node, error) {
 	node := ast.Mapping(token.New("", "", e.pos(column)), e.isFlowStyle)
 	structType := value.Type()
-	fieldMap, err := structFieldMap(structType)
+	structFieldMap, err := structFieldMap(structType)
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrapf(err, "failed to get struct field map")
 	}
 	hasInlineAnchorField := false
 	var inlineAnchorValue reflect.Value
@@ -885,190 +757,119 @@ func (e *Encoder) encodeStruct(ctx context.Context, value reflect.Value, column 
 			continue
 		}
 		fieldValue := value.FieldByName(field.Name)
-		sf := fieldMap[field.Name]
-		if (e.omitZero || sf.IsOmitZero) && e.isOmittedByOmitZero(fieldValue) {
-			// omit encoding by omitzero tag or OmitZero option.
-			continue
-		}
-		if e.omitEmpty && e.isOmittedByOmitEmptyOption(fieldValue) {
-			// omit encoding by OmitEmpty option.
-			continue
-		}
-		if sf.IsOmitEmpty && e.isOmittedByOmitEmptyTag(fieldValue) {
-			// omit encoding by omitempty tag.
+		structField := structFieldMap[field.Name]
+		if structField.IsOmitEmpty && e.isZeroValue(fieldValue) {
+			// omit encoding
 			continue
 		}
 		ve := e
-		if !e.isFlowStyle && sf.IsFlow {
+		if !e.isFlowStyle && structField.IsFlow {
 			ve = &Encoder{}
 			*ve = *e
 			ve.isFlowStyle = true
 		}
-		encoded, err := ve.encodeValue(ctx, fieldValue, column)
+		value, err := ve.encodeValue(ctx, fieldValue, column)
 		if err != nil {
-			return nil, err
+			return nil, errors.Wrapf(err, "failed to encode value")
 		}
-		if e.isMapNode(encoded) {
-			encoded.AddColumn(e.indentNum)
+		if e.isMapNode(value) {
+			value.AddColumn(e.indent)
 		}
-		var key ast.MapKeyNode = e.encodeString(sf.RenderName, column)
+		var key ast.MapKeyNode = e.encodeString(structField.RenderName, column)
 		switch {
-		case encoded.Type() == ast.AliasType:
-			if aliasName := sf.AliasName; aliasName != "" {
-				alias, ok := encoded.(*ast.AliasNode)
-				if !ok {
-					return nil, errors.ErrUnexpectedNodeType(encoded.Type(), ast.AliasType, encoded.GetToken())
-				}
-				got := alias.Value.String()
-				if aliasName != got {
-					return nil, fmt.Errorf("expected alias name is %q but got %q", aliasName, got)
-				}
+		case structField.AnchorName != "":
+			anchorNode, err := e.encodeAnchor(structField.AnchorName, value, fieldValue, column)
+			if err != nil {
+				return nil, errors.Wrapf(err, "failed to encode anchor")
 			}
-			if sf.IsInline {
+			value = anchorNode
+		case structField.IsAutoAlias:
+			if fieldValue.Kind() != reflect.Ptr {
+				return nil, xerrors.Errorf(
+					"%s in struct is not pointer type. but required automatically alias detection",
+					structField.FieldName,
+				)
+			}
+			anchorName := e.anchorPtrToNameMap[fieldValue.Pointer()]
+			if anchorName == "" {
+				return nil, xerrors.Errorf(
+					"cannot find anchor name from pointer address for automatically alias detection",
+				)
+			}
+			aliasName := anchorName
+			alias := ast.Alias(token.New("*", "*", e.pos(column)))
+			alias.Value = ast.String(token.New(aliasName, aliasName, e.pos(column)))
+			value = alias
+			if structField.IsInline {
 				// if both used alias and inline, output `<<: *alias`
 				key = ast.MergeKey(token.New("<<", "<<", e.pos(column)))
 			}
-		case sf.AnchorName != "":
-			anchorNode, err := e.encodeAnchor(sf.AnchorName, encoded, fieldValue, column)
-			if err != nil {
-				return nil, err
+		case structField.AliasName != "":
+			aliasName := structField.AliasName
+			alias := ast.Alias(token.New("*", "*", e.pos(column)))
+			alias.Value = ast.String(token.New(aliasName, aliasName, e.pos(column)))
+			value = alias
+			if structField.IsInline {
+				// if both used alias and inline, output `<<: *alias`
+				key = ast.MergeKey(token.New("<<", "<<", e.pos(column)))
 			}
-			encoded = anchorNode
-		case sf.IsInline:
-			isAutoAnchor := sf.IsAutoAnchor
+		case structField.IsInline:
+			isAutoAnchor := structField.IsAutoAnchor
 			if !hasInlineAnchorField {
 				hasInlineAnchorField = isAutoAnchor
 			}
 			if isAutoAnchor {
 				inlineAnchorValue = fieldValue
 			}
-			mapNode, ok := encoded.(ast.MapNode)
+			mapNode, ok := value.(ast.MapNode)
 			if !ok {
 				// if an inline field is null, skip encoding it
-				if _, ok := encoded.(*ast.NullNode); ok {
+				if _, ok := value.(*ast.NullNode); ok {
 					continue
 				}
-				return nil, errors.New("inline value is must be map or struct type")
+				return nil, xerrors.Errorf("inline value is must be map or struct type")
 			}
 			mapIter := mapNode.MapRange()
 			for mapIter.Next() {
-				mapKey := mapIter.Key()
-				mapValue := mapIter.Value()
-				keyName := mapKey.GetToken().Value
-				if fieldMap.isIncludedRenderName(keyName) {
-					// if declared the same key name, skip encoding this field
+				key := mapIter.Key()
+				value := mapIter.Value()
+				keyName := key.GetToken().Value
+				if structFieldMap.isIncludedRenderName(keyName) {
+					// if declared same key name, skip encoding this field
 					continue
 				}
-				mapKey.AddColumn(-e.indentNum)
-				mapValue.AddColumn(-e.indentNum)
-				node.Values = append(node.Values, ast.MappingValue(nil, mapKey, mapValue))
+				key.AddColumn(-e.indent)
+				value.AddColumn(-e.indent)
+				node.Values = append(node.Values, ast.MappingValue(nil, key, value))
 			}
 			continue
-		case sf.IsAutoAnchor:
-			anchorNode, err := e.encodeAnchor(sf.RenderName, encoded, fieldValue, column)
+		case structField.IsAutoAnchor:
+			anchorNode, err := e.encodeAnchor(structField.RenderName, value, fieldValue, column)
 			if err != nil {
-				return nil, err
+				return nil, errors.Wrapf(err, "failed to encode anchor")
 			}
-			encoded = anchorNode
+			value = anchorNode
 		}
-		node.Values = append(node.Values, ast.MappingValue(nil, key, encoded))
+		node.Values = append(node.Values, ast.MappingValue(nil, key, value))
 	}
 	if hasInlineAnchorField {
-		node.AddColumn(e.indentNum)
+		node.AddColumn(e.indent)
 		anchorName := "anchor"
 		anchorNode := ast.Anchor(token.New("&", "&", e.pos(column)))
 		anchorNode.Name = ast.String(token.New(anchorName, anchorName, e.pos(column)))
 		anchorNode.Value = node
 		if e.anchorCallback != nil {
 			if err := e.anchorCallback(anchorNode, value.Addr().Interface()); err != nil {
-				return nil, err
+				return nil, errors.Wrapf(err, "failed to marshal anchor")
 			}
 			if snode, ok := anchorNode.Name.(*ast.StringNode); ok {
 				anchorName = snode.Value
 			}
 		}
 		if inlineAnchorValue.Kind() == reflect.Ptr {
-			e.setAnchor(inlineAnchorValue.Pointer(), anchorName)
+			e.anchorPtrToNameMap[inlineAnchorValue.Pointer()] = anchorName
 		}
 		return anchorNode, nil
 	}
 	return node, nil
-}
-
-func (e *Encoder) toPointer(v reflect.Value) uintptr {
-	if e.isInvalidValue(v) {
-		return 0
-	}
-
-	switch v.Type().Kind() {
-	case reflect.Ptr:
-		return v.Pointer()
-	case reflect.Interface:
-		return e.toPointer(v.Elem())
-	case reflect.Slice:
-		return v.Pointer()
-	case reflect.Map:
-		return v.Pointer()
-	}
-	return 0
-}
-
-func (e *Encoder) clearSmartAnchorRef() {
-	if !e.enableSmartAnchor {
-		return
-	}
-	e.anchorRefToName = make(map[uintptr]string)
-	e.anchorNameMap = make(map[string]struct{})
-}
-
-func (e *Encoder) setSmartAnchor(ptr uintptr, name string) {
-	if !e.enableSmartAnchor {
-		return
-	}
-	e.setAnchor(ptr, e.generateAnchorName(name))
-}
-
-func (e *Encoder) setAnchor(ptr uintptr, name string) {
-	if ptr == 0 {
-		return
-	}
-	if name == "" {
-		return
-	}
-	e.anchorRefToName[ptr] = name
-	e.anchorNameMap[name] = struct{}{}
-}
-
-func (e *Encoder) generateAnchorName(base string) string {
-	if _, exists := e.anchorNameMap[base]; !exists {
-		return base
-	}
-	for i := 1; i < 100; i++ {
-		name := base + strconv.Itoa(i)
-		if _, exists := e.anchorNameMap[name]; exists {
-			continue
-		}
-		return name
-	}
-	return ""
-}
-
-func (e *Encoder) getAnchor(ref uintptr) (string, bool) {
-	anchorName, exists := e.anchorRefToName[ref]
-	return anchorName, exists
-}
-
-func (e *Encoder) setSmartAlias(name string, ref uintptr) {
-	if !e.enableSmartAnchor {
-		return
-	}
-	e.aliasRefToName[ref] = name
-}
-
-func (e *Encoder) getSmartAlias(ref uintptr) (string, bool) {
-	if !e.enableSmartAnchor {
-		return "", false
-	}
-	aliasName, exists := e.aliasRefToName[ref]
-	return aliasName, exists
 }

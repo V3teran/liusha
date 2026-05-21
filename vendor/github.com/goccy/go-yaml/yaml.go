@@ -9,6 +9,7 @@ import (
 
 	"github.com/goccy/go-yaml/ast"
 	"github.com/goccy/go-yaml/internal/errors"
+	"golang.org/x/xerrors"
 )
 
 // BytesMarshaler interface may be implemented by types to customize their
@@ -57,16 +58,6 @@ type InterfaceUnmarshalerContext interface {
 	UnmarshalYAML(context.Context, func(interface{}) error) error
 }
 
-// NodeUnmarshaler interface is similar to BytesUnmarshaler but provide related AST node instead of raw YAML source.
-type NodeUnmarshaler interface {
-	UnmarshalYAML(ast.Node) error
-}
-
-// NodeUnmarshalerContext interface is similar to BytesUnmarshaler but provide related AST node instead of raw YAML source.
-type NodeUnmarshalerContext interface {
-	UnmarshalYAML(context.Context, ast.Node) error
-}
-
 // MapItem is an item in a MapSlice.
 type MapItem struct {
 	Key, Value interface{}
@@ -89,11 +80,11 @@ func (s MapSlice) ToMap() map[interface{}]interface{} {
 // of the generated document will reflect the structure of the value itself.
 // Maps and pointers (to struct, string, int, etc) are accepted as the in value.
 //
-// Struct fields are only marshaled if they are exported (have an upper case
-// first letter), and are marshaled using the field name lowercased as the
+// Struct fields are only marshalled if they are exported (have an upper case
+// first letter), and are marshalled using the field name lowercased as the
 // default key. Custom keys may be defined via the "yaml" name in the field
 // tag: the content preceding the first comma is used as the key, and the
-// following comma-separated options are used to tweak the marshaling process.
+// following comma-separated options are used to tweak the marshalling process.
 // Conflicting names result in a runtime error.
 //
 // The field tag format accepted is:
@@ -108,13 +99,6 @@ func (s MapSlice) ToMap() map[interface{}]interface{} {
 //	             fields are zero, unless they implement an IsZero
 //	             method (see the IsZeroer interface type), in which
 //	             case the field will be included if that method returns true.
-//	             Note that this definition is slightly different from the Go's
-//	             encoding/json 'omitempty' definition. It combines some elements
-//	             of 'omitempty' and 'omitzero'. See https://github.com/goccy/go-yaml/issues/695.
-//
-//	omitzero      The omitzero tag behaves in the same way as the interpretation of the omitzero tag in the encoding/json library.
-//	              1) If the field type has an "IsZero() bool" method, that will be used to determine whether the value is zero.
-//	              2) Otherwise, the value is zero if it is the zero value for its type.
 //
 //	flow         Marshal using a flow style (useful for structs,
 //	             sequences and maps).
@@ -154,7 +138,7 @@ func MarshalWithOptions(v interface{}, opts ...EncodeOption) ([]byte, error) {
 func MarshalContext(ctx context.Context, v interface{}, opts ...EncodeOption) ([]byte, error) {
 	var buf bytes.Buffer
 	if err := NewEncoder(&buf, opts...).EncodeContext(ctx, v); err != nil {
-		return nil, err
+		return nil, errors.Wrapf(err, "failed to marshal")
 	}
 	return buf.Bytes(), nil
 }
@@ -164,7 +148,7 @@ func ValueToNode(v interface{}, opts ...EncodeOption) (ast.Node, error) {
 	var buf bytes.Buffer
 	node, err := NewEncoder(&buf, opts...).EncodeToNode(v)
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrapf(err, "failed to convert value to node")
 	}
 	return node, nil
 }
@@ -177,7 +161,7 @@ func ValueToNode(v interface{}, opts ...EncodeOption) (ast.Node, error) {
 // lowercased as the default key. Custom keys may be defined via the
 // "yaml" name in the field tag: the content preceding the first comma
 // is used as the key, and the following comma-separated options are
-// used to tweak the marshaling process (see Marshal).
+// used to tweak the marshalling process (see Marshal).
 // Conflicting names result in a runtime error.
 //
 // For example:
@@ -208,7 +192,7 @@ func UnmarshalContext(ctx context.Context, data []byte, v interface{}, opts ...D
 		if err == io.EOF {
 			return nil
 		}
-		return err
+		return errors.Wrapf(err, "failed to unmarshal")
 	}
 	return nil
 }
@@ -217,7 +201,7 @@ func UnmarshalContext(ctx context.Context, data []byte, v interface{}, opts ...D
 func NodeToValue(node ast.Node, v interface{}, opts ...DecodeOption) error {
 	var buf bytes.Buffer
 	if err := NewDecoder(&buf, opts...).DecodeFromNode(node, v); err != nil {
-		return err
+		return errors.Wrapf(err, "failed to convert node to value")
 	}
 	return nil
 }
@@ -229,9 +213,11 @@ func NodeToValue(node ast.Node, v interface{}, opts ...DecodeOption) error {
 // If the third argument `inclSource` is true, the error message will
 // contain snippets of the YAML source that was used.
 func FormatError(e error, colored, inclSource bool) string {
-	var yamlErr Error
-	if errors.As(e, &yamlErr) {
-		return yamlErr.FormatError(colored, inclSource)
+	var pp errors.PrettyPrinter
+	if xerrors.As(e, &pp) {
+		var buf bytes.Buffer
+		pp.PrettyPrint(&errors.Sink{&buf}, colored, inclSource)
+		return buf.String()
 	}
 
 	return e.Error()
@@ -241,11 +227,11 @@ func FormatError(e error, colored, inclSource bool) string {
 func YAMLToJSON(bytes []byte) ([]byte, error) {
 	var v interface{}
 	if err := UnmarshalWithOptions(bytes, &v, UseOrderedMap()); err != nil {
-		return nil, err
+		return nil, errors.Wrapf(err, "failed to unmarshal")
 	}
 	out, err := MarshalWithOptions(v, JSON())
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrapf(err, "failed to marshal with json option")
 	}
 	return out, nil
 }
@@ -254,11 +240,11 @@ func YAMLToJSON(bytes []byte) ([]byte, error) {
 func JSONToYAML(bytes []byte) ([]byte, error) {
 	var v interface{}
 	if err := UnmarshalWithOptions(bytes, &v, UseOrderedMap()); err != nil {
-		return nil, err
+		return nil, errors.Wrapf(err, "failed to unmarshal from json bytes")
 	}
 	out, err := Marshal(v)
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrapf(err, "failed to marshal")
 	}
 	return out, nil
 }
@@ -266,8 +252,8 @@ func JSONToYAML(bytes []byte) ([]byte, error) {
 var (
 	globalCustomMarshalerMu    sync.Mutex
 	globalCustomUnmarshalerMu  sync.Mutex
-	globalCustomMarshalerMap   = map[reflect.Type]func(context.Context, interface{}) ([]byte, error){}
-	globalCustomUnmarshalerMap = map[reflect.Type]func(context.Context, interface{}, []byte) error{}
+	globalCustomMarshalerMap   = map[reflect.Type]func(interface{}) ([]byte, error){}
+	globalCustomUnmarshalerMap = map[reflect.Type]func(interface{}, []byte) error{}
 )
 
 // RegisterCustomMarshaler overrides any encoding process for the type specified in generics.
@@ -281,20 +267,8 @@ func RegisterCustomMarshaler[T any](marshaler func(T) ([]byte, error)) {
 	defer globalCustomMarshalerMu.Unlock()
 
 	var typ T
-	globalCustomMarshalerMap[reflect.TypeOf(typ)] = func(ctx context.Context, v interface{}) ([]byte, error) {
+	globalCustomMarshalerMap[reflect.TypeOf(typ)] = func(v interface{}) ([]byte, error) {
 		return marshaler(v.(T))
-	}
-}
-
-// RegisterCustomMarshalerContext overrides any encoding process for the type specified in generics.
-// Similar to RegisterCustomMarshalerContext, but allows passing a context to the unmarshaler function.
-func RegisterCustomMarshalerContext[T any](marshaler func(context.Context, T) ([]byte, error)) {
-	globalCustomMarshalerMu.Lock()
-	defer globalCustomMarshalerMu.Unlock()
-
-	var typ T
-	globalCustomMarshalerMap[reflect.TypeOf(typ)] = func(ctx context.Context, v interface{}) ([]byte, error) {
-		return marshaler(ctx, v.(T))
 	}
 }
 
@@ -308,50 +282,7 @@ func RegisterCustomUnmarshaler[T any](unmarshaler func(*T, []byte) error) {
 	defer globalCustomUnmarshalerMu.Unlock()
 
 	var typ *T
-	globalCustomUnmarshalerMap[reflect.TypeOf(typ)] = func(ctx context.Context, v interface{}, b []byte) error {
+	globalCustomUnmarshalerMap[reflect.TypeOf(typ)] = func(v interface{}, b []byte) error {
 		return unmarshaler(v.(*T), b)
 	}
-}
-
-// RegisterCustomUnmarshalerContext overrides any decoding process for the type specified in generics.
-// Similar to RegisterCustomUnmarshalerContext, but allows passing a context to the unmarshaler function.
-func RegisterCustomUnmarshalerContext[T any](unmarshaler func(context.Context, *T, []byte) error) {
-	globalCustomUnmarshalerMu.Lock()
-	defer globalCustomUnmarshalerMu.Unlock()
-
-	var typ *T
-	globalCustomUnmarshalerMap[reflect.TypeOf(typ)] = func(ctx context.Context, v interface{}, b []byte) error {
-		return unmarshaler(ctx, v.(*T), b)
-	}
-}
-
-// RawMessage is a raw encoded YAML value. It implements [BytesMarshaler] and
-// [BytesUnmarshaler] and can be used to delay YAML decoding or precompute a YAML
-// encoding.
-// It also implements [json.Marshaler] and [json.Unmarshaler].
-//
-// This is similar to [json.RawMessage] in the stdlib.
-type RawMessage []byte
-
-func (m RawMessage) MarshalYAML() ([]byte, error) {
-	if m == nil {
-		return []byte("null"), nil
-	}
-	return m, nil
-}
-
-func (m *RawMessage) UnmarshalYAML(dt []byte) error {
-	if m == nil {
-		return errors.New("yaml.RawMessage: UnmarshalYAML on nil pointer")
-	}
-	*m = append((*m)[0:0], dt...)
-	return nil
-}
-
-func (m *RawMessage) UnmarshalJSON(b []byte) error {
-	return m.UnmarshalYAML(b)
-}
-
-func (m RawMessage) MarshalJSON() ([]byte, error) {
-	return YAMLToJSON(m)
 }

@@ -1,7 +1,6 @@
 package yaml
 
 import (
-	"context"
 	"io"
 	"reflect"
 
@@ -51,10 +50,11 @@ func Validator(v StructValidator) DecodeOption {
 	}
 }
 
-// Strict enable DisallowUnknownField
+// Strict enable DisallowUnknownField and DisallowDuplicateKey
 func Strict() DecodeOption {
 	return func(d *Decoder) error {
 		d.disallowUnknownField = true
+		d.disallowDuplicateKey = true
 		return nil
 	}
 }
@@ -69,19 +69,10 @@ func DisallowUnknownField() DecodeOption {
 	}
 }
 
-// AllowFieldPrefixes, when paired with [DisallowUnknownField], allows fields
-// with the specified prefixes to bypass the unknown field check.
-func AllowFieldPrefixes(prefixes ...string) DecodeOption {
+// DisallowDuplicateKey causes an error when mapping keys that are duplicates
+func DisallowDuplicateKey() DecodeOption {
 	return func(d *Decoder) error {
-		d.allowedFieldPrefixes = append(d.allowedFieldPrefixes, prefixes...)
-		return nil
-	}
-}
-
-// AllowDuplicateMapKey ignore syntax error when mapping keys that are duplicates.
-func AllowDuplicateMapKey() DecodeOption {
-	return func(d *Decoder) error {
-		d.allowDuplicateMapKey = true
+		d.disallowDuplicateKey = true
 		return nil
 	}
 }
@@ -111,20 +102,8 @@ func UseJSONUnmarshaler() DecodeOption {
 func CustomUnmarshaler[T any](unmarshaler func(*T, []byte) error) DecodeOption {
 	return func(d *Decoder) error {
 		var typ *T
-		d.customUnmarshalerMap[reflect.TypeOf(typ)] = func(ctx context.Context, v interface{}, b []byte) error {
+		d.customUnmarshalerMap[reflect.TypeOf(typ)] = func(v interface{}, b []byte) error {
 			return unmarshaler(v.(*T), b)
-		}
-		return nil
-	}
-}
-
-// CustomUnmarshalerContext overrides any decoding process for the type specified in generics.
-// Similar to CustomUnmarshaler, but allows passing a context to the unmarshaler function.
-func CustomUnmarshalerContext[T any](unmarshaler func(context.Context, *T, []byte) error) DecodeOption {
-	return func(d *Decoder) error {
-		var typ *T
-		d.customUnmarshalerMap[reflect.TypeOf(typ)] = func(ctx context.Context, v interface{}, b []byte) error {
-			return unmarshaler(ctx, v.(*T), b)
 		}
 		return nil
 	}
@@ -136,7 +115,7 @@ type EncodeOption func(e *Encoder) error
 // Indent change indent number
 func Indent(spaces int) EncodeOption {
 	return func(e *Encoder) error {
-		e.indentNum = spaces
+		e.indent = spaces
 		return nil
 	}
 }
@@ -161,18 +140,6 @@ func UseSingleQuote(sq bool) EncodeOption {
 func Flow(isFlowStyle bool) EncodeOption {
 	return func(e *Encoder) error {
 		e.isFlowStyle = isFlowStyle
-		return nil
-	}
-}
-
-// WithSmartAnchor when multiple map values share the same pointer,
-// an anchor is automatically assigned to the first occurrence, and aliases are used for subsequent elements.
-// The map key name is used as the anchor name by default.
-// If key names conflict, a suffix is automatically added to avoid collisions.
-// This is an experimental feature and cannot be used simultaneously with anchor tags.
-func WithSmartAnchor() EncodeOption {
-	return func(e *Encoder) error {
-		e.enableSmartAnchor = true
 		return nil
 	}
 }
@@ -221,50 +188,9 @@ func UseJSONMarshaler() EncodeOption {
 func CustomMarshaler[T any](marshaler func(T) ([]byte, error)) EncodeOption {
 	return func(e *Encoder) error {
 		var typ T
-		e.customMarshalerMap[reflect.TypeOf(typ)] = func(ctx context.Context, v interface{}) ([]byte, error) {
+		e.customMarshalerMap[reflect.TypeOf(typ)] = func(v interface{}) ([]byte, error) {
 			return marshaler(v.(T))
 		}
-		return nil
-	}
-}
-
-// CustomMarshalerContext overrides any encoding process for the type specified in generics.
-// Similar to CustomMarshaler, but allows passing a context to the marshaler function.
-func CustomMarshalerContext[T any](marshaler func(context.Context, T) ([]byte, error)) EncodeOption {
-	return func(e *Encoder) error {
-		var typ T
-		e.customMarshalerMap[reflect.TypeOf(typ)] = func(ctx context.Context, v interface{}) ([]byte, error) {
-			return marshaler(ctx, v.(T))
-		}
-		return nil
-	}
-}
-
-// AutoInt automatically converts floating-point numbers to integers when the fractional part is zero.
-// For example, a value of 1.0 will be encoded as 1.
-func AutoInt() EncodeOption {
-	return func(e *Encoder) error {
-		e.autoInt = true
-		return nil
-	}
-}
-
-// OmitEmpty behaves in the same way as the interpretation of the omitempty tag in the encoding/json library.
-// set on all the fields.
-// In the current implementation, the omitempty tag is not implemented in the same way as encoding/json,
-// so please specify this option if you expect the same behavior.
-func OmitEmpty() EncodeOption {
-	return func(e *Encoder) error {
-		e.omitEmpty = true
-		return nil
-	}
-}
-
-// OmitZero forces the encoder to assume an `omitzero` struct tag is
-// set on all the fields. See `Marshal` commentary for the `omitzero` tag logic.
-func OmitZero() EncodeOption {
-	return func(e *Encoder) error {
-		e.omitZero = true
 		return nil
 	}
 }

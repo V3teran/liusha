@@ -1,0 +1,292 @@
+# ============================================================================
+# Liusha 主配置（所有可调参数统一到本文件，避免散落代码 const）
+#   - 仅放非敏感、可入库的开关与默认值
+#   - 所有 *_API_KEY 走 env，本文件不出现密钥
+#   - env 用 LIUSHA_ 前缀，支持二级覆盖
+#     例 LIUSHA_LLM_DEFAULT_PROVIDER 覆盖 llm.default_provider
+#   - 任一字段缺省时 config.ApplyDefaults() 自动兜底，不会拒启动
+# ============================================================================
+
+# ---- cmd/api HTTP 入口 ----
+api:
+  read_timeout_seconds: 15
+  write_timeout_seconds: 30
+  read_header_timeout_seconds: 5         # 也复用于 proxy/scanner healthz HTTP server
+  listen_addr: 0.0.0.0:8080
+  shutdown_timeout_seconds: 5
+
+# ---- pgxpool 连接参数 ----
+postgres:
+  max_conns: 20
+  min_conns: 2
+  connect_timeout_seconds: 5
+  max_conn_lifetime_seconds: 3600
+
+# ---- go-redis client pool 参数 ----
+# addr 仍由 ENV LIUSHA_REDIS_ADDR 提供（运维敏感）。
+# 字段为 0 时透传 go-redis SDK 默认值（PoolSize=10×GOMAXPROCS / DialTimeout=5s /
+# ReadTimeout=3s / WriteTimeout=3s）；多服务共享 redis 时按需调小 PoolSize 防 fd 爆。
+redis:
+  pool_size: 0                             # 0 = SDK 默认（10 × GOMAXPROCS）
+  min_idle_conns: 0
+  dial_timeout_seconds: 0                  # 0 = SDK 默认 5
+  read_timeout_seconds: 0                  # 0 = SDK 默认 3
+  write_timeout_seconds: 0                 # 0 = SDK 默认 3
+
+# ---- LLM 多 provider 路由（黑客松借鉴：创新 11）----
+# default_provider:  主 ReAct（sniffer / 子任务）共用，重模型
+# light_provider:    Inspector / Compaction 走的轻模型，省成本
+# vision_provider:   v1.5 的 browser.screenshot 用，v1 仅作为备用主 LLM
+# fallback_provider: 429/529 退避耗尽后切到，retry 中间件用
+llm:
+  default_provider: deepseek
+  light_provider: anthropic_haiku
+  vision_provider: anthropic
+  fallback_provider: openai
+  max_steps: 30                 # ReAct 单任务步数上限，被 Role.Budget 覆盖
+  max_tokens_per_call: 4096
+  # 双 namespace：把"真 agent"与"single-shot utility"语义分开。
+  # 四角色：tracker（passive 侦察兵）/ commander（active 父指挥官）/ striker（active 子士兵）/ inspector（督查官）
+  agents:
+    tracker:   default_provider   # passive 单 agent（流量驱动，纯文本路径）
+    commander: vision_provider    # active 父任务（recon + spawn 决策，需 browser-use 截图 → multimodal）
+    striker:   vision_provider    # active 子任务（深挖单点，需 browser-use 截图 → multimodal）
+    inspector: light_provider     # 旁路过程督查官（每 5 步评估方向）
+
+  # spec §8.5 错误码退避表（429/529/5xx/网络超时）
+  retry:
+    max_429: 3                       # 429 限流重试次数
+    max_529: 1                       # 529 服务忙重试次数
+    max_5xx: 2                       # 5xx 服务端错重试次数
+    max_net: 2                       # 网络超时重试次数
+    backoff_429_seconds: [1, 4, 16]  # 429 指数退避（秒）
+    backoff_5xx_seconds: [1, 4]
+    backoff_net_seconds: [1, 3]
+    backoff_529_ms: 0                # 529 立即重试
+
+  # llm_invocation 异步 batch 写入：Generate 路径 0 阻塞
+  invocation:
+    buffer_size: 1024                # channel 缓冲；满则丢一行（warn）
+    batch_size: 100                  # 累积此行数即触发 flush
+    flush_interval_ms: 1000          # 兜底 flush 周期
+    insert_timeout_sec: 5            # 单次 batch insert 超时
+
+# 每个 provider 一节；只填要用的，其它留空即可
+# api_key_env 是从 env 读 key 的变量名
+providers:
+  # type: openai_compat → sashabaranov/go-openai 调 /v1/chat/completions
+  # type: anthropic     → anthropics/anthropic-sdk-go 调 /v1/messages
+  deepseek:
+    type: openai_compat
+    base_url: https://api.deepseek.com/v1
+    default_model: deepseek-chat
+    api_key_env: DEEPSEEK_API_KEY
+    max_tokens: 4096
+    supports_tools: true
+    supports_vision: false
+
+  anthropic:
+    type: anthropic
+    base_url: https://api.anthropic.com
+    default_model: claude-sonnet-4-6
+    vision_model: claude-haiku-4-5
+    api_key_env: ANTHROPIC_API_KEY
+    max_tokens: 8192
+    supports_tools: true
+    supports_vision: true
+
+  anthropic_haiku:
+    type: anthropic
+    base_url: https://api.anthropic.com
+    default_model: claude-haiku-4-5
+    api_key_env: ANTHROPIC_API_KEY
+    max_tokens: 4096
+    supports_tools: true
+    supports_vision: true
+
+  openai:
+    type: openai_compat
+    base_url: https://api.openai.com/v1
+    default_model: gpt-4o
+    api_key_env: OPENAI_API_KEY
+    max_tokens: 4096
+    supports_tools: true
+    supports_vision: true
+
+  moonshot:
+    type: openai_compat
+    base_url: https://api.moonshot.cn/v1
+    default_model: kimi-k2-0905-preview
+    api_key_env: MOONSHOT_API_KEY
+    max_tokens: 4096
+    supports_tools: true
+    supports_vision: false
+
+  qwen:
+    type: openai_compat
+    base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
+    default_model: qwen3-max
+    api_key_env: QWEN_API_KEY
+    max_tokens: 4096
+    supports_tools: true
+    supports_vision: false
+
+# ---- LLM 模型单价表（USD per 1M tokens）----
+# 单价频繁变动（provider 季度降价）→ yaml 化便于不重编更新；新模型上线只需在此 append。
+# key 形如 "<provider>/<model>"，与 ProviderConfig + Model() 拼接一致。
+# cached_in_in:
+#   - true（OpenAI/DeepSeek 兼容）：cached_tokens ⊆ in_tokens；先减再分别计价
+#   - false（Anthropic 原生）：cached 独立计价（"加项"）
+pricing:
+  models:
+    "deepseek/deepseek-chat":
+      input_per_m_usd: 0.27
+      output_per_m_usd: 1.10
+      cache_discount: 0.10
+      cached_in_in: true
+    "anthropic/claude-sonnet-4-6":
+      input_per_m_usd: 3.00
+      output_per_m_usd: 15.00
+      cache_discount: 0.30
+      cached_in_in: false
+    "anthropic/claude-haiku-4-5":
+      input_per_m_usd: 1.00
+      output_per_m_usd: 5.00
+      cache_discount: 0.30
+      cached_in_in: false
+
+# ---- proxy 内嵌 MITM + 责任链过滤 + 聚合参数 + 进程入口 ----
+proxy:
+  window_batch: 20              # TrafficWindow 批大小上限（满即关闭 → 立即触发 sniffer）
+  window_max_age_seconds: 30    # ager 兜底：超过此秒数仍 open 的窗口会被强制关闭并入队 sniffer（低流量场景）
+  allow_hosts: []               # HostFilter 白名单（空=放行全部）。e2e/生产都用真实 host 直连，无需在此维护
+  exclude_methods:              # HTTP 方法黑名单
+    - OPTIONS
+    - HEAD
+    - CONNECT
+  exclude_hosts: []             # Host 黑名单（支持 *.example.com，黑名单优先于白名单）
+  exclude_upgrade_protocols:    # Upgrade 协议黑名单（空时仍兜底拦 websocket）
+    - websocket
+  exclude_suffixes:             # 静态资源后缀黑名单（大小写不敏感）
+    - .css
+    - .js
+    - .png
+    - .jpg
+    - .gif
+    - .ico
+    - .woff
+    - .woff2
+  exclude_content_types: []     # Content-Type 黑名单（支持 image/* 通配；大小写不敏感）
+  exclude_status_codes:         # 状态码黑名单：原始流量为 4xx/5xx 表示业务异常，扫描无意义
+    # 注：v0024 重构后 hunter 直接由 sandbox 工具（sqlmap/curl/nuclei…）直接打目标，不再走 internal/replay 重放
+    - 400      # Bad Request
+    - 401      # Unauthorized
+    - 403      # Forbidden
+    - 404      # Not Found
+    - 405      # Method Not Allowed
+    - 408      # Request Timeout
+    - 409      # Conflict
+    - 410      # Gone
+    - 413      # Payload Too Large
+    - 414      # URI Too Long
+    - 415      # Unsupported Media Type
+    - 422      # Unprocessable Entity
+    - 429      # Too Many Requests
+    - 500      # Internal Server Error
+    - 501      # Not Implemented
+    - 502      # Bad Gateway
+    - 503      # Service Unavailable
+    - 504      # Gateway Timeout
+  max_request_body_size: 2097152   # 2 MiB（稳健激进：覆盖偶有大上传/批量提交）
+  max_response_body_size: 8388608  # 8 MiB（稳健激进：大列表/报表导出/长 HTML）
+
+  # cmd/proxy 进程入口
+  listen_addr: 0.0.0.0:8888         # sanitizer 公开端口
+  internal_addr: 127.0.0.1:18888    # proxify 内部 loopback
+  healthz_addr: :9091               # /healthz HTTP（避免与 scanner :9090 冲突）
+  cert_subdir: .liusha              # CA 证书子目录（默认 $HOME/.liusha）
+  shutdown_timeout_seconds: 5       # graceful shutdown 超时
+
+  # Redis Stream（proxy → ingestor 之间）
+  stream_name: flow_events          # XADD 目标 stream
+  stream_max_len: 100000            # XADD MAXLEN ~ 上限（约 5KiB×1e5 ≈ 500 MiB）
+
+# ---- ingestor 流量摄入器（cmd/scanner 内 goroutine）----
+ingestor:
+  consumer_group: liusha-ingestor   # XREADGROUP consumer group 名
+  consumer_name: ingestor-1         # consumer 实例名（多实例时区分）
+  read_batch: 16                    # 单次 XREADGROUP 取条数
+  read_block_timeout_ms: 1000       # XREADGROUP BLOCK ms（无消息时阻塞上限）
+  retry_delay_ms: 500               # XREADGROUP 失败重试延迟
+  recreate_group_delay_ms: 500      # NOGROUP 自愈重建后等待 ms
+
+# ---- session 生命周期参数（passive_session 生命周期 + hunter prompt 上限）----
+session:
+  # passive_session sweeper 定时 goroutine 触发周期（主动 abort 过期 active passive session）
+  sweeper_interval_seconds: 600
+  # passive_session TTL：created_at 起超过此小时数即被 sweeper abort
+  max_age_hours: 24
+  # hunter user prompt 拼装上限（避免 prompt 膨胀；超出 LLM 用 read_findings/read_lessons 工具按需查）
+  findings_limit_in_prompt: 100     # 该 host 已有 finding 段显示条数
+  lessons_limit_in_prompt: 100      # 该 host 历史经验 + 跨 host 业务规则 hint 共用上限
+
+# ---- notes Redis 共享笔记板（owner 内同 host 跨 task 共享）----
+# 实现：internal/notes 包；key=liusha:note:{owner_id}:{host}，LIST 类型。
+# 设计建议：ttl_hours 应 ≥ session.max_age_hours，否则 notes 会比 passive_session 更早过期。
+notes:
+  redis_key_prefix: "liusha:note:"  # Redis key 前缀
+  max_entries: 200                  # 蒸馏失败兜底硬上限（LTRIM 保留末尾 N）
+  ttl_hours: 24                     # 仅在 key 首次创建时设 TTL（ExpireNX，从创建起算固定窗口），与 max_age_hours 同步
+  # 蒸馏参数：超阈值时调 light LLM 把前 N 条压缩成 1 条 summary，保留早期语义
+  compact_threshold: 200            # LLEN 超过此值触发蒸馏
+  compact_batch_size: 100           # 每次蒸馏前 N 条（保留剩余 ≥ threshold-batch+1 条供后续累积）
+  compact_timeout_seconds: 30       # 单次蒸馏（含 LLM 调用）超时；超时退化为 LTRIM
+
+# ---- credential.RedisProvider redis 前缀 ----
+credential:
+  redis_key_prefix: "credentials:"  # HSET <prefix><host> ...
+
+# ---- skills 外部目录 ----
+skills:
+  root: ./skills
+
+# ---- cmd/scanner 进程运行时参数 ----
+scanner:
+  passive_max_steps: 60                    # passive 模式 ReAct 步数上限（流量驱动单类型挖掘够用）
+  active_max_steps: 300                    # active 模式 ReAct 步数上限（站点级扫描深挖，与 strix max_iterations=300 对齐）；子 active 任务复用同一上限
+  max_children: 10                         # subtask swarm 父任务最多 spawn 子任务数（防 LLM 失控）
+  agent_run_timeout_seconds: 3600          # passive 模式 agent_run 整体超时（asynq handler 入口 WithTimeout，60 分钟，> step_tool）
+  active_agent_run_timeout_seconds: 14400  # active 模式 agent_run 整体超时（4 小时，对齐 sandbox max lifetime；站点扫描爬+测耗时长）
+  step_llm_timeout_seconds: 300            # 单步 LLM Generate 看门狗（5 分钟）
+  asynq_concurrency: 6                     # asynq 消费者并发数（同时跑的主 ReAct 数）
+  asynq_shutdown_timeout_seconds: 30       # asynq.Shutdown 等 in-flight 主 ReAct 落地超时（超时后 asynq 强制中断）
+  shutdown_timeout_seconds: 5              # graceful shutdown 超时（healthz/db pool 等）
+  healthz_addr: ":9090"                    # /healthz HTTP 监听地址
+  flow_max_request_body: 2097152           # 2 MiB；flow.Store 入库截断阈值（与 proxy.max_request_body_size 对齐）
+  flow_max_response_body: 8388608          # 8 MiB；flow.Store 入库截断阈值（与 proxy.max_response_body_size 对齐）
+  queue_hunter_weight: 5                   # asynq 队列优先级权重（数字越大越优先）
+  queue_dispatch_weight: 1
+
+# ---- 主 ReAct 循环参数 ----
+react:
+  inspector_every_steps: 5                  # 每 N 步触发一次 Inspector 评估
+  inspector_args_truncate: 256              # 喂 inspector LLM 的 tool args 截断字节数（80B 看不出意图）
+  inspector_obs_truncate: 400               # 喂 inspector LLM 的 ObsSummary 截断字节数
+  inspector_findings_limit: 30              # inspector 看 host 已有 finding 段条数（按 created_at DESC）
+  inspector_lessons_limit: 30               # inspector 看 host lesson 段条数（按 priority DESC）
+
+# ---- 容器化执行参数（sandbox.Launcher + external.RunCommand）----
+# 容器内存/CPU/并发数等运行时参数下放到 sandbox.DockerLauncher 内部硬编码
+# （per-agent-run 容器模型下这些参数没有按 session 调整的需求）。
+# 见 docs/superpowers/specs/2026-05-16-sandbox-server-design.md
+sandbox:
+  default_image: liusha/pentools:latest    # 默认沙箱镜像（含 sandbox-server PID 1 + browser-use + 全套 pentest 工具）
+  # run_command 单次硬超时由 LLM 通过 timeout_seconds 必传，上限钳到 toolruntime.step_tool_timeout_seconds（1800s）
+  run_tail_bytes: 8192                     # 主进程 RunCommand 对 stdout/stderr 截尾字节数；sandbox-server 返回完整 stdout，截尾在主进程层
+
+# ---- toolruntime Interceptor 参数 ----
+toolruntime:
+  step_tool_timeout_seconds: 1800       # 单步 tool Execute 上限（30 分钟）；run_command 用此值钳 LLM 自传的 timeout_seconds；其他工具（write_finding 等）受 Interceptor 层 WithTimeout 兜底。&lt; agent_run_timeout_seconds=3600
+
+# ---- heuristic 关键词清单 ----
+# yaml 化便于按业务扩中文/小语种关键词，AllAuthError 运行时 lowercase 匹配

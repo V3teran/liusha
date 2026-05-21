@@ -9,6 +9,7 @@ cmd/*/dist/
 .env
 .env.local
 .env.*.local
+.env.docker
 
 # Editor
 .vscode/
@@ -26,12 +27,26 @@ coverage.html
 /api
 /agent-worker
 /vulnapp
-/e2e-bac
+/e2e
+/proxy
+/scanner
+
+# 本地调试产物（截图、playwright MCP 转储）
+/llm-view-*.png
+/.playwright-mcp/
 
 # 第三方参考资料（设计已提炼到本地 docs/hks2.md / spec / plan，原始资料不入 git）
 /docs/Tsec-Hackathon-main/
 /docs/hks2.md
 /docs/无径之径*
 
-# engagement runtime store（result_compress middleware 落盘目录）
-/engagement-store/
+# session runtime store（result_compress middleware 落盘目录）
+/session-store/
+
+# Runtime logs / pids（host 进程 + proxify 流量 dump，每次 dev 启动覆盖）
+/logs/
+# 各 package 测试落盘的本地 log 目录
+**/logs/
+
+# Claude Code 本地会话状态
+/.claude/

@@ -1,0 +1,188 @@
+# liusha v1 docker-compose
+# 5 个 service：postgres / redis / api / proxy / scanner（+ vulnapp e2e profile）
+# 默认起 postgres/redis/api；用 --profile e2e 起完整栈（含 proxy + scanner + vulnapp）。
+# proxy（cmd/proxy）：内嵌 proxify SDK 的 MITM + filter/dedup/aggregator + Asynq 生产者，监听 8888。
+# scanner（cmd/scanner）：Asynq 消费者 + ReAct 引擎，监听 9090（healthz）。
+# 业界最佳实践：proxy 与 worker 独立进程，故障隔离 + 独立扩缩。
+# migrate 走 host 侧 Makefile（make migrate），不在 compose 里跑。
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg17
+    container_name: liusha-postgres
+    environment:
+      POSTGRES_USER: liusha
+      POSTGRES_PASSWORD: liusha
+      POSTGRES_DB: liusha
+    ports:
+      - "5432:5432"
+    volumes:
+      - liusha-pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U liusha -d liusha"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:8
+    container_name: liusha-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - liusha-redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    image: liusha/api
+    build:
+      context: ..
+      dockerfile: cmd/api/Dockerfile
+    container_name: liusha-api
+    environment:
+      LIUSHA_POSTGRES_DSN: postgres://liusha:liusha@postgres:5432/liusha?sslmode=disable
+      LIUSHA_REDIS_ADDR: redis:6379
+      LIUSHA_API_ADDR: 0.0.0.0:8080
+      LIUSHA_API_KEY: "${LIUSHA_API_KEY:-changeme-dev-key}"
+      LIUSHA_ENV: development
+      LIUSHA_LOG_LEVEL: info
+      LIUSHA_CONFIG: /app/config/config.yaml
+      # LLM provider key：cfg.LLM.Validate() 启动时强校验所有 provider 的 key，
+      # 即使 api 进程不直接调 LLM 也必须传，否则启动崩溃。
+      DEEPSEEK_API_KEY: "${DEEPSEEK_API_KEY:-}"
+      ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
+      OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
+      MOONSHOT_API_KEY: "${MOONSHOT_API_KEY:-}"
+      QWEN_API_KEY: "${QWEN_API_KEY:-}"
+      LIUSHA_LLM_LIGHT_PROVIDER: "${LIUSHA_LLM_LIGHT_PROVIDER:-deepseek}"
+      LIUSHA_LLM_FALLBACK_PROVIDER: "${LIUSHA_LLM_FALLBACK_PROVIDER:-deepseek}"
+      LIUSHA_LLM_VISION_PROVIDER: "${LIUSHA_LLM_VISION_PROVIDER:-deepseek}"
+    volumes:
+      - ../logs:/app/logs
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "--header=X-API-Key: ${LIUSHA_API_KEY:-changeme-dev-key}", "http://localhost:8080/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  # cmd/proxy：内嵌 proxify SDK 的 MITM 代理 + filter/dedup/aggregator + Asynq 生产者
+  proxy:
+    image: liusha/proxy
+    build:
+      context: ..
+      dockerfile: cmd/proxy/Dockerfile
+    container_name: liusha-proxy
+    environment:
+      LIUSHA_POSTGRES_DSN: postgres://liusha:liusha@postgres:5432/liusha?sslmode=disable
+      LIUSHA_REDIS_ADDR: redis:6379
+      LIUSHA_CONFIG: /app/config/config.yaml
+      LIUSHA_ENV: development
+      LIUSHA_LOG_LEVEL: info
+      LIUSHA_PROXY_LISTEN_ADDR: 0.0.0.0:8888
+      LIUSHA_PROXY_CERT_DIR: /app/certs
+      # LLM provider key：cfg.LLM.Validate() 启动时强校验，proxy 进程虽不调 LLM 也必须传。
+      DEEPSEEK_API_KEY: "${DEEPSEEK_API_KEY:-}"
+      ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
+      OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
+      MOONSHOT_API_KEY: "${MOONSHOT_API_KEY:-}"
+      QWEN_API_KEY: "${QWEN_API_KEY:-}"
+      LIUSHA_LLM_LIGHT_PROVIDER: "${LIUSHA_LLM_LIGHT_PROVIDER:-deepseek}"
+      LIUSHA_LLM_FALLBACK_PROVIDER: "${LIUSHA_LLM_FALLBACK_PROVIDER:-deepseek}"
+      LIUSHA_LLM_VISION_PROVIDER: "${LIUSHA_LLM_VISION_PROVIDER:-deepseek}"
+    volumes:
+      - liusha-proxy-certs:/app/certs
+      - ../logs:/app/logs
+    ports:
+      - "8888:8888"
+      - "9091:9091"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:9091/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    profiles:
+      - proxy
+      - e2e
+
+  # scanner：Asynq 消费者 + ReAct 引擎（不再装 mitm，已拆到 cmd/proxy）。
+  # 启动前需设 LIUSHA_DEEPSEEK_API_KEY（默认 LLM provider 的 key）。
+  scanner:
+    image: liusha/scanner
+    build:
+      context: ..
+      dockerfile: cmd/scanner/Dockerfile
+    container_name: liusha-scanner
+    environment:
+      LIUSHA_POSTGRES_DSN: postgres://liusha:liusha@postgres:5432/liusha?sslmode=disable
+      LIUSHA_REDIS_ADDR: redis:6379
+      LIUSHA_CONFIG: /app/config/config.yaml
+      LIUSHA_ENV: development
+      LIUSHA_LOG_LEVEL: info
+      # provider api_key（config.yaml 里 api_key_env 配的就是这些名字，不带 LIUSHA_ 前缀）
+      DEEPSEEK_API_KEY: "${DEEPSEEK_API_KEY:-}"
+      ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
+      OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
+      MOONSHOT_API_KEY: "${MOONSHOT_API_KEY:-}"
+      QWEN_API_KEY: "${QWEN_API_KEY:-}"
+      # 临时覆盖：把 light/fallback 都路由到 deepseek，避免 ANTHROPIC_API_KEY 空时 validate 失败
+      LIUSHA_LLM_LIGHT_PROVIDER: "${LIUSHA_LLM_LIGHT_PROVIDER:-deepseek}"
+      LIUSHA_LLM_FALLBACK_PROVIDER: "${LIUSHA_LLM_FALLBACK_PROVIDER:-deepseek}"
+      LIUSHA_LLM_VISION_PROVIDER: "${LIUSHA_LLM_VISION_PROVIDER:-deepseek}"
+    volumes:
+      - ../logs:/app/logs
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "9090:9090"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:9090/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    profiles:
+      - agent
+      - e2e
+
+  # vulnapp：BAC e2e 靶机（plan 1 T31）。仅 e2e profile 启动。
+  # hostname=vulnapp 让 proxy / scanner 在同一 network 内通过名字解析。
+  vulnapp:
+    image: liusha/vulnapp
+    build:
+      context: ..
+      dockerfile: cmd/vulnapp/Dockerfile
+    container_name: liusha-vulnapp
+    hostname: vulnapp
+    volumes:
+      - ../logs:/app/logs
+    ports:
+      - "8001:8001"
+    profiles:
+      - e2e
+
+volumes:
+  liusha-pg:
+  liusha-redis:
+  liusha-proxy-certs:

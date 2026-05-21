@@ -1,0 +1,6 @@
+[
+  "GET /api/bac/profile HTTP/1.1\r\nHost: 111.229.193.40:38001\r\nUser-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36\r\nCookie: session=admin_sess_a1b2c3\r\nAccept: text/html,application/json\r\n\r\n",
+  "GET /api/bac/order/7 HTTP/1.1\r\nHost: 111.229.193.40:38001\r\nUser-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36\r\nCookie: session=admin_sess_a1b2c3\r\nAccept: application/json\r\n\r\n",
+  "GET /api/bac/admin/users HTTP/1.1\r\nHost: 111.229.193.40:38001\r\nUser-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36\r\nCookie: session=admin_sess_a1b2c3\r\nAccept: application/json\r\n\r\n",
+  "POST /api/bac/admin/delete HTTP/1.1\r\nHost: 111.229.193.40:38001\r\nUser-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36\r\nCookie: session=admin_sess_a1b2c3\r\nAccept: application/json\r\nContent-Type: application/json\r\nContent-Length: 11\r\n\r\n{\"uid\":\"1\"}"
+]

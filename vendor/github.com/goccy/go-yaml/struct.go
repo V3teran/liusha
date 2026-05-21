@@ -1,9 +1,10 @@
 package yaml
 
 import (
-	"fmt"
 	"reflect"
 	"strings"
+
+	"golang.org/x/xerrors"
 )
 
 const (
@@ -20,7 +21,6 @@ type StructField struct {
 	IsAutoAnchor bool
 	IsAutoAlias  bool
 	IsOmitEmpty  bool
-	IsOmitZero   bool
 	IsFlow       bool
 	IsInline     bool
 }
@@ -45,7 +45,7 @@ func structField(field reflect.StructField) *StructField {
 			fieldName = options[0]
 		}
 	}
-	sf := &StructField{
+	structField := &StructField{
 		FieldName:  field.Name,
 		RenderName: fieldName,
 	}
@@ -53,32 +53,30 @@ func structField(field reflect.StructField) *StructField {
 		for _, opt := range options[1:] {
 			switch {
 			case opt == "omitempty":
-				sf.IsOmitEmpty = true
-			case opt == "omitzero":
-				sf.IsOmitZero = true
+				structField.IsOmitEmpty = true
 			case opt == "flow":
-				sf.IsFlow = true
+				structField.IsFlow = true
 			case opt == "inline":
-				sf.IsInline = true
+				structField.IsInline = true
 			case strings.HasPrefix(opt, "anchor"):
 				anchor := strings.Split(opt, "=")
 				if len(anchor) > 1 {
-					sf.AnchorName = anchor[1]
+					structField.AnchorName = anchor[1]
 				} else {
-					sf.IsAutoAnchor = true
+					structField.IsAutoAnchor = true
 				}
 			case strings.HasPrefix(opt, "alias"):
 				alias := strings.Split(opt, "=")
 				if len(alias) > 1 {
-					sf.AliasName = alias[1]
+					structField.AliasName = alias[1]
 				} else {
-					sf.IsAutoAlias = true
+					structField.IsAutoAlias = true
 				}
 			default:
 			}
 		}
 	}
-	return sf
+	return structField
 }
 
 func isIgnoredStructField(field reflect.StructField) bool {
@@ -86,7 +84,11 @@ func isIgnoredStructField(field reflect.StructField) bool {
 		// private field
 		return true
 	}
-	return getTag(field) == "-"
+	tag := getTag(field)
+	if tag == "-" {
+		return true
+	}
+	return false
 }
 
 type StructFieldMap map[string]*StructField
@@ -110,19 +112,19 @@ func (m StructFieldMap) hasMergeProperty() bool {
 }
 
 func structFieldMap(structType reflect.Type) (StructFieldMap, error) {
-	fieldMap := StructFieldMap{}
+	structFieldMap := StructFieldMap{}
 	renderNameMap := map[string]struct{}{}
 	for i := 0; i < structType.NumField(); i++ {
 		field := structType.Field(i)
 		if isIgnoredStructField(field) {
 			continue
 		}
-		sf := structField(field)
-		if _, exists := renderNameMap[sf.RenderName]; exists {
-			return nil, fmt.Errorf("duplicated struct field name %s", sf.RenderName)
+		structField := structField(field)
+		if _, exists := renderNameMap[structField.RenderName]; exists {
+			return nil, xerrors.Errorf("duplicated struct field name %s", structField.RenderName)
 		}
-		fieldMap[sf.FieldName] = sf
-		renderNameMap[sf.RenderName] = struct{}{}
+		structFieldMap[structField.FieldName] = structField
+		renderNameMap[structField.RenderName] = struct{}{}
 	}
-	return fieldMap, nil
+	return structFieldMap, nil
 }

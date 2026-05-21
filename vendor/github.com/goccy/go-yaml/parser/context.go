@@ -9,15 +9,11 @@ import (
 
 // context context at parsing
 type context struct {
-	tokenRef *tokenRef
-	path     string
-	isFlow   bool
-}
-
-type tokenRef struct {
-	tokens []*Token
-	size   int
+	parent *context
 	idx    int
+	size   int
+	tokens token.Tokens
+	path   string
 }
 
 var pathSpecialChars = []string{
@@ -40,28 +36,91 @@ func normalizePath(path string) string {
 	return path
 }
 
-func (c *context) currentToken() *Token {
-	if c.tokenRef.idx >= c.tokenRef.size {
+func (c *context) withChild(path string) *context {
+	ctx := c.copy()
+	path = normalizePath(path)
+	ctx.path += fmt.Sprintf(".%s", path)
+	return ctx
+}
+
+func (c *context) withIndex(idx uint) *context {
+	ctx := c.copy()
+	ctx.path += fmt.Sprintf("[%d]", idx)
+	return ctx
+}
+
+func (c *context) copy() *context {
+	return &context{
+		parent: c,
+		idx:    c.idx,
+		size:   c.size,
+		tokens: append(token.Tokens{}, c.tokens...),
+		path:   c.path,
+	}
+}
+
+func (c *context) next() bool {
+	return c.idx < c.size
+}
+
+func (c *context) previousToken() *token.Token {
+	if c.idx > 0 {
+		return c.tokens[c.idx-1]
+	}
+	return nil
+}
+
+func (c *context) insertToken(idx int, tk *token.Token) {
+	if c.parent != nil {
+		c.parent.insertToken(idx, tk)
+	}
+	if c.size < idx {
+		return
+	}
+	if c.size == idx {
+		curToken := c.tokens[c.size-1]
+		tk.Next = curToken
+		curToken.Prev = tk
+
+		c.tokens = append(c.tokens, tk)
+		c.size = len(c.tokens)
+		return
+	}
+
+	curToken := c.tokens[idx]
+	tk.Next = curToken
+	curToken.Prev = tk
+
+	c.tokens = append(c.tokens[:idx+1], c.tokens[idx:]...)
+	c.tokens[idx] = tk
+	c.size = len(c.tokens)
+}
+
+func (c *context) currentToken() *token.Token {
+	if c.idx >= c.size {
 		return nil
 	}
-	return c.tokenRef.tokens[c.tokenRef.idx]
+	return c.tokens[c.idx]
 }
 
-func (c *context) isComment() bool {
-	return c.currentToken().Type() == token.CommentType
-}
-
-func (c *context) nextToken() *Token {
-	if c.tokenRef.idx+1 >= c.tokenRef.size {
+func (c *context) nextToken() *token.Token {
+	if c.idx+1 >= c.size {
 		return nil
 	}
-	return c.tokenRef.tokens[c.tokenRef.idx+1]
+	return c.tokens[c.idx+1]
 }
 
-func (c *context) nextNotCommentToken() *Token {
-	for i := c.tokenRef.idx + 1; i < c.tokenRef.size; i++ {
-		tk := c.tokenRef.tokens[i]
-		if tk.Type() == token.CommentType {
+func (c *context) afterNextToken() *token.Token {
+	if c.idx+2 >= c.size {
+		return nil
+	}
+	return c.tokens[c.idx+2]
+}
+
+func (c *context) nextNotCommentToken() *token.Token {
+	for i := c.idx + 1; i < c.size; i++ {
+		tk := c.tokens[i]
+		if tk.Type == token.CommentType {
 			continue
 		}
 		return tk
@@ -69,119 +128,65 @@ func (c *context) nextNotCommentToken() *Token {
 	return nil
 }
 
-func (c *context) isTokenNotFound() bool {
-	return c.currentToken() == nil
-}
-
-func (c *context) withGroup(g *TokenGroup) *context {
-	ctx := *c
-	ctx.tokenRef = &tokenRef{
-		tokens: g.Tokens,
-		size:   len(g.Tokens),
+func (c *context) afterNextNotCommentToken() *token.Token {
+	notCommentTokenCount := 0
+	for i := c.idx + 1; i < c.size; i++ {
+		tk := c.tokens[i]
+		if tk.Type == token.CommentType {
+			continue
+		}
+		notCommentTokenCount++
+		if notCommentTokenCount == 2 {
+			return tk
+		}
 	}
-	return &ctx
+	return nil
 }
 
-func (c *context) withChild(path string) *context {
-	ctx := *c
-	ctx.path = c.path + "." + normalizePath(path)
-	return &ctx
-}
-
-func (c *context) withIndex(idx uint) *context {
-	ctx := *c
-	ctx.path = c.path + "[" + fmt.Sprint(idx) + "]"
-	return &ctx
-}
-
-func (c *context) withFlow(isFlow bool) *context {
-	ctx := *c
-	ctx.isFlow = isFlow
-	return &ctx
-}
-
-func newContext() *context {
-	return &context{
-		path: "$",
+func (c *context) isCurrentCommentToken() bool {
+	tk := c.currentToken()
+	if tk == nil {
+		return false
 	}
+	return tk.Type == token.CommentType
 }
 
-func (c *context) goNext() {
-	ref := c.tokenRef
-	if ref.size <= ref.idx+1 {
-		ref.idx = ref.size
+func (c *context) progressIgnoreComment(num int) {
+	if c.parent != nil {
+		c.parent.progressIgnoreComment(num)
+	}
+	if c.size <= c.idx+num {
+		c.idx = c.size
 	} else {
-		ref.idx++
+		c.idx += num
 	}
 }
 
-func (c *context) next() bool {
-	return c.tokenRef.idx < c.tokenRef.size
-}
-
-func (c *context) insertNullToken(tk *Token) *Token {
-	nullToken := c.createImplicitNullToken(tk)
-	c.insertToken(nullToken)
-	c.goNext()
-
-	return nullToken
-}
-
-func (c *context) addNullValueToken(tk *Token) *Token {
-	nullToken := c.createImplicitNullToken(tk)
-	rawTk := nullToken.RawToken()
-
-	// add space for map or sequence value.
-	rawTk.Position.Column++
-
-	c.addToken(nullToken)
-	c.goNext()
-
-	return nullToken
-}
-
-func (c *context) createImplicitNullToken(base *Token) *Token {
-	pos := *(base.RawToken().Position)
-	pos.Column++
-	tk := token.New("null", " null", &pos)
-	tk.Type = token.ImplicitNullType
-	return &Token{Token: tk}
-}
-
-func (c *context) insertToken(tk *Token) {
-	ref := c.tokenRef
-	idx := ref.idx
-	if ref.size < idx {
+func (c *context) progress(num int) {
+	if c.isCurrentCommentToken() {
 		return
 	}
-	if ref.size == idx {
-		curToken := ref.tokens[ref.size-1]
-		tk.RawToken().Next = curToken.RawToken()
-		curToken.RawToken().Prev = tk.RawToken()
-
-		ref.tokens = append(ref.tokens, tk)
-		ref.size = len(ref.tokens)
-		return
-	}
-
-	curToken := ref.tokens[idx]
-	tk.RawToken().Next = curToken.RawToken()
-	curToken.RawToken().Prev = tk.RawToken()
-
-	ref.tokens = append(ref.tokens[:idx+1], ref.tokens[idx:]...)
-	ref.tokens[idx] = tk
-	ref.size = len(ref.tokens)
+	c.progressIgnoreComment(num)
 }
 
-func (c *context) addToken(tk *Token) {
-	ref := c.tokenRef
-	lastTk := ref.tokens[ref.size-1]
-	if lastTk.Group != nil {
-		lastTk = lastTk.Group.Last()
+func newContext(tokens token.Tokens, mode Mode) *context {
+	filteredTokens := []*token.Token{}
+	if mode&ParseComments != 0 {
+		filteredTokens = tokens
+	} else {
+		for _, tk := range tokens {
+			if tk.Type == token.CommentType {
+				continue
+			}
+			// keep prev/next reference between tokens containing comments
+			// https://github.com/goccy/go-yaml/issues/254
+			filteredTokens = append(filteredTokens, tk)
+		}
 	}
-	lastTk.RawToken().Next = tk.RawToken()
-	tk.RawToken().Prev = lastTk.RawToken()
-
-	ref.tokens = append(ref.tokens, tk)
-	ref.size = len(ref.tokens)
+	return &context{
+		idx:    0,
+		size:   len(filteredTokens),
+		tokens: token.Tokens(filteredTokens),
+		path:   "$",
+	}
 }

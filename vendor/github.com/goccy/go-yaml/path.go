@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/goccy/go-yaml/ast"
+	"github.com/goccy/go-yaml/internal/errors"
 	"github.com/goccy/go-yaml/parser"
 	"github.com/goccy/go-yaml/printer"
 )
@@ -38,7 +39,7 @@ func PathString(s string) (*Path, error) {
 		case '.':
 			b, buf, c, err := parsePathDot(builder, buf, cursor)
 			if err != nil {
-				return nil, err
+				return nil, errors.Wrapf(err, "failed to parse path of dot")
 			}
 			length = len(buf)
 			builder = b
@@ -46,13 +47,13 @@ func PathString(s string) (*Path, error) {
 		case '[':
 			b, buf, c, err := parsePathIndex(builder, buf, cursor)
 			if err != nil {
-				return nil, err
+				return nil, errors.Wrapf(err, "failed to parse path of index")
 			}
 			length = len(buf)
 			builder = b
 			cursor = c
 		default:
-			return nil, fmt.Errorf("invalid path at %d: %w", cursor, ErrInvalidPathString)
+			return nil, errors.Wrapf(ErrInvalidPathString, "invalid path at %d", cursor)
 		}
 	}
 	return builder.Build(), nil
@@ -66,31 +67,28 @@ func parsePathRecursive(b *PathBuilder, buf []rune, cursor int) (*PathBuilder, [
 		c := buf[cursor]
 		switch c {
 		case '$':
-			return nil, nil, 0, fmt.Errorf("specified '$' after '..' character: %w", ErrInvalidPathString)
+			return nil, nil, 0, errors.Wrapf(ErrInvalidPathString, "specified '$' after '..' character")
 		case '*':
-			return nil, nil, 0, fmt.Errorf("specified '*' after '..' character: %w", ErrInvalidPathString)
+			return nil, nil, 0, errors.Wrapf(ErrInvalidPathString, "specified '*' after '..' character")
 		case '.', '[':
 			goto end
 		case ']':
-			return nil, nil, 0, fmt.Errorf("specified ']' after '..' character: %w", ErrInvalidPathString)
+			return nil, nil, 0, errors.Wrapf(ErrInvalidPathString, "specified ']' after '..' character")
 		}
 	}
 end:
 	if start == cursor {
-		return nil, nil, 0, fmt.Errorf("not found recursive selector: %w", ErrInvalidPathString)
+		return nil, nil, 0, errors.Wrapf(ErrInvalidPathString, "not found recursive selector")
 	}
 	return b.Recursive(string(buf[start:cursor])), buf, cursor, nil
 }
 
 func parsePathDot(b *PathBuilder, buf []rune, cursor int) (*PathBuilder, []rune, int, error) {
-	if b.root == nil || b.node == nil {
-		return nil, nil, 0, fmt.Errorf("required '$' character at first: %w", ErrInvalidPathString)
-	}
 	length := len(buf)
 	if cursor+1 < length && buf[cursor+1] == '.' {
 		b, buf, c, err := parsePathRecursive(b, buf, cursor)
 		if err != nil {
-			return nil, nil, 0, err
+			return nil, nil, 0, errors.Wrapf(err, "failed to parse path of recursive")
 		}
 		return b, buf, c, nil
 	}
@@ -105,27 +103,23 @@ func parsePathDot(b *PathBuilder, buf []rune, cursor int) (*PathBuilder, []rune,
 		c := buf[cursor]
 		switch c {
 		case '$':
-			return nil, nil, 0, fmt.Errorf("specified '$' after '.' character: %w", ErrInvalidPathString)
+			return nil, nil, 0, errors.Wrapf(ErrInvalidPathString, "specified '$' after '.' character")
 		case '*':
-			return nil, nil, 0, fmt.Errorf("specified '*' after '.' character: %w", ErrInvalidPathString)
+			return nil, nil, 0, errors.Wrapf(ErrInvalidPathString, "specified '*' after '.' character")
 		case '.', '[':
 			goto end
 		case ']':
-			return nil, nil, 0, fmt.Errorf("specified ']' after '.' character: %w", ErrInvalidPathString)
+			return nil, nil, 0, errors.Wrapf(ErrInvalidPathString, "specified ']' after '.' character")
 		}
 	}
 end:
 	if start == cursor {
-		return nil, nil, 0, fmt.Errorf("could not find by empty key: %w", ErrInvalidPathString)
+		return nil, nil, 0, errors.Wrapf(ErrInvalidPathString, "cloud not find by empty key")
 	}
 	return b.child(string(buf[start:cursor])), buf, cursor, nil
 }
 
 func parseQuotedKey(b *PathBuilder, buf []rune, cursor int) (*PathBuilder, []rune, int, error) {
-	if b.root == nil || b.node == nil {
-		return nil, nil, 0, fmt.Errorf("required '$' character at first: %w", ErrInvalidPathString)
-	}
-
 	cursor++ // skip single quote
 	start := cursor
 	length := len(buf)
@@ -142,35 +136,31 @@ func parseQuotedKey(b *PathBuilder, buf []rune, cursor int) (*PathBuilder, []run
 	}
 end:
 	if !foundEndDelim {
-		return nil, nil, 0, fmt.Errorf("could not find end delimiter for key: %w", ErrInvalidPathString)
+		return nil, nil, 0, errors.Wrapf(ErrInvalidPathString, "could not find end delimiter for key")
 	}
 	if start == cursor {
-		return nil, nil, 0, fmt.Errorf("could not find by empty key: %w", ErrInvalidPathString)
+		return nil, nil, 0, errors.Wrapf(ErrInvalidPathString, "could not find by empty key")
 	}
 	selector := buf[start:cursor]
 	cursor++
 	if cursor < length {
 		switch buf[cursor] {
 		case '$':
-			return nil, nil, 0, fmt.Errorf("specified '$' after '.' character: %w", ErrInvalidPathString)
+			return nil, nil, 0, errors.Wrapf(ErrInvalidPathString, "specified '$' after '.' character")
 		case '*':
-			return nil, nil, 0, fmt.Errorf("specified '*' after '.' character: %w", ErrInvalidPathString)
+			return nil, nil, 0, errors.Wrapf(ErrInvalidPathString, "specified '*' after '.' character")
 		case ']':
-			return nil, nil, 0, fmt.Errorf("specified ']' after '.' character: %w", ErrInvalidPathString)
+			return nil, nil, 0, errors.Wrapf(ErrInvalidPathString, "specified ']' after '.' character")
 		}
 	}
 	return b.child(string(selector)), buf, cursor, nil
 }
 
 func parsePathIndex(b *PathBuilder, buf []rune, cursor int) (*PathBuilder, []rune, int, error) {
-	if b.root == nil || b.node == nil {
-		return nil, nil, 0, fmt.Errorf("required '$' character at first: %w", ErrInvalidPathString)
-	}
-
 	length := len(buf)
 	cursor++ // skip '[' character
 	if length <= cursor {
-		return nil, nil, 0, fmt.Errorf("unexpected end of YAML Path: %w", ErrInvalidPathString)
+		return nil, nil, 0, errors.Wrapf(ErrInvalidPathString, "unexpected end of YAML Path")
 	}
 	c := buf[cursor]
 	switch c {
@@ -186,7 +176,7 @@ func parsePathIndex(b *PathBuilder, buf []rune, cursor int) (*PathBuilder, []run
 			break
 		}
 		if buf[cursor] != ']' {
-			return nil, nil, 0, fmt.Errorf("invalid character %s at %d: %w", string(buf[cursor]), cursor, ErrInvalidPathString)
+			return nil, nil, 0, errors.Wrapf(ErrInvalidPathString, "invalid character %s at %d", string(buf[cursor]), cursor)
 		}
 		numOrAll := string(buf[start:cursor])
 		if numOrAll == "*" {
@@ -194,11 +184,11 @@ func parsePathIndex(b *PathBuilder, buf []rune, cursor int) (*PathBuilder, []run
 		}
 		num, err := strconv.ParseInt(numOrAll, 10, 64)
 		if err != nil {
-			return nil, nil, 0, err
+			return nil, nil, 0, errors.Wrapf(err, "failed to parse number")
 		}
 		return b.Index(uint(num)), buf, cursor + 1, nil
 	}
-	return nil, nil, 0, fmt.Errorf("invalid character %q at %d: %w", c, cursor, ErrInvalidPathString)
+	return nil, nil, 0, errors.Wrapf(ErrInvalidPathString, "invalid character %s at %d", c, cursor)
 }
 
 // Path represent YAMLPath ( like a JSONPath ).
@@ -215,10 +205,10 @@ func (p *Path) String() string {
 func (p *Path) Read(r io.Reader, v interface{}) error {
 	node, err := p.ReadNode(r)
 	if err != nil {
-		return err
+		return errors.Wrapf(err, "failed to read node")
 	}
 	if err := Unmarshal([]byte(node.String()), v); err != nil {
-		return err
+		return errors.Wrapf(err, "failed to unmarshal")
 	}
 	return nil
 }
@@ -230,15 +220,15 @@ func (p *Path) ReadNode(r io.Reader) (ast.Node, error) {
 	}
 	var buf bytes.Buffer
 	if _, err := io.Copy(&buf, r); err != nil {
-		return nil, err
+		return nil, errors.Wrapf(err, "failed to copy from reader")
 	}
 	f, err := parser.ParseBytes(buf.Bytes(), 0)
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrapf(err, "failed to parse yaml")
 	}
 	node, err := p.FilterFile(f)
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrapf(err, "failed to filter from ast.File")
 	}
 	return node, nil
 }
@@ -247,10 +237,10 @@ func (p *Path) ReadNode(r io.Reader) (ast.Node, error) {
 func (p *Path) Filter(target, v interface{}) error {
 	b, err := Marshal(target)
 	if err != nil {
-		return err
+		return errors.Wrapf(err, "failed to marshal target value")
 	}
 	if err := p.Read(bytes.NewBuffer(b), v); err != nil {
-		return err
+		return errors.Wrapf(err, "failed to read")
 	}
 	return nil
 }
@@ -258,29 +248,22 @@ func (p *Path) Filter(target, v interface{}) error {
 // FilterFile filter from ast.File by YAMLPath.
 func (p *Path) FilterFile(f *ast.File) (ast.Node, error) {
 	for _, doc := range f.Docs {
-		// For simplicity, directives cannot be the target of operations
-		if doc.Body != nil && doc.Body.Type() == ast.DirectiveType {
-			continue
-		}
 		node, err := p.FilterNode(doc.Body)
 		if err != nil {
-			return nil, err
+			return nil, errors.Wrapf(err, "failed to filter node by path ( %s )", p.node)
 		}
 		if node != nil {
 			return node, nil
 		}
 	}
-	return nil, fmt.Errorf("failed to find path ( %s ): %w", p.node, ErrNotFoundNode)
+	return nil, errors.Wrapf(ErrNotFoundNode, "failed to find path ( %s )", p.node)
 }
 
 // FilterNode filter from node by YAMLPath.
 func (p *Path) FilterNode(node ast.Node) (ast.Node, error) {
-	if node == nil {
-		return nil, nil
-	}
 	n, err := p.node.filter(node)
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrapf(err, "failed to filter node by path ( %s )", p.node)
 	}
 	return n, nil
 }
@@ -289,14 +272,14 @@ func (p *Path) FilterNode(node ast.Node) (ast.Node, error) {
 func (p *Path) MergeFromReader(dst *ast.File, src io.Reader) error {
 	var buf bytes.Buffer
 	if _, err := io.Copy(&buf, src); err != nil {
-		return err
+		return errors.Wrapf(err, "failed to copy from reader")
 	}
 	file, err := parser.ParseBytes(buf.Bytes(), 0)
 	if err != nil {
-		return err
+		return errors.Wrapf(err, "failed to parse")
 	}
 	if err := p.MergeFromFile(dst, file); err != nil {
-		return err
+		return errors.Wrapf(err, "failed to merge file")
 	}
 	return nil
 }
@@ -305,11 +288,11 @@ func (p *Path) MergeFromReader(dst *ast.File, src io.Reader) error {
 func (p *Path) MergeFromFile(dst *ast.File, src *ast.File) error {
 	base, err := p.FilterFile(dst)
 	if err != nil {
-		return err
+		return errors.Wrapf(err, "failed to filter file")
 	}
 	for _, doc := range src.Docs {
 		if err := ast.Merge(base, doc); err != nil {
-			return err
+			return errors.Wrapf(err, "failed to merge")
 		}
 	}
 	return nil
@@ -319,10 +302,10 @@ func (p *Path) MergeFromFile(dst *ast.File, src *ast.File) error {
 func (p *Path) MergeFromNode(dst *ast.File, src ast.Node) error {
 	base, err := p.FilterFile(dst)
 	if err != nil {
-		return err
+		return errors.Wrapf(err, "failed to filter file")
 	}
 	if err := ast.Merge(base, src); err != nil {
-		return err
+		return errors.Wrapf(err, "failed to merge")
 	}
 	return nil
 }
@@ -331,14 +314,14 @@ func (p *Path) MergeFromNode(dst *ast.File, src ast.Node) error {
 func (p *Path) ReplaceWithReader(dst *ast.File, src io.Reader) error {
 	var buf bytes.Buffer
 	if _, err := io.Copy(&buf, src); err != nil {
-		return err
+		return errors.Wrapf(err, "failed to copy from reader")
 	}
 	file, err := parser.ParseBytes(buf.Bytes(), 0)
 	if err != nil {
-		return err
+		return errors.Wrapf(err, "failed to parse")
 	}
 	if err := p.ReplaceWithFile(dst, file); err != nil {
-		return err
+		return errors.Wrapf(err, "failed to replace file")
 	}
 	return nil
 }
@@ -347,7 +330,7 @@ func (p *Path) ReplaceWithReader(dst *ast.File, src io.Reader) error {
 func (p *Path) ReplaceWithFile(dst *ast.File, src *ast.File) error {
 	for _, doc := range src.Docs {
 		if err := p.ReplaceWithNode(dst, doc); err != nil {
-			return err
+			return errors.Wrapf(err, "failed to replace file by path ( %s )", p.node)
 		}
 	}
 	return nil
@@ -356,15 +339,11 @@ func (p *Path) ReplaceWithFile(dst *ast.File, src *ast.File) error {
 // ReplaceNode replace ast.File with ast.Node.
 func (p *Path) ReplaceWithNode(dst *ast.File, node ast.Node) error {
 	for _, doc := range dst.Docs {
-		// For simplicity, directives cannot be the target of operations
-		if doc.Body != nil && doc.Body.Type() == ast.DirectiveType {
-			continue
-		}
 		if node.Type() == ast.DocumentType {
 			node = node.(*ast.DocumentNode).Body
 		}
 		if err := p.node.replace(doc.Body, node); err != nil {
-			return err
+			return errors.Wrapf(err, "failed to replace node by path ( %s )", p.node)
 		}
 	}
 	return nil
@@ -372,7 +351,7 @@ func (p *Path) ReplaceWithNode(dst *ast.File, node ast.Node) error {
 
 // AnnotateSource add annotation to passed source ( see section 5.1 in README.md ).
 func (p *Path) AnnotateSource(source []byte, colored bool) ([]byte, error) {
-	file, err := parser.ParseBytes(source, 0)
+	file, err := parser.ParseBytes([]byte(source), 0)
 	if err != nil {
 		return nil, err
 	}
@@ -489,11 +468,11 @@ func (n *rootNode) String() string {
 
 func (n *rootNode) filter(node ast.Node) (ast.Node, error) {
 	if n.child == nil {
-		return node, nil
+		return nil, nil
 	}
 	filtered, err := n.child.filter(node)
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrapf(err, "failed to filter")
 	}
 	return filtered, nil
 }
@@ -503,7 +482,7 @@ func (n *rootNode) replace(node ast.Node, target ast.Node) error {
 		return nil
 	}
 	if err := n.child.replace(node, target); err != nil {
-		return err
+		return errors.Wrapf(err, "failed to replace")
 	}
 	return nil
 }
@@ -535,7 +514,7 @@ func (n *selectorNode) filter(node ast.Node) (ast.Node, error) {
 					var err error
 					key, err = strconv.Unquote(key)
 					if err != nil {
-						return nil, err
+						return nil, errors.Wrapf(err, "failed to unquote")
 					}
 				case '\'':
 					if len(key) > 1 && key[len(key)-1] == '\'' {
@@ -549,13 +528,13 @@ func (n *selectorNode) filter(node ast.Node) (ast.Node, error) {
 				}
 				filtered, err := n.child.filter(value.Value)
 				if err != nil {
-					return nil, err
+					return nil, errors.Wrapf(err, "failed to filter")
 				}
 				return filtered, nil
 			}
 		}
 	case ast.MappingValueType:
-		value, _ := node.(*ast.MappingValueNode)
+		value := node.(*ast.MappingValueNode)
 		key := value.Key.GetToken().Value
 		if key == selector {
 			if n.child == nil {
@@ -563,12 +542,12 @@ func (n *selectorNode) filter(node ast.Node) (ast.Node, error) {
 			}
 			filtered, err := n.child.filter(value.Value)
 			if err != nil {
-				return nil, err
+				return nil, errors.Wrapf(err, "failed to filter")
 			}
 			return filtered, nil
 		}
 	default:
-		return nil, fmt.Errorf("expected node type is map or map value. but got %s: %w", node.Type(), ErrInvalidQuery)
+		return nil, errors.Wrapf(ErrInvalidQuery, "expected node type is map or map value. but got %s", node.Type())
 	}
 	return nil, nil
 }
@@ -580,11 +559,11 @@ func (n *selectorNode) replaceMapValue(value *ast.MappingValueNode, target ast.N
 	}
 	if n.child == nil {
 		if err := value.Replace(target); err != nil {
-			return err
+			return errors.Wrapf(err, "failed to replace")
 		}
 	} else {
 		if err := n.child.replace(value.Value, target); err != nil {
-			return err
+			return errors.Wrapf(err, "failed to replace")
 		}
 	}
 	return nil
@@ -595,16 +574,16 @@ func (n *selectorNode) replace(node ast.Node, target ast.Node) error {
 	case ast.MappingType:
 		for _, value := range node.(*ast.MappingNode).Values {
 			if err := n.replaceMapValue(value, target); err != nil {
-				return err
+				return errors.Wrapf(err, "failed to replace map value")
 			}
 		}
 	case ast.MappingValueType:
-		value, _ := node.(*ast.MappingValueNode)
+		value := node.(*ast.MappingValueNode)
 		if err := n.replaceMapValue(value, target); err != nil {
-			return err
+			return errors.Wrapf(err, "failed to replace map value")
 		}
 	default:
-		return fmt.Errorf("expected node type is map or map value. but got %s: %w", node.Type(), ErrInvalidQuery)
+		return errors.Wrapf(ErrInvalidQuery, "expected node type is map or map value. but got %s", node.Type())
 	}
 	return nil
 }
@@ -633,11 +612,11 @@ func newIndexNode(selector uint) *indexNode {
 
 func (n *indexNode) filter(node ast.Node) (ast.Node, error) {
 	if node.Type() != ast.SequenceType {
-		return nil, fmt.Errorf("expected sequence type node. but got %s: %w", node.Type(), ErrInvalidQuery)
+		return nil, errors.Wrapf(ErrInvalidQuery, "expected sequence type node. but got %s", node.Type())
 	}
-	sequence, _ := node.(*ast.SequenceNode)
+	sequence := node.(*ast.SequenceNode)
 	if n.selector >= uint(len(sequence.Values)) {
-		return nil, fmt.Errorf("expected index is %d. but got sequences has %d items: %w", n.selector, len(sequence.Values), ErrInvalidQuery)
+		return nil, errors.Wrapf(ErrInvalidQuery, "expected index is %d. but got sequences has %d items", n.selector, sequence.Values)
 	}
 	value := sequence.Values[n.selector]
 	if n.child == nil {
@@ -645,27 +624,27 @@ func (n *indexNode) filter(node ast.Node) (ast.Node, error) {
 	}
 	filtered, err := n.child.filter(value)
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrapf(err, "failed to filter")
 	}
 	return filtered, nil
 }
 
 func (n *indexNode) replace(node ast.Node, target ast.Node) error {
 	if node.Type() != ast.SequenceType {
-		return fmt.Errorf("expected sequence type node. but got %s: %w", node.Type(), ErrInvalidQuery)
+		return errors.Wrapf(ErrInvalidQuery, "expected sequence type node. but got %s", node.Type())
 	}
-	sequence, _ := node.(*ast.SequenceNode)
+	sequence := node.(*ast.SequenceNode)
 	if n.selector >= uint(len(sequence.Values)) {
-		return fmt.Errorf("expected index is %d. but got sequences has %d items: %w", n.selector, len(sequence.Values), ErrInvalidQuery)
+		return errors.Wrapf(ErrInvalidQuery, "expected index is %d. but got sequences has %d items", n.selector, sequence.Values)
 	}
 	if n.child == nil {
 		if err := sequence.Replace(int(n.selector), target); err != nil {
-			return err
+			return errors.Wrapf(err, "failed to replace")
 		}
 		return nil
 	}
 	if err := n.child.replace(sequence.Values[n.selector], target); err != nil {
-		return err
+		return errors.Wrapf(err, "failed to replace")
 	}
 	return nil
 }
@@ -698,9 +677,9 @@ func (n *indexAllNode) String() string {
 
 func (n *indexAllNode) filter(node ast.Node) (ast.Node, error) {
 	if node.Type() != ast.SequenceType {
-		return nil, fmt.Errorf("expected sequence type node. but got %s: %w", node.Type(), ErrInvalidQuery)
+		return nil, errors.Wrapf(ErrInvalidQuery, "expected sequence type node. but got %s", node.Type())
 	}
-	sequence, _ := node.(*ast.SequenceNode)
+	sequence := node.(*ast.SequenceNode)
 	if n.child == nil {
 		return sequence, nil
 	}
@@ -709,7 +688,7 @@ func (n *indexAllNode) filter(node ast.Node) (ast.Node, error) {
 	for _, value := range sequence.Values {
 		filtered, err := n.child.filter(value)
 		if err != nil {
-			return nil, err
+			return nil, errors.Wrapf(err, "failed to filter")
 		}
 		out.Values = append(out.Values, filtered)
 	}
@@ -718,20 +697,20 @@ func (n *indexAllNode) filter(node ast.Node) (ast.Node, error) {
 
 func (n *indexAllNode) replace(node ast.Node, target ast.Node) error {
 	if node.Type() != ast.SequenceType {
-		return fmt.Errorf("expected sequence type node. but got %s: %w", node.Type(), ErrInvalidQuery)
+		return errors.Wrapf(ErrInvalidQuery, "expected sequence type node. but got %s", node.Type())
 	}
-	sequence, _ := node.(*ast.SequenceNode)
+	sequence := node.(*ast.SequenceNode)
 	if n.child == nil {
 		for idx := range sequence.Values {
 			if err := sequence.Replace(idx, target); err != nil {
-				return err
+				return errors.Wrapf(err, "failed to replace")
 			}
 		}
 		return nil
 	}
 	for _, value := range sequence.Values {
 		if err := n.child.replace(value, target); err != nil {
-			return err
+			return errors.Wrapf(err, "failed to replace")
 		}
 	}
 	return nil
@@ -764,7 +743,7 @@ func (n *recursiveNode) filterNode(node ast.Node) (*ast.SequenceNode, error) {
 		for _, value := range typedNode.Values {
 			seq, err := n.filterNode(value)
 			if err != nil {
-				return nil, err
+				return nil, errors.Wrapf(err, "failed to filter")
 			}
 			sequence.Values = append(sequence.Values, seq.Values...)
 		}
@@ -775,14 +754,14 @@ func (n *recursiveNode) filterNode(node ast.Node) (*ast.SequenceNode, error) {
 		}
 		seq, err := n.filterNode(typedNode.Value)
 		if err != nil {
-			return nil, err
+			return nil, errors.Wrapf(err, "failed to filter")
 		}
 		sequence.Values = append(sequence.Values, seq.Values...)
 	case *ast.SequenceNode:
 		for _, value := range typedNode.Values {
 			seq, err := n.filterNode(value)
 			if err != nil {
-				return nil, err
+				return nil, errors.Wrapf(err, "failed to filter")
 			}
 			sequence.Values = append(sequence.Values, seq.Values...)
 		}
@@ -793,7 +772,7 @@ func (n *recursiveNode) filterNode(node ast.Node) (*ast.SequenceNode, error) {
 func (n *recursiveNode) filter(node ast.Node) (ast.Node, error) {
 	sequence, err := n.filterNode(node)
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrapf(err, "failed to filter")
 	}
 	sequence.Start = node.GetToken()
 	return sequence, nil
@@ -804,23 +783,23 @@ func (n *recursiveNode) replaceNode(node ast.Node, target ast.Node) error {
 	case *ast.MappingNode:
 		for _, value := range typedNode.Values {
 			if err := n.replaceNode(value, target); err != nil {
-				return err
+				return errors.Wrapf(err, "failed to replace")
 			}
 		}
 	case *ast.MappingValueNode:
 		key := typedNode.Key.GetToken().Value
 		if n.selector == key {
 			if err := typedNode.Replace(target); err != nil {
-				return err
+				return errors.Wrapf(err, "failed to replace")
 			}
 		}
 		if err := n.replaceNode(typedNode.Value, target); err != nil {
-			return err
+			return errors.Wrapf(err, "failed to replace")
 		}
 	case *ast.SequenceNode:
 		for _, value := range typedNode.Values {
 			if err := n.replaceNode(value, target); err != nil {
-				return err
+				return errors.Wrapf(err, "failed to replace")
 			}
 		}
 	}
@@ -829,7 +808,7 @@ func (n *recursiveNode) replaceNode(node ast.Node, target ast.Node) error {
 
 func (n *recursiveNode) replace(node ast.Node, target ast.Node) error {
 	if err := n.replaceNode(node, target); err != nil {
-		return err
+		return errors.Wrapf(err, "failed to replace")
 	}
 	return nil
 }

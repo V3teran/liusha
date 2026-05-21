@@ -5,6 +5,7 @@ import (
 	"math"
 	"strings"
 
+	"github.com/fatih/color"
 	"github.com/goccy/go-yaml/ast"
 	"github.com/goccy/go-yaml/token"
 )
@@ -28,7 +29,6 @@ type Printer struct {
 	Bool             PrintFunc
 	String           PrintFunc
 	Number           PrintFunc
-	Comment          PrintFunc
 }
 
 func defaultLineNumberFormat(num int) string {
@@ -80,11 +80,6 @@ func (p *Printer) property(tk *token.Token) *Property {
 	case token.IntegerType, token.FloatType:
 		if p.Number != nil {
 			return p.Number()
-		}
-		return prop
-	case token.CommentType:
-		if p.Comment != nil {
-			return p.Comment()
 		}
 		return prop
 	default:
@@ -149,47 +144,47 @@ func (p *Printer) PrintNode(node ast.Node) []byte {
 	return []byte(fmt.Sprintf("%+v\n", node))
 }
 
+const escape = "\x1b"
+
+func format(attr color.Attribute) string {
+	return fmt.Sprintf("%s[%dm", escape, attr)
+}
+
 func (p *Printer) setDefaultColorSet() {
 	p.Bool = func() *Property {
 		return &Property{
-			Prefix: format(ColorFgHiMagenta),
-			Suffix: format(ColorReset),
+			Prefix: format(color.FgHiMagenta),
+			Suffix: format(color.Reset),
 		}
 	}
 	p.Number = func() *Property {
 		return &Property{
-			Prefix: format(ColorFgHiMagenta),
-			Suffix: format(ColorReset),
+			Prefix: format(color.FgHiMagenta),
+			Suffix: format(color.Reset),
 		}
 	}
 	p.MapKey = func() *Property {
 		return &Property{
-			Prefix: format(ColorFgHiCyan),
-			Suffix: format(ColorReset),
+			Prefix: format(color.FgHiCyan),
+			Suffix: format(color.Reset),
 		}
 	}
 	p.Anchor = func() *Property {
 		return &Property{
-			Prefix: format(ColorFgHiYellow),
-			Suffix: format(ColorReset),
+			Prefix: format(color.FgHiYellow),
+			Suffix: format(color.Reset),
 		}
 	}
 	p.Alias = func() *Property {
 		return &Property{
-			Prefix: format(ColorFgHiYellow),
-			Suffix: format(ColorReset),
+			Prefix: format(color.FgHiYellow),
+			Suffix: format(color.Reset),
 		}
 	}
 	p.String = func() *Property {
 		return &Property{
-			Prefix: format(ColorFgHiGreen),
-			Suffix: format(ColorReset),
-		}
-	}
-	p.Comment = func() *Property {
-		return &Property{
-			Prefix: format(ColorFgHiBlack),
-			Suffix: format(ColorReset),
+			Prefix: format(color.FgHiGreen),
+			Suffix: format(color.Reset),
 		}
 	}
 }
@@ -197,9 +192,9 @@ func (p *Printer) setDefaultColorSet() {
 func (p *Printer) PrintErrorMessage(msg string, isColored bool) string {
 	if isColored {
 		return fmt.Sprintf("%s%s%s",
-			format(ColorFgHiRed),
+			format(color.FgHiRed),
 			msg,
-			format(ColorReset),
+			format(color.Reset),
 		)
 	}
 	return msg
@@ -251,7 +246,10 @@ func (p *Printer) isNewLineLastChar(s string) bool {
 }
 
 func (p *Printer) printBeforeTokens(tk *token.Token, minLine, extLine int) token.Tokens {
-	for tk.Prev != nil {
+	for {
+		if tk.Prev == nil {
+			break
+		}
 		if tk.Prev.Position.Line < minLine {
 			break
 		}
@@ -319,7 +317,8 @@ func (p *Printer) setupErrorTokenFormat(annotateLine int, isColored bool) {
 	p.LineNumber = true
 	p.LineNumberFormat = func(num int) string {
 		if isColored {
-			return colorize(prefix(annotateLine, num), ColorBold, ColorFgHiWhite)
+			fn := color.New(color.Bold, color.FgHiWhite).SprintFunc()
+			return fn(prefix(annotateLine, num))
 		}
 		return prefix(annotateLine, num)
 	}
