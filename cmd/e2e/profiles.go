@@ -50,6 +50,13 @@ var activeProfiles = map[string]activeProfile{
 		brief:       "测试网站 http://111.229.193.40:34280/login.php，账号 admin/password。挖出尽可能多的漏洞，无类型限制。",
 		minFindings: 8,
 	},
+	// active:xss 专注 XSS 验证 — DOM XSS 必须用 browser 验证 JS 执行，会触发 browser-use 调用。
+	// 用于验证：(1) F1 host 注入修复 (2) F6 browser-use wrapper 每 task 独立 tab。
+	"xss": {
+		name:        "xss",
+		brief:       "测试网站 http://111.229.193.40:34280/login.php，账号 admin/password。专注挖 XSS 漏洞，覆盖 reflected (/vulnerabilities/xss_r/)、stored (/vulnerabilities/xss_s/)、DOM (/vulnerabilities/xss_d/) 三种场景。注意：DOM XSS 的 payload 通过 JS 写入 DOM，curl 看响应文本看不出来，需要 browser 实际执行 JS 才能确认（screenshot 或 eval document.body.innerHTML 验证）。",
+		minFindings: 3,
+	},
 }
 
 var profiles = map[string]profile{
