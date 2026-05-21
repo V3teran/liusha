@@ -6,8 +6,8 @@ package worker
 //
 // 这里的 Role 是 **asynq 调度层** 的标识，**不是** hunter agent 内部角色。
 // hunter 小队下的四种角色（tracker / commander / striker / inspector）
-// 都走同一个 RoleHunter queue；具体 agent 角色记录在 agent_task.role 列
-// （cmd/api / ingestor / active_spawner 创建 agent_task 时按 mode + isParent 写入），
+// 都走同一个 RoleHunter queue；具体 agent 角色记录在 hunter.role 列
+// （cmd/api / ingestor / active_spawner 创建 hunter run 时按 mode + isParent 写入），
 // 跟 asynq 路由解耦。
 //
 //   - RoleHunter   = 所有 hunter task 走的统一 queue

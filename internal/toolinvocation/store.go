@@ -61,7 +61,7 @@ func (s *Store) Append(ctx context.Context, v Invocation) (int64, error) {
 	return id, nil
 }
 
-// ListByTask 按 created_at ASC 列出指定 agent_task 的全部工具调用。
+// ListByTask 按 created_at ASC 列出指定 hunter run 的全部工具调用。
 func (s *Store) ListByTask(ctx context.Context, taskID string) ([]Invocation, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT `+colsSelect+`

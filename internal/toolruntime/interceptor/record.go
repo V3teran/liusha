@@ -15,7 +15,7 @@ var recordLog = logx.New("toolruntime.record")
 
 // Record 把每次 tool Execute 持久化为 tool_invocation 行（telemetry）。
 //
-// 参数 agentTaskID / ownerType / ownerID 是 registry-scope（per agent_task）：
+// 参数 agentTaskID / ownerType / ownerID 是 registry-scope（per hunter run）：
 // hunter/skill.go NewBuilder 每次构造 reg 时把当下 task 的标识捕获进闭包。
 //
 // 写入 best-effort：Append 失败仅 log warn 不影响业务返回（Execute 仍正常完成）。

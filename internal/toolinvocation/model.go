@@ -19,7 +19,7 @@ import (
 // 完整 output 仍在 LLM message history（llm_invocation.messages jsonb）里。
 type Invocation struct {
 	ID            int64
-	AgentTaskID   string // FK→agent_task.id
+	AgentTaskID   string // FK→hunter.id（列名仍 agent_task_id 是历史包袱）
 	OwnerType     string // 'passive_session' / 'active_scan'
 	OwnerID       string
 	ToolName      string          // 'sqlmap' / 'curl' / 'write_finding' / ...
