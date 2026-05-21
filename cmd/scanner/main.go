@@ -95,7 +95,7 @@ func main() {
 		CompactThreshold: cfg.Notes.CompactThreshold,
 		CompactBatchSize: cfg.Notes.CompactBatchSize,
 		CompactTimeout:   time.Duration(cfg.Notes.CompactTimeoutSeconds) * time.Second,
-	})
+	}).WithLogger(logger)
 	pricing := observability.NewPricing(cfg.Pricing)
 
 	// hunter system prompt 已编译期 embed（internal/builder/hunter/system_prompt.md），

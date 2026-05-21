@@ -21,7 +21,6 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
-	"github.com/rs/zerolog/pkgerrors"
 	"gopkg.in/natefinch/lumberjack.v2"
 )
 
@@ -167,9 +166,7 @@ func applyGlobals(cfg config) {
 	zerolog.SetGlobalLevel(cfg.level)
 	zerolog.MessageFieldName = "message"
 	zerolog.ErrorFieldName = "error"
-	zerolog.ErrorStackFieldName = "stack"
 	zerolog.TimeFieldFormat = time.RFC3339Nano
-	zerolog.ErrorStackMarshaler = pkgerrors.MarshalStack
 	zerolog.CallerMarshalFunc = shortCaller
 }
 

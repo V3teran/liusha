@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/redis/go-redis/v9"
+	"github.com/rs/zerolog"
 )
 
 // Store 是 hunter 短期工作笔记的最小读写接口。
@@ -95,6 +96,7 @@ type RedisStore struct {
 	client    *redis.Client
 	cfg       Config
 	compactor Compactor // 可空——nil 时退化为 LTRIM 行为
+	logger    zerolog.Logger
 }
 
 // NewRedis 构造 RedisStore；client 必填，cfg 字段为 0 走兜底常量。
@@ -107,6 +109,12 @@ func NewRedis(client *redis.Client, cfg Config) *RedisStore {
 // 链式返回 *RedisStore 以便装配处一行串联。
 func (s *RedisStore) WithCompactor(c Compactor) *RedisStore {
 	s.compactor = c
+	return s
+}
+
+// WithLogger 注入 logger，给 fallbackTrim 等边缘失败路径输出 warn。零值 logger 不输出。
+func (s *RedisStore) WithLogger(l zerolog.Logger) *RedisStore {
+	s.logger = l
 	return s
 }
 
@@ -201,8 +209,12 @@ func (s *RedisStore) tryCompact(parentCtx context.Context, k string) {
 }
 
 // fallbackTrim 蒸馏失败时的兜底：直接 LTRIM 末尾 MaxEntries 条，丢最旧的。
+// LTRIM 再失败仅 warn——这是 best-effort 二次兜底，notes key 无限增长会吃掉 LLM context，
+// 但生产环境基本不会同时遇到"蒸馏失败 + LTRIM 失败"。
 func (s *RedisStore) fallbackTrim(ctx context.Context, k string) {
-	_ = s.client.LTrim(ctx, k, int64(-s.cfg.MaxEntries), -1).Err()
+	if err := s.client.LTrim(ctx, k, int64(-s.cfg.MaxEntries), -1).Err(); err != nil {
+		s.logger.Warn().Err(err).Str("key", k).Msg("notes fallbackTrim LTRIM 失败（key 可能无限增长）")
+	}
 }
 
 // ReadNotes 读 (owner, host) 范围全部 entry，包成 {"notes":[<raw entry>,...]} 返回。

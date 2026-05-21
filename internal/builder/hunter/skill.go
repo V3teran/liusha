@@ -253,9 +253,6 @@ func NewBuilder(deps Deps) skill.Builder {
 			return react.Config{}, fmt.Errorf("hunter register tools: %w", errors.Join(regErrs...))
 		}
 
-		// system prompt 来自包级 //go:embed system_prompt_{shared,tracker,commander,striker}.md，无运行时 fs 失败路径。
-		// hunter 自由收手——run_command 内部 tail_bytes (8KB×2) 已把单次 Output
-		// 钳在 ~17KB，不需要再加一层截断。
 		reg.Use(
 			interceptor.Observe(),
 			interceptor.Record(deps.ToolInvocations, p.TaskID, p.OwnerType, p.OwnerID),

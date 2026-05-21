@@ -196,7 +196,10 @@ func Run(ctx context.Context, cfg Config) (Outcome, error) {
 		}
 		wg.Wait()
 
-		// 串行处理结果（保 tool_call_id 顺序、汇总 done）
+		// 串行处理结果：tool_result message 必须按 tool_call_id 原始顺序追加，
+		// Anthropic/OpenAI 协议都要求与 assistant 那条消息里的 tool_calls 数组顺序一致——
+		// 乱序会导致 next-turn LLM Generate API 报错或行为不可预测。
+		// 这里 results 数组下标=tc 原始下标，遍历即保序。
 		var sawDone bool
 		for _, r := range results {
 			tc, tcRes, execErr := r.tc, r.res, r.err
