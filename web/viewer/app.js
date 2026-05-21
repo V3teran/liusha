@@ -436,11 +436,11 @@ function escapeHtml(s) {
     .replace(/'/g, '&#39;');
 }
 
-// ---------- LLM invocation 审计（按 agent_run_id 分组）----------
+// ---------- LLM invocation 审计（按 agent_task_id 分组）----------
 
 /**
  * fetch /llm/invocations/:eid → 渲染到 #panel-invocations。
- * 按 agent_run_id 分组折叠（<details>），点开展示完整 16 字段（含 messages / result jsonb）。
+ * 按 agent_task_id 分组折叠（<details>），点开展示完整 16 字段（含 messages / result jsonb）。
  * @param {string} eid owner_id
  * @param {string} apikey X-API-Key
  */
@@ -461,7 +461,7 @@ async function loadInvocations(eid, apikey) {
 
 /**
  * 渲染 invocation 分组到 #panel-invocations。
- * @param {{owner_id: string, total: number, groups: Array<{agent_run_id: string, count: number, invocations: Array}>}} data
+ * @param {{owner_id: string, total: number, groups: Array<{agent_task_id: string, count: number, invocations: Array}>}} data
  */
 function renderInvocations(data) {
   const panel = $('#panel-invocations');
@@ -490,7 +490,7 @@ function renderInvocations(data) {
 }
 
 function renderInvocationGroup(group) {
-  const arid = group.agent_run_id || 'unassigned';
+  const arid = group.agent_task_id || 'unassigned';
   const aridShort = arid === 'unassigned' ? arid : arid.slice(0, 8);
   const inTokens = group.invocations.reduce((s, i) => s + (i.in_tokens || 0), 0);
   const outTokens = group.invocations.reduce((s, i) => s + (i.out_tokens || 0), 0);
@@ -532,7 +532,7 @@ function renderInvocationCard(inv, stepIdx) {
       </summary>
       <dl class="inv-fields">
         <dt>id</dt><dd>${inv.id}</dd>
-        <dt>agent_run_id</dt><dd>${escapeHtml(inv.agent_run_id || '(null)')}</dd>
+        <dt>agent_task_id</dt><dd>${escapeHtml(inv.agent_task_id || '(null)')}</dd>
         <dt>owner_id</dt><dd>${escapeHtml(inv.owner_id || '(null)')}</dd>
         <dt>provider</dt><dd>${escapeHtml(inv.provider)}</dd>
         <dt>model</dt><dd>${escapeHtml(inv.model)}</dd>

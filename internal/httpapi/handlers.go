@@ -175,7 +175,7 @@ type CreateActiveScanRequest struct {
 
 // activeScanHandler 处理 POST /scan/active：校验 brief 非空 + 调 ActiveScanAPI 起任务。
 //
-// 成功返 200 + {owner_id, agent_run_id}；调用方据此查任务进度
+// 成功返 200 + {owner_id, agent_task_id}；调用方据此查任务进度
 // （viewer / GET /llm/invocations/:owner_id）。
 // 不等任务完成——异步 ReAct 由 scanner 进程消费。
 func activeScanHandler(api ActiveScanAPI) gin.HandlerFunc {
@@ -197,8 +197,8 @@ func activeScanHandler(api ActiveScanAPI) gin.HandlerFunc {
 			return
 		}
 		c.JSON(200, gin.H{
-			"owner_id": eid,
-			"agent_run_id":  taskID,
+			"owner_id":      eid,
+			"agent_task_id": taskID,
 		})
 	}
 }

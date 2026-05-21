@@ -431,7 +431,7 @@ html, body {
   border: 1px solid var(--border);
 }
 
-/* agent_run 分组（按 agent_run_id） */
+/* agent_run 分组（按 agent_task_id） */
 .inv-group {
   margin-bottom: 20px;
   border: 1px solid var(--border);

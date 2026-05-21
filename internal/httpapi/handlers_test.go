@@ -387,7 +387,7 @@ func (f *fakeActiveScan) CreateActiveScan(_ context.Context, brief string) (stri
 	return eid, tid, nil
 }
 
-// TestActiveScan_Created：正常路径 → 200 + {owner_id, agent_run_id}；fake 记录 brief 原文。
+// TestActiveScan_Created：正常路径 → 200 + {owner_id, agent_task_id}；fake 记录 brief 原文。
 func TestActiveScan_Created(t *testing.T) {
 	fs := &fakeActiveScan{}
 	srv := newTestServer(t, Deps{ActiveScan: fs})
@@ -410,13 +410,13 @@ func TestActiveScan_Created(t *testing.T) {
 	}
 	var out struct {
 		OwnerID    string `json:"owner_id"`
-		AgentRunID string `json:"agent_run_id"`
+		AgentTaskID string `json:"agent_task_id"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if out.OwnerID != "eid-active" || out.AgentRunID != "task-active" {
-		t.Fatalf("ids: oid=%q tid=%q", out.OwnerID, out.AgentRunID)
+	if out.OwnerID != "eid-active" || out.AgentTaskID != "task-active" {
+		t.Fatalf("ids: oid=%q tid=%q", out.OwnerID, out.AgentTaskID)
 	}
 	if fs.calls != 1 {
 		t.Fatalf("calls=%d, want 1", fs.calls)
