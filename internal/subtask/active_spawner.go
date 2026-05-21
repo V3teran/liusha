@@ -125,6 +125,8 @@ func (s *ActiveSpawner) Spawn(ctx context.Context, brief string, opts SpawnOptio
 	// pending → running 必须在 Registry.Register 之前——否则 SetRunning 失败时
 	// handle 已 Register 但 goroutine 没启 → 永 running 句柄污染 RunningCount/PreDoneCheck
 	// → commander done 永卡。
+	// 失败副作用：PG 留一行 pending 的 agent_task 永不会被消费（asynq 不入队 striker），
+	// 由下次 scanner 启动 CleanupOrphans 兜底回收。
 	if err := s.cfg.AgentRuns.SetRunning(ctx, childTID); err != nil {
 		return "", fmt.Errorf("agentrun.SetRunning(child): %w", err)
 	}

@@ -19,10 +19,9 @@ browser-use + chromium 已在沙箱预装，直接 `browser-use open <url>` 即�
 **完成路径**：
 1. 读 user prompt 注入的 notes / findings / lessons（commander 可能已经留了 recon observation 或 evidence handoff PoC）
 2. 按 brief + notes 深挖：run_command（curl/sqlmap/nmap/...）/ browser-use 交互
-3. 第一次拿到证据立刻 `write_finding`，**别**等把所有用户密码 / 全表数据 / 完整 RCE 链都跑完才写
-4. 后续 dump / 链路扩展走 `update_finding` 补强 evidence
-5. 把本次挖洞经验入 `write_lesson`（攻面分布 / payload 套路 / 框架陷阱）
-6. 全部完成调 `done()`
+3. 拿到证据立刻 `write_finding`（时机细节见 shared 反模式），后续 dump 走 `update_finding` 补强
+4. 把本次挖洞经验入 `write_lesson`（攻面分布 / payload 套路 / 框架陷阱）
+5. 全部完成调 `done()`
 
 ### evidence handoff（commander 已留 PoC 时的接收协议）
 
@@ -37,5 +36,4 @@ browser-use + chromium 已在沙箱预装，直接 `browser-use open <url>` 即�
 ### 反模式
 
 - ❌ **挖 brief 之外的范围**：会跟 commander 或其它 strikers 重复，触发 dedup 浪费
-- ❌ **延迟 write_finding**：第一次拿到证据（hydra `SUCCESS:` / sqlmap `vulnerable` / `uid=` 回显 / 反射 payload 完整回显）**立即** write，别等"完整链"才写
 - ❌ **`done` 前不 read_findings 自查**：DB UNIQUE 会无声合并重复 finding，浪费这次 turn 的 token

@@ -2,15 +2,13 @@
 // 状态机 pending → running → done | error | aborted。
 //
 // commander / striker 关系（subtask swarm）：
-//   - commander / 独立任务：parent_id = NULL（Go 层 CommanderID = ""）
-//   - striker：parent_id 指向commander agent_task.id；striker**不**入 asynq，
-//     由 internal/subtask 包在commander goroutine 内手动调 Store.Create 写入。
+//   - commander / 独立任务：commander_id = NULL
+//   - striker：commander_id 指向 commander agent_task.id；striker **不**入 asynq，
+//     由 internal/subtask 包在 commander goroutine 内手动调 Store.Create 写入。
 //     list_strikers 工具从 subtask.Registry 内存读，不查 PG（PG commander_id 列只供
-//     viewer 树渲染 + ListByOwner 一并取整个任务树）。
-//   - **崩溃恢复语义**：scanner 进程重启后，PG `commander_id` 列仅供展示——内存
-//     Registry 已丢，list_strikers 工具看不到崩溃前的 strikers；commander走 asynq
-//     MaxRetry(0) 不再重试，handle 入口 GetByID 见 status != pending 直接 SkipRetry。
-//     所以崩溃后任务树在 viewer 仍可见，但运行时commander / striker 关系不可从 PG 恢复。
+//     viewer 树渲染 + ListByOwner / ListByOwnerID 一并取整个任务树）。
+//
+// 崩溃恢复语义见 internal/subtask 包注释（Registry 内存态丢失后 striker 不可从 PG 恢复）。
 package agentrun
 
 import (

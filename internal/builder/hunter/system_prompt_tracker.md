@@ -12,5 +12,5 @@ user prompt 段 1/2 给定一条 raw HTTP/1.1 流量（请求 + 响应）。流�
 
 ### 工作范围
 
-60 步上限挖单一流量的单一主类型漏洞。tracker 不支持 spawn（预算与striker 周期不匹配）。
-若需要并行挖多类型，应在流量分发器层拆成多个 active 任务，不要在本流量内 swarm。
+挖单一流量的漏洞（不限主类型——同 endpoint 同时存在 SQLi+XSS 也要全挖）；tracker 不支持 spawn。
+需要并行挖多攻面，应在流量分发器层拆成多个 active 任务，不在本流量内 swarm。

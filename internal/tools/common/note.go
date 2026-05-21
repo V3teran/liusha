@@ -59,30 +59,19 @@ type WriteNote struct {
 // Name 返回工具名 "write_note"。
 func (a *WriteNote) Name() string { return "write_note" }
 
-//
-// 设计意图：明确区分 finding / note / lesson 三类记忆——
-//   - finding（结构化漏洞 PoC）
-//   - note（本次扫描的过程性事实，短期）
-//   - lesson（跨次扫描的长期经验）
-//
-// description 重点说"只能在 note 留痕的事"和"禁写"边界，防 LLM 把漏洞 PoC 误写进 note。
+// note vs finding vs lesson 三类记忆边界：
+//   - finding：结构化漏洞 PoC（可复现）
+//   - note：本次扫描的过程性事实（短期，owner 关闭即过期）
+//   - lesson：跨次扫描的长期经验
 func (a *WriteNote) Description() string {
-	return "写一条过程性事实到本 (owner + host) 信息黑板——" +
-		"\npassive 模式：同 host 跨多个 tracker 共享；" +
-		"\nactive 模式：当前长任务内 step 间外置记忆（防 ReAct context 滑窗压缩丢失早期决策；" +
-		"任务超 20 步建议主动写 note 留痕关键中间状态）。owner 关闭即过期。" +
-		"\n\n【必写】只能在 note 留痕的事：" +
-		"\n- 目标实例当前怪癖：本 host 现在的 server 行为（如『强制 security=impossible 需 cookie 覆盖』）" +
-		"\n- 小惊喜：扫描中发现的非漏洞但有价值的信号（待深挖的暴露端口、可疑 endpoint、奇怪报错、未来可能成为攻击面的线索）" +
+	return "写一条过程性事实到本 (owner + host) 信息黑板。passive 共享给同 host 后续 tracker；active 用作长任务 step 间外置记忆（防 ReAct 滑窗压缩丢早期决策）。owner 关闭即过期。" +
+		"\n\n【必写】仅适合 note 的内容：" +
+		"\n- 目标实例当前怪癖（如『强制 security=impossible 需 cookie 覆盖』）" +
+		"\n- 待深挖的线索：暴露端口、可疑 endpoint、奇怪报错" +
 		"\n- 失败死路：什么打法不通，避免后续 agent 重蹈" +
-		"\n- active 长任务关键中间状态：拿到的 cookie/token、上传的 webshell 路径、已测过的攻击路径（防上下文压缩后忘）" +
-		"\n\n【禁写】请改用对应工具：" +
-		"\n- 漏洞 PoC（具体可复现的漏洞）→ write_finding" +
-		"\n- 通用经验（默认密码、工具调用 pattern、稳定的目标特性）→ write_lesson" +
-		"\n- 已写入 finding 的内容（重复浪费 prompt 字数）" +
-		"\n\n【自律】写前先 read_notes 确认无同义条，避免重复贴；" +
-		"板满 200 条时老条目会被自动蒸馏成摘要（语义保留但细节丢失），" +
-		"关键发现请尽早 promote 到 finding/lesson。"
+		"\n- active 长任务关键中间状态：cookie/token、webshell 路径、已测攻击路径" +
+		"\n\n【禁写】（改用对应工具）：漏洞 PoC → write_finding；通用经验 → write_lesson；finding 里已写过的内容（重复浪费）。" +
+		"\n\n板满 200 条时老条目会被蒸馏成摘要（语义保留但细节丢失），关键发现请尽早 promote 到 finding/lesson。"
 }
 
 // ParametersJSON 给出 content 必填 schema。
