@@ -90,10 +90,11 @@ tools:
     category: utility
     description: |
       原生 HTTP 客户端。所有漏洞验证的瑞士军刀，sqlmap/python3 之前先用 curl 探 baseline。
-      Cookie 跨工具桥接：browser-use 浏览器 session 和 curl 是独立 cookie jar，
-      要从浏览器拿登录态给 curl 用：先 `browser-use cookies get`，再用 `-b "name=value;..."`
-      手拼 / 或转 Netscape cookies.txt（curl -b cookies.txt）。CSRF token 类 form 字段
-      须先 `curl GET` 拿页面 → grep token 值 → POST 带上。
+      Cookie 跨工具桥接（双向）：browser-use 浏览器和 curl 是独立 cookie jar。
+        - browser → curl：`browser-use cookies get` → 转 Netscape cookies.txt
+        - curl → browser：**`browser-use cookies import /tmp/cookies.json`** 一行注入（首选）；
+          单条 set：`browser-use cookies set name=PHPSESSID value=... domain=...`
+      CSRF token 类 form 字段须先 `curl GET` 拿页面 → grep token 值 → POST 带上。
   - name: python3
     category: utility
     description: 自定义脚本兜底（GraphQL/NoSQL 注入、复杂登录链、并发 fuzz、二阶段 payload、自定义编码绕过）。
@@ -111,9 +112,13 @@ tools:
       select <idx> <value> / scroll / back / keys / hover / dblclick / rightclick /
       eval <js>（页面 context 执行 JS 返回末值）/ extract（LLM 抽取数据）/
       python（执行 Playwright Python 代码，可访问 page/context/browser API）/
-      screenshot <path> / cookies / wait / get / close。
+      screenshot <path> / cookies {get|set|clear|import|export} / wait / get / close。
       共享 chromium daemon（cookies / session 跨 task 共享，登录不顶掉）+ 每 task 独立 tab
       （截图/浏览历史独立，commander/striker 并发 open 不互覆——自动按 TASK_ID 切 tab）。
       约定：screenshot 必须写到 $OUTPUT_DIR/xxx.png（沙箱只扫该目录把图作为附件回传给 LLM；
       写到 /tmp 等其它路径的图不会进 LLM 上下文）。chromium 首次 cold start 约 25-30s，
       第 1 个 browser-use 命令的 timeout_seconds 至少传 60，后续 session 复用 15s 够用。
+      **cookie 同步神器**（curl→browser 反向桥接）：curl 登录拿到 cookies 后，**一行注入**：
+        `browser-use cookies import /tmp/cookies.json` 批量导入（Playwright JSON 格式）
+        `browser-use cookies set name=PHPSESSID value=xxx domain=...` 设单条
+      **不要**用 `eval document.cookie=...` 同步——HttpOnly cookie 注入不了，会卡 20+ 步。
