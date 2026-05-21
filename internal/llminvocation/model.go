@@ -2,7 +2,7 @@
 // （含失败）落一行用于成本核算 + 路由审计。
 //
 // 列命名约定：
-//   - role 是"调用者角色"（hunter/reviewer/react_main），与 OpenAI message.role 区分
+//   - role 是"调用者角色"（tracker/commander/striker/inspector/react_main），与 OpenAI message.role 区分
 //   - messages / result 是 jsonb 列（完整输入/输出 payload，审计回放用）
 package llminvocation
 
@@ -27,7 +27,7 @@ type Invocation struct {
 	LatencyMs    int
 	FinishReason string
 	Error        string
-	Role         string // 调用者角色：hunter / reviewer 等；空 = 未分类
+	Role         string // 调用者角色：tracker / commander / striker / inspector 等；空 = 未分类
 	Messages     []byte // jsonb：输入消息数组（[]llm.Message 序列化）
 	Result       []byte // jsonb：LLM 返回（llm.Result 序列化）
 	CreatedAt    time.Time

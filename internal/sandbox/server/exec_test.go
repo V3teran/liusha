@@ -164,7 +164,7 @@ func TestHandleExec_TaskIDValidation(t *testing.T) {
 // TestHandleExec_PerTaskIsolation 验证 2 个 task 写到 OUTPUT_DIR 的文件互不可见。
 //
 // task-a 写 a.txt；task-b 写 b.txt；task-a 再扫描时只看到 a.txt。
-// 模拟 subtask swarm 父子并发场景的核心隔离不变量。
+// 模拟 subtask swarm commander / striker 并发场景的核心隔离不变量。
 func TestHandleExec_PerTaskIsolation(t *testing.T) {
 	setupTestRoots(t)
 	srv := New()

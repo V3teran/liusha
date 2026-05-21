@@ -35,7 +35,7 @@ redis:
 
 # ---- LLM 多 provider 路由（黑客松借鉴：创新 11）----
 # default_provider:  主 ReAct（sniffer / 子任务）共用，重模型
-# light_provider:    Reviewer / Compaction 走的轻模型，省成本
+# light_provider:    Inspector / Compaction 走的轻模型，省成本
 # vision_provider:   v1.5 的 browser.screenshot 用，v1 仅作为备用主 LLM
 # fallback_provider: 429/529 退避耗尽后切到，retry 中间件用
 llm:
@@ -46,10 +46,12 @@ llm:
   max_steps: 30                 # ReAct 单任务步数上限，被 Role.Budget 覆盖
   max_tokens_per_call: 4096
   # 双 namespace：把"真 agent"与"single-shot utility"语义分开。
+  # 四角色：tracker（passive 侦察兵）/ commander（active 父指挥官）/ striker（active 子士兵）/ inspector（督查官）
   agents:
-    hunter:        default_provider   # passive hunter ReAct（流量驱动，纯文本路径）
-    hunter_vision: vision_provider    # active hunter ReAct（可含 browser-use 截图，走 multimodal provider）
-    reviewer:      light_provider     # 旁路过程判官（每 5 步评估方向）
+    tracker:   default_provider   # passive 单 agent（流量驱动，纯文本路径）
+    commander: vision_provider    # active 父任务（recon + spawn 决策，需 browser-use 截图 → multimodal）
+    striker:   vision_provider    # active 子任务（深挖单点，需 browser-use 截图 → multimodal）
+    inspector: light_provider     # 旁路过程督查官（每 5 步评估方向）
 
   # spec §8.5 错误码退避表（429/529/5xx/网络超时）
   retry:
@@ -176,7 +178,7 @@ proxy:
     - .woff2
   exclude_content_types: []     # Content-Type 黑名单（支持 image/* 通配；大小写不敏感）
   exclude_status_codes:         # 状态码黑名单：原始流量为 4xx/5xx 表示业务异常，扫描无意义
-    # 注：v0024 单层 hunter 后由 sandbox 工具（sqlmap/curl/nuclei…）直接打目标，不再走 internal/replay 重放
+    # 注：v0024 重构后 hunter 直接由 sandbox 工具（sqlmap/curl/nuclei…）直接打目标，不再走 internal/replay 重放
     - 400      # Bad Request
     - 401      # Unauthorized
     - 403      # Forbidden
@@ -267,11 +269,11 @@ scanner:
 
 # ---- 主 ReAct 循环参数 ----
 react:
-  reviewer_every_steps: 5                  # 每 N 步触发一次 Reviewer 评估
-  reviewer_args_truncate: 256              # 喂 reviewer LLM 的 tool args 截断字节数（80B 看不出意图）
-  reviewer_obs_truncate: 400               # 喂 reviewer LLM 的 ObsSummary 截断字节数
-  reviewer_findings_limit: 30              # reviewer 看 host 已有 finding 段条数（按 created_at DESC）
-  reviewer_lessons_limit: 30               # reviewer 看 host lesson 段条数（按 priority DESC）
+  inspector_every_steps: 5                  # 每 N 步触发一次 Inspector 评估
+  inspector_args_truncate: 256              # 喂 inspector LLM 的 tool args 截断字节数（80B 看不出意图）
+  inspector_obs_truncate: 400               # 喂 inspector LLM 的 ObsSummary 截断字节数
+  inspector_findings_limit: 30              # inspector 看 host 已有 finding 段条数（按 created_at DESC）
+  inspector_lessons_limit: 30               # inspector 看 host lesson 段条数（按 priority DESC）
 
 # ---- 容器化执行参数（sandbox.Launcher + external.RunCommand）----
 # 容器内存/CPU/并发数等运行时参数下放到 sandbox.DockerLauncher 内部硬编码

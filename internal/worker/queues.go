@@ -2,15 +2,20 @@
 // 提供 Client（生产者）+ Mux（消费者路由），按 Role 路由到 hunter / dispatch 队列。
 package worker
 
-// Role 表示一个任务由哪种 agent 执行。
+// Role 表示 asynq queue 路由 enum——决定一个任务入哪个 redis queue。
 //
-// 单层 hunter agent 架构。
-//   - hunter   = 漏洞挖掘单一 agent（接 1 条流量，自由组合工具挖漏洞）
-//   - dispatch = 备用调度队列（v1.5+ 优先级或专属队列）
+// 这里的 Role 是 **asynq 调度层** 的标识，**不是** hunter agent 内部角色。
+// hunter 小队下的四种角色（tracker / commander / striker / inspector）
+// 都走同一个 RoleHunter queue；具体 agent 角色记录在 agent_task.role 列
+// （cmd/api / ingestor / active_spawner 创建 agent_task 时按 mode + isParent 写入），
+// 跟 asynq 路由解耦。
+//
+//   - RoleHunter   = 所有 hunter task 走的统一 queue
+//   - RoleDispatch = 备用调度队列（v1.5+ 优先级或专属队列）
 type Role string
 
 const (
-	// RoleHunter 漏洞挖掘 agent 任务。
+	// RoleHunter hunter 任务统一 queue（hunter 小队的全部 agent task）。
 	RoleHunter Role = "hunter"
 	// RoleDispatch 备用调度队列（v1.5+ 优先级或专属队列）。
 	RoleDispatch Role = "dispatch"

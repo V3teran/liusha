@@ -10,14 +10,14 @@ import (
 	"github.com/V3teran/liusha/internal/llm"
 )
 
-// NotesReader 是 LLMReviewer 读取 owner 共享笔记板的最小依赖。
+// NotesReader 是 LLMInspector 读取 owner 共享笔记板的最小依赖。
 // *notes.RedisStore 隐式满足该接口（internal/notes 包），测试可注入 stub。
-// reviewer 是 per-task 实例化（绑当前 task 的 host），只读本 host 笔记。
+// inspector 是 per-task 实例化（绑当前 task 的 host），只读本 host 笔记。
 type NotesReader interface {
 	ReadNotes(ctx context.Context, id, host string) ([]byte, error)
 }
 
-// LLMReviewer 用 light_provider LLM 在 ReAct 循环每 N 步做一次进度评估。
+// LLMInspector 用 light_provider LLM 在 ReAct 循环每 N 步做一次进度评估。
 //
 // 设计要点：
 //   - 不阻塞主循环：LLM 错 / JSON 解析失败 / 非法 decision 一律回退 continue；
@@ -25,71 +25,71 @@ type NotesReader interface {
 //   - 严格 JSON 输出契约：`{"decision":"...","hint":"..."}`，三种合法值。
 // fallback 截断阈值：caller 未注入对应字段时使用。
 const (
-	fallbackReviewerArgsTruncate = 80
-	fallbackReviewerObsTruncate  = 120
+	fallbackInspectorArgsTruncate = 80
+	fallbackInspectorObsTruncate  = 120
 )
 
-type LLMReviewer struct {
+type LLMInspector struct {
 	llm          llm.Generator
 	notes        NotesReader
 	ownerID string
 	host         string // per-task 绑定 host，读 notes 时只读本 host 范围
 
-	// 可选字段：caller 通常从 cfg.React.{ReviewerArgsTruncate, ReviewerObsTruncate} 注入。
+	// 可选字段：caller 通常从 cfg.React.{InspectorArgsTruncate, InspectorObsTruncate} 注入。
 	// 零值走 fallback 常量。
 	ArgsTruncate int
 	ObsTruncate  int
 
 	// FlowSummary 是当前流量任务的一句话摘要（如 "GET vulnapp.local/api/user?id=1"），
-	// 用于约束 reviewer 只评本流量进度，不要把 agent 推向其它流量任务。
+	// 用于约束 inspector 只评本流量进度，不要把 agent 推向其它流量任务。
 	// 零值时 prompt 省略该段——退化为旧"无 flow 上下文"行为。
 	FlowSummary string
 
 	// HostFindingsFetcher 是可选 hook：返回当前 owner + host 范围内已有 finding 列表
 	// （每条形如 "[severity] summary"，前 N 条）。由 scanner 装配处用 closure 适配
-	// *finding.Store.ListByOwnerAndHost。nil 时 reviewer prompt 不注入 finding 段。
+	// *finding.Store.ListByOwnerAndHost。nil 时 inspector prompt 不注入 finding 段。
 	//
 	// 关键设计：列表**仅作背景参考**，不返回 count、不参与 terminate 判定。
-	// reviewer 判定 terminate/redirect/continue 必须基于 window 行为本身——
+	// inspector 判定 terminate/redirect/continue 必须基于 window 行为本身——
 	// 避免历史误判（"host 已有 finding 数 ≥ 1" 把别的流量战果误算成本任务进度，
 	// 然后催 done，bac/profile 真无漏洞的流量被误推 terminate / 编造 hint）。
 	HostFindingsFetcher func(ctx context.Context) ([]string, error)
 
 	// LessonFetcher 是可选 hook：返回该 host 历史 lesson（跨 owner 长期经验）。
 	// 由 scanner 装配处用 closure 适配 *lesson.Store.ListByHost。
-	// nil 时 reviewer prompt 不注入 lesson 段。
-	// 关键作用：reviewer 用 lesson 给出更精准方向修正 hint；仅服务方向修正，不参与"是否 terminate"决策。
+	// nil 时 inspector prompt 不注入 lesson 段。
+	// 关键作用：inspector 用 lesson 给出更精准方向修正 hint；仅服务方向修正，不参与"是否 terminate"决策。
 	LessonFetcher func(ctx context.Context) ([]string, error)
 }
 
-func (o *LLMReviewer) effectiveArgsTruncate() int {
+func (o *LLMInspector) effectiveArgsTruncate() int {
 	if o.ArgsTruncate > 0 {
 		return o.ArgsTruncate
 	}
-	return fallbackReviewerArgsTruncate
+	return fallbackInspectorArgsTruncate
 }
 
-func (o *LLMReviewer) effectiveObsTruncate() int {
+func (o *LLMInspector) effectiveObsTruncate() int {
 	if o.ObsTruncate > 0 {
 		return o.ObsTruncate
 	}
-	return fallbackReviewerObsTruncate
+	return fallbackInspectorObsTruncate
 }
 
-// NewLLMReviewer 用 router.For("reviewer") 路由出的 light Generator + notes store 构造。
+// NewLLMInspector 用 router.For("inspector") 路由出的 light Generator + notes store 构造。
 //
 // store 可为 nil（测试场景），此时 prompt 中省略笔记板段。
-// host 必填——reviewer 是 per-task，绑定当前 task 的 host 用于 notes 范围隔离。
-func NewLLMReviewer(g llm.Generator, store NotesReader, ownerID, host string) *LLMReviewer {
-	return &LLMReviewer{llm: g, notes: store, ownerID: ownerID, host: host}
+// host 必填——inspector 是 per-task，绑定当前 task 的 host 用于 notes 范围隔离。
+func NewLLMInspector(g llm.Generator, store NotesReader, ownerID, host string) *LLMInspector {
+	return &LLMInspector{llm: g, notes: store, ownerID: ownerID, host: host}
 }
 
-// reviewerSystemPrompt 约束 reviewer 只评本流量进度、输出严格 JSON。
+// inspectorSystemPrompt 约束 inspector 只评本流量进度、输出严格 JSON。
 //
 // 设计原则：terminate / redirect / continue 判定完全基于 window 行为本身。
 // host 已有 finding 列表 / lesson 仅作背景参考，**不**参与 terminate 计数。
 // 一个流量任务可能挖出 0 / 1 / 多个 finding，没有数字阈值能直接推 done。
-const reviewerSystemPrompt = `你是漏洞挖掘主 agent 的进度评估者。基于"当前流量任务摘要 + 最近 N 步动作 + 笔记 / lesson / host 已有 finding（背景参考）"评估进度，只评本流量任务，不要把 agent 推向其它流量或别的 host。
+const inspectorSystemPrompt = `你是漏洞挖掘主 agent 的进度评估者。基于"当前流量任务摘要 + 最近 N 步动作 + 笔记 / lesson / host 已有 finding（背景参考）"评估进度，只评本流量任务，不要把 agent 推向其它流量或别的 host。
 
 只能从以下三种 decision 中选一个：
 - "continue"：默认值。进度正常 / 命中后正常扩展 / 正在合理探索 → 一律 continue 信任主 agent 自主推进。
@@ -118,18 +118,18 @@ lesson 段（若存在）也仅作参考——LLM 出现"踩过的坑"行为时�
 严格只输出一个 JSON 对象，禁止任何多余文本：
 {"decision":"continue|redirect|terminate","hint":"..."}`
 
-// reviewerDecision 是 LLM 必须返回的 JSON 结构。
-type reviewerDecision struct {
+// inspectorDecision 是 LLM 必须返回的 JSON 结构。
+type inspectorDecision struct {
 	Decision string `json:"decision"`
 	Hint     string `json:"hint"`
 }
 
-// Evaluate 实现 Reviewer。
+// Evaluate 实现 Inspector。
 //
 // 任何失败路径（store 读失败 / LLM 调用失败 / JSON 解析失败 / decision 非法）
 // 都返回 keep_going，避免阻塞主循环——失败本身已写 warn 日志。
-func (o *LLMReviewer) Evaluate(ctx context.Context, window []StepRecord) Verdict {
-	user := buildReviewerPrompt(
+func (o *LLMInspector) Evaluate(ctx context.Context, window []StepRecord) Verdict {
+	user := buildInspectorPrompt(
 		o.FlowSummary,
 		window,
 		o.readNotesOrNil(ctx),
@@ -140,25 +140,25 @@ func (o *LLMReviewer) Evaluate(ctx context.Context, window []StepRecord) Verdict
 	)
 
 	res, err := o.llm.Generate(ctx, []llm.Message{
-		{Role: llm.RoleSystem, Content: reviewerSystemPrompt},
+		{Role: llm.RoleSystem, Content: inspectorSystemPrompt},
 		{Role: llm.RoleUser, Content: user},
 	}, nil)
 	if err != nil {
-		slog.Warn("reviewer llm call failed", "err", err, "owner_id", o.ownerID)
+		slog.Warn("inspector llm call failed", "err", err, "owner_id", o.ownerID)
 		return Verdict{Decision: VerdictContinue}
 	}
 
-	var dec reviewerDecision
+	var dec inspectorDecision
 	content := strings.TrimSpace(res.Content)
 	if err := json.Unmarshal([]byte(content), &dec); err != nil {
-		slog.Warn("reviewer parse json failed", "raw", content, "owner_id", o.ownerID)
+		slog.Warn("inspector parse json failed", "raw", content, "owner_id", o.ownerID)
 		return Verdict{Decision: VerdictContinue}
 	}
 
 	if v := normalizeDecision(dec.Decision); v != "" {
 		return Verdict{Decision: v, Hint: dec.Hint}
 	}
-	slog.Warn("reviewer unknown decision", "decision", dec.Decision, "owner_id", o.ownerID)
+	slog.Warn("inspector unknown decision", "decision", dec.Decision, "owner_id", o.ownerID)
 	return Verdict{Decision: VerdictContinue}
 }
 
@@ -185,13 +185,13 @@ func normalizeDecision(raw string) string {
 }
 
 // readNotesOrNil 读 (owner, host) 共享笔记板；失败或 store/host 空时返回 nil 让 prompt 省略笔记板段。
-func (o *LLMReviewer) readNotesOrNil(ctx context.Context) []byte {
+func (o *LLMInspector) readNotesOrNil(ctx context.Context) []byte {
 	if o.notes == nil || o.host == "" {
 		return nil
 	}
 	data, err := o.notes.ReadNotes(ctx, o.ownerID, o.host)
 	if err != nil {
-		slog.Warn("reviewer read state failed", "err", err, "owner_id", o.ownerID, "host", o.host)
+		slog.Warn("inspector read state failed", "err", err, "owner_id", o.ownerID, "host", o.host)
 		return nil
 	}
 	return data
@@ -199,9 +199,9 @@ func (o *LLMReviewer) readNotesOrNil(ctx context.Context) []byte {
 
 // fetchHostFindingsSection 调 HostFindingsFetcher 拿该 host 已有 finding 列表，
 // 渲染成"背景参考"段（不带 count、不带"已挖数"等暗示进度的措辞）。
-// nil hook / 0 条 / 错误 → 返回空串让 buildReviewerPrompt 省略段头。
+// nil hook / 0 条 / 错误 → 返回空串让 buildInspectorPrompt 省略段头。
 //
-// 设计目的：reviewer 知道 host 漏洞面但**不**把"host 有 N 条"误当成本任务战果。
+// 设计目的：inspector 知道 host 漏洞面但**不**把"host 有 N 条"误当成本任务战果。
 // 段落标题里明写"不作 terminate 信号"，硬约束 LLM 不把数量当 done 依据。
 //
 // 渲染示例：
@@ -209,13 +209,13 @@ func (o *LLMReviewer) readNotesOrNil(ctx context.Context) []byte {
 //	## 该 host 已有 finding（背景参考，不作 terminate 信号）
 //	- [critical] IDOR in /api/bac/order/7
 //	- [high] Vertical priv esc in /api/bac/admin/users
-func (o *LLMReviewer) fetchHostFindingsSection(ctx context.Context) string {
+func (o *LLMInspector) fetchHostFindingsSection(ctx context.Context) string {
 	if o.HostFindingsFetcher == nil {
 		return ""
 	}
 	items, err := o.HostFindingsFetcher(ctx)
 	if err != nil {
-		slog.Warn("reviewer fetch host findings failed", "err", err, "owner_id", o.ownerID)
+		slog.Warn("inspector fetch host findings failed", "err", err, "owner_id", o.ownerID)
 		return ""
 	}
 	if len(items) == 0 {
@@ -239,13 +239,13 @@ func (o *LLMReviewer) fetchHostFindingsSection(ctx context.Context) string {
 //	## 该 host 历史经验（lesson，跨 owner 累积）
 //	- [p7] DVWA 默认密码 admin:password，优先试
 //	- [p7] DVWA security=low 需 cookie 强带覆盖 server 强制 impossible
-func (o *LLMReviewer) fetchLessonsSection(ctx context.Context) string {
+func (o *LLMInspector) fetchLessonsSection(ctx context.Context) string {
 	if o.LessonFetcher == nil {
 		return ""
 	}
 	lessons, err := o.LessonFetcher(ctx)
 	if err != nil {
-		slog.Warn("reviewer fetch lessons failed", "err", err, "owner_id", o.ownerID)
+		slog.Warn("inspector fetch lessons failed", "err", err, "owner_id", o.ownerID)
 		return ""
 	}
 	if len(lessons) == 0 {
@@ -261,17 +261,17 @@ func (o *LLMReviewer) fetchLessonsSection(ctx context.Context) string {
 	return b.String()
 }
 
-// buildReviewerPrompt 把 flow 摘要 + window + notes + host findings + lessons 段拼成单条 user 消息。
+// buildInspectorPrompt 把 flow 摘要 + window + notes + host findings + lessons 段拼成单条 user 消息。
 //
 //   - flowSummary 为空时省略段头（向后兼容旧调用方）；
 //   - window 为空时仍能产出 prompt（空 window 段）；
 //   - notes 为 nil 时省略本次扫描笔记板段；
 //   - hostFindingsSection 为空时省略 host finding 段（HostFindingsFetcher nil / 出错 / 0 条都可能为空）；
 //   - lessonsSection 为空时省略 lesson 段（LessonFetcher nil / 出错 / 0 条都可能为空）；
-//   - argsTruncate / obsTruncate 来自 LLMReviewer 的可选字段，控制喂 LLM 的字节数；
+//   - argsTruncate / obsTruncate 来自 LLMInspector 的可选字段，控制喂 LLM 的字节数；
 //   - 最近 1 步（window 末尾）若 FullObs 非空，用 FullObs 整段（不截断）替代 ObsSummary，
-//     让 reviewer 看到 SUCCESS/vulnerable/uid= 等关键字防止摘要丢失误判。
-func buildReviewerPrompt(flowSummary string, window []StepRecord, notes []byte, hostFindingsSection, lessonsSection string, argsTruncate, obsTruncate int) string {
+//     让 inspector 看到 SUCCESS/vulnerable/uid= 等关键字防止摘要丢失误判。
+func buildInspectorPrompt(flowSummary string, window []StepRecord, notes []byte, hostFindingsSection, lessonsSection string, argsTruncate, obsTruncate int) string {
 	var b strings.Builder
 	if flowSummary != "" {
 		fmt.Fprintf(&b, "当前流量任务：%s\n\n", flowSummary)

@@ -14,7 +14,7 @@ import (
 // findingsLister 是 ReadFindings 工具依赖的最小读接口，由 *finding.Store 自动满足。
 // limit ≤ 0 = 不限制；> 0 = SQL LIMIT 限上限。
 //
-// 范围：owner + host，hunter / reviewer / read_findings 视野统一限本次扫描，
+// 范围：owner + host，tracker / commander / striker / inspector / read_findings 视野统一限本次扫描，
 // 不被跨次扫描的历史污染（跨次复用走 lesson）。
 type findingsLister interface {
 	ListByOwnerAndHost(ctx context.Context, ownerType, ownerID, host string, limit int) ([]finding.VulnFinding, error)

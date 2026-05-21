@@ -7,7 +7,7 @@ import (
 	"github.com/V3teran/liusha/internal/config"
 )
 
-// routerCfg：default=primary、fallback=fb；routes 含 react.main / reviewer
+// routerCfg：default=primary、fallback=fb；routes 含 react.main / inspector
 func routerCfg() config.Config {
 	return config.Config{
 		LLM: config.LLMConfig{
@@ -16,7 +16,7 @@ func routerCfg() config.Config {
 			FallbackProvider: "fb",
 			Agents: map[string]string{
 				"orchestrator": "default_provider",
-				"reviewer":     "light_provider",
+				"inspector":     "light_provider",
 			},
 		},
 		Providers: map[string]config.ProviderConfig{
@@ -61,19 +61,19 @@ func TestRouter_For_RoutesAndWraps(t *testing.T) {
 	}
 }
 
-// TestRouter_For_ReviewerRoutesLight：reviewer 应解析到 light
-func TestRouter_For_ReviewerRoutesLight(t *testing.T) {
+// TestRouter_For_InspectorRoutesLight：inspector 应解析到 light
+func TestRouter_For_InspectorRoutesLight(t *testing.T) {
 	cfg := routerCfg()
 	builder := builderFromMap(nil)
 	factory := NewFactoryWithBuilder(cfg, builder)
 	r := NewRouter(factory)
 
-	g, err := r.For(context.Background(), "reviewer")
+	g, err := r.For(context.Background(), "inspector")
 	if err != nil {
-		t.Fatalf("For reviewer 失败: %v", err)
+		t.Fatalf("For inspector 失败: %v", err)
 	}
 	if g.Provider() != "light" {
-		t.Errorf("reviewer 应路由 light，实际 %s", g.Provider())
+		t.Errorf("inspector 应路由 light，实际 %s", g.Provider())
 	}
 }
 

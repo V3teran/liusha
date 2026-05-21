@@ -230,7 +230,7 @@ type SkillsConfig struct {
 type ScannerConfig struct {
 	PassiveMaxSteps              int    `mapstructure:"passive_max_steps"`                // passive 模式 ReAct 步数上限（流量驱动单类型挖掘 60 步够）
 	ActiveMaxSteps               int    `mapstructure:"active_max_steps"`                 // active 模式 ReAct 步数上限（与 strix max_iterations=300 对齐）；子 active 任务复用同一上限
-	MaxChildren                  int    `mapstructure:"max_children"`                     // subtask swarm 父任务 spawn 子任务上限（防 LLM 失控；默认 10）
+	MaxChildren                  int    `mapstructure:"max_children"`                     // subtask swarm commander spawn striker上限（防 LLM 失控；默认 10）
 	AgentRunTimeoutSeconds       int    `mapstructure:"agent_run_timeout_seconds"`        // passive 模式单个 hunter task 整体超时（asynq handler 入口 WithTimeout）
 	ActiveAgentRunTimeoutSeconds int    `mapstructure:"active_agent_run_timeout_seconds"` // active 模式整体超时——站点扫描爬+测耗时长，独立配置（默认 4h，对齐 sandbox max lifetime）
 	StepLLMTimeoutSeconds        int    `mapstructure:"step_llm_timeout_seconds"`
@@ -248,15 +248,15 @@ type ScannerConfig struct {
 
 // ReactConfig 主 ReAct 循环参数。
 type ReactConfig struct {
-	ReviewerEverySteps   int `mapstructure:"reviewer_every_steps"`
-	ReviewerArgsTruncate int `mapstructure:"reviewer_args_truncate"` // 喂 reviewer LLM 的 tool args 截断字节数
-	ReviewerObsTruncate  int `mapstructure:"reviewer_obs_truncate"`  // 喂 reviewer LLM 的 ObsSummary 截断字节数
+	InspectorEverySteps   int `mapstructure:"inspector_every_steps"`
+	InspectorArgsTruncate int `mapstructure:"inspector_args_truncate"` // 喂 inspector LLM 的 tool args 截断字节数
+	InspectorObsTruncate  int `mapstructure:"inspector_obs_truncate"`  // 喂 inspector LLM 的 ObsSummary 截断字节数
 
-	// reviewer prompt 背景段拉取数量上限（按 created_at DESC / priority DESC 各自排序）。
+	// inspector prompt 背景段拉取数量上限（按 created_at DESC / priority DESC 各自排序）。
 	// 与 hunter 的 findings_limit_in_prompt / lessons_limit_in_prompt 解耦——
-	// reviewer 是轻量评估，看少量背景即可；hunter 干活需更全。
-	ReviewerFindingsLimit int `mapstructure:"reviewer_findings_limit"`
-	ReviewerLessonsLimit  int `mapstructure:"reviewer_lessons_limit"`
+	// inspector 是轻量评估，看少量背景即可；hunter 干活需更全。
+	InspectorFindingsLimit int `mapstructure:"inspector_findings_limit"`
+	InspectorLessonsLimit  int `mapstructure:"inspector_lessons_limit"`
 }
 
 // SandboxConfig 容器化执行参数（sandbox.Launcher + external.RunCommand）。
@@ -620,20 +620,20 @@ func applyScannerDefaults(c ScannerConfig) ScannerConfig {
 }
 
 func applyReactDefaults(c ReactConfig) ReactConfig {
-	if c.ReviewerEverySteps == 0 {
-		c.ReviewerEverySteps = 5
+	if c.InspectorEverySteps == 0 {
+		c.InspectorEverySteps = 5
 	}
-	if c.ReviewerArgsTruncate == 0 {
-		c.ReviewerArgsTruncate = 256
+	if c.InspectorArgsTruncate == 0 {
+		c.InspectorArgsTruncate = 256
 	}
-	if c.ReviewerObsTruncate == 0 {
-		c.ReviewerObsTruncate = 400
+	if c.InspectorObsTruncate == 0 {
+		c.InspectorObsTruncate = 400
 	}
-	if c.ReviewerFindingsLimit == 0 {
-		c.ReviewerFindingsLimit = 30
+	if c.InspectorFindingsLimit == 0 {
+		c.InspectorFindingsLimit = 30
 	}
-	if c.ReviewerLessonsLimit == 0 {
-		c.ReviewerLessonsLimit = 30
+	if c.InspectorLessonsLimit == 0 {
+		c.InspectorLessonsLimit = 30
 	}
 	return c
 }

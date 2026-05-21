@@ -31,39 +31,39 @@ func (h handler) handlePassive(ctx context.Context, p worker.Payload, entrypoint
 	ot, oid := p.OwnerType, p.OwnerID
 	otPtr, oidPtr := &ot, &oid
 
-	// hunter LLM Generator
-	hunterRaw, err := h.router.For(ctx, "hunter")
+	// tracker LLM Generator（passive 侦察兵 — 单 agent，独立追踪流量线索）
+	hunterRaw, err := h.router.For(ctx, "tracker")
 	if err != nil {
 		return h.failTask(ctx, p.TaskID, err)
 	}
 	hunterGen := llm.Instrument(hunterRaw, h.calls,
-		llm.CallMeta{TaskID: &tid, OwnerType: otPtr, OwnerID: oidPtr, RouteKey: "hunter"},
+		llm.CallMeta{TaskID: &tid, OwnerType: otPtr, OwnerID: oidPtr, RouteKey: "tracker"},
 		h.pricing,
 	)
 
-	// reviewer
-	reviewLLMRaw, err := h.router.For(ctx, "reviewer")
+	// inspector
+	reviewLLMRaw, err := h.router.For(ctx, "inspector")
 	if err != nil {
 		return h.failTask(ctx, p.TaskID, err)
 	}
 	reviewLLMGen := llm.Instrument(reviewLLMRaw, h.calls,
-		llm.CallMeta{TaskID: &tid, OwnerType: otPtr, OwnerID: oidPtr, RouteKey: "reviewer"},
+		llm.CallMeta{TaskID: &tid, OwnerType: otPtr, OwnerID: oidPtr, RouteKey: "inspector"},
 		h.pricing,
 	)
-	// hostForFetchers 提前定义：reviewer 需要 host 做 notes 范围隔离。
+	// hostForFetchers 提前定义：inspector 需要 host 做 notes 范围隔离。
 	hostForFetchers := ep.Host
 	// notes key 用 owner_id（与 BuilderParams.OwnerID 一致；0040 FK DROP 后 finding 无 FK 约束）
-	reviewer := react.NewLLMReviewer(reviewLLMGen, h.notes, oid, hostForFetchers)
-	reviewer.ArgsTruncate = h.cfg.React.ReviewerArgsTruncate
-	reviewer.ObsTruncate = h.cfg.React.ReviewerObsTruncate
-	// FlowSummary 约束 reviewer 只评本流量任务，避免跨流量推方向
-	reviewer.FlowSummary = fmt.Sprintf("%s %s%s", ep.Method, ep.Host, ep.URL)
-	// HostFindingsFetcher 让 reviewer 看到 owner + host 范围内已有 finding 列表（背景参考）。
-	// 列表仅作背景知识：reviewer 知道本 host 漏洞面，但**不**把"已有 N 条"误当成本流量任务进度——
+	inspector := react.NewLLMInspector(reviewLLMGen, h.notes, oid, hostForFetchers)
+	inspector.ArgsTruncate = h.cfg.React.InspectorArgsTruncate
+	inspector.ObsTruncate = h.cfg.React.InspectorObsTruncate
+	// FlowSummary 约束 inspector 只评本流量任务，避免跨流量推方向
+	inspector.FlowSummary = fmt.Sprintf("%s %s%s", ep.Method, ep.Host, ep.URL)
+	// HostFindingsFetcher 让 inspector 看到 owner + host 范围内已有 finding 列表（背景参考）。
+	// 列表仅作背景知识：inspector 知道本 host 漏洞面，但**不**把"已有 N 条"误当成本流量任务进度——
 	// 否则同 host 别的流量先挖到 finding 时，本流量（如 bac/profile 真无漏洞）会被误推
-	// terminate / 编造 hint。terminate 判定完全交给 reviewer 基于 window 行为推理。
-	reviewer.HostFindingsFetcher = func(ctx context.Context) ([]string, error) {
-		fs, err := h.findings.ListByOwnerAndHost(ctx, ot, oid, hostForFetchers, h.cfg.React.ReviewerFindingsLimit)
+	// terminate / 编造 hint。terminate 判定完全交给 inspector 基于 window 行为推理。
+	inspector.HostFindingsFetcher = func(ctx context.Context) ([]string, error) {
+		fs, err := h.findings.ListByOwnerAndHost(ctx, ot, oid, hostForFetchers, h.cfg.React.InspectorFindingsLimit)
 		if err != nil {
 			return nil, err
 		}
@@ -73,10 +73,10 @@ func (h handler) handlePassive(ctx context.Context, p worker.Payload, entrypoint
 		}
 		return out, nil
 	}
-	// LessonFetcher 让 reviewer 看到该 host 历史 lesson（跨 owner 长期经验），
+	// LessonFetcher 让 inspector 看到该 host 历史 lesson（跨 owner 长期经验），
 	// 用于方向修正 hint。lesson 是经验，不参与"是否 terminate"决策。
-	reviewer.LessonFetcher = func(ctx context.Context) ([]string, error) {
-		lessons, err := h.lessons.ListByHost(ctx, hostForFetchers, h.cfg.React.ReviewerLessonsLimit)
+	inspector.LessonFetcher = func(ctx context.Context) ([]string, error) {
+		lessons, err := h.lessons.ListByHost(ctx, hostForFetchers, h.cfg.React.InspectorLessonsLimit)
 		if err != nil {
 			return nil, err
 		}
@@ -109,8 +109,8 @@ func (h handler) handlePassive(ctx context.Context, p worker.Payload, entrypoint
 		}
 	}()
 
-	// passive 父不开 spawn（M1：skill.go SpawnerFactory 守卫 Mode=="active"），
-	// 无 parentRegistries Store / 无子 goroutine，不需要 H3 的 cancel+WaitAll。
+	// tracker不开 spawn（M1：skill.go SpawnerFactory 守卫 Mode=="active"），
+	// 无 parentRegistries Store / 无striker goroutine，不需要 H3 的 cancel+WaitAll。
 	cfg, err := h.hunterBuilder(ctx, skill.BuilderParams{
 		OwnerType:       ot,
 		OwnerID:         oid,
@@ -121,7 +121,7 @@ func (h handler) handlePassive(ctx context.Context, p worker.Payload, entrypoint
 		URL:             ep.URL,
 		Method:          ep.Method,
 		LLM:             hunterGen,
-		Reviewer:        reviewer,
+		Inspector:        inspector,
 		RequestHeaders:  fl.RequestHeaders,
 		RequestBody:     fl.RequestBody,
 		ResponseStatus:  fl.StatusCode,
@@ -161,7 +161,7 @@ func (h handler) handlePassive(ctx context.Context, p worker.Payload, entrypoint
 		"total_in":       out.TotalUsage.InTokens,
 		"total_out":      out.TotalUsage.OutTokens,
 		"total_cached":   out.TotalUsage.CachedTokens,
-		"reviewer_hints": out.ReviewerHints,
+		"inspector_hints": out.InspectorHints,
 	})
 	if err != nil {
 		return h.failTask(ctx, p.TaskID, fmt.Errorf("marshal task result: %w", err))

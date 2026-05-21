@@ -23,7 +23,7 @@ import (
 
 // ReadToolingSkill 读 skills/tooling/<name>/SKILL.md 完整 body 给 LLM。
 //
-// Loader root 应指向 skills/tooling/，与 hunter 主 SKILL Loader 解耦
+// Loader root 应指向 skills/tooling/，与 vuln SKILL Loader 解耦
 // （由 cmd/scanner 装配时分别构造）。
 type ReadToolingSkill struct {
 	Loader *skill.Loader

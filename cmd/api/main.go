@@ -86,7 +86,7 @@ func main() {
 			},
 			Graph:             projector,
 			Invocations:       invocationStore,
-			AgentRuns:         taskStore, // viewer 拼父子树用（按 parent_id）
+			AgentRuns:         taskStore, // viewer 拼任务树用（按 parent_id）
 			ActiveScan:        activeAdapter,
 			StaticFS:          web.ViewerFS(),
 			EnableDevAutofill: envx.OrDefault("LIUSHA_VIEWER_DEV_KEY", "") != "",
@@ -268,16 +268,16 @@ func (a *activeScanAdapter) CreateActiveScan(ctx context.Context, brief string) 
 	tid, err := a.tasks.Create(ctx, agentrun.NewParams{
 		OwnerType: "active_scan",
 		OwnerID:   sc.ID,
-		Role:      string(worker.RoleHunter),
+		Role:      "commander",
 		Input:     payloadInput,
 	})
 	if err != nil {
 		return "", "", fmt.Errorf("create agent_task: %w", err)
 	}
 
-	// active 父任务跑 ~4h，asynq 默认 retry 25 次 → 4 天死循环；且 retry 接管时
+	// active commander跑 ~4h，asynq 默认 retry 25 次 → 4 天死循环；且 retry 接管时
 	// 新 scanner 进程 parentRegistries 是空的，PreDoneCheck 永放行，旧 PG 子留
-	// status=running 僵尸态 + viewer 看到"父 done + 子 running"矛盾。
+	// status=running 僵尸态 + viewer 看到"commander done + striker running"矛盾。
 	// MaxRetry(0)：active 父跑挂就跑挂，让用户手动 abort + 重新触发，不重试。
 	if _, _, err := a.enq.Enqueue(ctx, worker.RoleHunter, worker.Payload{
 		TaskID:    tid,

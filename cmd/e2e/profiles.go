@@ -42,7 +42,7 @@ type activeProfile struct {
 //
 // 当前只内置 1 个 demo (xss)——用户实际用 active 模式时，按需追加新 profile 即可。
 // 开放性 brief——只给入口 + 凭证，不剧透漏洞类型 / 独立漏洞页面。
-// 压测 LLM 自主 recon 能力 + swarm spawn 决策（多攻击面应触发 spawn_child）。
+// 压测 LLM 自主 recon 能力 + swarm spawn 决策（多攻击面应触发 spawn_striker）。
 // minFindings=8 防 LLM 拿少量 finding 就 done，逼它走完 spawn 路径。
 var activeProfiles = map[string]activeProfile{
 	"full": {

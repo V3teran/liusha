@@ -18,15 +18,15 @@ type Store struct {
 func NewStore(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
 
 // colsSelect 是所有 SELECT 路径的统一列序，与 scanTask() 的字段顺序一一对应。
-// parent_id 用 COALESCE 把 NULL 折成空串 → Go 层 ReactRun.ParentID = ""（独立任务）。
+// parent_id 用 COALESCE 把 NULL 折成空串 → Go 层 ReactRun.CommanderID = ""（独立任务）。
 const colsSelect = `id, ` +
 	`owner_type, ` +
 	`owner_id::text AS owner_id, ` +
-	`COALESCE(parent_id::text, '') AS parent_id, ` +
+	`COALESCE(commander_id::text, '') AS commander_id, ` +
 	`role, input, result, status, created_at, updated_at`
 
 // Create 插入一行 pending 任务，返回新 id。Input 为 nil 时落空对象。
-// ParentID 空串用 NULLIF 转 PG NULL，匹配 0037 partial index（WHERE parent_id IS NOT NULL）。
+// CommanderID 空串用 NULLIF 转 PG NULL，匹配 0037 partial index（WHERE parent_id IS NOT NULL）。
 // 0041 之后 owner_type/owner_id NOT NULL，必填。
 func (s *Store) Create(ctx context.Context, p NewParams) (string, error) {
 	if p.Input == nil {
@@ -34,10 +34,10 @@ func (s *Store) Create(ctx context.Context, p NewParams) (string, error) {
 	}
 	var id string
 	err := s.pool.QueryRow(ctx, `
-		INSERT INTO agent_task (owner_type, owner_id, parent_id, role, input)
+		INSERT INTO agent_task (owner_type, owner_id, commander_id, role, input)
 		VALUES ($1, $2::uuid, NULLIF($3, '')::uuid, $4, $5)
 		RETURNING id`,
-		p.OwnerType, p.OwnerID, p.ParentID, p.Role,
+		p.OwnerType, p.OwnerID, p.CommanderID, p.Role,
 		[]byte(p.Input),
 	).Scan(&id)
 	if err != nil {
@@ -207,7 +207,7 @@ func scanTask(r scanner, t *ReactRun) error {
 	if err := r.Scan(
 		&t.ID,
 		&t.OwnerType, &t.OwnerID,
-		&t.ParentID, &t.Role,
+		&t.CommanderID, &t.Role,
 		&input, &result, &t.Status, &t.CreatedAt, &t.UpdatedAt,
 	); err != nil {
 		return err

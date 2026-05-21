@@ -42,9 +42,9 @@ type handler struct {
 	hunterBuilder   skill.Builder
 	launcher        sandbox.Launcher
 	logger          zerolog.Logger
-	// parentRegistries 索引父 taskID → 子任务 Registry（subtask swarm）。
+	// parentRegistries 索引父 taskID → striker Registry（subtask swarm）。
 	// spawnerFactory 闭包 Store；handleActive 在 react.Run 返回后 LoadAndDelete
-	// + cancel 父 ctx + WaitAll，确保子 goroutine 全退再 Destroy sandbox，防孤儿。
+	// + cancel commander ctx + WaitAll，确保striker goroutine 全退再 Destroy sandbox，防孤儿。
 	parentRegistries *sync.Map
 }
 
@@ -57,7 +57,7 @@ func (h handler) failTask(ctx context.Context, taskID string, err error) error {
 	return err
 }
 
-// abortTask 把 task 推进到 aborted 终态（reviewer 终止 / owner 中止 / ctx 取消）。
+// abortTask 把 task 推进到 aborted 终态（inspector 终止 / owner 中止 / ctx 取消）。
 // 与 failTask 区别：aborted 是"主动收手"非错误，不应触发告警。
 func (h handler) abortTask(ctx context.Context, taskID, reason string) error {
 	if setErr := h.tasks.SetAborted(ctx, taskID); setErr != nil {

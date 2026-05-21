@@ -67,20 +67,20 @@ func TestStore_Append_WithRouteKey(t *testing.T) {
 		OwnerID:     &oid,
 		Provider:    "deepseek",
 		Model:       "deepseek-chat",
-		Role: "reviewer",
+		Role: "inspector",
 		CostUSD:     0.0001,
 	}); err != nil {
-		t.Fatalf("append reviewer: %v", err)
+		t.Fatalf("append inspector: %v", err)
 	}
 	if _, err := s.Append(ctx, Invocation{
 		OwnerType:   &ot,
 		OwnerID:     &oid,
 		Provider:    "deepseek",
 		Model:       "deepseek-chat",
-		Role: "reviewer",
+		Role: "inspector",
 		CostUSD:     0.0002,
 	}); err != nil {
-		t.Fatalf("append reviewer 2: %v", err)
+		t.Fatalf("append inspector 2: %v", err)
 	}
 	if _, err := s.Append(ctx, Invocation{
 		OwnerType:   &ot,
@@ -101,8 +101,8 @@ func TestStore_Append_WithRouteKey(t *testing.T) {
 	if err != nil {
 		t.Fatalf("count by role: %v", err)
 	}
-	if got["reviewer"] != 2 {
-		t.Fatalf("reviewer 应为 2, got %d (full=%v)", got["reviewer"], got)
+	if got["inspector"] != 2 {
+		t.Fatalf("inspector 应为 2, got %d (full=%v)", got["inspector"], got)
 	}
 	if got["react_main"] != 1 {
 		t.Fatalf("react.main 应为 1, got %d (full=%v)", got["react_main"], got)
@@ -118,8 +118,8 @@ func TestStore_SumCostByOwnerID(t *testing.T) {
 		role string
 		cost float64
 	}{
-		{"hunter", 0.001234},
-		{"reviewer", 0.000567},
+		{"tracker", 0.001234},
+		{"inspector", 0.000567},
 		{"react_main", 0.002000},
 	}
 	var want float64

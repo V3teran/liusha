@@ -58,7 +58,7 @@ func TestRegistry_RegisterAndRunningCount(t *testing.T) {
 		t.Fatalf("RunningCount=%d, want 2", rc)
 	}
 	if !r.HasRunning() {
-		t.Fatalf("有 running 子时 HasRunning 应是 true")
+		t.Fatalf("有 running striker时 HasRunning 应是 true")
 	}
 	snaps := r.Snapshot()
 	if len(snaps) != 2 || snaps[0].TaskID != h1.TaskID() || snaps[1].TaskID != h2.TaskID() {
@@ -87,7 +87,7 @@ func TestRegistry_RegisterAndRunningCount(t *testing.T) {
 		t.Fatalf("终态不应减少 Snapshot, got %d", n)
 	}
 
-	// 再注册一个 running 子 → RunningCount=1，Snapshot=3
+	// 再注册一个 running striker → RunningCount=1，Snapshot=3
 	r.Register("tid-3", "brief3")
 	if rc, n := r.RunningCount(), len(r.Snapshot()); rc != 1 || n != 3 {
 		t.Fatalf("加 1 running 后 RunningCount=%d Snapshot=%d, want 1 3", rc, n)
@@ -115,7 +115,7 @@ func TestRegistry_ConcurrentRegister(t *testing.T) {
 	}
 }
 
-// TestRegistry_WaitAll 验证 H3 子 goroutine 清理：trackGoroutine + untrackGoroutine
+// TestRegistry_WaitAll 验证 H3 striker goroutine 清理：trackGoroutine + untrackGoroutine
 // 跨多个 goroutine 后 WaitAll 阻塞直到全退；ctx 超时返 false。
 func TestRegistry_WaitAll(t *testing.T) {
 	// case 1: 无 goroutine 时立即返 true

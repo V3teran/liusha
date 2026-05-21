@@ -59,7 +59,7 @@ func (s *Store) Save(ctx context.Context, f VulnFinding) (VulnFinding, error) {
 	defer tx.Rollback(ctx) //nolint:errcheck // commit 后 rollback 是 no-op
 
 	// 0048 加了 UNIQUE(owner_id, dedup_key) — dedup_key 是 host+summary 前 60 字 lower 生成列。
-	// 父子 agent 并发写同一漏洞时，ON CONFLICT 保留首个写入（first_seen_at 取较早），后续 dup
+	// commander / striker agent 并发写同一漏洞时，ON CONFLICT 保留首个写入（first_seen_at 取较早），后续 dup
 	// 不报错而是返回 existing 行——LLM 视角 Save 始终幂等成功，dedup 在 DB 层无声完成。
 	row := tx.QueryRow(ctx, `
 		INSERT INTO finding

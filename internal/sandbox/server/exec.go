@@ -20,13 +20,13 @@ import (
 // outputDirRoot / workdirRoot 是 per-task 文件隔离的根目录。
 //
 // v1.3：单 task 1 容器，所有 /exec 共享 /tmp/sandbox-output（同 task 内跨 exec 复用文件）。
-// v1.4 subtask swarm：父子共享同一容器（避免账号 cookie 顶掉），但父子并发跑命令会
+// v1.4 subtask swarm：commander / striker 共享同一容器（避免账号 cookie 顶掉），但commander / striker 并发跑命令会
 // 互相串扰——modtime 过滤无法分清"父刚写的 vs 子刚写的"；wget -O ./x.html 类命令会互覆。
 //
 // 隔离设计：
 //   - OUTPUT_DIR = /tmp/sandbox-output/<TaskID>/  → 附件按 task 切，collectAttachments 只扫本 task 子目录
 //   - cwd        = /workspace/<TaskID>/           → LLM 写相对路径自动落到 per-task workdir
-//   - 共享：home 目录（cookies / auth state）、二进制工具 — 这是父子共享容器的目的
+//   - 共享：home 目录（cookies / auth state）、二进制工具 — 这是commander / striker 共享容器的目的
 //
 // task 容器销毁时整个目录树自然消失，无残留泄露风险。
 // var（非 const）便于 server 包内单测用 t.TempDir() override：
@@ -69,7 +69,7 @@ func (s *Server) handleExec(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// per-task 隔离：父子共享容器但文件互不串扰（同 task 内跨 exec 仍共享 outputDir）
+	// per-task 隔离：commander / striker 共享容器但文件互不串扰（同 task 内跨 exec 仍共享 outputDir）
 	outputDir := filepath.Join(outputDirRoot, req.TaskID)
 	workdir := filepath.Join(workdirRoot, req.TaskID)
 	if err := os.MkdirAll(outputDir, 0o777); err != nil {

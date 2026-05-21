@@ -220,7 +220,7 @@ func (t *Traffic) enqueueMain(ctx context.Context, passSessID string, flowID int
 	tid, err := t.tasks.Create(ctx, agentrun.NewParams{
 		OwnerType: "passive_session",
 		OwnerID:   passSessID,
-		Role:      string(worker.RoleHunter),
+		Role:      "tracker",
 		Input:     payloadInput,
 	})
 	if err != nil {

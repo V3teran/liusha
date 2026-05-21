@@ -1,17 +1,17 @@
-// Package subtask 实现 active hunter 父任务 spawn 子任务（subtask swarm）的运行时。
+// Package subtask 实现 active commander spawn striker（subtask swarm）的运行时。
 //
 // 拓扑（与 asynq 并列的次级任务通道）：
 //
-//	父 active hunter (asynq → handleActive → react.Run)
-//	  ↓ 调 spawn_child 工具
+//	父 commander (asynq → handleActive → react.Run)
+//	  ↓ 调 spawn_striker 工具
 //	subtask.Spawner.Spawn
 //	  ├─ agentrun.Create(parent_id=父TID) → PG 落 pending 行
 //	  ├─ registry.Register → 父进程内 Handle 句柄
-//	  └─ go func() { react.Run(childCtx) } → 子在父 goroutine 树内跑
+//	  └─ go func() { react.Run(strikerCtx) } → 子在父 goroutine 树内跑
 //	子完成 → handle.MarkDone(outcome) + agentrun.SetDone
 //
 // 共享：sandbox 容器 /  owner 黑板（notes/findings/lessons）— 父子同 (eid, host)。
-// 隔离：子 ctx 由父 ctx WithCancel 派生（父 abort 自动级联）；子有独立 LLM context / reviewer。
+// 隔离：striker ctx 由commander ctx WithCancel 派生（commander abort 自动级联）；striker 有独立 LLM context / inspector。
 package subtask
 
 import (
@@ -19,7 +19,7 @@ import (
 	"time"
 )
 
-// ChildStatus 是 Handle 的状态枚举（暴露给 list_children 工具）。
+// ChildStatus 是 Handle 的状态枚举（暴露给 list_strikers 工具）。
 type ChildStatus string
 
 const (
@@ -28,10 +28,10 @@ const (
 	StatusFailed  ChildStatus = "failed"
 )
 
-// ChildSnapshot 是 list_children 工具看到的子任务只读视图。
+// ChildSnapshot 是 list_strikers 工具看到的striker只读视图。
 //
 // 字段最小化：父 LLM 只需要知道"子在跑什么 / 进展到哪 / 完了没"——
-// 详细 finding 走共享黑板（父 read_findings 自然看到）。
+// 详细 finding 走共享黑板（commander read_findings 自然看到）。
 type ChildSnapshot struct {
 	TaskID        string      `json:"task_id"`
 	Brief         string      `json:"brief"`
@@ -50,7 +50,7 @@ type Outcome struct {
 	TotalSteps  int
 }
 
-// Handle 是单个子任务的内存句柄（父进程持有）。
+// Handle 是单个striker的内存句柄（父进程持有）。
 //
 // 线程安全：MarkDone / MarkFailed 由 spawner goroutine 调用，Snapshot 由父 LLM
 // 工具调用线程读，mu 保护并发。
@@ -76,10 +76,10 @@ func newHandle(taskID, brief string) *Handle {
 	}
 }
 
-// TaskID 返回子任务 id（不可变）。
+// TaskID 返回striker id（不可变）。
 func (h *Handle) TaskID() string { return h.taskID }
 
-// MarkDone 标记子任务成功完成。重复调用安全（保留首次状态）。
+// MarkDone 标记striker成功完成。重复调用安全（保留首次状态）。
 func (h *Handle) MarkDone(o Outcome) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -91,7 +91,7 @@ func (h *Handle) MarkDone(o Outcome) {
 	h.finishedAt = time.Now()
 }
 
-// MarkFailed 标记子任务失败（react.Run 报错 / panic recover）。
+// MarkFailed 标记striker失败（react.Run 报错 / panic recover）。
 func (h *Handle) MarkFailed(err error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()

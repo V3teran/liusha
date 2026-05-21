@@ -6,10 +6,10 @@
 //	  3. healthz HTTP；graceful shutdown
 //
 // **部署约束：scanner 当前是单实例**。subtask swarm 用 in-process parentRegistries
-// (sync.Map) 持有父任务的 Registry + 子 goroutine——父任务一旦被 asynq 路由到本进程，
-// 它派的所有子任务也只在本进程内跑（共享 ctx 树 + sandbox 容器 + WaitAll 清理）。
+// (sync.Map) 持有commander的 Registry + striker goroutine——commander一旦被 asynq 路由到本进程，
+// 它派的所有striker也只在本进程内跑（共享 ctx 树 + sandbox 容器 + WaitAll 清理）。
 // 多实例部署需先实现 Registry 跨进程协同（如 Redis-backed Registry）才能解锁。
-// active 父任务在 enqueue 时已设 asynq.MaxRetry(0)，crash 后不重试——配合本约束
+// active commander在 enqueue 时已设 asynq.MaxRetry(0)，crash 后不重试——配合本约束
 // 避免"父在 A 实例 crash → asynq retry 给 B → B 看不到 A 内存的子 Registry"僵尸场景。
 package main
 
@@ -133,7 +133,7 @@ func main() {
 	// Vuln loader（Progressive Disclosure）：root=skills/vuln，
 	// 每个子目录一份 SKILL.md = 一种漏洞类型的挖掘指南。
 	// hunter buildUserPrompt 用 List() 拼"漏洞挖掘指南索引"段（Tier 1）；
-	// LLM 按 recon_checklist 判完方向后调 read_vuln_skill(name) 拿完整 body（Tier 2）。
+	// LLM 按 user_prompt 注入的"漏洞类型索引"判完方向后调 read_vuln_skill(name) 拿完整 body（Tier 2）。
 	// 目录不存在或扫描失败 → 置 nil，hunter 自动 fallback 不注入索引段、不注册工具。
 	vulnLoader := skill.NewLoader(filepath.Join(cfg.Skills.Root, "vuln"))
 	if _, err := vulnLoader.Index(); err != nil {
@@ -155,11 +155,11 @@ func main() {
 	// LLM Router：yaml retry 配置接线（兜底 spec §8.5 退避表）
 	router := llm.NewRouterWithOptions(llm.NewFactory(cfg), llm.RetryOptionsFromConfig(cfg.LLM.Retry))
 
-	// notes Compactor：复用 reviewer 路由（light LLM，通常 Haiku），
+	// notes Compactor：复用 inspector 路由（light LLM，通常 Haiku），
 	// 超阈值时蒸馏老 note 为 summary。失败由 noteStore 内部 fallback 到 LTRIM。
-	compactorGen, err := router.For(ctx, "reviewer")
+	compactorGen, err := router.For(ctx, "inspector")
 	if err != nil {
-		logger.Fatal().Err(err).Msg("notes compactor: router.For(reviewer) 失败")
+		logger.Fatal().Err(err).Msg("notes compactor: router.For(inspector) 失败")
 	}
 	noteStore.WithCompactor(notes.NewLLMCompactor(compactorGen))
 
@@ -175,22 +175,22 @@ func main() {
 	// skill.BuilderParams.Sandbox 注入——不持有在 Deps 里。
 	//
 	// 用 var + 后赋值模式装 hunterBuilder：spawnerFactory 闭包需在调用期捕获 hunterBuilder
-	// 自身（spawner 装配子任务时调 HunterBuilder 复用 builder 逻辑）——NewBuilder 返回值赋
+	// 自身（spawner 装配striker时调 HunterBuilder 复用 builder 逻辑）——NewBuilder 返回值赋
 	// 给 var 后，闭包在 builder 闭包真实执行时（handleActive 路径）才 deref 到已就绪的值。
 	var hunterBuilder skill.Builder
 
-	// parentRegistries：父 taskID → 子任务 Registry。spawnerFactory LoadOrStore；
+	// parentRegistries：父 taskID → striker Registry。spawnerFactory LoadOrStore；
 	// handleActive 在 react.Run 返回后 LoadAndDelete + cancel + WaitAll。
 	parentRegistries := &sync.Map{}
 
 	spawnerFactory := func(parentCtx context.Context, p skill.BuilderParams) (subtask.Spawner, *subtask.Registry, error) {
 		registry := subtask.NewRegistry()
-		// 每父任务 builder 只调一次（reviewer redirect 走 hint 注入不重建 builder），
+		// 每commander builder 只调一次（inspector redirect 走 hint 注入不重建 builder），
 		// 不存在重入路径——Store 直接覆盖即可，不加 LoadOrStore 防御（YAGNI）。
 		parentRegistries.Store(p.TaskID, registry)
 		spawner := subtask.NewActiveSpawner(parentCtx, subtask.ActiveSpawnerConfig{
-			ParentTaskID:          p.TaskID,
-			OwnerType:             p.OwnerType, // 与父任务对齐
+			CommanderTaskID:          p.TaskID,
+			OwnerType:             p.OwnerType, // 与commander对齐
 			OwnerID:               p.OwnerID,
 			Host:                  p.Host,
 			AgentRuns:             tasks,
@@ -198,17 +198,17 @@ func main() {
 			Lessons:               lessons,
 			Calls:                 calls,
 			Notes:                 noteStore,
-			Flows:                 flows, // 子 spawn 时若传 flow_id 拉父流量给子（passive 父用，active 父通常不传）
+			Flows:                 flows, // striker spawn 时若传 flow_id 拉 commander 流量给 striker（tracker 用，commander 通常不传）
 			Router:                router,
 			Pricing:               pricing,
 			HunterBuilder:         hunterBuilder, // 晚绑定 — handleActive 执行时已就绪
 			SandboxClient:         p.Sandbox,
 			Registry:              registry,
 			MaxChildren:           scannerCfg.MaxChildren,
-			ReviewerArgsTruncate:  cfg.React.ReviewerArgsTruncate,
-			ReviewerObsTruncate:   cfg.React.ReviewerObsTruncate,
-			ReviewerFindingsLimit: cfg.React.ReviewerFindingsLimit,
-			ReviewerLessonsLimit:  cfg.React.ReviewerLessonsLimit,
+			InspectorArgsTruncate:  cfg.React.InspectorArgsTruncate,
+			InspectorObsTruncate:   cfg.React.InspectorObsTruncate,
+			InspectorFindingsLimit: cfg.React.InspectorFindingsLimit,
+			InspectorLessonsLimit:  cfg.React.InspectorLessonsLimit,
 		})
 		return spawner, registry, nil
 	}
@@ -227,7 +227,7 @@ func main() {
 		PassiveMaxSteps:        scannerCfg.PassiveMaxSteps,
 		ActiveMaxSteps:         scannerCfg.ActiveMaxSteps,
 		WatchdogSeconds:        scannerCfg.StepLLMTimeoutSeconds,
-		ReviewerEverySteps:     cfg.React.ReviewerEverySteps,
+		InspectorEverySteps:     cfg.React.InspectorEverySteps,
 		FindingsLimit:          cfg.Session.FindingsLimitInPrompt,
 		LessonsLimit:           cfg.Session.LessonsLimitInPrompt,
 		SpawnerFactory:         spawnerFactory,

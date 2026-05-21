@@ -1,7 +1,7 @@
 // Package hunter 是当前唯一的 ReAct skill builder：
 // scanner 拉到 flow 后调 NewBuilder(deps)(ctx, params) 拿 react.Config 跑 react.Run。
 //
-// 单层架构：hunter agent 接到一条流量
+// hunter 小队架构：tracker / commander / striker 都用本 builder 装配 — 接到一条流量
 // （request + response + 凭证 + 已有 finding + hint）后，自由组合下列工具挖漏洞：
 //
 //	必装（11 个）:
@@ -42,30 +42,41 @@ import (
 	"github.com/V3teran/liusha/internal/tools/manifest"
 )
 
-// hunter agent system prompt 按 mode 拆三段编译期嵌入：
+// hunter agent system prompt 按 (mode, isParent) 拆四段编译期嵌入：
 //   - shared：通用规则（角色 / 写 finding 铁律 / mode-invariant 反模式）
-//   - passive：流量驱动入口形态 + 401→read_credentials 反模式
-//   - active：brief 驱动入口形态 + 环境就绪声明（browser-use 已预装）
+//   - tracker（passive 单 agent / 侦察兵）：流量驱动入口 + 401→read_credentials 反模式
+//   - commander（commander / 指挥官）：brief 驱动入口 + 领导/下属分工 + spawn 优先
+//   - striker（striker / 士兵）：接 brief 深挖单点 + 不再 spawn + evidence handoff
 //
-// 拆 3 段避免 active 模式 LLM 看到 "给定一条 HTTP 流量" / "调 read_credentials"
-// 等与运行时事实矛盾的指令（active 入口是 brief，且 read_credentials 不注册）。
-// 改 prompt 仍走 PR + review，与代码同路径管理（Strix 风格）。
+// 拆段避免角色错位（active 父看到"挖单点 brief 之外不要碰"会矛盾；
+// active 子看到"spawn striker"会因没注册工具而困惑）。
+// 改 prompt 走 PR + review，与代码同路径管理（Strix 风格）。
 //
 //go:embed system_prompt_shared.md
 var hunterSystemPromptShared string
 
-//go:embed system_prompt_passive.md
-var hunterSystemPromptPassive string
+//go:embed system_prompt_tracker.md
+var hunterSystemPromptTracker string
 
-//go:embed system_prompt_active.md
-var hunterSystemPromptActive string
+//go:embed system_prompt_commander.md
+var hunterSystemPromptCommander string
 
-// buildSystemPrompt 按 mode 拼接 shared + addendum。
-// 未知 mode 回退 passive（与历史默认一致）。
-func buildSystemPrompt(mode string) string {
-	addendum := hunterSystemPromptPassive
-	if mode == "active" {
-		addendum = hunterSystemPromptActive
+//go:embed system_prompt_striker.md
+var hunterSystemPromptStriker string
+
+// buildSystemPrompt 按 (mode, isParent) 选段拼接 shared + 角色段。
+//   - mode=="active" && isParent  → commander（指挥官，spawn 优先）
+//   - mode=="active" && !isParent → striker（士兵，专注 brief 深挖单点）
+//   - 其它（passive / 未知）       → tracker（侦察兵，独立挖单流量）
+func buildSystemPrompt(mode string, isParent bool) string {
+	var addendum string
+	switch {
+	case mode == "active" && isParent:
+		addendum = hunterSystemPromptCommander
+	case mode == "active":
+		addendum = hunterSystemPromptStriker
+	default:
+		addendum = hunterSystemPromptTracker
 	}
 	return hunterSystemPromptShared + "\n" + addendum
 }
@@ -110,13 +121,13 @@ type Deps struct {
 	PassiveMaxSteps    int
 	ActiveMaxSteps     int
 	WatchdogSeconds    int
-	ReviewerEverySteps int
+	InspectorEverySteps int
 
-	// SpawnerFactory 为父任务装配 subtask.Spawner + Registry（subtask swarm）。
-	// 由 cmd/scanner 注入：闭包捕获 router/stores/calls/pricing 等所有装配子任务所需依赖。
-	// nil 时父任务不注册 spawn_child / list_children 工具（向后兼容 / 单测场景）。
+	// SpawnerFactory 为commander装配 subtask.Spawner + Registry（subtask swarm）。
+	// 由 cmd/scanner 注入：闭包捕获 router/stores/calls/pricing 等所有装配striker所需依赖。
+	// nil 时commander不注册 spawn_striker / list_strikers 工具（向后兼容 / 单测场景）。
 	// max_children 闸值在 spawner 内部持有，闸触发的 wrapped error 已含数字提示。
-	SpawnerFactory func(parentCtx context.Context, p skill.BuilderParams) (subtask.Spawner, *subtask.Registry, error)
+	SpawnerFactory func(commanderCtx context.Context, p skill.BuilderParams) (subtask.Spawner, *subtask.Registry, error)
 
 	// Prompt 拼装预算
 	UserPromptBodyLimit int // 请求/响应 body 单段截断字节数；≤0 → 8192
@@ -160,28 +171,28 @@ func NewBuilder(deps Deps) skill.Builder {
 		must(&common.ReadLessons{Store: deps.Lessons, Host: p.Host})
 		must(&common.WriteLesson{Store: deps.Lessons, Host: p.Host})
 
-		// subtask swarm：**仅 active 父**注册 spawn_child / list_children。
-		// 子任务（ParentTaskID 非空）不注册防递归（max_depth=1）。
-		// 父任务 Done 装 PreDoneCheck 拒绝"子未完先 done"。
+		// subtask swarm：**仅 active 父**注册 spawn_striker / list_strikers。
+		// striker（CommanderTaskID 非空）不注册防递归（max_depth=1）。
+		// commander Done 装 PreDoneCheck 拒绝"子未完先 done"。
 		// passive 不开 spawn 的原因：passive 60 步预算 + 子常 100+ 步 → 父来不及等子完
 		//   就会 max_steps 退出（H3 修过孤儿 goroutine，但仍违反"父等子"语义）。
 		//   passive 场景"1 流量挖多类型"应由流量分发器拆多个 active 任务，不该 swarm。
 		var spawnerRegistry *subtask.Registry
-		if p.Mode == "active" && p.ParentTaskID == "" && deps.SpawnerFactory != nil {
+		if p.Mode == "active" && p.CommanderTaskID == "" && deps.SpawnerFactory != nil {
 			spawner, registry, err := deps.SpawnerFactory(ctx, p)
 			if err != nil {
 				return react.Config{}, fmt.Errorf("subtask spawner factory: %w", err)
 			}
 			spawnerRegistry = registry
-			must(common.SpawnChild{Spawner: spawner})
-			must(common.ListChildren{Registry: registry})
+			must(common.SpawnStriker{Spawner: spawner})
+			must(common.ListStrikers{Registry: registry})
 		}
 
 		if spawnerRegistry != nil {
 			must(common.Done{
 				PreDoneCheck: func(_ context.Context) error {
-					// 不诱导 polling：错误消息**自含** running 子摘要（taskID 前缀 + 已跑秒数），
-					// LLM 看 error 即得到 list_children 该给的信息；明确建议挖新链路 / read_findings /
+					// 不诱导 polling：错误消息**自含** running striker摘要（taskID 前缀 + 已跑秒数），
+					// LLM 看 error 即得到 list_strikers 该给的信息；明确建议挖新链路 / read_findings /
 					// 写 lesson，过段时间再试 done，避免空转 polling 烧 token。
 					snaps := spawnerRegistry.Snapshot()
 					var running []string
@@ -200,7 +211,7 @@ func NewBuilder(deps Deps) skill.Builder {
 					if len(running) == 0 {
 						return nil
 					}
-					return fmt.Errorf("仍有 %d 个 running 子: %s。**不要调 list_children polling**——子 finding 已通过共享黑板冒给你（read_findings 看），现在去：(a) 用子已挖出的发现作引子挖新链路；(b) 完善 finding/写 lesson；(c) 过段时间再试 done。子完了再调 done 即可",
+					return fmt.Errorf("仍有 %d 个 running striker: %s。**不要调 list_strikers polling**——striker 写的 finding 已通过共享黑板冒给你（read_findings 看），现在去：(a) 用 striker 已挖出的发现作引子挖新链路；(b) 完善 finding/写 lesson；(c) 过段时间再试 done。strikers 全完了再调 done 即可",
 						len(running), strings.Join(running, ", "))
 				},
 			})
@@ -216,7 +227,7 @@ func NewBuilder(deps Deps) skill.Builder {
 			must(&common.ReadToolingSkill{Loader: deps.ToolingLoader})
 		}
 
-		// Progressive Disclosure Tier 2（漏洞挖掘指南）：LLM 按 recon_checklist
+		// Progressive Disclosure Tier 2（漏洞挖掘指南）：LLM 按 user_prompt 注入的"漏洞类型索引"
 		// 判完流量方向后，调本工具拿对应漏洞类型完整 SKILL.md。
 		// Loader root=skills/vuln，由 cmd/scanner 单独装配。
 		// 仅当 catalog 非空时才注册 read_vuln_skill——同上 P4 教训。
@@ -240,7 +251,7 @@ func NewBuilder(deps Deps) skill.Builder {
 			return react.Config{}, fmt.Errorf("hunter register tools: %w", errors.Join(regErrs...))
 		}
 
-		// system prompt 来自包级 //go:embed system_prompt_{shared,passive,active}.md，无运行时 fs 失败路径。
+		// system prompt 来自包级 //go:embed system_prompt_{shared,tracker,commander,striker}.md，无运行时 fs 失败路径。
 		// hunter 自由收手——run_command 内部 tail_bytes (8KB×2) 已把单次 Output
 		// 钳在 ~17KB，不需要再加一层截断。
 		reg.Use(
@@ -268,10 +279,10 @@ func NewBuilder(deps Deps) skill.Builder {
 			LLM:                p.LLM,
 			Actions:            reg,
 			Budget:             react.Budget{MaxSteps: maxSteps, WatchdogSeconds: watchdog},
-			SystemPrompt:       buildSystemPrompt(p.Mode),
+			SystemPrompt:       buildSystemPrompt(p.Mode, p.CommanderTaskID == ""),
 			UserPrompt:         userPrompt,
-			Reviewer:           p.Reviewer,
-			ReviewerEverySteps: deps.ReviewerEverySteps,
+			Inspector:           p.Inspector,
+			InspectorEverySteps: deps.InspectorEverySteps,
 		}, nil
 	}
 }

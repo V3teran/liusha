@@ -19,7 +19,7 @@ import (
 //
 // Output 是 JSON 编码的工具返回值，会作为 tool message 喂回 LLM。
 // Done = true 时 runtime 应终止 ReAct 循环（如 submit_finding 提交完成）。
-// Summary 是 ≤200 字的摘要，供 Reviewer 滑动窗用于压缩历史。
+// Summary 是 ≤200 字的摘要，供 Inspector 滑动窗用于压缩历史。
 // Images 非空时 runtime 把 Output 与 Images 拼成 multimodal tool message（ContentParts 路径）；
 // nil/空 → 走老路径（Content=Output 字符串）。仅 vision_provider 路由的 hunter 会真正拿到图。
 type Result struct {

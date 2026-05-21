@@ -19,7 +19,7 @@ import (
 
 // Builder 为某个 skill 装配 ReAct Config。
 //
-// 单层 hunter agent：scanner 拉到 flow 直接调 hunter.NewBuilder 拿 react.Config 跑 react.Run。
+// hunter 小队：scanner 拉到 flow 直接调 hunter.NewBuilder 拿 react.Config 跑 react.Run。
 type Builder func(ctx context.Context, params BuilderParams) (react.Config, error)
 
 // BuilderParams hunter agent 启动参数。
@@ -36,13 +36,13 @@ type BuilderParams struct {
 	OwnerType string // 'passive_session' / 'active_scan'
 	OwnerID   string // passive_session.id / active_scan.id（也用作 notes/lesson key + finding.owner_id 冗余列）
 	TaskID    string
-	// ParentTaskID 非空表示本任务是 active 父 spawn 的子任务（subtask swarm）。
-	// 父任务 / 独立任务此字段为空。hunter builder（PR3）按此字段决定是否注册
-	// spawn_child / list_children 工具——子任务不再 spawn（max_depth=1）。
-	ParentTaskID string
+	// CommanderTaskID 非空表示本任务是 commander spawn 的striker（subtask swarm）。
+	// commander / 独立任务此字段为空。hunter builder（PR3）按此字段决定是否注册
+	// spawn_striker / list_strikers 工具——striker不再 spawn（max_depth=1）。
+	CommanderTaskID string
 	Host         string
 	LLM          llm.Generator
-	Reviewer     react.Reviewer
+	Inspector     react.Inspector
 
 	// Mode 区分入口形态："passive" | "active"。
 	Mode string

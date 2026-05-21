@@ -53,7 +53,7 @@ func runActiveProfiles(ctx context.Context, profs []activeProfile, apiBase, apiK
 			runs, runErr := agentRunStore.ListByOwnerID(ctx, eid, 100)
 			unfinished, totalRuns := 0, 0
 			if runErr == nil {
-				// active 每次都新建 session——eid 已唯一定位本次 run 全集（父 + spawn 的子）。
+				// active 每次都新建 session——eid 已唯一定位本次 run 全集（commander + spawn 的 strikers）。
 				// 不再用 startedAt 时间窗过滤 agent_run：dispatched 返回前 server 端 PG now()
 				// 已先于 Go time.Now() 触发，父 run.CreatedAt < startedAt → After() = false
 				// → 父被误滤 → total_runs=0 → observed 永远 false → e2e 超时不 PASS。

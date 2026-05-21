@@ -16,11 +16,10 @@ import (
 	"github.com/V3teran/liusha/internal/react"
 	"github.com/V3teran/liusha/internal/sandbox"
 	"github.com/V3teran/liusha/internal/skill"
-	"github.com/V3teran/liusha/internal/worker"
 )
 
 // ErrMaxChildren 是 max_children 闸触发的固定错误。
-// spawn_child 工具识别后给 LLM 友好提示（"已达 N 个 child 上限，等部分完成再 spawn"）。
+// spawn_striker 工具识别后给 LLM 友好提示（"已达 N 个 child 上限，等部分完成再 spawn"）。
 var ErrMaxChildren = errors.New("max_children reached")
 
 // ActiveSpawnerConfig 是 ActiveSpawner 的全部依赖（避免构造函数参数膨胀）。
@@ -29,8 +28,8 @@ var ErrMaxChildren = errors.New("max_children reached")
 // handler 字段捕获即可。
 type ActiveSpawnerConfig struct {
 	// 任务身份
-	ParentTaskID string
-	OwnerType    string // 与父任务对齐；'passive_session' / 'active_scan'
+	CommanderTaskID string
+	OwnerType    string // 与commander对齐；'passive_session' / 'active_scan'
 	OwnerID      string
 	Host         string
 
@@ -49,47 +48,47 @@ type ActiveSpawnerConfig struct {
 	Router  *llm.Router
 	Pricing llm.PricingProvider
 
-	// 装配子 hunter
+	// 装配子 striker
 	HunterBuilder skill.Builder
 
-	// 共享父容器（子任务文件按 task_id 隔离 — PR2 已就绪）
+	// 共享父容器（striker文件按 task_id 隔离 — PR2 已就绪）
 	SandboxClient sandbox.Client
 
-	// 父进程内的子任务句柄注册表
+	// 父进程内的striker句柄注册表
 	Registry *Registry
 
 	// 闸值
 	MaxChildren int
 
-	// Reviewer 装配参数（与父 active 路径对齐）
-	ReviewerArgsTruncate  int
-	ReviewerObsTruncate   int
-	ReviewerFindingsLimit int
-	ReviewerLessonsLimit  int
+	// Inspector 装配参数（与父 active 路径对齐）
+	InspectorArgsTruncate  int
+	InspectorObsTruncate   int
+	InspectorFindingsLimit int
+	InspectorLessonsLimit  int
 }
 
-// ActiveSpawner 实现 Spawner 接口——为 active 父任务派子 active 任务。
+// ActiveSpawner 实现 Spawner 接口——为 active commander派子 active 任务。
 //
-// parentCtx 是父 react.Run 的 ctx；子 ctx 由 WithCancel(parentCtx) 派生，
-// 父 abort / owner abort / parent ctx timeout 都会自动级联到子。
+// commanderCtx 是commander react.Run 的 ctx；striker ctx 由 WithCancel(commanderCtx) 派生，
+// commander abort / owner abort / parent ctx timeout 都会自动级联到子。
 type ActiveSpawner struct {
 	cfg       ActiveSpawnerConfig
-	parentCtx context.Context
+	commanderCtx context.Context
 }
 
-// NewActiveSpawner 构造 ActiveSpawner。parentCtx 必须是父 react.Run 的活 ctx。
-func NewActiveSpawner(parentCtx context.Context, cfg ActiveSpawnerConfig) *ActiveSpawner {
-	return &ActiveSpawner{cfg: cfg, parentCtx: parentCtx}
+// NewActiveSpawner 构造 ActiveSpawner。commanderCtx 必须是commander react.Run 的活 ctx。
+func NewActiveSpawner(commanderCtx context.Context, cfg ActiveSpawnerConfig) *ActiveSpawner {
+	return &ActiveSpawner{cfg: cfg, commanderCtx: commanderCtx}
 }
 
 // Spawn 创建一行 child agent_run + 启 goroutine 跑子 react.Run，立即返回 childTaskID（异步）。
-// opts.FlowID>0 时子能在 user prompt 看到完整 raw HTTP（passive 父常用）。
+// opts.FlowID>0 时子能在 user prompt 看到完整 raw HTTP（tracker常用）。
 func (s *ActiveSpawner) Spawn(ctx context.Context, brief string, opts SpawnOptions) (string, error) {
-	// max_children 是"同时并发上限"：只数 running 子，已 done/failed 的不占额
-	// → LLM 视角下 list_children 看见"全 done"时 quota 真的释放了，可以继续 spawn。
-	// 错误消息内嵌当前 running / max，spawn_child 工具直接透传给 LLM 看。
+	// max_children 是"同时并发上限"：只数 running striker，已 done/failed 的不占额
+	// → LLM 视角下 list_strikers 看见"全 done"时 quota 真的释放了，可以继续 spawn。
+	// 错误消息内嵌当前 running / max，spawn_striker 工具直接透传给 LLM 看。
 	if running := s.cfg.Registry.RunningCount(); running >= s.cfg.MaxChildren {
-		return "", fmt.Errorf("%w: 已有 %d running 子（max=%d），调 list_children 等部分完成再 spawn",
+		return "", fmt.Errorf("%w: 已有 %d running striker（max=%d），调 list_strikers 等部分完成再 spawn",
 			ErrMaxChildren, running, s.cfg.MaxChildren)
 	}
 
@@ -106,11 +105,11 @@ func (s *ActiveSpawner) Spawn(ctx context.Context, brief string, opts SpawnOptio
 		return "", fmt.Errorf("marshal child payload: %w", err)
 	}
 	childTID, err := s.cfg.AgentRuns.Create(ctx, agentrun.NewParams{
-		OwnerType: s.cfg.OwnerType, // 与父任务对齐
+		OwnerType: s.cfg.OwnerType, // 与commander对齐
 		OwnerID:   s.cfg.OwnerID,
-		Role:      string(worker.RoleHunter),
+		Role:      "striker",
 		Input:     payloadInput,
-		ParentID:  s.cfg.ParentTaskID,
+		CommanderID:  s.cfg.CommanderTaskID,
 	})
 	if err != nil {
 		return "", fmt.Errorf("agentrun.Create(child): %w", err)
@@ -118,22 +117,22 @@ func (s *ActiveSpawner) Spawn(ctx context.Context, brief string, opts SpawnOptio
 
 	// pending → running 必须在 Registry.Register 之前——否则 SetRunning 失败时
 	// handle 已 Register 但 goroutine 没启 → 永 running 句柄污染 RunningCount/PreDoneCheck
-	// → 父 done 永卡。
+	// → commander done 永卡。
 	if err := s.cfg.AgentRuns.SetRunning(ctx, childTID); err != nil {
 		return "", fmt.Errorf("agentrun.SetRunning(child): %w", err)
 	}
 
 	handle := s.cfg.Registry.Register(childTID, brief)
 
-	// 父 ctx 派生子 ctx——父 abort / owner abort / parent timeout 自动级联
-	childCtx, cancel := context.WithCancel(s.parentCtx)
-	// trackGoroutine / untrackGoroutine 让 Registry.WaitAll 能等所有子 goroutine 退出
-	// → handleActive 在父 react.Run 返回（含 max_steps）后能确保子全退再 Destroy 容器，
+	// commander ctx 派生striker ctx——commander abort / owner abort / parent timeout 自动级联
+	strikerCtx, cancel := context.WithCancel(s.commanderCtx)
+	// trackGoroutine / untrackGoroutine 让 Registry.WaitAll 能等所有striker goroutine 退出
+	// → handleActive 在commander react.Run 返回（含 max_steps）后能确保strikers 全退再 Destroy 容器，
 	//   避免孤儿 goroutine 在已销毁容器上调 /exec。
 	s.cfg.Registry.trackGoroutine()
 	go func() {
 		defer s.cfg.Registry.untrackGoroutine()
-		s.runChild(childCtx, cancel, childTID, brief, opts.FlowID, handle)
+		s.runChild(strikerCtx, cancel, childTID, brief, opts.FlowID, handle)
 	}()
 
 	return childTID, nil
@@ -157,34 +156,34 @@ func (s *ActiveSpawner) runChild(ctx context.Context, cancel context.CancelFunc,
 	ot, oid := s.cfg.OwnerType, s.cfg.OwnerID
 	otPtr, oidPtr := &ot, &oid
 
-	// hunter LLM
-	hunterRaw, err := s.cfg.Router.For(ctx, "hunter_vision")
+	// striker LLM（active 子士兵——深挖单点）
+	hunterRaw, err := s.cfg.Router.For(ctx, "striker")
 	if err != nil {
-		s.markFailed(childTID, handle, fmt.Errorf("router hunter_vision: %w", err))
+		s.markFailed(childTID, handle, fmt.Errorf("router striker: %w", err))
 		return
 	}
 	hunterGen := llm.Instrument(hunterRaw, s.cfg.Calls,
-		llm.CallMeta{TaskID: &childTID, OwnerType: otPtr, OwnerID: oidPtr, RouteKey: "hunter_vision"},
+		llm.CallMeta{TaskID: &childTID, OwnerType: otPtr, OwnerID: oidPtr, RouteKey: "striker"},
 		s.cfg.Pricing,
 	)
 
-	// reviewer
-	reviewLLMRaw, err := s.cfg.Router.For(ctx, "reviewer")
+	// inspector
+	reviewLLMRaw, err := s.cfg.Router.For(ctx, "inspector")
 	if err != nil {
-		s.markFailed(childTID, handle, fmt.Errorf("router reviewer: %w", err))
+		s.markFailed(childTID, handle, fmt.Errorf("router inspector: %w", err))
 		return
 	}
 	reviewLLMGen := llm.Instrument(reviewLLMRaw, s.cfg.Calls,
-		llm.CallMeta{TaskID: &childTID, OwnerType: otPtr, OwnerID: oidPtr, RouteKey: "reviewer"},
+		llm.CallMeta{TaskID: &childTID, OwnerType: otPtr, OwnerID: oidPtr, RouteKey: "inspector"},
 		s.cfg.Pricing,
 	)
-	// reviewer notes key 用 owner_id（与 finding/lesson 切分一致）
-	reviewer := react.NewLLMReviewer(reviewLLMGen, s.cfg.Notes, oid, s.cfg.Host)
-	reviewer.ArgsTruncate = s.cfg.ReviewerArgsTruncate
-	reviewer.ObsTruncate = s.cfg.ReviewerObsTruncate
-	reviewer.FlowSummary = "ACTIVE child owner=" + oid + " parent=" + s.cfg.ParentTaskID
-	reviewer.HostFindingsFetcher = func(ctx context.Context) ([]string, error) {
-		fs, err := s.cfg.Findings.ListByOwnerAndHost(ctx, ot, oid, s.cfg.Host, s.cfg.ReviewerFindingsLimit)
+	// inspector notes key 用 owner_id（与 finding/lesson 切分一致）
+	inspector := react.NewLLMInspector(reviewLLMGen, s.cfg.Notes, oid, s.cfg.Host)
+	inspector.ArgsTruncate = s.cfg.InspectorArgsTruncate
+	inspector.ObsTruncate = s.cfg.InspectorObsTruncate
+	inspector.FlowSummary = "ACTIVE child owner=" + oid + " parent=" + s.cfg.CommanderTaskID
+	inspector.HostFindingsFetcher = func(ctx context.Context) ([]string, error) {
+		fs, err := s.cfg.Findings.ListByOwnerAndHost(ctx, ot, oid, s.cfg.Host, s.cfg.InspectorFindingsLimit)
 		if err != nil {
 			return nil, err
 		}
@@ -194,8 +193,8 @@ func (s *ActiveSpawner) runChild(ctx context.Context, cancel context.CancelFunc,
 		}
 		return out, nil
 	}
-	reviewer.LessonFetcher = func(ctx context.Context) ([]string, error) {
-		ls, err := s.cfg.Lessons.ListByHost(ctx, s.cfg.Host, s.cfg.ReviewerLessonsLimit)
+	inspector.LessonFetcher = func(ctx context.Context) ([]string, error) {
+		ls, err := s.cfg.Lessons.ListByHost(ctx, s.cfg.Host, s.cfg.InspectorLessonsLimit)
 		if err != nil {
 			return nil, err
 		}
@@ -206,15 +205,15 @@ func (s *ActiveSpawner) runChild(ctx context.Context, cancel context.CancelFunc,
 		return out, nil
 	}
 
-	// 装配 BuilderParams——ParentTaskID 非空让 hunter builder 不注册 spawn/list（max_depth=1）
+	// 装配 BuilderParams——CommanderTaskID 非空让 hunter builder 不注册 spawn/list（max_depth=1）
 	bp := skill.BuilderParams{
-		OwnerType: ot, // 与父任务对齐
+		OwnerType: ot, // 与commander对齐
 		OwnerID:   oid,
 		TaskID:    childTID,
-		ParentTaskID: s.cfg.ParentTaskID,
+		CommanderTaskID: s.cfg.CommanderTaskID,
 		Host:         s.cfg.Host,
 		LLM:          hunterGen,
-		Reviewer:     reviewer,
+		Inspector:     inspector,
 		Mode:         "active",
 		Brief:        brief,
 		Sandbox:      s.cfg.SandboxClient,
@@ -245,7 +244,7 @@ func (s *ActiveSpawner) runChild(ctx context.Context, cancel context.CancelFunc,
 		return
 	}
 
-	// 子继承父 ctx → owner abort 时父 ctx cancel 自动传到这里
+	// 子继承commander ctx → owner abort 时commander ctx cancel 自动传到这里
 	out, runErr := react.Run(ctx, cfg)
 	if runErr != nil {
 		// ctx cancel / DeadlineExceeded 视为 abort——PG 写 SetAborted（非 SetError），
@@ -270,8 +269,8 @@ func (s *ActiveSpawner) runChild(ctx context.Context, cancel context.CancelFunc,
 		"total_in":       out.TotalUsage.InTokens,
 		"total_out":      out.TotalUsage.OutTokens,
 		"total_cached":   out.TotalUsage.CachedTokens,
-		"reviewer_hints": out.ReviewerHints,
-		"parent_task_id": s.cfg.ParentTaskID,
+		"inspector_hints": out.InspectorHints,
+		"commander_task_id": s.cfg.CommanderTaskID,
 	})
 	_ = s.cfg.AgentRuns.SetDone(context.Background(), childTID, res)
 }

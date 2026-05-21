@@ -17,7 +17,7 @@ var compactorSystemPrompt string
 
 // LLMCompactor 用 light LLM（通常 Haiku）把 N 条老 note 蒸馏成 1 条 summary。
 //
-// 满足 Compactor 接口，由 cmd/scanner 装配时通过 router.For("reviewer") 拿
+// 满足 Compactor 接口，由 cmd/scanner 装配时通过 router.For("inspector") 拿
 // 轻量 Generator 注入。
 type LLMCompactor struct {
 	gen llm.Generator

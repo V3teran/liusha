@@ -129,12 +129,12 @@ func TestStore_TerminalIsSticky(t *testing.T) {
 	}
 }
 
-// TestStore_CreateWithParent 验证：NewParams.ParentID 写入 + GetByID 读出往返一致。
+// TestStore_CreateWithParent 验证：NewParams.CommanderID 写入 + GetByID 读出往返一致。
 func TestStore_CreateWithParent(t *testing.T) {
 	ctx := context.Background()
 	s, ot, oid := setup(t)
 
-	parentID, err := s.Create(ctx, NewParams{OwnerType: ot, OwnerID: oid, Role: "hunter"})
+	parentID, err := s.Create(ctx, NewParams{OwnerType: ot, OwnerID: oid, Role: "tracker"})
 	if err != nil {
 		t.Fatalf("create parent: %v", err)
 	}
@@ -142,8 +142,8 @@ func TestStore_CreateWithParent(t *testing.T) {
 	childID, err := s.Create(ctx, NewParams{
 		OwnerType: ot,
 		OwnerID:   oid,
-		Role:      "hunter",
-		ParentID:  parentID,
+		Role:      "tracker",
+		CommanderID:  parentID,
 	})
 	if err != nil {
 		t.Fatalf("create child: %v", err)
@@ -153,16 +153,16 @@ func TestStore_CreateWithParent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get child: %v", err)
 	}
-	if got.ParentID != parentID {
-		t.Fatalf("child.ParentID=%q, want %q", got.ParentID, parentID)
+	if got.CommanderID != parentID {
+		t.Fatalf("child.CommanderID=%q, want %q", got.CommanderID, parentID)
 	}
 
-	// 父任务自己 ParentID 必须为空（独立/根任务）
+	// commander自己 CommanderID 必须为空（独立/根任务）
 	gotParent, err := s.GetByID(ctx, parentID)
 	if err != nil {
 		t.Fatalf("get parent: %v", err)
 	}
-	if gotParent.ParentID != "" {
-		t.Fatalf("parent.ParentID=%q, want empty", gotParent.ParentID)
+	if gotParent.CommanderID != "" {
+		t.Fatalf("parent.CommanderID=%q, want empty", gotParent.CommanderID)
 	}
 }

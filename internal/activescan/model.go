@@ -6,7 +6,7 @@
 // 与 passive_session 的差异：
 //   - active 按 brief 切（"哪次任务"），passive 按 host 切（"哪个站点被监控"）
 //   - active 跑完即终态，无 expires_at / 无 Rotator 轮转
-//   - active 不入 http_flow 表（自己 spawn 子 agent recon，不复用 MITM 代理流量）
+//   - active 不入 http_flow 表（自己 spawn striker agent recon，不复用 MITM 代理流量）
 //   - 可并发多个 active scan（不受唯一约束限制）
 //
 // 短期工作笔记 notes 在 Redis（internal/notes 包），按 (scan_id, host) 切分。

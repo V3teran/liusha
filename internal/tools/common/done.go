@@ -16,12 +16,12 @@ import (
 
 // Done 是终止 ReAct 循环的动作。Result.Done=true 由 runtime 直接退出主循环。
 //
-// 不做语义校验：args 原样回吐到 Result.Output 供 Reviewer / 任务汇总使用。
+// 不做语义校验：args 原样回吐到 Result.Output 供 Inspector / 任务汇总使用。
 // LLM 自由收手，MaxSteps 兜死循环。
 //
 // PreDoneCheck 是可选的前置闸：非 nil 返错时 Execute 拒绝完成（错误透传给 LLM）。
 // 用于 subtask swarm：父 LLM 调 done 时若有 active children → 返错强制父先调
-// list_children 监控子进度，等子全完才能真 done。零值（nil）= 无闸，等价旧行为。
+// list_strikers 监控子进度，等子全完才能真 done。零值（nil）= 无闸，等价旧行为。
 type Done struct {
 	PreDoneCheck func(ctx context.Context) error
 }
@@ -30,7 +30,7 @@ type Done struct {
 func (a Done) Name() string { return "done" }
 
 func (a Done) Description() string {
-	return "终止当前任务，args 中可带 reason / summary（供 Reviewer / 报告参考）"
+	return "终止当前任务，args 中可带 reason / summary（供 Inspector / 报告参考）"
 }
 
 // ParametersJSON 返回 JSON Schema：reason / summary 都是可选字符串。

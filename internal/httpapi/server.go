@@ -18,7 +18,7 @@ type Deps struct {
 	Invocations InvocationsAPI
 	// AgentRuns 为 nil 时 /agent_runs/:eid 路由不注册。
 	// 由 cmd/api 注入 *agentrun.Store（自动满足 AgentRunsAPI 窄接口）。
-	// 前端 viewer 用此 endpoint 按 parent_id 拼父子树（subtask swarm 可观测）。
+	// 前端 viewer 用此 endpoint 按 commander_id 拼任务树（subtask swarm 可观测）。
 	AgentRuns AgentRunsAPI
 	// ActiveScan 为 nil 时 /scan/active 路由不注册。
 	// 由 cmd/api 注入自定义 adapter（包 owner store + agentrun.Store + worker.Client）。

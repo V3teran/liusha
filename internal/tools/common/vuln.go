@@ -3,7 +3,7 @@
 // Tier 1（user prompt 常驻）：每条流量自动注入"漏洞类型索引"，
 //   每个漏洞一行 name + description（极简列表，无 category 分组）。
 //
-// Tier 2（按需加载）：LLM 通过 hunter recon_checklist 判定方向后，调
+// Tier 2（按需加载）：LLM 按 user_prompt 注入的"漏洞类型索引"判定方向后，调
 //   read_vuln_skill(name="bac")
 // 拿完整 SKILL.md body（漏洞本质 + 挖掘方向 + 判定原则 + 误报排除 + finding 红线）。
 //
@@ -23,8 +23,8 @@ import (
 
 // ReadVulnSkill 读 skills/vuln/<name>/SKILL.md 完整 body 给 LLM。
 //
-// Loader root 应指向 skills/vuln/，与 hunter 主 SKILL Loader 及 ToolingLoader
-// 三方解耦（由 cmd/scanner 装配时分别构造）。
+// Loader root 应指向 skills/vuln/，与 tooling SKILL Loader
+// 双方解耦（由 cmd/scanner 装配时分别构造）。
 type ReadVulnSkill struct {
 	Loader *skill.Loader
 }

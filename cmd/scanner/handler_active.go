@@ -41,33 +41,33 @@ func (h handler) handleActive(ctx context.Context, p worker.Payload, entrypoint 
 	// 按真站点身份切分跨 task 复用；抽不到回退 owner_id 兜底（lesson 跨 task 失效）。
 	virtualHost := extractHostFromBrief(ep.Brief, oid)
 
-	// hunter LLM——active 路由 vision_provider（默认 anthropic），支持 browser-use 截图。
+	// commander LLM（active 父指挥官）——vision_provider 支持 browser-use 截图。
 	// deepseek 走 openai_compat 不支持 multimodal，触发 ErrVisionUnsupported。
-	hunterRaw, err := h.router.For(ctx, "hunter_vision")
+	hunterRaw, err := h.router.For(ctx, "commander")
 	if err != nil {
 		return h.failTask(ctx, p.TaskID, err)
 	}
 	hunterGen := llm.Instrument(hunterRaw, h.calls,
-		llm.CallMeta{TaskID: &tid, OwnerType: otPtr, OwnerID: oidPtr, RouteKey: "hunter_vision"},
+		llm.CallMeta{TaskID: &tid, OwnerType: otPtr, OwnerID: oidPtr, RouteKey: "commander"},
 		h.pricing,
 	)
 
-	// reviewer
-	reviewLLMRaw, err := h.router.For(ctx, "reviewer")
+	// inspector
+	reviewLLMRaw, err := h.router.For(ctx, "inspector")
 	if err != nil {
 		return h.failTask(ctx, p.TaskID, err)
 	}
 	reviewLLMGen := llm.Instrument(reviewLLMRaw, h.calls,
-		llm.CallMeta{TaskID: &tid, OwnerType: otPtr, OwnerID: oidPtr, RouteKey: "reviewer"},
+		llm.CallMeta{TaskID: &tid, OwnerType: otPtr, OwnerID: oidPtr, RouteKey: "inspector"},
 		h.pricing,
 	)
 	// notes key 用 owner_id（与 BuilderParams.OwnerID 一致；0040 FK DROP 后 finding 无 FK 约束）
-	reviewer := react.NewLLMReviewer(reviewLLMGen, h.notes, oid, virtualHost)
-	reviewer.ArgsTruncate = h.cfg.React.ReviewerArgsTruncate
-	reviewer.ObsTruncate = h.cfg.React.ReviewerObsTruncate
-	reviewer.FlowSummary = "ACTIVE owner=" + oid
-	reviewer.HostFindingsFetcher = func(ctx context.Context) ([]string, error) {
-		fs, err := h.findings.ListByOwnerAndHost(ctx, ot, oid, virtualHost, h.cfg.React.ReviewerFindingsLimit)
+	inspector := react.NewLLMInspector(reviewLLMGen, h.notes, oid, virtualHost)
+	inspector.ArgsTruncate = h.cfg.React.InspectorArgsTruncate
+	inspector.ObsTruncate = h.cfg.React.InspectorObsTruncate
+	inspector.FlowSummary = "ACTIVE owner=" + oid
+	inspector.HostFindingsFetcher = func(ctx context.Context) ([]string, error) {
+		fs, err := h.findings.ListByOwnerAndHost(ctx, ot, oid, virtualHost, h.cfg.React.InspectorFindingsLimit)
 		if err != nil {
 			return nil, err
 		}
@@ -77,8 +77,8 @@ func (h handler) handleActive(ctx context.Context, p worker.Payload, entrypoint 
 		}
 		return out, nil
 	}
-	reviewer.LessonFetcher = func(ctx context.Context) ([]string, error) {
-		lessons, err := h.lessons.ListByHost(ctx, virtualHost, h.cfg.React.ReviewerLessonsLimit)
+	inspector.LessonFetcher = func(ctx context.Context) ([]string, error) {
+		lessons, err := h.lessons.ListByHost(ctx, virtualHost, h.cfg.React.InspectorLessonsLimit)
 		if err != nil {
 			return nil, err
 		}
@@ -103,10 +103,10 @@ func (h handler) handleActive(ctx context.Context, p worker.Payload, entrypoint 
 		}
 	}()
 
-	// H3：父 react.Run 退出（含 max_steps 绕过 PreDoneCheck）后子 goroutine 可能仍在跑——
-	// 若 Destroy 容器，子 /exec 报错→ silent failure。包一层 cancelable parentCtx，
+	// H3：commander react.Run 退出（含 max_steps 绕过 PreDoneCheck）后striker goroutine 可能仍在跑——
+	// 若 Destroy 容器，子 /exec 报错→ silent failure。包一层 cancelable commanderCtx，
 	// defer 里先 cancel 子树 + WaitAll，再让 Destroy defer 跑（LIFO）。
-	parentCtx, cancelParent := context.WithCancel(ctx)
+	commanderCtx, cancelParent := context.WithCancel(ctx)
 	defer func() {
 		cancelParent()
 		if reg, ok := h.parentRegistries.LoadAndDelete(p.TaskID); ok {
@@ -114,19 +114,19 @@ func (h handler) handleActive(ctx context.Context, p worker.Payload, entrypoint 
 			defer waitCancel()
 			if !reg.(*subtask.Registry).WaitAll(waitCtx) {
 				h.logger.Warn().Str("agent_run_id", p.TaskID).
-					Msg("子 goroutine 30s 未全退（容器即将销毁可能孤儿）")
+					Msg("striker goroutine 30s 未全退（容器即将销毁可能孤儿）")
 			}
 		}
 	}()
 
-	cfg, err := h.hunterBuilder(parentCtx, skill.BuilderParams{
+	cfg, err := h.hunterBuilder(commanderCtx, skill.BuilderParams{
 		OwnerType: ot,
 		OwnerID:   oid,
 		TaskID:    tid,
-		ParentTaskID: p.ParentTaskID, // active asynq 入口父任务总是空；非空表示由 subtask 包内 ActiveSpawner 在父 goroutine 内派的子
+		CommanderTaskID: p.CommanderTaskID, // active asynq 入口commander总是空；非空表示由 subtask 包内 ActiveSpawner 在父 goroutine 内派的子
 		Host:         virtualHost,
 		LLM:          hunterGen,
-		Reviewer:     reviewer,
+		Inspector:     inspector,
 		Mode:         "active",
 		Brief:        ep.Brief,
 		Sandbox:      sandboxClient,
@@ -145,7 +145,7 @@ func (h handler) handleActive(ctx context.Context, p worker.Payload, entrypoint 
 		return sc.Status != activescan.StatusActive, nil
 	}
 
-	out, err := react.Run(parentCtx, cfg)
+	out, err := react.Run(commanderCtx, cfg)
 	if err != nil {
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			return h.abortTask(ctx, p.TaskID, "ctx "+err.Error())
@@ -162,7 +162,7 @@ func (h handler) handleActive(ctx context.Context, p worker.Payload, entrypoint 
 		"total_in":       out.TotalUsage.InTokens,
 		"total_out":      out.TotalUsage.OutTokens,
 		"total_cached":   out.TotalUsage.CachedTokens,
-		"reviewer_hints": out.ReviewerHints,
+		"inspector_hints": out.InspectorHints,
 	})
 	if err != nil {
 		return h.failTask(ctx, p.TaskID, fmt.Errorf("marshal task result: %w", err))

@@ -2,7 +2,7 @@
 --
 -- 设计动因：
 --   - "call_purpose" 含义模糊：既不是 role 也不是 caller
---   - 实际值是 hunter / reviewer / react_main / summary —— 这些就是 role
+--   - 实际值是 hunter / inspector / react_main / summary —— 这些就是 role
 --   - agent_task.role 已经叫 role，命名对齐降低心智负担
 --
 -- 注意与 OpenAI/Anthropic API 的 message.role (user/assistant/system) 不同：

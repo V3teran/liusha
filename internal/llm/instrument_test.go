@@ -162,7 +162,7 @@ func TestInstrument_AppendsCallOnError(t *testing.T) {
 		err:      errors.New("boom"),
 	}
 	sink := &fakeSink{}
-	g := Instrument(inner, sink, CallMeta{RouteKey: "reviewer"}, fixedPricing{cost: 0.001})
+	g := Instrument(inner, sink, CallMeta{RouteKey: "inspector"}, fixedPricing{cost: 0.001})
 
 	_, err := g.Generate(context.Background(), nil, nil)
 	if err == nil {
@@ -179,8 +179,8 @@ func TestInstrument_AppendsCallOnError(t *testing.T) {
 	if c.CostUSD != 0 {
 		t.Fatalf("expected zero cost on error, got %v", c.CostUSD)
 	}
-	if c.Role != "reviewer" {
-		t.Fatalf("expected role=reviewer, got %q", c.Role)
+	if c.Role != "inspector" {
+		t.Fatalf("expected role=inspector, got %q", c.Role)
 	}
 }
 
@@ -252,7 +252,7 @@ func TestInstrument_LatencyMeasured(t *testing.T) {
 
 func TestInstrument_RouteKeyWritten(t *testing.T) {
 	t.Parallel()
-	cases := []string{"hunter", "reviewer", "compaction", "vision"}
+	cases := []string{"tracker", "commander", "striker", "inspector", "compaction", "vision"}
 	for _, rk := range cases {
 		rk := rk
 		t.Run(rk, func(t *testing.T) {

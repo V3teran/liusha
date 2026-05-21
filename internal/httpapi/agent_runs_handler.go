@@ -1,4 +1,4 @@
-// Package httpapi: agent_run 列表 handler（按 parent_id 拼父子树用）。
+// Package httpapi: agent_run 列表 handler（按 commander_id 拼任务树用）。
 package httpapi
 
 import (
@@ -18,7 +18,7 @@ type AgentRunsAPI interface {
 // agentRunsHandler 处理 GET /agent_runs/:owner_id。
 //
 // 返回该 owner 下所有 agent_run 行，按 created_at ASC 排序（父先 spawn → 子后入）。
-// 前端 viewer 按 parent_id 拼父子树渲染（PR4）：根节点 parent_id="" / NULL。
+// 前端 viewer 按 commander_id 拼任务树渲染（PR4）：根节点 commander_id="" / NULL。
 //
 // 响应结构：
 //
@@ -26,7 +26,7 @@ type AgentRunsAPI interface {
 //	  "owner_id": "...",
 //	  "total": N,
 //	  "runs": [{
-//	    "id":"uuid", "parent_id":"uuid|''", "role":"hunter",
+//	    "id":"uuid", "commander_id":"uuid|''", "role":"tracker|commander|striker",
 //	    "status":"pending|running|done|error|aborted",
 //	    "input":{...}, "result":{...},
 //	    "created_at":"2026-...", "updated_at":"2026-..."
@@ -55,7 +55,7 @@ func agentRunsHandler(api AgentRunsAPI) gin.HandlerFunc {
 		for _, r := range runs {
 			out = append(out, gin.H{
 				"id":         r.ID,
-				"parent_id":  r.ParentID,
+				"commander_id":  r.CommanderID,
 				"role":       r.Role,
 				"status":     string(r.Status),
 				"input":      json.RawMessage(rawOrEmpty(r.Input, "{}")),

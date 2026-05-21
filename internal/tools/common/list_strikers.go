@@ -10,24 +10,24 @@ import (
 	"github.com/V3teran/liusha/internal/toolruntime"
 )
 
-// ListChildren 列出本父任务派的所有子任务状态 — 与 SpawnChild 配对，只 active 父注册。
-type ListChildren struct {
+// ListStrikers 列出本commander派的所有striker状态 — 与 SpawnStriker 配对，只 active 父注册。
+type ListStrikers struct {
 	Registry *subtask.Registry
 }
 
-// Name 返回工具名 "list_children"。
-func (a ListChildren) Name() string { return "list_children" }
+// Name 返回工具名 "list_strikers"。
+func (a ListStrikers) Name() string { return "list_strikers" }
 
-func (a ListChildren) Description() string {
-	return "列出本父任务派的所有子任务状态（running/done/failed + 步数 + 失败原因）。" +
+func (a ListStrikers) Description() string {
+	return "列出本commander派的所有striker状态（running/done/failed + 步数 + 失败原因）。" +
 		"\n\n【何时调】实在好奇子进度时调一次；**不要 polling**。" +
-		"\n【子的成果】子的 finding 自动冒给父，**用 read_findings 看**——本工具只看『是否在跑』。" +
-		"\n【done 准备】**别先 list_children 再 done**——直接 done，PreDoneCheck 会拦 + 错误消息含 running 子摘要。" +
+		"\n【striker 的成果】striker 的 finding 自动冒给父，**用 read_findings 看**——本工具只看『是否在跑』。" +
+		"\n【done 准备】**别先 list_strikers 再 done**——直接 done，PreDoneCheck 会拦 + 错误消息含 running striker摘要。" +
 		"\n【截断】仅返全部 running + 最近 10 个终态（防累计 spawn 上百轮 token 爆）。"
 }
 
 // ParametersJSON 无入参 schema。
-func (a ListChildren) ParametersJSON() json.RawMessage {
+func (a ListStrikers) ParametersJSON() json.RawMessage {
 	return json.RawMessage(`{"type":"object","properties":{}}`)
 }
 
@@ -36,9 +36,9 @@ func (a ListChildren) ParametersJSON() json.RawMessage {
 const recentTerminalLimit = 10
 
 // Execute 返回 Registry.Snapshot 截断后的结果（全 running + 最近 N 终态）。
-func (a ListChildren) Execute(_ context.Context, _ json.RawMessage) (toolfx.Result, error) {
+func (a ListStrikers) Execute(_ context.Context, _ json.RawMessage) (toolfx.Result, error) {
 	if a.Registry == nil {
-		return toolfx.Result{}, errors.New("list_children: Registry 未注入")
+		return toolfx.Result{}, errors.New("list_strikers: Registry 未注入")
 	}
 	snaps := a.Registry.Snapshot()
 	runningCount := 0
@@ -57,7 +57,7 @@ func (a ListChildren) Execute(_ context.Context, _ json.RawMessage) (toolfx.Resu
 	if err != nil {
 		return toolfx.Result{}, fmt.Errorf("marshal children: %w", err)
 	}
-	summary := fmt.Sprintf("list_children total=%d running=%d shown=%d", len(snaps), runningCount, len(visible))
+	summary := fmt.Sprintf("list_strikers total=%d running=%d shown=%d", len(snaps), runningCount, len(visible))
 	return toolfx.Result{Output: out, Summary: summary}, nil
 }
 

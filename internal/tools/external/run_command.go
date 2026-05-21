@@ -67,7 +67,7 @@ type RunCommand struct {
 
 	// TaskID 是本次 agent_run 的 id（必填，builder 从 BuilderParams.TaskID 注入）。
 	// 透传到 ExecRequest.TaskID 让 sandbox-server 按 task 切 cwd / OUTPUT_DIR
-	// 防 subtask swarm 父子共享容器时的文件互串扰。
+	// 防 subtask swarm commander / striker 共享容器时的文件互串扰。
 	TaskID string
 
 	// MaxTimeoutSeconds 是 LLM 传入 timeout_seconds 的钳上限（秒）；

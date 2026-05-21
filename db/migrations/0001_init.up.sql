@@ -112,7 +112,7 @@ CREATE TABLE llm_call (
     latency_ms    int         NOT NULL DEFAULT 0,
     finish_reason text        NOT NULL DEFAULT '',
     error         text        NOT NULL DEFAULT '',
-    role          text        NOT NULL DEFAULT '',  -- T21 RouteKey（react.main / reviewer / distill / compaction / vision），便于按 role 统计成本
+    role          text        NOT NULL DEFAULT '',  -- T21 RouteKey（react.main / inspector / distill / compaction / vision），便于按 role 统计成本
     created_at    timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX llm_call_task_idx ON llm_call (task_id);

@@ -29,7 +29,7 @@ type ReadNotes struct {
 func (a *ReadNotes) Name() string { return "read_notes" }
 
 func (a *ReadNotes) Description() string {
-	return "读取本次扫描（owner）共享笔记板——与同 host 其他 hunter task 共享的过程性事实。" +
+	return "读取本次扫描（owner）共享笔记板——与同 host 其他 agent task（tracker / commander / striker）共享的过程性事实。" +
 		"读到的内容包括：目标实例当前怪癖、扫描中发现的小惊喜、失败死路。" +
 		"owner 关闭即过期，不跨次扫描。"
 }
@@ -68,7 +68,7 @@ func (a *WriteNote) Name() string { return "write_note" }
 // description 重点说"只能在 note 留痕的事"和"禁写"边界，防 LLM 把漏洞 PoC 误写进 note。
 func (a *WriteNote) Description() string {
 	return "写一条过程性事实到本 (owner + host) 信息黑板——" +
-		"\npassive 模式：同 host 跨多个 hunter task 共享；" +
+		"\npassive 模式：同 host 跨多个 tracker 共享；" +
 		"\nactive 模式：当前长任务内 step 间外置记忆（防 ReAct context 滑窗压缩丢失早期决策；" +
 		"任务超 20 步建议主动写 note 留痕关键中间状态）。owner 关闭即过期。" +
 		"\n\n【必写】只能在 note 留痕的事：" +

@@ -30,7 +30,7 @@ import (
 // Store 是 hunter 短期工作笔记的最小读写接口。
 //
 // 同时被 internal/tools/common/note.go 的 NoteStore 与
-// internal/react/reviewer_llm.go 的 NotesReader 隐式满足。
+// internal/react/inspector_llm.go 的 NotesReader 隐式满足。
 // 所有方法带 host 参数——同 owner 多 host 切分隔离。
 type Store interface {
 	AppendNote(ctx context.Context, ownerID, host string, entry []byte) error
@@ -208,7 +208,7 @@ func (s *RedisStore) fallbackTrim(ctx context.Context, k string) {
 // ReadNotes 读 (owner, host) 范围全部 entry，包成 {"notes":[<raw entry>,...]} 返回。
 //
 // 输出格式与旧 owner store.ReadNotes 保持一致——hunter/skill.go
-// 与 reviewer_llm.go 已按此结构 Unmarshal。
+// 与 inspector_llm.go 已按此结构 Unmarshal。
 //
 // key 不存在返回空数组 {"notes":[]}，不报错。
 func (s *RedisStore) ReadNotes(ctx context.Context, ownerID, host string) ([]byte, error) {
