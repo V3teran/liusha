@@ -57,6 +57,14 @@ var activeProfiles = map[string]activeProfile{
 		brief:       "测试网站 http://111.229.193.40:34280/login.php，账号 admin/password。专注挖 XSS 漏洞，覆盖 reflected (/vulnerabilities/xss_r/)、stored (/vulnerabilities/xss_s/)、DOM (/vulnerabilities/xss_d/) 三种场景。注意：DOM XSS 的 payload 通过 JS 写入 DOM，curl 看响应文本看不出来，需要 browser 实际执行 JS 才能确认（screenshot 或 eval document.body.innerHTML 验证）。",
 		minFindings: 3,
 	},
+	// active:xss-multi 强制 spawn 多 striker，验证 browser-use wrapper 多 task 独立 tab 隔离。
+	// brief 强调 3 种 XSS 独立可并行 + 每个 striker 必须用 browser，期望 commander 自决拆 spawn。
+	// 同时打一个 BAC 攻面（一共 4 个独立攻面）触发更多 spawn 决策。
+	"xss-multi": {
+		name:        "xss-multi",
+		brief:       "测试网站 http://111.229.193.40:34280/login.php，账号 admin/password。挖以下 4 个独立攻击面（每个都需要 browser 验证 JS 执行或 DOM 状态，curl 无法覆盖）：(1) Reflected XSS at /vulnerabilities/xss_r/ (2) Stored XSS at /vulnerabilities/xss_s/ (3) DOM XSS at /vulnerabilities/xss_d/ (4) CSP Bypass XSS at /vulnerabilities/csp/。4 个 endpoint 互不依赖，**强烈建议并行 spawn 4 个 striker**（每 striker 1 个攻面）以最大化效率 + 验证多 task 浏览器隔离。",
+		minFindings: 3,
+	},
 }
 
 var profiles = map[string]profile{
