@@ -32,7 +32,7 @@ func TestStore_CreateThenComplete(t *testing.T) {
 	id, err := s.Create(ctx, NewParams{
 		OwnerType: ot,
 		OwnerID:   oid,
-		Role:      "sniffer",
+		Role:      "tracker",
 		Input:     json.RawMessage(`{"window_id":"w1"}`),
 	})
 	if err != nil {
@@ -75,7 +75,7 @@ func TestStore_CreateThenComplete(t *testing.T) {
 func TestStore_SetError(t *testing.T) {
 	ctx := context.Background()
 	s, ot, oid := setup(t)
-	id, err := s.Create(ctx, NewParams{OwnerType: ot, OwnerID: oid, Role: "sqli"})
+	id, err := s.Create(ctx, NewParams{OwnerType: ot, OwnerID: oid, Role: "tracker"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -100,7 +100,7 @@ func TestStore_SetError(t *testing.T) {
 func TestStore_SetAborted(t *testing.T) {
 	ctx := context.Background()
 	s, ot, oid := setup(t)
-	id, err := s.Create(ctx, NewParams{OwnerType: ot, OwnerID: oid, Role: "sniffer"})
+	id, err := s.Create(ctx, NewParams{OwnerType: ot, OwnerID: oid, Role: "tracker"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -117,7 +117,7 @@ func TestStore_SetAborted(t *testing.T) {
 func TestStore_TerminalIsSticky(t *testing.T) {
 	ctx := context.Background()
 	s, ot, oid := setup(t)
-	id, err := s.Create(ctx, NewParams{OwnerType: ot, OwnerID: oid, Role: "sniffer"})
+	id, err := s.Create(ctx, NewParams{OwnerType: ot, OwnerID: oid, Role: "tracker"})
 	if err != nil {
 		t.Fatal(err)
 	}

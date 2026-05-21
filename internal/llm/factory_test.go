@@ -46,7 +46,7 @@ func makeRoutedCfg() config.Config {
 			LightProvider:    "anthropic_haiku",
 			FallbackProvider: "qwen",
 			Agents: map[string]string{
-				"orchestrator": "default_provider",
+				"commander": "default_provider",
 				"inspector":     "light_provider",
 			},
 		},
@@ -64,7 +64,7 @@ func TestFactory_For_ReactMain(t *testing.T) {
 	builder, _ := newFakeBuilder()
 	f := NewFactoryWithBuilder(cfg, builder)
 
-	g, err := f.For(context.Background(), "orchestrator")
+	g, err := f.For(context.Background(), "commander")
 	if err != nil {
 		t.Fatalf("For react.main 失败: %v", err)
 	}
@@ -114,11 +114,11 @@ func TestFactory_For_NoCache(t *testing.T) {
 	builder, count := newFakeBuilder()
 	f := NewFactoryWithBuilder(cfg, builder)
 
-	g1, err := f.For(context.Background(), "orchestrator")
+	g1, err := f.For(context.Background(), "commander")
 	if err != nil {
 		t.Fatalf("第一次 For 失败: %v", err)
 	}
-	g2, err := f.For(context.Background(), "orchestrator")
+	g2, err := f.For(context.Background(), "commander")
 	if err != nil {
 		t.Fatalf("第二次 For 失败: %v", err)
 	}
@@ -180,7 +180,7 @@ func TestFactory_For_ConcurrentSafe(t *testing.T) {
 	for i := 0; i < N; i++ {
 		go func() {
 			defer wg.Done()
-			if _, err := f.For(context.Background(), "orchestrator"); err != nil {
+			if _, err := f.For(context.Background(), "commander"); err != nil {
 				t.Errorf("并发 For 失败: %v", err)
 			}
 		}()

@@ -114,7 +114,7 @@ func TestInstrument_AppendsCallOnSuccess(t *testing.T) {
 		TaskID:    &tid,
 		OwnerType: &ot,
 		OwnerID:   &oid,
-		RouteKey:  "react_main",
+		RouteKey:  "tracker",
 	}, fixedPricing{cost: 0.0042})
 
 	res, err := g.Generate(context.Background(), nil, nil)
@@ -149,8 +149,8 @@ func TestInstrument_AppendsCallOnSuccess(t *testing.T) {
 	if c.OwnerID == nil || *c.OwnerID != "owner-1" {
 		t.Fatalf("owner id: %v", c.OwnerID)
 	}
-	if c.Role != "react_main" {
-		t.Fatalf("expected role=react_main, got %q", c.Role)
+	if c.Role != "tracker" {
+		t.Fatalf("expected role=tracker, got %q", c.Role)
 	}
 }
 
@@ -212,7 +212,7 @@ func TestInstrument_CostCalculatedFromPricing(t *testing.T) {
 	}
 	sink := &fakeSink{}
 	pr := &recordingPricing{ret: 0.0123}
-	g := Instrument(inner, sink, CallMeta{RouteKey: "react_main"}, pr)
+	g := Instrument(inner, sink, CallMeta{RouteKey: "tracker"}, pr)
 	if _, err := g.Generate(context.Background(), nil, nil); err != nil {
 		t.Fatal(err)
 	}
@@ -240,7 +240,7 @@ func TestInstrument_LatencyMeasured(t *testing.T) {
 		},
 	}
 	sink := &fakeSink{}
-	g := Instrument(inner, sink, CallMeta{RouteKey: "react_main"}, fixedPricing{cost: 0})
+	g := Instrument(inner, sink, CallMeta{RouteKey: "tracker"}, fixedPricing{cost: 0})
 	if _, err := g.Generate(context.Background(), nil, nil); err != nil {
 		t.Fatal(err)
 	}
@@ -252,7 +252,7 @@ func TestInstrument_LatencyMeasured(t *testing.T) {
 
 func TestInstrument_RouteKeyWritten(t *testing.T) {
 	t.Parallel()
-	cases := []string{"tracker", "commander", "striker", "inspector", "compaction", "vision"}
+	cases := []string{"tracker", "commander", "striker", "inspector"}
 	for _, rk := range cases {
 		rk := rk
 		t.Run(rk, func(t *testing.T) {
@@ -286,7 +286,7 @@ func TestInstrument_SinkErrorDoesNotBlockGenerate(t *testing.T) {
 		},
 	}
 	sink := &fakeSink{appendErr: errors.New("db down")}
-	g := Instrument(inner, sink, CallMeta{RouteKey: "react_main"}, fixedPricing{cost: 0})
+	g := Instrument(inner, sink, CallMeta{RouteKey: "tracker"}, fixedPricing{cost: 0})
 
 	res, err := g.Generate(context.Background(), nil, nil)
 	if err != nil {
