@@ -62,6 +62,7 @@ func (h handler) buildInspector(ctx context.Context, ownerType, ownerID, host, f
 		h.pricing,
 	)
 	inspector := react.NewLLMInspector(reviewLLMGen, h.notes, ownerID, host)
+	inspector.Logger = h.logger
 	inspector.ArgsTruncate = h.cfg.React.InspectorArgsTruncate
 	inspector.ObsTruncate = h.cfg.React.InspectorObsTruncate
 	inspector.FlowSummary = flowSummary

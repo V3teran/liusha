@@ -197,6 +197,7 @@ func (s *ActiveSpawner) runChild(ctx context.Context, cancel context.CancelFunc,
 	)
 	// inspector notes key 用 owner_id（与 finding/lesson 切分一致）
 	inspector := react.NewLLMInspector(reviewLLMGen, s.cfg.Notes, oid, s.cfg.Host)
+	inspector.Logger = s.cfg.Logger
 	inspector.ArgsTruncate = s.cfg.InspectorArgsTruncate
 	inspector.ObsTruncate = s.cfg.InspectorObsTruncate
 	inspector.FlowSummary = "ACTIVE child owner=" + oid + " parent=" + s.cfg.CommanderTaskID

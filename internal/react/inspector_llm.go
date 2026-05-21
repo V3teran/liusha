@@ -4,8 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log/slog"
 	"strings"
+
+	"github.com/rs/zerolog"
 
 	"github.com/V3teran/liusha/internal/llm"
 )
@@ -60,6 +61,11 @@ type LLMInspector struct {
 	// nil 时 inspector prompt 不注入 lesson 段。
 	// 关键作用：inspector 用 lesson 给出更精准方向修正 hint；仅服务方向修正，不参与"是否 terminate"决策。
 	LessonFetcher func(ctx context.Context) ([]string, error)
+
+	// Logger 用于 inspector 内 LLM/JSON/notes/fetcher 等失败时的 warn 日志。
+	// 零值是 zerolog.Logger{}，会写 stderr 但缺 service/instance tag——
+	// 生产路径由 cmd/scanner.buildInspector 注入 h.logger 走统一 lumberjack。
+	Logger zerolog.Logger
 }
 
 func (o *LLMInspector) effectiveArgsTruncate() int {
@@ -144,21 +150,21 @@ func (o *LLMInspector) Evaluate(ctx context.Context, window []StepRecord) Verdic
 		{Role: llm.RoleUser, Content: user},
 	}, nil)
 	if err != nil {
-		slog.Warn("inspector llm call failed", "err", err, "owner_id", o.ownerID, "host", o.host)
+		o.Logger.Warn().Err(err).Str("owner_id", o.ownerID).Str("host", o.host).Msg("inspector llm call failed")
 		return Verdict{Decision: VerdictContinue}
 	}
 
 	var dec inspectorDecision
 	content := strings.TrimSpace(res.Content)
 	if err := json.Unmarshal([]byte(content), &dec); err != nil {
-		slog.Warn("inspector parse json failed", "raw", content, "owner_id", o.ownerID, "host", o.host)
+		o.Logger.Warn().Str("raw", content).Str("owner_id", o.ownerID).Str("host", o.host).Msg("inspector parse json failed")
 		return Verdict{Decision: VerdictContinue}
 	}
 
 	if v := normalizeDecision(dec.Decision); v != "" {
 		return Verdict{Decision: v, Hint: dec.Hint}
 	}
-	slog.Warn("inspector unknown decision", "decision", dec.Decision, "owner_id", o.ownerID, "host", o.host)
+	o.Logger.Warn().Str("decision", dec.Decision).Str("owner_id", o.ownerID).Str("host", o.host).Msg("inspector unknown decision")
 	return Verdict{Decision: VerdictContinue}
 }
 
@@ -191,7 +197,7 @@ func (o *LLMInspector) readNotesOrNil(ctx context.Context) []byte {
 	}
 	data, err := o.notes.ReadNotes(ctx, o.ownerID, o.host)
 	if err != nil {
-		slog.Warn("inspector read state failed", "err", err, "owner_id", o.ownerID, "host", o.host)
+		o.Logger.Warn().Err(err).Str("owner_id", o.ownerID).Str("host", o.host).Msg("inspector read state failed")
 		return nil
 	}
 	return data
@@ -215,7 +221,7 @@ func (o *LLMInspector) fetchHostFindingsSection(ctx context.Context) string {
 	}
 	items, err := o.HostFindingsFetcher(ctx)
 	if err != nil {
-		slog.Warn("inspector fetch host findings failed", "err", err, "owner_id", o.ownerID, "host", o.host)
+		o.Logger.Warn().Err(err).Str("owner_id", o.ownerID).Str("host", o.host).Msg("inspector fetch host findings failed")
 		return ""
 	}
 	if len(items) == 0 {
@@ -245,7 +251,7 @@ func (o *LLMInspector) fetchLessonsSection(ctx context.Context) string {
 	}
 	lessons, err := o.LessonFetcher(ctx)
 	if err != nil {
-		slog.Warn("inspector fetch lessons failed", "err", err, "owner_id", o.ownerID, "host", o.host)
+		o.Logger.Warn().Err(err).Str("owner_id", o.ownerID).Str("host", o.host).Msg("inspector fetch lessons failed")
 		return ""
 	}
 	if len(lessons) == 0 {
