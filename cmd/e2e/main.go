@@ -17,7 +17,7 @@
 //  4. 轮询 finding 表 + agent_run 收手 → ≥minFindings 为 PASS
 //
 // Active 流程（按选中顺序串行跑）：
-//  1. POST /scan/active body={"brief":"<自然语言任务简报>"} → 拿 (owner_id, agent_run_id)
+//  1. POST /scan/active body={"brief":"<自然语言任务简报>"} → 拿 (owner_id, agent_task_id)
 //  2. 轮询同 owner 的 finding + agent_run → ≥minFindings 为 PASS
 //
 // 内置 passive profile（13 个，全部 minFindings=1）：

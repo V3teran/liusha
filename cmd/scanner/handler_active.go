@@ -67,7 +67,7 @@ func (h handler) handleActive(ctx context.Context, p worker.Payload, entrypoint 
 		destroyCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		if err := h.launcher.Destroy(destroyCtx, p.TaskID); err != nil {
-			h.logger.Warn().Err(err).Str("agent_run_id", p.TaskID).
+			h.logger.Warn().Err(err).Str("agent_task_id", p.TaskID).
 				Msg("launcher.Destroy 失败（max lifetime / 下次启动 CleanupOrphans 兜底）")
 		}
 	}()
@@ -82,7 +82,7 @@ func (h handler) handleActive(ctx context.Context, p worker.Payload, entrypoint 
 			waitCtx, waitCancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer waitCancel()
 			if !reg.(*subtask.Registry).WaitAll(waitCtx) {
-				h.logger.Warn().Str("agent_run_id", p.TaskID).
+				h.logger.Warn().Str("agent_task_id", p.TaskID).
 					Msg("striker goroutine 30s 未全退（容器即将销毁可能孤儿）")
 			}
 		}

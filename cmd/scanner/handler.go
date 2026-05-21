@@ -96,7 +96,7 @@ func (h handler) buildInspector(ctx context.Context, ownerType, ownerID, host, f
 // failTask 把错误标记到 task 表。
 func (h handler) failTask(ctx context.Context, taskID string, err error) error {
 	if setErr := h.tasks.SetError(ctx, taskID, err.Error()); setErr != nil {
-		h.logger.Warn().Err(setErr).Str("agent_run_id", taskID).
+		h.logger.Warn().Err(setErr).Str("agent_task_id", taskID).
 			Msg("SetError 失败（task 留在 running，原始错误已透传给 caller）")
 	}
 	return err
@@ -106,10 +106,10 @@ func (h handler) failTask(ctx context.Context, taskID string, err error) error {
 // 与 failTask 区别：aborted 是"主动收手"非错误，不应触发告警。
 func (h handler) abortTask(ctx context.Context, taskID, reason string) error {
 	if setErr := h.tasks.SetAborted(ctx, taskID); setErr != nil {
-		h.logger.Warn().Err(setErr).Str("agent_run_id", taskID).Str("reason", reason).
+		h.logger.Warn().Err(setErr).Str("agent_task_id", taskID).Str("reason", reason).
 			Msg("SetAborted 失败（task 留在 running）")
 	}
-	h.logger.Info().Str("agent_run_id", taskID).Str("reason", reason).Msg("task aborted")
+	h.logger.Info().Str("agent_task_id", taskID).Str("reason", reason).Msg("task aborted")
 	return nil
 }
 
@@ -120,7 +120,7 @@ func (h handler) abortTask(ctx context.Context, taskID, reason string) error {
 func (h handler) handle(ctx context.Context, p worker.Payload) (retErr error) {
 	taskStart := time.Now()
 	h.logger.Info().
-		Str("agent_run_id", p.TaskID).
+		Str("agent_task_id", p.TaskID).
 		Str("owner_type", p.OwnerType).
 		Str("owner_id", p.OwnerID).
 		Str("role", string(p.Role)).
@@ -130,7 +130,7 @@ func (h handler) handle(ctx context.Context, p worker.Payload) (retErr error) {
 		if retErr != nil {
 			ev = h.logger.Warn().Err(retErr)
 		}
-		ev.Str("agent_run_id", p.TaskID).
+		ev.Str("agent_task_id", p.TaskID).
 			Str("owner_id", p.OwnerID).
 			Dur("duration", time.Since(taskStart)).
 			Msg("asynq task ◀ exit")
@@ -141,7 +141,7 @@ func (h handler) handle(ctx context.Context, p worker.Payload) (retErr error) {
 	// GetByID 错误（PG 短时不可用等）不阻塞——让 SetRunning 走正常错误路径。
 	if run, getErr := h.tasks.GetByID(ctx, p.TaskID); getErr == nil && run.Status != agentrun.StatusPending {
 		h.logger.Warn().
-			Str("agent_run_id", p.TaskID).
+			Str("agent_task_id", p.TaskID).
 			Str("status", string(run.Status)).
 			Msg("asynq task 已被处理过，跳过重试（防 PG 僵尸 + 矛盾态）")
 		return asynq.SkipRetry
