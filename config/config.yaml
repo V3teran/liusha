@@ -131,6 +131,23 @@ providers:
     supports_tools: true
     supports_vision: false
 
+  # Ollama 本地模型——走 OpenAI 兼容协议（/v1/chat/completions），复用 openai_compat 实现。
+  # 不验 API key，但 factory.go BuildProvider 校验 env 非空——export OLLAMA_API_KEY=ollama 占位。
+  # 模型需支持 function calling（react.runtime 依赖 tool_calls）：
+  #   qwen2.5-coder / qwen3 / llama3.1+ / mistral-nemo 都 OK；老模型不行。
+  # 默认 ctx 偏小（4k），实际跑 react loop 建议 Modelfile 改 num_ctx 32768：
+  #   FROM qwen2.5-coder:14b
+  #   PARAMETER num_ctx 32768
+  # Pricing 缺失返 0（本地免费语义对得上）。
+  ollama:
+    type: openai_compat
+    base_url: http://localhost:11434/v1
+    default_model: qwen2.5-coder:14b
+    api_key_env: OLLAMA_API_KEY
+    max_tokens: 8192
+    supports_tools: true
+    supports_vision: false
+
 # ---- LLM 模型单价表（USD per 1M tokens）----
 # 单价频繁变动（provider 季度降价）→ yaml 化便于不重编更新；新模型上线只需在此 append。
 # key 形如 "<provider>/<model>"，与 ProviderConfig + Model() 拼接一致。
