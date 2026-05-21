@@ -144,21 +144,21 @@ func (o *LLMInspector) Evaluate(ctx context.Context, window []StepRecord) Verdic
 		{Role: llm.RoleUser, Content: user},
 	}, nil)
 	if err != nil {
-		slog.Warn("inspector llm call failed", "err", err, "owner_id", o.ownerID)
+		slog.Warn("inspector llm call failed", "err", err, "owner_id", o.ownerID, "host", o.host)
 		return Verdict{Decision: VerdictContinue}
 	}
 
 	var dec inspectorDecision
 	content := strings.TrimSpace(res.Content)
 	if err := json.Unmarshal([]byte(content), &dec); err != nil {
-		slog.Warn("inspector parse json failed", "raw", content, "owner_id", o.ownerID)
+		slog.Warn("inspector parse json failed", "raw", content, "owner_id", o.ownerID, "host", o.host)
 		return Verdict{Decision: VerdictContinue}
 	}
 
 	if v := normalizeDecision(dec.Decision); v != "" {
 		return Verdict{Decision: v, Hint: dec.Hint}
 	}
-	slog.Warn("inspector unknown decision", "decision", dec.Decision, "owner_id", o.ownerID)
+	slog.Warn("inspector unknown decision", "decision", dec.Decision, "owner_id", o.ownerID, "host", o.host)
 	return Verdict{Decision: VerdictContinue}
 }
 
@@ -215,7 +215,7 @@ func (o *LLMInspector) fetchHostFindingsSection(ctx context.Context) string {
 	}
 	items, err := o.HostFindingsFetcher(ctx)
 	if err != nil {
-		slog.Warn("inspector fetch host findings failed", "err", err, "owner_id", o.ownerID)
+		slog.Warn("inspector fetch host findings failed", "err", err, "owner_id", o.ownerID, "host", o.host)
 		return ""
 	}
 	if len(items) == 0 {
@@ -245,7 +245,7 @@ func (o *LLMInspector) fetchLessonsSection(ctx context.Context) string {
 	}
 	lessons, err := o.LessonFetcher(ctx)
 	if err != nil {
-		slog.Warn("inspector fetch lessons failed", "err", err, "owner_id", o.ownerID)
+		slog.Warn("inspector fetch lessons failed", "err", err, "owner_id", o.ownerID, "host", o.host)
 		return ""
 	}
 	if len(lessons) == 0 {

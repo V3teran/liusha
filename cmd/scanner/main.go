@@ -209,6 +209,7 @@ func main() {
 			InspectorObsTruncate:   cfg.React.InspectorObsTruncate,
 			InspectorFindingsLimit: cfg.React.InspectorFindingsLimit,
 			InspectorLessonsLimit:  cfg.React.InspectorLessonsLimit,
+			Logger:                 logger,
 		})
 		return spawner, registry, nil
 	}

@@ -41,50 +41,11 @@ func (h handler) handlePassive(ctx context.Context, p worker.Payload, entrypoint
 		h.pricing,
 	)
 
-	// inspector
-	reviewLLMRaw, err := h.router.For(ctx, "inspector")
+	// inspector 装配——FlowSummary 含流量首行约束评估范围；HostFindingsFetcher 仅作背景参考不参与 terminate。
+	flowSummary := fmt.Sprintf("%s %s%s", ep.Method, ep.Host, ep.URL)
+	inspector, err := h.buildInspector(ctx, ot, oid, ep.Host, flowSummary, tid, otPtr, oidPtr)
 	if err != nil {
 		return h.failTask(ctx, p.TaskID, err)
-	}
-	reviewLLMGen := llm.Instrument(reviewLLMRaw, h.calls,
-		llm.CallMeta{TaskID: &tid, OwnerType: otPtr, OwnerID: oidPtr, RouteKey: "inspector"},
-		h.pricing,
-	)
-	// hostForFetchers 提前定义：inspector 需要 host 做 notes 范围隔离。
-	hostForFetchers := ep.Host
-	// notes key 用 owner_id（与 BuilderParams.OwnerID 一致；0040 FK DROP 后 finding 无 FK 约束）
-	inspector := react.NewLLMInspector(reviewLLMGen, h.notes, oid, hostForFetchers)
-	inspector.ArgsTruncate = h.cfg.React.InspectorArgsTruncate
-	inspector.ObsTruncate = h.cfg.React.InspectorObsTruncate
-	// FlowSummary 约束 inspector 只评本流量任务，避免跨流量推方向
-	inspector.FlowSummary = fmt.Sprintf("%s %s%s", ep.Method, ep.Host, ep.URL)
-	// HostFindingsFetcher 让 inspector 看到 owner + host 范围内已有 finding 列表（背景参考）。
-	// 列表仅作背景知识：inspector 知道本 host 漏洞面，但**不**把"已有 N 条"误当成本流量任务进度——
-	// 否则同 host 别的流量先挖到 finding 时，本流量（如 bac/profile 真无漏洞）会被误推
-	// terminate / 编造 hint。terminate 判定完全交给 inspector 基于 window 行为推理。
-	inspector.HostFindingsFetcher = func(ctx context.Context) ([]string, error) {
-		fs, err := h.findings.ListByOwnerAndHost(ctx, ot, oid, hostForFetchers, h.cfg.React.InspectorFindingsLimit)
-		if err != nil {
-			return nil, err
-		}
-		out := make([]string, 0, len(fs))
-		for _, f := range fs {
-			out = append(out, fmt.Sprintf("[%s] %s", f.Severity, f.Summary))
-		}
-		return out, nil
-	}
-	// LessonFetcher 让 inspector 看到该 host 历史 lesson（跨 owner 长期经验），
-	// 用于方向修正 hint。lesson 是经验，不参与"是否 terminate"决策。
-	inspector.LessonFetcher = func(ctx context.Context) ([]string, error) {
-		lessons, err := h.lessons.ListByHost(ctx, hostForFetchers, h.cfg.React.InspectorLessonsLimit)
-		if err != nil {
-			return nil, err
-		}
-		out := make([]string, 0, len(lessons))
-		for _, l := range lessons {
-			out = append(out, fmt.Sprintf("[p%d] %s", l.Priority, l.Content))
-		}
-		return out, nil
 	}
 
 	// 拉 flow 完整 raw（请求 + 响应）填 BuilderParams

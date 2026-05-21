@@ -5,6 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"runtime/debug"
+
+	"github.com/rs/zerolog"
 
 	"github.com/V3teran/liusha/internal/agentrun"
 	"github.com/V3teran/liusha/internal/finding"
@@ -65,6 +68,10 @@ type ActiveSpawnerConfig struct {
 	InspectorObsTruncate   int
 	InspectorFindingsLimit int
 	InspectorLessonsLimit  int
+
+	// Logger 用于 striker goroutine 内的错误/状态日志（panic stack、SetError/SetDone 写库失败等）。
+	// 可空——空时退化到 zerolog.Nop。
+	Logger zerolog.Logger
 }
 
 // ActiveSpawner 实现 Spawner 接口——为 commander 派 striker。
@@ -145,10 +152,19 @@ func (s *ActiveSpawner) runChild(ctx context.Context, cancel context.CancelFunc,
 	defer cancel()
 	defer func() {
 		if r := recover(); r != nil {
+			stack := debug.Stack()
 			err := fmt.Errorf("child panic: %v", r)
+			s.cfg.Logger.Error().
+				Str("child_task_id", childTID).
+				Interface("panic", r).
+				Str("stack", string(stack)).
+				Msg("striker goroutine panic")
 			handle.MarkFailed(err)
 			// 用 background ctx——可能 ctx 已 cancel，SetError 仍要落库
-			_ = s.cfg.AgentRuns.SetError(context.Background(), childTID, err.Error())
+			if setErr := s.cfg.AgentRuns.SetError(context.Background(), childTID, err.Error()); setErr != nil {
+				s.cfg.Logger.Warn().Err(setErr).Str("child_task_id", childTID).
+					Msg("panic 后 SetError 写库失败（PG 仍 running，下次启动 inflight 计数虚高）")
+			}
 		}
 	}()
 
@@ -224,8 +240,14 @@ func (s *ActiveSpawner) runChild(ctx context.Context, cancel context.CancelFunc,
 	if flowID > 0 && s.cfg.Flows != nil {
 		fl, ferr := s.cfg.Flows.GetByID(ctx, flowID)
 		if ferr != nil {
+			s.cfg.Logger.Warn().Err(ferr).
+				Str("child_task_id", childTID).
+				Int64("flow_id", flowID).
+				Msg("拉 commander 流量失败，striker 退出")
 			handle.MarkFailed(fmt.Errorf("拉 commander 流量 flow_id=%d 失败: %w", flowID, ferr))
-			_ = s.cfg.AgentRuns.SetError(context.Background(), childTID, ferr.Error())
+			if setErr := s.cfg.AgentRuns.SetError(context.Background(), childTID, ferr.Error()); setErr != nil {
+				s.cfg.Logger.Warn().Err(setErr).Str("child_task_id", childTID).Msg("SetError 写库失败")
+			}
 			return
 		}
 		bp.FlowID = fl.ID
@@ -251,7 +273,9 @@ func (s *ActiveSpawner) runChild(ctx context.Context, cancel context.CancelFunc,
 		// handle 仍 MarkFailed 给commander LLM 看到 failureReason=context canceled
 		if errors.Is(runErr, context.Canceled) || errors.Is(runErr, context.DeadlineExceeded) {
 			handle.MarkFailed(runErr)
-			_ = s.cfg.AgentRuns.SetAborted(context.Background(), childTID)
+			if setErr := s.cfg.AgentRuns.SetAborted(context.Background(), childTID); setErr != nil {
+				s.cfg.Logger.Warn().Err(setErr).Str("child_task_id", childTID).Msg("SetAborted 写库失败")
+			}
 			return
 		}
 		s.markFailed(childTID, handle, runErr)
@@ -272,11 +296,15 @@ func (s *ActiveSpawner) runChild(ctx context.Context, cancel context.CancelFunc,
 		"inspector_hints": out.InspectorHints,
 		"commander_task_id": s.cfg.CommanderTaskID,
 	})
-	_ = s.cfg.AgentRuns.SetDone(context.Background(), childTID, res)
+	if setErr := s.cfg.AgentRuns.SetDone(context.Background(), childTID, res); setErr != nil {
+		s.cfg.Logger.Warn().Err(setErr).Str("child_task_id", childTID).Msg("SetDone 写库失败")
+	}
 }
 
 // markFailed 同时更新 handle + PG（中间过程错的统一收尾）。
 func (s *ActiveSpawner) markFailed(childTID string, handle *Handle, err error) {
 	handle.MarkFailed(err)
-	_ = s.cfg.AgentRuns.SetError(context.Background(), childTID, err.Error())
+	if setErr := s.cfg.AgentRuns.SetError(context.Background(), childTID, err.Error()); setErr != nil {
+		s.cfg.Logger.Warn().Err(setErr).Str("child_task_id", childTID).Msg("SetError 写库失败")
+	}
 }

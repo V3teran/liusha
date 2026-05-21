@@ -20,6 +20,7 @@ import (
 	"github.com/V3teran/liusha/internal/llminvocation"
 	"github.com/V3teran/liusha/internal/notes"
 	"github.com/V3teran/liusha/internal/passivesession"
+	"github.com/V3teran/liusha/internal/react"
 	"github.com/V3teran/liusha/internal/sandbox"
 	"github.com/V3teran/liusha/internal/skill"
 	"github.com/V3teran/liusha/internal/worker"
@@ -46,6 +47,49 @@ type handler struct {
 	// spawnerFactory 闭包 Store；handleActive 在 react.Run 返回后 LoadAndDelete
 	// + cancel commander ctx + WaitAll，确保striker goroutine 全退再 Destroy sandbox，防孤儿。
 	parentRegistries *sync.Map
+}
+
+// buildInspector 装配 LLMInspector：复用 handler_passive / handler_active 两处胶水。
+// inspector LLM 走 light_provider（router "inspector" 路由），按 (owner, host) 做 notes/findings/lessons 范围隔离。
+// flowSummary 由 caller 提供，约束 inspector 评估范围（passive 含流量首行 / active 含 owner 标识）。
+func (h handler) buildInspector(ctx context.Context, ownerType, ownerID, host, flowSummary, taskID string, otPtr, oidPtr *string) (react.Inspector, error) {
+	reviewLLMRaw, err := h.router.For(ctx, "inspector")
+	if err != nil {
+		return nil, err
+	}
+	reviewLLMGen := llm.Instrument(reviewLLMRaw, h.calls,
+		llm.CallMeta{TaskID: &taskID, OwnerType: otPtr, OwnerID: oidPtr, RouteKey: "inspector"},
+		h.pricing,
+	)
+	inspector := react.NewLLMInspector(reviewLLMGen, h.notes, ownerID, host)
+	inspector.ArgsTruncate = h.cfg.React.InspectorArgsTruncate
+	inspector.ObsTruncate = h.cfg.React.InspectorObsTruncate
+	inspector.FlowSummary = flowSummary
+	// HostFindingsFetcher：inspector 看到 (owner, host) 已有 finding 列表（背景参考，不参与 terminate 判定）。
+	inspector.HostFindingsFetcher = func(ctx context.Context) ([]string, error) {
+		fs, err := h.findings.ListByOwnerAndHost(ctx, ownerType, ownerID, host, h.cfg.React.InspectorFindingsLimit)
+		if err != nil {
+			return nil, err
+		}
+		out := make([]string, 0, len(fs))
+		for _, f := range fs {
+			out = append(out, fmt.Sprintf("[%s] %s", f.Severity, f.Summary))
+		}
+		return out, nil
+	}
+	// LessonFetcher：跨 owner 累积的 host 历史经验，供 redirect hint 参考。
+	inspector.LessonFetcher = func(ctx context.Context) ([]string, error) {
+		lessons, err := h.lessons.ListByHost(ctx, host, h.cfg.React.InspectorLessonsLimit)
+		if err != nil {
+			return nil, err
+		}
+		out := make([]string, 0, len(lessons))
+		for _, l := range lessons {
+			out = append(out, fmt.Sprintf("[p%d] %s", l.Priority, l.Content))
+		}
+		return out, nil
+	}
+	return inspector, nil
 }
 
 // failTask 把错误标记到 task 表。

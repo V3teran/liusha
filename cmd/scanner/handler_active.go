@@ -52,41 +52,10 @@ func (h handler) handleActive(ctx context.Context, p worker.Payload, entrypoint 
 		h.pricing,
 	)
 
-	// inspector
-	reviewLLMRaw, err := h.router.For(ctx, "inspector")
+	// inspector 装配——virtualHost 已由 extractHostFromBrief 解析（brief 真 host 或 owner_id 兜底）。
+	inspector, err := h.buildInspector(ctx, ot, oid, virtualHost, "ACTIVE owner="+oid, tid, otPtr, oidPtr)
 	if err != nil {
 		return h.failTask(ctx, p.TaskID, err)
-	}
-	reviewLLMGen := llm.Instrument(reviewLLMRaw, h.calls,
-		llm.CallMeta{TaskID: &tid, OwnerType: otPtr, OwnerID: oidPtr, RouteKey: "inspector"},
-		h.pricing,
-	)
-	// notes key 用 owner_id（与 BuilderParams.OwnerID 一致；0040 FK DROP 后 finding 无 FK 约束）
-	inspector := react.NewLLMInspector(reviewLLMGen, h.notes, oid, virtualHost)
-	inspector.ArgsTruncate = h.cfg.React.InspectorArgsTruncate
-	inspector.ObsTruncate = h.cfg.React.InspectorObsTruncate
-	inspector.FlowSummary = "ACTIVE owner=" + oid
-	inspector.HostFindingsFetcher = func(ctx context.Context) ([]string, error) {
-		fs, err := h.findings.ListByOwnerAndHost(ctx, ot, oid, virtualHost, h.cfg.React.InspectorFindingsLimit)
-		if err != nil {
-			return nil, err
-		}
-		out := make([]string, 0, len(fs))
-		for _, f := range fs {
-			out = append(out, fmt.Sprintf("[%s] %s", f.Severity, f.Summary))
-		}
-		return out, nil
-	}
-	inspector.LessonFetcher = func(ctx context.Context) ([]string, error) {
-		lessons, err := h.lessons.ListByHost(ctx, virtualHost, h.cfg.React.InspectorLessonsLimit)
-		if err != nil {
-			return nil, err
-		}
-		out := make([]string, 0, len(lessons))
-		for _, l := range lessons {
-			out = append(out, fmt.Sprintf("[p%d] %s", l.Priority, l.Content))
-		}
-		return out, nil
 	}
 
 	// 为本次 agent run 启动 sandbox 容器
