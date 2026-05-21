@@ -14,7 +14,7 @@ import (
 // InvocationsAPI 是 handler 依赖的窄接口；*llminvocation.Store 自动满足。
 type InvocationsAPI interface {
 	Flush(ctx context.Context) error
-	ListByOwnerID(ctx context.Context, ownerID string) ([]llminvocation.Invocation, error)
+	ListByOwner(ctx context.Context, ownerType, ownerID string) ([]llminvocation.Invocation, error)
 }
 
 // llmInvocationsHandler 处理 GET /llm/invocations/:owner_id。
@@ -47,7 +47,7 @@ func llmInvocationsHandler(api InvocationsAPI) gin.HandlerFunc {
 		}
 		_ = api.Flush(c.Request.Context())
 
-		invocations, err := api.ListByOwnerID(c.Request.Context(), eid)
+		invocations, err := api.ListByOwner(c.Request.Context(), "", eid)
 		if err != nil {
 			if strings.Contains(err.Error(), "no rows in result set") {
 				c.JSON(404, gin.H{"error": "owner not found", "owner_id": eid})

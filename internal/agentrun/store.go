@@ -116,41 +116,18 @@ func (s *Store) GetByID(ctx context.Context, id string) (ReactRun, error) {
 	return t, nil
 }
 
-// ListByOwnerID 按 created_at 升序列出 owner_id 下的任务，最多 limit 条。
-func (s *Store) ListByOwnerID(ctx context.Context, ownerID string, limit int) ([]ReactRun, error) {
-	rows, err := s.pool.Query(ctx, `
-		SELECT `+colsSelect+`
-		FROM agent_task
-		WHERE owner_id=$1::uuid
-		ORDER BY created_at ASC
-		LIMIT $2`, ownerID, limit)
-	if err != nil {
-		return nil, fmt.Errorf("list tasks: %w", err)
-	}
-	defer rows.Close()
-
-	var out []ReactRun
-	for rows.Next() {
-		var t ReactRun
-		if err := scanTask(rows, &t); err != nil {
-			return nil, fmt.Errorf("scan task: %w", err)
-		}
-		out = append(out, t)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate tasks: %w", err)
-	}
-	return out, nil
-}
-
-// ListByOwner 按 owner_type+owner_id 升序列出任务（polymorphic canonical 路径）。
+// ListByOwner 按 created_at 升序列出 owner 下的任务，最多 limit 条。
+// ownerType 为 "" 时退化为仅按 owner_id 过滤（caller 仅持有 ID 无 type 上下文时用）。
 func (s *Store) ListByOwner(ctx context.Context, ownerType, ownerID string, limit int) ([]ReactRun, error) {
-	rows, err := s.pool.Query(ctx, `
-		SELECT `+colsSelect+`
-		FROM agent_task
-		WHERE owner_type=$1 AND owner_id=$2::uuid
-		ORDER BY created_at ASC
-		LIMIT $3`, ownerType, ownerID, limit)
+	q := `SELECT ` + colsSelect + ` FROM agent_task WHERE owner_id=$1::uuid`
+	args := []any{ownerID}
+	if ownerType != "" {
+		q += ` AND owner_type=$2`
+		args = append(args, ownerType)
+	}
+	q += ` ORDER BY created_at ASC LIMIT $` + fmt.Sprintf("%d", len(args)+1)
+	args = append(args, limit)
+	rows, err := s.pool.Query(ctx, q, args...)
 	if err != nil {
 		return nil, fmt.Errorf("list tasks by owner: %w", err)
 	}

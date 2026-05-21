@@ -207,31 +207,35 @@ func (s *Store) copyFromBatch(ctx context.Context, batch []Invocation) error {
 	return nil
 }
 
-// ListByOwnerID 列出 owner 下所有 LLM invocation（按 created_at ASC）。
-//
-// 调用方有责任先 Flush() 等异步 buffer commit，否则可能缺最近 0-1s 的记录——
-// handler 路径上 Flush() 后再调本方法，保证 viewer 拿到完整审计快照。
-func (s *Store) ListByOwnerID(ctx context.Context, ownerID string) ([]Invocation, error) {
-	rows, err := s.pool.Query(ctx, `
-		SELECT id, agent_run_id, owner_type, owner_id::text,
-		       provider, model,
-		       in_tokens, out_tokens, cached_tokens,
-		       cost_usd, latency_ms, finish_reason, error_message, role,
-		       messages, result, created_at
-		FROM llm_invocation
-		WHERE owner_id=$1::uuid
-		ORDER BY created_at ASC`, ownerID)
+// ListByOwner 列出 owner 下所有 LLM invocation（按 created_at ASC）。
+// ownerType 为 "" 时退化为仅按 owner_id 过滤（caller 仅持有 ID 时用，如 HTTP URL :owner_id）。
+// 调用方有责任先 Flush() 等异步 buffer commit，否则可能缺最近 0-1s 的记录。
+func (s *Store) ListByOwner(ctx context.Context, ownerType, ownerID string) ([]Invocation, error) {
+	q := `SELECT id, agent_run_id, owner_type, owner_id::text,
+	             provider, model,
+	             in_tokens, out_tokens, cached_tokens,
+	             cost_usd, latency_ms, finish_reason, error_message, role,
+	             messages, result, created_at
+	      FROM llm_invocation
+	      WHERE owner_id=$1::uuid`
+	args := []any{ownerID}
+	if ownerType != "" {
+		q += ` AND owner_type=$2`
+		args = append(args, ownerType)
+	}
+	q += ` ORDER BY created_at ASC`
+	rows, err := s.pool.Query(ctx, q, args...)
 	if err != nil {
-		return nil, fmt.Errorf("list llm_invocation: %w", err)
+		return nil, fmt.Errorf("list llm_invocation by owner: %w", err)
 	}
 	defer rows.Close()
 
 	var out []Invocation
 	for rows.Next() {
 		var v Invocation
-		var taskID, ownerType, ownerID *string
+		var taskID, ot, oid *string
 		if err := rows.Scan(
-			&v.ID, &taskID, &ownerType, &ownerID,
+			&v.ID, &taskID, &ot, &oid,
 			&v.Provider, &v.Model,
 			&v.InTokens, &v.OutTokens, &v.CachedTokens,
 			&v.CostUSD, &v.LatencyMs, &v.FinishReason, &v.Error, &v.Role,
@@ -240,8 +244,8 @@ func (s *Store) ListByOwnerID(ctx context.Context, ownerID string) ([]Invocation
 			return nil, fmt.Errorf("scan llm_invocation: %w", err)
 		}
 		v.TaskID = taskID
-		v.OwnerType = ownerType
-		v.OwnerID = ownerID
+		v.OwnerType = ot
+		v.OwnerID = oid
 		out = append(out, v)
 	}
 	if err := rows.Err(); err != nil {

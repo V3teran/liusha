@@ -173,45 +173,18 @@ func (s *Store) GetByID(ctx context.Context, id string) (VulnFinding, error) {
 	return f, nil
 }
 
-// ListByOwnerID 列出 owner_id 下所有 finding（按 created_at desc）。
-//
-// 仅按 owner_id (UUID) 过滤——无 owner_type，适用于 caller 仅持有 ID 的场景
-// （如 HTTP URL `:owner_id` 参数）。利用 owner_id UUID 全局唯一性；polymorphic
-// 索引 (owner_type, owner_id, ...) 需 leading column 不会被命中，必要时另加单列索引。
-// dedup 由 LLM 写 finding 前自查 read_findings 决定，Store 不做。
-func (s *Store) ListByOwnerID(ctx context.Context, ownerID string) ([]VulnFinding, error) {
-	rows, err := s.pool.Query(ctx, `
-		SELECT `+colsSelect+`
-		FROM finding
-		WHERE owner_id=$1::uuid
-		ORDER BY created_at DESC`, ownerID)
-	if err != nil {
-		return nil, fmt.Errorf("list findings: %w", err)
-	}
-	defer rows.Close()
-
-	var out []VulnFinding
-	for rows.Next() {
-		var f VulnFinding
-		if err := scan(rows, &f); err != nil {
-			return nil, fmt.Errorf("scan finding: %w", err)
-		}
-		out = append(out, f)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate findings: %w", err)
-	}
-	return out, nil
-}
-
-// ListByOwner 列出 owner（passive_session / active_scan）下所有 finding（按 created_at desc）。
-// 新 polymorphic 路径——commit B5 切读后取代 ListByOwner。
+// ListByOwner 列出 owner 下所有 finding（按 created_at desc）。
+// ownerType 为 "" 时退化为仅按 owner_id 过滤——caller 仅持有 ID（如 HTTP URL :owner_id）时用。
+// 利用 owner_id UUID 全局唯一性确保跨 owner_type 不冲突。
 func (s *Store) ListByOwner(ctx context.Context, ownerType, ownerID string) ([]VulnFinding, error) {
-	rows, err := s.pool.Query(ctx, `
-		SELECT `+colsSelect+`
-		FROM finding
-		WHERE owner_type=$1 AND owner_id=$2::uuid
-		ORDER BY created_at DESC`, ownerType, ownerID)
+	q := `SELECT ` + colsSelect + ` FROM finding WHERE owner_id=$1::uuid`
+	args := []any{ownerID}
+	if ownerType != "" {
+		q += ` AND owner_type=$2`
+		args = append(args, ownerType)
+	}
+	q += ` ORDER BY created_at DESC`
+	rows, err := s.pool.Query(ctx, q, args...)
 	if err != nil {
 		return nil, fmt.Errorf("list findings by owner: %w", err)
 	}
