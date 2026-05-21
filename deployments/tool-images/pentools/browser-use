@@ -32,6 +32,20 @@ case "$SUB" in
   ""|--help|-h|--version|-V|install|init|setup|doctor|python|tunnel|close|sessions|cloud|profile|switch|close-tab)
     exec browser-use-cli "$SUB" "$@"
     ;;
+  release-tab)
+    # 释放本 task 的 tab——done 工具的 best-effort cleanup。
+    # 只关 tab，不关 daemon（host 内兄弟 task 还在用 session）；无 tab 静默退出。
+    if [ ! -f "$TAB_FILE" ]; then
+        exit 0
+    fi
+    exec 9>"$LOCK"
+    flock -x 9
+    TAB_IDX=$(cat "$TAB_FILE")
+    browser-use-cli switch "$TAB_IDX" >/dev/null 2>&1 && \
+        browser-use-cli close-tab >/dev/null 2>&1 || true
+    rm -f "$TAB_FILE"
+    exit 0
+    ;;
 esac
 
 # 以下子命令需要 tab 上下文 — flock 串行化避免父子并发 switch+操作 race

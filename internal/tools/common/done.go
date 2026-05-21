@@ -11,6 +11,7 @@ import (
 	"context"
 	"encoding/json"
 
+	"github.com/V3teran/liusha/internal/sandbox"
 	"github.com/V3teran/liusha/internal/toolruntime"
 )
 
@@ -22,8 +23,14 @@ import (
 // PreDoneCheck 是可选的前置闸：非 nil 返错时 Execute 拒绝完成（错误透传给 LLM）。
 // 用于 subtask swarm：commander LLM 调 done 时若有 active strikers → 返错强制 commander 先调
 // list_strikers 监控striker 进度，等strikers 全完才能真 done。零值（nil）= 无闸，等价旧行为。
+//
+// Sandbox + TaskID 可选——非空时 PreDoneCheck 通过后 best-effort 调 `browser-use release-tab`
+// 关闭本 task 的浏览器 tab（不关 daemon，host 内兄弟 task 继续共享 session）。
+// 失败仅记 Warning 到 Result（容器销毁兜底），不阻塞 done。
 type Done struct {
 	PreDoneCheck func(ctx context.Context) error
+	Sandbox      sandbox.Client
+	TaskID       string
 }
 
 // Name 返回工具名 "done"。
@@ -41,7 +48,7 @@ func (a Done) ParametersJSON() json.RawMessage {
 	return json.RawMessage(`{"type":"object","properties":{"reason":{"type":"string"},"summary":{"type":"string"}}}`)
 }
 
-// Execute 先调 PreDoneCheck（如有），通过后返回 Done=true。
+// Execute 先调 PreDoneCheck（如有），通过后 best-effort 关本 task 浏览器 tab，再返回 Done=true。
 // args 即使为 nil 也回吐为空 JSON 对象。
 func (a Done) Execute(ctx context.Context, args json.RawMessage) (toolfx.Result, error) {
 	if a.PreDoneCheck != nil {
@@ -49,8 +56,24 @@ func (a Done) Execute(ctx context.Context, args json.RawMessage) (toolfx.Result,
 			return toolfx.Result{}, err
 		}
 	}
+	a.releaseBrowserTab(ctx)
 	if len(args) == 0 {
 		args = json.RawMessage(`{}`)
 	}
 	return toolfx.Result{Done: true, Output: args}, nil
+}
+
+// releaseBrowserTab best-effort 调 sandbox 内 `browser-use release-tab` 关本 task 的 tab。
+// wrapper 内部判断：无 TAB_FILE（本 task 没用过 browser）静默 exit 0。
+// 失败不影响 done——容器销毁会兜底回收所有 tab。
+func (a Done) releaseBrowserTab(ctx context.Context) {
+	if a.Sandbox == nil || a.TaskID == "" {
+		return
+	}
+	_, _ = a.Sandbox.Exec(ctx, sandbox.ExecRequest{
+		TaskID:         a.TaskID,
+		Command:        "browser-use release-tab",
+		TimeoutSeconds: 10,
+		Tag:            "done-release-tab",
+	})
 }

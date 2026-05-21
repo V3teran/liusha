@@ -190,6 +190,8 @@ func NewBuilder(deps Deps) skill.Builder {
 
 		if spawnerRegistry != nil {
 			must(common.Done{
+				Sandbox: p.Sandbox,
+				TaskID:  p.TaskID,
 				PreDoneCheck: func(_ context.Context) error {
 					// 不诱导 polling：错误消息**自含** running striker摘要（taskID 前缀 + 已跑秒数），
 					// LLM 看 error 即得到 list_strikers 该给的信息；明确建议挖新链路 / read_findings /
@@ -216,7 +218,7 @@ func NewBuilder(deps Deps) skill.Builder {
 				},
 			})
 		} else {
-			must(common.Done{})
+			must(common.Done{Sandbox: p.Sandbox, TaskID: p.TaskID})
 		}
 
 		// Progressive Disclosure Tier 2：LLM 看 user prompt 工具索引选中工具后
