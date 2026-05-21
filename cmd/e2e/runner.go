@@ -12,7 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/rs/zerolog"
 
-	"github.com/V3teran/liusha/internal/agentrun"
+	"github.com/V3teran/liusha/internal/hunter"
 	"github.com/V3teran/liusha/internal/finding"
 )
 
@@ -31,9 +31,30 @@ type profilePlan struct {
 // 又会让日志难读。多 profile 按选中顺序串行。
 func runActiveProfiles(ctx context.Context, profs []activeProfile, apiBase, apiKey string, pool *pgxpool.Pool, logger zerolog.Logger) error {
 	store := finding.NewStore(pool)
-	agentRunStore := agentrun.NewStore(pool)
+	agentRunStore := hunter.NewStore(pool)
 
 	for _, ap := range profs {
+		// active:adhoc 是占位 profile——brief 在源码中为空，强制从 LIUSHA_E2E_BRIEF 环境
+		// 变量读取（避免把含密码的 brief 写进 git）。LIUSHA_E2E_MIN_FINDINGS 可覆盖门槛。
+		if ap.name == "adhoc" {
+			brief := strings.TrimSpace(os.Getenv("LIUSHA_E2E_BRIEF"))
+			if brief == "" {
+				return fmt.Errorf("active:adhoc 需要 LIUSHA_E2E_BRIEF 环境变量提供 brief（含目标 URL/凭证/扫描方向）")
+			}
+			ap.brief = brief
+			if mfStr := strings.TrimSpace(os.Getenv("LIUSHA_E2E_MIN_FINDINGS")); mfStr != "" {
+				var mf int
+				if _, err := fmt.Sscanf(mfStr, "%d", &mf); err == nil && mf > 0 {
+					ap.minFindings = mf
+				}
+			}
+			logger.Info().
+				Str("profile", ap.name).
+				Int("brief_len", len(ap.brief)).
+				Int("min_findings", ap.minFindings).
+				Msg("adhoc brief 从 env 注入（不入仓库）")
+		}
+
 		eid, taskID, err := createActiveScan(apiBase, apiKey, ap.brief)
 		if err != nil {
 			return fmt.Errorf("active profile %s: createActiveScan: %w", ap.name, err)
@@ -50,7 +71,7 @@ func runActiveProfiles(ctx context.Context, profs []activeProfile, apiBase, apiK
 		var lastFindings []finding.VulnFinding
 		var lastTotal, lastUnfinished int
 		for time.Now().Before(deadline) {
-			runs, runErr := agentRunStore.ListByOwnerID(ctx, eid, 100)
+			runs, runErr := agentRunStore.ListByOwner(ctx, "active_scan", eid, 100)
 			unfinished, totalRuns := 0, 0
 			if runErr == nil {
 				// active 每次都新建 session——eid 已唯一定位本次 run 全集（commander + spawn 的 strikers）。
@@ -64,7 +85,7 @@ func runActiveProfiles(ctx context.Context, profs []activeProfile, apiBase, apiK
 					}
 				}
 			}
-			all, findErr := store.ListByOwnerID(ctx, eid)
+			all, findErr := store.ListByOwner(ctx, "active_scan", eid)
 			var matched []finding.VulnFinding
 			if findErr == nil {
 				matched = filterAfter(all, startedAt)
@@ -220,7 +241,7 @@ func runAllUnified(ctx context.Context, plans []profilePlan, proxyHostPort, apiB
 
 	// 4. 统一 poll：等所有 host 的 agent_run done + 总 finding 数满足
 	store := finding.NewStore(pool)
-	agentRunStore := agentrun.NewStore(pool)
+	agentRunStore := hunter.NewStore(pool)
 	// 多 profile 并发跑，deadline 给单 profile 上限 + 适度放大兜底大 LLM 抖动
 	deadline := time.Now().Add(pollDeadline() + 10*time.Minute)
 	observed := false
@@ -230,7 +251,7 @@ func runAllUnified(ctx context.Context, plans []profilePlan, proxyHostPort, apiB
 		totalRuns, unfinished, totalFindings := 0, 0, 0
 		var allFindings []finding.VulnFinding
 		for _, eid := range eidByHost {
-			if runs, runErr := agentRunStore.ListByOwnerID(ctx, eid, 100); runErr == nil {
+			if runs, runErr := agentRunStore.ListByOwner(ctx, "active_scan", eid, 100); runErr == nil {
 				for _, r := range runs {
 					if !r.CreatedAt.After(unifiedStartedAt) {
 						continue
@@ -241,7 +262,7 @@ func runAllUnified(ctx context.Context, plans []profilePlan, proxyHostPort, apiB
 					}
 				}
 			}
-			if all, findErr := store.ListByOwnerID(ctx, eid); findErr == nil {
+			if all, findErr := store.ListByOwner(ctx, "active_scan", eid); findErr == nil {
 				matched := filterAfter(all, unifiedStartedAt)
 				totalFindings += len(matched)
 				allFindings = append(allFindings, matched...)

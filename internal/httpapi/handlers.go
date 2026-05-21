@@ -154,7 +154,7 @@ func abortHandler(api OwnersAPI) gin.HandlerFunc {
 
 // ActiveScanAPI 是 handlers 对 active 模式扫描入口的窄接口。
 // CreateActiveScan 一站式做三件事：建 active scan、建 hunter agent_run、入 asynq 队列；
-// 由 cmd/api 的 adapter 用 owner store + agentrun.Store + worker.Client 实现。
+// 由 cmd/api 的 adapter 用 owner store + hunter.Store + worker.Client 实现。
 type ActiveScanAPI interface {
 	CreateActiveScan(ctx context.Context, brief string) (ownerID, agentRunID string, err error)
 }

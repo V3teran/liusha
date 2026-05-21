@@ -7,12 +7,12 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/V3teran/liusha/internal/agentrun"
+	"github.com/V3teran/liusha/internal/hunter"
 )
 
-// AgentRunsAPI 是 handler 依赖的窄接口；*agentrun.Store 自动满足。
+// AgentRunsAPI 是 handler 依赖的窄接口；*hunter.Store 自动满足。
 type AgentRunsAPI interface {
-	ListByOwner(ctx context.Context, ownerType, ownerID string, limit int) ([]agentrun.ReactRun, error)
+	ListByOwner(ctx context.Context, ownerType, ownerID string, limit int) ([]hunter.Run, error)
 }
 
 // agentRunsHandler 处理 GET /agent_runs/:owner_id。

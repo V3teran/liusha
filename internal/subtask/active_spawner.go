@@ -9,7 +9,7 @@ import (
 
 	"github.com/rs/zerolog"
 
-	"github.com/V3teran/liusha/internal/agentrun"
+	"github.com/V3teran/liusha/internal/hunter"
 	"github.com/V3teran/liusha/internal/finding"
 	"github.com/V3teran/liusha/internal/flow"
 	"github.com/V3teran/liusha/internal/lesson"
@@ -37,7 +37,7 @@ type ActiveSpawnerConfig struct {
 	Host         string
 
 	// PG 存储
-	AgentRuns *agentrun.Store
+	AgentRuns *hunter.Store
 	Findings  *finding.Store
 	Lessons   *lesson.Store
 	Calls     *llminvocation.Store
@@ -116,7 +116,7 @@ func (s *ActiveSpawner) Spawn(ctx context.Context, brief string, opts SpawnOptio
 	if err != nil {
 		return "", fmt.Errorf("marshal child payload: %w", err)
 	}
-	childTID, err := s.cfg.AgentRuns.Create(ctx, agentrun.NewParams{
+	childTID, err := s.cfg.AgentRuns.Create(ctx, hunter.NewParams{
 		OwnerType: s.cfg.OwnerType, // 与commander对齐
 		OwnerID:   s.cfg.OwnerID,
 		Role:      "striker",
@@ -124,7 +124,7 @@ func (s *ActiveSpawner) Spawn(ctx context.Context, brief string, opts SpawnOptio
 		CommanderID:  s.cfg.CommanderTaskID,
 	})
 	if err != nil {
-		return "", fmt.Errorf("agentrun.Create(child): %w", err)
+		return "", fmt.Errorf("hunter.Create(child): %w", err)
 	}
 
 	// pending → running 必须在 Registry.Register 之前——否则 SetRunning 失败时
@@ -133,7 +133,7 @@ func (s *ActiveSpawner) Spawn(ctx context.Context, brief string, opts SpawnOptio
 	// 失败副作用：PG 留一行 pending 的 agent_task 永不会被消费（asynq 不入队 striker），
 	// 由下次 scanner 启动 CleanupOrphans 兜底回收。
 	if err := s.cfg.AgentRuns.SetRunning(ctx, childTID); err != nil {
-		return "", fmt.Errorf("agentrun.SetRunning(child): %w", err)
+		return "", fmt.Errorf("hunter.SetRunning(child): %w", err)
 	}
 
 	handle := s.cfg.Registry.Register(childTID, brief)

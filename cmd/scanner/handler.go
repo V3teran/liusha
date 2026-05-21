@@ -11,7 +11,7 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/V3teran/liusha/internal/activescan"
-	"github.com/V3teran/liusha/internal/agentrun"
+	"github.com/V3teran/liusha/internal/hunter"
 	"github.com/V3teran/liusha/internal/config"
 	"github.com/V3teran/liusha/internal/finding"
 	"github.com/V3teran/liusha/internal/flow"
@@ -28,7 +28,7 @@ import (
 
 // handler 持有所有跨任务共享依赖。
 type handler struct {
-	tasks           *agentrun.Store
+	tasks           *hunter.Store
 	passiveSessions *passivesession.Store
 	activeScans     *activescan.Store
 	notes           *notes.RedisStore
@@ -139,7 +139,7 @@ func (h handler) handle(ctx context.Context, p worker.Payload) (retErr error) {
 	// 入口检查：asynq 重试场景（PG status 已非 pending）→ SkipRetry。
 	// 防 commander被重试时新 Registry 空 → PreDoneCheck 永放行 → 旧 PG striker 僵尸 + 矛盾态。
 	// GetByID 错误（PG 短时不可用等）不阻塞——让 SetRunning 走正常错误路径。
-	if run, getErr := h.tasks.GetByID(ctx, p.TaskID); getErr == nil && run.Status != agentrun.StatusPending {
+	if run, getErr := h.tasks.GetByID(ctx, p.TaskID); getErr == nil && run.Status != hunter.StatusPending {
 		h.logger.Warn().
 			Str("agent_task_id", p.TaskID).
 			Str("status", string(run.Status)).

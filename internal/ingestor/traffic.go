@@ -22,7 +22,7 @@ import (
 	"github.com/redis/go-redis/v9"
 	"github.com/rs/zerolog"
 
-	"github.com/V3teran/liusha/internal/agentrun"
+	"github.com/V3teran/liusha/internal/hunter"
 	"github.com/V3teran/liusha/internal/config"
 	"github.com/V3teran/liusha/internal/passivesession"
 	"github.com/V3teran/liusha/internal/flow"
@@ -44,7 +44,7 @@ type Traffic struct {
 	passive       *passivesession.Store // 流量入口 LookupOrCreate by host
 	passiveTTL    time.Duration
 	flows         *flow.Store
-	tasks         *agentrun.Store
+	tasks         *hunter.Store
 	enq           *worker.Client
 	logger        zerolog.Logger
 }
@@ -62,7 +62,7 @@ type Deps struct {
 	Passive    *passivesession.Store // 流量入口 LookupOrCreate by host
 	PassiveTTL time.Duration         // passive session 过期窗口
 	Flows      *flow.Store
-	Tasks      *agentrun.Store
+	Tasks      *hunter.Store
 	Enqueuer   *worker.Client
 	Logger     zerolog.Logger
 }
@@ -218,7 +218,7 @@ func (t *Traffic) enqueueMain(ctx context.Context, passSessID string, flowID int
 		"entrypoint": json.RawMessage(entrypoint),
 	})
 
-	tid, err := t.tasks.Create(ctx, agentrun.NewParams{
+	tid, err := t.tasks.Create(ctx, hunter.NewParams{
 		OwnerType: owner.Passive,
 		OwnerID:   passSessID,
 		Role:      "tracker",

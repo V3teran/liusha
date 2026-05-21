@@ -26,7 +26,7 @@ import (
 	"time"
 
 	"github.com/V3teran/liusha/internal/activescan"
-	"github.com/V3teran/liusha/internal/agentrun"
+	hunterstore "github.com/V3teran/liusha/internal/hunter"
 	"github.com/V3teran/liusha/internal/builder/hunter"
 	"github.com/V3teran/liusha/internal/config"
 	"github.com/V3teran/liusha/internal/credential"
@@ -80,7 +80,7 @@ func main() {
 	// Stores
 	passSess := passivesession.NewStore(pool) // passive session store
 	actScan := activescan.NewStore(pool)      // active scan store
-	tasks := agentrun.NewStore(pool)
+	tasks := hunterstore.NewStore(pool)
 	finds := finding.NewStore(pool)
 	toolCalls := toolinvocation.NewStore(pool)
 	calls := llminvocation.NewStoreWithConfig(pool, cfg.LLM.Invocation)
@@ -369,7 +369,7 @@ func main() {
 // handler struct + failTask/abortTask/handle 入口 已抽到 handler.go。
 // handlePassive 在 handler_passive.go；handleActive 在 handler_active.go。
 
-// dualOwnerCounter 让 agentrun/finding/flow.Store 的 best-effort 计数维护同时尝试
+// dualOwnerCounter 让 hunter/finding/flow.Store 的 best-effort 计数维护同时尝试
 // briefHostRe 匹配 http(s):// 后到 / 或 空白 之前的 host (含端口)。
 //
 // 例子（捕获组 [1]）：

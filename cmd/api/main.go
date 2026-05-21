@@ -16,7 +16,7 @@ import (
 	"time"
 
 	"github.com/V3teran/liusha/internal/activescan"
-	"github.com/V3teran/liusha/internal/agentrun"
+	"github.com/V3teran/liusha/internal/hunter"
 	"github.com/V3teran/liusha/internal/audit"
 	"github.com/V3teran/liusha/internal/config"
 	"github.com/V3teran/liusha/internal/credential"
@@ -66,8 +66,8 @@ func main() {
 	invocationStore := llminvocation.NewStoreWithConfig(pool, cfg.LLM.Invocation)
 	defer func() { _ = invocationStore.Close() }()
 
-	// Active 模式装配：agentrun store + asynq 入队器。
-	taskStore := agentrun.NewStore(pool)
+	// Active 模式装配：hunter store + asynq 入队器。
+	taskStore := hunter.NewStore(pool)
 	enq := worker.NewClient(asynq.RedisClientOpt{Addr: os.Getenv("LIUSHA_REDIS_ADDR")})
 	defer enq.Close()
 	auditStore := audit.NewStore(pool) // 0047：owner abort / create 审计
@@ -231,7 +231,7 @@ func (a ownerAPIAdapter) List(ctx context.Context, limit int) ([]httpapi.OwnerSu
 	return out, nil
 }
 
-// activeScanAdapter 把 owner store + agentrun.Store + worker.Client 组合成
+// activeScanAdapter 把 owner store + hunter.Store + worker.Client 组合成
 // httpapi.ActiveScanAPI 一站式入口：建 active scan → 建 hunter agent_run → 入 asynq 队列。
 //
 // 任一步失败都不留中间状态（前面失败直接返错；owner 已建但 enqueue 失败会留
@@ -240,7 +240,7 @@ func (a ownerAPIAdapter) List(ctx context.Context, limit int) ([]httpapi.OwnerSu
 // 单源：仅 active_scan 表（0040 DROP FK 后旧 owner 路径正式弃用）。
 type activeScanAdapter struct {
 	activeScans *activescan.Store
-	tasks       *agentrun.Store
+	tasks       *hunter.Store
 	enq         *worker.Client
 	audit       *audit.Store // 0047：create 写审计事件；nil 跳过
 }
@@ -266,7 +266,7 @@ func (a *activeScanAdapter) CreateActiveScan(ctx context.Context, brief string) 
 		return "", "", fmt.Errorf("marshal payload: %w", err)
 	}
 
-	tid, err := a.tasks.Create(ctx, agentrun.NewParams{
+	tid, err := a.tasks.Create(ctx, hunter.NewParams{
 		OwnerType: owner.Active,
 		OwnerID:   sc.ID,
 		Role:      "commander",

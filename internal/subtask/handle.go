@@ -5,10 +5,10 @@
 //	commander (asynq → handleActive → react.Run)
 //	  ↓ 调 spawn_striker 工具
 //	subtask.Spawner.Spawn
-//	  ├─ agentrun.Create(parent_id=commanderTID) → PG 落 pending 行
+//	  ├─ hunter.Create(commander_id=commanderTID) → PG 落 pending 行
 //	  ├─ registry.Register → commander 进程内 Handle 句柄
 //	  └─ go func() { react.Run(strikerCtx) } → striker 在 commander goroutine 树内跑
-//	striker 完成 → handle.MarkDone(outcome) + agentrun.SetDone
+//	striker 完成 → handle.MarkDone(outcome) + hunter.SetDone
 //
 // 共享：sandbox 容器 /  owner 黑板（notes/findings/lessons）— commander 与 striker 同 (eid, host)。
 // 隔离：striker ctx 由commander ctx WithCancel 派生（commander abort 自动级联）；striker 有独立 LLM context / inspector。

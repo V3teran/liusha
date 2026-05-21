@@ -17,11 +17,11 @@ type Deps struct {
 	// 由 cmd/api 注入 *llminvocation.Store（自动满足 InvocationsAPI 窄接口）。
 	Invocations InvocationsAPI
 	// AgentRuns 为 nil 时 /agent_runs/:eid 路由不注册。
-	// 由 cmd/api 注入 *agentrun.Store（自动满足 AgentRunsAPI 窄接口）。
+	// 由 cmd/api 注入 *hunter.Store（自动满足 AgentRunsAPI 窄接口）。
 	// 前端 viewer 用此 endpoint 按 commander_id 拼任务树（subtask swarm 可观测）。
 	AgentRuns AgentRunsAPI
 	// ActiveScan 为 nil 时 /scan/active 路由不注册。
-	// 由 cmd/api 注入自定义 adapter（包 owner store + agentrun.Store + worker.Client）。
+	// 由 cmd/api 注入自定义 adapter（包 owner store + hunter.Store + worker.Client）。
 	ActiveScan ActiveScanAPI
 	// StaticFS 可选：注入时挂 / 路径 serve 静态前端（PR-3 graph viewer SPA）。
 	// 为 nil 时不注册——避免 cmd/api 之外的进程意外暴露前端资源。
