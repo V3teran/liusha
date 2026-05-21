@@ -555,8 +555,8 @@ function renderInvocationCard(inv, stepIdx) {
 // ---------- Agent run 父子树（subtask swarm 可观测）----------
 
 /**
- * fetch /agent_runs/:eid → 按 parent_id 拼树 → 渲染嵌套 ul。
- * 根节点 = parent_id 为空的 agent_run（独立 task 或父 active）。
+ * fetch /agent_runs/:eid → 按 commander_id 拼树 → 渲染嵌套 ul。
+ * 根节点 = commander_id 为空的 agent_run（独立 task 或父 active）。
  * @param {string} eid owner_id
  * @param {string} apikey X-API-Key
  */
@@ -578,15 +578,15 @@ async function loadAgentRuns(eid, apikey) {
     return;
   }
 
-  // 按 parent_id 拼树
+  // 按 commander_id 拼树
   const byId = {};
   const roots = [];
   for (const r of runs) {
     byId[r.id] = { ...r, children: [] };
   }
   for (const r of runs) {
-    if (r.parent_id && byId[r.parent_id]) {
-      byId[r.parent_id].children.push(byId[r.id]);
+    if (r.commander_id && byId[r.commander_id]) {
+      byId[r.commander_id].children.push(byId[r.id]);
     } else {
       roots.push(byId[r.id]);
     }

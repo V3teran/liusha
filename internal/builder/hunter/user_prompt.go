@@ -156,7 +156,7 @@ var vulnCategoryOrder = []categoryItem{
 //	- **subfinder**: ...
 //	- **httpx**: ...
 //
-// 用法约束（沙箱网络、read_tooling_skill 拉详细手册）在 hunter SKILL.md 里说，不在这段重复。
+// 用法约束（沙箱网络、按需调 read_tooling_skill 拉详细手册）由 system_prompt_shared.md 统一约束，本段只渲染索引。
 func buildToolingCatalog(m *manifest.Manifest) string {
 	if m == nil || len(m.Tools) == 0 {
 		return ""
