@@ -41,7 +41,7 @@ func (h handler) handleActive(ctx context.Context, p worker.Payload, entrypoint 
 	// 按真站点身份切分跨 task 复用；抽不到回退 owner_id 兜底（lesson 跨 task 失效）。
 	virtualHost := extractHostFromBrief(ep.Brief, oid)
 
-	// commander LLM（active 父指挥官）——vision_provider 支持 browser-use 截图。
+	// commander LLM（commander指挥官）——vision_provider 支持 browser-use 截图。
 	// deepseek 走 openai_compat 不支持 multimodal，触发 ErrVisionUnsupported。
 	hunterRaw, err := h.router.For(ctx, "commander")
 	if err != nil {
@@ -104,8 +104,8 @@ func (h handler) handleActive(ctx context.Context, p worker.Payload, entrypoint 
 	}()
 
 	// H3：commander react.Run 退出（含 max_steps 绕过 PreDoneCheck）后striker goroutine 可能仍在跑——
-	// 若 Destroy 容器，子 /exec 报错→ silent failure。包一层 cancelable commanderCtx，
-	// defer 里先 cancel 子树 + WaitAll，再让 Destroy defer 跑（LIFO）。
+	// 若 Destroy 容器，striker /exec 报错→ silent failure。包一层 cancelable commanderCtx，
+	// defer 里先 cancel striker 子树 + WaitAll，再让 Destroy defer 跑（LIFO）。
 	commanderCtx, cancelParent := context.WithCancel(ctx)
 	defer func() {
 		cancelParent()
@@ -123,7 +123,7 @@ func (h handler) handleActive(ctx context.Context, p worker.Payload, entrypoint 
 		OwnerType: ot,
 		OwnerID:   oid,
 		TaskID:    tid,
-		CommanderTaskID: p.CommanderTaskID, // active asynq 入口commander总是空；非空表示由 subtask 包内 ActiveSpawner 在父 goroutine 内派的子
+		CommanderTaskID: p.CommanderTaskID, // active asynq 入口commander总是空；非空表示由 subtask 包内 ActiveSpawner 在 commander goroutine 内派的 striker
 		Host:         virtualHost,
 		LLM:          hunterGen,
 		Inspector:     inspector,

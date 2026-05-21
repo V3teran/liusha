@@ -102,7 +102,7 @@ func (e stringErr) Error() string { return string(e) }
 
 // TestRun_DoneFailureDoesNotTerminate 回归测试 — 修复 commit aa292f0：
 //
-// 场景：done 工具的 PreDoneCheck（PR3 subtask swarm "父等子" 闸）第 1 次
+// 场景：done 工具的 PreDoneCheck（PR3 subtask swarm "commander 等 striker" 闸）第 1 次
 // 返 err 拒绝，第 2 次返 Done:true 通过。
 // 修复前 bug：runtime.go 用 `tc.Name == "done"` 兜底，让任何名为 done
 // 的工具调用都强制 sawDone=true → 主循环第 1 步就退出，PreDoneCheck 形同虚设。

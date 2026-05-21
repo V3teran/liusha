@@ -7,7 +7,7 @@ import (
 
 // Registry 是commander持有的striker句柄集合（线程安全）。
 //
-// 一个父 active task 一个 Registry 实例——由 hunter builder 闭包构造，
+// 一个 commander 一个 Registry 实例——由 hunter builder 闭包构造，
 // 注入到 spawn_striker / list_strikers 工具及 done PreDoneCheck。
 //
 // wg 跟踪striker goroutine 数量，supports WaitAll —— commander react.Run 退出（含 max_steps）
@@ -35,7 +35,7 @@ func (r *Registry) Register(taskID, brief string) *Handle {
 }
 
 // RunningCount 返回当前 running striker数——spawn_striker 用此查 max_children 闸。
-// max_children 是"同时并发上限"：子 done 后名额立即释放，与 max_concurrent 直觉一致。
+// max_children 是"同时并发上限"：striker done 后名额立即释放，与 max_concurrent 直觉一致。
 func (r *Registry) RunningCount() int {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -77,7 +77,7 @@ func (r *Registry) Snapshot() []ChildSnapshot {
 
 // trackGoroutine 在 spawner go runChild 前调，wg.Add(1)。
 // 与 untrackGoroutine 严格配对——后者在 runChild 最末 defer 调，
-// 任何子退出路径（成功 / panic / ctx cancel）都会触发。
+// 任何 striker 退出路径（成功 / panic / ctx cancel）都会触发。
 func (r *Registry) trackGoroutine() { r.wg.Add(1) }
 
 // untrackGoroutine 由 runChild 最外层 defer 调，wg.Done。

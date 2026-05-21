@@ -23,8 +23,8 @@ func buildUserPrompt(ctx context.Context, deps Deps, p skill.BuilderParams) stri
 
 	// 字段触发渲染（不再 Mode-driven）：
 	//   - RequestHeaders 非空或 URL 非空 → 渲染 raw HTTP 段（tracker / 带 flow_id 的 striker）
-	//   - Brief 非空 → 渲染 brief 段（commander / 所有子）
-	// 两者可并存：tracker spawn 子带 flow_id 时，striker 同时看到 raw HTTP + brief。
+	//   - Brief 非空 → 渲染 brief 段（commander / striker）
+	// 两者可并存：tracker spawn striker 带 flow_id 时，striker 同时看到 raw HTTP + brief。
 	if len(p.RequestHeaders) > 0 || p.URL != "" {
 		// 段 1: 请求
 		// raw HTTP/1.1 协议形式打印——含 Host 头，LLM 不需要猜 target，

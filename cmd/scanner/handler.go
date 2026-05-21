@@ -42,7 +42,7 @@ type handler struct {
 	hunterBuilder   skill.Builder
 	launcher        sandbox.Launcher
 	logger          zerolog.Logger
-	// parentRegistries 索引父 taskID → striker Registry（subtask swarm）。
+	// parentRegistries 索引 commander taskID → striker Registry（subtask swarm）。
 	// spawnerFactory 闭包 Store；handleActive 在 react.Run 返回后 LoadAndDelete
 	// + cancel commander ctx + WaitAll，确保striker goroutine 全退再 Destroy sandbox，防孤儿。
 	parentRegistries *sync.Map
@@ -92,7 +92,7 @@ func (h handler) handle(ctx context.Context, p worker.Payload) (retErr error) {
 	}()
 
 	// 入口检查：asynq 重试场景（PG status 已非 pending）→ SkipRetry。
-	// 防 active 父被重试时新 Registry 空 → PreDoneCheck 永放行 → 旧 PG 子僵尸 + 矛盾态。
+	// 防 commander被重试时新 Registry 空 → PreDoneCheck 永放行 → 旧 PG striker 僵尸 + 矛盾态。
 	// GetByID 错误（PG 短时不可用等）不阻塞——让 SetRunning 走正常错误路径。
 	if run, getErr := h.tasks.GetByID(ctx, p.TaskID); getErr == nil && run.Status != agentrun.StatusPending {
 		h.logger.Warn().

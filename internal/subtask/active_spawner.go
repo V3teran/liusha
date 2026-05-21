@@ -38,7 +38,7 @@ type ActiveSpawnerConfig struct {
 	Findings  *finding.Store
 	Lessons   *lesson.Store
 	Calls     *llminvocation.Store
-	// Flows 可空（active 父无 flow）；FlowID>0 时调 GetByID 拉 raw HTTP 填子 BuilderParams。
+	// Flows 可空（commander无 flow）；FlowID>0 时调 GetByID 拉 raw HTTP 填striker BuilderParams。
 	Flows *flow.Store
 
 	// 短期记忆
@@ -48,29 +48,29 @@ type ActiveSpawnerConfig struct {
 	Router  *llm.Router
 	Pricing llm.PricingProvider
 
-	// 装配子 striker
+	// 装配 striker
 	HunterBuilder skill.Builder
 
-	// 共享父容器（striker文件按 task_id 隔离 — PR2 已就绪）
+	// 共享 commander 容器（striker文件按 task_id 隔离 — PR2 已就绪）
 	SandboxClient sandbox.Client
 
-	// 父进程内的striker句柄注册表
+	// commander 进程内的striker句柄注册表
 	Registry *Registry
 
 	// 闸值
 	MaxChildren int
 
-	// Inspector 装配参数（与父 active 路径对齐）
+	// Inspector 装配参数（与 commander 路径对齐）
 	InspectorArgsTruncate  int
 	InspectorObsTruncate   int
 	InspectorFindingsLimit int
 	InspectorLessonsLimit  int
 }
 
-// ActiveSpawner 实现 Spawner 接口——为 active commander派子 active 任务。
+// ActiveSpawner 实现 Spawner 接口——为 commander 派 striker。
 //
 // commanderCtx 是commander react.Run 的 ctx；striker ctx 由 WithCancel(commanderCtx) 派生，
-// commander abort / owner abort / parent ctx timeout 都会自动级联到子。
+// commander abort / owner abort / parent ctx timeout 都会自动级联到 striker。
 type ActiveSpawner struct {
 	cfg       ActiveSpawnerConfig
 	commanderCtx context.Context
@@ -81,8 +81,8 @@ func NewActiveSpawner(commanderCtx context.Context, cfg ActiveSpawnerConfig) *Ac
 	return &ActiveSpawner{cfg: cfg, commanderCtx: commanderCtx}
 }
 
-// Spawn 创建一行 child agent_run + 启 goroutine 跑子 react.Run，立即返回 childTaskID（异步）。
-// opts.FlowID>0 时子能在 user prompt 看到完整 raw HTTP（tracker常用）。
+// Spawn 创建一行 child agent_run + 启 goroutine 跑 striker react.Run，立即返回 childTaskID（异步）。
+// opts.FlowID>0 时striker 能在 user prompt 看到完整 raw HTTP（tracker常用）。
 func (s *ActiveSpawner) Spawn(ctx context.Context, brief string, opts SpawnOptions) (string, error) {
 	// max_children 是"同时并发上限"：只数 running striker，已 done/failed 的不占额
 	// → LLM 视角下 list_strikers 看见"全 done"时 quota 真的释放了，可以继续 spawn。
@@ -138,9 +138,9 @@ func (s *ActiveSpawner) Spawn(ctx context.Context, brief string, opts SpawnOptio
 	return childTID, nil
 }
 
-// runChild 在独立 goroutine 内装配 + 跑子 react.Run。
+// runChild 在独立 goroutine 内装配 + 跑 striker react.Run。
 // 任何路径（成功 / 失败 / panic / abort）都更新 handle 状态 + PG agent_run 行。
-// flowID>0 时拉 flow 填 BuilderParams，让子 user prompt 渲染 raw HTTP 段 + brief 段。
+// flowID>0 时拉 flow 填 BuilderParams，让striker user prompt 渲染 raw HTTP 段 + brief 段。
 func (s *ActiveSpawner) runChild(ctx context.Context, cancel context.CancelFunc, childTID, brief string, flowID int64, handle *Handle) {
 	defer cancel()
 	defer func() {
@@ -156,7 +156,7 @@ func (s *ActiveSpawner) runChild(ctx context.Context, cancel context.CancelFunc,
 	ot, oid := s.cfg.OwnerType, s.cfg.OwnerID
 	otPtr, oidPtr := &ot, &oid
 
-	// striker LLM（active 子士兵——深挖单点）
+	// striker LLM（striker士兵——深挖单点）
 	hunterRaw, err := s.cfg.Router.For(ctx, "striker")
 	if err != nil {
 		s.markFailed(childTID, handle, fmt.Errorf("router striker: %w", err))
@@ -219,12 +219,12 @@ func (s *ActiveSpawner) runChild(ctx context.Context, cancel context.CancelFunc,
 		Sandbox:      s.cfg.SandboxClient,
 	}
 
-	// 父传 flow_id 时拉 flow 填到 BuilderParams——子 buildUserPrompt 字段触发渲染 raw HTTP 段。
-	// Flows 为 nil（active 父场景未注入）或 GetByID 失败时降级到纯 brief 模式（仅 warn）。
+	// commander 传 flow_id 时拉 flow 填到 BuilderParams——striker buildUserPrompt 字段触发渲染 raw HTTP 段。
+	// Flows 为 nil（commander场景未注入）或 GetByID 失败时降级到纯 brief 模式（仅 warn）。
 	if flowID > 0 && s.cfg.Flows != nil {
 		fl, ferr := s.cfg.Flows.GetByID(ctx, flowID)
 		if ferr != nil {
-			handle.MarkFailed(fmt.Errorf("拉父流量 flow_id=%d 失败: %w", flowID, ferr))
+			handle.MarkFailed(fmt.Errorf("拉 commander 流量 flow_id=%d 失败: %w", flowID, ferr))
 			_ = s.cfg.AgentRuns.SetError(context.Background(), childTID, ferr.Error())
 			return
 		}
@@ -244,11 +244,11 @@ func (s *ActiveSpawner) runChild(ctx context.Context, cancel context.CancelFunc,
 		return
 	}
 
-	// 子继承commander ctx → owner abort 时commander ctx cancel 自动传到这里
+	// striker 继承 commander ctx → owner abort 时 commander ctx cancel 自动传到这里
 	out, runErr := react.Run(ctx, cfg)
 	if runErr != nil {
 		// ctx cancel / DeadlineExceeded 视为 abort——PG 写 SetAborted（非 SetError），
-		// handle 仍 MarkFailed 给父 LLM 看到 failureReason=context canceled
+		// handle 仍 MarkFailed 给commander LLM 看到 failureReason=context canceled
 		if errors.Is(runErr, context.Canceled) || errors.Is(runErr, context.DeadlineExceeded) {
 			handle.MarkFailed(runErr)
 			_ = s.cfg.AgentRuns.SetAborted(context.Background(), childTID)

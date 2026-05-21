@@ -1,9 +1,9 @@
-// Package skill 此文件定义子 ReAct skill 装配的接口约定（Builder + BuilderParams），
+// Package skill 此文件定义striker ReAct skill 装配的接口约定（Builder + BuilderParams），
 // 与 Loader 同包：skill 包代表"skill 系统"——加载 SKILL.md（Card / Loader）
 // 与装配可执行 react.Config（Builder）两个职责合并在一处。
 //
 // 解耦关系：
-//   - tools/scan 只负责"按 skill 名调 Builder + 跑子 ReAct"
+//   - tools/scan 只负责"按 skill 名调 Builder + 跑striker ReAct"
 //   - builders/vuln/<kind> 实现具体 skill 的 Builder
 //   - 两者通过 skill.Builder 类型解耦
 package skill

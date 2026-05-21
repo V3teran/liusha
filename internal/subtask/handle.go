@@ -2,15 +2,15 @@
 //
 // 拓扑（与 asynq 并列的次级任务通道）：
 //
-//	父 commander (asynq → handleActive → react.Run)
+//	commander (asynq → handleActive → react.Run)
 //	  ↓ 调 spawn_striker 工具
 //	subtask.Spawner.Spawn
-//	  ├─ agentrun.Create(parent_id=父TID) → PG 落 pending 行
-//	  ├─ registry.Register → 父进程内 Handle 句柄
-//	  └─ go func() { react.Run(strikerCtx) } → 子在父 goroutine 树内跑
-//	子完成 → handle.MarkDone(outcome) + agentrun.SetDone
+//	  ├─ agentrun.Create(parent_id=commanderTID) → PG 落 pending 行
+//	  ├─ registry.Register → commander 进程内 Handle 句柄
+//	  └─ go func() { react.Run(strikerCtx) } → striker 在 commander goroutine 树内跑
+//	striker 完成 → handle.MarkDone(outcome) + agentrun.SetDone
 //
-// 共享：sandbox 容器 /  owner 黑板（notes/findings/lessons）— 父子同 (eid, host)。
+// 共享：sandbox 容器 /  owner 黑板（notes/findings/lessons）— commander 与 striker 同 (eid, host)。
 // 隔离：striker ctx 由commander ctx WithCancel 派生（commander abort 自动级联）；striker 有独立 LLM context / inspector。
 package subtask
 
@@ -30,7 +30,7 @@ const (
 
 // ChildSnapshot 是 list_strikers 工具看到的striker只读视图。
 //
-// 字段最小化：父 LLM 只需要知道"子在跑什么 / 进展到哪 / 完了没"——
+// 字段最小化：commander LLM 只需要知道"striker 在跑什么 / 进展到哪 / 完了没"——
 // 详细 finding 走共享黑板（commander read_findings 自然看到）。
 type ChildSnapshot struct {
 	TaskID        string      `json:"task_id"`
@@ -43,16 +43,16 @@ type ChildSnapshot struct {
 	FinishedAt    time.Time   `json:"finished_at,omitempty"` // 终态时填
 }
 
-// Outcome 是子 react.Run 的最小完成信息。
+// Outcome 是 striker react.Run 的最小完成信息。
 // 与 internal/react.Outcome 解耦——subtask 只需 2 字段，不依赖 react 内部的 Usage/Hints 等。
 type Outcome struct {
 	TerminateBy string
 	TotalSteps  int
 }
 
-// Handle 是单个striker的内存句柄（父进程持有）。
+// Handle 是单个striker的内存句柄（commander 进程持有）。
 //
-// 线程安全：MarkDone / MarkFailed 由 spawner goroutine 调用，Snapshot 由父 LLM
+// 线程安全：MarkDone / MarkFailed 由 spawner goroutine 调用，Snapshot 由commander LLM
 // 工具调用线程读，mu 保护并发。
 type Handle struct {
 	taskID    string

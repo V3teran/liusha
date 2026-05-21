@@ -12,10 +12,10 @@ import (
 // Input 是该 task 的入参（已序列化的 JSON），由 handler 自行解释。
 //
 // CommanderTaskID 标识commander id（subtask swarm）；空表示独立任务/根任务。
-// 设计约束：striker永远在父 goroutine 内跑（subtask 包内），**不**入 asynq——
+// 设计约束：striker永远在commander goroutine 内跑（subtask 包内），**不**入 asynq——
 // 因此正常情况下入队 Payload.CommanderTaskID 永远为空；ingestor + httpapi
 // enqueue 调用方均不填本字段，scanner handleActive 也不再做 fail-fast 死分支。
-// 字段保留用于 internal/subtask 包在父 goroutine 内 BuilderParams 传递。
+// 字段保留用于 internal/subtask 包在commander goroutine 内 BuilderParams 传递。
 type Payload struct {
 	TaskID       string          `json:"agent_run_id"`
 	OwnerType    string          `json:"owner_type"` // 'passive_session' / 'active_scan'

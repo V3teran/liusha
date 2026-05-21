@@ -45,11 +45,11 @@ import (
 // hunter agent system prompt 按 (mode, isParent) 拆四段编译期嵌入：
 //   - shared：通用规则（角色 / 写 finding 铁律 / mode-invariant 反模式）
 //   - tracker（passive 单 agent / 侦察兵）：流量驱动入口 + 401→read_credentials 反模式
-//   - commander（commander / 指挥官）：brief 驱动入口 + 领导/下属分工 + spawn 优先
-//   - striker（striker / 士兵）：接 brief 深挖单点 + 不再 spawn + evidence handoff
+//   - commander（指挥官）：brief 驱动入口 + commander 与 striker 职责分工 + spawn 优先
+//   - striker（士兵）：接 brief 深挖单点 + 不再 spawn + evidence handoff
 //
-// 拆段避免角色错位（active 父看到"挖单点 brief 之外不要碰"会矛盾；
-// active 子看到"spawn striker"会因没注册工具而困惑）。
+// 拆段避免角色错位（commander 看到"挖单点 brief 之外不要碰"会矛盾；
+// striker 看到"spawn striker"会因没注册工具而困惑）。
 // 改 prompt 走 PR + review，与代码同路径管理（Strix 风格）。
 //
 //go:embed system_prompt_shared.md
@@ -123,9 +123,9 @@ type Deps struct {
 	WatchdogSeconds    int
 	InspectorEverySteps int
 
-	// SpawnerFactory 为commander装配 subtask.Spawner + Registry（subtask swarm）。
-	// 由 cmd/scanner 注入：闭包捕获 router/stores/calls/pricing 等所有装配striker所需依赖。
-	// nil 时commander不注册 spawn_striker / list_strikers 工具（向后兼容 / 单测场景）。
+	// SpawnerFactory 为 commander 装配 subtask.Spawner + Registry（subtask swarm）。
+	// 由 cmd/scanner 注入：闭包捕获 router/stores/calls/pricing 等所有装配striker 所需依赖。
+	// nil 时commander 不注册 spawn_striker / list_strikers 工具（向后兼容 / 单测场景）。
 	// max_children 闸值在 spawner 内部持有，闸触发的 wrapped error 已含数字提示。
 	SpawnerFactory func(commanderCtx context.Context, p skill.BuilderParams) (subtask.Spawner, *subtask.Registry, error)
 
@@ -171,11 +171,11 @@ func NewBuilder(deps Deps) skill.Builder {
 		must(&common.ReadLessons{Store: deps.Lessons, Host: p.Host})
 		must(&common.WriteLesson{Store: deps.Lessons, Host: p.Host})
 
-		// subtask swarm：**仅 active 父**注册 spawn_striker / list_strikers。
+		// subtask swarm：**仅 commander** 注册 spawn_striker / list_strikers。
 		// striker（CommanderTaskID 非空）不注册防递归（max_depth=1）。
-		// commander Done 装 PreDoneCheck 拒绝"子未完先 done"。
-		// passive 不开 spawn 的原因：passive 60 步预算 + 子常 100+ 步 → 父来不及等子完
-		//   就会 max_steps 退出（H3 修过孤儿 goroutine，但仍违反"父等子"语义）。
+		// commander Done 装 PreDoneCheck 拒绝"striker 未完先 done"。
+		// passive 不开 spawn 的原因：passive 60 步预算 + striker 常 100+ 步 → commander 来不及等 striker 完
+		//   就会 max_steps 退出（H3 修过孤儿 goroutine，但仍违反"commander 等 striker"语义）。
 		//   passive 场景"1 流量挖多类型"应由流量分发器拆多个 active 任务，不该 swarm。
 		var spawnerRegistry *subtask.Registry
 		if p.Mode == "active" && p.CommanderTaskID == "" && deps.SpawnerFactory != nil {
@@ -211,7 +211,7 @@ func NewBuilder(deps Deps) skill.Builder {
 					if len(running) == 0 {
 						return nil
 					}
-					return fmt.Errorf("仍有 %d 个 running striker: %s。**不要调 list_strikers polling**——striker 写的 finding 已通过共享黑板冒给你（read_findings 看），现在去：(a) 用 striker 已挖出的发现作引子挖新链路；(b) 完善 finding/写 lesson；(c) 过段时间再试 done。strikers 全完了再调 done 即可",
+					return fmt.Errorf("仍有 %d 个 running striker: %s。**不要调 list_strikers polling**——striker 写的 finding 已通过共享黑板冒给你（read_findings 看），现在去：(a) 用 striker 已挖出的发现作引导挖新链路；(b) 完善 finding/写 lesson；(c) 过段时间再试 done。strikers 全完了再调 done 即可",
 						len(running), strings.Join(running, ", "))
 				},
 			})

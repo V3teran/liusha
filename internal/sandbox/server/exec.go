@@ -21,7 +21,7 @@ import (
 //
 // v1.3：单 task 1 容器，所有 /exec 共享 /tmp/sandbox-output（同 task 内跨 exec 复用文件）。
 // v1.4 subtask swarm：commander / striker 共享同一容器（避免账号 cookie 顶掉），但commander / striker 并发跑命令会
-// 互相串扰——modtime 过滤无法分清"父刚写的 vs 子刚写的"；wget -O ./x.html 类命令会互覆。
+// 互相串扰——modtime 过滤无法分清"commander 刚写的 vs striker 刚写的"；wget -O ./x.html 类命令会互覆。
 //
 // 隔离设计：
 //   - OUTPUT_DIR = /tmp/sandbox-output/<TaskID>/  → 附件按 task 切，collectAttachments 只扫本 task 子目录

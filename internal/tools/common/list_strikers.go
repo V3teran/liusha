@@ -10,7 +10,7 @@ import (
 	"github.com/V3teran/liusha/internal/toolruntime"
 )
 
-// ListStrikers 列出本commander派的所有striker状态 — 与 SpawnStriker 配对，只 active 父注册。
+// ListStrikers 列出本commander 派的所有 striker状态 — 与 SpawnStriker 配对，只 commander注册。
 type ListStrikers struct {
 	Registry *subtask.Registry
 }
@@ -19,9 +19,9 @@ type ListStrikers struct {
 func (a ListStrikers) Name() string { return "list_strikers" }
 
 func (a ListStrikers) Description() string {
-	return "列出本commander派的所有striker状态（running/done/failed + 步数 + 失败原因）。" +
-		"\n\n【何时调】实在好奇子进度时调一次；**不要 polling**。" +
-		"\n【striker 的成果】striker 的 finding 自动冒给父，**用 read_findings 看**——本工具只看『是否在跑』。" +
+	return "列出本commander 派的所有 striker状态（running/done/failed + 步数 + 失败原因）。" +
+		"\n\n【何时调】实在好奇striker 进度时调一次；**不要 polling**。" +
+		"\n【striker 的成果】striker 的 finding 自动冒给 commander，**用 read_findings 看**——本工具只看『是否在跑』。" +
 		"\n【done 准备】**别先 list_strikers 再 done**——直接 done，PreDoneCheck 会拦 + 错误消息含 running striker摘要。" +
 		"\n【截断】仅返全部 running + 最近 10 个终态（防累计 spawn 上百轮 token 爆）。"
 }
@@ -31,8 +31,8 @@ func (a ListStrikers) ParametersJSON() json.RawMessage {
 	return json.RawMessage(`{"type":"object","properties":{}}`)
 }
 
-// recentTerminalLimit 终态子保留条数。父历史可累计 spawn 100+ 次，但 LLM
-// 关心的是当前 running + 最近完成；早期 done 子的发现已通过共享黑板 finding 沉淀。
+// recentTerminalLimit 终态 striker 保留条数。commander 历史可累计 spawn 100+ 次，但 LLM
+// 关心的是当前 running + 最近完成；早期 done striker 的发现已通过共享黑板 finding 沉淀。
 const recentTerminalLimit = 10
 
 // Execute 返回 Registry.Snapshot 截断后的结果（全 running + 最近 N 终态）。

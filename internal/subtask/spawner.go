@@ -4,10 +4,10 @@ import "context"
 
 // SpawnOptions 是 Spawn 的可选参数集合（避免接口签名膨胀）。
 //
-// FlowID 可选——父 passive 任务传自己的 flow_id（来自 BuilderParams.FlowID），
-// ActiveSpawner 拉对应 flow 后填入子 BuilderParams.RequestHeaders/Body/Response*，
-// 让子 user prompt 渲染完整 raw HTTP 段 + brief 段，信息密度最高。
-// 0 = 不传，子 user prompt 仅渲染 brief。
+// FlowID 可选——tracker传自己的 flow_id（来自 BuilderParams.FlowID），
+// ActiveSpawner 拉对应 flow 后填入striker BuilderParams.RequestHeaders/Body/Response*，
+// 让striker user prompt 渲染完整 raw HTTP 段 + brief 段，信息密度最高。
+// 0 = 不传，striker user prompt 仅渲染 brief。
 type SpawnOptions struct {
 	FlowID int64
 }
@@ -15,7 +15,7 @@ type SpawnOptions struct {
 // Spawner 是 spawn_striker 工具调用的最小派单接口。
 //
 // 设计目的：让 internal/tools/common 包不依赖 ActiveSpawner 具体实现 +
-// 测试可注入 stub。Spawner 的所有副作用（PG 落行 + goroutine 启子 react.Run +
+// 测试可注入 stub。Spawner 的所有副作用（PG 落行 + goroutine 启 striker react.Run +
 // Registry 注册）由实现者完成；返回的 childTaskID 是 PG agent_run.id（uuid）。
 //
 // 错误语义：

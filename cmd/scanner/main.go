@@ -10,7 +10,7 @@
 // 它派的所有striker也只在本进程内跑（共享 ctx 树 + sandbox 容器 + WaitAll 清理）。
 // 多实例部署需先实现 Registry 跨进程协同（如 Redis-backed Registry）才能解锁。
 // active commander在 enqueue 时已设 asynq.MaxRetry(0)，crash 后不重试——配合本约束
-// 避免"父在 A 实例 crash → asynq retry 给 B → B 看不到 A 内存的子 Registry"僵尸场景。
+// 避免"commander 在 A 实例 crash → asynq retry 给 B → B 看不到 A 内存的 striker Registry"僵尸场景。
 package main
 
 import (
@@ -179,7 +179,7 @@ func main() {
 	// 给 var 后，闭包在 builder 闭包真实执行时（handleActive 路径）才 deref 到已就绪的值。
 	var hunterBuilder skill.Builder
 
-	// parentRegistries：父 taskID → striker Registry。spawnerFactory LoadOrStore；
+	// parentRegistries：commander taskID → striker Registry。spawnerFactory LoadOrStore；
 	// handleActive 在 react.Run 返回后 LoadAndDelete + cancel + WaitAll。
 	parentRegistries := &sync.Map{}
 

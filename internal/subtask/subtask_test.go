@@ -74,7 +74,7 @@ func TestRegistry_RegisterAndRunningCount(t *testing.T) {
 		t.Fatalf("h1 done 后 RunningCount=%d, want 1", rc)
 	}
 
-	// h2 完成 → HasRunning false；RunningCount=0（max_children 名额全释放，父可继续 spawn）
+	// h2 完成 → HasRunning false；RunningCount=0（max_children 名额全释放，commander 可继续 spawn）
 	h2.MarkFailed(errors.New("test"))
 	if r.HasRunning() {
 		t.Fatalf("全部终态后 HasRunning 应 false")

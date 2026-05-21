@@ -17,7 +17,7 @@ type AgentRunsAPI interface {
 
 // agentRunsHandler 处理 GET /agent_runs/:owner_id。
 //
-// 返回该 owner 下所有 agent_run 行，按 created_at ASC 排序（父先 spawn → 子后入）。
+// 返回该 owner 下所有 agent_run 行，按 created_at ASC 排序（commander 先 spawn → striker 后入）。
 // 前端 viewer 按 commander_id 拼任务树渲染（PR4）：根节点 commander_id="" / NULL。
 //
 // 响应结构：

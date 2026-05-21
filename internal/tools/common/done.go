@@ -20,8 +20,8 @@ import (
 // LLM 自由收手，MaxSteps 兜死循环。
 //
 // PreDoneCheck 是可选的前置闸：非 nil 返错时 Execute 拒绝完成（错误透传给 LLM）。
-// 用于 subtask swarm：父 LLM 调 done 时若有 active children → 返错强制父先调
-// list_strikers 监控子进度，等子全完才能真 done。零值（nil）= 无闸，等价旧行为。
+// 用于 subtask swarm：commander LLM 调 done 时若有 active strikers → 返错强制 commander 先调
+// list_strikers 监控striker 进度，等strikers 全完才能真 done。零值（nil）= 无闸，等价旧行为。
 type Done struct {
 	PreDoneCheck func(ctx context.Context) error
 }

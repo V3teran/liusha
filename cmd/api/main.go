@@ -276,9 +276,9 @@ func (a *activeScanAdapter) CreateActiveScan(ctx context.Context, brief string) 
 	}
 
 	// active commander跑 ~4h，asynq 默认 retry 25 次 → 4 天死循环；且 retry 接管时
-	// 新 scanner 进程 parentRegistries 是空的，PreDoneCheck 永放行，旧 PG 子留
+	// 新 scanner 进程 parentRegistries 是空的，PreDoneCheck 永放行，旧 PG striker 留
 	// status=running 僵尸态 + viewer 看到"commander done + striker running"矛盾。
-	// MaxRetry(0)：active 父跑挂就跑挂，让用户手动 abort + 重新触发，不重试。
+	// MaxRetry(0)：commander跑挂就跑挂，让用户手动 abort + 重新触发，不重试。
 	if _, _, err := a.enq.Enqueue(ctx, worker.RoleHunter, worker.Payload{
 		TaskID:    tid,
 		OwnerType: "active_scan",
