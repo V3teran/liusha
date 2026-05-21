@@ -24,7 +24,7 @@ type SpawnStriker struct {
 func (a SpawnStriker) Name() string { return "spawn_striker" }
 
 func (a SpawnStriker) Description() string {
-	return "派一个 striker striker并行深挖某个独立攻击面（仅 commander 可调）。立即返回 child_task_id（异步），" +
+	return "派一个 striker 并行深挖某个独立攻击面（仅 commander 可调）。立即返回 child_task_id（异步），" +
 		"commander 继续做别的；striker 的 finding 自动通过共享黑板（read_findings）冒给 commander——**不要 polling list_strikers**。" +
 		"\n\n【何时调】recon 阶段发现 ≥ 2 个独立 endpoint/feature；正在挖 X 时临时发现 Y；站点 N 个业务面（admin/user/api）。" +
 		"\n【何时不调】单一 endpoint 深挖（顺序依赖）；recon 还没跑完盲目派；已 spawn 接近上限。" +

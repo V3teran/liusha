@@ -30,7 +30,10 @@ type Done struct {
 func (a Done) Name() string { return "done" }
 
 func (a Done) Description() string {
-	return "终止当前任务，args 中可带 reason / summary（供 Inspector / 报告参考）"
+	return "终止当前任务，args 中可带 reason / summary（供 Inspector / 报告参考）。" +
+		"\n\n【何时调】finding 都写完 + 攻击面已 recon 完 → done。" +
+		"\n【何时不调】commander 有 running striker（PreDoneCheck 会自动拦）/ 攻击面未挖完 / 撞到证据未写 finding。" +
+		"\n【避免空白 done】调前若 read_findings 显示本任务 0 finding，先评估：(a) 真无漏洞 → 写 write_lesson 沉淀'此 host 攻面已穷举无漏洞'再 done；(b) 还能挖 → 继续 ReAct 不调 done。"
 }
 
 // ParametersJSON 返回 JSON Schema：reason / summary 都是可选字符串。

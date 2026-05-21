@@ -10,7 +10,7 @@ import (
 	"github.com/V3teran/liusha/internal/toolruntime"
 )
 
-// ListStrikers 列出本commander 派的所有 striker状态 — 与 SpawnStriker 配对，只 commander注册。
+// ListStrikers 列出本 commander 派的所有 striker 状态 — 与 SpawnStriker 配对，只 commander 注册。
 type ListStrikers struct {
 	Registry *subtask.Registry
 }
@@ -19,7 +19,7 @@ type ListStrikers struct {
 func (a ListStrikers) Name() string { return "list_strikers" }
 
 func (a ListStrikers) Description() string {
-	return "列出本commander 派的所有 striker状态（running/done/failed + 步数 + 失败原因）。" +
+	return "列出本 commander 派的所有 striker 状态（running/done/failed + 步数 + 失败原因）。" +
 		"\n\n【何时调】实在好奇striker 进度时调一次；**不要 polling**。" +
 		"\n【striker 的成果】striker 的 finding 自动冒给 commander，**用 read_findings 看**——本工具只看『是否在跑』。" +
 		"\n【done 准备】**别先 list_strikers 再 done**——直接 done，PreDoneCheck 会拦 + 错误消息含 running striker摘要。" +
