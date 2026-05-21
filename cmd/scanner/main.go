@@ -205,11 +205,13 @@ func main() {
 			SandboxClient:         p.Sandbox,
 			Registry:              registry,
 			MaxChildren:           scannerCfg.MaxChildren,
-			InspectorArgsTruncate:  cfg.React.InspectorArgsTruncate,
-			InspectorObsTruncate:   cfg.React.InspectorObsTruncate,
-			InspectorFindingsLimit: cfg.React.InspectorFindingsLimit,
-			InspectorLessonsLimit:  cfg.React.InspectorLessonsLimit,
-			Logger:                 logger,
+			Inspector: subtask.InspectorParams{
+				ArgsTruncate:  cfg.React.InspectorArgsTruncate,
+				ObsTruncate:   cfg.React.InspectorObsTruncate,
+				FindingsLimit: cfg.React.InspectorFindingsLimit,
+				LessonsLimit:  cfg.React.InspectorLessonsLimit,
+			},
+			Logger: logger,
 		})
 		return spawner, registry, nil
 	}

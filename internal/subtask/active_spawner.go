@@ -64,14 +64,19 @@ type ActiveSpawnerConfig struct {
 	MaxChildren int
 
 	// Inspector 装配参数（与 commander 路径对齐）
-	InspectorArgsTruncate  int
-	InspectorObsTruncate   int
-	InspectorFindingsLimit int
-	InspectorLessonsLimit  int
+	Inspector InspectorParams
 
 	// Logger 用于 striker goroutine 内的错误/状态日志（panic stack、SetError/SetDone 写库失败等）。
 	// 可空——空时退化到 zerolog.Nop。
 	Logger zerolog.Logger
+}
+
+// InspectorParams 是 inspector LLM 装配的截断/限额参数集合。
+type InspectorParams struct {
+	ArgsTruncate  int // 喂 inspector 的 tool args 截断字节数
+	ObsTruncate   int // 喂 inspector 的 ObsSummary 截断字节数
+	FindingsLimit int // 拉本 host 已有 finding 列表上限
+	LessonsLimit  int // 拉本 host 历史 lesson 上限
 }
 
 // ActiveSpawner 实现 Spawner 接口——为 commander 派 striker。
@@ -198,11 +203,11 @@ func (s *ActiveSpawner) runChild(ctx context.Context, cancel context.CancelFunc,
 	// inspector notes key 用 owner_id（与 finding/lesson 切分一致）
 	inspector := react.NewLLMInspector(reviewLLMGen, s.cfg.Notes, oid, s.cfg.Host)
 	inspector.Logger = s.cfg.Logger
-	inspector.ArgsTruncate = s.cfg.InspectorArgsTruncate
-	inspector.ObsTruncate = s.cfg.InspectorObsTruncate
+	inspector.ArgsTruncate = s.cfg.Inspector.ArgsTruncate
+	inspector.ObsTruncate = s.cfg.Inspector.ObsTruncate
 	inspector.FlowSummary = "ACTIVE child owner=" + oid + " parent=" + s.cfg.CommanderTaskID
 	inspector.HostFindingsFetcher = func(ctx context.Context) ([]string, error) {
-		fs, err := s.cfg.Findings.ListByOwnerAndHost(ctx, ot, oid, s.cfg.Host, s.cfg.InspectorFindingsLimit)
+		fs, err := s.cfg.Findings.ListByOwnerAndHost(ctx, ot, oid, s.cfg.Host, s.cfg.Inspector.FindingsLimit)
 		if err != nil {
 			return nil, err
 		}
@@ -213,7 +218,7 @@ func (s *ActiveSpawner) runChild(ctx context.Context, cancel context.CancelFunc,
 		return out, nil
 	}
 	inspector.LessonFetcher = func(ctx context.Context) ([]string, error) {
-		ls, err := s.cfg.Lessons.ListByHost(ctx, s.cfg.Host, s.cfg.InspectorLessonsLimit)
+		ls, err := s.cfg.Lessons.ListByHost(ctx, s.cfg.Host, s.cfg.Inspector.LessonsLimit)
 		if err != nil {
 			return nil, err
 		}
