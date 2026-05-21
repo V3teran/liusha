@@ -172,7 +172,7 @@ func (s *ActiveSpawner) runChild(ctx context.Context, cancel context.CancelFunc,
 	ot, oid := s.cfg.OwnerType, s.cfg.OwnerID
 	otPtr, oidPtr := &ot, &oid
 
-	// striker LLM（striker士兵——深挖单点）
+	// striker LLM（突击手——深挖单点攻击面）
 	hunterRaw, err := s.cfg.Router.For(ctx, "striker")
 	if err != nil {
 		s.markFailed(childTID, handle, fmt.Errorf("router striker: %w", err))

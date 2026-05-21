@@ -46,7 +46,7 @@ import (
 //   - shared：通用规则（角色 / 写 finding 铁律 / mode-invariant 反模式）
 //   - tracker（passive 单 agent / 侦察兵）：流量驱动入口 + 401→read_credentials 反模式
 //   - commander（指挥官）：brief 驱动入口 + commander 与 striker 职责分工 + spawn 优先
-//   - striker（士兵）：接 brief 深挖单点 + 不再 spawn + evidence handoff
+//   - striker（突击手）：接 brief 深挖单点 + 不再 spawn + evidence handoff
 //
 // 拆段避免角色错位（commander 看到"挖单点 brief 之外不要碰"会矛盾；
 // striker 看到"spawn striker"会因没注册工具而困惑）。
@@ -66,7 +66,7 @@ var hunterSystemPromptStriker string
 
 // buildSystemPrompt 按 (mode, isParent) 选段拼接 shared + 角色段。
 //   - mode=="active" && isParent  → commander（指挥官，spawn 优先）
-//   - mode=="active" && !isParent → striker（士兵，专注 brief 深挖单点）
+//   - mode=="active" && !isParent → striker（突击手，专注 brief 深挖单点）
 //   - 其它（passive / 未知）       → tracker（侦察兵，独立挖单流量）
 func buildSystemPrompt(mode string, isParent bool) string {
 	var addendum string

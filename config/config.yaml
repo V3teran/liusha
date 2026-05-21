@@ -46,7 +46,7 @@ llm:
   max_steps: 30                 # ReAct 单任务步数上限，被 Role.Budget 覆盖
   max_tokens_per_call: 4096
   # 双 namespace：把"真 agent"与"single-shot utility"语义分开。
-  # 四角色：tracker（passive 侦察兵）/ commander（active 父指挥官）/ striker（active 子士兵）/ inspector（督查官）
+  # 四角色：tracker（passive 侦察兵）/ commander（active 指挥官）/ striker（active 突击手）/ inspector（督查官）
   agents:
     tracker:   default_provider   # passive 单 agent（流量驱动，纯文本路径）
     commander: vision_provider    # active 父任务（recon + spawn 决策，需 browser-use 截图 → multimodal）
