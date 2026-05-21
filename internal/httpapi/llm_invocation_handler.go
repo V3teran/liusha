@@ -1,4 +1,4 @@
-// Package httpapi: LLM invocation 审计 handler（按 agent_task_id 分组）。
+// Package httpapi: LLM invocation 审计 handler（按 hunter_id 分组）。
 package httpapi
 
 import (
@@ -19,8 +19,8 @@ type InvocationsAPI interface {
 
 // llmInvocationsHandler 处理 GET /llm/invocations/:owner_id。
 //
-// 返回该 owner 下所有 llm_invocation 行，**按 agent_task_id 分组**，
-// 每组内按 created_at ASC（与 react step 顺序一致）。agent_task_id 为 NULL
+// 返回该 owner 下所有 llm_invocation 行，**按 hunter_id 分组**，
+// 每组内按 created_at ASC（与 react step 顺序一致）。hunter_id 为 NULL
 // 的归到 "unassigned" 分组。
 //
 // 响应结构（前端 viewer 消费）：
@@ -30,7 +30,7 @@ type InvocationsAPI interface {
 //	  "total": 19,
 //	  "groups": [
 //	    {
-//	      "agent_task_id": "65287081-773b-...",
+//	      "hunter_id": "65287081-773b-...",
 //	      "count": 11,
 //	      "invocations": [{...所有字段...}, ...]
 //	    }
@@ -57,7 +57,7 @@ func llmInvocationsHandler(api InvocationsAPI) gin.HandlerFunc {
 			return
 		}
 
-		// 按 agent_task_id 分组；保持组首次出现顺序。
+		// 按 hunter_id 分组；保持组首次出现顺序。
 		groups := make(map[string][]gin.H)
 		order := make([]string, 0)
 		for _, v := range invocations {
@@ -72,7 +72,7 @@ func llmInvocationsHandler(api InvocationsAPI) gin.HandlerFunc {
 			// 包装让 gin 直接 inline JSON，而不是 base64 编码成字符串。
 			groups[key] = append(groups[key], gin.H{
 				"id":           v.ID,
-				"agent_task_id": v.TaskID,
+				"hunter_id": v.TaskID,
 				"owner_type":   v.OwnerType,
 				"owner_id":     v.OwnerID,
 				"provider":     v.Provider,
@@ -94,7 +94,7 @@ func llmInvocationsHandler(api InvocationsAPI) gin.HandlerFunc {
 		out := make([]gin.H, 0, len(order))
 		for _, k := range order {
 			out = append(out, gin.H{
-				"agent_task_id": k,
+				"hunter_id": k,
 				"count":        len(groups[k]),
 				"invocations":  groups[k],
 			})

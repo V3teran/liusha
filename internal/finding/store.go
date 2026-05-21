@@ -29,7 +29,7 @@ func NewStore(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
 
 // colsSelect 是所有 SELECT / RETURNING 路径的统一列序，与 scan() 字段一一对应。
 const colsSelect = "id, owner_type, owner_id::text AS owner_id, " +
-	"agent_task_id, source_flow_id, host, severity, summary, target, evidence, " +
+	"hunter_id, source_flow_id, host, severity, summary, target, evidence, " +
 	"COALESCE(cwe_id, ''), COALESCE(owasp_category, ''), first_seen_at, COALESCE(remediation, ''), created_at"
 
 // Save 永远 INSERT 一行新 finding（append-only）。
@@ -64,7 +64,7 @@ func (s *Store) Save(ctx context.Context, f VulnFinding) (VulnFinding, error) {
 	// 不报错而是返回 existing 行——LLM 视角 Save 始终幂等成功，dedup 在 DB 层无声完成。
 	row := tx.QueryRow(ctx, `
 		INSERT INTO finding
-			(owner_type, owner_id, agent_task_id, source_flow_id, host, severity, summary, target, evidence,
+			(owner_type, owner_id, hunter_id, source_flow_id, host, severity, summary, target, evidence,
 			 cwe_id, owasp_category, remediation)
 		VALUES ($1, $2::uuid, $3,$4,$5,$6,$7,$8,$9, NULLIF($10,''), NULLIF($11,''), NULLIF($12,''))
 		ON CONFLICT (owner_id, dedup_key) DO UPDATE
@@ -85,7 +85,7 @@ func (s *Store) Save(ctx context.Context, f VulnFinding) (VulnFinding, error) {
 	}
 
 	// dup 命中：DB 层把后续重复写无声合并到已有行；saved 是 existing 行内容。
-	// agent_task_id 不会被覆盖（DO UPDATE 只动 first_seen_at），所以 saved.TaskID 反映首次写入者。
+	// hunter_id 不会被覆盖（DO UPDATE 只动 first_seen_at），所以 saved.TaskID 反映首次写入者。
 	dedupHit := f.TaskID != nil && saved.TaskID != nil && *f.TaskID != *saved.TaskID
 	ev := findingLog.Info()
 	if dedupHit {

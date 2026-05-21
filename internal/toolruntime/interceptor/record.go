@@ -37,7 +37,7 @@ func Record(store *toolinvocation.Store, agentTaskID, ownerType, ownerID string)
 				errMsg = err.Error()
 			}
 			inv := toolinvocation.Invocation{
-				AgentTaskID:   agentTaskID,
+				HunterID:      agentTaskID,
 				OwnerType:     ownerType,
 				OwnerID:       ownerID,
 				ToolName:      name,
@@ -52,7 +52,7 @@ func Record(store *toolinvocation.Store, agentTaskID, ownerType, ownerID string)
 				recordLog.Warn().
 					Err(appendErr).
 					Str("tool", name).
-					Str("agent_task_id", agentTaskID).
+					Str("hunter_id", agentTaskID).
 					Msg("tool_invocation 记录失败（不阻塞业务）")
 			}
 			return res, err

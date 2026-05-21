@@ -296,7 +296,7 @@ func (a *activeScanAdapter) CreateActiveScan(ctx context.Context, brief string) 
 		if len(briefPreview) > 200 {
 			briefPreview = briefPreview[:200]
 		}
-		meta, _ := json.Marshal(map[string]string{"brief_preview": briefPreview, "agent_task_id": tid})
+		meta, _ := json.Marshal(map[string]string{"brief_preview": briefPreview, "hunter_id": tid})
 		if _, err := a.audit.Append(ctx, audit.Event{
 			Actor:      audit.ActorAPIUser,
 			Action:     audit.ActionOwnerCreate,

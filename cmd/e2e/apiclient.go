@@ -36,7 +36,7 @@ func createPassiveScan(base, key, host string) (string, error) {
 	return out.OwnerID, nil
 }
 
-// createActiveScan 调 POST /scan/active 拿 (owner_id, agent_task_id)。
+// createActiveScan 调 POST /scan/active 拿 (owner_id, hunter_id)。
 // brief 是用户自然语言任务简报（含目标 URL/IP / 账号密码 / 测试方向等），
 // 后端不解析，整段透传给 hunter LLM。
 func createActiveScan(base, key, brief string) (string, string, error) {
@@ -55,15 +55,15 @@ func createActiveScan(base, key, brief string) (string, string, error) {
 	}
 	var out struct {
 		OwnerID string `json:"owner_id"`
-		AgentTaskID   string `json:"agent_task_id"`
+		HunterID   string `json:"hunter_id"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
 		return "", "", fmt.Errorf("decode scan/active: %w", err)
 	}
-	if out.OwnerID == "" || out.AgentTaskID == "" {
+	if out.OwnerID == "" || out.HunterID == "" {
 		return "", "", fmt.Errorf("scan/active returned empty ids")
 	}
-	return out.OwnerID, out.AgentTaskID, nil
+	return out.OwnerID, out.HunterID, nil
 }
 
 // saveCredsBatch 一次录入多 host 凭证（host → []credentialEntry 映射）。

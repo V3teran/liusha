@@ -193,7 +193,7 @@ func (s *Store) copyFromBatch(ctx context.Context, batch []Invocation) error {
 		ctx,
 		pgx.Identifier{"llm_invocation"},
 		[]string{
-			"agent_task_id", "owner_type", "owner_id",
+			"hunter_id", "owner_type", "owner_id",
 			"provider", "model",
 			"in_tokens", "out_tokens", "cached_tokens",
 			"cost_usd", "latency_ms", "finish_reason", "error_message", "role",
@@ -211,7 +211,7 @@ func (s *Store) copyFromBatch(ctx context.Context, batch []Invocation) error {
 // ownerType 为 "" 时退化为仅按 owner_id 过滤（caller 仅持有 ID 时用，如 HTTP URL :owner_id）。
 // 调用方有责任先 Flush() 等异步 buffer commit，否则可能缺最近 0-1s 的记录。
 func (s *Store) ListByOwner(ctx context.Context, ownerType, ownerID string) ([]Invocation, error) {
-	q := `SELECT id, agent_task_id, owner_type, owner_id::text,
+	q := `SELECT id, hunter_id, owner_type, owner_id::text,
 	             provider, model,
 	             in_tokens, out_tokens, cached_tokens,
 	             cost_usd, latency_ms, finish_reason, error_message, role,

@@ -20,14 +20,14 @@ type Store struct {
 func NewStore(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
 
 // colsSelect 是所有 SELECT 路径的统一列序，与 collect() 字段一一对应。
-const colsSelect = "id, agent_task_id::text, owner_type, owner_id::text, " +
+const colsSelect = "id, hunter_id::text, owner_type, owner_id::text, " +
 	"tool_name, args, output_size, output_preview, duration_ms, " +
 	"COALESCE(error_message, ''), done, created_at"
 
 // Append 单条插入。args 为 nil 时落空 jsonb；output 超 previewMax 自动截断 preview。
 func (s *Store) Append(ctx context.Context, v Invocation) (int64, error) {
-	if v.AgentTaskID == "" {
-		return 0, fmt.Errorf("tool_invocation: AgentTaskID 必填")
+	if v.HunterID == "" {
+		return 0, fmt.Errorf("tool_invocation: HunterID 必填")
 	}
 	if v.OwnerType == "" || v.OwnerID == "" {
 		return 0, fmt.Errorf("tool_invocation: OwnerType + OwnerID 必填")
@@ -48,11 +48,11 @@ func (s *Store) Append(ctx context.Context, v Invocation) (int64, error) {
 	var id int64
 	err := s.pool.QueryRow(ctx, `
 		INSERT INTO tool_invocation
-			(agent_task_id, owner_type, owner_id, tool_name, args,
+			(hunter_id, owner_type, owner_id, tool_name, args,
 			 output_size, output_preview, duration_ms, error_message, done)
 		VALUES ($1::uuid, $2, $3::uuid, $4, $5, $6, $7, $8, $9, $10)
 		RETURNING id`,
-		v.AgentTaskID, v.OwnerType, v.OwnerID, v.ToolName, args,
+		v.HunterID, v.OwnerType, v.OwnerID, v.ToolName, args,
 		v.OutputSize, preview, v.DurationMs, errMsg, v.Done,
 	).Scan(&id)
 	if err != nil {
@@ -66,7 +66,7 @@ func (s *Store) ListByTask(ctx context.Context, taskID string) ([]Invocation, er
 	rows, err := s.pool.Query(ctx, `
 		SELECT `+colsSelect+`
 		FROM tool_invocation
-		WHERE agent_task_id=$1::uuid
+		WHERE hunter_id=$1::uuid
 		ORDER BY created_at ASC, id ASC`, taskID)
 	if err != nil {
 		return nil, fmt.Errorf("list tool_invocation by task: %w", err)
@@ -146,7 +146,7 @@ func collect(rows interface {
 	for rows.Next() {
 		var v Invocation
 		if err := rows.Scan(
-			&v.ID, &v.AgentTaskID, &v.OwnerType, &v.OwnerID,
+			&v.ID, &v.HunterID, &v.OwnerType, &v.OwnerID,
 			&v.ToolName, &v.Args, &v.OutputSize, &v.OutputPreview, &v.DurationMs,
 			&v.ErrorMessage, &v.Done, &v.CreatedAt,
 		); err != nil {
