@@ -8,7 +8,7 @@ user prompt 段 1 给定自然语言任务简报（brief）——目标 URL / �
 
 ### 环境就绪
 
-browser-use + chromium 已在沙箱预装，直接 `browser-use-tab open <url>` 即可使用；**不要**跑 `browser-use install`。
+browser-use + chromium 已在沙箱预装，直接 `browser-use open <url>` 即可使用；**不要**跑 `browser-use install`。
 
 ### 默认行为（最重要）
 
@@ -75,10 +75,3 @@ browser-use + chromium 已在沙箱预装，直接 `browser-use-tab open <url>` 
 ### flow_id 参数
 
 active 模式没有特定流量入口，spawn 时一般不传 flow_id（striker 仅看 brief）。
-
-### browser 操作请用 `browser-use-tab`（不是 `browser-use`）
-
-- commander 和 striker 并发用 browser 时，`browser-use open` 会互覆 tab + 截图错乱
-- `browser-use-tab` 是 wrapper：共享 chromium daemon（cookies/session 共享，登录不顶掉）+ 每 task 独立 tab（截图各自独立）
-- 用法和 browser-use 完全一致：`browser-use-tab open <url>` / `browser-use-tab click <idx>` / `browser-use-tab screenshot $OUTPUT_DIR/x.png`
-- 仅管理类（install/doctor/sessions/close）继续用原 browser-use

@@ -1,7 +1,7 @@
 #!/bin/sh
-# browser-use-tab — 包 browser-use CLI 实现"每 task 独立 tab"
+# browser-use — wrapper 包 browser-use-cli（原 pip 安装的 CLI 已 mv 改名）实现"每 task 独立 tab"
 #
-# 背景：browser-use 原生 CLI 无"创建新 tab"命令；open url 默认覆盖当前 tab。
+# 背景：原 browser-use CLI（现 browser-use-cli）无"创建新 tab"命令；open url 默认覆盖当前 tab。
 # 多 task 父子并发用 browser 时会互覆 tab + 截图互相干扰。
 #
 # 本 wrapper 用 `eval window.open + switch <new_idx>` 在共享 chromium daemon 内
@@ -13,7 +13,7 @@
 #
 # 依赖：
 #   - TASK_ID env（sandbox-server PR6 注入；缺省 fallback "default"）
-#   - browser-use CLI (原命令保留 — 管理类子命令仍直调 browser-use)
+#   - browser-use-cli（pip 安装的原 CLI，被本 wrapper 覆盖入口；管理类子命令仍透传给它）
 #   - flock util (容器已装)
 
 set -eu
@@ -25,36 +25,36 @@ LOCK="/tmp/browser-tab.lock"
 SUB="${1:-}"
 shift 2>/dev/null || true
 
-# 不需要 tab 上下文的子命令——直接透传给原 browser-use（不切 tab，不上锁）
+# 不需要 tab 上下文的子命令——直接透传给 browser-use-cli（不切 tab，不上锁）
 # 包括：管理类(install/init/setup/doctor) + daemon 控制(close/sessions/cloud/profile)
 # + tab 元操作(switch/close-tab) + 全局工具(python/tunnel) + 帮助
 case "$SUB" in
   ""|--help|-h|install|init|setup|doctor|python|tunnel|close|sessions|cloud|profile|switch|close-tab)
-    exec browser-use "$SUB" "$@"
+    exec browser-use-cli "$SUB" "$@"
     ;;
 esac
 
 # 以下子命令需要 tab 上下文 — flock 串行化避免父子并发 switch+操作 race
-# (chromium 内 page 是独立的，但 browser-use CLI 的"当前 tab"是 daemon 全局态)
+# (chromium 内 page 是独立的，但 browser-use-cli 的"当前 tab"是 daemon 全局态)
 exec 9>"$LOCK"
 flock -x 9
 
 # 第一次 open: 区分"daemon 未启"和"daemon 已启"两种情况
 if [ "$SUB" = "open" ] && [ ! -f "$TAB_FILE" ]; then
     # 检测 daemon 是否已启动（"No active sessions" = 未启）
-    if browser-use sessions 2>&1 | grep -qi "no active sessions"; then
+    if browser-use-cli sessions 2>&1 | grep -qi "no active sessions"; then
         # 容器内第 1 个 browser 任务: 直接 open <url> 启 daemon + 占用 tab 0
         # 这里不能 eval（无 daemon 无 page），也不能 switch（无 tab）
         echo "0" > "$TAB_FILE"
-        exec browser-use open "$@"
+        exec browser-use-cli open "$@"
     fi
     # daemon 已存在: eval window.open 在当前 tab 上下文创建新 tab
-    browser-use switch 0 >/dev/null 2>&1
-    browser-use eval "window.open('about:blank', '_blank'); 1" >/dev/null 2>&1
+    browser-use-cli switch 0 >/dev/null 2>&1
+    browser-use-cli eval "window.open('about:blank', '_blank'); 1" >/dev/null 2>&1
     # 用 switch <invalid> 错误消息解析当前 tab 数："Invalid tab index N. Available: 0-X"
-    AVAIL=$(browser-use switch 99999 2>&1 | grep -oE 'Available: 0-[0-9]+' | grep -oE '[0-9]+$' || echo "")
+    AVAIL=$(browser-use-cli switch 99999 2>&1 | grep -oE 'Available: 0-[0-9]+' | grep -oE '[0-9]+$' || echo "")
     if [ -z "$AVAIL" ]; then
-        echo "browser-use-tab: 创建新 tab 失败（无法从 switch 错误解析 tab 数）" >&2
+        echo "browser-use: 创建新 tab 失败（无法从 switch 错误解析 tab 数）" >&2
         exit 1
     fi
     echo "$AVAIL" > "$TAB_FILE"
@@ -62,11 +62,11 @@ fi
 
 # 此时必须已有本 task 的 tab 文件——否则用户没 open 就调 click/state
 if [ ! -f "$TAB_FILE" ]; then
-    echo "browser-use-tab: TASK_ID=$TASK_ID 还没 open 过 URL；先 'browser-use-tab open <URL>'" >&2
+    echo "browser-use: TASK_ID=$TASK_ID 还没 open 过 URL；先 'browser-use open <URL>'" >&2
     exit 2
 fi
 
-# 切到本 task tab 后透传子命令到原 browser-use
+# 切到本 task tab 后透传子命令到 browser-use-cli
 TAB_IDX=$(cat "$TAB_FILE")
-browser-use switch "$TAB_IDX" >/dev/null 2>&1
-exec browser-use "$SUB" "$@"
+browser-use-cli switch "$TAB_IDX" >/dev/null 2>&1
+exec browser-use-cli "$SUB" "$@"

@@ -103,7 +103,7 @@ func (r *Registry) Execute(ctx context.Context, name string, args json.RawMessag
 		r.lock.RUnlock()
 		if !ok {
 			// 帮 LLM 自纠错：列已注册工具 + 提示沙箱 CLI 走 run_command。
-			// hunter LLM 偶尔幻觉直接调 sandbox 工具名（如 sqlmap / browser-use-tab），
+			// hunter LLM 偶尔幻觉直接调 sandbox 工具名（如 sqlmap / browser-use），
 			// 这里给一句友好提示让它下一步换正确工具。
 			r.lock.RLock()
 			names := make([]string, 0, len(r.actions))
@@ -112,7 +112,7 @@ func (r *Registry) Execute(ctx context.Context, name string, args json.RawMessag
 			}
 			r.lock.RUnlock()
 			return Result{}, fmt.Errorf(
-				"action 未注册: %q — 沙箱 CLI（如 sqlmap / nuclei / browser-use / browser-use-tab）必须通过 run_command 调用，"+
+				"action 未注册: %q — 沙箱 CLI（如 sqlmap / nuclei / browser-use）必须通过 run_command 调用，"+
 					"格式 run_command{command=\"%s ...\", timeout_seconds=300, tag=\"<诊断标签>\"}。已注册工具：%v",
 				name, name, names,
 			)
