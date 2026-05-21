@@ -33,16 +33,16 @@ func builderFromMap(gens map[string]Generator) Builder {
 		if g, ok := gens[providerKey]; ok {
 			return g, nil
 		}
-		return &mockGen{tag: providerKey, model: providerKey + "-model"}, nil
+		return &testGen{tag: providerKey, model: providerKey + "-model"}, nil
 	}
 }
 
 // TestRouter_For_RoutesAndWraps：For("commander") 应解析到 default(primary) 且经 retry 装饰
 func TestRouter_For_RoutesAndWraps(t *testing.T) {
 	cfg := routerCfg()
-	primary := &mockGen{tag: "primary", model: "primary-model"}
-	light := &mockGen{tag: "light", model: "light-model"}
-	fb := &mockGen{tag: "fb", model: "fb-model"}
+	primary := &testGen{tag: "primary", model: "primary-model"}
+	light := &testGen{tag: "light", model: "light-model"}
+	fb := &testGen{tag: "fb", model: "fb-model"}
 	builder := builderFromMap(map[string]Generator{
 		"primary": primary, "light": light, "fb": fb,
 	})
@@ -96,10 +96,10 @@ func TestRouter_For_UnknownFallsBackToDefault(t *testing.T) {
 // TestRouter_For_FallbackTriggers：primary 4 次 429 → fallback(fb) 兜底成功
 func TestRouter_For_FallbackTriggers(t *testing.T) {
 	cfg := routerCfg()
-	primary := &mockGen{tag: "primary", model: "primary-model", seq: []error{
+	primary := &testGen{tag: "primary", model: "primary-model", seq: []error{
 		&HTTPError{Code: 429}, &HTTPError{Code: 429}, &HTTPError{Code: 429}, &HTTPError{Code: 429},
 	}}
-	fb := &mockGen{tag: "fb", model: "fb-model"}
+	fb := &testGen{tag: "fb", model: "fb-model"}
 	builder := builderFromMap(map[string]Generator{
 		"primary": primary, "fb": fb,
 	})
@@ -129,7 +129,7 @@ func TestRouter_For_FallbackTriggers(t *testing.T) {
 func TestRouter_For_NoFallbackConfigured(t *testing.T) {
 	cfg := routerCfg()
 	cfg.LLM.FallbackProvider = ""
-	primary := &mockGen{tag: "primary", model: "primary-model", seq: []error{
+	primary := &testGen{tag: "primary", model: "primary-model", seq: []error{
 		&HTTPError{Code: 429}, &HTTPError{Code: 429}, &HTTPError{Code: 429}, &HTTPError{Code: 429},
 	}}
 	builder := builderFromMap(map[string]Generator{"primary": primary})

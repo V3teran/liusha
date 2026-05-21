@@ -9,42 +9,6 @@ import (
 	"time"
 )
 
-// mockGen 是测试用的可编程 Generator：按调用次数依次返回 seq 中的 (Result, error)。
-// 任一切片越界视为成功（返回默认 Result）。
-type mockGen struct {
-	tag      string
-	provider string
-	model    string
-	seq      []error
-	calls    int
-	// content 在 seq[i] == nil 时的成功 content。
-	content string
-}
-
-func (m *mockGen) Provider() string { return m.providerOrTag() }
-func (m *mockGen) Model() string    { return m.model }
-func (m *mockGen) providerOrTag() string {
-	if m.provider != "" {
-		return m.provider
-	}
-	return m.tag
-}
-
-func (m *mockGen) Generate(ctx context.Context, msgs []Message, _ []ToolSchema) (Result, error) {
-	idx := m.calls
-	m.calls++
-	if idx < len(m.seq) {
-		if e := m.seq[idx]; e != nil {
-			return Result{}, e
-		}
-	}
-	c := m.content
-	if c == "" {
-		c = "ok-" + m.tag
-	}
-	return Result{Content: c, Provider: m.providerOrTag(), Model: m.model}, nil
-}
-
 // noSleep 让重试测试瞬时跑完，绕开真实 backoff schedule。
 func noSleep() RetryOptions {
 	o := DefaultRetryOptions()
@@ -58,10 +22,10 @@ func noSleep() RetryOptions {
 // TestRetry_429ThreeTimesThenFallback：primary 连出 4 次 429 → fallback 1 次成功
 // 期望：result.Content 来自 fallback，primary 调 4 次，fallback 调 1 次
 func TestRetry_429ThreeTimesThenFallback(t *testing.T) {
-	primary := &mockGen{tag: "primary", seq: []error{
+	primary := &testGen{tag: "primary", seq: []error{
 		&HTTPError{Code: 429}, &HTTPError{Code: 429}, &HTTPError{Code: 429}, &HTTPError{Code: 429},
 	}}
-	fallback := &mockGen{tag: "fb"}
+	fallback := &testGen{tag: "fb"}
 
 	g := WithRetry(primary, fallback, noSleep())
 	res, err := g.Generate(context.Background(), nil, nil)
@@ -81,8 +45,8 @@ func TestRetry_429ThreeTimesThenFallback(t *testing.T) {
 
 // TestRetry_429SecondAttemptSucceeds：primary [429, OK] → 重试 1 次后成功
 func TestRetry_429SecondAttemptSucceeds(t *testing.T) {
-	primary := &mockGen{tag: "primary", seq: []error{&HTTPError{Code: 429}, nil}}
-	fallback := &mockGen{tag: "fb"}
+	primary := &testGen{tag: "primary", seq: []error{&HTTPError{Code: 429}, nil}}
+	fallback := &testGen{tag: "fb"}
 
 	g := WithRetry(primary, fallback, noSleep())
 	res, err := g.Generate(context.Background(), nil, nil)
@@ -102,10 +66,10 @@ func TestRetry_429SecondAttemptSucceeds(t *testing.T) {
 
 // TestRetry_529OnceThenFallback：primary 2 次 529 → fallback 成功
 func TestRetry_529OnceThenFallback(t *testing.T) {
-	primary := &mockGen{tag: "primary", seq: []error{
+	primary := &testGen{tag: "primary", seq: []error{
 		&HTTPError{Code: 529}, &HTTPError{Code: 529},
 	}}
-	fallback := &mockGen{tag: "fb"}
+	fallback := &testGen{tag: "fb"}
 
 	g := WithRetry(primary, fallback, noSleep())
 	res, err := g.Generate(context.Background(), nil, nil)
@@ -125,10 +89,10 @@ func TestRetry_529OnceThenFallback(t *testing.T) {
 
 // TestRetry_5xxRetriesNoFallback：500/502/503/504 重试 2 次，不切 fallback
 func TestRetry_5xxRetriesNoFallback(t *testing.T) {
-	primary := &mockGen{tag: "primary", seq: []error{
+	primary := &testGen{tag: "primary", seq: []error{
 		&HTTPError{Code: 500}, &HTTPError{Code: 502}, &HTTPError{Code: 503},
 	}}
-	fallback := &mockGen{tag: "fb"}
+	fallback := &testGen{tag: "fb"}
 
 	g := WithRetry(primary, fallback, noSleep())
 	_, err := g.Generate(context.Background(), nil, nil)
@@ -145,7 +109,7 @@ func TestRetry_5xxRetriesNoFallback(t *testing.T) {
 
 // TestRetry_5xxSecondAttemptSucceeds：500 一次后恢复
 func TestRetry_5xxSecondAttemptSucceeds(t *testing.T) {
-	primary := &mockGen{tag: "primary", seq: []error{&HTTPError{Code: 500}, nil}}
+	primary := &testGen{tag: "primary", seq: []error{&HTTPError{Code: 500}, nil}}
 	g := WithRetry(primary, nil, noSleep())
 	res, err := g.Generate(context.Background(), nil, nil)
 	if err != nil {
@@ -160,8 +124,8 @@ func TestRetry_5xxSecondAttemptSucceeds(t *testing.T) {
 func TestRetry_4xxNoRetry(t *testing.T) {
 	for _, code := range []int{400, 401, 403, 404} {
 		t.Run("code", func(t *testing.T) {
-			primary := &mockGen{tag: "primary", seq: []error{&HTTPError{Code: code}}}
-			fallback := &mockGen{tag: "fb"}
+			primary := &testGen{tag: "primary", seq: []error{&HTTPError{Code: code}}}
+			fallback := &testGen{tag: "fb"}
 			g := WithRetry(primary, fallback, noSleep())
 			_, err := g.Generate(context.Background(), nil, nil)
 			if err == nil {
@@ -179,7 +143,7 @@ func TestRetry_4xxNoRetry(t *testing.T) {
 
 // TestRetry_NetworkTimeout：网络超时连两次后第三次成功
 func TestRetry_NetworkTimeout(t *testing.T) {
-	primary := &mockGen{tag: "primary", seq: []error{
+	primary := &testGen{tag: "primary", seq: []error{
 		netTimeoutErr(), netTimeoutErr(), nil,
 	}}
 	g := WithRetry(primary, nil, noSleep())
@@ -197,7 +161,7 @@ func TestRetry_NetworkTimeout(t *testing.T) {
 
 // TestRetry_NoFallbackOnExhaust：未配置 fallback 时 429 耗尽抛错
 func TestRetry_NoFallbackOnExhaust(t *testing.T) {
-	primary := &mockGen{tag: "primary", seq: []error{
+	primary := &testGen{tag: "primary", seq: []error{
 		&HTTPError{Code: 429}, &HTTPError{Code: 429}, &HTTPError{Code: 429}, &HTTPError{Code: 429},
 	}}
 	g := WithRetry(primary, nil, noSleep())
@@ -212,7 +176,7 @@ func TestRetry_NoFallbackOnExhaust(t *testing.T) {
 
 // TestRetry_CtxCanceledStops：ctx 取消后立刻停（不再 sleep / 不再调）
 func TestRetry_CtxCanceledStops(t *testing.T) {
-	primary := &mockGen{tag: "primary", seq: []error{
+	primary := &testGen{tag: "primary", seq: []error{
 		&HTTPError{Code: 429}, &HTTPError{Code: 429}, &HTTPError{Code: 429}, &HTTPError{Code: 429},
 	}}
 	opts := DefaultRetryOptions()
@@ -235,7 +199,7 @@ func TestRetry_CtxCanceledStops(t *testing.T) {
 // TestRetry_HeuristicStringParse：err.Error() 含 "429" 但非 *HTTPError，也应识别为 429
 func TestRetry_HeuristicStringParse(t *testing.T) {
 	rawErr := errors.New("upstream returned: 429 Too Many Requests")
-	primary := &mockGen{tag: "primary", seq: []error{rawErr, nil}}
+	primary := &testGen{tag: "primary", seq: []error{rawErr, nil}}
 	g := WithRetry(primary, nil, noSleep())
 	_, err := g.Generate(context.Background(), nil, nil)
 	if err != nil {

@@ -56,25 +56,6 @@ func TestSanitizeResult_MarshalSucceedsAfterSanitize(t *testing.T) {
 	}
 }
 
-// stubGen 用于测试：可注入返回结果、错误和延迟。
-type stubGen struct {
-	res   Result
-	err   error
-	sleep time.Duration
-
-	provider string
-	model    string
-}
-
-func (f *stubGen) Generate(_ context.Context, _ []Message, _ []ToolSchema) (Result, error) {
-	if f.sleep > 0 {
-		time.Sleep(f.sleep)
-	}
-	return f.res, f.err
-}
-func (f *stubGen) Provider() string { return f.provider }
-func (f *stubGen) Model() string    { return f.model }
-
 // fakeSink 收集 Append 的调用，测试用。
 type fakeSink struct {
 	calls     []llminvocation.Invocation
@@ -96,7 +77,7 @@ func (p fixedPricing) Estimate(_, _ string, _ Usage) float64 { return p.cost }
 
 func TestInstrument_AppendsCallOnSuccess(t *testing.T) {
 	t.Parallel()
-	inner := &stubGen{
+	inner := &testGen{
 		provider: "deepseek",
 		model:    "deepseek-chat",
 		res: Result{
@@ -156,7 +137,7 @@ func TestInstrument_AppendsCallOnSuccess(t *testing.T) {
 
 func TestInstrument_AppendsCallOnError(t *testing.T) {
 	t.Parallel()
-	inner := &stubGen{
+	inner := &testGen{
 		provider: "deepseek",
 		model:    "deepseek-chat",
 		err:      errors.New("boom"),
@@ -201,7 +182,7 @@ func (p *recordingPricing) Estimate(provider, model string, u Usage) float64 {
 
 func TestInstrument_CostCalculatedFromPricing(t *testing.T) {
 	t.Parallel()
-	inner := &stubGen{
+	inner := &testGen{
 		provider: "deepseek",
 		model:    "deepseek-chat",
 		res: Result{
@@ -229,7 +210,7 @@ func TestInstrument_CostCalculatedFromPricing(t *testing.T) {
 
 func TestInstrument_LatencyMeasured(t *testing.T) {
 	t.Parallel()
-	inner := &stubGen{
+	inner := &testGen{
 		provider: "deepseek",
 		model:    "deepseek-chat",
 		sleep:    100 * time.Millisecond,
@@ -257,7 +238,7 @@ func TestInstrument_RouteKeyWritten(t *testing.T) {
 		rk := rk
 		t.Run(rk, func(t *testing.T) {
 			t.Parallel()
-			inner := &stubGen{
+			inner := &testGen{
 				provider: "deepseek",
 				model:    "deepseek-chat",
 				res:      Result{Provider: "deepseek", Model: "deepseek-chat"},
@@ -276,7 +257,7 @@ func TestInstrument_RouteKeyWritten(t *testing.T) {
 
 func TestInstrument_SinkErrorDoesNotBlockGenerate(t *testing.T) {
 	t.Parallel()
-	inner := &stubGen{
+	inner := &testGen{
 		provider: "deepseek",
 		model:    "deepseek-chat",
 		res: Result{
@@ -299,7 +280,7 @@ func TestInstrument_SinkErrorDoesNotBlockGenerate(t *testing.T) {
 
 func TestInstrument_PassThroughProviderModel(t *testing.T) {
 	t.Parallel()
-	inner := &stubGen{provider: "anthropic", model: "claude-sonnet-4-6"}
+	inner := &testGen{provider: "anthropic", model: "claude-sonnet-4-6"}
 	sink := &fakeSink{}
 	g := Instrument(inner, sink, CallMeta{}, fixedPricing{cost: 0})
 	if g.Provider() != "anthropic" {

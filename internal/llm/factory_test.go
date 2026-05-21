@@ -10,18 +10,6 @@ import (
 	"github.com/V3teran/liusha/internal/config"
 )
 
-// fakeGen 是测试用的桩 Generator。
-type fakeGen struct {
-	provider string
-	model    string
-}
-
-func (g *fakeGen) Provider() string { return g.provider }
-func (g *fakeGen) Model() string    { return g.model }
-func (g *fakeGen) Generate(_ context.Context, _ []Message, _ []ToolSchema) (Result, error) {
-	return Result{Provider: g.provider, Model: g.model}, nil
-}
-
 // newFakeBuilder 返回一个 Builder + 调用计数器，便于断言 builder 被调几次。
 //
 // T11 后 Factory 不再缓存 Generator，每次 For 都触发 builder。
@@ -33,7 +21,11 @@ func newFakeBuilder() (Builder, *int64) {
 		if !ok {
 			return nil, errors.New("unknown provider " + providerKey)
 		}
-		return &fakeGen{provider: providerKey, model: pc.DefaultModel}, nil
+		return &testGen{
+			provider: providerKey,
+			model:    pc.DefaultModel,
+			res:      Result{Provider: providerKey, Model: pc.DefaultModel},
+		}, nil
 	}
 	return b, &count
 }
