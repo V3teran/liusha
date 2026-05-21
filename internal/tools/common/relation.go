@@ -39,7 +39,7 @@ func (a *WriteRelation) ParametersJSON() json.RawMessage {
 	return json.RawMessage(`{
   "type":"object",
   "properties":{
-    "from":{"type":"string","description":"前提 finding 的 id（先调 findings() 查）"},
+    "from":{"type":"string","description":"前提 finding 的 id（先调 read_findings 查）"},
     "to":{"type":"string","description":"被依赖 finding 的 id（A 是 B 的前提）"},
     "reason":{"type":"string","description":"自由文本说明为什么 A 是 B 的前提"}
   },

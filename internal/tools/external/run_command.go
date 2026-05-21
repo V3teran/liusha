@@ -93,7 +93,7 @@ func (a *RunCommand) Name() string { return "run_command" }
 func (a *RunCommand) Description() string {
 	return "在沙箱容器里跑一条 shell 命令（sh -c <command>），用于 LLM 自决策的工具调用。" +
 		"command 走 sh 解析（支持 |、&&、>、<、$()）；输出 stdout/stderr 各截 ~8KB tail。" +
-		"工具用法见 system prompt 内置的工具手册（sqlmap / curl / nuclei / browser-use / python3 / sh 等）。" +
+		"沙箱预装工具集见 user prompt 的『可用外部工具索引』；详细手册按需调 `read_tooling_skill` 拉取。" +
 		"tag 必填（小写字母数字短横，长度 ≤ 32），用作运维诊断标签。" +
 		"环境变量 $OUTPUT_DIR：写到 $OUTPUT_DIR/xxx 的二进制/大文件会作为 base64 附件返回" +
 		"（上限 200KB/文件, 1MB 总量, 5 文件）。文本类输出直接走 stdout 即可，不要重复写文件。" +

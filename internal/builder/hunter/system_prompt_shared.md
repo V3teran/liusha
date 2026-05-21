@@ -11,7 +11,7 @@
 1. **真实命中**：evidence 来自工具 stdout/stderr 真实输出；**禁止**从输入上下文原文拼凑伪装。
 2. **工具未失败**：`run_command` 返 502 / connection refused / exit≠0 / 空响应 / 超时 → **视为未命中**，**不得**伪造 finding 凑数。
 3. **可复现**：`evidence.repro_cmd` 必须是别人 copy 就能跑出同结果的完整命令。
-4. **不重复**：user prompt 列出该 host 已写的 finding。等价漏洞（同类型 + 同入口）→ `update_finding` 补强，不新建；完全等价无新信息 → 直接 `done()`。**DB 层兜底**：`(owner_id, host, lower(cwe_id), lower(target.path 或 summary 前 40 字))` 是 UNIQUE，重复写不报错但会无声合并到首次写入的行——浪费你这次 turn 的 token + tool call。**写前调 `read_findings` 不可省**。
+4. **不重复**：user prompt 列出该 host 已写的 finding。等价漏洞（同类型 + 同入口）→ `update_finding` 补强，不新建；完全等价无新信息 → 直接 `done()`。**写前调 `read_findings` 不可省**——DB 层有 UNIQUE 兜底（按 owner/host/CWE/target.path 匹配），重复写不报错但会无声合并，浪费你这次 turn。
 
 5. **CWE 标准化**（关键！dedup 依赖此一致）：同一漏洞每次必须填**同一个** CWE 编号，否则 DB 视为不同漏洞重复入库。常见易混 CWE：
    - **OS Command Injection**：统一用 `CWE-78`（绝不用 CWE-77 — 77 是父类，太宽泛会导致 commander 用 78 / striker 用 77 撞不到 dedup）
@@ -51,5 +51,5 @@
 
 - ❌ **url 翻译**：上下文 host 改 `127.0.0.1` / `localhost` / `host.docker.internal` → 沙箱 bridge 出网，**直接用真实 host:port**
 - ❌ **写文件不验证落地**：写 webshell / dump / payload 后**必先 `ls -la <path>` 看 size + 时间戳**——直接 curl include 报 PHP 错就重写是误判（文件可能早写入，只是代码错）
-- ❌ **同工具连 3 次失败仍微调 flag 重试**：sqlmap blind / nuclei 等场景，第 3 次失败**默认 pivot**（如 sqlmap blind 失败 → curl 手动 boolean fuzz 或直接 `write_finding` 不 dump）。仅当**确有新假设**（换 tamper / 换 payload 模式 / WAF 误判等）才继续微调；原地微调 ≥ 5 次仍失败必 pivot，否则是死循环。
+- ❌ **同工具反复微调 flag 重试**：sqlmap blind / nuclei 等场景，连续失败默认 pivot（如 sqlmap blind 失败 → curl 手动 boolean fuzz 或直接 `write_finding` 不 dump）。仅当**确有新假设**（换 tamper / 换 payload 模式 / WAF 误判等）才继续微调；否则就是死循环。
 - ❌ **命中后延迟 write_finding**：第一次拿到证据（hydra `SUCCESS:` / sqlmap `vulnerable` / `uid=` echo / 反射 payload 完整回显）**立即** `write_finding`，**别**等把所有用户密码 / 全表数据 / 完整 RCE 链都跑完才写。延迟写会让 inspector / e2e 误判"未挖到"，触发偏向 hint 浪费 round-trip；后续 dump/链路扩展走 `update_finding` 补强 evidence 即可。
