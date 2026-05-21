@@ -29,7 +29,7 @@ shift 2>/dev/null || true
 # 包括：管理类(install/init/setup/doctor) + daemon 控制(close/sessions/cloud/profile)
 # + tab 元操作(switch/close-tab) + 全局工具(python/tunnel) + 帮助
 case "$SUB" in
-  ""|--help|-h|install|init|setup|doctor|python|tunnel|close|sessions|cloud|profile|switch|close-tab)
+  ""|--help|-h|--version|-V|install|init|setup|doctor|python|tunnel|close|sessions|cloud|profile|switch|close-tab)
     exec browser-use-cli "$SUB" "$@"
     ;;
 esac

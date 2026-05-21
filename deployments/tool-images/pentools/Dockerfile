@@ -209,7 +209,11 @@ RUN set -e \
 # 管理类(install/doctor/sessions/close/python/tunnel/switch/close-tab) 透传 browser-use-cli。
 # 这样 LLM 决策空间简化（不需要在多个 browser 入口里选）+ 多 task 并发自动安全。
 # 依赖：TASK_ID env（sandbox-server 注入）+ browser-use-cli + flock。
-RUN mv /usr/local/bin/browser-use /usr/local/bin/browser-use-cli \
+RUN if [ -f /usr/local/bin/browser-use-cli ]; then \
+        echo "[Layer 2.6] browser-use-cli 已存在（layer cache 命中），跳过 mv"; \
+    else \
+        mv /usr/local/bin/browser-use /usr/local/bin/browser-use-cli; \
+    fi \
  && browser-use-cli --version 2>&1 | head -1
 COPY deployments/tool-images/pentools/browser-use /usr/local/bin/browser-use
 RUN chmod +x /usr/local/bin/browser-use \
