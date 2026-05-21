@@ -49,7 +49,7 @@ func TestRegistry_RegisterAndRunningCount(t *testing.T) {
 	if rc := r.RunningCount(); rc != 0 {
 		t.Fatalf("空 Registry RunningCount 应是 0, got %d", rc)
 	}
-	if r.HasRunning() {
+	if (r.RunningCount() > 0) {
 		t.Fatalf("空 Registry HasRunning 应是 false")
 	}
 	h1 := r.Register("tid-a", "brief A")
@@ -57,7 +57,7 @@ func TestRegistry_RegisterAndRunningCount(t *testing.T) {
 	if rc := r.RunningCount(); rc != 2 {
 		t.Fatalf("RunningCount=%d, want 2", rc)
 	}
-	if !r.HasRunning() {
+	if !(r.RunningCount() > 0) {
 		t.Fatalf("有 running striker时 HasRunning 应是 true")
 	}
 	snaps := r.Snapshot()
@@ -67,7 +67,7 @@ func TestRegistry_RegisterAndRunningCount(t *testing.T) {
 
 	// h1 完成 → HasRunning 仍 true（h2 running）；RunningCount=1
 	h1.MarkDone(Outcome{TerminateBy: "done", TotalSteps: 10})
-	if !r.HasRunning() {
+	if !(r.RunningCount() > 0) {
 		t.Fatalf("h1 done 但 h2 running 时 HasRunning 仍应 true")
 	}
 	if rc := r.RunningCount(); rc != 1 {
@@ -76,7 +76,7 @@ func TestRegistry_RegisterAndRunningCount(t *testing.T) {
 
 	// h2 完成 → HasRunning false；RunningCount=0（max_children 名额全释放，commander 可继续 spawn）
 	h2.MarkFailed(errors.New("test"))
-	if r.HasRunning() {
+	if (r.RunningCount() > 0) {
 		t.Fatalf("全部终态后 HasRunning 应 false")
 	}
 	if rc := r.RunningCount(); rc != 0 {
@@ -105,7 +105,7 @@ func TestRegistry_ConcurrentRegister(t *testing.T) {
 			defer wg.Done()
 			r.Register("tid-x", "brief")
 			_ = r.RunningCount()
-			_ = r.HasRunning()
+			_ = (r.RunningCount() > 0)
 			_ = r.Snapshot()
 		}(i)
 	}

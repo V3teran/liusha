@@ -207,28 +207,10 @@ func (s *Store) copyFromBatch(ctx context.Context, batch []Invocation) error {
 	return nil
 }
 
-// SumCostByOwner 返回指定  owner / owner 下所有 LLM 调用的成本总和（美元）。
-//
-// 双轨切读：ID 可为 owner.id 或 owner_id。
-// 注意：异步 buffer 内未 flush 的成本不算入 —— caller 若要严格一致需先 Flush()。
-func (s *Store) SumCostByOwnerID(ctx context.Context, ownerID string) (float64, error) {
-	var v float64
-	err := s.pool.QueryRow(ctx, `
-		SELECT COALESCE(SUM(cost_usd), 0)::float8
-		FROM llm_invocation
-		WHERE owner_id=$1::uuid`, ownerID).Scan(&v)
-	if err != nil {
-		return 0, fmt.Errorf("sum llm_call cost: %w", err)
-	}
-	return v, nil
-}
-
-// ListByOwner 列出  owner 下所有 LLM invocation（按 created_at ASC）。
+// ListByOwnerID 列出 owner 下所有 LLM invocation（按 created_at ASC）。
 //
 // 调用方有责任先 Flush() 等异步 buffer commit，否则可能缺最近 0-1s 的记录——
 // handler 路径上 Flush() 后再调本方法，保证 viewer 拿到完整审计快照。
-// ListByOwner 列出 owner 下所有 LLM invocation（按 created_at ASC）。
-// 方法名保留向后兼容；参数 ID 是 owner_id。
 func (s *Store) ListByOwnerID(ctx context.Context, ownerID string) ([]Invocation, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT id, agent_run_id, owner_type, owner_id::text,
@@ -268,106 +250,3 @@ func (s *Store) ListByOwnerID(ctx context.Context, ownerID string) ([]Invocation
 	return out, nil
 }
 
-// SumCostByOwner 返回指定 owner 下所有 LLM 调用的成本总和（美元）。
-// 新 polymorphic 路径——commit B5 切读后取代 SumCostByOwner。
-func (s *Store) SumCostByOwner(ctx context.Context, ownerType, ownerID string) (float64, error) {
-	var v float64
-	err := s.pool.QueryRow(ctx, `
-		SELECT COALESCE(SUM(cost_usd), 0)::float8
-		FROM llm_invocation
-		WHERE owner_type=$1 AND owner_id=$2::uuid`, ownerType, ownerID).Scan(&v)
-	if err != nil {
-		return 0, fmt.Errorf("sum llm_invocation cost by owner: %w", err)
-	}
-	return v, nil
-}
-
-// ListByOwner 列出 owner 下所有 LLM invocation（按 created_at ASC）。
-func (s *Store) ListByOwner(ctx context.Context, ownerType, ownerID string) ([]Invocation, error) {
-	rows, err := s.pool.Query(ctx, `
-		SELECT id, agent_run_id, owner_type, owner_id::text,
-		       provider, model,
-		       in_tokens, out_tokens, cached_tokens,
-		       cost_usd, latency_ms, finish_reason, error_message, role,
-		       messages, result, created_at
-		FROM llm_invocation
-		WHERE owner_type=$1 AND owner_id=$2::uuid
-		ORDER BY created_at ASC`, ownerType, ownerID)
-	if err != nil {
-		return nil, fmt.Errorf("list llm_invocation by owner: %w", err)
-	}
-	defer rows.Close()
-
-	var out []Invocation
-	for rows.Next() {
-		var v Invocation
-		var taskID, ot, oid *string
-		if err := rows.Scan(
-			&v.ID, &taskID, &ot, &oid,
-			&v.Provider, &v.Model,
-			&v.InTokens, &v.OutTokens, &v.CachedTokens,
-			&v.CostUSD, &v.LatencyMs, &v.FinishReason, &v.Error, &v.Role,
-			&v.Messages, &v.Result, &v.CreatedAt,
-		); err != nil {
-			return nil, fmt.Errorf("scan llm_invocation: %w", err)
-		}
-		v.TaskID = taskID
-		v.OwnerType = ot
-		v.OwnerID = oid
-		out = append(out, v)
-	}
-	return out, rows.Err()
-}
-
-// CountByRoleByOwner 按 role 维度聚合 owner 下的调用次数。
-
-func (s *Store) CountByRoleByOwner(ctx context.Context, ownerType, ownerID string) (map[string]int, error) {
-	rows, err := s.pool.Query(ctx, `
-		SELECT role, count(*)
-		FROM llm_invocation
-		WHERE owner_type=$1 AND owner_id=$2::uuid
-		GROUP BY role`, ownerType, ownerID)
-	if err != nil {
-		return nil, fmt.Errorf("count llm_invocation by role by owner: %w", err)
-	}
-	defer rows.Close()
-
-	out := make(map[string]int)
-	for rows.Next() {
-		var purpose string
-		var n int
-		if err := rows.Scan(&purpose, &n); err != nil {
-			return nil, fmt.Errorf("scan role count: %w", err)
-		}
-		out[purpose] = n
-	}
-	return out, rows.Err()
-}
-
-// CountByRole 按 role 维度聚合  owner / owner 下的调用次数。
-// CountByRoleByOwnerID 仅按 owner_id 聚合统计 call_purpose 分布。
-func (s *Store) CountByRoleByOwnerID(ctx context.Context, ownerID string) (map[string]int, error) {
-	rows, err := s.pool.Query(ctx, `
-		SELECT role, count(*)
-		FROM llm_invocation
-		WHERE owner_id=$1::uuid
-		GROUP BY role`, ownerID)
-	if err != nil {
-		return nil, fmt.Errorf("count llm_invocation by role: %w", err)
-	}
-	defer rows.Close()
-
-	out := make(map[string]int)
-	for rows.Next() {
-		var purpose string
-		var n int
-		if err := rows.Scan(&purpose, &n); err != nil {
-			return nil, fmt.Errorf("scan role count: %w", err)
-		}
-		out[purpose] = n
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate role counts: %w", err)
-	}
-	return out, nil
-}

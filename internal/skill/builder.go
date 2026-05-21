@@ -28,8 +28,9 @@ type Builder func(ctx context.Context, params BuilderParams) (react.Config, erro
 //   - passive: scanner ingestor 拉到 flow 后填 FlowID/URL/Method + Request*/Response*，
 //     hunter user prompt 拼完整 raw 流量（请求 + 响应）；Host = 流量真实 host。
 //   - active: httpapi /scan/active 入口填 Brief（用户自然语言整段），目标 URL/host/凭据/
-//     测试范围全部塞在 brief 里由 LLM 自己识别；Host = owner_id（虚拟 host，
-//     用于 notes/findings/lessons 按  owner 切分）。
+//     测试范围全部塞在 brief 里由 LLM 自己识别；Host 由 extractHostFromBrief 先从 brief
+//     抽真实 host（cmd/scanner/handler_active.go），抽不到才回退 owner_id 作虚拟 host。
+//     notes/findings/lessons 按 (owner, host) 切分。
 //
 // Mode 决定 builder 内部 user prompt 渲染分支与工具注册（如 active 不挂 read_credentials）。
 type BuilderParams struct {

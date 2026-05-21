@@ -58,7 +58,8 @@ func (s *Store) Save(ctx context.Context, f VulnFinding) (VulnFinding, error) {
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck // commit 后 rollback 是 no-op
 
-	// 0048 加了 UNIQUE(owner_id, dedup_key) — dedup_key 是 host+summary 前 60 字 lower 生成列。
+	// 0048 加了 UNIQUE(owner_id, dedup_key) — dedup_key 是 PG generated column，公式见
+	// db/migrations/0048_*.up.sql（host + CWE + target.path 强约束，宁可误判不漏判）。
 	// commander / striker agent 并发写同一漏洞时，ON CONFLICT 保留首个写入（first_seen_at 取较早），后续 dup
 	// 不报错而是返回 existing 行——LLM 视角 Save 始终幂等成功，dedup 在 DB 层无声完成。
 	row := tx.QueryRow(ctx, `
@@ -228,7 +229,7 @@ func (s *Store) ListByOwner(ctx context.Context, ownerType, ownerID string) ([]V
 }
 
 // ListByOwnerAndHost 列出 owner + host 下的 finding（按 created_at desc）。
-// 新 polymorphic 路径——commit B5 切读后取代 ListByOwnerAndHost。
+// polymorphic 路径——按 (owner_type, owner_id, host) 过滤，取代旧的 ListByOwnerIDAndHost。
 func (s *Store) ListByOwnerAndHost(ctx context.Context, ownerType, ownerID, host string, limit int) ([]VulnFinding, error) {
 	q := `SELECT ` + colsSelect + ` FROM finding WHERE owner_type=$1 AND owner_id=$2::uuid AND host=$3 ORDER BY created_at DESC`
 	args := []any{ownerType, ownerID, host}
@@ -254,36 +255,6 @@ func (s *Store) ListByOwnerAndHost(ctx context.Context, ownerType, ownerID, host
 }
 
 // ListByOwnerIDAndHost 列出当前 owner_id + host 下的 finding（按 created_at desc）。
-//
-// 用于 hunter user prompt 段 3 注入"该 host 已有 finding"——按 owner 隔离避免跨次
-// 扫描的历史污染。仅按 owner_id 过滤（无 owner_type），与 ListByOwnerID 同语义。
-// limit ≤ 0 不限制。
-func (s *Store) ListByOwnerIDAndHost(ctx context.Context, ownerID, host string, limit int) ([]VulnFinding, error) {
-	q := `SELECT ` + colsSelect + ` FROM finding WHERE owner_id=$1::uuid AND host=$2 ORDER BY created_at DESC`
-	args := []any{ownerID, host}
-	if limit > 0 {
-		q += ` LIMIT $3`
-		args = append(args, limit)
-	}
-	rows, err := s.pool.Query(ctx, q, args...)
-	if err != nil {
-		return nil, fmt.Errorf("list findings by owner_id+host: %w", err)
-	}
-	defer rows.Close()
-
-	var out []VulnFinding
-	for rows.Next() {
-		var f VulnFinding
-		if err := scan(rows, &f); err != nil {
-			return nil, fmt.Errorf("scan finding: %w", err)
-		}
-		out = append(out, f)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate findings: %w", err)
-	}
-	return out, nil
-}
 
 // scanner 抽象 pgx.Row / pgx.Rows 的 Scan 方法。
 type scanner interface {

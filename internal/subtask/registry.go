@@ -48,18 +48,6 @@ func (r *Registry) RunningCount() int {
 	return n
 }
 
-// HasRunning 检查是否仍有 running striker——done PreDoneCheck 用。
-func (r *Registry) HasRunning() bool {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	for _, h := range r.children {
-		if h.IsRunning() {
-			return true
-		}
-	}
-	return false
-}
-
 // Snapshot 返回所有striker的不可变视图（list_strikers 工具用）。
 // 按 spawn 顺序返回——SpawnedAt 单调递增，LLM 看得到先后关系。
 func (r *Registry) Snapshot() []ChildSnapshot {

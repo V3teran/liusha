@@ -24,13 +24,13 @@ type SpawnStriker struct {
 func (a SpawnStriker) Name() string { return "spawn_striker" }
 
 func (a SpawnStriker) Description() string {
-	return "派一个 striker 并行深挖某个独立攻击面（仅 commander 可调）。立即返回 child_task_id（异步），" +
+	return "派一个 striker 并行深挖某个独立攻击面（仅 commander 可调）。立即返回 {\"striker_task_id\": ...}（异步），" +
 		"commander 继续做别的；striker 的 finding 自动通过共享黑板（read_findings）冒给 commander——**不要 polling list_strikers**。" +
 		"\n\n【何时调】recon 阶段发现 ≥ 2 个独立 endpoint/feature；正在挖 X 时临时发现 Y；站点 N 个业务面（admin/user/api）。" +
 		"\n【何时不调】单一 endpoint 深挖（顺序依赖）；recon 还没跑完盲目派；已 spawn 接近上限。" +
 		"\n【brief 写作】≤1000 字自然语言，目标范围 + 关键背景。striker 继承本 host，不需重复站点 URL；" +
 		"striker 能读本 host 的 note/lesson/finding（黑板共享），无需复制 context。" +
-		"\n【done 约束】所有 striker 完成你才能 done——**直接调 done**，PreDoneCheck 会自动拦截 + 错误消息含 running striker 摘要。"
+		"\n【done 约束】所有 striker 完成你才能 done——直接调 done 即可，被拦后 PreDoneCheck 返结构化错误（含 running striker 摘要 + 行动建议如 read_findings / 挖新链路 / write_lesson）；按错误消息执行，**不要 retry done 或 polling list_strikers**。"
 }
 
 // ParametersJSON 给出 brief 必填 + flow_id 可选 schema（maxLength 1000）。

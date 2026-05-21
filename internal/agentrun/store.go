@@ -143,20 +143,7 @@ func (s *Store) ListByOwnerID(ctx context.Context, ownerID string, limit int) ([
 	return out, nil
 }
 
-// CountInflightByOwnerID 统计 owner_id 下处于 pending|running 的任务总数。
-func (s *Store) CountInflightByOwnerID(ctx context.Context, ownerID string) (int, error) {
-	var n int
-	err := s.pool.QueryRow(ctx, `
-		SELECT count(*) FROM agent_task
-		WHERE owner_id=$1::uuid AND status IN ('pending','running')`, ownerID).Scan(&n)
-	if err != nil {
-		return 0, fmt.Errorf("count inflight by owner_id: %w", err)
-	}
-	return n, nil
-}
-
 // ListByOwner 按 owner_type+owner_id 升序列出任务（polymorphic canonical 路径）。
-// 新 polymorphic 路径——commit B 切换后取代 ListByOwner。
 func (s *Store) ListByOwner(ctx context.Context, ownerType, ownerID string, limit int) ([]ReactRun, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT `+colsSelect+`
@@ -181,19 +168,6 @@ func (s *Store) ListByOwner(ctx context.Context, ownerType, ownerID string, limi
 		return nil, fmt.Errorf("iterate tasks: %w", err)
 	}
 	return out, nil
-}
-
-// CountInflightByOwner 统计 owner（owner_type+owner_id）下处于 pending|running 的任务总数。
-func (s *Store) CountInflightByOwner(ctx context.Context, ownerType, ownerID string) (int, error) {
-	var n int
-	err := s.pool.QueryRow(ctx, `
-		SELECT count(*) FROM agent_task
-		WHERE owner_type=$1 AND owner_id=$2::uuid AND status IN ('pending','running')`,
-		ownerType, ownerID).Scan(&n)
-	if err != nil {
-		return 0, fmt.Errorf("count inflight in owner: %w", err)
-	}
-	return n, nil
 }
 
 // scanner 抽象 pgx.Row / pgx.Rows 的 Scan 方法。

@@ -39,7 +39,7 @@ func (a Done) Name() string { return "done" }
 func (a Done) Description() string {
 	return "终止当前任务，args 中可带 reason / summary（供 Inspector / 报告参考）。" +
 		"\n\n【何时调】finding 都写完 + 攻击面已 recon 完 → done。" +
-		"\n【何时不调】commander 有 running striker（PreDoneCheck 会自动拦）/ 攻击面未挖完 / 撞到证据未写 finding。" +
+		"\n【何时不调】commander 有 running striker（PreDoneCheck 会拦截并返结构化错误：含 running 列表 + 行动建议——按错误消息执行，不要 retry done）/ 攻击面未挖完 / 撞到证据未写 finding。" +
 		"\n【避免空白 done】调前若 read_findings 显示本任务 0 finding，先评估：(a) 真无漏洞 → 写 write_lesson 沉淀'此 host 攻面已穷举无漏洞'再 done；(b) 还能挖 → 继续 ReAct 不调 done。"
 }
 

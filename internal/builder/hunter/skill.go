@@ -42,7 +42,7 @@ import (
 	"github.com/V3teran/liusha/internal/tools/manifest"
 )
 
-// hunter agent system prompt 按 (mode, isParent) 拆四段编译期嵌入：
+// hunter agent system prompt 按 (mode, 是否 commander) 拆四段编译期嵌入：
 //   - shared：通用规则（角色 / 写 finding 铁律 / mode-invariant 反模式）
 //   - tracker（passive 单 agent / 侦察兵）：流量驱动入口 + 401→read_credentials 反模式
 //   - commander（指挥官）：brief 驱动入口 + commander 与 striker 职责分工 + spawn 优先
