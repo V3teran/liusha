@@ -23,13 +23,15 @@ import (
 // 默认 Info 级；生产想降噪用 LIUSHA_LOG_LEVEL=warn 整体降级，无需独立开关。
 var debugLogger = logx.New("react.runtime")
 
-// maxImagesInHistory 是 multimodal message 历史中保留的最大图片张数。
-// 超过的最早 image_url 块在 LLM Generate 前被替换为 "[Previously attached image removed...]"
-// 文本占位（类比 strix MemoryCompressor max_images=3，但 liusha 截图按需触发故放宽到 5）。
-const maxImagesInHistory = 5
+// fallbackMaxImagesInHistory 是 multimodal message 历史保留图片张数的兜底默认。
+// caller 通常从 cfg.React.MaxImagesInHistory 注入；零值走此 fallback。
+// 默认 3——
+// 实战经验：3 张图覆盖最近视觉演化足够 reasoning，再多对 vision encoder 仅增延迟不增信息。
+const fallbackMaxImagesInHistory = 3
 
 // imageRemovedPlaceholder 是 compressImages 替换被剔除图后填入的文本，提示 LLM 该位置曾有截图。
-const imageRemovedPlaceholder = "[Previously attached image removed to preserve context]"
+// 中文表述更对齐国内 vision 模型（qwen-vl 系列）的语义训练分布；英文 vision 模型也能理解。
+const imageRemovedPlaceholder = "[此处历史截图已折叠以节省上下文窗口]"
 
 // Config 是 Run 的入参。
 //
@@ -37,14 +39,18 @@ const imageRemovedPlaceholder = "[Previously attached image removed to preserve 
 //   - OnAbort 用于外部主动停机（cron 任务取消、用户 Ctrl+C 等），返回 (true, nil) 即终止。
 //   - Inspector 默认 NoopInspector；InspectorEverySteps 默认 5。
 type Config struct {
-	LLM                llm.Generator
-	Actions            *toolfx.Registry
-	Budget             Budget
-	SystemPrompt       string
-	UserPrompt         string
-	OnAbort            func(ctx context.Context) (bool, error)
+	LLM                 llm.Generator
+	Actions             *toolfx.Registry
+	Budget              Budget
+	SystemPrompt        string
+	UserPrompt          string
+	OnAbort             func(ctx context.Context) (bool, error)
 	Inspector           Inspector
 	InspectorEverySteps int
+	// MaxImagesInHistory 是 multimodal message 历史保留的最大图片张数；
+	// 零值走 fallbackMaxImagesInHistory（=3）。
+	// 慢 vision 节点可 yaml 调小到 2 控延迟；商业 API（claude/gpt-4o）可放宽到 10+。
+	MaxImagesInHistory int
 }
 
 // Outcome 是 Run 的产出，便于上层做埋点 / done 报告。
@@ -149,9 +155,14 @@ func Run(ctx context.Context, cfg Config) (Outcome, error) {
 			Strs("tool_names", toolNames).
 			Msg("LLM Generate 调用")
 
-		// 多模态历史压缩：只保留最近 maxImagesInHistory 张图，更早的 image_url 块换文本占位。
-		// 防止长 task（active 60+ 步含截图）context 被图撑爆 — 类比 strix max_images=3 设计。
-		compressImages(msgs, maxImagesInHistory)
+		// 多模态历史压缩：只保留最近 cfg.MaxImagesInHistory 张图（零值 fallback 3），
+		// 更早的 image_url 块换文本占位。防长 task（active 60+ 步含截图）context 撑爆 +
+		// 控慢 vision 节点（公网 ollama）单步延迟雪球。
+		maxImages := cfg.MaxImagesInHistory
+		if maxImages <= 0 {
+			maxImages = fallbackMaxImagesInHistory
+		}
+		compressImages(msgs, maxImages)
 
 		res, err := cfg.LLM.Generate(stepCtx, msgs, schemas)
 		cancel()
@@ -265,7 +276,7 @@ func Run(ctx context.Context, cfg Config) (Outcome, error) {
 // compressImages 倒序遍历 msgs，保留最近 maxImages 张 image_url；更早的 image_url
 // 块原地替换为 imageRemovedPlaceholder 文本占位。
 //
-// 与 strix MemoryCompressor._handle_images 等价：保留视觉历史的近期决策上下文，
+// 设计原理：保留视觉历史的近期决策上下文，
 // 阶段性卸下旧图避免 context 撑爆（每张 ~50KB base64）。in-place 修改 msgs，
 // 不分配新 slice 减小 GC 压力。
 func compressImages(msgs []llm.Message, maxImages int) {

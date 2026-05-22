@@ -232,7 +232,7 @@ type SkillsConfig struct {
 // ScannerConfig 是 cmd/scanner 进程的运行时参数。
 type ScannerConfig struct {
 	PassiveMaxSteps              int    `mapstructure:"passive_max_steps"`                // passive 模式 ReAct 步数上限（流量驱动单类型挖掘 60 步够）
-	ActiveMaxSteps               int    `mapstructure:"active_max_steps"`                 // active 模式 ReAct 步数上限（与 strix max_iterations=300 对齐）；striker 任务复用同一上限
+	ActiveMaxSteps               int    `mapstructure:"active_max_steps"`                 // active 模式 ReAct 步数上限（active 站点扫描深挖，与 PassiveMaxSteps 解耦）；striker 任务复用同一上限
 	MaxChildren                  int    `mapstructure:"max_children"`                     // subtask swarm commander spawn striker上限（防 LLM 失控；默认 10）
 	AgentRunTimeoutSeconds       int    `mapstructure:"agent_run_timeout_seconds"`        // passive 模式单个 hunter task 整体超时（asynq handler 入口 WithTimeout）
 	ActiveAgentRunTimeoutSeconds int    `mapstructure:"active_agent_run_timeout_seconds"` // active 模式整体超时——站点扫描爬+测耗时长，独立配置（默认 4h，对齐 sandbox max lifetime）
@@ -260,6 +260,10 @@ type ReactConfig struct {
 	// inspector 是轻量评估，看少量背景即可；hunter 干活需更全。
 	InspectorFindingsLimit int `mapstructure:"inspector_findings_limit"`
 	InspectorLessonsLimit  int `mapstructure:"inspector_lessons_limit"`
+
+	// MaxImagesInHistory 是 multimodal message 历史保留图片张数上限（compressImages 用）。
+	// 默认 3：实战 vision agent sweet spot——再多对 encoder 仅增延迟不增信息；慢节点可调 2，商业 API 可放宽 10+。
+	MaxImagesInHistory int `mapstructure:"max_images_in_history"`
 }
 
 // SandboxConfig 容器化执行参数（sandbox.Launcher + external.RunCommand）。
@@ -581,10 +585,10 @@ func applyScannerDefaults(c ScannerConfig) ScannerConfig {
 		c.PassiveMaxSteps = 60
 	}
 	if c.MaxChildren == 0 {
-		c.MaxChildren = 10 // strix swarm 经验：5-10 个 specialist 是 sweet spot
+		c.MaxChildren = 10 // subtask swarm 经验值：5-10 个 specialist 是 sweet spot
 	}
 	if c.ActiveMaxSteps == 0 {
-		c.ActiveMaxSteps = 300 // strix max_iterations 同款，active 站点扫描需深挖
+		c.ActiveMaxSteps = 300 // active 站点扫描深挖经验值（与 passive 60 步差异化）
 	}
 	if c.AgentRunTimeoutSeconds == 0 {
 		c.AgentRunTimeoutSeconds = 3600 // 60 分钟（> step_tool=1800，留 30min buffer 给主 ReAct 收尾）
@@ -637,6 +641,9 @@ func applyReactDefaults(c ReactConfig) ReactConfig {
 	}
 	if c.InspectorLessonsLimit == 0 {
 		c.InspectorLessonsLimit = 30
+	}
+	if c.MaxImagesInHistory == 0 {
+		c.MaxImagesInHistory = 3 // vision agent 实战经验值；yaml 显式 0 也会被兜到 3
 	}
 	return c
 }

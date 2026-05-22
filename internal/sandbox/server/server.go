@@ -26,10 +26,10 @@ import (
 // 不是 idle timeout——agent 思考期无 /exec 请求不触发自杀，避免误杀。
 const maxLifetimeFallback = 4 * time.Hour
 
-// 附件上限——与 strix 对齐：单文件无上限（避免视口截图 200KB+ 被丢），
+// 附件上限：单文件无上限（避免视口截图 200KB+ 被丢），
 // 仅总量 10MB + 数量 5 兜底防一次返巨量文件撑爆 HTTP body。
 //
-// 单文件不限的根据：browser-use screenshot 默认 viewport-only（与 strix
+// 单文件不限的根据：browser-use screenshot 默认 viewport-only
 // page.screenshot(full_page=False) 同款），典型 200-500KB；DOM 大的复杂页
 // 1-2MB 也合理。要更严的总量控制由 LLM 自己注意命名/数量。
 const (

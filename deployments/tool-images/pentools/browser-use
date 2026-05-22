@@ -60,7 +60,14 @@ if [ "$SUB" = "open" ] && [ ! -f "$TAB_FILE" ]; then
         # 容器内第 1 个 browser 任务: 直接 open <url> 启 daemon + 占用 tab 0
         # 这里不能 eval（无 daemon 无 page），也不能 switch（无 tab）
         echo "0" > "$TAB_FILE"
-        exec browser-use-cli open "$@"
+        # 跟下面 case 分支同样的"open + 自动截图 + exit"模式——
+        # 之前 exec 会替换进程导致自动截图永不触发（首次 open 自动附图失败的根因）。
+        browser-use-cli open "$@"
+        EXIT=$?
+        if [ $EXIT -eq 0 ] && [ -n "${OUTPUT_DIR:-}" ]; then
+            browser-use-cli screenshot "${OUTPUT_DIR}/auto_$(date +%s%N).png" >/dev/null 2>&1 || true
+        fi
+        exit $EXIT
     fi
     # daemon 已存在: eval window.open 在当前 tab 上下文创建新 tab
     browser-use-cli switch 0 >/dev/null 2>&1
@@ -80,7 +87,27 @@ if [ ! -f "$TAB_FILE" ]; then
     exit 2
 fi
 
-# 切到本 task tab 后透传子命令到 browser-use-cli
+# 切到本 task tab 后跑子命令到 browser-use-cli
 TAB_IDX=$(cat "$TAB_FILE")
 browser-use-cli switch "$TAB_IDX" >/dev/null 2>&1
-exec browser-use-cli "$SUB" "$@"
+
+# 状态变化子命令：跑完后自动追加 screenshot 到 $OUTPUT_DIR，让 vision LLM 直接看到新页面视觉。
+# 设计原则：
+#   - 状态变化（DOM/页面真改了）→ 必附图，避免 LLM 多花一步 ReAct 显式调 screenshot
+#   - 读取（state/extract/eval/get）→ 不附图，已返结构化文本足够 LLM 消费，省 token
+#   - 特殊（screenshot 自身/cookies/close/python）→ 透传不附（cookie 无视觉变化；screenshot 已是图）
+# 截图按当前 tab（前面 switch 已切到本 task tab）—— 多 task 并发自动隔离。
+# auto_<ns>.png 用纳秒时间戳避免同一 task 多次调用文件名碰撞。
+case "$SUB" in
+  open|click|input|type|select|scroll|back|keys|hover|dblclick|rightclick|wait)
+    browser-use-cli "$SUB" "$@"
+    EXIT=$?
+    if [ $EXIT -eq 0 ] && [ -n "${OUTPUT_DIR:-}" ]; then
+      browser-use-cli screenshot "${OUTPUT_DIR}/auto_$(date +%s%N).png" >/dev/null 2>&1 || true
+    fi
+    exit $EXIT
+    ;;
+  *)
+    exec browser-use-cli "$SUB" "$@"
+    ;;
+esac

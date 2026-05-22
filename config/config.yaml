@@ -160,8 +160,8 @@ providers:
   # 启动需 export OLLAMA_API_KEY=ollama（占位，ollama 不验 key）
   ollama_vision_cn:
     type: openai_compat
-    base_url: http://120.220.102.83:11434/v1
-    default_model: qwen3-vl:32b-instruct      # 33.4B Q4_K_M，instruct 版本 + 长 prompt 15s/turn
+    base_url: http://106.15.205.82:11434/v1
+    default_model: qwen3-vl:32b               # 33.4B Q4_K_M @ 阿里云华东，长 prompt + 多 tool 实测 5-7s/turn
     api_key_env: OLLAMA_API_KEY
     max_tokens: 16384                          # ReAct loop 含截图+history 易超 8k
     supports_tools: true
@@ -318,7 +318,7 @@ skills:
 # ---- cmd/scanner 进程运行时参数 ----
 scanner:
   passive_max_steps: 60                    # passive 模式 ReAct 步数上限（流量驱动单类型挖掘够用）
-  active_max_steps: 300                    # active 模式 ReAct 步数上限（站点级扫描深挖，与 strix max_iterations=300 对齐）；子 active 任务复用同一上限
+  active_max_steps: 300                    # active 模式 ReAct 步数上限（站点级扫描深挖，与 passive 60 步差异化）；子 active 任务复用同一上限
   max_children: 10                         # subtask swarm 父任务最多 spawn 子任务数（防 LLM 失控）
   agent_run_timeout_seconds: 3600          # passive 模式 agent_run 整体超时（asynq handler 入口 WithTimeout，60 分钟，> step_tool）
   active_agent_run_timeout_seconds: 14400  # active 模式 agent_run 整体超时（4 小时，对齐 sandbox max lifetime；站点扫描爬+测耗时长）
@@ -339,6 +339,8 @@ react:
   inspector_obs_truncate: 400               # 喂 inspector LLM 的 ObsSummary 截断字节数
   inspector_findings_limit: 30              # inspector 看 host 已有 finding 段条数（按 created_at DESC）
   inspector_lessons_limit: 30               # inspector 看 host lesson 段条数（按 priority DESC）
+  max_images_in_history: 3                  # 多模态历史保留图片张数上限（compressImages 用）
+                                            # 慢 vision 节点可调 2 控延迟；商业 API（claude/gpt-4o）可放宽到 10+
 
 # ---- 容器化执行参数（sandbox.Launcher + external.RunCommand）----
 # 容器内存/CPU/并发数等运行时参数下放到 sandbox.DockerLauncher 内部硬编码

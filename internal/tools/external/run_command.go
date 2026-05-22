@@ -127,7 +127,7 @@ func (a *RunCommand) ParametersJSON() json.RawMessage {
 //
 // 关键：不含 b64！图片真 base64 仅走 toolfx.Result.Images → react.runtime 拼 ContentParts
 // 的 image_url block 进 multimodal message。文本里只列 name/bytes 让 LLM 知道有这个产物，
-// 避免 b64 文本在 Output JSON 里重复消化（与 strix `[Image data extracted - see attached]` 同款）。
+// 避免 b64 文本在 Output JSON 里重复消化（文本 stdout 与 image part 各走各的通道）。
 type fileMeta struct {
 	Name  string `json:"name"`
 	Bytes int    `json:"bytes,omitempty"`

@@ -50,7 +50,7 @@ import (
 //
 // 拆段避免角色错位（commander 看到"挖单点 brief 之外不要碰"会矛盾；
 // striker 看到"spawn striker"会因没注册工具而困惑）。
-// 改 prompt 走 PR + review，与代码同路径管理（Strix 风格）。
+// 改 prompt 走 PR + review，与代码同路径管理（prompt-as-code 实践）。
 //
 //go:embed system_prompt_shared.md
 var hunterSystemPromptShared string
@@ -117,11 +117,12 @@ type Deps struct {
 	// StepToolTimeoutSeconds 单次 tool Execute 兜底超时（秒）；0 = 不加 deadline。
 	StepToolTimeoutSeconds int
 
-	// 预算——按 mode 分流：passive 流量驱动 60 步够；active 站点扫描深挖需 300 步（strix 同款）
+	// 预算——按 mode 分流：passive 流量驱动 60 步够；active 站点扫描深挖需 300 步
 	PassiveMaxSteps    int
 	ActiveMaxSteps     int
 	WatchdogSeconds    int
 	InspectorEverySteps int
+	MaxImagesInHistory  int // multimodal 历史保留图片数（来自 cfg.React.MaxImagesInHistory，0 时 runtime fallback 3）
 
 	// SpawnerFactory 为 commander 装配 subtask.Spawner + Registry（subtask swarm）。
 	// 由 cmd/scanner 注入：闭包捕获 router/stores/calls/pricing 等所有装配striker 所需依赖。
@@ -237,16 +238,29 @@ func NewBuilder(deps Deps) skill.Builder {
 			must(&common.ReadVulnSkill{Loader: deps.VulnLoader})
 		}
 
-		// run_command 工具运行时绑定到本次 agent run 的 sandbox 容器。
+		// run_command + page_* 系列工具运行时绑定到本次 agent run 的 sandbox 容器。
 		// p.Sandbox 由 cmd/scanner handlePassive/handleActive 调 Launcher.Spawn(runID) 后注入；
 		// nil 时跳过注册，避免 LLM 调到没 sandbox 的工具（如 dev/test 场景）。
+		//
+		// page_* tool 家族（typed JSON 包装 browser-use 子命令）：
+		//   - page_open / page_click / page_input / page_wait（状态变化，wrapper 自动附截图给 vision LLM）
+		//   - page_eval / page_extract / page_state（读取，不附图省 token）
+		//   - 共用同一 *RunCommand 实例确保 Sandbox/TaskID 一致；低频 browser 子命令仍走 run_command 兜底
 		if p.Sandbox != nil {
-			must(&external.RunCommand{
+			rc := &external.RunCommand{
 				Sandbox:           p.Sandbox,
 				TaskID:            p.TaskID, // sandbox-server 按此切 cwd / OUTPUT_DIR（PR2 subtask 隔离）
 				MaxTimeoutSeconds: deps.StepToolTimeoutSeconds,
 				TailBytes:         deps.SandboxCfg.RunTailBytes,
-			})
+			}
+			must(rc)
+			must(&external.PageOpen{Run: rc})
+			must(&external.PageClick{Run: rc})
+			must(&external.PageInput{Run: rc})
+			must(&external.PageWait{Run: rc})
+			must(&external.PageEval{Run: rc})
+			must(&external.PageExtract{Run: rc})
+			must(&external.PageState{Run: rc})
 		}
 
 		if len(regErrs) > 0 {
@@ -282,6 +296,7 @@ func NewBuilder(deps Deps) skill.Builder {
 			UserPrompt:         userPrompt,
 			Inspector:           p.Inspector,
 			InspectorEverySteps: deps.InspectorEverySteps,
+			MaxImagesInHistory:  deps.MaxImagesInHistory,
 		}, nil
 	}
 }

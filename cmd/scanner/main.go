@@ -231,6 +231,7 @@ func main() {
 		ActiveMaxSteps:         scannerCfg.ActiveMaxSteps,
 		WatchdogSeconds:        scannerCfg.StepLLMTimeoutSeconds,
 		InspectorEverySteps:     cfg.React.InspectorEverySteps,
+		MaxImagesInHistory:      cfg.React.MaxImagesInHistory,
 		FindingsLimit:          cfg.Session.FindingsLimitInPrompt,
 		LessonsLimit:           cfg.Session.LessonsLimitInPrompt,
 		SpawnerFactory:         spawnerFactory,

@@ -108,7 +108,7 @@ func (g *openAICompatGen) Generate(ctx context.Context, msgs []Message, tools []
 // supportsVision 控制 ContentParts 的处理：
 //   - true（gpt-4o / qwen3-vl 等真支持 vision 的 OpenAI 协议族）：走 MultiContent 数组路径，
 //     image_url part 用 base64 data URI 内联，LLM 真正激活 vision encoder。
-//   - false（deepseek-chat / qwen2.5 等纯文本 provider）：与 strix _strip_images 对齐，
+//   - false（deepseek-chat / qwen2.5 等纯文本 provider）：合并 text part、丢弃 image_url，
 //     合并所有 text part、把 image_url 换成占位文本，LLM 知道这里曾截过图但当前看不到。
 //
 // DeepSeek 兼容性：assistant + tool_calls 但 content 空时，DeepSeek 严格校验
@@ -196,7 +196,7 @@ func contentPartsToOpenAIParts(parts []ContentPart) ([]openai.ChatMessagePart, e
 }
 
 // stripImagesToText 把 ContentParts 降级成 OpenAI 兼容的 string content。
-// text part 原样合并；image_url part 替换成占位文本（与 strix _strip_images 对齐）。
+// text part 原样合并；image_url part 替换成占位文本（保留"有图但无法看"信号）。
 // LLM 看到占位文本知道这里曾经有图——可决定换种验证方式（curl/state/eval）。
 func stripImagesToText(parts []ContentPart) string {
 	pieces := make([]string, 0, len(parts))
