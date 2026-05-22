@@ -12,6 +12,9 @@
 #   ./scripts/dev/e2e.sh bac sqli xss          # passive 多选
 #   ./scripts/dev/e2e.sh active:full           # active 模式：开放性 brief 压测 LLM 自主 recon + swarm 决策
 #   ./scripts/dev/e2e.sh bac active:full       # passive + active 混合
+#   LIUSHA_E2E_BRIEF="..." \
+#     ./scripts/dev/e2e.sh active:adhoc        # active 一次性扫描——brief 从 env 注入（密码不入库）
+#                                              # 可选 LIUSHA_E2E_MIN_FINDINGS=N 覆盖 PASS 门槛（默认 1）
 #
 # 清空范围（每次执行都做一次）：
 #   - postgres：9 张业务表 TRUNCATE（schema 保留）
@@ -57,9 +60,9 @@ echo "===== 2/6 清空 db / redis ====="
 # postgres：10 张业务表 TRUNCATE（schema 保留）。
 # 错误**不再静默**——TRUNCATE 任一表失败会立即 exit，避免旧 session / finding 残留。
 # finding_relation 排在 finding 之前防 FK 顺序问题（CASCADE 也兜底，显式列出更清晰）。
-# 0043 后表名 agent_task（旧 agent_run），0046 加 tool_invocation，0047 加 audit_log。
+# 表名演化：0043 agent_run→agent_task，0054 agent_task→hunter；0046 加 tool_invocation，0047 加 audit_log。
 if ! docker exec "$PG_CONTAINER" psql -U liusha -d liusha -c \
-    "TRUNCATE TABLE finding_relation, finding, lesson, llm_invocation, tool_invocation, audit_log, agent_task, http_flow, passive_session, active_scan CASCADE;"; then
+    "TRUNCATE TABLE finding_relation, finding, lesson, llm_invocation, tool_invocation, audit_log, hunter, http_flow, passive_session, active_scan CASCADE;"; then
   echo "  ✗ postgres TRUNCATE 失败 — 看上面 psql 错误（常见原因：容器不在 / schema 不一致 / migrate 未跑）"
   exit 1
 fi

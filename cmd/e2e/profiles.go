@@ -65,6 +65,15 @@ var activeProfiles = map[string]activeProfile{
 		brief:       "测试网站 http://111.229.193.40:34280/login.php，账号 admin/password。挖以下 4 个独立攻击面（每个都需要 browser 验证 JS 执行或 DOM 状态，curl 无法覆盖）：(1) Reflected XSS at /vulnerabilities/xss_r/ (2) Stored XSS at /vulnerabilities/xss_s/ (3) DOM XSS at /vulnerabilities/xss_d/ (4) CSP Bypass XSS at /vulnerabilities/csp/。4 个 endpoint 互不依赖，**强烈建议并行 spawn 4 个 striker**（每 striker 1 个攻面）以最大化效率 + 验证多 task 浏览器隔离。",
 		minFindings: 3,
 	},
+	// active:adhoc 是占位 profile——brief 在源码中为空，运行时强制从 LIUSHA_E2E_BRIEF
+	// 环境变量读取（含密码 / 内部地址等敏感信息不应入 git）。可选 LIUSHA_E2E_MIN_FINDINGS
+	// 覆盖默认 minFindings=1（adhoc 是探索性扫描，默认宽松门槛）。
+	// 用法：LIUSHA_E2E_BRIEF="..." ./scripts/dev/e2e.sh active:adhoc
+	"adhoc": {
+		name:        "adhoc",
+		brief:       "", // 占位——runner 启动期从 LIUSHA_E2E_BRIEF 注入；空值会被 runActiveProfiles 拒绝
+		minFindings: 1,
+	},
 }
 
 var profiles = map[string]profile{

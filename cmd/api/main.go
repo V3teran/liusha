@@ -81,9 +81,10 @@ func main() {
 			APIKey:            os.Getenv("LIUSHA_API_KEY"),
 			Credentials:       credAPI,
 			Owners: ownerAPIAdapter{
-				passive: passiveSessionStore,
-				active:  activeScanStore,
-				audit:   auditStore,
+				passive:    passiveSessionStore,
+				active:     activeScanStore,
+				audit:      auditStore,
+				passiveTTL: time.Duration(cfg.Session.MaxAgeHours) * time.Hour,
 			},
 			Graph:             projector,
 			Invocations:       invocationStore,
@@ -122,12 +123,13 @@ func main() {
 // HTTP API 不暴露 errMsg：用户主动取消  owner 即视为正常结束，
 // abort 调用恒传 ""；store 层完整签名（含 errMsg）保留给 scanner 内部用。
 //
-// 已剥离 owner store——passive_session 现在 per-host 由 ingestor 流量入口
-// LookupOrCreate；EnsurePassiveSession 仅作"代理准备就绪"信号 stub。
+// passive_session 现在 per-host：EnsurePassiveSession(host) 调 LookupOrCreate；
+// host 空时返空 id 兼容旧 mitmproxy 预热路径。
 type ownerAPIAdapter struct {
-	passive *passivesession.Store // List 合并新表，Abort 试两表
-	active  *activescan.Store
-	audit   *audit.Store // 0047：abort 写审计事件；nil 时跳过（向后兼容）
+	passive    *passivesession.Store // List 合并新表，Abort 试两表
+	active     *activescan.Store
+	audit      *audit.Store          // 0047：abort 写审计事件；nil 时跳过（向后兼容）
+	passiveTTL time.Duration         // passive_session 创建 ttl（来自 cfg.Session.MaxAgeHours）
 }
 
 // Abort 双试：先 passive 表，否则 active 表；都没命中则报错。
@@ -165,11 +167,19 @@ func (a ownerAPIAdapter) writeAudit(ctx context.Context, action, kind, id string
 	})
 }
 
-// EnsurePassiveSession 历史路径：mitmproxy 启动期预热 passive session 拿 owner_id。
-// 新模型下 passive_session 按 host 由 ingestor 流量入口自创建——本 API 仅作"代理就绪"
-// 信号返回空 ID（客户端可忽略此值）。保留 endpoint 兼容旧 client 不报错。
-func (a ownerAPIAdapter) EnsurePassiveSession(ctx context.Context) (string, error) {
-	return "", nil
+// EnsurePassiveSession 按 host 找/建 active passive_session 返其 id。
+// host 空时返空 id（向后兼容旧 mitmproxy 预热路径"代理就绪"信号）；
+// host 非空时调 passive.LookupOrCreate(host, passiveTTL)，跟 ingestor 流量入口走同一 store 方法，
+// 保证 e2e 启动期预创建 + ingestor 后续流量驱动两条路径幂等（同一 host 返同一 id）。
+func (a ownerAPIAdapter) EnsurePassiveSession(ctx context.Context, host string) (string, error) {
+	if host == "" {
+		return "", nil
+	}
+	sess, err := a.passive.LookupOrCreate(ctx, host, a.passiveTTL)
+	if err != nil {
+		return "", fmt.Errorf("LookupOrCreate passive_session for host=%s: %w", host, err)
+	}
+	return sess.ID, nil
 }
 
 // List 合并 passive_session + active_scan 两新表 → httpapi.OwnerSummary。

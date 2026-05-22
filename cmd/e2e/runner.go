@@ -73,7 +73,10 @@ func runActiveProfiles(ctx context.Context, profs []activeProfile, apiBase, apiK
 		for time.Now().Before(deadline) {
 			runs, runErr := agentRunStore.ListByOwner(ctx, "active_scan", eid, 100)
 			unfinished, totalRuns := 0, 0
-			if runErr == nil {
+			if runErr != nil {
+				// 之前 silent swallow：导致 e2e 看不到 commander 但不知为何。必须 log 出来。
+				logger.Warn().Err(runErr).Str("eid", eid).Msg("ListByOwner(hunter) failed — totalRuns 强制 0 是误报")
+			} else {
 				// active 每次都新建 session——eid 已唯一定位本次 run 全集（commander + spawn 的 strikers）。
 				// 不再用 startedAt 时间窗过滤 agent_run：dispatched 返回前 server 端 PG now()
 				// 已先于 Go time.Now() 触发，commander run.CreatedAt < startedAt → After() = false
@@ -87,7 +90,9 @@ func runActiveProfiles(ctx context.Context, profs []activeProfile, apiBase, apiK
 			}
 			all, findErr := store.ListByOwner(ctx, "active_scan", eid)
 			var matched []finding.VulnFinding
-			if findErr == nil {
+			if findErr != nil {
+				logger.Warn().Err(findErr).Str("eid", eid).Msg("ListByOwner(finding) failed — findings 强制 0 是误报")
+			} else {
 				matched = filterAfter(all, startedAt)
 			}
 			lastFindings = matched
@@ -251,7 +256,9 @@ func runAllUnified(ctx context.Context, plans []profilePlan, proxyHostPort, apiB
 		totalRuns, unfinished, totalFindings := 0, 0, 0
 		var allFindings []finding.VulnFinding
 		for _, eid := range eidByHost {
-			if runs, runErr := agentRunStore.ListByOwner(ctx, "active_scan", eid, 100); runErr == nil {
+			// passive 模式：hunter / finding 的 owner_type 是 passive_session（v1.1 per-host 流量驱动模型）。
+			// 历史 active_scan 字面量是 v1.1 重构遗漏——passive runner 一定要查 passive_session。
+			if runs, runErr := agentRunStore.ListByOwner(ctx, "passive_session", eid, 100); runErr == nil {
 				for _, r := range runs {
 					if !r.CreatedAt.After(unifiedStartedAt) {
 						continue
@@ -262,7 +269,7 @@ func runAllUnified(ctx context.Context, plans []profilePlan, proxyHostPort, apiB
 					}
 				}
 			}
-			if all, findErr := store.ListByOwner(ctx, "active_scan", eid); findErr == nil {
+			if all, findErr := store.ListByOwner(ctx, "passive_session", eid); findErr == nil {
 				matched := filterAfter(all, unifiedStartedAt)
 				totalFindings += len(matched)
 				allFindings = append(allFindings, matched...)

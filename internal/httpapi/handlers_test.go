@@ -56,7 +56,8 @@ func (f *fakeAbort) Abort(_ context.Context, id string) error {
 }
 
 // EnsurePassiveSession 简单 mock：返回固定 eid，便于断言调用次数。
-func (f *fakeAbort) EnsurePassiveSession(_ context.Context) (string, error) {
+// host 参数 mock 忽略——TestPassiveScan_* 三测的 fake 行为不依赖 host 差异。
+func (f *fakeAbort) EnsurePassiveSession(_ context.Context, _ string) (string, error) {
 	f.ensureCalls++
 	if f.ensureErr != nil {
 		return "", f.ensureErr

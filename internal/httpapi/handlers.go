@@ -19,14 +19,14 @@ type CredentialsAPI interface {
 }
 
 // OwnersAPI 是 handlers 对  owner store 的窄接口。
-// EnsurePassiveSession：返回当前 active passive session（不存在则建新），不带 host。
+// EnsurePassiveSession：按 host 找/建 active passive_session（v1.1 per-host 单 active）。
+//   - host 非空 → 调 passivesession.Store.LookupOrCreate 返该 host 的 owner_id
+//   - host 空   → 返空 id（向后兼容旧 mitmproxy 预热路径"代理就绪信号"）
 // Abort：把  owner 置为 aborted。
 // List：按 created_at DESC 列最近 N 个；前端 viewer 下拉用。
-//
-// passive session 不 per-host，单个 active passive 容纳所有 host 流量。
 type OwnersAPI interface {
 	Abort(ctx context.Context, id string) error
-	EnsurePassiveSession(ctx context.Context) (string, error)
+	EnsurePassiveSession(ctx context.Context, host string) (string, error)
 	List(ctx context.Context, limit int) ([]OwnerSummary, error)
 }
 
@@ -99,14 +99,19 @@ func deleteCredentialHandler(api CredentialsAPI) gin.HandlerFunc {
 	}
 }
 
-// passiveScanHandler 处理 POST /scan/passive：返回当前 active passive session
-// （不存在则建新）。passive session 不 per-host，请求体为空 {}。
-// 幂等：重复调用在 TTL 窗口内返回同一 owner_id；过期由 ingestor 内部 Rotator 轮转。
+// passiveScanHandler 处理 POST /scan/passive：按 host 找/建 passive_session。
+// body: {"host":"example.com:8080"}（host 可空，空则返空 id 作"代理就绪"信号）
+// 幂等：v1.1 per-host 单 active 模型，同 host 重复调用返同一 owner_id；过期由 sweeper 轮转。
 //
 // 与 activeScanHandler 路径对仗：/scan/passive 开"被动接流量入口"，/scan/active 触发"主动扫描"。
 func passiveScanHandler(api OwnersAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		id, err := api.EnsurePassiveSession(c.Request.Context())
+		var body struct {
+			Host string `json:"host"`
+		}
+		// 容错：body 空/解析失败都不报错（向后兼容旧 client）
+		_ = c.ShouldBindJSON(&body)
+		id, err := api.EnsurePassiveSession(c.Request.Context(), body.Host)
 		if err != nil {
 			c.JSON(500, gin.H{"error": err.Error()})
 			return
