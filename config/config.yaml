@@ -39,10 +39,13 @@ redis:
 # vision_provider:   v1.5 的 browser.screenshot 用，v1 仅作为备用主 LLM
 # fallback_provider: 429/529 退避耗尽后切到，retry 中间件用
 llm:
-  default_provider: deepseek
-  light_provider: anthropic_haiku
-  vision_provider: anthropic
-  fallback_provider: openai
+  # 纯 ollama 路由（公网 CN 节点，单价 0，无 fallback 切其他家）
+  # tracker→tracker_cn (qwen3:32b 强 tool_calls) / inspector→text_cn (qwen2.5:14b 纯 JSON)
+  # commander+striker→vision_cn (qwen2.5vl:72b) / fallback→text_cn
+  default_provider: ollama_tracker_cn
+  light_provider: ollama_text_cn
+  vision_provider: ollama_vision_cn
+  fallback_provider: ollama_text_cn
   max_steps: 30                 # ReAct 单任务步数上限，被 Role.Budget 覆盖
   max_tokens_per_call: 4096
   # 双 namespace：把"真 agent"与"single-shot utility"语义分开。
@@ -145,6 +148,51 @@ providers:
     default_model: qwen2.5-coder:14b
     api_key_env: OLLAMA_API_KEY
     max_tokens: 8192
+    supports_tools: true
+    supports_vision: false
+
+  # —— 公网 CN ollama 节点（commander/striker 视觉路由）
+  # 模型选型演化：
+  #   1) qwen2.5vl:72b @ 115.231.236.153 → Ollama modelfile 未 declare tools → 400
+  #   2) qwen3-vl:30b @ 58.246.65.11 → 简化 prompt OK，react 完整 prompt 76s 后 EOF（节点 timeout）
+  #   3) qwen3-vl:32b-instruct @ 120.220.102.83 → 实测长 prompt + 多 tools 仅 15.1s 完成，spawn_striker 正确
+  # 健康度自检：curl -fsS <base_url>/api/tags || 视为下线
+  # 启动需 export OLLAMA_API_KEY=ollama（占位，ollama 不验 key）
+  ollama_vision_cn:
+    type: openai_compat
+    base_url: http://120.220.102.83:11434/v1
+    default_model: qwen3-vl:32b-instruct      # 33.4B Q4_K_M，instruct 版本 + 长 prompt 15s/turn
+    api_key_env: OLLAMA_API_KEY
+    max_tokens: 16384                          # ReAct loop 含截图+history 易超 8k
+    supports_tools: true
+    supports_vision: true
+
+  # —— 公网 CN ollama 节点（inspector 路由 + fallback）
+  # 14B 选型：纯 JSON 输出场景（inspector decision），无需 tool_calls，速度极快（0.1s/turn）。
+  # 注意：qwen2.5:14b 在 ReAct 长 prompt + tools 路径下会退化为纯文本不调 tool（实测验证），
+  # 故 tracker 改路由到 ollama_tracker_cn 走 qwen3:32b。
+  ollama_text_cn:
+    type: openai_compat
+    base_url: http://122.152.194.29:11434/v1
+    default_model: qwen2.5:14b                # 14.7B Q4_K_M @ 腾讯云上海，实测 0.1s/turn
+    api_key_env: OLLAMA_API_KEY               # 共用同一占位 env
+    max_tokens: 16384
+    supports_tools: true
+    supports_vision: false
+
+  # —— 公网 CN ollama 节点（tracker 强 tool_calls 路由）
+  # 模型选型演化：
+  #   1) qwen2.5:14b → 跳过 tool_calls 直接吐文本（无 tools 优化）
+  #   2) qwen3:32b → 长 prompt + 多 tools 场景下 thinking mode 吞掉 tool_calls，输出 markdown
+  #   3) qwen3-coder:30b → Qwen 专为 agent/code 优化，**默认 no_think + tool_calls 强约束**
+  # 实测（长 prompt 模拟 react）：tool_calls=1 + has_think=False + 首步精准调 curl 复现流量。
+  # 16s/turn 延迟可接受（passive 60 步约 16min，比公网 72B 节点 50s 快 3x）。
+  ollama_tracker_cn:
+    type: openai_compat
+    base_url: http://14.55.117.95:11434/v1
+    default_model: qwen3-coder:30b            # 30.5B Q4_K_M @ 中国电信，agent 优化版
+    api_key_env: OLLAMA_API_KEY
+    max_tokens: 16384
     supports_tools: true
     supports_vision: false
 
