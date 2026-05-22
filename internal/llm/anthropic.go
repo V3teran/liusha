@@ -113,7 +113,16 @@ func toAnthropicMessages(in []Message) ([]anthropic.TextBlockParam, []anthropic.
 				systemBlocks = append(systemBlocks, anthropic.TextBlockParam{Text: m.Content})
 			}
 		case RoleUser:
-			if m.Content != "" {
+			// 含图走 multipart blocks；否则走原 text-only 路径（兼容旧测试 + 性能）。
+			if len(m.ContentParts) > 0 {
+				blocks, err := contentPartsToAnthropicUserBlocks(m.ContentParts)
+				if err != nil {
+					return nil, nil, fmt.Errorf("user content parts: %w", err)
+				}
+				if len(blocks) > 0 {
+					out = append(out, anthropic.NewUserMessage(blocks...))
+				}
+			} else if m.Content != "" {
 				out = append(out, anthropic.NewUserMessage(anthropic.NewTextBlock(m.Content)))
 			}
 		case RoleAssistant:
@@ -132,9 +141,24 @@ func toAnthropicMessages(in []Message) ([]anthropic.TextBlockParam, []anthropic.
 				out = append(out, anthropic.NewAssistantMessage(blocks...))
 			}
 		case RoleTool:
-			out = append(out, anthropic.NewUserMessage(
-				anthropic.NewToolResultBlock(m.ToolCallID, m.Content, false),
-			))
+			// 含图走 ToolResultBlockParam struct（NewToolResultBlock helper 只接 string content，
+			// 没法传 image block）；否则走 helper 短路径。
+			if len(m.ContentParts) > 0 {
+				toolBlocks, err := contentPartsToAnthropicToolBlocks(m.ContentParts)
+				if err != nil {
+					return nil, nil, fmt.Errorf("tool content parts: %w", err)
+				}
+				out = append(out, anthropic.NewUserMessage(anthropic.ContentBlockParamUnion{
+					OfToolResult: &anthropic.ToolResultBlockParam{
+						ToolUseID: m.ToolCallID,
+						Content:   toolBlocks,
+					},
+				}))
+			} else {
+				out = append(out, anthropic.NewUserMessage(
+					anthropic.NewToolResultBlock(m.ToolCallID, m.Content, false),
+				))
+			}
 		default:
 			return nil, nil, fmt.Errorf("unsupported role: %q", m.Role)
 		}
@@ -142,9 +166,9 @@ func toAnthropicMessages(in []Message) ([]anthropic.TextBlockParam, []anthropic.
 	return systemBlocks, out, nil
 }
 
-// contentPartsToAnthropicBlocks 把内部 ContentPart[] 转成 Anthropic user message blocks。
-// 用于 RoleUser 含图场景。
-func contentPartsToAnthropicBlocks(parts []ContentPart) ([]anthropic.ContentBlockParamUnion, error) {
+// contentPartsToAnthropicUserBlocks 把内部 ContentPart[] 转成 Anthropic user message blocks。
+// 用于 RoleUser 含图场景；与 contentPartsToAnthropicToolBlocks 命名对仗，区分 user/tool 上下文。
+func contentPartsToAnthropicUserBlocks(parts []ContentPart) ([]anthropic.ContentBlockParamUnion, error) {
 	out := make([]anthropic.ContentBlockParamUnion, 0, len(parts))
 	for _, p := range parts {
 		switch p.Type {
@@ -164,9 +188,9 @@ func contentPartsToAnthropicBlocks(parts []ContentPart) ([]anthropic.ContentBloc
 	return out, nil
 }
 
-// contentPartsToToolResultContent 转成 Anthropic ToolResultBlockParamContentUnion[]。
-// 用于 RoleTool 含图场景（tool_result 子 content）。
-func contentPartsToToolResultContent(parts []ContentPart) ([]anthropic.ToolResultBlockParamContentUnion, error) {
+// contentPartsToAnthropicToolBlocks 转成 Anthropic ToolResultBlockParamContentUnion[]。
+// 用于 RoleTool 含图场景（tool_result 子 content）；与 contentPartsToAnthropicUserBlocks 命名对仗。
+func contentPartsToAnthropicToolBlocks(parts []ContentPart) ([]anthropic.ToolResultBlockParamContentUnion, error) {
 	out := make([]anthropic.ToolResultBlockParamContentUnion, 0, len(parts))
 	for _, p := range parts {
 		switch p.Type {

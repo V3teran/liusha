@@ -116,7 +116,12 @@ tools:
       共享 chromium daemon（cookies / session 跨 task 共享，登录不顶掉）+ 每 task 独立 tab
       （截图/浏览历史独立，commander/striker 并发 open 不互覆——自动按 TASK_ID 切 tab）。
       约定：screenshot 必须写到 $OUTPUT_DIR/xxx.png（沙箱只扫该目录把图作为附件回传给 LLM；
-      写到 /tmp 等其它路径的图不会进 LLM 上下文）。chromium 首次 cold start 约 25-30s，
+      写到 /tmp 等其它路径的图不会进 LLM 上下文）。
+      **screenshot 是 visual confirmation 首选工具**——截图作为 image 附件直接喂给 vision 模型，
+      LLM 用 vision encoder 像人眼一样看页面。**必须看才能确认**的场景优先 screenshot 而非 eval/state：
+      alert 弹窗触发证据、CSP/CORS 错误页、JS-rendered DOM 渲染后真实样子、按钮位置、
+      captcha 文字、错误信息弹层等。eval/state 只看得到 DOM 文本（HTML 源），看不到渲染效果。
+      chromium 首次 cold start 约 25-30s，
       第 1 个 browser-use 命令的 timeout_seconds 至少传 60，后续 session 复用 15s 够用。
       **cookie 同步神器**（curl→browser 反向桥接）：curl 登录拿到 cookies 后，**一行注入**：
         `browser-use cookies import /tmp/cookies.json` 批量导入（Playwright JSON 格式）

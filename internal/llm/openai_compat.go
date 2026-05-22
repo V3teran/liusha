@@ -25,10 +25,11 @@ import (
 // APIKey 字段保留是为了配置层面的向后兼容；NewOpenAICompat 不再读它——
 // 底层 *openai.Client 已带 apikey，由调用方从 ClientPool 注入。
 type OpenAICompatConfig struct {
-	BaseURL   string // 如 https://api.deepseek.com/v1 ；空 = OpenAI 官方
-	Model     string // 如 deepseek-chat、qwen3-max
-	APIKey    string // 仅用于配置传递；client 已经从 ClientPool 注入
-	MaxTokens int    // 0 = 走 provider 默认
+	BaseURL        string // 如 https://api.deepseek.com/v1 ；空 = OpenAI 官方
+	Model          string // 如 deepseek-chat、qwen3-max
+	APIKey         string // 仅用于配置传递；client 已经从 ClientPool 注入
+	MaxTokens      int    // 0 = 走 provider 默认
+	SupportsVision bool   // true=image_url 走 MultiContent 真识图；false=stripImagesToText 降级文本占位
 }
 
 // openAICompatGen 实现 Generator，跨 OpenAI 协议族复用同一份逻辑。
@@ -36,10 +37,11 @@ type OpenAICompatConfig struct {
 // 无状态：tools 不再构造时绑定，而是每次 Generate(ctx, msgs, tools) 动态传入，
 // 修复 v1 Factory 缓存 Generator 导致跨 task tools 错乱的并发 bug。
 type openAICompatGen struct {
-	client    *openai.Client
-	model     string
-	maxTokens int
-	provider  string
+	client         *openai.Client
+	model          string
+	maxTokens      int
+	provider       string
+	supportsVision bool // 透传自 OpenAICompatConfig.SupportsVision，控制 ContentParts 走 MultiContent vs 降级
 }
 
 // NewOpenAICompat 构造无状态 Generator。
@@ -54,10 +56,11 @@ func NewOpenAICompat(_ context.Context, providerKey string, c OpenAICompatConfig
 		return nil, errors.New("OpenAICompat: Model 必填")
 	}
 	return &openAICompatGen{
-		client:    client,
-		model:     c.Model,
-		maxTokens: c.MaxTokens,
-		provider:  providerKey,
+		client:         client,
+		model:          c.Model,
+		maxTokens:      c.MaxTokens,
+		provider:       providerKey,
+		supportsVision: c.SupportsVision,
 	}, nil
 }
 
@@ -67,7 +70,7 @@ func (g *openAICompatGen) Model() string    { return g.model }
 
 // Generate 发起一次 chat completion；tools 每次动态传入。
 func (g *openAICompatGen) Generate(ctx context.Context, msgs []Message, tools []ToolSchema) (Result, error) {
-	openaiMsgs, err := toOpenAIMessages(msgs)
+	openaiMsgs, err := toOpenAIMessages(msgs, g.supportsVision)
 	if err != nil {
 		return Result{}, fmt.Errorf("convert messages: %w", err)
 	}
@@ -102,32 +105,44 @@ func (g *openAICompatGen) Generate(ctx context.Context, msgs []Message, tools []
 // Role 直接映射（system/user/assistant/tool）；assistant 的 tool_calls 与
 // tool 的 tool_call_id 都按 OpenAI 协议保留。
 //
+// supportsVision 控制 ContentParts 的处理：
+//   - true（gpt-4o / qwen3-vl 等真支持 vision 的 OpenAI 协议族）：走 MultiContent 数组路径，
+//     image_url part 用 base64 data URI 内联，LLM 真正激活 vision encoder。
+//   - false（deepseek-chat / qwen2.5 等纯文本 provider）：与 strix _strip_images 对齐，
+//     合并所有 text part、把 image_url 换成占位文本，LLM 知道这里曾截过图但当前看不到。
+//
 // DeepSeek 兼容性：assistant + tool_calls 但 content 空时，DeepSeek 严格校验
 // 会报 "missing field content" 400。OpenAI 的 ChatCompletionMessage.Content 是
 // `omitempty`，空 string 会被序列化器省略 → 这里在该场景下塞一个空格保留字段。
-func toOpenAIMessages(in []Message) ([]openai.ChatCompletionMessage, error) {
+// MultiContent 路径下 SDK 强制 Content/MultiContent 互斥（ErrContentFieldsMisused），
+// 因此走 MultiContent 时 Content 必须空——vision provider 不撞 DeepSeek 兼容场景。
+func toOpenAIMessages(in []Message, supportsVision bool) ([]openai.ChatCompletionMessage, error) {
 	out := make([]openai.ChatCompletionMessage, 0, len(in))
 	for _, m := range in {
-		content := m.Content
-		// 多模态降级：deepseek-chat / v4 系列等 OpenAI 协议族目前不支持 vision_url
-		// 协议字段（DeepSeek 公共 API 确认无 vision，2026-05）。
-		// 与 strix _strip_images 对齐：合并所有 text part、把 image_url 换成占位文本，
-		// 让 LLM 知道这里曾经截过图但当前 provider 看不到——可决定换 curl 验证或调 state 拿 DOM。
-		// 未来 OpenAI vision-capable 模型（gpt-4o / Kimi-K2.6 等 OpenAI 协议族真支持 vision）
-		// 启用时，按 provider supports_vision 字段切换走真 MultiContent 路径。
-		if len(m.ContentParts) > 0 {
-			content = stripImagesToText(m.ContentParts)
-		}
-		// 兼容 DeepSeek 等严格 OpenAI 协议实现：每条 message 必须含 content 字段（OpenAI 协议默认 omitempty）。
-		// 涵盖：assistant+tool_calls 时 content 空 / tool_result Output 为空 / 其它边角空 content。
-		if content == "" {
-			content = " "
-		}
 		om := openai.ChatCompletionMessage{
 			Role:       string(m.Role),
-			Content:    content,
 			Name:       m.Name,
 			ToolCallID: m.ToolCallID,
+		}
+		switch {
+		case len(m.ContentParts) > 0 && supportsVision:
+			// 真 vision：走 MultiContent，Content 必须空（SDK 互斥校验）。
+			parts, err := contentPartsToOpenAIParts(m.ContentParts)
+			if err != nil {
+				return nil, fmt.Errorf("openai multipart: %w", err)
+			}
+			om.MultiContent = parts
+		case len(m.ContentParts) > 0:
+			// 降级：vision 不支持 → 把图换成占位文本，让 LLM 知道有图但看不到。
+			om.Content = stripImagesToText(m.ContentParts)
+		default:
+			content := m.Content
+			// 兼容 DeepSeek 等严格 OpenAI 协议实现：每条 message 必须含 content 字段（OpenAI 协议默认 omitempty）。
+			// 涵盖：assistant+tool_calls 时 content 空 / tool_result Output 为空 / 其它边角空 content。
+			if content == "" {
+				content = " "
+			}
+			om.Content = content
 		}
 		if len(m.ToolCalls) > 0 {
 			om.ToolCalls = make([]openai.ToolCall, len(m.ToolCalls))
@@ -143,6 +158,39 @@ func toOpenAIMessages(in []Message) ([]openai.ChatCompletionMessage, error) {
 			}
 		}
 		out = append(out, om)
+	}
+	return out, nil
+}
+
+// contentPartsToOpenAIParts 把内部 ContentPart[] 转成 sashabaranov ChatMessagePart[]。
+//
+// 用户/工具 message 共用——OpenAI 协议下 user 和 tool role 的 multipart content 结构相同。
+// image_url 用 data URI 内联（data:image/png;base64,...），无需外部文件服务、与沙箱无网依赖对齐。
+func contentPartsToOpenAIParts(parts []ContentPart) ([]openai.ChatMessagePart, error) {
+	out := make([]openai.ChatMessagePart, 0, len(parts))
+	for _, p := range parts {
+		switch p.Type {
+		case "text":
+			if p.Text == "" {
+				continue
+			}
+			out = append(out, openai.ChatMessagePart{
+				Type: openai.ChatMessagePartTypeText,
+				Text: p.Text,
+			})
+		case "image_url":
+			if p.ImageURL == nil || p.ImageURL.Base64Data == "" {
+				return nil, errors.New("image_url part: ImageURL/Base64Data 必填")
+			}
+			out = append(out, openai.ChatMessagePart{
+				Type: openai.ChatMessagePartTypeImageURL,
+				ImageURL: &openai.ChatMessageImageURL{
+					URL: "data:" + p.ImageURL.MediaType + ";base64," + p.ImageURL.Base64Data,
+				},
+			})
+		default:
+			return nil, fmt.Errorf("unsupported content part type: %q", p.Type)
+		}
 	}
 	return out, nil
 }

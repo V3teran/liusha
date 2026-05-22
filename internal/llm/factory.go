@@ -141,6 +141,8 @@ func BuildProvider(ctx context.Context, cfg config.Config, providerKey string, p
 		}
 		return NewOpenAICompat(ctx, providerKey, OpenAICompatConfig{
 			BaseURL: pc.BaseURL, Model: pc.DefaultModel, APIKey: apiKey, MaxTokens: pc.MaxTokens,
+			// pc.SupportsVision *bool 由 config.validate 保证非 nil，可安全解引用
+			SupportsVision: *pc.SupportsVision,
 		}, cli)
 	case ProviderTypeAnthropic:
 		cli, err := pool.GetOrCreateAnthropic(pc.BaseURL, apiKey)

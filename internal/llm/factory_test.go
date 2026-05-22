@@ -182,13 +182,16 @@ func TestFactory_For_ConcurrentSafe(t *testing.T) {
 
 // TestBuildProvider_KnownProvidersBuildOK：表驱动校验 5 个 provider 都能构造
 func TestBuildProvider_KnownProvidersBuildOK(t *testing.T) {
+	// SupportsVision *bool 必须非 nil（生产由 config.validate 保证，测试需手动构造）。
+	vTrue := true
+	vFalse := false
 	cfg := config.Config{
 		Providers: map[string]config.ProviderConfig{
-			"deepseek":  {BaseURL: "https://api.deepseek.com", DefaultModel: "deepseek-chat", APIKeyEnv: "DEEPSEEK_API_KEY", MaxTokens: 4096},
-			"anthropic": {Type: ProviderTypeAnthropic, BaseURL: "https://api.anthropic.com", DefaultModel: "claude-sonnet-4-6", APIKeyEnv: "ANTHROPIC_API_KEY", MaxTokens: 8192},
-			"openai":    {BaseURL: "https://api.openai.com/v1", DefaultModel: "gpt-4o", APIKeyEnv: "OPENAI_API_KEY", MaxTokens: 4096},
-			"moonshot":  {BaseURL: "https://api.moonshot.cn/v1", DefaultModel: "kimi-k2-0905-preview", APIKeyEnv: "MOONSHOT_API_KEY", MaxTokens: 4096},
-			"qwen":      {BaseURL: "https://dashscope.aliyuncs.com/compatible-mode/v1", DefaultModel: "qwen3-max", APIKeyEnv: "QWEN_API_KEY", MaxTokens: 4096},
+			"deepseek":  {BaseURL: "https://api.deepseek.com", DefaultModel: "deepseek-chat", APIKeyEnv: "DEEPSEEK_API_KEY", MaxTokens: 4096, SupportsVision: &vFalse},
+			"anthropic": {Type: ProviderTypeAnthropic, BaseURL: "https://api.anthropic.com", DefaultModel: "claude-sonnet-4-6", APIKeyEnv: "ANTHROPIC_API_KEY", MaxTokens: 8192, SupportsVision: &vTrue},
+			"openai":    {BaseURL: "https://api.openai.com/v1", DefaultModel: "gpt-4o", APIKeyEnv: "OPENAI_API_KEY", MaxTokens: 4096, SupportsVision: &vTrue},
+			"moonshot":  {BaseURL: "https://api.moonshot.cn/v1", DefaultModel: "kimi-k2-0905-preview", APIKeyEnv: "MOONSHOT_API_KEY", MaxTokens: 4096, SupportsVision: &vFalse},
+			"qwen":      {BaseURL: "https://dashscope.aliyuncs.com/compatible-mode/v1", DefaultModel: "qwen3-max", APIKeyEnv: "QWEN_API_KEY", MaxTokens: 4096, SupportsVision: &vFalse},
 		},
 	}
 	pool := NewClientPool()

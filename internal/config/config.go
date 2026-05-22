@@ -122,7 +122,10 @@ type ProviderConfig struct {
 	APIKeyEnv      string `mapstructure:"api_key_env"`
 	MaxTokens      int    `mapstructure:"max_tokens"`
 	SupportsTools  bool   `mapstructure:"supports_tools"`
-	SupportsVision bool   `mapstructure:"supports_vision"`
+	// SupportsVision 用 *bool 区分"未填"（nil）与"显式 false"——validate 强制 yaml 必填，
+	// 避免 caller 不知道 provider 能不能 vision 时拿默认值踩坑（例如 deepseek 不支持 vision
+	// 却收到含图 message → 服务端 400）。yaml `supports_vision: true/false` 都合法，留空启动报错。
+	SupportsVision *bool `mapstructure:"supports_vision"`
 }
 
 // PricingConfig 是 LLM 模型单价表（USD per 1M tokens）。
@@ -656,7 +659,8 @@ func applyToolruntimeDefaults(c ToolruntimeConfig) ToolruntimeConfig {
 	return c
 }
 
-// validate 强制：default_provider 必填，light/vision/fallback 选填但配了就必须 check 通过。
+// validate 强制：default_provider 必填，light/vision/fallback 选填但配了就必须 check 通过；
+// 所有 providers 必须显式声明 supports_vision（fail-fast，避免运行时拿默认值踩坑）。
 func validate(c Config) error {
 	check := func(name, role string) error {
 		p, ok := c.Providers[name]
@@ -686,6 +690,15 @@ func validate(c Config) error {
 			if err := check(pair.name, pair.role); err != nil {
 				return err
 			}
+		}
+	}
+	// 所有 provider 必须显式声明 supports_vision——nil 视为未填，启动 fail-fast。
+	// 设计原则：caller（react.runtime / openai_compat）路由含图 message 时依赖此 flag，
+	// 默认零值（false）会让 deepseek 等 OpenAI 协议族在 yaml 漏填时被当成不支持 vision，
+	// 实际可能反过来（如 gpt-4o）——强制显式声明消除歧义。
+	for name, p := range c.Providers {
+		if p.SupportsVision == nil {
+			return fmt.Errorf("provider %q: supports_vision 必填（yaml 必须显式写 true 或 false）", name)
 		}
 	}
 	return nil

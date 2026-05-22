@@ -55,7 +55,7 @@ func TestToOpenAIMessages_StripsImagesGracefully(t *testing.T) {
 			{Type: "image_url", ImageURL: &ImageContent{MediaType: "image/png", Base64Data: "iVBOR"}},
 		}},
 	}
-	out, err := toOpenAIMessages(msgs)
+	out, err := toOpenAIMessages(msgs, false) // 测降级路径：supportsVision=false → 走 stripImagesToText
 	if err != nil {
 		t.Fatalf("应 graceful degrade 不报错，实际 err=%v", err)
 	}
