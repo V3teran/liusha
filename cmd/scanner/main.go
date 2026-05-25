@@ -34,6 +34,7 @@ import (
 	"github.com/V3teran/liusha/internal/envx"
 	"github.com/V3teran/liusha/internal/finding"
 	"github.com/V3teran/liusha/internal/flow"
+	"github.com/V3teran/liusha/internal/grounding"
 	"github.com/V3teran/liusha/internal/ingestor"
 	"github.com/V3teran/liusha/internal/lesson"
 	"github.com/V3teran/liusha/internal/llm"
@@ -43,6 +44,7 @@ import (
 	"github.com/V3teran/liusha/internal/notes"
 	"github.com/V3teran/liusha/internal/observability"
 	"github.com/V3teran/liusha/internal/passivesession"
+	"github.com/V3teran/liusha/internal/react"
 	"github.com/V3teran/liusha/internal/sandbox"
 	"github.com/V3teran/liusha/internal/skill"
 	"github.com/V3teran/liusha/internal/subtask"
@@ -166,6 +168,9 @@ func main() {
 	// 容器化沙箱启动器（管理 sandbox 容器生命周期：per agent run 一个容器）。
 	// 启动时一次性清理上次进程崩前残留的孤儿容器——max lifetime 4h + Destroy 失败兜底。
 	launcher := sandbox.NewDockerLauncher(cfg.Sandbox.DefaultImage)
+	// 注入视口尺寸到 launcher → docker run -e → 容器内 wrapper 透传 chromium。
+	launcher.ViewportWidth = cfg.Sandbox.ViewportWidth
+	launcher.ViewportHeight = cfg.Sandbox.ViewportHeight
 	if err := launcher.CleanupOrphans(ctx); err != nil {
 		logger.Warn().Err(err).Msg("CleanupOrphans 失败（非致命，max lifetime 兜底）")
 	}
@@ -216,6 +221,32 @@ func main() {
 		return spawner, registry, nil
 	}
 
+	// provider name → context_window 映射（hunter 装配按 p.LLM.Provider() 查表）。
+	// nil 安全：runtime compactHistory 见 ctxWindow=0 自动跳过压缩。
+	ctxWindows := make(map[string]int, len(cfg.Providers))
+	coordSystems := make(map[string]string, len(cfg.Providers))
+	for name, p := range cfg.Providers {
+		if p.ContextWindow != nil {
+			ctxWindows[name] = *p.ContextWindow
+		}
+		// 仅 vision provider 算 coord_system；非 vision provider 留空字符串
+		// → browser_use click/input 装配后空 CoordSystem 走 ToRealPixels 报 err（防误用）。
+		// 4 层级联推断：显式 → model name registry → vendor base_url registry → real_pixels fallback。
+		if p.SupportsVision != nil && *p.SupportsVision {
+			sys, source := grounding.ResolveCoordSystem(p.GroundingCoordSystem, p.DefaultModel, p.BaseURL)
+			coordSystems[name] = string(sys)
+			lvl := logger.Info()
+			if source == "default" {
+				lvl = logger.Warn()
+			}
+			lvl.Str("provider", name).Str("source", source).Str("coord_system", string(sys)).
+				Str("model", p.DefaultModel).Msg("grounding coord_system 推断")
+		}
+	}
+	// ReAct msgs 文本压缩器：复用 inspector 路由的 light LLM（与 notes compactor 同 Generator）。
+	// failure 路径已设计为 head-truncate 兜底，不阻断 hunter 主循环。
+	historyCompactor := react.NewLLMHistoryCompactor(compactorGen)
+
 	hunterBuilder = hunter.NewBuilder(hunter.Deps{
 		Notes:                  noteStore,
 		Findings:               finds,
@@ -230,11 +261,20 @@ func main() {
 		PassiveMaxSteps:        scannerCfg.PassiveMaxSteps,
 		ActiveMaxSteps:         scannerCfg.ActiveMaxSteps,
 		WatchdogSeconds:        scannerCfg.StepLLMTimeoutSeconds,
-		InspectorEverySteps:     cfg.React.InspectorEverySteps,
-		MaxImagesInHistory:      cfg.React.MaxImagesInHistory,
-		FindingsLimit:          cfg.Session.FindingsLimitInPrompt,
-		LessonsLimit:           cfg.Session.LessonsLimitInPrompt,
-		SpawnerFactory:         spawnerFactory,
+		InspectorEverySteps:    cfg.React.InspectorEverySteps,
+		MaxImagesInHistory:     cfg.React.MaxImagesInHistory,
+		HistoryCompactor:       historyCompactor,
+		HistoryCompact: react.HistoryCompactConfig{
+			TriggerRatio:        cfg.React.HistoryCompact.TriggerRatio,
+			TrailingBudgetRatio: cfg.React.HistoryCompact.TrailingBudgetRatio,
+			CooldownTokenDelta:  cfg.React.HistoryCompact.CooldownTokenDelta,
+		},
+		HistoryCompactTimeout: time.Duration(cfg.React.HistoryCompact.CompactorTimeoutSeconds) * time.Second,
+		ContextWindows:        ctxWindows,
+		CoordSystems:          coordSystems,
+		FindingsLimit:         cfg.Session.FindingsLimitInPrompt,
+		LessonsLimit:          cfg.Session.LessonsLimitInPrompt,
+		SpawnerFactory:        spawnerFactory,
 	})
 
 	// handler

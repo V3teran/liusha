@@ -3,6 +3,7 @@ package hunter
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/V3teran/liusha/internal/skill"
 	"github.com/V3teran/liusha/internal/tools/manifest"
@@ -144,5 +145,27 @@ func mustOrder(t *testing.T, haystack, first, second string) {
 	}
 	if i >= j {
 		t.Errorf("want %q before %q, got reversed (idx %d vs %d)", first, second, i, j)
+	}
+}
+
+func TestComputeDoneBackoff(t *testing.T) {
+	cases := []struct {
+		denies int
+		want   time.Duration
+	}{
+		{0, 0}, // 首次拒绝不冷却
+		{1, 0},
+		{2, 0},                // 边界：2 次以下不冷却
+		{3, 30 * time.Second}, // 3-4 次进入 30s
+		{4, 30 * time.Second},
+		{5, 2 * time.Minute}, // 5-6 次进入 2min
+		{6, 2 * time.Minute},
+		{7, 5 * time.Minute}, // 7+ 次顶级冷却
+		{100, 5 * time.Minute},
+	}
+	for _, c := range cases {
+		if got := computeDoneBackoff(c.denies); got != c.want {
+			t.Errorf("computeDoneBackoff(%d) = %v, want %v", c.denies, got, c.want)
+		}
 	}
 }

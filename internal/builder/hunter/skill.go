@@ -29,6 +29,7 @@ import (
 	"github.com/V3teran/liusha/internal/config"
 	"github.com/V3teran/liusha/internal/credential"
 	"github.com/V3teran/liusha/internal/finding"
+	"github.com/V3teran/liusha/internal/grounding"
 	"github.com/V3teran/liusha/internal/lesson"
 	"github.com/V3teran/liusha/internal/notes"
 	"github.com/V3teran/liusha/internal/react"
@@ -124,6 +125,27 @@ type Deps struct {
 	InspectorEverySteps int
 	MaxImagesInHistory  int // multimodal 历史保留图片数（来自 cfg.React.MaxImagesInHistory，0 时 runtime fallback 3）
 
+	// HistoryCompactor 是 ReAct msgs 文本压缩器（防 context 爆）。
+	// cmd/scanner 装配时拿 light_provider Generator 构造 *react.LLMHistoryCompactor 注入；
+	// nil → 跳过文本压缩（图压缩 compressImages 不受影响）。
+	HistoryCompactor react.HistoryCompactor
+
+	// HistoryCompact 压缩超参（trigger_ratio / trailing_budget_ratio / cooldown_token_delta）。
+	HistoryCompact react.HistoryCompactConfig
+
+	// HistoryCompactTimeout 单次蒸馏调用硬超时；零值 runtime 内 30s 默认。
+	HistoryCompactTimeout time.Duration
+
+	// ContextWindows 是 provider name → context_window 映射（来自 cfg.Providers[name].ContextWindow）。
+	// hunter 装配时按 p.LLM.Provider() 查表得当前 hunter 的 ctx_window，传 react.Config.ContextWindow。
+	// 缺 key（含本不应发生的 nil）→ runtime 压缩自动跳过；该 provider 视为"未声明 ctx"安全降级。
+	ContextWindows map[string]int
+
+	// CoordSystems 是 provider name → grounding_coord_system 映射（仅 vision provider 有值）。
+	// browser_use(action=click/input) 装配时按 p.LLM.Provider() 查表得当前 hunter 的坐标系；
+	// 非 vision provider 路由进 click/input action 会因空 CoordSystem 在 ToRealPixels 报 err（防误用）。
+	CoordSystems map[string]string
+
 	// SpawnerFactory 为 commander 装配 subtask.Spawner + Registry（subtask swarm）。
 	// 由 cmd/scanner 注入：闭包捕获 router/stores/calls/pricing 等所有装配striker 所需依赖。
 	// nil 时commander 不注册 spawn_striker / list_strikers 工具（向后兼容 / 单测场景）。
@@ -134,6 +156,39 @@ type Deps struct {
 	UserPromptBodyLimit int // 请求/响应 body 单段截断字节数；≤0 → 8192
 	FindingsLimit       int // user prompt 该 host 已有 finding 段显示条数；≤0 → 100
 	LessonsLimit        int // user prompt lesson + hint 段共用上限；≤0 → 100
+}
+
+// doneBackoffState 是 commander done 退避计数器状态（闭包局部 per-commander，react.Run 单 goroutine 无 mutex）。
+//
+// 设计动机（done 焦虑修复）：之前一次 active e2e 实测 commander 被 PreDoneCheck 拒后连续重试 18 次 done，
+// 每次重试都消耗 ~50K input tokens（含完整 ReAct history），单次 e2e 烧 0.5 元在空 done 上。
+//
+// 防御机制：computeDoneBackoff 给出指数退避（无→30s→2min→5min），冷却期内 done 静默拒不增加计数。
+type doneBackoffState struct {
+	consecutiveDenies int       // 连续被拒次数（striker 全 done 时归 0）
+	lastDenyTime      time.Time // 上次 deny 时间戳，用于冷却期判定
+}
+
+// computeDoneBackoff 按连续拒次数返回应冷却的时长。
+//
+// 阈值设计：
+//   - 1-2 次：不冷却（LLM 试探后真该走别的路径）
+//   - 3-4 次：30s 冷却（明显焦虑）
+//   - 5-6 次：2min 冷却（深度焦虑）
+//   - 7+ 次：5min 冷却（直接放弃 done 路径）
+//
+// 实测 striker 典型 1-7 分钟完成，2min/5min 退避正好对齐 striker 工作周期。
+func computeDoneBackoff(consecutiveDenies int) time.Duration {
+	switch {
+	case consecutiveDenies <= 2:
+		return 0
+	case consecutiveDenies <= 4:
+		return 30 * time.Second
+	case consecutiveDenies <= 6:
+		return 2 * time.Minute
+	default:
+		return 5 * time.Minute
+	}
 }
 
 // NewBuilder 构造 hunter SkillBuilder 闭包。scanner 启动时调用一次。
@@ -190,13 +245,16 @@ func NewBuilder(deps Deps) skill.Builder {
 		}
 
 		if spawnerRegistry != nil {
+			// done 焦虑修复：commander LLM 被拦后倾向反复改 reason 重试 done（实测一次 e2e 烧 18 次空 done = 0.5 元 token）。
+			// 双层防御——
+			//   A. 退避计数器（cooldown）：连续被拒 N 次后强制冷却 30s→2min→5min 指数退避，期间 done 直接静默拒
+			//   B. 错误消息删"过段时间再试 done"诱导句，改成命令式"不要再 done，去做 X/Y/Z"
+			// 状态闭包局部（每 commander 独立），react.Run 单 goroutine 无需 mutex。
+			backoffSt := &doneBackoffState{}
 			must(common.Done{
 				Sandbox: p.Sandbox,
 				TaskID:  p.TaskID,
 				PreDoneCheck: func(_ context.Context) error {
-					// 不诱导 polling：错误消息**自含** running striker摘要（taskID 前缀 + 已跑秒数），
-					// LLM 看 error 即得到 list_strikers 该给的信息；明确建议挖新链路 / read_findings /
-					// 写 lesson，过段时间再试 done，避免空转 polling 烧 token。
 					snaps := spawnerRegistry.Snapshot()
 					var running []string
 					now := time.Now()
@@ -212,9 +270,32 @@ func NewBuilder(deps Deps) skill.Builder {
 						running = append(running, fmt.Sprintf("%s(%ds)", short, elapsed))
 					}
 					if len(running) == 0 {
+						backoffSt.consecutiveDenies = 0 // reset cooldown
 						return nil
 					}
-					return fmt.Errorf("仍有 %d 个 running striker: %s。**不要调 list_strikers polling**——striker 写的 finding 已通过共享黑板冒给你（read_findings 看），现在去：(a) 用 striker 已挖出的发现作引导挖新链路；(b) 完善 finding/写 lesson；(c) 过段时间再试 done。strikers 全完了再调 done 即可",
+					// A：冷却期内静默拒（不增加计数，避免冷却中重试被算新拒绝形成永久冷却）
+					if backoff := computeDoneBackoff(backoffSt.consecutiveDenies); backoff > 0 {
+						if remaining := backoff - time.Since(backoffSt.lastDenyTime); remaining > 0 {
+							return fmt.Errorf("done 冷却中（连续 %d 次被拒，下次允许还剩 %s）。"+
+								"**不要再调 done**——每次 done 调用都消耗一整次 LLM 推理（数万 token）。"+
+								"**想看 striker 进度？调 `list_strikers`**（不消耗 done 冷却 + 不烧 done 推理）。"+
+								"主动做：list_strikers 看进度 / read_findings 看新 finding / spawn_striker 派新 chaining striker / write_lesson 沉淀经验。"+
+								"**你是指挥官，不亲自挖洞**（撞证据走 evidence handoff 协议 spawn striker）。"+
+								"strikers 全 done 后自动放行。",
+								backoffSt.consecutiveDenies, remaining.Truncate(time.Second))
+						}
+					}
+					backoffSt.consecutiveDenies++
+					backoffSt.lastDenyTime = now
+					// B：删"过段时间再试 done"诱导，改命令式 + 明确"协调者不亲自挖"防 commander 自挖
+					return fmt.Errorf("仍有 %d 个 running striker: %s。**不要再调 done**——重复试会进入冷却（30s→2min→5min 指数退避），且每次 done 调用都消耗一整次 LLM 推理（数万 token）。"+
+						"**想看 striker 进度？调 `list_strikers`**（不消耗 done 冷却 + 不烧 done 推理）。"+
+						"主动做：(a) list_strikers 看 striker 进度 → 全 done 才调 done；"+
+						"(b) read_findings 看 striker 黑板新 finding；"+
+						"(c) 基于 finding 调 spawn_striker 派**新** striker 挖 chaining 链路（不同攻面 / SQLi→Auth Bypass 等组合）；"+
+						"(d) write_lesson 沉淀可复用攻击模式（不是任务总结）。"+
+						"**你是指挥官，永远不亲自挖洞 / 不亲自 write_finding**——撞证据走 evidence handoff 协议 spawn striker。"+
+						"strikers 全 done 后 PreDoneCheck 自动放行你的 done 调用。",
 						len(running), strings.Join(running, ", "))
 				},
 			})
@@ -242,10 +323,12 @@ func NewBuilder(deps Deps) skill.Builder {
 		// p.Sandbox 由 cmd/scanner handlePassive/handleActive 调 Launcher.Spawn(runID) 后注入；
 		// nil 时跳过注册，避免 LLM 调到没 sandbox 的工具（如 dev/test 场景）。
 		//
-		// page_* tool 家族（typed JSON 包装 browser-use 子命令）：
-		//   - page_open / page_click / page_input / page_wait（状态变化，wrapper 自动附截图给 vision LLM）
-		//   - page_eval / page_extract / page_state（读取，不附图省 token）
+		// browser_use 单工具（vision-first）：
+		//   - action: open / click / input / wait / eval / extract / source 一处 switch 分流
+		//   - 状态变化 action（open/click/input/wait）wrapper 自动附截图
 		//   - 共用同一 *RunCommand 实例确保 Sandbox/TaskID 一致；低频 browser 子命令仍走 run_command 兜底
+		// 坐标系按当前 hunter 路由到的 provider 配置（grounding.CoordSystem）；
+		// 非 vision provider 走到 click/input action 会因 CoordSystem="" 在 ToRealPixels 报 err（防误用）。
 		if p.Sandbox != nil {
 			rc := &external.RunCommand{
 				Sandbox:           p.Sandbox,
@@ -253,14 +336,16 @@ func NewBuilder(deps Deps) skill.Builder {
 				MaxTimeoutSeconds: deps.StepToolTimeoutSeconds,
 				TailBytes:         deps.SandboxCfg.RunTailBytes,
 			}
+			coordSys := grounding.CoordSystem("")
+			if p.LLM != nil && deps.CoordSystems != nil {
+				coordSys = grounding.CoordSystem(deps.CoordSystems[p.LLM.Provider()])
+			}
+			// 视口尺寸：从 deps 透传到 click/input action 用于 grounding 换算；
+			// 与 sandbox.DockerLauncher 注入 docker run -e 的值同源——SandboxConfig 单值多处共享。
+			vpW := deps.SandboxCfg.ViewportWidth
+			vpH := deps.SandboxCfg.ViewportHeight
 			must(rc)
-			must(&external.PageOpen{Run: rc})
-			must(&external.PageClick{Run: rc})
-			must(&external.PageInput{Run: rc})
-			must(&external.PageWait{Run: rc})
-			must(&external.PageEval{Run: rc})
-			must(&external.PageExtract{Run: rc})
-			must(&external.PageState{Run: rc})
+			must(&external.BrowserUse{Run: rc, CoordSystem: coordSys, ViewportW: vpW, ViewportH: vpH})
 		}
 
 		if len(regErrs) > 0 {
@@ -288,15 +373,25 @@ func NewBuilder(deps Deps) skill.Builder {
 			watchdog = 60
 		}
 
+		// 按当前 hunter 路由到的 provider 查 ctx_window；缺 key 走 0 → runtime 压缩自动跳过。
+		ctxWindow := 0
+		if deps.ContextWindows != nil && p.LLM != nil {
+			ctxWindow = deps.ContextWindows[p.LLM.Provider()]
+		}
+
 		return react.Config{
-			LLM:                p.LLM,
-			Actions:            reg,
-			Budget:             react.Budget{MaxSteps: maxSteps, WatchdogSeconds: watchdog},
-			SystemPrompt:       buildSystemPrompt(p.Mode, p.CommanderTaskID == ""),
-			UserPrompt:         userPrompt,
+			LLM:                 p.LLM,
+			Actions:             reg,
+			Budget:              react.Budget{MaxSteps: maxSteps, WatchdogSeconds: watchdog},
+			SystemPrompt:        buildSystemPrompt(p.Mode, p.CommanderTaskID == ""),
+			UserPrompt:          userPrompt,
 			Inspector:           p.Inspector,
 			InspectorEverySteps: deps.InspectorEverySteps,
 			MaxImagesInHistory:  deps.MaxImagesInHistory,
+			HistoryCompactor:    deps.HistoryCompactor,
+			ContextWindow:       ctxWindow,
+			HistoryCompact:      deps.HistoryCompact,
+			HistoryCompactTimeout: deps.HistoryCompactTimeout,
 		}, nil
 	}
 }

@@ -111,12 +111,12 @@ tools:
       共享 chromium daemon（cookies / session 跨 task 共享，登录不顶掉）+ 每 task 独立 tab
       （截图/浏览历史独立，commander/striker 并发不互覆——按 TASK_ID 切 tab）。
 
-      **优先用 typed page_* tools**（已注册：page_open / page_click / page_input / page_wait /
-      page_eval / page_extract / page_state）——typed JSON 比 raw shell 命令字符串错率低，
-      且状态变化操作 wrapper 自动附截图喂回 vision LLM，无需 LLM 多花一步显式调 screenshot。
+      **优先用 typed `browser_use` 工具**（单工具 + action 枚举：open / click / input / wait /
+      eval / extract / source）——typed JSON 比 raw shell 命令字符串错率低，且状态变化 action
+      wrapper 自动附截图喂回 vision LLM，无需 LLM 多花一步显式调 screenshot。
 
-      本 run_command 通道仅用于 page_* 未覆盖的 browser 子命令（低频）：
-      type / select / scroll / back / keys / hover / dblclick / rightclick / python / get / close /
+      本 run_command 通道仅用于 browser_use 未覆盖的 browser 子命令（低频）：
+      select / scroll / back / keys / hover / dblclick / rightclick / python / get / close /
       cookies {get|set|clear|import|export} / screenshot。
 
       子命令自动附图规则（wrapper 内）：

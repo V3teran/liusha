@@ -126,6 +126,24 @@ type ProviderConfig struct {
 	// 避免 caller 不知道 provider 能不能 vision 时拿默认值踩坑（例如 deepseek 不支持 vision
 	// 却收到含图 message → 服务端 400）。yaml `supports_vision: true/false` 都合法，留空启动报错。
 	SupportsVision *bool `mapstructure:"supports_vision"`
+
+	// ContextWindow 是 model 总上下文窗口（input + output 合计 tokens）。
+	// runtime ReAct 上下文压缩按此值算阈值（trigger_ratio × ContextWindow）。
+	// 同 SupportsVision 模式：*int 区分"未填"（nil）与"显式 0"——validate 强制必填，
+	// 避免 caller 用默认值估算导致 prompt 真爆（例如 32k 模型按 128k 算阈值）。
+	ContextWindow *int `mapstructure:"context_window"`
+
+	// GroundingCoordSystem 描述 vision 模型输出像素坐标时用的坐标系。
+	// vision 模型 grounding 训练分两派：Qwen-VL 系归一化到 [0, 1000]（含 Doubao/Gemini），
+	// Anthropic Claude / OpenAI GPT-4o 直接给真像素。工具层按 provider 配置换算到真像素。
+	//
+	// 取值（启动 validate）：
+	//   "normalized_1000" — Qwen-VL/Doubao/Gemini 派，输出 0-1000 归一化
+	//   "real_pixels"     — Claude/GPT-4o 派，直接给真实像素
+	//   "normalized_100"  — 备用（Gemini 早期百分比模式）
+	//
+	// SupportsVision=true 时必填；SupportsVision=false 时可空（不会被 browser_use click 用到）。
+	GroundingCoordSystem string `mapstructure:"grounding_coord_system"`
 }
 
 // PricingConfig 是 LLM 模型单价表（USD per 1M tokens）。
@@ -264,6 +282,36 @@ type ReactConfig struct {
 	// MaxImagesInHistory 是 multimodal message 历史保留图片张数上限（compressImages 用）。
 	// 默认 3：实战 vision agent sweet spot——再多对 encoder 仅增延迟不增信息；慢节点可调 2，商业 API 可放宽 10+。
 	MaxImagesInHistory int `mapstructure:"max_images_in_history"`
+
+	// HistoryCompact 是 hunter ReAct msgs 滑窗压缩参数（防 context 爆）。
+	// 触发：每步 Generate 前算 total tokens，超 TriggerRatio×provider.ContextWindow 启动压缩。
+	// 设计原则：永保 system + 首 user，trailing 反向累加保最近 TrailingBudgetRatio×ctx_window，
+	// 候选集一次性送 light_provider 蒸馏成 1 条；失败 head-truncate 兜底。
+	// 与 notes/lesson/finding 分层记忆协同——蒸馏 prompt 引导省略"已 write_* 上提"内容。
+	HistoryCompact HistoryCompactConfig `mapstructure:"history_compact"`
+}
+
+// HistoryCompactConfig 是 react.history_compact 段配置。
+// 全部字段缺省时 applyReactDefaults 兜底——非阻塞启动。
+type HistoryCompactConfig struct {
+	// TriggerRatio 是触发阈值占 provider.ContextWindow 比例；> 此值触发压缩。
+	// 默认 0.75 偏保守：32k 模型阈值 24k，留 8k 给输出 + tools + cushion；
+	// 128k 模型阈值 96k，留 32k 余量。
+	TriggerRatio float64 `mapstructure:"trigger_ratio"`
+
+	// TrailingBudgetRatio 是 trailing window 占 ContextWindow 比例。
+	// 反向累加保最近 TrailingBudgetRatio × ContextWindow tokens，严格按 ReAct turn 边界。
+	// 默认 0.50——业界共识 trailing context 30-50%。
+	TrailingBudgetRatio float64 `mapstructure:"trailing_budget_ratio"`
+
+	// CooldownTokenDelta 是距上次压缩净增 tokens 阈值；不到此值跳过本次压缩。
+	// 防 LLM 蒸馏调用过频（每次都烧 light_provider token）。
+	// 默认 4000——典型 1-2 步 ReAct 增量。
+	CooldownTokenDelta int `mapstructure:"cooldown_token_delta"`
+
+	// CompactorTimeoutSeconds 是单次 light LLM 蒸馏调用超时（含网络 + LLM 推理）。
+	// 超时退化为 head-truncate 兜底，不阻断 ReAct。默认 30s。
+	CompactorTimeoutSeconds int `mapstructure:"compactor_timeout_seconds"`
 }
 
 // SandboxConfig 容器化执行参数（sandbox.Launcher + external.RunCommand）。
@@ -281,6 +329,17 @@ type SandboxConfig struct {
 	// RunTailBytes 是主进程 RunCommand 对 stdout/stderr 截尾的字节数。
 	// sandbox-server 返回完整 stdout，截尾在主进程层（贴近 LLM context 管理）。
 	RunTailBytes int `mapstructure:"run_tail_bytes"`
+
+	// ViewportWidth/Height 是沙箱 chromium 视口固定尺寸（像素）。
+	// 由 sandbox-server 通过 env 透传给 browser-use wrapper：每次 browser-use-cli 调用都带
+	// --window-width/--window-height 全局 flag，确保 chromium daemon 用一致尺寸启动。
+	// browser_use 的 click/input action 坐标换算（grounding 归一化 → 真像素）依赖此尺寸。
+	//
+	// 默认 1280×720——playwright 主流推荐 + vision encoder token cost sweet spot：
+	//   ~1100-1300 tokens/图（Doubao/GPT-4o），翻倍到 1920×1080 仅边际精度收益但 token x2。
+	// 高分屏可调大，但会增加 LLM 成本。
+	ViewportWidth  int `mapstructure:"viewport_width"`
+	ViewportHeight int `mapstructure:"viewport_height"`
 }
 
 // ToolruntimeConfig 是 toolruntime/interceptor 参数。
@@ -645,6 +704,26 @@ func applyReactDefaults(c ReactConfig) ReactConfig {
 	if c.MaxImagesInHistory == 0 {
 		c.MaxImagesInHistory = 3 // vision agent 实战经验值；yaml 显式 0 也会被兜到 3
 	}
+	c.HistoryCompact = applyHistoryCompactDefaults(c.HistoryCompact)
+	return c
+}
+
+// applyHistoryCompactDefaults 给 react.history_compact 段缺省字段兜底。
+// 设计取舍：所有比例/超时都允许 yaml 显式 0 → 仍兜默认（不让用户误填 0 关掉压缩）。
+// 想关压缩走 TriggerRatio 设极大值（如 99）让永不触发；或在 runtime 层注入 NoopHistoryCompactor。
+func applyHistoryCompactDefaults(c HistoryCompactConfig) HistoryCompactConfig {
+	if c.TriggerRatio <= 0 {
+		c.TriggerRatio = 0.75
+	}
+	if c.TrailingBudgetRatio <= 0 {
+		c.TrailingBudgetRatio = 0.50
+	}
+	if c.CooldownTokenDelta <= 0 {
+		c.CooldownTokenDelta = 4000
+	}
+	if c.CompactorTimeoutSeconds <= 0 {
+		c.CompactorTimeoutSeconds = 30
+	}
 	return c
 }
 
@@ -654,6 +733,13 @@ func applySandboxDefaults(c SandboxConfig) SandboxConfig {
 	}
 	if c.RunTailBytes == 0 {
 		c.RunTailBytes = 8192
+	}
+	// 视口 1280×720——playwright 主流推荐 + vision encoder sweet spot；高分屏可 yaml 覆盖。
+	if c.ViewportWidth == 0 {
+		c.ViewportWidth = 1280
+	}
+	if c.ViewportHeight == 0 {
+		c.ViewportHeight = 720
 	}
 	return c
 }
@@ -706,6 +792,23 @@ func validate(c Config) error {
 	for name, p := range c.Providers {
 		if p.SupportsVision == nil {
 			return fmt.Errorf("provider %q: supports_vision 必填（yaml 必须显式写 true 或 false）", name)
+		}
+		// context_window 同强制必填——react 历史压缩按此算阈值；漏填会用 0 兜底导致一直触发或永不触发。
+		if p.ContextWindow == nil || *p.ContextWindow <= 0 {
+			return fmt.Errorf("provider %q: context_window 必填且 > 0（model 总上下文窗口 tokens 数）", name)
+		}
+		// grounding_coord_system：vision provider 可选——4 层级联推断（grounding.ResolveCoordSystem）：
+		//   1. 显式填了 → 检查取值合法性
+		//   2. 否则按 default_model + base_url 自动推断（model name registry + vendor registry）
+		//   3. 仍未命中 → fallback real_pixels（运行时打 WARN log）
+		// validate 阶段只检查"显式填了但值非法"——推断在 hunter 装配期由 ResolveCoordSystem 跑。
+		if p.SupportsVision != nil && *p.SupportsVision && p.GroundingCoordSystem != "" {
+			switch p.GroundingCoordSystem {
+			case "normalized_1000", "real_pixels", "normalized_100":
+				// ok
+			default:
+				return fmt.Errorf("provider %q: grounding_coord_system 取值非法 %q（仅支持 normalized_1000 / real_pixels / normalized_100；留空走自动推断）", name, p.GroundingCoordSystem)
+			}
 		}
 	}
 	return nil

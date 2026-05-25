@@ -56,6 +56,12 @@ type DockerLauncher struct {
 
 	// DockerBin 是 docker CLI 可执行路径，空走默认 "docker"。
 	DockerBin string
+
+	// ViewportWidth/Height 是 chromium 视口尺寸，通过 docker run -e 注入到容器 env，
+	// 容器内 browser-use wrapper 读 LIUSHA_VIEWPORT_WIDTH/HEIGHT 透传给 browser-use-cli
+	// 的 --window-width/--window-height 全局 flag。零值时容器内 wrapper 走自己默认（1280×720）。
+	ViewportWidth  int
+	ViewportHeight int
 }
 
 // NewDockerLauncher 构造 launcher。Image 必填，DockerBin 空走默认。
@@ -76,14 +82,23 @@ func (l *DockerLauncher) Spawn(ctx context.Context, runID string) (Client, error
 	name := containerNamePrefix + runID
 	bin := l.dockerBin()
 
-	// docker run -d -p 127.0.0.1:0:8080 --name=<name> --memory=2g --cpus=2 <image>
-	runOut, err := exec.CommandContext(ctx, bin, "run", "-d",
-		"-p", "127.0.0.1:0:"+containerSandboxPort,
-		"--name="+name,
-		"--memory="+defaultMemLimit,
-		"--cpus="+defaultCPULimit,
-		l.Image,
-	).CombinedOutput()
+	// docker run -d -p 127.0.0.1:0:8080 --name=<name> --memory=2g --cpus=2 [-e LIUSHA_VIEWPORT_*] <image>
+	args := []string{"run", "-d",
+		"-p", "127.0.0.1:0:" + containerSandboxPort,
+		"--name=" + name,
+		"--memory=" + defaultMemLimit,
+		"--cpus=" + defaultCPULimit,
+	}
+	// 视口尺寸：注入到容器 env 给 browser-use wrapper 透传。
+	// 零值不注入——wrapper 自己有默认（1280×720），保留向后兼容。
+	if l.ViewportWidth > 0 {
+		args = append(args, "-e", fmt.Sprintf("LIUSHA_VIEWPORT_WIDTH=%d", l.ViewportWidth))
+	}
+	if l.ViewportHeight > 0 {
+		args = append(args, "-e", fmt.Sprintf("LIUSHA_VIEWPORT_HEIGHT=%d", l.ViewportHeight))
+	}
+	args = append(args, l.Image)
+	runOut, err := exec.CommandContext(ctx, bin, args...).CombinedOutput()
 	if err != nil {
 		return nil, fmt.Errorf("docker run %s: %w: %s", name, err, strings.TrimSpace(string(runOut)))
 	}

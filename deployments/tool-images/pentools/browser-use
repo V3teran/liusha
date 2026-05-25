@@ -22,6 +22,13 @@ TASK_ID="${TASK_ID:-default}"
 TAB_FILE="/tmp/browser-tab-${TASK_ID}.idx"
 LOCK="/tmp/browser-tab.lock"
 
+# 视口尺寸：sandbox.DockerLauncher 通过 docker run -e 注入 LIUSHA_VIEWPORT_WIDTH/HEIGHT；
+# 缺省走 1280×720（playwright 主流推荐 + vision encoder sweet spot）。
+# 只在首次 open 启 chromium daemon 时透传给 browser-use-cli 的全局 flag——
+# daemon 起后 viewport 已固定，后续命令带 flag 无效。
+WIN_W="${LIUSHA_VIEWPORT_WIDTH:-1280}"
+WIN_H="${LIUSHA_VIEWPORT_HEIGHT:-720}"
+
 SUB="${1:-}"
 shift 2>/dev/null || true
 
@@ -62,7 +69,9 @@ if [ "$SUB" = "open" ] && [ ! -f "$TAB_FILE" ]; then
         echo "0" > "$TAB_FILE"
         # 跟下面 case 分支同样的"open + 自动截图 + exit"模式——
         # 之前 exec 会替换进程导致自动截图永不触发（首次 open 自动附图失败的根因）。
-        browser-use-cli open "$@"
+        # 全局 flag --window-width/--window-height 必须在 subcommand 前——click 框架惯例。
+        # 仅此处透传：daemon 起后 viewport 已固定，后续调用不需要重传。
+        browser-use-cli --window-width="$WIN_W" --window-height="$WIN_H" open "$@"
         EXIT=$?
         if [ $EXIT -eq 0 ] && [ -n "${OUTPUT_DIR:-}" ]; then
             browser-use-cli screenshot "${OUTPUT_DIR}/auto_$(date +%s%N).png" >/dev/null 2>&1 || true

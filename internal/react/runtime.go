@@ -51,6 +51,23 @@ type Config struct {
 	// 零值走 fallbackMaxImagesInHistory（=3）。
 	// 慢 vision 节点可 yaml 调小到 2 控延迟；商业 API（claude/gpt-4o）可放宽到 10+。
 	MaxImagesInHistory int
+
+	// HistoryCompactor 是 ReAct msgs 滑窗压缩器（防 context 爆）。
+	// nil → 跳过压缩等价 disabled，runtime 仍跑只是不再蒸馏文本（图压缩 compressImages 不受影响）。
+	// 通常注入 *LLMHistoryCompactor（caller 装配时拿 light_provider Generator 构造）。
+	HistoryCompactor HistoryCompactor
+
+	// ContextWindow 是当前 hunter 所用 provider 的总 context tokens 数。
+	// 必填且 > 0（caller 从 cfg.Providers[providerKey].ContextWindow 取注入）。
+	// 0 值会让 compactHistory 跳过——等价 disabled，但 prompt 真爆时仍会被 LLM API 报 400。
+	ContextWindow int
+
+	// HistoryCompact 是压缩超参；零值走 compactHistory 内部判断（不触发）。
+	HistoryCompact HistoryCompactConfig
+
+	// HistoryCompactTimeout 是单次 LLM 蒸馏调用的硬超时（runtime 包内传给 compactor）。
+	// 零值 → 30s。超时退化为 head-truncate 兜底。
+	HistoryCompactTimeout time.Duration
 }
 
 // Outcome 是 Run 的产出，便于上层做埋点 / done 报告。
@@ -97,6 +114,13 @@ func Run(ctx context.Context, cfg Config) (Outcome, error) {
 
 	out := Outcome{}
 	window := make([]StepRecord, 0, cfg.InspectorEverySteps)
+
+	// 跨 step 压缩状态（cooldown 节流用），栈上 alloc 即可——runtime.Run 单 goroutine。
+	compactSt := &compactState{}
+	historyCompactTimeout := cfg.HistoryCompactTimeout
+	if historyCompactTimeout <= 0 {
+		historyCompactTimeout = 30 * time.Second
+	}
 
 	for {
 		// 1) 预算 / 取消检查
@@ -163,6 +187,16 @@ func Run(ctx context.Context, cfg Config) (Outcome, error) {
 			maxImages = fallbackMaxImagesInHistory
 		}
 		compressImages(msgs, maxImages)
+
+		// ReAct msgs 文本压缩：超 trigger_ratio × ctx_window 触发蒸馏；与图压缩并行 in-place。
+		// 失败兜底 head-truncate by token budget，不阻断主循环。
+		// 单步压缩硬超时（cfg.HistoryCompactTimeout 默认 30s）独立于 step watchdog；
+		// 用单独 ctx 避免压缩超时把整个 Generate 也带挂。
+		if cfg.HistoryCompactor != nil && cfg.ContextWindow > 0 {
+			compactCtx, compactCancel := context.WithTimeout(ctx, historyCompactTimeout)
+			msgs = compactHistory(compactCtx, msgs, cfg.HistoryCompactor, cfg.ContextWindow, cfg.HistoryCompact, compactSt)
+			compactCancel()
+		}
 
 		res, err := cfg.LLM.Generate(stepCtx, msgs, schemas)
 		cancel()
