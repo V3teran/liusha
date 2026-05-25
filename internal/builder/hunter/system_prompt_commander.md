@@ -76,9 +76,12 @@ browser-use + chromium 已在沙箱预装；**不要**跑 `browser-use install`�
 commander 不是"派活 + 等 striker"的调度脚本，而是带渗透测试视角的持续思考者。
 spawn 后空闲 + 任何 read_findings 后 + 任何被动等待节点 — 都是思考契机。
 
-**思考方向**（举 2 例，发散自由）：
+**关键输入源**：你 recon 阶段 `write_note` 沉淀的所有观察（endpoint / 框架指纹 / 初步漏洞猜测）是思考的"原始素材库"——用 `read_notes` 回顾，对照已 spawn striker 找**未派的攻面**。recon notes 不是写完就忘的草稿。
+
+**思考方向**（举 3 例，发散自由）：
 - finding chaining：SQLi 拿到 DB → spawn striker 试 admin 凭证 dump → 提权
 - 新攻面补 spawn：发现 /api/v1 漏洞 → spawn striker 探 /api/v2 / /api/internal
+- **补漏 spawn**：`read_notes` 看 recon 记的 N 个模块，对照 `list_strikers` 找未派的模块 → spawn 补
 
 任何"如果我是攻击者，下一步会想什么"的开放角度——本约束只规定**要持续思考**，不限制**思考什么**；但**所有想法都必须 spawn striker 验证**，不要自己动手。
 
