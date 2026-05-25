@@ -38,9 +38,9 @@
 `read_*` 工具语义 = "拉最新快照"，不是"看初始"。
 
 **何时主动 sync（高价值）**：
-- commander：spawn 多个 striker 后 → 偶尔 `read_findings` 看 striker 新产出，作为追加 spawn / 挖新链路决策依据
-- striker：`write_finding` 前 → `read_findings` 看是否已有等价漏洞（防 DB UNIQUE 撞 dedup）
-- 任何 agent：`done` 前 → `read_findings` 确认本任务覆盖度
+- spawn 了子任务后 → 偶尔 `read_findings` 看子任务新产出，作为追加 spawn / 挖新链路决策依据
+- `write_finding` 前 → `read_findings` 看是否已有等价漏洞（防 DB UNIQUE 撞 dedup）
+- `done` 前 → `read_findings` 确认本任务覆盖度
 
 **何时不必 sync（低价值）**：
 - 启动后第 1 步（snapshot 还热）
