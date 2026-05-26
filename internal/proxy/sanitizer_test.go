@@ -3,8 +3,13 @@ package proxy
 import (
 	"bufio"
 	"bytes"
+	"encoding/base64"
+	"errors"
+	"io"
+	"net"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestPatchAbsoluteURI(t *testing.T) {
@@ -83,6 +88,133 @@ func TestExtractHostHeader(t *testing.T) {
 				t.Errorf("got=%q want=%q", got, c.want)
 			}
 		})
+	}
+}
+
+func TestExtractOwnerIDFromHead(t *testing.T) {
+	mkAuth := func(user, pass string) string {
+		return "Basic " + base64.StdEncoding.EncodeToString([]byte(user+":"+pass))
+	}
+	const uuid = "8e256a52-5cc6-403b-9d23-a4a788fd5b80"
+
+	cases := []struct {
+		name string
+		head string
+		want string
+	}{
+		{
+			name: "有效 owner_<uuid> 凭证",
+			head: "GET / HTTP/1.1\r\nHost: x\r\nProxy-Authorization: " + mkAuth("owner_"+uuid, "_") + "\r\n\r\n",
+			want: uuid,
+		},
+		{
+			name: "缺 Proxy-Authorization → 空",
+			head: "GET / HTTP/1.1\r\nHost: x\r\n\r\n",
+			want: "",
+		},
+		{
+			name: "Proxy-Authorization 但不是 owner_ 前缀 → 空",
+			head: "GET / HTTP/1.1\r\nHost: x\r\nProxy-Authorization: " + mkAuth("anon", "_") + "\r\n\r\n",
+			want: "",
+		},
+		{
+			name: "header case-insensitive 仍能识别",
+			head: "GET / HTTP/1.1\r\nHost: x\r\nPROXY-AUTHORIZATION: " + mkAuth("owner_"+uuid, "_") + "\r\n\r\n",
+			want: uuid,
+		},
+		{
+			name: "Basic 后乱码 → 空（不 panic）",
+			head: "GET / HTTP/1.1\r\nHost: x\r\nProxy-Authorization: Basic !!!notbase64!!!\r\n\r\n",
+			want: "",
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := extractOwnerIDFromHead([]byte(c.head)); got != c.want {
+				t.Errorf("got=%q want=%q", got, c.want)
+			}
+		})
+	}
+}
+
+// TestForwardWithRewrite_407Challenge：require_auth=true + 缺 auth → 407 challenge。
+// 用 net.Pipe 模拟 client；upstream 不应被 dial（auth 失败早返）。
+func TestForwardWithRewrite_407Challenge(t *testing.T) {
+	clientConn, serverConn := net.Pipe()
+	defer serverConn.Close()
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		// upstreamAddr 给个 unreachable 地址；require_auth 应该早返根本不 dial
+		forwardWithRewrite(serverConn, "127.0.0.1:1", true)
+	}()
+
+	// 写无 auth 的请求
+	if _, err := clientConn.Write([]byte("GET / HTTP/1.1\r\nHost: x\r\n\r\n")); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	// 读响应
+	_ = clientConn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	resp, err := io.ReadAll(clientConn)
+	if err != nil && !errors.Is(err, io.EOF) {
+		t.Fatalf("read: %v", err)
+	}
+	if !strings.HasPrefix(string(resp), "HTTP/1.1 407") {
+		t.Errorf("resp=%q want HTTP/1.1 407 prefix", resp)
+	}
+	if !strings.Contains(string(resp), "Proxy-Authenticate: Basic") {
+		t.Errorf("resp=%q missing Proxy-Authenticate", resp)
+	}
+
+	<-done
+}
+
+// TestForwardWithRewrite_AuthOK：require_auth=true + 带 owner_ auth → 转发上游。
+func TestForwardWithRewrite_AuthOK(t *testing.T) {
+	// 起本地 upstream listener，收到的请求 echo 回去校验
+	upstream, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen upstream: %v", err)
+	}
+	defer upstream.Close()
+
+	upstreamGot := make(chan []byte, 1)
+	go func() {
+		c, err := upstream.Accept()
+		if err != nil {
+			return
+		}
+		defer c.Close()
+		buf := make([]byte, 4096)
+		_ = c.SetReadDeadline(time.Now().Add(2 * time.Second))
+		n, _ := c.Read(buf)
+		upstreamGot <- buf[:n]
+	}()
+
+	clientConn, serverConn := net.Pipe()
+	defer clientConn.Close()
+	go forwardWithRewrite(serverConn, upstream.Addr().String(), true)
+
+	const uuid = "8e256a52-5cc6-403b-9d23-a4a788fd5b80"
+	auth := "Basic " + base64.StdEncoding.EncodeToString([]byte("owner_"+uuid+":_"))
+	req := "GET / HTTP/1.1\r\nHost: x\r\nProxy-Authorization: " + auth + "\r\n\r\n"
+	if _, err := clientConn.Write([]byte(req)); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	select {
+	case got := <-upstreamGot:
+		s := string(got)
+		if !strings.Contains(s, "X-Liusha-Owner-Id: "+uuid) {
+			t.Errorf("upstream got=%q missing X-Liusha-Owner-Id: %s", s, uuid)
+		}
+		if strings.Contains(strings.ToLower(s), "proxy-authorization:") {
+			t.Errorf("upstream got=%q still contains Proxy-Authorization", s)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("upstream 超时未收到请求")
 	}
 }
 

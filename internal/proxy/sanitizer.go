@@ -146,6 +146,45 @@ func extractOwnerIDFromBasicAuth(value string) string {
 	return user[len(userPrefix):]
 }
 
+// extractOwnerIDFromHead 从 raw HTTP head 提 Proxy-Authorization → 解 owner_id。
+// 找不到 header / 解析失败均返空。仅扫 header 段（请求体不动）。
+func extractOwnerIDFromHead(head []byte) string {
+	eol := bytes.Index(head, []byte("\r\n"))
+	if eol < 0 {
+		return ""
+	}
+	body := head[eol+2:]
+	for off := 0; off < len(body); {
+		lineEnd := bytes.Index(body[off:], []byte("\r\n"))
+		if lineEnd < 0 {
+			break
+		}
+		line := body[off : off+lineEnd]
+		if len(line) == 0 {
+			break // header 段终止
+		}
+		const prefix = "proxy-authorization:"
+		if len(line) > len(prefix) && strings.EqualFold(string(line[:len(prefix)]), prefix) {
+			value := strings.TrimSpace(string(line[len(prefix):]))
+			return extractOwnerIDFromBasicAuth(value)
+		}
+		off += lineEnd + 2
+	}
+	return ""
+}
+
+// proxyAuthChallenge407 是返给 client 的 407 响应。
+// chromium 收到 → 触发 CDP Fetch.authRequired → proxy_auth_inject.py 注入 user/pass
+// → chromium 重发带 Proxy-Authorization → 这次 extractOwnerIDFromHead 能解出 owner_id。
+//
+// Connection: close 保证 chromium 不复用本 conn（auth flow 后建新 conn 带凭证），
+// 避免老 conn 上后续请求仍走 noauth 路径。
+const proxyAuthChallenge407 = "HTTP/1.1 407 Proxy Authentication Required\r\n" +
+	"Proxy-Authenticate: Basic realm=\"liusha\"\r\n" +
+	"Content-Length: 0\r\n" +
+	"Connection: close\r\n" +
+	"\r\n"
+
 // extractHostHeader 在 raw header 段（不含 request-line）中找 Host header value。
 // 找不到返空串。
 func extractHostHeader(headers []byte) string {
@@ -188,7 +227,11 @@ func readHTTPHead(br *bufio.Reader) ([]byte, error) {
 //
 // 这一层兼容生产环境客户端发 relative URI 的情况——proxify (martian) 默认只接
 // absolute-form，前置改写后客户端无感知。
-func RunSanitizingForwarder(publicAddr, upstreamAddr string) error {
+//
+// requireProxyAuth=true（internal listener）：缺 Proxy-Authorization / 解不出 owner_id
+// 时直接给 client 写 407 challenge，触发 chromium CDP Fetch.authRequired → inject 注入
+// → 重发带 auth。external listener 走 false 保留无 auth 兼容（外部流量本就无凭证）。
+func RunSanitizingForwarder(publicAddr, upstreamAddr string, requireProxyAuth bool) error {
 	ln, err := net.Listen("tcp", publicAddr)
 	if err != nil {
 		return fmt.Errorf("listen %s: %w", publicAddr, err)
@@ -198,27 +241,33 @@ func RunSanitizingForwarder(publicAddr, upstreamAddr string) error {
 		if err != nil {
 			return fmt.Errorf("accept: %w", err)
 		}
-		go forwardWithRewrite(client, upstreamAddr)
+		go forwardWithRewrite(client, upstreamAddr, requireProxyAuth)
 	}
 }
 
-func forwardWithRewrite(client net.Conn, upstreamAddr string) {
+func forwardWithRewrite(client net.Conn, upstreamAddr string, requireProxyAuth bool) {
 	defer func() { _ = client.Close() }()
+
+	br := bufio.NewReader(client)
+	head, err := readHTTPHead(br)
+	if err != nil {
+		// 首段读失败：直接关，避免半截透传给 upstream 触发 proxify 端怪异错误。
+		return
+	}
+
+	// internal listener 强制 require auth：缺/解不出 owner_id → 407 challenge。
+	// chromium 收 407 → CDP Fetch.authRequired → proxy_auth_inject.py 注入 → 重发。
+	// CLI 工具（curl/httpx）本就主动带 Proxy-Authorization → 这条路径不触发。
+	if requireProxyAuth && extractOwnerIDFromHead(head) == "" {
+		_, _ = client.Write([]byte(proxyAuthChallenge407))
+		return
+	}
 
 	upstream, err := net.Dial("tcp", upstreamAddr)
 	if err != nil {
 		return
 	}
 	defer func() { _ = upstream.Close() }()
-
-	br := bufio.NewReader(client)
-	head, err := readHTTPHead(br)
-	if err != nil {
-		// 首段读失败：把已读字节透传给 upstream，让它自己拒。
-		_, _ = upstream.Write(head)
-		copyBoth(client, upstream, br)
-		return
-	}
 
 	patched := patchAbsoluteURI(head)
 	// 把 Proxy-Authorization 转成 X-Liusha-Owner-Id（proxify 在 onResponse 之前会

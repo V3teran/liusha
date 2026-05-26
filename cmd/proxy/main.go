@@ -126,7 +126,9 @@ func main() {
 	}()
 	go func() {
 		logger.Info().Str("public", publicAddr).Str("upstream", internalAddr).Str("source", "external").Msg("uri sanitizer listening")
-		if err := proxy.RunSanitizingForwarder(publicAddr, internalAddr); err != nil {
+		// external listener 不强制 proxy auth：外部 passive 流量本就无凭证，
+		// owner_id 关联走 host → passive_session 路径（ingestor LookupOrCreate）。
+		if err := proxy.RunSanitizingForwarder(publicAddr, internalAddr, false); err != nil {
 			logger.Error().Err(err).Msg("external uri sanitizer exited")
 		}
 	}()
@@ -140,7 +142,11 @@ func main() {
 	}()
 	go func() {
 		logger.Info().Str("public", agentPublicAddr).Str("upstream", agentInternalAddr).Str("source", "internal").Msg("uri sanitizer listening")
-		if err := proxy.RunSanitizingForwarder(agentPublicAddr, agentInternalAddr); err != nil {
+		// internal listener 强制 require_auth：缺 Proxy-Authorization → 407 challenge。
+		// chromium 收 407 → CDP Fetch.authRequired → proxy_auth_inject.py 注入 owner_<id>
+		// → 重发带 auth → sanitizer 解出 owner_id → 入字典。
+		// CLI 工具（HTTP_PROXY env 注入了 user:pass）本就主动发 auth，不触发 407。
+		if err := proxy.RunSanitizingForwarder(agentPublicAddr, agentInternalAddr, true); err != nil {
 			logger.Error().Err(err).Msg("internal uri sanitizer exited")
 		}
 	}()
