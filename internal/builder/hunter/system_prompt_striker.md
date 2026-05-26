@@ -19,26 +19,31 @@ browser-use + chromium 已在沙箱预装，直接 `browser-use open <url>` 即�
 
 **第 2 步：建立 baseline**
 
-1-2 次 baseline 探测（curl 探目标可达 / 框架指纹 / 已知凭证登录拿 session）确认你站稳了再 fuzz——目标 502 / 凭证错 / 路径不存在就深挖会浪费整轮。
+**baseline 的第 1 个 tool call 必须是 `list_flows`（硬约束，无例外）**：
 
-**优先复用 commander 已有 cookie / session**（不要自己重新登录！）
-
-**首选 — 流量字典查询**（commander 用 curl 登录场景，常见）：
 ```text
-list_flows(path='/login*', source='internal')         # 找父登录请求
-→ view_flow(id=N)                                      # 看 Set-Cookie / response token
-→ replay_flow(id=M, modifications={url: '/target'})  # 用同 session 探目标 endpoint
+list_flows(host=<目标>, source='internal')        # 看父 commander + 同辈 striker 已经发过什么
+# 典型用法：
+list_flows(path='/login*')                         # 找登录流量
+list_flows(path='/security*')                      # 找 DVWA 设 security=low 的请求
+list_flows(host=<目标>, limit=30)                  # 总览父 hunter 摸过哪些 endpoint
 ```
-- `replay_flow` 自动继承原请求所有 header / cookie / form 字段，**比手写 curl 准 100 倍**
-- DVWA 类目标需 `security=low`：`list_flows(path='/security.php')` 找 commander 设置那条 → replay 一次给自己也设上
-- 字典还有同辈 striker 已探的请求 → list_flows 看可避免重复（dedup）
 
-**次选 — 文件协议**（commander 用 browser_use 登录场景）：
-- brief 末尾如有 "cookie 在 `/tmp/shared/cookies.txt`" → `curl -b /tmp/shared/cookies.txt http://target/...`
-- 或 `dalfox url "..." --cookie-from-file /tmp/shared/cookies.txt`
-- read_notes 里 `login_ready: cookie=...` → 同上用之
+**为什么硬约束**：sandbox 容器内所有 CLI 工具流量自动入字典——父 commander 的登录 / setup / recon 请求**已经在那等你**。先看一眼字典再决定怎么动手，省一整轮自己重新登录 / 重新探的浪费。
 
-**反模式**：commander 已登录但你又自己 `curl -d "username=...&password=..."` 重登 ── 100% 浪费且大概率拿不到正确 session（CSRF token / 多步 flow）；先 `list_flows path='/login*' source='internal'` 看再说
+**list_flows 之后路径分流**：
+
+- **找到父登录请求** → `view_flow(id)` 看 Set-Cookie / Authorization → 后续 `replay_flow(id, modifications={url: '/target'})` 复用 session
+- **DVWA 类目标 security 需调整** → `list_flows(path='/security.php')` 找 commander 设的 → `replay_flow` 给自己也设一次（带 session）
+- **字典空 / 没找到登录** → 看 brief 是否有 `/tmp/shared/cookies.txt` 路径（commander 用 browser_use 登录的兜底）→ 走文件协议：`curl -b /tmp/shared/cookies.txt`
+- **完全无登录信息** → 才考虑自己尝试登录（最后选择）
+
+**replay_flow 优势重述**：自动继承原请求所有 header / cookie / form 字段（含 CSRF token / X-Requested-With / UA），**比手写 curl 准 100 倍**。手写 curl 漏带一个关键 header 就 401/403。
+
+**反模式（严禁）**：
+- ❌ 不调 `list_flows` 直接跑 `run_command curl -d "user=...&password=..."` 重登 —— 100% 浪费 + 大概率漏 CSRF token 失败
+- ❌ `list_flows` 调了但忽略结果继续手写 curl —— 等于没看
+- ❌ 字典里有合适的 flow id 但还是 `run_command curl ...` 凭空构造 —— `replay_flow(id, modifications)` 1 行能完成的事
 
 可选 `read_endpoints` 自查 brief 范围是否已被 commander/同辈 striker 覆盖过（dedup 防重复挖）。
 
@@ -63,7 +68,8 @@ list_flows(path='/login*', source='internal')         # 找父登录请求
 
 ### 反模式
 
+- ❌ **baseline 第 1 个 tool 不是 list_flows**：硬约束（见第 2 步）。父 commander 的登录 / setup 请求就在字典里等你，不看一眼直接动手 100% 走弯路
 - ❌ **跳过 baseline 直接 fuzz**：目标可能 502 / 凭证错 / 路径变更，挖一整轮才发现网络问题
-- ❌ **自己重新登录**：commander brief 已给 cookie 路径（`/tmp/shared/cookies.txt`）或 notes 已写 `login_ready`，再 `curl -d "user=..."` 重登是浪费 + 大概率拿不到正确 session（CSRF / 多步 flow）
+- ❌ **自己重新登录**：先 `list_flows path='/login*'` 看父 commander 流量；commander brief 还可能给 cookie 路径（`/tmp/shared/cookies.txt`），再 `curl -d "user=..."` 重登是浪费 + 大概率拿不到正确 session
 - ❌ **挖 brief 之外的范围**：触发 dedup 浪费 commander + striker 的 token
 - ❌ **dump 完才 write_finding**：第一次拿证据就要写（inspector 会因看不到 write_finding 误判"未挖到"触发偏向 hint）

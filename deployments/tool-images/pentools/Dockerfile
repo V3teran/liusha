@@ -365,20 +365,33 @@ RUN set -e \
         > /opt/SecLists/README.md \
  && echo "SecLists 占位创建完毕（运行时按需拉取）"
 
-# Layer 7.5: liusha proxy CA cert——让 sandbox 内 CLI 工具（curl / python / Go）
-# 信任 liusha MITM 代理（0060+ HTTP_PROXY 注入由 launcher.go 实现）。
+# Layer 7.5: liusha proxy CA cert——让 sandbox 内 CLI 工具 + chromium 都信任 MITM。
 #
 # 前置：build 前必须跑 ./scripts/dev/sync-pentools-cert.sh 把 $HOME/.liusha/cacert.pem
 # 同步到 deployments/tool-images/pentools/liusha-ca.crt（不入 git）。文件缺失时 COPY 失败、
 # build abort——这是有意行为，避免空 CA 部署后 TLS MITM 全部 fail。
 #
-# update-ca-certificates 把 /usr/local/share/ca-certificates/ 下 .crt 文件并入系统 trust。
-# 影响范围：curl / wget / pip / python requests / Go http / openjdk PKI（含 java tools 如 ysoserial）。
-# 不影响 chromium——它读自己的 NSS DB；后续 chromium proxy 改造时另装。
+# 双信任链装入（覆盖所有工具）：
+#   1. /etc/ssl/certs（OpenSSL CA 系统 trust）→ curl / wget / pip / python requests /
+#      Go http / openjdk PKI（含 java tools 如 ysoserial）通过 update-ca-certificates 信任
+#   2. NSS DB（Mozilla NSS trust store）→ chromium / playwright 通过 certutil 信任 MITM
+#      Chromium 在 Linux headless 下自动读 HTTP_PROXY/HTTPS_PROXY env（与 sandbox launcher
+#      注入的 HTTP_PROXY 一致），有了 NSS CA 后 https 目标 TLS MITM 不会再被拒
 COPY deployments/tool-images/pentools/liusha-ca.crt /usr/local/share/ca-certificates/liusha-ca.crt
-RUN update-ca-certificates \
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends libnss3-tools \
+ && rm -rf /var/lib/apt/lists/* \
+ # 1) OpenSSL 系统 trust
+ && update-ca-certificates \
  && ls -la /etc/ssl/certs/liusha-ca.pem 2>&1 | head -1 \
- && openssl x509 -in /usr/local/share/ca-certificates/liusha-ca.crt -noout -subject -dates
+ && openssl x509 -in /usr/local/share/ca-certificates/liusha-ca.crt -noout -subject -dates \
+ # 2) NSS DB（chromium / playwright 用）——root 用户的 default profile 路径
+ && mkdir -p /root/.pki/nssdb \
+ && certutil -d sql:/root/.pki/nssdb -N --empty-password \
+ && certutil -d sql:/root/.pki/nssdb -A -t "C,," -n "liusha-proxy-ca" \
+        -i /usr/local/share/ca-certificates/liusha-ca.crt \
+ && certutil -d sql:/root/.pki/nssdb -L | grep -i liusha \
+ && echo "[Layer 7.5] CA 已装 OpenSSL trust + NSS DB（chromium 信任 MITM）"
 
 # Layer 8: sandbox-server 二进制（从 stage 0 sandbox-builder 拷贝）。
 # 这是容器 PID 1，主进程通过 :8080 HTTP RPC 调用——见 design doc：
