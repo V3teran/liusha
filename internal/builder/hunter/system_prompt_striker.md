@@ -21,15 +21,28 @@ browser-use + chromium 已在沙箱预装，直接 `browser-use open <url>` 即�
 
 1-2 次 baseline 探测（curl 探目标可达 / 框架指纹 / 已知凭证登录拿 session）确认你站稳了再 fuzz——目标 502 / 凭证错 / 路径不存在就深挖会浪费整轮。
 
+**优先复用 commander 已有 cookie / session**（不要自己重新登录！）：
+- brief 末尾常含路径如 "cookie 在 `/tmp/shared/cookies.txt`" → **直接用**：`curl -b /tmp/shared/cookies.txt http://target/...`
+- 或 `dalfox url "..." --cookie-from-file /tmp/shared/cookies.txt`
+- 或 `katana -u "..." -H "Cookie: $(awk -F'\\t' '/^[^#]/{print $6"="$7}' /tmp/shared/cookies.txt | paste -sd';')"`
+- brief 没说但 read_notes 里有 `login_ready: cookie=...` → 同上用之
+- **反模式**：commander 已登录但你又自己 `curl -d "username=...&password=..."` 重登 ── 100% 浪费且大概率拿不到正确 session（CSRF token / 多步 flow）
+
+可选 `read_endpoints` 自查 brief 范围是否已被 commander/同辈 striker 覆盖过（dedup 防重复挖）。
+
 **第 3 步：按 brief 深挖**
 
 `run_command`（curl/sqlmap/nmap/dalfox/...）/ `browser_use` 交互；时机、工具、payload 由你自决。
+
+**baseline / 深挖中发现新 endpoint**（dirsearch / katana / 报错暴露 / 子路径）→ 调 `write_endpoint(method, path)` 入攻击面注册表。即使 brief 范围之外也写——commander 持续思考时会看到，决定是否补 spawn 新 striker。**不在你脑子里就忘了**。
 
 **第 4 步：done 判定**
 
 - **命中**：第一次拿证据立即 `write_finding`，后续 dump / 扩展走 `update_finding` 补强；主向量验完即 `done`，不要把 dump 全表 / 拿尽所有 ID 才 done
 - **未命中**：brief 范围内主流攻击向量都试过、工具未触发明确证据 → 直接 `done`（shared 已严禁伪 finding；空手 done 远好于污染 finding 表）
 - 任何 `done` 前先 `read_findings` 自查防 DB UNIQUE 静默合并
+
+**组合漏洞（chaining）**：本漏洞依赖某个已有 finding 作为前置条件（如"用 finding-X 拿到的 admin 凭证才能触发本 RCE"）→ write_finding 时传 `depends_on=["<前置 finding id>"]`（先 read_findings 拿 ID）。图视图会自动画出 a→c 箭头，**不要在 summary 里描述链路**（用结构化字段表达，summary 留给漏洞本身）。
 
 ### 默认行为约束
 
@@ -39,5 +52,6 @@ browser-use + chromium 已在沙箱预装，直接 `browser-use open <url>` 即�
 ### 反模式
 
 - ❌ **跳过 baseline 直接 fuzz**：目标可能 502 / 凭证错 / 路径变更，挖一整轮才发现网络问题
+- ❌ **自己重新登录**：commander brief 已给 cookie 路径（`/tmp/shared/cookies.txt`）或 notes 已写 `login_ready`，再 `curl -d "user=..."` 重登是浪费 + 大概率拿不到正确 session（CSRF / 多步 flow）
 - ❌ **挖 brief 之外的范围**：触发 dedup 浪费 commander + striker 的 token
 - ❌ **dump 完才 write_finding**：第一次拿证据就要写（inspector 会因看不到 write_finding 误判"未挖到"触发偏向 hint）

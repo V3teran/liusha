@@ -36,5 +36,12 @@ type VulnFinding struct {
 	OWASPCategory  string // 例 "A03:2021"
 	FirstSeenAt    time.Time // 首次发现时间——dedup Update 不变；新建时与 CreatedAt 一致
 	Remediation    string // 修复建议自然语言；evidence 仍存 PoC
+
+	// DependsOn 是组合漏洞的依赖 finding ID 数组（0059 加入）。
+	// 例：finding c 是 finding a + b 组合而成 → c.DependsOn = [a.id, b.id]。
+	// 替代历史的 finding_relation 表（实测 LLM 从未调 write_relation，独立表是过度设计）。
+	// graphview projector 据此派生 chains 边（a→c + b→c）渲染成图上虚线弧形。
+	DependsOn []string
+
 	CreatedAt time.Time
 }

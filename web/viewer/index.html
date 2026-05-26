@@ -3,17 +3,16 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>liusha · graph viewer</title>
+  <title>liusha · sitemap viewer</title>
   <link rel="stylesheet" href="style.css" />
   <script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/dagre-d3@0.6.4/dist/dagre-d3.min.js"></script>
 </head>
 <body>
   <header class="topbar">
     <div class="topbar-left">
       <span class="brand">liusha</span>
       <span class="view-toggle">
-        <button id="btn-view-graph" class="view-btn active">Graph</button>
+        <button id="btn-view-sitemap" class="view-btn active">Sitemap</button>
         <button id="btn-view-llm" class="view-btn">LLM</button>
         <button id="btn-view-tasks" class="view-btn">Tasks</button>
       </span>
@@ -35,38 +34,36 @@
       </label>
     </div>
     <div class="topbar-right">
-      <span id="meta-counts">0 nodes · 0 edges</span>
+      <span id="meta-counts">0 endpoints · 0 findings</span>
     </div>
   </header>
 
-  <main class="main" id="view-graph">
-    <section class="graph-pane">
-      <svg id="graph"><g></g></svg>
+  <main class="main" id="view-sitemap">
+    <section class="sitemap-pane">
+      <svg id="sitemap" class="sitemap-graph"><g></g></svg>
       <div id="empty-hint" class="empty-hint">
-        <h2>欢迎使用 liusha graph viewer</h2>
-        <p>填写 owner_id 与 X-API-Key，点"加载"即可查看本次扫描的攻击图。</p>
+        <h2>欢迎使用 liusha sitemap viewer</h2>
+        <p>填写 owner_id 与 X-API-Key，点"加载"查看本次 active 扫描的辐射攻击面图。</p>
+        <p class="hint-note">domain 居中 → 第 1 圈 endpoint（攻击面）→ 第 2 圈 finding（漏洞）。组合漏洞虚线连接。passive 模式无此视图。</p>
         <div class="legend">
-          <span class="dot dot-origin"></span> origin
-          <span class="dot dot-endpoint"></span> endpoint
-          <span class="dot dot-parameter"></span> parameter
+          <span class="dot dot-domain"></span> domain (中心)
+          <span class="dot dot-endpoint-clean"></span> endpoint (clean)
+          <span class="dot dot-endpoint-vuln"></span> endpoint (vulnerable)
           <span class="dot dot-finding-high"></span> finding (high)
           <span class="dot dot-finding-medium"></span> finding (medium)
           <span class="dot dot-finding-low"></span> finding (low)
-          <span class="dot dot-goal"></span> goal
+          <span class="legend-line legend-contains"></span> contains（树边）
+          <span class="legend-line legend-chains"></span> 组合漏洞 a+b→c
         </div>
       </div>
     </section>
 
     <aside class="side-pane">
       <nav class="tabs">
-        <button class="tab active" data-tab="detail">Detail</button>
-        <button class="tab" data-tab="findings">Findings</button>
+        <button class="tab active" data-tab="findings">Findings</button>
         <button class="tab" data-tab="raw">Raw JSON</button>
       </nav>
-      <section class="tab-panel" data-panel="detail">
-        <div id="panel-detail" class="empty">点击图中节点查看详情</div>
-      </section>
-      <section class="tab-panel hidden" data-panel="findings">
+      <section class="tab-panel" data-panel="findings">
         <ul id="panel-findings" class="finding-list"></ul>
       </section>
       <section class="tab-panel hidden" data-panel="raw">

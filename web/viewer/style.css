@@ -561,3 +561,251 @@ html, body {
 .task-meta { color: #ccc; margin-right: 8px; }
 .task-brief { color: #888; font-style: italic; }
 
+/* ---------- sitemap 树视图 ---------- */
+
+.sitemap-pane {
+  flex: 1;
+  position: relative;
+  padding: 16px;
+  overflow: auto;
+  background: #1a1a1a;
+}
+
+.sitemap-tree {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 14px;
+  color: #e0e0e0;
+}
+
+.sitemap-node {
+  margin: 2px 0;
+}
+
+.sitemap-node summary {
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 4px;
+  user-select: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.sitemap-node summary:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.sitemap-node.kind-domain > summary {
+  font-weight: 600;
+  font-size: 16px;
+  color: #4dabf7;
+}
+
+.sitemap-node.kind-folder > summary {
+  color: #ffd93d;
+}
+
+.sitemap-children {
+  margin-left: 20px;
+  border-left: 1px dashed #333;
+  padding-left: 12px;
+}
+
+.node-icon {
+  display: inline-block;
+  width: 18px;
+  text-align: center;
+}
+
+.node-name {
+  flex: 1;
+  font-weight: 500;
+}
+
+.node-meta {
+  font-size: 12px;
+  color: #888;
+  background: #2a2a2a;
+  padding: 1px 8px;
+  border-radius: 10px;
+}
+
+/* endpoint 叶节点 */
+.sitemap-node.kind-endpoint {
+  margin: 4px 0;
+  padding: 6px 8px;
+  border-radius: 4px;
+  border-left: 3px solid #444;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.sitemap-node.endpoint-clean {
+  border-left-color: #4dabf7;
+}
+
+.sitemap-node.endpoint-vuln {
+  border-left-color: #ff6b6b;
+  background: rgba(255, 107, 107, 0.05);
+}
+
+.endpoint-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.endpoint-method {
+  display: inline-block;
+  font-family: 'SF Mono', Consolas, monospace;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: #2a2a2a;
+  color: #ddd;
+  min-width: 44px;
+  text-align: center;
+}
+
+.endpoint-method.method-GET    { background: #1e3a5f; color: #4dabf7; }
+.endpoint-method.method-POST   { background: #1e4d2b; color: #51cf66; }
+.endpoint-method.method-PUT    { background: #4a3520; color: #ffa94d; }
+.endpoint-method.method-DELETE { background: #5c1e1e; color: #ff6b6b; }
+.endpoint-method.method-PATCH  { background: #4a2a4d; color: #cc7af0; }
+
+.endpoint-path {
+  font-family: 'SF Mono', Consolas, monospace;
+  font-size: 12px;
+  color: #888;
+}
+
+.endpoint-findings {
+  list-style: none;
+  margin: 6px 0 0 30px;
+  padding: 0;
+  font-size: 13px;
+}
+
+.endpoint-findings li {
+  padding: 3px 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.finding-summary {
+  flex: 1;
+  color: #ccc;
+}
+
+.finding-cwe {
+  font-family: 'SF Mono', Consolas, monospace;
+  font-size: 11px;
+  color: #888;
+  background: #2a2a2a;
+  padding: 1px 6px;
+  border-radius: 3px;
+}
+
+.hint-note {
+  font-size: 12px;
+  color: #666;
+  font-style: italic;
+}
+
+/* legend dot 颜色（sitemap 版） */
+.dot-domain          { background: #4dabf7; }
+.dot-folder          { background: #ffd93d; }
+.dot-endpoint-clean  { background: #4dabf7; opacity: 0.6; }
+.dot-endpoint-vuln   { background: #ff6b6b; }
+
+/* ---------- D3 force-directed sitemap 图 ---------- */
+
+.sitemap-graph {
+  width: 100%;
+  height: 100%;
+  display: block;
+  background: #0f0f0f;
+  cursor: grab;
+}
+
+.sitemap-graph:active {
+  cursor: grabbing;
+}
+
+/* 节点 circle 染色 */
+.sitemap-svg-node circle {
+  stroke: #1a1a1a;
+  stroke-width: 2;
+  transition: stroke 0.15s ease;
+}
+
+.sitemap-svg-node:hover circle {
+  stroke: #fff;
+  stroke-width: 3;
+}
+
+.sitemap-svg-node.node-domain circle    { fill: #4dabf7; }
+.sitemap-svg-node.node-folder circle    { fill: #ffd93d; }
+.sitemap-svg-node.endpoint-clean circle { fill: #4dabf7; opacity: 0.6; }
+.sitemap-svg-node.endpoint-vuln circle  { fill: #ff6b6b; }
+
+.sitemap-svg-node.node-finding circle           { fill: #888; }
+.sitemap-svg-node.node-finding.severity-critical circle { fill: #d63031; }
+.sitemap-svg-node.node-finding.severity-high circle    { fill: #ff6b6b; }
+.sitemap-svg-node.node-finding.severity-medium circle  { fill: #ffa94d; }
+.sitemap-svg-node.node-finding.severity-low circle     { fill: #ffd93d; }
+.sitemap-svg-node.node-finding.severity-info circle    { fill: #4dabf7; }
+
+/* 节点文字 */
+.sitemap-svg-node text {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 11px;
+  fill: #ccc;
+  pointer-events: none;
+  user-select: none;
+}
+
+.sitemap-svg-node.node-domain text {
+  font-size: 14px;
+  font-weight: 600;
+  fill: #4dabf7;
+}
+
+/* link 边 */
+.sitemap-link {
+  fill: none;
+  pointer-events: none;
+}
+
+.link-contains {
+  stroke: #444;
+  stroke-width: 1.5;
+}
+
+.link-enables {
+  stroke: #cc7af0;
+  stroke-width: 2;
+  stroke-dasharray: 6 3;
+  opacity: 0.8;
+}
+
+/* legend 横线（chains 等） */
+.legend-line {
+  display: inline-block;
+  width: 24px;
+  height: 0;
+  vertical-align: middle;
+  margin: 0 4px;
+}
+
+.legend-contains {
+  border-top: 1.5px solid #444;
+}
+
+.legend-chains {
+  border-top: 2px dashed #cc7af0;
+}
+

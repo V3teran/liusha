@@ -28,6 +28,7 @@ import (
 
 	"github.com/V3teran/liusha/internal/config"
 	"github.com/V3teran/liusha/internal/credential"
+	"github.com/V3teran/liusha/internal/endpoint"
 	"github.com/V3teran/liusha/internal/finding"
 	"github.com/V3teran/liusha/internal/grounding"
 	"github.com/V3teran/liusha/internal/lesson"
@@ -87,6 +88,7 @@ type Deps struct {
 	Notes       notes.Store // 短期工作笔记（Redis；owner 内同 host 跨 task 共享）
 	Findings    *finding.Store
 	Lessons     *lesson.Store
+	Endpoints   *endpoint.Store // active 模式攻击面注册表；nil 时不注册 write_endpoint 工具且 write_finding 不联动 endpoint 状态机
 	Credentials credential.Provider
 
 	// ToolInvocations 为 Record interceptor 提供 PG 持久化能力——每次 Execute
@@ -213,17 +215,20 @@ func NewBuilder(deps Deps) skill.Builder {
 			must(&common.ReadCredentials{Provider: deps.Credentials, Host: p.Host})
 		}
 		must(&common.ReadFindings{Store: deps.Findings, OwnerType: p.OwnerType, OwnerID: p.OwnerID, Host: p.Host})
-		must(&common.WriteFinding{
-			Store:     deps.Findings,
-			OwnerType: p.OwnerType,
-			OwnerID:   p.OwnerID,
-			TaskID:    p.TaskID,
-			Host:      p.Host,
-			FlowID:    p.FlowID,
-		})
-		must(&common.UpdateFinding{Store: deps.Findings})
-		must(&common.ReadRelations{Store: deps.Findings, OwnerID: p.OwnerID})
-		must(&common.WriteRelation{Store: deps.Findings})
+		// commander（active+无父 task）永远不写/不改 finding——铁律"自挖必转 spawn striker"
+		// 硬阻断：不注册工具 → LLM 看不到 schema → 根本调不到（强于纯 prompt 约束）
+		isCommander := p.Mode == "active" && p.CommanderTaskID == ""
+		if !isCommander {
+			must(&common.WriteFinding{
+				Store:     deps.Findings,
+				OwnerType: p.OwnerType,
+				OwnerID:   p.OwnerID,
+				TaskID:    p.TaskID,
+				Host:      p.Host,
+				FlowID:    p.FlowID,
+			})
+			must(&common.UpdateFinding{Store: deps.Findings})
+		}
 		must(&common.ReadLessons{Store: deps.Lessons, Host: p.Host})
 		must(&common.WriteLesson{Store: deps.Lessons, Host: p.Host})
 
@@ -233,6 +238,15 @@ func NewBuilder(deps Deps) skill.Builder {
 		// passive 不开 spawn 的原因：passive 60 步预算 + striker 常 100+ 步 → commander 来不及等 striker 完
 		//   就会 max_steps 退出（H3 修过孤儿 goroutine，但仍违反"commander 等 striker"语义）。
 		//   passive 场景"1 流量挖多类型"应由流量分发器拆多个 active 任务，不该 swarm。
+		// active 模式 endpoint 工具（commander + striker 共用，tracker 不接触）：
+		//   - write_endpoint: commander recon 主写，striker baseline/dirsearch 发现新 endpoint 补写
+		//   - read_endpoints: commander 持续思考/done 前自检的 ground truth 输入；striker 自查 brief 范围
+		// deps.Endpoints 为 nil 时跳过（向后兼容 / 单测场景）。
+		if p.Mode == "active" && deps.Endpoints != nil {
+			must(&common.WriteEndpoint{Store: deps.Endpoints, OwnerID: p.OwnerID, Host: p.Host})
+			must(&common.ReadEndpoints{Store: deps.Endpoints, OwnerID: p.OwnerID, Host: p.Host})
+		}
+
 		var spawnerRegistry *subtask.Registry
 		if p.Mode == "active" && p.CommanderTaskID == "" && deps.SpawnerFactory != nil {
 			spawner, registry, err := deps.SpawnerFactory(ctx, p)

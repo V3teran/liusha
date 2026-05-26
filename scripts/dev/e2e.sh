@@ -57,12 +57,12 @@ fi
 echo ""
 echo "===== 2/6 清空 db / redis ====="
 
-# postgres：10 张业务表 TRUNCATE（schema 保留）。
+# postgres：业务表 TRUNCATE（schema 保留）。
 # 错误**不再静默**——TRUNCATE 任一表失败会立即 exit，避免旧 session / finding 残留。
-# finding_relation 排在 finding 之前防 FK 顺序问题（CASCADE 也兜底，显式列出更清晰）。
-# 表名演化：0043 agent_run→agent_task，0054 agent_task→hunter；0046 加 tool_invocation，0047 加 audit_log。
+# 表名演化：0043 agent_run→agent_task，0054 agent_task→hunter；0046 加 tool_invocation，0047 加 audit_log；
+# 0056 加 endpoint；0059 删 finding_relation（→ finding.depends_on uuid[] 替代）。
 if ! docker exec "$PG_CONTAINER" psql -U liusha -d liusha -c \
-    "TRUNCATE TABLE finding_relation, finding, lesson, llm_invocation, tool_invocation, audit_log, hunter, http_flow, passive_session, active_scan CASCADE;"; then
+    "TRUNCATE TABLE finding, lesson, llm_invocation, tool_invocation, audit_log, hunter, http_flow, endpoint, passive_session, active_scan CASCADE;"; then
   echo "  ✗ postgres TRUNCATE 失败 — 看上面 psql 错误（常见原因：容器不在 / schema 不一致 / migrate 未跑）"
   exit 1
 fi
@@ -167,9 +167,9 @@ if [ $RC -eq 0 ]; then
   echo "    docker exec ${PG_CONTAINER} psql -U liusha -d liusha -c \\"
   echo "      \"SELECT id, host, status, expires_at FROM passive_session ORDER BY created_at DESC;\""
   echo ""
-  echo "  组合漏洞 enables 边："
+  echo "  组合漏洞 chains（depends_on uuid[] 数组）："
   echo "    docker exec ${PG_CONTAINER} psql -U liusha -d liusha -c \\"
-  echo "      \"SELECT from_finding_id, to_finding_id, payload->>'reason' FROM finding_relation;\""
+  echo "      \"SELECT id, severity, substr(summary,1,40), depends_on FROM finding WHERE depends_on <> '{}' ORDER BY created_at DESC;\""
 else
   echo "✗ e2e 失败（exit $RC = 失败的 profile 数）"
   echo "  排查："

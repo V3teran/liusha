@@ -22,6 +22,7 @@ import (
 	"github.com/V3teran/liusha/internal/credential"
 	"github.com/V3teran/liusha/internal/owner"
 	"github.com/V3teran/liusha/internal/db"
+	"github.com/V3teran/liusha/internal/endpoint"
 	"github.com/V3teran/liusha/internal/envx"
 	"github.com/V3teran/liusha/internal/finding"
 	"github.com/V3teran/liusha/internal/graphview"
@@ -62,7 +63,12 @@ func main() {
 	passiveSessionStore := passivesession.NewStore(pool)
 	activeScanStore := activescan.NewStore(pool)
 	findStore := finding.NewStore(pool)
-	projector := &graphview.Projector{Findings: findStore, Passive: passiveSessionStore, Active: activeScanStore}
+	endpointStore := endpoint.NewStore(pool)
+	projector := &graphview.Projector{
+		Findings:  findStore,
+		Endpoints: endpointStore,
+		Active:    activeScanStore, // sitemap 仅 active 模式（passive 用 findings 列表）
+	}
 	invocationStore := llminvocation.NewStoreWithConfig(pool, cfg.LLM.Invocation)
 	defer func() { _ = invocationStore.Close() }()
 
@@ -86,7 +92,7 @@ func main() {
 				audit:      auditStore,
 				passiveTTL: time.Duration(cfg.Session.MaxAgeHours) * time.Hour,
 			},
-			Graph:             projector,
+			Sitemap:           projector,
 			Invocations:       invocationStore,
 			AgentRuns:         taskStore, // viewer 拼任务树用（按 parent_id）
 			ActiveScan:        activeAdapter,

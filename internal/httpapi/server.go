@@ -7,12 +7,12 @@ import (
 )
 
 // Deps 是 NewServer 的注入参数集合。
-// Credentials / Owners / Graph / ActiveScan 为 nil 时对应路由不注册（部分场景测试用）。
+// Credentials / Owners / Sitemap / ActiveScan 为 nil 时对应路由不注册（部分场景测试用）。
 type Deps struct {
 	APIKey      string
 	Credentials CredentialsAPI
-	Owners OwnersAPI
-	Graph       GraphAPI
+	Owners      OwnersAPI
+	Sitemap     SitemapAPI // 仅 active 模式攻击面树视图
 	// Invocations 为 nil 时 /llm/invocations/:eid 路由不注册。
 	// 由 cmd/api 注入 *llminvocation.Store（自动满足 InvocationsAPI 窄接口）。
 	Invocations InvocationsAPI
@@ -52,8 +52,8 @@ func NewServer(d Deps) http.Handler {
 		r.POST("/session/:id/abort", abortHandler(d.Owners))
 		r.GET("/session", listSessionsHandler(d.Owners))
 	}
-	if d.Graph != nil {
-		r.GET("/graph/:owner_id", graphHandler(d.Graph))
+	if d.Sitemap != nil {
+		r.GET("/sitemap/:owner_id", sitemapHandler(d.Sitemap))
 	}
 	if d.Invocations != nil {
 		r.GET("/llm/invocations/:owner_id", llmInvocationsHandler(d.Invocations))
@@ -76,9 +76,9 @@ func NewServer(d Deps) http.Handler {
 		})
 	}
 	if d.StaticFS != nil {
-		// 静态前端 (PR-3 graph viewer)：挂 /viewer/* 路径，作为前缀 catch-all。
+		// 静态前端 (PR-3 sitemap viewer)：挂 /viewer/* 路径，作为前缀 catch-all。
 		// 不在 RequireAPIKey 之内——前端 HTML/JS/CSS 是公开资产；
-		// 真正的 /graph/:eid API 仍受 X-API-Key 保护。
+		// 真正的 /sitemap/:oid API 仍受 X-API-Key 保护。
 		r.StaticFS("/viewer", d.StaticFS)
 	}
 	return r

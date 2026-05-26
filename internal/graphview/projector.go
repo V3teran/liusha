@@ -1,290 +1,294 @@
-// Package graphview 是图视图投影器：从 finding + finding_relation + flow + owner
-// 几张事实表实时拼出图视图（origin / endpoint / parameter / finding / goal
-// 节点 + has_param / vulnerable_to / enables / contributes_to 边），
-// **不独立存储**——所有节点边都是查询时派生，避免数据漂移。
+// Package graphview 是 sitemap 投影器（仅 active 模式）。
 //
-// 设计理念：图的节点种类 = Fact 的最小表达，原图本身就够用。
-// 我们的投影器只是把已有事实换个视角呈现。
+// 设计：domain → endpoint → findings（embed 在 endpoint 下）的 2 层结构。
+// folder 层（path prefix 分组）不生成——它是显示概念不是攻击面对象，把 endpoint
+// 拍平到 domain 直连让辐射图第 1 圈就是真正的攻击面。
+//
+// 数据源：endpoint 表（commander recon 写）+ finding 表（striker 写）。
+// passive 模式无 sitemap 视图（流水账型流量，前端走 findings 列表）。
 package graphview
 
 import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"net/url"
 	"sort"
 	"strings"
 	"time"
 
 	"github.com/V3teran/liusha/internal/activescan"
-	"github.com/V3teran/liusha/internal/passivesession"
+	"github.com/V3teran/liusha/internal/endpoint"
 	"github.com/V3teran/liusha/internal/finding"
-	"github.com/V3teran/liusha/internal/owner"
 )
 
-// Node kind 枚举（节点 kind 白名单——避免 LLM 自由起 kind 翻车的历史）。
+// 节点 kind 枚举（前端展示用）。
 const (
-	KindOrigin    = "origin"    // 扫描起点：host 信息
-	KindGoal      = "goal"      // 扫描目标：枚举所有可达漏洞
-	KindEndpoint  = "endpoint"  // method+host+path（从 finding/flow 派生）
-	KindParameter = "parameter" // endpoint + location + name（从 finding.target.params 派生）
-	KindFinding   = "finding"   // 已落库的 finding（直接引用 finding.id）
+	KindDomain   = "domain"
+	KindEndpoint = "endpoint"
 )
 
-// Edge kind 枚举。
-const (
-	EdgeDiscovered    = "discovered"     // origin → endpoint（首次在某次扫描里看到）
-	EdgeHasParam      = "has_param"      // endpoint → parameter
-	EdgeVulnerableTo  = "vulnerable_to"  // parameter/endpoint → finding
-	EdgeEnables       = "enables"        // finding → finding（来自 finding_relation）
-	EdgeContributesTo = "contributes_to" // finding → goal（每条 finding 都贡献到目标）
-)
-
-// Node 是投影出的一个图节点。
-type Node struct {
-	ID      string         `json:"id"`
-	Kind    string         `json:"kind"`
-	Label   string         `json:"label"`
-	Payload map[string]any `json:"payload,omitempty"`
+// FindingSummary 嵌入在 endpoint 节点下的漏洞摘要。
+type FindingSummary struct {
+	ID       string `json:"id"`
+	Severity string `json:"severity"`
+	Summary  string `json:"summary"`
+	CWEID    string `json:"cwe_id,omitempty"`
 }
 
-// Edge 是投影出的一条有向边。
-type Edge struct {
-	From    string         `json:"from"`
-	To      string         `json:"to"`
-	Kind    string         `json:"kind"`
-	Label   string         `json:"label,omitempty"`
-	Payload map[string]any `json:"payload,omitempty"`
+// FindingChain 是 finding 间的"组合漏洞"依赖边（0059）。
+// 从 finding.depends_on uuid[] 数组派生：finding c.DependsOn = [a, b] → 派生 2 条边：
+//   {From: a, To: c} + {From: b, To: c}
+// 前端 D3 force layout 渲染成虚线弧形，区别于 sitemap 树的实线父子边。
+type FindingChain struct {
+	From string `json:"from"` // 前置 finding id（被依赖）
+	To   string `json:"to"`   // 组合 finding id（依赖 from）
 }
 
-// View 是单次投影的完整图。
+// SitemapNode 是 sitemap 节点（domain / endpoint）。
+// domain 是 root，children 直接是 endpoint 数组（无中间 folder）。
+type SitemapNode struct {
+	Kind     string           `json:"kind"`
+	Name     string           `json:"name"`               // 显示标签：domain=host / endpoint=name（fallback method+path）
+	Path     string           `json:"path,omitempty"`     // 仅 endpoint：URL path
+	Method   string           `json:"method,omitempty"`   // 仅 endpoint
+	Findings []FindingSummary `json:"findings,omitempty"` // 仅 endpoint，无 findings 时省略
+	Children []*SitemapNode   `json:"children,omitempty"` // 仅 domain：直挂 endpoint 数组
+}
+
+// View 是 sitemap 投影结果。
 type View struct {
-	OwnerID     string    `json:"owner_id"`
-	Host        string    `json:"host"`
-	GeneratedAt  time.Time `json:"generated_at"`
-	Nodes        []Node    `json:"nodes"`
-	Edges        []Edge    `json:"edges"`
+	OwnerID     string         `json:"owner_id"`
+	Host        string         `json:"host"`
+	GeneratedAt time.Time      `json:"generated_at"`
+	Root        *SitemapNode   `json:"root"`
+	Chains      []FindingChain `json:"chains,omitempty"` // 组合漏洞依赖边（无组合时省略）
 }
 
 // FindingReader 是投影器读 finding 表所需的最小接口。
-// *finding.Store 自动满足。
-//
-// LLM 用 write_relation 工具主动声明 finding 间 enables 关系，projector 渲染成图边。
 type FindingReader interface {
 	ListByOwner(ctx context.Context, ownerType, ownerID string) ([]finding.VulnFinding, error)
-	ListRelationsByOwner(ctx context.Context, ownerID string) ([]finding.Relation, error)
 }
 
-// PassiveReader / ActiveReader 是投影器读 owner 元数据所需的最小接口。
-// *passivesession.Store / *activescan.Store 自动满足。
-type PassiveReader interface {
-	GetByID(ctx context.Context, id string) (passivesession.Session, error)
+// EndpointReader 是投影器读 endpoint 表所需的最小接口。
+type EndpointReader interface {
+	ListByOwner(ctx context.Context, ownerID, host string) ([]endpoint.Endpoint, error)
 }
 
-// ActiveReader 同上的 active_scan 表读接口。
+// ActiveReader 是投影器读 active_scan 表所需的最小接口（用于验证 owner 是 active 类型）。
 type ActiveReader interface {
 	GetByID(ctx context.Context, id string) (activescan.Scan, error)
 }
 
-// Projector 是无状态投影器；可全局共享一份。
+// Projector 是无状态 sitemap 投影器；可全局共享一份。
+//
+// 仅服务 active 模式——passive 模式无 sitemap 视图（流量是流水账，前端用 findings 列表）。
 type Projector struct {
-	Findings FindingReader
-	Passive  PassiveReader
-	Active   ActiveReader
+	Findings  FindingReader
+	Endpoints EndpointReader
+	Active    ActiveReader
 }
 
-// Project 投影 (ownerID, host) 范围的图。
+// Project 投影 (ownerID, host) 范围的 sitemap 树。
 //
-//  owner 可挂多 host，host 参数语义：
-//   - 非空：按 finding.host 过滤，只投影该 host 下的图
-//   - 空：列本 owner 跨 host 的全部 finding（多 host 时图可能较杂）
-//
-// 步骤：
-//  1. 拉  owner 元数据（created_at / mode / status 等做 origin 节点 payload）
-//  2. 拉本 owner 全部 finding（已 dedup）
-//  3. 拉本 owner 全部 finding_relation（enables 边）
-//  4. 按 finding.target 派生 endpoint / parameter 节点（dedup_key 由 Go 端规范化）
-//  5. 拼出 origin → endpoint → parameter → finding → goal 主链
-//  6. 加 finding_relation 提供的 enables 边
+// owner_id 必须是 active_scan.id；passive_session.id 报错（passive 走 findings 列表）。
+// host 为空时显示该 active scan 下全部 host 的合并视图。
 func (p *Projector) Project(ctx context.Context, ownerID, host string) (View, error) {
 	if ownerID == "" {
 		return View{}, fmt.Errorf("owner_id 不能为空")
 	}
 
-	// 双轨切读：ownerID 参数实际语义改为 ownerID（passive_session.id / active_scan.id）。
-	// 双试两表确定 ownerType + 拉元数据（created_at / mode / status）。
-	var ownerType, modeStr, statusStr string
-	var createdAt time.Time
-	if sess, err := p.Passive.GetByID(ctx, ownerID); err == nil {
-		ownerType, modeStr, statusStr, createdAt = owner.Passive, "passive", string(sess.Status), sess.CreatedAt
-	} else if sc, aerr := p.Active.GetByID(ctx, ownerID); aerr == nil {
-		ownerType, modeStr, statusStr, createdAt = owner.Active, "active", string(sc.Status), sc.CreatedAt
-	} else {
-		return View{}, fmt.Errorf("owner %s not found in passive_session or active_scan", ownerID)
+	// 验证 owner 是 active 模式
+	if _, err := p.Active.GetByID(ctx, ownerID); err != nil {
+		return View{}, fmt.Errorf("sitemap 仅支持 active 模式 (owner_id=%s 不是 active scan，passive 用 /findings)", ownerID)
 	}
 
-	// host 为空表示「列本 owner 跨 host 的全部 finding」，由下方 host 过滤分支跳过。
-	effectiveHost := host
+	endpoints, err := p.Endpoints.ListByOwner(ctx, ownerID, host)
+	if err != nil {
+		return View{}, fmt.Errorf("endpoint.ListByOwner: %w", err)
+	}
 
-	findings, err := p.Findings.ListByOwner(ctx, ownerType, ownerID)
+	findings, err := p.Findings.ListByOwner(ctx, "active_scan", ownerID)
 	if err != nil {
 		return View{}, fmt.Errorf("finding.ListByOwner: %w", err)
 	}
-	// relation 表 owner 列暂未加，仍按 owner_id 查；过渡期 active relation 可能查不到
-	// （新 finding 的 owner_id 与旧 owner 关联，relation 写入仍走旧路径，此处兼容）。
-	relations, err := p.Findings.ListRelationsByOwner(ctx, ownerID)
-	if err != nil {
-		return View{}, fmt.Errorf("finding.ListRelationsByOwner: %w", err)
-	}
 
-	// host 过滤：finding.host 可能跨多个值（虽然 ListByOwner 已过滤一次）。
-	if effectiveHost != "" {
+	// host 过滤（防 finding.host 跨 host 串）
+	if host != "" {
 		filtered := findings[:0]
 		for _, f := range findings {
-			if f.Host == effectiveHost {
+			if f.Host == host {
 				filtered = append(filtered, f)
 			}
 		}
 		findings = filtered
 	}
 
-	v := View{
-		OwnerID:     ownerID,
-		Host:        effectiveHost,
-		GeneratedAt: time.Now().UTC(),
-	}
-
-	// origin / goal 永远存在。
-	originID := "origin"
-	goalID := "goal"
-	v.Nodes = append(v.Nodes,
-		Node{
-			ID:    originID,
-			Kind:  KindOrigin,
-			Label: effectiveHost,
-			Payload: map[string]any{
-				"target_host":   effectiveHost,
-				"owner_id": ownerID,
-				"owner_type":    ownerType,
-				"started_at":    createdAt,
-				"mode":          modeStr,
-				"status":        statusStr,
-			},
-		},
-		Node{
-			ID:    goalID,
-			Kind:  KindGoal,
-			Label: "枚举所有可达漏洞",
-		},
-	)
-
-	// 用 map 去重 endpoint / parameter 节点。
-	endpointSeen := map[string]bool{}
-	paramSeen := map[string]bool{}
-
+	// findings 索引分两路：
+	//   - 强匹配（method+path 都有）→ findingsByKey: (host, method, path_templated)
+	//   - 弱匹配（path 有但 method 缺）→ methodlessByPath: (host, path_templated)，建完 endpoint 树后按 host+path 查唯一 endpoint
+	//   - path 缺 → noTargetKey 直接走兜底
+	// striker 写 finding 时偶尔漏 method 字段（DOM XSS 实测案例），projector 兜底避免误挂 (no target)
+	const noTargetKey = "*|*|*"
+	findingsByKey := map[string][]FindingSummary{}
+	methodlessByPath := map[string][]FindingSummary{}
 	for _, f := range findings {
-		epID, epLabel, epOK := buildEndpointFromFinding(f)
-		if !epOK {
-			// finding.target 缺 method/path——直接挂 origin → finding，跳过 endpoint/parameter。
-			fid := "finding:" + f.ID
-			v.Nodes = append(v.Nodes, findingNode(fid, f))
-			v.Edges = append(v.Edges,
-				Edge{From: originID, To: fid, Kind: EdgeDiscovered},
-				Edge{From: fid, To: goalID, Kind: EdgeContributesTo},
-			)
+		method, path := extractFindingTarget(f)
+		fs := FindingSummary{
+			ID:       f.ID,
+			Severity: f.Severity,
+			Summary:  firstLine(f.Summary, 120),
+			CWEID:    f.CWEID,
+		}
+		if path == "" {
+			findingsByKey[noTargetKey] = append(findingsByKey[noTargetKey], fs)
 			continue
 		}
-
-		if !endpointSeen[epID] {
-			endpointSeen[epID] = true
-			v.Nodes = append(v.Nodes, Node{
-				ID: epID, Kind: KindEndpoint, Label: epLabel,
-				Payload: map[string]any{
-					"method": payloadString(f.Target, "method"),
-					"path":   payloadString(f.Target, "path"),
-					"host":   f.Host,
-				},
-			})
-			v.Edges = append(v.Edges, Edge{From: originID, To: epID, Kind: EdgeDiscovered})
+		tpath := endpoint.TemplatizePath(path)
+		if method == "" {
+			methodlessByPath[f.Host+"|"+tpath] = append(methodlessByPath[f.Host+"|"+tpath], fs)
+			continue
 		}
-
-		// parameter 节点——只有 SQLi 等带 param 的 finding 才有
-		params := extractParams(f.Target)
-		fid := "finding:" + f.ID
-		v.Nodes = append(v.Nodes, findingNode(fid, f))
-
-		if len(params) == 0 {
-			// 无 param：直接 endpoint → finding
-			v.Edges = append(v.Edges, Edge{From: epID, To: fid, Kind: EdgeVulnerableTo})
-		} else {
-			for _, pp := range params {
-				pID := epID + "#" + pp.Location + ":" + pp.Name
-				if !paramSeen[pID] {
-					paramSeen[pID] = true
-					v.Nodes = append(v.Nodes, Node{
-						ID: pID, Kind: KindParameter,
-						Label: pp.Location + ":" + pp.Name,
-						Payload: map[string]any{
-							"location": pp.Location,
-							"name":     pp.Name,
-							"endpoint": epID,
-						},
-					})
-					v.Edges = append(v.Edges, Edge{From: epID, To: pID, Kind: EdgeHasParam})
-				}
-				v.Edges = append(v.Edges, Edge{From: pID, To: fid, Kind: EdgeVulnerableTo})
-			}
-		}
-
-		v.Edges = append(v.Edges, Edge{From: fid, To: goalID, Kind: EdgeContributesTo})
+		key := f.Host + "|" + method + "|" + tpath
+		findingsByKey[key] = append(findingsByKey[key], fs)
 	}
 
-	// finding_relation 提供的 enables 边（v0026 重建：write_relation 工具写入）
-	for _, r := range relations {
-		v.Edges = append(v.Edges, Edge{
-			From:  "finding:" + r.FromFindingID,
-			To:    "finding:" + r.ToFindingID,
-			Kind:  EdgeEnables,
-			Label: payloadString(r.Payload, "reason"),
+	// root name：host 参数优先；空时自动派生
+	//   - 数据涉及的 host 集合（endpoints + findings union）唯一 → 用它（active scan 多数是单 host）
+	//   - 0 或多个 → fallback "(all hosts)"
+	rootName := host
+	if rootName == "" {
+		hostSet := map[string]struct{}{}
+		for _, ep := range endpoints {
+			if ep.Host != "" {
+				hostSet[ep.Host] = struct{}{}
+			}
+		}
+		for _, f := range findings {
+			if f.Host != "" {
+				hostSet[f.Host] = struct{}{}
+			}
+		}
+		if len(hostSet) == 1 {
+			for h := range hostSet {
+				rootName = h
+			}
+		} else {
+			rootName = "(all hosts)"
+		}
+	}
+	root := &SitemapNode{Kind: KindDomain, Name: rootName}
+
+	// endpoint 直接挂 domain（无 folder 中间层）+ 建强/弱匹配索引
+	// 双侧 TemplatizePath 规范化：历史数据 endpoint.path 可能带尾 "/"（写于 fix 前），
+	// finding 侧 path 已 templatize 过——这里也 templatize 避免 key 不匹配
+	seenKey := map[string]bool{}
+	nodesByPath := map[string][]*SitemapNode{}
+	for _, ep := range endpoints {
+		tpath := endpoint.TemplatizePath(ep.Path)
+		name := ep.Name
+		if name == "" {
+			name = ep.Method + " " + tpath // fallback display
+		}
+		node := &SitemapNode{
+			Kind:   KindEndpoint,
+			Name:   name,
+			Path:   tpath,
+			Method: ep.Method,
+		}
+		root.Children = append(root.Children, node)
+
+		key := ep.Host + "|" + ep.Method + "|" + tpath
+		seenKey[key] = true
+		if fs, ok := findingsByKey[key]; ok {
+			node.Findings = append(node.Findings, fs...)
+		}
+		pathKey := ep.Host + "|" + tpath
+		nodesByPath[pathKey] = append(nodesByPath[pathKey], node)
+	}
+
+	// 弱匹配：method 缺的 finding 按 host+path 查 endpoint，唯一命中就挂；0 或 >1 都走 (no target)
+	for pathKey, fs := range methodlessByPath {
+		nodes := nodesByPath[pathKey]
+		if len(nodes) == 1 {
+			nodes[0].Findings = append(nodes[0].Findings, fs...)
+			continue
+		}
+		findingsByKey[noTargetKey] = append(findingsByKey[noTargetKey], fs...)
+	}
+
+	// 剩余 findings 没对应 endpoint（commander 漏 write_endpoint 但 striker 写了 finding）
+	// 直接造一个 endpoint 节点挂 domain 下（不再走树形 ensureNode）
+	for key, fs := range findingsByKey {
+		if seenKey[key] {
+			continue
+		}
+		if key == noTargetKey {
+			root.Children = append(root.Children, &SitemapNode{
+				Kind: KindEndpoint, Name: "(no target)", Findings: fs,
+			})
+			continue
+		}
+		parts := strings.SplitN(key, "|", 3)
+		method, path := parts[1], parts[2]
+		root.Children = append(root.Children, &SitemapNode{
+			Kind:     KindEndpoint,
+			Name:     method + " " + path,
+			Path:     path,
+			Method:   method,
+			Findings: fs,
 		})
 	}
 
-	// 排序保证输出稳定（前端 hash 缓存友好）
-	sort.SliceStable(v.Nodes, func(i, j int) bool { return v.Nodes[i].ID < v.Nodes[j].ID })
-	sort.SliceStable(v.Edges, func(i, j int) bool {
-		if v.Edges[i].From != v.Edges[j].From {
-			return v.Edges[i].From < v.Edges[j].From
-		}
-		if v.Edges[i].To != v.Edges[j].To {
-			return v.Edges[i].To < v.Edges[j].To
-		}
-		return v.Edges[i].Kind < v.Edges[j].Kind
+	// 按 path 字典序稳定排
+	sort.SliceStable(root.Children, func(i, j int) bool {
+		return root.Children[i].Path < root.Children[j].Path
 	})
 
-	return v, nil
-}
-
-// findingNode 把 finding 行渲染成节点；payload 含 severity / confidence / kind / summary 等
-// 让前端能着色 + 显示 tooltip。
-//
-// Label 取 f.Summary 第一行（≤72 chars），参考 git commit message convention——
-// 第一行充当短标题，完整 summary 通过 payload 给前端。
-func findingNode(id string, f finding.VulnFinding) Node {
-	return Node{
-		ID:    id,
-		Kind:  KindFinding,
-		Label: firstLine(f.Summary, 72),
-		Payload: map[string]any{
-			"finding_id": f.ID,
-			"severity":   f.Severity,
-			"summary":    f.Summary,
-			"created_at": f.CreatedAt,
-		},
+	// 构建 chains：遍历 findings.DependsOn 派生组合漏洞依赖边
+	// finding c.DependsOn = [a, b] → chains 加 2 条：{a→c, b→c}
+	// 跳过自引用（防 bad data）和指向不存在 finding 的边（防孤儿）
+	findingIDs := make(map[string]bool, len(findings))
+	for _, f := range findings {
+		findingIDs[f.ID] = true
 	}
+	var chains []FindingChain
+	for _, f := range findings {
+		for _, dep := range f.DependsOn {
+			if dep == "" || dep == f.ID || !findingIDs[dep] {
+				continue
+			}
+			chains = append(chains, FindingChain{From: dep, To: f.ID})
+		}
+	}
+
+	return View{
+		OwnerID:     ownerID,
+		Host:        host,
+		GeneratedAt: time.Now().UTC(),
+		Root:        root,
+		Chains:      chains,
+	}, nil
 }
 
-// firstLine 截取字符串第一行（按 \n 分割），并按 max char 上限再截。
-// 用于把 summary 自由文本压成 UI Label 友好的短标题。
+// extractFindingTarget 从 finding.target jsonb 提取 method + path。
+// commander/striker 写入时已带 method+path 字段，简化解析（不再 fallback url）。
+func extractFindingTarget(f finding.VulnFinding) (method, path string) {
+	if len(f.Target) == 0 {
+		return "", ""
+	}
+	var m map[string]any
+	if err := json.Unmarshal(f.Target, &m); err != nil {
+		return "", ""
+	}
+	if v, ok := m["method"].(string); ok {
+		method = strings.ToUpper(v)
+	}
+	if v, ok := m["path"].(string); ok {
+		path = v
+	}
+	return method, path
+}
+
 func firstLine(s string, max int) string {
 	if i := strings.IndexByte(s, '\n'); i >= 0 {
 		s = s[:i]
@@ -293,167 +297,4 @@ func firstLine(s string, max int) string {
 		s = s[:max]
 	}
 	return s
-}
-
-// buildEndpointFromFinding 从 finding.target 拼 endpoint 节点 ID + label。
-// dedup_key 形式：`endpoint:<METHOD>:<host>:<path_template>`。
-// path 模板化：URL 里数字 → :id、UUID → :uuid（避免每个 /user/1, /user/2 都成独立节点）。
-func buildEndpointFromFinding(f finding.VulnFinding) (id, label string, ok bool) {
-	method := strings.ToUpper(payloadString(f.Target, "method"))
-	path := payloadString(f.Target, "path")
-	if path == "" {
-		// 部分老 finding 把完整 URL 放在 url 字段
-		if u := payloadString(f.Target, "url"); u != "" {
-			parsed, err := url.Parse(u)
-			if err == nil {
-				path = parsed.Path
-			}
-		}
-	}
-	if method == "" || path == "" {
-		return "", "", false
-	}
-	tpl := templatizePath(path)
-	id = "endpoint:" + method + ":" + f.Host + ":" + tpl
-	label = method + " " + tpl
-	return id, label, true
-}
-
-// templatizePath 把 path 中的数字段、UUID、长 hex 替换成占位符——
-// 避免 /user/1, /user/2 在图里分裂成两个 endpoint 节点。
-func templatizePath(p string) string {
-	parts := strings.Split(p, "/")
-	for i, seg := range parts {
-		if seg == "" {
-			continue
-		}
-		switch {
-		case isAllDigits(seg):
-			parts[i] = ":id"
-		case isUUID(seg):
-			parts[i] = ":uuid"
-		case len(seg) >= 16 && isHex(seg):
-			parts[i] = ":hex"
-		}
-	}
-	return strings.Join(parts, "/")
-}
-
-func isAllDigits(s string) bool {
-	for _, r := range s {
-		if r < '0' || r > '9' {
-			return false
-		}
-	}
-	return s != ""
-}
-
-func isUUID(s string) bool {
-	if len(s) != 36 {
-		return false
-	}
-	for i, r := range s {
-		switch i {
-		case 8, 13, 18, 23:
-			if r != '-' {
-				return false
-			}
-		default:
-			if !isHexRune(r) {
-				return false
-			}
-		}
-	}
-	return true
-}
-
-func isHex(s string) bool {
-	for _, r := range s {
-		if !isHexRune(r) {
-			return false
-		}
-	}
-	return s != ""
-}
-
-func isHexRune(r rune) bool {
-	return (r >= '0' && r <= '9') || (r >= 'a' && r <= 'f') || (r >= 'A' && r <= 'F')
-}
-
-// extractedParam 从 finding.target.params 提取出来的单个参数。
-type extractedParam struct {
-	Location string
-	Name     string
-}
-
-// extractParams 解析 finding.target.params 字段（多种历史 schema 兼容）。
-//
-// 已知 schema：
-//
-//   - {"params":[{"location":"query","name":"id"}, ...]}    新版
-//   - {"params":[{"in":"query","name":"id"}]}               兼容 OpenAPI 风格
-//   - {"params":{"query":["id","filter"], "body":["x"]}}    旧版 map 风格
-func extractParams(target json.RawMessage) []extractedParam {
-	if len(target) == 0 {
-		return nil
-	}
-	var raw map[string]json.RawMessage
-	if err := json.Unmarshal(target, &raw); err != nil {
-		return nil
-	}
-	pRaw, ok := raw["params"]
-	if !ok || len(pRaw) == 0 {
-		return nil
-	}
-
-	// 先试数组
-	var arr []map[string]string
-	if err := json.Unmarshal(pRaw, &arr); err == nil {
-		out := make([]extractedParam, 0, len(arr))
-		for _, m := range arr {
-			loc := m["location"]
-			if loc == "" {
-				loc = m["in"]
-			}
-			if loc == "" || m["name"] == "" {
-				continue
-			}
-			out = append(out, extractedParam{Location: loc, Name: m["name"]})
-		}
-		return out
-	}
-
-	// 再试 map
-	var m map[string][]string
-	if err := json.Unmarshal(pRaw, &m); err == nil {
-		var out []extractedParam
-		// 排序 location key 让输出稳定
-		keys := make([]string, 0, len(m))
-		for k := range m {
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
-		for _, loc := range keys {
-			for _, name := range m[loc] {
-				out = append(out, extractedParam{Location: loc, Name: name})
-			}
-		}
-		return out
-	}
-	return nil
-}
-
-// payloadString 从 jsonb 取顶层 string 字段；解析失败/类型不对返回 ""。
-func payloadString(raw json.RawMessage, key string) string {
-	if len(raw) == 0 {
-		return ""
-	}
-	var m map[string]any
-	if err := json.Unmarshal(raw, &m); err != nil {
-		return ""
-	}
-	if v, ok := m[key].(string); ok {
-		return v
-	}
-	return ""
 }

@@ -54,7 +54,7 @@ var activeProfiles = map[string]activeProfile{
 	// 完全由 LLM 自主 recon + 自决工具（curl vs page_*）。压测真自主能力。
 	"xss": {
 		name:        "xss",
-		brief:       "测试网站 http://111.229.193.40:34280/login.php，账号 admin/password。专注挖 XSS 漏洞。",
+		brief:       "测试网站 http://111.229.193.40:34280/login.php，账号 admin/password。**登录后立刻设 cookie `security=low`**（DVWA 默认 impossible 是修复版本，挖不到洞）。专注挖 XSS 漏洞。",
 		minFindings: 3,
 	},
 	// active:xss-multi 强制 spawn 多 striker，验证 browser-use wrapper 多 task 独立 tab 隔离。

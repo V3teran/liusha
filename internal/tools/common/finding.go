@@ -55,7 +55,8 @@ func (a *WriteFinding) ParametersJSON() json.RawMessage {
     "evidence":{"type":"object","description":"结构化证据 jsonb：放完整工具输出片段（sqlmap Parameter:/Type:/Payload:、nuclei matcher、curl 响应等）+ repro_cmd + dump 数据。**summary 之外的所有内容都进这里。** **直接传 JSON object，不要再 string-encode 一层**（错例：\"{\\\"vulnerability_type\\\":\\\"...\\\"}\"；正确：{\"vulnerability_type\":\"...\"}）。"},
     "cwe_id":{"type":"string","description":"可选 CWE 编号（格式 'CWE-89'），用于跨扫描去重和报告分类。不确定可省略。"},
     "owasp_category":{"type":"string","description":"可选 OWASP Top 10 类别（格式 'A03:2021'），用于按行业标准分类。不确定可省略。"},
-    "remediation":{"type":"string","description":"可选修复建议（自然语言，1-3 句）；evidence 仍存 PoC。"}
+    "remediation":{"type":"string","description":"可选修复建议（自然语言，1-3 句）；evidence 仍存 PoC。"},
+    "depends_on":{"type":"array","items":{"type":"string"},"description":"**组合漏洞依赖**：本 finding 是由哪些已有 finding 组合而成（如 finding c = a + b，则传 [\"a-uuid\", \"b-uuid\"]）。graph 视图会画出 a→c + b→c 的箭头。基础漏洞（独立挖出）省略此字段。先 read_findings 拿前置 finding 的 id。"}
   },
   "required":["summary"]
 }`)
@@ -71,6 +72,7 @@ func (a *WriteFinding) Execute(ctx context.Context, args json.RawMessage) (toolf
 		CWEID         string          `json:"cwe_id"`
 		OWASPCategory string          `json:"owasp_category"`
 		Remediation   string          `json:"remediation"`
+		DependsOn     []string        `json:"depends_on"` // 组合漏洞依赖（0059）
 	}
 	if err := json.Unmarshal(args, &in); err != nil {
 		return toolfx.Result{}, fmt.Errorf("解析 finding 参数失败: %w", err)
@@ -107,6 +109,7 @@ func (a *WriteFinding) Execute(ctx context.Context, args json.RawMessage) (toolf
 		CWEID:         in.CWEID,
 		OWASPCategory: in.OWASPCategory,
 		Remediation:   in.Remediation,
+		DependsOn:     in.DependsOn,
 	})
 	if err != nil {
 		return toolfx.Result{}, fmt.Errorf("保存 finding 失败: %w", err)

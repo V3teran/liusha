@@ -28,9 +28,11 @@ type Store struct {
 func NewStore(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
 
 // colsSelect 是所有 SELECT / RETURNING 路径的统一列序，与 scan() 字段一一对应。
+// 0059 加 depends_on uuid[]（组合漏洞依赖：c.depends_on = [a.id, b.id]）。
 const colsSelect = "id, owner_type, owner_id::text AS owner_id, " +
 	"hunter_id, source_flow_id, host, severity, summary, target, evidence, " +
-	"COALESCE(cwe_id, ''), COALESCE(owasp_category, ''), first_seen_at, COALESCE(remediation, ''), created_at"
+	"COALESCE(cwe_id, ''), COALESCE(owasp_category, ''), first_seen_at, COALESCE(remediation, ''), " +
+	"depends_on::text[], created_at"
 
 // Save 永远 INSERT 一行新 finding（append-only）。
 //
@@ -62,18 +64,23 @@ func (s *Store) Save(ctx context.Context, f VulnFinding) (VulnFinding, error) {
 	// db/migrations/0048_*.up.sql（host + CWE + target.path 强约束，宁可误判不漏判）。
 	// commander / striker agent 并发写同一漏洞时，ON CONFLICT 保留首个写入（first_seen_at 取较早），后续 dup
 	// 不报错而是返回 existing 行——LLM 视角 Save 始终幂等成功，dedup 在 DB 层无声完成。
+	// depends_on 是 uuid[]，empty slice → DEFAULT '{}'（PG 数组默认值）
+	deps := f.DependsOn
+	if deps == nil {
+		deps = []string{}
+	}
 	row := tx.QueryRow(ctx, `
 		INSERT INTO finding
 			(owner_type, owner_id, hunter_id, source_flow_id, host, severity, summary, target, evidence,
-			 cwe_id, owasp_category, remediation)
-		VALUES ($1, $2::uuid, $3,$4,$5,$6,$7,$8,$9, NULLIF($10,''), NULLIF($11,''), NULLIF($12,''))
+			 cwe_id, owasp_category, remediation, depends_on)
+		VALUES ($1, $2::uuid, $3,$4,$5,$6,$7,$8,$9, NULLIF($10,''), NULLIF($11,''), NULLIF($12,''), $13::uuid[])
 		ON CONFLICT (owner_id, dedup_key) DO UPDATE
 		SET first_seen_at = LEAST(finding.first_seen_at, EXCLUDED.first_seen_at)
 		RETURNING `+colsSelect,
 		f.OwnerType, f.OwnerID,
 		f.TaskID, f.SourceFlowID, f.Host, f.Severity,
 		f.Summary, f.Target, f.Evidence,
-		f.CWEID, f.OWASPCategory, f.Remediation)
+		f.CWEID, f.OWASPCategory, f.Remediation, deps)
 
 	var saved VulnFinding
 	if err := scan(row, &saved); err != nil {
@@ -236,19 +243,23 @@ type scanner interface {
 
 // scan 是 colsSelect 列序的统一反序列化点。
 // taskID / sourceFlowID 用指针接住 NULL；TaskID 是 *string 保留 nil，SourceFlowID 是 *int64 同。
+// DependsOn 是 uuid[]，扫到 []string（pgx v5 默认 codec）。
 func scan(r scanner, f *VulnFinding) error {
 	var taskID *string
 	var sourceFlowID *int64
+	var dependsOn []string
 	if err := r.Scan(
 		&f.ID, &f.OwnerType, &f.OwnerID,
 		&taskID, &sourceFlowID, &f.Host, &f.Severity,
 		&f.Summary, &f.Target, &f.Evidence,
 		&f.CWEID, &f.OWASPCategory, &f.FirstSeenAt, &f.Remediation,
+		&dependsOn,
 		&f.CreatedAt,
 	); err != nil {
 		return err
 	}
 	f.TaskID = taskID
 	f.SourceFlowID = sourceFlowID
+	f.DependsOn = dependsOn
 	return nil
 }
