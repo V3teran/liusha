@@ -216,9 +216,13 @@ RUN if [ -f /usr/local/bin/browser-use-cli ]; then \
     fi \
  && browser-use-cli --version 2>&1 | head -1
 COPY deployments/tool-images/pentools/browser-use /usr/local/bin/browser-use
-RUN chmod +x /usr/local/bin/browser-use \
- && ls -la /usr/local/bin/browser-use /usr/local/bin/browser-use-cli \
- && head -3 /usr/local/bin/browser-use
+# proxy_auth_inject.py：chromium CDP Fetch.continueWithAuth 注入 Proxy-Authorization basic auth
+# wrapper 启 chromium daemon 后 spawn 本脚本作为后台进程；与 chromium 同生命周期。
+COPY deployments/tool-images/pentools/proxy_auth_inject.py /usr/local/lib/liusha/proxy_auth_inject.py
+RUN chmod +x /usr/local/bin/browser-use /usr/local/lib/liusha/proxy_auth_inject.py \
+ && ls -la /usr/local/bin/browser-use /usr/local/bin/browser-use-cli /usr/local/lib/liusha/proxy_auth_inject.py \
+ && head -3 /usr/local/bin/browser-use \
+ && python3 -c 'import websockets; print("websockets", websockets.__version__)'
 
 # Layer 3: jwt_tool 不在 PyPI（pyjwt 是不同包）——git clone + 包装脚本到 /usr/local/bin。
 RUN git clone --depth 1 https://github.com/ticarpi/jwt_tool.git /opt/jwt_tool \

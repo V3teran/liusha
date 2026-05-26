@@ -1,140 +1,190 @@
 #!/bin/sh
-# browser-use — wrapper 包 browser-use-cli（原 pip 安装的 CLI 已 mv 改名）实现"每 task 独立 tab"
+# browser-use — wrapper 包 browser-use-cli 实现"每 task 独立 tab" + chromium 流量走 liusha proxy。
 #
-# 背景：原 browser-use CLI（现 browser-use-cli）无"创建新 tab"命令；open url 默认覆盖当前 tab。
-# 多 task 父子并发用 browser 时会互覆 tab + 截图互相干扰。
+# 架构（0060+ Phase 3 B 方案）：
 #
-# 本 wrapper 用 `eval window.open + switch <new_idx>` 在共享 chromium daemon 内
-# 为每 task 创建独立 tab，落盘 idx 到 /tmp/browser-tab-${TASK_ID}.idx；
-# 后续每次调用先 switch 回本 task tab 再透传子命令。
+#   /usr/local/bin/chromium --headless --proxy-server=<host:port> --remote-debugging-port=9222
+#                  ↑ 容器启动期由首个 open 命令 spawn 的 daemon
+#   /usr/local/lib/liusha/proxy_auth_inject.py (后台 daemon) → CDP Fetch.continueWithAuth
+#                  ↑ 注入 Proxy-Authorization basic auth
+#   browser-use-cli --cdp-url http://127.0.0.1:9222 <subcommand> ← 走我们启的 chromium，不再自启
 #
-# 共享：chromium daemon (cookies / storage / localStorage)
-# 隔离：每 task 独立 tab (截图独立 / 浏览历史独立 / 并发安全)
+# 为什么不让 browser-use 自己启 chromium：
+# - browser-use-cli (skill_cli) 不接受 --proxy-url 全局 flag（仅 browser-use-tui 有）
+# - playwright launch chromium 时不传 proxy=，chromium 启动也不读 HTTP_PROXY env
+# - 唯一可靠路径：自己启 chromium 控制 --proxy-server flag + CDP 注入 auth
+#
+# 共享：chromium daemon (cookies / storage / localStorage / proxy 配置全局固化)
+# 隔离：每 task 独立 tab（switch + eval window.open + per-task /tmp/browser-tab-${TASK_ID}.idx）
 #
 # 依赖：
-#   - TASK_ID env（sandbox-server PR6 注入；缺省 fallback "default"）
-#   - browser-use-cli（pip 安装的原 CLI，被本 wrapper 覆盖入口；管理类子命令仍透传给它）
-#   - flock util (容器已装)
+#   - TASK_ID env（sandbox-server 注入，缺省 "default"）
+#   - HTTP_PROXY env（launcher 注入形如 http://hunter_<uuid>:_@host.docker.internal:8890）
+#   - /usr/local/bin/chromium（playwright chromium symlink）
+#   - /usr/local/lib/liusha/proxy_auth_inject.py
+#   - python3 websockets（Layer 2 已装）
+#   - browser-use-cli + flock + curl
 
 set -eu
 
 TASK_ID="${TASK_ID:-default}"
 TAB_FILE="/tmp/browser-tab-${TASK_ID}.idx"
 LOCK="/tmp/browser-tab.lock"
+CDP_PORT=9222
+CDP_URL="http://127.0.0.1:${CDP_PORT}"
+CHROMIUM_PIDFILE="/tmp/chromium-daemon.pid"
+AUTH_INJECT_PIDFILE="/tmp/proxy-auth-inject.pid"
+CHROMIUM_LOG="/tmp/chromium-daemon.log"
 
-# 视口尺寸：sandbox.DockerLauncher 通过 docker run -e 注入 LIUSHA_VIEWPORT_WIDTH/HEIGHT
-# 仅为未来 browser-use 升级若再支持 viewport env 作准备；当前版本（0.12.9+）
-# **不**透传给 CLI——0.12.9 已删 --window-width/--height 全局 flag，传了会 exit_code=2。
-# chromium daemon 走 browser-use 默认 viewport（playwright 默认 1280×720）。
+# start_chromium_daemon — 启 chromium headless daemon + proxy auth inject（仅首次）
+# 已启则直接返回；启动失败返非零。
+start_chromium_daemon() {
+    if curl -sf -m 1 "${CDP_URL}/json/version" >/dev/null 2>&1; then
+        return 0
+    fi
+
+    PROXY_URL_NO_AUTH=""
+    PROXY_USER=""
+    PROXY_PASS=""
+    if [ -n "${HTTP_PROXY:-}" ]; then
+        PROXY_URL_NO_AUTH=$(printf '%s' "$HTTP_PROXY" | sed -E 's|^(http://)[^@]*@|\1|')
+        PROXY_USER=$(printf '%s' "$HTTP_PROXY" | sed -nE 's|^http://([^:]+):.*|\1|p')
+        PROXY_PASS=$(printf '%s' "$HTTP_PROXY" | sed -nE 's|^http://[^:]+:([^@]+)@.*|\1|p')
+    fi
+
+    PROXY_ARG=""
+    [ -n "$PROXY_URL_NO_AUTH" ] && PROXY_ARG="--proxy-server=$PROXY_URL_NO_AUTH"
+
+    # chromium 启动：headless + 关 sandbox（容器内必须）+ proxy + remote-debugging
+    # --ignore-certificate-errors 兜底（Layer 7.5 NSS DB 已装 CA，但部分场景仍需）
+    /usr/local/bin/chromium \
+        --headless=new \
+        --no-sandbox \
+        --disable-dev-shm-usage \
+        --disable-gpu \
+        --disable-web-security \
+        --ignore-certificate-errors \
+        --remote-debugging-port=${CDP_PORT} \
+        --remote-debugging-address=127.0.0.1 \
+        $PROXY_ARG \
+        about:blank \
+        >"$CHROMIUM_LOG" 2>&1 &
+    echo $! >"$CHROMIUM_PIDFILE"
+
+    # 等 CDP 端点 ready (最多 15s)
+    for _ in $(seq 1 30); do
+        if curl -sf -m 1 "${CDP_URL}/json/version" >/dev/null 2>&1; then
+            break
+        fi
+        sleep 0.5
+    done
+    if ! curl -sf -m 1 "${CDP_URL}/json/version" >/dev/null 2>&1; then
+        echo "[browser-use wrapper] chromium daemon 启动超时（15s）；log=$CHROMIUM_LOG" >&2
+        tail -5 "$CHROMIUM_LOG" >&2 2>/dev/null || true
+        return 1
+    fi
+
+    # 启 proxy auth 注入器（仅有 user/pass 时；后台跑直到 chromium 退出）
+    if [ -n "$PROXY_USER" ] && [ -n "$PROXY_PASS" ]; then
+        python3 /usr/local/lib/liusha/proxy_auth_inject.py \
+            --cdp-url "$CDP_URL" \
+            --proxy-user "$PROXY_USER" \
+            --proxy-pass "$PROXY_PASS" \
+            >/tmp/proxy-auth-inject.log 2>&1 &
+        echo $! >"$AUTH_INJECT_PIDFILE"
+    fi
+    return 0
+}
 
 SUB="${1:-}"
 shift 2>/dev/null || true
 
-# 不需要 tab 上下文的子命令——直接透传给 browser-use-cli（不切 tab，不上锁）
-# 包括：管理类(install/init/setup/doctor) + daemon 控制(close/sessions/cloud/profile)
-# + tab 元操作(switch/close-tab) + 全局工具(python/tunnel) + 帮助
+# 管理类子命令（不需 tab，部分不需 chromium）→ 透传
+# install/init/setup/doctor 不需 chromium；其它管理子命令带 --cdp-url 连我们的 daemon
 case "$SUB" in
-  ""|--help|-h|--version|-V|install|init|setup|doctor|python|tunnel|close|sessions|cloud|profile|switch|close-tab)
+  ""|--help|-h|--version|-V|install|init|setup|doctor)
     exec browser-use-cli "$SUB" "$@"
     ;;
+  python|tunnel|close|sessions|cloud|profile|switch|close-tab)
+    # 这些可能需要 chromium daemon；尝试启然后透传
+    start_chromium_daemon || true
+    exec browser-use-cli --cdp-url "$CDP_URL" "$SUB" "$@"
+    ;;
   release-tab)
-    # 释放本 task 的 tab——done 工具的 best-effort cleanup。
-    # 只关 tab，不关 daemon（host 内兄弟 task 还在用 session）；无 tab 静默退出。
     if [ ! -f "$TAB_FILE" ]; then
         exit 0
     fi
     exec 9>"$LOCK"
     flock -x 9
     TAB_IDX=$(cat "$TAB_FILE")
-    browser-use-cli switch "$TAB_IDX" >/dev/null 2>&1 && \
-        browser-use-cli close-tab >/dev/null 2>&1 || true
+    browser-use-cli --cdp-url "$CDP_URL" switch "$TAB_IDX" >/dev/null 2>&1 && \
+        browser-use-cli --cdp-url "$CDP_URL" close-tab >/dev/null 2>&1 || true
     rm -f "$TAB_FILE"
     exit 0
     ;;
 esac
 
-# 以下子命令需要 tab 上下文 — flock 串行化避免父子并发 switch+操作 race
-# (chromium 内 page 是独立的，但 browser-use-cli 的"当前 tab"是 daemon 全局态)
+# 以下命令需 tab 上下文 — flock 串行
 exec 9>"$LOCK"
 flock -x 9
 
-# 第一次 open: 区分"daemon 未启"和"daemon 已启"两种情况
+# 确保 chromium daemon 已启
+start_chromium_daemon
+
+# 第一次 open: 分"daemon 首个 tab"vs"daemon 多 tab"
 if [ "$SUB" = "open" ] && [ ! -f "$TAB_FILE" ]; then
-    # 检测 daemon 是否已启动（"No active sessions" = 未启）
-    if browser-use-cli sessions 2>&1 | grep -qi "no active sessions"; then
-        # 容器内第 1 个 browser 任务: 直接 open <url> 启 daemon + 占用 tab 0
-        # 这里不能 eval（无 daemon 无 page），也不能 switch（无 tab）
-        echo "0" > "$TAB_FILE"
+    # 查当前 chromium tab 数（type=page 的）
+    TAB_COUNT=$(curl -sf "${CDP_URL}/json" 2>/dev/null | python3 -c '
+import json, sys
+try:
+    tabs = json.load(sys.stdin)
+    print(len([t for t in tabs if t.get("type") == "page"]))
+except Exception:
+    print(0)
+' || echo "0")
 
-        # 让 chromium 走 liusha proxy 入字典（0060+）：
-        # playwright launch chromium 时显式覆盖系统 env proxy → 必须 CLI 显式传
-        # `--proxy-url` browser-use 0.12.9 把这些 flag 翻译成 chromium 启动参数 `--proxy-server=`。
-        # 从 HTTP_PROXY env 解析（launcher 注入形如 http://hunter_<uuid>:_@host:port）：
-        #   PROXY_URL_NO_AUTH = http://host:port（chromium 不接受 URL 内嵌 user/pass）
-        #   PROXY_USER        = hunter_<uuid>
-        #   PROXY_PASS        = _
-        # daemon 起后 proxy 配置固化，后续 open 不需重传（走下面"daemon 已存在"分支）。
-        PROXY_ARGS=""
-        if [ -n "${HTTP_PROXY:-}" ]; then
-            PROXY_URL_NO_AUTH=$(printf '%s' "$HTTP_PROXY" | sed -E 's|^(http://)[^@]*@|\1|')
-            PROXY_USER=$(printf '%s' "$HTTP_PROXY" | sed -nE 's|^http://([^:]+):.*|\1|p')
-            PROXY_PASS=$(printf '%s' "$HTTP_PROXY" | sed -nE 's|^http://[^:]+:([^@]+)@.*|\1|p')
-            if [ -n "$PROXY_URL_NO_AUTH" ]; then
-                PROXY_ARGS="--proxy-url $PROXY_URL_NO_AUTH"
-                [ -n "$PROXY_USER" ] && PROXY_ARGS="$PROXY_ARGS --proxy-username $PROXY_USER"
-                [ -n "$PROXY_PASS" ] && PROXY_ARGS="$PROXY_ARGS --proxy-password $PROXY_PASS"
-            fi
-        fi
-
-        # 跟下面 case 分支同样的"open + 自动截图 + exit"模式——
-        # 之前 exec 会替换进程导致自动截图永不触发（首次 open 自动附图失败的根因）。
-        # browser-use 0.12.9 已删 --window-width/--height 全局 flag，viewport 走默认（1280×720）。
-        browser-use-cli $PROXY_ARGS open "$@"
+    if [ "$TAB_COUNT" -le 1 ]; then
+        # daemon 起后默认 1 个 about:blank tab；首个 task 占 tab 0
+        echo "0" >"$TAB_FILE"
+        browser-use-cli --cdp-url "$CDP_URL" open "$@"
         EXIT=$?
         if [ $EXIT -eq 0 ] && [ -n "${OUTPUT_DIR:-}" ]; then
-            browser-use-cli screenshot "${OUTPUT_DIR}/auto_$(date +%s%N).png" >/dev/null 2>&1 || true
+            browser-use-cli --cdp-url "$CDP_URL" screenshot "${OUTPUT_DIR}/auto_$(date +%s%N).png" >/dev/null 2>&1 || true
         fi
         exit $EXIT
     fi
-    # daemon 已存在: eval window.open 在当前 tab 上下文创建新 tab
-    browser-use-cli switch 0 >/dev/null 2>&1
-    browser-use-cli eval "window.open('about:blank', '_blank'); 1" >/dev/null 2>&1
-    # 用 switch <invalid> 错误消息解析当前 tab 数："Invalid tab index N. Available: 0-X"
-    AVAIL=$(browser-use-cli switch 99999 2>&1 | grep -oE 'Available: 0-[0-9]+' | grep -oE '[0-9]+$' || echo "")
+
+    # daemon 已有 ≥2 tab → 创建新 tab
+    browser-use-cli --cdp-url "$CDP_URL" switch 0 >/dev/null 2>&1
+    browser-use-cli --cdp-url "$CDP_URL" eval "window.open('about:blank', '_blank'); 1" >/dev/null 2>&1
+    AVAIL=$(browser-use-cli --cdp-url "$CDP_URL" switch 99999 2>&1 | grep -oE 'Available: 0-[0-9]+' | grep -oE '[0-9]+$' || echo "")
     if [ -z "$AVAIL" ]; then
-        echo "browser-use: 创建新 tab 失败（无法从 switch 错误解析 tab 数）" >&2
+        echo "browser-use: 创建新 tab 失败（switch 错误无法解析 tab 数）" >&2
         exit 1
     fi
-    echo "$AVAIL" > "$TAB_FILE"
+    echo "$AVAIL" >"$TAB_FILE"
 fi
 
-# 此时必须已有本 task 的 tab 文件——否则用户没 open 就调 click/state
 if [ ! -f "$TAB_FILE" ]; then
     echo "browser-use: TASK_ID=$TASK_ID 还没 open 过 URL；先 'browser-use open <URL>'" >&2
     exit 2
 fi
 
-# 切到本 task tab 后跑子命令到 browser-use-cli
+# 切到本 task tab + 跑子命令
 TAB_IDX=$(cat "$TAB_FILE")
-browser-use-cli switch "$TAB_IDX" >/dev/null 2>&1
+browser-use-cli --cdp-url "$CDP_URL" switch "$TAB_IDX" >/dev/null 2>&1
 
-# 状态变化子命令：跑完后自动追加 screenshot 到 $OUTPUT_DIR，让 vision LLM 直接看到新页面视觉。
-# 设计原则：
-#   - 状态变化（DOM/页面真改了）→ 必附图，避免 LLM 多花一步 ReAct 显式调 screenshot
-#   - 读取（state/extract/eval/get）→ 不附图，已返结构化文本足够 LLM 消费，省 token
-#   - 特殊（screenshot 自身/cookies/close/python）→ 透传不附（cookie 无视觉变化；screenshot 已是图）
-# 截图按当前 tab（前面 switch 已切到本 task tab）—— 多 task 并发自动隔离。
-# auto_<ns>.png 用纳秒时间戳避免同一 task 多次调用文件名碰撞。
+# 状态变化子命令跑完自动截图（vision LLM 直接看到新页面视觉）
 case "$SUB" in
   open|click|input|type|select|scroll|back|keys|hover|dblclick|rightclick|wait)
-    browser-use-cli "$SUB" "$@"
+    browser-use-cli --cdp-url "$CDP_URL" "$SUB" "$@"
     EXIT=$?
     if [ $EXIT -eq 0 ] && [ -n "${OUTPUT_DIR:-}" ]; then
-      browser-use-cli screenshot "${OUTPUT_DIR}/auto_$(date +%s%N).png" >/dev/null 2>&1 || true
+        browser-use-cli --cdp-url "$CDP_URL" screenshot "${OUTPUT_DIR}/auto_$(date +%s%N).png" >/dev/null 2>&1 || true
     fi
     exit $EXIT
     ;;
   *)
-    exec browser-use-cli "$SUB" "$@"
+    exec browser-use-cli --cdp-url "$CDP_URL" "$SUB" "$@"
     ;;
 esac
