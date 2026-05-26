@@ -188,14 +188,17 @@ func (s *Server) onResponse(resp *http.Response, _ *martian.Context) error {
 	snap := buildSnapshot(req, resp, reqBody, respBody)
 	snap.Source = s.source
 	if s.source == "internal" {
-		// 解析 Proxy-Authorization: Basic base64(hunter_<uuid>:_)
-		// sandbox 容器 env 形如 HTTP_PROXY=http://hunter_<uuid>:_@host:port，client 自动加该 header
-		// 拿不到时 log warn 但不阻断（snap.HunterID 留空，ingestor 端走 hunter 未关联兜底）
-		if hid := parseProxyAuthHunterID(req.Header.Get("Proxy-Authorization")); hid != "" {
+		// 读 X-Liusha-Hunter-Id 自定义 header（由 sanitizer 阶段从 Proxy-Authorization 转换而来）。
+		// proxify/martian 会 strip hop-by-hop header（含 Proxy-Authorization）→ onResponse 拿不到原 header；
+		// 自定义 header 不在 hop-by-hop 黑名单 → 安全透传。
+		if hid := req.Header.Get("X-Liusha-Hunter-Id"); hid != "" {
 			snap.HunterID = hid
+			// hop-by-hop 语义：该 header 仅 sandbox ↔ liusha proxy 通信用，
+			// 不应该转发给真实目标 server（隐私 + 防被服务端识别 agent 来源）。
+			req.Header.Del("X-Liusha-Hunter-Id")
 		} else {
 			s.logger.Warn().Str("method", snap.Method).Str("host", snap.Host).
-				Msg("internal 流量缺 Proxy-Authorization；hunter_id 关联失败")
+				Msg("internal 流量缺 X-Liusha-Hunter-Id；hunter_id 关联失败（sanitizer 转换异常？）")
 		}
 	}
 

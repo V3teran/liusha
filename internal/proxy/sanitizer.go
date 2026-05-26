@@ -3,10 +3,12 @@ package proxy
 import (
 	"bufio"
 	"bytes"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
 	"net"
+	"strings"
 	"sync"
 )
 
@@ -63,6 +65,85 @@ func patchAbsoluteURI(head []byte) []byte {
 	patched = append(patched, httpVer...)
 	patched = append(patched, head[eol:]...)
 	return patched
+}
+
+// rewriteProxyAuthToHunterHeader 把 raw HTTP head 中的 Proxy-Authorization basic auth
+// 解析成 hunter_id + 替换为 X-Liusha-Hunter-Id 自定义 header。
+//
+// 背景（关键 hack）：proxify/martian 在 OnResponseCallback 之前 strip 所有 hop-by-hop
+// header（含 Proxy-Authorization）→ server.go onResponse 拿不到，hunter_id 关联失败。
+// sanitizer 在 patch absolute URI 同一层做 header 转换，把 hop-by-hop 凭证转成普通
+// 自定义 header（proxify 不 strip）→ onResponse 可读。
+//
+// 行为：
+//   - 找 `Proxy-Authorization: Basic base64(hunter_<uuid>:_)`（case-insensitive）
+//   - 解 base64 → 抽 hunter_<uuid> 前缀 → 替换该 header line 为 `X-Liusha-Hunter-Id: <uuid>`
+//   - 找不到 / 格式错 → 原样返回（兜底；server 端会 log warn 丢弃）
+//
+// 不破坏其它 header 顺序与字节内容；仅替换匹配行。
+func rewriteProxyAuthToHunterHeader(head []byte) []byte {
+	eol := bytes.Index(head, []byte("\r\n"))
+	if eol < 0 {
+		return head
+	}
+	// 跳过 request-line（patch 阶段已处理）
+	body := head[eol+2:]
+
+	for off := 0; off < len(body); {
+		lineEnd := bytes.Index(body[off:], []byte("\r\n"))
+		if lineEnd < 0 {
+			break
+		}
+		line := body[off : off+lineEnd]
+		// header 段终止于空行
+		if len(line) == 0 {
+			break
+		}
+		const prefix = "proxy-authorization:"
+		if len(line) > len(prefix) && strings.EqualFold(string(line[:len(prefix)]), prefix) {
+			value := strings.TrimSpace(string(line[len(prefix):]))
+			if hunterID := extractHunterIDFromBasicAuth(value); hunterID != "" {
+				// 拼新 line：X-Liusha-Hunter-Id: <uuid>
+				newLine := append([]byte("X-Liusha-Hunter-Id: "), []byte(hunterID)...)
+				// 长度对齐：新旧拼出新 head
+				out := make([]byte, 0, len(head)-len(line)+len(newLine))
+				out = append(out, head[:eol+2+off]...)
+				out = append(out, newLine...)
+				out = append(out, head[eol+2+off+lineEnd:]...)
+				return out
+			}
+			// 解析失败：仍然删掉 Proxy-Authorization line（不让它继续暴露给上游 server）
+			out := make([]byte, 0, len(head)-len(line)-2)
+			out = append(out, head[:eol+2+off]...)
+			out = append(out, head[eol+2+off+lineEnd+2:]...)
+			return out
+		}
+		off += lineEnd + 2
+	}
+	return head
+}
+
+// extractHunterIDFromBasicAuth 解 "Basic base64(hunter_<uuid>:_)" → "<uuid>"。
+// 失败返空（caller 决定 fallback）。
+func extractHunterIDFromBasicAuth(value string) string {
+	const scheme = "Basic "
+	const userPrefix = "hunter_"
+	if !strings.HasPrefix(value, scheme) {
+		return ""
+	}
+	decoded, err := base64.StdEncoding.DecodeString(strings.TrimSpace(value[len(scheme):]))
+	if err != nil {
+		return ""
+	}
+	colon := bytes.IndexByte(decoded, ':')
+	if colon <= 0 {
+		return ""
+	}
+	user := string(decoded[:colon])
+	if !strings.HasPrefix(user, userPrefix) {
+		return ""
+	}
+	return user[len(userPrefix):]
 }
 
 // extractHostHeader 在 raw header 段（不含 request-line）中找 Host header value。
@@ -140,6 +221,9 @@ func forwardWithRewrite(client net.Conn, upstreamAddr string) {
 	}
 
 	patched := patchAbsoluteURI(head)
+	// 把 Proxy-Authorization 转成 X-Liusha-Hunter-Id（proxify 在 onResponse 之前会
+	// strip hop-by-hop header；自定义 header 才能透传给 server.go 拿 hunter_id）。
+	patched = rewriteProxyAuthToHunterHeader(patched)
 	if _, err := upstream.Write(patched); err != nil {
 		return
 	}
