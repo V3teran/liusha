@@ -6,7 +6,6 @@ import (
 	"compress/gzip"
 	"context"
 	"crypto/sha256"
-	"encoding/base64"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -184,21 +183,23 @@ func (s *Server) onResponse(resp *http.Response, _ *martian.Context) error {
 		}
 	}
 
-	// 3) 构造 snapshot 并注入 source / hunter_id（internal listener 才有 hunter_id）
+	// 3) 构造 snapshot 并注入 source / owner_id（0061 简化：internal listener 直接拿 owner_id）
 	snap := buildSnapshot(req, resp, reqBody, respBody)
 	snap.Source = s.source
 	if s.source == "internal" {
-		// 读 X-Liusha-Hunter-Id 自定义 header（由 sanitizer 阶段从 Proxy-Authorization 转换而来）。
+		// 读 X-Liusha-Owner-Id 自定义 header（由 sanitizer 阶段从 Proxy-Authorization 转换而来）。
 		// proxify/martian 会 strip hop-by-hop header（含 Proxy-Authorization）→ onResponse 拿不到原 header；
 		// 自定义 header 不在 hop-by-hop 黑名单 → 安全透传。
-		if hid := req.Header.Get("X-Liusha-Hunter-Id"); hid != "" {
-			snap.HunterID = hid
+		// owner_type 按 source 派生：internal listener 一定是 active_scan（sandbox 容器只属于 active scan）。
+		if oid := req.Header.Get("X-Liusha-Owner-Id"); oid != "" {
+			snap.OwnerID = oid
+			snap.OwnerType = "active_scan"
 			// hop-by-hop 语义：该 header 仅 sandbox ↔ liusha proxy 通信用，
 			// 不应该转发给真实目标 server（隐私 + 防被服务端识别 agent 来源）。
-			req.Header.Del("X-Liusha-Hunter-Id")
+			req.Header.Del("X-Liusha-Owner-Id")
 		} else {
 			s.logger.Warn().Str("method", snap.Method).Str("host", snap.Host).
-				Msg("internal 流量缺 X-Liusha-Hunter-Id；hunter_id 关联失败（sanitizer 转换异常？）")
+				Msg("internal 流量缺 X-Liusha-Owner-Id；owner_id 关联失败（sanitizer 转换异常？）")
 		}
 	}
 
@@ -431,40 +432,3 @@ func generateSnapshotID(method, host, uri string, body []byte) string {
 	return hex.EncodeToString(h.Sum(nil))
 }
 
-// parseProxyAuthHunterID 从 Proxy-Authorization header 抽 hunter_id（uuid 形式）。
-//
-// 协议（0060+ sandbox 与 proxy 的契约）：
-//
-//	HTTP_PROXY=http://hunter_<uuid>:_@host.docker.internal:8890
-//
-// client（curl/python/Go http）自动把 user:pass 转成
-//
-//	Proxy-Authorization: Basic base64(hunter_<uuid>:_)
-//
-// 本函数 base64 解码 + 校验 'hunter_' 前缀 + 返回 uuid 段。
-// 任何步骤失败均返空字符串（caller log warn 兜底，不阻断请求）。
-// proxify/martian 默认在转发给目标 server 时 strip hop-by-hop header（含
-// Proxy-Authorization），所以目标 server 看不到该 header。
-func parseProxyAuthHunterID(header string) string {
-	const scheme = "Basic "
-	const prefix = "hunter_"
-
-	header = strings.TrimSpace(header)
-	if !strings.HasPrefix(header, scheme) {
-		return ""
-	}
-	decoded, err := base64.StdEncoding.DecodeString(header[len(scheme):])
-	if err != nil {
-		return ""
-	}
-	// 形式: hunter_<uuid>:_
-	colonIdx := bytes.IndexByte(decoded, ':')
-	if colonIdx <= 0 {
-		return ""
-	}
-	user := string(decoded[:colonIdx])
-	if !strings.HasPrefix(user, prefix) {
-		return ""
-	}
-	return user[len(prefix):]
-}

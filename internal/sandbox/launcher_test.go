@@ -50,7 +50,7 @@ func TestDockerLauncher_SpawnExecDestroy(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 
-	client, err := l.Spawn(ctx, runID)
+	client, err := l.Spawn(ctx, runID, "test-owner")
 	if err != nil {
 		t.Fatalf("Spawn: %v", err)
 	}
@@ -94,7 +94,7 @@ func TestDockerLauncher_OutputDirAttachment(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 
-	client, err := l.Spawn(ctx, runID)
+	client, err := l.Spawn(ctx, runID, "test-owner")
 	if err != nil {
 		t.Fatalf("Spawn: %v", err)
 	}
@@ -134,7 +134,7 @@ func TestDockerLauncher_Timeout(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 
-	client, err := l.Spawn(ctx, runID)
+	client, err := l.Spawn(ctx, runID, "test-owner")
 	if err != nil {
 		t.Fatalf("Spawn: %v", err)
 	}
@@ -168,7 +168,7 @@ func TestDockerLauncher_CleanupOrphans(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 
-	if _, err := l.Spawn(ctx, runID); err != nil {
+	if _, err := l.Spawn(ctx, runID, "test-owner"); err != nil {
 		t.Fatalf("Spawn: %v", err)
 	}
 	t.Cleanup(func() {

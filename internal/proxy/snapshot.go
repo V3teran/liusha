@@ -12,12 +12,13 @@ import "time"
 
 // TrafficSnapshot 一条 HTTP 流量在 Redis Stream / 消费者侧的可序列化快照。
 //
-// owner 关联（0060+）：
+// owner 关联（0060+ / 0061 简化为 owner_id 单一标识）：
 //
-//	OwnerType / OwnerID  passive_session.id 或 active_scan.id（cmd/proxy 关联机制填，
-//	                     external 按 host 查 passive_session，internal 解析 Proxy-Auth 拿 hunter→owner）
-//	Source               'external'（8888 入口）/ 'internal'（8889 入口，agent 工具发起）
-//	HunterID             仅 internal source 填（哪个 hunter 发的；用于 list_flows 按 hunter 过滤）
+//	OwnerType / OwnerID  passive_session.id 或 active_scan.id（cmd/proxy 关联机制填）
+//	                     external listener 按 host 查 passive_session；
+//	                     internal listener 解析 Proxy-Auth user=owner_<uuid> 直接填，
+//	                     owner_type 按 source 派生（external→passive_session / internal→active_scan）
+//	Source               'external'（8888 入口）/ 'internal'（8890 入口，agent 工具发起）
 //
 // URI 拆解：
 //
@@ -48,7 +49,6 @@ type TrafficSnapshot struct {
 	OwnerType       string              `json:"owner_type,omitempty"`
 	OwnerID         string              `json:"owner_id,omitempty"`
 	Source          string              `json:"source"`
-	HunterID        string              `json:"hunter_id,omitempty"`
 	Host            string              `json:"host"`
 	HostPort        string              `json:"host_port,omitempty"`
 	Method          string              `json:"method"`

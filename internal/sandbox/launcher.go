@@ -20,7 +20,7 @@ import (
 //
 // 见 docs/superpowers/specs/2026-05-16-sandbox-server-design.md
 type Launcher interface {
-	Spawn(ctx context.Context, runID string) (Client, error)
+	Spawn(ctx context.Context, runID, ownerID string) (Client, error)
 	Destroy(ctx context.Context, runID string) error
 	CleanupOrphans(ctx context.Context) error
 }
@@ -79,13 +79,21 @@ func NewDockerLauncher(image string) *DockerLauncher {
 
 // Spawn 启动 sandbox 容器并等待 healthz。返回绑定到该容器 host 端口的 Client。
 //
+// runID：用于 docker container name（per-hunter 唯一保证容器名不冲突）。
+// ownerID：用于 HTTP_PROXY URL basic auth user=owner_<id>（容器内 agent 工具流量
+//   经 liusha proxy 8890 时 sanitizer 解析 owner_<id> → X-Liusha-Owner-Id header
+//   → server.go 填 snap.OwnerID）。0061 起统一用 owner_id（之前 hunter_id 删了）。
+//
 // 失败路径：任一步出错都会尝试 Destroy（best-effort），避免容器残留。
-func (l *DockerLauncher) Spawn(ctx context.Context, runID string) (Client, error) {
+func (l *DockerLauncher) Spawn(ctx context.Context, runID, ownerID string) (Client, error) {
 	if l.Image == "" {
 		return nil, errors.New("DockerLauncher.Image 必填")
 	}
 	if runID == "" {
 		return nil, errors.New("runID 必填")
+	}
+	if ownerID == "" {
+		return nil, errors.New("ownerID 必填（HTTP_PROXY basic auth user）")
 	}
 	name := containerNamePrefix + runID
 	bin := l.dockerBin()
@@ -106,12 +114,13 @@ func (l *DockerLauncher) Spawn(ctx context.Context, runID string) (Client, error
 	if l.ViewportHeight > 0 {
 		args = append(args, "-e", fmt.Sprintf("LIUSHA_VIEWPORT_HEIGHT=%d", l.ViewportHeight))
 	}
-	// Agent proxy 注入（0060+）：容器内 CLI 工具流量自动经 liusha proxy 8890 →
-	// internal source 字典。URL 嵌入 hunter_<runID>:_ → Proxy-Authorization basic
-	// auth → proxy 端 parseProxyAuthHunterID 抽 hunter_id 关联 owner。
+	// Agent proxy 注入（0060+ / 0061 简化为 owner_<id>）：容器内 CLI 工具流量自动经
+	// liusha proxy 8890 → internal source 字典。URL 嵌入 owner_<ownerID>:_ →
+	// Proxy-Authorization basic auth → sanitizer 解析 owner_<id> → X-Liusha-Owner-Id
+	// → snap.OwnerID（server.go onResponse 填）→ ingestor 直接入字典（不查 hunter 表）。
 	// 空 AgentProxyAddr 时跳过（向后兼容 / 单测）。
 	if l.AgentProxyAddr != "" {
-		proxyURL := fmt.Sprintf("http://hunter_%s:_@%s", runID, l.AgentProxyAddr)
+		proxyURL := fmt.Sprintf("http://owner_%s:_@%s", ownerID, l.AgentProxyAddr)
 		args = append(args,
 			"-e", "HTTP_PROXY="+proxyURL,
 			"-e", "HTTPS_PROXY="+proxyURL,

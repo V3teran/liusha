@@ -24,32 +24,23 @@ func NewStore(pool *pgxpool.Pool, maxReqBody, maxRespBody int) *Store {
 	return &Store{pool: pool, maxReqBody: maxReqBody, maxRespBody: maxRespBody}
 }
 
-// flowSelectCols 是 GetByID 的统一列序，与 scanFlow() 字段一一对应（0060 新字段已纳入）。
+// flowSelectCols 是 GetByID 的统一列序，与 scanFlow() 字段一一对应（0061 删 hunter_id）。
 const flowSelectCols = "id, owner_type, owner_id::text, source, " +
-	"COALESCE(hunter_id::text, ''), host, created_at, method, url, path, " +
+	"host, created_at, method, url, path, " +
 	"request_headers, request_body, " +
 	"status_code, response_headers, response_body, duration_ms"
 
 // summaryCols 是 ListByOwner 的瘦列序，刻意不含 body / headers，避免大 payload。
 const summaryCols = "id, owner_type, owner_id::text, source, " +
-	"COALESCE(hunter_id::text, ''), host, created_at, method, url, path, " +
+	"host, created_at, method, url, path, " +
 	"status_code, duration_ms"
 
 // copyFromCols 是 CopyFrom 写入的列名顺序，必须与每行 []any 的元素顺序严格对齐。
 var copyFromCols = []string{
-	"owner_type", "owner_id", "source", "hunter_id",
+	"owner_type", "owner_id", "source",
 	"host", "method", "url", "path",
 	"request_headers", "request_body",
 	"status_code", "response_headers", "response_body", "duration_ms",
-}
-
-// hunterIDArg 把空字符串 HunterID 转 nil（用于 pgx 写 NULL），非空原样返回。
-// pgx INSERT 用 nil 写 NULL；CopyFrom 同理。
-func hunterIDArg(s string) any {
-	if s == "" {
-		return nil
-	}
-	return s
 }
 
 // Append 单条插入（带截断），返回 bigserial id。
@@ -71,16 +62,16 @@ func (s *Store) Append(ctx context.Context, f Flow) (int64, error) {
 	var id int64
 	err := s.pool.QueryRow(ctx, `
 		INSERT INTO http_flow
-			(owner_type, owner_id, source, hunter_id,
+			(owner_type, owner_id, source,
 			 host, method, url, path,
 			 request_headers, request_body,
 			 status_code, response_headers, response_body, duration_ms)
-		VALUES ($1, $2::uuid, $3, $4::uuid,
-		        $5, $6, $7, $8,
-		        $9, $10,
-		        $11, $12, $13, $14)
+		VALUES ($1, $2::uuid, $3,
+		        $4, $5, $6, $7,
+		        $8, $9,
+		        $10, $11, $12, $13)
 		RETURNING id`,
-		f.OwnerType, f.OwnerID, f.Source, hunterIDArg(f.HunterID),
+		f.OwnerType, f.OwnerID, f.Source,
 		host, f.Method, f.URL, path,
 		reqH, reqBody,
 		f.StatusCode, respH, respBody, f.DurationMs).Scan(&id)
@@ -109,7 +100,7 @@ func (s *Store) AppendBatch(ctx context.Context, flows []Flow) error {
 			path = extractPath(f.URL)
 		}
 		rows[i] = []any{
-			f.OwnerType, f.OwnerID, f.Source, hunterIDArg(f.HunterID),
+			f.OwnerType, f.OwnerID, f.Source,
 			host, f.Method, f.URL, path,
 			normalizeHeaders(f.RequestHeaders), reqBody,
 			f.StatusCode, normalizeHeaders(f.ResponseHeaders), respBody, f.DurationMs,
@@ -153,7 +144,7 @@ func (s *Store) ListByOwner(ctx context.Context, ownerID string, limit, offset i
 	for rows.Next() {
 		var sum FlowSummary
 		if err := rows.Scan(&sum.ID, &sum.OwnerType, &sum.OwnerID, &sum.Source,
-			&sum.HunterID, &sum.Host, &sum.CreatedAt, &sum.Method, &sum.URL, &sum.Path,
+			&sum.Host, &sum.CreatedAt, &sum.Method, &sum.URL, &sum.Path,
 			&sum.StatusCode, &sum.DurationMs); err != nil {
 			return nil, fmt.Errorf("scan flow summary: %w", err)
 		}
@@ -233,7 +224,7 @@ func (s *Store) ListByOwnerFiltered(ctx context.Context, ownerID string, f ListF
 	for rows.Next() {
 		var sum FlowSummary
 		if err := rows.Scan(&sum.ID, &sum.OwnerType, &sum.OwnerID, &sum.Source,
-			&sum.HunterID, &sum.Host, &sum.CreatedAt, &sum.Method, &sum.URL, &sum.Path,
+			&sum.Host, &sum.CreatedAt, &sum.Method, &sum.URL, &sum.Path,
 			&sum.StatusCode, &sum.DurationMs); err != nil {
 			return nil, fmt.Errorf("scan: %w", err)
 		}
@@ -258,7 +249,7 @@ type scanner interface {
 // scanFlow 是 flowSelectCols 列序的统一反序列化点。
 func scanFlow(r scanner, f *Flow) error {
 	var reqH, respH []byte
-	if err := r.Scan(&f.ID, &f.OwnerType, &f.OwnerID, &f.Source, &f.HunterID,
+	if err := r.Scan(&f.ID, &f.OwnerType, &f.OwnerID, &f.Source,
 		&f.Host, &f.CreatedAt, &f.Method, &f.URL, &f.Path,
 		&reqH, &f.RequestBody,
 		&f.StatusCode, &respH, &f.ResponseBody, &f.DurationMs); err != nil {

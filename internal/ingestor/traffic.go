@@ -207,30 +207,25 @@ func (t *Traffic) handleExternalSnap(ctx context.Context, snap *proxy.TrafficSna
 		Msg("流量已入主 ReAct 队列")
 }
 
-// handleInternalSnap 处理 agent 工具流量：从 hunter_id 反查 owner + 落 http_flow（不入 tracker 队列）。
+// handleInternalSnap 处理 agent 工具流量：直接用 snap.OwnerID/OwnerType 落 http_flow（0061 简化）。
 //
-// hunter_id 缺失或查不到时丢弃 + 警告——意味着 sandbox 容器 Proxy-Authorization 配错
-// 或 hunter 已被 cascade 删除；保留落库会污染字典。
+// 0061 起 cmd/proxy 端 sanitizer 已经从 Proxy-Authorization basic auth (user=owner_<uuid>)
+// 直接解析 owner_id 注入到 X-Liusha-Owner-Id header → server.go 填 snap.OwnerID/OwnerType。
+// ingestor 不再反查 hunter 表（节省 PG IO）。
+// owner_id 缺失时丢弃（sandbox HTTP_PROXY 配置异常 / sanitizer 失败）。
 func (t *Traffic) handleInternalSnap(ctx context.Context, snap *proxy.TrafficSnapshot) {
-	if snap.HunterID == "" {
+	if snap.OwnerID == "" || snap.OwnerType == "" {
 		t.logger.Warn().Str("host", snap.Host).Str("uri", snap.URI).
-			Msg("internal 流量缺 hunter_id，丢弃（sandbox Proxy-Authorization 配置异常？）")
-		return
-	}
-	h, err := t.tasks.GetByID(ctx, snap.HunterID)
-	if err != nil {
-		t.logger.Warn().Err(err).Str("hunter_id", snap.HunterID).
-			Msg("hunter.GetByID 失败（hunter 已删除？），丢弃 internal 流量")
+			Msg("internal 流量缺 owner_id/owner_type，丢弃（sandbox Proxy-Authorization 配置异常？）")
 		return
 	}
 
 	reqH, _ := json.Marshal(snap.RequestHeaders)
 	respH, _ := json.Marshal(snap.ResponseHeaders)
 	flowID, err := t.flows.Append(ctx, flow.Flow{
-		OwnerType:       h.OwnerType,
-		OwnerID:         h.OwnerID,
+		OwnerType:       snap.OwnerType,
+		OwnerID:         snap.OwnerID,
 		Source:          "internal",
-		HunterID:        snap.HunterID,
 		Host:            snap.Host,
 		Path:            snap.Path,
 		CreatedAt:       snap.Timestamp,
@@ -248,8 +243,8 @@ func (t *Traffic) handleInternalSnap(ctx context.Context, snap *proxy.TrafficSna
 		return
 	}
 	t.logger.Info().
-		Str("hunter_id", snap.HunterID).
-		Str("owner_id", h.OwnerID).
+		Str("owner_type", snap.OwnerType).
+		Str("owner_id", snap.OwnerID).
 		Int64("flow_id", flowID).
 		Str("method", snap.Method).Str("url", snap.URI).
 		Msg("internal 流量已入字典（不触发 tracker）")
