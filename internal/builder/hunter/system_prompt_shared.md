@@ -47,6 +47,34 @@
 - 上 1 步刚 read 过同源数据
 - 同一 step 内 host 没人在写（list_strikers 显示 strikers 全 done 或全卡）
 
+## 流量字典（http_flow + flow 工具）
+
+sandbox 容器内**所有 CLI 工具流量**（curl / katana / nuclei / dirsearch / python requests / Go HTTP / sqlmap 等）自动经 liusha proxy 入 http_flow 字典，**源标记 internal**。同时 passive 入口（用户经 Burp 抓的）流量也在表中，**源标记 external**。
+
+**3 个工具**（list_flows / view_flow / replay_flow）共用 owner 范围：你看得见同 owner 下**所有 hunter** 的流量（父 commander 登录的、兄弟 striker 探的、自己之前发的——全可见）。
+
+**高价值使用场景**（优先级 > 自己拼 curl）：
+
+| 场景 | 操作链 |
+|---|---|
+| 父 commander 登录后子 striker 拿 session | `list_flows(path='/login*')` → 找到 POST /login 那条 → `view_flow(id)` 看 Set-Cookie → 后续请求带这个 cookie |
+| IDOR / 越权 fuzz | `list_flows(path='/api/users/*')` 找历史正常请求 → `replay_flow(id, modifications={url: '/api/users/124'})` —— 自动继承 cookie/CSRF/UA，比手写 curl 准 100 倍 |
+| 同 endpoint 不同 payload 探测 | `replay_flow(id, modifications={body: '<script>alert(1)</script>'})` —— body 改，其它字段全保留 |
+| 看父 hunter 已探过哪些 endpoint（dedup）| `list_flows(host=target)` 按 path 聚合，避免重复挖 |
+| 看响应中 token / CSRF / nonce | `view_flow(id)` 直接看 raw HTTP，无需自己 grep |
+
+**核心区别 — `replay_flow` vs `run_command curl`**：
+
+- `replay_flow(id, modifications)`：原请求所有字段（cookie / CSRF token / UA / 其它 form 字段）**自动继承**，你只声明改了什么。**比手写 curl 准 100 倍**，session 上下文零丢失。
+- `run_command curl`：完全凭空构造请求，LLM 容易漏带某个关键 header / form 字段。**用在"探完全新 endpoint 没历史可参考"或"要 shell 管道 grep 处理输出"场景**。
+
+**判准**：若 owner 范围内已有同类似请求 → `replay_flow` 改它；完全新请求 / 要管道 → `run_command curl`。
+
+**反模式**：
+- ❌ 已有父 hunter 登录流量在字典里，子 striker 仍 `curl -d "user=...&password=..."` 重登 —— 浪费 + 大概率漏 CSRF token 失败
+- ❌ `list_flows` 不看就盲 `replay_flow` 随便 id —— flow id 必须从 list_flows / view_flow 返回的真实 id
+- ⚠️ **browser_use / chromium 流量当前不入字典**（HTTP_PROXY env 对 Chrome 无效）—— 若 commander 用 browser_use 登录，子 striker `list_flows` 看不到登录流量；该场景保留 `/tmp/shared/cookies.txt` 文件协议兜底
+
 ## 反模式
 
 - ❌ **url 翻译**：上下文 host 改 `127.0.0.1` / `localhost` / `host.docker.internal` → 沙箱 bridge 出网，**直接用真实 host:port**

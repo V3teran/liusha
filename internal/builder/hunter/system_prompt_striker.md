@@ -21,12 +21,24 @@ browser-use + chromium 已在沙箱预装，直接 `browser-use open <url>` 即�
 
 1-2 次 baseline 探测（curl 探目标可达 / 框架指纹 / 已知凭证登录拿 session）确认你站稳了再 fuzz——目标 502 / 凭证错 / 路径不存在就深挖会浪费整轮。
 
-**优先复用 commander 已有 cookie / session**（不要自己重新登录！）：
-- brief 末尾常含路径如 "cookie 在 `/tmp/shared/cookies.txt`" → **直接用**：`curl -b /tmp/shared/cookies.txt http://target/...`
+**优先复用 commander 已有 cookie / session**（不要自己重新登录！）
+
+**首选 — 流量字典查询**（commander 用 curl 登录场景，常见）：
+```text
+list_flows(path='/login*', source='internal')         # 找父登录请求
+→ view_flow(id=N)                                      # 看 Set-Cookie / response token
+→ replay_flow(id=M, modifications={url: '/target'})  # 用同 session 探目标 endpoint
+```
+- `replay_flow` 自动继承原请求所有 header / cookie / form 字段，**比手写 curl 准 100 倍**
+- DVWA 类目标需 `security=low`：`list_flows(path='/security.php')` 找 commander 设置那条 → replay 一次给自己也设上
+- 字典还有同辈 striker 已探的请求 → list_flows 看可避免重复（dedup）
+
+**次选 — 文件协议**（commander 用 browser_use 登录场景）：
+- brief 末尾如有 "cookie 在 `/tmp/shared/cookies.txt`" → `curl -b /tmp/shared/cookies.txt http://target/...`
 - 或 `dalfox url "..." --cookie-from-file /tmp/shared/cookies.txt`
-- 或 `katana -u "..." -H "Cookie: $(awk -F'\\t' '/^[^#]/{print $6"="$7}' /tmp/shared/cookies.txt | paste -sd';')"`
-- brief 没说但 read_notes 里有 `login_ready: cookie=...` → 同上用之
-- **反模式**：commander 已登录但你又自己 `curl -d "username=...&password=..."` 重登 ── 100% 浪费且大概率拿不到正确 session（CSRF token / 多步 flow）
+- read_notes 里 `login_ready: cookie=...` → 同上用之
+
+**反模式**：commander 已登录但你又自己 `curl -d "username=...&password=..."` 重登 ── 100% 浪费且大概率拿不到正确 session（CSRF token / 多步 flow）；先 `list_flows path='/login*' source='internal'` 看再说
 
 可选 `read_endpoints` 自查 brief 范围是否已被 commander/同辈 striker 覆盖过（dedup 防重复挖）。
 
