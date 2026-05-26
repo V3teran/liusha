@@ -120,6 +120,7 @@ func NewServer(deps ServerDeps) (*Server, error) {
 		DumpRequest:        false,
 		DumpResponse:       false,
 		Verbosity:          types.VerbositySilent,
+		OnRequestCallback:  srv.onRequest,  // CONNECT 阶段 stash hunter_id 到 Session（修 HTTPS tunnel 路径）
 		OnResponseCallback: srv.onResponse,
 		// 必填空指针：proxify NewLogger 内部直接读 .Addr，nil 会 panic
 		Elastic: &elastic.Options{},
@@ -135,11 +136,33 @@ func NewServer(deps ServerDeps) (*Server, error) {
 	return srv, nil
 }
 
+// sessionKeyHunterID 是 martian.Session 上 stash hunter_id 的 key（per-TCP-conn 存储）。
+// CONNECT 阶段 onRequest 写入；tunnel 内 HTTPS 请求 onResponse 读出，弥补 RFC 规定的
+// tunnel 内请求不带 Proxy-Authorization 导致的 hunter_id 关联断裂。
+const sessionKeyHunterID = "liusha_hunter_id"
+
+// onRequest 是 proxify 的请求回调；CONNECT 阶段必触发（martian handleConnectRequest 调用）。
+// 把 sanitizer 转换出的 X-Liusha-Hunter-Id 存到 ctx.Session()（per TCP conn），
+// 后续 tunnel 内的 HTTPS 请求经 OnResponseCallback 时可通过 Session 反查 hunter_id。
+//
+// 仅对 internal listener 启用；external listener 没 hunter 概念（passive 流量按 host 关联）。
+func (s *Server) onRequest(req *http.Request, ctx *martian.Context) error {
+	if s.source != "internal" || req == nil {
+		return nil
+	}
+	// 任意请求都尝试 stash：CONNECT 必走这里（含 X-Liusha-Hunter-Id），普通 HTTP 请求
+	// 多次 stash 同一 conn 上的 hunter_id 也无害（同一 Session 同一值）。
+	if hid := req.Header.Get("X-Liusha-Hunter-Id"); hid != "" {
+		ctx.Session().Set(sessionKeyHunterID, hid)
+	}
+	return nil
+}
+
 // onResponse 是 proxify 的响应回调：
 //  1. 走 TrafficFilter；不通过即丢弃（return nil 不影响转发）。
 //  2. 读取 req/resp body 并重建（必须，否则代理会断），构造 TrafficSnapshot。
 //  3. XADD 到 Redis Stream（FlowStream）；publish 失败仅 warn 不阻断转发。
-func (s *Server) onResponse(resp *http.Response, _ *martian.Context) error {
+func (s *Server) onResponse(resp *http.Response, ctx *martian.Context) error {
 	if resp == nil || resp.Request == nil {
 		return nil
 	}
@@ -183,22 +206,28 @@ func (s *Server) onResponse(resp *http.Response, _ *martian.Context) error {
 		}
 	}
 
-	// 3) 构造 snapshot 并注入 source / hunter_id（0062 撤回 0061：internal listener 解 hunter_id，
-	//    ingestor 反查 hunter→owner_type/owner_id 双字段写入 http_flow）
+	// 3) 构造 snapshot 并注入 source / hunter_id（双路径取 hunter_id）
 	snap := buildSnapshot(req, resp, reqBody, respBody)
 	snap.Source = s.source
 	if s.source == "internal" {
-		// 读 X-Liusha-Hunter-Id 自定义 header（由 sanitizer 阶段从 Proxy-Authorization 转换而来）。
-		// proxify/martian 会 strip hop-by-hop header（含 Proxy-Authorization）→ onResponse 拿不到原 header；
-		// 自定义 header 不在 hop-by-hop 黑名单 → 安全透传。
-		if hid := req.Header.Get("X-Liusha-Hunter-Id"); hid != "" {
-			snap.HunterID = hid
+		// 路径 A：HTTP 请求每次都带 X-Liusha-Hunter-Id（sanitizer 从 Proxy-Auth 转换而来）。
+		// 路径 B：HTTPS tunnel 内的请求按 RFC 不带 Proxy-Auth → header 缺失 →
+		//        fallback 读 ctx.Session()（CONNECT 阶段 onRequest stash 的值，per TCP conn 共享）。
+		hid := req.Header.Get("X-Liusha-Hunter-Id")
+		if hid != "" {
 			// hop-by-hop 语义：该 header 仅 sandbox ↔ liusha proxy 通信用，
 			// 不应该转发给真实目标 server（隐私 + 防被服务端识别 agent 来源）。
 			req.Header.Del("X-Liusha-Hunter-Id")
+		} else if v, ok := ctx.Session().Get(sessionKeyHunterID); ok {
+			if s, ok := v.(string); ok {
+				hid = s
+			}
+		}
+		if hid != "" {
+			snap.HunterID = hid
 		} else {
 			s.logger.Warn().Str("method", snap.Method).Str("host", snap.Host).
-				Msg("internal 流量缺 X-Liusha-Hunter-Id；hunter_id 关联失败（sanitizer 转换异常？）")
+				Msg("internal 流量缺 hunter_id（header + Session 双路径均空；sanitizer / CONNECT auth 异常？）")
 		}
 	}
 
