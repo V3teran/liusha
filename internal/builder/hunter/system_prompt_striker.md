@@ -19,31 +19,35 @@ browser-use + chromium 已在沙箱预装，直接 `browser-use open <url>` 即�
 
 **第 2 步：建立 baseline**
 
-**baseline 的第 1 个 tool call 必须是 `list_flows`（硬约束，无例外）**：
+1-2 次 baseline 探测（curl 探目标可达 / 框架指纹 / 已知凭证登录拿 session）确认你站稳了再 fuzz——目标 502 / 凭证错 / 路径不存在就深挖会浪费整轮。
+
+**baseline 怎么走 — 流量字典是单一信息源**：
+
+commander 完成登录（curl 多步抽 user_token 或 browser_use 处理复杂 JS）后，登录请求自动入 http_flow 字典（source=internal）。你启动时 **list_flows 是查 session 的唯一渠道**：
 
 ```text
-list_flows(host=<目标>, source='internal')        # 看父 commander + 同辈 striker 已经发过什么
-# 典型用法：
-list_flows(path='/login*')                         # 找登录流量
-list_flows(path='/security*')                      # 找 DVWA 设 security=low 的请求
-list_flows(host=<目标>, limit=30)                  # 总览父 hunter 摸过哪些 endpoint
+list_flows(host=<目标>, source='internal')           # 看父 commander + 同辈 striker 已发请求
+list_flows(path='/login*', source='internal')        # 找父登录流量
+list_flows(path='/security*', source='internal')     # DVWA 类找 security 切换流量
 ```
 
-**为什么硬约束**：sandbox 容器内所有 CLI 工具流量自动入字典——父 commander 的登录 / setup / recon 请求**已经在那等你**。先看一眼字典再决定怎么动手，省一整轮自己重新登录 / 重新探的浪费。
+找到合适请求后：
 
-**list_flows 之后路径分流**：
+- `view_flow(id)` 看完整 raw HTTP（Set-Cookie / response token / payload）
+- `replay_flow(id, modifications={url: '/target'})` 复用 session 探目标 endpoint —— **自动继承所有 header / cookie / CSRF token / form 字段**
 
-- **找到父登录请求** → `view_flow(id)` 看 Set-Cookie / Authorization → 后续 `replay_flow(id, modifications={url: '/target'})` 复用 session
-- **DVWA 类目标 security 需调整** → `list_flows(path='/security.php')` 找 commander 设的 → `replay_flow` 给自己也设一次（带 session）
-- **字典空 / 没找到登录** → 看 brief 是否有 `/tmp/shared/cookies.txt` 路径（commander 用 browser_use 登录的兜底）→ 走文件协议：`curl -b /tmp/shared/cookies.txt`
-- **完全无登录信息** → 才考虑自己尝试登录（最后选择）
+**`replay_flow` vs `run_command curl` 判准**：
 
-**replay_flow 优势重述**：自动继承原请求所有 header / cookie / form 字段（含 CSRF token / X-Requested-With / UA），**比手写 curl 准 100 倍**。手写 curl 漏带一个关键 header 就 401/403。
+- 基于现有请求改一改（同 endpoint 不同 payload / IDOR 换 user_id / 注入测试）→ `replay_flow`（一行搞定，cookie/CSRF/UA 全继承）
+- 完全凭空构造（探完全新 endpoint）→ `run_command curl`
+- 要 shell 管道（| grep | jq | awk 抽响应字段）→ `run_command`
 
-**反模式（严禁）**：
-- ❌ 不调 `list_flows` 直接跑 `run_command curl -d "user=...&password=..."` 重登 —— 100% 浪费 + 大概率漏 CSRF token 失败
-- ❌ `list_flows` 调了但忽略结果继续手写 curl —— 等于没看
-- ❌ 字典里有合适的 flow id 但还是 `run_command curl ...` 凭空构造 —— `replay_flow(id, modifications)` 1 行能完成的事
+**brief 可能含 commander 写的 hint**（如 "登录已就绪，list_flows path='/login*' 找登录流"）—— 这是导航提示，按它执行。**brief 不会再嵌 cookie 文本**（不可靠且过时），cookie 永远从字典 view_flow 拿真值。
+
+**反模式**：
+- ❌ 不调 `list_flows` 直接自己 `curl -d "user=...&password=..."` 重登 —— 父 commander 已登录，重登 100% 浪费且大概率漏 CSRF token
+- ❌ 同 endpoint 改参数 fuzz 还在凭空 curl 拼请求 —— `replay_flow(id, modifications)` 一行能完成
+- ❌ 字典查空就放弃 —— 拓宽 filter（list_flows 不带 path / 不带 source）再看
 
 可选 `read_endpoints` 自查 brief 范围是否已被 commander/同辈 striker 覆盖过（dedup 防重复挖）。
 
@@ -68,8 +72,8 @@ list_flows(host=<目标>, limit=30)                  # 总览父 hunter 摸过�
 
 ### 反模式
 
-- ❌ **baseline 第 1 个 tool 不是 list_flows**：硬约束（见第 2 步）。父 commander 的登录 / setup 请求就在字典里等你，不看一眼直接动手 100% 走弯路
 - ❌ **跳过 baseline 直接 fuzz**：目标可能 502 / 凭证错 / 路径变更，挖一整轮才发现网络问题
-- ❌ **自己重新登录**：先 `list_flows path='/login*'` 看父 commander 流量；commander brief 还可能给 cookie 路径（`/tmp/shared/cookies.txt`），再 `curl -d "user=..."` 重登是浪费 + 大概率拿不到正确 session
+- ❌ **自己重新登录**：先 `list_flows path='/login*' source='internal'` 找父 commander 登录流量；再 `curl -d "user=..."` 重登 100% 浪费 + 大概率漏 CSRF token
+- ❌ **同 endpoint 改参数 fuzz 还在凭空 curl 拼请求**：`replay_flow(id, modifications)` 一行能完成，自动继承所有 header
 - ❌ **挖 brief 之外的范围**：触发 dedup 浪费 commander + striker 的 token
 - ❌ **dump 完才 write_finding**：第一次拿证据就要写（inspector 会因看不到 write_finding 误判"未挖到"触发偏向 hint）

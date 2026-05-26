@@ -73,7 +73,6 @@ sandbox 容器内**所有 CLI 工具流量**（curl / katana / nuclei / dirsearc
 **反模式**：
 - ❌ 已有父 hunter 登录流量在字典里，子 striker 仍 `curl -d "user=...&password=..."` 重登 —— 浪费 + 大概率漏 CSRF token 失败
 - ❌ `list_flows` 不看就盲 `replay_flow` 随便 id —— flow id 必须从 list_flows / view_flow 返回的真实 id
-- ⚠️ **browser_use / chromium 流量当前不入字典**（HTTP_PROXY env 对 Chrome 无效）—— 若 commander 用 browser_use 登录，子 striker `list_flows` 看不到登录流量；该场景保留 `/tmp/shared/cookies.txt` 文件协议兜底
 
 ## 反模式
 

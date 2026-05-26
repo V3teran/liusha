@@ -49,28 +49,21 @@ browser-use + chromium 已在沙箱预装；**不要**跑 `browser-use install`�
 
 **怎么 recon 你自由决定**（agentic）：工具组合自由——但**优先级：爬虫工具 > browser_use 浏览 > 单 endpoint 探测**。
 - **推荐多工具叠用**（覆盖面更全；具体哪几个 / 什么参数你自决）：katana（主爬虫）/ dirsearch（隐藏目录）/ arjun（隐藏参数）/ httpx（探活+指纹）/ wafw00f（WAF 识别）等
-- **爬虫前必须登录**（如目标需凭证）：
-  - 登录**推荐 browser_use** —— 自动处理 CSRF token / JS form submit，比 curl POST 稳
-  - 登录成功后 cookie 桥接给爬虫：`mkdir -p /tmp/shared && browser-use cookies export /tmp/shared/cookies.txt` → katana/dirsearch 带 cookie 爬
-  - 未登录爬到的都是公开页（/login /about /setup），漏 90% 攻击面
+- **爬虫前必须登录**（如目标需凭证）：登录工具自由选择——curl（多步处理 CSRF token / 简单 form 高效）或 browser_use（复杂 JS / SPA 登录稳）。两者流量都自动入 http_flow 字典（sandbox 容器 HTTP_PROXY env 注入；chromium 走小写 env + NSS DB 信任 MITM）
+- 未登录爬到的都是公开页（/login /about /setup），漏 90% 攻击面
 
-**cookie 同步给 striker（两个机制，按优先级）**：
+**cookie 同步给 striker — 单一协议：流量字典**
 
-**首选 — 流量字典自动同步**（用 curl 登录时自动生效）：
-- 你用 `run_command curl` 完成登录（手动抽 CSRF token + POST）→ **登录请求 + 响应自动入 http_flow 字典**（source=internal）
-- spawn 的 striker 在同 owner 范围下 `list_flows(path='/login*')` 就能找到你的登录流量
-- striker 用 `view_flow(id)` 看 Set-Cookie / response headers → `replay_flow(id, modifications={...})` 直接复用 session 继续探
-- **brief 末尾提示 striker**："登录完成（curl 多步走 user_token），用 `list_flows path='/login*' source=internal` 找登录流量复用 cookie；DVWA 需 security=low，setup.php 也在字典里可直接 replay"
-- 你不需要再单独写文件——字典就是共享黑板
+- 你登录（curl 或 browser_use）→ 登录请求 + 响应自动入 http_flow 字典（source=internal）
+- spawn 的 striker 在同 owner 范围下 `list_flows(path='/login*' source='internal')` 就能找到你的登录流量
+- striker 用 `view_flow(id)` 看 Set-Cookie / response token → `replay_flow(id, modifications={...})` 复用 session 继续探
+- **brief 末尾提示 striker** 给导航 hint，例如："登录完成，用 `list_flows path='/login*' source='internal'` 找登录流量复用 cookie；DVWA 需 security=low，setup.php / security.php 也在字典里可 replay"
+- **不要在 brief 里嵌 cookie 文本**（不可靠 + 过时；让 striker 从字典 view_flow 拿真值）
+- **不要写 `/tmp/shared/cookies.txt`** —— 老 v16 协议已废弃，统一走字典
 
-**兜底 — 共享文件协议**（用 browser_use 登录时必须）：
-- ⚠️ Chromium 不读 HTTP_PROXY env → browser_use 登录的请求**不入字典** → 必须落盘
-- 协议：`mkdir -p /tmp/shared && browser-use cookies export /tmp/shared/cookies.txt`
-- spawn brief 加："cookie 在 `/tmp/shared/cookies.txt`，`curl -b /tmp/shared/cookies.txt`"
-- 适用场景：CSRF token 多步 / SPA JS 渲染登录 / curl 多次失败时降级
-
-**两种并存**：登录前判断 — 简单 form（DVWA 类）走首选 curl + 字典；复杂 JS 登录走 browser_use + cookies.txt。
-- **反模式**：spawn 后 striker 又自己跑 `curl -d "username=...&password=..."` 重登 ── 你没把登录信息传给它（既没让流量入字典也没给 cookies.txt）
+**反模式**：
+- ❌ 在 spawn brief 里嵌 `Cookie: PHPSESSID=...` 文本 —— striker 拿到的可能是过期值，且不教它正确路径
+- ❌ 写 `/tmp/shared/cookies.txt` 文件 —— 该协议已废弃
 - browser_use 留给爬虫漏掉的场景：JS 重渲染才出现的 endpoint / 复杂登录后才能爬的内部页 / SPA 特殊路由
 - **反模式**：爬虫未带 cookie 爬需登录站点（DVWA/Joomla 类目标，未带 cookie = 只看了门口）
 - **反模式**：只靠 browser_use 截图浏览主页就 write_endpoint——会漏 90% 攻击面

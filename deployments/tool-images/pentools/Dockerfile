@@ -304,13 +304,15 @@ RUN set -eu \
         chmod +x "/usr/local/bin/$tool" ; \
         rm -rf "/tmp/extract-$tool" "$tool.tar.gz" ; \
     done \
- # dalfox 命名双特殊：archive 名 dalfox-linux-amd64.tar.gz + 内含二进制叫 dalfox-linux-amd64（不是 dalfox）
- && v=$(gh-latest hahwul/dalfox 2.13.0) \
+ # dalfox v3+ 命名规则：dalfox-v{V}-linux-{aarch64|x86_64}.tar.gz（archive + 内 binary 同名）
+ # arch 映射：docker TARGETARCH arm64→aarch64 / amd64→x86_64
+ && v=$(gh-latest hahwul/dalfox 3.0.0) \
  && echo "[gh-latest] dalfox=$v from hahwul/dalfox" \
- && url="https://github.com/hahwul/dalfox/releases/download/v$v/dalfox-linux-${TARGETARCH}.tar.gz" \
+ && case "${TARGETARCH}" in arm64) DARCH=aarch64 ;; amd64) DARCH=x86_64 ;; *) DARCH=${TARGETARCH} ;; esac \
+ && url="https://github.com/hahwul/dalfox/releases/download/v$v/dalfox-v$v-linux-${DARCH}.tar.gz" \
  && wget "$url" -O dalfox.tar.gz \
  && [ -s dalfox.tar.gz ] || { echo "[FATAL] dalfox download failed: $url"; exit 1; } \
- && tar -xzf dalfox.tar.gz "dalfox-linux-${TARGETARCH}" -O > /usr/local/bin/dalfox \
+ && tar -xzf dalfox.tar.gz "dalfox-v$v-linux-${DARCH}" -O > /usr/local/bin/dalfox \
  && [ -s /usr/local/bin/dalfox ] || { echo "[FATAL] dalfox binary empty after extract"; exit 1; } \
  && chmod +x /usr/local/bin/dalfox \
  && rm -f dalfox.tar.gz \
