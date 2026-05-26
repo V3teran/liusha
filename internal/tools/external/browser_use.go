@@ -83,7 +83,7 @@ func (a *BrowserUse) ParametersJSON() json.RawMessage {
 	return json.RawMessage(`{
   "type":"object",
   "properties":{
-    "action":{"type":"string","enum":["open","click","input","wait","eval","extract","source"],"description":"open=导航URL / click=点截图坐标 / input=填表单（含 click 拿焦点+type） / wait=等条件 / eval=跑JS / extract=LLM抽数据 / source=拿HTML"},
+    "action":{"type":"string","enum":["open","click","input","wait","eval","extract","source"],"description":"open=导航URL / click=按截图像素坐标点击 / input=填表单（含 click 拿焦点+type） / wait=等条件 / eval=在当前页执行任意JS（如 document.querySelector('button').click() / 取 DOM 数据 / 调试 fetch） / extract=LLM抽数据 / source=拿当前页渲染后完整 HTML（可用于看 selector 或 DOM 结构）"},
     "url":{"type":"string","description":"action=open 必填：目标 URL（含 http:// 或 https://）"},
     "x":{"type":"integer","description":"action=click/input 必填：元素中心 x（坐标系见 Description）"},
     "y":{"type":"integer","description":"action=click/input 必填：元素中心 y"},
@@ -179,8 +179,8 @@ func (a *BrowserUse) Execute(ctx context.Context, args json.RawMessage) (toolfx.
 		if in.TimeoutSeconds == 0 {
 			in.TimeoutSeconds = defaultReadTimeout
 		}
-		// eval document.documentElement.outerHTML 拿全 HTML
-		return runBrowserSub(ctx, a.Run, "eval", []string{"document.documentElement.outerHTML"}, in.TimeoutSeconds)
+		// browser-use-cli 0.12.9 原生 `get html`，比 eval outerHTML 更直接且无 JS 编码风险。
+		return runBrowserSub(ctx, a.Run, "get", []string{"html"}, in.TimeoutSeconds)
 
 	default:
 		return toolfx.Result{}, fmt.Errorf("browser_use: action 非法 %q（支持 open/click/input/wait/eval/extract/source）", in.Action)

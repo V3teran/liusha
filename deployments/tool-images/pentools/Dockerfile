@@ -332,6 +332,22 @@ RUN set -eu \
  && /usr/local/bin/trufflehog --version 2>&1 | head -1 \
  && /usr/local/bin/interactsh-client -version 2>&1 | head -1
 
+# Layer 4b: PD 工具 -duc wrapper——拦截 httpx/katana/nuclei/subfinder 启动时的
+# phone-home (api.pdtm.sh 版本检查)。原因：
+#   1. 内网/断网场景下省 5s timeout
+#   2. liusha 流量字典里消除 api.pdtm.sh 噪音（容器走 HTTP_PROXY 自动入字典）
+#   3. machine_id 匿名追踪本身就不该出现在 pentest 工具流量里
+# 真二进制 → .real，wrapper 自动 prepend -duc（disable-update-check）。
+# LLM 调用时无感知，仍然写 `httpx -u xxx`，wrapper 自动加 -duc。
+RUN for tool in httpx katana nuclei subfinder; do \
+        mv /usr/local/bin/$tool /usr/local/bin/$tool.real && \
+        printf '#!/bin/sh\nexec /usr/local/bin/%s.real -duc "$@"\n' "$tool" > /usr/local/bin/$tool && \
+        chmod +x /usr/local/bin/$tool; \
+    done \
+ && echo "=== Layer 4b PD -duc wrapper sanity ===" \
+ && /usr/local/bin/httpx -version 2>&1 | head -1 \
+ && /usr/local/bin/nuclei -version 2>&1 | head -1
+
 # Layer 5: nuclei 模板预拉——首次运行避免联网下载（容器内可能无外网或慢）。
 # 模板存在 /root/.config/nuclei-templates，~80MB。
 # 失败不阻塞 build（容器内可能拉不到 github，运行时再拉也行）。
