@@ -207,24 +207,33 @@ func (t *Traffic) handleExternalSnap(ctx context.Context, snap *proxy.TrafficSna
 		Msg("流量已入主 ReAct 队列")
 }
 
-// handleInternalSnap 处理 agent 工具流量：直接用 snap.OwnerID/OwnerType 落 http_flow（0061 简化）。
+// handleInternalSnap 处理 agent 工具流量：反查 hunter→owner 后落双字段 http_flow。
 //
-// 0061 起 cmd/proxy 端 sanitizer 已经从 Proxy-Authorization basic auth (user=owner_<uuid>)
-// 直接解析 owner_id 注入到 X-Liusha-Owner-Id header → server.go 填 snap.OwnerID/OwnerType。
-// ingestor 不再反查 hunter 表（节省 PG IO）。
-// owner_id 缺失时丢弃（sandbox HTTP_PROXY 配置异常 / sanitizer 失败）。
+// 0062 撤回 0061：cmd/proxy 端 sanitizer 从 Proxy-Authorization basic auth (user=hunter_<uuid>)
+// 解析 hunter_id 注入到 X-Liusha-Hunter-Id header → server.go 填 snap.HunterID。
+// 这里反查 hunter 表得 owner_type/owner_id 写双字段（hunter_id 细粒度 + owner_id 顶层归档）。
+// hunter_id 缺失时丢弃（sandbox HTTP_PROXY 配置异常 / sanitizer 失败 / chromium 未注入）。
 func (t *Traffic) handleInternalSnap(ctx context.Context, snap *proxy.TrafficSnapshot) {
-	if snap.OwnerID == "" || snap.OwnerType == "" {
+	if snap.HunterID == "" {
 		t.logger.Warn().Str("host", snap.Host).Str("uri", snap.URI).
-			Msg("internal 流量缺 owner_id/owner_type，丢弃（sandbox Proxy-Authorization 配置异常？）")
+			Msg("internal 流量缺 hunter_id，丢弃（sandbox Proxy-Authorization 配置异常 / chromium auth inject 未生效？）")
+		return
+	}
+
+	// 反查 hunter 表得 owner_type/owner_id（每流量 1 indexed PK 查询 < 1ms，未来可加 LRU cache）
+	run, err := t.tasks.GetByID(ctx, snap.HunterID)
+	if err != nil {
+		t.logger.Warn().Err(err).Str("hunter_id", snap.HunterID).
+			Msg("internal 流量反查 hunter 失败，丢弃（hunter 已被清理 / 跨进程脏数据？）")
 		return
 	}
 
 	reqH, _ := json.Marshal(snap.RequestHeaders)
 	respH, _ := json.Marshal(snap.ResponseHeaders)
 	flowID, err := t.flows.Append(ctx, flow.Flow{
-		OwnerType:       snap.OwnerType,
-		OwnerID:         snap.OwnerID,
+		OwnerType:       string(run.OwnerType),
+		OwnerID:         run.OwnerID,
+		HunterID:        snap.HunterID,
 		Source:          "internal",
 		Host:            snap.Host,
 		Path:            snap.Path,
@@ -243,8 +252,9 @@ func (t *Traffic) handleInternalSnap(ctx context.Context, snap *proxy.TrafficSna
 		return
 	}
 	t.logger.Info().
-		Str("owner_type", snap.OwnerType).
-		Str("owner_id", snap.OwnerID).
+		Str("owner_type", string(run.OwnerType)).
+		Str("owner_id", run.OwnerID).
+		Str("hunter_id", snap.HunterID).
 		Int64("flow_id", flowID).
 		Str("method", snap.Method).Str("url", snap.URI).
 		Msg("internal 流量已入字典（不触发 tracker）")

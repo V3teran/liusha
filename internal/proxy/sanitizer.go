@@ -67,21 +67,21 @@ func patchAbsoluteURI(head []byte) []byte {
 	return patched
 }
 
-// rewriteProxyAuthToOwnerHeader 把 raw HTTP head 中的 Proxy-Authorization basic auth
-// 解析成 owner_id + 替换为 X-Liusha-Owner-Id 自定义 header（0061 简化：删 hunter_id）。
+// rewriteProxyAuthToHunterHeader 把 raw HTTP head 中的 Proxy-Authorization basic auth
+// 解析成 hunter_id + 替换为 X-Liusha-Hunter-Id 自定义 header（0062 撤回 0061：恢复 hunter_id）。
 //
 // 背景（关键 hack）：proxify/martian 在 OnResponseCallback 之前 strip 所有 hop-by-hop
-// header（含 Proxy-Authorization）→ server.go onResponse 拿不到，owner_id 关联失败。
+// header（含 Proxy-Authorization）→ server.go onResponse 拿不到，hunter_id 关联失败。
 // sanitizer 在 patch absolute URI 同一层做 header 转换，把 hop-by-hop 凭证转成普通
 // 自定义 header（proxify 不 strip）→ onResponse 可读。
 //
 // 行为：
-//   - 找 `Proxy-Authorization: Basic base64(owner_<uuid>:_)`（case-insensitive）
-//   - 解 base64 → 抽 owner_<uuid> 前缀 → 替换该 header line 为 `X-Liusha-Owner-Id: <uuid>`
+//   - 找 `Proxy-Authorization: Basic base64(hunter_<uuid>:_)`（case-insensitive）
+//   - 解 base64 → 抽 hunter_<uuid> 前缀 → 替换该 header line 为 `X-Liusha-Hunter-Id: <uuid>`
 //   - 找不到 / 格式错 → 删 Proxy-Authorization line（不暴露给上游 server）
 //
 // 不破坏其它 header 顺序与字节内容；仅替换匹配行。
-func rewriteProxyAuthToOwnerHeader(head []byte) []byte {
+func rewriteProxyAuthToHunterHeader(head []byte) []byte {
 	eol := bytes.Index(head, []byte("\r\n"))
 	if eol < 0 {
 		return head
@@ -102,9 +102,9 @@ func rewriteProxyAuthToOwnerHeader(head []byte) []byte {
 		const prefix = "proxy-authorization:"
 		if len(line) > len(prefix) && strings.EqualFold(string(line[:len(prefix)]), prefix) {
 			value := strings.TrimSpace(string(line[len(prefix):]))
-			if ownerID := extractOwnerIDFromBasicAuth(value); ownerID != "" {
-				// 拼新 line：X-Liusha-Owner-Id: <uuid>
-				newLine := append([]byte("X-Liusha-Owner-Id: "), []byte(ownerID)...)
+			if hunterID := extractHunterIDFromBasicAuth(value); hunterID != "" {
+				// 拼新 line：X-Liusha-Hunter-Id: <uuid>
+				newLine := append([]byte("X-Liusha-Hunter-Id: "), []byte(hunterID)...)
 				// 长度对齐：新旧拼出新 head
 				out := make([]byte, 0, len(head)-len(line)+len(newLine))
 				out = append(out, head[:eol+2+off]...)
@@ -123,11 +123,11 @@ func rewriteProxyAuthToOwnerHeader(head []byte) []byte {
 	return head
 }
 
-// extractOwnerIDFromBasicAuth 解 "Basic base64(owner_<uuid>:_)" → "<uuid>"。
+// extractHunterIDFromBasicAuth 解 "Basic base64(hunter_<uuid>:_)" → "<uuid>"。
 // 失败返空（caller 决定 fallback）。
-func extractOwnerIDFromBasicAuth(value string) string {
+func extractHunterIDFromBasicAuth(value string) string {
 	const scheme = "Basic "
-	const userPrefix = "owner_"
+	const userPrefix = "hunter_"
 	if !strings.HasPrefix(value, scheme) {
 		return ""
 	}
@@ -146,9 +146,9 @@ func extractOwnerIDFromBasicAuth(value string) string {
 	return user[len(userPrefix):]
 }
 
-// extractOwnerIDFromHead 从 raw HTTP head 提 Proxy-Authorization → 解 owner_id。
+// extractHunterIDFromHead 从 raw HTTP head 提 Proxy-Authorization → 解 hunter_id。
 // 找不到 header / 解析失败均返空。仅扫 header 段（请求体不动）。
-func extractOwnerIDFromHead(head []byte) string {
+func extractHunterIDFromHead(head []byte) string {
 	eol := bytes.Index(head, []byte("\r\n"))
 	if eol < 0 {
 		return ""
@@ -166,7 +166,7 @@ func extractOwnerIDFromHead(head []byte) string {
 		const prefix = "proxy-authorization:"
 		if len(line) > len(prefix) && strings.EqualFold(string(line[:len(prefix)]), prefix) {
 			value := strings.TrimSpace(string(line[len(prefix):]))
-			return extractOwnerIDFromBasicAuth(value)
+			return extractHunterIDFromBasicAuth(value)
 		}
 		off += lineEnd + 2
 	}
@@ -255,10 +255,10 @@ func forwardWithRewrite(client net.Conn, upstreamAddr string, requireProxyAuth b
 		return
 	}
 
-	// internal listener 强制 require auth：缺/解不出 owner_id → 407 challenge。
+	// internal listener 强制 require auth：缺/解不出 hunter_id → 407 challenge。
 	// chromium 收 407 → CDP Fetch.authRequired → proxy_auth_inject.py 注入 → 重发。
 	// CLI 工具（curl/httpx）本就主动带 Proxy-Authorization → 这条路径不触发。
-	if requireProxyAuth && extractOwnerIDFromHead(head) == "" {
+	if requireProxyAuth && extractHunterIDFromHead(head) == "" {
 		_, _ = client.Write([]byte(proxyAuthChallenge407))
 		return
 	}
@@ -270,9 +270,9 @@ func forwardWithRewrite(client net.Conn, upstreamAddr string, requireProxyAuth b
 	defer func() { _ = upstream.Close() }()
 
 	patched := patchAbsoluteURI(head)
-	// 把 Proxy-Authorization 转成 X-Liusha-Owner-Id（proxify 在 onResponse 之前会
-	// strip hop-by-hop header；自定义 header 才能透传给 server.go 拿 owner_id）。
-	patched = rewriteProxyAuthToOwnerHeader(patched)
+	// 把 Proxy-Authorization 转成 X-Liusha-Hunter-Id（proxify 在 onResponse 之前会
+	// strip hop-by-hop header；自定义 header 才能透传给 server.go 拿 hunter_id）。
+	patched = rewriteProxyAuthToHunterHeader(patched)
 	if _, err := upstream.Write(patched); err != nil {
 		return
 	}

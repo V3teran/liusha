@@ -57,8 +57,8 @@ func (h handler) handlePassive(ctx context.Context, p worker.Payload, entrypoint
 	// 为本次 agent run 启动 sandbox 容器：spawn → 等 healthz → 返回 Client。
 	// defer Destroy 保证 react.Run 结束后容器被回收（正常 / 异常 / panic 路径都覆盖）；
 	// 失败时由 sandbox-server max lifetime 4h + 下次 scanner 启动 CleanupOrphans 兜底。
-	// 0061+ 传 ownerID 给 launcher（HTTP_PROXY user=owner_<id>，passive 流量也走字典）
-	sandboxClient, err := h.launcher.Spawn(ctx, p.TaskID, oid)
+	// 0062 撤回 0061：hunterID=p.TaskID 注入 HTTP_PROXY user=hunter_<id>，passive 流量入字典
+	sandboxClient, err := h.launcher.Spawn(ctx, p.TaskID)
 	if err != nil {
 		return h.failTask(ctx, p.TaskID, fmt.Errorf("launcher.Spawn(%s): %w", p.TaskID, err))
 	}

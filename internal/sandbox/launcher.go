@@ -20,8 +20,8 @@ import (
 //
 // 见 docs/superpowers/specs/2026-05-16-sandbox-server-design.md
 type Launcher interface {
-	Spawn(ctx context.Context, runID, ownerID string) (Client, error)
-	Destroy(ctx context.Context, runID string) error
+	Spawn(ctx context.Context, hunterID string) (Client, error)
+	Destroy(ctx context.Context, hunterID string) error
 	CleanupOrphans(ctx context.Context) error
 }
 
@@ -66,8 +66,8 @@ type DockerLauncher struct {
 	// AgentProxyAddr 是宿主机 cmd/proxy agent listener 地址（如 "host.docker.internal:8890"）。
 	// Spawn 时注入到容器 HTTP_PROXY / HTTPS_PROXY env，sandbox 内所有 CLI 工具流量自动
 	// 经此代理 → liusha proxy 字典（source=internal），无需 LLM 显式 --proxy 参数。
-	// URL 中嵌入 hunter_<runID>:_ 作为 Proxy-Authorization basic auth user，让 proxy
-	// 端解析出 hunter_id 关联到 owner（cmd/proxy server.go parseProxyAuthHunterID）。
+	// URL 中嵌入 hunter_<hunterID>:_ 作为 Proxy-Authorization basic auth user，让 proxy
+	// 端解析出 hunter_id → ingestor 反查 hunter→owner（双字段写入 http_flow）。
 	// 空字符串时不注入 proxy env（向后兼容 / 单测场景）。
 	AgentProxyAddr string
 }
@@ -79,23 +79,20 @@ func NewDockerLauncher(image string) *DockerLauncher {
 
 // Spawn 启动 sandbox 容器并等待 healthz。返回绑定到该容器 host 端口的 Client。
 //
-// runID：用于 docker container name（per-hunter 唯一保证容器名不冲突）。
-// ownerID：用于 HTTP_PROXY URL basic auth user=owner_<id>（容器内 agent 工具流量
-//   经 liusha proxy 8890 时 sanitizer 解析 owner_<id> → X-Liusha-Owner-Id header
-//   → server.go 填 snap.OwnerID）。0061 起统一用 owner_id（之前 hunter_id 删了）。
+// hunterID：双重身份——既是 docker 容器名（per-hunter 隔离），也是 HTTP_PROXY basic auth
+// user（hunter_<id>），容器内 agent 工具流量经 liusha proxy 8890 时 sanitizer 解析
+// hunter_<id> → X-Liusha-Hunter-Id header → server.go 填 snap.HunterID → ingestor 反查
+// hunter→owner 双字段写入 http_flow（hunter_id 细粒度 + owner_id 顶层归档）。
 //
 // 失败路径：任一步出错都会尝试 Destroy（best-effort），避免容器残留。
-func (l *DockerLauncher) Spawn(ctx context.Context, runID, ownerID string) (Client, error) {
+func (l *DockerLauncher) Spawn(ctx context.Context, hunterID string) (Client, error) {
 	if l.Image == "" {
 		return nil, errors.New("DockerLauncher.Image 必填")
 	}
-	if runID == "" {
-		return nil, errors.New("runID 必填")
+	if hunterID == "" {
+		return nil, errors.New("hunterID 必填（容器名 + HTTP_PROXY basic auth user）")
 	}
-	if ownerID == "" {
-		return nil, errors.New("ownerID 必填（HTTP_PROXY basic auth user）")
-	}
-	name := containerNamePrefix + runID
+	name := containerNamePrefix + hunterID
 	bin := l.dockerBin()
 
 	// docker run -d -p 127.0.0.1:0:8080 --name=<name> --memory=2g --cpus=2
@@ -114,13 +111,14 @@ func (l *DockerLauncher) Spawn(ctx context.Context, runID, ownerID string) (Clie
 	if l.ViewportHeight > 0 {
 		args = append(args, "-e", fmt.Sprintf("LIUSHA_VIEWPORT_HEIGHT=%d", l.ViewportHeight))
 	}
-	// Agent proxy 注入（0060+ / 0061 简化为 owner_<id>）：容器内 CLI 工具流量自动经
-	// liusha proxy 8890 → internal source 字典。URL 嵌入 owner_<ownerID>:_ →
-	// Proxy-Authorization basic auth → sanitizer 解析 owner_<id> → X-Liusha-Owner-Id
-	// → snap.OwnerID（server.go onResponse 填）→ ingestor 直接入字典（不查 hunter 表）。
+	// Agent proxy 注入（0062 撤回 0061 → 用 hunter_<id> 细粒度标识）：容器内 CLI 工具
+	// 流量自动经 liusha proxy 8890 → internal source 字典。URL 嵌入 hunter_<hunterID>:_ →
+	// Proxy-Authorization basic auth → sanitizer 解析 hunter_<id> → X-Liusha-Hunter-Id
+	// → snap.HunterID（server.go onResponse 填）→ ingestor 反查 hunter→owner_type/owner_id
+	// 写双字段（hunter_id 细粒度可追溯 + owner_id 顶层归档）。
 	// 空 AgentProxyAddr 时跳过（向后兼容 / 单测）。
 	if l.AgentProxyAddr != "" {
-		proxyURL := fmt.Sprintf("http://owner_%s:_@%s", ownerID, l.AgentProxyAddr)
+		proxyURL := fmt.Sprintf("http://hunter_%s:_@%s", hunterID, l.AgentProxyAddr)
 		args = append(args,
 			"-e", "HTTP_PROXY="+proxyURL,
 			"-e", "HTTPS_PROXY="+proxyURL,
@@ -143,12 +141,12 @@ func (l *DockerLauncher) Spawn(ctx context.Context, runID, ownerID string) (Clie
 	// 拿 host 端口：docker port <name> 8080 输出形如 "127.0.0.1:54321"（可能两行 IPv4 + IPv6）。
 	portOut, err := exec.CommandContext(ctx, bin, "port", name, containerSandboxPort).Output()
 	if err != nil {
-		_ = l.Destroy(context.Background(), runID)
+		_ = l.Destroy(context.Background(), hunterID)
 		return nil, fmt.Errorf("docker port %s: %w", name, err)
 	}
 	hostAddr := strings.TrimSpace(strings.SplitN(string(portOut), "\n", 2)[0])
 	if hostAddr == "" {
-		_ = l.Destroy(context.Background(), runID)
+		_ = l.Destroy(context.Background(), hunterID)
 		return nil, fmt.Errorf("docker port %s 输出空", name)
 	}
 
@@ -156,7 +154,7 @@ func (l *DockerLauncher) Spawn(ctx context.Context, runID, ownerID string) (Clie
 	client := newHTTPClient(baseURL)
 
 	if err := waitHealthz(ctx, baseURL); err != nil {
-		_ = l.Destroy(context.Background(), runID)
+		_ = l.Destroy(context.Background(), hunterID)
 		return nil, fmt.Errorf("等待 healthz %s: %w", name, err)
 	}
 	return client, nil
@@ -166,11 +164,11 @@ func (l *DockerLauncher) Spawn(ctx context.Context, runID, ownerID string) (Clie
 //
 // docker stop 默认 SIGTERM 后 10s SIGKILL；docker rm -f 强制清理（即使容器没停透）。
 // 任一步失败 log 警告不致命——max lifetime 或下次启动 CleanupOrphans 兜底回收。
-func (l *DockerLauncher) Destroy(ctx context.Context, runID string) error {
-	if runID == "" {
-		return errors.New("runID 必填")
+func (l *DockerLauncher) Destroy(ctx context.Context, hunterID string) error {
+	if hunterID == "" {
+		return errors.New("hunterID 必填")
 	}
-	name := containerNamePrefix + runID
+	name := containerNamePrefix + hunterID
 	bin := l.dockerBin()
 
 	// docker stop 失败不致命（容器可能已死），继续走 rm -f

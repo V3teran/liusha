@@ -58,8 +58,9 @@ func (h handler) handleActive(ctx context.Context, p worker.Payload, entrypoint 
 		return h.failTask(ctx, p.TaskID, err)
 	}
 
-	// 为本次 agent run 启动 sandbox 容器（0061+ 传 ownerID 给 launcher 注入 HTTP_PROXY user=owner_<id>）
-	sandboxClient, err := h.launcher.Spawn(ctx, p.TaskID, oid)
+	// 为本次 agent run 启动 sandbox 容器（0062 撤回 0061：hunterID=p.TaskID 注入
+	// HTTP_PROXY user=hunter_<id>，ingestor 反查得 owner_type/owner_id 写双字段）
+	sandboxClient, err := h.launcher.Spawn(ctx, p.TaskID)
 	if err != nil {
 		return h.failTask(ctx, p.TaskID, fmt.Errorf("launcher.Spawn(%s): %w", p.TaskID, err))
 	}

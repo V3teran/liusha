@@ -6,8 +6,8 @@
 // 0060 起 http_flow 是统一流量字典——既存外部 passive 流量，也存内部 agent 工具流量。
 // OwnerType/OwnerID 多态关联到 passive_session 或 active_scan；Source 区分入口
 // （external=8888 外部代理捕获 / internal=8890 sandbox agent 工具）。
-// 0061：删 HunterID 字段——容器架构下所有 hunter 共享 commander 容器 / HTTP_PROXY env，
-// hunter_id 无法区分 commander vs striker，对工具语义无价值；统一用 owner_id。
+// 0062 撤回 0061：恢复 HunterID 字段（双字段语义 — owner_id 顶层归档 + hunter_id 细粒度可追溯，
+// active 模式下区分 commander vs striker 发的流量；passive 模式 hunter_id 为空）。
 package flow
 
 import (
@@ -21,6 +21,7 @@ type Flow struct {
 	ID              int64
 	OwnerType       string // 'passive_session' / 'active_scan'
 	OwnerID         string
+	HunterID        string // 可选；internal source 必填（细粒度可追溯），external 为空
 	Source          string // 'external' / 'internal'
 	Host            string
 	CreatedAt       time.Time
@@ -41,6 +42,7 @@ type FlowSummary struct {
 	ID         int64
 	OwnerType  string
 	OwnerID    string
+	HunterID   string
 	Source     string
 	Host       string
 	CreatedAt  time.Time

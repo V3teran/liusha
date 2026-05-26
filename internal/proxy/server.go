@@ -183,23 +183,22 @@ func (s *Server) onResponse(resp *http.Response, _ *martian.Context) error {
 		}
 	}
 
-	// 3) 构造 snapshot 并注入 source / owner_id（0061 简化：internal listener 直接拿 owner_id）
+	// 3) 构造 snapshot 并注入 source / hunter_id（0062 撤回 0061：internal listener 解 hunter_id，
+	//    ingestor 反查 hunter→owner_type/owner_id 双字段写入 http_flow）
 	snap := buildSnapshot(req, resp, reqBody, respBody)
 	snap.Source = s.source
 	if s.source == "internal" {
-		// 读 X-Liusha-Owner-Id 自定义 header（由 sanitizer 阶段从 Proxy-Authorization 转换而来）。
+		// 读 X-Liusha-Hunter-Id 自定义 header（由 sanitizer 阶段从 Proxy-Authorization 转换而来）。
 		// proxify/martian 会 strip hop-by-hop header（含 Proxy-Authorization）→ onResponse 拿不到原 header；
 		// 自定义 header 不在 hop-by-hop 黑名单 → 安全透传。
-		// owner_type 按 source 派生：internal listener 一定是 active_scan（sandbox 容器只属于 active scan）。
-		if oid := req.Header.Get("X-Liusha-Owner-Id"); oid != "" {
-			snap.OwnerID = oid
-			snap.OwnerType = "active_scan"
+		if hid := req.Header.Get("X-Liusha-Hunter-Id"); hid != "" {
+			snap.HunterID = hid
 			// hop-by-hop 语义：该 header 仅 sandbox ↔ liusha proxy 通信用，
 			// 不应该转发给真实目标 server（隐私 + 防被服务端识别 agent 来源）。
-			req.Header.Del("X-Liusha-Owner-Id")
+			req.Header.Del("X-Liusha-Hunter-Id")
 		} else {
 			s.logger.Warn().Str("method", snap.Method).Str("host", snap.Host).
-				Msg("internal 流量缺 X-Liusha-Owner-Id；owner_id 关联失败（sanitizer 转换异常？）")
+				Msg("internal 流量缺 X-Liusha-Hunter-Id；hunter_id 关联失败（sanitizer 转换异常？）")
 		}
 	}
 

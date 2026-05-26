@@ -91,7 +91,7 @@ func TestExtractHostHeader(t *testing.T) {
 	}
 }
 
-func TestExtractOwnerIDFromHead(t *testing.T) {
+func TestExtractHunterIDFromHead(t *testing.T) {
 	mkAuth := func(user, pass string) string {
 		return "Basic " + base64.StdEncoding.EncodeToString([]byte(user+":"+pass))
 	}
@@ -103,8 +103,8 @@ func TestExtractOwnerIDFromHead(t *testing.T) {
 		want string
 	}{
 		{
-			name: "有效 owner_<uuid> 凭证",
-			head: "GET / HTTP/1.1\r\nHost: x\r\nProxy-Authorization: " + mkAuth("owner_"+uuid, "_") + "\r\n\r\n",
+			name: "有效 hunter_<uuid> 凭证",
+			head: "GET / HTTP/1.1\r\nHost: x\r\nProxy-Authorization: " + mkAuth("hunter_"+uuid, "_") + "\r\n\r\n",
 			want: uuid,
 		},
 		{
@@ -113,13 +113,13 @@ func TestExtractOwnerIDFromHead(t *testing.T) {
 			want: "",
 		},
 		{
-			name: "Proxy-Authorization 但不是 owner_ 前缀 → 空",
+			name: "Proxy-Authorization 但不是 hunter_ 前缀 → 空",
 			head: "GET / HTTP/1.1\r\nHost: x\r\nProxy-Authorization: " + mkAuth("anon", "_") + "\r\n\r\n",
 			want: "",
 		},
 		{
 			name: "header case-insensitive 仍能识别",
-			head: "GET / HTTP/1.1\r\nHost: x\r\nPROXY-AUTHORIZATION: " + mkAuth("owner_"+uuid, "_") + "\r\n\r\n",
+			head: "GET / HTTP/1.1\r\nHost: x\r\nPROXY-AUTHORIZATION: " + mkAuth("hunter_"+uuid, "_") + "\r\n\r\n",
 			want: uuid,
 		},
 		{
@@ -130,7 +130,7 @@ func TestExtractOwnerIDFromHead(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			if got := extractOwnerIDFromHead([]byte(c.head)); got != c.want {
+			if got := extractHunterIDFromHead([]byte(c.head)); got != c.want {
 				t.Errorf("got=%q want=%q", got, c.want)
 			}
 		})
@@ -171,7 +171,7 @@ func TestForwardWithRewrite_407Challenge(t *testing.T) {
 	<-done
 }
 
-// TestForwardWithRewrite_AuthOK：require_auth=true + 带 owner_ auth → 转发上游。
+// TestForwardWithRewrite_AuthOK：require_auth=true + 带 hunter_ auth → 转发上游。
 func TestForwardWithRewrite_AuthOK(t *testing.T) {
 	// 起本地 upstream listener，收到的请求 echo 回去校验
 	upstream, err := net.Listen("tcp", "127.0.0.1:0")
@@ -198,7 +198,7 @@ func TestForwardWithRewrite_AuthOK(t *testing.T) {
 	go forwardWithRewrite(serverConn, upstream.Addr().String(), true)
 
 	const uuid = "8e256a52-5cc6-403b-9d23-a4a788fd5b80"
-	auth := "Basic " + base64.StdEncoding.EncodeToString([]byte("owner_"+uuid+":_"))
+	auth := "Basic " + base64.StdEncoding.EncodeToString([]byte("hunter_"+uuid+":_"))
 	req := "GET / HTTP/1.1\r\nHost: x\r\nProxy-Authorization: " + auth + "\r\n\r\n"
 	if _, err := clientConn.Write([]byte(req)); err != nil {
 		t.Fatalf("write: %v", err)
@@ -207,8 +207,8 @@ func TestForwardWithRewrite_AuthOK(t *testing.T) {
 	select {
 	case got := <-upstreamGot:
 		s := string(got)
-		if !strings.Contains(s, "X-Liusha-Owner-Id: "+uuid) {
-			t.Errorf("upstream got=%q missing X-Liusha-Owner-Id: %s", s, uuid)
+		if !strings.Contains(s, "X-Liusha-Hunter-Id: "+uuid) {
+			t.Errorf("upstream got=%q missing X-Liusha-Hunter-Id: %s", s, uuid)
 		}
 		if strings.Contains(strings.ToLower(s), "proxy-authorization:") {
 			t.Errorf("upstream got=%q still contains Proxy-Authorization", s)

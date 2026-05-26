@@ -24,20 +24,21 @@ func NewStore(pool *pgxpool.Pool, maxReqBody, maxRespBody int) *Store {
 	return &Store{pool: pool, maxReqBody: maxReqBody, maxRespBody: maxRespBody}
 }
 
-// flowSelectCols 是 GetByID 的统一列序，与 scanFlow() 字段一一对应（0061 删 hunter_id）。
-const flowSelectCols = "id, owner_type, owner_id::text, source, " +
+// flowSelectCols 是 GetByID 的统一列序，与 scanFlow() 字段一一对应（0062 恢复 hunter_id）。
+// COALESCE 把 NULL hunter_id 转空串，避免 Scan 到 string 字段时报错。
+const flowSelectCols = "id, owner_type, owner_id::text, COALESCE(hunter_id::text, ''), source, " +
 	"host, created_at, method, url, path, " +
 	"request_headers, request_body, " +
 	"status_code, response_headers, response_body, duration_ms"
 
 // summaryCols 是 ListByOwner 的瘦列序，刻意不含 body / headers，避免大 payload。
-const summaryCols = "id, owner_type, owner_id::text, source, " +
+const summaryCols = "id, owner_type, owner_id::text, COALESCE(hunter_id::text, ''), source, " +
 	"host, created_at, method, url, path, " +
 	"status_code, duration_ms"
 
 // copyFromCols 是 CopyFrom 写入的列名顺序，必须与每行 []any 的元素顺序严格对齐。
 var copyFromCols = []string{
-	"owner_type", "owner_id", "source",
+	"owner_type", "owner_id", "hunter_id", "source",
 	"host", "method", "url", "path",
 	"request_headers", "request_body",
 	"status_code", "response_headers", "response_body", "duration_ms",
@@ -62,16 +63,16 @@ func (s *Store) Append(ctx context.Context, f Flow) (int64, error) {
 	var id int64
 	err := s.pool.QueryRow(ctx, `
 		INSERT INTO http_flow
-			(owner_type, owner_id, source,
+			(owner_type, owner_id, hunter_id, source,
 			 host, method, url, path,
 			 request_headers, request_body,
 			 status_code, response_headers, response_body, duration_ms)
-		VALUES ($1, $2::uuid, $3,
-		        $4, $5, $6, $7,
-		        $8, $9,
-		        $10, $11, $12, $13)
+		VALUES ($1, $2::uuid, $3, $4,
+		        $5, $6, $7, $8,
+		        $9, $10,
+		        $11, $12, $13, $14)
 		RETURNING id`,
-		f.OwnerType, f.OwnerID, f.Source,
+		f.OwnerType, f.OwnerID, hunterIDArg(f.HunterID), f.Source,
 		host, f.Method, f.URL, path,
 		reqH, reqBody,
 		f.StatusCode, respH, respBody, f.DurationMs).Scan(&id)
@@ -79,6 +80,15 @@ func (s *Store) Append(ctx context.Context, f Flow) (int64, error) {
 		return 0, fmt.Errorf("append flow: %w", err)
 	}
 	return id, nil
+}
+
+// hunterIDArg 把空 hunter_id 转 nil（pgx 会写 NULL），非空原样返字符串（pgx 强转 uuid）。
+// 避免空字符串塞 uuid 列触发 "invalid input syntax for type uuid" 错误。
+func hunterIDArg(h string) any {
+	if h == "" {
+		return nil
+	}
+	return h
 }
 
 // AppendBatch 用 pgx.CopyFrom 批量插入，性能远高于逐行 INSERT。
@@ -100,7 +110,7 @@ func (s *Store) AppendBatch(ctx context.Context, flows []Flow) error {
 			path = extractPath(f.URL)
 		}
 		rows[i] = []any{
-			f.OwnerType, f.OwnerID, f.Source,
+			f.OwnerType, f.OwnerID, hunterIDArg(f.HunterID), f.Source,
 			host, f.Method, f.URL, path,
 			normalizeHeaders(f.RequestHeaders), reqBody,
 			f.StatusCode, normalizeHeaders(f.ResponseHeaders), respBody, f.DurationMs,
@@ -143,7 +153,7 @@ func (s *Store) ListByOwner(ctx context.Context, ownerID string, limit, offset i
 	var out []FlowSummary
 	for rows.Next() {
 		var sum FlowSummary
-		if err := rows.Scan(&sum.ID, &sum.OwnerType, &sum.OwnerID, &sum.Source,
+		if err := rows.Scan(&sum.ID, &sum.OwnerType, &sum.OwnerID, &sum.HunterID, &sum.Source,
 			&sum.Host, &sum.CreatedAt, &sum.Method, &sum.URL, &sum.Path,
 			&sum.StatusCode, &sum.DurationMs); err != nil {
 			return nil, fmt.Errorf("scan flow summary: %w", err)
@@ -223,7 +233,7 @@ func (s *Store) ListByOwnerFiltered(ctx context.Context, ownerID string, f ListF
 	var out []FlowSummary
 	for rows.Next() {
 		var sum FlowSummary
-		if err := rows.Scan(&sum.ID, &sum.OwnerType, &sum.OwnerID, &sum.Source,
+		if err := rows.Scan(&sum.ID, &sum.OwnerType, &sum.OwnerID, &sum.HunterID, &sum.Source,
 			&sum.Host, &sum.CreatedAt, &sum.Method, &sum.URL, &sum.Path,
 			&sum.StatusCode, &sum.DurationMs); err != nil {
 			return nil, fmt.Errorf("scan: %w", err)
@@ -249,7 +259,7 @@ type scanner interface {
 // scanFlow 是 flowSelectCols 列序的统一反序列化点。
 func scanFlow(r scanner, f *Flow) error {
 	var reqH, respH []byte
-	if err := r.Scan(&f.ID, &f.OwnerType, &f.OwnerID, &f.Source,
+	if err := r.Scan(&f.ID, &f.OwnerType, &f.OwnerID, &f.HunterID, &f.Source,
 		&f.Host, &f.CreatedAt, &f.Method, &f.URL, &f.Path,
 		&reqH, &f.RequestBody,
 		&f.StatusCode, &respH, &f.ResponseBody, &f.DurationMs); err != nil {
