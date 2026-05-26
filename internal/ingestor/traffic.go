@@ -193,16 +193,23 @@ func (t *Traffic) handleMessage(ctx context.Context, msg redis.XMessage) {
 func (t *Traffic) appendFlow(ctx context.Context, passSessID string, snap *proxy.TrafficSnapshot) (int64, error) {
 	reqH, _ := json.Marshal(snap.RequestHeaders)
 	respH, _ := json.Marshal(snap.ResponseHeaders)
+	// ingestor 仅消费 passive 入口流量：owner_type 固定 passive_session，source 固定 external。
+	// 内部 agent 流量（source=internal）由 cmd/proxy 8889 listener 直接关联 + 写入，不进 ingestor。
 	return t.flows.Append(ctx, flow.Flow{
-		PassiveSessionID: passSessID,
-		CreatedAt:        snap.Timestamp,
-		Method:           snap.Method,
-		URL:              fullURL(snap),
-		RequestHeaders:   reqH,
-		RequestBody:      snap.RequestBody,
-		StatusCode:       snap.StatusCode,
-		ResponseHeaders:  respH,
-		ResponseBody:     snap.ResponseBody,
+		OwnerType:       "passive_session",
+		OwnerID:         passSessID,
+		Source:          "external",
+		Host:            snap.Host,
+		Path:            snap.Path,
+		CreatedAt:       snap.Timestamp,
+		Method:          snap.Method,
+		URL:             fullURL(snap),
+		RequestHeaders:  reqH,
+		RequestBody:     snap.RequestBody,
+		StatusCode:      snap.StatusCode,
+		ResponseHeaders: respH,
+		ResponseBody:    snap.ResponseBody,
+		DurationMs:      int(snap.Duration.Milliseconds()),
 	})
 }
 

@@ -2,6 +2,11 @@
 // 抓取代理在 owner 内观测到的每一次请求/响应（含 headers + body）。
 // 大 body 在 Append/AppendBatch 内按 maxReqBody / maxRespBody 截断（v0010 后不再
 // 单独打 truncated flag；body 长度 < max 即未截断，按需 caller 自查 len()）。
+//
+// 0060 起 http_flow 是统一流量字典——既存外部 passive 流量，也存内部 agent 工具流量。
+// OwnerType/OwnerID 多态关联到 passive_session 或 active_scan；Source 区分入口
+// （external=8888 外部代理捕获 / internal=8889 sandbox agent 工具）；HunterID 仅
+// internal 填，指向发起请求的 hunter。
 package flow
 
 import (
@@ -11,29 +16,38 @@ import (
 
 // Flow 是 http_flow 表行的 Go 表示。
 // RequestHeaders / ResponseHeaders 走 jsonb；RequestBody / ResponseBody 走 bytea。
-// active scan 不入 http_flow 表，故无 OwnerType 二字段——这里只走 passive。
 type Flow struct {
-	ID               int64
-	PassiveSessionID string
-	Host             string
-	CreatedAt        time.Time
-	Method           string
-	URL              string
-	RequestHeaders   json.RawMessage
-	RequestBody      []byte
-	StatusCode       int
-	ResponseHeaders  json.RawMessage
-	ResponseBody     []byte
+	ID              int64
+	OwnerType       string // 'passive_session' / 'active_scan'
+	OwnerID         string
+	Source          string // 'external' / 'internal'
+	HunterID        string // 空字符串 = NULL；仅 internal 填
+	Host            string
+	CreatedAt       time.Time
+	Method          string
+	URL             string
+	Path            string // 0060 加：从 url 抽出，glob 查询索引用
+	RequestHeaders  json.RawMessage
+	RequestBody     []byte
+	StatusCode      int
+	ResponseHeaders json.RawMessage
+	ResponseBody    []byte
+	DurationMs      int
 }
 
 // FlowSummary 是 ListByOwner 的瘦行：不含 body / headers，
 // 避免一次查询把数十 MiB bytea 拖入内存。
 type FlowSummary struct {
-	ID               int64
-	PassiveSessionID string
-	Host             string
-	CreatedAt        time.Time
-	Method           string
-	URL              string
-	StatusCode       int
+	ID         int64
+	OwnerType  string
+	OwnerID    string
+	Source     string
+	HunterID   string
+	Host       string
+	CreatedAt  time.Time
+	Method     string
+	URL        string
+	Path       string
+	StatusCode int
+	DurationMs int
 }

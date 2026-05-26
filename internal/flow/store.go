@@ -7,7 +7,6 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-
 )
 
 // Store 封装 http_flow 表的所有持久化操作。
@@ -23,20 +22,32 @@ func NewStore(pool *pgxpool.Pool, maxReqBody, maxRespBody int) *Store {
 	return &Store{pool: pool, maxReqBody: maxReqBody, maxRespBody: maxRespBody}
 }
 
-// flowSelectCols 是 GetByID 的统一列序，与 scanFlow() 字段一一对应。
-const flowSelectCols = "id, passive_session_id::text, host, " +
-	"created_at, method, url, request_headers, request_body, " +
-	"status_code, response_headers, response_body"
+// flowSelectCols 是 GetByID 的统一列序，与 scanFlow() 字段一一对应（0060 新字段已纳入）。
+const flowSelectCols = "id, owner_type, owner_id::text, source, " +
+	"COALESCE(hunter_id::text, ''), host, created_at, method, url, path, " +
+	"request_headers, request_body, " +
+	"status_code, response_headers, response_body, duration_ms"
 
 // summaryCols 是 ListByOwner 的瘦列序，刻意不含 body / headers，避免大 payload。
-// FlowSummary.PassiveSessionID 字段直接对应 passive_session.id（前端 viewer 通过 JSON tag 取值）。
-const summaryCols = "id, passive_session_id::text, host, created_at, method, url, status_code"
+const summaryCols = "id, owner_type, owner_id::text, source, " +
+	"COALESCE(hunter_id::text, ''), host, created_at, method, url, path, " +
+	"status_code, duration_ms"
 
 // copyFromCols 是 CopyFrom 写入的列名顺序，必须与每行 []any 的元素顺序严格对齐。
 var copyFromCols = []string{
-	"passive_session_id", "host", "method", "url",
+	"owner_type", "owner_id", "source", "hunter_id",
+	"host", "method", "url", "path",
 	"request_headers", "request_body",
-	"status_code", "response_headers", "response_body",
+	"status_code", "response_headers", "response_body", "duration_ms",
+}
+
+// hunterIDArg 把空字符串 HunterID 转 nil（用于 pgx 写 NULL），非空原样返回。
+// pgx INSERT 用 nil 写 NULL；CopyFrom 同理。
+func hunterIDArg(s string) any {
+	if s == "" {
+		return nil
+	}
+	return s
 }
 
 // Append 单条插入（带截断），返回 bigserial id。
@@ -46,20 +57,31 @@ func (s *Store) Append(ctx context.Context, f Flow) (int64, error) {
 	reqH := normalizeHeaders(f.RequestHeaders)
 	respH := normalizeHeaders(f.ResponseHeaders)
 
-	var id int64
 	host := f.Host
 	if host == "" {
 		host = extractHost(f.URL)
 	}
+	path := f.Path
+	if path == "" {
+		path = extractPath(f.URL)
+	}
+
+	var id int64
 	err := s.pool.QueryRow(ctx, `
 		INSERT INTO http_flow
-			(passive_session_id, host, method, url, request_headers, request_body,
-			 status_code, response_headers, response_body)
-		VALUES ($1::uuid, $2,$3,$4,$5,$6,$7,$8,$9)
+			(owner_type, owner_id, source, hunter_id,
+			 host, method, url, path,
+			 request_headers, request_body,
+			 status_code, response_headers, response_body, duration_ms)
+		VALUES ($1, $2::uuid, $3, $4::uuid,
+		        $5, $6, $7, $8,
+		        $9, $10,
+		        $11, $12, $13, $14)
 		RETURNING id`,
-		f.PassiveSessionID, host, f.Method, f.URL,
+		f.OwnerType, f.OwnerID, f.Source, hunterIDArg(f.HunterID),
+		host, f.Method, f.URL, path,
 		reqH, reqBody,
-		f.StatusCode, respH, respBody).Scan(&id)
+		f.StatusCode, respH, respBody, f.DurationMs).Scan(&id)
 	if err != nil {
 		return 0, fmt.Errorf("append flow: %w", err)
 	}
@@ -80,10 +102,15 @@ func (s *Store) AppendBatch(ctx context.Context, flows []Flow) error {
 		if host == "" {
 			host = extractHost(f.URL)
 		}
+		path := f.Path
+		if path == "" {
+			path = extractPath(f.URL)
+		}
 		rows[i] = []any{
-			f.PassiveSessionID, host, f.Method, f.URL,
+			f.OwnerType, f.OwnerID, f.Source, hunterIDArg(f.HunterID),
+			host, f.Method, f.URL, path,
 			normalizeHeaders(f.RequestHeaders), reqBody,
-			f.StatusCode, normalizeHeaders(f.ResponseHeaders), respBody,
+			f.StatusCode, normalizeHeaders(f.ResponseHeaders), respBody, f.DurationMs,
 		}
 	}
 	_, err := s.pool.CopyFrom(ctx,
@@ -107,15 +134,12 @@ func (s *Store) GetByID(ctx context.Context, id int64) (Flow, error) {
 	return f, nil
 }
 
-// ListByOwner 按 (ts, id) 升序分页列出  owner / passive_session 的瘦摘要（不含 body / headers）。
-//
-// 双轨切读：参数 ID 可以是旧 owner.id 或新 passive_session.id。SQL OR 让 viewer 传新 ID
-// 时也命中。commit B5+ 完成数据回填后可改名为 ListByOwner。
+// ListByOwner 按 (ts, id) 升序分页列出 owner 的瘦摘要（不含 body / headers）。
 func (s *Store) ListByOwner(ctx context.Context, ownerID string, limit, offset int) ([]FlowSummary, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT `+summaryCols+`
 		FROM http_flow
-		WHERE passive_session_id=$1::uuid
+		WHERE owner_id=$1::uuid
 		ORDER BY created_at ASC, id ASC
 		LIMIT $2 OFFSET $3`, ownerID, limit, offset)
 	if err != nil {
@@ -126,8 +150,9 @@ func (s *Store) ListByOwner(ctx context.Context, ownerID string, limit, offset i
 	var out []FlowSummary
 	for rows.Next() {
 		var sum FlowSummary
-		if err := rows.Scan(&sum.ID, &sum.PassiveSessionID, &sum.Host, &sum.CreatedAt, &sum.Method, &sum.URL,
-			&sum.StatusCode); err != nil {
+		if err := rows.Scan(&sum.ID, &sum.OwnerType, &sum.OwnerID, &sum.Source,
+			&sum.HunterID, &sum.Host, &sum.CreatedAt, &sum.Method, &sum.URL, &sum.Path,
+			&sum.StatusCode, &sum.DurationMs); err != nil {
 			return nil, fmt.Errorf("scan flow summary: %w", err)
 		}
 		out = append(out, sum)
@@ -146,9 +171,10 @@ type scanner interface {
 // scanFlow 是 flowSelectCols 列序的统一反序列化点。
 func scanFlow(r scanner, f *Flow) error {
 	var reqH, respH []byte
-	if err := r.Scan(&f.ID, &f.PassiveSessionID, &f.Host, &f.CreatedAt, &f.Method, &f.URL,
+	if err := r.Scan(&f.ID, &f.OwnerType, &f.OwnerID, &f.Source, &f.HunterID,
+		&f.Host, &f.CreatedAt, &f.Method, &f.URL, &f.Path,
 		&reqH, &f.RequestBody,
-		&f.StatusCode, &respH, &f.ResponseBody); err != nil {
+		&f.StatusCode, &respH, &f.ResponseBody, &f.DurationMs); err != nil {
 		return err
 	}
 	f.RequestHeaders = json.RawMessage(reqH)
@@ -190,6 +216,40 @@ func extractHost(rawURL string) string {
 	}
 	for i, r := range s {
 		if r == '/' || r == ':' || r == '?' || r == '#' {
+			return s[:i]
+		}
+	}
+	return s
+}
+
+// extractPath 从 URL 抽 path（不含 query）。空或异常 fallback "/"。
+// 与 0060 migration 回填 SQL 的 substring 正则等价。
+func extractPath(rawURL string) string {
+	if rawURL == "" {
+		return "/"
+	}
+	s := rawURL
+	for _, prefix := range []string{"https://", "http://"} {
+		if len(s) > len(prefix) && s[:len(prefix)] == prefix {
+			s = s[len(prefix):]
+			break
+		}
+	}
+	// 跳过 host[:port]
+	slash := -1
+	for i, r := range s {
+		if r == '/' {
+			slash = i
+			break
+		}
+	}
+	if slash < 0 {
+		return "/"
+	}
+	s = s[slash:]
+	// 去 query
+	for i, r := range s {
+		if r == '?' || r == '#' {
 			return s[:i]
 		}
 	}

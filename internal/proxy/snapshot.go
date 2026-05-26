@@ -12,6 +12,13 @@ import "time"
 
 // TrafficSnapshot 一条 HTTP 流量在 Redis Stream / 消费者侧的可序列化快照。
 //
+// owner 关联（0060+）：
+//
+//	OwnerType / OwnerID  passive_session.id 或 active_scan.id（cmd/proxy 关联机制填，
+//	                     external 按 host 查 passive_session，internal 解析 Proxy-Auth 拿 hunter→owner）
+//	Source               'external'（8888 入口）/ 'internal'（8889 入口，agent 工具发起）
+//	HunterID             仅 internal source 填（哪个 hunter 发的；用于 list_flows 按 hunter 过滤）
+//
 // URI 拆解：
 //
 //	URI    保留原始字符串（含 query，重放时需要原顺序，对签名服务端友好）
@@ -34,9 +41,14 @@ import "time"
 //	                正确处理 Set-Cookie 等 RFC 6265 强制独立多行的 header）
 //	RequestBody     请求体（已截断到 MaxRequestBodySize）
 //	ResponseBody    响应体（已截断到 MaxResponseBodySize）
+//	Duration        请求-响应耗时（proxify OnResponseCallback 算 wall time）
 //	Timestamp       捕获时间（host 本地时钟，UTC）
 type TrafficSnapshot struct {
 	ID              string              `json:"id"`
+	OwnerType       string              `json:"owner_type,omitempty"`
+	OwnerID         string              `json:"owner_id,omitempty"`
+	Source          string              `json:"source"`
+	HunterID        string              `json:"hunter_id,omitempty"`
 	Host            string              `json:"host"`
 	HostPort        string              `json:"host_port,omitempty"`
 	Method          string              `json:"method"`
@@ -49,5 +61,6 @@ type TrafficSnapshot struct {
 	ResponseHeaders map[string][]string `json:"response_headers,omitempty"`
 	RequestBody     []byte              `json:"request_body,omitempty"`
 	ResponseBody    []byte              `json:"response_body,omitempty"`
+	Duration        time.Duration       `json:"duration_ns,omitempty"`
 	Timestamp       time.Time           `json:"timestamp"`
 }

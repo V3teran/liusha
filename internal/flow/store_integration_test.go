@@ -33,7 +33,7 @@ func TestStore_Append_TruncatesLargeBody(t *testing.T) {
 
 	big := bytes.Repeat([]byte("x"), 5000)
 	id, err := s.Append(ctx, Flow{
-		PassiveSessionID: sid,
+		OwnerType: "passive_session", OwnerID: sid, Source: "external",
 		Method:           "POST",
 		URL:              "/api/x",
 		RequestHeaders:   json.RawMessage(`{"x":"1"}`),
@@ -77,7 +77,7 @@ func TestStore_Append_SmallBodyNoTruncation(t *testing.T) {
 
 	small := []byte("hello")
 	id, err := s.Append(ctx, Flow{
-		PassiveSessionID: sid,
+		OwnerType: "passive_session", OwnerID: sid, Source: "external",
 		Method:           "GET",
 		URL:              "/health",
 		RequestBody:      small,
@@ -103,9 +103,9 @@ func TestStore_AppendBatch_CopyFrom(t *testing.T) {
 
 	big := bytes.Repeat([]byte("y"), 3000)
 	flows := []Flow{
-		{PassiveSessionID: sid, Method: "GET", URL: "/a", StatusCode: 200, RequestBody: []byte("a")},
-		{PassiveSessionID: sid, Method: "GET", URL: "/b", StatusCode: 404, ResponseBody: big},
-		{PassiveSessionID: sid, Method: "POST", URL: "/c", StatusCode: 500, RequestBody: big, ResponseBody: big},
+		{OwnerType: "passive_session", OwnerID: sid, Source: "external", Method: "GET", URL: "/a", StatusCode: 200, RequestBody: []byte("a")},
+		{OwnerType: "passive_session", OwnerID: sid, Source: "external", Method: "GET", URL: "/b", StatusCode: 404, ResponseBody: big},
+		{OwnerType: "passive_session", OwnerID: sid, Source: "external", Method: "POST", URL: "/c", StatusCode: 500, RequestBody: big, ResponseBody: big},
 	}
 	if err := s.AppendBatch(ctx, flows); err != nil {
 		t.Fatalf("append batch: %v", err)
@@ -162,7 +162,7 @@ func TestStore_ListByOwner_Pagination(t *testing.T) {
 
 	urls := []string{"/p1", "/p2", "/p3", "/p4", "/p5"}
 	for _, u := range urls {
-		if _, err := s.Append(ctx, Flow{PassiveSessionID: sid, Method: "GET", URL: u, StatusCode: 200}); err != nil {
+		if _, err := s.Append(ctx, Flow{OwnerType: "passive_session", OwnerID: sid, Source: "external", Method: "GET", URL: u, StatusCode: 200}); err != nil {
 			t.Fatalf("seed: %v", err)
 		}
 	}
