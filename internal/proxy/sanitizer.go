@@ -221,17 +221,35 @@ func readHTTPHead(br *bufio.Reader) ([]byte, error) {
 	}
 }
 
-// RunSanitizingForwarder 监听 publicAddr，accept 后把首段 raw bytes 的 relative URI
-// patch 成 absolute form 再 forward 给 upstreamAddr（proxify loopback 端口）。
-// 双向 io.Copy 直到任一侧断开。阻塞直到 listener 出错；caller 通常在 goroutine 里跑。
-//
-// 这一层兼容生产环境客户端发 relative URI 的情况——proxify (martian) 默认只接
-// absolute-form，前置改写后客户端无感知。
-//
-// requireProxyAuth=true（internal listener）：缺 Proxy-Authorization / 解不出 owner_id
-// 时直接给 client 写 407 challenge，触发 chromium CDP Fetch.authRequired → inject 注入
-// → 重发带 auth。external listener 走 false 保留无 auth 兼容（外部流量本就无凭证）。
-func RunSanitizingForwarder(publicAddr, upstreamAddr string, requireProxyAuth bool) error {
+// RunPassiveSanitizer 监听 publicAddr（external 8888，passive 入口）。
+// 仅做 URI patch — 把首段 raw bytes 的 relative URI 改写成 absolute form 再
+// forward 给 upstreamAddr（proxify loopback 端口）。外部真实业务流量本就无凭证
+// → 不解析 Proxy-Auth / 不发 407 / 不转 X-Liusha-Hunter-Id。
+func RunPassiveSanitizer(publicAddr, upstreamAddr string) error {
+	return runForwarder(publicAddr, upstreamAddr, forwarderOpts{})
+}
+
+// RunAgentSanitizer 监听 publicAddr（internal 8890，agent 工具入口）。
+// 完整链路：URI patch + 缺 Proxy-Authorization 时发 407 challenge + 解出 hunter_id
+// 转 X-Liusha-Hunter-Id 自定义 header（proxify 不 strip → onResponse 可读）。
+// chromium 收 407 → CDP Fetch.authRequired → proxy_auth_inject.py 注入 → 重发带 auth。
+// CLI 工具（curl/httpx）本就主动带 Proxy-Authorization → 不触发 407 路径。
+func RunAgentSanitizer(publicAddr, upstreamAddr string) error {
+	return runForwarder(publicAddr, upstreamAddr, forwarderOpts{
+		requireProxyAuth:  true,
+		rewriteHunterAuth: true,
+	})
+}
+
+// forwarderOpts 控制 sanitizer 是否启用 hunter auth 链路；零值仅 patch URI（passive 用）。
+type forwarderOpts struct {
+	requireProxyAuth  bool // 缺 Proxy-Authorization 时写 407 challenge 给 client
+	rewriteHunterAuth bool // 把 Proxy-Authorization 解出来转 X-Liusha-Hunter-Id header
+}
+
+// runForwarder 是 sanitizer 内部 listener + per-conn 转发循环。
+// 阻塞直到 listener 出错；caller 通常在 goroutine 里跑。
+func runForwarder(publicAddr, upstreamAddr string, opts forwarderOpts) error {
 	ln, err := net.Listen("tcp", publicAddr)
 	if err != nil {
 		return fmt.Errorf("listen %s: %w", publicAddr, err)
@@ -241,11 +259,11 @@ func RunSanitizingForwarder(publicAddr, upstreamAddr string, requireProxyAuth bo
 		if err != nil {
 			return fmt.Errorf("accept: %w", err)
 		}
-		go forwardWithRewrite(client, upstreamAddr, requireProxyAuth)
+		go handleConn(client, upstreamAddr, opts)
 	}
 }
 
-func forwardWithRewrite(client net.Conn, upstreamAddr string, requireProxyAuth bool) {
+func handleConn(client net.Conn, upstreamAddr string, opts forwarderOpts) {
 	defer func() { _ = client.Close() }()
 
 	br := bufio.NewReader(client)
@@ -255,10 +273,9 @@ func forwardWithRewrite(client net.Conn, upstreamAddr string, requireProxyAuth b
 		return
 	}
 
-	// internal listener 强制 require auth：缺/解不出 hunter_id → 407 challenge。
+	// agent listener 强制 require auth：缺/解不出 hunter_id → 407 challenge。
 	// chromium 收 407 → CDP Fetch.authRequired → proxy_auth_inject.py 注入 → 重发。
-	// CLI 工具（curl/httpx）本就主动带 Proxy-Authorization → 这条路径不触发。
-	if requireProxyAuth && extractHunterIDFromHead(head) == "" {
+	if opts.requireProxyAuth && extractHunterIDFromHead(head) == "" {
 		_, _ = client.Write([]byte(proxyAuthChallenge407))
 		return
 	}
@@ -270,9 +287,11 @@ func forwardWithRewrite(client net.Conn, upstreamAddr string, requireProxyAuth b
 	defer func() { _ = upstream.Close() }()
 
 	patched := patchAbsoluteURI(head)
-	// 把 Proxy-Authorization 转成 X-Liusha-Hunter-Id（proxify 在 onResponse 之前会
-	// strip hop-by-hop header；自定义 header 才能透传给 server.go 拿 hunter_id）。
-	patched = rewriteProxyAuthToHunterHeader(patched)
+	if opts.rewriteHunterAuth {
+		// 把 Proxy-Authorization 转成 X-Liusha-Hunter-Id（proxify 在 onResponse 之前会
+		// strip hop-by-hop header；自定义 header 才能透传给 server.go 拿 hunter_id）。
+		patched = rewriteProxyAuthToHunterHeader(patched)
+	}
 	if _, err := upstream.Write(patched); err != nil {
 		return
 	}

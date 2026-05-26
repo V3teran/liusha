@@ -147,7 +147,7 @@ func TestForwardWithRewrite_407Challenge(t *testing.T) {
 	go func() {
 		defer close(done)
 		// upstreamAddr 给个 unreachable 地址；require_auth 应该早返根本不 dial
-		forwardWithRewrite(serverConn, "127.0.0.1:1", true)
+		handleConn(serverConn, "127.0.0.1:1", forwarderOpts{requireProxyAuth: true, rewriteHunterAuth: true})
 	}()
 
 	// 写无 auth 的请求
@@ -195,7 +195,7 @@ func TestForwardWithRewrite_AuthOK(t *testing.T) {
 
 	clientConn, serverConn := net.Pipe()
 	defer clientConn.Close()
-	go forwardWithRewrite(serverConn, upstream.Addr().String(), true)
+	go handleConn(serverConn, upstream.Addr().String(), forwarderOpts{requireProxyAuth: true, rewriteHunterAuth: true})
 
 	const uuid = "8e256a52-5cc6-403b-9d23-a4a788fd5b80"
 	auth := "Basic " + base64.StdEncoding.EncodeToString([]byte("hunter_"+uuid+":_"))
