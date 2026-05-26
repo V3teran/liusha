@@ -50,8 +50,14 @@ func main() {
 
 	// 内嵌 MITM 代理装配链：filter → publisher → proxy.Server
 	// ENV 仍可临时覆盖 yaml；空 ENV → 走 yaml；yaml 也空 → ApplyDefaults 兜底。
+	//
+	// 双 listener（0060+）物理隔离 source，避免 agent 自挖流量触发 passive tracker 自激震荡：
+	//   external: publicAddr (8888) → sanitizer → internalAddr loopback (18888) → external proxify
+	//   internal: agentPublicAddr (8890) → sanitizer → agentInternalAddr loopback (18890) → internal proxify
 	publicAddr := envx.OrDefault("LIUSHA_PROXY_LISTEN_ADDR", proxyCfg.ListenAddr)
 	internalAddr := envx.OrDefault("LIUSHA_PROXY_INTERNAL_ADDR", proxyCfg.InternalAddr)
+	agentPublicAddr := envx.OrDefault("LIUSHA_PROXY_AGENT_LISTEN_ADDR", proxyCfg.AgentListenAddr)
+	agentInternalAddr := envx.OrDefault("LIUSHA_PROXY_AGENT_INTERNAL_ADDR", proxyCfg.AgentInternalAddr)
 	certDir := envx.OrDefault("LIUSHA_PROXY_CERT_DIR", "") // 空则 proxy.Server 用 $HOME/<cert_subdir>
 
 	trafficFilter := filter.NewTrafficFilter(proxyCfg)
@@ -60,18 +66,33 @@ func main() {
 		logger.Fatal().Err(err).Msg("new publisher")
 	}
 
-	// proxify 监听 internal loopback；公开端口由 sanitizer 接管，
-	// 把 relative URI 客户端报文 patch 成 absolute form 后透传给 proxify。
-	proxyServer, err := proxy.NewServer(proxy.ServerDeps{
+	// External（passive 入口）：proxify 监听 internal loopback，公开端口由 sanitizer 接管。
+	externalServer, err := proxy.NewServer(proxy.ServerDeps{
 		Filter:     trafficFilter,
 		Publisher:  publisher,
 		Cfg:        proxyCfg,
 		ListenAddr: internalAddr,
 		CertDir:    certDir,
-		Logger:     logger,
+		Source:     "external",
+		Logger:     logger.With().Str("listener", "external").Logger(),
 	})
 	if err != nil {
-		logger.Fatal().Err(err).Msg("new mitm proxy")
+		logger.Fatal().Err(err).Msg("new external mitm proxy")
+	}
+
+	// Internal（agent 入口）：共享 filter/publisher/certDir，独立 listener + source 标签。
+	// ingestor 端按 snap.Source 分流：internal → 不触发 passive tracker。
+	internalServer, err := proxy.NewServer(proxy.ServerDeps{
+		Filter:     trafficFilter,
+		Publisher:  publisher,
+		Cfg:        proxyCfg,
+		ListenAddr: agentInternalAddr,
+		CertDir:    certDir,
+		Source:     "internal",
+		Logger:     logger.With().Str("listener", "internal").Logger(),
+	})
+	if err != nil {
+		logger.Fatal().Err(err).Msg("new internal mitm proxy")
 	}
 
 	proxyCtx, proxyCancel := context.WithCancel(context.Background())
@@ -96,18 +117,31 @@ func main() {
 		}
 	}()
 
+	// External proxify + sanitizer（passive 入口）
 	go func() {
-		logger.Info().Str("internal", internalAddr).Msg("mitm proxy starting")
-		if err := proxyServer.Run(proxyCtx); err != nil && !errors.Is(err, context.Canceled) {
-			logger.Error().Err(err).Msg("mitm proxy exited")
+		logger.Info().Str("loopback", internalAddr).Str("source", "external").Msg("mitm proxy starting")
+		if err := externalServer.Run(proxyCtx); err != nil && !errors.Is(err, context.Canceled) {
+			logger.Error().Err(err).Msg("external mitm proxy exited")
+		}
+	}()
+	go func() {
+		logger.Info().Str("public", publicAddr).Str("upstream", internalAddr).Str("source", "external").Msg("uri sanitizer listening")
+		if err := proxy.RunSanitizingForwarder(publicAddr, internalAddr); err != nil {
+			logger.Error().Err(err).Msg("external uri sanitizer exited")
 		}
 	}()
 
-	// sanitizer：公开端口接客户端，patch relative URI 后转给 proxify loopback。
+	// Internal proxify + sanitizer（agent 入口）
 	go func() {
-		logger.Info().Str("public", publicAddr).Str("upstream", internalAddr).Msg("uri sanitizer listening")
-		if err := proxy.RunSanitizingForwarder(publicAddr, internalAddr); err != nil {
-			logger.Error().Err(err).Msg("uri sanitizer exited")
+		logger.Info().Str("loopback", agentInternalAddr).Str("source", "internal").Msg("mitm proxy starting")
+		if err := internalServer.Run(proxyCtx); err != nil && !errors.Is(err, context.Canceled) {
+			logger.Error().Err(err).Msg("internal mitm proxy exited")
+		}
+	}()
+	go func() {
+		logger.Info().Str("public", agentPublicAddr).Str("upstream", agentInternalAddr).Str("source", "internal").Msg("uri sanitizer listening")
+		if err := proxy.RunSanitizingForwarder(agentPublicAddr, agentInternalAddr); err != nil {
+			logger.Error().Err(err).Msg("internal uri sanitizer exited")
 		}
 	}()
 
@@ -116,7 +150,8 @@ func main() {
 	sig := <-stop
 	logger.Info().Str("signal", sig.String()).Msg("proxy shutting down")
 
-	proxyServer.Stop()
+	externalServer.Stop()
+	internalServer.Stop()
 	proxyCancel()
 	shutdownTimeout := time.Duration(proxyCfg.ShutdownTimeoutSeconds) * time.Second
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)

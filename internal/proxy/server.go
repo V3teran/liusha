@@ -6,6 +6,7 @@ import (
 	"compress/gzip"
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -54,16 +55,20 @@ type Server struct {
 	cfg        config.ProxyConfig
 	listenAddr string
 	certDir    string
+	source     string // 'external' / 'internal'，注入到每条 snapshot 用于 ingestor 分流
 	logger     zerolog.Logger
 }
 
 // ServerDeps 注入服务依赖；ListenAddr / CertDir 为空时走默认值。
+// Source 必填——双 listener 部署时按 listener 区分 'external'（passive 入口）/
+// 'internal'（agent 工具入口）；ingestor 据此决定是否触发 passive tracker。
 type ServerDeps struct {
 	Filter     *filter.TrafficFilter
 	Publisher  SnapshotPublisher
 	Cfg        config.ProxyConfig
 	ListenAddr string
 	CertDir    string
+	Source     string // 必填：'external' / 'internal'
 	Logger     zerolog.Logger
 }
 
@@ -93,12 +98,18 @@ func NewServer(deps ServerDeps) (*Server, error) {
 		return nil, fmt.Errorf("加载/生成 CA 证书失败: %w", err)
 	}
 
+	source := strings.TrimSpace(deps.Source)
+	if source != "external" && source != "internal" {
+		return nil, fmt.Errorf("proxy.NewServer: Source 必填且必须是 'external' 或 'internal'（实际值 %q）", deps.Source)
+	}
+
 	srv := &Server{
 		filter:     deps.Filter,
 		publisher:  deps.Publisher,
 		cfg:        deps.Cfg,
 		listenAddr: listenAddr,
 		certDir:    certDir,
+		source:     source,
 		logger:     deps.Logger,
 	}
 
@@ -173,8 +184,21 @@ func (s *Server) onResponse(resp *http.Response, _ *martian.Context) error {
 		}
 	}
 
-	// 3) 构造 snapshot 并投递到 Stream
+	// 3) 构造 snapshot 并注入 source / hunter_id（internal listener 才有 hunter_id）
 	snap := buildSnapshot(req, resp, reqBody, respBody)
+	snap.Source = s.source
+	if s.source == "internal" {
+		// 解析 Proxy-Authorization: Basic base64(hunter_<uuid>:_)
+		// sandbox 容器 env 形如 HTTP_PROXY=http://hunter_<uuid>:_@host:port，client 自动加该 header
+		// 拿不到时 log warn 但不阻断（snap.HunterID 留空，ingestor 端走 hunter 未关联兜底）
+		if hid := parseProxyAuthHunterID(req.Header.Get("Proxy-Authorization")); hid != "" {
+			snap.HunterID = hid
+		} else {
+			s.logger.Warn().Str("method", snap.Method).Str("host", snap.Host).
+				Msg("internal 流量缺 Proxy-Authorization；hunter_id 关联失败")
+		}
+	}
+
 	if err := s.publisher.Publish(req.Context(), snap); err != nil {
 		s.logger.Warn().Err(err).
 			Str("method", snap.Method).Str("host", snap.Host).Str("uri", snap.URI).
@@ -402,4 +426,42 @@ func generateSnapshotID(method, host, uri string, body []byte) string {
 	h.Write([]byte("|"))
 	h.Write(body)
 	return hex.EncodeToString(h.Sum(nil))
+}
+
+// parseProxyAuthHunterID 从 Proxy-Authorization header 抽 hunter_id（uuid 形式）。
+//
+// 协议（0060+ sandbox 与 proxy 的契约）：
+//
+//	HTTP_PROXY=http://hunter_<uuid>:_@host.docker.internal:8890
+//
+// client（curl/python/Go http）自动把 user:pass 转成
+//
+//	Proxy-Authorization: Basic base64(hunter_<uuid>:_)
+//
+// 本函数 base64 解码 + 校验 'hunter_' 前缀 + 返回 uuid 段。
+// 任何步骤失败均返空字符串（caller log warn 兜底，不阻断请求）。
+// proxify/martian 默认在转发给目标 server 时 strip hop-by-hop header（含
+// Proxy-Authorization），所以目标 server 看不到该 header。
+func parseProxyAuthHunterID(header string) string {
+	const scheme = "Basic "
+	const prefix = "hunter_"
+
+	header = strings.TrimSpace(header)
+	if !strings.HasPrefix(header, scheme) {
+		return ""
+	}
+	decoded, err := base64.StdEncoding.DecodeString(header[len(scheme):])
+	if err != nil {
+		return ""
+	}
+	// 形式: hunter_<uuid>:_
+	colonIdx := bytes.IndexByte(decoded, ':')
+	if colonIdx <= 0 {
+		return ""
+	}
+	user := string(decoded[:colonIdx])
+	if !strings.HasPrefix(user, prefix) {
+		return ""
+	}
+	return user[len(prefix):]
 }

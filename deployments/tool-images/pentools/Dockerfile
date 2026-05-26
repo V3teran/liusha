@@ -365,6 +365,21 @@ RUN set -e \
         > /opt/SecLists/README.md \
  && echo "SecLists 占位创建完毕（运行时按需拉取）"
 
+# Layer 7.5: liusha proxy CA cert——让 sandbox 内 CLI 工具（curl / python / Go）
+# 信任 liusha MITM 代理（0060+ HTTP_PROXY 注入由 launcher.go 实现）。
+#
+# 前置：build 前必须跑 ./scripts/dev/sync-pentools-cert.sh 把 $HOME/.liusha/cacert.pem
+# 同步到 deployments/tool-images/pentools/liusha-ca.crt（不入 git）。文件缺失时 COPY 失败、
+# build abort——这是有意行为，避免空 CA 部署后 TLS MITM 全部 fail。
+#
+# update-ca-certificates 把 /usr/local/share/ca-certificates/ 下 .crt 文件并入系统 trust。
+# 影响范围：curl / wget / pip / python requests / Go http / openjdk PKI（含 java tools 如 ysoserial）。
+# 不影响 chromium——它读自己的 NSS DB；后续 chromium proxy 改造时另装。
+COPY deployments/tool-images/pentools/liusha-ca.crt /usr/local/share/ca-certificates/liusha-ca.crt
+RUN update-ca-certificates \
+ && ls -la /etc/ssl/certs/liusha-ca.pem 2>&1 | head -1 \
+ && openssl x509 -in /usr/local/share/ca-certificates/liusha-ca.crt -noout -subject -dates
+
 # Layer 8: sandbox-server 二进制（从 stage 0 sandbox-builder 拷贝）。
 # 这是容器 PID 1，主进程通过 :8080 HTTP RPC 调用——见 design doc：
 # docs/superpowers/specs/2026-05-16-sandbox-server-design.md

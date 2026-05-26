@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -161,6 +163,91 @@ func (s *Store) ListByOwner(ctx context.Context, ownerID string, limit, offset i
 		return nil, fmt.Errorf("iterate flow summaries: %w", err)
 	}
 	return out, nil
+}
+
+// ListFilter 是 ListByOwnerFiltered 的可选过滤条件；零值不过滤。
+// Path 支持 glob：自动把 "*" 替换为 SQL '%'（caller 不需要预转义）。
+// 时间倒序（最新优先），limit 上限由 caller 控制（典型 50-200）。
+type ListFilter struct {
+	Host      string    // 等值
+	Method    string    // 等值，自动 upper-case
+	Path      string    // glob，支持 '*'；空则不过滤
+	Source    string    // 'external' / 'internal'；空则不过滤
+	StatusMin int       // 状态码下界（如 400 = 仅 4xx/5xx）
+	StatusMax int       // 状态码上界
+	Since     time.Time // 仅看此时间后；零值不过滤
+	Limit     int       // 必填，调用方控制 ≤ 200
+	Offset    int       // 分页
+}
+
+// ListByOwnerFiltered 在 owner 范围内按多维过滤查 flow 摘要（list_flows 工具用）。
+// 按 created_at DESC 排（最新优先）方便 LLM 看最近活动。
+func (s *Store) ListByOwnerFiltered(ctx context.Context, ownerID string, f ListFilter) ([]FlowSummary, error) {
+	if f.Limit <= 0 {
+		f.Limit = 50
+	}
+	// 动态拼 WHERE：owner_id 必传，其余按非零值追加
+	q := "SELECT " + summaryCols + " FROM http_flow WHERE owner_id=$1::uuid"
+	args := []any{ownerID}
+	add := func(cond string, val any) {
+		args = append(args, val)
+		q += " AND " + fmt.Sprintf(cond, len(args))
+	}
+	if f.Host != "" {
+		add("host=$%d", f.Host)
+	}
+	if f.Method != "" {
+		add("method=$%d", f.Method)
+	}
+	if f.Path != "" {
+		// glob '*' → SQL '%'，转义已有 '%' '_' 避免 SQL 通配冲突
+		pattern := f.Path
+		if pattern != "" {
+			pattern = sqlEscapeLike(pattern)
+			pattern = strings.ReplaceAll(pattern, "*", "%")
+		}
+		add("path LIKE $%d", pattern)
+	}
+	if f.Source != "" {
+		add("source=$%d", f.Source)
+	}
+	if f.StatusMin > 0 {
+		add("status_code >= $%d", f.StatusMin)
+	}
+	if f.StatusMax > 0 {
+		add("status_code <= $%d", f.StatusMax)
+	}
+	if !f.Since.IsZero() {
+		add("created_at >= $%d", f.Since)
+	}
+	args = append(args, f.Limit, f.Offset)
+	q += fmt.Sprintf(" ORDER BY created_at DESC, id DESC LIMIT $%d OFFSET $%d", len(args)-1, len(args))
+
+	rows, err := s.pool.Query(ctx, q, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list filtered: %w", err)
+	}
+	defer rows.Close()
+
+	var out []FlowSummary
+	for rows.Next() {
+		var sum FlowSummary
+		if err := rows.Scan(&sum.ID, &sum.OwnerType, &sum.OwnerID, &sum.Source,
+			&sum.HunterID, &sum.Host, &sum.CreatedAt, &sum.Method, &sum.URL, &sum.Path,
+			&sum.StatusCode, &sum.DurationMs); err != nil {
+			return nil, fmt.Errorf("scan: %w", err)
+		}
+		out = append(out, sum)
+	}
+	return out, rows.Err()
+}
+
+// sqlEscapeLike 转义 LIKE 模式里的 % 和 _ —— 但保留 * （上层转换为 %）。
+func sqlEscapeLike(s string) string {
+	s = strings.ReplaceAll(s, `\`, `\\`)
+	s = strings.ReplaceAll(s, `%`, `\%`)
+	s = strings.ReplaceAll(s, `_`, `\_`)
+	return s
 }
 
 // scanner 抽象 pgx.Row / pgx.Rows 的 Scan 方法。

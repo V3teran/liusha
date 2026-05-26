@@ -26,6 +26,15 @@ func buildUserPrompt(ctx context.Context, deps Deps, p skill.BuilderParams) stri
 	//   - Brief 非空 → 渲染 brief 段（commander / striker）
 	// 两者可并存：tracker spawn striker 带 flow_id 时，striker 同时看到 raw HTTP + brief。
 	if len(p.RequestHeaders) > 0 || p.URL != "" {
+		// 段 0（0060+ 流量字典）：本流量已入 http_flow 表，告诉 LLM flow_id 让它能用
+		// replay_flow(id=N, modifications={...}) 改参数重发——比手写 curl 准 100 倍，
+		// 自动继承 cookie/CSRF/auth header/其它 form 字段。
+		if p.FlowID > 0 {
+			fmt.Fprintf(&b, "## 当前流量\n\n本流量 `flow_id=%d`。复用此请求改某参数 fuzz / IDOR / 注 payload，"+
+				"调 `replay_flow(id=%d, modifications={...})`，工具自动继承所有 header / cookie / form 字段。\n\n",
+				p.FlowID, p.FlowID)
+		}
+
 		// 段 1: 请求
 		// raw HTTP/1.1 协议形式打印——含 Host 头，LLM 不需要猜 target，
 		// 直接拼 `http://{Host}{URL}` 喂给 sqlmap/curl 等工具即可。

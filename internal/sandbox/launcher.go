@@ -62,6 +62,14 @@ type DockerLauncher struct {
 	// 的 --window-width/--window-height 全局 flag。零值时容器内 wrapper 走自己默认（1280×720）。
 	ViewportWidth  int
 	ViewportHeight int
+
+	// AgentProxyAddr 是宿主机 cmd/proxy agent listener 地址（如 "host.docker.internal:8890"）。
+	// Spawn 时注入到容器 HTTP_PROXY / HTTPS_PROXY env，sandbox 内所有 CLI 工具流量自动
+	// 经此代理 → liusha proxy 字典（source=internal），无需 LLM 显式 --proxy 参数。
+	// URL 中嵌入 hunter_<runID>:_ 作为 Proxy-Authorization basic auth user，让 proxy
+	// 端解析出 hunter_id 关联到 owner（cmd/proxy server.go parseProxyAuthHunterID）。
+	// 空字符串时不注入 proxy env（向后兼容 / 单测场景）。
+	AgentProxyAddr string
 }
 
 // NewDockerLauncher 构造 launcher。Image 必填，DockerBin 空走默认。
@@ -82,7 +90,8 @@ func (l *DockerLauncher) Spawn(ctx context.Context, runID string) (Client, error
 	name := containerNamePrefix + runID
 	bin := l.dockerBin()
 
-	// docker run -d -p 127.0.0.1:0:8080 --name=<name> --memory=2g --cpus=2 [-e LIUSHA_VIEWPORT_*] <image>
+	// docker run -d -p 127.0.0.1:0:8080 --name=<name> --memory=2g --cpus=2
+	//   [-e HTTP_PROXY=...] [-e LIUSHA_VIEWPORT_*] [--add-host host.docker.internal:host-gateway] <image>
 	args := []string{"run", "-d",
 		"-p", "127.0.0.1:0:" + containerSandboxPort,
 		"--name=" + name,
@@ -96,6 +105,25 @@ func (l *DockerLauncher) Spawn(ctx context.Context, runID string) (Client, error
 	}
 	if l.ViewportHeight > 0 {
 		args = append(args, "-e", fmt.Sprintf("LIUSHA_VIEWPORT_HEIGHT=%d", l.ViewportHeight))
+	}
+	// Agent proxy 注入（0060+）：容器内 CLI 工具流量自动经 liusha proxy 8890 →
+	// internal source 字典。URL 嵌入 hunter_<runID>:_ → Proxy-Authorization basic
+	// auth → proxy 端 parseProxyAuthHunterID 抽 hunter_id 关联 owner。
+	// 空 AgentProxyAddr 时跳过（向后兼容 / 单测）。
+	if l.AgentProxyAddr != "" {
+		proxyURL := fmt.Sprintf("http://hunter_%s:_@%s", runID, l.AgentProxyAddr)
+		args = append(args,
+			"-e", "HTTP_PROXY="+proxyURL,
+			"-e", "HTTPS_PROXY="+proxyURL,
+			"-e", "http_proxy="+proxyURL,
+			"-e", "https_proxy="+proxyURL,
+			// 跳过本机 / 容器内 service 避免循环
+			"-e", "NO_PROXY=localhost,127.0.0.1,sandbox-server,host.docker.internal",
+			"-e", "no_proxy=localhost,127.0.0.1,sandbox-server,host.docker.internal",
+			// linux 不支持 host.docker.internal，docker 20.10+ 用 --add-host=host-gateway 等价
+			// macOS / Windows desktop 内置该 DNS，加这个也兼容（重复绑定无害）
+			"--add-host=host.docker.internal:host-gateway",
+		)
 	}
 	args = append(args, l.Image)
 	runOut, err := exec.CommandContext(ctx, bin, args...).CombinedOutput()

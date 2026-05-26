@@ -50,3 +50,6 @@ coverage.html
 
 # Claude Code 本地会话状态
 /.claude/
+
+# pentools build context 的 CA cert（运行时从 $HOME/.liusha/cacert.pem 同步进来，不入 git）
+deployments/tool-images/pentools/liusha-ca.crt

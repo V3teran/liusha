@@ -181,8 +181,13 @@ type ProxyConfig struct {
 	MaxResponseBodySize     int      `mapstructure:"max_response_body_size"`
 
 	// 进程入口（cmd/proxy）
-	ListenAddr             string `mapstructure:"listen_addr"`
-	InternalAddr           string `mapstructure:"internal_addr"`
+	// External：passive 流量入口（用户 / Burp / 真实浏览器经此抓流量）
+	ListenAddr   string `mapstructure:"listen_addr"`   // 0.0.0.0:8888 公开端口（sanitizer 接 raw TCP）
+	InternalAddr string `mapstructure:"internal_addr"` // 127.0.0.1:18888 proxify loopback（sanitizer 转发到这）
+	// Agent：内部流量入口（active 模式 sandbox 容器内 agent 工具走此代理，0060+）
+	// 双 listener 物理隔离 source — 避免 agent 自挖流量触发 passive tracker 自激震荡
+	AgentListenAddr        string `mapstructure:"agent_listen_addr"`   // 0.0.0.0:8890 agent 公开端口（sandbox HTTP_PROXY 指向这）
+	AgentInternalAddr      string `mapstructure:"agent_internal_addr"` // 127.0.0.1:18890 agent proxify loopback
 	HealthzAddr            string `mapstructure:"healthz_addr"`
 	CertSubdir             string `mapstructure:"cert_subdir"`
 	ShutdownTimeoutSeconds int    `mapstructure:"shutdown_timeout_seconds"`
@@ -546,6 +551,12 @@ func applyProxyDefaults(c ProxyConfig) ProxyConfig {
 	}
 	if c.InternalAddr == "" {
 		c.InternalAddr = "127.0.0.1:18888"
+	}
+	if c.AgentListenAddr == "" {
+		c.AgentListenAddr = "0.0.0.0:8890"
+	}
+	if c.AgentInternalAddr == "" {
+		c.AgentInternalAddr = "127.0.0.1:18890"
 	}
 	if c.HealthzAddr == "" {
 		c.HealthzAddr = ":9091"

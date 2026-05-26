@@ -55,6 +55,7 @@ func newTestServer(t *testing.T, listenAddr, certDir string, cfg config.ProxyCon
 		Cfg:        cfg,
 		ListenAddr: listenAddr,
 		CertDir:    certDir,
+		Source:     "external",
 		Logger:     zerolog.Nop(),
 	})
 	if err != nil {
