@@ -174,11 +174,9 @@ func extractHunterIDFromHead(head []byte) string {
 }
 
 // proxyAuthChallenge407 是返给 client 的 407 响应。
-// chromium 收到 → 触发 CDP Fetch.authRequired → proxy_auth_inject.py 注入 user/pass
-// → chromium 重发带 Proxy-Authorization → 这次 extractOwnerIDFromHead 能解出 owner_id。
 //
-// Connection: close 保证 chromium 不复用本 conn（auth flow 后建新 conn 带凭证），
-// 避免老 conn 上后续请求仍走 noauth 路径。
+// v33+：chromium 不再经此路径，本 challenge 现仅在 CLI 工具异常缺 auth 时触发（极少见）。
+// Connection: close 保证 client 不复用本 conn，避免老 conn 后续请求仍走 noauth 路径。
 const proxyAuthChallenge407 = "HTTP/1.1 407 Proxy Authentication Required\r\n" +
 	"Proxy-Authenticate: Basic realm=\"liusha\"\r\n" +
 	"Content-Length: 0\r\n" +
@@ -232,8 +230,10 @@ func RunPassiveSanitizer(publicAddr, upstreamAddr string) error {
 // RunAgentSanitizer 监听 publicAddr（internal 8890，agent 工具入口）。
 // 完整链路：URI patch + 缺 Proxy-Authorization 时发 407 challenge + 解出 hunter_id
 // 转 X-Liusha-Hunter-Id 自定义 header（proxify 不 strip → onResponse 可读）。
-// chromium 收 407 → CDP Fetch.authRequired → proxy_auth_inject.py 注入 → 重发带 auth。
-// CLI 工具（curl/httpx）本就主动带 Proxy-Authorization → 不触发 407 路径。
+//
+// v33+：chromium 不再经此 proxy（改 CDP Network capture 直推 /internal/v1/flows/ingest），
+// 本路径只承载 CLI 工具（curl/httpx/sqlmap...）—— 它们 HTTP_PROXY env 内嵌 user:pass
+// 主动带 Proxy-Authorization，不触发 407 challenge。407 路径仅作未来扩展兜底保留。
 func RunAgentSanitizer(publicAddr, upstreamAddr string) error {
 	return runForwarder(publicAddr, upstreamAddr, forwarderOpts{
 		requireProxyAuth:  true,
@@ -274,7 +274,7 @@ func handleConn(client net.Conn, upstreamAddr string, opts forwarderOpts) {
 	}
 
 	// agent listener 强制 require auth：缺/解不出 hunter_id → 407 challenge。
-	// chromium 收 407 → CDP Fetch.authRequired → proxy_auth_inject.py 注入 → 重发。
+	// v33+：本路径仅 CLI 工具触发；chromium 走 CDP capture 不经此。
 	if opts.requireProxyAuth && extractHunterIDFromHead(head) == "" {
 		_, _ = client.Write([]byte(proxyAuthChallenge407))
 		return

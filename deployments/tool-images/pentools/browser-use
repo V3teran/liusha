@@ -1,28 +1,32 @@
 #!/bin/sh
-# browser-use — wrapper 包 browser-use-cli 实现"每 task 独立 tab" + chromium 流量走 liusha proxy。
+# browser-use — wrapper 包 browser-use-cli 实现"每 task 独立 tab" + chromium 流量入 liusha 字典。
 #
-# 架构（0060+ Phase 3 B 方案）：
+# 架构（v33+ 撤回 chromium 经 proxy 路径）：
 #
-#   /usr/local/bin/chromium --headless --proxy-server=<host:port> --remote-debugging-port=9222
-#                  ↑ 容器启动期由首个 open 命令 spawn 的 daemon
-#   /usr/local/lib/liusha/proxy_auth_inject.py (后台 daemon) → CDP Fetch.continueWithAuth
-#                  ↑ 注入 Proxy-Authorization basic auth
+#   /usr/local/bin/chromium --headless --remote-debugging-port=9222
+#                  ↑ 容器启动期由首个 open 命令 spawn 的 daemon；**直连不经 proxy**
+#   /usr/local/lib/liusha/cdp_network_capture.py (后台 daemon)
+#                  ↑ CDP Network domain 抓 chromium 全量 req/resp → POST 到 host
+#                     /internal/v1/flows/ingest endpoint → publisher → ingestor 落库
+#                     （仅当 LIUSHA_INGEST_URL env set 时启；未设则 chromium 流量不入字典）
 #   browser-use-cli --cdp-url http://127.0.0.1:9222 <subcommand> ← 走我们启的 chromium，不再自启
 #
-# 为什么不让 browser-use 自己启 chromium：
-# - browser-use-cli (skill_cli) 不接受 --proxy-url 全局 flag（仅 browser-use-tui 有）
-# - playwright launch chromium 时不传 proxy=，chromium 启动也不读 HTTP_PROXY env
-# - 唯一可靠路径：自己启 chromium 控制 --proxy-server flag + CDP 注入 auth
+# 为什么 chromium 不再经 proxy（v29-v32 失败复盘）：
+# - chromium 119+ HTTPS-First Mode 把 HTTP 目标自动升级 HTTPS → CONNECT 不存在端口 60s timeout
+# - Fetch.authRequired 事件 inject 多层 bug（browser-level vs page-level WebSocket / Target.setAutoAttach）
+# - macOS Docker Desktop NAT 让 source_ip 关联失败
+# - CDP Network 主动抓是 chromium 原生最稳 API，避开 proxy 全部坑
 #
-# 共享：chromium daemon (cookies / storage / localStorage / proxy 配置全局固化)
+# 共享：chromium daemon (cookies / storage / localStorage 全局固化，cross-task 登录态共享)
 # 隔离：每 task 独立 tab（switch + eval window.open + per-task /tmp/browser-tab-${TASK_ID}.idx）
 #
 # 依赖：
 #   - TASK_ID env（sandbox-server 注入，缺省 "default"）
-#   - HTTP_PROXY env（launcher 注入形如 http://hunter_<uuid>:_@host.docker.internal:8890）
+#   - LIUSHA_INGEST_URL / LIUSHA_INGEST_TOKEN / LIUSHA_HUNTER_ID env（launcher 注入；缺失 →
+#     cdp_network_capture.py 自退出，chromium 仍正常工作但流量不入字典）
 #   - /usr/local/bin/chromium（playwright chromium symlink）
-#   - /usr/local/lib/liusha/proxy_auth_inject.py
-#   - python3 websockets（Layer 2 已装）
+#   - /usr/local/lib/liusha/cdp_network_capture.py
+#   - python3 websockets + httpx（Layer 2 已装）
 #   - browser-use-cli + flock + curl
 
 set -eu
@@ -33,35 +37,22 @@ LOCK="/tmp/browser-tab.lock"
 CDP_PORT=9222
 CDP_URL="http://127.0.0.1:${CDP_PORT}"
 CHROMIUM_PIDFILE="/tmp/chromium-daemon.pid"
-AUTH_INJECT_PIDFILE="/tmp/proxy-auth-inject.pid"
+CDP_CAPTURE_PIDFILE="/tmp/cdp-capture.pid"
 CHROMIUM_LOG="/tmp/chromium-daemon.log"
 
-# start_chromium_daemon — 启 chromium headless daemon + proxy auth inject（仅首次）
+# start_chromium_daemon — 启 chromium headless daemon + CDP network capture（仅首次）
 # 已启则直接返回；启动失败返非零。
+#
+# v33+：chromium 直连不带 --proxy-server（v29-v32 经 proxy 反复失败已撤回），
+# 流量由伴生 cdp_network_capture.py 通过 CDP Network domain 主动抓 → POST 入字典。
 start_chromium_daemon() {
     if curl -sf -m 1 "${CDP_URL}/json/version" >/dev/null 2>&1; then
         return 0
     fi
 
-    PROXY_URL_NO_AUTH=""
-    PROXY_USER=""
-    PROXY_PASS=""
-    if [ -n "${HTTP_PROXY:-}" ]; then
-        PROXY_URL_NO_AUTH=$(printf '%s' "$HTTP_PROXY" | sed -E 's|^(http://)[^@]*@|\1|')
-        PROXY_USER=$(printf '%s' "$HTTP_PROXY" | sed -nE 's|^http://([^:]+):.*|\1|p')
-        PROXY_PASS=$(printf '%s' "$HTTP_PROXY" | sed -nE 's|^http://[^:]+:([^@]+)@.*|\1|p')
-    fi
-
-    PROXY_ARG=""
-    [ -n "$PROXY_URL_NO_AUTH" ] && PROXY_ARG="--proxy-server=$PROXY_URL_NO_AUTH"
-
-    # chromium 启动：headless + 关 sandbox（容器内必须）+ proxy + remote-debugging
+    # chromium 启动：headless + 关 sandbox（容器内必须）+ remote-debugging
     # --ignore-certificate-errors 兜底（Layer 7.5 NSS DB 已装 CA，但部分场景仍需）
-    # --disable-features=HttpsFirstModeV2,HttpsUpgrades,HttpsFirstBalancedMode：
-    #   chromium 119+ 默认尝试把 http:// 自动升级到 https:// 再 fallback，
-    #   pentest 目标常是 IP:Port HTTP only（如 DVWA 34280），升级后走 CONNECT tunnel
-    #   到不存在的 HTTPS 端口 → TLS handshake 60s timeout（v30/v31 实测根因）。
-    #   禁用后 chromium 老实发 HTTP 请求 → 经 proxy 不走 CONNECT → sanitizer 解 auth 入字典。
+    # v33+ 删除：--proxy-server / --disable-features=HttpsFirstMode* —— chromium 不再经 proxy
     /usr/local/bin/chromium \
         --headless=new \
         --no-sandbox \
@@ -69,10 +60,8 @@ start_chromium_daemon() {
         --disable-gpu \
         --disable-web-security \
         --ignore-certificate-errors \
-        --disable-features=HttpsFirstModeV2,HttpsUpgrades,HttpsFirstBalancedMode \
         --remote-debugging-port=${CDP_PORT} \
         --remote-debugging-address=127.0.0.1 \
-        $PROXY_ARG \
         about:blank \
         >"$CHROMIUM_LOG" 2>&1 &
     echo $! >"$CHROMIUM_PIDFILE"
@@ -90,19 +79,17 @@ start_chromium_daemon() {
         return 1
     fi
 
-    # 启 proxy auth 注入器（仅有 user/pass 时；后台跑直到 chromium 退出）
-    if [ -n "$PROXY_USER" ] && [ -n "$PROXY_PASS" ]; then
-        python3 /usr/local/lib/liusha/proxy_auth_inject.py \
-            --cdp-url "$CDP_URL" \
-            --proxy-user "$PROXY_USER" \
-            --proxy-pass "$PROXY_PASS" \
-            >/tmp/proxy-auth-inject.log 2>&1 &
-        echo $! >"$AUTH_INJECT_PIDFILE"
+    # 启 CDP network capture 伴生进程（仅 ingest env set 时；后台跑直到 chromium 退出）。
+    # 缺少 env → capture 脚本自退出 0（chromium 仍正常工作，只是流量不入字典）。
+    if [ -n "${LIUSHA_INGEST_URL:-}" ] && [ -n "${LIUSHA_HUNTER_ID:-}" ]; then
+        python3 /usr/local/lib/liusha/cdp_network_capture.py \
+            >/tmp/cdp-capture.log 2>&1 &
+        echo $! >"$CDP_CAPTURE_PIDFILE"
     fi
     return 0
 }
 
-# reset_chromium_daemon — 强杀 chromium + proxy_auth_inject，清 pidfile + tab-idx
+# reset_chromium_daemon — 强杀 chromium + cdp_network_capture，清 pidfile + tab-idx
 # 下次 start_chromium_daemon 会从零启。
 #
 # 用途（Level 2）：browser_use click x,y 失败后 chromium daemon 可能 stale（CDP
@@ -110,11 +97,11 @@ start_chromium_daemon() {
 # LLM 看到反复 timeout 时显式调 `browser_use reset` 触发本函数，清理后下次重启。
 # 副作用：所有 tab 丢失（含登录态），LLM 需重新 open + 登录。
 reset_chromium_daemon() {
-    # kill auth inject 先（防它重连尝试中）
-    if [ -f "$AUTH_INJECT_PIDFILE" ]; then
-        pid=$(cat "$AUTH_INJECT_PIDFILE" 2>/dev/null) || true
+    # kill CDP capture 先（防它重连尝试中）
+    if [ -f "$CDP_CAPTURE_PIDFILE" ]; then
+        pid=$(cat "$CDP_CAPTURE_PIDFILE" 2>/dev/null) || true
         [ -n "$pid" ] && kill -9 "$pid" 2>/dev/null || true
-        rm -f "$AUTH_INJECT_PIDFILE"
+        rm -f "$CDP_CAPTURE_PIDFILE"
     fi
     # kill chromium（含所有 helper 子进程：renderer / gpu / network 等）
     if [ -f "$CHROMIUM_PIDFILE" ]; then
@@ -124,7 +111,7 @@ reset_chromium_daemon() {
     fi
     # pkill 兜底（chromium 主进程可能不在 pidfile 里如崩溃后 fork）
     pkill -9 -f '/usr/local/bin/chromium' 2>/dev/null || true
-    pkill -9 -f 'proxy_auth_inject.py' 2>/dev/null || true
+    pkill -9 -f 'cdp_network_capture.py' 2>/dev/null || true
     # 清所有 per-task tab 索引（重启后 tab 编号会变，旧索引无效）
     rm -f /tmp/browser-tab-*.idx 2>/dev/null || true
     # 等端口释放

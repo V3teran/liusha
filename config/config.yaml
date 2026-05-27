@@ -348,6 +348,11 @@ proxy:
   stream_name: flow_events          # XADD 目标 stream
   stream_max_len: 100000            # XADD MAXLEN ~ 上限（约 5KiB×1e5 ≈ 500 MiB）
 
+  # chromium CDP capture → /internal/v1/flows/ingest endpoint Bearer token。
+  # 空 = 不强制验证（开发模式，仅靠 bind 127.0.0.1 + docker bridge 网络隔离）。
+  # 生产用 ENV LIUSHA_INGEST_TOKEN 注入，cmd/proxy + cmd/scanner 共享同一值（scanner launcher 透传到 sandbox env）。
+  ingest_token: ""
+
 # ---- ingestor 流量摄入器（cmd/scanner 内 goroutine）----
 ingestor:
   consumer_group: liusha-ingestor   # XREADGROUP consumer group 名

@@ -104,6 +104,11 @@ func main() {
 	hsMux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`{"ok":true}`))
 	})
+	// CDP capture ingest endpoint（v33+ chromium 不再经 proxy，改 CDP Network 主动抓 + push）。
+	// ENV LIUSHA_INGEST_TOKEN > yaml proxy.ingest_token；空 = 不强制鉴权（dev）。
+	ingestToken := envx.OrDefault("LIUSHA_INGEST_TOKEN", proxyCfg.IngestToken)
+	hsMux.HandleFunc("/internal/v1/flows/ingest",
+		newIngestHandler(publisher, ingestToken, logger.With().Str("component", "cdp_ingest").Logger()))
 	hs := &http.Server{
 		Addr:              hsAddr,
 		Handler:           hsMux,
@@ -143,9 +148,9 @@ func main() {
 	go func() {
 		logger.Info().Str("public", agentPublicAddr).Str("upstream", agentInternalAddr).Str("source", "internal").Msg("uri sanitizer listening")
 		// internal listener：URI patch + require auth + 解 hunter_id → X-Liusha-Hunter-Id。
-		// chromium 收 407 → CDP Fetch.authRequired → proxy_auth_inject.py 注入 hunter_<id>
-		// → 重发带 auth → sanitizer 解出 hunter_id → onResponse 入字典。
-		// CLI 工具（HTTP_PROXY env 注入了 user:pass）本就主动发 auth，不触发 407。
+		// v33+：chromium 不再经此 proxy（改 CDP Network capture 直推 ingest endpoint），
+		// 本路径只承载 CLI 工具（curl/httpx/sqlmap...）—— HTTP_PROXY env 内嵌 user:pass，
+		// 主动带 Proxy-Authorization → sanitizer 解出 hunter_id → onResponse 入字典。
 		if err := proxy.RunAgentSanitizer(agentPublicAddr, agentInternalAddr); err != nil {
 			logger.Error().Err(err).Msg("internal uri sanitizer exited")
 		}

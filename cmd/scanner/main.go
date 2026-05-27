@@ -185,6 +185,20 @@ func main() {
 			logger.Info().Str("agent_proxy", launcher.AgentProxyAddr).Msg("sandbox HTTP_PROXY 将注入 agent proxy")
 		}
 	}
+	// CDP capture ingest URL（v33+）：chromium 不再经 proxy，cdp_network_capture.py 主动抓 + push
+	// 到 cmd/proxy healthz 端口的 /internal/v1/flows/ingest endpoint。
+	// HealthzAddr 形如 ":9091"——SplitHostPort 兼容裸端口（host 空）。
+	if cfg.Proxy.HealthzAddr != "" {
+		_, port, splitErr := net.SplitHostPort(cfg.Proxy.HealthzAddr)
+		if splitErr != nil {
+			logger.Warn().Err(splitErr).Str("addr", cfg.Proxy.HealthzAddr).Msg("解析 proxy.healthz_addr 失败，跳过 CDP ingest env 注入")
+		} else {
+			launcher.CDPIngestURL = "http://host.docker.internal:" + port + "/internal/v1/flows/ingest"
+			launcher.CDPIngestToken = envx.OrDefault("LIUSHA_INGEST_TOKEN", cfg.Proxy.IngestToken)
+			logger.Info().Str("cdp_ingest_url", launcher.CDPIngestURL).Bool("token_set", launcher.CDPIngestToken != "").
+				Msg("sandbox 将注入 CDP ingest env")
+		}
+	}
 	if err := launcher.CleanupOrphans(ctx); err != nil {
 		logger.Warn().Err(err).Msg("CleanupOrphans 失败（非致命，max lifetime 兜底）")
 	}

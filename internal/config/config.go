@@ -195,6 +195,11 @@ type ProxyConfig struct {
 	// Redis Stream（proxy → ingestor 之间）
 	StreamName   string `mapstructure:"stream_name"`
 	StreamMaxLen int    `mapstructure:"stream_max_len"`
+
+	// IngestToken：chromium CDP capture（pentools/cdp_network_capture.py）→ /internal/v1/flows/ingest
+	// endpoint 的 Bearer token。空 = 不强制验证（开发模式，仅靠 bind 127.0.0.1 + docker bridge 网络隔离）。
+	// 生产建议通过 ENV LIUSHA_INGEST_TOKEN 注入，三个进程（cmd/proxy + cmd/scanner + sandbox）共享同一值。
+	IngestToken string `mapstructure:"ingest_token"`
 }
 
 // IngestorConfig 是 Stream 流量摄入器（cmd/scanner 内 goroutine）参数。

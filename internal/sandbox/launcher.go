@@ -68,8 +68,22 @@ type DockerLauncher struct {
 	// 经此代理 → liusha proxy 字典（source=internal），无需 LLM 显式 --proxy 参数。
 	// URL 中嵌入 hunter_<hunterID>:_ 作为 Proxy-Authorization basic auth user，让 proxy
 	// 端解析出 hunter_id → ingestor 反查 hunter→owner（双字段写入 http_flow）。
-	// 空字符串时不注入 proxy env（向后兼容 / 单测场景）。
+	// 空字符串时不注入 proxy env（单测 / 无 cmd/proxy 部署场景）。
 	AgentProxyAddr string
+
+	// CDPIngestURL 是 chromium CDP capture（pentools/cdp_network_capture.py）→
+	// /internal/v1/flows/ingest endpoint 完整 URL。
+	//
+	// 背景（v33+）：chromium 经 martian proxy 反复失败，改走 CDP Network 主动抓 → push
+	// 到本 URL → cmd/proxy ingest_handler 构造 TrafficSnapshot → publisher.Publish → ingestor。
+	//
+	// 典型值：http://host.docker.internal:9091/internal/v1/flows/ingest（cmd/proxy healthz 端口）
+	// 空字符串时不注入（单测 / 无 cmd/proxy 部署）；wrapper 内 guard 会跳过 capture spawn。
+	CDPIngestURL string
+
+	// CDPIngestToken 是上面 URL 的 Bearer token。
+	// 空 = 不带 Authorization header（dev 模式 cmd/proxy 端也不强制）；prod 应非空。
+	CDPIngestToken string
 }
 
 // NewDockerLauncher 构造 launcher。Image 必填，DockerBin 空走默认。
@@ -116,7 +130,7 @@ func (l *DockerLauncher) Spawn(ctx context.Context, hunterID string) (Client, er
 	// Proxy-Authorization basic auth → sanitizer 解析 hunter_<id> → X-Liusha-Hunter-Id
 	// → snap.HunterID（server.go onResponse 填）→ ingestor 反查 hunter→owner_type/owner_id
 	// 写双字段（hunter_id 细粒度可追溯 + owner_id 顶层归档）。
-	// 空 AgentProxyAddr 时跳过（向后兼容 / 单测）。
+	// 空 AgentProxyAddr 时跳过（单测 / 无 cmd/proxy 部署）。
 	if l.AgentProxyAddr != "" {
 		proxyURL := fmt.Sprintf("http://hunter_%s:_@%s", hunterID, l.AgentProxyAddr)
 		args = append(args,
@@ -131,6 +145,18 @@ func (l *DockerLauncher) Spawn(ctx context.Context, hunterID string) (Client, er
 			// macOS / Windows desktop 内置该 DNS，加这个也兼容（重复绑定无害）
 			"--add-host=host.docker.internal:host-gateway",
 		)
+	}
+	// CDP capture env（v33+）：让 pentools 容器内 cdp_network_capture.py 知道往哪 push +
+	// 用什么 token + 当前 hunter_id（payload 内携带，endpoint 端构造 TrafficSnapshot.HunterID）。
+	// LIUSHA_HUNTER_ID 总是注入（即使无 CDP capture，方便后续脚本通用读 env）；
+	// LIUSHA_INGEST_URL / LIUSHA_INGEST_TOKEN 仅在 launcher 配置非空时注入——capture 脚本检测
+	// 缺失会优雅自退出（不影响 chromium 主进程）。
+	args = append(args, "-e", "LIUSHA_HUNTER_ID="+hunterID)
+	if l.CDPIngestURL != "" {
+		args = append(args, "-e", "LIUSHA_INGEST_URL="+l.CDPIngestURL)
+	}
+	if l.CDPIngestToken != "" {
+		args = append(args, "-e", "LIUSHA_INGEST_TOKEN="+l.CDPIngestToken)
 	}
 	args = append(args, l.Image)
 	runOut, err := exec.CommandContext(ctx, bin, args...).CombinedOutput()
