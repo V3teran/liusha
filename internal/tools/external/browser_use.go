@@ -83,15 +83,16 @@ func (a *BrowserUse) ParametersJSON() json.RawMessage {
 	return json.RawMessage(`{
   "type":"object",
   "properties":{
-    "action":{"type":"string","enum":["open","click","input","wait","eval","extract","source"],"description":"open=导航URL / click=按截图像素坐标点击 / input=填表单（含 click 拿焦点+type） / wait=等条件 / eval=在当前页执行任意JS（如 document.querySelector('button').click() / 取 DOM 数据 / 调试 fetch） / extract=LLM抽数据 / source=拿当前页渲染后完整 HTML（可用于看 selector 或 DOM 结构）"},
+    "action":{"type":"string","enum":["open","state","click","input","wait","eval","extract","source","reset"],"description":"open=导航URL / state=拿当前页 numbered 元素清单（[1]<a>X</a> [2]<button>Login</button>... 含 viewport 尺寸 + DOM 结构，LLM 据此选 index） / click=点击元素（优先 index 准确，x/y 是兜底） / input=给元素键入文本（优先 index） / wait=等条件 / eval=在当前页执行任意JS（如 document.querySelector('button').click() / 取 DOM 数据 / 调试 fetch） / extract=LLM抽数据 / source=拿当前页渲染后完整 HTML（可用于看 selector 或 DOM 结构） / reset=强杀 chromium daemon 重启（用于反复 timeout / 卡死场景；副作用：所有 tab 丢失含登录态需重新 open+登录）"},
     "url":{"type":"string","description":"action=open 必填：目标 URL（含 http:// 或 https://）"},
-    "x":{"type":"integer","description":"action=click/input 必填：元素中心 x（坐标系见 Description）"},
-    "y":{"type":"integer","description":"action=click/input 必填：元素中心 y"},
+    "index":{"type":"integer","minimum":0,"description":"action=click/input 推荐：state 返回清单里的元素编号（[N] 的 N）。优先用 index 比 x/y 稳。"},
+    "x":{"type":"integer","description":"action=click/input 兜底：元素中心 x（坐标系见 Description）— 仅在没有 index 时使用，vision 给坐标偏差大易 timeout"},
+    "y":{"type":"integer","description":"action=click/input 兜底：元素中心 y — 仅在没有 index 时使用"},
     "text":{"type":"string","description":"action=input 必填：要键入的文本"},
     "condition":{"type":"string","description":"action=wait 必填：秒数（如 '3'）或 CSS selector（如 '#main'）或 'networkidle'"},
     "code":{"type":"string","description":"action=eval 必填：JS 代码，最后表达式作为返回值"},
     "query":{"type":"string","description":"action=extract 必填：自然语言描述要抽什么"},
-    "timeout_seconds":{"type":"integer","minimum":1,"maximum":180,"description":"硬超时秒；缺省 open=60 / click/input=20 / wait=30 / eval/extract/source=15"}
+    "timeout_seconds":{"type":"integer","minimum":1,"maximum":180,"description":"硬超时秒；缺省 open=60 / click/input=20 / wait=30 / state/eval/extract/source=15"}
   },
   "required":["action"]
 }`)
@@ -99,9 +100,11 @@ func (a *BrowserUse) ParametersJSON() json.RawMessage {
 
 // Execute 按 action 分流到对应底层 browser-use 子命令。
 func (a *BrowserUse) Execute(ctx context.Context, args json.RawMessage) (toolfx.Result, error) {
+	// Index 用 *int 区分"没传"和"传了 0"；JSON 缺字段 → 指针 nil。
 	var in struct {
 		Action         string `json:"action"`
 		URL            string `json:"url"`
+		Index          *int   `json:"index"`
 		X              int    `json:"x"`
 		Y              int    `json:"y"`
 		Text           string `json:"text"`
@@ -123,29 +126,44 @@ func (a *BrowserUse) Execute(ctx context.Context, args json.RawMessage) (toolfx.
 		}
 		return runBrowserSub(ctx, a.Run, "open", []string{in.URL}, in.TimeoutSeconds)
 
+	case "state":
+		// numbered DOM 清单（[1]<tag>text</tag> ...）+ viewport 尺寸，
+		// LLM 据此选 element index 给后续 click/input 用。比 vision 猜坐标稳得多。
+		if in.TimeoutSeconds == 0 {
+			in.TimeoutSeconds = defaultReadTimeout
+		}
+		return runBrowserSub(ctx, a.Run, "state", nil, in.TimeoutSeconds)
+
 	case "click":
+		if in.TimeoutSeconds == 0 {
+			in.TimeoutSeconds = defaultActionTimeout
+		}
+		// 优先 index 路径（稳）；fallback 到 x/y 坐标（vision 不准易 timeout）
+		if in.Index != nil {
+			return runBrowserSub(ctx, a.Run, "click", []string{fmt.Sprintf("%d", *in.Index)}, in.TimeoutSeconds)
+		}
 		realX, realY, err := grounding.ToRealPixels(in.X, in.Y, a.CoordSystem, a.ViewportW, a.ViewportH)
 		if err != nil {
 			return toolfx.Result{}, fmt.Errorf("browser_use click 坐标换算: %w", err)
 		}
-		if in.TimeoutSeconds == 0 {
-			in.TimeoutSeconds = defaultActionTimeout
-		}
 		return runBrowserSub(ctx, a.Run, "click", []string{fmt.Sprintf("%d", realX), fmt.Sprintf("%d", realY)}, in.TimeoutSeconds)
 
 	case "input":
+		if in.TimeoutSeconds == 0 {
+			in.TimeoutSeconds = defaultActionTimeout
+		}
+		// 优先 index 路径：browser-use input <index> <text> 一步到位（cli 内部处理拿焦点 + type）
+		if in.Index != nil {
+			return runBrowserSub(ctx, a.Run, "input", []string{fmt.Sprintf("%d", *in.Index), in.Text}, in.TimeoutSeconds)
+		}
+		// fallback x/y 坐标：click 拿焦点 + type 两步
 		realX, realY, err := grounding.ToRealPixels(in.X, in.Y, a.CoordSystem, a.ViewportW, a.ViewportH)
 		if err != nil {
 			return toolfx.Result{}, fmt.Errorf("browser_use input 坐标换算: %w", err)
 		}
-		if in.TimeoutSeconds == 0 {
-			in.TimeoutSeconds = defaultActionTimeout
-		}
-		// 1) click(x, y) 拿焦点——不附图（中间步噪声），err 透传
 		if _, err := runBrowserSub(ctx, a.Run, "click", []string{fmt.Sprintf("%d", realX), fmt.Sprintf("%d", realY)}, in.TimeoutSeconds); err != nil {
 			return toolfx.Result{}, fmt.Errorf("browser_use input click 拿焦点: %w", err)
 		}
-		// 2) type <text>——wrapper 自动附图给 LLM 看填充效果
 		return runBrowserSub(ctx, a.Run, "type", []string{in.Text}, in.TimeoutSeconds)
 
 	case "wait":
@@ -182,7 +200,15 @@ func (a *BrowserUse) Execute(ctx context.Context, args json.RawMessage) (toolfx.
 		// browser-use-cli 0.12.9 原生 `get html`，比 eval outerHTML 更直接且无 JS 编码风险。
 		return runBrowserSub(ctx, a.Run, "get", []string{"html"}, in.TimeoutSeconds)
 
+	case "reset":
+		// Level 2 daemon 异常恢复：wrapper reset 子命令 kill chromium + auth_inject + 清 tab-idx
+		// 下次任意 browser_use 操作自动重启 daemon。用于反复 timeout / page hung 场景。
+		if in.TimeoutSeconds == 0 {
+			in.TimeoutSeconds = defaultActionTimeout
+		}
+		return runBrowserSub(ctx, a.Run, "reset", nil, in.TimeoutSeconds)
+
 	default:
-		return toolfx.Result{}, fmt.Errorf("browser_use: action 非法 %q（支持 open/click/input/wait/eval/extract/source）", in.Action)
+		return toolfx.Result{}, fmt.Errorf("browser_use: action 非法 %q（支持 open/state/click/input/wait/eval/extract/source/reset）", in.Action)
 	}
 }

@@ -96,6 +96,36 @@ start_chromium_daemon() {
     return 0
 }
 
+# reset_chromium_daemon — 强杀 chromium + proxy_auth_inject，清 pidfile + tab-idx
+# 下次 start_chromium_daemon 会从零启。
+#
+# 用途（Level 2）：browser_use click x,y 失败后 chromium daemon 可能 stale（CDP
+# WebSocket 残留 / page hung 状态），即便 /json/version 仍 200。后续 open/click 全 hang。
+# LLM 看到反复 timeout 时显式调 `browser_use reset` 触发本函数，清理后下次重启。
+# 副作用：所有 tab 丢失（含登录态），LLM 需重新 open + 登录。
+reset_chromium_daemon() {
+    # kill auth inject 先（防它重连尝试中）
+    if [ -f "$AUTH_INJECT_PIDFILE" ]; then
+        pid=$(cat "$AUTH_INJECT_PIDFILE" 2>/dev/null) || true
+        [ -n "$pid" ] && kill -9 "$pid" 2>/dev/null || true
+        rm -f "$AUTH_INJECT_PIDFILE"
+    fi
+    # kill chromium（含所有 helper 子进程：renderer / gpu / network 等）
+    if [ -f "$CHROMIUM_PIDFILE" ]; then
+        pid=$(cat "$CHROMIUM_PIDFILE" 2>/dev/null) || true
+        [ -n "$pid" ] && kill -9 "$pid" 2>/dev/null || true
+        rm -f "$CHROMIUM_PIDFILE"
+    fi
+    # pkill 兜底（chromium 主进程可能不在 pidfile 里如崩溃后 fork）
+    pkill -9 -f '/usr/local/bin/chromium' 2>/dev/null || true
+    pkill -9 -f 'proxy_auth_inject.py' 2>/dev/null || true
+    # 清所有 per-task tab 索引（重启后 tab 编号会变，旧索引无效）
+    rm -f /tmp/browser-tab-*.idx 2>/dev/null || true
+    # 等端口释放
+    sleep 1
+    echo "[browser-use wrapper] chromium daemon 已 reset" >&2
+}
+
 SUB="${1:-}"
 shift 2>/dev/null || true
 
@@ -104,6 +134,12 @@ shift 2>/dev/null || true
 case "$SUB" in
   ""|--help|-h|--version|-V|install|init|setup|doctor)
     exec browser-use-cli "$SUB" "$@"
+    ;;
+  reset)
+    # Level 2 daemon 异常恢复：browser_use reset action 路由到这里
+    reset_chromium_daemon
+    echo "ok"
+    exit 0
     ;;
   python|tunnel|close|sessions|cloud|profile|switch|close-tab)
     # 这些可能需要 chromium daemon；尝试启然后透传
