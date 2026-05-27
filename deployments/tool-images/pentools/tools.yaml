@@ -50,10 +50,7 @@ tools:
   # ===== injection（注入类专项）=====
   - name: sqlmap
     category: injection
-    description: |
-      SQL 注入自动探测/利用。常见 web SQLi 首选；GraphQL/NoSQL 不归它管。
-      **blind/time-based 必加限速**：`--time-sec=1 --stop=5 -D <db> -T <table>`，**绝不整库 dump**（盲注每数据点千次 HTTP 请求，无限速会卡 10+ 分钟）；
-      单次 timeout 后**优先 pivot**（curl 手动 boolean fuzz 或直接 write_finding 不 dump）；仅当**确有新假设**（如换 tamper bypass WAF / 换 payload 模式）才换 flag 重试 sqlmap。原地无新假设地微调是死循环。
+    description: SQL 注入自动探测/利用，web SQLi 首选；GraphQL/NoSQL 不归它管。
   - name: dalfox
     category: injection
     description: XSS 自动探测 + 利用（反射/存储/DOM）。Go 实现，业界 XSS 之于 sqlmap。
@@ -88,13 +85,7 @@ tools:
   # ===== utility（通用辅助：HTTP/JSON/脚本/OOB/Browser）=====
   - name: curl
     category: utility
-    description: |
-      原生 HTTP 客户端。所有漏洞验证的瑞士军刀，sqlmap/python3 之前先用 curl 探 baseline。
-      Cookie 跨工具桥接（双向）：browser-use 浏览器和 curl 是独立 cookie jar。
-        - browser → curl：`browser-use cookies get` → 转 Netscape cookies.txt
-        - curl → browser：**`browser-use cookies import /tmp/cookies.json`** 一行注入（首选）；
-          单条 set：`browser-use cookies set name=PHPSESSID value=... domain=...`
-      CSRF token 类 form 字段须先 `curl GET` 拿页面 → grep token 值 → POST 带上。
+    description: 原生 HTTP 客户端，所有漏洞验证的瑞士军刀。
   - name: python3
     category: utility
     description: 自定义脚本兜底（GraphQL/NoSQL 注入、复杂登录链、并发 fuzz、二阶段 payload、自定义编码绕过）。
@@ -106,42 +97,4 @@ tools:
     description: OOB（Out-Of-Band）回调检测——拿 oast.fun 子域名作 callback 钩子。Blind SSRF/RCE/XXE/XSS 唯一通用挖法。
   - name: browser-use
     category: utility
-    description: |
-      无头 Chromium 浏览器自动化（CLI 包装 playwright，多 task 安全）。
-      共享 chromium daemon（cookies / session 跨 task 共享，登录不顶掉）+ 每 task 独立 tab
-      （截图/浏览历史独立，commander/striker 并发不互覆——按 TASK_ID 切 tab）。
-
-      **优先用 typed `browser_use` 工具**（单工具 + action 枚举：
-      open / state / click / input / wait / eval / extract / source / reset）——typed JSON 比
-      raw shell 命令字符串错率低，且状态变化 action wrapper 自动附截图喂回 vision LLM，
-      无需 LLM 多花一步显式调 screenshot。
-
-      action 细节（完整 schema 见 tool 定义）：
-        - open：导航 URL
-        - state：拿当前页 numbered DOM 清单（[1]<a>X</a> [2]<button>Login</button>...）+ viewport
-          尺寸。**先调 state 拿 element index 再 click/input index=N 比 vision 猜 x/y 稳得多**
-        - click/input：优先 `index`（来自 state 清单），x/y 是 vision 兜底（易 timeout）
-        - wait：等条件（秒数 / CSS selector / networkidle）
-        - eval：在当前页跑任意 JS（如 document.querySelector('button').click() / 取 DOM）
-        - extract：LLM 抽页面数据
-        - source：拿当前页渲染后完整 HTML
-        - reset：强杀 chromium daemon 重启（用于反复 timeout / 卡死场景；副作用：所有 tab 含
-          登录态丢失，LLM 自决何时调用）
-
-      本 run_command 通道仅用于 browser_use 未覆盖的 browser 子命令（低频）：
-      select / scroll / back / keys / hover / dblclick / rightclick / python / get / close /
-      cookies {get|set|clear|import|export} / screenshot。
-
-      子命令自动附图规则（wrapper 内）：
-        - 状态变化（open/click/input/type/select/scroll/back/keys/hover/dblclick/rightclick/wait）
-          → 跑完自动 screenshot 到 $OUTPUT_DIR/auto_<ns>.png，LLM 立即看到视觉
-        - 读取/特殊（state/extract/eval/get/cookies/close/python）→ 不附图（已返文本/无视觉变化）
-        - screenshot 子命令 → 显式调用，作为自动附图失败的 fallback；
-          路径必须写到 $OUTPUT_DIR/xxx.png 才能进 LLM 上下文
-
-      chromium 首次 cold start 约 25-30s，第 1 个命令 timeout_seconds 至少 60；后续 session 复用 15s 够。
-
-      **cookie 同步神器**（curl→browser 反向桥接）：curl 登录拿到 cookies 后，**一行注入**：
-        `browser-use cookies import /tmp/cookies.json` 批量导入（Playwright JSON 格式）
-        `browser-use cookies set name=PHPSESSID value=xxx domain=...` 设单条
-      **不要**用 `eval document.cookie=...` 同步——HttpOnly cookie 注入不了，会卡 20+ 步。
+    description: 无头 Chromium 浏览器自动化，typed `browser_use` 工具是首选入口。
