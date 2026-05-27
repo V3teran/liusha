@@ -20,64 +20,15 @@ CLI 包装 playwright，多 task 安全：
 仅以下场景才走 `run_command` 通道（typed 工具未覆盖的低频子命令）：
 `select / scroll / back / keys / hover / dblclick / rightclick / python / get / close / cookies {get|set|clear|import|export} / screenshot`
 
-## 9 个 typed action 详解
+## action 补充（schema 没说清的差异）
 
-### open
-导航 URL。chromium 首次 cold start ~25-30s，**第 1 个命令 `timeout_seconds` 至少 60**；后续 session 复用 15s 够。
+完整 action 列表 + 字段说明见 `browser_use` tool schema。本节只记 schema 不便说的实战要点：
 
-```json
-{"action": "open", "url": "http://target/login.php", "timeout_seconds": 60}
-```
-
-### state（推荐先调）
-
-返回当前页 numbered DOM 清单（`[1]<a>X</a> [2]<button>Login</button>...`）+ viewport 尺寸。
-
-**先调 state 拿 element index，再 click/input index=N，比 vision 猜 x/y 稳得多**。LLM 给坐标偏差通常 ±50 像素，足以错过按钮。
-
-```json
-{"action": "state"}
-```
-
-### click / input
-
-```json
-{"action": "click", "index": 5}                    // 推荐
-{"action": "click", "x": 638, "y": 410}            // 兜底（vision 不准易 timeout）
-
-{"action": "input", "index": 7, "text": "admin"}   // 推荐
-{"action": "input", "x": 100, "y": 200, "text": "..."}  // 兜底
-```
-
-### wait
-等条件：秒数（`"3"`）/ CSS selector（`"#main"`）/ `"networkidle"`。
-
-### eval
-在当前页执行任意 JS：
-
-```json
-{"action": "eval", "code": "document.querySelector('button').click()"}
-{"action": "eval", "code": "Array.from(document.querySelectorAll('a')).map(a=>a.href)"}
-```
-
-### extract
-LLM 抽页面数据（如 "抽出所有商品价格"）。
-
-```json
-{"action": "extract", "query": "抽出所有外链 URL"}
-```
-
-### source
-拿当前页渲染后**完整 HTML**（看 selector / 分析 DOM 结构）。比 `eval document.documentElement.outerHTML` 更直接无编码风险。
-
-### reset（异常恢复）
-
-强杀 chromium daemon 重启。**反复 click timeout / 卡死场景**显式调。
-**副作用**：所有 tab 含登录态丢失，LLM 自决何时调（不要随便 reset）。
-
-```json
-{"action": "reset"}
-```
+- **open**：chromium 首次 cold start ~25-30s，**第 1 个命令 `timeout_seconds` 至少 60**；后续 session 复用 15s 够
+- **state 先于 click**：LLM 直接给 click x/y 偏差通常 ±50 像素，足以错过按钮。**先 state 拿 numbered DOM → 再 click index=N**，比 vision 猜稳得多
+- **input index 一步到位**：`{action:"input", index:N, text:"..."}` 内部已处理"先 click 拿焦点 + type"两步；x/y 兜底路径才是分两步
+- **source vs eval HTML**：拿渲染后 HTML 用 `source`（原生 `get html`），不要 `eval document.documentElement.outerHTML`（JS 字符串编码风险）
+- **reset 是核选项**：所有 tab 含登录态会丢失。**仅在反复 click timeout / open 都卡时调**，不要日常用
 
 ## 子命令自动附图规则（wrapper 内）
 
@@ -87,17 +38,20 @@ LLM 抽页面数据（如 "抽出所有商品价格"）。
 | **读取/特殊**（state / extract / eval / get / cookies / close / python）| **不附图**（已返文本/无视觉变化） |
 | `screenshot` 子命令 | 显式调用，自动附图失败的 fallback；路径必须写到 `$OUTPUT_DIR/xxx.png` 才能进 LLM 上下文 |
 
-## Cookie 同步（与 curl 互通）
+## Cookie 同步（curl → chromium 单向需要显式）
 
-curl 登录拿到 cookies 后**一行注入**：
+**browser-use 和 curl 是独立 cookie jar**。chromium 的 cookie store 由 CDP/Playwright 内部管理，curl 发的请求不经过 chromium，chromium 不会自动持有 curl 拿到的 cookie，必须显式注入：
 
 ```bash
-browser-use cookies import /tmp/cookies.json
-# 单条
-browser-use cookies set name=PHPSESSID value=xxx domain=target.com
+browser-use cookies import /tmp/cookies.json   # Playwright JSON 格式
+browser-use cookies set name=PHPSESSID value=xxx domain=target.com  # 单条
 ```
 
-**不要**用 `eval document.cookie=...` 同步——HttpOnly cookie 注入不了，会卡 20+ 步。
+**反向（chromium → curl）不需要做 cookie 同步动作** —— chromium 操作的 HTTP 请求自动入流量字典（hunter_id 关联），直接 `list_flows host=target` 找登录响应 → `view_flow id=N` 看 Set-Cookie header，比 `cookies get` 多步转格式优雅得多。
+
+### 反模式
+
+**不要**用 `eval document.cookie=...` 同步——**HttpOnly cookie 注入不了**（JS 看不到），会卡 20+ 步。
 
 ## 何时用 / 何时不用
 
