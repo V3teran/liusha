@@ -57,6 +57,11 @@ start_chromium_daemon() {
 
     # chromium 启动：headless + 关 sandbox（容器内必须）+ proxy + remote-debugging
     # --ignore-certificate-errors 兜底（Layer 7.5 NSS DB 已装 CA，但部分场景仍需）
+    # --disable-features=HttpsFirstModeV2,HttpsUpgrades,HttpsFirstBalancedMode：
+    #   chromium 119+ 默认尝试把 http:// 自动升级到 https:// 再 fallback，
+    #   pentest 目标常是 IP:Port HTTP only（如 DVWA 34280），升级后走 CONNECT tunnel
+    #   到不存在的 HTTPS 端口 → TLS handshake 60s timeout（v30/v31 实测根因）。
+    #   禁用后 chromium 老实发 HTTP 请求 → 经 proxy 不走 CONNECT → sanitizer 解 auth 入字典。
     /usr/local/bin/chromium \
         --headless=new \
         --no-sandbox \
@@ -64,6 +69,7 @@ start_chromium_daemon() {
         --disable-gpu \
         --disable-web-security \
         --ignore-certificate-errors \
+        --disable-features=HttpsFirstModeV2,HttpsUpgrades,HttpsFirstBalancedMode \
         --remote-debugging-port=${CDP_PORT} \
         --remote-debugging-address=127.0.0.1 \
         $PROXY_ARG \

@@ -1,7 +1,6 @@
 ---
 name: browser-use
 description: 无头 Chromium 浏览器自动化，typed `browser_use` 工具是首选入口。
-category: utility
 ---
 
 # browser-use 使用手册
