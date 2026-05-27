@@ -111,9 +111,22 @@ tools:
       共享 chromium daemon（cookies / session 跨 task 共享，登录不顶掉）+ 每 task 独立 tab
       （截图/浏览历史独立，commander/striker 并发不互覆——按 TASK_ID 切 tab）。
 
-      **优先用 typed `browser_use` 工具**（单工具 + action 枚举：open / click / input / wait /
-      eval / extract / source）——typed JSON 比 raw shell 命令字符串错率低，且状态变化 action
-      wrapper 自动附截图喂回 vision LLM，无需 LLM 多花一步显式调 screenshot。
+      **优先用 typed `browser_use` 工具**（单工具 + action 枚举：
+      open / state / click / input / wait / eval / extract / source / reset）——typed JSON 比
+      raw shell 命令字符串错率低，且状态变化 action wrapper 自动附截图喂回 vision LLM，
+      无需 LLM 多花一步显式调 screenshot。
+
+      action 细节（完整 schema 见 tool 定义）：
+        - open：导航 URL
+        - state：拿当前页 numbered DOM 清单（[1]<a>X</a> [2]<button>Login</button>...）+ viewport
+          尺寸。**先调 state 拿 element index 再 click/input index=N 比 vision 猜 x/y 稳得多**
+        - click/input：优先 `index`（来自 state 清单），x/y 是 vision 兜底（易 timeout）
+        - wait：等条件（秒数 / CSS selector / networkidle）
+        - eval：在当前页跑任意 JS（如 document.querySelector('button').click() / 取 DOM）
+        - extract：LLM 抽页面数据
+        - source：拿当前页渲染后完整 HTML
+        - reset：强杀 chromium daemon 重启（用于反复 timeout / 卡死场景；副作用：所有 tab 含
+          登录态丢失，LLM 自决何时调用）
 
       本 run_command 通道仅用于 browser_use 未覆盖的 browser 子命令（低频）：
       select / scroll / back / keys / hover / dblclick / rightclick / python / get / close /
