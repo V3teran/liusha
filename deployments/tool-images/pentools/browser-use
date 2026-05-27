@@ -53,13 +53,19 @@ start_chromium_daemon() {
     # chromium 启动：headless + 关 sandbox（容器内必须）+ remote-debugging
     # --ignore-certificate-errors 兜底（Layer 7.5 NSS DB 已装 CA，但部分场景仍需）
     # v33+ 删除：--proxy-server / --disable-features=HttpsFirstMode* —— chromium 不再经 proxy
-    /usr/local/bin/chromium \
+    #
+    # env -u 关键：chromium Linux 在某些版本会读 HTTP_PROXY/HTTPS_PROXY env 当 proxy 配置；
+    # 不清除会导致 chromium 经 sanitizer 8890 → TLS handshake net::ERR_INVALID_AUTH_CREDENTIALS。
+    # 容器 env 由 launcher 注入给 CLI 工具用，chromium 必须用 env -u 显式剥离才能纯直连。
+    env -u HTTP_PROXY -u HTTPS_PROXY -u http_proxy -u https_proxy \
+        /usr/local/bin/chromium \
         --headless=new \
         --no-sandbox \
         --disable-dev-shm-usage \
         --disable-gpu \
         --disable-web-security \
         --ignore-certificate-errors \
+        --no-proxy-server \
         --remote-debugging-port=${CDP_PORT} \
         --remote-debugging-address=127.0.0.1 \
         about:blank \

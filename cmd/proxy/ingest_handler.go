@@ -118,7 +118,7 @@ func newIngestHandler(pub *proxy.Publisher, token string, logger zerolog.Logger)
 			return
 		}
 
-		logger.Debug().
+		logger.Info().
 			Str("hunter_id", req.HunterID).
 			Str("method", req.Method).
 			Str("host", req.Host).

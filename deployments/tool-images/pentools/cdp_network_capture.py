@@ -156,15 +156,44 @@ class CDPCapture:
 
                 print(f"[cdp-capture] 连 chromium CDP: {ws_url}", file=sys.stderr)
                 async with websockets.connect(ws_url, max_size=32 * 1024 * 1024) as ws:
-                    # flatten=True：所有 page-session 消息直接带 sessionId 字段
-                    # autoAttach=True：新 target 创建即自动 attach
-                    # waitForDebuggerOnStart=False：不卡住 page 等 debugger
-                    await self._send(ws, "Target.setAutoAttach", {
-                        "autoAttach": True,
-                        "waitForDebuggerOnStart": False,
-                        "flatten": True,
-                    })
-                    await self._read_loop(ws)
+                    # read_loop 必须先启（_call 配对响应靠它），用 task 后台跑；
+                    # 之后 setAutoAttach + getTargets + attachToTarget 都能拿到响应。
+                    reader_task = asyncio.create_task(self._read_loop(ws))
+                    try:
+                        # flatten=True：所有 page-session 消息直接带 sessionId 字段
+                        # autoAttach=True：新创建的 target 自动 attach（不含已存在的）
+                        # waitForDebuggerOnStart=False：不卡住 page 等 debugger
+                        await self._send(ws, "Target.setAutoAttach", {
+                            "autoAttach": True,
+                            "waitForDebuggerOnStart": False,
+                            "flatten": True,
+                        })
+                        # browser-use-cli daemon 通常先 attach 现有 page target → setAutoAttach
+                        # 不会再触发 attachedToTarget 给这些 page。显式 getTargets + attachToTarget
+                        # 补 attach + 启 Network domain，覆盖容器启动早期已存在的 page。
+                        targets = await self._call(ws, "Target.getTargets", timeout=3.0)
+                        if targets:
+                            for t in targets.get("targetInfos", []):
+                                if t.get("type") in ("page", "iframe", "webview"):
+                                    attach = await self._call(
+                                        ws, "Target.attachToTarget",
+                                        {"targetId": t["targetId"], "flatten": True},
+                                        timeout=3.0)
+                                    if attach and attach.get("sessionId"):
+                                        sid = attach["sessionId"]
+                                        print(f"[cdp-capture] 补 attach existing target "
+                                              f"type={t.get('type')} url={t.get('url','')[:60]} "
+                                              f"session={sid[:8]}", file=sys.stderr)
+                                        await self._send(
+                                            ws, "Network.enable",
+                                            {"maxResourceBufferSize": MAX_RESPONSE_BODY_BYTES,
+                                             "maxTotalBufferSize": MAX_RESPONSE_BODY_BYTES * 4},
+                                            session_id=sid)
+                        # 等 read_loop 结束（ws closed / 异常时 task 自动退出）
+                        await reader_task
+                    finally:
+                        if not reader_task.done():
+                            reader_task.cancel()
 
             except (ConnectionRefusedError, urllib.error.URLError) as e:
                 print(f"[cdp-capture] chromium 暂不可达 ({e})，1s 重试", file=sys.stderr)
