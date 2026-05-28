@@ -84,16 +84,13 @@ func main() {
 	defer proxyCancel()
 
 	// healthz HTTP：默认 :9091，避免与 scanner :9090 冲突。
+	// v35+：原 /internal/v1/flows/ingest endpoint 已删（chromium CDP capture 链路砍掉），
+	// 本 listener 只剩 /healthz 一个职责，未来如再加 admin endpoint 可挂同一 mux。
 	hsAddr := envx.OrDefault("LIUSHA_PROXY_HEALTHZ_ADDR", proxyCfg.HealthzAddr)
 	hsMux := http.NewServeMux()
 	hsMux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`{"ok":true}`))
 	})
-	// CDP capture ingest endpoint（v33+ chromium 不再经 proxy，改 CDP Network 主动抓 + push）。
-	// ENV LIUSHA_INGEST_TOKEN > yaml proxy.ingest_token；空 = 不强制鉴权（dev）。
-	ingestToken := envx.OrDefault("LIUSHA_INGEST_TOKEN", proxyCfg.IngestToken)
-	hsMux.HandleFunc("/internal/v1/flows/ingest",
-		newIngestHandler(publisher, ingestToken, logger.With().Str("component", "cdp_ingest").Logger()))
 	hs := &http.Server{
 		Addr:              hsAddr,
 		Handler:           hsMux,

@@ -16,7 +16,6 @@ package main
 import (
 	"context"
 	"errors"
-	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -170,28 +169,13 @@ func main() {
 
 	// 容器化沙箱启动器（管理 sandbox 容器生命周期：per agent run 一个容器）。
 	// 启动时一次性清理上次进程崩前残留的孤儿容器——max lifetime 4h + Destroy 失败兜底。
+	//
+	// v35+：撤回 chromium CDP capture 链路 — 所有 CLI 工具 + chromium 全部直连目标，
+	// 不再自动入 http_flow 字典。凭证共享改走 redis credentials key（read/write_credential）。
 	launcher := sandbox.NewDockerLauncher(cfg.Sandbox.DefaultImage)
 	// 注入视口尺寸到 launcher → docker run -e → 容器内 wrapper 透传 chromium。
 	launcher.ViewportWidth = cfg.Sandbox.ViewportWidth
 	launcher.ViewportHeight = cfg.Sandbox.ViewportHeight
-	// v34+：撤回 sandbox 容器 HTTP_PROXY 全局注入 — CLI 工具直连，不再自动入字典。
-	// 仅 chromium 流量经 CDP capture（下面 CDPIngestURL 链路）入字典；
-	// scanner 主进程内 replay_flow 工具仍通过 cmd/proxy internal listener 入字典（见 hunter.Deps）。
-	//
-	// CDP capture ingest URL（v33+）：chromium 不再经 proxy，cdp_network_capture.py 主动抓 + push
-	// 到 cmd/proxy healthz 端口的 /internal/v1/flows/ingest endpoint。
-	// HealthzAddr 形如 ":9091"——SplitHostPort 兼容裸端口（host 空）。
-	if cfg.Proxy.HealthzAddr != "" {
-		_, port, splitErr := net.SplitHostPort(cfg.Proxy.HealthzAddr)
-		if splitErr != nil {
-			logger.Warn().Err(splitErr).Str("addr", cfg.Proxy.HealthzAddr).Msg("解析 proxy.healthz_addr 失败，跳过 CDP ingest env 注入")
-		} else {
-			launcher.CDPIngestURL = "http://host.docker.internal:" + port + "/internal/v1/flows/ingest"
-			launcher.CDPIngestToken = envx.OrDefault("LIUSHA_INGEST_TOKEN", cfg.Proxy.IngestToken)
-			logger.Info().Str("cdp_ingest_url", launcher.CDPIngestURL).Bool("token_set", launcher.CDPIngestToken != "").
-				Msg("sandbox 将注入 CDP ingest env")
-		}
-	}
 	if err := launcher.CleanupOrphans(ctx); err != nil {
 		logger.Warn().Err(err).Msg("CleanupOrphans 失败（非致命，max lifetime 兜底）")
 	}

@@ -216,14 +216,10 @@ RUN if [ -f /usr/local/bin/browser-use-cli ]; then \
     fi \
  && browser-use-cli --version 2>&1 | head -1
 COPY deployments/tool-images/pentools/browser-use /usr/local/bin/browser-use
-# cdp_network_capture.py：CDP Network domain 抓 chromium 全量 req/resp → POST 到 host
-# /internal/v1/flows/ingest endpoint 入字典。
-# wrapper 启 chromium daemon 后 spawn 本脚本作为后台进程；与 chromium 同生命周期。
-COPY deployments/tool-images/pentools/cdp_network_capture.py /usr/local/lib/liusha/cdp_network_capture.py
-RUN chmod +x /usr/local/bin/browser-use /usr/local/lib/liusha/cdp_network_capture.py \
- && ls -la /usr/local/bin/browser-use /usr/local/bin/browser-use-cli /usr/local/lib/liusha/cdp_network_capture.py \
- && head -3 /usr/local/bin/browser-use \
- && python3 -c 'import websockets, httpx; print("websockets", websockets.__version__, "httpx", httpx.__version__)'
+# v35+：原 cdp_network_capture.py 已删（chromium 流量不再入字典，凭证共享走 redis credentials key）。
+RUN chmod +x /usr/local/bin/browser-use \
+ && ls -la /usr/local/bin/browser-use /usr/local/bin/browser-use-cli \
+ && head -3 /usr/local/bin/browser-use
 
 # Layer 3: jwt_tool 不在 PyPI（pyjwt 是不同包）——git clone + 包装脚本到 /usr/local/bin。
 RUN git clone --depth 1 https://github.com/ticarpi/jwt_tool.git /opt/jwt_tool \

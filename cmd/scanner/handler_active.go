@@ -58,9 +58,9 @@ func (h handler) handleActive(ctx context.Context, p worker.Payload, entrypoint 
 		return h.failTask(ctx, p.TaskID, err)
 	}
 
-	// 为本次 agent run 启动 sandbox 容器（v34+：hunterID=p.TaskID 注入 LIUSHA_HUNTER_ID
-	// env，pentools cdp_network_capture.py 抓 chromium 流量时携带，ingestor 反查
-	// hunter→owner 写双字段；CLI 工具直连不入字典）
+	// 为本次 agent run 启动 sandbox 容器（v35+：容器内 chromium / CLI 工具流量都不入字典，
+	// hunterID 仅用作容器名隔离；commander + 所有 spawn 出的 striker 共享同一容器，文件级
+	// 按 task_id 切 cwd/OUTPUT_DIR 隔离，chrome cookie/storage 自动跨 tab 共享）
 	sandboxClient, err := h.launcher.Spawn(ctx, p.TaskID)
 	if err != nil {
 		return h.failTask(ctx, p.TaskID, fmt.Errorf("launcher.Spawn(%s): %w", p.TaskID, err))

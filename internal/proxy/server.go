@@ -184,9 +184,8 @@ func (s *Server) onResponse(resp *http.Response, ctx *martian.Context) error {
 	}
 
 	// 3) 构造 snapshot 并注入 source。
-	// v34+：删除 internal listener 路径 — chromium 流量走 CDP capture（cmd/proxy
-	// /internal/v1/flows/ingest endpoint 直接构造 snap.HunterID），此 onResponse
-	// 仅处理 external (passive) 流量，无 hunter 概念。
+	// v35+：onResponse 仅处理 external (passive) 流量（8888 入口），无 hunter 概念；
+	// 容器内 chromium / CLI 工具流量都不入字典。
 	snap := buildSnapshot(req, resp, reqBody, respBody)
 	snap.Source = s.source
 

@@ -21,25 +21,18 @@ browser-use + chromium 已在沙箱预装，直接 `browser-use open <url>` 即�
 
 1-2 次 baseline 探测（curl 探目标可达 / 框架指纹 / 已知凭证登录拿 session）确认你站稳了再 fuzz——目标 502 / 凭证错 / 路径不存在就深挖会浪费整轮。
 
-**baseline 怎么走 — 凭证走 `read_credentials`，流量历史走 `list_flows`**：
+**baseline 怎么走 — 凭证走 `read_credentials`**：
 
 凭证（cookie / token / csrf）的**单一信息源是 redis credentials key**（commander 登录后会 `write_credential` 同步，见 shared.md「凭证共享协议」）：
 
 1. **第一步必调** `read_credentials` 拿本 host 全部身份（admin / test / ...）→ 自己拼请求时把 credentials 数组按 type/key 注入到对应位置（headers / query / body）
 2. 拿不到（commander 还没 write 完 / 你需要新身份）→ 自己登录 → **登录完也 `write_credential` 同步**（同辈 striker 受益）
 
-流量历史观察（看父 commander 探过什么 endpoint、看响应里 Set-Cookie 长啥样作排错）可调 `list_flows` + `view_flow`，但**不要把 list_flows 当凭证传递通道**——凭证一律走 `read_credentials`。
-
-**`replay_flow` vs `run_command curl` 判准**：
-
-- 基于现有请求改一改（同 endpoint 不同 payload / IDOR 换 user_id / 注入测试）→ `replay_flow`（一行搞定，cookie/CSRF/UA 全继承）
-- 完全凭空构造（探完全新 endpoint）→ `run_command curl`，凭证从 `read_credentials` 拿后手拼到 `-H` / `-b` / `-d`
-- 要 shell 管道（| grep | jq | awk 抽响应字段）→ `run_command`
+**工具选择**：自己拼请求都走 `run_command curl`，凭证从 `read_credentials` 拿后手拼到 `-H Cookie:...` / `-H Authorization:...` / `-d` body；要 shell 管道（| grep | jq | awk 抽响应字段）→ `run_command`。容器内**没有** list_flows/view_flow/replay_flow（active 模式不注册——本 owner 范围内无 http_flow 数据可查）。
 
 **反模式**：
 - ❌ 不调 `read_credentials` 直接自己 `curl -d "user=...&password=..."` 重登 —— 父 commander 八成已登录并 write_credential 了，重登 100% 浪费
-- ❌ 同 endpoint 改参数 fuzz 还在凭空 curl 拼请求 —— `replay_flow(id, modifications)` 一行能完成
-- ❌ `read_credentials` 查空就放弃 —— 立刻 `list_flows path='/login*'` 看父登录流量是否在字典里，或自己登录后 `write_credential` 兜底
+- ❌ `read_credentials` 查空就放弃 —— 自己登录 + `write_credential` 兜底（同时把活凭证给后续 striker 复用）
 
 可选 `read_endpoints` 自查 brief 范围是否已被 commander/同辈 striker 覆盖过（dedup 防重复挖）。
 
@@ -65,7 +58,6 @@ browser-use + chromium 已在沙箱预装，直接 `browser-use open <url>` 即�
 ### 反模式
 
 - ❌ **跳过 baseline 直接 fuzz**：目标可能 502 / 凭证错 / 路径变更，挖一整轮才发现网络问题
-- ❌ **自己重新登录**：先 `read_credentials` 拿父 commander 已 write 的活凭证；找不到再 `list_flows path='/login*'` 兜底；都没有才自己登录 + `write_credential` 同步
-- ❌ **同 endpoint 改参数 fuzz 还在凭空 curl 拼请求**：`replay_flow(id, modifications)` 一行能完成，自动继承所有 header
+- ❌ **自己重新登录**：先 `read_credentials` 拿父 commander 已 write 的活凭证；都没有才自己登录 + `write_credential` 同步给后续 striker
 - ❌ **挖 brief 之外的范围**：触发 dedup 浪费 commander + striker 的 token
 - ❌ **dump 完才 write_finding**：第一次拿证据就要写（inspector 会因看不到 write_finding 误判"未挖到"触发偏向 hint）

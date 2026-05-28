@@ -73,40 +73,22 @@
 - ❌ 写 `/tmp/shared/cookies.txt` 文件 — 老协议已废弃
 - ❌ write_credential 前不 read，导致 key 命名跟现存身份不一致（striker `read_credentials` 看见两套 schema 困惑）
 
-## 流量字典（http_flow + flow 工具）
+## 流量字典（http_flow + replay_flow 工具）— 仅 passive tracker 角色
 
-**入字典规则**：
-- **chromium 浏览器流量**（`browser_use` 工具产生）自动经 CDP capture 入 http_flow 字典，**源标记 internal**
-- **CLI 工具流量**（curl / katana / nuclei / dirsearch / sqlmap / python requests / Go HTTP 等）**直连，不入字典**——它们的请求/响应不会被记录
-- **`replay_flow` 工具** 由 scanner 主进程发起，经 liusha internal proxy 入字典（**唯一可主动把请求灌入字典的工具**）
-- **passive 入口**（用户经 Burp 抓的）流量在同表中，**源标记 external**
+**仅 passive 角色（tracker）注册 `replay_flow`**；active 角色（commander / striker）容器内所有工具（chromium / curl / sqlmap / ...）流量都不入字典，跨 hunter 信息传递走 redis 的 [[凭证共享协议]](read_credentials / write_credential) + write_endpoint + write_note + finding 黑板。
 
-要让请求进字典供后续 striker / 自己后续 step 复用，**优先选 browser_use 或 replay_flow**；用 curl 拿到的 cookie / token 不会被字典感知。
+**入字典规则（passive 入口）**：
+- 用户经 Burp / 真实浏览器把流量经 8888 代理过来 → 自动入 http_flow 表（源标记 external）→ 触发 tracker（1 流量 1 hunter）
+- 容器内 sandbox 工具流量**不入字典**（v35+ 撤回 CDP capture 链路）
 
-**凭证共享不要走字典** — cookie/token/csrf 等凭证一律走 `read_credentials` / `write_credential`（见上方「凭证共享协议」段）。流量字典是观察工具（看历史请求形态、看响应里的 token / Set-Cookie 用于排错），不是凭证传递通道。
+**tracker 角色可用的 replay_flow**（active 跳过本段）：
 
-**3 个工具**（list_flows / view_flow / replay_flow）共用 owner 范围：你看得见同 owner 下**所有 hunter** 的流量（父 commander 登录的、兄弟 striker 探的、自己之前发的——全可见）。
+- `replay_flow(id, modifications={...})` — 拿当前流量 ID 改字段重发（payload 替换 / IDOR 改 user_id / fuzz 测试），原请求所有字段（cookie / CSRF token / UA / 其它 form 字段）**自动继承**，你只声明改了什么。**比手写 curl 准 100 倍**，session 上下文零丢失。
+- 完全凭空构造（探完全新 endpoint）→ `run_command curl`；要 shell 管道（| grep | jq）→ `run_command`
+- v35+：replay_flow 重发自身**不再入字典**（直连），仅返响应给本 hunter
 
-**高价值使用场景**（优先级 > 自己拼 curl）：
-
-| 场景 | 操作链 |
-|---|---|
-| 排错：父登录失败 / 拿不到 session 调试 | `list_flows(path='/login*')` → `view_flow(id)` 看完整 Set-Cookie / 响应（**正常路径凭证走 `read_credentials`**，本表只作排错） |
-| IDOR / 越权 fuzz | `list_flows(path='/api/users/*')` 找历史正常请求 → `replay_flow(id, modifications={url: '/api/users/124'})` —— 自动继承 cookie/CSRF/UA，比手写 curl 准 100 倍 |
-| 同 endpoint 不同 payload 探测 | `replay_flow(id, modifications={body: '<script>alert(1)</script>'})` —— body 改，其它字段全保留 |
-| 看父 hunter 已探过哪些 endpoint（dedup）| `list_flows(host=target)` 按 path 聚合，避免重复挖 |
-| 看响应中 token / CSRF / nonce | `view_flow(id)` 直接看 raw HTTP，无需自己 grep |
-
-**核心区别 — `replay_flow` vs `run_command curl`**：
-
-- `replay_flow(id, modifications)`：原请求所有字段（cookie / CSRF token / UA / 其它 form 字段）**自动继承**，你只声明改了什么。**比手写 curl 准 100 倍**，session 上下文零丢失。
-- `run_command curl`：完全凭空构造请求，LLM 容易漏带某个关键 header / form 字段。**用在"探完全新 endpoint 没历史可参考"或"要 shell 管道 grep 处理输出"场景**。
-
-**判准**：若 owner 范围内已有同类似请求 → `replay_flow` 改它；完全新请求 / 要管道 → `run_command curl`。
-
-**反模式**：
-- ❌ 已有父 hunter `write_credential` 写入凭证，子 striker 不调 `read_credentials` 直接 `curl -d "user=...&password=..."` 重登 —— 浪费 + 大概率漏 CSRF token 失败
-- ❌ `list_flows` 不看就盲 `replay_flow` 随便 id —— flow id 必须从 list_flows / view_flow 返回的真实 id
+**反模式（tracker）**：
+- ❌ 同 endpoint 改参数 fuzz 还在凭空 curl 拼请求 — `replay_flow(id, modifications)` 一行能完成，自动继承所有 header
 
 ## 反模式
 

@@ -145,9 +145,8 @@ func (t *Traffic) Run(ctx context.Context) error {
 
 // handleMessage 处理单条 stream entry：落 http_flow + 按 source 分流是否入主任务。
 //
-// 0060+ 双 listener 模型：
-//   - source=external（passive 入口）: LookupOrCreate passive_session + flow.Append + enqueue tracker
-//   - source=internal（agent 工具）  : hunter.GetByID → owner + flow.Append（不 enqueue，防自激震荡）
+// v35+：仅剩 passive 入口（source=external）— 砍 chromium CDP capture 后无 internal 流量来源。
+// snap.Source 字段保留但当前唯一值 external，未来如再加入口可在此扩展。
 //
 // 不做二次过滤：proxy 端 filter chain 已经把无关流量（静态资源、心跳、
 // websocket、超大 body 等）拦在外面，能进 stream 的都直接处理。
@@ -168,18 +167,7 @@ func (t *Traffic) handleMessage(ctx context.Context, msg redis.XMessage) {
 		return
 	}
 
-	// 默认 source=external（兼容老 snap 无 source 字段）
-	source := snap.Source
-	if source == "" {
-		source = "external"
-	}
-
-	switch source {
-	case "internal":
-		t.handleInternalSnap(ctx, &snap)
-	default:
-		t.handleExternalSnap(ctx, &snap)
-	}
+	t.handleExternalSnap(ctx, &snap)
 }
 
 // handleExternalSnap 处理 passive 入口流量：LookupOrCreate passive_session + 入 tracker 队列。
@@ -205,61 +193,6 @@ func (t *Traffic) handleExternalSnap(ctx context.Context, snap *proxy.TrafficSna
 		Int64("flow_id", flowID).
 		Str("method", snap.Method).Str("url", snap.URI).
 		Msg("流量已入主 ReAct 队列")
-}
-
-// handleInternalSnap 处理 agent 工具流量：反查 hunter→owner 后落双字段 http_flow。
-//
-// source=internal 唯一来源（v34+）：chromium 流量经 pentools/cdp_network_capture.py
-// 通过 CDP Network 抓 → POST /internal/v1/flows/ingest → cmd/proxy/ingest_handler 在
-// payload body 内直接带 hunter_id → snap.HunterID。
-//
-// 这里反查 hunter 表得 owner_type/owner_id 写双字段（hunter_id 细粒度 + owner_id 顶层归档）。
-// hunter_id 缺失时丢弃（sandbox env LIUSHA_HUNTER_ID 缺失 / cdp_network_capture.py 异常）。
-func (t *Traffic) handleInternalSnap(ctx context.Context, snap *proxy.TrafficSnapshot) {
-	if snap.HunterID == "" {
-		t.logger.Warn().Str("host", snap.Host).Str("uri", snap.URI).
-			Msg("internal 流量缺 hunter_id，丢弃（sandbox LIUSHA_HUNTER_ID env 缺失 / cdp_network_capture.py 异常？）")
-		return
-	}
-
-	// 反查 hunter 表得 owner_type/owner_id（每流量 1 indexed PK 查询 < 1ms，未来可加 LRU cache）
-	run, err := t.tasks.GetByID(ctx, snap.HunterID)
-	if err != nil {
-		t.logger.Warn().Err(err).Str("hunter_id", snap.HunterID).
-			Msg("internal 流量反查 hunter 失败，丢弃（hunter 已被清理 / 跨进程脏数据？）")
-		return
-	}
-
-	reqH, _ := json.Marshal(snap.RequestHeaders)
-	respH, _ := json.Marshal(snap.ResponseHeaders)
-	flowID, err := t.flows.Append(ctx, flow.Flow{
-		OwnerType:       string(run.OwnerType),
-		OwnerID:         run.OwnerID,
-		HunterID:        snap.HunterID,
-		Source:          "internal",
-		Host:            snap.Host,
-		Path:            snap.Path,
-		CreatedAt:       snap.Timestamp,
-		Method:          snap.Method,
-		URL:             fullURL(snap),
-		RequestHeaders:  reqH,
-		RequestBody:     snap.RequestBody,
-		StatusCode:      snap.StatusCode,
-		ResponseHeaders: respH,
-		ResponseBody:    snap.ResponseBody,
-		DurationMs:      int(snap.Duration.Milliseconds()),
-	})
-	if err != nil {
-		t.logger.Warn().Err(err).Msg("internal flow.Append 失败")
-		return
-	}
-	t.logger.Info().
-		Str("owner_type", string(run.OwnerType)).
-		Str("owner_id", run.OwnerID).
-		Str("hunter_id", snap.HunterID).
-		Int64("flow_id", flowID).
-		Str("method", snap.Method).Str("url", snap.URI).
-		Msg("internal 流量已入字典（不触发 tracker）")
 }
 
 func (t *Traffic) appendFlow(ctx context.Context, passSessID string, snap *proxy.TrafficSnapshot) (int64, error) {

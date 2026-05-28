@@ -250,31 +250,18 @@ func NewBuilder(deps Deps) skill.Builder {
 			must(&common.ReadEndpoints{Store: deps.Endpoints, OwnerID: p.OwnerID, Host: p.Host})
 		}
 
-		// 流量字典工具（所有角色都注册 replay_flow——高频复用 cookie/session；
-		// list_flows/view_flow 仅 active 角色注册——commander+striker 多 agent chaining 需查历史，
-		// tracker 单 flow focused 不诱导跑偏）。
-		// v34+：replay_flow 直连目标（删 proxy 路径），重发流量不再回字典；
-		// 工具核心价值仍在（modifications 改字段 + 其他全部自动继承）。
-		if deps.Flows != nil {
+		// 流量字典工具 — 仅 passive (tracker) 注册 replay_flow（重发改字段，cookie/CSRF 自动继承）。
+		// active (commander/striker) 不再注册任何 flow 工具：v35+ 砍 chromium CDP capture 后
+		// active owner 范围内 http_flow 表无 internal 流量（CLI 工具本就不入字典），
+		// list_flows/view_flow/replay_flow 三工具在 active 下永远查空——直接不注册避免 LLM 调空。
+		// 凭证共享走 read_credentials/write_credential（见 system_prompt_shared.md「凭证共享协议」）。
+		if deps.Flows != nil && p.Mode != "active" {
 			must(&common.ReplayFlow{
 				Store:     deps.Flows,
 				OwnerType: p.OwnerType,
 				OwnerID:   p.OwnerID,
 				HunterID:  p.TaskID,
 			})
-			if p.Mode == "active" {
-				must(&common.ListFlows{
-					Store:     deps.Flows,
-					OwnerType: p.OwnerType,
-					OwnerID:   p.OwnerID,
-					Host:      p.Host,
-				})
-				must(&common.ViewFlow{
-					Store:     deps.Flows,
-					OwnerType: p.OwnerType,
-					OwnerID:   p.OwnerID,
-				})
-			}
 		}
 
 		var spawnerRegistry *subtask.Registry

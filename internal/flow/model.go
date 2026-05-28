@@ -3,11 +3,11 @@
 // 大 body 在 Append/AppendBatch 内按 maxReqBody / maxRespBody 截断（v0010 后不再
 // 单独打 truncated flag；body 长度 < max 即未截断，按需 caller 自查 len()）。
 //
-// 0060 起 http_flow 是统一流量字典——既存外部 passive 流量，也存内部 agent 工具流量。
-// OwnerType/OwnerID 多态关联到 passive_session 或 active_scan；Source 区分入口
-// （external=8888 外部代理捕获 / internal=8890 sandbox agent 工具）。
-// 0062 撤回 0061：恢复 HunterID 字段（双字段语义 — owner_id 顶层归档 + hunter_id 细粒度可追溯，
-// active 模式下区分 commander vs striker 发的流量；passive 模式 hunter_id 为空）。
+// v35+：http_flow 只存 passive 入口流量（8888 外部代理捕获，Source='external'）。
+// 容器内 sandbox 工具（chromium / CLI）流量不再入字典——凭证共享改走 redis credentials key
+// （read_credentials / write_credential），endpoint 沉淀走 endpoint 表（write_endpoint）。
+// OwnerType/OwnerID 多态关联到 passive_session（active_scan 在 v35+ 已无 http_flow 行）。
+// HunterID 字段保留为空（v35+ passive 单 flow 单 hunter，hunter 归属在 agent_run 表）。
 package flow
 
 import (
