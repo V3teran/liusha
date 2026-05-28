@@ -211,11 +211,12 @@ func NewBuilder(deps Deps) skill.Builder {
 
 		must(&common.ReadNotes{Store: deps.Notes, OwnerID: p.OwnerID, Host: p.Host, TaskID: p.TaskID})
 		must(&common.WriteNote{Store: deps.Notes, OwnerID: p.OwnerID, Host: p.Host, TaskID: p.TaskID})
-		// read_credentials 仅 passive 模式注册：passive 流量已绑 host，从 redis credential
-		// store 拉对应身份重放/重试天经地义。active 模式账号密码走自然语言 brief，不复用此机制。
-		if p.Mode != "active" {
-			must(&common.ReadCredentials{Provider: deps.Credentials, Host: p.Host})
-		}
+		// 凭证读写一对：read_credentials 拉本 host 已录身份；write_credential 把活凭证
+		// （登录拿到的 cookie/token/csrf 任意位置 N 条）回写同 redis hash，供同 owner 下
+		// 其他 hunter 共享。active / passive 一律注册——active 撤回旧"brief 嵌 cookie 文本"
+		// 协议，统一走 redis credentials key 作为凭证唯一传递通道。
+		must(&common.ReadCredentials{Provider: deps.Credentials, Host: p.Host})
+		must(&common.WriteCredential{Provider: deps.Credentials, Host: p.Host})
 		must(&common.ReadFindings{Store: deps.Findings, OwnerType: p.OwnerType, OwnerID: p.OwnerID, Host: p.Host})
 		// commander（active+无父 task）永远不写/不改 finding——铁律"自挖必转 spawn striker"
 		// 硬阻断：不注册工具 → LLM 看不到 schema → 根本调不到（强于纯 prompt 约束）

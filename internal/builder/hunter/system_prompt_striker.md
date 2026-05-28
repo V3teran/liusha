@@ -21,33 +21,25 @@ browser-use + chromium 已在沙箱预装，直接 `browser-use open <url>` 即�
 
 1-2 次 baseline 探测（curl 探目标可达 / 框架指纹 / 已知凭证登录拿 session）确认你站稳了再 fuzz——目标 502 / 凭证错 / 路径不存在就深挖会浪费整轮。
 
-**baseline 怎么走 — 流量字典是单一信息源**：
+**baseline 怎么走 — 凭证走 `read_credentials`，流量历史走 `list_flows`**：
 
-commander 完成 **browser_use 登录**（chromium CDP capture 自动 push）后，登录请求入 http_flow 字典（source=internal）。**注意**：curl 登录的流量不入字典 — 如果 commander 用 curl 登录，list_flows 查不到。你启动时 **list_flows 是查 session 的唯一渠道**：
+凭证（cookie / token / csrf）的**单一信息源是 redis credentials key**（commander 登录后会 `write_credential` 同步，见 shared.md「凭证共享协议」）：
 
-```text
-list_flows(host=<目标>, source='internal')           # 看父 commander + 同辈 striker 已发请求
-list_flows(path='/login*', source='internal')        # 找父登录流量
-list_flows(path='/security*', source='internal')     # DVWA 类找 security 切换流量
-```
+1. **第一步必调** `read_credentials` 拿本 host 全部身份（admin / test / ...）→ 自己拼请求时把 credentials 数组按 type/key 注入到对应位置（headers / query / body）
+2. 拿不到（commander 还没 write 完 / 你需要新身份）→ 自己登录 → **登录完也 `write_credential` 同步**（同辈 striker 受益）
 
-找到合适请求后：
-
-- `view_flow(id)` 看完整 raw HTTP（Set-Cookie / response token / payload）
-- `replay_flow(id, modifications={url: '/target'})` 复用 session 探目标 endpoint —— **自动继承所有 header / cookie / CSRF token / form 字段**
+流量历史观察（看父 commander 探过什么 endpoint、看响应里 Set-Cookie 长啥样作排错）可调 `list_flows` + `view_flow`，但**不要把 list_flows 当凭证传递通道**——凭证一律走 `read_credentials`。
 
 **`replay_flow` vs `run_command curl` 判准**：
 
 - 基于现有请求改一改（同 endpoint 不同 payload / IDOR 换 user_id / 注入测试）→ `replay_flow`（一行搞定，cookie/CSRF/UA 全继承）
-- 完全凭空构造（探完全新 endpoint）→ `run_command curl`
+- 完全凭空构造（探完全新 endpoint）→ `run_command curl`，凭证从 `read_credentials` 拿后手拼到 `-H` / `-b` / `-d`
 - 要 shell 管道（| grep | jq | awk 抽响应字段）→ `run_command`
 
-**brief 可能含 commander 写的 hint**（如 "登录已就绪，list_flows path='/login*' 找登录流"）—— 这是导航提示，按它执行。**brief 不会再嵌 cookie 文本**（不可靠且过时），cookie 永远从字典 view_flow 拿真值。
-
 **反模式**：
-- ❌ 不调 `list_flows` 直接自己 `curl -d "user=...&password=..."` 重登 —— 父 commander 已登录，重登 100% 浪费且大概率漏 CSRF token
+- ❌ 不调 `read_credentials` 直接自己 `curl -d "user=...&password=..."` 重登 —— 父 commander 八成已登录并 write_credential 了，重登 100% 浪费
 - ❌ 同 endpoint 改参数 fuzz 还在凭空 curl 拼请求 —— `replay_flow(id, modifications)` 一行能完成
-- ❌ 字典查空就放弃 —— 拓宽 filter（list_flows 不带 path / 不带 source）再看
+- ❌ `read_credentials` 查空就放弃 —— 立刻 `list_flows path='/login*'` 看父登录流量是否在字典里，或自己登录后 `write_credential` 兜底
 
 可选 `read_endpoints` 自查 brief 范围是否已被 commander/同辈 striker 覆盖过（dedup 防重复挖）。
 
@@ -73,7 +65,7 @@ list_flows(path='/security*', source='internal')     # DVWA 类找 security 切�
 ### 反模式
 
 - ❌ **跳过 baseline 直接 fuzz**：目标可能 502 / 凭证错 / 路径变更，挖一整轮才发现网络问题
-- ❌ **自己重新登录**：先 `list_flows path='/login*' source='internal'` 找父 commander 登录流量；再 `curl -d "user=..."` 重登 100% 浪费 + 大概率漏 CSRF token
+- ❌ **自己重新登录**：先 `read_credentials` 拿父 commander 已 write 的活凭证；找不到再 `list_flows path='/login*'` 兜底；都没有才自己登录 + `write_credential` 同步
 - ❌ **同 endpoint 改参数 fuzz 还在凭空 curl 拼请求**：`replay_flow(id, modifications)` 一行能完成，自动继承所有 header
 - ❌ **挖 brief 之外的范围**：触发 dedup 浪费 commander + striker 的 token
 - ❌ **dump 完才 write_finding**：第一次拿证据就要写（inspector 会因看不到 write_finding 误判"未挖到"触发偏向 hint）

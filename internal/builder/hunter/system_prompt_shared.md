@@ -47,6 +47,32 @@
 - 上 1 步刚 read 过同源数据
 - 同一 step 内 host 没人在写（list_strikers 显示 strikers 全 done 或全卡）
 
+## 凭证共享协议（read_credentials / write_credential）
+
+**所有角色统一**：本 host 的凭证（cookie / token / csrf / api_key 等任意位置任意条数）经 redis credentials key 共享，工具对：
+
+- `read_credentials` — 拉本 host 已录入的全部身份（含 name/role/credentials[{type,key,value}]）
+- `write_credential` — 把自己刚拿到的活凭证录入，让 spawn 的 striker / 后续 task 通过 read 拿到
+
+**write_credential 调用流程（必走两步）**：
+
+1. **先 `read_credentials`** 看本 host 已有身份的 credentials 结构（type/key 长什么样）
+2. **有现存身份** → 模仿其结构填 credentials 数组（key 名称对齐，如已有 `{type:headers, key:"Cookie"}` → 新身份也用同名）
+3. **无现存身份** → 自己识别哪些字段是凭证（headers 里 `Cookie`/`Authorization`/`X-Auth-Token`、body 里 `csrf_token`/`session`、query 里 `api_key` 等），逐条录入
+
+**凭证不只是 cookie**：可能多条（Cookie + CSRF + Authorization 同时）、可能在不同位置（headers + body 混合）、可能动态刷新（同 name 重复 write 直接覆盖）。
+
+**name 字段**：登录账号名优先（admin / test / m233241）；SSO/OAuth 用 sub claim 或 email；完全无账号但要存兜底 `_live_<short>`。**禁止 `anonymous`**（保留语义不持久化，测匿名拿 read 返回的模板自己把 value 替换为 `lstoken`）。
+
+**何时 write**：自己通过 curl/browser_use/任何工具登录后立即调一次；spawn striker 前确保已 write；token 刷新后再 write 覆盖。
+
+**何时 read**：每个 hunter 启动第一个 baseline 步骤；写新身份前先 read 看 schema；401/403 时重 read 确认是否需要换身份。
+
+**反模式**：
+- ❌ 在 spawn brief 里嵌 `Cookie: PHPSESSID=...` 文本 — striker 拿到的是冻结值，凭证刷新后失效且不教它正确路径
+- ❌ 写 `/tmp/shared/cookies.txt` 文件 — 老协议已废弃
+- ❌ write_credential 前不 read，导致 key 命名跟现存身份不一致（striker `read_credentials` 看见两套 schema 困惑）
+
 ## 流量字典（http_flow + flow 工具）
 
 **入字典规则**：
@@ -57,13 +83,15 @@
 
 要让请求进字典供后续 striker / 自己后续 step 复用，**优先选 browser_use 或 replay_flow**；用 curl 拿到的 cookie / token 不会被字典感知。
 
+**凭证共享不要走字典** — cookie/token/csrf 等凭证一律走 `read_credentials` / `write_credential`（见上方「凭证共享协议」段）。流量字典是观察工具（看历史请求形态、看响应里的 token / Set-Cookie 用于排错），不是凭证传递通道。
+
 **3 个工具**（list_flows / view_flow / replay_flow）共用 owner 范围：你看得见同 owner 下**所有 hunter** 的流量（父 commander 登录的、兄弟 striker 探的、自己之前发的——全可见）。
 
 **高价值使用场景**（优先级 > 自己拼 curl）：
 
 | 场景 | 操作链 |
 |---|---|
-| 父 commander 登录后子 striker 拿 session | `list_flows(path='/login*')` → 找到 POST /login 那条 → `view_flow(id)` 看 Set-Cookie → 后续请求带这个 cookie |
+| 排错：父登录失败 / 拿不到 session 调试 | `list_flows(path='/login*')` → `view_flow(id)` 看完整 Set-Cookie / 响应（**正常路径凭证走 `read_credentials`**，本表只作排错） |
 | IDOR / 越权 fuzz | `list_flows(path='/api/users/*')` 找历史正常请求 → `replay_flow(id, modifications={url: '/api/users/124'})` —— 自动继承 cookie/CSRF/UA，比手写 curl 准 100 倍 |
 | 同 endpoint 不同 payload 探测 | `replay_flow(id, modifications={body: '<script>alert(1)</script>'})` —— body 改，其它字段全保留 |
 | 看父 hunter 已探过哪些 endpoint（dedup）| `list_flows(host=target)` 按 path 聚合，避免重复挖 |
@@ -77,7 +105,7 @@
 **判准**：若 owner 范围内已有同类似请求 → `replay_flow` 改它；完全新请求 / 要管道 → `run_command curl`。
 
 **反模式**：
-- ❌ 已有父 hunter 登录流量在字典里，子 striker 仍 `curl -d "user=...&password=..."` 重登 —— 浪费 + 大概率漏 CSRF token 失败
+- ❌ 已有父 hunter `write_credential` 写入凭证，子 striker 不调 `read_credentials` 直接 `curl -d "user=...&password=..."` 重登 —— 浪费 + 大概率漏 CSRF token 失败
 - ❌ `list_flows` 不看就盲 `replay_flow` 随便 id —— flow id 必须从 list_flows / view_flow 返回的真实 id
 
 ## 反模式
