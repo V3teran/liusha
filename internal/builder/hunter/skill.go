@@ -90,13 +90,8 @@ type Deps struct {
 	Findings    *finding.Store
 	Lessons     *lesson.Store
 	Endpoints   *endpoint.Store // active 模式攻击面注册表；nil 时不注册 write_endpoint 工具且 write_finding 不联动 endpoint 状态机
-	Flows       *flow.Store     // 0060+ 流量字典；nil 时不注册 list_flows/view_flow/replay_flow
+	Flows       *flow.Store     // 流量字典；nil 时不注册 list_flows/view_flow/replay_flow
 	Credentials credential.Provider
-
-	// AgentProxyAddr 是 liusha proxy agent listener "host:port"（如 "127.0.0.1:8890"）。
-	// replay_flow 工具用此地址 + Proxy-Authorization basic auth 重发请求 → 自动入字典。
-	// 空时 replay 跳过 proxy 直连目标（流量不进字典，仅返响应给 LLM；不推荐生产用）。
-	AgentProxyAddr string
 
 	// ToolInvocations 为 Record interceptor 提供 PG 持久化能力——每次 Execute
 	// 在 enter/exit 边界写一行 tool_invocation。nil 时跳过 telemetry。
@@ -254,16 +249,17 @@ func NewBuilder(deps Deps) skill.Builder {
 			must(&common.ReadEndpoints{Store: deps.Endpoints, OwnerID: p.OwnerID, Host: p.Host})
 		}
 
-		// 0060+ 流量字典工具（所有角色都注册 replay_flow——高频复用 cookie/session；
+		// 流量字典工具（所有角色都注册 replay_flow——高频复用 cookie/session；
 		// list_flows/view_flow 仅 active 角色注册——commander+striker 多 agent chaining 需查历史，
-		// tracker 单 flow focused 不诱导跑偏）。deps.Flows 为 nil 时跳过（向后兼容）。
+		// tracker 单 flow focused 不诱导跑偏）。
+		// v34+：replay_flow 直连目标（删 proxy 路径），重发流量不再回字典；
+		// 工具核心价值仍在（modifications 改字段 + 其他全部自动继承）。
 		if deps.Flows != nil {
 			must(&common.ReplayFlow{
 				Store:     deps.Flows,
 				OwnerType: p.OwnerType,
 				OwnerID:   p.OwnerID,
 				HunterID:  p.TaskID,
-				ProxyAddr: deps.AgentProxyAddr,
 			})
 			if p.Mode == "active" {
 				must(&common.ListFlows{

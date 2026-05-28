@@ -209,18 +209,16 @@ func (t *Traffic) handleExternalSnap(ctx context.Context, snap *proxy.TrafficSna
 
 // handleInternalSnap 处理 agent 工具流量：反查 hunter→owner 后落双字段 http_flow。
 //
-// 两种 source=internal 流量来源（v33+）：
-//   - CLI 工具（curl/httpx/sqlmap...）：sanitizer 8890 解 Proxy-Authorization basic auth
-//     (user=hunter_<uuid>) → X-Liusha-Hunter-Id header → server.go 填 snap.HunterID
-//   - chromium：cdp_network_capture.py 通过 CDP Network 抓 → POST /internal/v1/flows/ingest
-//     → cmd/proxy/ingest_handler 在 payload body 内直接带 hunter_id → snap.HunterID
+// source=internal 唯一来源（v34+）：chromium 流量经 pentools/cdp_network_capture.py
+// 通过 CDP Network 抓 → POST /internal/v1/flows/ingest → cmd/proxy/ingest_handler 在
+// payload body 内直接带 hunter_id → snap.HunterID。
 //
 // 这里反查 hunter 表得 owner_type/owner_id 写双字段（hunter_id 细粒度 + owner_id 顶层归档）。
-// hunter_id 缺失时丢弃（sandbox env 配置异常 / sanitizer 失败 / CDP capture 未传 hunter_id）。
+// hunter_id 缺失时丢弃（sandbox env LIUSHA_HUNTER_ID 缺失 / cdp_network_capture.py 异常）。
 func (t *Traffic) handleInternalSnap(ctx context.Context, snap *proxy.TrafficSnapshot) {
 	if snap.HunterID == "" {
 		t.logger.Warn().Str("host", snap.Host).Str("uri", snap.URI).
-			Msg("internal 流量缺 hunter_id，丢弃（sandbox Proxy-Authorization 配置异常 / chromium auth inject 未生效？）")
+			Msg("internal 流量缺 hunter_id，丢弃（sandbox LIUSHA_HUNTER_ID env 缺失 / cdp_network_capture.py 异常？）")
 		return
 	}
 

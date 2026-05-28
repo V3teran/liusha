@@ -174,17 +174,10 @@ func main() {
 	// 注入视口尺寸到 launcher → docker run -e → 容器内 wrapper 透传 chromium。
 	launcher.ViewportWidth = cfg.Sandbox.ViewportWidth
 	launcher.ViewportHeight = cfg.Sandbox.ViewportHeight
-	// Agent proxy（0060+）：sandbox 内 CLI 工具流量经此走 liusha proxy 8890 → internal 字典。
-	// 抽 cfg.Proxy.AgentListenAddr 的端口部分，host 写 host.docker.internal（容器跨边界访问宿主机）。
-	if cfg.Proxy.AgentListenAddr != "" {
-		_, port, splitErr := net.SplitHostPort(cfg.Proxy.AgentListenAddr)
-		if splitErr != nil {
-			logger.Warn().Err(splitErr).Str("addr", cfg.Proxy.AgentListenAddr).Msg("解析 agent_listen_addr 失败，跳过 proxy env 注入")
-		} else {
-			launcher.AgentProxyAddr = "host.docker.internal:" + port
-			logger.Info().Str("agent_proxy", launcher.AgentProxyAddr).Msg("sandbox HTTP_PROXY 将注入 agent proxy")
-		}
-	}
+	// v34+：撤回 sandbox 容器 HTTP_PROXY 全局注入 — CLI 工具直连，不再自动入字典。
+	// 仅 chromium 流量经 CDP capture（下面 CDPIngestURL 链路）入字典；
+	// scanner 主进程内 replay_flow 工具仍通过 cmd/proxy internal listener 入字典（见 hunter.Deps）。
+	//
 	// CDP capture ingest URL（v33+）：chromium 不再经 proxy，cdp_network_capture.py 主动抓 + push
 	// 到 cmd/proxy healthz 端口的 /internal/v1/flows/ingest endpoint。
 	// HealthzAddr 形如 ":9091"——SplitHostPort 兼容裸端口（host 空）。
@@ -281,7 +274,6 @@ func main() {
 		Lessons:                lessons,
 		Endpoints:              endpoints,
 		Flows:                  flows,
-		AgentProxyAddr:         agentProxyForReplay(cfg.Proxy.AgentListenAddr),
 		Credentials:            creds,
 		ToolInvocations:        toolCalls,
 		ToolingLoader:          toolingLoader,
@@ -464,21 +456,3 @@ func extractHostFromBrief(brief, fallback string) string {
 	return m[1]
 }
 
-// agentProxyForReplay 把 cfg.Proxy.AgentListenAddr（"0.0.0.0:8890"）转成 scanner
-// 进程 replay_flow 工具用的地址（"127.0.0.1:8890" loopback）。
-//
-// 注意 vs sandbox 容器：
-//   sandbox 容器内工具用 "host.docker.internal:8890"（跨容器边界访问宿主机）
-//   scanner 进程在 host 上跑，直接 loopback 127.0.0.1:8890 即可（更快无需 DNS 解析）
-//
-// 空 addr 返空字符串（ReplayFlow 跳过 proxy，直连目标，流量不入字典）。
-func agentProxyForReplay(addr string) string {
-	if addr == "" {
-		return ""
-	}
-	_, port, err := net.SplitHostPort(addr)
-	if err != nil {
-		return ""
-	}
-	return "127.0.0.1:" + port
-}

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
@@ -63,14 +64,6 @@ type DockerLauncher struct {
 	ViewportWidth  int
 	ViewportHeight int
 
-	// AgentProxyAddr 是宿主机 cmd/proxy agent listener 地址（如 "host.docker.internal:8890"）。
-	// Spawn 时注入到容器 HTTP_PROXY / HTTPS_PROXY env，sandbox 内所有 CLI 工具流量自动
-	// 经此代理 → liusha proxy 字典（source=internal），无需 LLM 显式 --proxy 参数。
-	// URL 中嵌入 hunter_<hunterID>:_ 作为 Proxy-Authorization basic auth user，让 proxy
-	// 端解析出 hunter_id → ingestor 反查 hunter→owner（双字段写入 http_flow）。
-	// 空字符串时不注入 proxy env（单测 / 无 cmd/proxy 部署场景）。
-	AgentProxyAddr string
-
 	// CDPIngestURL 是 chromium CDP capture（pentools/cdp_network_capture.py）→
 	// /internal/v1/flows/ingest endpoint 完整 URL。
 	//
@@ -93,10 +86,9 @@ func NewDockerLauncher(image string) *DockerLauncher {
 
 // Spawn 启动 sandbox 容器并等待 healthz。返回绑定到该容器 host 端口的 Client。
 //
-// hunterID：双重身份——既是 docker 容器名（per-hunter 隔离），也是 HTTP_PROXY basic auth
-// user（hunter_<id>），容器内 agent 工具流量经 liusha proxy 8890 时 sanitizer 解析
-// hunter_<id> → X-Liusha-Hunter-Id header → server.go 填 snap.HunterID → ingestor 反查
-// hunter→owner 双字段写入 http_flow（hunter_id 细粒度 + owner_id 顶层归档）。
+// hunterID：docker 容器名（per-hunter 隔离）+ 注入到 LIUSHA_HUNTER_ID env 供
+// pentools/cdp_network_capture.py 抓 chromium 流量时携带身份 → ingestor 反查 hunter→owner
+// 写双字段（hunter_id 细粒度 + owner_id 顶层归档）。
 //
 // 失败路径：任一步出错都会尝试 Destroy（best-effort），避免容器残留。
 func (l *DockerLauncher) Spawn(ctx context.Context, hunterID string) (Client, error) {
@@ -104,49 +96,36 @@ func (l *DockerLauncher) Spawn(ctx context.Context, hunterID string) (Client, er
 		return nil, errors.New("DockerLauncher.Image 必填")
 	}
 	if hunterID == "" {
-		return nil, errors.New("hunterID 必填（容器名 + HTTP_PROXY basic auth user）")
+		return nil, errors.New("hunterID 必填（容器名 + LIUSHA_HUNTER_ID env）")
 	}
 	name := containerNamePrefix + hunterID
 	bin := l.dockerBin()
 
 	// docker run -d -p 127.0.0.1:0:8080 --name=<name> --memory=2g --cpus=2
-	//   [-e HTTP_PROXY=...] [-e LIUSHA_VIEWPORT_*] [--add-host host.docker.internal:host-gateway] <image>
+	//   [-e LIUSHA_VIEWPORT_*] -e LIUSHA_HUNTER_ID=<id> [-e LIUSHA_INGEST_*]
+	//   --add-host=host.docker.internal:host-gateway <image>
+	//
+	// v34+：撤回全局 HTTP_PROXY 注入 — CLI 工具流量不再走 sanitizer 8890 入字典；
+	// 仅 chromium 经 CDP capture 自动入字典（cdp_network_capture.py POST 到 ingest endpoint）。
 	args := []string{"run", "-d",
 		"-p", "127.0.0.1:0:" + containerSandboxPort,
 		"--name=" + name,
 		"--memory=" + defaultMemLimit,
 		"--cpus=" + defaultCPULimit,
+		// linux 不支持 host.docker.internal，docker 20.10+ 用 --add-host=host-gateway 等价
+		// macOS / Windows desktop 内置该 DNS，加这个也兼容（重复绑定无害）。
+		// CDP capture POST 到 host.docker.internal:9091 必需。
+		"--add-host=host.docker.internal:host-gateway",
 	}
 	// 视口尺寸：注入到容器 env 给 browser-use wrapper 透传。
-	// 零值不注入——wrapper 自己有默认（1280×720），保留向后兼容。
+	// 零值不注入——wrapper 自己有默认（1280×720）。
 	if l.ViewportWidth > 0 {
 		args = append(args, "-e", fmt.Sprintf("LIUSHA_VIEWPORT_WIDTH=%d", l.ViewportWidth))
 	}
 	if l.ViewportHeight > 0 {
 		args = append(args, "-e", fmt.Sprintf("LIUSHA_VIEWPORT_HEIGHT=%d", l.ViewportHeight))
 	}
-	// Agent proxy 注入（0062 撤回 0061 → 用 hunter_<id> 细粒度标识）：容器内 CLI 工具
-	// 流量自动经 liusha proxy 8890 → internal source 字典。URL 嵌入 hunter_<hunterID>:_ →
-	// Proxy-Authorization basic auth → sanitizer 解析 hunter_<id> → X-Liusha-Hunter-Id
-	// → snap.HunterID（server.go onResponse 填）→ ingestor 反查 hunter→owner_type/owner_id
-	// 写双字段（hunter_id 细粒度可追溯 + owner_id 顶层归档）。
-	// 空 AgentProxyAddr 时跳过（单测 / 无 cmd/proxy 部署）。
-	if l.AgentProxyAddr != "" {
-		proxyURL := fmt.Sprintf("http://hunter_%s:_@%s", hunterID, l.AgentProxyAddr)
-		args = append(args,
-			"-e", "HTTP_PROXY="+proxyURL,
-			"-e", "HTTPS_PROXY="+proxyURL,
-			"-e", "http_proxy="+proxyURL,
-			"-e", "https_proxy="+proxyURL,
-			// 跳过本机 / 容器内 service 避免循环
-			"-e", "NO_PROXY=localhost,127.0.0.1,sandbox-server,host.docker.internal",
-			"-e", "no_proxy=localhost,127.0.0.1,sandbox-server,host.docker.internal",
-			// linux 不支持 host.docker.internal，docker 20.10+ 用 --add-host=host-gateway 等价
-			// macOS / Windows desktop 内置该 DNS，加这个也兼容（重复绑定无害）
-			"--add-host=host.docker.internal:host-gateway",
-		)
-	}
-	// CDP capture env（v33+）：让 pentools 容器内 cdp_network_capture.py 知道往哪 push +
+	// CDP capture env：让 pentools 容器内 cdp_network_capture.py 知道往哪 push +
 	// 用什么 token + 当前 hunter_id（payload 内携带，endpoint 端构造 TrafficSnapshot.HunterID）。
 	// LIUSHA_HUNTER_ID 总是注入（即使无 CDP capture，方便后续脚本通用读 env）；
 	// LIUSHA_INGEST_URL / LIUSHA_INGEST_TOKEN 仅在 launcher 配置非空时注入——capture 脚本检测
@@ -190,9 +169,15 @@ func (l *DockerLauncher) Spawn(ctx context.Context, hunterID string) (Client, er
 //
 // docker stop 默认 SIGTERM 后 10s SIGKILL；docker rm -f 强制清理（即使容器没停透）。
 // 任一步失败 log 警告不致命——max lifetime 或下次启动 CleanupOrphans 兜底回收。
+//
+// LIUSHA_KEEP_SANDBOX env：非空时跳过 docker 操作，容器残留供 debug
+// （/tmp/cdp-capture.log 等容器内日志可 docker exec 进去看）。下次启动 CleanupOrphans 兜底回收。
 func (l *DockerLauncher) Destroy(ctx context.Context, hunterID string) error {
 	if hunterID == "" {
 		return errors.New("hunterID 必填")
+	}
+	if os.Getenv("LIUSHA_KEEP_SANDBOX") != "" {
+		return nil
 	}
 	name := containerNamePrefix + hunterID
 	bin := l.dockerBin()

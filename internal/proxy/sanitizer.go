@@ -1,14 +1,16 @@
+// sanitizer.go — passive proxy 的 raw-bytes URI 改写 forwarder。
+//
+// v34+：删除 agent (internal) sanitizer 全部路径 — chromium 流量改走 CDP capture →
+// ingest endpoint；CLI 工具直连不入字典。本文件只剩 passive 入口的 URI patch。
 package proxy
 
 import (
 	"bufio"
 	"bytes"
-	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
 	"net"
-	"strings"
 	"sync"
 )
 
@@ -67,122 +69,6 @@ func patchAbsoluteURI(head []byte) []byte {
 	return patched
 }
 
-// rewriteProxyAuthToHunterHeader 把 raw HTTP head 中的 Proxy-Authorization basic auth
-// 解析成 hunter_id + 替换为 X-Liusha-Hunter-Id 自定义 header（0062 撤回 0061：恢复 hunter_id）。
-//
-// 背景（关键 hack）：proxify/martian 在 OnResponseCallback 之前 strip 所有 hop-by-hop
-// header（含 Proxy-Authorization）→ server.go onResponse 拿不到，hunter_id 关联失败。
-// sanitizer 在 patch absolute URI 同一层做 header 转换，把 hop-by-hop 凭证转成普通
-// 自定义 header（proxify 不 strip）→ onResponse 可读。
-//
-// 行为：
-//   - 找 `Proxy-Authorization: Basic base64(hunter_<uuid>:_)`（case-insensitive）
-//   - 解 base64 → 抽 hunter_<uuid> 前缀 → 替换该 header line 为 `X-Liusha-Hunter-Id: <uuid>`
-//   - 找不到 / 格式错 → 删 Proxy-Authorization line（不暴露给上游 server）
-//
-// 不破坏其它 header 顺序与字节内容；仅替换匹配行。
-func rewriteProxyAuthToHunterHeader(head []byte) []byte {
-	eol := bytes.Index(head, []byte("\r\n"))
-	if eol < 0 {
-		return head
-	}
-	// 跳过 request-line（patch 阶段已处理）
-	body := head[eol+2:]
-
-	for off := 0; off < len(body); {
-		lineEnd := bytes.Index(body[off:], []byte("\r\n"))
-		if lineEnd < 0 {
-			break
-		}
-		line := body[off : off+lineEnd]
-		// header 段终止于空行
-		if len(line) == 0 {
-			break
-		}
-		const prefix = "proxy-authorization:"
-		if len(line) > len(prefix) && strings.EqualFold(string(line[:len(prefix)]), prefix) {
-			value := strings.TrimSpace(string(line[len(prefix):]))
-			if hunterID := extractHunterIDFromBasicAuth(value); hunterID != "" {
-				// 拼新 line：X-Liusha-Hunter-Id: <uuid>
-				newLine := append([]byte("X-Liusha-Hunter-Id: "), []byte(hunterID)...)
-				// 长度对齐：新旧拼出新 head
-				out := make([]byte, 0, len(head)-len(line)+len(newLine))
-				out = append(out, head[:eol+2+off]...)
-				out = append(out, newLine...)
-				out = append(out, head[eol+2+off+lineEnd:]...)
-				return out
-			}
-			// 解析失败：仍然删掉 Proxy-Authorization line（不让它继续暴露给上游 server）
-			out := make([]byte, 0, len(head)-len(line)-2)
-			out = append(out, head[:eol+2+off]...)
-			out = append(out, head[eol+2+off+lineEnd+2:]...)
-			return out
-		}
-		off += lineEnd + 2
-	}
-	return head
-}
-
-// extractHunterIDFromBasicAuth 解 "Basic base64(hunter_<uuid>:_)" → "<uuid>"。
-// 失败返空（caller 决定 fallback）。
-func extractHunterIDFromBasicAuth(value string) string {
-	const scheme = "Basic "
-	const userPrefix = "hunter_"
-	if !strings.HasPrefix(value, scheme) {
-		return ""
-	}
-	decoded, err := base64.StdEncoding.DecodeString(strings.TrimSpace(value[len(scheme):]))
-	if err != nil {
-		return ""
-	}
-	colon := bytes.IndexByte(decoded, ':')
-	if colon <= 0 {
-		return ""
-	}
-	user := string(decoded[:colon])
-	if !strings.HasPrefix(user, userPrefix) {
-		return ""
-	}
-	return user[len(userPrefix):]
-}
-
-// extractHunterIDFromHead 从 raw HTTP head 提 Proxy-Authorization → 解 hunter_id。
-// 找不到 header / 解析失败均返空。仅扫 header 段（请求体不动）。
-func extractHunterIDFromHead(head []byte) string {
-	eol := bytes.Index(head, []byte("\r\n"))
-	if eol < 0 {
-		return ""
-	}
-	body := head[eol+2:]
-	for off := 0; off < len(body); {
-		lineEnd := bytes.Index(body[off:], []byte("\r\n"))
-		if lineEnd < 0 {
-			break
-		}
-		line := body[off : off+lineEnd]
-		if len(line) == 0 {
-			break // header 段终止
-		}
-		const prefix = "proxy-authorization:"
-		if len(line) > len(prefix) && strings.EqualFold(string(line[:len(prefix)]), prefix) {
-			value := strings.TrimSpace(string(line[len(prefix):]))
-			return extractHunterIDFromBasicAuth(value)
-		}
-		off += lineEnd + 2
-	}
-	return ""
-}
-
-// proxyAuthChallenge407 是返给 client 的 407 响应。
-//
-// v33+：chromium 不再经此路径，本 challenge 现仅在 CLI 工具异常缺 auth 时触发（极少见）。
-// Connection: close 保证 client 不复用本 conn，避免老 conn 后续请求仍走 noauth 路径。
-const proxyAuthChallenge407 = "HTTP/1.1 407 Proxy Authentication Required\r\n" +
-	"Proxy-Authenticate: Basic realm=\"liusha\"\r\n" +
-	"Content-Length: 0\r\n" +
-	"Connection: close\r\n" +
-	"\r\n"
-
 // extractHostHeader 在 raw header 段（不含 request-line）中找 Host header value。
 // 找不到返空串。
 func extractHostHeader(headers []byte) string {
@@ -221,35 +107,11 @@ func readHTTPHead(br *bufio.Reader) ([]byte, error) {
 
 // RunPassiveSanitizer 监听 publicAddr（external 8888，passive 入口）。
 // 仅做 URI patch — 把首段 raw bytes 的 relative URI 改写成 absolute form 再
-// forward 给 upstreamAddr（proxify loopback 端口）。外部真实业务流量本就无凭证
-// → 不解析 Proxy-Auth / 不发 407 / 不转 X-Liusha-Hunter-Id。
-func RunPassiveSanitizer(publicAddr, upstreamAddr string) error {
-	return runForwarder(publicAddr, upstreamAddr, forwarderOpts{})
-}
-
-// RunAgentSanitizer 监听 publicAddr（internal 8890，agent 工具入口）。
-// 完整链路：URI patch + 缺 Proxy-Authorization 时发 407 challenge + 解出 hunter_id
-// 转 X-Liusha-Hunter-Id 自定义 header（proxify 不 strip → onResponse 可读）。
+// forward 给 upstreamAddr（proxify loopback 端口）。
 //
-// v33+：chromium 不再经此 proxy（改 CDP Network capture 直推 /internal/v1/flows/ingest），
-// 本路径只承载 CLI 工具（curl/httpx/sqlmap...）—— 它们 HTTP_PROXY env 内嵌 user:pass
-// 主动带 Proxy-Authorization，不触发 407 challenge。407 路径仅作未来扩展兜底保留。
-func RunAgentSanitizer(publicAddr, upstreamAddr string) error {
-	return runForwarder(publicAddr, upstreamAddr, forwarderOpts{
-		requireProxyAuth:  true,
-		rewriteHunterAuth: true,
-	})
-}
-
-// forwarderOpts 控制 sanitizer 是否启用 hunter auth 链路；零值仅 patch URI（passive 用）。
-type forwarderOpts struct {
-	requireProxyAuth  bool // 缺 Proxy-Authorization 时写 407 challenge 给 client
-	rewriteHunterAuth bool // 把 Proxy-Authorization 解出来转 X-Liusha-Hunter-Id header
-}
-
-// runForwarder 是 sanitizer 内部 listener + per-conn 转发循环。
-// 阻塞直到 listener 出错；caller 通常在 goroutine 里跑。
-func runForwarder(publicAddr, upstreamAddr string, opts forwarderOpts) error {
+// v34+：本仓库当前唯一的 sanitizer — agent 路径已删除（chromium 走 CDP capture，
+// CLI 工具直连不入字典）。
+func RunPassiveSanitizer(publicAddr, upstreamAddr string) error {
 	ln, err := net.Listen("tcp", publicAddr)
 	if err != nil {
 		return fmt.Errorf("listen %s: %w", publicAddr, err)
@@ -259,24 +121,17 @@ func runForwarder(publicAddr, upstreamAddr string, opts forwarderOpts) error {
 		if err != nil {
 			return fmt.Errorf("accept: %w", err)
 		}
-		go handleConn(client, upstreamAddr, opts)
+		go handleConn(client, upstreamAddr)
 	}
 }
 
-func handleConn(client net.Conn, upstreamAddr string, opts forwarderOpts) {
+func handleConn(client net.Conn, upstreamAddr string) {
 	defer func() { _ = client.Close() }()
 
 	br := bufio.NewReader(client)
 	head, err := readHTTPHead(br)
 	if err != nil {
 		// 首段读失败：直接关，避免半截透传给 upstream 触发 proxify 端怪异错误。
-		return
-	}
-
-	// agent listener 强制 require auth：缺/解不出 hunter_id → 407 challenge。
-	// v33+：本路径仅 CLI 工具触发；chromium 走 CDP capture 不经此。
-	if opts.requireProxyAuth && extractHunterIDFromHead(head) == "" {
-		_, _ = client.Write([]byte(proxyAuthChallenge407))
 		return
 	}
 
@@ -287,11 +142,6 @@ func handleConn(client net.Conn, upstreamAddr string, opts forwarderOpts) {
 	defer func() { _ = upstream.Close() }()
 
 	patched := patchAbsoluteURI(head)
-	if opts.rewriteHunterAuth {
-		// 把 Proxy-Authorization 转成 X-Liusha-Hunter-Id（proxify 在 onResponse 之前会
-		// strip hop-by-hop header；自定义 header 才能透传给 server.go 拿 hunter_id）。
-		patched = rewriteProxyAuthToHunterHeader(patched)
-	}
 	if _, err := upstream.Write(patched); err != nil {
 		return
 	}

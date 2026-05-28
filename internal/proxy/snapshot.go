@@ -12,14 +12,15 @@ import "time"
 
 // TrafficSnapshot 一条 HTTP 流量在 Redis Stream / 消费者侧的可序列化快照。
 //
-// 身份关联（0062 撤回 0061：双字段语义 — hunter_id 细粒度 + owner_id 顶层归档）：
+// 身份关联（双字段语义 — hunter_id 细粒度 + owner_id 顶层归档）：
 //
-//	HunterID             internal listener 解 Proxy-Auth user=hunter_<uuid> 直接填，
+//	HunterID             v34+：chromium 流量经 CDP capture → /internal/v1/flows/ingest，
+//	                     ingest_handler 从 payload 直接填 HunterID。
 //	                     external listener 留空（passive 流量无 hunter 概念）。
 //	                     ingestor 用 HunterID 反查 hunter 表得 owner_type/owner_id 写双字段。
 //	OwnerType / OwnerID  external listener 按 host 查 passive_session 后填；
 //	                     internal 由 ingestor 反查 hunter→owner 时填。
-//	Source               'external'（8888 入口）/ 'internal'（8890 入口，agent 工具发起）
+//	Source               'external'（8888 入口，passive）/ 'internal'（CDP capture，chromium）
 //
 // URI 拆解：
 //

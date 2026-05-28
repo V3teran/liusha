@@ -54,10 +54,10 @@ func main() {
 	// 双 listener（0060+）物理隔离 source，避免 agent 自挖流量触发 passive tracker 自激震荡：
 	//   external: publicAddr (8888) → sanitizer → internalAddr loopback (18888) → external proxify
 	//   internal: agentPublicAddr (8890) → sanitizer → agentInternalAddr loopback (18890) → internal proxify
+	// v34+：删除 agent (internal) listener — chromium 流量改走 CDP capture → ingest endpoint
+	// （见下方 newIngestHandler），CLI 工具直连不入字典。仅保留 external listener 给 passive 入口。
 	publicAddr := envx.OrDefault("LIUSHA_PROXY_LISTEN_ADDR", proxyCfg.ListenAddr)
 	internalAddr := envx.OrDefault("LIUSHA_PROXY_INTERNAL_ADDR", proxyCfg.InternalAddr)
-	agentPublicAddr := envx.OrDefault("LIUSHA_PROXY_AGENT_LISTEN_ADDR", proxyCfg.AgentListenAddr)
-	agentInternalAddr := envx.OrDefault("LIUSHA_PROXY_AGENT_INTERNAL_ADDR", proxyCfg.AgentInternalAddr)
 	certDir := envx.OrDefault("LIUSHA_PROXY_CERT_DIR", "") // 空则 proxy.Server 用 $HOME/<cert_subdir>
 
 	trafficFilter := filter.NewTrafficFilter(proxyCfg)
@@ -78,21 +78,6 @@ func main() {
 	})
 	if err != nil {
 		logger.Fatal().Err(err).Msg("new external mitm proxy")
-	}
-
-	// Internal（agent 入口）：共享 filter/publisher/certDir，独立 listener + source 标签。
-	// ingestor 端按 snap.Source 分流：internal → 不触发 passive tracker。
-	internalServer, err := proxy.NewServer(proxy.ServerDeps{
-		Filter:     trafficFilter,
-		Publisher:  publisher,
-		Cfg:        proxyCfg,
-		ListenAddr: agentInternalAddr,
-		CertDir:    certDir,
-		Source:     "internal",
-		Logger:     logger.With().Str("listener", "internal").Logger(),
-	})
-	if err != nil {
-		logger.Fatal().Err(err).Msg("new internal mitm proxy")
 	}
 
 	proxyCtx, proxyCancel := context.WithCancel(context.Background())
@@ -122,7 +107,7 @@ func main() {
 		}
 	}()
 
-	// External proxify + sanitizer（passive 入口）
+	// External proxify + sanitizer（passive 入口；v34+ 唯一 listener）
 	go func() {
 		logger.Info().Str("loopback", internalAddr).Str("source", "external").Msg("mitm proxy starting")
 		if err := externalServer.Run(proxyCtx); err != nil && !errors.Is(err, context.Canceled) {
@@ -138,31 +123,12 @@ func main() {
 		}
 	}()
 
-	// Internal proxify + sanitizer（agent 入口）
-	go func() {
-		logger.Info().Str("loopback", agentInternalAddr).Str("source", "internal").Msg("mitm proxy starting")
-		if err := internalServer.Run(proxyCtx); err != nil && !errors.Is(err, context.Canceled) {
-			logger.Error().Err(err).Msg("internal mitm proxy exited")
-		}
-	}()
-	go func() {
-		logger.Info().Str("public", agentPublicAddr).Str("upstream", agentInternalAddr).Str("source", "internal").Msg("uri sanitizer listening")
-		// internal listener：URI patch + require auth + 解 hunter_id → X-Liusha-Hunter-Id。
-		// v33+：chromium 不再经此 proxy（改 CDP Network capture 直推 ingest endpoint），
-		// 本路径只承载 CLI 工具（curl/httpx/sqlmap...）—— HTTP_PROXY env 内嵌 user:pass，
-		// 主动带 Proxy-Authorization → sanitizer 解出 hunter_id → onResponse 入字典。
-		if err := proxy.RunAgentSanitizer(agentPublicAddr, agentInternalAddr); err != nil {
-			logger.Error().Err(err).Msg("internal uri sanitizer exited")
-		}
-	}()
-
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
 	sig := <-stop
 	logger.Info().Str("signal", sig.String()).Msg("proxy shutting down")
 
 	externalServer.Stop()
-	internalServer.Stop()
 	proxyCancel()
 	shutdownTimeout := time.Duration(proxyCfg.ShutdownTimeoutSeconds) * time.Second
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)

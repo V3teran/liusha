@@ -49,15 +49,16 @@ browser-use + chromium 已在沙箱预装；**不要**跑 `browser-use install`�
 
 **怎么 recon 你自由决定**（agentic）：工具组合自由——但**优先级：爬虫工具 > browser_use 浏览 > 单 endpoint 探测**。
 - **推荐多工具叠用**（覆盖面更全；具体哪几个 / 什么参数你自决）：katana（主爬虫）/ dirsearch（隐藏目录）/ arjun（隐藏参数）/ httpx（探活+指纹）/ wafw00f（WAF 识别）等
-- **爬虫前必须登录**（如目标需凭证）：登录工具自由选择——curl（多步处理 CSRF token / 简单 form 高效）或 browser_use（复杂 JS / SPA 登录稳）。两者流量都自动入 http_flow 字典（sandbox 容器 HTTP_PROXY env 注入；chromium 走小写 env + NSS DB 信任 MITM）
+- **爬虫前必须登录**（如目标需凭证）：**必须用 browser_use 登录**——只有 chromium 流量自动入 http_flow 字典（CDP capture）。curl 登录流量不入字典，spawn 出的 striker 通过 list_flows 找不到，cookie 也无法被 replay_flow 复用。CLI 登录工具仅在 commander 自己当步内使用时才合理（拿响应 grep token 后立即用，不传给 striker）
 - 未登录爬到的都是公开页（/login /about /setup），漏 90% 攻击面
 
 **cookie 同步给 striker — 单一协议：流量字典**
 
-- 你登录（curl 或 browser_use）→ 登录请求 + 响应自动入 http_flow 字典（source=internal）
-- spawn 的 striker 在同 owner 范围下 `list_flows(path='/login*' source='internal')` 就能找到你的登录流量
-- striker 用 `view_flow(id)` 看 Set-Cookie / response token → `replay_flow(id, modifications={...})` 复用 session 继续探
-- **brief 末尾提示 striker** 给导航 hint，例如："登录完成，用 `list_flows path='/login*' source='internal'` 找登录流量复用 cookie；DVWA 需 security=low，setup.php / security.php 也在字典里可 replay"
+- 你**必须用 browser_use 登录** → 登录请求 + 响应经 chromium CDP capture 自动入 http_flow 字典（source=internal）
+- curl 登录流量**不入字典**（仅响应在你当步内可见），spawn 出的 striker 通过 list_flows 找不到 → cookie 共享断裂
+- spawn 的 striker 在同 owner 范围下 `list_flows(path='/login*' source='internal')` 就能找到你的 browser_use 登录流量
+- striker 用 `view_flow(id)` 看 Set-Cookie / response token → `replay_flow(id, modifications={...})` 复用 session 继续探（replay 自身**不再入字典**，仅返响应给当步 striker）
+- **brief 末尾提示 striker** 给导航 hint，例如："登录完成（browser_use），用 `list_flows path='/login*' source='internal'` 找登录流量复用 cookie；DVWA 需 security=low，setup.php / security.php 也在字典里可 replay"
 - **不要在 brief 里嵌 cookie 文本**（不可靠 + 过时；让 striker 从字典 view_flow 拿真值）
 - **不要写 `/tmp/shared/cookies.txt`** —— 老 v16 协议已废弃，统一走字典
 

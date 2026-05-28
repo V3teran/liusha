@@ -2,8 +2,8 @@
 # sync-pentools-cert.sh — 把 liusha proxy CA cert 同步到 pentools build context。
 #
 # 用途：build pentools 镜像前必须跑一次——Dockerfile COPY 这个 cert 到容器，
-# update-ca-certificates 让 sandbox 内的 curl / python / Go 等 CLI 工具信任
-# liusha MITM 代理（cmd/proxy 8888/8890 都用同一个 CA）。
+# update-ca-certificates 让 sandbox 内的 chromium 信任 liusha MITM 代理 CA。
+# v34+：CLI 工具直连不经 proxy，CA 仅 chromium 用（passive 入口 8888 仍可用同 CA）。
 #
 # 前置：liusha proxy 至少启动一次（首次会在 $HOME/.liusha/cacert.pem 生成 CA）。
 # 用法：./scripts/dev/sync-pentools-cert.sh

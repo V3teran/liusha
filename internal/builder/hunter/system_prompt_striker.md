@@ -23,7 +23,7 @@ browser-use + chromium 已在沙箱预装，直接 `browser-use open <url>` 即�
 
 **baseline 怎么走 — 流量字典是单一信息源**：
 
-commander 完成登录（curl 多步抽 user_token 或 browser_use 处理复杂 JS）后，登录请求自动入 http_flow 字典（source=internal）。你启动时 **list_flows 是查 session 的唯一渠道**：
+commander 完成 **browser_use 登录**（chromium CDP capture 自动 push）后，登录请求入 http_flow 字典（source=internal）。**注意**：curl 登录的流量不入字典 — 如果 commander 用 curl 登录，list_flows 查不到。你启动时 **list_flows 是查 session 的唯一渠道**：
 
 ```text
 list_flows(host=<目标>, source='internal')           # 看父 commander + 同辈 striker 已发请求

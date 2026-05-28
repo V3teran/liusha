@@ -1,18 +1,17 @@
 // Package common 中的 flow.go：list_flows / view_flow / replay_flow 三个工具实现。
 //
-// 这三个工具是 0060+ "统一流量字典" 的 LLM 入口：
+// 三个工具是"统一流量字典"的 LLM 入口：
 //
 //	list_flows   按 owner+filter 列出历史 HTTP 流量摘要
 //	view_flow    单条 raw HTTP 请求 + 响应详情
 //	replay_flow  按 id 复用历史请求，可 modifications 改部分字段后重发
-//	             重发流量自动经 liusha proxy 8890（HTTP_PROXY + Proxy-Authorization）
-//	             → internal 字典 → 后续 list_flows 可看见
+//	             v34+：直连目标（撤回经 internal proxy）；新流量不入字典
+//	             核心价值：modifications 改一两个字段 + 其他全继承，比手写 curl 准 100x
 //
 // 设计要点：
 //   - 工具的 Store 字段是窄接口（FlowStore）便于单元测试
 //   - OwnerID 注入式，LLM 不可控（防串库）
-//   - ReplayFlow 用 net/http.Client + Transport.Proxy 经 127.0.0.1:8890，TLS InsecureSkipVerify
-//     （目标可能是自签 / 测试站，且流量进自家字典无中间人风险）
+//   - ReplayFlow 用 net/http.Client + TLS InsecureSkipVerify（pentest 目标常自签证书）
 package common
 
 import (
@@ -23,7 +22,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"strings"
 	"time"
 
@@ -219,14 +217,14 @@ func (a *ViewFlow) Execute(ctx context.Context, args json.RawMessage) (toolfx.Re
 // ReplayFlow 按 id 复用历史请求重发；可 modifications 改部分字段。
 // 未指定的字段从原请求继承（含 cookie / CSRF token / auth header / 其它 form 字段）。
 //
-// 重发流量经 liusha proxy（127.0.0.1:8890 + Proxy-Auth basic auth = hunter_<HunterID>:_）
-// → 自动进 internal 字典，下次 list_flows 可看见新一行。
+// v34+：直连目标（不再经 liusha proxy）。重发流量**不会**回字典——但工具核心价值仍在
+// （modifications 改一两个字段 + 其他全继承，比手写 curl 准 100x）。
+// 要让流量入字典请用 browser_use（chromium CDP capture 自动 push 入 http_flow）。
 type ReplayFlow struct {
 	Store     FlowStore
 	OwnerType string
 	OwnerID   string
-	HunterID  string // 当前 hunter id，用于 Proxy-Auth basic auth
-	ProxyAddr string // liusha proxy agent listener "host:port"，如 "127.0.0.1:8890"；空则跳过 proxy
+	HunterID  string // 当前 hunter id（保留供日志/审计；v34+ 不再用作 Proxy-Auth）
 }
 
 // Name 返回工具名 "replay_flow"。
@@ -323,15 +321,10 @@ func (a *ReplayFlow) Execute(ctx context.Context, args json.RawMessage) (toolfx.
 		req.Header.Set(http.CanonicalHeaderKey(k), v)
 	}
 
-	// 配置 transport：走 liusha proxy + Proxy-Auth + TLS InsecureSkipVerify
+	// v34+：直连目标（撤回 internal proxy 路径）。仅保留 TLS InsecureSkipVerify
+	// 给 self-issued cert 目标用（pentest 场景常见）。
 	transport := &http.Transport{
-		TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec // self-issued MITM cert
-	}
-	if a.ProxyAddr != "" && a.HunterID != "" {
-		proxyURL, perr := url.Parse(fmt.Sprintf("http://hunter_%s:_@%s", a.HunterID, a.ProxyAddr))
-		if perr == nil {
-			transport.Proxy = http.ProxyURL(proxyURL)
-		}
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec // pentest target may use self-signed cert
 	}
 	client := &http.Client{
 		Transport: transport,
@@ -366,7 +359,7 @@ func (a *ReplayFlow) Execute(ctx context.Context, args json.RawMessage) (toolfx.
 			"response_body":     string(respBody),
 			"response_body_len": len(respBody),
 		},
-		"note": "新流量已经 liusha proxy 入字典（source=internal），下次 list_flows 可见",
+		"note": "v34+ 直连重发，新流量**不入字典**；仅返响应给本 hunter。要让流量入字典请用 browser_use（chromium CDP capture）",
 	}
 	payload, _ := json.Marshal(out)
 	return toolfx.Result{Output: payload}, nil

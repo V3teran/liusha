@@ -49,7 +49,13 @@
 
 ## 流量字典（http_flow + flow 工具）
 
-sandbox 容器内**所有 CLI 工具流量**（curl / katana / nuclei / dirsearch / python requests / Go HTTP / sqlmap 等）自动经 liusha proxy 入 http_flow 字典，**源标记 internal**。同时 passive 入口（用户经 Burp 抓的）流量也在表中，**源标记 external**。
+**入字典规则**：
+- **chromium 浏览器流量**（`browser_use` 工具产生）自动经 CDP capture 入 http_flow 字典，**源标记 internal**
+- **CLI 工具流量**（curl / katana / nuclei / dirsearch / sqlmap / python requests / Go HTTP 等）**直连，不入字典**——它们的请求/响应不会被记录
+- **`replay_flow` 工具** 由 scanner 主进程发起，经 liusha internal proxy 入字典（**唯一可主动把请求灌入字典的工具**）
+- **passive 入口**（用户经 Burp 抓的）流量在同表中，**源标记 external**
+
+要让请求进字典供后续 striker / 自己后续 step 复用，**优先选 browser_use 或 replay_flow**；用 curl 拿到的 cookie / token 不会被字典感知。
 
 **3 个工具**（list_flows / view_flow / replay_flow）共用 owner 范围：你看得见同 owner 下**所有 hunter** 的流量（父 commander 登录的、兄弟 striker 探的、自己之前发的——全可见）。
 

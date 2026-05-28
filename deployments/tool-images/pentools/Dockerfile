@@ -336,7 +336,7 @@ RUN set -eu \
 # Layer 4b: PD 工具 -duc wrapper——拦截 httpx/katana/nuclei/subfinder 启动时的
 # phone-home (api.pdtm.sh 版本检查)。原因：
 #   1. 内网/断网场景下省 5s timeout
-#   2. liusha 流量字典里消除 api.pdtm.sh 噪音（容器走 HTTP_PROXY 自动入字典）
+#   2. 消除 phone-home 噪音（v34+ CLI 工具直连不入字典，但跨边界 DNS 仍有 cost）
 #   3. machine_id 匿名追踪本身就不该出现在 pentest 工具流量里
 # 真二进制 → .real，wrapper 自动 prepend -duc（disable-update-check）。
 # LLM 调用时无感知，仍然写 `httpx -u xxx`，wrapper 自动加 -duc。
@@ -398,8 +398,8 @@ RUN set -e \
 #   1. /etc/ssl/certs（OpenSSL CA 系统 trust）→ curl / wget / pip / python requests /
 #      Go http / openjdk PKI（含 java tools 如 ysoserial）通过 update-ca-certificates 信任
 #   2. NSS DB（Mozilla NSS trust store）→ chromium / playwright 通过 certutil 信任 MITM
-#      Chromium 在 Linux headless 下自动读 HTTP_PROXY/HTTPS_PROXY env（与 sandbox launcher
-#      注入的 HTTP_PROXY 一致），有了 NSS CA 后 https 目标 TLS MITM 不会再被拒
+#      v34+：chromium 直连不经 proxy（流量改 CDP capture 入字典），NSS CA 仅在目标
+#      自签证书场景（pentest 常见）兜底 TLS 验证
 COPY deployments/tool-images/pentools/liusha-ca.crt /usr/local/share/ca-certificates/liusha-ca.crt
 RUN apt-get update \
  && apt-get install -y --no-install-recommends libnss3-tools \
