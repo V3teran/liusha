@@ -116,7 +116,7 @@ func (a *BrowserUse) ParametersJSON() json.RawMessage {
   "properties":{
     "action":{"type":"string","enum":["open","state","click","input","wait","eval","extract","source","reset"],"description":"open=导航URL / state=拿当前页 numbered 元素清单（[1]<a>X</a> [2]<button>Login</button>... 含 viewport 尺寸 + DOM 结构，LLM 据此选 index） / click=点击元素（优先 index 准确，x/y 是兜底） / input=给元素键入文本（优先 index） / wait=等条件 / eval=在当前页执行任意JS（如 document.querySelector('button').click() / 取 DOM 数据 / 调试 fetch） / extract=LLM抽数据 / source=拿当前页渲染后完整 HTML（可用于看 selector 或 DOM 结构） / reset=强杀本身份 chromium 会话重启（用于反复 timeout / 卡死场景；副作用：本身份所有 tab 丢失含登录态需重新 open+登录）"},
     "url":{"type":"string","description":"action=open 必填：目标 URL（含 http:// 或 https://）"},
-    "index":{"type":"integer","minimum":0,"description":"action=click/input 推荐：state 返回清单里的元素编号（[N] 的 N）。优先用 index 比 x/y 稳。"},
+    "index":{"type":"integer","minimum":0,"description":"action=click/input 推荐：state 返回清单里的元素编号（[N] 的 N），比 x/y 稳。注意 index 是 state 那一刻的临时快照编号：紧接 state 后立即用，中间别插会改页面的动作（导航/点击触发重渲染会让编号失效）。若返回 'Element index N not found' = 页面已变，**重新 state 拿新编号再操作（别复用旧 N）**；同一元素反复 index 失效时改用 action=eval 的 document.querySelector('selector').click() / .value=... 走稳定 CSS selector。"},
     "x":{"type":"integer","description":"action=click/input 兜底：元素中心 x（坐标系见 Description）— 仅在没有 index 时使用，vision 给坐标偏差大易 timeout"},
     "y":{"type":"integer","description":"action=click/input 兜底：元素中心 y — 仅在没有 index 时使用"},
     "text":{"type":"string","description":"action=input 必填：要键入的文本"},

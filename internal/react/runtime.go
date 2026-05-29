@@ -39,12 +39,18 @@ const imageRemovedPlaceholder = "[此处历史截图已折叠以节省上下文�
 //   - OnAbort 用于外部主动停机（cron 任务取消、用户 Ctrl+C 等），返回 (true, nil) 即终止。
 //   - Inspector 默认 NoopInspector；InspectorEverySteps 默认 5。
 type Config struct {
-	LLM                 llm.Generator
-	Actions             *toolfx.Registry
-	Budget              Budget
-	SystemPrompt        string
-	UserPrompt          string
-	OnAbort             func(ctx context.Context) (bool, error)
+	LLM          llm.Generator
+	Actions      *toolfx.Registry
+	Budget       Budget
+	SystemPrompt string
+	UserPrompt   string
+	OnAbort      func(ctx context.Context) (bool, error)
+	// OnNoToolCall 在 LLM 返回零 tool call（想直接收口）时被调用，用于拦截过早收口。
+	// 返回 keepAlive=true 时 runtime 不终止，而是把 LLM 的 content 作为 assistant 消息、
+	// observation 作为 user 消息追加进历史后 continue 主循环（让 LLM 重新决策）。
+	// 典型用途：commander 仍有 running striker 时不允许收口（与 PreDoneCheck 闸门对齐）。
+	// nil → 维持旧行为（直接以 no_tool_call 终止），passive/tracker 不受影响。
+	OnNoToolCall        func(ctx context.Context) (keepAlive bool, observation string, err error)
 	Inspector           Inspector
 	InspectorEverySteps int
 	// MaxImagesInHistory 是 multimodal message 历史保留的最大图片张数；
@@ -74,9 +80,9 @@ type Config struct {
 //
 // TerminateBy 取值：done / max_steps / max_tokens / aborted / no_tool_call。
 type Outcome struct {
-	TerminateBy   string
-	TotalSteps    int
-	TotalUsage    llm.Usage
+	TerminateBy    string
+	TotalSteps     int
+	TotalUsage     llm.Usage
 	InspectorHints int
 }
 
@@ -215,8 +221,22 @@ func Run(ctx context.Context, cfg Config) (Outcome, error) {
 			Int("out_tokens", res.Usage.OutTokens).
 			Msg("LLM Generate 返回")
 
-		// 4) 没有 tool call → LLM 想直接收口，结束循环
+		// 4) 没有 tool call → LLM 想直接收口
 		if len(res.ToolCalls) == 0 {
+			// OnNoToolCall 闸门：仍有未完成的 child（如 running striker）时拦下过早收口，
+			// 把 LLM 的收口陈述 + observation 注入历史后 continue，让 LLM 重新决策。
+			// out.TotalSteps 已自增，Budget.MaxSteps 仍是兜底，不会无限 keep-alive。
+			if cfg.OnNoToolCall != nil {
+				keepAlive, observation, hookErr := cfg.OnNoToolCall(ctx)
+				if hookErr != nil {
+					return out, fmt.Errorf("step %d OnNoToolCall: %w", out.TotalSteps, hookErr)
+				}
+				if keepAlive {
+					msgs = append(msgs, llm.Message{Role: llm.RoleAssistant, Content: res.Content})
+					msgs = append(msgs, llm.Message{Role: llm.RoleUser, Content: observation})
+					continue
+				}
+			}
 			out.TerminateBy = "no_tool_call"
 			return out, nil
 		}

@@ -59,5 +59,6 @@ browser-use + chromium 已在沙箱预装，直接 `browser-use open <url>` 即�
 
 - ❌ **跳过 baseline 直接 fuzz**：目标可能 502 / 凭证错 / 路径变更，挖一整轮才发现网络问题
 - ❌ **自己重新登录**：先 `read_credentials` 拿父 commander 已 write 的活凭证；都没有才自己登录 + `write_credential` 同步给后续 striker
+- ❌ **拿到活 cookie 又在浏览器里重登**：`read_credentials` 拿到 cookie 后要用 `browser_use` → 用 `run_command "browser-use cookies set name=<k> value=<v> domain=<host>"` 把 Cookie 整条按 `; ` 拆开逐对注入（浏览器 cookie jar 与 curl 独立，header 拼不进去；HttpOnly 也能注），之后 `browser_use open` 即登录态。**别**在浏览器里重走登录表单
 - ❌ **挖 brief 之外的范围**：触发 dedup 浪费 commander + striker 的 token
 - ❌ **dump 完才 write_finding**：第一次拿证据就要写（inspector 会因看不到 write_finding 误判"未挖到"触发偏向 hint）

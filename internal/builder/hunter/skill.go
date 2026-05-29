@@ -123,9 +123,9 @@ type Deps struct {
 	StepToolTimeoutSeconds int
 
 	// 预算——按 mode 分流：passive 流量驱动 60 步够；active 站点扫描深挖需 300 步
-	PassiveMaxSteps    int
-	ActiveMaxSteps     int
-	WatchdogSeconds    int
+	PassiveMaxSteps     int
+	ActiveMaxSteps      int
+	WatchdogSeconds     int
 	InspectorEverySteps int
 	MaxImagesInHistory  int // multimodal 历史保留图片数（来自 cfg.React.MaxImagesInHistory，0 时 runtime fallback 3）
 
@@ -275,7 +275,28 @@ func NewBuilder(deps Deps) skill.Builder {
 			must(common.ListStrikers{Registry: registry})
 		}
 
+		var onNoToolCall func(context.Context) (bool, string, error)
 		if spawnerRegistry != nil {
+			// 共享快照：done 闸门（PreDoneCheck）与 no_tool_call 闸门（OnNoToolCall）
+			// 都靠它判断"还有没有 running striker"——两道闸门同一语义，避免逻辑漂移。
+			snapshotRunning := func() []string {
+				snaps := spawnerRegistry.Snapshot()
+				var running []string
+				now := time.Now()
+				for _, s := range snaps {
+					if s.Status != subtask.StatusRunning {
+						continue
+					}
+					elapsed := int(now.Sub(s.SpawnedAt).Seconds())
+					short := s.TaskID
+					if len(short) > 8 {
+						short = short[:8]
+					}
+					running = append(running, fmt.Sprintf("%s(%ds)", short, elapsed))
+				}
+				return running
+			}
+
 			// done 焦虑修复：commander LLM 被拦后倾向反复改 reason 重试 done（实测一次 e2e 烧 18 次空 done = 0.5 元 token）。
 			// 双层防御——
 			//   A. 退避计数器（cooldown）：连续被拒 N 次后强制冷却 30s→2min→5min 指数退避，期间 done 直接静默拒
@@ -286,20 +307,7 @@ func NewBuilder(deps Deps) skill.Builder {
 				Sandbox: p.Sandbox,
 				TaskID:  p.TaskID,
 				PreDoneCheck: func(_ context.Context) error {
-					snaps := spawnerRegistry.Snapshot()
-					var running []string
-					now := time.Now()
-					for _, s := range snaps {
-						if s.Status != subtask.StatusRunning {
-							continue
-						}
-						elapsed := int(now.Sub(s.SpawnedAt).Seconds())
-						short := s.TaskID
-						if len(short) > 8 {
-							short = short[:8]
-						}
-						running = append(running, fmt.Sprintf("%s(%ds)", short, elapsed))
-					}
+					running := snapshotRunning()
 					if len(running) == 0 {
 						backoffSt.consecutiveDenies = 0 // reset cooldown
 						return nil
@@ -308,28 +316,40 @@ func NewBuilder(deps Deps) skill.Builder {
 					if backoff := computeDoneBackoff(backoffSt.consecutiveDenies); backoff > 0 {
 						if remaining := backoff - time.Since(backoffSt.lastDenyTime); remaining > 0 {
 							return fmt.Errorf("done 冷却中（连续 %d 次被拒，下次允许还剩 %s）。"+
-								"**不要再调 done**——每次 done 调用都消耗一整次 LLM 推理（数万 token）。"+
-								"**想看 striker 进度？调 `list_strikers`**（不消耗 done 冷却 + 不烧 done 推理）。"+
-								"主动做：list_strikers 看进度 / read_findings 看新 finding / spawn_striker 派新 chaining striker / write_lesson 沉淀经验。"+
-								"**你是指挥官，不亲自挖洞**（撞证据走 evidence handoff 协议 spawn striker）。"+
-								"strikers 全 done 后自动放行。",
+								"**不要再调 done，也不要 polling list_strikers**——两者都白烧推理；strikers 全 done 后 PreDoneCheck 自动放行你的 done。"+
+								"现在去做有产出的事：read_findings 看 striker 黑板新 finding / 基于 finding 调 spawn_striker 派新 chaining striker / write_lesson 沉淀可复用攻击模式。"+
+								"**你是指挥官，不亲自挖洞**（撞证据走 evidence handoff 协议 spawn striker）。",
 								backoffSt.consecutiveDenies, remaining.Truncate(time.Second))
 						}
 					}
 					backoffSt.consecutiveDenies++
-					backoffSt.lastDenyTime = now
+					backoffSt.lastDenyTime = time.Now()
 					// B：删"过段时间再试 done"诱导，改命令式 + 明确"协调者不亲自挖"防 commander 自挖
-					return fmt.Errorf("仍有 %d 个 running striker: %s。**不要再调 done**——重复试会进入冷却（30s→2min→5min 指数退避），且每次 done 调用都消耗一整次 LLM 推理（数万 token）。"+
-						"**想看 striker 进度？调 `list_strikers`**（不消耗 done 冷却 + 不烧 done 推理）。"+
-						"主动做：(a) list_strikers 看 striker 进度 → 全 done 才调 done；"+
-						"(b) read_findings 看 striker 黑板新 finding；"+
-						"(c) 基于 finding 调 spawn_striker 派**新** striker 挖 chaining 链路（不同攻面 / SQLi→Auth Bypass 等组合）；"+
-						"(d) write_lesson 沉淀可复用攻击模式（不是任务总结）。"+
-						"**你是指挥官，永远不亲自挖洞 / 不亲自 write_finding**——撞证据走 evidence handoff 协议 spawn striker。"+
-						"strikers 全 done 后 PreDoneCheck 自动放行你的 done 调用。",
+					return fmt.Errorf("仍有 %d 个 running striker: %s。**不要再调 done，也不要 polling list_strikers**——重复 done 会进入冷却（30s→2min→5min 指数退避），polling 同样白烧推理；strikers 全 done 后 PreDoneCheck 自动放行你的 done。"+
+						"现在去做有产出的事：(a) read_findings 看 striker 黑板新 finding；"+
+						"(b) 基于 finding 调 spawn_striker 派**新** striker 挖 chaining 链路（不同攻面 / SQLi→Auth Bypass 等组合）；"+
+						"(c) write_lesson 沉淀可复用攻击模式（不是任务总结）。"+
+						"**你是指挥官，永远不亲自挖洞 / 不亲自 write_finding**——撞证据走 evidence handoff 协议 spawn striker。",
 						len(running), strings.Join(running, ", "))
 				},
 			})
+
+			// no_tool_call 闸门：commander 返回零 tool call（想沉默收口）但仍有 running striker 时拦下。
+			// 与 PreDoneCheck 同源（snapshotRunning），让"沉默收口"和"显式 done"受同一约束——
+			// 这样 commander 不再靠 polling list_strikers 防 no_tool_call 早停（#5 已删该诱导）。
+			// 全 done 才放行收口；keep-alive 受 react Budget.MaxSteps 兜底，不会无限循环。
+			onNoToolCall = func(_ context.Context) (bool, string, error) {
+				running := snapshotRunning()
+				if len(running) == 0 {
+					return false, "", nil // 无 running striker → 放行收口
+				}
+				return true, fmt.Sprintf("仍有 %d 个 striker 在跑: %s。**你现在不能收口**（no_tool_call 已被闸门拦下，等同 done 被拦）。"+
+					"strikers 全 done 后你再收口；现在去做有产出的事：(a) read_findings 看 striker 黑板新 finding；"+
+					"(b) 基于 finding 调 spawn_striker 派**新** striker 挖 chaining 链路（不同攻面 / SQLi→Auth Bypass 等组合）；"+
+					"(c) write_lesson 沉淀可复用攻击模式。"+
+					"**你是指挥官，永远不亲自挖洞 / 不亲自 write_finding**。",
+					len(running), strings.Join(running, ", ")), nil
+			}
 		} else {
 			must(common.Done{Sandbox: p.Sandbox, TaskID: p.TaskID})
 		}
@@ -411,17 +431,18 @@ func NewBuilder(deps Deps) skill.Builder {
 		}
 
 		return react.Config{
-			LLM:                 p.LLM,
-			Actions:             reg,
-			Budget:              react.Budget{MaxSteps: maxSteps, WatchdogSeconds: watchdog},
-			SystemPrompt:        buildSystemPrompt(p.Mode, p.CommanderTaskID == ""),
-			UserPrompt:          userPrompt,
-			Inspector:           p.Inspector,
-			InspectorEverySteps: deps.InspectorEverySteps,
-			MaxImagesInHistory:  deps.MaxImagesInHistory,
-			HistoryCompactor:    deps.HistoryCompactor,
-			ContextWindow:       ctxWindow,
-			HistoryCompact:      deps.HistoryCompact,
+			LLM:                   p.LLM,
+			Actions:               reg,
+			Budget:                react.Budget{MaxSteps: maxSteps, WatchdogSeconds: watchdog},
+			SystemPrompt:          buildSystemPrompt(p.Mode, p.CommanderTaskID == ""),
+			UserPrompt:            userPrompt,
+			OnNoToolCall:          onNoToolCall, // commander 拦过早收口；非 commander 为 nil（维持旧行为）
+			Inspector:             p.Inspector,
+			InspectorEverySteps:   deps.InspectorEverySteps,
+			MaxImagesInHistory:    deps.MaxImagesInHistory,
+			HistoryCompactor:      deps.HistoryCompactor,
+			ContextWindow:         ctxWindow,
+			HistoryCompact:        deps.HistoryCompact,
 			HistoryCompactTimeout: deps.HistoryCompactTimeout,
 		}, nil
 	}

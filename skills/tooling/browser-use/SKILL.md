@@ -27,6 +27,8 @@ CLI 包装 playwright，browse-use 原生 `--session` 托管 chrome（自启自�
 
 - **open**：chromium 首次 cold start ~20-30s，**第 1 个命令 `timeout_seconds` 至少 60**；后续同身份会话复用 15s 够
 - **state 先于 click**：LLM 直接给 click x/y 偏差通常 ±50 像素，足以错过按钮。**先 state 拿 numbered DOM → 再 click index=N**，比 vision 猜稳得多
+- **index 是临时快照号，会失效**：state 返回的 [N] 编号只对"那一刻的 DOM"有效。紧接 state 立即 click/input，**中间别插会改页面的动作**（导航/点击触发重渲染、SPA 路由、shadow DOM 变化都会让编号错位）。报 `Element index N not found` = 页面已变 → **重新 state 拿新编号，别复用旧 N**。
+- **index 反复失效 → 改走 eval + CSS selector**：同一元素多次 `not found` 时别死磕 index，用 `eval` 走稳定 selector：`document.querySelector('#user').value='admin'` 配 `document.querySelector('form').submit()`，或 `document.querySelector('button[type=submit]').click()`。selector 不像数字 index 那样随 DOM 抖动。
 - **input index 一步到位**：`{action:"input", index:N, text:"..."}` 内部已处理"先 click 拿焦点 + type"两步；x/y 兜底路径才是分两步
 - **source vs eval HTML**：拿渲染后 HTML 用 `source`（原生 `get html`），不要 `eval document.documentElement.outerHTML`（JS 字符串编码风险）
 - **reset 是核选项**：停掉**本身份**会话、所有 tab 含登录态会丢失。**仅在该身份反复 click timeout / open 都卡时调**，不要日常用（不影响其它身份）
@@ -44,16 +46,21 @@ CLI 包装 playwright，browse-use 原生 `--session` 托管 chrome（自启自�
 
 chromium 的 cookie store 由 playwright 内部管理，与 curl 各自独立。**两边凭证的单一信息源是 redis 凭证通道**（`read_credentials` / `write_credential`，见 system prompt「凭证共享协议」）：
 
-- **curl → browser**：curl 登录拿到 cookie 后，注入到本身份浏览器再用 browser 操作：
+- **已有 redis 凭证 + 你要用浏览器 → 注入，别重登**（最常见、最易翻车）：`read_credentials` 拿到本 host 活 cookie（如 commander 登录后 write 的 admin 身份）后，把它**注入本身份浏览器**直接接管登录态——**不要**在浏览器里重新走一遍登录表单（冗余、易失败、还可能拿到不同 session）。
+  redis 里 cookie 通常是一整条 Cookie header（`{type:headers, key:"Cookie", value:"PHPSESSID=8b04..; security=low"}`），按 `; ` 拆成多对，每对一条 `cookies set`：
   ```bash
-  browser-use cookies set name=PHPSESSID value=xxx domain=target.com   # 单条
-  browser-use cookies import /tmp/cookies.json                          # Playwright JSON 格式
+  browser-use cookies set name=PHPSESSID value=8b04.. domain=target.com
+  browser-use cookies set name=security  value=low    domain=target.com
+  # 之后 browser_use open <受保护页> 已是登录态，无需登录表单
   ```
-- **browser → curl**：用 `browser-use cookies get` 导出，或直接以 `write_credential` 录入 redis 让其它工具/agent `read_credentials` 取用。
+  整条 Playwright JSON 也可 `browser-use cookies import /tmp/cookies.json`。注入后第一次 open 受保护页，看是否仍跳登录页验证生效。
+- **curl → browser**：curl 登录拿到 cookie，同上 `cookies set` 注入到本身份浏览器再操作。
+- **browser → curl / 其它 agent**：`browser-use cookies get` 导出，或 `write_credential` 录入 redis 让其它工具/agent `read_credentials` 取用。
 
 ### 反模式
 
-**不要**用 `eval document.cookie=...` 同步——**HttpOnly cookie 注入不了**（JS 看不到），会卡 20+ 步；用 `cookies set/import` 子命令（CDP 层注入）。
+- ❌ **read_credentials 拿到活 cookie 还在浏览器里重新登录**——直接 `cookies set` 注入即可（重登是冗余劳动，且常因表单/CSRF 变化失败）。
+- ❌ 用 `eval document.cookie=...` 同步——**HttpOnly cookie 注入不了**（JS 看不到），会卡 20+ 步；用 `cookies set/import` 子命令（CDP 层注入）。
 
 ## 何时用 / 何时不用
 
@@ -74,6 +81,7 @@ chromium 的 cookie store 由 playwright 内部管理，与 curl 各自独立。
 | 症状 | 可能原因 | 处理 |
 |---|---|---|
 | `click x,y` timeout 20-30s | LLM 猜的坐标错位，chromium 等不到事件 | 换 `state` + `click index=N` |
+| `Element index N not found` | state 后页面变了，编号失效 | 重新 `state` 拿新 index（别复用旧 N）；反复失效改 `eval` 走 CSS selector |
 | 反复 click / open 都 timeout | 本身份会话卡死 | 调 `reset`（带同 identity）重启该身份会话 |
 | open 60s timeout | 第 1 个命令 cold start 没等够 | 单次重试 + 加大 timeout |
 | 拿 cookie 失败 | HttpOnly cookie 用 `eval document.cookie` 拿不到 | 用 `cookies get` 子命令（CDP 层抓） |

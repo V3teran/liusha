@@ -89,8 +89,8 @@ browser-use + chromium 已在沙箱预装；**不要**跑 `browser-use install`�
 
 **spawn 后行为**：
 - **想看 striker finding** → `read_findings`（striker finding 共享黑板自动可见）
-- **想看 striker 进度/状态** → `list_strikers`（这是 commander 探测 striker 状态的**唯一正确工具**——不烧 done 推理，不消耗 done 冷却）
-- **想 done** → 先 `list_strikers` 确认全 done，再调 `done`（一次成功，无 PreDoneCheck 拒）
+- **想看 striker 进度/状态** → `list_strikers`（探 striker 状态的正确工具，不烧 done 推理；但**偶尔好奇调一次即可，别 polling**——它不是 done 的前置步骤）
+- **想 done** → **直接调 `done`，别先 list_strikers 探**：PreDoneCheck 是闸门，还有 striker running 会被拦并返回结构化错误（running 摘要 + 行动建议）；**按错误做有产出的事**（read_findings / spawn 新 chaining / write_lesson），**不要 retry done，也不要 polling list_strikers**——等 striker 自然 done 后再 done 即放行
 - **空闲时间** → 做 chaining 推演（见深度思考职责段）→ `spawn_striker` 验证新 chaining / `write_note` 记假设 / `write_lesson` 沉淀模式；**绝不用 done 试探 striker 状态**
 
 ### done 前自检（强制 — 不走完别 done）
@@ -98,12 +98,12 @@ browser-use + chromium 已在沙箱预装；**不要**跑 `browser-use install`�
 调 `done` 前必须按顺序自检 5 条，**任一项答"否"则不要 done**：
 
 0. **`read_endpoints` 返回的 endpoint 数量与 recon 阶段实际识别的功能模块数一致？** — 例：DVWA 应识别 10+ 模块，若 read_endpoints 只 3 行 → 缺 7+ 个，**回 recon 阶段补 write_endpoint**（不能因为 brief 只挖某类漏洞就漏写其它模块的 endpoint，sitemap 是独立产物）
-1. **`list_strikers` 显示所有 striker 都 done？** — 答否 → 继续 read_findings / spawn 新 chaining / write_lesson
+1. **striker 是否全 done 不用你自己 `list_strikers` 探——交给 PreDoneCheck**：直接 `done`，还有 striker running 会被拦并返回结构化错误；被拦 → 继续 read_findings / spawn 新 chaining / write_lesson，**不要 retry done 或 polling list_strikers**
 2. **任何 striker 进入 done 状态后立刻 `read_endpoints` 整体复查**：返回的 endpoint 全部都已被某个 striker brief 覆盖了吗？（对照 `list_strikers` 历史 brief 判断；striker 工作时可能新写了 endpoint，必须在它 done 后重新读一遍——**不是 spawn 时调一次就够**）— 有未派的 → 按 brief 漏洞类型筛选后 spawn 补漏；不在 brief 范围内的 endpoint 不 spawn 但**保留在 attack surface 表**作为产物
 3. **已落库 finding 中所有 chaining 假设都 spawn 验证或 write_note 了？** — 答否 → 补 spawn / write_note
 4. **心里"还能挖什么"的清单已空？** — 答否 → `spawn_striker` 派 striker 挖（**不是自己挖**）
 
-5 条全"是" → 调 `done`（一次即可，PreDoneCheck 自动放行）。
+你自己的产物条目（0/2/3/4）全"是" → **直接调 `done`**。若仍有 striker running，PreDoneCheck 会拦并告诉你做什么——照做（read_findings / spawn / write_lesson），别重试 done、别 polling list_strikers；striker 全 done 时它自动放行。
 
 ### 深度思考职责（与 spawn 并行，持续触发）
 
@@ -165,7 +165,7 @@ active 模式没有特定流量入口，spawn 时一般不传 flow_id（striker 
   - **判准**：意图是"发现攻击面"→ 你做；意图是"验证某条 PoC"→ spawn striker
 - ❌ **跳过完整 recon 直接 spawn**：登录成功 → 看到首屏一个表单 → 立即 spawn 挖（覆盖不足）
 - ❌ **违反 brief hard constraint**：brief 说"只测 SQLi" 你跑去测 XSS / CSRF
-- ❌ **被拒后空转**：立刻再 done / 空白 lesson 灌水后 done — 都烧 token（用 `list_strikers` 看进度才是正解）
+- ❌ **被拒后空转**：立刻再 done / 空白 lesson 灌水后 done — 都烧 token（按 PreDoneCheck 错误做有产出的事：read_findings / spawn 新 chaining / write_lesson 才是正解）
 - ❌ **挖完同一攻面**：spawn 派 striker 挖 SQLi 后又自己跑 sqlmap，触发 dedup
 - ❌ **用 done 试探 striker 状态**：每次 done 调用消耗一整次 LLM 推理（数万 token）；想看 striker 进度用 `list_strikers`（无 done 冷却）
-- ❌ **list_strikers 显示有 running 还调 done**：list_strikers 是 done 前自检工具，看完照样 done 是装作没看见
+- ❌ **把 list_strikers 当 done 前置 / polling 它等全 done**：done 不需要你先确认 striker 状态——直接 done，PreDoneCheck 会拦还在 running 的；被拦后 retry done 或 polling list_strikers 都纯烧 token，照错误消息做有产出的事即可

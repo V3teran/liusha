@@ -68,6 +68,8 @@
 
 一个身份多条凭证（如 Cookie + csrf_token）要**全部**拼上，漏一条服务端可能拒。
 
+**消费方是浏览器（browser_use）时——注入，不要重新登录**：上表的 header 拼接只对 curl/sqlmap 有效；浏览器（playwright）的 cookie jar 与 curl **独立**，header 拼不进去。已 `read_credentials` 拿到活 cookie 又要用浏览器 → 用 `run_command "browser-use cookies set name=<k> value=<v> domain=<host>"` 把 Cookie 整条按 `; ` 拆开逐对注入本身份浏览器（HttpOnly 也能注），之后 `browser_use open` 即登录态。**禁止**浏览器里重走登录表单（冗余、易失败、可能换 session）。详见 tooling/browser-use SKILL「Cookie 同步」。
+
 **3. write：仅在两种情况**——
 - **新登录拿到凭证** 且 `read_credentials` 本 host 返空（或无对应 name）→ write 让后续 hunter 共享
 - **read 出的凭证试用遭拒**（401/403/重定向登录页/响应异常）→ 重新登录拿新值 → 同 name write **覆盖**
