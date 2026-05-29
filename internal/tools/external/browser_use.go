@@ -7,6 +7,8 @@
 //   - 单 BrowserUse.Execute 内 switch action 分流；坐标系换算（grounding）+ 视口尺寸（ViewportW/H）
 //     只对 click/input 生效；其余 action 透传
 //   - 低频 browser 子命令（scroll/back/keys/hover/select 等）仍走 run_command 兜底
+//   - identity 字段：身份 = 浏览器 session（cookie jar）。同一身份所有 commander/striker 共用
+//     一个浏览器（tab 隔离），不同身份各自独立浏览器——用于越权/BAC 多账号对比。缺省 "default"。
 package external
 
 import (
@@ -21,12 +23,18 @@ import (
 
 // runBrowserSub 把 subcmd + 多个 args 拼成 shell 命令调 RunCommand 跑。
 // shell-quote 每个 arg 防注入；tag 用 "browser-<subcmd>" 形式便于运维诊断。
-func runBrowserSub(ctx context.Context, rc *RunCommand, subcmd string, args []string, timeoutSec int) (toolfx.Result, error) {
+//
+// identity 非空时以 IDENTITY env 前缀注入（wrapper 据此选 --session = 身份/cookie jar）；
+// identity 已在 Execute 入口校验为 path-safe，这里再 shell-quote 一层防注入。
+func runBrowserSub(ctx context.Context, rc *RunCommand, subcmd string, args []string, timeoutSec int, identity string) (toolfx.Result, error) {
 	quoted := make([]string, len(args))
 	for i, a := range args {
 		quoted[i] = shellSingleQuote(a)
 	}
 	cmd := strings.TrimSpace(fmt.Sprintf("browser-use %s %s", subcmd, strings.Join(quoted, " ")))
+	if identity != "" {
+		cmd = fmt.Sprintf("IDENTITY=%s %s", shellSingleQuote(identity), cmd)
+	}
 	payload, err := json.Marshal(map[string]any{
 		"command":         cmd,
 		"timeout_seconds": timeoutSec,
@@ -41,6 +49,28 @@ func runBrowserSub(ctx context.Context, rc *RunCommand, subcmd string, args []st
 // shellSingleQuote 把字符串用单引号包裹防 shell 注入；内部 ' 用 '\'' 转义。
 func shellSingleQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
+
+// isSafeIdentity 校验 identity 仅含 path-safe 字符（[A-Za-z0-9._-]，≤64）。
+//
+// identity 会进 wrapper 的 --session 名 + /tmp/browser-tab-<identity>-*.idx 文件路径，
+// 必须防 path traversal / 注入。空串合法（= 缺省 "default" 身份）。
+func isSafeIdentity(s string) bool {
+	if len(s) > 64 {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch {
+		case c >= 'a' && c <= 'z':
+		case c >= 'A' && c <= 'Z':
+		case c >= '0' && c <= '9':
+		case c == '.' || c == '_' || c == '-':
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 // 默认 timeout（秒）——各 action 对应合理值，LLM 不传时走这里。
@@ -68,12 +98,13 @@ type BrowserUse struct {
 func (a *BrowserUse) Name() string { return "browser_use" }
 
 // Description 描述工具核心语义 — 详细 action / 参数说明放 ParametersJSON description 字段，
-// 避免双份冗余。本描述只讲：用途 + 坐标系 + 自动截图特性 + 禁 run_command 重复包装。
+// 避免双份冗余。本描述只讲：用途 + 坐标系 + 自动截图特性 + 身份共享 + 禁 run_command 重复包装。
 func (a *BrowserUse) Description() string {
 	return fmt.Sprintf(
 		"用 chromium 真实浏览器操作目标页面。action 字段选具体动作（open/click/input/wait/eval/extract/source），其它字段按 action 要求填（见各字段 description）。"+
 			"\n坐标系：%s。视口固定 %dx%d。"+
 			"\n状态变化 action（open/click/input/wait）执行完自动附最新截图给 LLM；读取 action 不附图。"+
+			"\n身份共享：同一 identity 下所有 commander/striker 共用一个浏览器（cookies/登录态共享），各自页面互不干扰；越权/BAC 测多账号时给不同 identity 各开一个独立浏览器（见 identity 字段）。"+
 			"\n本工具是 browser-use CLI 的 typed 包装——**不要**再用 `run_command \"browser-use ...\"` 重复调用。",
 		grounding.Describe(a.CoordSystem), a.ViewportW, a.ViewportH,
 	)
@@ -83,15 +114,17 @@ func (a *BrowserUse) ParametersJSON() json.RawMessage {
 	return json.RawMessage(`{
   "type":"object",
   "properties":{
-    "action":{"type":"string","enum":["open","state","click","input","wait","eval","extract","source","reset"],"description":"open=导航URL / state=拿当前页 numbered 元素清单（[1]<a>X</a> [2]<button>Login</button>... 含 viewport 尺寸 + DOM 结构，LLM 据此选 index） / click=点击元素（优先 index 准确，x/y 是兜底） / input=给元素键入文本（优先 index） / wait=等条件 / eval=在当前页执行任意JS（如 document.querySelector('button').click() / 取 DOM 数据 / 调试 fetch） / extract=LLM抽数据 / source=拿当前页渲染后完整 HTML（可用于看 selector 或 DOM 结构） / reset=强杀 chromium daemon 重启（用于反复 timeout / 卡死场景；副作用：所有 tab 丢失含登录态需重新 open+登录）"},
+    "action":{"type":"string","enum":["open","state","click","input","wait","eval","extract","source","reset"],"description":"open=导航URL / state=拿当前页 numbered 元素清单（[1]<a>X</a> [2]<button>Login</button>... 含 viewport 尺寸 + DOM 结构，LLM 据此选 index） / click=点击元素（优先 index 准确，x/y 是兜底） / input=给元素键入文本（优先 index） / wait=等条件 / eval=在当前页执行任意JS（如 document.querySelector('button').click() / 取 DOM 数据 / 调试 fetch） / extract=LLM抽数据 / source=拿当前页渲染后完整 HTML（可用于看 selector 或 DOM 结构） / reset=强杀本身份 chromium 会话重启（用于反复 timeout / 卡死场景；副作用：本身份所有 tab 丢失含登录态需重新 open+登录）"},
     "url":{"type":"string","description":"action=open 必填：目标 URL（含 http:// 或 https://）"},
     "index":{"type":"integer","minimum":0,"description":"action=click/input 推荐：state 返回清单里的元素编号（[N] 的 N）。优先用 index 比 x/y 稳。"},
     "x":{"type":"integer","description":"action=click/input 兜底：元素中心 x（坐标系见 Description）— 仅在没有 index 时使用，vision 给坐标偏差大易 timeout"},
     "y":{"type":"integer","description":"action=click/input 兜底：元素中心 y — 仅在没有 index 时使用"},
     "text":{"type":"string","description":"action=input 必填：要键入的文本"},
-    "condition":{"type":"string","description":"action=wait 必填：秒数（如 '3'）或 CSS selector（如 '#main'）或 'networkidle'"},
+    "condition":{"type":"string","description":"action=wait 必填：要等的目标——CSS selector（wait_type=selector，如 '#main'）或页面文本（wait_type=text）。注意：不支持等秒数/networkidle，纯延时请用 run_command 'sleep N'"},
+    "wait_type":{"type":"string","enum":["selector","text"],"description":"action=wait 可选：condition 是 CSS selector（默认）还是页面文本"},
     "code":{"type":"string","description":"action=eval 必填：JS 代码，最后表达式作为返回值"},
     "query":{"type":"string","description":"action=extract 必填：自然语言描述要抽什么"},
+    "identity":{"type":"string","description":"身份/账号（= 浏览器 session，cookie jar 边界）。缺省走共享的默认身份；**仅当测越权/BAC 需要多账号对比时**显式传不同身份名（建议用 read_credentials 的凭证 name，如 'admin' / 'lowpriv'）——不同 identity 各自独立浏览器+登录态，互不污染。同一 identity 下 commander/striker 共用一个浏览器。"},
     "timeout_seconds":{"type":"integer","minimum":1,"maximum":180,"description":"硬超时秒；缺省 open=60 / click/input=20 / wait=30 / state/eval/extract/source=15"}
   },
   "required":["action"]
@@ -109,12 +142,18 @@ func (a *BrowserUse) Execute(ctx context.Context, args json.RawMessage) (toolfx.
 		Y              int    `json:"y"`
 		Text           string `json:"text"`
 		Condition      string `json:"condition"`
+		WaitType       string `json:"wait_type"`
 		Code           string `json:"code"`
 		Query          string `json:"query"`
+		Identity       string `json:"identity"`
 		TimeoutSeconds int    `json:"timeout_seconds"`
 	}
 	if err := json.Unmarshal(args, &in); err != nil {
 		return toolfx.Result{}, fmt.Errorf("解析 browser_use 参数: %w", err)
+	}
+	// identity 进 --session 名 + 文件路径，校验 path-safe 防注入/traversal（空 = 默认身份）。
+	if !isSafeIdentity(in.Identity) {
+		return toolfx.Result{}, fmt.Errorf("browser_use identity 非法 %q（仅允许 [A-Za-z0-9._-]，≤64 字符）", in.Identity)
 	}
 	switch in.Action {
 	case "open":
@@ -124,7 +163,7 @@ func (a *BrowserUse) Execute(ctx context.Context, args json.RawMessage) (toolfx.
 		if in.TimeoutSeconds == 0 {
 			in.TimeoutSeconds = defaultOpenTimeout
 		}
-		return runBrowserSub(ctx, a.Run, "open", []string{in.URL}, in.TimeoutSeconds)
+		return runBrowserSub(ctx, a.Run, "open", []string{in.URL}, in.TimeoutSeconds, in.Identity)
 
 	case "state":
 		// numbered DOM 清单（[1]<tag>text</tag> ...）+ viewport 尺寸，
@@ -132,7 +171,7 @@ func (a *BrowserUse) Execute(ctx context.Context, args json.RawMessage) (toolfx.
 		if in.TimeoutSeconds == 0 {
 			in.TimeoutSeconds = defaultReadTimeout
 		}
-		return runBrowserSub(ctx, a.Run, "state", nil, in.TimeoutSeconds)
+		return runBrowserSub(ctx, a.Run, "state", nil, in.TimeoutSeconds, in.Identity)
 
 	case "click":
 		if in.TimeoutSeconds == 0 {
@@ -140,13 +179,13 @@ func (a *BrowserUse) Execute(ctx context.Context, args json.RawMessage) (toolfx.
 		}
 		// 优先 index 路径（稳）；fallback 到 x/y 坐标（vision 不准易 timeout）
 		if in.Index != nil {
-			return runBrowserSub(ctx, a.Run, "click", []string{fmt.Sprintf("%d", *in.Index)}, in.TimeoutSeconds)
+			return runBrowserSub(ctx, a.Run, "click", []string{fmt.Sprintf("%d", *in.Index)}, in.TimeoutSeconds, in.Identity)
 		}
 		realX, realY, err := grounding.ToRealPixels(in.X, in.Y, a.CoordSystem, a.ViewportW, a.ViewportH)
 		if err != nil {
 			return toolfx.Result{}, fmt.Errorf("browser_use click 坐标换算: %w", err)
 		}
-		return runBrowserSub(ctx, a.Run, "click", []string{fmt.Sprintf("%d", realX), fmt.Sprintf("%d", realY)}, in.TimeoutSeconds)
+		return runBrowserSub(ctx, a.Run, "click", []string{fmt.Sprintf("%d", realX), fmt.Sprintf("%d", realY)}, in.TimeoutSeconds, in.Identity)
 
 	case "input":
 		if in.TimeoutSeconds == 0 {
@@ -154,26 +193,38 @@ func (a *BrowserUse) Execute(ctx context.Context, args json.RawMessage) (toolfx.
 		}
 		// 优先 index 路径：browser-use input <index> <text> 一步到位（cli 内部处理拿焦点 + type）
 		if in.Index != nil {
-			return runBrowserSub(ctx, a.Run, "input", []string{fmt.Sprintf("%d", *in.Index), in.Text}, in.TimeoutSeconds)
+			return runBrowserSub(ctx, a.Run, "input", []string{fmt.Sprintf("%d", *in.Index), in.Text}, in.TimeoutSeconds, in.Identity)
 		}
 		// fallback x/y 坐标：click 拿焦点 + type 两步
 		realX, realY, err := grounding.ToRealPixels(in.X, in.Y, a.CoordSystem, a.ViewportW, a.ViewportH)
 		if err != nil {
 			return toolfx.Result{}, fmt.Errorf("browser_use input 坐标换算: %w", err)
 		}
-		if _, err := runBrowserSub(ctx, a.Run, "click", []string{fmt.Sprintf("%d", realX), fmt.Sprintf("%d", realY)}, in.TimeoutSeconds); err != nil {
+		if _, err := runBrowserSub(ctx, a.Run, "click", []string{fmt.Sprintf("%d", realX), fmt.Sprintf("%d", realY)}, in.TimeoutSeconds, in.Identity); err != nil {
 			return toolfx.Result{}, fmt.Errorf("browser_use input click 拿焦点: %w", err)
 		}
-		return runBrowserSub(ctx, a.Run, "type", []string{in.Text}, in.TimeoutSeconds)
+		return runBrowserSub(ctx, a.Run, "type", []string{in.Text}, in.TimeoutSeconds, in.Identity)
 
 	case "wait":
+		// browse-use-cli wait 只支持 `wait selector <css>` / `wait text <str>`（带 --timeout ms）；
+		// 不支持等秒数 / networkidle（纯延时用 run_command sleep）。
 		if in.Condition == "" {
-			return toolfx.Result{}, fmt.Errorf("browser_use wait: condition 必填（秒数 / CSS selector / 'networkidle'）")
+			return toolfx.Result{}, fmt.Errorf("browser_use wait: condition 必填（CSS selector 或 文本，配合 wait_type）")
 		}
 		if in.TimeoutSeconds == 0 {
 			in.TimeoutSeconds = defaultWaitTimeout
 		}
-		return runBrowserSub(ctx, a.Run, "wait", []string{in.Condition}, in.TimeoutSeconds)
+		waitType := in.WaitType
+		if waitType == "" {
+			waitType = "selector" // 缺省等元素出现（最常见）
+		}
+		if waitType != "selector" && waitType != "text" {
+			return toolfx.Result{}, fmt.Errorf("browser_use wait: wait_type 只支持 'selector' 或 'text'（得到 %q）", waitType)
+		}
+		// --timeout 用毫秒，对齐外层 timeout_seconds（元素早出现则提前返回）。
+		return runBrowserSub(ctx, a.Run, "wait",
+			[]string{waitType, in.Condition, "--timeout", fmt.Sprintf("%d", in.TimeoutSeconds*1000)},
+			in.TimeoutSeconds, in.Identity)
 
 	case "eval":
 		if in.Code == "" {
@@ -182,7 +233,7 @@ func (a *BrowserUse) Execute(ctx context.Context, args json.RawMessage) (toolfx.
 		if in.TimeoutSeconds == 0 {
 			in.TimeoutSeconds = defaultReadTimeout
 		}
-		return runBrowserSub(ctx, a.Run, "eval", []string{in.Code}, in.TimeoutSeconds)
+		return runBrowserSub(ctx, a.Run, "eval", []string{in.Code}, in.TimeoutSeconds, in.Identity)
 
 	case "extract":
 		if in.Query == "" {
@@ -191,22 +242,22 @@ func (a *BrowserUse) Execute(ctx context.Context, args json.RawMessage) (toolfx.
 		if in.TimeoutSeconds == 0 {
 			in.TimeoutSeconds = defaultReadTimeout
 		}
-		return runBrowserSub(ctx, a.Run, "extract", []string{in.Query}, in.TimeoutSeconds)
+		return runBrowserSub(ctx, a.Run, "extract", []string{in.Query}, in.TimeoutSeconds, in.Identity)
 
 	case "source":
 		if in.TimeoutSeconds == 0 {
 			in.TimeoutSeconds = defaultReadTimeout
 		}
 		// browser-use-cli 0.12.9 原生 `get html`，比 eval outerHTML 更直接且无 JS 编码风险。
-		return runBrowserSub(ctx, a.Run, "get", []string{"html"}, in.TimeoutSeconds)
+		return runBrowserSub(ctx, a.Run, "get", []string{"html"}, in.TimeoutSeconds, in.Identity)
 
 	case "reset":
-		// Level 2 daemon 异常恢复：wrapper reset 子命令 kill chromium + auth_inject + 清 tab-idx
-		// 下次任意 browser_use 操作自动重启 daemon。用于反复 timeout / page hung 场景。
+		// daemon 异常恢复：wrapper reset 子命令停本身份 browse-use session daemon + 清本身份 tab-idx。
+		// 下次该身份任意 browser_use 操作自动重启。用于反复 timeout / page hung 场景。
 		if in.TimeoutSeconds == 0 {
 			in.TimeoutSeconds = defaultActionTimeout
 		}
-		return runBrowserSub(ctx, a.Run, "reset", nil, in.TimeoutSeconds)
+		return runBrowserSub(ctx, a.Run, "reset", nil, in.TimeoutSeconds, in.Identity)
 
 	default:
 		return toolfx.Result{}, fmt.Errorf("browser_use: action 非法 %q（支持 open/state/click/input/wait/eval/extract/source/reset）", in.Action)

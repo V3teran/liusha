@@ -1,195 +1,122 @@
 #!/bin/sh
-# browser-use — wrapper 包 browser-use-cli 实现"每 task 独立 tab"，chromium 直连目标。
+# browser-use — wrapper 包 browser-use-cli，用原生 --session 持久会话托管 chrome。
 #
-# 架构（v35+ 砍 CDP capture 链路）：
+# 模型：
+#   session = 身份（cookie jar 边界）   tab = agent（同身份下页面/截图/并发隔离）
 #
-#   /usr/local/bin/chromium --headless --remote-debugging-port=9222
-#                  ↑ 容器启动期由首个 open 命令 spawn 的 daemon；**直连不经 proxy**
-#   browser-use-cli --cdp-url http://127.0.0.1:9222 <subcommand> ← 走我们启的 chromium，不再自启
+#   - 同一身份：所有 commander/striker 共用一个 --session 浏览器，各占一个 tab
+#     （谁先 open 谁占 tab0，role-agnostic；后来者 window.open 新 tab）。
+#   - 不同身份（越权/BAC 多账号）：每身份一个 --session = 独立浏览器（独立 cookie jar，
+#     按需多起一个 chromium）。身份由 IDENTITY env 指定（= redis 凭证 name），缺省 "default"。
 #
-# 流量字典：v35+ 容器内所有工具（chromium / curl / sqlmap / ...）流量都不入 http_flow。
-# 凭证共享改走 redis credentials key（hunter agent 的 read_credentials / write_credential 工具）。
-#
-# 共享：chromium daemon (cookies / storage / localStorage 全局固化，commander+striker cross-task 登录态共享)
-# 隔离：每 task 独立 tab（switch + eval window.open + per-task /tmp/browser-tab-${TASK_ID}.idx）
+#   chrome 生命周期由 browse-use 原生 --session 自管：首个命令冷启 ~20s，之后跨 CLI 进程
+#   复用、状态保持、零 rot。撤回 v29-v33 的手动 chromium daemon + --cdp-url（2026-05-29 e2e
+#   实测：那套共享 daemon 随每次 connect_over_cdp 单调劣化、攒几次永久锁死；v35 砍 CDP capture
+#   后已无存在理由）。见 docs/superpowers/specs/2026-05-29-browser-use-native-session-design.md
 #
 # 依赖：
-#   - TASK_ID env（sandbox-server 注入，缺省 "default"）
-#   - /usr/local/bin/chromium（playwright chromium symlink）
-#   - browser-use-cli + flock + curl
+#   - TASK_ID  env（sandbox-server 注入，缺省 "default"）— 区分同身份下各 agent 的 tab
+#   - IDENTITY env（browser_use 工具按需注入，缺省 "default"）— 身份 = session 名
+#   - browser-use-cli + flock
 
 set -eu
 
 TASK_ID="${TASK_ID:-default}"
-TAB_FILE="/tmp/browser-tab-${TASK_ID}.idx"
-LOCK="/tmp/browser-tab.lock"
-CDP_PORT=9222
-CDP_URL="http://127.0.0.1:${CDP_PORT}"
-CHROMIUM_PIDFILE="/tmp/chromium-daemon.pid"
-CHROMIUM_LOG="/tmp/chromium-daemon.log"
+SESSION="${IDENTITY:-default}"
+TAB_FILE="/tmp/browser-tab-${SESSION}-${TASK_ID}.idx"
+LOCK="/tmp/browser-${SESSION}.lock"
+TAB0_CLAIM="/tmp/browser-tab0-${SESSION}.claimed"
 
-# start_chromium_daemon — 启 chromium headless daemon（仅首次）。
-# 已启则直接返回；启动失败返非零。chromium 直连不带 --proxy-server。
-start_chromium_daemon() {
-    if curl -sf -m 1 "${CDP_URL}/json/version" >/dev/null 2>&1; then
-        return 0
-    fi
+# bu — 统一带 --session 调 browser-use-cli（chrome 由 browse-use 按身份自管）。
+bu() { browser-use-cli --session "$SESSION" "$@"; }
 
-    # chromium 启动：headless + 关 sandbox（容器内必须）+ remote-debugging
-    # --ignore-certificate-errors 兜底（Layer 7.5 NSS DB 已装 CA，但部分场景仍需）
-    # v33+ 删除：--proxy-server / --disable-features=HttpsFirstMode* —— chromium 不再经 proxy
-    #
-    # env -u 关键：chromium Linux 在某些版本会读 HTTP_PROXY/HTTPS_PROXY env 当 proxy 配置；
-    # 不清除会导致 chromium 经 sanitizer 8890 → TLS handshake net::ERR_INVALID_AUTH_CREDENTIALS。
-    # 容器 env 由 launcher 注入给 CLI 工具用，chromium 必须用 env -u 显式剥离才能纯直连。
-    env -u HTTP_PROXY -u HTTPS_PROXY -u http_proxy -u https_proxy \
-        /usr/local/bin/chromium \
-        --headless=new \
-        --no-sandbox \
-        --disable-dev-shm-usage \
-        --disable-gpu \
-        --disable-web-security \
-        --ignore-certificate-errors \
-        --no-proxy-server \
-        --remote-debugging-port=${CDP_PORT} \
-        --remote-debugging-address=127.0.0.1 \
-        about:blank \
-        >"$CHROMIUM_LOG" 2>&1 &
-    echo $! >"$CHROMIUM_PIDFILE"
-
-    # 等 CDP 端点 ready (最多 15s)
-    for _ in $(seq 1 30); do
-        if curl -sf -m 1 "${CDP_URL}/json/version" >/dev/null 2>&1; then
-            break
-        fi
-        sleep 0.5
-    done
-    if ! curl -sf -m 1 "${CDP_URL}/json/version" >/dev/null 2>&1; then
-        echo "[browser-use wrapper] chromium daemon 启动超时（15s）；log=$CHROMIUM_LOG" >&2
-        tail -5 "$CHROMIUM_LOG" >&2 2>/dev/null || true
-        return 1
-    fi
-
-    return 0
+# auto_screenshot — 状态变化 action 跑完截图到 $OUTPUT_DIR，喂回 vision LLM。
+auto_screenshot() {
+    [ -n "${OUTPUT_DIR:-}" ] && bu screenshot "${OUTPUT_DIR}/auto_$(date +%s%N).png" >/dev/null 2>&1 || true
 }
 
-# reset_chromium_daemon — 强杀 chromium，清 pidfile + tab-idx。下次 start_chromium_daemon 会从零启。
-#
-# 用途（Level 2）：browser_use click x,y 失败后 chromium daemon 可能 stale（CDP
-# WebSocket 残留 / page hung 状态），即便 /json/version 仍 200。后续 open/click 全 hang。
-# LLM 看到反复 timeout 时显式调 `browser_use reset` 触发本函数，清理后下次重启。
-# 副作用：所有 tab 丢失（含登录态），LLM 需重新 open + 登录。
-reset_chromium_daemon() {
-    # kill chromium（含所有 helper 子进程：renderer / gpu / network 等）
-    if [ -f "$CHROMIUM_PIDFILE" ]; then
-        pid=$(cat "$CHROMIUM_PIDFILE" 2>/dev/null) || true
-        [ -n "$pid" ] && kill -9 "$pid" 2>/dev/null || true
-        rm -f "$CHROMIUM_PIDFILE"
-    fi
-    # pkill 兜底（chromium 主进程可能不在 pidfile 里如崩溃后 fork）
-    pkill -9 -f '/usr/local/bin/chromium' 2>/dev/null || true
-    # 清所有 per-task tab 索引（重启后 tab 编号会变，旧索引无效）
-    rm -f /tmp/browser-tab-*.idx 2>/dev/null || true
-    # 等端口释放
-    sleep 1
-    echo "[browser-use wrapper] chromium daemon 已 reset" >&2
-}
+# js_escape — 把 URL 安全嵌入 JS 双引号字符串（转义 \ 和 "）。
+js_escape() { printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'; }
 
 SUB="${1:-}"
 shift 2>/dev/null || true
 
-# 管理类子命令（不需 tab，部分不需 chromium）→ 透传
-# install/init/setup/doctor 不需 chromium；其它管理子命令带 --cdp-url 连我们的 daemon
+# 管理类 / session 控制子命令 → 透传（install 等不需 session；其余带 --session 连本身份浏览器）
 case "$SUB" in
-  ""|--help|-h|--version|-V|install|init|setup|doctor)
+  ""|--help|-h|install|init|setup|doctor)
     exec browser-use-cli "$SUB" "$@"
     ;;
   reset)
-    # Level 2 daemon 异常恢复：browser_use reset action 路由到这里
-    reset_chromium_daemon
+    # daemon 异常恢复：停本身份 session daemon + 清本身份 tab 状态。
+    # 下次该身份任意 open 自动重启 + 重认领 tab0。副作用：本身份所有 tab 丢失含登录态。
+    bu close >/dev/null 2>&1 || true
+    rm -f "/tmp/browser-tab-${SESSION}-"*.idx "$TAB0_CLAIM" 2>/dev/null || true
     echo "ok"
     exit 0
     ;;
   python|tunnel|close|sessions|cloud|profile|switch|close-tab)
-    # 这些可能需要 chromium daemon；尝试启然后透传
-    start_chromium_daemon || true
-    exec browser-use-cli --cdp-url "$CDP_URL" "$SUB" "$@"
+    exec browser-use-cli --session "$SESSION" "$SUB" "$@"
     ;;
   release-tab)
-    if [ ! -f "$TAB_FILE" ]; then
-        exit 0
-    fi
+    [ -f "$TAB_FILE" ] || exit 0
     exec 9>"$LOCK"
     flock -x 9
     TAB_IDX=$(cat "$TAB_FILE")
-    browser-use-cli --cdp-url "$CDP_URL" switch "$TAB_IDX" >/dev/null 2>&1 && \
-        browser-use-cli --cdp-url "$CDP_URL" close-tab >/dev/null 2>&1 || true
+    bu switch "$TAB_IDX" >/dev/null 2>&1 && bu close-tab >/dev/null 2>&1 || true
     rm -f "$TAB_FILE"
     exit 0
     ;;
 esac
 
-# 以下命令需 tab 上下文 — flock 串行
+# 以下子命令需 tab 上下文 — flock（按身份）串行化，防同身份多 agent 并发 switch+操作 race
 exec 9>"$LOCK"
 flock -x 9
 
-# 确保 chromium daemon 已启
-start_chromium_daemon
-
-# 第一次 open: 分"daemon 首个 tab"vs"daemon 多 tab"
+# 首个 open：认领本 (身份,task) 的 tab
 if [ "$SUB" = "open" ] && [ ! -f "$TAB_FILE" ]; then
-    # 查当前 chromium tab 数（type=page 的）
-    TAB_COUNT=$(curl -sf "${CDP_URL}/json" 2>/dev/null | python3 -c '
-import json, sys
-try:
-    tabs = json.load(sys.stdin)
-    print(len([t for t in tabs if t.get("type") == "page"]))
-except Exception:
-    print(0)
-' || echo "0")
-
-    if [ "$TAB_COUNT" -le 1 ]; then
-        # daemon 起后默认 1 个 about:blank tab；首个 task 占 tab 0
+    URL="${1:-}"
+    if [ ! -f "$TAB0_CLAIM" ]; then
+        # 本身份首个 open（谁先谁占，commander/striker 皆可）→ 占 tab0，原地导航
+        touch "$TAB0_CLAIM"
         echo "0" >"$TAB_FILE"
-        browser-use-cli --cdp-url "$CDP_URL" open "$@"
+        bu open "$URL"
         EXIT=$?
-        if [ $EXIT -eq 0 ] && [ -n "${OUTPUT_DIR:-}" ]; then
-            browser-use-cli --cdp-url "$CDP_URL" screenshot "${OUTPUT_DIR}/auto_$(date +%s%N).png" >/dev/null 2>&1 || true
-        fi
-        exit $EXIT
+        [ "$EXIT" -eq 0 ] && auto_screenshot
+        exit "$EXIT"
     fi
-
-    # daemon 已有 ≥2 tab → 创建新 tab
-    browser-use-cli --cdp-url "$CDP_URL" switch 0 >/dev/null 2>&1
-    browser-use-cli --cdp-url "$CDP_URL" eval "window.open('about:blank', '_blank'); 1" >/dev/null 2>&1
-    AVAIL=$(browser-use-cli --cdp-url "$CDP_URL" switch 99999 2>&1 | grep -oE 'Available: 0-[0-9]+' | grep -oE '[0-9]+$' || echo "")
-    if [ -z "$AVAIL" ]; then
-        echo "browser-use: 创建新 tab 失败（switch 错误无法解析 tab 数）" >&2
+    # 后来者 → window.open(URL) 一步建+导航新 tab（用目标 URL 直接开，避免 about:blank 空 tab 被回收塌缩）
+    ESC=$(js_escape "$URL")
+    bu eval "window.open(\"$ESC\",\"_blank\"); 1" >/dev/null 2>&1 || true
+    sleep 1
+    NEW=$(bu switch 99999 2>&1 | grep -oE 'Available: 0-[0-9]+' | grep -oE '[0-9]+$' || echo "")
+    if [ -z "$NEW" ]; then
+        echo "browser-use: 创建新 tab 失败（switch 探测无法解析 tab 数）" >&2
         exit 1
     fi
-    echo "$AVAIL" >"$TAB_FILE"
+    echo "$NEW" >"$TAB_FILE"
+    bu switch "$NEW" >/dev/null 2>&1 || true
+    auto_screenshot
+    exit 0
 fi
 
 if [ ! -f "$TAB_FILE" ]; then
-    echo "browser-use: TASK_ID=$TASK_ID 还没 open 过 URL；先 'browser-use open <URL>'" >&2
+    echo "browser-use: 身份=$SESSION TASK_ID=$TASK_ID 还没 open 过 URL；先 'browser-use open <URL>'" >&2
     exit 2
 fi
 
-# 切到本 task tab + 跑子命令
+# 切到本 (身份,task) tab + 跑子命令
 TAB_IDX=$(cat "$TAB_FILE")
-browser-use-cli --cdp-url "$CDP_URL" switch "$TAB_IDX" >/dev/null 2>&1
+bu switch "$TAB_IDX" >/dev/null 2>&1 || true
 
-# 状态变化子命令跑完自动截图（vision LLM 直接看到新页面视觉）
+# 状态变化 action 跑完自动截图（vision LLM 直接看到新页面）；读取/其它 action 透传不附图
 case "$SUB" in
   open|click|input|type|select|scroll|back|keys|hover|dblclick|rightclick|wait)
-    browser-use-cli --cdp-url "$CDP_URL" "$SUB" "$@"
+    bu "$SUB" "$@"
     EXIT=$?
-    if [ $EXIT -eq 0 ] && [ -n "${OUTPUT_DIR:-}" ]; then
-        browser-use-cli --cdp-url "$CDP_URL" screenshot "${OUTPUT_DIR}/auto_$(date +%s%N).png" >/dev/null 2>&1 || true
-    fi
-    exit $EXIT
+    [ "$EXIT" -eq 0 ] && auto_screenshot
+    exit "$EXIT"
     ;;
   *)
-    exec browser-use-cli --cdp-url "$CDP_URL" "$SUB" "$@"
+    exec browser-use-cli --session "$SESSION" "$SUB" "$@"
     ;;
 esac
