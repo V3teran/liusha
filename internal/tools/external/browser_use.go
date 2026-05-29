@@ -75,7 +75,7 @@ func isSafeIdentity(s string) bool {
 
 // 默认 timeout（秒）——各 action 对应合理值，LLM 不传时走这里。
 const (
-	defaultOpenTimeout   = 60 // 含 chromium cold start
+	defaultOpenTimeout   = 120 // 含 chromium cold start（远程目标 + 冷启实测 >60s，留足头避免误杀）
 	defaultActionTimeout = 20 // click/input 等交互动作 daemon 复用快
 	defaultWaitTimeout   = 30 // wait 本身就是等
 	defaultReadTimeout   = 15 // eval/extract/source 读取快
@@ -125,7 +125,7 @@ func (a *BrowserUse) ParametersJSON() json.RawMessage {
     "code":{"type":"string","description":"action=eval 必填：JS 代码，最后表达式作为返回值"},
     "query":{"type":"string","description":"action=extract 必填：自然语言描述要抽什么"},
     "identity":{"type":"string","description":"身份/账号（= 浏览器 session，cookie jar 边界）。缺省走共享的默认身份；**仅当测越权/BAC 需要多账号对比时**显式传不同身份名（建议用 read_credentials 的凭证 name，如 'admin' / 'lowpriv'）——不同 identity 各自独立浏览器+登录态，互不污染。同一 identity 下 commander/striker 共用一个浏览器。"},
-    "timeout_seconds":{"type":"integer","minimum":1,"maximum":180,"description":"硬超时秒；缺省 open=60 / click/input=20 / wait=30 / state/eval/extract/source=15"}
+    "timeout_seconds":{"type":"integer","minimum":1,"maximum":180,"description":"硬超时秒；缺省 open=120 / click/input=20 / wait=30 / state/eval/extract/source=15"}
   },
   "required":["action"]
 }`)

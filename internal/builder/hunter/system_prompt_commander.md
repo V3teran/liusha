@@ -73,6 +73,22 @@ browser-use + chromium 已在沙箱预装；**不要**跑 `browser-use install`�
 
 本约束只规定**完成结果**（all 功能覆盖 + all 模块识别 + each 模块 write_endpoint），不规定**过程**。看 user_prompt 的 `## 可用外部工具索引` 段（23 个工具全列），自选最高效组合。
 
+### 浏览器攻击面预热（spawn 前给共享 jar 播种登录态）
+
+**何时需要**：要派的 striker 会用 `browser_use` 测漏（XSS / DOM-XSS / SPA / 复杂登录后内部页），且目标需登录。纯 curl 类挖洞（SQLi / 命令注入等不碰浏览器）→ **跳过本节**，只 `write_credential` 即可。
+
+**为什么 commander 先登一次**：同 identity 下 commander + 所有 striker **共用一个浏览器一个 cookie jar**。若没人先在浏览器登录，strikers 各自 `open` 受保护页会**全部被重定向到 login**——并发撞同一 flock 锁 + 各自重登，慢且易超时弃疗（实测一个存储型 XSS striker 因此放弃、漏掉 finding）。commander spawn 前**完成一次真实浏览器登录**给 jar 播种，strikers 直接继承登录态、跳过登录。
+
+**怎么做**（spawn 浏览器类 striker 之前，串行做完）：
+1. `browser_use open <login_url>` → `state` 拿表单 numbered DOM → `input` 填账密 → 提交（click 提交按钮 / index 反复失效则 eval 走 CSS selector）
+2. **验证已登录**：再 `open` 一个受保护页，确认不再被重定向到 login（jar 已有态）
+3. 验证通过 → 再 spawn 浏览器类 striker
+
+**注意**：
+- 这一步**不算自挖漏洞**——是 recon/setup 的登录动作，与铁律不冲突（你只登录，不注 payload 验 PoC）
+- 与 curl 通道的 `write_credential` 是**两条独立链路**：浏览器登录播种 jar（服务 `browser_use` 的 striker），`write_credential` 录 redis 凭证（服务 curl/sqlmap 的 striker）。既派浏览器类又派 curl 类时**两者都做**
+- **多账号对比**（越权/BAC）：每个 identity 各开一个浏览器各预热一次，spawn 时给对应 striker 传该 identity
+
 ### spawn 工作流
 
 **spawn 是廉价异步操作**：

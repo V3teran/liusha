@@ -42,25 +42,19 @@ CLI 包装 playwright，browse-use 原生 `--session` 托管 chrome（自启自�
 | **读取/特殊**（state / extract / eval / get / cookies / close / python）| **不附图**（已返文本/无视觉变化） |
 | `screenshot` 子命令 | 显式调用，自动附图失败的 fallback；路径必须写到 `$OUTPUT_DIR/xxx.png` 才能进 LLM 上下文 |
 
-## Cookie 同步（browser-use 与 curl 是独立 cookie jar）
+## 浏览器登录（独立有状态会话，不从 redis 注入 cookie）
 
-chromium 的 cookie store 由 playwright 内部管理，与 curl 各自独立。**两边凭证的单一信息源是 redis 凭证通道**（`read_credentials` / `write_credential`，见 system prompt「凭证共享协议」）：
+chromium 的 cookie jar 按 `--session`（=identity）持久共享，与 curl **独立**。浏览器的登录方式就是**在登录页输账号密码**，**不读 redis 凭证注入**——redis 凭证通道（`read_credentials`/`write_credential`）服务的是 curl 这条无状态链路 + 同步引擎过程中新拿到的凭证，不是浏览器的登录依据。
 
-- **已有 redis 凭证 + 你要用浏览器 → 注入，别重登**（最常见、最易翻车）：`read_credentials` 拿到本 host 活 cookie（如 commander 登录后 write 的 admin 身份）后，把它**注入本身份浏览器**直接接管登录态——**不要**在浏览器里重新走一遍登录表单（冗余、易失败、还可能拿到不同 session）。
-  redis 里 cookie 通常是一整条 Cookie header（`{type:headers, key:"Cookie", value:"PHPSESSID=8b04..; security=low"}`），按 `; ` 拆成多对，每对一条 `cookies set`：
-  ```bash
-  browser-use cookies set name=PHPSESSID value=8b04.. domain=target.com
-  browser-use cookies set name=security  value=low    domain=target.com
-  # 之后 browser_use open <受保护页> 已是登录态，无需登录表单
-  ```
-  整条 Playwright JSON 也可 `browser-use cookies import /tmp/cookies.json`。注入后第一次 open 受保护页，看是否仍跳登录页验证生效。
-- **curl → browser**：curl 登录拿到 cookie，同上 `cookies set` 注入到本身份浏览器再操作。
-- **browser → curl / 其它 agent**：`browser-use cookies get` 导出，或 `write_credential` 录入 redis 让其它工具/agent `read_credentials` 取用。
+- **同一身份只登一次**：同 identity 下所有 commander/striker 共用一个浏览器。**任一 hunter 在登录页登录过后，整个身份的 jar 就有态**——后续同身份 hunter 直接 `browser_use open` 受保护页即带登录态，无需各自重登。
+- **没人登过 → 自己在登录页登录**：`state` 拿表单 numbered DOM → `input` 填账密 → `click` 提交。这对浏览器是**正确路径**，不是重复劳动。
+- **多账号对比（越权/BAC）**：brief 给几组账号就传几个不同 `identity` 各开一个独立浏览器，每个各自登录，cookie jar 互不污染。
+- **browser → curl / 其它 agent**：浏览器登录后若 curl 链路也要用同一身份，`cookies get` 导出或 `write_credential` 录入 redis 让 curl 工具 `read_credentials` 取用（这是 browser→redis 的同步方向，不是反过来注入）。
 
 ### 反模式
 
-- ❌ **read_credentials 拿到活 cookie 还在浏览器里重新登录**——直接 `cookies set` 注入即可（重登是冗余劳动，且常因表单/CSRF 变化失败）。
-- ❌ 用 `eval document.cookie=...` 同步——**HttpOnly cookie 注入不了**（JS 看不到），会卡 20+ 步；用 `cookies set/import` 子命令（CDP 层注入）。
+- ❌ **把 redis cookie `cookies set` 注入浏览器**——浏览器不读 redis 凭证；同身份共享会话已带登录态，没态就在登录页登录。
+- ❌ **同身份每个 striker 各自重登**——第一个登过后 jar 全身份共享，后续直接 `open` 即可。
 
 ## 何时用 / 何时不用
 

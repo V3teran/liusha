@@ -23,7 +23,7 @@ browser-use + chromium 已在沙箱预装，直接 `browser-use open <url>` 即�
 
 **baseline 怎么走 — 凭证走 `read_credentials`**：
 
-凭证（cookie / token / csrf）的**单一信息源是 redis credentials key**（commander 登录后会 `write_credential` 同步，见 shared.md「凭证共享协议」）：
+**curl/HTTP 工具**的凭证（cookie / token / csrf）单一信息源是 redis credentials key（commander 登录后会 `write_credential` 同步，见 shared.md「凭证共享协议」）；**浏览器（browser_use）不走这条**——它在登录页登录、同身份共享会话（见下方反模式）：
 
 1. **第一步必调** `read_credentials` 拿本 host 全部身份（admin / test / ...）→ 自己拼请求时把 credentials 数组按 type/key 注入到对应位置（headers / query / body）
 2. 拿不到（commander 还没 write 完 / 你需要新身份）→ 自己登录 → **登录完也 `write_credential` 同步**（同辈 striker 受益）
@@ -59,6 +59,7 @@ browser-use + chromium 已在沙箱预装，直接 `browser-use open <url>` 即�
 
 - ❌ **跳过 baseline 直接 fuzz**：目标可能 502 / 凭证错 / 路径变更，挖一整轮才发现网络问题
 - ❌ **自己重新登录**：先 `read_credentials` 拿父 commander 已 write 的活凭证；都没有才自己登录 + `write_credential` 同步给后续 striker
-- ❌ **拿到活 cookie 又在浏览器里重登**：`read_credentials` 拿到 cookie 后要用 `browser_use` → 用 `run_command "browser-use cookies set name=<k> value=<v> domain=<host>"` 把 Cookie 整条按 `; ` 拆开逐对注入（浏览器 cookie jar 与 curl 独立，header 拼不进去；HttpOnly 也能注），之后 `browser_use open` 即登录态。**别**在浏览器里重走登录表单
+- ❌ **往浏览器里注入 redis cookie**：浏览器不读 redis 凭证。同 identity 共用一个浏览器——父 commander 或同辈若已在浏览器登录过，你直接 `browser_use open` 就带登录态；没人登过则**自己在登录页登录**（`state`→`input`→`click`，这对浏览器是正确路径，不是重复劳动）。只有越权/BAC 测多账号才传不同 `identity` 各开浏览器
+- ❌ **open 受保护页被重定向到 login 就 done 放弃**：被重定向 = 共享 jar 没登录态（commander 没播种成功 / 态过期）→ **当场自己登录兜底**（`state`→`input`→提交→重新 `open` 验证带态），别直接 `done`。浏览器登录卡死时还可 pivot 到 `run_command curl`（`read_credentials` 拿凭证手拼 `-H Cookie`）完成验证——**空手放弃是丢 finding 的直接原因**
 - ❌ **挖 brief 之外的范围**：触发 dedup 浪费 commander + striker 的 token
 - ❌ **dump 完才 write_finding**：第一次拿证据就要写（inspector 会因看不到 write_finding 误判"未挖到"触发偏向 hint）
