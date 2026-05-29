@@ -54,24 +54,39 @@
 - `read_credentials` — 拉本 host 已录入的全部身份（含 name/role/credentials[{type,key,value}]）
 - `write_credential` — 把自己刚拿到的活凭证录入，让 spawn 的 striker / 后续 task 通过 read 拿到
 
-**write_credential 调用流程（必走两步）**：
+### 标准流程（先 read 试用，失效才 write）
 
-1. **先 `read_credentials`** 看本 host 已有身份的 credentials 结构（type/key 长什么样）
-2. **有现存身份** → 模仿其结构填 credentials 数组（key 名称对齐，如已有 `{type:headers, key:"Cookie"}` → 新身份也用同名）
-3. **无现存身份** → 自己识别哪些字段是凭证（headers 里 `Cookie`/`Authorization`/`X-Auth-Token`、body 里 `csrf_token`/`session`、query 里 `api_key` 等），逐条录入
+**1. read：** 每个 hunter baseline 第一步调 `read_credentials` 拿本 host 全部身份。
 
-**凭证不只是 cookie**：可能多条（Cookie + CSRF + Authorization 同时）、可能在不同位置（headers + body 混合）、可能动态刷新（同 name 重复 write 直接覆盖）。
+**2. 拼接到请求**（按 credential.type 分流，多条全部加上）：
 
-**name 字段**：登录账号名优先（admin / test / m233241）；SSO/OAuth 用 sub claim 或 email；完全无账号但要存兜底 `_live_<short>`。**禁止 `anonymous`**（保留语义不持久化，测匿名拿 read 返回的模板自己把 value 替换为 `lstoken`）。
+| type | 拼法 | 示例 |
+|---|---|---|
+| `headers` | `curl -H "<key>: <value>"`（sqlmap `--cookie` / `-H` 同理） | `-H "Cookie: PHPSESSID=abc; security=low"` / `-H "Authorization: Bearer eyJ..."` |
+| `query` | URL 拼 `?<key>=<value>` | `?api_key=xyz123` |
+| `body` | form/JSON body 字段 | `-d "csrf_token=abc&username=..."` |
 
-**何时 write**：自己通过 curl/browser_use/任何工具登录后立即调一次；spawn striker 前确保已 write；token 刷新后再 write 覆盖。
+一个身份多条凭证（如 Cookie + csrf_token）要**全部**拼上，漏一条服务端可能拒。
 
-**何时 read**：每个 hunter 启动第一个 baseline 步骤；写新身份前先 read 看 schema；401/403 时重 read 确认是否需要换身份。
+**3. write：仅在两种情况**——
+- **新登录拿到凭证** 且 `read_credentials` 本 host 返空（或无对应 name）→ write 让后续 hunter 共享
+- **read 出的凭证试用遭拒**（401/403/重定向登录页/响应异常）→ 重新登录拿新值 → 同 name write **覆盖**
+
+**不要 write 的情况**（避免浪费）：
+- read 出来还没试用就 write（重复劳动）
+- 凭证试用**成功**了又 write 同一个值（没变化，纯浪费 token）
+- 凭证能用 = 存活，**不需要预防性刷新**
+
+### write 时的字段约定
+
+- **先看现存 schema**：read 返回非空时，新身份的 credentials 数组**模仿其 type/key**（已有 `{type:headers, key:"Cookie"}` → 新身份也用同名），避免同 host 两套不一致 schema
+- **凭证不只是 cookie**：可能多条（Cookie + CSRF + Authorization 同时）、可能在不同位置（headers + body 混合）。read 返空时自己识别：headers 里 `Cookie`/`Authorization`/`X-Auth-Token`、body 里 `csrf_token`/`session`、query 里 `api_key`
+- **name 字段**：登录账号名优先（admin / test / m233241）；SSO/OAuth 用 sub claim 或 email；无账号兜底 `_live_<short>`。**禁止 `anonymous`**（测匿名拿 read 模板自己把 value 替换为 `lstoken`，不 write）
 
 **反模式**：
-- ❌ 在 spawn brief 里嵌 `Cookie: PHPSESSID=...` 文本 — striker 拿到的是冻结值，凭证刷新后失效且不教它正确路径
-- ❌ 写 `/tmp/shared/cookies.txt` 文件 — 老协议已废弃
-- ❌ write_credential 前不 read，导致 key 命名跟现存身份不一致（striker `read_credentials` 看见两套 schema 困惑）
+- ❌ 在 spawn brief 里嵌 `Cookie: PHPSESSID=...` 文本 — 冻结值，凭证刷新后失效且不教 striker 正确路径
+- ❌ read 出能用的凭证后又 write 一遍 — 凭证没变化，纯浪费
+- ❌ write 前不 read 看 schema，导致 key 命名跟现存身份不一致
 
 ## 流量字典（http_flow + replay_flow 工具）— 仅 passive tracker 角色
 

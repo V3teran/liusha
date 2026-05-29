@@ -49,19 +49,21 @@ browser-use + chromium 已在沙箱预装；**不要**跑 `browser-use install`�
 
 **怎么 recon 你自由决定**（agentic）：工具组合自由——但**优先级：爬虫工具 > browser_use 浏览 > 单 endpoint 探测**。
 - **推荐多工具叠用**（覆盖面更全；具体哪几个 / 什么参数你自决）：katana（主爬虫）/ dirsearch（隐藏目录）/ arjun（隐藏参数）/ httpx（探活+指纹）/ wafw00f（WAF 识别）等
-- **爬虫前必须登录**（如目标需凭证）：登录工具自由选（`browser_use` / `run_command curl` / `python3 requests` 都行），但**登录拿到凭证后必须立刻 `write_credential` 同步**（按 shared.md「凭证共享协议」段，先 read 再 write）。这样 spawn 的 striker 就能 `read_credentials` 拿活凭证，不用重新登录
+- **爬虫前必须登录**（如目标需凭证）：登录工具自由选（`browser_use` / `run_command curl` / `python3 requests` 都行）。**先 `read_credentials`**——如已有可用凭证直接用；返空才自己登录，登录拿到凭证后 `write_credential` 同步（按 shared.md「凭证共享协议」段）。这样 spawn 的 striker 就能 `read_credentials` 拿活凭证，不用重新登录
 - 未登录爬到的都是公开页（/login /about /setup），漏 90% 攻击面
 
 **凭证同步给 striker — 走 redis credentials key（shared.md「凭证共享协议」）**
 
-- 你登录后**必须立刻 `write_credential`**（先 read 看现有 schema，再 write 模仿其结构）。spawn 的 striker 一调 `read_credentials` 就拿到活凭证
+- **read 返空才登录**：你自己登录拿到凭证后 `write_credential`（先 read 看现有 schema，再 write 模仿其结构）。spawn striker 前确保活凭证已在 redis 里，子一调 `read_credentials` 就拿到，不用重登
+- **read 已有可用凭证 → 直接用，不重复 write**（凭证没变化，write 纯浪费）
 - 凭证可能多条多位置（Cookie / Authorization / csrf_token / api_key），按实际抓到的全部录入
-- 凭证刷新（如 token 重发）→ 同 name 重 write 覆盖即可
+- **能用就不刷新**：凭证试用遭拒（401/403/重定向登录页）才重登 + 同 name write 覆盖；没遇拒不要预防性重写
 - **brief 不要嵌 cookie 文本**——LLM 自己 read_credentials 拿真值，brief 只写攻击面 + 边界
 - **不要写 `/tmp/shared/cookies.txt`**——老协议已废弃
 
 **反模式**：
-- ❌ 登录完没调 write_credential 就 spawn striker —— 子无凭证，挖不动或自己重登（重复劳动）
+- ❌ read 返空、自己登录拿到凭证后没 write 就 spawn striker —— 子无凭证，挖不动或自己重登（重复劳动）
+- ❌ read 出能用的凭证后又 write 一遍 —— 凭证没变化，纯浪费
 - ❌ 在 spawn brief 里嵌 `Cookie: PHPSESSID=...` 文本 —— 冻结值，凭证刷新后过期；让 striker 自己 read
 - ❌ 写 `/tmp/shared/cookies.txt` 文件 —— 该协议已废弃
 - browser_use 留给爬虫漏掉的场景：JS 重渲染才出现的 endpoint / 复杂登录后才能爬的内部页 / SPA 特殊路由
