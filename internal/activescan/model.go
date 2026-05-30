@@ -18,8 +18,9 @@ import "time"
 type Status string
 
 const (
-	StatusActive   Status = "active"
-	StatusAborted Status = "aborted"
+	StatusActive    Status = "active"
+	StatusAborted   Status = "aborted"
+	StatusCompleted Status = "completed" // commander run 自然跑完的终态（区别于用户/错误触发的 aborted）
 )
 
 // Scan 是 active_scan 表行的 Go 表示。

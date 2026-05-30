@@ -387,16 +387,20 @@ func NewBuilder(deps Deps) skill.Builder {
 				MaxTimeoutSeconds: deps.StepToolTimeoutSeconds,
 				TailBytes:         deps.SandboxCfg.RunTailBytes,
 			}
-			coordSys := grounding.CoordSystem("")
-			if p.LLM != nil && deps.CoordSystems != nil {
-				coordSys = grounding.CoordSystem(deps.CoordSystems[p.LLM.Provider()])
-			}
-			// 视口尺寸：从 deps 透传到 click/input action 用于 grounding 换算；
-			// 与 sandbox.DockerLauncher 注入 docker run -e 的值同源——SandboxConfig 单值多处共享。
-			vpW := deps.SandboxCfg.ViewportWidth
-			vpH := deps.SandboxCfg.ViewportHeight
 			must(rc)
-			must(&external.BrowserUse{Run: rc, CoordSystem: coordSys, ViewportW: vpW, ViewportH: vpH})
+			// browser_use 只给 active——passive 单流量验证走 curl/replay_flow（HTTP 层足够）；
+			// 渲染类验证（DOM-XSS）本就归 active，不在 passive 注册浏览器工具。
+			if p.Mode == "active" {
+				coordSys := grounding.CoordSystem("")
+				if p.LLM != nil && deps.CoordSystems != nil {
+					coordSys = grounding.CoordSystem(deps.CoordSystems[p.LLM.Provider()])
+				}
+				// 视口尺寸：从 deps 透传到 click/input action 用于 grounding 换算；
+				// 与 sandbox.DockerLauncher 注入 docker run -e 的值同源——SandboxConfig 单值多处共享。
+				vpW := deps.SandboxCfg.ViewportWidth
+				vpH := deps.SandboxCfg.ViewportHeight
+				must(&external.BrowserUse{Run: rc, CoordSystem: coordSys, ViewportW: vpW, ViewportH: vpH})
+			}
 		}
 
 		if len(regErrs) > 0 {

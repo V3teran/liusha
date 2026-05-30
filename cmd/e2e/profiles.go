@@ -136,11 +136,11 @@ var profiles = map[string]profile{
 			}
 		},
 	},
-	"path-traversal": {
-		name:           "path-traversal",
-		defaultSamples: "examples/sample_path-traversal_raw.json",
+	"lfi": {
+		name:           "lfi",
+		defaultSamples: "examples/sample_lfi_raw.json",
 		minFindings:    1,
-		// 同 DVWA 远程靶场。/vulnerabilities/fi/?page= 是路径遍历 / 任意文件读取漏洞（OWASP CWE-22）。
+		// 同 DVWA 远程靶场。/vulnerabilities/fi/?page= 是文件包含 / 路径遍历 / 任意文件读取漏洞（OWASP CWE-22）。
 		credsForHost: func(_ string) []credentialEntry {
 			return []credentialEntry{
 				{Name: "admin", Role: "admin", Credentials: []map[string]string{
@@ -149,9 +149,9 @@ var profiles = map[string]profile{
 			}
 		},
 	},
-	"unrestricted-upload": {
-		name:           "unrestricted-upload",
-		defaultSamples: "examples/sample_unrestricted-upload_raw.json",
+	"upload": {
+		name:           "upload",
+		defaultSamples: "examples/sample_upload_raw.json",
 		minFindings:    1,
 		// 同 DVWA 远程靶场。/vulnerabilities/upload/ 是 Unrestricted File Upload（OWASP CWE-434）。
 		credsForHost: func(_ string) []credentialEntry {
@@ -282,12 +282,38 @@ func selectProfiles(args []string) ([]profile, []activeProfile, error) {
 	active := make([]activeProfile, 0, len(args))
 	seenPassive := map[string]struct{}{}
 	seenActive := map[string]struct{}{}
+
+	// addPassive 是所有 passive 选择路径（裸名 + passive: 前缀逗号项）的统一入口：
+	// 查表 + 去重 + 追加，未知名立即报错。
+	addPassive := func(name string) error {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			return nil
+		}
+		p, ok := profiles[name]
+		if !ok {
+			known := make([]string, 0, len(profiles))
+			for k := range profiles {
+				known = append(known, k)
+			}
+			sort.Strings(known)
+			return fmt.Errorf("未知 profile %q（可选: %s 或 active:<name>）", name, strings.Join(known, ", "))
+		}
+		if _, dup := seenPassive[name]; dup {
+			return nil
+		}
+		seenPassive[name] = struct{}{}
+		passive = append(passive, p)
+		return nil
+	}
+
 	for _, a := range args {
 		raw := strings.ToLower(strings.TrimSpace(a))
 		if raw == "" {
 			continue
 		}
-		if strings.HasPrefix(raw, "active:") {
+		switch {
+		case strings.HasPrefix(raw, "active:"):
 			key := strings.TrimPrefix(raw, "active:")
 			ap, ok := activeProfiles[key]
 			if !ok {
@@ -303,22 +329,19 @@ func selectProfiles(args []string) ([]profile, []activeProfile, error) {
 			}
 			seenActive[key] = struct{}{}
 			active = append(active, ap)
-			continue
-		}
-		p, ok := profiles[raw]
-		if !ok {
-			known := make([]string, 0, len(profiles))
-			for k := range profiles {
-				known = append(known, k)
+		case strings.HasPrefix(raw, "passive:"):
+			// passive:<name>[,<name>...] 显式前缀，逗号分隔多选（如 passive:upload,lfi）。
+			for _, name := range strings.Split(strings.TrimPrefix(raw, "passive:"), ",") {
+				if err := addPassive(name); err != nil {
+					return nil, nil, err
+				}
 			}
-			sort.Strings(known)
-			return nil, nil, fmt.Errorf("未知 profile %q（可选: %s 或 active:<name>）", a, strings.Join(known, ", "))
+		default:
+			// 裸名 = passive（向后兼容，空格分隔多选）。
+			if err := addPassive(raw); err != nil {
+				return nil, nil, err
+			}
 		}
-		if _, dup := seenPassive[raw]; dup {
-			continue
-		}
-		seenPassive[raw] = struct{}{}
-		passive = append(passive, p)
 	}
 	return passive, active, nil
 }

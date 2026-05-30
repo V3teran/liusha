@@ -116,11 +116,32 @@ func (h handler) handleActive(ctx context.Context, p worker.Payload, entrypoint 
 		return sc.Status != activescan.StatusActive, nil
 	}
 
+	// finalizeScan 翻转 active_scan 终态——commander run 自然退出后无人收尾会让 scan 永久卡
+	// 'active'（model.go 包注释"active 跑完即终态"在此落地）。用 fresh ctx：ctx-cancel 分支
+	// 里原 ctx 已死，复用会让终态 DB 写直接失败。TerminateBy=="aborted" 不在此收尾——那是
+	// OnAbort 因 scan 已被用户 API 置非 active 才触发，scan 已是终态，重写会覆盖用户 abort 原因。
+	finalizeScan := func(complete bool, reason string) {
+		fctx, fcancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer fcancel()
+		var ferr error
+		if complete {
+			ferr = h.activeScans.Complete(fctx, oid)
+		} else {
+			ferr = h.activeScans.Abort(fctx, oid, reason)
+		}
+		if ferr != nil {
+			h.logger.Warn().Err(ferr).Str("scan_id", oid).Bool("complete", complete).
+				Msg("active_scan 终态写失败（scan 可能卡 active，待人工排查）")
+		}
+	}
+
 	out, err := react.Run(commanderCtx, cfg)
 	if err != nil {
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			finalizeScan(false, "ctx "+err.Error())
 			return h.abortTask(ctx, p.HunterID, "ctx "+err.Error())
 		}
+		finalizeScan(false, err.Error())
 		return h.failTask(ctx, p.HunterID, err)
 	}
 	if out.TerminateBy == "aborted" {
@@ -136,7 +157,9 @@ func (h handler) handleActive(ctx context.Context, p worker.Payload, entrypoint 
 		"inspector_hints": out.InspectorHints,
 	})
 	if err != nil {
+		finalizeScan(false, "marshal task result")
 		return h.failTask(ctx, p.HunterID, fmt.Errorf("marshal task result: %w", err))
 	}
+	finalizeScan(true, "")
 	return h.tasks.SetDone(ctx, p.HunterID, res)
 }

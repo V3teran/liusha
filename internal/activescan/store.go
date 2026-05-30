@@ -16,13 +16,13 @@ type Store struct {
 func NewStore(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
 
 // colsSelect 是所有 SELECT 路径的统一列序，与 scan() 字段顺序一一对应。
-// error_message 用 COALESCE 折 NULL → '' （Scan.ErrorMessage 是 string 不接 NULL）。
+// error_message 用 COALESCE 折 NULL → ” （Scan.ErrorMessage 是 string 不接 NULL）。
 const colsSelect = "id, brief, target_host, status, created_at, " +
 	"ended_at, COALESCE(error_message, '')"
 
 // Create 建一个新 active scan。
 //
-// brief 必填（用户自然语言任务简报）；targetHost 0045 起 NOT NULL DEFAULT ''，
+// brief 必填（用户自然语言任务简报）；targetHost 0045 起 NOT NULL DEFAULT ”，
 // 调用方未识别目标 host 时直接传 ""。无唯一约束，可并发多个 active scan。
 // 不设 expires_at：active 任务跑完即终态，无时间窗轮转。
 func (s *Store) Create(ctx context.Context, brief, targetHost string) (Scan, error) {
@@ -94,6 +94,20 @@ func (s *Store) Abort(ctx context.Context, id, errMsg string) error {
 		WHERE id=$2`, errMsg, id)
 	if err != nil {
 		return fmt.Errorf("abort active scan %s: %w", id, err)
+	}
+	return nil
+}
+
+// Complete 把 scan 置为 completed（commander run 自然跑完的成功终态），写 ended_at。
+// 与 Abort 区别：completed 无 error_message（成功收尾），aborted 带原因（用户停/取消/错误）。
+func (s *Store) Complete(ctx context.Context, id string) error {
+	_, err := s.pool.Exec(ctx, `
+		UPDATE active_scan SET
+			status='completed',
+			ended_at=now()
+		WHERE id=$1`, id)
+	if err != nil {
+		return fmt.Errorf("complete active scan %s: %w", id, err)
 	}
 	return nil
 }

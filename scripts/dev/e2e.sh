@@ -2,14 +2,15 @@
 # scripts/dev/e2e.sh [profile…] — 跑 e2e 触发器（host 侧）；自动管理 dev 栈生命周期
 # 流程：清空 db/redis → 关 service → 清 logs → 重启 service → 等 healthz → 跑 e2e
 # 用法：
-#   ./scripts/dev/e2e.sh                       # 不带参 = 跑全部 passive profile（按字典序：bac + brute + path-traversal + sqli + unrestricted-upload + xss）
+#   ./scripts/dev/e2e.sh                       # 不带参 = 跑全部 passive profile（按字典序：bac + brute + lfi + sqli + upload + xss + ...）
 #   ./scripts/dev/e2e.sh bac                   # passive 仅 bac（业务向访问控制）
 #   ./scripts/dev/e2e.sh sqli                  # passive 仅 sqli
 #   ./scripts/dev/e2e.sh xss                   # passive 仅 xss
 #   ./scripts/dev/e2e.sh brute                 # passive 仅 brute（暴力破解）
-#   ./scripts/dev/e2e.sh path-traversal        # passive 仅 path-traversal（任意文件读取/CWE-22）
-#   ./scripts/dev/e2e.sh unrestricted-upload   # passive 仅 unrestricted-upload（任意文件上传/CWE-434）
-#   ./scripts/dev/e2e.sh bac sqli xss          # passive 多选
+#   ./scripts/dev/e2e.sh lfi                   # passive 仅 lfi（文件包含/路径遍历/任意文件读取/CWE-22）
+#   ./scripts/dev/e2e.sh upload                # passive 仅 upload（任意文件上传/CWE-434）
+#   ./scripts/dev/e2e.sh bac sqli xss          # passive 多选（空格分隔）
+#   ./scripts/dev/e2e.sh passive:upload,lfi    # passive 多选（passive: 前缀 + 逗号分隔，等价于 upload lfi）
 #   ./scripts/dev/e2e.sh active:full           # active 模式：开放性 brief 压测 LLM 自主 recon + swarm 决策
 #   ./scripts/dev/e2e.sh bac active:full       # passive + active 混合
 #   LIUSHA_E2E_BRIEF="..." \

@@ -6,7 +6,8 @@
 //	go run ./cmd/e2e bac                          # 只跑 passive bac（业务向访问控制）
 //	go run ./cmd/e2e sqli                         # 只跑 passive sqli
 //	go run ./cmd/e2e xss                          # 只跑 passive xss（reflected/stored/DOM）
-//	go run ./cmd/e2e bac sqli xss                 # passive 多选
+//	go run ./cmd/e2e bac sqli xss                 # passive 多选（空格分隔）
+//	go run ./cmd/e2e passive:upload,lfi           # passive 多选（passive: 前缀 + 逗号分隔，等价于 upload lfi）
 //	go run ./cmd/e2e active:full                  # 只跑 active full（开放性 brief 压测 LLM 自主 recon + swarm）
 //	go run ./cmd/e2e sqli active:full             # 混合：passive sqli + active full
 //
@@ -25,8 +26,8 @@
 //   - sqli               ：远程 DVWA SQLi（2 样本，sqli + sqli_blind）
 //   - xss                ：远程 DVWA XSS（3 样本，reflected + stored + DOM）
 //   - brute              ：远程 DVWA 暴力破解
-//   - path-traversal     ：远程 DVWA 路径遍历（OWASP CWE-22）
-//   - unrestricted-upload：远程 DVWA 任意文件上传（OWASP CWE-434）
+//   - lfi                ：远程 DVWA 文件包含 / 路径遍历（OWASP CWE-22）
+//   - upload             ：远程 DVWA 任意文件上传（OWASP CWE-434）
 //   - csrf               ：远程 DVWA CSRF（OWASP CWE-352）
 //   - api                ：远程 DVWA API 端点漏洞
 //   - cryptography       ：远程 DVWA 密码学漏洞（OWASP CWE-310/327）
@@ -38,7 +39,7 @@
 // 内置 active profile（1 个）：
 //   - active:full        ：远程 DVWA login.php → 开放 brief"挖出尽可能多的漏洞"压测 swarm + 自主 recon
 //
-// 注：e2e 数据已证实 LLM 对常规漏洞（sqli/xss/path-traversal/upload/brute）自身知识充分，
+// 注：e2e 数据已证实 LLM 对常规漏洞（sqli/xss/lfi/upload/brute）自身知识充分，
 // 删 vuln SKILL 后表现不降反升。passive profile 保留作为镜像/架构回归测试的流量基线。
 //
 // Passive 触发器只发起"用户正常流量"——具体漏洞由 hunter agent 用 credentials/run_command
@@ -79,8 +80,6 @@ func pollDeadline() time.Duration {
 	}
 	return defaultPollDeadline
 }
-
-
 
 func main() {
 	logger := logx.New("e2e")
@@ -154,8 +153,9 @@ func main() {
 // selectProfiles 解析 CLI args 拆成 (passive, active) 两组。
 //
 // args 前缀语义：
-//   - "active:<name>" → 选 activeProfiles[name]
-//   - 其他            → 选 profiles[name]（passive）
+//   - "active:<name>"            → 选 activeProfiles[name]
+//   - "passive:<name>[,<name>…]" → 逗号分隔多选 profiles（如 passive:upload,lfi）
+//   - 裸名                       → 选 profiles[name]（passive，空格分隔多选，向后兼容）
 //
 // 空 args = 跑全部 passive profile（active 必须显式 `active:xxx` 选，避免无意中
 // 触发耗资源的真实站点扫描）。未知 profile 立即报错，避免静默忽略。
