@@ -9,7 +9,7 @@
 // (owner_id, host) 二维切分——host A 的 fact 不会污染 host B。
 //
 // key=liusha:note:{owner_id}:{host}，LIST 类型；每条 element 是 JSON bytes
-// （形如 {"content":"...","agent_run_id":"..."}），store 不解析也不强制结构——
+// （形如 {"content":"...","hunter_id":"..."}），store 不解析也不强制结构——
 // write_note 工具层负责语义。
 //
 // 容量管理：超过 CompactThreshold（默认 200）时调 Compactor（默认 LLM 蒸馏）把

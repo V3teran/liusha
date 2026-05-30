@@ -62,12 +62,12 @@ func (s *Store) Append(ctx context.Context, v Invocation) (int64, error) {
 }
 
 // ListByTask 按 created_at ASC 列出指定 hunter run 的全部工具调用。
-func (s *Store) ListByTask(ctx context.Context, taskID string) ([]Invocation, error) {
+func (s *Store) ListByTask(ctx context.Context, hunterID string) ([]Invocation, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT `+colsSelect+`
 		FROM tool_invocation
 		WHERE hunter_id=$1::uuid
-		ORDER BY created_at ASC, id ASC`, taskID)
+		ORDER BY created_at ASC, id ASC`, hunterID)
 	if err != nil {
 		return nil, fmt.Errorf("list tool_invocation by task: %w", err)
 	}

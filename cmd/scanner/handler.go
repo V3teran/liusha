@@ -11,10 +11,10 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/V3teran/liusha/internal/activescan"
-	"github.com/V3teran/liusha/internal/hunter"
 	"github.com/V3teran/liusha/internal/config"
 	"github.com/V3teran/liusha/internal/finding"
 	"github.com/V3teran/liusha/internal/flow"
+	"github.com/V3teran/liusha/internal/hunter"
 	"github.com/V3teran/liusha/internal/lesson"
 	"github.com/V3teran/liusha/internal/llm"
 	"github.com/V3teran/liusha/internal/llminvocation"
@@ -43,7 +43,7 @@ type handler struct {
 	hunterBuilder   skill.Builder
 	launcher        sandbox.Launcher
 	logger          zerolog.Logger
-	// parentRegistries 索引 commander taskID → striker Registry（subtask swarm）。
+	// parentRegistries 索引 commander hunterID → striker Registry（subtask swarm）。
 	// spawnerFactory 闭包 Store；handleActive 在 react.Run 返回后 LoadAndDelete
 	// + cancel commander ctx + WaitAll，确保striker goroutine 全退再 Destroy sandbox，防孤儿。
 	parentRegistries *sync.Map
@@ -52,13 +52,13 @@ type handler struct {
 // buildInspector 装配 LLMInspector：复用 handler_passive / handler_active 两处胶水。
 // inspector LLM 走 light_provider（router "inspector" 路由），按 (owner, host) 做 notes/findings/lessons 范围隔离。
 // flowSummary 由 caller 提供，约束 inspector 评估范围（passive 含流量首行 / active 含 owner 标识）。
-func (h handler) buildInspector(ctx context.Context, ownerType, ownerID, host, flowSummary, taskID string, otPtr, oidPtr *string) (react.Inspector, error) {
+func (h handler) buildInspector(ctx context.Context, ownerType, ownerID, host, flowSummary, hunterID string, otPtr, oidPtr *string) (react.Inspector, error) {
 	reviewLLMRaw, err := h.router.For(ctx, "inspector")
 	if err != nil {
 		return nil, err
 	}
 	reviewLLMGen := llm.Instrument(reviewLLMRaw, h.calls,
-		llm.CallMeta{TaskID: &taskID, OwnerType: otPtr, OwnerID: oidPtr, RouteKey: "inspector"},
+		llm.CallMeta{HunterID: &hunterID, OwnerType: otPtr, OwnerID: oidPtr, RouteKey: "inspector"},
 		h.pricing,
 	)
 	inspector := react.NewLLMInspector(reviewLLMGen, h.notes, ownerID, host)
@@ -94,9 +94,9 @@ func (h handler) buildInspector(ctx context.Context, ownerType, ownerID, host, f
 }
 
 // failTask 把错误标记到 task 表。
-func (h handler) failTask(ctx context.Context, taskID string, err error) error {
-	if setErr := h.tasks.SetError(ctx, taskID, err.Error()); setErr != nil {
-		h.logger.Warn().Err(setErr).Str("hunter_id", taskID).
+func (h handler) failTask(ctx context.Context, hunterID string, err error) error {
+	if setErr := h.tasks.SetError(ctx, hunterID, err.Error()); setErr != nil {
+		h.logger.Warn().Err(setErr).Str("hunter_id", hunterID).
 			Msg("SetError 失败（task 留在 running，原始错误已透传给 caller）")
 	}
 	return err
@@ -104,12 +104,12 @@ func (h handler) failTask(ctx context.Context, taskID string, err error) error {
 
 // abortTask 把 task 推进到 aborted 终态（inspector 终止 / owner 中止 / ctx 取消）。
 // 与 failTask 区别：aborted 是"主动收手"非错误，不应触发告警。
-func (h handler) abortTask(ctx context.Context, taskID, reason string) error {
-	if setErr := h.tasks.SetAborted(ctx, taskID); setErr != nil {
-		h.logger.Warn().Err(setErr).Str("hunter_id", taskID).Str("reason", reason).
+func (h handler) abortTask(ctx context.Context, hunterID, reason string) error {
+	if setErr := h.tasks.SetAborted(ctx, hunterID); setErr != nil {
+		h.logger.Warn().Err(setErr).Str("hunter_id", hunterID).Str("reason", reason).
 			Msg("SetAborted 失败（task 留在 running）")
 	}
-	h.logger.Info().Str("hunter_id", taskID).Str("reason", reason).Msg("task aborted")
+	h.logger.Info().Str("hunter_id", hunterID).Str("reason", reason).Msg("task aborted")
 	return nil
 }
 
@@ -120,7 +120,7 @@ func (h handler) abortTask(ctx context.Context, taskID, reason string) error {
 func (h handler) handle(ctx context.Context, p worker.Payload) (retErr error) {
 	taskStart := time.Now()
 	h.logger.Info().
-		Str("hunter_id", p.TaskID).
+		Str("hunter_id", p.HunterID).
 		Str("owner_type", p.OwnerType).
 		Str("owner_id", p.OwnerID).
 		Str("role", string(p.Role)).
@@ -130,7 +130,7 @@ func (h handler) handle(ctx context.Context, p worker.Payload) (retErr error) {
 		if retErr != nil {
 			ev = h.logger.Warn().Err(retErr)
 		}
-		ev.Str("hunter_id", p.TaskID).
+		ev.Str("hunter_id", p.HunterID).
 			Str("owner_id", p.OwnerID).
 			Dur("duration", time.Since(taskStart)).
 			Msg("asynq task ◀ exit")
@@ -139,15 +139,15 @@ func (h handler) handle(ctx context.Context, p worker.Payload) (retErr error) {
 	// 入口检查：asynq 重试场景（PG status 已非 pending）→ SkipRetry。
 	// 防 commander被重试时新 Registry 空 → PreDoneCheck 永放行 → 旧 PG striker 僵尸 + 矛盾态。
 	// GetByID 错误（PG 短时不可用等）不阻塞——让 SetRunning 走正常错误路径。
-	if run, getErr := h.tasks.GetByID(ctx, p.TaskID); getErr == nil && run.Status != hunter.StatusPending {
+	if run, getErr := h.tasks.GetByID(ctx, p.HunterID); getErr == nil && run.Status != hunter.StatusPending {
 		h.logger.Warn().
-			Str("hunter_id", p.TaskID).
+			Str("hunter_id", p.HunterID).
 			Str("status", string(run.Status)).
 			Msg("asynq task 已被处理过，跳过重试（防 PG 僵尸 + 矛盾态）")
 		return asynq.SkipRetry
 	}
 
-	if err := h.tasks.SetRunning(ctx, p.TaskID); err != nil {
+	if err := h.tasks.SetRunning(ctx, p.HunterID); err != nil {
 		return err
 	}
 
@@ -156,7 +156,7 @@ func (h handler) handle(ctx context.Context, p worker.Payload) (retErr error) {
 		Entrypoint json.RawMessage `json:"entrypoint"`
 	}
 	if err := json.Unmarshal(p.Input, &input); err != nil {
-		return h.failTask(ctx, p.TaskID, err)
+		return h.failTask(ctx, p.HunterID, err)
 	}
 
 	// 按 mode 选 timeout（解析 input 后才知道 mode；未知 mode 用 passive 兜底，
@@ -178,6 +178,6 @@ func (h handler) handle(ctx context.Context, p worker.Payload) (retErr error) {
 		return h.handleActive(ctx, p, input.Entrypoint)
 	default:
 		err := fmt.Errorf("unknown mode: %s", input.Mode)
-		return h.failTask(ctx, p.TaskID, err)
+		return h.failTask(ctx, p.HunterID, err)
 	}
 }

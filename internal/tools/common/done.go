@@ -24,13 +24,13 @@ import (
 // 用于 subtask swarm：commander LLM 调 done 时若有 active strikers → 返错强制 commander 先调
 // list_strikers 监控striker 进度，等strikers 全完才能真 done。零值（nil）= 无闸，等价旧行为。
 //
-// Sandbox + TaskID 可选——非空时 PreDoneCheck 通过后 best-effort 调 `browser-use release-tab`
+// Sandbox + HunterID 可选——非空时 PreDoneCheck 通过后 best-effort 调 `browser-use release-tab`
 // 关闭本 task 的浏览器 tab（不关 daemon，host 内兄弟 task 继续共享 session）。
 // 失败仅记 Warning 到 Result（容器销毁兜底），不阻塞 done。
 type Done struct {
 	PreDoneCheck func(ctx context.Context) error
 	Sandbox      sandbox.Client
-	TaskID       string
+	HunterID     string
 }
 
 // Name 返回工具名 "done"。
@@ -67,11 +67,11 @@ func (a Done) Execute(ctx context.Context, args json.RawMessage) (toolfx.Result,
 // wrapper 内部判断：无 TAB_FILE（本 task 没用过 browser）静默 exit 0。
 // 失败不影响 done——容器销毁会兜底回收所有 tab。
 func (a Done) releaseBrowserTab(ctx context.Context) {
-	if a.Sandbox == nil || a.TaskID == "" {
+	if a.Sandbox == nil || a.HunterID == "" {
 		return
 	}
 	_, _ = a.Sandbox.Exec(ctx, sandbox.ExecRequest{
-		TaskID:         a.TaskID,
+		HunterID:       a.HunterID,
 		Command:        "browser-use release-tab",
 		TimeoutSeconds: 10,
 		Tag:            "done-release-tab",

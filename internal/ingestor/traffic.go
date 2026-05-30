@@ -22,11 +22,11 @@ import (
 	"github.com/redis/go-redis/v9"
 	"github.com/rs/zerolog"
 
-	"github.com/V3teran/liusha/internal/hunter"
 	"github.com/V3teran/liusha/internal/config"
-	"github.com/V3teran/liusha/internal/passivesession"
 	"github.com/V3teran/liusha/internal/flow"
+	"github.com/V3teran/liusha/internal/hunter"
 	"github.com/V3teran/liusha/internal/owner"
+	"github.com/V3teran/liusha/internal/passivesession"
 	"github.com/V3teran/liusha/internal/proxy"
 	"github.com/V3teran/liusha/internal/worker"
 )
@@ -241,7 +241,7 @@ func (t *Traffic) enqueueMain(ctx context.Context, passSessID string, flowID int
 	}
 
 	if _, _, err := t.enq.Enqueue(ctx, worker.RoleHunter, worker.Payload{
-		TaskID:    tid,
+		HunterID:  tid,
 		OwnerType: owner.Passive,
 		OwnerID:   passSessID,
 		Input:     payloadInput,

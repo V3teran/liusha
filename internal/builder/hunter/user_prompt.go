@@ -391,11 +391,11 @@ func loadOwnerNotes(ctx context.Context, store notes.Store, ownerID, host string
 	if err != nil || len(raw) == 0 {
 		return ""
 	}
-	// raw 形如 {"notes": [{"content":"...","agent_run_id":"..."}, ...]}
+	// raw 形如 {"notes": [{"content":"...","hunter_id":"..."}, ...]}
 	var parsed struct {
 		Notes []struct {
-			Content    string `json:"content"`
-			AgentRunID string `json:"agent_run_id"`
+			Content  string `json:"content"`
+			HunterID string `json:"hunter_id"`
 		} `json:"notes"`
 	}
 	if err := json.Unmarshal(raw, &parsed); err != nil {

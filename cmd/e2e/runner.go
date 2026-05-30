@@ -12,8 +12,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/rs/zerolog"
 
-	"github.com/V3teran/liusha/internal/hunter"
 	"github.com/V3teran/liusha/internal/finding"
+	"github.com/V3teran/liusha/internal/hunter"
 )
 
 // profilePlan 是单个 profile 的运行计划：解析后的 host + 加载好的样本。
@@ -55,14 +55,14 @@ func runActiveProfiles(ctx context.Context, profs []activeProfile, apiBase, apiK
 				Msg("adhoc brief 从 env 注入（不入仓库）")
 		}
 
-		eid, taskID, err := createActiveScan(apiBase, apiKey, ap.brief)
+		eid, hunterID, err := createActiveScan(apiBase, apiKey, ap.brief)
 		if err != nil {
 			return fmt.Errorf("active profile %s: createActiveScan: %w", ap.name, err)
 		}
 		logger.Info().
 			Str("profile", ap.name).
 			Str("owner_id", eid).
-			Str("agent_run_id", taskID).
+			Str("hunter_id", hunterID).
 			Msg("active scan dispatched")
 
 		startedAt := time.Now()
@@ -342,4 +342,3 @@ func resolveSampleHost(vulnBase string, samples []string) (string, error) {
 	}
 	return extractHost(vulnBase)
 }
-

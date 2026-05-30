@@ -17,10 +17,10 @@ import (
 // SourceFlowID 可空（不绑定具体流量时 nil）。
 // Target / Evidence 为 nil 时 Save 自动落空对象 '{}'。
 type VulnFinding struct {
-	ID        string
-	OwnerType string // 'passive_session' / 'active_scan'
-	OwnerID   string
-	TaskID    *string
+	ID           string
+	OwnerType    string // 'passive_session' / 'active_scan'
+	OwnerID      string
+	HunterID     *string
 	SourceFlowID *int64
 	Host         string
 	// Severity 自由文本（建议 critical/high/medium/low/info 保持配色一致；
@@ -28,14 +28,14 @@ type VulnFinding struct {
 	Severity string
 	// Summary 是漏洞描述的核心载体：自由文本写发现是什么 / 怎么验证 / 推理依据。
 	// 工具层（write_finding）强制非空。
-	Summary   string
-	Target    json.RawMessage
-	Evidence  json.RawMessage
+	Summary  string
+	Target   json.RawMessage
+	Evidence json.RawMessage
 	// 元数据字段（0045 加入）
-	CWEID          string // 例 "CWE-89"
-	OWASPCategory  string // 例 "A03:2021"
-	FirstSeenAt    time.Time // 首次发现时间——dedup Update 不变；新建时与 CreatedAt 一致
-	Remediation    string // 修复建议自然语言；evidence 仍存 PoC
+	CWEID         string    // 例 "CWE-89"
+	OWASPCategory string    // 例 "A03:2021"
+	FirstSeenAt   time.Time // 首次发现时间——dedup Update 不变；新建时与 CreatedAt 一致
+	Remediation   string    // 修复建议自然语言；evidence 仍存 PoC
 
 	// DependsOn 是组合漏洞的依赖 finding ID 数组（0059 加入）。
 	// 例：finding c 是 finding a + b 组合而成 → c.DependsOn = [a.id, b.id]。

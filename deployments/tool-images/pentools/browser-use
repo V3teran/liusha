@@ -1,122 +1,114 @@
-#!/bin/sh
-# browser-use — wrapper 包 browser-use-cli，用原生 --session 持久会话托管 chrome。
-#
-# 模型：
-#   session = 身份（cookie jar 边界）   tab = agent（同身份下页面/截图/并发隔离）
-#
-#   - 同一身份：所有 commander/striker 共用一个 --session 浏览器，各占一个 tab
-#     （谁先 open 谁占 tab0，role-agnostic；后来者 window.open 新 tab）。
-#   - 不同身份（越权/BAC 多账号）：每身份一个 --session = 独立浏览器（独立 cookie jar，
-#     按需多起一个 chromium）。身份由 IDENTITY env 指定（= redis 凭证 name），缺省 "default"。
-#
-#   chrome 生命周期由 browse-use 原生 --session 自管：首个命令冷启 ~20s，之后跨 CLI 进程
-#   复用、状态保持、零 rot。撤回 v29-v33 的手动 chromium daemon + --cdp-url（2026-05-29 e2e
-#   实测：那套共享 daemon 随每次 connect_over_cdp 单调劣化、攒几次永久锁死；v35 砍 CDP capture
-#   后已无存在理由）。见 docs/superpowers/specs/2026-05-29-browser-use-native-session-design.md
-#
-# 依赖：
-#   - TASK_ID  env（sandbox-server 注入，缺省 "default"）— 区分同身份下各 agent 的 tab
-#   - IDENTITY env（browser_use 工具按需注入，缺省 "default"）— 身份 = session 名
-#   - browser-use-cli + flock
+#!/usr/bin/env python3
+"""browser-use 薄客户端：把子命令经 unix socket 转发给每身份常驻 browser-svc.py。
 
-set -eu
+模型不变：
+  IDENTITY = 身份（cookie jar 边界 = 独立 chromium）。缺省 "default"。
+  HUNTER_ID = 同身份下的 agent（commander/striker），各占一个 tab（页面/截图/并发隔离）。
 
-TASK_ID="${TASK_ID:-default}"
-SESSION="${IDENTITY:-default}"
-TAB_FILE="/tmp/browser-tab-${SESSION}-${TASK_ID}.idx"
-LOCK="/tmp/browser-${SESSION}.lock"
-TAB0_CLAIM="/tmp/browser-tab0-${SESSION}.claimed"
+热路径不再有全局 active tab，也不再需要 flock 串行化 —— 服务用 actor.Page 按 target_id 寻址，
+同身份多 agent 并发各操作自己的 tab。本客户端只做：选身份 socket → 确保服务起（flock 守冷启）→
+转发 {sub,args,hunter_id,output_dir} → 回放 stdout/stderr + exit code。
 
-# bu — 统一带 --session 调 browser-use-cli（chrome 由 browse-use 按身份自管）。
-bu() { browser-use-cli --session "$SESSION" "$@"; }
+管理类子命令（install/doctor/setup/...）不需浏览器，直接透传底层 browser-use-cli。
+"""
+import fcntl
+import json
+import os
+import socket
+import subprocess
+import sys
+import time
 
-# auto_screenshot — 状态变化 action 跑完截图到 $OUTPUT_DIR，喂回 vision LLM。
-auto_screenshot() {
-    [ -n "${OUTPUT_DIR:-}" ] && bu screenshot "${OUTPUT_DIR}/auto_$(date +%s%N).png" >/dev/null 2>&1 || true
-}
+IDENTITY = os.environ.get("IDENTITY", "default")
+HUNTER_ID = os.environ.get("HUNTER_ID", "default")
+OUTPUT_DIR = os.environ.get("OUTPUT_DIR", "")
+SOCK = f"/tmp/browser-svc-{IDENTITY}.sock"
+START_LOCK = f"/tmp/browser-svc-{IDENTITY}.start.lock"
+LOG = f"/tmp/browser-svc-{IDENTITY}.log"
+SVC = "/usr/local/bin/browser-svc.py"
 
-# js_escape — 把 URL 安全嵌入 JS 双引号字符串（转义 \ 和 "）。
-js_escape() { printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'; }
+# 不需浏览器的管理类子命令 → 透传底层 CLI（install 等连 chrome 都不用）。
+PASSTHROUGH = {"", "--help", "-h", "install", "init", "setup", "doctor",
+               "python", "tunnel", "sessions", "cloud", "profile"}
 
-SUB="${1:-}"
-shift 2>/dev/null || true
 
-# 管理类 / session 控制子命令 → 透传（install 等不需 session；其余带 --session 连本身份浏览器）
-case "$SUB" in
-  ""|--help|-h|install|init|setup|doctor)
-    exec browser-use-cli "$SUB" "$@"
-    ;;
-  reset)
-    # daemon 异常恢复：停本身份 session daemon + 清本身份 tab 状态。
-    # 下次该身份任意 open 自动重启 + 重认领 tab0。副作用：本身份所有 tab 丢失含登录态。
-    bu close >/dev/null 2>&1 || true
-    rm -f "/tmp/browser-tab-${SESSION}-"*.idx "$TAB0_CLAIM" 2>/dev/null || true
-    echo "ok"
-    exit 0
-    ;;
-  python|tunnel|close|sessions|cloud|profile|switch|close-tab)
-    exec browser-use-cli --session "$SESSION" "$SUB" "$@"
-    ;;
-  release-tab)
-    [ -f "$TAB_FILE" ] || exit 0
-    exec 9>"$LOCK"
-    flock -x 9
-    TAB_IDX=$(cat "$TAB_FILE")
-    bu switch "$TAB_IDX" >/dev/null 2>&1 && bu close-tab >/dev/null 2>&1 || true
-    rm -f "$TAB_FILE"
-    exit 0
-    ;;
-esac
+def connect():
+    s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    try:
+        s.connect(SOCK)
+        return s
+    except OSError:
+        s.close()
+        return None
 
-# 以下子命令需 tab 上下文 — flock（按身份）串行化，防同身份多 agent 并发 switch+操作 race
-exec 9>"$LOCK"
-flock -x 9
 
-# 首个 open：认领本 (身份,task) 的 tab
-if [ "$SUB" = "open" ] && [ ! -f "$TAB_FILE" ]; then
-    URL="${1:-}"
-    if [ ! -f "$TAB0_CLAIM" ]; then
-        # 本身份首个 open（谁先谁占，commander/striker 皆可）→ 占 tab0，原地导航
-        touch "$TAB0_CLAIM"
-        echo "0" >"$TAB_FILE"
-        bu open "$URL"
-        EXIT=$?
-        [ "$EXIT" -eq 0 ] && auto_screenshot
-        exit "$EXIT"
-    fi
-    # 后来者 → window.open(URL) 一步建+导航新 tab（用目标 URL 直接开，避免 about:blank 空 tab 被回收塌缩）
-    ESC=$(js_escape "$URL")
-    bu eval "window.open(\"$ESC\",\"_blank\"); 1" >/dev/null 2>&1 || true
-    sleep 1
-    NEW=$(bu switch 99999 2>&1 | grep -oE 'Available: 0-[0-9]+' | grep -oE '[0-9]+$' || echo "")
-    if [ -z "$NEW" ]; then
-        echo "browser-use: 创建新 tab 失败（switch 探测无法解析 tab 数）" >&2
-        exit 1
-    fi
-    echo "$NEW" >"$TAB_FILE"
-    bu switch "$NEW" >/dev/null 2>&1 || true
-    auto_screenshot
-    exit 0
-fi
+def ensure_service():
+    """连服务；连不上则抢锁冷启 browser-svc.py 再连。"""
+    s = connect()
+    if s is not None:
+        return s
+    with open(START_LOCK, "w") as lf:
+        fcntl.flock(lf, fcntl.LOCK_EX)
+        s = connect()
+        if s is not None:
+            return s
+        # 残留死 socket 清掉再拉新服务。
+        try:
+            if os.path.exists(SOCK):
+                os.remove(SOCK)
+        except OSError:
+            pass
+        with open(LOG, "ab") as logf:
+            subprocess.Popen(
+                [sys.executable, SVC, IDENTITY, SOCK],
+                stdout=logf, stderr=subprocess.STDOUT, start_new_session=True,
+            )
+        for _ in range(600):  # 冷启最多等 60s（首启含 chromium 起动）
+            s = connect()
+            if s is not None:
+                return s
+            time.sleep(0.1)
+    sys.stderr.write("browser-use: 服务启动超时\n")
+    sys.exit(1)
 
-if [ ! -f "$TAB_FILE" ]; then
-    echo "browser-use: 身份=$SESSION TASK_ID=$TASK_ID 还没 open 过 URL；先 'browser-use open <URL>'" >&2
-    exit 2
-fi
 
-# 切到本 (身份,task) tab + 跑子命令
-TAB_IDX=$(cat "$TAB_FILE")
-bu switch "$TAB_IDX" >/dev/null 2>&1 || true
+def main() -> int:
+    sub = sys.argv[1] if len(sys.argv) > 1 else ""
+    args = sys.argv[2:]
 
-# 状态变化 action 跑完自动截图（vision LLM 直接看到新页面）；读取/其它 action 透传不附图
-case "$SUB" in
-  open|click|input|type|select|scroll|back|keys|hover|dblclick|rightclick|wait)
-    bu "$SUB" "$@"
-    EXIT=$?
-    [ "$EXIT" -eq 0 ] && auto_screenshot
-    exit "$EXIT"
-    ;;
-  *)
-    exec browser-use-cli --session "$SESSION" "$SUB" "$@"
-    ;;
-esac
+    if sub in PASSTHROUGH:
+        os.execvp("browser-use-cli", ["browser-use-cli", sub, *args])
+
+    if sub in ("reset", "release-tab"):
+        # 没有运行中的服务 → 无可重置/释放，直接成功返回（不白白冷启一个再杀）。
+        s = connect()
+        if s is None:
+            if sub == "reset":
+                sys.stdout.write("ok\n")
+            return 0
+    else:
+        s = ensure_service()
+
+    req = json.dumps({"sub": sub, "args": args, "hunter_id": HUNTER_ID, "output_dir": OUTPUT_DIR})
+    s.sendall(req.encode() + b"\n")
+    buf = b""
+    while True:
+        chunk = s.recv(65536)
+        if not chunk:
+            break
+        buf += chunk
+    s.close()
+
+    if not buf:
+        sys.stderr.write("browser-use: 服务无响应\n")
+        return 1
+    resp = json.loads(buf.decode())
+    if resp.get("stdout"):
+        sys.stdout.write(resp["stdout"])
+    if resp.get("stderr"):
+        sys.stderr.write(resp["stderr"])
+    return resp.get("code", 0)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

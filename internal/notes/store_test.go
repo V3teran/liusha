@@ -50,7 +50,7 @@ func (f *fakeCompactor) Compact(ctx context.Context, olds []json.RawMessage) ([]
 	if f.out != nil {
 		return f.out, nil
 	}
-	return []byte(`{"content":"[summary]","agent_run_id":"compactor"}`), nil
+	return []byte(`{"content":"[summary]","hunter_id":"compactor"}`), nil
 }
 
 // TestAppendThenRead 写 3 条 → 读回 3 条按写入顺序、内容一致。
@@ -59,9 +59,9 @@ func TestAppendThenRead(t *testing.T) {
 	ctx := context.Background()
 
 	entries := [][]byte{
-		[]byte(`{"content":"a","agent_run_id":"t1"}`),
-		[]byte(`{"content":"b","agent_run_id":"t1"}`),
-		[]byte(`{"content":"c","agent_run_id":"t2"}`),
+		[]byte(`{"content":"a","hunter_id":"t1"}`),
+		[]byte(`{"content":"b","hunter_id":"t1"}`),
+		[]byte(`{"content":"c","hunter_id":"t2"}`),
 	}
 	for _, e := range entries {
 		if err := s.AppendNote(ctx, "eng-1", "h1", e); err != nil {
@@ -129,7 +129,7 @@ func TestFallbackTrimWithoutCompactor(t *testing.T) {
 	ctx := context.Background()
 
 	for i := 0; i < 10; i++ {
-		e := []byte(fmt.Sprintf(`{"content":"n%d","agent_run_id":"t"}`, i))
+		e := []byte(fmt.Sprintf(`{"content":"n%d","hunter_id":"t"}`, i))
 		if err := s.AppendNote(ctx, "eng-2", "h1", e); err != nil {
 			t.Fatalf("AppendNote: %v", err)
 		}
@@ -143,7 +143,7 @@ func TestFallbackTrimWithoutCompactor(t *testing.T) {
 	if len(parsed.Notes) != 5 {
 		t.Fatalf("无 Compactor 应 LTRIM 保留 5 条末尾，实际 %d: %s", len(parsed.Notes), got)
 	}
-	if string(parsed.Notes[0]) != `{"content":"n5","agent_run_id":"t"}` {
+	if string(parsed.Notes[0]) != `{"content":"n5","hunter_id":"t"}` {
 		t.Fatalf("应保留 n5..n9，首条实际 %s", parsed.Notes[0])
 	}
 }
@@ -154,7 +154,7 @@ func TestFallbackTrimWithoutCompactor(t *testing.T) {
 //   - 列表 = [summary] + [剩余 entries]
 func TestCompactorTriggered(t *testing.T) {
 	fc := &fakeCompactor{
-		out: []byte(`{"content":"[summary] merged","agent_run_id":"compactor"}`),
+		out: []byte(`{"content":"[summary] merged","hunter_id":"compactor"}`),
 	}
 	s, _ := newTestStore(t, Config{
 		KeyPrefix:        "test:note:",
@@ -167,7 +167,7 @@ func TestCompactorTriggered(t *testing.T) {
 	ctx := context.Background()
 
 	for i := 0; i < 6; i++ {
-		e := []byte(fmt.Sprintf(`{"content":"n%d","agent_run_id":"t"}`, i))
+		e := []byte(fmt.Sprintf(`{"content":"n%d","hunter_id":"t"}`, i))
 		if err := s.AppendNote(ctx, "eng-3", "h1", e); err != nil {
 			t.Fatalf("AppendNote: %v", err)
 		}
@@ -187,10 +187,10 @@ func TestCompactorTriggered(t *testing.T) {
 	if len(parsed.Notes) != 4 {
 		t.Fatalf("蒸馏后应为 1 summary + 3 末尾，共 4 条，实际 %d: %s", len(parsed.Notes), got)
 	}
-	if string(parsed.Notes[0]) != `{"content":"[summary] merged","agent_run_id":"compactor"}` {
+	if string(parsed.Notes[0]) != `{"content":"[summary] merged","hunter_id":"compactor"}` {
 		t.Fatalf("首条应为 summary，实际 %s", parsed.Notes[0])
 	}
-	if string(parsed.Notes[1]) != `{"content":"n3","agent_run_id":"t"}` {
+	if string(parsed.Notes[1]) != `{"content":"n3","hunter_id":"t"}` {
 		t.Fatalf("第 2 条应为 n3（被蒸馏后剩 n3..n5），实际 %s", parsed.Notes[1])
 	}
 }
@@ -209,7 +209,7 @@ func TestCompactorFailureFallback(t *testing.T) {
 	ctx := context.Background()
 
 	for i := 0; i < 6; i++ {
-		e := []byte(fmt.Sprintf(`{"content":"n%d","agent_run_id":"t"}`, i))
+		e := []byte(fmt.Sprintf(`{"content":"n%d","hunter_id":"t"}`, i))
 		_ = s.AppendNote(ctx, "eng-4", "h1", e)
 	}
 
@@ -225,7 +225,7 @@ func TestCompactorFailureFallback(t *testing.T) {
 	if len(parsed.Notes) != 4 {
 		t.Fatalf("Compactor 失败应 LTRIM 到 MaxEntries=4，实际 %d: %s", len(parsed.Notes), got)
 	}
-	if string(parsed.Notes[0]) != `{"content":"n2","agent_run_id":"t"}` {
+	if string(parsed.Notes[0]) != `{"content":"n2","hunter_id":"t"}` {
 		t.Fatalf("应保留末尾 n2..n5，首条实际 %s", parsed.Notes[0])
 	}
 }
@@ -238,7 +238,7 @@ func TestCompactorFailureFallback(t *testing.T) {
 func TestConcurrentCompactionLock(t *testing.T) {
 	fc := &fakeCompactor{
 		delay: 100 * time.Millisecond,
-		out:   []byte(`{"content":"[summary]","agent_run_id":"compactor"}`),
+		out:   []byte(`{"content":"[summary]","hunter_id":"compactor"}`),
 	}
 	s, _ := newTestStore(t, Config{
 		KeyPrefix:        "test:note:",
@@ -251,7 +251,7 @@ func TestConcurrentCompactionLock(t *testing.T) {
 	ctx := context.Background()
 
 	for i := 0; i < 6; i++ {
-		_ = s.AppendNote(ctx, "eng-5", "h1", []byte(fmt.Sprintf(`{"content":"x%d","agent_run_id":"t"}`, i)))
+		_ = s.AppendNote(ctx, "eng-5", "h1", []byte(fmt.Sprintf(`{"content":"x%d","hunter_id":"t"}`, i)))
 	}
 	calls := atomic.LoadInt32(&fc.calls)
 	if calls > 1 {

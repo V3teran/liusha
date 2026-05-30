@@ -78,7 +78,7 @@ func (s *Store) Save(ctx context.Context, f VulnFinding) (VulnFinding, error) {
 		SET first_seen_at = LEAST(finding.first_seen_at, EXCLUDED.first_seen_at)
 		RETURNING `+colsSelect,
 		f.OwnerType, f.OwnerID,
-		f.TaskID, f.SourceFlowID, f.Host, f.Severity,
+		f.HunterID, f.SourceFlowID, f.Host, f.Severity,
 		f.Summary, f.Target, f.Evidence,
 		f.CWEID, f.OWASPCategory, f.Remediation, deps)
 
@@ -92,8 +92,8 @@ func (s *Store) Save(ctx context.Context, f VulnFinding) (VulnFinding, error) {
 	}
 
 	// dup 命中：DB 层把后续重复写无声合并到已有行；saved 是 existing 行内容。
-	// hunter_id 不会被覆盖（DO UPDATE 只动 first_seen_at），所以 saved.TaskID 反映首次写入者。
-	dedupHit := f.TaskID != nil && saved.TaskID != nil && *f.TaskID != *saved.TaskID
+	// hunter_id 不会被覆盖（DO UPDATE 只动 first_seen_at），所以 saved.HunterID 反映首次写入者。
+	dedupHit := f.HunterID != nil && saved.HunterID != nil && *f.HunterID != *saved.HunterID
 	ev := findingLog.Info()
 	if dedupHit {
 		ev = ev.Bool("dedup_hit", true)
@@ -242,15 +242,15 @@ type scanner interface {
 }
 
 // scan 是 colsSelect 列序的统一反序列化点。
-// taskID / sourceFlowID 用指针接住 NULL；TaskID 是 *string 保留 nil，SourceFlowID 是 *int64 同。
+// hunterID / sourceFlowID 用指针接住 NULL；HunterID 是 *string 保留 nil，SourceFlowID 是 *int64 同。
 // DependsOn 是 uuid[]，扫到 []string（pgx v5 默认 codec）。
 func scan(r scanner, f *VulnFinding) error {
-	var taskID *string
+	var hunterID *string
 	var sourceFlowID *int64
 	var dependsOn []string
 	if err := r.Scan(
 		&f.ID, &f.OwnerType, &f.OwnerID,
-		&taskID, &sourceFlowID, &f.Host, &f.Severity,
+		&hunterID, &sourceFlowID, &f.Host, &f.Severity,
 		&f.Summary, &f.Target, &f.Evidence,
 		&f.CWEID, &f.OWASPCategory, &f.FirstSeenAt, &f.Remediation,
 		&dependsOn,
@@ -258,7 +258,7 @@ func scan(r scanner, f *VulnFinding) error {
 	); err != nil {
 		return err
 	}
-	f.TaskID = taskID
+	f.HunterID = hunterID
 	f.SourceFlowID = sourceFlowID
 	f.DependsOn = dependsOn
 	return nil

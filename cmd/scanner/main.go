@@ -26,7 +26,6 @@ import (
 	"time"
 
 	"github.com/V3teran/liusha/internal/activescan"
-	hunterstore "github.com/V3teran/liusha/internal/hunter"
 	"github.com/V3teran/liusha/internal/builder/hunter"
 	"github.com/V3teran/liusha/internal/config"
 	"github.com/V3teran/liusha/internal/credential"
@@ -36,11 +35,11 @@ import (
 	"github.com/V3teran/liusha/internal/finding"
 	"github.com/V3teran/liusha/internal/flow"
 	"github.com/V3teran/liusha/internal/grounding"
+	hunterstore "github.com/V3teran/liusha/internal/hunter"
 	"github.com/V3teran/liusha/internal/ingestor"
 	"github.com/V3teran/liusha/internal/lesson"
 	"github.com/V3teran/liusha/internal/llm"
 	"github.com/V3teran/liusha/internal/llminvocation"
-	"github.com/V3teran/liusha/internal/toolinvocation"
 	"github.com/V3teran/liusha/internal/logx"
 	"github.com/V3teran/liusha/internal/notes"
 	"github.com/V3teran/liusha/internal/observability"
@@ -49,6 +48,7 @@ import (
 	"github.com/V3teran/liusha/internal/sandbox"
 	"github.com/V3teran/liusha/internal/skill"
 	"github.com/V3teran/liusha/internal/subtask"
+	"github.com/V3teran/liusha/internal/toolinvocation"
 	"github.com/V3teran/liusha/internal/tools/manifest"
 	"github.com/V3teran/liusha/internal/worker"
 
@@ -189,7 +189,7 @@ func main() {
 	// 给 var 后，闭包在 builder 闭包真实执行时（handleActive 路径）才 deref 到已就绪的值。
 	var hunterBuilder skill.Builder
 
-	// parentRegistries：commander taskID → striker Registry。spawnerFactory LoadOrStore；
+	// parentRegistries：commander hunterID → striker Registry。spawnerFactory LoadOrStore；
 	// handleActive 在 react.Run 返回后 LoadAndDelete + cancel + WaitAll。
 	parentRegistries := &sync.Map{}
 
@@ -197,24 +197,24 @@ func main() {
 		registry := subtask.NewRegistry()
 		// 每commander builder 只调一次（inspector redirect 走 hint 注入不重建 builder），
 		// 不存在重入路径——Store 直接覆盖即可，不加 LoadOrStore 防御（YAGNI）。
-		parentRegistries.Store(p.TaskID, registry)
+		parentRegistries.Store(p.HunterID, registry)
 		spawner := subtask.NewActiveSpawner(parentCtx, subtask.ActiveSpawnerConfig{
-			CommanderTaskID:          p.TaskID,
-			OwnerType:             p.OwnerType, // 与commander对齐
-			OwnerID:               p.OwnerID,
-			Host:                  p.Host,
-			AgentRuns:             tasks,
-			Findings:              finds,
-			Lessons:               lessons,
-			Calls:                 calls,
-			Notes:                 noteStore,
-			Flows:                 flows, // striker spawn 时若传 flow_id 拉 commander 流量给 striker（tracker 用，commander 通常不传）
-			Router:                router,
-			Pricing:               pricing,
-			HunterBuilder:         hunterBuilder, // 晚绑定 — handleActive 执行时已就绪
-			SandboxClient:         p.Sandbox,
-			Registry:              registry,
-			MaxChildren:           scannerCfg.MaxChildren,
+			CommanderID:   p.HunterID,
+			OwnerType:     p.OwnerType, // 与commander对齐
+			OwnerID:       p.OwnerID,
+			Host:          p.Host,
+			AgentRuns:     tasks,
+			Findings:      finds,
+			Lessons:       lessons,
+			Calls:         calls,
+			Notes:         noteStore,
+			Flows:         flows, // striker spawn 时若传 flow_id 拉 commander 流量给 striker（tracker 用，commander 通常不传）
+			Router:        router,
+			Pricing:       pricing,
+			HunterBuilder: hunterBuilder, // 晚绑定 — handleActive 执行时已就绪
+			SandboxClient: p.Sandbox,
+			Registry:      registry,
+			MaxChildren:   scannerCfg.MaxChildren,
 			Inspector: subtask.InspectorParams{
 				ArgsTruncate:  cfg.React.InspectorArgsTruncate,
 				ObsTruncate:   cfg.React.InspectorObsTruncate,
@@ -439,4 +439,3 @@ func extractHostFromBrief(brief, fallback string) string {
 	}
 	return m[1]
 }
-

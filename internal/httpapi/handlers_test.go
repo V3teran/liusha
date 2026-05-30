@@ -365,10 +365,10 @@ func TestPassiveScan_LookupError(t *testing.T) {
 
 // fakeActiveScan 是 ActiveScanAPI 的内存实现：记录最近一次 CreateActiveScan 入参，可注入 err。
 type fakeActiveScan struct {
-	gotBrief          string
-	calls             int
-	err               error
-	retEID, retTaskID string
+	gotBrief            string
+	calls               int
+	err                 error
+	retEID, retHunterID string
 }
 
 func (f *fakeActiveScan) CreateActiveScan(_ context.Context, brief string) (string, string, error) {
@@ -381,7 +381,7 @@ func (f *fakeActiveScan) CreateActiveScan(_ context.Context, brief string) (stri
 	if eid == "" {
 		eid = "eid-active"
 	}
-	tid := f.retTaskID
+	tid := f.retHunterID
 	if tid == "" {
 		tid = "task-active"
 	}
@@ -410,7 +410,7 @@ func TestActiveScan_Created(t *testing.T) {
 		t.Fatalf("status=%d body=%s", resp.StatusCode, string(b))
 	}
 	var out struct {
-		OwnerID    string `json:"owner_id"`
+		OwnerID  string `json:"owner_id"`
 		HunterID string `json:"hunter_id"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {

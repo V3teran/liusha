@@ -62,8 +62,8 @@ func llmInvocationsHandler(api InvocationsAPI) gin.HandlerFunc {
 		order := make([]string, 0)
 		for _, v := range invocations {
 			key := "unassigned"
-			if v.TaskID != nil && *v.TaskID != "" {
-				key = *v.TaskID
+			if v.HunterID != nil && *v.HunterID != "" {
+				key = *v.HunterID
 			}
 			if _, exists := groups[key]; !exists {
 				order = append(order, key)
@@ -71,11 +71,11 @@ func llmInvocationsHandler(api InvocationsAPI) gin.HandlerFunc {
 			// messages / result 是 []byte 形式的 jsonb——用 json.RawMessage
 			// 包装让 gin 直接 inline JSON，而不是 base64 编码成字符串。
 			groups[key] = append(groups[key], gin.H{
-				"id":           v.ID,
-				"hunter_id": v.TaskID,
-				"owner_type":   v.OwnerType,
-				"owner_id":     v.OwnerID,
-				"provider":     v.Provider,
+				"id":            v.ID,
+				"hunter_id":     v.HunterID,
+				"owner_type":    v.OwnerType,
+				"owner_id":      v.OwnerID,
+				"provider":      v.Provider,
 				"model":         v.Model,
 				"in_tokens":     v.InTokens,
 				"out_tokens":    v.OutTokens,
@@ -94,16 +94,16 @@ func llmInvocationsHandler(api InvocationsAPI) gin.HandlerFunc {
 		out := make([]gin.H, 0, len(order))
 		for _, k := range order {
 			out = append(out, gin.H{
-				"hunter_id": k,
-				"count":        len(groups[k]),
-				"invocations":  groups[k],
+				"hunter_id":   k,
+				"count":       len(groups[k]),
+				"invocations": groups[k],
 			})
 		}
 
 		c.JSON(200, gin.H{
 			"owner_id": eid,
-			"total":         len(invocations),
-			"groups":        out,
+			"total":    len(invocations),
+			"groups":   out,
 		})
 	}
 }

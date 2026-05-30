@@ -11,18 +11,18 @@ import (
 //
 // Input 是该 task 的入参（已序列化的 JSON），由 handler 自行解释。
 //
-// CommanderTaskID 标识commander id（subtask swarm）；空表示独立任务/根任务。
+// CommanderID 标识commander id（subtask swarm）；空表示独立任务/根任务。
 // 设计约束：striker永远在commander goroutine 内跑（subtask 包内），**不**入 asynq——
-// 因此正常情况下入队 Payload.CommanderTaskID 永远为空；ingestor + httpapi
+// 因此正常情况下入队 Payload.CommanderID 永远为空；ingestor + httpapi
 // enqueue 调用方均不填本字段，scanner handleActive 也不再做 fail-fast 死分支。
 // 字段保留用于 internal/subtask 包在commander goroutine 内 BuilderParams 传递。
 type Payload struct {
-	TaskID       string          `json:"agent_run_id"`
-	OwnerType    string          `json:"owner_type"` // 'passive_session' / 'active_scan'
-	OwnerID      string          `json:"owner_id"`   // passive_session.id / active_scan.id
-	CommanderTaskID string          `json:"commander_task_id,omitempty"`
-	Role         Role            `json:"role"`
-	Input        json.RawMessage `json:"input,omitempty"`
+	HunterID    string          `json:"hunter_id"`
+	OwnerType   string          `json:"owner_type"` // 'passive_session' / 'active_scan'
+	OwnerID     string          `json:"owner_id"`   // passive_session.id / active_scan.id
+	CommanderID string          `json:"commander_id,omitempty"`
+	Role        Role            `json:"role"`
+	Input       json.RawMessage `json:"input,omitempty"`
 }
 
 // RoleHandler 处理一个反序列化好的 Payload。

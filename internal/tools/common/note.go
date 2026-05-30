@@ -10,7 +10,8 @@ import (
 
 // NoteStore 是  owner notes 共享笔记板的最小访问接口。
 // 由 *notes.RedisStore 自动满足（internal/notes 包提供）。
-//  owner 可挂多 host，notes 按 (eid, host) 切分。
+//
+//	owner 可挂多 host，notes 按 (eid, host) 切分。
 type NoteStore interface {
 	ReadNotes(ctx context.Context, ownerID, host string) ([]byte, error)
 	AppendNote(ctx context.Context, ownerID, host string, entry []byte) error
@@ -19,10 +20,10 @@ type NoteStore interface {
 // ReadNotes — 一次读取 (owner, host) notes 共享黑板（短期记忆，本次扫描内）。
 // 命名与 read_findings / read_lessons / read_credentials 等一致用复数（读多条 note）。
 type ReadNotes struct {
-	Store        NoteStore
-	OwnerID string
-	Host         string
-	TaskID       string
+	Store    NoteStore
+	OwnerID  string
+	Host     string
+	HunterID string
 }
 
 // Name 返回工具名 "read_notes"。
@@ -50,10 +51,10 @@ func (a *ReadNotes) Execute(ctx context.Context, _ json.RawMessage) (toolfx.Resu
 
 // WriteNote — 写一条短期记忆到 (owner, host) notes 共享黑板（纯文本追加）。
 type WriteNote struct {
-	Store        NoteStore
-	OwnerID string
-	Host         string
-	TaskID       string
+	Store    NoteStore
+	OwnerID  string
+	Host     string
+	HunterID string
 }
 
 // Name 返回工具名 "write_note"。
@@ -98,8 +99,8 @@ func (a *WriteNote) Execute(ctx context.Context, args json.RawMessage) (toolfx.R
 	}
 
 	entry, _ := json.Marshal(map[string]any{
-		"content":      p.Content,
-		"agent_run_id": a.TaskID,
+		"content":   p.Content,
+		"hunter_id": a.HunterID,
 	})
 
 	if err := a.Store.AppendNote(ctx, a.OwnerID, a.Host, entry); err != nil {

@@ -182,7 +182,7 @@ func (s *Store) copyFromBatch(ctx context.Context, batch []Invocation) error {
 	rows := make([][]any, len(batch))
 	for i, c := range batch {
 		rows[i] = []any{
-			c.TaskID, c.OwnerType, c.OwnerID,
+			c.HunterID, c.OwnerType, c.OwnerID,
 			c.Provider, c.Model,
 			c.InTokens, c.OutTokens, c.CachedTokens,
 			c.CostUSD, c.LatencyMs, c.FinishReason, c.Error, c.Role,
@@ -233,9 +233,9 @@ func (s *Store) ListByOwner(ctx context.Context, ownerType, ownerID string) ([]I
 	var out []Invocation
 	for rows.Next() {
 		var v Invocation
-		var taskID, ot, oid *string
+		var hunterID, ot, oid *string
 		if err := rows.Scan(
-			&v.ID, &taskID, &ot, &oid,
+			&v.ID, &hunterID, &ot, &oid,
 			&v.Provider, &v.Model,
 			&v.InTokens, &v.OutTokens, &v.CachedTokens,
 			&v.CostUSD, &v.LatencyMs, &v.FinishReason, &v.Error, &v.Role,
@@ -243,7 +243,7 @@ func (s *Store) ListByOwner(ctx context.Context, ownerType, ownerID string) ([]I
 		); err != nil {
 			return nil, fmt.Errorf("scan llm_invocation: %w", err)
 		}
-		v.TaskID = taskID
+		v.HunterID = hunterID
 		v.OwnerType = ot
 		v.OwnerID = oid
 		out = append(out, v)
@@ -253,4 +253,3 @@ func (s *Store) ListByOwner(ctx context.Context, ownerType, ownerID string) ([]I
 	}
 	return out, nil
 }
-

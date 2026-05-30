@@ -24,7 +24,7 @@ type WriteFinding struct {
 	Store     FindingStore
 	OwnerType string // 'passive_session' / 'active_scan'
 	OwnerID   string
-	TaskID    string // 可空
+	HunterID  string // 可空
 	Host      string // builder 注入；空时 Save 报错
 	FlowID    int64  // 触发本次 hunter 的 http_flow.id；0 表示不关联
 }
@@ -32,10 +32,10 @@ type WriteFinding struct {
 // Name 返回工具名 "write_finding"。
 func (a *WriteFinding) Name() string { return "write_finding" }
 
-//
 // 设计分工：
 //   - description（本函数）：格式约束（summary 单行 ≤500 / evidence jsonb / severity 取值）+ 一行质量红线提示
 //   - hunter system_prompt"## 写 finding 必须满足"：4 条详细 behavioral rules（真实命中 / 工具未失败 / 可复现 / 不重复）
+//
 // LLM 选工具时看 description 的格式细节，调用前已被 system_prompt 全局规则约束，互不重复。
 func (a *WriteFinding) Description() string {
 	return "写一条**新**漏洞 finding。" +
@@ -86,8 +86,8 @@ func (a *WriteFinding) Execute(ctx context.Context, args json.RawMessage) (toolf
 	in.Evidence = normalizeJSONObject(in.Evidence)
 
 	var taskPtr *string
-	if a.TaskID != "" {
-		t := a.TaskID
+	if a.HunterID != "" {
+		t := a.HunterID
 		taskPtr = &t
 	}
 	var flowPtr *int64
@@ -99,7 +99,7 @@ func (a *WriteFinding) Execute(ctx context.Context, args json.RawMessage) (toolf
 	saved, err := a.Store.Save(ctx, finding.VulnFinding{
 		OwnerType:     a.OwnerType,
 		OwnerID:       a.OwnerID,
-		TaskID:        taskPtr,
+		HunterID:      taskPtr,
 		SourceFlowID:  flowPtr,
 		Host:          a.Host,
 		Severity:      in.Severity,

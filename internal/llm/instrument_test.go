@@ -92,7 +92,7 @@ func TestInstrument_AppendsCallOnSuccess(t *testing.T) {
 	tid, oid := "task-1", "owner-1"
 	ot := "passive_session"
 	g := Instrument(inner, sink, CallMeta{
-		TaskID:    &tid,
+		HunterID:  &tid,
 		OwnerType: &ot,
 		OwnerID:   &oid,
 		RouteKey:  "tracker",
@@ -124,8 +124,8 @@ func TestInstrument_AppendsCallOnSuccess(t *testing.T) {
 	if c.Error != "" {
 		t.Fatalf("expected no error, got %q", c.Error)
 	}
-	if c.TaskID == nil || *c.TaskID != "task-1" {
-		t.Fatalf("task id: %v", c.TaskID)
+	if c.HunterID == nil || *c.HunterID != "task-1" {
+		t.Fatalf("task id: %v", c.HunterID)
 	}
 	if c.OwnerID == nil || *c.OwnerID != "owner-1" {
 		t.Fatalf("owner id: %v", c.OwnerID)

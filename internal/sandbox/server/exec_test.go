@@ -44,7 +44,7 @@ func TestHandleExec_Timeout_KillsProcessGroup(t *testing.T) {
 	defer ts.Close()
 
 	body, err := json.Marshal(sandbox.ExecRequest{
-		TaskID:         "test-kill-pg",
+		HunterID:       "test-kill-pg",
 		Command:        "sleep 100 | tail",
 		TimeoutSeconds: 1,
 		Tag:            "kill-pg",
@@ -89,7 +89,7 @@ func TestHandleExec_Normal_Succeeds(t *testing.T) {
 	defer ts.Close()
 
 	body, err := json.Marshal(sandbox.ExecRequest{
-		TaskID:         "test-baseline",
+		HunterID:       "test-baseline",
 		Command:        "echo hello && echo err >&2",
 		TimeoutSeconds: 5,
 		Tag:            "baseline",
@@ -123,16 +123,16 @@ func TestHandleExec_Normal_Succeeds(t *testing.T) {
 	}
 }
 
-// TestHandleExec_TaskIDValidation 验证 TaskID 必填 + path-safe 字符集（防 path traversal）。
-func TestHandleExec_TaskIDValidation(t *testing.T) {
+// TestHandleExec_HunterIDValidation 验证 HunterID 必填 + path-safe 字符集（防 path traversal）。
+func TestHandleExec_HunterIDValidation(t *testing.T) {
 	setupTestRoots(t)
 	srv := New()
 	ts := httptest.NewServer(srv.mux)
 	defer ts.Close()
 
 	cases := []struct {
-		name   string
-		taskID string
+		name     string
+		hunterID string
 	}{
 		{"empty", ""},
 		{"path traversal", "../etc"},
@@ -144,7 +144,7 @@ func TestHandleExec_TaskIDValidation(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			body, _ := json.Marshal(sandbox.ExecRequest{
-				TaskID:         c.taskID,
+				HunterID:       c.hunterID,
 				Command:        "echo x",
 				TimeoutSeconds: 5,
 				Tag:            "validate",
@@ -155,7 +155,7 @@ func TestHandleExec_TaskIDValidation(t *testing.T) {
 			}
 			resp.Body.Close()
 			if resp.StatusCode != http.StatusBadRequest {
-				t.Errorf("TaskID=%q expect 400 got %d", c.taskID, resp.StatusCode)
+				t.Errorf("HunterID=%q expect 400 got %d", c.hunterID, resp.StatusCode)
 			}
 		})
 	}
@@ -171,10 +171,10 @@ func TestHandleExec_PerTaskIsolation(t *testing.T) {
 	ts := httptest.NewServer(srv.mux)
 	defer ts.Close()
 
-	post := func(t *testing.T, taskID, cmd string) sandbox.ExecResult {
+	post := func(t *testing.T, hunterID, cmd string) sandbox.ExecResult {
 		t.Helper()
 		body, _ := json.Marshal(sandbox.ExecRequest{
-			TaskID:         taskID,
+			HunterID:       hunterID,
 			Command:        cmd,
 			TimeoutSeconds: 5,
 			Tag:            "isolation",

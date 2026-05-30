@@ -24,20 +24,20 @@ func (h handler) handlePassive(ctx context.Context, p worker.Payload, entrypoint
 		Method string `json:"method"`
 	}
 	if err := json.Unmarshal(entrypoint, &ep); err != nil {
-		return h.failTask(ctx, p.TaskID, err)
+		return h.failTask(ctx, p.HunterID, err)
 	}
 
-	tid := p.TaskID
+	tid := p.HunterID
 	ot, oid := p.OwnerType, p.OwnerID
 	otPtr, oidPtr := &ot, &oid
 
 	// tracker LLM Generator（passive 侦察兵 — 单 agent，独立追踪流量线索）
 	hunterRaw, err := h.router.For(ctx, "tracker")
 	if err != nil {
-		return h.failTask(ctx, p.TaskID, err)
+		return h.failTask(ctx, p.HunterID, err)
 	}
 	hunterGen := llm.Instrument(hunterRaw, h.calls,
-		llm.CallMeta{TaskID: &tid, OwnerType: otPtr, OwnerID: oidPtr, RouteKey: "tracker"},
+		llm.CallMeta{HunterID: &tid, OwnerType: otPtr, OwnerID: oidPtr, RouteKey: "tracker"},
 		h.pricing,
 	)
 
@@ -45,28 +45,28 @@ func (h handler) handlePassive(ctx context.Context, p worker.Payload, entrypoint
 	flowSummary := fmt.Sprintf("%s %s%s", ep.Method, ep.Host, ep.URL)
 	inspector, err := h.buildInspector(ctx, ot, oid, ep.Host, flowSummary, tid, otPtr, oidPtr)
 	if err != nil {
-		return h.failTask(ctx, p.TaskID, err)
+		return h.failTask(ctx, p.HunterID, err)
 	}
 
 	// 拉 flow 完整 raw（请求 + 响应）填 BuilderParams
 	fl, err := h.flows.GetByID(ctx, ep.FlowID)
 	if err != nil {
-		return h.failTask(ctx, p.TaskID, fmt.Errorf("flows.GetByID(%d): %w", ep.FlowID, err))
+		return h.failTask(ctx, p.HunterID, fmt.Errorf("flows.GetByID(%d): %w", ep.FlowID, err))
 	}
 
 	// 为本次 agent run 启动 sandbox 容器：spawn → 等 healthz → 返回 Client。
 	// defer Destroy 保证 react.Run 结束后容器被回收（正常 / 异常 / panic 路径都覆盖）；
 	// 失败时由 sandbox-server max lifetime 4h + 下次 scanner 启动 CleanupOrphans 兜底。
 	// v35+：容器内 chromium / CLI 工具流量都不入字典，hunterID 仅用作容器名隔离。
-	sandboxClient, err := h.launcher.Spawn(ctx, p.TaskID)
+	sandboxClient, err := h.launcher.Spawn(ctx, p.HunterID)
 	if err != nil {
-		return h.failTask(ctx, p.TaskID, fmt.Errorf("launcher.Spawn(%s): %w", p.TaskID, err))
+		return h.failTask(ctx, p.HunterID, fmt.Errorf("launcher.Spawn(%s): %w", p.HunterID, err))
 	}
 	defer func() {
 		destroyCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-		if err := h.launcher.Destroy(destroyCtx, p.TaskID); err != nil {
-			h.logger.Warn().Err(err).Str("hunter_id", p.TaskID).
+		if err := h.launcher.Destroy(destroyCtx, p.HunterID); err != nil {
+			h.logger.Warn().Err(err).Str("hunter_id", p.HunterID).
 				Msg("launcher.Destroy 失败（max lifetime / 下次启动 CleanupOrphans 兜底）")
 		}
 	}()
@@ -76,14 +76,14 @@ func (h handler) handlePassive(ctx context.Context, p worker.Payload, entrypoint
 	cfg, err := h.hunterBuilder(ctx, skill.BuilderParams{
 		OwnerType:       ot,
 		OwnerID:         oid,
-		TaskID:          tid,
+		HunterID:        tid,
 		Mode:            "passive",
 		FlowID:          ep.FlowID,
 		Host:            ep.Host,
 		URL:             ep.URL,
 		Method:          ep.Method,
 		LLM:             hunterGen,
-		Inspector:        inspector,
+		Inspector:       inspector,
 		RequestHeaders:  fl.RequestHeaders,
 		RequestBody:     fl.RequestBody,
 		ResponseStatus:  fl.StatusCode,
@@ -92,7 +92,7 @@ func (h handler) handlePassive(ctx context.Context, p worker.Payload, entrypoint
 		Sandbox:         sandboxClient,
 	})
 	if err != nil {
-		return h.failTask(ctx, p.TaskID, err)
+		return h.failTask(ctx, p.HunterID, err)
 	}
 
 	// owner 中止时让 react.Run 自然停
@@ -109,24 +109,24 @@ func (h handler) handlePassive(ctx context.Context, p worker.Payload, entrypoint
 	out, err := react.Run(ctx, cfg)
 	if err != nil {
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-			return h.abortTask(ctx, p.TaskID, "ctx "+err.Error())
+			return h.abortTask(ctx, p.HunterID, "ctx "+err.Error())
 		}
-		return h.failTask(ctx, p.TaskID, err)
+		return h.failTask(ctx, p.HunterID, err)
 	}
 	if out.TerminateBy == "aborted" {
-		return h.abortTask(ctx, p.TaskID, out.TerminateBy)
+		return h.abortTask(ctx, p.HunterID, out.TerminateBy)
 	}
 
 	res, err := json.Marshal(map[string]any{
-		"terminate_by":   out.TerminateBy,
-		"total_steps":    out.TotalSteps,
-		"total_in":       out.TotalUsage.InTokens,
-		"total_out":      out.TotalUsage.OutTokens,
-		"total_cached":   out.TotalUsage.CachedTokens,
+		"terminate_by":    out.TerminateBy,
+		"total_steps":     out.TotalSteps,
+		"total_in":        out.TotalUsage.InTokens,
+		"total_out":       out.TotalUsage.OutTokens,
+		"total_cached":    out.TotalUsage.CachedTokens,
 		"inspector_hints": out.InspectorHints,
 	})
 	if err != nil {
-		return h.failTask(ctx, p.TaskID, fmt.Errorf("marshal task result: %w", err))
+		return h.failTask(ctx, p.HunterID, fmt.Errorf("marshal task result: %w", err))
 	}
-	return h.tasks.SetDone(ctx, p.TaskID, res)
+	return h.tasks.SetDone(ctx, p.HunterID, res)
 }

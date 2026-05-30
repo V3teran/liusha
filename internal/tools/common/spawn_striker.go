@@ -12,8 +12,8 @@ import (
 
 // SpawnStriker 是 subtask swarm 的派单工具——只commander注册。
 //
-// hunter builder 在 CommanderTaskID == "" 路径注册本工具 + ListStrikers；
-// striker（CommanderTaskID 非空）不注册，强制 max_depth=1。
+// hunter builder 在 CommanderID == "" 路径注册本工具 + ListStrikers；
+// striker（CommanderID 非空）不注册，强制 max_depth=1。
 //
 // max_children 闸值由 Spawner 持有；闸触发的 wrapped error 已含数字提示，直接透传给 LLM。
 type SpawnStriker struct {
@@ -24,7 +24,7 @@ type SpawnStriker struct {
 func (a SpawnStriker) Name() string { return "spawn_striker" }
 
 func (a SpawnStriker) Description() string {
-	return "派一个 striker 并行深挖某个独立攻击面（仅 commander 可调）。立即返回 {\"striker_task_id\": ...}（异步），" +
+	return "派一个 striker 并行深挖某个独立攻击面（仅 commander 可调）。立即返回 {\"striker_id\": ...}（异步），" +
 		"commander 继续做别的；striker 的 finding 自动通过共享黑板（read_findings）冒给 commander——**不要 polling list_strikers**。" +
 		"\n\n【何时调】recon 阶段发现 ≥ 2 个独立 endpoint/feature；正在挖 X 时临时发现 Y；站点 N 个业务面（admin/user/api）。" +
 		"\n【何时不调】单一 endpoint 深挖（顺序依赖）；recon 还没跑完盲目派；已 spawn 接近上限。" +
@@ -61,14 +61,14 @@ func (a SpawnStriker) Execute(ctx context.Context, args json.RawMessage) (toolfx
 		return toolfx.Result{}, errors.New("brief 必填")
 	}
 
-	childTID, err := a.Spawner.Spawn(ctx, in.Brief, subtask.SpawnOptions{FlowID: in.FlowID})
+	childID, err := a.Spawner.Spawn(ctx, in.Brief, subtask.SpawnOptions{FlowID: in.FlowID})
 	if err != nil {
 		// max_children 闸触发时 Spawner 返带数字的 wrapped error，直接透传；
 		// 其他错误也透传——LLM 自行决策重试/换策略。
 		return toolfx.Result{}, fmt.Errorf("spawn_striker: %w", err)
 	}
 
-	out, _ := json.Marshal(map[string]string{"striker_task_id": childTID})
-	summary := fmt.Sprintf("spawn_striker task_id=%s", childTID)
+	out, _ := json.Marshal(map[string]string{"striker_id": childID})
+	summary := fmt.Sprintf("spawn_striker striker_id=%s", childID)
 	return toolfx.Result{Output: out, Summary: summary}, nil
 }

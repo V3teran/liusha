@@ -31,7 +31,7 @@ type CallSink interface {
 // 取值如 "tracker" / "commander" / "striker" / "inspector"，
 // 便于按角色维度统计成本和路由生效情况。
 type CallMeta struct {
-	TaskID    *string
+	HunterID  *string
 	OwnerType *string // 'passive_session' / 'active_scan'
 	OwnerID   *string // passive_session.id / active_scan.id
 	RouteKey  string
@@ -82,10 +82,10 @@ func (i *instrumented) Generate(ctx context.Context, msgs []Message, tools []Too
 	latency := time.Since(start)
 
 	call := llminvocation.Invocation{
-		TaskID:    i.meta.TaskID,
-		OwnerType: i.meta.OwnerType,
-		OwnerID:   i.meta.OwnerID,
-		Provider:  i.inner.Provider(),
+		HunterID:     i.meta.HunterID,
+		OwnerType:    i.meta.OwnerType,
+		OwnerID:      i.meta.OwnerID,
+		Provider:     i.inner.Provider(),
 		Model:        i.inner.Model(),
 		InTokens:     res.Usage.InTokens,
 		OutTokens:    res.Usage.OutTokens,

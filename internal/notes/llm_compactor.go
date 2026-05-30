@@ -28,15 +28,15 @@ func NewLLMCompactor(gen llm.Generator) *LLMCompactor {
 	return &LLMCompactor{gen: gen}
 }
 
-// compactorAgentRunID 是蒸馏 entry 的 agent_run_id 字段值，方便日后 grep 区分。
-const compactorAgentRunID = "compactor"
+// compactorHunterID 是蒸馏 entry 的 hunter_id 字段值，方便日后 grep 区分。
+const compactorHunterID = "compactor"
 
 // Compact 把 oldEntries 蒸馏成 1 条 summary entry。
 //
 // 解析每条 entry 的 content 字段拼成编号列表喂给 LLM；忽略无法解析的条目
 // （保持容错——历史 entry 格式漂移不应阻断蒸馏）。
 //
-// 输出包装为标准 entry JSON：{"content":"[蒸馏摘要] <text>","agent_run_id":"compactor"}
+// 输出包装为标准 entry JSON：{"content":"[蒸馏摘要] <text>","hunter_id":"compactor"}
 // LLM 返回空内容 / ctx 超时 / Generate 失败时返回 error，caller 退化为 LTRIM。
 func (c *LLMCompactor) Compact(ctx context.Context, oldEntries []json.RawMessage) ([]byte, error) {
 	if len(oldEntries) == 0 {
@@ -73,7 +73,7 @@ func (c *LLMCompactor) Compact(ctx context.Context, oldEntries []json.RawMessage
 	}
 
 	return json.Marshal(map[string]string{
-		"content":      "[蒸馏摘要] " + summary,
-		"agent_run_id": compactorAgentRunID,
+		"content":   "[蒸馏摘要] " + summary,
+		"hunter_id": compactorHunterID,
 	})
 }

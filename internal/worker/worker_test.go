@@ -36,7 +36,7 @@ func TestClient_Enqueue_RoutesQueue(t *testing.T) {
 	id, q, err := c.Enqueue(
 		context.Background(),
 		RoleHunter,
-		Payload{TaskID: "task-1", OwnerType: "passive_session", OwnerID: "owner-1", Role: RoleHunter},
+		Payload{HunterID: "task-1", OwnerType: "passive_session", OwnerID: "owner-1", Role: RoleHunter},
 	)
 	if err != nil {
 		t.Fatalf("Enqueue err = %v", err)
@@ -55,7 +55,7 @@ func TestClient_Enqueue_DispatchQueue(t *testing.T) {
 	_, q, err := c.Enqueue(
 		context.Background(),
 		RoleDispatch,
-		Payload{TaskID: "task-op-1", OwnerType: "passive_session", OwnerID: "owner-1", Role: RoleDispatch},
+		Payload{HunterID: "task-op-1", OwnerType: "passive_session", OwnerID: "owner-1", Role: RoleDispatch},
 	)
 	if err != nil {
 		t.Fatalf("Enqueue err = %v", err)
@@ -65,18 +65,18 @@ func TestClient_Enqueue_DispatchQueue(t *testing.T) {
 	}
 }
 
-// 同 TaskID 第二次 Enqueue 必须报错（asynq 默认行为：ErrTaskIDConflict）。
+// 同 HunterID 第二次 Enqueue 必须报错（asynq 默认行为：ErrTaskIDConflict）。
 func TestClient_Enqueue_Idempotent(t *testing.T) {
 	c, _ := newTestClient(t)
 	ctx := context.Background()
-	p := Payload{TaskID: "dup-1", OwnerType: "passive_session", OwnerID: "owner-1", Role: RoleHunter}
+	p := Payload{HunterID: "dup-1", OwnerType: "passive_session", OwnerID: "owner-1", Role: RoleHunter}
 
 	if _, _, err := c.Enqueue(ctx, RoleHunter, p); err != nil {
 		t.Fatalf("first enqueue err = %v", err)
 	}
 	_, _, err := c.Enqueue(ctx, RoleHunter, p)
 	if err == nil {
-		t.Fatalf("expected error on duplicate TaskID, got nil")
+		t.Fatalf("expected error on duplicate HunterID, got nil")
 	}
 	if !errors.Is(err, asynq.ErrTaskIDConflict) {
 		t.Fatalf("expected ErrTaskIDConflict, got %v", err)
@@ -97,7 +97,7 @@ func TestMux_Register_AndAsynqMux(t *testing.T) {
 	}
 
 	// 直接调用 ServeMux.ProcessTask 验证路由 + 反序列化。
-	payloadBytes, err := json.Marshal(Payload{TaskID: "t1", Role: RoleHunter})
+	payloadBytes, err := json.Marshal(Payload{HunterID: "t1", Role: RoleHunter})
 	if err != nil {
 		t.Fatalf("marshal payload: %v", err)
 	}
@@ -115,7 +115,7 @@ func TestMux_UnknownRole_SkipsRetry(t *testing.T) {
 	m := NewMux()
 	mux := m.AsynqMux()
 
-	payloadBytes, _ := json.Marshal(Payload{TaskID: "t1", Role: RoleDispatch})
+	payloadBytes, _ := json.Marshal(Payload{HunterID: "t1", Role: RoleDispatch})
 	task := asynq.NewTask(TaskTypeRun, payloadBytes)
 
 	err := mux.ProcessTask(context.Background(), task)
@@ -161,7 +161,7 @@ func TestEndToEnd_EnqueueAndProcess(t *testing.T) {
 	go func() { _ = srv.Run(m.AsynqMux()) }()
 	t.Cleanup(srv.Shutdown)
 
-	want := Payload{TaskID: "e2e-1", OwnerType: "passive_session", OwnerID: "owner-e2e", Role: RoleHunter}
+	want := Payload{HunterID: "e2e-1", OwnerType: "passive_session", OwnerID: "owner-e2e", Role: RoleHunter}
 	if _, _, err := c.Enqueue(ctx, RoleHunter, want); err != nil {
 		t.Fatalf("Enqueue err = %v", err)
 	}
@@ -175,7 +175,7 @@ func TestEndToEnd_EnqueueAndProcess(t *testing.T) {
 	mu.Lock()
 	got := received
 	mu.Unlock()
-	if got.TaskID != want.TaskID || got.Role != want.Role {
+	if got.HunterID != want.HunterID || got.Role != want.Role {
 		t.Fatalf("received payload = %+v, want %+v", got, want)
 	}
 }

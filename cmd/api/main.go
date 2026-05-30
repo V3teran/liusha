@@ -16,19 +16,19 @@ import (
 	"time"
 
 	"github.com/V3teran/liusha/internal/activescan"
-	"github.com/V3teran/liusha/internal/hunter"
 	"github.com/V3teran/liusha/internal/audit"
 	"github.com/V3teran/liusha/internal/config"
 	"github.com/V3teran/liusha/internal/credential"
-	"github.com/V3teran/liusha/internal/owner"
 	"github.com/V3teran/liusha/internal/db"
 	"github.com/V3teran/liusha/internal/endpoint"
 	"github.com/V3teran/liusha/internal/envx"
 	"github.com/V3teran/liusha/internal/finding"
 	"github.com/V3teran/liusha/internal/graphview"
 	"github.com/V3teran/liusha/internal/httpapi"
+	"github.com/V3teran/liusha/internal/hunter"
 	"github.com/V3teran/liusha/internal/llminvocation"
 	"github.com/V3teran/liusha/internal/logx"
+	"github.com/V3teran/liusha/internal/owner"
 	"github.com/V3teran/liusha/internal/passivesession"
 	"github.com/V3teran/liusha/internal/worker"
 	"github.com/V3teran/liusha/web"
@@ -84,8 +84,8 @@ func main() {
 	srv := &http.Server{
 		Addr: listenAddr,
 		Handler: httpapi.NewServer(httpapi.Deps{
-			APIKey:            os.Getenv("LIUSHA_API_KEY"),
-			Credentials:       credAPI,
+			APIKey:      os.Getenv("LIUSHA_API_KEY"),
+			Credentials: credAPI,
 			Owners: ownerAPIAdapter{
 				passive:    passiveSessionStore,
 				active:     activeScanStore,
@@ -134,8 +134,8 @@ func main() {
 type ownerAPIAdapter struct {
 	passive    *passivesession.Store // List 合并新表，Abort 试两表
 	active     *activescan.Store
-	audit      *audit.Store          // 0047：abort 写审计事件；nil 时跳过（向后兼容）
-	passiveTTL time.Duration         // passive_session 创建 ttl（来自 cfg.Session.MaxAgeHours）
+	audit      *audit.Store  // 0047：abort 写审计事件；nil 时跳过（向后兼容）
+	passiveTTL time.Duration // passive_session 创建 ttl（来自 cfg.Session.MaxAgeHours）
 }
 
 // Abort 双试：先 passive 表，否则 active 表；都没命中则报错。
@@ -227,12 +227,12 @@ func (a ownerAPIAdapter) List(ctx context.Context, limit int) ([]httpapi.OwnerSu
 	for _, sc := range actives {
 		scopeJSON, _ := json.Marshal(map[string]string{"brief": sc.Brief})
 		s := httpapi.OwnerSummary{
-			ID:            sc.ID,
-			Scope:         string(scopeJSON),
-			Status:        string(sc.Status),
-			Mode:          "active",
-			CreatedAt:     sc.CreatedAt.Format(time.RFC3339),
-			ErrorMessage:  sc.ErrorMessage,
+			ID:           sc.ID,
+			Scope:        string(scopeJSON),
+			Status:       string(sc.Status),
+			Mode:         "active",
+			CreatedAt:    sc.CreatedAt.Format(time.RFC3339),
+			ErrorMessage: sc.ErrorMessage,
 		}
 		if sc.EndedAt != nil {
 			s.EndedAt = sc.EndedAt.Format(time.RFC3339)
@@ -297,7 +297,7 @@ func (a *activeScanAdapter) CreateActiveScan(ctx context.Context, brief string) 
 	// status=running 僵尸态 + viewer 看到"commander done + striker running"矛盾。
 	// MaxRetry(0)：commander跑挂就跑挂，让用户手动 abort + 重新触发，不重试。
 	if _, _, err := a.enq.Enqueue(ctx, worker.RoleHunter, worker.Payload{
-		TaskID:    tid,
+		HunterID:  tid,
 		OwnerType: owner.Active,
 		OwnerID:   sc.ID,
 		Input:     payloadInput,

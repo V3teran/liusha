@@ -22,6 +22,7 @@ type CredentialsAPI interface {
 // EnsurePassiveSession：按 host 找/建 active passive_session（v1.1 per-host 单 active）。
 //   - host 非空 → 调 passivesession.Store.LookupOrCreate 返该 host 的 owner_id
 //   - host 空   → 返空 id（向后兼容旧 mitmproxy 预热路径"代理就绪信号"）
+//
 // Abort：把  owner 置为 aborted。
 // List：按 created_at DESC 列最近 N 个；前端 viewer 下拉用。
 type OwnersAPI interface {
@@ -33,14 +34,14 @@ type OwnersAPI interface {
 // OwnerSummary 是 List 返回行——只暴露前端 viewer 需要的字段，
 // 不直接返回 passive_session/active_scan 完整结构（避免泄露大字段 + 减小响应体）。
 type OwnerSummary struct {
-	ID            string `json:"id"`
-	Scope         string `json:"scope"`                   // jsonb raw（如 {"any":true} / {"hosts":[...]}）
-	Status        string `json:"status"`
-	Mode          string `json:"mode"`
-	CreatedAt     string `json:"created_at"`              // RFC3339
-	ExpiresAt     string `json:"expires_at,omitempty"`    // RFC3339 proxy session 必填
-	EndedAt       string `json:"ended_at,omitempty"`      // RFC3339（可空）
-	ErrorMessage  string `json:"error_message,omitempty"`
+	ID           string `json:"id"`
+	Scope        string `json:"scope"` // jsonb raw（如 {"any":true} / {"hosts":[...]}）
+	Status       string `json:"status"`
+	Mode         string `json:"mode"`
+	CreatedAt    string `json:"created_at"`           // RFC3339
+	ExpiresAt    string `json:"expires_at,omitempty"` // RFC3339 proxy session 必填
+	EndedAt      string `json:"ended_at,omitempty"`   // RFC3339（可空）
+	ErrorMessage string `json:"error_message,omitempty"`
 }
 
 // BatchSaveRequest 是 POST /credential/batch 请求体。
@@ -196,14 +197,14 @@ func activeScanHandler(api ActiveScanAPI) gin.HandlerFunc {
 			return
 		}
 
-		eid, taskID, err := api.CreateActiveScan(c.Request.Context(), brief)
+		eid, hunterID, err := api.CreateActiveScan(c.Request.Context(), brief)
 		if err != nil {
 			c.JSON(500, gin.H{"error": err.Error()})
 			return
 		}
 		c.JSON(200, gin.H{
-			"owner_id":      eid,
-			"hunter_id": taskID,
+			"owner_id":  eid,
+			"hunter_id": hunterID,
 		})
 	}
 }

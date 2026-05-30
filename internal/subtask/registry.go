@@ -26,8 +26,8 @@ func NewRegistry() *Registry {
 
 // Register 创建并入栈一个 Handle，返回供 spawner runChild goroutine 持有
 // （用于 MarkDone / MarkFailed）。
-func (r *Registry) Register(taskID, brief string) *Handle {
-	h := newHandle(taskID, brief)
+func (r *Registry) Register(hunterID, brief string) *Handle {
+	h := newHandle(hunterID, brief)
 	r.mu.Lock()
 	r.children = append(r.children, h)
 	r.mu.Unlock()

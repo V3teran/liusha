@@ -9,9 +9,9 @@ import (
 
 	"github.com/rs/zerolog"
 
-	"github.com/V3teran/liusha/internal/hunter"
 	"github.com/V3teran/liusha/internal/finding"
 	"github.com/V3teran/liusha/internal/flow"
+	"github.com/V3teran/liusha/internal/hunter"
 	"github.com/V3teran/liusha/internal/lesson"
 	"github.com/V3teran/liusha/internal/llm"
 	"github.com/V3teran/liusha/internal/llminvocation"
@@ -31,10 +31,10 @@ var ErrMaxChildren = errors.New("max_children reached")
 // handler 字段捕获即可。
 type ActiveSpawnerConfig struct {
 	// 任务身份
-	CommanderTaskID string
-	OwnerType    string // 与commander对齐；'passive_session' / 'active_scan'
-	OwnerID      string
-	Host         string
+	CommanderID string
+	OwnerType   string // 与commander对齐；'passive_session' / 'active_scan'
+	OwnerID     string
+	Host        string
 
 	// PG 存储
 	AgentRuns *hunter.Store
@@ -54,7 +54,7 @@ type ActiveSpawnerConfig struct {
 	// 装配 striker
 	HunterBuilder skill.Builder
 
-	// 共享 commander 容器（striker文件按 task_id 隔离 — PR2 已就绪）
+	// 共享 commander 容器（striker文件按 hunter_id 隔离 — PR2 已就绪）
 	SandboxClient sandbox.Client
 
 	// commander 进程内的striker句柄注册表
@@ -84,7 +84,7 @@ type InspectorParams struct {
 // commanderCtx 是commander react.Run 的 ctx；striker ctx 由 WithCancel(commanderCtx) 派生，
 // commander abort / owner abort / parent ctx timeout 都会自动级联到 striker。
 type ActiveSpawner struct {
-	cfg       ActiveSpawnerConfig
+	cfg          ActiveSpawnerConfig
 	commanderCtx context.Context
 }
 
@@ -93,7 +93,7 @@ func NewActiveSpawner(commanderCtx context.Context, cfg ActiveSpawnerConfig) *Ac
 	return &ActiveSpawner{cfg: cfg, commanderCtx: commanderCtx}
 }
 
-// Spawn 创建一行 child agent_run + 启 goroutine 跑 striker react.Run，立即返回 childTaskID（异步）。
+// Spawn 创建一行 child agent_run + 启 goroutine 跑 striker react.Run，立即返回 childHunterID（异步）。
 // opts.FlowID>0 时striker 能在 user prompt 看到完整 raw HTTP（tracker常用）。
 func (s *ActiveSpawner) Spawn(ctx context.Context, brief string, opts SpawnOptions) (string, error) {
 	// max_children 是"同时并发上限"：只数 running striker，已 done/failed 的不占额
@@ -116,12 +116,12 @@ func (s *ActiveSpawner) Spawn(ctx context.Context, brief string, opts SpawnOptio
 	if err != nil {
 		return "", fmt.Errorf("marshal child payload: %w", err)
 	}
-	childTID, err := s.cfg.AgentRuns.Create(ctx, hunter.NewParams{
-		OwnerType: s.cfg.OwnerType, // 与commander对齐
-		OwnerID:   s.cfg.OwnerID,
-		Role:      "striker",
-		Input:     payloadInput,
-		CommanderID:  s.cfg.CommanderTaskID,
+	childID, err := s.cfg.AgentRuns.Create(ctx, hunter.NewParams{
+		OwnerType:   s.cfg.OwnerType, // 与commander对齐
+		OwnerID:     s.cfg.OwnerID,
+		Role:        "striker",
+		Input:       payloadInput,
+		CommanderID: s.cfg.CommanderID,
 	})
 	if err != nil {
 		return "", fmt.Errorf("hunter.Create(child): %w", err)
@@ -132,11 +132,11 @@ func (s *ActiveSpawner) Spawn(ctx context.Context, brief string, opts SpawnOptio
 	// → commander done 永卡。
 	// 失败副作用：PG 留一行 pending 的 hunter run 永不会被消费（asynq 不入队 striker），
 	// 由下次 scanner 启动 CleanupOrphans 兜底回收。
-	if err := s.cfg.AgentRuns.SetRunning(ctx, childTID); err != nil {
+	if err := s.cfg.AgentRuns.SetRunning(ctx, childID); err != nil {
 		return "", fmt.Errorf("hunter.SetRunning(child): %w", err)
 	}
 
-	handle := s.cfg.Registry.Register(childTID, brief)
+	handle := s.cfg.Registry.Register(childID, brief)
 
 	// commander ctx 派生striker ctx——commander abort / owner abort / parent timeout 自动级联
 	strikerCtx, cancel := context.WithCancel(s.commanderCtx)
@@ -146,30 +146,30 @@ func (s *ActiveSpawner) Spawn(ctx context.Context, brief string, opts SpawnOptio
 	s.cfg.Registry.trackGoroutine()
 	go func() {
 		defer s.cfg.Registry.untrackGoroutine()
-		s.runChild(strikerCtx, cancel, childTID, brief, opts.FlowID, handle)
+		s.runChild(strikerCtx, cancel, childID, brief, opts.FlowID, handle)
 	}()
 
-	return childTID, nil
+	return childID, nil
 }
 
 // runChild 在独立 goroutine 内装配 + 跑 striker react.Run。
 // 任何路径（成功 / 失败 / panic / abort）都更新 handle 状态 + PG agent_run 行。
 // flowID>0 时拉 flow 填 BuilderParams，让striker user prompt 渲染 raw HTTP 段 + brief 段。
-func (s *ActiveSpawner) runChild(ctx context.Context, cancel context.CancelFunc, childTID, brief string, flowID int64, handle *Handle) {
+func (s *ActiveSpawner) runChild(ctx context.Context, cancel context.CancelFunc, childID, brief string, flowID int64, handle *Handle) {
 	defer cancel()
 	defer func() {
 		if r := recover(); r != nil {
 			stack := debug.Stack()
 			err := fmt.Errorf("child panic: %v", r)
 			s.cfg.Logger.Error().
-				Str("child_task_id", childTID).
+				Str("child_id", childID).
 				Interface("panic", r).
 				Str("stack", string(stack)).
 				Msg("striker goroutine panic")
 			handle.MarkFailed(err)
 			// 用 background ctx——可能 ctx 已 cancel，SetError 仍要落库
-			if setErr := s.cfg.AgentRuns.SetError(context.Background(), childTID, err.Error()); setErr != nil {
-				s.cfg.Logger.Warn().Err(setErr).Str("child_task_id", childTID).
+			if setErr := s.cfg.AgentRuns.SetError(context.Background(), childID, err.Error()); setErr != nil {
+				s.cfg.Logger.Warn().Err(setErr).Str("child_id", childID).
 					Msg("panic 后 SetError 写库失败（PG 仍 running，下次启动 inflight 计数虚高）")
 			}
 		}
@@ -182,22 +182,22 @@ func (s *ActiveSpawner) runChild(ctx context.Context, cancel context.CancelFunc,
 	// striker LLM（突击手——深挖单点攻击面）
 	hunterRaw, err := s.cfg.Router.For(ctx, "striker")
 	if err != nil {
-		s.markFailed(childTID, handle, fmt.Errorf("router striker: %w", err))
+		s.markFailed(childID, handle, fmt.Errorf("router striker: %w", err))
 		return
 	}
 	hunterGen := llm.Instrument(hunterRaw, s.cfg.Calls,
-		llm.CallMeta{TaskID: &childTID, OwnerType: otPtr, OwnerID: oidPtr, RouteKey: "striker"},
+		llm.CallMeta{HunterID: &childID, OwnerType: otPtr, OwnerID: oidPtr, RouteKey: "striker"},
 		s.cfg.Pricing,
 	)
 
 	// inspector
 	reviewLLMRaw, err := s.cfg.Router.For(ctx, "inspector")
 	if err != nil {
-		s.markFailed(childTID, handle, fmt.Errorf("router inspector: %w", err))
+		s.markFailed(childID, handle, fmt.Errorf("router inspector: %w", err))
 		return
 	}
 	reviewLLMGen := llm.Instrument(reviewLLMRaw, s.cfg.Calls,
-		llm.CallMeta{TaskID: &childTID, OwnerType: otPtr, OwnerID: oidPtr, RouteKey: "inspector"},
+		llm.CallMeta{HunterID: &childID, OwnerType: otPtr, OwnerID: oidPtr, RouteKey: "inspector"},
 		s.cfg.Pricing,
 	)
 	// inspector notes key 用 owner_id（与 finding/lesson 切分一致）
@@ -205,7 +205,7 @@ func (s *ActiveSpawner) runChild(ctx context.Context, cancel context.CancelFunc,
 	inspector.Logger = s.cfg.Logger
 	inspector.ArgsTruncate = s.cfg.Inspector.ArgsTruncate
 	inspector.ObsTruncate = s.cfg.Inspector.ObsTruncate
-	inspector.FlowSummary = "ACTIVE child owner=" + oid + " parent=" + s.cfg.CommanderTaskID
+	inspector.FlowSummary = "ACTIVE child owner=" + oid + " parent=" + s.cfg.CommanderID
 	inspector.HostFindingsFetcher = func(ctx context.Context) ([]string, error) {
 		fs, err := s.cfg.Findings.ListByOwnerAndHost(ctx, ot, oid, s.cfg.Host, s.cfg.Inspector.FindingsLimit)
 		if err != nil {
@@ -229,18 +229,18 @@ func (s *ActiveSpawner) runChild(ctx context.Context, cancel context.CancelFunc,
 		return out, nil
 	}
 
-	// 装配 BuilderParams——CommanderTaskID 非空让 hunter builder 不注册 spawn/list（max_depth=1）
+	// 装配 BuilderParams——CommanderID 非空让 hunter builder 不注册 spawn/list（max_depth=1）
 	bp := skill.BuilderParams{
-		OwnerType: ot, // 与commander对齐
-		OwnerID:   oid,
-		TaskID:    childTID,
-		CommanderTaskID: s.cfg.CommanderTaskID,
-		Host:         s.cfg.Host,
-		LLM:          hunterGen,
-		Inspector:     inspector,
-		Mode:         "active",
-		Brief:        brief,
-		Sandbox:      s.cfg.SandboxClient,
+		OwnerType:   ot, // 与commander对齐
+		OwnerID:     oid,
+		HunterID:    childID,
+		CommanderID: s.cfg.CommanderID,
+		Host:        s.cfg.Host,
+		LLM:         hunterGen,
+		Inspector:   inspector,
+		Mode:        "active",
+		Brief:       brief,
+		Sandbox:     s.cfg.SandboxClient,
 	}
 
 	// commander 传 flow_id 时拉 flow 填到 BuilderParams——striker buildUserPrompt 字段触发渲染 raw HTTP 段。
@@ -249,12 +249,12 @@ func (s *ActiveSpawner) runChild(ctx context.Context, cancel context.CancelFunc,
 		fl, ferr := s.cfg.Flows.GetByID(ctx, flowID)
 		if ferr != nil {
 			s.cfg.Logger.Warn().Err(ferr).
-				Str("child_task_id", childTID).
+				Str("child_id", childID).
 				Int64("flow_id", flowID).
 				Msg("拉 commander 流量失败，striker 退出")
 			handle.MarkFailed(fmt.Errorf("拉 commander 流量 flow_id=%d 失败: %w", flowID, ferr))
-			if setErr := s.cfg.AgentRuns.SetError(context.Background(), childTID, ferr.Error()); setErr != nil {
-				s.cfg.Logger.Warn().Err(setErr).Str("child_task_id", childTID).Msg("SetError 写库失败")
+			if setErr := s.cfg.AgentRuns.SetError(context.Background(), childID, ferr.Error()); setErr != nil {
+				s.cfg.Logger.Warn().Err(setErr).Str("child_id", childID).Msg("SetError 写库失败")
 			}
 			return
 		}
@@ -270,7 +270,7 @@ func (s *ActiveSpawner) runChild(ctx context.Context, cancel context.CancelFunc,
 
 	cfg, err := s.cfg.HunterBuilder(ctx, bp)
 	if err != nil {
-		s.markFailed(childTID, handle, fmt.Errorf("hunter builder: %w", err))
+		s.markFailed(childID, handle, fmt.Errorf("hunter builder: %w", err))
 		return
 	}
 
@@ -281,12 +281,12 @@ func (s *ActiveSpawner) runChild(ctx context.Context, cancel context.CancelFunc,
 		// handle 仍 MarkFailed 给commander LLM 看到 failureReason=context canceled
 		if errors.Is(runErr, context.Canceled) || errors.Is(runErr, context.DeadlineExceeded) {
 			handle.MarkFailed(runErr)
-			if setErr := s.cfg.AgentRuns.SetAborted(context.Background(), childTID); setErr != nil {
-				s.cfg.Logger.Warn().Err(setErr).Str("child_task_id", childTID).Msg("SetAborted 写库失败")
+			if setErr := s.cfg.AgentRuns.SetAborted(context.Background(), childID); setErr != nil {
+				s.cfg.Logger.Warn().Err(setErr).Str("child_id", childID).Msg("SetAborted 写库失败")
 			}
 			return
 		}
-		s.markFailed(childTID, handle, runErr)
+		s.markFailed(childID, handle, runErr)
 		return
 	}
 
@@ -296,23 +296,23 @@ func (s *ActiveSpawner) runChild(ctx context.Context, cancel context.CancelFunc,
 	})
 
 	res, _ := json.Marshal(map[string]any{
-		"terminate_by":   out.TerminateBy,
-		"total_steps":    out.TotalSteps,
-		"total_in":       out.TotalUsage.InTokens,
-		"total_out":      out.TotalUsage.OutTokens,
-		"total_cached":   out.TotalUsage.CachedTokens,
+		"terminate_by":    out.TerminateBy,
+		"total_steps":     out.TotalSteps,
+		"total_in":        out.TotalUsage.InTokens,
+		"total_out":       out.TotalUsage.OutTokens,
+		"total_cached":    out.TotalUsage.CachedTokens,
 		"inspector_hints": out.InspectorHints,
-		"commander_task_id": s.cfg.CommanderTaskID,
+		"commander_id":    s.cfg.CommanderID,
 	})
-	if setErr := s.cfg.AgentRuns.SetDone(context.Background(), childTID, res); setErr != nil {
-		s.cfg.Logger.Warn().Err(setErr).Str("child_task_id", childTID).Msg("SetDone 写库失败")
+	if setErr := s.cfg.AgentRuns.SetDone(context.Background(), childID, res); setErr != nil {
+		s.cfg.Logger.Warn().Err(setErr).Str("child_id", childID).Msg("SetDone 写库失败")
 	}
 }
 
 // markFailed 同时更新 handle + PG（中间过程错的统一收尾）。
-func (s *ActiveSpawner) markFailed(childTID string, handle *Handle, err error) {
+func (s *ActiveSpawner) markFailed(childID string, handle *Handle, err error) {
 	handle.MarkFailed(err)
-	if setErr := s.cfg.AgentRuns.SetError(context.Background(), childTID, err.Error()); setErr != nil {
-		s.cfg.Logger.Warn().Err(setErr).Str("child_task_id", childTID).Msg("SetError 写库失败")
+	if setErr := s.cfg.AgentRuns.SetError(context.Background(), childID, err.Error()); setErr != nil {
+		s.cfg.Logger.Warn().Err(setErr).Str("child_id", childID).Msg("SetError 写库失败")
 	}
 }

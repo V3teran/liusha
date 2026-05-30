@@ -28,13 +28,13 @@ func (h handler) handleActive(ctx context.Context, p worker.Payload, entrypoint 
 		Brief string `json:"brief"`
 	}
 	if err := json.Unmarshal(entrypoint, &ep); err != nil {
-		return h.failTask(ctx, p.TaskID, err)
+		return h.failTask(ctx, p.HunterID, err)
 	}
 	if ep.Brief == "" {
-		return h.failTask(ctx, p.TaskID, fmt.Errorf("active entrypoint 缺 brief"))
+		return h.failTask(ctx, p.HunterID, fmt.Errorf("active entrypoint 缺 brief"))
 	}
 
-	tid := p.TaskID
+	tid := p.HunterID
 	ot, oid := p.OwnerType, p.OwnerID
 	otPtr, oidPtr := &ot, &oid
 	// 优先从 brief 抽真实 URL host（如 target.com:8080），让 lesson/finding/note
@@ -45,31 +45,31 @@ func (h handler) handleActive(ctx context.Context, p worker.Payload, entrypoint 
 	// deepseek 走 openai_compat 不支持 multimodal，触发 ErrVisionUnsupported。
 	hunterRaw, err := h.router.For(ctx, "commander")
 	if err != nil {
-		return h.failTask(ctx, p.TaskID, err)
+		return h.failTask(ctx, p.HunterID, err)
 	}
 	hunterGen := llm.Instrument(hunterRaw, h.calls,
-		llm.CallMeta{TaskID: &tid, OwnerType: otPtr, OwnerID: oidPtr, RouteKey: "commander"},
+		llm.CallMeta{HunterID: &tid, OwnerType: otPtr, OwnerID: oidPtr, RouteKey: "commander"},
 		h.pricing,
 	)
 
 	// inspector 装配——virtualHost 已由 extractHostFromBrief 解析（brief 真 host 或 owner_id 兜底）。
 	inspector, err := h.buildInspector(ctx, ot, oid, virtualHost, "ACTIVE owner="+oid, tid, otPtr, oidPtr)
 	if err != nil {
-		return h.failTask(ctx, p.TaskID, err)
+		return h.failTask(ctx, p.HunterID, err)
 	}
 
 	// 为本次 agent run 启动 sandbox 容器（v35+：容器内 chromium / CLI 工具流量都不入字典，
 	// hunterID 仅用作容器名隔离；commander + 所有 spawn 出的 striker 共享同一容器，文件级
 	// 按 task_id 切 cwd/OUTPUT_DIR 隔离，chrome cookie/storage 自动跨 tab 共享）
-	sandboxClient, err := h.launcher.Spawn(ctx, p.TaskID)
+	sandboxClient, err := h.launcher.Spawn(ctx, p.HunterID)
 	if err != nil {
-		return h.failTask(ctx, p.TaskID, fmt.Errorf("launcher.Spawn(%s): %w", p.TaskID, err))
+		return h.failTask(ctx, p.HunterID, fmt.Errorf("launcher.Spawn(%s): %w", p.HunterID, err))
 	}
 	defer func() {
 		destroyCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-		if err := h.launcher.Destroy(destroyCtx, p.TaskID); err != nil {
-			h.logger.Warn().Err(err).Str("hunter_id", p.TaskID).
+		if err := h.launcher.Destroy(destroyCtx, p.HunterID); err != nil {
+			h.logger.Warn().Err(err).Str("hunter_id", p.HunterID).
 				Msg("launcher.Destroy 失败（max lifetime / 下次启动 CleanupOrphans 兜底）")
 		}
 	}()
@@ -80,30 +80,30 @@ func (h handler) handleActive(ctx context.Context, p worker.Payload, entrypoint 
 	commanderCtx, cancelParent := context.WithCancel(ctx)
 	defer func() {
 		cancelParent()
-		if reg, ok := h.parentRegistries.LoadAndDelete(p.TaskID); ok {
+		if reg, ok := h.parentRegistries.LoadAndDelete(p.HunterID); ok {
 			waitCtx, waitCancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer waitCancel()
 			if !reg.(*subtask.Registry).WaitAll(waitCtx) {
-				h.logger.Warn().Str("hunter_id", p.TaskID).
+				h.logger.Warn().Str("hunter_id", p.HunterID).
 					Msg("striker goroutine 30s 未全退（容器即将销毁可能孤儿）")
 			}
 		}
 	}()
 
 	cfg, err := h.hunterBuilder(commanderCtx, skill.BuilderParams{
-		OwnerType: ot,
-		OwnerID:   oid,
-		TaskID:    tid,
-		CommanderTaskID: p.CommanderTaskID, // active asynq 入口commander总是空；非空表示由 subtask 包内 ActiveSpawner 在 commander goroutine 内派的 striker
-		Host:         virtualHost,
-		LLM:          hunterGen,
-		Inspector:     inspector,
-		Mode:         "active",
-		Brief:        ep.Brief,
-		Sandbox:      sandboxClient,
+		OwnerType:   ot,
+		OwnerID:     oid,
+		HunterID:    tid,
+		CommanderID: p.CommanderID, // active asynq 入口commander总是空；非空表示由 subtask 包内 ActiveSpawner 在 commander goroutine 内派的 striker
+		Host:        virtualHost,
+		LLM:         hunterGen,
+		Inspector:   inspector,
+		Mode:        "active",
+		Brief:       ep.Brief,
+		Sandbox:     sandboxClient,
 	})
 	if err != nil {
-		return h.failTask(ctx, p.TaskID, err)
+		return h.failTask(ctx, p.HunterID, err)
 	}
 
 	// OnAbort 切到新表：worker.Payload.OwnerID 现在为空（B6.2），用 oid 查
@@ -119,24 +119,24 @@ func (h handler) handleActive(ctx context.Context, p worker.Payload, entrypoint 
 	out, err := react.Run(commanderCtx, cfg)
 	if err != nil {
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-			return h.abortTask(ctx, p.TaskID, "ctx "+err.Error())
+			return h.abortTask(ctx, p.HunterID, "ctx "+err.Error())
 		}
-		return h.failTask(ctx, p.TaskID, err)
+		return h.failTask(ctx, p.HunterID, err)
 	}
 	if out.TerminateBy == "aborted" {
-		return h.abortTask(ctx, p.TaskID, out.TerminateBy)
+		return h.abortTask(ctx, p.HunterID, out.TerminateBy)
 	}
 
 	res, err := json.Marshal(map[string]any{
-		"terminate_by":   out.TerminateBy,
-		"total_steps":    out.TotalSteps,
-		"total_in":       out.TotalUsage.InTokens,
-		"total_out":      out.TotalUsage.OutTokens,
-		"total_cached":   out.TotalUsage.CachedTokens,
+		"terminate_by":    out.TerminateBy,
+		"total_steps":     out.TotalSteps,
+		"total_in":        out.TotalUsage.InTokens,
+		"total_out":       out.TotalUsage.OutTokens,
+		"total_cached":    out.TotalUsage.CachedTokens,
 		"inspector_hints": out.InspectorHints,
 	})
 	if err != nil {
-		return h.failTask(ctx, p.TaskID, fmt.Errorf("marshal task result: %w", err))
+		return h.failTask(ctx, p.HunterID, fmt.Errorf("marshal task result: %w", err))
 	}
-	return h.tasks.SetDone(ctx, p.TaskID, res)
+	return h.tasks.SetDone(ctx, p.HunterID, res)
 }

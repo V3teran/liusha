@@ -24,8 +24,8 @@ import (
 // 互相串扰——modtime 过滤无法分清"commander 刚写的 vs striker 刚写的"；wget -O ./x.html 类命令会互覆。
 //
 // 隔离设计：
-//   - OUTPUT_DIR = /tmp/sandbox-output/<TaskID>/  → 附件按 task 切，collectAttachments 只扫本 task 子目录
-//   - cwd        = /workspace/<TaskID>/           → LLM 写相对路径自动落到 per-task workdir
+//   - OUTPUT_DIR = /tmp/sandbox-output/<HunterID>/  → 附件按 task 切，collectAttachments 只扫本 task 子目录
+//   - cwd        = /workspace/<HunterID>/           → LLM 写相对路径自动落到 per-task workdir
 //   - 共享：home 目录（cookies / auth state）、二进制工具 — 这是commander / striker 共享容器的目的
 //
 // task 容器销毁时整个目录树自然消失，无残留泄露风险。
@@ -52,12 +52,12 @@ func (s *Server) handleExec(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "decode request: %v", err)
 		return
 	}
-	if req.TaskID == "" {
-		writeError(w, http.StatusBadRequest, "task_id required (subtask swarm 按 task 切目录隔离)")
+	if req.HunterID == "" {
+		writeError(w, http.StatusBadRequest, "hunter_id required (subtask swarm 按 hunter 切目录隔离)")
 		return
 	}
-	if !isPathSafeTaskID(req.TaskID) {
-		writeError(w, http.StatusBadRequest, "task_id must be [A-Za-z0-9._-]{1,64}")
+	if !isPathSafeHunterID(req.HunterID) {
+		writeError(w, http.StatusBadRequest, "hunter_id must be [A-Za-z0-9._-]{1,64}")
 		return
 	}
 	if req.Command == "" {
@@ -70,8 +70,8 @@ func (s *Server) handleExec(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// per-task 隔离：commander / striker 共享容器但文件互不串扰（同 task 内跨 exec 仍共享 outputDir）
-	outputDir := filepath.Join(outputDirRoot, req.TaskID)
-	workdir := filepath.Join(workdirRoot, req.TaskID)
+	outputDir := filepath.Join(outputDirRoot, req.HunterID)
+	workdir := filepath.Join(workdirRoot, req.HunterID)
 	if err := os.MkdirAll(outputDir, 0o777); err != nil {
 		writeError(w, http.StatusInternalServerError, "create output dir: %v", err)
 		return
@@ -93,7 +93,7 @@ func (s *Server) handleExec(w http.ResponseWriter, r *http.Request) {
 	cmd.Dir = workdir
 	cmd.Env = append(os.Environ(),
 		"OUTPUT_DIR="+outputDir,
-		"TASK_ID="+req.TaskID, // browser-use wrapper（每 task 独立 tab）用此区分
+		"HUNTER_ID="+req.HunterID, // browser-use wrapper（每 hunter 独立 tab）用此区分
 	)
 
 	// 让 sh 成为新进程组 leader；ctx 超时时 cmd.Cancel 杀整个进程组——
@@ -196,12 +196,12 @@ func collectAttachments(outputDir string, since time.Time) ([]sandbox.Attachment
 	return files, warnings
 }
 
-// isPathSafeTaskID 校验 TaskID 是否仅含 path-safe 字符（[A-Za-z0-9._-]{1,64}）。
+// isPathSafeHunterID 校验 HunterID 是否仅含 path-safe 字符（[A-Za-z0-9._-]{1,64}）。
 //
-// 防 path traversal：req.TaskID 由 LLM 调用方注入 → server 端直接 filepath.Join
+// 防 path traversal：req.HunterID 由 LLM 调用方注入 → server 端直接 filepath.Join
 // 拼路径，若不校验可被 `../../etc/passwd` 类输入逃逸到 /workspace 根之外。
 // 合法 agent_run id 是 uuid（36 字符含连字符），天然匹配本字符集。
-func isPathSafeTaskID(s string) bool {
+func isPathSafeHunterID(s string) bool {
 	if len(s) == 0 || len(s) > 64 {
 		return false
 	}

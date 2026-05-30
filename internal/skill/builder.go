@@ -36,14 +36,14 @@ type Builder func(ctx context.Context, params BuilderParams) (react.Config, erro
 type BuilderParams struct {
 	OwnerType string // 'passive_session' / 'active_scan'
 	OwnerID   string // passive_session.id / active_scan.id（也用作 notes/lesson key + finding.owner_id 冗余列）
-	TaskID    string
-	// CommanderTaskID 非空表示本任务是 commander spawn 的striker（subtask swarm）。
+	HunterID  string
+	// CommanderID 非空表示本任务是 commander spawn 的striker（subtask swarm）。
 	// commander / 独立任务此字段为空。hunter builder（PR3）按此字段决定是否注册
 	// spawn_striker / list_strikers 工具——striker不再 spawn（max_depth=1）。
-	CommanderTaskID string
-	Host         string
-	LLM          llm.Generator
-	Inspector     react.Inspector
+	CommanderID string
+	Host        string
+	LLM         llm.Generator
+	Inspector   react.Inspector
 
 	// Mode 区分入口形态："passive" | "active"。
 	Mode string

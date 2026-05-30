@@ -77,7 +77,7 @@ browser-use + chromium 已在沙箱预装；**不要**跑 `browser-use install`�
 
 **何时需要**：要派的 striker 会用 `browser_use` 测漏（XSS / DOM-XSS / SPA / 复杂登录后内部页），且目标需登录。纯 curl 类挖洞（SQLi / 命令注入等不碰浏览器）→ **跳过本节**，只 `write_credential` 即可。
 
-**为什么 commander 先登一次**：同 identity 下 commander + 所有 striker **共用一个浏览器一个 cookie jar**。若没人先在浏览器登录，strikers 各自 `open` 受保护页会**全部被重定向到 login**——并发撞同一 flock 锁 + 各自重登，慢且易超时弃疗（实测一个存储型 XSS striker 因此放弃、漏掉 finding）。commander spawn 前**完成一次真实浏览器登录**给 jar 播种，strikers 直接继承登录态、跳过登录。
+**为什么 commander 先登一次**：同 identity 下 commander + 所有 striker **共用一个浏览器一个 cookie jar**。若没人先在浏览器登录，strikers 各自 `open` 受保护页会**全部被重定向到 login**——并发各自重登会在共享 jar 上互相覆盖每会话 token（如登录页的 CSRF `user_token`），登录互相打架，慢且易超时弃疗（实测一个存储型 XSS striker 因此放弃、漏掉 finding）。commander spawn 前**完成一次真实浏览器登录**给 jar 播种，strikers 直接继承登录态、跳过登录。
 
 **怎么做**（spawn 浏览器类 striker 之前，串行做完）：
 1. `browser_use open <login_url>` → `state` 拿表单 numbered DOM → `input` 填账密 → 提交（click 提交按钮 / index 反复失效则 eval 走 CSS selector）

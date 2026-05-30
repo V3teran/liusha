@@ -33,7 +33,7 @@ const (
 // 字段最小化：commander LLM 只需要知道"striker 在跑什么 / 进展到哪 / 完了没"——
 // 详细 finding 走共享黑板（commander read_findings 自然看到）。
 type ChildSnapshot struct {
-	TaskID        string      `json:"task_id"`
+	HunterID      string      `json:"hunter_id"`
 	Brief         string      `json:"brief"`
 	Status        ChildStatus `json:"status"`
 	TotalSteps    int         `json:"total_steps,omitempty"`    // done / failed 时填
@@ -55,7 +55,7 @@ type Outcome struct {
 // 线程安全：MarkDone / MarkFailed 由 spawner goroutine 调用，Snapshot 由commander LLM
 // 工具调用线程读，mu 保护并发。
 type Handle struct {
-	taskID    string
+	hunterID  string
 	brief     string
 	spawnedAt time.Time
 
@@ -66,18 +66,18 @@ type Handle struct {
 	finishedAt time.Time
 }
 
-// newHandle 由 Registry 内部调用，TaskID + Brief 不可变。
-func newHandle(taskID, brief string) *Handle {
+// newHandle 由 Registry 内部调用，HunterID + Brief 不可变。
+func newHandle(hunterID, brief string) *Handle {
 	return &Handle{
-		taskID:    taskID,
+		hunterID:  hunterID,
 		brief:     brief,
 		spawnedAt: time.Now(),
 		status:    StatusRunning,
 	}
 }
 
-// TaskID 返回striker id（不可变）。
-func (h *Handle) TaskID() string { return h.taskID }
+// HunterID 返回striker id（不可变）。
+func (h *Handle) HunterID() string { return h.hunterID }
 
 // MarkDone 标记striker成功完成。重复调用安全（保留首次状态）。
 func (h *Handle) MarkDone(o Outcome) {
@@ -115,7 +115,7 @@ func (h *Handle) Snapshot() ChildSnapshot {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	snap := ChildSnapshot{
-		TaskID:    h.taskID,
+		HunterID:  h.hunterID,
 		Brief:     h.brief,
 		Status:    h.status,
 		SpawnedAt: h.spawnedAt,

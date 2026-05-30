@@ -204,11 +204,11 @@ RUN set -e \
  && ls -la /usr/local/bin/chromium \
  && /usr/local/bin/chromium --version 2>&1 | head -1
 
-# Layer 2.6: 把 pip 装的 browser-use CLI 改名 browser-use-cli，腾出 browser-use 入口给 wrapper（每 task 独立 tab）。
-# 设计：LLM 看到的是 wrapper，wrapper 内部按子命令分流：业务类(open/click/state/...) 走 tab 隔离，
-# 管理类(install/doctor/sessions/close/python/tunnel/switch/close-tab) 透传 browser-use-cli。
-# 这样 LLM 决策空间简化（不需要在多个 browser 入口里选）+ 多 task 并发自动安全。
-# 依赖：TASK_ID env（sandbox-server 注入）+ browser-use-cli + flock。
+# Layer 2.6: 把 pip 装的 browser-use CLI 改名 browser-use-cli，腾出 browser-use 入口给薄客户端。
+# 设计：每身份一个常驻 browser-svc.py（持 BrowserSession，按 task_id→target_id 经 actor.Page 寻址路由），
+#   薄 browser-use 客户端经 unix socket 转发子命令；同身份多 agent 并发各操作自己的 tab（无全局 active tab、无 flock 串行）。
+#   管理类子命令(install/doctor/setup/sessions/python/tunnel/cloud/profile) 透传 browser-use-cli。
+# 依赖：IDENTITY/HUNTER_ID/OUTPUT_DIR env（sandbox-server 注入）+ browser-use-cli + browser-svc.py。
 RUN if [ -f /usr/local/bin/browser-use-cli ]; then \
         echo "[Layer 2.6] browser-use-cli 已存在（layer cache 命中），跳过 mv"; \
     else \
@@ -216,9 +216,10 @@ RUN if [ -f /usr/local/bin/browser-use-cli ]; then \
     fi \
  && browser-use-cli --version 2>&1 | head -1
 COPY deployments/tool-images/pentools/browser-use /usr/local/bin/browser-use
+COPY deployments/tool-images/pentools/browser-svc.py /usr/local/bin/browser-svc.py
 # v35+：原 cdp_network_capture.py 已删（chromium 流量不再入字典，凭证共享走 redis credentials key）。
-RUN chmod +x /usr/local/bin/browser-use \
- && ls -la /usr/local/bin/browser-use /usr/local/bin/browser-use-cli \
+RUN chmod +x /usr/local/bin/browser-use /usr/local/bin/browser-svc.py \
+ && ls -la /usr/local/bin/browser-use /usr/local/bin/browser-use-cli /usr/local/bin/browser-svc.py \
  && head -3 /usr/local/bin/browser-use
 
 # Layer 3: jwt_tool 不在 PyPI（pyjwt 是不同包）——git clone + 包装脚本到 /usr/local/bin。

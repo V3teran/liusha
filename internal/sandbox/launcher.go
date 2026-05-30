@@ -90,7 +90,7 @@ func (l *DockerLauncher) Spawn(ctx context.Context, hunterID string) (Client, er
 	//   [-e LIUSHA_VIEWPORT_*] --add-host=host.docker.internal:host-gateway <image>
 	//
 	// --init：用 docker 内置 tini 当 PID 1。sandbox-server 超时杀进程组后，被 reparent
-	// 到 PID 1 的孤儿（browser-use-cli / flock 等）需有人 wait() 回收，否则积累 <defunct>
+	// 到 PID 1 的孤儿（常驻 browser-svc.py / browser-use-cli 等）需有人 wait() 回收，否则积累 <defunct>
 	// 僵尸（2026-05-29 实测一次 active e2e 攒 13 个）。tini 转发信号 + 自动收割孤儿。
 	args := []string{"run", "-d", "--init",
 		"-p", "127.0.0.1:0:" + containerSandboxPort,

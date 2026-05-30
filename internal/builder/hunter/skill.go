@@ -209,8 +209,8 @@ func NewBuilder(deps Deps) skill.Builder {
 			}
 		}
 
-		must(&common.ReadNotes{Store: deps.Notes, OwnerID: p.OwnerID, Host: p.Host, TaskID: p.TaskID})
-		must(&common.WriteNote{Store: deps.Notes, OwnerID: p.OwnerID, Host: p.Host, TaskID: p.TaskID})
+		must(&common.ReadNotes{Store: deps.Notes, OwnerID: p.OwnerID, Host: p.Host, HunterID: p.HunterID})
+		must(&common.WriteNote{Store: deps.Notes, OwnerID: p.OwnerID, Host: p.Host, HunterID: p.HunterID})
 		// 凭证读写一对：read_credentials 拉本 host 已录身份；write_credential 把活凭证
 		// （登录拿到的 cookie/token/csrf 任意位置 N 条）回写同 redis hash，供同 owner 下
 		// 其他 hunter 共享。active / passive 一律注册——active 撤回旧"brief 嵌 cookie 文本"
@@ -220,13 +220,13 @@ func NewBuilder(deps Deps) skill.Builder {
 		must(&common.ReadFindings{Store: deps.Findings, OwnerType: p.OwnerType, OwnerID: p.OwnerID, Host: p.Host})
 		// commander（active+无父 task）永远不写/不改 finding——铁律"自挖必转 spawn striker"
 		// 硬阻断：不注册工具 → LLM 看不到 schema → 根本调不到（强于纯 prompt 约束）
-		isCommander := p.Mode == "active" && p.CommanderTaskID == ""
+		isCommander := p.Mode == "active" && p.CommanderID == ""
 		if !isCommander {
 			must(&common.WriteFinding{
 				Store:     deps.Findings,
 				OwnerType: p.OwnerType,
 				OwnerID:   p.OwnerID,
-				TaskID:    p.TaskID,
+				HunterID:  p.HunterID,
 				Host:      p.Host,
 				FlowID:    p.FlowID,
 			})
@@ -236,7 +236,7 @@ func NewBuilder(deps Deps) skill.Builder {
 		must(&common.WriteLesson{Store: deps.Lessons, Host: p.Host})
 
 		// subtask swarm：**仅 commander** 注册 spawn_striker / list_strikers。
-		// striker（CommanderTaskID 非空）不注册防递归（max_depth=1）。
+		// striker（CommanderID 非空）不注册防递归（max_depth=1）。
 		// commander Done 装 PreDoneCheck 拒绝"striker 未完先 done"。
 		// passive 不开 spawn 的原因：passive 60 步预算 + striker 常 100+ 步 → commander 来不及等 striker 完
 		//   就会 max_steps 退出（H3 修过孤儿 goroutine，但仍违反"commander 等 striker"语义）。
@@ -260,12 +260,12 @@ func NewBuilder(deps Deps) skill.Builder {
 				Store:     deps.Flows,
 				OwnerType: p.OwnerType,
 				OwnerID:   p.OwnerID,
-				HunterID:  p.TaskID,
+				HunterID:  p.HunterID,
 			})
 		}
 
 		var spawnerRegistry *subtask.Registry
-		if p.Mode == "active" && p.CommanderTaskID == "" && deps.SpawnerFactory != nil {
+		if p.Mode == "active" && p.CommanderID == "" && deps.SpawnerFactory != nil {
 			spawner, registry, err := deps.SpawnerFactory(ctx, p)
 			if err != nil {
 				return react.Config{}, fmt.Errorf("subtask spawner factory: %w", err)
@@ -288,7 +288,7 @@ func NewBuilder(deps Deps) skill.Builder {
 						continue
 					}
 					elapsed := int(now.Sub(s.SpawnedAt).Seconds())
-					short := s.TaskID
+					short := s.HunterID
 					if len(short) > 8 {
 						short = short[:8]
 					}
@@ -304,8 +304,8 @@ func NewBuilder(deps Deps) skill.Builder {
 			// 状态闭包局部（每 commander 独立），react.Run 单 goroutine 无需 mutex。
 			backoffSt := &doneBackoffState{}
 			must(common.Done{
-				Sandbox: p.Sandbox,
-				TaskID:  p.TaskID,
+				Sandbox:  p.Sandbox,
+				HunterID: p.HunterID,
 				PreDoneCheck: func(_ context.Context) error {
 					running := snapshotRunning()
 					if len(running) == 0 {
@@ -351,7 +351,7 @@ func NewBuilder(deps Deps) skill.Builder {
 					len(running), strings.Join(running, ", ")), nil
 			}
 		} else {
-			must(common.Done{Sandbox: p.Sandbox, TaskID: p.TaskID})
+			must(common.Done{Sandbox: p.Sandbox, HunterID: p.HunterID})
 		}
 
 		// Progressive Disclosure Tier 2：LLM 看 user prompt 工具索引选中工具后
@@ -377,13 +377,13 @@ func NewBuilder(deps Deps) skill.Builder {
 		// browser_use 单工具（vision-first）：
 		//   - action: open / click / input / wait / eval / extract / source 一处 switch 分流
 		//   - 状态变化 action（open/click/input/wait）wrapper 自动附截图
-		//   - 共用同一 *RunCommand 实例确保 Sandbox/TaskID 一致；低频 browser 子命令仍走 run_command 兜底
+		//   - 共用同一 *RunCommand 实例确保 Sandbox/HunterID 一致；低频 browser 子命令仍走 run_command 兜底
 		// 坐标系按当前 hunter 路由到的 provider 配置（grounding.CoordSystem）；
 		// 非 vision provider 走到 click/input action 会因 CoordSystem="" 在 ToRealPixels 报 err（防误用）。
 		if p.Sandbox != nil {
 			rc := &external.RunCommand{
 				Sandbox:           p.Sandbox,
-				TaskID:            p.TaskID, // sandbox-server 按此切 cwd / OUTPUT_DIR（PR2 subtask 隔离）
+				HunterID:          p.HunterID, // sandbox-server 按此切 cwd / OUTPUT_DIR（PR2 subtask 隔离）
 				MaxTimeoutSeconds: deps.StepToolTimeoutSeconds,
 				TailBytes:         deps.SandboxCfg.RunTailBytes,
 			}
@@ -405,7 +405,7 @@ func NewBuilder(deps Deps) skill.Builder {
 
 		reg.Use(
 			interceptor.Observe(),
-			interceptor.Record(deps.ToolInvocations, p.TaskID, p.OwnerType, p.OwnerID),
+			interceptor.Record(deps.ToolInvocations, p.HunterID, p.OwnerType, p.OwnerID),
 			interceptor.Timeout(deps.StepToolTimeoutSeconds),
 		)
 
@@ -434,7 +434,7 @@ func NewBuilder(deps Deps) skill.Builder {
 			LLM:                   p.LLM,
 			Actions:               reg,
 			Budget:                react.Budget{MaxSteps: maxSteps, WatchdogSeconds: watchdog},
-			SystemPrompt:          buildSystemPrompt(p.Mode, p.CommanderTaskID == ""),
+			SystemPrompt:          buildSystemPrompt(p.Mode, p.CommanderID == ""),
 			UserPrompt:            userPrompt,
 			OnNoToolCall:          onNoToolCall, // commander 拦过早收口；非 commander 为 nil（维持旧行为）
 			Inspector:             p.Inspector,
