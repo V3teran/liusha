@@ -85,7 +85,7 @@
 
 ### write 时的字段约定
 
-- **先看现存 schema**：read 返回非空时，新身份的 credentials 数组**模仿其 type/key**（已有 `{type:headers, key:"Cookie"}` → 新身份也用同名），避免同 host 两套不一致 schema
+- **先看现存 schema**：read 返回非空时，新身份的 credentials 数组**模仿其 type/key**（已有 `{type:headers, key:"Cookie"}` → 新身份也用同名）；**同 name 覆盖**（凭证遭拒后重登拿新值）时**保持原 {type,key} 不变、只换 value**——避免同 host 两套不一致 schema，或下游仍按旧 key 拼接却读不到新值
 - **凭证不只是 cookie**：可能多条（Cookie + CSRF + Authorization 同时）、可能在不同位置（headers + body 混合）。read 返空时自己识别：headers 里 `Cookie`/`Authorization`/`X-Auth-Token`、body 里 `csrf_token`/`session`、query 里 `api_key`
 - **name 字段**：登录账号名优先（admin / test / m233241）；SSO/OAuth 用 sub claim 或 email；无账号兜底 `_live_<short>`。**禁止 `anonymous`**（测匿名拿 read 模板自己把 value 替换为 `lstoken`，不 write）
 
