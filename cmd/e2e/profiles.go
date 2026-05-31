@@ -64,6 +64,13 @@ var activeProfiles = map[string]activeProfile{
 		brief:       "测试网站 http://111.229.193.40:34280/login.php，管理员是admin/password，普通用户是gordonb/abc123。**登录后立刻设 cookie `security=low`**（DVWA 默认 impossible 是修复版本，挖不到洞）。只挖掘垂直越权漏洞。",
 		minFindings: 1,
 	},
+	// active:bac 全 BAC：三种形态（未授权 / 垂直 / 水平）全覆盖，比 privesc 宽。给两组凭据
+	// （admin / gordonb）压测多身份重放对比 + anonymous 探测。minFindings=1 取回归底线（能挖到即可）。
+	"bac": {
+		name:        "bac",
+		brief:       "测试网站 http://111.229.193.40:34280/login.php，管理员是admin/password，普通用户是gordonb/abc123。**登录后立刻设 cookie `security=low`**（DVWA 默认 impossible 是修复版本，挖不到洞）。只挖掘未授权访问、垂直越权、水平越权漏洞。",
+		minFindings: 1,
+	},
 }
 
 var profiles = map[string]profile{
