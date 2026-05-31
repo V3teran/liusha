@@ -57,21 +57,11 @@ var activeProfiles = map[string]activeProfile{
 		brief:       "测试网站 http://111.229.193.40:34280/login.php，账号 admin/password。**登录后立刻设 cookie `security=low`**（DVWA 默认 impossible 是修复版本，挖不到洞）。专注挖 XSS 漏洞。",
 		minFindings: 3,
 	},
-	// active:xss-multi 强制 spawn 多 striker，验证 browser-use wrapper 多 task 独立 tab 隔离。
-	// brief 强调 3 种 XSS 独立可并行 + 每个 striker 必须用 browser，期望 commander 自决拆 spawn。
-	// 同时打一个 BAC 攻面（一共 4 个独立攻面）触发更多 spawn 决策。
-	"xss-multi": {
-		name:        "xss-multi",
-		brief:       "测试网站 http://111.229.193.40:34280/login.php，账号 admin/password。挖以下 4 个独立攻击面（每个都需要 browser 验证 JS 执行或 DOM 状态，curl 无法覆盖）：(1) Reflected XSS at /vulnerabilities/xss_r/ (2) Stored XSS at /vulnerabilities/xss_s/ (3) DOM XSS at /vulnerabilities/xss_d/ (4) CSP Bypass XSS at /vulnerabilities/csp/。4 个 endpoint 互不依赖，**强烈建议并行 spawn 4 个 striker**（每 striker 1 个攻面）以最大化效率 + 验证多 task 浏览器隔离。",
-		minFindings: 3,
-	},
-	// active:adhoc 是占位 profile——brief 在源码中为空，运行时强制从 LIUSHA_E2E_BRIEF
-	// 环境变量读取（含密码 / 内部地址等敏感信息不应入 git）。可选 LIUSHA_E2E_MIN_FINDINGS
-	// 覆盖默认 minFindings=1（adhoc 是探索性扫描，默认宽松门槛）。
-	// 用法：LIUSHA_E2E_BRIEF="..." ./scripts/dev/e2e.sh active:adhoc
-	"adhoc": {
-		name:        "adhoc",
-		brief:       "", // 占位——runner 启动期从 LIUSHA_E2E_BRIEF 注入；空值会被 runActiveProfiles 拒绝
+	// active:privesc 垂直越权：给两组凭据（admin / 普通用户 gordonb），压测 LLM 用低权
+	// 身份访问 admin-only 资源的越权判定。单一漏洞类型，minFindings=1 取回归底线（能挖到即可）。
+	"privesc": {
+		name:        "privesc",
+		brief:       "测试网站 http://111.229.193.40:34280/login.php，管理员是admin/password，普通用户是gordonb/abc123。**登录后立刻设 cookie `security=low`**（DVWA 默认 impossible 是修复版本，挖不到洞）。只挖掘垂直越权漏洞。",
 		minFindings: 1,
 	},
 }

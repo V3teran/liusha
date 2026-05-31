@@ -1,7 +1,7 @@
 ---
 name: bac
 category: web
-description: 访问控制失效（Broken Access Control）—— 未授权访问 / 水平越权 / 垂直越权。给挖掘方向与判定原则，不框定具体工具与步骤。
+description: 访问控制失效（Broken Access Control）—— 未授权访问 / 水平越权 / 垂直越权。核心方法是多身份重放对比，身份来源与模式无关（passive 注入预置 token / active 登录 mint 会话）。给挖掘方向与判定原则，不框定具体工具与步骤。
 ---
 
 # 访问控制失效（BAC）
@@ -16,30 +16,46 @@ description: 访问控制失效（Broken Access Control）—— 未授权访问
 
 ## 挖掘方向（思路，不是步骤）
 
-**唯一铁律**：开测前先用 `lstoken` 替换所有凭证位置跑一次 anonymous 重放，看响应。判定原则 1 决定了 anonymous 能访问 → 必判 Unauthorized（触顶所有越权分类），**跳过 anonymous 直接下 vertical/horizontal 结论就是漏判**——这是 BAC 测试最常见的假阴性源。除此之外，怎么挖、用几个身份、按什么顺序——你自己根据流量判断。
+**唯一铁律**：开测前先用 `lstoken` 替换所有凭证位置跑一次 anonymous 重放，看响应。判定原则 1 决定了 anonymous 能访问 → 必判 Unauthorized（触顶所有越权分类），**跳过 anonymous 直接下 vertical/horizontal 结论就是漏判**——这是 BAC 测试最常见的假阴性源。除此之外，怎么挖、用几个身份、按什么顺序——你自己根据目标请求判断。
 
-BAC 的核心动作只有一个：**多身份重放对比**。下面是倾向性的判断，不是规则：
+BAC 的核心动作只有一个：**多身份重放对比**——同一个目标请求换不同身份的凭证重发、对比响应。下面是倾向性的判断，不是规则：
 
-- 流量本身没带任何凭证 → 多半是公开接口，BAC 通常不适用
+- 目标请求本身不需要任何凭证 → 多半是公开接口，BAC 通常不适用
 - 写操作（create / update / delete）的 BAC 危险度通常 > 读操作
 - 路径或 body 里出现资源标识符（任何 ID、文件名、用户名）→ 多半要测水平越权
 - 路径或角色语义指向特权域（管理后台、系统设置、批量操作）→ 多半要测垂直越权
 
-`read_credentials` 返回的身份组合常见形态：anonymous + 若干普通用户 +（可能）管理员。怎么用、用几个，自己拿捏，但有硬约束：
+### 身份从哪来——与模式无关（关键）
 
-- **非匿名身份数 = 0**：只能测 Unauthorized（anonymous vs 流量自带身份）
-- **非匿名身份数 = 1**：仍然**只能测 Unauthorized**——vertical 越权需要 ≥1 高 + ≥1 低权限，horizontal 越权需要 ≥2 个同级用户，单一非匿名身份**两类都凑不出**
-- **非匿名身份数 ≥ 2**：才能展开 vertical / horizontal 测试
+"身份" = 一个你能认证进去的权限上下文，**不等于 `read_credentials` 的行**。来源有三类，能凑出几个算几个：
+
+1. **`read_credentials` 已录入的 token**（passive 常态：tracker 启动前已 seed）
+2. **brief 直接给的登录凭据对**（active 常态：commander 把"admin/password 高权、gordonb/abc123 低权"透传到 brief）→ 你登录把它**变成**可用会话
+3. **recon / 探测中发现的登录入口**（任何模式：看到登录表单就能注册一个新身份）
+
+**身份数按"可获得数"算，不是按 `read_credentials` 行数算**——active 模式 `read_credentials` 常返空 `[]`，但 brief 给了 admin + gordonb 两组账密 → **可获得身份数 = 2**，足以展开垂直越权。把空 `read_credentials` 误读成"0 身份不能测越权"是 active BAC 最大的假阴性。
+
+**怎么把登录凭据变成可注入的会话**：
+- **curl 登录（HTTP 重放首选）**：`GET 登录页` 抽出 CSRF token（如 DVWA 的 `user_token`）→ `POST` 账密 + token → **捕获 `Set-Cookie`** 里的 session。直接拿到能塞进 `curl -H "Cookie:"` 的值，最契合下面的重放矩阵。
+- **浏览器登录（登录流程 JS 重 / 多步时退到这条）**：`browser_use` 以 `identity=用户名` 在登录页登录（见 system_prompt「identity 命名铁律」）。httpOnly session 抠不出来时，重放就走浏览器原生访问对比（同一受保护 URL 各 identity 各 `open`，对比渲染内容），别硬抠 cookie。
+
+身份数（含可获得的）决定能测哪几类，硬约束：
+
+- **可获得非匿名身份数 = 0**：只能测 Unauthorized（anonymous vs 目标自带身份）
+- **可获得非匿名身份数 = 1**：仍然**只能测 Unauthorized**——vertical 越权需要 ≥1 高 + ≥1 低权限，horizontal 越权需要 ≥2 个同级用户，单一非匿名身份**两类都凑不出**
+- **可获得非匿名身份数 ≥ 2**：才能展开 vertical / horizontal 测试
 
 ## 重要前提：anonymous 是 LLM 临时构造的测试概念
 
 `read_credentials` 返回的列表里**不含 anonymous**——anonymous 不是预录入的"半成品身份"，而是你在挖洞时按需构造的测试请求形态。每个 Identity 带一个 `credentials` 数组，可以同时有多条 `{type, key, value}`（如 Cookie + Authorization Bearer + X-CSRF-Token 三件套并存）。
 
-### 构造 anonymous 的两种分支
+### 怎么真实跑出 anonymous（curl 路径用 lstoken / 浏览器路径用空 jar）
 
-按 `read_credentials` 返回的真实身份数量分流：
+anonymous **必须真发一次请求看响应**——禁止凭"受保护页应该会跳 login"脑补一行塞进矩阵（脑补的 anonymous 行 = 假 evidence，污染整个判定，违反 write_finding 红线）。按你用 curl 还是浏览器分两条执行路径。
 
-**分支 A：列表里有 ≥1 个真实身份**（不管多少个）→ **拿任一身份的 `credentials` 数组作模板**
+**curl / HTTP 重放路径——lstoken 替换**，再按手上有没有凭证模板分 A/B：
+
+**分支 A：手上有 ≥1 个真实身份的凭证**（`read_credentials` 返回的、或你登录拿到的、或目标请求自带的）→ **拿任一份 `credentials` 作模板**
 
 例如 `admin.credentials = [{type:headers, key:Cookie, value:"session=admin_xyz"}, {type:headers, key:Authorization, value:"Bearer abc..."}]`，照这个结构构造 anonymous：
 
@@ -49,9 +65,9 @@ BAC 的核心动作只有一个：**多身份重放对比**。下面是倾向性
 
 **全部位置都要注入**，漏一个就是假阳性（残留旧身份的认证还能进，得到的不是"匿名能进"的结论）。
 
-**分支 B：列表为空**（该 host 无任何预录入身份）→ **从原始流量自己识别凭证位置**
+**分支 B：手上没有任何真实身份凭证模板**（`read_credentials` 空、且你还没登录拿到会话）→ **从目标请求自己识别凭证位置**
 
-看流量请求里哪些字段是认证性质：
+看目标请求里哪些字段是认证性质：
 
 - `headers` 的 Cookie / Authorization / X-Token / X-Auth-Token / X-Api-Key 等
 - `query` 的 token / api_key / access_token / key 等
@@ -59,13 +75,15 @@ BAC 的核心动作只有一个：**多身份重放对比**。下面是倾向性
 
 把识别到的**所有**认证位置整段替换为 `lstoken`，构造 anonymous 重放请求。
 
+**浏览器路径——空 jar，不套 lstoken**：用一个**从没登录过的 identity**（如 `identity:"anon"`）`open` 受保护 URL。该 identity 的 cookie jar 是空的 → 服务端按未认证处理，返回什么（302→login / 401 / 登录页本身）就是**真**的 anonymous 结果。浏览器没有可替换的 header，**别套 lstoken**——lstoken 只是 curl 路径的"token 校验失败"占位符；浏览器路径靠"这个 identity 从没登录过、jar 为空"来表达匿名。**必须真 `open` 看渲染，不能因为"DVWA 八成跳 login"就脑补一行。**
+
 ### 为什么用 `lstoken` 而不是直接删凭证
 
 `lstoken` 精确触发服务端"token 校验失败"分支（比完全无凭证走"未登录"分支更接近真实未授权场景，有些应用对这两个分支处理不一样，只测后者会漏真实认证缺陷）。
 
 ### 判定时的注意
 
-**`lstoken` 等同于无凭证**：anonymous 重放的请求里看到 `Cookie: lstoken` / `Authorization: lstoken` / `?token=lstoken` 不代表认证成功，只是占位符。判断 anonymous 是否能成功访问时**只看响应**（status + body），不看请求自己带了什么凭证字段值。
+**判定 anonymous 是否成功只看响应**（status + body），不看请求自己带了什么凭证字段值——`Cookie: lstoken` / `Authorization: lstoken` / `?token=lstoken` 是占位符，出现在请求里不代表认证成功。**浏览器路径同理**：空 jar identity `open` 出来是登录页 / 302 就是匿名被拒，渲染出业务面板才是匿名能进——只看渲染结果，不看 identity 叫什么名。
 
 ## 判定原则（关键 5 条，按优先级）
 
@@ -114,9 +132,9 @@ BAC 的核心动作只有一个：**多身份重放对比**。下面是倾向性
 
 evidence 必须包含：
 
-- **multi-identity replay 矩阵**：每个测试身份的 status + 关键响应字段对比，不要只贴违规身份那一条；矩阵要明示**每个身份注入的所有凭证位置**（如果有 Cookie + Authorization 双位置，两条都要列），证明替换是完整的而不是只换了一条
+- **multi-identity replay 矩阵**：每个测试身份的 status + 关键响应字段对比，不要只贴违规身份那一条；矩阵要明示**每个身份注入的所有凭证位置**（如果有 Cookie + Authorization 双位置，两条都要列），证明替换是完整的而不是只换了一条。**browser 原生访问对比**（httpOnly 抠不出 cookie，走浏览器重放那条）则列**每个 identity（=各自账号）各自 `open` 同一受保护 URL 的渲染结果对比**，矩阵的"身份"列就是 identity 名而非注入的凭证位置
 - **泄露的敏感字段名**（user_id / email / phone / token 等业务字段）
-- **repro_cmd**：用违规身份的最小化 curl 复现命令，别人 copy 就能跑出同结果
-- 涉及 anonymous 越权时，违规身份字面值就是 `anonymous`，不要写空串或 null
+- **repro_cmd**：违规身份的最小化复现——curl 路径给最小化 curl 命令（别人 copy 就跑出同结果）；httpOnly 抠不出 cookie 时走浏览器那条，给「以 identity X `open` 该受保护 URL」的最小化步骤
+- 涉及 anonymous 时，矩阵里的 anonymous 行**必须来自真实重放**（curl 带 lstoken 的响应、或空 jar 浏览器 `open` 的渲染）——**禁止凭"应该会 302"脑补**，脑补行是假 evidence；违规身份字面值就是 `anonymous`，不要写空串或 null
 
 summary ≤500 字单行，详情进 evidence jsonb。

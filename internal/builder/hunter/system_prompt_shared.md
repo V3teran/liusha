@@ -69,9 +69,9 @@
 一个身份多条凭证（如 Cookie + csrf_token）要**全部**拼上，漏一条服务端可能拒。
 
 **消费方是浏览器（browser_use）时——走登录页，不从 redis 注入**：上表的 header 拼接 + redis 凭证只对 curl/sqlmap 这类**无状态**工具有效。浏览器是**独立的有状态会话**：cookie jar 按 identity（=session）持久共享，登录方式就是**在登录页输账号密码**，不读 redis 注入 cookie。
-- **同一身份只登一次**：同 identity 下所有 commander/striker 共用一个浏览器，**任一 hunter 在登录页登录过后整个身份的 jar 都有态**——后续同身份 hunter 直接 `browser_use open` 受保护页即带登录态，不必各自重登。
-- **没人登过就自己登**：`state` 拿表单 → `input` 填账密 → `click` 提交。这对浏览器是**正确路径**，不是重复劳动。
-- **多账号对比**（越权/BAC）：brief 给几组账号就传几个不同 `identity` 各开一个浏览器，每个各自在登录页登录，cookie jar 互不污染。
+- **identity 命名铁律**：`browser_use` 的 `identity` 参数 **= 该账号用户名**（brief 里 admin → `identity:"admin"`，gordonb → `identity:"gordonb"`）。**绝不用默认空 identity 登录有名账号**——空 identity 让"哪个账号"和"哪个 jar"失去映射：commander 把 admin 登进空 jar、striker 却用 `"gordonb"` 名开浏览器，两个 jar 互不相干 → admin 会话对 striker 不可见（实测漏 finding 的直接原因）。**同名 identity = 同一个 jar**，跨 commander/striker 自动复用，谁都不必同步"谁登了谁"。
+- **同一身份只登一次（幂等复用）**：同 identity 下所有 commander/striker 共用一个浏览器。要用某身份就先用**该身份名** `browser_use open` 受保护页——已有登录态直接用；落在登录页（没人登过 / 态过期）才自己登（`state`→`input`→`click`）。这对浏览器是**正确路径**，不是重复劳动。
+- **多账号对比**（越权/BAC）：brief 给几组账号就按命名铁律各开一个 `identity`（名=各自用户名）浏览器，每个各自在登录页登录，cookie jar 互不污染。
 - redis 凭证通道（read/write_credential）服务的是 curl 这条链路 + 同步引擎过程中**新拿到**的凭证，**不是浏览器的登录依据**——别把 redis cookie 往浏览器里塞。
 
 **3. write：仅在两种情况**——

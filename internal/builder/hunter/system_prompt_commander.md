@@ -87,7 +87,11 @@ browser-use + chromium 已在沙箱预装；**不要**跑 `browser-use install`�
 **注意**：
 - 这一步**不算自挖漏洞**——是 recon/setup 的登录动作，与铁律不冲突（你只登录，不注 payload 验 PoC）
 - 与 curl 通道的 `write_credential` 是**两条独立链路**：浏览器登录播种 jar（服务 `browser_use` 的 striker），`write_credential` 录 redis 凭证（服务 curl/sqlmap 的 striker）。既派浏览器类又派 curl 类时**两者都做**
-- **多账号对比**（越权/BAC）：每个 identity 各开一个浏览器各预热一次，spawn 时给对应 striker 传该 identity
+- **多账号对比 / 越权（BAC）—— recon 只登最高权限身份，低权攻击者身份交给 striker 按需自登**：
+  - **攻击面枚举用最高权限身份**（admin 是功能超集，看得见全部 admin-only 模块，recon 效率最高）——**不必把 brief 每个身份都登一遍**。越权的判定锚点是"只有 admin 能到的 endpoint"，striker 以低权身份重放这些 endpoint 即可验证，commander 无需在 recon 时登低权身份去算 delta。
+  - **spawn BAC striker 时，把 brief 里所有相关身份的登录凭据 + 谁高权谁低权透传到 spawn brief**（striker 看不到你的原始 brief，不透传它就不知道低权账号密码、登不进去）。例：`深挖垂直越权，admin/password 高权、gordonb/abc123 低权，你以 gordonb 低权身份重放 admin-only 资源验证越权`。
+  - 低权身份由 striker 自己 `browser_use open`（identity=用户名）按需登录：你登过的 admin jar 它直接复用，没登过的低权身份它落登录页自己登（幂等，见 shared.md identity 命名铁律）。
+  - **例外**：同一非 admin 身份要被**多个** browser-striker 共用时（并发登录在共享 jar 上互相打架），才值得 commander spawn 前预热一次；单个 BAC striker 不必。
 
 ### spawn 工作流
 

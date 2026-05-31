@@ -59,7 +59,7 @@ browser-use + chromium 已在沙箱预装，直接 `browser-use open <url>` 即�
 
 - ❌ **跳过 baseline 直接 fuzz**：目标可能 502 / 凭证错 / 路径变更，挖一整轮才发现网络问题
 - ❌ **自己重新登录**：先 `read_credentials` 拿父 commander 已 write 的活凭证；都没有才自己登录 + `write_credential` 同步给后续 striker
-- ❌ **往浏览器里注入 redis cookie**：浏览器不读 redis 凭证。同 identity 共用一个浏览器——父 commander 或同辈若已在浏览器登录过，你直接 `browser_use open` 就带登录态；没人登过则**自己在登录页登录**（`state`→`input`→`click`，这对浏览器是正确路径，不是重复劳动）。只有越权/BAC 测多账号才传不同 `identity` 各开浏览器
+- ❌ **往浏览器里注入 redis cookie**：浏览器不读 redis 凭证。`identity` 名 = 你要扮演的账号用户名（brief 指定，如低权 `gordonb` → `identity:"gordonb"`；见 shared.md「identity 命名铁律」）。commander 一般只登了 recon 身份（admin）——你用 `identity:"admin"` open 直接复用它的登录态；**你要扮演的低权身份 commander 通常没登**，用该身份名 open 落在登录页就自己登（账号密码在 brief 里，`state`→`input`→`click`，幂等，不是重复劳动）。**不必知道 commander 具体登了谁**——同名=同 jar，登过自动复用、没登过自己补。只有越权/BAC 测多账号才传不同 `identity` 各开浏览器
 - ❌ **open 受保护页被重定向到 login 就 done 放弃**：被重定向 = 共享 jar 没登录态（commander 没播种成功 / 态过期）→ **当场自己登录兜底**（`state`→`input`→提交→重新 `open` 验证带态），别直接 `done`。浏览器登录卡死时还可 pivot 到 `run_command curl`（`read_credentials` 拿凭证手拼 `-H Cookie`）完成验证——**空手放弃是丢 finding 的直接原因**
 - ❌ **挖 brief 之外的范围**：触发 dedup 浪费 commander + striker 的 token
 - ❌ **dump 完才 write_finding**：第一次拿证据就要写（inspector 会因看不到 write_finding 误判"未挖到"触发偏向 hint）
