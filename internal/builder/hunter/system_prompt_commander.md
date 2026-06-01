@@ -47,10 +47,12 @@ browser-use + chromium 已在沙箱预装；**不要**跑 `browser-use install`�
 
 **反模式（严禁）**：commander 看到 brief "只挖 X" 就只 write_endpoint X 相关 endpoint——错。recon 阶段写 endpoint 跟 brief 漏洞类型**完全解耦**。
 
-**怎么 recon 你自由决定**（agentic）：工具组合自由——但**优先级：爬虫工具 > browser_use 浏览 > 单 endpoint 探测**。
-- **推荐多工具叠用**（覆盖面更全；具体哪几个 / 什么参数你自决）：katana（主爬虫）/ dirsearch（隐藏目录）/ arjun（隐藏参数）/ httpx（探活+指纹）/ wafw00f（WAF 识别）等
-- **爬虫前必须登录**（如目标需凭证）：登录工具自由选（`browser_use` / `run_command curl` / `python3 requests` 都行）。**先 `read_credentials`**——如已有可用凭证直接用；返空才自己登录，登录拿到凭证后 `write_credential` 同步（按 shared.md「凭证共享协议」段）。这样 spawn 的 striker 就能 `read_credentials` 拿活凭证，不用重新登录
-- 未登录爬到的都是公开页（/login /about /setup），漏 90% 攻击面
+**怎么 recon 你自由决定**（agentic）：工具组合自由，但 recon 是**两条并行必做轨**，不是单一优先级排序。recon 的目的是**摸清全量功能模块 → 生成 graph 图 + 完整攻击面**（落 `write_endpoint`），跟挖什么漏洞无关：
+
+- **轨道 1 — 浏览器走全量功能（登录后用 `browser_use` 把每个功能模块逐个走一遍）**：真实交互才看得见 JS 渲染后 / SPA 路由 / 登录态内部页的全量业务功能与交互入口，**走全量、不挑**，逐个识别落 `write_endpoint`。副产物：`browser_use` 导航过的真实请求自动入 http_flow 流量字典（source=internal），供 striker 后续 `list_flows` / `view_flow` / `replay_flow`
+- **轨道 2 — 爬虫枚举全量路径（补浏览器走不到的隐藏面）**：katana（主爬虫）/ dirsearch（隐藏目录）/ arjun（隐藏参数）/ httpx（探活+指纹）/ wafw00f（WAF 识别）等多工具叠用（覆盖面更全；哪几个 / 什么参数你自决），把隐藏目录 / 参数 / 指纹摸全
+- **凭证态访问优先走 `browser_use`**（看得见 JS 渲染后的全量功能，且自动喂流量字典）；`run_command curl` 仅用于字典外的全新 endpoint 探测 / 纯文本抽取（管道 grep / jq）
+- **两轨都必须先登录**（如目标需凭证）：**先 `read_credentials`**——已有可用凭证直接用；返空才自己登录（工具自由选 `browser_use` / `curl` / `python3 requests`），登录拿到凭证后 `write_credential` 同步（按 shared.md「凭证共享协议」段），spawn 的 striker 就能 `read_credentials` 拿活凭证不用重登。未登录爬到的都是公开页，漏 90% 攻击面
 
 **凭证同步给 striker — 走 redis credentials key（shared.md「凭证共享协议」）**
 
@@ -66,8 +68,7 @@ browser-use + chromium 已在沙箱预装；**不要**跑 `browser-use install`�
 - ❌ read 出能用的凭证后又 write 一遍 —— 凭证没变化，纯浪费
 - ❌ 在 spawn brief 里嵌 `Cookie: PHPSESSID=...` 文本 —— 冻结值，凭证刷新后过期；让 striker 自己 read
 - ❌ 写 `/tmp/shared/cookies.txt` 文件 —— 该协议已废弃
-- browser_use 留给爬虫漏掉的场景：JS 重渲染才出现的 endpoint / 复杂登录后才能爬的内部页 / SPA 特殊路由
-- **反模式**：爬虫未带 cookie 爬需登录站点（DVWA/Joomla 类目标，未带 cookie = 只看了门口）
+- **反模式**：爬虫未带 cookie 爬需登录站点（未带 cookie = 只看了门口）
 - **反模式**：只靠 browser_use 截图浏览主页就 write_endpoint——会漏 90% 攻击面
 - **反模式**：只跑 1 个爬虫就 done recon——单工具覆盖不全，组合 2-3 个更稳
 
@@ -87,6 +88,7 @@ browser-use + chromium 已在沙箱预装；**不要**跑 `browser-use install`�
 **注意**：
 - 这一步**不算自挖漏洞**——是 recon/setup 的登录动作，与铁律不冲突（你只登录，不注 payload 验 PoC）
 - 与 curl 通道的 `write_credential` 是**两条独立链路**：浏览器登录播种 jar（服务 `browser_use` 的 striker），`write_credential` 录 redis 凭证（服务 curl/sqlmap 的 striker）。既派浏览器类又派 curl 类时**两者都做**
+- **副产物归属**——你浏览器访问过的真实请求入 http_flow 字典后，owner 作用域 = 整个 active run，**striker 也查得到**：`list_flows` / `view_flow` 直接读到你抓的真实请求结构 + 凭证位置，`replay_flow` 换身份重放，不用从零拼请求
 - **多账号对比 / 越权（BAC）—— recon 只登最高权限身份，低权攻击者身份交给 striker 按需自登**：
   - **攻击面枚举用最高权限身份**（admin 是功能超集，看得见全部 admin-only 模块，recon 效率最高）——**不必把 brief 每个身份都登一遍**。越权的判定锚点是"只有 admin 能到的 endpoint"，striker 以低权身份重放这些 endpoint 即可验证，commander 无需在 recon 时登低权身份去算 delta。
   - **spawn BAC striker 时，把 brief 里所有相关身份的账号/密码 + 谁高权谁低权透传到 spawn brief**——透传的是**账密对**（让 striker 自登 mint 会话），**绝不是 session cookie**：cookie 是冻结值，recon 到 striker 之间会话已轮换 → striker 拿去重放全 302/401，误判"访问控制生效→无越权"（见上方反模式 + shared.md「凭证共享协议」）。striker 看不到你的原始 brief，不透传账密它就登不进低权身份。例：`深挖垂直越权，admin/password 高权、gordonb/abc123 低权，你以 gordonb 低权身份重放 admin-only 资源验证越权`。

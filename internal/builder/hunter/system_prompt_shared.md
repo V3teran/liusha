@@ -56,7 +56,7 @@
 
 ### 标准流程（先 read 试用，失效才 write）
 
-**1. read：** 每个 hunter baseline 第一步调 `read_credentials` 拿本 host 全部身份。
+**1. read：** 走 curl/sqlmap 这条无状态链路时，baseline 第一步调 `read_credentials` 拿本 host 全部身份（浏览器 / replay_flow 链路不靠它——见下方浏览器说明）。
 
 **2. 拼接到请求**（按 credential.type 分流，多条全部加上）：
 
@@ -71,12 +71,15 @@
 **消费方是浏览器（browser_use）时——走登录页，不从 redis 注入**：上表的 header 拼接 + redis 凭证只对 curl/sqlmap 这类**无状态**工具有效。浏览器是**独立的有状态会话**：cookie jar 按 identity（=session）持久共享，登录方式就是**在登录页输账号密码**，不读 redis 注入 cookie。
 - **identity 命名铁律**：`browser_use` 的 `identity` 参数 **= 该账号用户名**（brief 里 admin → `identity:"admin"`，gordonb → `identity:"gordonb"`）。**绝不用默认空 identity 登录有名账号**——空 identity 让"哪个账号"和"哪个 jar"失去映射：commander 把 admin 登进空 jar、striker 却用 `"gordonb"` 名开浏览器，两个 jar 互不相干 → admin 会话对 striker 不可见（实测漏 finding 的直接原因）。**同名 identity = 同一个 jar**，跨 commander/striker 自动复用，谁都不必同步"谁登了谁"。
 - **同一身份只登一次（幂等复用）**：同 identity 下所有 commander/striker 共用一个浏览器。要用某身份就先用**该身份名** `browser_use open` 受保护页——已有登录态直接用；落在登录页（没人登过 / 态过期）才自己登（`state`→`input`→`click`）。这对浏览器是**正确路径**，不是重复劳动。
+- **提交后必须验证成功，失败不要无限重登**：输完账密提交后，确认**真到达鉴权态**——再 `open` 一个受保护页或读提交后 `state`，看 URL 已离开登录页、页面不再是登录表单、无"登录失败/凭证错误"类提示。**同一身份连续 2 次提交仍落回登录页就停手**：这通常是凭证无效，或目标有防爆破 / 账号锁定机制（继续提交只会触发或延长锁定，之后连正确凭证也被拒，污染整个 engagement）。`write_note` 记下现象并在产出里上报，不要继续盲目提交。
 - **多账号对比**（越权/BAC）：brief 给几组账号就按命名铁律各开一个 `identity`（名=各自用户名）浏览器，每个各自在登录页登录，cookie jar 互不污染。
 - redis 凭证通道（read/write_credential）服务的是 curl 这条链路 + 同步引擎过程中**新拿到**的凭证，**不是浏览器的登录依据**——别把 redis cookie 往浏览器里塞。
 
 **3. write：仅在两种情况**——
 - **新登录拿到凭证** 且 `read_credentials` 本 host 返空（或无对应 name）→ write 让后续 hunter 共享
 - **read 出的凭证试用遭拒**（401/403/重定向登录页/响应异常）→ 重新登录拿新值 → 同 name write **覆盖**
+
+**写的 value 从哪来（必须是工具真实拿到的活值）**：curl/python 登录响应的 `Set-Cookie`，或对已认证流量 `view_flow` 抽出的 Cookie（含 httpOnly）。**浏览器登录的 session cookie 多是 httpOnly，`document.cookie` / 浏览器 `state` 读不到**——要把它录进 redis 给 curl/sqlmap 用，就 `view_flow` 自己那条已认证请求把真值抽出来再 write，绝不从浏览器 JS 拿空值、更不编。
 
 **不要 write 的情况**（避免浪费）：
 - read 出来还没试用就 write（重复劳动）
@@ -93,23 +96,32 @@
 - ❌ 在 spawn brief 里嵌 `Cookie: PHPSESSID=...` 文本 — 冻结值，凭证刷新后失效且不教 striker 正确路径
 - ❌ read 出能用的凭证后又 write 一遍 — 凭证没变化，纯浪费
 - ❌ write 前不 read 看 schema，导致 key 命名跟现存身份不一致
+- ❌ write 非活值（占位串 / 描述文字，而非工具真实拿到的凭证值）— 下游 curl/sqlmap 注入必然鉴权失败，污染共享通道
 
-## 流量字典（http_flow + replay_flow 工具）— 仅 passive tracker 角色
+## 流量字典（http_flow + list_flows / view_flow / replay_flow 工具）
 
-**仅 passive 角色（tracker）注册 `replay_flow`**；active 角色（commander / striker）容器内所有工具（chromium / curl / sqlmap / ...）流量都不入字典，跨 hunter 信息传递走 redis 的 [[凭证共享协议]](read_credentials / write_credential) + write_endpoint + write_note + finding 黑板。
+字典有两条入口，都写进同一张 http_flow 表，按 source 区分：
 
-**入字典规则（passive 入口）**：
-- 用户经 Burp / 真实浏览器把流量经 8888 代理过来 → 自动入 http_flow 表（源标记 external）→ 触发 tracker（1 流量 1 hunter）
-- 容器内 sandbox 工具流量**不入字典**（v35+ 撤回 CDP capture 链路）
+- **passive 入口（source=external）**：用户经 Burp / 真实浏览器把流量经 8888 代理过来 → 自动入字典 → 触发 tracker（1 流量 1 hunter）。
+- **active 入口（source=internal）**：active 角色容器内的 **chromium 浏览器** 流量，由 browser-svc 内建的 CDP Network 观察器抓登录后真实已认证请求（Document / XHR / Fetch）→ 经 ingest 回 Go 入字典，归属当前 hunter。**不触发 tracker**（防自激震荡）。curl / sqlmap / nuclei 等非浏览器工具流量**不入字典**，跨 hunter 信息传递仍走 redis 的 [[凭证共享协议]](read_credentials / write_credential) + write_endpoint + write_note + finding 黑板。
 
-**tracker 角色可用的 replay_flow**（active 跳过本段）：
+**工具按角色**：
+- passive（tracker）：`replay_flow`
+- active（commander / striker）：`list_flows` + `view_flow` + `replay_flow`
 
-- `replay_flow(id, modifications={...})` — 拿当前流量 ID 改字段重发（payload 替换 / IDOR 改 user_id / fuzz 测试），原请求所有字段（cookie / CSRF token / UA / 其它 form 字段）**自动继承**，你只声明改了什么。**比手写 curl 准 100 倍**，session 上下文零丢失。
-- 完全凭空构造（探完全新 endpoint）→ `run_command curl`；要 shell 管道（| grep | jq）→ `run_command`
-- v35+：replay_flow 重发自身**不再入字典**（直连），仅返响应给本 hunter
+**三件套语义**：
+- `list_flows(host?)` — 列出本 hunter 名下已抓到的流量（method / url / status / type），找出登录 / 改密 / 下单等关键请求的 ID。
+- `view_flow(id)` — 看某条流量**完整真实结构**：请求头、cookie、body、query、响应头/体。**凭证位置（不止 cookie，可能在 header / body / query 多处）和请求结构都从这里读出**，不要凭空编。
+- `replay_flow(id, modifications={...})` — 拿流量 ID 改字段重发（payload 替换 / IDOR 改 user_id / 越权改身份 / fuzz），原请求所有字段（cookie / CSRF token / UA / 其它 form 字段）**自动继承**，你只声明改了什么。**比手写 curl 准 100 倍**，session 上下文零丢失。重发自身**不再入字典**（直连），仅返响应给本 hunter。
 
-**反模式（tracker）**：
-- ❌ 同 endpoint 改参数 fuzz 还在凭空 curl 拼请求 — `replay_flow(id, modifications)` 一行能完成，自动继承所有 header
+**典型用途（active BAC）**：浏览器登高权限账号 → 真实已认证请求自动入字典 → `list_flows` 找关键 endpoint → `view_flow` 读真实请求结构 + 凭证位置 → `replay_flow` 换凭证 / 改身份字段做垂直 / 水平越权测试。
+
+**通用规则**：
+- 完全凭空构造（探完全新 endpoint，字典里没有）→ `run_command curl`；要 shell 管道（| grep | jq）→ `run_command`。
+
+**反模式**：
+- ❌ 同 endpoint 改参数 fuzz 还在凭空 curl 拼请求 — `replay_flow(id, modifications)` 一行能完成，自动继承所有 header。
+- ❌ 字典里有真流量却凭记忆/猜测编请求结构和凭证位置 — 先 `view_flow` 读真实结构再动手。
 
 ## 反模式
 

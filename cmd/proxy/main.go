@@ -84,13 +84,17 @@ func main() {
 	defer proxyCancel()
 
 	// healthz HTTP：默认 :9091，避免与 scanner :9090 冲突。
-	// v35+：原 /internal/v1/flows/ingest endpoint 已删（chromium CDP capture 链路砍掉），
-	// 本 listener 只剩 /healthz 一个职责，未来如再加 admin endpoint 可挂同一 mux。
+	// B1：复活 /internal/v1/flows/ingest endpoint——active 容器内 browser-svc.py 内建
+	// CDP Network observer 把 chromium 真实认证请求 POST 到这里 → publisher.Publish →
+	// ingestor.handleInternalSnap（source=internal，owner=active_scan）。token 经
+	// ENV LIUSHA_INGEST_TOKEN 覆盖 yaml proxyCfg.IngestToken，空 = 开发模式不强制。
 	hsAddr := envx.OrDefault("LIUSHA_PROXY_HEALTHZ_ADDR", proxyCfg.HealthzAddr)
+	ingestToken := envx.OrDefault("LIUSHA_INGEST_TOKEN", proxyCfg.IngestToken)
 	hsMux := http.NewServeMux()
 	hsMux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`{"ok":true}`))
 	})
+	hsMux.HandleFunc("/internal/v1/flows/ingest", newIngestHandler(publisher, ingestToken, logger))
 	hs := &http.Server{
 		Addr:              hsAddr,
 		Handler:           hsMux,

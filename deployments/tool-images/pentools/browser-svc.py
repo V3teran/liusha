@@ -22,7 +22,10 @@ import json
 import os
 import sys
 import time
+from datetime import datetime, timezone
+from urllib.parse import parse_qs, urlsplit
 
+import httpx
 from browser_use import BrowserSession
 from browser_use.actor.page import Page
 from browser_use.browser.events import NavigateToUrlEvent
@@ -30,6 +33,16 @@ from browser_use.dom.serializer.serializer import DOMTreeSerializer
 
 IDENTITY = sys.argv[1] if len(sys.argv) > 1 else "default"
 SOCK = sys.argv[2] if len(sys.argv) > 2 else f"/tmp/browser-svc-{IDENTITY}.sock"
+
+# ---- B1：CDP Network capture → cmd/proxy /internal/v1/flows/ingest ----
+# active 容器内 browser-svc.py 持单一 CDP 连接，内建 Network observer 把 chromium 真实认证请求
+# （含凭证位置）抓出 → POST 到 LIUSHA_INGEST_URL → ingestor.handleInternalSnap（source=internal，
+# owner=active_scan）→ commander/striker 经 list_flows/view_flow 看真实请求结构 + 凭证 → replay_flow
+# 做水平/垂直越权（BAC）测试。LIUSHA_INGEST_URL 空 → 整体不启用（单测 / passive-only / 无 cmd/proxy 部署）。
+INGEST_URL = os.getenv("LIUSHA_INGEST_URL", "").strip()
+INGEST_TOKEN = os.getenv("LIUSHA_INGEST_TOKEN", "").strip()
+# 只抓真实认证请求三类 chromium resourceType——静态资源/图片/字体/脚本不入字典（噪音 + 无凭证）。
+CAPTURE_TYPES = {"Document", "XHR", "Fetch"}
 
 # 状态变化 action 跑完自动截图喂回 vision LLM（与原 sh wrapper 同集）。
 STATE_CHANGING = {
@@ -84,6 +97,14 @@ class Service:
         self.tab_lock = asyncio.Lock()       # 仅守 tab 创建
         self.start_lock = asyncio.Lock()     # 仅守首次冷启
         self.server: asyncio.AbstractServer | None = None
+        # ---- B1 CDP Network capture 状态 ----
+        self._http: httpx.AsyncClient | None = None   # 懒构造 POST 客户端
+        self._cap_client = None                       # 已注册 handler 的 cdp_client 身份（重连换实例时重注册）
+        self._cap_sids: set[str] = set()              # 已 Network.enable 的 session_id（幂等）
+        self._sess2hunter: dict[str, str] = {}        # session_id -> hunter_id（逐请求归属）
+        self._cap_reqs: dict[str, dict] = {}          # requestId -> 累积的 req/resp 元数据
+        self._cap_extra: dict[str, str] = {}          # requestId -> 真实 Cookie（ExtraInfo 早于 request 到达时暂存）
+        self._cap_tasks: set[asyncio.Task] = set()    # 持 flush task 引用防 GC
 
     # ---- 生命周期 ----
     async def ensure_started(self):
@@ -163,6 +184,174 @@ class Service:
         except Exception:
             pass  # 截图失败不阻断主动作
 
+    # ---- B1 CDP Network capture ----
+    # 设计取自 browser_use HarRecordingWatchdog（已验证）：handler 是 SYNC def，签名 (params, session_id)；
+    # register 只挂回调不发命令，Network.enable 按 session 幂等开。v33 sidecar 抢 attach 的 race 在这里
+    # 根除——browser-svc.py 本就是唯一 CDP owner，handler 直接挂在它的 cdp_client 上；重连换 client 实例时
+    # _ensure_handlers 检测身份变化重注册 + 清 enable 缓存，下条命令自动重新武装。
+    # 取舍：首个 open 的初始 Document GET 在 enable 之前发出 → 会漏；但登录 POST/XHR 等带凭证的请求都发生在
+    # 后续交互（此时 Network 已 enable）→ BAC 要的真实认证请求不漏。宁可漏首帧也不重蹈 v33 的脆弱完整性。
+    def _ensure_handlers(self):
+        """在当前 cdp_client 上注册 Network 事件 handler（幂等；重连换 client 实例时重注册）。"""
+        client = self.bs.cdp_client
+        if client is self._cap_client:
+            return
+        client.register.Network.requestWillBeSent(self._cap_on_request)
+        # ExtraInfo 单独隔离注册：它只负责补 httpOnly Cookie，万一 cdp-use 版本不暴露此事件
+        # （AttributeError）也只丢 cookie 补全，绝不连累下面四个已验证的 capture handler——
+        # 否则整个 _ensure_handlers 抛错会让 Document/XHR/Fetch 也抓不到，比无 cookie 更糟。
+        try:
+            client.register.Network.requestWillBeSentExtraInfo(self._cap_on_request_extra)
+        except Exception:
+            pass  # 降级：无 httpOnly Cookie 捕获，view_flow/replay_flow 仍带非 httpOnly 头
+        client.register.Network.responseReceived(self._cap_on_response)
+        client.register.Network.loadingFinished(self._cap_on_finished)
+        client.register.Network.loadingFailed(self._cap_on_failed)
+        self._cap_client = client
+        self._cap_sids.clear()  # client 实例已换 → 旧 session enable 作废，让 _ensure_capture 重 enable
+
+    async def _ensure_capture(self, hunter_id: str, page: Page):
+        """把 page 的 session 登记到 hunter + 在该 session 上幂等开 Network domain。"""
+        if not INGEST_URL:
+            return
+        self._ensure_handlers()
+        sid = await page.session_id
+        self._sess2hunter[sid] = hunter_id
+        if sid in self._cap_sids:
+            return
+        try:
+            await self.bs.cdp_client.send.Network.enable(params={}, session_id=sid)
+            self._cap_sids.add(sid)
+        except Exception:
+            pass  # enable 失败不阻断主动作，下条命令再试
+
+    # sync handlers：不可 await——重活塞进 _cap_reqs / 调度 task。
+    def _cap_on_request(self, params: dict, session_id: str):
+        if session_id not in self._sess2hunter:
+            return
+        req = params.get("request", {})
+        rid = params["requestId"]
+        self._cap_reqs[rid] = {
+            "sid": session_id,
+            "type": params.get("type", ""),
+            "url": req.get("url", ""),
+            "method": req.get("method", ""),
+            "req_headers": req.get("headers", {}),
+            "req_body": req.get("postData", ""),
+            "start": params.get("timestamp", 0.0),
+            "wall": params.get("wallTime", 0.0),
+            # requestWillBeSent 不含网络层附加的 httpOnly Cookie，由 requestWillBeSentExtraInfo 补；
+            # 它若早于本事件到达则从暂存区取。
+            "cookie": self._cap_extra.pop(rid, ""),
+        }
+
+    def _cap_on_request_extra(self, params: dict, session_id: str):
+        # ExtraInfo 携带网络层真实发出的头（含 httpOnly Cookie），requestWillBeSent 里没有。
+        # 两事件不保证先后：req 已登记则直接补 cookie，否则暂存等 _cap_on_request 取。
+        if session_id not in self._sess2hunter:
+            return
+        cookie = ""
+        for k, v in (params.get("headers") or {}).items():
+            if k.lower() == "cookie":
+                cookie = v
+                break
+        if not cookie:
+            return
+        rid = params.get("requestId")
+        ent = self._cap_reqs.get(rid)
+        if ent is not None:
+            ent["cookie"] = cookie
+        else:
+            self._cap_extra[rid] = cookie
+
+    def _cap_on_response(self, params: dict, session_id: str):
+        ent = self._cap_reqs.get(params.get("requestId"))
+        if ent is None:
+            return
+        resp = params.get("response", {})
+        ent["status"] = resp.get("status", 0)
+        ent["resp_headers"] = resp.get("headers", {})
+        if params.get("type"):
+            ent["type"] = params["type"]  # responseReceived 的 type 更准
+
+    def _cap_on_finished(self, params: dict, session_id: str):
+        ent = self._cap_reqs.pop(params.get("requestId"), None)
+        if ent is None or ent.get("type") not in CAPTURE_TYPES:
+            return
+        ent["finish"] = params.get("timestamp", ent.get("start", 0.0))
+        t = asyncio.create_task(self._cap_flush(params["requestId"], ent))
+        self._cap_tasks.add(t)
+        t.add_done_callback(self._cap_tasks.discard)
+
+    def _cap_on_failed(self, params: dict, session_id: str):
+        self._cap_reqs.pop(params.get("requestId"), None)
+
+    async def _cap_flush(self, request_id: str, ent: dict):
+        """取 response body → 组 payload → POST。任何异常吞掉，绝不影响浏览。"""
+        hunter_id = self._sess2hunter.get(ent["sid"], "")
+        if not hunter_id:
+            return
+        body_b64 = ""
+        try:
+            r = await self.bs.cdp_client.send.Network.getResponseBody(
+                params={"requestId": request_id}, session_id=ent["sid"]
+            )
+            raw = r.get("body", "")
+            body_b64 = raw if r.get("base64Encoded") else base64.b64encode(
+                raw.encode("utf-8", "replace")
+            ).decode()
+        except Exception:
+            pass  # body 取不到（已 evict / redirect / 无 body）→ 仅上报元数据
+        try:
+            await self._cap_post(self._cap_build(hunter_id, ent, body_b64))
+        except Exception:
+            pass
+
+    @staticmethod
+    def _cap_build(hunter_id: str, ent: dict, body_b64: str) -> dict:
+        u = urlsplit(ent.get("url", ""))
+        # Go []byte 字段 JSON 走 base64 字符串：request_body / response_body 都要 b64。
+        req_body = ent.get("req_body", "") or ""
+        req_b64 = base64.b64encode(req_body.encode("utf-8", "replace")).decode() if req_body else ""
+        # Go ResponseHeaders 是 map[string][]string——CDP 的 dict[str,str] 值包成单元素 list。
+        resp_h = {k: [v] for k, v in (ent.get("resp_headers") or {}).items()}
+        dur_ms = int(max(0.0, ent.get("finish", 0.0) - ent.get("start", 0.0)) * 1000)
+        # 合入 ExtraInfo 抓到的真实 Cookie（含 httpOnly）：requestWillBeSent 的头里没有，
+        # view_flow / replay_flow 要靠它才带得上登录态。有 cookie 才覆盖，否则保留原头不动。
+        req_h = dict(ent.get("req_headers") or {})
+        cookie = ent.get("cookie", "")
+        if cookie:
+            req_h = {k: v for k, v in req_h.items() if k.lower() != "cookie"}
+            req_h["Cookie"] = cookie
+        payload = {
+            "hunter_id": hunter_id,
+            "host": u.hostname or "",
+            "host_port": u.netloc or "",
+            "method": ent.get("method", ""),
+            "scheme": u.scheme or "",
+            "uri": (u.path + ("?" + u.query if u.query else "")) or "/",
+            "path": u.path or "/",
+            "query": parse_qs(u.query) if u.query else None,
+            "status_code": ent.get("status", 0),
+            "request_headers": req_h,
+            "request_body": req_b64,
+            "response_headers": resp_h,
+            "response_body": body_b64,
+            "duration_ms": dur_ms,
+        }
+        wall = ent.get("wall", 0.0)
+        if wall:
+            payload["timestamp"] = datetime.fromtimestamp(wall, tz=timezone.utc).isoformat()
+        return payload
+
+    async def _cap_post(self, payload: dict):
+        if self._http is None:
+            self._http = httpx.AsyncClient(timeout=5.0)
+        headers = {"Content-Type": "application/json"}
+        if INGEST_TOKEN:
+            headers["Authorization"] = "Bearer " + INGEST_TOKEN
+        await self._http.post(INGEST_URL, json=payload, headers=headers)
+
     # ---- action 路由 ----
     async def dispatch(self, req: dict):
         sub = req.get("sub", "")
@@ -177,10 +366,16 @@ class Service:
             return {"_raw_text": "ok"}  # 真正杀进程在 handle_conn 回包后做
 
         await self.ensure_started()
+        # B1：已建 tab 的 hunter，确保其 session 已挂 Network capture（幂等；重连后下条命令自动重武装）。
+        if INGEST_URL and hunter_id in self.tabs:
+            await self._ensure_capture(hunter_id, self.page(hunter_id))
 
         if sub == "open":
             url = args[0]
             await self.ensure_tab(hunter_id, url)
+            # 新 tab 刚建好就武装 capture——尽早覆盖登录交互（首帧 Document GET 仍可能漏，见 _ensure_handlers 取舍）。
+            if INGEST_URL:
+                await self._ensure_capture(hunter_id, self.page(hunter_id))
             data = {"url": url}
 
         elif sub == "state":
@@ -364,6 +559,10 @@ class Service:
     async def _release_tab(self, hunter_id: str):
         tid = self.tabs.pop(hunter_id, None)
         self.smaps.pop(hunter_id, None)
+        # 清 capture 反查表里属于该 hunter 的 session，避免后续 session 复用 id 时脏归属。
+        for sid in [s for s, h in self._sess2hunter.items() if h == hunter_id]:
+            self._sess2hunter.pop(sid, None)
+            self._cap_sids.discard(sid)
         if tid and self.bs is not None:
             try:
                 await self.bs.cdp_client.send.Target.closeTarget(params={"targetId": tid})
@@ -374,6 +573,8 @@ class Service:
         try:
             if self.server is not None:
                 self.server.close()
+            if self._http is not None:
+                await self._http.aclose()
             if self.bs is not None:
                 await self.bs.kill()
         finally:

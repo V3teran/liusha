@@ -63,6 +63,21 @@ type DockerLauncher struct {
 	// 的 --window-width/--window-height 全局 flag。零值时容器内 wrapper 走自己默认（1280×720）。
 	ViewportWidth  int
 	ViewportHeight int
+
+	// IngestURL 是 active 容器内 browser-svc.py CDP Network 抓 chromium 流量 →
+	// /internal/v1/flows/ingest endpoint 的完整 URL。
+	//
+	// browser-svc.py 持单一 CDP 连接，内建 Network observer 把 Document/XHR/Fetch
+	// 完整 req/resp（含真实认证凭证位置）push 到本 URL → cmd/proxy ingest_handler 构造
+	// TrafficSnapshot{Source:"internal"} → publisher.Publish → ingestor.handleInternalSnap。
+	//
+	// 典型值：http://host.docker.internal:9091/internal/v1/flows/ingest（cmd/proxy healthz 端口）。
+	// 空字符串时不注入——browser-svc.py 读不到 LIUSHA_INGEST_URL 则 capture 整体不启用（单测 / 无 cmd/proxy 部署）。
+	IngestURL string
+
+	// IngestToken 是上面 URL 的 Bearer token。
+	// 空 = 不带 Authorization header（dev 模式 cmd/proxy 端也不强制）；prod 应非空。
+	IngestToken string
 }
 
 // NewDockerLauncher 构造 launcher。Image 必填，DockerBin 空走默认。
@@ -72,8 +87,11 @@ func NewDockerLauncher(image string) *DockerLauncher {
 
 // Spawn 启动 sandbox 容器并等待 healthz。返回绑定到该容器 host 端口的 Client。
 //
-// hunterID：仅作 docker 容器名（per-hunter 隔离）；v35+ 不再注入任何身份 env 进容器
-// （CDP capture 链路已撤）。凭证共享走 redis credentials key（read/write_credential）。
+// hunterID：仅作 docker 容器名（per-hunter 隔离）。注意 commander + striker 共享同一容器，
+// 所以容器级不注入 hunter 身份 env——身份由 browser-svc.py 按 session→hunter 逐请求归属
+// （sandbox-server /exec 每命令带 HUNTER_ID env → wrapper 经 unix socket 转发 → daemon 建 tab 时登记）。
+// 容器级只注入 LIUSHA_INGEST_URL/TOKEN（常量），供 browser-svc.py CDP capture push 流量。
+// 凭证共享仍走 redis credentials key（read/write_credential）。
 //
 // 失败路径：任一步出错都会尝试 Destroy（best-effort），避免容器残留。
 func (l *DockerLauncher) Spawn(ctx context.Context, hunterID string) (Client, error) {
@@ -99,7 +117,7 @@ func (l *DockerLauncher) Spawn(ctx context.Context, hunterID string) (Client, er
 		"--cpus=" + defaultCPULimit,
 		// linux 不支持 host.docker.internal，docker 20.10+ 用 --add-host=host-gateway 等价；
 		// macOS / Windows desktop 内置该 DNS，加这个也兼容（重复绑定无害）。
-		// 留着兜底——容器内 CLI 工具偶有访问 host loopback 调试需要。
+		// browser-svc.py CDP capture POST 到 host.docker.internal:<healthz端口> 必需。
 		"--add-host=host.docker.internal:host-gateway",
 	}
 	// 视口尺寸：注入到容器 env 给 browser-use wrapper 透传。
@@ -109,6 +127,15 @@ func (l *DockerLauncher) Spawn(ctx context.Context, hunterID string) (Client, er
 	}
 	if l.ViewportHeight > 0 {
 		args = append(args, "-e", fmt.Sprintf("LIUSHA_VIEWPORT_HEIGHT=%d", l.ViewportHeight))
+	}
+	// CDP capture ingest env（容器级常量，非身份）：browser-svc.py 读 LIUSHA_INGEST_URL 决定是否
+	// 启用 Network observer，读 LIUSHA_INGEST_TOKEN 作 Bearer。URL 空则整体不注入 → capture 不启用。
+	// hunter_id 不在这注入——commander/striker 共享容器，由 browser-svc.py 按 session→hunter 逐请求归属。
+	if l.IngestURL != "" {
+		args = append(args, "-e", "LIUSHA_INGEST_URL="+l.IngestURL)
+		if l.IngestToken != "" {
+			args = append(args, "-e", "LIUSHA_INGEST_TOKEN="+l.IngestToken)
+		}
 	}
 	args = append(args, l.Image)
 	runOut, err := exec.CommandContext(ctx, bin, args...).CombinedOutput()

@@ -250,18 +250,33 @@ func NewBuilder(deps Deps) skill.Builder {
 			must(&common.ReadEndpoints{Store: deps.Endpoints, OwnerID: p.OwnerID, Host: p.Host})
 		}
 
-		// 流量字典工具 — 仅 passive (tracker) 注册 replay_flow（重发改字段，cookie/CSRF 自动继承）。
-		// active (commander/striker) 不再注册任何 flow 工具：v35+ 砍 chromium CDP capture 后
-		// active owner 范围内 http_flow 表无 internal 流量（CLI 工具本就不入字典），
-		// list_flows/view_flow/replay_flow 三工具在 active 下永远查空——直接不注册避免 LLM 调空。
-		// 凭证共享走 read_credentials/write_credential（见 system_prompt_shared.md「凭证共享协议」）。
-		if deps.Flows != nil && p.Mode != "active" {
+		// 流量字典工具（所有角色都注册 replay_flow——重发改字段，cookie/CSRF/session 自动继承）。
+		// list_flows/view_flow 仅 active 角色注册——B1 后 active 容器内 browser-svc.py 内建 CDP
+		//   Network observer 把 chromium 真实认证请求写进 active owner 的 http_flow（source=internal），
+		//   commander/striker 据此查真实请求结构 + 凭证位置 → 转 replay_flow 做水平/垂直越权（BAC）测试。
+		//   tracker（passive）单 flow focused，只 replay 不 list/view 避免诱导跑偏。
+		// replay_flow v34+ 直连目标（删 proxy 路径），重发不再回字典；改 modifications 字段 + 其余自动继承。
+		// 凭证共享另走 read_credentials/write_credential（见 system_prompt_shared.md「凭证共享协议」）。
+		if deps.Flows != nil {
 			must(&common.ReplayFlow{
 				Store:     deps.Flows,
 				OwnerType: p.OwnerType,
 				OwnerID:   p.OwnerID,
 				HunterID:  p.HunterID,
 			})
+			if p.Mode == "active" {
+				must(&common.ListFlows{
+					Store:     deps.Flows,
+					OwnerType: p.OwnerType,
+					OwnerID:   p.OwnerID,
+					Host:      p.Host,
+				})
+				must(&common.ViewFlow{
+					Store:     deps.Flows,
+					OwnerType: p.OwnerType,
+					OwnerID:   p.OwnerID,
+				})
+			}
 		}
 
 		var spawnerRegistry *subtask.Registry

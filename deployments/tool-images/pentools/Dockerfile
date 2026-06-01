@@ -217,7 +217,8 @@ RUN if [ -f /usr/local/bin/browser-use-cli ]; then \
  && browser-use-cli --version 2>&1 | head -1
 COPY deployments/tool-images/pentools/browser-use /usr/local/bin/browser-use
 COPY deployments/tool-images/pentools/browser-svc.py /usr/local/bin/browser-svc.py
-# v35+：原 cdp_network_capture.py 已删（chromium 流量不再入字典，凭证共享走 redis credentials key）。
+# B1：CDP Network capture 内建进 browser-svc.py（不再有独立 sidecar）——它读 LIUSHA_INGEST_URL
+# 决定是否启用 Network observer 抓 chromium 真实认证请求 → POST cmd/proxy ingest endpoint 入字典。
 RUN chmod +x /usr/local/bin/browser-use /usr/local/bin/browser-svc.py \
  && ls -la /usr/local/bin/browser-use /usr/local/bin/browser-use-cli /usr/local/bin/browser-svc.py \
  && head -3 /usr/local/bin/browser-use

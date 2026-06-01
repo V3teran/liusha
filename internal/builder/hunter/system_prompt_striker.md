@@ -28,7 +28,10 @@ browser-use + chromium 已在沙箱预装，直接 `browser-use open <url>` 即�
 1. **第一步必调** `read_credentials` 拿本 host 全部身份（admin / test / ...）→ 自己拼请求时把 credentials 数组按 type/key 注入到对应位置（headers / query / body）
 2. 拿不到（commander 还没 write 完 / 你需要新身份）→ 自己登录 → **登录完也 `write_credential` 同步**（同辈 striker 受益）
 
-**工具选择**：自己拼请求都走 `run_command curl`，凭证从 `read_credentials` 拿后手拼到 `-H Cookie:...` / `-H Authorization:...` / `-d` body；要 shell 管道（| grep | jq | awk 抽响应字段）→ `run_command`。容器内**没有** list_flows/view_flow/replay_flow（active 模式不注册——本 owner 范围内无 http_flow 数据可查）。
+**工具选择（优先级：字典里有的请求走 replay_flow，没有的才 curl）**：
+
+- **浏览器（browser_use）登录后的真实已认证请求会被 CDP 抓入 http_flow（source=internal，owner 作用域=整个 active run——commander 登的 admin 请求你也 `list_flows` 查得到）**，这是测 BAC/越权的金矿：`list_flows` 找关键 endpoint（登录/改密/下单/admin），`view_flow` 读**真实请求结构 + 凭证位置**（凭证不止 cookie，可能在 header / body / query 多处），`replay_flow(id, modifications)` 改字段重发（换凭证测垂直越权 / 改 user_id 测水平越权 / IDOR / fuzz，原请求字段自动继承，httpOnly cookie 也带着重放）。**请求结构和凭证位置一律从 `view_flow` 真流量读，别凭空编。**
+- **字典里没有的请求（浏览器没导航过的全新 endpoint、纯 fuzz）才 `run_command curl`**：凭证从 `read_credentials` 拿后手拼到 `-H Cookie:...` / `-H Authorization:...` / `-d` body；要 shell 管道（| grep | jq | awk 抽响应字段）→ `run_command`。也可先用浏览器导航过去让它入字典，再 `replay_flow`。
 
 **反模式**：
 - ❌ 不调 `read_credentials` 直接自己 `curl -d "user=...&password=..."` 重登 —— 父 commander 八成已登录并 write_credential 了，重登 100% 浪费

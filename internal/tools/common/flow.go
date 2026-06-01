@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -62,7 +63,7 @@ func (a *ListFlows) ParametersJSON() json.RawMessage {
         "host":   {"type":"string", "description":"host filter，留空则用当前 hunter host"},
         "method": {"type":"string", "description":"HTTP method 过滤（自动大写）"},
         "path":   {"type":"string", "description":"path glob 过滤，支持 '*'（如 '/admin/*' / '/api/users/*'）"},
-        "source": {"type":"string", "enum":["external","internal"], "description":"流量来源；external=用户/Burp 抓的，internal=agent 工具发的"},
+        "source": {"type":"string", "enum":["external","internal"], "description":"流量来源；external=用户/Burp 抓的，internal=容器内 chromium 浏览器 CDP 抓的真实已认证请求"},
         "status_min": {"type":"integer", "description":"响应状态码下界（如 400 → 仅 4xx/5xx）"},
         "status_max": {"type":"integer", "description":"响应状态码上界"},
         "since": {"type":"string", "description":"ISO 时间戳，仅看此后流量（如 '2026-05-26T00:00:00Z'）"},
@@ -95,6 +96,10 @@ func (a *ListFlows) Execute(ctx context.Context, args json.RawMessage) (toolfx.R
 	if host == "" {
 		host = a.Host
 	}
+	// http_flow.host 是去端口的裸 host（finding/lesson/note/passive_session 的统一切分键，
+	// 见 proxy/snapshot.go）。过滤侧的 host 常带端口（p.Host 默认值 / LLM 传 host:port）→
+	// 剥端口对齐存储键，否则精确匹配永远落空，list/view/replay 黄金链路整体失效。
+	host = stripHostPort(host)
 	method := strings.ToUpper(strings.TrimSpace(in.Method))
 	limit := in.Limit
 	if limit <= 0 {
@@ -144,6 +149,15 @@ func (a *ListFlows) Execute(ctx context.Context, args json.RawMessage) (toolfx.R
 	}
 	payload, _ := json.Marshal(map[string]any{"count": len(out), "flows": out})
 	return toolfx.Result{Output: payload}, nil
+}
+
+// stripHostPort 把 host:port 归一化为裸 host，与 http_flow.host 存储键（去端口）对齐。
+// net.SplitHostPort 在无端口时报错 → 原样返回；IPv6 形如 [::1]:80 也能正确拆出 ::1。
+func stripHostPort(host string) string {
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		return h
+	}
+	return host
 }
 
 // ─── view_flow ───────────────────────────────────────────────
