@@ -40,6 +40,14 @@ func (h handler) handleActive(ctx context.Context, p worker.Payload, entrypoint 
 	// 优先从 brief 抽真实 URL host（如 target.com:8080），让 lesson/finding/note
 	// 按真站点身份切分跨 task 复用；抽不到回退 owner_id 兜底（lesson 跨 task 失效）。
 	virtualHost := extractHostFromBrief(ep.Brief, oid)
+	// 抽到真实 host（非 owner_id 兜底）时回填 active_scan.target_host，便于查询/报表；
+	// best-effort，失败不阻塞扫描（host 运行时路由用 virtualHost，不依赖该列）。
+	if virtualHost != oid {
+		if err := h.activeScans.SetTargetHost(ctx, oid, virtualHost); err != nil {
+			h.logger.Warn().Err(err).Str("owner_id", oid).Str("host", virtualHost).
+				Msg("回填 active_scan.target_host 失败（不阻塞扫描）")
+		}
+	}
 
 	// commander LLM（commander指挥官）——vision_provider 支持 browser-use 截图。
 	// deepseek 走 openai_compat 不支持 multimodal，触发 ErrVisionUnsupported。

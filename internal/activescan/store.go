@@ -98,6 +98,16 @@ func (s *Store) Abort(ctx context.Context, id, errMsg string) error {
 	return nil
 }
 
+// SetTargetHost 回填 target_host（scanner 从 brief 抽到真实 host 时）。
+// API 创建时留空（不在 API 层 parse brief）；幂等覆盖，best-effort 不阻塞扫描。
+func (s *Store) SetTargetHost(ctx context.Context, id, host string) error {
+	_, err := s.pool.Exec(ctx, `UPDATE active_scan SET target_host=$1 WHERE id=$2`, host, id)
+	if err != nil {
+		return fmt.Errorf("set target_host %s: %w", id, err)
+	}
+	return nil
+}
+
 // Complete 把 scan 置为 completed（commander run 自然跑完的成功终态），写 ended_at。
 // 与 Abort 区别：completed 无 error_message（成功收尾），aborted 带原因（用户停/取消/错误）。
 func (s *Store) Complete(ctx context.Context, id string) error {
