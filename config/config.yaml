@@ -238,7 +238,20 @@ providers:
     supports_vision: false
     context_window: 131072                    # glm-4.5-flash 128k
 
-  # —— 火山方舟豆包（OpenAI 兼容协议，ark.cn-beijing.volces.com）
+  # —— 小米 MiMo（Token Plan 固定订阅，OpenAI 兼容协议，token-plan-cn.xiaomimimo.com）★当前激活：default/vision/light 三角色（见 .env.local）
+  # 同 XIAOMI_API_KEY（tp- 开头）；mimo-v2.5 支持 vision + tool calls。
+  xiaomi_mimo:
+    type: openai_compat
+    base_url: https://token-plan-cn.xiaomimimo.com/v1
+    default_model: mimo-v2.5
+    api_key_env: XIAOMI_API_KEY
+    max_tokens: 16384                         # 单次输出 cap（mimo-v2.5 最大输出 128K，按需可上调至 131072）
+    supports_tools: true
+    supports_vision: true
+    context_window: 1048576                   # 小米官方 1M 上下文
+    grounding_coord_system: normalized_1000   # ⚠️ 沿用 doubao 旧值（Qwen-VL 谱系）；browser_use 点击若偏移改 real_pixels
+
+  # —— 火山方舟豆包（OpenAI 兼容协议，ark.cn-beijing.volces.com）※保留定义备用，当前未选用（已切小米）
   # 关键差异：model 字段必须填 endpoint ID（控制台「在线推理 → 推理接入点」创建），
   # 不是模型名。同 ARK_API_KEY 可调任何已创建的 endpoint。
   # 当前 ep-20260523102117-7nrdq 绑定 Doubao-Seed-2.0-mini：256K 上下文 + vision + tool calls。
@@ -255,7 +268,7 @@ providers:
     # grounding_coord_system 不填 → vendor registry 推断（ark.cn-beijing.volces.com → normalized_1000）
     # endpoint ID 模式无法走 model name registry，靠 vendor base_url 兜底命中
 
-  # —— 豆包 Lite 档（中档付费，比 Mini 强、比 Pro 便宜）
+  # —— 豆包 Lite 档（中档付费，比 Mini 强、比 Pro 便宜）※保留定义备用，当前未选用
   # 用途：替代 GLM Flash 当 light_provider —— inspector / notes compactor / history compactor。
   # 单价 0.6/3.6 元/M tokens —— Mini 3x 但 instruction following 显著优于激进蒸馏的 Mini。
   doubao_vision_lite:
@@ -438,6 +451,10 @@ sandbox:
   default_image: liusha/pentools:latest    # 默认沙箱镜像（含 sandbox-server PID 1 + browser-use + 全套 pentest 工具）
   # run_command 单次硬超时由 LLM 通过 timeout_seconds 必传，上限钳到 toolruntime.step_tool_timeout_seconds（1800s）
   run_tail_bytes: 8192                     # 主进程 RunCommand 对 stdout/stderr 截尾字节数；sandbox-server 返回完整 stdout，截尾在主进程层
+  # 视口 1280×800：主流桌面宽度，页面渲染贴近真实用户视角。
+  # 点击落点由 grounding ToRealPixels 按本尺寸换算（已实测 MiMo=normalized_1000：x*1280/1000=真实像素）。
+  viewport_width: 1280
+  viewport_height: 800
 
 # ---- toolruntime Interceptor 参数 ----
 toolruntime:
