@@ -118,15 +118,47 @@ func (g *openAICompatGen) Generate(ctx context.Context, msgs []Message, tools []
 // 因此走 MultiContent 时 Content 必须空——vision provider 不撞 DeepSeek 兼容场景。
 func toOpenAIMessages(in []Message, supportsVision bool) ([]openai.ChatCompletionMessage, error) {
 	out := make([]openai.ChatCompletionMessage, 0, len(in))
+
+	// pendingImages 累积 tool 结果里的图片块，待 flush 成一条 user message。
+	// 为什么图不能留在 tool message：OpenAI 协议规定 tool role 的 content 必须是 string，
+	// 不接受 image multipart（严格实现如小米 MiMo 报 400 Param Incorrect；doubao/glm 宽容才没暴露）。
+	// 全 provider 通用做法是把图放 user role（user 图文混合是唯一无争议都支持的形态）。
+	var pendingImages []openai.ChatMessagePart
+	flushImages := func() {
+		if len(pendingImages) == 0 {
+			return
+		}
+		parts := make([]openai.ChatMessagePart, 0, 1+len(pendingImages))
+		parts = append(parts, openai.ChatMessagePart{Type: openai.ChatMessagePartTypeText, Text: toolScreenshotNote})
+		parts = append(parts, pendingImages...)
+		out = append(out, openai.ChatCompletionMessage{Role: openai.ChatMessageRoleUser, MultiContent: parts})
+		pendingImages = nil
+	}
+
 	for _, m := range in {
+		// 进入非 tool message 前先 flush：OpenAI 协议要求 assistant.tool_calls 后必须紧跟
+		// 全部对应 tool message，再接其它 role——并行 tool calls 时不能在 tool 之间插 user。
+		if m.Role != RoleTool {
+			flushImages()
+		}
+
 		om := openai.ChatCompletionMessage{
 			Role:       string(m.Role),
 			Name:       m.Name,
 			ToolCallID: m.ToolCallID,
 		}
 		switch {
+		case len(m.ContentParts) > 0 && supportsVision && m.Role == RoleTool:
+			// tool 结果含图：文本留 tool message（保 tool_call_id 关联），图累积到 pendingImages
+			// 待 flush 成 user message。纯文本 tool 结果（无图）走这里也只设 Content，不产生空 user。
+			om.Content = textOnlyFromParts(m.ContentParts)
+			imgs, err := imagePartsToOpenAI(m.ContentParts)
+			if err != nil {
+				return nil, fmt.Errorf("openai tool image: %w", err)
+			}
+			pendingImages = append(pendingImages, imgs...)
 		case len(m.ContentParts) > 0 && supportsVision:
-			// 真 vision：走 MultiContent，Content 必须空（SDK 互斥校验）。
+			// 非 tool role（如 user 含图）：MultiContent 合法，Content 必须空（SDK 互斥校验）。
 			parts, err := contentPartsToOpenAIParts(m.ContentParts)
 			if err != nil {
 				return nil, fmt.Errorf("openai multipart: %w", err)
@@ -158,6 +190,50 @@ func toOpenAIMessages(in []Message, supportsVision bool) ([]openai.ChatCompletio
 			}
 		}
 		out = append(out, om)
+	}
+	// 对话以 tool message 收尾时（刚执行完工具、正要 LLM 看图回应），flush 末尾累积的图。
+	flushImages()
+	return out, nil
+}
+
+// openaiImageType 是 image_url part 的类型标识（供本包与测试断言共用）。
+const openaiImageType = openai.ChatMessagePartTypeImageURL
+
+// toolScreenshotNote 是承载 tool 截图的 user message 引导文本，避免 image-only multipart
+// 在严格 provider 上的边角问题，并提示 LLM 这是上一步工具的视觉产物。
+const toolScreenshotNote = "（上一步工具返回的截图）"
+
+// textOnlyFromParts 抽取 ContentParts 里的文本拼成 string（丢弃图片块）。
+// 全空时返回单空格——OpenAI 协议要求 tool message 含非空 content。
+func textOnlyFromParts(parts []ContentPart) string {
+	pieces := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if p.Type == "text" && p.Text != "" {
+			pieces = append(pieces, p.Text)
+		}
+	}
+	if len(pieces) == 0 {
+		return " "
+	}
+	return strings.Join(pieces, "\n")
+}
+
+// imagePartsToOpenAI 抽取 ContentParts 里的 image_url 块转成 OpenAI multipart（丢弃文本块）。
+func imagePartsToOpenAI(parts []ContentPart) ([]openai.ChatMessagePart, error) {
+	out := make([]openai.ChatMessagePart, 0, len(parts))
+	for _, p := range parts {
+		if p.Type != "image_url" {
+			continue
+		}
+		if p.ImageURL == nil || p.ImageURL.Base64Data == "" {
+			return nil, errors.New("image_url part: ImageURL/Base64Data 必填")
+		}
+		out = append(out, openai.ChatMessagePart{
+			Type: openai.ChatMessagePartTypeImageURL,
+			ImageURL: &openai.ChatMessageImageURL{
+				URL: "data:" + p.ImageURL.MediaType + ";base64," + p.ImageURL.Base64Data,
+			},
+		})
 	}
 	return out, nil
 }
