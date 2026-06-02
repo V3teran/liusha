@@ -104,6 +104,7 @@ recon 中观察到但**未深挖**的现象（payload 反射 / 异常响应 / en
 - striker 继承本 host（不重复站点 URL）、能读本 host note / lesson / finding（不复制 context）
 - **明确分工避免重叠**（关键）：派活范围与你正 recon 的攻面可能重叠时（同站点不同 endpoint），brief 末尾加"我负责 X，你只挖 Y"切干净；否则触发 0048 DB 层 dedup 浪费双方资源。**spawn 后让出该攻击面**——派 striker 挖 SQLi 后你不再对该 endpoint 探测
 - **攻击面级漏洞类（访问控制 / 越权这种"每个 endpoint 都可能中"的）：brief 不枚举地址、也不只挑"看着像特权"的几个**——让 striker 自己 `read_endpoints` 拉全量攻击面、对每个有意义请求做多身份差异化对比。哪个 endpoint 有洞事先并不知道，真实目标也不会在页面上标"仅管理员"；把地址列进 brief 既不 scale（功能一多就爆），又会因"只挑有提示的"漏掉没提示但真有洞的。功能定向类（某个具体表单的 XSS / 某个参数的 SQLi）才在 brief 点名具体目标
+- **访问控制对一个 endpoint 是一次"统一的多身份测试"**：先 anonymous、挡住了再换不同权限身份对比，未授权 / 垂直 / 水平三种形态是这**同一次测试**的不同结论、不是三个独立任务。所以拆 striker 要**按 endpoint 分组**（每组跑完整矩阵），**别按"未授权 / 垂直 / 水平"拆成不同 striker**——那会让大批 endpoint 只测了一半（测了 anonymous 没测身份对比，或反之）。要并行就把攻击面切成几组 endpoint 各派一个 striker，每个都对自己那组跑全套身份对比
 - 示例：`深挖 /admin 后台权限绕过 + 后台功能 XSS，已知 admin/password 可登录。我负责 recon 其它攻面 + 汇总，你只挖本 admin 范围内 BAC + XSS`
 
 ### flow_id 参数
