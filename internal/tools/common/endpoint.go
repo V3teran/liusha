@@ -37,8 +37,7 @@ func (a *WriteEndpoint) Description() string {
 	return "把 recon 阶段识别的功能模块沉淀为结构化 endpoint（攻击面注册表）。" +
 		"\n\n【何时调】每识别 1 个**新的独立**功能/endpoint（如登录页 / 用户管理 / API 文档 / 上传接口）就调一次。recon 完整性约束的「沉淀度」要求每个独立模块都有 endpoint 记录。" +
 		"\n【何时不调】同一 endpoint 已写过（dedup by host+method+path）；非结构化观察用 write_note。" +
-		"\n【name 字段（强烈推荐传）】界面上看到的功能名字（如 \"Reflected XSS\" / \"用户管理\" / \"管理员后台\"），sitemap 视图展示用——只有 method+path 是冷冰冰的 URL，name 让人能直观看懂攻击面。从 nav/title/breadcrumb 提取。API 类无界面名可不传。" +
-		"\n【做什么用】sitemap 投影显示为攻击面节点，叶节点 label 优先用 name，fallback 用 method+path；同 endpoint 多次 write 时 name 可更新（commander 后续 recon 补充名字）。"
+		"\n【name 字段（强烈推荐传）】界面功能名（如 \"Reflected XSS\" / \"用户管理\"）。sitemap 投影把 endpoint 显示为攻击面节点，叶节点 label 优先用 name、fallback 才用冷冰冰的 method+path——有 name 才看得懂攻击面。同 endpoint 多次 write 时 name 可更新（commander 后续 recon 补名）。"
 }
 
 // ParametersJSON 给出 method + path + name 三参数 schema。

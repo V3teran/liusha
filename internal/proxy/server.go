@@ -184,8 +184,8 @@ func (s *Server) onResponse(resp *http.Response, ctx *martian.Context) error {
 	}
 
 	// 3) 构造 snapshot 并注入 source。
-	// v35+：onResponse 仅处理 external (passive) 流量（8888 入口），无 hunter 概念；
-	// 容器内 chromium / CLI 工具流量都不入字典。
+	// onResponse 仅处理 external (passive) 流量（8888 入口），无 hunter 概念；容器内工具流量不经本代理
+	// （CLI 直连目标；chromium 经 browser-svc CDP capture → ingest 单独入字典，source=internal）。
 	snap := buildSnapshot(req, resp, reqBody, respBody)
 	snap.Source = s.source
 
@@ -417,4 +417,3 @@ func generateSnapshotID(method, host, uri string, body []byte) string {
 	h.Write(body)
 	return hex.EncodeToString(h.Sum(nil))
 }
-

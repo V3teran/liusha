@@ -124,7 +124,7 @@ func (a *BrowserUse) ParametersJSON() json.RawMessage {
     "wait_type":{"type":"string","enum":["selector","text"],"description":"action=wait 可选：condition 是 CSS selector（默认）还是页面文本"},
     "code":{"type":"string","description":"action=eval 必填：JS 代码，最后表达式作为返回值"},
     "query":{"type":"string","description":"action=extract 必填：自然语言描述要抽什么"},
-    "identity":{"type":"string","description":"身份/账号（= 浏览器 session，cookie jar 边界）。缺省走共享的默认身份；**仅当测越权/BAC 需要多账号对比时**显式传不同身份名（建议用 read_credentials 的凭证 name，如 'admin' / 'lowpriv'）——不同 identity 各自独立浏览器+登录态，互不污染。同一 identity 下 commander/striker 共用一个浏览器。"},
+    "identity":{"type":"string","description":"身份/账号名（= 浏览器 session，cookie jar 边界）。**传你要扮演的账号用户名**（与 read_credentials 的凭证 name 对齐，如 'admin' / 'gordonb'）——同名=同 jar，commander/striker 跨 hunter 自动复用同一登录态；不同 identity 各自独立浏览器+登录态、互不污染（越权/BAC 多账号即靠此各开一个）。只有无账号的匿名浏览才留空走默认身份。"},
     "timeout_seconds":{"type":"integer","minimum":1,"maximum":180,"description":"硬超时秒；缺省 open=120 / click/input=20 / wait=30 / state/eval/extract/source=15"}
   },
   "required":["action"]
@@ -160,7 +160,11 @@ func (a *BrowserUse) Execute(ctx context.Context, args json.RawMessage) (toolfx.
 		if in.URL == "" {
 			return toolfx.Result{}, fmt.Errorf("browser_use open: url 必填且非空")
 		}
-		if in.TimeoutSeconds == 0 {
+		// open 含 chromium cold start（实测 >60s），defaultOpenTimeout 当**地板**而非零默认：
+		// LLM 传的小值（如 30）会在冷启 + 登录中途被 sandbox-server SIGKILL，
+		// 导致共享 cookie jar 没种上 → 后续 striker open 受保护页被 302 回 login → 各自重登。
+		// timeout 是 SIGKILL 上限不是 sleep，热 open 命中即秒回，抬地板对热路径零延迟代价。
+		if in.TimeoutSeconds < defaultOpenTimeout {
 			in.TimeoutSeconds = defaultOpenTimeout
 		}
 		return runBrowserSub(ctx, a.Run, "open", []string{in.URL}, in.TimeoutSeconds, in.Identity)

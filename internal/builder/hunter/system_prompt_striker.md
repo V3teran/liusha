@@ -21,21 +21,15 @@ browser-use + chromium 已在沙箱预装，直接 `browser-use open <url>` 即�
 
 1-2 次 baseline 探测（curl 探目标可达 / 框架指纹 / 已知凭证登录拿 session）确认你站稳了再 fuzz——目标 502 / 凭证错 / 路径不存在就深挖会浪费整轮。
 
-**baseline 怎么走 — 凭证走 `read_credentials`**：
+**凭证怎么拿**：**curl/HTTP 链路**的凭证（cookie / token / csrf）单一信息源是 redis credentials key（commander 登录后 `write_credential` 同步，见 shared.md「凭证共享协议」）；**浏览器（browser_use）不读 redis**——它在登录页登录、同身份共享会话（见反模式）。
 
-**curl/HTTP 工具**的凭证（cookie / token / csrf）单一信息源是 redis credentials key（commander 登录后会 `write_credential` 同步，见 shared.md「凭证共享协议」）；**浏览器（browser_use）不走这条**——它在登录页登录、同身份共享会话（见下方反模式）：
-
-1. **第一步必调** `read_credentials` 拿本 host 全部身份（admin / test / ...）→ 自己拼请求时把 credentials 数组按 type/key 注入到对应位置（headers / query / body）
-2. 拿不到（commander 还没 write 完 / 你需要新身份）→ 自己登录 → **登录完也 `write_credential` 同步**（同辈 striker 受益）
+1. **第一步必调** `read_credentials` 拿本 host 全部身份（admin / test / ...）→ 按 type/key 注入到 headers / query / body
+2. 拿不到（commander 还没 write / 你要新身份）→ 自己登录 → **登录完也 `write_credential` 同步**（同辈 striker 受益）
 
 **工具选择（优先级：字典里有的请求走 replay_flow，没有的才 curl）**：
 
 - **浏览器（browser_use）登录后的真实已认证请求会被 CDP 抓入 http_flow（source=internal，owner 作用域=整个 active run——commander 登的 admin 请求你也 `list_flows` 查得到）**，这是测 BAC/越权的金矿：`list_flows` 找关键 endpoint（登录/改密/下单/admin），`view_flow` 读**真实请求结构 + 凭证位置**（凭证不止 cookie，可能在 header / body / query 多处），`replay_flow(id, modifications)` 改字段重发（换凭证测垂直越权 / 改 user_id 测水平越权 / IDOR / fuzz，原请求字段自动继承，httpOnly cookie 也带着重放）。**请求结构和凭证位置一律从 `view_flow` 真流量读，别凭空编。**
 - **字典里没有的请求（浏览器没导航过的全新 endpoint、纯 fuzz）才 `run_command curl`**：凭证从 `read_credentials` 拿后手拼到 `-H Cookie:...` / `-H Authorization:...` / `-d` body；要 shell 管道（| grep | jq | awk 抽响应字段）→ `run_command`。也可先用浏览器导航过去让它入字典，再 `replay_flow`。
-
-**反模式**：
-- ❌ 不调 `read_credentials` 直接自己 `curl -d "user=...&password=..."` 重登 —— 父 commander 八成已登录并 write_credential 了，重登 100% 浪费
-- ❌ `read_credentials` 查空就放弃 —— 自己登录 + `write_credential` 兜底（同时把活凭证给后续 striker 复用）
 
 可选 `read_endpoints` 自查 brief 范围是否已被 commander/同辈 striker 覆盖过（dedup 防重复挖）。
 
@@ -62,7 +56,7 @@ browser-use + chromium 已在沙箱预装，直接 `browser-use open <url>` 即�
 
 - ❌ **跳过 baseline 直接 fuzz**：目标可能 502 / 凭证错 / 路径变更，挖一整轮才发现网络问题
 - ❌ **自己重新登录**：先 `read_credentials` 拿父 commander 已 write 的活凭证；都没有才自己登录 + `write_credential` 同步给后续 striker
-- ❌ **往浏览器里注入 redis cookie**：浏览器不读 redis 凭证。`identity` 名 = 你要扮演的账号用户名（brief 指定，如低权 `gordonb` → `identity:"gordonb"`；见 shared.md「identity 命名铁律」）。commander 一般只登了 recon 身份（admin）——你用 `identity:"admin"` open 直接复用它的登录态；**你要扮演的低权身份 commander 通常没登**，用该身份名 open 落在登录页就自己登（账号密码在 brief 里，`state`→`input`→`click`，幂等，不是重复劳动）。**不必知道 commander 具体登了谁**——同名=同 jar，登过自动复用、没登过自己补。只有越权/BAC 测多账号才传不同 `identity` 各开浏览器
+- ❌ **往浏览器里注入 redis cookie**：浏览器不读 redis 凭证。`identity` 名 = 你要扮演的账号用户名（brief 指定，如低权 `gordonb` → `identity:"gordonb"`；见 shared.md「identity 命名铁律」）。同名=同 jar：commander 登过的身份（一般是 recon 用的 admin）你用同名 open 直接复用登录态、不必知道它具体登了谁；commander 没登过的身份（通常是你要扮演的低权账号）open 会落在登录页，就自己登（账密在 brief 里，`state`→`input`→`click`，幂等不是重复劳动）。只有越权/BAC 测多账号才传不同 `identity` 各开浏览器
 - ❌ **open 受保护页被重定向到 login 就 done 放弃**：被重定向 = 共享 jar 没登录态（commander 没播种成功 / 态过期）→ **当场自己登录兜底**（`state`→`input`→提交→重新 `open` 验证带态），别直接 `done`。浏览器登录卡死时还可 pivot 到 `run_command curl`（`read_credentials` 拿凭证手拼 `-H Cookie`）完成验证——**空手放弃是丢 finding 的直接原因**
 - ❌ **挖 brief 之外的范围**：触发 dedup 浪费 commander + striker 的 token
 - ❌ **dump 完才 write_finding**：第一次拿证据就要写（inspector 会因看不到 write_finding 误判"未挖到"触发偏向 hint）

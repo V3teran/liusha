@@ -94,7 +94,7 @@ func (a *RunCommand) Description() string {
 	return "在沙箱容器里跑一条 shell 命令（sh -c <command>），用于 LLM 自决策的工具调用。" +
 		"command 走 sh 解析（支持 |、&&、>、<、$()）；输出 stdout/stderr 各截 ~8KB tail。" +
 		"沙箱预装工具集见 user prompt 的『可用外部工具索引』；详细手册按需调 `read_tooling_skill` 拉取。" +
-		"tag 必填（小写字母数字短横，长度 ≤ 32），用作运维诊断标签。" +
+		"tag 必填，用作运维诊断标签（格式见 schema）。" +
 		"环境变量 $OUTPUT_DIR：写到 $OUTPUT_DIR/xxx 的二进制/大文件会作为 base64 附件返回" +
 		"（上限 200KB/文件, 1MB 总量, 5 文件）。文本类输出直接走 stdout 即可，不要重复写文件。" +
 		"典型用法：浏览器截图 `browser-use screenshot $OUTPUT_DIR/shot.png`；" +
@@ -209,8 +209,8 @@ func (a *RunCommand) Execute(ctx context.Context, args json.RawMessage) (toolfx.
 	out := runCommandOutput{
 		ExitCode:   res.ExitCode,
 		TimedOut:   res.TimedOut,
-		StdoutTail: tailString(res.Stdout, tailN),
-		StderrTail: tailString(res.Stderr, tailN),
+		StdoutTail: clampMiddle(res.Stdout, tailN),
+		StderrTail: clampMiddle(res.Stderr, tailN),
 		Files:      toFileMetas(res.Files),
 		Warnings:   res.Warnings,
 	}
@@ -277,10 +277,26 @@ func sanitizeTag(s string) string {
 	return s
 }
 
-// tailString 返回 s 末尾 n 字符（防止超长输出撑爆 LLM context）。
-func tailString(s string, n int) string {
+// clampMiddle 把超长输出收窄到「头 + 尾」共 n 字节，中间插醒目省略标记
+// （防止超长输出撑爆 LLM context）。
+//
+// 为什么不是纯尾截断：BAC 多身份重放 / 多请求拼在一条命令里时，纯尾截断会把
+// 前面的响应行（如 admin 的 302）静默丢掉，只剩一个不起眼的 "…" 前缀 → LLM
+// 误以为数据完整、编出 "anonymous=200" 之类与真实证据矛盾的结论。head+tail 同时
+// 保住首尾两端，中间用明文标记告知「丢了多少字节」，让数据缺失对 LLM 不可忽略。
+//
+// 头略多于尾（3:2）：每个响应的 status line + headers 在顶部，信息密度更高。
+// 按字节切（与 TailBytes 语义一致）；可能切断多字节 rune，pentools 输出以 ASCII
+// 为主，可接受（与旧 tailString 同等行为）。
+func clampMiddle(s string, n int) string {
 	if len(s) <= n {
 		return s
 	}
-	return "…" + s[len(s)-n:]
+	head := n * 3 / 5
+	tail := n - head
+	elided := len(s) - head - tail
+	return s[:head] +
+		fmt.Sprintf("\n…[run_command 输出截断：中间省略 %d 字节，仅保留首 %d + 尾 %d 字节；"+
+			"需完整输出请把命令结果重定向到 $OUTPUT_DIR 文件后分段读]…\n", elided, head, tail) +
+		s[len(s)-tail:]
 }

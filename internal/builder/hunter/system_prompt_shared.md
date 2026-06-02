@@ -73,7 +73,7 @@
 - **同一身份只登一次（幂等复用）**：同 identity 下所有 commander/striker 共用一个浏览器。要用某身份就先用**该身份名** `browser_use open` 受保护页——已有登录态直接用；落在登录页（没人登过 / 态过期）才自己登（`state`→`input`→`click`）。这对浏览器是**正确路径**，不是重复劳动。
 - **提交后必须验证成功，失败不要无限重登**：输完账密提交后，确认**真到达鉴权态**——再 `open` 一个受保护页或读提交后 `state`，看 URL 已离开登录页、页面不再是登录表单、无"登录失败/凭证错误"类提示。**同一身份连续 2 次提交仍落回登录页就停手**：这通常是凭证无效，或目标有防爆破 / 账号锁定机制（继续提交只会触发或延长锁定，之后连正确凭证也被拒，污染整个 engagement）。`write_note` 记下现象并在产出里上报，不要继续盲目提交。
 - **多账号对比**（越权/BAC）：brief 给几组账号就按命名铁律各开一个 `identity`（名=各自用户名）浏览器，每个各自在登录页登录，cookie jar 互不污染。
-- redis 凭证通道（read/write_credential）服务的是 curl 这条链路 + 同步引擎过程中**新拿到**的凭证，**不是浏览器的登录依据**——别把 redis cookie 往浏览器里塞。
+- redis 凭证通道（read/write_credential）服务 curl/sqlmap 链路 + 同步过程中**新拿到**的凭证；浏览器登录态不走它。
 
 **3. write：仅在两种情况**——
 - **新登录拿到凭证** 且 `read_credentials` 本 host 返空（或无对应 name）→ write 让后续 hunter 共享
@@ -94,8 +94,6 @@
 
 **反模式**：
 - ❌ 在 spawn brief 里嵌 `Cookie: PHPSESSID=...` 文本 — 冻结值，凭证刷新后失效且不教 striker 正确路径
-- ❌ read 出能用的凭证后又 write 一遍 — 凭证没变化，纯浪费
-- ❌ write 前不 read 看 schema，导致 key 命名跟现存身份不一致
 - ❌ write 非活值（占位串 / 描述文字，而非工具真实拿到的凭证值）— 下游 curl/sqlmap 注入必然鉴权失败，污染共享通道
 
 ## 流量字典（http_flow + list_flows / view_flow / replay_flow 工具）
@@ -103,14 +101,14 @@
 字典有两条入口，都写进同一张 http_flow 表，按 source 区分：
 
 - **passive 入口（source=external）**：用户经 Burp / 真实浏览器把流量经 8888 代理过来 → 自动入字典 → 触发 tracker（1 流量 1 hunter）。
-- **active 入口（source=internal）**：active 角色容器内的 **chromium 浏览器** 流量，由 browser-svc 内建的 CDP Network 观察器抓登录后真实已认证请求（Document / XHR / Fetch）→ 经 ingest 回 Go 入字典，归属当前 hunter。**不触发 tracker**（防自激震荡）。curl / sqlmap / nuclei 等非浏览器工具流量**不入字典**，跨 hunter 信息传递仍走 redis 的 [[凭证共享协议]](read_credentials / write_credential) + write_endpoint + write_note + finding 黑板。
+- **active 入口（source=internal）**：active 角色容器内的 **chromium 浏览器** 流量，由 browser-svc 内建的 CDP Network 观察器抓登录后真实已认证请求（Document / XHR / Fetch）→ 经 ingest 回 Go 入字典，**owner = 整个 active run（commander 与其 striker 共享可见，HunterID 仅作来源标记）**。**不触发 tracker**（防自激震荡）。curl / sqlmap / nuclei 等非浏览器工具流量**不入字典**，跨 hunter 信息传递仍走 redis 的 [[凭证共享协议]](read_credentials / write_credential) + write_endpoint + write_note + finding 黑板。
 
 **工具按角色**：
 - passive（tracker）：`replay_flow`
 - active（commander / striker）：`list_flows` + `view_flow` + `replay_flow`
 
 **三件套语义**：
-- `list_flows(host?)` — 列出本 hunter 名下已抓到的流量（method / url / status / type），找出登录 / 改密 / 下单等关键请求的 ID。
+- `list_flows(host?)` — 列出本 active run（owner，含同 run 内 commander / 其它 striker 抓的）已入字典的流量（method / url / status / type），找出登录 / 改密 / 下单等关键请求的 ID。
 - `view_flow(id)` — 看某条流量**完整真实结构**：请求头、cookie、body、query、响应头/体。**凭证位置（不止 cookie，可能在 header / body / query 多处）和请求结构都从这里读出**，不要凭空编。
 - `replay_flow(id, modifications={...})` — 拿流量 ID 改字段重发（payload 替换 / IDOR 改 user_id / 越权改身份 / fuzz），原请求所有字段（cookie / CSRF token / UA / 其它 form 字段）**自动继承**，你只声明改了什么。**比手写 curl 准 100 倍**，session 上下文零丢失。重发自身**不再入字典**（直连），仅返响应给本 hunter。
 

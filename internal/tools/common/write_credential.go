@@ -34,12 +34,7 @@ func (a *WriteCredential) Name() string { return "write_credential" }
 func (a *WriteCredential) Description() string {
 	return "把当前 hunter 拿到的活凭证录入本 host 凭证池，让同 owner 下其他 hunter（commander/striker/后续 task）通过 read_credentials 共享。" +
 		"\n\n**何时用**：自己刚通过登录 / OAuth / API key 注入等方式获得一组真实凭证，需要让其他 hunter（特别是 spawn 的 striker）也用上时。" +
-		"\n\n**调用流程（重要）**：" +
-		"\n1. **先调 `read_credentials`** 看本 host 已有身份的 credentials 结构（type/key 怎么填）；" +
-		"\n2. 有现存身份 → **模仿其结构**填本工具 credentials 数组（key 名称对齐）；" +
-		"\n3. 无现存身份 → 自己识别哪些字段是凭证（headers 里的 Cookie/Authorization/X-Auth-Token、body 里的 csrf_token/session、query 里的 api_key 等），逐条录入。" +
-		"\n\n**凭证不只是 cookie**：可能是多条（Cookie + CSRF + Authorization 同时），可能在不同位置（headers/query/body 自由组合），每条 type+key+value 三元组单独一项。" +
-		"\n\n**name 字段**：填**登录账号名**（如 admin/test/m233241）；SSO/OAuth 场景填 sub claim 或 email；完全无账号但要存（如 anonymous session 调试）兜底 '_live_<短 task_id>'。**禁止 name='anonymous'**（保留语义不持久化）。" +
+		"\n\n**先调 `read_credentials`** 看本 host 已有身份的 credentials 结构：有就**模仿其 type/key**填（key 对齐，避免一 host 两套 schema）；没有就自己从流量识别认证字段逐条录入。每条凭证的 type/key/value 与 name 规则见下方 schema。" +
 		"\n\n返回 {saved: true, name, host}。同 name 重复调用直接覆盖（活凭证刷新场景）。"
 }
 

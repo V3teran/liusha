@@ -1,4 +1,4 @@
-// Package actions 实现 ReAct 循环里通用的 Action 集合：
+// done.go 实现 ReAct 循环里的几个通用 Action：
 // done / read_notes / write_note / write_finding / write_graph。
 //
 // 设计要点：

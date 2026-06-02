@@ -22,8 +22,8 @@ type LessonAdder interface {
 // host 由 builder 注入；LLM 只填 content（必填）+ kind/priority/payload（可选）。
 // (host, content_hash) 唯一键 ON CONFLICT 幂等：同 content 重复写只 hit_count++。
 type WriteLesson struct {
-	Store  LessonAdder
-	Host   string // builder 注入（per-task host）
+	Store LessonAdder
+	Host  string // builder 注入（per-task host）
 }
 
 // Name 返回工具名 "write_lesson"。
@@ -42,8 +42,7 @@ func (a *WriteLesson) Description() string {
 		"\n\n【禁写】请改用对应工具：" +
 		"\n- 本次具体漏洞细节（漏洞 PoC）→ write_finding" +
 		"\n- 一次性事实（本次 session、临时 cookie、当前状态）→ write_note" +
-		"\n- 通用 OWASP 理论 / LLM 已知知识（浪费长期存储）" +
-		"\ncontent 必填（≤500 字）；priority 1-10 默认 5。"
+		"\n- 通用 OWASP 理论 / LLM 已知知识（浪费长期存储）"
 }
 
 // ParametersJSON 给出 content 必填 + kind/priority 可选 schema。

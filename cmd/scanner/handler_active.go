@@ -58,7 +58,8 @@ func (h handler) handleActive(ctx context.Context, p worker.Payload, entrypoint 
 		return h.failTask(ctx, p.HunterID, err)
 	}
 
-	// 为本次 agent run 启动 sandbox 容器（v35+：容器内 chromium / CLI 工具流量都不入字典，
+	// 为本次 agent run 启动 sandbox 容器（容器内 CLI 工具流量直连目标不入字典；chromium 经
+	// browser-svc CDP capture → ingest 入字典，source=internal、active_scan owner。
 	// hunterID 仅用作容器名隔离；commander + 所有 spawn 出的 striker 共享同一容器，文件级
 	// 按 task_id 切 cwd/OUTPUT_DIR 隔离，chrome cookie/storage 自动跨 tab 共享）
 	sandboxClient, err := h.launcher.Spawn(ctx, p.HunterID)

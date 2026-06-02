@@ -234,8 +234,6 @@ func (s *Store) ListByOwnerAndHost(ctx context.Context, ownerType, ownerID, host
 	return out, rows.Err()
 }
 
-// ListByOwnerIDAndHost 列出当前 owner_id + host 下的 finding（按 created_at desc）。
-
 // scanner 抽象 pgx.Row / pgx.Rows 的 Scan 方法。
 type scanner interface {
 	Scan(dest ...any) error

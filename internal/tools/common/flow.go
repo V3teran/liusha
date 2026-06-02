@@ -52,7 +52,7 @@ func (a *ListFlows) Name() string { return "list_flows" }
 // Description 给 LLM 看的简短说明。
 func (a *ListFlows) Description() string {
 	return "列出 owner 范围内的历史 HTTP 流量摘要。默认按当前 host 过滤，可叠加 method/path/source/status/since。" +
-		"返回 [{id, method, host, path, status, duration_ms, created_at}]；要看完整请求体调 view_flow。"
+		"返回 [{id, method, host, path, status, source, duration_ms, created_at}]；要看完整请求体调 view_flow。"
 }
 
 // ParametersJSON 返工具参数 JSON schema。
@@ -271,7 +271,7 @@ func (a *ReplayFlow) ParametersJSON() json.RawMessage {
     }`)
 }
 
-// Execute 拿原 flow + apply modifications + 经 liusha proxy 重发。
+// Execute 拿原 flow + apply modifications + 直连目标重发（v34+ 撤回 internal proxy 路径）。
 func (a *ReplayFlow) Execute(ctx context.Context, args json.RawMessage) (toolfx.Result, error) {
 	var in struct {
 		ID            int64 `json:"id"`
@@ -331,8 +331,8 @@ func (a *ReplayFlow) Execute(ctx context.Context, args json.RawMessage) (toolfx.
 		return toolfx.Result{}, fmt.Errorf("构造请求失败: %w", err)
 	}
 	for k, v := range headers {
-		// canonical key 避免 LLM 传 "content-type" vs "Content-Type" 分歧
-		req.Header.Set(http.CanonicalHeaderKey(k), v)
+		// Set 自动 canonical key，消解 LLM 传 "content-type" vs "Content-Type" 分歧
+		req.Header.Set(k, v)
 	}
 
 	// v34+：直连目标（撤回 internal proxy 路径）。仅保留 TLS InsecureSkipVerify

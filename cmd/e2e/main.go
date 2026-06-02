@@ -71,7 +71,7 @@ const (
 	rawIOTimeout        = 100 * time.Second
 )
 
-// pollDeadline 从 ENV LIUSHA_E2E_POLL_DEADLINE_SECONDS 读取（开发期可调），缺省 12 分钟。
+// pollDeadline 从 ENV LIUSHA_E2E_POLL_DEADLINE_SECONDS 读取（开发期可调），缺省 40 分钟。
 func pollDeadline() time.Duration {
 	if v := os.Getenv("LIUSHA_E2E_POLL_DEADLINE_SECONDS"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
@@ -172,17 +172,6 @@ func filterAfter(all []finding.VulnFinding, baseline time.Time) []finding.VulnFi
 		if f.CreatedAt.After(baseline) {
 			out = append(out, f)
 		}
-	}
-	return out
-}
-
-// countKinds：按 severity 分组——仅用于 poll log 信息展示，不参与 PASS 判定
-// （以前 profile.minKinds 是判定字段，简化后已废弃；这里保留是因为肉眼看 log
-// 知道"挖出的 finding 都是什么 severity"对调试有用，比纯 count 信息量大）。
-func countKinds(fs []finding.VulnFinding) map[string]int {
-	out := make(map[string]int, len(fs))
-	for _, f := range fs {
-		out[f.Severity]++
 	}
 	return out
 }

@@ -10,6 +10,9 @@ cmd/*/dist/
 .env.local
 .env.*.local
 .env.docker
+# .env 备份（含密钥，绝不入 git）
+.env*.bak
+.env*.bak-*
 
 # Editor
 .vscode/
@@ -53,3 +56,7 @@ coverage.html
 
 # pentools build context 的 CA cert（运行时从 $HOME/.liusha/cacert.pem 同步进来，不入 git）
 deployments/tool-images/pentools/liusha-ca.crt
+
+# Python 字节码缓存（browser-svc.py 等运行时生成）
+__pycache__/
+*.pyc

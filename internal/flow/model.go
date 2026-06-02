@@ -1,13 +1,17 @@
 // Package flow 实现 http_flow 表的持久化层：
-// 抓取代理在 owner 内观测到的每一次请求/响应（含 headers + body）。
+// 落存 owner 内观测到的每一次请求/响应（含 headers + body）。
 // 大 body 在 Append/AppendBatch 内按 maxReqBody / maxRespBody 截断（v0010 后不再
-// 单独打 truncated flag；body 长度 < max 即未截断，按需 caller 自查 len()）。
+// 单独打 truncated flag；body 长度 < max 即未截断，caller 按需自查 len()）。
 //
-// v35+：http_flow 只存 passive 入口流量（8888 外部代理捕获，Source='external'）。
-// 容器内 sandbox 工具（chromium / CLI）流量不再入字典——凭证共享改走 redis credentials key
-// （read_credentials / write_credential），endpoint 沉淀走 endpoint 表（write_endpoint）。
-// OwnerType/OwnerID 多态关联到 passive_session（active_scan 在 v35+ 已无 http_flow 行）。
-// HunterID 字段保留为空（v35+ passive 单 flow 单 hunter，hunter 归属在 agent_run 表）。
+// 双来源（B1，ingestor 按 snap.Source 分流，见 ingestor.Traffic.handleMessage）：
+//   - Source='external'：passive 入口流量（8888 外部代理捕获）→ owner=passive_session、
+//     HunterID 空，ingestor 入主 ReAct 队列触发 tracker。
+//   - Source='internal'：active 容器内 browser-svc.py CDP 抓的 chromium 真实请求
+//     （含认证凭证位置）→ 反查 hunter 得 owner=active_scan、HunterID 必填，不入队
+//     （active 自己挖的流量回头再触发 tracker 会自激震荡）。
+//
+// CLI 工具直连不入字典；endpoint 沉淀走 endpoint 表（write_endpoint），
+// curl 链路凭证共享走 redis credentials key（read_credentials / write_credential）。
 package flow
 
 import (

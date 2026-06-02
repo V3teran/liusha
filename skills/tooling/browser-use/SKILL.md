@@ -44,7 +44,7 @@ description: 无头 Chromium 浏览器自动化，typed `browser_use` 工具是�
 
 ## 浏览器登录（独立有状态会话，不从 redis 注入 cookie）
 
-chromium 的 cookie jar 按 `--session`（=identity）持久共享，与 curl **独立**。浏览器的登录方式就是**在登录页输账号密码**，**不读 redis 凭证注入**——redis 凭证通道（`read_credentials`/`write_credential`）服务的是 curl 这条无状态链路 + 同步引擎过程中新拿到的凭证，不是浏览器的登录依据。
+chromium 的 cookie jar 按 `--session`（=identity）持久共享，与 curl **独立**。浏览器登录走**登录页输账号密码**这一条路；redis 凭证通道（`read_credentials`/`write_credential`）只服务 curl/sqlmap 无状态链路 + 同步过程中**新拿到**的凭证（详见反模式）。
 
 - **同一身份只登一次**：同 identity 下所有 commander/striker 共用一个浏览器。**任一 hunter 在登录页登录过后，整个身份的 jar 就有态**——后续同身份 hunter 直接 `browser_use open` 受保护页即带登录态，无需各自重登。
 - **没人登过 → 自己在登录页登录**：`state` 拿表单 numbered DOM → `input` 填账密 → `click` 提交。这对浏览器是**正确路径**，不是重复劳动。
