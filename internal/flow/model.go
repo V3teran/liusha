@@ -48,7 +48,8 @@ type Flow struct {
 // sitemap 投影用它取代已退役的 endpoint 表——攻击面从 http_flow(source=internal) 自动派生
 // （单一真相源 + 参数自动入库），并抽 <title> 作人类可读 UI 名（抽不到 fallback method+path）。
 type RouteRepr struct {
-	Host     string
+	Host     string // 裸 host（匹配/聚合 key 用，对齐 http_flow.host 存储键）
+	HostPort string // 真实 host:port（从 url authority 抽，sitemap root 显示用）
 	Method   string
 	Path     string
 	BodyHead []byte

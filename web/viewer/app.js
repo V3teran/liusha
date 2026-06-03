@@ -654,8 +654,8 @@ function renderTaskNode(node) {
   let briefSnippet = '';
   const ep = input.entrypoint;
   if (ep && typeof ep === 'object') {
-    if (ep.brief) briefSnippet = ` · ${ep.brief.slice(0, 80)}`;
-    else if (ep.url) briefSnippet = ` · ${ep.method || ''} ${String(ep.url).slice(0, 70)}`;
+    if (ep.brief) briefSnippet = ep.brief;
+    else if (ep.url) briefSnippet = `${ep.method || ''} ${ep.url}`;
   }
 
   const childrenHtml = node.children.length

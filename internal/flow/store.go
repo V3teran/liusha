@@ -277,11 +277,19 @@ func (s *Store) ListByOwnerFiltered(ctx context.Context, ownerID string, f ListF
 // 代表 flow 选取：`ORDER BY ... status_code ASC` → 每路由取 status_code 最小的那条
 // （2xx 优先于 4xx/5xx），即"成功"的代表响应。
 // host 为空时跨本 owner 全部 host；非空时剥端口对齐 http_flow.host 存储键（裸 host）。
+//
+// 只保留服务器上**真实存在**的端点：排除 status 404（Not Found）/ 410（Gone）——
+// 这两个是仅有的"资源不存在"语义码，多来自 dirsearch/katana 猜路径的探测噪声。
+// 403/401/405/5xx 都保留（端点存在、只是禁止/需认证/报错，是真实攻击面，尤其 403 是 BAC 头号目标）。
+// 过滤在 DISTINCT ON 之前：某路由曾 200 又 404 → 404 行被滤、留 200 行；只 404 过 → 整条排除。
 func (s *Store) DistinctRoutesWithRepresentative(ctx context.Context, ownerID, host string) ([]RouteRepr, error) {
 	q := `SELECT DISTINCT ON (host, method, path)
-	             host, method, path, substring(response_body from 1 for 16384)
+	             host,
+	             COALESCE(substring(url from '^https?://([^/]+)'), host) AS host_port,
+	             method, path, substring(response_body from 1 for 16384)
 	      FROM http_flow
-	      WHERE owner_id=$1::uuid AND source='internal'`
+	      WHERE owner_id=$1::uuid AND source='internal'
+	        AND status_code NOT IN (404, 410)`
 	args := []any{ownerID}
 	if host != "" {
 		q += ` AND host=$2`
@@ -298,7 +306,7 @@ func (s *Store) DistinctRoutesWithRepresentative(ctx context.Context, ownerID, h
 	var out []RouteRepr
 	for rows.Next() {
 		var r RouteRepr
-		if err := rows.Scan(&r.Host, &r.Method, &r.Path, &r.BodyHead); err != nil {
+		if err := rows.Scan(&r.Host, &r.HostPort, &r.Method, &r.Path, &r.BodyHead); err != nil {
 			return nil, fmt.Errorf("scan route repr: %w", err)
 		}
 		out = append(out, r)

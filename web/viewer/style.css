@@ -559,7 +559,20 @@ html, body {
 .task-status-aborted { background: #4a3520; color: #ffa94d; }
 .task-status-pending { background: #2a2a2a; color: #888; }
 .task-meta { color: #ccc; margin-right: 8px; }
-.task-brief { color: #888; font-style: italic; }
+.task-brief {
+  display: block;
+  margin-top: 6px;
+  padding: 6px 10px;
+  color: #aaa;
+  font-style: normal;
+  white-space: pre-wrap;   /* 保留 brief 里的换行 / ## 标题排版 */
+  word-break: break-word;
+  background: #1c1c1c;
+  border-left: 2px solid #333;
+  border-radius: 3px;
+  max-height: 320px;
+  overflow-y: auto;        /* 超长 brief 内部滚动，不撑爆任务树 */
+}
 
 /* ---------- sitemap 树视图 ---------- */
 

@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"html"
 	"io"
+	"net"
 	"regexp"
 	"sort"
 	"strings"
@@ -122,11 +123,14 @@ func (p *Projector) Project(ctx context.Context, ownerID, host string) (View, er
 		return View{}, fmt.Errorf("finding.ListByOwner: %w", err)
 	}
 
-	// host 过滤（防 finding.host 跨 host 串）
+	// host 过滤（防 finding.host 跨 host 串）。
+	// finding.host 带端口（111.229.193.40:34280）、http_flow.host 是裸 host——两侧都剥端口再比，
+	// 否则跨 host 过滤恒空、或下方 finding 永远匹配不上路由节点。
 	if host != "" {
+		want := stripHostPort(host)
 		filtered := findings[:0]
 		for _, f := range findings {
-			if f.Host == host {
+			if stripHostPort(f.Host) == want {
 				filtered = append(filtered, f)
 			}
 		}
@@ -153,12 +157,15 @@ func (p *Projector) Project(ctx context.Context, ownerID, host string) (View, er
 			findingsByKey[noTargetKey] = append(findingsByKey[noTargetKey], fs)
 			continue
 		}
+		// finding.host 带端口，路由节点 key 用裸 host——剥端口对齐，否则 finding 匹配不上路由、
+		// 落进下方"孤儿 finding"兜底造出重复裸节点（同一 path 出现两次）。
+		fhost := stripHostPort(f.Host)
 		tpath := TemplatizePath(path)
 		if method == "" {
-			methodlessByPath[f.Host+"|"+tpath] = append(methodlessByPath[f.Host+"|"+tpath], fs)
+			methodlessByPath[fhost+"|"+tpath] = append(methodlessByPath[fhost+"|"+tpath], fs)
 			continue
 		}
-		key := f.Host + "|" + method + "|" + tpath
+		key := fhost + "|" + method + "|" + tpath
 		findingsByKey[key] = append(findingsByKey[key], fs)
 	}
 
@@ -167,20 +174,31 @@ func (p *Projector) Project(ctx context.Context, ownerID, host string) (View, er
 	//   - 0 或多个 → fallback "(all hosts)"
 	rootName := host
 	if rootName == "" {
+		// 用裸 host 判"是否单一 host"（两侧剥端口：routes.host 已裸、finding.host 带端口——
+		// 不剥会把同一真实 host 算成 2 个，误落 "(all hosts)"）；
+		// 但显示用真实 host:port（hostPortByBare 从 routes 的 url authority 拿，保留端口）。
 		hostSet := map[string]struct{}{}
+		hostPortByBare := map[string]string{}
 		for _, r := range routes {
 			if r.Host != "" {
 				hostSet[r.Host] = struct{}{}
+				if r.HostPort != "" {
+					hostPortByBare[r.Host] = r.HostPort // 同一裸 host 的 host:port 取首个即可
+				}
 			}
 		}
 		for _, f := range findings {
 			if f.Host != "" {
-				hostSet[f.Host] = struct{}{}
+				hostSet[stripHostPort(f.Host)] = struct{}{}
 			}
 		}
 		if len(hostSet) == 1 {
 			for h := range hostSet {
-				rootName = h
+				if hp := hostPortByBare[h]; hp != "" {
+					rootName = hp // 显示真实地址含端口
+				} else {
+					rootName = h
+				}
 			}
 		} else {
 			rootName = "(all hosts)"
@@ -298,7 +316,14 @@ func extractFindingTarget(f finding.VulnFinding) (method, path string) {
 		return "", ""
 	}
 	if v, ok := m["method"].(string); ok {
-		method = strings.ToUpper(v)
+		// LLM 偶尔写多 method 值（"GET+POST" / "GET/POST"），取第一个真实 method——
+		// 否则匹配不上单 method 的路由节点、又造出冗余裸节点。按 +/、空格 等分隔符切首段。
+		parts := strings.FieldsFunc(v, func(r rune) bool {
+			return r == '+' || r == '/' || r == ',' || r == ' ' || r == '|'
+		})
+		if len(parts) > 0 {
+			method = strings.ToUpper(parts[0])
+		}
 	}
 	if v, ok := m["path"].(string); ok {
 		path = v
@@ -314,6 +339,15 @@ func firstLine(s string, max int) string {
 		s = s[:max]
 	}
 	return s
+}
+
+// stripHostPort 把 host:port 归一化为裸 host，对齐 http_flow.host 存储键（去端口）。
+// finding.host 带端口、routes.host 裸——两侧统一后才能匹配。无端口时原样返回。
+func stripHostPort(host string) string {
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		return h
+	}
+	return host
 }
 
 // titleRe 抓 HTML <title>…</title>（i=忽略大小写，s=. 匹配换行，非贪婪取第一段）。
