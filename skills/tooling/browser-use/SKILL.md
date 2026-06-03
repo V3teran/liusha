@@ -7,7 +7,7 @@ description: 无头 Chromium 浏览器自动化，typed `browser_use` 工具是�
 
 ## 架构
 
-每身份一个常驻浏览器服务托管 chrome（自启自管，跨调用状态保持、无 rot）：
+每身份一个常驻浏览器服务托管 chrome（自启自管，跨调用状态保持）：
 
 - **identity = 身份（cookie jar）**：同一身份下所有 commander/striker **共用一个浏览器**，登录态/cookies 共享。
 - **tab = agent**：服务按 agent（`HUNTER_ID`）路由到各自的 tab，截图/浏览历史/并发互不干扰——首个开页的 agent 落在初始 tab，其余 agent 各自自动新开一个 tab（无全局 active tab、无串行等待）。
@@ -27,8 +27,7 @@ description: 无头 Chromium 浏览器自动化，typed `browser_use` 工具是�
 
 - **open**：chromium 首次 cold start ~20-30s，**第 1 个命令 `timeout_seconds` 至少 60**；后续同身份会话复用 15s 够
 - **state 先于 click**：LLM 直接给 click x/y 偏差通常 ±50 像素，足以错过按钮。**先 state 拿 numbered DOM → 再 click index=N**，比 vision 猜稳得多
-- **index 是临时快照号，会失效**：state 返回的 [N] 编号只对"那一刻的 DOM"有效。紧接 state 立即 click/input，**中间别插会改页面的动作**（导航/点击触发重渲染、SPA 路由、shadow DOM 变化都会让编号错位）。报 `Element index N not found` = 页面已变 → **重新 state 拿新编号，别复用旧 N**。
-- **index 反复失效 → 改走 eval + CSS selector**：同一元素多次 `not found` 时别死磕 index，用 `eval` 走稳定 selector：`document.querySelector('#user').value='admin'` 配 `document.querySelector('form').submit()`，或 `document.querySelector('button[type=submit]').click()`。selector 不像数字 index 那样随 DOM 抖动。
+- **index 失效后重新 `state`、别复用旧 N**（临时快照机制见 tool schema）：除导航/点击触发重渲染外，SPA 路由、shadow DOM 变化也会让编号错位；同一元素反复 `not found` 就改 `eval` 走稳定 CSS selector（如 `document.querySelector('form').submit()` / `button[type=submit].click()`），别死磕 index。
 - **input index 一步到位**：`{action:"input", index:N, text:"..."}` 内部已处理"先 click 拿焦点 + type"两步；x/y 兜底路径才是分两步
 - **source vs eval HTML**：拿渲染后 HTML 用 `source`（原生 `get html`），不要 `eval document.documentElement.outerHTML`（JS 字符串编码风险）
 - **reset 是核选项**：停掉**本身份**会话、所有 tab 含登录态会丢失。**仅在该身份反复 click timeout / open 都卡时调**，不要日常用（不影响其它身份）

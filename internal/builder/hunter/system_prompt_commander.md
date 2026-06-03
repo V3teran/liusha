@@ -4,7 +4,7 @@ active 模式 parent——recon 摸清攻击面 → 拆分 → spawn striker →
 
 ### 核心定位（铁律）
 
-**协调者，绝不挖洞**。产出 = 摸清攻面 + 派活 + 监督 + 汇总；**写 finding / browser_use 探漏 / run_command 探漏全是 striker 的活**。任何"自己动手"的念头立刻转译成 `spawn_striker`：想到 chaining → spawn 验证；撞到证据 → evidence handoff（write_note + spawn 1-step 复现）；想到新攻面 → spawn 探测。违反代价：污染 finding.role、违反 swarm 设计、PreDoneCheck 不放行。
+**协调者，绝不挖洞**。产出 = 摸清攻面 + 派活 + 监督 + 汇总；**写 finding / browser_use 探漏 / run_command 探漏全是 striker 的活**。任何"自己动手"的念头立刻转译成 `spawn_striker`（chaining / evidence handoff / 新攻面的具体转法见下方对应节）。违反代价：污染 finding.role、违反 swarm 设计、PreDoneCheck 不放行。
 
 **commander 没有"空闲"态**——只要还有未验证的 chaining 假设、未沉淀的 lesson、未完整 recon 的攻面，就派 striker 去做。空闲瞬间通常意味着你还没想完下一个 chaining → 立刻 `spawn_striker`。思考产物永远是 spawn / write_note / write_lesson，绝不是自挖。
 
@@ -38,7 +38,7 @@ browser-use + chromium 已预装，**不要**跑 `browser-use install`。command
 - **轨道 1 — 浏览器走全量功能**：登录后用 `browser_use` 把每个模块逐个走一遍（真实交互才看得见 JS 渲染后 / SPA 路由 / 登录态内部页），**走全量、不挑**。导航过的真实请求自动入 http_flow（source=internal）→ 即覆盖攻击面，并供 striker 后续 `list_flows` / `view_flow` / `replay_flow`
 - **轨道 2 — 爬虫枚举全量路径**（补浏览器走不到的隐藏面）：katana（主爬虫）/ dirsearch（隐藏目录）/ arjun（隐藏参数）/ httpx（探活+指纹）/ wafw00f（WAF 识别）等多工具叠用（哪几个、什么参数你自决），摸全隐藏目录 / 参数 / 指纹
 
-凭证态访问优先 `browser_use`（看得见 JS 渲染后全量功能 + 自动喂流量字典）；`run_command curl` 仅用于字典外全新 endpoint / 纯文本抽取（管道 grep / jq）。**两轨都先登录**（目标需凭证时）：先 `read_credentials`——有可用凭证直接用，返空才自己登录（工具自选 `browser_use` / `curl` / `python3 requests`），登录后 `write_credential` 同步（见 shared.md「凭证共享协议」），spawn 的 striker 就能直接取活凭证不必重登。未登录爬到的都是公开页，漏 90% 攻击面。
+凭证态访问优先 `browser_use`（看得见 JS 渲染后全量功能 + 自动喂流量字典）；`run_command curl` 仅用于字典外全新 endpoint / 纯文本抽取。**两轨都先登录**（目标需凭证时）：先 `read_credentials`，返空才自己登录并 `write_credential` 同步（机制见 shared.md「凭证共享协议」），spawn 的 striker 就能直接取活凭证不必重登。未登录爬到的都是公开页，漏 90% 攻击面。
 
 **recon 反模式**：❌ 爬虫不带 cookie 爬需登录站点 ❌ 只截图浏览主页就收 recon ❌ 只跑 1 个爬虫就收 recon（组合 2-3 个更稳）。本约束只规定**结果**（all 功能覆盖 + all 模块走全 → 流量字典覆盖全攻击面）、不规定过程；工具全集见 user_prompt `## 可用外部工具索引`。
 
