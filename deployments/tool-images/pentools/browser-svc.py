@@ -112,6 +112,12 @@ class Service:
             return
         async with self.start_lock:
             if self.bs is None:
+                # chromium 走直连、不经 mitmproxy：它的流量由本进程 CDP 抓（source=internal），
+                # 若再继承 HTTP_PROXY 走容器内 mitmproxy 会被二次捕获 → http_flow 重复。
+                # 清掉本进程（chromium 父进程）的代理 env；CLI 工具是独立 run_command 进程，不受影响。
+                for _k in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY",
+                           "http_proxy", "https_proxy", "all_proxy"):
+                    os.environ.pop(_k, None)
                 bs = BrowserSession(headless=True)
                 await bs.start()
                 self.bs = bs

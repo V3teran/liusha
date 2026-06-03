@@ -44,6 +44,10 @@ const (
 
 	// 容器内 sandbox-server 监听端口（与 cmd/sandbox-server/main.go 一致）。
 	containerSandboxPort = "8080"
+
+	// 容器内 mitmproxy 监听端口（CLI 工具 HTTP_PROXY 指向它，捕获流量入字典）。
+	// 与 entrypoint 拉起 mitmdump 的 --listen-port 一致。
+	containerMitmPort = "8889"
 )
 
 // DockerLauncher 是 Launcher 的 docker CLI 实现。
@@ -136,6 +140,23 @@ func (l *DockerLauncher) Spawn(ctx context.Context, hunterID string) (Client, er
 		if l.IngestToken != "" {
 			args = append(args, "-e", "LIUSHA_INGEST_TOKEN="+l.IngestToken)
 		}
+		// CLI 流量捕获入字典：CLI 工具经容器内 mitmproxy（标准代理 env，工具自动尊重）→
+		// mitm-capture.py addon → POST ingest。hunter_id 走 env（容器 per-run，owner 级归属足够，
+		// 与 browser-svc.py 的 per-request 归属互补：浏览器 CDP / CLI 走 mitmproxy）。
+		// NO_PROXY 排除 ingest(host.docker.internal) + loopback，避免 addon 自身 POST 与
+		// sandbox-server 被代理（死循环 / 自拦截）。
+		proxyURL := "http://127.0.0.1:" + containerMitmPort
+		noProxy := "host.docker.internal,127.0.0.1,localhost"
+		args = append(args,
+			"-e", "HTTP_PROXY="+proxyURL,
+			"-e", "HTTPS_PROXY="+proxyURL,
+			"-e", "http_proxy="+proxyURL,
+			"-e", "https_proxy="+proxyURL,
+			"-e", "ALL_PROXY="+proxyURL,
+			"-e", "NO_PROXY="+noProxy,
+			"-e", "no_proxy="+noProxy,
+			"-e", "LIUSHA_HUNTER_ID="+hunterID,
+		)
 	}
 	args = append(args, l.Image)
 	runOut, err := exec.CommandContext(ctx, bin, args...).CombinedOutput()

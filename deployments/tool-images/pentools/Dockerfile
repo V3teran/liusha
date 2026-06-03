@@ -414,6 +414,33 @@ RUN apt-get update \
  && certutil -d sql:/root/.pki/nssdb -L | grep -i liusha \
  && echo "[Layer 7.5] CA 已装 OpenSSL trust + NSS DB（chromium 信任 MITM）"
 
+# Layer 7.6: mitmproxy — 容器内捕获 CLI 工具（curl/sqlmap/httpx/katana...）流量入 http_flow 字典。
+# CLI 工具经 HTTP_PROXY（launcher 注入）走 mitmdump → mitm-capture.py addon → POST ingest。
+# mitmproxy 用自己的 CA MITM（build 期生成并装入 OpenSSL trust，CLI 工具才不拒 HTTPS）；
+# 不放 liusha CA 私钥进沙箱——安全隔离（沙箱跑 pentest 工具，CA 私钥泄漏风险高）。
+COPY deployments/tool-images/pentools/mitm-capture.py /usr/local/bin/mitm-capture.py
+RUN pip install --quiet mitmproxy \
+ && timeout 8 mitmdump --listen-port 18999 -q >/dev/null 2>&1 || true \
+ && test -f /root/.mitmproxy/mitmproxy-ca-cert.pem \
+ && cp /root/.mitmproxy/mitmproxy-ca-cert.pem /usr/local/share/ca-certificates/mitmproxy-ca.crt \
+ && update-ca-certificates \
+ && chmod +x /usr/local/bin/mitm-capture.py \
+ && echo "[Layer 7.6] mitmproxy 已装 + CA 已信任 + addon 就位"
+
+# entrypoint：注入了 LIUSHA_INGEST_URL（active capture）时后台拉起 mitmdump，再 exec
+# sandbox-server 作 PID 1。HTTP_PROXY 由 launcher 与 LIUSHA_INGEST_URL 同条件注入，二者一致：
+# 注入了代理就一定有 mitmdump 在听，否则 CLI 工具会断网。
+RUN printf '%s\n' \
+  '#!/bin/sh' \
+  'if [ -n "${LIUSHA_INGEST_URL:-}" ]; then' \
+  '  mitmdump -q --listen-host 127.0.0.1 --listen-port 8889 \' \
+  '    --set block_global=false --set connection_strategy=lazy \' \
+  '    -s /usr/local/bin/mitm-capture.py >/tmp/mitm.log 2>&1 &' \
+  'fi' \
+  'exec /usr/local/bin/sandbox-server' \
+  > /usr/local/bin/sandbox-entrypoint.sh \
+ && chmod +x /usr/local/bin/sandbox-entrypoint.sh
+
 # Layer 8: sandbox-server 二进制（从 stage 0 sandbox-builder 拷贝）。
 # 这是容器 PID 1，主进程通过 :8080 HTTP RPC 调用——见 design doc：
 # docs/superpowers/specs/2026-05-16-sandbox-server-design.md
@@ -438,6 +465,6 @@ RUN echo "=== liusha/pentools (sandbox-server + browser-use) 工具清单 ===" \
 
 EXPOSE 8080
 
-# CMD 启动 sandbox-server——容器 PID 1，主进程通过 docker network 内 :8080 调用。
-# 用 exec form 让 SIGTERM 直达进程（不经过 sh），优雅 shutdown 才能工作。
-CMD ["/usr/local/bin/sandbox-server"]
+# CMD 启动 entrypoint：后台拉起 mitmproxy（如启用 capture）再 exec sandbox-server 作 PID 1。
+# entrypoint 用 exec form 让 SIGTERM 直达 sandbox-server（不经 sh），优雅 shutdown 才能工作。
+CMD ["/usr/local/bin/sandbox-entrypoint.sh"]
