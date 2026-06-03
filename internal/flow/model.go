@@ -11,7 +11,7 @@
 //     （active 自己挖的流量回头再触发 tracker 会自激震荡）。
 //
 // CLI 工具流量经容器内 mitmproxy 入字典（source=internal，源头 templatize 去重）；
-// 攻击面从本表 source=internal 派生（sitemap 投影，DistinctRoutes），不再有独立 endpoint 表；
+// 攻击面从本表 source=internal 派生（sitemap 投影，DistinctRoutesWithRepresentative），不再有独立 endpoint 表；
 // curl 链路凭证共享走 redis credentials key（read_credentials / write_credential）。
 package flow
 
@@ -41,17 +41,10 @@ type Flow struct {
 	DurationMs      int
 }
 
-// RouteRow 是 DistinctRoutes 派生的去重攻击面路由（仅 host+method+path）。
-// sitemap 投影用它取代已退役的 endpoint 表——攻击面从 http_flow(source=internal) 自动派生，
-// 不再靠 commander 手动 write_endpoint 转写（单一真相源 + 参数自动入库）。
-type RouteRow struct {
-	Host   string
-	Method string
-	Path   string
-}
-
-// RouteRepr 在 RouteRow 基础上附一条代表 flow 的响应体片段（前 16KiB，含 <head>），
-// 供 sitemap 投影抽 <title> 作人类可读 UI 名（viewer 标签用；抽不到 fallback method+path）。
+// RouteRepr 是 DistinctRoutesWithRepresentative 派生的去重攻击面路由（host+method+path），
+// 附一条代表 flow 的响应体片段（前 16KiB，含 <head>）。
+// sitemap 投影用它取代已退役的 endpoint 表——攻击面从 http_flow(source=internal) 自动派生
+// （单一真相源 + 参数自动入库），并抽 <title> 作人类可读 UI 名（抽不到 fallback method+path）。
 type RouteRepr struct {
 	Host     string
 	Method   string

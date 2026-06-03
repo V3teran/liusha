@@ -101,7 +101,7 @@
 字典有两条入口，都写进同一张 http_flow 表，按 source 区分：
 
 - **passive 入口（source=external）**：用户经 Burp / 真实浏览器把流量经 8888 代理过来 → 自动入字典 → 触发 tracker（1 流量 1 hunter）。
-- **active 入口（source=internal）**：active 容器内**两路**流量都入字典——① **chromium 浏览器**经 browser-svc 内建 CDP Network 观察器抓登录后真实已认证请求（Document / XHR / Fetch）；② **CLI 工具**（curl / sqlmap / nuclei / katana 等）经容器内 mitmproxy 代理捕获（源头按 method+templatize(path) 去重，fuzz 不膨胀）。两路经 ingest 回 Go 入字典，**owner = 整个 active run（commander 与其 striker 共享可见，HunterID 仅作来源标记）**。**不触发 tracker**（防自激震荡）。攻击面 **sitemap 即从本入口 source=internal 派生**（`list_sitemap` 读去重路由）；跨 hunter 信息传递走 redis 的 [[凭证共享协议]](read_credentials / write_credential) + write_note + finding 黑板。
+- **active 入口（source=internal）**：active 容器内**两路**流量都入字典——① **chromium 浏览器**经 browser-svc 内建 CDP Network 观察器抓登录后真实已认证请求（Document / XHR / Fetch）；② **CLI 工具**（curl / sqlmap / nuclei / katana 等）经容器内 mitmproxy 代理捕获（源头按 method+templatize(path) 去重，fuzz 不膨胀）。两路经 ingest 回 Go 入字典，**owner = 整个 active run（commander 与其 striker 共享可见，HunterID 仅作来源标记）**。**不触发 tracker**（防自激震荡）。攻击面即从本入口 source=internal 派生（`list_flows(source=internal)` 看走过的路由）；跨 hunter 信息传递走 redis 的 [[凭证共享协议]](read_credentials / write_credential) + write_note + finding 黑板。
 
 **工具按角色**：
 - passive（tracker）：`replay_flow`

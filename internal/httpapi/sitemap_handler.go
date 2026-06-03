@@ -18,7 +18,7 @@ type SitemapAPI interface {
 // sitemapHandler 处理 GET /sitemap/:owner_id?host=<optional>。
 //
 // 返回 sitemap 树 JSON：domain → endpoint → findings（embed 在 endpoint 下，无 folder 中间层）。
-// 攻击面从 http_flow(source=internal) 派生（DistinctRoutes 去重），不再依赖 endpoint 表。
+// 攻击面从 http_flow(source=internal) 派生（DistinctRoutesWithRepresentative 去重），不再依赖 endpoint 表。
 // **仅 active 模式**——passive_session.id 报错（passive 流量是流水账，前端走 findings 列表视图）。
 //
 // owner 可挂多 host：host 缺省时合并显示该 active scan 下的全部 host；

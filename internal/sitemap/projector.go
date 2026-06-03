@@ -189,7 +189,7 @@ func (p *Projector) Project(ctx context.Context, ownerID, host string) (View, er
 	root := &SitemapNode{Kind: KindDomain, Name: rootName}
 
 	// 派生路由直接挂 domain（无 folder 中间层）+ 建强/弱匹配索引。
-	// DistinctRoutes 已 SQL 去重 (host, method, raw_path)，这里 TemplatizePath 再折叠 ID 变体
+	// DistinctRoutesWithRepresentative 已 SQL 去重 (host, method, raw_path)，这里 TemplatizePath 再折叠 ID 变体
 	//   （/user/1 与 /user/2 → /user/:id），故按 templatize 后的 key 二次去重避免重复节点。
 	// 双侧 TemplatizePath 规范化让 finding 侧（也 templatize 过）能精确命中路由。
 	seenKey := map[string]bool{}

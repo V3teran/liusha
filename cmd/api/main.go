@@ -63,7 +63,7 @@ func main() {
 	passiveSessionStore := passivesession.NewStore(pool)
 	activeScanStore := activescan.NewStore(pool)
 	findStore := finding.NewStore(pool)
-	// projector 只读 DistinctRoutes（不读 body），body 截断参数无关 → 0,0。
+	// projector 只读 DistinctRoutesWithRepresentative（自带 body 片段抽 title），body 截断参数无关 → 0,0。
 	flowStore := flow.NewStore(pool, 0, 0)
 	projector := &sitemap.Projector{
 		Findings: findStore,

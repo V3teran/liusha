@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"strings"
 	"time"
 
@@ -243,45 +244,13 @@ func (s *Store) ListByOwnerFiltered(ctx context.Context, ownerID string, f ListF
 	return out, rows.Err()
 }
 
-// DistinctRoutes 返回 owner 范围内 source=internal 的去重 (host, method, path) 路由集，
-// 供 sitemap 投影派生攻击面（取代已退役的 endpoint 表）。
+// DistinctRoutesWithRepresentative 返回 owner 范围内 source=internal 的去重路由
+// （`DISTINCT ON (host, method, path)`），每路由附一条代表 flow 的响应体片段
+// （`substring(response_body for 16384)`），供 sitemap 投影派生攻击面 + 抽 <title> 作 UI 名。
 //
-// 去重在 SQL 层（DISTINCT），无 limit 截断顾虑；path 是裸 path（未 templatize），
-// 投影侧再 TemplatizePath 折叠 /user/1 与 /user/2 的 ID 变体。
-// host 为空时跨本 owner 全部 host（跨 host 合并视图）。
-func (s *Store) DistinctRoutes(ctx context.Context, ownerID, host string) ([]RouteRow, error) {
-	q := `SELECT DISTINCT host, method, path FROM http_flow
-	      WHERE owner_id=$1::uuid AND source='internal'`
-	args := []any{ownerID}
-	if host != "" {
-		q += ` AND host=$2`
-		args = append(args, host)
-	}
-	q += ` ORDER BY host, path, method`
-
-	rows, err := s.pool.Query(ctx, q, args...)
-	if err != nil {
-		return nil, fmt.Errorf("distinct routes: %w", err)
-	}
-	defer rows.Close()
-
-	var out []RouteRow
-	for rows.Next() {
-		var r RouteRow
-		if err := rows.Scan(&r.Host, &r.Method, &r.Path); err != nil {
-			return nil, fmt.Errorf("scan route: %w", err)
-		}
-		out = append(out, r)
-	}
-	return out, rows.Err()
-}
-
-// DistinctRoutesWithRepresentative 同 DistinctRoutes，但每路由附一条代表 flow 的响应体片段
-// （`substring(response_body for 16384)`），供 sitemap 投影抽 <title> 作 UI 名。
-//
-// 代表 flow 选取：`DISTINCT ON (host, method, path)` + `ORDER BY ... status_code ASC`
-// → 每路由取 status_code 最小的那条（2xx 优先于 4xx/5xx），即"成功"的代表响应。
-// host 为空时跨本 owner 全部 host。
+// 代表 flow 选取：`ORDER BY ... status_code ASC` → 每路由取 status_code 最小的那条
+// （2xx 优先于 4xx/5xx），即"成功"的代表响应。
+// host 为空时跨本 owner 全部 host；非空时剥端口对齐 http_flow.host 存储键（裸 host）。
 func (s *Store) DistinctRoutesWithRepresentative(ctx context.Context, ownerID, host string) ([]RouteRepr, error) {
 	q := `SELECT DISTINCT ON (host, method, path)
 	             host, method, path, substring(response_body from 1 for 16384)
@@ -290,7 +259,7 @@ func (s *Store) DistinctRoutesWithRepresentative(ctx context.Context, ownerID, h
 	args := []any{ownerID}
 	if host != "" {
 		q += ` AND host=$2`
-		args = append(args, host)
+		args = append(args, stripHostPort(host)) // http_flow.host 存裸 host，带端口精确匹配会落空
 	}
 	q += ` ORDER BY host, method, path, status_code ASC`
 
@@ -309,6 +278,16 @@ func (s *Store) DistinctRoutesWithRepresentative(ctx context.Context, ownerID, h
 		out = append(out, r)
 	}
 	return out, rows.Err()
+}
+
+// stripHostPort 把 host:port 归一化为裸 host，与 http_flow.host 存储键（去端口）对齐。
+// 与 tools/common/flow.go 的同名函数一致；net.SplitHostPort 无端口时报错 → 原样返回，
+// IPv6 形如 [::1]:80 也能正确拆出 ::1。
+func stripHostPort(host string) string {
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		return h
+	}
+	return host
 }
 
 // sqlEscapeLike 转义 LIKE 模式里的 % 和 _ —— 但保留 * （上层转换为 %）。

@@ -88,7 +88,7 @@ type Deps struct {
 	Notes       notes.Store // 短期工作笔记（Redis；owner 内同 host 跨 task 共享）
 	Findings    *finding.Store
 	Lessons     *lesson.Store
-	Flows       *flow.Store // 流量字典；nil 时不注册 list_flows/view_flow/replay_flow/list_sitemap
+	Flows       *flow.Store // 流量字典；nil 时不注册 list_flows/view_flow/replay_flow
 	Credentials credential.Provider
 
 	// ToolInvocations 为 Record interceptor 提供 PG 持久化能力——每次 Execute
@@ -264,14 +264,6 @@ func NewBuilder(deps Deps) skill.Builder {
 					Store:     deps.Flows,
 					OwnerType: p.OwnerType,
 					OwnerID:   p.OwnerID,
-				})
-				// list_sitemap：commander + striker 共用的攻击面规划视图（从 http_flow
-				// source=internal 派生去重）。取代旧 read_endpoints/write_endpoint——攻击面
-				// 不再手动转写，recon 工具流量自动成图（单一真相源）。
-				must(&common.ListSitemap{
-					Store:   deps.Flows,
-					OwnerID: p.OwnerID,
-					Host:    p.Host,
 				})
 			}
 		}

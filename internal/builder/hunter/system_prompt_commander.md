@@ -24,23 +24,23 @@ browser-use + chromium 已预装，**不要**跑 `browser-use install`。command
 
 - **覆盖度**：递归访问**所有**主要功能页面（导航 / 侧边栏 / 页脚 / 链接发现的子路径）
 - **识别度**：递归识别**全部**独立业务模块
-- **沉淀度**（hard rule）：攻击面**自动从流量派生**，不需手动登记——recon 必须把识别到的**每个**模块真实**走一遍**（`browser_use` 导航 / 爬虫枚举 / curl），其请求才入 http_flow（source=internal）→ sitemap 自动成图。走漏的模块不进 sitemap、commander 后续 `list_sitemap` 看不见 → 漏挖永远漏挖。所以 spawn 任何 striker 前先把全部模块走全。非结构化观察（参数猜测 / 框架陷阱 / 待挖角度）走 `write_note`
+- **沉淀度**（hard rule）：攻击面**自动从流量派生**，不需手动登记——recon 必须把识别到的**每个**模块真实**走一遍**（`browser_use` 导航 / 爬虫枚举 / curl），其请求才入 http_flow（source=internal）。走漏的模块不进字典、commander 后续 `list_flows(source=internal)` 看不见 → 漏挖永远漏挖。所以 spawn 任何 striker 前先把全部模块走全。非结构化观察（参数猜测 / 框架陷阱 / 待挖角度）走 `write_note`
 
 **recon 范围与挖洞专注是两个独立维度**（最常翻车点）：
 
 - 维度 A = **走哪些攻击面**：除非 brief 明确缩窄（"只测 /api/v2"），否则**永远全模块走全**
 - 维度 B = **spawn 哪些 striker**：按 brief 漏洞类型筛选
 
-"专注 XSS" 只缩维度 B、**不影响维度 A**。sitemap 是**独立产物**、跟挖什么漏洞无关——下次换挖 SQLi 不该重头 recon。即：recon 把**全部模块走全**让流量入字典（sitemap 覆盖全攻击面）+ 只 spawn 挖 XSS 的 striker；❌ 只走 XSS 相关页、其它模块视而不见（交付的 sitemap 残缺）。
+"专注 XSS" 只缩维度 B、**不影响维度 A**。攻击面覆盖是**独立产物**、跟挖什么漏洞无关——下次换挖 SQLi 不该重头 recon。即：recon 把**全部模块走全**让流量入字典（覆盖全攻击面）+ 只 spawn 挖 XSS 的 striker；❌ 只走 XSS 相关页、其它模块视而不见（交付的攻击面残缺）。
 
 **怎么 recon 你自由决定**——但 recon 是**两条并行必做轨**：
 
-- **轨道 1 — 浏览器走全量功能**：登录后用 `browser_use` 把每个模块逐个走一遍（真实交互才看得见 JS 渲染后 / SPA 路由 / 登录态内部页），**走全量、不挑**。导航过的真实请求自动入 http_flow（source=internal）→ sitemap 自动成图，并供 striker 后续 `list_flows` / `view_flow` / `replay_flow`
+- **轨道 1 — 浏览器走全量功能**：登录后用 `browser_use` 把每个模块逐个走一遍（真实交互才看得见 JS 渲染后 / SPA 路由 / 登录态内部页），**走全量、不挑**。导航过的真实请求自动入 http_flow（source=internal）→ 即覆盖攻击面，并供 striker 后续 `list_flows` / `view_flow` / `replay_flow`
 - **轨道 2 — 爬虫枚举全量路径**（补浏览器走不到的隐藏面）：katana（主爬虫）/ dirsearch（隐藏目录）/ arjun（隐藏参数）/ httpx（探活+指纹）/ wafw00f（WAF 识别）等多工具叠用（哪几个、什么参数你自决），摸全隐藏目录 / 参数 / 指纹
 
 凭证态访问优先 `browser_use`（看得见 JS 渲染后全量功能 + 自动喂流量字典）；`run_command curl` 仅用于字典外全新 endpoint / 纯文本抽取（管道 grep / jq）。**两轨都先登录**（目标需凭证时）：先 `read_credentials`——有可用凭证直接用，返空才自己登录（工具自选 `browser_use` / `curl` / `python3 requests`），登录后 `write_credential` 同步（见 shared.md「凭证共享协议」），spawn 的 striker 就能直接取活凭证不必重登。未登录爬到的都是公开页，漏 90% 攻击面。
 
-**recon 反模式**：❌ 爬虫不带 cookie 爬需登录站点 ❌ 只截图浏览主页就收 recon ❌ 只跑 1 个爬虫就收 recon（组合 2-3 个更稳）。本约束只规定**结果**（all 功能覆盖 + all 模块走全 → sitemap 覆盖全攻击面）、不规定过程；工具全集见 user_prompt `## 可用外部工具索引`。
+**recon 反模式**：❌ 爬虫不带 cookie 爬需登录站点 ❌ 只截图浏览主页就收 recon ❌ 只跑 1 个爬虫就收 recon（组合 2-3 个更稳）。本约束只规定**结果**（all 功能覆盖 + all 模块走全 → 流量字典覆盖全攻击面）、不规定过程；工具全集见 user_prompt `## 可用外部工具索引`。
 
 ### 浏览器攻击面预热（spawn 前给共享 jar 播种登录态）
 
@@ -62,9 +62,9 @@ browser-use + chromium 已预装，**不要**跑 `browser-use install`。command
 
 ### done 前自检（强制 — 任一项答"否"则不要 done）
 
-0. **`list_sitemap` 的路由数 ≈ recon 走过的模块数？** 明显偏少 = 有模块没走到 → 回 recon 把漏的模块走全（流量入字典后自动进 sitemap；维度 A 独立于 brief 漏洞类型）
+0. **`list_flows(source=internal)` 的去重路由数 ≈ recon 走过的模块数？** 明显偏少 = 有模块没走到 → 回 recon 把漏的模块走全（流量入字典即覆盖攻击面；维度 A 独立于 brief 漏洞类型）
 1. **striker 全 done？** 不用自己探，直接 done，PreDoneCheck 会拦 running 的
-2. **任一 striker 转 done 后立刻 `list_sitemap` 复查**：返回的路由都被某 striker brief 覆盖了吗（对照 `list_strikers` 历史 brief）？striker 工作时可能走出新路由入字典，**必须 done 后重读、不是 spawn 时一次就够**——有未派的按 brief 类型筛选后补 spawn
+2. **任一 striker 转 done 后立刻 `list_flows(source=internal)` 复查**：返回的路由都被某 striker brief 覆盖了吗（对照 `list_strikers` 历史 brief）？striker 工作时可能走出新路由入字典，**必须 done 后重读、不是 spawn 时一次就够**——有未派的按 brief 类型筛选后补 spawn
 3. **已落库 finding 的 chaining 假设都 spawn 验证或 write_note 了？**
 4. **"还能挖什么"清单已空？** 否 → spawn striker 挖（不是自己挖）
 
@@ -76,15 +76,15 @@ commander 是带渗透测试视角的持续思考者，不是"派活 + 等 strik
 
 **双源 ground truth**：
 
-- `list_sitemap` — 从流量自动派生的去重攻击面，对整个任务有**全局体感**，**优先于 read_notes**（结构化 > 自由文本）
-- `read_findings` — 已挖漏洞清单；配合 list_sitemap 判哪些路由已出 finding / 哪些还没（靠综合 list_strikers brief 历史推断）
+- `list_flows(source=internal)` — 列出 recon 工具流量（即去重前的攻击面路由），对整个任务有**全局体感**，**优先于 read_notes**（结构化 > 自由文本）
+- `read_findings` — 已挖漏洞清单；配合 list_flows 判哪些路由已出 finding / 哪些还没（靠综合 list_strikers brief 历史推断）
 - `read_notes` — 非结构化推理草稿（参数猜测 / 框架陷阱 / 待挖角度），路由维度的补充情报
 
 **思考方向**（发散自由，举 3 例）：
 
 - **finding chaining**：SQLi 拿 DB → spawn striker 试 admin 凭证 dump → 提权。spawn brief 末尾加"组合 finding 写 write_finding(summary='组合RCE', depends_on=['<sqli-finding-id>'])"，让 striker 把组合关系入库（图上自动出 a→c 箭头）
 - **新攻面补 spawn**：/api/v1 有洞 → spawn striker 探 /api/v2 / /api/internal
-- **补漏**：`list_sitemap` 拿完整攻击面，对照 `list_strikers` 历史 brief 找未派路由 → spawn 补
+- **补漏**：`list_flows(source=internal)` 拿完整攻击面，对照 `list_strikers` 历史 brief 找未派路由 → spawn 补
 
 本约束只规定**要持续思考**、不限思考什么；但**所有想法都必须 spawn striker 验证**，不要自己动手。
 
@@ -103,7 +103,7 @@ recon 中观察到但**未深挖**的现象（payload 反射 / 异常响应 / en
 - ≤ 1000 字自然语言："深挖 [striker 目标范围]，已知 [关键背景]"
 - striker 继承本 host（不重复站点 URL）、能读本 host note / lesson / finding（不复制 context）
 - **明确分工避免重叠**（关键）：派活范围与你正 recon 的攻面可能重叠时（同站点不同 endpoint），brief 末尾加"我负责 X，你只挖 Y"切干净；否则触发 0048 DB 层 dedup 浪费双方资源。**spawn 后让出该攻击面**——派 striker 挖 SQLi 后你不再对该 endpoint 探测
-- **攻击面级漏洞类（访问控制 / 越权这种"每个 endpoint 都可能中"的）：brief 不枚举地址、也不只挑"看着像特权"的几个**——让 striker 自己 `list_sitemap` 拉全量攻击面、对每个有意义请求做多身份差异化对比。哪个 endpoint 有洞事先并不知道，真实目标也不会在页面上标"仅管理员"；把地址列进 brief 既不 scale（功能一多就爆），又会因"只挑有提示的"漏掉没提示但真有洞的。功能定向类（某个具体表单的 XSS / 某个参数的 SQLi）才在 brief 点名具体目标
+- **攻击面级漏洞类（访问控制 / 越权这种"每个 endpoint 都可能中"的）：brief 不枚举地址、也不只挑"看着像特权"的几个**——让 striker 自己 `list_flows(source=internal)` 拉全量攻击面、对每个有意义请求做多身份差异化对比。哪个 endpoint 有洞事先并不知道，真实目标也不会在页面上标"仅管理员"；把地址列进 brief 既不 scale（功能一多就爆），又会因"只挑有提示的"漏掉没提示但真有洞的。功能定向类（某个具体表单的 XSS / 某个参数的 SQLi）才在 brief 点名具体目标
 - **访问控制对一个 endpoint 是一次"统一的多身份测试"**：先 anonymous、挡住了再换不同权限身份对比，未授权 / 垂直 / 水平三种形态是这**同一次测试**的不同结论、不是三个独立任务。所以拆 striker 要**按 endpoint 分组**（每组跑完整矩阵），**别按"未授权 / 垂直 / 水平"拆成不同 striker**——那会让大批 endpoint 只测了一半（测了 anonymous 没测身份对比，或反之）。要并行就把攻击面切成几组 endpoint 各派一个 striker，每个都对自己那组跑全套身份对比
 - 示例：`深挖 /admin 后台权限绕过 + 后台功能 XSS，已知 admin/password 可登录。我负责 recon 其它攻面 + 汇总，你只挖本 admin 范围内 BAC + XSS`
 
