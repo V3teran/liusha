@@ -11,9 +11,14 @@
 package sitemap
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
 	"encoding/json"
 	"fmt"
+	"html"
+	"io"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -52,7 +57,7 @@ type FindingChain struct {
 // domain 是 root，children 直接是 endpoint 数组（无中间 folder）。
 type SitemapNode struct {
 	Kind     string           `json:"kind"`
-	Name     string           `json:"name"`               // 显示标签：domain=host / endpoint=method+path
+	Name     string           `json:"name"`               // 显示标签：domain=host / endpoint=代表响应 <title>（抽不到 fallback method+path）
 	Path     string           `json:"path,omitempty"`     // 仅 endpoint：URL path（已 templatize）
 	Method   string           `json:"method,omitempty"`   // 仅 endpoint
 	Findings []FindingSummary `json:"findings,omitempty"` // 仅 endpoint，无 findings 时省略
@@ -74,9 +79,9 @@ type FindingReader interface {
 }
 
 // FlowReader 是投影器读 http_flow 派生攻击面路由所需的最小接口。
-// *flow.Store 自动满足。
+// *flow.Store 自动满足。带代表响应体片段供抽 <title> 作 UI 名。
 type FlowReader interface {
-	DistinctRoutes(ctx context.Context, ownerID, host string) ([]flow.RouteRow, error)
+	DistinctRoutesWithRepresentative(ctx context.Context, ownerID, host string) ([]flow.RouteRepr, error)
 }
 
 // ActiveReader 是投影器读 active_scan 表所需的最小接口（用于验证 owner 是 active 类型）。
@@ -107,9 +112,9 @@ func (p *Projector) Project(ctx context.Context, ownerID, host string) (View, er
 		return View{}, fmt.Errorf("sitemap 仅支持 active 模式 (owner_id=%s 不是 active scan，passive 用 /findings)", ownerID)
 	}
 
-	routes, err := p.Flows.DistinctRoutes(ctx, ownerID, host)
+	routes, err := p.Flows.DistinctRoutesWithRepresentative(ctx, ownerID, host)
 	if err != nil {
-		return View{}, fmt.Errorf("flow.DistinctRoutes: %w", err)
+		return View{}, fmt.Errorf("flow.DistinctRoutesWithRepresentative: %w", err)
 	}
 
 	findings, err := p.Findings.ListByOwner(ctx, "active_scan", ownerID)
@@ -198,9 +203,14 @@ func (p *Projector) Project(ctx context.Context, ownerID, host string) (View, er
 		}
 		seenKey[key] = true
 
+		// UI 名：优先代表响应的 <title>（人类可读功能名），抽不到 fallback method+path。
+		name := extractTitle(r.BodyHead)
+		if name == "" {
+			name = method + " " + tpath
+		}
 		node := &SitemapNode{
 			Kind:   KindEndpoint,
-			Name:   method + " " + tpath,
+			Name:   name,
 			Path:   tpath,
 			Method: method,
 		}
@@ -304,4 +314,38 @@ func firstLine(s string, max int) string {
 		s = s[:max]
 	}
 	return s
+}
+
+// titleRe 抓 HTML <title>…</title>（i=忽略大小写，s=. 匹配换行，非贪婪取第一段）。
+var titleRe = regexp.MustCompile(`(?is)<title[^>]*>(.*?)</title>`)
+
+const maxTitleLen = 80
+
+// extractTitle 从代表响应体片段抽 <title> 作 sitemap 节点 UI 名；抽不到返空（caller fallback method+path）。
+//
+//   - gzip：响应体可能 gzip 压缩（mitmproxy 存 raw_content）。识别 gzip 魔数后尽力解压——
+//     截断的 gzip 流解到 <head> 处即够（<title> 在最前），ErrUnexpectedEOF 忽略。
+//   - 实体/空白：HTML 实体解码（&amp;→&）+ 折叠连续空白；超长截断。
+//   - SPA / 无 title 的 API/XHR 响应：返空，优雅降级到 method+path。
+func extractTitle(raw []byte) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	body := raw
+	if len(raw) >= 2 && raw[0] == 0x1f && raw[1] == 0x8b { // gzip 魔数
+		if zr, err := gzip.NewReader(bytes.NewReader(raw)); err == nil {
+			if dec, _ := io.ReadAll(io.LimitReader(zr, 64*1024)); len(dec) > 0 {
+				body = dec // 截断 gzip 的 ReadAll 报错但已读出 <head>，取 dec 即可
+			}
+		}
+	}
+	m := titleRe.FindSubmatch(body)
+	if m == nil {
+		return ""
+	}
+	title := strings.Join(strings.Fields(html.UnescapeString(string(m[1]))), " ")
+	if r := []rune(title); len(r) > maxTitleLen { // 按 rune 截断，避免切半 CJK 多字节字符
+		title = string(r[:maxTitleLen])
+	}
+	return title
 }

@@ -50,6 +50,15 @@ type RouteRow struct {
 	Path   string
 }
 
+// RouteRepr 在 RouteRow 基础上附一条代表 flow 的响应体片段（前 16KiB，含 <head>），
+// 供 sitemap 投影抽 <title> 作人类可读 UI 名（viewer 标签用；抽不到 fallback method+path）。
+type RouteRepr struct {
+	Host     string
+	Method   string
+	Path     string
+	BodyHead []byte
+}
+
 // FlowSummary 是 ListByOwner 的瘦行：不含 body / headers，
 // 避免一次查询把数十 MiB bytea 拖入内存。
 type FlowSummary struct {

@@ -276,6 +276,41 @@ func (s *Store) DistinctRoutes(ctx context.Context, ownerID, host string) ([]Rou
 	return out, rows.Err()
 }
 
+// DistinctRoutesWithRepresentative 同 DistinctRoutes，但每路由附一条代表 flow 的响应体片段
+// （`substring(response_body for 16384)`），供 sitemap 投影抽 <title> 作 UI 名。
+//
+// 代表 flow 选取：`DISTINCT ON (host, method, path)` + `ORDER BY ... status_code ASC`
+// → 每路由取 status_code 最小的那条（2xx 优先于 4xx/5xx），即"成功"的代表响应。
+// host 为空时跨本 owner 全部 host。
+func (s *Store) DistinctRoutesWithRepresentative(ctx context.Context, ownerID, host string) ([]RouteRepr, error) {
+	q := `SELECT DISTINCT ON (host, method, path)
+	             host, method, path, substring(response_body from 1 for 16384)
+	      FROM http_flow
+	      WHERE owner_id=$1::uuid AND source='internal'`
+	args := []any{ownerID}
+	if host != "" {
+		q += ` AND host=$2`
+		args = append(args, host)
+	}
+	q += ` ORDER BY host, method, path, status_code ASC`
+
+	rows, err := s.pool.Query(ctx, q, args...)
+	if err != nil {
+		return nil, fmt.Errorf("distinct routes (repr): %w", err)
+	}
+	defer rows.Close()
+
+	var out []RouteRepr
+	for rows.Next() {
+		var r RouteRepr
+		if err := rows.Scan(&r.Host, &r.Method, &r.Path, &r.BodyHead); err != nil {
+			return nil, fmt.Errorf("scan route repr: %w", err)
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
 // sqlEscapeLike 转义 LIKE 模式里的 % 和 _ —— 但保留 * （上层转换为 %）。
 func sqlEscapeLike(s string) string {
 	s = strings.ReplaceAll(s, `\`, `\\`)
