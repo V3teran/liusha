@@ -1,9 +1,9 @@
-package endpoint
+package sitemap
 
 import "strings"
 
 // TemplatizePath 把 URL path 中的数字段、UUID、长 hex 替换成占位符——
-// 避免 /user/1, /user/2 在攻击面图里分裂成两个独立 endpoint 节点。
+// 避免 /user/1, /user/2 在攻击面图里分裂成两个独立路由节点。
 //
 // 替换规则：
 //   - 纯数字段（"1", "12345"）→ ":id"
@@ -11,10 +11,8 @@ import "strings"
 //   - 长 hex 串（≥ 16 字符且全 hex）→ ":hex"
 //   - 统一 trim 尾部 "/"（根 "/" 保留）——多数 server 把 /x 与 /x/ 当同一资源
 //
-// 设计意图：endpoint dedup（INSERT ON CONFLICT (owner_id, host, method, path)）
-// 与 graphview.buildEndpointFromFinding 模板化后的 ID 必须一致——共用本函数保证语义对齐，
-// 避免 commander write_endpoint("/vulnerabilities/xss_d") 和 striker finding.target.path="/vulnerabilities/xss_d/"
-// 在 graph 上误判为两个独立 endpoint。
+// 设计意图：sitemap 投影按 (host, method, templatize(path)) 去重 http_flow 派生路由，
+// 与 mitm-capture.py addon 源头去重的 _templatize 语义对齐（双侧一致避免同语义路由分裂）。
 func TemplatizePath(p string) string {
 	parts := strings.Split(p, "/")
 	for i, seg := range parts {

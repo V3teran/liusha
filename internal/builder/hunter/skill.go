@@ -28,7 +28,6 @@ import (
 
 	"github.com/V3teran/liusha/internal/config"
 	"github.com/V3teran/liusha/internal/credential"
-	"github.com/V3teran/liusha/internal/endpoint"
 	"github.com/V3teran/liusha/internal/finding"
 	"github.com/V3teran/liusha/internal/flow"
 	"github.com/V3teran/liusha/internal/grounding"
@@ -89,8 +88,7 @@ type Deps struct {
 	Notes       notes.Store // 短期工作笔记（Redis；owner 内同 host 跨 task 共享）
 	Findings    *finding.Store
 	Lessons     *lesson.Store
-	Endpoints   *endpoint.Store // active 模式攻击面注册表；nil 时不注册 write_endpoint 工具且 write_finding 不联动 endpoint 状态机
-	Flows       *flow.Store     // 流量字典；nil 时不注册 list_flows/view_flow/replay_flow
+	Flows       *flow.Store // 流量字典；nil 时不注册 list_flows/view_flow/replay_flow/list_sitemap
 	Credentials credential.Provider
 
 	// ToolInvocations 为 Record interceptor 提供 PG 持久化能力——每次 Execute
@@ -241,15 +239,6 @@ func NewBuilder(deps Deps) skill.Builder {
 		// passive 不开 spawn 的原因：passive 60 步预算 + striker 常 100+ 步 → commander 来不及等 striker 完
 		//   就会 max_steps 退出（H3 修过孤儿 goroutine，但仍违反"commander 等 striker"语义）。
 		//   passive 场景"1 流量挖多类型"应由流量分发器拆多个 active 任务，不该 swarm。
-		// active 模式 endpoint 工具（commander + striker 共用，tracker 不接触）：
-		//   - write_endpoint: commander recon 主写，striker baseline/dirsearch 发现新 endpoint 补写
-		//   - read_endpoints: commander 持续思考/done 前自检的 ground truth 输入；striker 自查 brief 范围
-		// deps.Endpoints 为 nil 时跳过（向后兼容 / 单测场景）。
-		if p.Mode == "active" && deps.Endpoints != nil {
-			must(&common.WriteEndpoint{Store: deps.Endpoints, OwnerID: p.OwnerID, Host: p.Host})
-			must(&common.ReadEndpoints{Store: deps.Endpoints, OwnerID: p.OwnerID, Host: p.Host})
-		}
-
 		// 流量字典工具（所有角色都注册 replay_flow——重发改字段，cookie/CSRF/session 自动继承）。
 		// list_flows/view_flow 仅 active 角色注册——B1 后 active 容器内 browser-svc.py 内建 CDP
 		//   Network observer 把 chromium 真实认证请求写进 active owner 的 http_flow（source=internal），
@@ -275,6 +264,14 @@ func NewBuilder(deps Deps) skill.Builder {
 					Store:     deps.Flows,
 					OwnerType: p.OwnerType,
 					OwnerID:   p.OwnerID,
+				})
+				// list_sitemap：commander + striker 共用的攻击面规划视图（从 http_flow
+				// source=internal 派生去重）。取代旧 read_endpoints/write_endpoint——攻击面
+				// 不再手动转写，recon 工具流量自动成图（单一真相源）。
+				must(&common.ListSitemap{
+					Store:   deps.Flows,
+					OwnerID: p.OwnerID,
+					Host:    p.Host,
 				})
 			}
 		}

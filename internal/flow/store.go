@@ -243,6 +243,39 @@ func (s *Store) ListByOwnerFiltered(ctx context.Context, ownerID string, f ListF
 	return out, rows.Err()
 }
 
+// DistinctRoutes 返回 owner 范围内 source=internal 的去重 (host, method, path) 路由集，
+// 供 sitemap 投影派生攻击面（取代已退役的 endpoint 表）。
+//
+// 去重在 SQL 层（DISTINCT），无 limit 截断顾虑；path 是裸 path（未 templatize），
+// 投影侧再 TemplatizePath 折叠 /user/1 与 /user/2 的 ID 变体。
+// host 为空时跨本 owner 全部 host（跨 host 合并视图）。
+func (s *Store) DistinctRoutes(ctx context.Context, ownerID, host string) ([]RouteRow, error) {
+	q := `SELECT DISTINCT host, method, path FROM http_flow
+	      WHERE owner_id=$1::uuid AND source='internal'`
+	args := []any{ownerID}
+	if host != "" {
+		q += ` AND host=$2`
+		args = append(args, host)
+	}
+	q += ` ORDER BY host, path, method`
+
+	rows, err := s.pool.Query(ctx, q, args...)
+	if err != nil {
+		return nil, fmt.Errorf("distinct routes: %w", err)
+	}
+	defer rows.Close()
+
+	var out []RouteRow
+	for rows.Next() {
+		var r RouteRow
+		if err := rows.Scan(&r.Host, &r.Method, &r.Path); err != nil {
+			return nil, fmt.Errorf("scan route: %w", err)
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
 // sqlEscapeLike 转义 LIKE 模式里的 % 和 _ —— 但保留 * （上层转换为 %）。
 func sqlEscapeLike(s string) string {
 	s = strings.ReplaceAll(s, `\`, `\\`)

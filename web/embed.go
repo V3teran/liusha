@@ -1,4 +1,4 @@
-// Package web 用 //go:embed 把 graph viewer 静态前端打进 Go binary。
+// Package web 用 //go:embed 把 sitemap viewer 静态前端打进 Go binary。
 //
 // 设计：
 //   - 单页 SPA（vanilla TS via <script type=module>），无 build pipeline

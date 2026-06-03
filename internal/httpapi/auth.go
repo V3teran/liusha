@@ -14,7 +14,7 @@ import (
 //
 // /viewer/* 放行原因：静态前端资产（HTML/JS/CSS）需要被浏览器作为子资源加载，
 // 浏览器不会给 <script src=> / <link href=> 自动添加自定义 header。
-// 真正敏感的数据接口（/graph/:eid 等）仍受保护。
+// 真正敏感的数据接口（/sitemap/:owner_id 等）仍受保护。
 func RequireAPIKey(expected string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// /healthz、/viewer/*、/viewer-config.json 直接放行；FullPath 是注册路由模板。

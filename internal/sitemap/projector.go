@@ -1,12 +1,14 @@
-// Package graphview 是 sitemap 投影器（仅 active 模式）。
+// Package sitemap 是攻击面 sitemap 投影器（仅 active 模式）。
 //
 // 设计：domain → endpoint → findings（embed 在 endpoint 下）的 2 层结构。
 // folder 层（path prefix 分组）不生成——它是显示概念不是攻击面对象，把 endpoint
 // 拍平到 domain 直连让辐射图第 1 圈就是真正的攻击面。
 //
-// 数据源：endpoint 表（commander recon 写）+ finding 表（striker 写）。
+// 数据源（单一真相源）：http_flow（source=internal，DistinctRoutes 去重派生攻击面路由）
+// + finding 表（striker 写）。攻击面不再靠手动 endpoint 表/write_endpoint 转写——
+// recon 工具流量经 mitmproxy/CDP 自动入 http_flow，sitemap 从中派生（参数自动入库）。
 // passive 模式无 sitemap 视图（流水账型流量，前端走 findings 列表）。
-package graphview
+package sitemap
 
 import (
 	"context"
@@ -17,8 +19,8 @@ import (
 	"time"
 
 	"github.com/V3teran/liusha/internal/activescan"
-	"github.com/V3teran/liusha/internal/endpoint"
 	"github.com/V3teran/liusha/internal/finding"
+	"github.com/V3teran/liusha/internal/flow"
 )
 
 // 节点 kind 枚举（前端展示用）。
@@ -37,7 +39,9 @@ type FindingSummary struct {
 
 // FindingChain 是 finding 间的"组合漏洞"依赖边（0059）。
 // 从 finding.depends_on uuid[] 数组派生：finding c.DependsOn = [a, b] → 派生 2 条边：
-//   {From: a, To: c} + {From: b, To: c}
+//
+//	{From: a, To: c} + {From: b, To: c}
+//
 // 前端 D3 force layout 渲染成虚线弧形，区别于 sitemap 树的实线父子边。
 type FindingChain struct {
 	From string `json:"from"` // 前置 finding id（被依赖）
@@ -48,8 +52,8 @@ type FindingChain struct {
 // domain 是 root，children 直接是 endpoint 数组（无中间 folder）。
 type SitemapNode struct {
 	Kind     string           `json:"kind"`
-	Name     string           `json:"name"`               // 显示标签：domain=host / endpoint=name（fallback method+path）
-	Path     string           `json:"path,omitempty"`     // 仅 endpoint：URL path
+	Name     string           `json:"name"`               // 显示标签：domain=host / endpoint=method+path
+	Path     string           `json:"path,omitempty"`     // 仅 endpoint：URL path（已 templatize）
 	Method   string           `json:"method,omitempty"`   // 仅 endpoint
 	Findings []FindingSummary `json:"findings,omitempty"` // 仅 endpoint，无 findings 时省略
 	Children []*SitemapNode   `json:"children,omitempty"` // 仅 domain：直挂 endpoint 数组
@@ -69,9 +73,10 @@ type FindingReader interface {
 	ListByOwner(ctx context.Context, ownerType, ownerID string) ([]finding.VulnFinding, error)
 }
 
-// EndpointReader 是投影器读 endpoint 表所需的最小接口。
-type EndpointReader interface {
-	ListByOwner(ctx context.Context, ownerID, host string) ([]endpoint.Endpoint, error)
+// FlowReader 是投影器读 http_flow 派生攻击面路由所需的最小接口。
+// *flow.Store 自动满足。
+type FlowReader interface {
+	DistinctRoutes(ctx context.Context, ownerID, host string) ([]flow.RouteRow, error)
 }
 
 // ActiveReader 是投影器读 active_scan 表所需的最小接口（用于验证 owner 是 active 类型）。
@@ -83,9 +88,9 @@ type ActiveReader interface {
 //
 // 仅服务 active 模式——passive 模式无 sitemap 视图（流量是流水账，前端用 findings 列表）。
 type Projector struct {
-	Findings  FindingReader
-	Endpoints EndpointReader
-	Active    ActiveReader
+	Findings FindingReader
+	Flows    FlowReader
+	Active   ActiveReader
 }
 
 // Project 投影 (ownerID, host) 范围的 sitemap 树。
@@ -102,9 +107,9 @@ func (p *Projector) Project(ctx context.Context, ownerID, host string) (View, er
 		return View{}, fmt.Errorf("sitemap 仅支持 active 模式 (owner_id=%s 不是 active scan，passive 用 /findings)", ownerID)
 	}
 
-	endpoints, err := p.Endpoints.ListByOwner(ctx, ownerID, host)
+	routes, err := p.Flows.DistinctRoutes(ctx, ownerID, host)
 	if err != nil {
-		return View{}, fmt.Errorf("endpoint.ListByOwner: %w", err)
+		return View{}, fmt.Errorf("flow.DistinctRoutes: %w", err)
 	}
 
 	findings, err := p.Findings.ListByOwner(ctx, "active_scan", ownerID)
@@ -143,7 +148,7 @@ func (p *Projector) Project(ctx context.Context, ownerID, host string) (View, er
 			findingsByKey[noTargetKey] = append(findingsByKey[noTargetKey], fs)
 			continue
 		}
-		tpath := endpoint.TemplatizePath(path)
+		tpath := TemplatizePath(path)
 		if method == "" {
 			methodlessByPath[f.Host+"|"+tpath] = append(methodlessByPath[f.Host+"|"+tpath], fs)
 			continue
@@ -153,14 +158,14 @@ func (p *Projector) Project(ctx context.Context, ownerID, host string) (View, er
 	}
 
 	// root name：host 参数优先；空时自动派生
-	//   - 数据涉及的 host 集合（endpoints + findings union）唯一 → 用它（active scan 多数是单 host）
+	//   - 数据涉及的 host 集合（routes + findings union）唯一 → 用它（active scan 多数是单 host）
 	//   - 0 或多个 → fallback "(all hosts)"
 	rootName := host
 	if rootName == "" {
 		hostSet := map[string]struct{}{}
-		for _, ep := range endpoints {
-			if ep.Host != "" {
-				hostSet[ep.Host] = struct{}{}
+		for _, r := range routes {
+			if r.Host != "" {
+				hostSet[r.Host] = struct{}{}
 			}
 		}
 		for _, f := range findings {
@@ -178,31 +183,33 @@ func (p *Projector) Project(ctx context.Context, ownerID, host string) (View, er
 	}
 	root := &SitemapNode{Kind: KindDomain, Name: rootName}
 
-	// endpoint 直接挂 domain（无 folder 中间层）+ 建强/弱匹配索引
-	// 双侧 TemplatizePath 规范化：历史数据 endpoint.path 可能带尾 "/"（写于 fix 前），
-	// finding 侧 path 已 templatize 过——这里也 templatize 避免 key 不匹配
+	// 派生路由直接挂 domain（无 folder 中间层）+ 建强/弱匹配索引。
+	// DistinctRoutes 已 SQL 去重 (host, method, raw_path)，这里 TemplatizePath 再折叠 ID 变体
+	//   （/user/1 与 /user/2 → /user/:id），故按 templatize 后的 key 二次去重避免重复节点。
+	// 双侧 TemplatizePath 规范化让 finding 侧（也 templatize 过）能精确命中路由。
 	seenKey := map[string]bool{}
 	nodesByPath := map[string][]*SitemapNode{}
-	for _, ep := range endpoints {
-		tpath := endpoint.TemplatizePath(ep.Path)
-		name := ep.Name
-		if name == "" {
-			name = ep.Method + " " + tpath // fallback display
+	for _, r := range routes {
+		method := strings.ToUpper(r.Method)
+		tpath := TemplatizePath(r.Path)
+		key := r.Host + "|" + method + "|" + tpath
+		if seenKey[key] {
+			continue // templatize 后重复（如 /user/1 与 /user/2）已挂过节点
 		}
+		seenKey[key] = true
+
 		node := &SitemapNode{
 			Kind:   KindEndpoint,
-			Name:   name,
+			Name:   method + " " + tpath,
 			Path:   tpath,
-			Method: ep.Method,
+			Method: method,
 		}
 		root.Children = append(root.Children, node)
 
-		key := ep.Host + "|" + ep.Method + "|" + tpath
-		seenKey[key] = true
 		if fs, ok := findingsByKey[key]; ok {
 			node.Findings = append(node.Findings, fs...)
 		}
-		pathKey := ep.Host + "|" + tpath
+		pathKey := r.Host + "|" + tpath
 		nodesByPath[pathKey] = append(nodesByPath[pathKey], node)
 	}
 
@@ -216,8 +223,8 @@ func (p *Projector) Project(ctx context.Context, ownerID, host string) (View, er
 		findingsByKey[noTargetKey] = append(findingsByKey[noTargetKey], fs...)
 	}
 
-	// 剩余 findings 没对应 endpoint（commander 漏 write_endpoint 但 striker 写了 finding）
-	// 直接造一个 endpoint 节点挂 domain 下（不再走树形 ensureNode）
+	// 剩余 findings 没对应派生路由（striker 写了 finding 但该路由未被流量捕获）
+	// 直接造一个 endpoint 节点挂 domain 下
 	for key, fs := range findingsByKey {
 		if seenKey[key] {
 			continue

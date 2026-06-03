@@ -56,7 +56,7 @@ func (a *WriteFinding) ParametersJSON() json.RawMessage {
     "cwe_id":{"type":"string","description":"可选 CWE 编号（格式 'CWE-89'），用于跨扫描去重和报告分类。不确定可省略。"},
     "owasp_category":{"type":"string","description":"可选 OWASP Top 10 类别（格式 'A03:2021'），用于按行业标准分类。不确定可省略。"},
     "remediation":{"type":"string","description":"可选修复建议（自然语言，1-3 句）；evidence 仍存 PoC。"},
-    "depends_on":{"type":"array","items":{"type":"string"},"description":"**组合漏洞依赖**：本 finding 是由哪些已有 finding 组合而成（如 finding c = a + b，则传 [\"a-uuid\", \"b-uuid\"]）。graph 视图会画出 a→c + b→c 的箭头。基础漏洞（独立挖出）省略此字段。先 read_findings 拿前置 finding 的 id。"}
+    "depends_on":{"type":"array","items":{"type":"string"},"description":"**组合漏洞依赖**：本 finding 是由哪些已有 finding 组合而成（如 finding c = a + b，则传 [\"a-uuid\", \"b-uuid\"]）。sitemap 视图会画出 a→c + b→c 的箭头。基础漏洞（独立挖出）省略此字段。先 read_findings 拿前置 finding 的 id。"}
   },
   "required":["summary"]
 }`)

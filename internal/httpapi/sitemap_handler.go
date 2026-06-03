@@ -6,22 +6,23 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/V3teran/liusha/internal/graphview"
+	"github.com/V3teran/liusha/internal/sitemap"
 )
 
 // SitemapAPI 是 sitemap 投影的窄接口，handler 只依赖它。
-// *graphview.Projector 自动满足。
+// *sitemap.Projector 自动满足。
 type SitemapAPI interface {
-	Project(ctx context.Context, ownerID, host string) (graphview.View, error)
+	Project(ctx context.Context, ownerID, host string) (sitemap.View, error)
 }
 
 // sitemapHandler 处理 GET /sitemap/:owner_id?host=<optional>。
 //
-// 返回 sitemap 树 JSON：domain → folder → endpoint → findings（embed 在 endpoint 下）。
+// 返回 sitemap 树 JSON：domain → endpoint → findings（embed 在 endpoint 下，无 folder 中间层）。
+// 攻击面从 http_flow(source=internal) 派生（DistinctRoutes 去重），不再依赖 endpoint 表。
 // **仅 active 模式**——passive_session.id 报错（passive 流量是流水账，前端走 findings 列表视图）。
 //
 // owner 可挂多 host：host 缺省时合并显示该 active scan 下的全部 host；
-// 传 ?host=xxx 时按 finding.host + endpoint.host 过滤。
+// 传 ?host=xxx 时按 finding.host + 派生路由 host 过滤。
 func sitemapHandler(api SitemapAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		oid := c.Param("owner_id")

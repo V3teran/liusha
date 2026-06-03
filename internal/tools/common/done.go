@@ -1,10 +1,8 @@
-// done.go 实现 ReAct 循环里的几个通用 Action：
-// done / read_notes / write_note / write_finding / write_graph。
+// done.go 实现 ReAct 循环的收尾 Action `done`（其余通用 Action 见同包各文件：
+// note.go / finding.go / sitemap.go 等）。
 //
-// 设计要点：
-//   - Note actions（ReadNotes/WriteNote）只依赖小接口 NoteStore，便于单测；
-//     *notes.RedisStore 自动满足该接口（ReadNotes + AppendNote）。
-//   - WriteFinding / WriteGraph 同样依赖窄接口（FindingStore / GraphStore），实参可换 mock。
+// 设计要点：done 收尾时释放本 hunter 占用的 browser tab（releaseBrowserTab），
+// 避免共享 jar 的 tab 泄漏。
 package common
 
 import (

@@ -40,7 +40,7 @@ type VulnFinding struct {
 	// DependsOn 是组合漏洞的依赖 finding ID 数组（0059 加入）。
 	// 例：finding c 是 finding a + b 组合而成 → c.DependsOn = [a.id, b.id]。
 	// 替代历史的 finding_relation 表（实测 LLM 从未调 write_relation，独立表是过度设计）。
-	// graphview projector 据此派生 chains 边（a→c + b→c）渲染成图上虚线弧形。
+	// sitemap projector 据此派生 chains 边（a→c + b→c）渲染成图上虚线弧形。
 	DependsOn []string
 
 	CreatedAt time.Time

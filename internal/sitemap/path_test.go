@@ -1,4 +1,4 @@
-package endpoint
+package sitemap
 
 import "testing"
 
@@ -8,7 +8,7 @@ func TestTemplatizePath(t *testing.T) {
 	}{
 		// 根 path 不能被 trim 成空
 		{"/", "/"},
-		// 尾斜杠规范化（避免 commander/striker 之间 /x vs /x/ 分裂）
+		// 尾斜杠规范化（避免 /x vs /x/ 分裂）
 		{"/vulnerabilities/xss_d/", "/vulnerabilities/xss_d"},
 		{"/vulnerabilities/xss_d", "/vulnerabilities/xss_d"},
 		{"/foo/bar//", "/foo/bar"},

@@ -20,16 +20,16 @@ import (
 	"github.com/V3teran/liusha/internal/config"
 	"github.com/V3teran/liusha/internal/credential"
 	"github.com/V3teran/liusha/internal/db"
-	"github.com/V3teran/liusha/internal/endpoint"
 	"github.com/V3teran/liusha/internal/envx"
 	"github.com/V3teran/liusha/internal/finding"
-	"github.com/V3teran/liusha/internal/graphview"
+	"github.com/V3teran/liusha/internal/flow"
 	"github.com/V3teran/liusha/internal/httpapi"
 	"github.com/V3teran/liusha/internal/hunter"
 	"github.com/V3teran/liusha/internal/llminvocation"
 	"github.com/V3teran/liusha/internal/logx"
 	"github.com/V3teran/liusha/internal/owner"
 	"github.com/V3teran/liusha/internal/passivesession"
+	"github.com/V3teran/liusha/internal/sitemap"
 	"github.com/V3teran/liusha/internal/worker"
 	"github.com/V3teran/liusha/web"
 
@@ -63,11 +63,12 @@ func main() {
 	passiveSessionStore := passivesession.NewStore(pool)
 	activeScanStore := activescan.NewStore(pool)
 	findStore := finding.NewStore(pool)
-	endpointStore := endpoint.NewStore(pool)
-	projector := &graphview.Projector{
-		Findings:  findStore,
-		Endpoints: endpointStore,
-		Active:    activeScanStore, // sitemap 仅 active 模式（passive 用 findings 列表）
+	// projector 只读 DistinctRoutes（不读 body），body 截断参数无关 → 0,0。
+	flowStore := flow.NewStore(pool, 0, 0)
+	projector := &sitemap.Projector{
+		Findings: findStore,
+		Flows:    flowStore,       // 攻击面从 http_flow(source=internal) 派生，不再依赖 endpoint 表
+		Active:   activeScanStore, // sitemap 仅 active 模式（passive 用 findings 列表）
 	}
 	invocationStore := llminvocation.NewStoreWithConfig(pool, cfg.LLM.Invocation)
 	defer func() { _ = invocationStore.Close() }()

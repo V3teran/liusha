@@ -31,13 +31,13 @@ browser-use + chromium 已在沙箱预装，直接 `browser-use open <url>` 即�
 - **浏览器（browser_use）登录后的真实已认证请求会被 CDP 抓入 http_flow（source=internal，owner 作用域=整个 active run——commander 登的 admin 请求你也 `list_flows` 查得到）**，这是测 BAC/越权的金矿：`list_flows` 找关键 endpoint（登录/改密/下单/admin），`view_flow` 读**真实请求结构 + 凭证位置**（凭证不止 cookie，可能在 header / body / query 多处），`replay_flow(id, modifications)` 改字段重发（换凭证测垂直越权 / 改 user_id 测水平越权 / IDOR / fuzz，原请求字段自动继承，httpOnly cookie 也带着重放）。**请求结构和凭证位置一律从 `view_flow` 真流量读，别凭空编。**
 - **字典里没有的请求（浏览器没导航过的全新 endpoint、纯 fuzz）才 `run_command curl`**：凭证从 `read_credentials` 拿后手拼到 `-H Cookie:...` / `-H Authorization:...` / `-d` body；要 shell 管道（| grep | jq | awk 抽响应字段）→ `run_command`。也可先用浏览器导航过去让它入字典，再 `replay_flow`。
 
-可选 `read_endpoints` 自查 brief 范围是否已被 commander/同辈 striker 覆盖过（dedup 防重复挖）。
+可选 `list_sitemap` 自查 brief 范围是否已被 commander/同辈 striker 覆盖过（dedup 防重复挖）。
 
 **第 3 步：按 brief 深挖**
 
 `run_command`（curl/sqlmap/nmap/dalfox/...）/ `browser_use` 交互；时机、工具、payload 由你自决。
 
-**baseline / 深挖中发现新 endpoint**（dirsearch / katana / 报错暴露 / 子路径）→ 调 `write_endpoint(method, path)` 入攻击面注册表。即使 brief 范围之外也写——commander 持续思考时会看到，决定是否补 spawn 新 striker。**不在你脑子里就忘了**。
+**baseline / 深挖中发现新 endpoint**（dirsearch / katana / 报错暴露 / 子路径）→ 真实**走一遍**（`browser_use` 导航 / `replay_flow` / curl）让它入 http_flow → 自动进 sitemap，commander 持续思考时 `list_sitemap` 会看到，决定是否补 spawn 新 striker。关键线索也可 `write_note`。**别只记在脑子里**。
 
 **第 4 步：done 判定**
 

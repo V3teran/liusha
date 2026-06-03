@@ -23,7 +23,7 @@ type Deps struct {
 	// ActiveScan 为 nil 时 /scan/active 路由不注册。
 	// 由 cmd/api 注入自定义 adapter（包 owner store + hunter.Store + worker.Client）。
 	ActiveScan ActiveScanAPI
-	// StaticFS 可选：注入时挂 / 路径 serve 静态前端（PR-3 graph viewer SPA）。
+	// StaticFS 可选：注入时挂 / 路径 serve 静态前端（sitemap viewer SPA）。
 	// 为 nil 时不注册——避免 cmd/api 之外的进程意外暴露前端资源。
 	StaticFS http.FileSystem
 	// EnableDevAutofill 仅 dev 用：true 时挂 GET /viewer/config.json，把 APIKey 明文

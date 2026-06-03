@@ -1,7 +1,8 @@
 # 攻击面迁移：手动 endpoint 表 → http_flow 派生（strix 单一真相源模型）
 
-状态：进行中（2026-06-03 起）
+状态：Phase 1/2/3 代码均已完成（2026-06-03），build+vet+单测绿；唯一待做 = live active:bac e2e 验证。
 决策：用户拍板"现在就做全套迁移"。对照 strix（Caido 全流量 store + 派生 sitemap）后确认方向。
+额外：用户要求 graph 概念彻底改名 sitemap（包 internal/graphview→internal/sitemap，已完成）。
 
 ## 背景与动机
 

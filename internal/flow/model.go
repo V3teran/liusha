@@ -10,7 +10,8 @@
 //     （含认证凭证位置）→ 反查 hunter 得 owner=active_scan、HunterID 必填，不入队
 //     （active 自己挖的流量回头再触发 tracker 会自激震荡）。
 //
-// CLI 工具直连不入字典；endpoint 沉淀走 endpoint 表（write_endpoint），
+// CLI 工具流量经容器内 mitmproxy 入字典（source=internal，源头 templatize 去重）；
+// 攻击面从本表 source=internal 派生（sitemap 投影，DistinctRoutes），不再有独立 endpoint 表；
 // curl 链路凭证共享走 redis credentials key（read_credentials / write_credential）。
 package flow
 
@@ -38,6 +39,15 @@ type Flow struct {
 	ResponseHeaders json.RawMessage
 	ResponseBody    []byte
 	DurationMs      int
+}
+
+// RouteRow 是 DistinctRoutes 派生的去重攻击面路由（仅 host+method+path）。
+// sitemap 投影用它取代已退役的 endpoint 表——攻击面从 http_flow(source=internal) 自动派生，
+// 不再靠 commander 手动 write_endpoint 转写（单一真相源 + 参数自动入库）。
+type RouteRow struct {
+	Host   string
+	Method string
+	Path   string
 }
 
 // FlowSummary 是 ListByOwner 的瘦行：不含 body / headers，

@@ -31,7 +31,6 @@ import (
 	"github.com/V3teran/liusha/internal/config"
 	"github.com/V3teran/liusha/internal/credential"
 	"github.com/V3teran/liusha/internal/db"
-	"github.com/V3teran/liusha/internal/endpoint"
 	"github.com/V3teran/liusha/internal/envx"
 	"github.com/V3teran/liusha/internal/finding"
 	"github.com/V3teran/liusha/internal/flow"
@@ -89,7 +88,6 @@ func main() {
 	toolCalls := toolinvocation.NewStore(pool)
 	calls := llminvocation.NewStoreWithConfig(pool, cfg.LLM.Invocation)
 	lessons := lesson.NewStore(pool)
-	endpoints := endpoint.NewStore(pool) // active 模式攻击面注册表（commander recon 写入，write_finding 自动联动状态）
 	defer func() { _ = calls.Close() }()
 	flows := flow.NewStore(pool, scannerCfg.FlowMaxRequestBody, scannerCfg.FlowMaxResponseBody)
 	creds := credential.NewRedis(rdb, cfg.Credential.RedisKeyPrefix)
@@ -272,7 +270,6 @@ func main() {
 		Notes:                  noteStore,
 		Findings:               finds,
 		Lessons:                lessons,
-		Endpoints:              endpoints,
 		Flows:                  flows,
 		Credentials:            creds,
 		ToolInvocations:        toolCalls,

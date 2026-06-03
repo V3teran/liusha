@@ -61,9 +61,9 @@ echo "===== 2/6 清空 db / redis ====="
 # postgres：业务表 TRUNCATE（schema 保留）。
 # 错误**不再静默**——TRUNCATE 任一表失败会立即 exit，避免旧 session / finding 残留。
 # 表名演化：0043 agent_run→agent_task，0054 agent_task→hunter；0046 加 tool_invocation，0047 加 audit_log；
-# 0056 加 endpoint；0059 删 finding_relation（→ finding.depends_on uuid[] 替代）。
+# 0056 加 endpoint，0064 退役（攻击面改从 http_flow 派生 sitemap）；0059 删 finding_relation（→ finding.depends_on uuid[] 替代）。
 if ! docker exec "$PG_CONTAINER" psql -U liusha -d liusha -c \
-    "TRUNCATE TABLE finding, lesson, llm_invocation, tool_invocation, audit_log, hunter, http_flow, endpoint, passive_session, active_scan CASCADE;"; then
+    "TRUNCATE TABLE finding, lesson, llm_invocation, tool_invocation, audit_log, hunter, http_flow, passive_session, active_scan CASCADE;"; then
   echo "  ✗ postgres TRUNCATE 失败 — 看上面 psql 错误（常见原因：容器不在 / schema 不一致 / migrate 未跑）"
   exit 1
 fi
@@ -134,7 +134,7 @@ while [ $SECONDS -lt $deadline ]; do
   if [ "$((api_ok + scanner_ok + proxy_ok + vulnapp_ok))" -eq 4 ]; then
     echo "  ✓ 4 service 全部 healthy"
     echo ""
-    echo "  📊 graph viewer：${LIUSHA_API_BASE}/viewer/index.html"
+    echo "  📊 sitemap viewer：${LIUSHA_API_BASE}/viewer/index.html"
     echo "     在浏览器打开，填 owner_id + X-API-Key (=${LIUSHA_API_KEY})，勾"每 5s 刷新"边扫边看。"
     echo "     owner_id 跑完 e2e 后从 finding 表查："
     echo "       docker exec ${PG_CONTAINER} psql -U liusha -d liusha -c \\"
@@ -177,7 +177,7 @@ else
   echo "    1. logs/scanner.log 看 ReAct 循环是否跑"
   echo "    2. docker exec ${PG_CONTAINER} psql -U liusha -d liusha -c \\"
   echo "       'SELECT kind,severity,confidence,title FROM finding ORDER BY created_at DESC;'"
-  echo "    3. graph viewer：${LIUSHA_API_BASE}/viewer/index.html （即使失败也能看到部分图）"
+  echo "    3. sitemap viewer：${LIUSHA_API_BASE}/viewer/index.html （即使失败也能看到部分图）"
 fi
 
 exit $RC
