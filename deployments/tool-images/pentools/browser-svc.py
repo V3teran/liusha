@@ -331,6 +331,8 @@ class Service:
             req_h["Cookie"] = cookie
         payload = {
             "hunter_id": hunter_id,
+            "identity": IDENTITY,  # 进程级身份（= browser_use identity），给 internal flow 盖身份戳
+            "tool": "browser",     # 发起工具固定 browser（CLI 工具走 mitmproxy 从 UA 解析）
             "host": u.hostname or "",
             "host_port": u.netloc or "",
             "method": ent.get("method", ""),

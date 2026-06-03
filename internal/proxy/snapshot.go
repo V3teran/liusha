@@ -50,6 +50,8 @@ type TrafficSnapshot struct {
 	OwnerType       string              `json:"owner_type,omitempty"`
 	OwnerID         string              `json:"owner_id,omitempty"`
 	Source          string              `json:"source"`
+	Identity        string              `json:"identity,omitempty"`
+	Tool            string              `json:"tool,omitempty"`
 	Host            string              `json:"host"`
 	HostPort        string              `json:"host_port,omitempty"`
 	Method          string              `json:"method"`

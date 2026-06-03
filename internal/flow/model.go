@@ -28,6 +28,8 @@ type Flow struct {
 	OwnerID         string
 	HunterID        string // 可选；internal source 必填（细粒度可追溯），external 为空
 	Source          string // 'external' / 'internal'
+	Identity        string // 身份名（browser 抓的填 browser_use identity；CLI / external 为空）
+	Tool            string // 发起工具（browser 抓的='browser'；CLI 抓的=UA 解析；external 为空）
 	Host            string
 	CreatedAt       time.Time
 	Method          string
@@ -60,6 +62,8 @@ type FlowSummary struct {
 	OwnerID    string
 	HunterID   string
 	Source     string
+	Identity   string
+	Tool       string
 	Host       string
 	CreatedAt  time.Time
 	Method     string

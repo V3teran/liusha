@@ -30,12 +30,14 @@ func NewStore(pool *pgxpool.Pool, maxReqBody, maxRespBody int) *Store {
 const flowSelectCols = "id, owner_type, owner_id::text, COALESCE(hunter_id::text, ''), source, " +
 	"host, created_at, method, url, path, " +
 	"request_headers, request_body, " +
-	"status_code, response_headers, response_body, duration_ms"
+	"status_code, response_headers, response_body, duration_ms, " +
+	"COALESCE(identity, ''), COALESCE(tool, '')"
 
 // summaryCols 是 ListByOwner 的瘦列序，刻意不含 body / headers，避免大 payload。
 const summaryCols = "id, owner_type, owner_id::text, COALESCE(hunter_id::text, ''), source, " +
 	"host, created_at, method, url, path, " +
-	"status_code, duration_ms"
+	"status_code, duration_ms, " +
+	"COALESCE(identity, ''), COALESCE(tool, '')"
 
 // copyFromCols 是 CopyFrom 写入的列名顺序，必须与每行 []any 的元素顺序严格对齐。
 var copyFromCols = []string{
@@ -43,6 +45,7 @@ var copyFromCols = []string{
 	"host", "method", "url", "path",
 	"request_headers", "request_body",
 	"status_code", "response_headers", "response_body", "duration_ms",
+	"identity", "tool",
 }
 
 // Append 单条插入（带截断），返回 bigserial id。
@@ -67,16 +70,19 @@ func (s *Store) Append(ctx context.Context, f Flow) (int64, error) {
 			(owner_type, owner_id, hunter_id, source,
 			 host, method, url, path,
 			 request_headers, request_body,
-			 status_code, response_headers, response_body, duration_ms)
+			 status_code, response_headers, response_body, duration_ms,
+			 identity, tool)
 		VALUES ($1, $2::uuid, $3, $4,
 		        $5, $6, $7, $8,
 		        $9, $10,
-		        $11, $12, $13, $14)
+		        $11, $12, $13, $14,
+		        $15, $16)
 		RETURNING id`,
 		f.OwnerType, f.OwnerID, hunterIDArg(f.HunterID), f.Source,
 		host, f.Method, f.URL, path,
 		reqH, reqBody,
-		f.StatusCode, respH, respBody, f.DurationMs).Scan(&id)
+		f.StatusCode, respH, respBody, f.DurationMs,
+		nullIfEmpty(f.Identity), nullIfEmpty(f.Tool)).Scan(&id)
 	if err != nil {
 		return 0, fmt.Errorf("append flow: %w", err)
 	}
@@ -90,6 +96,15 @@ func hunterIDArg(h string) any {
 		return nil
 	}
 	return h
+}
+
+// nullIfEmpty 把空字符串转 nil（pgx 写 NULL），非空原样返回。
+// identity/tool 是 nullable text 列：CLI 流量 identity 空、external 流量两者都空，写 NULL。
+func nullIfEmpty(s string) any {
+	if s == "" {
+		return nil
+	}
+	return s
 }
 
 // AppendBatch 用 pgx.CopyFrom 批量插入，性能远高于逐行 INSERT。
@@ -115,6 +130,7 @@ func (s *Store) AppendBatch(ctx context.Context, flows []Flow) error {
 			host, f.Method, f.URL, path,
 			normalizeHeaders(f.RequestHeaders), reqBody,
 			f.StatusCode, normalizeHeaders(f.ResponseHeaders), respBody, f.DurationMs,
+			nullIfEmpty(f.Identity), nullIfEmpty(f.Tool),
 		}
 	}
 	_, err := s.pool.CopyFrom(ctx,
@@ -156,7 +172,8 @@ func (s *Store) ListByOwner(ctx context.Context, ownerID string, limit, offset i
 		var sum FlowSummary
 		if err := rows.Scan(&sum.ID, &sum.OwnerType, &sum.OwnerID, &sum.HunterID, &sum.Source,
 			&sum.Host, &sum.CreatedAt, &sum.Method, &sum.URL, &sum.Path,
-			&sum.StatusCode, &sum.DurationMs); err != nil {
+			&sum.StatusCode, &sum.DurationMs,
+			&sum.Identity, &sum.Tool); err != nil {
 			return nil, fmt.Errorf("scan flow summary: %w", err)
 		}
 		out = append(out, sum)
@@ -175,6 +192,8 @@ type ListFilter struct {
 	Method    string    // 等值，自动 upper-case
 	Path      string    // glob，支持 '*'；空则不过滤
 	Source    string    // 'external' / 'internal'；空则不过滤
+	Identity  string    // 身份名等值；空则不过滤（抽凭证时配 Tool="browser" 锁定身份）
+	Tool      string    // 发起工具等值（browser / curl / sqlmap …）；空则不过滤
 	StatusMin int       // 状态码下界（如 400 = 仅 4xx/5xx）
 	StatusMax int       // 状态码上界
 	Since     time.Time // 仅看此时间后；零值不过滤
@@ -213,6 +232,12 @@ func (s *Store) ListByOwnerFiltered(ctx context.Context, ownerID string, f ListF
 	if f.Source != "" {
 		add("source=$%d", f.Source)
 	}
+	if f.Identity != "" {
+		add("identity=$%d", f.Identity)
+	}
+	if f.Tool != "" {
+		add("tool=$%d", f.Tool)
+	}
 	if f.StatusMin > 0 {
 		add("status_code >= $%d", f.StatusMin)
 	}
@@ -236,7 +261,8 @@ func (s *Store) ListByOwnerFiltered(ctx context.Context, ownerID string, f ListF
 		var sum FlowSummary
 		if err := rows.Scan(&sum.ID, &sum.OwnerType, &sum.OwnerID, &sum.HunterID, &sum.Source,
 			&sum.Host, &sum.CreatedAt, &sum.Method, &sum.URL, &sum.Path,
-			&sum.StatusCode, &sum.DurationMs); err != nil {
+			&sum.StatusCode, &sum.DurationMs,
+			&sum.Identity, &sum.Tool); err != nil {
 			return nil, fmt.Errorf("scan: %w", err)
 		}
 		out = append(out, sum)
@@ -309,7 +335,8 @@ func scanFlow(r scanner, f *Flow) error {
 	if err := r.Scan(&f.ID, &f.OwnerType, &f.OwnerID, &f.HunterID, &f.Source,
 		&f.Host, &f.CreatedAt, &f.Method, &f.URL, &f.Path,
 		&reqH, &f.RequestBody,
-		&f.StatusCode, &respH, &f.ResponseBody, &f.DurationMs); err != nil {
+		&f.StatusCode, &respH, &f.ResponseBody, &f.DurationMs,
+		&f.Identity, &f.Tool); err != nil {
 		return err
 	}
 	f.RequestHeaders = json.RawMessage(reqH)

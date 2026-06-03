@@ -54,6 +54,37 @@ def _templatize(path: str) -> str:
     return "/".join(parts)
 
 
+# CLI 工具默认 User-Agent 指纹 → 工具名（子串小写匹配）。给 http_flow.tool 盖工具戳，
+# 让 LLM 能 list_flows(tool=...) 过滤。认不出（被 --random-agent / -A 伪装）存原始 UA 截断。
+_TOOL_UA_PATTERNS = [
+    ("sqlmap", "sqlmap"),
+    ("nuclei", "nuclei"),
+    ("katana", "katana"),
+    ("dirsearch", "dirsearch"),
+    ("ffuf", "ffuf"),
+    ("wfuzz", "wfuzz"),
+    ("nikto", "nikto"),
+    ("nmap", "nmap"),
+    ("python-requests", "requests"),
+    ("python-httpx", "httpx"),
+    ("httpx", "httpx"),
+    ("go-http-client", "go-http"),
+    ("wget", "wget"),
+    ("curl", "curl"),
+]
+
+
+def _parse_tool(ua: str) -> str:
+    """从 User-Agent 解析发起工具名；认不出存原始 UA 截断 / 'unknown'。"""
+    if not ua:
+        return "unknown"
+    low = ua.lower()
+    for needle, name in _TOOL_UA_PATTERNS:
+        if needle in low:
+            return name
+    return ua[:40]
+
+
 class CLICapture:
     def __init__(self) -> None:
         self._seen: set[tuple[str, str]] = set()
@@ -106,6 +137,8 @@ class CLICapture:
             "request_body": base64.b64encode(req_body).decode() if req_body else "",
             "response_headers": {k: [v] for k, v in resp.headers.items()},
             "response_body": base64.b64encode(resp_body).decode() if resp_body else "",
+            # tool 从 UA 解析（identity 不传：CLI 透明代理标不准，且 CLI 凭证走 redis/自登不需要）
+            "tool": _parse_tool(req.headers.get("user-agent", "")),
             "duration_ms": dur_ms,
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }

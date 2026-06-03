@@ -75,11 +75,28 @@
 - **多账号对比**（越权/BAC）：brief 给几组账号就按命名铁律各开一个 `identity`（名=各自用户名）浏览器，每个各自在登录页登录，cookie jar 互不污染。
 - redis 凭证通道（read/write_credential）服务 curl/sqlmap 链路 + 同步过程中**新拿到**的凭证；浏览器登录态不走它。
 
-**3. write：仅在两种情况**——
-- **新登录拿到凭证** 且 `read_credentials` 本 host 返空（或无对应 name）→ write 让后续 hunter 共享
-- **read 出的凭证试用遭拒**（401/403/重定向登录页/响应异常）→ 重新登录拿新值 → 同 name write **覆盖**
+**3. read 没有 X / 凭证失效时——把身份 X 的活凭证写进 redis（两条独立通路，谁的前提成立走谁）**
 
-**写的 value 从哪来（必须是工具真实拿到的活值）**：curl/python 登录响应的 `Set-Cookie`，或对已认证流量 `view_flow` 抽出的 Cookie（含 httpOnly）。**浏览器登录的 session cookie 多是 httpOnly，`document.cookie` / 浏览器 `state` 读不到**——要把它录进 redis 给 curl/sqlmap 用，就 `view_flow` 自己那条已认证请求把真值抽出来再 write，绝不从浏览器 JS 拿空值、更不编。
+凭证录入有两条互不依赖的路，**分界线是凭证 LLM 读不读得到**（不是"目标有没有前端"——SPA / 路由没猜对 / WAF 都会让你误判纯后端，别预判目标形态，按手上有什么走）：
+
+**路 A — 身份 X 有 browser 已认证流量**（browser 登录的 session 常 httpOnly，浏览器 JS / `state` 读不到值，只能从网络层抓的 http_flow 抽）：
+1. `list_flows(identity=X, tool=browser)` 锁定身份 X 的浏览器已认证请求（最新优先），取最新一条 id
+2. `view_flow(id)` 从 **headers + query + body 三处**识别**所有**认证字段（可能 Cookie + CSRF(body) + api_key(query) 多条并存，不只 header、不只一条）
+3. 全部按 `{type,key,value}` `write_credential`，**name=X**（身份直接沿用 list_flows 的查询参数，不靠从响应猜，绝不写错身份污染）
+
+**路 B — curl / python 自己登进去的身份**（纯后端 API 无登录页、或浏览器登不进时的**唯一通路**；凭证就在你自己的登录交互里，httpOnly 不挡 HTTP 客户端读 `Set-Cookie` 响应头 / JSON body 的 token，你读得到）：
+1. 自己打认证端点登录：表单站 `GET 登录页`抽 CSRF → `POST 账密+token`；纯 API `POST /api/login {账密}` 或 OAuth `POST /oauth/token`
+2. **从登录响应 + 一次访问受保护资源的请求，识别全部凭证位置**（不只 `Set-Cookie`——session cookie 可能还要配 body 的 CSRF、header 的 `Authorization: Bearer <token>`、query 的 api_key；登录响应给一部分，完整认证结构要实际访问一次受保护资源才看全）
+3. 全部按 `{type,key,value}` `write_credential`，**name=X**
+
+**路 B 完全不依赖 browser / http_flow / identity 戳**——它是纯后端场景的自给自足通道：curl 探认证端点 → 登录 → 自识别全部凭证 → write redis → 后续 curl/sqlmap read 消费。无浏览器的目标全靠它。
+
+**失效 = 拿凭证发包被拒（401/403/跳登录），用了才知道——按这份凭证当初哪条路录的，回那条路刷新**：
+- 路 A 录的失效 → 取 `list_flows(identity=X, tool=browser)` 最新一条**试**（可能别人重登过、有更新的）：有效 → update redis；无效 → browser 重登 X → 新流量入库 → 再抽 → update
+- 路 B 录的失效 → curl 重新登录 X → 自识别 → update redis
+- **不要"判断 http_flow 哪条比 redis 新"**——redis 凭证不带时间锚点，没法比新旧，直接取最新**试**（失效本就用了才知道）
+
+**写的 value 必须是真实活值**：curl/python 登录交互拿到的真值（响应头 `Set-Cookie` / body token，路 B），或 `view_flow` 从已认证 flow 抽出的真值（路 A）。绝不从浏览器 JS 拿空值、更不编。
 
 **不要 write 的情况**（避免浪费）：
 - read 出来还没试用就 write（重复劳动）

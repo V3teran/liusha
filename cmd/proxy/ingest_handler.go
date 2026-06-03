@@ -13,7 +13,8 @@
 // 序列化 JSON → POST 此 endpoint，payload body 内直接带 hunter_id（browser-svc.py 按 session→tab 归属）。
 //
 // 本 handler 收到后构造 proxy.TrafficSnapshot{Source:"internal"} → publisher.Publish
-//   → XADD stream → ingestor.handleInternalSnap 自动消费（与 sanitizer 路径同下游）。
+//
+//	→ XADD stream → ingestor.handleInternalSnap 自动消费（与 sanitizer 路径同下游）。
 //
 // 路径：POST /internal/v1/flows/ingest（挂在 cmd/proxy healthz HTTP mux 上）
 // 认证：Bearer <token>（token 空 = 开发模式不强制；prod 由 ENV LIUSHA_INGEST_TOKEN 注入）
@@ -41,6 +42,8 @@ import (
 // python 端 base64.b64encode）。空字符串 → 空 []byte。
 type ingestRequest struct {
 	HunterID        string              `json:"hunter_id"`
+	Identity        string              `json:"identity,omitempty"` // 身份名（browser 抓的填；CLI 空）
+	Tool            string              `json:"tool,omitempty"`     // 发起工具（browser='browser'；CLI=UA 解析）
 	Host            string              `json:"host"`
 	HostPort        string              `json:"host_port,omitempty"`
 	Method          string              `json:"method"`
@@ -106,6 +109,8 @@ func newIngestHandler(pub *proxy.Publisher, token string, logger zerolog.Logger)
 			ID:              "cdp-" + req.HunterID + "-" + ts.Format("20060102T150405.000000000"),
 			HunterID:        req.HunterID,
 			Source:          "internal",
+			Identity:        req.Identity,
+			Tool:            req.Tool,
 			Host:            req.Host,
 			HostPort:        req.HostPort,
 			Method:          req.Method,

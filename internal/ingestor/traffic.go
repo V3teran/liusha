@@ -241,6 +241,8 @@ func (t *Traffic) handleInternalSnap(ctx context.Context, snap *proxy.TrafficSna
 		OwnerID:         run.OwnerID,
 		HunterID:        snap.HunterID,
 		Source:          "internal",
+		Identity:        snap.Identity,
+		Tool:            snap.Tool,
 		Host:            snap.Host,
 		Path:            snap.Path,
 		CreatedAt:       snap.Timestamp,

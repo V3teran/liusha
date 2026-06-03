@@ -63,7 +63,9 @@ func (a *ListFlows) ParametersJSON() json.RawMessage {
         "host":   {"type":"string", "description":"host filter，留空则用当前 hunter host"},
         "method": {"type":"string", "description":"HTTP method 过滤（自动大写）"},
         "path":   {"type":"string", "description":"path glob 过滤，支持 '*'（如 '/admin/*' / '/api/users/*'）"},
-        "source": {"type":"string", "enum":["external","internal"], "description":"流量来源；external=用户/Burp 抓的，internal=容器内 chromium 浏览器 CDP 抓的真实已认证请求"},
+        "source": {"type":"string", "enum":["external","internal"], "description":"流量来源；external=用户/Burp 抓的，internal=容器内工具（chromium/CLI）抓的真实请求"},
+        "identity": {"type":"string", "description":"身份名过滤（=browser_use identity / 登录账号名）。抽某身份凭证时配 tool=browser 锁定该身份的浏览器已认证请求"},
+        "tool": {"type":"string", "description":"发起工具过滤：browser=浏览器抓的（带身份+httpOnly 全凭证，抽凭证用这个）；curl/sqlmap/…=CLI 工具"},
         "status_min": {"type":"integer", "description":"响应状态码下界（如 400 → 仅 4xx/5xx）"},
         "status_max": {"type":"integer", "description":"响应状态码上界"},
         "since": {"type":"string", "description":"ISO 时间戳，仅看此后流量（如 '2026-05-26T00:00:00Z'）"},
@@ -80,6 +82,8 @@ func (a *ListFlows) Execute(ctx context.Context, args json.RawMessage) (toolfx.R
 		Method    string `json:"method"`
 		Path      string `json:"path"`
 		Source    string `json:"source"`
+		Identity  string `json:"identity"`
+		Tool      string `json:"tool"`
 		StatusMin int    `json:"status_min"`
 		StatusMax int    `json:"status_max"`
 		Since     string `json:"since"`
@@ -114,6 +118,8 @@ func (a *ListFlows) Execute(ctx context.Context, args json.RawMessage) (toolfx.R
 		Method:    method,
 		Path:      strings.TrimSpace(in.Path),
 		Source:    strings.TrimSpace(in.Source),
+		Identity:  strings.TrimSpace(in.Identity),
+		Tool:      strings.TrimSpace(in.Tool),
 		StatusMin: in.StatusMin,
 		StatusMax: in.StatusMax,
 		Limit:     limit,
@@ -137,6 +143,8 @@ func (a *ListFlows) Execute(ctx context.Context, args json.RawMessage) (toolfx.R
 		Path       string    `json:"path"`
 		Status     int       `json:"status"`
 		Source     string    `json:"source"`
+		Identity   string    `json:"identity,omitempty"`
+		Tool       string    `json:"tool,omitempty"`
 		DurationMs int       `json:"duration_ms"`
 		CreatedAt  time.Time `json:"created_at"`
 	}
@@ -144,7 +152,8 @@ func (a *ListFlows) Execute(ctx context.Context, args json.RawMessage) (toolfx.R
 	for _, r := range rows {
 		out = append(out, rowOut{
 			ID: r.ID, Method: r.Method, Host: r.Host, Path: r.Path,
-			Status: r.StatusCode, Source: r.Source, DurationMs: r.DurationMs, CreatedAt: r.CreatedAt,
+			Status: r.StatusCode, Source: r.Source, Identity: r.Identity, Tool: r.Tool,
+			DurationMs: r.DurationMs, CreatedAt: r.CreatedAt,
 		})
 	}
 	payload, _ := json.Marshal(map[string]any{"count": len(out), "flows": out})
@@ -210,6 +219,8 @@ func (a *ViewFlow) Execute(ctx context.Context, args json.RawMessage) (toolfx.Re
 	out := map[string]any{
 		"id":               f.ID,
 		"source":           f.Source,
+		"identity":         f.Identity,
+		"tool":             f.Tool,
 		"host":             f.Host,
 		"method":           f.Method,
 		"url":              f.URL,
