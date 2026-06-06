@@ -1,0 +1,271 @@
+/*
+ * Copyright 2025 CloudWeGo Authors
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package adk
+
+import (
+	"bytes"
+	"context"
+	"encoding/gob"
+	"fmt"
+	"io"
+
+	"github.com/cloudwego/eino/components"
+	"github.com/cloudwego/eino/internal/core"
+	"github.com/cloudwego/eino/schema"
+)
+
+// ComponentOfAgent is the component type identifier for ADK agents in callbacks.
+// Use this to filter callback events to only agent-related events.
+const ComponentOfAgent components.Component = "Agent"
+
+type Message = *schema.Message
+type MessageStream = *schema.StreamReader[Message]
+
+type MessageVariant struct {
+	IsStreaming bool
+
+	Message       Message
+	MessageStream MessageStream
+	// message role: Assistant or Tool
+	Role schema.RoleType
+	// only used when Role is Tool
+	ToolName string
+}
+
+// EventFromMessage wraps a message or stream into an AgentEvent with role metadata.
+func EventFromMessage(msg Message, msgStream MessageStream,
+	role schema.RoleType, toolName string) *AgentEvent {
+	return &AgentEvent{
+		Output: &AgentOutput{
+			MessageOutput: &MessageVariant{
+				IsStreaming:   msgStream != nil,
+				Message:       msg,
+				MessageStream: msgStream,
+				Role:          role,
+				ToolName:      toolName,
+			},
+		},
+	}
+}
+
+type messageVariantSerialization struct {
+	IsStreaming   bool
+	Message       Message
+	MessageStream Message
+	Role          schema.RoleType
+	ToolName      string
+}
+
+func (mv *MessageVariant) GobEncode() ([]byte, error) {
+	s := &messageVariantSerialization{
+		IsStreaming: mv.IsStreaming,
+		Message:     mv.Message,
+		Role:        mv.Role,
+		ToolName:    mv.ToolName,
+	}
+	if mv.IsStreaming {
+		var messages []Message
+		for {
+			frame, err := mv.MessageStream.Recv()
+			if err == io.EOF {
+				break
+			}
+			if err != nil {
+				return nil, fmt.Errorf("error receiving message stream: %w", err)
+			}
+			messages = append(messages, frame)
+		}
+		m, err := schema.ConcatMessages(messages)
+		if err != nil {
+			return nil, fmt.Errorf("failed to encode message: cannot concat message stream: %w", err)
+		}
+		s.MessageStream = m
+	}
+	buf := &bytes.Buffer{}
+	err := gob.NewEncoder(buf).Encode(s)
+	if err != nil {
+		return nil, fmt.Errorf("failed to gob encode message variant: %w", err)
+	}
+	return buf.Bytes(), nil
+}
+
+func (mv *MessageVariant) GobDecode(b []byte) error {
+	s := &messageVariantSerialization{}
+	err := gob.NewDecoder(bytes.NewReader(b)).Decode(s)
+	if err != nil {
+		return fmt.Errorf("failed to decoding message variant: %w", err)
+	}
+	mv.IsStreaming = s.IsStreaming
+	mv.Message = s.Message
+	mv.Role = s.Role
+	mv.ToolName = s.ToolName
+	if s.MessageStream != nil {
+		mv.MessageStream = schema.StreamReaderFromArray([]*schema.Message{s.MessageStream})
+	}
+	return nil
+}
+
+func (mv *MessageVariant) GetMessage() (Message, error) {
+	var message Message
+	if mv.IsStreaming {
+		var err error
+		message, err = schema.ConcatMessageStream(mv.MessageStream)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		message = mv.Message
+	}
+
+	return message, nil
+}
+
+type TransferToAgentAction struct {
+	DestAgentName string
+}
+
+type AgentOutput struct {
+	MessageOutput *MessageVariant
+
+	CustomizedOutput any
+}
+
+// NewTransferToAgentAction creates an action to transfer to the specified agent.
+func NewTransferToAgentAction(destAgentName string) *AgentAction {
+	return &AgentAction{TransferToAgent: &TransferToAgentAction{DestAgentName: destAgentName}}
+}
+
+// NewExitAction creates an action that signals the agent to exit.
+func NewExitAction() *AgentAction {
+	return &AgentAction{Exit: true}
+}
+
+// AgentAction represents actions that an agent can emit during execution.
+//
+// Action Scoping in Agent Tools:
+// When an agent is wrapped as an agent tool (via NewAgentTool), actions emitted by the inner agent
+// are scoped to the tool boundary:
+//   - Interrupted: Propagated via CompositeInterrupt to allow proper interrupt/resume across boundaries
+//   - Exit, TransferToAgent, BreakLoop: Ignored outside the agent tool; these actions only affect
+//     the inner agent's execution and do not propagate to the parent agent
+//
+// This scoping ensures that nested agents cannot unexpectedly terminate or transfer control
+// of their parent agent's execution flow.
+type AgentAction struct {
+	Exit bool
+
+	Interrupted *InterruptInfo
+
+	TransferToAgent *TransferToAgentAction
+
+	BreakLoop *BreakLoopAction
+
+	CustomizedAction any
+
+	internalInterrupted *core.InterruptSignal
+}
+
+// RunStep CheckpointSchema: persisted via serialization.RunCtx (gob).
+type RunStep struct {
+	agentName string
+}
+
+func init() {
+	schema.RegisterName[[]RunStep]("eino_run_step_list")
+}
+
+func (r *RunStep) String() string {
+	return r.agentName
+}
+
+func (r *RunStep) Equals(r1 RunStep) bool {
+	return r.agentName == r1.agentName
+}
+
+func (r *RunStep) GobEncode() ([]byte, error) {
+	s := &runStepSerialization{AgentName: r.agentName}
+	buf := &bytes.Buffer{}
+	err := gob.NewEncoder(buf).Encode(s)
+	if err != nil {
+		return nil, fmt.Errorf("failed to gob encode RunStep: %w", err)
+	}
+	return buf.Bytes(), nil
+}
+
+func (r *RunStep) GobDecode(b []byte) error {
+	s := &runStepSerialization{}
+	err := gob.NewDecoder(bytes.NewReader(b)).Decode(s)
+	if err != nil {
+		return fmt.Errorf("failed to gob decode RunStep: %w", err)
+	}
+	r.agentName = s.AgentName
+	return nil
+}
+
+type runStepSerialization struct {
+	AgentName string
+}
+
+// AgentEvent CheckpointSchema: persisted via serialization.RunCtx (gob).
+type AgentEvent struct {
+	AgentName string
+
+	// RunPath represents the execution path from root agent to the current event source.
+	// This field is managed entirely by the eino framework and cannot be set by end-users
+	// because RunStep's fields are unexported. The framework sets RunPath exactly once:
+	// - flowAgent sets it when the event has no RunPath (len == 0)
+	// - agentTool prepends parent RunPath when forwarding events from nested agents
+	RunPath []RunStep
+
+	Output *AgentOutput
+
+	Action *AgentAction
+
+	Err error
+}
+
+type AgentInput struct {
+	Messages        []Message
+	EnableStreaming bool
+}
+
+//go:generate  mockgen -destination ../internal/mock/adk/Agent_mock.go --package adk -source interface.go
+type Agent interface {
+	Name(ctx context.Context) string
+	Description(ctx context.Context) string
+
+	// Run runs the agent.
+	// The returned AgentEvent within the AsyncIterator must be safe to modify.
+	// If the returned AgentEvent within the AsyncIterator contains MessageStream,
+	// the MessageStream MUST be exclusive and safe to be received directly.
+	// NOTE: it's recommended to use SetAutomaticClose() on the MessageStream of AgentEvents emitted by AsyncIterator,
+	// so that even the events are not processed, the MessageStream can still be closed.
+	Run(ctx context.Context, input *AgentInput, options ...AgentRunOption) *AsyncIterator[*AgentEvent]
+}
+
+type OnSubAgents interface {
+	OnSetSubAgents(ctx context.Context, subAgents []Agent) error
+	OnSetAsSubAgent(ctx context.Context, parent Agent) error
+
+	OnDisallowTransferToParent(ctx context.Context) error
+}
+
+type ResumableAgent interface {
+	Agent
+
+	Resume(ctx context.Context, info *ResumeInfo, opts ...AgentRunOption) *AsyncIterator[*AgentEvent]
+}

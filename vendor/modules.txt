@@ -182,6 +182,8 @@ github.com/cloudwego/base64x/internal/native/sse
 github.com/cloudwego/base64x/internal/rt
 # github.com/cloudwego/eino v0.8.13
 ## explicit; go 1.18
+github.com/cloudwego/eino/adk
+github.com/cloudwego/eino/adk/internal
 github.com/cloudwego/eino/callbacks
 github.com/cloudwego/eino/components
 github.com/cloudwego/eino/components/document
