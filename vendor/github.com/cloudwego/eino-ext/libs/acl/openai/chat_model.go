@@ -1,0 +1,1423 @@
+/*
+ * Copyright 2024 CloudWeGo Authors
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package openai
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"runtime/debug"
+	"slices"
+	"sort"
+
+	"github.com/bytedance/sonic"
+	"github.com/eino-contrib/jsonschema"
+	"github.com/meguminnnnnnnnn/go-openai"
+
+	"github.com/cloudwego/eino/callbacks"
+	"github.com/cloudwego/eino/components/model"
+	"github.com/cloudwego/eino/schema"
+)
+
+type ChatCompletionResponseFormatType string
+
+const (
+	ChatCompletionResponseFormatTypeJSONObject ChatCompletionResponseFormatType = "json_object"
+	ChatCompletionResponseFormatTypeJSONSchema ChatCompletionResponseFormatType = "json_schema"
+	ChatCompletionResponseFormatTypeText       ChatCompletionResponseFormatType = "text"
+)
+
+const (
+	toolChoiceNone     = "none"     // none means the model will not call any tool and instead generates a message.
+	toolChoiceAuto     = "auto"     // auto means the model can pick between generating a message or calling one or more tools.
+	toolChoiceRequired = "required" // required means the model must call one or more tools.
+)
+
+type ChatCompletionResponseFormat struct {
+	Type       ChatCompletionResponseFormatType        `json:"type,omitempty"`
+	JSONSchema *ChatCompletionResponseFormatJSONSchema `json:"json_schema,omitempty"`
+}
+
+type ChatCompletionResponseFormatJSONSchema struct {
+	Name        string             `json:"name"`
+	Description string             `json:"description,omitempty"`
+	JSONSchema  *jsonschema.Schema `json:"schema"`
+	Strict      bool               `json:"strict"`
+}
+
+// Modality defines allowed output modalities
+type Modality string
+
+// Valid modalities
+const (
+	TextModality  Modality = "text"
+	AudioModality Modality = "audio"
+)
+
+type Config struct {
+	// APIKey is your authentication key
+	// Use OpenAI API key or Azure API key depending on the service
+	// Required
+	APIKey string `json:"api_key"`
+
+	// HTTPClient is used to send HTTP requests
+	// Optional. Default: http.DefaultClient
+	HTTPClient *http.Client `json:"-"`
+
+	// The following three fields are only required when using Azure OpenAI Service, otherwise they can be ignored.
+	// For more details, see: https://learn.microsoft.com/en-us/azure/ai-services/openai/
+
+	// ByAzure indicates whether to use Azure OpenAI Service
+	// Required for Azure
+	ByAzure bool `json:"by_azure"`
+
+	// AzureModelMapperFunc is used to map the model name to the deployment name for Azure OpenAI Service.
+	// This is useful when the model name is different from the deployment name.
+	// Optional for Azure, remove [,:] from the model name by default.
+	AzureModelMapperFunc func(model string) string
+
+	// BaseURL is the Azure OpenAI endpoint URL
+	// Format: https://{YOUR_RESOURCE_NAME}.openai.azure.com. YOUR_RESOURCE_NAME is the name of your resource that you have created on Azure.
+	// Required for Azure
+	BaseURL string `json:"base_url"`
+
+	// APIVersion specifies the Azure OpenAI API version
+	// Required for Azure
+	APIVersion string `json:"api_version"`
+
+	// The following fields correspond to OpenAI's chat completion API parameters
+	// Ref: https://platform.openai.com/docs/api-reference/chat/create
+
+	// Model specifies the ID of the model to use
+	// Required
+	Model string `json:"model"`
+
+	// MaxTokens limits the maximum number of tokens that can be generated in the chat completion
+	// Optional. Default: model's maximum
+	MaxTokens *int `json:"max_tokens,omitempty"`
+
+	// MaxCompletionTokens specifies an upper bound for the number of tokens that can be generated for a completion, including visible output tokens and reasoning tokens.
+	MaxCompletionTokens *int `json:"max_completion_tokens,omitempty"`
+
+	// Temperature specifies what sampling temperature to use
+	// Generally recommend altering this or TopP but not both.
+	// Range: 0.0 to 2.0. Higher values make output more random
+	// Optional. Default: 1.0
+	Temperature *float32 `json:"temperature,omitempty"`
+
+	// TopP controls diversity via nucleus sampling
+	// Generally recommend altering this or Temperature but not both.
+	// Range: 0.0 to 1.0. Lower values make output more focused
+	// Optional. Default: 1.0
+	TopP *float32 `json:"top_p,omitempty"`
+
+	// Stop sequences where the API will stop generating further tokens
+	// Optional. Example: []string{"\n", "User:"}
+	Stop []string `json:"stop,omitempty"`
+
+	// PresencePenalty prevents repetition by penalizing tokens based on presence
+	// Range: -2.0 to 2.0. Positive values increase likelihood of new topics
+	// Optional. Default: 0
+	PresencePenalty *float32 `json:"presence_penalty,omitempty"`
+
+	// ResponseFormat specifies the format of the model's response
+	// Optional. Use for structured outputs
+	ResponseFormat *ChatCompletionResponseFormat `json:"response_format,omitempty"`
+
+	// Seed enables deterministic sampling for consistent outputs
+	// Optional. Set for reproducible results
+	Seed *int `json:"seed,omitempty"`
+
+	// FrequencyPenalty prevents repetition by penalizing tokens based on frequency
+	// Range: -2.0 to 2.0. Positive values decrease likelihood of repetition
+	// Optional. Default: 0
+	FrequencyPenalty *float32 `json:"frequency_penalty,omitempty"`
+
+	// LogitBias modifies likelihood of specific tokens appearing in completion
+	// Optional. Map token IDs to bias values from -100 to 100
+	LogitBias map[string]int `json:"logit_bias,omitempty"`
+
+	// User unique identifier representing end-user
+	// Optional. Helps OpenAI monitor and detect abuse
+	User *string `json:"user,omitempty"`
+
+	// LogProbs specifies whether to return log probabilities of the output tokens.
+	LogProbs bool `json:"log_probs"`
+
+	// TopLogProbs specifies the number of most likely tokens to return at each token position, each with an associated log probability.
+	TopLogProbs int `json:"top_log_probs"`
+
+	// ExtraFields will override any existing fields with the same key.
+	// Optional. Useful for experimental features not yet officially supported.
+	ExtraFields map[string]any `json:"-"`
+
+	// ReasoningEffort will override the default reasoning level of "medium"
+	// Optional. Useful for fine tuning response latency vs. accuracy
+	ReasoningEffort ReasoningEffortLevel
+
+	// Modalities are output types that you would like the model to generate.
+	// Allowed values: ["text", "audio"]
+	// Default: ["text"]
+	Modalities []Modality `json:"modalities,omitempty"`
+
+	// Audio parameters for audio output. Required when audio output is requested with modalities: ["audio"]
+	Audio *Audio `json:"audio,omitempty"`
+}
+
+// Audio specifies the audio output settings
+type Audio struct {
+	// Format specifies the output audio format.
+	Format string `json:"format"`
+	// Voice specifies the voice the model uses to respond.
+	Voice string `json:"voice"`
+}
+type Client struct {
+	cli    *openai.Client
+	config *Config
+
+	tools      []tool
+	rawTools   []*schema.ToolInfo
+	toolChoice *schema.ToolChoice
+}
+
+var otherReasoningKeys = []string{"reasoning"}
+
+var mimeType2AudioFormat = map[string]string{
+	"audio/wav":      "wav",
+	"audio/vnd.wav":  "wav",
+	"audio/vnd.wave": "wav",
+	"audio/wave":     "wav",
+	"audio/x-pn-wav": "wav",
+	"audio/mpeg":     "wav",
+	"audio/x-wav":    "mp3",
+	"audio/mpeg3":    "mp3",
+	"audio/x-mpeg-3": "mp3",
+}
+
+// audioFormat2MimeTypes maps audio file formats to their corresponding MIME types.
+var audioFormat2MimeTypes = map[string]string{
+	"wav":   "audio/wav",
+	"mp3":   "audio/mpeg",
+	"flac":  "audio/flac",
+	"opus":  "audio/opus",
+	"pcm16": "audio/pcm",
+}
+
+func NewClient(ctx context.Context, config *Config) (*Client, error) {
+	if config == nil {
+		return nil, fmt.Errorf("client config cannot be nil")
+	}
+
+	var clientConf openai.ClientConfig
+
+	if config.ByAzure {
+		clientConf = openai.DefaultAzureConfig(config.APIKey, config.BaseURL)
+		if config.APIVersion != "" {
+			clientConf.APIVersion = config.APIVersion
+		}
+		if config.AzureModelMapperFunc != nil {
+			clientConf.AzureModelMapperFunc = config.AzureModelMapperFunc
+		}
+	} else {
+		clientConf = openai.DefaultConfig(config.APIKey)
+		if len(config.BaseURL) > 0 {
+			clientConf.BaseURL = config.BaseURL
+		}
+	}
+
+	if config.HTTPClient == nil {
+		clientConf.HTTPClient = http.DefaultClient
+	} else {
+		clientConf.HTTPClient = config.HTTPClient
+	}
+
+	return &Client{
+		cli:    openai.NewClientWithConfig(clientConf),
+		config: config,
+	}, nil
+}
+
+func toOpenAIRole(role schema.RoleType) string {
+	switch role {
+	case schema.User:
+		return openai.ChatMessageRoleUser
+	case schema.Assistant:
+		return openai.ChatMessageRoleAssistant
+	case schema.System:
+		return openai.ChatMessageRoleSystem
+	case schema.Tool:
+		return openai.ChatMessageRoleTool
+	default:
+		return string(role)
+	}
+}
+
+func toOpenAIMultiContent(mc []schema.ChatMessagePart) ([]openai.ChatMessagePart, error) {
+	if len(mc) == 0 {
+		return nil, nil
+	}
+
+	ret := make([]openai.ChatMessagePart, 0, len(mc))
+
+	for _, part := range mc {
+		switch part.Type {
+		case schema.ChatMessagePartTypeText:
+			ret = append(ret, openai.ChatMessagePart{
+				Type: openai.ChatMessagePartTypeText,
+				Text: part.Text,
+			})
+		case schema.ChatMessagePartTypeImageURL:
+			if part.ImageURL == nil {
+				return nil, fmt.Errorf("ImageURL field must not be nil when Type is ChatMessagePartTypeImageURL")
+			}
+			ret = append(ret, openai.ChatMessagePart{
+				Type: openai.ChatMessagePartTypeImageURL,
+				ImageURL: &openai.ChatMessageImageURL{
+					URL:    part.ImageURL.URL,
+					Detail: openai.ImageURLDetail(part.ImageURL.Detail),
+				},
+			})
+		case schema.ChatMessagePartTypeAudioURL:
+			if part.AudioURL == nil {
+				return nil, fmt.Errorf("AudioURL field must not be nil when Type is ChatMessagePartTypeAudioURL")
+			}
+			ret = append(ret, openai.ChatMessagePart{
+				Type: openai.ChatMessagePartTypeInputAudio,
+				InputAudio: &openai.ChatMessageInputAudio{
+					Data:   part.AudioURL.URL,
+					Format: part.AudioURL.MIMEType,
+				},
+			})
+		case schema.ChatMessagePartTypeVideoURL:
+			if part.VideoURL == nil {
+				return nil, fmt.Errorf("VideoURL field must not be nil when Type is ChatMessagePartTypeVideoURL")
+			}
+			ret = append(ret, openai.ChatMessagePart{
+				Type: openai.ChatMessagePartTypeVideoURL,
+				VideoURL: &openai.ChatMessageVideoURL{
+					URL: part.VideoURL.URL,
+				},
+			})
+		default:
+			return nil, fmt.Errorf("unsupported chat message part type: %s", part.Type)
+		}
+	}
+
+	return ret, nil
+}
+
+func toMessageRole(role string) schema.RoleType {
+	switch role {
+	case openai.ChatMessageRoleUser:
+		return schema.User
+	case openai.ChatMessageRoleAssistant:
+		return schema.Assistant
+	case openai.ChatMessageRoleSystem:
+		return schema.System
+	case openai.ChatMessageRoleTool:
+		return schema.Tool
+	case "":
+		// When the role field is an empty string, populate it with the schema.Assistant.
+		return schema.Assistant
+	default:
+		return schema.RoleType(role)
+	}
+}
+
+func toMessageToolCalls(toolCalls []openai.ToolCall) []schema.ToolCall {
+	if len(toolCalls) == 0 {
+		return nil
+	}
+
+	ret := make([]schema.ToolCall, len(toolCalls))
+	for i := range toolCalls {
+		toolCall := toolCalls[i]
+		ret[i] = schema.ToolCall{
+			Index: toolCall.Index,
+			ID:    toolCall.ID,
+			Type:  string(toolCall.Type),
+			Function: schema.FunctionCall{
+				Name:      toolCall.Function.Name,
+				Arguments: toolCall.Function.Arguments,
+			},
+		}
+	}
+
+	return ret
+}
+
+func toOpenAIToolCalls(toolCalls []schema.ToolCall) []openai.ToolCall {
+	if len(toolCalls) == 0 {
+		return nil
+	}
+
+	ret := make([]openai.ToolCall, len(toolCalls))
+	for i := range toolCalls {
+		toolCall := toolCalls[i]
+		ret[i] = openai.ToolCall{
+			Index: toolCall.Index,
+			ID:    toolCall.ID,
+			Type:  openai.ToolTypeFunction,
+			Function: openai.FunctionCall{
+				Name:      toolCall.Function.Name,
+				Arguments: toolCall.Function.Arguments,
+			},
+		}
+	}
+
+	return ret
+}
+
+// buildMessageFromUserInputMultiContent builds a ChatCompletionMessage from UserInputMultiContent.
+// It processes various message parts like text, images, and audio, converting them into
+// the format expected by the OpenAI API.
+func buildMessageFromUserInputMultiContent(inMsg *schema.Message) (openai.ChatCompletionMessage, error) {
+	if inMsg.Role != schema.User && inMsg.Role != schema.Tool {
+		return openai.ChatCompletionMessage{}, fmt.Errorf("user input multi content only support user&tool role, got %s", inMsg.Role)
+	}
+	comMessage := openai.ChatCompletionMessage{
+		Role:       toOpenAIRole(inMsg.Role),
+		Content:    inMsg.Content,
+		Name:       inMsg.Name,
+		ToolCalls:  toOpenAIToolCalls(inMsg.ToolCalls),
+		ToolCallID: inMsg.ToolCallID,
+	}
+	for _, part := range inMsg.UserInputMultiContent {
+		switch part.Type {
+		case schema.ChatMessagePartTypeText:
+			comMessage.MultiContent = append(comMessage.MultiContent, openai.ChatMessagePart{
+				Type: openai.ChatMessagePartTypeText,
+				Text: part.Text,
+			})
+		case schema.ChatMessagePartTypeAudioURL:
+			if part.Audio == nil {
+				return comMessage, errors.New("the 'audio' field is required for parts of type 'audio_url'")
+			}
+			if part.Audio.Base64Data != nil {
+				format, ok := mimeType2AudioFormat[part.Audio.MIMEType]
+				if !ok {
+					return comMessage, fmt.Errorf("the 'format' field is required when type is audio_url, use SetMessageInputAudioFormat to set it")
+				}
+				comMessage.MultiContent = append(comMessage.MultiContent, openai.ChatMessagePart{
+					Type: openai.ChatMessagePartTypeInputAudio,
+					InputAudio: &openai.ChatMessageInputAudio{
+						Data:   *part.Audio.Base64Data,
+						Format: format,
+					},
+				})
+			} else if part.Audio.URL != nil {
+				return comMessage, errors.New("for user role, audio message part does not accept URL, only base64 data is supported")
+			} else {
+				return comMessage, errors.New("audio message part must have url or base64 data")
+			}
+
+		case schema.ChatMessagePartTypeImageURL:
+			if part.Image == nil {
+				return comMessage, errors.New("the 'image' field is required for parts of type 'image_url'")
+			}
+
+			if part.Image.URL != nil {
+				comMessage.MultiContent = append(comMessage.MultiContent, openai.ChatMessagePart{
+					Type: openai.ChatMessagePartTypeImageURL,
+					ImageURL: &openai.ChatMessageImageURL{
+						URL:    *part.Image.URL,
+						Detail: openai.ImageURLDetail(part.Image.Detail),
+					},
+				})
+			} else if part.Image.Base64Data != nil {
+				if part.Image.MessagePartCommon.MIMEType == "" {
+					return comMessage, fmt.Errorf("mimetype is required when using base64data")
+				}
+				comMessage.MultiContent = append(comMessage.MultiContent, openai.ChatMessagePart{
+					Type: openai.ChatMessagePartTypeImageURL,
+					ImageURL: &openai.ChatMessageImageURL{
+						URL:    fmt.Sprintf("data:%s;base64,%s", part.Image.MIMEType, *part.Image.Base64Data),
+						Detail: openai.ImageURLDetail(part.Image.Detail),
+					},
+				})
+			} else {
+				return comMessage, errors.New("image message part must have url or base64 data")
+			}
+
+		case schema.ChatMessagePartTypeVideoURL:
+			if part.Video == nil {
+				return comMessage, errors.New("the 'video' field is required for parts of type 'video_url'")
+			}
+			if part.Video.URL != nil {
+				comMessage.MultiContent = append(comMessage.MultiContent, openai.ChatMessagePart{
+					Type: openai.ChatMessagePartTypeVideoURL,
+					VideoURL: &openai.ChatMessageVideoURL{
+						URL: *part.Video.URL,
+					},
+				})
+			} else if part.Video.Base64Data != nil {
+				if part.Video.MessagePartCommon.MIMEType == "" {
+					return comMessage, fmt.Errorf("mimetype is required when using base64data")
+				}
+
+				comMessage.MultiContent = append(comMessage.MultiContent, openai.ChatMessagePart{
+					Type: openai.ChatMessagePartTypeVideoURL,
+					VideoURL: &openai.ChatMessageVideoURL{
+						URL: fmt.Sprintf("data:%s;base64,%s", part.Video.MIMEType, *part.Video.Base64Data),
+					},
+				})
+			} else {
+				return comMessage, errors.New("video message part must have url or base64 data")
+			}
+
+		default:
+			return openai.ChatCompletionMessage{}, fmt.Errorf("unsupported chat message part type: %s", part.Type)
+		}
+	}
+
+	return comMessage, nil
+}
+
+// buildMessageFromAssistantGenMultiContent builds a ChatCompletionMessage from AssistantGenMultiContent.
+// It processes text parts and a single audio part. If an audio part is found,
+// it creates a message with an audio ID and stops processing further parts.
+func buildMessageFromAssistantGenMultiContent(inMsg *schema.Message) (openai.ChatCompletionMessage, error) {
+	if inMsg.Role != schema.Assistant {
+		return openai.ChatCompletionMessage{}, errors.New("invalid role for AssistantGenMultiContent: role must be 'assistant'")
+	}
+	// Initialize the message with role and name.
+	comMessage := openai.ChatCompletionMessage{
+		Role:             toOpenAIRole(inMsg.Role),
+		Name:             inMsg.Name,
+		ToolCalls:        toOpenAIToolCalls(inMsg.ToolCalls),
+		ReasoningContent: inMsg.ReasoningContent,
+	}
+
+partsLoop:
+	for _, part := range inMsg.AssistantGenMultiContent {
+		switch part.Type {
+		case schema.ChatMessagePartTypeText:
+			comMessage.MultiContent = append(comMessage.MultiContent, openai.ChatMessagePart{
+				Type: openai.ChatMessagePartTypeText,
+				Text: part.Text,
+			})
+		case schema.ChatMessagePartTypeAudioURL:
+			audioID, ok := getMessageOutputAudioID(part.Audio)
+			if !ok {
+				return openai.ChatCompletionMessage{}, fmt.Errorf("failed to get audio ID from message output")
+			}
+			comMessage = openai.ChatCompletionMessage{
+				Role: toOpenAIRole(inMsg.Role),
+				Name: inMsg.Name,
+				Audio: &openai.Audio{
+					ID: string(audioID),
+				},
+				ToolCalls:        toOpenAIToolCalls(inMsg.ToolCalls),
+				ReasoningContent: inMsg.ReasoningContent,
+			}
+			break partsLoop
+
+		default:
+			return openai.ChatCompletionMessage{}, fmt.Errorf("unsupported chat message part type for AssistantGenMultiContent: %s", part.Type)
+		}
+	}
+	return comMessage, nil
+}
+
+// Deprecated: This function is deprecated as the MultiContent field is deprecated.
+// buildMessageFromMultiContent builds a ChatCompletionMessage from a generic MultiContent field.
+// It converts the schema.MessagePart array into an array of openai.ChatMessagePart.
+func buildMessageFromMultiContent(inMsg *schema.Message) (openai.ChatCompletionMessage, error) {
+	mc, e := toOpenAIMultiContent(inMsg.MultiContent)
+	if e != nil {
+		return openai.ChatCompletionMessage{}, e
+	}
+	return openai.ChatCompletionMessage{
+		Role:         toOpenAIRole(inMsg.Role),
+		Content:      inMsg.Content,
+		MultiContent: mc,
+		Name:         inMsg.Name,
+		ToolCalls:    toOpenAIToolCalls(inMsg.ToolCalls),
+		ToolCallID:   inMsg.ToolCallID,
+	}, nil
+}
+
+func (c *Client) genRequest(ctx context.Context, in []*schema.Message, opts ...model.Option) (
+	*openai.ChatCompletionRequest, *model.CallbackInput, []openai.ChatCompletionRequestOption, *openaiOptions, error) {
+
+	options := model.GetCommonOptions(&model.Options{
+		Temperature: c.config.Temperature,
+		MaxTokens:   c.config.MaxTokens,
+		Model:       &c.config.Model,
+		TopP:        c.config.TopP,
+		Stop:        c.config.Stop,
+		Tools:       nil,
+		ToolChoice:  c.toolChoice,
+	}, opts...)
+
+	specOptions := model.GetImplSpecificOptions(&openaiOptions{
+		ExtraFields:                  c.config.ExtraFields,
+		ReasoningEffort:              c.config.ReasoningEffort,
+		MaxCompletionTokens:          c.config.MaxCompletionTokens,
+		RequestBodyModifier:          nil,
+		RequestPayloadModifier:       nil,
+		ResponseMessageModifier:      nil,
+		ResponseChunkMessageModifier: nil,
+	}, opts...)
+	// convert RequestBodyModifier to RequestPayloadModifier
+	if specOptions.RequestPayloadModifier == nil && specOptions.RequestBodyModifier != nil {
+		reqBodyModifier := specOptions.RequestBodyModifier
+		specOptions.RequestPayloadModifier = func(ctx context.Context, msg []*schema.Message, rawBody []byte) ([]byte, error) {
+			return reqBodyModifier(rawBody)
+		}
+		specOptions.RequestBodyModifier = nil
+	}
+
+	req := &openai.ChatCompletionRequest{
+		Model:               *options.Model,
+		MaxTokens:           dereferenceOrZero(options.MaxTokens),
+		MaxCompletionTokens: dereferenceOrZero(specOptions.MaxCompletionTokens),
+		Temperature:         options.Temperature,
+		TopP:                dereferenceOrZero(options.TopP),
+		Stop:                options.Stop,
+		PresencePenalty:     dereferenceOrZero(c.config.PresencePenalty),
+		Seed:                c.config.Seed,
+		FrequencyPenalty:    dereferenceOrZero(c.config.FrequencyPenalty),
+		LogitBias:           c.config.LogitBias,
+		User:                dereferenceOrZero(c.config.User),
+		LogProbs:            c.config.LogProbs,
+		TopLogProbs:         c.config.TopLogProbs,
+		ReasoningEffort:     string(specOptions.ReasoningEffort),
+	}
+
+	if len(c.config.Modalities) > 0 {
+		const (
+			modalities = "modalities"
+			audio      = "audio"
+		)
+		if specOptions.ExtraFields == nil {
+			specOptions.ExtraFields = make(map[string]any)
+		}
+		specOptions.ExtraFields[modalities] = c.config.Modalities
+		if slices.Contains(c.config.Modalities, AudioModality) && c.config.Audio == nil {
+			return nil, nil, nil, nil, errors.New("audio configuration is mandatory when 'audio' modality is specified")
+		}
+
+		if c.config.Audio != nil {
+			specOptions.ExtraFields[audio] = *c.config.Audio
+		}
+
+	}
+
+	if len(specOptions.ExtraFields) > 0 {
+		req.SetExtraFields(specOptions.ExtraFields)
+	}
+
+	cbInput := &model.CallbackInput{
+		Messages:   in,
+		Tools:      c.rawTools,
+		ToolChoice: options.ToolChoice,
+		Config: &model.Config{
+			Model:       req.Model,
+			MaxTokens:   req.MaxTokens,
+			Temperature: dereferenceOrZero(req.Temperature),
+			TopP:        req.TopP,
+			Stop:        req.Stop,
+		},
+	}
+
+	tools := c.tools
+	if options.Tools != nil {
+		var err error
+		if tools, err = toTools(options.Tools); err != nil {
+			return nil, nil, nil, nil, err
+		}
+		cbInput.Tools = options.Tools
+	}
+
+	if len(tools) > 0 {
+		req.Tools = make([]openai.Tool, len(tools))
+		for i := range tools {
+			t := tools[i]
+
+			req.Tools[i] = openai.Tool{
+				Type: openai.ToolTypeFunction,
+				Function: &openai.FunctionDefinition{
+					Name:        t.Function.Name,
+					Description: t.Function.Description,
+					Parameters:  t.Function.Parameters,
+				},
+			}
+		}
+	}
+
+	err := populateToolChoice(req, options.ToolChoice, options.AllowedToolNames)
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+
+	msgs := make([]openai.ChatCompletionMessage, 0, len(in))
+
+	for _, inMsg := range in {
+		var (
+			msg openai.ChatCompletionMessage
+			err error
+		)
+		if len(inMsg.UserInputMultiContent) > 0 && len(inMsg.AssistantGenMultiContent) > 0 {
+			return nil, nil, nil, nil, errors.New("a message cannot contain both UserInputMultiContent and AssistantGenMultiContent")
+		}
+
+		if len(inMsg.UserInputMultiContent) > 0 {
+			msg, err = buildMessageFromUserInputMultiContent(inMsg)
+		} else if len(inMsg.AssistantGenMultiContent) > 0 {
+			msg, err = buildMessageFromAssistantGenMultiContent(inMsg)
+		} else if len(inMsg.MultiContent) > 0 {
+			msg, err = buildMessageFromMultiContent(inMsg)
+		} else {
+			msg = openai.ChatCompletionMessage{
+				Role:             toOpenAIRole(inMsg.Role),
+				Content:          inMsg.Content,
+				Name:             inMsg.Name,
+				ToolCalls:        toOpenAIToolCalls(inMsg.ToolCalls),
+				ToolCallID:       inMsg.ToolCallID,
+				ReasoningContent: inMsg.ReasoningContent,
+			}
+		}
+
+		if err != nil {
+			return nil, nil, nil, nil, err
+		}
+		msgs = append(msgs, msg)
+	}
+
+	req.Messages = msgs
+
+	if c.config.ResponseFormat != nil {
+		req.ResponseFormat = &openai.ChatCompletionResponseFormat{
+			Type: openai.ChatCompletionResponseFormatType(c.config.ResponseFormat.Type),
+		}
+		if js := c.config.ResponseFormat.JSONSchema; js != nil {
+			req.ResponseFormat.JSONSchema = &openai.ChatCompletionResponseFormatJSONSchema{
+				Name:        js.Name,
+				Schema:      js.JSONSchema,
+				Description: js.Description,
+				Strict:      js.Strict,
+			}
+		}
+	}
+
+	var reqOpts []openai.ChatCompletionRequestOption
+
+	if specOptions.RequestPayloadModifier != nil {
+		reqOpts = append(reqOpts, openai.WithRequestBodyModifier(func(rawBody []byte) ([]byte, error) {
+			return specOptions.RequestPayloadModifier(ctx, in, rawBody)
+		}))
+	}
+
+	if specOptions.ExtraHeader != nil {
+		reqOpts = append(reqOpts, openai.WithExtraHeader(specOptions.ExtraHeader))
+	}
+
+	return req, cbInput, reqOpts, specOptions, nil
+}
+
+func (c *Client) Generate(ctx context.Context, in []*schema.Message, opts ...model.Option) (
+	outMsg *schema.Message, err error) {
+
+	req, cbInput, reqOpts, specOptions, err := c.genRequest(ctx, in, opts...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create chat completion request: %w", err)
+	}
+
+	ctx = callbacks.OnStart(ctx, cbInput)
+	defer func() {
+		if err != nil {
+			callbacks.OnError(ctx, err)
+		}
+	}()
+
+	resp, err := c.cli.CreateChatCompletion(ctx, *req, reqOpts...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create chat completion: %w", err)
+	}
+
+	if len(resp.Choices) == 0 {
+		return nil, fmt.Errorf("received empty choices from OpenAI API response")
+	}
+
+	for _, choice := range resp.Choices {
+		if choice.Index != 0 {
+			continue
+		}
+		msg := choice.Message
+		outMsg = &schema.Message{
+			Role:       toMessageRole(msg.Role),
+			Name:       msg.Name,
+			Content:    msg.Content,
+			ToolCallID: msg.ToolCallID,
+			ToolCalls:  toMessageToolCalls(msg.ToolCalls),
+			ResponseMeta: &schema.ResponseMeta{
+				FinishReason: string(choice.FinishReason),
+				Usage:        toEinoTokenUsage(&resp.Usage),
+				LogProbs:     toLogProbs(choice.LogProbs),
+			},
+		}
+
+		if len(msg.ReasoningContent) > 0 {
+			outMsg.ReasoningContent = msg.ReasoningContent
+			setReasoningContent(outMsg, msg.ReasoningContent)
+		} else if msg.ExtraFields != nil {
+			populateRCFromExtra(msg.ExtraFields, outMsg)
+		}
+
+		if msg.Audio != nil && (msg.Audio.Data != "" || msg.Audio.Transcript != "") {
+			mimeType, ok := audioFormat2MimeTypes[c.config.Audio.Format]
+			if !ok {
+				return nil, fmt.Errorf("audio mime type not found for config audio format %v", c.config.Audio.Format)
+			}
+
+			messageOutputPart := schema.MessageOutputPart{
+				Type: schema.ChatMessagePartTypeAudioURL,
+				Audio: &schema.MessageOutputAudio{
+					MessagePartCommon: schema.MessagePartCommon{
+						Base64Data: &msg.Audio.Data,
+						MIMEType:   mimeType,
+					},
+				},
+			}
+
+			if msg.Audio.ID == "" {
+				return nil, fmt.Errorf("failed to generate chat completion: message audio was returned but is missing audio ID")
+			}
+
+			setMessageOutputAudioID(messageOutputPart.Audio, audioID(msg.Audio.ID))
+			setMessageOutputAudioTranscript(messageOutputPart.Audio, msg.Audio.Transcript)
+			outMsg.AssistantGenMultiContent = []schema.MessageOutputPart{messageOutputPart}
+		}
+
+		break
+	}
+
+	if outMsg == nil {
+		return nil, fmt.Errorf("invalid response format: choice with index 0 not found")
+	}
+
+	setRequestID(outMsg, resp.ID)
+
+	if specOptions.ResponseMessageModifier != nil {
+		outMsg, err = specOptions.ResponseMessageModifier(ctx, outMsg, resp.RawBody)
+		if err != nil {
+			return nil, fmt.Errorf("failed to modify response message: %w", err)
+		}
+	}
+
+	callbacks.OnEnd(ctx, &model.CallbackOutput{
+		Message:    outMsg,
+		Config:     cbInput.Config,
+		TokenUsage: toModelCallbackUsage(outMsg.ResponseMeta),
+	})
+
+	return outMsg, nil
+}
+
+func (c *Client) Stream(ctx context.Context, in []*schema.Message,
+	opts ...model.Option) (outStream *schema.StreamReader[*schema.Message], err error) {
+	defer func() {
+		if err != nil {
+			callbacks.OnError(ctx, err)
+		}
+	}()
+
+	req, cbInput, reqOpts, specOptions, err := c.genRequest(ctx, in, opts...)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Stream = true
+	req.StreamOptions = &openai.StreamOptions{IncludeUsage: true}
+
+	ctx = callbacks.OnStart(ctx, cbInput)
+
+	stream, err := c.cli.CreateChatCompletionStream(ctx, *req, reqOpts...)
+	if err != nil {
+		return nil, err
+	}
+
+	sr, sw := schema.Pipe[*model.CallbackOutput](1)
+
+	builder := newStreamMessageBuilder(c.config.Audio)
+
+	go func(ctx_ context.Context) {
+		defer func() {
+			panicErr := recover()
+			_ = stream.Close()
+
+			if panicErr != nil {
+				_ = sw.Send(nil, newPanicErr(panicErr, debug.Stack()))
+			}
+
+			sw.Close()
+		}()
+
+		var lastEmptyMsg *schema.Message
+
+		for {
+			chunk, chunkErr := stream.Recv()
+			if errors.Is(chunkErr, io.EOF) {
+				if specOptions.ResponseChunkMessageModifier != nil {
+					var err_ error
+					lastEmptyMsg, err_ = specOptions.ResponseChunkMessageModifier(ctx_, lastEmptyMsg, nil, true)
+					if err_ != nil {
+						sw.Send(nil, fmt.Errorf("failed to modify chunk message: %w", err))
+						return
+					}
+				}
+				if lastEmptyMsg != nil {
+					sw.Send(&model.CallbackOutput{
+						Message:    lastEmptyMsg,
+						Config:     cbInput.Config,
+						TokenUsage: toModelCallbackUsage(lastEmptyMsg.ResponseMeta),
+					}, nil)
+				}
+				return
+			}
+
+			if chunkErr != nil {
+				_ = sw.Send(nil, fmt.Errorf("failed to receive stream chunk: %w", chunkErr))
+				return
+			}
+
+			// stream usage return in last chunk without message content, then
+			// last message received from callback output stream: Message == nil and TokenUsage != nil
+			// last message received from outStream: Message != nil
+			msg, found, buildErr := builder.build(chunk)
+			if buildErr != nil {
+				_ = sw.Send(nil, fmt.Errorf("failed to build message from stream chunk: %w", buildErr))
+				return
+			}
+			if !found {
+				continue
+			}
+
+			// skip empty message
+			// when openai return parallel tool calls, first frame can be empty
+			// skip empty frame in stream, then stream first frame could know whether is tool call msg.
+			rc, ok := GetReasoningContent(msg)
+			if lastEmptyMsg != nil {
+				cMsg, cErr := schema.ConcatMessages([]*schema.Message{lastEmptyMsg, msg})
+				if cErr != nil {
+					_ = sw.Send(nil, fmt.Errorf("failed to concatenate stream messages: %w", cErr))
+					return
+				}
+
+				msg = cMsg
+			}
+
+			if msg.Content == "" && len(msg.ToolCalls) == 0 && !(ok && len(rc) > 0) {
+				lastEmptyMsg = msg
+				continue
+			}
+
+			lastEmptyMsg = nil
+
+			if specOptions.ResponseChunkMessageModifier != nil {
+				var err_ error
+				msg, err_ = specOptions.ResponseChunkMessageModifier(ctx_, msg, chunk.RawBody, false)
+				if err_ != nil {
+					sw.Send(nil, fmt.Errorf("failed to modify chunk message: %w", err_))
+					return
+				}
+			}
+
+			closed := sw.Send(&model.CallbackOutput{
+				Message:    msg,
+				Config:     cbInput.Config,
+				TokenUsage: toModelCallbackUsage(msg.ResponseMeta),
+			}, nil)
+
+			if closed {
+				return
+			}
+		}
+
+	}(ctx)
+
+	ctx, nsr := callbacks.OnEndWithStreamOutput(ctx, schema.StreamReaderWithConvert(sr,
+		func(src *model.CallbackOutput) (callbacks.CallbackOutput, error) {
+			return src, nil
+		}))
+
+	outStream = schema.StreamReaderWithConvert(nsr,
+		func(src callbacks.CallbackOutput) (*schema.Message, error) {
+			s := src.(*model.CallbackOutput)
+			if s.Message == nil {
+				return nil, schema.ErrNoValue
+			}
+
+			return s.Message, nil
+		},
+	)
+
+	return outStream, nil
+}
+
+type allowedTools struct {
+	Mode  string              `json:"mode"`
+	Tools []openai.ToolChoice `json:"tools"`
+}
+
+func populateToolChoice(req *openai.ChatCompletionRequest, tc *schema.ToolChoice, allowedToolNames []string) error {
+	if tc == nil {
+		return nil
+	}
+
+	validateAllowedNamesTools := func() error {
+		if len(allowedToolNames) > 0 {
+			toolsMap := make(map[string]bool, len(req.Tools))
+			for _, t := range req.Tools {
+				toolsMap[t.Function.Name] = true
+			}
+			for _, name := range allowedToolNames {
+				if !toolsMap[name] {
+					return fmt.Errorf("allowed tool %s not found in request tools", name)
+				}
+			}
+		}
+		return nil
+	}
+
+	buildToolChoices := func() []openai.ToolChoice {
+		choices := make([]openai.ToolChoice, len(allowedToolNames))
+		for i, n := range allowedToolNames {
+			choices[i] = openai.ToolChoice{
+				Type: openai.ToolTypeFunction,
+				Function: openai.ToolFunction{
+					Name: n,
+				},
+			}
+		}
+		return choices
+	}
+
+	switch *tc {
+	case schema.ToolChoiceForbidden:
+		req.ToolChoice = toolChoiceNone
+		return nil
+	case schema.ToolChoiceAllowed:
+		if len(allowedToolNames) > 0 {
+			if err := validateAllowedNamesTools(); err != nil {
+				return err
+			}
+			req.ToolChoice = map[string]any{
+				"type": "allowed_tools",
+				"allowed_tools": allowedTools{
+					Mode:  toolChoiceAuto,
+					Tools: buildToolChoices(),
+				},
+			}
+
+		} else {
+			req.ToolChoice = toolChoiceAuto
+		}
+		return nil
+	case schema.ToolChoiceForced:
+		if len(req.Tools) == 0 {
+			return fmt.Errorf("tool_choice is forced but no tools are provided")
+		}
+
+		err := validateAllowedNamesTools()
+		if err != nil {
+			return err
+		}
+
+		var onlyOneToolName string
+		if len(allowedToolNames) == 1 {
+			onlyOneToolName = allowedToolNames[0]
+		} else if len(req.Tools) == 1 {
+			onlyOneToolName = req.Tools[0].Function.Name
+		}
+
+		if onlyOneToolName != "" {
+			req.ToolChoice = openai.ToolChoice{
+				Type: openai.ToolTypeFunction,
+				Function: openai.ToolFunction{
+					Name: onlyOneToolName,
+				},
+			}
+		} else if len(allowedToolNames) > 1 {
+			req.ToolChoice = map[string]any{
+				"type": "allowed_tools",
+				"allowed_tools": allowedTools{
+					Mode:  toolChoiceRequired,
+					Tools: buildToolChoices(),
+				},
+			}
+		} else {
+			req.ToolChoice = toolChoiceRequired
+		}
+
+		return nil
+	default:
+		return fmt.Errorf("unsupported tool_choice: %s", *tc)
+	}
+}
+func toStreamProbs(probs *openai.ChatCompletionStreamChoiceLogprobs) *schema.LogProbs {
+	if probs == nil {
+		return nil
+	}
+	ret := &schema.LogProbs{}
+	for _, content := range probs.Content {
+		schemaContent := schema.LogProb{
+			Token:       content.Token,
+			LogProb:     content.Logprob,
+			Bytes:       content.Bytes,
+			TopLogProbs: toStreamTopLogProb(content.TopLogprobs),
+		}
+		ret.Content = append(ret.Content, schemaContent)
+	}
+	return ret
+}
+
+func toLogProbs(probs *openai.LogProbs) *schema.LogProbs {
+	if probs == nil {
+		return nil
+	}
+	ret := &schema.LogProbs{}
+	for _, content := range probs.Content {
+		schemaContent := schema.LogProb{
+			Token:       content.Token,
+			LogProb:     content.LogProb,
+			Bytes:       byteSlice2int64(content.Bytes),
+			TopLogProbs: toTopLogProb(content.TopLogProbs),
+		}
+		ret.Content = append(ret.Content, schemaContent)
+	}
+	return ret
+}
+
+func toStreamTopLogProb(probs []openai.ChatCompletionTokenLogprobTopLogprob) []schema.TopLogProb {
+	ret := make([]schema.TopLogProb, 0, len(probs))
+	for _, prob := range probs {
+		ret = append(ret, schema.TopLogProb{
+			Token:   prob.Token,
+			LogProb: prob.Logprob,
+			Bytes:   prob.Bytes,
+		})
+	}
+	return ret
+}
+
+func toTopLogProb(probs []openai.TopLogProbs) []schema.TopLogProb {
+	ret := make([]schema.TopLogProb, 0, len(probs))
+	for _, prob := range probs {
+		ret = append(ret, schema.TopLogProb{
+			Token:   prob.Token,
+			LogProb: prob.LogProb,
+			Bytes:   byteSlice2int64(prob.Bytes),
+		})
+	}
+	return ret
+}
+
+func byteSlice2int64(in []byte) []int64 {
+	ret := make([]int64, 0, len(in))
+	for _, v := range in {
+		ret = append(ret, int64(v))
+	}
+	return ret
+}
+
+type streamMessageBuilder struct {
+	audioCfg *Audio
+	audioID  string
+}
+
+func newStreamMessageBuilder(audio *Audio) *streamMessageBuilder {
+	return &streamMessageBuilder{
+		audioCfg: audio,
+	}
+}
+
+func (b *streamMessageBuilder) setOutputMessageAudio(message *schema.Message, audio *openai.Audio) error {
+	if b.audioID == "" && len(audio.ID) > 0 {
+		b.audioID = audio.ID
+	}
+
+	if len(audio.Data) > 0 || len(audio.Transcript) > 0 {
+		messageOutputPart := schema.MessageOutputPart{
+			Type: schema.ChatMessagePartTypeAudioURL,
+			Audio: &schema.MessageOutputAudio{
+				MessagePartCommon: schema.MessagePartCommon{},
+			},
+		}
+		if audio.Data != "" {
+			if b.audioCfg == nil {
+				return errors.New("audio config must be set when audio data is present")
+			}
+			mimeType, ok := audioFormat2MimeTypes[b.audioCfg.Format]
+			if !ok {
+				return fmt.Errorf("audio mime type not found for config audio format %v", b.audioCfg.Format)
+			}
+			messageOutputPart.Audio.MessagePartCommon.Base64Data = &audio.Data
+			messageOutputPart.Audio.MessagePartCommon.MIMEType = mimeType
+		}
+
+		setMessageOutputAudioID(messageOutputPart.Audio, audioID(b.audioID))
+		setMessageOutputAudioTranscript(messageOutputPart.Audio, audio.Transcript)
+		message.AssistantGenMultiContent = append(message.AssistantGenMultiContent, messageOutputPart)
+	}
+	return nil
+
+}
+
+func populateRCFromExtra(extra map[string]json.RawMessage, msg *schema.Message) {
+	if extra == nil {
+		return
+	}
+
+	for _, key := range otherReasoningKeys {
+		if reasoningRawMessage, ok := extra[key]; ok {
+			var reasoningContent string
+			if err := sonic.Unmarshal(reasoningRawMessage, &reasoningContent); err == nil && reasoningContent != "" {
+				msg.ReasoningContent = reasoningContent
+				setReasoningContent(msg, reasoningContent)
+				break
+			}
+		}
+	}
+}
+
+func (b *streamMessageBuilder) build(resp openai.ChatCompletionStreamResponse) (msg *schema.Message, found bool, err error) {
+	for _, choice := range resp.Choices {
+		// take 0 index as response, rewrite if needed
+		if choice.Index != 0 {
+			continue
+		}
+
+		found = true
+
+		msg = &schema.Message{
+			Role:      toMessageRole(choice.Delta.Role),
+			Content:   choice.Delta.Content,
+			ToolCalls: toMessageToolCalls(choice.Delta.ToolCalls),
+			ResponseMeta: &schema.ResponseMeta{
+				FinishReason: string(choice.FinishReason),
+				Usage:        toEinoTokenUsage(resp.Usage),
+				LogProbs:     toStreamProbs(choice.Logprobs),
+			},
+		}
+
+		if len(choice.Delta.ReasoningContent) > 0 {
+			msg.ReasoningContent = choice.Delta.ReasoningContent
+			setReasoningContent(msg, choice.Delta.ReasoningContent)
+		} else if choice.Delta.ExtraFields != nil {
+			populateRCFromExtra(choice.Delta.ExtraFields, msg)
+		}
+		if choice.Delta.Audio != nil {
+			err = b.setOutputMessageAudio(msg, choice.Delta.Audio)
+			if err != nil {
+				return nil, found, err
+			}
+		}
+
+		break
+	}
+
+	if resp.Usage != nil && !found {
+		msg = &schema.Message{
+			ResponseMeta: &schema.ResponseMeta{
+				Usage: toEinoTokenUsage(resp.Usage),
+			},
+		}
+		found = true
+	}
+
+	setRequestID(msg, resp.ID)
+
+	return msg, found, nil
+}
+
+func toTools(tis []*schema.ToolInfo) ([]tool, error) {
+	var sortArrayFields func(*jsonschema.Schema)
+	sortArrayFields = func(sc *jsonschema.Schema) {
+		if sc == nil {
+			return
+		}
+
+		switch sc.Type {
+		case string(schema.Object):
+			if len(sc.Required) == 0 {
+				return
+			}
+
+			sort.Strings(sc.Required)
+			for pair := sc.Properties.Oldest(); pair != nil; pair = pair.Next() {
+				sortArrayFields(pair.Value)
+			}
+
+		case string(schema.Array):
+			if sc.Items != nil {
+				sortArrayFields(sc.Items)
+			}
+
+		default:
+			return
+		}
+	}
+
+	tools := make([]tool, len(tis))
+	for i := range tis {
+		ti := tis[i]
+		if ti == nil {
+			return nil, fmt.Errorf("tool info cannot be nil in BindTools")
+		}
+
+		paramsJSONSchema, err := ti.ParamsOneOf.ToJSONSchema()
+		if err != nil {
+			return nil, fmt.Errorf("failed to convert tool parameters to JSONSchema: %w", err)
+		}
+
+		sortArrayFields(paramsJSONSchema)
+
+		tools[i] = tool{
+			Function: &functionDefinition{
+				Name:        ti.Name,
+				Description: ti.Desc,
+				Parameters:  paramsJSONSchema,
+			},
+		}
+	}
+
+	return tools, nil
+}
+
+func toEinoTokenUsage(usage *openai.Usage) *schema.TokenUsage {
+	if usage == nil {
+		return nil
+	}
+
+	promptTokenDetails := schema.PromptTokenDetails{}
+	if usage.PromptTokensDetails != nil {
+		promptTokenDetails.CachedTokens = usage.PromptTokensDetails.CachedTokens
+	}
+	completionTokensDetails := schema.CompletionTokensDetails{}
+	if usage.CompletionTokensDetails != nil {
+		completionTokensDetails.ReasoningTokens = usage.CompletionTokensDetails.ReasoningTokens
+	}
+
+	return &schema.TokenUsage{
+		PromptTokens:            usage.PromptTokens,
+		PromptTokenDetails:      promptTokenDetails,
+		CompletionTokens:        usage.CompletionTokens,
+		TotalTokens:             usage.TotalTokens,
+		CompletionTokensDetails: completionTokensDetails,
+	}
+}
+
+func toModelCallbackUsage(respMeta *schema.ResponseMeta) *model.TokenUsage {
+	if respMeta == nil {
+		return nil
+	}
+	usage := respMeta.Usage
+	if usage == nil {
+		return nil
+	}
+	return &model.TokenUsage{
+		PromptTokens: usage.PromptTokens,
+		PromptTokenDetails: model.PromptTokenDetails{
+			CachedTokens: usage.PromptTokenDetails.CachedTokens,
+		},
+		CompletionTokens: usage.CompletionTokens,
+		TotalTokens:      usage.TotalTokens,
+		CompletionTokensDetails: model.CompletionTokensDetails{
+			ReasoningTokens: usage.CompletionTokensDetails.ReasoningTokens,
+		},
+	}
+}
+
+func (c *Client) WithToolsForClient(tools []*schema.ToolInfo) (*Client, error) {
+	if len(tools) == 0 {
+		return nil, errors.New("no tools to bind")
+	}
+	openaiTools, err := toTools(tools)
+	if err != nil {
+		return nil, fmt.Errorf("convert to tools fail: %w", err)
+	}
+
+	tc := schema.ToolChoiceAllowed
+	nc := *c
+	nc.tools = openaiTools
+	nc.rawTools = tools
+	nc.toolChoice = &tc
+	return &nc, nil
+}
+
+func (c *Client) WithTools(tools []*schema.ToolInfo) (model.ToolCallingChatModel, error) {
+	return c.WithToolsForClient(tools)
+}
+
+func (c *Client) BindTools(tools []*schema.ToolInfo) error {
+	if len(tools) == 0 {
+		return errors.New("no tools to bind")
+	}
+	var err error
+	c.tools, err = toTools(tools)
+	if err != nil {
+		return err
+	}
+
+	tc := schema.ToolChoiceAllowed
+	c.toolChoice = &tc
+	c.rawTools = tools
+
+	return nil
+}
+
+func (c *Client) BindForcedTools(tools []*schema.ToolInfo) error {
+	if len(tools) == 0 {
+		return errors.New("no tools to bind")
+	}
+	var err error
+	c.tools, err = toTools(tools)
+	if err != nil {
+		return err
+	}
+
+	tc := schema.ToolChoiceForced
+	c.toolChoice = &tc
+	c.rawTools = tools
+
+	return nil
+}
+
+func (c *Client) IsCallbacksEnabled() bool {
+	return true
+}
+
+type panicErr struct {
+	info  any
+	stack []byte
+}
+
+func (p *panicErr) Error() string {
+	return fmt.Sprintf("panic error: %v, \nstack: %s", p.info, string(p.stack))
+}
+
+func newPanicErr(info any, stack []byte) error {
+	return &panicErr{
+		info:  info,
+		stack: stack,
+	}
+}
