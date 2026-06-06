@@ -2,6 +2,7 @@ package einotools
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -10,10 +11,14 @@ import (
 	"github.com/V3teran/liusha/internal/finding"
 )
 
-// fakeStore 同时满足 FindingReader + FindingWriter，记录收到的写入用于断言注入字段。
+// fakeStore 同时满足 FindingReader + FindingWriter + FindingUpdater，记录收到的写入用于断言注入字段。
 type fakeStore struct {
-	list  []finding.VulnFinding
-	saved finding.VulnFinding
+	list    []finding.VulnFinding
+	saved   finding.VulnFinding
+	updated struct {
+		id, summary, severity string
+		target, evidence      json.RawMessage
+	}
 }
 
 func (f *fakeStore) ListByOwnerAndHost(_ context.Context, _, _, _ string, _ int) ([]finding.VulnFinding, error) {
@@ -23,6 +28,14 @@ func (f *fakeStore) Save(_ context.Context, v finding.VulnFinding) (finding.Vuln
 	v.ID = "fk-1"
 	f.saved = v
 	return v, nil
+}
+func (f *fakeStore) Update(_ context.Context, id, summary, severity string, target, evidence json.RawMessage) error {
+	f.updated.id = id
+	f.updated.summary = summary
+	f.updated.severity = severity
+	f.updated.target = target
+	f.updated.evidence = evidence
+	return nil
 }
 
 func invoke(t *testing.T, bt tool.BaseTool, argsJSON string) string {
@@ -98,5 +111,35 @@ func TestWriteFinding_SummaryRequired(t *testing.T) {
 	it := wf.(tool.InvokableTool)
 	if _, err := it.InvokableRun(context.Background(), `{"severity":"low"}`); err == nil {
 		t.Fatal("缺 summary 应报错")
+	}
+}
+
+func TestUpdateFinding(t *testing.T) {
+	store := &fakeStore{}
+	uf, err := BuildUpdateFinding(store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := invoke(t, uf, `{"id":"f1","severity":"critical","target":{"path":"/x"}}`)
+	if !strings.Contains(out, "ok") {
+		t.Fatalf("update_finding 应返回 ok: %s", out)
+	}
+	if store.updated.id != "f1" || store.updated.severity != "critical" {
+		t.Errorf("update 参数错: %+v", store.updated)
+	}
+	// target 以 object 形态透传；summary 未传应为空（保留原值语义）
+	if !strings.Contains(string(store.updated.target), `"path":"/x"`) {
+		t.Errorf("target 应为 object: %s", store.updated.target)
+	}
+	if store.updated.summary != "" {
+		t.Errorf("未传 summary 应空，得到 %q", store.updated.summary)
+	}
+}
+
+func TestUpdateFinding_IDRequired(t *testing.T) {
+	uf, _ := BuildUpdateFinding(&fakeStore{})
+	it := uf.(tool.InvokableTool)
+	if _, err := it.InvokableRun(context.Background(), `{"severity":"low"}`); err == nil {
+		t.Fatal("缺 id 应报错")
 	}
 }
