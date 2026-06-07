@@ -148,8 +148,8 @@ services:
       LIUSHA_LLM_LIGHT_PROVIDER: "${LIUSHA_LLM_LIGHT_PROVIDER:-deepseek}"
       LIUSHA_LLM_FALLBACK_PROVIDER: "${LIUSHA_LLM_FALLBACK_PROVIDER:-deepseek}"
       LIUSHA_LLM_VISION_PROVIDER: "${LIUSHA_LLM_VISION_PROVIDER:-deepseek}"
-      # eino 迁移：=1 时 scanner 走 eino ChatModelAgent 路径（默认空=react）
-      LIUSHA_EINO_PASSIVE: "${LIUSHA_EINO_PASSIVE:-}"
+      # eino 迁移：默认走 eino ChatModelAgent 路径；=1 切回旧 react（渐进迁移期退路）
+      LIUSHA_USE_REACT: "${LIUSHA_USE_REACT:-}"
     volumes:
       - ../logs:/app/logs
     extra_hosts:

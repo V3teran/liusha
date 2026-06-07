@@ -17,7 +17,7 @@ import (
 	"github.com/V3teran/liusha/internal/worker"
 )
 
-// handleActiveEino 是 handleActive 的 eino 版（LIUSHA_EINO_PASSIVE=1 时也接管 active）：
+// handleActiveEino 是 handleActive 的 eino 版（默认路径；LIUSHA_USE_REACT=1 才切回旧 react）：
 // commander=单 ChatModelAgent + 同步 spawn_striker 工具。并发派活 = 一轮多 spawn 调用（ToolsNode 并行），
 // 各 striker 独立 model（铁律）。这删掉了 react 路径的 subtask.Registry/PreDoneCheck/cancel+WaitAll。
 //

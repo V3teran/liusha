@@ -299,10 +299,13 @@ func main() {
 	}
 	hunterBuilder = hunter.NewBuilder(hunterDeps)
 
-	// eino 迁移（P3c）：LIUSHA_EINO_PASSIVE=1 时 passive 路径走 eino ChatModelAgent。
-	einoPassive := os.Getenv("LIUSHA_EINO_PASSIVE") == "1"
-	if einoPassive {
-		logger.Warn().Msg("LIUSHA_EINO_PASSIVE=1：passive 路径走 eino（实验，gap：无计费/inspector/压缩）")
+	// eino 迁移：已转默认——passive + active 默认走 eino ChatModelAgent。
+	// LIUSHA_USE_REACT=1 切回旧 react 路径（渐进迁移期退路；观察 eino 稳定后删 react）。
+	useReact := os.Getenv("LIUSHA_USE_REACT") == "1"
+	if useReact {
+		logger.Warn().Msg("LIUSHA_USE_REACT=1：切回旧 react 路径（退路）")
+	} else {
+		logger.Info().Msg("agent 引擎：eino（默认）；LIUSHA_USE_REACT=1 可切回 react")
 	}
 
 	// handler
@@ -325,7 +328,7 @@ func main() {
 		parentRegistries: parentRegistries,
 		einoFactory:      einollm.New(cfg),
 		hunterDeps:       hunterDeps,
-		einoPassive:      einoPassive,
+		useReact:         useReact,
 	}
 
 	mux := worker.NewMux()

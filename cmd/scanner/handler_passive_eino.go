@@ -22,7 +22,7 @@ import (
 // （react 路径走 cfg.OnAbort step 内回调；eino RunTracker 无 step 钩子，改后台 watcher + cancel ctx。）
 const abortPollInterval = 5 * time.Second
 
-// handlePassiveEino 是 handlePassive 的 eino 版（LIUSHA_EINO_PASSIVE=1 启用）：
+// handlePassiveEino 是 handlePassive 的 eino 版（默认路径；LIUSHA_USE_REACT=1 才切回旧 react）：
 // einollm.For(tracker) 独立 model + einoagent.BuildTrackerTools 13 工具 + hunter prompt 资产
 // → einoagent.RunTracker（ChatModelAgent + Runner）替代 react.Run。
 //

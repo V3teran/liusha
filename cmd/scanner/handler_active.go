@@ -24,8 +24,8 @@ import (
 //   - Host 用 brief 抽出的 URL host 当切分键（抽不到回退 owner_id）
 //   - 启用 subtask swarm：parentRegistries Store + react.Run 返回后 cancel+WaitAll
 func (h handler) handleActive(ctx context.Context, p worker.Payload, entrypoint json.RawMessage) error {
-	// eino 迁移（P4）：flag 开则走 eino commander+spawn 路径（实验，默认关）。
-	if h.einoPassive {
+	// eino 迁移：默认走 eino commander+spawn 路径；LIUSHA_USE_REACT=1 才走下方旧 react 路径（退路）。
+	if !h.useReact {
 		return h.handleActiveEino(ctx, p, entrypoint)
 	}
 

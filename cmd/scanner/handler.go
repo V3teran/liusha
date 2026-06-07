@@ -46,14 +46,14 @@ type handler struct {
 	launcher        sandbox.Launcher
 	logger          zerolog.Logger
 
-	// eino 迁移（P3c）：passive 路径切到 eino ChatModelAgent。
+	// eino 迁移：passive + active 路径走 eino ChatModelAgent（已转默认）。
 	//   - einoFactory：按 role 产独立 eino ChatModel（per-hunter 铁律）
 	//   - hunterDeps：复用旧 builder 的 store/loader 依赖（装 TrackerToolDeps + BuildUserPrompt）
-	//   - einoPassive：LIUSHA_EINO_PASSIVE=1 时 handlePassive 走 eino 路径（默认 false 走 react）
-	// gap（暂缺，待后续增量补 eino middleware）：LLM 计费 instrument / inspector / history 压缩。
+	//   - useReact：LIUSHA_USE_REACT=1 时切回旧 react 路径（退路，渐进迁移期保留；默认走 eino）。
+	// eino 已补齐计费 / 压缩 / 截图回灌；inspector 由单 agent 自然收尾替代。
 	einoFactory *einollm.Factory
 	hunterDeps  hunterbuilder.Deps
-	einoPassive bool
+	useReact    bool
 
 	// parentRegistries 索引 commander hunterID → striker Registry（subtask swarm）。
 	// spawnerFactory 闭包 Store；handleActive 在 react.Run 返回后 LoadAndDelete
