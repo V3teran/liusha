@@ -2,6 +2,8 @@ package einollm
 
 import (
 	"context"
+	"errors"
+	"strings"
 	"testing"
 
 	"github.com/cloudwego/eino/callbacks"
@@ -91,6 +93,24 @@ func TestUsageRecorder_IgnoresNonChatModel(t *testing.T) {
 	h.OnEnd(ctx, info, &model.CallbackOutput{TokenUsage: &model.TokenUsage{PromptTokens: 9}})
 	if sink.count != 0 {
 		t.Fatalf("非 ChatModel 组件不应落库，得到 %d 行", sink.count)
+	}
+}
+
+func TestUsageRecorder_RecordsFailure(t *testing.T) {
+	sink := &fakeSink{}
+	h := NewUsageRecorder(sink, nil, llm.CallMeta{RouteKey: "tracker"}, "xiaomi_mimo", "mimo-v2.5")
+	info := chatModelInfo()
+	ctx := h.OnStart(context.Background(), info, &model.CallbackInput{})
+	// ChatModel 调用失败（瞬时 400 等）→ OnError 也落库带 error
+	h.OnError(ctx, info, errors.New("status code: 400, Param Incorrect"))
+	if sink.count != 1 {
+		t.Fatalf("失败调用应落 1 行 llm_invocation，得到 %d", sink.count)
+	}
+	if sink.got.Error == "" || !strings.Contains(sink.got.Error, "Param Incorrect") {
+		t.Errorf("失败行应带 error: %q", sink.got.Error)
+	}
+	if sink.got.Provider != "xiaomi_mimo" || sink.got.Role != "tracker" {
+		t.Errorf("失败行 provider/role 错: %+v", sink.got)
 	}
 }
 

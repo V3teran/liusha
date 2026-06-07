@@ -9,7 +9,38 @@ import (
 	"github.com/V3teran/liusha/internal/einollm"
 	"github.com/V3teran/liusha/internal/llm"
 	"github.com/V3teran/liusha/internal/sandbox"
+	"github.com/V3teran/liusha/internal/toolinvocation"
 )
+
+// toolSink 返回 tool_invocation 落库适配器（best-effort）；store 缺失时 nil（recorder no-op）。
+func (h handler) toolSink() einoagent.ToolSink {
+	if h.hunterDeps.ToolInvocations == nil {
+		return nil
+	}
+	return einoToolSink{store: h.hunterDeps.ToolInvocations, h: h}
+}
+
+type einoToolSink struct {
+	store *toolinvocation.Store
+	h     handler
+}
+
+func (s einoToolSink) RecordTool(ctx context.Context, inv einoagent.ToolInvocation) {
+	if _, err := s.store.Append(ctx, toolinvocation.Invocation{
+		HunterID:      inv.HunterID,
+		OwnerType:     inv.OwnerType,
+		OwnerID:       inv.OwnerID,
+		ToolName:      inv.ToolName,
+		Args:          inv.Args,
+		OutputSize:    inv.OutputSize,
+		OutputPreview: inv.OutputPreview,
+		DurationMs:    inv.DurationMs,
+		ErrorMessage:  inv.ErrorMessage,
+	}); err != nil {
+		s.h.logger.Warn().Err(err).Str("tool", inv.ToolName).Str("hunter_id", inv.HunterID).
+			Msg("eino tool_invocation 记录失败（不阻塞业务）")
+	}
+}
 
 // handler_eino_common.go：eino passive/active 路径共享的装配胶水。
 
@@ -42,6 +73,8 @@ func (h handler) einoRunOpts(ctx context.Context, hunterID, ownerType, ownerID, 
 	} else {
 		h.logger.Warn().Err(err).Str("role", role).Msg("eino compactor 装配失败，本次跳过历史压缩")
 	}
+	// tool_invocation 遥测（gap②）：每次工具调用落库。store 缺失时 sink nil → recorder no-op。
+	mws = append(mws, einoagent.NewToolRecorder(h.toolSink(), hunterID, ownerType, ownerID))
 
 	provider, model := h.einoFactory.ResolveProviderModel(role)
 	recorder := einollm.NewUsageRecorder(h.calls, h.pricing,

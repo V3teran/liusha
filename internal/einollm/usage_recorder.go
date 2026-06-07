@@ -66,13 +66,31 @@ func NewUsageRecorder(sink llm.CallSink, pricing llm.PricingProvider, meta llm.C
 				return ctx
 			}
 			rec := buildInvocation(ctx, meta, pricing, provider, defaultModel, out)
-			if _, err := sink.Append(context.Background(), rec); err != nil {
-				recorderLog.Warn().Err(err).Str("role", meta.RouteKey).
-					Msg("eino llm_invocation append 失败（不阻塞 agent run）")
+			appendInvocation(sink, meta, rec)
+			return ctx
+		}).
+		// OnError：ChatModel 调用失败（瞬时 4xx/429/EOF 等）也落一行带 error 的 llm_invocation，
+		// 与 react Instrument 两者都记对齐（成功率/故障率统计需要失败样本）。
+		OnErrorFn(func(ctx context.Context, info *callbacks.RunInfo, runErr error) context.Context {
+			if info == nil || info.Component != components.ComponentOfChatModel {
+				return ctx
 			}
+			rec := buildInvocation(ctx, meta, pricing, provider, defaultModel, &model.CallbackOutput{})
+			if runErr != nil {
+				rec.Error = runErr.Error()
+			}
+			appendInvocation(sink, meta, rec)
 			return ctx
 		}).
 		Build()
+}
+
+// appendInvocation 落库 + best-effort 错误处理（埋点失败仅 warn，不阻塞 agent run）。
+func appendInvocation(sink llm.CallSink, meta llm.CallMeta, rec llminvocation.Invocation) {
+	if _, err := sink.Append(context.Background(), rec); err != nil {
+		recorderLog.Warn().Err(err).Str("role", meta.RouteKey).
+			Msg("eino llm_invocation append 失败（不阻塞 agent run）")
+	}
 }
 
 // buildInvocation 把 eino model callback 输出映射成 llminvocation.Invocation。
