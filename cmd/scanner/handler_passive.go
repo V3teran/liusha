@@ -17,6 +17,11 @@ import (
 // handlePassive 处理 mode=passive 的 hunter task：拉 flow 完整 raw（请求 + 响应）
 // → 装配 hunter react.Config → 跑 react.Run（1 流量 → 1 hunter agent）。
 func (h handler) handlePassive(ctx context.Context, p worker.Payload, entrypoint json.RawMessage) error {
+	// eino 迁移（P3c）：flag 开则走 eino ChatModelAgent 路径（实验，默认关）。
+	if h.einoPassive {
+		return h.handlePassiveEino(ctx, p, entrypoint)
+	}
+
 	var ep struct {
 		FlowID int64  `json:"flow_id"`
 		Host   string `json:"host"`

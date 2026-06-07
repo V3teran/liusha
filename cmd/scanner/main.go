@@ -31,6 +31,7 @@ import (
 	"github.com/V3teran/liusha/internal/config"
 	"github.com/V3teran/liusha/internal/credential"
 	"github.com/V3teran/liusha/internal/db"
+	"github.com/V3teran/liusha/internal/einollm"
 	"github.com/V3teran/liusha/internal/envx"
 	"github.com/V3teran/liusha/internal/finding"
 	"github.com/V3teran/liusha/internal/flow"
@@ -266,7 +267,7 @@ func main() {
 	// failure 路径已设计为 head-truncate 兜底，不阻断 hunter 主循环。
 	historyCompactor := react.NewLLMHistoryCompactor(compactorGen)
 
-	hunterBuilder = hunter.NewBuilder(hunter.Deps{
+	hunterDeps := hunter.Deps{
 		Notes:                  noteStore,
 		Findings:               finds,
 		Lessons:                lessons,
@@ -295,7 +296,14 @@ func main() {
 		FindingsLimit:         cfg.Session.FindingsLimitInPrompt,
 		LessonsLimit:          cfg.Session.LessonsLimitInPrompt,
 		SpawnerFactory:        spawnerFactory,
-	})
+	}
+	hunterBuilder = hunter.NewBuilder(hunterDeps)
+
+	// eino 迁移（P3c）：LIUSHA_EINO_PASSIVE=1 时 passive 路径走 eino ChatModelAgent。
+	einoPassive := os.Getenv("LIUSHA_EINO_PASSIVE") == "1"
+	if einoPassive {
+		logger.Warn().Msg("LIUSHA_EINO_PASSIVE=1：passive 路径走 eino（实验，gap：无计费/inspector/压缩）")
+	}
 
 	// handler
 	h := handler{
@@ -315,6 +323,9 @@ func main() {
 		launcher:         launcher,
 		logger:           logger,
 		parentRegistries: parentRegistries,
+		einoFactory:      einollm.New(cfg),
+		hunterDeps:       hunterDeps,
+		einoPassive:      einoPassive,
 	}
 
 	mux := worker.NewMux()

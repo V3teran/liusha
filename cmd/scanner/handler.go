@@ -11,7 +11,9 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/V3teran/liusha/internal/activescan"
+	hunterbuilder "github.com/V3teran/liusha/internal/builder/hunter"
 	"github.com/V3teran/liusha/internal/config"
+	"github.com/V3teran/liusha/internal/einollm"
 	"github.com/V3teran/liusha/internal/finding"
 	"github.com/V3teran/liusha/internal/flow"
 	"github.com/V3teran/liusha/internal/hunter"
@@ -43,6 +45,16 @@ type handler struct {
 	hunterBuilder   skill.Builder
 	launcher        sandbox.Launcher
 	logger          zerolog.Logger
+
+	// eino 迁移（P3c）：passive 路径切到 eino ChatModelAgent。
+	//   - einoFactory：按 role 产独立 eino ChatModel（per-hunter 铁律）
+	//   - hunterDeps：复用旧 builder 的 store/loader 依赖（装 TrackerToolDeps + BuildUserPrompt）
+	//   - einoPassive：LIUSHA_EINO_PASSIVE=1 时 handlePassive 走 eino 路径（默认 false 走 react）
+	// gap（暂缺，待后续增量补 eino middleware）：LLM 计费 instrument / inspector / history 压缩。
+	einoFactory *einollm.Factory
+	hunterDeps  hunterbuilder.Deps
+	einoPassive bool
+
 	// parentRegistries 索引 commander hunterID → striker Registry（subtask swarm）。
 	// spawnerFactory 闭包 Store；handleActive 在 react.Run 返回后 LoadAndDelete
 	// + cancel commander ctx + WaitAll，确保striker goroutine 全退再 Destroy sandbox，防孤儿。
