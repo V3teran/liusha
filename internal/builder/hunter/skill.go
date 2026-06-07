@@ -83,6 +83,18 @@ func buildSystemPrompt(mode string, isParent bool) string {
 	return hunterSystemPromptShared + "\n" + addendum
 }
 
+// SystemPromptFor 导出 buildSystemPrompt，供 eino 迁移路径（internal/einoagent）复用同一套
+// prompt-as-code 资产，避免 react / eino 双路径 prompt 漂移。
+func SystemPromptFor(mode string, isParent bool) string {
+	return buildSystemPrompt(mode, isParent)
+}
+
+// BuildUserPrompt 导出 buildUserPrompt，供 eino 迁移路径复用流量/finding/notes/lesson/索引
+// 段的统一拼装（同上：单一真相源，防双路径漂移）。
+func BuildUserPrompt(ctx context.Context, deps Deps, p skill.BuilderParams) string {
+	return buildUserPrompt(ctx, deps, p)
+}
+
 // Deps hunter builder 的依赖注入。由 cmd/scanner/main.go 在启动时构造一份。
 type Deps struct {
 	Notes       notes.Store // 短期工作笔记（Redis；owner 内同 host 跨 task 共享）
