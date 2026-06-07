@@ -75,6 +75,9 @@ func (h handler) einoRunOpts(ctx context.Context, hunterID, ownerType, ownerID, 
 	}
 	// tool_invocation 遥测（gap②）：每次工具调用落库。store 缺失时 sink nil → recorder no-op。
 	mws = append(mws, einoagent.NewToolRecorder(h.toolSink(), hunterID, ownerType, ownerID))
+	// 截图视觉回灌（TODO-1）：run_command 的截图 image part 从 tool message 抽出转 user message
+	// （避免 mimo 400），按 role 的 provider 是否 vision 决定回灌或丢弃。
+	mws = append(mws, einoagent.NewVisionRelayMiddleware(h.einoFactory.SupportsVisionFor(role)))
 
 	provider, model := h.einoFactory.ResolveProviderModel(role)
 	recorder := einollm.NewUsageRecorder(h.calls, h.pricing,

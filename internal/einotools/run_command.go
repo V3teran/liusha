@@ -151,18 +151,38 @@ func (t *runCommandTool) InvokableRun(ctx context.Context, arg *schema.ToolArgum
 		return nil, fmt.Errorf("marshal output: %w", err)
 	}
 
-	// 只返文本 part。图片**不**作为 tool-role multimodal part 回灌——
-	// e2e 实测：小米 mimo 等国产 provider 校验 tool message 的 image_url part 时要求每个 part 带 text
-	// 字段（OpenAI 标准外的怪癖），eino image part 无 text → 400「Param Incorrect: `text` is not set」，
-	// 重试也救不了（确定性）。截图文件名/尺寸已在 textOut.Files 标注（image=true），
-	// LLM 据此知道有截图；真要看渲染走 browser-use 的 source/eval 文本通道。
-	// （tool-role 图片本就是标准外灰色地带，多数 OpenAI 兼容 provider 不支持。）
-	return &schema.ToolResult{
-		Parts: []schema.ToolOutputPart{{Type: schema.ToolPartTypeText, Text: string(enc)}},
-	}, nil
+	// text part + image part（截图 base64）。
+	// ★ 图片**不能**直接进 tool message（小米 mimo 等国产 provider 校验 tool-role image_url part
+	// 要求每 part 带 text → 400「Param Incorrect: `text` is not set」，确定性，重试救不了）。
+	// 由 einoagent.NewVisionRelayMiddleware 在 WrapToolCall 拦截：抽走 image part（剥后 tool message
+	// 只剩 text，永不 400）→ flush 成紧随的 user message（OpenAI 标准位，vision provider 真识图）。
+	// 非 vision provider：middleware 丢弃 image part，仅留文本（截图元信息在 textOut.Files 标 image=true）。
+	parts := []schema.ToolOutputPart{{Type: schema.ToolPartTypeText, Text: string(enc)}}
+	parts = append(parts, imagePartsFromFiles(res.Files)...)
+	return &schema.ToolResult{Parts: parts}, nil
 }
 
-// fileMeta 是文本输出里的轻量附件元信息（不含 b64；图片真内容走 image part）。
+// imagePartsFromFiles 把图片附件转成 eino ToolOutputPart（base64 + mime），其余文件不进多模态。
+// 这些 image part 由 VisionRelayMiddleware 拦截剥离 + 转 user message（绝不留在 tool message）。
+func imagePartsFromFiles(files []sandbox.Attachment) []schema.ToolOutputPart {
+	var out []schema.ToolOutputPart
+	for _, f := range files {
+		mt := imageMediaTypeFromName(f.Name)
+		if mt == "" || f.B64 == "" {
+			continue
+		}
+		b64 := f.B64
+		out = append(out, schema.ToolOutputPart{
+			Type: schema.ToolPartTypeImage,
+			Image: &schema.ToolOutputImage{
+				MessagePartCommon: schema.MessagePartCommon{Base64Data: &b64, MIMEType: mt},
+			},
+		})
+	}
+	return out
+}
+
+// fileMeta 是文本输出里的轻量附件元信息（不含 b64；图片真内容走 image part → VisionRelay → user message）。
 type fileMeta struct {
 	Name  string `json:"name"`
 	Bytes int    `json:"bytes,omitempty"`

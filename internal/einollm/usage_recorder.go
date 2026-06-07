@@ -43,6 +43,19 @@ func (f *Factory) ResolveProviderModel(role string) (provider, model string) {
 	return key, f.cfg.Providers[key].DefaultModel
 }
 
+// SupportsVisionFor 返回某 role 路由到的 provider 是否支持 vision（截图回灌开关，见 VisionRelayMiddleware）。
+// config.Providers[key].SupportsVision 是 *bool（启动期 validate 强制非 nil）；缺失保守返 false。
+func (f *Factory) SupportsVisionFor(role string) bool {
+	key := f.resolveProviderKey(role)
+	if key == "" {
+		return false
+	}
+	if sv := f.cfg.Providers[key].SupportsVision; sv != nil {
+		return *sv
+	}
+	return false
+}
+
 // NewUsageRecorder 造一个只关心 ChatModel 组件的 callbacks.Handler，把每次调用的 token usage
 // 落 llm_invocation。pricing 可为 nil（仅落 usage 不算 cost）。埋点失败仅吞掉，不阻塞 agent run。
 func NewUsageRecorder(sink llm.CallSink, pricing llm.PricingProvider, meta llm.CallMeta, provider, defaultModel string) callbacks.Handler {

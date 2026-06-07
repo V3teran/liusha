@@ -35,7 +35,7 @@ func enhancedInvoke(t *testing.T, bt tool.BaseTool, argsJSON string) *schema.Too
 	return res
 }
 
-func TestRunCommand_TextOnlyWithFileMeta(t *testing.T) {
+func TestRunCommand_TextAndImageParts(t *testing.T) {
 	sb := &fakeSandbox{result: sandbox.ExecResult{
 		ExitCode: 0,
 		Stdout:   "back-end DBMS: MySQL",
@@ -50,22 +50,24 @@ func TestRunCommand_TextOnlyWithFileMeta(t *testing.T) {
 	}
 	res := enhancedInvoke(t, rc, `{"command":"sqlmap -u x","timeout_seconds":300,"tag":"sqlmap-l5"}`)
 
-	// 只返 1 个 text part（image 不再作 tool-role multimodal part —— mimo 400 修复）
-	if len(res.Parts) != 1 {
-		t.Fatalf("应只有 1 个 text part（image 不回灌），得到 %d", len(res.Parts))
+	// text part + 1 image part（截图）。VisionRelayMiddleware 后续抽走 image part 转 user message。
+	if len(res.Parts) != 2 {
+		t.Fatalf("应有 2 个 part（text + 1 image），得到 %d", len(res.Parts))
 	}
-	p := res.Parts[0]
-	if p.Type != schema.ToolPartTypeText || !strings.Contains(p.Text, "back-end DBMS") {
-		t.Errorf("part 应是含 stdout 的 text: %+v", p)
+	if res.Parts[0].Type != schema.ToolPartTypeText || !strings.Contains(res.Parts[0].Text, "back-end DBMS") {
+		t.Errorf("part0 应是含 stdout 的 text: %+v", res.Parts[0])
 	}
-	// 文本里仍列出附件（含截图元信息 image=true，让 LLM 知道有截图）
-	if !strings.Contains(p.Text, "shot.png") || !strings.Contains(p.Text, "dump.txt") {
-		t.Errorf("附件应列在 text files（含截图元信息）: %s", p.Text)
+	if !strings.Contains(res.Parts[0].Text, `"image":true`) {
+		t.Errorf("截图附件应标 image=true: %s", res.Parts[0].Text)
 	}
-	if !strings.Contains(p.Text, `"image":true`) {
-		t.Errorf("截图附件应标 image=true: %s", p.Text)
+	// part1 image：base64 + mime
+	img := res.Parts[1]
+	if img.Type != schema.ToolPartTypeImage || img.Image == nil {
+		t.Fatalf("part1 应是 image: %+v", img)
 	}
-	// hunterID 闭包注入
+	if img.Image.MIMEType != "image/png" || img.Image.Base64Data == nil || *img.Image.Base64Data != "aW1hZ2VkYXRh" {
+		t.Errorf("image part base64/mime 错: %+v", img.Image)
+	}
 	if sb.gotReq.HunterID != "hunter-1" {
 		t.Errorf("HunterID 注入错: %q", sb.gotReq.HunterID)
 	}
