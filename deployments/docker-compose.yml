@@ -142,10 +142,14 @@ services:
       OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
       MOONSHOT_API_KEY: "${MOONSHOT_API_KEY:-}"
       QWEN_API_KEY: "${QWEN_API_KEY:-}"
+      GLM_API_KEY: "${GLM_API_KEY:-}"
+      XIAOMI_API_KEY: "${XIAOMI_API_KEY:-}"
       # 临时覆盖：把 light/fallback 都路由到 deepseek，避免 ANTHROPIC_API_KEY 空时 validate 失败
       LIUSHA_LLM_LIGHT_PROVIDER: "${LIUSHA_LLM_LIGHT_PROVIDER:-deepseek}"
       LIUSHA_LLM_FALLBACK_PROVIDER: "${LIUSHA_LLM_FALLBACK_PROVIDER:-deepseek}"
       LIUSHA_LLM_VISION_PROVIDER: "${LIUSHA_LLM_VISION_PROVIDER:-deepseek}"
+      # eino 迁移：=1 时 scanner 走 eino ChatModelAgent 路径（默认空=react）
+      LIUSHA_EINO_PASSIVE: "${LIUSHA_EINO_PASSIVE:-}"
     volumes:
       - ../logs:/app/logs
     extra_hosts:
