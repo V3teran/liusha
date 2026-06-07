@@ -119,13 +119,21 @@ func (h handler) handlePassiveEino(ctx context.Context, p worker.Payload, entryp
 		provider, defaultModel,
 	)
 
+	// 历史压缩（gap③）：light 模型蒸馏老 turn 防 context 爆。compactor 解析失败仅降级跳过压缩。
+	var middlewares []adk.AgentMiddleware
+	if compactor, cErr := h.einoFactory.For(ctx, "compactor"); cErr == nil {
+		middlewares = append(middlewares, einoagent.NewCompactionMiddleware(compactor, einoagent.CompactionConfig{}))
+	} else {
+		h.logger.Warn().Err(cErr).Msg("eino compactor 装配失败，本次跳过历史压缩")
+	}
+
 	// owner 中止 watcher：react 路径靠 step 内 cfg.OnAbort；eino 无 step 钩子，
 	// 改后台轮询 passive_session.Status，非 active 即 cancel ctx 让 RunTracker 自然停。
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	go h.watchAbort(runCtx, cancel, oid)
 
-	res, err := einoagent.RunTracker(runCtx, model, tools, instruction, userPrompt, adk.WithCallbacks(recorder))
+	res, err := einoagent.RunTracker(runCtx, model, tools, instruction, userPrompt, middlewares, adk.WithCallbacks(recorder))
 	if err != nil {
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			return h.abortTask(ctx, p.HunterID, "ctx "+err.Error())

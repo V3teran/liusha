@@ -32,8 +32,9 @@ type TrackerResult struct {
 //
 // m 必须是**独立** ChatModel 实例（per-hunter，见 einollm 包注释铁律）。
 // instruction = 拼好的 system prompt（shared + tracker 段）；flowText = 一条 raw HTTP 流量。
+// middlewares 注入 AgentMiddleware（如历史压缩 NewCompactionMiddleware）；可为 nil。
 // opts 透传给 Runner.Run（如 adk.WithCallbacks 注入计费埋点 handler）。
-func RunTracker(ctx context.Context, m model.ToolCallingChatModel, tools []tool.BaseTool, instruction, flowText string, opts ...adk.AgentRunOption) (TrackerResult, error) {
+func RunTracker(ctx context.Context, m model.ToolCallingChatModel, tools []tool.BaseTool, instruction, flowText string, middlewares []adk.AgentMiddleware, opts ...adk.AgentRunOption) (TrackerResult, error) {
 	agent, err := adk.NewChatModelAgent(ctx, &adk.ChatModelAgentConfig{
 		Name:          "tracker",
 		Description:   "passive 侦察兵：分析一条流量挖漏洞",
@@ -41,6 +42,7 @@ func RunTracker(ctx context.Context, m model.ToolCallingChatModel, tools []tool.
 		Model:         m,
 		ToolsConfig:   adk.ToolsConfig{ToolsNodeConfig: compose.ToolsNodeConfig{Tools: tools}},
 		MaxIterations: defaultTrackerMaxIters,
+		Middlewares:   middlewares,
 	})
 	if err != nil {
 		return TrackerResult{}, fmt.Errorf("build tracker agent: %w", err)

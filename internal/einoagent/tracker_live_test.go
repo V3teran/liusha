@@ -71,7 +71,7 @@ func TestRunTracker_Live(t *testing.T) {
 		"## 流量响应\nHTTP/1.1 500 Internal Server Error\n\n" +
 		"body: You have an error in your SQL syntax near \"OR '1'='1\" at line 1"
 
-	res, err := einoagent.RunTracker(ctx, m, []tool.BaseTool{wf, rf}, instruction, flow)
+	res, err := einoagent.RunTracker(ctx, m, []tool.BaseTool{wf, rf}, instruction, flow, nil)
 	if err != nil {
 		t.Fatalf("RunTracker: %v", err)
 	}
