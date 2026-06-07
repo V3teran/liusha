@@ -117,11 +117,19 @@ scanner worker
 **根因**：eino 把图片放 tool-role message，但 OpenAI 标准里图片只能在 user message；
 小米 mimo 严格执行 → 400「Param Incorrect: `text` is not set」（image_url part 无 text 字段）。
 react 旧路径同样把图放 tool message **却不报 400** —— 序列化细节不同（待查清照搬）。
-**影响**：LLM 看不到截图视觉内容（只见文件名/尺寸 + image=true 标记）。
-- 受影响：DOM-XSS / 渲染验证 / 视觉化 BAC（striker 改走 browser-use source/eval/extract 文本通道替代）。
-- 不受影响：纯 HTTP 类（SQLi/LFI/upload/RCE，本就靠文本响应）。
-**根治方案（三选一，独立做）**：
-1. 截图改投递到下一条 user message（符合 OpenAI 标准；但 eino ChatModelAgent 消息流框架管，插 user message 不易）。
-2. 按 provider capability 开关：支持 tool-role 图片的 provider 才返 image part，mimo 类返文本（需 capability 表）。
-3. 查清 react 为何不 400，照搬其序列化。
-**用户决策（2026-06-07）**：视觉非必须项，先文本侦察，视觉回灌作后续独立做。
+**影响（实测比预想严重）**：截图缺失把 **active 的 browser-use 登录流打瘫**——commander 看不到页面截图、靠 `browser-use state` 文本盲打登录，2026-06-07 active e2e 实测 commander 42 轮里 33 次 browser-use / 19 次 login 尝试，困在 recon 爬不出、没 spawn 任何 striker。
+- 严重受影响：**active 登录**（active 入口）+ DOM-XSS / 渲染验证 / 视觉化 BAC。
+- 不受影响：passive 纯 HTTP 类（SQLi/LFI/upload/RCE，本就靠文本响应——passive e2e 已实打实通过）。
+- ★ **优先级上调**：截图回灌不是"DOM-XSS 才需要的后续项"，而是 **active 路径能正常工作的前提**。
+
+**根因已查清 + 根治方案锁定（照搬 react，方案 1=方案 3 殊途同归）**：
+react 用 `SupportsVision` 开关（internal/llm/openai_compat.go:32 + 151-159）：
+- vision provider：tool 结果含图 → **文本留 tool message（保 tool_call_id 关联），图累积 pendingImages → flush 成紧随的 user message**（OpenAI 标准位置，mimo 不 400）。
+- 非 vision provider：`stripImagesToText` 降级文本占位。
+**eino 缺的就是"图转投 user message"这一步**——eino EnhancedTool 把图放 ToolResult（→tool message），无 flush。
+**实现路径（standalone）**：eino ChatModelAgent 消息流框架管，需找注入点把工具产出的图转成下一条 user message。候选：
+- AgentMiddleware.AfterChatModel / WrapToolCall 后处理，往 state.Messages 插 user message 带 image MultiContent；
+- 或自定义 GenModelInput；
+- 按 provider SupportsVision 开关（config.Providers[key].SupportsVision 已有字段）——vision 才回灌图，非 vision 走当前文本止血。
+run_command 需恢复产出 image 数据（当前 f31c7413 已删 image part，改由 middleware 在消息层回灌）。
+**用户决策（2026-06-07）**：听 Claude 的——active 登录瘫痪证明视觉是 active 前提，TODO-1 提前做（不再"后续"）。下一步实现此方案。
