@@ -9,6 +9,7 @@ import (
 	"github.com/V3teran/liusha/internal/credential"
 	"github.com/V3teran/liusha/internal/einoagent"
 	"github.com/V3teran/liusha/internal/finding"
+	"github.com/V3teran/liusha/internal/flow"
 	"github.com/V3teran/liusha/internal/lesson"
 	"github.com/V3teran/liusha/internal/sandbox"
 )
@@ -33,6 +34,14 @@ func (allFake) GetIdentitiesByHost(context.Context, string) ([]credential.Identi
 	return nil, nil
 }
 func (allFake) BatchSave(context.Context, map[string][]credential.Identity, int) error { return nil }
+
+// fakeFlowStore 实现 einoagent.FlowStore（FlowReader + FlowLister）。
+type fakeFlowStore struct{}
+
+func (fakeFlowStore) GetByID(context.Context, int64) (flow.Flow, error) { return flow.Flow{}, nil }
+func (fakeFlowStore) ListByOwnerFiltered(context.Context, string, flow.ListFilter) ([]flow.FlowSummary, error) {
+	return nil, nil
+}
 
 // fakeSandboxClient 实现 sandbox.Client。
 type fakeSandboxClient struct{}
@@ -77,6 +86,27 @@ func TestBuildTrackerTools_Mandatory9(t *testing.T) {
 	for i := range want {
 		if names[i] != want[i] {
 			t.Errorf("工具名不符 [%d]: 得 %q want %q（全集 %v）", i, names[i], want[i], names)
+		}
+	}
+}
+
+func TestBuildStrikerTools_AddsListAndViewFlow(t *testing.T) {
+	f := allFake{}
+	tools, err := einoagent.BuildStrikerTools(einoagent.TrackerToolDeps{
+		Findings: f, Notes: f, Lessons: f, Credentials: f,
+		Flows: fakeFlowStore{}, // 触发 replay + list + view_flow
+	}, einoagent.TrackerToolParams{OwnerType: "active_scan", OwnerID: "o", HunterID: "h", Host: "host"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	names := map[string]bool{}
+	for _, bt := range tools {
+		info, _ := bt.Info(context.Background())
+		names[info.Name] = true
+	}
+	for _, want := range []string{"list_flows", "view_flow", "replay_flow", "write_finding"} {
+		if !names[want] {
+			t.Errorf("striker 工具集应含 %s，实际 %v", want, names)
 		}
 	}
 }

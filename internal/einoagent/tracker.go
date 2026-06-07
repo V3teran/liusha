@@ -28,6 +28,8 @@ type TrackerResult struct {
 	ToolCalls []string // 按顺序调用过的工具名（用于断言/可观测）
 }
 
+const defaultStrikerMaxIters = 120 // striker 深挖单点比 tracker 多步（active）
+
 // RunTracker 用 eino ChatModelAgent 跑一条 passive 流量（替代 react.Run 的 tracker 路径）。
 //
 // m 必须是**独立** ChatModel 实例（per-hunter，见 einollm 包注释铁律）。
@@ -35,21 +37,44 @@ type TrackerResult struct {
 // middlewares 注入 AgentMiddleware（如历史压缩 NewCompactionMiddleware）；可为 nil。
 // opts 透传给 Runner.Run（如 adk.WithCallbacks 注入计费埋点 handler）。
 func RunTracker(ctx context.Context, m model.ToolCallingChatModel, tools []tool.BaseTool, instruction, flowText string, middlewares []adk.AgentMiddleware, opts ...adk.AgentRunOption) (TrackerResult, error) {
+	return runSingleAgent(ctx, agentSpec{
+		name: "tracker", desc: "passive 侦察兵：分析一条流量挖漏洞", maxIters: defaultTrackerMaxIters,
+	}, m, tools, instruction, flowText, middlewares, opts...)
+}
+
+// RunStriker 用 eino ChatModelAgent 跑一个 active striker（接 brief 深挖单点，替代 react.Run 的 striker 路径）。
+// striker 是单 agent（不再 spawn），自然收尾。userText = commander 写的 brief（+ 可选流量段）。
+func RunStriker(ctx context.Context, m model.ToolCallingChatModel, tools []tool.BaseTool, instruction, userText string, middlewares []adk.AgentMiddleware, opts ...adk.AgentRunOption) (TrackerResult, error) {
+	return runSingleAgent(ctx, agentSpec{
+		name: "striker", desc: "active 突击手：接 brief 深挖单点", maxIters: defaultStrikerMaxIters,
+	}, m, tools, instruction, userText, middlewares, opts...)
+}
+
+// agentSpec 是单 agent 的固定身份/预算（tracker 与 striker 仅此不同）。
+type agentSpec struct {
+	name     string
+	desc     string
+	maxIters int
+}
+
+// runSingleAgent 装配 + 跑一个单 ChatModelAgent，消费事件流收集 ToolCalls + 最终文字。
+// tracker / striker 共用此机制（eino 单 agent 不调工具即自然收尾，无需 done）。
+func runSingleAgent(ctx context.Context, spec agentSpec, m model.ToolCallingChatModel, tools []tool.BaseTool, instruction, userText string, middlewares []adk.AgentMiddleware, opts ...adk.AgentRunOption) (TrackerResult, error) {
 	agent, err := adk.NewChatModelAgent(ctx, &adk.ChatModelAgentConfig{
-		Name:          "tracker",
-		Description:   "passive 侦察兵：分析一条流量挖漏洞",
+		Name:          spec.name,
+		Description:   spec.desc,
 		Instruction:   instruction,
 		Model:         m,
 		ToolsConfig:   adk.ToolsConfig{ToolsNodeConfig: compose.ToolsNodeConfig{Tools: tools}},
-		MaxIterations: defaultTrackerMaxIters,
+		MaxIterations: spec.maxIters,
 		Middlewares:   middlewares,
 	})
 	if err != nil {
-		return TrackerResult{}, fmt.Errorf("build tracker agent: %w", err)
+		return TrackerResult{}, fmt.Errorf("build %s agent: %w", spec.name, err)
 	}
 
 	runner := adk.NewRunner(ctx, adk.RunnerConfig{Agent: agent})
-	iter := runner.Run(ctx, []adk.Message{schema.UserMessage(flowText)}, opts...)
+	iter := runner.Run(ctx, []adk.Message{schema.UserMessage(userText)}, opts...)
 
 	var res TrackerResult
 	var lastText strings.Builder
@@ -59,7 +84,7 @@ func RunTracker(ctx context.Context, m model.ToolCallingChatModel, tools []tool.
 			break
 		}
 		if ev.Err != nil {
-			return res, fmt.Errorf("tracker run: %w", ev.Err)
+			return res, fmt.Errorf("%s run: %w", spec.name, ev.Err)
 		}
 		if ev.Output == nil || ev.Output.MessageOutput == nil {
 			continue

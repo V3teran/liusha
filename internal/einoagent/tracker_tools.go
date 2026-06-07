@@ -7,7 +7,6 @@ import (
 	"github.com/cloudwego/eino/components/tool"
 
 	"github.com/V3teran/liusha/internal/einotools"
-	"github.com/V3teran/liusha/internal/flow"
 	"github.com/V3teran/liusha/internal/notes"
 	"github.com/V3teran/liusha/internal/sandbox"
 	"github.com/V3teran/liusha/internal/skill"
@@ -32,6 +31,11 @@ type (
 		einotools.CredentialReader
 		einotools.CredentialWriter
 	}
+	// FlowStore 满足 replay_flow（Reader）+ list_flows（Lister）+ view_flow（Reader）。
+	FlowStore interface {
+		einotools.FlowReader
+		einotools.FlowLister
+	}
 )
 
 // TrackerToolDeps 是装配 tracker eino 工具集所需的依赖。
@@ -42,9 +46,12 @@ type TrackerToolDeps struct {
 	Lessons     LessonStore
 	Credentials CredentialStore
 
+	// Flows 是接口（scanner 传 *flow.Store 满足）；nil 时不注册 replay/list/view_flow。
+	// 注意 nil 门控：scanner 始终传非 nil 真实 store，故无 typed-nil 装箱陷阱。
+	Flows FlowStore
+
 	// 可选：用具体指针类型，nil 时不注册对应工具（nil 门控语义与 hunter/skill.go 一致，
 	// 避免 typed-nil 装箱进接口后 != nil 的陷阱）。
-	Flows         *flow.Store
 	ToolingLoader *skill.Loader
 	VulnLoader    *skill.Loader
 	Sandbox       sandbox.Client
@@ -106,6 +113,29 @@ func BuildTrackerTools(deps TrackerToolDeps, p TrackerToolParams) ([]tool.BaseTo
 
 	if len(errs) > 0 {
 		return nil, fmt.Errorf("build tracker tools: %w", errors.Join(errs...))
+	}
+	return tools, nil
+}
+
+// BuildStrikerTools 装配 striker（active 突击手）的 eino 工具集。
+//
+// = tracker 工具集 + list_flows + view_flow（active 才注册，commander 已抓 internal 真实请求入字典，
+// striker 据此查结构 + 凭证位置 → replay_flow 做 BAC）。striker 写 finding、不 spawn（无递归）。
+func BuildStrikerTools(deps TrackerToolDeps, p TrackerToolParams) ([]tool.BaseTool, error) {
+	tools, err := BuildTrackerTools(deps, p)
+	if err != nil {
+		return nil, err
+	}
+	if deps.Flows != nil {
+		lf, err := einotools.BuildListFlows(deps.Flows, p.OwnerType, p.OwnerID, p.Host)
+		if err != nil {
+			return nil, fmt.Errorf("build striker tools: %w", err)
+		}
+		vf, err := einotools.BuildViewFlow(deps.Flows, p.OwnerType, p.OwnerID)
+		if err != nil {
+			return nil, fmt.Errorf("build striker tools: %w", err)
+		}
+		tools = append(tools, lf, vf)
 	}
 	return tools, nil
 }
