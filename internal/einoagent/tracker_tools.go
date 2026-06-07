@@ -69,13 +69,15 @@ type TrackerToolParams struct {
 	FlowID    int64
 }
 
-// BuildTrackerTools 装配 tracker（passive 单 agent）的 eino 工具集。
-//
-// 对标 hunter/skill.go 的 tracker 分支：必装 9 个（notes/credentials/findings×3/lessons）
-// + 可选 4 个（replay_flow / read_tooling_skill / read_vuln_skill / run_command）。
-// 不含 done（eino 单 agent 不调工具即自然收尾）、list_flows/view_flow（active-only）、
-// spawn_striker/list_strikers（commander-only）。
-func BuildTrackerTools(deps TrackerToolDeps, p TrackerToolParams) ([]tool.BaseTool, error) {
+// toolSet 选 hunter 三角色（tracker/striker/commander）工具集的差异维度。
+type toolSet struct {
+	writeFinding bool          // tracker/striker 写 finding；commander 不写（铁律硬阻断）
+	listView     bool          // striker/commander 注册 list/view_flow；tracker 不注册
+	spawn        tool.BaseTool // commander 注册 spawn_striker；其余 nil
+}
+
+// buildHunterTools 是三角色共享的工具装配核心，按 toolSet 选差异工具。
+func buildHunterTools(deps TrackerToolDeps, p TrackerToolParams, set toolSet) ([]tool.BaseTool, error) {
 	var tools []tool.BaseTool
 	var errs []error
 	add := func(bt tool.BaseTool, err error) {
@@ -86,21 +88,29 @@ func BuildTrackerTools(deps TrackerToolDeps, p TrackerToolParams) ([]tool.BaseTo
 		tools = append(tools, bt)
 	}
 
-	// 必装
+	// 公共：notes / credentials / read_findings / lessons
 	add(einotools.BuildReadNotes(deps.Notes, p.OwnerID, p.Host, p.HunterID))
 	add(einotools.BuildWriteNote(deps.Notes, p.OwnerID, p.Host, p.HunterID))
 	add(einotools.BuildReadCredentials(deps.Credentials, p.Host))
 	add(einotools.BuildWriteCredential(deps.Credentials, p.Host))
 	add(einotools.BuildReadFindings(deps.Findings, p.OwnerType, p.OwnerID, p.Host))
-	add(einotools.BuildWriteFinding(deps.Findings, p.OwnerType, p.OwnerID, p.HunterID, p.Host, p.FlowID))
-	add(einotools.BuildUpdateFinding(deps.Findings))
+	if set.writeFinding {
+		add(einotools.BuildWriteFinding(deps.Findings, p.OwnerType, p.OwnerID, p.HunterID, p.Host, p.FlowID))
+		add(einotools.BuildUpdateFinding(deps.Findings))
+	}
 	add(einotools.BuildReadLessons(deps.Lessons, p.Host))
 	add(einotools.BuildWriteLesson(deps.Lessons, p.Host))
 
-	// 可选（nil / 空 catalog 时跳过，与 skill.go 门控一致）
+	// 流量字典：replay 三角色都有；list/view 仅 active（striker/commander）
 	if deps.Flows != nil {
 		add(einotools.BuildReplayFlow(deps.Flows, p.OwnerType, p.OwnerID, p.HunterID))
+		if set.listView {
+			add(einotools.BuildListFlows(deps.Flows, p.OwnerType, p.OwnerID, p.Host))
+			add(einotools.BuildViewFlow(deps.Flows, p.OwnerType, p.OwnerID))
+		}
 	}
+
+	// 可选索引/沙箱（nil / 空 catalog 跳过，与 skill.go 门控一致）
 	if deps.ToolingLoader != nil && len(deps.ToolingLoader.List()) > 0 {
 		add(einotools.BuildReadToolingSkill(deps.ToolingLoader))
 	}
@@ -111,31 +121,29 @@ func BuildTrackerTools(deps TrackerToolDeps, p TrackerToolParams) ([]tool.BaseTo
 		add(einotools.BuildRunCommand(deps.Sandbox, p.HunterID, deps.MaxTimeoutSeconds, deps.TailBytes))
 	}
 
+	// commander 独有：spawn_striker（由 caller 构造好传入）
+	if set.spawn != nil {
+		tools = append(tools, set.spawn)
+	}
+
 	if len(errs) > 0 {
-		return nil, fmt.Errorf("build tracker tools: %w", errors.Join(errs...))
+		return nil, fmt.Errorf("build hunter tools: %w", errors.Join(errs...))
 	}
 	return tools, nil
 }
 
-// BuildStrikerTools 装配 striker（active 突击手）的 eino 工具集。
-//
-// = tracker 工具集 + list_flows + view_flow（active 才注册，commander 已抓 internal 真实请求入字典，
-// striker 据此查结构 + 凭证位置 → replay_flow 做 BAC）。striker 写 finding、不 spawn（无递归）。
+// BuildTrackerTools 装配 tracker（passive 单 agent）：写 finding，无 list/view，无 spawn。
+func BuildTrackerTools(deps TrackerToolDeps, p TrackerToolParams) ([]tool.BaseTool, error) {
+	return buildHunterTools(deps, p, toolSet{writeFinding: true})
+}
+
+// BuildStrikerTools 装配 striker（active 突击手）：写 finding + list/view_flow，不 spawn（无递归）。
 func BuildStrikerTools(deps TrackerToolDeps, p TrackerToolParams) ([]tool.BaseTool, error) {
-	tools, err := BuildTrackerTools(deps, p)
-	if err != nil {
-		return nil, err
-	}
-	if deps.Flows != nil {
-		lf, err := einotools.BuildListFlows(deps.Flows, p.OwnerType, p.OwnerID, p.Host)
-		if err != nil {
-			return nil, fmt.Errorf("build striker tools: %w", err)
-		}
-		vf, err := einotools.BuildViewFlow(deps.Flows, p.OwnerType, p.OwnerID)
-		if err != nil {
-			return nil, fmt.Errorf("build striker tools: %w", err)
-		}
-		tools = append(tools, lf, vf)
-	}
-	return tools, nil
+	return buildHunterTools(deps, p, toolSet{writeFinding: true, listView: true})
+}
+
+// BuildCommanderTools 装配 commander（active 指挥官）：**不注册 write/update_finding**（铁律硬阻断
+// "自挖必转 spawn"）+ list/view_flow + spawn_striker（由 caller 用 BuildSpawnStriker 构造传入）。
+func BuildCommanderTools(deps TrackerToolDeps, p TrackerToolParams, spawnStriker tool.BaseTool) ([]tool.BaseTool, error) {
+	return buildHunterTools(deps, p, toolSet{listView: true, spawn: spawnStriker})
 }

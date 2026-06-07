@@ -28,7 +28,10 @@ type TrackerResult struct {
 	ToolCalls []string // 按顺序调用过的工具名（用于断言/可观测）
 }
 
-const defaultStrikerMaxIters = 120 // striker 深挖单点比 tracker 多步（active）
+const (
+	defaultStrikerMaxIters   = 120 // striker 深挖单点比 tracker 多步（active）
+	defaultCommanderMaxIters = 300 // commander 协调多轮 spawn，预算更高
+)
 
 // RunTracker 用 eino ChatModelAgent 跑一条 passive 流量（替代 react.Run 的 tracker 路径）。
 //
@@ -47,6 +50,17 @@ func RunTracker(ctx context.Context, m model.ToolCallingChatModel, tools []tool.
 func RunStriker(ctx context.Context, m model.ToolCallingChatModel, tools []tool.BaseTool, instruction, userText string, middlewares []adk.AgentMiddleware, opts ...adk.AgentRunOption) (TrackerResult, error) {
 	return runSingleAgent(ctx, agentSpec{
 		name: "striker", desc: "active 突击手：接 brief 深挖单点", maxIters: defaultStrikerMaxIters,
+	}, m, tools, instruction, userText, middlewares, opts...)
+}
+
+// RunCommander 用 eino ChatModelAgent 跑 active commander（接 brief 拆活派 striker，替代 react.Run 的 commander 路径）。
+//
+// commander 也是单 ChatModelAgent —— 其工具集含 spawn_striker（同步工具）。并发派活 = 一轮发多个
+// spawn_striker 调用（eino ToolsNode 并行执行）；done-gating 天然（同步工具未返回不能收口）。
+// 故不需要 react 路径的 PreDoneCheck / OnNoToolCall / Registry。userText = 站点任务 brief。
+func RunCommander(ctx context.Context, m model.ToolCallingChatModel, tools []tool.BaseTool, instruction, userText string, middlewares []adk.AgentMiddleware, opts ...adk.AgentRunOption) (TrackerResult, error) {
+	return runSingleAgent(ctx, agentSpec{
+		name: "commander", desc: "active 指挥官：拆活派 striker，不亲自挖洞", maxIters: defaultCommanderMaxIters,
 	}, m, tools, instruction, userText, middlewares, opts...)
 }
 

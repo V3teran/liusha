@@ -90,6 +90,41 @@ func TestBuildTrackerTools_Mandatory9(t *testing.T) {
 	}
 }
 
+func TestBuildCommanderTools_HasSpawnNoWriteFinding(t *testing.T) {
+	f := allFake{}
+	// 真 spawn 工具（fake factory，不会真跑）
+	spawn, err := einoagent.BuildSpawnStriker(einoagent.StrikerSpawnConfig{
+		Factory:     &fakeStrikerFactory{m: &fakeModel{}},
+		NewHunterID: func() string { return "s" },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tools, err := einoagent.BuildCommanderTools(einoagent.TrackerToolDeps{
+		Findings: f, Notes: f, Lessons: f, Credentials: f, Flows: fakeFlowStore{},
+	}, einoagent.TrackerToolParams{OwnerType: "active_scan", OwnerID: "o", HunterID: "cmd", Host: "host"}, spawn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	names := map[string]bool{}
+	for _, bt := range tools {
+		info, _ := bt.Info(context.Background())
+		names[info.Name] = true
+	}
+	// 必须有 spawn_striker + list/view_flow + read_findings
+	for _, want := range []string{"spawn_striker", "list_flows", "view_flow", "read_findings"} {
+		if !names[want] {
+			t.Errorf("commander 应含 %s，实际 %v", want, names)
+		}
+	}
+	// 铁律：commander 绝不注册 write_finding / update_finding（硬阻断自挖）
+	for _, banned := range []string{"write_finding", "update_finding"} {
+		if names[banned] {
+			t.Errorf("commander 铁律：不应注册 %s（应转 spawn_striker）", banned)
+		}
+	}
+}
+
 func TestBuildStrikerTools_AddsListAndViewFlow(t *testing.T) {
 	f := allFake{}
 	tools, err := einoagent.BuildStrikerTools(einoagent.TrackerToolDeps{
