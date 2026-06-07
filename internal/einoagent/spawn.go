@@ -37,8 +37,13 @@ type StrikerSpawnConfig struct {
 	OwnerID   string
 	Host      string
 
-	// NewHunterID 为每个 spawn 生成唯一 striker id（write_finding/run_command 等按此切分 + 审计）。
-	NewHunterID func() string
+	// NewHunterID 为每个 spawn **建一行 striker hunter run** 返其 id（uuid）。
+	// finding/llm_invocation/tool_invocation.hunter_id 有 FK→hunter(id)，故 striker 必须先有行。
+	// 由 scanner 注入（持 hunter.Store），避免 einoagent→hunter 耦合。
+	NewHunterID func(ctx context.Context) (string, error)
+
+	// OnStrikerDone 在 striker 跑完（成功/失败）后标记其 hunter run 终态。可 nil。
+	OnStrikerDone func(ctx context.Context, strikerID string, runErr error)
 
 	// BuildUserPrompt 由 scanner 注入（闭包持 hunter.Deps），把 brief + 已有 finding/notes/lesson/
 	// 索引段拼成 striker 的首条 user message。nil 时退化为只发 brief。避免 einoagent→hunter 耦合。
@@ -71,7 +76,10 @@ func BuildSpawnStriker(cfg StrikerSpawnConfig) (tool.BaseTool, error) {
 			if in.Brief == "" {
 				return nil, errors.New("brief 必填")
 			}
-			sid := cfg.NewHunterID()
+			sid, err := cfg.NewHunterID(ctx) // 建 striker hunter 行（FK 完整）
+			if err != nil {
+				return nil, fmt.Errorf("create striker run: %w", err)
+			}
 
 			m, err := cfg.Factory.For(ctx, "striker") // 全新独立实例（铁律）
 			if err != nil {
@@ -101,9 +109,12 @@ func BuildSpawnStriker(cfg StrikerSpawnConfig) (tool.BaseTool, error) {
 				mws, opts = cfg.RunOpts(sid)
 			}
 
-			res, err := RunStriker(ctx, m, tools, cfg.Instruction, userText, mws, opts...)
-			if err != nil {
-				return nil, fmt.Errorf("striker %s run: %w", sid, err)
+			res, runErr := RunStriker(ctx, m, tools, cfg.Instruction, userText, mws, opts...)
+			if cfg.OnStrikerDone != nil {
+				cfg.OnStrikerDone(ctx, sid, runErr) // 标记 striker hunter run 终态
+			}
+			if runErr != nil {
+				return nil, fmt.Errorf("striker %s run: %w", sid, runErr)
 			}
 			return map[string]any{
 				"striker_id": sid,

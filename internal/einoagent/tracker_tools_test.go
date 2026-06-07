@@ -95,7 +95,7 @@ func TestBuildCommanderTools_HasSpawnNoWriteFinding(t *testing.T) {
 	// 真 spawn 工具（fake factory，不会真跑）
 	spawn, err := einoagent.BuildSpawnStriker(einoagent.StrikerSpawnConfig{
 		Factory:     &fakeStrikerFactory{m: &fakeModel{}},
-		NewHunterID: func() string { return "s" },
+		NewHunterID: func(context.Context) (string, error) { return "s", nil },
 	})
 	if err != nil {
 		t.Fatal(err)

@@ -46,7 +46,7 @@ func TestSpawnStriker_BuildsRunsAndReports(t *testing.T) {
 		ToolDeps:    einoagent.TrackerToolDeps{Findings: f, Notes: f, Lessons: f, Credentials: f},
 		Instruction: "you are striker",
 		OwnerType:   "active_scan", OwnerID: "o", Host: "h",
-		NewHunterID: func() string { return "striker-1" },
+		NewHunterID: func(context.Context) (string, error) { return "striker-1", nil },
 		BuildUserPrompt: func(_ context.Context, brief, sid string, _ int64) string {
 			gotBrief, gotSid = brief, sid
 			return "PROMPT: " + brief
@@ -77,7 +77,7 @@ func TestSpawnStriker_BuildsRunsAndReports(t *testing.T) {
 func TestSpawnStriker_BriefRequired(t *testing.T) {
 	fac := &fakeStrikerFactory{m: &fakeModel{}}
 	st, _ := einoagent.BuildSpawnStriker(einoagent.StrikerSpawnConfig{
-		Factory: fac, NewHunterID: func() string { return "s" },
+		Factory: fac, NewHunterID: func(context.Context) (string, error) { return "s", nil },
 	})
 	it := st.(tool.InvokableTool)
 	if _, err := it.InvokableRun(context.Background(), `{}`); err == nil {
@@ -86,7 +86,7 @@ func TestSpawnStriker_BriefRequired(t *testing.T) {
 }
 
 func TestBuildSpawnStriker_RequiresFactory(t *testing.T) {
-	if _, err := einoagent.BuildSpawnStriker(einoagent.StrikerSpawnConfig{NewHunterID: func() string { return "s" }}); err == nil {
+	if _, err := einoagent.BuildSpawnStriker(einoagent.StrikerSpawnConfig{NewHunterID: func(context.Context) (string, error) { return "s", nil }}); err == nil {
 		t.Fatal("缺 Factory 应报错")
 	}
 }
