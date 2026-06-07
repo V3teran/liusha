@@ -96,7 +96,12 @@ func runSingleAgent(ctx context.Context, spec agentSpec, m model.ToolCallingChat
 
 	runner := adk.NewRunner(ctx, adk.RunnerConfig{Agent: agent})
 	iter := runner.Run(ctx, []adk.Message{schema.UserMessage(userText)}, opts...)
+	return drainAgentEvents(iter, spec.name)
+}
 
+// drainAgentEvents 消费 eino AgentEvent 流，收集 assistant 的 ToolCalls + 最终文字。
+// tracker/striker（runSingleAgent）与 deep commander（RunDeepSwarm）共用。
+func drainAgentEvents(iter *adk.AsyncIterator[*adk.AgentEvent], label string) (TrackerResult, error) {
 	var res TrackerResult
 	var lastText strings.Builder
 	for {
@@ -105,7 +110,7 @@ func runSingleAgent(ctx context.Context, spec agentSpec, m model.ToolCallingChat
 			break
 		}
 		if ev.Err != nil {
-			return res, fmt.Errorf("%s run: %w", spec.name, ev.Err)
+			return res, fmt.Errorf("%s run: %w", label, ev.Err)
 		}
 		if ev.Output == nil || ev.Output.MessageOutput == nil {
 			continue
