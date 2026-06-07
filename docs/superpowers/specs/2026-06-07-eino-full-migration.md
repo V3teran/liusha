@@ -109,3 +109,19 @@ scanner worker
 - `spike/eino-tracker/`：passive ChatModelAgent + 小米 mimo + 自动 schema，一次跑通。
 - `spike/eino-deep/`：active deep + 2 striker 并发（独立 model 后 window 重叠），抓到 per-model 坑。
 - 两者独立 module、throwaway，未碰主代码。正式迁移时作 P3/P4 的参照（自己写的,非抄）。
+
+## 10. 已知待办（e2e 实测暴露）
+
+### TODO-1：active 截图视觉回灌（P6 / 后续）
+**现状（止血）**：run_command 不再把截图作 tool-role image part 回灌（commit f31c7413）。
+**根因**：eino 把图片放 tool-role message，但 OpenAI 标准里图片只能在 user message；
+小米 mimo 严格执行 → 400「Param Incorrect: `text` is not set」（image_url part 无 text 字段）。
+react 旧路径同样把图放 tool message **却不报 400** —— 序列化细节不同（待查清照搬）。
+**影响**：LLM 看不到截图视觉内容（只见文件名/尺寸 + image=true 标记）。
+- 受影响：DOM-XSS / 渲染验证 / 视觉化 BAC（striker 改走 browser-use source/eval/extract 文本通道替代）。
+- 不受影响：纯 HTTP 类（SQLi/LFI/upload/RCE，本就靠文本响应）。
+**根治方案（三选一，独立做）**：
+1. 截图改投递到下一条 user message（符合 OpenAI 标准；但 eino ChatModelAgent 消息流框架管，插 user message 不易）。
+2. 按 provider capability 开关：支持 tool-role 图片的 provider 才返 image part，mimo 类返文本（需 capability 表）。
+3. 查清 react 为何不 400，照搬其序列化。
+**用户决策（2026-06-07）**：视觉非必须项，先文本侦察，视觉回灌作后续独立做。
