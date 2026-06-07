@@ -54,10 +54,12 @@ func (f *Factory) build(ctx context.Context, providerKey string) (model.ToolCall
 	switch pc.Type {
 	case "openai_compat", "":
 		// 国产 provider（小米/DeepSeek/通义/GLM/Moonshot/豆包-Ark）全走 OpenAI 兼容协议。
+		// LIUSHA_EINO_DEBUG_HTTP=1 时注入 dump transport 打请求/响应体（定位 provider 4xx）。
 		cm, err := einoopenai.NewChatModel(ctx, &einoopenai.ChatModelConfig{
-			APIKey:  apiKey,
-			BaseURL: pc.BaseURL,
-			Model:   pc.DefaultModel,
+			APIKey:     apiKey,
+			BaseURL:    pc.BaseURL,
+			Model:      pc.DefaultModel,
+			HTTPClient: newDebugHTTPClient(),
 		})
 		if err != nil {
 			return nil, fmt.Errorf("einollm: 构造 openai-compat ChatModel(%s): %w", providerKey, err)

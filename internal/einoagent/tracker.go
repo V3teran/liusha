@@ -22,6 +22,12 @@ import (
 
 const defaultTrackerMaxIters = 30
 
+// defaultModelRetries 是 ChatModel 调用失败的重试次数（替代 react 的 retry 中间件）。
+// 国产 provider（小米 mimo 等）偶发瞬时 4xx（如「Param Incorrect」）/ 429 / EOF —— e2e 实测
+// 一次瞬时 400 会杀掉整个 tracker run。eino 内建 ModelRetryConfig：默认指数退避（100ms→10s）+
+// jitter，重试整轮 ChatModel 调用。MaxRetries=3 → 最多 4 次调用，瞬时错重试即恢复，永久错退避后传播。
+const defaultModelRetries = 3
+
 // TrackerResult 是一次 tracker 运行的产物摘要。
 type TrackerResult struct {
 	FinalText string   // 最终 assistant 文字输出
@@ -75,13 +81,14 @@ type agentSpec struct {
 // tracker / striker 共用此机制（eino 单 agent 不调工具即自然收尾，无需 done）。
 func runSingleAgent(ctx context.Context, spec agentSpec, m model.ToolCallingChatModel, tools []tool.BaseTool, instruction, userText string, middlewares []adk.AgentMiddleware, opts ...adk.AgentRunOption) (TrackerResult, error) {
 	agent, err := adk.NewChatModelAgent(ctx, &adk.ChatModelAgentConfig{
-		Name:          spec.name,
-		Description:   spec.desc,
-		Instruction:   instruction,
-		Model:         m,
-		ToolsConfig:   adk.ToolsConfig{ToolsNodeConfig: compose.ToolsNodeConfig{Tools: tools}},
-		MaxIterations: spec.maxIters,
-		Middlewares:   middlewares,
+		Name:             spec.name,
+		Description:      spec.desc,
+		Instruction:      instruction,
+		Model:            m,
+		ToolsConfig:      adk.ToolsConfig{ToolsNodeConfig: compose.ToolsNodeConfig{Tools: tools}},
+		MaxIterations:    spec.maxIters,
+		Middlewares:      middlewares,
+		ModelRetryConfig: &adk.ModelRetryConfig{MaxRetries: defaultModelRetries}, // 瞬时 provider 错重试（默认指数退避+jitter）
 	})
 	if err != nil {
 		return TrackerResult{}, fmt.Errorf("build %s agent: %w", spec.name, err)
