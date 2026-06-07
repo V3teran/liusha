@@ -29,6 +29,7 @@ type Config struct {
 	Session     SessionConfig             `mapstructure:"session"`
 	Credential  CredentialConfig          `mapstructure:"credential"`
 	Skills      SkillsConfig              `mapstructure:"skills"`
+	Agents      AgentsConfig              `mapstructure:"agents_dir"`
 	Scanner     ScannerConfig             `mapstructure:"scanner"`
 	React       ReactConfig               `mapstructure:"react"`
 	Sandbox     SandboxConfig             `mapstructure:"sandbox"`
@@ -59,11 +60,11 @@ type PostgresConfig struct {
 // DialTimeout=5s, ReadTimeout=3s, WriteTimeout=3s）。本配置主要给共享 redis 多服务
 // 部署时调小 PoolSize / 调大超时用。
 type RedisConfig struct {
-	PoolSize             int `mapstructure:"pool_size"`
-	MinIdleConns         int `mapstructure:"min_idle_conns"`
-	DialTimeoutSeconds   int `mapstructure:"dial_timeout_seconds"`
-	ReadTimeoutSeconds   int `mapstructure:"read_timeout_seconds"`
-	WriteTimeoutSeconds  int `mapstructure:"write_timeout_seconds"`
+	PoolSize            int `mapstructure:"pool_size"`
+	MinIdleConns        int `mapstructure:"min_idle_conns"`
+	DialTimeoutSeconds  int `mapstructure:"dial_timeout_seconds"`
+	ReadTimeoutSeconds  int `mapstructure:"read_timeout_seconds"`
+	WriteTimeoutSeconds int `mapstructure:"write_timeout_seconds"`
 }
 
 // LLMConfig 包含主/轻/视觉/降级 4 个 provider 字段 + 双 namespace 路由表 + retry 参数 +
@@ -115,13 +116,13 @@ type InvocationConfig struct {
 //	  "anthropic"     走 Anthropic 原生 /v1/messages；
 //	  ""              视为 openai_compat（向后兼容）。
 type ProviderConfig struct {
-	Type           string `mapstructure:"type"`
-	BaseURL        string `mapstructure:"base_url"`
-	DefaultModel   string `mapstructure:"default_model"`
-	VisionModel    string `mapstructure:"vision_model"`
-	APIKeyEnv      string `mapstructure:"api_key_env"`
-	MaxTokens      int    `mapstructure:"max_tokens"`
-	SupportsTools  bool   `mapstructure:"supports_tools"`
+	Type          string `mapstructure:"type"`
+	BaseURL       string `mapstructure:"base_url"`
+	DefaultModel  string `mapstructure:"default_model"`
+	VisionModel   string `mapstructure:"vision_model"`
+	APIKeyEnv     string `mapstructure:"api_key_env"`
+	MaxTokens     int    `mapstructure:"max_tokens"`
+	SupportsTools bool   `mapstructure:"supports_tools"`
 	// SupportsVision 用 *bool 区分"未填"（nil）与"显式 false"——validate 强制 yaml 必填，
 	// 避免 caller 不知道 provider 能不能 vision 时拿默认值踩坑（例如 deepseek 不支持 vision
 	// 却收到含图 message → 服务端 400）。yaml `supports_vision: true/false` 都合法，留空启动报错。
@@ -225,7 +226,6 @@ type SessionConfig struct {
 	// LessonsLimitInPrompt：该 host 历史经验 + 跨 host 业务规则 hint 共用上限（按 priority desc）。
 	FindingsLimitInPrompt int `mapstructure:"findings_limit_in_prompt"`
 	LessonsLimitInPrompt  int `mapstructure:"lessons_limit_in_prompt"`
-
 }
 
 // NotesConfig 是 internal/notes 包 Redis 共享存储参数。
@@ -255,6 +255,11 @@ type SkillsConfig struct {
 	Root string `mapstructure:"root"`
 }
 
+// AgentsConfig 是 deep 角色 markdown 外部目录（agents/*.md，杀伤链阶段子代理 + orchestrator）。
+type AgentsConfig struct {
+	Root string `mapstructure:"root"`
+}
+
 // ScannerConfig 是 cmd/scanner 进程的运行时参数。
 type ScannerConfig struct {
 	PassiveMaxSteps              int    `mapstructure:"passive_max_steps"`                // passive 模式 ReAct 步数上限（流量驱动单类型挖掘 60 步够）
@@ -263,16 +268,16 @@ type ScannerConfig struct {
 	AgentRunTimeoutSeconds       int    `mapstructure:"agent_run_timeout_seconds"`        // passive 模式单个 hunter task 整体超时（asynq handler 入口 WithTimeout）
 	ActiveAgentRunTimeoutSeconds int    `mapstructure:"active_agent_run_timeout_seconds"` // active 模式整体超时——站点扫描爬+测耗时长，独立配置（默认 4h，对齐 sandbox max lifetime）
 	StepLLMTimeoutSeconds        int    `mapstructure:"step_llm_timeout_seconds"`
-	AsynqConcurrency           int    `mapstructure:"asynq_concurrency"`
-	AsynqShutdownTimeoutSeconds int   `mapstructure:"asynq_shutdown_timeout_seconds"` // asynq.Shutdown 等 in-flight task 完成的超时
-	ShutdownTimeoutSeconds     int    `mapstructure:"shutdown_timeout_seconds"`
-	HealthzAddr            string `mapstructure:"healthz_addr"`
-	FlowMaxRequestBody     int    `mapstructure:"flow_max_request_body"`
-	FlowMaxResponseBody    int    `mapstructure:"flow_max_response_body"`
+	AsynqConcurrency             int    `mapstructure:"asynq_concurrency"`
+	AsynqShutdownTimeoutSeconds  int    `mapstructure:"asynq_shutdown_timeout_seconds"` // asynq.Shutdown 等 in-flight task 完成的超时
+	ShutdownTimeoutSeconds       int    `mapstructure:"shutdown_timeout_seconds"`
+	HealthzAddr                  string `mapstructure:"healthz_addr"`
+	FlowMaxRequestBody           int    `mapstructure:"flow_max_request_body"`
+	FlowMaxResponseBody          int    `mapstructure:"flow_max_response_body"`
 
 	// asynq queue 优先级权重（数字越大优先级越高）
-	QueueHunterWeight int `mapstructure:"queue_hunter_weight"`
-	QueueDispatchWeight     int `mapstructure:"queue_dispatch_weight"`
+	QueueHunterWeight   int `mapstructure:"queue_hunter_weight"`
+	QueueDispatchWeight int `mapstructure:"queue_dispatch_weight"`
 }
 
 // ReactConfig 主 ReAct 循环参数。
@@ -391,12 +396,12 @@ func (c *Config) ApplyDefaults() {
 	c.Notes = applyNotesDefaults(c.Notes)
 	c.Credential = applyCredentialDefaults(c.Credential)
 	c.Skills = applySkillsDefaults(c.Skills)
+	c.Agents = applyAgentsDefaults(c.Agents)
 	c.Scanner = applyScannerDefaults(c.Scanner)
 	c.React = applyReactDefaults(c.React)
 	c.Sandbox = applySandboxDefaults(c.Sandbox)
 	c.Toolruntime = applyToolruntimeDefaults(c.Toolruntime)
 }
-
 
 func applyAPIDefaults(c APIConfig) APIConfig {
 	if c.ReadTimeoutSeconds == 0 {
@@ -643,6 +648,13 @@ func applyCredentialDefaults(c CredentialConfig) CredentialConfig {
 func applySkillsDefaults(c SkillsConfig) SkillsConfig {
 	if c.Root == "" {
 		c.Root = "./skills"
+	}
+	return c
+}
+
+func applyAgentsDefaults(c AgentsConfig) AgentsConfig {
+	if c.Root == "" {
+		c.Root = "./agents"
 	}
 	return c
 }

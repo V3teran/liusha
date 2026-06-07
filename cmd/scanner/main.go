@@ -31,6 +31,7 @@ import (
 	"github.com/V3teran/liusha/internal/config"
 	"github.com/V3teran/liusha/internal/credential"
 	"github.com/V3teran/liusha/internal/db"
+	"github.com/V3teran/liusha/internal/einoagent"
 	"github.com/V3teran/liusha/internal/einollm"
 	"github.com/V3teran/liusha/internal/envx"
 	"github.com/V3teran/liusha/internal/finding"
@@ -308,6 +309,24 @@ func main() {
 		logger.Info().Msg("agent 引擎：eino（默认）；LIUSHA_USE_REACT=1 可切回 react")
 	}
 
+	// deep 角色加载（agents/*.md）：active 路径用 deep 装配 commander + 杀伤链子代理。
+	// 解析失败 / 无 orchestrator → fail-fast（active 扫描会无法装配 deep）。
+	// 退路：LIUSHA_USE_REACT=1 不走 deep，roles 即使为空也不影响 react 路径。
+	roles, err := einoagent.LoadRoles(cfg.Agents.Root)
+	if err != nil {
+		if useReact {
+			logger.Warn().Err(err).Str("dir", cfg.Agents.Root).Msg("角色加载失败（react 退路下忽略）")
+		} else {
+			logger.Fatal().Err(err).Str("dir", cfg.Agents.Root).Msg("角色加载失败——eino active 走 deep 需 agents/*.md，fail-fast")
+		}
+	} else {
+		roleIDs := make([]string, 0, len(roles))
+		for _, r := range roles {
+			roleIDs = append(roleIDs, string(r.Kind)+":"+r.ID)
+		}
+		logger.Info().Strs("roles", roleIDs).Str("dir", cfg.Agents.Root).Msg("deep 角色加载完成")
+	}
+
 	// handler
 	h := handler{
 		tasks:            tasks,
@@ -329,6 +348,7 @@ func main() {
 		einoFactory:      einollm.New(cfg),
 		hunterDeps:       hunterDeps,
 		useReact:         useReact,
+		roles:            roles,
 	}
 
 	mux := worker.NewMux()

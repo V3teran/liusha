@@ -13,6 +13,7 @@ import (
 	"github.com/V3teran/liusha/internal/activescan"
 	hunterbuilder "github.com/V3teran/liusha/internal/builder/hunter"
 	"github.com/V3teran/liusha/internal/config"
+	"github.com/V3teran/liusha/internal/einoagent"
 	"github.com/V3teran/liusha/internal/einollm"
 	"github.com/V3teran/liusha/internal/finding"
 	"github.com/V3teran/liusha/internal/flow"
@@ -54,6 +55,10 @@ type handler struct {
 	einoFactory *einollm.Factory
 	hunterDeps  hunterbuilder.Deps
 	useReact    bool
+
+	// roles 是 deep 角色定义（agents/*.md 加载），active 路径用 BuildDeepSwarm 装配
+	// commander（orchestrator）+ 杀伤链子代理。useReact / 空时不用。
+	roles []einoagent.RoleDef
 
 	// parentRegistries 索引 commander hunterID → striker Registry（subtask swarm）。
 	// spawnerFactory 闭包 Store；handleActive 在 react.Run 返回后 LoadAndDelete

@@ -89,6 +89,16 @@ func SystemPromptFor(mode string, isParent bool) string {
 	return buildSystemPrompt(mode, isParent)
 }
 
+// SharedSystemPrompt 单独导出 shared 段（不含任何角色 addendum）。
+//
+// deep 路径的 commander（orchestrator）用此 + 角色 md 的 deep-native 编排 charter 组装 ——
+// 不能复用 SystemPromptFor("active", true)，因 system_prompt_commander.md 是为 spawn_striker
+// 机制写的（教 LLM 调 spawn_striker），而 deep 走内建 task 工具派活，两者冲突。striker 子代理
+// 仍复用 SystemPromptFor("active", false)（striker addendum 与 spawn/deep 机制无关，可安全共享）。
+func SharedSystemPrompt() string {
+	return hunterSystemPromptShared
+}
+
 // BuildUserPrompt 导出 buildUserPrompt，供 eino 迁移路径复用流量/finding/notes/lesson/索引
 // 段的统一拼装（同上：单一真相源，防双路径漂移）。
 func BuildUserPrompt(ctx context.Context, deps Deps, p skill.BuilderParams) string {
