@@ -7,8 +7,12 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/cloudwego/eino/adk"
+
 	hunterbuilder "github.com/V3teran/liusha/internal/builder/hunter"
 	"github.com/V3teran/liusha/internal/einoagent"
+	"github.com/V3teran/liusha/internal/einollm"
+	"github.com/V3teran/liusha/internal/llm"
 	"github.com/V3teran/liusha/internal/passivesession"
 	"github.com/V3teran/liusha/internal/skill"
 	"github.com/V3teran/liusha/internal/worker"
@@ -107,13 +111,21 @@ func (h handler) handlePassiveEino(ctx context.Context, p worker.Payload, entryp
 	instruction := hunterbuilder.SystemPromptFor("passive", true)
 	userPrompt := hunterbuilder.BuildUserPrompt(ctx, h.hunterDeps, params)
 
+	// LLM 计费埋点（替代旧 llm.Instrument）：按 run 注入 callbacks handler，
+	// 每次 ChatModel 调用落 llm_invocation（owner/role 维度成本审计，与 react 同库）。
+	provider, defaultModel := h.einoFactory.ResolveProviderModel("tracker")
+	recorder := einollm.NewUsageRecorder(h.calls, h.pricing,
+		llm.CallMeta{HunterID: &tid, OwnerType: &ot, OwnerID: &oid, RouteKey: "tracker"},
+		provider, defaultModel,
+	)
+
 	// owner 中止 watcher：react 路径靠 step 内 cfg.OnAbort；eino 无 step 钩子，
 	// 改后台轮询 passive_session.Status，非 active 即 cancel ctx 让 RunTracker 自然停。
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	go h.watchAbort(runCtx, cancel, oid)
 
-	res, err := einoagent.RunTracker(runCtx, model, tools, instruction, userPrompt)
+	res, err := einoagent.RunTracker(runCtx, model, tools, instruction, userPrompt, adk.WithCallbacks(recorder))
 	if err != nil {
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			return h.abortTask(ctx, p.HunterID, "ctx "+err.Error())

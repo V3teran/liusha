@@ -32,7 +32,8 @@ type TrackerResult struct {
 //
 // m 必须是**独立** ChatModel 实例（per-hunter，见 einollm 包注释铁律）。
 // instruction = 拼好的 system prompt（shared + tracker 段）；flowText = 一条 raw HTTP 流量。
-func RunTracker(ctx context.Context, m model.ToolCallingChatModel, tools []tool.BaseTool, instruction, flowText string) (TrackerResult, error) {
+// opts 透传给 Runner.Run（如 adk.WithCallbacks 注入计费埋点 handler）。
+func RunTracker(ctx context.Context, m model.ToolCallingChatModel, tools []tool.BaseTool, instruction, flowText string, opts ...adk.AgentRunOption) (TrackerResult, error) {
 	agent, err := adk.NewChatModelAgent(ctx, &adk.ChatModelAgentConfig{
 		Name:          "tracker",
 		Description:   "passive 侦察兵：分析一条流量挖漏洞",
@@ -46,7 +47,7 @@ func RunTracker(ctx context.Context, m model.ToolCallingChatModel, tools []tool.
 	}
 
 	runner := adk.NewRunner(ctx, adk.RunnerConfig{Agent: agent})
-	iter := runner.Run(ctx, []adk.Message{schema.UserMessage(flowText)})
+	iter := runner.Run(ctx, []adk.Message{schema.UserMessage(flowText)}, opts...)
 
 	var res TrackerResult
 	var lastText strings.Builder

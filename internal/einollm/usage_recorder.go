@@ -1,0 +1,134 @@
+package einollm
+
+import (
+	"context"
+	"encoding/json"
+	"time"
+
+	"github.com/cloudwego/eino/callbacks"
+	"github.com/cloudwego/eino/components"
+	"github.com/cloudwego/eino/components/model"
+	"github.com/cloudwego/eino/schema"
+
+	"github.com/V3teran/liusha/internal/llm"
+	"github.com/V3teran/liusha/internal/llminvocation"
+	"github.com/V3teran/liusha/internal/logx"
+)
+
+// usage_recorder.go：eino 路径的 LLM 调用计费埋点（替代旧 llm.Instrument）。
+//
+// eino 的 ChatModel 调用由框架在 graph 节点边界触发 callbacks，OnEnd 携带 TokenUsage。
+// 本 handler 按 run 注入（adk.WithCallbacks），meta 携带本 hunter 的 owner/role，
+// 每次 ChatModel 调用落一行 llm_invocation（成本/角色/owner 审计，与 react 路径同库同语义）。
+
+// recorderLog 包级构建一次（避免每次 New 触发 logx 全局写入的 race）。
+var recorderLog = logx.New("einollm.recorder")
+
+// recorderState 在 OnStart→OnEnd 间经 ctx 传递（起始时刻 + 入参消息，用于算延迟 + 审计）。
+type recorderState struct {
+	start time.Time
+	input []*schema.Message
+}
+
+type recorderStateKey struct{}
+
+// ResolveProviderModel 返回某 role 解析到的 provider key + 默认 model，
+// 供埋点 handler 填 Invocation.Provider/Model（provider key 与旧 Generator.Provider() 一致，
+// 保证 pricing.Lookup 与成本聚合口径不变）。
+func (f *Factory) ResolveProviderModel(role string) (provider, model string) {
+	key := f.resolveProviderKey(role)
+	if key == "" {
+		return "", ""
+	}
+	return key, f.cfg.Providers[key].DefaultModel
+}
+
+// NewUsageRecorder 造一个只关心 ChatModel 组件的 callbacks.Handler，把每次调用的 token usage
+// 落 llm_invocation。pricing 可为 nil（仅落 usage 不算 cost）。埋点失败仅吞掉，不阻塞 agent run。
+func NewUsageRecorder(sink llm.CallSink, pricing llm.PricingProvider, meta llm.CallMeta, provider, defaultModel string) callbacks.Handler {
+	return callbacks.NewHandlerBuilder().
+		OnStartFn(func(ctx context.Context, info *callbacks.RunInfo, input callbacks.CallbackInput) context.Context {
+			if info == nil || info.Component != components.ComponentOfChatModel {
+				return ctx
+			}
+			st := recorderState{start: time.Now()}
+			if in := model.ConvCallbackInput(input); in != nil {
+				st.input = in.Messages
+			}
+			return context.WithValue(ctx, recorderStateKey{}, st)
+		}).
+		OnEndFn(func(ctx context.Context, info *callbacks.RunInfo, output callbacks.CallbackOutput) context.Context {
+			if info == nil || info.Component != components.ComponentOfChatModel {
+				return ctx
+			}
+			out := model.ConvCallbackOutput(output)
+			if out == nil {
+				return ctx
+			}
+			rec := buildInvocation(ctx, meta, pricing, provider, defaultModel, out)
+			if _, err := sink.Append(context.Background(), rec); err != nil {
+				recorderLog.Warn().Err(err).Str("role", meta.RouteKey).
+					Msg("eino llm_invocation append 失败（不阻塞 agent run）")
+			}
+			return ctx
+		}).
+		Build()
+}
+
+// buildInvocation 把 eino model callback 输出映射成 llminvocation.Invocation。
+func buildInvocation(ctx context.Context, meta llm.CallMeta, pricing llm.PricingProvider, provider, defaultModel string, out *model.CallbackOutput) llminvocation.Invocation {
+	var latencyMs int
+	var input []*schema.Message
+	if st, ok := ctx.Value(recorderStateKey{}).(recorderState); ok {
+		latencyMs = int(time.Since(st.start).Milliseconds())
+		input = st.input
+	}
+
+	mdl := defaultModel
+	if out.Config != nil && out.Config.Model != "" {
+		mdl = out.Config.Model
+	}
+
+	var usage llm.Usage
+	if out.TokenUsage != nil {
+		usage = llm.Usage{
+			InTokens:     out.TokenUsage.PromptTokens,
+			OutTokens:    out.TokenUsage.CompletionTokens,
+			CachedTokens: out.TokenUsage.PromptTokenDetails.CachedTokens,
+		}
+	}
+
+	var finish string
+	if out.Message != nil && out.Message.ResponseMeta != nil {
+		finish = out.Message.ResponseMeta.FinishReason
+	}
+
+	rec := llminvocation.Invocation{
+		HunterID:     meta.HunterID,
+		OwnerType:    meta.OwnerType,
+		OwnerID:      meta.OwnerID,
+		Provider:     provider,
+		Model:        mdl,
+		InTokens:     usage.InTokens,
+		OutTokens:    usage.OutTokens,
+		CachedTokens: usage.CachedTokens,
+		LatencyMs:    latencyMs,
+		FinishReason: finish,
+		Role:         meta.RouteKey,
+	}
+	if pricing != nil {
+		rec.CostUSD = pricing.Estimate(provider, mdl, usage)
+	}
+	// 审计：入参消息 + 输出消息序列化落库（best-effort，失败留空不阻塞）。
+	if len(input) > 0 {
+		if b, err := json.Marshal(input); err == nil {
+			rec.Messages = b
+		}
+	}
+	if out.Message != nil {
+		if b, err := json.Marshal(out.Message); err == nil {
+			rec.Result = b
+		}
+	}
+	return rec
+}
