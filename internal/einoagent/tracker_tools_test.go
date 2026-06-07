@@ -71,17 +71,17 @@ func toolNames(t *testing.T, deps einoagent.TrackerToolDeps) []string {
 	return names
 }
 
-func TestBuildTrackerTools_Mandatory9(t *testing.T) {
+func TestBuildTrackerTools_Mandatory(t *testing.T) {
 	f := allFake{}
 	names := toolNames(t, einoagent.TrackerToolDeps{
 		Findings: f, Notes: f, Lessons: f, Credentials: f,
 	})
 	want := []string{
-		"read_credentials", "read_findings", "read_lessons", "read_notes",
+		"done", "read_credentials", "read_findings", "read_lessons", "read_notes",
 		"update_finding", "write_credential", "write_finding", "write_lesson", "write_note",
 	}
 	if len(names) != len(want) {
-		t.Fatalf("必装应 9 个，得到 %d: %v", len(names), names)
+		t.Fatalf("必装应 %d 个，得到 %d: %v", len(want), len(names), names)
 	}
 	for i := range want {
 		if names[i] != want[i] {
@@ -161,7 +161,7 @@ func TestBuildTrackerTools_SandboxAddsRunCommand(t *testing.T) {
 	if !found {
 		t.Fatalf("注入 Sandbox 后应有 run_command，得到 %v", names)
 	}
-	if len(names) != 10 {
-		t.Errorf("9 必装 + run_command = 10，得到 %d: %v", len(names), names)
+	if len(names) != 11 {
+		t.Errorf("10 必装（含 done）+ run_command = 11，得到 %d: %v", len(names), names)
 	}
 }

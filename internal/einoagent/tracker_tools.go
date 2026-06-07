@@ -100,6 +100,9 @@ func buildHunterTools(deps TrackerToolDeps, p TrackerToolParams, set toolSet) ([
 	}
 	add(einotools.BuildReadLessons(deps.Lessons, p.Host))
 	add(einotools.BuildWriteLesson(deps.Lessons, p.Host))
+	// done：三角色都注册（liusha prompt 教 LLM 调 done 收尾）。eino 单 agent 本可不调工具自然收尾，
+	// 但 prompt 是 react/eino 共享资产、深度依赖 done —— 不注册会「tool done not found」（active e2e 实测）。
+	add(einotools.BuildDone())
 
 	// 流量字典：replay 三角色都有；list/view 仅 active（striker/commander）
 	if deps.Flows != nil {
