@@ -30,6 +30,8 @@ type Deps struct {
 	Chat          ChatAPI
 	Conversations ConversationsAPI
 	EventStream   EventStream
+	// Roles 为 nil 时 GET /roles 不注册（场景 role 列表，供前端对话选择）。
+	Roles RolesAPI
 	// StaticFS 可选：注入时挂 / 路径 serve 静态前端（sitemap viewer SPA）。
 	// 为 nil 时不注册——避免 cmd/api 之外的进程意外暴露前端资源。
 	StaticFS http.FileSystem
@@ -70,6 +72,9 @@ func NewServer(d Deps) http.Handler {
 	}
 	if d.ActiveScan != nil {
 		r.POST("/scan/active", activeScanHandler(d.ActiveScan))
+	}
+	if d.Roles != nil {
+		r.GET("/roles", rolesHandler(d.Roles))
 	}
 	if d.Chat != nil {
 		r.POST("/chat", chatHandler(d.Chat))

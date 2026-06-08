@@ -27,6 +27,7 @@ import (
 	"github.com/V3teran/liusha/internal/react"
 	"github.com/V3teran/liusha/internal/sandbox"
 	"github.com/V3teran/liusha/internal/scanstream"
+	"github.com/V3teran/liusha/internal/scenario"
 	"github.com/V3teran/liusha/internal/skill"
 	"github.com/V3teran/liusha/internal/worker"
 )
@@ -67,6 +68,10 @@ type handler struct {
 	// 二者任一 nil 时不发事件（向后兼容纯后台扫描）。
 	conversations  *conversation.Store
 	eventPublisher *scanstream.Publisher
+
+	// scenarioRoles 是场景 role（roles/*.md，阶段C）：active/passive handler 按 Payload.ScenarioID
+	// 注入主代理人设。空/未匹配时不注入（退化为通用扫描）。
+	scenarioRoles []scenario.Role
 
 	// parentRegistries 索引 commander hunterID → striker Registry（subtask swarm）。
 	// spawnerFactory 闭包 Store；handleActive 在 react.Run 返回后 LoadAndDelete

@@ -50,6 +50,7 @@ import (
 	"github.com/V3teran/liusha/internal/react"
 	"github.com/V3teran/liusha/internal/sandbox"
 	"github.com/V3teran/liusha/internal/scanstream"
+	"github.com/V3teran/liusha/internal/scenario"
 	"github.com/V3teran/liusha/internal/skill"
 	"github.com/V3teran/liusha/internal/subtask"
 	"github.com/V3teran/liusha/internal/toolinvocation"
@@ -331,6 +332,19 @@ func main() {
 		logger.Info().Strs("roles", roleIDs).Str("dir", cfg.Agents.Root).Msg("deep 角色加载完成")
 	}
 
+	// 场景 role 加载（roles/*.md，阶段C）：active/passive handler 按 Payload.ScenarioID 注入主代理人设。
+	// 加载失败仅警告——不注入人设退化为通用扫描，不阻塞 scanner。
+	scenarioRoles, err := scenario.LoadRoles(envx.OrDefault("LIUSHA_ROLES_DIR", "./roles"))
+	if err != nil {
+		logger.Warn().Err(err).Msg("场景 role 加载失败（不注入人设，退化通用扫描）")
+	} else {
+		ids := make([]string, 0, len(scenarioRoles))
+		for _, r := range scenarioRoles {
+			ids = append(ids, string(r.Mode)+":"+r.ID)
+		}
+		logger.Info().Strs("scenario_roles", ids).Msg("场景 role 加载完成")
+	}
+
 	// handler
 	h := handler{
 		tasks:            tasks,
@@ -355,6 +369,7 @@ func main() {
 		roles:            roles,
 		conversations:    convStore,
 		eventPublisher:   eventPublisher,
+		scenarioRoles:    scenarioRoles,
 	}
 
 	mux := worker.NewMux()

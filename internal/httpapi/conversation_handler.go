@@ -11,6 +11,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/V3teran/liusha/internal/conversation"
+	"github.com/V3teran/liusha/internal/scenario"
 )
 
 // conversation_handler.go：对话式平台（阶段B3/B4）的 HTTP 入口。
@@ -24,8 +25,34 @@ import (
 // header——阶段D 前端用 fetch+ReadableStream 或 query-param token 解决，此处不动认证。
 
 // ChatAPI 是发起对话扫描的窄接口（cmd/api 注入 adapter：建 conversation + scan + 入队带 convID）。
+// roleID 是用户选的场景 role（空时 adapter 用默认 active role 兜底）。
 type ChatAPI interface {
-	StartChatScan(ctx context.Context, brief string) (conversationID, scanID string, err error)
+	StartChatScan(ctx context.Context, brief, roleID string) (conversationID, scanID string, err error)
+}
+
+// RolesAPI 列出可选场景 role（前端对话选择用）。*scenario 加载结果由 cmd/api 适配注入。
+type RolesAPI interface {
+	ListRoles() []scenario.Role
+}
+
+// roleDTO 是 GET /roles 的对外视图——只暴露选择所需字段，不含内部 SystemPrompt/SourceFile。
+type roleDTO struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Mode        string `json:"mode"`
+}
+
+// rolesHandler 处理 GET /roles：列出可选场景供前端选择。
+func rolesHandler(api RolesAPI) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		roles := api.ListRoles()
+		out := make([]roleDTO, 0, len(roles))
+		for _, r := range roles {
+			out = append(out, roleDTO{ID: r.ID, Name: r.Name, Description: r.Description, Mode: string(r.Mode)})
+		}
+		c.JSON(http.StatusOK, gin.H{"roles": out})
+	}
 }
 
 // ConversationsAPI 是对话/消息读取窄接口（*conversation.Store 自动满足）。
@@ -47,7 +74,8 @@ type EventStream interface {
 
 // ChatRequest 是 POST /chat 请求体。
 type ChatRequest struct {
-	Brief string `json:"brief"`
+	Brief  string `json:"brief"`
+	RoleID string `json:"role_id"` // 场景 role（空时 adapter 用默认 active role 兜底）
 }
 
 // ChatResponse 是 POST /chat 响应：前端用 conversation_id 订阅 SSE。
@@ -68,7 +96,7 @@ func chatHandler(api ChatAPI) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "brief 不能为空"})
 			return
 		}
-		convID, scanID, err := api.StartChatScan(c.Request.Context(), req.Brief)
+		convID, scanID, err := api.StartChatScan(c.Request.Context(), req.Brief, req.RoleID)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return

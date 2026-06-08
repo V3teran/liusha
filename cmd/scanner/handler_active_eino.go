@@ -10,6 +10,7 @@ import (
 	"github.com/V3teran/liusha/internal/activescan"
 	hunterbuilder "github.com/V3teran/liusha/internal/builder/hunter"
 	"github.com/V3teran/liusha/internal/einoagent"
+	"github.com/V3teran/liusha/internal/scenario"
 	"github.com/V3teran/liusha/internal/skill"
 	"github.com/V3teran/liusha/internal/worker"
 )
@@ -59,6 +60,11 @@ func (h handler) handleActiveEino(ctx context.Context, p worker.Payload, entrypo
 	}
 	// 组装各角色的完整 system prompt（shared/striker 资产 + 角色 md body）。
 	orchestrator.SystemPrompt = composeOrchestratorInstruction(orchestrator)
+	// 阶段C：注入用户选的场景人设（web 渗透等）到 commander。空/未匹配则不注入（通用扫描）。
+	if scen, ok := scenario.ByID(h.scenarioRoles, p.ScenarioID); ok && scen.SystemPrompt != "" {
+		orchestrator.SystemPrompt += "\n\n" + scen.SystemPrompt
+		h.logger.Info().Str("scenario", scen.ID).Str("hunter_id", p.HunterID).Msg("注入场景人设到 commander")
+	}
 	for i := range subAgents {
 		subAgents[i].SystemPrompt = composeSubAgentInstruction(subAgents[i])
 	}

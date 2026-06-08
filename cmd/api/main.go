@@ -31,6 +31,7 @@ import (
 	"github.com/V3teran/liusha/internal/owner"
 	"github.com/V3teran/liusha/internal/passivesession"
 	"github.com/V3teran/liusha/internal/scanstream"
+	"github.com/V3teran/liusha/internal/scenario"
 	"github.com/V3teran/liusha/internal/sitemap"
 	"github.com/V3teran/liusha/internal/worker"
 	"github.com/V3teran/liusha/web"
@@ -82,7 +83,19 @@ func main() {
 	defer enq.Close()
 	auditStore := audit.NewStore(pool)       // 0047：owner abort / create 审计
 	convStore := conversation.NewStore(pool) // 阶段B：对话/消息
-	activeAdapter := &activeScanAdapter{activeScans: activeScanStore, tasks: taskStore, enq: enq, audit: auditStore, conversations: convStore}
+	// 阶段C：场景 role（roles/*.md）。加载失败仅警告——/roles 返回空、/chat 用空 role 兜底，
+	// 不阻塞 api 启动（场景人设是增强，缺了退化为通用扫描）。
+	scenarioRoles, err := scenario.LoadRoles(envx.OrDefault("LIUSHA_ROLES_DIR", "./roles"))
+	if err != nil {
+		logger.Warn().Err(err).Msg("场景 role 加载失败（/roles 返回空，/chat 用空 role）")
+	} else {
+		ids := make([]string, 0, len(scenarioRoles))
+		for _, r := range scenarioRoles {
+			ids = append(ids, string(r.Mode)+":"+r.ID)
+		}
+		logger.Info().Strs("scenario_roles", ids).Msg("场景 role 加载完成")
+	}
+	activeAdapter := &activeScanAdapter{activeScans: activeScanStore, tasks: taskStore, enq: enq, audit: auditStore, conversations: convStore, roles: scenarioRoles}
 
 	// 监听地址：优先 ENV（运维临时切换）→ yaml。
 	listenAddr := envx.OrDefault("LIUSHA_API_ADDR", cfg.API.ListenAddr)
@@ -104,6 +117,7 @@ func main() {
 			Chat:              activeAdapter,                // 阶段B：POST /chat 对话发起扫描
 			Conversations:     convStore,                    // 阶段B：对话列表 / 消息回看
 			EventStream:       eventStreamAdapter{rdb: rdb}, // 阶段B：SSE 订阅 redis 事件
+			Roles:             activeAdapter,                // 阶段C：GET /roles 场景列表
 			StaticFS:          web.ViewerFS(),
 			EnableDevAutofill: envx.OrDefault("LIUSHA_VIEWER_DEV_KEY", "") != "",
 		}),
@@ -268,6 +282,18 @@ type activeScanAdapter struct {
 	enq           *worker.Client
 	audit         *audit.Store        // 0047：create 写审计事件；nil 跳过
 	conversations *conversation.Store // 阶段B：StartChatScan 建对话；nil 时仅 CreateActiveScan 可用
+	roles         []scenario.Role     // 阶段C：场景 role（StartChatScan 默认兜底 + ListRoles 暴露）
+}
+
+// ListRoles 满足 httpapi.RolesAPI：列出所有场景 role 供前端选择。
+func (a *activeScanAdapter) ListRoles() []scenario.Role { return a.roles }
+
+// defaultActiveRoleID 返回默认 active 场景 id（用户未选 role 时兜底）；无 active role 时返空。
+func (a *activeScanAdapter) defaultActiveRoleID() string {
+	if r, ok := scenario.DefaultForMode(a.roles, scenario.ModeActive); ok {
+		return r.ID
+	}
+	return ""
 }
 
 // eventStreamAdapter 把 scanstream 订阅适配成 httpapi.EventStream（SSE handler 用）。
@@ -280,7 +306,7 @@ func (e eventStreamAdapter) Subscribe(ctx context.Context, conversationID string
 
 // createScan 是建 active scan 的核心：建 active_scan + hunter run + 入 asynq 队列（带
 // conversationID）。CreateActiveScan（无对话纯后台）与 StartChatScan（对话发起）共用。
-func (a *activeScanAdapter) createScan(ctx context.Context, brief, conversationID string) (string, string, error) {
+func (a *activeScanAdapter) createScan(ctx context.Context, brief, conversationID, scenarioID string) (string, string, error) {
 	// scope 与 entrypoint 都只装 brief 原文——目标 URL / host 由 hunter LLM
 	// 从 brief 自然语言里自行识别（不在 API 层做 NL parser）。
 	body, err := json.Marshal(map[string]string{"brief": brief})
@@ -320,6 +346,7 @@ func (a *activeScanAdapter) createScan(ctx context.Context, brief, conversationI
 		OwnerType:      owner.Active,
 		OwnerID:        sc.ID,
 		ConversationID: conversationID, // 阶段B：对话发起时非空 → scanner 发过程事件
+		ScenarioID:     scenarioID,     // 阶段C：场景 role → scanner 注入主代理人设
 		Input:          payloadInput,
 	}, asynq.MaxRetry(0)); err != nil {
 		return "", "", fmt.Errorf("enqueue: %w", err)
@@ -350,20 +377,24 @@ func (a *activeScanAdapter) createScan(ctx context.Context, brief, conversationI
 
 // CreateActiveScan 满足 httpapi.ActiveScanAPI（无对话的纯后台扫描入口）。
 func (a *activeScanAdapter) CreateActiveScan(ctx context.Context, brief string) (string, string, error) {
-	return a.createScan(ctx, brief, "")
+	return a.createScan(ctx, brief, "", "")
 }
 
-// StartChatScan 满足 httpapi.ChatAPI：建对话 + 落用户首条消息 + 发起扫描（入队带 conversationID）
-// + 关联对话与 scan。返回 conversationID 供前端订阅 SSE。
-func (a *activeScanAdapter) StartChatScan(ctx context.Context, brief string) (string, string, error) {
-	conv, err := a.conversations.CreateConversation(ctx, briefTitle(brief), "", "")
+// StartChatScan 满足 httpapi.ChatAPI：建对话（记 role_id）+ 落用户首条消息 + 发起扫描
+// （入队带 conversationID + scenarioID）+ 关联对话与 scan。返回 conversationID 供前端订阅 SSE。
+// roleID 空时用默认 active 场景兜底。
+func (a *activeScanAdapter) StartChatScan(ctx context.Context, brief, roleID string) (string, string, error) {
+	if roleID == "" {
+		roleID = a.defaultActiveRoleID()
+	}
+	conv, err := a.conversations.CreateConversation(ctx, briefTitle(brief), "", roleID)
 	if err != nil {
 		return "", "", fmt.Errorf("create conversation: %w", err)
 	}
 	if _, err := a.conversations.AppendMessage(ctx, conv.ID, conversation.RoleUser, conversation.KindMessage, brief, nil); err != nil {
 		return "", "", fmt.Errorf("append user message: %w", err)
 	}
-	scanID, _, err := a.createScan(ctx, brief, conv.ID)
+	scanID, _, err := a.createScan(ctx, brief, conv.ID, roleID)
 	if err != nil {
 		return "", "", err
 	}
