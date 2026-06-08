@@ -13,6 +13,7 @@ import (
 	"github.com/V3teran/liusha/internal/activescan"
 	hunterbuilder "github.com/V3teran/liusha/internal/builder/hunter"
 	"github.com/V3teran/liusha/internal/config"
+	"github.com/V3teran/liusha/internal/conversation"
 	"github.com/V3teran/liusha/internal/einoagent"
 	"github.com/V3teran/liusha/internal/einollm"
 	"github.com/V3teran/liusha/internal/finding"
@@ -25,6 +26,7 @@ import (
 	"github.com/V3teran/liusha/internal/passivesession"
 	"github.com/V3teran/liusha/internal/react"
 	"github.com/V3teran/liusha/internal/sandbox"
+	"github.com/V3teran/liusha/internal/scanstream"
 	"github.com/V3teran/liusha/internal/skill"
 	"github.com/V3teran/liusha/internal/worker"
 )
@@ -59,6 +61,12 @@ type handler struct {
 	// roles 是 deep 角色定义（agents/*.md 加载），active 路径用 BuildDeepSwarm 装配
 	// commander（orchestrator）+ 杀伤链子代理。useReact / 空时不用。
 	roles []einoagent.RoleDef
+
+	// conversations + eventPublisher 是阶段B 过程事件管道：对话发起（Payload.ConversationID
+	// 非空）时，agent 每次工具调用落 conversation message（PG）+ publish redis（实时推前端）。
+	// 二者任一 nil 时不发事件（向后兼容纯后台扫描）。
+	conversations  *conversation.Store
+	eventPublisher *scanstream.Publisher
 
 	// parentRegistries 索引 commander hunterID → striker Registry（subtask swarm）。
 	// spawnerFactory 闭包 Store；handleActive 在 react.Run 返回后 LoadAndDelete

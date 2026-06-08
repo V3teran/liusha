@@ -90,7 +90,7 @@ func (h handler) handleActiveEino(ctx context.Context, p worker.Payload, entrypo
 	// per-run 中间件（压缩 / tool_invocation 遥测 / 截图回灌）+ 计费 callback。
 	// 中间件挂到 commander 与所有子代理（截图回灌尤其需在跑 run_command 的子代理上）。
 	// 计费 callback 经顶层 runner ctx 传播到子代理模型调用。
-	mws, opts := h.einoRunOpts(ctx, tid, ot, oid, "commander")
+	mws, opts := h.einoRunOpts(ctx, tid, ot, oid, "commander", p.ConversationID)
 
 	commander, err := einoagent.BuildDeepSwarm(ctx, einoagent.DeepSwarmConfig{
 		Model:        model,

@@ -63,10 +63,13 @@ func (h handler) einoToolDeps(sandboxClient sandbox.Client) einoagent.TrackerToo
 
 // einoRunOpts 为一次 agent run（tracker/striker/commander）产 per-run 中间件 + 选项：
 //   - 历史压缩 middleware（light compactor，装配失败降级跳过）
+//   - tool_invocation 遥测 + 截图回灌
 //   - 计费埋点 callbacks（按 hunterID/owner/role 落 llm_invocation）
+//   - 过程事件发射（仅 conversationID 非空，即对话发起时）：落 conversation message + redis publish
 //
 // role ∈ tracker/striker/commander，决定 provider 解析 + 成本聚合维度。
-func (h handler) einoRunOpts(ctx context.Context, hunterID, ownerType, ownerID, role string) ([]adk.AgentMiddleware, []adk.AgentRunOption) {
+// conversationID 空（asynq 自动入口）时不发过程事件，纯后台扫描。
+func (h handler) einoRunOpts(ctx context.Context, hunterID, ownerType, ownerID, role, conversationID string) ([]adk.AgentMiddleware, []adk.AgentRunOption) {
 	var mws []adk.AgentMiddleware
 	if compactor, err := h.einoFactory.For(ctx, "compactor"); err == nil {
 		mws = append(mws, einoagent.NewCompactionMiddleware(compactor, einoagent.CompactionConfig{}))
@@ -78,6 +81,17 @@ func (h handler) einoRunOpts(ctx context.Context, hunterID, ownerType, ownerID, 
 	// 截图视觉回灌（TODO-1）：run_command 的截图 image part 从 tool message 抽出转 user message
 	// （避免 mimo 400），按 role 的 provider 是否 vision 决定回灌或丢弃。
 	mws = append(mws, einoagent.NewVisionRelayMiddleware(h.einoFactory.SupportsVisionFor(role)))
+	// 过程事件发射（阶段B2b）：对话发起时把 agent 每次工具调用（含 striker 内部）落 conversation
+	// message + publish redis，供前端实时展示「跑了什么命令、结果如何」。conversationID 空则 nil sink。
+	if conversationID != "" && h.conversations != nil && h.eventPublisher != nil {
+		sink := einoEventSink{
+			conversations:  h.conversations,
+			publisher:      h.eventPublisher,
+			conversationID: conversationID,
+			logger:         h.logger,
+		}
+		mws = append(mws, einoagent.NewEventEmitter(sink))
+	}
 
 	provider, model := h.einoFactory.ResolveProviderModel(role)
 	recorder := einollm.NewUsageRecorder(h.calls, h.pricing,

@@ -29,6 +29,7 @@ import (
 	"github.com/V3teran/liusha/internal/activescan"
 	"github.com/V3teran/liusha/internal/builder/hunter"
 	"github.com/V3teran/liusha/internal/config"
+	"github.com/V3teran/liusha/internal/conversation"
 	"github.com/V3teran/liusha/internal/credential"
 	"github.com/V3teran/liusha/internal/db"
 	"github.com/V3teran/liusha/internal/einoagent"
@@ -48,6 +49,7 @@ import (
 	"github.com/V3teran/liusha/internal/passivesession"
 	"github.com/V3teran/liusha/internal/react"
 	"github.com/V3teran/liusha/internal/sandbox"
+	"github.com/V3teran/liusha/internal/scanstream"
 	"github.com/V3teran/liusha/internal/skill"
 	"github.com/V3teran/liusha/internal/subtask"
 	"github.com/V3teran/liusha/internal/toolinvocation"
@@ -83,8 +85,10 @@ func main() {
 	defer rdb.Close()
 
 	// Stores
-	passSess := passivesession.NewStore(pool) // passive session store
-	actScan := activescan.NewStore(pool)      // active scan store
+	passSess := passivesession.NewStore(pool)      // passive session store
+	actScan := activescan.NewStore(pool)           // active scan store
+	convStore := conversation.NewStore(pool)       // 对话/消息 store（阶段B 过程事件落库）
+	eventPublisher := scanstream.NewPublisher(rdb) // 过程事件实时广播（阶段B redis 管道）
 	tasks := hunterstore.NewStore(pool)
 	finds := finding.NewStore(pool)
 	toolCalls := toolinvocation.NewStore(pool)
@@ -349,6 +353,8 @@ func main() {
 		hunterDeps:       hunterDeps,
 		useReact:         useReact,
 		roles:            roles,
+		conversations:    convStore,
+		eventPublisher:   eventPublisher,
 	}
 
 	mux := worker.NewMux()
