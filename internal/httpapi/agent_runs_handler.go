@@ -54,21 +54,21 @@ func agentRunsHandler(api AgentRunsAPI) gin.HandlerFunc {
 		out := make([]gin.H, 0, len(runs))
 		for _, r := range runs {
 			out = append(out, gin.H{
-				"id":         r.ID,
-				"commander_id":  r.CommanderID,
-				"role":       r.Role,
-				"status":     string(r.Status),
-				"input":      json.RawMessage(rawOrEmpty(r.Input, "{}")),
-				"result":     json.RawMessage(rawOrEmpty(r.Result, "{}")),
-				"created_at": r.CreatedAt,
-				"updated_at": r.UpdatedAt,
+				"id":           r.ID,
+				"commander_id": r.CommanderID,
+				"role":         r.Role,
+				"status":       string(r.Status),
+				"input":        json.RawMessage(rawOrEmpty(r.Input, "{}")),
+				"result":       json.RawMessage(rawOrEmpty(r.Result, "{}")),
+				"created_at":   r.CreatedAt,
+				"updated_at":   r.UpdatedAt,
 			})
 		}
 
 		c.JSON(200, gin.H{
 			"owner_id": eid,
-			"total":         len(runs),
-			"runs":          out,
+			"total":    len(runs),
+			"runs":     out,
 		})
 	}
 }
