@@ -7,12 +7,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/cloudwego/eino/adk"
-
 	hunterbuilder "github.com/V3teran/liusha/internal/builder/hunter"
 	"github.com/V3teran/liusha/internal/einoagent"
-	"github.com/V3teran/liusha/internal/einollm"
-	"github.com/V3teran/liusha/internal/llm"
 	"github.com/V3teran/liusha/internal/passivesession"
 	"github.com/V3teran/liusha/internal/skill"
 	"github.com/V3teran/liusha/internal/worker"
@@ -111,21 +107,11 @@ func (h handler) handlePassiveEino(ctx context.Context, p worker.Payload, entryp
 	instruction := hunterbuilder.SystemPromptFor("passive", true)
 	userPrompt := hunterbuilder.BuildUserPrompt(ctx, h.hunterDeps, params)
 
-	// LLM 计费埋点（替代旧 llm.Instrument）：按 run 注入 callbacks handler，
-	// 每次 ChatModel 调用落 llm_invocation（owner/role 维度成本审计，与 react 同库）。
-	provider, defaultModel := h.einoFactory.ResolveProviderModel("tracker")
-	recorder := einollm.NewUsageRecorder(h.calls, h.pricing,
-		llm.CallMeta{HunterID: &tid, OwnerType: &ot, OwnerID: &oid, RouteKey: "tracker"},
-		provider, defaultModel,
-	)
-
-	// 历史压缩（gap③）：light 模型蒸馏老 turn 防 context 爆。compactor 解析失败仅降级跳过压缩。
-	var middlewares []adk.AgentMiddleware
-	if compactor, cErr := h.einoFactory.For(ctx, "compactor"); cErr == nil {
-		middlewares = append(middlewares, einoagent.NewCompactionMiddleware(compactor, einoagent.CompactionConfig{}))
-	} else {
-		h.logger.Warn().Err(cErr).Msg("eino compactor 装配失败，本次跳过历史压缩")
-	}
+	// per-run 中间件 + 计费 callback：复用 einoRunOpts（与 active deep 路径同源）——
+	// compaction（防 context 爆）+ tool_invocation 遥测 + 截图回灌 + llm_invocation 计费。
+	// ★ 早期 passive handler 手工只挂了 compaction + 计费，漏了 ToolRecorder（→ tool_invocation
+	// 不落库）和 VisionRelay（→ tracker 跑 run_command 截图会 mimo 400）。统一走 einoRunOpts 补齐。
+	mws, opts := h.einoRunOpts(ctx, tid, ot, oid, "tracker")
 
 	// owner 中止 watcher：react 路径靠 step 内 cfg.OnAbort；eino 无 step 钩子，
 	// 改后台轮询 passive_session.Status，非 active 即 cancel ctx 让 RunTracker 自然停。
@@ -133,7 +119,7 @@ func (h handler) handlePassiveEino(ctx context.Context, p worker.Payload, entryp
 	defer cancel()
 	go h.watchAbort(runCtx, cancel, oid)
 
-	res, err := einoagent.RunTracker(runCtx, model, tools, instruction, userPrompt, middlewares, adk.WithCallbacks(recorder))
+	res, err := einoagent.RunTracker(runCtx, model, tools, instruction, userPrompt, mws, opts...)
 	if err != nil {
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			return h.abortTask(ctx, p.HunterID, "ctx "+err.Error())
