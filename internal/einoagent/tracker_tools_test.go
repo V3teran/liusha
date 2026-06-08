@@ -6,6 +6,9 @@ import (
 	"sort"
 	"testing"
 
+	"github.com/cloudwego/eino/components/model"
+	"github.com/cloudwego/eino/schema"
+
 	"github.com/V3teran/liusha/internal/credential"
 	"github.com/V3teran/liusha/internal/einoagent"
 	"github.com/V3teran/liusha/internal/finding"
@@ -90,60 +93,18 @@ func TestBuildTrackerTools_Mandatory(t *testing.T) {
 	}
 }
 
-func TestBuildCommanderTools_HasSpawnNoWriteFinding(t *testing.T) {
-	f := allFake{}
-	// 真 spawn 工具（fake factory，不会真跑）
-	spawn, err := einoagent.BuildSpawnStriker(einoagent.StrikerSpawnConfig{
-		Factory:     &fakeStrikerFactory{m: &fakeModel{}},
-		NewHunterID: func(context.Context) (string, error) { return "s", nil },
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	tools, err := einoagent.BuildCommanderTools(einoagent.TrackerToolDeps{
-		Findings: f, Notes: f, Lessons: f, Credentials: f, Flows: fakeFlowStore{},
-	}, einoagent.TrackerToolParams{OwnerType: "active_scan", OwnerID: "o", HunterID: "cmd", Host: "host"}, spawn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	names := map[string]bool{}
-	for _, bt := range tools {
-		info, _ := bt.Info(context.Background())
-		names[info.Name] = true
-	}
-	// 必须有 spawn_striker + list/view_flow + read_findings
-	for _, want := range []string{"spawn_striker", "list_flows", "view_flow", "read_findings"} {
-		if !names[want] {
-			t.Errorf("commander 应含 %s，实际 %v", want, names)
-		}
-	}
-	// 铁律：commander 绝不注册 write_finding / update_finding（硬阻断自挖）
-	for _, banned := range []string{"write_finding", "update_finding"} {
-		if names[banned] {
-			t.Errorf("commander 铁律：不应注册 %s（应转 spawn_striker）", banned)
-		}
-	}
-}
+// fakeModel 立即返回无 tool call 的 assistant 消息 → ChatModelAgent 自然收尾。
+// （从已删的 spawn_test.go 迁来；deep_swarm_test.go 等共用此 fixture。）
+type fakeModel struct{ reply string }
 
-func TestBuildStrikerTools_AddsListAndViewFlow(t *testing.T) {
-	f := allFake{}
-	tools, err := einoagent.BuildStrikerTools(einoagent.TrackerToolDeps{
-		Findings: f, Notes: f, Lessons: f, Credentials: f,
-		Flows: fakeFlowStore{}, // 触发 replay + list + view_flow
-	}, einoagent.TrackerToolParams{OwnerType: "active_scan", OwnerID: "o", HunterID: "h", Host: "host"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	names := map[string]bool{}
-	for _, bt := range tools {
-		info, _ := bt.Info(context.Background())
-		names[info.Name] = true
-	}
-	for _, want := range []string{"list_flows", "view_flow", "replay_flow", "write_finding"} {
-		if !names[want] {
-			t.Errorf("striker 工具集应含 %s，实际 %v", want, names)
-		}
-	}
+func (f *fakeModel) Generate(_ context.Context, _ []*schema.Message, _ ...model.Option) (*schema.Message, error) {
+	return schema.AssistantMessage(f.reply, nil), nil
+}
+func (f *fakeModel) Stream(context.Context, []*schema.Message, ...model.Option) (*schema.StreamReader[*schema.Message], error) {
+	return nil, nil
+}
+func (f *fakeModel) WithTools(_ []*schema.ToolInfo) (model.ToolCallingChatModel, error) {
+	return f, nil
 }
 
 func TestBuildTrackerTools_SandboxAddsRunCommand(t *testing.T) {

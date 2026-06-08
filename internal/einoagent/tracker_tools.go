@@ -69,15 +69,12 @@ type TrackerToolParams struct {
 	FlowID    int64
 }
 
-// toolSet 选 hunter 三角色（tracker/striker/commander）工具集的差异维度。
-type toolSet struct {
-	writeFinding bool          // tracker/striker 写 finding；commander 不写（铁律硬阻断）
-	listView     bool          // striker/commander 注册 list/view_flow；tracker 不注册
-	spawn        tool.BaseTool // commander 注册 spawn_striker；其余 nil
-}
-
-// buildHunterTools 是三角色共享的工具装配核心，按 toolSet 选差异工具。
-func buildHunterTools(deps TrackerToolDeps, p TrackerToolParams, set toolSet) ([]tool.BaseTool, error) {
+// BuildTrackerTools 装配 tracker（passive 单 agent）的工具集。
+//
+// deep active 路径（commander/striker 等杀伤链角色）改走 role_tools.go 的 BuildRoleTools——
+// 工具由角色 md 的 tools 清单声明、运行时注入身份建实例，不再用本函数。故这里只服务 passive
+// tracker：固定工具集，无 list/view_flow（passive 单流量驱动不需枚举站点流量）、无 spawn。
+func BuildTrackerTools(deps TrackerToolDeps, p TrackerToolParams) ([]tool.BaseTool, error) {
 	var tools []tool.BaseTool
 	var errs []error
 	add := func(bt tool.BaseTool, err error) {
@@ -88,29 +85,22 @@ func buildHunterTools(deps TrackerToolDeps, p TrackerToolParams, set toolSet) ([
 		tools = append(tools, bt)
 	}
 
-	// 公共：notes / credentials / read_findings / lessons
+	// notes / credentials / findings(读写) / lessons
 	add(einotools.BuildReadNotes(deps.Notes, p.OwnerID, p.Host, p.HunterID))
 	add(einotools.BuildWriteNote(deps.Notes, p.OwnerID, p.Host, p.HunterID))
 	add(einotools.BuildReadCredentials(deps.Credentials, p.Host))
 	add(einotools.BuildWriteCredential(deps.Credentials, p.Host))
 	add(einotools.BuildReadFindings(deps.Findings, p.OwnerType, p.OwnerID, p.Host))
-	if set.writeFinding {
-		add(einotools.BuildWriteFinding(deps.Findings, p.OwnerType, p.OwnerID, p.HunterID, p.Host, p.FlowID))
-		add(einotools.BuildUpdateFinding(deps.Findings))
-	}
+	add(einotools.BuildWriteFinding(deps.Findings, p.OwnerType, p.OwnerID, p.HunterID, p.Host, p.FlowID))
+	add(einotools.BuildUpdateFinding(deps.Findings))
 	add(einotools.BuildReadLessons(deps.Lessons, p.Host))
 	add(einotools.BuildWriteLesson(deps.Lessons, p.Host))
-	// done：三角色都注册（liusha prompt 教 LLM 调 done 收尾）。eino 单 agent 本可不调工具自然收尾，
-	// 但 prompt 是 react/eino 共享资产、深度依赖 done —— 不注册会「tool done not found」（active e2e 实测）。
+	// done：prompt 是 react/eino 共享资产、深度依赖 done 收尾——不注册会「tool done not found」（e2e 实测）。
 	add(einotools.BuildDone())
 
-	// 流量字典：replay 三角色都有；list/view 仅 active（striker/commander）
+	// 流量字典：tracker 只重放当前流量，不枚举站点（list/view 是 active 的事）。
 	if deps.Flows != nil {
 		add(einotools.BuildReplayFlow(deps.Flows, p.OwnerType, p.OwnerID, p.HunterID))
-		if set.listView {
-			add(einotools.BuildListFlows(deps.Flows, p.OwnerType, p.OwnerID, p.Host))
-			add(einotools.BuildViewFlow(deps.Flows, p.OwnerType, p.OwnerID))
-		}
 	}
 
 	// 可选索引/沙箱（nil / 空 catalog 跳过，与 skill.go 门控一致）
@@ -124,29 +114,8 @@ func buildHunterTools(deps TrackerToolDeps, p TrackerToolParams, set toolSet) ([
 		add(einotools.BuildRunCommand(deps.Sandbox, p.HunterID, deps.MaxTimeoutSeconds, deps.TailBytes))
 	}
 
-	// commander 独有：spawn_striker（由 caller 构造好传入）
-	if set.spawn != nil {
-		tools = append(tools, set.spawn)
-	}
-
 	if len(errs) > 0 {
-		return nil, fmt.Errorf("build hunter tools: %w", errors.Join(errs...))
+		return nil, fmt.Errorf("build tracker tools: %w", errors.Join(errs...))
 	}
 	return tools, nil
-}
-
-// BuildTrackerTools 装配 tracker（passive 单 agent）：写 finding，无 list/view，无 spawn。
-func BuildTrackerTools(deps TrackerToolDeps, p TrackerToolParams) ([]tool.BaseTool, error) {
-	return buildHunterTools(deps, p, toolSet{writeFinding: true})
-}
-
-// BuildStrikerTools 装配 striker（active 突击手）：写 finding + list/view_flow，不 spawn（无递归）。
-func BuildStrikerTools(deps TrackerToolDeps, p TrackerToolParams) ([]tool.BaseTool, error) {
-	return buildHunterTools(deps, p, toolSet{writeFinding: true, listView: true})
-}
-
-// BuildCommanderTools 装配 commander（active 指挥官）：**不注册 write/update_finding**（铁律硬阻断
-// "自挖必转 spawn"）+ list/view_flow + spawn_striker（由 caller 用 BuildSpawnStriker 构造传入）。
-func BuildCommanderTools(deps TrackerToolDeps, p TrackerToolParams, spawnStriker tool.BaseTool) ([]tool.BaseTool, error) {
-	return buildHunterTools(deps, p, toolSet{listView: true, spawn: spawnStriker})
 }
