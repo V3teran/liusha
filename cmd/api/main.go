@@ -18,6 +18,7 @@ import (
 	"github.com/V3teran/liusha/internal/activescan"
 	"github.com/V3teran/liusha/internal/audit"
 	"github.com/V3teran/liusha/internal/config"
+	"github.com/V3teran/liusha/internal/conversation"
 	"github.com/V3teran/liusha/internal/credential"
 	"github.com/V3teran/liusha/internal/db"
 	"github.com/V3teran/liusha/internal/envx"
@@ -29,11 +30,13 @@ import (
 	"github.com/V3teran/liusha/internal/logx"
 	"github.com/V3teran/liusha/internal/owner"
 	"github.com/V3teran/liusha/internal/passivesession"
+	"github.com/V3teran/liusha/internal/scanstream"
 	"github.com/V3teran/liusha/internal/sitemap"
 	"github.com/V3teran/liusha/internal/worker"
 	"github.com/V3teran/liusha/web"
 
 	"github.com/hibiken/asynq"
+	"github.com/redis/go-redis/v9"
 )
 
 func main() {
@@ -77,8 +80,9 @@ func main() {
 	taskStore := hunter.NewStore(pool)
 	enq := worker.NewClient(asynq.RedisClientOpt{Addr: os.Getenv("LIUSHA_REDIS_ADDR")})
 	defer enq.Close()
-	auditStore := audit.NewStore(pool) // 0047：owner abort / create 审计
-	activeAdapter := &activeScanAdapter{activeScans: activeScanStore, tasks: taskStore, enq: enq, audit: auditStore}
+	auditStore := audit.NewStore(pool)       // 0047：owner abort / create 审计
+	convStore := conversation.NewStore(pool) // 阶段B：对话/消息
+	activeAdapter := &activeScanAdapter{activeScans: activeScanStore, tasks: taskStore, enq: enq, audit: auditStore, conversations: convStore}
 
 	// 监听地址：优先 ENV（运维临时切换）→ yaml。
 	listenAddr := envx.OrDefault("LIUSHA_API_ADDR", cfg.API.ListenAddr)
@@ -97,6 +101,9 @@ func main() {
 			Invocations:       invocationStore,
 			AgentRuns:         taskStore, // viewer 拼任务树用（按 parent_id）
 			ActiveScan:        activeAdapter,
+			Chat:              activeAdapter,                // 阶段B：POST /chat 对话发起扫描
+			Conversations:     convStore,                    // 阶段B：对话列表 / 消息回看
+			EventStream:       eventStreamAdapter{rdb: rdb}, // 阶段B：SSE 订阅 redis 事件
 			StaticFS:          web.ViewerFS(),
 			EnableDevAutofill: envx.OrDefault("LIUSHA_VIEWER_DEV_KEY", "") != "",
 		}),
@@ -256,13 +263,24 @@ func (a ownerAPIAdapter) List(ctx context.Context, limit int) ([]httpapi.OwnerSu
 // passive 模式 ingestor.enqueueMain 一致语义）。
 // 单源：仅 active_scan 表（0040 DROP FK 后旧 owner 路径正式弃用）。
 type activeScanAdapter struct {
-	activeScans *activescan.Store
-	tasks       *hunter.Store
-	enq         *worker.Client
-	audit       *audit.Store // 0047：create 写审计事件；nil 跳过
+	activeScans   *activescan.Store
+	tasks         *hunter.Store
+	enq           *worker.Client
+	audit         *audit.Store        // 0047：create 写审计事件；nil 跳过
+	conversations *conversation.Store // 阶段B：StartChatScan 建对话；nil 时仅 CreateActiveScan 可用
 }
 
-func (a *activeScanAdapter) CreateActiveScan(ctx context.Context, brief string) (string, string, error) {
+// eventStreamAdapter 把 scanstream 订阅适配成 httpapi.EventStream（SSE handler 用）。
+// scanstream.Subscription 自带 Events()/Close()，满足 httpapi.EventSubscription。
+type eventStreamAdapter struct{ rdb *redis.Client }
+
+func (e eventStreamAdapter) Subscribe(ctx context.Context, conversationID string) httpapi.EventSubscription {
+	return scanstream.Subscribe(ctx, e.rdb, conversationID)
+}
+
+// createScan 是建 active scan 的核心：建 active_scan + hunter run + 入 asynq 队列（带
+// conversationID）。CreateActiveScan（无对话纯后台）与 StartChatScan（对话发起）共用。
+func (a *activeScanAdapter) createScan(ctx context.Context, brief, conversationID string) (string, string, error) {
 	// scope 与 entrypoint 都只装 brief 原文——目标 URL / host 由 hunter LLM
 	// 从 brief 自然语言里自行识别（不在 API 层做 NL parser）。
 	body, err := json.Marshal(map[string]string{"brief": brief})
@@ -298,10 +316,11 @@ func (a *activeScanAdapter) CreateActiveScan(ctx context.Context, brief string) 
 	// status=running 僵尸态 + viewer 看到"commander done + striker running"矛盾。
 	// MaxRetry(0)：commander跑挂就跑挂，让用户手动 abort + 重新触发，不重试。
 	if _, _, err := a.enq.Enqueue(ctx, worker.RoleHunter, worker.Payload{
-		HunterID:  tid,
-		OwnerType: owner.Active,
-		OwnerID:   sc.ID,
-		Input:     payloadInput,
+		HunterID:       tid,
+		OwnerType:      owner.Active,
+		OwnerID:        sc.ID,
+		ConversationID: conversationID, // 阶段B：对话发起时非空 → scanner 发过程事件
+		Input:          payloadInput,
 	}, asynq.MaxRetry(0)); err != nil {
 		return "", "", fmt.Errorf("enqueue: %w", err)
 	}
@@ -327,4 +346,39 @@ func (a *activeScanAdapter) CreateActiveScan(ctx context.Context, brief string) 
 	}
 
 	return sc.ID, tid, nil
+}
+
+// CreateActiveScan 满足 httpapi.ActiveScanAPI（无对话的纯后台扫描入口）。
+func (a *activeScanAdapter) CreateActiveScan(ctx context.Context, brief string) (string, string, error) {
+	return a.createScan(ctx, brief, "")
+}
+
+// StartChatScan 满足 httpapi.ChatAPI：建对话 + 落用户首条消息 + 发起扫描（入队带 conversationID）
+// + 关联对话与 scan。返回 conversationID 供前端订阅 SSE。
+func (a *activeScanAdapter) StartChatScan(ctx context.Context, brief string) (string, string, error) {
+	conv, err := a.conversations.CreateConversation(ctx, briefTitle(brief), "", "")
+	if err != nil {
+		return "", "", fmt.Errorf("create conversation: %w", err)
+	}
+	if _, err := a.conversations.AppendMessage(ctx, conv.ID, conversation.RoleUser, conversation.KindMessage, brief, nil); err != nil {
+		return "", "", fmt.Errorf("append user message: %w", err)
+	}
+	scanID, _, err := a.createScan(ctx, brief, conv.ID)
+	if err != nil {
+		return "", "", err
+	}
+	if err := a.conversations.LinkScan(ctx, conv.ID, scanID); err != nil {
+		return "", "", fmt.Errorf("link scan: %w", err)
+	}
+	return conv.ID, scanID, nil
+}
+
+// briefTitle 取 brief 前 40 字（rune 安全，不截半个中文）作对话标题。
+func briefTitle(brief string) string {
+	const maxRunes = 40
+	r := []rune(brief)
+	if len(r) > maxRunes {
+		return string(r[:maxRunes])
+	}
+	return brief
 }

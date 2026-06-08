@@ -23,6 +23,13 @@ type Deps struct {
 	// ActiveScan 为 nil 时 /scan/active 路由不注册。
 	// 由 cmd/api 注入自定义 adapter（包 owner store + hunter.Store + worker.Client）。
 	ActiveScan ActiveScanAPI
+	// 阶段B 对话式平台（任一为 nil 时对应路由不注册）：
+	//   Chat          POST /chat 发起对话扫描（cmd/api 注入 chatAdapter）
+	//   Conversations GET /conversations[/:id/messages]（*conversation.Store 满足）
+	//   EventStream   GET /conversations/:id/stream SSE（cmd/api 注入 redis 适配器）
+	Chat          ChatAPI
+	Conversations ConversationsAPI
+	EventStream   EventStream
 	// StaticFS 可选：注入时挂 / 路径 serve 静态前端（sitemap viewer SPA）。
 	// 为 nil 时不注册——避免 cmd/api 之外的进程意外暴露前端资源。
 	StaticFS http.FileSystem
@@ -63,6 +70,16 @@ func NewServer(d Deps) http.Handler {
 	}
 	if d.ActiveScan != nil {
 		r.POST("/scan/active", activeScanHandler(d.ActiveScan))
+	}
+	if d.Chat != nil {
+		r.POST("/chat", chatHandler(d.Chat))
+	}
+	if d.Conversations != nil {
+		r.GET("/conversations", listConversationsHandler(d.Conversations))
+		r.GET("/conversations/:id/messages", messagesHandler(d.Conversations))
+		if d.EventStream != nil {
+			r.GET("/conversations/:id/stream", streamHandler(d.Conversations, d.EventStream))
+		}
 	}
 	if d.EnableDevAutofill && d.APIKey != "" {
 		// dev-only：viewer 启动时拉这个端点自动填充 API key。
