@@ -54,8 +54,8 @@ func createActiveScan(base, key, brief string) (string, string, error) {
 		return "", "", fmt.Errorf("scan/active %d: %s", resp.StatusCode, string(raw))
 	}
 	var out struct {
-		OwnerID string `json:"owner_id"`
-		HunterID   string `json:"hunter_id"`
+		OwnerID  string `json:"owner_id"`
+		HunterID string `json:"hunter_id"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
 		return "", "", fmt.Errorf("decode scan/active: %w", err)

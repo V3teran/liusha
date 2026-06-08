@@ -139,4 +139,3 @@ func main() {
 	}
 	logger.Info().Msg("proxy stopped")
 }
-
