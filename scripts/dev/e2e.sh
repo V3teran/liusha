@@ -155,7 +155,10 @@ if [ $# -eq 0 ]; then
 else
   echo "===== 6/6 跑 e2e 触发器 profile=[$*]（约 1-6 分钟/个）====="
 fi
-go run ./cmd/e2e "$@"
+# -mod=mod：步骤 1 的 `make migrate`（golang-migrate 经 go run）会把 migrate 提为 go.mod 显式
+# require，但它是工具依赖未进 vendor/。若此处走默认 -mod=vendor 会因「required but not vendored」
+# 失败。与 run-svc.sh 统一用 -mod=mod 跑 dev 命令，绕开 vendor 一致性校验。
+go run -mod=mod ./cmd/e2e "$@"
 RC=$?
 
 echo ""
