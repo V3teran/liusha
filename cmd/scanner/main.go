@@ -22,7 +22,6 @@ import (
 	"os/signal"
 	"path/filepath"
 	"regexp"
-	"sync"
 	"syscall"
 	"time"
 
@@ -37,7 +36,6 @@ import (
 	"github.com/V3teran/liusha/internal/envx"
 	"github.com/V3teran/liusha/internal/finding"
 	"github.com/V3teran/liusha/internal/flow"
-	"github.com/V3teran/liusha/internal/grounding"
 	hunterstore "github.com/V3teran/liusha/internal/hunter"
 	"github.com/V3teran/liusha/internal/ingestor"
 	"github.com/V3teran/liusha/internal/lesson"
@@ -47,12 +45,10 @@ import (
 	"github.com/V3teran/liusha/internal/notes"
 	"github.com/V3teran/liusha/internal/observability"
 	"github.com/V3teran/liusha/internal/passivesession"
-	"github.com/V3teran/liusha/internal/react"
 	"github.com/V3teran/liusha/internal/sandbox"
 	"github.com/V3teran/liusha/internal/scanstream"
 	"github.com/V3teran/liusha/internal/scenario"
 	"github.com/V3teran/liusha/internal/skill"
-	"github.com/V3teran/liusha/internal/subtask"
 	"github.com/V3teran/liusha/internal/toolinvocation"
 	"github.com/V3teran/liusha/internal/tools/manifest"
 	"github.com/V3teran/liusha/internal/worker"
@@ -202,128 +198,26 @@ func main() {
 	}
 
 	// hunter builder：scanner 启动时构造一次。
-	// run_command 工具的 sandbox.Client 由 handlePassive/handleActive 每次 Spawn 后通过
-	// skill.BuilderParams.Sandbox 注入——不持有在 Deps 里。
-	//
-	// 用 var + 后赋值模式装 hunterBuilder：spawnerFactory 闭包需在调用期捕获 hunterBuilder
-	// 自身（spawner 装配striker时调 HunterBuilder 复用 builder 逻辑）——NewBuilder 返回值赋
-	// 给 var 后，闭包在 builder 闭包真实执行时（handleActive 路径）才 deref 到已就绪的值。
-	var hunterBuilder skill.Builder
-
-	// parentRegistries：commander hunterID → striker Registry。spawnerFactory LoadOrStore；
-	// handleActive 在 react.Run 返回后 LoadAndDelete + cancel + WaitAll。
-	parentRegistries := &sync.Map{}
-
-	spawnerFactory := func(parentCtx context.Context, p skill.BuilderParams) (subtask.Spawner, *subtask.Registry, error) {
-		registry := subtask.NewRegistry()
-		// 每commander builder 只调一次（inspector redirect 走 hint 注入不重建 builder），
-		// 不存在重入路径——Store 直接覆盖即可，不加 LoadOrStore 防御（YAGNI）。
-		parentRegistries.Store(p.HunterID, registry)
-		spawner := subtask.NewActiveSpawner(parentCtx, subtask.ActiveSpawnerConfig{
-			CommanderID:   p.HunterID,
-			OwnerType:     p.OwnerType, // 与commander对齐
-			OwnerID:       p.OwnerID,
-			Host:          p.Host,
-			AgentRuns:     tasks,
-			Findings:      finds,
-			Lessons:       lessons,
-			Calls:         calls,
-			Notes:         noteStore,
-			Flows:         flows, // striker spawn 时若传 flow_id 拉 commander 流量给 striker（tracker 用，commander 通常不传）
-			Router:        router,
-			Pricing:       pricing,
-			HunterBuilder: hunterBuilder, // 晚绑定 — handleActive 执行时已就绪
-			SandboxClient: p.Sandbox,
-			Registry:      registry,
-			MaxChildren:   scannerCfg.MaxChildren,
-			Inspector: subtask.InspectorParams{
-				ArgsTruncate:  cfg.React.InspectorArgsTruncate,
-				ObsTruncate:   cfg.React.InspectorObsTruncate,
-				FindingsLimit: cfg.React.InspectorFindingsLimit,
-				LessonsLimit:  cfg.React.InspectorLessonsLimit,
-			},
-			Logger: logger,
-		})
-		return spawner, registry, nil
-	}
-
-	// provider name → context_window 映射（hunter 装配按 p.LLM.Provider() 查表）。
-	// nil 安全：runtime compactHistory 见 ctxWindow=0 自动跳过压缩。
-	ctxWindows := make(map[string]int, len(cfg.Providers))
-	coordSystems := make(map[string]string, len(cfg.Providers))
-	for name, p := range cfg.Providers {
-		if p.ContextWindow != nil {
-			ctxWindows[name] = *p.ContextWindow
-		}
-		// 仅 vision provider 算 coord_system；非 vision provider 留空字符串
-		// → browser_use click/input 装配后空 CoordSystem 走 ToRealPixels 报 err（防误用）。
-		// 4 层级联推断：显式 → model name registry → vendor base_url registry → real_pixels fallback。
-		if p.SupportsVision != nil && *p.SupportsVision {
-			sys, source := grounding.ResolveCoordSystem(p.GroundingCoordSystem, p.DefaultModel, p.BaseURL)
-			coordSystems[name] = string(sys)
-			lvl := logger.Info()
-			if source == "default" {
-				lvl = logger.Warn()
-			}
-			lvl.Str("provider", name).Str("source", source).Str("coord_system", string(sys)).
-				Str("model", p.DefaultModel).Msg("grounding coord_system 推断")
-		}
-	}
-	// ReAct msgs 文本压缩器：复用 inspector 路由的 light LLM（与 notes compactor 同 Generator）。
-	// failure 路径已设计为 head-truncate 兜底，不阻断 hunter 主循环。
-	historyCompactor := react.NewLLMHistoryCompactor(compactorGen)
-
+	// hunterDeps：prompt 拼装 + eino 工具装配的共享依赖（run_command 的 sandbox.Client 由
+	// handler 每次 Spawn 注入，不持有在 Deps）。react 退路已删，只剩 eino 用的 store/loader/manifest。
 	hunterDeps := hunter.Deps{
-		Notes:                  noteStore,
-		Findings:               finds,
-		Lessons:                lessons,
-		Flows:                  flows,
-		Credentials:            creds,
-		ToolInvocations:        toolCalls,
-		ToolingLoader:          toolingLoader,
-		ToolsManifest:          toolsManifest,
-		VulnLoader:             vulnLoader,
-		SandboxCfg:             cfg.Sandbox,
-		StepToolTimeoutSeconds: cfg.Toolruntime.StepToolTimeoutSeconds,
-		PassiveMaxSteps:        scannerCfg.PassiveMaxSteps,
-		ActiveMaxSteps:         scannerCfg.ActiveMaxSteps,
-		WatchdogSeconds:        scannerCfg.StepLLMTimeoutSeconds,
-		InspectorEverySteps:    cfg.React.InspectorEverySteps,
-		MaxImagesInHistory:     cfg.React.MaxImagesInHistory,
-		HistoryCompactor:       historyCompactor,
-		HistoryCompact: react.HistoryCompactConfig{
-			TriggerRatio:        cfg.React.HistoryCompact.TriggerRatio,
-			TrailingBudgetRatio: cfg.React.HistoryCompact.TrailingBudgetRatio,
-			CooldownTokenDelta:  cfg.React.HistoryCompact.CooldownTokenDelta,
-		},
-		HistoryCompactTimeout: time.Duration(cfg.React.HistoryCompact.CompactorTimeoutSeconds) * time.Second,
-		ContextWindows:        ctxWindows,
-		CoordSystems:          coordSystems,
-		FindingsLimit:         cfg.Session.FindingsLimitInPrompt,
-		LessonsLimit:          cfg.Session.LessonsLimitInPrompt,
-		SpawnerFactory:        spawnerFactory,
-	}
-	hunterBuilder = hunter.NewBuilder(hunterDeps)
-
-	// eino 迁移：已转默认——passive + active 默认走 eino ChatModelAgent。
-	// LIUSHA_USE_REACT=1 切回旧 react 路径（渐进迁移期退路；观察 eino 稳定后删 react）。
-	useReact := os.Getenv("LIUSHA_USE_REACT") == "1"
-	if useReact {
-		logger.Warn().Msg("LIUSHA_USE_REACT=1：切回旧 react 路径（退路）")
-	} else {
-		logger.Info().Msg("agent 引擎：eino（默认）；LIUSHA_USE_REACT=1 可切回 react")
+		Notes:           noteStore,
+		Findings:        finds,
+		Lessons:         lessons,
+		Credentials:     creds,
+		ToolInvocations: toolCalls,
+		ToolingLoader:   toolingLoader,
+		ToolsManifest:   toolsManifest,
+		VulnLoader:      vulnLoader,
+		FindingsLimit:   cfg.Session.FindingsLimitInPrompt,
+		LessonsLimit:    cfg.Session.LessonsLimitInPrompt,
 	}
 
-	// deep 角色加载（agents/*.md）：active 路径用 deep 装配 commander + 杀伤链子代理。
+	// deep 角色加载（agents/*.md）：active 路径用 deep 装配主代理 + 杀伤链子代理。
 	// 解析失败 / 无 orchestrator → fail-fast（active 扫描会无法装配 deep）。
-	// 退路：LIUSHA_USE_REACT=1 不走 deep，roles 即使为空也不影响 react 路径。
 	roles, err := einoagent.LoadRoles(cfg.Agents.Root)
 	if err != nil {
-		if useReact {
-			logger.Warn().Err(err).Str("dir", cfg.Agents.Root).Msg("角色加载失败（react 退路下忽略）")
-		} else {
-			logger.Fatal().Err(err).Str("dir", cfg.Agents.Root).Msg("角色加载失败——eino active 走 deep 需 agents/*.md，fail-fast")
-		}
+		logger.Fatal().Err(err).Str("dir", cfg.Agents.Root).Msg("角色加载失败——active 走 deep 需 agents/*.md，fail-fast")
 	} else {
 		roleIDs := make([]string, 0, len(roles))
 		for _, r := range roles {
@@ -347,29 +241,25 @@ func main() {
 
 	// handler
 	h := handler{
-		tasks:            tasks,
-		passiveSessions:  passSess,
-		activeScans:      actScan,
-		notes:            noteStore,
-		findings:         finds,
-		lessons:          lessons,
-		flows:            flows,
-		calls:            calls,
-		cfg:              cfg,
-		scannerCfg:       scannerCfg,
-		pricing:          pricing,
-		router:           router,
-		hunterBuilder:    hunterBuilder,
-		launcher:         launcher,
-		logger:           logger,
-		parentRegistries: parentRegistries,
-		einoFactory:      einollm.New(cfg),
-		hunterDeps:       hunterDeps,
-		useReact:         useReact,
-		roles:            roles,
-		conversations:    convStore,
-		eventPublisher:   eventPublisher,
-		scenarioRoles:    scenarioRoles,
+		tasks:           tasks,
+		passiveSessions: passSess,
+		activeScans:     actScan,
+		notes:           noteStore,
+		findings:        finds,
+		lessons:         lessons,
+		flows:           flows,
+		calls:           calls,
+		cfg:             cfg,
+		scannerCfg:      scannerCfg,
+		pricing:         pricing,
+		launcher:        launcher,
+		logger:          logger,
+		einoFactory:     einollm.New(cfg),
+		hunterDeps:      hunterDeps,
+		roles:           roles,
+		conversations:   convStore,
+		eventPublisher:  eventPublisher,
+		scenarioRoles:   scenarioRoles,
 	}
 
 	mux := worker.NewMux()
