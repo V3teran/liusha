@@ -60,7 +60,7 @@ type Server struct {
 
 // ServerDeps 注入服务依赖；ListenAddr / CertDir 为空时走默认值。
 // Source 必填——双 listener 部署时按 listener 区分 'external'（passive 入口）/
-// 'internal'（agent 工具入口）；ingestor 据此决定是否触发 passive tracker。
+// 'internal'（agent 工具入口）；ingestor 据此决定是否触发 passive trafficAnalysis。
 type ServerDeps struct {
 	Filter     *filter.TrafficFilter
 	Publisher  SnapshotPublisher

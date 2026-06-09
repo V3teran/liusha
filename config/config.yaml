@@ -50,12 +50,15 @@ llm:
   max_steps: 30                 # ReAct 单任务步数上限，被 Role.Budget 覆盖
   max_tokens_per_call: 4096
   # 双 namespace：把"真 agent"与"single-shot utility"语义分开。
-  # 四角色：tracker（passive 侦察兵）/ commander（active 指挥官）/ striker（active 突击手）/ inspector（督查官）
+  # 角色路由（PTES 功能命名）：traffic-analysis（passive 流量分析）/ orchestrator（active 编排）/
+  # exploitation（active 利用）/ inspector（旁路督查/压缩）。
+  # 注：active 子代理（reconnaissance/exploitation）经 deep task 共享 orchestrator 的 model，
+  # 不单独走 For()，故 exploitation 键仅作文档对齐，实际路由只取 orchestrator/traffic-analysis/inspector。
   agents:
-    tracker:   default_provider   # passive 单 agent（流量驱动，纯文本路径）
-    commander: vision_provider    # active 父任务（recon + spawn 决策，需 browser-use 截图 → multimodal）
-    striker:   vision_provider    # active 子任务（深挖单点，需 browser-use 截图 → multimodal）
-    inspector: light_provider     # 旁路过程督查官（每 5 步评估方向）
+    traffic-analysis: default_provider   # passive 单 agent（流量驱动，纯文本路径）
+    orchestrator:     vision_provider    # active 主代理（派活决策，需 browser-use 截图 → multimodal）
+    exploitation:     vision_provider    # active 子代理（深挖单点，需 browser-use 截图 → multimodal）
+    inspector:        light_provider     # 旁路过程督查官 / 历史压缩
 
   # spec §8.5 错误码退避表（429/529/5xx/网络超时）
   retry:
@@ -161,11 +164,11 @@ providers:
     supports_vision: false
     context_window: 32768            # qwen2.5-coder:14b 默认 32k（建议 Modelfile 改 131072）
 
-  # —— 公网 CN ollama 节点（commander/striker 视觉路由）
+  # —— 公网 CN ollama 节点（orchestrator/exploitation 视觉路由）
   # 模型选型演化：
   #   1) qwen2.5vl:72b @ 115.231.236.153 → Ollama modelfile 未 declare tools → 400
   #   2) qwen3-vl:30b @ 58.246.65.11 → 简化 prompt OK，react 完整 prompt 76s 后 EOF（节点 timeout）
-  #   3) qwen3-vl:32b-instruct @ 120.220.102.83 → 实测长 prompt + 多 tools 仅 15.1s 完成，spawn_striker 正确
+  #   3) qwen3-vl:32b-instruct @ 120.220.102.83 → 实测长 prompt + 多 tools 仅 15.1s 完成，task 派活正确
   # 健康度自检：curl -fsS <base_url>/api/tags || 视为下线
   # 启动需 export OLLAMA_API_KEY=ollama（占位，ollama 不验 key）
   ollama_vision_cn:
@@ -182,7 +185,7 @@ providers:
   # —— 公网 CN ollama 节点（inspector 路由 + fallback）
   # 14B 选型：纯 JSON 输出场景（inspector decision），无需 tool_calls，速度极快（0.1s/turn）。
   # 注意：qwen2.5:14b 在 ReAct 长 prompt + tools 路径下会退化为纯文本不调 tool（实测验证），
-  # 故 tracker 改路由到 ollama_tracker_cn 走 qwen3:32b。
+  # 故 traffic-analysis 改路由到 ollama_tracker_cn 走 qwen3:32b。
   ollama_text_cn:
     type: openai_compat
     base_url: http://122.152.194.29:11434/v1
@@ -193,7 +196,7 @@ providers:
     supports_vision: false
     context_window: 32768                     # qwen2.5:14b Modelfile 默认
 
-  # —— 公网 CN ollama 节点（tracker 强 tool_calls 路由）
+  # —— 公网 CN ollama 节点（traffic-analysis 强 tool_calls 路由）
   # 模型选型演化：
   #   1) qwen2.5:14b → 跳过 tool_calls 直接吐文本（无 tools 优化）
   #   2) qwen3:32b → 长 prompt + 多 tools 场景下 thinking mode 吞掉 tool_calls，输出 markdown

@@ -17,7 +17,7 @@ func TestGuessByModelName_LongestPrefix(t *testing.T) {
 		{"doubao-seed-2-0-mini-260428", Normalized1000, true}, // 命中 "doubao-seed"
 		{"gemini-1.5-pro-002", Normalized1000, true},          // 命中 "gemini-1.5"
 		{"gpt-4o-2024-11-20", RealPixels, true},               // 命中 "gpt-4o"
-		{"o3-mini", RealPixels, true},                          // 命中 "o3"
+		{"o3-mini", RealPixels, true},                         // 命中 "o3"
 		{"llama-4-vision-instruct", RealPixels, true},
 		{"phi-4-vision-tiny", RealPixels, true},
 	}

@@ -23,38 +23,37 @@ import (
 
 // hunter agent system prompt 按 (mode, 是否主代理) 拆四段编译期嵌入：
 //   - shared：通用规则（角色 / 写 finding 铁律 / mode-invariant 反模式）
-//   - tracker（passive 单 agent）：流量驱动入口
-//   - commander（active 主代理）：brief 驱动入口
-//   - striker（active 子代理）：接 brief 深挖单点
+//   - trafficAnalysis（passive 单 agent）：流量驱动入口
+//   - orchestrator（active 主代理）：brief 驱动入口
+//   - exploitation（active 子代理）：接 brief 深挖单点
 //
 // 改 prompt 走 PR + review，与代码同路径管理（prompt-as-code 实践）。
-// 注：文件名沿用旧角色名（commander/striker/tracker），命名统一在后续阶段处理。
 //
 //go:embed system_prompt_shared.md
 var hunterSystemPromptShared string
 
-//go:embed system_prompt_tracker.md
-var hunterSystemPromptTracker string
+//go:embed system_prompt_trafficAnalysis.md
+var hunterSystemPromptTrafficAnalysis string
 
-//go:embed system_prompt_commander.md
-var hunterSystemPromptCommander string
+//go:embed system_prompt_orchestrator.md
+var hunterSystemPromptOrchestrator string
 
-//go:embed system_prompt_striker.md
-var hunterSystemPromptStriker string
+//go:embed system_prompt_exploitation.md
+var hunterSystemPromptExploitation string
 
 // buildSystemPrompt 按 (mode, isParent) 选段拼接 shared + 角色段。
-//   - mode=="active" && isParent  → commander（主代理）
-//   - mode=="active" && !isParent → striker（子代理，专注 brief 深挖单点）
-//   - 其它（passive / 未知）       → tracker（独立挖单流量）
+//   - mode=="active" && isParent  → orchestrator（主代理）
+//   - mode=="active" && !isParent → exploitation（子代理，专注 brief 深挖单点）
+//   - 其它（passive / 未知）       → trafficAnalysis（独立挖单流量）
 func buildSystemPrompt(mode string, isParent bool) string {
 	var addendum string
 	switch {
 	case mode == "active" && isParent:
-		addendum = hunterSystemPromptCommander
+		addendum = hunterSystemPromptOrchestrator
 	case mode == "active":
-		addendum = hunterSystemPromptStriker
+		addendum = hunterSystemPromptExploitation
 	default:
-		addendum = hunterSystemPromptTracker
+		addendum = hunterSystemPromptTrafficAnalysis
 	}
 	return hunterSystemPromptShared + "\n" + addendum
 }
@@ -65,7 +64,7 @@ func SystemPromptFor(mode string, isParent bool) string {
 }
 
 // SharedSystemPrompt 单独导出 shared 段（不含任何角色 addendum）。
-// deep 路径的主代理用此 + 角色 md 的 deep-native 编排 charter 组装（不复用 commander 段，
+// deep 路径的主代理用此 + 角色 md 的 deep-native 编排 charter 组装（不复用 orchestrator 段，
 // 那是为旧 spawn 机制写的）。
 func SharedSystemPrompt() string {
 	return hunterSystemPromptShared

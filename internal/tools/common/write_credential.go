@@ -11,7 +11,7 @@ import (
 )
 
 // WriteCredential — 把当前 hunter 拿到的活凭证写入本 host 的 redis credentials key，
-// 供同 owner 下其他 hunter（同辈 striker / 父 commander / 后续 task）通过 read_credentials 共享。
+// 供同 owner 下其他 hunter（同辈 exploitation / 父 orchestrator / 后续 task）通过 read_credentials 共享。
 //
 // 与 read_credentials 对称：read 拉、write 录；同一份 `credentials:<host>` redis hash。
 //
@@ -32,8 +32,8 @@ type WriteCredential struct {
 func (a *WriteCredential) Name() string { return "write_credential" }
 
 func (a *WriteCredential) Description() string {
-	return "把当前 hunter 拿到的活凭证录入本 host 凭证池，让同 owner 下其他 hunter（commander/striker/后续 task）通过 read_credentials 共享。" +
-		"\n\n**何时用**：自己刚通过登录 / OAuth / API key 注入等方式获得一组真实凭证，需要让其他 hunter（特别是 spawn 的 striker）也用上时。" +
+	return "把当前 hunter 拿到的活凭证录入本 host 凭证池，让同 owner 下其他 hunter（orchestrator/exploitation/后续 task）通过 read_credentials 共享。" +
+		"\n\n**何时用**：自己刚通过登录 / OAuth / API key 注入等方式获得一组真实凭证，需要让其他 hunter（特别是 spawn 的 exploitation）也用上时。" +
 		"\n\n**先调 `read_credentials`** 看本 host 已有身份的 credentials 结构：有就**模仿其 type/key**填（key 对齐，避免一 host 两套 schema）；没有就自己从流量识别认证字段逐条录入。每条凭证的 type/key/value 与 name 规则见下方 schema。" +
 		"\n\n返回 {saved: true, name, host}。同 name 重复调用直接覆盖（活凭证刷新场景）。"
 }

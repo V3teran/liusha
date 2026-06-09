@@ -10,11 +10,11 @@ import (
 
 // scan_event.go：agent 过程事件发射（阶段B2，见记忆 project_phaseb_sse_arch）。
 //
-// 把每个 agent（commander + 所有 deep sub-agent）的工具调用，经 WrapToolCall middleware
-// 实时发成 ScanEvent。覆盖 sub-agent 是关键——deep 的 striker 内部 run_command 不冒泡到顶层
-// 事件流，但 WrapToolCall 挂在每个 agent 上（tool_invocation 落库已证明：commander 无
-// run_command 工具，e2e 却记到 94 条 run_command，全是 striker 跑的），故能拿到 striker
-// 执行的命令 + 结果，让前端实时看到「striker 跑了什么、结果如何」。
+// 把每个 agent（orchestrator + 所有 deep sub-agent）的工具调用，经 WrapToolCall middleware
+// 实时发成 ScanEvent。覆盖 sub-agent 是关键——deep 的 exploitation 内部 run_command 不冒泡到顶层
+// 事件流，但 WrapToolCall 挂在每个 agent 上（tool_invocation 落库已证明：orchestrator 无
+// run_command 工具，e2e 却记到 94 条 run_command，全是 exploitation 跑的），故能拿到 exploitation
+// 执行的命令 + 结果，让前端实时看到「exploitation 跑了什么、结果如何」。
 //
 // 事件去向（scanner 注入 EventSink）：落 conversation message（PG）+ publish redis（实时推前端）。
 
@@ -49,8 +49,8 @@ type EventSink interface {
 // （执行后）两个事件给 sink，让前端先看到「正在跑 sqlmap…」再看到结果。
 //
 // sink nil 时返回零值 middleware（no-op，向后兼容 asynq 自动路径——无对话则不发事件）。
-// 挂在 commander + 所有 sub-agent 上（einoRunOpts → deep_swarm 给每个 agent 传 middlewares），
-// 故 striker 内部工具调用也发事件。复用 tool_recorder.go 的 truncate / toolResultText。
+// 挂在 orchestrator + 所有 sub-agent 上（einoRunOpts → deep_swarm 给每个 agent 传 middlewares），
+// 故 exploitation 内部工具调用也发事件。复用 tool_recorder.go 的 truncate / toolResultText。
 func NewEventEmitter(sink EventSink) adk.AgentMiddleware {
 	if sink == nil {
 		return adk.AgentMiddleware{}

@@ -51,7 +51,7 @@ func main() {
 	// 内嵌 MITM 代理装配链：filter → publisher → proxy.Server
 	// ENV 仍可临时覆盖 yaml；空 ENV → 走 yaml；yaml 也空 → ApplyDefaults 兜底。
 	//
-	// 双 listener（0060+）物理隔离 source，避免 agent 自挖流量触发 passive tracker 自激震荡：
+	// 双 listener（0060+）物理隔离 source，避免 agent 自挖流量触发 passive trafficAnalysis 自激震荡：
 	//   external: publicAddr (8888) → sanitizer → internalAddr loopback (18888) → external proxify
 	//   internal: agentPublicAddr (8890) → sanitizer → agentInternalAddr loopback (18890) → internal proxify
 	// v34+：删除 agent (internal) listener — chromium 流量改走 CDP capture → ingest endpoint

@@ -6,7 +6,7 @@
 // 与 passive_session 的差异：
 //   - active 按 brief 切（"哪次任务"），passive 按 host 切（"哪个站点被监控"）
 //   - active 跑完即终态，无 expires_at / 无 Rotator 轮转
-//   - active 不入 http_flow 表（自己 spawn striker agent recon，不复用 MITM 代理流量）
+//   - active 不入 http_flow 表（自己 spawn exploitation agent recon，不复用 MITM 代理流量）
 //   - 可并发多个 active scan（不受唯一约束限制）
 //
 // 短期工作笔记 notes 在 Redis（internal/notes 包），按 (scan_id, host) 切分。
@@ -20,7 +20,7 @@ type Status string
 const (
 	StatusActive    Status = "active"
 	StatusAborted   Status = "aborted"
-	StatusCompleted Status = "completed" // commander run 自然跑完的终态（区别于用户/错误触发的 aborted）
+	StatusCompleted Status = "completed" // orchestrator run 自然跑完的终态（区别于用户/错误触发的 aborted）
 )
 
 // Scan 是 active_scan 表行的 Go 表示。

@@ -91,7 +91,7 @@ func NewDockerLauncher(image string) *DockerLauncher {
 
 // Spawn 启动 sandbox 容器并等待 healthz。返回绑定到该容器 host 端口的 Client。
 //
-// hunterID：仅作 docker 容器名（per-hunter 隔离）。注意 commander + striker 共享同一容器，
+// hunterID：仅作 docker 容器名（per-hunter 隔离）。注意 orchestrator + exploitation 共享同一容器，
 // 所以容器级不注入 hunter 身份 env——身份由 browser-svc.py 按 session→hunter 逐请求归属
 // （sandbox-server /exec 每命令带 HUNTER_ID env → wrapper 经 unix socket 转发 → daemon 建 tab 时登记）。
 // 容器级只注入 LIUSHA_INGEST_URL/TOKEN（常量），供 browser-svc.py CDP capture push 流量。
@@ -134,7 +134,7 @@ func (l *DockerLauncher) Spawn(ctx context.Context, hunterID string) (Client, er
 	}
 	// CDP capture ingest env（容器级常量，非身份）：browser-svc.py 读 LIUSHA_INGEST_URL 决定是否
 	// 启用 Network observer，读 LIUSHA_INGEST_TOKEN 作 Bearer。URL 空则整体不注入 → capture 不启用。
-	// hunter_id 不在这注入——commander/striker 共享容器，由 browser-svc.py 按 session→hunter 逐请求归属。
+	// hunter_id 不在这注入——orchestrator/exploitation 共享容器，由 browser-svc.py 按 session→hunter 逐请求归属。
 	if l.IngestURL != "" {
 		args = append(args, "-e", "LIUSHA_INGEST_URL="+l.IngestURL)
 		if l.IngestToken != "" {

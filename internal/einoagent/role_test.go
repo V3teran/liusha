@@ -17,11 +17,11 @@ func writeRole(t *testing.T, dir, file, content string) {
 	}
 }
 
-const commanderMD = `---
-id: commander
+const orchestratorMD = `---
+id: orchestrator
 name: 渗透指挥官
 kind: orchestrator
-description: 拆活派 striker，不亲自挖洞
+description: 拆活派 exploitation，不亲自挖洞
 max_iterations: 300
 tools:
   - read_findings
@@ -30,8 +30,8 @@ tools:
 你是渗透指挥官。
 `
 
-const strikerMD = `---
-id: striker
+const exploitationMD = `---
+id: exploitation
 name: 渗透突击手
 kind: subagent
 description: 接 brief 深挖单个攻击面并 write_finding
@@ -47,8 +47,8 @@ tools:
 
 func TestLoadRoles_ParsesAndClassifies(t *testing.T) {
 	dir := t.TempDir()
-	writeRole(t, dir, "commander.md", commanderMD)
-	writeRole(t, dir, "striker.md", strikerMD)
+	writeRole(t, dir, "orchestrator.md", orchestratorMD)
+	writeRole(t, dir, "exploitation.md", exploitationMD)
 
 	roles, err := einoagent.LoadRoles(dir)
 	if err != nil {
@@ -57,38 +57,38 @@ func TestLoadRoles_ParsesAndClassifies(t *testing.T) {
 	if len(roles) != 2 {
 		t.Fatalf("应加载 2 个角色，得到 %d", len(roles))
 	}
-	// 字典序：commander 在前
-	if roles[0].ID != "commander" || roles[1].ID != "striker" {
+	// 字典序：exploitation 在前（e < o）
+	if roles[0].ID != "exploitation" || roles[1].ID != "orchestrator" {
 		t.Errorf("角色顺序/id 错: %+v", roles)
 	}
-	// striker 字段
-	st := roles[1]
+	// exploitation 字段
+	st := roles[0]
 	if st.Name != "渗透突击手" || st.Kind != einoagent.RoleSubAgent || st.MaxIterations != 120 {
-		t.Errorf("striker 字段错: %+v", st)
+		t.Errorf("exploitation 字段错: %+v", st)
 	}
 	if len(st.Tools) != 4 || st.Tools[1] != "write_finding" {
-		t.Errorf("striker tools 错: %v", st.Tools)
+		t.Errorf("exploitation tools 错: %v", st.Tools)
 	}
 	if !strings.Contains(st.SystemPrompt, "深挖") {
-		t.Errorf("striker body 错: %q", st.SystemPrompt)
+		t.Errorf("exploitation body 错: %q", st.SystemPrompt)
 	}
 }
 
 func TestOrchestrator_And_SubAgents(t *testing.T) {
 	dir := t.TempDir()
-	writeRole(t, dir, "commander.md", commanderMD)
-	writeRole(t, dir, "striker.md", strikerMD)
+	writeRole(t, dir, "orchestrator.md", orchestratorMD)
+	writeRole(t, dir, "exploitation.md", exploitationMD)
 	roles, _ := einoagent.LoadRoles(dir)
 
 	orch, err := einoagent.Orchestrator(roles)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if orch.ID != "commander" || orch.Kind != einoagent.RoleOrchestrator {
+	if orch.ID != "orchestrator" || orch.Kind != einoagent.RoleOrchestrator {
 		t.Errorf("orchestrator 错: %+v", orch)
 	}
 	subs := einoagent.SubAgents(roles)
-	if len(subs) != 1 || subs[0].ID != "striker" {
+	if len(subs) != 1 || subs[0].ID != "exploitation" {
 		t.Errorf("subAgents 错: %+v", subs)
 	}
 }
@@ -103,8 +103,8 @@ func TestLoadRoles_MissingDescription(t *testing.T) {
 
 func TestLoadRoles_DuplicateID(t *testing.T) {
 	dir := t.TempDir()
-	writeRole(t, dir, "a.md", strikerMD)
-	writeRole(t, dir, "b.md", strikerMD) // 同 id=striker
+	writeRole(t, dir, "a.md", exploitationMD)
+	writeRole(t, dir, "b.md", exploitationMD) // 同 id=exploitation
 	if _, err := einoagent.LoadRoles(dir); err == nil || !strings.Contains(err.Error(), "重复") {
 		t.Fatalf("重复 id 应报错，得到: %v", err)
 	}
@@ -124,7 +124,7 @@ func TestLoadRoles_DefaultKindSubAgent(t *testing.T) {
 
 func TestOrchestrator_MissingOrTooMany(t *testing.T) {
 	dir := t.TempDir()
-	writeRole(t, dir, "striker.md", strikerMD) // 只有 subagent
+	writeRole(t, dir, "exploitation.md", exploitationMD) // 只有 subagent
 	roles, _ := einoagent.LoadRoles(dir)
 	if _, err := einoagent.Orchestrator(roles); err == nil {
 		t.Fatal("无 orchestrator 应报错")

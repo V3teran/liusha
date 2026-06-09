@@ -330,17 +330,17 @@ func (a *activeScanAdapter) createScan(ctx context.Context, brief, conversationI
 	tid, err := a.tasks.Create(ctx, hunter.NewParams{
 		OwnerType: owner.Active,
 		OwnerID:   sc.ID,
-		Role:      "commander",
+		Role:      "orchestrator",
 		Input:     payloadInput,
 	})
 	if err != nil {
 		return "", "", fmt.Errorf("create hunter run: %w", err)
 	}
 
-	// active commander跑 ~4h，asynq 默认 retry 25 次 → 4 天死循环；且 retry 接管时
-	// 新 scanner 进程 parentRegistries 是空的，PreDoneCheck 永放行，旧 PG striker 留
-	// status=running 僵尸态 + viewer 看到"commander done + striker running"矛盾。
-	// MaxRetry(0)：commander跑挂就跑挂，让用户手动 abort + 重新触发，不重试。
+	// active orchestrator跑 ~4h，asynq 默认 retry 25 次 → 4 天死循环；且 retry 接管时
+	// 新 scanner 进程 parentRegistries 是空的，PreDoneCheck 永放行，旧 PG exploitation 留
+	// status=running 僵尸态 + viewer 看到"orchestrator done + exploitation running"矛盾。
+	// MaxRetry(0)：orchestrator跑挂就跑挂，让用户手动 abort + 重新触发，不重试。
 	if _, _, err := a.enq.Enqueue(ctx, worker.RoleHunter, worker.Payload{
 		HunterID:       tid,
 		OwnerType:      owner.Active,

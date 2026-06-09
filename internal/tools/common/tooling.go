@@ -1,10 +1,13 @@
 // tooling.go 实现 read_tooling_skill —— Progressive Disclosure 的 Tier 2：
 //
 // Tier 1（user prompt 常驻）：每条流量自动注入"工具索引"，
-//   每个工具一行 name + description（约 50-200 chars/工具，全集 < 1KB）。
+//
+//	每个工具一行 name + description（约 50-200 chars/工具，全集 < 1KB）。
 //
 // Tier 2（按需加载）：LLM 决定要用 sqlmap 时，调
-//   read_tooling_skill(name="sqlmap")
+//
+//	read_tooling_skill(name="sqlmap")
+//
 // 拿完整 SKILL.md body（参数表 + 输出 grep 关键词 + 坑点 + 红线）。
 //
 // 这套对齐 Anthropic Claude Code skills 系统：常驻索引省 token，
@@ -32,7 +35,6 @@ type ReadToolingSkill struct {
 // Name 返回工具名 "read_tooling_skill"。
 func (a *ReadToolingSkill) Name() string { return "read_tooling_skill" }
 
-//
 // 设计要点：**禁止在 description 里举具体 name 例子**——
 // 实测 LLM 会把例子当成"系统支持"的可用 name 瞎调，污染 Progressive Disclosure 单一来源。
 // 可用 name 完全由 user prompt 段「可用外部工具索引」（buildToolingCatalog 渲染）提供。

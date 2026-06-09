@@ -54,13 +54,13 @@ func (fakeSandboxClient) Exec(context.Context, sandbox.ExecRequest) (sandbox.Exe
 }
 func (fakeSandboxClient) Close() error { return nil }
 
-func toolNames(t *testing.T, deps einoagent.TrackerToolDeps) []string {
+func toolNames(t *testing.T, deps einoagent.TrafficAnalysisToolDeps) []string {
 	t.Helper()
-	tools, err := einoagent.BuildTrackerTools(deps, einoagent.TrackerToolParams{
+	tools, err := einoagent.BuildTrafficAnalysisTools(deps, einoagent.TrafficAnalysisToolParams{
 		OwnerType: "passive_session", OwnerID: "o1", HunterID: "h1", Host: "host1", FlowID: 3,
 	})
 	if err != nil {
-		t.Fatalf("BuildTrackerTools: %v", err)
+		t.Fatalf("BuildTrafficAnalysisTools: %v", err)
 	}
 	var names []string
 	for _, bt := range tools {
@@ -74,9 +74,9 @@ func toolNames(t *testing.T, deps einoagent.TrackerToolDeps) []string {
 	return names
 }
 
-func TestBuildTrackerTools_Mandatory(t *testing.T) {
+func TestBuildTrafficAnalysisTools_Mandatory(t *testing.T) {
 	f := allFake{}
-	names := toolNames(t, einoagent.TrackerToolDeps{
+	names := toolNames(t, einoagent.TrafficAnalysisToolDeps{
 		Findings: f, Notes: f, Lessons: f, Credentials: f,
 	})
 	want := []string{
@@ -107,9 +107,9 @@ func (f *fakeModel) WithTools(_ []*schema.ToolInfo) (model.ToolCallingChatModel,
 	return f, nil
 }
 
-func TestBuildTrackerTools_SandboxAddsRunCommand(t *testing.T) {
+func TestBuildTrafficAnalysisTools_SandboxAddsRunCommand(t *testing.T) {
 	f := allFake{}
-	names := toolNames(t, einoagent.TrackerToolDeps{
+	names := toolNames(t, einoagent.TrafficAnalysisToolDeps{
 		Findings: f, Notes: f, Lessons: f, Credentials: f,
 		Sandbox: fakeSandboxClient{}, MaxTimeoutSeconds: 600,
 	})

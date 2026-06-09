@@ -19,8 +19,8 @@ import (
 // LLM 自由收手，MaxSteps 兜死循环。
 //
 // PreDoneCheck 是可选的前置闸：非 nil 返错时 Execute 拒绝完成（错误透传给 LLM）。
-// 用于 subtask swarm：commander LLM 调 done 时若有 active strikers → 返错强制 commander 先调
-// list_strikers 监控striker 进度，等strikers 全完才能真 done。零值（nil）= 无闸，等价旧行为。
+// 用于 subtask swarm：orchestrator LLM 调 done 时若有 active exploitations → 返错强制 orchestrator 先调
+// list_exploitations 监控exploitation 进度，等exploitations 全完才能真 done。零值（nil）= 无闸，等价旧行为。
 //
 // Sandbox + HunterID 可选——非空时 PreDoneCheck 通过后 best-effort 调 `browser-use release-tab`
 // 关闭本 task 的浏览器 tab（不关 daemon，host 内兄弟 task 继续共享 session）。
@@ -37,7 +37,7 @@ func (a Done) Name() string { return "done" }
 func (a Done) Description() string {
 	return "终止当前任务，args 中可带 reason / summary（供 Inspector / 报告参考）。" +
 		"\n\n【何时调】finding 都写完 + 攻击面已 recon 完 → done。" +
-		"\n【何时不调】commander 有 running striker（PreDoneCheck 会拦截并返结构化错误：含 running 列表 + 行动建议——按错误消息执行，不要 retry done）/ 攻击面未挖完 / 撞到证据未写 finding。" +
+		"\n【何时不调】orchestrator 有 running exploitation（PreDoneCheck 会拦截并返结构化错误：含 running 列表 + 行动建议——按错误消息执行，不要 retry done）/ 攻击面未挖完 / 撞到证据未写 finding。" +
 		"\n【避免空白 done】调前若 read_findings 显示本任务 0 finding，先评估：(a) 真无漏洞 → 写 write_lesson 沉淀'此 host 攻面已穷举无漏洞'再 done；(b) 还能挖 → 继续 ReAct 不调 done。"
 }
 

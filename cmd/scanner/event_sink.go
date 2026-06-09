@@ -13,7 +13,7 @@ import (
 
 // event_sink.go：einoagent.EventSink 的 scanner 实现（阶段B2b）。
 //
-// 每个 agent 过程事件（tool_call / tool_result，含 striker 内部）：
+// 每个 agent 过程事件（tool_call / tool_result，含 exploitation 内部）：
 //  1. 落 conversation message（PG，得 seq，可回看 + 断线重连补历史）
 //  2. publish message JSON 到 redis（实时推 api SSE handler → 前端）
 //

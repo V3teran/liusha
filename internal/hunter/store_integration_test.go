@@ -32,7 +32,7 @@ func TestStore_CreateThenComplete(t *testing.T) {
 	id, err := s.Create(ctx, NewParams{
 		OwnerType: ot,
 		OwnerID:   oid,
-		Role:      "tracker",
+		Role:      "traffic-analysis",
 		Input:     json.RawMessage(`{"window_id":"w1"}`),
 	})
 	if err != nil {
@@ -75,7 +75,7 @@ func TestStore_CreateThenComplete(t *testing.T) {
 func TestStore_SetError(t *testing.T) {
 	ctx := context.Background()
 	s, ot, oid := setup(t)
-	id, err := s.Create(ctx, NewParams{OwnerType: ot, OwnerID: oid, Role: "tracker"})
+	id, err := s.Create(ctx, NewParams{OwnerType: ot, OwnerID: oid, Role: "traffic-analysis"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -100,7 +100,7 @@ func TestStore_SetError(t *testing.T) {
 func TestStore_SetAborted(t *testing.T) {
 	ctx := context.Background()
 	s, ot, oid := setup(t)
-	id, err := s.Create(ctx, NewParams{OwnerType: ot, OwnerID: oid, Role: "tracker"})
+	id, err := s.Create(ctx, NewParams{OwnerType: ot, OwnerID: oid, Role: "traffic-analysis"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -117,7 +117,7 @@ func TestStore_SetAborted(t *testing.T) {
 func TestStore_TerminalIsSticky(t *testing.T) {
 	ctx := context.Background()
 	s, ot, oid := setup(t)
-	id, err := s.Create(ctx, NewParams{OwnerType: ot, OwnerID: oid, Role: "tracker"})
+	id, err := s.Create(ctx, NewParams{OwnerType: ot, OwnerID: oid, Role: "traffic-analysis"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -134,16 +134,16 @@ func TestStore_CreateWithParent(t *testing.T) {
 	ctx := context.Background()
 	s, ot, oid := setup(t)
 
-	parentID, err := s.Create(ctx, NewParams{OwnerType: ot, OwnerID: oid, Role: "tracker"})
+	parentID, err := s.Create(ctx, NewParams{OwnerType: ot, OwnerID: oid, Role: "traffic-analysis"})
 	if err != nil {
 		t.Fatalf("create parent: %v", err)
 	}
 
 	childID, err := s.Create(ctx, NewParams{
-		OwnerType: ot,
-		OwnerID:   oid,
-		Role:      "tracker",
-		CommanderID:  parentID,
+		OwnerType:   ot,
+		OwnerID:     oid,
+		Role:        "traffic-analysis",
+		CommanderID: parentID,
 	})
 	if err != nil {
 		t.Fatalf("create child: %v", err)
@@ -157,7 +157,7 @@ func TestStore_CreateWithParent(t *testing.T) {
 		t.Fatalf("child.CommanderID=%q, want %q", got.CommanderID, parentID)
 	}
 
-	// commander自己 CommanderID 必须为空（独立/根任务）
+	// orchestrator自己 CommanderID 必须为空（独立/根任务）
 	gotParent, err := s.GetByID(ctx, parentID)
 	if err != nil {
 		t.Fatalf("get parent: %v", err)

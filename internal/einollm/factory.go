@@ -6,7 +6,7 @@
 //   - 返回 eino 的 model.ToolCallingChatModel——消费方（ChatModelAgent/deep）直接用 eino 类型，不再包一层
 //
 // ★ per-hunter 独立实例铁律（spike/eino-deep 实测）：For 每次返回**新** ChatModel 实例。
-// eino BindTools 会改 model 内部状态，commander+striker 共享一个实例会被串行化，
+// eino BindTools 会改 model 内部状态，orchestrator+exploitation 共享一个实例会被串行化，
 // 失去并发。装配多 agent 时务必每个 agent 调一次 For 拿独立实例。
 package einollm
 

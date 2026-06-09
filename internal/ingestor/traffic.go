@@ -146,9 +146,9 @@ func (t *Traffic) Run(ctx context.Context) error {
 // handleMessage 处理单条 stream entry：落 http_flow + 按 source 分流是否入主任务。
 //
 // B1 双来源模型：
-//   - source=external（passive 入口）: LookupOrCreate passive_session + flow.Append + enqueue tracker
+//   - source=external（passive 入口）: LookupOrCreate passive_session + flow.Append + enqueue trafficAnalysis
 //   - source=internal（active 容器内 browser-svc.py CDP capture）: hunter.GetByID → owner +
-//     flow.Append（不 enqueue，防自激震荡——active LLM 自己挖的流量不该回头再触发 tracker）
+//     flow.Append（不 enqueue，防自激震荡——active LLM 自己挖的流量不该回头再触发 trafficAnalysis）
 //
 // 不做二次过滤：proxy 端 filter chain 已经把无关流量（静态资源、心跳、
 // websocket、超大 body 等）拦在外面，能进 stream 的都直接处理。
@@ -183,7 +183,7 @@ func (t *Traffic) handleMessage(ctx context.Context, msg redis.XMessage) {
 	}
 }
 
-// handleExternalSnap 处理 passive 入口流量：LookupOrCreate passive_session + 入 tracker 队列。
+// handleExternalSnap 处理 passive 入口流量：LookupOrCreate passive_session + 入 trafficAnalysis 队列。
 func (t *Traffic) handleExternalSnap(ctx context.Context, snap *proxy.TrafficSnapshot) {
 	sess, lkErr := t.passive.LookupOrCreate(ctx, snap.Host, t.passiveTTL)
 	if lkErr != nil {
@@ -209,7 +209,7 @@ func (t *Traffic) handleExternalSnap(ctx context.Context, snap *proxy.TrafficSna
 }
 
 // handleInternalSnap 处理 active 容器内 browser-svc.py 抓的 chromium 真实流量：
-// 反查 hunter→owner 后落双字段 http_flow，但不 enqueue tracker。
+// 反查 hunter→owner 后落双字段 http_flow，但不 enqueue trafficAnalysis。
 //
 // source=internal 唯一来源（B1）：browser-svc.py 持单一 CDP 连接，内建 Network observer 把
 // chromium 的 Document/XHR/Fetch（含真实认证凭证位置）→ POST /internal/v1/flows/ingest →
@@ -217,7 +217,7 @@ func (t *Traffic) handleExternalSnap(ctx context.Context, snap *proxy.TrafficSna
 // browser-svc.py 按 session→tab→hunter 逐请求归属）。
 //
 // 这里反查 hunter 表得 owner_type/owner_id 写双字段（hunter_id 细粒度可追溯 + owner_id 顶层归档）。
-// 不 enqueue：active LLM 自己用浏览器挖的流量回头再触发 tracker 会自激震荡。
+// 不 enqueue：active LLM 自己用浏览器挖的流量回头再触发 trafficAnalysis 会自激震荡。
 // hunter_id 缺失 / 反查失败时丢弃（browser-svc.py 归属异常 / hunter 已被清理）。
 func (t *Traffic) handleInternalSnap(ctx context.Context, snap *proxy.TrafficSnapshot) {
 	if snap.HunterID == "" {
@@ -265,7 +265,7 @@ func (t *Traffic) handleInternalSnap(ctx context.Context, snap *proxy.TrafficSna
 		Str("hunter_id", snap.HunterID).
 		Int64("flow_id", flowID).
 		Str("method", snap.Method).Str("url", snap.URI).
-		Msg("internal 流量已入字典（不触发 tracker）")
+		Msg("internal 流量已入字典（不触发 trafficAnalysis）")
 }
 
 func (t *Traffic) appendFlow(ctx context.Context, passSessID string, snap *proxy.TrafficSnapshot) (int64, error) {
@@ -306,7 +306,7 @@ func (t *Traffic) enqueueMain(ctx context.Context, passSessID string, flowID int
 	tid, err := t.tasks.Create(ctx, hunter.NewParams{
 		OwnerType: owner.Passive,
 		OwnerID:   passSessID,
-		Role:      "tracker",
+		Role:      "traffic-analysis",
 		Input:     payloadInput,
 	})
 	if err != nil {

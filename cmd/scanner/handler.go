@@ -51,7 +51,7 @@ type handler struct {
 	einoFactory *einollm.Factory
 	hunterDeps  hunterbuilder.Deps
 
-	// roles 是 deep 角色定义（agents/*.md 加载），active 路径用 BuildDeepSwarm 装配
+	// roles 是 deep 角色定义（hunters/*.md 加载），active 路径用 BuildDeepSwarm 装配
 	// 主代理（orchestrator）+ 杀伤链子代理。
 	roles []einoagent.RoleDef
 
@@ -110,7 +110,7 @@ func (h handler) handle(ctx context.Context, p worker.Payload) (retErr error) {
 	}()
 
 	// 入口检查：asynq 重试场景（PG status 已非 pending）→ SkipRetry。
-	// 防 commander被重试时新 Registry 空 → PreDoneCheck 永放行 → 旧 PG striker 僵尸 + 矛盾态。
+	// 防 orchestrator被重试时新 Registry 空 → PreDoneCheck 永放行 → 旧 PG exploitation 僵尸 + 矛盾态。
 	// GetByID 错误（PG 短时不可用等）不阻塞——让 SetRunning 走正常错误路径。
 	if run, getErr := h.tasks.GetByID(ctx, p.HunterID); getErr == nil && run.Status != hunter.StatusPending {
 		h.logger.Warn().

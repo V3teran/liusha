@@ -20,13 +20,13 @@ import (
 // outputDirRoot / workdirRoot 是 per-task 文件隔离的根目录。
 //
 // v1.3：单 task 1 容器，所有 /exec 共享 /tmp/sandbox-output（同 task 内跨 exec 复用文件）。
-// v1.4 subtask swarm：commander / striker 共享同一容器（避免账号 cookie 顶掉），但commander / striker 并发跑命令会
-// 互相串扰——modtime 过滤无法分清"commander 刚写的 vs striker 刚写的"；wget -O ./x.html 类命令会互覆。
+// v1.4 subtask swarm：orchestrator / exploitation 共享同一容器（避免账号 cookie 顶掉），但orchestrator / exploitation 并发跑命令会
+// 互相串扰——modtime 过滤无法分清"orchestrator 刚写的 vs exploitation 刚写的"；wget -O ./x.html 类命令会互覆。
 //
 // 隔离设计：
 //   - OUTPUT_DIR = /tmp/sandbox-output/<HunterID>/  → 附件按 task 切，collectAttachments 只扫本 task 子目录
 //   - cwd        = /workspace/<HunterID>/           → LLM 写相对路径自动落到 per-task workdir
-//   - 共享：home 目录（cookies / auth state）、二进制工具 — 这是commander / striker 共享容器的目的
+//   - 共享：home 目录（cookies / auth state）、二进制工具 — 这是orchestrator / exploitation 共享容器的目的
 //
 // task 容器销毁时整个目录树自然消失，无残留泄露风险。
 // var（非 const）便于 server 包内单测用 t.TempDir() override：
@@ -69,7 +69,7 @@ func (s *Server) handleExec(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// per-task 隔离：commander / striker 共享容器但文件互不串扰（同 task 内跨 exec 仍共享 outputDir）
+	// per-task 隔离：orchestrator / exploitation 共享容器但文件互不串扰（同 task 内跨 exec 仍共享 outputDir）
 	outputDir := filepath.Join(outputDirRoot, req.HunterID)
 	workdir := filepath.Join(workdirRoot, req.HunterID)
 	if err := os.MkdirAll(outputDir, 0o777); err != nil {

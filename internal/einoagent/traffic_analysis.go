@@ -1,11 +1,11 @@
 // Package einoagent 用 eino ADK 装配 liusha 的 hunter agent（取代 internal/react 手写循环）。
 //
 // 设计（eino 全面迁移 P3/P4，见 docs/superpowers/specs/2026-06-07-eino-full-migration.md）：
-//   - tracker（passive 单 agent）→ ChatModelAgent + Runner（本文件）
-//   - commander+striker（active）→ deep prebuilt（P4）
+//   - trafficAnalysis（passive 单 agent）→ ChatModelAgent + Runner（本文件）
+//   - orchestrator+exploitation（active）→ deep prebuilt（P4）
 //   - model 由 einollm 工厂产出，**每个 agent 独立实例**（per-hunter 铁律，spike 实测）
 //   - tools 由 einotools 产出（原生 eino tool）
-//   - 终止：tracker 是单 agent，不需显式 done 工具——LLM 不再调工具（输出文字）即自然收尾
+//   - 终止：trafficAnalysis 是单 agent，不需显式 done 工具——LLM 不再调工具（输出文字）即自然收尾
 package einoagent
 
 import (
@@ -20,37 +20,37 @@ import (
 	"github.com/cloudwego/eino/schema"
 )
 
-// defaultTrackerMaxIters：passive 单 agent 迭代上限。30 偏紧——upload→RCE 这类长链条
+// defaultTrafficAnalysisMaxIters：passive 单 agent 迭代上限。30 偏紧——upload→RCE 这类长链条
 // （找上传点→造 webshell→上传→定位→访问→确认执行→write_finding）会在 30 步左右撞顶，
 // 撞顶即 "exceeds max iterations" 还没来得及 write_finding（e2e passive:upload 实测）。
 // 调到 60 给长链条余量；真失控由 owner abort watcher + asynq 超时兜底。
-const defaultTrackerMaxIters = 60
+const defaultTrafficAnalysisMaxIters = 60
 
 // defaultModelRetries 是 ChatModel 调用失败的重试次数（替代 react 的 retry 中间件）。
 // 国产 provider（小米 mimo 等）偶发瞬时 4xx（如「Param Incorrect」）/ 429 / EOF —— e2e 实测
-// 一次瞬时 400 会杀掉整个 tracker run。eino 内建 ModelRetryConfig：默认指数退避（100ms→10s）+
+// 一次瞬时 400 会杀掉整个 trafficAnalysis run。eino 内建 ModelRetryConfig：默认指数退避（100ms→10s）+
 // jitter，重试整轮 ChatModel 调用。MaxRetries=3 → 最多 4 次调用，瞬时错重试即恢复，永久错退避后传播。
 const defaultModelRetries = 3
 
-// TrackerResult 是一次 tracker 运行的产物摘要。
-type TrackerResult struct {
+// TrafficAnalysisResult 是一次 trafficAnalysis 运行的产物摘要。
+type TrafficAnalysisResult struct {
 	FinalText string   // 最终 assistant 文字输出
 	ToolCalls []string // 按顺序调用过的工具名（用于断言/可观测）
 }
 
-// defaultStrikerMaxIters 是 deep sub-agent（striker 等杀伤链阶段）未声明 max_iterations 时的兜底
-// （深挖单点比 passive tracker 多步）。由 deep_swarm.go 装配 sub-agent 时引用。
-const defaultStrikerMaxIters = 120
+// defaultExploitationMaxIters 是 deep sub-agent（exploitation 等杀伤链阶段）未声明 max_iterations 时的兜底
+// （深挖单点比 passive trafficAnalysis 多步）。由 deep_swarm.go 装配 sub-agent 时引用。
+const defaultExploitationMaxIters = 120
 
-// RunTracker 用 eino ChatModelAgent 跑一条 passive 流量（替代 react.Run 的 tracker 路径）。
+// RunTrafficAnalysis 用 eino ChatModelAgent 跑一条 passive 流量（替代 react.Run 的 trafficAnalysis 路径）。
 //
 // m 必须是**独立** ChatModel 实例（per-hunter，见 einollm 包注释铁律）。
-// instruction = 拼好的 system prompt（shared + tracker 段）；flowText = 一条 raw HTTP 流量。
+// instruction = 拼好的 system prompt（shared + trafficAnalysis 段）；flowText = 一条 raw HTTP 流量。
 // middlewares 注入 AgentMiddleware（如历史压缩 NewCompactionMiddleware）；可为 nil。
 // opts 透传给 Runner.Run（如 adk.WithCallbacks 注入计费埋点 handler）。
-func RunTracker(ctx context.Context, m model.ToolCallingChatModel, tools []tool.BaseTool, instruction, flowText string, middlewares []adk.AgentMiddleware, opts ...adk.AgentRunOption) (TrackerResult, error) {
+func RunTrafficAnalysis(ctx context.Context, m model.ToolCallingChatModel, tools []tool.BaseTool, instruction, flowText string, middlewares []adk.AgentMiddleware, opts ...adk.AgentRunOption) (TrafficAnalysisResult, error) {
 	return runSingleAgent(ctx, agentSpec{
-		name: "tracker", desc: "passive 侦察兵：分析一条流量挖漏洞", maxIters: defaultTrackerMaxIters,
+		name: "traffic-analysis", desc: "passive 侦察兵：分析一条流量挖漏洞", maxIters: defaultTrafficAnalysisMaxIters,
 	}, m, tools, instruction, flowText, middlewares, opts...)
 }
 
@@ -62,8 +62,8 @@ type agentSpec struct {
 }
 
 // runSingleAgent 装配 + 跑一个单 ChatModelAgent，消费事件流收集 ToolCalls + 最终文字。
-// tracker / striker 共用此机制（eino 单 agent 不调工具即自然收尾，无需 done）。
-func runSingleAgent(ctx context.Context, spec agentSpec, m model.ToolCallingChatModel, tools []tool.BaseTool, instruction, userText string, middlewares []adk.AgentMiddleware, opts ...adk.AgentRunOption) (TrackerResult, error) {
+// trafficAnalysis / exploitation 共用此机制（eino 单 agent 不调工具即自然收尾，无需 done）。
+func runSingleAgent(ctx context.Context, spec agentSpec, m model.ToolCallingChatModel, tools []tool.BaseTool, instruction, userText string, middlewares []adk.AgentMiddleware, opts ...adk.AgentRunOption) (TrafficAnalysisResult, error) {
 	agent, err := adk.NewChatModelAgent(ctx, &adk.ChatModelAgentConfig{
 		Name:             spec.name,
 		Description:      spec.desc,
@@ -75,7 +75,7 @@ func runSingleAgent(ctx context.Context, spec agentSpec, m model.ToolCallingChat
 		ModelRetryConfig: &adk.ModelRetryConfig{MaxRetries: defaultModelRetries}, // 瞬时 provider 错重试（默认指数退避+jitter）
 	})
 	if err != nil {
-		return TrackerResult{}, fmt.Errorf("build %s agent: %w", spec.name, err)
+		return TrafficAnalysisResult{}, fmt.Errorf("build %s agent: %w", spec.name, err)
 	}
 
 	runner := adk.NewRunner(ctx, adk.RunnerConfig{Agent: agent})
@@ -84,9 +84,9 @@ func runSingleAgent(ctx context.Context, spec agentSpec, m model.ToolCallingChat
 }
 
 // drainAgentEvents 消费 eino AgentEvent 流，收集 assistant 的 ToolCalls + 最终文字。
-// tracker/striker（runSingleAgent）与 deep commander（RunDeepSwarm）共用。
-func drainAgentEvents(iter *adk.AsyncIterator[*adk.AgentEvent], label string) (TrackerResult, error) {
-	var res TrackerResult
+// trafficAnalysis/exploitation（runSingleAgent）与 deep orchestrator（RunDeepSwarm）共用。
+func drainAgentEvents(iter *adk.AsyncIterator[*adk.AgentEvent], label string) (TrafficAnalysisResult, error) {
+	var res TrafficAnalysisResult
 	var lastText strings.Builder
 	for {
 		ev, ok := iter.Next()

@@ -1,6 +1,6 @@
 // Package skill 负责加载 SKILL.md（frontmatter + 正文），返回 Card 描述。
 //
-// hunter 小队架构：tracker（侦察兵）/ commander（指挥官）/ striker（突击手）按 (mode, 是否 commander) 拼 system_prompt_{tracker,commander,striker}.md。
+// hunter 小队架构：trafficAnalysis（侦察兵）/ orchestrator（指挥官）/ exploitation（突击手）按 (mode, 是否 orchestrator) 拼 system_prompt_{trafficAnalysis,orchestrator,exploitation}.md。
 // frontmatter 必填字段：
 //   - name                          机器 ID（与文件夹名一致，如 hunter）
 //   - description                   一句话描述（保留供未来多 skill 时进 catalog 用）

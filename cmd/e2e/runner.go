@@ -74,13 +74,13 @@ func runActiveProfiles(ctx context.Context, profs []activeProfile, apiBase, apiK
 			runs, runErr := agentRunStore.ListByOwner(ctx, "active_scan", eid, 100)
 			unfinished, totalRuns := 0, 0
 			if runErr != nil {
-				// 之前 silent swallow：导致 e2e 看不到 commander 但不知为何。必须 log 出来。
+				// 之前 silent swallow：导致 e2e 看不到 orchestrator 但不知为何。必须 log 出来。
 				logger.Warn().Err(runErr).Str("eid", eid).Msg("ListByOwner(hunter) failed — totalRuns 强制 0 是误报")
 			} else {
-				// active 每次都新建 session——eid 已唯一定位本次 run 全集（commander + spawn 的 strikers）。
+				// active 每次都新建 session——eid 已唯一定位本次 run 全集（orchestrator + spawn 的 exploitations）。
 				// 不再用 startedAt 时间窗过滤 agent_run：dispatched 返回前 server 端 PG now()
-				// 已先于 Go time.Now() 触发，commander run.CreatedAt < startedAt → After() = false
-				// → commander 被误滤 → total_runs=0 → observed 永远 false → e2e 超时不 PASS。
+				// 已先于 Go time.Now() 触发，orchestrator run.CreatedAt < startedAt → After() = false
+				// → orchestrator 被误滤 → total_runs=0 → observed 永远 false → e2e 超时不 PASS。
 				for _, r := range runs {
 					totalRuns++
 					if r.Status == "pending" || r.Status == "running" {

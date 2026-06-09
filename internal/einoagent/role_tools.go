@@ -16,12 +16,12 @@ import (
 
 // ToolBuildCtx 是建工具的运行期上下文（per agent run 注入，LLM 不可控）。
 type ToolBuildCtx struct {
-	Deps   TrackerToolDeps   // store/loader/sandbox
-	Params TrackerToolParams // owner/host/hunter/flow 注入值
+	Deps   TrafficAnalysisToolDeps   // store/loader/sandbox
+	Params TrafficAnalysisToolParams // owner/host/hunter/flow 注入值
 
-	// SpawnStriker 是 commander 专用的 spawn_striker 工具（由 caller 用 BuildSpawnStriker 造好传入）；
-	// 子代理不传（nil），声明了 spawn_striker 也会因 nil 被忽略 → 防递归 spawn。
-	SpawnStriker tool.BaseTool
+	// SpawnExploitation 是 orchestrator 专用的 spawn_exploitation 工具（由 caller 用 BuildSpawnExploitation 造好传入）；
+	// 子代理不传（nil），声明了 spawn_exploitation 也会因 nil 被忽略 → 防递归 spawn。
+	SpawnExploitation tool.BaseTool
 }
 
 // toolBuilder 按运行期上下文造一个工具实例。
@@ -102,12 +102,12 @@ var toolRegistry = map[string]toolBuilder{
 		return einotools.BuildReadVulnSkill(c.Deps.VulnLoader)
 	},
 
-	// commander 专用：spawn_striker 由 caller 造好传入 ctx，注册表只取出
-	"spawn_striker": func(c ToolBuildCtx) (tool.BaseTool, error) {
-		if c.SpawnStriker == nil {
-			return nil, fmt.Errorf("spawn_striker: 未注入（仅 commander 可用）")
+	// orchestrator 专用：spawn_exploitation 由 caller 造好传入 ctx，注册表只取出
+	"spawn_exploitation": func(c ToolBuildCtx) (tool.BaseTool, error) {
+		if c.SpawnExploitation == nil {
+			return nil, fmt.Errorf("spawn_exploitation: 未注入（仅 orchestrator 可用）")
 		}
-		return c.SpawnStriker, nil
+		return c.SpawnExploitation, nil
 	},
 }
 

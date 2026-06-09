@@ -4,10 +4,11 @@
 // 训练范式。要求用户配 yaml 时填 grounding_coord_system 是隐性专业知识——本 registry 自动推断。
 //
 // 4 层级联推断（config.Load 启动期跑）：
-//   Layer 1: cfg.GroundingCoordSystem 显式填了 → 用它（escape hatch）
-//   Layer 2: GuessByModelName(default_model)   → 命中精确（细粒度，模型 prefix）
-//   Layer 3: GuessByBaseURL(base_url)          → vendor 兜底（豆包 endpoint ID 必须）
-//   Layer 4: real_pixels + log WARN             → 兜底防启动失败
+//
+//	Layer 1: cfg.GroundingCoordSystem 显式填了 → 用它（escape hatch）
+//	Layer 2: GuessByModelName(default_model)   → 命中精确（细粒度，模型 prefix）
+//	Layer 3: GuessByBaseURL(base_url)          → vendor 兜底（豆包 endpoint ID 必须）
+//	Layer 4: real_pixels + log WARN             → 兜底防启动失败
 //
 // 设计原则：
 //   - registry 只放**有据可查**的模型/vendor，不瞎猜

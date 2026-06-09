@@ -1,11 +1,15 @@
 // Package notes 实现 hunter 短期工作笔记的 Redis 共享存储。
 //
 // 短期记忆 vs 长期记忆 边界：
+//
 //   - notes (本包)：owner 内同 host 跨 task 共享，TTL 自动过期，不入 PG。
+//
 //   - lesson (internal/lesson)：跨 owner / 按 host 持久化长期经验，PG。
+//
 //   - finding (internal/finding)：漏洞 PoC 结论，PG。
 //
-//  owner 可挂多 host（passive 模式接受任意 host 流量），notes 按
+//     owner 可挂多 host（passive 模式接受任意 host 流量），notes 按
+//
 // (owner_id, host) 二维切分——host A 的 fact 不会污染 host B。
 //
 // key=liusha:note:{owner_id}:{host}，LIST 类型；每条 element 是 JSON bytes

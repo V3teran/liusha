@@ -38,7 +38,7 @@ func TestUsageRecorder_RecordsTokensAndCost(t *testing.T) {
 	sink := &fakeSink{}
 	hid, ot, oid := "hunter-1", "passive_session", "owner-1"
 	h := NewUsageRecorder(sink, fakePricing{perCall: 0.42},
-		llm.CallMeta{HunterID: &hid, OwnerType: &ot, OwnerID: &oid, RouteKey: "tracker"},
+		llm.CallMeta{HunterID: &hid, OwnerType: &ot, OwnerID: &oid, RouteKey: "traffic-analysis"},
 		"xiaomi_mimo", "mimo-v2.5",
 	)
 
@@ -67,7 +67,7 @@ func TestUsageRecorder_RecordsTokensAndCost(t *testing.T) {
 	if g.InTokens != 100 || g.OutTokens != 50 || g.CachedTokens != 20 {
 		t.Errorf("token 映射错: %+v", g)
 	}
-	if g.Provider != "xiaomi_mimo" || g.Model != "mimo-v2.5" || g.Role != "tracker" {
+	if g.Provider != "xiaomi_mimo" || g.Model != "mimo-v2.5" || g.Role != "traffic-analysis" {
 		t.Errorf("provider/model/role 错: %+v", g)
 	}
 	if g.HunterID == nil || *g.HunterID != "hunter-1" || g.OwnerID == nil || *g.OwnerID != "owner-1" {
@@ -86,7 +86,7 @@ func TestUsageRecorder_RecordsTokensAndCost(t *testing.T) {
 
 func TestUsageRecorder_IgnoresNonChatModel(t *testing.T) {
 	sink := &fakeSink{}
-	h := NewUsageRecorder(sink, nil, llm.CallMeta{RouteKey: "tracker"}, "p", "m")
+	h := NewUsageRecorder(sink, nil, llm.CallMeta{RouteKey: "traffic-analysis"}, "p", "m")
 	// 非 ChatModel 组件（如 Tool）不应触发落库
 	info := &callbacks.RunInfo{Component: components.ComponentOfTool}
 	ctx := h.OnStart(context.Background(), info, &model.CallbackInput{})
@@ -98,7 +98,7 @@ func TestUsageRecorder_IgnoresNonChatModel(t *testing.T) {
 
 func TestUsageRecorder_RecordsFailure(t *testing.T) {
 	sink := &fakeSink{}
-	h := NewUsageRecorder(sink, nil, llm.CallMeta{RouteKey: "tracker"}, "xiaomi_mimo", "mimo-v2.5")
+	h := NewUsageRecorder(sink, nil, llm.CallMeta{RouteKey: "traffic-analysis"}, "xiaomi_mimo", "mimo-v2.5")
 	info := chatModelInfo()
 	ctx := h.OnStart(context.Background(), info, &model.CallbackInput{})
 	// ChatModel 调用失败（瞬时 400 等）→ OnError 也落库带 error
@@ -109,14 +109,14 @@ func TestUsageRecorder_RecordsFailure(t *testing.T) {
 	if sink.got.Error == "" || !strings.Contains(sink.got.Error, "Param Incorrect") {
 		t.Errorf("失败行应带 error: %q", sink.got.Error)
 	}
-	if sink.got.Provider != "xiaomi_mimo" || sink.got.Role != "tracker" {
+	if sink.got.Provider != "xiaomi_mimo" || sink.got.Role != "traffic-analysis" {
 		t.Errorf("失败行 provider/role 错: %+v", sink.got)
 	}
 }
 
 func TestUsageRecorder_NilPricingNoCost(t *testing.T) {
 	sink := &fakeSink{}
-	h := NewUsageRecorder(sink, nil, llm.CallMeta{RouteKey: "tracker"}, "p", "m")
+	h := NewUsageRecorder(sink, nil, llm.CallMeta{RouteKey: "traffic-analysis"}, "p", "m")
 	info := chatModelInfo()
 	ctx := h.OnStart(context.Background(), info, &model.CallbackInput{})
 	h.OnEnd(ctx, info, &model.CallbackOutput{TokenUsage: &model.TokenUsage{PromptTokens: 10, CompletionTokens: 5}})

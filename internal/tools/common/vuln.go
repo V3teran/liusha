@@ -1,10 +1,13 @@
 // vuln.go 实现 read_vuln_skill —— Progressive Disclosure 的 Tier 2（漏洞挖掘指南）：
 //
 // Tier 1（user prompt 常驻）：每条流量自动注入"漏洞类型索引"，
-//   每个漏洞一行 name + description（极简列表，无 category 分组）。
+//
+//	每个漏洞一行 name + description（极简列表，无 category 分组）。
 //
 // Tier 2（按需加载）：LLM 按 user_prompt 注入的"漏洞类型索引"判定方向后，调
-//   read_vuln_skill(name="bac")
+//
+//	read_vuln_skill(name="bac")
+//
 // 拿完整 SKILL.md body（漏洞本质 + 挖掘方向 + 判定原则 + 误报排除 + finding 红线）。
 //
 // 与 read_tooling_skill 同模式：常驻索引省 token，详情按需付费，加新漏洞类型
@@ -32,7 +35,6 @@ type ReadVulnSkill struct {
 // Name 返回工具名 "read_vuln_skill"。
 func (a *ReadVulnSkill) Name() string { return "read_vuln_skill" }
 
-//
 // 设计要点：**禁止在 description 里举具体 name 例子**（如 sqli/xss/ssrf）——
 // 实测 LLM 会把例子当成"可用 name"瞎调（5/8 agent_run 中招），污染 Progressive Disclosure 单一来源。
 // 可用 name 完全由 user prompt 段「可用漏洞挖掘指南索引」（buildVulnCatalog 渲染）提供。

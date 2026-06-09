@@ -14,7 +14,7 @@ import (
 // 问题：run_command（EnhancedInvokableTool）返回 ToolResult 含截图 image part，eino 默认把它放进
 // tool message。但小米 mimo 等国产 provider 校验 tool-role image_url part 要求每 part 带 text →
 // 400「Param Incorrect: `text` is not set」（确定性，重试救不了）。active e2e 实测：截图缺失
-// 把 commander 的 browser-use 登录打瘫（文本盲打）。
+// 把 orchestrator 的 browser-use 登录打瘫（文本盲打）。
 //
 // 解法（react openai_compat.go:151-159 已验证不 400）：图**不留 tool message，转投紧随的 user message**
 // （OpenAI 标准位）。本 middleware：
@@ -22,7 +22,7 @@ import (
 //   - BeforeChatModel：把 pending 图 flush 成 user message（UserInputMultiContent）插 state.Messages
 //   - supportsVision=false：抽走 image part 直接丢弃（仅留文本占位，run_command Files 已标 image=true）
 //
-// 每个 agent run 一个独立实例（闭包持 pending + mutex）；并发 striker 各自独立，无竞争。
+// 每个 agent run 一个独立实例（闭包持 pending + mutex）；并发 exploitation 各自独立，无竞争。
 // 同一 agent 内多 tool call 并行 → pending 加锁。
 
 // NewVisionRelayMiddleware 造截图回灌 middleware。supportsVision 决定回灌（true）或丢弃降级（false）。

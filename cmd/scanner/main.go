@@ -6,11 +6,11 @@
 //	  3. healthz HTTP；graceful shutdown
 //
 // **部署约束：scanner 当前是单实例**。subtask swarm 用 in-process parentRegistries
-// (sync.Map) 持有commander的 Registry + striker goroutine——commander一旦被 asynq 路由到本进程，
-// 它派的所有striker也只在本进程内跑（共享 ctx 树 + sandbox 容器 + WaitAll 清理）。
+// (sync.Map) 持有orchestrator的 Registry + exploitation goroutine——orchestrator一旦被 asynq 路由到本进程，
+// 它派的所有exploitation也只在本进程内跑（共享 ctx 树 + sandbox 容器 + WaitAll 清理）。
 // 多实例部署需先实现 Registry 跨进程协同（如 Redis-backed Registry）才能解锁。
-// active commander在 enqueue 时已设 asynq.MaxRetry(0)，crash 后不重试——配合本约束
-// 避免"commander 在 A 实例 crash → asynq retry 给 B → B 看不到 A 内存的 striker Registry"僵尸场景。
+// active orchestrator在 enqueue 时已设 asynq.MaxRetry(0)，crash 后不重试——配合本约束
+// 避免"orchestrator 在 A 实例 crash → asynq retry 给 B → B 看不到 A 内存的 exploitation Registry"僵尸场景。
 package main
 
 import (
@@ -213,11 +213,11 @@ func main() {
 		LessonsLimit:    cfg.Session.LessonsLimitInPrompt,
 	}
 
-	// deep 角色加载（agents/*.md）：active 路径用 deep 装配主代理 + 杀伤链子代理。
+	// deep 角色加载（hunters/*.md）：active 路径用 deep 装配主代理 + 杀伤链子代理。
 	// 解析失败 / 无 orchestrator → fail-fast（active 扫描会无法装配 deep）。
 	roles, err := einoagent.LoadRoles(cfg.Hunters.Root)
 	if err != nil {
-		logger.Fatal().Err(err).Str("dir", cfg.Hunters.Root).Msg("角色加载失败——active 走 deep 需 agents/*.md，fail-fast")
+		logger.Fatal().Err(err).Str("dir", cfg.Hunters.Root).Msg("角色加载失败——active 走 deep 需 hunters/*.md，fail-fast")
 	} else {
 		roleIDs := make([]string, 0, len(roles))
 		for _, r := range roles {

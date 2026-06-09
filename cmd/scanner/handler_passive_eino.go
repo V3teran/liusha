@@ -15,12 +15,12 @@ import (
 )
 
 // abortPollInterval 是 eino passive 路径轮询 owner 中止状态的间隔。
-// （react 路径走 cfg.OnAbort step 内回调；eino RunTracker 无 step 钩子，改后台 watcher + cancel ctx。）
+// （react 路径走 cfg.OnAbort step 内回调；eino RunTrafficAnalysis 无 step 钩子，改后台 watcher + cancel ctx。）
 const abortPollInterval = 5 * time.Second
 
 // handlePassiveEino 是 handlePassive 的 eino 版（默认路径；LIUSHA_USE_REACT=1 才切回旧 react）：
-// einollm.For(tracker) 独立 model + einoagent.BuildTrackerTools 13 工具 + hunter prompt 资产
-// → einoagent.RunTracker（ChatModelAgent + Runner）替代 react.Run。
+// einollm.For(trafficAnalysis) 独立 model + einoagent.BuildTrafficAnalysisTools 13 工具 + hunter prompt 资产
+// → einoagent.RunTrafficAnalysis（ChatModelAgent + Runner）替代 react.Run。
 //
 // 与 react 路径共享：sandbox 生命周期、prompt 资产、stores、owner 中止语义。
 // gap（待后续 eino middleware 增量补）：LLM 调用计费 instrument、inspector terminate/hints、history 压缩。
@@ -39,7 +39,7 @@ func (h handler) handlePassiveEino(ctx context.Context, p worker.Payload, entryp
 	ot, oid := p.OwnerType, p.OwnerID
 
 	// per-hunter 独立 eino ChatModel（铁律）
-	model, err := h.einoFactory.For(ctx, "tracker")
+	model, err := h.einoFactory.For(ctx, "traffic-analysis")
 	if err != nil {
 		return h.failTask(ctx, p.HunterID, err)
 	}
@@ -82,7 +82,7 @@ func (h handler) handlePassiveEino(ctx context.Context, p worker.Payload, entryp
 		Sandbox:         sandboxClient,
 	}
 
-	tools, err := einoagent.BuildTrackerTools(einoagent.TrackerToolDeps{
+	tools, err := einoagent.BuildTrafficAnalysisTools(einoagent.TrafficAnalysisToolDeps{
 		Findings:          h.findings,
 		Notes:             h.notes,
 		Lessons:           h.lessons,
@@ -93,7 +93,7 @@ func (h handler) handlePassiveEino(ctx context.Context, p worker.Payload, entryp
 		Sandbox:           sandboxClient,
 		MaxTimeoutSeconds: h.cfg.Toolruntime.StepToolTimeoutSeconds,
 		TailBytes:         h.cfg.Sandbox.RunTailBytes,
-	}, einoagent.TrackerToolParams{
+	}, einoagent.TrafficAnalysisToolParams{
 		OwnerType: ot,
 		OwnerID:   oid,
 		HunterID:  tid,
@@ -110,16 +110,16 @@ func (h handler) handlePassiveEino(ctx context.Context, p worker.Payload, entryp
 	// per-run 中间件 + 计费 callback：复用 einoRunOpts（与 active deep 路径同源）——
 	// compaction（防 context 爆）+ tool_invocation 遥测 + 截图回灌 + llm_invocation 计费。
 	// ★ 早期 passive handler 手工只挂了 compaction + 计费，漏了 ToolRecorder（→ tool_invocation
-	// 不落库）和 VisionRelay（→ tracker 跑 run_command 截图会 mimo 400）。统一走 einoRunOpts 补齐。
-	mws, opts := h.einoRunOpts(ctx, tid, ot, oid, "tracker", p.ConversationID)
+	// 不落库）和 VisionRelay（→ trafficAnalysis 跑 run_command 截图会 mimo 400）。统一走 einoRunOpts 补齐。
+	mws, opts := h.einoRunOpts(ctx, tid, ot, oid, "traffic-analysis", p.ConversationID)
 
 	// owner 中止 watcher：react 路径靠 step 内 cfg.OnAbort；eino 无 step 钩子，
-	// 改后台轮询 passive_session.Status，非 active 即 cancel ctx 让 RunTracker 自然停。
+	// 改后台轮询 passive_session.Status，非 active 即 cancel ctx 让 RunTrafficAnalysis 自然停。
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	go h.watchAbort(runCtx, cancel, oid)
 
-	res, err := einoagent.RunTracker(runCtx, model, tools, instruction, userPrompt, mws, opts...)
+	res, err := einoagent.RunTrafficAnalysis(runCtx, model, tools, instruction, userPrompt, mws, opts...)
 	if err != nil {
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			return h.abortTask(ctx, p.HunterID, "ctx "+err.Error())
@@ -138,7 +138,7 @@ func (h handler) handlePassiveEino(ctx context.Context, p worker.Payload, entryp
 	return h.tasks.SetDone(ctx, p.HunterID, out)
 }
 
-// watchAbort 后台轮询 owner（passive_session）中止状态；非 active 即 cancel，让 RunTracker 停。
+// watchAbort 后台轮询 owner（passive_session）中止状态；非 active 即 cancel，让 RunTrafficAnalysis 停。
 func (h handler) watchAbort(ctx context.Context, cancel context.CancelFunc, ownerID string) {
 	ticker := time.NewTicker(abortPollInterval)
 	defer ticker.Stop()
@@ -152,7 +152,7 @@ func (h handler) watchAbort(ctx context.Context, cancel context.CancelFunc, owne
 				continue // 短时不可用：下个 tick 再查，不误杀
 			}
 			if sess.Status != passivesession.StatusActive {
-				h.logger.Info().Str("owner_id", ownerID).Msg("owner 中止，cancel eino tracker")
+				h.logger.Info().Str("owner_id", ownerID).Msg("owner 中止，cancel eino trafficAnalysis")
 				cancel()
 				return
 			}

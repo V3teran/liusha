@@ -30,7 +30,7 @@ type ReadNotes struct {
 func (a *ReadNotes) Name() string { return "read_notes" }
 
 func (a *ReadNotes) Description() string {
-	return "读取本次扫描（owner）共享笔记板——与同 host 其他 agent task（tracker / commander / striker）共享的过程性事实。" +
+	return "读取本次扫描（owner）共享笔记板——与同 host 其他 agent task（trafficAnalysis / orchestrator / exploitation）共享的过程性事实。" +
 		"读到的内容包括：目标实例当前怪癖、扫描中发现的小惊喜、失败死路。" +
 		"owner 关闭即过期，不跨次扫描。"
 }
@@ -65,7 +65,7 @@ func (a *WriteNote) Name() string { return "write_note" }
 //   - note：本次扫描的过程性事实（短期，owner 关闭即过期）
 //   - lesson：跨次扫描的长期经验
 func (a *WriteNote) Description() string {
-	return "写一条过程性事实到本 (owner + host) 信息黑板。passive 共享给同 host 后续 tracker；active 用作长任务 step 间外置记忆（防 ReAct 滑窗压缩丢早期决策）。owner 关闭即过期。" +
+	return "写一条过程性事实到本 (owner + host) 信息黑板。passive 共享给同 host 后续 trafficAnalysis；active 用作长任务 step 间外置记忆（防 ReAct 滑窗压缩丢早期决策）。owner 关闭即过期。" +
 		"\n\n【必写】仅适合 note 的内容：" +
 		"\n- 目标实例当前怪癖（如『强制 security=impossible 需 cookie 覆盖』）" +
 		"\n- 待深挖的线索：暴露端口、可疑 endpoint、奇怪报错" +

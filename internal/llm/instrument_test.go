@@ -95,7 +95,7 @@ func TestInstrument_AppendsCallOnSuccess(t *testing.T) {
 		HunterID:  &tid,
 		OwnerType: &ot,
 		OwnerID:   &oid,
-		RouteKey:  "tracker",
+		RouteKey:  "traffic-analysis",
 	}, fixedPricing{cost: 0.0042})
 
 	res, err := g.Generate(context.Background(), nil, nil)
@@ -130,8 +130,8 @@ func TestInstrument_AppendsCallOnSuccess(t *testing.T) {
 	if c.OwnerID == nil || *c.OwnerID != "owner-1" {
 		t.Fatalf("owner id: %v", c.OwnerID)
 	}
-	if c.Role != "tracker" {
-		t.Fatalf("expected role=tracker, got %q", c.Role)
+	if c.Role != "traffic-analysis" {
+		t.Fatalf("expected role=trafficAnalysis, got %q", c.Role)
 	}
 }
 
@@ -193,7 +193,7 @@ func TestInstrument_CostCalculatedFromPricing(t *testing.T) {
 	}
 	sink := &fakeSink{}
 	pr := &recordingPricing{ret: 0.0123}
-	g := Instrument(inner, sink, CallMeta{RouteKey: "tracker"}, pr)
+	g := Instrument(inner, sink, CallMeta{RouteKey: "traffic-analysis"}, pr)
 	if _, err := g.Generate(context.Background(), nil, nil); err != nil {
 		t.Fatal(err)
 	}
@@ -221,7 +221,7 @@ func TestInstrument_LatencyMeasured(t *testing.T) {
 		},
 	}
 	sink := &fakeSink{}
-	g := Instrument(inner, sink, CallMeta{RouteKey: "tracker"}, fixedPricing{cost: 0})
+	g := Instrument(inner, sink, CallMeta{RouteKey: "traffic-analysis"}, fixedPricing{cost: 0})
 	if _, err := g.Generate(context.Background(), nil, nil); err != nil {
 		t.Fatal(err)
 	}
@@ -233,7 +233,7 @@ func TestInstrument_LatencyMeasured(t *testing.T) {
 
 func TestInstrument_RouteKeyWritten(t *testing.T) {
 	t.Parallel()
-	cases := []string{"tracker", "commander", "striker", "inspector"}
+	cases := []string{"traffic-analysis", "orchestrator", "exploitation", "inspector"}
 	for _, rk := range cases {
 		rk := rk
 		t.Run(rk, func(t *testing.T) {
@@ -267,7 +267,7 @@ func TestInstrument_SinkErrorDoesNotBlockGenerate(t *testing.T) {
 		},
 	}
 	sink := &fakeSink{appendErr: errors.New("db down")}
-	g := Instrument(inner, sink, CallMeta{RouteKey: "tracker"}, fixedPricing{cost: 0})
+	g := Instrument(inner, sink, CallMeta{RouteKey: "traffic-analysis"}, fixedPricing{cost: 0})
 
 	res, err := g.Generate(context.Background(), nil, nil)
 	if err != nil {

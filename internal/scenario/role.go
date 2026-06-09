@@ -1,11 +1,11 @@
 // Package scenario 实现「场景 role」——用户在前端对话选的扫描场景（Web 渗透 / CTF / 被动侦察…）。
 //
-// 与 einoagent 的杀伤链角色（agents/*.md：commander orchestrator + striker subagent，deep 装配用）
+// 与 einoagent 的杀伤链角色（hunters/*.md：orchestrator 主代理 + reconnaissance/exploitation subagent，deep 装配用）
 // 正交（见记忆 project_phaseb_sse_arch / reference_eino_vs_adk 的两层角色理解）：
-//   - 场景 role（本包，roles/*.md）：换主代理的人设侧重 + 决定 active/passive 模式，**不改杀伤链结构**
-//   - 杀伤链 role（einoagent，agents/*.md）：deep 的固定 sub-agent 模板，所有场景共用
+//   - 场景 role（本包，scenarios/*.md）：换主代理的人设侧重 + 决定 active/passive 模式，**不改杀伤链结构**
+//   - 杀伤链 role（einoagent，hunters/*.md）：deep 的固定 sub-agent 模板，所有场景共用
 //
-// 动态加载：扫 roles/*.md，frontmatter 元信息 + body 人设 addendum（注入 commander/tracker prompt）。
+// 动态加载：扫 scenarios/*.md，frontmatter 元信息 + body 人设 addendum（注入 orchestrator/traffic-analysis prompt）。
 // 借鉴 CyberStrikeAI 的 roles 理念（场景人设），实现自研（frontmatter 字段 liusha 自有）。
 package scenario
 
@@ -25,9 +25,9 @@ import (
 type Mode string
 
 const (
-	// ModeActive：对话发起，deep 编排（commander + 杀伤链 sub-agents）。
+	// ModeActive：对话发起，deep 编排（orchestrator + 杀伤链 sub-agents）。
 	ModeActive Mode = "active"
-	// ModePassive：流量自动驱动，tracker 单 agent，不对话。
+	// ModePassive：流量自动驱动，trafficAnalysis 单 agent，不对话。
 	ModePassive Mode = "passive"
 )
 

@@ -15,19 +15,19 @@ import (
 	"github.com/V3teran/liusha/internal/worker"
 )
 
-// handleActiveEino 是 handleActive 的 eino 版（默认路径；LIUSHA_USE_REACT=1 才切回旧 react）。
+// handleActiveEino 是 active 扫描的唯一入口（旧 react 退路已删）。
 //
-// 用 eino deep prebuilt 装配：commander（orchestrator）+ 杀伤链子代理（striker/...），角色由
-// agents/*.md 动态加载（h.roles）。commander 通过 deep 内建 task 工具按攻击面派活给子代理；
+// 用 eino deep prebuilt 装配：orchestrator 主代理 + 子代理（reconnaissance/exploitation），角色由
+// hunters/*.md 动态加载（h.roles）。orchestrator 通过 deep 内建 task 工具按攻击面派活给子代理；
 // 子代理串行（杀伤链本串行），子代理内部多工具并行（ToolsNode）。所有 agent 共享同一 ChatModel
 // （per-model 铁律已作废，实测共享并发安全）+ 同一 sandbox 容器。
 //
-// 与旧 spawn_striker 路径的差异：
-//   - 派活机制：deep 内建 task 工具，替代自定义 spawn_striker（删 spawn.go 依赖）
-//   - 子代理是 deep 临时一次性 agent，不再为每个 striker 建独立 hunter 行；finding/tool_invocation
-//     落 commander 的 hunter_id（用户已认可 hunter_id=commander 的 deep 语义）
+// 与旧 spawn 派活路径的差异：
+//   - 派活机制：deep 内建 task 工具，替代自定义 spawn（删 spawn.go 依赖）
+//   - 子代理是 deep 临时一次性 agent，不再为每个子代理建独立 hunter 行；finding/tool_invocation
+//     落 orchestrator 的 hunter_id（用户已认可 hunter_id=orchestrator 的 deep 语义）
 //   - 计费：单 UsageRecorder callback 挂顶层 runner，经 ctx 传播到子代理模型调用（task_tool
-//     透传 ctx）；子代理共享 commander 的 model，故成本归集到 commander 维度准确
+//     透传 ctx）；子代理共享 orchestrator 的 model，故成本归集到 orchestrator 维度准确
 func (h handler) handleActiveEino(ctx context.Context, p worker.Payload, entrypoint json.RawMessage) error {
 	var ep struct {
 		Brief string `json:"brief"`
@@ -49,32 +49,32 @@ func (h handler) handleActiveEino(ctx context.Context, p worker.Payload, entrypo
 		}
 	}
 
-	// deep 角色（agents/*.md 加载）：恰一个 orchestrator（commander）+ ≥1 子代理。
+	// deep 角色（hunters/*.md 加载）：恰一个 orchestrator + ≥1 子代理。
 	orchestrator, err := einoagent.Orchestrator(h.roles)
 	if err != nil {
 		return h.failTask(ctx, p.HunterID, fmt.Errorf("deep 角色装配: %w", err))
 	}
 	subAgents := einoagent.SubAgents(h.roles)
 	if len(subAgents) == 0 {
-		return h.failTask(ctx, p.HunterID, fmt.Errorf("deep 角色装配: 无子代理（agents/ 至少需一个 kind=subagent）"))
+		return h.failTask(ctx, p.HunterID, fmt.Errorf("deep 角色装配: 无子代理（hunters/ 至少需一个 kind=subagent）"))
 	}
-	// 组装各角色的完整 system prompt（shared/striker 资产 + 角色 md body）。
+	// 组装各角色的完整 system prompt（shared/exploitation 资产 + 角色 md body）。
 	orchestrator.SystemPrompt = composeOrchestratorInstruction(orchestrator)
-	// 阶段C：注入用户选的场景人设（web 渗透等）到 commander。空/未匹配则不注入（通用扫描）。
+	// 阶段C：注入用户选的场景人设（web 渗透等）到 orchestrator。空/未匹配则不注入（通用扫描）。
 	if scen, ok := scenario.ByID(h.scenarioRoles, p.ScenarioID); ok && scen.SystemPrompt != "" {
 		orchestrator.SystemPrompt += "\n\n" + scen.SystemPrompt
-		h.logger.Info().Str("scenario", scen.ID).Str("hunter_id", p.HunterID).Msg("注入场景人设到 commander")
+		h.logger.Info().Str("scenario", scen.ID).Str("hunter_id", p.HunterID).Msg("注入场景人设到 orchestrator")
 	}
 	for i := range subAgents {
 		subAgents[i].SystemPrompt = composeSubAgentInstruction(subAgents[i])
 	}
 
-	model, err := h.einoFactory.For(ctx, "commander") // commander + 所有子代理共享此 model
+	model, err := h.einoFactory.For(ctx, "orchestrator") // orchestrator + 所有子代理共享此 model
 	if err != nil {
 		return h.failTask(ctx, p.HunterID, err)
 	}
 
-	// commander + 子代理共享 sandbox 容器；defer Destroy 覆盖正常/异常/panic。
+	// orchestrator + 子代理共享 sandbox 容器；defer Destroy 覆盖正常/异常/panic。
 	sandboxClient, err := h.launcher.Spawn(ctx, p.HunterID)
 	if err != nil {
 		return h.failTask(ctx, p.HunterID, fmt.Errorf("launcher.Spawn(%s): %w", p.HunterID, err))
@@ -89,16 +89,16 @@ func (h handler) handleActiveEino(ctx context.Context, p worker.Payload, entrypo
 	}()
 
 	toolDeps := h.einoToolDeps(sandboxClient)
-	// 所有 agent（commander + 子代理）的工具都用 commander 的注入值建（owner/host/hunter=commander）。
-	// 子代理写 finding/note 落 commander hunter_id（deep 临时子代理无独立 id，用户已认可）。
-	params := einoagent.TrackerToolParams{OwnerType: ot, OwnerID: oid, HunterID: tid, Host: virtualHost}
+	// 所有 agent（orchestrator + 子代理）的工具都用 orchestrator 的注入值建（owner/host/hunter=orchestrator）。
+	// 子代理写 finding/note 落 orchestrator hunter_id（deep 临时子代理无独立 id，用户已认可）。
+	params := einoagent.TrafficAnalysisToolParams{OwnerType: ot, OwnerID: oid, HunterID: tid, Host: virtualHost}
 
 	// per-run 中间件（压缩 / tool_invocation 遥测 / 截图回灌）+ 计费 callback。
-	// 中间件挂到 commander 与所有子代理（截图回灌尤其需在跑 run_command 的子代理上）。
+	// 中间件挂到 orchestrator 与所有子代理（截图回灌尤其需在跑 run_command 的子代理上）。
 	// 计费 callback 经顶层 runner ctx 传播到子代理模型调用。
-	mws, opts := h.einoRunOpts(ctx, tid, ot, oid, "commander", p.ConversationID)
+	mws, opts := h.einoRunOpts(ctx, tid, ot, oid, "orchestrator", p.ConversationID)
 
-	commander, err := einoagent.BuildDeepSwarm(ctx, einoagent.DeepSwarmConfig{
+	swarm, err := einoagent.BuildDeepSwarm(ctx, einoagent.DeepSwarmConfig{
 		Model:        model,
 		Orchestrator: orchestrator,
 		SubAgents:    subAgents,
@@ -111,13 +111,13 @@ func (h handler) handleActiveEino(ctx context.Context, p worker.Payload, entrypo
 		return h.failTask(ctx, p.HunterID, fmt.Errorf("BuildDeepSwarm: %w", err))
 	}
 
-	// commander 的 user message：复用 buildUserPrompt 注入 brief + 流量/finding/lesson/索引段。
-	commanderPrompt := hunterbuilder.BuildUserPrompt(ctx, h.hunterDeps, skill.BuilderParams{
+	// orchestrator 的 user message：复用 buildUserPrompt 注入 brief + 流量/finding/lesson/索引段。
+	orchestratorPrompt := hunterbuilder.BuildUserPrompt(ctx, h.hunterDeps, skill.BuilderParams{
 		OwnerType: ot, OwnerID: oid, HunterID: tid,
 		Host: virtualHost, Mode: "active", Brief: ep.Brief, Sandbox: sandboxClient,
 	})
 
-	// active_scan 终态收尾（commander 退出后无人收尾会卡 'active'）。
+	// active_scan 终态收尾（orchestrator 退出后无人收尾会卡 'active'）。
 	finalizeScan := func(complete bool, reason string) {
 		fctx, fcancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer fcancel()
@@ -133,12 +133,12 @@ func (h handler) handleActiveEino(ctx context.Context, p worker.Payload, entrypo
 		}
 	}
 
-	// owner 中止 watcher：轮询 active_scan.Status，非 active 即 cancel commander。
+	// owner 中止 watcher：轮询 active_scan.Status，非 active 即 cancel orchestrator。
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	go h.watchAbortActive(runCtx, cancel, oid)
 
-	res, err := einoagent.RunDeepSwarm(runCtx, commander, commanderPrompt, opts...)
+	res, err := einoagent.RunDeepSwarm(runCtx, swarm, orchestratorPrompt, opts...)
 	if err != nil {
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			finalizeScan(false, "ctx "+err.Error())
@@ -150,7 +150,7 @@ func (h handler) handleActiveEino(ctx context.Context, p worker.Payload, entrypo
 
 	out, err := json.Marshal(map[string]any{
 		"engine":     "eino-deep",
-		"role":       "commander",
+		"role":       "orchestrator",
 		"tool_calls": res.ToolCalls,
 		"final_text": res.FinalText,
 	})
@@ -162,18 +162,18 @@ func (h handler) handleActiveEino(ctx context.Context, p worker.Payload, entrypo
 	return h.tasks.SetDone(ctx, p.HunterID, out)
 }
 
-// composeOrchestratorInstruction 组装 commander 完整 system prompt：
+// composeOrchestratorInstruction 组装 orchestrator 完整 system prompt：
 // shared 段（域上下文/黑板/finding 格式）+ 角色 md body（deep-native 编排 charter）。
-// 不用 SystemPromptFor("active",true)——那是 spawn_striker 机制的 prompt，与 deep task 派活冲突。
+// 不用 SystemPromptFor("active",true)——那是 spawn_exploitation 机制的 prompt，与 deep task 派活冲突。
 func composeOrchestratorInstruction(role einoagent.RoleDef) string {
 	return hunterbuilder.SharedSystemPrompt() + "\n\n" + role.SystemPrompt
 }
 
 // composeSubAgentInstruction 组装子代理完整 system prompt：
-// 复用 SystemPromptFor("active",false)（shared + striker addendum，与 spawn/deep 机制无关的深挖
+// 复用 SystemPromptFor("active",false)（shared + exploitation addendum，与 spawn/deep 机制无关的深挖
 // 方法论）+ 角色 md body（被 task 派下来、聚焦单攻击面的框架）。
-// 注：当前仅 striker 一个子代理；后续加 recon/triage 等杀伤链阶段时，应让各角色 md 自带完整
-// charter 并在此按 role.ID 分流（届时 react 退路若已删，可把 striker addendum 也迁进 md）。
+// 注：当前仅 exploitation 一个子代理；后续加 recon/triage 等杀伤链阶段时，应让各角色 md 自带完整
+// charter 并在此按 role.ID 分流（届时 react 退路若已删，可把 exploitation addendum 也迁进 md）。
 func composeSubAgentInstruction(role einoagent.RoleDef) string {
 	return hunterbuilder.SystemPromptFor("active", false) + "\n\n" + role.SystemPrompt
 }
@@ -192,7 +192,7 @@ func (h handler) watchAbortActive(ctx context.Context, cancel context.CancelFunc
 				continue
 			}
 			if sc.Status != activescan.StatusActive {
-				h.logger.Info().Str("scan_id", ownerID).Msg("owner 中止，cancel eino deep commander")
+				h.logger.Info().Str("scan_id", ownerID).Msg("owner 中止，cancel eino deep orchestrator")
 				cancel()
 				return
 			}

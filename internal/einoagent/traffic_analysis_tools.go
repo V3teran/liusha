@@ -38,9 +38,9 @@ type (
 	}
 )
 
-// TrackerToolDeps 是装配 tracker eino 工具集所需的依赖。
+// TrafficAnalysisToolDeps 是装配 trafficAnalysis eino 工具集所需的依赖。
 // 由 cmd/scanner composition root 注入（与旧 hunter.Deps 同源 store）。
-type TrackerToolDeps struct {
+type TrafficAnalysisToolDeps struct {
 	Findings    FindingStore
 	Notes       notes.Store
 	Lessons     LessonStore
@@ -60,8 +60,8 @@ type TrackerToolDeps struct {
 	TailBytes         int // run_command stdout/stderr 截尾
 }
 
-// TrackerToolParams 是 per-run 注入值（LLM 不可控，防串库）。
-type TrackerToolParams struct {
+// TrafficAnalysisToolParams 是 per-run 注入值（LLM 不可控，防串库）。
+type TrafficAnalysisToolParams struct {
 	OwnerType string
 	OwnerID   string
 	HunterID  string
@@ -69,12 +69,12 @@ type TrackerToolParams struct {
 	FlowID    int64
 }
 
-// BuildTrackerTools 装配 tracker（passive 单 agent）的工具集。
+// BuildTrafficAnalysisTools 装配 trafficAnalysis（passive 单 agent）的工具集。
 //
-// deep active 路径（commander/striker 等杀伤链角色）改走 role_tools.go 的 BuildRoleTools——
+// deep active 路径（orchestrator/exploitation 等杀伤链角色）改走 role_tools.go 的 BuildRoleTools——
 // 工具由角色 md 的 tools 清单声明、运行时注入身份建实例，不再用本函数。故这里只服务 passive
-// tracker：固定工具集，无 list/view_flow（passive 单流量驱动不需枚举站点流量）、无 spawn。
-func BuildTrackerTools(deps TrackerToolDeps, p TrackerToolParams) ([]tool.BaseTool, error) {
+// trafficAnalysis：固定工具集，无 list/view_flow（passive 单流量驱动不需枚举站点流量）、无 spawn。
+func BuildTrafficAnalysisTools(deps TrafficAnalysisToolDeps, p TrafficAnalysisToolParams) ([]tool.BaseTool, error) {
 	var tools []tool.BaseTool
 	var errs []error
 	add := func(bt tool.BaseTool, err error) {
@@ -98,7 +98,7 @@ func BuildTrackerTools(deps TrackerToolDeps, p TrackerToolParams) ([]tool.BaseTo
 	// done：prompt 是 react/eino 共享资产、深度依赖 done 收尾——不注册会「tool done not found」（e2e 实测）。
 	add(einotools.BuildDone())
 
-	// 流量字典：tracker 只重放当前流量，不枚举站点（list/view 是 active 的事）。
+	// 流量字典：trafficAnalysis 只重放当前流量，不枚举站点（list/view 是 active 的事）。
 	if deps.Flows != nil {
 		add(einotools.BuildReplayFlow(deps.Flows, p.OwnerType, p.OwnerID, p.HunterID))
 	}
@@ -115,7 +115,7 @@ func BuildTrackerTools(deps TrackerToolDeps, p TrackerToolParams) ([]tool.BaseTo
 	}
 
 	if len(errs) > 0 {
-		return nil, fmt.Errorf("build tracker tools: %w", errors.Join(errs...))
+		return nil, fmt.Errorf("build trafficAnalysis tools: %w", errors.Join(errs...))
 	}
 	return tools, nil
 }

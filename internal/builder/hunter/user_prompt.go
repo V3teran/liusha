@@ -22,9 +22,9 @@ func buildUserPrompt(ctx context.Context, deps Deps, p skill.BuilderParams) stri
 	var b strings.Builder
 
 	// 字段触发渲染（不再 Mode-driven）：
-	//   - RequestHeaders 非空或 URL 非空 → 渲染 raw HTTP 段（tracker / 带 flow_id 的 striker）
-	//   - Brief 非空 → 渲染 brief 段（commander / striker）
-	// 两者可并存：tracker spawn striker 带 flow_id 时，striker 同时看到 raw HTTP + brief。
+	//   - RequestHeaders 非空或 URL 非空 → 渲染 raw HTTP 段（trafficAnalysis / 带 flow_id 的 exploitation）
+	//   - Brief 非空 → 渲染 brief 段（orchestrator / exploitation）
+	// 两者可并存：trafficAnalysis spawn exploitation 带 flow_id 时，exploitation 同时看到 raw HTTP + brief。
 	if len(p.RequestHeaders) > 0 || p.URL != "" {
 		// 段 0（0060+ 流量字典）：本流量已入 http_flow 表，告诉 LLM flow_id 让它能用
 		// replay_flow(id=N, modifications={...}) 改参数重发——比手写 curl 准 100 倍，
@@ -62,15 +62,15 @@ func buildUserPrompt(ctx context.Context, deps Deps, p skill.BuilderParams) stri
 		writeBodyBlock(&b, p.ResponseBody, bodyLimit)
 	}
 	if p.Brief != "" {
-		// 段 3 (commander 独有) 或 段 1 (striker 无 flow): 自然语言 brief。
-		// striker brief 是 commander LLM 写的指令；commander 同时传 flow_id 时，本段位于流量段之后。
+		// 段 3 (orchestrator 独有) 或 段 1 (exploitation 无 flow): 自然语言 brief。
+		// exploitation brief 是 orchestrator LLM 写的指令；orchestrator 同时传 flow_id 时，本段位于流量段之后。
 		if b.Len() > 0 {
 			b.WriteString("\n\n")
 		}
 		fmt.Fprintf(&b, "## 站点任务\n\n%s\n", p.Brief)
-		// active 路径强制注入 host（commander/striker 都看得见）。
-		// 否则 commander prompt 写"不要在 brief 里复述站点 URL（host 自动注入）"，
-		// 但 buildUserPrompt 在 brief-only 路径下原本不渲染 host —— striker 只能猜
+		// active 路径强制注入 host（orchestrator/exploitation 都看得见）。
+		// 否则 orchestrator prompt 写"不要在 brief 里复述站点 URL（host 自动注入）"，
+		// 但 buildUserPrompt 在 brief-only 路径下原本不渲染 host —— exploitation 只能猜
 		// localhost / dvwa 等，公网 host 全 502/404，挖不到 finding。
 		if p.Host != "" {
 			fmt.Fprintf(&b, "\n## 目标 Host\n\n`%s`\n", p.Host)

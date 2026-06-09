@@ -28,15 +28,15 @@ import (
 type RoleKind string
 
 const (
-	// RoleOrchestrator 是 deep 主代理（commander/指挥官），负责拆活派 sub-agent。
+	// RoleOrchestrator 是 deep 主代理（orchestrator/指挥官），负责拆活派 sub-agent。
 	RoleOrchestrator RoleKind = "orchestrator"
-	// RoleSubAgent 是杀伤链阶段子代理（recon / striker / ...），被主代理 task 委派。
+	// RoleSubAgent 是杀伤链阶段子代理（recon / exploitation / ...），被主代理 task 委派。
 	RoleSubAgent RoleKind = "subagent"
 )
 
 // RoleDef 是一个角色 markdown 解析后的内存形态。
 type RoleDef struct {
-	ID            string   `yaml:"id"`             // 角色标识（striker / recon / commander），全局唯一
+	ID            string   `yaml:"id"`             // 角色标识（exploitation / recon / orchestrator），全局唯一
 	Name          string   `yaml:"name"`           // 显示名（中文友好）
 	Description   string   `yaml:"description"`    // 给 deep task 工具：主代理据此决定派给谁（必填）
 	Kind          RoleKind `yaml:"kind"`           // orchestrator | subagent；空视为 subagent
@@ -112,7 +112,7 @@ func parseRole(raw []byte) (RoleDef, error) {
 	return role, nil
 }
 
-// Orchestrator 从角色列表里挑出唯一的主代理（commander）。多于一个 / 没有都报错。
+// Orchestrator 从角色列表里挑出唯一的主代理（orchestrator）。多于一个 / 没有都报错。
 func Orchestrator(roles []RoleDef) (RoleDef, error) {
 	var found []RoleDef
 	for _, r := range roles {

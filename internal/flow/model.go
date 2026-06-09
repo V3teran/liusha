@@ -5,10 +5,10 @@
 //
 // 双来源（B1，ingestor 按 snap.Source 分流，见 ingestor.Traffic.handleMessage）：
 //   - Source='external'：passive 入口流量（8888 外部代理捕获）→ owner=passive_session、
-//     HunterID 空，ingestor 入主 ReAct 队列触发 tracker。
+//     HunterID 空，ingestor 入主 ReAct 队列触发 trafficAnalysis。
 //   - Source='internal'：active 容器内 browser-svc.py CDP 抓的 chromium 真实请求
 //     （含认证凭证位置）→ 反查 hunter 得 owner=active_scan、HunterID 必填，不入队
-//     （active 自己挖的流量回头再触发 tracker 会自激震荡）。
+//     （active 自己挖的流量回头再触发 trafficAnalysis 会自激震荡）。
 //
 // CLI 工具流量经容器内 mitmproxy 入字典（source=internal，源头 templatize 去重）；
 // 攻击面从本表 source=internal 派生（sitemap 投影，DistinctRoutesWithRepresentative），不再有独立 endpoint 表；

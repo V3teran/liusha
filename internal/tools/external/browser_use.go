@@ -7,7 +7,7 @@
 //   - 单 BrowserUse.Execute 内 switch action 分流；坐标系换算（grounding）+ 视口尺寸（ViewportW/H）
 //     只对 click/input 生效；其余 action 透传
 //   - 低频 browser 子命令（scroll/back/keys/hover/select 等）仍走 run_command 兜底
-//   - identity 字段：身份 = 浏览器 session（cookie jar）。同一身份所有 commander/striker 共用
+//   - identity 字段：身份 = 浏览器 session（cookie jar）。同一身份所有 orchestrator/exploitation 共用
 //     一个浏览器（tab 隔离），不同身份各自独立浏览器——用于越权/BAC 多账号对比。缺省 "default"。
 package external
 
@@ -76,9 +76,9 @@ func isSafeIdentity(s string) bool {
 // 默认 timeout（秒）——各 action 对应合理值，LLM 不传时走这里。
 const (
 	defaultOpenTimeout   = 120 // 含 chromium cold start（远程目标 + 冷启实测 >60s，留足头避免误杀）
-	defaultActionTimeout = 20 // click/input 等交互动作 daemon 复用快
-	defaultWaitTimeout   = 30 // wait 本身就是等
-	defaultReadTimeout   = 15 // eval/extract/source 读取快
+	defaultActionTimeout = 20  // click/input 等交互动作 daemon 复用快
+	defaultWaitTimeout   = 30  // wait 本身就是等
+	defaultReadTimeout   = 15  // eval/extract/source 读取快
 )
 
 // BrowserUse 单工具：所有 browser-use 操作经 action 枚举分流。
@@ -104,7 +104,7 @@ func (a *BrowserUse) Description() string {
 		"用 chromium 真实浏览器操作目标页面。action 字段选具体动作（open/click/input/wait/eval/extract/source），其它字段按 action 要求填（见各字段 description）。"+
 			"\n坐标系：%s。视口固定 %dx%d。"+
 			"\n状态变化 action（open/click/input/wait）执行完自动附最新截图给 LLM；读取 action 不附图。"+
-			"\n身份共享：同一 identity 下所有 commander/striker 共用一个浏览器（cookies/登录态共享），各自页面互不干扰；越权/BAC 测多账号时给不同 identity 各开一个独立浏览器（见 identity 字段）。"+
+			"\n身份共享：同一 identity 下所有 orchestrator/exploitation 共用一个浏览器（cookies/登录态共享），各自页面互不干扰；越权/BAC 测多账号时给不同 identity 各开一个独立浏览器（见 identity 字段）。"+
 			"\n本工具是 browser-use CLI 的 typed 包装——**不要**再用 `run_command \"browser-use ...\"` 重复调用。",
 		grounding.Describe(a.CoordSystem), a.ViewportW, a.ViewportH,
 	)
@@ -124,7 +124,7 @@ func (a *BrowserUse) ParametersJSON() json.RawMessage {
     "wait_type":{"type":"string","enum":["selector","text"],"description":"action=wait 可选：condition 是 CSS selector（默认）还是页面文本"},
     "code":{"type":"string","description":"action=eval 必填：JS 代码，最后表达式作为返回值"},
     "query":{"type":"string","description":"action=extract 必填：自然语言描述要抽什么"},
-    "identity":{"type":"string","description":"身份/账号名（= 浏览器 session，cookie jar 边界）。**传你要扮演的账号用户名**（与 read_credentials 的凭证 name 对齐，如 'admin' / 'gordonb'）——同名=同 jar，commander/striker 跨 hunter 自动复用同一登录态；不同 identity 各自独立浏览器+登录态、互不污染（越权/BAC 多账号即靠此各开一个）。只有无账号的匿名浏览才留空走默认身份。"},
+    "identity":{"type":"string","description":"身份/账号名（= 浏览器 session，cookie jar 边界）。**传你要扮演的账号用户名**（与 read_credentials 的凭证 name 对齐，如 'admin' / 'gordonb'）——同名=同 jar，orchestrator/exploitation 跨 hunter 自动复用同一登录态；不同 identity 各自独立浏览器+登录态、互不污染（越权/BAC 多账号即靠此各开一个）。只有无账号的匿名浏览才留空走默认身份。"},
     "timeout_seconds":{"type":"integer","minimum":1,"maximum":180,"description":"硬超时秒；缺省 open=120 / click/input=20 / wait=30 / state/eval/extract/source=15"}
   },
   "required":["action"]
@@ -162,7 +162,7 @@ func (a *BrowserUse) Execute(ctx context.Context, args json.RawMessage) (toolfx.
 		}
 		// open 含 chromium cold start（实测 >60s），defaultOpenTimeout 当**地板**而非零默认：
 		// LLM 传的小值（如 30）会在冷启 + 登录中途被 sandbox-server SIGKILL，
-		// 导致共享 cookie jar 没种上 → 后续 striker open 受保护页被 302 回 login → 各自重登。
+		// 导致共享 cookie jar 没种上 → 后续 exploitation open 受保护页被 302 回 login → 各自重登。
 		// timeout 是 SIGKILL 上限不是 sleep，热 open 命中即秒回，抬地板对热路径零延迟代价。
 		if in.TimeoutSeconds < defaultOpenTimeout {
 			in.TimeoutSeconds = defaultOpenTimeout

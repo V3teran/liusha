@@ -93,9 +93,9 @@ func TestByIDAndDefault(t *testing.T) {
 
 // TestShippedRoleFiles 校验仓库实际的 roles/*.md：能加载、含 web-pentest(active) + passive-recon(passive)。
 func TestShippedRoleFiles(t *testing.T) {
-	roles, err := scenario.LoadRoles(filepath.Join("..", "..", "roles"))
+	roles, err := scenario.LoadRoles(filepath.Join("..", "..", "scenarios"))
 	if err != nil {
-		t.Fatalf("加载 roles/: %v", err)
+		t.Fatalf("加载 scenarios/: %v", err)
 	}
 	web, ok := scenario.ByID(roles, "web-pentest")
 	if !ok || web.Mode != scenario.ModeActive {

@@ -15,8 +15,8 @@ func routerCfg() config.Config {
 			LightProvider:    "light",
 			FallbackProvider: "fb",
 			Agents: map[string]string{
-				"commander": "default_provider",
-				"inspector":     "light_provider",
+				"orchestrator": "default_provider",
+				"inspector":    "light_provider",
 			},
 		},
 		Providers: map[string]config.ProviderConfig{
@@ -37,7 +37,7 @@ func builderFromMap(gens map[string]Generator) Builder {
 	}
 }
 
-// TestRouter_For_RoutesAndWraps：For("commander") 应解析到 default(primary) 且经 retry 装饰
+// TestRouter_For_RoutesAndWraps：For("orchestrator") 应解析到 default(primary) 且经 retry 装饰
 func TestRouter_For_RoutesAndWraps(t *testing.T) {
 	cfg := routerCfg()
 	primary := &testGen{tag: "primary", model: "primary-model"}
@@ -49,7 +49,7 @@ func TestRouter_For_RoutesAndWraps(t *testing.T) {
 	factory := NewFactoryWithBuilder(cfg, builder)
 	r := NewRouter(factory)
 
-	g, err := r.For(context.Background(), "commander")
+	g, err := r.For(context.Background(), "orchestrator")
 	if err != nil {
 		t.Fatalf("For react.main 失败: %v", err)
 	}
@@ -106,7 +106,7 @@ func TestRouter_For_FallbackTriggers(t *testing.T) {
 	factory := NewFactoryWithBuilder(cfg, builder)
 	r := NewRouterWithOptions(factory, noSleep())
 
-	g, err := r.For(context.Background(), "commander")
+	g, err := r.For(context.Background(), "orchestrator")
 	if err != nil {
 		t.Fatalf("For 失败: %v", err)
 	}
@@ -136,7 +136,7 @@ func TestRouter_For_NoFallbackConfigured(t *testing.T) {
 	factory := NewFactoryWithBuilder(cfg, builder)
 	r := NewRouterWithOptions(factory, noSleep())
 
-	g, err := r.For(context.Background(), "commander")
+	g, err := r.For(context.Background(), "orchestrator")
 	if err != nil {
 		t.Fatalf("For 失败: %v", err)
 	}

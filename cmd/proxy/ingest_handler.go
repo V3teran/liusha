@@ -1,6 +1,6 @@
 // ingest_handler.go — active 容器内 browser-svc.py CDP capture → 流量字典的 HTTP 入口。
 //
-// 背景（B1）：active 模式下 commander/striker 用 chromium 登录目标，真实认证请求
+// 背景（B1）：active 模式下 orchestrator/exploitation 用 chromium 登录目标，真实认证请求
 // （Document/XHR/Fetch）必须进字典，LLM 才能看到真实请求结构 + 凭证位置 → 转 replay_flow
 // 做水平/垂直越权（BAC）测试。
 //

@@ -34,13 +34,13 @@ func TestStore_Append_TruncatesLargeBody(t *testing.T) {
 	big := bytes.Repeat([]byte("x"), 5000)
 	id, err := s.Append(ctx, Flow{
 		OwnerType: "passive_session", OwnerID: sid, Source: "external",
-		Method:           "POST",
-		URL:              "/api/x",
-		RequestHeaders:   json.RawMessage(`{"x":"1"}`),
-		RequestBody:      big,
-		StatusCode:       200,
-		ResponseHeaders:  json.RawMessage(`{"y":"2"}`),
-		ResponseBody:     big,
+		Method:          "POST",
+		URL:             "/api/x",
+		RequestHeaders:  json.RawMessage(`{"x":"1"}`),
+		RequestBody:     big,
+		StatusCode:      200,
+		ResponseHeaders: json.RawMessage(`{"y":"2"}`),
+		ResponseBody:    big,
 	})
 	if err != nil {
 		t.Fatalf("append: %v", err)
@@ -78,10 +78,10 @@ func TestStore_Append_SmallBodyNoTruncation(t *testing.T) {
 	small := []byte("hello")
 	id, err := s.Append(ctx, Flow{
 		OwnerType: "passive_session", OwnerID: sid, Source: "external",
-		Method:           "GET",
-		URL:              "/health",
-		RequestBody:      small,
-		StatusCode:       204,
+		Method:      "GET",
+		URL:         "/health",
+		RequestBody: small,
+		StatusCode:  204,
 	})
 	if err != nil {
 		t.Fatalf("append: %v", err)

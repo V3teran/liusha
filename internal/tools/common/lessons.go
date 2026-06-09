@@ -21,8 +21,8 @@ type lessonsLister interface {
 // 启动时已注入一次到 user prompt（包含跨 host 业务规则 hint host='*'）；agent 想再回看时调本工具。
 // 本工具只拉 host-scoped lesson（kind=lesson 的 distill 经验 + host-scoped hint）。
 type ReadLessons struct {
-	Store  lessonsLister
-	Host   string // builder 注入；空时 Execute 报错
+	Store lessonsLister
+	Host  string // builder 注入；空时 Execute 报错
 }
 
 // Name 返回工具名 "read_lessons"。

@@ -6,7 +6,7 @@
 //
 // 与 active_scan 的差异：
 //   - passive 按 host 切（"哪个站点正在被监控"），active 按 brief 切（"哪次任务"）
-//   - passive 共享 cmd/proxy 拦截的所有流量；active commander spawn striker，不入 http_flow 表
+//   - passive 共享 cmd/proxy 拦截的所有流量；active orchestrator spawn exploitation，不入 http_flow 表
 //   - passive expires_at 必填；active 跑完即终态，无 TTL
 //
 // 短期工作笔记 notes 在 Redis（internal/notes 包），按 (session_id, host) 切分。
@@ -18,7 +18,7 @@ import "time"
 type Status string
 
 const (
-	StatusActive   Status = "active"
+	StatusActive  Status = "active"
 	StatusAborted Status = "aborted"
 )
 
