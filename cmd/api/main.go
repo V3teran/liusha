@@ -85,7 +85,7 @@ func main() {
 	convStore := conversation.NewStore(pool) // 阶段B：对话/消息
 	// 阶段C：场景 role（roles/*.md）。加载失败仅警告——/roles 返回空、/chat 用空 role 兜底，
 	// 不阻塞 api 启动（场景人设是增强，缺了退化为通用扫描）。
-	scenarioRoles, err := scenario.LoadRoles(envx.OrDefault("LIUSHA_ROLES_DIR", "./roles"))
+	scenarioRoles, err := scenario.LoadRoles(envx.OrDefault("LIUSHA_ROLES_DIR", "./scenarios"))
 	if err != nil {
 		logger.Warn().Err(err).Msg("场景 role 加载失败（/roles 返回空，/chat 用空 role）")
 	} else {

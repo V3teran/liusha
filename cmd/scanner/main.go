@@ -215,20 +215,20 @@ func main() {
 
 	// deep 角色加载（agents/*.md）：active 路径用 deep 装配主代理 + 杀伤链子代理。
 	// 解析失败 / 无 orchestrator → fail-fast（active 扫描会无法装配 deep）。
-	roles, err := einoagent.LoadRoles(cfg.Agents.Root)
+	roles, err := einoagent.LoadRoles(cfg.Hunters.Root)
 	if err != nil {
-		logger.Fatal().Err(err).Str("dir", cfg.Agents.Root).Msg("角色加载失败——active 走 deep 需 agents/*.md，fail-fast")
+		logger.Fatal().Err(err).Str("dir", cfg.Hunters.Root).Msg("角色加载失败——active 走 deep 需 agents/*.md，fail-fast")
 	} else {
 		roleIDs := make([]string, 0, len(roles))
 		for _, r := range roles {
 			roleIDs = append(roleIDs, string(r.Kind)+":"+r.ID)
 		}
-		logger.Info().Strs("roles", roleIDs).Str("dir", cfg.Agents.Root).Msg("deep 角色加载完成")
+		logger.Info().Strs("roles", roleIDs).Str("dir", cfg.Hunters.Root).Msg("deep 角色加载完成")
 	}
 
 	// 场景 role 加载（roles/*.md，阶段C）：active/passive handler 按 Payload.ScenarioID 注入主代理人设。
 	// 加载失败仅警告——不注入人设退化为通用扫描，不阻塞 scanner。
-	scenarioRoles, err := scenario.LoadRoles(envx.OrDefault("LIUSHA_ROLES_DIR", "./roles"))
+	scenarioRoles, err := scenario.LoadRoles(envx.OrDefault("LIUSHA_ROLES_DIR", "./scenarios"))
 	if err != nil {
 		logger.Warn().Err(err).Msg("场景 role 加载失败（不注入人设，退化通用扫描）")
 	} else {

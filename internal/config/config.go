@@ -29,7 +29,7 @@ type Config struct {
 	Session     SessionConfig             `mapstructure:"session"`
 	Credential  CredentialConfig          `mapstructure:"credential"`
 	Skills      SkillsConfig              `mapstructure:"skills"`
-	Agents      AgentsConfig              `mapstructure:"agents_dir"`
+	Hunters     HuntersConfig             `mapstructure:"hunters_dir"`
 	Scanner     ScannerConfig             `mapstructure:"scanner"`
 	React       ReactConfig               `mapstructure:"react"`
 	Sandbox     SandboxConfig             `mapstructure:"sandbox"`
@@ -255,8 +255,8 @@ type SkillsConfig struct {
 	Root string `mapstructure:"root"`
 }
 
-// AgentsConfig 是 deep 角色 markdown 外部目录（agents/*.md，杀伤链阶段子代理 + orchestrator）。
-type AgentsConfig struct {
+// HuntersConfig 是 deep hunter 角色 markdown 外部目录（hunters/*.md，orchestrator + 杀伤链子代理）。
+type HuntersConfig struct {
 	Root string `mapstructure:"root"`
 }
 
@@ -396,7 +396,7 @@ func (c *Config) ApplyDefaults() {
 	c.Notes = applyNotesDefaults(c.Notes)
 	c.Credential = applyCredentialDefaults(c.Credential)
 	c.Skills = applySkillsDefaults(c.Skills)
-	c.Agents = applyAgentsDefaults(c.Agents)
+	c.Hunters = applyHuntersDefaults(c.Hunters)
 	c.Scanner = applyScannerDefaults(c.Scanner)
 	c.React = applyReactDefaults(c.React)
 	c.Sandbox = applySandboxDefaults(c.Sandbox)
@@ -652,9 +652,9 @@ func applySkillsDefaults(c SkillsConfig) SkillsConfig {
 	return c
 }
 
-func applyAgentsDefaults(c AgentsConfig) AgentsConfig {
+func applyHuntersDefaults(c HuntersConfig) HuntersConfig {
 	if c.Root == "" {
-		c.Root = "./agents"
+		c.Root = "./hunters"
 	}
 	return c
 }
