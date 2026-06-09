@@ -1,9 +1,10 @@
-// spike/eino-deep —— 验证 eino deep prebuilt 对应 liusha 的 commander+striker。
+// spike/eino-deep —— 验证 eino deep prebuilt 对应 liusha 的 orchestrator+exploitation。
 //
 // 验证 3 件事，趟通 = active 多代理在 eino 走得通：
-//   ① deep（commander）能把活委派给多个 sub-agent（striker）—— 对应 spawn_striker
-//   ② commander 一轮派多个 striker → 并发执行（工具里 sleep+时间戳证明 window 重叠）
-//   ③ 子代理各自跑 ReAct（reason→调 write_finding）+ commander 收集结果
+//
+//	① deep（orchestrator）能把活委派给多个 sub-agent（exploitation）—— 对应 spawn_exploitation
+//	② orchestrator 一轮派多个 exploitation → 并发执行（工具里 sleep+时间戳证明 window 重叠）
+//	③ 子代理各自跑 ReAct（reason→调 write_finding）+ orchestrator 收集结果
 //
 // 跑：XIAOMI_API_KEY=tp-xxx go run .
 package main
@@ -59,8 +60,8 @@ func main() {
 
 	var seq int32
 
-	// striker 工厂：单 agent + write_finding 桩（桩里 sleep 3s + 时间戳，用于看两 striker 是否并发）
-	mkStriker := func(name, desc, instr string) adk.Agent {
+	// exploitation 工厂：单 agent + write_finding 桩（桩里 sleep 3s + 时间戳，用于看两 exploitation 是否并发）
+	mkExploitation := func(name, desc, instr string) adk.Agent {
 		wf, _ := utils.InferTool("write_finding", "把挖到的漏洞落库",
 			func(_ context.Context, in findingArgs) (string, error) {
 				id := atomic.AddInt32(&seq, 1)
@@ -75,44 +76,44 @@ func main() {
 			MaxIterations: 8,
 		})
 		if e != nil {
-			fmt.Println("✗ striker", name, e)
+			fmt.Println("✗ exploitation", name, e)
 			os.Exit(1)
 		}
 		return ag
 	}
 
-	strikerBAC := mkStriker("striker_bac",
+	exploitationBAC := mkExploitation("exploitation_bac",
 		"测访问控制/越权的突击手",
 		"你是越权测试突击手。对分配给你的攻击面判断是否存在访问控制缺陷，确认就调 write_finding 落库。")
-	strikerXSS := mkStriker("striker_xss",
+	exploitationXSS := mkExploitation("exploitation_xss",
 		"测 XSS 的突击手",
 		"你是 XSS 测试突击手。对分配给你的攻击面判断是否存在 XSS，确认就调 write_finding 落库。")
 
-	// commander = deep，挂两个 striker 作 sub-agent
-	commander, err := deep.New(ctx, &deep.Config{
-		Name:        "commander",
-		Description: "渗透指挥官，recon 后把攻击面拆给 striker 子代理并发挖",
+	// orchestrator = deep，挂两个 exploitation 作 sub-agent
+	orchestrator, err := deep.New(ctx, &deep.Config{
+		Name:        "orchestrator",
+		Description: "渗透指挥官，recon 后把攻击面拆给 exploitation 子代理并发挖",
 		ChatModel:   newModel(),
-		Instruction: "你是渗透指挥官。你**不亲自挖洞**，而是把攻击面派给合适的 striker 子代理（用 task 工具）。" +
+		Instruction: "你是渗透指挥官。你**不亲自挖洞**，而是把攻击面派给合适的 exploitation 子代理（用 task 工具）。" +
 			"有多个独立攻击面时，**在同一轮里并发派多个 task**，别一个个串行。等子代理结果汇总后收尾。",
-		SubAgents:              []adk.Agent{strikerBAC, strikerXSS},
-		WithoutGeneralSubAgent: true, // 只用我这两个 striker
+		SubAgents:              []adk.Agent{exploitationBAC, exploitationXSS},
+		WithoutGeneralSubAgent: true, // 只用我这两个 exploitation
 		MaxIteration:           12,
 	})
 	if err != nil {
-		fmt.Println("✗ deep commander:", err)
+		fmt.Println("✗ deep orchestrator:", err)
 		os.Exit(1)
 	}
 
-	brief := "目标 http://t.example 有两个独立攻击面，请**并发**派 striker 各挖一个：\n" +
-		"1) /admin/users —— 疑似越权（无鉴权能访问），派 striker_bac\n" +
-		"2) /search?q= —— 参数反射，疑似 XSS，派 striker_xss\n" +
+	brief := "目标 http://t.example 有两个独立攻击面，请**并发**派 exploitation 各挖一个：\n" +
+		"1) /admin/users —— 疑似越权（无鉴权能访问），派 exploitation_bac\n" +
+		"2) /search?q= —— 参数反射，疑似 XSS，派 exploitation_xss\n" +
 		"两个互不依赖，请在同一轮同时派出。"
 
-	runner := adk.NewRunner(ctx, adk.RunnerConfig{Agent: commander})
+	runner := adk.NewRunner(ctx, adk.RunnerConfig{Agent: orchestrator})
 	iter := runner.Run(ctx, []adk.Message{schema.UserMessage(brief)})
 
-	fmt.Printf("=== eino deep（commander+2 striker，小米 mimo）%s 开始 ===\n", ts())
+	fmt.Printf("=== eino deep（orchestrator+2 exploitation，小米 mimo）%s 开始 ===\n", ts())
 	for {
 		ev, ok := iter.Next()
 		if !ok {
@@ -149,5 +150,5 @@ func main() {
 		}
 	}
 	fmt.Printf("\n=== 完成 %s ===\n", ts())
-	fmt.Println("（看两个 striker 的【工具进入/退出】时间戳：window 重叠 = 并发执行）")
+	fmt.Println("（看两个 exploitation 的【工具进入/退出】时间戳：window 重叠 = 并发执行）")
 }

@@ -8,7 +8,7 @@
 
 复盘一次 active:bac e2e 暴露：
 - `endpoint` 表只有 method+path，**没有参数**（GET query 在 url、POST body 在 request_body，只有 http_flow 有）
-- commander 靠**手动 `write_endpoint` 转写**recon 所见 → 易漏（这次就漏了参数维度）
+- orchestrator 靠**手动 `write_endpoint` 转写**recon 所见 → 易漏（这次就漏了参数维度）
 - endpoint（手动广覆盖）与 http_flow（浏览器基线）对"浏览过的路由"**双写冗余**
 
 strix 模型：所有工具流量走 Caido 代理 → 一个 raw store；**sitemap 是从流量去重派生的树**（fuzz/重复自动塌缩）；agent 按 request_id 引用、`repeat_request` 重放。无手动 endpoint 表。
@@ -23,9 +23,9 @@ strix 模型：所有工具流量走 Caido 代理 → 一个 raw store；**sitem
 ## 关键设计决策
 
 ### 归属（最硬的点，已解）
-- 容器 per-run 共享（commander+striker），spawn 时绑 commander 的 hunter_id（`launcher.Spawn(ctx, p.HunterID)`）
+- 容器 per-run 共享（orchestrator+exploitation），spawn 时绑 orchestrator 的 hunter_id（`launcher.Spawn(ctx, p.HunterID)`）
 - CLI 流量按 owner 级归属：用容器绑定的 hunter_id → ingestor `handleInternalSnap` 反查 owner（现有机制）
-- hunter_id 对 CLI 流量统一记 commander 的（owner 正确，graph 是 owner-scoped，够用）
+- hunter_id 对 CLI 流量统一记 orchestrator 的（owner 正确，graph 是 owner-scoped，够用）
 
 ### fuzz 污染治理（用户核心顾虑）
 - **分层**：http_flow（raw）全收利于 replay；graph（派生）去重过滤
@@ -61,7 +61,7 @@ strix 模型：所有工具流量走 Caido 代理 → 一个 raw store；**sitem
 ### Phase 3 — endpoint 表退役（破坏性，最后）
 7. 删 write_endpoint；read_endpoints → list_sitemap
 8. drop endpoint 表（migration）
-9. 改 prompts：commander.md（recon 不再 write_endpoint，改"走全 → 流量自动成图"）、striker.md、BAC skill（read_endpoints→list_sitemap）
+9. 改 prompts：orchestrator.md（recon 不再 write_endpoint，改"走全 → 流量自动成图"）、exploitation.md、BAC skill（read_endpoints→list_sitemap）
 - 验证：全链路 active:bac e2e
 
 ## 风险 / 回退

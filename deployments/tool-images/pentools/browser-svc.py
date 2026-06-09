@@ -37,7 +37,7 @@ SOCK = sys.argv[2] if len(sys.argv) > 2 else f"/tmp/browser-svc-{IDENTITY}.sock"
 # ---- B1：CDP Network capture → cmd/proxy /internal/v1/flows/ingest ----
 # active 容器内 browser-svc.py 持单一 CDP 连接，内建 Network observer 把 chromium 真实认证请求
 # （含凭证位置）抓出 → POST 到 LIUSHA_INGEST_URL → ingestor.handleInternalSnap（source=internal，
-# owner=active_scan）→ commander/striker 经 list_flows/view_flow 看真实请求结构 + 凭证 → replay_flow
+# owner=active_scan）→ orchestrator/exploitation 经 list_flows/view_flow 看真实请求结构 + 凭证 → replay_flow
 # 做水平/垂直越权（BAC）测试。LIUSHA_INGEST_URL 空 → 整体不启用（单测 / passive-only / 无 cmd/proxy 部署）。
 INGEST_URL = os.getenv("LIUSHA_INGEST_URL", "").strip()
 INGEST_TOKEN = os.getenv("LIUSHA_INGEST_TOKEN", "").strip()

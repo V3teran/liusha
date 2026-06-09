@@ -20,10 +20,10 @@ type BuilderParams struct {
 	OwnerType string // 'passive_session' / 'active_scan'
 	OwnerID   string // passive_session.id / active_scan.id（也用作 notes/lesson key + finding.owner_id 冗余列）
 	HunterID  string
-	// CommanderID 非空表示本任务是子任务（旧 subtask swarm 语义）；deep 临时 sub-agent 不建
+	// OrchestratorID 非空表示本任务是子任务（旧 subtask swarm 语义）；deep 临时 sub-agent 不建
 	// 独立 hunter，active 主任务此字段为空。保留供 BuildUserPrompt 兼容。
-	CommanderID string
-	Host        string
+	OrchestratorID string
+	Host           string
 
 	// Mode 区分入口形态："passive" | "active"。
 	Mode string

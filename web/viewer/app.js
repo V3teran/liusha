@@ -625,12 +625,12 @@ async function loadAgentRuns(eid, apikey) {
     return;
   }
 
-  // 按 commander_id 拼树
+  // 按 orchestrator_id 拼树
   const byId = {};
   const roots = [];
   for (const r of runs) byId[r.id] = { ...r, children: [] };
   for (const r of runs) {
-    if (r.commander_id && byId[r.commander_id]) byId[r.commander_id].children.push(byId[r.id]);
+    if (r.orchestrator_id && byId[r.orchestrator_id]) byId[r.orchestrator_id].children.push(byId[r.id]);
     else roots.push(byId[r.id]);
   }
 

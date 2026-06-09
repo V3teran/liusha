@@ -164,18 +164,17 @@ func (h handler) handleActiveEino(ctx context.Context, p worker.Payload, entrypo
 
 // composeOrchestratorInstruction 组装 orchestrator 完整 system prompt：
 // shared 段（域上下文/黑板/finding 格式）+ 角色 md body（deep-native 编排 charter）。
-// 不用 SystemPromptFor("active",true)——那是 spawn_exploitation 机制的 prompt，与 deep task 派活冲突。
+// 主代理只用 shared + hunters/orchestrator.md，不复用任何编译期角色 addendum（那些是子代理深挖方法论）。
 func composeOrchestratorInstruction(role einoagent.RoleDef) string {
 	return hunterbuilder.SharedSystemPrompt() + "\n\n" + role.SystemPrompt
 }
 
 // composeSubAgentInstruction 组装子代理完整 system prompt：
-// 复用 SystemPromptFor("active",false)（shared + exploitation addendum，与 spawn/deep 机制无关的深挖
-// 方法论）+ 角色 md body（被 task 派下来、聚焦单攻击面的框架）。
-// 注：当前仅 exploitation 一个子代理；后续加 recon/triage 等杀伤链阶段时，应让各角色 md 自带完整
-// charter 并在此按 role.ID 分流（届时 react 退路若已删，可把 exploitation addendum 也迁进 md）。
+// 复用 SystemPromptFor("active")（shared + exploitation addendum，深挖方法论）+ 角色 md body
+// （被 deep task 派下来、聚焦单攻击面的框架）。
+// 注：后续加 reconnaissance/triage 等阶段时，应让各角色 md 自带完整 charter 并在此按 role.ID 分流。
 func composeSubAgentInstruction(role einoagent.RoleDef) string {
-	return hunterbuilder.SystemPromptFor("active", false) + "\n\n" + role.SystemPrompt
+	return hunterbuilder.SystemPromptFor("active") + "\n\n" + role.SystemPrompt
 }
 
 // watchAbortActive 后台轮询 active_scan 中止状态；非 active 即 cancel，让 RunDeepSwarm 停。

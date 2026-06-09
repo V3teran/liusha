@@ -1,10 +1,10 @@
 -- 0060: http_flow 扩展为统一流量字典——外部（passive 入口）+ 内部（active agent 工具）
 --
 -- 背景：
---   v1.x 阶段 http_flow 仅服务 passive 流量（外部代理捕获 → ingestor → tracker）。
+--   v1.x 阶段 http_flow 仅服务 passive 流量（外部代理捕获 → ingestor → traffic-analysis）。
 --   v2 阶段 active 模式 agent 工具流量（curl/python/browser_use）也走 liusha proxy
 --   （cmd/proxy 双端口 8888=external/8889=internal），同表存储统一流量字典，
---   commander/striker 通过 list_flows/view_flow/replay_flow 工具复用历史流量。
+--   orchestrator/exploitation 通过 list_flows/view_flow/replay_flow 工具复用历史流量。
 --
 -- 字段变更：
 --   + owner_type  text NOT NULL CHECK (passive_session|active_scan)

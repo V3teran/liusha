@@ -21,12 +21,13 @@ import (
 	"github.com/V3teran/liusha/internal/tools/manifest"
 )
 
-// hunter agent system prompt 按 (mode, 是否主代理) 拆四段编译期嵌入：
+// hunter agent system prompt 按 mode 拆三段编译期嵌入：
 //   - shared：通用规则（角色 / 写 finding 铁律 / mode-invariant 反模式）
 //   - trafficAnalysis（passive 单 agent）：流量驱动入口
-//   - orchestrator（active 主代理）：brief 驱动入口
 //   - exploitation（active 子代理）：接 brief 深挖单点
 //
+// active 主代理不在此列：它走 composeOrchestratorInstruction（shared + hunters/orchestrator.md
+// 的 deep charter），不复用编译期 addendum。
 // 改 prompt 走 PR + review，与代码同路径管理（prompt-as-code 实践）。
 //
 //go:embed system_prompt_shared.md
@@ -35,32 +36,23 @@ var hunterSystemPromptShared string
 //go:embed system_prompt_trafficAnalysis.md
 var hunterSystemPromptTrafficAnalysis string
 
-//go:embed system_prompt_orchestrator.md
-var hunterSystemPromptOrchestrator string
-
 //go:embed system_prompt_exploitation.md
 var hunterSystemPromptExploitation string
 
-// buildSystemPrompt 按 (mode, isParent) 选段拼接 shared + 角色段。
-//   - mode=="active" && isParent  → orchestrator（主代理）
-//   - mode=="active" && !isParent → exploitation（子代理，专注 brief 深挖单点）
-//   - 其它（passive / 未知）       → trafficAnalysis（独立挖单流量）
-func buildSystemPrompt(mode string, isParent bool) string {
-	var addendum string
-	switch {
-	case mode == "active" && isParent:
-		addendum = hunterSystemPromptOrchestrator
-	case mode == "active":
+// buildSystemPrompt 按 mode 选段拼接 shared + 角色段。
+//   - mode=="active" → exploitation（子代理，专注 brief 深挖单点）
+//   - 其它（passive / 未知） → trafficAnalysis（独立挖单流量）
+func buildSystemPrompt(mode string) string {
+	addendum := hunterSystemPromptTrafficAnalysis
+	if mode == "active" {
 		addendum = hunterSystemPromptExploitation
-	default:
-		addendum = hunterSystemPromptTrafficAnalysis
 	}
 	return hunterSystemPromptShared + "\n" + addendum
 }
 
 // SystemPromptFor 导出 buildSystemPrompt，供 eino 路径复用同一套 prompt-as-code 资产。
-func SystemPromptFor(mode string, isParent bool) string {
-	return buildSystemPrompt(mode, isParent)
+func SystemPromptFor(mode string) string {
+	return buildSystemPrompt(mode)
 }
 
 // SharedSystemPrompt 单独导出 shared 段（不含任何角色 addendum）。

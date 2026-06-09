@@ -104,7 +104,7 @@ func (h handler) handlePassiveEino(ctx context.Context, p worker.Payload, entryp
 		return h.failTask(ctx, p.HunterID, err)
 	}
 
-	instruction := hunterbuilder.SystemPromptFor("passive", true)
+	instruction := hunterbuilder.SystemPromptFor("passive")
 	userPrompt := hunterbuilder.BuildUserPrompt(ctx, h.hunterDeps, params)
 
 	// per-run 中间件 + 计费 callback：复用 einoRunOpts（与 active deep 路径同源）——
