@@ -14,8 +14,9 @@ async function send() {
   busyMsg.value = ''
   try {
     if (props.convId) {
-      await followUp(props.convId, brief.value)
+      const r = await followUp(props.convId, brief.value)
       brief.value = ''
+      busyMsg.value = r.intent === 'qa' ? '正在回答…' : '已触发扫描'
       emit('appended')
     } else {
       const { conversation_id } = await startChat(brief.value, roleID.value)
