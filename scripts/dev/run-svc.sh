@@ -21,6 +21,9 @@ export LIUSHA_POSTGRES_DSN="${LIUSHA_POSTGRES_DSN:-postgres://liusha:liusha@loca
 export LIUSHA_REDIS_ADDR="${LIUSHA_REDIS_ADDR:-localhost:6379}"
 export LIUSHA_API_ADDR="${LIUSHA_API_ADDR:-0.0.0.0:8090}"  # 8080 易被 Burp Suite Pro 占用，dev 默认 :8090
 export LIUSHA_API_KEY="${LIUSHA_API_KEY:-changeme-dev-key}"
+# 阶段D：SSE stream cookie 签名密钥（api 缺失会 fail-fast）。dev 用固定值即可（cookie 跨重启有效）；
+# prod 必须用 openssl rand -hex 32 生成的真随机值，且配 LIUSHA_COOKIE_SECURE=true。
+export LIUSHA_STREAM_COOKIE_SECRET="${LIUSHA_STREAM_COOKIE_SECRET:-dev-stream-cookie-secret-not-for-prod}"
 # dev 便利：viewer SPA 启动时拉 /viewer/config.json 自动填 X-API-Key 到输入框，
 # 不用手贴。production 环境严禁设此变量（会把 API key 通过未鉴权端点暴露）。
 export LIUSHA_VIEWER_DEV_KEY="${LIUSHA_VIEWER_DEV_KEY:-1}"
