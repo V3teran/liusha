@@ -26,6 +26,7 @@ import (
 	"github.com/V3teran/liusha/internal/flow"
 	"github.com/V3teran/liusha/internal/httpapi"
 	"github.com/V3teran/liusha/internal/hunter"
+	"github.com/V3teran/liusha/internal/llm"
 	"github.com/V3teran/liusha/internal/llminvocation"
 	"github.com/V3teran/liusha/internal/logx"
 	"github.com/V3teran/liusha/internal/owner"
@@ -95,7 +96,10 @@ func main() {
 		}
 		logger.Info().Strs("scenario_roles", ids).Msg("场景 role 加载完成")
 	}
-	activeAdapter := &activeScanAdapter{activeScans: activeScanStore, tasks: taskStore, enq: enq, audit: auditStore, conversations: convStore, roles: scenarioRoles}
+	// 多轮问答/意图分类依赖：light provider 路由 + 问答读 finding + SSE publish。
+	router := llm.NewRouterWithOptions(llm.NewFactory(cfg), llm.RetryOptionsFromConfig(cfg.LLM.Retry))
+	publisher := scanstream.NewPublisher(rdb)
+	activeAdapter := &activeScanAdapter{activeScans: activeScanStore, tasks: taskStore, enq: enq, audit: auditStore, conversations: convStore, roles: scenarioRoles, router: router, findings: findStore, publisher: publisher}
 
 	// SSE stream cookie 密钥：对话功能开启时必填（EventSource 鉴权用），缺失 fail-fast。
 	streamSecret := []byte(os.Getenv("LIUSHA_STREAM_COOKIE_SECRET"))
@@ -293,6 +297,10 @@ type activeScanAdapter struct {
 	audit         *audit.Store        // 0047：create 写审计事件；nil 跳过
 	conversations *conversation.Store // 阶段B：StartChatScan 建对话；nil 时仅 CreateActiveScan 可用
 	roles         []scenario.Role     // 阶段C：场景 role（StartChatScan 默认兜底 + ListRoles 暴露）
+
+	router    *llm.Router           // 多轮：意图分类 + 问答（light provider）
+	findings  *finding.Store        // 问答读 owner 黑板 finding
+	publisher *scanstream.Publisher // 问答回答 publish SSE
 }
 
 // ListRoles 满足 httpapi.RolesAPI：列出所有场景 role 供前端选择。
