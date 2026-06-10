@@ -123,6 +123,8 @@ func main() {
 			AgentRuns:         taskStore, // viewer 拼任务树用（按 parent_id）
 			ActiveScan:        activeAdapter,
 			Chat:              activeAdapter,                // 阶段B：POST /chat 对话发起扫描
+			FollowUp:          activeAdapter,                // 多轮：POST /conversations/:id/messages 动作续接
+			Abort:             activeAdapter,                // 多轮：POST /conversations/:id/abort 停止对话关联扫描
 			Conversations:     convStore,                    // 阶段B：对话列表 / 消息回看
 			EventStream:       eventStreamAdapter{rdb: rdb}, // 阶段B：SSE 订阅 redis 事件
 			Roles:             activeAdapter,                // 阶段C：GET /roles 场景列表
@@ -381,6 +383,77 @@ func (a *activeScanAdapter) createScan(ctx context.Context, brief, conversationI
 	}
 
 	return sc.ID, tid, nil
+}
+
+// FollowUpScan 在已有 active_scan 上发起一次续接 run（多轮动作）：重开 scan + 建 hunter run +
+// 入队（brief=追加消息）。复用 owner 作用域黑板——新 orchestrator 经 BuildUserPrompt 看到先前 finding/notes。
+// 入队 Payload 与 createScan 同构，仅 OwnerID 复用传入 scanID、不新建 active_scan。
+func (a *activeScanAdapter) FollowUpScan(ctx context.Context, scanID, conversationID, scenarioID, brief string) (string, error) {
+	if err := a.activeScans.Reopen(ctx, scanID); err != nil {
+		return "", fmt.Errorf("reopen scan: %w", err)
+	}
+	body, err := json.Marshal(map[string]string{"brief": brief})
+	if err != nil {
+		return "", fmt.Errorf("marshal brief: %w", err)
+	}
+	payloadInput, err := json.Marshal(map[string]any{"mode": "active", "entrypoint": json.RawMessage(body)})
+	if err != nil {
+		return "", fmt.Errorf("marshal payload: %w", err)
+	}
+	tid, err := a.tasks.Create(ctx, hunter.NewParams{
+		OwnerType: owner.Active,
+		OwnerID:   scanID,
+		Role:      "orchestrator",
+		Input:     payloadInput,
+	})
+	if err != nil {
+		return "", fmt.Errorf("create hunter run: %w", err)
+	}
+	if _, _, err := a.enq.Enqueue(ctx, worker.RoleHunter, worker.Payload{
+		HunterID:       tid,
+		OwnerType:      owner.Active,
+		OwnerID:        scanID,
+		ConversationID: conversationID,
+		ScenarioID:     scenarioID,
+		Input:          payloadInput,
+	}, asynq.MaxRetry(0)); err != nil {
+		return "", fmt.Errorf("enqueue followup: %w", err)
+	}
+	return tid, nil
+}
+
+// GetConversationScan 满足 httpapi.FollowUpAPI：查对话关联 scan + 其状态。
+func (a *activeScanAdapter) GetConversationScan(ctx context.Context, convID string) (string, string, error) {
+	conv, err := a.conversations.GetConversation(ctx, convID)
+	if err != nil {
+		return "", "", err
+	}
+	if conv.ScanID == "" {
+		return "", "", fmt.Errorf("conversation 无关联 scan")
+	}
+	sc, err := a.activeScans.GetByID(ctx, conv.ScanID)
+	if err != nil {
+		return "", "", err
+	}
+	return conv.ScanID, string(sc.Status), nil
+}
+
+// AbortConversationScan 满足 httpapi.AbortAPI：abort 对话关联的 active_scan。
+func (a *activeScanAdapter) AbortConversationScan(ctx context.Context, convID string) error {
+	conv, err := a.conversations.GetConversation(ctx, convID)
+	if err != nil {
+		return err
+	}
+	if conv.ScanID == "" {
+		return fmt.Errorf("conversation 无关联 scan")
+	}
+	return a.activeScans.Abort(ctx, conv.ScanID, "用户停止")
+}
+
+// AppendUserMessage 满足 httpapi.FollowUpAPI：落用户追加消息。
+func (a *activeScanAdapter) AppendUserMessage(ctx context.Context, convID, content string) error {
+	_, err := a.conversations.AppendMessage(ctx, convID, conversation.RoleUser, conversation.KindMessage, content, nil)
+	return err
 }
 
 // CreateActiveScan 满足 httpapi.ActiveScanAPI（无对话的纯后台扫描入口）。

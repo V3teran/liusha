@@ -114,6 +114,67 @@ func chatHandler(api ChatAPI, streamSecret []byte, secure bool) gin.HandlerFunc 
 	}
 }
 
+// FollowUpAPI 是多轮动作续接的窄接口（cmd/api 注入 adapter 实现）。
+type FollowUpAPI interface {
+	// GetConversationScan 返回对话关联的 scanID 与该 scan 当前状态。
+	GetConversationScan(ctx context.Context, convID string) (scanID, scanStatus string, err error)
+	// AppendUserMessage 把用户追加消息落库（KindMessage / RoleUser）。
+	AppendUserMessage(ctx context.Context, convID, content string) error
+	// FollowUpScan 在已有 scan 上重开+入队续接 run，返回 hunterID。
+	FollowUpScan(ctx context.Context, scanID, convID, scenarioID, brief string) (string, error)
+}
+
+// FollowUpRequest 是 POST /conversations/:id/messages 请求体。
+type FollowUpRequest struct {
+	Content string `json:"content"`
+}
+
+// followUpHandler 处理追加消息：落消息 → scan 空闲则触发续接 run，正在跑则 409 busy（队列 Plan 2）。
+func followUpHandler(api FollowUpAPI) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		convID := c.Param("id")
+		var req FollowUpRequest
+		if err := c.ShouldBindJSON(&req); err != nil || req.Content == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "content 不能为空"})
+			return
+		}
+		scanID, status, err := api.GetConversationScan(c.Request.Context(), convID)
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "conversation 不存在"})
+			return
+		}
+		if err := api.AppendUserMessage(c.Request.Context(), convID, req.Content); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		if status == "active" {
+			c.JSON(http.StatusConflict, gin.H{"error": "扫描进行中，停止后再发", "busy": true})
+			return
+		}
+		if _, err := api.FollowUpScan(c.Request.Context(), scanID, convID, "", req.Content); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"intent": "action", "scan_id": scanID})
+	}
+}
+
+// AbortAPI 停止对话关联扫描（cmd/api 注入）。
+type AbortAPI interface {
+	AbortConversationScan(ctx context.Context, convID string) error
+}
+
+// abortConversationHandler 处理 POST /conversations/:id/abort：停掉对话关联的 active_scan。
+func abortConversationHandler(api AbortAPI) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if err := api.AbortConversationScan(c.Request.Context(), c.Param("id")); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"aborted": true})
+	}
+}
+
 // listConversationsHandler 处理 GET /conversations：最近活跃对话列表。
 func listConversationsHandler(api ConversationsAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {

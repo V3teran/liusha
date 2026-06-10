@@ -122,6 +122,21 @@ func (s *Store) Complete(ctx context.Context, id string) error {
 	return nil
 }
 
+// Reopen 把已终态（completed/aborted）的 scan 置回 active，清 ended_at/error_message。
+// 用于多轮对话的动作续接：同一 scan 上重跑 agent，复用 owner 作用域黑板。
+func (s *Store) Reopen(ctx context.Context, id string) error {
+	_, err := s.pool.Exec(ctx, `
+		UPDATE active_scan SET
+			status='active',
+			ended_at=NULL,
+			error_message=NULL
+		WHERE id=$1`, id)
+	if err != nil {
+		return fmt.Errorf("reopen active scan %s: %w", id, err)
+	}
+	return nil
+}
+
 // scanner 抽象 pgx.Row / pgx.Rows 的 Scan 方法。
 type scanner interface {
 	Scan(dest ...any) error
