@@ -80,7 +80,7 @@ func NewServer(d Deps) http.Handler {
 		r.GET("/roles", rolesHandler(d.Roles))
 	}
 	if d.Chat != nil {
-		r.POST("/chat", chatHandler(d.Chat))
+		r.POST("/chat", chatHandler(d.Chat, d.StreamCookieSecret))
 	}
 	if d.Conversations != nil {
 		r.GET("/conversations", listConversationsHandler(d.Conversations))
