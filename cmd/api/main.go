@@ -97,13 +97,21 @@ func main() {
 	}
 	activeAdapter := &activeScanAdapter{activeScans: activeScanStore, tasks: taskStore, enq: enq, audit: auditStore, conversations: convStore, roles: scenarioRoles}
 
+	// SSE stream cookie 密钥：对话功能开启时必填（EventSource 鉴权用），缺失 fail-fast。
+	streamSecret := []byte(os.Getenv("LIUSHA_STREAM_COOKIE_SECRET"))
+	if len(streamSecret) == 0 {
+		logger.Fatal().Msg("LIUSHA_STREAM_COOKIE_SECRET 未配置——SSE stream cookie 鉴权需要它（fail-fast）")
+	}
+
 	// 监听地址：优先 ENV（运维临时切换）→ yaml。
 	listenAddr := envx.OrDefault("LIUSHA_API_ADDR", cfg.API.ListenAddr)
 	srv := &http.Server{
 		Addr: listenAddr,
 		Handler: httpapi.NewServer(httpapi.Deps{
-			APIKey:      os.Getenv("LIUSHA_API_KEY"),
-			Credentials: credAPI,
+			APIKey:             os.Getenv("LIUSHA_API_KEY"),
+			StreamCookieSecret: streamSecret,
+			CookieSecure:       os.Getenv("LIUSHA_COOKIE_SECURE") == "true",
+			Credentials:        credAPI,
 			Owners: ownerAPIAdapter{
 				passive:    passiveSessionStore,
 				active:     activeScanStore,

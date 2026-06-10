@@ -15,7 +15,7 @@ import (
 // /viewer/* 放行原因：静态前端资产（HTML/JS/CSS）需要被浏览器作为子资源加载，
 // 浏览器不会给 <script src=> / <link href=> 自动添加自定义 header。
 // 真正敏感的数据接口（/sitemap/:owner_id 等）仍受保护。
-func RequireAPIKey(expected string) gin.HandlerFunc {
+func RequireAPIKey(expected string, streamSecret []byte) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// /healthz、/viewer/*、/viewer-config.json 直接放行；FullPath 是注册路由模板。
 		// /viewer-config.json 不放在 /viewer/ 之下：Gin 路由树不允许同前缀下既有具名
@@ -33,6 +33,15 @@ func RequireAPIKey(expected string) gin.HandlerFunc {
 			// favicon.ico 浏览器自动拉，没注册即 404；不走鉴权避免污染 401 日志。
 			c.Next()
 			return
+		}
+		// SSE stream：EventSource 不能带 header，改用 liusha_stream cookie 鉴权。
+		// 仅此路径接受 cookie；cookie 绑 convID，须与 URL param 一致。
+		if fp == "/conversations/:id/stream" && len(streamSecret) > 0 {
+			if ck, err := c.Cookie(streamCookieName); err == nil &&
+				verifyStreamToken(streamSecret, ck, c.Param("id")) {
+				c.Next()
+				return
+			}
 		}
 		got := c.GetHeader("X-API-Key")
 		// expected 为空属于配置错误，直接 401，避免空 key 等价于跳过认证。
