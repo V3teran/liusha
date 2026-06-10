@@ -20,7 +20,7 @@ func TestChatHandler_SetsStreamCookie(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	secret := []byte("secret-32-bytes-long-bbbbbbbbbbbb")
 	r := gin.New()
-	r.POST("/chat", chatHandler(fakeChat{}, secret))
+	r.POST("/chat", chatHandler(fakeChat{}, secret, true))
 
 	req := httptest.NewRequest("POST", "/chat", strings.NewReader(`{"brief":"扫这个","role_id":"web-pentest"}`))
 	req.Header.Set("Content-Type", "application/json")
@@ -41,6 +41,9 @@ func TestChatHandler_SetsStreamCookie(t *testing.T) {
 	}
 	if !ck.HttpOnly {
 		t.Error("cookie 应 HttpOnly")
+	}
+	if !ck.Secure {
+		t.Error("secure=true 时 cookie 应带 Secure")
 	}
 	if !verifyStreamToken(secret, ck.Value, "conv-abc") {
 		t.Error("cookie 值应是 conv-abc 的合法 token")

@@ -42,6 +42,9 @@ type Deps struct {
 	// StreamCookieSecret 给 SSE stream cookie 签名/校验；空则 stream 仅接受 X-API-Key header。
 	// 由 cmd/api 读 LIUSHA_STREAM_COOKIE_SECRET 注入。
 	StreamCookieSecret []byte
+	// CookieSecure 控制 SSE 鉴权 cookie 的 Secure 属性。prod HTTPS 反代应 true；
+	// dev http 同源开发设 false（否则浏览器不种）。由 cmd/api 读 LIUSHA_COOKIE_SECURE 注入。
+	CookieSecure bool
 }
 
 // NewServer 组装 gin 路由：Recovery + 全局 X-API-Key 中间件 + 业务路由。
@@ -80,7 +83,7 @@ func NewServer(d Deps) http.Handler {
 		r.GET("/roles", rolesHandler(d.Roles))
 	}
 	if d.Chat != nil {
-		r.POST("/chat", chatHandler(d.Chat, d.StreamCookieSecret))
+		r.POST("/chat", chatHandler(d.Chat, d.StreamCookieSecret, d.CookieSecure))
 	}
 	if d.Conversations != nil {
 		r.GET("/conversations", listConversationsHandler(d.Conversations))

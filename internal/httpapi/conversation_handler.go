@@ -85,7 +85,7 @@ type ChatResponse struct {
 }
 
 // chatHandler 处理 POST /chat：校验 brief 非空，发起对话扫描，成功后下发 SSE 鉴权 cookie。
-func chatHandler(api ChatAPI, streamSecret []byte) gin.HandlerFunc {
+func chatHandler(api ChatAPI, streamSecret []byte, secure bool) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req ChatRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
@@ -103,11 +103,12 @@ func chatHandler(api ChatAPI, streamSecret []byte) gin.HandlerFunc {
 		}
 		// 下发 SSE 鉴权 cookie（30min，HttpOnly+SameSite=Lax；同源部署故不需 SameSite=None）。
 		// Secure 由 c.SetCookie 第 6 参控制；dev http 同源下设 false 也能种，prod 反代 https 应 true。
+		// secure 由 cmd/api 读 LIUSHA_COOKIE_SECURE 经 Deps.CookieSecure 注入。
 		if len(streamSecret) > 0 {
 			const ttl = 30 * 60 // 秒
 			tok := signStreamToken(streamSecret, convID, time.Now().Add(ttl*time.Second))
 			c.SetSameSite(http.SameSiteLaxMode)
-			c.SetCookie(streamCookieName, tok, ttl, "/conversations", "", false, true)
+			c.SetCookie(streamCookieName, tok, ttl, "/conversations", "", secure, true)
 		}
 		c.JSON(http.StatusOK, ChatResponse{ConversationID: convID, ScanID: scanID})
 	}

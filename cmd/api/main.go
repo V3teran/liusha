@@ -110,6 +110,7 @@ func main() {
 		Handler: httpapi.NewServer(httpapi.Deps{
 			APIKey:             os.Getenv("LIUSHA_API_KEY"),
 			StreamCookieSecret: streamSecret,
+			CookieSecure:       os.Getenv("LIUSHA_COOKIE_SECURE") == "true",
 			Credentials:        credAPI,
 			Owners: ownerAPIAdapter{
 				passive:    passiveSessionStore,
