@@ -123,6 +123,7 @@ func main() {
 			AgentRuns:         taskStore, // viewer 拼任务树用（按 parent_id）
 			ActiveScan:        activeAdapter,
 			Chat:              activeAdapter,                // 阶段B：POST /chat 对话发起扫描
+			FollowUp:          activeAdapter,                // 多轮：POST /conversations/:id/messages 动作续接
 			Conversations:     convStore,                    // 阶段B：对话列表 / 消息回看
 			EventStream:       eventStreamAdapter{rdb: rdb}, // 阶段B：SSE 订阅 redis 事件
 			Roles:             activeAdapter,                // 阶段C：GET /roles 场景列表
@@ -418,6 +419,28 @@ func (a *activeScanAdapter) FollowUpScan(ctx context.Context, scanID, conversati
 		return "", fmt.Errorf("enqueue followup: %w", err)
 	}
 	return tid, nil
+}
+
+// GetConversationScan 满足 httpapi.FollowUpAPI：查对话关联 scan + 其状态。
+func (a *activeScanAdapter) GetConversationScan(ctx context.Context, convID string) (string, string, error) {
+	conv, err := a.conversations.GetConversation(ctx, convID)
+	if err != nil {
+		return "", "", err
+	}
+	if conv.ScanID == "" {
+		return "", "", fmt.Errorf("conversation 无关联 scan")
+	}
+	sc, err := a.activeScans.GetByID(ctx, conv.ScanID)
+	if err != nil {
+		return "", "", err
+	}
+	return conv.ScanID, string(sc.Status), nil
+}
+
+// AppendUserMessage 满足 httpapi.FollowUpAPI：落用户追加消息。
+func (a *activeScanAdapter) AppendUserMessage(ctx context.Context, convID, content string) error {
+	_, err := a.conversations.AppendMessage(ctx, convID, conversation.RoleUser, conversation.KindMessage, content, nil)
+	return err
 }
 
 // CreateActiveScan 满足 httpapi.ActiveScanAPI（无对话的纯后台扫描入口）。

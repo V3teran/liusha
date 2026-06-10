@@ -30,6 +30,8 @@ type Deps struct {
 	Chat          ChatAPI
 	Conversations ConversationsAPI
 	EventStream   EventStream
+	// FollowUp 为 nil 时 POST /conversations/:id/messages 不注册（多轮动作续接）。
+	FollowUp FollowUpAPI
 	// Roles 为 nil 时 GET /roles 不注册（场景 role 列表，供前端对话选择）。
 	Roles RolesAPI
 	// StaticFS 可选：注入时挂 / 路径 serve 静态前端（sitemap viewer SPA）。
@@ -88,6 +90,9 @@ func NewServer(d Deps) http.Handler {
 	if d.Conversations != nil {
 		r.GET("/conversations", listConversationsHandler(d.Conversations))
 		r.GET("/conversations/:id/messages", messagesHandler(d.Conversations))
+		if d.FollowUp != nil {
+			r.POST("/conversations/:id/messages", followUpHandler(d.FollowUp))
+		}
 		if d.EventStream != nil {
 			r.GET("/conversations/:id/stream", streamHandler(d.Conversations, d.EventStream))
 		}
