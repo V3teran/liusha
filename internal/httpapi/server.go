@@ -39,6 +39,9 @@ type Deps struct {
 	// 暴露给前端 viewer 自动填充——**production 严禁开启**。
 	// 由 cmd/api 读 LIUSHA_VIEWER_DEV_KEY 环境变量决定。
 	EnableDevAutofill bool
+	// StreamCookieSecret 给 SSE stream cookie 签名/校验；空则 stream 仅接受 X-API-Key header。
+	// 由 cmd/api 读 LIUSHA_STREAM_COOKIE_SECRET 注入。
+	StreamCookieSecret []byte
 }
 
 // NewServer 组装 gin 路由：Recovery + 全局 X-API-Key 中间件 + 业务路由。
@@ -47,7 +50,7 @@ func NewServer(d Deps) http.Handler {
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
 	r.Use(gin.Recovery())
-	r.Use(RequireAPIKey(d.APIKey))
+	r.Use(RequireAPIKey(d.APIKey, d.StreamCookieSecret))
 
 	r.GET("/healthz", func(c *gin.Context) { c.JSON(200, gin.H{"ok": true}) })
 
