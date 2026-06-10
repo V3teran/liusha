@@ -80,3 +80,43 @@ export async function startChat(
   if (!res.ok) throw new Error(`POST /chat → ${res.status}`)
   return res.json()
 }
+
+/**
+ * 多轮：往已有对话追加动作消息。
+ * 扫描进行中（409）时抛带 busy 标记的错，前端提示停止后再发。
+ * @param convID 对话 ID
+ * @param content 消息内容
+ * @returns intent 和可选的 scan_id
+ */
+export async function followUp(
+  convID: string,
+  content: string
+): Promise<{ intent: string; scan_id?: string }> {
+  const res = await fetch(`/api/conversations/${convID}/messages`, {
+    method: 'POST',
+    headers: {
+      'X-API-Key': getApiKey(),
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ content }),
+  })
+  if (res.status === 409) {
+    const err = new Error('扫描进行中') as Error & { busy?: boolean }
+    err.busy = true
+    throw err
+  }
+  if (!res.ok) throw new Error(`POST /conversations/${convID}/messages → ${res.status}`)
+  return res.json()
+}
+
+/**
+ * 停止对话关联的扫描。
+ * @param convID 对话 ID
+ */
+export async function abortScan(convID: string): Promise<void> {
+  const res = await fetch(`/api/conversations/${convID}/abort`, {
+    method: 'POST',
+    headers: { 'X-API-Key': getApiKey() },
+  })
+  if (!res.ok) throw new Error(`POST /conversations/${convID}/abort → ${res.status}`)
+}

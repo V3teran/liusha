@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { getApiKey, setApiKey, listRoles, listConversations, listMessages, startChat } from './client'
+import { getApiKey, setApiKey, listRoles, listConversations, listMessages, startChat, followUp, abortScan } from './client'
 
 describe('API 客户端', () => {
   beforeEach(() => {
@@ -99,6 +99,49 @@ describe('API 客户端', () => {
       ;(global as any).fetch = mockFetch
 
       await expect(listRoles()).rejects.toThrow('GET /roles → 401')
+    })
+  })
+
+  describe('多轮方法', () => {
+    it('followUp POST 到 /conversations/:id/messages 带 content', async () => {
+      setApiKey('k')
+      const mockFetch = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: vi.fn().mockResolvedValue({ intent: 'action', scan_id: 's1' }),
+      })
+      ;(global as any).fetch = mockFetch
+
+      const result = await followUp('c1', '深挖')
+
+      expect(mockFetch).toHaveBeenCalledWith('/api/conversations/c1/messages', expect.objectContaining({ method: 'POST' }))
+      expect(result.intent).toBe('action')
+    })
+
+    it('followUp 409 抛带 busy 标记的错', async () => {
+      setApiKey('k')
+      const mockFetch = vi.fn().mockResolvedValue({
+        ok: false,
+        status: 409,
+        json: vi.fn().mockResolvedValue({ busy: true }),
+      })
+      ;(global as any).fetch = mockFetch
+
+      await expect(followUp('c1', 'x')).rejects.toMatchObject({ busy: true })
+    })
+
+    it('abortScan POST 到 /conversations/:id/abort', async () => {
+      setApiKey('k')
+      const mockFetch = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: vi.fn().mockResolvedValue({ aborted: true }),
+      })
+      ;(global as any).fetch = mockFetch
+
+      await abortScan('c1')
+
+      expect(mockFetch).toHaveBeenCalledWith('/api/conversations/c1/abort', expect.objectContaining({ method: 'POST' }))
     })
   })
 })
