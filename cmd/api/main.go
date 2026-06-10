@@ -124,6 +124,7 @@ func main() {
 			ActiveScan:        activeAdapter,
 			Chat:              activeAdapter,                // 阶段B：POST /chat 对话发起扫描
 			FollowUp:          activeAdapter,                // 多轮：POST /conversations/:id/messages 动作续接
+			Abort:             activeAdapter,                // 多轮：POST /conversations/:id/abort 停止对话关联扫描
 			Conversations:     convStore,                    // 阶段B：对话列表 / 消息回看
 			EventStream:       eventStreamAdapter{rdb: rdb}, // 阶段B：SSE 订阅 redis 事件
 			Roles:             activeAdapter,                // 阶段C：GET /roles 场景列表
@@ -435,6 +436,18 @@ func (a *activeScanAdapter) GetConversationScan(ctx context.Context, convID stri
 		return "", "", err
 	}
 	return conv.ScanID, string(sc.Status), nil
+}
+
+// AbortConversationScan 满足 httpapi.AbortAPI：abort 对话关联的 active_scan。
+func (a *activeScanAdapter) AbortConversationScan(ctx context.Context, convID string) error {
+	conv, err := a.conversations.GetConversation(ctx, convID)
+	if err != nil {
+		return err
+	}
+	if conv.ScanID == "" {
+		return fmt.Errorf("conversation 无关联 scan")
+	}
+	return a.activeScans.Abort(ctx, conv.ScanID, "用户停止")
 }
 
 // AppendUserMessage 满足 httpapi.FollowUpAPI：落用户追加消息。

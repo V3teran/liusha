@@ -159,6 +159,22 @@ func followUpHandler(api FollowUpAPI) gin.HandlerFunc {
 	}
 }
 
+// AbortAPI 停止对话关联扫描（cmd/api 注入）。
+type AbortAPI interface {
+	AbortConversationScan(ctx context.Context, convID string) error
+}
+
+// abortConversationHandler 处理 POST /conversations/:id/abort：停掉对话关联的 active_scan。
+func abortConversationHandler(api AbortAPI) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if err := api.AbortConversationScan(c.Request.Context(), c.Param("id")); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"aborted": true})
+	}
+}
+
 // listConversationsHandler 处理 GET /conversations：最近活跃对话列表。
 func listConversationsHandler(api ConversationsAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {

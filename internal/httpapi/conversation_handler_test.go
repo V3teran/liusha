@@ -100,3 +100,25 @@ func TestFollowUpHandler_BusyScan_409(t *testing.T) {
 		t.Errorf("scan 正在跑应 409 busy，得 %d", w.Code)
 	}
 }
+
+type abortFn func(context.Context, string) error
+
+func (f abortFn) AbortConversationScan(ctx context.Context, convID string) error {
+	return f(ctx, convID)
+}
+
+func TestAbortHandler(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	called := ""
+	r := gin.New()
+	r.POST("/conversations/:id/abort", abortConversationHandler(abortFn(func(_ context.Context, convID string) error {
+		called = convID
+		return nil
+	})))
+	req := httptest.NewRequest("POST", "/conversations/c1/abort", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != 200 || called != "c1" {
+		t.Errorf("abort 应调用并 200，得 code=%d called=%q", w.Code, called)
+	}
+}
