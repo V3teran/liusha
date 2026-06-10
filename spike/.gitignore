@@ -1,4 +1,4 @@
-/eino-tracker/eino-tracker
-/eino-deep/einodeep
-eino-tracker/eino-tracker
+# spike 编译产物（throwaway 二进制，勿入库）
 eino-deep/einodeep
+eino-deep-swarm/einodeepswarm
+eino-sharedmodel/einosharedmodel

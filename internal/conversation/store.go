@@ -22,7 +22,7 @@ const (
 	maxListLimit     = 500
 )
 
-// 可空 uuid/text 列读用 COALESCE 折 NULL→”（Conversation 字段是 string 不接 NULL）。
+// 可空 uuid/text 列读用 COALESCE 把 NULL 折成空串（Conversation 字段是 string 不接 NULL）。
 const convCols = "id, COALESCE(title,''), COALESCE(scan_id::text,''), " +
 	"COALESCE(role_id,''), status, created_at, updated_at"
 

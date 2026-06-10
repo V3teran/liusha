@@ -19,7 +19,7 @@ type Store struct {
 func NewStore(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
 
 // colsSelect 是所有 SELECT 路径的统一列序，与 scan() 字段顺序一一对应。
-// error_message 用 COALESCE 折 NULL → ” （Session.ErrorMessage 是 string 不接 NULL）。
+// error_message 用 COALESCE 把 NULL 折成空串（Session.ErrorMessage 是 string 不接 NULL）。
 const colsSelect = "id, host, status, created_at, expires_at, " +
 	"ended_at, COALESCE(error_message, '')"
 

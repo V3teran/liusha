@@ -16,14 +16,14 @@ type Store struct {
 func NewStore(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
 
 // colsSelect 是所有 SELECT 路径的统一列序，与 scan() 字段顺序一一对应。
-// error_message 用 COALESCE 折 NULL → ” （Scan.ErrorMessage 是 string 不接 NULL）。
+// error_message 用 COALESCE 把 NULL 折成空串（Scan.ErrorMessage 是 string 不接 NULL）。
 const colsSelect = "id, brief, target_host, status, created_at, " +
 	"ended_at, COALESCE(error_message, '')"
 
 // Create 建一个新 active scan。
 //
-// brief 必填（用户自然语言任务简报）；targetHost 0045 起 NOT NULL DEFAULT ”，
-// 调用方未识别目标 host 时直接传 ""。无唯一约束，可并发多个 active scan。
+// brief 必填（用户自然语言任务简报）；targetHost 0045 起 NOT NULL DEFAULT 空串，
+// 调用方未识别目标 host 时直接传空串。无唯一约束，可并发多个 active scan。
 // 不设 expires_at：active 任务跑完即终态，无时间窗轮转。
 func (s *Store) Create(ctx context.Context, brief, targetHost string) (Scan, error) {
 	if brief == "" {

@@ -46,7 +46,7 @@ func runBrowserSub(ctx context.Context, rc *RunCommand, subcmd string, args []st
 	return rc.Execute(ctx, payload)
 }
 
-// shellSingleQuote 把字符串用单引号包裹防 shell 注入；内部 ' 用 '\” 转义。
+// shellSingleQuote 把字符串用单引号包裹防 shell 注入；内部单引号按 POSIX 方式转义。
 func shellSingleQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
