@@ -2,7 +2,6 @@ package httpapi
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -52,52 +51,56 @@ func TestChatHandler_SetsStreamCookie(t *testing.T) {
 }
 
 type fakeFollowUp struct {
-	convID, scanID, status string
-	calledBrief            string
+	convID       string
+	calledBrief  string
+	handleIntent string
+	handleBusy   bool
 }
 
-func (f *fakeFollowUp) GetConversationScan(_ context.Context, convID string) (scanID, scanStatus string, err error) {
-	if convID != f.convID {
-		return "", "", errFollowUpNotFound
-	}
-	return f.scanID, f.status, nil
-}
-func (f *fakeFollowUp) AppendUserMessage(_ context.Context, _, _ string) error { return nil }
-func (f *fakeFollowUp) FollowUpScan(_ context.Context, scanID, convID, scenarioID, brief string) (string, error) {
-	f.calledBrief = brief
-	return "hunter-1", nil
+func (f *fakeFollowUp) HandleMessage(_ context.Context, convID, content string) (string, bool, error) {
+	f.calledBrief = content
+	return f.handleIntent, f.handleBusy, nil
 }
 
-var errFollowUpNotFound = fmt.Errorf("not found")
-
-func TestFollowUpHandler_IdleScan_TriggersRun(t *testing.T) {
+func TestFollowUpHandler_QA(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	fu := &fakeFollowUp{convID: "c1", scanID: "s1", status: "completed"}
+	fu := &fakeFollowUp{convID: "c1", handleIntent: "qa"}
 	r := gin.New()
 	r.POST("/conversations/:id/messages", followUpHandler(fu))
-	req := httptest.NewRequest("POST", "/conversations/c1/messages", strings.NewReader(`{"content":"深挖那个 IDOR"}`))
+	req := httptest.NewRequest("POST", "/conversations/c1/messages", strings.NewReader(`{"content":"解释下那个洞"}`))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != 200 || !strings.Contains(w.Body.String(), "qa") {
+		t.Errorf("qa 应 200 且含 intent qa，得 code=%d body=%s", w.Code, w.Body.String())
+	}
+}
+
+func TestFollowUpHandler_ActionIdle_200(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	fu := &fakeFollowUp{convID: "c1", handleIntent: "action", handleBusy: false}
+	r := gin.New()
+	r.POST("/conversations/:id/messages", followUpHandler(fu))
+	req := httptest.NewRequest("POST", "/conversations/c1/messages", strings.NewReader(`{"content":"再扫"}`))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 	if w.Code != 200 {
-		t.Fatalf("want 200, got %d (%s)", w.Code, w.Body.String())
-	}
-	if fu.calledBrief != "深挖那个 IDOR" {
-		t.Errorf("brief 应透传给 FollowUpScan，得 %q", fu.calledBrief)
+		t.Errorf("action 空闲应 200，得 %d", w.Code)
 	}
 }
 
-func TestFollowUpHandler_BusyScan_409(t *testing.T) {
+func TestFollowUpHandler_ActionBusy_409(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	fu := &fakeFollowUp{convID: "c1", scanID: "s1", status: "active"}
+	fu := &fakeFollowUp{convID: "c1", handleIntent: "action", handleBusy: true}
 	r := gin.New()
 	r.POST("/conversations/:id/messages", followUpHandler(fu))
-	req := httptest.NewRequest("POST", "/conversations/c1/messages", strings.NewReader(`{"content":"再测下"}`))
+	req := httptest.NewRequest("POST", "/conversations/c1/messages", strings.NewReader(`{"content":"再扫"}`))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 	if w.Code != 409 {
-		t.Errorf("scan 正在跑应 409 busy，得 %d", w.Code)
+		t.Errorf("action 忙应 409，得 %d", w.Code)
 	}
 }
 

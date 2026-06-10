@@ -114,14 +114,10 @@ func chatHandler(api ChatAPI, streamSecret []byte, secure bool) gin.HandlerFunc 
 	}
 }
 
-// FollowUpAPI 是多轮动作续接的窄接口（cmd/api 注入 adapter 实现）。
+// FollowUpAPI 处理对话追加消息：内部判意图（action/qa）+ 落消息 + 分流。
+// 返回 intent（"action"|"qa"）、busy（action 但扫描进行中 → 应排队/拒绝）、err。
 type FollowUpAPI interface {
-	// GetConversationScan 返回对话关联的 scanID 与该 scan 当前状态。
-	GetConversationScan(ctx context.Context, convID string) (scanID, scanStatus string, err error)
-	// AppendUserMessage 把用户追加消息落库（KindMessage / RoleUser）。
-	AppendUserMessage(ctx context.Context, convID, content string) error
-	// FollowUpScan 在已有 scan 上重开+入队续接 run，返回 hunterID。
-	FollowUpScan(ctx context.Context, scanID, convID, scenarioID, brief string) (string, error)
+	HandleMessage(ctx context.Context, convID, content string) (intent string, busy bool, err error)
 }
 
 // FollowUpRequest 是 POST /conversations/:id/messages 请求体。
@@ -129,7 +125,6 @@ type FollowUpRequest struct {
 	Content string `json:"content"`
 }
 
-// followUpHandler 处理追加消息：落消息 → scan 空闲则触发续接 run，正在跑则 409 busy（队列 Plan 2）。
 func followUpHandler(api FollowUpAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		convID := c.Param("id")
@@ -138,24 +133,16 @@ func followUpHandler(api FollowUpAPI) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "content 不能为空"})
 			return
 		}
-		scanID, status, err := api.GetConversationScan(c.Request.Context(), convID)
+		intent, busy, err := api.HandleMessage(c.Request.Context(), convID, req.Content)
 		if err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": "conversation 不存在"})
-			return
-		}
-		if err := api.AppendUserMessage(c.Request.Context(), convID, req.Content); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-		if status == "active" {
-			c.JSON(http.StatusConflict, gin.H{"error": "扫描进行中，停止后再发", "busy": true})
+		if busy {
+			c.JSON(http.StatusConflict, gin.H{"error": "扫描进行中，停止后再发", "busy": true, "intent": intent})
 			return
 		}
-		if _, err := api.FollowUpScan(c.Request.Context(), scanID, convID, "", req.Content); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
-		c.JSON(http.StatusOK, gin.H{"intent": "action", "scan_id": scanID})
+		c.JSON(http.StatusOK, gin.H{"intent": intent})
 	}
 }
 

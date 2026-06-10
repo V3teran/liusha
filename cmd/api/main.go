@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/signal"
 	"sort"
+	"strings"
 	"syscall"
 	"time"
 
@@ -26,11 +27,13 @@ import (
 	"github.com/V3teran/liusha/internal/flow"
 	"github.com/V3teran/liusha/internal/httpapi"
 	"github.com/V3teran/liusha/internal/hunter"
+	"github.com/V3teran/liusha/internal/intent"
 	"github.com/V3teran/liusha/internal/llm"
 	"github.com/V3teran/liusha/internal/llminvocation"
 	"github.com/V3teran/liusha/internal/logx"
 	"github.com/V3teran/liusha/internal/owner"
 	"github.com/V3teran/liusha/internal/passivesession"
+	"github.com/V3teran/liusha/internal/qa"
 	"github.com/V3teran/liusha/internal/scanstream"
 	"github.com/V3teran/liusha/internal/scenario"
 	"github.com/V3teran/liusha/internal/sitemap"
@@ -430,22 +433,6 @@ func (a *activeScanAdapter) FollowUpScan(ctx context.Context, scanID, conversati
 	return tid, nil
 }
 
-// GetConversationScan 满足 httpapi.FollowUpAPI：查对话关联 scan + 其状态。
-func (a *activeScanAdapter) GetConversationScan(ctx context.Context, convID string) (string, string, error) {
-	conv, err := a.conversations.GetConversation(ctx, convID)
-	if err != nil {
-		return "", "", err
-	}
-	if conv.ScanID == "" {
-		return "", "", fmt.Errorf("conversation 无关联 scan")
-	}
-	sc, err := a.activeScans.GetByID(ctx, conv.ScanID)
-	if err != nil {
-		return "", "", err
-	}
-	return conv.ScanID, string(sc.Status), nil
-}
-
 // AbortConversationScan 满足 httpapi.AbortAPI：abort 对话关联的 active_scan。
 func (a *activeScanAdapter) AbortConversationScan(ctx context.Context, convID string) error {
 	conv, err := a.conversations.GetConversation(ctx, convID)
@@ -458,10 +445,79 @@ func (a *activeScanAdapter) AbortConversationScan(ctx context.Context, convID st
 	return a.activeScans.Abort(ctx, conv.ScanID, "用户停止")
 }
 
-// AppendUserMessage 满足 httpapi.FollowUpAPI：落用户追加消息。
-func (a *activeScanAdapter) AppendUserMessage(ctx context.Context, convID, content string) error {
-	_, err := a.conversations.AppendMessage(ctx, convID, conversation.RoleUser, conversation.KindMessage, content, nil)
-	return err
+// HandleMessage 满足 httpapi.FollowUpAPI：落 user 消息 → 判意图 → qa 答 / action 续接。
+func (a *activeScanAdapter) HandleMessage(ctx context.Context, convID, content string) (string, bool, error) {
+	conv, err := a.conversations.GetConversation(ctx, convID)
+	if err != nil {
+		return "", false, err
+	}
+	if _, err := a.conversations.AppendMessage(ctx, convID, conversation.RoleUser, conversation.KindMessage, content, nil); err != nil {
+		return "", false, err
+	}
+	g, err := a.router.For(ctx, "inspector") // light provider
+	if err != nil {
+		return "", false, err
+	}
+	switch intent.Classify(ctx, g, content) {
+	case intent.IntentAction:
+		sc, err := a.activeScans.GetByID(ctx, conv.ScanID)
+		if err != nil {
+			return "", false, err
+		}
+		if sc.Status == activescan.StatusActive {
+			return "action", true, nil // 忙：队列留后续
+		}
+		if _, err := a.FollowUpScan(ctx, conv.ScanID, convID, "", content); err != nil {
+			return "", false, err
+		}
+		return "action", false, nil
+	default: // qa
+		if err := qa.New(a).Answer(ctx, convID, conv.ScanID, content); err != nil {
+			return "", false, err
+		}
+		return "qa", false, nil
+	}
+}
+
+// ---- qa.Deps 实现 ----
+
+// FindingsSummary 满足 qa.Deps：把 owner 黑板 finding 渲染成文本摘要。
+func (a *activeScanAdapter) FindingsSummary(ctx context.Context, _, scanID string) (string, error) {
+	fs, err := a.findings.ListByOwner(ctx, owner.Active, scanID)
+	if err != nil {
+		return "", err
+	}
+	if len(fs) == 0 {
+		return "（暂无 finding）", nil
+	}
+	var b strings.Builder
+	for i, f := range fs {
+		fmt.Fprintf(&b, "%d. [%s] %s\n", i+1, f.Severity, f.Summary)
+	}
+	return b.String(), nil
+}
+
+// Generate 满足 qa.Deps：调 light provider。
+func (a *activeScanAdapter) Generate(ctx context.Context, msgs []llm.Message, tools []llm.ToolSchema) (llm.Result, error) {
+	g, err := a.router.For(ctx, "inspector")
+	if err != nil {
+		return llm.Result{}, err
+	}
+	return g.Generate(ctx, msgs, tools)
+}
+
+// AppendAssistant 满足 qa.Deps：落 assistant 消息，返回 SSE payload。
+func (a *activeScanAdapter) AppendAssistant(ctx context.Context, convID, content string) ([]byte, error) {
+	msg, err := a.conversations.AppendMessage(ctx, convID, conversation.RoleAssistant, conversation.KindMessage, content, nil)
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(msg)
+}
+
+// Publish 满足 qa.Deps：推 SSE。
+func (a *activeScanAdapter) Publish(ctx context.Context, convID string, payload []byte) error {
+	return a.publisher.Publish(ctx, convID, payload)
 }
 
 // CreateActiveScan 满足 httpapi.ActiveScanAPI（无对话的纯后台扫描入口）。
