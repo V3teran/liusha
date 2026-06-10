@@ -383,6 +383,43 @@ func (a *activeScanAdapter) createScan(ctx context.Context, brief, conversationI
 	return sc.ID, tid, nil
 }
 
+// FollowUpScan 在已有 active_scan 上发起一次续接 run（多轮动作）：重开 scan + 建 hunter run +
+// 入队（brief=追加消息）。复用 owner 作用域黑板——新 orchestrator 经 BuildUserPrompt 看到先前 finding/notes。
+// 入队 Payload 与 createScan 同构，仅 OwnerID 复用传入 scanID、不新建 active_scan。
+func (a *activeScanAdapter) FollowUpScan(ctx context.Context, scanID, conversationID, scenarioID, brief string) (string, error) {
+	if err := a.activeScans.Reopen(ctx, scanID); err != nil {
+		return "", fmt.Errorf("reopen scan: %w", err)
+	}
+	body, err := json.Marshal(map[string]string{"brief": brief})
+	if err != nil {
+		return "", fmt.Errorf("marshal brief: %w", err)
+	}
+	payloadInput, err := json.Marshal(map[string]any{"mode": "active", "entrypoint": json.RawMessage(body)})
+	if err != nil {
+		return "", fmt.Errorf("marshal payload: %w", err)
+	}
+	tid, err := a.tasks.Create(ctx, hunter.NewParams{
+		OwnerType: owner.Active,
+		OwnerID:   scanID,
+		Role:      "orchestrator",
+		Input:     payloadInput,
+	})
+	if err != nil {
+		return "", fmt.Errorf("create hunter run: %w", err)
+	}
+	if _, _, err := a.enq.Enqueue(ctx, worker.RoleHunter, worker.Payload{
+		HunterID:       tid,
+		OwnerType:      owner.Active,
+		OwnerID:        scanID,
+		ConversationID: conversationID,
+		ScenarioID:     scenarioID,
+		Input:          payloadInput,
+	}, asynq.MaxRetry(0)); err != nil {
+		return "", fmt.Errorf("enqueue followup: %w", err)
+	}
+	return tid, nil
+}
+
 // CreateActiveScan 满足 httpapi.ActiveScanAPI（无对话的纯后台扫描入口）。
 func (a *activeScanAdapter) CreateActiveScan(ctx context.Context, brief string) (string, string, error) {
 	return a.createScan(ctx, brief, "", "")
