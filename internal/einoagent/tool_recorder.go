@@ -3,6 +3,7 @@ package einoagent
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"time"
 
 	"github.com/cloudwego/eino/adk"
@@ -111,8 +112,10 @@ func rawOrNil(s string) json.RawMessage {
 }
 
 func truncate(s string, n int) string {
-	if len(s) <= n {
-		return s
+	if len(s) > n {
+		s = s[:n]
 	}
-	return s[:n]
+	// s[:n] 可能把多字节 UTF-8 字符（中文）从中间切断；工具输出也可能含非 UTF-8 字节（二进制）。
+	// PG 强制 UTF-8 会拒收（invalid byte sequence），统一清洗成合法 UTF-8（剔除非法字节）。
+	return strings.ToValidUTF8(s, "")
 }
