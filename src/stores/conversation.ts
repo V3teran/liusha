@@ -7,12 +7,15 @@ export const useConversationStore = defineStore('conversation', {
     messages: [] as Message[],
     seqSet: new Set<number>(),
     lastSeq: 0,
+    // 最近一次 ingest 的本地时间戳（ms）；ChatView 据此判断"agent 是否活动中"。
+    lastIngestAt: 0,
   }),
   actions: {
     ingest(m: Message) {
       // 重复消息直接返回（seq 去重）。
       if (this.seqSet.has(m.Seq)) return
 
+      this.lastIngestAt = Date.now()
       this.seqSet.add(m.Seq)
 
       // 二分查找插入位置以保持升序。
@@ -39,6 +42,7 @@ export const useConversationStore = defineStore('conversation', {
       this.messages = []
       this.seqSet = new Set()
       this.lastSeq = 0
+      this.lastIngestAt = 0
     },
   },
 })

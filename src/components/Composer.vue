@@ -1,17 +1,21 @@
 <script setup lang="ts">
 // 发起器：选角色 + 写 brief。
-// 有 convId 时走追加（followUp），否则新建对话（startChat）并向上抛新对话 ID。
+// 有 convId 走追加（followUp），否则新建对话（startChat）并向上抛新对话 ID。
 import { ref } from 'vue'
 import { startChat, followUp } from '../api/client'
 import RolePicker from './RolePicker.vue'
+
 const props = defineProps<{ convId?: string }>()
 const brief = ref('')
 const roleID = ref('')
 const busyMsg = ref('')
+const sending = ref(false)
 const emit = defineEmits<{ started: [convID: string]; appended: [] }>()
+
 async function send() {
-  if (!brief.value.trim()) return
+  if (!brief.value.trim() || sending.value) return
   busyMsg.value = ''
+  sending.value = true
   try {
     if (props.convId) {
       const r = await followUp(props.convId, brief.value)
@@ -26,18 +30,87 @@ async function send() {
   } catch (e) {
     const err = e as Error & { busy?: boolean }
     busyMsg.value = err.busy ? '扫描进行中，先点停止再发' : '发送失败'
+  } finally {
+    sending.value = false
   }
 }
 </script>
+
 <template>
   <div class="composer">
-    <RolePicker v-if="!convId" v-model="roleID" />
-    <textarea
-      v-model="brief"
-      :placeholder="convId ? '追加指令（在同一目标上继续扫描）…' : '描述要扫的目标 / 任务…'"
-      @keydown.meta.enter="send"
-    />
-    <button @click="send">{{ convId ? '追加' : '发起' }}</button>
-    <span v-if="busyMsg" class="busy">{{ busyMsg }}</span>
+    <div v-if="!convId" class="composer-top">
+      <RolePicker v-model="roleID" />
+      <span class="composer-tip">选择场景，Cmd/Ctrl + Enter 发送</span>
+    </div>
+    <div class="composer-box">
+      <textarea
+        v-model="brief"
+        class="composer-input"
+        :placeholder="convId ? '追加指令（在同一目标上继续）…' : '描述要扫的目标 / 任务（URL、账号、测试方向）…'"
+        @keydown.meta.enter="send"
+        @keydown.ctrl.enter="send"
+      />
+      <div class="composer-actions">
+        <span v-if="busyMsg" class="busy">{{ busyMsg }}</span>
+        <button class="send" :disabled="!brief.trim() || sending" @click="send">
+          {{ sending ? '发送中…' : convId ? '追加' : '发起扫描' }}
+        </button>
+      </div>
+    </div>
   </div>
 </template>
+
+<style scoped>
+.composer {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px;
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+  flex-shrink: 0;
+}
+.composer-top { display: flex; align-items: center; gap: 12px; }
+.composer-tip { font-size: 12px; color: var(--muted); }
+.composer-box {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+  transition: border-color 0.15s;
+}
+.composer-box:focus-within { border-color: var(--primary); }
+.composer-input {
+  width: 100%;
+  min-height: 56px;
+  max-height: 200px;
+  background: transparent;
+  color: var(--text);
+  border: none;
+  padding: 12px 12px 0;
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 1.5;
+  resize: vertical;
+  outline: none;
+}
+.composer-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  padding: 8px 10px;
+}
+.busy { font-size: 12.5px; color: var(--muted); }
+.send {
+  background: var(--primary);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius);
+  padding: 8px 18px;
+  font-size: 13.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.send:hover:not(:disabled) { background: var(--primary-hover); }
+.send:disabled { opacity: 0.5; cursor: not-allowed; }
+</style>

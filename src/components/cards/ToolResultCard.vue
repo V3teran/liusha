@@ -1,10 +1,70 @@
 <script setup lang="ts">
-defineProps<{ tool: string; result: string; durationMs: number; err: string }>()
+// 工具结果卡：状态点(成功/错误) + 工具名 + 耗时，折叠看美化结果；错误默认展开。
+import { computed, ref } from 'vue'
+const props = defineProps<{ tool: string; result: string; durationMs: number; err: string }>()
+const open = ref(!!props.err)
+const pretty = computed(() => {
+  const raw = props.err || props.result
+  if (!raw) return ''
+  try {
+    return JSON.stringify(JSON.parse(raw), null, 2)
+  } catch {
+    return raw
+  }
+})
+const preview = computed(() => {
+  const s = (props.err || props.result || '').replace(/\s+/g, ' ').trim()
+  return s.length > 64 ? s.slice(0, 64) + '…' : s
+})
 </script>
+
 <template>
-  <div class="card tool-result" data-card="tool-result" :data-error="!!err">
-    <span class="meta"><code>{{ tool }}</code> · {{ durationMs }}ms</span>
-    <pre v-if="err" class="err">{{ err }}</pre>
-    <pre v-else class="out">{{ result }}</pre>
+  <div class="tool-result" data-card="tool-result" :data-error="!!err">
+    <button class="head" :class="{ open }" @click="open = !open">
+      <span class="caret">▸</span>
+      <span class="dot" :class="{ err: !!err }" />
+      <code class="tool">{{ tool }}</code>
+      <span class="dur">{{ durationMs }}ms</span>
+      <span v-if="!open" class="preview">{{ preview }}</span>
+    </button>
+    <pre v-if="open" class="out" :class="{ err: !!err }">{{ pretty }}</pre>
   </div>
 </template>
+
+<style scoped>
+.tool-result { align-self: flex-start; max-width: 85%; }
+.head {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 6px 12px;
+  cursor: pointer;
+  font-size: 12.5px;
+  color: var(--text);
+  text-align: left;
+}
+.head:hover { border-color: var(--border-strong); }
+.tool-result[data-error='true'] .head { border-color: var(--sev-critical); }
+.caret { color: var(--muted); transition: transform 0.15s; font-size: 11px; }
+.head.open .caret { transform: rotate(90deg); }
+.dot { width: 6px; height: 6px; border-radius: 50%; background: #2ec27e; flex-shrink: 0; }
+.dot.err { background: var(--sev-critical); }
+.tool { font-family: var(--mono); color: var(--muted); }
+.dur { color: var(--muted); font-size: 11px; }
+.preview { color: var(--muted); font-family: var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.out {
+  margin: 6px 0 0;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 10px;
+  font-size: 12px;
+  max-height: 280px;
+  overflow: auto;
+}
+.out.err { color: var(--sev-critical); border-color: var(--sev-critical); }
+</style>

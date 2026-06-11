@@ -24,7 +24,7 @@ const kind = computed(() => {
   <UserBubble v-if="kind === 'user'" :content="msg.Content" />
   <AssistantText v-else-if="kind === 'assistant'" :content="msg.Content" />
   <ToolCallCard v-else-if="kind === 'tool-call'" :tool="msg.Metadata!.ToolName" :args="msg.Metadata!.Args" />
-  <FindingCard v-else-if="kind === 'finding'" :result="msg.Metadata!.Result" />
+  <FindingCard v-else-if="kind === 'finding'" :args="msg.Metadata!.Args" />
   <ToolResultCard
     v-else
     :tool="msg.Metadata!.ToolName"
