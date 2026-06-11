@@ -1,87 +1,126 @@
+/* ============================================================
+   设计 token —— 深色为主双主题（data-theme 切换）。
+   组件类名沿用历史（conv-list/card/composer/gate…），仅升级配色与圆角。
+   ============================================================ */
 :root {
-  --bg: #0d1117;
-  --surface: #161b22;
-  --border: #30363d;
-  --text: #c9d1d9;
-  --muted: #8b949e;
-  --mono: ui-monospace, SFMono-Regular, "JetBrains Mono", monospace;
-  --accent: #58a6ff;
+  /* 表面层次 */
+  --bg: #0a0c12;
+  --surface: #10141d;
+  --surface-2: #171c28;
+  --elevated: #1e2433;
+  --border: #232a39;
+  --border-strong: #323b4f;
+  /* 文本 */
+  --text: #e7eaf2;
+  --muted: #8a92a6;
+  /* 主色 / 强调 */
+  --primary: #7c8cff;
+  --primary-hover: #93a0ff;
+  --primary-soft: rgba(124, 140, 255, 0.14);
+  --accent: #22d3ee;
+  /* 漏洞分级语义色 */
   --sev-critical: #f85149;
   --sev-high: #ff7b35;
   --sev-medium: #d29922;
   --sev-low: #6e7681;
+  --sev-info: #58a6ff;
+  /* 排版 / 形状 / 间距 */
+  --font: Inter, system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --mono: ui-monospace, SFMono-Regular, "JetBrains Mono", "Cascadia Code", monospace;
+  --radius-sm: 6px;
+  --radius: 9px;
+  --radius-lg: 16px;
   --space: 12px;
+  --shadow: 0 6px 24px -8px rgba(0, 0, 0, 0.5);
+  --shadow-lg: 0 18px 50px -16px rgba(0, 0, 0, 0.6);
+  color-scheme: dark;
 }
 
-* {
-  box-sizing: border-box;
+:root[data-theme="light"] {
+  --bg: #f5f7fb;
+  --surface: #ffffff;
+  --surface-2: #f0f3f9;
+  --elevated: #ffffff;
+  --border: #e4e8f0;
+  --border-strong: #cdd5e2;
+  --text: #1a2233;
+  --muted: #5c6678;
+  --primary: #5b66e8;
+  --primary-hover: #4c57d8;
+  --primary-soft: rgba(91, 102, 232, 0.12);
+  --accent: #0891b2;
+  --sev-low: #94a3b8;
+  --shadow: 0 6px 24px -10px rgba(20, 30, 60, 0.18);
+  --shadow-lg: 0 18px 50px -18px rgba(20, 30, 60, 0.22);
+  color-scheme: light;
 }
+
+* { box-sizing: border-box; }
+
+html, body, #app { height: 100%; }
 
 body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
-  font-family: system-ui, sans-serif;
+  font-family: var(--font);
+  -webkit-font-smoothing: antialiased;
 }
 
-code,
-pre,
-.args,
-.out,
-.err,
-.meta {
-  font-family: var(--mono);
-}
+code, pre, .args, .out, .err, .meta { font-family: var(--mono); }
 
-.app {
-  display: grid;
-  grid-template-columns: 240px 1fr;
-  height: 100vh;
-}
+/* 细滚动条 */
+* { scrollbar-width: thin; scrollbar-color: var(--border-strong) transparent; }
+*::-webkit-scrollbar { width: 8px; height: 8px; }
+*::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 8px; }
 
+/* ============================================================
+   对话链路组件（保留逻辑，升级观感）
+   ============================================================ */
 .conv-list {
   background: var(--surface);
-  border-right: 1px solid var(--border);
   padding: var(--space);
   overflow-y: auto;
-}
-
-.conv-list li {
-  padding: 8px;
-  cursor: pointer;
-  border-radius: 6px;
-  list-style: none;
-}
-
-.conv-list ul {
-  padding: 0;
-  margin: 8px 0 0;
-}
-
-.conv-list li:hover {
-  background: var(--bg);
-}
-
-.conv-list .refresh {
-  width: 100%;
-  background: var(--bg);
-  color: var(--text);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 8px 12px;
-  cursor: pointer;
-  font-size: 14px;
-}
-
-.conv-list .refresh:hover {
-  border-color: var(--accent);
-}
-
-main {
   display: flex;
   flex-direction: column;
-  min-height: 0;
+  gap: 8px;
 }
+.conv-list .new-conv {
+  width: 100%;
+  background: var(--primary);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius);
+  padding: 9px 12px;
+  cursor: pointer;
+  font-size: 13.5px;
+  font-weight: 600;
+}
+.conv-list .new-conv:hover { background: var(--primary-hover); }
+.conv-list .refresh {
+  width: 100%;
+  background: var(--surface-2);
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 6px 12px;
+  cursor: pointer;
+  font-size: 13px;
+}
+.conv-list .refresh:hover { border-color: var(--primary); color: var(--text); }
+.conv-list ul { padding: 0; margin: 4px 0 0; display: flex; flex-direction: column; gap: 2px; }
+.conv-list li {
+  padding: 9px 10px;
+  cursor: pointer;
+  border-radius: var(--radius);
+  list-style: none;
+  font-size: 13px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.conv-list li:hover { background: var(--surface-2); color: var(--text); }
 
 .thread {
   flex: 1;
@@ -89,27 +128,22 @@ main {
   padding: var(--space);
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
 }
 
 .card {
   border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 8px 10px;
+  border-radius: var(--radius);
+  padding: 10px 12px;
   background: var(--surface);
 }
-
 .card.user {
   align-self: flex-end;
-  background: #1f6feb22;
-  border-color: var(--accent);
+  background: var(--primary-soft);
+  border-color: color-mix(in srgb, var(--primary) 40%, transparent);
   max-width: 70%;
 }
-
-.card.assistant {
-  max-width: 85%;
-}
-
+.card.assistant { max-width: 85%; }
 .card.tool-call .tool-head {
   background: none;
   border: none;
@@ -117,34 +151,26 @@ main {
   cursor: pointer;
   font-family: var(--mono);
   padding: 0;
+  font-size: 13px;
 }
-
-.card.tool-call .tool-head:hover {
-  text-decoration: underline;
-}
-
-.card.tool-result[data-error="true"] {
-  border-color: var(--sev-critical);
-}
-
-.card.tool-result .err {
-  color: var(--sev-critical);
-}
-
+.card.tool-call .tool-head:hover { text-decoration: underline; }
+.card.tool-result[data-error="true"] { border-color: var(--sev-critical); }
+.card.tool-result .err { color: var(--sev-critical); }
 .card.finding {
   border-color: var(--sev-high);
+  border-left-width: 3px;
   display: flex;
-  gap: 8px;
+  gap: 10px;
   align-items: center;
 }
-
 .card.finding .badge {
   background: var(--sev-high);
   color: #000;
   font-family: var(--mono);
   font-size: 11px;
-  padding: 1px 6px;
-  border-radius: 3px;
+  font-weight: 700;
+  padding: 1px 7px;
+  border-radius: 4px;
   flex-shrink: 0;
 }
 
@@ -155,11 +181,7 @@ pre {
   max-height: 320px;
   overflow-y: auto;
 }
-
-.meta {
-  color: var(--muted);
-  font-size: 12px;
-}
+.meta { color: var(--muted); font-size: 12px; }
 
 .composer {
   display: flex;
@@ -168,41 +190,127 @@ pre {
   border-top: 1px solid var(--border);
   background: var(--surface);
 }
-
 .composer textarea {
   flex: 1;
   min-height: 48px;
   background: var(--bg);
   color: var(--text);
   border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 8px;
+  border-radius: var(--radius);
+  padding: 10px;
   font-family: inherit;
+  font-size: 14px;
   resize: vertical;
 }
-
+.composer textarea:focus { outline: none; border-color: var(--primary); }
 .composer button,
-.composer select,
-.gate button,
-.gate input {
-  background: var(--bg);
-  color: var(--text);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 8px 12px;
+.composer select {
+  background: var(--primary);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius);
+  padding: 8px 16px;
   cursor: pointer;
+  font-size: 13.5px;
 }
+.composer select { background: var(--surface-2); color: var(--text); border: 1px solid var(--border); }
+.composer button:hover { background: var(--primary-hover); }
+.composer select:hover { border-color: var(--primary); }
 
-.composer button:hover,
-.composer select:hover,
-.gate button:hover,
-.gate input:hover {
-  border-color: var(--accent);
-}
-
+/* ============================================================
+   全屏鉴权门
+   ============================================================ */
 .gate {
   height: 100vh;
   display: grid;
   place-content: center;
-  gap: 8px;
+  gap: 12px;
+  background:
+    radial-gradient(800px 400px at 50% -10%, var(--primary-soft), transparent),
+    var(--bg);
 }
+.gate input,
+.gate button {
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 11px 14px;
+  font-size: 14px;
+  min-width: 260px;
+}
+.gate button { background: var(--primary); color: #fff; border: none; cursor: pointer; font-weight: 600; }
+.gate input:focus { outline: none; border-color: var(--primary); }
+.gate button:hover { background: var(--primary-hover); }
+
+/* ============================================================
+   数据页通用骨架（toolbar + body + stat 卡 + panel + state）
+   ============================================================ */
+.page { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.page-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 13px 22px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.page-body { flex: 1; min-height: 0; overflow-y: auto; padding: 22px; }
+
+.state {
+  display: grid;
+  place-items: center;
+  gap: 12px;
+  padding: 64px 20px;
+  color: var(--muted);
+  font-size: 14px;
+}
+.state .state-err { color: var(--sev-critical); }
+
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 14px;
+  margin-bottom: 20px;
+}
+.stat-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 16px 18px;
+  position: relative;
+  overflow: hidden;
+}
+.stat-card::after {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+  background: var(--primary);
+  opacity: 0.7;
+}
+.stat-card .sv { font-size: 24px; font-weight: 700; font-family: var(--mono); line-height: 1.1; }
+.stat-card .sl { font-size: 12px; color: var(--muted); margin-top: 6px; }
+
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 16px 18px;
+  margin-bottom: 16px;
+}
+.panel-title {
+  font-size: 13px;
+  color: var(--muted);
+  margin: 0 0 14px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.chart { width: 100%; height: 260px; }
+.mono { font-family: var(--mono); }
+.muted { color: var(--muted); }

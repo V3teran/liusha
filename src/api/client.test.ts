@@ -1,5 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { getApiKey, setApiKey, listRoles, listConversations, listMessages, startChat, followUp, abortScan } from './client'
+import {
+  getApiKey, setApiKey, listRoles, listConversations, listMessages, startChat, followUp, abortScan,
+  listSessions, startActiveScan, abortSession, getSitemap, listLLMInvocations, listAgentRuns,
+  listCredentials, saveCredentialsBatch, deleteCredentials,
+} from './client'
 
 describe('API 客户端', () => {
   beforeEach(() => {
@@ -142,6 +146,139 @@ describe('API 客户端', () => {
       await abortScan('c1')
 
       expect(mockFetch).toHaveBeenCalledWith('/api/conversations/c1/abort', expect.objectContaining({ method: 'POST' }))
+    })
+  })
+
+  describe('owner 会话 / 扫描', () => {
+    it('listSessions 拆出 sessions 数组', async () => {
+      ;(global as any).fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: vi.fn().mockResolvedValue({
+          sessions: [{ id: 'o1', scope: '{"any":true}', status: 'running', mode: 'passive', created_at: '2026-06-11T00:00:00Z' }],
+        }),
+      })
+
+      const result = await listSessions()
+
+      expect(result).toHaveLength(1)
+      expect(result[0].id).toBe('o1')
+    })
+
+    it('listSessions 带 limit 拼 query', async () => {
+      const mockFetch = vi.fn().mockResolvedValue({ ok: true, json: vi.fn().mockResolvedValue({ sessions: [] }) })
+      ;(global as any).fetch = mockFetch
+
+      await listSessions(20)
+
+      expect(mockFetch).toHaveBeenCalledWith('/api/session?limit=20', { headers: { 'X-API-Key': '' } })
+    })
+
+    it('startActiveScan POST brief 返回 owner_id/hunter_id', async () => {
+      setApiKey('k')
+      const mockFetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: vi.fn().mockResolvedValue({ owner_id: 'o9', hunter_id: 'h9' }),
+      })
+      ;(global as any).fetch = mockFetch
+
+      const result = await startActiveScan('测试 http://t/login admin/pass 只测 XSS')
+
+      expect(result).toEqual({ owner_id: 'o9', hunter_id: 'h9' })
+      expect(mockFetch).toHaveBeenCalledWith('/api/scan/active', expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ brief: '测试 http://t/login admin/pass 只测 XSS' }),
+      }))
+    })
+
+    it('abortSession POST 到 /session/:id/abort', async () => {
+      const mockFetch = vi.fn().mockResolvedValue({ ok: true, json: vi.fn().mockResolvedValue({ ok: true }) })
+      ;(global as any).fetch = mockFetch
+
+      await abortSession('o1')
+
+      expect(mockFetch).toHaveBeenCalledWith('/api/session/o1/abort', expect.objectContaining({ method: 'POST' }))
+    })
+  })
+
+  describe('攻击面 / 审计 / 任务树', () => {
+    it('getSitemap 透传 SitemapView', async () => {
+      ;(global as any).fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: vi.fn().mockResolvedValue({ owner_id: 'o1', host: 'h', generated_at: '2026-06-11T00:00:00Z', root: null }),
+      })
+
+      const view = await getSitemap('o1')
+
+      expect(view.owner_id).toBe('o1')
+      expect(view.root).toBeNull()
+    })
+
+    it('getSitemap 带 host 拼 query', async () => {
+      const mockFetch = vi.fn().mockResolvedValue({ ok: true, json: vi.fn().mockResolvedValue({}) })
+      ;(global as any).fetch = mockFetch
+
+      await getSitemap('o1', 'a.com:80')
+
+      expect(mockFetch).toHaveBeenCalledWith('/api/sitemap/o1?host=a.com%3A80', { headers: { 'X-API-Key': '' } })
+    })
+
+    it('listLLMInvocations 透传分组响应', async () => {
+      ;(global as any).fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: vi.fn().mockResolvedValue({ owner_id: 'o1', total: 1, groups: [{ hunter_id: 'h1', count: 1, invocations: [] }] }),
+      })
+
+      const res = await listLLMInvocations('o1')
+
+      expect(res.total).toBe(1)
+      expect(res.groups[0].hunter_id).toBe('h1')
+    })
+
+    it('listAgentRuns 透传 runs', async () => {
+      ;(global as any).fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: vi.fn().mockResolvedValue({ owner_id: 'o1', total: 2, runs: [] }),
+      })
+
+      const res = await listAgentRuns('o1')
+
+      expect(res.total).toBe(2)
+    })
+  })
+
+  describe('凭证库', () => {
+    it('listCredentials 按 host 拆 identities', async () => {
+      const mockFetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: vi.fn().mockResolvedValue({ identities: [{ name: 'admin', role: 'admin', credentials: [] }] }),
+      })
+      ;(global as any).fetch = mockFetch
+
+      const ids = await listCredentials('a.com')
+
+      expect(ids[0].name).toBe('admin')
+      expect(mockFetch).toHaveBeenCalledWith('/api/credential?host=a.com', { headers: { 'X-API-Key': '' } })
+    })
+
+    it('saveCredentialsBatch POST ttl + credentials', async () => {
+      const mockFetch = vi.fn().mockResolvedValue({ ok: true, json: vi.fn().mockResolvedValue({ ok: true }) })
+      ;(global as any).fetch = mockFetch
+
+      await saveCredentialsBatch({ 'a.com': [{ name: 'u', role: 'user', credentials: [] }] }, 3600)
+
+      expect(mockFetch).toHaveBeenCalledWith('/api/credential/batch', expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ ttl_seconds: 3600, credentials: { 'a.com': [{ name: 'u', role: 'user', credentials: [] }] } }),
+      }))
+    })
+
+    it('deleteCredentials DELETE 带 host query', async () => {
+      const mockFetch = vi.fn().mockResolvedValue({ ok: true, json: vi.fn().mockResolvedValue({ ok: true }) })
+      ;(global as any).fetch = mockFetch
+
+      await deleteCredentials('a.com')
+
+      expect(mockFetch).toHaveBeenCalledWith('/api/credential?host=a.com', expect.objectContaining({ method: 'DELETE' }))
     })
   })
 })
