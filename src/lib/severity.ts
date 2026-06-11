@@ -1,0 +1,20 @@
+// 漏洞分级 → 颜色 / 排序。与 style.css 的 --sev-* token 对齐，供 Findings/Sitemap 页复用。
+export const severityColor: Record<string, string> = {
+  critical: '#f85149',
+  high: '#ff7b35',
+  medium: '#d29922',
+  low: '#6e7681',
+  info: '#58a6ff',
+}
+
+// 生成 Naive n-tag 的自定义配色对象（淡底 + 同色字/边）。
+export function severityTagColor(sev: string) {
+  const c = severityColor[sev.toLowerCase()] ?? '#6e7681'
+  return { color: c + '22', textColor: c, borderColor: c + '55' }
+}
+
+// 严重度排序权重：critical 最前，未知最后。
+export function severityRank(sev: string): number {
+  const order: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3, info: 4 }
+  return order[sev.toLowerCase()] ?? 5
+}
