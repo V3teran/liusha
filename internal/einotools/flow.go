@@ -79,9 +79,12 @@ func BuildReplayFlow(store FlowReader, ownerType, ownerID, hunterID string) (too
 			}
 
 			// 反序列化原 request_headers jsonb → map，apply mod 增删改（value=null 删）
+			// 解析失败直接报错：headers 多含认证凭据，空 headers 重放会丢认证 → 误导性结果。
 			headers := map[string]string{}
 			if len(f.RequestHeaders) > 0 {
-				_ = json.Unmarshal(f.RequestHeaders, &headers)
+				if err := json.Unmarshal(f.RequestHeaders, &headers); err != nil {
+					return nil, fmt.Errorf("解析 flow %d 的 request_headers 失败（数据损坏，拒绝空头重放）: %w", in.ID, err)
+				}
 			}
 			for k, v := range in.Modifications.Headers {
 				key := strings.ToLower(k)

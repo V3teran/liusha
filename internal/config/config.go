@@ -133,18 +133,6 @@ type ProviderConfig struct {
 	// 同 SupportsVision 模式：*int 区分"未填"（nil）与"显式 0"——validate 强制必填，
 	// 避免 caller 用默认值估算导致 prompt 真爆（例如 32k 模型按 128k 算阈值）。
 	ContextWindow *int `mapstructure:"context_window"`
-
-	// GroundingCoordSystem 描述 vision 模型输出像素坐标时用的坐标系。
-	// vision 模型 grounding 训练分两派：Qwen-VL 系归一化到 [0, 1000]（含 Doubao/Gemini），
-	// Anthropic Claude / OpenAI GPT-4o 直接给真像素。工具层按 provider 配置换算到真像素。
-	//
-	// 取值（启动 validate）：
-	//   "normalized_1000" — Qwen-VL/Doubao/Gemini 派，输出 0-1000 归一化
-	//   "real_pixels"     — Claude/GPT-4o 派，直接给真实像素
-	//   "normalized_100"  — 备用（Gemini 早期百分比模式）
-	//
-	// SupportsVision=true 时必填；SupportsVision=false 时可空（不会被 browser_use click 用到）。
-	GroundingCoordSystem string `mapstructure:"grounding_coord_system"`
 }
 
 // PricingConfig 是 LLM 模型单价表（USD per 1M tokens）。
@@ -264,7 +252,6 @@ type HuntersConfig struct {
 type ScannerConfig struct {
 	PassiveMaxSteps              int    `mapstructure:"passive_max_steps"`                // passive 模式 ReAct 步数上限（流量驱动单类型挖掘 60 步够）
 	ActiveMaxSteps               int    `mapstructure:"active_max_steps"`                 // active 模式 ReAct 步数上限（active 站点扫描深挖，与 PassiveMaxSteps 解耦）；exploitation 任务复用同一上限
-	MaxChildren                  int    `mapstructure:"max_children"`                     // subtask swarm orchestrator spawn exploitation上限（防 LLM 失控；默认 10）
 	AgentRunTimeoutSeconds       int    `mapstructure:"agent_run_timeout_seconds"`        // passive 模式单个 hunter task 整体超时（asynq handler 入口 WithTimeout）
 	ActiveAgentRunTimeoutSeconds int    `mapstructure:"active_agent_run_timeout_seconds"` // active 模式整体超时——站点扫描爬+测耗时长，独立配置（默认 4h，对齐 sandbox max lifetime）
 	StepLLMTimeoutSeconds        int    `mapstructure:"step_llm_timeout_seconds"`
@@ -346,7 +333,6 @@ type SandboxConfig struct {
 	// ViewportWidth/Height 是沙箱 chromium 视口固定尺寸（像素）。
 	// 由 sandbox-server 通过 env 透传给 browser-use wrapper：每次 browser-use-cli 调用都带
 	// --window-width/--window-height 全局 flag，确保 chromium daemon 用一致尺寸启动。
-	// browser_use 的 click/input action 坐标换算（grounding 归一化 → 真像素）依赖此尺寸。
 	//
 	// 默认 1280×720——playwright 主流推荐 + vision encoder token cost sweet spot：
 	//   ~1100-1300 tokens/图（Doubao/GPT-4o），翻倍到 1920×1080 仅边际精度收益但 token x2。
@@ -355,9 +341,9 @@ type SandboxConfig struct {
 	ViewportHeight int `mapstructure:"viewport_height"`
 }
 
-// ToolruntimeConfig 是 toolruntime/interceptor 参数。
+// ToolruntimeConfig 是工具执行的运行时参数（run_command 等本地工具的兜底超时）。
 type ToolruntimeConfig struct {
-	StepToolTimeoutSeconds int `mapstructure:"step_tool_timeout_seconds"` // 单次 tool Execute 兜底超时（Interceptor 层 WithTimeout，防本地工具卡死）
+	StepToolTimeoutSeconds int `mapstructure:"step_tool_timeout_seconds"` // 单次工具执行兜底超时上限（run_command timeout_seconds 的钳制上界，防本地工具卡死）
 }
 
 // Load 从 path 读取 YAML，应用 LIUSHA_ ENV 覆盖，反序列化、应用默认值并校验。
@@ -663,9 +649,6 @@ func applyScannerDefaults(c ScannerConfig) ScannerConfig {
 	if c.PassiveMaxSteps == 0 {
 		c.PassiveMaxSteps = 60
 	}
-	if c.MaxChildren == 0 {
-		c.MaxChildren = 10 // subtask swarm 经验值：5-10 个 specialist 是 sweet spot
-	}
 	if c.ActiveMaxSteps == 0 {
 		c.ActiveMaxSteps = 300 // active 站点扫描深挖经验值（与 passive 60 步差异化）
 	}
@@ -816,19 +799,6 @@ func validate(c Config) error {
 		// context_window 同强制必填——react 历史压缩按此算阈值；漏填会用 0 兜底导致一直触发或永不触发。
 		if p.ContextWindow == nil || *p.ContextWindow <= 0 {
 			return fmt.Errorf("provider %q: context_window 必填且 > 0（model 总上下文窗口 tokens 数）", name)
-		}
-		// grounding_coord_system：vision provider 可选——4 层级联推断（grounding.ResolveCoordSystem）：
-		//   1. 显式填了 → 检查取值合法性
-		//   2. 否则按 default_model + base_url 自动推断（model name registry + vendor registry）
-		//   3. 仍未命中 → fallback real_pixels（运行时打 WARN log）
-		// validate 阶段只检查"显式填了但值非法"——推断在 hunter 装配期由 ResolveCoordSystem 跑。
-		if p.SupportsVision != nil && *p.SupportsVision && p.GroundingCoordSystem != "" {
-			switch p.GroundingCoordSystem {
-			case "normalized_1000", "real_pixels", "normalized_100":
-				// ok
-			default:
-				return fmt.Errorf("provider %q: grounding_coord_system 取值非法 %q（仅支持 normalized_1000 / real_pixels / normalized_100；留空走自动推断）", name, p.GroundingCoordSystem)
-			}
 		}
 	}
 	return nil

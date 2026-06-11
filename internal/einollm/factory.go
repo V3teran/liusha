@@ -5,9 +5,12 @@
 //   - 从 config.Providers[key] 的 base_url/default_model/api_key_env 构造**原生** eino ChatModel
 //   - 返回 eino 的 model.ToolCallingChatModel——消费方（ChatModelAgent/deep）直接用 eino 类型，不再包一层
 //
-// ★ per-hunter 独立实例铁律（spike/eino-deep 实测）：For 每次返回**新** ChatModel 实例。
-// eino BindTools 会改 model 内部状态，orchestrator+exploitation 共享一个实例会被串行化，
-// 失去并发。装配多 agent 时务必每个 agent 调一次 For 拿独立实例。
+// 并发性（2026-06-11 源码复核，纠正旧「per-hunter 独立 model 铁律」）：
+// 共享同一个 ChatModel 给多个并发 agent 是**安全**的——ChatModelAgent 通过
+// model.WithTools **call option** 配工具（adk/chatmodel.go:964），openai 组件的 WithTools
+// 返回**全新** ChatModel（不改原对象，acl 层 `nc:=*c` 拷贝），并非会改内部状态的 BindTools。
+// 故旧铁律「共享会被 BindTools 串行化」不成立（active 路径 deep_swarm 已共用一个 model）。
+// For 每次仍返回新实例只是简单默认，不是并发要求；需要共享时直接复用返回值即可。
 package einollm
 
 import (
@@ -29,7 +32,7 @@ type Factory struct {
 // New 构造 Factory。
 func New(cfg config.Config) *Factory { return &Factory{cfg: cfg} }
 
-// For 按 role 返回一个**新建**的 eino ChatModel（独立实例，见包注释铁律）。
+// For 按 role 返回一个**新建**的 eino ChatModel（共享亦安全，见包注释并发性说明）。
 //
 // role 解析：Agents[role] → Utilities[role] → default_provider，field 再映射到 provider key。
 func (f *Factory) For(ctx context.Context, role string) (model.ToolCallingChatModel, error) {

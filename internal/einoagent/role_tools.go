@@ -11,17 +11,13 @@ import (
 // role_tools.go：工具注册表——把角色 markdown 里声明的「工具名」运行时建成实际 eino 工具。
 //
 // 角色定义（role.go）的 Tools 字段是字符串清单（read_findings/write_finding/...）。本注册表
-// 把每个名字映射到一个 builder：用运行期注入值（owner/host/hunter/sandbox + spawn 工具）建实例。
+// 把每个名字映射到一个 builder：用运行期注入值（owner/host/hunter/sandbox）建实例。
 // 这样「角色用哪些工具」由 markdown 配（动态），「工具怎么注入身份」由代码定（安全，防 LLM 串库）。
 
 // ToolBuildCtx 是建工具的运行期上下文（per agent run 注入，LLM 不可控）。
 type ToolBuildCtx struct {
 	Deps   TrafficAnalysisToolDeps   // store/loader/sandbox
 	Params TrafficAnalysisToolParams // owner/host/hunter/flow 注入值
-
-	// SpawnExploitation 是 orchestrator 专用的 spawn_exploitation 工具（由 caller 用 BuildSpawnExploitation 造好传入）；
-	// 子代理不传（nil），声明了 spawn_exploitation 也会因 nil 被忽略 → 防递归 spawn。
-	SpawnExploitation tool.BaseTool
 }
 
 // toolBuilder 按运行期上下文造一个工具实例。
@@ -100,14 +96,6 @@ var toolRegistry = map[string]toolBuilder{
 			return nil, errLoaderEmpty("read_vuln_skill")
 		}
 		return einotools.BuildReadVulnSkill(c.Deps.VulnLoader)
-	},
-
-	// orchestrator 专用：spawn_exploitation 由 caller 造好传入 ctx，注册表只取出
-	"spawn_exploitation": func(c ToolBuildCtx) (tool.BaseTool, error) {
-		if c.SpawnExploitation == nil {
-			return nil, fmt.Errorf("spawn_exploitation: 未注入（仅 orchestrator 可用）")
-		}
-		return c.SpawnExploitation, nil
 	},
 }
 

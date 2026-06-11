@@ -315,8 +315,7 @@ func (s *Store) DistinctRoutesWithRepresentative(ctx context.Context, ownerID, h
 }
 
 // stripHostPort 把 host:port 归一化为裸 host，与 http_flow.host 存储键（去端口）对齐。
-// 与 tools/common/flow.go 的同名函数一致；net.SplitHostPort 无端口时报错 → 原样返回，
-// IPv6 形如 [::1]:80 也能正确拆出 ::1。
+// net.SplitHostPort 无端口时报错 → 原样返回；IPv6 形如 [::1]:80 也能正确拆出 ::1。
 func stripHostPort(host string) string {
 	if h, _, err := net.SplitHostPort(host); err == nil {
 		return h

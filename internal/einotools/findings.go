@@ -1,4 +1,4 @@
-// Package einotools 把 liusha 的域工具重构成**原生** eino tool（取代 internal/tools/common 的 Action）。
+// Package einotools 把 liusha 的域工具实现为**原生** eino tool。
 //
 // 设计（eino 全面迁移 P2，见 docs/superpowers/specs/2026-06-07-eino-full-migration.md）：
 //   - 用 utils.InferTool 从入参 struct 自动推 JSON schema（省掉手写 ParametersJSON）

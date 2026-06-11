@@ -44,6 +44,10 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
+// auditLog 专记审计写入的 best-effort 失败——审计是安全/合规轨迹，
+// 失败不阻塞业务但必须留可见日志（不能完全静默吞掉）。
+var auditLog = logx.New("api.audit")
+
 func main() {
 	logger := logx.New("api")
 	ctx := context.Background()
@@ -199,17 +203,19 @@ func (a ownerAPIAdapter) Abort(ctx context.Context, id string) error {
 	return fmt.Errorf("session %s not found in passive_session or active_scan", id)
 }
 
-// writeAudit best-effort 写审计事件；失败仅吞错不阻塞业务。
+// writeAudit best-effort 写审计事件；失败不阻塞业务，但记 Warn 留可见痕迹。
 func (a ownerAPIAdapter) writeAudit(ctx context.Context, action, kind, id string) {
 	if a.audit == nil {
 		return
 	}
-	_, _ = a.audit.Append(ctx, audit.Event{
+	if _, err := a.audit.Append(ctx, audit.Event{
 		Actor:      audit.ActorAPIUser,
 		Action:     action,
 		TargetKind: kind,
 		TargetID:   id,
-	})
+	}); err != nil {
+		auditLog.Warn().Err(err).Str("action", action).Str("target", id).Msg("审计事件写入失败（不阻塞业务）")
+	}
 }
 
 // EnsurePassiveSession 按 host 找/建 active passive_session 返其 id。
@@ -388,8 +394,8 @@ func (a *activeScanAdapter) createScan(ctx context.Context, brief, conversationI
 			TargetID:   sc.ID,
 			Metadata:   meta,
 		}); err != nil {
-			// best-effort：审计失败不阻塞业务返回
-			_ = err
+			// best-effort：审计失败不阻塞业务返回，但记 Warn 留可见痕迹
+			auditLog.Warn().Err(err).Str("action", string(audit.ActionOwnerCreate)).Str("target", sc.ID).Msg("active scan 创建审计写入失败（不阻塞业务）")
 		}
 	}
 

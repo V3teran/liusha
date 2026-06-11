@@ -11,12 +11,13 @@ import (
 	"github.com/cloudwego/eino/schema"
 )
 
-// deep_swarm.go：用 eino deep prebuilt 装配 orchestrator（orchestrator）+ 杀伤链 sub-agents。
+// deep_swarm.go：用 eino deep prebuilt 装配 orchestrator + 杀伤链 sub-agents（orchestrator 经 deep 自带 task 工具派活）。
 //
-// 替代 spawn.go 的自定义 spawn_exploitation——改用 eino 原生 deep（用户决策：orchestrator+exploitation=deepagent）。
-// 关键事实（实测/源码，见 reference_eino_vs_adk / project_eino_migration 记忆）：
+// 关键事实（源码复核 2026-06-11，见 reference_eino_vs_adk / project_eino_migration 记忆）：
 //   - 共享 ChatModel 并发安全（per-hunter 独立 model「铁律」已作废）→ 所有 agent 共用一个 model
-//   - deep 的 sub-agent 间**串行**（AgentTool 固定 checkpoint）→ 符合杀伤链流程本串行
+//   - 框架层不强制串行：deep task 工具是 InvokableTool（一 task=一 sub-agent），AgentTool 每次调用
+//     新建私有 bridge store（非固定 checkpoint 锁），多 task 由 ToolsNode 并行执行。实际是否并发取决于
+//     orchestrator 一轮发几个 task；杀伤链本就阶段串行，可接受（深度并发未经 spike 实测，按需再验）
 //   - sub-agent **内部**多工具并行（eino ToolsNode 原生）
 //   - 文件隔离：run_command 每命令独立临时目录（deep 无法 per-sub-agent 注入 key，einotools 侧处理）
 
@@ -68,7 +69,7 @@ func BuildDeepSwarm(ctx context.Context, cfg DeepSwarmConfig) (adk.Agent, error)
 		subAgents = append(subAgents, sa)
 	}
 
-	// orchestrator 工具集（Orchestrator 角色声明；不含 spawn_exploitation——deep 自带 task 工具派活）
+	// orchestrator 工具集（Orchestrator 角色 md 声明；派活由 deep 自带 task 工具负责，不在此）
 	cmdTools, err := BuildRoleTools(cfg.Orchestrator, ToolBuildCtx{Deps: cfg.ToolDeps, Params: cfg.Params})
 	if err != nil {
 		return nil, fmt.Errorf("orchestrator 工具: %w", err)

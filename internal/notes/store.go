@@ -32,10 +32,7 @@ import (
 	"github.com/rs/zerolog"
 )
 
-// Store 是 hunter 短期工作笔记的最小读写接口。
-//
-// 同时被 internal/tools/common/note.go 的 NoteStore 与
-// internal/react/inspector_llm.go 的 NotesReader 隐式满足。
+// Store 是 hunter 短期工作笔记的最小读写接口（由 internal/einotools 的 note 工具消费）。
 // 所有方法带 host 参数——同 owner 多 host 切分隔离。
 type Store interface {
 	AppendNote(ctx context.Context, ownerID, host string, entry []byte) error

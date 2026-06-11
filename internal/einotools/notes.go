@@ -11,7 +11,7 @@ import (
 )
 
 // NoteStore 是 owner 共享笔记板的最小访问接口（*notes.RedisStore 自动满足）。
-// 对应 internal/tools/common 的 NoteStore——owner 可挂多 host，notes 按 (owner, host) 切分。
+// owner 可挂多 host，notes 按 (owner, host) 切分。
 type NoteStore interface {
 	ReadNotes(ctx context.Context, ownerID, host string) ([]byte, error)
 	AppendNote(ctx context.Context, ownerID, host string, entry []byte) error

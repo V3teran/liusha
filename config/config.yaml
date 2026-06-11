@@ -103,7 +103,6 @@ providers:
     supports_tools: true
     supports_vision: true
     context_window: 200000           # claude-sonnet-4-6 / haiku-4-5 同 200k
-    # grounding_coord_system 不填 → registry 推断（claude-* → real_pixels）
 
   anthropic_haiku:
     type: anthropic
@@ -124,7 +123,6 @@ providers:
     supports_tools: true
     supports_vision: true
     context_window: 128000           # gpt-4o 128k
-    # grounding_coord_system 不填 → registry 推断（gpt-4o → real_pixels）
 
   moonshot:
     type: openai_compat
@@ -180,7 +178,6 @@ providers:
     supports_tools: true
     supports_vision: true
     context_window: 32768                      # qwen3-vl 节点 Modelfile 默认 32k
-    # grounding_coord_system 不填 → registry 推断（qwen3-vl → normalized_1000）
 
   # —— 公网 CN ollama 节点（inspector 路由 + fallback）
   # 14B 选型：纯 JSON 输出场景（inspector decision），无需 tool_calls，速度极快（0.1s/turn）。
@@ -226,7 +223,6 @@ providers:
     supports_tools: true
     supports_vision: true
     context_window: 131072                    # glm-4.6v-flash 128k
-    # grounding_coord_system 不填 → registry 推断（glm-4.6v → normalized_1000）
 
   # —— 智谱 GLM 文本档（inspector 督查官 + fallback）
   # glm-4.5-flash：纯文本免费版，inspector 仅需短 JSON 输出，无需 vision encoder 省 latency。
@@ -252,7 +248,6 @@ providers:
     supports_tools: true
     supports_vision: true
     context_window: 1048576                   # 小米官方 1M 上下文
-    grounding_coord_system: normalized_1000   # ⚠️ 沿用 doubao 旧值（Qwen-VL 谱系）；browser_use 点击若偏移改 real_pixels
 
   # —— 火山方舟豆包（OpenAI 兼容协议，ark.cn-beijing.volces.com）※保留定义备用，当前未选用（已切小米）
   # 关键差异：model 字段必须填 endpoint ID（控制台「在线推理 → 推理接入点」创建），
@@ -268,7 +263,6 @@ providers:
     supports_tools: true
     supports_vision: true
     context_window: 262144                    # Mini 全系 256k
-    # grounding_coord_system 不填 → vendor registry 推断（ark.cn-beijing.volces.com → normalized_1000）
     # endpoint ID 模式无法走 model name registry，靠 vendor base_url 兜底命中
 
   # —— 豆包 Lite 档（中档付费，比 Mini 强、比 Pro 便宜）※保留定义备用，当前未选用
@@ -412,7 +406,6 @@ skills:
 scanner:
   passive_max_steps: 60                    # passive 模式 ReAct 步数上限（流量驱动单类型挖掘够用）
   active_max_steps: 300                    # active 模式 ReAct 步数上限（站点级扫描深挖，与 passive 60 步差异化）；子 active 任务复用同一上限
-  max_children: 10                         # subtask swarm 父任务最多 spawn 子任务数（防 LLM 失控）
   agent_run_timeout_seconds: 3600          # passive 模式 agent_run 整体超时（asynq handler 入口 WithTimeout，60 分钟，> step_tool）
   active_agent_run_timeout_seconds: 14400  # active 模式 agent_run 整体超时（4 小时，对齐 sandbox max lifetime；站点扫描爬+测耗时长）
   step_llm_timeout_seconds: 300            # 单步 LLM Generate 看门狗（5 分钟）
@@ -454,8 +447,7 @@ sandbox:
   default_image: liusha/pentools:latest    # 默认沙箱镜像（含 sandbox-server PID 1 + browser-use + 全套 pentest 工具）
   # run_command 单次硬超时由 LLM 通过 timeout_seconds 必传，上限钳到 toolruntime.step_tool_timeout_seconds（1800s）
   run_tail_bytes: 8192                     # 主进程 RunCommand 对 stdout/stderr 截尾字节数；sandbox-server 返回完整 stdout，截尾在主进程层
-  # 视口 1280×800：主流桌面宽度，页面渲染贴近真实用户视角。
-  # 点击落点由 grounding ToRealPixels 按本尺寸换算（已实测 MiMo=normalized_1000：x*1280/1000=真实像素）。
+  # 视口 1280×800：主流桌面宽度，页面渲染贴近真实用户视角；chromium 启动时固定，截图喂 vision LLM。
   viewport_width: 1280
   viewport_height: 800
 

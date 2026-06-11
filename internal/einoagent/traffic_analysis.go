@@ -1,9 +1,9 @@
-// Package einoagent 用 eino ADK 装配 liusha 的 hunter agent（取代 internal/react 手写循环）。
+// Package einoagent 用 eino ADK 装配 liusha 的 hunter agent。
 //
-// 设计（eino 全面迁移 P3/P4，见 docs/superpowers/specs/2026-06-07-eino-full-migration.md）：
+// 设计：
 //   - trafficAnalysis（passive 单 agent）→ ChatModelAgent + Runner（本文件）
 //   - orchestrator+exploitation（active）→ deep prebuilt（P4）
-//   - model 由 einollm 工厂产出，**每个 agent 独立实例**（per-hunter 铁律，spike 实测）
+//   - model 由 einollm 工厂产出（共享实例亦并发安全，见 einollm 包注释；旧 per-hunter 铁律已纠正）
 //   - tools 由 einotools 产出（原生 eino tool）
 //   - 终止：trafficAnalysis 是单 agent，不需显式 done 工具——LLM 不再调工具（输出文字）即自然收尾
 package einoagent
@@ -44,7 +44,7 @@ const defaultExploitationMaxIters = 120
 
 // RunTrafficAnalysis 用 eino ChatModelAgent 跑一条 passive 流量（替代 react.Run 的 trafficAnalysis 路径）。
 //
-// m 必须是**独立** ChatModel 实例（per-hunter，见 einollm 包注释铁律）。
+// m 是 einollm 工厂产出的 ChatModel（passive 每 hunter 一个单 agent；共享亦安全，见 einollm 包注释）。
 // instruction = 拼好的 system prompt（shared + trafficAnalysis 段）；flowText = 一条 raw HTTP 流量。
 // middlewares 注入 AgentMiddleware（如历史压缩 NewCompactionMiddleware）；可为 nil。
 // opts 透传给 Runner.Run（如 adk.WithCallbacks 注入计费埋点 handler）。

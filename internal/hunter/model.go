@@ -6,14 +6,10 @@
 //   - hunter 表 = 每次 hunter ReAct 运行的记录（orchestrator 或 exploitation）
 //   - role 列 = trafficAnalysis / orchestrator / exploitation
 //
-// orchestrator / exploitation 关系（subtask swarm）：
+// orchestrator_id 列（任务树关系）：
 //   - orchestrator / 独立任务：orchestrator_id = NULL
-//   - exploitation：orchestrator_id 指向 orchestrator hunter.id；exploitation **不**入 asynq，
-//     由 internal/subtask 包在 orchestrator goroutine 内手动调 Store.Create 写入。
-//     list_exploitations 工具从 subtask.Registry 内存读，不查 PG（PG orchestrator_id 列只供
-//     viewer 树渲染 + ListByOwner 一并取整个任务树）。
-//
-// 崩溃恢复语义见 internal/subtask 包注释（Registry 内存态丢失后 exploitation 不可从 PG 恢复）。
+//   - 现行 active 路径用 eino deep 进程内编排，exploitation 是临时 sub-agent，不单独建 hunter 行，
+//     故 orchestrator_id 多为 NULL。该列保留供 viewer 按树渲染 + 向后兼容旧 subtask swarm 数据。
 package hunter
 
 import (
@@ -34,7 +30,7 @@ const (
 
 // Run 是 hunter 表行的 Go 表示——每次 hunter ReAct 运行的状态快照。
 // Result 在终态前为空 jsonb '{}'。
-// OrchestratorID 空表示独立/根任务；非空时指向 orchestrator hunter.id（subtask swarm）。
+// OrchestratorID 空表示独立/根任务；非空时指向 orchestrator hunter.id（旧 subtask swarm 数据）。
 type Run struct {
 	ID             string
 	OwnerType      string // 'passive_session' 或 'active_scan'
@@ -49,7 +45,7 @@ type Run struct {
 }
 
 // NewParams 是 Store.Create 的入参。
-// OrchestratorID 留空表示独立/根任务；填值时 INSERT 写入 orchestrator_id 列（subtask 用）。
+// OrchestratorID 留空表示独立/根任务；填值时 INSERT 写入 orchestrator_id 列。
 // OwnerType + OwnerID 必填（0041 之后 NOT NULL）。
 type NewParams struct {
 	OwnerType      string

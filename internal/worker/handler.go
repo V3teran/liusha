@@ -11,11 +11,9 @@ import (
 //
 // Input 是该 task 的入参（已序列化的 JSON），由 handler 自行解释。
 //
-// OrchestratorID 标识orchestrator id（subtask swarm）；空表示独立任务/根任务。
-// 设计约束：exploitation永远在orchestrator goroutine 内跑（subtask 包内），**不**入 asynq——
-// 因此正常情况下入队 Payload.OrchestratorID 永远为空；ingestor + httpapi
-// enqueue 调用方均不填本字段，scanner handleActive 也不再做 fail-fast 死分支。
-// 字段保留用于 internal/subtask 包在orchestrator goroutine 内 BuilderParams 传递。
+// OrchestratorID 标识 orchestrator id（旧 subtask swarm 语义）；空表示独立任务/根任务。
+// 现行 active 路径用 eino deep 进程内编排，exploitation 不入 asynq，故入队 Payload 此字段恒空；
+// 字段保留向后兼容，入队调用方均不填。
 type Payload struct {
 	HunterID       string `json:"hunter_id"`
 	OwnerType      string `json:"owner_type"` // 'passive_session' / 'active_scan'

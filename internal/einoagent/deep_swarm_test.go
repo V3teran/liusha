@@ -70,25 +70,12 @@ func TestBuildRoleTools_RunCommandNeedsSandbox(t *testing.T) {
 	}
 }
 
-func TestBuildRoleTools_SpawnExploitationNeedsInjection(t *testing.T) {
-	role := einoagent.RoleDef{ID: "orchestrator", Tools: []string{"spawn_exploitation"}}
-	f := allFake{}
-	// 不传 SpawnExploitation → 报错（防子代理误用）
-	_, err := einoagent.BuildRoleTools(role, einoagent.ToolBuildCtx{
-		Deps:   einoagent.TrafficAnalysisToolDeps{Findings: f, Notes: f, Lessons: f, Credentials: f},
-		Params: einoagent.TrafficAnalysisToolParams{OwnerID: "o", Host: "h"},
-	})
-	if err == nil {
-		t.Fatal("spawn_exploitation 未注入应报错")
-	}
-}
-
 func TestKnownToolNames_CoversCore(t *testing.T) {
 	names := map[string]bool{}
 	for _, n := range einoagent.KnownToolNames() {
 		names[n] = true
 	}
-	for _, must := range []string{"read_findings", "write_finding", "run_command", "done", "list_flows", "spawn_exploitation"} {
+	for _, must := range []string{"read_findings", "write_finding", "run_command", "done", "list_flows"} {
 		if !names[must] {
 			t.Errorf("注册表缺核心工具 %s", must)
 		}
