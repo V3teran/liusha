@@ -68,15 +68,14 @@ type DockerLauncher struct {
 	ViewportWidth  int
 	ViewportHeight int
 
-	// IngestURL 是 active 容器内 browser-svc.py CDP Network 抓 chromium 流量 →
-	// /internal/v1/flows/ingest endpoint 的完整 URL。
+	// IngestURL 是 active 容器内抓流量 → /internal/v1/flows/ingest endpoint 的完整 URL。
 	//
-	// browser-svc.py 持单一 CDP 连接，内建 Network observer 把 Document/XHR/Fetch
-	// 完整 req/resp（含真实认证凭证位置）push 到本 URL → cmd/proxy ingest_handler 构造
+	// 两条抓取前端都 push 到本 URL：浏览器 browser-svc.py 内建 CDP Network observer；
+	// CLI 工具经容器内本地 mitmproxy（mitm-capture.py）。下游 → cmd/scanner ingest_handler 构造
 	// TrafficSnapshot{Source:"internal"} → publisher.Publish → ingestor.handleInternalSnap。
 	//
-	// 典型值：http://host.docker.internal:9091/internal/v1/flows/ingest（cmd/proxy healthz 端口）。
-	// 空字符串时不注入——browser-svc.py 读不到 LIUSHA_INGEST_URL 则 capture 整体不启用（单测 / 无 cmd/proxy 部署）。
+	// 典型值：http://host.docker.internal:9090/internal/v1/flows/ingest（cmd/scanner healthz 端口）。
+	// 空字符串时不注入——沙箱读不到 LIUSHA_INGEST_URL 则 capture 整体不启用（单测 / 无 scanner 部署）。
 	IngestURL string
 
 	// IngestToken 是上面 URL 的 Bearer token。

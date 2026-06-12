@@ -347,10 +347,9 @@ proxy:
   max_request_body_size: 2097152   # 2 MiB（稳健激进：覆盖偶有大上传/批量提交）
   max_response_body_size: 8388608  # 8 MiB（稳健激进：大列表/报表导出/长 HTML）
 
-  # cmd/proxy 进程入口
+  # cmd/proxy 进程入口（纯 MITM passive 入口，存活检测探 TCP 8888，无独立 healthz HTTP）
   listen_addr: 0.0.0.0:8888         # sanitizer 公开端口
   internal_addr: 127.0.0.1:18888    # proxify 内部 loopback
-  healthz_addr: :9091               # /healthz HTTP（避免与 scanner :9090 冲突）
   cert_subdir: .liusha              # CA 证书子目录（默认 $HOME/.liusha）
   shutdown_timeout_seconds: 5       # graceful shutdown 超时
 
@@ -358,9 +357,9 @@ proxy:
   stream_name: flow_events          # XADD 目标 stream
   stream_max_len: 100000            # XADD MAXLEN ~ 上限（约 5KiB×1e5 ≈ 500 MiB）
 
-  # active 容器内 browser-svc.py CDP 抓流量 → /internal/v1/flows/ingest endpoint Bearer token。
+  # active 容器内抓流量 → cmd/scanner 的 /internal/v1/flows/ingest endpoint Bearer token。
   # 空 = 不强制验证（开发模式，仅靠 bind 127.0.0.1 + docker bridge 网络隔离）。
-  # 生产用 ENV LIUSHA_INGEST_TOKEN 注入，cmd/proxy + cmd/scanner 共享同一值（scanner launcher 透传到 sandbox env）。
+  # 生产用 ENV LIUSHA_INGEST_TOKEN 注入，cmd/scanner + sandbox 共享同一值（launcher 透传到 sandbox env）。
   ingest_token: ""
 
 # ---- ingestor 流量摄入器（cmd/scanner 内 goroutine）----

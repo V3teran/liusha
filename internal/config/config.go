@@ -169,12 +169,10 @@ type ProxyConfig struct {
 	MaxRequestBodySize      int      `mapstructure:"max_request_body_size"`
 	MaxResponseBodySize     int      `mapstructure:"max_response_body_size"`
 
-	// 进程入口（cmd/proxy）
-	// External：passive 流量入口（用户 / Burp / 真实浏览器经此抓流量）
-	// v34+：删除 agent listener — chromium 流量改走 CDP capture → ingest endpoint。
+	// 进程入口（cmd/proxy）：纯 MITM passive 入口。存活检测探 TCP 8888，无独立 healthz HTTP。
+	// active 抓流量 ingest endpoint 已迁到 cmd/scanner（沙箱回连 scanner :9090）。
 	ListenAddr             string `mapstructure:"listen_addr"`   // 0.0.0.0:8888 公开端口（sanitizer 接 raw TCP）
 	InternalAddr           string `mapstructure:"internal_addr"` // 127.0.0.1:18888 proxify loopback（sanitizer 转发到这）
-	HealthzAddr            string `mapstructure:"healthz_addr"`
 	CertSubdir             string `mapstructure:"cert_subdir"`
 	ShutdownTimeoutSeconds int    `mapstructure:"shutdown_timeout_seconds"`
 
@@ -347,7 +345,15 @@ type ToolruntimeConfig struct {
 }
 
 // Load 从 path 读取 YAML，应用 LIUSHA_ ENV 覆盖，反序列化、应用默认值并校验。
-func Load(path string) (Config, error) {
+// Load 读配置 + 应用默认 + 完整校验（含 LLM provider key 在环境变量里非空）。
+// 调 LLM 的进程（scanner / api）用它。
+func Load(path string) (Config, error) { return load(path, true) }
+
+// LoadWithoutLLMKeys 与 Load 同，但跳过 LLM provider key 校验。
+// 给纯 ingress 进程（cmd/proxy 仅 MITM + XADD，从不调 LLM）用——避免强塞一堆用不到的 key 才能启动。
+func LoadWithoutLLMKeys(path string) (Config, error) { return load(path, false) }
+
+func load(path string, requireLLMKeys bool) (Config, error) {
 	v := viper.New()
 	v.SetConfigFile(path)
 	v.SetEnvPrefix("LIUSHA")
@@ -363,6 +369,11 @@ func Load(path string) (Config, error) {
 	c.ApplyDefaults()
 	if err := validate(c); err != nil {
 		return Config{}, err
+	}
+	if requireLLMKeys {
+		if err := validateLLMKeys(c); err != nil {
+			return Config{}, err
+		}
 	}
 	return c, nil
 }
@@ -545,9 +556,6 @@ func applyProxyDefaults(c ProxyConfig) ProxyConfig {
 	}
 	if c.InternalAddr == "" {
 		c.InternalAddr = "127.0.0.1:18888"
-	}
-	if c.HealthzAddr == "" {
-		c.HealthzAddr = ":9091"
 	}
 	if c.CertSubdir == "" {
 		c.CertSubdir = ".liusha"
@@ -755,9 +763,28 @@ func applyToolruntimeDefaults(c ToolruntimeConfig) ToolruntimeConfig {
 	return c
 }
 
-// validate 强制：default_provider 必填，light/vision/fallback 选填但配了就必须 check 通过；
-// 所有 providers 必须显式声明 supports_vision（fail-fast，避免运行时拿默认值踩坑）。
+// validate 校验 provider schema 完整性（supports_vision / context_window 必填）——
+// 不碰 LLM key，所有进程（含纯 ingress 的 proxy）都跑。
 func validate(c Config) error {
+	// 所有 provider 必须显式声明 supports_vision——nil 视为未填，启动 fail-fast。
+	// 设计原则：caller（react.runtime / openai_compat）路由含图 message 时依赖此 flag，
+	// 默认零值（false）会让 deepseek 等 OpenAI 协议族在 yaml 漏填时被当成不支持 vision，
+	// 实际可能反过来（如 gpt-4o）——强制显式声明消除歧义。
+	for name, p := range c.Providers {
+		if p.SupportsVision == nil {
+			return fmt.Errorf("provider %q: supports_vision 必填（yaml 必须显式写 true 或 false）", name)
+		}
+		// context_window 同强制必填——react 历史压缩按此算阈值；漏填会用 0 兜底导致一直触发或永不触发。
+		if p.ContextWindow == nil || *p.ContextWindow <= 0 {
+			return fmt.Errorf("provider %q: context_window 必填且 > 0（model 总上下文窗口 tokens 数）", name)
+		}
+	}
+	return nil
+}
+
+// validateLLMKeys 强制 default_provider 必填，且 default/light/vision/fallback 的 api_key_env
+// 在环境变量里非空。仅调 LLM 的进程（scanner / api）需要——proxy 用 LoadWithoutLLMKeys 跳过。
+func validateLLMKeys(c Config) error {
 	check := func(name, role string) error {
 		p, ok := c.Providers[name]
 		if !ok {
@@ -786,19 +813,6 @@ func validate(c Config) error {
 			if err := check(pair.name, pair.role); err != nil {
 				return err
 			}
-		}
-	}
-	// 所有 provider 必须显式声明 supports_vision——nil 视为未填，启动 fail-fast。
-	// 设计原则：caller（react.runtime / openai_compat）路由含图 message 时依赖此 flag，
-	// 默认零值（false）会让 deepseek 等 OpenAI 协议族在 yaml 漏填时被当成不支持 vision，
-	// 实际可能反过来（如 gpt-4o）——强制显式声明消除歧义。
-	for name, p := range c.Providers {
-		if p.SupportsVision == nil {
-			return fmt.Errorf("provider %q: supports_vision 必填（yaml 必须显式写 true 或 false）", name)
-		}
-		// context_window 同强制必填——react 历史压缩按此算阈值；漏填会用 0 兜底导致一直触发或永不触发。
-		if p.ContextWindow == nil || *p.ContextWindow <= 0 {
-			return fmt.Errorf("provider %q: context_window 必填且 > 0（model 总上下文窗口 tokens 数）", name)
 		}
 	}
 	return nil

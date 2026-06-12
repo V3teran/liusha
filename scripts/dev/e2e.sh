@@ -85,14 +85,14 @@ fi
 
 echo ""
 echo "===== 3/6 关旧 service（按端口找 PID） ====="
-for port in 8001 8888 8090 9090 9091; do
+for port in 8001 8888 8090 9090; do
   pid=$(lsof -nP -iTCP:"$port" -sTCP:LISTEN -t 2>/dev/null | head -1) || true
   if [ -n "$pid" ]; then
     kill "$pid" 2>/dev/null || true
   fi
 done
 sleep 1
-for port in 8001 8888 8090 9090 9091; do
+for port in 8001 8888 8090 9090; do
   pid=$(lsof -nP -iTCP:"$port" -sTCP:LISTEN -t 2>/dev/null | head -1) || true
   if [ -n "$pid" ]; then
     kill -9 "$pid" 2>/dev/null || true
@@ -105,7 +105,7 @@ done
 pkill -9 -f 'exe/scanner' 2>/dev/null || true
 pkill -9 -f 'go run.*cmd/scanner' 2>/dev/null || true
 sleep 1
-echo "  ✓ 旧 service 已关停（端口 8001/8888/8090/9090/9091 释放 + scanner 进程兜底 pkill）"
+echo "  ✓ 旧 service 已关停（端口 8001/8888/8090/9090 释放 + scanner 进程兜底 pkill）"
 
 echo ""
 echo "===== 4/6 清 logs（fd 已释放，rm 真正删除）====="
@@ -129,7 +129,8 @@ while [ $SECONDS -lt $deadline ]; do
   api_ok=0; scanner_ok=0; proxy_ok=0; vulnapp_ok=0
   curl -sf -m 2 "${LIUSHA_API_BASE}/healthz" >/dev/null 2>&1 && api_ok=1
   curl -sf -m 2 http://localhost:9090/healthz >/dev/null 2>&1 && scanner_ok=1
-  curl -sf -m 2 http://localhost:9091/healthz >/dev/null 2>&1 && proxy_ok=1
+  # proxy 无 healthz HTTP（纯 MITM）——探 TCP 8888 mitm 口是否在听。
+  nc -z localhost 8888 2>/dev/null && proxy_ok=1
   nc -z localhost 8001 2>/dev/null && vulnapp_ok=1
   if [ "$((api_ok + scanner_ok + proxy_ok + vulnapp_ok))" -eq 4 ]; then
     echo "  ✓ 4 service 全部 healthy"

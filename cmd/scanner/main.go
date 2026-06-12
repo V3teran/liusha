@@ -172,26 +172,26 @@ func main() {
 	// 容器化沙箱启动器（管理 sandbox 容器生命周期：per agent run 一个容器）。
 	// 启动时一次性清理上次进程崩前残留的孤儿容器——max lifetime 4h + Destroy 失败兜底。
 	//
-	// B1：active 容器内 browser-svc.py 内建 CDP Network observer 抓 chromium 真实流量 →
-	// LIUSHA_INGEST_URL（指向 cmd/proxy healthz endpoint）→ http_flow（source=internal）。
-	// CLI 工具仍直连目标不入字典；凭证共享走 redis credentials key（read/write_credential）。
+	// active 容器内抓流量 → http_flow（source=internal）：
+	//   - 浏览器：browser-svc.py 内建 CDP Network observer 抓 chromium 真实流量
+	//   - CLI：容器内本地 mitmproxy + mitm-capture.py，工具经 HTTP_PROXY 走它
+	// 两者都经 LIUSHA_INGEST_URL POST 到 scanner 自己的 ingest endpoint（见下方 hsMux 注册）。
+	// 凭证共享走 redis credentials key（read/write_credential）。
 	launcher := sandbox.NewDockerLauncher(cfg.Sandbox.DefaultImage)
 	// 注入视口尺寸到 launcher → docker run -e → 容器内 wrapper 透传 chromium。
 	launcher.ViewportWidth = cfg.Sandbox.ViewportWidth
 	launcher.ViewportHeight = cfg.Sandbox.ViewportHeight
-	// B1：拼 CDP capture ingest URL/token 注入 launcher → docker run -e。
-	// scanner 跑在 host，容器经 host.docker.internal 回连 cmd/proxy healthz 端口（cfg.Proxy.HealthzAddr）。
-	// token 与 cmd/proxy 共享同一值（ENV LIUSHA_INGEST_TOKEN 覆盖 yaml）。
-	// HealthzAddr 空 / 解析失败则不注入 → browser-svc.py 读不到 LIUSHA_INGEST_URL → capture 不启用。
-	if cfg.Proxy.HealthzAddr != "" {
-		_, port, splitErr := net.SplitHostPort(cfg.Proxy.HealthzAddr)
-		if splitErr != nil {
-			logger.Warn().Err(splitErr).Str("healthz_addr", cfg.Proxy.HealthzAddr).
-				Msg("解析 proxy healthz addr 失败，跳过 CDP capture ingest 注入（capture 不启用）")
-		} else {
-			launcher.IngestURL = "http://host.docker.internal:" + port + "/internal/v1/flows/ingest"
-			launcher.IngestToken = envx.OrDefault("LIUSHA_INGEST_TOKEN", cfg.Proxy.IngestToken)
-		}
+	// 拼 ingest URL/token 注入 launcher → docker run -e。scanner 跑在 host，容器经
+	// host.docker.internal 回连 scanner 自己的 healthz 端口（cfg.Scanner.HealthzAddr，默认 :9090）。
+	// token 与本进程 ingest handler 共享同一值（ENV LIUSHA_INGEST_TOKEN 覆盖 yaml）。
+	// 解析失败则不注入 → 沙箱读不到 LIUSHA_INGEST_URL → capture 不启用。
+	// 解析失败则不注入 → browser-svc.py/mitm-capture.py 读不到 LIUSHA_INGEST_URL，capture 不启用。
+	if _, port, splitErr := net.SplitHostPort(scannerCfg.HealthzAddr); splitErr != nil {
+		logger.Warn().Err(splitErr).Str("healthz_addr", scannerCfg.HealthzAddr).
+			Msg("解析 scanner healthz addr 失败，跳过 ingest 注入（capture 不启用）")
+	} else {
+		launcher.IngestURL = "http://host.docker.internal:" + port + "/internal/v1/flows/ingest"
+		launcher.IngestToken = envx.OrDefault("LIUSHA_INGEST_TOKEN", cfg.Proxy.IngestToken)
 	}
 	if err := launcher.CleanupOrphans(ctx); err != nil {
 		logger.Warn().Err(err).Msg("CleanupOrphans 失败（非致命，max lifetime 兜底）")
@@ -321,11 +321,15 @@ func main() {
 		}
 	}()
 
-	// healthz HTTP
+	// healthz HTTP + active 抓流量 ingest 端点（从 cmd/proxy 迁来）。
+	// 沙箱内 CLI(本地 mitmproxy)/浏览器(CDP) 抓的流量 POST 到这里 → trafficIngestor.SubmitInternal
+	// 直接入进程内队列 → drain goroutine 落 http_flow。同进程直送，不再绕 redis（internal 自环冗余）。
 	hsMux := http.NewServeMux()
 	hsMux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`{"ok":true}`))
 	})
+	hsMux.HandleFunc("/internal/v1/flows/ingest",
+		newIngestHandler(trafficIngestor, envx.OrDefault("LIUSHA_INGEST_TOKEN", cfg.Proxy.IngestToken), logger))
 	hs := &http.Server{
 		Addr:              scannerCfg.HealthzAddr,
 		Handler:           hsMux,

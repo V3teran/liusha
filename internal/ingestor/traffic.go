@@ -31,12 +31,19 @@ import (
 	"github.com/V3teran/liusha/internal/worker"
 )
 
+// internalQueueSize 是进程内 internal 流量队列容量。
+// active 沙箱抓的流量经 SubmitInternal 入队，由 drain goroutine 调 handleInternalSnap 落库——
+// 不再绕 redis（ingest_handler 与 ingestor 同进程，自环 broker 是冗余）。
+// 有界 → 满时 SubmitInternal 返 false，handler 回 503 给沙箱明确背压信号（顶替原 redis stream 的削峰）。
+const internalQueueSize = 1024
+
 // Traffic 是流量入口的 Stream 消费者。
 type Traffic struct {
 	rdb           *redis.Client
 	stream        string
 	group         string
 	name          string
+	internalCh    chan *proxy.TrafficSnapshot // 进程内 internal 流量队列（沙箱抓的流量直送，跳过 redis）
 	readBatch     int64
 	readBlock     time.Duration
 	retryDelay    time.Duration
@@ -94,6 +101,7 @@ func NewTraffic(ctx context.Context, deps Deps) (*Traffic, error) {
 		tasks:         deps.Tasks,
 		enq:           deps.Enqueuer,
 		logger:        deps.Logger,
+		internalCh:    make(chan *proxy.TrafficSnapshot, internalQueueSize),
 	}
 	if err := t.rdb.XGroupCreateMkStream(ctx, t.stream, t.group, "$").Err(); err != nil {
 		if !strings.Contains(err.Error(), "BUSYGROUP") {
@@ -103,9 +111,36 @@ func NewTraffic(ctx context.Context, deps Deps) (*Traffic, error) {
 	return t, nil
 }
 
+// SubmitInternal 把 active 沙箱抓的 internal 流量直接入进程内队列（非阻塞），跳过 redis。
+// 返回 false 表示队列已满——调用方（scanner ingest_handler）据此回 503，给沙箱背压信号。
+// snap.Source 必须已是 "internal"（由 ingest_handler 设置）。
+func (t *Traffic) SubmitInternal(snap *proxy.TrafficSnapshot) bool {
+	select {
+	case t.internalCh <- snap:
+		return true
+	default:
+		return false // 队列满，背压
+	}
+}
+
+// drainInternal 消费进程内 internal 队列 → handleInternalSnap 落库。ctx 取消即返回。
+// 单 goroutine 串行消费：与原 redis 单消费者语义一致，handleInternalSnap 无需并发安全改造。
+func (t *Traffic) drainInternal(ctx context.Context) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case snap := <-t.internalCh:
+			t.handleInternalSnap(ctx, snap)
+		}
+	}
+}
+
 // Run 阻塞读 stream → 处理每条 snap → ack；ctx 取消即返回。
+// 同时启动 drainInternal goroutine 消费进程内 internal 队列（passive 走 redis，active 走 channel）。
 func (t *Traffic) Run(ctx context.Context) error {
 	t.logger.Info().Str("stream", t.stream).Str("group", t.group).Msg("ingestor.traffic 已启动")
+	go t.drainInternal(ctx)
 	for {
 		select {
 		case <-ctx.Done():

@@ -1,24 +1,20 @@
-// ingest_handler.go — active 容器内 browser-svc.py CDP capture → 流量字典的 HTTP 入口。
+// ingest_handler.go — active 沙箱抓流量 → 流量字典的 HTTP 入口（从 cmd/proxy 迁来）。
 //
-// 背景（B1）：active 模式下 orchestrator/exploitation 用 chromium 登录目标，真实认证请求
-// （Document/XHR/Fetch）必须进字典，LLM 才能看到真实请求结构 + 凭证位置 → 转 replay_flow
-// 做水平/垂直越权（BAC）测试。
+// 背景：active 模式下 orchestrator/exploitation 在沙箱里用 chromium 登录目标 + 跑 CLI 工具，
+// 真实认证请求（Document/XHR/Fetch）必须进 http_flow 字典，LLM 才能看到真实请求结构 + 凭证位置
+// → 转 replay_flow 做水平/垂直越权（BAC）测试。
 //
-// 历史两次失败（"之前的方式总有问题"）：
-//   - v29-v32：chromium 经 sanitizer proxy（HTTPS-First / Fetch.authRequired / macOS NAT 全踩坑）
-//   - v33：独立 sidecar cdp_network_capture.py 抢 chromium 的 CDP attach（attach race + 多层 bug）
-//
-// B1 新支点：browser-svc.py 已是每身份唯一 CDP owner（持单一连接 + ws read loop），capture 改成
-// 它内建的 Network observer（零 attach race、chromium 直连无 proxy 问题）。observer 把完整 req/resp
-// 序列化 JSON → POST 此 endpoint，payload body 内直接带 hunter_id（browser-svc.py 按 session→tab 归属）。
+// 两条抓取前端（都在沙箱内，都 POST 到这里）：
+//   - 浏览器：browser-svc.py 内建 CDP Network observer（per-request 按 session→tab→hunter 归属）
+//   - CLI：容器内本地 mitmdump + mitm-capture.py，工具经 HTTP_PROXY 走它（owner 级归属，hunter_id 走 env）
 //
 // 本 handler 收到后构造 proxy.TrafficSnapshot{Source:"internal"} → publisher.Publish
 //
-//	→ XADD stream → ingestor.handleInternalSnap 自动消费（与 sanitizer 路径同下游）。
+//	→ XADD flow_events stream → ingestor.handleInternalSnap 消费（与 sanitizer 路径同下游）。
 //
-// 路径：POST /internal/v1/flows/ingest（挂在 cmd/proxy healthz HTTP mux 上）
+// 路径：POST /internal/v1/flows/ingest（挂在 cmd/scanner healthz HTTP mux 上，默认 :9090）
 // 认证：Bearer <token>（token 空 = 开发模式不强制；prod 由 ENV LIUSHA_INGEST_TOKEN 注入）
-// 网络：cmd/proxy healthz 监听 :9091，sandbox 容器经 host.docker.internal:9091 访问
+// 网络：scanner healthz 监听 :9090，沙箱容器经 host.docker.internal:9090 访问
 package main
 
 import (
@@ -32,7 +28,7 @@ import (
 	"github.com/V3teran/liusha/internal/proxy"
 )
 
-// ingestRequest 是 browser-svc.py CDP capture 推送的 JSON 体。
+// ingestRequest 是沙箱抓流量推送的 JSON 体。
 //
 // 与 proxy.TrafficSnapshot 字段一一对应但有两点差异：
 //   - ID 由本 handler 生成（"cdp-<hunterID>-<timestamp>"），不依赖 pentools 端
@@ -60,7 +56,13 @@ type ingestRequest struct {
 	Timestamp       time.Time           `json:"timestamp,omitempty"`
 }
 
-// newIngestHandler 返回 CDP capture → stream 的 HTTP handler。
+// internalSink 是 ingest_handler 对 ingestor 的窄依赖：把 internal 流量直接入进程内队列
+// （*ingestor.Traffic 的 SubmitInternal 满足）。同进程直送，不再绕 redis。
+type internalSink interface {
+	SubmitInternal(*proxy.TrafficSnapshot) bool
+}
+
+// newIngestHandler 返回 沙箱抓流量 → 进程内 ingestor 队列的 HTTP handler。
 //
 // token 空时跳过认证（开发模式）；非空时强制 `Authorization: Bearer <token>`。
 //
@@ -68,12 +70,12 @@ type ingestRequest struct {
 //   - 405 method 非 POST
 //   - 401 token 不匹配（仅 token 非空时）
 //   - 400 JSON 解析失败 / hunter_id 缺失
-//   - 500 publisher.Publish 失败（redis 不可达等）
+//   - 503 ingestor 队列已满（背压——沙箱应退避重试）
 //   - 200 成功（不返 body，节省带宽）
-func newIngestHandler(pub *proxy.Publisher, token string, logger zerolog.Logger) http.HandlerFunc {
+func newIngestHandler(sink internalSink, token string, logger zerolog.Logger) http.HandlerFunc {
 	tokenRequired := strings.TrimSpace(token) != ""
 	if !tokenRequired {
-		logger.Warn().Msg("ingest_token 未配置，CDP ingest endpoint 不强制验证（开发模式；prod 必须设 ENV LIUSHA_INGEST_TOKEN）")
+		logger.Warn().Msg("ingest_token 未配置，ingest endpoint 不强制验证（开发模式；prod 必须设 ENV LIUSHA_INGEST_TOKEN）")
 	}
 	expected := "Bearer " + token
 
@@ -84,14 +86,14 @@ func newIngestHandler(pub *proxy.Publisher, token string, logger zerolog.Logger)
 		}
 
 		if tokenRequired && r.Header.Get("Authorization") != expected {
-			logger.Warn().Str("remote", r.RemoteAddr).Msg("CDP ingest 鉴权失败")
+			logger.Warn().Str("remote", r.RemoteAddr).Msg("ingest 鉴权失败")
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
 
 		var req ingestRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			logger.Warn().Err(err).Msg("CDP ingest body 解析失败")
+			logger.Warn().Err(err).Msg("ingest body 解析失败")
 			http.Error(w, "bad request: "+err.Error(), http.StatusBadRequest)
 			return
 		}
@@ -127,9 +129,9 @@ func newIngestHandler(pub *proxy.Publisher, token string, logger zerolog.Logger)
 			Timestamp:       ts,
 		}
 
-		if err := pub.Publish(r.Context(), snap); err != nil {
-			logger.Warn().Err(err).Str("hunter_id", req.HunterID).Msg("CDP ingest publish 失败")
-			http.Error(w, "publish failed", http.StatusInternalServerError)
+		if !sink.SubmitInternal(snap) {
+			logger.Warn().Str("hunter_id", req.HunterID).Msg("ingest 队列已满，背压 503（沙箱应退避重试）")
+			http.Error(w, "ingest queue full", http.StatusServiceUnavailable)
 			return
 		}
 
@@ -139,7 +141,7 @@ func newIngestHandler(pub *proxy.Publisher, token string, logger zerolog.Logger)
 			Str("host", req.Host).
 			Str("uri", req.URI).
 			Int("status", req.StatusCode).
-			Msg("CDP ingest published")
+			Msg("ingest accepted")
 
 		w.WriteHeader(http.StatusOK)
 	}
