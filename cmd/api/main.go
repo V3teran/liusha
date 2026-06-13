@@ -106,7 +106,7 @@ func main() {
 	// 多轮问答/意图分类依赖：light provider 路由 + 问答读 finding + SSE publish。
 	router := llm.NewRouterWithOptions(llm.NewFactory(cfg), llm.RetryOptionsFromConfig(cfg.LLM.Retry))
 	publisher := scanstream.NewPublisher(rdb)
-	activeAdapter := &activeScanAdapter{activeScans: activeScanStore, tasks: taskStore, enq: enq, audit: auditStore, conversations: convStore, roles: scenarioRoles, router: router, findings: findStore, publisher: publisher}
+	activeAdapter := &activeScanAdapter{activeScans: activeScanStore, tasks: taskStore, enq: enq, audit: auditStore, conversations: convStore, roles: scenarioRoles, router: router, findings: findStore, publisher: publisher, passiveSessions: passiveSessionStore, passiveTTL: time.Duration(cfg.Session.MaxAgeHours) * time.Hour}
 
 	// SSE stream cookie 密钥：对话功能开启时必填（EventSource 鉴权用），缺失 fail-fast。
 	streamSecret := []byte(os.Getenv("LIUSHA_STREAM_COOKIE_SECRET"))
@@ -256,13 +256,14 @@ func (a ownerAPIAdapter) List(ctx context.Context, limit int) ([]httpapi.OwnerSu
 	for _, p := range passives {
 		scopeJSON, _ := json.Marshal(map[string]string{"host": p.Host})
 		s := httpapi.OwnerSummary{
-			ID:           p.ID,
-			Scope:        string(scopeJSON),
-			Status:       string(p.Status),
-			Mode:         "passive",
-			CreatedAt:    p.CreatedAt.Format(time.RFC3339),
-			ExpiresAt:    p.ExpiresAt.Format(time.RFC3339),
-			ErrorMessage: p.ErrorMessage,
+			ID:             p.ID,
+			Scope:          string(scopeJSON),
+			Status:         string(p.Status),
+			Mode:           "passive",
+			CreatedAt:      p.CreatedAt.Format(time.RFC3339),
+			ExpiresAt:      p.ExpiresAt.Format(time.RFC3339),
+			ErrorMessage:   p.ErrorMessage,
+			ConversationID: p.ConversationID, // 阶段2：前端据此打开 passive 会话对话流插话
 		}
 		if p.EndedAt != nil {
 			s.EndedAt = p.EndedAt.Format(time.RFC3339)
@@ -310,6 +311,11 @@ type activeScanAdapter struct {
 	router    *llm.Router           // 多轮：意图分类 + 问答（light provider）
 	findings  *finding.Store        // 问答读 owner 黑板 finding
 	publisher *scanstream.Publisher // 问答回答 publish SSE
+
+	// 阶段2 可插话：passive 会话的插话只记录消息（passive agent 下次分析流量经 conversationContext
+	// 读到），不走 active 的意图分流/续接扫描。passiveSessions 判别会话归属 + 续命 expires_at。
+	passiveSessions *passivesession.Store
+	passiveTTL      time.Duration // passive 滑动 idle 窗口（插话也续命，来自 cfg.Session.MaxAgeHours）
 }
 
 // ListRoles 满足 httpapi.RolesAPI：列出所有场景 role 供前端选择。
@@ -459,6 +465,20 @@ func (a *activeScanAdapter) HandleMessage(ctx context.Context, convID, content s
 	}
 	if _, err := a.conversations.AppendMessage(ctx, convID, conversation.RoleUser, conversation.KindMessage, content, nil); err != nil {
 		return "", false, err
+	}
+
+	// 阶段2 可插话：passive 会话的插话只记录消息——passive agent 下次分析流量时经 conversationContext
+	// 读到用户指导，调整方向。不走 active 的意图分流/续接（passive 由流量驱动，无"续接扫描"语义）。
+	// 同时续命 expires_at（插话=活跃交互，idle 释放不应误杀正在被指导的会话）。
+	if a.passiveSessions != nil {
+		if sess, ok, perr := a.passiveSessions.GetByConversationID(ctx, convID); perr == nil && ok {
+			if a.passiveTTL > 0 {
+				if err := a.passiveSessions.BumpExpiry(ctx, sess.ID, a.passiveTTL); err != nil {
+					return "", false, err
+				}
+			}
+			return "passive_note", false, nil
+		}
 	}
 	g, err := a.router.For(ctx, "inspector") // light provider
 	if err != nil {

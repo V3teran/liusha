@@ -1,0 +1,12 @@
+-- 0068: passive 会话流（阶段2）—— passive_session 绑定 conversation。
+--
+-- 设计（见 docs/memory-architecture-refactor.md 阶段2「passive 建会话流 + 可插话」）：
+--   - passive 也建一条 conversation message 流：traffic agent 的推理/工具/finding 过程事件
+--     落进对话流，前端可打开被动会话实时观察、插话指导（两模式统一为 conversation）。
+--   - conversation.scan_id 是 active_scan 的 FK，passive_session.id 不在其中，故反向在
+--     passive_session 存 conversation_id（建会话时 scan_id 留空，不走 FK）。
+--   - 同时配合阶段4「记忆永久 + 资源 idle 释放」：expires_at 语义从「创建绝对截止」改为
+--     「滑动 idle 截止」——每次流量/插话把 expires_at 推到 now()+idle，持续交互永不过期，
+--     现有 Sweep(expires_at < now()) 不变即实现 idle 释放。此处仅加 conversation_id 列，
+--     expires_at 滑动是写路径行为，无需 schema 变更。
+ALTER TABLE passive_session ADD COLUMN conversation_id text NOT NULL DEFAULT '';

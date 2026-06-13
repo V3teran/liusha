@@ -42,6 +42,8 @@ type OwnerSummary struct {
 	ExpiresAt    string `json:"expires_at,omitempty"` // RFC3339 proxy session 必填
 	EndedAt      string `json:"ended_at,omitempty"`   // RFC3339（可空）
 	ErrorMessage string `json:"error_message,omitempty"`
+	// ConversationID 关联本会话的对话流（阶段2，passive 会话用）；前端据此打开对话流插话。空=未绑。
+	ConversationID string `json:"conversation_id,omitempty"`
 }
 
 // BatchSaveRequest 是 POST /credential/batch 请求体。

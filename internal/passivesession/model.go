@@ -33,4 +33,7 @@ type Session struct {
 	ExpiresAt    time.Time
 	EndedAt      *time.Time
 	ErrorMessage string
+	// ConversationID 关联本 passive 会话的对话流（阶段2）。traffic agent 过程事件落进该对话，
+	// 前端可打开被动会话实时观察 + 插话。空串=未绑定（旧行 / 建会话前的瞬态）。
+	ConversationID string
 }

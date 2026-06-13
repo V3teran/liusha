@@ -23,6 +23,7 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/V3teran/liusha/internal/config"
+	"github.com/V3teran/liusha/internal/conversation"
 	"github.com/V3teran/liusha/internal/flow"
 	"github.com/V3teran/liusha/internal/hunter"
 	"github.com/V3teran/liusha/internal/owner"
@@ -30,6 +31,12 @@ import (
 	"github.com/V3teran/liusha/internal/proxy"
 	"github.com/V3teran/liusha/internal/worker"
 )
+
+// ConversationCreator 建被动会话的对话流（阶段2）。traffic 入口首次见到某 host 时建一条
+// conversation，passive agent 过程事件落进去，前端可打开实时观察 + 插话。nil 时跳过（向后兼容）。
+type ConversationCreator interface {
+	CreateConversation(ctx context.Context, title, scanID, roleID string) (conversation.Conversation, error)
+}
 
 // internalQueueSize 是进程内 internal 流量队列容量。
 // active 沙箱抓的流量经 SubmitInternal 入队，由 drain goroutine 调 handleInternalSnap 落库——
@@ -50,6 +57,7 @@ type Traffic struct {
 	recreateDelay time.Duration
 	passive       *passivesession.Store // 流量入口 LookupOrCreate by host
 	passiveTTL    time.Duration
+	conversations ConversationCreator // 阶段2：首流量建 passive 会话对话流（nil 跳过）
 	flows         *flow.Store
 	tasks         *hunter.Store
 	enq           *worker.Client
@@ -62,16 +70,17 @@ type Traffic struct {
 // Cfg 提供 group/consumer/batch/block/retry 等运行参数（缺省值已由 ApplyDefaults 兜底）；
 // Passive + PassiveTTL：流量入口按 host LookupOrCreate passive_session（1 host 1 active）。
 type Deps struct {
-	Redis      *redis.Client
-	Cfg        config.IngestorConfig
-	Stream     string
-	Tenant     string
-	Passive    *passivesession.Store // 流量入口 LookupOrCreate by host
-	PassiveTTL time.Duration         // passive session 过期窗口
-	Flows      *flow.Store
-	Tasks      *hunter.Store
-	Enqueuer   *worker.Client
-	Logger     zerolog.Logger
+	Redis         *redis.Client
+	Cfg           config.IngestorConfig
+	Stream        string
+	Tenant        string
+	Passive       *passivesession.Store // 流量入口 LookupOrCreate by host
+	PassiveTTL    time.Duration         // passive session 滑动 idle 窗口（阶段4：每流量续命 expires_at）
+	Conversations ConversationCreator   // 阶段2：建 passive 会话对话流（nil 跳过，向后兼容）
+	Flows         *flow.Store
+	Tasks         *hunter.Store
+	Enqueuer      *worker.Client
+	Logger        zerolog.Logger
 }
 
 // NewTraffic 构造并 ensure consumer group 存在。
@@ -97,6 +106,7 @@ func NewTraffic(ctx context.Context, deps Deps) (*Traffic, error) {
 		recreateDelay: time.Duration(deps.Cfg.RecreateGroupDelayMs) * time.Millisecond,
 		passive:       deps.Passive,
 		passiveTTL:    deps.PassiveTTL,
+		conversations: deps.Conversations,
 		flows:         deps.Flows,
 		tasks:         deps.Tasks,
 		enq:           deps.Enqueuer,
@@ -226,13 +236,20 @@ func (t *Traffic) handleExternalSnap(ctx context.Context, snap *proxy.TrafficSna
 		return
 	}
 	passSessID := sess.ID
+	// 阶段2：确保 passive 会话绑定对话流（首流量建会话）。阶段4：每条流量滑动续命 expires_at
+	// （idle 释放——持续有流量则永不过期，真闲置 idle 后才被 Sweep 关闭）。
+	convID := t.ensureConversation(ctx, &sess)
+	if err := t.passive.BumpExpiry(ctx, passSessID, t.passiveTTL); err != nil {
+		t.logger.Warn().Err(err).Str("passive_session_id", passSessID).Msg("续命 expires_at 失败（不阻塞流量）")
+	}
+
 	flowID, err := t.appendFlow(ctx, passSessID, snap)
 	if err != nil {
 		t.logger.Warn().Err(err).Msg("flow.Append 失败")
 		return
 	}
 
-	if err := t.enqueueMain(ctx, passSessID, flowID, snap); err != nil {
+	if err := t.enqueueMain(ctx, passSessID, convID, flowID, snap); err != nil {
 		t.logger.Warn().Err(err).Str("passive_session_id", passSessID).Int64("flow_id", flowID).Msg("主任务入队失败")
 		return
 	}
@@ -326,7 +343,31 @@ func (t *Traffic) appendFlow(ctx context.Context, passSessID string, snap *proxy
 	})
 }
 
-func (t *Traffic) enqueueMain(ctx context.Context, passSessID string, flowID int64, snap *proxy.TrafficSnapshot) error {
+// ensureConversation 确保 passive 会话已绑对话流：已绑直接返回；未绑则建一条 conversation
+// （title=host，scan_id 空——passive 不进 active_scan FK）并回填 passive_session.conversation_id。
+// conversations nil / 建会话失败 → 返空串（降级：本次不绑，事件不落对话，但流量分析照常）。
+func (t *Traffic) ensureConversation(ctx context.Context, sess *passivesession.Session) string {
+	if sess.ConversationID != "" {
+		return sess.ConversationID
+	}
+	if t.conversations == nil {
+		return ""
+	}
+	conv, err := t.conversations.CreateConversation(ctx, sess.Host, "", "")
+	if err != nil {
+		t.logger.Warn().Err(err).Str("host", sess.Host).Msg("建 passive 会话对话流失败（降级：本次不绑对话）")
+		return ""
+	}
+	if err := t.passive.SetConversationID(ctx, sess.ID, conv.ID); err != nil {
+		t.logger.Warn().Err(err).Str("passive_session_id", sess.ID).Msg("回填 conversation_id 失败")
+	}
+	sess.ConversationID = conv.ID
+	t.logger.Info().Str("passive_session_id", sess.ID).Str("conversation_id", conv.ID).
+		Str("host", sess.Host).Msg("passive 会话已绑定对话流")
+	return conv.ID
+}
+
+func (t *Traffic) enqueueMain(ctx context.Context, passSessID, convID string, flowID int64, snap *proxy.TrafficSnapshot) error {
 	entrypoint, _ := json.Marshal(map[string]any{
 		"flow_id": flowID,
 		"host":    snap.Host,
@@ -349,10 +390,11 @@ func (t *Traffic) enqueueMain(ctx context.Context, passSessID string, flowID int
 	}
 
 	if _, _, err := t.enq.Enqueue(ctx, worker.RoleHunter, worker.Payload{
-		HunterID:  tid,
-		OwnerType: owner.Passive,
-		OwnerID:   passSessID,
-		Input:     payloadInput,
+		HunterID:       tid,
+		OwnerType:      owner.Passive,
+		OwnerID:        passSessID,
+		ConversationID: convID, // 阶段2：passive 过程事件落进对话流 + 读对话历史（插话）
+		Input:          payloadInput,
 	}); err != nil {
 		return fmt.Errorf("enq.Enqueue: %w", err)
 	}

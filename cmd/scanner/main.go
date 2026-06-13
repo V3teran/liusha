@@ -259,15 +259,16 @@ func main() {
 	defer flowCancel()
 
 	trafficIngestor, err := ingestor.NewTraffic(flowCtx, ingestor.Deps{
-		Redis:      rdb,
-		Cfg:        cfg.Ingestor,
-		Stream:     cfg.Proxy.StreamName,
-		Passive:    passSess,
-		PassiveTTL: time.Duration(cfg.Session.MaxAgeHours) * time.Hour,
-		Flows:      flows,
-		Tasks:      tasks,
-		Enqueuer:   wc,
-		Logger:     logger,
+		Redis:         rdb,
+		Cfg:           cfg.Ingestor,
+		Stream:        cfg.Proxy.StreamName,
+		Passive:       passSess,
+		PassiveTTL:    time.Duration(cfg.Session.MaxAgeHours) * time.Hour,
+		Conversations: convStore, // 阶段2：passive 首流量建对话流
+		Flows:         flows,
+		Tasks:         tasks,
+		Enqueuer:      wc,
+		Logger:        logger,
 	})
 	if err != nil {
 		logger.Fatal().Err(err).Msg("new ingestor.traffic")

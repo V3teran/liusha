@@ -106,6 +106,12 @@ func (h handler) handlePassiveEino(ctx context.Context, p worker.Payload, entryp
 	instruction := hunterbuilder.SystemPromptFor("passive")
 	userPrompt := hunterbuilder.BuildUserPrompt(ctx, h.hunterDeps, params)
 
+	// 阶段2 可插话：把本 passive 会话最近的对话历史（含用户插话指导）拼到 prompt 前，
+	// 让 traffic agent 看到用户实时指导、调整分析方向（与 active orchestrator 同源 conversationContext）。
+	if hist := h.conversationContext(ctx, p.ConversationID, ""); hist != "" {
+		userPrompt = hist + "\n" + userPrompt
+	}
+
 	// per-run 中间件 + 计费 callback：复用 einoRunOpts（与 active deep 路径同源）——
 	// compaction（防 context 爆）+ tool_invocation 遥测 + 截图回灌 + llm_invocation 计费。
 	// ★ 早期 passive handler 手工只挂了 compaction + 计费，漏了 ToolRecorder（→ tool_invocation
