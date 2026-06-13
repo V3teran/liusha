@@ -2,7 +2,6 @@
 // Agent 任务页：选 owner → 拉 agent_runs，按 orchestrator_id 拼任务树。
 // orchestrator_id='' 为根（orchestrator），子节点为 exploitation/traffic-analysis。
 import { computed, ref, watch } from 'vue'
-import { NSpin, NTag } from 'naive-ui'
 import OwnerPicker from '../components/OwnerPicker.vue'
 import { listAgentRuns } from '../api/client'
 import type { AgentRun, AgentRunsResponse } from '../api/types'
@@ -74,7 +73,7 @@ const fmtTime = (s: string) => (s ? new Date(s).toLocaleString() : '—')
     </div>
 
     <div class="page-body">
-      <div v-if="loading" class="state"><NSpin size="large" /></div>
+      <div v-if="loading" class="state"><a-spin size="large" /></div>
       <div v-else-if="error" class="state"><span class="state-err">⚠ {{ error }}</span></div>
       <div v-else-if="!owner" class="state">请选择一个会话查看 Agent 任务树</div>
       <div v-else-if="!data || data.total === 0" class="state">该会话暂无 Agent 任务</div>
@@ -92,13 +91,13 @@ const fmtTime = (s: string) => (s ? new Date(s).toLocaleString() : '—')
           <div v-for="node in tree.nodes" :key="node.run.id" class="tree-root">
             <div class="run-row root">
               <span class="role-badge orchestrator">{{ node.run.role }}</span>
-              <NTag size="small" :color="tagColor(node.run.status)" :bordered="true">{{ node.run.status }}</NTag>
+              <a-tag :color="tagColor(node.run.status).textColor">{{ node.run.status }}</a-tag>
               <span class="run-id mono">{{ node.run.id.slice(0, 8) }}</span>
               <span class="run-time muted">{{ fmtTime(node.run.created_at) }}</span>
             </div>
             <div v-for="child in node.children" :key="child.id" class="run-row child">
               <span class="role-badge">{{ child.role }}</span>
-              <NTag size="small" :color="tagColor(child.status)" :bordered="true">{{ child.status }}</NTag>
+              <a-tag :color="tagColor(child.status).textColor">{{ child.status }}</a-tag>
               <span class="run-id mono">{{ child.id.slice(0, 8) }}</span>
               <span class="run-time muted">{{ fmtTime(child.created_at) }}</span>
             </div>
@@ -108,7 +107,7 @@ const fmtTime = (s: string) => (s ? new Date(s).toLocaleString() : '—')
             <div class="run-row root" style="margin-top: 10px"><span class="muted">未归属</span></div>
             <div v-for="o in tree.orphans" :key="o.id" class="run-row child">
               <span class="role-badge">{{ o.role }}</span>
-              <NTag size="small" :color="tagColor(o.status)" :bordered="true">{{ o.status }}</NTag>
+              <a-tag :color="tagColor(o.status).textColor">{{ o.status }}</a-tag>
               <span class="run-id mono">{{ o.id.slice(0, 8) }}</span>
               <span class="run-time muted">{{ fmtTime(o.created_at) }}</span>
             </div>

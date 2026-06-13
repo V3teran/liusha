@@ -1,58 +1,73 @@
 /* ============================================================
-   设计 token —— 深色为主双主题（data-theme 切换）。
-   组件类名沿用历史（conv-list/card/composer/gate…），仅升级配色与圆角。
+   设计 token —— Ant Design 风，浅色为主双主题（data-theme=dark 切暗黑）。
+   配色对齐 liusha-ui-old：#1890ff 主蓝 + #f0f2f5 背景 + Ant 语义色。
+   var 名沿用历史（组件 CSS 在用），仅换值。Ant 组件主题由 App.vue 的 ConfigProvider algorithm 控制。
    ============================================================ */
 :root {
-  /* 表面层次 */
-  --bg: #0a0c12;
-  --surface: #10141d;
-  --surface-2: #171c28;
-  --elevated: #1e2433;
-  --border: #232a39;
-  --border-strong: #323b4f;
-  /* 文本 */
-  --text: #e7eaf2;
-  --muted: #8a92a6;
-  /* 主色 / 强调 */
-  --primary: #7c8cff;
-  --primary-hover: #93a0ff;
-  --primary-soft: rgba(124, 140, 255, 0.14);
-  --accent: #22d3ee;
-  /* 漏洞分级语义色 */
-  --sev-critical: #f85149;
-  --sev-high: #ff7b35;
-  --sev-medium: #d29922;
-  --sev-low: #6e7681;
-  --sev-info: #58a6ff;
+  /* 表面层次（Ant 浅色） */
+  --bg: #f0f2f5;
+  --surface: #ffffff;
+  --surface-2: #fafafa;
+  --elevated: #ffffff;
+  --border: #f0f0f0;
+  --border-strong: #d9d9d9;
+  /* 文本（Ant 浅色） */
+  --text: rgba(0, 0, 0, 0.88);
+  --muted: rgba(0, 0, 0, 0.45);
+  /* 主色 / 强调（Ant #1890ff） */
+  --primary: #1890ff;
+  --primary-hover: #40a9ff;
+  --primary-soft: rgba(24, 144, 255, 0.1);
+  --accent: #1890ff;
+  /* Ant 语义色 */
+  --success: #52c41a;
+  --warning: #faad14;
+  --error: #f5222d;
+  /* 漏洞分级语义色（Ant 调色板） */
+  --sev-critical: #f5222d;
+  --sev-high: #fa8c16;
+  --sev-medium: #faad14;
+  --sev-low: #8c8c8c;
+  --sev-info: #1890ff;
   /* 排版 / 形状 / 间距 */
-  --font: Inter, system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
-  --mono: ui-monospace, SFMono-Regular, "JetBrains Mono", "Cascadia Code", monospace;
-  --radius-sm: 6px;
-  --radius: 9px;
-  --radius-lg: 16px;
+  --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
+  --mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  --radius-sm: 4px;
+  --radius: 6px;
+  --radius-lg: 8px;
   --space: 12px;
-  --shadow: 0 6px 24px -8px rgba(0, 0, 0, 0.5);
-  --shadow-lg: 0 18px 50px -16px rgba(0, 0, 0, 0.6);
-  color-scheme: dark;
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.06), 0 2px 8px rgba(0, 0, 0, 0.08);
+  --shadow-lg: 0 4px 16px rgba(0, 0, 0, 0.12);
+  color-scheme: light;
 }
 
-:root[data-theme="light"] {
-  --bg: #f5f7fb;
-  --surface: #ffffff;
-  --surface-2: #f0f3f9;
-  --elevated: #ffffff;
-  --border: #e4e8f0;
-  --border-strong: #cdd5e2;
-  --text: #1a2233;
-  --muted: #5c6678;
-  --primary: #5b66e8;
-  --primary-hover: #4c57d8;
-  --primary-soft: rgba(91, 102, 232, 0.12);
-  --accent: #0891b2;
-  --sev-low: #94a3b8;
-  --shadow: 0 6px 24px -10px rgba(20, 30, 60, 0.18);
-  --shadow-lg: 0 18px 50px -18px rgba(20, 30, 60, 0.22);
-  color-scheme: light;
+:root[data-theme="dark"] {
+  /* 表面层次（Ant darkAlgorithm 风） */
+  --bg: #141414;
+  --surface: #1f1f1f;
+  --surface-2: #262626;
+  --elevated: #1f1f1f;
+  --border: #303030;
+  --border-strong: #424242;
+  /* 文本 */
+  --text: rgba(255, 255, 255, 0.85);
+  --muted: rgba(255, 255, 255, 0.45);
+  /* 主色 */
+  --primary: #177ddc;
+  --primary-hover: #3c9ae8;
+  --primary-soft: rgba(23, 125, 220, 0.15);
+  --accent: #177ddc;
+  --success: #49aa19;
+  --warning: #d89614;
+  --error: #d32029;
+  --sev-critical: #d32029;
+  --sev-high: #d87a16;
+  --sev-medium: #d89614;
+  --sev-low: #8c8c8c;
+  --sev-info: #177ddc;
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 2px 8px rgba(0, 0, 0, 0.35);
+  --shadow-lg: 0 4px 16px rgba(0, 0, 0, 0.5);
+  color-scheme: dark;
 }
 
 * { box-sizing: border-box; }
@@ -314,3 +329,31 @@ pre {
 .chart { width: 100%; height: 260px; }
 .mono { font-family: var(--mono); }
 .muted { color: var(--muted); }
+
+/* ============================================================
+   markdown 富文本（推理卡 / 助手文字 v-html 内容）
+   ============================================================ */
+.markdown-body { word-break: break-word; }
+.markdown-body > :first-child { margin-top: 0; }
+.markdown-body > :last-child { margin-bottom: 0; }
+.markdown-body h1, .markdown-body h2, .markdown-body h3 {
+  font-size: 14px; font-weight: 600; margin: 10px 0 6px; color: var(--text);
+}
+.markdown-body p { margin: 6px 0; }
+.markdown-body ul, .markdown-body ol { margin: 6px 0; padding-left: 20px; }
+.markdown-body li { margin: 2px 0; }
+.markdown-body code {
+  font-family: var(--mono); font-size: 12px;
+  background: var(--surface-2); padding: 1px 5px; border-radius: 4px;
+}
+.markdown-body pre {
+  background: var(--surface-2); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); padding: 10px; overflow: auto; margin: 6px 0;
+}
+.markdown-body pre code { background: none; padding: 0; }
+.markdown-body blockquote {
+  margin: 6px 0; padding: 2px 12px; border-left: 3px solid var(--primary);
+  background: var(--primary-soft); color: var(--text); border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+}
+.markdown-body strong { font-weight: 600; }
+.markdown-body a { color: var(--primary); }

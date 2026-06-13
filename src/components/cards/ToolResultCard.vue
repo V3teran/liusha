@@ -51,7 +51,7 @@ const preview = computed(() => {
 .tool-result[data-error='true'] .head { border-color: var(--sev-critical); }
 .caret { color: var(--muted); transition: transform 0.15s; font-size: 11px; }
 .head.open .caret { transform: rotate(90deg); }
-.dot { width: 6px; height: 6px; border-radius: 50%; background: #2ec27e; flex-shrink: 0; }
+.dot { width: 6px; height: 6px; border-radius: 50%; background: var(--success); flex-shrink: 0; }
 .dot.err { background: var(--sev-critical); }
 .tool { font-family: var(--mono); color: var(--muted); }
 .dur { color: var(--muted); font-size: 11px; }

@@ -2,7 +2,6 @@
 // LLM 审计页：选 owner → 拉 llm_invocation（后端按 hunter 分组）。
 // 顶部汇总卡 + 成本环形图 + 每个 hunter 分组的调用明细表。
 import { computed, ref, watch } from 'vue'
-import { NSpin } from 'naive-ui'
 import VChart from 'vue-echarts'
 import '../lib/echarts'
 import { chartTextColor } from '../lib/echarts'
@@ -68,7 +67,7 @@ const fmtNum = (n: number) => n.toLocaleString()
     </div>
 
     <div class="page-body">
-      <div v-if="loading" class="state"><NSpin size="large" /></div>
+      <div v-if="loading" class="state"><a-spin size="large" /></div>
       <div v-else-if="error" class="state"><span class="state-err">⚠ {{ error }}</span></div>
       <div v-else-if="!owner" class="state">请选择一个会话查看 LLM 调用审计</div>
       <div v-else-if="!data || data.total === 0" class="state">该会话暂无 LLM 调用记录</div>

@@ -1,7 +1,6 @@
 <script setup lang="ts">
-// 角色选择：挂载时拉 /roles，默认选第一个。用 Naive NSelect 呈现（场景 + 模式）。
+// 角色选择：挂载时拉 /roles，默认选第一个。用 Ant a-select 呈现（场景 + 模式）。
 import { computed, onMounted, ref } from 'vue'
-import { NSelect } from 'naive-ui'
 import { listRoles } from '../api/client'
 import type { Role } from '../api/types'
 
@@ -17,13 +16,12 @@ onMounted(async () => {
 </script>
 
 <template>
-  <NSelect
-    :value="model"
+  <a-select
+    v-model:value="model"
     :options="options"
     size="small"
     placeholder="选择场景角色"
     class="role-select"
-    @update:value="(v: string) => (model = v)"
   />
 </template>
 

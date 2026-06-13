@@ -2,7 +2,6 @@
 // owner 选择器：拉最近会话/扫描列表，下拉选一个 owner_id（v-model）。数据页共用。
 // 可选 modeFilter 只显示某模式（active/passive）。挂载时自动选第一个。
 import { computed, onMounted, ref } from 'vue'
-import { NSelect } from 'naive-ui'
 import { listSessions } from '../api/client'
 import type { OwnerSummary } from '../api/types'
 
@@ -40,15 +39,15 @@ onMounted(load)
 <template>
   <div class="owner-picker">
     <span class="op-label">会话</span>
-    <NSelect
-      :value="model"
+    <a-select
+      v-model:value="model"
       :options="options"
       :loading="loading"
       placeholder="选择会话 / 扫描"
       size="small"
-      filterable
+      show-search
+      option-filter-prop="label"
       class="op-select"
-      @update:value="(v: string) => (model = v)"
     />
     <button class="op-refresh" title="刷新会话列表" @click="load">↻</button>
     <span v-if="error" class="op-err">{{ error }}</span>

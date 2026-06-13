@@ -3,7 +3,6 @@
 // 分级饼图 + 按严重度排序的漏洞列表（带所属端点）。
 // 说明：后端无独立 /findings 端点，漏洞内嵌在攻击面树里，故复用 getSitemap。
 import { computed, ref, watch } from 'vue'
-import { NSpin, NTag } from 'naive-ui'
 import VChart from 'vue-echarts'
 import '../lib/echarts'
 import { chartTextColor } from '../lib/echarts'
@@ -90,7 +89,7 @@ const sevChart = computed(() => ({
     </div>
 
     <div class="page-body">
-      <div v-if="loading" class="state"><NSpin size="large" /></div>
+      <div v-if="loading" class="state"><a-spin size="large" /></div>
       <div v-else-if="error" class="state"><span class="state-err">⚠ {{ error }}</span></div>
       <div v-else-if="notActive" class="state">漏洞列表来自 active 扫描攻击面（该 owner 无数据）</div>
       <div v-else-if="!owner" class="state">请选择一个 active 扫描查看漏洞</div>
@@ -105,7 +104,7 @@ const sevChart = computed(() => ({
           <div class="panel list-panel">
             <p class="panel-title">漏洞列表</p>
             <div v-for="(x, i) in flat" :key="i" class="finding-item">
-              <NTag size="small" :color="severityTagColor(x.f.severity)" :bordered="true">{{ x.f.severity }}</NTag>
+              <a-tag :color="severityTagColor(x.f.severity).textColor">{{ x.f.severity }}</a-tag>
               <div class="fi-body">
                 <div class="fi-summary">{{ x.f.summary }}</div>
                 <div class="fi-meta mono">

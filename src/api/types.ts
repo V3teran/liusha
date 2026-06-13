@@ -7,10 +7,10 @@
 
 export type MessageKind = 'message' | 'event'
 export type MessageRole = 'user' | 'assistant' | 'system' | 'tool'
-export type ScanEventKind = 'tool_call' | 'tool_result'
+export type ScanEventKind = 'tool_call' | 'tool_result' | 'reasoning' | 'spawn'
 
 /**
- * SSE 事件的工具执行元数据
+ * SSE 事件的元数据（agent 过程事件）
  * 大写键（Go 端序列化格式）
  */
 export interface ScanEvent {
@@ -20,6 +20,10 @@ export interface ScanEvent {
   Result: string
   DurationMs: number
   Err: string
+  Text: string // reasoning 的推理文字
+  InTokens: number // reasoning：本次 LLM 输入 token
+  OutTokens: number // reasoning：本次 LLM 输出 token
+  LatencyMs: number // reasoning：本次 LLM 耗时(ms)
 }
 
 /**

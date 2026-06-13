@@ -1,9 +1,13 @@
 <script setup lang="ts">
-// 助手文字：LLM 叙述/总结。保留换行与空白，便于阅读多行输出。
-defineProps<{ content: string }>()
+// 助手文字：LLM 叙述/总结/答复，按 markdown 富文本渲染（与推理卡同源消毒）。
+import { computed } from 'vue'
+import { renderMarkdown } from '../../lib/markdown'
+
+const props = defineProps<{ content: string }>()
+const html = computed(() => renderMarkdown(props.content))
 </script>
 <template>
-  <div class="assistant" data-card="assistant">{{ content }}</div>
+  <div class="assistant markdown-body" data-card="assistant" v-html="html" />
 </template>
 
 <style scoped>
@@ -16,7 +20,5 @@ defineProps<{ content: string }>()
   padding: 10px 13px;
   font-size: 14px;
   line-height: 1.6;
-  white-space: pre-wrap;
-  word-break: break-word;
 }
 </style>

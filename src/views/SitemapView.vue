@@ -2,7 +2,6 @@
 // 攻击面页：选 owner（仅 active 模式有数据）→ 拉 sitemap 树。
 // 渲染 root → domain → endpoint(method+path) → findings(severity tag + summary)。
 import { computed, ref, watch } from 'vue'
-import { NSpin, NTag } from 'naive-ui'
 import OwnerPicker from '../components/OwnerPicker.vue'
 import { getSitemap } from '../api/client'
 import type { SitemapView, SitemapNode } from '../api/types'
@@ -53,7 +52,7 @@ const findingCount = computed(() =>
     </div>
 
     <div class="page-body">
-      <div v-if="loading" class="state"><NSpin size="large" /></div>
+      <div v-if="loading" class="state"><a-spin size="large" /></div>
       <div v-else-if="error" class="state"><span class="state-err">⚠ {{ error }}</span></div>
       <div v-else-if="notActive" class="state">攻击面树仅 <b>active</b> 模式扫描可用（该 owner 无攻击面数据）</div>
       <div v-else-if="!owner" class="state">请选择一个 active 扫描查看攻击面</div>
@@ -76,7 +75,7 @@ const findingCount = computed(() =>
             </div>
             <div v-if="ep.findings?.length" class="ep-findings">
               <div v-for="f in ep.findings" :key="f.id" class="finding-row">
-                <NTag size="small" :color="severityTagColor(f.severity)" :bordered="true">{{ f.severity }}</NTag>
+                <a-tag :color="severityTagColor(f.severity).textColor">{{ f.severity }}</a-tag>
                 <span class="f-summary">{{ f.summary }}</span>
                 <span v-if="f.cwe_id" class="f-cwe mono">{{ f.cwe_id }}</span>
               </div>
