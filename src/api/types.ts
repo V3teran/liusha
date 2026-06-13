@@ -95,6 +95,8 @@ export interface OwnerSummary {
   expires_at?: string
   ended_at?: string
   error_message?: string
+  // 阶段2：passive 会话绑定的对话流 id；前端据此打开会话流实时观察 + 插话。
+  conversation_id?: string
 }
 
 /* ============================================================
