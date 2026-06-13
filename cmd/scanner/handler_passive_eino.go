@@ -111,7 +111,8 @@ func (h handler) handlePassiveEino(ctx context.Context, p worker.Payload, entryp
 	// compaction（防 context 爆）+ tool_invocation 遥测 + 截图回灌 + llm_invocation 计费。
 	// ★ 早期 passive handler 手工只挂了 compaction + 计费，漏了 ToolRecorder（→ tool_invocation
 	// 不落库）和 VisionRelay（→ trafficAnalysis 跑 run_command 截图会 mimo 400）。统一走 einoRunOpts 补齐。
-	mws, opts := h.einoRunOpts(ctx, tid, ot, oid, "traffic-analysis", p.ConversationID)
+	mws, opts, cleanup := h.einoRunOpts(ctx, tid, ot, oid, "traffic-analysis", p.ConversationID)
+	defer cleanup() // run 结束后 flush 异步事件 sink（关 channel + 等缓冲事件写完落库）
 
 	// owner 中止 watcher：react 路径靠 step 内 cfg.OnAbort；eino 无 step 钩子，
 	// 改后台轮询 passive_session.Status，非 active 即 cancel ctx 让 RunTrafficAnalysis 自然停。

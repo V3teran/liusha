@@ -106,8 +106,12 @@ func (s *Store) AppendMessage(ctx context.Context, convID string, role Role, kin
 	if err := scanMessage(row, &m); err != nil {
 		return Message{}, fmt.Errorf("append message to %s: %w", convID, err)
 	}
-	// touch updated_at：失败仅影响列表排序，消息已落库——不报错。
-	_, _ = s.pool.Exec(ctx, "UPDATE conversation SET updated_at=now() WHERE id=$1", convID)
+	// touch updated_at（仅真实对话消息 user/assistant）：失败仅影响列表排序，消息已落库——不报错。
+	// KindEvent 是高频 agent 过程事件（active 一次几百条），不参与会话列表排序，跳过这次 DB 往返
+	// ——省掉热路径上每事件的第二次同步写。
+	if kind != KindEvent {
+		_, _ = s.pool.Exec(ctx, "UPDATE conversation SET updated_at=now() WHERE id=$1", convID)
+	}
 	return m, nil
 }
 

@@ -69,7 +69,9 @@ func (h handler) einoToolDeps(sandboxClient sandbox.Client) einoagent.TrafficAna
 //
 // role ∈ trafficAnalysis/exploitation/orchestrator，决定 provider 解析 + 成本聚合维度。
 // conversationID 空（asynq 自动入口）时不发过程事件，纯后台扫描。
-func (h handler) einoRunOpts(ctx context.Context, hunterID, ownerType, ownerID, role, conversationID string) ([]adk.AgentMiddleware, []adk.AgentRunOption) {
+// 返回值新增 cleanup func()：调用方在 agent run 结束后 defer 调用，flush 异步事件 sink
+// （关 channel + 等 writer 写完缓冲事件）。无事件 sink 时为 no-op。
+func (h handler) einoRunOpts(ctx context.Context, hunterID, ownerType, ownerID, role, conversationID string) ([]adk.AgentMiddleware, []adk.AgentRunOption, func()) {
 	var mws []adk.AgentMiddleware
 	if compactor, err := h.einoFactory.For(ctx, "compactor"); err == nil {
 		mws = append(mws, einoagent.NewCompactionMiddleware(compactor, einoagent.CompactionConfig{}))
@@ -81,15 +83,12 @@ func (h handler) einoRunOpts(ctx context.Context, hunterID, ownerType, ownerID, 
 	// 截图视觉回灌（TODO-1）：run_command 的截图 image part 从 tool message 抽出转 user message
 	// （避免 mimo 400），按 role 的 provider 是否 vision 决定回灌或丢弃。
 	mws = append(mws, einoagent.NewVisionRelayMiddleware(h.einoFactory.SupportsVisionFor(role)))
-	// 过程事件发射（阶段B2b）：对话发起时把 agent 每次工具调用（含 exploitation 内部）落 conversation
-	// message + publish redis，供前端实时展示「跑了什么命令、结果如何」。conversationID 空则 nil sink。
+	// 过程事件发射（阶段B2b）：对话发起时把 agent 每次工具调用（含 exploitation 内部）异步落
+	// conversation message + publish redis，供前端实时展示。conversationID 空则不装（纯后台扫描）。
+	cleanup := func() {} // 默认 no-op
 	if conversationID != "" && h.conversations != nil && h.eventPublisher != nil {
-		sink := einoEventSink{
-			conversations:  h.conversations,
-			publisher:      h.eventPublisher,
-			conversationID: conversationID,
-			logger:         h.logger,
-		}
+		sink := newEinoEventSink(h.conversations, h.eventPublisher, conversationID, h.logger)
+		cleanup = sink.Close // run 结束后 flush 缓冲事件
 		mws = append(mws, einoagent.NewEventEmitter(sink))
 	}
 
@@ -98,5 +97,5 @@ func (h handler) einoRunOpts(ctx context.Context, hunterID, ownerType, ownerID, 
 		llm.CallMeta{HunterID: &hunterID, OwnerType: &ownerType, OwnerID: &ownerID, RouteKey: role},
 		provider, model,
 	)
-	return mws, []adk.AgentRunOption{adk.WithCallbacks(recorder)}
+	return mws, []adk.AgentRunOption{adk.WithCallbacks(recorder)}, cleanup
 }
