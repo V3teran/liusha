@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/cloudwego/eino/adk"
+	"github.com/cloudwego/eino/callbacks"
 
 	"github.com/V3teran/liusha/internal/einoagent"
 	"github.com/V3teran/liusha/internal/einollm"
@@ -49,7 +50,6 @@ func (s einoToolSink) RecordTool(ctx context.Context, inv einoagent.ToolInvocati
 func (h handler) einoToolDeps(sandboxClient sandbox.Client) einoagent.TrafficAnalysisToolDeps {
 	return einoagent.TrafficAnalysisToolDeps{
 		Findings:          h.findings,
-		Notes:             h.notes,
 		Lessons:           h.lessons,
 		Credentials:       h.hunterDeps.Credentials,
 		Flows:             h.flows,
@@ -86,10 +86,15 @@ func (h handler) einoRunOpts(ctx context.Context, hunterID, ownerType, ownerID, 
 	// 过程事件发射（阶段B2b）：对话发起时把 agent 每次工具调用（含 exploitation 内部）异步落
 	// conversation message + publish redis，供前端实时展示。conversationID 空则不装（纯后台扫描）。
 	cleanup := func() {} // 默认 no-op
+	var extraCallbacks []callbacks.Handler
 	if conversationID != "" && h.conversations != nil && h.eventPublisher != nil {
 		sink := newEinoEventSink(h.conversations, h.eventPublisher, conversationID, h.logger)
 		cleanup = sink.Close // run 结束后 flush 缓冲事件
 		mws = append(mws, einoagent.NewEventEmitter(sink))
+		// reasoning 事件（思路文字 + 输入/输出 token + 耗时）走 callbacks 一站式捕获（OnStart→OnEnd）。
+		if cb := einoagent.NewReasoningCallback(sink); cb != nil {
+			extraCallbacks = append(extraCallbacks, cb)
+		}
 	}
 
 	provider, model := h.einoFactory.ResolveProviderModel(role)
@@ -97,5 +102,6 @@ func (h handler) einoRunOpts(ctx context.Context, hunterID, ownerType, ownerID, 
 		llm.CallMeta{HunterID: &hunterID, OwnerType: &ownerType, OwnerID: &ownerID, RouteKey: role},
 		provider, model,
 	)
-	return mws, []adk.AgentRunOption{adk.WithCallbacks(recorder)}, cleanup
+	handlers := append([]callbacks.Handler{recorder}, extraCallbacks...)
+	return mws, []adk.AgentRunOption{adk.WithCallbacks(handlers...)}, cleanup
 }

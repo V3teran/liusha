@@ -14,7 +14,7 @@ func toolDefsFromCtx(t *testing.T, role einoagent.RoleDef) []string {
 	t.Helper()
 	f := allFake{}
 	tools, err := einoagent.BuildRoleTools(role, einoagent.ToolBuildCtx{
-		Deps:   einoagent.TrafficAnalysisToolDeps{Findings: f, Notes: f, Lessons: f, Credentials: f, Flows: fakeFlowStore{}},
+		Deps:   einoagent.TrafficAnalysisToolDeps{Findings: f, Lessons: f, Credentials: f, Flows: fakeFlowStore{}},
 		Params: einoagent.TrafficAnalysisToolParams{OwnerType: "active_scan", OwnerID: "o", HunterID: "h", Host: "host"},
 	})
 	if err != nil {
@@ -50,7 +50,7 @@ func TestBuildRoleTools_UnknownTool(t *testing.T) {
 	role := einoagent.RoleDef{ID: "x", Tools: []string{"read_findings", "no_such_tool"}}
 	f := allFake{}
 	_, err := einoagent.BuildRoleTools(role, einoagent.ToolBuildCtx{
-		Deps:   einoagent.TrafficAnalysisToolDeps{Findings: f, Notes: f, Lessons: f, Credentials: f},
+		Deps:   einoagent.TrafficAnalysisToolDeps{Findings: f, Lessons: f, Credentials: f},
 		Params: einoagent.TrafficAnalysisToolParams{OwnerID: "o", Host: "h"},
 	})
 	if err == nil {
@@ -62,7 +62,7 @@ func TestBuildRoleTools_RunCommandNeedsSandbox(t *testing.T) {
 	role := einoagent.RoleDef{ID: "x", Tools: []string{"run_command"}}
 	f := allFake{}
 	_, err := einoagent.BuildRoleTools(role, einoagent.ToolBuildCtx{
-		Deps:   einoagent.TrafficAnalysisToolDeps{Findings: f, Notes: f, Lessons: f, Credentials: f}, // Sandbox nil
+		Deps:   einoagent.TrafficAnalysisToolDeps{Findings: f, Lessons: f, Credentials: f}, // Sandbox nil
 		Params: einoagent.TrafficAnalysisToolParams{OwnerID: "o", Host: "h"},
 	})
 	if err == nil {
@@ -100,7 +100,7 @@ func TestBuildDeepSwarm_AssemblesOrchestratorAndSubAgents(t *testing.T) {
 		Model:        &fakeModel{},
 		Orchestrator: orchestratorRole,
 		SubAgents:    []einoagent.RoleDef{exploitationRole},
-		ToolDeps:     einoagent.TrafficAnalysisToolDeps{Findings: f, Notes: f, Lessons: f, Credentials: f, Flows: fakeFlowStore{}},
+		ToolDeps:     einoagent.TrafficAnalysisToolDeps{Findings: f, Lessons: f, Credentials: f, Flows: fakeFlowStore{}},
 		Params:       einoagent.TrafficAnalysisToolParams{OwnerType: "active_scan", OwnerID: "o", HunterID: "cmd", Host: "host"},
 	})
 	if err != nil {

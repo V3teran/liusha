@@ -15,7 +15,6 @@ import (
 	"github.com/V3teran/liusha/internal/credential"
 	"github.com/V3teran/liusha/internal/finding"
 	"github.com/V3teran/liusha/internal/lesson"
-	"github.com/V3teran/liusha/internal/notes"
 	"github.com/V3teran/liusha/internal/skill"
 	"github.com/V3teran/liusha/internal/toolinvocation"
 	"github.com/V3teran/liusha/internal/tools/manifest"
@@ -69,7 +68,6 @@ func BuildUserPrompt(ctx context.Context, deps Deps, p skill.BuilderParams) stri
 
 // Deps 是 prompt 拼装 + eino 工具装配的依赖注入（由 cmd/scanner/main.go 构造一份）。
 type Deps struct {
-	Notes           notes.Store
 	Findings        *finding.Store
 	Lessons         *lesson.Store
 	Credentials     credential.Provider

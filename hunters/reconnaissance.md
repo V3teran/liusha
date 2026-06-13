@@ -4,8 +4,6 @@ name: 侦察兵
 kind: subagent
 description: 站点级侦察手。接指挥官派下的目标范围，摸清目录/参数/技术栈/已有流量，产出结构化的攻击面清单（哪些 endpoint × 哪些可疑参数 × 哪个漏洞方向值得打），交回指挥官拆分。只摸底定标，不打洞、不写 finding。
 tools:
-  - read_notes
-  - write_note
   - read_credentials
   - read_findings
   - read_lessons

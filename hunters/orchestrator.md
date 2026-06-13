@@ -5,8 +5,6 @@ kind: orchestrator
 description: 扫描编排者。先派 reconnaissance 摸清攻击面，据清单拆分，派 exploitation 逐个打穿，汇总战果。本身不亲自侦察/打洞、不写 finding。场景侧重由 scenario 人设注入。
 tools:
   - read_findings
-  - read_notes
-  - write_note
   - read_lessons
   - write_lesson
   - read_credentials

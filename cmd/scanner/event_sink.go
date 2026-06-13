@@ -110,6 +110,12 @@ func (s *einoEventSink) persist(ev einoagent.ScanEvent) {
 // content 是可读摘要（回看列表 / 无 metadata 解析时的兜底）。
 func describeEvent(ev einoagent.ScanEvent) (conversation.Role, string) {
 	switch ev.Kind {
+	case einoagent.ScanEventReasoning:
+		// agent 推理文字（思路/分析/计划/决策）→ assistant 视角，content 即推理文字。
+		return conversation.RoleAssistant, ev.Text
+	case einoagent.ScanEventSpawn:
+		// orchestrator 派子代理 → assistant 视角。content 摘要"派发 <子代理>：<任务>"。
+		return conversation.RoleAssistant, spawnSummary(ev.Args)
 	case einoagent.ScanEventToolCall:
 		// agent 决定调工具 → assistant 视角。
 		return conversation.RoleAssistant, "调用工具 " + ev.ToolName
@@ -121,4 +127,20 @@ func describeEvent(ev einoagent.ScanEvent) (conversation.Role, string) {
 	default:
 		return conversation.RoleSystem, ev.ToolName
 	}
+}
+
+// spawnSummary 从 task 工具入参（{subagent_type, description}）拼派发摘要。
+// 解析失败兜底返回原文（content 仅作回看摘要，完整结构在 metadata.Args 给前端精渲染）。
+func spawnSummary(args string) string {
+	var in struct {
+		SubagentType string `json:"subagent_type"`
+		Description  string `json:"description"`
+	}
+	if err := json.Unmarshal([]byte(args), &in); err != nil || in.SubagentType == "" {
+		return "派发子代理"
+	}
+	if in.Description == "" {
+		return "派发 " + in.SubagentType
+	}
+	return "派发 " + in.SubagentType + "：" + in.Description
 }

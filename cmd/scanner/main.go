@@ -39,10 +39,8 @@ import (
 	hunterstore "github.com/V3teran/liusha/internal/hunter"
 	"github.com/V3teran/liusha/internal/ingestor"
 	"github.com/V3teran/liusha/internal/lesson"
-	"github.com/V3teran/liusha/internal/llm"
 	"github.com/V3teran/liusha/internal/llminvocation"
 	"github.com/V3teran/liusha/internal/logx"
-	"github.com/V3teran/liusha/internal/notes"
 	"github.com/V3teran/liusha/internal/observability"
 	"github.com/V3teran/liusha/internal/passivesession"
 	"github.com/V3teran/liusha/internal/sandbox"
@@ -94,14 +92,6 @@ func main() {
 	defer func() { _ = calls.Close() }()
 	flows := flow.NewStore(pool, scannerCfg.FlowMaxRequestBody, scannerCfg.FlowMaxResponseBody)
 	creds := credential.NewRedis(rdb, cfg.Credential.RedisKeyPrefix)
-	noteStore := notes.NewRedis(rdb, notes.Config{
-		KeyPrefix:        cfg.Notes.RedisKeyPrefix,
-		MaxEntries:       cfg.Notes.MaxEntries,
-		TTL:              time.Duration(cfg.Notes.TTLHours) * time.Hour,
-		CompactThreshold: cfg.Notes.CompactThreshold,
-		CompactBatchSize: cfg.Notes.CompactBatchSize,
-		CompactTimeout:   time.Duration(cfg.Notes.CompactTimeoutSeconds) * time.Second,
-	}).WithLogger(logger)
 	pricing := observability.NewPricing(cfg.Pricing)
 
 	// hunter system prompt 已编译期 embed（internal/builder/hunter/system_prompt.md），
@@ -159,16 +149,6 @@ func main() {
 	defer wc.Close()
 
 	// LLM Router：yaml retry 配置接线（兜底 spec §8.5 退避表）
-	router := llm.NewRouterWithOptions(llm.NewFactory(cfg), llm.RetryOptionsFromConfig(cfg.LLM.Retry))
-
-	// notes Compactor：复用 inspector 路由（light LLM，通常 Haiku），
-	// 超阈值时蒸馏老 note 为 summary。失败由 noteStore 内部 fallback 到 LTRIM。
-	compactorGen, err := router.For(ctx, "inspector")
-	if err != nil {
-		logger.Fatal().Err(err).Msg("notes compactor: router.For(inspector) 失败")
-	}
-	noteStore.WithCompactor(notes.NewLLMCompactor(compactorGen))
-
 	// 容器化沙箱启动器（管理 sandbox 容器生命周期：per agent run 一个容器）。
 	// 启动时一次性清理上次进程崩前残留的孤儿容器——max lifetime 4h + Destroy 失败兜底。
 	//
@@ -201,7 +181,6 @@ func main() {
 	// hunterDeps：prompt 拼装 + eino 工具装配的共享依赖（run_command 的 sandbox.Client 由
 	// handler 每次 Spawn 注入，不持有在 Deps）。react 退路已删，只剩 eino 用的 store/loader/manifest。
 	hunterDeps := hunter.Deps{
-		Notes:           noteStore,
 		Findings:        finds,
 		Lessons:         lessons,
 		Credentials:     creds,
@@ -244,7 +223,6 @@ func main() {
 		tasks:           tasks,
 		passiveSessions: passSess,
 		activeScans:     actScan,
-		notes:           noteStore,
 		findings:        finds,
 		lessons:         lessons,
 		flows:           flows,

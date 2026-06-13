@@ -34,7 +34,6 @@ type Config struct {
 	React       ReactConfig               `mapstructure:"react"`
 	Sandbox     SandboxConfig             `mapstructure:"sandbox"`
 	Toolruntime ToolruntimeConfig         `mapstructure:"toolruntime"`
-	Notes       NotesConfig               `mapstructure:"notes"`
 }
 
 // APIConfig 是 cmd/api 的 HTTP 入口参数。
@@ -214,23 +213,6 @@ type SessionConfig struct {
 	LessonsLimitInPrompt  int `mapstructure:"lessons_limit_in_prompt"`
 }
 
-// NotesConfig 是 internal/notes 包 Redis 共享存储参数。
-// owner 内同 host 跨 task 共享的 hunter 工作笔记板。
-//
-// TTLHours 与 SessionConfig.MaxAgeHours 默认都是 24h——AppendNote 用 ExpireNX
-// 仅在 key 首次创建时设 TTL（之后不刷新），让 notes 寿命从 key 创建起算固定窗口，
-// 与 owner.CreatedAt + MaxAge 时间点严格同步消失。手动调整两者时应保持一致。
-type NotesConfig struct {
-	RedisKeyPrefix string `mapstructure:"redis_key_prefix"`
-	MaxEntries     int    `mapstructure:"max_entries"` // Compactor 失败时 LTRIM 兜底
-	TTLHours       int    `mapstructure:"ttl_hours"`
-
-	// 蒸馏参数：LLEN > CompactThreshold 时触发 LLM 蒸馏前 CompactBatchSize 条。
-	CompactThreshold      int `mapstructure:"compact_threshold"`
-	CompactBatchSize      int `mapstructure:"compact_batch_size"`
-	CompactTimeoutSeconds int `mapstructure:"compact_timeout_seconds"`
-}
-
 // CredentialConfig 是 credential.RedisProvider 的 redis key 前缀。
 type CredentialConfig struct {
 	RedisKeyPrefix string `mapstructure:"redis_key_prefix"`
@@ -390,7 +372,6 @@ func (c *Config) ApplyDefaults() {
 	c.Proxy = applyProxyDefaults(c.Proxy)
 	c.Ingestor = applyIngestorDefaults(c.Ingestor)
 	c.Session = applySessionDefaults(c.Session)
-	c.Notes = applyNotesDefaults(c.Notes)
 	c.Credential = applyCredentialDefaults(c.Credential)
 	c.Skills = applySkillsDefaults(c.Skills)
 	c.Hunters = applyHuntersDefaults(c.Hunters)
@@ -606,28 +587,6 @@ func applySessionDefaults(c SessionConfig) SessionConfig {
 	}
 	if c.LessonsLimitInPrompt == 0 {
 		c.LessonsLimitInPrompt = 100
-	}
-	return c
-}
-
-func applyNotesDefaults(c NotesConfig) NotesConfig {
-	if c.RedisKeyPrefix == "" {
-		c.RedisKeyPrefix = "liusha:note:"
-	}
-	if c.MaxEntries == 0 {
-		c.MaxEntries = 200
-	}
-	if c.TTLHours == 0 {
-		c.TTLHours = 24
-	}
-	if c.CompactThreshold == 0 {
-		c.CompactThreshold = 200
-	}
-	if c.CompactBatchSize == 0 {
-		c.CompactBatchSize = 100
-	}
-	if c.CompactTimeoutSeconds == 0 {
-		c.CompactTimeoutSeconds = 30
 	}
 	return c
 }

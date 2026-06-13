@@ -138,6 +138,37 @@ func (s *Store) ListMessages(ctx context.Context, convID string, afterSeq int64,
 	return out, rows.Err()
 }
 
+// ListRecentDialog 取对话内最近 limit 条「普通对话消息」（KindMessage，即 user/assistant/system；
+// 滤掉高频 agent 过程事件 KindEvent），按 seq 升序返回。供 agent 读对话历史当工作上下文
+// （阶段0：active 多轮追问连贯性）。limit ≤ 0 用默认。
+func (s *Store) ListRecentDialog(ctx context.Context, convID string, limit int) ([]Message, error) {
+	limit = clampLimit(limit)
+	// 先按 seq DESC 取最近 limit 条，再在 Go 里反转成升序（对话历史按时间正序喂 LLM）。
+	rows, err := s.pool.Query(ctx,
+		"SELECT "+msgCols+" FROM message WHERE conversation_id=$1 AND kind=$2 ORDER BY seq DESC LIMIT $3",
+		convID, KindMessage, limit)
+	if err != nil {
+		return nil, fmt.Errorf("list recent dialog of %s: %w", convID, err)
+	}
+	defer rows.Close()
+
+	var out []Message
+	for rows.Next() {
+		var m Message
+		if err := scanMessage(rows, &m); err != nil {
+			return nil, fmt.Errorf("scan message: %w", err)
+		}
+		out = append(out, m)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	for i, j := 0, len(out)-1; i < j; i, j = i+1, j-1 {
+		out[i], out[j] = out[j], out[i] // DESC → 升序
+	}
+	return out, nil
+}
+
 // scanRow 是 pgx.Row / pgx.Rows 共用的 Scan 抽象（QueryRow 与 Query 迭代复用同一 scan 逻辑）。
 type scanRow interface {
 	Scan(dest ...any) error

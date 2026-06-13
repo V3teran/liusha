@@ -84,7 +84,6 @@ func (h handler) handlePassiveEino(ctx context.Context, p worker.Payload, entryp
 
 	tools, err := einoagent.BuildTrafficAnalysisTools(einoagent.TrafficAnalysisToolDeps{
 		Findings:          h.findings,
-		Notes:             h.notes,
 		Lessons:           h.lessons,
 		Credentials:       h.hunterDeps.Credentials,
 		Flows:             h.flows,

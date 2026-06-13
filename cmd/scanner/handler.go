@@ -21,7 +21,6 @@ import (
 	"github.com/V3teran/liusha/internal/lesson"
 	"github.com/V3teran/liusha/internal/llm"
 	"github.com/V3teran/liusha/internal/llminvocation"
-	"github.com/V3teran/liusha/internal/notes"
 	"github.com/V3teran/liusha/internal/passivesession"
 	"github.com/V3teran/liusha/internal/sandbox"
 	"github.com/V3teran/liusha/internal/scanstream"
@@ -34,7 +33,6 @@ type handler struct {
 	tasks           *hunter.Store
 	passiveSessions *passivesession.Store
 	activeScans     *activescan.Store
-	notes           *notes.RedisStore
 	findings        *finding.Store
 	lessons         *lesson.Store
 	flows           *flow.Store

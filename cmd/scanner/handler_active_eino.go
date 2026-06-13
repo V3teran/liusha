@@ -117,6 +117,11 @@ func (h handler) handleActiveEino(ctx context.Context, p worker.Payload, entrypo
 		OwnerType: ot, OwnerID: oid, HunterID: tid,
 		Host: virtualHost, Mode: "active", Brief: ep.Brief, Sandbox: sandboxClient,
 	})
+	// 阶段0：多轮追问连贯性——把本对话最近的对话历史拼到 prompt 前，让 orchestrator 看到上下文
+	// （如"刚才那个漏洞"）。首轮 / 无对话 / 读失败时为空串，不影响。
+	if hist := h.conversationContext(ctx, p.ConversationID, ep.Brief); hist != "" {
+		orchestratorPrompt = hist + "\n" + orchestratorPrompt
+	}
 
 	// active_scan 终态收尾（orchestrator 退出后无人收尾会卡 'active'）。
 	finalizeScan := func(complete bool, reason string) {

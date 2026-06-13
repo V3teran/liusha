@@ -25,12 +25,8 @@ type toolBuilder func(c ToolBuildCtx) (tool.BaseTool, error)
 
 // toolRegistry 是「工具名 → builder」表。新增工具：在此注册一行 + 角色 md 写工具名即可。
 var toolRegistry = map[string]toolBuilder{
-	"read_notes": func(c ToolBuildCtx) (tool.BaseTool, error) {
-		return einotools.BuildReadNotes(c.Deps.Notes, c.Params.OwnerID, c.Params.Host, c.Params.HunterID)
-	},
-	"write_note": func(c ToolBuildCtx) (tool.BaseTool, error) {
-		return einotools.BuildWriteNote(c.Deps.Notes, c.Params.OwnerID, c.Params.Host, c.Params.HunterID)
-	},
+	// notes 工具（read_notes/write_note）已退役——agent 思路改输出到对话（reasoning 事件），
+	// 不再用独立 notes 黑板。跨 run 上下文走对话历史 + finding/lesson 黑板。
 	"read_credentials": func(c ToolBuildCtx) (tool.BaseTool, error) {
 		return einotools.BuildReadCredentials(c.Deps.Credentials, c.Params.Host)
 	},

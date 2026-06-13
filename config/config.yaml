@@ -381,18 +381,6 @@ session:
   findings_limit_in_prompt: 100     # 该 host 已有 finding 段显示条数
   lessons_limit_in_prompt: 100      # 该 host 历史经验 + 跨 host 业务规则 hint 共用上限
 
-# ---- notes Redis 共享笔记板（owner 内同 host 跨 task 共享）----
-# 实现：internal/notes 包；key=liusha:note:{owner_id}:{host}，LIST 类型。
-# 设计建议：ttl_hours 应 ≥ session.max_age_hours，否则 notes 会比 passive_session 更早过期。
-notes:
-  redis_key_prefix: "liusha:note:"  # Redis key 前缀
-  max_entries: 200                  # 蒸馏失败兜底硬上限（LTRIM 保留末尾 N）
-  ttl_hours: 24                     # 仅在 key 首次创建时设 TTL（ExpireNX，从创建起算固定窗口），与 max_age_hours 同步
-  # 蒸馏参数：超阈值时调 light LLM 把前 N 条压缩成 1 条 summary，保留早期语义
-  compact_threshold: 200            # LLEN 超过此值触发蒸馏
-  compact_batch_size: 100           # 每次蒸馏前 N 条（保留剩余 ≥ threshold-batch+1 条供后续累积）
-  compact_timeout_seconds: 30       # 单次蒸馏（含 LLM 调用）超时；超时退化为 LTRIM
-
 # ---- credential.RedisProvider redis 前缀 ----
 credential:
   redis_key_prefix: "credentials:"  # HSET <prefix><host> ...

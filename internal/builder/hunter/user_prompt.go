@@ -8,7 +8,6 @@ import (
 
 	"github.com/V3teran/liusha/internal/finding"
 	"github.com/V3teran/liusha/internal/lesson"
-	"github.com/V3teran/liusha/internal/notes"
 	"github.com/V3teran/liusha/internal/skill"
 	"github.com/V3teran/liusha/internal/tools/manifest"
 )
@@ -92,12 +91,7 @@ func buildUserPrompt(ctx context.Context, deps Deps, p skill.BuilderParams) stri
 		b.WriteString(existing)
 	}
 
-	// 段 3.5: 本次扫描笔记板（owner 内同 host 工作笔记）
-	// 内容由其他 hunter task 通过 write_note 写入——临时凭据/状态、目标怪癖、小惊喜、失败死路。
-	if notes := loadOwnerNotes(ctx, deps.Notes, p.OwnerID, p.Host); notes != "" {
-		b.WriteString("\n\n## 本次扫描笔记板（owner 内同 host）\n\n")
-		b.WriteString(notes)
-	}
+	// notes 笔记板段已退役——agent 思路改输出到对话（reasoning），跨 task 上下文走对话历史。
 
 	// 段 4: lesson + hint（跨 owner 长期经验）
 	if knowledge := loadKnowledgeForPrompt(ctx, deps.Lessons, p.Host, lessonsLimit); knowledge != "" {
@@ -372,41 +366,6 @@ func loadExistingFindings(ctx context.Context, store *finding.Store, ownerType, 
 			break
 		}
 		fmt.Fprintf(&b, "- [%s] %s\n", f.Severity, firstLine(f.Summary, 120))
-	}
-	return b.String()
-}
-
-// loadOwnerNotes 拉本次扫描 (owner, host) 范围的 notes（短期工作内存）
-// 渲染给 hunter user prompt。
-//
-// notes 按 (eid, host) 切分——本函数只读本 host 的笔记，不会混入其他 host 的
-// 怪癖/死路。注入到 user prompt 让 hunter 看到同 (owner, host) 内其他
-// hunter task 写的笔记（临时凭据/状态、目标怪癖、小惊喜、失败死路），避免每个
-// agent 从零摸索。
-func loadOwnerNotes(ctx context.Context, store notes.Store, ownerID, host string) string {
-	if store == nil || ownerID == "" || host == "" {
-		return ""
-	}
-	raw, err := store.ReadNotes(ctx, ownerID, host)
-	if err != nil || len(raw) == 0 {
-		return ""
-	}
-	// raw 形如 {"notes": [{"content":"...","hunter_id":"..."}, ...]}
-	var parsed struct {
-		Notes []struct {
-			Content  string `json:"content"`
-			HunterID string `json:"hunter_id"`
-		} `json:"notes"`
-	}
-	if err := json.Unmarshal(raw, &parsed); err != nil {
-		return ""
-	}
-	if len(parsed.Notes) == 0 {
-		return ""
-	}
-	var b strings.Builder
-	for _, n := range parsed.Notes {
-		fmt.Fprintf(&b, "- %s\n", firstLine(n.Content, 200))
 	}
 	return b.String()
 }

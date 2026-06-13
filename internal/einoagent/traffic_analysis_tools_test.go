@@ -77,11 +77,11 @@ func toolNames(t *testing.T, deps einoagent.TrafficAnalysisToolDeps) []string {
 func TestBuildTrafficAnalysisTools_Mandatory(t *testing.T) {
 	f := allFake{}
 	names := toolNames(t, einoagent.TrafficAnalysisToolDeps{
-		Findings: f, Notes: f, Lessons: f, Credentials: f,
+		Findings: f, Lessons: f, Credentials: f,
 	})
 	want := []string{
-		"done", "read_credentials", "read_findings", "read_lessons", "read_notes",
-		"update_finding", "write_credential", "write_finding", "write_lesson", "write_note",
+		"done", "read_credentials", "read_findings", "read_lessons",
+		"update_finding", "write_credential", "write_finding", "write_lesson",
 	}
 	if len(names) != len(want) {
 		t.Fatalf("必装应 %d 个，得到 %d: %v", len(want), len(names), names)
@@ -110,7 +110,7 @@ func (f *fakeModel) WithTools(_ []*schema.ToolInfo) (model.ToolCallingChatModel,
 func TestBuildTrafficAnalysisTools_SandboxAddsRunCommand(t *testing.T) {
 	f := allFake{}
 	names := toolNames(t, einoagent.TrafficAnalysisToolDeps{
-		Findings: f, Notes: f, Lessons: f, Credentials: f,
+		Findings: f, Lessons: f, Credentials: f,
 		Sandbox: fakeSandboxClient{}, MaxTimeoutSeconds: 600,
 	})
 	found := false
@@ -122,7 +122,7 @@ func TestBuildTrafficAnalysisTools_SandboxAddsRunCommand(t *testing.T) {
 	if !found {
 		t.Fatalf("注入 Sandbox 后应有 run_command，得到 %v", names)
 	}
-	if len(names) != 11 {
-		t.Errorf("10 必装（含 done）+ run_command = 11，得到 %d: %v", len(names), names)
+	if len(names) != 9 {
+		t.Errorf("8 必装（含 done）+ run_command = 9，得到 %d: %v", len(names), names)
 	}
 }

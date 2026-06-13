@@ -28,7 +28,18 @@ const (
 	ScanEventToolCall ScanEventKind = "tool_call"
 	// ScanEventToolResult：工具返回结果（命令跑完，执行后发）。
 	ScanEventToolResult ScanEventKind = "tool_result"
+	// ScanEventReasoning：agent 每轮 ChatModel 调用后产出的推理文字（思路/分析/计划/决策叙述）。
+	// 经 AfterChatModel 钩子捕获 → 前端「推理卡」展示，让用户看到 agent 在想什么/打算干什么。
+	// 替代旧的 write_note（思路改输出到对话，notes 退役）。
+	ScanEventReasoning ScanEventKind = "reasoning"
+	// ScanEventSpawn：orchestrator 调 deep 的 task 工具派活给子代理（active swarm 团队协作）。
+	// Args 含 {subagent_type, description}——派给谁、干什么。前端「派发卡」展示 AI 指挥 AI 团队。
+	ScanEventSpawn ScanEventKind = "spawn"
 )
+
+// deepTaskToolName 是 eino deep prebuilt 自带的派活工具名（orchestrator 经它 spawn 子代理）。
+// vendor 私有常量，值实测为 "task"（见 message 落库 ToolName）。
+const deepTaskToolName = "task"
 
 // ScanEvent 是一次 agent 运行中的过程事件（liusha 自有，不依赖 eino 细节）。
 type ScanEvent struct {
@@ -38,11 +49,23 @@ type ScanEvent struct {
 	Result     string // tool_result 的结果（截断预览）
 	DurationMs int    // tool_result 的执行耗时
 	Err        string // 工具执行错误（如有）
+	Text       string // reasoning 的推理文字（其他类型空）
+	InTokens   int    // reasoning：本次 LLM 调用输入 token（其他类型 0）
+	OutTokens  int    // reasoning：本次 LLM 调用输出 token
+	LatencyMs  int    // reasoning：本次 LLM 调用耗时（ms）
 }
 
 // EventSink 消费 agent 过程事件。scanner 注入实现（落 conversation message + redis publish）。
 type EventSink interface {
 	OnScanEvent(ctx context.Context, ev ScanEvent)
+}
+
+// toolCallEvent 按工具名造 tool_call 事件；deep 的 task 工具特殊化为 spawn（派子代理）。
+func toolCallEvent(name, args string) ScanEvent {
+	if name == deepTaskToolName {
+		return ScanEvent{Kind: ScanEventSpawn, ToolName: name, Args: args}
+	}
+	return ScanEvent{Kind: ScanEventToolCall, ToolName: name, Args: args}
 }
 
 // NewEventEmitter 造 WrapToolCall middleware：每次工具调用发 tool_call（执行前）+ tool_result
@@ -56,11 +79,13 @@ func NewEventEmitter(sink EventSink) adk.AgentMiddleware {
 		return adk.AgentMiddleware{}
 	}
 	return adk.AgentMiddleware{
+		// 注：reasoning 事件（agent 思路文字 + token + 耗时）改由 NewReasoningCallback（callbacks
+		// OnStart→OnEnd 一站式拿文字/token/latency）发，不在此 middleware。本 middleware 只管工具事件。
 		WrapToolCall: compose.ToolMiddleware{
 			// InferTool 系（write_finding / task / replay_flow…）走 Invokable。
 			Invokable: func(next compose.InvokableToolEndpoint) compose.InvokableToolEndpoint {
 				return func(ctx context.Context, in *compose.ToolInput) (*compose.ToolOutput, error) {
-					sink.OnScanEvent(ctx, ScanEvent{Kind: ScanEventToolCall, ToolName: in.Name, Args: in.Arguments})
+					sink.OnScanEvent(ctx, toolCallEvent(in.Name, in.Arguments))
 					start := time.Now()
 					out, err := next(ctx, in)
 					ev := ScanEvent{
@@ -81,7 +106,7 @@ func NewEventEmitter(sink EventSink) adk.AgentMiddleware {
 			// run_command 走 EnhancedInvokable（多模态 ToolResult），text part 拼成预览。
 			EnhancedInvokable: func(next compose.EnhancedInvokableToolEndpoint) compose.EnhancedInvokableToolEndpoint {
 				return func(ctx context.Context, in *compose.ToolInput) (*compose.EnhancedInvokableToolOutput, error) {
-					sink.OnScanEvent(ctx, ScanEvent{Kind: ScanEventToolCall, ToolName: in.Name, Args: in.Arguments})
+					sink.OnScanEvent(ctx, toolCallEvent(in.Name, in.Arguments))
 					start := time.Now()
 					out, err := next(ctx, in)
 					ev := ScanEvent{

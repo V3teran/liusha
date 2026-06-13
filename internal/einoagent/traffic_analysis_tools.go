@@ -7,7 +7,6 @@ import (
 	"github.com/cloudwego/eino/components/tool"
 
 	"github.com/V3teran/liusha/internal/einotools"
-	"github.com/V3teran/liusha/internal/notes"
 	"github.com/V3teran/liusha/internal/sandbox"
 	"github.com/V3teran/liusha/internal/skill"
 )
@@ -42,7 +41,6 @@ type (
 // 由 cmd/scanner composition root 注入（与旧 hunter.Deps 同源 store）。
 type TrafficAnalysisToolDeps struct {
 	Findings    FindingStore
-	Notes       notes.Store
 	Lessons     LessonStore
 	Credentials CredentialStore
 
@@ -85,9 +83,7 @@ func BuildTrafficAnalysisTools(deps TrafficAnalysisToolDeps, p TrafficAnalysisTo
 		tools = append(tools, bt)
 	}
 
-	// notes / credentials / findings(读写) / lessons
-	add(einotools.BuildReadNotes(deps.Notes, p.OwnerID, p.Host, p.HunterID))
-	add(einotools.BuildWriteNote(deps.Notes, p.OwnerID, p.Host, p.HunterID))
+	// credentials / findings(读写) / lessons（notes 已退役）
 	add(einotools.BuildReadCredentials(deps.Credentials, p.Host))
 	add(einotools.BuildWriteCredential(deps.Credentials, p.Host))
 	add(einotools.BuildReadFindings(deps.Findings, p.OwnerType, p.OwnerID, p.Host))
