@@ -236,6 +236,15 @@ func streamHandler(convs ConversationsAPI, stream EventStream) gin.HandlerFunc {
 				if !ok {
 					return
 				}
+				// 流式推理增量：瞬时帧（无 seq、不落库），写命名事件 event:delta，前端单独累积，不参与 seq 去重。
+				var probe struct {
+					Delta bool `json:"delta"`
+				}
+				if json.Unmarshal(payload, &probe); probe.Delta {
+					writeSSEEvent(c.Writer, "delta", payload)
+					flusher.Flush()
+					continue
+				}
 				var m conversation.Message
 				if err := json.Unmarshal(payload, &m); err != nil {
 					continue
@@ -263,6 +272,12 @@ func writeSSEMessage(w http.ResponseWriter, seq int64, m conversation.Message) {
 // writeSSERaw 写一帧 SSE：id: {seq}\ndata: {json}\n\n。
 func writeSSERaw(w http.ResponseWriter, seq int64, payload []byte) {
 	fmt.Fprintf(w, "id: %d\ndata: %s\n\n", seq, payload)
+}
+
+// writeSSEEvent 写一帧命名 SSE：event: {name}\ndata: {json}\n\n（无 id，不参与 Last-Event-ID 续传）。
+// 用于流式推理增量等瞬时帧——前端按事件名单独监听，不混入默认 message 流的 seq 去重。
+func writeSSEEvent(w http.ResponseWriter, name string, payload []byte) {
+	fmt.Fprintf(w, "event: %s\ndata: %s\n\n", name, payload)
 }
 
 func parseLimit(c *gin.Context, def int) int {

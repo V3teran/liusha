@@ -81,9 +81,33 @@ func (s *einoEventSink) Close() {
 	<-s.done
 }
 
+// reasoningDeltaFrame 是流式推理增量的瞬时帧（不落库，仅 redis publish）。
+// delta 判别字段让 api 的 SSE handler 与前端区分它和普通 message 帧。
+type reasoningDeltaFrame struct {
+	Delta bool   `json:"delta"`
+	Text  string `json:"text"`
+}
+
+// publishDelta 把流式推理增量瞬时广播到对话 channel（不落 PG，不占 seq）。
+func (s *einoEventSink) publishDelta(text string) {
+	payload, err := json.Marshal(reasoningDeltaFrame{Delta: true, Text: text})
+	if err != nil {
+		return
+	}
+	if err := s.publisher.Publish(context.Background(), s.conversationID, payload); err != nil {
+		s.logger.Warn().Err(err).Str("conv", s.conversationID).Msg("流式推理增量 publish redis 失败（瞬时帧，丢弃可接受）")
+	}
+}
+
 // persist 落 message + publish。用 Background ctx——run ctx 可能已取消，但缓冲事件仍须落库
 // （前端重连靠 PG 补历史）。best-effort：任一步失败仅记日志。
 func (s *einoEventSink) persist(ev einoagent.ScanEvent) {
+	// 流式推理增量：瞬时帧，不落库不占 seq，仅 publish 实时推（前端逐字渲染活动气泡）。
+	if ev.Kind == einoagent.ScanEventReasoningDelta {
+		s.publishDelta(ev.Text)
+		return
+	}
+
 	ctx := context.Background()
 	role, content := describeEvent(ev)
 	metadata, _ := json.Marshal(ev) // ScanEvent 无不可序列化字段，err 必 nil

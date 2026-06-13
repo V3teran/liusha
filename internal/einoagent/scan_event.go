@@ -29,9 +29,13 @@ const (
 	// ScanEventToolResult：工具返回结果（命令跑完，执行后发）。
 	ScanEventToolResult ScanEventKind = "tool_result"
 	// ScanEventReasoning：agent 每轮 ChatModel 调用后产出的推理文字（思路/分析/计划/决策叙述）。
-	// 经 AfterChatModel 钩子捕获 → 前端「推理卡」展示，让用户看到 agent 在想什么/打算干什么。
+	// 经 reasoning callback 捕获 → 前端「推理卡」展示，让用户看到 agent 在想什么/打算干什么。
 	// 替代旧的 write_note（思路改输出到对话，notes 退役）。
 	ScanEventReasoning ScanEventKind = "reasoning"
+	// ScanEventReasoningDelta：流式推理的增量片段（Text=本次 chunk）。模型走 Stream 时逐 chunk 发，
+	// 前端累积成「活动推理气泡」逐字渲染；最终 ScanEventReasoning 帧到达后替换之。
+	// 瞬时帧——scanner 仅 publish redis 实时推，不落库、不占 seq（重连补历史靠最终帧即可）。
+	ScanEventReasoningDelta ScanEventKind = "reasoning_delta"
 	// ScanEventSpawn：orchestrator 调 deep 的 task 工具派活给子代理（active swarm 团队协作）。
 	// Args 含 {subagent_type, description}——派给谁、干什么。前端「派发卡」展示 AI 指挥 AI 团队。
 	ScanEventSpawn ScanEventKind = "spawn"
