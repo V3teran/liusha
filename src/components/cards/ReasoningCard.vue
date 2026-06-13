@@ -8,6 +8,7 @@ const props = defineProps<{
   inTokens?: number
   outTokens?: number
   latencyMs?: number
+  streaming?: boolean // 流式活动气泡：显示「推理中」+ 闪烁光标，token/耗时 chip 待最终帧
 }>()
 
 const html = computed(() => renderMarkdown(props.text))
@@ -20,14 +21,14 @@ const hasMeta = computed(() => (props.inTokens || 0) > 0 || (props.latencyMs || 
   <div class="reasoning-card" data-card="reasoning">
     <div class="rc-head">
       <span class="rc-icon">🧠</span>
-      <span class="rc-label">推理</span>
+      <span class="rc-label">{{ streaming ? '推理中' : '推理' }}</span>
       <span v-if="hasMeta" class="rc-meta">
         <span v-if="(inTokens || 0) > 0" class="rc-chip" title="输入 token">↑ {{ fmtTok(inTokens) }}</span>
         <span v-if="(outTokens || 0) > 0" class="rc-chip" title="输出 token">↓ {{ fmtTok(outTokens) }}</span>
         <span v-if="(latencyMs || 0) > 0" class="rc-chip" title="耗时">⏱ {{ fmtMs(latencyMs) }}</span>
       </span>
     </div>
-    <div class="rc-body markdown-body" v-html="html" />
+    <div class="rc-body markdown-body" v-html="html" /><span v-if="streaming" class="rc-cursor" />
   </div>
 </template>
 
@@ -59,5 +60,18 @@ const hasMeta = computed(() => (props.inTokens || 0) > 0 || (props.latencyMs || 
   border-radius: 4px;
   padding: 1px 6px;
 }
-.rc-body { font-size: 14px; line-height: 1.6; color: var(--text); }
+.rc-body { font-size: 14px; line-height: 1.6; color: var(--text); display: inline; }
+.rc-cursor {
+  display: inline-block;
+  width: 7px;
+  height: 14px;
+  margin-left: 2px;
+  vertical-align: text-bottom;
+  background: #722ed1;
+  border-radius: 1px;
+  animation: rc-blink 1s steps(2, start) infinite;
+}
+@keyframes rc-blink {
+  to { visibility: hidden; }
+}
 </style>

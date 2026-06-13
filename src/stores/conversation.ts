@@ -9,6 +9,9 @@ export const useConversationStore = defineStore('conversation', {
     lastSeq: 0,
     // 最近一次 ingest 的本地时间戳（ms）；ChatView 据此判断"agent 是否活动中"。
     lastIngestAt: 0,
+    // 流式推理活动气泡：SSE event:delta 逐 chunk 累积的文本；最终 reasoning 消息到达即清空。
+    // eino 串行执行，同一时刻至多一个 ChatModel 在流式，单缓冲足够（无需按 streamID 分桶）。
+    liveReasoning: '',
   }),
   actions: {
     ingest(m: Message) {
@@ -17,6 +20,9 @@ export const useConversationStore = defineStore('conversation', {
 
       this.lastIngestAt = Date.now()
       this.seqSet.add(m.Seq)
+
+      // 推理消息（最终帧）落定 → 清空活动气泡，由正式推理卡接管渲染。
+      if (m.Metadata?.Kind === 'reasoning') this.liveReasoning = ''
 
       // 二分查找插入位置以保持升序。
       // 事件多数尾部追加，但补历史可能乱序到达。
@@ -38,11 +44,19 @@ export const useConversationStore = defineStore('conversation', {
       }
     },
 
+    // appendReasoningDelta 累积一段流式推理增量（驱动逐字打字机活动气泡）。
+    appendReasoningDelta(chunk: string) {
+      if (!chunk) return
+      this.liveReasoning += chunk
+      this.lastIngestAt = Date.now()
+    },
+
     reset() {
       this.messages = []
       this.seqSet = new Set()
       this.lastSeq = 0
       this.lastIngestAt = 0
+      this.liveReasoning = ''
     },
   },
 })
