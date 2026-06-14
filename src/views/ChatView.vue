@@ -55,6 +55,12 @@ async function handleStarted(convID: string) {
   await open(convID)
   convList.value?.refresh()
 }
+// 多轮追加（如"继续"）：api 落的 user 消息不经 SSE（只 scanner 事件 publish），
+// 故主动拉增量补进 store（立即看到自己的"继续"+ 已有新事件）；后续 agent 事件走 SSE。
+async function handleAppended() {
+  if (!currentConv.value) return
+  for (const m of await listMessages(currentConv.value, store.lastSeq)) store.ingest(m)
+}
 function newConversation() {
   handle?.close()
   store.reset()
@@ -90,7 +96,7 @@ async function stop() {
         </div>
       </div>
 
-      <Composer :conv-id="currentConv || undefined" @started="handleStarted" @appended="() => {}" />
+      <Composer :conv-id="currentConv || undefined" @started="handleStarted" @appended="handleAppended" />
     </section>
   </div>
 </template>
