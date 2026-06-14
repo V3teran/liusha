@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // 应用外壳：左侧栏（品牌 + 导航 + 主题/密钥）+ 顶栏（页名 + 操作）+ 主区 RouterView。
 // 导航项顺序与图标在此集中声明；高亮交给 router-link-active。
-import { computed } from 'vue'
+import { computed, type Component } from 'vue'
 import { useRoute } from 'vue-router'
 import {
   Dashboard, Message, Bug, Sitemap, PlugConnected,
@@ -12,13 +12,24 @@ import { useTheme } from '../composables/useTheme'
 const route = useRoute()
 const { theme, toggle } = useTheme()
 
-const nav = [
+// 导航项：叶子（可点跳转）或分组（带子项，始终展开）。
+type NavLeaf = { to: string; label: string; icon: Component }
+type NavGroup = { group: string; icon: Component; children: NavLeaf[] }
+type NavItem = NavLeaf | NavGroup
+const isGroup = (n: NavItem): n is NavGroup => 'children' in n
+
+const nav: NavItem[] = [
   { to: '/dashboard', label: '总览', icon: Dashboard },
-  { to: '/chat', label: '对话', icon: Message },
+  {
+    group: '任务下发',
+    icon: Crosshair,
+    children: [
+      { to: '/chat', label: '主动扫描', icon: Message },
+      { to: '/sessions', label: '被动扫描', icon: PlugConnected },
+    ],
+  },
   { to: '/findings', label: '漏洞发现', icon: Bug },
   { to: '/sitemap', label: '攻击面', icon: Sitemap },
-  { to: '/sessions', label: '被动会话', icon: PlugConnected },
-  { to: '/scans', label: '主动扫描', icon: Crosshair },
   { to: '/agent-runs', label: 'Agent 任务', icon: Hierarchy },
   { to: '/llm-audit', label: 'LLM 审计', icon: Cpu },
   { to: '/credentials', label: '凭证库', icon: Key },
@@ -40,10 +51,27 @@ const title = computed(() => (route.meta.title as string) || '流沙')
       </div>
 
       <nav class="nav">
-        <RouterLink v-for="n in nav" :key="n.to" :to="n.to" class="nav-item">
-          <span class="nav-icon"><component :is="n.icon" /></span>
-          <span class="nav-label">{{ n.label }}</span>
-        </RouterLink>
+        <template v-for="(n, i) in nav" :key="i">
+          <div v-if="isGroup(n)" class="nav-group">
+            <div class="nav-group-head">
+              <span class="nav-icon"><component :is="n.icon" /></span>
+              <span class="nav-label">{{ n.group }}</span>
+            </div>
+            <RouterLink
+              v-for="c in n.children"
+              :key="c.to"
+              :to="c.to"
+              class="nav-item nav-child"
+            >
+              <span class="nav-icon"><component :is="c.icon" /></span>
+              <span class="nav-label">{{ c.label }}</span>
+            </RouterLink>
+          </div>
+          <RouterLink v-else :to="n.to" class="nav-item">
+            <span class="nav-icon"><component :is="n.icon" /></span>
+            <span class="nav-label">{{ n.label }}</span>
+          </RouterLink>
+        </template>
       </nav>
 
       <div class="side-foot">
@@ -109,6 +137,23 @@ const title = computed(() => (route.meta.title as string) || '流沙')
 .brand-text small { color: var(--muted); font-size: 11px; }
 
 .nav { display: flex; flex-direction: column; gap: 2px; flex: 1; overflow-y: auto; }
+
+/* 分组：标题（不可点）+ 缩进子项 */
+.nav-group { display: flex; flex-direction: column; gap: 2px; }
+.nav-group-head {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 9px 12px 5px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+}
+.nav-group-head .nav-icon :deep(svg) { width: 17px; height: 17px; opacity: 0.8; }
+.nav-child { margin-left: 14px; padding-left: 12px; border-left: 1px solid var(--border); border-radius: 0 9px 9px 0; }
+.nav-child.router-link-active { border-left-color: var(--primary); }
+.nav-child.router-link-active::before { display: none; }
 .nav-item {
   display: flex;
   align-items: center;

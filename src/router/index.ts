@@ -11,11 +11,10 @@ const routes: RouteRecordRaw[] = [
     children: [
       { path: '', redirect: '/chat' },
       { path: 'dashboard', name: 'dashboard', component: () => import('../views/PlaceholderView.vue'), meta: { title: '总览' } },
-      { path: 'chat', name: 'chat', component: () => import('../views/ChatView.vue'), meta: { title: '对话' } },
+      { path: 'chat', name: 'chat', component: () => import('../views/ChatView.vue'), meta: { title: '主动扫描' } },
       { path: 'findings', name: 'findings', component: () => import('../views/FindingsView.vue'), meta: { title: '漏洞发现' } },
       { path: 'sitemap', name: 'sitemap', component: () => import('../views/SitemapView.vue'), meta: { title: '攻击面' } },
-      { path: 'sessions', name: 'sessions', component: () => import('../views/SessionsView.vue'), meta: { title: '被动会话' } },
-      { path: 'scans', name: 'scans', component: () => import('../views/PlaceholderView.vue'), meta: { title: '主动扫描' } },
+      { path: 'sessions', name: 'sessions', component: () => import('../views/SessionsView.vue'), meta: { title: '被动扫描' } },
       { path: 'agent-runs', name: 'agent-runs', component: () => import('../views/AgentRunsView.vue'), meta: { title: 'Agent 任务' } },
       { path: 'llm-audit', name: 'llm-audit', component: () => import('../views/LlmAuditView.vue'), meta: { title: 'LLM 审计' } },
       { path: 'credentials', name: 'credentials', component: () => import('../views/PlaceholderView.vue'), meta: { title: '凭证库' } },

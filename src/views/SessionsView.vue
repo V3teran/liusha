@@ -79,8 +79,8 @@ async function stop(s: OwnerSummary) {
   <div class="page">
     <div class="page-toolbar">
       <div class="tb-left">
-        <h2 class="tb-title">被动会话</h2>
-        <span class="tb-sub">流量驱动的渗透会话 · 可打开对话流插话指导</span>
+        <h2 class="tb-title">被动扫描</h2>
+        <span class="tb-sub">流量驱动的被动渗透会话 · 可打开对话流插话指导</span>
       </div>
       <div class="tb-stats">
         <span class="stat"><b>{{ passiveCount }}</b> 被动</span>
