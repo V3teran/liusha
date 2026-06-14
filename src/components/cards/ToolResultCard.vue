@@ -3,6 +3,8 @@
 import { computed, ref } from 'vue'
 const props = defineProps<{ tool: string; result: string; durationMs: number; err: string; agentName?: string }>()
 const open = ref(!!props.err)
+// agent 色贯穿主/子：orchestrator（主）紫、子代理青。
+const isMain = computed(() => props.agentName === 'orchestrator')
 const isSub = computed(() => !!props.agentName && props.agentName !== 'orchestrator')
 const pretty = computed(() => {
   const raw = props.err || props.result
@@ -20,7 +22,7 @@ const preview = computed(() => {
 </script>
 
 <template>
-  <div class="tool-result" :class="{ 'is-sub': isSub }" data-card="tool-result" :data-error="!!err">
+  <div class="tool-result" :class="{ 'is-main': isMain, 'is-sub': isSub }" data-card="tool-result" :data-error="!!err">
     <button class="head" :class="{ open }" @click="open = !open">
       <span class="caret">▸</span>
       <span class="dot" :class="{ err: !!err }" />
@@ -64,7 +66,9 @@ const preview = computed(() => {
   padding: 0 6px;
   flex-shrink: 0;
 }
-/* 子代理工具结果：青色左竖线 + agent chip 着色，与主 agent（orchestrator）区分 */
+/* agent 色贯穿：主(orchestrator)紫 / 子代理青，左竖线 + chip 同色（状态点 dot 仍绿/红表成功失败） */
+.tool-result.is-main .head { border-left: 2px solid #722ed1; }
+.tool-result.is-main .agent { color: #722ed1; background: rgba(114, 46, 209, 0.14); }
 .tool-result.is-sub .head { border-left: 2px solid #13a8a8; }
 .tool-result.is-sub .agent { color: #13a8a8; background: rgba(19, 168, 168, 0.14); }
 .tool { font-family: var(--mono); color: var(--muted); }

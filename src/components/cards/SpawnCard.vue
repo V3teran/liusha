@@ -32,12 +32,13 @@ const brief = computed(() => (parsed.value.description || '').trim())
 </template>
 
 <style scoped>
+/* 派发卡：紫=orchestrator（派活的主体）边框/标题；青=被派的目标子代理 chip。语义双色一目了然。 */
 .spawn-card {
   align-self: flex-start;
   max-width: 88%;
-  background: linear-gradient(180deg, var(--primary-soft), transparent), var(--surface);
+  background: linear-gradient(180deg, rgba(114, 46, 209, 0.1), transparent), var(--surface);
   border: 1px solid var(--border);
-  border-left: 3px solid var(--primary);
+  border-left: 3px solid #722ed1;
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow);
   padding: 10px 14px;
@@ -49,13 +50,13 @@ const brief = computed(() => (parsed.value.description || '').trim())
   font-size: 13px;
 }
 .sp-icon { font-size: 14px; }
-.sp-label { font-size: 12px; font-weight: 600; color: var(--primary); }
+.sp-label { font-size: 12px; font-weight: 600; color: #722ed1; }
 .sp-arrow { color: var(--muted); }
 .sp-agent {
   font-family: var(--mono);
   font-weight: 600;
-  color: var(--primary);
-  background: var(--primary-soft);
+  color: #13a8a8;
+  background: rgba(19, 168, 168, 0.14);
   border-radius: 5px;
   padding: 1px 8px;
 }
