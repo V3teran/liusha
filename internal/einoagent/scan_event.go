@@ -66,11 +66,13 @@ type EventSink interface {
 }
 
 // toolCallEvent 按工具名造 tool_call 事件；deep 的 task 工具特殊化为 spawn（派子代理）。
-func toolCallEvent(name, args string) ScanEvent {
+// 带 ctx 读 agent 名（与 reasoning 同源 agentNameFromCtx），让前端工具卡也能按主/子 agent 区分。
+func toolCallEvent(ctx context.Context, name, args string) ScanEvent {
+	an := agentNameFromCtx(ctx)
 	if name == deepTaskToolName {
-		return ScanEvent{Kind: ScanEventSpawn, ToolName: name, Args: args}
+		return ScanEvent{Kind: ScanEventSpawn, ToolName: name, Args: args, AgentName: an}
 	}
-	return ScanEvent{Kind: ScanEventToolCall, ToolName: name, Args: args}
+	return ScanEvent{Kind: ScanEventToolCall, ToolName: name, Args: args, AgentName: an}
 }
 
 // NewEventEmitter 造 WrapToolCall middleware：每次工具调用发 tool_call（执行前）+ tool_result
@@ -90,12 +92,13 @@ func NewEventEmitter(sink EventSink) adk.AgentMiddleware {
 			// InferTool 系（write_finding / task / replay_flow…）走 Invokable。
 			Invokable: func(next compose.InvokableToolEndpoint) compose.InvokableToolEndpoint {
 				return func(ctx context.Context, in *compose.ToolInput) (*compose.ToolOutput, error) {
-					sink.OnScanEvent(ctx, toolCallEvent(in.Name, in.Arguments))
+					sink.OnScanEvent(ctx, toolCallEvent(ctx, in.Name, in.Arguments))
 					start := time.Now()
 					out, err := next(ctx, in)
 					ev := ScanEvent{
 						Kind:       ScanEventToolResult,
 						ToolName:   in.Name,
+						AgentName:  agentNameFromCtx(ctx),
 						DurationMs: int(time.Since(start).Milliseconds()),
 					}
 					if out != nil {
@@ -111,12 +114,13 @@ func NewEventEmitter(sink EventSink) adk.AgentMiddleware {
 			// run_command 走 EnhancedInvokable（多模态 ToolResult），text part 拼成预览。
 			EnhancedInvokable: func(next compose.EnhancedInvokableToolEndpoint) compose.EnhancedInvokableToolEndpoint {
 				return func(ctx context.Context, in *compose.ToolInput) (*compose.EnhancedInvokableToolOutput, error) {
-					sink.OnScanEvent(ctx, toolCallEvent(in.Name, in.Arguments))
+					sink.OnScanEvent(ctx, toolCallEvent(ctx, in.Name, in.Arguments))
 					start := time.Now()
 					out, err := next(ctx, in)
 					ev := ScanEvent{
 						Kind:       ScanEventToolResult,
 						ToolName:   in.Name,
+						AgentName:  agentNameFromCtx(ctx),
 						DurationMs: int(time.Since(start).Milliseconds()),
 					}
 					if out != nil && out.Result != nil {
