@@ -25,6 +25,8 @@ const kind = computed(() => {
   if (ev.ToolName === 'write_finding') {
     return ev.Kind === 'tool_call' && !ev.Err ? 'finding' : 'hidden'
   }
+  // task 的 tool_result = 派发完成（带子代理执行总时长）→ 渲染成 spawn 完成卡，而非普通工具卡。
+  if (ev.ToolName === 'task' && ev.Kind === 'tool_result') return 'spawn-done'
   if (ev.Kind === 'tool_call') return 'tool-call'
   return 'tool-result'
 })
@@ -51,6 +53,12 @@ const showAvatar = computed(() => ['user', 'assistant', 'reasoning'].includes(ki
         :latency-ms="msg.Metadata!.LatencyMs"
       />
       <SpawnCard v-else-if="kind === 'spawn'" :args="msg.Metadata!.Args" />
+      <SpawnCard
+        v-else-if="kind === 'spawn-done'"
+        done
+        :duration-ms="msg.Metadata!.DurationMs"
+        :err="msg.Metadata!.Err"
+      />
       <ToolCallCard
         v-else-if="kind === 'tool-call'"
         :tool="msg.Metadata!.ToolName"

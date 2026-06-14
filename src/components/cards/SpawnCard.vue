@@ -1,8 +1,15 @@
 <script setup lang="ts">
-// 派发卡：orchestrator 派子代理（AI 指挥 AI 团队）。从 task 工具入参解析 subagent_type + description。
+// 派发卡：orchestrator 派子代理（AI 指挥 AI 团队）。两个时刻：
+//   - 派发开始（args）：🛰️ 派发 → reconnaissance + brief
+//   - 派发完成（done + durationMs）：✓/✗ + 子代理执行总时长（task 工具的 tool_result）
 import { computed } from 'vue'
 
-const props = defineProps<{ args: string }>()
+const props = defineProps<{
+  args?: string
+  durationMs?: number // 完成时：子代理执行总耗时
+  err?: string // 完成时：子代理出错信息
+  done?: boolean // true=派发完成卡
+}>()
 
 interface SpawnArgs {
   subagent_type?: string
@@ -17,17 +24,26 @@ const parsed = computed<SpawnArgs>(() => {
 })
 const agent = computed(() => parsed.value.subagent_type || '子代理')
 const brief = computed(() => (parsed.value.description || '').trim())
+const fmtMs = (n?: number) => (n && n > 0 ? (n >= 1000 ? (n / 1000).toFixed(1) + 's' : n + 'ms') : '')
 </script>
 
 <template>
-  <div class="spawn-card" data-card="spawn">
+  <div class="spawn-card" :class="{ done, fail: !!err }" data-card="spawn">
     <div class="sp-head">
-      <span class="sp-icon">🛰️</span>
-      <span class="sp-label">派发</span>
-      <span class="sp-arrow">→</span>
-      <span class="sp-agent">{{ agent }}</span>
+      <template v-if="done">
+        <span class="sp-icon">{{ err ? '✗' : '✓' }}</span>
+        <span class="sp-label">派发{{ err ? '失败' : '完成' }}</span>
+        <span v-if="durationMs" class="sp-dur" title="子代理执行总耗时">⏱ {{ fmtMs(durationMs) }}</span>
+      </template>
+      <template v-else>
+        <span class="sp-icon">🛰️</span>
+        <span class="sp-label">派发</span>
+        <span class="sp-arrow">→</span>
+        <span class="sp-agent">{{ agent }}</span>
+      </template>
     </div>
-    <div v-if="brief" class="sp-brief">{{ brief }}</div>
+    <div v-if="!done && brief" class="sp-brief">{{ brief }}</div>
+    <div v-if="done && err" class="sp-brief sp-fail">{{ err }}</div>
   </div>
 </template>
 
@@ -51,7 +67,22 @@ const brief = computed(() => (parsed.value.description || '').trim())
 }
 .sp-icon { font-size: 14px; }
 .sp-label { font-size: 12px; font-weight: 600; color: #722ed1; }
+.sp-dur {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--muted);
+  background: var(--surface-2);
+  border-radius: 4px;
+  padding: 1px 7px;
+}
 .sp-arrow { color: var(--muted); }
+/* 派发完成卡：成功绿/失败红的图标，弱化派发卡的紫背景渐变（已是结果不是动作） */
+.spawn-card.done { background: var(--surface); }
+.spawn-card.done .sp-icon { color: var(--success); }
+.spawn-card.fail .sp-icon { color: var(--error); }
+.spawn-card.fail { border-left-color: var(--error); }
+.sp-fail { color: var(--error); }
 .sp-agent {
   font-family: var(--mono);
   font-weight: 600;

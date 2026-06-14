@@ -1,6 +1,7 @@
 <script setup lang="ts">
-// 工具调用卡：折叠头（工具名）+ 展开看美化后的入参 JSON。子代理工具加青色标识区分主/子。
+// 工具调用卡：折叠头（工具名）+ 展开看美化后的入参 JSON。按 agent 名着左边框 + chip 色，区分谁在调用。
 import { computed, ref } from 'vue'
+import { agentAccent } from '../../lib/agentColor'
 const props = defineProps<{ tool: string; args: string; agentName?: string }>()
 const open = ref(false)
 const pretty = computed(() => {
@@ -12,13 +13,16 @@ const pretty = computed(() => {
   }
 })
 const hasArgs = computed(() => !!pretty.value && pretty.value !== '{}')
-// agent 色贯穿主/子：orchestrator（主）紫、子代理青，左边框 + chip 同色。
-const isMain = computed(() => props.agentName === 'orchestrator')
-const isSub = computed(() => !!props.agentName && props.agentName !== 'orchestrator')
+const accent = computed(() => agentAccent(props.agentName)) // 每个 agent 独立色
 </script>
 
 <template>
-  <div class="tool-call" :class="{ 'is-main': isMain, 'is-sub': isSub }" data-card="tool-call">
+  <div
+    class="tool-call"
+    :class="{ 'has-agent': !!agentName }"
+    :style="{ '--ag': accent.accent, '--ag-soft': accent.soft }"
+    data-card="tool-call"
+  >
     <button class="head" :class="{ open }" @click="open = !open">
       <span class="caret">▸</span>
       <span class="dot" />
@@ -58,11 +62,9 @@ const isSub = computed(() => !!props.agentName && props.agentName !== 'orchestra
   border-radius: 4px;
   padding: 0 6px;
 }
-/* agent 色贯穿：主(orchestrator)紫 / 子代理青，左竖线 + chip 同色 */
-.tool-call.is-main .head { border-left: 2px solid #722ed1; }
-.tool-call.is-main .agent { color: #722ed1; background: rgba(114, 46, 209, 0.14); }
-.tool-call.is-sub .head { border-left: 2px solid #13a8a8; }
-.tool-call.is-sub .agent { color: #13a8a8; background: rgba(19, 168, 168, 0.14); }
+/* 按 agent 名着色（--ag 由 inline style 注入）：左竖线 + chip 同色，每个 agent 一色 */
+.tool-call.has-agent .head { border-left: 2px solid var(--ag); }
+.tool-call.has-agent .agent { color: var(--ag); background: var(--ag-soft); }
 .args {
   margin: 6px 0 0;
   background: var(--bg);

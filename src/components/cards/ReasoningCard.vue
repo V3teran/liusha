@@ -2,6 +2,7 @@
 // 推理卡：agent 的思路/分析/计划/决策（markdown 富文本）+ 本次 LLM 交互的 token/耗时元信息。
 import { computed } from 'vue'
 import { renderMarkdown } from '../../lib/markdown'
+import { agentAccent } from '../../lib/agentColor'
 
 const props = defineProps<{
   text: string
@@ -19,12 +20,16 @@ const hasMeta = computed(() => (props.inTokens || 0) > 0 || (props.latencyMs || 
 
 // 直接显示英文 agent id（orchestrator / exploitation / reconnaissance），与后端/日志/记忆命名一致，零歧义。
 const agentLabel = computed(() => props.agentName?.trim() || '')
-// 主 agent（orchestrator）vs 子 agent，用于卡片异色区分。
-const isOrchestrator = computed(() => props.agentName?.trim() === 'orchestrator')
+// 每个 agent 独立色（紫=指挥/青=侦察/玫红=利用…），驱动边框+标题+标签+光标。
+const accent = computed(() => agentAccent(props.agentName))
 </script>
 
 <template>
-  <div class="reasoning-card" :class="{ 'is-sub': !!agentLabel && !isOrchestrator }" data-card="reasoning">
+  <div
+    class="reasoning-card"
+    :style="{ '--rc-accent': accent.accent, '--rc-accent-soft': accent.soft }"
+    data-card="reasoning"
+  >
     <div class="rc-head">
       <span class="rc-icon">🧠</span>
       <span class="rc-label">{{ streaming ? '推理中' : '推理' }}</span>
@@ -41,7 +46,8 @@ const isOrchestrator = computed(() => props.agentName?.trim() === 'orchestrator'
 
 <style scoped>
 .reasoning-card {
-  /* 主 agent(orchestrator) 紫；子 agent(.is-sub) 青——边框/标题/标签同色，一眼分清谁在指挥 vs 谁在干活 */
+  /* --rc-accent / --rc-accent-soft 由 inline style 注入（agentAccent 按 agent 名取色，
+     紫=指挥/青=侦察/玫红=利用…）→ 边框/标题/标签/光标同色，一眼分清是哪个 agent 在推理 */
   --rc-accent: #722ed1;
   --rc-accent-soft: rgba(114, 46, 209, 0.14);
   align-self: flex-start;
@@ -52,10 +58,6 @@ const isOrchestrator = computed(() => props.agentName?.trim() === 'orchestrator'
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow);
   padding: 10px 14px;
-}
-.reasoning-card.is-sub {
-  --rc-accent: #13a8a8; /* 青：子代理(exploitation/reconnaissance/...) */
-  --rc-accent-soft: rgba(19, 168, 168, 0.14);
 }
 .rc-head {
   display: flex;

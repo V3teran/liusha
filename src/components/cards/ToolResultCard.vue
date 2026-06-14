@@ -1,11 +1,10 @@
 <script setup lang="ts">
-// 工具结果卡：状态点(成功/错误) + 工具名 + 耗时，折叠看美化结果；错误默认展开。子代理加青色标识。
+// 工具结果卡：状态点(成功/错误) + 工具名 + 耗时，折叠看美化结果；错误默认展开。按 agent 名着色。
 import { computed, ref } from 'vue'
+import { agentAccent } from '../../lib/agentColor'
 const props = defineProps<{ tool: string; result: string; durationMs: number; err: string; agentName?: string }>()
 const open = ref(!!props.err)
-// agent 色贯穿主/子：orchestrator（主）紫、子代理青。
-const isMain = computed(() => props.agentName === 'orchestrator')
-const isSub = computed(() => !!props.agentName && props.agentName !== 'orchestrator')
+const accent = computed(() => agentAccent(props.agentName)) // 每个 agent 独立色
 const pretty = computed(() => {
   const raw = props.err || props.result
   if (!raw) return ''
@@ -22,7 +21,13 @@ const preview = computed(() => {
 </script>
 
 <template>
-  <div class="tool-result" :class="{ 'is-main': isMain, 'is-sub': isSub }" data-card="tool-result" :data-error="!!err">
+  <div
+    class="tool-result"
+    :class="{ 'has-agent': !!agentName }"
+    :style="{ '--ag': accent.accent, '--ag-soft': accent.soft }"
+    data-card="tool-result"
+    :data-error="!!err"
+  >
     <button class="head" :class="{ open }" @click="open = !open">
       <span class="caret">▸</span>
       <span class="dot" :class="{ err: !!err }" />
@@ -66,11 +71,9 @@ const preview = computed(() => {
   padding: 0 6px;
   flex-shrink: 0;
 }
-/* agent 色贯穿：主(orchestrator)紫 / 子代理青，左竖线 + chip 同色（状态点 dot 仍绿/红表成功失败） */
-.tool-result.is-main .head { border-left: 2px solid #722ed1; }
-.tool-result.is-main .agent { color: #722ed1; background: rgba(114, 46, 209, 0.14); }
-.tool-result.is-sub .head { border-left: 2px solid #13a8a8; }
-.tool-result.is-sub .agent { color: #13a8a8; background: rgba(19, 168, 168, 0.14); }
+/* 按 agent 名着色（--ag 由 inline style 注入）：左竖线 + chip 同色；状态点 dot 仍绿/红表成功失败，与 agent 色正交 */
+.tool-result.has-agent .head { border-left: 2px solid var(--ag); }
+.tool-result.has-agent .agent { color: var(--ag); background: var(--ag-soft); }
 .tool { font-family: var(--mono); color: var(--muted); }
 .dur { color: var(--muted); font-size: 11px; }
 .preview { color: var(--muted); font-family: var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
