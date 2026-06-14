@@ -39,7 +39,7 @@ async function send() {
 <template>
   <div class="composer">
     <div v-if="!convId" class="composer-top">
-      <RolePicker v-model="roleID" />
+      <RolePicker v-model="roleID" mode="active" />
       <span class="composer-tip">选择场景，Cmd/Ctrl + Enter 发送</span>
     </div>
     <div class="composer-box">
