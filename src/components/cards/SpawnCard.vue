@@ -39,7 +39,7 @@ const fmtMs = (n?: number) => (n && n > 0 ? (n >= 1000 ? (n / 1000).toFixed(1) +
         <span class="sp-icon">🛰️</span>
         <span class="sp-label">派发</span>
         <span class="sp-arrow">→</span>
-        <span class="sp-agent">{{ agent }}</span>
+        <span class="sp-agent" :style="{ color: agentColor.accent, background: agentColor.soft }">{{ agent }}</span>
       </template>
     </div>
     <div v-if="!done && brief" class="sp-brief">{{ brief }}</div>
@@ -84,10 +84,9 @@ const fmtMs = (n?: number) => (n && n > 0 ? (n >= 1000 ? (n / 1000).toFixed(1) +
 .spawn-card.fail { border-left-color: var(--error); }
 .sp-fail { color: var(--error); }
 .sp-agent {
+  /* color/background 由 inline :style 注入（agentAccent 按被派子代理着色：青=侦察/玫红=利用…） */
   font-family: var(--mono);
   font-weight: 600;
-  color: #13a8a8;
-  background: rgba(19, 168, 168, 0.14);
   border-radius: 5px;
   padding: 1px 8px;
 }
