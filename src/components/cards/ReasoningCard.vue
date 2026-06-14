@@ -17,22 +17,14 @@ const fmtTok = (n?: number) => (n && n > 0 ? (n >= 1000 ? (n / 1000).toFixed(1) 
 const fmtMs = (n?: number) => (n && n > 0 ? (n >= 1000 ? (n / 1000).toFixed(1) + 's' : n + 'ms') : '')
 const hasMeta = computed(() => (props.inTokens || 0) > 0 || (props.latencyMs || 0) > 0)
 
-// agent 名 → 中文角色标签（区分指挥官/侦察/利用，让用户看清是哪个子代理在推理）。
-const AGENT_LABELS: Record<string, string> = {
-  orchestrator: '指挥官',
-  exploitation: '利用',
-  reconnaissance: '侦察',
-  'traffic-analysis': '流量分析',
-}
-const agentLabel = computed(() => {
-  const n = props.agentName?.trim()
-  if (!n) return ''
-  return AGENT_LABELS[n] || n
-})
+// 直接显示英文 agent id（orchestrator / exploitation / reconnaissance），与后端/日志/记忆命名一致，零歧义。
+const agentLabel = computed(() => props.agentName?.trim() || '')
+// 主 agent（orchestrator）vs 子 agent，用于卡片异色区分。
+const isOrchestrator = computed(() => props.agentName?.trim() === 'orchestrator')
 </script>
 
 <template>
-  <div class="reasoning-card" data-card="reasoning">
+  <div class="reasoning-card" :class="{ 'is-sub': !!agentLabel && !isOrchestrator }" data-card="reasoning">
     <div class="rc-head">
       <span class="rc-icon">🧠</span>
       <span class="rc-label">{{ streaming ? '推理中' : '推理' }}</span>
@@ -49,14 +41,21 @@ const agentLabel = computed(() => {
 
 <style scoped>
 .reasoning-card {
+  /* 主 agent(orchestrator) 紫；子 agent(.is-sub) 青——边框/标题/标签同色，一眼分清谁在指挥 vs 谁在干活 */
+  --rc-accent: #722ed1;
+  --rc-accent-soft: rgba(114, 46, 209, 0.14);
   align-self: flex-start;
   max-width: 88%;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-left: 3px solid #722ed1; /* Ant purple，推理强调色 */
+  border-left: 3px solid var(--rc-accent);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow);
   padding: 10px 14px;
+}
+.reasoning-card.is-sub {
+  --rc-accent: #13a8a8; /* 青：子代理(exploitation/reconnaissance/...) */
+  --rc-accent-soft: rgba(19, 168, 168, 0.14);
 }
 .rc-head {
   display: flex;
@@ -65,12 +64,12 @@ const agentLabel = computed(() => {
   margin-bottom: 4px;
 }
 .rc-icon { font-size: 13px; }
-.rc-label { font-size: 12px; font-weight: 600; color: #722ed1; }
+.rc-label { font-size: 12px; font-weight: 600; color: var(--rc-accent); }
 .rc-agent {
   font-size: 11px;
   font-weight: 600;
-  color: #722ed1;
-  background: rgba(114, 46, 209, 0.14);
+  color: var(--rc-accent);
+  background: var(--rc-accent-soft);
   border-radius: 4px;
   padding: 1px 7px;
 }
@@ -90,7 +89,7 @@ const agentLabel = computed(() => {
   height: 14px;
   margin-left: 2px;
   vertical-align: text-bottom;
-  background: #722ed1;
+  background: var(--rc-accent);
   border-radius: 1px;
   animation: rc-blink 1s steps(2, start) infinite;
 }

@@ -51,7 +51,12 @@ const showAvatar = computed(() => ['user', 'assistant', 'reasoning'].includes(ki
         :latency-ms="msg.Metadata!.LatencyMs"
       />
       <SpawnCard v-else-if="kind === 'spawn'" :args="msg.Metadata!.Args" />
-      <ToolCallCard v-else-if="kind === 'tool-call'" :tool="msg.Metadata!.ToolName" :args="msg.Metadata!.Args" />
+      <ToolCallCard
+        v-else-if="kind === 'tool-call'"
+        :tool="msg.Metadata!.ToolName"
+        :args="msg.Metadata!.Args"
+        :agent-name="msg.Metadata!.AgentName"
+      />
       <FindingCard v-else-if="kind === 'finding'" :args="msg.Metadata!.Args" />
       <ToolResultCard
         v-else
@@ -59,6 +64,7 @@ const showAvatar = computed(() => ['user', 'assistant', 'reasoning'].includes(ki
         :result="msg.Metadata!.Result"
         :duration-ms="msg.Metadata!.DurationMs"
         :err="msg.Metadata!.Err"
+        :agent-name="msg.Metadata!.AgentName"
       />
     </div>
   </div>

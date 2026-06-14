@@ -1,8 +1,9 @@
 <script setup lang="ts">
-// 工具结果卡：状态点(成功/错误) + 工具名 + 耗时，折叠看美化结果；错误默认展开。
+// 工具结果卡：状态点(成功/错误) + 工具名 + 耗时，折叠看美化结果；错误默认展开。子代理加青色标识。
 import { computed, ref } from 'vue'
-const props = defineProps<{ tool: string; result: string; durationMs: number; err: string }>()
+const props = defineProps<{ tool: string; result: string; durationMs: number; err: string; agentName?: string }>()
 const open = ref(!!props.err)
+const isSub = computed(() => !!props.agentName && props.agentName !== 'orchestrator')
 const pretty = computed(() => {
   const raw = props.err || props.result
   if (!raw) return ''
@@ -19,12 +20,13 @@ const preview = computed(() => {
 </script>
 
 <template>
-  <div class="tool-result" data-card="tool-result" :data-error="!!err">
+  <div class="tool-result" :class="{ 'is-sub': isSub }" data-card="tool-result" :data-error="!!err">
     <button class="head" :class="{ open }" @click="open = !open">
       <span class="caret">▸</span>
       <span class="dot" :class="{ err: !!err }" />
       <code class="tool">{{ tool }}</code>
       <span class="dur">{{ durationMs }}ms</span>
+      <span v-if="agentName" class="agent">{{ agentName }}</span>
       <span v-if="!open" class="preview">{{ preview }}</span>
     </button>
     <pre v-if="open" class="out" :class="{ err: !!err }">{{ pretty }}</pre>
@@ -53,6 +55,18 @@ const preview = computed(() => {
 .head.open .caret { transform: rotate(90deg); }
 .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--success); flex-shrink: 0; }
 .dot.err { background: var(--sev-critical); }
+.agent {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--muted);
+  background: var(--surface-2);
+  border-radius: 4px;
+  padding: 0 6px;
+  flex-shrink: 0;
+}
+/* 子代理工具结果：青色左竖线 + agent chip 着色，与主 agent（orchestrator）区分 */
+.tool-result.is-sub .head { border-left: 2px solid #13a8a8; }
+.tool-result.is-sub .agent { color: #13a8a8; background: rgba(19, 168, 168, 0.14); }
 .tool { font-family: var(--mono); color: var(--muted); }
 .dur { color: var(--muted); font-size: 11px; }
 .preview { color: var(--muted); font-family: var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
