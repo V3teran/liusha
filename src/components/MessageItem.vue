@@ -12,7 +12,9 @@ import FindingCard from './cards/FindingCard.vue'
 
 const props = defineProps<{ msg: Message }>()
 
-// 卡片类型判定：普通消息看 Role；事件看 Metadata.Kind；write_finding 结果走 FindingCard。
+// 卡片类型判定：普通消息看 Role；事件看 Metadata.Kind。
+// write_finding 一次产生两条事件：tool_call（带 Args=漏洞详情）+ tool_result（仅 {id}，无展示价值）。
+// → tool_call 渲染成 finding 卡（有 Args）；tool_result 隐藏（否则渲染成空的「INFO(无标题)」卡）。
 const kind = computed(() => {
   const m = props.msg
   if (m.Kind === 'message') return m.Role === 'user' ? 'user' : 'assistant'
@@ -20,8 +22,10 @@ const kind = computed(() => {
   if (!ev) return 'assistant'
   if (ev.Kind === 'reasoning') return 'reasoning'
   if (ev.Kind === 'spawn') return 'spawn'
+  if (ev.ToolName === 'write_finding') {
+    return ev.Kind === 'tool_call' && !ev.Err ? 'finding' : 'hidden'
+  }
   if (ev.Kind === 'tool_call') return 'tool-call'
-  if (ev.ToolName === 'write_finding' && !ev.Err) return 'finding'
   return 'tool-result'
 })
 
@@ -31,7 +35,7 @@ const showAvatar = computed(() => ['user', 'assistant', 'reasoning'].includes(ki
 </script>
 
 <template>
-  <div class="msg-row" :class="{ mine: isUser }">
+  <div v-if="kind !== 'hidden'" class="msg-row" :class="{ mine: isUser }">
     <div class="avatar-slot">
       <Avatar v-if="showAvatar" :who="isUser ? 'user' : 'agent'" />
     </div>

@@ -12,8 +12,9 @@ const model = defineModel<string>()
 const filtered = computed(() =>
   props.mode ? roles.value.filter((r) => r.mode === props.mode) : roles.value
 )
+// 已按 mode 过滤（主动扫描页只剩 active），label 不再赘述 mode 后缀。
 const options = computed(() =>
-  filtered.value.map((r) => ({ label: `${r.name} · ${r.mode}`, value: r.id }))
+  filtered.value.map((r) => ({ label: r.name, value: r.id }))
 )
 onMounted(async () => {
   roles.value = await listRoles()
