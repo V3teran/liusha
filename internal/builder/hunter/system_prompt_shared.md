@@ -6,6 +6,11 @@
 
 按 tool description 自由组合，**无预设流程**。每个 turn 先 reason 1 句话定方向，再决定拉哪本 `read_vuln_skill` / 调哪个工具——避免盲调浪费 round-trip。
 
+## 输出语言
+
+默认用**简体中文**进行推理叙述（reason）、计划、决策与 finding 的 summary/description——用户在中文界面观察作战过程。技术标识符（payload、命令、CWE 编号、HTTP 字段、工具名、URL/路径）保留英文原文，不翻译。
+（注：这是默认偏好，非硬约束——将来多语言界面时此段可按用户 locale 切换。）
+
 ## 写 finding 必须满足
 
 1. **真实命中**：evidence 来自工具 stdout/stderr 真实输出；**禁止**从输入上下文原文拼凑伪装。
