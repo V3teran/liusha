@@ -104,11 +104,16 @@ func chatHandler(api ChatAPI, streamSecret []byte, secure bool) gin.HandlerFunc 
 		// 下发 SSE 鉴权 cookie（30min，HttpOnly+SameSite=Lax；同源部署故不需 SameSite=None）。
 		// Secure 由 c.SetCookie 第 6 参控制；dev http 同源下设 false 也能种，prod 反代 https 应 true。
 		// secure 由 cmd/api 读 LIUSHA_COOKIE_SECURE 经 Deps.CookieSecure 注入。
+		//
+		// path 必须 "/"：前端经 vite proxy 带 /api 前缀（EventSource 连 /api/conversations/:id/stream），
+		// 若 path="/conversations" 则浏览器视角的 /api/conversations 不匹配（不以 /conversations 开头）→
+		// SSE 不带 cookie → 鉴权失败 → 实时推送失效（只能靠 listMessages 补历史，表现为"发起后要刷新才见 agent"）。
+		// stream cookie 是 HttpOnly 签名 token，仅 SSE handler 校验，发到其他端点被忽略，path="/" 无害。
 		if len(streamSecret) > 0 {
 			const ttl = 30 * 60 // 秒
 			tok := signStreamToken(streamSecret, convID, time.Now().Add(ttl*time.Second))
 			c.SetSameSite(http.SameSiteLaxMode)
-			c.SetCookie(streamCookieName, tok, ttl, "/conversations", "", secure, true)
+			c.SetCookie(streamCookieName, tok, ttl, "/", "", secure, true)
 		}
 		c.JSON(http.StatusOK, ChatResponse{ConversationID: convID, ScanID: scanID})
 	}
