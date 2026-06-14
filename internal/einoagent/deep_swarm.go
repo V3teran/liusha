@@ -104,9 +104,13 @@ func BuildDeepSwarm(ctx context.Context, cfg DeepSwarmConfig) (adk.Agent, error)
 // RunDeepSwarm 跑一次 deep orchestrator（active 站点扫描），消费事件流收集 ToolCalls + 最终文字。
 // userText = 站点任务 brief。opts 透传 Runner.Run（计费埋点 handler）。
 func RunDeepSwarm(ctx context.Context, orchestrator adk.Agent, userText string, opts ...adk.AgentRunOption) (TrafficAnalysisResult, error) {
-	// EnableStreaming：ChatModel 走 Stream，orchestrator/子代理思路逐 token → reasoning_delta
-	// 前端逐字。drainAgentEvents 用 GetMessage() 兼容流式聚合（与 trafficAnalysis 同源）。
-	runner := adk.NewRunner(ctx, adk.RunnerConfig{Agent: orchestrator, EnableStreaming: true})
+	// 不开 EnableStreaming：deep prebuilt 的 orchestrator/子代理 ChatModelAgent 总带 builtin
+	// Handlers（writeTodos planning + task 派活 middleware），其 AfterModelRewriteState 需完整
+	// model 输出做 state rewrite，故 eino 的 stateModelWrapper.Stream 必 ConcatMessageStream 把
+	// 流式拍平成整条（vendor wrappers.go:679）——逐 token 在 deep 内部被吃掉，开 streaming 无逐字
+	// 收益反多一次 stream+concat 开销。active 推理整条到达（功能完整），逐字是 deep 架构约束下的取舍。
+	// 对比 passive（traffic_analysis 纯 ChatModelAgent 无 Handlers，EnableStreaming 真逐字 delta）。
+	runner := adk.NewRunner(ctx, adk.RunnerConfig{Agent: orchestrator})
 	iter := runner.Run(ctx, []adk.Message{schema.UserMessage(userText)}, opts...)
 	return drainAgentEvents(iter, "deep-orchestrator")
 }
