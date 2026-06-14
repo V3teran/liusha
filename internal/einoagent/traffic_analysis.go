@@ -78,7 +78,9 @@ func runSingleAgent(ctx context.Context, spec agentSpec, m model.ToolCallingChat
 		return TrafficAnalysisResult{}, fmt.Errorf("build %s agent: %w", spec.name, err)
 	}
 
-	runner := adk.NewRunner(ctx, adk.RunnerConfig{Agent: agent})
+	// EnableStreaming：让 ChatModel 走 Stream，agent 思路逐 token 产出 → reasoning callback 发
+	// reasoning_delta 帧（前端逐字打字机）。drainAgentEvents 用 GetMessage() 兼容流式聚合最终结果。
+	runner := adk.NewRunner(ctx, adk.RunnerConfig{Agent: agent, EnableStreaming: true})
 	iter := runner.Run(ctx, []adk.Message{schema.UserMessage(userText)}, opts...)
 	return drainAgentEvents(iter, spec.name)
 }
@@ -100,14 +102,20 @@ func drainAgentEvents(iter *adk.AsyncIterator[*adk.AgentEvent], label string) (T
 			continue
 		}
 		mv := ev.Output.MessageOutput
-		if mv.Message == nil || mv.Role != schema.Assistant {
+		if mv.Role != schema.Assistant {
 			continue
 		}
-		if mv.Message.Content != "" {
-			lastText.Reset()
-			lastText.WriteString(mv.Message.Content)
+		// GetMessage 兼容流式（EnableStreaming）：IsStreaming 时 ConcatMessageStream 聚合完整消息，
+		// 非流式直接返回 mv.Message。否则开流式后 mv.Message 为 nil → 丢最终文字 + tool_calls。
+		msg, gerr := mv.GetMessage()
+		if gerr != nil || msg == nil {
+			continue
 		}
-		for _, tc := range mv.Message.ToolCalls {
+		if msg.Content != "" {
+			lastText.Reset()
+			lastText.WriteString(msg.Content)
+		}
+		for _, tc := range msg.ToolCalls {
 			res.ToolCalls = append(res.ToolCalls, tc.Function.Name)
 		}
 	}

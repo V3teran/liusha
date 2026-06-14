@@ -104,7 +104,9 @@ func BuildDeepSwarm(ctx context.Context, cfg DeepSwarmConfig) (adk.Agent, error)
 // RunDeepSwarm 跑一次 deep orchestrator（active 站点扫描），消费事件流收集 ToolCalls + 最终文字。
 // userText = 站点任务 brief。opts 透传 Runner.Run（计费埋点 handler）。
 func RunDeepSwarm(ctx context.Context, orchestrator adk.Agent, userText string, opts ...adk.AgentRunOption) (TrafficAnalysisResult, error) {
-	runner := adk.NewRunner(ctx, adk.RunnerConfig{Agent: orchestrator})
+	// EnableStreaming：ChatModel 走 Stream，orchestrator/子代理思路逐 token → reasoning_delta
+	// 前端逐字。drainAgentEvents 用 GetMessage() 兼容流式聚合（与 trafficAnalysis 同源）。
+	runner := adk.NewRunner(ctx, adk.RunnerConfig{Agent: orchestrator, EnableStreaming: true})
 	iter := runner.Run(ctx, []adk.Message{schema.UserMessage(userText)}, opts...)
 	return drainAgentEvents(iter, "deep-orchestrator")
 }
