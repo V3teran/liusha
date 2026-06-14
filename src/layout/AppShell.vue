@@ -5,7 +5,7 @@ import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 import {
   Dashboard, Crosshair, PlugConnected, Bug, Sitemap,
-  Hierarchy, Cpu, Key, Settings, Sun, Moon, Shield,
+  Hierarchy, Cpu, Key, Settings, Sun, Moon,
 } from '@vicons/tabler'
 import { useTheme } from '../composables/useTheme'
 
@@ -32,7 +32,7 @@ const title = computed(() => (route.meta.title as string) || '流沙')
   <div class="shell">
     <aside class="sidebar">
       <div class="brand">
-        <span class="brand-mark"><Shield /></span>
+        <img class="brand-mark" src="/logo.svg" alt="流沙 Liusha" width="38" height="38" />
         <div class="brand-text">
           <strong>流沙 Liusha</strong>
           <small>AI 渗透作战台</small>
@@ -73,7 +73,7 @@ const title = computed(() => (route.meta.title as string) || '流沙')
 <style scoped>
 .shell {
   display: grid;
-  grid-template-columns: 248px 1fr;
+  grid-template-columns: 210px 1fr;
   height: 100vh;
   overflow: hidden;
 }
@@ -94,16 +94,13 @@ const title = computed(() => (route.meta.title as string) || '流沙')
   padding: 6px 8px 18px;
 }
 .brand-mark {
-  display: grid;
-  place-items: center;
   width: 38px;
   height: 38px;
   border-radius: 11px;
-  background: linear-gradient(135deg, var(--primary), var(--accent));
-  color: #fff;
-  box-shadow: 0 4px 14px -4px var(--primary);
+  /* logo.svg 自带深色圆底 + 鲨齿剑/流沙，无需额外背景 */
+  box-shadow: 0 4px 14px -4px rgba(220, 38, 38, 0.5);
+  display: block;
 }
-.brand-mark :deep(svg) { width: 22px; height: 22px; }
 .brand-text { display: flex; flex-direction: column; line-height: 1.25; }
 .brand-text strong { font-size: 15px; letter-spacing: 0.3px; }
 .brand-text small { color: var(--muted); font-size: 11px; }
