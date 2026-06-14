@@ -26,17 +26,18 @@ const replayRespLimit = 256 * 1024 // 截断响应给 LLM 的上限（256 KiB）
 const replayTimeout = 30 * time.Second
 
 // replayMods 是 replay_flow 的可选修改；未指定字段全继承原请求。
+// 全字段可选，带 ,omitempty 避免被误标 required（见 findings.go 详注）。
 type replayMods struct {
-	URL     string             `json:"url"     jsonschema:"description=换完整 URL（含 path + query）"`
-	Method  string             `json:"method"  jsonschema:"description=换 HTTP method"`
-	Headers map[string]*string `json:"headers" jsonschema:"description=header dict 增删改；value=null 删该 header"`
-	Body    *string            `json:"body"    jsonschema:"description=替换整个 body"`
+	URL     string             `json:"url,omitempty"     jsonschema:"description=换完整 URL（含 path + query）"`
+	Method  string             `json:"method,omitempty"  jsonschema:"description=换 HTTP method"`
+	Headers map[string]*string `json:"headers,omitempty" jsonschema:"description=header dict 增删改；value=null 删该 header"`
+	Body    *string            `json:"body,omitempty"    jsonschema:"description=替换整个 body"`
 }
 
 // replayFlowArgs 是 replay_flow 入参。
 type replayFlowArgs struct {
-	ID            int64      `json:"id"            jsonschema:"required,description=原 flow id（来自 list_flows / view_flow）"`
-	Modifications replayMods `json:"modifications" jsonschema:"description=可选修改；未指定字段全继承原请求"`
+	ID            int64      `json:"id"                      jsonschema:"required,description=原 flow id（来自 list_flows / view_flow）"`
+	Modifications replayMods `json:"modifications,omitempty" jsonschema:"description=可选修改；未指定字段全继承原请求"`
 }
 
 // BuildReplayFlow 造原生 eino replay_flow 工具。owner 闭包捕获（防跨 owner replay）。

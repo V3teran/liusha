@@ -26,18 +26,19 @@ const (
 )
 
 // listFlowsArgs 是 list_flows 入参；owner/host 注入不在此（host 默认取当前 hunter host）。
+// 全字段可选——必须带 ,omitempty，否则全被误标 required 触发 mimo 400（见 findings.go 详注）。
 type listFlowsArgs struct {
-	Host      string `json:"host"       jsonschema:"description=host filter，留空则用当前 hunter host"`
-	Method    string `json:"method"     jsonschema:"description=HTTP method 过滤（自动大写）"`
-	Path      string `json:"path"       jsonschema:"description=path glob 过滤，支持 *（如 /admin/*）"`
-	Source    string `json:"source"     jsonschema:"enum=external,enum=internal,description=流量来源；external=用户/Burp 抓的，internal=容器内工具抓的真实请求"`
-	Identity  string `json:"identity"   jsonschema:"description=身份名过滤（=browser_use identity / 登录账号名）"`
-	Tool      string `json:"tool"       jsonschema:"description=发起工具过滤：browser=浏览器抓的（带全凭证，抽凭证用这个）；curl/sqlmap/…"`
-	StatusMin int    `json:"status_min" jsonschema:"description=响应状态码下界（如 400 → 仅 4xx/5xx）"`
-	StatusMax int    `json:"status_max" jsonschema:"description=响应状态码上界"`
-	Since     string `json:"since"      jsonschema:"description=ISO 时间戳，仅看此后流量"`
-	Limit     int    `json:"limit"      jsonschema:"description=条数上限（默认 50，最大 200）"`
-	Offset    int    `json:"offset"     jsonschema:"description=分页偏移"`
+	Host      string `json:"host,omitempty"       jsonschema:"description=host filter，留空则用当前 hunter host"`
+	Method    string `json:"method,omitempty"     jsonschema:"description=HTTP method 过滤（自动大写）"`
+	Path      string `json:"path,omitempty"       jsonschema:"description=path glob 过滤，支持 *（如 /admin/*）"`
+	Source    string `json:"source,omitempty"     jsonschema:"enum=external,enum=internal,description=流量来源；external=用户/Burp 抓的，internal=容器内工具抓的真实请求"`
+	Identity  string `json:"identity,omitempty"   jsonschema:"description=身份名过滤（=browser_use identity / 登录账号名）"`
+	Tool      string `json:"tool,omitempty"       jsonschema:"description=发起工具过滤：browser=浏览器抓的（带全凭证，抽凭证用这个）；curl/sqlmap/…"`
+	StatusMin int    `json:"status_min,omitempty" jsonschema:"description=响应状态码下界（如 400 → 仅 4xx/5xx）"`
+	StatusMax int    `json:"status_max,omitempty" jsonschema:"description=响应状态码上界"`
+	Since     string `json:"since,omitempty"      jsonschema:"description=ISO 时间戳，仅看此后流量"`
+	Limit     int    `json:"limit,omitempty"      jsonschema:"description=条数上限（默认 50，最大 200）"`
+	Offset    int    `json:"offset,omitempty"     jsonschema:"description=分页偏移"`
 }
 
 // BuildListFlows 造原生 eino list_flows 工具。owner 注入（防串库），host 默认当前 hunter host。
