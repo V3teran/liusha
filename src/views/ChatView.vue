@@ -41,12 +41,19 @@ const scanning = computed(
   () => hasConv.value && store.lastIngestAt > 0 && now.value - store.lastIngestAt < 25000
 )
 
+const convList = ref<InstanceType<typeof ConversationList> | null>(null)
+
 async function open(convID: string) {
   handle?.close()
   store.reset()
   currentConv.value = convID
   for (const m of await listMessages(convID)) store.ingest(m)
   handle = openEventStream(convID, store)
+}
+// 新对话发起：打开它 + 刷新左侧列表（否则新对话不出现，要手动点 ↻）。
+async function handleStarted(convID: string) {
+  await open(convID)
+  convList.value?.refresh()
 }
 function newConversation() {
   handle?.close()
@@ -60,7 +67,7 @@ async function stop() {
 
 <template>
   <div class="chat-view">
-    <ConversationList @select="open" @new="newConversation" />
+    <ConversationList ref="convList" @select="open" @new="newConversation" />
     <section class="chat-main">
       <div v-if="hasConv" class="chat-status">
         <span class="live" :class="{ active: scanning }">
@@ -83,7 +90,7 @@ async function stop() {
         </div>
       </div>
 
-      <Composer :conv-id="currentConv || undefined" @started="open" @appended="() => {}" />
+      <Composer :conv-id="currentConv || undefined" @started="handleStarted" @appended="() => {}" />
     </section>
   </div>
 </template>

@@ -158,7 +158,10 @@ const title = computed(() => (route.meta.title as string) || '流沙')
 .theme-toggle .ti :deep(svg) { width: 16px; height: 16px; display: block; }
 
 /* ---- 主列 ---- */
-.main-col { display: flex; flex-direction: column; min-width: 0; }
+/* min-height:0 关键：main-col 是 .shell 的 grid item，默认 min-height:auto 会被内部内容
+   撑破（超出 100vh 被 shell overflow:hidden 裁掉 → 看不到下面、无滚动条）。设 0 让内部
+   content/thread 的 overflow 接管滚动。 */
+.main-col { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 .topbar {
   height: 56px;
   flex-shrink: 0;
