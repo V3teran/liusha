@@ -2,7 +2,8 @@
 // 对话页：复用既有对话链路（ConversationList + ChatThread + Composer + SSE）。
 // 选中/发起对话切流：关旧 SSE、清 store、补历史、订新流。
 // 状态条：lastIngestAt 在 25s 内 → "agent 工作中"；空对话 → 引导空态。
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { listMessages, abortScan } from '../api/client'
 import { useConversationStore } from '../stores/conversation'
 import { openEventStream, type StreamHandle } from '../composables/useEventStream'
@@ -11,6 +12,7 @@ import Composer from '../components/Composer.vue'
 import ChatThread from '../components/ChatThread.vue'
 
 const store = useConversationStore()
+const route = useRoute()
 const currentConv = ref<string>('')
 let handle: StreamHandle | null = null
 
@@ -19,7 +21,16 @@ const now = ref(Date.now())
 let timer: number | undefined
 onMounted(() => {
   timer = window.setInterval(() => (now.value = Date.now()), 2000)
+  // 从被动会话页跳来（?conv=xxx）：自动打开该对话流（实时观察 + 插话）。
+  if (typeof route.query.conv === 'string' && route.query.conv) open(route.query.conv)
 })
+// 已在 /chat 时再次跳转（query 变化）也切换到目标对话。
+watch(
+  () => route.query.conv,
+  (c) => {
+    if (typeof c === 'string' && c && c !== currentConv.value) open(c)
+  }
+)
 onUnmounted(() => {
   if (timer) clearInterval(timer)
   handle?.close()
