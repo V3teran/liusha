@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cloudwego/eino/adk"
 	"github.com/cloudwego/eino/callbacks"
 	"github.com/cloudwego/eino/components"
 	"github.com/cloudwego/eino/components/model"
@@ -26,6 +27,17 @@ import (
 // （覆盖 orchestrator + 所有子代理的 ChatModel 调用）。
 
 type reasoningStateKey struct{}
+type agentNameKey struct{}
+
+// agentNameFromCtx 读 OnStart 在 Agent 边界存入的 agent 名（orchestrator / exploitation / …）。
+// eino callback 分层触发且 ctx 沿组件树下传：Agent 层 OnStart 存名字 → 其内部 ChatModel 回调读得到。
+// 实测 RunInfo：component=Agent name=orchestrator → component=ChatModel（同 ctx 谱系），故精确归属。
+func agentNameFromCtx(ctx context.Context) string {
+	if n, ok := ctx.Value(agentNameKey{}).(string); ok {
+		return n
+	}
+	return ""
+}
 
 // NewReasoningCallback 造 reasoning 事件捕获 callbacks。sink nil 时返回 nil（无对话不发）。
 func NewReasoningCallback(sink EventSink) callbacks.Handler {
@@ -34,10 +46,18 @@ func NewReasoningCallback(sink EventSink) callbacks.Handler {
 	}
 	return callbacks.NewHandlerBuilder().
 		OnStartFn(func(ctx context.Context, info *callbacks.RunInfo, _ callbacks.CallbackInput) context.Context {
-			if info == nil || info.Component != components.ComponentOfChatModel {
+			if info == nil {
 				return ctx
 			}
-			return context.WithValue(ctx, reasoningStateKey{}, time.Now())
+			// Agent 边界：把 agent 名（orchestrator / exploitation / …）存进 ctx，下传给其内部 ChatModel 回调。
+			if info.Component == adk.ComponentOfAgent && info.Name != "" {
+				return context.WithValue(ctx, agentNameKey{}, info.Name)
+			}
+			// ChatModel 边界：记起始时刻算 latency。
+			if info.Component == components.ComponentOfChatModel {
+				return context.WithValue(ctx, reasoningStateKey{}, time.Now())
+			}
+			return ctx
 		}).
 		OnEndFn(func(ctx context.Context, info *callbacks.RunInfo, output callbacks.CallbackOutput) context.Context {
 			if info == nil || info.Component != components.ComponentOfChatModel {
@@ -51,7 +71,7 @@ func NewReasoningCallback(sink EventSink) callbacks.Handler {
 			if text == "" {
 				return ctx // 纯 tool_call 无文字 → 不发推理事件
 			}
-			ev := ScanEvent{Kind: ScanEventReasoning, Text: text}
+			ev := ScanEvent{Kind: ScanEventReasoning, Text: text, AgentName: agentNameFromCtx(ctx)}
 			if out.TokenUsage != nil {
 				ev.InTokens = out.TokenUsage.PromptTokens
 				ev.OutTokens = out.TokenUsage.CompletionTokens
@@ -76,6 +96,7 @@ func NewReasoningCallback(sink EventSink) callbacks.Handler {
 // 读尽后累积全文 + 末次 token 用量，发最终 reasoning 帧（带 token/耗时，落库 + 替换活动气泡）。
 func streamReasoning(ctx context.Context, sr *schema.StreamReader[callbacks.CallbackOutput], sink EventSink) {
 	defer sr.Close()
+	agentName := agentNameFromCtx(ctx) // ChatModel 回调谱系内已含 Agent 边界存入的名字
 	var full strings.Builder
 	var inTok, outTok int
 	for {
@@ -93,7 +114,7 @@ func streamReasoning(ctx context.Context, sr *schema.StreamReader[callbacks.Call
 		if out.Message != nil && out.Message.Content != "" {
 			piece := out.Message.Content
 			full.WriteString(piece)
-			sink.OnScanEvent(ctx, ScanEvent{Kind: ScanEventReasoningDelta, Text: piece})
+			sink.OnScanEvent(ctx, ScanEvent{Kind: ScanEventReasoningDelta, Text: piece, AgentName: agentName})
 		}
 		if out.TokenUsage != nil {
 			inTok = out.TokenUsage.PromptTokens
@@ -107,6 +128,7 @@ func streamReasoning(ctx context.Context, sr *schema.StreamReader[callbacks.Call
 	sink.OnScanEvent(ctx, ScanEvent{
 		Kind:      ScanEventReasoning,
 		Text:      text,
+		AgentName: agentName,
 		InTokens:  inTok,
 		OutTokens: outTok,
 		LatencyMs: latencyFromCtx(ctx),

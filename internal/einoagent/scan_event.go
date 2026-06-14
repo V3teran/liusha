@@ -54,6 +54,7 @@ type ScanEvent struct {
 	DurationMs int    // tool_result 的执行耗时
 	Err        string // 工具执行错误（如有）
 	Text       string // reasoning 的推理文字（其他类型空）
+	AgentName  string // reasoning：产出该推理的 agent 名（orchestrator / exploitation / reconnaissance）
 	InTokens   int    // reasoning：本次 LLM 调用输入 token（其他类型 0）
 	OutTokens  int    // reasoning：本次 LLM 调用输出 token
 	LatencyMs  int    // reasoning：本次 LLM 调用耗时（ms）
