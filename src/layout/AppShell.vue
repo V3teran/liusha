@@ -35,7 +35,7 @@ const title = computed(() => (route.meta.title as string) || '流沙')
         <img class="brand-mark" src="/logo.svg" alt="流沙 Liusha" width="38" height="38" />
         <div class="brand-text">
           <strong>流沙 Liusha</strong>
-          <small>AI 渗透作战台</small>
+          <small>智能渗透测试</small>
         </div>
       </div>
 
@@ -45,13 +45,6 @@ const title = computed(() => (route.meta.title as string) || '流沙')
           <span class="nav-label">{{ n.label }}</span>
         </RouterLink>
       </nav>
-
-      <div class="side-foot">
-        <button class="theme-toggle" @click="toggle">
-          <span class="ti"><component :is="theme === 'dark' ? Sun : Moon" /></span>
-          <span>{{ theme === 'dark' ? '浅色' : '深色' }}</span>
-        </button>
-      </div>
     </aside>
 
     <div class="main-col">
@@ -138,21 +131,6 @@ const title = computed(() => (route.meta.title as string) || '流沙')
   background: var(--primary);
 }
 
-.side-foot { display: flex; flex-direction: column; gap: 8px; padding-top: 12px; }
-.theme-toggle {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
-  border-radius: 9px;
-  border: 1px solid var(--border);
-  background: var(--surface-2);
-  color: var(--text);
-  cursor: pointer;
-  font-size: 13px;
-}
-.theme-toggle:hover { border-color: var(--primary); }
-.theme-toggle .ti :deep(svg) { width: 16px; height: 16px; display: block; }
 
 /* ---- 主列 ---- */
 /* min-height:0 关键：main-col 是 .shell 的 grid item，默认 min-height:auto 会被内部内容
