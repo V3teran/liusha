@@ -9,12 +9,13 @@ const routes: RouteRecordRaw[] = [
     path: '/',
     component: AppShell,
     children: [
-      { path: '', redirect: '/chat' },
+      { path: '', redirect: '/active-scan' },
       { path: 'dashboard', name: 'dashboard', component: () => import('../views/PlaceholderView.vue'), meta: { title: '总览' } },
-      { path: 'chat', name: 'chat', component: () => import('../views/ChatView.vue'), meta: { title: '主动扫描' } },
+      // 对话/作战视图：主动扫描在此发起 active 对话，被动会话复用它做对话流回看（?conv=）。
+      { path: 'active-scan', name: 'active-scan', component: () => import('../views/ChatView.vue'), meta: { title: '主动扫描' } },
       { path: 'findings', name: 'findings', component: () => import('../views/FindingsView.vue'), meta: { title: '漏洞发现' } },
       { path: 'sitemap', name: 'sitemap', component: () => import('../views/SitemapView.vue'), meta: { title: '攻击面' } },
-      { path: 'sessions', name: 'sessions', component: () => import('../views/SessionsView.vue'), meta: { title: '被动扫描' } },
+      { path: 'traffic', name: 'traffic', component: () => import('../views/SessionsView.vue'), meta: { title: '流量监听' } },
       { path: 'agent-runs', name: 'agent-runs', component: () => import('../views/AgentRunsView.vue'), meta: { title: 'Agent 任务' } },
       { path: 'llm-audit', name: 'llm-audit', component: () => import('../views/LlmAuditView.vue'), meta: { title: 'LLM 审计' } },
       { path: 'credentials', name: 'credentials', component: () => import('../views/PlaceholderView.vue'), meta: { title: '凭证库' } },

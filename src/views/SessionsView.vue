@@ -1,7 +1,7 @@
 <script setup lang="ts">
-// 被动会话页：列出 owner 会话（passive + active），passive 会话可「打开对话流」实时观察 + 插话。
-// passive 由流量驱动建会话（conversation_id 绑定），点击跳 /chat 看 agent 分析并插话指导。
-import { computed, onMounted, ref } from 'vue'
+// 流量监听页：列出被动（passive）会话——挂代理收流量，agent 逐条分析。
+// 每条会话由流量驱动建会话（conversation_id 绑定），点「打开对话流」看 agent 分析并插话指导。
+import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { listSessions, abortSession } from '../api/client'
 import type { OwnerSummary } from '../api/types'
@@ -16,7 +16,8 @@ async function load() {
   loading.value = true
   error.value = ''
   try {
-    sessions.value = await listSessions(50)
+    // 仅 passive：流量监听页只展示被动模式流量驱动的会话（active 主动扫描在「主动扫描」页）。
+    sessions.value = (await listSessions(50)).filter((s) => s.mode === 'passive')
   } catch (e) {
     error.value = e instanceof Error ? e.message : '加载失败'
   } finally {
@@ -56,13 +57,10 @@ function ago(iso?: string): string {
   return `${Math.floor(h / 24)} 天前`
 }
 
-const passiveCount = computed(() => sessions.value.filter((s) => s.mode === 'passive').length)
-const activeCount = computed(() => sessions.value.filter((s) => s.mode === 'active').length)
-
-// 打开会话对话流（passive 插话入口）。
+// 打开会话对话流（passive 插话入口）：跳「主动扫描」对话视图，复用对话流渲染（?conv=）。
 function openConversation(s: OwnerSummary) {
   if (!s.conversation_id) return
-  router.push({ name: 'chat', query: { conv: s.conversation_id } })
+  router.push({ name: 'active-scan', query: { conv: s.conversation_id } })
 }
 
 async function stop(s: OwnerSummary) {
@@ -79,32 +77,27 @@ async function stop(s: OwnerSummary) {
   <div class="page">
     <div class="page-toolbar">
       <div class="tb-left">
-        <h2 class="tb-title">被动扫描</h2>
-        <span class="tb-sub">流量驱动的被动渗透会话 · 可打开对话流插话指导</span>
+        <h2 class="tb-title">流量监听</h2>
+        <span class="tb-sub">挂代理收流量 · agent 逐条分析 · 可打开对话流插话指导</span>
       </div>
-      <div class="tb-stats">
-        <span class="stat"><b>{{ passiveCount }}</b> 被动</span>
-        <span class="stat"><b>{{ activeCount }}</b> 主动</span>
-        <button class="refresh-btn" :disabled="loading" @click="load">↻ 刷新</button>
-      </div>
+      <button class="refresh-btn" :disabled="loading" @click="load">↻ 刷新</button>
     </div>
 
     <div class="page-body">
       <div v-if="loading" class="state"><a-spin size="large" /></div>
       <div v-else-if="error" class="state"><span class="state-err">⚠ {{ error }}</span></div>
-      <div v-else-if="!sessions.length" class="state">暂无会话——挂代理收流量或发起主动扫描后出现</div>
+      <div v-else-if="!sessions.length" class="state">暂无被动会话——挂代理（passive 8888）收到流量后出现</div>
 
       <div v-else class="session-list">
         <div
           v-for="s in sessions"
           :key="s.id"
           class="session-card"
-          :class="{ clickable: s.mode === 'passive' && s.conversation_id }"
+          :class="{ clickable: !!s.conversation_id }"
           :style="{ '--st': statusColor[s.status] || 'var(--muted)' }"
-          @click="s.mode === 'passive' && s.conversation_id && openConversation(s)"
+          @click="s.conversation_id && openConversation(s)"
         >
           <div class="sc-top">
-            <span class="mode-chip" :class="s.mode">{{ s.mode === 'passive' ? '被动' : '主动' }}</span>
             <span class="scope">{{ scopeLabel(s) }}</span>
             <span class="status-dot" />
             <span class="status-text">{{ statusText(s.status) }}</span>
@@ -113,11 +106,7 @@ async function stop(s: OwnerSummary) {
             <span class="time">{{ ago(s.created_at) }}</span>
             <span v-if="s.error_message" class="err-msg">· {{ s.error_message }}</span>
             <span class="sc-actions" @click.stop>
-              <button
-                v-if="s.mode === 'passive' && s.conversation_id"
-                class="act open"
-                @click="openConversation(s)"
-              >
+              <button v-if="s.conversation_id" class="act open" @click="openConversation(s)">
                 打开对话流 →
               </button>
               <button v-if="s.status === 'active'" class="act stop" @click="stop(s)">停止</button>
@@ -133,9 +122,6 @@ async function stop(s: OwnerSummary) {
 .tb-left { display: flex; flex-direction: column; gap: 2px; }
 .tb-title { margin: 0; font-size: 16px; font-weight: 600; }
 .tb-sub { font-size: 12px; color: var(--muted); }
-.tb-stats { display: flex; align-items: center; gap: 14px; }
-.stat { font-size: 13px; color: var(--muted); }
-.stat b { color: var(--text); font-size: 16px; font-family: var(--mono); margin-right: 3px; }
 .refresh-btn {
   background: var(--surface-2);
   border: 1px solid var(--border);
@@ -165,15 +151,6 @@ async function stop(s: OwnerSummary) {
   transform: translateY(-1px);
 }
 .sc-top { display: flex; align-items: center; gap: 10px; }
-.mode-chip {
-  font-size: 11px;
-  font-weight: 700;
-  padding: 2px 8px;
-  border-radius: 5px;
-  flex-shrink: 0;
-}
-.mode-chip.passive { background: var(--primary-soft); color: var(--primary); }
-.mode-chip.active { background: rgba(114, 46, 209, 0.12); color: #722ed1; }
 .scope {
   font-family: var(--mono);
   font-size: 13.5px;
