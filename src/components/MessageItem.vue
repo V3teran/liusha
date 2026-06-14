@@ -45,6 +45,7 @@ const showAvatar = computed(() => ['user', 'assistant', 'reasoning'].includes(ki
       <ReasoningCard
         v-else-if="kind === 'reasoning'"
         :text="msg.Metadata!.Text || msg.Content"
+        :agent-name="msg.Metadata!.AgentName"
         :in-tokens="msg.Metadata!.InTokens"
         :out-tokens="msg.Metadata!.OutTokens"
         :latency-ms="msg.Metadata!.LatencyMs"

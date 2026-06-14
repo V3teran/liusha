@@ -5,6 +5,7 @@ import { renderMarkdown } from '../../lib/markdown'
 
 const props = defineProps<{
   text: string
+  agentName?: string // 产出该推理的 agent（orchestrator/exploitation/reconnaissance）
   inTokens?: number
   outTokens?: number
   latencyMs?: number
@@ -15,6 +16,19 @@ const html = computed(() => renderMarkdown(props.text))
 const fmtTok = (n?: number) => (n && n > 0 ? (n >= 1000 ? (n / 1000).toFixed(1) + 'k' : String(n)) : '')
 const fmtMs = (n?: number) => (n && n > 0 ? (n >= 1000 ? (n / 1000).toFixed(1) + 's' : n + 'ms') : '')
 const hasMeta = computed(() => (props.inTokens || 0) > 0 || (props.latencyMs || 0) > 0)
+
+// agent 名 → 中文角色标签（区分指挥官/侦察/利用，让用户看清是哪个子代理在推理）。
+const AGENT_LABELS: Record<string, string> = {
+  orchestrator: '指挥官',
+  exploitation: '利用',
+  reconnaissance: '侦察',
+  'traffic-analysis': '流量分析',
+}
+const agentLabel = computed(() => {
+  const n = props.agentName?.trim()
+  if (!n) return ''
+  return AGENT_LABELS[n] || n
+})
 </script>
 
 <template>
@@ -22,6 +36,7 @@ const hasMeta = computed(() => (props.inTokens || 0) > 0 || (props.latencyMs || 
     <div class="rc-head">
       <span class="rc-icon">🧠</span>
       <span class="rc-label">{{ streaming ? '推理中' : '推理' }}</span>
+      <span v-if="agentLabel" class="rc-agent">{{ agentLabel }}</span>
       <span v-if="hasMeta" class="rc-meta">
         <span v-if="(inTokens || 0) > 0" class="rc-chip" title="输入 token">↑ {{ fmtTok(inTokens) }}</span>
         <span v-if="(outTokens || 0) > 0" class="rc-chip" title="输出 token">↓ {{ fmtTok(outTokens) }}</span>
@@ -51,6 +66,14 @@ const hasMeta = computed(() => (props.inTokens || 0) > 0 || (props.latencyMs || 
 }
 .rc-icon { font-size: 13px; }
 .rc-label { font-size: 12px; font-weight: 600; color: #722ed1; }
+.rc-agent {
+  font-size: 11px;
+  font-weight: 600;
+  color: #722ed1;
+  background: rgba(114, 46, 209, 0.14);
+  border-radius: 4px;
+  padding: 1px 7px;
+}
 .rc-meta { margin-left: auto; display: flex; gap: 6px; }
 .rc-chip {
   font-family: var(--mono);
