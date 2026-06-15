@@ -1,4 +1,4 @@
-# liusha 沙箱预装工具清单（22 个）
+# liusha 沙箱预装工具清单（23 个）
 #
 # 单一来源：与同目录 Dockerfile 同步维护——
 # Dockerfile 装的 binary 与本 yaml 列出的 tools 应严格对应（可加 CI lint 校对）。
@@ -41,6 +41,9 @@ tools:
   - name: ffuf
     category: discovery
     description: 通用 web fuzzer——任意位置 FUZZ 占位符替换 wordlist。dirsearch 不擅长的复杂场景用 ffuf。
+  - name: gau
+    category: discovery
+    description: 被动 URL 发现——从 Wayback/Common Crawl/URLScan/OTX 归档拉历史 endpoint。仅对公网已收录站有结果，内网/新部署/CTF 靶机返回空。
 
   # ===== vulnscan（自动化模板漏扫）=====
   - name: nuclei

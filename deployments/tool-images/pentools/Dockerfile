@@ -24,7 +24,7 @@
 #
 # 工具清单（22 个，按 9 类）：
 #   recon (5):           subfinder httpx katana nmap wafw00f
-#   discovery (3):       ffuf dirsearch arjun
+#   discovery (4):       ffuf dirsearch arjun gau
 #   vulnscan (1):        nuclei
 #   injection (2):       sqlmap dalfox
 #   deserialization (2): ysoserial phpggc
@@ -289,6 +289,7 @@ RUN set -eu \
  && for repo_tool_fb in \
         "ffuf/ffuf:ffuf:2.1.0" \
         "trufflesecurity/trufflehog:trufflehog:3.95.2" \
+        "lc/gau:gau:2.2.4" \
     ; do \
         repo=$(echo "$repo_tool_fb" | cut -d: -f1) ; \
         tool=$(echo "$repo_tool_fb" | cut -d: -f2) ; \
@@ -329,6 +330,7 @@ RUN set -eu \
  && /usr/local/bin/ffuf -V 2>&1 | head -1 \
  && /usr/local/bin/dalfox version 2>&1 | head -1 \
  && /usr/local/bin/trufflehog --version 2>&1 | head -1 \
+ && /usr/local/bin/gau --version 2>&1 | head -1 \
  && /usr/local/bin/interactsh-client -version 2>&1 | head -1
 
 # Layer 4b: PD 工具 -duc wrapper——拦截 httpx/katana/nuclei/subfinder 启动时的
