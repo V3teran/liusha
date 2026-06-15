@@ -19,7 +19,7 @@ func writeRole(t *testing.T, dir, file, content string) {
 
 const orchestratorMD = `---
 id: orchestrator
-name: 渗透指挥官
+name: 渗透编排者
 kind: orchestrator
 description: 拆活派 exploitation，不亲自挖洞
 max_iterations: 300
@@ -27,12 +27,12 @@ tools:
   - read_findings
   - list_flows
 ---
-你是渗透指挥官。
+你是渗透编排者。
 `
 
 const exploitationMD = `---
 id: exploitation
-name: 渗透突击手
+name: 渗透exploitation
 kind: subagent
 description: 接 brief 深挖单个攻击面并 write_finding
 max_iterations: 120
@@ -42,7 +42,7 @@ tools:
   - run_command
   - done
 ---
-你是渗透突击手，根据 brief 深挖。
+你是渗透exploitation，根据 brief 深挖。
 `
 
 func TestLoadRoles_ParsesAndClassifies(t *testing.T) {
@@ -63,7 +63,7 @@ func TestLoadRoles_ParsesAndClassifies(t *testing.T) {
 	}
 	// exploitation 字段
 	st := roles[0]
-	if st.Name != "渗透突击手" || st.Kind != einoagent.RoleSubAgent || st.MaxIterations != 120 {
+	if st.Name != "渗透exploitation" || st.Kind != einoagent.RoleSubAgent || st.MaxIterations != 120 {
 		t.Errorf("exploitation 字段错: %+v", st)
 	}
 	if len(st.Tools) != 4 || st.Tools[1] != "write_finding" {

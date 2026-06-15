@@ -28,7 +28,7 @@ import (
 type RoleKind string
 
 const (
-	// RoleOrchestrator 是 deep 主代理（orchestrator/指挥官），负责拆活派 sub-agent。
+	// RoleOrchestrator 是 deep 主代理（orchestrator/编排者），负责拆活派 sub-agent。
 	RoleOrchestrator RoleKind = "orchestrator"
 	// RoleSubAgent 是杀伤链阶段子代理（recon / exploitation / ...），被主代理 task 委派。
 	RoleSubAgent RoleKind = "subagent"

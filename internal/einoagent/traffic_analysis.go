@@ -20,11 +20,10 @@ import (
 	"github.com/cloudwego/eino/schema"
 )
 
-// defaultTrafficAnalysisMaxIters：passive 单 agent 迭代上限。30 偏紧——upload→RCE 这类长链条
-// （找上传点→造 webshell→上传→定位→访问→确认执行→write_finding）会在 30 步左右撞顶，
-// 撞顶即 "exceeds max iterations" 还没来得及 write_finding（e2e passive:upload 实测）。
-// 调到 60 给长链条余量；真失控由 owner abort watcher + asynq 超时兜底。
-const defaultTrafficAnalysisMaxIters = 60
+// defaultTrafficAnalysisMaxIters：passive 单 agent 迭代上限。passive 分析单条流量，
+// 但 upload→RCE 这类长链条（找上传点→造 webshell→上传→访问→确认执行→write_finding）需余量，
+// 50 步够；真失控由 owner abort watcher + asynq 超时兜底。
+const defaultTrafficAnalysisMaxIters = 50
 
 // defaultModelRetries 是 ChatModel 调用失败的重试次数（替代 react 的 retry 中间件）。
 // 国产 provider（小米 mimo 等）偶发瞬时 4xx（如「Param Incorrect」）/ 429 / EOF —— e2e 实测
@@ -40,7 +39,7 @@ type TrafficAnalysisResult struct {
 
 // defaultExploitationMaxIters 是 deep sub-agent（exploitation 等杀伤链阶段）未声明 max_iterations 时的兜底
 // （深挖单点比 passive trafficAnalysis 多步）。由 deep_swarm.go 装配 sub-agent 时引用。
-const defaultExploitationMaxIters = 120
+const defaultExploitationMaxIters = 60
 
 // RunTrafficAnalysis 用 eino ChatModelAgent 跑一条 passive 流量（替代 react.Run 的 trafficAnalysis 路径）。
 //
@@ -50,7 +49,7 @@ const defaultExploitationMaxIters = 120
 // opts 透传给 Runner.Run（如 adk.WithCallbacks 注入计费埋点 handler）。
 func RunTrafficAnalysis(ctx context.Context, m model.ToolCallingChatModel, tools []tool.BaseTool, instruction, flowText string, middlewares []adk.AgentMiddleware, opts ...adk.AgentRunOption) (TrafficAnalysisResult, error) {
 	return runSingleAgent(ctx, agentSpec{
-		name: "traffic-analysis", desc: "passive 侦察兵：分析一条流量挖漏洞", maxIters: defaultTrafficAnalysisMaxIters,
+		name: "traffic-analysis", desc: "passive 侦察：分析一条流量挖漏洞", maxIters: defaultTrafficAnalysisMaxIters,
 	}, m, tools, instruction, flowText, middlewares, opts...)
 }
 

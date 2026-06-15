@@ -64,7 +64,7 @@ func TestRunTrafficAnalysis_Live(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	instruction := "你是渗透测试侦察兵。分析给你的一条 HTTP 流量（先看响应再回看请求），" +
+	instruction := "你是渗透测试reconnaissance。分析给你的一条 HTTP 流量（先看响应再回看请求），" +
 		"判断涉及的漏洞类型；命中就调 write_finding 落库（写前可用 read_findings 查重）；" +
 		"确实无洞就直接文字说明。每步先 reason 一句话再行动。"
 	flow := "## 流量请求\nGET /user?id=1%27%20OR%20%271%27%3D%271 HTTP/1.1\nHost: target.example\n\n" +

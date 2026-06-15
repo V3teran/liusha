@@ -88,12 +88,12 @@ func TestBuildDeepSwarm_AssemblesOrchestratorAndSubAgents(t *testing.T) {
 	f := allFake{}
 	orchestratorRole := einoagent.RoleDef{
 		ID: "orchestrator", Kind: einoagent.RoleOrchestrator,
-		Description: "拆活派 exploitation", SystemPrompt: "你是指挥官",
+		Description: "拆活派 exploitation", SystemPrompt: "你是编排者",
 		Tools: []string{"read_findings", "list_flows"}, MaxIterations: 300,
 	}
 	exploitationRole := einoagent.RoleDef{
 		ID: "exploitation", Kind: einoagent.RoleSubAgent,
-		Description: "深挖单点", SystemPrompt: "你是突击手",
+		Description: "深挖单点", SystemPrompt: "你是exploitation",
 		Tools: []string{"read_findings", "write_finding", "done"}, MaxIterations: 120,
 	}
 	agent, err := einoagent.BuildDeepSwarm(context.Background(), einoagent.DeepSwarmConfig{
