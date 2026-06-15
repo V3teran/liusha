@@ -125,24 +125,28 @@ func (t *runCommandTool) InvokableRun(ctx context.Context, arg *schema.ToolArgum
 	if mx := t.maxTimeout(); in.Timeout > mx {
 		in.Timeout = mx
 	}
-	tag := sanitizeTag(in.Tag)
+	return execInSandbox(ctx, t.executor, t.hunterID, in.Command, in.Timeout, sanitizeTag(in.Tag), t.effectiveTailBytes())
+}
 
-	res, err := t.executor.Exec(ctx, sandbox.ExecRequest{
-		HunterID:       t.hunterID,
-		Command:        in.Command,
-		TimeoutSeconds: in.Timeout,
+// execInSandbox 在沙箱跑一条命令并把结果加工成 *schema.ToolResult（text + image part）。
+// run_command 与 browser_use 共用：两者都要「截 tail + 抽图 + vision 适配」这套加工，逻辑抽这里防重复。
+// caller 负责钳 timeout / sanitizeTag（各自工具语义不同）；本函数只管 Exec + 结果加工。
+func execInSandbox(ctx context.Context, executor SandboxExecutor, hunterID, command string, timeout int, tag string, tailBytes int) (*schema.ToolResult, error) {
+	res, err := executor.Exec(ctx, sandbox.ExecRequest{
+		HunterID:       hunterID,
+		Command:        command,
+		TimeoutSeconds: timeout,
 		Tag:            tag,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("sandbox exec tag=%s: %w", tag, err)
 	}
 
-	tailN := t.effectiveTailBytes()
 	textOut := runCommandOutput{
 		ExitCode:   res.ExitCode,
 		TimedOut:   res.TimedOut,
-		StdoutTail: clampMiddle(res.Stdout, tailN),
-		StderrTail: clampMiddle(res.Stderr, tailN),
+		StdoutTail: clampMiddle(res.Stdout, tailBytes),
+		StderrTail: clampMiddle(res.Stderr, tailBytes),
 		Files:      toFileMetas(res.Files),
 		Warnings:   res.Warnings,
 	}

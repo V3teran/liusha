@@ -79,6 +79,13 @@ var toolRegistry = map[string]toolBuilder{
 		}
 		return einotools.BuildRunCommand(c.Deps.Sandbox, c.Params.HunterID, c.Deps.MaxTimeoutSeconds, c.Deps.TailBytes)
 	},
+	// 浏览器（需 Sandbox）：browser-use CLI 的 typed 包装，传 identity 做登录态复用（见 browser_use.go）
+	"browser_use": func(c ToolBuildCtx) (tool.BaseTool, error) {
+		if c.Deps.Sandbox == nil {
+			return nil, fmt.Errorf("browser_use: Sandbox 未注入")
+		}
+		return einotools.BuildBrowserUse(c.Deps.Sandbox, c.Params.HunterID, c.Deps.TailBytes)
+	},
 
 	// 技能索引（需 Loader 且 catalog 非空）
 	"read_tooling_skill": func(c ToolBuildCtx) (tool.BaseTool, error) {
