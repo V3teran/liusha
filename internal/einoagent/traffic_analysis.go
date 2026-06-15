@@ -47,9 +47,14 @@ const defaultExploitationMaxIters = 60
 // instruction = 拼好的 system prompt（shared + trafficAnalysis 段）；flowText = 一条 raw HTTP 流量。
 // middlewares 注入 AgentMiddleware（如历史压缩 NewCompactionMiddleware）；可为 nil。
 // opts 透传给 Runner.Run（如 adk.WithCallbacks 注入计费埋点 handler）。
-func RunTrafficAnalysis(ctx context.Context, m model.ToolCallingChatModel, tools []tool.BaseTool, instruction, flowText string, middlewares []adk.AgentMiddleware, opts ...adk.AgentRunOption) (TrafficAnalysisResult, error) {
+// maxIters 来自 passive 角色 frontmatter（hunters/passive/traffic-analysis.md 的 max_iterations）；
+// <=0 时回退 defaultTrafficAnalysisMaxIters。
+func RunTrafficAnalysis(ctx context.Context, m model.ToolCallingChatModel, tools []tool.BaseTool, instruction, flowText string, maxIters int, middlewares []adk.AgentMiddleware, opts ...adk.AgentRunOption) (TrafficAnalysisResult, error) {
+	if maxIters <= 0 {
+		maxIters = defaultTrafficAnalysisMaxIters
+	}
 	return runSingleAgent(ctx, agentSpec{
-		name: "traffic-analysis", desc: "passive 侦察：分析一条流量挖漏洞", maxIters: defaultTrafficAnalysisMaxIters,
+		name: "traffic-analysis", desc: "passive 侦察：分析一条流量挖漏洞", maxIters: maxIters,
 	}, m, tools, instruction, flowText, middlewares, opts...)
 }
 

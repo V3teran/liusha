@@ -9,7 +9,7 @@ description: 无头 Chromium 浏览器自动化，typed `browser_use` 工具是�
 
 每身份一个常驻浏览器服务托管 chrome（自启自管，跨调用状态保持）：
 
-- **identity = 身份（cookie jar）**：同一身份下所有 orchestrator/exploitation **共用一个浏览器**，登录态/cookies 共享。
+- **identity = 身份（cookie jar）**：同一身份下所有 reconnaissance/exploitation **共用一个浏览器**，登录态/cookies 共享。
 - **tab = agent**：服务按 agent（`HUNTER_ID`）路由到各自的 tab，截图/浏览历史/并发互不干扰——首个开页的 agent 落在初始 tab，其余 agent 各自自动新开一个 tab（无全局 active tab、无串行等待）。
 - **多身份**：越权/BAC 要多账号对比时，给 `browser_use` 传不同 `identity`（= 凭证 name，如 `admin`/`lowpriv`）→ 各开一个**独立浏览器**（独立 cookie jar，按需多起 chromium）。缺省走共享的 `default` 身份，无需传。
 
@@ -45,7 +45,7 @@ description: 无头 Chromium 浏览器自动化，typed `browser_use` 工具是�
 
 chromium 的 cookie jar 按 `--session`（=identity）持久共享，与 curl **独立**。浏览器登录走**登录页输账号密码**这一条路；redis 凭证通道（`read_credentials`/`write_credential`）只服务 curl/sqlmap 无状态链路 + 同步过程中**新拿到**的凭证（详见反模式）。
 
-- **同一身份只登一次**：同 identity 下所有 orchestrator/exploitation 共用一个浏览器。**任一 hunter 在登录页登录过后，整个身份的 jar 就有态**——后续同身份 hunter 直接 `browser_use open` 受保护页即带登录态，无需各自重登。
+- **同一身份只登一次**：同 identity 下所有 reconnaissance/exploitation 共用一个浏览器。**任一 hunter 在登录页登录过后，整个身份的 jar 就有态**——后续同身份 hunter 直接 `browser_use open` 受保护页即带登录态，无需各自重登。
 - **没人登过 → 自己在登录页登录**：`state` 拿表单 numbered DOM → `input` 填账密 → `click` 提交。这对浏览器是**正确路径**，不是重复劳动。
 - **多账号对比（越权/BAC）**：brief 给几组账号就传几个不同 `identity` 各开一个独立浏览器，每个各自登录，cookie jar 互不污染。
 - **browser → curl / 其它 agent**：浏览器登录后若 curl 链路也要用同一身份，`cookies get` 导出或 `write_credential` 录入 redis 让 curl 工具 `read_credentials` 取用（这是 browser→redis 的同步方向，不是反过来注入）。

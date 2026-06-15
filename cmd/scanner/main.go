@@ -192,17 +192,36 @@ func main() {
 		LessonsLimit:    cfg.Session.LessonsLimitInPrompt,
 	}
 
-	// deep 角色加载（hunters/*.md）：active 路径用 deep 装配主代理 + 杀伤链子代理。
+	// active deep 角色加载（hunters/active/*.md）：deep 装配主代理 + 杀伤链子代理。
 	// 解析失败 / 无 orchestrator → fail-fast（active 扫描会无法装配 deep）。
-	roles, err := einoagent.LoadRoles(cfg.Hunters.Root)
+	activeDir := filepath.Join(cfg.Hunters.Root, "active")
+	roles, err := einoagent.LoadRoles(activeDir)
 	if err != nil {
-		logger.Fatal().Err(err).Str("dir", cfg.Hunters.Root).Msg("角色加载失败——active 走 deep 需 hunters/*.md，fail-fast")
+		logger.Fatal().Err(err).Str("dir", activeDir).Msg("active 角色加载失败——active 走 deep 需 hunters/active/*.md，fail-fast")
 	} else {
 		roleIDs := make([]string, 0, len(roles))
 		for _, r := range roles {
 			roleIDs = append(roleIDs, string(r.Kind)+":"+r.ID)
 		}
-		logger.Info().Strs("roles", roleIDs).Str("dir", cfg.Hunters.Root).Msg("deep 角色加载完成")
+		logger.Info().Strs("roles", roleIDs).Str("dir", activeDir).Msg("active deep 角色加载完成")
+	}
+
+	// passive 角色加载（hunters/passive/traffic-analysis.md）：passive 单 agent 用其 prompt + max_iterations。
+	// 子目录隔离 active/passive——active 的 LoadRoles 不会扫到 passive，passive 角色也不会被 deep swarm 误派。
+	passiveDir := filepath.Join(cfg.Hunters.Root, "passive")
+	passiveRoles, perr := einoagent.LoadRoles(passiveDir)
+	if perr != nil {
+		logger.Fatal().Err(perr).Str("dir", passiveDir).Msg("passive 角色加载失败——passive 需 hunters/passive/traffic-analysis.md，fail-fast")
+	}
+	var passiveRole einoagent.RoleDef
+	for _, r := range passiveRoles {
+		if r.ID == "traffic-analysis" {
+			passiveRole = r
+			break
+		}
+	}
+	if passiveRole.ID == "" {
+		logger.Fatal().Str("dir", passiveDir).Msg("passive 角色缺 traffic-analysis，fail-fast")
 	}
 
 	// 场景 role 加载（roles/*.md，阶段C）：active/passive handler 按 Payload.ScenarioID 注入主代理人设。
@@ -235,6 +254,7 @@ func main() {
 		einoFactory:     einollm.New(cfg),
 		hunterDeps:      hunterDeps,
 		roles:           roles,
+		passiveRole:     passiveRole,
 		conversations:   convStore,
 		eventPublisher:  eventPublisher,
 		scenarioRoles:   scenarioRoles,

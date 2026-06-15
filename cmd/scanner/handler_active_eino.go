@@ -175,12 +175,11 @@ func composeOrchestratorInstruction(role einoagent.RoleDef) string {
 	return hunterbuilder.SharedSystemPrompt() + "\n\n" + role.SystemPrompt
 }
 
-// composeSubAgentInstruction 组装子代理完整 system prompt：
-// 复用 SystemPromptFor("active")（shared + exploitation addendum，深挖方法论）+ 角色 md body
-// （被 deep task 派下来、聚焦单攻击面的框架）。
-// 注：后续加 reconnaissance/triage 等阶段时，应让各角色 md 自带完整 charter 并在此按 role.ID 分流。
+// composeSubAgentInstruction 组装子代理完整 system prompt：shared 公共底座 + 角色 md 自带的完整 charter
+// （hunters/active/<role>.md，含深挖方法论 + 单攻击面框架）。与 orchestrator 同构——各角色 charter 自包含，
+// 不再叠加编译期 exploitation addendum（已并入 hunters/active/exploitation.md，避免 recon 误吃 exploitation 方法论）。
 func composeSubAgentInstruction(role einoagent.RoleDef) string {
-	return hunterbuilder.SystemPromptFor("active") + "\n\n" + role.SystemPrompt
+	return hunterbuilder.SharedSystemPrompt() + "\n\n" + role.SystemPrompt
 }
 
 // watchAbortActive 后台轮询 active_scan 中止状态；非 active 即 cancel，让 RunDeepSwarm 停。

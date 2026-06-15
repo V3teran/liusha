@@ -21,7 +21,7 @@
 4. **不重复**：user prompt 列出该 host 已写的 finding。等价漏洞（同类型 + 同入口）→ `update_finding` 补强，不新建；完全等价无新信息 → 直接 `done()`。**写前调 `read_findings` 不可省**——DB 层有 UNIQUE 兜底（按 owner/host/CWE/target.path 匹配），重复写不报错但会无声合并，浪费你这次 turn。
 
 5. **CWE 标准化**（关键！dedup 依赖此一致）：同一漏洞每次必须填**同一个** CWE 编号，否则 DB 视为不同漏洞重复入库。常见易混 CWE：
-   - **OS Command Injection**：统一用 `CWE-78`（绝不用 CWE-77 — 77 是父类，太宽泛会导致 orchestrator 用 78 / exploitation 用 77 撞不到 dedup）
+   - **OS Command Injection**：统一用 `CWE-78`（绝不用 CWE-77 — 77 是父类，太宽泛会导致一个 exploitation 用 78 / 另一个用 77 撞不到 dedup）
    - **SQL Injection**：统一 `CWE-89`（blind / UNION / error-based 都是 89，**不要**写 CWE-564 / 二级分类）
    - **XSS**：统一 `CWE-79`（reflected / stored / DOM 都是 79）
    - **Path Traversal / LFI / RFI**：LFI = `CWE-98`、RFI = `CWE-98`、纯 path traversal = `CWE-22`
@@ -76,8 +76,9 @@
 一个身份多条凭证（如 Cookie + csrf_token）要**全部**拼上，漏一条服务端可能拒。
 
 **消费方是浏览器（browser_use）时——走登录页，不从 redis 注入**：上表的 header 拼接 + redis 凭证只对 curl/sqlmap 这类**无状态**工具有效。浏览器是**独立的有状态会话**：cookie jar 按 identity（=session）持久共享，登录方式就是**在登录页输账号密码**，不读 redis 注入 cookie。
-- **identity 命名铁律**：`browser_use` 的 `identity` 参数 **= 该账号用户名**（brief 里 admin → `identity:"admin"`，gordonb → `identity:"gordonb"`）。**绝不用默认空 identity 登录有名账号**——空 identity 让"哪个账号"和"哪个 jar"失去映射：orchestrator 把 admin 登进空 jar、exploitation 却用 `"gordonb"` 名开浏览器，两个 jar 互不相干 → admin 会话对 exploitation 不可见（实测漏 finding 的直接原因）。**同名 identity = 同一个 jar**，跨 orchestrator/exploitation 自动复用，谁都不必同步"谁登了谁"。
-- **同一身份只登一次（幂等复用）**：同 identity 下所有 orchestrator/exploitation 共用一个浏览器。要用某身份就先用**该身份名** `browser_use open` 受保护页——已有登录态直接用；落在登录页（没人登过 / 态过期）才自己登（`state`→`input`→`click`）。这对浏览器是**正确路径**，不是重复劳动。
+- **谁登录（职责分工）**：浏览器登录由 **reconnaissance 主责**——它摸认证态攻击面时按 brief 各身份登入，认证流量自动入字典 + jar 持久化 → 全 run 共享；**exploitation 兜底**——本攻击面要态而 jar 里还没有时自己登；curl 线自己登到的活凭证 `write_credential` 同步。**orchestrator 不登录**（无 browser_use / run_command，只编排派活）。
+- **identity 命名铁律**：`browser_use` 的 `identity` 参数 **= 该账号用户名**（brief 里 admin → `identity:"admin"`，gordonb → `identity:"gordonb"`）。**绝不用默认空 identity 登录有名账号**——空 identity 让"哪个账号"和"哪个 jar"失去映射：reconnaissance 把 admin 登进空 jar、exploitation 却用 `"gordonb"` 名开浏览器，两个 jar 互不相干 → admin 会话对 exploitation 不可见（实测漏 finding 的直接原因）。**同名 identity = 同一个 jar**，跨 reconnaissance/exploitation 自动复用，谁都不必同步"谁登了谁"。
+- **同一身份只登一次（幂等复用）**：同 identity 下所有 reconnaissance/exploitation 共用一个浏览器。要用某身份就先用**该身份名** `browser_use open` 受保护页——已有登录态直接用；落在登录页（没人登过 / 态过期）才自己登（`state`→`input`→`click`）。这对浏览器是**正确路径**，不是重复劳动。
 - **提交后必须验证成功，失败不要无限重登**：输完账密提交后，确认**真到达鉴权态**——再 `open` 一个受保护页或读提交后 `state`，看 URL 已离开登录页、页面不再是登录表单、无"登录失败/凭证错误"类提示。**同一身份连续 2 次提交仍落回登录页就停手**：这通常是凭证无效，或目标有防爆破 / 账号锁定机制（继续提交只会触发或延长锁定，之后连正确凭证也被拒，污染整个 engagement）。用文字记下现象（进对话）并在产出里上报，不要继续盲目提交。
 - **多账号对比**（越权/BAC）：brief 给几组账号就按命名铁律各开一个 `identity`（名=各自用户名）浏览器，每个各自在登录页登录，cookie jar 互不污染。
 - redis 凭证通道（read/write_credential）服务 curl/sqlmap 链路 + 同步过程中**新拿到**的凭证；浏览器登录态不走它。
@@ -125,14 +126,14 @@
 字典有两条入口，都写进同一张 http_flow 表，按 source 区分：
 
 - **passive 入口（source=external）**：用户经 Burp / 真实浏览器把流量经 8888 代理过来 → 自动入字典 → 触发 traffic-analysis（1 流量 1 hunter）。
-- **active 入口（source=internal）**：active 容器内**两路**流量都入字典——① **chromium 浏览器**经 browser-svc 内建 CDP Network 观察器抓登录后真实已认证请求（Document / XHR / Fetch）；② **CLI 工具**（curl / sqlmap / nuclei / katana 等）经容器内 mitmproxy 代理捕获（源头按 method+templatize(path) 去重，fuzz 不膨胀）。两路经 ingest 回 Go 入字典，**owner = 整个 active run（orchestrator 与其 exploitation 共享可见，HunterID 仅作来源标记）**。**不触发 traffic-analysis**（防自激震荡）。攻击面即从本入口 source=internal 派生（`list_flows(source=internal)` 看走过的路由）；跨 hunter 信息传递走 redis 的 [[凭证共享协议]](read_credentials / write_credential) + finding 黑板 + 对话（思路/线索直接说出来，同 run 内可见）。
+- **active 入口（source=internal）**：active 容器内**两路**流量都入字典——① **chromium 浏览器**经 browser-svc 内建 CDP Network 观察器抓登录后真实已认证请求（Document / XHR / Fetch）；② **CLI 工具**（curl / sqlmap / nuclei / katana 等）经容器内 mitmproxy 代理捕获（源头按 method+templatize(path) 去重，fuzz 不膨胀）。两路经 ingest 回 Go 入字典，**owner = 整个 active run（reconnaissance / exploitation 抓的，整个 run 含 orchestrator 都可见，HunterID 仅作来源标记）**。**不触发 traffic-analysis**（防自激震荡）。攻击面即从本入口 source=internal 派生（`list_flows(source=internal)` 看走过的路由）；跨 hunter 信息传递走 redis 的 [[凭证共享协议]](read_credentials / write_credential) + finding 黑板 + 对话（思路/线索直接说出来，同 run 内可见）。
 
 **工具按角色**：
 - passive（traffic-analysis）：`replay_flow`
-- active（orchestrator / exploitation）：`list_flows` + `view_flow` + `replay_flow`
+- active 读流量：orchestrator 仅 `list_flows` + `view_flow`（不打洞不重放）；reconnaissance / exploitation 再加 `replay_flow`
 
 **三件套语义**：
-- `list_flows(host?)` — 列出本 active run（owner，含同 run 内 orchestrator / 其它 exploitation 抓的）已入字典的流量（method / url / status / type），找出登录 / 改密 / 下单等关键请求的 ID。
+- `list_flows(host?)` — 列出本 active run（owner，含同 run 内 reconnaissance / exploitation 抓的）已入字典的流量（method / url / status / type），找出登录 / 改密 / 下单等关键请求的 ID。
 - `view_flow(id)` — 看某条流量**完整真实结构**：请求头、cookie、body、query、响应头/体。**凭证位置（不止 cookie，可能在 header / body / query 多处）和请求结构都从这里读出**，不要凭空编。
 - `replay_flow(id, modifications={...})` — 拿流量 ID 改字段重发（payload 替换 / IDOR 改 user_id / 越权改身份 / fuzz），原请求所有字段（cookie / CSRF token / UA / 其它 form 字段）**自动继承**，你只声明改了什么。**比手写 curl 准 100 倍**，session 上下文零丢失。重发自身**不再入字典**（直连），仅返响应给本 hunter。
 

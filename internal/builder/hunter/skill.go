@@ -20,43 +20,19 @@ import (
 	"github.com/V3teran/liusha/internal/tools/manifest"
 )
 
-// hunter agent system prompt 按 mode 拆三段编译期嵌入：
-//   - shared：通用规则（角色 / 写 finding 铁律 / mode-invariant 反模式）
-//   - trafficAnalysis（passive 单 agent）：流量驱动入口
-//   - exploitation（active 子代理）：接 brief 深挖单点
+// hunter agent system prompt = shared 公共底座（编译期嵌入）+ 角色 charter（外部 hunters/ 目录）。
+//   - shared：通用规则（角色 / 写 finding 铁律 / 凭证协议 / mode-invariant 反模式），所有角色共用
+//   - 角色 charter：active 走 hunters/active/*.md（orchestrator + 杀伤链子代理），
+//     passive 走 hunters/passive/traffic-analysis.md——均由 einoagent.LoadRoles 加载，不再编译期嵌入。
 //
-// active 主代理不在此列：它走 composeOrchestratorInstruction（shared + hunters/orchestrator.md
-// 的 deep charter），不复用编译期 addendum。
+// 历史上 trafficAnalysis / exploitation 段也编译期嵌入（system_prompt_*.md），已并入各自角色 md 退役。
 // 改 prompt 走 PR + review，与代码同路径管理（prompt-as-code 实践）。
 //
 //go:embed system_prompt_shared.md
 var hunterSystemPromptShared string
 
-//go:embed system_prompt_trafficAnalysis.md
-var hunterSystemPromptTrafficAnalysis string
-
-//go:embed system_prompt_exploitation.md
-var hunterSystemPromptExploitation string
-
-// buildSystemPrompt 按 mode 选段拼接 shared + 角色段。
-//   - mode=="active" → exploitation（子代理，专注 brief 深挖单点）
-//   - 其它（passive / 未知） → trafficAnalysis（独立挖单流量）
-func buildSystemPrompt(mode string) string {
-	addendum := hunterSystemPromptTrafficAnalysis
-	if mode == "active" {
-		addendum = hunterSystemPromptExploitation
-	}
-	return hunterSystemPromptShared + "\n" + addendum
-}
-
-// SystemPromptFor 导出 buildSystemPrompt，供 eino 路径复用同一套 prompt-as-code 资产。
-func SystemPromptFor(mode string) string {
-	return buildSystemPrompt(mode)
-}
-
-// SharedSystemPrompt 单独导出 shared 段（不含任何角色 addendum）。
-// deep 路径的主代理用此 + 角色 md 的 deep-native 编排 charter 组装（不复用 orchestrator 段，
-// 那是为旧 spawn 机制写的）。
+// SharedSystemPrompt 导出 shared 公共底座。所有角色（orchestrator / 子代理 / traffic-analysis）
+// 都用此 + 各自 hunters/ 目录里的角色 charter 组装完整 system prompt。
 func SharedSystemPrompt() string {
 	return hunterSystemPromptShared
 }

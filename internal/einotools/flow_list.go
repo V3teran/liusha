@@ -45,8 +45,10 @@ type listFlowsArgs struct {
 func BuildListFlows(store FlowLister, ownerType, ownerID, hunterHost string) (tool.BaseTool, error) {
 	return utils.InferTool(
 		"list_flows",
-		"列出 owner 范围内的历史 HTTP 流量摘要。默认按当前 host 过滤，可叠加 method/path/source/status/since。"+
-			"返回 [{id, method, host, path, status, source, duration_ms, created_at}]；要看完整请求体调 view_flow。",
+		"列出 owner 范围内的历史 HTTP 流量摘要。默认按当前 host 过滤，可叠加 method/path/source/status/since/tool/identity。"+
+			"返回 [{id, method, host, path, status, source, tool, identity, duration_ms, created_at}]——"+
+			"其中 tool=browser（含 identity）是浏览器真实交互的高保真流量（字段值真、认证态全，replay 首选模板），"+
+			"tool=katana 等爬虫流量是广度线索（值不一定真）；要看完整请求体调 view_flow。",
 		func(ctx context.Context, in listFlowsArgs) (map[string]any, error) {
 			if ownerID == "" {
 				return nil, errors.New("list_flows: owner 注入缺失")

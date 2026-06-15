@@ -103,7 +103,7 @@ func (h handler) handlePassiveEino(ctx context.Context, p worker.Payload, entryp
 		return h.failTask(ctx, p.HunterID, err)
 	}
 
-	instruction := hunterbuilder.SystemPromptFor("passive")
+	instruction := hunterbuilder.SharedSystemPrompt() + "\n\n" + h.passiveRole.SystemPrompt
 	userPrompt := hunterbuilder.BuildUserPrompt(ctx, h.hunterDeps, params)
 
 	// 阶段2 可插话：把本 passive 会话最近的对话历史（含用户插话指导）拼到 prompt 前，
@@ -125,7 +125,7 @@ func (h handler) handlePassiveEino(ctx context.Context, p worker.Payload, entryp
 	defer cancel()
 	go h.watchAbort(runCtx, cancel, oid)
 
-	res, err := einoagent.RunTrafficAnalysis(runCtx, model, tools, instruction, userPrompt, mws, opts...)
+	res, err := einoagent.RunTrafficAnalysis(runCtx, model, tools, instruction, userPrompt, h.passiveRole.MaxIterations, mws, opts...)
 	if err != nil {
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			return h.abortTask(ctx, p.HunterID, "ctx "+err.Error())
