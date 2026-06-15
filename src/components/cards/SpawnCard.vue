@@ -3,6 +3,7 @@
 //   - 派发开始（args）：🛰️ 派发 → reconnaissance + brief
 //   - 派发完成（done + durationMs）：✓/✗ + 子代理执行总时长（task 工具的 tool_result）
 import { computed } from 'vue'
+import { agentAccent, agentLabel } from '../../lib/agentColor'
 
 const props = defineProps<{
   args?: string
@@ -23,6 +24,8 @@ const parsed = computed<SpawnArgs>(() => {
   }
 })
 const agent = computed(() => parsed.value.subagent_type || '子代理')
+const agentColor = computed(() => agentAccent(parsed.value.subagent_type))
+const agentText = computed(() => agentLabel(parsed.value.subagent_type) || '子代理')
 const brief = computed(() => (parsed.value.description || '').trim())
 const fmtMs = (n?: number) => (n && n > 0 ? (n >= 1000 ? (n / 1000).toFixed(1) + 's' : n + 'ms') : '')
 </script>
@@ -39,7 +42,7 @@ const fmtMs = (n?: number) => (n && n > 0 ? (n >= 1000 ? (n / 1000).toFixed(1) +
         <span class="sp-icon">🛰️</span>
         <span class="sp-label">派发</span>
         <span class="sp-arrow">→</span>
-        <span class="sp-agent" :style="{ color: agentColor.accent, background: agentColor.soft }">{{ agent }}</span>
+        <span class="sp-agent" :style="{ color: agentColor.accent, background: agentColor.soft }">{{ agentText }}</span>
       </template>
     </div>
     <div v-if="!done && brief" class="sp-brief">{{ brief }}</div>

@@ -28,7 +28,7 @@ const accent = computed(() => agentAccent(props.agentName)) // 每个 agent 独�
       <span class="dot" />
       <span class="label">调用</span>
       <code class="tool">{{ tool }}</code>
-      <span v-if="agentName" class="agent">{{ agentName }}</span>
+      <span v-if="agentName" class="agent">{{ agentLabel(agentName) }}</span>
     </button>
     <pre v-if="open && hasArgs" class="args">{{ pretty }}</pre>
   </div>

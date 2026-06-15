@@ -33,7 +33,7 @@ const preview = computed(() => {
       <span class="dot" :class="{ err: !!err }" />
       <code class="tool">{{ tool }}</code>
       <span class="dur">{{ durationMs }}ms</span>
-      <span v-if="agentName" class="agent">{{ agentName }}</span>
+      <span v-if="agentName" class="agent">{{ agentLabel(agentName) }}</span>
       <span v-if="!open" class="preview">{{ preview }}</span>
     </button>
     <pre v-if="open" class="out" :class="{ err: !!err }">{{ pretty }}</pre>
