@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // 工具结果卡：状态点(成功/错误) + 工具名 + 耗时，折叠看美化结果；错误默认展开。按 agent 名着色。
 import { computed, ref } from 'vue'
-import { agentAccent } from '../../lib/agentColor'
+import { agentAccent, agentLabel } from '../../lib/agentColor'
 const props = defineProps<{ tool: string; result: string; durationMs: number; err: string; agentName?: string }>()
 const open = ref(!!props.err)
 const accent = computed(() => agentAccent(props.agentName)) // 每个 agent 独立色

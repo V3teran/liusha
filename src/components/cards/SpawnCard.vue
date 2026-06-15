@@ -23,7 +23,6 @@ const parsed = computed<SpawnArgs>(() => {
     return {}
   }
 })
-const agent = computed(() => parsed.value.subagent_type || '子代理')
 const agentColor = computed(() => agentAccent(parsed.value.subagent_type))
 const agentText = computed(() => agentLabel(parsed.value.subagent_type) || '子代理')
 const brief = computed(() => (parsed.value.description || '').trim())

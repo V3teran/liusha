@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // 工具调用卡：折叠头（工具名）+ 展开看美化后的入参 JSON。按 agent 名着左边框 + chip 色，区分谁在调用。
 import { computed, ref } from 'vue'
-import { agentAccent } from '../../lib/agentColor'
+import { agentAccent, agentLabel } from '../../lib/agentColor'
 const props = defineProps<{ tool: string; args: string; agentName?: string }>()
 const open = ref(false)
 const pretty = computed(() => {

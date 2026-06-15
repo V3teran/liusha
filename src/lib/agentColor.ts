@@ -31,3 +31,18 @@ export function agentAccent(name?: string): AgentAccent {
   const c = FALLBACK_PALETTE[hashIndex(n, FALLBACK_PALETTE.length)]
   return { accent: c, soft: c + '24' } // +24 ≈ 14% alpha（8 位十六进制）
 }
+
+// agent 英文 id → 中文显示 label（前端展示用，技术 id 保持英文）。未知名回退原始名。
+const LABELS: Record<string, string> = {
+  orchestrator: '编排',
+  reconnaissance: '侦察',
+  exploitation: '利用',
+  'traffic-analysis': '流量分析',
+}
+
+// agentLabel 把 agent 英文 id 映射成中文标签；未知 agent 原样返回（含空串）。
+export function agentLabel(name?: string): string {
+  const n = name?.trim()
+  if (!n) return ''
+  return LABELS[n] ?? n
+}

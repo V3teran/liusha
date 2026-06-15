@@ -2,7 +2,7 @@
 // 推理卡：agent 的思路/分析/计划/决策（markdown 富文本）+ 本次 LLM 交互的 token/耗时元信息。
 import { computed } from 'vue'
 import { renderMarkdown } from '../../lib/markdown'
-import { agentAccent } from '../../lib/agentColor'
+import { agentAccent, agentLabel as toLabel } from '../../lib/agentColor'
 
 const props = defineProps<{
   text: string
@@ -18,8 +18,8 @@ const fmtTok = (n?: number) => (n && n > 0 ? (n >= 1000 ? (n / 1000).toFixed(1) 
 const fmtMs = (n?: number) => (n && n > 0 ? (n >= 1000 ? (n / 1000).toFixed(1) + 's' : n + 'ms') : '')
 const hasMeta = computed(() => (props.inTokens || 0) > 0 || (props.latencyMs || 0) > 0)
 
-// 直接显示英文 agent id（orchestrator / exploitation / reconnaissance），与后端/日志/记忆命名一致，零歧义。
-const agentLabel = computed(() => props.agentName?.trim() || '')
+// agent 英文 id → 中文标签（编排/侦察/利用/流量分析），未知名回退原始 id。
+const agentLabel = computed(() => toLabel(props.agentName))
 // 每个 agent 独立色（紫=指挥/青=侦察/玫红=利用…），驱动边框+标题+标签+光标。
 const accent = computed(() => agentAccent(props.agentName))
 </script>
