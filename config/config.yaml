@@ -391,8 +391,6 @@ skills:
 
 # ---- cmd/scanner 进程运行时参数 ----
 scanner:
-  passive_max_steps: 60                    # passive 模式 ReAct 步数上限（流量驱动单类型挖掘够用）
-  active_max_steps: 300                    # active 模式 ReAct 步数上限（站点级扫描深挖，与 passive 60 步差异化）；子 active 任务复用同一上限
   agent_run_timeout_seconds: 3600          # passive 模式 agent_run 整体超时（asynq handler 入口 WithTimeout，60 分钟，> step_tool）
   active_agent_run_timeout_seconds: 14400  # active 模式 agent_run 整体超时（4 小时，对齐 sandbox max lifetime；站点扫描爬+测耗时长）
   step_llm_timeout_seconds: 300            # 单步 LLM Generate 看门狗（5 分钟）

@@ -230,8 +230,6 @@ type HuntersConfig struct {
 
 // ScannerConfig 是 cmd/scanner 进程的运行时参数。
 type ScannerConfig struct {
-	PassiveMaxSteps              int    `mapstructure:"passive_max_steps"`                // passive 模式 ReAct 步数上限（流量驱动单类型挖掘 60 步够）
-	ActiveMaxSteps               int    `mapstructure:"active_max_steps"`                 // active 模式 ReAct 步数上限（active 站点扫描深挖，与 PassiveMaxSteps 解耦）；exploitation 任务复用同一上限
 	AgentRunTimeoutSeconds       int    `mapstructure:"agent_run_timeout_seconds"`        // passive 模式单个 hunter task 整体超时（asynq handler 入口 WithTimeout）
 	ActiveAgentRunTimeoutSeconds int    `mapstructure:"active_agent_run_timeout_seconds"` // active 模式整体超时——站点扫描爬+测耗时长，独立配置（默认 4h，对齐 sandbox max lifetime）
 	StepLLMTimeoutSeconds        int    `mapstructure:"step_llm_timeout_seconds"`
@@ -613,12 +611,6 @@ func applyHuntersDefaults(c HuntersConfig) HuntersConfig {
 }
 
 func applyScannerDefaults(c ScannerConfig) ScannerConfig {
-	if c.PassiveMaxSteps == 0 {
-		c.PassiveMaxSteps = 60
-	}
-	if c.ActiveMaxSteps == 0 {
-		c.ActiveMaxSteps = 300 // active 站点扫描深挖经验值（与 passive 60 步差异化）
-	}
 	if c.AgentRunTimeoutSeconds == 0 {
 		c.AgentRunTimeoutSeconds = 3600 // 60 分钟（> step_tool=1800，留 30min buffer 给主 ReAct 收尾）
 	}
