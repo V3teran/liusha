@@ -454,7 +454,7 @@ WORKDIR /work
 # 摘要打印——build 完确认装齐。
 RUN echo "=== liusha/pentools (sandbox-server + browser-use) 工具清单 ===" \
  && echo "recon:           subfinder | httpx | katana | nmap | wafw00f" \
- && echo "discovery:       ffuf | dirsearch | arjun" \
+ && echo "discovery:       ffuf | dirsearch | arjun | gau" \
  && echo "vulnscan:        nuclei (templates: $(ls /root/.config/nuclei-templates 2>/dev/null | wc -l) dirs)" \
  && echo "injection:       sqlmap | dalfox" \
  && echo "deserialization: ysoserial (java) | phpggc (php)" \
