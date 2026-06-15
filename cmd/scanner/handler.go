@@ -49,9 +49,13 @@ type handler struct {
 	einoFactory *einollm.Factory
 	hunterDeps  hunterbuilder.Deps
 
-	// roles 是 deep 角色定义（hunters/*.md 加载），active 路径用 BuildDeepSwarm 装配
+	// roles 是 active deep 角色定义（hunters/active/*.md 加载），active 路径用 BuildDeepSwarm 装配
 	// 主代理（orchestrator）+ 杀伤链子代理。
 	roles []einoagent.RoleDef
+
+	// passiveRole 是 passive 单 agent 角色（hunters/passive/traffic-analysis.md 加载）；
+	// passive 路径用其 SystemPrompt + MaxIterations 跑 RunTrafficAnalysis。
+	passiveRole einoagent.RoleDef
 
 	// conversations + eventPublisher 是阶段B 过程事件管道：对话发起（Payload.ConversationID
 	// 非空）时，agent 每次工具调用落 conversation message（PG）+ publish redis（实时推前端）。
@@ -64,9 +68,21 @@ type handler struct {
 	scenarioRoles []scenario.Role
 }
 
+// terminalWriteTimeout 是终态写入（SetError/SetAborted）的独立超时上限。
+const terminalWriteTimeout = 10 * time.Second
+
+// terminalCtx 从入参 ctx 派生一个「不随其取消/超时失效」的写入 ctx（WithoutCancel 保留携带值用于日志关联）。
+// 终态写入必须与请求生命周期解耦：当任务失败原因正是 ctx 超时/取消时，复用入参 ctx 会让 SetError/SetAborted
+// 也立即失败，task 便永远悬挂 running（active_scan 已终态但 hunter 还 running 的不一致根因）。
+func terminalCtx(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(ctx), terminalWriteTimeout)
+}
+
 // failTask 把错误标记到 task 表。
 func (h handler) failTask(ctx context.Context, hunterID string, err error) error {
-	if setErr := h.tasks.SetError(ctx, hunterID, err.Error()); setErr != nil {
+	writeCtx, cancel := terminalCtx(ctx)
+	defer cancel()
+	if setErr := h.tasks.SetError(writeCtx, hunterID, err.Error()); setErr != nil {
 		h.logger.Warn().Err(setErr).Str("hunter_id", hunterID).
 			Msg("SetError 失败（task 留在 running，原始错误已透传给 caller）")
 	}
@@ -76,7 +92,9 @@ func (h handler) failTask(ctx context.Context, hunterID string, err error) error
 // abortTask 把 task 推进到 aborted 终态（inspector 终止 / owner 中止 / ctx 取消）。
 // 与 failTask 区别：aborted 是"主动收手"非错误，不应触发告警。
 func (h handler) abortTask(ctx context.Context, hunterID, reason string) error {
-	if setErr := h.tasks.SetAborted(ctx, hunterID); setErr != nil {
+	writeCtx, cancel := terminalCtx(ctx)
+	defer cancel()
+	if setErr := h.tasks.SetAborted(writeCtx, hunterID); setErr != nil {
 		h.logger.Warn().Err(setErr).Str("hunter_id", hunterID).Str("reason", reason).
 			Msg("SetAborted 失败（task 留在 running）")
 	}
