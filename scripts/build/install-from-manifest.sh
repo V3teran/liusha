@@ -89,7 +89,9 @@ install_one() { # <name>
       apt-get install -y --no-install-recommends "$pkg" || { bad "$name: apt 装 $pkg 失败"; return 1; } ;;
     pip)
       ref=$(field_by_name "$name" ref); [ -n "$ref" ] || ref="$name"
-      pip install --quiet "$ref" || { bad "$name: pip 装 $ref 失败"; return 1; } ;;
+      # --ignore-installed：发行版(dpkg)可能已装同名 python 包但无 RECORD 文件，
+      # 直接 pip install 会因 uninstall-no-record-file 失败；忽略已装、装到 /usr/local 覆盖。
+      pip install --quiet --ignore-installed "$ref" || { bad "$name: pip 装 $ref 失败"; return 1; } ;;
     pipx)
       ref=$(field_by_name "$name" ref); [ -n "$ref" ] || ref="$name"
       pipx install "$ref" || { bad "$name: pipx 装 $ref 失败"; return 1; } ;;

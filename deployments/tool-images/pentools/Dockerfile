@@ -100,6 +100,51 @@ RUN chmod +x /usr/local/bin/browser-use /usr/local/bin/browser-svc.py \
  && head -1 /usr/local/bin/browser-use \
  && /usr/local/bin/browser-use --help >/dev/null 2>&1 || true
 
+# Layer 4c: 特殊装法工具（不适配通用 manifest 安装器）——在安装器之前装好，安装器 command -v 命中即信任跳过。
+#   - jwt_tool：git clone + pip 依赖 + python wrapper（PyPI 的 pyjwt 是另一个包）
+#   - dalfox：hahwul release，archive 内是带版本名的单文件（dalfox-v$v-linux-$DARCH）
+#   - ysoserial：jar + java wrapper
+# gh-latest：跟 GitHub /releases/latest 的 302 拿最新 tag（去前导 v）；3 retry；可传 fallback 兜底。
+RUN cat <<'EOF' > /usr/local/bin/gh-latest
+#!/bin/sh
+fallback="$2"
+for attempt in 1 2 3; do
+  url=$(curl -sILf --max-time 15 -o /dev/null -w '%{url_effective}' "https://github.com/$1/releases/latest" 2>/dev/null) || url=""
+  case "$url" in
+    *tag/v*) echo "$url" | sed 's|.*tag/v||'; exit 0 ;;
+    *tag/*)  echo "$url" | sed 's|.*tag/||';  exit 0 ;;
+  esac
+  sleep 2
+done
+[ -n "$fallback" ] && { echo "$fallback"; exit 0; }
+exit 1
+EOF
+RUN set -eu \
+ && chmod +x /usr/local/bin/gh-latest \
+ # jwt_tool
+ && git clone --depth 1 https://github.com/ticarpi/jwt_tool.git /opt/jwt_tool \
+ && pip install --quiet --ignore-installed -r /opt/jwt_tool/requirements.txt \
+ && printf '#!/bin/sh\nexec python3 /opt/jwt_tool/jwt_tool.py "$@"\n' > /usr/local/bin/jwt_tool \
+ && chmod +x /usr/local/bin/jwt_tool \
+ && jwt_tool -h 2>&1 | head -1 \
+ # dalfox（DARCH: arm64→aarch64 / amd64→x86_64；archive 内单文件名 = dalfox-v$v-linux-$DARCH）
+ && v=$(gh-latest hahwul/dalfox 3.0.0) \
+ && case "${TARGETARCH}" in arm64) DARCH=aarch64 ;; amd64) DARCH=x86_64 ;; *) DARCH=${TARGETARCH} ;; esac \
+ && url="https://github.com/hahwul/dalfox/releases/download/v$v/dalfox-v$v-linux-${DARCH}.tar.gz" \
+ && wget "$url" -O /tmp/dalfox.tar.gz \
+ && [ -s /tmp/dalfox.tar.gz ] || { echo "[FATAL] dalfox download failed: $url"; exit 1; } \
+ && tar -xzf /tmp/dalfox.tar.gz "dalfox-v$v-linux-${DARCH}" -O > /usr/local/bin/dalfox \
+ && [ -s /usr/local/bin/dalfox ] || { echo "[FATAL] dalfox binary empty"; exit 1; } \
+ && chmod +x /usr/local/bin/dalfox && rm -f /tmp/dalfox.tar.gz \
+ && dalfox version 2>&1 | head -1 \
+ # ysoserial（jar + wrapper；fallback 0.0.6，多年未变）
+ && v=$(gh-latest frohoff/ysoserial 0.0.6) \
+ && wget "https://github.com/frohoff/ysoserial/releases/download/v$v/ysoserial-all.jar" -O /opt/ysoserial.jar \
+ && [ -s /opt/ysoserial.jar ] || { echo "[FATAL] ysoserial jar 空"; exit 1; } \
+ && printf '#!/bin/sh\nexec java -jar /opt/ysoserial.jar "$@"\n' > /usr/local/bin/ysoserial \
+ && chmod +x /usr/local/bin/ysoserial \
+ && ysoserial 2>&1 | head -1
+
 # Layer 5: manifest 驱动装齐工具——逐个 command -v 实测，Kali 已供给则信任，缺了按 install 装，
 # 任一缺失/装不上即构建失败。browser-use 此时已存在（Layer 4），安装器遍历到它会信任跳过。
 COPY deployments/tool-images/pentools/tools.yaml /tmp/tools.yaml
