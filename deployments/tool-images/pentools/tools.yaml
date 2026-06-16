@@ -33,7 +33,7 @@ tools:
   - name: katana
     category: recon
     description: 现代 Web 爬虫——爬一个起点 url 拿全部站内链接 + JS 解析的 endpoint。
-    install: { method: apt }
+    install: { method: release, ref: projectdiscovery/katana@v1.6.1 }   # Kali apt 无 katana → release
   - name: nmap
     category: recon
     description: 端口扫描 + 服务指纹 + NSE 脚本（半个漏扫器）。发现主端口外的高危服务用。

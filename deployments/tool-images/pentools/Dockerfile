@@ -187,7 +187,7 @@ RUN mkdir -p /opt/SecLists \
 # Layer 9: mitmproxy——容器内捕获 CLI 工具流量入 http_flow 字典（经 HTTP_PROXY → mitmdump → addon → ingest）。
 # mitmproxy 用自己的 CA MITM（build 期生成装入 OpenSSL trust），CLI 工具才不拒 HTTPS。
 COPY deployments/tool-images/pentools/mitm-capture.py /usr/local/bin/mitm-capture.py
-RUN pip install --quiet mitmproxy \
+RUN pip install --quiet --ignore-installed mitmproxy \
  && timeout 8 mitmdump --listen-port 18999 -q >/dev/null 2>&1 || true \
  && test -f /root/.mitmproxy/mitmproxy-ca-cert.pem \
  && cp /root/.mitmproxy/mitmproxy-ca-cert.pem /usr/local/share/ca-certificates/mitmproxy-ca.crt \
