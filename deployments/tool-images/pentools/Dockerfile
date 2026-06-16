@@ -22,9 +22,9 @@
 # 构建：
 #   docker build -t liusha/pentools:latest -f deployments/tool-images/pentools/Dockerfile .
 #
-# 工具清单（22 个，按 9 类）：
+# 工具清单（25 个，按 9 类）：
 #   recon (5):           subfinder httpx katana nmap wafw00f
-#   discovery (4):       ffuf dirsearch arjun gau
+#   discovery (5):       ffuf dirsearch arjun gau spectral（API 模式分析）
 #   vulnscan (1):        nuclei
 #   injection (2):       sqlmap dalfox
 #   deserialization (2): ysoserial phpggc
@@ -333,6 +333,21 @@ RUN set -eu \
  && /usr/local/bin/gau --version 2>&1 | head -1 \
  && /usr/local/bin/interactsh-client -version 2>&1 | head -1
 
+# Layer 4c: spectral（Stoplight Spectral）——API 规范 linter，对 OpenAPI/Swagger/GraphQL spec 跑
+# `spectral lint <spec>` 摊开声明的 endpoint × 参数 × 认证方式（API 攻击面枚举，归 discovery）。默认规则集
+# 只校验规范质量/合法性、非安全扫描；安全项需另挂 OWASP 规则集且仅设计层静态提示（不碰目标、不确认可利用）。
+# 用 standalone 可执行（pkg 内嵌 node，免装 Node.js 运行时）；非 alpine 版（base 是 ubuntu/glibc）。pin v6.15.0。
+# arch 映射：docker TARGETARCH amd64→x64 / arm64→arm64。
+ARG SPECTRAL_VERSION=6.15.0
+RUN set -eu \
+ && case "${TARGETARCH}" in amd64) SARCH=x64 ;; arm64) SARCH=arm64 ;; *) SARCH=${TARGETARCH} ;; esac \
+ && url="https://github.com/stoplightio/spectral/releases/download/v${SPECTRAL_VERSION}/spectral-linux-${SARCH}" \
+ && wget "$url" -O /usr/local/bin/spectral \
+ && [ -s /usr/local/bin/spectral ] || { echo "[FATAL] spectral download failed: $url"; exit 1; } \
+ && chmod +x /usr/local/bin/spectral \
+ && echo "=== Layer 4c sanity check ===" \
+ && /usr/local/bin/spectral --version 2>&1 | head -1
+
 # Layer 4b: PD 工具 -duc wrapper——拦截 httpx/katana/nuclei/subfinder 启动时的
 # phone-home (api.pdtm.sh 版本检查)。原因：
 #   1. 内网/断网场景下省 5s timeout
@@ -454,7 +469,7 @@ WORKDIR /work
 # 摘要打印——build 完确认装齐。
 RUN echo "=== liusha/pentools (sandbox-server + browser-use) 工具清单 ===" \
  && echo "recon:           subfinder | httpx | katana | nmap | wafw00f" \
- && echo "discovery:       ffuf | dirsearch | arjun | gau" \
+ && echo "discovery:       ffuf | dirsearch | arjun | gau | spectral $(spectral --version 2>/dev/null || echo '?')" \
  && echo "vulnscan:        nuclei (templates: $(ls /root/.config/nuclei-templates 2>/dev/null | wc -l) dirs)" \
  && echo "injection:       sqlmap | dalfox" \
  && echo "deserialization: ysoserial (java) | phpggc (php)" \

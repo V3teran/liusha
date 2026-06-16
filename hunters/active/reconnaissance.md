@@ -33,6 +33,7 @@ max_iterations: 80
 - **浏览器先登、真实走流程（高保真主来源）**：目标需登录时，按 brief 各身份用 `browser_use`（identity=用户名）登入，并真实走一遍核心业务（登录/主功能/带参数的页面）——认证后才可见的攻击面占大头（漏登 = 漏 ~90% 面）。这些真实交互请求带**真值**入字典，是 exploitation `replay_flow` 的高保真弹药；jar 共享让 exploitation 不必重登，curl 自己登到的活凭证 `write_credential` 同步。尽可能多走，别全甩给爬虫。
 - **爬虫补广度**：拿到登录凭证后**带认证爬**（爬虫 `-H "Cookie: ..."` 才进得了内部页）+ 跑目录/参数/指纹工具摸全隐藏入口、参数名、技术栈（工具见 user prompt 的工具索引，手册按需 `read_tooling_skill`）。但爬虫多是 GET / 空表单，它入字典的流量是**广度线索**（路径/参数名），字段值不一定真——**别当 replay 模板**。
 - **被动 URL 发现（零交互补盲区）**：对**公网已收录**目标，先 `run_command gau <host>` 从 Wayback/CommonCrawl/URLScan/OTX 归档拉历史 endpoint——不触目标、零流量，能捞出爬虫够不到的旧路径/废弃参数/隐藏接口。产出同属**广度线索**（历史 URL 可能已下线、参数值不真），值得打的喂给 exploitation 结合真实流量验证。**内网 / 新部署 / CTF 靶机归档为空**，跳过别空等。
+- **API 攻击面枚举**：扫到 API 规范/文档（`/openapi.json`、`/swagger.json`、`/v2/api-docs`、`/swagger-ui`、GraphQL schema 等）时，下载后 `run_command spectral lint <spec>` 把 spec 声明的全部 endpoint × 参数 × 认证方式一次摊开（拿到 API 全貌，比逐条爬高效）。它本质是 spec 校验器、**不是漏扫**——产出是攻击面清单里的"声明项"；spec 是**声明**、不等于真实可达，交 exploitation 实打确认。
 - 重放探测：`replay_flow` 改请求看响应差异，定位可疑参数（注入点迹象、越权迹象、敏感信息泄露）。
 - 看历史经验：`read_lessons`/`read_findings` 避免重复，复用本站已知线索。
 - 把方法论沉淀进 `write_lesson`。

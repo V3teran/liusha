@@ -1,4 +1,4 @@
-# liusha 沙箱预装工具清单（23 个）
+# liusha 沙箱预装工具清单（25 个）
 #
 # 单一来源：与同目录 Dockerfile 同步维护——
 # Dockerfile 装的 binary 与本 yaml 列出的 tools 应严格对应（可加 CI lint 校对）。
@@ -44,6 +44,9 @@ tools:
   - name: gau
     category: discovery
     description: 被动 URL 发现——从 Wayback/Common Crawl/URLScan/OTX 归档拉历史 endpoint。仅对公网已收录站有结果，内网/新部署/CTF 靶机返回空。
+  - name: spectral
+    category: discovery
+    description: API 规范解析/校验（OpenAPI/Swagger/GraphQL）——`spectral lint <spec_url_或_文件>` 把 spec 声明的 endpoint × 参数 × 认证方式全摊开，一次拿到 API 攻击面（同 arjun 找参数）。默认规则集只校验规范质量/合法性，**非安全扫描**；可选挂 OWASP 规则集做设计层提示（不碰目标、不确认可利用）。需先拿到 spec：从 /openapi.json、/swagger.json、/v2/api-docs、/swagger-ui 发现并下载。
 
   # ===== vulnscan（自动化模板漏扫）=====
   - name: nuclei
