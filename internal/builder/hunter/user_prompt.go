@@ -8,7 +8,6 @@ import (
 
 	"github.com/V3teran/liusha/internal/finding"
 	"github.com/V3teran/liusha/internal/lesson"
-	"github.com/V3teran/liusha/internal/notes"
 	"github.com/V3teran/liusha/internal/skill"
 	"github.com/V3teran/liusha/internal/tools/manifest"
 )
@@ -22,9 +21,9 @@ func buildUserPrompt(ctx context.Context, deps Deps, p skill.BuilderParams) stri
 	var b strings.Builder
 
 	// 字段触发渲染（不再 Mode-driven）：
-	//   - RequestHeaders 非空或 URL 非空 → 渲染 raw HTTP 段（tracker / 带 flow_id 的 striker）
-	//   - Brief 非空 → 渲染 brief 段（commander / striker）
-	// 两者可并存：tracker spawn striker 带 flow_id 时，striker 同时看到 raw HTTP + brief。
+	//   - RequestHeaders 非空或 URL 非空 → 渲染 raw HTTP 段（trafficAnalysis / 带 flow_id 的 exploitation）
+	//   - Brief 非空 → 渲染 brief 段（orchestrator / exploitation）
+	// 两者可并存：trafficAnalysis spawn exploitation 带 flow_id 时，exploitation 同时看到 raw HTTP + brief。
 	if len(p.RequestHeaders) > 0 || p.URL != "" {
 		// 段 0（0060+ 流量字典）：本流量已入 http_flow 表，告诉 LLM flow_id 让它能用
 		// replay_flow(id=N, modifications={...}) 改参数重发——比手写 curl 准 100 倍，
@@ -62,15 +61,15 @@ func buildUserPrompt(ctx context.Context, deps Deps, p skill.BuilderParams) stri
 		writeBodyBlock(&b, p.ResponseBody, bodyLimit)
 	}
 	if p.Brief != "" {
-		// 段 3 (commander 独有) 或 段 1 (striker 无 flow): 自然语言 brief。
-		// striker brief 是 commander LLM 写的指令；commander 同时传 flow_id 时，本段位于流量段之后。
+		// 段 3 (orchestrator 独有) 或 段 1 (exploitation 无 flow): 自然语言 brief。
+		// exploitation brief 是 orchestrator LLM 写的指令；orchestrator 同时传 flow_id 时，本段位于流量段之后。
 		if b.Len() > 0 {
 			b.WriteString("\n\n")
 		}
 		fmt.Fprintf(&b, "## 站点任务\n\n%s\n", p.Brief)
-		// active 路径强制注入 host（commander/striker 都看得见）。
-		// 否则 commander prompt 写"不要在 brief 里复述站点 URL（host 自动注入）"，
-		// 但 buildUserPrompt 在 brief-only 路径下原本不渲染 host —— striker 只能猜
+		// active 路径强制注入 host（orchestrator/exploitation 都看得见）。
+		// 否则 orchestrator prompt 写"不要在 brief 里复述站点 URL（host 自动注入）"，
+		// 但 buildUserPrompt 在 brief-only 路径下原本不渲染 host —— exploitation 只能猜
 		// localhost / dvwa 等，公网 host 全 502/404，挖不到 finding。
 		if p.Host != "" {
 			fmt.Fprintf(&b, "\n## 目标 Host\n\n`%s`\n", p.Host)
@@ -92,12 +91,7 @@ func buildUserPrompt(ctx context.Context, deps Deps, p skill.BuilderParams) stri
 		b.WriteString(existing)
 	}
 
-	// 段 3.5: 本次扫描笔记板（owner 内同 host 工作笔记）
-	// 内容由其他 hunter task 通过 write_note 写入——临时凭据/状态、目标怪癖、小惊喜、失败死路。
-	if notes := loadOwnerNotes(ctx, deps.Notes, p.OwnerID, p.Host); notes != "" {
-		b.WriteString("\n\n## 本次扫描笔记板（owner 内同 host）\n\n")
-		b.WriteString(notes)
-	}
+	// notes 笔记板段已退役——agent 思路改输出到对话（reasoning），跨 task 上下文走对话历史。
 
 	// 段 4: lesson + hint（跨 owner 长期经验）
 	if knowledge := loadKnowledgeForPrompt(ctx, deps.Lessons, p.Host, lessonsLimit); knowledge != "" {
@@ -372,41 +366,6 @@ func loadExistingFindings(ctx context.Context, store *finding.Store, ownerType, 
 			break
 		}
 		fmt.Fprintf(&b, "- [%s] %s\n", f.Severity, firstLine(f.Summary, 120))
-	}
-	return b.String()
-}
-
-// loadOwnerNotes 拉本次扫描 (owner, host) 范围的 notes（短期工作内存）
-// 渲染给 hunter user prompt。
-//
-// notes 按 (eid, host) 切分——本函数只读本 host 的笔记，不会混入其他 host 的
-// 怪癖/死路。注入到 user prompt 让 hunter 看到同 (owner, host) 内其他
-// hunter task 写的笔记（临时凭据/状态、目标怪癖、小惊喜、失败死路），避免每个
-// agent 从零摸索。
-func loadOwnerNotes(ctx context.Context, store notes.Store, ownerID, host string) string {
-	if store == nil || ownerID == "" || host == "" {
-		return ""
-	}
-	raw, err := store.ReadNotes(ctx, ownerID, host)
-	if err != nil || len(raw) == 0 {
-		return ""
-	}
-	// raw 形如 {"notes": [{"content":"...","hunter_id":"..."}, ...]}
-	var parsed struct {
-		Notes []struct {
-			Content  string `json:"content"`
-			HunterID string `json:"hunter_id"`
-		} `json:"notes"`
-	}
-	if err := json.Unmarshal(raw, &parsed); err != nil {
-		return ""
-	}
-	if len(parsed.Notes) == 0 {
-		return ""
-	}
-	var b strings.Builder
-	for _, n := range parsed.Notes {
-		fmt.Fprintf(&b, "- %s\n", firstLine(n.Content, 200))
 	}
 	return b.String()
 }

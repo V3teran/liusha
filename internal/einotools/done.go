@@ -9,9 +9,9 @@ import (
 	"github.com/cloudwego/eino/schema"
 )
 
-// done.go：eino 版终止工具，工具名 **done**（对齐 liusha hunter prompt —— system_prompt_{shared,striker,commander}.md
+// done.go：eino 版终止工具，工具名 **done**（对齐 liusha hunter prompt —— system_prompt_{shared,exploitation,orchestrator}.md
 // 都教 LLM 调 done 收尾）。eino 自带 adk.ExitTool 名为 "exit"，与 prompt 不符 → LLM 调 done 会
-// 「tool done not found」报错（active e2e 实测 striker 因此挂）。本工具复刻 eino 的 Exit 终止机制
+// 「tool done not found」报错（active e2e 实测 exploitation 因此挂）。本工具复刻 eino 的 Exit 终止机制
 // （SendToolGenAction + NewExitAction），但用 name=done + liusha 熟悉的 reason/summary 参数。
 //
 // eino 单 agent 本可「不调工具即自然收尾」，但 liusha prompt 是 react/eino 共享资产、深度依赖 done，

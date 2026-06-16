@@ -65,10 +65,11 @@ func BuildReadLessons(store LessonLister, host string) (tool.BaseTool, error) {
 }
 
 // writeLessonArgs 是 write_lesson 入参；content 必填，kind/priority 可选。
+// 可选字段带 ,omitempty 避免被误标 required（见 findings.go 详注）。
 type writeLessonArgs struct {
-	Content  string `json:"content"  jsonschema:"required,description=自由文本经验（≤500 字，给下次 AI 看）"`
-	Kind     string `json:"kind"     jsonschema:"enum=lesson,enum=hint,description=lesson=本 host 特定经验（默认）；hint=跨 host 业务规则（影响所有未来 agent，慎用）"`
-	Priority int    `json:"priority" jsonschema:"description=优先级 1-10（默认 5；越大越优先注入下次 prompt）"`
+	Content  string `json:"content"            jsonschema:"required,description=自由文本经验（≤500 字，给下次 AI 看）"`
+	Kind     string `json:"kind,omitempty"     jsonschema:"enum=lesson,enum=hint,description=lesson=本 host 特定经验（默认）；hint=跨 host 业务规则（影响所有未来 agent，慎用）"`
+	Priority int    `json:"priority,omitempty" jsonschema:"description=优先级 1-10（默认 5；越大越优先注入下次 prompt）"`
 }
 
 // BuildWriteLesson 造原生 eino write_lesson 工具。host 闭包捕获；kind=hint 时 host 强制为全局。

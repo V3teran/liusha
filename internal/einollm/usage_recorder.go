@@ -3,6 +3,9 @@ package einollm
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"io"
+	"strings"
 	"time"
 
 	"github.com/cloudwego/eino/callbacks"
@@ -82,6 +85,25 @@ func NewUsageRecorder(sink llm.CallSink, pricing llm.PricingProvider, meta llm.C
 			appendInvocation(sink, meta, rec)
 			return ctx
 		}).
+		// OnEndWithStreamOutput：模型走 Stream（EnableStreaming）时触发——非流式走上面 OnEnd。
+		// 读尽流式副本累积 token usage（在末 chunk）+ 全文（审计），落同一行 llm_invocation。
+		// 不开此出口则开启流式后计费/token 全丢，故与 OnEnd 成对实现。
+		OnEndWithStreamOutputFn(func(ctx context.Context, info *callbacks.RunInfo, output *schema.StreamReader[callbacks.CallbackOutput]) context.Context {
+			if info == nil || info.Component != components.ComponentOfChatModel {
+				output.Close()
+				return ctx
+			}
+			go func() {
+				defer output.Close()
+				merged := mergeStreamOutput(output)
+				if merged == nil {
+					return
+				}
+				rec := buildInvocation(ctx, meta, pricing, provider, defaultModel, merged)
+				appendInvocation(sink, meta, rec)
+			}()
+			return ctx
+		}).
 		// OnError：ChatModel 调用失败（瞬时 4xx/429/EOF 等）也落一行带 error 的 llm_invocation，
 		// 与 react Instrument 两者都记对齐（成功率/故障率统计需要失败样本）。
 		OnErrorFn(func(ctx context.Context, info *callbacks.RunInfo, runErr error) context.Context {
@@ -96,6 +118,49 @@ func NewUsageRecorder(sink llm.CallSink, pricing llm.PricingProvider, meta llm.C
 			return ctx
 		}).
 		Build()
+}
+
+// mergeStreamOutput 读尽流式 ChatModel 输出副本，合并成一个 *model.CallbackOutput：
+// token usage 取末次非空（流式 usage 在最后 chunk），全文拼接进 Message（审计完整）。
+// 空流返回 nil（计费跳过）。读完不关流——调用方 defer Close。
+func mergeStreamOutput(sr *schema.StreamReader[callbacks.CallbackOutput]) *model.CallbackOutput {
+	var merged model.CallbackOutput
+	var content strings.Builder
+	var got bool
+	for {
+		chunk, err := sr.Recv()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			break // 流出错：用已累积的部分落库（best-effort）
+		}
+		out := model.ConvCallbackOutput(chunk)
+		if out == nil {
+			continue
+		}
+		got = true
+		if out.TokenUsage != nil {
+			merged.TokenUsage = out.TokenUsage
+		}
+		if out.Config != nil {
+			merged.Config = out.Config
+		}
+		if out.Message != nil {
+			content.WriteString(out.Message.Content)
+			merged.Message = out.Message // 保留末 chunk 的 ResponseMeta（FinishReason）
+		}
+	}
+	if !got {
+		return nil
+	}
+	// 用累积全文覆盖末 chunk 的局部 content（审计 Result 要完整输出）。
+	if merged.Message != nil {
+		m := *merged.Message
+		m.Content = content.String()
+		merged.Message = &m
+	}
+	return &merged
 }
 
 // appendInvocation 落库 + best-effort 错误处理（埋点失败仅 warn，不阻塞 agent run）。

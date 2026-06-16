@@ -77,6 +77,9 @@ github.com/bahlo/generic-list-go
 # github.com/bits-and-blooms/bitset v1.13.0
 ## explicit; go 1.16
 github.com/bits-and-blooms/bitset
+# github.com/bmatcuk/doublestar/v4 v4.10.0
+## explicit; go 1.16
+github.com/bmatcuk/doublestar/v4
 # github.com/buger/jsonparser v1.1.1
 ## explicit; go 1.13
 github.com/buger/jsonparser
@@ -183,7 +186,10 @@ github.com/cloudwego/base64x/internal/rt
 # github.com/cloudwego/eino v0.8.13
 ## explicit; go 1.18
 github.com/cloudwego/eino/adk
+github.com/cloudwego/eino/adk/filesystem
 github.com/cloudwego/eino/adk/internal
+github.com/cloudwego/eino/adk/middlewares/filesystem
+github.com/cloudwego/eino/adk/prebuilt/deep
 github.com/cloudwego/eino/callbacks
 github.com/cloudwego/eino/components
 github.com/cloudwego/eino/components/document
@@ -361,8 +367,6 @@ github.com/goccy/go-yaml/parser
 github.com/goccy/go-yaml/printer
 github.com/goccy/go-yaml/scanner
 github.com/goccy/go-yaml/token
-# github.com/golang-migrate/migrate/v4 v4.19.1
-## explicit; go 1.24.0
 # github.com/golang/snappy v0.0.4
 ## explicit
 github.com/golang/snappy
@@ -622,8 +626,6 @@ github.com/nikolalohinski/gonja/utils
 # github.com/nwaples/rardecode v1.1.3
 ## explicit
 github.com/nwaples/rardecode
-# github.com/onsi/ginkgo v1.16.5
-## explicit; go 1.16
 # github.com/opencontainers/go-digest v1.0.0
 ## explicit; go 1.13
 github.com/opencontainers/go-digest

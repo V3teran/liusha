@@ -63,32 +63,32 @@ func TestStore_Append_WithRouteKey(t *testing.T) {
 	s, ot, oid := setup(t)
 
 	if _, err := s.Append(ctx, Invocation{
-		OwnerType:   &ot,
-		OwnerID:     &oid,
-		Provider:    "deepseek",
-		Model:       "deepseek-chat",
-		Role: "inspector",
-		CostUSD:     0.0001,
+		OwnerType: &ot,
+		OwnerID:   &oid,
+		Provider:  "deepseek",
+		Model:     "deepseek-chat",
+		Role:      "inspector",
+		CostUSD:   0.0001,
 	}); err != nil {
 		t.Fatalf("append inspector: %v", err)
 	}
 	if _, err := s.Append(ctx, Invocation{
-		OwnerType:   &ot,
-		OwnerID:     &oid,
-		Provider:    "deepseek",
-		Model:       "deepseek-chat",
-		Role: "inspector",
-		CostUSD:     0.0002,
+		OwnerType: &ot,
+		OwnerID:   &oid,
+		Provider:  "deepseek",
+		Model:     "deepseek-chat",
+		Role:      "inspector",
+		CostUSD:   0.0002,
 	}); err != nil {
 		t.Fatalf("append inspector 2: %v", err)
 	}
 	if _, err := s.Append(ctx, Invocation{
-		OwnerType:   &ot,
-		OwnerID:     &oid,
-		Provider:    "deepseek",
-		Model:       "deepseek-reasoner",
-		Role: "react_main",
-		CostUSD:     0.001,
+		OwnerType: &ot,
+		OwnerID:   &oid,
+		Provider:  "deepseek",
+		Model:     "deepseek-reasoner",
+		Role:      "react_main",
+		CostUSD:   0.001,
 	}); err != nil {
 		t.Fatalf("append react.main: %v", err)
 	}
@@ -118,19 +118,19 @@ func TestStore_SumCostByOwnerID(t *testing.T) {
 		role string
 		cost float64
 	}{
-		{"tracker", 0.001234},
+		{"traffic-analysis", 0.001234},
 		{"inspector", 0.000567},
 		{"react_main", 0.002000},
 	}
 	var want float64
 	for _, c := range costs {
 		if _, err := s.Append(ctx, Invocation{
-			OwnerType:   &ot,
-			OwnerID:     &oid,
-			Provider:    "deepseek",
-			Model:       "deepseek-chat",
-			Role: c.role,
-			CostUSD:     c.cost,
+			OwnerType: &ot,
+			OwnerID:   &oid,
+			Provider:  "deepseek",
+			Model:     "deepseek-chat",
+			Role:      c.role,
+			CostUSD:   c.cost,
 		}); err != nil {
 			t.Fatalf("append %s: %v", c.role, err)
 		}

@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"sync"
 	"time"
 
 	"github.com/hibiken/asynq"
@@ -13,6 +12,8 @@ import (
 	"github.com/V3teran/liusha/internal/activescan"
 	hunterbuilder "github.com/V3teran/liusha/internal/builder/hunter"
 	"github.com/V3teran/liusha/internal/config"
+	"github.com/V3teran/liusha/internal/conversation"
+	"github.com/V3teran/liusha/internal/einoagent"
 	"github.com/V3teran/liusha/internal/einollm"
 	"github.com/V3teran/liusha/internal/finding"
 	"github.com/V3teran/liusha/internal/flow"
@@ -20,11 +21,10 @@ import (
 	"github.com/V3teran/liusha/internal/lesson"
 	"github.com/V3teran/liusha/internal/llm"
 	"github.com/V3teran/liusha/internal/llminvocation"
-	"github.com/V3teran/liusha/internal/notes"
 	"github.com/V3teran/liusha/internal/passivesession"
-	"github.com/V3teran/liusha/internal/react"
 	"github.com/V3teran/liusha/internal/sandbox"
-	"github.com/V3teran/liusha/internal/skill"
+	"github.com/V3teran/liusha/internal/scanstream"
+	"github.com/V3teran/liusha/internal/scenario"
 	"github.com/V3teran/liusha/internal/worker"
 )
 
@@ -33,7 +33,6 @@ type handler struct {
 	tasks           *hunter.Store
 	passiveSessions *passivesession.Store
 	activeScans     *activescan.Store
-	notes           *notes.RedisStore
 	findings        *finding.Store
 	lessons         *lesson.Store
 	flows           *flow.Store
@@ -41,73 +40,49 @@ type handler struct {
 	cfg             config.Config
 	scannerCfg      config.ScannerConfig
 	pricing         llm.PricingProvider
-	router          *llm.Router
-	hunterBuilder   skill.Builder
 	launcher        sandbox.Launcher
 	logger          zerolog.Logger
 
-	// eino 迁移：passive + active 路径走 eino ChatModelAgent（已转默认）。
-	//   - einoFactory：按 role 产独立 eino ChatModel（per-hunter 铁律）
-	//   - hunterDeps：复用旧 builder 的 store/loader 依赖（装 TrackerToolDeps + BuildUserPrompt）
-	//   - useReact：LIUSHA_USE_REACT=1 时切回旧 react 路径（退路，渐进迁移期保留；默认走 eino）。
-	// eino 已补齐计费 / 压缩 / 截图回灌；inspector 由单 agent 自然收尾替代。
+	// eino agent：passive + active 路径走 eino ChatModelAgent（唯一路径，react 退路已删）。
+	//   - einoFactory：按 role 产独立 eino ChatModel
+	//   - hunterDeps：prompt 拼装 + 工具装配的 store/loader 依赖
 	einoFactory *einollm.Factory
 	hunterDeps  hunterbuilder.Deps
-	useReact    bool
 
-	// parentRegistries 索引 commander hunterID → striker Registry（subtask swarm）。
-	// spawnerFactory 闭包 Store；handleActive 在 react.Run 返回后 LoadAndDelete
-	// + cancel commander ctx + WaitAll，确保striker goroutine 全退再 Destroy sandbox，防孤儿。
-	parentRegistries *sync.Map
+	// roles 是 active deep 角色定义（hunters/active/*.md 加载），active 路径用 BuildDeepSwarm 装配
+	// 主代理（orchestrator）+ 杀伤链子代理。
+	roles []einoagent.RoleDef
+
+	// passiveRole 是 passive 单 agent 角色（hunters/passive/traffic-analysis.md 加载）；
+	// passive 路径用其 SystemPrompt + MaxIterations 跑 RunTrafficAnalysis。
+	passiveRole einoagent.RoleDef
+
+	// conversations + eventPublisher 是阶段B 过程事件管道：对话发起（Payload.ConversationID
+	// 非空）时，agent 每次工具调用落 conversation message（PG）+ publish redis（实时推前端）。
+	// 二者任一 nil 时不发事件（向后兼容纯后台扫描）。
+	conversations  *conversation.Store
+	eventPublisher *scanstream.Publisher
+
+	// scenarioRoles 是场景 role（roles/*.md，阶段C）：active/passive handler 按 Payload.ScenarioID
+	// 注入主代理人设。空/未匹配时不注入（退化为通用扫描）。
+	scenarioRoles []scenario.Role
 }
 
-// buildInspector 装配 LLMInspector：复用 handler_passive / handler_active 两处胶水。
-// inspector LLM 走 light_provider（router "inspector" 路由），按 (owner, host) 做 notes/findings/lessons 范围隔离。
-// flowSummary 由 caller 提供，约束 inspector 评估范围（passive 含流量首行 / active 含 owner 标识）。
-func (h handler) buildInspector(ctx context.Context, ownerType, ownerID, host, flowSummary, hunterID string, otPtr, oidPtr *string) (react.Inspector, error) {
-	reviewLLMRaw, err := h.router.For(ctx, "inspector")
-	if err != nil {
-		return nil, err
-	}
-	reviewLLMGen := llm.Instrument(reviewLLMRaw, h.calls,
-		llm.CallMeta{HunterID: &hunterID, OwnerType: otPtr, OwnerID: oidPtr, RouteKey: "inspector"},
-		h.pricing,
-	)
-	inspector := react.NewLLMInspector(reviewLLMGen, h.notes, ownerID, host)
-	inspector.Logger = h.logger
-	inspector.ArgsTruncate = h.cfg.React.InspectorArgsTruncate
-	inspector.ObsTruncate = h.cfg.React.InspectorObsTruncate
-	inspector.FlowSummary = flowSummary
-	// HostFindingsFetcher：inspector 看到 (owner, host) 已有 finding 列表（背景参考，不参与 terminate 判定）。
-	inspector.HostFindingsFetcher = func(ctx context.Context) ([]string, error) {
-		fs, err := h.findings.ListByOwnerAndHost(ctx, ownerType, ownerID, host, h.cfg.React.InspectorFindingsLimit)
-		if err != nil {
-			return nil, err
-		}
-		out := make([]string, 0, len(fs))
-		for _, f := range fs {
-			out = append(out, fmt.Sprintf("[%s] %s", f.Severity, f.Summary))
-		}
-		return out, nil
-	}
-	// LessonFetcher：跨 owner 累积的 host 历史经验，供 redirect hint 参考。
-	inspector.LessonFetcher = func(ctx context.Context) ([]string, error) {
-		lessons, err := h.lessons.ListByHost(ctx, host, h.cfg.React.InspectorLessonsLimit)
-		if err != nil {
-			return nil, err
-		}
-		out := make([]string, 0, len(lessons))
-		for _, l := range lessons {
-			out = append(out, fmt.Sprintf("[p%d] %s", l.Priority, l.Content))
-		}
-		return out, nil
-	}
-	return inspector, nil
+// terminalWriteTimeout 是终态写入（SetError/SetAborted）的独立超时上限。
+const terminalWriteTimeout = 10 * time.Second
+
+// terminalCtx 从入参 ctx 派生一个「不随其取消/超时失效」的写入 ctx（WithoutCancel 保留携带值用于日志关联）。
+// 终态写入必须与请求生命周期解耦：当任务失败原因正是 ctx 超时/取消时，复用入参 ctx 会让 SetError/SetAborted
+// 也立即失败，task 便永远悬挂 running（active_scan 已终态但 hunter 还 running 的不一致根因）。
+func terminalCtx(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(ctx), terminalWriteTimeout)
 }
 
 // failTask 把错误标记到 task 表。
 func (h handler) failTask(ctx context.Context, hunterID string, err error) error {
-	if setErr := h.tasks.SetError(ctx, hunterID, err.Error()); setErr != nil {
+	writeCtx, cancel := terminalCtx(ctx)
+	defer cancel()
+	if setErr := h.tasks.SetError(writeCtx, hunterID, err.Error()); setErr != nil {
 		h.logger.Warn().Err(setErr).Str("hunter_id", hunterID).
 			Msg("SetError 失败（task 留在 running，原始错误已透传给 caller）")
 	}
@@ -117,7 +92,9 @@ func (h handler) failTask(ctx context.Context, hunterID string, err error) error
 // abortTask 把 task 推进到 aborted 终态（inspector 终止 / owner 中止 / ctx 取消）。
 // 与 failTask 区别：aborted 是"主动收手"非错误，不应触发告警。
 func (h handler) abortTask(ctx context.Context, hunterID, reason string) error {
-	if setErr := h.tasks.SetAborted(ctx, hunterID); setErr != nil {
+	writeCtx, cancel := terminalCtx(ctx)
+	defer cancel()
+	if setErr := h.tasks.SetAborted(writeCtx, hunterID); setErr != nil {
 		h.logger.Warn().Err(setErr).Str("hunter_id", hunterID).Str("reason", reason).
 			Msg("SetAborted 失败（task 留在 running）")
 	}
@@ -149,7 +126,7 @@ func (h handler) handle(ctx context.Context, p worker.Payload) (retErr error) {
 	}()
 
 	// 入口检查：asynq 重试场景（PG status 已非 pending）→ SkipRetry。
-	// 防 commander被重试时新 Registry 空 → PreDoneCheck 永放行 → 旧 PG striker 僵尸 + 矛盾态。
+	// 防 orchestrator被重试时新 Registry 空 → PreDoneCheck 永放行 → 旧 PG exploitation 僵尸 + 矛盾态。
 	// GetByID 错误（PG 短时不可用等）不阻塞——让 SetRunning 走正常错误路径。
 	if run, getErr := h.tasks.GetByID(ctx, p.HunterID); getErr == nil && run.Status != hunter.StatusPending {
 		h.logger.Warn().
@@ -185,9 +162,9 @@ func (h handler) handle(ctx context.Context, p worker.Payload) (retErr error) {
 
 	switch input.Mode {
 	case "passive":
-		return h.handlePassive(ctx, p, input.Entrypoint)
+		return h.handlePassiveEino(ctx, p, input.Entrypoint)
 	case "active":
-		return h.handleActive(ctx, p, input.Entrypoint)
+		return h.handleActiveEino(ctx, p, input.Entrypoint)
 	default:
 		err := fmt.Errorf("unknown mode: %s", input.Mode)
 		return h.failTask(ctx, p.HunterID, err)

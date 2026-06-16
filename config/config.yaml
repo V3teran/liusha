@@ -50,12 +50,15 @@ llm:
   max_steps: 30                 # ReAct 单任务步数上限，被 Role.Budget 覆盖
   max_tokens_per_call: 4096
   # 双 namespace：把"真 agent"与"single-shot utility"语义分开。
-  # 四角色：tracker（passive 侦察兵）/ commander（active 指挥官）/ striker（active 突击手）/ inspector（督查官）
+  # 角色路由（PTES 功能命名）：traffic-analysis（passive 流量分析）/ orchestrator（active 编排）/
+  # exploitation（active 利用）/ inspector（旁路督查/压缩）。
+  # 注：active 子代理（reconnaissance/exploitation）经 deep task 共享 orchestrator 的 model，
+  # 不单独走 For()，故 exploitation 键仅作文档对齐，实际路由只取 orchestrator/traffic-analysis/inspector。
   agents:
-    tracker:   default_provider   # passive 单 agent（流量驱动，纯文本路径）
-    commander: vision_provider    # active 父任务（recon + spawn 决策，需 browser-use 截图 → multimodal）
-    striker:   vision_provider    # active 子任务（深挖单点，需 browser-use 截图 → multimodal）
-    inspector: light_provider     # 旁路过程督查官（每 5 步评估方向）
+    traffic-analysis: default_provider   # passive 单 agent（流量驱动，纯文本路径）
+    orchestrator:     vision_provider    # active 主代理（派活决策，需 browser-use 截图 → multimodal）
+    exploitation:     vision_provider    # active 子代理（深挖单点，需 browser-use 截图 → multimodal）
+    inspector:        light_provider     # 旁路过程督查官 / 历史压缩
 
   # spec §8.5 错误码退避表（429/529/5xx/网络超时）
   retry:
@@ -100,7 +103,6 @@ providers:
     supports_tools: true
     supports_vision: true
     context_window: 200000           # claude-sonnet-4-6 / haiku-4-5 同 200k
-    # grounding_coord_system 不填 → registry 推断（claude-* → real_pixels）
 
   anthropic_haiku:
     type: anthropic
@@ -121,7 +123,6 @@ providers:
     supports_tools: true
     supports_vision: true
     context_window: 128000           # gpt-4o 128k
-    # grounding_coord_system 不填 → registry 推断（gpt-4o → real_pixels）
 
   moonshot:
     type: openai_compat
@@ -161,11 +162,11 @@ providers:
     supports_vision: false
     context_window: 32768            # qwen2.5-coder:14b 默认 32k（建议 Modelfile 改 131072）
 
-  # —— 公网 CN ollama 节点（commander/striker 视觉路由）
+  # —— 公网 CN ollama 节点（orchestrator/exploitation 视觉路由）
   # 模型选型演化：
   #   1) qwen2.5vl:72b @ 115.231.236.153 → Ollama modelfile 未 declare tools → 400
   #   2) qwen3-vl:30b @ 58.246.65.11 → 简化 prompt OK，react 完整 prompt 76s 后 EOF（节点 timeout）
-  #   3) qwen3-vl:32b-instruct @ 120.220.102.83 → 实测长 prompt + 多 tools 仅 15.1s 完成，spawn_striker 正确
+  #   3) qwen3-vl:32b-instruct @ 120.220.102.83 → 实测长 prompt + 多 tools 仅 15.1s 完成，task 派活正确
   # 健康度自检：curl -fsS <base_url>/api/tags || 视为下线
   # 启动需 export OLLAMA_API_KEY=ollama（占位，ollama 不验 key）
   ollama_vision_cn:
@@ -177,12 +178,11 @@ providers:
     supports_tools: true
     supports_vision: true
     context_window: 32768                      # qwen3-vl 节点 Modelfile 默认 32k
-    # grounding_coord_system 不填 → registry 推断（qwen3-vl → normalized_1000）
 
   # —— 公网 CN ollama 节点（inspector 路由 + fallback）
   # 14B 选型：纯 JSON 输出场景（inspector decision），无需 tool_calls，速度极快（0.1s/turn）。
   # 注意：qwen2.5:14b 在 ReAct 长 prompt + tools 路径下会退化为纯文本不调 tool（实测验证），
-  # 故 tracker 改路由到 ollama_tracker_cn 走 qwen3:32b。
+  # 故 traffic-analysis 改路由到 ollama_tracker_cn 走 qwen3:32b。
   ollama_text_cn:
     type: openai_compat
     base_url: http://122.152.194.29:11434/v1
@@ -193,7 +193,7 @@ providers:
     supports_vision: false
     context_window: 32768                     # qwen2.5:14b Modelfile 默认
 
-  # —— 公网 CN ollama 节点（tracker 强 tool_calls 路由）
+  # —— 公网 CN ollama 节点（traffic-analysis 强 tool_calls 路由）
   # 模型选型演化：
   #   1) qwen2.5:14b → 跳过 tool_calls 直接吐文本（无 tools 优化）
   #   2) qwen3:32b → 长 prompt + 多 tools 场景下 thinking mode 吞掉 tool_calls，输出 markdown
@@ -223,7 +223,6 @@ providers:
     supports_tools: true
     supports_vision: true
     context_window: 131072                    # glm-4.6v-flash 128k
-    # grounding_coord_system 不填 → registry 推断（glm-4.6v → normalized_1000）
 
   # —— 智谱 GLM 文本档（inspector 督查官 + fallback）
   # glm-4.5-flash：纯文本免费版，inspector 仅需短 JSON 输出，无需 vision encoder 省 latency。
@@ -249,7 +248,6 @@ providers:
     supports_tools: true
     supports_vision: true
     context_window: 1048576                   # 小米官方 1M 上下文
-    grounding_coord_system: normalized_1000   # ⚠️ 沿用 doubao 旧值（Qwen-VL 谱系）；browser_use 点击若偏移改 real_pixels
 
   # —— 火山方舟豆包（OpenAI 兼容协议，ark.cn-beijing.volces.com）※保留定义备用，当前未选用（已切小米）
   # 关键差异：model 字段必须填 endpoint ID（控制台「在线推理 → 推理接入点」创建），
@@ -265,7 +263,6 @@ providers:
     supports_tools: true
     supports_vision: true
     context_window: 262144                    # Mini 全系 256k
-    # grounding_coord_system 不填 → vendor registry 推断（ark.cn-beijing.volces.com → normalized_1000）
     # endpoint ID 模式无法走 model name registry，靠 vendor base_url 兜底命中
 
   # —— 豆包 Lite 档（中档付费，比 Mini 强、比 Pro 便宜）※保留定义备用，当前未选用
@@ -350,10 +347,9 @@ proxy:
   max_request_body_size: 2097152   # 2 MiB（稳健激进：覆盖偶有大上传/批量提交）
   max_response_body_size: 8388608  # 8 MiB（稳健激进：大列表/报表导出/长 HTML）
 
-  # cmd/proxy 进程入口
+  # cmd/proxy 进程入口（纯 MITM passive 入口，存活检测探 TCP 8888，无独立 healthz HTTP）
   listen_addr: 0.0.0.0:8888         # sanitizer 公开端口
   internal_addr: 127.0.0.1:18888    # proxify 内部 loopback
-  healthz_addr: :9091               # /healthz HTTP（避免与 scanner :9090 冲突）
   cert_subdir: .liusha              # CA 证书子目录（默认 $HOME/.liusha）
   shutdown_timeout_seconds: 5       # graceful shutdown 超时
 
@@ -361,9 +357,9 @@ proxy:
   stream_name: flow_events          # XADD 目标 stream
   stream_max_len: 100000            # XADD MAXLEN ~ 上限（约 5KiB×1e5 ≈ 500 MiB）
 
-  # active 容器内 browser-svc.py CDP 抓流量 → /internal/v1/flows/ingest endpoint Bearer token。
+  # active 容器内抓流量 → cmd/scanner 的 /internal/v1/flows/ingest endpoint Bearer token。
   # 空 = 不强制验证（开发模式，仅靠 bind 127.0.0.1 + docker bridge 网络隔离）。
-  # 生产用 ENV LIUSHA_INGEST_TOKEN 注入，cmd/proxy + cmd/scanner 共享同一值（scanner launcher 透传到 sandbox env）。
+  # 生产用 ENV LIUSHA_INGEST_TOKEN 注入，cmd/scanner + sandbox 共享同一值（launcher 透传到 sandbox env）。
   ingest_token: ""
 
 # ---- ingestor 流量摄入器（cmd/scanner 内 goroutine）----
@@ -385,18 +381,6 @@ session:
   findings_limit_in_prompt: 100     # 该 host 已有 finding 段显示条数
   lessons_limit_in_prompt: 100      # 该 host 历史经验 + 跨 host 业务规则 hint 共用上限
 
-# ---- notes Redis 共享笔记板（owner 内同 host 跨 task 共享）----
-# 实现：internal/notes 包；key=liusha:note:{owner_id}:{host}，LIST 类型。
-# 设计建议：ttl_hours 应 ≥ session.max_age_hours，否则 notes 会比 passive_session 更早过期。
-notes:
-  redis_key_prefix: "liusha:note:"  # Redis key 前缀
-  max_entries: 200                  # 蒸馏失败兜底硬上限（LTRIM 保留末尾 N）
-  ttl_hours: 24                     # 仅在 key 首次创建时设 TTL（ExpireNX，从创建起算固定窗口），与 max_age_hours 同步
-  # 蒸馏参数：超阈值时调 light LLM 把前 N 条压缩成 1 条 summary，保留早期语义
-  compact_threshold: 200            # LLEN 超过此值触发蒸馏
-  compact_batch_size: 100           # 每次蒸馏前 N 条（保留剩余 ≥ threshold-batch+1 条供后续累积）
-  compact_timeout_seconds: 30       # 单次蒸馏（含 LLM 调用）超时；超时退化为 LTRIM
-
 # ---- credential.RedisProvider redis 前缀 ----
 credential:
   redis_key_prefix: "credentials:"  # HSET <prefix><host> ...
@@ -407,9 +391,6 @@ skills:
 
 # ---- cmd/scanner 进程运行时参数 ----
 scanner:
-  passive_max_steps: 60                    # passive 模式 ReAct 步数上限（流量驱动单类型挖掘够用）
-  active_max_steps: 300                    # active 模式 ReAct 步数上限（站点级扫描深挖，与 passive 60 步差异化）；子 active 任务复用同一上限
-  max_children: 10                         # subtask swarm 父任务最多 spawn 子任务数（防 LLM 失控）
   agent_run_timeout_seconds: 3600          # passive 模式 agent_run 整体超时（asynq handler 入口 WithTimeout，60 分钟，> step_tool）
   active_agent_run_timeout_seconds: 14400  # active 模式 agent_run 整体超时（4 小时，对齐 sandbox max lifetime；站点扫描爬+测耗时长）
   step_llm_timeout_seconds: 300            # 单步 LLM Generate 看门狗（5 分钟）
@@ -448,11 +429,10 @@ react:
 # （per-agent-run 容器模型下这些参数没有按 session 调整的需求）。
 # 见 docs/superpowers/specs/2026-05-16-sandbox-server-design.md
 sandbox:
-  default_image: liusha/pentools:latest    # 默认沙箱镜像（含 sandbox-server PID 1 + browser-use + 全套 pentest 工具）
+  default_image: ghcr.io/v3teran/liusha-pentools:latest    # 沙箱镜像（CI 构建推 GHCR；含 sandbox-server PID 1 + browser-use + Kali 全量工具）。本地 `make build-pentools` 同名 tag，docker run 直接命中本地不拉远端。
   # run_command 单次硬超时由 LLM 通过 timeout_seconds 必传，上限钳到 toolruntime.step_tool_timeout_seconds（1800s）
   run_tail_bytes: 8192                     # 主进程 RunCommand 对 stdout/stderr 截尾字节数；sandbox-server 返回完整 stdout，截尾在主进程层
-  # 视口 1280×800：主流桌面宽度，页面渲染贴近真实用户视角。
-  # 点击落点由 grounding ToRealPixels 按本尺寸换算（已实测 MiMo=normalized_1000：x*1280/1000=真实像素）。
+  # 视口 1280×800：主流桌面宽度，页面渲染贴近真实用户视角；chromium 启动时固定，截图喂 vision LLM。
   viewport_width: 1280
   viewport_height: 800
 

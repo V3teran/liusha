@@ -1,4 +1,4 @@
-// Package einotools 把 liusha 的域工具重构成**原生** eino tool（取代 internal/tools/common 的 Action）。
+// Package einotools 把 liusha 的域工具实现为**原生** eino tool。
 //
 // 设计（eino 全面迁移 P2，见 docs/superpowers/specs/2026-06-07-eino-full-migration.md）：
 //   - 用 utils.InferTool 从入参 struct 自动推 JSON schema（省掉手写 ParametersJSON）
@@ -67,15 +67,22 @@ func BuildReadFindings(store FindingReader, ownerType, ownerID, host string) (to
 // writeFindingArgs 是 write_finding 入参；jsonschema tag → InferTool 自动生成 schema。
 // target/evidence 用 map[string]any（原生 object）——天然避开旧工具的 "LLM string-encode jsonb" 坑，
 // 不再需要 normalizeJSONObject。
+//
+// ⚠ schema 生成两个坑（eino-contrib/jsonschema 行为）：
+//  1. required：默认「无 json:",omitempty" 的字段一律 required」（reflect.go:1040）。可选字段
+//     必须带 ,omitempty，否则全被误标 required——实测 8 字段全 required + mimo 端重复 remediation
+//     → 400 "non-unique elements"。只有 summary 真必填（带 jsonschema:"required" + 无 omitempty）。
+//  2. description 用独立 jsonschema_description tag——不可嵌进 jsonschema:"...,description=..."
+//     （eino doc.go:44：嵌进去触发逗号解析问题）。
 type writeFindingArgs struct {
-	Summary       string         `json:"summary"        jsonschema:"required,description=一行短标题（≤500 字符，无换行）；详情/复现进 evidence"`
-	Severity      string         `json:"severity"       jsonschema:"description=critical/high/medium/low/info"`
-	CWEID         string         `json:"cwe_id"         jsonschema:"description=CWE 编号（如 CWE-89），同类漏洞必须一致"`
-	OWASPCategory string         `json:"owasp_category" jsonschema:"description=可选 OWASP 类别（如 A03:2021）"`
-	Remediation   string         `json:"remediation"    jsonschema:"description=可选修复建议"`
-	Target        map[string]any `json:"target"         jsonschema:"description=漏洞定位 object，含 method/path"`
-	Evidence      map[string]any `json:"evidence"       jsonschema:"description=证据 object，必须含可复现 repro_cmd"`
-	DependsOn     []string       `json:"depends_on"     jsonschema:"description=组合漏洞前置 finding id 数组；基础漏洞省略"`
+	Summary       string         `json:"summary"                  jsonschema:"required" jsonschema_description:"一行短标题（≤500 字符，无换行）；详情/复现进 evidence"`
+	Severity      string         `json:"severity,omitempty"       jsonschema_description:"critical/high/medium/low/info"`
+	CWEID         string         `json:"cwe_id,omitempty"         jsonschema_description:"CWE 编号（如 CWE-89），同类漏洞必须一致"`
+	OWASPCategory string         `json:"owasp_category,omitempty" jsonschema_description:"可选 OWASP 类别（如 A03:2021）"`
+	Remediation   string         `json:"remediation,omitempty"    jsonschema_description:"可选修复建议"`
+	Target        map[string]any `json:"target,omitempty"         jsonschema_description:"漏洞定位 object，含 method/path"`
+	Evidence      map[string]any `json:"evidence,omitempty"       jsonschema_description:"证据 object，必须含可复现 repro_cmd"`
+	DependsOn     []string       `json:"depends_on,omitempty"     jsonschema_description:"组合漏洞前置 finding id 数组；基础漏洞省略"`
 }
 
 // BuildWriteFinding 造原生 eino write_finding 工具。owner/hunter/host/flow 闭包捕获。
@@ -127,12 +134,13 @@ func BuildWriteFinding(store FindingWriter, ownerType, ownerID, hunterID, host s
 }
 
 // updateFindingArgs 是 update_finding 入参；id 必填，其余字段空则不动（保留原值）。
+// 可选字段带 ,omitempty 避免被误标 required（见 writeFindingArgs 注释）。
 type updateFindingArgs struct {
-	ID       string         `json:"id"       jsonschema:"required,description=要更新的 finding id（read_findings 拿）"`
-	Summary  string         `json:"summary"  jsonschema:"description=覆盖 summary（不传则保留原值）"`
-	Severity string         `json:"severity" jsonschema:"description=覆盖 severity（不传则保留原值）"`
-	Target   map[string]any `json:"target"   jsonschema:"description=覆盖 target object（不传则保留原值）"`
-	Evidence map[string]any `json:"evidence" jsonschema:"description=覆盖 evidence object（不传则保留原值）"`
+	ID       string         `json:"id"                 jsonschema:"required" jsonschema_description:"要更新的 finding id（read_findings 拿）"`
+	Summary  string         `json:"summary,omitempty"  jsonschema_description:"覆盖 summary（不传则保留原值）"`
+	Severity string         `json:"severity,omitempty" jsonschema_description:"覆盖 severity（不传则保留原值）"`
+	Target   map[string]any `json:"target,omitempty"   jsonschema_description:"覆盖 target object（不传则保留原值）"`
+	Evidence map[string]any `json:"evidence,omitempty" jsonschema_description:"覆盖 evidence object（不传则保留原值）"`
 }
 
 // BuildUpdateFinding 造原生 eino update_finding 工具。部分覆盖一条已有 finding（保留 created_at）。

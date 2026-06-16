@@ -29,11 +29,11 @@ type Config struct {
 	Session     SessionConfig             `mapstructure:"session"`
 	Credential  CredentialConfig          `mapstructure:"credential"`
 	Skills      SkillsConfig              `mapstructure:"skills"`
+	Hunters     HuntersConfig             `mapstructure:"hunters_dir"`
 	Scanner     ScannerConfig             `mapstructure:"scanner"`
 	React       ReactConfig               `mapstructure:"react"`
 	Sandbox     SandboxConfig             `mapstructure:"sandbox"`
 	Toolruntime ToolruntimeConfig         `mapstructure:"toolruntime"`
-	Notes       NotesConfig               `mapstructure:"notes"`
 }
 
 // APIConfig 是 cmd/api 的 HTTP 入口参数。
@@ -59,11 +59,11 @@ type PostgresConfig struct {
 // DialTimeout=5s, ReadTimeout=3s, WriteTimeout=3s）。本配置主要给共享 redis 多服务
 // 部署时调小 PoolSize / 调大超时用。
 type RedisConfig struct {
-	PoolSize             int `mapstructure:"pool_size"`
-	MinIdleConns         int `mapstructure:"min_idle_conns"`
-	DialTimeoutSeconds   int `mapstructure:"dial_timeout_seconds"`
-	ReadTimeoutSeconds   int `mapstructure:"read_timeout_seconds"`
-	WriteTimeoutSeconds  int `mapstructure:"write_timeout_seconds"`
+	PoolSize            int `mapstructure:"pool_size"`
+	MinIdleConns        int `mapstructure:"min_idle_conns"`
+	DialTimeoutSeconds  int `mapstructure:"dial_timeout_seconds"`
+	ReadTimeoutSeconds  int `mapstructure:"read_timeout_seconds"`
+	WriteTimeoutSeconds int `mapstructure:"write_timeout_seconds"`
 }
 
 // LLMConfig 包含主/轻/视觉/降级 4 个 provider 字段 + 双 namespace 路由表 + retry 参数 +
@@ -115,13 +115,13 @@ type InvocationConfig struct {
 //	  "anthropic"     走 Anthropic 原生 /v1/messages；
 //	  ""              视为 openai_compat（向后兼容）。
 type ProviderConfig struct {
-	Type           string `mapstructure:"type"`
-	BaseURL        string `mapstructure:"base_url"`
-	DefaultModel   string `mapstructure:"default_model"`
-	VisionModel    string `mapstructure:"vision_model"`
-	APIKeyEnv      string `mapstructure:"api_key_env"`
-	MaxTokens      int    `mapstructure:"max_tokens"`
-	SupportsTools  bool   `mapstructure:"supports_tools"`
+	Type          string `mapstructure:"type"`
+	BaseURL       string `mapstructure:"base_url"`
+	DefaultModel  string `mapstructure:"default_model"`
+	VisionModel   string `mapstructure:"vision_model"`
+	APIKeyEnv     string `mapstructure:"api_key_env"`
+	MaxTokens     int    `mapstructure:"max_tokens"`
+	SupportsTools bool   `mapstructure:"supports_tools"`
 	// SupportsVision 用 *bool 区分"未填"（nil）与"显式 false"——validate 强制 yaml 必填，
 	// 避免 caller 不知道 provider 能不能 vision 时拿默认值踩坑（例如 deepseek 不支持 vision
 	// 却收到含图 message → 服务端 400）。yaml `supports_vision: true/false` 都合法，留空启动报错。
@@ -132,18 +132,6 @@ type ProviderConfig struct {
 	// 同 SupportsVision 模式：*int 区分"未填"（nil）与"显式 0"——validate 强制必填，
 	// 避免 caller 用默认值估算导致 prompt 真爆（例如 32k 模型按 128k 算阈值）。
 	ContextWindow *int `mapstructure:"context_window"`
-
-	// GroundingCoordSystem 描述 vision 模型输出像素坐标时用的坐标系。
-	// vision 模型 grounding 训练分两派：Qwen-VL 系归一化到 [0, 1000]（含 Doubao/Gemini），
-	// Anthropic Claude / OpenAI GPT-4o 直接给真像素。工具层按 provider 配置换算到真像素。
-	//
-	// 取值（启动 validate）：
-	//   "normalized_1000" — Qwen-VL/Doubao/Gemini 派，输出 0-1000 归一化
-	//   "real_pixels"     — Claude/GPT-4o 派，直接给真实像素
-	//   "normalized_100"  — 备用（Gemini 早期百分比模式）
-	//
-	// SupportsVision=true 时必填；SupportsVision=false 时可空（不会被 browser_use click 用到）。
-	GroundingCoordSystem string `mapstructure:"grounding_coord_system"`
 }
 
 // PricingConfig 是 LLM 模型单价表（USD per 1M tokens）。
@@ -180,12 +168,10 @@ type ProxyConfig struct {
 	MaxRequestBodySize      int      `mapstructure:"max_request_body_size"`
 	MaxResponseBodySize     int      `mapstructure:"max_response_body_size"`
 
-	// 进程入口（cmd/proxy）
-	// External：passive 流量入口（用户 / Burp / 真实浏览器经此抓流量）
-	// v34+：删除 agent listener — chromium 流量改走 CDP capture → ingest endpoint。
+	// 进程入口（cmd/proxy）：纯 MITM passive 入口。存活检测探 TCP 8888，无独立 healthz HTTP。
+	// active 抓流量 ingest endpoint 已迁到 cmd/scanner（沙箱回连 scanner :9090）。
 	ListenAddr             string `mapstructure:"listen_addr"`   // 0.0.0.0:8888 公开端口（sanitizer 接 raw TCP）
 	InternalAddr           string `mapstructure:"internal_addr"` // 127.0.0.1:18888 proxify loopback（sanitizer 转发到这）
-	HealthzAddr            string `mapstructure:"healthz_addr"`
 	CertSubdir             string `mapstructure:"cert_subdir"`
 	ShutdownTimeoutSeconds int    `mapstructure:"shutdown_timeout_seconds"`
 
@@ -225,24 +211,6 @@ type SessionConfig struct {
 	// LessonsLimitInPrompt：该 host 历史经验 + 跨 host 业务规则 hint 共用上限（按 priority desc）。
 	FindingsLimitInPrompt int `mapstructure:"findings_limit_in_prompt"`
 	LessonsLimitInPrompt  int `mapstructure:"lessons_limit_in_prompt"`
-
-}
-
-// NotesConfig 是 internal/notes 包 Redis 共享存储参数。
-// owner 内同 host 跨 task 共享的 hunter 工作笔记板。
-//
-// TTLHours 与 SessionConfig.MaxAgeHours 默认都是 24h——AppendNote 用 ExpireNX
-// 仅在 key 首次创建时设 TTL（之后不刷新），让 notes 寿命从 key 创建起算固定窗口，
-// 与 owner.CreatedAt + MaxAge 时间点严格同步消失。手动调整两者时应保持一致。
-type NotesConfig struct {
-	RedisKeyPrefix string `mapstructure:"redis_key_prefix"`
-	MaxEntries     int    `mapstructure:"max_entries"` // Compactor 失败时 LTRIM 兜底
-	TTLHours       int    `mapstructure:"ttl_hours"`
-
-	// 蒸馏参数：LLEN > CompactThreshold 时触发 LLM 蒸馏前 CompactBatchSize 条。
-	CompactThreshold      int `mapstructure:"compact_threshold"`
-	CompactBatchSize      int `mapstructure:"compact_batch_size"`
-	CompactTimeoutSeconds int `mapstructure:"compact_timeout_seconds"`
 }
 
 // CredentialConfig 是 credential.RedisProvider 的 redis key 前缀。
@@ -255,24 +223,26 @@ type SkillsConfig struct {
 	Root string `mapstructure:"root"`
 }
 
+// HuntersConfig 是 deep hunter 角色 markdown 外部目录（hunters/*.md，orchestrator + 杀伤链子代理）。
+type HuntersConfig struct {
+	Root string `mapstructure:"root"`
+}
+
 // ScannerConfig 是 cmd/scanner 进程的运行时参数。
 type ScannerConfig struct {
-	PassiveMaxSteps              int    `mapstructure:"passive_max_steps"`                // passive 模式 ReAct 步数上限（流量驱动单类型挖掘 60 步够）
-	ActiveMaxSteps               int    `mapstructure:"active_max_steps"`                 // active 模式 ReAct 步数上限（active 站点扫描深挖，与 PassiveMaxSteps 解耦）；striker 任务复用同一上限
-	MaxChildren                  int    `mapstructure:"max_children"`                     // subtask swarm commander spawn striker上限（防 LLM 失控；默认 10）
 	AgentRunTimeoutSeconds       int    `mapstructure:"agent_run_timeout_seconds"`        // passive 模式单个 hunter task 整体超时（asynq handler 入口 WithTimeout）
 	ActiveAgentRunTimeoutSeconds int    `mapstructure:"active_agent_run_timeout_seconds"` // active 模式整体超时——站点扫描爬+测耗时长，独立配置（默认 4h，对齐 sandbox max lifetime）
 	StepLLMTimeoutSeconds        int    `mapstructure:"step_llm_timeout_seconds"`
-	AsynqConcurrency           int    `mapstructure:"asynq_concurrency"`
-	AsynqShutdownTimeoutSeconds int   `mapstructure:"asynq_shutdown_timeout_seconds"` // asynq.Shutdown 等 in-flight task 完成的超时
-	ShutdownTimeoutSeconds     int    `mapstructure:"shutdown_timeout_seconds"`
-	HealthzAddr            string `mapstructure:"healthz_addr"`
-	FlowMaxRequestBody     int    `mapstructure:"flow_max_request_body"`
-	FlowMaxResponseBody    int    `mapstructure:"flow_max_response_body"`
+	AsynqConcurrency             int    `mapstructure:"asynq_concurrency"`
+	AsynqShutdownTimeoutSeconds  int    `mapstructure:"asynq_shutdown_timeout_seconds"` // asynq.Shutdown 等 in-flight task 完成的超时
+	ShutdownTimeoutSeconds       int    `mapstructure:"shutdown_timeout_seconds"`
+	HealthzAddr                  string `mapstructure:"healthz_addr"`
+	FlowMaxRequestBody           int    `mapstructure:"flow_max_request_body"`
+	FlowMaxResponseBody          int    `mapstructure:"flow_max_response_body"`
 
 	// asynq queue 优先级权重（数字越大优先级越高）
-	QueueHunterWeight int `mapstructure:"queue_hunter_weight"`
-	QueueDispatchWeight     int `mapstructure:"queue_dispatch_weight"`
+	QueueHunterWeight   int `mapstructure:"queue_hunter_weight"`
+	QueueDispatchWeight int `mapstructure:"queue_dispatch_weight"`
 }
 
 // ReactConfig 主 ReAct 循环参数。
@@ -341,7 +311,6 @@ type SandboxConfig struct {
 	// ViewportWidth/Height 是沙箱 chromium 视口固定尺寸（像素）。
 	// 由 sandbox-server 通过 env 透传给 browser-use wrapper：每次 browser-use-cli 调用都带
 	// --window-width/--window-height 全局 flag，确保 chromium daemon 用一致尺寸启动。
-	// browser_use 的 click/input action 坐标换算（grounding 归一化 → 真像素）依赖此尺寸。
 	//
 	// 默认 1280×720——playwright 主流推荐 + vision encoder token cost sweet spot：
 	//   ~1100-1300 tokens/图（Doubao/GPT-4o），翻倍到 1920×1080 仅边际精度收益但 token x2。
@@ -350,13 +319,21 @@ type SandboxConfig struct {
 	ViewportHeight int `mapstructure:"viewport_height"`
 }
 
-// ToolruntimeConfig 是 toolruntime/interceptor 参数。
+// ToolruntimeConfig 是工具执行的运行时参数（run_command 等本地工具的兜底超时）。
 type ToolruntimeConfig struct {
-	StepToolTimeoutSeconds int `mapstructure:"step_tool_timeout_seconds"` // 单次 tool Execute 兜底超时（Interceptor 层 WithTimeout，防本地工具卡死）
+	StepToolTimeoutSeconds int `mapstructure:"step_tool_timeout_seconds"` // 单次工具执行兜底超时上限（run_command timeout_seconds 的钳制上界，防本地工具卡死）
 }
 
 // Load 从 path 读取 YAML，应用 LIUSHA_ ENV 覆盖，反序列化、应用默认值并校验。
-func Load(path string) (Config, error) {
+// Load 读配置 + 应用默认 + 完整校验（含 LLM provider key 在环境变量里非空）。
+// 调 LLM 的进程（scanner / api）用它。
+func Load(path string) (Config, error) { return load(path, true) }
+
+// LoadWithoutLLMKeys 与 Load 同，但跳过 LLM provider key 校验。
+// 给纯 ingress 进程（cmd/proxy 仅 MITM + XADD，从不调 LLM）用——避免强塞一堆用不到的 key 才能启动。
+func LoadWithoutLLMKeys(path string) (Config, error) { return load(path, false) }
+
+func load(path string, requireLLMKeys bool) (Config, error) {
 	v := viper.New()
 	v.SetConfigFile(path)
 	v.SetEnvPrefix("LIUSHA")
@@ -373,6 +350,11 @@ func Load(path string) (Config, error) {
 	if err := validate(c); err != nil {
 		return Config{}, err
 	}
+	if requireLLMKeys {
+		if err := validateLLMKeys(c); err != nil {
+			return Config{}, err
+		}
+	}
 	return c, nil
 }
 
@@ -388,15 +370,14 @@ func (c *Config) ApplyDefaults() {
 	c.Proxy = applyProxyDefaults(c.Proxy)
 	c.Ingestor = applyIngestorDefaults(c.Ingestor)
 	c.Session = applySessionDefaults(c.Session)
-	c.Notes = applyNotesDefaults(c.Notes)
 	c.Credential = applyCredentialDefaults(c.Credential)
 	c.Skills = applySkillsDefaults(c.Skills)
+	c.Hunters = applyHuntersDefaults(c.Hunters)
 	c.Scanner = applyScannerDefaults(c.Scanner)
 	c.React = applyReactDefaults(c.React)
 	c.Sandbox = applySandboxDefaults(c.Sandbox)
 	c.Toolruntime = applyToolruntimeDefaults(c.Toolruntime)
 }
-
 
 func applyAPIDefaults(c APIConfig) APIConfig {
 	if c.ReadTimeoutSeconds == 0 {
@@ -555,9 +536,6 @@ func applyProxyDefaults(c ProxyConfig) ProxyConfig {
 	if c.InternalAddr == "" {
 		c.InternalAddr = "127.0.0.1:18888"
 	}
-	if c.HealthzAddr == "" {
-		c.HealthzAddr = ":9091"
-	}
 	if c.CertSubdir == "" {
 		c.CertSubdir = ".liusha"
 	}
@@ -611,28 +589,6 @@ func applySessionDefaults(c SessionConfig) SessionConfig {
 	return c
 }
 
-func applyNotesDefaults(c NotesConfig) NotesConfig {
-	if c.RedisKeyPrefix == "" {
-		c.RedisKeyPrefix = "liusha:note:"
-	}
-	if c.MaxEntries == 0 {
-		c.MaxEntries = 200
-	}
-	if c.TTLHours == 0 {
-		c.TTLHours = 24
-	}
-	if c.CompactThreshold == 0 {
-		c.CompactThreshold = 200
-	}
-	if c.CompactBatchSize == 0 {
-		c.CompactBatchSize = 100
-	}
-	if c.CompactTimeoutSeconds == 0 {
-		c.CompactTimeoutSeconds = 30
-	}
-	return c
-}
-
 func applyCredentialDefaults(c CredentialConfig) CredentialConfig {
 	if c.RedisKeyPrefix == "" {
 		c.RedisKeyPrefix = "credentials:"
@@ -647,16 +603,14 @@ func applySkillsDefaults(c SkillsConfig) SkillsConfig {
 	return c
 }
 
+func applyHuntersDefaults(c HuntersConfig) HuntersConfig {
+	if c.Root == "" {
+		c.Root = "./hunters"
+	}
+	return c
+}
+
 func applyScannerDefaults(c ScannerConfig) ScannerConfig {
-	if c.PassiveMaxSteps == 0 {
-		c.PassiveMaxSteps = 60
-	}
-	if c.MaxChildren == 0 {
-		c.MaxChildren = 10 // subtask swarm 经验值：5-10 个 specialist 是 sweet spot
-	}
-	if c.ActiveMaxSteps == 0 {
-		c.ActiveMaxSteps = 300 // active 站点扫描深挖经验值（与 passive 60 步差异化）
-	}
 	if c.AgentRunTimeoutSeconds == 0 {
 		c.AgentRunTimeoutSeconds = 3600 // 60 分钟（> step_tool=1800，留 30min buffer 给主 ReAct 收尾）
 	}
@@ -737,7 +691,7 @@ func applyHistoryCompactDefaults(c HistoryCompactConfig) HistoryCompactConfig {
 
 func applySandboxDefaults(c SandboxConfig) SandboxConfig {
 	if c.DefaultImage == "" {
-		c.DefaultImage = "liusha/pentools:latest"
+		c.DefaultImage = "ghcr.io/v3teran/liusha-pentools:latest"
 	}
 	if c.RunTailBytes == 0 {
 		c.RunTailBytes = 8192
@@ -760,9 +714,28 @@ func applyToolruntimeDefaults(c ToolruntimeConfig) ToolruntimeConfig {
 	return c
 }
 
-// validate 强制：default_provider 必填，light/vision/fallback 选填但配了就必须 check 通过；
-// 所有 providers 必须显式声明 supports_vision（fail-fast，避免运行时拿默认值踩坑）。
+// validate 校验 provider schema 完整性（supports_vision / context_window 必填）——
+// 不碰 LLM key，所有进程（含纯 ingress 的 proxy）都跑。
 func validate(c Config) error {
+	// 所有 provider 必须显式声明 supports_vision——nil 视为未填，启动 fail-fast。
+	// 设计原则：caller（react.runtime / openai_compat）路由含图 message 时依赖此 flag，
+	// 默认零值（false）会让 deepseek 等 OpenAI 协议族在 yaml 漏填时被当成不支持 vision，
+	// 实际可能反过来（如 gpt-4o）——强制显式声明消除歧义。
+	for name, p := range c.Providers {
+		if p.SupportsVision == nil {
+			return fmt.Errorf("provider %q: supports_vision 必填（yaml 必须显式写 true 或 false）", name)
+		}
+		// context_window 同强制必填——react 历史压缩按此算阈值；漏填会用 0 兜底导致一直触发或永不触发。
+		if p.ContextWindow == nil || *p.ContextWindow <= 0 {
+			return fmt.Errorf("provider %q: context_window 必填且 > 0（model 总上下文窗口 tokens 数）", name)
+		}
+	}
+	return nil
+}
+
+// validateLLMKeys 强制 default_provider 必填，且 default/light/vision/fallback 的 api_key_env
+// 在环境变量里非空。仅调 LLM 的进程（scanner / api）需要——proxy 用 LoadWithoutLLMKeys 跳过。
+func validateLLMKeys(c Config) error {
 	check := func(name, role string) error {
 		p, ok := c.Providers[name]
 		if !ok {
@@ -790,32 +763,6 @@ func validate(c Config) error {
 		if pair.name != "" {
 			if err := check(pair.name, pair.role); err != nil {
 				return err
-			}
-		}
-	}
-	// 所有 provider 必须显式声明 supports_vision——nil 视为未填，启动 fail-fast。
-	// 设计原则：caller（react.runtime / openai_compat）路由含图 message 时依赖此 flag，
-	// 默认零值（false）会让 deepseek 等 OpenAI 协议族在 yaml 漏填时被当成不支持 vision，
-	// 实际可能反过来（如 gpt-4o）——强制显式声明消除歧义。
-	for name, p := range c.Providers {
-		if p.SupportsVision == nil {
-			return fmt.Errorf("provider %q: supports_vision 必填（yaml 必须显式写 true 或 false）", name)
-		}
-		// context_window 同强制必填——react 历史压缩按此算阈值；漏填会用 0 兜底导致一直触发或永不触发。
-		if p.ContextWindow == nil || *p.ContextWindow <= 0 {
-			return fmt.Errorf("provider %q: context_window 必填且 > 0（model 总上下文窗口 tokens 数）", name)
-		}
-		// grounding_coord_system：vision provider 可选——4 层级联推断（grounding.ResolveCoordSystem）：
-		//   1. 显式填了 → 检查取值合法性
-		//   2. 否则按 default_model + base_url 自动推断（model name registry + vendor registry）
-		//   3. 仍未命中 → fallback real_pixels（运行时打 WARN log）
-		// validate 阶段只检查"显式填了但值非法"——推断在 hunter 装配期由 ResolveCoordSystem 跑。
-		if p.SupportsVision != nil && *p.SupportsVision && p.GroundingCoordSystem != "" {
-			switch p.GroundingCoordSystem {
-			case "normalized_1000", "real_pixels", "normalized_100":
-				// ok
-			default:
-				return fmt.Errorf("provider %q: grounding_coord_system 取值非法 %q（仅支持 normalized_1000 / real_pixels / normalized_100；留空走自动推断）", name, p.GroundingCoordSystem)
 			}
 		}
 	}

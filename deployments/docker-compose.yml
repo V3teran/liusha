@@ -105,7 +105,6 @@ services:
       - ../logs:/app/logs
     ports:
       - "8888:8888"
-      - "9091:9091"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
@@ -113,8 +112,9 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    # proxy 纯 MITM，无 healthz HTTP——探 TCP 8888（mitm 口）是否在听。
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:9091/healthz"]
+      test: ["CMD", "nc", "-z", "localhost", "8888"]
       interval: 10s
       timeout: 3s
       retries: 3

@@ -26,26 +26,29 @@ const (
 )
 
 // listFlowsArgs 是 list_flows 入参；owner/host 注入不在此（host 默认取当前 hunter host）。
+// 全字段可选——必须带 ,omitempty，否则全被误标 required 触发 mimo 400（见 findings.go 详注）。
 type listFlowsArgs struct {
-	Host      string `json:"host"       jsonschema:"description=host filter，留空则用当前 hunter host"`
-	Method    string `json:"method"     jsonschema:"description=HTTP method 过滤（自动大写）"`
-	Path      string `json:"path"       jsonschema:"description=path glob 过滤，支持 *（如 /admin/*）"`
-	Source    string `json:"source"     jsonschema:"enum=external,enum=internal,description=流量来源；external=用户/Burp 抓的，internal=容器内工具抓的真实请求"`
-	Identity  string `json:"identity"   jsonschema:"description=身份名过滤（=browser_use identity / 登录账号名）"`
-	Tool      string `json:"tool"       jsonschema:"description=发起工具过滤：browser=浏览器抓的（带全凭证，抽凭证用这个）；curl/sqlmap/…"`
-	StatusMin int    `json:"status_min" jsonschema:"description=响应状态码下界（如 400 → 仅 4xx/5xx）"`
-	StatusMax int    `json:"status_max" jsonschema:"description=响应状态码上界"`
-	Since     string `json:"since"      jsonschema:"description=ISO 时间戳，仅看此后流量"`
-	Limit     int    `json:"limit"      jsonschema:"description=条数上限（默认 50，最大 200）"`
-	Offset    int    `json:"offset"     jsonschema:"description=分页偏移"`
+	Host      string `json:"host,omitempty"       jsonschema:"description=host filter，留空则用当前 hunter host"`
+	Method    string `json:"method,omitempty"     jsonschema:"description=HTTP method 过滤（自动大写）"`
+	Path      string `json:"path,omitempty"       jsonschema:"description=path glob 过滤，支持 *（如 /admin/*）"`
+	Source    string `json:"source,omitempty"     jsonschema:"enum=external,enum=internal,description=流量来源；external=用户/Burp 抓的，internal=容器内工具抓的真实请求"`
+	Identity  string `json:"identity,omitempty"   jsonschema:"description=身份名过滤（=browser_use identity / 登录账号名）"`
+	Tool      string `json:"tool,omitempty"       jsonschema:"description=发起工具过滤：browser=浏览器抓的（带全凭证，抽凭证用这个）；curl/sqlmap/…"`
+	StatusMin int    `json:"status_min,omitempty" jsonschema:"description=响应状态码下界（如 400 → 仅 4xx/5xx）"`
+	StatusMax int    `json:"status_max,omitempty" jsonschema:"description=响应状态码上界"`
+	Since     string `json:"since,omitempty"      jsonschema:"description=ISO 时间戳，仅看此后流量"`
+	Limit     int    `json:"limit,omitempty"      jsonschema:"description=条数上限（默认 50，最大 200）"`
+	Offset    int    `json:"offset,omitempty"     jsonschema:"description=分页偏移"`
 }
 
 // BuildListFlows 造原生 eino list_flows 工具。owner 注入（防串库），host 默认当前 hunter host。
 func BuildListFlows(store FlowLister, ownerType, ownerID, hunterHost string) (tool.BaseTool, error) {
 	return utils.InferTool(
 		"list_flows",
-		"列出 owner 范围内的历史 HTTP 流量摘要。默认按当前 host 过滤，可叠加 method/path/source/status/since。"+
-			"返回 [{id, method, host, path, status, source, duration_ms, created_at}]；要看完整请求体调 view_flow。",
+		"列出 owner 范围内的历史 HTTP 流量摘要。默认按当前 host 过滤，可叠加 method/path/source/status/since/tool/identity。"+
+			"返回 [{id, method, host, path, status, source, tool, identity, duration_ms, created_at}]——"+
+			"其中 tool=browser（含 identity）是浏览器真实交互的高保真流量（字段值真、认证态全，replay 首选模板），"+
+			"tool=katana 等爬虫流量是广度线索（值不一定真）；要看完整请求体调 view_flow。",
 		func(ctx context.Context, in listFlowsArgs) (map[string]any, error) {
 			if ownerID == "" {
 				return nil, errors.New("list_flows: owner 注入缺失")

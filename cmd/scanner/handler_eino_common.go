@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/cloudwego/eino/adk"
+	"github.com/cloudwego/eino/callbacks"
 
 	"github.com/V3teran/liusha/internal/einoagent"
 	"github.com/V3teran/liusha/internal/einollm"
@@ -45,11 +46,10 @@ func (s einoToolSink) RecordTool(ctx context.Context, inv einoagent.ToolInvocati
 // handler_eino_common.go：eino passive/active 路径共享的装配胶水。
 
 // einoToolDeps 把 handler 的 store/loader（与旧 hunter.Deps 同源）打包成 einoagent 工具装配依赖。
-// sandboxClient 是本次 agent run 的容器（commander + striker 共享）。
-func (h handler) einoToolDeps(sandboxClient sandbox.Client) einoagent.TrackerToolDeps {
-	return einoagent.TrackerToolDeps{
+// sandboxClient 是本次 agent run 的容器（orchestrator + exploitation 共享）。
+func (h handler) einoToolDeps(sandboxClient sandbox.Client) einoagent.TrafficAnalysisToolDeps {
+	return einoagent.TrafficAnalysisToolDeps{
 		Findings:          h.findings,
-		Notes:             h.notes,
 		Lessons:           h.lessons,
 		Credentials:       h.hunterDeps.Credentials,
 		Flows:             h.flows,
@@ -61,12 +61,17 @@ func (h handler) einoToolDeps(sandboxClient sandbox.Client) einoagent.TrackerToo
 	}
 }
 
-// einoRunOpts 为一次 agent run（tracker/striker/commander）产 per-run 中间件 + 选项：
+// einoRunOpts 为一次 agent run（trafficAnalysis/exploitation/orchestrator）产 per-run 中间件 + 选项：
 //   - 历史压缩 middleware（light compactor，装配失败降级跳过）
+//   - tool_invocation 遥测 + 截图回灌
 //   - 计费埋点 callbacks（按 hunterID/owner/role 落 llm_invocation）
+//   - 过程事件发射（仅 conversationID 非空，即对话发起时）：落 conversation message + redis publish
 //
-// role ∈ tracker/striker/commander，决定 provider 解析 + 成本聚合维度。
-func (h handler) einoRunOpts(ctx context.Context, hunterID, ownerType, ownerID, role string) ([]adk.AgentMiddleware, []adk.AgentRunOption) {
+// role ∈ trafficAnalysis/exploitation/orchestrator，决定 provider 解析 + 成本聚合维度。
+// conversationID 空（asynq 自动入口）时不发过程事件，纯后台扫描。
+// 返回值新增 cleanup func()：调用方在 agent run 结束后 defer 调用，flush 异步事件 sink
+// （关 channel + 等 writer 写完缓冲事件）。无事件 sink 时为 no-op。
+func (h handler) einoRunOpts(ctx context.Context, hunterID, ownerType, ownerID, role, conversationID string) ([]adk.AgentMiddleware, []adk.AgentRunOption, func()) {
 	var mws []adk.AgentMiddleware
 	if compactor, err := h.einoFactory.For(ctx, "compactor"); err == nil {
 		mws = append(mws, einoagent.NewCompactionMiddleware(compactor, einoagent.CompactionConfig{}))
@@ -78,11 +83,25 @@ func (h handler) einoRunOpts(ctx context.Context, hunterID, ownerType, ownerID, 
 	// 截图视觉回灌（TODO-1）：run_command 的截图 image part 从 tool message 抽出转 user message
 	// （避免 mimo 400），按 role 的 provider 是否 vision 决定回灌或丢弃。
 	mws = append(mws, einoagent.NewVisionRelayMiddleware(h.einoFactory.SupportsVisionFor(role)))
+	// 过程事件发射（阶段B2b）：对话发起时把 agent 每次工具调用（含 exploitation 内部）异步落
+	// conversation message + publish redis，供前端实时展示。conversationID 空则不装（纯后台扫描）。
+	cleanup := func() {} // 默认 no-op
+	var extraCallbacks []callbacks.Handler
+	if conversationID != "" && h.conversations != nil && h.eventPublisher != nil {
+		sink := newEinoEventSink(h.conversations, h.eventPublisher, conversationID, h.logger)
+		cleanup = sink.Close // run 结束后 flush 缓冲事件
+		mws = append(mws, einoagent.NewEventEmitter(sink))
+		// reasoning 事件（思路文字 + 输入/输出 token + 耗时）走 callbacks 一站式捕获（OnStart→OnEnd）。
+		if cb := einoagent.NewReasoningCallback(sink); cb != nil {
+			extraCallbacks = append(extraCallbacks, cb)
+		}
+	}
 
 	provider, model := h.einoFactory.ResolveProviderModel(role)
 	recorder := einollm.NewUsageRecorder(h.calls, h.pricing,
 		llm.CallMeta{HunterID: &hunterID, OwnerType: &ownerType, OwnerID: &ownerID, RouteKey: role},
 		provider, model,
 	)
-	return mws, []adk.AgentRunOption{adk.WithCallbacks(recorder)}
+	handlers := append([]callbacks.Handler{recorder}, extraCallbacks...)
+	return mws, []adk.AgentRunOption{adk.WithCallbacks(handlers...)}, cleanup
 }

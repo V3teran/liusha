@@ -9,7 +9,7 @@ package sandbox
 // ExecRequest 是 POST /exec 的请求体。
 //
 // 字段语义：
-//   - HunterID：本次 exec 归属的 agent_run id（subtask swarm 后commander / striker 共享容器，
+//   - HunterID：本次 exec 归属的 agent_run id（subtask swarm 后orchestrator / exploitation 共享容器，
 //     用此字段切 cwd（/workspace/<HunterID>/）与 OUTPUT_DIR（/tmp/sandbox-output/<HunterID>/）
 //     防文件互串扰；必填，server 端校验空值 400）
 //   - Command：sh -c 解析的完整命令（支持管道 / 重定向 / $env）

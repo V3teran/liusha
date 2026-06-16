@@ -13,7 +13,7 @@
 
 0529 回归 browse-use 原生 `--session`，删掉了手动 chromium daemon + `--cdp-url`，确实修好了「首个调用后 daemon 永久锁死」。模型定为：
 
-- **session = 身份（cookie jar）**：同身份 commander/striker 共用一个 `--session` 浏览器。
+- **session = 身份（cookie jar）**：同身份 orchestrator/exploitation 共用一个 `--session` 浏览器。
 - **tab = agent**：谁先 `open` 占 tab0，后来者 `window.open(url)` 新 tab；tab 号记 `/tmp/browser-tab-${SESSION}-${TASK_ID}.idx`。
 - **flock 串行**：每个需要 tab 上下文的子命令，先 `exec 9>"$LOCK"; flock -x 9`，临界区内 `switch $TAB_IDX` + 跑命令。
 
@@ -23,11 +23,11 @@
 
 `browser-use-cli` 的 daemon 只有**一个全局"当前活动 tab"**，所有操作作用在它上面，要操作 tab N 必须先 `switch tab N`。同身份多个 agent 并发时，「A switch tab1 → B switch tab2 → A click」会点到 tab2（串台）。wrapper 用 flock 把「switch + 操作」锁成原子来防串台。
 
-代价：**flock 握着跑完整条 bu 命令，包括最慢的 page-settle**。于是同身份下 N 个 agent 的 browser 操作被锁成完全串行——单线程 warm open <1s，但 commander + 3-5 striker 真并发时，抢不到锁的 agent 干等，墙钟随并发度线性恶化，且抢不到锁的 striker 不去干别的活、纯阻塞空等。
+代价：**flock 握着跑完整条 bu 命令，包括最慢的 page-settle**。于是同身份下 N 个 agent 的 browser 操作被锁成完全串行——单线程 warm open <1s，但 orchestrator + 3-5 exploitation 真并发时，抢不到锁的 agent 干等，墙钟随并发度线性恶化，且抢不到锁的 exploitation 不去干别的活、纯阻塞空等。
 
 ### 这次复盘的实测佐证（本会话）
 
-重放上一次过了的 `active:xss`（PASS=3 findings），逐条 LLM 交互 + tool_invocation 复盘发现：**PASS 不是干净的 Choice A**——commander 预热 open 被 LLM 传的 `timeout_seconds=30` 在 30s 砍掉，jar 没种上；strikers 各自在登录页重登 / curl 旁路；同身份 flock 争用让 browser 操作排队；伴随每 striker 重登的凭证风暴。结论：能力可用但**机制脏**，PASS 靠 striker 蛮力 + 一点运气。
+重放上一次过了的 `active:xss`（PASS=3 findings），逐条 LLM 交互 + tool_invocation 复盘发现：**PASS 不是干净的 Choice A**——orchestrator 预热 open 被 LLM 传的 `timeout_seconds=30` 在 30s 砍掉，jar 没种上；exploitations 各自在登录页重登 / curl 旁路；同身份 flock 争用让 browser 操作排队；伴随每 exploitation 重登的凭证风暴。结论：能力可用但**机制脏**，PASS 靠 exploitation 蛮力 + 一点运气。
 
 ### 根因
 
@@ -99,7 +99,7 @@ Go 侧（`browser_use.go`）发的命令形状不变：`IDENTITY=x browser-use <
 - **一身份一进程**：owns 一个 `BrowserSession`（一个 chromium、一个 cookie jar、一个 `cdp_client`）。
 - **懒启动 + 幂等守卫**：某身份第一个命令到达时，若服务未起则启动它 + 让 browse-use 自启 chromium（冷启 ~20s 只付一次）。守卫只锁这一次启动，**登完即放**——这是全系统唯一保留的锁，且只在「启动」期短暂持有，不在每次操作上。
 - **Page 注册表**：`pages: dict[task_id -> Page]`。某 (身份,task) 第一个 `open` → 建新 target(tab) + 注册其 `Page`；后续命令按 `task_id` 查表复用同一 `Page`。这张内存 dict **取代** `/tmp/browser-tab-*.idx` + `tab0-claimed` marker + flock 的全部簿记。
-- **谁先开 role-agnostic**：commander 或 striker，谁的命令先到就建 tab、注册 Page；与角色无关，天然「丝滑」。
+- **谁先开 role-agnostic**：orchestrator 或 exploitation，谁的命令先到就建 tab、注册 Page；与角色无关，天然「丝滑」。
 - **无全局锁的并发**：服务跑一个 asyncio loop，每个请求一个 task，操作 `await` CDP；`cdp_client` 单 websocket 按 message-id + session_id 多路复用（cdp_use 负责），**不同 tab 的操作天然交错并发**。同一 tab 不会被并发请求命中（task=单 agent），故无需 per-page 锁。
 
 ### action → actor.Page 映射（全部复用 browse-use，0 重造）
@@ -124,7 +124,7 @@ Go 侧（`browser_use.go`）发的命令形状不变：`IDENTITY=x browser-use <
 
 ### 多身份（越权/BAC）
 
-不同 `IDENTITY` → 不同 socket → 不同服务进程 → 独立 `BrowserSession` = 独立 chromium。身份数 = 同时在用账号数（常态 1，BAC 3-4），**不是** striker 数。3-4 chromium 可持续；每 striker 一浏览器（10+）的方案被本设计否决。
+不同 `IDENTITY` → 不同 socket → 不同服务进程 → 独立 `BrowserSession` = 独立 chromium。身份数 = 同时在用账号数（常态 1，BAC 3-4），**不是** exploitation 数。3-4 chromium 可持续；每 exploitation 一浏览器（10+）的方案被本设计否决。
 
 ### 生命周期 / 清理
 
@@ -180,7 +180,7 @@ PoC 用 `data:` URL（probe3，无外网纯净对照）+ e2e 靶机真实 origin
 - [ ] 容器内手动：同身份双 task **并发** `open→state→click→input` 序列，两 tab 互不串台、互不阻塞，无 flock 级排队。
 - [ ] 同身份任一 tab 登录后，另一 tab 直接 `open` 受保护页即带登录态（原生共享，无导入）。
 - [ ] 多身份：传不同 `identity` 各起独立 chromium，cookie jar 互不污染。
-- [ ] `browser_use.go` 接口零改动下重跑 `e2e.sh active:xss`：browser 操作 duration 不随 striker 并发恶化（首 ~20s，后续秒级），无连续 timeout 级联。
+- [ ] `browser_use.go` 接口零改动下重跑 `e2e.sh active:xss`：browser 操作 duration 不随 exploitation 并发恶化（首 ~20s，后续秒级），无连续 timeout 级联。
 - [ ] `reset`/`release-tab` 语义正确（reset 重启本身份、不影响其它身份；release-tab 只关本 task tab）。
 - [ ] 全仓 grep 无 `flock` / `tab0-claimed` / `*.idx` 簿记残留。
 - [ ] proxy/passive 模式 e2e 零回归。

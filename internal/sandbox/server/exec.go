@@ -20,13 +20,13 @@ import (
 // outputDirRoot / workdirRoot 是 per-task 文件隔离的根目录。
 //
 // v1.3：单 task 1 容器，所有 /exec 共享 /tmp/sandbox-output（同 task 内跨 exec 复用文件）。
-// v1.4 subtask swarm：commander / striker 共享同一容器（避免账号 cookie 顶掉），但commander / striker 并发跑命令会
-// 互相串扰——modtime 过滤无法分清"commander 刚写的 vs striker 刚写的"；wget -O ./x.html 类命令会互覆。
+// v1.4 subtask swarm：orchestrator / exploitation 共享同一容器（避免账号 cookie 顶掉），但orchestrator / exploitation 并发跑命令会
+// 互相串扰——modtime 过滤无法分清"orchestrator 刚写的 vs exploitation 刚写的"；wget -O ./x.html 类命令会互覆。
 //
 // 隔离设计：
 //   - OUTPUT_DIR = /tmp/sandbox-output/<HunterID>/  → 附件按 task 切，collectAttachments 只扫本 task 子目录
 //   - cwd        = /workspace/<HunterID>/           → LLM 写相对路径自动落到 per-task workdir
-//   - 共享：home 目录（cookies / auth state）、二进制工具 — 这是commander / striker 共享容器的目的
+//   - 共享：home 目录（cookies / auth state）、二进制工具 — 这是orchestrator / exploitation 共享容器的目的
 //
 // task 容器销毁时整个目录树自然消失，无残留泄露风险。
 // var（非 const）便于 server 包内单测用 t.TempDir() override：
@@ -69,7 +69,7 @@ func (s *Server) handleExec(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// per-task 隔离：commander / striker 共享容器但文件互不串扰（同 task 内跨 exec 仍共享 outputDir）
+	// per-task 隔离：orchestrator / exploitation 共享容器但文件互不串扰（同 task 内跨 exec 仍共享 outputDir）
 	outputDir := filepath.Join(outputDirRoot, req.HunterID)
 	workdir := filepath.Join(workdirRoot, req.HunterID)
 	if err := os.MkdirAll(outputDir, 0o777); err != nil {
@@ -81,8 +81,11 @@ func (s *Server) handleExec(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// 记录命令开始时间——collectAttachments 用此过滤"本次 exec 新增/修改"的文件
-	// （per-task 隔离后仍需 modtime 过滤：同 task 多次 exec 旧文件不重复返）
-	execStart := time.Now()
+	// （per-task 隔离后仍需 modtime 过滤：同 task 多次 exec 旧文件不重复返）。
+	// 减 1s 余量：很多 Linux 文件系统 mtime 是秒级粒度（写入瞬间的 mtime 被截断到整秒，
+	// 可能落在纳秒精度的 now() 之前），不留余量会把本次刚写的文件误判为历史而丢掉
+	// （macOS APFS 纳秒 mtime 不触发，故只在 Linux 复现）。代价仅是极偶发重复返同 task 1s 内旧文件，远轻于丢文件。
+	execStart := time.Now().Add(-time.Second)
 
 	// 命令超时控制——r.Context() 让客户端断开/取消能传到 sh 子进程
 	timeout := time.Duration(req.TimeoutSeconds) * time.Second

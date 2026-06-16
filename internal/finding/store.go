@@ -62,7 +62,7 @@ func (s *Store) Save(ctx context.Context, f VulnFinding) (VulnFinding, error) {
 
 	// 0048 加了 UNIQUE(owner_id, dedup_key) — dedup_key 是 PG generated column，公式见
 	// db/migrations/0048_*.up.sql（host + CWE + target.path 强约束，宁可误判不漏判）。
-	// commander / striker agent 并发写同一漏洞时，ON CONFLICT 保留首个写入（first_seen_at 取较早），后续 dup
+	// orchestrator / exploitation agent 并发写同一漏洞时，ON CONFLICT 保留首个写入（first_seen_at 取较早），后续 dup
 	// 不报错而是返回 existing 行——LLM 视角 Save 始终幂等成功，dedup 在 DB 层无声完成。
 	// depends_on 是 uuid[]，empty slice → DEFAULT '{}'（PG 数组默认值）
 	deps := f.DependsOn

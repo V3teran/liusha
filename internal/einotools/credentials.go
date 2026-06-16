@@ -48,25 +48,27 @@ func BuildReadCredentials(store CredentialReader, host string) (tool.BaseTool, e
 }
 
 // credItem 是 write_credential 单条凭证入参（type 枚举 headers/query/body）。
+// 可选字段带 ,omitempty——否则 eino-contrib/jsonschema 把无 omitempty 的字段全标 required，
+// 撑大 required 数组触发 mimo "non-unique elements" 400（见 findings.go 详注）。
 type credItem struct {
-	Type  string `json:"type"  jsonschema:"required,enum=headers,enum=query,enum=body,description=凭证注入位置：headers=请求头（Cookie/Authorization），query=URL 参数，body=请求体字段"`
-	Key   string `json:"key"   jsonschema:"required,description=字段名（如 Cookie / Authorization / api_key）。原样保留大小写。"`
-	Value string `json:"value" jsonschema:"description=字段完整值（如 PHPSESSID=abc; security=low / Bearer eyJ... / xyz123）。"`
+	Type  string `json:"type"            jsonschema:"required,enum=headers,enum=query,enum=body,description=凭证注入位置：headers=请求头（Cookie/Authorization），query=URL 参数，body=请求体字段"`
+	Key   string `json:"key"             jsonschema:"required,description=字段名（如 Cookie / Authorization / api_key）。原样保留大小写。"`
+	Value string `json:"value,omitempty" jsonschema:"description=字段完整值（如 PHPSESSID=abc; security=low / Bearer eyJ... / xyz123）。"`
 }
 
 // writeCredentialArgs 是 write_credential 入参。
 type writeCredentialArgs struct {
-	Name        string     `json:"name"        jsonschema:"required,description=身份名（登录账号名优先；SSO 用 sub/email；兜底 _live_<short>）。禁止 anonymous。"`
-	Role        string     `json:"role"        jsonschema:"description=业务角色（admin / user / guest / api / 自定义）。可选，便于上层授权矩阵推断。"`
-	Credentials []credItem `json:"credentials" jsonschema:"required,description=凭证数组，至少 1 条；每条 type/key/value。"`
+	Name        string     `json:"name"           jsonschema:"required,description=身份名（登录账号名优先；SSO 用 sub/email；兜底 _live_<short>）。禁止 anonymous。"`
+	Role        string     `json:"role,omitempty" jsonschema:"description=业务角色（admin / user / guest / api / 自定义）。可选，便于上层授权矩阵推断。"`
+	Credentials []credItem `json:"credentials"    jsonschema:"required,description=凭证数组，至少 1 条；每条 type/key/value。"`
 }
 
 // BuildWriteCredential 造原生 eino write_credential 工具。host 闭包捕获。
 func BuildWriteCredential(store CredentialWriter, host string) (tool.BaseTool, error) {
 	return utils.InferTool(
 		"write_credential",
-		"把当前 hunter 拿到的活凭证录入本 host 凭证池，让同 owner 下其他 hunter（commander/striker/后续 task）通过 read_credentials 共享。"+
-			"\n\n**何时用**：自己刚通过登录 / OAuth / API key 注入等方式获得一组真实凭证，需要让其他 hunter（特别是 spawn 的 striker）也用上时。"+
+		"把当前 hunter 拿到的活凭证录入本 host 凭证池，让同 owner 下其他 hunter（orchestrator/exploitation/后续 task）通过 read_credentials 共享。"+
+			"\n\n**何时用**：自己刚通过登录 / OAuth / API key 注入等方式获得一组真实凭证，需要让其他 hunter（特别是 spawn 的 exploitation）也用上时。"+
 			"\n\n**先调 `read_credentials`** 看本 host 已有身份的 credentials 结构：有就**模仿其 type/key**填（key 对齐，避免一 host 两套 schema）；没有就自己从流量识别认证字段逐条录入。"+
 			"\n\n返回 {saved: true, name, host}。同 name 重复调用直接覆盖（活凭证刷新场景）。",
 		func(ctx context.Context, in writeCredentialArgs) (map[string]any, error) {

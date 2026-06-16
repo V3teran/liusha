@@ -2,9 +2,9 @@
 --
 -- 背景：
 --   0060 加 hunter_id 字段意图标识"哪个 hunter 发的流量"，但实测：
---   - 容器架构 commander 起容器，striker 复用同容器（active_spawner.go:243）
---   - HTTP_PROXY 是容器级 env，所有 hunter 共享 commander.task_id
---   - http_flow.hunter_id 永远是 commander 的 task_id，不能区分 striker
+--   - 容器架构 orchestrator 起容器，exploitation 复用同容器（active_spawner.go:243）
+--   - HTTP_PROXY 是容器级 env，所有 hunter 共享 orchestrator.task_id
+--   - http_flow.hunter_id 永远是 orchestrator 的 task_id，不能区分 exploitation
 --   - LLM 工具（list_flows/view_flow/replay_flow）按 owner_id 过滤，从不查 hunter_id
 --   - ingestor 写入时 hunter.GetByID 反查 owner 是无谓的额外 DB IO
 --

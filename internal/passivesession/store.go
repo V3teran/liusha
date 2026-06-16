@@ -19,9 +19,9 @@ type Store struct {
 func NewStore(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
 
 // colsSelect 是所有 SELECT 路径的统一列序，与 scan() 字段顺序一一对应。
-// error_message 用 COALESCE 折 NULL → '' （Session.ErrorMessage 是 string 不接 NULL）。
+// error_message 用 COALESCE 把 NULL 折成空串（Session.ErrorMessage 是 string 不接 NULL）。
 const colsSelect = "id, host, status, created_at, expires_at, " +
-	"ended_at, COALESCE(error_message, '')"
+	"ended_at, COALESCE(error_message, ''), conversation_id"
 
 // LookupActiveByHost 找指定 host 的 active session。
 // 不存在时返回 (Session{}, false, nil)，非空错误才表示真异常。
@@ -61,6 +61,31 @@ func (s *Store) Create(ctx context.Context, host string, ttl time.Duration) (Ses
 		return Session{}, fmt.Errorf("create passive session: %w", err)
 	}
 	return sess, nil
+}
+
+// SetConversationID 绑定 passive 会话的对话流 id（阶段2）。建会话后回填，幂等。
+func (s *Store) SetConversationID(ctx context.Context, id, convID string) error {
+	_, err := s.pool.Exec(ctx,
+		"UPDATE passive_session SET conversation_id=$1 WHERE id=$2", convID, id)
+	if err != nil {
+		return fmt.Errorf("set passive session %s conversation: %w", id, err)
+	}
+	return nil
+}
+
+// BumpExpiry 把 active session 的 expires_at 推到 now()+idle（阶段4 滑动 idle 截止）。
+//
+// expires_at 语义从「创建绝对截止」改为「滑动 idle 截止」：每次流量/插话续命，持续交互永不过期，
+// 真闲置 idle 后才被 Sweep(expires_at < now()) 释放——实现「记忆永久 + 资源 idle 释放」。
+// 仅作用于 active 行（已 aborted 的不复活）。
+func (s *Store) BumpExpiry(ctx context.Context, id string, idle time.Duration) error {
+	_, err := s.pool.Exec(ctx,
+		"UPDATE passive_session SET expires_at=now() + ($1::text)::interval WHERE id=$2 AND status='active'",
+		fmt.Sprintf("%d seconds", int(idle.Seconds())), id)
+	if err != nil {
+		return fmt.Errorf("bump passive session %s expiry: %w", id, err)
+	}
+	return nil
 }
 
 // LookupOrCreate 业务入口便利方法：找 host 的 active session，不存在则建新。
@@ -116,6 +141,24 @@ func (s *Store) GetByID(ctx context.Context, id string) (Session, error) {
 	return sess, nil
 }
 
+// GetByConversationID 按绑定的对话流 id 反查 passive 会话（阶段2 插话判别用）。
+// 不存在时返回 (Session{}, false, nil)——调用方据此判定该对话非 passive（走 active 分支）。
+func (s *Store) GetByConversationID(ctx context.Context, convID string) (Session, bool, error) {
+	if convID == "" {
+		return Session{}, false, nil
+	}
+	row := s.pool.QueryRow(ctx, "SELECT "+colsSelect+" FROM passive_session WHERE conversation_id=$1 LIMIT 1", convID)
+	var sess Session
+	err := scan(row, &sess)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Session{}, false, nil
+	}
+	if err != nil {
+		return Session{}, false, fmt.Errorf("get passive session by conversation %s: %w", convID, err)
+	}
+	return sess, true, nil
+}
+
 // Abort 把 session 置为 aborted（释放 active host 唯一约束位），同时写入
 // Abort 把 active session 推进到 aborted 终态：写 status / ended_at / error_message。
 // 0042 后无 *_count 兜底——读路径直接 SELECT count(*) FROM finding/... 即可。
@@ -159,5 +202,5 @@ type scanner interface {
 func scan(r scanner, s *Session) error {
 	return r.Scan(&s.ID, &s.Host, &s.Status,
 		&s.CreatedAt, &s.ExpiresAt,
-		&s.EndedAt, &s.ErrorMessage)
+		&s.EndedAt, &s.ErrorMessage, &s.ConversationID)
 }

@@ -32,7 +32,7 @@ func TestStore_CreateThenComplete(t *testing.T) {
 	id, err := s.Create(ctx, NewParams{
 		OwnerType: ot,
 		OwnerID:   oid,
-		Role:      "tracker",
+		Role:      "traffic-analysis",
 		Input:     json.RawMessage(`{"window_id":"w1"}`),
 	})
 	if err != nil {
@@ -75,7 +75,7 @@ func TestStore_CreateThenComplete(t *testing.T) {
 func TestStore_SetError(t *testing.T) {
 	ctx := context.Background()
 	s, ot, oid := setup(t)
-	id, err := s.Create(ctx, NewParams{OwnerType: ot, OwnerID: oid, Role: "tracker"})
+	id, err := s.Create(ctx, NewParams{OwnerType: ot, OwnerID: oid, Role: "traffic-analysis"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -100,7 +100,7 @@ func TestStore_SetError(t *testing.T) {
 func TestStore_SetAborted(t *testing.T) {
 	ctx := context.Background()
 	s, ot, oid := setup(t)
-	id, err := s.Create(ctx, NewParams{OwnerType: ot, OwnerID: oid, Role: "tracker"})
+	id, err := s.Create(ctx, NewParams{OwnerType: ot, OwnerID: oid, Role: "traffic-analysis"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -117,7 +117,7 @@ func TestStore_SetAborted(t *testing.T) {
 func TestStore_TerminalIsSticky(t *testing.T) {
 	ctx := context.Background()
 	s, ot, oid := setup(t)
-	id, err := s.Create(ctx, NewParams{OwnerType: ot, OwnerID: oid, Role: "tracker"})
+	id, err := s.Create(ctx, NewParams{OwnerType: ot, OwnerID: oid, Role: "traffic-analysis"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -129,21 +129,21 @@ func TestStore_TerminalIsSticky(t *testing.T) {
 	}
 }
 
-// TestStore_CreateWithParent 验证：NewParams.CommanderID 写入 + GetByID 读出往返一致。
+// TestStore_CreateWithParent 验证：NewParams.OrchestratorID 写入 + GetByID 读出往返一致。
 func TestStore_CreateWithParent(t *testing.T) {
 	ctx := context.Background()
 	s, ot, oid := setup(t)
 
-	parentID, err := s.Create(ctx, NewParams{OwnerType: ot, OwnerID: oid, Role: "tracker"})
+	parentID, err := s.Create(ctx, NewParams{OwnerType: ot, OwnerID: oid, Role: "traffic-analysis"})
 	if err != nil {
 		t.Fatalf("create parent: %v", err)
 	}
 
 	childID, err := s.Create(ctx, NewParams{
-		OwnerType: ot,
-		OwnerID:   oid,
-		Role:      "tracker",
-		CommanderID:  parentID,
+		OwnerType:      ot,
+		OwnerID:        oid,
+		Role:           "traffic-analysis",
+		OrchestratorID: parentID,
 	})
 	if err != nil {
 		t.Fatalf("create child: %v", err)
@@ -153,16 +153,16 @@ func TestStore_CreateWithParent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get child: %v", err)
 	}
-	if got.CommanderID != parentID {
-		t.Fatalf("child.CommanderID=%q, want %q", got.CommanderID, parentID)
+	if got.OrchestratorID != parentID {
+		t.Fatalf("child.OrchestratorID=%q, want %q", got.OrchestratorID, parentID)
 	}
 
-	// commander自己 CommanderID 必须为空（独立/根任务）
+	// orchestrator自己 OrchestratorID 必须为空（独立/根任务）
 	gotParent, err := s.GetByID(ctx, parentID)
 	if err != nil {
 		t.Fatalf("get parent: %v", err)
 	}
-	if gotParent.CommanderID != "" {
-		t.Fatalf("parent.CommanderID=%q, want empty", gotParent.CommanderID)
+	if gotParent.OrchestratorID != "" {
+		t.Fatalf("parent.OrchestratorID=%q, want empty", gotParent.OrchestratorID)
 	}
 }

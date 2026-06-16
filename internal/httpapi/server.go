@@ -18,11 +18,24 @@ type Deps struct {
 	Invocations InvocationsAPI
 	// AgentRuns 为 nil 时 /agent_runs/:eid 路由不注册。
 	// 由 cmd/api 注入 *hunter.Store（自动满足 AgentRunsAPI 窄接口）。
-	// 前端 viewer 用此 endpoint 按 commander_id 拼任务树（subtask swarm 可观测）。
+	// 前端 viewer 用此 endpoint 按 orchestrator_id 拼任务树（subtask swarm 可观测）。
 	AgentRuns AgentRunsAPI
 	// ActiveScan 为 nil 时 /scan/active 路由不注册。
 	// 由 cmd/api 注入自定义 adapter（包 owner store + hunter.Store + worker.Client）。
 	ActiveScan ActiveScanAPI
+	// 阶段B 对话式平台（任一为 nil 时对应路由不注册）：
+	//   Chat          POST /chat 发起对话扫描（cmd/api 注入 chatAdapter）
+	//   Conversations GET /conversations[/:id/messages]（*conversation.Store 满足）
+	//   EventStream   GET /conversations/:id/stream SSE（cmd/api 注入 redis 适配器）
+	Chat          ChatAPI
+	Conversations ConversationsAPI
+	EventStream   EventStream
+	// FollowUp 为 nil 时 POST /conversations/:id/messages 不注册（多轮动作续接）。
+	FollowUp FollowUpAPI
+	// Abort 为 nil 时 POST /conversations/:id/abort 不注册（停止对话关联扫描）。
+	Abort AbortAPI
+	// Roles 为 nil 时 GET /roles 不注册（场景 role 列表，供前端对话选择）。
+	Roles RolesAPI
 	// StaticFS 可选：注入时挂 / 路径 serve 静态前端（sitemap viewer SPA）。
 	// 为 nil 时不注册——避免 cmd/api 之外的进程意外暴露前端资源。
 	StaticFS http.FileSystem
@@ -30,6 +43,12 @@ type Deps struct {
 	// 暴露给前端 viewer 自动填充——**production 严禁开启**。
 	// 由 cmd/api 读 LIUSHA_VIEWER_DEV_KEY 环境变量决定。
 	EnableDevAutofill bool
+	// StreamCookieSecret 给 SSE stream cookie 签名/校验；空则 stream 仅接受 X-API-Key header。
+	// 由 cmd/api 读 LIUSHA_STREAM_COOKIE_SECRET 注入。
+	StreamCookieSecret []byte
+	// CookieSecure 控制 SSE 鉴权 cookie 的 Secure 属性。prod HTTPS 反代应 true；
+	// dev http 同源开发设 false（否则浏览器不种）。由 cmd/api 读 LIUSHA_COOKIE_SECURE 注入。
+	CookieSecure bool
 }
 
 // NewServer 组装 gin 路由：Recovery + 全局 X-API-Key 中间件 + 业务路由。
@@ -38,7 +57,7 @@ func NewServer(d Deps) http.Handler {
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
 	r.Use(gin.Recovery())
-	r.Use(RequireAPIKey(d.APIKey))
+	r.Use(RequireAPIKey(d.APIKey, d.StreamCookieSecret))
 
 	r.GET("/healthz", func(c *gin.Context) { c.JSON(200, gin.H{"ok": true}) })
 
@@ -63,6 +82,25 @@ func NewServer(d Deps) http.Handler {
 	}
 	if d.ActiveScan != nil {
 		r.POST("/scan/active", activeScanHandler(d.ActiveScan))
+	}
+	if d.Roles != nil {
+		r.GET("/roles", rolesHandler(d.Roles))
+	}
+	if d.Chat != nil {
+		r.POST("/chat", chatHandler(d.Chat, d.StreamCookieSecret, d.CookieSecure))
+	}
+	if d.Conversations != nil {
+		r.GET("/conversations", listConversationsHandler(d.Conversations))
+		r.GET("/conversations/:id/messages", messagesHandler(d.Conversations))
+		if d.FollowUp != nil {
+			r.POST("/conversations/:id/messages", followUpHandler(d.FollowUp))
+		}
+		if d.Abort != nil {
+			r.POST("/conversations/:id/abort", abortConversationHandler(d.Abort))
+		}
+		if d.EventStream != nil {
+			r.GET("/conversations/:id/stream", streamHandler(d.Conversations, d.EventStream))
+		}
 	}
 	if d.EnableDevAutofill && d.APIKey != "" {
 		// dev-only：viewer 启动时拉这个端点自动填充 API key。

@@ -5,7 +5,7 @@
 // 拍平到 domain 直连让辐射图第 1 圈就是真正的攻击面。
 //
 // 数据源（单一真相源）：http_flow（source=internal，DistinctRoutes 去重派生攻击面路由）
-// + finding 表（striker 写）。攻击面不再靠手动 endpoint 表/write_endpoint 转写——
+// + finding 表（exploitation 写）。攻击面不再靠手动 endpoint 表/write_endpoint 转写——
 // recon 工具流量经 mitmproxy/CDP 自动入 http_flow，sitemap 从中派生（参数自动入库）。
 // passive 模式无 sitemap 视图（流水账型流量，前端走 findings 列表）。
 package sitemap
@@ -141,7 +141,7 @@ func (p *Projector) Project(ctx context.Context, ownerID, host string) (View, er
 	//   - 强匹配（method+path 都有）→ findingsByKey: (host, method, path_templated)
 	//   - 弱匹配（path 有但 method 缺）→ methodlessByPath: (host, path_templated)，建完 endpoint 树后按 host+path 查唯一 endpoint
 	//   - path 缺 → noTargetKey 直接走兜底
-	// striker 写 finding 时偶尔漏 method 字段（DOM XSS 实测案例），projector 兜底避免误挂 (no target)
+	// exploitation 写 finding 时偶尔漏 method 字段（DOM XSS 实测案例），projector 兜底避免误挂 (no target)
 	const noTargetKey = "*|*|*"
 	findingsByKey := map[string][]FindingSummary{}
 	methodlessByPath := map[string][]FindingSummary{}
@@ -251,7 +251,7 @@ func (p *Projector) Project(ctx context.Context, ownerID, host string) (View, er
 		findingsByKey[noTargetKey] = append(findingsByKey[noTargetKey], fs...)
 	}
 
-	// 剩余 findings 没对应派生路由（striker 写了 finding 但该路由未被流量捕获）
+	// 剩余 findings 没对应派生路由（exploitation 写了 finding 但该路由未被流量捕获）
 	// 直接造一个 endpoint 节点挂 domain 下
 	for key, fs := range findingsByKey {
 		if seenKey[key] {
@@ -306,7 +306,7 @@ func (p *Projector) Project(ctx context.Context, ownerID, host string) (View, er
 }
 
 // extractFindingTarget 从 finding.target jsonb 提取 method + path。
-// commander/striker 写入时已带 method+path 字段，简化解析（不再 fallback url）。
+// orchestrator/exploitation 写入时已带 method+path 字段，简化解析（不再 fallback url）。
 func extractFindingTarget(f finding.VulnFinding) (method, path string) {
 	if len(f.Target) == 0 {
 		return "", ""

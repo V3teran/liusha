@@ -25,7 +25,7 @@ func testCfg() config.Config {
 		},
 		LLM: config.LLMConfig{
 			DefaultProvider: "xiaomi_mimo",
-			Agents:          map[string]string{"commander": "default_provider"},
+			Agents:          map[string]string{"orchestrator": "default_provider"},
 			Utilities:       map[string]string{"compactor": "light_provider"},
 			LightProvider:   "xiaomi_mimo",
 		},
@@ -36,7 +36,7 @@ func testCfg() config.Config {
 func TestResolveProviderKey(t *testing.T) {
 	f := New(testCfg())
 	cases := []struct{ role, want string }{
-		{"commander", "xiaomi_mimo"},    // Agents → default_provider
+		{"orchestrator", "xiaomi_mimo"}, // Agents → default_provider
 		{"compactor", "xiaomi_mimo"},    // Utilities → light_provider
 		{"unknown_role", "xiaomi_mimo"}, // 未配置 → default_provider
 	}
@@ -50,9 +50,9 @@ func TestResolveProviderKey(t *testing.T) {
 // For 对 openai_compat provider 构造原生 eino ChatModel（构造不发网络请求，dummy key 即可）。
 func TestFor_BuildsOpenAICompat(t *testing.T) {
 	t.Setenv("TEST_XIAOMI_KEY", "tp-dummy-for-construct")
-	cm, err := New(testCfg()).For(context.Background(), "commander")
+	cm, err := New(testCfg()).For(context.Background(), "orchestrator")
 	if err != nil {
-		t.Fatalf("For(commander) 报错: %v", err)
+		t.Fatalf("For(orchestrator) 报错: %v", err)
 	}
 	if cm == nil {
 		t.Fatal("For 返回 nil ChatModel")
@@ -72,7 +72,7 @@ func TestFor_AnthropicNotYet(t *testing.T) {
 
 // 缺 api key env → 明确报错。
 func TestFor_MissingKey(t *testing.T) {
-	_, err := New(testCfg()).For(context.Background(), "commander")
+	_, err := New(testCfg()).For(context.Background(), "orchestrator")
 	if err == nil || !strings.Contains(err.Error(), "为空") {
 		t.Fatalf("缺 key 应报错，得到: %v", err)
 	}

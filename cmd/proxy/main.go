@@ -6,8 +6,9 @@
 //  2. filter.NewTrafficFilter
 //  3. proxy.NewPublisher（XADD 到 Redis Stream `liusha:flow_events`，MAXLEN ~ 100k）
 //  4. proxy.NewServer + Run（监听 LIUSHA_PROXY_LISTEN_ADDR，默认 0.0.0.0:8888）
-//  5. healthz HTTP（默认 :9091，与 scanner :9090 错开）
-//  6. graceful shutdown（SIGINT/SIGTERM → proxyServer.Stop + 关 redis）
+//  5. graceful shutdown（SIGINT/SIGTERM → proxyServer.Stop + 关 redis）
+//
+// 纯 MITM passive 入口：无 healthz HTTP（存活探 TCP 8888）；active 抓流量 ingest endpoint 已迁到 cmd/scanner。
 //
 // 业务逻辑（passive_session.LookupOrCreate by host / flow.Append / Asynq 入队）
 // 全部在 cmd/scanner 内的 ingestor 包，proxy 只生产事件不做存储。
@@ -16,11 +17,9 @@ package main
 import (
 	"context"
 	"errors"
-	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
 	"github.com/V3teran/liusha/internal/config"
 	"github.com/V3teran/liusha/internal/db"
@@ -34,7 +33,9 @@ func main() {
 	logger := logx.New("proxy")
 	ctx := context.Background()
 
-	cfg, err := config.Load(envx.OrDefault("LIUSHA_CONFIG", "./config/config.yaml"))
+	// proxy 是纯 MITM ingress（filter + XADD），从不调 LLM → 跳过 LLM provider key 校验，
+	// 不再强塞一堆用不到的 key 才能启动。
+	cfg, err := config.LoadWithoutLLMKeys(envx.OrDefault("LIUSHA_CONFIG", "./config/config.yaml"))
 	if err != nil {
 		logger.Fatal().Err(err).Msg("load config")
 	}
@@ -51,7 +52,7 @@ func main() {
 	// 内嵌 MITM 代理装配链：filter → publisher → proxy.Server
 	// ENV 仍可临时覆盖 yaml；空 ENV → 走 yaml；yaml 也空 → ApplyDefaults 兜底。
 	//
-	// 双 listener（0060+）物理隔离 source，避免 agent 自挖流量触发 passive tracker 自激震荡：
+	// 双 listener（0060+）物理隔离 source，避免 agent 自挖流量触发 passive trafficAnalysis 自激震荡：
 	//   external: publicAddr (8888) → sanitizer → internalAddr loopback (18888) → external proxify
 	//   internal: agentPublicAddr (8890) → sanitizer → agentInternalAddr loopback (18890) → internal proxify
 	// v34+：删除 agent (internal) listener — chromium 流量改走 CDP capture → ingest endpoint
@@ -83,32 +84,12 @@ func main() {
 	proxyCtx, proxyCancel := context.WithCancel(context.Background())
 	defer proxyCancel()
 
-	// healthz HTTP：默认 :9091，避免与 scanner :9090 冲突。
-	// B1：复活 /internal/v1/flows/ingest endpoint——active 容器内 browser-svc.py 内建
-	// CDP Network observer 把 chromium 真实认证请求 POST 到这里 → publisher.Publish →
-	// ingestor.handleInternalSnap（source=internal，owner=active_scan）。token 经
-	// ENV LIUSHA_INGEST_TOKEN 覆盖 yaml proxyCfg.IngestToken，空 = 开发模式不强制。
-	hsAddr := envx.OrDefault("LIUSHA_PROXY_HEALTHZ_ADDR", proxyCfg.HealthzAddr)
-	ingestToken := envx.OrDefault("LIUSHA_INGEST_TOKEN", proxyCfg.IngestToken)
-	hsMux := http.NewServeMux()
-	hsMux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write([]byte(`{"ok":true}`))
-	})
-	hsMux.HandleFunc("/internal/v1/flows/ingest", newIngestHandler(publisher, ingestToken, logger))
-	hs := &http.Server{
-		Addr:              hsAddr,
-		Handler:           hsMux,
-		ReadHeaderTimeout: time.Duration(cfg.API.ReadHeaderTimeoutSeconds) * time.Second,
-	}
+	// 注：proxy 不再起 healthz HTTP server / ingest endpoint。
+	//   - active 抓流量 ingest endpoint 已迁到 cmd/scanner（沙箱回连 scanner :9090）。
+	//   - 存活检测改 TCP 探 8888（MITM listen 口），见 docker-compose / run-svc。
+	// proxy 现在 = 纯 MITM passive 入口（external listener + sanitizer）。
 
-	go func() {
-		logger.Info().Str("addr", hs.Addr).Msg("proxy healthz listening")
-		if err := hs.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			logger.Error().Err(err).Msg("healthz serve")
-		}
-	}()
-
-	// External proxify + sanitizer（passive 入口；v34+ 唯一 listener）
+	// External proxify + sanitizer（passive 入口；唯一 listener）
 	go func() {
 		logger.Info().Str("loopback", internalAddr).Str("source", "external").Msg("mitm proxy starting")
 		if err := externalServer.Run(proxyCtx); err != nil && !errors.Is(err, context.Canceled) {
@@ -131,12 +112,5 @@ func main() {
 
 	externalServer.Stop()
 	proxyCancel()
-	shutdownTimeout := time.Duration(proxyCfg.ShutdownTimeoutSeconds) * time.Second
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
-	defer cancel()
-	if err := hs.Shutdown(shutdownCtx); err != nil {
-		logger.Error().Err(err).Msg("healthz shutdown")
-	}
 	logger.Info().Msg("proxy stopped")
 }
-

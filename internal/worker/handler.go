@@ -11,18 +11,22 @@ import (
 //
 // Input 是该 task 的入参（已序列化的 JSON），由 handler 自行解释。
 //
-// CommanderID 标识commander id（subtask swarm）；空表示独立任务/根任务。
-// 设计约束：striker永远在commander goroutine 内跑（subtask 包内），**不**入 asynq——
-// 因此正常情况下入队 Payload.CommanderID 永远为空；ingestor + httpapi
-// enqueue 调用方均不填本字段，scanner handleActive 也不再做 fail-fast 死分支。
-// 字段保留用于 internal/subtask 包在commander goroutine 内 BuilderParams 传递。
+// OrchestratorID 标识 orchestrator id（旧 subtask swarm 语义）；空表示独立任务/根任务。
+// 现行 active 路径用 eino deep 进程内编排，exploitation 不入 asynq，故入队 Payload 此字段恒空；
+// 字段保留向后兼容，入队调用方均不填。
 type Payload struct {
-	HunterID    string          `json:"hunter_id"`
-	OwnerType   string          `json:"owner_type"` // 'passive_session' / 'active_scan'
-	OwnerID     string          `json:"owner_id"`   // passive_session.id / active_scan.id
-	CommanderID string          `json:"commander_id,omitempty"`
-	Role        Role            `json:"role"`
-	Input       json.RawMessage `json:"input,omitempty"`
+	HunterID       string `json:"hunter_id"`
+	OwnerType      string `json:"owner_type"` // 'passive_session' / 'active_scan'
+	OwnerID        string `json:"owner_id"`   // passive_session.id / active_scan.id
+	OrchestratorID string `json:"orchestrator_id,omitempty"`
+	// ConversationID 关联本任务所属对话（阶段B 对话发起时填）；asynq 自动入口为空——
+	// 空则 scanner 不发过程事件、不落 conversation message（向后兼容纯后台扫描）。
+	ConversationID string `json:"conversation_id,omitempty"`
+	// ScenarioID 是场景 role id（阶段C，web-pentest 等）；scanner 据此注入主代理人设。
+	// 空时 scanner 用对应 mode 的默认场景兜底。注意区别于 Role（worker 任务路由角色）。
+	ScenarioID string          `json:"scenario_id,omitempty"`
+	Role       Role            `json:"role"`
+	Input      json.RawMessage `json:"input,omitempty"`
 }
 
 // RoleHandler 处理一个反序列化好的 Payload。

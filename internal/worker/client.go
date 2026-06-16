@@ -24,7 +24,7 @@ func (c *Client) Close() error { return c.c.Close() }
 // Enqueue 投递一个任务到 role 对应的队列。
 //
 // 幂等：用 p.HunterID 作为 asynq 的 task ID，重复 Enqueue 同一 HunterID 会返回 asynq.ErrTaskIDConflict。
-// opts 透传给 asynq.NewTask（如 asynq.MaxRetry(0) 用于 active commander禁止重试——
+// opts 透传给 asynq.NewTask（如 asynq.MaxRetry(0) 用于 active orchestrator禁止重试——
 // active 4h × asynq 默认 25 retry = 4 天死循环，且 retry 接管必弄 PG 僵尸态）。
 // 返回 (asynq 分配的 task ID, queue 名, error)。
 func (c *Client) Enqueue(ctx context.Context, role Role, p Payload, opts ...asynq.Option) (string, string, error) {

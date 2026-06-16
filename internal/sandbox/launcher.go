@@ -68,15 +68,14 @@ type DockerLauncher struct {
 	ViewportWidth  int
 	ViewportHeight int
 
-	// IngestURL 是 active 容器内 browser-svc.py CDP Network 抓 chromium 流量 →
-	// /internal/v1/flows/ingest endpoint 的完整 URL。
+	// IngestURL 是 active 容器内抓流量 → /internal/v1/flows/ingest endpoint 的完整 URL。
 	//
-	// browser-svc.py 持单一 CDP 连接，内建 Network observer 把 Document/XHR/Fetch
-	// 完整 req/resp（含真实认证凭证位置）push 到本 URL → cmd/proxy ingest_handler 构造
+	// 两条抓取前端都 push 到本 URL：浏览器 browser-svc.py 内建 CDP Network observer；
+	// CLI 工具经容器内本地 mitmproxy（mitm-capture.py）。下游 → cmd/scanner ingest_handler 构造
 	// TrafficSnapshot{Source:"internal"} → publisher.Publish → ingestor.handleInternalSnap。
 	//
-	// 典型值：http://host.docker.internal:9091/internal/v1/flows/ingest（cmd/proxy healthz 端口）。
-	// 空字符串时不注入——browser-svc.py 读不到 LIUSHA_INGEST_URL 则 capture 整体不启用（单测 / 无 cmd/proxy 部署）。
+	// 典型值：http://host.docker.internal:9090/internal/v1/flows/ingest（cmd/scanner healthz 端口）。
+	// 空字符串时不注入——沙箱读不到 LIUSHA_INGEST_URL 则 capture 整体不启用（单测 / 无 scanner 部署）。
 	IngestURL string
 
 	// IngestToken 是上面 URL 的 Bearer token。
@@ -91,7 +90,7 @@ func NewDockerLauncher(image string) *DockerLauncher {
 
 // Spawn 启动 sandbox 容器并等待 healthz。返回绑定到该容器 host 端口的 Client。
 //
-// hunterID：仅作 docker 容器名（per-hunter 隔离）。注意 commander + striker 共享同一容器，
+// hunterID：仅作 docker 容器名（per-hunter 隔离）。注意 orchestrator + exploitation 共享同一容器，
 // 所以容器级不注入 hunter 身份 env——身份由 browser-svc.py 按 session→hunter 逐请求归属
 // （sandbox-server /exec 每命令带 HUNTER_ID env → wrapper 经 unix socket 转发 → daemon 建 tab 时登记）。
 // 容器级只注入 LIUSHA_INGEST_URL/TOKEN（常量），供 browser-svc.py CDP capture push 流量。
@@ -134,7 +133,7 @@ func (l *DockerLauncher) Spawn(ctx context.Context, hunterID string) (Client, er
 	}
 	// CDP capture ingest env（容器级常量，非身份）：browser-svc.py 读 LIUSHA_INGEST_URL 决定是否
 	// 启用 Network observer，读 LIUSHA_INGEST_TOKEN 作 Bearer。URL 空则整体不注入 → capture 不启用。
-	// hunter_id 不在这注入——commander/striker 共享容器，由 browser-svc.py 按 session→hunter 逐请求归属。
+	// hunter_id 不在这注入——orchestrator/exploitation 共享容器，由 browser-svc.py 按 session→hunter 逐请求归属。
 	if l.IngestURL != "" {
 		args = append(args, "-e", "LIUSHA_INGEST_URL="+l.IngestURL)
 		if l.IngestToken != "" {

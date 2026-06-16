@@ -21,6 +21,9 @@ export LIUSHA_POSTGRES_DSN="${LIUSHA_POSTGRES_DSN:-postgres://liusha:liusha@loca
 export LIUSHA_REDIS_ADDR="${LIUSHA_REDIS_ADDR:-localhost:6379}"
 export LIUSHA_API_ADDR="${LIUSHA_API_ADDR:-0.0.0.0:8090}"  # 8080 易被 Burp Suite Pro 占用，dev 默认 :8090
 export LIUSHA_API_KEY="${LIUSHA_API_KEY:-changeme-dev-key}"
+# 阶段D：SSE stream cookie 签名密钥（api 缺失会 fail-fast）。dev 用固定值即可（cookie 跨重启有效）；
+# prod 必须用 openssl rand -hex 32 生成的真随机值，且配 LIUSHA_COOKIE_SECURE=true。
+export LIUSHA_STREAM_COOKIE_SECRET="${LIUSHA_STREAM_COOKIE_SECRET:-dev-stream-cookie-secret-not-for-prod}"
 # dev 便利：viewer SPA 启动时拉 /viewer/config.json 自动填 X-API-Key 到输入框，
 # 不用手贴。production 环境严禁设此变量（会把 API key 通过未鉴权端点暴露）。
 export LIUSHA_VIEWER_DEV_KEY="${LIUSHA_VIEWER_DEV_KEY:-1}"
@@ -37,9 +40,8 @@ export LIUSHA_LLM_LIGHT_PROVIDER="${LIUSHA_LLM_LIGHT_PROVIDER:-deepseek}"
 export LIUSHA_LLM_FALLBACK_PROVIDER="${LIUSHA_LLM_FALLBACK_PROVIDER:-deepseek}"
 export LIUSHA_LLM_VISION_PROVIDER="${LIUSHA_LLM_VISION_PROVIDER:-deepseek}"
 
-# proxy 进程参数
+# proxy 进程参数（纯 MITM，无独立 healthz；存活探 TCP 8888）
 export LIUSHA_PROXY_LISTEN_ADDR="${LIUSHA_PROXY_LISTEN_ADDR:-0.0.0.0:8888}"
-export LIUSHA_PROXY_HEALTHZ_ADDR="${LIUSHA_PROXY_HEALTHZ_ADDR:-:9091}"
 
 # api key 校验（必填）
 if [ -z "${DEEPSEEK_API_KEY:-}" ]; then
@@ -51,7 +53,7 @@ echo "===== 启动 4 个 host 服务 ====="
 echo "  config:        $LIUSHA_CONFIG"
 echo "  postgres:      $LIUSHA_POSTGRES_DSN"
 echo "  redis:         $LIUSHA_REDIS_ADDR"
-echo "  proxy:         $LIUSHA_PROXY_LISTEN_ADDR (mitm) / $LIUSHA_PROXY_HEALTHZ_ADDR (healthz)"
+echo "  proxy:         $LIUSHA_PROXY_LISTEN_ADDR (mitm, 无 healthz)"
 echo "  llm overrides: light=$LIUSHA_LLM_LIGHT_PROVIDER fallback=$LIUSHA_LLM_FALLBACK_PROVIDER vision=$LIUSHA_LLM_VISION_PROVIDER"
 echo ""
 
@@ -62,14 +64,14 @@ echo ""
 # 按端口杀（不靠 cmdline 模式）：go run 的 build cache 路径形如
 # /Users/.../go-build/<hash>-d/scanner，没有 "cmd/" 或 "exe/" 字样，
 # 匹配模式不可靠；按 5 个目标端口找 PID 精确 kill 才稳。先 SIGTERM 再 SIGKILL。
-for port in 8001 8888 8090 9090 9091; do
+for port in 8001 8888 8090 9090; do
   pid=$(lsof -nP -iTCP:"$port" -sTCP:LISTEN -t 2>/dev/null | head -1) || true
   if [ -n "$pid" ]; then
     kill "$pid" 2>/dev/null || true
   fi
 done
 sleep 1
-for port in 8001 8888 8090 9090 9091; do
+for port in 8001 8888 8090 9090; do
   pid=$(lsof -nP -iTCP:"$port" -sTCP:LISTEN -t 2>/dev/null | head -1) || true
   if [ -n "$pid" ]; then
     kill -9 "$pid" 2>/dev/null || true
@@ -80,7 +82,7 @@ sleep 1
 # 端口预检：5 个目标端口任一仍被占（不属于本脚本管理）→ 立即报错退出，
 # 让用户先手动清。比"启动 4 个、其中 2 个 fatal 而 healthz 还过"友好得多。
 PORT_BUSY=()
-for p in 8001 8888 8090 9090 9091; do
+for p in 8001 8888 8090 9090; do
   if lsof -nP -iTCP:"$p" -sTCP:LISTEN >/dev/null 2>&1; then
     PORT_BUSY+=("$p")
   fi
@@ -98,7 +100,7 @@ go run -mod=mod ./cmd/vulnapp 2>logs/vulnapp.stderr &
 VULNAPP_PID=$!
 
 sleep 2
-echo "[2/4] proxy on :8888 (mitm) + $LIUSHA_PROXY_HEALTHZ_ADDR (healthz)"
+echo "[2/4] proxy on :8888 (mitm)"
 go run -mod=mod ./cmd/proxy 2>logs/proxy.stderr &
 PROXY_PID=$!
 
