@@ -11,6 +11,7 @@ import (
 //   - active 子目录能加载、恰一个 orchestrator、含 reconnaissance + exploitation
 //   - passive 子目录含 traffic-analysis
 //   - 每个角色声明的工具都在注册表里（防 md 写错工具名 / 漏注册）
+//
 // 子目录隔离：active 的 LoadRoles 不应扫到 passive 角色（traffic-analysis 不进 swarm）。
 func TestShippedRoleFiles(t *testing.T) {
 	known := map[string]bool{}

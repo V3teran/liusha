@@ -16,7 +16,7 @@ func TestFormatDialogHistory_SkipsBriefAndEmpty(t *testing.T) {
 	msgs := []conversation.Message{
 		msg(conversation.RoleUser, "测试这个登录接口"),
 		msg(conversation.RoleAssistant, "发现一个 SQL 注入"),
-		msg(conversation.RoleUser, "  "), // 空内容，跳过
+		msg(conversation.RoleUser, "  "),       // 空内容，跳过
 		msg(conversation.RoleUser, "刚才那个怎么利用"), // 本轮 brief，跳过
 	}
 	out := formatDialogHistory(msgs, "刚才那个怎么利用")
