@@ -1,45 +1,26 @@
-# liusha pentools 镜像（tag liusha/pentools:latest）：
-# all-in-one 沙箱镜像 = pentest 工具集 + browser-use（含 playwright chromium）+
-# sandbox-server（Go，容器 PID 1，主进程通过 HTTP RPC 调用）。
+# syntax=docker/dockerfile:1.7
+# liusha pentools 镜像：all-in-one 沙箱 = Kali 全量 CLI 工具集 + browser-use（含 playwright chromium）+
+# sandbox-server（Go，容器 PID 1，主进程通过 :8080 HTTP RPC 调用 /exec）。
 #
-# 设计要点：
-#   - 单镜像而非"一工具一镜像"：apt 共享底层、layer 复用，磁盘占用小
-#   - **CMD = /usr/local/bin/sandbox-server**（容器 PID 1）：长会话容器模型，
-#     主进程通过 :8080 HTTP RPC 调用 /exec 跑 sh -c 命令。
-#     旧的"无 ENTRYPOINT + docker_runner 直接传 Cmd"模式作废——见 design doc：
-#     docs/superpowers/specs/2026-05-16-sandbox-server-design.md 决策 1/3/5
-#   - 多 layer 设计：apt → pip → browser-use → wget Go 二进制 → nuclei 模板 →
-#     反序列化 → wordlist → sandbox-server 二进制。失败可单层重试。
-#   - **Go 二进制 + ysoserial 用 GitHub API releases/latest 动态拉最新**——
-#     build 即升级，无需手动改 ARG；fallback 默认值兜底 API 不可达
-#   - **base = ubuntu:24.04 LTS**（锁死，不跟 latest）：
-#     原因——ubuntu:latest 当前是 26.04 LTS 自带 Python 3.14，而 browser-use 0.12.x 用了
-#     被 3.14 移除的 asyncio.get_event_loop() 老 API，CLI 静默失败（见 browser-use issue #4447）。
-#     24.04 LTS 自带 Python 3.12，browser-use 正常工作；24.04 支持到 2029-04 长期可靠。
-#   - **multi-stage build**：Stage 0（golang:alpine）编译 sandbox-server，
-#     Stage 1 拷贝二进制；最终镜像不含 Go 工具链
+# 设计要点（与 ubuntu 版的关键差异）：
+#   - base = kalilinux/kali-rolling + kali-linux-headless 元包：吃 Kali 维护的全量安全工具仓，
+#     系统扩展时新增工具大概率"已在镜像里"，只需往 tools.yaml 加一行。
+#   - 工具装配走 **manifest 驱动**：scripts/build/install-from-manifest.sh 读 tools.yaml，逐个
+#     `command -v` 实测——Kali 已供给则信任跳过，缺了按 install 字段装，任一缺失/装不上即构建失败。
+#     版本策略：默认信任 Kali（apt 不 pin）；Kali 没有的（gau/spectral/trufflehog）用 release 装并 pin。
+#   - **browser-use 跑在独立 Python 3.12 venv**：Kali rolling 的系统 Python 随 Debian sid 滚到 3.13/3.14，
+#     而 browser-use 曾因 3.14 移除 asyncio.get_event_loop() 静默失败（issue #4447）。隔离 3.12 venv
+#     只服务 browser-use；其余工具 + agent 现写脚本走 Kali 系统 Python。
+#   - multi-stage：Stage 0(golang) 编译 sandbox-server，Stage 1 拷贝；最终镜像不含 Go 工具链。
+#   - 构建在 GitHub Actions（US runner）：不再用清华 apt/pip 镜像（US 上更慢）；用默认源。
+#   - arm64 优先：原生 arm64 runner 构建；google-chrome 仅 amd64 deb，统一改用 playwright chromium。
 #
-# 构建：
-#   docker build -t liusha/pentools:latest -f deployments/tool-images/pentools/Dockerfile .
+# 构建（本地）：docker build -t liusha/pentools:latest -f deployments/tool-images/pentools/Dockerfile .
+# 构建（CI）：见 .github/workflows/pentools-image.yml（推 GHCR）。
 #
-# 工具清单（25 个，按 9 类）：
-#   recon (5):           subfinder httpx katana nmap wafw00f
-#   discovery (5):       ffuf dirsearch arjun gau spectral（API 模式分析）
-#   vulnscan (1):        nuclei
-#   injection (2):       sqlmap dalfox
-#   deserialization (2): ysoserial phpggc
-#   auth (2):            hydra jwt_tool
-#   sast (2):            semgrep trufflehog
-#   browser (1):         browser-use (含 playwright chromium，LLM 通过 run_command 调用)
-#   utility (5):         curl python3 jq interactsh-client mysql
-#
-# 体积预估 ~1.4-1.7 GB（含 nuclei-templates 80MB / SecLists 子集 30MB / JDK 350MB /
-# PHP 25MB / Chrome 110MB / playwright chromium 150MB / browser-use+依赖 50MB /
-# Python libs ~90MB / sandbox-server <20MB）。
-# 删除：chromedriver 20MB（selenium 配套，已被 browser-use 替代）。
+# 工具清单的真相源是同目录 tools.yaml（agent 索引 + 构建期 install 双用）。
 
-# Stage 0: sandbox-server 编译（multi-stage，产物拷到最终镜像 /usr/local/bin）。
-# 跟 host arch（CGO_ENABLED=0 纯 Go，跨 arch 编译无障碍）；vendored deps 离线 build。
+# ── Stage 0: 编译 sandbox-server（CGO_ENABLED=0 纯 Go，vendored 离线 build）────────────
 FROM golang:1.25-alpine AS sandbox-builder
 WORKDIR /src
 COPY go.mod go.sum ./
@@ -49,392 +30,117 @@ COPY internal/sandbox internal/sandbox
 ENV CGO_ENABLED=0
 RUN go build -mod=vendor -o /out/sandbox-server ./cmd/sandbox-server
 
-# Stage 1: 运行镜像。
-# base arch 跟 host（多架构 manifest），让 Mac arm64 / linux amd64 都能 native 跑。
-# 所有 wget 的 Go release 用 TARGETARCH 变量拉对应 arch binary（buildx 自动注入）；
-# google-chrome 仅 amd64 有官方 deb——arm64 上跳过，依靠 playwright chromium（含 arm64 native build）。
-FROM ubuntu:24.04
+# ── Stage 1: Kali 运行镜像 ───────────────────────────────────────────────────────────
+FROM kalilinux/kali-rolling
 
 ENV DEBIAN_FRONTEND=noninteractive \
     PIP_BREAK_SYSTEM_PACKAGES=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
-    PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple \
-    PIP_TRUSTED_HOST=pypi.tuna.tsinghua.edu.cn \
     PIP_RETRIES=5 \
-    PIP_TIMEOUT=60
+    PIP_TIMEOUT=60 \
+    BROWSER_USE_VENV=/opt/browser-use-venv \
+    PATH=/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
-# 加 apt 重试配置——清华源在 docker desktop macOS 上偶尔丢连接（之前
-# openjdk-21 ~150MB 在 507s 处 connection failed），没 retry 整层 abort。
-# 注：/etc/wgetrc 配置移到 wget 装好之后（Layer 1a 之后），避免 dpkg 安装
-# wget 包时跟预置的 wgetrc 冲突。
-RUN echo 'Acquire::Retries "5";' > /etc/apt/apt.conf.d/80-retries \
- && echo 'Acquire::http::Timeout "120";' >> /etc/apt/apt.conf.d/80-retries \
- && echo 'Acquire::https::Timeout "120";' >> /etc/apt/apt.conf.d/80-retries
+# apt 重试（网络抖动不让整层 abort）。
+RUN printf 'Acquire::Retries "5";\nAcquire::http::Timeout "120";\nAcquire::https::Timeout "120";\n' \
+      > /etc/apt/apt.conf.d/80-retries
 
-# Layer 1a: apt 系统级小工具——清华源加速。
-# - sqlmap / hydra / nmap：apt 直装的渗透工具
-# - python3 + pip：脚本运行时 + 后续 pip 工具
-# - php-cli：phpggc 必需（~25MB）
-# - git wget unzip：拉源码/二进制
-# - jq curl ca-certificates：基础工具 + TLS 信任链
-# JRE 单独后置 layer，失败时只重 1b 不全量重 build。
-RUN sed -i \
-        -e 's|http://archive.ubuntu.com|http://mirrors.tuna.tsinghua.edu.cn|g' \
-        -e 's|http://ports.ubuntu.com|http://mirrors.tuna.tsinghua.edu.cn|g' \
-        -e 's|http://security.ubuntu.com|http://mirrors.tuna.tsinghua.edu.cn|g' \
-        /etc/apt/sources.list.d/ubuntu.sources \
- && apt-get update \
- && apt-get install -y --no-install-recommends \
-        sqlmap \
-        hydra \
-        nmap \
-        python3 \
-        python3-pip \
-        python3-setuptools \
-        jq \
-        curl \
-        wget \
-        unzip \
-        git \
-        ca-certificates \
-        php-cli \
-        default-mysql-client \
- && rm -rf /var/lib/apt/lists/* \
- && sqlmap --version \
- && hydra -h 2>&1 | head -2 \
- && nmap --version | head -1 \
- && php --version | head -1 \
- && mysql --version
-
-# Layer 1a.5: 全局 wgetrc retry——GitHub release download 在 docker desktop
-# gvisor 网络偶发 404/timeout（之前 ysoserial 多次失败）；所有 wget 命令统一重试。
-# 必须在 Layer 1a wget 装好后才能写（否则 dpkg 装 wget 时冲突）。
-RUN printf 'tries=5\nwaitretry=10\ntimeout=60\nretry-connrefused=on\n' >> /etc/wgetrc
-
-# Layer 1b: JDK 单独装——~350MB 大包（含 javac 编译器 + JRE），单独 layer 让失败可重试不全量重 build。
-# 装 JDK 而非 JRE-headless 的原因：LLM 渗透场景偶发需要现场编译 Java（如自定义反序列化 gadget、
-# JNDI exploit class 文件），多 200MB 换"现场编译能力"对开发体验有意义。
-RUN apt-get update \
- && apt-get install -y --no-install-recommends default-jdk-headless \
- && rm -rf /var/lib/apt/lists/* \
- && java -version 2>&1 | head -1 \
- && javac -version 2>&1 | head -1
-
-# Layer 1c: Google Chrome（dalfox / katana 等用 chromedp 的工具需要 chromium-style 浏览器）。
-# Ubuntu 24.04 默认 chromium 是 snap 包（docker 内不可用），改装 google-chrome-stable.deb。
-# google-chrome 仅 amd64 有官方 deb——arm64 build 时跳过本层，依靠 Layer 2.5 playwright
-# chromium（arm64 有 native build），并在 2.5 后做 /usr/local/bin/chromium symlink 让 chromedp 系工具找到。
-# chromedp 自动查找 google-chrome / chromium / chrome；apt-get install 一条 deb 会自动拉运行时依赖。
-# amd64 约 +110MB；失败单独 layer 可重试。
+# Layer 1: 基础依赖（非工具——工具走 kali-linux-headless + manifest 安装器）。
+# wgetrc 全局重试；yq(mikefarah) 给安装器读 tools.yaml 用。
 ARG TARGETARCH
-RUN if [ "$TARGETARCH" = "amd64" ]; then \
-        wget -q -O /tmp/chrome.deb https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb \
-     && apt-get update \
-     && apt-get install -y --no-install-recommends /tmp/chrome.deb \
-     && rm /tmp/chrome.deb \
-     && rm -rf /var/lib/apt/lists/* \
-     && google-chrome --version ; \
-    else \
-        echo "[Layer 1c] TARGETARCH=$TARGETARCH 跳过 google-chrome（无 arm64 deb）；依靠 Layer 2.5 playwright chromium" ; \
-    fi
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+        ca-certificates curl wget git unzip xz-utils tar file jq \
+        python3 python3-pip python3-venv pipx \
+        default-jdk-headless php-cli default-mysql-client \
+        build-essential \
+ && rm -rf /var/lib/apt/lists/* \
+ && printf 'tries=5\nwaitretry=10\ntimeout=60\nretry-connrefused=on\n' >> /etc/wgetrc \
+ && wget -q "https://github.com/mikefarah/yq/releases/latest/download/yq_linux_${TARGETARCH}" -O /usr/local/bin/yq \
+ && chmod +x /usr/local/bin/yq \
+ && yq --version
 
-# Layer 1d 已删除：之前装 chromedriver 是为 selenium 配套，
-# 现在改用 browser-use[cli]（基于 playwright，自带 chromium 管理），无需 chromedriver。
+# Layer 2: kali-linux-headless 元包（全量无桌面 CLI 工具集）——最大的一层，单独放便于缓存。
+RUN apt-get update \
+ && apt-get install -y kali-linux-headless \
+ && rm -rf /var/lib/apt/lists/*
 
-# Layer 2: Python 工具 + LLM 常用渗透/Web 三方库（pip 一次装齐）。
-# 工具（4 个）：dirsearch / arjun / wafw00f / semgrep
-# HTTP/HTML 三方库（5 个）：requests / httpx / aiohttp / beautifulsoup4 / lxml
-# 渗透常用（11 个）：urllib3 / websockets / websocket-client / pysocks / dnspython /
-#                    cryptography / pyjwt / pyyaml / xmltodict / paramiko / pymysql
-# 浏览器自动化改走 Layer 2.5 的 browser-use[cli]（包 playwright），selenium 删除（grep 项目无引用）。
-# pymysql 是纯 Python 驱动（无 C 扩展），LLM 拿到 DB 凭证可直接 import pymysql；
-# 同时 apt 装了 default-mysql-client，CLI `mysql -h ...` 也可用，两种姿势齐备。
-# 设计哲学：LLM 写脚本默认 import 这些，不预装就强迫它降级用 stdlib 或浪费 round-trip 装包。
-# 用 PEP 668 --break-system-packages（已通过 ENV PIP_BREAK_SYSTEM_PACKAGES=1）。
-# semgrep 装完体积最大（~150MB 含规则集）；其他 lib 合计 +60-90MB。
+# Layer 3: agent 现写脚本常用的 Python 库（装进 Kali 系统 Python——agent 跑 `python3 script.py` 用）。
+# 注意：这些是「库」不是「工具」，不进 tools.yaml；与 browser-use 的 venv 互不相干。
 RUN pip install --quiet \
-        dirsearch \
-        arjun \
-        wafw00f \
-        semgrep \
-        requests \
-        httpx \
-        aiohttp \
-        beautifulsoup4 \
-        lxml \
-        urllib3 \
-        websockets \
-        websocket-client \
-        pysocks \
-        dnspython \
-        cryptography \
-        pyjwt \
-        pyyaml \
-        xmltodict \
-        paramiko \
-        pymysql \
- && dirsearch --version 2>&1 | head -1 \
- && arjun --help 2>&1 | head -1 \
- && wafw00f --help 2>&1 | head -1 \
- && semgrep --version \
- && python3 -c 'import requests, httpx, aiohttp, bs4, lxml, urllib3, websockets, websocket, socks, dns, cryptography, jwt, yaml, xmltodict, paramiko, pymysql; print("python libs OK (16 packages)")'
+        requests httpx aiohttp beautifulsoup4 lxml urllib3 \
+        websockets websocket-client pysocks dnspython cryptography \
+        pyjwt pyyaml xmltodict paramiko pymysql \
+ && python3 -c 'import requests, httpx, aiohttp, bs4, lxml, urllib3, websockets, websocket, socks, dns, cryptography, jwt, yaml, xmltodict, paramiko, pymysql; print("python libs OK")'
 
-# Layer 2.5: browser-use CLI（替代 selenium + chromedriver）。
-# browser-use 是 LLM-friendly 浏览器自动化框架，自带 CLI（browser-use open/state/click/...）
-# 和 session 自动管理（chrome 生命周期由 browser-use 内部托管，无需我们 spawn）。
-# - pip 装 browser-use[cli] 拉 browser-use + playwright + 依赖（~50MB Python 包）
-# - playwright install chromium 拉 playwright 自家 chromium（~150MB），不复用现有
-#   google-chrome 因为 playwright 默认用自家 chromium 兼容性最稳
-# - playwright install-deps 装系统依赖（libnss3 等），部分已被 Layer 1c chrome.deb 拉过
-# 总体 +~250MB。LLM 通过 run_command "browser-use ..." 调用。
-RUN set -e \
- # browser-use[cli] 不再自动拉 playwright（cli.py:23 spawn `uvx playwright install`），
- # 我们显式装 uv（提供 uvx 兜底）+ playwright，避免 LLM 跑 browser-use 时按需装失败。
- && pip install --quiet 'browser-use[cli]' uv playwright \
- && playwright install chromium \
- && (playwright install-deps chromium 2>/dev/null || true) \
- && (browser-use --version 2>&1 | head -3 || true) \
- # symlink playwright chromium binary 到 PATH——arm64 上没 google-chrome 时
- # dalfox/katana 等 chromedp 系工具用此作为 chromium 入口；amd64 上是冗余（已有 google-chrome）但无害。
- # arm64 playwright build 可能是 headless_shell（headless 专版），amd64 通常是 chrome。
+# Layer 4: browser-use 专属 Python 3.12 venv（隔离 Kali 滚动 Python）。
+# uv 拉 standalone CPython 3.12 建 venv；browser-use[cli] + playwright + httpx 全装进 venv。
+# playwright chromium 也由 venv 拉；symlink 到 /usr/local/bin/chromium 给 chromedp 系工具（dalfox/katana）当入口。
+# 薄客户端 browser-use 的 shebang 指向 venv 解释器（见该文件首行），它用 sys.executable 拉起
+# browser-svc.py → 二者都跑 venv python → import browser_use 命中 venv，不受系统 Python 影响。
+RUN pip install --quiet uv \
+ && uv venv --python 3.12 "$BROWSER_USE_VENV" \
+ && uv pip install --python "$BROWSER_USE_VENV/bin/python" --quiet 'browser-use[cli]' playwright httpx \
+ && "$BROWSER_USE_VENV/bin/playwright" install chromium \
+ && ("$BROWSER_USE_VENV/bin/playwright" install-deps chromium 2>/dev/null || true) \
+ && ln -sf "$BROWSER_USE_VENV/bin/browser-use" /usr/local/bin/browser-use-cli \
+ && browser-use-cli --version 2>&1 | head -1 \
+ # symlink playwright chromium binary → /usr/local/bin/chromium（arm64 可能是 headless_shell）
  && PW_CHROMIUM=$(find /root/.cache/ms-playwright -type f \( -name chrome -o -name headless_shell \) 2>/dev/null | head -1) \
  && [ -n "$PW_CHROMIUM" ] || { echo "[FATAL] playwright chromium binary 未找到"; ls -la /root/.cache/ms-playwright/ 2>&1; exit 1; } \
  && ln -sf "$PW_CHROMIUM" /usr/local/bin/chromium \
- && ls -la /usr/local/bin/chromium \
  && /usr/local/bin/chromium --version 2>&1 | head -1
 
-# Layer 2.6: 把 pip 装的 browser-use CLI 改名 browser-use-cli，腾出 browser-use 入口给薄客户端。
-# 设计：每身份一个常驻 browser-svc.py（持 BrowserSession，按 task_id→target_id 经 actor.Page 寻址路由），
-#   薄 browser-use 客户端经 unix socket 转发子命令；同身份多 agent 并发各操作自己的 tab（无全局 active tab、无 flock 串行）。
-#   管理类子命令(install/doctor/setup/sessions/python/tunnel/cloud/profile) 透传 browser-use-cli。
-# 依赖：IDENTITY/HUNTER_ID/OUTPUT_DIR env（sandbox-server 注入）+ browser-use-cli + browser-svc.py。
-RUN if [ -f /usr/local/bin/browser-use-cli ]; then \
-        echo "[Layer 2.6] browser-use-cli 已存在（layer cache 命中），跳过 mv"; \
-    else \
-        mv /usr/local/bin/browser-use /usr/local/bin/browser-use-cli; \
-    fi \
- && browser-use-cli --version 2>&1 | head -1
+# Layer 4b: browser-use 薄客户端 + 每身份常驻 Page 路由服务（CDP Network capture 内建其中）。
+# 薄客户端 shebang = venv 解释器；它 os.execvp("browser-use-cli") 透传管理类子命令（已 symlink 到 venv）。
 COPY deployments/tool-images/pentools/browser-use /usr/local/bin/browser-use
 COPY deployments/tool-images/pentools/browser-svc.py /usr/local/bin/browser-svc.py
-# B1：CDP Network capture 内建进 browser-svc.py（不再有独立 sidecar）——它读 LIUSHA_INGEST_URL
-# 决定是否启用 Network observer 抓 chromium 真实认证请求 → POST cmd/proxy ingest endpoint 入字典。
 RUN chmod +x /usr/local/bin/browser-use /usr/local/bin/browser-svc.py \
- && ls -la /usr/local/bin/browser-use /usr/local/bin/browser-use-cli /usr/local/bin/browser-svc.py \
- && head -3 /usr/local/bin/browser-use
+ && head -1 /usr/local/bin/browser-use \
+ && /usr/local/bin/browser-use --help >/dev/null 2>&1 || true
 
-# Layer 3: jwt_tool 不在 PyPI（pyjwt 是不同包）——git clone + 包装脚本到 /usr/local/bin。
-RUN git clone --depth 1 https://github.com/ticarpi/jwt_tool.git /opt/jwt_tool \
- && pip install --quiet -r /opt/jwt_tool/requirements.txt \
- && printf '#!/bin/sh\nexec python3 /opt/jwt_tool/jwt_tool.py "$@"\n' > /usr/local/bin/jwt_tool \
- && chmod +x /usr/local/bin/jwt_tool \
- && jwt_tool -h 2>&1 | head -1
+# Layer 5: manifest 驱动装齐工具——逐个 command -v 实测，Kali 已供给则信任，缺了按 install 装，
+# 任一缺失/装不上即构建失败。browser-use 此时已存在（Layer 4），安装器遍历到它会信任跳过。
+COPY deployments/tool-images/pentools/tools.yaml /tmp/tools.yaml
+COPY scripts/build/install-from-manifest.sh /usr/local/bin/install-from-manifest.sh
+RUN apt-get update \
+ && chmod +x /usr/local/bin/install-from-manifest.sh \
+ && TARGETARCH="${TARGETARCH}" /usr/local/bin/install-from-manifest.sh /tmp/tools.yaml \
+ && rm -rf /var/lib/apt/lists/*
 
-# Layer 4: ProjectDiscovery + 同行 Go 工具二进制——动态拉 GitHub releases/latest。
-# 不装 golang SDK 省 ~800MB——直接拉官方 release 二进制。
-# 用 GitHub API 查询 latest tag 而非固定 ARG，**build 即升级**。
-# API 无认证 60 次/小时 quota；本 layer 9 次调用（8 工具 + 后置 ysoserial），余量充足。
-ARG TARGETARCH
-
-# Helper 函数：跟 GitHub /releases/latest 的 302 重定向拿最新 tag（去前导 v）。
-# 不走 api.github.com（容器内常限速 403），用 github.com HTTP redirect 头。
-# 加 3 次 retry——单次 curl 偶发抖动很常见。
-# 失败兜底：传入 fallback 版本（第二参数），无 fallback 才 exit 1。
-RUN cat <<'EOF' > /usr/local/bin/gh-latest
-#!/bin/sh
-# usage: gh-latest <owner/repo> [fallback_version]
-# 输出：版本号（无前导 v）；3 次 retry 都失败 + 无 fallback → exit 1
-fallback="$2"
-for attempt in 1 2 3; do
-  url=$(curl -sILf --max-time 15 -o /dev/null -w '%{url_effective}' "https://github.com/$1/releases/latest" 2>/dev/null) || url=""
-  case "$url" in
-    *tag/v*) echo "$url" | sed 's|.*tag/v||'; exit 0 ;;
-    *tag/*)  echo "$url" | sed 's|.*tag/||';  exit 0 ;;
-  esac
-  echo "gh-latest: attempt $attempt/3 failed for $1 (url='$url')" >&2
-  sleep 2
-done
-if [ -n "$fallback" ]; then
-  echo "gh-latest: 3 次失败，用 fallback=$fallback for $1" >&2
-  echo "$fallback"
-  exit 0
-fi
-echo "gh-latest: 3 次失败且无 fallback for $1" >&2
-exit 1
-EOF
-RUN chmod +x /usr/local/bin/gh-latest
-
-# 用一个 RUN 串起 8 个工具下载——版本号空就 exit 1（避免之前 build5 的"装空"灾难）。
-RUN set -eu \
- && cd /tmp \
- # ProjectDiscovery 5 工具（zip）—— fallback 版本号是 build7 实测到的 latest（兜底用）
- && for repo_tool_fb in \
-        "projectdiscovery/subfinder:subfinder:2.14.0" \
-        "projectdiscovery/httpx:httpx:1.9.0" \
-        "projectdiscovery/katana:katana:1.6.1" \
-        "projectdiscovery/nuclei:nuclei:3.8.0" \
-        "projectdiscovery/interactsh:interactsh-client:1.3.1" \
-    ; do \
-        repo=$(echo "$repo_tool_fb" | cut -d: -f1) ; \
-        tool=$(echo "$repo_tool_fb" | cut -d: -f2) ; \
-        fb=$(echo "$repo_tool_fb"   | cut -d: -f3) ; \
-        v=$(gh-latest "$repo" "$fb") ; \
-        [ -n "$v" ] || { echo "[FATAL] empty version for $repo" ; exit 1 ; } ; \
-        echo "[gh-latest] $tool=$v from $repo" ; \
-        wget "https://github.com/$repo/releases/download/v$v/${tool}_${v}_linux_${TARGETARCH}.zip" -O "$tool.zip" ; \
-        unzip -o "$tool.zip" -d /usr/local/bin "$tool" ; \
-        rm "$tool.zip" ; \
+# Layer 6: PD 工具 -duc wrapper——拦 httpx/katana/nuclei/subfinder 的 phone-home(api.pdtm.sh 版本检查)。
+# 工具可能来自 Kali apt(/usr/bin) 或 release(/usr/local/bin)，用 command -v 定位真路径再包装；
+# wrapper 一律落 /usr/local/bin（PATH 在 /usr/bin 之前，自动遮蔽）。
+RUN set -eu; for tool in httpx katana nuclei subfinder; do \
+      real=$(command -v "$tool") || { echo "[FATAL] $tool 不存在，无法加 -duc wrapper"; exit 1; }; \
+      if [ "$real" = "/usr/local/bin/$tool" ]; then mv "$real" "/usr/local/bin/$tool.real"; real="/usr/local/bin/$tool.real"; fi; \
+      printf '#!/bin/sh\nexec %s -duc "$@"\n' "$real" > "/usr/local/bin/$tool"; \
+      chmod +x "/usr/local/bin/$tool"; \
     done \
- # ffuf / trufflehog（tar.gz，命名 tool_VERSION_OS_ARCH.tar.gz）
- && for repo_tool_fb in \
-        "ffuf/ffuf:ffuf:2.1.0" \
-        "trufflesecurity/trufflehog:trufflehog:3.95.2" \
-        "lc/gau:gau:2.2.4" \
-    ; do \
-        repo=$(echo "$repo_tool_fb" | cut -d: -f1) ; \
-        tool=$(echo "$repo_tool_fb" | cut -d: -f2) ; \
-        fb=$(echo "$repo_tool_fb"   | cut -d: -f3) ; \
-        v=$(gh-latest "$repo" "$fb") ; \
-        [ -n "$v" ] || { echo "[FATAL] empty version for $repo" ; exit 1 ; } ; \
-        echo "[gh-latest] $tool=$v from $repo" ; \
-        url="https://github.com/$repo/releases/download/v$v/${tool}_${v}_linux_${TARGETARCH}.tar.gz" ; \
-        wget "$url" -O "$tool.tar.gz" ; \
-        [ -s "$tool.tar.gz" ] || { echo "[FATAL] download failed for $tool: $url" ; exit 1 ; } ; \
-        mkdir -p "/tmp/extract-$tool" ; \
-        tar -xzf "$tool.tar.gz" -C "/tmp/extract-$tool" ; \
-        bin=$(find "/tmp/extract-$tool" -type f -name "$tool" | head -1) ; \
-        [ -n "$bin" ] || { echo "[FATAL] $tool binary not in tarball; contents:" ; find "/tmp/extract-$tool" -type f ; exit 1 ; } ; \
-        cp "$bin" "/usr/local/bin/$tool" ; \
-        chmod +x "/usr/local/bin/$tool" ; \
-        rm -rf "/tmp/extract-$tool" "$tool.tar.gz" ; \
-    done \
- # dalfox v3+ 命名规则：dalfox-v{V}-linux-{aarch64|x86_64}.tar.gz（archive + 内 binary 同名）
- # arch 映射：docker TARGETARCH arm64→aarch64 / amd64→x86_64
- && v=$(gh-latest hahwul/dalfox 3.0.0) \
- && echo "[gh-latest] dalfox=$v from hahwul/dalfox" \
- && case "${TARGETARCH}" in arm64) DARCH=aarch64 ;; amd64) DARCH=x86_64 ;; *) DARCH=${TARGETARCH} ;; esac \
- && url="https://github.com/hahwul/dalfox/releases/download/v$v/dalfox-v$v-linux-${DARCH}.tar.gz" \
- && wget "$url" -O dalfox.tar.gz \
- && [ -s dalfox.tar.gz ] || { echo "[FATAL] dalfox download failed: $url"; exit 1; } \
- && tar -xzf dalfox.tar.gz "dalfox-v$v-linux-${DARCH}" -O > /usr/local/bin/dalfox \
- && [ -s /usr/local/bin/dalfox ] || { echo "[FATAL] dalfox binary empty after extract"; exit 1; } \
- && chmod +x /usr/local/bin/dalfox \
- && rm -f dalfox.tar.gz \
- && chmod +x /usr/local/bin/subfinder /usr/local/bin/httpx /usr/local/bin/katana /usr/local/bin/nuclei /usr/local/bin/interactsh-client /usr/local/bin/ffuf /usr/local/bin/dalfox /usr/local/bin/trufflehog \
- # Sanity check——单独每行 echo + 显式路径，失败立即 abort（set -e 在 RUN 顶部已开）
- && echo "=== Layer 4 sanity check ===" \
- && /usr/local/bin/subfinder -version 2>&1 | head -1 \
- && /usr/local/bin/httpx -version 2>&1 | head -1 \
- && /usr/local/bin/katana -version 2>&1 | head -1 \
- && /usr/local/bin/nuclei -version 2>&1 | head -1 \
- && /usr/local/bin/ffuf -V 2>&1 | head -1 \
- && /usr/local/bin/dalfox version 2>&1 | head -1 \
- && /usr/local/bin/trufflehog --version 2>&1 | head -1 \
- && /usr/local/bin/gau --version 2>&1 | head -1 \
- && /usr/local/bin/interactsh-client -version 2>&1 | head -1
-
-# Layer 4c: spectral（Stoplight Spectral）——API 规范 linter，对 OpenAPI/Swagger/GraphQL spec 跑
-# `spectral lint <spec>` 摊开声明的 endpoint × 参数 × 认证方式（API 攻击面枚举，归 discovery）。默认规则集
-# 只校验规范质量/合法性、非安全扫描；安全项需另挂 OWASP 规则集且仅设计层静态提示（不碰目标、不确认可利用）。
-# 用 standalone 可执行（pkg 内嵌 node，免装 Node.js 运行时）；非 alpine 版（base 是 ubuntu/glibc）。pin v6.15.0。
-# arch 映射：docker TARGETARCH amd64→x64 / arm64→arm64。
-ARG SPECTRAL_VERSION=6.15.0
-RUN set -eu \
- && case "${TARGETARCH}" in amd64) SARCH=x64 ;; arm64) SARCH=arm64 ;; *) SARCH=${TARGETARCH} ;; esac \
- && url="https://github.com/stoplightio/spectral/releases/download/v${SPECTRAL_VERSION}/spectral-linux-${SARCH}" \
- && wget "$url" -O /usr/local/bin/spectral \
- && [ -s /usr/local/bin/spectral ] || { echo "[FATAL] spectral download failed: $url"; exit 1; } \
- && chmod +x /usr/local/bin/spectral \
- && echo "=== Layer 4c sanity check ===" \
- && /usr/local/bin/spectral --version 2>&1 | head -1
-
-# Layer 4b: PD 工具 -duc wrapper——拦截 httpx/katana/nuclei/subfinder 启动时的
-# phone-home (api.pdtm.sh 版本检查)。原因：
-#   1. 内网/断网场景下省 5s timeout
-#   2. 消除 phone-home 噪音（v34+ CLI 工具直连不入字典，但跨边界 DNS 仍有 cost）
-#   3. machine_id 匿名追踪本身就不该出现在 pentest 工具流量里
-# 真二进制 → .real，wrapper 自动 prepend -duc（disable-update-check）。
-# LLM 调用时无感知，仍然写 `httpx -u xxx`，wrapper 自动加 -duc。
-RUN for tool in httpx katana nuclei subfinder; do \
-        mv /usr/local/bin/$tool /usr/local/bin/$tool.real && \
-        printf '#!/bin/sh\nexec /usr/local/bin/%s.real -duc "$@"\n' "$tool" > /usr/local/bin/$tool && \
-        chmod +x /usr/local/bin/$tool; \
-    done \
- && echo "=== Layer 4b PD -duc wrapper sanity ===" \
  && /usr/local/bin/httpx -version 2>&1 | head -1 \
  && /usr/local/bin/nuclei -version 2>&1 | head -1
 
-# Layer 5: nuclei 模板预拉——首次运行避免联网下载（容器内可能无外网或慢）。
-# 模板存在 /root/.config/nuclei-templates，~80MB。
-# 失败不阻塞 build（容器内可能拉不到 github，运行时再拉也行）。
-RUN nuclei -update-templates -silent 2>/dev/null || true \
- && ls /root/.config/nuclei-templates 2>/dev/null | head -3 || true
+# Layer 7: nuclei 模板预拉——Kali 不含模板，nuclei 首次运行才联网拉。
+# 用 git clone（比 nuclei 内部 fetcher 可靠，根治"templates: 0 dirs"）到 nuclei 默认模板目录。
+# 失败不阻塞 build（运行时还能拉）。
+RUN git clone --depth 1 https://github.com/projectdiscovery/nuclei-templates.git \
+        /root/.config/nuclei-templates 2>/dev/null \
+ && echo "nuclei-templates dirs: $(ls /root/.config/nuclei-templates 2>/dev/null | wc -l)" \
+ || echo "[warn] nuclei-templates clone 失败，运行时再拉"
 
-# Layer 6: 反序列化 payload 生成器。
-# - phpggc：git clone（PHP 脚本，~2MB）
-# - ysoserial：jar 文件（Java 反序列化 payload，~5MB）
-RUN git clone --depth 1 https://github.com/ambionics/phpggc.git /opt/phpggc \
- && printf '#!/bin/sh\nexec /opt/phpggc/phpggc "$@"\n' > /usr/local/bin/phpggc \
- && chmod +x /usr/local/bin/phpggc /opt/phpggc/phpggc \
- && phpggc -h 2>&1 | head -1 || true
+# Layer 8: SecLists 占位（运行时按需 git clone；nuclei/dalfox 内置 payload 已覆盖多数场景）。
+RUN mkdir -p /opt/SecLists \
+ && printf 'SecLists 未预装；按需拉:\n  git clone --depth=1 https://github.com/danielmiessler/SecLists.git /opt/SecLists\n' \
+        > /opt/SecLists/README.md
 
-# ysoserial 用 gh-latest；fallback 到 0.0.6（实际多年未更新仍是这个）。
-# wget 失败时显式 abort（之前用 || true 吞错导致 jar 0 字节静默通过）。
-RUN set -e \
- && v=$(gh-latest frohoff/ysoserial 0.0.6) \
- && echo "[gh-latest] ysoserial=$v" \
- && url="https://github.com/frohoff/ysoserial/releases/download/v$v/ysoserial-all.jar" \
- && wget "$url" -O /opt/ysoserial.jar \
- && [ -s /opt/ysoserial.jar ] || { echo "[FATAL] ysoserial jar 下载失败/空: $url"; exit 1; } \
- && printf '#!/bin/sh\nexec java -jar /opt/ysoserial.jar "$@"\n' > /usr/local/bin/ysoserial \
- && chmod +x /usr/local/bin/ysoserial \
- && ls -la /opt/ysoserial.jar /usr/local/bin/ysoserial \
- && ysoserial 2>&1 | head -1
+# 注：旧 ubuntu 版有一层「liusha proxy CA」(liusha-ca.crt) 装进 OpenSSL + NSS。已删除——
+# 沙箱 active capture 实际走本地 mitmproxy(Layer 9 的自生成 CA，见 launcher HTTP_PROXY=127.0.0.1:8889)，
+# CLI 工具信任的是 mitmproxy CA、不是 liusha CA；chromium 走 CDP 抓包不经代理。liusha CA 在沙箱内已无消费者，
+# 且它不入 git(每部署各异) 会卡 CI。故移除：CI 构建不再依赖部署私有文件。
 
-# Layer 7: SecLists wordlist——
-# 多次尝试都失败（sparse-checkout / wget single files 在 docker desktop
-# gvisor 网络对 raw.githubusercontent.com 偶发 4xx/timeout）。
-# 当前最务实策略：建空目录占位 + 写 README 提示运行时拉取，build 100% 稳定。
-# LLM 实战需要 wordlist 时，nuclei/dalfox 自带内置 payload 已覆盖 80% 场景；
-# 真要 SecLists 全集，run_command 内 git clone 即可（容器有 git + 出网）。
-RUN set -e \
- && mkdir -p /opt/SecLists \
- && printf 'SecLists 未预装；运行时按需拉:\n  git clone --depth=1 https://github.com/danielmiessler/SecLists.git /opt/SecLists\n或单文件:\n  curl -sLO https://raw.githubusercontent.com/danielmiessler/SecLists/master/Discovery/Web-Content/common.txt\n' \
-        > /opt/SecLists/README.md \
- && echo "SecLists 占位创建完毕（运行时按需拉取）"
-
-# Layer 7.5: liusha proxy CA cert——让 sandbox 内 CLI 工具 + chromium 都信任 MITM。
-#
-# 前置：build 前必须跑 ./scripts/dev/sync-pentools-cert.sh 把 $HOME/.liusha/cacert.pem
-# 同步到 deployments/tool-images/pentools/liusha-ca.crt（不入 git）。文件缺失时 COPY 失败、
-# build abort——这是有意行为，避免空 CA 部署后 TLS MITM 全部 fail。
-#
-# 双信任链装入（覆盖所有工具）：
-#   1. /etc/ssl/certs（OpenSSL CA 系统 trust）→ curl / wget / pip / python requests /
-#      Go http / openjdk PKI（含 java tools 如 ysoserial）通过 update-ca-certificates 信任
-#   2. NSS DB（Mozilla NSS trust store）→ chromium / playwright 通过 certutil 信任 MITM
-#      v34+：chromium 直连不经 proxy（流量改 CDP capture 入字典），NSS CA 仅在目标
-#      自签证书场景（pentest 常见）兜底 TLS 验证
-COPY deployments/tool-images/pentools/liusha-ca.crt /usr/local/share/ca-certificates/liusha-ca.crt
-RUN apt-get update \
- && apt-get install -y --no-install-recommends libnss3-tools \
- && rm -rf /var/lib/apt/lists/* \
- # 1) OpenSSL 系统 trust
- && update-ca-certificates \
- && ls -la /etc/ssl/certs/liusha-ca.pem 2>&1 | head -1 \
- && openssl x509 -in /usr/local/share/ca-certificates/liusha-ca.crt -noout -subject -dates \
- # 2) NSS DB（chromium / playwright 用）——root 用户的 default profile 路径
- && mkdir -p /root/.pki/nssdb \
- && certutil -d sql:/root/.pki/nssdb -N --empty-password \
- && certutil -d sql:/root/.pki/nssdb -A -t "C,," -n "liusha-proxy-ca" \
-        -i /usr/local/share/ca-certificates/liusha-ca.crt \
- && certutil -d sql:/root/.pki/nssdb -L | grep -i liusha \
- && echo "[Layer 7.5] CA 已装 OpenSSL trust + NSS DB（chromium 信任 MITM）"
-
-# Layer 7.6: mitmproxy — 容器内捕获 CLI 工具（curl/sqlmap/httpx/katana...）流量入 http_flow 字典。
-# CLI 工具经 HTTP_PROXY（launcher 注入）走 mitmdump → mitm-capture.py addon → POST ingest。
-# mitmproxy 用自己的 CA MITM（build 期生成并装入 OpenSSL trust，CLI 工具才不拒 HTTPS）；
-# 不放 liusha CA 私钥进沙箱——安全隔离（沙箱跑 pentest 工具，CA 私钥泄漏风险高）。
+# Layer 9: mitmproxy——容器内捕获 CLI 工具流量入 http_flow 字典（经 HTTP_PROXY → mitmdump → addon → ingest）。
+# mitmproxy 用自己的 CA MITM（build 期生成装入 OpenSSL trust），CLI 工具才不拒 HTTPS。
 COPY deployments/tool-images/pentools/mitm-capture.py /usr/local/bin/mitm-capture.py
 RUN pip install --quiet mitmproxy \
  && timeout 8 mitmdump --listen-port 18999 -q >/dev/null 2>&1 || true \
@@ -442,11 +148,9 @@ RUN pip install --quiet mitmproxy \
  && cp /root/.mitmproxy/mitmproxy-ca-cert.pem /usr/local/share/ca-certificates/mitmproxy-ca.crt \
  && update-ca-certificates \
  && chmod +x /usr/local/bin/mitm-capture.py \
- && echo "[Layer 7.6] mitmproxy 已装 + CA 已信任 + addon 就位"
+ && echo "[Layer 9] mitmproxy + CA 就位"
 
-# entrypoint：注入了 LIUSHA_INGEST_URL（active capture）时后台拉起 mitmdump，再 exec
-# sandbox-server 作 PID 1。HTTP_PROXY 由 launcher 与 LIUSHA_INGEST_URL 同条件注入，二者一致：
-# 注入了代理就一定有 mitmdump 在听，否则 CLI 工具会断网。
+# entrypoint：注入 LIUSHA_INGEST_URL 时后台拉起 mitmdump，再 exec sandbox-server 作 PID 1。
 RUN printf '%s\n' \
   '#!/bin/sh' \
   'if [ -n "${LIUSHA_INGEST_URL:-}" ]; then' \
@@ -458,30 +162,13 @@ RUN printf '%s\n' \
   > /usr/local/bin/sandbox-entrypoint.sh \
  && chmod +x /usr/local/bin/sandbox-entrypoint.sh
 
-# Layer 8: sandbox-server 二进制（从 stage 0 sandbox-builder 拷贝）。
-# 这是容器 PID 1，主进程通过 :8080 HTTP RPC 调用——见 design doc：
-# docs/superpowers/specs/2026-05-16-sandbox-server-design.md
+# Layer 10: sandbox-server 二进制（容器 PID 1）。
 COPY --from=sandbox-builder /out/sandbox-server /usr/local/bin/sandbox-server
 RUN chmod +x /usr/local/bin/sandbox-server && test -x /usr/local/bin/sandbox-server
 
 WORKDIR /work
 
-# 摘要打印——build 完确认装齐。
-RUN echo "=== liusha/pentools (sandbox-server + browser-use) 工具清单 ===" \
- && echo "recon:           subfinder | httpx | katana | nmap | wafw00f" \
- && echo "discovery:       ffuf | dirsearch | arjun | gau | spectral $(spectral --version 2>/dev/null || echo '?')" \
- && echo "vulnscan:        nuclei (templates: $(ls /root/.config/nuclei-templates 2>/dev/null | wc -l) dirs)" \
- && echo "injection:       sqlmap | dalfox" \
- && echo "deserialization: ysoserial (java) | phpggc (php)" \
- && echo "auth:            hydra | jwt_tool" \
- && echo "sast:            semgrep | trufflehog" \
- && echo "browser:         browser-use $(browser-use --version 2>&1 | head -1 || echo '?') | playwright chromium" \
- && echo "utility:         curl | python3 $(python3 --version) | jq | interactsh-client | mysql $(mysql --version | awk '{print $5}' | tr -d ',') | chromium $(google-chrome --version 2>/dev/null | awk '{print $3}' || /usr/local/bin/chromium --version 2>/dev/null | awk '{print $2}' || echo '?')" \
- && echo "wordlist:        /opt/SecLists ($(du -sh /opt/SecLists 2>/dev/null | cut -f1))" \
- && echo "entrypoint:      /usr/local/bin/sandbox-server (PID 1, :8080)"
-
 EXPOSE 8080
 
-# CMD 启动 entrypoint：后台拉起 mitmproxy（如启用 capture）再 exec sandbox-server 作 PID 1。
-# entrypoint 用 exec form 让 SIGTERM 直达 sandbox-server（不经 sh），优雅 shutdown 才能工作。
+# entrypoint exec form：SIGTERM 直达 sandbox-server，优雅 shutdown。
 CMD ["/usr/local/bin/sandbox-entrypoint.sh"]

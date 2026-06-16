@@ -1,14 +1,21 @@
 # liusha 沙箱预装工具清单（25 个）
 #
-# 单一来源：与同目录 Dockerfile 同步维护——
-# Dockerfile 装的 binary 与本 yaml 列出的 tools 应严格对应（可加 CI lint 校对）。
+# 单一真相源：本文件同时驱动两条链，互不干扰——
+#   1. agent 视图：Go(manifest.go) 只读 name/category/description → 渲染进 SystemPrompt 的
+#      tooling_catalog（Tier 1 索引）。**install 字段不进 prompt**（Go 结构体不含它，yaml.v3 忽略）。
+#   2. 构建期：scripts/build/install-from-manifest.sh 用 yq 读 install → 装齐工具。
 #
-# 用途：
-#   - host 启动时读此文件 → 拼到 hunter SystemPrompt 的 tooling_catalog 段（Tier 1 索引）
-#   - LLM 在每个 turn 都看到本清单，知道"沙箱有哪些工具可调"
+# install 字段（全部可选；不写 = 期望 Kali headless 元包已供给，构建期 command -v 实测，缺了即构建失败）：
+#   method: apt|pip|pipx|go|release|release-bin|git
+#   pkg:    apt 包名（method=apt 且包名 != name 时）
+#   ref:    owner/repo@vX（release/release-bin）| go module@vX（go）| git url（git）
+#   asset:  release-bin 资产名，可含 ${ARCH}(amd64/arm64) ${ARCHX}(x86_64/aarch64) ${ARCH64}(x64/arm64)
+#   bin:    release 压缩包内二进制名（默认 = name）
+#   force:  true → 即使 Kali 已自带也覆盖装（仅在 Kali 版本确有问题时用；默认信任 Kali 不写）
+#   check:  装后 sanity 命令（省略则仅以 command -v 为准）
 #
-# 工具的详细手册：skills/tooling/<name>/SKILL.md（Tier 2，按需 read_tooling_skill 拉）
-# 工具是否有 SKILL.md 与是否在镜像里**独立**——SKILL 缺失只是没详细手册，工具仍然存在。
+# 版本策略：默认信任 Kali 版本（method=apt，不 pin）；Kali 没有的工具用 release/release-bin/go 装并 pin。
+# 可复现由镜像 tag(sha/日期) 冻结整份产物兜底。
 #
 # category 取值与 hunter/skill.go 的 toolingCategoryOrder 保持一致；
 # 未列入 toolingCategoryOrder 的 category 会落到"未分类"组提醒维护者。
@@ -18,89 +25,115 @@ tools:
   - name: subfinder
     category: recon
     description: 子域名被动枚举（多源 OSINT）。零接触目标，只查公网情报源（crt.sh/passive DNS）。
+    install: { method: apt }
   - name: httpx
     category: recon
     description: HTTP 探活 + 指纹 + tech detection。subfinder 之后必跑过滤死域。
+    install: { method: apt }
   - name: katana
     category: recon
     description: 现代 Web 爬虫——爬一个起点 url 拿全部站内链接 + JS 解析的 endpoint。
+    install: { method: apt }
   - name: nmap
     category: recon
     description: 端口扫描 + 服务指纹 + NSE 脚本（半个漏扫器）。发现主端口外的高危服务用。
+    install: { method: apt }
   - name: wafw00f
     category: recon
     description: WAF 指纹识别（CloudFlare/Akamai/AWS WAF/F5）——选 sqlmap --tamper / dalfox bypass 前先跑。
+    install: { method: apt }
 
   # ===== discovery（内容/参数发现）=====
   - name: arjun
     category: discovery
     description: HTTP 隐藏参数发现——爆 25k+ 参数名 wordlist 找未文档化的参数（admin/debug/role 类）。
+    install: { method: apt }
   - name: dirsearch
     category: discovery
     description: 智能目录/文件爆破——自带 11k+ 行 wordlist + 扩展名探测 + smart filter，目录爆破首选。
+    install: { method: apt }
   - name: ffuf
     category: discovery
     description: 通用 web fuzzer——任意位置 FUZZ 占位符替换 wordlist。dirsearch 不擅长的复杂场景用 ffuf。
+    install: { method: apt }
   - name: gau
     category: discovery
     description: 被动 URL 发现——从 Wayback/Common Crawl/URLScan/OTX 归档拉历史 endpoint。仅对公网已收录站有结果，内网/新部署/CTF 靶机返回空。
+    install: { method: release, ref: lc/gau@v2.2.4 }   # Kali 通常不含 → release 装
   - name: spectral
     category: discovery
     description: API 规范解析/校验（OpenAPI/Swagger/GraphQL）——`spectral lint <spec_url_或_文件>` 把 spec 声明的 endpoint × 参数 × 认证方式全摊开，一次拿到 API 攻击面（同 arjun 找参数）。默认规则集只校验规范质量/合法性，**非安全扫描**；可选挂 OWASP 规则集做设计层提示（不碰目标、不确认可利用）。需先拿到 spec：从 /openapi.json、/swagger.json、/v2/api-docs、/swagger-ui 发现并下载。
+    install: { method: release-bin, ref: stoplightio/spectral@v6.15.0, asset: 'spectral-linux-${ARCH64}' }  # Kali 无 → standalone 二进制
 
   # ===== vulnscan（自动化模板漏扫）=====
   - name: nuclei
     category: vulnscan
-    description: 模板化漏扫引擎——业界事实标准。10k+ 模板覆盖 CVE/misconfig/exposure/dast。
+    description: 模板化漏扫引擎——业界事实标准。10k+ 模板覆盖 CVE/misconfig/exposure/dast。（模板非 Kali 自带，由 Dockerfile git clone 预拉）
+    install: { method: apt }
 
   # ===== injection（注入类专项）=====
   - name: sqlmap
     category: injection
     description: SQL 注入自动探测/利用，web SQLi 首选；GraphQL/NoSQL 不归它管。
+    install: { method: apt }
   - name: dalfox
     category: injection
     description: XSS 自动探测 + 利用（反射/存储/DOM）。Go 实现，业界 XSS 之于 sqlmap。
+    install: { method: apt }
 
   # ===== deserialization（反序列化 payload 生成）=====
   - name: ysoserial
     category: deserialization
     description: Java 反序列化 payload 生成器——gadget chain + cmd → base64 payload。Java app + ObjectInputStream 必备。
+    install: { method: apt }
   - name: phpggc
     category: deserialization
     description: PHP 反序列化 payload 生成器——Laravel/Symfony/Drupal/WordPress 框架向。
+    install: { method: apt }
 
   # ===== auth（认证/凭证攻击）=====
   - name: hydra
     category: auth
     description: 弱口令爆破——支持 50+ 协议（http-form/http-basic/ssh/ftp/smb/mysql 等）。
+    install: { method: apt }
   - name: jwt_tool
     category: auth
     description: JWT 攻击瑞士军刀——解码/伪造/None 算法/算法混淆/key confusion/弱 secret 暴破。
+    install: { method: apt }
   - name: mysql
     category: auth
     description: MySQL/MariaDB CLI 客户端——拿到 DB 凭证后直接连库验证/dump（mysql -h <host> -P <port> -u <user> -p<pass> -e "..."）。Python 等价：import pymysql（已预装）。
+    install: { method: apt, pkg: default-mysql-client }
 
   # ===== sast（源码静态分析）=====
   - name: semgrep
     category: sast
     description: 静态代码分析——找代码逻辑漏洞（SQLi/XSS sink、不安全反序列化）。目标暴露源码时秒杀黑盒。
+    install: { method: pip }   # Kali 未必含 → pip 兜底
   - name: trufflehog
     category: sast
     description: Secrets 扫描——源码 / git 历史 / 文件系统 / S3 bucket 找硬编码 API key / token / 凭证。
+    install: { method: release, ref: trufflesecurity/trufflehog@v3.95.2 }   # Kali 通常不含 → release
 
   # ===== utility（通用辅助：HTTP/JSON/脚本/OOB/Browser）=====
   - name: curl
     category: utility
     description: 原生 HTTP 客户端，所有漏洞验证的瑞士军刀。
+    install: { method: apt }
   - name: python3
     category: utility
     description: 自定义脚本兜底（GraphQL/NoSQL 注入、复杂登录链、并发 fuzz、二阶段 payload、自定义编码绕过）。
+    install: { method: apt }
   - name: jq
     category: utility
     description: JSON 解析/提取/重构。配合 curl pipe 用，避免自己 grep JSON 跑偏。
+    install: { method: apt }
   - name: interactsh-client
     category: utility
     description: OOB（Out-Of-Band）回调检测——拿 oast.fun 子域名作 callback 钩子。Blind SSRF/RCE/XXE/XSS 唯一通用挖法。
+    install: { method: apt }
+  # browser-use 无 install 字段：由 Dockerfile 专属 Python 3.12 venv 层安装（见 Dockerfile browser-use 层）。
+  # 安装器遍历到它时 command -v 已命中 → 信任跳过；若 venv 层失败导致缺失 → 安装器 FATAL，构建失败。
   - name: browser-use
     category: utility
     description: 无头 Chromium 浏览器自动化，typed `browser_use` 工具是首选入口。

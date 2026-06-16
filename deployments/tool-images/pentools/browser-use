@@ -1,5 +1,9 @@
-#!/usr/bin/env python3
+#!/opt/browser-use-venv/bin/python
 """browser-use 薄客户端：把子命令经 unix socket 转发给每身份常驻 browser-svc.py。
+
+注：shebang 指向 browser-use 专属 Python 3.12 venv（Dockerfile Layer 4 建）。本客户端用
+sys.executable 拉起 browser-svc.py，二者同跑 venv python → import browser_use 命中 venv，
+与 Kali 系统 Python（随 Debian sid 滚动，曾因 3.14 破坏 browser-use）隔离。改 venv 路径需同步此行。
 
 模型不变：
   IDENTITY = 身份（cookie jar 边界 = 独立 chromium）。缺省 "default"。

@@ -44,7 +44,7 @@ build-vulnapp:
 # multi-stage build：stage 0 编译 sandbox-server Go 二进制；stage 1 装 chrome/python/工具/拷贝二进制。
 # 体积 ~1.5GB；首次 build ~10-20 分钟（拉 ubuntu/golang base + apt + pip + wget releases）。
 build-pentools:
-	docker build -t liusha/pentools:latest -f deployments/tool-images/pentools/Dockerfile .
+	docker build -t ghcr.io/v3teran/liusha-pentools:latest -t liusha/pentools:latest -f deployments/tool-images/pentools/Dockerfile .
 
 test: test-unit test-integration
 

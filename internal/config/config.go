@@ -691,7 +691,7 @@ func applyHistoryCompactDefaults(c HistoryCompactConfig) HistoryCompactConfig {
 
 func applySandboxDefaults(c SandboxConfig) SandboxConfig {
 	if c.DefaultImage == "" {
-		c.DefaultImage = "liusha/pentools:latest"
+		c.DefaultImage = "ghcr.io/v3teran/liusha-pentools:latest"
 	}
 	if c.RunTailBytes == 0 {
 		c.RunTailBytes = 8192
