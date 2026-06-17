@@ -24,7 +24,14 @@ const kind = computed(() => {
   if (ev.Kind === 'reasoning') return 'reasoning'
   if (ev.Kind === 'spawn') return 'spawn'
   if (ev.ToolName === 'write_finding') {
-    return ev.Kind === 'tool_call' && !ev.Err ? 'finding' : 'hidden'
+    if (ev.Kind !== 'tool_call' || ev.Err) return 'hidden'
+    // 残缺 finding（缺 summary）：工具会报错、agent 随后补全重发 → 不渲染成「INFO 无标题」怪卡。
+    try {
+      if (!JSON.parse(ev.Args || '{}').summary) return 'hidden'
+    } catch {
+      return 'hidden'
+    }
+    return 'finding'
   }
   // task 的 tool_result = 派发完成（带子代理执行总时长）→ 渲染成 spawn 完成卡，而非普通工具卡。
   if (ev.ToolName === 'task' && ev.Kind === 'tool_result') return 'spawn-done'
