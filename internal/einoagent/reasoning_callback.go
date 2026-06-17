@@ -12,7 +12,25 @@ import (
 	"github.com/cloudwego/eino/components"
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/schema"
+
+	aclopenai "github.com/cloudwego/eino-ext/libs/acl/openai"
 )
+
+// reasoningOf 取模型本轮的"思考"文字（CoT）。eino-ext openai 把 reasoning 放在
+// Message.Extra["reasoning-content"]（GetReasoningContent 读取），少数路径填 typed
+// ReasoningContent 字段——两处都兜，谁有取谁。空则返回 ""。
+func reasoningOf(m *schema.Message) string {
+	if m == nil {
+		return ""
+	}
+	if m.ReasoningContent != "" {
+		return m.ReasoningContent
+	}
+	if rc, ok := aclopenai.GetReasoningContent(m); ok {
+		return rc
+	}
+	return ""
+}
 
 // reasoning_callback.go：用 eino callbacks 一站式捕获每次 ChatModel 调用的 agent 思路文字 +
 // 输入/输出 token + 耗时，发 reasoning 事件 → 前端推理卡展示。
@@ -68,8 +86,13 @@ func NewReasoningCallback(sink EventSink) callbacks.Handler {
 				return ctx
 			}
 			text := strings.TrimSpace(out.Message.Content)
+			// Content 为空时回退用模型思考通道（reasoning-content）。否则纯 tool_call 轮次的
+			// "为什么调这个工具"的思考会被整条丢弃 → 前端只见过程卡看不到推理。
 			if text == "" {
-				return ctx // 纯 tool_call 无文字 → 不发推理事件
+				text = strings.TrimSpace(reasoningOf(out.Message))
+			}
+			if text == "" {
+				return ctx // 既无文字也无思考（纯工具调用且模型未产 CoT）→ 不发
 			}
 			ev := ScanEvent{Kind: ScanEventReasoning, Text: text, AgentName: agentNameFromCtx(ctx)}
 			if out.TokenUsage != nil {
@@ -98,6 +121,7 @@ func streamReasoning(ctx context.Context, sr *schema.StreamReader[callbacks.Call
 	defer sr.Close()
 	agentName := agentNameFromCtx(ctx) // ChatModel 回调谱系内已含 Agent 边界存入的名字
 	var full strings.Builder
+	var thinking strings.Builder
 	var inTok, outTok int
 	for {
 		chunk, err := sr.Recv()
@@ -116,6 +140,11 @@ func streamReasoning(ctx context.Context, sr *schema.StreamReader[callbacks.Call
 			full.WriteString(piece)
 			sink.OnScanEvent(ctx, ScanEvent{Kind: ScanEventReasoningDelta, Text: piece, AgentName: agentName})
 		}
+		// 累积模型思考通道（reasoning-content）：Content 为空时作为最终帧文字回退，逐字推送。
+		if rc := reasoningOf(out.Message); rc != "" {
+			thinking.WriteString(rc)
+			sink.OnScanEvent(ctx, ScanEvent{Kind: ScanEventReasoningDelta, Text: rc, AgentName: agentName})
+		}
 		if out.TokenUsage != nil {
 			inTok = out.TokenUsage.PromptTokens
 			outTok = out.TokenUsage.CompletionTokens
@@ -123,7 +152,10 @@ func streamReasoning(ctx context.Context, sr *schema.StreamReader[callbacks.Call
 	}
 	text := strings.TrimSpace(full.String())
 	if text == "" {
-		return // 纯 tool_call 流无文字 → 不发最终帧
+		text = strings.TrimSpace(thinking.String()) // 回退模型思考
+	}
+	if text == "" {
+		return // 既无文字也无思考 → 不发最终帧
 	}
 	sink.OnScanEvent(ctx, ScanEvent{
 		Kind:      ScanEventReasoning,

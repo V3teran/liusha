@@ -7,6 +7,7 @@ require (
 	github.com/anthropics/anthropic-sdk-go v1.26.0
 	github.com/cloudwego/eino v0.8.13
 	github.com/cloudwego/eino-ext/components/model/openai v0.1.13
+	github.com/cloudwego/eino-ext/libs/acl/openai v0.1.17
 	github.com/eino-contrib/jsonschema v1.0.3
 	github.com/gin-gonic/gin v1.10.0
 	github.com/hibiken/asynq v0.26.0
@@ -45,7 +46,6 @@ require (
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/cloudflare/circl v1.3.7 // indirect
 	github.com/cloudwego/base64x v0.1.6 // indirect
-	github.com/cloudwego/eino-ext/libs/acl/openai v0.1.17 // indirect
 	github.com/containerd/errdefs v1.0.0 // indirect
 	github.com/containerd/errdefs/pkg v0.3.0 // indirect
 	github.com/containerd/log v0.1.0 // indirect
