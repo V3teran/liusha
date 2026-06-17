@@ -108,7 +108,7 @@ func main() {
 	// 多轮问答/意图分类依赖：light provider 路由 + 问答读 finding + SSE publish。
 	router := llm.NewRouterWithOptions(llm.NewFactory(cfg), llm.RetryOptionsFromConfig(cfg.LLM.Retry))
 	publisher := scanstream.NewPublisher(rdb)
-	activeAdapter := &activeScanAdapter{activeScans: activeScanStore, tasks: taskStore, enq: enq, audit: auditStore, conversations: convStore, roles: scenarioRoles, router: router, findings: findStore, publisher: publisher, passiveSessions: passiveSessionStore, passiveTTL: time.Duration(cfg.Session.MaxAgeHours) * time.Hour}
+	activeAdapter := &activeScanAdapter{activeScans: activeScanStore, tasks: taskStore, enq: enq, audit: auditStore, conversations: convStore, roles: scenarioRoles, router: router, findings: findStore, publisher: publisher, passiveSessions: passiveSessionStore, passiveTTL: time.Duration(cfg.Session.MaxAgeHours) * time.Hour, activeRunTimeout: time.Duration(cfg.Scanner.ActiveAgentRunTimeoutSeconds) * time.Second}
 
 	// SSE stream cookie 密钥：对话功能开启时必填（EventSource 鉴权用），缺失 fail-fast。
 	streamSecret := []byte(os.Getenv("LIUSHA_STREAM_COOKIE_SECRET"))
@@ -321,6 +321,11 @@ type activeScanAdapter struct {
 	// 读到），不走 active 的意图分流/续接扫描。passiveSessions 判别会话归属 + 续命 expires_at。
 	passiveSessions *passivesession.Store
 	passiveTTL      time.Duration // passive 滑动 idle 窗口（插话也续命，来自 cfg.Session.MaxAgeHours）
+
+	// active run 整体超时（= scanner.ActiveAgentRunTimeoutSeconds）。入队时设为 asynq.Timeout，
+	// 否则 asynq 默认 30min 任务 deadline 会架空 scanner handler 里 4h 的 WithTimeout——
+	// run 跑到 30min 就被 ctx cancel（实测 active 扫描 30min 整 abort、orchestrator 没机会收尾）。
+	activeRunTimeout time.Duration
 }
 
 // ListRoles 满足 httpapi.RolesAPI：列出所有场景 role 供前端选择。
@@ -386,7 +391,7 @@ func (a *activeScanAdapter) createScan(ctx context.Context, brief, conversationI
 		ConversationID: conversationID, // 阶段B：对话发起时非空 → scanner 发过程事件
 		ScenarioID:     scenarioID,     // 阶段C：场景 role → scanner 注入主代理人设
 		Input:          payloadInput,
-	}, asynq.MaxRetry(0)); err != nil {
+	}, asynq.MaxRetry(0), asynq.Timeout(a.activeRunTimeout)); err != nil {
 		return "", "", fmt.Errorf("enqueue: %w", err)
 	}
 
@@ -444,7 +449,7 @@ func (a *activeScanAdapter) FollowUpScan(ctx context.Context, scanID, conversati
 		ConversationID: conversationID,
 		ScenarioID:     scenarioID,
 		Input:          payloadInput,
-	}, asynq.MaxRetry(0)); err != nil {
+	}, asynq.MaxRetry(0), asynq.Timeout(a.activeRunTimeout)); err != nil {
 		return "", fmt.Errorf("enqueue followup: %w", err)
 	}
 	return tid, nil
