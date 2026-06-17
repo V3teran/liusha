@@ -61,9 +61,11 @@
 - `read_credentials` — 拉本 host 已录入的全部身份（含 name/role/credentials[{type,key,value}]）
 - `write_credential` — 把自己刚拿到的活凭证录入，让 spawn 的 exploitation / 后续 task 通过 read 拿到
 
-### 标准流程（先 read 试用，失效才 write）
+### 标准流程（现场登录是活凭证之源，redis 只是被它刷新的缓存）
 
-**1. read：** 走 curl/sqlmap 这条无状态链路时，baseline 第一步调 `read_credentials` 拿本 host 全部身份（浏览器 / replay_flow 链路不靠它——见下方浏览器说明）。
+**认证入口优先级：浏览器现场登录 >（无浏览器时）curl 现场登录 >> read_credentials。** redis 凭证不带时间锚点、可能是上一轮的死值，**绝不能把"读到 redis 有凭证"当成"已拿到认证"**——要进认证态，按下方职责分工去**现场登录**（浏览器登录成功必须立即回写，见下条）。
+
+**1. read：** 仅 curl/sqlmap 这条无状态链路用——且**前提是本 run 已有人现场登录并 write_credential 刷新过 redis**。此时 `read_credentials` 拿到的才是活值；拿来直接发包**试**，被拒（401/403/跳登录）就按"失效刷新"回到现场登录那条路。浏览器 / replay_flow 链路**完全不读它**（见下方浏览器说明）。
 
 **2. 拼接到请求**（按 credential.type 分流，多条全部加上）：
 
@@ -77,13 +79,14 @@
 
 **消费方是浏览器（browser_use）时——走登录页，不从 redis 注入**：上表的 header 拼接 + redis 凭证只对 curl/sqlmap 这类**无状态**工具有效。浏览器是**独立的有状态会话**：cookie jar 按 identity（=session）持久共享，登录方式就是**在登录页输账号密码**，不读 redis 注入 cookie。
 - **谁登录（职责分工）**：浏览器登录由 **reconnaissance 主责**——它摸认证态攻击面时按 brief 各身份登入，认证流量自动入字典 + jar 持久化 → 全 run 共享；**exploitation 兜底**——本攻击面要态而 jar 里还没有时自己登；curl 线自己登到的活凭证 `write_credential` 同步。**orchestrator 不登录**（无 browser_use / run_command，只编排派活）。
+- **浏览器登录成功 = 立即回写凭证（强制步骤，不是兜底）**：浏览器现场登录拿到的是**当下确凿活着**的 session，而 redis 里可能躺着上一轮早已失效的旧凭证（凭证不带时间锚点，你无法判断死活）。所以**每次** `identity:"X"` 浏览器登录验证成功后，**不要停**——立刻走下方「路 A」把这条活 session 从 http_flow 抽出 `write_credential`（name=X），用现登的活值覆盖 redis。这是 curl/sqlmap 链路能拿到活凭证的**唯一保证**：跳过它，后续 curl 读到的就是可能已死的旧值。
 - **identity 命名铁律**：`browser_use` 的 `identity` 参数 **= 该账号用户名**（brief 里 admin → `identity:"admin"`，gordonb → `identity:"gordonb"`）。**绝不用默认空 identity 登录有名账号**——空 identity 让"哪个账号"和"哪个 jar"失去映射：reconnaissance 把 admin 登进空 jar、exploitation 却用 `"gordonb"` 名开浏览器，两个 jar 互不相干 → admin 会话对 exploitation 不可见（实测漏 finding 的直接原因）。**同名 identity = 同一个 jar**，跨 reconnaissance/exploitation 自动复用，谁都不必同步"谁登了谁"。
 - **同一身份只登一次（幂等复用）**：同 identity 下所有 reconnaissance/exploitation 共用一个浏览器。要用某身份就先用**该身份名** `browser_use open` 受保护页——已有登录态直接用；落在登录页（没人登过 / 态过期）才自己登（`state`→`input`→`click`）。这对浏览器是**正确路径**，不是重复劳动。
 - **提交后必须验证成功，失败不要无限重登**：输完账密提交后，确认**真到达鉴权态**——再 `open` 一个受保护页或读提交后 `state`，看 URL 已离开登录页、页面不再是登录表单、无"登录失败/凭证错误"类提示。**同一身份连续 2 次提交仍落回登录页就停手**：这通常是凭证无效，或目标有防爆破 / 账号锁定机制（继续提交只会触发或延长锁定，之后连正确凭证也被拒，污染整个 engagement）。用文字记下现象（进对话）并在产出里上报，不要继续盲目提交。
 - **多账号对比**（越权/BAC）：brief 给几组账号就按命名铁律各开一个 `identity`（名=各自用户名）浏览器，每个各自在登录页登录，cookie jar 互不污染。
 - redis 凭证通道（read/write_credential）服务 curl/sqlmap 链路 + 同步过程中**新拿到**的凭证；浏览器登录态不走它。
 
-**3. read 没有 X / 凭证失效时——把身份 X 的活凭证写进 redis（两条独立通路，谁的前提成立走谁）**
+**3. 现场登录身份 X 后——把 X 的活凭证写进 redis（浏览器登录成功是强制触发；read 没有 X / 凭证失效也走这里。两条独立通路，谁的前提成立走谁）**
 
 凭证录入有两条互不依赖的路，**分界线是凭证 LLM 读不读得到**（不是"目标有没有前端"——SPA / 路由没猜对 / WAF 都会让你误判纯后端，别预判目标形态，按手上有什么走）：
 
