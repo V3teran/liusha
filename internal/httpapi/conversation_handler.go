@@ -106,21 +106,48 @@ func chatHandler(api ChatAPI, streamSecret []byte, secure bool) gin.HandlerFunc 
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-		// 下发 SSE 鉴权 cookie（30min，HttpOnly+SameSite=Lax；同源部署故不需 SameSite=None）。
-		// Secure 由 c.SetCookie 第 6 参控制；dev http 同源下设 false 也能种，prod 反代 https 应 true。
-		// secure 由 cmd/api 读 LIUSHA_COOKIE_SECURE 经 Deps.CookieSecure 注入。
-		//
-		// path 必须 "/"：前端经 vite proxy 带 /api 前缀（EventSource 连 /api/conversations/:id/stream），
-		// 若 path="/conversations" 则浏览器视角的 /api/conversations 不匹配（不以 /conversations 开头）→
-		// SSE 不带 cookie → 鉴权失败 → 实时推送失效（只能靠 listMessages 补历史，表现为"发起后要刷新才见 agent"）。
-		// stream cookie 是 HttpOnly 签名 token，仅 SSE handler 校验，发到其他端点被忽略，path="/" 无害。
-		if len(streamSecret) > 0 {
-			const ttl = 30 * 60 // 秒
-			tok := signStreamToken(streamSecret, convID, time.Now().Add(ttl*time.Second))
-			c.SetSameSite(http.SameSiteLaxMode)
-			c.SetCookie(streamCookieName, tok, ttl, "/", "", secure, true)
-		}
+		setStreamCookie(c, streamSecret, convID, secure)
 		c.JSON(http.StatusOK, ChatResponse{ConversationID: convID, ScanID: scanID})
+	}
+}
+
+// streamCookieTTLSeconds 是 SSE 鉴权 cookie 时效（秒）。前端打开会话/重连时按需重签，
+// 故 TTL 只需覆盖单次连接周期，长扫描靠重连重签维持。
+const streamCookieTTLSeconds = 30 * 60
+
+// setStreamCookie 为某会话签发/刷新 SSE 鉴权 cookie（HttpOnly+SameSite=Lax 签名 token）。
+//
+// path 必须 "/"：前端经 vite proxy 带 /api 前缀（EventSource 连 /api/conversations/:id/stream），
+// path="/conversations" 会让浏览器视角的 /api/conversations 不匹配 → SSE 不带 cookie → 鉴权失败。
+// stream cookie 是 HttpOnly 签名 token，仅 SSE handler 校验，发到其他端点被忽略，path="/" 无害。
+// secure 由 cmd/api 读 LIUSHA_COOKIE_SECURE 注入（dev http 设 false 也能种，prod https 应 true）。
+func setStreamCookie(c *gin.Context, streamSecret []byte, convID string, secure bool) {
+	if len(streamSecret) == 0 || convID == "" {
+		return
+	}
+	tok := signStreamToken(streamSecret, convID, time.Now().Add(streamCookieTTLSeconds*time.Second))
+	c.SetSameSite(http.SameSiteLaxMode)
+	c.SetCookie(streamCookieName, tok, streamCookieTTLSeconds, "/", "", secure, true)
+}
+
+// streamAuthHandler 处理 POST /conversations/:id/stream-auth（X-API-Key 保护）。
+//
+// 把"流鉴权"从"会话创建（/chat）"解耦：前端打开任意会话前、SSE 断线重连前调本端点，
+// 拿到/刷新该会话的 stream cookie 再开 EventSource。根治"打开旧会话/长扫描/重连"
+// 实时推送失效（旧实现只在 /chat 下发一次性 30min cookie）。
+func streamAuthHandler(streamSecret []byte, secure bool) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		id := c.Param("id")
+		if id == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "id required"})
+			return
+		}
+		if len(streamSecret) == 0 {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "stream 鉴权未启用"})
+			return
+		}
+		setStreamCookie(c, streamSecret, id, secure)
+		c.JSON(http.StatusOK, gin.H{"ok": true})
 	}
 }
 

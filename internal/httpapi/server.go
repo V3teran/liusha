@@ -105,6 +105,10 @@ func NewServer(d Deps) http.Handler {
 		}
 		if d.EventStream != nil {
 			r.GET("/conversations/:id/stream", streamHandler(d.Conversations, d.EventStream))
+			// 流鉴权解耦：前端打开会话/重连前调此端点拿/刷新 stream cookie（X-API-Key 保护）。
+			if len(d.StreamCookieSecret) > 0 {
+				r.POST("/conversations/:id/stream-auth", streamAuthHandler(d.StreamCookieSecret, d.CookieSecure))
+			}
 		}
 	}
 	if d.UsageOwners != nil && d.UsageLLM != nil && d.UsageTools != nil {
