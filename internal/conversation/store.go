@@ -97,6 +97,33 @@ func (s *Store) IsRunActive(ctx context.Context, convID string) (bool, error) {
 	return running, nil
 }
 
+// WallclockMs 返回本对话关联扫描的墙钟时长（毫秒）——发起→完成的真实流逝时间。
+// 跑中用 now()-created_at，结束用 ended_at-created_at。这是"我等了多久"的直觉口径，
+// 区别于 Σ(LLM latency + 工具 duration)——后者因子代理并发累加会高于墙钟。
+// 纯聊天/无关联 owner 返回 0。active 取 active_scan，passive 取 passive_session。
+func (s *Store) WallclockMs(ctx context.Context, convID string) (int64, error) {
+	var ms *int64
+	err := s.pool.QueryRow(ctx, `
+		SELECT (EXTRACT(EPOCH FROM (COALESCE(a.ended_at, now()) - a.created_at)) * 1000)::bigint
+		FROM active_scan a JOIN conversation c ON c.scan_id = a.id
+		WHERE c.id = $1
+		UNION ALL
+		SELECT (EXTRACT(EPOCH FROM (COALESCE(p.ended_at, now()) - p.created_at)) * 1000)::bigint
+		FROM passive_session p
+		WHERE p.conversation_id = $2
+		LIMIT 1`, convID, convID).Scan(&ms)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, fmt.Errorf("wallclock for conversation %s: %w", convID, err)
+	}
+	if ms == nil {
+		return 0, nil
+	}
+	return *ms, nil
+}
+
 // ListConversations 按 updated_at DESC 列出最近活跃的对话（UI 列表）。
 func (s *Store) ListConversations(ctx context.Context, limit int) ([]Conversation, error) {
 	limit = clampLimit(limit)

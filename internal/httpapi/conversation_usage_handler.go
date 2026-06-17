@@ -15,10 +15,11 @@ import (
 	"github.com/V3teran/liusha/internal/toolinvocation"
 )
 
-// UsageOwnerResolver 把对话 id 解析成 owner id + 查运行态（*conversation.Store 满足）。
+// UsageOwnerResolver 把对话 id 解析成 owner id + 查运行态 + 墙钟时长（*conversation.Store 满足）。
 type UsageOwnerResolver interface {
 	ResolveOwnerID(ctx context.Context, convID string) (string, error)
 	IsRunActive(ctx context.Context, convID string) (bool, error)
+	WallclockMs(ctx context.Context, convID string) (int64, error)
 }
 
 // LLMUsageAggregator 合计某 owner 的 LLM 用量（*llminvocation.Store 满足）。
@@ -71,6 +72,13 @@ func conversationUsageHandler(conv UsageOwnerResolver, llm LLMUsageAggregator, t
 			return
 		}
 
+		// 墙钟时长：发起→完成的真实流逝时间（"我等了多久"），跑中用 now-created。
+		wallclockMs, err := conv.WallclockMs(ctx, id)
+		if err != nil {
+			c.JSON(500, gin.H{"error": err.Error()})
+			return
+		}
+
 		// 纯聊天（无关联 scan / passive_session）→ 零用量。
 		if ownerID == "" {
 			c.JSON(200, zeroUsage(id, "", running))
@@ -101,10 +109,13 @@ func conversationUsageHandler(conv UsageOwnerResolver, llm LLMUsageAggregator, t
 			},
 			"llm_latency_ms":   la.LatencyMs,
 			"tool_duration_ms": ta.DurationMs,
-			"duration_ms":      la.LatencyMs + ta.DurationMs,
-			"llm_calls":        la.Calls,
-			"tool_calls":       ta.Calls,
-			"running":          running,
+			// duration_ms = 墙钟（发起→完成真实流逝），前端"耗时"展示用此。
+			// work_ms = Σ(LLM latency + 工具 duration)，因子代理并发累加 > 墙钟，仅作明细参考。
+			"duration_ms": wallclockMs,
+			"work_ms":     la.LatencyMs + ta.DurationMs,
+			"llm_calls":   la.Calls,
+			"tool_calls":  ta.Calls,
+			"running":     running,
 		})
 	}
 }
@@ -118,6 +129,7 @@ func zeroUsage(convID, ownerID string, running bool) gin.H {
 		"llm_latency_ms":   0,
 		"tool_duration_ms": 0,
 		"duration_ms":      0,
+		"work_ms":          0,
 		"llm_calls":        0,
 		"tool_calls":       0,
 		"running":          running,
