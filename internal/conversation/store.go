@@ -74,6 +74,29 @@ func (s *Store) ResolveOwnerID(ctx context.Context, convID string) (string, erro
 	return oid, nil
 }
 
+// IsRunActive 返回本对话当前是否有正在运行的扫描（权威：后端 owner 终态，非客户端计时）。
+//   - active：关联 active_scan.status='active'（completed/aborted 为终态）。
+//   - passive：passive_session.status='active'。
+//   - 纯聊天 / 已结束：false。
+//
+// 前端据此显示"agent 工作中"指示器，避免历史回灌误判（双参传 convID 规避 uuid/text 参数歧义）。
+func (s *Store) IsRunActive(ctx context.Context, convID string) (bool, error) {
+	var running bool
+	err := s.pool.QueryRow(ctx, `
+		SELECT EXISTS(
+		         SELECT 1 FROM active_scan a JOIN conversation c ON c.scan_id = a.id
+		         WHERE c.id = $1 AND a.status = 'active'
+		       )
+		    OR EXISTS(
+		         SELECT 1 FROM passive_session p
+		         WHERE p.conversation_id = $2 AND p.status = 'active'
+		       )`, convID, convID).Scan(&running)
+	if err != nil {
+		return false, fmt.Errorf("check run active for conversation %s: %w", convID, err)
+	}
+	return running, nil
+}
+
 // ListConversations 按 updated_at DESC 列出最近活跃的对话（UI 列表）。
 func (s *Store) ListConversations(ctx context.Context, limit int) ([]Conversation, error) {
 	limit = clampLimit(limit)

@@ -15,9 +15,10 @@ import (
 	"github.com/V3teran/liusha/internal/toolinvocation"
 )
 
-// UsageOwnerResolver 把对话 id 解析成 owner id（*conversation.Store 满足）。
+// UsageOwnerResolver 把对话 id 解析成 owner id + 查运行态（*conversation.Store 满足）。
 type UsageOwnerResolver interface {
 	ResolveOwnerID(ctx context.Context, convID string) (string, error)
+	IsRunActive(ctx context.Context, convID string) (bool, error)
 }
 
 // LLMUsageAggregator 合计某 owner 的 LLM 用量（*llminvocation.Store 满足）。
@@ -42,7 +43,8 @@ type ToolUsageAggregator interface {
 //	  "llm_latency_ms": N,               // 所有 LLM 调用耗时合计
 //	  "tool_duration_ms": N,             // 所有工具执行耗时合计
 //	  "duration_ms": N,                  // = llm_latency_ms + tool_duration_ms（总耗时）
-//	  "llm_calls": N, "tool_calls": N
+//	  "llm_calls": N, "tool_calls": N,
+//	  "running": bool                    // 是否仍有运行中的扫描（权威：owner 终态）
 //	}
 func conversationUsageHandler(conv UsageOwnerResolver, llm LLMUsageAggregator, tool ToolUsageAggregator) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -62,9 +64,16 @@ func conversationUsageHandler(conv UsageOwnerResolver, llm LLMUsageAggregator, t
 			return
 		}
 
+		// 运行态（权威）：active_scan / passive_session 是否仍 active。前端据此显示"工作中"。
+		running, err := conv.IsRunActive(ctx, id)
+		if err != nil {
+			c.JSON(500, gin.H{"error": err.Error()})
+			return
+		}
+
 		// 纯聊天（无关联 scan / passive_session）→ 零用量。
 		if ownerID == "" {
-			c.JSON(200, zeroUsage(id, ""))
+			c.JSON(200, zeroUsage(id, "", running))
 			return
 		}
 
@@ -95,12 +104,13 @@ func conversationUsageHandler(conv UsageOwnerResolver, llm LLMUsageAggregator, t
 			"duration_ms":      la.LatencyMs + ta.DurationMs,
 			"llm_calls":        la.Calls,
 			"tool_calls":       ta.Calls,
+			"running":          running,
 		})
 	}
 }
 
 // zeroUsage 造零用量响应（纯聊天对话无 owner 时）。
-func zeroUsage(convID, ownerID string) gin.H {
+func zeroUsage(convID, ownerID string, running bool) gin.H {
 	return gin.H{
 		"conversation_id":  convID,
 		"owner_id":         ownerID,
@@ -110,5 +120,6 @@ func zeroUsage(convID, ownerID string) gin.H {
 		"duration_ms":      0,
 		"llm_calls":        0,
 		"tool_calls":       0,
+		"running":          running,
 	}
 }
