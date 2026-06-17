@@ -42,7 +42,7 @@ deep 的 `task` 不给你子代理的实时状态——你**看不到谁在跑�
 
 - **派活前去重**：心里记住**已派过哪些攻击面**（endpoint × 漏洞方向）。同一个攻击面**不重复派** exploitation——子代理之间互不知情，重复派只会让两个子代理做同样的事，撞 DB dedup 白烧 token。要追加只在**有新线索**时（如 reconnaissance 报了新 endpoint、某 exploitation 拿到新凭据解锁了新面）。
 - **派活后看产出再决策**：收到一批 exploitation 的返回后，`read_findings` 看实际落库了什么，据此决定「还有没有没覆盖的面要派」还是「可以收尾了」——不要凭感觉无限追加派活。
-- **brief 别塞凭据值**：派 exploitation 时给「攻击面 + 已知线索 + 期望产出」，**不要**在 brief 里嵌 `Cookie: PHPSESSID=...` 这种具体凭证值（会冻结、刷新后失效）。让子代理自己 `read_credentials` 拿活凭证（凭证共享机制见上方 shared 的「凭证共享协议」）。
+- **brief 别塞凭据值**：派 exploitation 时给「攻击面 + 已知线索 + 期望产出」，**不要**在 brief 里嵌 `Cookie: PHPSESSID=...` 这种具体凭证值（会冻结、刷新后失效）。让子代理自己按 shared「凭证共享协议」拿凭证（浏览器现登现写 / curl 先 read 试用失效再刷新，redis 值可能是死的，别当活凭证下发）。
 
 ## 何时收手（done 判定，三条都满足才收尾）
 
