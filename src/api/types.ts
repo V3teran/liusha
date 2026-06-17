@@ -65,9 +65,10 @@ export interface ConversationUsage {
   conversation_id: string
   owner_id: string // 纯聊天对话为空
   tokens: { in: number; out: number; cached: number; total: number }
-  llm_latency_ms: number // 所有 LLM 调用耗时合计
-  tool_duration_ms: number // 所有工具执行耗时合计
-  duration_ms: number // = llm_latency_ms + tool_duration_ms（总耗时）
+  llm_latency_ms: number // 所有 LLM 调用耗时合计（明细）
+  tool_duration_ms: number // 所有工具执行耗时合计（明细）
+  duration_ms: number // 墙钟：发起→完成真实流逝（"我等了多久"，前端"耗时"展示用此）
+  work_ms: number // Σ(LLM latency + 工具 duration)，因子代理并发累加 > 墙钟，仅明细参考
   llm_calls: number
   tool_calls: number
   running: boolean // 是否仍有运行中的扫描（权威：后端 owner 终态）

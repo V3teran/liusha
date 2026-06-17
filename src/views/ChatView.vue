@@ -59,7 +59,11 @@ const tokenTip = computed(() => {
 const durationTip = computed(() => {
   const u = usage.value
   if (!u) return ''
-  return `LLM ${humanDuration(u.llm_latency_ms)} · 工具 ${humanDuration(u.tool_duration_ms)} · ${u.tool_calls} 次工具调用`
+  return [
+    `墙钟 ${humanDuration(u.duration_ms)}（发起→完成）`,
+    `工作时间 ${humanDuration(u.work_ms)}（含子代理并发累加，故 > 墙钟）`,
+    `LLM ${humanDuration(u.llm_latency_ms)} · 工具 ${humanDuration(u.tool_duration_ms)} · ${u.tool_calls} 次工具调用`,
+  ].join(' · ')
 })
 
 // 运行中兜底轮询：扫描进行时每 4s 拉一次权威用量，捕获"最后一个事件后扫描终态翻转"
