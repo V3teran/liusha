@@ -37,6 +37,7 @@ import (
 	"github.com/V3teran/liusha/internal/scanstream"
 	"github.com/V3teran/liusha/internal/scenario"
 	"github.com/V3teran/liusha/internal/sitemap"
+	"github.com/V3teran/liusha/internal/toolinvocation"
 	"github.com/V3teran/liusha/internal/worker"
 	"github.com/V3teran/liusha/web"
 
@@ -89,8 +90,9 @@ func main() {
 	taskStore := hunter.NewStore(pool)
 	enq := worker.NewClient(asynq.RedisClientOpt{Addr: os.Getenv("LIUSHA_REDIS_ADDR")})
 	defer enq.Close()
-	auditStore := audit.NewStore(pool)       // 0047：owner abort / create 审计
-	convStore := conversation.NewStore(pool) // 阶段B：对话/消息
+	auditStore := audit.NewStore(pool)         // 0047：owner abort / create 审计
+	convStore := conversation.NewStore(pool)   // 阶段B：对话/消息
+	toolStore := toolinvocation.NewStore(pool) // 对话用量合计：工具耗时来源
 	// 阶段C：场景 role（roles/*.md）。加载失败仅警告——/roles 返回空、/chat 用空 role 兜底，
 	// 不阻塞 api 启动（场景人设是增强，缺了退化为通用扫描）。
 	scenarioRoles, err := scenario.LoadRoles(envx.OrDefault("LIUSHA_ROLES_DIR", "./scenarios"))
@@ -139,6 +141,9 @@ func main() {
 			Conversations:     convStore,                    // 阶段B：对话列表 / 消息回看
 			EventStream:       eventStreamAdapter{rdb: rdb}, // 阶段B：SSE 订阅 redis 事件
 			Roles:             activeAdapter,                // 阶段C：GET /roles 场景列表
+			UsageOwners:       convStore,                    // 对话用量：对话→owner 解析
+			UsageLLM:          invocationStore,              // 对话用量：LLM token/耗时合计
+			UsageTools:        toolStore,                    // 对话用量：工具耗时合计
 			StaticFS:          web.ViewerFS(),
 			EnableDevAutofill: envx.OrDefault("LIUSHA_VIEWER_DEV_KEY", "") != "",
 		}),

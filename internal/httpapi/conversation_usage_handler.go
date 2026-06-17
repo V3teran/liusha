@@ -1,0 +1,114 @@
+// Package httpapi: 对话用量合计 handler（GET /conversations/:id/usage）。
+//
+// 与 llm_invocation_handler.go（按 hunter 分组的明细列表）不同，本 handler 给前端会话头部
+// 提供"本对话累计 token / 耗时"的权威合计——直接 SUM llm_invocation + tool_invocation，
+// 而非前端按 SSE 事件求和（后者漏掉"无文字纯 tool_call"调用，见 reasoning_callback.go）。
+package httpapi
+
+import (
+	"context"
+	"strings"
+
+	"github.com/gin-gonic/gin"
+
+	"github.com/V3teran/liusha/internal/llminvocation"
+	"github.com/V3teran/liusha/internal/toolinvocation"
+)
+
+// UsageOwnerResolver 把对话 id 解析成 owner id（*conversation.Store 满足）。
+type UsageOwnerResolver interface {
+	ResolveOwnerID(ctx context.Context, convID string) (string, error)
+}
+
+// LLMUsageAggregator 合计某 owner 的 LLM 用量（*llminvocation.Store 满足）。
+type LLMUsageAggregator interface {
+	Flush(ctx context.Context) error
+	AggregateByOwner(ctx context.Context, ownerID string) (llminvocation.Aggregate, error)
+}
+
+// ToolUsageAggregator 合计某 owner 的工具用量（*toolinvocation.Store 满足）。
+type ToolUsageAggregator interface {
+	AggregateByOwner(ctx context.Context, ownerID string) (toolinvocation.Aggregate, error)
+}
+
+// conversationUsageHandler 处理 GET /conversations/:id/usage。
+//
+// 响应（前端会话头部 token/耗时 chip 消费）：
+//
+//	{
+//	  "conversation_id": "...",
+//	  "owner_id": "...",                 // 纯聊天对话为空
+//	  "tokens": { "in": N, "out": N, "cached": N, "total": N },
+//	  "llm_latency_ms": N,               // 所有 LLM 调用耗时合计
+//	  "tool_duration_ms": N,             // 所有工具执行耗时合计
+//	  "duration_ms": N,                  // = llm_latency_ms + tool_duration_ms（总耗时）
+//	  "llm_calls": N, "tool_calls": N
+//	}
+func conversationUsageHandler(conv UsageOwnerResolver, llm LLMUsageAggregator, tool ToolUsageAggregator) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		id := c.Param("id")
+		if id == "" {
+			c.JSON(400, gin.H{"error": "id required"})
+			return
+		}
+		ctx := c.Request.Context()
+		ownerID, err := conv.ResolveOwnerID(ctx, id)
+		if err != nil {
+			if strings.Contains(err.Error(), "no rows in result set") {
+				c.JSON(404, gin.H{"error": "conversation not found", "conversation_id": id})
+				return
+			}
+			c.JSON(500, gin.H{"error": err.Error()})
+			return
+		}
+
+		// 纯聊天（无关联 scan / passive_session）→ 零用量。
+		if ownerID == "" {
+			c.JSON(200, zeroUsage(id, ""))
+			return
+		}
+
+		// 先 flush 异步 buffer，保证拿到最新落库的调用（支撑前端实时刷新口径一致）。
+		_ = llm.Flush(ctx)
+		la, err := llm.AggregateByOwner(ctx, ownerID)
+		if err != nil {
+			c.JSON(500, gin.H{"error": err.Error()})
+			return
+		}
+		ta, err := tool.AggregateByOwner(ctx, ownerID)
+		if err != nil {
+			c.JSON(500, gin.H{"error": err.Error()})
+			return
+		}
+
+		c.JSON(200, gin.H{
+			"conversation_id": id,
+			"owner_id":        ownerID,
+			"tokens": gin.H{
+				"in":     la.InTokens,
+				"out":    la.OutTokens,
+				"cached": la.CachedTokens,
+				"total":  la.InTokens + la.OutTokens,
+			},
+			"llm_latency_ms":   la.LatencyMs,
+			"tool_duration_ms": ta.DurationMs,
+			"duration_ms":      la.LatencyMs + ta.DurationMs,
+			"llm_calls":        la.Calls,
+			"tool_calls":       ta.Calls,
+		})
+	}
+}
+
+// zeroUsage 造零用量响应（纯聊天对话无 owner 时）。
+func zeroUsage(convID, ownerID string) gin.H {
+	return gin.H{
+		"conversation_id":  convID,
+		"owner_id":         ownerID,
+		"tokens":           gin.H{"in": 0, "out": 0, "cached": 0, "total": 0},
+		"llm_latency_ms":   0,
+		"tool_duration_ms": 0,
+		"duration_ms":      0,
+		"llm_calls":        0,
+		"tool_calls":       0,
+	}
+}

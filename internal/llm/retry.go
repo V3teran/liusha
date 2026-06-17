@@ -172,7 +172,7 @@ func WithRetry(primary Generator, fallback Generator, opts RetryOptions) Generat
 
 // Provider/Model 透传 primary，便于 Instrument 装饰器读 provider 信息。
 // Provider 即使 fallback 兜底也保持 primary 的字符串：路由层面这次调用归属于
-// primary 角色（fallback 只是兜底实现细节，按角色统计成本时不应区分）。
+// primary 角色（fallback 只是兜底实现细节，按角色统计 token 用量时不应区分）。
 func (r *retryGen) Provider() string { return r.primary.Provider() }
 func (r *retryGen) Model() string    { return r.primary.Model() }
 

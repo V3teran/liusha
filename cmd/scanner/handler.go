@@ -19,7 +19,6 @@ import (
 	"github.com/V3teran/liusha/internal/flow"
 	"github.com/V3teran/liusha/internal/hunter"
 	"github.com/V3teran/liusha/internal/lesson"
-	"github.com/V3teran/liusha/internal/llm"
 	"github.com/V3teran/liusha/internal/llminvocation"
 	"github.com/V3teran/liusha/internal/passivesession"
 	"github.com/V3teran/liusha/internal/sandbox"
@@ -39,7 +38,6 @@ type handler struct {
 	calls           *llminvocation.Store
 	cfg             config.Config
 	scannerCfg      config.ScannerConfig
-	pricing         llm.PricingProvider
 	launcher        sandbox.Launcher
 	logger          zerolog.Logger
 

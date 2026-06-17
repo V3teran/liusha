@@ -35,12 +35,12 @@ redis:
 
 # ---- LLM 多 provider 路由（黑客松借鉴：创新 11）----
 # default_provider:  主 ReAct（sniffer / 子任务）共用，重模型
-# light_provider:    Inspector / Compaction 走的轻模型，省成本
+# light_provider:    Inspector / Compaction 走的轻模型（更轻更快）
 # vision_provider:   v1.5 的 browser.screenshot 用，v1 仅作为备用主 LLM
 # fallback_provider: 429/529 退避耗尽后切到，retry 中间件用
 llm:
   # 智谱 GLM 路由（OpenAI 兼容协议，bigmodel.cn）
-  # 全 4 槽位 0 成本试水：vision/default→glm-4.6v-flash 免费多模态；
+  # 全 4 槽位免费试水：vision/default→glm-4.6v-flash 免费多模态；
   # light/fallback→glm-4.5-flash 纯文本免费。同一个 GLM_API_KEY 通用。
   # 想升级旗舰：default_provider 改 glm_vision_pro（需在 providers 段加 glm-4.6v 1元/3元）。
   default_provider: glm_vision_flash
@@ -151,7 +151,6 @@ providers:
   # 默认 ctx 偏小（4k），实际跑 react loop 建议 Modelfile 改 num_ctx 32768：
   #   FROM qwen2.5-coder:14b
   #   PARAMETER num_ctx 32768
-  # Pricing 缺失返 0（本地免费语义对得上）。
   ollama:
     type: openai_compat
     base_url: http://localhost:11434/v1
@@ -253,7 +252,7 @@ providers:
   # 关键差异：model 字段必须填 endpoint ID（控制台「在线推理 → 推理接入点」创建），
   # 不是模型名。同 ARK_API_KEY 可调任何已创建的 endpoint。
   # 当前 ep-20260523102117-7nrdq 绑定 Doubao-Seed-2.0-mini：256K 上下文 + vision + tool calls。
-  # 单价 0.2/2 元/M tokens — 付费 vision 最便宜档；新人代金券通常够跑数百次 e2e。
+  # 付费 vision 入门档；新人代金券通常够跑数百次 e2e。
   doubao_vision_mini:
     type: openai_compat
     base_url: https://ark.cn-beijing.volces.com/api/v3
@@ -265,9 +264,9 @@ providers:
     context_window: 262144                    # Mini 全系 256k
     # endpoint ID 模式无法走 model name registry，靠 vendor base_url 兜底命中
 
-  # —— 豆包 Lite 档（中档付费，比 Mini 强、比 Pro 便宜）※保留定义备用，当前未选用
+  # —— 豆包 Lite 档（中档，比 Mini 强）※保留定义备用，当前未选用
   # 用途：替代 GLM Flash 当 light_provider —— inspector / notes compactor / history compactor。
-  # 单价 0.6/3.6 元/M tokens —— Mini 3x 但 instruction following 显著优于激进蒸馏的 Mini。
+  # instruction following 显著优于激进蒸馏的 Mini。
   doubao_vision_lite:
     type: openai_compat
     base_url: https://ark.cn-beijing.volces.com/api/v3
@@ -277,30 +276,6 @@ providers:
     supports_tools: true
     supports_vision: true
     context_window: 262144                    # Lite 全系 256k
-
-# ---- LLM 模型单价表（USD per 1M tokens）----
-# 单价频繁变动（provider 季度降价）→ yaml 化便于不重编更新；新模型上线只需在此 append。
-# key 形如 "<provider>/<model>"，与 ProviderConfig + Model() 拼接一致。
-# cached_in_in:
-#   - true（OpenAI/DeepSeek 兼容）：cached_tokens ⊆ in_tokens；先减再分别计价
-#   - false（Anthropic 原生）：cached 独立计价（"加项"）
-pricing:
-  models:
-    "deepseek/deepseek-chat":
-      input_per_m_usd: 0.27
-      output_per_m_usd: 1.10
-      cache_discount: 0.10
-      cached_in_in: true
-    "anthropic/claude-sonnet-4-6":
-      input_per_m_usd: 3.00
-      output_per_m_usd: 15.00
-      cache_discount: 0.30
-      cached_in_in: false
-    "anthropic/claude-haiku-4-5":
-      input_per_m_usd: 1.00
-      output_per_m_usd: 5.00
-      cache_discount: 0.30
-      cached_in_in: false
 
 # ---- proxy 内嵌 MITM + 责任链过滤 + 聚合参数 + 进程入口 ----
 proxy:
@@ -413,7 +388,7 @@ react:
   max_images_in_history: 3                  # 多模态历史保留图片张数上限（compressImages 用）
                                             # 慢 vision 节点可调 2 控延迟；商业 API（claude/gpt-4o）可放宽到 10+
 
-  # ReAct msgs 滑窗压缩参数（防 context 爆 + 控延迟成本）。
+  # ReAct msgs 滑窗压缩参数（防 context 爆 + 控延迟）。
   # 触发时机：每步 Generate 前算 total tokens；超 trigger_ratio × provider.context_window 启动压缩。
   # 永保策略：system + 首条 user prompt + trailing_budget_ratio × ctx_window 反向累加（turn 边界对齐）。
   # 蒸馏：候选集一次性送 light_provider；失败 head-truncate 兜底。

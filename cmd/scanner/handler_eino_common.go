@@ -67,7 +67,7 @@ func (h handler) einoToolDeps(sandboxClient sandbox.Client) einoagent.TrafficAna
 //   - 计费埋点 callbacks（按 hunterID/owner/role 落 llm_invocation）
 //   - 过程事件发射（仅 conversationID 非空，即对话发起时）：落 conversation message + redis publish
 //
-// role ∈ trafficAnalysis/exploitation/orchestrator，决定 provider 解析 + 成本聚合维度。
+// role ∈ trafficAnalysis/exploitation/orchestrator，决定 provider 解析 + token 用量聚合维度。
 // conversationID 空（asynq 自动入口）时不发过程事件，纯后台扫描。
 // 返回值新增 cleanup func()：调用方在 agent run 结束后 defer 调用，flush 异步事件 sink
 // （关 channel + 等 writer 写完缓冲事件）。无事件 sink 时为 no-op。
@@ -98,7 +98,7 @@ func (h handler) einoRunOpts(ctx context.Context, hunterID, ownerType, ownerID, 
 	}
 
 	provider, model := h.einoFactory.ResolveProviderModel(role)
-	recorder := einollm.NewUsageRecorder(h.calls, h.pricing,
+	recorder := einollm.NewUsageRecorder(h.calls,
 		llm.CallMeta{HunterID: &hunterID, OwnerType: &ownerType, OwnerID: &ownerID, RouteKey: role},
 		provider, model,
 	)

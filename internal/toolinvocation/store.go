@@ -56,6 +56,30 @@ func (s *Store) Append(ctx context.Context, v Invocation) (int64, error) {
 	return id, nil
 }
 
+// Aggregate 是某 owner 下所有工具调用的合计（会话工具耗时总览）。
+type Aggregate struct {
+	Calls      int   // 工具调用次数
+	DurationMs int64 // 工具执行耗时合计（ms）
+}
+
+// AggregateByOwner 合计某 owner 的全部 tool_invocation 用量（仅叶子工具）。owner 无记录时返回零值。
+//
+// 排除 tool_name='task'：task 是"派发子代理"的工具，其 duration_ms 是子代理整段运行的墙钟，
+// 已包含该子代理自身的 run_command 等叶子工具耗时（同 owner 另有明细行）+ 子代理 LLM 耗时
+// （单独计入 llm_invocation.latency_ms）。计入 task 会与这两者重叠，导致总耗时翻倍。
+// 与 SSE 侧 einoagent/scan_event.go 的 task 排除同源。
+func (s *Store) AggregateByOwner(ctx context.Context, ownerID string) (Aggregate, error) {
+	var a Aggregate
+	err := s.pool.QueryRow(ctx, `
+		SELECT COUNT(*), COALESCE(SUM(duration_ms),0)
+		FROM tool_invocation WHERE owner_id=$1::uuid AND tool_name <> 'task'`, ownerID).
+		Scan(&a.Calls, &a.DurationMs)
+	if err != nil {
+		return Aggregate{}, fmt.Errorf("aggregate tool_invocation by owner %s: %w", ownerID, err)
+	}
+	return a, nil
+}
+
 // truncateUTF8 按字节上限截断，但保证不切到 multi-byte rune 中间——
 // PG text 列要求合法 UTF-8，原始 string(bytes)[:max] 若切到 0xe6 0x97 (3-byte rune 中间)
 // 会触发 SQLSTATE 22021。本函数从 max 处向前回退到上一个完整 rune 边界。

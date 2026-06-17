@@ -26,8 +26,8 @@ import (
 //   - 派活机制：deep 内建 task 工具，替代自定义 spawn（删 spawn.go 依赖）
 //   - 子代理是 deep 临时一次性 agent，不再为每个子代理建独立 hunter 行；finding/tool_invocation
 //     落 orchestrator 的 hunter_id（用户已认可 hunter_id=orchestrator 的 deep 语义）
-//   - 计费：单 UsageRecorder callback 挂顶层 runner，经 ctx 传播到子代理模型调用（task_tool
-//     透传 ctx）；子代理共享 orchestrator 的 model，故成本归集到 orchestrator 维度准确
+//   - token 用量：单 UsageRecorder callback 挂顶层 runner，经 ctx 传播到子代理模型调用（task_tool
+//     透传 ctx）；role 按 Agent 边界真实产出的子代理名归集（见 usage_recorder #3），hunter_id 仍归 orchestrator
 func (h handler) handleActiveEino(ctx context.Context, p worker.Payload, entrypoint json.RawMessage) error {
 	var ep struct {
 		Brief string `json:"brief"`

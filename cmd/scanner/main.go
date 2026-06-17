@@ -41,7 +41,6 @@ import (
 	"github.com/V3teran/liusha/internal/lesson"
 	"github.com/V3teran/liusha/internal/llminvocation"
 	"github.com/V3teran/liusha/internal/logx"
-	"github.com/V3teran/liusha/internal/observability"
 	"github.com/V3teran/liusha/internal/passivesession"
 	"github.com/V3teran/liusha/internal/sandbox"
 	"github.com/V3teran/liusha/internal/scanstream"
@@ -92,7 +91,6 @@ func main() {
 	defer func() { _ = calls.Close() }()
 	flows := flow.NewStore(pool, scannerCfg.FlowMaxRequestBody, scannerCfg.FlowMaxResponseBody)
 	creds := credential.NewRedis(rdb, cfg.Credential.RedisKeyPrefix)
-	pricing := observability.NewPricing(cfg.Pricing)
 
 	// hunter system prompt 已编译期 embed（internal/builder/hunter/system_prompt.md），
 	// 不再需要运行时 skill loader 加载——下面的 vuln/tooling loader 服务 Progressive Disclosure。
@@ -248,7 +246,6 @@ func main() {
 		calls:           calls,
 		cfg:             cfg,
 		scannerCfg:      scannerCfg,
-		pricing:         pricing,
 		launcher:        launcher,
 		logger:          logger,
 		einoFactory:     einollm.New(cfg),

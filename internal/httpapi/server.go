@@ -36,6 +36,11 @@ type Deps struct {
 	Abort AbortAPI
 	// Roles 为 nil 时 GET /roles 不注册（场景 role 列表，供前端对话选择）。
 	Roles RolesAPI
+	// 对话用量合计（GET /conversations/:id/usage）：三者任一为 nil 则路由不注册。
+	// cmd/api 注入 convStore / invocationStore / toolStore（各满足对应窄接口）。
+	UsageOwners UsageOwnerResolver
+	UsageLLM    LLMUsageAggregator
+	UsageTools  ToolUsageAggregator
 	// StaticFS 可选：注入时挂 / 路径 serve 静态前端（sitemap viewer SPA）。
 	// 为 nil 时不注册——避免 cmd/api 之外的进程意外暴露前端资源。
 	StaticFS http.FileSystem
@@ -101,6 +106,9 @@ func NewServer(d Deps) http.Handler {
 		if d.EventStream != nil {
 			r.GET("/conversations/:id/stream", streamHandler(d.Conversations, d.EventStream))
 		}
+	}
+	if d.UsageOwners != nil && d.UsageLLM != nil && d.UsageTools != nil {
+		r.GET("/conversations/:id/usage", conversationUsageHandler(d.UsageOwners, d.UsageLLM, d.UsageTools))
 	}
 	if d.EnableDevAutofill && d.APIKey != "" {
 		// dev-only：viewer 启动时拉这个端点自动填充 API key。

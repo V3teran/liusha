@@ -23,7 +23,6 @@ type Config struct {
 	Redis       RedisConfig               `mapstructure:"redis"`
 	LLM         LLMConfig                 `mapstructure:"llm"`
 	Providers   map[string]ProviderConfig `mapstructure:"providers"`
-	Pricing     PricingConfig             `mapstructure:"pricing"`
 	Proxy       ProxyConfig               `mapstructure:"proxy"`
 	Ingestor    IngestorConfig            `mapstructure:"ingestor"`
 	Session     SessionConfig             `mapstructure:"session"`
@@ -132,26 +131,6 @@ type ProviderConfig struct {
 	// 同 SupportsVision 模式：*int 区分"未填"（nil）与"显式 0"——validate 强制必填，
 	// 避免 caller 用默认值估算导致 prompt 真爆（例如 32k 模型按 128k 算阈值）。
 	ContextWindow *int `mapstructure:"context_window"`
-}
-
-// PricingConfig 是 LLM 模型单价表（USD per 1M tokens）。
-//
-// 单价频繁变动（provider 季度降价）+ 多环境策略不同 → yaml 化便于不重编更新。
-// key 形如 "deepseek/deepseek-chat" / "anthropic/claude-sonnet-4-6"。
-type PricingConfig struct {
-	Models map[string]ModelPriceConfig `mapstructure:"models"`
-}
-
-// ModelPriceConfig 是单个模型的计价参数。
-//
-// CachedInIn 标记 Usage.CachedTokens 是否已被计入 InTokens：
-//   - true（OpenAI/DeepSeek）：CachedTokens ⊆ InTokens；Estimate 先减再分别计价
-//   - false（Anthropic 默认）：CachedTokens 与 InTokens 独立返回；Estimate 加项处理
-type ModelPriceConfig struct {
-	InputPerMUSD  float64 `mapstructure:"input_per_m_usd"`
-	OutputPerMUSD float64 `mapstructure:"output_per_m_usd"`
-	CacheDiscount float64 `mapstructure:"cache_discount"`
-	CachedInIn    bool    `mapstructure:"cached_in_in"`
 }
 
 // ProxyConfig 控制 in-process MITM 切片 + 责任链过滤 + 聚合参数 + 进程入口。
@@ -312,9 +291,9 @@ type SandboxConfig struct {
 	// 由 sandbox-server 通过 env 透传给 browser-use wrapper：每次 browser-use-cli 调用都带
 	// --window-width/--window-height 全局 flag，确保 chromium daemon 用一致尺寸启动。
 	//
-	// 默认 1280×720——playwright 主流推荐 + vision encoder token cost sweet spot：
+	// 默认 1280×720——playwright 主流推荐 + vision encoder token 消耗甜点区：
 	//   ~1100-1300 tokens/图（Doubao/GPT-4o），翻倍到 1920×1080 仅边际精度收益但 token x2。
-	// 高分屏可调大，但会增加 LLM 成本。
+	// 高分屏可调大，但会增加 token 消耗。
 	ViewportWidth  int `mapstructure:"viewport_width"`
 	ViewportHeight int `mapstructure:"viewport_height"`
 }
@@ -366,7 +345,6 @@ func (c *Config) ApplyDefaults() {
 	c.Postgres = applyPostgresDefaults(c.Postgres)
 	c.Redis = applyRedisDefaults(c.Redis)
 	c.LLM = applyLLMDefaults(c.LLM)
-	c.Pricing = applyPricingDefaults(c.Pricing)
 	c.Proxy = applyProxyDefaults(c.Proxy)
 	c.Ingestor = applyIngestorDefaults(c.Ingestor)
 	c.Session = applySessionDefaults(c.Session)
@@ -492,24 +470,6 @@ func applyInvocationDefaults(c InvocationConfig) InvocationConfig {
 	}
 	if c.InsertTimeoutSec == 0 {
 		c.InsertTimeoutSec = 5
-	}
-	return c
-}
-
-// DefaultPricing 是兜底单价表（spec §8.2）。yaml 未填 pricing.models 时使用。
-func DefaultPricing() PricingConfig {
-	return PricingConfig{
-		Models: map[string]ModelPriceConfig{
-			"deepseek/deepseek-chat":      {InputPerMUSD: 0.27, OutputPerMUSD: 1.10, CacheDiscount: 0.10, CachedInIn: true},
-			"anthropic/claude-sonnet-4-6": {InputPerMUSD: 3.00, OutputPerMUSD: 15.00, CacheDiscount: 0.30},
-			"anthropic/claude-haiku-4-5":  {InputPerMUSD: 1.00, OutputPerMUSD: 5.00, CacheDiscount: 0.30},
-		},
-	}
-}
-
-func applyPricingDefaults(c PricingConfig) PricingConfig {
-	if len(c.Models) == 0 {
-		return DefaultPricing()
 	}
 	return c
 }

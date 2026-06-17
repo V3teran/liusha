@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/cloudwego/eino/adk"
 	"github.com/cloudwego/eino/callbacks"
 	"github.com/cloudwego/eino/components"
 	"github.com/cloudwego/eino/components/model"
@@ -26,18 +27,14 @@ func (f *fakeSink) Append(_ context.Context, c llminvocation.Invocation) (int64,
 	return int64(f.count), nil
 }
 
-type fakePricing struct{ perCall float64 }
-
-func (f fakePricing) Estimate(_, _ string, _ llm.Usage) float64 { return f.perCall }
-
 func chatModelInfo() *callbacks.RunInfo {
 	return &callbacks.RunInfo{Component: components.ComponentOfChatModel}
 }
 
-func TestUsageRecorder_RecordsTokensAndCost(t *testing.T) {
+func TestUsageRecorder_RecordsTokens(t *testing.T) {
 	sink := &fakeSink{}
 	hid, ot, oid := "hunter-1", "passive_session", "owner-1"
-	h := NewUsageRecorder(sink, fakePricing{perCall: 0.42},
+	h := NewUsageRecorder(sink,
 		llm.CallMeta{HunterID: &hid, OwnerType: &ot, OwnerID: &oid, RouteKey: "traffic-analysis"},
 		"xiaomi_mimo", "mimo-v2.5",
 	)
@@ -76,9 +73,6 @@ func TestUsageRecorder_RecordsTokensAndCost(t *testing.T) {
 	if g.FinishReason != "stop" {
 		t.Errorf("finish_reason 错: %q", g.FinishReason)
 	}
-	if g.CostUSD != 0.42 {
-		t.Errorf("cost 错: %v", g.CostUSD)
-	}
 	if len(g.Result) == 0 || len(g.Messages) == 0 {
 		t.Errorf("审计 messages/result 应非空: msgs=%d result=%d", len(g.Messages), len(g.Result))
 	}
@@ -86,7 +80,7 @@ func TestUsageRecorder_RecordsTokensAndCost(t *testing.T) {
 
 func TestUsageRecorder_IgnoresNonChatModel(t *testing.T) {
 	sink := &fakeSink{}
-	h := NewUsageRecorder(sink, nil, llm.CallMeta{RouteKey: "traffic-analysis"}, "p", "m")
+	h := NewUsageRecorder(sink, llm.CallMeta{RouteKey: "traffic-analysis"}, "p", "m")
 	// 非 ChatModel 组件（如 Tool）不应触发落库
 	info := &callbacks.RunInfo{Component: components.ComponentOfTool}
 	ctx := h.OnStart(context.Background(), info, &model.CallbackInput{})
@@ -98,7 +92,7 @@ func TestUsageRecorder_IgnoresNonChatModel(t *testing.T) {
 
 func TestUsageRecorder_RecordsFailure(t *testing.T) {
 	sink := &fakeSink{}
-	h := NewUsageRecorder(sink, nil, llm.CallMeta{RouteKey: "traffic-analysis"}, "xiaomi_mimo", "mimo-v2.5")
+	h := NewUsageRecorder(sink, llm.CallMeta{RouteKey: "traffic-analysis"}, "xiaomi_mimo", "mimo-v2.5")
 	info := chatModelInfo()
 	ctx := h.OnStart(context.Background(), info, &model.CallbackInput{})
 	// ChatModel 调用失败（瞬时 400 等）→ OnError 也落库带 error
@@ -114,16 +108,23 @@ func TestUsageRecorder_RecordsFailure(t *testing.T) {
 	}
 }
 
-func TestUsageRecorder_NilPricingNoCost(t *testing.T) {
+// #3：Agent 边界存入的 agent 名应覆盖 meta.RouteKey，使 role 按真实产出子代理归属。
+func TestUsageRecorder_RoleFromAgentBoundary(t *testing.T) {
 	sink := &fakeSink{}
-	h := NewUsageRecorder(sink, nil, llm.CallMeta{RouteKey: "traffic-analysis"}, "p", "m")
-	info := chatModelInfo()
-	ctx := h.OnStart(context.Background(), info, &model.CallbackInput{})
-	h.OnEnd(ctx, info, &model.CallbackOutput{TokenUsage: &model.TokenUsage{PromptTokens: 10, CompletionTokens: 5}})
+	h := NewUsageRecorder(sink, llm.CallMeta{RouteKey: "orchestrator"}, "p", "m")
+
+	// 先经 Agent 边界 OnStart（exploitation 子代理）→ ctx 带 agent 名。
+	agentInfo := &callbacks.RunInfo{Component: adk.ComponentOfAgent, Name: "exploitation"}
+	ctx := h.OnStart(context.Background(), agentInfo, nil)
+	// 其内部 ChatModel 调用沿用该 ctx。
+	cm := chatModelInfo()
+	ctx = h.OnStart(ctx, cm, &model.CallbackInput{})
+	h.OnEnd(ctx, cm, &model.CallbackOutput{TokenUsage: &model.TokenUsage{PromptTokens: 10, CompletionTokens: 5}})
+
 	if sink.count != 1 {
 		t.Fatalf("应落 1 行")
 	}
-	if sink.got.CostUSD != 0 {
-		t.Errorf("nil pricing 应 cost=0，得到 %v", sink.got.CostUSD)
+	if sink.got.Role != "exploitation" {
+		t.Errorf("role 应取 Agent 边界名 exploitation，得到 %q", sink.got.Role)
 	}
 }

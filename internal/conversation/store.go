@@ -3,6 +3,7 @@ package conversation
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
@@ -47,6 +48,30 @@ func (s *Store) GetConversation(ctx context.Context, id string) (Conversation, e
 		return Conversation{}, fmt.Errorf("get conversation %s: %w", id, err)
 	}
 	return c, nil
+}
+
+// ResolveOwnerID 解析对话关联的 owner id（用于聚合 llm_invocation / tool_invocation 用量）。
+//   - active：conversation.scan_id 即 owner（active_scan id）。
+//   - passive：conversation 无 scan_id，反查 passive_session.conversation_id 拿会话 id。
+//   - 纯聊天：两者皆无 → 返回空串（调用方据此返回零用量）。
+func (s *Store) ResolveOwnerID(ctx context.Context, convID string) (string, error) {
+	c, err := s.GetConversation(ctx, convID)
+	if err != nil {
+		return "", err
+	}
+	if c.ScanID != "" {
+		return c.ScanID, nil
+	}
+	var oid string
+	err = s.pool.QueryRow(ctx,
+		`SELECT id::text FROM passive_session WHERE conversation_id=$1 LIMIT 1`, convID).Scan(&oid)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", nil // 纯聊天，无关联 owner
+	}
+	if err != nil {
+		return "", fmt.Errorf("resolve passive owner for conversation %s: %w", convID, err)
+	}
+	return oid, nil
 }
 
 // ListConversations 按 updated_at DESC 列出最近活跃的对话（UI 列表）。

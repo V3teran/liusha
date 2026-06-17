@@ -1,5 +1,5 @@
 // Package llminvocation 实现 llm_invocation 表持久化层：每一次外部 LLM 调用
-// （含失败）落一行用于成本核算 + 路由审计。
+// （含失败）落一行用于 token 用量 + 路由审计。
 //
 // 列命名约定：
 //   - role 是"调用者角色"（trafficAnalysis/orchestrator/exploitation/inspector/react_main），与 OpenAI message.role 区分
@@ -23,7 +23,6 @@ type Invocation struct {
 	InTokens     int
 	OutTokens    int
 	CachedTokens int
-	CostUSD      float64 // 对应 numeric(12,6)
 	LatencyMs    int
 	FinishReason string
 	Error        string

@@ -25,7 +25,7 @@ import (
 //   - Append 返回的 id 现为 0（异步路径不再有 RETURNING id）；调用方 instrument.go
 //     已忽略 id（仅记日志），故签名保留兼容。
 //   - 进程崩溃可能丢 buffer 内未 flush 的行（最差 100 行 / 1s）；这是行为日志非交易，可接受。
-//   - 一致性场景（如 SumCostByOwner / CountByRole）调用方需先调 Flush() 同步等待。
+//   - 一致性场景（如 AggregateByOwner / ListByOwner）调用方需先调 Flush() 同步等待。
 type Store struct {
 	pool          *pgxpool.Pool
 	ch            chan Invocation
@@ -101,7 +101,7 @@ func (s *Store) Append(ctx context.Context, c Invocation) (int64, error) {
 	}
 }
 
-// Flush 阻塞直到 channel 排空 + 当前 batch 已 commit；测试与 SumCost 前用。
+// Flush 阻塞直到 channel 排空 + 当前 batch 已 commit；测试与 AggregateByOwner 前用。
 func (s *Store) Flush(ctx context.Context) error {
 	for {
 		if len(s.ch) == 0 {
@@ -185,7 +185,7 @@ func (s *Store) copyFromBatch(ctx context.Context, batch []Invocation) error {
 			c.HunterID, c.OwnerType, c.OwnerID,
 			c.Provider, c.Model,
 			c.InTokens, c.OutTokens, c.CachedTokens,
-			c.CostUSD, c.LatencyMs, c.FinishReason, c.Error, c.Role,
+			c.LatencyMs, c.FinishReason, c.Error, c.Role,
 			c.Messages, c.Result,
 		}
 	}
@@ -196,7 +196,7 @@ func (s *Store) copyFromBatch(ctx context.Context, batch []Invocation) error {
 			"hunter_id", "owner_type", "owner_id",
 			"provider", "model",
 			"in_tokens", "out_tokens", "cached_tokens",
-			"cost_usd", "latency_ms", "finish_reason", "error_message", "role",
+			"latency_ms", "finish_reason", "error_message", "role",
 			"messages", "result",
 		},
 		pgx.CopyFromRows(rows),
@@ -214,7 +214,7 @@ func (s *Store) ListByOwner(ctx context.Context, ownerType, ownerID string) ([]I
 	q := `SELECT id, hunter_id, owner_type, owner_id::text,
 	             provider, model,
 	             in_tokens, out_tokens, cached_tokens,
-	             cost_usd, latency_ms, finish_reason, error_message, role,
+	             latency_ms, finish_reason, error_message, role,
 	             messages, result, created_at
 	      FROM llm_invocation
 	      WHERE owner_id=$1::uuid`
@@ -238,7 +238,7 @@ func (s *Store) ListByOwner(ctx context.Context, ownerType, ownerID string) ([]I
 			&v.ID, &hunterID, &ot, &oid,
 			&v.Provider, &v.Model,
 			&v.InTokens, &v.OutTokens, &v.CachedTokens,
-			&v.CostUSD, &v.LatencyMs, &v.FinishReason, &v.Error, &v.Role,
+			&v.LatencyMs, &v.FinishReason, &v.Error, &v.Role,
 			&v.Messages, &v.Result, &v.CreatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scan llm_invocation: %w", err)
@@ -252,4 +252,32 @@ func (s *Store) ListByOwner(ctx context.Context, ownerType, ownerID string) ([]I
 		return nil, fmt.Errorf("iterate llm_invocation: %w", err)
 	}
 	return out, nil
+}
+
+// Aggregate 是某 owner 下所有 LLM 调用的合计（会话用量总览）。
+// 权威口径：UsageRecorder 对每次 ChatModel 调用（含纯 tool_call、含失败）都落一行，
+// 故此合计覆盖全部调用，不受"无文字推理不发 SSE 事件"影响。
+type Aggregate struct {
+	Calls        int   // 调用次数
+	InTokens     int64 // 输入 token 合计
+	OutTokens    int64 // 输出 token 合计
+	CachedTokens int64 // 命中缓存的 token 合计
+	LatencyMs    int64 // LLM 调用耗时合计（ms）
+}
+
+// AggregateByOwner 合计某 owner 的全部 llm_invocation 用量。owner 无记录时返回零值。
+// 调用前应先 Flush() 确保异步 buffer 已落库。
+func (s *Store) AggregateByOwner(ctx context.Context, ownerID string) (Aggregate, error) {
+	var a Aggregate
+	err := s.pool.QueryRow(ctx, `
+		SELECT COUNT(*),
+		       COALESCE(SUM(in_tokens),0), COALESCE(SUM(out_tokens),0),
+		       COALESCE(SUM(cached_tokens),0),
+		       COALESCE(SUM(latency_ms),0)
+		FROM llm_invocation WHERE owner_id=$1::uuid`, ownerID).
+		Scan(&a.Calls, &a.InTokens, &a.OutTokens, &a.CachedTokens, &a.LatencyMs)
+	if err != nil {
+		return Aggregate{}, fmt.Errorf("aggregate llm_invocation by owner %s: %w", ownerID, err)
+	}
+	return a, nil
 }

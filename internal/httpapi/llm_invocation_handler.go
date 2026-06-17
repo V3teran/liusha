@@ -80,7 +80,6 @@ func llmInvocationsHandler(api InvocationsAPI) gin.HandlerFunc {
 				"in_tokens":     v.InTokens,
 				"out_tokens":    v.OutTokens,
 				"cached_tokens": v.CachedTokens,
-				"cost_usd":      v.CostUSD,
 				"latency_ms":    v.LatencyMs,
 				"finish_reason": v.FinishReason,
 				"error_message": v.Error,

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cloudwego/eino/adk"
 	"github.com/cloudwego/eino/callbacks"
 	"github.com/cloudwego/eino/components"
 	"github.com/cloudwego/eino/components/model"
@@ -22,7 +23,7 @@ import (
 //
 // eino 的 ChatModel 调用由框架在 graph 节点边界触发 callbacks，OnEnd 携带 TokenUsage。
 // 本 handler 按 run 注入（adk.WithCallbacks），meta 携带本 hunter 的 owner/role，
-// 每次 ChatModel 调用落一行 llm_invocation（成本/角色/owner 审计，与 react 路径同库同语义）。
+// 每次 ChatModel 调用落一行 llm_invocation（token/角色/owner 审计，与 react 路径同库同语义）。
 
 // recorderLog 包级构建一次（避免每次 New 触发 logx 全局写入的 race）。
 var recorderLog = logx.New("einollm.recorder")
@@ -35,9 +36,14 @@ type recorderState struct {
 
 type recorderStateKey struct{}
 
+// recorderAgentKey 在 Agent 边界 OnStart 存入 agent 名（orchestrator / exploitation / …），
+// 下传给其内部 ChatModel 回调 → 每次 llm_invocation 按真实产出 agent 标 role（#3 按子代理拆分）。
+// 与 reasoning_callback 的 agentNameKey 同机制，但本包独立持有（跨包不可读对方私有 key）。
+type recorderAgentKey struct{}
+
 // ResolveProviderModel 返回某 role 解析到的 provider key + 默认 model，
 // 供埋点 handler 填 Invocation.Provider/Model（provider key 与旧 Generator.Provider() 一致，
-// 保证 pricing.Lookup 与成本聚合口径不变）。
+// 保证 token 用量聚合口径不变）。
 func (f *Factory) ResolveProviderModel(role string) (provider, model string) {
 	key := f.resolveProviderKey(role)
 	if key == "" {
@@ -60,11 +66,18 @@ func (f *Factory) SupportsVisionFor(role string) bool {
 }
 
 // NewUsageRecorder 造一个只关心 ChatModel 组件的 callbacks.Handler，把每次调用的 token usage
-// 落 llm_invocation。pricing 可为 nil（仅落 usage 不算 cost）。埋点失败仅吞掉，不阻塞 agent run。
-func NewUsageRecorder(sink llm.CallSink, pricing llm.PricingProvider, meta llm.CallMeta, provider, defaultModel string) callbacks.Handler {
+// 落 llm_invocation。埋点失败仅吞掉，不阻塞 agent run。
+func NewUsageRecorder(sink llm.CallSink, meta llm.CallMeta, provider, defaultModel string) callbacks.Handler {
 	return callbacks.NewHandlerBuilder().
 		OnStartFn(func(ctx context.Context, info *callbacks.RunInfo, input callbacks.CallbackInput) context.Context {
-			if info == nil || info.Component != components.ComponentOfChatModel {
+			if info == nil {
+				return ctx
+			}
+			// Agent 边界：记 agent 名，下传给内部 ChatModel 回调（role 按真实产出 agent 归属）。
+			if info.Component == adk.ComponentOfAgent && info.Name != "" {
+				return context.WithValue(ctx, recorderAgentKey{}, info.Name)
+			}
+			if info.Component != components.ComponentOfChatModel {
 				return ctx
 			}
 			st := recorderState{start: time.Now()}
@@ -81,7 +94,7 @@ func NewUsageRecorder(sink llm.CallSink, pricing llm.PricingProvider, meta llm.C
 			if out == nil {
 				return ctx
 			}
-			rec := buildInvocation(ctx, meta, pricing, provider, defaultModel, out)
+			rec := buildInvocation(ctx, meta, provider, defaultModel, out)
 			appendInvocation(sink, meta, rec)
 			return ctx
 		}).
@@ -99,7 +112,7 @@ func NewUsageRecorder(sink llm.CallSink, pricing llm.PricingProvider, meta llm.C
 				if merged == nil {
 					return
 				}
-				rec := buildInvocation(ctx, meta, pricing, provider, defaultModel, merged)
+				rec := buildInvocation(ctx, meta, provider, defaultModel, merged)
 				appendInvocation(sink, meta, rec)
 			}()
 			return ctx
@@ -110,7 +123,7 @@ func NewUsageRecorder(sink llm.CallSink, pricing llm.PricingProvider, meta llm.C
 			if info == nil || info.Component != components.ComponentOfChatModel {
 				return ctx
 			}
-			rec := buildInvocation(ctx, meta, pricing, provider, defaultModel, &model.CallbackOutput{})
+			rec := buildInvocation(ctx, meta, provider, defaultModel, &model.CallbackOutput{})
 			if runErr != nil {
 				rec.Error = runErr.Error()
 			}
@@ -172,7 +185,7 @@ func appendInvocation(sink llm.CallSink, meta llm.CallMeta, rec llminvocation.In
 }
 
 // buildInvocation 把 eino model callback 输出映射成 llminvocation.Invocation。
-func buildInvocation(ctx context.Context, meta llm.CallMeta, pricing llm.PricingProvider, provider, defaultModel string, out *model.CallbackOutput) llminvocation.Invocation {
+func buildInvocation(ctx context.Context, meta llm.CallMeta, provider, defaultModel string, out *model.CallbackOutput) llminvocation.Invocation {
 	var latencyMs int
 	var input []*schema.Message
 	if st, ok := ctx.Value(recorderStateKey{}).(recorderState); ok {
@@ -199,6 +212,13 @@ func buildInvocation(ctx context.Context, meta llm.CallMeta, pricing llm.Pricing
 		finish = out.Message.ResponseMeta.FinishReason
 	}
 
+	// role 优先取 Agent 边界存入的真实产出 agent 名（#3 按子代理拆分）；
+	// 无（如纯文本 passive 路径无 Agent 包装）则回退 meta.RouteKey。
+	role := meta.RouteKey
+	if an, ok := ctx.Value(recorderAgentKey{}).(string); ok && an != "" {
+		role = an
+	}
+
 	rec := llminvocation.Invocation{
 		HunterID:     meta.HunterID,
 		OwnerType:    meta.OwnerType,
@@ -210,10 +230,7 @@ func buildInvocation(ctx context.Context, meta llm.CallMeta, pricing llm.Pricing
 		CachedTokens: usage.CachedTokens,
 		LatencyMs:    latencyMs,
 		FinishReason: finish,
-		Role:         meta.RouteKey,
-	}
-	if pricing != nil {
-		rec.CostUSD = pricing.Estimate(provider, mdl, usage)
+		Role:         role,
 	}
 	// 审计：入参消息 + 输出消息序列化落库（best-effort，失败留空不阻塞）。
 	if len(input) > 0 {
