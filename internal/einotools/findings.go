@@ -92,7 +92,7 @@ func BuildWriteFinding(store FindingWriter, ownerType, ownerID, hunterID, host s
 		"写一条新漏洞 finding。summary 一行短标题；详情/复现/payload 全进 evidence；severity 建议 critical/high/medium/low/info。质量红线见 system prompt。",
 		func(ctx context.Context, in writeFindingArgs) (map[string]any, error) {
 			if in.Summary == "" {
-				return nil, errors.New("summary 必填")
+				return nil, errors.New(`summary 必填：漏洞的一句话摘要（如 "SQL注入 - login.php id 参数未过滤"）。请补上 summary 字段后重新调用 write_finding`)
 			}
 			var targetJSON, evidenceJSON json.RawMessage
 			if in.Target != nil {

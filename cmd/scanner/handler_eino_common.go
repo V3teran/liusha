@@ -73,6 +73,9 @@ func (h handler) einoToolDeps(sandboxClient sandbox.Client) einoagent.TrafficAna
 // （关 channel + 等 writer 写完缓冲事件）。无事件 sink 时为 no-op。
 func (h handler) einoRunOpts(ctx context.Context, hunterID, ownerType, ownerID, role, conversationID string) ([]adk.AgentMiddleware, []adk.AgentRunOption, func()) {
 	var mws []adk.AgentMiddleware
+	// 工具错误守卫（注册最前 = 最外层）：单次工具出错（如 LLM 漏填必填参数）转结果回灌模型，
+	// 避免被 eino deep 升级为致命 NodeRunError 炸掉整条 run。见 einoagent/tool_guard.go。
+	mws = append(mws, einoagent.NewToolErrorGuard())
 	if compactor, err := h.einoFactory.For(ctx, "compactor"); err == nil {
 		mws = append(mws, einoagent.NewCompactionMiddleware(compactor, einoagent.CompactionConfig{}))
 	} else {
