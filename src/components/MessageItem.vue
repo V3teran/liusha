@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import type { Message } from '../api/types'
+import { clockTime, fullTime } from '../lib/format'
 import Avatar from './cards/Avatar.vue'
 import UserBubble from './cards/UserBubble.vue'
 import AssistantText from './cards/AssistantText.vue'
@@ -74,6 +75,9 @@ const showAvatar = computed(() => ['user', 'assistant', 'reasoning'].includes(ki
         :err="msg.Metadata!.Err"
         :agent-name="msg.Metadata!.AgentName"
       />
+      <time v-if="msg.CreatedAt" class="msg-time" :datetime="msg.CreatedAt" :title="fullTime(msg.CreatedAt)">
+        {{ clockTime(msg.CreatedAt) }}
+      </time>
     </div>
   </div>
 </template>
@@ -99,5 +103,14 @@ const showAvatar = computed(() => ['user', 'assistant', 'reasoning'].includes(ki
 }
 .msg-row.mine .msg-content {
   align-items: flex-end;
+}
+.msg-time {
+  margin-top: 3px;
+  font-size: 11px;
+  line-height: 1;
+  color: var(--muted);
+  font-family: var(--mono);
+  opacity: 0.55;
+  cursor: default;
 }
 </style>
