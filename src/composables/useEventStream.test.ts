@@ -3,39 +3,49 @@ import { setActivePinia, createPinia } from 'pinia'
 import { openEventStream } from './useEventStream'
 import { useConversationStore } from '../stores/conversation'
 
-// Mock EventSource，模拟浏览器 API
+// Mock EventSource，模拟浏览器 API（含 addEventListener / onopen / onerror）。
 class MockES {
   static last: MockES
   url: string
   withCredentials: boolean
   onmessage: ((e: { data: string; lastEventId: string }) => void) | null = null
+  onopen: (() => void) | null = null
+  onerror: (() => void) | null = null
+  listeners: Record<string, (e: { data: string }) => void> = {}
   closed = false
   constructor(url: string, init?: { withCredentials?: boolean }) {
     this.url = url
     this.withCredentials = !!init?.withCredentials
     MockES.last = this
   }
+  addEventListener(name: string, fn: (e: { data: string }) => void) {
+    this.listeners[name] = fn
+  }
   close() {
     this.closed = true
   }
 }
 
+// openEventStream 现在先 await authStream（fetch 换 cookie）再开 EventSource，故连接是异步的。
+// flush 等一个微任务轮，让 connect() 跑到创建 EventSource。
+const flush = () => new Promise((r) => setTimeout(r, 0))
+
 describe('useEventStream', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
     vi.stubGlobal('EventSource', MockES as any)
+    // mock fetch：authStream 调 POST /stream-auth，返回 ok 即可。
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, status: 200 }) as Response))
   })
 
-  it('用 withCredentials 订阅正确 URL，帧灌进 store', () => {
+  it('鉴权后用 withCredentials 订阅正确 URL，帧灌进 store', async () => {
     const store = useConversationStore()
     const handle = openEventStream('conv-1', store)
+    await flush()
 
-    // 验证 URL 包含对话 ID 和流端点
     expect(MockES.last.url).toContain('/api/conversations/conv-1/stream')
-    // 验证启用 withCredentials 以自动携带 cookie
     expect(MockES.last.withCredentials).toBe(true)
 
-    // 模拟 SSE 事件到达
     MockES.last.onmessage!({
       data: JSON.stringify({
         Seq: 1,
@@ -50,80 +60,48 @@ describe('useEventStream', () => {
       lastEventId: '1',
     })
 
-    // 验证消息被灌进 store
     expect(store.messages).toHaveLength(1)
     expect(store.messages[0].ID).toBe('m1')
     expect(store.messages[0].Seq).toBe(1)
 
-    // 验证 close 正常工作
     handle.close()
     expect(MockES.last.closed).toBe(true)
   })
 
-  it('坏帧（无效 JSON）应该被忽略', () => {
+  it('坏帧（无效 JSON）应该被忽略', async () => {
     const store = useConversationStore()
     const handle = openEventStream('conv-2', store)
+    await flush()
 
-    // 发送坏帧
-    MockES.last.onmessage!({
-      data: 'not json',
-      lastEventId: '1',
-    })
+    MockES.last.onmessage!({ data: 'not json', lastEventId: '1' })
 
-    // 存储中无消息
     expect(store.messages).toHaveLength(0)
-
     handle.close()
   })
 
-  it('多帧应该按 seq 有序插入 store', () => {
+  it('多帧应该按 seq 有序插入 store', async () => {
     const store = useConversationStore()
     const handle = openEventStream('conv-3', store)
+    await flush()
 
-    // 发送乱序帧
-    MockES.last.onmessage!({
+    const frame = (seq: number, id: string) => ({
       data: JSON.stringify({
-        Seq: 3,
-        ID: 'm3',
+        Seq: seq,
+        ID: id,
         ConversationID: 'conv-3',
         Role: 'assistant',
         Kind: 'message',
-        Content: 'msg3',
+        Content: 'msg' + seq,
         Metadata: null,
         CreatedAt: '',
       }),
-      lastEventId: '3',
+      lastEventId: String(seq),
     })
 
-    MockES.last.onmessage!({
-      data: JSON.stringify({
-        Seq: 1,
-        ID: 'm1',
-        ConversationID: 'conv-3',
-        Role: 'user',
-        Kind: 'message',
-        Content: 'msg1',
-        Metadata: null,
-        CreatedAt: '',
-      }),
-      lastEventId: '1',
-    })
+    MockES.last.onmessage!(frame(3, 'm3'))
+    MockES.last.onmessage!(frame(1, 'm1'))
+    MockES.last.onmessage!(frame(2, 'm2'))
 
-    MockES.last.onmessage!({
-      data: JSON.stringify({
-        Seq: 2,
-        ID: 'm2',
-        ConversationID: 'conv-3',
-        Role: 'assistant',
-        Kind: 'message',
-        Content: 'msg2',
-        Metadata: null,
-        CreatedAt: '',
-      }),
-      lastEventId: '2',
-    })
-
-    // 验证消息按 seq 有序
     expect(store.messages).toHaveLength(3)
     expect(store.messages[0].Seq).toBe(1)
     expect(store.messages[1].Seq).toBe(2)
