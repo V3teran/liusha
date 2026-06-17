@@ -25,9 +25,13 @@ const usage = ref<ConversationUsage | null>(null)
 const startedAt = computed(() => store.messages[0]?.CreatedAt ?? '')
 
 async function refreshUsage() {
-  if (!currentConv.value) return
+  const reqConv = currentConv.value
+  if (!reqConv) return
   try {
-    usage.value = await getConversationUsage(currentConv.value)
+    const u = await getConversationUsage(reqConv)
+    // stale 防护：请求在途期间用户已切走会话 → 丢弃这份旧响应，
+    // 否则会把上一个会话的 token/耗时短暂写到当前会话头部（切换闪现旧数据）。
+    if (currentConv.value === reqConv) usage.value = u
   } catch {
     // 静默：用量是增强信息，拉取失败不打断对话观察。
   }
@@ -94,7 +98,10 @@ async function open(convID: string) {
   store.reset()
   usage.value = null
   currentConv.value = convID
-  for (const m of await listMessages(convID)) store.ingest(m)
+  // 分页拉全可能耗时；期间用户又切了会话则丢弃这批历史，避免灌进错误会话的消息。
+  const history = await listMessages(convID)
+  if (currentConv.value !== convID) return
+  for (const m of history) store.ingest(m)
   handle = openEventStream(convID, store)
   refreshUsage()
 }
