@@ -1,7 +1,8 @@
 <script setup lang="ts">
 // 对话页：复用既有对话链路（ConversationList + ChatThread + Composer + SSE）。
 // 选中/发起对话切流：关旧 SSE、清 store、补历史、订新流。
-// 状态条：lastIngestAt 在 25s 内 → "agent 工作中"；空对话 → 引导空态。
+// 状态条：用量端点权威 running 字段（active_scan/passive_session 终态）→ "agent 工作中"；
+//   不再用"N 秒无活动"启发——避免打开已结束会话因历史回灌误判为工作中。
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { listMessages, abortScan, getConversationUsage } from '../api/client'
@@ -57,11 +58,13 @@ const durationTip = computed(() => {
   return `LLM ${humanDuration(u.llm_latency_ms)} · 工具 ${humanDuration(u.tool_duration_ms)} · ${u.tool_calls} 次工具调用`
 })
 
-// 每 2s 走一拍，驱动"工作中"判定刷新。
-const now = ref(Date.now())
+// 运行中兜底轮询：扫描进行时每 4s 拉一次权威用量，捕获"最后一个事件后扫描终态翻转"
+// （事件驱动刷新覆盖活动期，本轮询补完成时刻）。终态后 running=false 自然停止轮询。
 let timer: number | undefined
 onMounted(() => {
-  timer = window.setInterval(() => (now.value = Date.now()), 2000)
+  timer = window.setInterval(() => {
+    if (scanning.value) refreshUsage()
+  }, 4000)
   // 从被动会话页跳来（?conv=xxx）：自动打开该对话流（实时观察 + 插话）。
   if (typeof route.query.conv === 'string' && route.query.conv) open(route.query.conv)
 })
@@ -79,9 +82,8 @@ onUnmounted(() => {
 })
 
 const hasConv = computed(() => !!currentConv.value)
-const scanning = computed(
-  () => hasConv.value && store.lastIngestAt > 0 && now.value - store.lastIngestAt < 25000
-)
+// 权威运行态：后端 usage.running（active_scan/passive_session 是否仍 active）。
+const scanning = computed(() => hasConv.value && (usage.value?.running ?? false))
 // 每条新消息落定（seq 增长）→ 防抖刷新用量（事件驱动，见 scheduleUsageRefresh）。
 watch(() => store.lastSeq, scheduleUsageRefresh)
 

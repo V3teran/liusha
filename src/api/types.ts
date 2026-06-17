@@ -70,6 +70,7 @@ export interface ConversationUsage {
   duration_ms: number // = llm_latency_ms + tool_duration_ms（总耗时）
   llm_calls: number
   tool_calls: number
+  running: boolean // 是否仍有运行中的扫描（权威：后端 owner 终态）
 }
 
 /**
