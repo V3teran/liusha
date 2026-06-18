@@ -160,7 +160,7 @@ func TestVulnapp_OrderNotFound(t *testing.T) {
 }
 
 // anonymous 访问需登录接口被 requireLogin 拒：200 + body 含 Unauthorized。
-// BAC SKILL.md 第 80 行：body 含 "Unauthorized" 视为被拒绝。
+// 对应 BAC SKILL.md 判定原则 2「成功访问必须双重判断」：200 + 错误体（如 {"detail":"Unauthorized"}）仍视为被拒绝。
 //
 // /api/bac/admin/delete 不在此用例 — 它故意不调 requireLogin（unauthorized_access 漏洞）。
 func TestVulnapp_Anonymous_Rejected(t *testing.T) {

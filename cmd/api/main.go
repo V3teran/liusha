@@ -93,7 +93,7 @@ func main() {
 	auditStore := audit.NewStore(pool)         // 0047：owner abort / create 审计
 	convStore := conversation.NewStore(pool)   // 阶段B：对话/消息
 	toolStore := toolinvocation.NewStore(pool) // 对话用量合计：工具耗时来源
-	// 阶段C：场景 role（roles/*.md）。加载失败仅警告——/roles 返回空、/chat 用空 role 兜底，
+	// 阶段C：场景 role（scenarios/*.md）。加载失败仅警告——/roles 返回空、/chat 用空 role 兜底，
 	// 不阻塞 api 启动（场景人设是增强，缺了退化为通用扫描）。
 	scenarioRoles, err := scenario.LoadRoles(envx.OrDefault("LIUSHA_ROLES_DIR", "./scenarios"))
 	if err != nil {

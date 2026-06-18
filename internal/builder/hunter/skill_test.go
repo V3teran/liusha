@@ -4,7 +4,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/V3teran/liusha/internal/skill"
 	"github.com/V3teran/liusha/internal/tools/manifest"
 )
 
@@ -86,13 +85,13 @@ func TestSortHelpers(t *testing.T) {
 		}
 	})
 
-	t.Run("sortCardsByName 按 Name 升序", func(t *testing.T) {
-		in := []*skill.Card{
+	t.Run("sortEntriesByName 按 Name 升序", func(t *testing.T) {
+		in := []catalogEntry{
 			{Name: "zeta"},
 			{Name: "alpha"},
 			{Name: "mu"},
 		}
-		sortCardsByName(in)
+		sortEntriesByName(in)
 		want := []string{"alpha", "mu", "zeta"}
 		for i := range in {
 			if in[i].Name != want[i] {
@@ -103,7 +102,7 @@ func TestSortHelpers(t *testing.T) {
 
 	t.Run("空切片不 panic", func(t *testing.T) {
 		sortStrings(nil)
-		sortCardsByName(nil)
+		sortEntriesByName(nil)
 	})
 }
 

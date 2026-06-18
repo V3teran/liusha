@@ -16,7 +16,7 @@ import (
 // 为什么是独立工具而非让 LLM 裸 run_command：核心是 identity——LLM 传 identity 字段，工具自动拼成
 // `IDENTITY=<identity> browser-use <action> ...` 行内 env（实测 sh -c 嵌套不丢 env）。wrapper 据此选
 // /tmp/browser-svc-<identity>.sock = 独立 chromium cookie jar。同名 identity 跨 orchestrator/exploitation
-// 复用同一浏览器登录态（见 system_prompt_shared.md「identity 命名铁律」）——根治「子代理各自重登」。
+// 复用同一浏览器登录态（见 system_prompt.md「identity 命名铁律」）——根治「子代理各自重登」。
 //
 // 为什么手写 BaseTool 而非 utils.InferTool：browser 动作要回灌截图（image part），InferTool 的 func 只返
 // string 无多模态通道（同 run_command）。故用 GoStruct2ToolInfo 从 struct tag 生成 schema + 手写

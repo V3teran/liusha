@@ -103,7 +103,7 @@ func (h handler) handlePassiveEino(ctx context.Context, p worker.Payload, entryp
 		return h.failTask(ctx, p.HunterID, err)
 	}
 
-	instruction := hunterbuilder.SharedSystemPrompt() + "\n\n" + h.passiveRole.SystemPrompt
+	instruction := hunterbuilder.SystemPrompt() + "\n\n" + h.passiveRole.SystemPrompt
 	userPrompt := hunterbuilder.BuildUserPrompt(ctx, h.hunterDeps, params)
 
 	// 阶段2 可插话：把本 passive 会话最近的对话历史（含用户插话指导）拼到 prompt 前，

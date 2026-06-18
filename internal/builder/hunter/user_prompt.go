@@ -118,10 +118,17 @@ func buildUserPrompt(ctx context.Context, deps Deps, p skill.BuilderParams) stri
 }
 
 // categoryItem 是索引段的分类条目（key + 渲染 label）。
-// tooling 与 vuln 各维护一份独立的 categoryOrder，buildCatalog 统一渲染。
+// tooling 与 vuln 各维护一份独立的 categoryOrder，renderCatalog 统一渲染。
 type categoryItem struct {
 	Key   string
 	Label string
+}
+
+// catalogEntry 是索引段渲染用的扁平条目（name + 一句话用途），
+// 屏蔽 manifest.Tool 与 skill.Card 的类型差异，让 renderCatalog 复用同一套渲染。
+type catalogEntry struct {
+	Name string
+	Desc string
 }
 
 // toolingCategoryOrder 是工具索引段的固定渲染顺序——
@@ -146,57 +153,62 @@ var vulnCategoryOrder = []categoryItem{
 	{"web", "web（Web 应用漏洞）"},
 }
 
-// buildToolingCatalog 渲染工具索引段——从 ToolsManifest（tools.yaml）按 category 分组渲染。
-//
-// 与 buildVulnCatalog 不同：vuln 仍扫 SKILL.md frontmatter（每个漏洞一个 SKILL，1:1 对应），
-// 而 tooling 解耦——工具是否存在由 manifest（Dockerfile 同步）决定，SKILL.md 仅是可选详细手册。
-//
-// 输出形如：
-//
-//	## 可用外部工具索引
-//
-//	### recon（侦察 — 资产/服务/技术栈发现）
-//	- **subfinder**: ...
-//	- **httpx**: ...
-//
-// 用法约束（沙箱网络、按需调 read_tooling_skill 拉详细手册）由 system_prompt_shared.md 统一约束，本段只渲染索引。
+// buildToolingCatalog 渲染工具索引段——数据来自 ToolsManifest（tools.yaml，与 Dockerfile 同步）。
+// 与 vuln 不同：工具是否存在由 manifest 决定，SKILL.md 仅是可选详细手册（按需 read_tooling_skill 拉）。
 func buildToolingCatalog(m *manifest.Manifest) string {
 	if m == nil || len(m.Tools) == 0 {
 		return ""
 	}
+	buckets := make(map[string][]catalogEntry, 8)
+	for cat, tools := range m.ByCategory() {
+		for _, t := range tools {
+			buckets[cat] = append(buckets[cat], catalogEntry{t.Name, t.Description})
+		}
+	}
+	return renderCatalog("## 可用外部工具索引\n", toolingCategoryOrder, buckets,
+		"建议补 tools.yaml category 或 toolingCategoryOrder")
+}
+
+// renderCatalog 是工具/漏洞索引段的公共渲染逻辑：已知分类按 order 固定顺序输出
+// （稳定 prompt 顺序、cache 友好），未匹配的落入"未分类"组并以 unclassifiedHint
+// 提示维护者补哪个字段。每组内按 name 字典序；buckets 为空返回空串。
+// header 由调用方提供（含末尾换行）。
+func renderCatalog(header string, order []categoryItem, buckets map[string][]catalogEntry, unclassifiedHint string) string {
+	if len(buckets) == 0 {
+		return ""
+	}
+	for k := range buckets {
+		sortEntriesByName(buckets[k])
+	}
 
 	var b strings.Builder
-	b.WriteString("## 可用外部工具索引\n")
+	b.WriteString(header)
 
-	buckets := m.ByCategory()
-
-	// 按 toolingCategoryOrder 固定顺序渲染——稳定 prompt 顺序，prompt cache 友好。
-	for _, cat := range toolingCategoryOrder {
+	for _, cat := range order {
 		group := buckets[cat.Key]
 		if len(group) == 0 {
 			continue
 		}
 		fmt.Fprintf(&b, "\n### %s\n\n", cat.Label)
-		for _, t := range group {
-			fmt.Fprintf(&b, "- **%s**: %s\n", t.Name, t.Description)
+		for _, e := range group {
+			fmt.Fprintf(&b, "- **%s**: %s\n", e.Name, e.Desc)
 		}
 		delete(buckets, cat.Key)
 	}
 
-	// 剩余 category 视作"未分类"——提醒维护者补 toolingCategoryOrder 或 tools.yaml category 字段。
 	if len(buckets) > 0 {
-		b.WriteString("\n### 未分类（建议补 tools.yaml category 或 toolingCategoryOrder）\n\n")
+		fmt.Fprintf(&b, "\n### 未分类（%s）\n\n", unclassifiedHint)
 		rest := make([]string, 0, len(buckets))
 		for k := range buckets {
 			rest = append(rest, k)
 		}
 		sortStrings(rest)
 		for _, k := range rest {
-			for _, t := range buckets[k] {
+			for _, e := range buckets[k] {
 				if k == "" {
-					fmt.Fprintf(&b, "- **%s**: %s\n", t.Name, t.Description)
+					fmt.Fprintf(&b, "- **%s**: %s\n", e.Name, e.Desc)
 				} else {
-					fmt.Fprintf(&b, "- **%s** (category=%s): %s\n", t.Name, k, t.Description)
+					fmt.Fprintf(&b, "- **%s** (category=%s): %s\n", e.Name, k, e.Desc)
 				}
 			}
 		}
@@ -205,13 +217,8 @@ func buildToolingCatalog(m *manifest.Manifest) string {
 	return b.String()
 }
 
-// buildCatalog 是 tooling / vuln 索引段的公共渲染逻辑：
-// 按 Card.Category 分桶 → 按 order 固定顺序渲染已知分类 → 未匹配的落
-// "未分类"组提醒维护者补 frontmatter。每组内 name 字典序；空组不渲染。
-//
-// Loader 为 nil 或 List() 为空时返回空串（不污染 prompt）。
-// header 由调用方提供（含末尾换行），buildCatalog 不额外加分隔。
-func buildCatalog(loader *skill.Loader, header string, order []categoryItem) string {
+// buildSkillCatalog 把 skill.Loader（每个 SKILL.md 一张 Card）转成索引段。
+func buildSkillCatalog(loader *skill.Loader, header string, order []categoryItem) string {
 	if loader == nil {
 		return ""
 	}
@@ -219,71 +226,18 @@ func buildCatalog(loader *skill.Loader, header string, order []categoryItem) str
 	if len(cards) == 0 {
 		return ""
 	}
-
-	// 按 Category 分桶。
-	buckets := make(map[string][]*skill.Card, len(order)+1)
+	buckets := make(map[string][]catalogEntry, len(order)+1)
 	for _, c := range cards {
-		buckets[c.Category] = append(buckets[c.Category], c)
+		buckets[c.Category] = append(buckets[c.Category], catalogEntry{c.Name, c.Description})
 	}
-	// 每桶内按 name 字典序——稳定 prompt 顺序，prompt cache 友好。
-	for k := range buckets {
-		sortCardsByName(buckets[k])
-	}
-
-	var b strings.Builder
-	b.WriteString(header)
-
-	// 按固定顺序渲染已知分类。
-	for _, cat := range order {
-		group := buckets[cat.Key]
-		if len(group) == 0 {
-			continue
-		}
-		fmt.Fprintf(&b, "\n### %s\n\n", cat.Label)
-		for _, c := range group {
-			fmt.Fprintf(&b, "- **%s**: %s\n", c.Name, c.Description)
-		}
-		delete(buckets, cat.Key)
-	}
-
-	// 剩余 category 视作"未分类"——提醒维护者补 frontmatter。
-	if len(buckets) > 0 {
-		b.WriteString("\n### 未分类（建议补 frontmatter category 字段）\n\n")
-		rest := make([]string, 0, len(buckets))
-		for k := range buckets {
-			rest = append(rest, k)
-		}
-		sortStrings(rest)
-		for _, k := range rest {
-			for _, c := range buckets[k] {
-				if k == "" {
-					fmt.Fprintf(&b, "- **%s**: %s\n", c.Name, c.Description)
-				} else {
-					fmt.Fprintf(&b, "- **%s** (category=%s): %s\n", c.Name, k, c.Description)
-				}
-			}
-		}
-	}
-
-	return b.String()
+	return renderCatalog(header, order, buckets, "建议补 frontmatter category 字段")
 }
 
-// buildVulnCatalog 渲染漏洞挖掘指南索引段（薄 wrapper —— 委托 buildCatalog）。
-//
-// 与 tooling 同模式：按 vulnCategoryOrder 分组渲染；当前阶段（web 主导）
-// 只有一类，但分组结构与 tooling 保持一致，框架先立起来。
-//
-// 输出形如：
-//
-//	## 可用漏洞挖掘指南索引
-//
-//	### web（Web 应用漏洞）
-//	- **bac**: 访问控制失效（Broken Access Control）...
-//
-// 用法约束（按"漏洞类型索引"判完方向、调 read_vuln_skill 拉详情。
+// buildVulnCatalog 渲染漏洞挖掘指南索引段（薄 wrapper —— 委托 buildSkillCatalog）。
+// 当前阶段 web 主导只有一类，但分组结构与 tooling 一致，未来扩展按 vulnCategoryOrder 追加。
 func buildVulnCatalog(loader *skill.Loader) string {
 	header := "## 可用漏洞挖掘指南索引\n"
-	body := buildCatalog(loader, header, vulnCategoryOrder)
+	body := buildSkillCatalog(loader, header, vulnCategoryOrder)
 	if body == "" {
 		return ""
 	}
@@ -292,12 +246,11 @@ func buildVulnCatalog(loader *skill.Loader) string {
 	return body
 }
 
-// sortCardsByName 按 Name 字段对 *Card 切片做插入排序——切片小（每分类
-// 1-5 条），插排开销可忽略，省一个 sort 包 import。
-func sortCardsByName(cs []*skill.Card) {
-	for i := 1; i < len(cs); i++ {
-		for j := i; j > 0 && cs[j-1].Name > cs[j].Name; j-- {
-			cs[j-1], cs[j] = cs[j], cs[j-1]
+// sortEntriesByName 按 Name 对索引条目做插入排序——每分类 1-5 条，开销可忽略，省一个 sort 包 import。
+func sortEntriesByName(es []catalogEntry) {
+	for i := 1; i < len(es); i++ {
+		for j := i; j > 0 && es[j-1].Name > es[j].Name; j-- {
+			es[j-1], es[j] = es[j], es[j-1]
 		}
 	}
 }

@@ -61,7 +61,7 @@ type handler struct {
 	conversations  *conversation.Store
 	eventPublisher *scanstream.Publisher
 
-	// scenarioRoles 是场景 role（roles/*.md，阶段C）：active/passive handler 按 Payload.ScenarioID
+	// scenarioRoles 是场景 role（scenarios/*.md，阶段C）：active/passive handler 按 Payload.ScenarioID
 	// 注入主代理人设。空/未匹配时不注入（退化为通用扫描）。
 	scenarioRoles []scenario.Role
 }

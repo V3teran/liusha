@@ -29,6 +29,7 @@
    - **CSRF**：统一 `CWE-352`
    - **Open Redirect**：统一 `CWE-601`
    - **Weak Crypto / Random**：统一 `CWE-330`
+   - **访问控制失效 BAC**：未授权访问（缺失认证/授权）= `CWE-862`；IDOR / 对象引用越权 = `CWE-639`；垂直 / 水平越权（已认证但越权）= `CWE-863`
 
 6. **target.path 必填**（dedup 第二锚点）：`target` jsonb 里**必须**包含 `path` 字段（如 `"path": "/vulnerabilities/sqli/"`），LLM 不要省略——dedup_key 优先用 target.path，缺失时降级 summary 前 40 字，措辞不稳会漏判 dedup。
 
@@ -36,7 +37,7 @@
 
 ## 信息同步原理（read_* 工具语义）
 
-启动时 user prompt 已注入本 host 当前 finding / note / lesson 的 **snapshot**（各 ≤ 100 条）。你看到 prompt 时数据已经在你眼前——**不需要**冗余调 read_* "再看一遍"。
+启动时 user prompt 已注入本 host 当前 finding / lesson 的 **snapshot**（各 ≤ 100 条）。你看到 prompt 时数据已经在你眼前——**不需要**冗余调 read_* "再看一遍"。
 
 但 task 跑过程中：
 - 其他并发 agent（如 spawned children）会更新这些数据
@@ -147,6 +148,18 @@
 
 **通用规则**：
 - 完全凭空构造（探完全新 endpoint，字典里没有）→ `run_command curl`；要 shell 管道（| grep | jq）→ `run_command`。
+
+### 执行模态选择：请求重放 vs 浏览器渲染（通用，所有漏洞类型适用）
+
+同一个验证目标，有两种执行模态——**请求重放**（curl / `replay_flow`，改字段重发、看响应文本）和**浏览器渲染**（`browser_use`，真实操作页面、看截图）。怎么选不由 httpOnly / 凭证能不能注入决定（`replay_flow` 从网络层抓的 http_flow 重发，httpOnly cookie 自动继承、对它透明），而按下面顺序判断：
+
+- **必须用浏览器的硬条件（物理约束，不是偏好；满足任一即只能浏览器）**：① 漏洞执行在 JS 运行时（DOM-XSS 等）——请求重放看不到 JS 渲染后的 DOM；② 数据只在客户端运行时聚合/渲染、没有干净的后端 JSON 边界可打；③ **目标有 WAF / JS challenge / 反爬只认浏览器指纹（TLS 指纹、JS 质询如 Cloudflare），curl/replay 被风控拦——真实公网目标的常态**，这时必须用真实浏览器把请求走出来。
+  - ⚠ **前端"按角色藏按钮/菜单、客户端路由守卫"不属于此列**——前端隐藏 ≠ 访问控制，"低权界面能看到管理按钮"本身不是漏洞。真正要测的是：低权去调那个按钮背后的**后端接口**能不能成功——那是**请求重放**的活，比截图准。
+- **不触发硬条件时，按目标形态选**（没有预设默认，按目标实际架构判断）：
+  - **传统服务端应用 / 干净的 REST/JSON API**：**请求重放**——`replay_flow`（字典里有真流量）或 curl 手拼，快、省、可精确改字段、session 自动继承。
+  - **SPA / 重前端 / 多步业务流 / 有风控的目标**：**浏览器常为主路径**——靠真实交互走出认证态与业务流程，再据需要重放其中的关键请求。
+- **成本意识**：浏览器有真实成本（冷启动时延、token），同等可达时优先请求重放；但当目标形态或硬条件要求浏览器时，这是正常主路径，不是"能省则省的兜底"。
+- **可推翻**：以上是倾向，现场有更强信号可推翻——但要在产出里说明为什么这么选。
 
 **反模式**：
 - ❌ 同 endpoint 改参数 fuzz 还在凭空 curl 拼请求 — `replay_flow(id, modifications)` 一行能完成，自动继承所有 header。

@@ -41,7 +41,7 @@ type noArgs struct{}
 func BuildReadFindings(store FindingReader, ownerType, ownerID, host string) (tool.BaseTool, error) {
 	return utils.InferTool(
 		"read_findings",
-		"列出本次扫描(owner+host)已有 finding（写 finding 前必查，防重复）。返回 [{id,severity,summary,created_at}]。",
+		"列出本次扫描(owner+host)已有 finding（写 finding 前必查，防重复）。返回 [{id,severity,summary,source_flow_id,created_at}]。",
 		func(ctx context.Context, _ noArgs) (map[string]any, error) {
 			if ownerType == "" || ownerID == "" || host == "" {
 				return nil, errors.New("read_findings: owner/host 注入缺失")

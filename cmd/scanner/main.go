@@ -222,7 +222,7 @@ func main() {
 		logger.Fatal().Str("dir", passiveDir).Msg("passive 角色缺 traffic-analysis，fail-fast")
 	}
 
-	// 场景 role 加载（roles/*.md，阶段C）：active/passive handler 按 Payload.ScenarioID 注入主代理人设。
+	// 场景 role 加载（scenarios/*.md，阶段C）：active/passive handler 按 Payload.ScenarioID 注入主代理人设。
 	// 加载失败仅警告——不注入人设退化为通用扫描，不阻塞 scanner。
 	scenarioRoles, err := scenario.LoadRoles(envx.OrDefault("LIUSHA_ROLES_DIR", "./scenarios"))
 	if err != nil {

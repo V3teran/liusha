@@ -79,7 +79,7 @@ func BuildWriteLesson(store LessonAdder, host string) (tool.BaseTool, error) {
 		"写一条「跨 owner 长期经验」到 lesson 库"+
 			"（按 host 永久累积，下次扫同一 host 自动注入 user prompt；同 content_hash 自动 dedup）。"+
 			"\n\nhost 维度：passive 模式是真实 HTTP host（如 target.com:8080），跨 task 复用度高；"+
-			"active 模式是 brief 里抽取的 URL host，抽不到时回退 owner_id 兜底（此情况 lesson 跨 task 复用失效，建议优先用 note）。"+
+			"active 模式是 brief 里抽取的 URL host，抽不到时回退 owner_id 兜底（此情况 lesson 跨 task 复用失效）。"+
 			"\n\n【必写】下次扫描同 host / 同类目标能复用的知识："+
 			"\n- 目标默认/常用凭据（如『此 host 默认 admin:password』）"+
 			"\n- 工具调用 pattern（如『DVWA login.php 必须先 GET 拿 user_token 再 POST』）"+
@@ -87,7 +87,7 @@ func BuildWriteLesson(store LessonAdder, host string) (tool.BaseTool, error) {
 			"\n- kind=hint：跨 host 业务规则（如『价格篡改 ≥10% 才算 finding』）。⚠️ hint 影响所有未来 agent，只在强证据时写。"+
 			"\n\n【禁写】请改用对应工具："+
 			"\n- 本次具体漏洞细节（漏洞 PoC）→ write_finding"+
-			"\n- 一次性事实（本次 session、临时 cookie、当前状态）→ write_note"+
+			"\n- 一次性事实（本次 session、临时 cookie、当前状态）→ 直接在对话里说出（reasoning），不进长期库"+
 			"\n- 通用 OWASP 理论 / LLM 已知知识（浪费长期存储）",
 		func(ctx context.Context, in writeLessonArgs) (map[string]any, error) {
 			if host == "" {
