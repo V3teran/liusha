@@ -231,9 +231,8 @@ func RequireAPIKey(expected string, streamSecret []byte) gin.HandlerFunc {
 		fp := c.FullPath()
 		path := c.Request.URL.Path
 		if strings.HasSuffix(fp, "/healthz") ||
-			strings.HasPrefix(fp, "/viewer/") ||
-			fp == "/viewer-config.json" ||
-			path == "/viewer-config.json" ||
+			fp == "/dev-config.json" ||
+			path == "/dev-config.json" ||
 			path == "/favicon.ico" {
 			c.Next()
 			return

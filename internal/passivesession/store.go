@@ -177,7 +177,7 @@ func (s *Store) Abort(ctx context.Context, id, errMsg string) error {
 
 // Sweep 关闭所有 expires_at 已过期的 active session（status → aborted）。
 // 与"懒轮换"（流量进来时 LookupOrCreate 检查 host 已有 active）互补——无流量场景下
-// 也能保证「TTL 一到必关」，避免 PG 堆积陈旧 active 行 + viewer 看僵尸 session。
+// 也能保证「TTL 一到必关」，避免 PG 堆积陈旧 active 行 + 前端看僵尸 session。
 //
 // 返回本次扫到的过期 session 数（已 abort）。
 func (s *Store) Sweep(ctx context.Context) (int, error) {

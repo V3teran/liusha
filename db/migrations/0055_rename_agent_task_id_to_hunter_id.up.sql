@@ -6,7 +6,7 @@
 --   - llm_invocation.agent_task_id   → hunter_id（产生这次 LLM 调用的 hunter run id）
 --   - tool_invocation.agent_task_id  → hunter_id（产生这次工具调用的 hunter run id）
 --
--- 同步改：Go SQL queries / struct JSON tag / 外部 API / viewer / log key 全切。
+-- 同步改：Go SQL queries / struct JSON tag / 外部 API / 前端 / log key 全切。
 
 ALTER TABLE finding RENAME COLUMN agent_task_id TO hunter_id;
 ALTER TABLE llm_invocation RENAME COLUMN agent_task_id TO hunter_id;

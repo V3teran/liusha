@@ -9,26 +9,22 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// RequireAPIKey 校验 X-API-Key 请求头。/healthz 与 /viewer/* 路径放行。
+// RequireAPIKey 校验 X-API-Key 请求头。/healthz、/dev-config.json、/favicon.ico 放行。
 // 比较使用 crypto/subtle.ConstantTimeCompare 避免 timing 侧信道。
 //
-// /viewer/* 放行原因：静态前端资产（HTML/JS/CSS）需要被浏览器作为子资源加载，
-// 浏览器不会给 <script src=> / <link href=> 自动添加自定义 header。
-// 真正敏感的数据接口（/sitemap/:owner_id 等）仍受保护。
+// /dev-config.json（dev API key 自动填充端点）按设计先于鉴权——它正是用来发 key 的，
+// 且仅在 LIUSHA_DEV_AUTOFILL 开启时注册，production 不存在。真正敏感的数据接口仍受保护。
 func RequireAPIKey(expected string, streamSecret []byte) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// /healthz、/viewer/*、/viewer-config.json 直接放行；FullPath 是注册路由模板。
-		// /viewer-config.json 不放在 /viewer/ 之下：Gin 路由树不允许同前缀下既有具名
-		// 路径又有 StaticFS catch-all（panic: catch-all conflicts），所以放同级。
+		// /healthz、/dev-config.json 直接放行；FullPath 是注册路由模板。
 		fp := c.FullPath()
 		// FullPath 是 *已注册路由* 模板；未注册路由（如 dev autofill 关闭时的
-		// /viewer-config.json）会返回空串——必须用 URL.Path 兜底，否则会 401
+		// /dev-config.json）会返回空串——必须用 URL.Path 兜底，否则会 401
 		// 而非 404，混淆"未配置 dev"与"鉴权失败"。
 		path := c.Request.URL.Path
 		if strings.HasSuffix(fp, "/healthz") ||
-			strings.HasPrefix(fp, "/viewer/") ||
-			fp == "/viewer-config.json" ||
-			path == "/viewer-config.json" ||
+			fp == "/dev-config.json" ||
+			path == "/dev-config.json" ||
 			path == "/favicon.ico" {
 			// favicon.ico 浏览器自动拉，没注册即 404；不走鉴权避免污染 401 日志。
 			c.Next()

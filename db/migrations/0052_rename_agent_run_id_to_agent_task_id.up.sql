@@ -5,7 +5,7 @@
 -- 同步 Go 侧：
 --   - internal/finding/store.go：colsSelect / INSERT SQL 用新列名
 --   - internal/llminvocation/store.go：copyFrom batch / SELECT SQL 用新列名
---   - 外部 API JSON / viewer 已在 commit af10c79 切到 agent_task_id（无需再动）
+--   - 外部 API JSON / 前端已在 commit af10c79 切到 agent_task_id（无需再动）
 --
 -- 不动：
 --   - internal/notes/store.go Redis 持久化字段（破坏已写入 notes 的 backward compat）

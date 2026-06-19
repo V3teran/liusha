@@ -8,7 +8,7 @@
 
 把 liusha 的对话式扫描能力暴露成一个真正可用的前端：用户选场景（role）、用自然语言发起扫描、agent 跑扫描的过程（思考 / 工具调用 / 结果 / finding）经 SSE 实时流式展示在对话框，并可回看历史对话。
 
-现有 `web/viewer` 是只读静态页（vanilla JS / 无 build / d3 sitemap），**保持不动**——本期不迁移 Sitemap/LLM/Tasks 三视图（YAGNI）。
+前端统一在 liusha-ui（Vue3）实现 Sitemap/LLM/Tasks 等视图；早期内嵌的只读静态页（vanilla JS / d3 sitemap）已迁出删除。
 
 ## 2. 关键决策（已与用户对齐）
 

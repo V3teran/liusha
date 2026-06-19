@@ -23,7 +23,7 @@ type InvocationsAPI interface {
 // 每组内按 created_at ASC（与 react step 顺序一致）。hunter_id 为 NULL
 // 的归到 "unassigned" 分组。
 //
-// 响应结构（前端 viewer 消费）：
+// 响应结构（前端消费）：
 //
 //	{
 //	  "owner_id": "...",

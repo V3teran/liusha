@@ -135,8 +135,7 @@ while [ $SECONDS -lt $deadline ]; do
   if [ "$((api_ok + scanner_ok + proxy_ok + vulnapp_ok))" -eq 4 ]; then
     echo "  ✓ 4 service 全部 healthy"
     echo ""
-    echo "  📊 sitemap viewer：${LIUSHA_API_BASE}/viewer/index.html"
-    echo "     在浏览器打开，填 owner_id + X-API-Key (=${LIUSHA_API_KEY})，勾"每 5s 刷新"边扫边看。"
+    echo "  📊 前端：liusha-ui 独立仓 → pnpm dev（/api 代理到本 api，X-API-Key=${LIUSHA_API_KEY}）"
     echo "     owner_id 跑完 e2e 后从 finding 表查："
     echo "       docker exec ${PG_CONTAINER} psql -U liusha -d liusha -c \\"
     echo "         \"SELECT DISTINCT owner_id FROM finding ORDER BY owner_id;\""
@@ -167,7 +166,7 @@ if [ $RC -eq 0 ]; then
   echo "🎉 e2e PASS"
   echo ""
   echo "📊 看图："
-  echo "  浏览器：${LIUSHA_API_BASE}/viewer/index.html"
+  echo "  前端：liusha-ui 独立仓 → pnpm dev（/api 代理到本 api）"
   echo "  owner_id 列表："
   echo "    docker exec ${PG_CONTAINER} psql -U liusha -d liusha -c \\"
   echo "      \"SELECT id, host, status, expires_at FROM passive_session ORDER BY created_at DESC;\""
@@ -181,7 +180,7 @@ else
   echo "    1. logs/scanner.log 看 ReAct 循环是否跑"
   echo "    2. docker exec ${PG_CONTAINER} psql -U liusha -d liusha -c \\"
   echo "       'SELECT kind,severity,confidence,title FROM finding ORDER BY created_at DESC;'"
-  echo "    3. sitemap viewer：${LIUSHA_API_BASE}/viewer/index.html （即使失败也能看到部分图）"
+  echo "    3. 前端看图：liusha-ui 独立仓 → pnpm dev（/api 代理到本 api）"
 fi
 
 exit $RC

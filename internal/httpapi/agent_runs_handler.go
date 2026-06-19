@@ -18,7 +18,7 @@ type AgentRunsAPI interface {
 // agentRunsHandler 处理 GET /agent_runs/:owner_id。
 //
 // 返回该 owner 下所有 agent_run 行，按 created_at ASC 排序（orchestrator 先 spawn → exploitation 后入）。
-// 前端 viewer 按 orchestrator_id 拼任务树渲染（PR4）：根节点 orchestrator_id="" / NULL。
+// 前端按 orchestrator_id 拼任务树渲染（PR4）：根节点 orchestrator_id="" / NULL。
 //
 // 响应结构：
 //
@@ -44,7 +44,7 @@ func agentRunsHandler(api AgentRunsAPI) gin.HandlerFunc {
 
 		// ListByOwner 在 0 行时返 (空切片, nil)，不返 ErrNoRows——
 		// "owner 不存在"与" owner 存在但 0 run"响应相同（total:0, runs:[]），
-		// 这对 viewer 树渲染足够（前端基于 total=0 显示"无任务"）。
+		// 这对前端树渲染足够（基于 total=0 显示"无任务"）。
 		runs, err := api.ListByOwner(c.Request.Context(), "", eid, 500)
 		if err != nil {
 			c.JSON(500, gin.H{"error": err.Error()})

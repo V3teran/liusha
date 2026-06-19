@@ -9,7 +9,7 @@
 // orchestrator_id 列（任务树关系）：
 //   - orchestrator / 独立任务：orchestrator_id = NULL
 //   - 现行 active 路径用 eino deep 进程内编排，exploitation 是临时 sub-agent，不单独建 hunter 行，
-//     故 orchestrator_id 多为 NULL。该列保留供 viewer 按树渲染 + 向后兼容旧 subtask swarm 数据。
+//     故 orchestrator_id 多为 NULL。该列保留供前端按树渲染 + 向后兼容旧 subtask swarm 数据。
 package hunter
 
 import (

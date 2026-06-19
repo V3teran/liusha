@@ -9,14 +9,14 @@
 
 **两条产品线并存：**
 - **active（对话驱动）**：用户在前端对话框选场景（CTF / Web 扫描 / 渗透…）、聊天发起扫描，agent 扫描过程经 SSE 实时流式展示在对话框。
-- **passive（自动驱动，liusha 独有）**：proxy 抓到流量自动触发 agent 扫描，**不走对话**；过程/结果可在 viewer 或对话历史查看。
+- **passive（自动驱动，liusha 独有）**：proxy 抓到流量自动触发 agent 扫描，**不走对话**；过程/结果可在前端（liusha-ui）或对话历史查看。
 
 ## 2. liusha 现状（基线）
 
 | 维度 | 现状 |
 |---|---|
 | HTTP | gin REST API（internal/httpapi）：credential/scan/session/sitemap/llm/agent_runs |
-| 前端 | web/viewer 静态页（embed），只读看 sitemap/finding |
+| 前端 | liusha-ui（Vue3 控制台，独立仓） |
 | agent | 已迁 eino（spawn_exploitation 自定义 swarm），已转默认；react 留退路 |
 | passive | proxy → ingestor → scanner（asynq）→ traffic-analysis 单 agent 挖洞 → 落库 |
 | active | scanner → orchestrator+exploitation（当前 spawn_exploitation） |
@@ -59,7 +59,7 @@ proxy → ingestor → scanner（asynq，复用）
                               ▼
                     passive：单 agent traffic-analysis（eino，复用+换路）
                               ▼
-                    过程/结果落库 → viewer / 对话历史查看
+                    过程/结果落库 → 前端 / 对话历史查看
 ```
 
 ## 5. 分阶段路线图（依赖顺序 + 风险）
@@ -83,12 +83,12 @@ proxy → ingestor → scanner（asynq，复用）
 - 风险：中。
 
 ### 阶段 D：前端对话 UI
-- 内容：对话框 + role 选择 + SSE 事件渲染（agent 思考/工具调用/结果时间线）。基于现有 web/viewer 扩展或新建。
+- 内容：对话框 + role 选择 + SSE 事件渲染（agent 思考/工具调用/结果时间线）。新建 liusha-ui 前端。
 - 验收：完整对话扫描体验。
-- 风险：中高（前端工作量大；liusha 现 viewer 是只读静态页，对话 UI 是新东西）。
+- 风险：中高（前端工作量大；对话 UI 由 liusha-ui 新建）。
 
 ### 阶段 E：passive 接 deep（可选）+ 过程可视
-- 内容：评估 passive 是否需要多代理（默认单 traffic-analysis 够）；passive 扫描过程接入对话历史/viewer 可视。
+- 内容：评估 passive 是否需要多代理（默认单 traffic-analysis 够）；passive 扫描过程接入对话历史/前端可视。
 - 验收：passive 自动扫描过程可在 UI 回看。
 - 风险：低-中。
 
@@ -97,7 +97,7 @@ proxy → ingestor → scanner（asynq，复用）
 - **deep 串行 vs 真并发**：deep 的 sub-agent 串行（杀伤链可接受），但若将来某场景需要真并发（多攻击面同时挖），deep 满足不了——届时要么接受慢、要么对该场景保留 spawn_exploitation。**记录在案，当前按 deep 走。**
 - **eino 版本锁定**：deep / AgentTool 是 alpha（v0.8.13），升级前必回归。
 - **react 旧码**：阶段 A 把 active+passive 都迁 deep 稳定后，才删 internal/react + subtask。
-- **前端选型**：web/viewer 现是原生静态页；对话 UI 是否引入框架（待阶段 D 定）。
+- **前端选型**：已选定 liusha-ui（Vue3 + Vite）。
 - **passive 与 role 的语义**：passive 不走对话，但用户希望「作为一种 role」——需在 UI 概念上统一（passive 是「自动模式」，active 各 role 是「对话模式」）。
 - **HITL（工具执行前人工批准）**：CyberStrikeAI 有，liusha 是否需要（自动扫描场景通常不需要）——待定。
 

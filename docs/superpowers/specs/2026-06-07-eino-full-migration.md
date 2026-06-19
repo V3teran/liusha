@@ -96,7 +96,7 @@ scanner worker
 | **P3** traffic-analysis | passive → ChatModelAgent + Runner;Inspector/压缩 → middleware | e2e passive 各 profile PASS |
 | **P4** active | orchestrator+exploitation → deep;**per-hunter 独立 model**;asynq 派 exploitation 删 | e2e active:bac PASS + 并发验证 |
 | **P5** 被动分发 | asynq 派 traffic-analysis → 进程内 worker pool 消费 flow_events | passive 全链路 PASS |
-| **P6** 增量 | MCP / 流式（接 viewer）/ 攻击链 / RAG（knowledge 包,pgvector 或 eino retriever）| 各自独立验 |
+| **P6** 增量 | MCP / 流式（接前端）/ 攻击链 / RAG（knowledge 包,pgvector 或 eino retriever）| 各自独立验 |
 
 ## 8. 风险 / 决策点
 - **版本锁定**：eino@v0.8.13 + eino-ext openai@v0.1.13 钉死（v0.x 抖动;eino ADK 子包是 alpha,升级前必回归）。

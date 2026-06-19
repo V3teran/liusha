@@ -4,7 +4,7 @@
 -- 阶段为简化 v1.1 架构 drop 掉。v1.4 引入主/子 active hunter 模型（父 active 通过
 -- spawn_child 工具派子任务并行深挖）需要重新追踪父子关系：
 --   - list_children 工具按 parent_id SQL 查全部子任务状态
---   - viewer 阶段 2 按 parent_id 拼父子树
+--   - 前端阶段 2 按 parent_id 拼父子树
 --
 -- 设计：
 --   - 类型 uuid（与 agent_run.id 一致），NULL 表示独立任务/根任务

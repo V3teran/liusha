@@ -5,7 +5,7 @@
 // 平均耗时 / 成功率"这类聚合查询直接 SQL 可达，不必扫 jsonb。
 //
 // 写路径：internal/einoagent/tool_recorder.go 在每次工具调用前后埋点 + Append。
-// 读路径：cmd/api viewer 按 (owner_type, owner_id) 拉本次扫描的所有 tool 调用展示。
+// 读路径：cmd/api 按 (owner_type, owner_id) 拉本次扫描的所有 tool 调用，供前端展示。
 package toolinvocation
 
 import (

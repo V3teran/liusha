@@ -298,7 +298,7 @@ func main() {
 
 	// passive_session sweeper goroutine：与「懒轮换」（流量进来时 LookupOrCreate 检查 host
 	// 已有 active）互补——无流量场景下也能保证「TTL 一到必关」，避免 PG 堆积陈旧 active 行 +
-	// viewer 看僵尸 session。
+	// 前端看僵尸 session。
 	go func() {
 		interval := time.Duration(cfg.Session.SweeperIntervalSeconds) * time.Second
 		ticker := time.NewTicker(interval)

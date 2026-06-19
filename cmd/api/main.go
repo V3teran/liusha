@@ -39,7 +39,6 @@ import (
 	"github.com/V3teran/liusha/internal/sitemap"
 	"github.com/V3teran/liusha/internal/toolinvocation"
 	"github.com/V3teran/liusha/internal/worker"
-	"github.com/V3teran/liusha/web"
 
 	"github.com/hibiken/asynq"
 	"github.com/redis/go-redis/v9"
@@ -133,7 +132,7 @@ func main() {
 			},
 			Sitemap:           projector,
 			Invocations:       invocationStore,
-			AgentRuns:         taskStore, // viewer 拼任务树用（按 parent_id）
+			AgentRuns:         taskStore, // liusha-ui 拼任务树用（按 parent_id）
 			ActiveScan:        activeAdapter,
 			Chat:              activeAdapter,                // 阶段B：POST /chat 对话发起扫描
 			FollowUp:          activeAdapter,                // 多轮：POST /conversations/:id/messages 动作续接
@@ -144,8 +143,7 @@ func main() {
 			UsageOwners:       convStore,                    // 对话用量：对话→owner 解析
 			UsageLLM:          invocationStore,              // 对话用量：LLM token/耗时合计
 			UsageTools:        toolStore,                    // 对话用量：工具耗时合计
-			StaticFS:          web.ViewerFS(),
-			EnableDevAutofill: envx.OrDefault("LIUSHA_VIEWER_DEV_KEY", "") != "",
+			EnableDevAutofill: envx.OrDefault("LIUSHA_DEV_AUTOFILL", "") != "",
 		}),
 		ReadTimeout:  time.Duration(cfg.API.ReadTimeoutSeconds) * time.Second,
 		WriteTimeout: time.Duration(cfg.API.WriteTimeoutSeconds) * time.Second,
@@ -242,7 +240,7 @@ func (a ownerAPIAdapter) EnsurePassiveSession(ctx context.Context, host string) 
 //
 // 双轨期：旧 owner store 不再读，由新表数据直接返回。每个 sub-list 各取 limit 条，
 // 合并后按 CreatedAt desc 排，最终截到 limit。Mode 字段标记来源表（"passive"/"active"），
-// 前端 viewer 用 Mode 区分展示。
+// 前端用 Mode 区分展示。
 func (a ownerAPIAdapter) List(ctx context.Context, limit int) ([]httpapi.OwnerSummary, error) {
 	if limit <= 0 {
 		limit = 20
@@ -382,7 +380,7 @@ func (a *activeScanAdapter) createScan(ctx context.Context, brief, conversationI
 
 	// active orchestrator跑 ~4h，asynq 默认 retry 25 次 → 4 天死循环；且 retry 接管时
 	// 新 scanner 进程 parentRegistries 是空的，PreDoneCheck 永放行，旧 PG exploitation 留
-	// status=running 僵尸态 + viewer 看到"orchestrator done + exploitation running"矛盾。
+	// status=running 僵尸态 + 前端看到"orchestrator done + exploitation running"矛盾。
 	// MaxRetry(0)：orchestrator跑挂就跑挂，让用户手动 abort + 重新触发，不重试。
 	if _, _, err := a.enq.Enqueue(ctx, worker.RoleHunter, worker.Payload{
 		HunterID:       tid,

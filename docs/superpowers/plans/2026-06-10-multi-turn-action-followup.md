@@ -15,7 +15,7 @@
 - 动作重跑靠黑板：`internal/builder/hunter/user_prompt.go` 的 `BuildUserPrompt` 注入"该 host 已有 finding（限本 owner）"+ notes/lesson —— 同 owner 新 run 自动看到先前产出，无需重塞 LLM 上下文。
 - `cmd/api/main.go` 的 `activeScanAdapter`（约 290 行起）有字段 `activeScans/tasks/enq/audit/conversations/roles`，方法 `createScan(ctx,brief,convID,scenarioID)→(scanID,hunterID,error)` 负责建 active_scan + hunter run + 入 asynq（`worker.RoleHunter`，`worker.Payload{HunterID,OwnerType:owner.Active,OwnerID,ConversationID,ScenarioID,Input}`，`asynq.MaxRetry(0)`）。
 - httpapi 路由注册在 `internal/httpapi/server.go`，`Conversations`/`Chat` 等接口经 `Deps` 注入；对话路由在 `if d.Conversations != nil { ... }` 块内。
-- 全局鉴权 `RequireAPIKey`（auth.go）已覆盖所有非 /healthz、/viewer 路由。
+- 全局鉴权 `RequireAPIKey`（auth.go）已覆盖所有非 /healthz、/dev-config.json 路由。
 - 前端 liusha-ui：`src/api/client.ts`（`startChat`/`listMessages` 等，带 X-API-Key）、`src/App.vue`（`open(convID)` 切换+订阅）、`src/components/Composer.vue`（输入+`startChat`→emit started）、`src/components/ConversationList.vue`。
 
 ---
