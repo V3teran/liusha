@@ -1,33 +1,15 @@
 <script setup lang="ts">
 // LLM 审计页：选 owner → 拉 llm_invocation（后端按 hunter 分组）。
 // 顶部汇总卡 + Token 环形图 + 每个 hunter 分组的调用明细表。
-import { computed, ref, watch } from 'vue'
+import { computed } from 'vue'
 import VChart from 'vue-echarts'
 import '../lib/echarts'
 import { chartTextColor } from '../lib/echarts'
 import OwnerPicker from '../components/OwnerPicker.vue'
 import { listLLMInvocations } from '../api/client'
-import type { LLMInvocationsResponse } from '../api/types'
+import { useOwnerResource } from '../composables/useOwnerResource'
 
-const owner = ref('')
-const data = ref<LLMInvocationsResponse | null>(null)
-const loading = ref(false)
-const error = ref('')
-
-watch(owner, load)
-async function load() {
-  if (!owner.value) return
-  loading.value = true
-  error.value = ''
-  data.value = null
-  try {
-    data.value = await listLLMInvocations(owner.value)
-  } catch (e) {
-    error.value = e instanceof Error ? e.message : '加载失败'
-  } finally {
-    loading.value = false
-  }
-}
+const { owner, data, loading, error } = useOwnerResource(listLLMInvocations)
 
 const totals = computed(() => {
   const inv = data.value?.groups.flatMap((g) => g.invocations) ?? []

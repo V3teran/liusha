@@ -2,38 +2,18 @@
 // 漏洞发现页：选 owner（active）→ 从 sitemap 树扁平化所有 endpoint.findings。
 // 分级饼图 + 按严重度排序的漏洞列表（带所属端点）。
 // 说明：后端无独立 /findings 端点，漏洞内嵌在攻击面树里，故复用 getSitemap。
-import { computed, ref, watch } from 'vue'
+import { computed } from 'vue'
 import VChart from 'vue-echarts'
 import '../lib/echarts'
 import { chartTextColor } from '../lib/echarts'
 import OwnerPicker from '../components/OwnerPicker.vue'
 import { getSitemap } from '../api/client'
-import type { SitemapView, FindingSummary } from '../api/types'
+import type { FindingSummary } from '../api/types'
 import { severityTagColor, severityColor, severityRank } from '../lib/severity'
+import { useOwnerResource } from '../composables/useOwnerResource'
 
-const owner = ref('')
-const data = ref<SitemapView | null>(null)
-const loading = ref(false)
-const error = ref('')
-const notActive = ref(false)
-
-watch(owner, load)
-async function load() {
-  if (!owner.value) return
-  loading.value = true
-  error.value = ''
-  notActive.value = false
-  data.value = null
-  try {
-    data.value = await getSitemap(owner.value)
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : '加载失败'
-    if (msg.includes('404')) notActive.value = true
-    else error.value = msg
-  } finally {
-    loading.value = false
-  }
-}
+// 复用 getSitemap：passive owner 返 404 → notActive（无攻击面/漏洞数据）。
+const { owner, data, loading, error, notActive } = useOwnerResource(getSitemap)
 
 interface FlatFinding {
   f: FindingSummary

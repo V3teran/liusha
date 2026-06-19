@@ -52,7 +52,7 @@
 - [x] **阶段2 数据页**：findings / sitemap / agent-runs / llm-audit 四页 + 复用 OwnerPicker + lib/echarts(按需注册) + lib/severity。✅ tsc/build/38 测试绿。ECharts 懒加载独立块不进首屏。
 - [x] **核心对话链路：打通 + 打磨（用户重定向，优先级最高）** —— 2026-06-11
   - **能跑通已实测**：起真后端栈（run-svc 8090 + scanner + pg/redis + pentools），curl 走 `/chat`→拿 conversation_id+stream cookie→SSE 实时流（user→tool_call→tool_result 逐条到）→`/messages` 回放一致。鉴权、派单、SSE、数据接口全绿。
-  - **修了删登录门造成的硬阻断**：`bootstrapApiKey()` 启动自动拉 `/viewer-config.json` 的 dev key（后端无 keyless 模式，空 key 必 401）。
+  - **修了删登录门造成的硬阻断**：`bootstrapApiKey()` 启动自动拉 `/dev-config.json` 的 dev key（后端无 keyless 模式，空 key 必 401）。
   - **修了 FindingCard 真 bug**：write_finding 的 Result 只有 {id}，真数据在 Args → 改解析 Args 出 severity/summary/cwe/target。
   - **体验打磨**：ChatThread 自动滚底（贴底才滚）；ChatView 空态引导 + "agent 工作中"脉冲指示；ToolCall/ToolResult 折叠+美化 JSON+状态点；Composer 重设计(NSelect 角色+发送态)；AssistantText 保留换行。
   - 注：消息 schema 无 agent 身份字段 → 三角色视觉区分做不了（不杜撰）。✅ tsc/38 测试/build 全绿。
@@ -62,7 +62,7 @@
 
 ## 后端起栈速记（dev 验证用）
 - docker pg/redis 已常驻；schema 已是最新（`make migrate` 会因 goproxy.io 拉 migrate 工具失败，但表已在，可跳过）。
-- 起服务：`./scripts/dev/run-svc.sh`（api:8090 / scanner:9090 / proxy:9091 / vulnapp:8001；自动设 LIUSHA_API_KEY=changeme-dev-key + VIEWER_DEV_KEY=1）。需 .env.local 里 DEEPSEEK_API_KEY。
+- 起服务：`./scripts/dev/run-svc.sh`（api:8090 / scanner:9090 / proxy:9091 / vulnapp:8001；自动设 LIUSHA_API_KEY=changeme-dev-key + LIUSHA_DEV_AUTOFILL=1）。需 .env.local 里 DEEPSEEK_API_KEY。
 - 前端对接：`VITE_API_TARGET=http://localhost:8090 pnpm dev`（默认 8080 是错的，dev 用 8090）。
 - 验证扫描：`./scripts/dev/e2e.sh active:bac`（或直接 curl POST /chat）。
 

@@ -1,5 +1,5 @@
 // 路由表：根用 AppShell 外壳，子路由为各业务页。
-// hash 模式——后端把 SPA 挂在 /viewer 静态前缀下，hash 路由免去 base 配置。
+// hash 模式——SPA 独立部署，hash 路由免去 base/history 回退配置。
 // meta.title 供顶栏/侧栏复用；nav.ts 单独定义侧栏顺序与图标。
 import { createRouter, createWebHashHistory, type RouteRecordRaw } from 'vue-router'
 import AppShell from '../layout/AppShell.vue'
