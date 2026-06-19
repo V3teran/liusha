@@ -1,5 +1,7 @@
 # 多轮对话 Plan 1：动作续接 Implementation Plan
 
+> 〔2026-06-19 修订〕web/viewer 前端已迁出至独立仓 liusha-ui；本文原 /viewer 路由表述已按现状更新，当时决策原文见 git 历史。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 让用户在同一对话里追加指令，agent 在**同一 active_scan**（共享持久化黑板当记忆）上接着扫描；并能停止正在跑的扫描。

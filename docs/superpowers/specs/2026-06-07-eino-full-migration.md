@@ -1,5 +1,7 @@
 # liusha → eino 全面迁移蓝图（原生重构，非薄封装）
 
+> 〔2026-06-19 修订〕web/viewer 前端已迁出至独立仓 liusha-ui；本文原 viewer 相关表述已按现状更新，当时决策原文见 git 历史。
+
 状态：规划中（2026-06-07 起）
 决策依据：两个最小 spike 实测通过（`spike/eino-traffic-analysis` passive、`spike/eino-deep` active 并发），eino 在 liusha 走得通。
 框架选型：eino（CloudWeGo/字节）—— 国内生态、国产 provider 原生、概念开箱对应、依赖轻（39 vs ADK 93）。

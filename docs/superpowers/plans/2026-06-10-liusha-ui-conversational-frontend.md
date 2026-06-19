@@ -1,5 +1,7 @@
 # liusha-ui 对话式前端 Implementation Plan
 
+> 〔2026-06-19 修订〕web/viewer 前端已迁出至独立仓 liusha-ui；本文原 viewer 相关表述（含 auth 代码片段）已按现状更新，当时决策原文见 git 历史。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 给 liusha 做一个独立 Vue3 对话式前端（选场景 → 自然语言发起扫描 → SSE 实时看 agent 跑命令/出 finding），并在 Go 后端加极小的 cookie 鉴权让 SSE 流可认证。

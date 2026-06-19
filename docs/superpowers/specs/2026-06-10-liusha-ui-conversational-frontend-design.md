@@ -1,5 +1,7 @@
 # liusha-ui：对话式前端 UI 设计（阶段 D）
 
+> 〔2026-06-19 修订〕web/viewer 前端已迁出至独立仓 liusha-ui；本文原 viewer 相关表述已按现状更新，当时决策原文见 git 历史。
+
 状态：设计已确认（2026-06-10）
 依赖：阶段 B/C 已完成（POST /chat、GET /roles、GET /conversations、GET /conversations/:id/messages、GET /conversations/:id/stream(SSE)）
 上游计划：[2026-06-07-conversational-platform.md](2026-06-07-conversational-platform.md) 阶段 D
