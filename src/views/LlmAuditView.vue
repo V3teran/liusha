@@ -2,10 +2,8 @@
 // LLM 审计页：选 owner → 拉 llm_invocation（后端按 hunter 分组）。
 // 顶部汇总卡 + 成本环形图 + 每个 hunter 分组的调用明细表。
 import { computed, ref, watch } from 'vue'
-import VChart from 'vue-echarts'
-import '../lib/echarts'
-import { chartTextColor } from '../lib/echarts'
 import OwnerPicker from '../components/OwnerPicker.vue'
+import DonutChart from '../components/DonutChart.vue'
 import { listLLMInvocations } from '../api/client'
 import type { LLMInvocationsResponse } from '../api/types'
 
@@ -39,22 +37,12 @@ const totals = computed(() => {
   }
 })
 
-const costChart = computed(() => ({
-  tooltip: { trigger: 'item', valueFormatter: (v: number) => `$${v}` },
-  legend: { bottom: 0, textStyle: { color: chartTextColor }, type: 'scroll' },
-  series: [
-    {
-      type: 'pie',
-      radius: ['45%', '70%'],
-      itemStyle: { borderColor: 'transparent', borderWidth: 2 },
-      label: { color: chartTextColor },
-      data: (data.value?.groups ?? []).map((g) => ({
-        name: g.hunter_id === 'unassigned' ? '未分配' : g.hunter_id.slice(0, 8),
-        value: +g.invocations.reduce((s, v) => s + (v.cost_usd || 0), 0).toFixed(4),
-      })),
-    },
-  ],
-}))
+const costData = computed(() =>
+  (data.value?.groups ?? []).map((g) => ({
+    name: g.hunter_id === 'unassigned' ? '未分配' : g.hunter_id.slice(0, 8),
+    value: +g.invocations.reduce((s, v) => s + (v.cost_usd || 0), 0).toFixed(4),
+  }))
+)
 
 const fmtUsd = (n: number) => `$${n.toFixed(4)}`
 const fmtNum = (n: number) => n.toLocaleString()
@@ -82,7 +70,7 @@ const fmtNum = (n: number) => n.toLocaleString()
 
         <div class="panel">
           <p class="panel-title">成本按 hunter 分布</p>
-          <VChart class="chart" :option="costChart" autoresize />
+          <DonutChart class="chart" :data="costData" :value-format="fmtUsd" />
         </div>
 
         <div v-for="g in data.groups" :key="g.hunter_id" class="panel">

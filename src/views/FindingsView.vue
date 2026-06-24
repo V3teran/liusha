@@ -3,10 +3,8 @@
 // 分级饼图 + 按严重度排序的漏洞列表（带所属端点）。
 // 说明：后端无独立 /findings 端点，漏洞内嵌在攻击面树里，故复用 getSitemap。
 import { computed, ref, watch } from 'vue'
-import VChart from 'vue-echarts'
-import '../lib/echarts'
-import { chartTextColor } from '../lib/echarts'
 import OwnerPicker from '../components/OwnerPicker.vue'
+import DonutChart from '../components/DonutChart.vue'
 import { getSitemap } from '../api/client'
 import type { SitemapView, FindingSummary } from '../api/types'
 import { severityTagColor, severityColor, severityRank } from '../lib/severity'
@@ -63,23 +61,13 @@ const sevCounts = computed(() => {
   return c
 })
 
-const sevChart = computed(() => ({
-  tooltip: { trigger: 'item' },
-  legend: { bottom: 0, textStyle: { color: chartTextColor } },
-  series: [
-    {
-      type: 'pie',
-      radius: ['45%', '70%'],
-      itemStyle: { borderColor: 'transparent', borderWidth: 2 },
-      label: { color: chartTextColor },
-      data: Object.entries(sevCounts.value).map(([sev, n]) => ({
-        name: sev,
-        value: n,
-        itemStyle: { color: severityColor[sev] ?? '#6e7681' },
-      })),
-    },
-  ],
-}))
+const sevData = computed(() =>
+  Object.entries(sevCounts.value).map(([sev, n]) => ({
+    name: sev,
+    value: n,
+    color: severityColor[sev] ?? '#6e7681',
+  }))
+)
 </script>
 
 <template>
@@ -99,7 +87,7 @@ const sevChart = computed(() => ({
         <div class="layout">
           <div class="panel chart-panel">
             <p class="panel-title">严重度分布<span class="muted">{{ flat.length }} 个</span></p>
-            <VChart class="chart" :option="sevChart" autoresize />
+            <DonutChart class="chart" :data="sevData" />
           </div>
           <div class="panel list-panel">
             <p class="panel-title">漏洞列表</p>
