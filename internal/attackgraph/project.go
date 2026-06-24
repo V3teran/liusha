@@ -3,8 +3,22 @@ package attackgraph
 import (
 	"strings"
 
+	"github.com/V3teran/liusha/internal/conversation"
 	"github.com/V3teran/liusha/internal/finding"
 )
+
+// Project 把一次扫描的对话事件流 + 漏洞投影成完整图：思维链（messages）+ 成果链（findings）。
+//
+// 纯函数：入参为已加载的源记录，无 IO。store 版投影器按 owner 拉取后调它（见 store.go）。
+// messages 须按 seq 升序传入（事件时序 = 思维链骨干顺序）。
+func Project(ownerID string, messages []conversation.Message, findings []finding.VulnFinding) Graph {
+	tNodes, tEdges := ThinkingChain(messages)
+	fg := FindingSubgraph(ownerID, findings)
+
+	nodes := append(append([]Node{}, tNodes...), fg.Nodes...)
+	edges := append(append([]Edge{}, tEdges...), fg.Edges...)
+	return Graph{OwnerID: ownerID, Nodes: nodes, Edges: edges}
+}
 
 // findingTitleMax 是漏洞节点短标签的最长字符数（原文不入节点，只留可读摘要，见设计 §6）。
 const findingTitleMax = 120

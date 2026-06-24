@@ -29,8 +29,9 @@ type Node struct {
 	ParentID string `json:"parent_id,omitempty"` // 思维链骨干树的父节点
 	Target   string `json:"target,omitempty"`    // 所属站（per-host 切片键），可空=全局
 	Title    string `json:"title"`               // 短标签（首行 / 工具名 / 漏洞摘要）
-	Ref      string `json:"ref,omitempty"`        // 指针：finding id / flow id，点开取原文
+	Ref      string `json:"ref,omitempty"`        // 指针：finding id / message id，点开取原文
 	Severity string `json:"severity,omitempty"`   // 漏洞节点配色用
+	Status   string `json:"status,omitempty"`     // 动作节点：done / error（实时态另有 running）
 }
 
 // Edge 是有向边。
