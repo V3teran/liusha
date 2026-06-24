@@ -1,0 +1,55 @@
+package attackgraph
+
+import (
+	"strings"
+
+	"github.com/V3teran/liusha/internal/finding"
+)
+
+// findingTitleMax 是漏洞节点短标签的最长字符数（原文不入节点，只留可读摘要，见设计 §6）。
+const findingTitleMax = 120
+
+// FindingSubgraph 把一组 finding 投影成成果链子图：
+// 每个 finding 一个节点；finding.DependsOn 派生 depends_on 边（前置 → 组合）。
+//
+// 例：c.DependsOn = [a, b] → 2 条边 {a→c} + {b→c}。
+// 跳过空 / 自引用 / 指向不存在 finding 的依赖（防脏数据与孤儿边）。
+// 移植自 sitemap.Projector 的 FindingChain 逻辑（见设计 §10）。
+func FindingSubgraph(ownerID string, findings []finding.VulnFinding) Graph {
+	nodes := make([]Node, 0, len(findings))
+	ids := make(map[string]bool, len(findings))
+	for _, f := range findings {
+		ids[f.ID] = true
+		nodes = append(nodes, Node{
+			ID:       f.ID,
+			Kind:     KindFinding,
+			Target:   f.Host,
+			Title:    firstLine(f.Summary, findingTitleMax),
+			Ref:      f.ID,
+			Severity: f.Severity,
+		})
+	}
+
+	var edges []Edge
+	for _, f := range findings {
+		for _, dep := range f.DependsOn {
+			if dep == "" || dep == f.ID || !ids[dep] {
+				continue
+			}
+			edges = append(edges, Edge{From: dep, To: f.ID, Type: EdgeDependsOn})
+		}
+	}
+
+	return Graph{OwnerID: ownerID, Nodes: nodes, Edges: edges}
+}
+
+// firstLine 取首行并按 rune 截断到 max（避免切断多字节 CJK 字符）。max<=0 不截断。
+func firstLine(s string, max int) string {
+	if i := strings.IndexByte(s, '\n'); i >= 0 {
+		s = s[:i]
+	}
+	if r := []rune(s); max > 0 && len(r) > max {
+		return string(r[:max])
+	}
+	return s
+}
