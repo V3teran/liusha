@@ -43,17 +43,6 @@ type FindingSummary struct {
 	CWEID    string `json:"cwe_id,omitempty"`
 }
 
-// FindingChain 是 finding 间的"组合漏洞"依赖边（0059）。
-// 从 finding.depends_on uuid[] 数组派生：finding c.DependsOn = [a, b] → 派生 2 条边：
-//
-//	{From: a, To: c} + {From: b, To: c}
-//
-// 前端 D3 force layout 渲染成虚线弧形，区别于 sitemap 树的实线父子边。
-type FindingChain struct {
-	From string `json:"from"` // 前置 finding id（被依赖）
-	To   string `json:"to"`   // 组合 finding id（依赖 from）
-}
-
 // SitemapNode 是 sitemap 节点（domain / endpoint）。
 // domain 是 root，children 直接是 endpoint 数组（无中间 folder）。
 type SitemapNode struct {
@@ -65,13 +54,14 @@ type SitemapNode struct {
 	Children []*SitemapNode   `json:"children,omitempty"` // 仅 domain：直挂 endpoint 数组
 }
 
-// View 是 sitemap 投影结果。
+// View 是 sitemap 投影结果（纯端点树）。
+// 成果链（finding 组合依赖边）已迁出至 internal/attackgraph 执行图投影器，
+// 见 docs/attack-graph-design.md §10。
 type View struct {
-	OwnerID     string         `json:"owner_id"`
-	Host        string         `json:"host"`
-	GeneratedAt time.Time      `json:"generated_at"`
-	Root        *SitemapNode   `json:"root"`
-	Chains      []FindingChain `json:"chains,omitempty"` // 组合漏洞依赖边（无组合时省略）
+	OwnerID     string       `json:"owner_id"`
+	Host        string       `json:"host"`
+	GeneratedAt time.Time    `json:"generated_at"`
+	Root        *SitemapNode `json:"root"`
 }
 
 // FindingReader 是投影器读 finding 表所需的最小接口。
@@ -279,29 +269,11 @@ func (p *Projector) Project(ctx context.Context, ownerID, host string) (View, er
 		return root.Children[i].Path < root.Children[j].Path
 	})
 
-	// 构建 chains：遍历 findings.DependsOn 派生组合漏洞依赖边
-	// finding c.DependsOn = [a, b] → chains 加 2 条：{a→c, b→c}
-	// 跳过自引用（防 bad data）和指向不存在 finding 的边（防孤儿）
-	findingIDs := make(map[string]bool, len(findings))
-	for _, f := range findings {
-		findingIDs[f.ID] = true
-	}
-	var chains []FindingChain
-	for _, f := range findings {
-		for _, dep := range f.DependsOn {
-			if dep == "" || dep == f.ID || !findingIDs[dep] {
-				continue
-			}
-			chains = append(chains, FindingChain{From: dep, To: f.ID})
-		}
-	}
-
 	return View{
 		OwnerID:     ownerID,
 		Host:        host,
 		GeneratedAt: time.Now().UTC(),
 		Root:        root,
-		Chains:      chains,
 	}, nil
 }
 

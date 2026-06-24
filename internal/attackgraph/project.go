@@ -28,7 +28,7 @@ const findingTitleMax = 120
 //
 // 例：c.DependsOn = [a, b] → 2 条边 {a→c} + {b→c}。
 // 跳过空 / 自引用 / 指向不存在 finding 的依赖（防脏数据与孤儿边）。
-// 移植自 sitemap.Projector 的 FindingChain 逻辑（见设计 §10）。
+// 成果链边的唯一来源——原 sitemap.Projector 的 FindingChain 已于本次迁出（见设计 §10）。
 func FindingSubgraph(ownerID string, findings []finding.VulnFinding) Graph {
 	nodes := make([]Node, 0, len(findings))
 	ids := make(map[string]bool, len(findings))
