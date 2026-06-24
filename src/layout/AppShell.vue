@@ -4,7 +4,7 @@
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 import {
-  Dashboard, Crosshair, PlugConnected, Bug, Sitemap,
+  Dashboard, Crosshair, PlugConnected, Bug, Sitemap, Affiliate,
   Hierarchy, Cpu, Key, Settings, Sun, Moon,
 } from '@vicons/tabler'
 import { useTheme } from '../composables/useTheme'
@@ -19,6 +19,7 @@ const nav = [
   { to: '/traffic', label: '流量监听', icon: PlugConnected },
   { to: '/findings', label: '漏洞发现', icon: Bug },
   { to: '/sitemap', label: '攻击面', icon: Sitemap },
+  { to: '/attack-graph', label: '执行图', icon: Affiliate },
   { to: '/agent-runs', label: 'Agent 任务', icon: Hierarchy },
   { to: '/llm-audit', label: 'LLM 审计', icon: Cpu },
   { to: '/credentials', label: '凭证库', icon: Key },

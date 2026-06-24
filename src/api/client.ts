@@ -11,6 +11,7 @@ import type {
   Role,
   OwnerSummary,
   SitemapView,
+  AttackGraph,
   LLMInvocationsResponse,
   AgentRunsResponse,
   Identity,
@@ -223,6 +224,23 @@ export async function startActiveScan(
 export async function getSitemap(ownerID: string, host = ''): Promise<SitemapView> {
   const q = host ? `?host=${encodeURIComponent(host)}` : ''
   return get<SitemapView>(`/sitemap/${ownerID}${q}`)
+}
+
+/**
+ * 拉取执行图（思维链 + 成果链）。read-model 实时投影。
+ * @param conv 可选，对话 id（思维链来源）；缺省只出成果链
+ * @param type owner 类型，缺省 active_scan
+ */
+export async function getAttackGraph(
+  ownerID: string,
+  conv = '',
+  type = 'active_scan'
+): Promise<AttackGraph> {
+  const params = new URLSearchParams()
+  if (conv) params.set('conv', conv)
+  if (type) params.set('type', type)
+  const q = params.toString()
+  return get<AttackGraph>(`/attack_graph/${ownerID}${q ? '?' + q : ''}`)
 }
 
 /**

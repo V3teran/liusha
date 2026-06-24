@@ -15,6 +15,7 @@ const routes: RouteRecordRaw[] = [
       { path: 'active-scan', name: 'active-scan', component: () => import('../views/ChatView.vue'), meta: { title: '主动扫描' } },
       { path: 'findings', name: 'findings', component: () => import('../views/FindingsView.vue'), meta: { title: '漏洞发现' } },
       { path: 'sitemap', name: 'sitemap', component: () => import('../views/SitemapView.vue'), meta: { title: '攻击面' } },
+      { path: 'attack-graph', name: 'attack-graph', component: () => import('../views/AttackGraphView.vue'), meta: { title: '执行图' } },
       { path: 'traffic', name: 'traffic', component: () => import('../views/SessionsView.vue'), meta: { title: '流量监听' } },
       { path: 'agent-runs', name: 'agent-runs', component: () => import('../views/AgentRunsView.vue'), meta: { title: 'Agent 任务' } },
       { path: 'llm-audit', name: 'llm-audit', component: () => import('../views/LlmAuditView.vue'), meta: { title: 'LLM 审计' } },

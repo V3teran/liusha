@@ -131,6 +131,33 @@ export interface SitemapView {
 }
 
 /* ============================================================
+   执行图（GET /attack_graph/:owner_id）：思维链 + 成果链
+   read-model 实时投影，不落表（见后端 docs/attack-graph-design.md）
+   ============================================================ */
+export interface AttackGraphNode {
+  id: string
+  kind: string // reasoning(想) | action(做+得) | finding(漏洞) | agent(子代理边界)
+  parent_id?: string
+  target?: string // 所属站
+  title: string // 短标签
+  ref?: string // 指针：finding id / message id，点开取原文
+  severity?: string // 漏洞节点配色
+  status?: string // 动作节点：done / error
+}
+
+export interface AttackGraphEdge {
+  from: string
+  to: string
+  type: string // flow(思维链骨干) | depends_on(成果链) | evidence
+}
+
+export interface AttackGraph {
+  owner_id: string
+  nodes: AttackGraphNode[]
+  edges: AttackGraphEdge[]
+}
+
+/* ============================================================
    LLM 审计（GET /llm/invocations/:owner_id，按 hunter 分组）
    messages/result 为后端 inline 的 jsonb，结构不定 → unknown
    ============================================================ */
