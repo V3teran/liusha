@@ -13,6 +13,10 @@ type Deps struct {
 	Credentials CredentialsAPI
 	Owners      OwnersAPI
 	Sitemap     SitemapAPI // 仅 active 模式攻击面树视图
+	// AttackGraph 为 nil 时 /attack_graph/:owner_id 路由不注册。
+	// 由 cmd/api 注入 *attackgraph.Projector（自动满足 AttackGraphAPI）。
+	// 执行图（思维链+成果链）read-model 投影，见 docs/attack-graph-design.md。
+	AttackGraph AttackGraphAPI
 	// Invocations 为 nil 时 /llm/invocations/:eid 路由不注册。
 	// 由 cmd/api 注入 *llminvocation.Store（自动满足 InvocationsAPI 窄接口）。
 	Invocations InvocationsAPI
@@ -75,6 +79,9 @@ func NewServer(d Deps) http.Handler {
 	}
 	if d.Sitemap != nil {
 		r.GET("/sitemap/:owner_id", sitemapHandler(d.Sitemap))
+	}
+	if d.AttackGraph != nil {
+		r.GET("/attack_graph/:owner_id", attackGraphHandler(d.AttackGraph))
 	}
 	if d.Invocations != nil {
 		r.GET("/llm/invocations/:owner_id", llmInvocationsHandler(d.Invocations))
