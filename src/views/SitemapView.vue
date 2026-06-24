@@ -63,7 +63,6 @@ const findingCount = computed(() =>
           <div class="stat-card"><div class="sv">{{ domains.length }}</div><div class="sl">域名</div></div>
           <div class="stat-card"><div class="sv">{{ endpointCount }}</div><div class="sl">端点</div></div>
           <div class="stat-card"><div class="sv">{{ findingCount }}</div><div class="sl">漏洞</div></div>
-          <div class="stat-card"><div class="sv">{{ data?.chains?.length ?? 0 }}</div><div class="sl">组合链</div></div>
         </div>
 
         <div v-for="(domain, di) in domains" :key="di" class="panel">

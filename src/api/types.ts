@@ -118,16 +118,11 @@ export interface SitemapNode {
   findings?: FindingSummary[]
   children?: SitemapNode[]
 }
-export interface FindingChain {
-  from: string
-  to: string
-}
 export interface SitemapView {
   owner_id: string
   host: string
   generated_at: string
   root: SitemapNode | null
-  chains?: FindingChain[]
 }
 
 /* ============================================================
