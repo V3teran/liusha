@@ -1,21 +1,29 @@
 <script setup lang="ts">
-// 执行图页：选 active owner → 解析其对话（思维链来源）→ 拉执行图。
-// 渲染两条链：思维链（想/做+得/派子代理，按时序）+ 成果链（漏洞 + depends_on 依赖）。
-// 注：当前为可读的结构化呈现；ELK 分层力导图为后续打磨项（见后端 docs/attack-graph-design.md §12）。
-import { computed, ref, watch } from 'vue'
+// 执行图页：选 active owner → 解析对话（思维链来源）→ 拉执行图 → G6 分层 DAG 渲染。
+// 节点：想(reasoning)/做+得(action)/漏洞(finding)/派(agent)；边：flow 实线、depends_on 虚线。
+// 布局 antv-dagre（自上而下）；点节点弹详情。canvas 渲染，颜色取自 CSS 变量（主题色）+ severityColor。
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { Graph, NodeEvent, CanvasEvent } from '@antv/g6'
 import OwnerPicker from '../components/OwnerPicker.vue'
 import { getAttackGraph, listConversations } from '../api/client'
 import type { AttackGraph, AttackGraphNode } from '../api/types'
-import { severityTagColor } from '../lib/severity'
+import { severityColor } from '../lib/severity'
 
 const owner = ref('')
 const data = ref<AttackGraph | null>(null)
 const loading = ref(false)
 const error = ref('')
+const selected = ref<AttackGraphNode | null>(null)
+
+const nodes = computed<AttackGraphNode[]>(() => data.value?.nodes ?? [])
 
 watch(owner, load)
 async function load() {
-  if (!owner.value) return
+  selected.value = null
+  if (!owner.value) {
+    data.value = null
+    return
+  }
   loading.value = true
   error.value = ''
   data.value = null
@@ -36,107 +44,200 @@ async function load() {
   }
 }
 
-const nodes = computed<AttackGraphNode[]>(() => data.value?.nodes ?? [])
-const traceNodes = computed(() => nodes.value.filter((n) => n.kind !== 'finding'))
-const findingNodes = computed(() => nodes.value.filter((n) => n.kind === 'finding'))
-const edges = computed(() => data.value?.edges ?? [])
-
-// finding id → 依赖的前置 finding id 列表（成果链）。
-const depsByFinding = computed<Record<string, string[]>>(() => {
-  const m: Record<string, string[]> = {}
-  for (const e of edges.value) {
-    if (e.type === 'depends_on') (m[e.to] ??= []).push(e.from)
-  }
-  return m
-})
-const titleByID = computed<Record<string, string>>(() => {
-  const m: Record<string, string> = {}
-  for (const n of nodes.value) m[n.id] = n.title
-  return m
-})
-
 function kindLabel(k: string): string {
-  return k === 'reasoning' ? '想' : k === 'action' ? '做' : k === 'agent' ? '派' : k
+  return k === 'reasoning' ? '想' : k === 'action' ? '做' : k === 'agent' ? '派' : '漏洞'
 }
+
+// ===== G6 渲染 =====
+const canvasEl = ref<HTMLDivElement | null>(null)
+let graph: Graph | null = null
+
+// canvas 用不了 CSS 变量，构建时读一次主题色（切主题需重进页面，可接受）。
+function readColors() {
+  const s = getComputedStyle(document.documentElement)
+  const v = (name: string, fb: string) => s.getPropertyValue(name).trim() || fb
+  return {
+    text: v('--text', '#cfd6e4'),
+    border: v('--border', '#39414f'),
+    accent: v('--accent', '#58a6ff'),
+    primary: v('--primary', '#2bb673'),
+  }
+}
+
+const AGENT_COLOR = '#b07cff'
+const ERROR_COLOR = '#e5484d'
+
+function toG6(g: AttackGraph | null) {
+  if (!g) return { nodes: [], edges: [] }
+  return {
+    nodes: g.nodes.map((n) => ({
+      id: n.id,
+      data: { kind: n.kind, label: n.title, status: n.status ?? '', severity: n.severity ?? '' },
+    })),
+    edges: g.edges.map((e, i) => ({
+      id: `e${i}`,
+      source: e.from,
+      target: e.to,
+      data: { type: e.type },
+    })),
+  }
+}
+
+function renderGraph() {
+  if (!graph) return
+  graph.setData(toG6(data.value))
+  void graph.render()
+}
+
+onMounted(() => {
+  if (!canvasEl.value) return
+  const C = readColors()
+
+  graph = new Graph({
+    container: canvasEl.value,
+    autoResize: true,
+    autoFit: 'view',
+    layout: { type: 'antv-dagre', rankdir: 'TB', nodesep: 14, ranksep: 36 },
+    behaviors: ['zoom-canvas', 'drag-canvas', 'drag-element'],
+    node: {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      style: (d: any) => {
+        const kind = d.data?.kind
+        const isErr = d.data?.status === 'error'
+        const fill =
+          kind === 'finding'
+            ? severityColor[d.data?.severity] ?? '#6e7681'
+            : kind === 'reasoning'
+              ? C.accent
+              : kind === 'agent'
+                ? AGENT_COLOR
+                : isErr
+                  ? ERROR_COLOR
+                  : C.primary
+        return {
+          size: kind === 'finding' ? 30 : 24,
+          fill,
+          stroke: isErr ? ERROR_COLOR : 'rgba(255,255,255,0.18)',
+          lineWidth: 1,
+          labelText: d.data?.label ?? '',
+          labelFill: C.text,
+          labelFontSize: 11,
+          labelPlacement: 'right',
+          labelMaxWidth: 220,
+          labelWordWrap: true,
+        }
+      },
+    },
+    edge: {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      style: (d: any) => ({
+        stroke: d.data?.type === 'depends_on' ? C.accent : C.border,
+        lineWidth: 1.5,
+        lineDash: d.data?.type === 'depends_on' ? [4, 4] : undefined,
+        endArrow: true,
+      }),
+    },
+  })
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  graph.on(NodeEvent.CLICK, (evt: any) => {
+    const id = evt.target?.id
+    selected.value = nodes.value.find((n) => n.id === id) ?? null
+  })
+  graph.on(CanvasEvent.CLICK, () => {
+    selected.value = null
+  })
+
+  renderGraph()
+})
+
+watch(data, renderGraph)
+
+onBeforeUnmount(() => {
+  graph?.destroy()
+  graph = null
+})
 </script>
 
 <template>
   <div class="page">
     <div class="page-toolbar">
       <OwnerPicker v-model="owner" mode-filter="active" />
+      <div v-if="nodes.length" class="legend">
+        <span class="lg"><i class="dot reasoning" />想</span>
+        <span class="lg"><i class="dot action" />做</span>
+        <span class="lg"><i class="dot agent" />派</span>
+        <span class="lg"><i class="dot finding" />漏洞</span>
+        <span class="lg"><i class="dot err" />死路</span>
+      </div>
     </div>
 
-    <div class="page-body">
-      <div v-if="loading" class="state"><a-spin size="large" /></div>
-      <div v-else-if="error" class="state"><span class="state-err">⚠ {{ error }}</span></div>
-      <div v-else-if="!owner" class="state">请选择一个 active 扫描查看执行图</div>
-      <div v-else-if="!nodes.length" class="state">该扫描暂无执行图数据</div>
+    <div class="page-body graph-body">
+      <div ref="canvasEl" class="graph-canvas" />
 
-      <template v-else>
-        <div class="stat-grid">
-          <div class="stat-card"><div class="sv">{{ traceNodes.length }}</div><div class="sl">思维链节点</div></div>
-          <div class="stat-card"><div class="sv">{{ findingNodes.length }}</div><div class="sl">漏洞</div></div>
-          <div class="stat-card"><div class="sv">{{ edges.length }}</div><div class="sl">边</div></div>
-        </div>
+      <div v-if="loading" class="overlay state"><a-spin size="large" /></div>
+      <div v-else-if="error" class="overlay state"><span class="state-err">⚠ {{ error }}</span></div>
+      <div v-else-if="!owner" class="overlay state">请选择一个 active 扫描查看执行图</div>
+      <div v-else-if="!nodes.length" class="overlay state">该扫描暂无执行图数据</div>
 
-        <div class="panel">
-          <p class="panel-title">思维链<span class="muted">想 → 做 → 得（按时序）</span></p>
-          <div class="chain">
-            <div
-              v-for="n in traceNodes"
-              :key="n.id"
-              class="trace-node"
-              :class="[`k-${n.kind}`, { err: n.status === 'error' }]"
-            >
-              <span class="chip">{{ kindLabel(n.kind) }}</span>
-              <span class="t-title">{{ n.title }}</span>
-              <span v-if="n.status === 'error'" class="t-err">死路</span>
-            </div>
-          </div>
+      <aside v-if="selected" class="detail">
+        <header>
+          <span class="d-kind" :class="`k-${selected.kind}`">{{ kindLabel(selected.kind) }}</span>
+          <button class="d-close" @click="selected = null">✕</button>
+        </header>
+        <p class="d-title">{{ selected.title }}</p>
+        <div class="d-meta">
+          <span v-if="selected.severity">严重度：{{ selected.severity }}</span>
+          <span v-if="selected.status === 'error'" class="d-err">死路 / 失败</span>
+          <span class="mono">ref: {{ selected.ref || selected.id }}</span>
         </div>
-
-        <div v-if="findingNodes.length" class="panel">
-          <p class="panel-title">成果链<span class="muted">漏洞 + 组合依赖</span></p>
-          <div v-for="f in findingNodes" :key="f.id" class="finding-row">
-            <a-tag :color="severityTagColor(f.severity || 'info').textColor">{{ f.severity || 'info' }}</a-tag>
-            <span class="f-summary">{{ f.title }}</span>
-            <span v-if="depsByFinding[f.id]?.length" class="f-deps">
-              ← 依赖
-              <span v-for="dep in depsByFinding[f.id]" :key="dep" class="dep mono">{{ titleByID[dep] || dep }}</span>
-            </span>
-          </div>
-        </div>
-      </template>
+      </aside>
     </div>
   </div>
 </template>
 
 <style scoped>
-.chain { display: flex; flex-direction: column; gap: 6px; }
-.trace-node {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 7px 10px;
-  border-left: 3px solid var(--border);
-  background: var(--surface, transparent);
+.legend { display: flex; gap: 14px; align-items: center; margin-left: 16px; font-size: 12px; color: var(--muted); }
+.lg { display: inline-flex; align-items: center; gap: 5px; }
+.dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+.dot.reasoning { background: var(--accent); }
+.dot.action { background: var(--primary); }
+.dot.agent { background: #b07cff; }
+.dot.finding { background: #f85149; }
+.dot.err { background: #e5484d; }
+
+.graph-body { position: relative; flex: 1; min-height: 420px; }
+.graph-canvas { position: absolute; inset: 0; }
+.overlay {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: var(--bg, transparent);
+  z-index: 2;
 }
-.trace-node.k-reasoning { border-left-color: var(--accent); }
-.trace-node.k-action { border-left-color: var(--primary); }
-.trace-node.k-agent { border-left-color: #b07cff; }
-.trace-node.err { border-left-color: #e5484d; }
-.chip {
-  font-size: 11px;
-  font-weight: 700;
-  min-width: 22px;
-  text-align: center;
-  color: var(--muted);
+
+.detail {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 280px;
+  max-width: 60%;
+  padding: 12px 14px;
+  background: var(--surface, #1b212b);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  z-index: 3;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.35);
 }
-.t-title { font-size: 13px; color: var(--text); word-break: break-all; }
-.t-err { font-size: 11px; color: #e5484d; margin-left: auto; }
-.finding-row { display: flex; align-items: center; gap: 10px; padding: 7px 0; border-bottom: 1px solid var(--border); }
-.finding-row:last-child { border-bottom: none; }
-.f-summary { font-size: 13px; }
-.f-deps { font-size: 12px; color: var(--muted); display: inline-flex; gap: 6px; align-items: center; }
-.dep { font-size: 11px; color: var(--accent); }
+.detail header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.d-kind { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 4px; color: #fff; }
+.d-kind.k-reasoning { background: var(--accent); }
+.d-kind.k-action { background: var(--primary); }
+.d-kind.k-agent { background: #b07cff; }
+.d-kind.k-finding { background: #f85149; }
+.d-close { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 13px; }
+.d-title { font-size: 13px; color: var(--text); word-break: break-all; margin: 0 0 10px; }
+.d-meta { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); }
+.d-err { color: #e5484d; }
 </style>
