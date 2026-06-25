@@ -203,12 +203,17 @@ onMounted(() => {
     },
     edge: {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      style: (d: any) => ({
-        stroke: d.data?.type === 'depends_on' ? C.accent : C.border,
-        lineWidth: 1.5,
-        lineDash: d.data?.type === 'depends_on' ? [4, 4] : undefined,
-        endArrow: true,
-      }),
+      style: (d: any) => {
+        const t = d.data?.type
+        // flow 主干实线灰；depends_on 蓝虚线；evidence（动作→漏洞）红虚线
+        const stroke = t === 'depends_on' ? C.accent : t === 'evidence' ? '#f85149' : C.border
+        return {
+          stroke,
+          lineWidth: t === 'flow' ? 1.5 : 2,
+          lineDash: t === 'flow' ? undefined : [4, 4],
+          endArrow: true,
+        }
+      },
     },
   })
 
