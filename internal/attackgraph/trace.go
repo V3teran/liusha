@@ -110,6 +110,7 @@ func ThinkingChain(messages []conversation.Message) ([]Node, []Edge, map[string]
 				if ev.Err != "" {
 					nodes[idx].Status = "error" // 配对 tool_call 翻 error（死路信号）
 				}
+				nodes[idx].Ref = m.ID // 钻取指向结果消息（看工具输出，而非调用入参）
 				// write_finding 的结果含 {"id":...}：记下该 finding 由这个动作节点产出，供成果链挂接。
 				if ev.ToolName == toolWriteFinding {
 					if fid := findingIDFromResult(ev.Result); fid != "" {
