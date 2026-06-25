@@ -17,6 +17,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"time"
 
 	einoopenai "github.com/cloudwego/eino-ext/components/model/openai"
 	"github.com/cloudwego/eino/components/model"
@@ -59,9 +60,12 @@ func (f *Factory) build(ctx context.Context, providerKey string) (model.ToolCall
 		// 国产 provider（小米/DeepSeek/通义/GLM/Moonshot/豆包-Ark）全走 OpenAI 兼容协议。
 		// LIUSHA_EINO_DEBUG_HTTP=1 时注入 dump transport 打请求/响应体（定位 provider 4xx）。
 		cm, err := einoopenai.NewChatModel(ctx, &einoopenai.ChatModelConfig{
-			APIKey:     apiKey,
-			BaseURL:    pc.BaseURL,
-			Model:      pc.DefaultModel,
+			APIKey:  apiKey,
+			BaseURL: pc.BaseURL,
+			Model:   pc.DefaultModel,
+			// 单步 LLM 看门狗：超 step_llm_timeout_seconds 未返回即判定失败（配合 ModelRetryConfig 重试），
+			// 取代此前的"隐式不可控 deadline"。HTTPClient 非 nil（debug dump）时此 Timeout 不生效，由 debug client 自带。
+			Timeout:    time.Duration(f.cfg.Scanner.StepLLMTimeoutSeconds) * time.Second,
 			HTTPClient: newDebugHTTPClient(),
 		})
 		if err != nil {
