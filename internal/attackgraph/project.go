@@ -12,11 +12,24 @@ import (
 // 纯函数：入参为已加载的源记录，无 IO。store 版投影器按 owner 拉取后调它（见 store.go）。
 // messages 须按 seq 升序传入（事件时序 = 思维链骨干顺序）。
 func Project(ownerID string, messages []conversation.Message, findings []finding.VulnFinding) Graph {
-	tNodes, tEdges := ThinkingChain(messages)
+	tNodes, tEdges, findingParent := ThinkingChain(messages)
 	fg := FindingSubgraph(ownerID, findings)
 
+	// 成果链挂思维链：finding 挂到产出它的 write_finding 动作下 + evidence 边（动作→finding），
+	// 否则 finding 会成为孤儿根、图散成碎片。
+	var evidenceEdges []Edge
+	for i := range fg.Nodes {
+		if fg.Nodes[i].Kind != KindFinding {
+			continue
+		}
+		if act, ok := findingParent[fg.Nodes[i].ID]; ok {
+			fg.Nodes[i].ParentID = act
+			evidenceEdges = append(evidenceEdges, Edge{From: act, To: fg.Nodes[i].ID, Type: EdgeEvidence})
+		}
+	}
+
 	nodes := append(append([]Node{}, tNodes...), fg.Nodes...)
-	edges := append(append([]Edge{}, tEdges...), fg.Edges...)
+	edges := append(append(append([]Edge{}, tEdges...), fg.Edges...), evidenceEdges...)
 	return Graph{OwnerID: ownerID, Nodes: nodes, Edges: edges}
 }
 

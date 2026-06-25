@@ -23,7 +23,7 @@ func TestThinkingChain(t *testing.T) {
 		msgs := []conversation.Message{
 			{ID: "m1", Kind: conversation.KindMessage, Content: "用户问句"},
 		}
-		nodes, edges := ThinkingChain(msgs)
+		nodes, edges, _ := ThinkingChain(msgs)
 		if len(nodes) != 0 || len(edges) != 0 {
 			t.Fatalf("期望空图，得 %d 节点 %d 边", len(nodes), len(edges))
 		}
@@ -33,7 +33,7 @@ func TestThinkingChain(t *testing.T) {
 		msgs := []conversation.Message{
 			mkEventMsg("m1", evReasoning, map[string]any{"Text": "先扫目录\n细节"}),
 		}
-		nodes, edges := ThinkingChain(msgs)
+		nodes, edges, _ := ThinkingChain(msgs)
 		if len(nodes) != 1 || len(edges) != 0 {
 			t.Fatalf("期望 1 节点 0 边，得 %d/%d", len(nodes), len(edges))
 		}
@@ -48,7 +48,7 @@ func TestThinkingChain(t *testing.T) {
 			mkEventMsg("m2", evToolCall, map[string]any{"ToolName": "curl"}),
 			mkEventMsg("m3", evToolResult, map[string]any{"ToolName": "curl"}),
 		}
-		nodes, edges := ThinkingChain(msgs)
+		nodes, edges, _ := ThinkingChain(msgs)
 		if len(nodes) != 2 {
 			t.Fatalf("期望 2 节点（想+动作配对），得 %d：%+v", len(nodes), nodes)
 		}
@@ -65,7 +65,7 @@ func TestThinkingChain(t *testing.T) {
 			mkEventMsg("m1", evToolCall, map[string]any{"ToolName": "sqlmap"}),
 			mkEventMsg("m2", evToolResult, map[string]any{"ToolName": "sqlmap", "Err": "timeout"}),
 		}
-		nodes, _ := ThinkingChain(msgs)
+		nodes, _, _ := ThinkingChain(msgs)
 		if len(nodes) != 1 || nodes[0].Status != "error" {
 			t.Errorf("期望 1 个 error 动作节点，得 %+v", nodes)
 		}
@@ -75,7 +75,7 @@ func TestThinkingChain(t *testing.T) {
 		msgs := []conversation.Message{
 			mkEventMsg("m1", evToolResult, map[string]any{"ToolName": "nmap"}),
 		}
-		nodes, _ := ThinkingChain(msgs)
+		nodes, _, _ := ThinkingChain(msgs)
 		if len(nodes) != 1 || nodes[0].Title != "结果 nmap" {
 			t.Errorf("期望独立结果节点，得 %+v", nodes)
 		}
@@ -85,7 +85,7 @@ func TestThinkingChain(t *testing.T) {
 		msgs := []conversation.Message{
 			mkEventMsg("m1", evSpawn, map[string]any{"Args": `{"subagent_type":"reconnaissance"}`}),
 		}
-		nodes, _ := ThinkingChain(msgs)
+		nodes, _, _ := ThinkingChain(msgs)
 		if len(nodes) != 1 || nodes[0].Kind != KindAgent || nodes[0].Title != "派发 reconnaissance" {
 			t.Errorf("agent 节点不符：%+v", nodes)
 		}
@@ -100,7 +100,7 @@ func TestThinkingChainTree(t *testing.T) {
 		mkEventMsg("e1", evReasoning, map[string]any{"AgentName": "exploitation", "Text": "试上传"}),
 		mkEventMsg("e2", evToolCall, map[string]any{"AgentName": "exploitation", "ToolName": "curl"}),
 	}
-	nodes, edges := ThinkingChain(msgs)
+	nodes, edges, _ := ThinkingChain(msgs)
 	if len(nodes) != 4 {
 		t.Fatalf("节点数=%d 期望 4：%+v", len(nodes), nodes)
 	}
@@ -130,6 +130,31 @@ func TestThinkingChainTree(t *testing.T) {
 	}
 	if len(edges) != 3 { // 有父的节点各一条父子边
 		t.Errorf("边数=%d 期望 3：%+v", len(edges), edges)
+	}
+}
+
+func TestProjectLinksFindingToTrace(t *testing.T) {
+	// write_finding 动作 + 返回 {"id":"f1"} → finding f1 应挂到该动作并有 evidence 边
+	msgs := []conversation.Message{
+		mkEventMsg("a1", evToolCall, map[string]any{"AgentName": "exploitation", "ToolName": "write_finding"}),
+		mkEventMsg("a2", evToolResult, map[string]any{"AgentName": "exploitation", "ToolName": "write_finding", "Result": `{"id":"f1"}`}),
+	}
+	findings := []finding.VulnFinding{mkFinding("f1", "h", "high", "SQLi")}
+	g := Project("o", msgs, findings)
+
+	hasEvidence := false
+	for _, e := range g.Edges {
+		if e.Type == EdgeEvidence && e.From == "a1" && e.To == "f1" {
+			hasEvidence = true
+		}
+	}
+	if !hasEvidence {
+		t.Errorf("期望 evidence 边 a1→f1，实际边：%+v", g.Edges)
+	}
+	for _, n := range g.Nodes {
+		if n.ID == "f1" && n.ParentID != "a1" {
+			t.Errorf("finding f1 应挂到 write_finding 动作 a1，得 parent=%q", n.ParentID)
+		}
 	}
 }
 

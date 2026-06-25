@@ -28,7 +28,11 @@ type traceEvent struct {
 	Text      string
 	AgentName string
 	Err       string
+	Result    string // tool_result 的结果预览（write_finding 含 {"id":...}）
 }
+
+// toolWriteFinding 是写漏洞工具名；其 tool_result 返回 {"id":<finding-id>}，用于把成果链挂到思维链。
+const toolWriteFinding = "write_finding"
 
 // ThinkingChain 从对话事件流（message KindEvent，按 seq 序入参）派生思维链节点 + flow 骨干边。
 //
@@ -39,9 +43,10 @@ type traceEvent struct {
 //
 // flow 边按节点创建顺序串成线性骨干（树 / 死路在后续切片派生）。
 // 原文不入节点（见设计 §6）：节点只带 Title + Ref（指向 message id，点开取原文）。
-func ThinkingChain(messages []conversation.Message) ([]Node, []Edge) {
+func ThinkingChain(messages []conversation.Message) ([]Node, []Edge, map[string]string) {
 	var nodes []Node
-	openAction := map[string]int{} // toolName → 未闭合 action 节点在 nodes 的下标
+	openAction := map[string]int{}       // toolName → 未闭合 action 节点在 nodes 的下标
+	findingParent := map[string]string{} // finding id → 产出它的 write_finding 动作节点 id（成果链挂思维链）
 
 	// 树重建：首个 agent 为主线（orchestrator），spawn 派生子代理分支。
 	primary := ""                      // 主线 agent
@@ -105,6 +110,12 @@ func ThinkingChain(messages []conversation.Message) ([]Node, []Edge) {
 				if ev.Err != "" {
 					nodes[idx].Status = "error" // 配对 tool_call 翻 error（死路信号）
 				}
+				// write_finding 的结果含 {"id":...}：记下该 finding 由这个动作节点产出，供成果链挂接。
+				if ev.ToolName == toolWriteFinding {
+					if fid := findingIDFromResult(ev.Result); fid != "" {
+						findingParent[fid] = nodes[idx].ID
+					}
+				}
 				delete(openAction, ev.ToolName)
 			} else {
 				st := "done"
@@ -112,6 +123,12 @@ func ThinkingChain(messages []conversation.Message) ([]Node, []Edge) {
 					st = "error"
 				}
 				addNode(Node{ID: m.ID, Kind: KindAction, Title: "结果 " + ev.ToolName, Ref: m.ID, Status: st}, agent, false)
+				// 未配对（write_finding 调用交错导致）也捕获 finding id，挂到本结果节点，避免漏连。
+				if ev.ToolName == toolWriteFinding {
+					if fid := findingIDFromResult(ev.Result); fid != "" {
+						findingParent[fid] = m.ID
+					}
+				}
 			}
 		}
 	}
@@ -123,7 +140,18 @@ func ThinkingChain(messages []conversation.Message) ([]Node, []Edge) {
 			edges = append(edges, Edge{From: n.ParentID, To: n.ID, Type: EdgeFlow})
 		}
 	}
-	return nodes, edges
+	return nodes, edges, findingParent
+}
+
+// findingIDFromResult 从 write_finding 的 tool_result（{"id":"..."}）取 finding id；失败返空。
+func findingIDFromResult(result string) string {
+	var r struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal([]byte(result), &r); err != nil {
+		return ""
+	}
+	return r.ID
 }
 
 // subagentType 从 task 工具入参 {subagent_type} 取子代理类型；解析失败/缺字段返回空。
