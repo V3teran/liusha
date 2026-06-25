@@ -58,9 +58,16 @@ services:
       OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
       MOONSHOT_API_KEY: "${MOONSHOT_API_KEY:-}"
       QWEN_API_KEY: "${QWEN_API_KEY:-}"
+      # GLM/XIAOMI：config.yaml 默认 provider=glm_vision_flash，cfg.LLM.Validate() 启动强校验，
+      # 必须与 scanner 段一致传入，否则 api 启动崩溃（即使不直接调 LLM）。
+      # GLM/XIAOMI：与 scanner 段对齐传入（此前漏传 = api 起不来根因；config 默认 provider 用 glm）。
+      GLM_API_KEY: "${GLM_API_KEY:-}"
+      XIAOMI_API_KEY: "${XIAOMI_API_KEY:-}"
       LIUSHA_LLM_LIGHT_PROVIDER: "${LIUSHA_LLM_LIGHT_PROVIDER:-deepseek}"
       LIUSHA_LLM_FALLBACK_PROVIDER: "${LIUSHA_LLM_FALLBACK_PROVIDER:-deepseek}"
       LIUSHA_LLM_VISION_PROVIDER: "${LIUSHA_LLM_VISION_PROVIDER:-deepseek}"
+      # SSE stream cookie 签名密钥：cmd/api fail-fast 必需（空则启动崩溃）。dev 默认占位，prod 必须覆盖。
+      LIUSHA_STREAM_COOKIE_SECRET: "${LIUSHA_STREAM_COOKIE_SECRET:-changeme-dev-stream-secret}"
     volumes:
       - ../logs:/app/logs
     depends_on:
