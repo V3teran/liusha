@@ -5,7 +5,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { Graph, NodeEvent, CanvasEvent } from '@antv/g6'
 import OwnerPicker from '../components/OwnerPicker.vue'
-import { getAttackGraph, listConversations } from '../api/client'
+import { getAttackGraph, listConversations, listMessages } from '../api/client'
 import type { AttackGraph, AttackGraphNode } from '../api/types'
 import { severityColor } from '../lib/severity'
 
@@ -14,8 +14,14 @@ const data = ref<AttackGraph | null>(null)
 const loading = ref(false)
 const error = ref('')
 const selected = ref<AttackGraphNode | null>(null)
+const contentByRef = ref<Record<string, string>>({}) // message id → 完整原文（点节点钻取）
 
 const nodes = computed<AttackGraphNode[]>(() => data.value?.nodes ?? [])
+// 选中节点的完整原文（reasoning 节点 = 完整推理；缺失则空）。
+const fullContent = computed(() => {
+  const r = selected.value?.ref
+  return r ? (contentByRef.value[r] ?? '') : ''
+})
 
 watch(owner, load)
 async function load() {
@@ -37,11 +43,33 @@ async function load() {
       conv = ''
     }
     data.value = await getAttackGraph(owner.value, conv)
+    contentByRef.value = {}
+    if (conv) void fetchContents(conv) // 异步填原文，不阻塞图渲染
   } catch (e) {
     error.value = e instanceof Error ? e.message : '加载失败'
   } finally {
     loading.value = false
   }
+}
+
+// 翻页拉全对话消息，建 message id → 完整内容映射，供点节点钻取看原文。
+async function fetchContents(conv: string) {
+  const m: Record<string, string> = {}
+  let after = 0
+  for (let i = 0; i < 50; i++) {
+    let batch
+    try {
+      batch = await listMessages(conv, after)
+    } catch {
+      break
+    }
+    if (!batch.length) break
+    for (const msg of batch) m[msg.ID] = msg.Content
+    const last = batch[batch.length - 1].Seq
+    if (last === after) break
+    after = last
+  }
+  contentByRef.value = m
 }
 
 function kindLabel(k: string): string {
@@ -186,10 +214,11 @@ onBeforeUnmount(() => {
           <button class="d-close" @click="selected = null">✕</button>
         </header>
         <p class="d-title">{{ selected.title }}</p>
+        <pre v-if="fullContent" class="d-content">{{ fullContent }}</pre>
         <div class="d-meta">
+          <span v-if="selected.agent">子代理：{{ selected.agent }}</span>
           <span v-if="selected.severity">严重度：{{ selected.severity }}</span>
           <span v-if="selected.status === 'error'" class="d-err">死路 / 失败</span>
-          <span class="mono">ref: {{ selected.ref || selected.id }}</span>
         </div>
       </aside>
     </div>
@@ -238,6 +267,20 @@ onBeforeUnmount(() => {
 .d-kind.k-finding { background: #f85149; }
 .d-close { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 13px; }
 .d-title { font-size: 13px; color: var(--text); word-break: break-all; margin: 0 0 10px; }
+.d-content {
+  max-height: 260px;
+  overflow: auto;
+  margin: 0 0 10px;
+  padding: 8px 10px;
+  background: var(--bg, rgba(0, 0, 0, 0.2));
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
 .d-meta { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); }
 .d-err { color: #e5484d; }
 </style>

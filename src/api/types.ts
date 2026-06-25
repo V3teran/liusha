@@ -133,6 +133,7 @@ export interface AttackGraphNode {
   id: string
   kind: string // reasoning(想) | action(做+得) | finding(漏洞) | agent(子代理边界)
   parent_id?: string
+  agent?: string // 产出该节点的子代理（orchestrator/exploitation/…）
   target?: string // 所属站
   title: string // 短标签
   ref?: string // 指针：finding id / message id，点开取原文
