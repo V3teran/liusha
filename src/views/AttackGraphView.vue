@@ -15,6 +15,11 @@ const loading = ref(false)
 const error = ref('')
 const selected = ref<AttackGraphNode | null>(null)
 const contentByRef = ref<Record<string, string>>({}) // message id → 完整原文（点节点钻取）
+const live = ref(true) // 实时轮询开关（扫描过程中观测）
+const currentConv = ref('')
+let pollTimer: ReturnType<typeof setInterval> | null = null
+let lastSig = '' // 上次图签名（节点+边数），变化检测防无谓重渲染
+let lastContentSeq = 0 // 已拉取原文的最大 seq（增量拉新）
 
 const nodes = computed<AttackGraphNode[]>(() => data.value?.nodes ?? [])
 // 选中节点的完整原文（reasoning 节点 = 完整推理；缺失则空）。
@@ -42,9 +47,13 @@ async function load() {
     } catch {
       conv = ''
     }
-    data.value = await getAttackGraph(owner.value, conv)
+    currentConv.value = conv
     contentByRef.value = {}
+    lastContentSeq = 0
+    data.value = await getAttackGraph(owner.value, conv)
+    lastSig = sig(data.value)
     if (conv) void fetchContents(conv) // 异步填原文，不阻塞图渲染
+    if (live.value) startPoll()
   } catch (e) {
     error.value = e instanceof Error ? e.message : '加载失败'
   } finally {
@@ -52,10 +61,10 @@ async function load() {
   }
 }
 
-// 翻页拉全对话消息，建 message id → 完整内容映射，供点节点钻取看原文。
+// 增量拉对话消息（仅 seq > lastContentSeq 的新消息），并入 message id → 内容映射，供钻取看原文。
 async function fetchContents(conv: string) {
-  const m: Record<string, string> = {}
-  let after = 0
+  const m = { ...contentByRef.value }
+  let after = lastContentSeq
   for (let i = 0; i < 50; i++) {
     let batch
     try {
@@ -64,13 +73,49 @@ async function fetchContents(conv: string) {
       break
     }
     if (!batch.length) break
-    for (const msg of batch) m[msg.ID] = msg.Content
+    for (const msg of batch) {
+      m[msg.ID] = msg.Content
+      if (msg.Seq > lastContentSeq) lastContentSeq = msg.Seq
+    }
     const last = batch[batch.length - 1].Seq
     if (last === after) break
     after = last
   }
   contentByRef.value = m
 }
+
+// sig 是图的轻量签名（节点+边数）；变化检测——无变化不重渲染（防闪烁）。
+function sig(g: AttackGraph | null): string {
+  return g ? `${g.nodes.length}:${g.edges.length}` : ''
+}
+
+// poll 轮询重拉图；仅签名变化才更新（扫描新增节点时刷新，空闲时静默）。
+async function poll() {
+  if (!owner.value || !live.value) return
+  let g: AttackGraph
+  try {
+    g = await getAttackGraph(owner.value, currentConv.value)
+  } catch {
+    return
+  }
+  if (sig(g) === lastSig) return
+  lastSig = sig(g)
+  data.value = g
+  if (currentConv.value) void fetchContents(currentConv.value) // 增量拉新原文
+}
+
+function startPoll() {
+  stopPoll()
+  pollTimer = setInterval(poll, 3000)
+}
+function stopPoll() {
+  if (pollTimer) {
+    clearInterval(pollTimer)
+    pollTimer = null
+  }
+}
+
+watch(live, (v) => (v ? startPoll() : stopPoll()))
 
 function kindLabel(k: string): string {
   return k === 'reasoning' ? '想' : k === 'action' ? '做' : k === 'agent' ? '派' : '漏洞'
@@ -182,6 +227,7 @@ onMounted(() => {
 watch(data, renderGraph)
 
 onBeforeUnmount(() => {
+  stopPoll()
   graph?.destroy()
   graph = null
 })
@@ -198,6 +244,9 @@ onBeforeUnmount(() => {
         <span class="lg"><i class="dot finding" />漏洞</span>
         <span class="lg"><i class="dot err" />死路</span>
       </div>
+      <label v-if="owner" class="live-toggle">
+        <a-switch v-model:checked="live" size="small" />实时
+      </label>
     </div>
 
     <div class="page-body graph-body">
@@ -227,6 +276,7 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .legend { display: flex; gap: 14px; align-items: center; margin-left: 16px; font-size: 12px; color: var(--muted); }
+.live-toggle { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; font-size: 12px; color: var(--muted); }
 .lg { display: inline-flex; align-items: center; gap: 5px; }
 .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
 .dot.reasoning { background: var(--accent); }
