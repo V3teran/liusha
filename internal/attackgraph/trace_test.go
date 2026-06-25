@@ -92,6 +92,47 @@ func TestThinkingChain(t *testing.T) {
 	})
 }
 
+func TestThinkingChainTree(t *testing.T) {
+	// orchestrator 想 → spawn(exploitation) → exploitation 想 → exploitation 做
+	msgs := []conversation.Message{
+		mkEventMsg("o1", evReasoning, map[string]any{"AgentName": "orchestrator", "Text": "先规划"}),
+		mkEventMsg("s1", evSpawn, map[string]any{"AgentName": "orchestrator", "Args": `{"subagent_type":"exploitation"}`}),
+		mkEventMsg("e1", evReasoning, map[string]any{"AgentName": "exploitation", "Text": "试上传"}),
+		mkEventMsg("e2", evToolCall, map[string]any{"AgentName": "exploitation", "ToolName": "curl"}),
+	}
+	nodes, edges := ThinkingChain(msgs)
+	if len(nodes) != 4 {
+		t.Fatalf("节点数=%d 期望 4：%+v", len(nodes), nodes)
+	}
+
+	parent := map[string]string{}
+	agent := map[string]string{}
+	for _, n := range nodes {
+		parent[n.ID] = n.ParentID
+		agent[n.ID] = n.Agent
+	}
+	// 主线：o1 为根，spawn s1 挂 o1
+	if parent["o1"] != "" {
+		t.Errorf("o1 应为根，得 parent=%q", parent["o1"])
+	}
+	if parent["s1"] != "o1" {
+		t.Errorf("spawn s1 应挂 o1，得 %q", parent["s1"])
+	}
+	// 子代理分支：e1 挂 spawn s1（首节点），e2 顺接 e1
+	if parent["e1"] != "s1" {
+		t.Errorf("exploitation 首节点 e1 应挂 spawn s1，得 %q", parent["e1"])
+	}
+	if parent["e2"] != "e1" {
+		t.Errorf("e2 应顺接 e1，得 %q", parent["e2"])
+	}
+	if agent["e1"] != "exploitation" {
+		t.Errorf("e1 agent 应 exploitation，得 %q", agent["e1"])
+	}
+	if len(edges) != 3 { // 有父的节点各一条父子边
+		t.Errorf("边数=%d 期望 3：%+v", len(edges), edges)
+	}
+}
+
 func TestProjectMergesChains(t *testing.T) {
 	msgs := []conversation.Message{
 		mkEventMsg("m1", evReasoning, map[string]any{"Text": "上传配合穿越"}),

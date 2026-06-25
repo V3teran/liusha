@@ -27,6 +27,7 @@ type Node struct {
 	ID       string `json:"id"`
 	Kind     string `json:"kind"`
 	ParentID string `json:"parent_id,omitempty"` // 思维链骨干树的父节点
+	Agent    string `json:"agent,omitempty"`     // 产出该节点的子代理（orchestrator/exploitation/…），前端按它分组/配色
 	Target   string `json:"target,omitempty"`    // 所属站（per-host 切片键），可空=全局
 	Title    string `json:"title"`               // 短标签（首行 / 工具名 / 漏洞摘要）
 	Ref      string `json:"ref,omitempty"`        // 指针：finding id / message id，点开取原文

@@ -43,6 +43,37 @@ func ThinkingChain(messages []conversation.Message) ([]Node, []Edge) {
 	var nodes []Node
 	openAction := map[string]int{} // toolName → 未闭合 action 节点在 nodes 的下标
 
+	// 树重建：首个 agent 为主线（orchestrator），spawn 派生子代理分支。
+	primary := ""                      // 主线 agent
+	lastPrimary := ""                  // 主线最后节点 id（含 spawn）
+	lastByAgent := map[string]string{} // agent → 该 agent 链最后节点 id
+	spawnFor := map[string]string{}    // subagent_type → spawn 节点 id
+
+	// addNode 按 agent 归属算父节点、入列、更新 last 指针。spawn 与主线节点归主线。
+	addNode := func(n Node, agent string, isSpawn bool) {
+		var parent string
+		switch {
+		case isSpawn || agent == primary || agent == "":
+			parent = lastPrimary
+		default: // 子代理节点
+			if last, ok := lastByAgent[agent]; ok {
+				parent = last // 同 agent 链内顺接
+			} else if sp, ok := spawnFor[agent]; ok {
+				parent = sp // 子代理首个节点挂到派它的 spawn 下
+			} else {
+				parent = lastPrimary
+			}
+		}
+		n.ParentID = parent
+		n.Agent = agent
+		nodes = append(nodes, n)
+		if isSpawn || agent == primary || agent == "" {
+			lastPrimary = n.ID
+		} else {
+			lastByAgent[agent] = n.ID
+		}
+	}
+
 	for _, m := range messages {
 		if m.Kind != conversation.KindEvent || len(m.Metadata) == 0 {
 			continue
@@ -51,35 +82,28 @@ func ThinkingChain(messages []conversation.Message) ([]Node, []Edge) {
 		if err := json.Unmarshal(m.Metadata, &ev); err != nil {
 			continue // 脏 metadata 跳过，不阻断整图
 		}
+		agent := ev.AgentName
+		if primary == "" && agent != "" {
+			primary = agent
+		}
 
 		switch ev.Kind {
 		case evReasoning:
-			nodes = append(nodes, Node{
-				ID:    m.ID,
-				Kind:  KindReasoning,
-				Title: firstLine(ev.Text, reasoningTitleMax),
-				Ref:   m.ID,
-			})
+			addNode(Node{ID: m.ID, Kind: KindReasoning, Title: firstLine(ev.Text, reasoningTitleMax), Ref: m.ID}, agent, false)
 		case evSpawn:
-			nodes = append(nodes, Node{
-				ID:    m.ID,
-				Kind:  KindAgent,
-				Title: spawnTitle(ev.Args),
-				Ref:   m.ID,
-			})
+			st := subagentType(ev.Args)
+			delete(lastByAgent, st) // 重新派生该类型 → 新分支从此 spawn 起
+			addNode(Node{ID: m.ID, Kind: KindAgent, Title: spawnTitle(ev.Args), Ref: m.ID}, agent, true)
+			if st != "" {
+				spawnFor[st] = m.ID
+			}
 		case evToolCall:
-			nodes = append(nodes, Node{
-				ID:     m.ID,
-				Kind:   KindAction,
-				Title:  "调用 " + ev.ToolName,
-				Ref:    m.ID,
-				Status: "done", // 默认 done，配对的 tool_result 若带 Err 再翻 error
-			})
+			addNode(Node{ID: m.ID, Kind: KindAction, Title: "调用 " + ev.ToolName, Ref: m.ID, Status: "done"}, agent, false)
 			openAction[ev.ToolName] = len(nodes) - 1
 		case evToolResult:
 			if idx, ok := openAction[ev.ToolName]; ok {
 				if ev.Err != "" {
-					nodes[idx].Status = "error"
+					nodes[idx].Status = "error" // 配对 tool_call 翻 error（死路信号）
 				}
 				delete(openAction, ev.ToolName)
 			} else {
@@ -87,32 +111,36 @@ func ThinkingChain(messages []conversation.Message) ([]Node, []Edge) {
 				if ev.Err != "" {
 					st = "error"
 				}
-				nodes = append(nodes, Node{
-					ID:     m.ID,
-					Kind:   KindAction,
-					Title:  "结果 " + ev.ToolName,
-					Ref:    m.ID,
-					Status: st,
-				})
+				addNode(Node{ID: m.ID, Kind: KindAction, Title: "结果 " + ev.ToolName, Ref: m.ID, Status: st}, agent, false)
 			}
 		}
 	}
 
+	// 边：父 → 子（思维链骨干树；无父的为根）
 	var edges []Edge
-	for i := 1; i < len(nodes); i++ {
-		edges = append(edges, Edge{From: nodes[i-1].ID, To: nodes[i].ID, Type: EdgeFlow})
+	for _, n := range nodes {
+		if n.ParentID != "" {
+			edges = append(edges, Edge{From: n.ParentID, To: n.ID, Type: EdgeFlow})
+		}
 	}
 	return nodes, edges
 }
 
-// spawnTitle 从 task 工具入参 {subagent_type, description} 拼派发标签。
-// 解析失败或缺字段兜底"派发子代理"（content 仅作短标签，完整在 message）。
-func spawnTitle(args string) string {
+// subagentType 从 task 工具入参 {subagent_type} 取子代理类型；解析失败/缺字段返回空。
+func subagentType(args string) string {
 	var in struct {
 		SubagentType string `json:"subagent_type"`
 	}
-	if err := json.Unmarshal([]byte(args), &in); err != nil || in.SubagentType == "" {
-		return "派发子代理"
+	if err := json.Unmarshal([]byte(args), &in); err != nil {
+		return ""
 	}
-	return "派发 " + in.SubagentType
+	return in.SubagentType
+}
+
+// spawnTitle 拼派发短标签；缺类型兜底"派发子代理"（完整在 message）。
+func spawnTitle(args string) string {
+	if st := subagentType(args); st != "" {
+		return "派发 " + st
+	}
+	return "派发子代理"
 }
