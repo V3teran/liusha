@@ -12,6 +12,7 @@ import type {
   OwnerSummary,
   SitemapView,
   AttackGraph,
+  Milestone,
   LLMInvocationsResponse,
   AgentRunsResponse,
   Identity,
@@ -241,6 +242,14 @@ export async function getAttackGraph(
   if (type) params.set('type', type)
   const q = params.toString()
   return get<AttackGraph>(`/attack_graph/${ownerID}${q ? '?' + q : ''}`)
+}
+
+/**
+ * 拉取执行图里程碑摘要（按子代理聚合，LLM 生成）。按需调用——是 LLM 请求，较慢。
+ */
+export async function getMilestones(ownerID: string, conv: string): Promise<Milestone[]> {
+  const q = conv ? `?conv=${encodeURIComponent(conv)}` : ''
+  return (await get<{ milestones: Milestone[] }>(`/attack_graph/${ownerID}/milestones${q}`)).milestones
 }
 
 /**

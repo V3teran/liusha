@@ -153,6 +153,13 @@ export interface AttackGraph {
   edges: AttackGraphEdge[]
 }
 
+// 里程碑：按子代理聚合的 LLM 一句话摘要（派生层，按需生成）。
+export interface Milestone {
+  agent: string
+  summary: string
+  node_count: number
+}
+
 /* ============================================================
    LLM 审计（GET /llm/invocations/:owner_id，按 hunter 分组）
    messages/result 为后端 inline 的 jsonb，结构不定 → unknown

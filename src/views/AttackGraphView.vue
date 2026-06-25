@@ -5,8 +5,8 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { Graph, NodeEvent, CanvasEvent } from '@antv/g6'
 import OwnerPicker from '../components/OwnerPicker.vue'
-import { getAttackGraph, listConversations, listMessages } from '../api/client'
-import type { AttackGraph, AttackGraphNode } from '../api/types'
+import { getAttackGraph, getMilestones, listConversations, listMessages } from '../api/client'
+import type { AttackGraph, AttackGraphNode, Milestone } from '../api/types'
 import { severityColor } from '../lib/severity'
 
 const owner = ref('')
@@ -18,6 +18,26 @@ const contentByRef = ref<Record<string, string>>({}) // message id → 完整原
 const live = ref(true) // 实时轮询开关（扫描过程中观测）
 const simplified = ref(true) // 精简模式：折叠 action 细节，只看思路主干（默认开，大图才可读）
 const currentConv = ref('')
+const milestones = ref<Milestone[]>([]) // 里程碑摘要（按需 LLM 生成）
+const milestonesLoading = ref(false)
+const milestonesErr = ref('')
+
+// 按需拉里程碑（LLM 调用，较慢）；agent→颜色映射与图节点一致。
+async function loadMilestones() {
+  if (!owner.value || !currentConv.value) return
+  milestonesLoading.value = true
+  milestonesErr.value = ''
+  try {
+    milestones.value = await getMilestones(owner.value, currentConv.value)
+  } catch (e) {
+    milestonesErr.value = e instanceof Error ? e.message : '生成失败'
+  } finally {
+    milestonesLoading.value = false
+  }
+}
+function agentColor(a: string): string {
+  return a === 'orchestrator' ? '#b07cff' : a === 'reconnaissance' ? '#58a6ff' : a === 'exploitation' ? '#2bb673' : '#6e7681'
+}
 let pollTimer: ReturnType<typeof setInterval> | null = null
 let lastSig = '' // 上次图签名（节点+边数），变化检测防无谓重渲染
 let lastContentSeq = 0 // 已拉取原文的最大 seq（增量拉新）
@@ -34,6 +54,8 @@ const fullContent = computed(() => {
 watch(owner, load, { immediate: true })
 async function load() {
   selected.value = null
+  milestones.value = [] // 换 owner 清空旧摘要
+  milestonesErr.value = ''
   if (!owner.value) {
     data.value = null
     return
@@ -287,12 +309,26 @@ onBeforeUnmount(() => {
         <span class="lg"><i class="dot finding" />漏洞</span>
         <span class="lg"><i class="dot err" />死路</span>
       </div>
-      <label v-if="owner" class="live-toggle" style="margin-left: auto">
+      <a-button v-if="nodes.length" size="small" :loading="milestonesLoading" style="margin-left: auto" @click="loadMilestones">
+        里程碑摘要
+      </a-button>
+      <label v-if="owner" class="live-toggle">
         <a-switch v-model:checked="simplified" size="small" />精简
       </label>
       <label v-if="owner" class="live-toggle">
         <a-switch v-model:checked="live" size="small" />实时
       </label>
+    </div>
+
+    <div v-if="milestones.length || milestonesErr" class="milestone-bar">
+      <span v-if="milestonesErr" class="state-err">⚠ {{ milestonesErr }}</span>
+      <div v-for="m in milestones" :key="m.agent" class="ms-card" :style="{ borderLeftColor: agentColor(m.agent) }">
+        <div class="ms-head">
+          <span class="ms-agent" :style="{ color: agentColor(m.agent) }">{{ m.agent }}</span>
+          <span class="ms-count">{{ m.node_count }} 步</span>
+        </div>
+        <p class="ms-summary">{{ m.summary }}</p>
+      </div>
     </div>
 
     <div class="page-body graph-body">
@@ -323,6 +359,28 @@ onBeforeUnmount(() => {
 <style scoped>
 .legend { display: flex; gap: 14px; align-items: center; margin-left: 16px; font-size: 12px; color: var(--muted); }
 .live-toggle { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
+
+.milestone-bar {
+  display: flex;
+  gap: 10px;
+  padding: 10px 16px;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.ms-card {
+  min-width: 240px;
+  max-width: 340px;
+  padding: 8px 12px;
+  background: var(--surface, rgba(255, 255, 255, 0.03));
+  border: 1px solid var(--border);
+  border-left-width: 3px;
+  border-radius: 6px;
+}
+.ms-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
+.ms-agent { font-size: 12px; font-weight: 700; }
+.ms-count { font-size: 11px; color: var(--muted); }
+.ms-summary { margin: 0; font-size: 13px; line-height: 1.5; color: var(--text); }
 .lg { display: inline-flex; align-items: center; gap: 5px; }
 .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
 .dot.reasoning { background: var(--accent); }
