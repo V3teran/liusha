@@ -16,6 +16,7 @@ const error = ref('')
 const selected = ref<AttackGraphNode | null>(null)
 const contentByRef = ref<Record<string, string>>({}) // message id → 完整原文（点节点钻取）
 const live = ref(true) // 实时轮询开关（扫描过程中观测）
+const simplified = ref(true) // 精简模式：折叠 action 细节，只看思路主干（默认开，大图才可读）
 const currentConv = ref('')
 let pollTimer: ReturnType<typeof setInterval> | null = null
 let lastSig = '' // 上次图签名（节点+边数），变化检测防无谓重渲染
@@ -28,7 +29,9 @@ const fullContent = computed(() => {
   return r ? (contentByRef.value[r] ?? '') : ''
 })
 
-watch(owner, load)
+// immediate：owner 由 OwnerPicker 持久化恢复时，进页面即加载（否则有选中值却空白）。
+// owner='' 时 load 自身 return，无害。
+watch(owner, load, { immediate: true })
 async function load() {
   selected.value = null
   if (!owner.value) {
@@ -116,6 +119,7 @@ function stopPoll() {
 }
 
 watch(live, (v) => (v ? startPoll() : stopPoll()))
+watch(simplified, renderGraph) // 切换精简/完整即重渲染
 
 function kindLabel(k: string): string {
   return k === 'reasoning' ? '想' : k === 'action' ? '做' : k === 'agent' ? '派' : '漏洞'
@@ -140,26 +144,56 @@ function readColors() {
 const AGENT_COLOR = '#b07cff'
 const ERROR_COLOR = '#e5484d'
 
-function toG6(g: AttackGraph | null) {
+// toG6 把图转 G6 格式。simplified=true 时折叠 action 细节节点（512 个工具调用），
+// 只留思路主干（想/派/漏洞），把边按"最近保留祖先"重连——避免 906 节点线性长链挤成细线。
+// action 仍可在完整模式查看，或点保留节点钻取原文。
+function toG6(g: AttackGraph | null, collapse: boolean) {
   if (!g) return { nodes: [], edges: [] }
-  return {
-    nodes: g.nodes.map((n) => ({
-      id: n.id,
-      data: { kind: n.kind, label: n.title, status: n.status ?? '', severity: n.severity ?? '' },
-    })),
-    edges: g.edges.map((e, i) => ({
-      id: `e${i}`,
-      source: e.from,
-      target: e.to,
-      data: { type: e.type },
-    })),
+  const byId: Record<string, AttackGraphNode> = {}
+  for (const n of g.nodes) byId[n.id] = n
+
+  const kept = (n: AttackGraphNode) => !collapse || n.kind !== 'action'
+  const keptIds = new Set(g.nodes.filter(kept).map((n) => n.id))
+
+  // 向上追溯到最近的保留祖先（折叠掉的 action 链跳过）。
+  const nearestKept = (id: string): string => {
+    let p = byId[id]?.parent_id ?? ''
+    const seen = new Set<string>()
+    while (p && !keptIds.has(p) && !seen.has(p)) {
+      seen.add(p)
+      p = byId[p]?.parent_id ?? ''
+    }
+    return keptIds.has(p) ? p : ''
   }
+
+  const nodes = g.nodes.filter(kept).map((n) => ({
+    id: n.id,
+    data: { kind: n.kind, label: n.title, status: n.status ?? '', severity: n.severity ?? '' },
+  }))
+
+  const edges: { id: string; source: string; target: string; data: { type: string } }[] = []
+  const seenEdge = new Set<string>()
+  let i = 0
+  for (const e of g.edges) {
+    // 两端都保留 → 原样；折叠端 → 重连到最近保留祖先（消除断边）。
+    const src = keptIds.has(e.from) ? e.from : nearestKept(e.from)
+    const tgt = keptIds.has(e.to) ? e.to : nearestKept(e.to)
+    if (!src || !tgt || src === tgt) continue
+    const key = `${src}->${tgt}:${e.type}`
+    if (seenEdge.has(key)) continue
+    seenEdge.add(key)
+    edges.push({ id: `e${i++}`, source: src, target: tgt, data: { type: e.type } })
+  }
+  return { nodes, edges }
 }
 
-function renderGraph() {
+async function renderGraph() {
   if (!graph) return
-  graph.setData(toG6(data.value))
-  void graph.render()
+  graph.setData(toG6(data.value, simplified.value))
+  await graph.render()
+  // 思维链是长链：只横向适配、纵向保持节点可读大小（纵向超出靠滚动/拖动），
+  // 而非 autoFit 把超高图整体压成细线。
+  await graph.fitView({ when: 'overflow', direction: 'x' })
 }
 
 onMounted(() => {
@@ -169,8 +203,7 @@ onMounted(() => {
   graph = new Graph({
     container: canvasEl.value,
     autoResize: true,
-    autoFit: 'view',
-    layout: { type: 'antv-dagre', rankdir: 'TB', nodesep: 14, ranksep: 36 },
+    layout: { type: 'antv-dagre', rankdir: 'TB', nodesep: 18, ranksep: 28 },
     behaviors: ['zoom-canvas', 'drag-canvas', 'drag-element'],
     node: {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -249,6 +282,9 @@ onBeforeUnmount(() => {
         <span class="lg"><i class="dot finding" />漏洞</span>
         <span class="lg"><i class="dot err" />死路</span>
       </div>
+      <label v-if="owner" class="live-toggle" style="margin-left: auto">
+        <a-switch v-model:checked="simplified" size="small" />精简
+      </label>
       <label v-if="owner" class="live-toggle">
         <a-switch v-model:checked="live" size="small" />实时
       </label>
@@ -281,7 +317,7 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .legend { display: flex; gap: 14px; align-items: center; margin-left: 16px; font-size: 12px; color: var(--muted); }
-.live-toggle { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; font-size: 12px; color: var(--muted); }
+.live-toggle { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
 .lg { display: inline-flex; align-items: center; gap: 5px; }
 .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
 .dot.reasoning { background: var(--accent); }
