@@ -62,6 +62,9 @@ func BuildDeepSwarm(ctx context.Context, cfg DeepSwarmConfig) (adk.Agent, error)
 			ToolsConfig:   adk.ToolsConfig{ToolsNodeConfig: compose.ToolsNodeConfig{Tools: tools}},
 			MaxIterations: maxIter,
 			Middlewares:   cfg.Middlewares,
+			// 瞬时 provider 错（mimo 偶发超时/4xx/429/EOF）重试，避免一次抖动杀掉整个 sub-agent run。
+			// 对齐 passive（traffic_analysis）已有的 ModelRetryConfig——active 此前缺，是扫描偶发 abort 根因。
+			ModelRetryConfig: &adk.ModelRetryConfig{MaxRetries: defaultModelRetries},
 		})
 		if err != nil {
 			return nil, fmt.Errorf("sub-agent %q: %w", role.ID, err)
@@ -94,6 +97,8 @@ func BuildDeepSwarm(ctx context.Context, cfg DeepSwarmConfig) (adk.Agent, error)
 		WithoutWriteTodos:      true, // liusha 不用 todo；过程靠 finding/note 黑板
 		MaxIteration:           maxIter,
 		Middlewares:            cfg.Middlewares,
+		// orchestrator 主 ChatModel 同样重试瞬时 provider 错——否则 orchestrator 一次 mimo 超时即中止整个扫描。
+		ModelRetryConfig: &adk.ModelRetryConfig{MaxRetries: defaultModelRetries},
 	})
 	if err != nil {
 		return nil, fmt.Errorf("deep.New(orchestrator): %w", err)
