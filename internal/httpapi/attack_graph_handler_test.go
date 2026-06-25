@@ -13,6 +13,8 @@ import (
 type fakeAttackGraph struct {
 	graph                      attackgraph.Graph
 	err                        error
+	milestones                 []attackgraph.Milestone
+	milestonesErr              error
 	gotConv, gotType, gotOwner string
 }
 
@@ -22,6 +24,14 @@ func (f *fakeAttackGraph) Project(_ context.Context, convID, ownerType, ownerID 
 		return attackgraph.Graph{}, f.err
 	}
 	return f.graph, nil
+}
+
+func (f *fakeAttackGraph) ProjectMilestones(_ context.Context, convID string) ([]attackgraph.Milestone, error) {
+	f.gotConv = convID
+	if f.milestonesErr != nil {
+		return nil, f.milestonesErr
+	}
+	return f.milestones, nil
 }
 
 func TestAttackGraphHandler(t *testing.T) {

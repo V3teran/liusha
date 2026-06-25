@@ -28,6 +28,8 @@ type FindingLister interface {
 type Projector struct {
 	Messages MessageLister
 	Findings FindingLister
+	// Summary 可选：注入后支持 ProjectMilestones（LLM 里程碑摘要）。nil 时该方法报错。
+	Summary Summarizer
 }
 
 // Project 拉取一次扫描的对话事件流 + 漏洞，投影成执行图。
@@ -50,6 +52,22 @@ func (p *Projector) Project(ctx context.Context, convID, ownerType, ownerID stri
 	}
 
 	return Project(ownerID, msgs, findings), nil
+}
+
+// ProjectMilestones 拉对话事件流，按子代理聚合 reasoning，调 LLM 总结成里程碑列表。
+// convID 为空（无对话）或 Summary 未注入时返回错误（里程碑依赖思维链 + LLM）。
+func (p *Projector) ProjectMilestones(ctx context.Context, convID string) ([]Milestone, error) {
+	if p.Summary == nil {
+		return nil, fmt.Errorf("未配置 LLM summarizer，里程碑不可用")
+	}
+	if convID == "" {
+		return nil, fmt.Errorf("无对话（conv 为空），里程碑不可用")
+	}
+	msgs, err := p.allMessages(ctx, convID)
+	if err != nil {
+		return nil, fmt.Errorf("拉对话消息: %w", err)
+	}
+	return Milestones(ctx, msgs, p.Summary)
 }
 
 // allMessages 循环翻页拉全对话消息（按 seq 升序）。

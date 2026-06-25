@@ -82,6 +82,7 @@ func NewServer(d Deps) http.Handler {
 	}
 	if d.AttackGraph != nil {
 		r.GET("/attack_graph/:owner_id", attackGraphHandler(d.AttackGraph))
+		r.GET("/attack_graph/:owner_id/milestones", attackGraphMilestonesHandler(d.AttackGraph))
 	}
 	if d.Invocations != nil {
 		r.GET("/llm/invocations/:owner_id", llmInvocationsHandler(d.Invocations))

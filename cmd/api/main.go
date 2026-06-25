@@ -109,6 +109,8 @@ func main() {
 	}
 	// 多轮问答/意图分类依赖：light provider 路由 + 问答读 finding + SSE publish。
 	router := llm.NewRouterWithOptions(llm.NewFactory(cfg), llm.RetryOptionsFromConfig(cfg.LLM.Retry))
+	// 执行图里程碑摘要：用 light LLM 把子代理推理总结成一句（派生层，按需调用）。
+	attackGraphProjector.Summary = llmSummarizer{router: router}
 	publisher := scanstream.NewPublisher(rdb)
 	activeAdapter := &activeScanAdapter{activeScans: activeScanStore, tasks: taskStore, enq: enq, audit: auditStore, conversations: convStore, roles: scenarioRoles, router: router, findings: findStore, publisher: publisher, passiveSessions: passiveSessionStore, passiveTTL: time.Duration(cfg.Session.MaxAgeHours) * time.Hour, activeRunTimeout: time.Duration(cfg.Scanner.ActiveAgentRunTimeoutSeconds) * time.Second}
 

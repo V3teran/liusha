@@ -12,6 +12,7 @@ import (
 // AttackGraphAPI 是执行图投影的窄接口，handler 只依赖它。*attackgraph.Projector 自动满足。
 type AttackGraphAPI interface {
 	Project(ctx context.Context, convID, ownerType, ownerID string) (attackgraph.Graph, error)
+	ProjectMilestones(ctx context.Context, convID string) ([]attackgraph.Milestone, error)
 }
 
 // attackGraphHandler 处理 GET /attack_graph/:owner_id?type=<owner_type>&conv=<conv_id>。
@@ -41,5 +42,29 @@ func attackGraphHandler(api AttackGraphAPI) gin.HandlerFunc {
 			return
 		}
 		c.JSON(200, g)
+	}
+}
+
+// attackGraphMilestonesHandler 处理 GET /attack_graph/:owner_id/milestones?conv=<conv_id>。
+//
+// 返回按子代理聚合的 LLM 里程碑摘要（派生层，异步算）。conv 缺失或未配 LLM 时 400/503。
+func attackGraphMilestonesHandler(api AttackGraphAPI) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		conv := c.Query("conv")
+		ms, err := api.ProjectMilestones(c.Request.Context(), conv)
+		if err != nil {
+			msg := err.Error()
+			if strings.Contains(msg, "未配置 LLM") {
+				c.JSON(503, gin.H{"error": msg}) // 服务未配 LLM
+				return
+			}
+			if strings.Contains(msg, "无对话") {
+				c.JSON(400, gin.H{"error": msg})
+				return
+			}
+			c.JSON(500, gin.H{"error": msg})
+			return
+		}
+		c.JSON(200, gin.H{"milestones": ms})
 	}
 }
