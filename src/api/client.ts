@@ -35,15 +35,15 @@ export function getApiKey(): string {
 }
 
 /**
- * 启动引导：本地无 key 时，尝试从后端 dev 端点 /viewer-config.json 自动拉 X-API-Key 存入。
+ * 启动引导：本地无 key 时，尝试从后端 dev 端点 /dev-config.json 自动拉 X-API-Key 存入。
  *
- * 后端 dev（设了 LIUSHA_VIEWER_DEV_KEY）会在该未鉴权端点返回 {api_key}，免去手输登录。
+ * 后端 dev（设了 LIUSHA_DEV_AUTOFILL）会在该未鉴权端点返回 {api_key}，免去手输登录。
  * 失败静默——后端没开 dev autofill / 不可达时不阻塞应用启动（后续调用可能 401）。
  */
 export async function bootstrapApiKey(): Promise<void> {
   if (getApiKey()) return
   try {
-    const res = await fetch('/api/viewer-config.json')
+    const res = await fetch('/api/dev-config.json')
     if (!res.ok) return
     const { api_key } = (await res.json()) as { api_key?: string }
     if (api_key) setApiKey(api_key)
