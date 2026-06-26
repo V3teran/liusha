@@ -16,7 +16,7 @@ const error = ref('')
 const selected = ref<AttackGraphNode | null>(null)
 const contentByRef = ref<Record<string, string>>({}) // message id → 完整原文（点节点钻取）
 const live = ref(true) // 实时轮询开关（扫描过程中观测）
-const simplified = ref(true) // 精简模式：折叠 action 细节，只看思路主干（默认开，大图才可读）
+const simplified = ref(true) // 成果优先：默认只显示通向漏洞的主干路径，折叠死路探索（默认开，大图才可读）
 const currentConv = ref('')
 const milestones = ref<Milestone[]>([]) // 里程碑摘要（按需 LLM 生成）
 const milestonesLoading = ref(false)
@@ -166,15 +166,40 @@ function readColors() {
 const AGENT_COLOR = '#b07cff'
 const ERROR_COLOR = '#e5484d'
 
-// toG6 把图转 G6 格式。simplified=true 时折叠 action 细节节点（512 个工具调用），
-// 只留思路主干（想/派/漏洞），把边按"最近保留祖先"重连——避免 906 节点线性长链挤成细线。
-// action 仍可在完整模式查看，或点保留节点钻取原文。
+// toG6 把图转 G6 格式。collapse=true（成果优先，默认）时只保留「成果路径」——通向漏洞的
+// 主干（on_path）+ 子代理泳道（agent）+ 全部漏洞（finding）；把死路/探索（!on_path 的想/做，
+// 真实扫描里上千步的绝大多数）按"最近保留祖先"重连折叠——避免上千节点挤成无法阅读的巨图。
+// 死路不丢：切到完整模式看全部轨迹，或点保留节点钻取原文。
 function toG6(g: AttackGraph | null, collapse: boolean) {
   if (!g) return { nodes: [], edges: [] }
   const byId: Record<string, AttackGraphNode> = {}
   for (const n of g.nodes) byId[n.id] = n
 
-  const kept = (n: AttackGraphNode) => !collapse || n.kind !== 'action'
+  // 成果优先：聚焦「成果骨架」——漏洞(finding) + 子代理边界(agent) + 关键动作（产出漏洞的
+  // evidence 动作 / 失败的 error 动作）。思考(reasoning)与普通成功动作折叠：on_path 主干在
+  // 线性思维链下仍有数百步（漏洞前每一步都算其祖先），故只留关键节点。看全部切「完整」，
+  // 看某节点原文点它钻取。on_path 字段保留供完整模式给死路降权。
+  const evidenceFrom = new Set(g.edges.filter((e) => e.type === 'evidence').map((e) => e.from))
+  // 漏洞前的最后一步思考：每个 evidence 动作沿 parent 上溯找最近 reasoning，凑成 想→做→漏洞 小叙事。
+  const keyReasoning = new Set<string>()
+  for (const aid of evidenceFrom) {
+    let p = byId[aid]?.parent_id ?? ''
+    const seen = new Set<string>()
+    while (p && !seen.has(p)) {
+      seen.add(p)
+      if (byId[p]?.kind === 'reasoning') {
+        keyReasoning.add(p)
+        break
+      }
+      p = byId[p]?.parent_id ?? ''
+    }
+  }
+  const kept = (n: AttackGraphNode) =>
+    !collapse ||
+    n.kind === 'finding' ||
+    n.kind === 'agent' ||
+    (n.kind === 'action' && (evidenceFrom.has(n.id) || n.status === 'error')) ||
+    keyReasoning.has(n.id)
   const keptIds = new Set(g.nodes.filter(kept).map((n) => n.id))
 
   // 向上追溯到最近的保留祖先（折叠掉的 action 链跳过）。
@@ -190,7 +215,14 @@ function toG6(g: AttackGraph | null, collapse: boolean) {
 
   const nodes = g.nodes.filter(kept).map((n) => ({
     id: n.id,
-    data: { kind: n.kind, label: n.title, status: n.status ?? '', severity: n.severity ?? '' },
+    // dim：完整模式下给死路（!on_path）降透明度，一眼区分主干/死路；成果优先模式保留的都是关键节点，不降。
+    data: {
+      kind: n.kind,
+      label: n.title,
+      status: n.status ?? '',
+      severity: n.severity ?? '',
+      dim: !collapse && n.on_path !== true,
+    },
   }))
 
   const edges: { id: string; source: string; target: string; data: { type: string } }[] = []
@@ -244,6 +276,7 @@ onMounted(() => {
                   : C.primary
         return {
           size: kind === 'finding' ? 30 : 24,
+          opacity: d.data?.dim ? 0.28 : 1, // 完整模式死路淡显（dim），主干/成果亮
           fill,
           stroke: isErr ? ERROR_COLOR : 'rgba(255,255,255,0.18)',
           lineWidth: 1,
@@ -313,7 +346,7 @@ onBeforeUnmount(() => {
         里程碑摘要
       </a-button>
       <label v-if="owner" class="live-toggle">
-        <a-switch v-model:checked="simplified" size="small" />精简
+        <a-switch v-model:checked="simplified" size="small" />成果优先
       </label>
       <label v-if="owner" class="live-toggle">
         <a-switch v-model:checked="live" size="small" />实时

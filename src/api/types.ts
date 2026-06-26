@@ -157,6 +157,7 @@ export interface AttackGraphNode {
   ref?: string // 指针：finding id / message id，点开取原文
   severity?: string // 漏洞节点配色
   status?: string // 动作节点：done / error
+  on_path?: boolean // 成果路径：通向某 finding 的主干（成果优先视图默认展开）；false/缺省=死路，默认折叠
 }
 
 export interface AttackGraphEdge {
