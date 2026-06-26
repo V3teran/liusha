@@ -11,7 +11,7 @@ import ToolCallCard from './cards/ToolCallCard.vue'
 import ToolResultCard from './cards/ToolResultCard.vue'
 import FindingCard from './cards/FindingCard.vue'
 
-const props = defineProps<{ msg: Message }>()
+const props = defineProps<{ msg: Message; step?: number }>()
 
 // 卡片类型判定：普通消息看 Role；事件看 Metadata.Kind。
 // write_finding 一次产生两条事件：tool_call（带 Args=漏洞详情）+ tool_result（仅 {id}，无展示价值）。
@@ -56,6 +56,7 @@ const showAvatar = computed(() => ['user', 'assistant', 'reasoning'].includes(ki
         v-else-if="kind === 'reasoning'"
         :text="msg.Metadata!.Text || msg.Content"
         :agent-name="msg.Metadata!.AgentName"
+        :step="step"
         :in-tokens="msg.Metadata!.InTokens"
         :out-tokens="msg.Metadata!.OutTokens"
         :latency-ms="msg.Metadata!.LatencyMs"
