@@ -112,8 +112,12 @@ func browserSubArgs(in *browserUseArgs) ([]string, error) {
 			return nil, fmt.Errorf("browser_use open: url 必填")
 		}
 		return []string{in.URL}, nil
-	case "state", "source", "reset":
+	case "state", "reset":
 		return nil, nil
+	case "source":
+		// daemon 无 source 子命令，等价 `get html`（拿渲染后完整 HTML）；Go 侧翻译子命令（见 buildBrowserCommand），
+		// 对 LLM 保留直观的 source 名。返回 args=["html"] 供拼成 `get html`。
+		return []string{"html"}, nil
 	case "click":
 		if in.Index == nil {
 			return nil, fmt.Errorf("browser_use click: index 必填（先 state 拿元素编号）")
@@ -134,8 +138,12 @@ func browserSubArgs(in *browserUseArgs) ([]string, error) {
 			return nil, fmt.Errorf("browser_use eval: code 必填")
 		}
 		return []string{in.Code}, nil
+	case "screenshot":
+		// daemon 支持 screenshot，但状态变化动作（open/click/input/wait）后已自动附最新截图给 LLM，无需手调；
+		// 明确告知避免 LLM 因不知道自动附图而反复瞎调 screenshot（实测踩过）。
+		return nil, fmt.Errorf("browser_use: 无需手动 screenshot——open/click/input/wait 等动作后已自动附最新截图给你；要导出 HTML 用 source、跑 JS 用 eval")
 	default:
-		return nil, fmt.Errorf("browser_use: 未知 action %q", in.Action)
+		return nil, fmt.Errorf("browser_use: 未知 action %q（仅支持 open/state/click/input/wait/eval/source/reset）", in.Action)
 	}
 }
 
@@ -159,7 +167,12 @@ func buildBrowserCommand(action string, args []string, identity string) (string,
 	for i, a := range args {
 		quoted[i] = shellSingleQuote(a)
 	}
-	cmd := strings.TrimSpace(fmt.Sprintf("browser-use %s %s", action, strings.Join(quoted, " ")))
+	// action → daemon 子命令：多数同名；source 翻译为 daemon 的 `get`（配合 args=["html"] = `get html` 拿渲染后 HTML）。
+	sub := action
+	if action == "source" {
+		sub = "get"
+	}
+	cmd := strings.TrimSpace(fmt.Sprintf("browser-use %s %s", sub, strings.Join(quoted, " ")))
 	if id := strings.TrimSpace(identity); id != "" {
 		if !isSafeIdentity(id) {
 			return "", fmt.Errorf("browser_use: identity 仅允许 [A-Za-z0-9._-]、≤64 字符，收到 %q", identity)
