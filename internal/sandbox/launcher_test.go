@@ -156,6 +156,55 @@ func TestDockerLauncher_Timeout(t *testing.T) {
 	}
 }
 
+// TestDockerLauncher_BackgroundOrphan_DoesNotHang 在真实 pentools 容器里端到端验证 WaitDelay 修复：
+//
+// 后台 `&` 起的孤儿子进程（如 RFI 测试服务器 `python3 -m http.server &`）持有 stdout pipe writer end，
+// 没 WaitDelay 时 /exec 会挂到子进程自然结束才返回——真实场景 http.server 永不退 → 挂到 client 31min
+// timeout → run_command 报错 → 整个 active run abort（logs/scanner.local.log tag=test-rfi-http-server 实测）。
+//
+// 镜像内 sandbox-server 的 WaitDelay 是编译期固定值（10s），无法从 host 注入，故断言后台命令在
+// < 20s 返回（远小于 sleep 40s / timeout 60s）。若修复没编进镜像或失效，这里会等到 ~40s 而超阈值。
+// 与 host 单测 TestHandleExec_BackgroundOrphan_DoesNotHangPastWaitDelay 互补：那个测 host 二进制逻辑，
+// 这个测真实镜像二进制行为。
+func TestDockerLauncher_BackgroundOrphan_DoesNotHang(t *testing.T) {
+	skipIfNoDocker(t)
+	skipIfNoImage(t, testImage)
+
+	l := NewDockerLauncher(testImage)
+	runID := testRunID(t, "test-bg-orphan")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+
+	client, err := l.Spawn(ctx, runID)
+	if err != nil {
+		t.Fatalf("Spawn: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = l.Destroy(context.Background(), runID)
+	})
+
+	// `sleep 40 &`：容器内 sh 后台启子进程后立即退出，但 sleep 持有 stdout pipe 40s。
+	// timeout 60s 远大于 sleep → 容器内 cmdCtx 不触发，纯靠镜像内 WaitDelay(10s) 兜底。
+	start := time.Now()
+	res, err := client.Exec(ctx, ExecRequest{
+		HunterID:       runID,
+		Command:        "sleep 40 &",
+		TimeoutSeconds: 60,
+		Tag:            "bg-orphan",
+	})
+	if err != nil {
+		t.Fatalf("Exec: %v", err)
+	}
+	elapsed := time.Since(start)
+
+	// 核心断言：必须远早于 sleep 40s 返回（镜像内 WaitDelay≈10s + HTTP 往返）；
+	// 超 20s 说明修复没进镜像或失效，真实场景会挂到 client 31min timeout → run abort。
+	if elapsed > 20*time.Second {
+		t.Errorf("wall time %v：后台孤儿子进程持有 pipe 致 /exec 挂死，镜像内 WaitDelay 未生效（真实场景挂 client 31min→abort）, res=%+v", elapsed, res)
+	}
+}
+
 // TestDockerLauncher_CleanupOrphans：未主动 Destroy 的容器被 CleanupOrphans 清理。
 func TestDockerLauncher_CleanupOrphans(t *testing.T) {
 	skipIfNoDocker(t)

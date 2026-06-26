@@ -80,6 +80,64 @@ func TestHandleExec_Timeout_KillsProcessGroup(t *testing.T) {
 	}
 }
 
+// TestHandleExec_BackgroundOrphan_DoesNotHangPastWaitDelay 复现真实扫描 abort 根因：
+//
+// 场景：LLM 跑 RFI 测试 HTTP 服务器（如 `python3 -m http.server &`）——命令把长命子进程放后台，
+// sh 立即退出（exit 0），但孤儿子进程继续持有 stdout pipe writer end。cmd.Wait() 会一直等
+// stdio copy goroutine 退出（即子进程自然结束）才返回。真实场景 http.server 永不退 →
+// handleExec 挂到 client 31min timeout（"Client.Timeout exceeded while awaiting headers"）→
+// run_command 报错 → 整个 active run abort（logs/scanner.local.log 实测 tag=test-rfi-http-server）。
+//
+// 仅靠进程组 SIGKILL（TestHandleExec_Timeout_KillsProcessGroup）救不了本例：子进程 `&` 后台化
+// 且这里 timeout 远未到、根本不触发 cmd.Cancel。修复靠 cmd.WaitDelay：进程退出/ctx 取消起算，
+// 最多再等 WaitDelay 就强制关 pipe 并让 Wait 返回，不再傻等孤儿子进程。
+//
+// 验证：子进程 sleep 30s，但 timeout 给 60s（不触发 cmdCtx），handleExec 必须在 WaitDelay 量级返回。
+func TestHandleExec_BackgroundOrphan_DoesNotHangPastWaitDelay(t *testing.T) {
+	setupTestRoots(t)
+	oldDelay := execWaitDelay
+	execWaitDelay = 500 * time.Millisecond
+	t.Cleanup(func() { execWaitDelay = oldDelay })
+
+	srv := New()
+	ts := httptest.NewServer(srv.mux)
+	defer ts.Close()
+
+	// `sleep 30 &`：sh 后台启子进程后立即退出，但 sleep 持有 stdout pipe 30s。
+	// timeout 60s 远大于 sleep → cmdCtx 不触发，纯靠 WaitDelay 兜底。
+	body, err := json.Marshal(sandbox.ExecRequest{
+		HunterID:       "test-bg-orphan",
+		Command:        "sleep 30 &",
+		TimeoutSeconds: 60,
+		Tag:            "bg-orphan",
+	})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+
+	start := time.Now()
+	resp, err := http.Post(ts.URL+"/exec", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("POST /exec: %v", err)
+	}
+	defer resp.Body.Close()
+	elapsed := time.Since(start)
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status %d, want 200", resp.StatusCode)
+	}
+	var res sandbox.ExecResult
+	if err := json.NewDecoder(resp.Body).Decode(&res); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+
+	// 核心断言：必须在 WaitDelay 量级返回（容忍 HTTP 往返），绝不能等到 sleep 30s 自然结束。
+	// 没修复时会等到 ≈30s（真实场景挂到 client 31min timeout → 整个 run abort）。
+	if elapsed > 5*time.Second {
+		t.Errorf("wall time %v：后台孤儿子进程持有 pipe 致 cmd.Wait 阻塞，WaitDelay 未生效（真实场景会挂到 client 31min timeout→abort）", elapsed)
+	}
+}
+
 // TestHandleExec_Normal_Succeeds 是基线 sanity check：
 // 简单命令正常返回 stdout/stderr，不被 timeout 错误干掉。
 func TestHandleExec_Normal_Succeeds(t *testing.T) {

@@ -37,6 +37,11 @@ var (
 	workdirRoot   = "/workspace"
 )
 
+// execWaitDelay 是 cmd.WaitDelay 的取值：进程退出 / ctx 取消起算，最多再等这么久就强制关
+// I/O pipe 并让 cmd.Wait() 返回，兜底「子进程已退出但孤儿后台子进程仍持有 stdout pipe」类悬挂
+// （详见 handleExec 内 cmd.WaitDelay 处注释）。var（非 const）便于单测注入小值。
+var execWaitDelay = 10 * time.Second
+
 // handleExec 处理 POST /exec：sh -c 命令 + OUTPUT_DIR 附件机制。
 //
 // 流程：
@@ -107,6 +112,15 @@ func (s *Server) handleExec(w http.ResponseWriter, r *http.Request) {
 	cmd.Cancel = func() error {
 		return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
 	}
+
+	// WaitDelay 兜底进程组 SIGKILL 救不了的悬挂：LLM 跑 RFI 测试服务器（`python3 -m http.server &`
+	// 之类）把长命子进程放后台，sh 立即退出但孤儿子进程继续持有 stdout pipe writer end →
+	// cmd.Wait() 会傻等 stdio copy goroutine 退出（即子进程自然结束）才返回。真实扫描实测：
+	// http.server 永不退 → handleExec 挂到 client 31min timeout（"Client.Timeout exceeded
+	// while awaiting headers"）→ run_command 报错 → 整个 active run abort。
+	// 设 WaitDelay 后：进程退出 / ctx 取消起算，最多再等 execWaitDelay 就强制关 pipe 让 Wait 返回；
+	// 孤儿子进程留在容器内（容器销毁时统一回收），exec 不再被它拖死到 client timeout。
+	cmd.WaitDelay = execWaitDelay
 
 	var stdout, stderr strings.Builder
 	cmd.Stdout = &stdout
