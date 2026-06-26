@@ -26,22 +26,23 @@ import (
 const (
 	browserOpenTimeout = 120 // open 含 chromium 冷启（实测 >60s），当地板而非默认——超时太短会种不上登录态
 	browserWaitTimeout = 30
-	browserReadTimeout = 15 // state/eval/source 读取快
+	browserReadTimeout = 15 // state/eval/get 读取快
 	browserActTimeout  = 20 // click/input 交互复用 daemon 快
 )
 
 // browserUseArgs 是 browser_use 入参；jsonschema tag → GoStruct2ToolInfo 自动生成 schema。
 // 可选字段带 ,omitempty 避免被误标 required（见 findings.go 详注）。
 type browserUseArgs struct {
-	Action string `json:"action"             jsonschema:"required,enum=open,enum=state,enum=click,enum=input,enum=wait,enum=eval,enum=source,enum=reset,description=动作：open=导航URL / state=拿当前页 numbered 元素清单（[1]<a> [2]<button>… LLM 据此选 index）/ click=点元素（用 index）/ input=给元素键入（用 index+text）/ wait=等元素出现 / eval=在页面跑 JS / source=拿渲染后完整 HTML / reset=强杀本身份 chromium 重启（反复卡死时用，副作用：本身份登录态丢失需重 open+登录）"`
-	URL    string `json:"url,omitempty"      jsonschema:"description=action=open 必填：目标 URL（含 http:// 或 https://）"`
-	Index  *int   `json:"index,omitempty"    jsonschema:"description=action=click/input 必填：state 返回清单里的元素编号（[N] 的 N）。index 是 state 那一刻的快照编号——紧接 state 后立即用，中间别插会改页面的动作；报 'not found' 就重新 state 拿新编号"`
-	Text   string `json:"text,omitempty"     jsonschema:"description=action=input 必填：要键入的文本"`
-	Cond   string `json:"condition,omitempty" jsonschema:"description=action=wait 必填：要等的 CSS selector（如 #main）或页面文本"`
-	Code   string `json:"code,omitempty"     jsonschema:"description=action=eval 必填：JS 代码，最后表达式作为返回值（如 document.querySelector('button').click()）"`
+	Action  string `json:"action"             jsonschema:"required,enum=open,enum=state,enum=click,enum=input,enum=wait,enum=eval,enum=get,enum=reset,description=动作：open=导航URL / state=拿当前页 numbered 元素清单（[1]<a> [2]<button>… LLM 据此选 index）/ click=点元素（用 index）/ input=给元素键入（用 index+text）/ wait=等元素出现 / eval=在页面跑 JS / get=拿页面内容（默认完整渲染后 HTML；get_what=title 仅取标题）/ reset=强杀本身份 chromium 重启（反复卡死时用，副作用：本身份登录态丢失需重 open+登录）"`
+	URL     string `json:"url,omitempty"      jsonschema:"description=action=open 必填：目标 URL（含 http:// 或 https://）"`
+	Index   *int   `json:"index,omitempty"    jsonschema:"description=action=click/input 必填：state 返回清单里的元素编号（[N] 的 N）。index 是 state 那一刻的快照编号——紧接 state 后立即用，中间别插会改页面的动作；报 'not found' 就重新 state 拿新编号"`
+	Text    string `json:"text,omitempty"     jsonschema:"description=action=input 必填：要键入的文本"`
+	Cond    string `json:"condition,omitempty" jsonschema:"description=action=wait 必填：要等的 CSS selector（如 #main）或页面文本"`
+	Code    string `json:"code,omitempty"     jsonschema:"description=action=eval 必填：JS 代码，最后表达式作为返回值（如 document.querySelector('button').click()）"`
+	GetWhat string `json:"get_what,omitempty" jsonschema:"enum=html,enum=title,description=action=get 可选：html=完整渲染后 HTML（默认）/ title=页面标题"`
 	// identity = 浏览器身份（cookie jar）= 账号用户名。同名跨 orchestrator/exploitation 复用登录态。
 	Identity string `json:"identity,omitempty" jsonschema:"description=浏览器身份=账号用户名（admin→admin / gordonb→gordonb），同名复用登录态不必重登；常规挖洞留空（默认 default）；只有越权/BAC 多账号对比才传不同名各开独立浏览器"`
-	Timeout  int    `json:"timeout_seconds,omitempty" jsonschema:"description=硬超时秒（缺省 open=120 / click/input=20 / wait=30 / state/eval/source=15）"`
+	Timeout  int    `json:"timeout_seconds,omitempty" jsonschema:"description=硬超时秒（缺省 open=120 / click/input=20 / wait=30 / state/eval/get=15）"`
 }
 
 // BuildBrowserUse 造 browser_use 工具。executor/hunterID/tailBytes 闭包注入（与 run_command 同款）。
@@ -56,7 +57,7 @@ func BuildBrowserUse(executor SandboxExecutor, hunterID string, tailBytes int) (
 		"browser_use",
 		"用 chromium 真实浏览器操作目标页面（登录/点击/读 DOM/跑 JS）。action 选动作，其它字段按 action 要求填。"+
 			"典型流程：open 受保护页→若落登录页则 state 看元素→input 填账密→click 提交→重新 open 验证带态。"+
-			"状态变化 action（open/click/input/wait）执行完自动附最新截图给 LLM；读取 action（state/eval/source）不附图。"+
+			"状态变化 action（open/click/input/wait）执行完自动附最新截图给 LLM；读取 action（state/eval/get）不附图。"+
 			"identity=账号名做登录态复用，见 system prompt 的 identity 命名铁律。",
 	)
 	if err != nil {
@@ -114,10 +115,13 @@ func browserSubArgs(in *browserUseArgs) ([]string, error) {
 		return []string{in.URL}, nil
 	case "state", "reset":
 		return nil, nil
-	case "source":
-		// daemon 无 source 子命令，等价 `get html`（拿渲染后完整 HTML）；Go 侧翻译子命令（见 buildBrowserCommand），
-		// 对 LLM 保留直观的 source 名。返回 args=["html"] 供拼成 `get html`。
-		return []string{"html"}, nil
+	case "get":
+		// action=daemon 子命令 1:1（零翻译）：拼成 `get <what>`，what 缺省 html。daemon 支持 html/title。
+		what := in.GetWhat
+		if what == "" {
+			what = "html"
+		}
+		return []string{what}, nil
 	case "click":
 		if in.Index == nil {
 			return nil, fmt.Errorf("browser_use click: index 必填（先 state 拿元素编号）")
@@ -141,9 +145,9 @@ func browserSubArgs(in *browserUseArgs) ([]string, error) {
 	case "screenshot":
 		// daemon 支持 screenshot，但状态变化动作（open/click/input/wait）后已自动附最新截图给 LLM，无需手调；
 		// 明确告知避免 LLM 因不知道自动附图而反复瞎调 screenshot（实测踩过）。
-		return nil, fmt.Errorf("browser_use: 无需手动 screenshot——open/click/input/wait 等动作后已自动附最新截图给你；要导出 HTML 用 source、跑 JS 用 eval")
+		return nil, fmt.Errorf("browser_use: 无需手动 screenshot——open/click/input/wait 等动作后已自动附最新截图给你；要导出 HTML 用 get、跑 JS 用 eval")
 	default:
-		return nil, fmt.Errorf("browser_use: 未知 action %q（仅支持 open/state/click/input/wait/eval/source/reset）", in.Action)
+		return nil, fmt.Errorf("browser_use: 未知 action %q（仅支持 open/state/click/input/wait/eval/get/reset）", in.Action)
 	}
 }
 
@@ -167,12 +171,8 @@ func buildBrowserCommand(action string, args []string, identity string) (string,
 	for i, a := range args {
 		quoted[i] = shellSingleQuote(a)
 	}
-	// action → daemon 子命令：多数同名；source 翻译为 daemon 的 `get`（配合 args=["html"] = `get html` 拿渲染后 HTML）。
-	sub := action
-	if action == "source" {
-		sub = "get"
-	}
-	cmd := strings.TrimSpace(fmt.Sprintf("browser-use %s %s", sub, strings.Join(quoted, " ")))
+	// action 与 daemon 子命令 1:1 同名（open/state/click/input/wait/eval/get/reset），零翻译直发。
+	cmd := strings.TrimSpace(fmt.Sprintf("browser-use %s %s", action, strings.Join(quoted, " ")))
 	if id := strings.TrimSpace(identity); id != "" {
 		if !isSafeIdentity(id) {
 			return "", fmt.Errorf("browser_use: identity 仅允许 [A-Za-z0-9._-]、≤64 字符，收到 %q", identity)
