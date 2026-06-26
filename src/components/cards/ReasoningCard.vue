@@ -7,7 +7,7 @@ import { agentAccent, agentLabel as toLabel } from '../../lib/agentColor'
 const props = defineProps<{
   text: string
   agentName?: string // 产出该推理的 agent（orchestrator/exploitation/reconnaissance）
-  step?: number // 该 agent 的 ReAct 步号（第 N 步，按 agent 分别累计）
+  step?: number // 本次用户指令内的全局推理步号（跨 agent 统一计数，追加指令从头）
   inTokens?: number
   outTokens?: number
   latencyMs?: number
@@ -35,7 +35,7 @@ const accent = computed(() => agentAccent(props.agentName))
       <span class="rc-icon">🧠</span>
       <span class="rc-label">{{ streaming ? '推理中' : '推理' }}</span>
       <span v-if="agentLabel" class="rc-agent">{{ agentLabel }}</span>
-      <span v-if="step" class="rc-step" title="该 agent 的第几步（ReAct 迭代）">第 {{ step }} 步</span>
+      <span v-if="step" class="rc-step" title="本次指令的第几步推理（全局计数，追加指令从头）">第 {{ step }} 步</span>
       <span v-if="hasMeta" class="rc-meta">
         <span v-if="(inTokens || 0) > 0" class="rc-chip" title="输入 token">↑ {{ fmtTok(inTokens) }}</span>
         <span v-if="(outTokens || 0) > 0" class="rc-chip" title="输出 token">↓ {{ fmtTok(outTokens) }}</span>

@@ -12,29 +12,31 @@ const store = useConversationStore()
 const el = ref<HTMLElement>()
 
 // 在消息流中按天插入分隔条（今天 / 昨天 / 日期）——跨天对话一眼可辨，内联卡片只显示时分秒。
-// step：agent 的 ReAct 步号——每个 agent 每条 reasoning(想) 是它的一步，按 agent 分别累计
-// （reconnaissance 第1步、orchestrator 第1步…各自独立），让对话流能定位「某子代理第几步」。
-// 不叫「轮」是避开「多轮对话」（用户 follow-up）的占用歧义。
+// step：本次「用户指令」内的全局推理步号——每条 reasoning(想) 递增一步，跨所有 agent 统一计数
+// （不按 agent 分组：一个 type 如 exploitation 会被 spawn 多个并发实例，按 type 累计会混淆、
+//  按实例又无标识可分；全局序号无歧义）。**每条用户消息重置**：一次指令(发起→结束)是一个计数
+// 周期，追加(follow-up)算新指令、步号从头。配合卡片已有的 agent 标签（编排/侦察/利用）定位「谁的第几步」。
 type Row =
   | { kind: 'divider'; key: string; label: string }
   | { kind: 'msg'; key: number; msg: Message; step?: number }
 const rows = computed<Row[]>(() => {
   const out: Row[] = []
   let lastDay = ''
-  const stepByAgent: Record<string, number> = {}
+  let step = 0
   for (const m of store.messages) {
+    // 用户指令边界：每条用户消息重置步号（追加 = 新指令 = 新计数周期）。
+    if (m.Role === 'user') step = 0
     const day = dayKey(m.CreatedAt)
     if (day && day !== lastDay) {
       out.push({ kind: 'divider', key: 'day-' + day, label: dayLabel(m.CreatedAt) })
       lastDay = day
     }
-    let step: number | undefined
+    let stepNo: number | undefined
     if (m.Metadata?.Kind === 'reasoning') {
-      const agent = m.Metadata.AgentName || 'orchestrator'
-      stepByAgent[agent] = (stepByAgent[agent] ?? 0) + 1
-      step = stepByAgent[agent]
+      step += 1
+      stepNo = step
     }
-    out.push({ kind: 'msg', key: m.Seq, msg: m, step })
+    out.push({ kind: 'msg', key: m.Seq, msg: m, step: stepNo })
   }
   return out
 })
