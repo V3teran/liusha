@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import type { Message } from '../api/types'
+import { classifyMessage } from '../lib/messageKind'
 import { clockTime, fullTime } from '../lib/format'
 import Avatar from './cards/Avatar.vue'
 import UserBubble from './cards/UserBubble.vue'
@@ -13,31 +14,8 @@ import FindingCard from './cards/FindingCard.vue'
 
 const props = defineProps<{ msg: Message; step?: number }>()
 
-// 卡片类型判定：普通消息看 Role；事件看 Metadata.Kind。
-// write_finding 一次产生两条事件：tool_call（带 Args=漏洞详情）+ tool_result（仅 {id}，无展示价值）。
-// → tool_call 渲染成 finding 卡（有 Args）；tool_result 隐藏（否则渲染成空的「INFO(无标题)」卡）。
-const kind = computed(() => {
-  const m = props.msg
-  if (m.Kind === 'message') return m.Role === 'user' ? 'user' : 'assistant'
-  const ev = m.Metadata
-  if (!ev) return 'assistant'
-  if (ev.Kind === 'reasoning') return 'reasoning'
-  if (ev.Kind === 'spawn') return 'spawn'
-  if (ev.ToolName === 'write_finding') {
-    if (ev.Kind !== 'tool_call' || ev.Err) return 'hidden'
-    // 残缺 finding（缺 summary）：工具会报错、agent 随后补全重发 → 不渲染成「INFO 无标题」怪卡。
-    try {
-      if (!JSON.parse(ev.Args || '{}').summary) return 'hidden'
-    } catch {
-      return 'hidden'
-    }
-    return 'finding'
-  }
-  // task 的 tool_result = 派发完成（带子代理执行总时长）→ 渲染成 spawn 完成卡，而非普通工具卡。
-  if (ev.ToolName === 'task' && ev.Kind === 'tool_result') return 'spawn-done'
-  if (ev.Kind === 'tool_call') return 'tool-call'
-  return 'tool-result'
-})
+// 卡片类型判定走共享分类器（lib/messageKind，与 ChatThread 分组逻辑同源）。
+const kind = computed(() => classifyMessage(props.msg))
 
 const isUser = computed(() => kind.value === 'user')
 // 叙述类（user / assistant / 推理）带头像；过程类（工具/结果/派发/漏洞）缩进对齐、不重复头像。

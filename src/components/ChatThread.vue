@@ -5,7 +5,9 @@ import { computed, nextTick, ref, watch } from 'vue'
 import type { Message } from '../api/types'
 import { useConversationStore } from '../stores/conversation'
 import { dayKey, dayLabel } from '../lib/format'
+import { classifyMessage, isCollapsibleTool } from '../lib/messageKind'
 import MessageItem from './MessageItem.vue'
+import StepTools from './StepTools.vue'
 import ReasoningCard from './cards/ReasoningCard.vue'
 
 const store = useConversationStore()
@@ -16,14 +18,33 @@ const el = ref<HTMLElement>()
 // （不按 agent 分组：一个 type 如 exploitation 会被 spawn 多个并发实例，按 type 累计会混淆、
 //  按实例又无标识可分；全局序号无歧义）。**每条用户消息重置**：一次指令(发起→结束)是一个计数
 // 周期，追加(follow-up)算新指令、步号从头。配合卡片已有的 agent 标签（编排/侦察/利用）定位「谁的第几步」。
+// 按步分组渲染：reasoning(想)/spawn(派发)/finding(漏洞)/对话 留在外面独立成卡；
+// 紧随某步的普通工具调用(tool-call/tool-result)累积成一个折叠组（StepTools），默认收起、点击展开——
+// 减少噪音。'tools' row 即一段连续工具，遇到非工具消息(或换天)就 flush 收尾。
 type Row =
   | { kind: 'divider'; key: string; label: string }
   | { kind: 'msg'; key: number; msg: Message; step?: number }
+  | { kind: 'tools'; key: string; tools: Message[] }
 const rows = computed<Row[]>(() => {
   const out: Row[] = []
   let lastDay = ''
   let step = 0
+  let bucket: Message[] = [] // 累积的连续工具调用，遇非工具消息时 flush
+  const flush = () => {
+    if (bucket.length) {
+      out.push({ kind: 'tools', key: 'tools-' + bucket[0].Seq, tools: bucket })
+      bucket = []
+    }
+  }
   for (const m of store.messages) {
+    const tag = classifyMessage(m)
+    if (tag === 'hidden') continue
+    // 普通工具调用 → 进折叠桶，不单独成行。
+    if (isCollapsibleTool(tag)) {
+      bucket.push(m)
+      continue
+    }
+    flush() // 非工具消息：先收尾当前工具组
     // 用户指令边界：每条用户消息重置步号（追加 = 新指令 = 新计数周期）。
     if (m.Role === 'user') step = 0
     const day = dayKey(m.CreatedAt)
@@ -32,12 +53,13 @@ const rows = computed<Row[]>(() => {
       lastDay = day
     }
     let stepNo: number | undefined
-    if (m.Metadata?.Kind === 'reasoning') {
+    if (tag === 'reasoning') {
       step += 1
       stepNo = step
     }
     out.push({ kind: 'msg', key: m.Seq, msg: m, step: stepNo })
   }
+  flush() // 末尾残留工具组
   return out
 })
 
@@ -62,6 +84,7 @@ watch(() => store.liveReasoning, stickToBottom)
   <div ref="el" class="thread">
     <template v-for="r in rows" :key="r.key">
       <div v-if="r.kind === 'divider'" class="day-divider"><span>{{ r.label }}</span></div>
+      <StepTools v-else-if="r.kind === 'tools'" :tools="r.tools" />
       <MessageItem v-else :msg="r.msg" :step="r.step" />
     </template>
     <ReasoningCard v-if="store.liveReasoning" :text="store.liveReasoning" streaming />
