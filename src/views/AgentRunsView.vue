@@ -1,30 +1,13 @@
 <script setup lang="ts">
 // Agent 任务页：选 owner → 拉 agent_runs，按 orchestrator_id 拼任务树。
 // orchestrator_id='' 为根（orchestrator），子节点为 exploitation/traffic-analysis。
-import { computed, ref, watch } from 'vue'
+import { computed } from 'vue'
 import OwnerPicker from '../components/OwnerPicker.vue'
 import { listAgentRuns } from '../api/client'
-import type { AgentRun, AgentRunsResponse } from '../api/types'
+import type { AgentRun } from '../api/types'
+import { useOwnerResource } from '../composables/useOwnerResource'
 
-const owner = ref('')
-const data = ref<AgentRunsResponse | null>(null)
-const loading = ref(false)
-const error = ref('')
-
-watch(owner, load)
-async function load() {
-  if (!owner.value) return
-  loading.value = true
-  error.value = ''
-  data.value = null
-  try {
-    data.value = await listAgentRuns(owner.value)
-  } catch (e) {
-    error.value = e instanceof Error ? e.message : '加载失败'
-  } finally {
-    loading.value = false
-  }
-}
+const { owner, data, loading, error } = useOwnerResource(listAgentRuns)
 
 // 树：roots = orchestrator_id==''，children 按 orchestrator_id 归组；落单的归「未归属」。
 const tree = computed(() => {

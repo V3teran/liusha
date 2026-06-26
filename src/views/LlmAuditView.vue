@@ -1,50 +1,35 @@
 <script setup lang="ts">
 // LLM 审计页：选 owner → 拉 llm_invocation（后端按 hunter 分组）。
-// 顶部汇总卡 + 成本环形图 + 每个 hunter 分组的调用明细表。
-import { computed, ref, watch } from 'vue'
+// 顶部汇总卡 + Token 环形图（AntV G2）+ 每个 hunter 分组的调用明细表。
+import { computed } from 'vue'
 import OwnerPicker from '../components/OwnerPicker.vue'
 import DonutChart from '../components/DonutChart.vue'
 import { listLLMInvocations } from '../api/client'
-import type { LLMInvocationsResponse } from '../api/types'
+import { useOwnerResource } from '../composables/useOwnerResource'
 
-const owner = ref('')
-const data = ref<LLMInvocationsResponse | null>(null)
-const loading = ref(false)
-const error = ref('')
-
-watch(owner, load)
-async function load() {
-  if (!owner.value) return
-  loading.value = true
-  error.value = ''
-  data.value = null
-  try {
-    data.value = await listLLMInvocations(owner.value)
-  } catch (e) {
-    error.value = e instanceof Error ? e.message : '加载失败'
-  } finally {
-    loading.value = false
-  }
-}
+const { owner, data, loading, error } = useOwnerResource(listLLMInvocations)
 
 const totals = computed(() => {
   const inv = data.value?.groups.flatMap((g) => g.invocations) ?? []
+  const inTok = inv.reduce((s, v) => s + (v.in_tokens || 0), 0)
+  const outTok = inv.reduce((s, v) => s + (v.out_tokens || 0), 0)
   return {
     count: data.value?.total ?? 0,
-    cost: inv.reduce((s, v) => s + (v.cost_usd || 0), 0),
-    inTok: inv.reduce((s, v) => s + (v.in_tokens || 0), 0),
-    outTok: inv.reduce((s, v) => s + (v.out_tokens || 0), 0),
+    tokens: inTok + outTok,
+    inTok,
+    outTok,
   }
 })
 
-const costData = computed(() =>
+// Token 按 hunter 分布（in+out）：cost_usd 已废弃（迁移 0069 删列），改统计 token 用量。
+// 渲染走 AntV G2 的 DonutChart（echarts 已下线）。
+const tokenData = computed(() =>
   (data.value?.groups ?? []).map((g) => ({
     name: g.hunter_id === 'unassigned' ? '未分配' : g.hunter_id.slice(0, 8),
-    value: +g.invocations.reduce((s, v) => s + (v.cost_usd || 0), 0).toFixed(4),
+    value: g.invocations.reduce((s, v) => s + (v.in_tokens || 0) + (v.out_tokens || 0), 0),
   }))
 )
 
-const fmtUsd = (n: number) => `$${n.toFixed(4)}`
 const fmtNum = (n: number) => n.toLocaleString()
 </script>
 
@@ -63,14 +48,14 @@ const fmtNum = (n: number) => n.toLocaleString()
       <template v-else>
         <div class="stat-grid">
           <div class="stat-card"><div class="sv">{{ totals.count }}</div><div class="sl">总调用次数</div></div>
-          <div class="stat-card"><div class="sv">{{ fmtUsd(totals.cost) }}</div><div class="sl">总成本 (USD)</div></div>
+          <div class="stat-card"><div class="sv">{{ fmtNum(totals.tokens) }}</div><div class="sl">总 tokens</div></div>
           <div class="stat-card"><div class="sv">{{ fmtNum(totals.inTok) }}</div><div class="sl">输入 tokens</div></div>
           <div class="stat-card"><div class="sv">{{ fmtNum(totals.outTok) }}</div><div class="sl">输出 tokens</div></div>
         </div>
 
         <div class="panel">
-          <p class="panel-title">成本按 hunter 分布</p>
-          <DonutChart class="chart" :data="costData" :value-format="fmtUsd" />
+          <p class="panel-title">Token 按 hunter 分布</p>
+          <DonutChart class="chart" :data="tokenData" :value-format="fmtNum" />
         </div>
 
         <div v-for="g in data.groups" :key="g.hunter_id" class="panel">
@@ -80,7 +65,7 @@ const fmtNum = (n: number) => n.toLocaleString()
           </p>
           <table class="dtable">
             <thead>
-              <tr><th>模型</th><th>in</th><th>out</th><th>cached</th><th>成本</th><th>延迟</th><th>结束原因</th></tr>
+              <tr><th>模型</th><th>in</th><th>out</th><th>cached</th><th>延迟</th><th>结束原因</th></tr>
             </thead>
             <tbody>
               <tr v-for="v in g.invocations" :key="v.id">
@@ -88,7 +73,6 @@ const fmtNum = (n: number) => n.toLocaleString()
                 <td>{{ fmtNum(v.in_tokens) }}</td>
                 <td>{{ fmtNum(v.out_tokens) }}</td>
                 <td>{{ fmtNum(v.cached_tokens) }}</td>
-                <td class="mono">{{ fmtUsd(v.cost_usd) }}</td>
                 <td>{{ v.latency_ms }}ms</td>
                 <td :class="{ 'state-err': !!v.error_message }">{{ v.error_message || v.finish_reason || '—' }}</td>
               </tr>

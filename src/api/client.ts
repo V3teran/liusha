@@ -7,6 +7,7 @@
 
 import type {
   Conversation,
+  ConversationUsage,
   Message,
   Role,
   OwnerSummary,
@@ -104,13 +105,53 @@ export async function listConversations(): Promise<Conversation[]> {
 }
 
 /**
- * 获取对话中的消息
+ * 获取对话中的消息（自动分页拉全）。
+ *
+ * 后端单次返回上限 500 条（clampLimit），长会话（active 扫描动辄上千条事件）一次拉不完。
+ * 故内部循环按 after_seq 翻页直到拉空——否则打开/刷新长会话只显示前 500 条，
+ * 停在中途某条（实测停在 orchestrator 收尾报告之前，用户看不到最终结果）。
+ *
  * @param convID 对话 ID
- * @param afterSeq 仅返回 Seq > afterSeq 的消息（默认 0 = 全部）
+ * @param afterSeq 起始游标，仅返回 Seq > afterSeq 的消息（默认 0 = 从头拉全）
  */
 export async function listMessages(convID: string, afterSeq = 0): Promise<Message[]> {
-  return (await get<{ messages: Message[] }>(`/conversations/${convID}/messages?after_seq=${afterSeq}`))
-    .messages
+  const PAGE = 500 // 与后端 maxListLimit 对齐：返回 < PAGE 即最后一页
+  const all: Message[] = []
+  let cursor = afterSeq
+  for (;;) {
+    const page = (
+      await get<{ messages: Message[] }>(`/conversations/${convID}/messages?after_seq=${cursor}`)
+    ).messages
+    if (page.length === 0) break
+    all.push(...page)
+    cursor = page[page.length - 1].Seq
+    if (page.length < PAGE) break
+  }
+  return all
+}
+
+/**
+ * 拉取本对话的用量合计（权威：后端 SUM llm_invocation + tool_invocation）。
+ * 用于会话头部 token / 耗时 chip，支持轮询实时刷新。
+ */
+export async function getConversationUsage(convID: string): Promise<ConversationUsage> {
+  return get<ConversationUsage>(`/conversations/${convID}/usage`)
+}
+
+/**
+ * 为某会话签发/刷新 SSE 鉴权 cookie（HttpOnly）。
+ *
+ * EventSource 不能带 X-API-Key header，只能靠 cookie 鉴权。打开任意会话前、SSE 断线
+ * 重连前调本端点（用 X-API-Key 换取 stream cookie），再开 EventSource——根治"打开旧
+ * 会话 / 长扫描 / 重连"实时推送失效。credentials:'include' 让浏览器收下 Set-Cookie。
+ */
+export async function authStream(convID: string): Promise<void> {
+  const res = await fetch(`/api/conversations/${convID}/stream-auth`, {
+    method: 'POST',
+    headers: { 'X-API-Key': getApiKey() },
+    credentials: 'include',
+  })
+  if (!res.ok) throw new Error(`stream-auth ${convID} → ${res.status}`)
 }
 
 /**

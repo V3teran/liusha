@@ -57,6 +57,24 @@ export interface Conversation {
 }
 
 /**
+ * 对话用量合计（GET /conversations/:id/usage）
+ * 权威口径：后端 SUM llm_invocation + tool_invocation（覆盖纯 tool_call 调用 + 缓存 token），
+ * 非前端按 SSE 事件求和。小写键（Go gin.H DTO）。
+ */
+export interface ConversationUsage {
+  conversation_id: string
+  owner_id: string // 纯聊天对话为空
+  tokens: { in: number; out: number; cached: number; total: number }
+  llm_latency_ms: number // 所有 LLM 调用耗时合计（明细）
+  tool_duration_ms: number // 所有工具执行耗时合计（明细）
+  duration_ms: number // 墙钟：发起→完成真实流逝（"我等了多久"，前端"耗时"展示用此）
+  work_ms: number // Σ(LLM latency + 工具 duration)，因子代理并发累加 > 墙钟，仅明细参考
+  llm_calls: number
+  tool_calls: number
+  running: boolean // 是否仍有运行中的扫描（权威：后端 owner 终态）
+}
+
+/**
  * 扫描角色（来自 /roles 端点）
  * 小写键（Go DTO 格式）
  */
@@ -174,7 +192,6 @@ export interface LLMInvocation {
   in_tokens: number
   out_tokens: number
   cached_tokens: number
-  cost_usd: number
   latency_ms: number
   finish_reason: string
   error_message: string

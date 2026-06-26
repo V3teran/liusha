@@ -1,36 +1,15 @@
 <script setup lang="ts">
 // 攻击面页：选 owner（仅 active 模式有数据）→ 拉 sitemap 树。
 // 渲染 root → domain → endpoint(method+path) → findings(severity tag + summary)。
-import { computed, ref, watch } from 'vue'
+import { computed } from 'vue'
 import OwnerPicker from '../components/OwnerPicker.vue'
 import { getSitemap } from '../api/client'
-import type { SitemapView, SitemapNode } from '../api/types'
+import type { SitemapNode } from '../api/types'
 import { severityTagColor } from '../lib/severity'
+import { useOwnerResource } from '../composables/useOwnerResource'
 
-const owner = ref('')
-const data = ref<SitemapView | null>(null)
-const loading = ref(false)
-const error = ref('')
-const notActive = ref(false)
-
-watch(owner, load)
-async function load() {
-  if (!owner.value) return
-  loading.value = true
-  error.value = ''
-  notActive.value = false
-  data.value = null
-  try {
-    data.value = await getSitemap(owner.value)
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : '加载失败'
-    // 404 多半是 passive 模式 / owner 不存在
-    if (msg.includes('404')) notActive.value = true
-    else error.value = msg
-  } finally {
-    loading.value = false
-  }
-}
+// notActive：getSitemap 对 passive owner 返 404，统一映射为"无攻击面数据"提示而非错误。
+const { owner, data, loading, error, notActive } = useOwnerResource(getSitemap)
 
 // root.children = domains；每个 domain.children = endpoints。
 const domains = computed<SitemapNode[]>(() => data.value?.root?.children ?? [])

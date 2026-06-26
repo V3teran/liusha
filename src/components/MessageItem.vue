@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import type { Message } from '../api/types'
+import { clockTime, fullTime } from '../lib/format'
 import Avatar from './cards/Avatar.vue'
 import UserBubble from './cards/UserBubble.vue'
 import AssistantText from './cards/AssistantText.vue'
@@ -23,7 +24,14 @@ const kind = computed(() => {
   if (ev.Kind === 'reasoning') return 'reasoning'
   if (ev.Kind === 'spawn') return 'spawn'
   if (ev.ToolName === 'write_finding') {
-    return ev.Kind === 'tool_call' && !ev.Err ? 'finding' : 'hidden'
+    if (ev.Kind !== 'tool_call' || ev.Err) return 'hidden'
+    // 残缺 finding（缺 summary）：工具会报错、agent 随后补全重发 → 不渲染成「INFO 无标题」怪卡。
+    try {
+      if (!JSON.parse(ev.Args || '{}').summary) return 'hidden'
+    } catch {
+      return 'hidden'
+    }
+    return 'finding'
   }
   // task 的 tool_result = 派发完成（带子代理执行总时长）→ 渲染成 spawn 完成卡，而非普通工具卡。
   if (ev.ToolName === 'task' && ev.Kind === 'tool_result') return 'spawn-done'
@@ -34,13 +42,6 @@ const kind = computed(() => {
 const isUser = computed(() => kind.value === 'user')
 // 叙述类（user / assistant / 推理）带头像；过程类（工具/结果/派发/漏洞）缩进对齐、不重复头像。
 const showAvatar = computed(() => ['user', 'assistant', 'reasoning'].includes(kind.value))
-
-// 每条可见消息显示发送时刻（绝对时间 HH:mm:ss，24 小时制本地时区）。
-// 随消息侧对齐（user 右 / agent 左由 .msg-content 的 align-items 控制）。
-const time = computed(() => {
-  const s = props.msg.CreatedAt
-  return s ? new Date(s).toLocaleTimeString('zh-CN', { hour12: false }) : ''
-})
 </script>
 
 <template>
@@ -81,7 +82,14 @@ const time = computed(() => {
         :err="msg.Metadata!.Err"
         :agent-name="msg.Metadata!.AgentName"
       />
-      <time v-if="time" class="msg-time">{{ time }}</time>
+      <time
+        v-if="msg.CreatedAt"
+        class="msg-time"
+        :datetime="msg.CreatedAt"
+        :title="fullTime(msg.CreatedAt)"
+      >
+        {{ clockTime(msg.CreatedAt) }}
+      </time>
     </div>
   </div>
 </template>
@@ -112,8 +120,9 @@ const time = computed(() => {
   margin-top: 3px;
   font-size: 11px;
   line-height: 1;
-  color: var(--ant-color-text-quaternary, #9aa0a6);
-  font-variant-numeric: tabular-nums;
-  user-select: none;
+  color: var(--muted);
+  font-family: var(--mono);
+  opacity: 0.55;
+  cursor: default;
 }
 </style>

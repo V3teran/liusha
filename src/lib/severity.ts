@@ -7,7 +7,7 @@ export const severityColor: Record<string, string> = {
   info: '#58a6ff',
 }
 
-// 生成 Naive n-tag 的自定义配色对象（淡底 + 同色字/边）。
+// 生成标签徽章的三件套配色（淡底 + 同色字 + 同色边），供 FindingCard 徽章用。
 export function severityTagColor(sev: string) {
   const c = severityColor[sev.toLowerCase()] ?? '#6e7681'
   return { color: c + '22', textColor: c, borderColor: c + '55' }
