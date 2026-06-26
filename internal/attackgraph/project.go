@@ -30,7 +30,34 @@ func Project(ownerID string, messages []conversation.Message, findings []finding
 
 	nodes := append(append([]Node{}, tNodes...), fg.Nodes...)
 	edges := append(append(append([]Edge{}, tEdges...), fg.Edges...), evidenceEdges...)
+	markOnPath(nodes) // 标记成果路径（通向 finding 的主干），前端「成果优先」据此默认折叠死路
 	return Graph{OwnerID: ownerID, Nodes: nodes, Edges: edges}
+}
+
+// markOnPath 标记「成果路径」节点：从每个 finding 沿 ParentID 上溯到根，
+// 路径上的 想/做/派/漏洞 全置 OnPath=true；其余是死路/探索（OnPath=false）。
+//
+// 这是「成果优先」视图的数据基础——把上千步轨迹里真正通向漏洞的主干择出来。
+// 死路不删（轨迹留全，调试/审计仍可下钻），只供前端在视图层默认折叠。
+// 复杂度 O(路径总长)：每个节点最多被标记一次（已标记即剪枝上溯）。
+func markOnPath(nodes []Node) {
+	idx := make(map[string]int, len(nodes))
+	for i := range nodes {
+		idx[nodes[i].ID] = i
+	}
+	for i := range nodes {
+		if nodes[i].Kind != KindFinding {
+			continue
+		}
+		for cur := nodes[i].ID; cur != ""; {
+			j, ok := idx[cur]
+			if !ok || nodes[j].OnPath {
+				break // 越界（脏父指针）/ 已标记 → 剪枝
+			}
+			nodes[j].OnPath = true
+			cur = nodes[j].ParentID
+		}
+	}
 }
 
 // findingTitleMax 是漏洞节点短标签的最长字符数（原文不入节点，只留可读摘要，见设计 §6）。

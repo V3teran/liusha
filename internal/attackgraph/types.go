@@ -33,6 +33,7 @@ type Node struct {
 	Ref      string `json:"ref,omitempty"`        // 指针：finding id / message id，点开取原文
 	Severity string `json:"severity,omitempty"`   // 漏洞节点配色用
 	Status   string `json:"status,omitempty"`     // 动作节点：done / error（实时态另有 running）
+	OnPath   bool   `json:"on_path"`              // 成果路径：通向某 finding（前端「成果优先」默认展开）；false=死路/探索，默认折叠
 }
 
 // Edge 是有向边。

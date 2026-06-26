@@ -100,3 +100,40 @@ func TestFindingSubgraphNodeFields(t *testing.T) {
 		t.Errorf("Title = %q, 期望仅首行", n.Title)
 	}
 }
+
+// TestMarkOnPath：成果路径标记——从 finding 沿 ParentID 上溯到根的节点 OnPath=true，
+// 不通向任何 finding 的死路分支保持 false（前端「成果优先」据此默认折叠死路）。
+func TestMarkOnPath(t *testing.T) {
+	// root─┬─a1（产出 f1）── f1
+	//      └─dead1 ── dead2   （死路：不通向任何 finding）
+	nodes := []Node{
+		{ID: "root", Kind: KindReasoning},
+		{ID: "a1", Kind: KindAction, ParentID: "root"},
+		{ID: "dead1", Kind: KindReasoning, ParentID: "root"},
+		{ID: "dead2", Kind: KindAction, ParentID: "dead1"},
+		{ID: "f1", Kind: KindFinding, ParentID: "a1"},
+	}
+	markOnPath(nodes)
+
+	want := map[string]bool{"root": true, "a1": true, "f1": true, "dead1": false, "dead2": false}
+	for _, n := range nodes {
+		if n.OnPath != want[n.ID] {
+			t.Errorf("节点 %s OnPath=%v，期望 %v", n.ID, n.OnPath, want[n.ID])
+		}
+	}
+}
+
+// TestMarkOnPath_OrphanFinding：未挂到动作的孤儿 finding（ParentID 空）只标记自己，不 panic。
+func TestMarkOnPath_OrphanFinding(t *testing.T) {
+	nodes := []Node{
+		{ID: "root", Kind: KindReasoning},
+		{ID: "f-orphan", Kind: KindFinding}, // 无 ParentID
+	}
+	markOnPath(nodes)
+	if !nodes[1].OnPath {
+		t.Error("孤儿 finding 自身应 OnPath=true")
+	}
+	if nodes[0].OnPath {
+		t.Error("无关 root 不应被孤儿 finding 标记")
+	}
+}
