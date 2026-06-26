@@ -250,11 +250,11 @@ function toG6(g: AttackGraph | null, collapse: boolean) {
   // →根占位「🎯 侦察与初始访问」，给叙事一个头（修复"上来就一通派发"的突兀）。
   const exp = expandedAnchors.value
   const visible = (id: string) => keptIds.has(id) || exp.has(nearestKept(id))
+  // 每段折叠节点数：始终统计（不因展开跳过）——占位节点常驻作 toggle 锚点，展开后变「▾ 收起」再点收回。
   const hiddenCount: Record<string, number> = {}
   for (const n of g.nodes) {
     if (keptIds.has(n.id)) continue
     const a = nearestKept(n.id)
-    if (exp.has(a)) continue // 已展开的段不折叠
     hiddenCount[a] = (hiddenCount[a] ?? 0) + 1
   }
 
@@ -267,14 +267,16 @@ function toG6(g: AttackGraph | null, collapse: boolean) {
   }
   for (const [a, count] of Object.entries(hiddenCount)) {
     const opening = a === ''
+    const isExpanded = exp.has(a)
+    // 展开态：「▾ 收起 N 步」；折叠态：开场「🎯 侦察与初始访问 · N 步 ▸」/ 其余「▸ 探索 N 步」。
+    const label = isExpanded
+      ? `▾ 收起 ${count} 步`
+      : opening
+        ? `🎯 侦察与初始访问 · ${count} 步 ▸`
+        : `▸ 探索 ${count} 步`
     nodes.push({
       id: phId(a),
-      data: {
-        kind: 'collapsed',
-        label: opening ? `🎯 侦察与初始访问 · ${count} 步 ▸` : `▸ 探索 ${count} 步`,
-        collapsed: true,
-        anchor: a,
-      },
+      data: { kind: 'collapsed', label, collapsed: true, expanded: isExpanded, anchor: a },
     })
   }
 
@@ -287,7 +289,9 @@ function toG6(g: AttackGraph | null, collapse: boolean) {
     else addEdge(phId(nearestKept(p)), n.id, 'flow')
   }
   for (const a of Object.keys(hiddenCount)) {
-    if (a !== '') addEdge(a, phId(a), 'flow') // 开场占位 anchor='' 无父 → 自然成根
+    // 占位挂 anchor 下（折叠态="展开"入口；展开态="收起"按钮，与展开出的真实节点平级）。
+    // anchor='' 开场段无保留祖先 → 占位无父，自然成图根。
+    if (a !== '') addEdge(a, phId(a), 'flow')
   }
   // 成果边（evidence/depends_on）：两端可见才连。
   for (const e of g.edges) {
@@ -319,14 +323,16 @@ onMounted(() => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       style: (d: any) => {
         const kind = d.data?.kind
-        // 折叠占位节点：虚线空心圆 + 标签（点击展开该探索段）。
+        // 折叠占位节点：点击 toggle 展开/收起该探索段。
+        // 折叠态=虚线空心（「▸ 展开」提示）；展开态=实心淡填充（「▾ 收起」按钮，提示可点回）。
         if (kind === 'collapsed') {
+          const isExpanded = d.data?.expanded === true
           return {
             size: 20,
-            fill: 'transparent',
+            fill: isExpanded ? 'rgba(176,124,255,0.18)' : 'transparent',
             stroke: AGENT_COLOR,
             lineWidth: 1.5,
-            lineDash: [3, 3],
+            lineDash: isExpanded ? undefined : [3, 3],
             labelText: d.data?.label ?? '',
             labelFill: C.text,
             labelFontSize: 11,
@@ -390,11 +396,12 @@ onMounted(() => {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   graph.on(NodeEvent.CLICK, (evt: any) => {
     const id = evt.target?.id
-    // 占位节点：展开该折叠段（渐进披露），不钻取原文。
+    // 占位节点：toggle 该折叠段（展开 ⇄ 收起，渐进披露），不钻取原文。
     if (typeof id === 'string' && id.startsWith('__ph_')) {
       const anchor = id === '__ph_root__' ? '' : id.slice('__ph_'.length)
       const s = new Set(expandedAnchors.value)
-      s.add(anchor)
+      if (s.has(anchor)) s.delete(anchor)
+      else s.add(anchor)
       expandedAnchors.value = s
       renderGraph()
       return
