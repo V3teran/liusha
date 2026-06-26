@@ -22,8 +22,13 @@ describe('MessageItem 分发', () => {
     const w = mount(MessageItem, { props: { msg: mk({ Metadata: { Kind: 'tool_result', ToolName: 'x', Args: '', Result: '', DurationMs: 5, Err: 'boom' } }) } })
     expect(w.find('[data-card="tool-result"][data-error="true"]').exists()).toBe(true)
   })
-  it('write_finding 结果 → FindingCard', () => {
-    const w = mount(MessageItem, { props: { msg: mk({ Metadata: { Kind: 'tool_result', ToolName: 'write_finding', Args: '', Result: 'SQLi at /login', DurationMs: 3, Err: '' } }) } })
+  // write_finding 的 tool_call（带 Args=漏洞详情）→ finding 卡；tool_result（仅 {id}）→ hidden（见 MessageItem kind 逻辑）。
+  it('write_finding tool_call → FindingCard', () => {
+    const w = mount(MessageItem, { props: { msg: mk({ Metadata: { Kind: 'tool_call', ToolName: 'write_finding', Args: 'SQLi at /login', Result: '', DurationMs: 3, Err: '' } }) } })
     expect(w.find('[data-card="finding"]').exists()).toBe(true)
+  })
+  it('write_finding tool_result → 隐藏（仅 {id} 无展示价值）', () => {
+    const w = mount(MessageItem, { props: { msg: mk({ Metadata: { Kind: 'tool_result', ToolName: 'write_finding', Args: '', Result: '{"id":"x"}', DurationMs: 3, Err: '' } }) } })
+    expect(w.find('.msg-row').exists()).toBe(false)
   })
 })

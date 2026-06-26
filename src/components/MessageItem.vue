@@ -34,6 +34,13 @@ const kind = computed(() => {
 const isUser = computed(() => kind.value === 'user')
 // 叙述类（user / assistant / 推理）带头像；过程类（工具/结果/派发/漏洞）缩进对齐、不重复头像。
 const showAvatar = computed(() => ['user', 'assistant', 'reasoning'].includes(kind.value))
+
+// 每条可见消息显示发送时刻（绝对时间 HH:mm:ss，24 小时制本地时区）。
+// 随消息侧对齐（user 右 / agent 左由 .msg-content 的 align-items 控制）。
+const time = computed(() => {
+  const s = props.msg.CreatedAt
+  return s ? new Date(s).toLocaleTimeString('zh-CN', { hour12: false }) : ''
+})
 </script>
 
 <template>
@@ -74,6 +81,7 @@ const showAvatar = computed(() => ['user', 'assistant', 'reasoning'].includes(ki
         :err="msg.Metadata!.Err"
         :agent-name="msg.Metadata!.AgentName"
       />
+      <time v-if="time" class="msg-time">{{ time }}</time>
     </div>
   </div>
 </template>
@@ -99,5 +107,13 @@ const showAvatar = computed(() => ['user', 'assistant', 'reasoning'].includes(ki
 }
 .msg-row.mine .msg-content {
   align-items: flex-end;
+}
+.msg-time {
+  margin-top: 3px;
+  font-size: 11px;
+  line-height: 1;
+  color: var(--ant-color-text-quaternary, #9aa0a6);
+  font-variant-numeric: tabular-nums;
+  user-select: none;
 }
 </style>
