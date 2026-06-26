@@ -17,6 +17,7 @@ const selected = ref<AttackGraphNode | null>(null)
 const contentByRef = ref<Record<string, string>>({}) // message id → 完整原文（点节点钻取）
 const live = ref(true) // 实时轮询开关（扫描过程中观测）
 const simplified = ref(true) // 成果优先：默认只显示通向漏洞的主干路径，折叠死路探索（默认开，大图才可读）
+const expandedAnchors = ref<Set<string>>(new Set()) // 已展开的折叠段（按最近保留祖先 id；'' = 开场侦察段）
 const currentConv = ref('')
 const milestones = ref<Milestone[]>([]) // 里程碑摘要（按需 LLM 生成）
 const milestonesLoading = ref(false)
@@ -141,7 +142,10 @@ function stopPoll() {
 }
 
 watch(live, (v) => (v ? startPoll() : stopPoll()))
-watch(simplified, renderGraph) // 切换精简/完整即重渲染
+watch(simplified, () => {
+  expandedAnchors.value = new Set() // 切换成果优先/完整时重置已展开的折叠段
+  renderGraph()
+})
 
 function kindLabel(k: string): string {
   return k === 'reasoning' ? '想' : k === 'action' ? '做' : k === 'agent' ? '派' : '漏洞'
@@ -213,30 +217,82 @@ function toG6(g: AttackGraph | null, collapse: boolean) {
     return keptIds.has(p) ? p : ''
   }
 
-  const nodes = g.nodes.filter(kept).map((n) => ({
-    id: n.id,
-    // dim：完整模式下给死路（!on_path）降透明度，一眼区分主干/死路；成果优先模式保留的都是关键节点，不降。
-    data: {
-      kind: n.kind,
-      label: n.title,
-      status: n.status ?? '',
-      severity: n.severity ?? '',
-      dim: !collapse && n.on_path !== true,
-    },
-  }))
+  // 占位节点 id 前缀（折叠段 → 可展开占位）。
+  const phId = (a: string) => (a === '' ? '__ph_root__' : `__ph_${a}`)
 
-  const edges: { id: string; source: string; target: string; data: { type: string } }[] = []
+  type G6Node = { id: string; data: Record<string, unknown> }
+  type G6Edge = { id: string; source: string; target: string; data: { type: string } }
+  const nodes: G6Node[] = []
+  const edges: G6Edge[] = []
   const seenEdge = new Set<string>()
   let i = 0
+  const addEdge = (src: string, tgt: string, type: string) => {
+    if (!src || !tgt || src === tgt) return
+    const k = `${src}->${tgt}:${type}`
+    if (seenEdge.has(k)) return
+    seenEdge.add(k)
+    edges.push({ id: `e${i++}`, source: src, target: tgt, data: { type } })
+  }
+
+  // 完整模式：全节点（死路 dim 降权）+ 原边，不折叠。
+  if (!collapse) {
+    for (const n of g.nodes) {
+      nodes.push({
+        id: n.id,
+        data: { kind: n.kind, label: n.title, status: n.status ?? '', severity: n.severity ?? '', dim: n.on_path !== true, collapsed: false },
+      })
+    }
+    for (const e of g.edges) addEdge(e.from, e.to, e.type)
+    return { nodes, edges }
+  }
+
+  // 成果优先：折叠段→可展开占位（渐进披露，对齐 CAI/Strix）；开场侦察段（anchor='' 无保留祖先）
+  // →根占位「🎯 侦察与初始访问」，给叙事一个头（修复"上来就一通派发"的突兀）。
+  const exp = expandedAnchors.value
+  const visible = (id: string) => keptIds.has(id) || exp.has(nearestKept(id))
+  const hiddenCount: Record<string, number> = {}
+  for (const n of g.nodes) {
+    if (keptIds.has(n.id)) continue
+    const a = nearestKept(n.id)
+    if (exp.has(a)) continue // 已展开的段不折叠
+    hiddenCount[a] = (hiddenCount[a] ?? 0) + 1
+  }
+
+  for (const n of g.nodes) {
+    if (!visible(n.id)) continue
+    nodes.push({
+      id: n.id,
+      data: { kind: n.kind, label: n.title, status: n.status ?? '', severity: n.severity ?? '', dim: false, collapsed: false },
+    })
+  }
+  for (const [a, count] of Object.entries(hiddenCount)) {
+    const opening = a === ''
+    nodes.push({
+      id: phId(a),
+      data: {
+        kind: 'collapsed',
+        label: opening ? `🎯 侦察与初始访问 · ${count} 步 ▸` : `▸ 探索 ${count} 步`,
+        collapsed: true,
+        anchor: a,
+      },
+    })
+  }
+
+  // flow 骨干：parent_id 重建，父隐藏 → 连到父所在折叠段占位。
+  for (const n of g.nodes) {
+    if (!visible(n.id)) continue
+    const p = n.parent_id ?? ''
+    if (!p) continue
+    if (visible(p)) addEdge(p, n.id, 'flow')
+    else addEdge(phId(nearestKept(p)), n.id, 'flow')
+  }
+  for (const a of Object.keys(hiddenCount)) {
+    if (a !== '') addEdge(a, phId(a), 'flow') // 开场占位 anchor='' 无父 → 自然成根
+  }
+  // 成果边（evidence/depends_on）：两端可见才连。
   for (const e of g.edges) {
-    // 两端都保留 → 原样；折叠端 → 重连到最近保留祖先（消除断边）。
-    const src = keptIds.has(e.from) ? e.from : nearestKept(e.from)
-    const tgt = keptIds.has(e.to) ? e.to : nearestKept(e.to)
-    if (!src || !tgt || src === tgt) continue
-    const key = `${src}->${tgt}:${e.type}`
-    if (seenEdge.has(key)) continue
-    seenEdge.add(key)
-    edges.push({ id: `e${i++}`, source: src, target: tgt, data: { type: e.type } })
+    if (e.type === 'flow') continue
+    if (visible(e.from) && visible(e.to)) addEdge(e.from, e.to, e.type)
   }
   return { nodes, edges }
 }
@@ -263,6 +319,27 @@ onMounted(() => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       style: (d: any) => {
         const kind = d.data?.kind
+        // 折叠占位节点：虚线空心圆 + 标签（点击展开该探索段）。
+        if (kind === 'collapsed') {
+          return {
+            size: 20,
+            fill: 'transparent',
+            stroke: AGENT_COLOR,
+            lineWidth: 1.5,
+            lineDash: [3, 3],
+            labelText: d.data?.label ?? '',
+            labelFill: C.text,
+            labelFontSize: 11,
+            labelPlacement: 'right',
+            labelMaxLines: 2,
+            labelWordWrap: true,
+            labelMaxWidth: 160,
+            labelBackground: true,
+            labelBackgroundFill: 'rgba(0,0,0,0.45)',
+            labelBackgroundRadius: 3,
+            labelPadding: [1, 4],
+          }
+        }
         const isErr = d.data?.status === 'error'
         const fill =
           kind === 'finding'
@@ -313,6 +390,15 @@ onMounted(() => {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   graph.on(NodeEvent.CLICK, (evt: any) => {
     const id = evt.target?.id
+    // 占位节点：展开该折叠段（渐进披露），不钻取原文。
+    if (typeof id === 'string' && id.startsWith('__ph_')) {
+      const anchor = id === '__ph_root__' ? '' : id.slice('__ph_'.length)
+      const s = new Set(expandedAnchors.value)
+      s.add(anchor)
+      expandedAnchors.value = s
+      renderGraph()
+      return
+    }
     selected.value = nodes.value.find((n) => n.id === id) ?? null
   })
   graph.on(CanvasEvent.CLICK, () => {
