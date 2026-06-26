@@ -167,8 +167,12 @@ function readColors() {
   }
 }
 
-const AGENT_COLOR = '#b07cff'
-const ERROR_COLOR = '#e5484d'
+// 节点种类配色（想/做/派/死路）刻意避开漏洞 severity 的「红橙黄」威胁色域，彼此色相也分开：
+// 想=青、做=绿、派=紫、死路=暗灰(+红描边标失败)。漏洞用 severityColor（红橙黄灰蓝）独占威胁色。
+const REASONING_COLOR = '#22d3ee' // 想：青（区别于 severity-info 的蓝 #58a6ff）
+const AGENT_COLOR = '#b07cff' // 派：紫
+const ERROR_COLOR = '#e5484d' // 死路描边：红（仅描边标失败，填充用暗灰，避免抢 severity-critical 的红）
+const DEAD_FILL = '#475569' // 死路填充：暗石板灰（弱化无果尝试，不撞 critical 红）
 
 // toG6 把图转 G6 格式。collapse=true（成果优先，默认）时只保留「成果路径」——通向漏洞的
 // 主干（on_path）+ 子代理泳道（agent）+ 全部漏洞（finding）；把死路/探索（!on_path 的想/做，
@@ -351,11 +355,11 @@ onMounted(() => {
           kind === 'finding'
             ? severityColor[d.data?.severity] ?? '#6e7681'
             : kind === 'reasoning'
-              ? C.accent
+              ? REASONING_COLOR
               : kind === 'agent'
                 ? AGENT_COLOR
                 : isErr
-                  ? ERROR_COLOR
+                  ? DEAD_FILL
                   : C.primary
         return {
           size: kind === 'finding' ? 30 : 24,
@@ -509,11 +513,11 @@ onBeforeUnmount(() => {
 .ms-summary { margin: 0; font-size: 13px; line-height: 1.5; color: var(--text); }
 .lg { display: inline-flex; align-items: center; gap: 5px; }
 .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
-.dot.reasoning { background: var(--accent); }
+.dot.reasoning { background: #22d3ee; }
 .dot.action { background: var(--primary); }
 .dot.agent { background: #b07cff; }
 .dot.finding { background: #f85149; }
-.dot.err { background: #e5484d; }
+.dot.err { background: #475569; border: 1px solid #e5484d; }
 
 .graph-body { position: relative; flex: 1; min-height: 420px; }
 .graph-canvas { position: absolute; inset: 0; }
@@ -541,7 +545,7 @@ onBeforeUnmount(() => {
 }
 .detail header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
 .d-kind { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 4px; color: #fff; }
-.d-kind.k-reasoning { background: var(--accent); }
+.d-kind.k-reasoning { background: #22d3ee; }
 .d-kind.k-action { background: var(--primary); }
 .d-kind.k-agent { background: #b07cff; }
 .d-kind.k-finding { background: #f85149; }
