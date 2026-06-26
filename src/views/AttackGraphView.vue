@@ -324,6 +324,18 @@ onMounted(() => {
     layout: { type: 'antv-dagre', rankdir: 'TB', nodesep: 18, ranksep: 28 },
     behaviors: ['zoom-canvas', 'drag-canvas', 'drag-element'],
     node: {
+      // 形状+颜色双编码：节点种类用形状区分（想=圆/做=菱形/派=六边形/死路=方块/漏洞=星），
+      // 即便颜色与 severity 接近也一眼可辨。颜色另由 style.fill 表达（漏洞=severity 威胁色）。
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      type: (d: any) => {
+        const kind = d.data?.kind
+        if (kind === 'finding') return 'star'
+        if (kind === 'reasoning') return 'circle'
+        if (kind === 'agent') return 'hexagon'
+        if (kind === 'collapsed') return 'circle'
+        // action：成功=菱形，失败(死路)=方块
+        return d.data?.status === 'error' ? 'rect' : 'diamond'
+      },
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       style: (d: any) => {
         const kind = d.data?.kind
@@ -362,7 +374,8 @@ onMounted(() => {
                   ? DEAD_FILL
                   : C.primary
         return {
-          size: kind === 'finding' ? 30 : 24,
+          // star 视觉占面积小，放大到 38 突出漏洞；其余形状 24。
+          size: kind === 'finding' ? 38 : 24,
           opacity: d.data?.dim ? 0.28 : 1, // 完整模式死路淡显（dim），主干/成果亮
           fill,
           stroke: isErr ? ERROR_COLOR : 'rgba(255,255,255,0.18)',
@@ -433,11 +446,11 @@ onBeforeUnmount(() => {
     <div class="page-toolbar">
       <OwnerPicker v-model="owner" mode-filter="active" />
       <div v-if="nodes.length" class="legend">
-        <span class="lg"><i class="dot reasoning" />想</span>
-        <span class="lg"><i class="dot action" />做</span>
-        <span class="lg"><i class="dot agent" />派</span>
-        <span class="lg"><i class="dot finding" />漏洞</span>
-        <span class="lg"><i class="dot err" />死路</span>
+        <span class="lg"><i class="sym reasoning">●</i>想</span>
+        <span class="lg"><i class="sym action">◆</i>做</span>
+        <span class="lg"><i class="sym agent">⬡</i>派</span>
+        <span class="lg"><i class="sym finding">★</i>漏洞</span>
+        <span class="lg"><i class="sym err">■</i>死路</span>
       </div>
       <a-button v-if="nodes.length" size="small" :loading="milestonesLoading" style="margin-left: auto" @click="loadMilestones">
         里程碑摘要
@@ -512,12 +525,12 @@ onBeforeUnmount(() => {
 .ms-count { font-size: 11px; color: var(--muted); }
 .ms-summary { margin: 0; font-size: 13px; line-height: 1.5; color: var(--text); }
 .lg { display: inline-flex; align-items: center; gap: 5px; }
-.dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
-.dot.reasoning { background: #22d3ee; }
-.dot.action { background: var(--primary); }
-.dot.agent { background: #b07cff; }
-.dot.finding { background: #f85149; }
-.dot.err { background: #475569; border: 1px solid #e5484d; }
+.sym { font-size: 12px; line-height: 1; font-style: normal; }
+.sym.reasoning { color: #22d3ee; }
+.sym.action { color: var(--primary); }
+.sym.agent { color: #b07cff; }
+.sym.finding { color: #f85149; }
+.sym.err { color: #e5484d; }
 
 .graph-body { position: relative; flex: 1; min-height: 420px; }
 .graph-canvas { position: absolute; inset: 0; }
