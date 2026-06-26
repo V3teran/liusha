@@ -398,8 +398,10 @@ onMounted(() => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       style: (d: any) => {
         const t = d.data?.type
-        // flow 主干实线灰；depends_on 蓝虚线；evidence（动作→漏洞）红虚线
-        const stroke = t === 'depends_on' ? C.accent : t === 'evidence' ? '#f85149' : C.border
+        // flow 主干实线灰；depends_on 蓝虚线；evidence（动作→漏洞）洋红虚线。
+        // evidence 用洋红 #d957c7（非威胁色）——它是「证据指向」语义，避开 severity 红橙黄，
+        // 否则 critical 漏洞(红星)与产出它的红 evidence 线会糊在一起（算法核对：洋红与所有现有色不撞）。
+        const stroke = t === 'depends_on' ? C.accent : t === 'evidence' ? '#d957c7' : C.border
         return {
           stroke,
           lineWidth: t === 'flow' ? 1.5 : 2,
