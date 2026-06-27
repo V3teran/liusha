@@ -51,7 +51,7 @@ export interface Conversation {
   Title: string
   ScanID: string
   RoleID: string
-  Status: string // 僵尸字段（默认 active 从不更新）——勿用于显示运行态
+  // Status 已退役删除（后端不再返回）——运行态用 RunStatus。
   RunStatus?: string // 派生的真实运行态（active/completed/aborted；纯聊天空）——列表显示用此
   CreatedAt: string
   UpdatedAt: string
