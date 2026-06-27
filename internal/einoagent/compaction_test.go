@@ -44,7 +44,7 @@ func buildConversation(turns int) []*schema.Message {
 
 func TestCompaction_TriggersAndKeepsTail(t *testing.T) {
 	fc := &fakeCompactor{summary: "蒸馏后的关键证据摘要"}
-	mw := NewCompactionMiddleware(fc, CompactionConfig{TriggerCount: 10, KeepTail: 6})
+	mw := NewCompactionMiddleware(fc, CompactionConfig{TriggerCount: 10, KeepTail: 6}, nil)
 
 	conv := buildConversation(15) // 2 + 30 = 32 条，超 trigger
 	state := &adk.ChatModelAgentState{Messages: conv}
@@ -77,7 +77,7 @@ func TestCompaction_TriggersAndKeepsTail(t *testing.T) {
 
 func TestCompaction_BelowTriggerNoop(t *testing.T) {
 	fc := &fakeCompactor{summary: "x"}
-	mw := NewCompactionMiddleware(fc, CompactionConfig{TriggerCount: 100, KeepTail: 6})
+	mw := NewCompactionMiddleware(fc, CompactionConfig{TriggerCount: 100, KeepTail: 6}, nil)
 	conv := buildConversation(3) // 8 条，远低于 trigger
 	state := &adk.ChatModelAgentState{Messages: conv}
 	if err := mw.BeforeChatModel(context.Background(), state); err != nil {

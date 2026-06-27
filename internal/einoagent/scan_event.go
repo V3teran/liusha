@@ -39,6 +39,9 @@ const (
 	// ScanEventSpawn：orchestrator 调 deep 的 task 工具派活给子代理（active swarm 团队协作）。
 	// Args 含 {subagent_type, description}——派给谁、干什么。前端「派发卡」展示 AI 指挥 AI 团队。
 	ScanEventSpawn ScanEventKind = "spawn"
+	// ScanEventCompaction：上下文压缩发生（老 turn 蒸馏成 1 条摘要，防 context 爆）。
+	// Text=蒸馏摘要正文。前端「压缩卡」展示「这里压缩了 N 条历史」，让用户对长对话的上下文裁剪有感知。
+	ScanEventCompaction ScanEventKind = "compaction"
 )
 
 // deepTaskToolName 是 eino deep prebuilt 自带的派活工具名（orchestrator 经它 spawn 子代理）。
@@ -58,6 +61,10 @@ type ScanEvent struct {
 	InTokens   int    // reasoning：本次 LLM 调用输入 token（其他类型 0）
 	OutTokens  int    // reasoning：本次 LLM 调用输出 token
 	LatencyMs  int    // reasoning：本次 LLM 调用耗时（ms）
+	// Images 是 tool_result 携带的截图（base64 PNG，data URI 形式），如 browser_use 的页面截图。
+	// 截图同时回灌 LLM（vision_relay）；这里另存一份给前端对话流渲染，让用户看到 agent 看到的页面。
+	// 经 event_sink json.Marshal(ev) 自动进 message.metadata，前端 tool_result 卡渲染 <img>。
+	Images []string `json:",omitempty"` // tool_result：截图 data URI（data:image/png;base64,...），其他类型空
 }
 
 // EventSink 消费 agent 过程事件。scanner 注入实现（落 conversation message + redis publish）。
@@ -125,6 +132,7 @@ func NewEventEmitter(sink EventSink) adk.AgentMiddleware {
 					}
 					if out != nil && out.Result != nil {
 						ev.Result = truncate(toolResultText(out.Result), scanEventResultPreviewLimit)
+						ev.Images = toolResultImages(out.Result) // 截图给前端展示（同时仍回灌 LLM）
 					}
 					if err != nil {
 						ev.Err = err.Error()

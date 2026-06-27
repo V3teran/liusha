@@ -36,7 +36,10 @@ type CompactionConfig struct {
 //
 // **安全裁切**：只在 turn 边界裁（assistant 决策 + 其 tool 结果为一个 turn），绝不切断
 // tool_call↔tool result 配对（否则 provider 校验失败）。蒸馏失败不阻塞——保持原消息继续。
-func NewCompactionMiddleware(compactor model.BaseChatModel, cfg CompactionConfig) adk.AgentMiddleware {
+//
+// sink 非 nil 时：压缩发生即发一条 ScanEventCompaction（Text=蒸馏摘要、Result=「压缩了 N 条」），
+// 让前端对话流显示压缩卡，用户对长对话的上下文裁剪有感知（对齐 Claude Code 的 compaction 可见）。
+func NewCompactionMiddleware(compactor model.BaseChatModel, cfg CompactionConfig, sink EventSink) adk.AgentMiddleware {
 	trigger := cfg.TriggerCount
 	if trigger <= 0 {
 		trigger = defaultCompactTriggerCount
@@ -67,6 +70,15 @@ func NewCompactionMiddleware(compactor model.BaseChatModel, cfg CompactionConfig
 			rebuilt = append(rebuilt, summaryMsg)
 			rebuilt = append(rebuilt, msgs[cut:]...)
 			state.Messages = rebuilt
+			if sink != nil {
+				// Result 载「压缩条数」可读串（不碰 token 字段，避免污染计费聚合——见 token 统计验证）。
+				sink.OnScanEvent(ctx, ScanEvent{
+					Kind:      ScanEventCompaction,
+					Text:      summary,
+					Result:    fmt.Sprintf("压缩了 %d 条历史消息", cut-sysEnd),
+					AgentName: agentNameFromCtx(ctx),
+				})
+			}
 			return nil
 		},
 	}

@@ -104,6 +104,23 @@ func toolResultText(tr *schema.ToolResult) string {
 	return string(b)
 }
 
+// toolResultImages 抽 ToolResult 的截图 image part，拼成 data URI（data:image/png;base64,...）
+// 给前端对话流渲染。仅 base64 形式（browser_use 截图走这条）；URL 形式当前工具不产出，跳过。
+func toolResultImages(tr *schema.ToolResult) []string {
+	var imgs []string
+	for _, p := range tr.Parts {
+		if p.Type != schema.ToolPartTypeImage || p.Image == nil || p.Image.Base64Data == nil {
+			continue
+		}
+		mime := p.Image.MIMEType
+		if mime == "" {
+			mime = "image/png"
+		}
+		imgs = append(imgs, "data:"+mime+";base64,"+*p.Image.Base64Data)
+	}
+	return imgs
+}
+
 func rawOrNil(s string) json.RawMessage {
 	if s == "" {
 		return nil
