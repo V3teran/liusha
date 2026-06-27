@@ -75,6 +75,36 @@ func TestCompaction_TriggersAndKeepsTail(t *testing.T) {
 	}
 }
 
+// fakeEventSink 记录收到的事件，验证 compaction 发了可见事件。
+type fakeEventSink struct{ events []ScanEvent }
+
+func (f *fakeEventSink) OnScanEvent(_ context.Context, ev ScanEvent) { f.events = append(f.events, ev) }
+
+func TestCompaction_EmitsEventToSink(t *testing.T) {
+	fc := &fakeCompactor{summary: "蒸馏后的关键证据摘要"}
+	sink := &fakeEventSink{}
+	mw := NewCompactionMiddleware(fc, CompactionConfig{TriggerCount: 10, KeepTail: 6}, sink)
+
+	state := &adk.ChatModelAgentState{Messages: buildConversation(15)} // 32 条，超 trigger
+	if err := mw.BeforeChatModel(context.Background(), state); err != nil {
+		t.Fatal(err)
+	}
+	// 压缩发生 → 应发一条 compaction 事件（含摘要 + 压缩条数）
+	if len(sink.events) != 1 {
+		t.Fatalf("应发 1 条 compaction 事件，得 %d", len(sink.events))
+	}
+	ev := sink.events[0]
+	if ev.Kind != ScanEventCompaction {
+		t.Errorf("事件类型应 compaction，得 %q", ev.Kind)
+	}
+	if ev.Text != "蒸馏后的关键证据摘要" {
+		t.Errorf("Text 应是蒸馏摘要，得 %q", ev.Text)
+	}
+	if !strings.Contains(ev.Result, "压缩了") {
+		t.Errorf("Result 应含压缩条数，得 %q", ev.Result)
+	}
+}
+
 func TestCompaction_BelowTriggerNoop(t *testing.T) {
 	fc := &fakeCompactor{summary: "x"}
 	mw := NewCompactionMiddleware(fc, CompactionConfig{TriggerCount: 100, KeepTail: 6}, nil)
