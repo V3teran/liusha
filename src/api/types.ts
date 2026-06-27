@@ -73,6 +73,7 @@ export interface ConversationUsage {
   llm_calls: number
   tool_calls: number
   running: boolean // 是否仍有运行中的扫描（权威：后端 owner 终态）
+  status?: string // 真实三态 active/completed/aborted（顶部状态栏三态显示；区别于二元 running）
 }
 
 /**

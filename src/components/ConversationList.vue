@@ -6,6 +6,7 @@ import { onMounted, ref, onBeforeUnmount } from 'vue'
 import { listConversations, deleteConversation } from '../api/client'
 import type { Conversation } from '../api/types'
 import { relativeTime, fullTime } from '../lib/format'
+import { scanStatusMeta } from '../lib/scanStatus'
 
 const props = defineProps<{ activeId?: string }>()
 const items = ref<Conversation[]>([])
@@ -30,13 +31,10 @@ onBeforeUnmount(() => {
   if (pollTimer) clearInterval(pollTimer)
 })
 
-// 真实运行态 → 中文标签 + 色。用 RunStatus（派生真实态），不用僵尸 Status。
-function statusMeta(c: Conversation): { label: string; key: string } {
-  const s = c.RunStatus || ''
-  if (s === 'active') return { label: '进行中', key: 'active' }
-  if (s === 'completed') return { label: '已完成', key: 'done' }
-  if (s === 'aborted') return { label: '已中止', key: 'aborted' }
-  return { label: '对话', key: 'idle' } // 纯聊天无关联扫描
+// 真实运行态 → 中文标签 + 色（共享 scanStatusMeta，与顶部状态栏统一一套词）。用 RunStatus
+// 派生真实态，不用僵尸 Status。
+function statusMeta(c: Conversation) {
+  return scanStatusMeta(c.RunStatus)
 }
 
 // 标题：去「我要扫描」前缀 + 截取 host 让列表更易读；空则回退短 id（智能标题由后端回填）。

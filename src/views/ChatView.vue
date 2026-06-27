@@ -13,6 +13,7 @@ import ConversationList from '../components/ConversationList.vue'
 import Composer from '../components/Composer.vue'
 import ChatThread from '../components/ChatThread.vue'
 import { compactNumber, humanTokens, humanDuration, fullTime } from '../lib/format'
+import { scanStatusMeta } from '../lib/scanStatus'
 
 const store = useConversationStore()
 const route = useRoute()
@@ -92,6 +93,9 @@ onUnmounted(() => {
 const hasConv = computed(() => !!currentConv.value)
 // 权威运行态：后端 usage.running（active_scan/passive_session 是否仍 active）。
 const scanning = computed(() => hasConv.value && (usage.value?.running ?? false))
+// 顶部状态栏真实三态（进行中/已完成/已中止）——用 usage.status（active_scan 真实态），
+// 与左侧列表共用 scanStatusMeta 映射；修「二元 running 把 aborted 错显示成已完成」的 bug。
+const topStatus = computed(() => scanStatusMeta(usage.value?.status))
 // 每条新消息落定（seq 增长）→ 防抖刷新用量（事件驱动，见 scheduleUsageRefresh）。
 watch(() => store.lastSeq, scheduleUsageRefresh)
 
@@ -152,9 +156,9 @@ async function stop() {
     <section class="chat-main">
       <div v-if="hasConv" class="chat-status">
         <div class="status-left">
-          <span class="live" :class="{ active: scanning }">
-            <span class="pulse" />
-            {{ scanning ? 'agent 工作中…' : '已完成' }}
+          <span class="live" :class="['st-' + topStatus.key, { active: scanning }]">
+            <span class="pulse" :style="{ background: topStatus.color }" />
+            {{ scanning ? 'agent 工作中…' : topStatus.label }}
           </span>
           <span v-if="startedAt" class="started" :title="'发起于 ' + fullTime(startedAt)">
             发起 {{ fullTime(startedAt) }}
@@ -213,7 +217,10 @@ async function stop() {
 }
 .live { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); }
 .live .pulse { width: 8px; height: 8px; border-radius: 50%; background: var(--sev-low); }
-.live.active { color: var(--accent); }
+.live.active { color: var(--accent); } /* 工作中：accent + 脉冲（见下方 .live.active .pulse） */
+/* 终态文字色（非工作中）：已完成蓝 / 已中止灰，与左侧列表统一 */
+.live.st-done { color: #38bdf8; }
+.live.st-aborted { color: #94a3b8; }
 .status-left { display: inline-flex; align-items: center; gap: 14px; min-width: 0; }
 .started {
   font-size: 11.5px;
