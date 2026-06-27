@@ -25,7 +25,6 @@ export interface ScanEvent {
   InTokens: number // reasoning：本次 LLM 输入 token
   OutTokens: number // reasoning：本次 LLM 输出 token
   LatencyMs: number // reasoning：本次 LLM 耗时(ms)
-  Images?: string[] // tool_result：截图 data URI（browser_use 页面截图），对话流渲染缩略图
 }
 
 /**

@@ -66,7 +66,6 @@ const showAvatar = computed(() => ['user', 'assistant', 'reasoning'].includes(ki
         :duration-ms="msg.Metadata!.DurationMs"
         :err="msg.Metadata!.Err"
         :agent-name="msg.Metadata!.AgentName"
-        :images="msg.Metadata!.Images"
       />
       <time
         v-if="msg.CreatedAt"
