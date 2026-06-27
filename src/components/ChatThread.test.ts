@@ -15,7 +15,7 @@ describe('ChatThread', () => {
     expect(w.findAll('[data-card]')).toHaveLength(1)
     const toggle = w.find('.st-toggle')
     expect(toggle.exists()).toBe(true)
-    expect(toggle.text()).toContain('1 个工具调用')
+    expect(toggle.text()).toContain('1 次工具调用')
   })
 
   it('展开折叠组后工具卡可见', async () => {

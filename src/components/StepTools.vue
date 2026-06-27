@@ -15,14 +15,21 @@ const callCount = computed(() => {
   return calls > 0 ? calls : props.tools.length
 })
 
-// 工具名摘要（去重，最多 4 个）——折叠态给个内容预览，不必展开就知大概干了啥。
+// 工具预览：按类别聚合「次数」——计数用「次」(callCount 总次数)反映工作量，预览用
+// 「类别 ×次数」(run_command ×5、browser_use ×2)反映干了啥+各几次。只数 tool_call(发起)，不重复算结果。
 const preview = computed(() => {
-  const names = props.tools
-    .map((t) => t.Metadata?.ToolName)
-    .filter((n): n is string => !!n)
-  const uniq = [...new Set(names)]
-  const head = uniq.slice(0, 4).join('、')
-  return uniq.length > 4 ? `${head} 等` : head
+  const counts: Record<string, number> = {}
+  for (const t of props.tools) {
+    if (t.Metadata?.Kind !== 'tool_call') continue
+    const name = t.Metadata?.ToolName
+    if (name) counts[name] = (counts[name] ?? 0) + 1
+  }
+  const entries = Object.entries(counts).sort((a, b) => b[1] - a[1])
+  const head = entries
+    .slice(0, 4)
+    .map(([n, c]) => (c > 1 ? `${n} ×${c}` : n))
+    .join('、')
+  return entries.length > 4 ? `${head} 等` : head
 })
 </script>
 
@@ -31,7 +38,7 @@ const preview = computed(() => {
     <button class="st-toggle" :class="{ open: expanded }" @click="expanded = !expanded">
       <span class="st-caret">{{ expanded ? '▾' : '▸' }}</span>
       <span class="st-icon">⚙</span>
-      <span class="st-count">{{ callCount }} 个工具调用</span>
+      <span class="st-count">{{ callCount }} 次工具调用</span>
       <span v-if="!expanded && preview" class="st-preview">{{ preview }}</span>
     </button>
     <div v-if="expanded" class="st-body">
