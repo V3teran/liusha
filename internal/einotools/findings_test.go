@@ -18,6 +18,7 @@ type fakeStore struct {
 	updated struct {
 		id, summary, severity string
 		target, evidence      json.RawMessage
+		dependsOn             []string
 	}
 }
 
@@ -29,12 +30,13 @@ func (f *fakeStore) Save(_ context.Context, v finding.VulnFinding) (finding.Vuln
 	f.saved = v
 	return v, nil
 }
-func (f *fakeStore) Update(_ context.Context, id, summary, severity string, target, evidence json.RawMessage) error {
+func (f *fakeStore) Update(_ context.Context, id, summary, severity string, target, evidence json.RawMessage, dependsOn []string) error {
 	f.updated.id = id
 	f.updated.summary = summary
 	f.updated.severity = severity
 	f.updated.target = target
 	f.updated.evidence = evidence
+	f.updated.dependsOn = dependsOn
 	return nil
 }
 
@@ -133,6 +135,26 @@ func TestUpdateFinding(t *testing.T) {
 	}
 	if store.updated.summary != "" {
 		t.Errorf("未传 summary 应空，得到 %q", store.updated.summary)
+	}
+}
+
+// TestUpdateFinding_DependsOn 验证收尾复盘补组合漏洞依赖：update_finding 传 depends_on → 透传到 store。
+func TestUpdateFinding_DependsOn(t *testing.T) {
+	store := &fakeStore{}
+	uf, err := BuildUpdateFinding(store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 复盘识别：RCE(f3) = 上传(f1) + 包含(f2) → 给 f3 补 depends_on
+	out := invoke(t, uf, `{"id":"f3","depends_on":["f1","f2"]}`)
+	if !strings.Contains(out, "ok") {
+		t.Fatalf("update_finding 应返回 ok: %s", out)
+	}
+	if store.updated.id != "f3" {
+		t.Errorf("id 应为 f3，得 %q", store.updated.id)
+	}
+	if len(store.updated.dependsOn) != 2 || store.updated.dependsOn[0] != "f1" || store.updated.dependsOn[1] != "f2" {
+		t.Errorf("depends_on 应透传 [f1 f2]，得 %v", store.updated.dependsOn)
 	}
 }
 

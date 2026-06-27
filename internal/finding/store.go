@@ -116,14 +116,19 @@ func (s *Store) Save(ctx context.Context, f VulnFinding) (VulnFinding, error) {
 // summary 强制非空（finding lean schema 核心字段）。
 //
 // id 必填；finding 不存在返错。
-func (s *Store) Update(ctx context.Context, id, summary, severity string, target, evidence json.RawMessage) error {
+//
+// dependsOn（组合漏洞依赖 finding id 数组）：len>0 才更新，nil/空切片不动——支持「事后补依赖」。
+// 这是收尾复盘漏洞组合链的关键路径：首次 write_finding 各个击破时漏洞往往未察觉组合，
+// 后期复盘识别出「a + b = c」时用 update_finding 给 c 补 depends_on=[a,b]。
+// （write_finding 重写无法补——dedup ON CONFLICT 只更 first_seen_at，故补依赖必走本方法。）
+func (s *Store) Update(ctx context.Context, id, summary, severity string, target, evidence json.RawMessage, dependsOn []string) error {
 	if id == "" {
 		return fmt.Errorf("finding.Update: id 必填")
 	}
 
 	// 动态拼 SET 子句，传入空值的字段不动
-	sets := make([]string, 0, 4)
-	args := make([]any, 0, 5)
+	sets := make([]string, 0, 5)
+	args := make([]any, 0, 6)
 	argIdx := 1
 
 	if summary != "" {
@@ -146,9 +151,15 @@ func (s *Store) Update(ctx context.Context, id, summary, severity string, target
 		args = append(args, evidence)
 		argIdx++
 	}
+	if len(dependsOn) > 0 {
+		// 补组合漏洞依赖：uuid[] 强转（同 Save）；len>0 才更新，避免误清空已有依赖。
+		sets = append(sets, fmt.Sprintf("depends_on = $%d::uuid[]", argIdx))
+		args = append(args, dependsOn)
+		argIdx++
+	}
 
 	if len(sets) == 0 {
-		return fmt.Errorf("finding.Update: 至少提供一个可更新字段（summary/severity/target/evidence）")
+		return fmt.Errorf("finding.Update: 至少提供一个可更新字段（summary/severity/target/evidence/depends_on）")
 	}
 
 	args = append(args, id)

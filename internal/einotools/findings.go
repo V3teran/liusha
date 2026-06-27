@@ -31,7 +31,7 @@ type FindingWriter interface {
 
 // FindingUpdater 是 update_finding 依赖的最小接口（*finding.Store 自动满足）。
 type FindingUpdater interface {
-	Update(ctx context.Context, id, summary, severity string, target, evidence json.RawMessage) error
+	Update(ctx context.Context, id, summary, severity string, target, evidence json.RawMessage, dependsOn []string) error
 }
 
 // noArgs 是无入参工具的占位入参类型（InferTool 需要一个入参类型）。
@@ -136,11 +136,12 @@ func BuildWriteFinding(store FindingWriter, ownerType, ownerID, hunterID, host s
 // updateFindingArgs 是 update_finding 入参；id 必填，其余字段空则不动（保留原值）。
 // 可选字段带 ,omitempty 避免被误标 required（见 writeFindingArgs 注释）。
 type updateFindingArgs struct {
-	ID       string         `json:"id"                 jsonschema:"required" jsonschema_description:"要更新的 finding id（read_findings 拿）"`
-	Summary  string         `json:"summary,omitempty"  jsonschema_description:"覆盖 summary（不传则保留原值）"`
-	Severity string         `json:"severity,omitempty" jsonschema_description:"覆盖 severity（不传则保留原值）"`
-	Target   map[string]any `json:"target,omitempty"   jsonschema_description:"覆盖 target object（不传则保留原值）"`
-	Evidence map[string]any `json:"evidence,omitempty" jsonschema_description:"覆盖 evidence object（不传则保留原值）"`
+	ID        string         `json:"id"                  jsonschema:"required" jsonschema_description:"要更新的 finding id（read_findings 拿）"`
+	Summary   string         `json:"summary,omitempty"   jsonschema_description:"覆盖 summary（不传则保留原值）"`
+	Severity  string         `json:"severity,omitempty"  jsonschema_description:"覆盖 severity（不传则保留原值）"`
+	Target    map[string]any `json:"target,omitempty"    jsonschema_description:"覆盖 target object（不传则保留原值）"`
+	Evidence  map[string]any `json:"evidence,omitempty"  jsonschema_description:"覆盖 evidence object（不传则保留原值）"`
+	DependsOn []string       `json:"depends_on,omitempty" jsonschema_description:"补组合漏洞依赖：本漏洞由哪些前置 finding 组合而成的 id 数组（如本 RCE = 上传漏洞 + 文件包含 → 传两者 id）。收尾复盘识别出攻击链时用它给组合漏洞补依赖；不传则保留原值"`
 }
 
 // BuildUpdateFinding 造原生 eino update_finding 工具。部分覆盖一条已有 finding（保留 created_at）。
@@ -148,10 +149,10 @@ func BuildUpdateFinding(store FindingUpdater) (tool.BaseTool, error) {
 	return utils.InferTool(
 		"update_finding",
 		"更新一条已有 finding（保留 created_at 首次发现时间，只覆盖你传的字段）。"+
-			"**何时用**：read_findings 看到等价 finding，**但你的新发现更有价值**——"+
-			"更详细的 PoC、更精准的 payload、更高的 severity，覆盖之前的版本让记录最优。"+
-			"**何时不用**：完全等价 → 跳过；新漏洞 → write_finding 新建。"+
-			"id 必填；summary/severity/target/evidence 至少传一个（空字段不动，原值保留）。",
+			"**何时用**：① read_findings 看到等价 finding 但你的新发现更有价值（更详细 PoC / 更精准 payload / 更高 severity）→ 覆盖；"+
+			"② **收尾复盘识别出漏洞组合链**——本漏洞其实由前置漏洞组合而成（如 RCE = 文件上传 + 文件包含）→ 用 depends_on 补依赖，"+
+			"图上会把它们连成攻击链。**何时不用**：完全等价 → 跳过；新漏洞 → write_finding 新建。"+
+			"id 必填；summary/severity/target/evidence/depends_on 至少传一个（空字段不动，原值保留）。",
 		func(ctx context.Context, in updateFindingArgs) (map[string]any, error) {
 			if in.ID == "" {
 				return nil, errors.New("id 必填")
@@ -163,7 +164,7 @@ func BuildUpdateFinding(store FindingUpdater) (tool.BaseTool, error) {
 			if in.Evidence != nil {
 				evidenceJSON, _ = json.Marshal(in.Evidence)
 			}
-			if err := store.Update(ctx, in.ID, in.Summary, in.Severity, targetJSON, evidenceJSON); err != nil {
+			if err := store.Update(ctx, in.ID, in.Summary, in.Severity, targetJSON, evidenceJSON, in.DependsOn); err != nil {
 				return nil, fmt.Errorf("更新 finding 失败: %w", err)
 			}
 			return map[string]any{"ok": true}, nil
