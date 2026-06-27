@@ -1,10 +1,11 @@
 <script setup lang="ts">
 // 对话侧栏：挂载时拉对话列表，点击向上抛选中 ID；顶部「+ 新对话」抛 new。
-// 列表项展示状态点 + 标题 + 时间，hover 出删除按钮，当前选中高亮（对齐 ChatGPT/Claude 侧栏惯例）。
-import { onMounted, ref } from 'vue'
+// 列表项展示真实状态点 + 标题 + 相对时间，hover 出 ⋯ 更多菜单（删除，留扩展位），当前选中高亮。
+// 对齐 ChatGPT/Claude/Claude Code 侧栏惯例。
+import { onMounted, ref, onBeforeUnmount } from 'vue'
 import { listConversations, deleteConversation } from '../api/client'
 import type { Conversation } from '../api/types'
-import { clockTime, dayLabel } from '../lib/format'
+import { relativeTime, fullTime } from '../lib/format'
 
 const props = defineProps<{ activeId?: string }>()
 const items = ref<Conversation[]>([])
@@ -16,15 +17,16 @@ async function refresh() {
 onMounted(refresh)
 defineExpose({ refresh })
 
-// 状态 → 中文标签 + 色点。active=进行中(绿脉冲)/completed=已完成(蓝)/aborted=已中止(灰)。
-function statusMeta(s: string): { label: string; cls: string } {
-  if (s === 'active') return { label: '进行中', cls: 'st-active' }
-  if (s === 'completed') return { label: '已完成', cls: 'st-done' }
-  if (s === 'aborted') return { label: '已中止', cls: 'st-aborted' }
-  return { label: s || '—', cls: 'st-idle' }
+// 真实运行态 → 中文标签 + 色。用 RunStatus（派生真实态），不用僵尸 Status。
+function statusMeta(c: Conversation): { label: string; key: string } {
+  const s = c.RunStatus || ''
+  if (s === 'active') return { label: '进行中', key: 'active' }
+  if (s === 'completed') return { label: '已完成', key: 'done' }
+  if (s === 'aborted') return { label: '已中止', key: 'aborted' }
+  return { label: '对话', key: 'idle' } // 纯聊天无关联扫描
 }
 
-// 标题：优先 Title，去掉「我要扫描」前缀 + 截取 host 让列表更易读；空则回退短 id。
+// 标题：去「我要扫描」前缀 + 截取 host 让列表更易读；空则回退短 id（智能标题由后端回填）。
 function displayTitle(c: Conversation): string {
   const raw = (c.Title || '').replace(/^我要扫描\s*/, '').trim()
   if (!raw) return c.ID.slice(0, 8)
@@ -32,15 +34,22 @@ function displayTitle(c: Conversation): string {
   return host ? host + raw.replace(/https?:\/\/[^/\s]+/, '').slice(0, 24) : raw.slice(0, 40)
 }
 
-// 列表项时间：今天显示时分，否则显示日期标签。
-function itemTime(iso: string): string {
-  const label = dayLabel(iso)
-  return label === '今天' ? clockTime(iso) : label
+// ⋯ 更多菜单：开/关 + 点外部关闭。
+const menuOpen = ref<string>('')
+function toggleMenu(id: string, ev: Event) {
+  ev.stopPropagation()
+  menuOpen.value = menuOpen.value === id ? '' : id
 }
+function closeMenu() {
+  menuOpen.value = ''
+}
+onMounted(() => document.addEventListener('click', closeMenu))
+onBeforeUnmount(() => document.removeEventListener('click', closeMenu))
 
 const deleting = ref<string>('')
 async function onDelete(c: Conversation, ev: Event) {
-  ev.stopPropagation() // 不触发选中
+  ev.stopPropagation()
+  menuOpen.value = ''
   if (deleting.value) return
   if (!window.confirm(`删除对话「${displayTitle(c)}」？\n对话和消息会删除，扫描成果（漏洞/图）保留。`)) return
   deleting.value = c.ID
@@ -69,22 +78,22 @@ async function onDelete(c: Conversation, ev: Event) {
         :class="{ active: c.ID === props.activeId }"
         @click="emit('select', c.ID)"
       >
-        <span class="cl-dot" :class="'dot-' + statusMeta(c.Status).cls" :title="statusMeta(c.Status).label" />
+        <span class="cl-dot" :class="'dot-' + statusMeta(c).key" :title="statusMeta(c).label" />
         <div class="cl-body">
           <div class="cl-title">{{ displayTitle(c) }}</div>
           <div class="cl-meta">
-            <span class="cl-status" :class="statusMeta(c.Status).cls">{{ statusMeta(c.Status).label }}</span>
-            <span class="cl-time">{{ itemTime(c.CreatedAt) }}</span>
+            <span class="cl-status" :class="'st-' + statusMeta(c).key">{{ statusMeta(c).label }}</span>
+            <span class="cl-time" :title="fullTime(c.CreatedAt)">{{ relativeTime(c.CreatedAt) }}</span>
           </div>
         </div>
-        <button
-          class="cl-del"
-          :disabled="deleting === c.ID"
-          title="删除对话"
-          @click="onDelete(c, $event)"
-        >
-          ✕
-        </button>
+        <div class="cl-actions">
+          <button class="cl-more" title="更多" @click="toggleMenu(c.ID, $event)">⋯</button>
+          <div v-if="menuOpen === c.ID" class="cl-menu" @click.stop>
+            <button class="cl-menu-item danger" :disabled="deleting === c.ID" @click="onDelete(c, $event)">
+              🗑 删除对话
+            </button>
+          </div>
+        </div>
       </li>
       <li v-if="!items.length" class="cl-empty">暂无对话</li>
     </ul>
@@ -177,7 +186,7 @@ li.active {
   color: var(--muted);
   font-family: var(--mono);
 }
-/* 状态文字：只用 color（进行中绿 / 已完成蓝 / 已中止灰 / 其它灰） */
+/* 状态文字色（只 color） */
 .st-active {
   color: #34d399;
 }
@@ -190,18 +199,18 @@ li.active {
 .st-idle {
   color: #64748b;
 }
-/* 状态色点：纯 background（进行中绿脉冲），与文字 class 分开避免互相污染 */
-.dot-st-active {
+/* 状态色点（只 background；进行中绿脉冲） */
+.dot-active {
   background: #34d399;
   animation: cl-pulse 1.6s ease-in-out infinite;
 }
-.dot-st-done {
+.dot-done {
   background: #38bdf8;
 }
-.dot-st-aborted {
+.dot-aborted {
   background: #94a3b8;
 }
-.dot-st-idle {
+.dot-idle {
   background: #64748b;
 }
 @keyframes cl-pulse {
@@ -209,28 +218,65 @@ li.active {
     opacity: 0.4;
   }
 }
-.cl-del {
+/* ⋯ 更多菜单 */
+.cl-actions {
+  position: relative;
   flex-shrink: 0;
-  width: 22px;
-  height: 22px;
+}
+.cl-more {
+  width: 24px;
+  height: 24px;
   border: none;
   background: transparent;
   color: var(--muted);
   border-radius: 6px;
   cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
   opacity: 0;
   transition: opacity var(--duration-fast, 150ms), background var(--duration-fast, 150ms);
 }
-li:hover .cl-del {
+li:hover .cl-more,
+.cl-more:focus {
   opacity: 1;
 }
-.cl-del:hover {
+.cl-more:hover {
+  background: var(--surface);
+}
+.cl-menu {
+  position: absolute;
+  right: 0;
+  top: 26px;
+  z-index: 20;
+  min-width: 130px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+  padding: 4px;
+}
+.cl-menu-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 6px 10px;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font-size: 12px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.cl-menu-item:hover {
+  background: var(--surface-2);
+}
+.cl-menu-item.danger:hover {
   background: rgba(239, 68, 68, 0.15);
   color: #ef4444;
 }
-.cl-del:disabled {
+.cl-menu-item:disabled {
+  opacity: 0.5;
   cursor: default;
-  opacity: 0.4;
 }
 .cl-empty {
   color: var(--muted);

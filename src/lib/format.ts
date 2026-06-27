@@ -50,6 +50,20 @@ export function dayKey(iso: string): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
 }
 
+/** 相对时间：刚刚 / N分钟前 / N小时前 / 昨天 / YYYY年M月D日（对齐 ChatGPT/Claude 列表惯例）。 */
+export function relativeTime(iso: string): string {
+  if (!iso) return ''
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ''
+  const diffMs = Date.now() - d.getTime()
+  const min = Math.floor(diffMs / 60000)
+  if (min < 1) return '刚刚'
+  if (min < 60) return `${min}分钟前`
+  const hr = Math.floor(min / 60)
+  if (hr < 24 && dayKey(iso) === dayKey(new Date().toISOString())) return `${hr}小时前`
+  return dayLabel(iso) // 跨天 → 昨天 / 日期
+}
+
 /** 按天分隔条标签：今天 / 昨天 / YYYY年M月D日。 */
 export function dayLabel(iso: string): string {
   const key = dayKey(iso)
