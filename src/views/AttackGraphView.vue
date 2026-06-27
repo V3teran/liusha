@@ -184,6 +184,10 @@ function toG6(g: AttackGraph | null, collapse: boolean) {
   const byId: Record<string, AttackGraphNode> = {}
   for (const n of g.nodes) byId[n.id] = n
 
+  // 组合漏洞：有 depends_on 入边的 finding（前置漏洞 A+B 串成的更高危漏洞）→ 视觉强化（更大+金光环）。
+  // 攻击链路的「终点」最有报告价值，应在图上最醒目。
+  const chained = new Set(g.edges.filter((e) => e.type === 'depends_on').map((e) => e.to))
+
   // 成果优先：聚焦「成果骨架」——漏洞(finding) + 子代理边界(agent) + 关键动作（产出漏洞的
   // evidence 动作 / 失败的 error 动作）。思考(reasoning)与普通成功动作折叠：on_path 主干在
   // 线性思维链下仍有数百步（漏洞前每一步都算其祖先），故只留关键节点。看全部切「完整」，
@@ -244,7 +248,7 @@ function toG6(g: AttackGraph | null, collapse: boolean) {
     for (const n of g.nodes) {
       nodes.push({
         id: n.id,
-        data: { kind: n.kind, label: n.title, status: n.status ?? '', severity: n.severity ?? '', dim: n.on_path !== true, collapsed: false },
+        data: { kind: n.kind, label: n.title, status: n.status ?? '', severity: n.severity ?? '', dim: n.on_path !== true, collapsed: false, chained: chained.has(n.id) },
       })
     }
     for (const e of g.edges) addEdge(e.from, e.to, e.type)
@@ -267,7 +271,7 @@ function toG6(g: AttackGraph | null, collapse: boolean) {
     if (!visible(n.id)) continue
     nodes.push({
       id: n.id,
-      data: { kind: n.kind, label: n.title, status: n.status ?? '', severity: n.severity ?? '', dim: false, collapsed: false },
+      data: { kind: n.kind, label: n.title, status: n.status ?? '', severity: n.severity ?? '', dim: false, collapsed: false, chained: chained.has(n.id) },
     })
   }
   for (const [a, count] of Object.entries(hiddenCount)) {
@@ -372,14 +376,18 @@ onMounted(() => {
                 : isErr
                   ? DEAD_FILL
                   : ACTION_COLOR
+        // 组合漏洞（有 depends_on 入边，攻击链终点）：更大 + 金光环描边 + 投影，全图最醒目。
+        const isChained = kind === 'finding' && d.data?.chained === true
         return {
-          // star 视觉占面积小，放大到 38 突出漏洞；其余形状 24。
-          size: kind === 'finding' ? 38 : 24,
+          // star 视觉占面积小，放大到 38 突出漏洞；组合漏洞再放大到 50；其余形状 24。
+          size: kind === 'finding' ? (isChained ? 50 : 38) : 24,
           opacity: d.data?.dim ? 0.28 : 1, // 完整模式死路淡显（dim），主干/成果亮
           fill,
-          // 死路圆描深一档 slate 边（弱标失败，不用红——红留给 critical 漏洞）。
-          stroke: isErr ? '#475569' : 'rgba(255,255,255,0.18)',
-          lineWidth: 1,
+          // 组合漏洞金光环；死路圆描深 slate 边（弱标失败，红留给 critical）；其余浅边。
+          stroke: isChained ? '#fbbf24' : isErr ? '#475569' : 'rgba(255,255,255,0.18)',
+          lineWidth: isChained ? 3 : 1,
+          shadowColor: isChained ? 'rgba(251,191,36,0.6)' : undefined,
+          shadowBlur: isChained ? 12 : 0,
           labelText: d.data?.label ?? '',
           labelFill: C.text,
           labelFontSize: 11,
