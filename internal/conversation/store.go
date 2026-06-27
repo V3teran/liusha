@@ -97,14 +97,15 @@ func (s *Store) IsRunActive(ctx context.Context, convID string) (bool, error) {
 	return running, nil
 }
 
-// WallclockMs 返回本对话关联扫描的墙钟时长（毫秒）——发起→完成的真实流逝时间。
-// 跑中用 now()-created_at，结束用 ended_at-created_at。这是"我等了多久"的直觉口径，
-// 区别于 Σ(LLM latency + 工具 duration)——后者因子代理并发累加会高于墙钟。
-// 纯聊天/无关联 owner 返回 0。active 取 active_scan，passive 取 passive_session。
+// WallclockMs 返回本对话关联扫描的「纯工作」墙钟时长（毫秒）——发起→完成的流逝时间扣除停顿。
+// 跑中用 now()-created_at，结束用 ended_at-created_at；再减 active_scan.paused_ms（多轮 follow-up
+// 复活间的用户停顿累计，见 activescan.Reopen）——避免多轮场景把「完成→追加」的等待算进耗时。
+// 首次扫描 paused_ms=0，口径与原墙钟一致。区别于 Σ(LLM latency+工具 duration)（并发累加会更高）。
+// 纯聊天/无关联 owner 返回 0。passive_session 无复活、无停顿，不扣。
 func (s *Store) WallclockMs(ctx context.Context, convID string) (int64, error) {
 	var ms *int64
 	err := s.pool.QueryRow(ctx, `
-		SELECT (EXTRACT(EPOCH FROM (COALESCE(a.ended_at, now()) - a.created_at)) * 1000)::bigint
+		SELECT ((EXTRACT(EPOCH FROM (COALESCE(a.ended_at, now()) - a.created_at)) * 1000)::bigint - a.paused_ms)
 		FROM active_scan a JOIN conversation c ON c.scan_id = a.id
 		WHERE c.id = $1
 		UNION ALL

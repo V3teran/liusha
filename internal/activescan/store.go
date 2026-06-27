@@ -124,10 +124,15 @@ func (s *Store) Complete(ctx context.Context, id string) error {
 
 // Reopen 把已终态（completed/aborted）的 scan 置回 active，清 ended_at/error_message。
 // 用于多轮对话的动作续接：同一 scan 上重跑 agent，复用 owner 作用域黑板。
+//
+// 累计停顿：复活前先把「上次 ended_at → 现在」这段用户停顿累加进 paused_ms（PG UPDATE SET
+// 各表达式用行旧值，故 paused_ms 累加用的是清空前的 ended_at），WallclockMs 据此扣除停顿 =
+// 纯 agent 工作耗时。ended_at 为空（异常未终态就 Reopen）则不累加（COALESCE 兜底 0）。
 func (s *Store) Reopen(ctx context.Context, id string) error {
 	_, err := s.pool.Exec(ctx, `
 		UPDATE active_scan SET
 			status='active',
+			paused_ms = paused_ms + COALESCE((EXTRACT(EPOCH FROM (now() - ended_at)) * 1000)::bigint, 0),
 			ended_at=NULL,
 			error_message=NULL
 		WHERE id=$1`, id)
