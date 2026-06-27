@@ -8,6 +8,13 @@ import MessageItem from './MessageItem.vue'
 const props = defineProps<{ tools: Message[] }>()
 const expanded = ref(false)
 
+// 工具调用次数：一次调用产生 tool_call + tool_result 两条消息，计数只数 tool_call（发起）——
+// 否则一来一回会翻倍（38 次显示成 76）。全是孤立 result（call 丢失）时回退总条数兜底。
+const callCount = computed(() => {
+  const calls = props.tools.filter((t) => t.Metadata?.Kind === 'tool_call').length
+  return calls > 0 ? calls : props.tools.length
+})
+
 // 工具名摘要（去重，最多 4 个）——折叠态给个内容预览，不必展开就知大概干了啥。
 const preview = computed(() => {
   const names = props.tools
@@ -24,7 +31,7 @@ const preview = computed(() => {
     <button class="st-toggle" :class="{ open: expanded }" @click="expanded = !expanded">
       <span class="st-caret">{{ expanded ? '▾' : '▸' }}</span>
       <span class="st-icon">⚙</span>
-      <span class="st-count">{{ tools.length }} 个工具调用</span>
+      <span class="st-count">{{ callCount }} 个工具调用</span>
       <span v-if="!expanded && preview" class="st-preview">{{ preview }}</span>
     </button>
     <div v-if="expanded" class="st-body">
