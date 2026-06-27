@@ -149,7 +149,7 @@ async function stop() {
           <span v-if="usage && usage.tokens.total > 0" class="metrics">
             <span class="metric" :title="tokenTip">
               <span class="m-label">tokens</span>
-              <span class="m-val">{{ compactNumber(usage.tokens.total) }}</span>
+              <span class="m-val"><span class="t-in" title="输入">↑{{ compactNumber(usage.tokens.in) }}</span> <span class="t-out" title="输出">↓{{ compactNumber(usage.tokens.out) }}</span></span>
             </span>
             <span class="metric" :title="durationTip">
               <span class="m-label">耗时</span>
@@ -222,6 +222,8 @@ async function stop() {
 }
 .metric .m-label { color: var(--muted); font-size: 11px; }
 .metric .m-val { color: var(--text); font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.metric .t-in { color: #38bdf8; }
+.metric .t-out { color: #34d399; }
 .live.active .pulse {
   background: var(--accent);
   box-shadow: 0 0 0 0 var(--accent);
