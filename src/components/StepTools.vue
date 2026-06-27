@@ -37,9 +37,8 @@ const preview = computed(() => {
   <div class="step-tools">
     <button class="st-toggle" :class="{ open: expanded }" @click="expanded = !expanded">
       <span class="st-caret">{{ expanded ? '▾' : '▸' }}</span>
-      <span class="st-icon">⚙</span>
       <span class="st-count">{{ callCount }} 次工具调用</span>
-      <span v-if="!expanded && preview" class="st-preview">{{ preview }}</span>
+      <span v-if="!expanded && preview" class="st-preview">· {{ preview }}</span>
     </button>
     <div v-if="expanded" class="st-body">
       <MessageItem v-for="t in tools" :key="t.Seq" :msg="t" />
@@ -73,9 +72,6 @@ const preview = computed(() => {
 .st-caret {
   font-size: 10px;
   width: 9px;
-}
-.st-icon {
-  font-size: 11px;
 }
 .st-count {
   font-weight: 600;

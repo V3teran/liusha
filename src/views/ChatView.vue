@@ -127,6 +127,10 @@ function newConversation() {
   usage.value = null
   currentConv.value = ''
 }
+// 删除的若是当前打开的对话 → 回到新建态（清空主区）；删别的对话不影响当前视图。
+function onConvDeleted(convID: string) {
+  if (convID === currentConv.value) newConversation()
+}
 async function stop() {
   if (currentConv.value) await abortScan(currentConv.value)
 }
@@ -134,13 +138,19 @@ async function stop() {
 
 <template>
   <div class="chat-view">
-    <ConversationList ref="convList" @select="open" @new="newConversation" />
+    <ConversationList
+      ref="convList"
+      :active-id="currentConv || undefined"
+      @select="open"
+      @new="newConversation"
+      @deleted="onConvDeleted"
+    />
     <section class="chat-main">
       <div v-if="hasConv" class="chat-status">
         <div class="status-left">
           <span class="live" :class="{ active: scanning }">
             <span class="pulse" />
-            {{ scanning ? 'agent 工作中…' : '空闲 / 已完成' }}
+            {{ scanning ? 'agent 工作中…' : '已完成' }}
           </span>
           <span v-if="startedAt" class="started" :title="'发起于 ' + fullTime(startedAt)">
             发起 {{ fullTime(startedAt) }}

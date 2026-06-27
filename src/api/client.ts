@@ -217,6 +217,15 @@ export async function abortScan(convID: string): Promise<void> {
   if (!res.ok) throw new Error(`POST /conversations/${convID}/abort → ${res.status}`)
 }
 
+// 删除对话及其消息（后端 message FK CASCADE 连带删；不动关联 scan/finding 成果）。
+export async function deleteConversation(convID: string): Promise<void> {
+  const res = await fetch(`/api/conversations/${convID}`, {
+    method: 'DELETE',
+    headers: { 'X-API-Key': getApiKey() },
+  })
+  if (!res.ok) throw new Error(`DELETE /conversations/${convID} → ${res.status}`)
+}
+
 /* ============================================================
    被动会话 / 主动扫描（owner）
    ============================================================ */
