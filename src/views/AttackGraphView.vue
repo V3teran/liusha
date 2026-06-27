@@ -36,8 +36,9 @@ async function loadMilestones() {
     milestonesLoading.value = false
   }
 }
+// 里程碑卡按 agent 角色着色（与全局 Tailwind 调性统一）：指挥=紫 / 侦察=天蓝 / 利用=翠绿。
 function agentColor(a: string): string {
-  return a === 'orchestrator' ? '#b07cff' : a === 'reconnaissance' ? '#58a6ff' : a === 'exploitation' ? '#2bb673' : '#6e7681'
+  return a === 'orchestrator' ? '#a78bfa' : a === 'reconnaissance' ? '#38bdf8' : a === 'exploitation' ? '#34d399' : '#94a3b8'
 }
 let pollTimer: ReturnType<typeof setInterval> | null = null
 let lastSig = '' // 上次图签名（节点+边数），变化检测防无谓重渲染
@@ -167,12 +168,12 @@ function readColors() {
   }
 }
 
-// 节点种类配色（想/做/派/死路）刻意避开漏洞 severity 的「红橙黄」威胁色域，彼此色相也分开：
-// 想=青、做=绿、派=紫、死路=暗灰(+红描边标失败)。漏洞用 severityColor（红橙黄灰蓝）独占威胁色。
-const REASONING_COLOR = '#22d3ee' // 想：青（区别于 severity-info 的蓝 #58a6ff）
-const AGENT_COLOR = '#b07cff' // 派：紫
-const ERROR_COLOR = '#e5484d' // 死路描边：红（仅描边标失败，填充用暗灰，避免抢 severity-critical 的红）
-const DEAD_FILL = '#475569' // 死路填充：暗石板灰（弱化无果尝试，不撞 critical 红）
+// 过程节点（●圆）配色——统一 Tailwind 400-500 调性，圆内靠颜色分想/做/死路（算法核对区分度足）。
+// 漏洞用 severityColor（红橙黄灰蓝威胁色，★星），子代理用紫（⬡六边）——形状已分层级，颜色专管子类。
+const REASONING_COLOR = '#38bdf8' // 想：sky 天蓝（冷静思考）
+const ACTION_COLOR = '#34d399' // 做：emerald 翠绿（执行）
+const AGENT_COLOR = '#a78bfa' // 派：violet 紫（结构边界）
+const DEAD_FILL = '#64748b' // 死路：slate 石板灰（弱化无果尝试，灰=失败语义，不抢威胁红）
 
 // toG6 把图转 G6 格式。collapse=true（成果优先，默认）时只保留「成果路径」——通向漏洞的
 // 主干（on_path）+ 子代理泳道（agent）+ 全部漏洞（finding）；把死路/探索（!on_path 的想/做，
@@ -324,17 +325,15 @@ onMounted(() => {
     layout: { type: 'antv-dagre', rankdir: 'TB', nodesep: 18, ranksep: 28 },
     behaviors: ['zoom-canvas', 'drag-canvas', 'drag-element'],
     node: {
-      // 形状+颜色双编码：节点种类用形状区分（想=圆/做=菱形/派=六边形/死路=方块/漏洞=星），
-      // 即便颜色与 severity 接近也一眼可辨。颜色另由 style.fill 表达（漏洞=severity 威胁色）。
+      // 形状表「3 个信息层级」（不按细类，避免形状过多视觉嘈杂）：
+      //   成果 ★星=漏洞 / 结构 ⬡六边=子代理 / 过程 ●圆=想·做·死路（圆内靠颜色分子类）。
+      // 颜色另由 style.fill 表达层级内子类（过程：青想/绿做/灰死路；漏洞：severity 威胁色）。
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       type: (d: any) => {
         const kind = d.data?.kind
         if (kind === 'finding') return 'star'
-        if (kind === 'reasoning') return 'circle'
         if (kind === 'agent') return 'hexagon'
-        if (kind === 'collapsed') return 'circle'
-        // action：成功=菱形，失败(死路)=方块
-        return d.data?.status === 'error' ? 'rect' : 'diamond'
+        return 'circle' // reasoning / action(含 error 死路) / collapsed 占位 → 统一圆
       },
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       style: (d: any) => {
@@ -365,20 +364,21 @@ onMounted(() => {
         const isErr = d.data?.status === 'error'
         const fill =
           kind === 'finding'
-            ? severityColor[d.data?.severity] ?? '#6e7681'
+            ? severityColor[d.data?.severity] ?? '#94a3b8'
             : kind === 'reasoning'
               ? REASONING_COLOR
               : kind === 'agent'
                 ? AGENT_COLOR
                 : isErr
                   ? DEAD_FILL
-                  : C.primary
+                  : ACTION_COLOR
         return {
           // star 视觉占面积小，放大到 38 突出漏洞；其余形状 24。
           size: kind === 'finding' ? 38 : 24,
           opacity: d.data?.dim ? 0.28 : 1, // 完整模式死路淡显（dim），主干/成果亮
           fill,
-          stroke: isErr ? ERROR_COLOR : 'rgba(255,255,255,0.18)',
+          // 死路圆描深一档 slate 边（弱标失败，不用红——红留给 critical 漏洞）。
+          stroke: isErr ? '#475569' : 'rgba(255,255,255,0.18)',
           lineWidth: 1,
           labelText: d.data?.label ?? '',
           labelFill: C.text,
@@ -398,10 +398,9 @@ onMounted(() => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       style: (d: any) => {
         const t = d.data?.type
-        // flow 主干实线灰；depends_on 蓝虚线；evidence（动作→漏洞）洋红虚线。
-        // evidence 用洋红 #d957c7（非威胁色）——它是「证据指向」语义，避开 severity 红橙黄，
-        // 否则 critical 漏洞(红星)与产出它的红 evidence 线会糊在一起（算法核对：洋红与所有现有色不撞）。
-        const stroke = t === 'depends_on' ? C.accent : t === 'evidence' ? '#d957c7' : C.border
+        // flow 主干灰实线(骨架,弱)；depends_on 金虚线(漏洞→漏洞攻击链,最重要,醒目)；
+        // evidence 洋红虚线(动作→漏洞证据指向)。两条成果边都避开 severity 红橙黄,且彼此区分。
+        const stroke = t === 'depends_on' ? '#fbbf24' : t === 'evidence' ? '#d946ef' : C.border
         return {
           stroke,
           lineWidth: t === 'flow' ? 1.5 : 2,
@@ -448,11 +447,13 @@ onBeforeUnmount(() => {
     <div class="page-toolbar">
       <OwnerPicker v-model="owner" mode-filter="active" />
       <div v-if="nodes.length" class="legend">
+        <span class="lg-group">过程</span>
         <span class="lg"><i class="sym reasoning">●</i>想</span>
-        <span class="lg"><i class="sym action">◆</i>做</span>
-        <span class="lg"><i class="sym agent">⬡</i>派</span>
+        <span class="lg"><i class="sym action">●</i>做</span>
+        <span class="lg"><i class="sym err">●</i>死路</span>
+        <span class="lg-sep" />
+        <span class="lg"><i class="sym agent">⬡</i>派发</span>
         <span class="lg"><i class="sym finding">★</i>漏洞</span>
-        <span class="lg"><i class="sym err">■</i>死路</span>
       </div>
       <a-button v-if="nodes.length" size="small" :loading="milestonesLoading" style="margin-left: auto" @click="loadMilestones">
         里程碑摘要
@@ -527,12 +528,14 @@ onBeforeUnmount(() => {
 .ms-count { font-size: 11px; color: var(--muted); }
 .ms-summary { margin: 0; font-size: 13px; line-height: 1.5; color: var(--text); }
 .lg { display: inline-flex; align-items: center; gap: 5px; }
+.lg-group { font-size: 11px; color: var(--muted); opacity: 0.7; }
+.lg-sep { width: 1px; height: 12px; background: var(--border); margin: 0 2px; }
 .sym { font-size: 12px; line-height: 1; font-style: normal; }
-.sym.reasoning { color: #22d3ee; }
-.sym.action { color: var(--primary); }
-.sym.agent { color: #b07cff; }
-.sym.finding { color: #f85149; }
-.sym.err { color: #e5484d; }
+.sym.reasoning { color: #38bdf8; }
+.sym.action { color: #34d399; }
+.sym.agent { color: #a78bfa; }
+.sym.finding { color: #ef4444; }
+.sym.err { color: #64748b; }
 
 .graph-body { position: relative; flex: 1; min-height: 420px; }
 .graph-canvas { position: absolute; inset: 0; }
@@ -560,10 +563,10 @@ onBeforeUnmount(() => {
 }
 .detail header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
 .d-kind { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 4px; color: #fff; }
-.d-kind.k-reasoning { background: #22d3ee; }
-.d-kind.k-action { background: var(--primary); }
-.d-kind.k-agent { background: #b07cff; }
-.d-kind.k-finding { background: #f85149; }
+.d-kind.k-reasoning { background: #38bdf8; }
+.d-kind.k-action { background: #34d399; }
+.d-kind.k-agent { background: #a78bfa; }
+.d-kind.k-finding { background: #ef4444; }
 .d-close { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 13px; }
 .d-title { font-size: 13px; color: var(--text); word-break: break-all; margin: 0 0 10px; }
 .d-content {
