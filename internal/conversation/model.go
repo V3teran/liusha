@@ -15,14 +15,6 @@ import (
 	"time"
 )
 
-// Status 是对话会话的生命周期状态。
-type Status string
-
-const (
-	StatusActive   Status = "active"
-	StatusArchived Status = "archived"
-)
-
 // Role 是消息的发言角色（对齐 LLM 消息角色）。
 type Role string
 
@@ -50,12 +42,11 @@ type Conversation struct {
 	Title     string // 可空——首条消息摘要，UI 列表用
 	ScanID    string // 可空——关联本对话发起的 active_scan
 	RoleID    string // 可空——场景 role（阶段C）
-	Status    Status
 	CreatedAt time.Time
 	UpdatedAt time.Time
 	// RunStatus 是派生的「真实运行态」（关联 active_scan/passive_session 的 status：
-	// active/completed/aborted；纯聊天为空）。仅 ListConversations 填充——Status 字段是僵尸值
-	// （默认 active 从不更新），列表显示运行态须用本字段。
+	// active/completed/aborted；纯聊天为空）。仅 ListConversations 填充。
+	// （注：conversation 表自身的 status 列是僵尸字段，已不读入；运行态一律派生自关联任务。）
 	RunStatus string `json:"RunStatus,omitempty"`
 }
 

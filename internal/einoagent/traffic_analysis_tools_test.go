@@ -26,7 +26,7 @@ func (allFake) ListByOwnerAndHost(context.Context, string, string, string, int) 
 func (allFake) Save(_ context.Context, f finding.VulnFinding) (finding.VulnFinding, error) {
 	return f, nil
 }
-func (allFake) Update(context.Context, string, string, string, json.RawMessage, json.RawMessage) error {
+func (allFake) Update(context.Context, string, string, string, json.RawMessage, json.RawMessage, []string) error {
 	return nil
 }
 func (allFake) ReadNotes(context.Context, string, string) ([]byte, error)        { return nil, nil }

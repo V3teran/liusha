@@ -44,9 +44,7 @@ func TestConversationStore_RoundTrip(t *testing.T) {
 	if c.Title != "" || c.ScanID != "" || c.RoleID != "" {
 		t.Errorf("空字段应读回空串: title=%q scan=%q role=%q", c.Title, c.ScanID, c.RoleID)
 	}
-	if c.Status != conversation.StatusActive {
-		t.Errorf("默认 status 应 active，得 %q", c.Status)
-	}
+	// conversation.status 僵尸字段已退役（不读入 Conversation）——运行态派生自关联任务，见 RunStatus。
 	t.Cleanup(func() {
 		// message 经 FK CASCADE 随对话删。
 		fctx, fc := context.WithTimeout(context.Background(), 10*time.Second)

@@ -24,8 +24,9 @@ const (
 )
 
 // 可空 uuid/text 列读用 COALESCE 把 NULL 折成空串（Conversation 字段是 string 不接 NULL）。
+// 不含 status 列：conversation.status 是僵尸字段（已退役），运行态一律派生（见 RunStatus）。
 const convCols = "id, COALESCE(title,''), COALESCE(scan_id::text,''), " +
-	"COALESCE(role_id,''), status, created_at, updated_at"
+	"COALESCE(role_id,''), created_at, updated_at"
 
 // CreateConversation 建一个对话会话。title/scanID/roleID 为空时存 NULL。
 func (s *Store) CreateConversation(ctx context.Context, title, scanID, roleID string) (Conversation, error) {
@@ -147,7 +148,7 @@ func (s *Store) ListConversations(ctx context.Context, limit int) ([]Conversatio
 	// passive_session.status，都无（纯聊天）→ 空串。前端列表据此显示准确状态。
 	rows, err := s.pool.Query(ctx, `
 		SELECT c.id, COALESCE(c.title,''), COALESCE(c.scan_id::text,''),
-			COALESCE(c.role_id,''), c.status, c.created_at, c.updated_at,
+			COALESCE(c.role_id,''), c.created_at, c.updated_at,
 			COALESCE(a.status, p.status, '') AS run_status
 		FROM conversation c
 		LEFT JOIN active_scan a ON a.id = c.scan_id
@@ -274,12 +275,12 @@ type scanRow interface {
 }
 
 func scanConversation(r scanRow, c *Conversation) error {
-	return r.Scan(&c.ID, &c.Title, &c.ScanID, &c.RoleID, &c.Status, &c.CreatedAt, &c.UpdatedAt)
+	return r.Scan(&c.ID, &c.Title, &c.ScanID, &c.RoleID, &c.CreatedAt, &c.UpdatedAt)
 }
 
 // scanConversationWithRun 多扫一列 run_status（派生真实运行态，见 ListConversations）。
 func scanConversationWithRun(r scanRow, c *Conversation) error {
-	return r.Scan(&c.ID, &c.Title, &c.ScanID, &c.RoleID, &c.Status, &c.CreatedAt, &c.UpdatedAt, &c.RunStatus)
+	return r.Scan(&c.ID, &c.Title, &c.ScanID, &c.RoleID, &c.CreatedAt, &c.UpdatedAt, &c.RunStatus)
 }
 
 // RunStatus 返回对话关联扫描的「真实运行态」（active_scan.status：active/completed/aborted；
