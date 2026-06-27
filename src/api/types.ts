@@ -7,7 +7,7 @@
 
 export type MessageKind = 'message' | 'event'
 export type MessageRole = 'user' | 'assistant' | 'system' | 'tool'
-export type ScanEventKind = 'tool_call' | 'tool_result' | 'reasoning' | 'spawn'
+export type ScanEventKind = 'tool_call' | 'tool_result' | 'reasoning' | 'spawn' | 'compaction'
 
 /**
  * SSE 事件的元数据（agent 过程事件）
@@ -25,6 +25,7 @@ export interface ScanEvent {
   InTokens: number // reasoning：本次 LLM 输入 token
   OutTokens: number // reasoning：本次 LLM 输出 token
   LatencyMs: number // reasoning：本次 LLM 耗时(ms)
+  Images?: string[] // tool_result：截图 data URI（browser_use 页面截图），对话流渲染缩略图
 }
 
 /**

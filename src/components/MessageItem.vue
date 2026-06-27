@@ -11,6 +11,7 @@ import SpawnCard from './cards/SpawnCard.vue'
 import ToolCallCard from './cards/ToolCallCard.vue'
 import ToolResultCard from './cards/ToolResultCard.vue'
 import FindingCard from './cards/FindingCard.vue'
+import CompactionCard from './cards/CompactionCard.vue'
 
 const props = defineProps<{ msg: Message; step?: number }>()
 
@@ -53,6 +54,11 @@ const showAvatar = computed(() => ['user', 'assistant', 'reasoning'].includes(ki
         :agent-name="msg.Metadata!.AgentName"
       />
       <FindingCard v-else-if="kind === 'finding'" :args="msg.Metadata!.Args" />
+      <CompactionCard
+        v-else-if="kind === 'compaction'"
+        :label="msg.Metadata!.Result"
+        :summary="msg.Metadata!.Text"
+      />
       <ToolResultCard
         v-else
         :tool="msg.Metadata!.ToolName"
@@ -60,6 +66,7 @@ const showAvatar = computed(() => ['user', 'assistant', 'reasoning'].includes(ki
         :duration-ms="msg.Metadata!.DurationMs"
         :err="msg.Metadata!.Err"
         :agent-name="msg.Metadata!.AgentName"
+        :images="msg.Metadata!.Images"
       />
       <time
         v-if="msg.CreatedAt"

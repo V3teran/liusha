@@ -14,6 +14,7 @@ export type MessageKindTag =
   | 'tool-call'
   | 'tool-result'
   | 'finding'
+  | 'compaction'
   | 'hidden'
 
 export function classifyMessage(m: Message): MessageKindTag {
@@ -22,6 +23,7 @@ export function classifyMessage(m: Message): MessageKindTag {
   if (!ev) return 'assistant'
   if (ev.Kind === 'reasoning') return 'reasoning'
   if (ev.Kind === 'spawn') return 'spawn'
+  if (ev.Kind === 'compaction') return 'compaction'
   if (ev.ToolName === 'write_finding') {
     if (ev.Kind !== 'tool_call' || ev.Err) return 'hidden'
     try {
