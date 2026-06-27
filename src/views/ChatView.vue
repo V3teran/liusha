@@ -97,6 +97,10 @@ watch(() => store.lastSeq, scheduleUsageRefresh)
 
 const convList = ref<InstanceType<typeof ConversationList> | null>(null)
 
+// 扫描运行态翻转（进行中 ⇄ 完成）→ 自动刷新左侧列表，让列表项状态点跟随真实态，
+// 无需手动点 ↻。覆盖「扫描跑完那一刻列表卡在进行中」的体验缺口。
+watch(scanning, () => convList.value?.refresh())
+
 async function open(convID: string) {
   handle?.close()
   store.reset()
