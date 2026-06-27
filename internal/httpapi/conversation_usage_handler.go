@@ -19,6 +19,7 @@ import (
 type UsageOwnerResolver interface {
 	ResolveOwnerID(ctx context.Context, convID string) (string, error)
 	IsRunActive(ctx context.Context, convID string) (bool, error)
+	RunStatus(ctx context.Context, convID string) (string, error)
 	WallclockMs(ctx context.Context, convID string) (int64, error)
 }
 
@@ -71,6 +72,13 @@ func conversationUsageHandler(conv UsageOwnerResolver, llm LLMUsageAggregator, t
 			c.JSON(500, gin.H{"error": err.Error()})
 			return
 		}
+		// 真实三态（active/completed/aborted）：顶部状态栏据此区分「已完成 vs 已中止」，
+		// 不再用二元 running（它把 aborted 错显示成已完成）。
+		runStatus, err := conv.RunStatus(ctx, id)
+		if err != nil {
+			c.JSON(500, gin.H{"error": err.Error()})
+			return
+		}
 
 		// 墙钟时长：发起→完成的真实流逝时间（"我等了多久"），跑中用 now-created。
 		wallclockMs, err := conv.WallclockMs(ctx, id)
@@ -81,7 +89,7 @@ func conversationUsageHandler(conv UsageOwnerResolver, llm LLMUsageAggregator, t
 
 		// 纯聊天（无关联 scan / passive_session）→ 零用量。
 		if ownerID == "" {
-			c.JSON(200, zeroUsage(id, "", running))
+			c.JSON(200, zeroUsage(id, "", running, runStatus))
 			return
 		}
 
@@ -116,12 +124,13 @@ func conversationUsageHandler(conv UsageOwnerResolver, llm LLMUsageAggregator, t
 			"llm_calls":   la.Calls,
 			"tool_calls":  ta.Calls,
 			"running":     running,
+			"status":      runStatus, // 真实三态 active/completed/aborted（顶部状态栏三态显示用）
 		})
 	}
 }
 
 // zeroUsage 造零用量响应（纯聊天对话无 owner 时）。
-func zeroUsage(convID, ownerID string, running bool) gin.H {
+func zeroUsage(convID, ownerID string, running bool, status string) gin.H {
 	return gin.H{
 		"conversation_id":  convID,
 		"owner_id":         ownerID,
@@ -133,5 +142,6 @@ func zeroUsage(convID, ownerID string, running bool) gin.H {
 		"llm_calls":        0,
 		"tool_calls":       0,
 		"running":          running,
+		"status":           status,
 	}
 }

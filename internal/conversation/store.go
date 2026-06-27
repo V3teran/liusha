@@ -282,6 +282,26 @@ func scanConversationWithRun(r scanRow, c *Conversation) error {
 	return r.Scan(&c.ID, &c.Title, &c.ScanID, &c.RoleID, &c.Status, &c.CreatedAt, &c.UpdatedAt, &c.RunStatus)
 }
 
+// RunStatus 返回对话关联扫描的「真实运行态」（active_scan.status：active/completed/aborted；
+// passive_session.status；纯聊天空串）——供顶部状态栏显示三态，区别于 IsRunActive 的二元布尔。
+// 用 conversation.status 是僵尸字段（默认 active 从不更新），不可用于显示。
+func (s *Store) RunStatus(ctx context.Context, convID string) (string, error) {
+	var status string
+	err := s.pool.QueryRow(ctx, `
+		SELECT COALESCE(a.status, p.status, '')
+		FROM conversation c
+		LEFT JOIN active_scan a ON a.id = c.scan_id
+		LEFT JOIN passive_session p ON p.conversation_id = c.id::text
+		WHERE c.id = $1`, convID).Scan(&status)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("run status for conversation %s: %w", convID, err)
+	}
+	return status, nil
+}
+
 func scanMessage(r scanRow, m *Message) error {
 	return r.Scan(&m.Seq, &m.ID, &m.ConversationID, &m.Role, &m.Kind, &m.Content, &m.Metadata, &m.CreatedAt)
 }
