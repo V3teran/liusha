@@ -17,6 +17,19 @@ async function refresh() {
 onMounted(refresh)
 defineExpose({ refresh })
 
+// 自适应轮询：仅当列表存在「进行中(active)」对话时每 8s 刷新——感知后台对话跑完/状态变化，
+// 彻底覆盖「看着对话 A、对话 B 后台跑完」场景。全部终态则不轮询（零浪费）；菜单开着时跳过（不打断操作）。
+let pollTimer: number | undefined
+onMounted(() => {
+  pollTimer = window.setInterval(() => {
+    if (menuOpen.value) return // 用户正在操作菜单，别刷新打断
+    if (items.value.some((c) => c.RunStatus === 'active')) refresh()
+  }, 8000)
+})
+onBeforeUnmount(() => {
+  if (pollTimer) clearInterval(pollTimer)
+})
+
 // 真实运行态 → 中文标签 + 色。用 RunStatus（派生真实态），不用僵尸 Status。
 function statusMeta(c: Conversation): { label: string; key: string } {
   const s = c.RunStatus || ''
