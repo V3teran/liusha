@@ -3,14 +3,18 @@
 // 有 convId 走追加（followUp），否则新建对话（startChat）并向上抛新对话 ID。
 import { ref } from 'vue'
 import { startChat, followUp } from '../api/client'
+import { useConversationStore } from '../stores/conversation'
 import RolePicker from './RolePicker.vue'
 
 const props = defineProps<{ convId?: string }>()
+const store = useConversationStore()
 const brief = ref('')
 const roleID = ref('')
 const busyMsg = ref('')
 const sending = ref(false)
-const emit = defineEmits<{ started: [convID: string]; appended: [] }>()
+// appended 带「发送前 seq 快照」——api 落的 user 消息 seq 必 > 此，handleAppended 据此增量拉取，
+// 不被 SSE 抢先推高的 store.lastSeq 跳过（修「追加 user 消息漏进 store → 步号不重置」竞态）。
+const emit = defineEmits<{ started: [convID: string]; appended: [afterSeq: number] }>()
 
 async function send() {
   if (!brief.value.trim() || sending.value) return
@@ -18,10 +22,12 @@ async function send() {
   sending.value = true
   try {
     if (props.convId) {
+      // followUp 前快照 seq——user 消息 seq 必 > 此（发送后才新增）；后续 SSE 推高 store.lastSeq 不影响此快照值。
+      const beforeSeq = store.lastSeq
       const r = await followUp(props.convId, brief.value)
       brief.value = ''
       busyMsg.value = r.intent === 'qa' ? '正在回答…' : '已触发扫描'
-      emit('appended')
+      emit('appended', beforeSeq)
     } else {
       const { conversation_id } = await startChat(brief.value, roleID.value)
       brief.value = ''

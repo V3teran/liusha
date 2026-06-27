@@ -114,11 +114,12 @@ async function handleStarted(convID: string) {
   await open(convID)
   convList.value?.refresh()
 }
-// 多轮追加（如"继续"）：api 落的 user 消息不经 SSE（只 scanner 事件 publish），
-// 故主动拉增量补进 store（立即看到自己的"继续"+ 已有新事件）；后续 agent 事件走 SSE。
-async function handleAppended() {
+// 多轮追加（如"继续"）：api 落的 user 消息不经 SSE（只 scanner 事件 publish），故主动拉增量补进 store。
+// 游标用 Composer 发送前的 seq 快照（afterSeq），不用 store.lastSeq——后者会被 SSE 抢先推高、
+// 把 user 消息跳过（→ store 缺 user 消息 → ChatThread 步号不重置的竞态 bug）。重叠消息靠 store seqSet 去重。
+async function handleAppended(afterSeq: number) {
   if (!currentConv.value) return
-  for (const m of await listMessages(currentConv.value, store.lastSeq)) store.ingest(m)
+  for (const m of await listMessages(currentConv.value, afterSeq)) store.ingest(m)
 }
 function newConversation() {
   handle?.close()
