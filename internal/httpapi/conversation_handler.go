@@ -199,6 +199,22 @@ func abortConversationHandler(api AbortAPI) gin.HandlerFunc {
 	}
 }
 
+// ConversationDeleter 删除对话及其消息（*conversation.Store 满足）。小接口、可选注册（同 Abort）。
+type ConversationDeleter interface {
+	DeleteConversation(ctx context.Context, id string) error
+}
+
+// deleteConversationHandler 处理 DELETE /conversations/:id：删对话+消息（不动 scan/finding 成果）。
+func deleteConversationHandler(api ConversationDeleter) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if err := api.DeleteConversation(c.Request.Context(), c.Param("id")); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"deleted": true})
+	}
+}
+
 // listConversationsHandler 处理 GET /conversations：最近活跃对话列表。
 func listConversationsHandler(api ConversationsAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {

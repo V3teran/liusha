@@ -143,6 +143,7 @@ func main() {
 			Chat:              activeAdapter,                // 阶段B：POST /chat 对话发起扫描
 			FollowUp:          activeAdapter,                // 多轮：POST /conversations/:id/messages 动作续接
 			Abort:             activeAdapter,                // 多轮：POST /conversations/:id/abort 停止对话关联扫描
+			Deleter:           convStore,                    // DELETE /conversations/:id 删对话+消息（不动 scan/finding）
 			Conversations:     convStore,                    // 阶段B：对话列表 / 消息回看
 			EventStream:       eventStreamAdapter{rdb: rdb}, // 阶段B：SSE 订阅 redis 事件
 			Roles:             activeAdapter,                // 阶段C：GET /roles 场景列表

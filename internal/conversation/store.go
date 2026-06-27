@@ -50,6 +50,20 @@ func (s *Store) GetConversation(ctx context.Context, id string) (Conversation, e
 	return c, nil
 }
 
+// DeleteConversation 删除对话及其消息（message FK ON DELETE CASCADE 自动连带删）。
+// 不动关联的 active_scan / finding（scan_id FK 是 SET NULL，渗透成果以 owner=scan 为根，
+// 不因删对话丢失）。id 不存在返回 not found 错误。
+func (s *Store) DeleteConversation(ctx context.Context, id string) error {
+	tag, err := s.pool.Exec(ctx, "DELETE FROM conversation WHERE id=$1", id)
+	if err != nil {
+		return fmt.Errorf("delete conversation %s: %w", id, err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("delete conversation %s: not found", id)
+	}
+	return nil
+}
+
 // ResolveOwnerID 解析对话关联的 owner id（用于聚合 llm_invocation / tool_invocation 用量）。
 //   - active：conversation.scan_id 即 owner（active_scan id）。
 //   - passive：conversation 无 scan_id，反查 passive_session.conversation_id 拿会话 id。
