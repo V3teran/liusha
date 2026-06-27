@@ -53,6 +53,10 @@ type Conversation struct {
 	Status    Status
 	CreatedAt time.Time
 	UpdatedAt time.Time
+	// RunStatus 是派生的「真实运行态」（关联 active_scan/passive_session 的 status：
+	// active/completed/aborted；纯聊天为空）。仅 ListConversations 填充——Status 字段是僵尸值
+	// （默认 active 从不更新），列表显示运行态须用本字段。
+	RunStatus string `json:"RunStatus,omitempty"`
 }
 
 // Message 是 message 表行的 Go 表示。

@@ -142,8 +142,17 @@ func (s *Store) WallclockMs(ctx context.Context, convID string) (int64, error) {
 // ListConversations 按 updated_at DESC 列出最近活跃的对话（UI 列表）。
 func (s *Store) ListConversations(ctx context.Context, limit int) ([]Conversation, error) {
 	limit = clampLimit(limit)
-	rows, err := s.pool.Query(ctx,
-		"SELECT "+convCols+" FROM conversation ORDER BY updated_at DESC LIMIT $1", limit)
+	// run_status：派生「真实运行态」——conversation.status 是僵尸字段（默认 active 从不更新），
+	// 不能用于显示。取关联 active_scan.status（active/completed/aborted），无 scan 则反查
+	// passive_session.status，都无（纯聊天）→ 空串。前端列表据此显示准确状态。
+	rows, err := s.pool.Query(ctx, `
+		SELECT c.id, COALESCE(c.title,''), COALESCE(c.scan_id::text,''),
+			COALESCE(c.role_id,''), c.status, c.created_at, c.updated_at,
+			COALESCE(a.status, p.status, '') AS run_status
+		FROM conversation c
+		LEFT JOIN active_scan a ON a.id = c.scan_id
+		LEFT JOIN passive_session p ON p.conversation_id = c.id::text
+		ORDER BY c.updated_at DESC LIMIT $1`, limit)
 	if err != nil {
 		return nil, fmt.Errorf("list conversations: %w", err)
 	}
@@ -152,7 +161,7 @@ func (s *Store) ListConversations(ctx context.Context, limit int) ([]Conversatio
 	var out []Conversation
 	for rows.Next() {
 		var c Conversation
-		if err := scanConversation(rows, &c); err != nil {
+		if err := scanConversationWithRun(rows, &c); err != nil {
 			return nil, fmt.Errorf("scan conversation: %w", err)
 		}
 		out = append(out, c)
@@ -266,6 +275,11 @@ type scanRow interface {
 
 func scanConversation(r scanRow, c *Conversation) error {
 	return r.Scan(&c.ID, &c.Title, &c.ScanID, &c.RoleID, &c.Status, &c.CreatedAt, &c.UpdatedAt)
+}
+
+// scanConversationWithRun 多扫一列 run_status（派生真实运行态，见 ListConversations）。
+func scanConversationWithRun(r scanRow, c *Conversation) error {
+	return r.Scan(&c.ID, &c.Title, &c.ScanID, &c.RoleID, &c.Status, &c.CreatedAt, &c.UpdatedAt, &c.RunStatus)
 }
 
 func scanMessage(r scanRow, m *Message) error {

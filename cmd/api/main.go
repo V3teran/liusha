@@ -587,7 +587,35 @@ func (a *activeScanAdapter) StartChatScan(ctx context.Context, brief, roleID str
 	if err := a.conversations.LinkScan(ctx, conv.ID, scanID); err != nil {
 		return "", "", fmt.Errorf("link scan: %w", err)
 	}
+	// 异步生成智能标题（light LLM 把 brief 总结成短标题）——不阻塞对话创建响应；
+	// 失败则保留 briefTitle 截断兜底。前端下次 refresh 列表即见新标题。
+	go a.genTitle(conv.ID, brief)
 	return conv.ID, scanID, nil
+}
+
+// genTitle 用 light LLM 把 brief 总结成 ≤16 字的简短标题，回填 conversation.title。
+// 异步调用（独立 context，不随请求结束被 cancel）；失败静默（保留 briefTitle 兜底）。
+func (a *activeScanAdapter) genTitle(convID, brief string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	g, err := a.router.For(ctx, "inspector") // light provider，便宜
+	if err != nil {
+		return
+	}
+	prompt := "把下面的渗透测试任务描述总结成一个不超过 16 字的简短中文标题，" +
+		"突出目标和测试类型（如「DVWA SQL注入渗透」）。只输出标题本身，不要引号、不要解释。\n\n任务：" + brief
+	res, err := g.Generate(ctx, []llm.Message{{Role: llm.RoleUser, Content: prompt}}, nil)
+	if err != nil {
+		return
+	}
+	title := strings.TrimSpace(strings.Trim(strings.TrimSpace(res.Content), `"'「」`))
+	if r := []rune(title); len(r) > 24 { // 防 LLM 超长，硬截兜底
+		title = string(r[:24])
+	}
+	if title == "" {
+		return
+	}
+	_ = a.conversations.SetTitle(ctx, convID, title)
 }
 
 // briefTitle 取 brief 前 40 字（rune 安全，不截半个中文）作对话标题。
