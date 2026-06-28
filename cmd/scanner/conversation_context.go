@@ -5,6 +5,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cloudwego/eino/adk"
+	"github.com/cloudwego/eino/adk/middlewares/summarization"
 	"github.com/cloudwego/eino/schema"
 
 	"github.com/V3teran/liusha/internal/conversation"
@@ -139,15 +141,28 @@ func (h handler) dialogTokenBudget(role string) int {
 	return int(float64(cw) * ratio)
 }
 
-// distillOldDialog 把更早的对话用 light 模型蒸馏成 1 段摘要；失败返空串（caller 降级为直接拼接，不丢历史）。
+// distillOldDialog 把更早的对话蒸馏成 1 段摘要；失败返空串（caller 降级为直接拼接，不丢历史）。
+//
+// 复用 eino 的同步蒸馏 summarization.SummarizeMessages（拥抱 eino：模型输入构造/重试由它管）；
+// ② 自己只做 token 预算切分（eino 无跨 run 对话概念，那部分无法复用）。关 PreserveUserMessages
+// （最近/旧切分 ② 自己已做）；取 ModelResponse（原始摘要，不带 eino 的 compaction 前导语/续接指令）。
 func (h handler) distillOldDialog(ctx context.Context, msgs []conversation.Message) string {
-	m, err := h.einoFactory.For(ctx, "compactor")
+	compactor, err := h.einoFactory.For(ctx, "compactor")
 	if err != nil {
 		h.logger.Warn().Err(err).Msg("② 旧对话蒸馏：解析 compactor 模型失败（降级：旧对话直接拼接）")
 		return ""
 	}
-	var b strings.Builder
-	writeDialogLines(&b, msgs)
+
+	// 转 eino 消息，保留 user/assistant 角色让摘要器看清对话结构。
+	ems := make([]adk.Message, 0, len(msgs))
+	for _, m := range msgs {
+		content := strings.TrimSpace(m.Content)
+		if m.Role == conversation.RoleAssistant {
+			ems = append(ems, schema.AssistantMessage(content, nil))
+		} else {
+			ems = append(ems, schema.UserMessage(dialogSpeaker(m.Role)+"："+content))
+		}
+	}
 
 	timeout := h.cfg.React.HistoryCompact.CompactorTimeoutSeconds
 	if timeout <= 0 {
@@ -156,15 +171,16 @@ func (h handler) distillOldDialog(ctx context.Context, msgs []conversation.Messa
 	dctx, cancel := context.WithTimeout(ctx, time.Duration(timeout)*time.Second)
 	defer cancel()
 
-	out, err := m.Generate(dctx, []*schema.Message{
-		schema.SystemMessage(dialogDistillInstruction),
-		schema.UserMessage(b.String()),
-	})
-	if err != nil || out == nil {
-		h.logger.Warn().Err(err).Msg("② 旧对话蒸馏：light 模型调用失败（降级：旧对话直接拼接）")
+	out, err := summarization.SummarizeMessages(dctx, &summarization.Config{
+		Model:                compactor,
+		UserInstruction:      dialogDistillInstruction,
+		PreserveUserMessages: &summarization.PreserveUserMessages{Enabled: false},
+	}, ems)
+	if err != nil || out == nil || out.ModelResponse == nil {
+		h.logger.Warn().Err(err).Msg("② 旧对话蒸馏：eino SummarizeMessages 失败（降级：旧对话直接拼接）")
 		return ""
 	}
-	return strings.TrimSpace(out.Content)
+	return strings.TrimSpace(out.ModelResponse.Content)
 }
 
 // dialogSpeaker 把消息角色转成中文发言人标签。

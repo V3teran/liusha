@@ -186,7 +186,8 @@ type SessionConfig struct {
 	MaxAgeHours int `mapstructure:"max_age_hours"`
 
 	// hunter user prompt 拼装时的上限（避免 prompt 膨胀）。
-	// FindingsLimitInPrompt：该 host 已有 finding 段显示条数（dedup 参考；超出条数 LLM 用 read_findings 工具按需查）。
+	// FindingsLimitInPrompt：该 host 已有 finding 段的 DB 读上限安全闸（取够高，正常扫描全量注入；
+	// 不在此 top-N 截断，prompt 超长由 ① summarization 统一压缩，agent 仍可 read_findings 取全）。
 	// LessonsLimitInPrompt：该 host 历史经验 + 跨 host 业务规则 hint 共用上限（按 priority desc）。
 	FindingsLimitInPrompt int `mapstructure:"findings_limit_in_prompt"`
 	LessonsLimitInPrompt  int `mapstructure:"lessons_limit_in_prompt"`
@@ -536,7 +537,7 @@ func applySessionDefaults(c SessionConfig) SessionConfig {
 		c.MaxAgeHours = 24
 	}
 	if c.FindingsLimitInPrompt == 0 {
-		c.FindingsLimitInPrompt = 100
+		c.FindingsLimitInPrompt = 1000 // 安全闸（正常扫描全量注入，不截断；超长交 ① 压缩）
 	}
 	if c.LessonsLimitInPrompt == 0 {
 		c.LessonsLimitInPrompt = 100

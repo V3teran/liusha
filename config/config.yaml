@@ -353,7 +353,7 @@ session:
   # passive_session TTL：created_at 起超过此小时数即被 sweeper abort
   max_age_hours: 24
   # hunter user prompt 拼装上限（避免 prompt 膨胀；超出 LLM 用 read_findings/read_lessons 工具按需查）
-  findings_limit_in_prompt: 100     # 该 host 已有 finding 段显示条数
+  findings_limit_in_prompt: 1000    # 该 host finding DB 读上限安全闸（全量注入不截断；超长由 ① 压缩）
   lessons_limit_in_prompt: 100      # 该 host 历史经验 + 跨 host 业务规则 hint 共用上限
 
 # ---- credential.RedisProvider redis 前缀 ----
@@ -395,7 +395,7 @@ react:
   # 协同：与 notes/lesson/finding 分层记忆联动——蒸馏 prompt 引导省略"已 write_* 上提"内容。
   history_compact:
     trigger_ratio: 0.75                     # > 75% × ctx_window 触发 eino summarization 压缩
-    trailing_budget_ratio: 0.50             # ② 对话历史 trailing 窗口占 ctx_window 比例（最近完整）
+    trailing_budget_ratio: 0.15             # ② 对话历史最多占窗口比例（支撑性上下文，留 85% 给任务+finding+工作空间）；随窗口缩放
     compactor_timeout_seconds: 30           # ② 旧对话蒸馏单次 light LLM 超时
 
 # ---- 容器化执行参数（sandbox.Launcher + external.RunCommand）----
