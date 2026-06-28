@@ -2,8 +2,10 @@ package einoagent
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
+	"unicode"
 
 	"github.com/cloudwego/eino/adk"
 	"github.com/cloudwego/eino/adk/middlewares/summarization"
@@ -48,7 +50,12 @@ func NewSummarizationHandler(compactor model.BaseChatModel, p SummarizationParam
 		return nil, fmt.Errorf("NewSummarizationHandler: ContextWindow 必须 > 0（provider 未配 context_window）")
 	}
 
-	cfg := &summarization.Config{Model: compactor}
+	cfg := &summarization.Config{
+		Model: compactor,
+		// 替换 eino 默认 char/4 估算——它对中文低估 3-4 倍（中文 BPE 约 1 token/字，char/4 当 4 算），
+		// 致小窗口 provider（≤128k）上下文真撑爆窗口才触发压缩、provider 400。CJK 感知 counter 纠偏。
+		TokenCounter: cjkTokenCounter,
+	}
 	if p.TriggerRatio > 0 {
 		cfg.Trigger = &summarization.TriggerCondition{
 			ContextTokens: int(float64(p.ContextWindow) * p.TriggerRatio),
@@ -96,4 +103,78 @@ func summaryTextFromState(state adk.ChatModelAgentState) string {
 		return b.String()
 	}
 	return m.Content
+}
+
+// cjkTokenCounter 是给 eino summarization 的自定义 TokenCounter（纯函数，无状态，并发安全）。
+// 估算口径：CJK 字符 ≈ 1 token、其余 ≈ ÷4（英文/代码近似 4 字符/token）；含消息文本 + tool schema。
+// 比 eino 默认 char/4 对中文准得多——确保压缩在真实撑爆窗口前触发（见 NewSummarizationHandler 注释）。
+func cjkTokenCounter(_ context.Context, in *summarization.TokenCounterInput) (int, error) {
+	if in == nil {
+		return 0, nil
+	}
+	total := 0
+	for _, m := range in.Messages {
+		total += estimateCJKTokens(messageText(m))
+	}
+	// tool schema 也占 prompt token（25 个工具约数 k）；漏算会让触发偏晚。best-effort 序列化估。
+	for _, t := range in.Tools {
+		if t == nil {
+			continue
+		}
+		if b, err := json.Marshal(t); err == nil {
+			total += estimateCJKTokens(string(b))
+		}
+	}
+	return total, nil
+}
+
+// messageText 抽一条消息参与 token 估算的全部文本：Content + 多模态 text part + tool_call 名/参数。
+// （tool_call 参数如 sqlmap 长命令体积大，必须计入，否则严重低估。）
+func messageText(m adk.Message) string {
+	if m == nil {
+		return ""
+	}
+	var b strings.Builder
+	if m.Content != "" {
+		b.WriteString(m.Content)
+	}
+	for _, p := range m.UserInputMultiContent {
+		if p.Type == schema.ChatMessagePartTypeText && p.Text != "" {
+			b.WriteString(p.Text)
+		}
+	}
+	for _, tc := range m.ToolCalls {
+		b.WriteString(tc.Function.Name)
+		b.WriteString(tc.Function.Arguments)
+	}
+	return b.String()
+}
+
+// estimateCJKTokens 按「CJK 字符 ≈ 1 token、其余字符 ÷4」粗估 token 数。
+func estimateCJKTokens(s string) int {
+	cjk, other := 0, 0
+	for _, r := range s {
+		if isCJK(r) {
+			cjk++
+		} else {
+			other++
+		}
+	}
+	return cjk + (other+3)/4
+}
+
+// isCJK 判定一个 rune 是否 CJK 表意/假名/谚文/CJK 标点/全角（这些在 BPE 里约 1 token/字）。
+func isCJK(r rune) bool {
+	switch {
+	case unicode.Is(unicode.Han, r),
+		unicode.Is(unicode.Hiragana, r),
+		unicode.Is(unicode.Katakana, r),
+		unicode.Is(unicode.Hangul, r):
+		return true
+	case r >= 0x3000 && r <= 0x303F: // CJK 标点（、。〔〕…）
+		return true
+	case r >= 0xFF00 && r <= 0xFFEF: // 全角 ASCII / 标点（，：（））
+		return true
+	}
+	return false
 }
