@@ -143,7 +143,7 @@ func main() {
 			Chat:              activeAdapter,                // 阶段B：POST /chat 对话发起扫描
 			FollowUp:          activeAdapter,                // 多轮：POST /conversations/:id/messages 动作续接
 			Abort:             activeAdapter,                // 多轮：POST /conversations/:id/abort 停止对话关联扫描
-			Deleter:           convStore,                    // DELETE /conversations/:id 删对话+消息（不动 scan/finding）
+			Deleter:           activeAdapter,                // DELETE /conversations/:id 删对话+消息；关联扫描进行中拒删（409，先停后删）
 			Conversations:     convStore,                    // 阶段B：对话列表 / 消息回看
 			EventStream:       eventStreamAdapter{rdb: rdb}, // 阶段B：SSE 订阅 redis 事件
 			Roles:             activeAdapter,                // 阶段C：GET /roles 场景列表
@@ -470,6 +470,23 @@ func (a *activeScanAdapter) AbortConversationScan(ctx context.Context, convID st
 		return fmt.Errorf("conversation 无关联 scan")
 	}
 	return a.activeScans.Abort(ctx, conv.ScanID, "用户停止")
+}
+
+// DeleteConversation 满足 httpapi.ConversationDeleter：删对话+消息，但关联 active_scan 仍在跑时拒删。
+// 「先停后删」的服务端把关——返回 httpapi.ErrConversationScanActive → handler 映射 409。
+// 防「删了对话、扫描脱缰后台跑、UI 再停不掉、还在烧 token」的孤儿（见 reference_deep_subagent_context 同源思路：
+// 不变量在服务端守，不靠前端）。仅在确证 active 时拦截；无 scan / 终态 / scan 读不到则照常删。
+func (a *activeScanAdapter) DeleteConversation(ctx context.Context, convID string) error {
+	conv, err := a.conversations.GetConversation(ctx, convID)
+	if err != nil {
+		return err
+	}
+	if conv.ScanID != "" {
+		if sc, gerr := a.activeScans.GetByID(ctx, conv.ScanID); gerr == nil && sc.Status == activescan.StatusActive {
+			return httpapi.ErrConversationScanActive
+		}
+	}
+	return a.conversations.DeleteConversation(ctx, convID)
 }
 
 // HandleMessage 满足 httpapi.FollowUpAPI：落 user 消息 → 判意图 → qa 答 / action 续接。

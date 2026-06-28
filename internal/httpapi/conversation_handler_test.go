@@ -125,3 +125,42 @@ func TestAbortHandler(t *testing.T) {
 		t.Errorf("abort 应调用并 200，得 code=%d called=%q", w.Code, called)
 	}
 }
+
+type deleteFn func(context.Context, string) error
+
+func (f deleteFn) DeleteConversation(ctx context.Context, id string) error { return f(ctx, id) }
+
+// TestDeleteHandler_ScanActive_409：关联扫描仍在跑 → 409（先停后删的服务端兜底）。
+func TestDeleteHandler_ScanActive_409(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.DELETE("/conversations/:id", deleteConversationHandler(deleteFn(func(_ context.Context, _ string) error {
+		return ErrConversationScanActive
+	})))
+	req := httptest.NewRequest("DELETE", "/conversations/c1", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != 409 {
+		t.Errorf("扫描进行中删除应 409，得 %d (%s)", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "scan_active") {
+		t.Errorf("409 响应应含 scan_active 标记，得 %s", w.Body.String())
+	}
+}
+
+// TestDeleteHandler_OK_200：无活跃扫描 → 正常删除 200。
+func TestDeleteHandler_OK_200(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	called := ""
+	r := gin.New()
+	r.DELETE("/conversations/:id", deleteConversationHandler(deleteFn(func(_ context.Context, id string) error {
+		called = id
+		return nil
+	})))
+	req := httptest.NewRequest("DELETE", "/conversations/c1", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != 200 || called != "c1" {
+		t.Errorf("正常删除应调用并 200，得 code=%d called=%q", w.Code, called)
+	}
+}

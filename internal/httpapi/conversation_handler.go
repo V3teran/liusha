@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -14,6 +15,11 @@ import (
 	"github.com/V3teran/liusha/internal/logx"
 	"github.com/V3teran/liusha/internal/scenario"
 )
+
+// ErrConversationScanActive：对话关联的 active_scan 仍在跑，拒绝删除（先停后删）。
+// 业界做法（GitHub Actions / 云控制台）：活跃作业不许删，只能先 Cancel。否则删了对话 = 扫描脱缰
+// 后台跑、UI 再停不掉、还在烧 token 的孤儿。Deleter 实现据此返回，handler 映射为 409。
+var ErrConversationScanActive = errors.New("对话关联扫描进行中，请先停止再删除")
 
 // sseLog 是 SSE 流的诊断 logger（连接/订阅/补历史/实时转发/退出全链路）。
 // 包级构建一次（避免每连接触发 logx 全局写入的 race）。LIUSHA_LOG_LEVEL=debug 看逐帧。
@@ -205,9 +211,15 @@ type ConversationDeleter interface {
 }
 
 // deleteConversationHandler 处理 DELETE /conversations/:id：删对话+消息（不动 scan/finding 成果）。
+// 关联扫描仍在跑时返回 409（ErrConversationScanActive）——后端兜底「先停后删」，前端守卫可被绕过，
+// 不变量必须在服务端把守，否则单次删除就能制造停不掉的孤儿扫描。
 func deleteConversationHandler(api ConversationDeleter) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if err := api.DeleteConversation(c.Request.Context(), c.Param("id")); err != nil {
+			if errors.Is(err, ErrConversationScanActive) {
+				c.JSON(http.StatusConflict, gin.H{"error": err.Error(), "scan_active": true})
+				return
+			}
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
