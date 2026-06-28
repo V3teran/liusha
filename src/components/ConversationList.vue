@@ -45,14 +45,32 @@ function displayTitle(c: Conversation): string {
   return host ? host + raw.replace(/https?:\/\/[^/\s]+/, '').slice(0, 24) : raw.slice(0, 40)
 }
 
+// 悬停 tooltip：展示完整标题（仅去「我要扫描」前缀，不截断）。
+function fullTitle(c: Conversation): string {
+  return (c.Title || '').replace(/^我要扫描\s*/, '').trim() || c.ID
+}
+
 // ⋯ 更多菜单：开/关 + 点外部关闭。
+// 菜单经 Teleport 渲染到 body、用 fixed 视口坐标定位——逃离对话列表 ul 的 overflow 裁剪
+// （否则底部/边缘列表项的下拉菜单会被 ul 的 overflow-y:auto 裁掉，显示不全）。
 const menuOpen = ref<string>('')
-function toggleMenu(id: string, ev: Event) {
+const menuConv = ref<Conversation | null>(null)
+const menuStyle = ref<Record<string, string>>({})
+function toggleMenu(c: Conversation, ev: Event) {
   ev.stopPropagation()
-  menuOpen.value = menuOpen.value === id ? '' : id
+  if (menuOpen.value === c.ID) {
+    closeMenu()
+    return
+  }
+  const r = (ev.currentTarget as HTMLElement).getBoundingClientRect()
+  // 右对齐按钮、按钮下方 4px；左缘 clamp 防贴边溢出屏幕。
+  menuStyle.value = { top: `${r.bottom + 4}px`, left: `${Math.max(8, r.right - 140)}px` }
+  menuConv.value = c
+  menuOpen.value = c.ID
 }
 function closeMenu() {
   menuOpen.value = ''
+  menuConv.value = null
 }
 onMounted(() => document.addEventListener('click', closeMenu))
 onBeforeUnmount(() => document.removeEventListener('click', closeMenu))
@@ -91,23 +109,30 @@ async function onDelete(c: Conversation, ev: Event) {
       >
         <span class="cl-dot" :class="'dot-' + statusMeta(c).key" :title="statusMeta(c).label" />
         <div class="cl-body">
-          <div class="cl-title">{{ displayTitle(c) }}</div>
+          <div class="cl-title" :title="fullTitle(c)">{{ displayTitle(c) }}</div>
           <div class="cl-meta">
             <span class="cl-status" :class="'st-' + statusMeta(c).key">{{ statusMeta(c).label }}</span>
             <span class="cl-time" :title="fullTime(c.CreatedAt)">{{ relativeTime(c.CreatedAt) }}</span>
           </div>
         </div>
         <div class="cl-actions">
-          <button class="cl-more" title="更多" @click="toggleMenu(c.ID, $event)">⋯</button>
-          <div v-if="menuOpen === c.ID" class="cl-menu" @click.stop>
-            <button class="cl-menu-item danger" :disabled="deleting === c.ID" @click="onDelete(c, $event)">
-              🗑 删除对话
-            </button>
-          </div>
+          <button class="cl-more" title="更多" @click="toggleMenu(c, $event)">⋯</button>
         </div>
       </li>
       <li v-if="!items.length" class="cl-empty">暂无对话</li>
     </ul>
+    <!-- ⋯ 菜单 Teleport 到 body：fixed 视口定位，不被 ul overflow 裁剪 -->
+    <Teleport to="body">
+      <div v-if="menuConv" class="cl-menu" :style="menuStyle" @click.stop>
+        <button
+          class="cl-menu-item danger"
+          :disabled="deleting === menuConv.ID"
+          @click="onDelete(menuConv, $event)"
+        >
+          🗑 删除对话
+        </button>
+      </div>
+    </Teleport>
   </aside>
 </template>
 
@@ -255,11 +280,9 @@ li:hover .cl-more,
   background: var(--surface);
 }
 .cl-menu {
-  position: absolute;
-  right: 0;
-  top: 26px;
-  z-index: 20;
-  min-width: 130px;
+  position: fixed; /* Teleport 到 body + JS 视口坐标定位（top/left 由 menuStyle 注入） */
+  z-index: 1000;
+  min-width: 132px;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 8px;
