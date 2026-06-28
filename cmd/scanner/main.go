@@ -53,6 +53,14 @@ import (
 	"github.com/hibiken/asynq"
 )
 
+const (
+	// scanReaperInterval：reaper 巡逻周期。两条 (status, heartbeat_at) 索引 UPDATE，常态命中 0 行，
+	// 30s 既灵敏又不扰库。
+	scanReaperInterval = 30 * time.Second
+	// scanReaperStaleBuffer：判死阈值在「最长合法工具+LLM 间隔」之上再加的安全缓冲（时钟偏移 / 调度抖动）。
+	scanReaperStaleBuffer = 2 * time.Minute
+)
+
 func main() {
 	logger := logx.New("scanner")
 	ctx := context.Background()
@@ -312,6 +320,38 @@ func main() {
 					logger.Warn().Err(err).Msg("passive_session sweep failed")
 				} else if n > 0 {
 					logger.Info().Int("aborted", n).Msg("passive_session sweep aborted expired session")
+				}
+			}
+		}
+	}()
+
+	// scan reaper goroutine（B2 进度探活）：active_scan / passive_session 的 heartbeat_at 由 agent
+	// 每次工具调用驱动续命（见 einoToolSink.heartbeat）+ handler 入口重置一次。scanner 进程崩溃或
+	// 扫描卡死后心跳停摆，reaper 据此把超时孤儿判为 aborted——否则前端永远显示「进行中」。
+	// 与 passive sweeper 互补：sweeper 管 TTL 过期，reaper 管「进程不再举手」。
+	//
+	// staleAfter 必须 > 单 run 内两次工具调用之间的最长合法间隔，否则冤杀正在干活的扫描：
+	// 最长间隔 ≈ 一次长工具执行(step_tool_timeout，如 nmap/gobuster) + 决定下一步的 LLM 生成
+	// (step_llm_timeout) + 可能的上下文压缩 LLM(step_llm_timeout) + 缓冲。据此动态推导，不写死。
+	go func() {
+		staleAfter := time.Duration(cfg.Toolruntime.StepToolTimeoutSeconds+2*cfg.Scanner.StepLLMTimeoutSeconds)*time.Second + scanReaperStaleBuffer
+		logger.Info().Dur("stale_after", staleAfter).Dur("interval", scanReaperInterval).Msg("scan reaper started")
+		ticker := time.NewTicker(scanReaperInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-flowCtx.Done():
+				return
+			case <-ticker.C:
+				if n, err := actScan.ReapStale(flowCtx, staleAfter); err != nil {
+					logger.Warn().Err(err).Msg("active_scan reap stale failed")
+				} else if n > 0 {
+					logger.Warn().Int("aborted", n).Dur("stale_after", staleAfter).Msg("active_scan 心跳超时回收（进程崩溃或扫描卡死）")
+				}
+				if n, err := passSess.ReapStale(flowCtx, staleAfter); err != nil {
+					logger.Warn().Err(err).Msg("passive_session reap stale failed")
+				} else if n > 0 {
+					logger.Warn().Int("aborted", n).Dur("stale_after", staleAfter).Msg("passive_session 心跳超时回收（进程崩溃或会话卡死）")
 				}
 			}
 		}

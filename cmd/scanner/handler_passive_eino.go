@@ -37,6 +37,11 @@ func (h handler) handlePassiveEino(ctx context.Context, p worker.Payload, entryp
 
 	tid := p.HunterID
 	ot, oid := p.OwnerType, p.OwnerID
+	// 入口重置心跳：把 reaper 判活的起点从「建会话」移到「worker 真正接手」，避免排队时间吃掉
+	// staleAfter 预算被冤杀。best-effort。
+	if err := h.passiveSessions.Heartbeat(ctx, oid); err != nil {
+		h.logger.Warn().Err(err).Str("owner_id", oid).Msg("passive_session 入口心跳失败（不阻塞会话）")
+	}
 
 	// per-hunter 独立 eino ChatModel（铁律）
 	model, err := h.einoFactory.For(ctx, "traffic-analysis")

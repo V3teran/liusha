@@ -3,6 +3,7 @@ package activescan
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -140,6 +141,34 @@ func (s *Store) Reopen(ctx context.Context, id string) error {
 		return fmt.Errorf("reopen active scan %s: %w", id, err)
 	}
 	return nil
+}
+
+// Heartbeat 刷新 active scan 的 heartbeat_at（B2 探活：agent 每次工具调用驱动，节流见 caller）。
+// 仅对 active 行生效——终态行不刷（避免复活已结束的扫描）。best-effort，不阻塞业务。
+func (s *Store) Heartbeat(ctx context.Context, id string) error {
+	_, err := s.pool.Exec(ctx,
+		`UPDATE active_scan SET heartbeat_at=now() WHERE id=$1 AND status='active'`, id)
+	if err != nil {
+		return fmt.Errorf("heartbeat active scan %s: %w", id, err)
+	}
+	return nil
+}
+
+// ReapStale 把心跳超时的 active 扫描判为 aborted（进程崩溃/卡死的孤儿）。
+// staleAfter 是判死阈值（caller 按 step_tool_timeout + 2×step_llm_timeout + buffer 动态推导，
+// 覆盖单 run 内两次工具调用之间的最长合法间隔，避免冤杀正在跑长工具或慢 LLM 的扫描）。返回回收条数。
+func (s *Store) ReapStale(ctx context.Context, staleAfter time.Duration) (int, error) {
+	tag, err := s.pool.Exec(ctx, `
+		UPDATE active_scan SET
+			status='aborted',
+			ended_at=now(),
+			error_message='心跳超时（scanner 进程崩溃或扫描卡死）'
+		WHERE status='active' AND heartbeat_at < now() - $1::interval`,
+		fmt.Sprintf("%d milliseconds", staleAfter.Milliseconds()))
+	if err != nil {
+		return 0, fmt.Errorf("reap stale active scans: %w", err)
+	}
+	return int(tag.RowsAffected()), nil
 }
 
 // scanner 抽象 pgx.Row / pgx.Rows 的 Scan 方法。

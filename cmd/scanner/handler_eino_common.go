@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"fmt"
+	"sync/atomic"
+	"time"
 
 	"github.com/cloudwego/eino/adk"
 	"github.com/cloudwego/eino/callbacks"
@@ -14,17 +16,23 @@ import (
 	"github.com/V3teran/liusha/internal/toolinvocation"
 )
 
+// heartbeatThrottleMs：进度心跳节流窗口。每次工具调用都尝试续命，但同一 run 在窗口内只写一次
+// active_scan/passive_session.heartbeat_at，避免高频工具把 DB UPDATE 打爆。
+const heartbeatThrottleMs = 10_000
+
 // toolSink 返回 tool_invocation 落库适配器（best-effort）；store 缺失时 nil（recorder no-op）。
 func (h handler) toolSink() einoagent.ToolSink {
 	if h.hunterDeps.ToolInvocations == nil {
 		return nil
 	}
-	return einoToolSink{store: h.hunterDeps.ToolInvocations, h: h}
+	return einoToolSink{store: h.hunterDeps.ToolInvocations, h: h, lastBeatMs: new(atomic.Int64)}
 }
 
 type einoToolSink struct {
 	store *toolinvocation.Store
 	h     handler
+	// lastBeatMs：上次心跳的 UnixMilli，节流用。per-run 新建，故每个 run 独立计时。
+	lastBeatMs *atomic.Int64
 }
 
 func (s einoToolSink) RecordTool(ctx context.Context, inv einoagent.ToolInvocation) {
@@ -41,6 +49,41 @@ func (s einoToolSink) RecordTool(ctx context.Context, inv einoagent.ToolInvocati
 	}); err != nil {
 		s.h.logger.Warn().Err(err).Str("tool", inv.ToolName).Str("hunter_id", inv.HunterID).
 			Msg("eino tool_invocation 记录失败（不阻塞业务）")
+	}
+	// 进度心跳（B2）：工具有调用 = agent 仍在推进，续 heartbeat_at。reaper 据此判活，
+	// 防 scanner 崩溃/卡死后 active_scan 永远停在 active。节流避免高频写。best-effort，错误吞掉。
+	s.heartbeat(inv.OwnerType, inv.OwnerID)
+}
+
+// heartbeat 按 owner 类型续 active_scan/passive_session 的 heartbeat_at（节流 + best-effort）。
+func (s einoToolSink) heartbeat(ownerType, ownerID string) {
+	if s.lastBeatMs == nil || ownerType == "" || ownerID == "" {
+		return
+	}
+	now := time.Now().UnixMilli()
+	last := s.lastBeatMs.Load()
+	if now-last < heartbeatThrottleMs {
+		return
+	}
+	// CAS 抢占本次心跳窗口；竞争失败说明已有别的 goroutine 续命，跳过。
+	if !s.lastBeatMs.CompareAndSwap(last, now) {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	switch ownerType {
+	case "active_scan":
+		if s.h.activeScans != nil {
+			if err := s.h.activeScans.Heartbeat(ctx, ownerID); err != nil {
+				s.h.logger.Warn().Err(err).Str("owner_id", ownerID).Msg("active_scan 心跳失败（不阻塞业务）")
+			}
+		}
+	case "passive_session":
+		if s.h.passiveSessions != nil {
+			if err := s.h.passiveSessions.Heartbeat(ctx, ownerID); err != nil {
+				s.h.logger.Warn().Err(err).Str("owner_id", ownerID).Msg("passive_session 心跳失败（不阻塞业务）")
+			}
+		}
 	}
 }
 

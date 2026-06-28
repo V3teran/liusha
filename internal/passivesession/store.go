@@ -175,6 +175,33 @@ func (s *Store) Abort(ctx context.Context, id, errMsg string) error {
 	return nil
 }
 
+// Heartbeat 刷新 active passive session 的 heartbeat_at（B2 探活：agent 工具调用驱动，节流见 caller）。
+// 仅对 active 行生效。best-effort，不阻塞业务。
+func (s *Store) Heartbeat(ctx context.Context, id string) error {
+	_, err := s.pool.Exec(ctx,
+		`UPDATE passive_session SET heartbeat_at=now() WHERE id=$1 AND status='active'`, id)
+	if err != nil {
+		return fmt.Errorf("heartbeat passive session %s: %w", id, err)
+	}
+	return nil
+}
+
+// ReapStale 把心跳超时的 active passive session 判为 aborted（进程崩溃/卡死的孤儿）。
+// 区别于 Sweep（TTL 过期）：此处是「进程不再举手」的存活探测。返回回收条数。
+func (s *Store) ReapStale(ctx context.Context, staleAfter time.Duration) (int, error) {
+	tag, err := s.pool.Exec(ctx, `
+		UPDATE passive_session SET
+			status='aborted',
+			ended_at=now(),
+			error_message='心跳超时（scanner 进程崩溃或会话卡死）'
+		WHERE status='active' AND heartbeat_at < now() - $1::interval`,
+		fmt.Sprintf("%d milliseconds", staleAfter.Milliseconds()))
+	if err != nil {
+		return 0, fmt.Errorf("reap stale passive sessions: %w", err)
+	}
+	return int(tag.RowsAffected()), nil
+}
+
 // Sweep 关闭所有 expires_at 已过期的 active session（status → aborted）。
 // 与"懒轮换"（流量进来时 LookupOrCreate 检查 host 已有 active）互补——无流量场景下
 // 也能保证「TTL 一到必关」，避免 PG 堆积陈旧 active 行 + 前端看僵尸 session。

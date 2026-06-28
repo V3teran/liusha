@@ -41,6 +41,11 @@ func (h handler) handleActiveEino(ctx context.Context, p worker.Payload, entrypo
 
 	tid := p.HunterID
 	ot, oid := p.OwnerType, p.OwnerID
+	// 入口重置心跳：把 reaper 判活的起点从「API 建行」移到「worker 真正接手」，
+	// 避免 active_scan 在 asynq 队列里排队等待的时间吃掉 staleAfter 预算被冤杀。best-effort。
+	if err := h.activeScans.Heartbeat(ctx, oid); err != nil {
+		h.logger.Warn().Err(err).Str("owner_id", oid).Msg("active_scan 入口心跳失败（不阻塞扫描）")
+	}
 	virtualHost := extractHostFromBrief(ep.Brief, oid)
 	if virtualHost != oid {
 		if err := h.activeScans.SetTargetHost(ctx, oid, virtualHost); err != nil {
