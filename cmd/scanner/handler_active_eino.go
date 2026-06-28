@@ -96,7 +96,10 @@ func (h handler) handleActiveEino(ctx context.Context, p worker.Payload, entrypo
 	// per-run 中间件（压缩 / tool_invocation 遥测 / 截图回灌）+ 计费 callback。
 	// 中间件挂到 orchestrator 与所有子代理（截图回灌尤其需在跑 run_command 的子代理上）。
 	// 计费 callback 经顶层 runner ctx 传播到子代理模型调用。
-	mws, opts, cleanup := h.einoRunOpts(ctx, tid, ot, oid, "orchestrator", p.ConversationID)
+	mws, agentHandlers, opts, cleanup, err := h.einoRunOpts(ctx, tid, ot, oid, "orchestrator", p.ConversationID)
+	if err != nil {
+		return h.failTask(ctx, p.HunterID, fmt.Errorf("einoRunOpts: %w", err))
+	}
 	defer cleanup() // run 结束后 flush 异步事件 sink（关 channel + 等缓冲事件写完落库）
 
 	swarm, err := einoagent.BuildDeepSwarm(ctx, einoagent.DeepSwarmConfig{
@@ -106,6 +109,7 @@ func (h handler) handleActiveEino(ctx context.Context, p worker.Payload, entrypo
 		ToolDeps:     toolDeps,
 		Params:       params,
 		Middlewares:  mws,
+		Handlers:     agentHandlers,
 		MaxIteration: orchestrator.MaxIterations,
 	})
 	if err != nil {
@@ -119,7 +123,7 @@ func (h handler) handleActiveEino(ctx context.Context, p worker.Payload, entrypo
 	})
 	// 阶段0：多轮追问连贯性——把本对话最近的对话历史拼到 prompt 前，让 orchestrator 看到上下文
 	// （如"刚才那个漏洞"）。首轮 / 无对话 / 读失败时为空串，不影响。
-	if hist := h.conversationContext(ctx, p.ConversationID, ep.Brief); hist != "" {
+	if hist := h.conversationContext(ctx, p.ConversationID, "orchestrator", ep.Brief); hist != "" {
 		orchestratorPrompt = hist + "\n" + orchestratorPrompt
 	}
 

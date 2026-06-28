@@ -45,17 +45,18 @@ const defaultExploitationMaxIters = 60
 //
 // m 是 einollm 工厂产出的 ChatModel（passive 每 hunter 一个单 agent；共享亦安全，见 einollm 包注释）。
 // instruction = 拼好的 system prompt（shared + trafficAnalysis 段）；flowText = 一条 raw HTTP 流量。
-// middlewares 注入 AgentMiddleware（如历史压缩 NewCompactionMiddleware）；可为 nil。
+// middlewares 注入 struct 版 AgentMiddleware（遥测/事件/截图回灌）；handlers 注入接口版
+// ChatModelAgentMiddleware（① summarization 上下文压缩，见 NewSummarizationHandler）；均可为 nil。
 // opts 透传给 Runner.Run（如 adk.WithCallbacks 注入计费埋点 handler）。
 // maxIters 来自 passive 角色 frontmatter（hunters/passive/traffic-analysis.md 的 max_iterations）；
 // <=0 时回退 defaultTrafficAnalysisMaxIters。
-func RunTrafficAnalysis(ctx context.Context, m model.ToolCallingChatModel, tools []tool.BaseTool, instruction, flowText string, maxIters int, middlewares []adk.AgentMiddleware, opts ...adk.AgentRunOption) (TrafficAnalysisResult, error) {
+func RunTrafficAnalysis(ctx context.Context, m model.ToolCallingChatModel, tools []tool.BaseTool, instruction, flowText string, maxIters int, middlewares []adk.AgentMiddleware, handlers []adk.ChatModelAgentMiddleware, opts ...adk.AgentRunOption) (TrafficAnalysisResult, error) {
 	if maxIters <= 0 {
 		maxIters = defaultTrafficAnalysisMaxIters
 	}
 	return runSingleAgent(ctx, agentSpec{
 		name: "traffic-analysis", desc: "passive 侦察：分析一条流量挖漏洞", maxIters: maxIters,
-	}, m, tools, instruction, flowText, middlewares, opts...)
+	}, m, tools, instruction, flowText, middlewares, handlers, opts...)
 }
 
 // agentSpec 是单 agent 的固定身份/预算。
@@ -67,7 +68,7 @@ type agentSpec struct {
 
 // runSingleAgent 装配 + 跑一个单 ChatModelAgent，消费事件流收集 ToolCalls + 最终文字。
 // trafficAnalysis / exploitation 共用此机制（eino 单 agent 不调工具即自然收尾，无需 done）。
-func runSingleAgent(ctx context.Context, spec agentSpec, m model.ToolCallingChatModel, tools []tool.BaseTool, instruction, userText string, middlewares []adk.AgentMiddleware, opts ...adk.AgentRunOption) (TrafficAnalysisResult, error) {
+func runSingleAgent(ctx context.Context, spec agentSpec, m model.ToolCallingChatModel, tools []tool.BaseTool, instruction, userText string, middlewares []adk.AgentMiddleware, handlers []adk.ChatModelAgentMiddleware, opts ...adk.AgentRunOption) (TrafficAnalysisResult, error) {
 	agent, err := adk.NewChatModelAgent(ctx, &adk.ChatModelAgentConfig{
 		Name:             spec.name,
 		Description:      spec.desc,
@@ -76,6 +77,7 @@ func runSingleAgent(ctx context.Context, spec agentSpec, m model.ToolCallingChat
 		ToolsConfig:      adk.ToolsConfig{ToolsNodeConfig: compose.ToolsNodeConfig{Tools: tools}},
 		MaxIterations:    spec.maxIters,
 		Middlewares:      middlewares,
+		Handlers:         handlers, // ① summarization 上下文压缩（接口版扩展点）
 		ModelRetryConfig: &adk.ModelRetryConfig{MaxRetries: defaultModelRetries}, // 瞬时 provider 错重试（默认指数退避+jitter）
 	})
 	if err != nil {

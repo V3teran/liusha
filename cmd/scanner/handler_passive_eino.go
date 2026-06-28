@@ -108,7 +108,7 @@ func (h handler) handlePassiveEino(ctx context.Context, p worker.Payload, entryp
 
 	// 阶段2 可插话：把本 passive 会话最近的对话历史（含用户插话指导）拼到 prompt 前，
 	// 让 traffic agent 看到用户实时指导、调整分析方向（与 active orchestrator 同源 conversationContext）。
-	if hist := h.conversationContext(ctx, p.ConversationID, ""); hist != "" {
+	if hist := h.conversationContext(ctx, p.ConversationID, "traffic-analysis", ""); hist != "" {
 		userPrompt = hist + "\n" + userPrompt
 	}
 
@@ -116,7 +116,10 @@ func (h handler) handlePassiveEino(ctx context.Context, p worker.Payload, entryp
 	// compaction（防 context 爆）+ tool_invocation 遥测 + 截图回灌 + llm_invocation 计费。
 	// ★ 早期 passive handler 手工只挂了 compaction + 计费，漏了 ToolRecorder（→ tool_invocation
 	// 不落库）和 VisionRelay（→ trafficAnalysis 跑 run_command 截图会 mimo 400）。统一走 einoRunOpts 补齐。
-	mws, opts, cleanup := h.einoRunOpts(ctx, tid, ot, oid, "traffic-analysis", p.ConversationID)
+	mws, agentHandlers, opts, cleanup, err := h.einoRunOpts(ctx, tid, ot, oid, "traffic-analysis", p.ConversationID)
+	if err != nil {
+		return h.failTask(ctx, p.HunterID, fmt.Errorf("einoRunOpts: %w", err))
+	}
 	defer cleanup() // run 结束后 flush 异步事件 sink（关 channel + 等缓冲事件写完落库）
 
 	// owner 中止 watcher：react 路径靠 step 内 cfg.OnAbort；eino 无 step 钩子，
@@ -125,7 +128,7 @@ func (h handler) handlePassiveEino(ctx context.Context, p worker.Payload, entryp
 	defer cancel()
 	go h.watchAbort(runCtx, cancel, oid)
 
-	res, err := einoagent.RunTrafficAnalysis(runCtx, model, tools, instruction, userPrompt, h.passiveRole.MaxIterations, mws, opts...)
+	res, err := einoagent.RunTrafficAnalysis(runCtx, model, tools, instruction, userPrompt, h.passiveRole.MaxIterations, mws, agentHandlers, opts...)
 	if err != nil {
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			return h.abortTask(ctx, p.HunterID, "ctx "+err.Error())

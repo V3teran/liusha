@@ -28,8 +28,9 @@ type DeepSwarmConfig struct {
 	SubAgents    []RoleDef                  // 杀伤链阶段子代理角色
 	ToolDeps     TrafficAnalysisToolDeps    // 工具装配依赖（store/loader/sandbox）
 	Params       TrafficAnalysisToolParams  // owner/host/hunter 注入值
-	Middlewares  []adk.AgentMiddleware      // 压缩/截图回灌/遥测（einoRunOpts 产）
-	MaxIteration int                        // orchestrator 迭代上限；0=用 Orchestrator.MaxIterations 或默认
+	Middlewares  []adk.AgentMiddleware          // 截图回灌/遥测/事件（einoRunOpts 产，struct 版）
+	Handlers     []adk.ChatModelAgentMiddleware // ① summarization 上下文压缩（einoRunOpts 产，接口版 Handlers）
+	MaxIteration int                            // orchestrator 迭代上限；0=用 Orchestrator.MaxIterations 或默认
 }
 
 const defaultDeepMaxIter = 300
@@ -62,6 +63,7 @@ func BuildDeepSwarm(ctx context.Context, cfg DeepSwarmConfig) (adk.Agent, error)
 			ToolsConfig:   adk.ToolsConfig{ToolsNodeConfig: compose.ToolsNodeConfig{Tools: tools}},
 			MaxIterations: maxIter,
 			Middlewares:   cfg.Middlewares,
+			Handlers:      cfg.Handlers, // ① summarization 压缩挂每个子代理（子代理 run 各自独立计 token）
 			// 瞬时 provider 错（mimo 偶发超时/4xx/429/EOF）重试，避免一次抖动杀掉整个 sub-agent run。
 			// 对齐 passive（traffic_analysis）已有的 ModelRetryConfig——active 此前缺，是扫描偶发 abort 根因。
 			ModelRetryConfig: &adk.ModelRetryConfig{MaxRetries: defaultModelRetries},
@@ -97,6 +99,7 @@ func BuildDeepSwarm(ctx context.Context, cfg DeepSwarmConfig) (adk.Agent, error)
 		WithoutWriteTodos:      true, // liusha 不用 todo；过程靠 finding/note 黑板
 		MaxIteration:           maxIter,
 		Middlewares:            cfg.Middlewares,
+		Handlers:               cfg.Handlers, // ① summarization 压缩挂 orchestrator（deep 自动下传 task 工具内子代理）
 		// orchestrator 主 ChatModel 同样重试瞬时 provider 错——否则 orchestrator 一次 mimo 超时即中止整个扫描。
 		ModelRetryConfig: &adk.ModelRetryConfig{MaxRetries: defaultModelRetries},
 	})

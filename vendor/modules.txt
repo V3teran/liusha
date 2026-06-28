@@ -189,6 +189,7 @@ github.com/cloudwego/eino/adk
 github.com/cloudwego/eino/adk/filesystem
 github.com/cloudwego/eino/adk/internal
 github.com/cloudwego/eino/adk/middlewares/filesystem
+github.com/cloudwego/eino/adk/middlewares/summarization
 github.com/cloudwego/eino/adk/prebuilt/deep
 github.com/cloudwego/eino/callbacks
 github.com/cloudwego/eino/components

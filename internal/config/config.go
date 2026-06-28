@@ -261,11 +261,6 @@ type HistoryCompactConfig struct {
 	// 默认 0.50——业界共识 trailing context 30-50%。
 	TrailingBudgetRatio float64 `mapstructure:"trailing_budget_ratio"`
 
-	// CooldownTokenDelta 是距上次压缩净增 tokens 阈值；不到此值跳过本次压缩。
-	// 防 LLM 蒸馏调用过频（每次都烧 light_provider token）。
-	// 默认 4000——典型 1-2 步 ReAct 增量。
-	CooldownTokenDelta int `mapstructure:"cooldown_token_delta"`
-
 	// CompactorTimeoutSeconds 是单次 light LLM 蒸馏调用超时（含网络 + LLM 推理）。
 	// 超时退化为 head-truncate 兜底，不阻断 ReAct。默认 30s。
 	CompactorTimeoutSeconds int `mapstructure:"compactor_timeout_seconds"`
@@ -639,9 +634,6 @@ func applyHistoryCompactDefaults(c HistoryCompactConfig) HistoryCompactConfig {
 	}
 	if c.TrailingBudgetRatio <= 0 {
 		c.TrailingBudgetRatio = 0.50
-	}
-	if c.CooldownTokenDelta <= 0 {
-		c.CooldownTokenDelta = 4000
 	}
 	if c.CompactorTimeoutSeconds <= 0 {
 		c.CompactorTimeoutSeconds = 30

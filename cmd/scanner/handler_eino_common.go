@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/cloudwego/eino/adk"
 	"github.com/cloudwego/eino/callbacks"
@@ -71,7 +72,7 @@ func (h handler) einoToolDeps(sandboxClient sandbox.Client) einoagent.TrafficAna
 // conversationID 空（asynq 自动入口）时不发过程事件，纯后台扫描。
 // 返回值新增 cleanup func()：调用方在 agent run 结束后 defer 调用，flush 异步事件 sink
 // （关 channel + 等 writer 写完缓冲事件）。无事件 sink 时为 no-op。
-func (h handler) einoRunOpts(ctx context.Context, hunterID, ownerType, ownerID, role, conversationID string) ([]adk.AgentMiddleware, []adk.AgentRunOption, func()) {
+func (h handler) einoRunOpts(ctx context.Context, hunterID, ownerType, ownerID, role, conversationID string) ([]adk.AgentMiddleware, []adk.ChatModelAgentMiddleware, []adk.AgentRunOption, func(), error) {
 	var mws []adk.AgentMiddleware
 	// 事件 sink 提前创建（compaction + EventEmitter 共用）：对话发起时把 agent 过程事件异步落
 	// conversation message + publish redis，供前端实时展示。conversationID 空则 sink 为真 nil（纯后台扫描）。
@@ -86,12 +87,23 @@ func (h handler) einoRunOpts(ctx context.Context, hunterID, ownerType, ownerID, 
 	// 工具错误守卫（注册最前 = 最外层）：单次工具出错（如 LLM 漏填必填参数）转结果回灌模型，
 	// 避免被 eino deep 升级为致命 NodeRunError 炸掉整条 run。见 einoagent/tool_guard.go。
 	mws = append(mws, einoagent.NewToolErrorGuard())
-	if compactor, err := h.einoFactory.For(ctx, "compactor"); err == nil {
-		// 传 sink → 压缩发生时发 ScanEventCompaction，前端「压缩卡」可见上下文裁剪。
-		mws = append(mws, einoagent.NewCompactionMiddleware(compactor, einoagent.CompactionConfig{}, sink))
-	} else {
-		h.logger.Warn().Err(err).Str("role", role).Msg("eino compactor 装配失败，本次跳过历史压缩")
+
+	// ① 上下文压缩：eino 自带 summarization handler（token 预算触发 + 保留最近 user + 旧的蒸馏，
+	// 自带退避重试 + failover）。全面拥抱 eino——压缩是 context 不爆的承重件，装配失败即硬错误，
+	// 不降级跳过。走接口版 Handlers 扩展点（与 struct 版 mws 并行）。
+	compactor, err := h.einoFactory.For(ctx, "compactor")
+	if err != nil {
+		return nil, nil, nil, cleanup, fmt.Errorf("einoRunOpts: 解析 compactor 模型失败: %w", err)
 	}
+	// 传 sink → 压缩经 eino Callback 发 ScanEventCompaction，前端「压缩卡」可见上下文裁剪。
+	summarizer, err := einoagent.NewSummarizationHandler(compactor, einoagent.SummarizationParams{
+		ContextWindow: h.einoFactory.ContextWindowFor(role),
+		TriggerRatio:  h.cfg.React.HistoryCompact.TriggerRatio,
+	}, sink)
+	if err != nil {
+		return nil, nil, nil, cleanup, fmt.Errorf("einoRunOpts: 装配 summarization 失败: %w", err)
+	}
+	agentHandlers := []adk.ChatModelAgentMiddleware{summarizer}
 	// tool_invocation 遥测（gap②）：每次工具调用落库。store 缺失时 sink nil → recorder no-op。
 	mws = append(mws, einoagent.NewToolRecorder(h.toolSink(), hunterID, ownerType, ownerID))
 	// 截图视觉回灌（TODO-1）：run_command 的截图 image part 从 tool message 抽出转 user message
@@ -112,5 +124,5 @@ func (h handler) einoRunOpts(ctx context.Context, hunterID, ownerType, ownerID, 
 		provider, model,
 	)
 	handlers := append([]callbacks.Handler{recorder}, extraCallbacks...)
-	return mws, []adk.AgentRunOption{adk.WithCallbacks(handlers...)}, cleanup
+	return mws, agentHandlers, []adk.AgentRunOption{adk.WithCallbacks(handlers...)}, cleanup, nil
 }

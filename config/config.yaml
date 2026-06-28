@@ -394,10 +394,9 @@ react:
   # 蒸馏：候选集一次性送 light_provider；失败 head-truncate 兜底。
   # 协同：与 notes/lesson/finding 分层记忆联动——蒸馏 prompt 引导省略"已 write_* 上提"内容。
   history_compact:
-    trigger_ratio: 0.75                     # > 75% × ctx_window 触发；32k 模型阈值 24k 留 8k 给输出+tools
-    trailing_budget_ratio: 0.50             # 反向累加保最近 50% budget；业界共识 30-50%
-    cooldown_token_delta: 4000              # 距上次净增 < 4k 跳过；防 LLM 蒸馏调用过频
-    compactor_timeout_seconds: 30           # 单次 light LLM 蒸馏超时；超时退化 head-truncate
+    trigger_ratio: 0.75                     # > 75% × ctx_window 触发 eino summarization 压缩
+    trailing_budget_ratio: 0.50             # ② 对话历史 trailing 窗口占 ctx_window 比例（最近完整）
+    compactor_timeout_seconds: 30           # ② 旧对话蒸馏单次 light LLM 超时
 
 # ---- 容器化执行参数（sandbox.Launcher + external.RunCommand）----
 # 容器内存/CPU/并发数等运行时参数下放到 sandbox.DockerLauncher 内部硬编码

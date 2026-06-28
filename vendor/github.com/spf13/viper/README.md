@@ -881,7 +881,7 @@ application foundation needs.
 
 ### Why is it called “Cobra”?
 
-Is there a better name for a [orchestrator](http://en.wikipedia.org/wiki/Cobra_Orchestrator)?
+Is there a better name for a [commander](http://en.wikipedia.org/wiki/Cobra_Commander)?
 
 ### Does Viper support case sensitive keys?
 
