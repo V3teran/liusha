@@ -35,6 +35,17 @@ type DeepSwarmConfig struct {
 
 const defaultDeepMaxIter = 300
 
+// subAgentTargetSection 生成追加到子代理 system prompt 末尾的「固定目标 Host」段。
+// host 空（如无法从 brief 抽到目标）则返回空串，不污染提示。
+func subAgentTargetSection(host string) string {
+	if host == "" {
+		return ""
+	}
+	return fmt.Sprintf("\n\n## 目标 Host（本次扫描的固定目标）\n\n`%s`\n\n"+
+		"所有侦察 / 利用都针对这个地址，按 `http(s)://<host>` 构造 URL。"+
+		"**不要**去访问 localhost / 127.0.0.1 / 容器内网来「找」目标——目标就是上面这个 host，沙箱可直连。\n", host)
+}
+
 // BuildDeepSwarm 用 deep 装配 orchestrator。
 //
 // orchestrator 工具集 = Orchestrator 角色声明的工具（通常只读 + 不含 write_finding，铁律靠角色 md 不声明）。
@@ -56,10 +67,15 @@ func BuildDeepSwarm(ctx context.Context, cfg DeepSwarmConfig) (adk.Agent, error)
 			maxIter = defaultExploitationMaxIters
 		}
 		sa, err := adk.NewChatModelAgent(ctx, &adk.ChatModelAgentConfig{
-			Name:          role.ID,
-			Description:   role.Description,
-			Instruction:   role.SystemPrompt,
-			Model:         cfg.Model,
+			Name:        role.ID,
+			Description: role.Description,
+			// 子代理系统提示 = 角色 md + 固定目标 Host 段。
+			// 子代理是 deep task 派的瞬时代理，只看到 orchestrator 写的 task 文案 + 自己的 system prompt，
+			// 看不到 orchestrator 的 user message（带 ## 目标 Host）。若 orchestrator 派活时漏写目标地址，
+			// 子代理就会瞎猜 localhost/127.0.0.1（实测 recon 误扫容器内网根因）。此处结构化注入目标 host，
+			// 不依赖 orchestrator LLM 每次都记得复述——与 buildUserPrompt 给顶层 agent 注入 host 同源思路。
+			Instruction: role.SystemPrompt + subAgentTargetSection(cfg.Params.Host),
+			Model:       cfg.Model,
 			ToolsConfig:   adk.ToolsConfig{ToolsNodeConfig: compose.ToolsNodeConfig{Tools: tools}},
 			MaxIterations: maxIter,
 			Middlewares:   cfg.Middlewares,
