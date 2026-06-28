@@ -218,11 +218,13 @@ export async function abortScan(convID: string): Promise<void> {
 }
 
 // 删除对话及其消息（后端 message FK CASCADE 连带删；不动关联 scan/finding 成果）。
+// 关联扫描仍在跑时后端返回 409 → 抛 'SCAN_ACTIVE' 哨兵，调用方提示「先停后删」。
 export async function deleteConversation(convID: string): Promise<void> {
   const res = await fetch(`/api/conversations/${convID}`, {
     method: 'DELETE',
     headers: { 'X-API-Key': getApiKey() },
   })
+  if (res.status === 409) throw new Error('SCAN_ACTIVE')
   if (!res.ok) throw new Error(`DELETE /conversations/${convID} → ${res.status}`)
 }
 

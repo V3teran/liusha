@@ -76,18 +76,26 @@ onMounted(() => document.addEventListener('click', closeMenu))
 onBeforeUnmount(() => document.removeEventListener('click', closeMenu))
 
 const deleting = ref<string>('')
+// 扫描进行中提示文案（前端拦截 + 后端 409 共用一套话术）。
+const SCAN_ACTIVE_HINT = '扫描进行中，无法删除。请先在对话页点「■ 停止扫描」，停止后再删除。'
 async function onDelete(c: Conversation, ev: Event) {
   ev.stopPropagation()
   menuOpen.value = ''
   if (deleting.value) return
+  // 活跃扫描不许删（业界惯例：先停后删，防「删了对话、扫描脱缰、UI 再停不掉」的孤儿）。
+  // 前端拦一道（即时反馈），后端 409 兜底（防列表态过期 / 绕过前端）。
+  if (c.RunStatus === 'active') {
+    window.alert(SCAN_ACTIVE_HINT)
+    return
+  }
   if (!window.confirm(`删除对话「${displayTitle(c)}」？\n对话和消息会删除，扫描成果（漏洞/图）保留。`)) return
   deleting.value = c.ID
   try {
     await deleteConversation(c.ID)
     items.value = items.value.filter((x) => x.ID !== c.ID)
     emit('deleted', c.ID)
-  } catch {
-    window.alert('删除失败，请重试')
+  } catch (e) {
+    window.alert(e instanceof Error && e.message === 'SCAN_ACTIVE' ? SCAN_ACTIVE_HINT : '删除失败，请重试')
   } finally {
     deleting.value = ''
   }
@@ -124,7 +132,17 @@ async function onDelete(c: Conversation, ev: Event) {
     <!-- ⋯ 菜单 Teleport 到 body：fixed 视口定位，不被 ul overflow 裁剪 -->
     <Teleport to="body">
       <div v-if="menuConv" class="cl-menu" :style="menuStyle" @click.stop>
+        <!-- 扫描进行中禁删（业界惯例：先停后删）；终态才出删除按钮。 -->
         <button
+          v-if="menuConv.RunStatus === 'active'"
+          class="cl-menu-item disabled-hint"
+          disabled
+          title="扫描进行中，先在对话页「■ 停止扫描」，停止后再删除"
+        >
+          ⏳ 扫描中 · 先停止再删
+        </button>
+        <button
+          v-else
           class="cl-menu-item danger"
           :disabled="deleting === menuConv.ID"
           @click="onDelete(menuConv, $event)"
@@ -311,6 +329,13 @@ li:hover .cl-more,
 .cl-menu-item:disabled {
   opacity: 0.5;
   cursor: default;
+}
+/* 扫描中禁删提示：muted 文字、悬停不高亮（读起来就是「不可点」）。 */
+.cl-menu-item.disabled-hint {
+  color: var(--muted);
+}
+.cl-menu-item.disabled-hint:hover {
+  background: transparent;
 }
 .cl-empty {
   color: var(--muted);
