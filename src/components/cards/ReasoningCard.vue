@@ -2,6 +2,7 @@
 // 推理卡：agent 的思路/分析/计划/决策（markdown 富文本）+ 本次 LLM 交互的 token/耗时元信息。
 import { computed } from 'vue'
 import { renderMarkdown } from '../../lib/markdown'
+import { onMarkdownClick } from '../../composables/useCodeCopy'
 import { agentAccent, agentLabel as toLabel } from '../../lib/agentColor'
 
 const props = defineProps<{
@@ -42,7 +43,7 @@ const accent = computed(() => agentAccent(props.agentName))
         <span v-if="(latencyMs || 0) > 0" class="rc-chip" title="耗时">⏱ {{ fmtMs(latencyMs) }}</span>
       </span>
     </div>
-    <div class="rc-body markdown-body" v-html="html" /><span v-if="streaming" class="rc-cursor" />
+    <div class="rc-body markdown-body" v-html="html" @click="onMarkdownClick" /><span v-if="streaming" class="rc-cursor" />
   </div>
 </template>
 

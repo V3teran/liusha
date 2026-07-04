@@ -16,7 +16,9 @@
     "@vicons/tabler": "^0.13.0",
     "ant-design-vue": "^4.2.6",
     "dompurify": "^3.4.10",
+    "highlight.js": "^11.11.1",
     "marked": "^18.0.5",
+    "marked-highlight": "^2.2.4",
     "pinia": "^3.0.4",
     "vue": "^3.5.34",
     "vue-router": "^5.1.0"

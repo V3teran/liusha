@@ -357,3 +357,39 @@ pre {
 }
 .markdown-body strong { font-weight: 600; }
 .markdown-body a { color: var(--primary); }
+
+/* ============================================================
+   代码块：复制按钮 + highlight.js token 配色（跟随 CSS 变量 / 深浅主题）
+   ============================================================ */
+.markdown-body .code-block { position: relative; }
+.markdown-body .code-block pre { margin: 6px 0; }
+.markdown-body .code-copy {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-family: var(--mono);
+  color: var(--muted);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity var(--duration-fast, 150ms), color var(--duration-fast, 150ms);
+}
+.markdown-body .code-block:hover .code-copy,
+.markdown-body .code-copy:focus-visible { opacity: 1; }
+.markdown-body .code-copy:hover { color: var(--text); border-color: var(--border-strong, var(--primary)); }
+.markdown-body .code-copy.copied { color: var(--success); border-color: var(--success); opacity: 1; }
+
+/* highlight.js token 色——用语义 CSS 变量，浅/深主题各自的 --sev-*/--accent/--success 自动生效 */
+.hljs-comment, .hljs-quote { color: var(--muted); font-style: italic; }
+.hljs-keyword, .hljs-selector-tag, .hljs-built_in, .hljs-name, .hljs-tag { color: var(--sev-info); }
+.hljs-string, .hljs-attr, .hljs-template-tag, .hljs-addition { color: var(--success); }
+.hljs-number, .hljs-literal, .hljs-type, .hljs-params { color: var(--sev-high); }
+.hljs-title, .hljs-section, .hljs-function .hljs-title { color: var(--sev-medium); }
+.hljs-variable, .hljs-attribute, .hljs-symbol, .hljs-bullet { color: var(--accent); }
+.hljs-deletion { color: var(--sev-critical); }
+.hljs-emphasis { font-style: italic; }
+.hljs-strong { font-weight: 700; }

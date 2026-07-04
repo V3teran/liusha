@@ -2,12 +2,13 @@
 // 助手文字：LLM 叙述/总结/答复，按 markdown 富文本渲染（与推理卡同源消毒）。
 import { computed } from 'vue'
 import { renderMarkdown } from '../../lib/markdown'
+import { onMarkdownClick } from '../../composables/useCodeCopy'
 
 const props = defineProps<{ content: string }>()
 const html = computed(() => renderMarkdown(props.content))
 </script>
 <template>
-  <div class="assistant markdown-body" data-card="assistant" v-html="html" />
+  <div class="assistant markdown-body" data-card="assistant" v-html="html" @click="onMarkdownClick" />
 </template>
 
 <style scoped>
