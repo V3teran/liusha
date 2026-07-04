@@ -144,6 +144,7 @@ func main() {
 			FollowUp:          activeAdapter,                // 多轮：POST /conversations/:id/messages 动作续接
 			Abort:             activeAdapter,                // 多轮：POST /conversations/:id/abort 停止对话关联扫描
 			Deleter:           activeAdapter,                // DELETE /conversations/:id 删对话+消息；关联扫描进行中拒删（409，先停后删）
+			Renamer:           convStore,                    // PATCH /conversations/:id 重命名标题（convStore.SetTitle 直接满足）
 			Conversations:     convStore,                    // 阶段B：对话列表 / 消息回看
 			EventStream:       eventStreamAdapter{rdb: rdb}, // 阶段B：SSE 订阅 redis 事件
 			Roles:             activeAdapter,                // 阶段C：GET /roles 场景列表

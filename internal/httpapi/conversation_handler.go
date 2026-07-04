@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -224,6 +225,38 @@ func deleteConversationHandler(api ConversationDeleter) gin.HandlerFunc {
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"deleted": true})
+	}
+}
+
+// maxConversationTitleRunes 手动重命名标题上限（rune 计）。与 briefTitle 自动摘要的 40 留同量级余量。
+const maxConversationTitleRunes = 80
+
+// ConversationRenamer 重命名对话标题（*conversation.Store 满足）。小接口、可选注册（同 Deleter）。
+type ConversationRenamer interface {
+	SetTitle(ctx context.Context, id, title string) error
+}
+
+// renameConversationHandler 处理 PATCH /conversations/:id：改标题。
+// body: {"title": "..."}。空 title 由 store 存 NULL（回落到首条消息摘要展示）。
+func renameConversationHandler(api ConversationRenamer) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var body struct {
+			Title string `json:"title"`
+		}
+		if err := c.ShouldBindJSON(&body); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "无效请求体：" + err.Error()})
+			return
+		}
+		title := strings.TrimSpace(body.Title)
+		if len([]rune(title)) > maxConversationTitleRunes {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "标题过长"})
+			return
+		}
+		if err := api.SetTitle(c.Request.Context(), c.Param("id"), title); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"title": title})
 	}
 }
 

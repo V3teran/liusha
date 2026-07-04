@@ -40,6 +40,8 @@ type Deps struct {
 	Abort AbortAPI
 	// Deleter 为 nil 时 DELETE /conversations/:id 不注册（删对话+消息，不动 scan/finding 成果）。
 	Deleter ConversationDeleter
+	// Renamer 为 nil 时 PATCH /conversations/:id 不注册（重命名对话标题）。
+	Renamer ConversationRenamer
 	// Roles 为 nil 时 GET /roles 不注册（场景 role 列表，供前端对话选择）。
 	Roles RolesAPI
 	// 对话用量合计（GET /conversations/:id/usage）：三者任一为 nil 则路由不注册。
@@ -112,6 +114,9 @@ func NewServer(d Deps) http.Handler {
 		}
 		if d.Deleter != nil {
 			r.DELETE("/conversations/:id", deleteConversationHandler(d.Deleter))
+		}
+		if d.Renamer != nil {
+			r.PATCH("/conversations/:id", renameConversationHandler(d.Renamer))
 		}
 		if d.EventStream != nil {
 			r.GET("/conversations/:id/stream", streamHandler(d.Conversations, d.EventStream))
