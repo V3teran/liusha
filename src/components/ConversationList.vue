@@ -2,8 +2,8 @@
 // 对话侧栏：挂载时拉对话列表，点击向上抛选中 ID；顶部「+ 新对话」抛 new。
 // 列表项展示真实状态点 + 标题 + 相对时间，hover 出 ⋯ 更多菜单（删除，留扩展位），当前选中高亮。
 // 对齐 ChatGPT/Claude/Claude Code 侧栏惯例。
-import { onMounted, ref, onBeforeUnmount } from 'vue'
-import { listConversations, deleteConversation } from '../api/client'
+import { onMounted, ref, onBeforeUnmount, computed } from 'vue'
+import { listConversations, deleteConversation, renameConversation } from '../api/client'
 import type { Conversation } from '../api/types'
 import { relativeTime, fullTime } from '../lib/format'
 import { scanStatusMeta } from '../lib/scanStatus'
@@ -11,6 +11,16 @@ import { scanStatusMeta } from '../lib/scanStatus'
 const props = defineProps<{ activeId?: string }>()
 const items = ref<Conversation[]>([])
 const emit = defineEmits<{ select: [convID: string]; new: []; deleted: [convID: string] }>()
+
+// 搜索过滤：按标题（去前缀后）+ id 前缀匹配，纯前端（列表本就全量拉取，无需再打后端）。
+const query = ref('')
+const filtered = computed(() => {
+  const q = query.value.trim().toLowerCase()
+  if (!q) return items.value
+  return items.value.filter(
+    (c) => fullTitle(c).toLowerCase().includes(q) || c.ID.toLowerCase().startsWith(q),
+  )
+})
 
 async function refresh() {
   items.value = await listConversations()
@@ -100,6 +110,44 @@ async function onDelete(c: Conversation, ev: Event) {
     deleting.value = ''
   }
 }
+
+// 行内重命名：菜单点「重命名」→ 该项切输入框、聚焦选中；Enter/失焦提交，Esc 取消。
+// 乐观更新（本地先改、后端静默回填），失败回滚原标题并提示。
+const renamingId = ref<string>('')
+const renameText = ref<string>('')
+// 回调 ref：v-if 内只渲染一个输入框，挂载时回调触发即聚焦选中（比 nextTick + 数组 ref 稳）。
+function bindRenameInput(el: HTMLInputElement | null) {
+  if (el) el.select()
+}
+function startRename(c: Conversation, ev: Event) {
+  ev.stopPropagation()
+  menuOpen.value = ''
+  menuConv.value = null
+  renamingId.value = c.ID
+  renameText.value = fullTitle(c)
+}
+function cancelRename() {
+  renamingId.value = ''
+  renameText.value = ''
+}
+function setTitle(convID: string, title: string) {
+  // 不可变更新：替换数组项，不就地改对象。
+  items.value = items.value.map((x) => (x.ID === convID ? { ...x, Title: title } : x))
+}
+async function commitRename(c: Conversation) {
+  if (renamingId.value !== c.ID) return // 已被 Esc 取消
+  const next = renameText.value.trim()
+  renamingId.value = ''
+  const prev = c.Title || ''
+  if (next === fullTitle(c)) return // 无变化
+  setTitle(c.ID, next) // 乐观更新
+  try {
+    await renameConversation(c.ID, next)
+  } catch {
+    setTitle(c.ID, prev) // 回滚
+    window.alert('重命名失败，请重试')
+  }
+}
 </script>
 
 <template>
@@ -108,16 +156,36 @@ async function onDelete(c: Conversation, ev: Event) {
       <button class="new-conv" @click="emit('new')">+ 新对话</button>
       <button class="refresh" title="刷新列表" @click="refresh">↻</button>
     </div>
+    <div class="cl-search">
+      <input
+        v-model="query"
+        type="search"
+        placeholder="搜索对话…"
+        aria-label="搜索对话"
+        spellcheck="false"
+      />
+    </div>
     <ul>
       <li
-        v-for="c in items"
+        v-for="c in filtered"
         :key="c.ID"
         :class="{ active: c.ID === props.activeId }"
-        @click="emit('select', c.ID)"
+        @click="renamingId === c.ID ? null : emit('select', c.ID)"
       >
         <span class="cl-dot" :class="'dot-' + statusMeta(c).key" :title="statusMeta(c).label" />
         <div class="cl-body">
-          <div class="cl-title" :title="fullTitle(c)">{{ displayTitle(c) }}</div>
+          <input
+            v-if="renamingId === c.ID"
+            :ref="(el) => bindRenameInput(el as HTMLInputElement | null)"
+            v-model="renameText"
+            class="cl-rename"
+            maxlength="80"
+            @click.stop
+            @keydown.enter.prevent="commitRename(c)"
+            @keydown.esc.prevent="cancelRename"
+            @blur="commitRename(c)"
+          />
+          <div v-else class="cl-title" :title="fullTitle(c)">{{ displayTitle(c) }}</div>
           <div class="cl-meta">
             <span class="cl-status" :class="'st-' + statusMeta(c).key">{{ statusMeta(c).label }}</span>
             <span class="cl-time" :title="fullTime(c.CreatedAt)">{{ relativeTime(c.CreatedAt) }}</span>
@@ -127,11 +195,12 @@ async function onDelete(c: Conversation, ev: Event) {
           <button class="cl-more" title="更多" @click="toggleMenu(c, $event)">⋯</button>
         </div>
       </li>
-      <li v-if="!items.length" class="cl-empty">暂无对话</li>
+      <li v-if="!filtered.length" class="cl-empty">{{ query.trim() ? '无匹配对话' : '暂无对话' }}</li>
     </ul>
     <!-- ⋯ 菜单 Teleport 到 body：fixed 视口定位，不被 ul overflow 裁剪 -->
     <Teleport to="body">
       <div v-if="menuConv" class="cl-menu" :style="menuStyle" @click.stop>
+        <button class="cl-menu-item" @click="startRename(menuConv, $event)">✎ 重命名</button>
         <!-- 扫描进行中禁删（业界惯例：先停后删）；终态才出删除按钮。 -->
         <button
           v-if="menuConv.RunStatus === 'active'"
@@ -182,6 +251,35 @@ async function onDelete(c: Conversation, ev: Event) {
   border-radius: 8px;
   color: var(--muted);
   cursor: pointer;
+}
+.cl-search input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 6px 10px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  font-size: 12px;
+  outline: none;
+  transition: border-color var(--duration-fast, 150ms);
+}
+.cl-search input:focus {
+  border-color: var(--accent);
+}
+.cl-search input::placeholder {
+  color: var(--muted);
+}
+.cl-rename {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 2px 6px;
+  background: var(--surface);
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  color: var(--text);
+  font-size: 13px;
+  outline: none;
 }
 ul {
   list-style: none;

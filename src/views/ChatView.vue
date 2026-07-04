@@ -18,6 +18,10 @@ import { scanStatusMeta } from '../lib/scanStatus'
 const store = useConversationStore()
 const route = useRoute()
 const currentConv = ref<string>('')
+// 历史加载态：loading 驱动骨架屏，loadError 驱动错误重试卡。仅覆盖「补历史」阶段，
+// 不含 SSE（SSE 断线另有 reconnecting chip）。
+const loading = ref(false)
+const loadError = ref(false)
 let handle: StreamHandle | null = null
 // SSE 连接态（驱动「重连中…」chip）；切会话/新建时重置为 open 占位。
 const streamStatus = ref<'connecting' | 'open' | 'reconnecting'>('open')
@@ -115,9 +119,21 @@ async function open(convID: string) {
   store.reset()
   usage.value = null
   currentConv.value = convID
+  loadError.value = false
+  loading.value = true
   // 分页拉全可能耗时；期间用户又切了会话则丢弃这批历史，避免灌进错误会话的消息。
-  const history = await listMessages(convID)
+  let history
+  try {
+    history = await listMessages(convID)
+  } catch {
+    if (currentConv.value === convID) {
+      loading.value = false
+      loadError.value = true // 驱动错误重试卡
+    }
+    return
+  }
   if (currentConv.value !== convID) return
+  loading.value = false
   for (const m of history) store.ingest(m)
   handle = openEventStream(convID, store)
   // 把流句柄的连接态镜像到本地 ref（驱动「重连中…」chip）。先停旧 watcher 再绑新的，防累积泄漏。
@@ -144,7 +160,13 @@ function newConversation() {
   store.reset()
   usage.value = null
   streamStatus.value = 'open'
+  loading.value = false
+  loadError.value = false
   currentConv.value = ''
+}
+// 补历史失败重试：重开当前会话（open 内已重置 loadError/loading）。
+function retryLoad() {
+  if (currentConv.value) open(currentConv.value)
 }
 // 删除的若是当前打开的对话 → 回到新建态（清空主区）；删别的对话不影响当前视图。
 function onConvDeleted(convID: string) {
@@ -194,7 +216,24 @@ async function stop() {
         </div>
       </div>
 
-      <ChatThread v-if="hasConv || store.messages.length" />
+      <!-- 补历史失败：错误重试卡（占据主区，一键重试）。 -->
+      <div v-if="loadError" class="chat-error">
+        <div class="err-card">
+          <div class="err-mark">⚠</div>
+          <h2>加载对话失败</h2>
+          <p>无法拉取历史消息，可能是网络或服务暂时不可用。</p>
+          <button class="err-retry" @click="retryLoad">重试</button>
+        </div>
+      </div>
+      <!-- 补历史中：骨架屏（避免空白闪现，给出「正在加载」的确定感）。 -->
+      <div v-else-if="loading" class="chat-skeleton" aria-busy="true" aria-label="正在加载对话">
+        <div v-for="n in 5" :key="n" class="sk-row" :class="n % 2 ? 'sk-left' : 'sk-right'">
+          <div class="sk-line sk-w1" />
+          <div class="sk-line sk-w2" />
+          <div class="sk-line sk-w3" />
+        </div>
+      </div>
+      <ChatThread v-else-if="hasConv || store.messages.length" />
       <div v-else class="chat-empty">
         <div class="empty-card">
           <div class="empty-mark">⌖</div>
@@ -306,6 +345,69 @@ async function stop() {
   font-size: 12.5px;
 }
 .stop-btn:hover { background: color-mix(in srgb, var(--sev-critical) 14%, transparent); }
+
+/* 骨架屏：左右交替的气泡占位，shimmer 扫光。prefers-reduced-motion 下停 shimmer（见文末媒体查询）。 */
+.chat-skeleton {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  padding: 20px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.sk-row {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 60%;
+}
+.sk-row.sk-left { align-self: flex-start; }
+.sk-row.sk-right { align-self: flex-end; align-items: flex-end; }
+.sk-line {
+  height: 12px;
+  border-radius: 6px;
+  background: linear-gradient(
+    90deg,
+    var(--surface-2) 0%,
+    color-mix(in srgb, var(--surface-2) 40%, var(--border)) 50%,
+    var(--surface-2) 100%
+  );
+  background-size: 200% 100%;
+  animation: sk-shimmer 1.4s ease-in-out infinite;
+}
+.sk-w1 { width: 220px; }
+.sk-w2 { width: 300px; }
+.sk-w3 { width: 160px; }
+@keyframes sk-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* 加载失败错误卡 */
+.chat-error { flex: 1; display: grid; place-items: center; padding: 30px; }
+.err-card {
+  max-width: 400px;
+  text-align: center;
+  padding: 32px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+}
+.err-mark { font-size: 40px; line-height: 1; color: var(--sev-high); margin-bottom: 12px; }
+.err-card h2 { margin: 0 0 8px; font-size: 18px; }
+.err-card p { margin: 0 0 18px; color: var(--muted); font-size: 13px; line-height: 1.6; }
+.err-retry {
+  padding: 7px 22px;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-weight: 600;
+  font-size: 13px;
+  cursor: pointer;
+}
+.err-retry:hover { background: var(--primary-hover, var(--accent)); }
 
 .chat-empty { flex: 1; display: grid; place-items: center; padding: 30px; }
 .empty-card {

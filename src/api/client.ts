@@ -228,6 +228,16 @@ export async function deleteConversation(convID: string): Promise<void> {
   if (!res.ok) throw new Error(`DELETE /conversations/${convID} → ${res.status}`)
 }
 
+// 重命名对话标题（PATCH /conversations/:id）。空 title → 后端存 NULL，展示回落首条消息摘要。
+export async function renameConversation(convID: string, title: string): Promise<void> {
+  const res = await fetch(`/api/conversations/${convID}`, {
+    method: 'PATCH',
+    headers: { 'X-API-Key': getApiKey(), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ title }),
+  })
+  if (!res.ok) throw new Error(`PATCH /conversations/${convID} → ${res.status}`)
+}
+
 /* ============================================================
    被动会话 / 主动扫描（owner）
    ============================================================ */

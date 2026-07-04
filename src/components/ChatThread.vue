@@ -106,13 +106,25 @@ watch(() => store.liveReasoning, stickToBottom)
 
 <template>
   <div class="thread-wrap">
-    <div ref="el" class="thread" @scroll.passive="onScroll">
+    <!-- aria-live=polite：新落定的消息/工具组会被屏读器播报（不打断当前朗读）。
+         aria-relevant=additions：只播报新增节点，忽略滚动引起的移除/重排。 -->
+    <div
+      ref="el"
+      class="thread"
+      role="log"
+      aria-live="polite"
+      aria-relevant="additions"
+      aria-label="对话消息"
+      @scroll.passive="onScroll"
+    >
       <template v-for="r in rows" :key="r.key">
         <div v-if="r.kind === 'divider'" class="day-divider"><span>{{ r.label }}</span></div>
         <StepTools v-else-if="r.kind === 'tools'" :tools="r.tools" />
         <MessageItem v-else :msg="r.msg" :step="r.step" />
       </template>
-      <ReasoningCard v-if="store.liveReasoning" :text="store.liveReasoning" streaming />
+      <!-- 流式推理活动气泡：逐字打字机会触发上百次 DOM 变更，aria-hidden 避免屏读器逐字刷屏；
+           推理最终帧作为正式消息落定时会被 aria-live 正常播报一次。 -->
+      <ReasoningCard v-if="store.liveReasoning" :text="store.liveReasoning" streaming aria-hidden="true" />
     </div>
     <!-- 跳到最新浮标：脱离底部时出现，带未读计数。滚动直播刷得快，翻看历史后一键回到实时。 -->
     <button v-if="!atBottom" class="jump-latest" type="button" @click="scrollToBottom">

@@ -3,7 +3,7 @@
 // 高亮 token 用 style.css 里的 .hljs-* 规则上色（跟随 CSS 变量 + 深浅主题），不引第三方主题 css。
 import { marked } from 'marked'
 import { markedHighlight } from 'marked-highlight'
-import DOMPurify from 'dompurify'
+import DOMPurify, { type Config } from 'dompurify'
 import hljs from 'highlight.js/lib/core'
 
 // —— 按需注册语言（渗透场景：命令 / 流量 / payload / 响应）——
@@ -31,7 +31,7 @@ hljs.registerLanguage('javascript', javascript)
 hljs.registerLanguage('yaml', yaml)
 
 // DOMPurify 放行 copy 按钮需要的属性（button/data-*）——高亮后我们把源码存 data-code 供复制。
-const PURIFY_CONFIG: DOMPurify.Config = {
+const PURIFY_CONFIG: Config = {
   ADD_ATTR: ['data-code', 'data-lang', 'aria-label'],
 }
 
@@ -59,7 +59,7 @@ marked.setOptions({ breaks: true, gfm: true })
 export function renderMarkdown(src: string): string {
   if (!src) return ''
   const raw = marked.parse(src, { async: false }) as string
-  const clean = DOMPurify.sanitize(raw, PURIFY_CONFIG)
+  const clean = DOMPurify.sanitize(raw, PURIFY_CONFIG) as string
   return wrapCodeBlocks(clean)
 }
 
