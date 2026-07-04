@@ -1,11 +1,17 @@
+import { ref, type Ref } from 'vue'
 import type { Message } from '../api/types'
 import { authStream } from '../api/client'
 import type { useConversationStore } from '../stores/conversation'
 
 type Store = ReturnType<typeof useConversationStore>
 
+// 连接态：'connecting' 首次连接中 / 'open' 已连 / 'reconnecting' 断线退避重连中。
+// 顶部状态栏据此显示「重连中…」chip——区分「卡了/断了」与「正常静默」。
+export type StreamStatus = 'connecting' | 'open' | 'reconnecting'
+
 export interface StreamHandle {
   close(): void
+  status: Ref<StreamStatus>
 }
 
 const MAX_BACKOFF_MS = 15000
@@ -30,6 +36,7 @@ export function openEventStream(convID: string, store: Store): StreamHandle {
   let closed = false
   let retry = 0
   let retryTimer: number | undefined
+  const status = ref<StreamStatus>('connecting')
 
   const connect = async () => {
     if (closed) return
@@ -47,6 +54,7 @@ export function openEventStream(convID: string, store: Store): StreamHandle {
 
     src.onopen = () => {
       retry = 0 // 连上即重置退避
+      status.value = 'open'
     }
     src.onmessage = (e: MessageEvent) => {
       try {
@@ -74,6 +82,7 @@ export function openEventStream(convID: string, store: Store): StreamHandle {
 
   const scheduleReconnect = () => {
     if (closed) return
+    status.value = 'reconnecting'
     const delay = Math.min(1000 * 2 ** retry, MAX_BACKOFF_MS)
     retry += 1
     retryTimer = window.setTimeout(connect, delay)
@@ -82,6 +91,7 @@ export function openEventStream(convID: string, store: Store): StreamHandle {
   connect()
 
   return {
+    status,
     close: () => {
       closed = true
       if (retryTimer) clearTimeout(retryTimer)

@@ -19,6 +19,10 @@ const store = useConversationStore()
 const route = useRoute()
 const currentConv = ref<string>('')
 let handle: StreamHandle | null = null
+// SSE 连接态（驱动「重连中…」chip）；切会话/新建时重置为 open 占位。
+const streamStatus = ref<'connecting' | 'open' | 'reconnecting'>('open')
+// 上一个流句柄状态 watcher 的停止器——切会话时先停旧的，避免 watcher 累积泄漏。
+let stopStatusWatch: (() => void) | null = null
 
 // 本对话权威用量（后端 SUM llm_invocation + tool_invocation）。开对话即取、扫描中轮询。
 const usage = ref<ConversationUsage | null>(null)
@@ -87,6 +91,7 @@ watch(
 onUnmounted(() => {
   if (timer) clearInterval(timer)
   if (usageDebounce) clearTimeout(usageDebounce)
+  stopStatusWatch?.()
   handle?.close()
 })
 
@@ -115,6 +120,9 @@ async function open(convID: string) {
   if (currentConv.value !== convID) return
   for (const m of history) store.ingest(m)
   handle = openEventStream(convID, store)
+  // 把流句柄的连接态镜像到本地 ref（驱动「重连中…」chip）。先停旧 watcher 再绑新的，防累积泄漏。
+  stopStatusWatch?.()
+  stopStatusWatch = watch(handle.status, (s) => (streamStatus.value = s), { immediate: true })
   refreshUsage()
 }
 // 新对话发起：打开它 + 刷新左侧列表（否则新对话不出现，要手动点 ↻）。
@@ -130,9 +138,12 @@ async function handleAppended(afterSeq: number) {
   for (const m of await listMessages(currentConv.value, afterSeq)) store.ingest(m)
 }
 function newConversation() {
+  stopStatusWatch?.()
+  stopStatusWatch = null
   handle?.close()
   store.reset()
   usage.value = null
+  streamStatus.value = 'open'
   currentConv.value = ''
 }
 // 删除的若是当前打开的对话 → 回到新建态（清空主区）；删别的对话不影响当前视图。
@@ -159,6 +170,10 @@ async function stop() {
           <span class="live" :class="['st-' + topStatus.key, { active: scanning }]">
             <span class="pulse" :style="{ background: topStatus.color }" />
             {{ scanning ? 'agent 工作中…' : topStatus.label }}
+          </span>
+          <!-- SSE 重连中 chip：区分「连接断了在重连」与「正常静默」，长扫描断线用户有感知。 -->
+          <span v-if="streamStatus === 'reconnecting'" class="reconnect-chip" title="实时连接断开，正在自动重连…">
+            <span class="rc-spinner" />重连中…
           </span>
           <span v-if="startedAt" class="started" :title="'发起于 ' + fullTime(startedAt)">
             发起 {{ fullTime(startedAt) }}
@@ -192,7 +207,13 @@ async function stop() {
         </div>
       </div>
 
-      <Composer :conv-id="currentConv || undefined" @started="handleStarted" @appended="handleAppended" />
+      <Composer
+        :conv-id="currentConv || undefined"
+        :scanning="scanning"
+        @started="handleStarted"
+        @appended="handleAppended"
+        @stop="stop"
+      />
     </section>
   </div>
 </template>
@@ -221,6 +242,25 @@ async function stop() {
 /* 终态文字色（非工作中）：已完成蓝 / 已中止灰，与左侧列表统一 */
 .live.st-done { color: #38bdf8; }
 .live.st-aborted { color: #94a3b8; }
+.reconnect-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11.5px;
+  color: var(--sev-medium);
+  background: color-mix(in srgb, var(--sev-medium) 12%, transparent);
+  border-radius: 999px;
+  padding: 2px 9px;
+}
+.rc-spinner {
+  width: 9px;
+  height: 9px;
+  border: 1.5px solid var(--sev-medium);
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: rc-spin 0.7s linear infinite;
+}
+@keyframes rc-spin { to { transform: rotate(360deg); } }
 .status-left { display: inline-flex; align-items: center; gap: 14px; min-width: 0; }
 .started {
   font-size: 11.5px;

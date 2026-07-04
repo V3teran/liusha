@@ -6,7 +6,7 @@ import { startChat, followUp } from '../api/client'
 import { useConversationStore } from '../stores/conversation'
 import RolePicker from './RolePicker.vue'
 
-const props = defineProps<{ convId?: string }>()
+const props = defineProps<{ convId?: string; scanning?: boolean }>()
 const store = useConversationStore()
 const brief = ref('')
 const roleID = ref('')
@@ -14,10 +14,15 @@ const busyMsg = ref('')
 const sending = ref(false)
 // appended 带「发送前 seq 快照」——api 落的 user 消息 seq 必 > 此，handleAppended 据此增量拉取，
 // 不被 SSE 抢先推高的 store.lastSeq 跳过（修「追加 user 消息漏进 store → 步号不重置」竞态）。
-const emit = defineEmits<{ started: [convID: string]; appended: [afterSeq: number] }>()
+const emit = defineEmits<{ started: [convID: string]; appended: [afterSeq: number]; stop: [] }>()
 
 async function send() {
   if (!brief.value.trim() || sending.value) return
+  // 追加场景下扫描进行中：前端直接拦（内联停止按钮已提示），不发出去等后端 busy 往返。
+  if (props.convId && props.scanning) {
+    busyMsg.value = '扫描进行中，先点停止再发'
+    return
+  }
   busyMsg.value = ''
   sending.value = true
   try {
@@ -48,17 +53,27 @@ async function send() {
       <RolePicker v-model="roleID" mode="active" />
       <span class="composer-tip">选择场景，Cmd/Ctrl + Enter 发送</span>
     </div>
-    <div class="composer-box">
+    <div class="composer-box" :class="{ 'is-scanning': convId && scanning }">
       <textarea
         v-model="brief"
         class="composer-input"
-        :placeholder="convId ? '追加指令（在同一目标上继续）…' : '描述要扫的目标 / 任务（URL、账号、测试方向）…'"
+        :placeholder="
+          convId && scanning
+            ? '扫描进行中，先点停止再发追加指令…'
+            : convId
+              ? '追加指令（在同一目标上继续）…'
+              : '描述要扫的目标 / 任务（URL、账号、测试方向）…'
+        "
         @keydown.meta.enter="send"
         @keydown.ctrl.enter="send"
       />
       <div class="composer-actions">
         <span v-if="busyMsg" class="busy">{{ busyMsg }}</span>
-        <button class="send" :disabled="!brief.trim() || sending" @click="send">
+        <!-- 扫描进行中：内联停止按钮（追加场景），停了才能发下一条 -->
+        <button v-if="convId && scanning" class="stop" type="button" @click="emit('stop')">
+          ■ 停止扫描
+        </button>
+        <button v-else class="send" :disabled="!brief.trim() || sending" @click="send">
           {{ sending ? '发送中…' : convId ? '追加' : '发起扫描' }}
         </button>
       </div>
@@ -119,4 +134,18 @@ async function send() {
 }
 .send:hover:not(:disabled) { background: var(--primary-hover); }
 .send:disabled { opacity: 0.5; cursor: not-allowed; }
+/* 扫描进行中：输入框整体降饱和度提示「此刻不可发」，内联停止按钮走危险色。 */
+.composer-box.is-scanning { opacity: 0.7; }
+.composer-box.is-scanning .composer-input { cursor: not-allowed; }
+.stop {
+  border: 1px solid var(--sev-critical);
+  color: var(--sev-critical);
+  background: transparent;
+  border-radius: var(--radius);
+  padding: 8px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.stop:hover { background: color-mix(in srgb, var(--sev-critical) 14%, transparent); }
 </style>
