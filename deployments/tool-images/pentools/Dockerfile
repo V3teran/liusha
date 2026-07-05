@@ -7,7 +7,7 @@
 #     全家桶——那个镜像装了 ~160 个 wifi/AD/取证工具，liusha 是 web 专项，利用率不到 10%，镜像白膨胀 3-4GB）
 #   - 所有工具按官方 GitHub README / releases 推荐方式安装，不自行推断
 #   - 每个工具的依赖（requirements.txt / apt deps）随该工具层一并装齐，防止假阳性
-#   - PD 系工具（httpx/nuclei/subfinder/katana/interactsh）用官方 Docker 镜像 COPY --from：
+#   - PD 系工具：httpx/nuclei/subfinder/katana 用官方 Docker Hub 镜像 COPY --from；
 #     绕开 GitHub release 网络抖动（5xx）；官方镜像本身就是 PD 推荐分发方式之一
 #   - Python 工具用官方推荐 pipx/pip + 完整 requirements.txt
 #   - browser-use 跑在独立 Python 3.12 venv（隔离 ubuntu rolling python）
@@ -27,13 +27,13 @@ COPY internal/sandbox internal/sandbox
 ENV CGO_ENABLED=0
 RUN go build -mod=vendor -o /out/sandbox-server ./cmd/sandbox-server
 
-# ── Stage 1-5: 从官方镜像提取 PD 系工具二进制 ────────────────────────────────
-# 官方镜像保证二进制与平台匹配，完全绕开 GitHub release 下载的网络抖动
+# ── Stage 1-4: 从官方 Docker Hub 镜像提取 PD 系工具二进制 ───────────────────────
+# httpx/nuclei/subfinder/katana 在 Docker Hub 有公开镜像，COPY --from 绕开 GitHub release 下载抖动
+# interactsh 无公开 Docker 镜像（Docker Hub/GHCR 均不存在），改用 wget release
 FROM projectdiscovery/httpx:v1.9.0 AS pd-httpx
 FROM projectdiscovery/nuclei:v3.10.0 AS pd-nuclei
 FROM projectdiscovery/subfinder:v2.14.0 AS pd-subfinder
 FROM projectdiscovery/katana:v1.6.1 AS pd-katana
-FROM projectdiscovery/interactsh:v1.3.1 AS pd-interactsh
 
 # ── Stage 6: ubuntu:24.04 运行镜像 ───────────────────────────────────────────
 FROM ubuntu:24.04
@@ -93,21 +93,28 @@ RUN pipx install arjun \
  && pip install --quiet semgrep \
  && semgrep --version
 
-# ── Layer 4: PD 系工具 COPY --from 官方镜像 ──────────────────────────────────
-# 官方镜像是 PD 推荐分发方式之一，绕开 GitHub release 下载网络抖动
-# 各镜像二进制路径均为 /usr/local/bin/<tool>
-COPY --from=pd-httpx        /usr/local/bin/httpx        /usr/local/bin/httpx
-COPY --from=pd-nuclei       /usr/local/bin/nuclei       /usr/local/bin/nuclei
-COPY --from=pd-subfinder    /usr/local/bin/subfinder    /usr/local/bin/subfinder
-COPY --from=pd-katana       /usr/local/bin/katana       /usr/local/bin/katana
-COPY --from=pd-interactsh   /usr/local/bin/interactsh-client /usr/local/bin/interactsh-client
+# ── Layer 4: PD 系工具安装 ───────────────────────────────────────────────────
+# httpx/nuclei/subfinder/katana: COPY --from 官方 Docker Hub 镜像（绕开 release 下载抖动）
+# interactsh-client: wget release（无公开 Docker 镜像）
+COPY --from=pd-httpx     /usr/local/bin/httpx     /usr/local/bin/httpx
+COPY --from=pd-nuclei    /usr/local/bin/nuclei    /usr/local/bin/nuclei
+COPY --from=pd-subfinder /usr/local/bin/subfinder /usr/local/bin/subfinder
+COPY --from=pd-katana    /usr/local/bin/katana    /usr/local/bin/katana
 RUN chmod +x /usr/local/bin/httpx /usr/local/bin/nuclei \
         /usr/local/bin/subfinder /usr/local/bin/katana \
-        /usr/local/bin/interactsh-client \
  && httpx -version \
  && nuclei -version \
  && subfinder -version \
- && katana -version \
+ && katana -version
+
+# interactsh-client v1.3.1（无公开 Docker 镜像，用 release zip）
+# 资产命名：interactsh-client_{version}_linux_{arch}.zip
+RUN wget -q --tries=3 --waitretry=5 \
+        "https://github.com/projectdiscovery/interactsh/releases/download/v1.3.1/interactsh-client_1.3.1_linux_${TARGETARCH}.zip" \
+        -O /tmp/interactsh.zip \
+ && unzip -q /tmp/interactsh.zip interactsh-client -d /usr/local/bin/ \
+ && chmod +x /usr/local/bin/interactsh-client \
+ && rm /tmp/interactsh.zip \
  && interactsh-client -version
 
 # ── Layer 5: PD 工具 -duc wrapper ─────────────────────────────────────────────
