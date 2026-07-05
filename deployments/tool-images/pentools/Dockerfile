@@ -93,38 +93,37 @@ RUN pipx install arjun \
 # 资产命名规律：{tool}_{version_without_v}_linux_arm64.zip
 # 官方 Docker 镜像（projectdiscovery/xxx）也可用 COPY --from，但直接下载 release 更透明可控
 # nuclei 模板由后续专属层 git clone 预拉（等价于官方推荐的 nuclei -ut）
-ARG PD_ARCH=arm64
 RUN set -eux \
  # httpx v1.9.0 (https://github.com/projectdiscovery/httpx/releases)
- && wget -q "https://github.com/projectdiscovery/httpx/releases/download/v1.9.0/httpx_1.9.0_linux_${PD_ARCH}.zip" \
+ && wget -q "https://github.com/projectdiscovery/httpx/releases/download/v1.9.0/httpx_1.9.0_linux_${TARGETARCH}.zip" \
         -O /tmp/httpx.zip \
  && unzip -q /tmp/httpx.zip httpx -d /usr/local/bin/ \
  && chmod +x /usr/local/bin/httpx \
  && rm /tmp/httpx.zip \
  && httpx -version \
  # nuclei v3.10.0 (https://github.com/projectdiscovery/nuclei/releases)
- && wget -q "https://github.com/projectdiscovery/nuclei/releases/download/v3.10.0/nuclei_3.10.0_linux_${PD_ARCH}.zip" \
+ && wget -q "https://github.com/projectdiscovery/nuclei/releases/download/v3.10.0/nuclei_3.10.0_linux_${TARGETARCH}.zip" \
         -O /tmp/nuclei.zip \
  && unzip -q /tmp/nuclei.zip nuclei -d /usr/local/bin/ \
  && chmod +x /usr/local/bin/nuclei \
  && rm /tmp/nuclei.zip \
  && nuclei -version \
  # subfinder v2.14.0 (https://github.com/projectdiscovery/subfinder/releases)
- && wget -q "https://github.com/projectdiscovery/subfinder/releases/download/v2.14.0/subfinder_2.14.0_linux_${PD_ARCH}.zip" \
+ && wget -q "https://github.com/projectdiscovery/subfinder/releases/download/v2.14.0/subfinder_2.14.0_linux_${TARGETARCH}.zip" \
         -O /tmp/subfinder.zip \
  && unzip -q /tmp/subfinder.zip subfinder -d /usr/local/bin/ \
  && chmod +x /usr/local/bin/subfinder \
  && rm /tmp/subfinder.zip \
  && subfinder -version \
  # katana v1.6.1 (https://github.com/projectdiscovery/katana/releases)
- && wget -q "https://github.com/projectdiscovery/katana/releases/download/v1.6.1/katana_1.6.1_linux_${PD_ARCH}.zip" \
+ && wget -q "https://github.com/projectdiscovery/katana/releases/download/v1.6.1/katana_1.6.1_linux_${TARGETARCH}.zip" \
         -O /tmp/katana.zip \
  && unzip -q /tmp/katana.zip katana -d /usr/local/bin/ \
  && chmod +x /usr/local/bin/katana \
  && rm /tmp/katana.zip \
  && katana -version \
  # interactsh-client v1.3.1 (https://github.com/projectdiscovery/interactsh/releases)
- && wget -q "https://github.com/projectdiscovery/interactsh/releases/download/v1.3.1/interactsh-client_1.3.1_linux_${PD_ARCH}.zip" \
+ && wget -q "https://github.com/projectdiscovery/interactsh/releases/download/v1.3.1/interactsh-client_1.3.1_linux_${TARGETARCH}.zip" \
         -O /tmp/interactsh.zip \
  && unzip -q /tmp/interactsh.zip interactsh-client -d /usr/local/bin/ \
  && chmod +x /usr/local/bin/interactsh-client \
