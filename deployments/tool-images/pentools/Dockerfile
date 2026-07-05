@@ -199,6 +199,12 @@ RUN git clone --depth 1 https://github.com/ambionics/phpggc.git /opt/phpggc \
  && chmod +x /usr/local/bin/phpggc \
  && phpggc -l 2>&1 | head -2 || true
 
+# ── Layer 7b: browser-use 薄客户端提前 COPY（manifest 安装器需要 command -v browser-use 能命中）──
+# venv 在 Layer 10 才装；这里只 COPY 薄客户端让 PATH 里有 browser-use，安装器信任跳过即可。
+COPY deployments/tool-images/pentools/browser-use /usr/local/bin/browser-use
+COPY deployments/tool-images/pentools/browser-svc.py /usr/local/bin/browser-svc.py
+RUN chmod +x /usr/local/bin/browser-use /usr/local/bin/browser-svc.py
+
 # ── Layer 8: manifest 驱动安装器（验证所有工具真实可用）──────────────────────
 COPY deployments/tool-images/pentools/tools.yaml /tmp/tools.yaml
 COPY scripts/build/install-from-manifest.sh /usr/local/bin/install-from-manifest.sh
@@ -228,13 +234,6 @@ RUN pip install --quiet uv \
  && [ -n "$PW_CHROMIUM" ] || { echo "[FATAL] playwright chromium binary 未找到"; exit 1; } \
  && ln -sf "$PW_CHROMIUM" /usr/local/bin/chromium \
  && /usr/local/bin/chromium --version 2>&1 | head -1
-
-# ── Layer 10b: browser-use 薄客户端 + browser-svc.py ─────────────────────────
-COPY deployments/tool-images/pentools/browser-use /usr/local/bin/browser-use
-COPY deployments/tool-images/pentools/browser-svc.py /usr/local/bin/browser-svc.py
-RUN chmod +x /usr/local/bin/browser-use /usr/local/bin/browser-svc.py \
- && head -1 /usr/local/bin/browser-use \
- && /usr/local/bin/browser-use --help >/dev/null 2>&1 || true
 
 # ── Layer 11: agent 现写脚本常用 Python 库 ────────────────────────────────────
 RUN pip install --quiet \
