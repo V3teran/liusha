@@ -43,7 +43,9 @@ RUN printf 'Acquire::Retries "5";\nAcquire::http::Timeout "120";\nAcquire::https
       > /etc/apt/apt.conf.d/80-retries
 
 # ── Layer 1: 基础依赖 ─────────────────────────────────────────────────────────
+# TARGETARCH 是 buildx 预定义平台参数，ARG 激活后转 ENV 才能在所有后续 RUN 层里展开
 ARG TARGETARCH
+ENV TARGETARCH=${TARGETARCH}
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
         ca-certificates curl wget git unzip xz-utils tar file \
