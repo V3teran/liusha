@@ -167,14 +167,21 @@ RUN git clone --depth 1 https://github.com/ticarpi/jwt_tool.git /opt/jwt_tool \
  && jwt_tool --help 2>&1 | head -1
 
 # dalfox v3.1.2（https://github.com/hahwul/dalfox/releases）
-# arm64 资产名用 aarch64
-RUN wget -q --tries=3 --waitretry=5 \
-        "https://github.com/hahwul/dalfox/releases/download/v3.1.2/dalfox-v3.1.2-linux-aarch64.tar.gz" \
+# 架构映射：arm64→aarch64，amd64→x86_64（官方命名）
+# 用 musl 静态链接版（-musl.tar.gz），跨发行版不依赖 glibc 版本
+# 内部路径：dalfox-v3.1.2-linux-{arch}-musl/dalfox
+RUN case "${TARGETARCH}" in \
+      arm64) DALFOX_ARCH=aarch64 ;; \
+      amd64) DALFOX_ARCH=x86_64  ;; \
+      *)     DALFOX_ARCH="${TARGETARCH}" ;; \
+    esac \
+ && wget -q --tries=3 --waitretry=5 \
+        "https://github.com/hahwul/dalfox/releases/download/v3.1.2/dalfox-v3.1.2-linux-${DALFOX_ARCH}-musl.tar.gz" \
         -O /tmp/dalfox.tar.gz \
  && tar -xzf /tmp/dalfox.tar.gz -C /tmp \
- && mv /tmp/dalfox /usr/local/bin/dalfox \
+ && mv "/tmp/dalfox-v3.1.2-linux-${DALFOX_ARCH}-musl/dalfox" /usr/local/bin/dalfox \
  && chmod +x /usr/local/bin/dalfox \
- && rm -f /tmp/dalfox.tar.gz \
+ && rm -rf /tmp/dalfox.tar.gz "/tmp/dalfox-v3.1.2-linux-${DALFOX_ARCH}-musl" \
  && dalfox version 2>&1 | head -1
 
 # ysoserial v0.0.6（https://github.com/frohoff/ysoserial/releases，fat jar，架构无关）
