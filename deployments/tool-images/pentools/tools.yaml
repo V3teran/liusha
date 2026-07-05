@@ -25,11 +25,11 @@ tools:
   - name: subfinder
     category: recon
     description: 子域名被动枚举（多源 OSINT）。零接触目标，只查公网情报源（crt.sh/passive DNS）。
-    install: { method: release, ref: projectdiscovery/subfinder@v2.14.0 }
+    install: { method: apt }  # Kali apt 有 subfinder 2.14.0
   - name: httpx
     category: recon
     description: HTTP 探活 + 指纹 + tech detection。subfinder 之后必跑过滤死域。
-    install: { method: release, ref: projectdiscovery/httpx@v1.9.0 }
+    install: { method: apt, pkg: httpx-toolkit }  # Kali 包名 httpx-toolkit；Dockerfile 包装成 httpx 命令
   - name: katana
     category: recon
     description: 现代 Web 爬虫——爬一个起点 url 拿全部站内链接 + JS 解析的 endpoint。
@@ -47,7 +47,7 @@ tools:
   - name: arjun
     category: discovery
     description: HTTP 隐藏参数发现——爆 25k+ 参数名 wordlist 找未文档化的参数（admin/debug/role 类）。
-    install: { method: pipx }  # 官方推荐：pipx install arjun
+    install: { method: apt }  # Kali apt 有 arjun 2.2.7
   - name: dirsearch
     category: discovery
     description: 智能目录/文件爆破——自带 11k+ 行 wordlist + 扩展名探测 + smart filter，目录爆破首选。
@@ -69,7 +69,7 @@ tools:
   - name: nuclei
     category: vulnscan
     description: 模板化漏扫引擎——业界事实标准。10k+ 模板覆盖 CVE/misconfig/exposure/dast。（模板由 Dockerfile git clone nuclei-templates 预拉）
-    install: { method: release, ref: projectdiscovery/nuclei@v3.10.0 }
+    install: { method: apt }  # Kali apt 有 nuclei 3.10.0（模板由 Dockerfile git clone 预拉）
 
   # ===== injection（注入类专项）=====
   - name: sqlmap
@@ -89,7 +89,7 @@ tools:
   - name: phpggc
     category: deserialization
     description: PHP 反序列化 payload 生成器——Laravel/Symfony/Drupal/WordPress 框架向。
-    # install 省略：由 Dockerfile 专属层装（git clone + php-cli wrapper，ubuntu 无 apt 包）
+    install: { method: apt }  # Kali apt 有 phpggc
 
   # ===== auth（认证/凭证攻击）=====
   - name: hydra
@@ -113,7 +113,7 @@ tools:
   - name: trufflehog
     category: sast
     description: Secrets 扫描——源码 / git 历史 / 文件系统 / S3 bucket 找硬编码 API key / token / 凭证。
-    install: { method: release, ref: trufflesecurity/trufflehog@v3.95.2 }
+    install: { method: apt }  # Kali apt 有 trufflehog 3.94.3
 
   # ===== utility（通用辅助：HTTP/JSON/脚本/OOB/Browser）=====
   - name: curl

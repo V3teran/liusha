@@ -2,17 +2,21 @@
 # liusha pentools 镜像：web 渗透专用沙箱 = 精选 web 安全工具集 + browser-use + sandbox-server
 #
 # 设计要点：
-#   - base = ubuntu:24.04（与 CI runner ubuntu-24.04-arm 同源，glibc/ABI 一致）
-#   - PD 系工具（httpx/nuclei/subfinder/katana/interactsh）用官方 release zip（静态链接二进制，
-#     跨发行版可用）。Docker Hub 官方镜像是 musl 动态链接，COPY --from 到 Ubuntu/glibc 环境跑不了。
-#   - 每个工具按官方 GitHub README / releases 推荐方式安装
-#   - 每个工具的依赖（requirements.txt）随该工具层一并装齐，防止假阳性
-#   - 每个 release 下载独立 RUN 层 + --tries=3 重试，一个失败不影响其他层 cache
-#   - browser-use 跑在独立 Python 3.12 venv（隔离 Ubuntu rolling python）
+#   - base = kalilinux/kali-rolling，但【绝不装 kali-linux-headless 元包】
+#     （headless 会拉 ~160 个 wifi/AD/取证工具，web 专项用不到，镜像白膨胀 3-4GB）
+#     只 apt install 需要的工具——最大化利用 Kali 维护的安全工具仓（版本新、免下载）
+#   - Kali apt 直供的工具走 apt（sqlmap/hydra/ffuf/dirsearch/arjun/wafw00f/nmap/
+#     subfinder/httpx-toolkit/nuclei/phpggc/trufflehog）
+#   - Kali apt 没有的走官方推荐方式：katana/gau/interactsh(release)、semgrep(pip)、
+#     jwt_tool(git+pip)、ysoserial(jar)、dalfox(release musl)、spectral(npm)
+#   - httpx 在 Kali 包名是 httpx-toolkit（避与 python3-httpx 冲突），命令也叫 httpx-toolkit，
+#     包装成 /usr/local/bin/httpx 给 agent 用
+#   - PEP 668 在 Kali 同样开启，pip 需 --break-system-packages(env) + --ignore-installed
+#   - browser-use 跑独立 Python 3.12 venv（隔离 Kali rolling python）
 #   - multi-stage：Stage 0 编译 sandbox-server，Stage 1 运行镜像
 #   - 全程 linux/arm64（CI runner = ubuntu-24.04-arm）
 #
-# 构建（本地）：docker build -t liusha/pentools:latest -f deployments/tool-images/pentools/Dockerfile .
+# 工具清单真相源：同目录 tools.yaml（agent 索引 + 构建期 install 双用）
 
 # ── Stage 0: 编译 sandbox-server ─────────────────────────────────────────────
 FROM golang:1.25-alpine AS sandbox-builder
@@ -24,8 +28,8 @@ COPY internal/sandbox internal/sandbox
 ENV CGO_ENABLED=0
 RUN go build -mod=vendor -o /out/sandbox-server ./cmd/sandbox-server
 
-# ── Stage 1: ubuntu:24.04 运行镜像 ───────────────────────────────────────────
-FROM ubuntu:24.04
+# ── Stage 1: kali-rolling 运行镜像 ───────────────────────────────────────────
+FROM kalilinux/kali-rolling
 
 ENV DEBIAN_FRONTEND=noninteractive \
     PIP_NO_CACHE_DIR=1 \
@@ -34,28 +38,24 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PIP_TIMEOUT=60 \
     PIP_BREAK_SYSTEM_PACKAGES=1 \
     BROWSER_USE_VENV=/opt/browser-use-venv \
-    PATH=/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
-    PIPX_HOME=/opt/pipx \
-    PIPX_BIN_DIR=/usr/local/bin
+    PATH=/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
 # apt 重试（网络抖动不让整层 abort）
 RUN printf 'Acquire::Retries "5";\nAcquire::http::Timeout "120";\nAcquire::https::Timeout "120";\n' \
       > /etc/apt/apt.conf.d/80-retries
 
 # ── Layer 1: 基础依赖 ─────────────────────────────────────────────────────────
-# TARGETARCH 是 buildx 预定义平台参数，ARG 激活后转 ENV 才能在所有后续 RUN 层里展开
+# TARGETARCH 是 buildx 预定义平台参数，ARG 激活后转 ENV 才能在所有后续 RUN 层展开
 ARG TARGETARCH
 ENV TARGETARCH=${TARGETARCH}
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
         ca-certificates curl wget git unzip xz-utils tar file \
-        python3 python3-pip python3-venv pipx \
+        python3 python3-pip python3-venv \
         nodejs npm \
         default-jdk-headless \
-        php-cli \
         default-mysql-client \
-        build-essential \
-        libssl-dev libffi-dev \
+        build-essential libssl-dev libffi-dev \
  && rm -rf /var/lib/apt/lists/* \
  && printf 'tries=5\nwaitretry=10\ntimeout=60\nretry-connrefused=on\n' >> /etc/wgetrc \
  && wget -q --tries=3 --waitretry=5 \
@@ -64,51 +64,35 @@ RUN apt-get update \
  && chmod +x /usr/local/bin/yq \
  && yq --version
 
-# ── Layer 2: apt 安装的 web 安全工具 ─────────────────────────────────────────
+# ── Layer 2: Kali apt 直供的 web 安全工具 ────────────────────────────────────
+# Kali 维护这些工具的最新版，apt 装免下载、免 pip 冲突。
+# httpx 包名是 httpx-toolkit（命令同名，Layer 3 包装成 /usr/local/bin/httpx）。
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
-        nmap sqlmap hydra ffuf dirsearch wafw00f \
+        nmap sqlmap hydra ffuf dirsearch wafw00f arjun \
+        subfinder httpx-toolkit nuclei \
+        phpggc trufflehog \
  && rm -rf /var/lib/apt/lists/*
 
-# ── Layer 3: Python 工具 ──────────────────────────────────────────────────────
-# arjun: 官方推荐 pipx（https://github.com/s0md3v/Arjun）
-# semgrep: 官方推荐 pip（https://github.com/semgrep/semgrep，无 arm64 binary）
-RUN pipx install arjun \
- && arjun --help > /dev/null 2>&1 \
- && pip install --quiet semgrep \
- && semgrep --version
-
-# ── Layer 4: PD 系工具 release binary（静态链接，跨发行版可用）───────────────
-# 资产命名：{tool}_{version_without_v}_linux_{arch}.zip
-# 各工具独立 RUN 层：一个失败不连累其他层的 GHA cache，且可单独重试
-# https://github.com/projectdiscovery/httpx/releases
-RUN wget -q --tries=3 --waitretry=5 \
-        "https://github.com/projectdiscovery/httpx/releases/download/v1.9.0/httpx_1.9.0_linux_${TARGETARCH}.zip" \
-        -O /tmp/httpx.zip \
- && unzip -oq /tmp/httpx.zip httpx -d /usr/local/bin/ \
+# ── Layer 3: PD 系工具 -duc wrapper + httpx 命名兼容 ─────────────────────────
+# 拦截 httpx/katana/nuclei/subfinder 的 phone-home（api.pdtm.sh 版本检查）。
+# httpx：Kali 命令是 httpx-toolkit → 包装成 /usr/local/bin/httpx（agent 调 httpx）。
+# nuclei/subfinder：apt 装在 /usr/bin，包装脚本落 /usr/local/bin（PATH 优先，遮蔽原命令）。
+# katana 由 Layer 4 release 装（此处不含，Layer 4 自带 -duc 无必要——katana 不 phone-home 版本检查）。
+RUN set -eu \
+ && printf '#!/bin/sh\nexec httpx-toolkit -duc "$@"\n' > /usr/local/bin/httpx \
  && chmod +x /usr/local/bin/httpx \
- && rm /tmp/httpx.zip \
- && httpx -version
+ && for tool in nuclei subfinder; do \
+      real=$(command -v "$tool") || { echo "[FATAL] $tool 不存在"; exit 1; }; \
+      printf '#!/bin/sh\nexec %s -duc "$@"\n' "$real" > "/usr/local/bin/$tool"; \
+      chmod +x "/usr/local/bin/$tool"; \
+    done \
+ && httpx -version 2>&1 | head -1 \
+ && nuclei -version 2>&1 | head -1 \
+ && subfinder -version 2>&1 | head -1
 
-# https://github.com/projectdiscovery/nuclei/releases
-RUN wget -q --tries=3 --waitretry=5 \
-        "https://github.com/projectdiscovery/nuclei/releases/download/v3.10.0/nuclei_3.10.0_linux_${TARGETARCH}.zip" \
-        -O /tmp/nuclei.zip \
- && unzip -oq /tmp/nuclei.zip nuclei -d /usr/local/bin/ \
- && chmod +x /usr/local/bin/nuclei \
- && rm /tmp/nuclei.zip \
- && nuclei -version
-
-# https://github.com/projectdiscovery/subfinder/releases
-RUN wget -q --tries=3 --waitretry=5 \
-        "https://github.com/projectdiscovery/subfinder/releases/download/v2.14.0/subfinder_2.14.0_linux_${TARGETARCH}.zip" \
-        -O /tmp/subfinder.zip \
- && unzip -oq /tmp/subfinder.zip subfinder -d /usr/local/bin/ \
- && chmod +x /usr/local/bin/subfinder \
- && rm /tmp/subfinder.zip \
- && subfinder -version
-
-# https://github.com/projectdiscovery/katana/releases
+# ── Layer 4: Kali apt 没有的 release binary 工具 ─────────────────────────────
+# katana v1.6.1（https://github.com/projectdiscovery/katana/releases）
 RUN wget -q --tries=3 --waitretry=5 \
         "https://github.com/projectdiscovery/katana/releases/download/v1.6.1/katana_1.6.1_linux_${TARGETARCH}.zip" \
         -O /tmp/katana.zip \
@@ -116,33 +100,6 @@ RUN wget -q --tries=3 --waitretry=5 \
  && chmod +x /usr/local/bin/katana \
  && rm /tmp/katana.zip \
  && katana -version
-
-# https://github.com/projectdiscovery/interactsh/releases
-RUN wget -q --tries=3 --waitretry=5 \
-        "https://github.com/projectdiscovery/interactsh/releases/download/v1.3.1/interactsh-client_1.3.1_linux_${TARGETARCH}.zip" \
-        -O /tmp/interactsh.zip \
- && unzip -oq /tmp/interactsh.zip interactsh-client -d /usr/local/bin/ \
- && chmod +x /usr/local/bin/interactsh-client \
- && rm /tmp/interactsh.zip \
- && interactsh-client -version
-
-# ── Layer 5: PD 工具 -duc wrapper ─────────────────────────────────────────────
-# 拦截 httpx/katana/nuclei/subfinder 的 phone-home（api.pdtm.sh 版本检查）
-RUN set -eu; for tool in httpx katana nuclei subfinder; do \
-      real=$(command -v "$tool") || { echo "[FATAL] $tool 不存在"; exit 1; }; \
-      mv "$real" "${real}.real"; \
-      printf '#!/bin/sh\nexec %s.real -duc "$@"\n' "$real" > "$real"; \
-      chmod +x "$real"; \
-    done \
- && /usr/local/bin/httpx -version 2>&1 | head -1 \
- && /usr/local/bin/nuclei -version 2>&1 | head -1
-
-# ── Layer 6: 其他 release binary 工具 ────────────────────────────────────────
-# trufflehog: 官方推荐 install.sh（https://github.com/trufflesecurity/trufflehog）
-RUN curl -sSfL --retry 3 --retry-delay 5 \
-        https://raw.githubusercontent.com/trufflesecurity/trufflehog/main/scripts/install.sh \
-        | sh -s -- -b /usr/local/bin \
- && trufflehog --version
 
 # gau v2.2.4（https://github.com/lc/gau/releases）
 RUN wget -q --tries=3 --waitretry=5 \
@@ -153,23 +110,33 @@ RUN wget -q --tries=3 --waitretry=5 \
  && rm /tmp/gau.tar.gz \
  && gau --version
 
+# interactsh-client v1.3.1（https://github.com/projectdiscovery/interactsh/releases）
+RUN wget -q --tries=3 --waitretry=5 \
+        "https://github.com/projectdiscovery/interactsh/releases/download/v1.3.1/interactsh-client_1.3.1_linux_${TARGETARCH}.zip" \
+        -O /tmp/interactsh.zip \
+ && unzip -oq /tmp/interactsh.zip interactsh-client -d /usr/local/bin/ \
+ && chmod +x /usr/local/bin/interactsh-client \
+ && rm /tmp/interactsh.zip \
+ && interactsh-client -version
+
+# ── Layer 5: pip / npm 工具（Kali apt 没有）──────────────────────────────────
+# semgrep: 官方推荐 pip（https://github.com/semgrep/semgrep，无 arm64 binary）
 # spectral: 官方推荐 npm（https://github.com/stoplightio/spectral，6.x 无 arm64 binary）
-RUN npm install -g @stoplight/spectral-cli \
+RUN pip install --quiet --ignore-installed semgrep \
+ && semgrep --version \
+ && npm install -g @stoplight/spectral-cli \
  && spectral --version
 
-# ── Layer 7: 专属安装层（逻辑复杂，不适配 manifest 安装器）─────────────────────
-# jwt_tool（https://github.com/ticarpi/jwt_tool）
-# requirements: termcolor, cprint, pycryptodomex, requests, ratelimit
+# ── Layer 6: 专属安装层（逻辑复杂，Kali apt 没有）────────────────────────────
+# jwt_tool（https://github.com/ticarpi/jwt_tool）requirements: termcolor cprint pycryptodomex requests ratelimit
 RUN git clone --depth 1 https://github.com/ticarpi/jwt_tool.git /opt/jwt_tool \
- && pip install --quiet -r /opt/jwt_tool/requirements.txt \
+ && pip install --quiet --ignore-installed -r /opt/jwt_tool/requirements.txt \
  && printf '#!/bin/sh\nexec python3 /opt/jwt_tool/jwt_tool.py "$@"\n' > /usr/local/bin/jwt_tool \
  && chmod +x /usr/local/bin/jwt_tool \
  && jwt_tool --help 2>&1 | head -1 || true
 
 # dalfox v3.1.2（https://github.com/hahwul/dalfox/releases）
-# 架构映射：arm64→aarch64，amd64→x86_64（官方命名）
-# 用 musl 静态链接版（-musl.tar.gz），跨发行版不依赖 glibc 版本
-# 内部路径：dalfox-v3.1.2-linux-{arch}-musl/dalfox
+# 架构映射 arm64→aarch64 / amd64→x86_64；用 musl 静态版跨发行版可用；内部路径含子目录
 RUN case "${TARGETARCH}" in \
       arm64) DALFOX_ARCH=aarch64 ;; \
       amd64) DALFOX_ARCH=x86_64  ;; \
@@ -193,14 +160,7 @@ RUN wget -q --tries=3 --waitretry=5 \
  && chmod +x /usr/local/bin/ysoserial \
  && ysoserial 2>&1 | head -1 || true
 
-# phpggc（https://github.com/ambionics/phpggc，无 release tag，git clone + php wrapper）
-RUN git clone --depth 1 https://github.com/ambionics/phpggc.git /opt/phpggc \
- && printf '#!/bin/sh\nexec php /opt/phpggc/phpggc "$@"\n' > /usr/local/bin/phpggc \
- && chmod +x /usr/local/bin/phpggc \
- && phpggc -l 2>&1 | head -2 || true
-
-# ── Layer 7b: browser-use 薄客户端提前 COPY（manifest 安装器需要 command -v browser-use 能命中）──
-# venv 在 Layer 10 才装；这里只 COPY 薄客户端让 PATH 里有 browser-use，安装器信任跳过即可。
+# ── Layer 7: browser-use 薄客户端提前 COPY（manifest 安装器需 command -v browser-use 命中）──
 COPY deployments/tool-images/pentools/browser-use /usr/local/bin/browser-use
 COPY deployments/tool-images/pentools/browser-svc.py /usr/local/bin/browser-svc.py
 RUN chmod +x /usr/local/bin/browser-use /usr/local/bin/browser-svc.py
@@ -214,16 +174,16 @@ RUN apt-get update \
  && rm -rf /var/lib/apt/lists/*
 
 # ── Layer 9: nuclei 模板预拉 ──────────────────────────────────────────────────
-# git clone 等价于官方推荐的 nuclei -ut，在 CI 里比 nuclei 内部 fetcher 更可靠
+# git clone 等价官方推荐的 nuclei -ut，CI 里比 nuclei 内部 fetcher 更可靠
 RUN git clone --depth 1 https://github.com/projectdiscovery/nuclei-templates.git \
         /root/nuclei-templates 2>/dev/null \
  && echo "nuclei-templates: $(ls /root/nuclei-templates | wc -l) dirs" \
  || echo "[warn] nuclei-templates clone 失败，运行时 nuclei -ut 再拉"
 
 # ── Layer 10: browser-use 专属 Python 3.12 venv ───────────────────────────────
-# browser-use 隔离 3.12 venv：规避 Ubuntu rolling Python 升到 3.14 后
-# asyncio.get_event_loop() 被移除导致 browser-use 静默失败（issue #4447）
-RUN pip install --quiet uv \
+# 隔离 3.12 venv：规避 Kali rolling Python 升到 3.14 后 asyncio.get_event_loop()
+# 被移除导致 browser-use 静默失败（issue #4447）
+RUN pip install --quiet --ignore-installed uv \
  && uv venv --python 3.12 "$BROWSER_USE_VENV" \
  && uv pip install --python "$BROWSER_USE_VENV/bin/python" --quiet 'browser-use[cli]' playwright httpx \
  && "$BROWSER_USE_VENV/bin/playwright" install chromium \
