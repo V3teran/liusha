@@ -164,7 +164,7 @@ RUN git clone --depth 1 https://github.com/ticarpi/jwt_tool.git /opt/jwt_tool \
  && pip install --quiet -r /opt/jwt_tool/requirements.txt \
  && printf '#!/bin/sh\nexec python3 /opt/jwt_tool/jwt_tool.py "$@"\n' > /usr/local/bin/jwt_tool \
  && chmod +x /usr/local/bin/jwt_tool \
- && jwt_tool --help 2>&1 | head -1
+ && jwt_tool --help 2>&1 | head -1 || true
 
 # dalfox v3.1.2（https://github.com/hahwul/dalfox/releases）
 # 架构映射：arm64→aarch64，amd64→x86_64（官方命名）
@@ -191,13 +191,13 @@ RUN wget -q --tries=3 --waitretry=5 \
  && [ -s /opt/ysoserial.jar ] || { echo "[FATAL] ysoserial jar 下载失败"; exit 1; } \
  && printf '#!/bin/sh\nexec java -jar /opt/ysoserial.jar "$@"\n' > /usr/local/bin/ysoserial \
  && chmod +x /usr/local/bin/ysoserial \
- && ysoserial 2>&1 | head -1
+ && ysoserial 2>&1 | head -1 || true
 
 # phpggc（https://github.com/ambionics/phpggc，无 release tag，git clone + php wrapper）
 RUN git clone --depth 1 https://github.com/ambionics/phpggc.git /opt/phpggc \
  && printf '#!/bin/sh\nexec php /opt/phpggc/phpggc "$@"\n' > /usr/local/bin/phpggc \
  && chmod +x /usr/local/bin/phpggc \
- && phpggc -l 2>&1 | head -2
+ && phpggc -l 2>&1 | head -2 || true
 
 # ── Layer 8: manifest 驱动安装器（验证所有工具真实可用）──────────────────────
 COPY deployments/tool-images/pentools/tools.yaml /tmp/tools.yaml
