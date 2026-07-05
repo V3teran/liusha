@@ -85,7 +85,7 @@ RUN pipx install arjun \
 RUN wget -q --tries=3 --waitretry=5 \
         "https://github.com/projectdiscovery/httpx/releases/download/v1.9.0/httpx_1.9.0_linux_${TARGETARCH}.zip" \
         -O /tmp/httpx.zip \
- && unzip -q /tmp/httpx.zip httpx -d /usr/local/bin/ \
+ && unzip -oq /tmp/httpx.zip httpx -d /usr/local/bin/ \
  && chmod +x /usr/local/bin/httpx \
  && rm /tmp/httpx.zip \
  && httpx -version
@@ -94,7 +94,7 @@ RUN wget -q --tries=3 --waitretry=5 \
 RUN wget -q --tries=3 --waitretry=5 \
         "https://github.com/projectdiscovery/nuclei/releases/download/v3.10.0/nuclei_3.10.0_linux_${TARGETARCH}.zip" \
         -O /tmp/nuclei.zip \
- && unzip -q /tmp/nuclei.zip nuclei -d /usr/local/bin/ \
+ && unzip -oq /tmp/nuclei.zip nuclei -d /usr/local/bin/ \
  && chmod +x /usr/local/bin/nuclei \
  && rm /tmp/nuclei.zip \
  && nuclei -version
@@ -103,7 +103,7 @@ RUN wget -q --tries=3 --waitretry=5 \
 RUN wget -q --tries=3 --waitretry=5 \
         "https://github.com/projectdiscovery/subfinder/releases/download/v2.14.0/subfinder_2.14.0_linux_${TARGETARCH}.zip" \
         -O /tmp/subfinder.zip \
- && unzip -q /tmp/subfinder.zip subfinder -d /usr/local/bin/ \
+ && unzip -oq /tmp/subfinder.zip subfinder -d /usr/local/bin/ \
  && chmod +x /usr/local/bin/subfinder \
  && rm /tmp/subfinder.zip \
  && subfinder -version
@@ -112,7 +112,7 @@ RUN wget -q --tries=3 --waitretry=5 \
 RUN wget -q --tries=3 --waitretry=5 \
         "https://github.com/projectdiscovery/katana/releases/download/v1.6.1/katana_1.6.1_linux_${TARGETARCH}.zip" \
         -O /tmp/katana.zip \
- && unzip -q /tmp/katana.zip katana -d /usr/local/bin/ \
+ && unzip -oq /tmp/katana.zip katana -d /usr/local/bin/ \
  && chmod +x /usr/local/bin/katana \
  && rm /tmp/katana.zip \
  && katana -version
@@ -121,7 +121,7 @@ RUN wget -q --tries=3 --waitretry=5 \
 RUN wget -q --tries=3 --waitretry=5 \
         "https://github.com/projectdiscovery/interactsh/releases/download/v1.3.1/interactsh-client_1.3.1_linux_${TARGETARCH}.zip" \
         -O /tmp/interactsh.zip \
- && unzip -q /tmp/interactsh.zip interactsh-client -d /usr/local/bin/ \
+ && unzip -oq /tmp/interactsh.zip interactsh-client -d /usr/local/bin/ \
  && chmod +x /usr/local/bin/interactsh-client \
  && rm /tmp/interactsh.zip \
  && interactsh-client -version
