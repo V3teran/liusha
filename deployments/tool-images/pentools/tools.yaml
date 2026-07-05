@@ -5,17 +5,17 @@
 #      tooling_catalog（Tier 1 索引）。**install 字段不进 prompt**（Go 结构体不含它，yaml.v3 忽略）。
 #   2. 构建期：scripts/build/install-from-manifest.sh 用 yq 读 install → 装齐工具。
 #
-# install 字段（全部可选；不写 = 期望 Kali headless 元包已供给，构建期 command -v 实测，缺了即构建失败）：
-#   method: apt|pip|pipx|go|release|release-bin|git
-#   pkg:    apt 包名（method=apt 且包名 != name 时）
+# install 字段（全部可选；不写 = 由 Dockerfile 专属层负责安装，构建期 command -v 实测，缺了即构建失败）：
+#   method: apt|pip|pipx|npm|go|release|release-bin|git
+#   pkg:    包名（method=apt/npm 且包名 != name 时）
 #   ref:    owner/repo@vX（release/release-bin）| go module@vX（go）| git url（git）
 #   asset:  release-bin 资产名，可含 ${ARCH}(amd64/arm64) ${ARCHX}(x86_64/aarch64) ${ARCH64}(x64/arm64)
 #   bin:    release 压缩包内二进制名（默认 = name）
-#   force:  true → 即使 Kali 已自带也覆盖装（仅在 Kali 版本确有问题时用；默认信任 Kali 不写）
+#   force:  true → 即使已存在也覆盖装（版本有问题时用；默认信任已装版本不写）
 #   check:  装后 sanity 命令（省略则仅以 command -v 为准）
 #
-# 版本策略：默认信任 Kali 版本（method=apt，不 pin）；Kali 没有的工具用 release/release-bin/go 装并 pin。
-# 可复现由镜像 tag(sha/日期) 冻结整份产物兜底。
+# 版本策略：apt 工具信任发行版版本；release/go/pip 工具 pin 版本。
+# 可复现由镜像 tag(sha) 冻结整份产物兜底。
 #
 # category 取值与 hunter/skill.go 的 toolingCategoryOrder 保持一致；
 # 未列入 toolingCategoryOrder 的 category 会落到"未分类"组提醒维护者。
@@ -25,15 +25,15 @@ tools:
   - name: subfinder
     category: recon
     description: 子域名被动枚举（多源 OSINT）。零接触目标，只查公网情报源（crt.sh/passive DNS）。
-    install: { method: apt }
+    install: { method: release, ref: projectdiscovery/subfinder@v2.14.0 }
   - name: httpx
     category: recon
     description: HTTP 探活 + 指纹 + tech detection。subfinder 之后必跑过滤死域。
-    install: { method: apt }
+    install: { method: release, ref: projectdiscovery/httpx@v1.9.0 }
   - name: katana
     category: recon
     description: 现代 Web 爬虫——爬一个起点 url 拿全部站内链接 + JS 解析的 endpoint。
-    install: { method: release, ref: projectdiscovery/katana@v1.6.1 }   # Kali apt 无 katana → release
+    install: { method: release, ref: projectdiscovery/katana@v1.6.1 }
   - name: nmap
     category: recon
     description: 端口扫描 + 服务指纹 + NSE 脚本（半个漏扫器）。发现主端口外的高危服务用。
@@ -47,7 +47,7 @@ tools:
   - name: arjun
     category: discovery
     description: HTTP 隐藏参数发现——爆 25k+ 参数名 wordlist 找未文档化的参数（admin/debug/role 类）。
-    install: { method: apt }
+    install: { method: pipx }  # 官方推荐：pipx install arjun
   - name: dirsearch
     category: discovery
     description: 智能目录/文件爆破——自带 11k+ 行 wordlist + 扩展名探测 + smart filter，目录爆破首选。
@@ -59,17 +59,17 @@ tools:
   - name: gau
     category: discovery
     description: 被动 URL 发现——从 Wayback/Common Crawl/URLScan/OTX 归档拉历史 endpoint。仅对公网已收录站有结果，内网/新部署/CTF 靶机返回空。
-    install: { method: release, ref: lc/gau@v2.2.4 }   # Kali 通常不含 → release 装
+    install: { method: release, ref: lc/gau@v2.2.4 }
   - name: spectral
     category: discovery
     description: API 规范解析/校验（OpenAPI/Swagger/GraphQL）——`spectral lint <spec_url_或_文件>` 把 spec 声明的 endpoint × 参数 × 认证方式全摊开，一次拿到 API 攻击面（同 arjun 找参数）。默认规则集只校验规范质量/合法性，**非安全扫描**；可选挂 OWASP 规则集做设计层提示（不碰目标、不确认可利用）。需先拿到 spec：从 /openapi.json、/swagger.json、/v2/api-docs、/swagger-ui 发现并下载。
-    install: { method: release-bin, ref: stoplightio/spectral@v6.15.0, asset: 'spectral-linux-${ARCH64}' }  # Kali 无 → standalone 二进制
+    install: { method: npm, pkg: "@stoplight/spectral-cli" }  # 官方推荐 npm（6.x 无 arm64 binary）
 
   # ===== vulnscan（自动化模板漏扫）=====
   - name: nuclei
     category: vulnscan
-    description: 模板化漏扫引擎——业界事实标准。10k+ 模板覆盖 CVE/misconfig/exposure/dast。（模板非 Kali 自带，由 Dockerfile git clone 预拉）
-    install: { method: apt }
+    description: 模板化漏扫引擎——业界事实标准。10k+ 模板覆盖 CVE/misconfig/exposure/dast。（模板由 Dockerfile git clone nuclei-templates 预拉）
+    install: { method: release, ref: projectdiscovery/nuclei@v3.10.0 }
 
   # ===== injection（注入类专项）=====
   - name: sqlmap
@@ -89,7 +89,7 @@ tools:
   - name: phpggc
     category: deserialization
     description: PHP 反序列化 payload 生成器——Laravel/Symfony/Drupal/WordPress 框架向。
-    install: { method: apt }
+    # install 省略：由 Dockerfile 专属层装（git clone + php-cli wrapper，ubuntu 无 apt 包）
 
   # ===== auth（认证/凭证攻击）=====
   - name: hydra
@@ -109,11 +109,11 @@ tools:
   - name: semgrep
     category: sast
     description: 静态代码分析——找代码逻辑漏洞（SQLi/XSS sink、不安全反序列化）。目标暴露源码时秒杀黑盒。
-    install: { method: pip }   # Kali 未必含 → pip 兜底
+    install: { method: pip }  # 官方推荐 pip（无 arm64 binary）
   - name: trufflehog
     category: sast
     description: Secrets 扫描——源码 / git 历史 / 文件系统 / S3 bucket 找硬编码 API key / token / 凭证。
-    install: { method: release, ref: trufflesecurity/trufflehog@v3.95.2 }   # Kali 通常不含 → release
+    install: { method: release, ref: trufflesecurity/trufflehog@v3.95.2 }
 
   # ===== utility（通用辅助：HTTP/JSON/脚本/OOB/Browser）=====
   - name: curl
@@ -131,7 +131,7 @@ tools:
   - name: interactsh-client
     category: utility
     description: OOB（Out-Of-Band）回调检测——拿 oast.fun 子域名作 callback 钩子。Blind SSRF/RCE/XXE/XSS 唯一通用挖法。
-    install: { method: release, ref: projectdiscovery/interactsh@v1.3.1 }   # PD 工具，Kali apt 无 → release
+    install: { method: release, ref: projectdiscovery/interactsh@v1.3.1 }
   # browser-use 无 install 字段：由 Dockerfile 专属 Python 3.12 venv 层安装（见 Dockerfile browser-use 层）。
   # 安装器遍历到它时 command -v 已命中 → 信任跳过；若 venv 层失败导致缺失 → 安装器 FATAL，构建失败。
   - name: browser-use

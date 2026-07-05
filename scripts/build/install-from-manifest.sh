@@ -5,32 +5,28 @@
 # 「构建期怎么装」(install 字段)。本脚本只消费 install，Go 侧只消费 name/category/description，
 # 二者互不干扰，install 永不进 user prompt。
 #
-# ── 判定逻辑（与设计评审一致，逐个工具执行）─────────────────────────────
+# ── 判定逻辑 ──────────────────────────────────────────────────────────
 #   command -v <name> ?
 #   ├─ 在
-#   │   ├─ install.force != true → 信任发行版(Kali)这版，只 sanity（不装）
+#   │   ├─ install.force != true → 信任当前已装版本，只 sanity（不装）
 #   │   └─ install.force == true → 按 install 装指定版覆盖 → sanity
 #   └─ 不在
 #       ├─ 有 install.method → 装 → 复查 command -v → sanity
-#       └─ 无 install.method → FATAL（不在 Kali 又没声明怎么装：工具名错/Kali 改包名/漏声明）
+#       └─ 无 install.method → FATAL（工具名错/包名变/漏声明 install）
 #   任何 sanity / 复查失败 → FATAL
 # 任一工具 FATAL → 脚本非零退出 → docker build 失败（绝不带病出镜像）。
 #
-# ── 版本策略 ──────────────────────────────────────────────────────────
-#   默认信任 Kali 版本（不 pin、不覆盖）；仅 install.force=true 的少数工具装 ref 指定版覆盖。
-#   可复现由「镜像 tag(sha/日期)」冻结整份产物兜底，而非逐工具 pin。
-#
-# ── tools.yaml 的 install 字段（全部可选；不写=期望 Kali headless 已供给）──
+# ── tools.yaml 的 install 字段（全部可选；不写=期望上层 Dockerfile 已安装）──
 #   install:
-#     method: apt|pip|pipx|go|release|release-bin|git   # 安装方式
-#     pkg:    <apt 包名>            # method=apt 且包名 != name 时
+#     method: apt|pip|pipx|npm|go|release|release-bin|git
+#     pkg:    <包名>                # method=apt/npm 且包名 != name 时
 #     ref:    <owner/repo@vX | go module path@vX | git url>
-#     asset:  <release-bin 资产名，可含 ${ARCH}/${ARCHX}>  # method=release-bin
-#     bin:    <压缩包内二进制名，默认 = name>            # method=release
-#     force:  true                  # 即使已存在也覆盖装（如 katana 被错包顶替）
-#     check:  '<可执行的 sanity 命令>'  # 省略则仅以 command -v 为准（避免无统一 --version 的工具误判）
+#     asset:  <release-bin 资产名，可含 ${ARCH}/${ARCHX}/${ARCH64}>
+#     bin:    <压缩包内二进制名，默认 = name>
+#     force:  true                  # 即使已存在也覆盖装
+#     check:  '<sanity 命令>'       # 省略则仅以 command -v 为准
 #
-# 依赖：yq(mikefarah v4)、curl、wget、tar、unzip、git；go/pip/pipx 视 method 出现而定。
+# 依赖：yq(mikefarah v4)、curl、wget、tar、unzip、git；go/pip/pipx/npm 视 method 出现而定。
 set -uo pipefail
 
 MANIFEST="${1:-deployments/tool-images/pentools/tools.yaml}"
@@ -95,6 +91,9 @@ install_one() { # <name>
     pipx)
       ref=$(field_by_name "$name" ref); [ -n "$ref" ] || ref="$name"
       pipx install "$ref" || { bad "$name: pipx 装 $ref 失败"; return 1; } ;;
+    npm)
+      pkg=$(field_by_name "$name" pkg); [ -n "$pkg" ] || pkg="$name"
+      npm install -g "$pkg" || { bad "$name: npm 装 $pkg 失败"; return 1; } ;;
     go)
       ref=$(field_by_name "$name" ref); [ -n "$ref" ] || { bad "$name: method=go 缺 ref(module@version)"; return 1; }
       GOBIN="$BIN_DIR" go install "$ref" || { bad "$name: go install $ref 失败"; return 1; } ;;
@@ -110,7 +109,7 @@ install_one() { # <name>
       ref=$(field_by_name "$name" ref); [ -n "$ref" ] || { bad "$name: method=git 缺 ref(url)"; return 1; }
       rm -rf "/opt/$name"; git clone --depth 1 "$ref" "/opt/$name" || { bad "$name: git clone $ref 失败"; return 1; } ;;
     "")
-      bad "$name: 不在 PATH 且未声明 install.method（核对工具名 / Kali 是否真有 / 补 install）"; return 1 ;;
+      bad "$name: 不在 PATH 且未声明 install.method（核对工具名 / 包名是否变化 / 补 install）"; return 1 ;;
     *)
       bad "$name: 未知 install.method=$method"; return 1 ;;
   esac
@@ -142,7 +141,7 @@ while [ "$i" -lt "$total" ]; do
         bad "$name: 覆盖装后不可用"
       fi
     else
-      note "$name: 已存在（Kali 供给）→ 信任，sanity"
+      note "$name: 已存在（已预装）→ 信任，sanity"
       sanity "$name" "$check"
     fi
   else
