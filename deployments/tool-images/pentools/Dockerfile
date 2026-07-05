@@ -236,7 +236,7 @@ RUN pip install --quiet uv \
  && /usr/local/bin/chromium --version 2>&1 | head -1
 
 # ── Layer 11: agent 现写脚本常用 Python 库 ────────────────────────────────────
-RUN pip install --quiet \
+RUN pip install --quiet --ignore-installed \
         requests httpx aiohttp beautifulsoup4 lxml urllib3 \
         websockets websocket-client pysocks dnspython cryptography \
         pyjwt pyyaml xmltodict paramiko pymysql \
