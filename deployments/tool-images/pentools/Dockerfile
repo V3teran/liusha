@@ -34,6 +34,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
     PIP_RETRIES=5 \
     PIP_TIMEOUT=60 \
+    PIP_BREAK_SYSTEM_PACKAGES=1 \
     BROWSER_USE_VENV=/opt/browser-use-venv \
     PATH=/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
     PIPX_HOME=/opt/pipx \
