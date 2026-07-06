@@ -82,10 +82,14 @@ tools:
     # install 省略：由 Dockerfile 专属层装（release，带版本名的单文件归档，不适配通用 release 方法）。
 
   # ===== deserialization（反序列化 payload 生成）=====
+  - name: ysomap
+    category: deserialization
+    description: Java 反序列化利用框架（主力）——比 ysoserial 更强的 bypass/高版本绕过 + JNDI 联动 + 内存马注入，支持交互 cli（`ysomap cli`）与脚本模式（`ysomap script x.yso`）。经典链先试 ysoserial，bypass/JNDI/高版本场景用 ysomap。用 JDK8 运行。
+    # install 省略：由 Dockerfile 专属层装（git clone master + mvn package，取 2025 最新利用链）。
   - name: ysoserial
     category: deserialization
-    description: Java 反序列化 payload 生成器——gadget chain + cmd → base64 payload。Java app + ObjectInputStream 必备。
-    # install 省略：由 Dockerfile 专属层装（jar 下载 + java -jar wrapper）。
+    description: Java 反序列化 payload 生成器（经典链兜底）——CommonsCollections/Groovy/Spring 等经典 gadget chain + cmd → payload，最稳最全。用 JDK8 运行。
+    # install 省略：由 Dockerfile 专属层装（jar 下载 + jdk8 java -jar wrapper）。
   - name: phpggc
     category: deserialization
     description: PHP 反序列化 payload 生成器——Laravel/Symfony/Drupal/WordPress 框架向。
@@ -122,8 +126,12 @@ tools:
     install: { method: apt }
   - name: python3
     category: utility
-    description: 自定义脚本兜底（GraphQL/NoSQL 注入、复杂登录链、并发 fuzz、二阶段 payload、自定义编码绕过）。
+    description: 自定义脚本兜底（GraphQL/NoSQL 注入、复杂登录链、并发 fuzz、二阶段 payload、自定义编码绕过）。已装 pwntools（pwn 交互）+ pycryptodome（crypto）。
     install: { method: apt }
+  - name: go
+    category: utility
+    description: Go 编译器——CTF/渗透中现场编译 Go payload 或小工具（go run x.go / go build）。Kali apt golang 1.26。
+    install: { method: apt, pkg: golang }
   - name: jq
     category: utility
     description: JSON 解析/提取/重构。配合 curl pipe 用，避免自己 grep JSON 跑偏。

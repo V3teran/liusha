@@ -8,9 +8,14 @@
 #   - Kali apt 直供的工具走 apt（sqlmap/hydra/ffuf/dirsearch/arjun/wafw00f/nmap/
 #     subfinder/httpx-toolkit/nuclei/phpggc/trufflehog）
 #   - Kali apt 没有的走官方推荐方式：katana/gau/interactsh(release)、semgrep(pip)、
-#     jwt_tool(git+pip)、ysoserial(jar)、dalfox(release musl)、spectral(npm)
+#     jwt_tool(git+pip)、ysoserial(jar)、ysomap(git+mvn)、dalfox(release musl)、spectral(npm)
 #   - httpx 在 Kali 包名是 httpx-toolkit（避与 python3-httpx 冲突），命令也叫 httpx-toolkit，
 #     包装成 /usr/local/bin/httpx 给 agent 用
+#   - 双 JDK（Temurin）：JDK8(8u352)默认 + JDK17(17.0.19) 现代目标；java8/java17 显式切换。
+#     Java 反序列化/RCE payload：默认 JDK8 编译（class v52 向前兼容所有更高目标）。
+#     ysomap/ysoserial 包装脚本硬编码 JDK8 运行。
+#   - CTF 兼顾：Go(apt) 编 Go payload；Python 加 pwntools(pwn)+pycryptodome(crypto)；
+#     php/gcc/g++ 已含（PHP/C payload）。
 #   - PEP 668 在 Kali 同样开启，pip 需 --break-system-packages(env) + --ignore-installed
 #   - browser-use 跑独立 Python 3.12 venv（隔离 Kali rolling python）
 #   - multi-stage：Stage 0 编译 sandbox-server，Stage 1 运行镜像
@@ -53,7 +58,7 @@ RUN apt-get update \
         ca-certificates curl wget git unzip xz-utils tar file \
         python3 python3-pip python3-venv \
         nodejs npm \
-        default-jdk-headless \
+        golang maven \
         default-mysql-client \
         build-essential libssl-dev libffi-dev \
  && rm -rf /var/lib/apt/lists/* \
@@ -63,6 +68,51 @@ RUN apt-get update \
         -O /usr/local/bin/yq \
  && chmod +x /usr/local/bin/yq \
  && yq --version
+
+# ── Layer 1b: 双 JDK（Temurin）——CTF/Java 反序列化利用 ──────────────────────
+# Kali apt 无 openjdk-8/17（只有 11/21/25-ea），从 Adoptium Temurin 下 tar.gz。
+#   - JDK 8（8u352-b08）→ /opt/jdk8：默认 java/javac 指向它。
+#     Java8 编译的 class（v52）向前兼容所有更高 Java 目标，payload 兼容面最广；
+#     ysomap 官方也要求 JDK8 环境编译/运行（XStream 部分 payload 依赖）。
+#   - JDK 17（17.0.19+10）→ /opt/jdk17：现代目标（Spring Boot 3.x 强制 17+）专项。
+# 架构映射：arm64→aarch64，amd64→x64（Temurin 命名）。
+# 版本段无连字符：8u352b08 / 17.0.19_10。
+RUN set -eux \
+ && case "${TARGETARCH}" in \
+      arm64) J_ARCH=aarch64 ;; \
+      amd64) J_ARCH=x64     ;; \
+      *)     echo "[FATAL] 不支持的架构 ${TARGETARCH}"; exit 1 ;; \
+    esac \
+ # JDK 8u352-b08
+ && wget -q --tries=3 --waitretry=5 \
+        "https://github.com/adoptium/temurin8-binaries/releases/download/jdk8u352-b08/OpenJDK8U-jdk_${J_ARCH}_linux_hotspot_8u352b08.tar.gz" \
+        -O /tmp/jdk8.tar.gz \
+ && mkdir -p /opt/jdk8 \
+ && tar -xzf /tmp/jdk8.tar.gz -C /opt/jdk8 --strip-components=1 \
+ && rm /tmp/jdk8.tar.gz \
+ && /opt/jdk8/bin/java -version \
+ # JDK 17.0.19+10
+ && wget -q --tries=3 --waitretry=5 \
+        "https://github.com/adoptium/temurin17-binaries/releases/download/jdk-17.0.19+10/OpenJDK17U-jdk_${J_ARCH}_linux_hotspot_17.0.19_10.tar.gz" \
+        -O /tmp/jdk17.tar.gz \
+ && mkdir -p /opt/jdk17 \
+ && tar -xzf /tmp/jdk17.tar.gz -C /opt/jdk17 --strip-components=1 \
+ && rm /tmp/jdk17.tar.gz \
+ && /opt/jdk17/bin/java -version \
+ # 版本切换：默认 java/javac → JDK8（兼容面最广）；显式 java8/java17/javac8/javac17
+ && for b in java javac keytool; do \
+      update-alternatives --install "/usr/bin/$b" "$b" "/opt/jdk8/bin/$b" 800; \
+      update-alternatives --install "/usr/bin/$b" "$b" "/opt/jdk17/bin/$b" 170; \
+      update-alternatives --set "$b" "/opt/jdk8/bin/$b"; \
+    done \
+ && printf '#!/bin/sh\nexec /opt/jdk8/bin/java "$@"\n'   > /usr/local/bin/java8 \
+ && printf '#!/bin/sh\nexec /opt/jdk8/bin/javac "$@"\n'  > /usr/local/bin/javac8 \
+ && printf '#!/bin/sh\nexec /opt/jdk17/bin/java "$@"\n'  > /usr/local/bin/java17 \
+ && printf '#!/bin/sh\nexec /opt/jdk17/bin/javac "$@"\n' > /usr/local/bin/javac17 \
+ && chmod +x /usr/local/bin/java8 /usr/local/bin/javac8 /usr/local/bin/java17 /usr/local/bin/javac17 \
+ && echo "默认 java = $(java -version 2>&1 | head -1)" \
+ && echo "java8 = $(java8 -version 2>&1 | head -1)" \
+ && echo "java17 = $(java17 -version 2>&1 | head -1)"
 
 # ── Layer 2: Kali apt 直供的 web 安全工具 ────────────────────────────────────
 # Kali 维护这些工具的最新版，apt 装免下载、免 pip 冲突。
@@ -151,14 +201,29 @@ RUN case "${TARGETARCH}" in \
  && rm -rf /tmp/dalfox.tar.gz "/tmp/dalfox-v3.1.2-linux-${DALFOX_ARCH}-musl" \
  && dalfox version 2>&1 | head -1
 
-# ysoserial v0.0.6（https://github.com/frohoff/ysoserial/releases，fat jar，架构无关）
+# ysoserial v0.0.6（https://github.com/frohoff/ysoserial，fat jar，经典 gadget 链兜底）
+# 包装脚本硬编码 JDK8 运行（反序列化 gadget 依赖 JDK8 环境）
 RUN wget -q --tries=3 --waitretry=5 \
         "https://github.com/frohoff/ysoserial/releases/download/v0.0.6/ysoserial-all.jar" \
         -O /opt/ysoserial.jar \
  && [ -s /opt/ysoserial.jar ] || { echo "[FATAL] ysoserial jar 下载失败"; exit 1; } \
- && printf '#!/bin/sh\nexec java -jar /opt/ysoserial.jar "$@"\n' > /usr/local/bin/ysoserial \
+ && printf '#!/bin/sh\nexec /opt/jdk8/bin/java -jar /opt/ysoserial.jar "$@"\n' > /usr/local/bin/ysoserial \
  && chmod +x /usr/local/bin/ysoserial \
  && ysoserial 2>&1 | head -1 || true
+
+# ysomap（https://github.com/wh1t3p1g/ysomap，Java 反序列化利用框架，主力）
+# clone master 自行 mvn 编译——release(2023-12) 落后 master(2025-02) 一年多利用链，
+# 官方 README 明确推荐 clone 编译拿最新链。用 JDK8 编译并运行（XStream payload 依赖 JDK8）。
+RUN git clone --depth 1 https://github.com/wh1t3p1g/ysomap.git /opt/ysomap-src \
+ && cd /opt/ysomap-src \
+ && JAVA_HOME=/opt/jdk8 PATH=/opt/jdk8/bin:$PATH mvn clean package -DskipTests -q \
+ && JAR=$(find /opt/ysomap-src -name 'ysomap*.jar' -not -name '*sources*' -not -name '*original*' | head -1) \
+ && [ -n "$JAR" ] || { echo "[FATAL] ysomap 编译产物未找到"; exit 1; } \
+ && cp "$JAR" /opt/ysomap.jar \
+ && rm -rf /opt/ysomap-src ~/.m2 \
+ && printf '#!/bin/sh\nexec /opt/jdk8/bin/java -jar /opt/ysomap.jar "$@"\n' > /usr/local/bin/ysomap \
+ && chmod +x /usr/local/bin/ysomap \
+ && ysomap 2>&1 | head -1 || true
 
 # ── Layer 7: browser-use 薄客户端提前 COPY（manifest 安装器需 command -v browser-use 命中）──
 COPY deployments/tool-images/pentools/browser-use /usr/local/bin/browser-use
@@ -196,11 +261,13 @@ RUN pip install --quiet --ignore-installed uv \
  && /usr/local/bin/chromium --version 2>&1 | head -1
 
 # ── Layer 11: agent 现写脚本常用 Python 库 ────────────────────────────────────
+# 基础 HTTP/解析/协议库 + CTF 刚需（pwntools=pwn 交互、pycryptodome=crypto）
 RUN pip install --quiet --ignore-installed \
         requests httpx aiohttp beautifulsoup4 lxml urllib3 \
         websockets websocket-client pysocks dnspython cryptography \
         pyjwt pyyaml xmltodict paramiko pymysql \
- && python3 -c 'import requests, httpx, aiohttp, bs4, lxml, urllib3, websockets, websocket, socks, dns, cryptography, jwt, yaml, xmltodict, paramiko, pymysql; print("python libs OK")'
+        pwntools pycryptodome \
+ && python3 -c 'import requests, httpx, aiohttp, bs4, lxml, urllib3, websockets, websocket, socks, dns, cryptography, jwt, yaml, xmltodict, paramiko, pymysql, pwn, Crypto; print("python libs OK")'
 
 # ── Layer 12: mitmproxy ───────────────────────────────────────────────────────
 COPY deployments/tool-images/pentools/mitm-capture.py /usr/local/bin/mitm-capture.py
