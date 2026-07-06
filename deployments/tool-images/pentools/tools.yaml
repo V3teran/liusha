@@ -132,6 +132,22 @@ tools:
     category: utility
     description: Go 编译器——CTF/渗透中现场编译 Go payload 或小工具（go run x.go / go build）。Kali apt golang 1.26。
     install: { method: apt, pkg: golang }
+  - name: java
+    category: utility
+    description: Java 运行/编译（反序列化 gadget、JNDI、RCE payload、CTF Java 题手写利用）。双 JDK 可切换——默认 `java`/`javac`=JDK8（class v52 向前兼容所有更高目标，配合 ysomap/ysoserial）；现代 Spring Boot 3.x 目标用 `java17`/`javac17`。反序列化优先用 ysomap/ysoserial 生成，自写 payload 时用 javac 编译。
+    # install 省略：由 Dockerfile 专属层装（Temurin JDK8 8u352 + JDK17 tar.gz + update-alternatives + java8/java17 包装）。
+  - name: php
+    category: utility
+    description: PHP 解释器（php 8.4）——写/跑 PHP payload、验证 PHP 反序列化（配合 phpggc）、LFI 链、webshell 逻辑、magic hash 等 PHP 特性利用。`php x.php` 或 `php -r "代码"`。
+    install: { method: apt, pkg: php-cli }
+  - name: gcc
+    category: utility
+    description: C/C++ 编译器（gcc/g++ 15）——CTF pwn 编译 exploit、编译本地提权 PoC、编译目标环境所需的 .so/二进制。`gcc x.c -o x`。
+    install: { method: apt, pkg: build-essential }
+  - name: node
+    category: utility
+    description: Node.js（node 24）——JS payload 与利用：原型链污染、客户端 SSTI、JWT 弱密钥/算法混淆脚本、复杂前端逻辑复现。`node x.js`。
+    install: { method: apt, pkg: nodejs }
   - name: jq
     category: utility
     description: JSON 解析/提取/重构。配合 curl pipe 用，避免自己 grep JSON 跑偏。

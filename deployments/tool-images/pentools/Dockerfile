@@ -58,6 +58,7 @@ RUN apt-get update \
         ca-certificates curl wget git unzip xz-utils tar file \
         python3 python3-pip python3-venv \
         nodejs npm \
+        php-cli \
         golang maven \
         default-mysql-client \
         build-essential libssl-dev libffi-dev \
