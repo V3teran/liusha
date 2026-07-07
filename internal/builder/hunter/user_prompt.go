@@ -136,14 +136,17 @@ type catalogEntry struct {
 // 顺序固定让 prompt cache 命中率最高（同一批工具集 → 同一 prefix）。
 // 未在本表内的 category（含空值）→ 落入末尾的"未分类"组，提醒维护者补 frontmatter。
 var toolingCategoryOrder = []categoryItem{
-	{"recon", "recon（侦察 — 资产/服务/技术栈发现）"},
+	{"recon", "recon（侦察 — 资产/服务/技术栈/指纹发现）"},
 	{"discovery", "discovery（内容/参数发现）"},
 	{"vulnscan", "vulnscan（自动化模板漏扫）"},
 	{"injection", "injection（注入类专项）"},
 	{"deserialization", "deserialization（反序列化 payload 生成）"},
 	{"auth", "auth（认证/凭证攻击）"},
+	{"oob", "oob（带外回调检测 — Blind SSRF/RCE/XXE/XSS）"},
 	{"sast", "sast（源码静态分析）"},
-	{"utility", "utility（通用辅助：HTTP/JSON/脚本/OOB）"},
+	{"runtime", "runtime（语言运行时/编译器 — 现场编写/编译/运行 payload）"},
+	{"browser", "browser（无头浏览器自动化）"},
+	{"utility", "utility（通用胶水：HTTP/JSON/脚本）"},
 }
 
 // vulnCategoryOrder 是漏洞挖掘指南索引段的固定渲染顺序——

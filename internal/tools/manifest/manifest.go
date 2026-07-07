@@ -22,6 +22,10 @@ type Tool struct {
 	Name        string `yaml:"name"`
 	Category    string `yaml:"category"`
 	Description string `yaml:"description"`
+	// Scenarios 是交战场景标签（多值）。当前只有 web，全部工具标 [web]。
+	// 将来扩展 ctf/domain/container 时：跨场景复用的工具追加标签（如 [web, ctf]），
+	// catalog 按当次交战 scenario 过滤渲染。现在字段先落地被解析，过滤逻辑未接（单场景=no-op）。
+	Scenarios []string `yaml:"scenarios"`
 }
 
 // Manifest 是 tools.yaml 解析后的全集。
