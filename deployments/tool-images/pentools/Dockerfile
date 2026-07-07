@@ -232,11 +232,13 @@ COPY deployments/tool-images/pentools/browser-svc.py /usr/local/bin/browser-svc.
 RUN chmod +x /usr/local/bin/browser-use /usr/local/bin/browser-svc.py
 
 # ── Layer 8: manifest 驱动安装器（验证所有工具真实可用）──────────────────────
-COPY deployments/tool-images/pentools/tools.yaml /tmp/tools.yaml
-COPY scripts/build/install-from-manifest.sh /usr/local/bin/install-from-manifest.sh
-RUN apt-get update \
- && chmod +x /usr/local/bin/install-from-manifest.sh \
- && TARGETARCH="${TARGETARCH}" /usr/local/bin/install-from-manifest.sh /tmp/tools.yaml \
+# tools.yaml 与安装脚本都是**纯构建期输入**——运行时 scanner 读自己文件系统那份 tools.yaml，
+# 镜像内不需要留。用 bind-mount 挂进来用完即走，不落任何层（COPY 会残留：层叠加，
+# 后层 rm 只加 whiteout、基础层文件仍在、镜像不缩）。
+RUN --mount=type=bind,source=deployments/tool-images/pentools/tools.yaml,target=/tmp/tools.yaml \
+    --mount=type=bind,source=scripts/build/install-from-manifest.sh,target=/tmp/install-from-manifest.sh \
+    apt-get update \
+ && TARGETARCH="${TARGETARCH}" bash /tmp/install-from-manifest.sh /tmp/tools.yaml \
  && rm -rf /var/lib/apt/lists/*
 
 # ── Layer 9: nuclei 模板预拉 ──────────────────────────────────────────────────
