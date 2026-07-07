@@ -54,14 +54,14 @@ BAC 的**主轴**是 **多身份对比**——同一功能换不同身份看差�
 "身份" = 一个你能认证进去的权限上下文，**不等于 `read_credentials` 的行**。来源有三类，能凑出几个算几个：
 
 1. **`read_credentials` 已录入的 token**（passive 常态：traffic-analysis 启动前已 seed）
-2. **brief 直接给的登录凭据对**（active 常态：orchestrator 把"admin/password 高权、gordonb/abc123 低权"透传到 brief）→ 你登录把它**变成**可用会话
+2. **brief 直接给的登录凭据对**（active 常态：orchestrator 把"某高权账号、某低权账号"两组账密透传到 brief）→ 你登录把它**变成**可用会话
 3. **recon / 探测中发现的登录入口**（任何模式：看到登录表单就能注册一个新身份）
 
-**身份数按"可获得数"算，不是按 `read_credentials` 行数算**——active 模式 `read_credentials` 常返空 `[]`，但 brief 给了 admin + gordonb 两组账密 → **可获得身份数 = 2**，足以展开垂直越权。把空 `read_credentials` 误读成"0 身份不能测越权"是 active BAC 最大的假阴性。**反向也一样错**：brief 给的账号若登不进去（密码错 / 账号锁定，见 system_prompt「连续 2 次提交仍落回登录页就停手」），该身份**不算**"可获得"——别拿登录失败的幻影身份凑对比式矩阵（矩阵里一行根本没真会话，结论必假）。"可获得"以**你真正拿到了会话**为准，不是 brief 列了几个账号。
+**身份数按"可获得数"算，不是按 `read_credentials` 行数算**——active 模式 `read_credentials` 常返空 `[]`，但 brief 给了一个高权 + 一个低权两组账密 → **可获得身份数 = 2**，足以展开垂直越权。把空 `read_credentials` 误读成"0 身份不能测越权"是 active BAC 最大的假阴性。**反向也一样错**：brief 给的账号若登不进去（密码错 / 账号锁定，见 system_prompt「连续 2 次提交仍落回登录页就停手」），该身份**不算**"可获得"——别拿登录失败的幻影身份凑对比式矩阵（矩阵里一行根本没真会话，结论必假）。"可获得"以**你真正拿到了会话**为准，不是 brief 列了几个账号。
 
 **怎么把登录凭据变成可注入的会话**（active 模式优先级：字典里有的请求走 replay_flow，没有的才 curl 手拼）：
 - **浏览器登录 + 流量字典（active 重放首选）**：`browser_use` 以 `identity=用户名` 登录并访问受保护资源（见 system_prompt「identity 命名铁律」）→ 该身份真实已认证请求被 CDP 抓入 http_flow（source=internal，**owner 作用域 = 整个 active run**，reconnaissance 登的 admin 请求 exploitation 也查得到）。`list_flows` 找关键 endpoint → `view_flow` 读**真实请求结构 + 全部凭证位置**（httpOnly cookie 也在里面，header / body / query 一次看全，不靠猜）→ `replay_flow(id, modifications)` 换身份 / 改字段重放，原请求所有字段自动继承。**字典里有的请求一律走这条**——它同时解掉「httpOnly 抠不出」和「请求结构靠编」两个老痛点。
-- **curl 登录（字典里没有的全新 endpoint 才手拼）**：浏览器没导航过、`list_flows` 查不到的 endpoint → `GET 登录页` 抽 CSRF token（如 DVWA 的 `user_token`）→ `POST` 账密 + token → 捕获 `Set-Cookie` session，塞进 `curl -H "Cookie:"`。凭证从 `read_credentials` 拿。
+- **curl 登录（字典里没有的全新 endpoint 才手拼）**：浏览器没导航过、`list_flows` 查不到的 endpoint → `GET 登录页` 抽 CSRF token（表单里的一次性隐藏字段，名字各框架不同，如 `csrf_token` / `authenticity_token`(Rails) / `_token`(Laravel) / `__RequestVerificationToken`(ASP.NET) 等）→ `POST` 账密 + token → 捕获 `Set-Cookie` session，塞进 `curl -H "Cookie:"`。凭证从 `read_credentials` 拿。
 
 身份数（含可获得的）决定能测哪几类，硬约束——但要分**对比式**与**自证式**两条定罪路径：
 
