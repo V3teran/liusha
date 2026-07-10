@@ -33,9 +33,9 @@ func chatModelInfo() *callbacks.RunInfo {
 
 func TestUsageRecorder_RecordsTokens(t *testing.T) {
 	sink := &fakeSink{}
-	hid, ot, oid := "hunter-1", "passive_session", "owner-1"
+	hid, tid := "hunter-1", "task-1"
 	h := NewUsageRecorder(sink,
-		llm.CallMeta{HunterID: &hid, OwnerType: &ot, OwnerID: &oid, RouteKey: "traffic-analysis"},
+		llm.CallMeta{HunterID: &hid, TaskID: &tid, RouteKey: "traffic-analysis"},
 		"xiaomi_mimo", "mimo-v2.5",
 	)
 
@@ -67,8 +67,8 @@ func TestUsageRecorder_RecordsTokens(t *testing.T) {
 	if g.Provider != "xiaomi_mimo" || g.Model != "mimo-v2.5" || g.Role != "traffic-analysis" {
 		t.Errorf("provider/model/role 错: %+v", g)
 	}
-	if g.HunterID == nil || *g.HunterID != "hunter-1" || g.OwnerID == nil || *g.OwnerID != "owner-1" {
-		t.Errorf("owner/hunter 注入错: %+v", g)
+	if g.HunterID == nil || *g.HunterID != "hunter-1" || g.TaskID == nil || *g.TaskID != "task-1" {
+		t.Errorf("task/hunter 注入错: %+v", g)
 	}
 	if g.FinishReason != "stop" {
 		t.Errorf("finish_reason 错: %q", g.FinishReason)

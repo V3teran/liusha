@@ -9,8 +9,8 @@ import (
 
 	hunterbuilder "github.com/V3teran/liusha/internal/builder/hunter"
 	"github.com/V3teran/liusha/internal/einoagent"
-	"github.com/V3teran/liusha/internal/passivesession"
 	"github.com/V3teran/liusha/internal/skill"
+	"github.com/V3teran/liusha/internal/task"
 	"github.com/V3teran/liusha/internal/worker"
 )
 
@@ -26,33 +26,24 @@ const abortPollInterval = 5 * time.Second
 // gap（待后续 eino middleware 增量补）：LLM 调用计费 instrument、inspector terminate/hints、history 压缩。
 func (h handler) handlePassiveEino(ctx context.Context, p worker.Payload, entrypoint json.RawMessage) error {
 	var ep struct {
-		FlowID int64  `json:"flow_id"`
-		Host   string `json:"host"`
-		URL    string `json:"url"`
-		Method string `json:"method"`
+		Host string `json:"host"`
 	}
 	if err := json.Unmarshal(entrypoint, &ep); err != nil {
 		return h.failTask(ctx, p.HunterID, err)
 	}
 
 	tid := p.HunterID
-	ot, oid := p.OwnerType, p.OwnerID
-	// 入口重置心跳：把 reaper 判活的起点从「建会话」移到「worker 真正接手」，避免排队时间吃掉
+	taskID := p.TaskID
+	// 入口重置心跳：把 reaper 判活的起点从「建 task」移到「worker 真正接手」，避免排队时间吃掉
 	// staleAfter 预算被冤杀。best-effort。
-	if err := h.passiveSessions.Heartbeat(ctx, oid); err != nil {
-		h.logger.Warn().Err(err).Str("owner_id", oid).Msg("passive_session 入口心跳失败（不阻塞会话）")
+	if err := h.tasks.Heartbeat(ctx, taskID); err != nil {
+		h.logger.Warn().Err(err).Str("task_id", taskID).Msg("task 入口心跳失败（不阻塞分析）")
 	}
 
 	// per-hunter 独立 eino ChatModel（铁律）
 	model, err := h.einoFactory.For(ctx, "traffic-analysis")
 	if err != nil {
 		return h.failTask(ctx, p.HunterID, err)
-	}
-
-	// 拉 flow 完整 raw（请求 + 响应）
-	fl, err := h.flows.GetByID(ctx, ep.FlowID)
-	if err != nil {
-		return h.failTask(ctx, p.HunterID, fmt.Errorf("flows.GetByID(%d): %w", ep.FlowID, err))
 	}
 
 	// 为本次 agent run 启动 sandbox 容器；defer Destroy 覆盖正常/异常/panic。
@@ -69,40 +60,31 @@ func (h handler) handlePassiveEino(ctx context.Context, p worker.Payload, entryp
 		}
 	}()
 
-	// BuilderParams：与 handlePassive 同构，喂 hunter.BuildUserPrompt 拼流量/finding/notes/lesson/索引段。
+	// BuilderParams：passive fan-in 批分析——不再渲染单条 raw 流量，agent 用 list_flows/view_flow
+	// 枚举本批消费的 proxy_traffic（consumed_by_task_id=本 task）自行深挖。喂 finding/lesson/索引段。
 	params := skill.BuilderParams{
-		OwnerType:       ot,
-		OwnerID:         oid,
-		HunterID:        tid,
-		Mode:            "passive",
-		FlowID:          ep.FlowID,
-		Host:            ep.Host,
-		URL:             ep.URL,
-		Method:          ep.Method,
-		RequestHeaders:  fl.RequestHeaders,
-		RequestBody:     fl.RequestBody,
-		ResponseStatus:  fl.StatusCode,
-		ResponseHeaders: fl.ResponseHeaders,
-		ResponseBody:    fl.ResponseBody,
-		Sandbox:         sandboxClient,
+		TaskID:   taskID,
+		HunterID: tid,
+		Mode:     "passive",
+		Host:     ep.Host,
+		Sandbox:  sandboxClient,
 	}
 
 	tools, err := einoagent.BuildTrafficAnalysisTools(einoagent.TrafficAnalysisToolDeps{
 		Findings:          h.findings,
 		Lessons:           h.lessons,
 		Credentials:       h.hunterDeps.Credentials,
-		Flows:             h.flows,
+		ProxyFlows:        h.proxyFlows,
 		ToolingLoader:     h.hunterDeps.ToolingLoader,
 		VulnLoader:        h.hunterDeps.VulnLoader,
 		Sandbox:           sandboxClient,
 		MaxTimeoutSeconds: h.cfg.Toolruntime.StepToolTimeoutSeconds,
 		TailBytes:         h.cfg.Sandbox.RunTailBytes,
 	}, einoagent.TrafficAnalysisToolParams{
-		OwnerType: ot,
-		OwnerID:   oid,
-		HunterID:  tid,
-		Host:      ep.Host,
-		FlowID:    ep.FlowID,
+		TaskID:   taskID,
+		Mode:     "passive",
+		HunterID: tid,
+		Host:     ep.Host,
 	})
 	if err != nil {
 		return h.failTask(ctx, p.HunterID, err)
@@ -121,17 +103,17 @@ func (h handler) handlePassiveEino(ctx context.Context, p worker.Payload, entryp
 	// compaction（防 context 爆）+ tool_invocation 遥测 + 截图回灌 + llm_invocation 计费。
 	// ★ 早期 passive handler 手工只挂了 compaction + 计费，漏了 ToolRecorder（→ tool_invocation
 	// 不落库）和 VisionRelay（→ trafficAnalysis 跑 run_command 截图会 mimo 400）。统一走 einoRunOpts 补齐。
-	mws, agentHandlers, opts, cleanup, err := h.einoRunOpts(ctx, tid, ot, oid, "traffic-analysis", p.ConversationID)
+	mws, agentHandlers, opts, cleanup, err := h.einoRunOpts(ctx, tid, taskID, "traffic-analysis", p.ConversationID)
 	if err != nil {
 		return h.failTask(ctx, p.HunterID, fmt.Errorf("einoRunOpts: %w", err))
 	}
 	defer cleanup() // run 结束后 flush 异步事件 sink（关 channel + 等缓冲事件写完落库）
 
-	// owner 中止 watcher：react 路径靠 step 内 cfg.OnAbort；eino 无 step 钩子，
-	// 改后台轮询 passive_session.Status，非 active 即 cancel ctx 让 RunTrafficAnalysis 自然停。
+	// task 中止 watcher：eino 无 step 钩子，改后台轮询 task.Status，
+	// 非 active 即 cancel ctx 让 RunTrafficAnalysis 自然停。
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	go h.watchAbort(runCtx, cancel, oid)
+	go h.watchAbort(runCtx, cancel, taskID)
 
 	res, err := einoagent.RunTrafficAnalysis(runCtx, model, tools, instruction, userPrompt, h.passiveRole.MaxIterations, mws, agentHandlers, opts...)
 	if err != nil {
@@ -149,11 +131,11 @@ func (h handler) handlePassiveEino(ctx context.Context, p worker.Payload, entryp
 	if err != nil {
 		return h.failTask(ctx, p.HunterID, fmt.Errorf("marshal task result: %w", err))
 	}
-	return h.tasks.SetDone(ctx, p.HunterID, out)
+	return h.hunters.SetDone(ctx, p.HunterID, out)
 }
 
-// watchAbort 后台轮询 owner（passive_session）中止状态；非 active 即 cancel，让 RunTrafficAnalysis 停。
-func (h handler) watchAbort(ctx context.Context, cancel context.CancelFunc, ownerID string) {
+// watchAbort 后台轮询 task 中止状态；非 active 即 cancel，让 RunTrafficAnalysis 停。
+func (h handler) watchAbort(ctx context.Context, cancel context.CancelFunc, taskID string) {
 	ticker := time.NewTicker(abortPollInterval)
 	defer ticker.Stop()
 	for {
@@ -161,12 +143,12 @@ func (h handler) watchAbort(ctx context.Context, cancel context.CancelFunc, owne
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			sess, err := h.passiveSessions.GetByID(ctx, ownerID)
+			tk, err := h.tasks.GetByID(ctx, taskID)
 			if err != nil {
 				continue // 短时不可用：下个 tick 再查，不误杀
 			}
-			if sess.Status != passivesession.StatusActive {
-				h.logger.Info().Str("owner_id", ownerID).Msg("owner 中止，cancel eino trafficAnalysis")
+			if tk.Status != task.StatusActive {
+				h.logger.Info().Str("task_id", taskID).Msg("task 中止，cancel eino trafficAnalysis")
 				cancel()
 				return
 			}

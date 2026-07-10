@@ -25,7 +25,7 @@ import (
 //   - Append 返回的 id 现为 0（异步路径不再有 RETURNING id）；调用方 instrument.go
 //     已忽略 id（仅记日志），故签名保留兼容。
 //   - 进程崩溃可能丢 buffer 内未 flush 的行（最差 100 行 / 1s）；这是行为日志非交易，可接受。
-//   - 一致性场景（如 AggregateByOwner / ListByOwner）调用方需先调 Flush() 同步等待。
+//   - 一致性场景（如 AggregateByTask / ListByTask）调用方需先调 Flush() 同步等待。
 type Store struct {
 	pool          *pgxpool.Pool
 	ch            chan Invocation
@@ -101,7 +101,7 @@ func (s *Store) Append(ctx context.Context, c Invocation) (int64, error) {
 	}
 }
 
-// Flush 阻塞直到 channel 排空 + 当前 batch 已 commit；测试与 AggregateByOwner 前用。
+// Flush 阻塞直到 channel 排空 + 当前 batch 已 commit；测试与 AggregateByTask 前用。
 func (s *Store) Flush(ctx context.Context) error {
 	for {
 		if len(s.ch) == 0 {
@@ -182,7 +182,7 @@ func (s *Store) copyFromBatch(ctx context.Context, batch []Invocation) error {
 	rows := make([][]any, len(batch))
 	for i, c := range batch {
 		rows[i] = []any{
-			c.HunterID, c.OwnerType, c.OwnerID,
+			c.HunterID, c.TaskID,
 			c.Provider, c.Model,
 			c.InTokens, c.OutTokens, c.CachedTokens,
 			c.LatencyMs, c.FinishReason, c.Error, c.Role,
@@ -193,7 +193,7 @@ func (s *Store) copyFromBatch(ctx context.Context, batch []Invocation) error {
 		ctx,
 		pgx.Identifier{"llm_invocation"},
 		[]string{
-			"hunter_id", "owner_type", "owner_id",
+			"hunter_id", "task_id",
 			"provider", "model",
 			"in_tokens", "out_tokens", "cached_tokens",
 			"latency_ms", "finish_reason", "error_message", "role",
@@ -207,35 +207,29 @@ func (s *Store) copyFromBatch(ctx context.Context, batch []Invocation) error {
 	return nil
 }
 
-// ListByOwner 列出 owner 下所有 LLM invocation（按 created_at ASC）。
-// ownerType 为 "" 时退化为仅按 owner_id 过滤（caller 仅持有 ID 时用，如 HTTP URL :owner_id）。
+// ListByTask 列出 task 下所有 LLM invocation（按 created_at ASC）。
 // 调用方有责任先 Flush() 等异步 buffer commit，否则可能缺最近 0-1s 的记录。
-func (s *Store) ListByOwner(ctx context.Context, ownerType, ownerID string) ([]Invocation, error) {
-	q := `SELECT id, hunter_id, owner_type, owner_id::text,
-	             provider, model,
-	             in_tokens, out_tokens, cached_tokens,
-	             latency_ms, finish_reason, error_message, role,
-	             messages, result, created_at
-	      FROM llm_invocation
-	      WHERE owner_id=$1::uuid`
-	args := []any{ownerID}
-	if ownerType != "" {
-		q += ` AND owner_type=$2`
-		args = append(args, ownerType)
-	}
-	q += ` ORDER BY created_at ASC`
-	rows, err := s.pool.Query(ctx, q, args...)
+func (s *Store) ListByTask(ctx context.Context, taskID string) ([]Invocation, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT id, hunter_id, task_id::text,
+		       provider, model,
+		       in_tokens, out_tokens, cached_tokens,
+		       latency_ms, finish_reason, error_message, role,
+		       messages, result, created_at
+		FROM llm_invocation
+		WHERE task_id=$1::uuid
+		ORDER BY created_at ASC`, taskID)
 	if err != nil {
-		return nil, fmt.Errorf("list llm_invocation by owner: %w", err)
+		return nil, fmt.Errorf("list llm_invocation by task: %w", err)
 	}
 	defer rows.Close()
 
 	var out []Invocation
 	for rows.Next() {
 		var v Invocation
-		var hunterID, ot, oid *string
+		var hunterID, tid *string
 		if err := rows.Scan(
-			&v.ID, &hunterID, &ot, &oid,
+			&v.ID, &hunterID, &tid,
 			&v.Provider, &v.Model,
 			&v.InTokens, &v.OutTokens, &v.CachedTokens,
 			&v.LatencyMs, &v.FinishReason, &v.Error, &v.Role,
@@ -244,8 +238,7 @@ func (s *Store) ListByOwner(ctx context.Context, ownerType, ownerID string) ([]I
 			return nil, fmt.Errorf("scan llm_invocation: %w", err)
 		}
 		v.HunterID = hunterID
-		v.OwnerType = ot
-		v.OwnerID = oid
+		v.TaskID = tid
 		out = append(out, v)
 	}
 	if err := rows.Err(); err != nil {
@@ -265,19 +258,19 @@ type Aggregate struct {
 	LatencyMs    int64 // LLM 调用耗时合计（ms）
 }
 
-// AggregateByOwner 合计某 owner 的全部 llm_invocation 用量。owner 无记录时返回零值。
+// AggregateByTask 合计某 task 的全部 llm_invocation 用量。task 无记录时返回零值。
 // 调用前应先 Flush() 确保异步 buffer 已落库。
-func (s *Store) AggregateByOwner(ctx context.Context, ownerID string) (Aggregate, error) {
+func (s *Store) AggregateByTask(ctx context.Context, taskID string) (Aggregate, error) {
 	var a Aggregate
 	err := s.pool.QueryRow(ctx, `
 		SELECT COUNT(*),
 		       COALESCE(SUM(in_tokens),0), COALESCE(SUM(out_tokens),0),
 		       COALESCE(SUM(cached_tokens),0),
 		       COALESCE(SUM(latency_ms),0)
-		FROM llm_invocation WHERE owner_id=$1::uuid`, ownerID).
+		FROM llm_invocation WHERE task_id=$1::uuid`, taskID).
 		Scan(&a.Calls, &a.InTokens, &a.OutTokens, &a.CachedTokens, &a.LatencyMs)
 	if err != nil {
-		return Aggregate{}, fmt.Errorf("aggregate llm_invocation by owner %s: %w", ownerID, err)
+		return Aggregate{}, fmt.Errorf("aggregate llm_invocation by task %s: %w", taskID, err)
 	}
 	return a, nil
 }

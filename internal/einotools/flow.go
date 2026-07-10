@@ -14,14 +14,7 @@ import (
 
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/components/tool/utils"
-
-	"github.com/V3teran/liusha/internal/flow"
 )
-
-// FlowReader 是 replay_flow 依赖的最小读接口（*flow.Store 自动满足）。
-type FlowReader interface {
-	GetByID(ctx context.Context, id int64) (flow.Flow, error)
-}
 
 const replayRespLimit = 256 * 1024 // 截断响应给 LLM 的上限（256 KiB）
 const replayTimeout = 30 * time.Second
@@ -43,29 +36,27 @@ type replayFlowArgs struct {
 	Modifications replayMods `json:"modifications,omitempty" jsonschema:"description=可选修改；未指定字段全继承原请求"`
 }
 
-// BuildReplayFlow 造原生 eino replay_flow 工具。owner 闭包捕获（防跨 owner replay）。
+// BuildReplayFlow 造原生 eino replay_flow 工具。流量源已限定 task 范围（active=agent_traffic /
+// passive=proxy_traffic，见 flowsource.go），跨 task 访问被适配器挡下。
 //
 // v34+：直连目标（撤回 internal proxy）。重发流量不入字典——核心价值在 modifications
 // 改一两个字段 + 其余全继承（cookie/CSRF/auth/form 字段），比手写 curl 准 100x。
-func BuildReplayFlow(store FlowReader, ownerType, ownerID, hunterID string) (tool.BaseTool, error) {
+func BuildReplayFlow(src FlowReader) (tool.BaseTool, error) {
 	return utils.InferTool(
 		"replay_flow",
 		"重发历史 HTTP 流量；modifications 可字段级改 header/query/body 单个字段或整体替换，未指定的全继承原请求（cookie/CSRF/auth/form 字段）。"+
 			"换身份值测越权、删/换凭证测未授权、改业务字段做 IDOR/fuzz——比手写 curl 准 100 倍，session 上下文自动保留。返回新响应详情。",
 		func(ctx context.Context, in replayFlowArgs) (map[string]any, error) {
-			if ownerID == "" {
-				return nil, fmt.Errorf("replay_flow: owner 注入缺失")
-			}
 			if in.ID <= 0 {
 				return nil, fmt.Errorf("id 必填且 > 0")
 			}
 
-			f, err := store.GetByID(ctx, in.ID)
+			f, ok, err := src.GetInScope(ctx, in.ID)
 			if err != nil {
-				return nil, fmt.Errorf("flow %d 不存在或读失败: %w", in.ID, err)
+				return nil, fmt.Errorf("flow %d 读失败: %w", in.ID, err)
 			}
-			if f.OwnerID != ownerID {
-				return nil, fmt.Errorf("flow %d 不属于当前 owner（拒绝跨 owner replay）", in.ID)
+			if !ok {
+				return nil, fmt.Errorf("flow %d 不存在或不属于当前 task（拒绝跨 task replay）", in.ID)
 			}
 
 			method := f.Method

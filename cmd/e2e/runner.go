@@ -14,6 +14,7 @@ import (
 
 	"github.com/V3teran/liusha/internal/finding"
 	"github.com/V3teran/liusha/internal/hunter"
+	"github.com/V3teran/liusha/internal/task"
 )
 
 // profilePlan 是单个 profile 的运行计划：解析后的 host + 加载好的样本。
@@ -71,11 +72,11 @@ func runActiveProfiles(ctx context.Context, profs []activeProfile, apiBase, apiK
 		var lastFindings []finding.VulnFinding
 		var lastTotal, lastUnfinished int
 		for time.Now().Before(deadline) {
-			runs, runErr := agentRunStore.ListByOwner(ctx, "active_scan", eid, 100)
+			runs, runErr := agentRunStore.ListByTask(ctx, eid, 100)
 			unfinished, totalRuns := 0, 0
 			if runErr != nil {
 				// 之前 silent swallow：导致 e2e 看不到 orchestrator 但不知为何。必须 log 出来。
-				logger.Warn().Err(runErr).Str("eid", eid).Msg("ListByOwner(hunter) failed — totalRuns 强制 0 是误报")
+				logger.Warn().Err(runErr).Str("eid", eid).Msg("ListByTask(hunter) failed — totalRuns 强制 0 是误报")
 			} else {
 				// active 每次都新建 session——eid 已唯一定位本次 run 全集（orchestrator + spawn 的 exploitations）。
 				// 不再用 startedAt 时间窗过滤 agent_run：dispatched 返回前 server 端 PG now()
@@ -88,10 +89,10 @@ func runActiveProfiles(ctx context.Context, profs []activeProfile, apiBase, apiK
 					}
 				}
 			}
-			all, findErr := store.ListByOwner(ctx, "active_scan", eid)
+			all, findErr := store.ListByTask(ctx, eid)
 			var matched []finding.VulnFinding
 			if findErr != nil {
-				logger.Warn().Err(findErr).Str("eid", eid).Msg("ListByOwner(finding) failed — findings 强制 0 是误报")
+				logger.Warn().Err(findErr).Str("eid", eid).Msg("ListByTask(finding) failed — findings 强制 0 是误报")
 			} else {
 				matched = filterAfter(all, startedAt)
 			}
@@ -140,6 +141,26 @@ func runActiveProfiles(ctx context.Context, profs []activeProfile, apiBase, apiK
 	return nil
 }
 
+// discoverPassiveTasks 列最近的 passive task，筛出 target_host ∈ hosts 且 created_at > baseline 的。
+// 聚合器为目标 host 新建的 task 即由此被 e2e 发现（同 host 多批 → 多 task 全收）。
+// limit 取 512 足够覆盖 e2e 场景（单次跑至多十几个 host × 数批）。
+func discoverPassiveTasks(ctx context.Context, ts *task.Store, hosts map[string]struct{}, baseline time.Time) ([]string, error) {
+	tasks, err := ts.List(ctx, task.ModePassive, 512)
+	if err != nil {
+		return nil, err
+	}
+	var ids []string
+	for _, t := range tasks {
+		if !t.CreatedAt.After(baseline) {
+			continue
+		}
+		if _, ok := hosts[t.TargetHost]; ok {
+			ids = append(ids, t.ID)
+		}
+	}
+	return ids, nil
+}
+
 // buildPlans 为每个被选 profile 加载样本并解析其 host（仅 e2e 内部用，详见 resolveSampleHost）。
 func buildPlans(selected []profile, vulnBase string) ([]profilePlan, error) {
 	out := make([]profilePlan, 0, len(selected))
@@ -184,43 +205,33 @@ func enrollAllCreds(apiBase, apiKey, vulnBase string) error {
 //   - 失去 per-profile PASS 粒度，整体 PASS/FAIL；finding 列表按 severity+summary
 //     输出方便人工归属判断
 //
-// 多 host 场景：每个独特 host 一个 owner (passive_session)，统计跨所有 owner 聚合。
-// 同 host 多 profile（典型如 DVWA 跑 path+upload+sqli）共享同一 owner。
+// v2 流量驱动模型（合表后）：passive task 不再预建，而是流量经代理落 proxy_traffic 后，
+// ingestor 聚合器按 host 攒批（aggregate_batch_size 条 / window 秒）自动建 passive task。
+// 故 e2e 先打流量、再按 host 从 task store 发现聚合器新建的 passive task，按 task_id 聚合轮询。
+// 注：e2e 环境应把 aggregate_batch_size 调低（≤ 单 host 样本数），否则小样本攒不满一批不触发。
 //
 // 防假阳性两道防线（沿用旧设计）：
-//  1. unifiedStartedAt 基线：finding/agent_run 都按 created_at > 基线过滤；
-//  2. observedAtLeastOneRun 哨兵：必须先观测到 total_runs > 0，
+//  1. unifiedStartedAt 基线：task/finding/agent_run 都按 created_at > 基线过滤；
+//  2. observedAtLeastOneRun 哨兵：必须先发现 task 且观测到 total_runs > 0，
 //     再看 unfinished_runs==0 才允许判 PASS——防 ingestor 异步未落库的假阳性。
 func runAllUnified(ctx context.Context, plans []profilePlan, proxyHostPort, apiBase, apiKey string, pool *pgxpool.Pool, logger zerolog.Logger) error {
-	// 1. 为每个独特 host 建/复用 session
-	eidByHost := map[string]string{}
-	for _, plan := range plans {
-		if _, ok := eidByHost[plan.host]; ok {
-			continue
-		}
-		eid, err := createPassiveScan(apiBase, apiKey, plan.host)
-		if err != nil {
-			return fmt.Errorf("create session for host %s: %w", plan.host, err)
-		}
-		eidByHost[plan.host] = eid
-		logger.Info().Str("host", plan.host).Str("owner_id", eid).Msg("session ready")
-	}
-
-	// 2. 统计 sum(minFindings) 与 total sample 数
+	// 1. 统计 sum(minFindings)、total sample 数、去重后的目标 host 集合
 	totalMinFindings := 0
 	totalSamples := 0
+	hosts := map[string]struct{}{}
 	for _, plan := range plans {
 		totalMinFindings += plan.prof.minFindings
 		totalSamples += len(plan.samples)
+		hosts[plan.host] = struct{}{}
 	}
 
 	unifiedStartedAt := time.Now()
 
-	// 3. 并发 dispatch 所有 profile 的所有 sample
+	// 2. 并发 dispatch 所有 profile 的所有 sample（流量经代理 → proxy_traffic → 聚合器建 task）
 	logger.Info().
 		Int("profiles", len(plans)).
 		Int("samples", totalSamples).
-		Int("hosts", len(eidByHost)).
+		Int("hosts", len(hosts)).
 		Msg("dispatching all samples concurrently")
 	var wg sync.WaitGroup
 	var dispatchErr int32
@@ -242,37 +253,38 @@ func runAllUnified(ctx context.Context, plans []profilePlan, proxyHostPort, apiB
 	if atomic.LoadInt32(&dispatchErr) > 0 {
 		return fmt.Errorf("dispatch failed: %d/%d", atomic.LoadInt32(&dispatchErr), totalSamples)
 	}
-	logger.Info().Msg("all samples dispatched; unified poll starting")
+	logger.Info().Msg("all samples dispatched; 等待聚合器建 passive task + unified poll starting")
 
-	// 4. 统一 poll：等所有 host 的 agent_run done + 总 finding 数满足
+	// 3. 统一 poll：发现聚合器为各 host 新建的 passive task → 聚合其 agent_run done + finding 数
 	store := finding.NewStore(pool)
 	agentRunStore := hunter.NewStore(pool)
+	taskStore := task.NewStore(pool)
 	// 多 profile 并发跑，deadline 给单 profile 上限 + 适度放大兜底大 LLM 抖动
 	deadline := time.Now().Add(pollDeadline() + 10*time.Minute)
 	observed := false
 	var lastTotalFindings, lastUnfinished, lastTotalRuns int
 	var lastFindings []finding.VulnFinding
 	for time.Now().Before(deadline) {
+		// 发现基线后聚合器为目标 host 新建的 passive task（同 host 可多批 → 多 task，全收）。
+		taskIDs, discErr := discoverPassiveTasks(ctx, taskStore, hosts, unifiedStartedAt)
+		if discErr != nil {
+			logger.Warn().Err(discErr).Msg("发现 passive task 失败 — 本轮按 0 task 计（等下轮重试）")
+		}
+
 		totalRuns, unfinished, totalFindings := 0, 0, 0
 		var allFindings []finding.VulnFinding
-		for _, eid := range eidByHost {
-			// passive 模式：hunter / finding 的 owner_type 是 passive_session（v1.1 per-host 流量驱动模型）。
-			// 历史 active_scan 字面量是 v1.1 重构遗漏——passive runner 一定要查 passive_session。
-			if runs, runErr := agentRunStore.ListByOwner(ctx, "passive_session", eid, 100); runErr == nil {
+		for _, tid := range taskIDs {
+			if runs, runErr := agentRunStore.ListByTask(ctx, tid, 100); runErr == nil {
 				for _, r := range runs {
-					if !r.CreatedAt.After(unifiedStartedAt) {
-						continue
-					}
 					totalRuns++
 					if r.Status == "pending" || r.Status == "running" {
 						unfinished++
 					}
 				}
 			}
-			if all, findErr := store.ListByOwner(ctx, "passive_session", eid); findErr == nil {
-				matched := filterAfter(all, unifiedStartedAt)
-				totalFindings += len(matched)
-				allFindings = append(allFindings, matched...)
+			if all, findErr := store.ListByTask(ctx, tid); findErr == nil {
+				totalFindings += len(all)
+				allFindings = append(allFindings, all...)
 			}
 		}
 		if totalRuns > 0 {
@@ -284,6 +296,7 @@ func runAllUnified(ctx context.Context, plans []profilePlan, proxyHostPort, apiB
 		lastFindings = allFindings
 
 		logger.Info().
+			Int("passive_tasks", len(taskIDs)).
 			Int("findings", totalFindings).
 			Int("min_required", totalMinFindings).
 			Int("unfinished_runs", unfinished).
@@ -324,9 +337,9 @@ func runAllUnified(ctx context.Context, plans []profilePlan, proxyHostPort, apiB
 	return fmt.Errorf("unified timeout: findings=%d/%d, unfinished_runs=%d, total_runs=%d", lastTotalFindings, totalMinFindings, lastUnfinished, lastTotalRuns)
 }
 
-// resolveSampleHost 决定本 profile 样本流量所属的 host（用于建凭证 / 给 hunter
-// task 注入）。owner (passive_session) 不 per-host，此 host 仅供 e2e 内部建凭证、校验
-// finding.host 对得上用。
+// resolveSampleHost 决定本 profile 样本流量所属的 host（用于建凭证 + 发现聚合器
+// 为该 host 新建的 passive task）。此 host 供 e2e 内部建凭证、按 target_host 匹配
+// 聚合器生成的 task、以及校验 finding.host 对得上用。
 //
 //	优先级：env LIUSHA_E2E_SCOPE_HOST > 首条样本的 Host: 头去端口 > vulnBase URL 的 host
 //

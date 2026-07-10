@@ -59,15 +59,17 @@ echo ""
 echo "===== 2/6 清空 db / redis ====="
 
 # postgres：业务表 TRUNCATE（schema 保留）。
-# 错误**不再静默**——TRUNCATE 任一表失败会立即 exit，避免旧 session / finding 残留。
+# 错误**不再静默**——TRUNCATE 任一表失败会立即 exit，避免旧 task / finding 残留。
 # 表名演化：0043 agent_run→agent_task，0054 agent_task→hunter；0046 加 tool_invocation，0047 加 audit_log；
-# 0056 加 endpoint，0064 退役（攻击面改从 http_flow 派生 sitemap）；0059 删 finding_relation（→ finding.depends_on uuid[] 替代）。
+# 0056 加 endpoint，0064 退役（攻击面改从流量派生 sitemap）；0059 删 finding_relation（→ finding.depends_on uuid[] 替代）；
+# 0073-0077：active_scan+passive_session 合并为 task；http_flow 拆 proxy_traffic+agent_traffic；conversation.scan_id→task_id。
+# task 放最后——CASCADE 会连带清 hunter/finding/... 的 task_id 引用行，但显式全列更清晰。
 if ! docker exec "$PG_CONTAINER" psql -U liusha -d liusha -c \
-    "TRUNCATE TABLE finding, lesson, llm_invocation, tool_invocation, audit_log, hunter, http_flow, passive_session, active_scan CASCADE;"; then
+    "TRUNCATE TABLE finding, lesson, llm_invocation, tool_invocation, audit_log, hunter, proxy_traffic, agent_traffic, conversation, task CASCADE;"; then
   echo "  ✗ postgres TRUNCATE 失败 — 看上面 psql 错误（常见原因：容器不在 / schema 不一致 / migrate 未跑）"
   exit 1
 fi
-echo "  ✓ postgres 10 张业务表已 truncate"
+echo "  ✓ postgres 业务表已 truncate"
 
 # session-store/<owner_id>/ 是 ResultCompress middleware 的落盘目录；
 # truncate 后 DB 中 session 已不存在，对应子目录变孤儿，清掉避免无限堆积。
@@ -136,9 +138,9 @@ while [ $SECONDS -lt $deadline ]; do
     echo "  ✓ 4 service 全部 healthy"
     echo ""
     echo "  📊 前端：liusha-ui 独立仓 → pnpm dev（/api 代理到本 api，X-API-Key=${LIUSHA_API_KEY}）"
-    echo "     owner_id 跑完 e2e 后从 finding 表查："
+    echo "     task_id 跑完 e2e 后从 finding 表查："
     echo "       docker exec ${PG_CONTAINER} psql -U liusha -d liusha -c \\"
-    echo "         \"SELECT DISTINCT owner_id FROM finding ORDER BY owner_id;\""
+    echo "         \"SELECT DISTINCT task_id FROM finding ORDER BY task_id;\""
     break
   fi
   sleep 2
@@ -167,9 +169,9 @@ if [ $RC -eq 0 ]; then
   echo ""
   echo "📊 看图："
   echo "  前端：liusha-ui 独立仓 → pnpm dev（/api 代理到本 api）"
-  echo "  owner_id 列表："
+  echo "  task 列表："
   echo "    docker exec ${PG_CONTAINER} psql -U liusha -d liusha -c \\"
-  echo "      \"SELECT id, host, status, expires_at FROM passive_session ORDER BY created_at DESC;\""
+  echo "      \"SELECT id, mode, target_host, brief, status FROM task ORDER BY created_at DESC;\""
   echo ""
   echo "  组合漏洞 chains（depends_on uuid[] 数组）："
   echo "    docker exec ${PG_CONTAINER} psql -U liusha -d liusha -c \\"

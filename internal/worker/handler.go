@@ -16,8 +16,7 @@ import (
 // 字段保留向后兼容，入队调用方均不填。
 type Payload struct {
 	HunterID       string `json:"hunter_id"`
-	OwnerType      string `json:"owner_type"` // 'passive_session' / 'active_scan'
-	OwnerID        string `json:"owner_id"`   // passive_session.id / active_scan.id
+	TaskID         string `json:"task_id"` // 所属 task.id
 	OrchestratorID string `json:"orchestrator_id,omitempty"`
 	// ConversationID 关联本任务所属对话（阶段B 对话发起时填）；asynq 自动入口为空——
 	// 空则 scanner 不发过程事件、不落 conversation message（向后兼容纯后台扫描）。

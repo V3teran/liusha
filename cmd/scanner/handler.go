@@ -9,7 +9,6 @@ import (
 	"github.com/hibiken/asynq"
 	"github.com/rs/zerolog"
 
-	"github.com/V3teran/liusha/internal/activescan"
 	hunterbuilder "github.com/V3teran/liusha/internal/builder/hunter"
 	"github.com/V3teran/liusha/internal/config"
 	"github.com/V3teran/liusha/internal/conversation"
@@ -20,26 +19,26 @@ import (
 	"github.com/V3teran/liusha/internal/hunter"
 	"github.com/V3teran/liusha/internal/lesson"
 	"github.com/V3teran/liusha/internal/llminvocation"
-	"github.com/V3teran/liusha/internal/passivesession"
 	"github.com/V3teran/liusha/internal/sandbox"
 	"github.com/V3teran/liusha/internal/scanstream"
 	"github.com/V3teran/liusha/internal/scenario"
+	"github.com/V3teran/liusha/internal/task"
 	"github.com/V3teran/liusha/internal/worker"
 )
 
 // handler 持有所有跨任务共享依赖。
 type handler struct {
-	tasks           *hunter.Store
-	passiveSessions *passivesession.Store
-	activeScans     *activescan.Store
-	findings        *finding.Store
-	lessons         *lesson.Store
-	flows           *flow.Store
-	calls           *llminvocation.Store
-	cfg             config.Config
-	scannerCfg      config.ScannerConfig
-	launcher        sandbox.Launcher
-	logger          zerolog.Logger
+	hunters    *hunter.Store
+	tasks      *task.Store
+	findings   *finding.Store
+	lessons    *lesson.Store
+	proxyFlows *flow.ProxyStore
+	agentFlows *flow.AgentStore
+	calls      *llminvocation.Store
+	cfg        config.Config
+	scannerCfg config.ScannerConfig
+	launcher   sandbox.Launcher
+	logger     zerolog.Logger
 
 	// eino agent：passive + active 路径走 eino ChatModelAgent（唯一路径，react 退路已删）。
 	//   - einoFactory：按 role 产独立 eino ChatModel
@@ -80,7 +79,7 @@ func terminalCtx(ctx context.Context) (context.Context, context.CancelFunc) {
 func (h handler) failTask(ctx context.Context, hunterID string, err error) error {
 	writeCtx, cancel := terminalCtx(ctx)
 	defer cancel()
-	if setErr := h.tasks.SetError(writeCtx, hunterID, err.Error()); setErr != nil {
+	if setErr := h.hunters.SetError(writeCtx, hunterID, err.Error()); setErr != nil {
 		h.logger.Warn().Err(setErr).Str("hunter_id", hunterID).
 			Msg("SetError 失败（task 留在 running，原始错误已透传给 caller）")
 	}
@@ -92,7 +91,7 @@ func (h handler) failTask(ctx context.Context, hunterID string, err error) error
 func (h handler) abortTask(ctx context.Context, hunterID, reason string) error {
 	writeCtx, cancel := terminalCtx(ctx)
 	defer cancel()
-	if setErr := h.tasks.SetAborted(writeCtx, hunterID); setErr != nil {
+	if setErr := h.hunters.SetAborted(writeCtx, hunterID); setErr != nil {
 		h.logger.Warn().Err(setErr).Str("hunter_id", hunterID).Str("reason", reason).
 			Msg("SetAborted 失败（task 留在 running）")
 	}
@@ -108,8 +107,7 @@ func (h handler) handle(ctx context.Context, p worker.Payload) (retErr error) {
 	taskStart := time.Now()
 	h.logger.Info().
 		Str("hunter_id", p.HunterID).
-		Str("owner_type", p.OwnerType).
-		Str("owner_id", p.OwnerID).
+		Str("task_id", p.TaskID).
 		Str("role", string(p.Role)).
 		Msg("asynq task ▶ enter")
 	defer func() {
@@ -118,7 +116,7 @@ func (h handler) handle(ctx context.Context, p worker.Payload) (retErr error) {
 			ev = h.logger.Warn().Err(retErr)
 		}
 		ev.Str("hunter_id", p.HunterID).
-			Str("owner_id", p.OwnerID).
+			Str("task_id", p.TaskID).
 			Dur("duration", time.Since(taskStart)).
 			Msg("asynq task ◀ exit")
 	}()
@@ -126,7 +124,7 @@ func (h handler) handle(ctx context.Context, p worker.Payload) (retErr error) {
 	// 入口检查：asynq 重试场景（PG status 已非 pending）→ SkipRetry。
 	// 防 orchestrator被重试时新 Registry 空 → PreDoneCheck 永放行 → 旧 PG exploitation 僵尸 + 矛盾态。
 	// GetByID 错误（PG 短时不可用等）不阻塞——让 SetRunning 走正常错误路径。
-	if run, getErr := h.tasks.GetByID(ctx, p.HunterID); getErr == nil && run.Status != hunter.StatusPending {
+	if run, getErr := h.hunters.GetByID(ctx, p.HunterID); getErr == nil && run.Status != hunter.StatusPending {
 		h.logger.Warn().
 			Str("hunter_id", p.HunterID).
 			Str("status", string(run.Status)).
@@ -134,7 +132,7 @@ func (h handler) handle(ctx context.Context, p worker.Payload) (retErr error) {
 		return asynq.SkipRetry
 	}
 
-	if err := h.tasks.SetRunning(ctx, p.HunterID); err != nil {
+	if err := h.hunters.SetRunning(ctx, p.HunterID); err != nil {
 		return err
 	}
 

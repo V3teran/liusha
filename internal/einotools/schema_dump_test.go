@@ -9,7 +9,7 @@ import (
 // 全标 required，撑大 required 数组触发 mimo "non-unique elements" 400。可选字段必须带 ,omitempty。
 // 钉死 write_finding 的 required 只含真正必填的 summary，防回退。
 func TestWriteFindingRequiredNotInflated(t *testing.T) {
-	tl, err := BuildWriteFinding(nil, "o", "i", "h", "host", 0)
+	tl, err := BuildWriteFinding(nil, "task-1", "hunter-1", "host", 0)
 	if err != nil {
 		t.Fatalf("build: %v", err)
 	}

@@ -18,32 +18,28 @@ type CredentialsAPI interface {
 	Delete(ctx context.Context, host string) error
 }
 
-// OwnersAPI 是 handlers 对  owner store 的窄接口。
-// EnsurePassiveSession：按 host 找/建 active passive_session（v1.1 per-host 单 active）。
-//   - host 非空 → 调 passivesession.Store.LookupOrCreate 返该 host 的 owner_id
-//   - host 空   → 返空 id（向后兼容旧 mitmproxy 预热路径"代理就绪信号"）
+// OwnersAPI 是 handlers 对 task store 的窄接口。
 //
-// Abort：把  owner 置为 aborted。
-// List：按 created_at DESC 列最近 N 个；前端下拉用。
+// 合表后 owner 概念坍缩为 task：
+//   - Abort：把 task 置为 aborted。
+//   - List：按 created_at DESC 列最近 N 个 task（active/passive 混列）；前端下拉用。
+//
+// 不再有 EnsurePassiveSession——passive task 由 ingestor 聚合器按流量窗口生成，
+// 不走 API 预热路径。
 type OwnersAPI interface {
 	Abort(ctx context.Context, id string) error
-	EnsurePassiveSession(ctx context.Context, host string) (string, error)
 	List(ctx context.Context, limit int) ([]OwnerSummary, error)
 }
 
-// OwnerSummary 是 List 返回行——只暴露前端需要的字段，
-// 不直接返回 passive_session/active_scan 完整结构（避免泄露大字段 + 减小响应体）。
+// OwnerSummary 是 List 返回行——只暴露前端需要的字段，不直接返回 task 完整结构。
 type OwnerSummary struct {
 	ID           string `json:"id"`
-	Scope        string `json:"scope"` // jsonb raw（如 {"any":true} / {"hosts":[...]}）
+	Scope        string `json:"scope"` // jsonb raw（active={"brief":...} / passive={"host":...}）
 	Status       string `json:"status"`
-	Mode         string `json:"mode"`
-	CreatedAt    string `json:"created_at"`           // RFC3339
-	ExpiresAt    string `json:"expires_at,omitempty"` // RFC3339 proxy session 必填
-	EndedAt      string `json:"ended_at,omitempty"`   // RFC3339（可空）
+	Mode         string `json:"mode"` // "active" / "passive"
+	CreatedAt    string `json:"created_at"`         // RFC3339
+	EndedAt      string `json:"ended_at,omitempty"` // RFC3339（可空）
 	ErrorMessage string `json:"error_message,omitempty"`
-	// ConversationID 关联本会话的对话流（阶段2，passive 会话用）；前端据此打开对话流插话。空=未绑。
-	ConversationID string `json:"conversation_id,omitempty"`
 }
 
 // BatchSaveRequest 是 POST /credential/batch 请求体。
@@ -102,29 +98,8 @@ func deleteCredentialHandler(api CredentialsAPI) gin.HandlerFunc {
 	}
 }
 
-// passiveScanHandler 处理 POST /scan/passive：按 host 找/建 passive_session。
-// body: {"host":"example.com:8080"}（host 可空，空则返空 id 作"代理就绪"信号）
-// 幂等：v1.1 per-host 单 active 模型，同 host 重复调用返同一 owner_id；过期由 sweeper 轮转。
-//
-// 与 activeScanHandler 路径对仗：/scan/passive 开"被动接流量入口"，/scan/active 触发"主动扫描"。
-func passiveScanHandler(api OwnersAPI) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		var body struct {
-			Host string `json:"host"`
-		}
-		// 容错：body 空/解析失败都不报错（向后兼容旧 client）
-		_ = c.ShouldBindJSON(&body)
-		id, err := api.EnsurePassiveSession(c.Request.Context(), body.Host)
-		if err != nil {
-			c.JSON(500, gin.H{"error": err.Error()})
-			return
-		}
-		c.JSON(200, gin.H{"owner_id": id})
-	}
-}
-
 // listSessionsHandler 处理 GET /session?limit=<optional>。
-// 返回最近 N 个  owner 摘要，前端用作下拉选择。
+// 返回最近 N 个 task 摘要，前端用作下拉选择。
 // 按 host 查找请改走 finding/flow 子资源接口。
 func listSessionsHandler(api OwnersAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {

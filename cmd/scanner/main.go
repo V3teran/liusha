@@ -25,7 +25,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/V3teran/liusha/internal/activescan"
 	"github.com/V3teran/liusha/internal/builder/hunter"
 	"github.com/V3teran/liusha/internal/config"
 	"github.com/V3teran/liusha/internal/conversation"
@@ -41,11 +40,11 @@ import (
 	"github.com/V3teran/liusha/internal/lesson"
 	"github.com/V3teran/liusha/internal/llminvocation"
 	"github.com/V3teran/liusha/internal/logx"
-	"github.com/V3teran/liusha/internal/passivesession"
 	"github.com/V3teran/liusha/internal/sandbox"
 	"github.com/V3teran/liusha/internal/scanstream"
 	"github.com/V3teran/liusha/internal/scenario"
 	"github.com/V3teran/liusha/internal/skill"
+	"github.com/V3teran/liusha/internal/task"
 	"github.com/V3teran/liusha/internal/toolinvocation"
 	"github.com/V3teran/liusha/internal/tools/manifest"
 	"github.com/V3teran/liusha/internal/worker"
@@ -87,17 +86,17 @@ func main() {
 	defer rdb.Close()
 
 	// Stores
-	passSess := passivesession.NewStore(pool)      // passive session store
-	actScan := activescan.NewStore(pool)           // active scan store
+	taskStore := task.NewStore(pool)               // 统一 task store（合并 active_scan + passive_session）
 	convStore := conversation.NewStore(pool)       // 对话/消息 store（阶段B 过程事件落库）
 	eventPublisher := scanstream.NewPublisher(rdb) // 过程事件实时广播（阶段B redis 管道）
-	tasks := hunterstore.NewStore(pool)
+	hunters := hunterstore.NewStore(pool)
 	finds := finding.NewStore(pool)
 	toolCalls := toolinvocation.NewStore(pool)
 	calls := llminvocation.NewStoreWithConfig(pool, cfg.LLM.Invocation)
 	lessons := lesson.NewStore(pool)
 	defer func() { _ = calls.Close() }()
-	flows := flow.NewStore(pool, scannerCfg.FlowMaxRequestBody, scannerCfg.FlowMaxResponseBody)
+	proxyFlows := flow.NewProxyStore(pool) // 代理捕获流量（passive，按 host）
+	agentFlows := flow.NewAgentStore(pool) // agent 自产流量（active，按 task）
 	creds := credential.NewRedis(rdb, cfg.Credential.RedisKeyPrefix)
 
 	// hunter system prompt 已编译期 embed（internal/builder/hunter/system_prompt.md），
@@ -245,24 +244,24 @@ func main() {
 
 	// handler
 	h := handler{
-		tasks:           tasks,
-		passiveSessions: passSess,
-		activeScans:     actScan,
-		findings:        finds,
-		lessons:         lessons,
-		flows:           flows,
-		calls:           calls,
-		cfg:             cfg,
-		scannerCfg:      scannerCfg,
-		launcher:        launcher,
-		logger:          logger,
-		einoFactory:     einollm.New(cfg),
-		hunterDeps:      hunterDeps,
-		roles:           roles,
-		passiveRole:     passiveRole,
-		conversations:   convStore,
-		eventPublisher:  eventPublisher,
-		scenarioRoles:   scenarioRoles,
+		hunters:        hunters,
+		tasks:          taskStore,
+		findings:       finds,
+		lessons:        lessons,
+		proxyFlows:     proxyFlows,
+		agentFlows:     agentFlows,
+		calls:          calls,
+		cfg:            cfg,
+		scannerCfg:     scannerCfg,
+		launcher:       launcher,
+		logger:         logger,
+		einoFactory:    einollm.New(cfg),
+		hunterDeps:     hunterDeps,
+		roles:          roles,
+		passiveRole:    passiveRole,
+		conversations:  convStore,
+		eventPublisher: eventPublisher,
+		scenarioRoles:  scenarioRoles,
 	}
 
 	mux := worker.NewMux()
@@ -287,11 +286,12 @@ func main() {
 		Redis:         rdb,
 		Cfg:           cfg.Ingestor,
 		Stream:        cfg.Proxy.StreamName,
-		Passive:       passSess,
-		PassiveTTL:    time.Duration(cfg.Session.MaxAgeHours) * time.Hour,
-		Conversations: convStore, // 阶段2：passive 首流量建对话流
-		Flows:         flows,
-		Tasks:         tasks,
+		Tenant:        cfg.Credential.RedisKeyPrefix,
+		Tasks:         taskStore,
+		ProxyFlows:    proxyFlows,
+		AgentFlows:    agentFlows,
+		Hunters:       hunters,
+		Conversations: convStore, // passive 聚合建 task 后建对话流
 		Enqueuer:      wc,
 		Logger:        logger,
 	})
@@ -304,38 +304,20 @@ func main() {
 		}
 	}()
 
-	// passive_session sweeper goroutine：与「懒轮换」（流量进来时 LookupOrCreate 检查 host
-	// 已有 active）互补——无流量场景下也能保证「TTL 一到必关」，避免 PG 堆积陈旧 active 行 +
-	// 前端看僵尸 session。
-	go func() {
-		interval := time.Duration(cfg.Session.SweeperIntervalSeconds) * time.Second
-		ticker := time.NewTicker(interval)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-flowCtx.Done():
-				return
-			case <-ticker.C:
-				if n, err := passSess.Sweep(flowCtx); err != nil {
-					logger.Warn().Err(err).Msg("passive_session sweep failed")
-				} else if n > 0 {
-					logger.Info().Int("aborted", n).Msg("passive_session sweep aborted expired session")
-				}
-			}
-		}
-	}()
-
-	// scan reaper goroutine（B2 进度探活）：active_scan / passive_session 的 heartbeat_at 由 agent
-	// 每次工具调用驱动续命（见 einoToolSink.heartbeat）+ handler 入口重置一次。scanner 进程崩溃或
-	// 扫描卡死后心跳停摆，reaper 据此把超时孤儿判为 aborted——否则前端永远显示「进行中」。
-	// 与 passive sweeper 互补：sweeper 管 TTL 过期，reaper 管「进程不再举手」。
+	// task reaper goroutine（B2 进度探活）：task.heartbeat_at 由 agent 每次工具调用驱动续命
+	// （见 einoToolSink.heartbeat）+ handler 入口重置一次。scanner 进程崩溃或扫描卡死后心跳停摆，
+	// reaper 据此把超时孤儿判为 aborted——否则前端永远显示「进行中」。
+	//
+	// 合表后 passive_session 的 TTL sweeper 已删（passive task 是有界批分析，跑完即终态，无常驻监控
+	// 会话概念，无 TTL 轮换）。reaper 按 mode 分别判活：active run 内可能跑长工具（sqlmap/nmap）+
+	// 慢 LLM，staleAfter 较长；passive 单批分析轻量，用同一 staleAfter 亦安全（偏保守不冤杀）。
 	//
 	// staleAfter 必须 > 单 run 内两次工具调用之间的最长合法间隔，否则冤杀正在干活的扫描：
-	// 最长间隔 ≈ 一次长工具执行(step_tool_timeout，如 nmap/gobuster) + 决定下一步的 LLM 生成
-	// (step_llm_timeout) + 可能的上下文压缩 LLM(step_llm_timeout) + 缓冲。据此动态推导，不写死。
+	// 最长间隔 ≈ 一次长工具执行(step_tool_timeout) + 决定下一步的 LLM 生成(step_llm_timeout) +
+	// 可能的上下文压缩 LLM(step_llm_timeout) + 缓冲。据此动态推导，不写死。
 	go func() {
 		staleAfter := time.Duration(cfg.Toolruntime.StepToolTimeoutSeconds+2*cfg.Scanner.StepLLMTimeoutSeconds)*time.Second + scanReaperStaleBuffer
-		logger.Info().Dur("stale_after", staleAfter).Dur("interval", scanReaperInterval).Msg("scan reaper started")
+		logger.Info().Dur("stale_after", staleAfter).Dur("interval", scanReaperInterval).Msg("task reaper started")
 		ticker := time.NewTicker(scanReaperInterval)
 		defer ticker.Stop()
 		for {
@@ -343,15 +325,13 @@ func main() {
 			case <-flowCtx.Done():
 				return
 			case <-ticker.C:
-				if n, err := actScan.ReapStale(flowCtx, staleAfter); err != nil {
-					logger.Warn().Err(err).Msg("active_scan reap stale failed")
-				} else if n > 0 {
-					logger.Warn().Int("aborted", n).Dur("stale_after", staleAfter).Msg("active_scan 心跳超时回收（进程崩溃或扫描卡死）")
-				}
-				if n, err := passSess.ReapStale(flowCtx, staleAfter); err != nil {
-					logger.Warn().Err(err).Msg("passive_session reap stale failed")
-				} else if n > 0 {
-					logger.Warn().Int("aborted", n).Dur("stale_after", staleAfter).Msg("passive_session 心跳超时回收（进程崩溃或会话卡死）")
+				for _, mode := range []task.Mode{task.ModeActive, task.ModePassive} {
+					if n, err := taskStore.ReapStale(flowCtx, mode, staleAfter); err != nil {
+						logger.Warn().Err(err).Str("mode", string(mode)).Msg("task reap stale failed")
+					} else if n > 0 {
+						logger.Warn().Int("aborted", n).Str("mode", string(mode)).Dur("stale_after", staleAfter).
+							Msg("task 心跳超时回收（进程崩溃或扫描卡死）")
+					}
 				}
 			}
 		}

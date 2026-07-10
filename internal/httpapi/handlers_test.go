@@ -44,25 +44,11 @@ func (f *fakeCred) Delete(_ context.Context, host string) error {
 // fakeAbort 是 OwnersAPI 的内存实现。
 type fakeAbort struct {
 	aborted []string
-
-	// EnsurePassiveSession 行为控制
-	ensureCalls int   // 调用次数
-	ensureErr   error // 非 nil 时返回错误
 }
 
 func (f *fakeAbort) Abort(_ context.Context, id string) error {
 	f.aborted = append(f.aborted, id)
 	return nil
-}
-
-// EnsurePassiveSession 简单 mock：返回固定 eid，便于断言调用次数。
-// host 参数 mock 忽略——TestPassiveScan_* 三测的 fake 行为不依赖 host 差异。
-func (f *fakeAbort) EnsurePassiveSession(_ context.Context, _ string) (string, error) {
-	f.ensureCalls++
-	if f.ensureErr != nil {
-		return "", f.ensureErr
-	}
-	return "eid-passive", nil
 }
 
 // List 简单 mock：返回固定 1 条 stub summary，足以让现有测试通过 typecheck；
@@ -287,81 +273,9 @@ func TestSessionAbort_RequiresAuth(t *testing.T) {
 	}
 }
 
-// TestPassiveScan_Created：POST /scan/passive 正常路径返回 owner_id。
-// 请求体为空——passive session 不 per-host。
-func TestPassiveScan_Created(t *testing.T) {
-	fa := &fakeAbort{}
-	srv := newTestServer(t, Deps{Owners: fa})
-	defer srv.Close()
-
-	req, _ := http.NewRequest("POST", srv.URL+"/scan/passive", bytes.NewReader([]byte("{}")))
-	req.Header.Set("X-API-Key", "k")
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatalf("do: %v", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != 200 {
-		b, _ := io.ReadAll(resp.Body)
-		t.Fatalf("status=%d body=%s", resp.StatusCode, string(b))
-	}
-	var out struct {
-		OwnerID string `json:"owner_id"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-	if out.OwnerID != "eid-passive" {
-		t.Fatalf("owner_id=%q", out.OwnerID)
-	}
-	if fa.ensureCalls != 1 {
-		t.Fatalf("ensureCalls=%d, want 1", fa.ensureCalls)
-	}
-}
-
-// TestPassiveScan_RequiresAuth：缺 X-API-Key 应返回 401 且不调底层。
-func TestPassiveScan_RequiresAuth(t *testing.T) {
-	fa := &fakeAbort{}
-	srv := newTestServer(t, Deps{Owners: fa})
-	defer srv.Close()
-
-	req, _ := http.NewRequest("POST", srv.URL+"/scan/passive", bytes.NewReader([]byte("{}")))
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatalf("do: %v", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != 401 {
-		t.Fatalf("status=%d", resp.StatusCode)
-	}
-	if fa.ensureCalls != 0 {
-		t.Fatalf("should not have called EnsurePassiveSession: ensureCalls=%d", fa.ensureCalls)
-	}
-}
-
-// TestPassiveScan_LookupError：底层报错应返回 500。
-func TestPassiveScan_LookupError(t *testing.T) {
-	fa := &fakeAbort{ensureErr: errors.New("db boom")}
-	srv := newTestServer(t, Deps{Owners: fa})
-	defer srv.Close()
-
-	req, _ := http.NewRequest("POST", srv.URL+"/scan/passive", bytes.NewReader([]byte("{}")))
-	req.Header.Set("X-API-Key", "k")
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatalf("do: %v", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != 500 {
-		t.Fatalf("status=%d", resp.StatusCode)
-	}
-}
+// 删除 TestPassiveScan_Created / _RequiresAuth / _LookupError 三个用例：
+// owner 多态坍缩为统一 task 后，OwnersAPI.EnsurePassiveSession 及 POST /scan/passive 路由已移除
+// （passive task 由 ingestor 按流量窗口聚合生成，不再走 API 预热路径）。
 
 // fakeActiveScan 是 ActiveScanAPI 的内存实现：记录最近一次 CreateActiveScan 入参，可注入 err。
 type fakeActiveScan struct {

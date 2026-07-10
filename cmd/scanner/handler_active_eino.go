@@ -7,11 +7,11 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/V3teran/liusha/internal/activescan"
 	hunterbuilder "github.com/V3teran/liusha/internal/builder/hunter"
 	"github.com/V3teran/liusha/internal/einoagent"
 	"github.com/V3teran/liusha/internal/scenario"
 	"github.com/V3teran/liusha/internal/skill"
+	"github.com/V3teran/liusha/internal/task"
 	"github.com/V3teran/liusha/internal/worker"
 )
 
@@ -40,17 +40,17 @@ func (h handler) handleActiveEino(ctx context.Context, p worker.Payload, entrypo
 	}
 
 	tid := p.HunterID
-	ot, oid := p.OwnerType, p.OwnerID
+	taskID := p.TaskID
 	// 入口重置心跳：把 reaper 判活的起点从「API 建行」移到「worker 真正接手」，
-	// 避免 active_scan 在 asynq 队列里排队等待的时间吃掉 staleAfter 预算被冤杀。best-effort。
-	if err := h.activeScans.Heartbeat(ctx, oid); err != nil {
-		h.logger.Warn().Err(err).Str("owner_id", oid).Msg("active_scan 入口心跳失败（不阻塞扫描）")
+	// 避免 task 在 asynq 队列里排队等待的时间吃掉 staleAfter 预算被冤杀。best-effort。
+	if err := h.tasks.Heartbeat(ctx, taskID); err != nil {
+		h.logger.Warn().Err(err).Str("task_id", taskID).Msg("task 入口心跳失败（不阻塞扫描）")
 	}
-	virtualHost := extractHostFromBrief(ep.Brief, oid)
-	if virtualHost != oid {
-		if err := h.activeScans.SetTargetHost(ctx, oid, virtualHost); err != nil {
-			h.logger.Warn().Err(err).Str("owner_id", oid).Str("host", virtualHost).
-				Msg("回填 active_scan.target_host 失败（不阻塞扫描）")
+	virtualHost := extractHostFromBrief(ep.Brief, taskID)
+	if virtualHost != taskID {
+		if err := h.tasks.SetTargetHost(ctx, taskID, virtualHost); err != nil {
+			h.logger.Warn().Err(err).Str("task_id", taskID).Str("host", virtualHost).
+				Msg("回填 task.target_host 失败（不阻塞扫描）")
 		}
 	}
 
@@ -96,12 +96,12 @@ func (h handler) handleActiveEino(ctx context.Context, p worker.Payload, entrypo
 	toolDeps := h.einoToolDeps(sandboxClient)
 	// 所有 agent（orchestrator + 子代理）的工具都用 orchestrator 的注入值建（owner/host/hunter=orchestrator）。
 	// 子代理写 finding/note 落 orchestrator hunter_id（deep 临时子代理无独立 id，用户已认可）。
-	params := einoagent.TrafficAnalysisToolParams{OwnerType: ot, OwnerID: oid, HunterID: tid, Host: virtualHost}
+	params := einoagent.TrafficAnalysisToolParams{TaskID: taskID, Mode: "active", HunterID: tid, Host: virtualHost}
 
 	// per-run 中间件（压缩 / tool_invocation 遥测 / 截图回灌）+ 计费 callback。
 	// 中间件挂到 orchestrator 与所有子代理（截图回灌尤其需在跑 run_command 的子代理上）。
 	// 计费 callback 经顶层 runner ctx 传播到子代理模型调用。
-	mws, agentHandlers, opts, cleanup, err := h.einoRunOpts(ctx, tid, ot, oid, "orchestrator", p.ConversationID)
+	mws, agentHandlers, opts, cleanup, err := h.einoRunOpts(ctx, tid, taskID, "orchestrator", p.ConversationID)
 	if err != nil {
 		return h.failTask(ctx, p.HunterID, fmt.Errorf("einoRunOpts: %w", err))
 	}
@@ -123,7 +123,7 @@ func (h handler) handleActiveEino(ctx context.Context, p worker.Payload, entrypo
 
 	// orchestrator 的 user message：复用 buildUserPrompt 注入 brief + 流量/finding/lesson/索引段。
 	orchestratorPrompt := hunterbuilder.BuildUserPrompt(ctx, h.hunterDeps, skill.BuilderParams{
-		OwnerType: ot, OwnerID: oid, HunterID: tid,
+		TaskID: taskID, HunterID: tid,
 		Host: virtualHost, Mode: "active", Brief: ep.Brief, Sandbox: sandboxClient,
 	})
 	// 阶段0：多轮追问连贯性——把本对话最近的对话历史拼到 prompt 前，让 orchestrator 看到上下文
@@ -132,26 +132,26 @@ func (h handler) handleActiveEino(ctx context.Context, p worker.Payload, entrypo
 		orchestratorPrompt = hist + "\n" + orchestratorPrompt
 	}
 
-	// active_scan 终态收尾（orchestrator 退出后无人收尾会卡 'active'）。
+	// task 终态收尾（orchestrator 退出后无人收尾会卡 'active'）。
 	finalizeScan := func(complete bool, reason string) {
 		fctx, fcancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer fcancel()
 		var ferr error
 		if complete {
-			ferr = h.activeScans.Complete(fctx, oid)
+			ferr = h.tasks.Complete(fctx, taskID)
 		} else {
-			ferr = h.activeScans.Abort(fctx, oid, reason)
+			ferr = h.tasks.Abort(fctx, taskID, reason)
 		}
 		if ferr != nil {
-			h.logger.Warn().Err(ferr).Str("scan_id", oid).Bool("complete", complete).
-				Msg("active_scan 终态写失败（scan 可能卡 active，待人工排查）")
+			h.logger.Warn().Err(ferr).Str("task_id", taskID).Bool("complete", complete).
+				Msg("task 终态写失败（task 可能卡 active，待人工排查）")
 		}
 	}
 
-	// owner 中止 watcher：轮询 active_scan.Status，非 active 即 cancel orchestrator。
+	// task 中止 watcher：轮询 task.Status，非 active 即 cancel orchestrator。
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	go h.watchAbortActive(runCtx, cancel, oid)
+	go h.watchAbortActive(runCtx, cancel, taskID)
 
 	res, err := einoagent.RunDeepSwarm(runCtx, swarm, orchestratorPrompt, opts...)
 	if err != nil {
@@ -174,7 +174,7 @@ func (h handler) handleActiveEino(ctx context.Context, p worker.Payload, entrypo
 		return h.failTask(ctx, p.HunterID, fmt.Errorf("marshal task result: %w", err))
 	}
 	finalizeScan(true, "")
-	return h.tasks.SetDone(ctx, p.HunterID, out)
+	return h.hunters.SetDone(ctx, p.HunterID, out)
 }
 
 // composeOrchestratorInstruction 组装 orchestrator 完整 system prompt：
@@ -191,8 +191,8 @@ func composeSubAgentInstruction(role einoagent.RoleDef) string {
 	return hunterbuilder.SystemPrompt() + "\n\n" + role.SystemPrompt
 }
 
-// watchAbortActive 后台轮询 active_scan 中止状态；非 active 即 cancel，让 RunDeepSwarm 停。
-func (h handler) watchAbortActive(ctx context.Context, cancel context.CancelFunc, ownerID string) {
+// watchAbortActive 后台轮询 task 中止状态；非 active 即 cancel，让 RunDeepSwarm 停。
+func (h handler) watchAbortActive(ctx context.Context, cancel context.CancelFunc, taskID string) {
 	ticker := time.NewTicker(abortPollInterval)
 	defer ticker.Stop()
 	for {
@@ -200,12 +200,12 @@ func (h handler) watchAbortActive(ctx context.Context, cancel context.CancelFunc
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			sc, err := h.activeScans.GetByID(ctx, ownerID)
+			tk, err := h.tasks.GetByID(ctx, taskID)
 			if err != nil {
 				continue
 			}
-			if sc.Status != activescan.StatusActive {
-				h.logger.Info().Str("scan_id", ownerID).Msg("owner 中止，cancel eino deep orchestrator")
+			if tk.Status != task.StatusActive {
+				h.logger.Info().Str("task_id", taskID).Msg("task 中止，cancel eino deep orchestrator")
 				cancel()
 				return
 			}

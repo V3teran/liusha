@@ -12,18 +12,18 @@ import (
 
 // AgentRunsAPI 是 handler 依赖的窄接口；*hunter.Store 自动满足。
 type AgentRunsAPI interface {
-	ListByOwner(ctx context.Context, ownerType, ownerID string, limit int) ([]hunter.Run, error)
+	ListByTask(ctx context.Context, taskID string, limit int) ([]hunter.Run, error)
 }
 
-// agentRunsHandler 处理 GET /agent_runs/:owner_id。
+// agentRunsHandler 处理 GET /agent_runs/:task_id。
 //
-// 返回该 owner 下所有 agent_run 行，按 created_at ASC 排序（orchestrator 先 spawn → exploitation 后入）。
+// 返回该 task 下所有 agent_run 行，按 created_at ASC 排序（orchestrator 先 spawn → exploitation 后入）。
 // 前端按 orchestrator_id 拼任务树渲染（PR4）：根节点 orchestrator_id="" / NULL。
 //
 // 响应结构：
 //
 //	{
-//	  "owner_id": "...",
+//	  "task_id": "...",
 //	  "total": N,
 //	  "runs": [{
 //	    "id":"uuid", "orchestrator_id":"uuid|''", "role":"traffic-analysis|orchestrator|exploitation",
@@ -33,19 +33,19 @@ type AgentRunsAPI interface {
 //	  }]
 //	}
 //
-// limit 硬编码 500——单  owner 一般几十到几百 agent_run，500 远超实际需求。
+// limit 硬编码 500——单 task 一般几十到几百 agent_run，500 远超实际需求。
 func agentRunsHandler(api AgentRunsAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		eid := c.Param("owner_id")
+		eid := c.Param("task_id")
 		if eid == "" {
-			c.JSON(400, gin.H{"error": "owner_id required"})
+			c.JSON(400, gin.H{"error": "task_id required"})
 			return
 		}
 
-		// ListByOwner 在 0 行时返 (空切片, nil)，不返 ErrNoRows——
-		// "owner 不存在"与" owner 存在但 0 run"响应相同（total:0, runs:[]），
+		// ListByTask 在 0 行时返 (空切片, nil)，不返 ErrNoRows——
+		// "task 不存在"与"task 存在但 0 run"响应相同（total:0, runs:[]），
 		// 这对前端树渲染足够（基于 total=0 显示"无任务"）。
-		runs, err := api.ListByOwner(c.Request.Context(), "", eid, 500)
+		runs, err := api.ListByTask(c.Request.Context(), eid, 500)
 		if err != nil {
 			c.JSON(500, gin.H{"error": err.Error()})
 			return
@@ -66,9 +66,9 @@ func agentRunsHandler(api AgentRunsAPI) gin.HandlerFunc {
 		}
 
 		c.JSON(200, gin.H{
-			"owner_id": eid,
-			"total":    len(runs),
-			"runs":     out,
+			"task_id": eid,
+			"total":   len(runs),
+			"runs":    out,
 		})
 	}
 }

@@ -86,7 +86,7 @@ func buildUserPrompt(ctx context.Context, deps Deps, p skill.BuilderParams) stri
 	}
 
 	// 段 3: 该 host 已有 finding（限本次 owner，不跨次扫描）
-	if existing := loadExistingFindings(ctx, deps.Findings, p.OwnerType, p.OwnerID, p.Host, findingsLimit); existing != "" {
+	if existing := loadExistingFindings(ctx, deps.Findings, p.TaskID, p.Host, findingsLimit); existing != "" {
 		b.WriteString("\n\n## 该 host 已有 finding（本次扫描内）\n\n")
 		b.WriteString(existing)
 	}
@@ -306,13 +306,12 @@ func writeBodyBlock(b *strings.Builder, body []byte, limit int) {
 // readLimit 仅作 DB 读上限的安全闸（取够高，正常扫描不触及）——读到的 finding **全量注入**，
 // 不在此 top-N 截断/压缩；prompt 超长由 ① summarization 统一压缩，agent 仍可 read_findings 取全。
 //
-// 双轨切读：按 (ownerType, ownerID) 查 finding（passive_session / active_scan 维度）。
-// 任一为空（旧 enqueue 路径未填）则跳过——可接受过渡期损失，回显需 B5+ 数据回填。
-func loadExistingFindings(ctx context.Context, store *finding.Store, ownerType, ownerID, host string, readLimit int) string {
-	if store == nil || ownerType == "" || ownerID == "" || host == "" || readLimit <= 0 {
+// 按 (task_id, host) 查 finding（合表后单一 task 维度）。taskID 或 host 为空则跳过。
+func loadExistingFindings(ctx context.Context, store *finding.Store, taskID, host string, readLimit int) string {
+	if store == nil || taskID == "" || host == "" || readLimit <= 0 {
 		return ""
 	}
-	fs, err := store.ListByOwnerAndHost(ctx, ownerType, ownerID, host, readLimit)
+	fs, err := store.ListByTaskAndHost(ctx, taskID, host, readLimit)
 	if err != nil || len(fs) == 0 {
 		return ""
 	}

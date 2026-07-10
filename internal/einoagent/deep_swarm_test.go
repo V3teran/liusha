@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/V3teran/liusha/internal/einoagent"
+	"github.com/V3teran/liusha/internal/flow"
 )
 
 // ---- 工具注册表 ----
@@ -14,8 +15,8 @@ func toolDefsFromCtx(t *testing.T, role einoagent.RoleDef) []string {
 	t.Helper()
 	f := allFake{}
 	tools, err := einoagent.BuildRoleTools(role, einoagent.ToolBuildCtx{
-		Deps:   einoagent.TrafficAnalysisToolDeps{Findings: f, Lessons: f, Credentials: f, Flows: fakeFlowStore{}},
-		Params: einoagent.TrafficAnalysisToolParams{OwnerType: "active_scan", OwnerID: "o", HunterID: "h", Host: "host"},
+		Deps:   einoagent.TrafficAnalysisToolDeps{Findings: f, Lessons: f, Credentials: f, AgentFlows: flow.NewAgentStore(nil)},
+		Params: einoagent.TrafficAnalysisToolParams{TaskID: "task-1", Mode: "active", HunterID: "h", Host: "host"},
 	})
 	if err != nil {
 		t.Fatalf("BuildRoleTools: %v", err)
@@ -51,7 +52,7 @@ func TestBuildRoleTools_UnknownTool(t *testing.T) {
 	f := allFake{}
 	_, err := einoagent.BuildRoleTools(role, einoagent.ToolBuildCtx{
 		Deps:   einoagent.TrafficAnalysisToolDeps{Findings: f, Lessons: f, Credentials: f},
-		Params: einoagent.TrafficAnalysisToolParams{OwnerID: "o", Host: "h"},
+		Params: einoagent.TrafficAnalysisToolParams{TaskID: "task-1", Host: "h"},
 	})
 	if err == nil {
 		t.Fatal("未知工具应报错")
@@ -63,7 +64,7 @@ func TestBuildRoleTools_RunCommandNeedsSandbox(t *testing.T) {
 	f := allFake{}
 	_, err := einoagent.BuildRoleTools(role, einoagent.ToolBuildCtx{
 		Deps:   einoagent.TrafficAnalysisToolDeps{Findings: f, Lessons: f, Credentials: f}, // Sandbox nil
-		Params: einoagent.TrafficAnalysisToolParams{OwnerID: "o", Host: "h"},
+		Params: einoagent.TrafficAnalysisToolParams{TaskID: "task-1", Host: "h"},
 	})
 	if err == nil {
 		t.Fatal("run_command 无 Sandbox 应报错")
@@ -100,8 +101,8 @@ func TestBuildDeepSwarm_AssemblesOrchestratorAndSubAgents(t *testing.T) {
 		Model:        &fakeModel{},
 		Orchestrator: orchestratorRole,
 		SubAgents:    []einoagent.RoleDef{exploitationRole},
-		ToolDeps:     einoagent.TrafficAnalysisToolDeps{Findings: f, Lessons: f, Credentials: f, Flows: fakeFlowStore{}},
-		Params:       einoagent.TrafficAnalysisToolParams{OwnerType: "active_scan", OwnerID: "o", HunterID: "cmd", Host: "host"},
+		ToolDeps:     einoagent.TrafficAnalysisToolDeps{Findings: f, Lessons: f, Credentials: f, AgentFlows: flow.NewAgentStore(nil)},
+		Params:       einoagent.TrafficAnalysisToolParams{TaskID: "task-1", Mode: "active", HunterID: "cmd", Host: "host"},
 	})
 	if err != nil {
 		t.Fatalf("BuildDeepSwarm: %v", err)

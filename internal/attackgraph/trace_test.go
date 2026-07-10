@@ -140,7 +140,7 @@ func TestProjectLinksFindingToTrace(t *testing.T) {
 		mkEventMsg("a2", evToolResult, map[string]any{"AgentName": "exploitation", "ToolName": "write_finding", "Result": `{"id":"f1"}`}),
 	}
 	findings := []finding.VulnFinding{mkFinding("f1", "h", "high", "SQLi")}
-	g := Project("o", msgs, findings)
+	g := Project("task-o", msgs, findings)
 
 	hasEvidence := false
 	for _, e := range g.Edges {
@@ -166,10 +166,10 @@ func TestProjectMergesChains(t *testing.T) {
 		mkFinding("a", "h1", "medium", "文件上传"),
 		mkFinding("b", "h1", "critical", "组合 RCE", "a"),
 	}
-	g := Project("owner-1", msgs, findings)
+	g := Project("task-1", msgs, findings)
 
-	if g.OwnerID != "owner-1" {
-		t.Errorf("OwnerID=%q", g.OwnerID)
+	if g.TaskID != "task-1" {
+		t.Errorf("TaskID=%q", g.TaskID)
 	}
 	// 1 想节点 + 2 漏洞节点
 	if len(g.Nodes) != 3 {

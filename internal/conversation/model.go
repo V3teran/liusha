@@ -3,7 +3,7 @@
 // 业务定位：用户在前端与 liusha 对话发起扫描，agent 过程事件流式展示并落库可回看
 // （见 docs/superpowers/specs/2026-06-07-conversational-platform.md §B + 记忆 project_phaseb_sse_arch）。
 //
-//   - Conversation：一次对话会话。ScanID 关联本对话发起的 active_scan（纯聊天/passive 时空）。
+//   - Conversation：一次对话会话。TaskID 关联本对话所属的 task（纯聊天时空）。
 //     RoleID 是场景 role（阶段C 用，先留字段不接线）。
 //   - Message：对话内的消息。Kind 区分普通对话消息与 agent 过程事件（UI 渲染不同）。
 //
@@ -40,13 +40,13 @@ const (
 type Conversation struct {
 	ID        string
 	Title     string // 可空——首条消息摘要，UI 列表用
-	ScanID    string // 可空——关联本对话发起的 active_scan
+	TaskID    string // 可空——关联本对话所属的 task
 	RoleID    string // 可空——场景 role（阶段C）
 	CreatedAt time.Time
 	UpdatedAt time.Time
-	// RunStatus 是派生的「真实运行态」（关联 active_scan/passive_session 的 status：
-	// active/completed/aborted；纯聊天为空）。仅 ListConversations 填充。
-	// （注：conversation 表自身的 status 列是僵尸字段，已不读入；运行态一律派生自关联任务。）
+	// RunStatus 是派生的「真实运行态」（关联 task 的 status：active/completed/aborted；
+	// 纯聊天为空）。仅 ListConversations 填充。
+	// （注：conversation 表自身的 status 列是僵尸字段，已不读入；运行态一律派生自关联 task。）
 	RunStatus string `json:"RunStatus,omitempty"`
 }
 

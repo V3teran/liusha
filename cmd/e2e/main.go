@@ -11,15 +11,17 @@
 //	go run ./cmd/e2e active:full                  # 只跑 active full（开放性 brief 压测 LLM 自主 recon + swarm）
 //	go run ./cmd/e2e sqli active:full             # 混合：passive sqli + active full
 //
-// Passive 流程（每个 profile 独立跑）：
+// Passive 流程（流量驱动，合表后 task 由聚合器自动生成）：
 //  1. POST /credential/batch 一次预录所有 passive profile 全部 host 的凭证（启动期）
-//  2. POST /scan/passive 懒创建 passive_session（同 host 幂等）
-//  3. 读 sample 文件 → net.Dial 直连 proxify 写 raw bytes（不解析 headers/body）
-//  4. 轮询 finding 表 + agent_run 收手 → ≥minFindings 为 PASS
+//  2. 读 sample 文件 → net.Dial 直连 proxify 写 raw bytes（不解析 headers/body）
+//     流量经代理落 proxy_traffic，ingestor 聚合器按 host 攒批自动建 passive task
+//  3. 按目标 host 从 task store 发现聚合器新建的 passive task，按 task_id 轮询 finding + agent_run
+//  4. ≥minFindings 且 agent_run 收手 → PASS
+//     注：e2e 环境应把 ingestor.aggregate_batch_size 调低（≤ 单 host 样本数），否则小样本攒不满一批不触发。
 //
 // Active 流程（按选中顺序串行跑）：
-//  1. POST /scan/active body={"brief":"<自然语言任务简报>"} → 拿 (owner_id, hunter_id)
-//  2. 轮询同 owner 的 finding + agent_run → ≥minFindings 为 PASS
+//  1. POST /scan/active body={"brief":"<自然语言任务简报>"} → 拿 (owner_id=task_id, hunter_id)
+//  2. 按 task_id 轮询 finding + agent_run → ≥minFindings 为 PASS
 //
 // 内置 passive profile（13 个，全部 minFindings=1）：
 //   - bac                ：本地 vulnapp 多身份正常流量（4 样本，BAC/IDOR/越权）

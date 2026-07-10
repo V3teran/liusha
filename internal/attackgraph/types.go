@@ -45,7 +45,7 @@ type Edge struct {
 
 // Graph 是投影结果（read-model，不落表）。
 type Graph struct {
-	OwnerID string `json:"owner_id"`
-	Nodes   []Node `json:"nodes"`
-	Edges   []Edge `json:"edges"`
+	TaskID string `json:"task_id"`
+	Nodes  []Node `json:"nodes"`
+	Edges  []Edge `json:"edges"`
 }

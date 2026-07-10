@@ -6,34 +6,35 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
-	"time"
 
 	"github.com/V3teran/liusha/internal/dbtest"
-	"github.com/V3teran/liusha/internal/passivesession"
+	"github.com/V3teran/liusha/internal/task"
 )
 
-// setup 启动一次性 Postgres，建 passive_session，返回 (Store, ownerType, ownerID)。
-func setup(t *testing.T) (*Store, string, string) {
+// setup 启动一次性 Postgres，建一个 passive task 作为外键归属，返回 (Store, taskID)。
+func setup(t *testing.T) (*Store, string) {
 	t.Helper()
 	pool := dbtest.NewPgPool(t)
-	ps := passivesession.NewStore(pool)
-	sess, err := ps.LookupOrCreate(context.Background(), "test.example.com", 24*time.Hour)
+	ts := task.NewStore(pool)
+	tk, err := ts.Create(context.Background(), task.NewParams{
+		Mode:       task.ModePassive,
+		TargetHost: "test.example.com",
+	})
 	if err != nil {
-		t.Fatalf("create passive_session: %v", err)
+		t.Fatalf("create task: %v", err)
 	}
-	return NewStore(pool), "passive_session", sess.ID
+	return NewStore(pool), tk.ID
 }
 
 // TestStore_CreateThenComplete 验证：pending → running → done 完整生命周期。
 func TestStore_CreateThenComplete(t *testing.T) {
 	ctx := context.Background()
-	s, ot, oid := setup(t)
+	s, taskID := setup(t)
 
 	id, err := s.Create(ctx, NewParams{
-		OwnerType: ot,
-		OwnerID:   oid,
-		Role:      "traffic-analysis",
-		Input:     json.RawMessage(`{"window_id":"w1"}`),
+		TaskID: taskID,
+		Role:   "traffic-analysis",
+		Input:  json.RawMessage(`{"window_id":"w1"}`),
 	})
 	if err != nil {
 		t.Fatalf("create: %v", err)
@@ -45,6 +46,9 @@ func TestStore_CreateThenComplete(t *testing.T) {
 	}
 	if got.Status != StatusPending {
 		t.Fatalf("初始 status 应为 pending, got %s", got.Status)
+	}
+	if got.TaskID != taskID {
+		t.Fatalf("TaskID 应回填, got %q want %q", got.TaskID, taskID)
 	}
 
 	if err := s.SetRunning(ctx, id); err != nil {
@@ -74,8 +78,8 @@ func TestStore_CreateThenComplete(t *testing.T) {
 // TestStore_SetError 验证：error 终态会把错误信息序列化进 result。
 func TestStore_SetError(t *testing.T) {
 	ctx := context.Background()
-	s, ot, oid := setup(t)
-	id, err := s.Create(ctx, NewParams{OwnerType: ot, OwnerID: oid, Role: "traffic-analysis"})
+	s, taskID := setup(t)
+	id, err := s.Create(ctx, NewParams{TaskID: taskID, Role: "traffic-analysis"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -99,8 +103,8 @@ func TestStore_SetError(t *testing.T) {
 // TestStore_SetAborted 验证：aborted 终态可达。
 func TestStore_SetAborted(t *testing.T) {
 	ctx := context.Background()
-	s, ot, oid := setup(t)
-	id, err := s.Create(ctx, NewParams{OwnerType: ot, OwnerID: oid, Role: "traffic-analysis"})
+	s, taskID := setup(t)
+	id, err := s.Create(ctx, NewParams{TaskID: taskID, Role: "traffic-analysis"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -116,8 +120,8 @@ func TestStore_SetAborted(t *testing.T) {
 // TestStore_TerminalIsSticky 验证：done/error/aborted 终态后再 SetRunning 应该报错。
 func TestStore_TerminalIsSticky(t *testing.T) {
 	ctx := context.Background()
-	s, ot, oid := setup(t)
-	id, err := s.Create(ctx, NewParams{OwnerType: ot, OwnerID: oid, Role: "traffic-analysis"})
+	s, taskID := setup(t)
+	id, err := s.Create(ctx, NewParams{TaskID: taskID, Role: "traffic-analysis"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -132,16 +136,15 @@ func TestStore_TerminalIsSticky(t *testing.T) {
 // TestStore_CreateWithParent 验证：NewParams.OrchestratorID 写入 + GetByID 读出往返一致。
 func TestStore_CreateWithParent(t *testing.T) {
 	ctx := context.Background()
-	s, ot, oid := setup(t)
+	s, taskID := setup(t)
 
-	parentID, err := s.Create(ctx, NewParams{OwnerType: ot, OwnerID: oid, Role: "traffic-analysis"})
+	parentID, err := s.Create(ctx, NewParams{TaskID: taskID, Role: "traffic-analysis"})
 	if err != nil {
 		t.Fatalf("create parent: %v", err)
 	}
 
 	childID, err := s.Create(ctx, NewParams{
-		OwnerType:      ot,
-		OwnerID:        oid,
+		TaskID:         taskID,
 		Role:           "traffic-analysis",
 		OrchestratorID: parentID,
 	})
@@ -164,5 +167,30 @@ func TestStore_CreateWithParent(t *testing.T) {
 	}
 	if gotParent.OrchestratorID != "" {
 		t.Fatalf("parent.OrchestratorID=%q, want empty", gotParent.OrchestratorID)
+	}
+}
+
+// TestStore_ListByTask 验证：ListByTask 取回 task 下所有 hunter run（取代旧 ListByOwner）。
+func TestStore_ListByTask(t *testing.T) {
+	ctx := context.Background()
+	s, taskID := setup(t)
+
+	for i := 0; i < 3; i++ {
+		if _, err := s.Create(ctx, NewParams{TaskID: taskID, Role: "traffic-analysis"}); err != nil {
+			t.Fatalf("seed %d: %v", i, err)
+		}
+	}
+
+	runs, err := s.ListByTask(ctx, taskID, 100)
+	if err != nil {
+		t.Fatalf("list by task: %v", err)
+	}
+	if len(runs) != 3 {
+		t.Fatalf("应读回 3 行，得到 %d", len(runs))
+	}
+	for _, r := range runs {
+		if r.TaskID != taskID {
+			t.Fatalf("run.TaskID=%q, want %q", r.TaskID, taskID)
+		}
 	}
 }

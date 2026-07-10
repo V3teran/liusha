@@ -34,10 +34,10 @@ var toolRegistry = map[string]toolBuilder{
 		return einotools.BuildWriteCredential(c.Deps.Credentials, c.Params.Host)
 	},
 	"read_findings": func(c ToolBuildCtx) (tool.BaseTool, error) {
-		return einotools.BuildReadFindings(c.Deps.Findings, c.Params.OwnerType, c.Params.OwnerID, c.Params.Host)
+		return einotools.BuildReadFindings(c.Deps.Findings, c.Params.TaskID, c.Params.Host)
 	},
 	"write_finding": func(c ToolBuildCtx) (tool.BaseTool, error) {
-		return einotools.BuildWriteFinding(c.Deps.Findings, c.Params.OwnerType, c.Params.OwnerID, c.Params.HunterID, c.Params.Host, c.Params.FlowID)
+		return einotools.BuildWriteFinding(c.Deps.Findings, c.Params.TaskID, c.Params.HunterID, c.Params.Host, c.Params.FlowID)
 	},
 	"update_finding": func(c ToolBuildCtx) (tool.BaseTool, error) {
 		return einotools.BuildUpdateFinding(c.Deps.Findings)
@@ -52,24 +52,24 @@ var toolRegistry = map[string]toolBuilder{
 		return einotools.BuildDone()
 	},
 
-	// 流量字典（需 Flows）
+	// 流量字典（active：读自产 agent_traffic，按 task_id）
 	"replay_flow": func(c ToolBuildCtx) (tool.BaseTool, error) {
-		if c.Deps.Flows == nil {
+		if c.Deps.AgentFlows == nil {
 			return nil, errFlowsNil("replay_flow")
 		}
-		return einotools.BuildReplayFlow(c.Deps.Flows, c.Params.OwnerType, c.Params.OwnerID, c.Params.HunterID)
+		return einotools.BuildReplayFlow(einotools.NewAgentFlowScope(c.Deps.AgentFlows, c.Params.TaskID))
 	},
 	"list_flows": func(c ToolBuildCtx) (tool.BaseTool, error) {
-		if c.Deps.Flows == nil {
+		if c.Deps.AgentFlows == nil {
 			return nil, errFlowsNil("list_flows")
 		}
-		return einotools.BuildListFlows(c.Deps.Flows, c.Params.OwnerType, c.Params.OwnerID, c.Params.Host)
+		return einotools.BuildListFlows(einotools.NewAgentFlowScope(c.Deps.AgentFlows, c.Params.TaskID), c.Params.Host)
 	},
 	"view_flow": func(c ToolBuildCtx) (tool.BaseTool, error) {
-		if c.Deps.Flows == nil {
+		if c.Deps.AgentFlows == nil {
 			return nil, errFlowsNil("view_flow")
 		}
-		return einotools.BuildViewFlow(c.Deps.Flows, c.Params.OwnerType, c.Params.OwnerID)
+		return einotools.BuildViewFlow(einotools.NewAgentFlowScope(c.Deps.AgentFlows, c.Params.TaskID))
 	},
 
 	// 沙箱（需 Sandbox）

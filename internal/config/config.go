@@ -173,18 +173,17 @@ type IngestorConfig struct {
 	ReadBlockTimeoutMs   int    `mapstructure:"read_block_timeout_ms"`
 	RetryDelayMs         int    `mapstructure:"retry_delay_ms"`
 	RecreateGroupDelayMs int    `mapstructure:"recreate_group_delay_ms"`
+
+	// passive 聚合器参数（§6.2）：同 host 攒批建 passive task。
+	// AggregateBatchSize：一批多少条 proxy_traffic 触发建 task（默认 20；~一个用户操作单元的 XHR 量级）。
+	// AggregateWindowSeconds：距首条超此秒数即触发（默认 10；先到先触发）。
+	AggregateBatchSize     int `mapstructure:"aggregate_batch_size"`
+	AggregateWindowSeconds int `mapstructure:"aggregate_window_seconds"`
 }
 
-// SessionConfig 是 passive_session 生命周期 + hunter prompt 上限参数。
+// SessionConfig 是 hunter prompt 上限参数。
+// （合表后 passive task 是有界批分析、跑完即终态，无常驻监控会话，故原 sweeper/TTL 参数已删。）
 type SessionConfig struct {
-	// SweeperIntervalSeconds：passive_session sweeper 定时 goroutine 触发周期，
-	// 用于主动 abort 已过期但还挂 active 的 passive session（无流量时仍能换）。
-	SweeperIntervalSeconds int `mapstructure:"sweeper_interval_seconds"`
-
-	// passive_session 单一 TTL 阈值：created_at 起超过此小时数即被 sweeper abort。
-	// notes 走 Redis TTL 自治，finding 计数本身不触发轮转。
-	MaxAgeHours int `mapstructure:"max_age_hours"`
-
 	// hunter user prompt 拼装时的上限（避免 prompt 膨胀）。
 	// FindingsLimitInPrompt：该 host 已有 finding 段的 DB 读上限安全闸（取够高，正常扫描全量注入；
 	// 不在此 top-N 截断，prompt 超长由 ① summarization 统一压缩，agent 仍可 read_findings 取全）。
@@ -526,16 +525,16 @@ func applyIngestorDefaults(c IngestorConfig) IngestorConfig {
 	if c.RecreateGroupDelayMs == 0 {
 		c.RecreateGroupDelayMs = 500
 	}
+	if c.AggregateBatchSize == 0 {
+		c.AggregateBatchSize = 20
+	}
+	if c.AggregateWindowSeconds == 0 {
+		c.AggregateWindowSeconds = 10
+	}
 	return c
 }
 
 func applySessionDefaults(c SessionConfig) SessionConfig {
-	if c.SweeperIntervalSeconds == 0 {
-		c.SweeperIntervalSeconds = 600
-	}
-	if c.MaxAgeHours == 0 {
-		c.MaxAgeHours = 24
-	}
 	if c.FindingsLimitInPrompt == 0 {
 		c.FindingsLimitInPrompt = 1000 // 安全闸（正常扫描全量注入，不截断；超长交 ① 压缩）
 	}
