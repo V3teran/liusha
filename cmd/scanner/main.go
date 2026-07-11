@@ -25,6 +25,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/V3teran/liusha/internal/assignment"
 	"github.com/V3teran/liusha/internal/builder/hunter"
 	"github.com/V3teran/liusha/internal/config"
 	"github.com/V3teran/liusha/internal/conversation"
@@ -37,9 +38,11 @@ import (
 	"github.com/V3teran/liusha/internal/flow"
 	hunterstore "github.com/V3teran/liusha/internal/hunter"
 	"github.com/V3teran/liusha/internal/ingestor"
+	"github.com/V3teran/liusha/internal/lead"
 	"github.com/V3teran/liusha/internal/lesson"
 	"github.com/V3teran/liusha/internal/llminvocation"
 	"github.com/V3teran/liusha/internal/logx"
+	"github.com/V3teran/liusha/internal/ratelimit"
 	"github.com/V3teran/liusha/internal/sandbox"
 	"github.com/V3teran/liusha/internal/scanstream"
 	"github.com/V3teran/liusha/internal/scenario"
@@ -87,6 +90,7 @@ func main() {
 
 	// Stores
 	taskStore := task.NewStore(pool)               // 统一 task store（合并 active_scan + passive_session）
+	assignmentStore := assignment.NewStore(pool)   // 聚合建 passive assignment（一切 task 皆属某 assignment）
 	convStore := conversation.NewStore(pool)       // 对话/消息 store（阶段B 过程事件落库）
 	eventPublisher := scanstream.NewPublisher(rdb) // 过程事件实时广播（阶段B redis 管道）
 	hunters := hunterstore.NewStore(pool)
@@ -98,6 +102,7 @@ func main() {
 	proxyFlows := flow.NewProxyStore(pool) // 代理捕获流量（passive，按 host）
 	agentFlows := flow.NewAgentStore(pool) // agent 自产流量（active，按 task）
 	creds := credential.NewRedis(rdb, cfg.Credential.RedisKeyPrefix)
+	leads := lead.NewStore(rdb, cfg.Credential.RedisKeyPrefix) // 情报黑板（§7），与 credential 同 Redis 租户命名空间
 
 	// hunter system prompt 已编译期 embed（internal/builder/hunter/system_prompt.md），
 	// 不再需要运行时 skill loader 加载——下面的 vuln/tooling loader 服务 Progressive Disclosure。
@@ -189,6 +194,7 @@ func main() {
 		Findings:        finds,
 		Lessons:         lessons,
 		Credentials:     creds,
+		Lead:            leads,
 		ToolInvocations: toolCalls,
 		ToolingLoader:   toolingLoader,
 		ToolsManifest:   toolsManifest,
@@ -243,14 +249,21 @@ func main() {
 	}
 
 	// handler
+	// per-host 并发信号量（§4.3）。TTL = active 超时 + 10min 缓冲：防长 task 运行期计数键被
+	// TTL 误清导致 host 额度漂移；持有者崩溃时靠 TTL 到期兜底清零，不永久泄漏。
+	hostSemTTL := time.Duration(scannerCfg.ActiveAgentRunTimeoutSeconds)*time.Second + 10*time.Minute
+	hostSem := ratelimit.NewHostSemaphore(rdb, cfg.Credential.RedisKeyPrefix, scannerCfg.PerHostConcurrency, hostSemTTL)
+
 	h := handler{
 		hunters:        hunters,
 		tasks:          taskStore,
 		findings:       finds,
 		lessons:        lessons,
+		leads:          leads,
 		proxyFlows:     proxyFlows,
 		agentFlows:     agentFlows,
 		calls:          calls,
+		hostSem:        hostSem,
 		cfg:            cfg,
 		scannerCfg:     scannerCfg,
 		launcher:       launcher,
@@ -287,6 +300,7 @@ func main() {
 		Cfg:           cfg.Ingestor,
 		Stream:        cfg.Proxy.StreamName,
 		Tenant:        cfg.Credential.RedisKeyPrefix,
+		Assignments:   assignmentStore,
 		Tasks:         taskStore,
 		ProxyFlows:    proxyFlows,
 		AgentFlows:    agentFlows,
@@ -395,7 +409,6 @@ func main() {
 // handler struct + failTask/abortTask/handle 入口 已抽到 handler.go。
 // handlePassive 在 handler_passive.go；handleActive 在 handler_active.go。
 
-// dualOwnerCounter 让 hunter/finding/flow.Store 的 best-effort 计数维护同时尝试
 // briefHostRe 匹配 http(s):// 后到 / 或 空白 之前的 host (含端口)。
 //
 // 例子（捕获组 [1]）：
@@ -407,7 +420,7 @@ var briefHostRe = regexp.MustCompile(`https?://([^/\s]+)`)
 
 // extractHostFromBrief 从 active brief 抽 URL host 当 (owner, host) 切分键。
 //
-// 抽不到时回退 fallback（owner_id 兜底），此时 lesson 跨 task 复用失效。
+// 抽不到时回退 fallback（task_id 兜底），此时 lesson 跨 task 复用失效。
 // 这是按 brief 自然语言的弱契约设计：让 active 任务能自动按真实站点身份归档
 // note/finding/lesson，同时不破坏"自然语言 brief"的简单 API。
 func extractHostFromBrief(brief, fallback string) string {

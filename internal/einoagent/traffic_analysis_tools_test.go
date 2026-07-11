@@ -12,11 +12,12 @@ import (
 	"github.com/V3teran/liusha/internal/credential"
 	"github.com/V3teran/liusha/internal/einoagent"
 	"github.com/V3teran/liusha/internal/finding"
+	"github.com/V3teran/liusha/internal/lead"
 	"github.com/V3teran/liusha/internal/lesson"
 	"github.com/V3teran/liusha/internal/sandbox"
 )
 
-// allFake 一把实现 FindingStore + LessonStore + CredentialStore（notes 已退役，不再实现）。
+// allFake 一把实现 FindingStore + LessonStore + CredentialStore + LeadStore（notes 已退役，不再实现）。
 type allFake struct{}
 
 func (allFake) ListByTaskAndHost(context.Context, string, string, int) ([]finding.VulnFinding, error) {
@@ -34,6 +35,10 @@ func (allFake) GetIdentitiesByHost(context.Context, string) ([]credential.Identi
 	return nil, nil
 }
 func (allFake) BatchSave(context.Context, map[string][]credential.Identity, int) error { return nil }
+func (allFake) Append(context.Context, string, lead.Entry) error                       { return nil }
+func (allFake) ReadRecent(context.Context, string) (map[lead.Kind][]lead.Entry, error) {
+	return nil, nil
+}
 
 // 流量 store 拆表后是具体类型（*flow.ProxyStore / *flow.AgentStore），非接口，无法 fake；
 // 只测 Info（不触 pool）的用例用 flow.NewAgentStore(nil) / flow.NewProxyStore(nil) 即可。
@@ -69,11 +74,11 @@ func toolNames(t *testing.T, deps einoagent.TrafficAnalysisToolDeps) []string {
 func TestBuildTrafficAnalysisTools_Mandatory(t *testing.T) {
 	f := allFake{}
 	names := toolNames(t, einoagent.TrafficAnalysisToolDeps{
-		Findings: f, Lessons: f, Credentials: f,
+		Findings: f, Lessons: f, Credentials: f, Lead: f,
 	})
 	want := []string{
 		"done", "read_credentials", "read_findings", "read_lessons",
-		"update_finding", "write_credential", "write_finding", "write_lesson",
+		"update_finding", "write_credential", "write_finding", "write_lead", "write_lesson",
 	}
 	if len(names) != len(want) {
 		t.Fatalf("必装应 %d 个，得到 %d: %v", len(want), len(names), names)
@@ -102,7 +107,7 @@ func (f *fakeModel) WithTools(_ []*schema.ToolInfo) (model.ToolCallingChatModel,
 func TestBuildTrafficAnalysisTools_SandboxAddsRunCommand(t *testing.T) {
 	f := allFake{}
 	names := toolNames(t, einoagent.TrafficAnalysisToolDeps{
-		Findings: f, Lessons: f, Credentials: f,
+		Findings: f, Lessons: f, Credentials: f, Lead: f,
 		Sandbox: fakeSandboxClient{}, MaxTimeoutSeconds: 600,
 	})
 	found := false
@@ -114,7 +119,7 @@ func TestBuildTrafficAnalysisTools_SandboxAddsRunCommand(t *testing.T) {
 	if !found {
 		t.Fatalf("注入 Sandbox 后应有 run_command，得到 %v", names)
 	}
-	if len(names) != 9 {
-		t.Errorf("8 必装（含 done）+ run_command = 9，得到 %d: %v", len(names), names)
+	if len(names) != 10 {
+		t.Errorf("9 必装（含 done）+ run_command = 10，得到 %d: %v", len(names), names)
 	}
 }

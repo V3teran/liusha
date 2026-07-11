@@ -18,7 +18,7 @@ type CredentialsAPI interface {
 	Delete(ctx context.Context, host string) error
 }
 
-// OwnersAPI 是 handlers 对 task store 的窄接口。
+// TaskAPI 是 handlers 对 task store 的窄接口。
 //
 // 合表后 owner 概念坍缩为 task：
 //   - Abort：把 task 置为 aborted。
@@ -26,17 +26,17 @@ type CredentialsAPI interface {
 //
 // 不再有 EnsurePassiveSession——passive task 由 ingestor 聚合器按流量窗口生成，
 // 不走 API 预热路径。
-type OwnersAPI interface {
+type TaskAPI interface {
 	Abort(ctx context.Context, id string) error
-	List(ctx context.Context, limit int) ([]OwnerSummary, error)
+	List(ctx context.Context, limit int) ([]TaskSummary, error)
 }
 
-// OwnerSummary 是 List 返回行——只暴露前端需要的字段，不直接返回 task 完整结构。
-type OwnerSummary struct {
+// TaskSummary 是 List 返回行——只暴露前端需要的字段，不直接返回 task 完整结构。
+type TaskSummary struct {
 	ID           string `json:"id"`
 	Scope        string `json:"scope"` // jsonb raw（active={"brief":...} / passive={"host":...}）
 	Status       string `json:"status"`
-	Mode         string `json:"mode"` // "active" / "passive"
+	Mode         string `json:"mode"`               // "active" / "passive"
 	CreatedAt    string `json:"created_at"`         // RFC3339
 	EndedAt      string `json:"ended_at,omitempty"` // RFC3339（可空）
 	ErrorMessage string `json:"error_message,omitempty"`
@@ -101,7 +101,7 @@ func deleteCredentialHandler(api CredentialsAPI) gin.HandlerFunc {
 // listSessionsHandler 处理 GET /session?limit=<optional>。
 // 返回最近 N 个 task 摘要，前端用作下拉选择。
 // 按 host 查找请改走 finding/flow 子资源接口。
-func listSessionsHandler(api OwnersAPI) gin.HandlerFunc {
+func listSessionsHandler(api TaskAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		limit := 0
 		if v := c.Query("limit"); v != "" {
@@ -117,10 +117,10 @@ func listSessionsHandler(api OwnersAPI) gin.HandlerFunc {
 	}
 }
 
-// abortHandler 把指定  owner 置为 aborted。
+// abortHandler 把指定 task 置为 aborted。
 // 底层 store 对未知 ID 当前返回成功（UPDATE 影响 0 行），保持原语义；
 // 如需 404 区分需调用方先 GetByID，本层不强加策略。
-func abortHandler(api OwnersAPI) gin.HandlerFunc {
+func abortHandler(api TaskAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id := c.Param("id")
 		if id == "" {
@@ -137,9 +137,9 @@ func abortHandler(api OwnersAPI) gin.HandlerFunc {
 
 // ActiveScanAPI 是 handlers 对 active 模式扫描入口的窄接口。
 // CreateActiveScan 一站式做三件事：建 active scan、建 hunter agent_run、入 asynq 队列；
-// 由 cmd/api 的 adapter 用 owner store + hunter.Store + worker.Client 实现。
+// 由 cmd/api 的 adapter 用 task store + hunter.Store + worker.Client 实现。
 type ActiveScanAPI interface {
-	CreateActiveScan(ctx context.Context, brief string) (ownerID, agentRunID string, err error)
+	CreateActiveScan(ctx context.Context, brief string) (taskID, hunterID string, err error)
 }
 
 // CreateActiveScanRequest 是 POST /scan/active 请求体。
@@ -158,8 +158,8 @@ type CreateActiveScanRequest struct {
 
 // activeScanHandler 处理 POST /scan/active：校验 brief 非空 + 调 ActiveScanAPI 起任务。
 //
-// 成功返 200 + {owner_id, hunter_id}；调用方据此查任务进度
-// （前端 / GET /llm/invocations/:owner_id）。
+// 成功返 200 + {task_id, hunter_id}；调用方据此查任务进度
+// （前端 / GET /llm/invocations/:task_id）。
 // 不等任务完成——异步 ReAct 由 scanner 进程消费。
 func activeScanHandler(api ActiveScanAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -174,13 +174,13 @@ func activeScanHandler(api ActiveScanAPI) gin.HandlerFunc {
 			return
 		}
 
-		eid, hunterID, err := api.CreateActiveScan(c.Request.Context(), brief)
+		taskID, hunterID, err := api.CreateActiveScan(c.Request.Context(), brief)
 		if err != nil {
 			c.JSON(500, gin.H{"error": err.Error()})
 			return
 		}
 		c.JSON(200, gin.H{
-			"owner_id":  eid,
+			"task_id":   taskID,
 			"hunter_id": hunterID,
 		})
 	}

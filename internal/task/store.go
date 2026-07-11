@@ -16,7 +16,7 @@ type Store struct {
 func NewStore(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
 
 // colsSelect 是所有 SELECT / RETURNING 路径的统一列序，与 scan() 字段一一对应。
-const colsSelect = "id, mode, brief, target_host, status, heartbeat_at, paused_ms, " +
+const colsSelect = "id, mode, assignment_id, brief, target_host, status, heartbeat_at, paused_ms, " +
 	"created_at, ended_at, error_message"
 
 const (
@@ -28,6 +28,9 @@ const (
 //   - active：Brief 必填，TargetHost 可空。
 //   - passive：TargetHost 必填，Brief 留空。
 func (s *Store) Create(ctx context.Context, p NewParams) (Task, error) {
+	if p.AssignmentID == "" {
+		return Task{}, fmt.Errorf("create task: assignment_id 必填")
+	}
 	switch p.Mode {
 	case ModeActive:
 		if p.Brief == "" {
@@ -41,9 +44,9 @@ func (s *Store) Create(ctx context.Context, p NewParams) (Task, error) {
 		return Task{}, fmt.Errorf("create task: 非法 mode %q", p.Mode)
 	}
 	row := s.pool.QueryRow(ctx, `
-		INSERT INTO task (mode, brief, target_host, status)
-		VALUES ($1, $2, $3, 'active')
-		RETURNING `+colsSelect, string(p.Mode), p.Brief, p.TargetHost)
+		INSERT INTO task (mode, assignment_id, brief, target_host, status)
+		VALUES ($1, $2, $3, $4, 'active')
+		RETURNING `+colsSelect, string(p.Mode), p.AssignmentID, p.Brief, p.TargetHost)
 	var t Task
 	if err := scan(row, &t); err != nil {
 		return Task{}, fmt.Errorf("create task: %w", err)
@@ -103,7 +106,7 @@ type scanner interface {
 // scan 是 colsSelect 列序的统一反序列化点。
 func scan(r scanner, t *Task) error {
 	var mode, status string
-	if err := r.Scan(&t.ID, &mode, &t.Brief, &t.TargetHost, &status,
+	if err := r.Scan(&t.ID, &mode, &t.AssignmentID, &t.Brief, &t.TargetHost, &status,
 		&t.HeartbeatAt, &t.PausedMs,
 		&t.CreatedAt, &t.EndedAt, &t.ErrorMessage); err != nil {
 		return err

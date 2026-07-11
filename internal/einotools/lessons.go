@@ -76,10 +76,10 @@ type writeLessonArgs struct {
 func BuildWriteLesson(store LessonAdder, host string) (tool.BaseTool, error) {
 	return utils.InferTool(
 		"write_lesson",
-		"写一条「跨 owner 长期经验」到 lesson 库"+
+		"写一条「跨 task 长期经验」到 lesson 库"+
 			"（按 host 永久累积，下次扫同一 host 自动注入 user prompt；同 content_hash 自动 dedup）。"+
 			"\n\nhost 维度：passive 模式是真实 HTTP host（如 target.com:8080），跨 task 复用度高；"+
-			"active 模式是 brief 里抽取的 URL host，抽不到时回退 owner_id 兜底（此情况 lesson 跨 task 复用失效）。"+
+			"active 模式是 brief 里抽取的 URL host，抽不到时回退 task_id 兜底（此情况 lesson 跨 task 复用失效）。"+
 			"\n\n【必写】下次扫描同 host / 同类目标能复用的知识："+
 			"\n- 目标默认/常用凭据（如『此 host 默认 admin:password』）"+
 			"\n- 工具调用 pattern（如『DVWA login.php 必须先 GET 拿 user_token 再 POST』）"+

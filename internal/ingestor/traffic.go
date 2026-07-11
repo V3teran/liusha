@@ -20,6 +20,7 @@ import (
 	"github.com/redis/go-redis/v9"
 	"github.com/rs/zerolog"
 
+	"github.com/V3teran/liusha/internal/assignment"
 	"github.com/V3teran/liusha/internal/config"
 	"github.com/V3teran/liusha/internal/conversation"
 	"github.com/V3teran/liusha/internal/flow"
@@ -53,6 +54,7 @@ type Traffic struct {
 	retryDelay    time.Duration
 	recreateDelay time.Duration
 
+	assignments   *assignment.Store    // 聚合建 passive assignment（一切 task 皆属某 assignment）
 	tasks         *task.Store          // passive task 建/查
 	agg           *aggregator          // 按 host 攒批窗口（Redis）
 	proxyFlows    *flow.ProxyStore     // 代理捕获流量落库 + 领取
@@ -69,6 +71,7 @@ type Deps struct {
 	Cfg           config.IngestorConfig
 	Stream        string
 	Tenant        string // Redis key 前缀（聚合窗口 + 锁）
+	Assignments   *assignment.Store
 	Tasks         *task.Store
 	ProxyFlows    *flow.ProxyStore
 	AgentFlows    *flow.AgentStore
@@ -80,9 +83,9 @@ type Deps struct {
 
 // NewTraffic 构造并 ensure consumer group 存在。
 func NewTraffic(ctx context.Context, deps Deps) (*Traffic, error) {
-	if deps.Redis == nil || deps.Tasks == nil || deps.ProxyFlows == nil ||
+	if deps.Redis == nil || deps.Assignments == nil || deps.Tasks == nil || deps.ProxyFlows == nil ||
 		deps.AgentFlows == nil || deps.Hunters == nil || deps.Enqueuer == nil {
-		return nil, errors.New("ingestor.NewTraffic: redis/tasks/proxyFlows/agentFlows/hunters/enqueuer 必填")
+		return nil, errors.New("ingestor.NewTraffic: redis/assignments/tasks/proxyFlows/agentFlows/hunters/enqueuer 必填")
 	}
 	if strings.TrimSpace(deps.Stream) == "" {
 		return nil, errors.New("ingestor.NewTraffic: stream 必填（应来自 cfg.Proxy.StreamName）")
@@ -101,6 +104,7 @@ func NewTraffic(ctx context.Context, deps Deps) (*Traffic, error) {
 		readBlock:     time.Duration(deps.Cfg.ReadBlockTimeoutMs) * time.Millisecond,
 		retryDelay:    time.Duration(deps.Cfg.RetryDelayMs) * time.Millisecond,
 		recreateDelay: time.Duration(deps.Cfg.RecreateGroupDelayMs) * time.Millisecond,
+		assignments:   deps.Assignments,
 		tasks:         deps.Tasks,
 		agg:           newAggregator(deps.Redis, prefix, deps.Cfg.AggregateBatchSize, window),
 		proxyFlows:    deps.ProxyFlows,
@@ -303,7 +307,18 @@ func (t *Traffic) handleExternalSnap(ctx context.Context, snap *proxy.TrafficSna
 // 领取用条件更新（consumed_by_task_id IS NULL），跨实例幂等（§13.2）。领到 0 条说明流量已被
 // 别的 task 消费或全部滞留锁定，回滚建的 task（abort）避免空任务。
 func (t *Traffic) spawnPassiveTask(ctx context.Context, host string) {
-	tk, err := t.tasks.Create(ctx, task.NewParams{Mode: task.ModePassive, TargetHost: host})
+	// 一切下发皆走 assignment（§3.1）：聚合器建 assignment(passive, auto, [host]) → 1 task（fan-in）。
+	asg, err := t.assignments.Create(ctx, assignment.NewParams{
+		Mode:   assignment.ModePassive,
+		Source: assignment.SourceAuto,
+		Items:  []assignment.Item{{Host: host}},
+		Title:  host,
+	})
+	if err != nil {
+		t.logger.Warn().Err(err).Str("host", host).Msg("建 passive assignment 失败")
+		return
+	}
+	tk, err := t.tasks.Create(ctx, task.NewParams{Mode: task.ModePassive, AssignmentID: asg.ID, TargetHost: host})
 	if err != nil {
 		t.logger.Warn().Err(err).Str("host", host).Msg("建 passive task 失败")
 		return

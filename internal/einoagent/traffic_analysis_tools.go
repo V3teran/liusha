@@ -1,6 +1,7 @@
 package einoagent
 
 import (
+	"context"
 	"errors"
 	"fmt"
 
@@ -8,12 +9,13 @@ import (
 
 	"github.com/V3teran/liusha/internal/einotools"
 	"github.com/V3teran/liusha/internal/flow"
+	"github.com/V3teran/liusha/internal/lead"
 	"github.com/V3teran/liusha/internal/sandbox"
 	"github.com/V3teran/liusha/internal/skill"
 )
 
 // 必装 store 组合接口（accept interfaces）：*finding.Store / *lesson.Store /
-// credential.Provider 各自自动满足；单测可注入 fake。
+// credential.Provider / *lead.Store 各自自动满足；单测可注入 fake。
 type (
 	// FindingStore 满足 read/write/update_finding 三工具。
 	FindingStore interface {
@@ -31,6 +33,11 @@ type (
 		einotools.CredentialReader
 		einotools.CredentialWriter
 	}
+	// LeadStore 满足 write_lead（写）+ BuildDeepSwarm 拼子代理 Instruction 用的读（§7.5）。
+	LeadStore interface {
+		einotools.LeadAdder
+		ReadRecent(ctx context.Context, host string) (map[lead.Kind][]lead.Entry, error)
+	}
 )
 
 // TrafficAnalysisToolDeps 是装配 trafficAnalysis eino 工具集所需的依赖。
@@ -39,6 +46,7 @@ type TrafficAnalysisToolDeps struct {
 	Findings    FindingStore
 	Lessons     LessonStore
 	Credentials CredentialStore
+	Lead        LeadStore // 情报黑板（§7）；write_lead 工具 + BuildDeepSwarm 子代理 Instruction 读同源
 
 	// ProxyFlows / AgentFlows 是拆表后的两个流量 store（scanner 传 *flow.ProxyStore /
 	// *flow.AgentStore）；nil 时不注册 replay/list/view_flow。passive traffic-analysis 用
@@ -90,6 +98,9 @@ func BuildTrafficAnalysisTools(deps TrafficAnalysisToolDeps, p TrafficAnalysisTo
 	add(einotools.BuildUpdateFinding(deps.Findings))
 	add(einotools.BuildReadLessons(deps.Lessons, p.Host))
 	add(einotools.BuildWriteLesson(deps.Lessons, p.Host))
+	// write_lead（情报黑板，§7）：traffic-analysis 是 passive 的顶层 agent 也是唯一执行者，
+	// 既走 BuildUserPrompt 读 lead 段，也需要写权限。
+	add(einotools.BuildWriteLead(deps.Lead, p.Host, p.HunterID, p.TaskID))
 	// done：prompt 是 react/eino 共享资产、深度依赖 done 收尾——不注册会「tool done not found」（e2e 实测）。
 	add(einotools.BuildDone())
 

@@ -7,13 +7,13 @@ import (
 )
 
 // Deps 是 NewServer 的注入参数集合。
-// Credentials / Owners / Sitemap / ActiveScan 为 nil 时对应路由不注册（部分场景测试用）。
+// Credentials / Tasks / Sitemap / ActiveScan 为 nil 时对应路由不注册（部分场景测试用）。
 type Deps struct {
 	APIKey      string
 	Credentials CredentialsAPI
-	Owners      OwnersAPI
+	Tasks       TaskAPI
 	Sitemap     SitemapAPI // 仅 active 模式攻击面树视图
-	// AttackGraph 为 nil 时 /attack_graph/:owner_id 路由不注册。
+	// AttackGraph 为 nil 时 /attack_graph/:task_id 路由不注册。
 	// 由 cmd/api 注入 *attackgraph.Projector（自动满足 AttackGraphAPI）。
 	// 执行图（思维链+成果链）read-model 投影，见 docs/attack-graph-design.md。
 	AttackGraph AttackGraphAPI
@@ -25,7 +25,7 @@ type Deps struct {
 	// 前端（liusha-ui）用此 endpoint 按 orchestrator_id 拼任务树（subtask swarm 可观测）。
 	AgentRuns AgentRunsAPI
 	// ActiveScan 为 nil 时 /scan/active 路由不注册。
-	// 由 cmd/api 注入自定义 adapter（包 owner store + hunter.Store + worker.Client）。
+	// 由 cmd/api 注入自定义 adapter（包 task store + hunter.Store + worker.Client）。
 	ActiveScan ActiveScanAPI
 	// 阶段B 对话式平台（任一为 nil 时对应路由不注册）：
 	//   Chat          POST /chat 发起对话扫描（cmd/api 注入 chatAdapter）
@@ -76,9 +76,9 @@ func NewServer(d Deps) http.Handler {
 		r.GET("/credential", listCredentialHandler(d.Credentials))
 		r.DELETE("/credential", deleteCredentialHandler(d.Credentials))
 	}
-	if d.Owners != nil {
-		r.POST("/session/:id/abort", abortHandler(d.Owners))
-		r.GET("/session", listSessionsHandler(d.Owners))
+	if d.Tasks != nil {
+		r.POST("/session/:id/abort", abortHandler(d.Tasks))
+		r.GET("/session", listSessionsHandler(d.Tasks))
 	}
 	if d.Sitemap != nil {
 		r.GET("/sitemap/:task_id", sitemapHandler(d.Sitemap))

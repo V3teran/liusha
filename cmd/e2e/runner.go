@@ -56,13 +56,13 @@ func runActiveProfiles(ctx context.Context, profs []activeProfile, apiBase, apiK
 				Msg("adhoc brief 从 env 注入（不入仓库）")
 		}
 
-		eid, hunterID, err := createActiveScan(apiBase, apiKey, ap.brief)
+		taskID, hunterID, err := createActiveScan(apiBase, apiKey, ap.brief)
 		if err != nil {
 			return fmt.Errorf("active profile %s: createActiveScan: %w", ap.name, err)
 		}
 		logger.Info().
 			Str("profile", ap.name).
-			Str("owner_id", eid).
+			Str("task_id", taskID).
 			Str("hunter_id", hunterID).
 			Msg("active scan dispatched")
 
@@ -72,13 +72,13 @@ func runActiveProfiles(ctx context.Context, profs []activeProfile, apiBase, apiK
 		var lastFindings []finding.VulnFinding
 		var lastTotal, lastUnfinished int
 		for time.Now().Before(deadline) {
-			runs, runErr := agentRunStore.ListByTask(ctx, eid, 100)
+			runs, runErr := agentRunStore.ListByTask(ctx, taskID, 100)
 			unfinished, totalRuns := 0, 0
 			if runErr != nil {
 				// 之前 silent swallow：导致 e2e 看不到 orchestrator 但不知为何。必须 log 出来。
-				logger.Warn().Err(runErr).Str("eid", eid).Msg("ListByTask(hunter) failed — totalRuns 强制 0 是误报")
+				logger.Warn().Err(runErr).Str("task_id", taskID).Msg("ListByTask(hunter) failed — totalRuns 强制 0 是误报")
 			} else {
-				// active 每次都新建 session——eid 已唯一定位本次 run 全集（orchestrator + spawn 的 exploitations）。
+				// active 每次都新建 session——taskID 已唯一定位本次 run 全集（orchestrator + spawn 的 exploitations）。
 				// 不再用 startedAt 时间窗过滤 agent_run：dispatched 返回前 server 端 PG now()
 				// 已先于 Go time.Now() 触发，orchestrator run.CreatedAt < startedAt → After() = false
 				// → orchestrator 被误滤 → total_runs=0 → observed 永远 false → e2e 超时不 PASS。
@@ -89,10 +89,10 @@ func runActiveProfiles(ctx context.Context, profs []activeProfile, apiBase, apiK
 					}
 				}
 			}
-			all, findErr := store.ListByTask(ctx, eid)
+			all, findErr := store.ListByTask(ctx, taskID)
 			var matched []finding.VulnFinding
 			if findErr != nil {
-				logger.Warn().Err(findErr).Str("eid", eid).Msg("ListByTask(finding) failed — findings 强制 0 是误报")
+				logger.Warn().Err(findErr).Str("task_id", taskID).Msg("ListByTask(finding) failed — findings 强制 0 是误报")
 			} else {
 				matched = filterAfter(all, startedAt)
 			}

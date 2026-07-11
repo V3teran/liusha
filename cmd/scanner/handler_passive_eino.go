@@ -74,6 +74,7 @@ func (h handler) handlePassiveEino(ctx context.Context, p worker.Payload, entryp
 		Findings:          h.findings,
 		Lessons:           h.lessons,
 		Credentials:       h.hunterDeps.Credentials,
+		Lead:              h.leads,
 		ProxyFlows:        h.proxyFlows,
 		ToolingLoader:     h.hunterDeps.ToolingLoader,
 		VulnLoader:        h.hunterDeps.VulnLoader,

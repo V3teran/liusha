@@ -48,6 +48,9 @@ var toolRegistry = map[string]toolBuilder{
 	"write_lesson": func(c ToolBuildCtx) (tool.BaseTool, error) {
 		return einotools.BuildWriteLesson(c.Deps.Lessons, c.Params.Host)
 	},
+	"write_lead": func(c ToolBuildCtx) (tool.BaseTool, error) {
+		return einotools.BuildWriteLead(c.Deps.Lead, c.Params.Host, c.Params.HunterID, c.Params.TaskID)
+	},
 	"done": func(c ToolBuildCtx) (tool.BaseTool, error) {
 		return einotools.BuildDone()
 	},

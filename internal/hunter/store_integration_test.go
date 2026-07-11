@@ -17,8 +17,9 @@ func setup(t *testing.T) (*Store, string) {
 	pool := dbtest.NewPgPool(t)
 	ts := task.NewStore(pool)
 	tk, err := ts.Create(context.Background(), task.NewParams{
-		Mode:       task.ModePassive,
-		TargetHost: "test.example.com",
+		Mode:         task.ModePassive,
+		AssignmentID: dbtest.SeedAssignment(t, pool, "passive"),
+		TargetHost:   "test.example.com",
 	})
 	if err != nil {
 		t.Fatalf("create task: %v", err)

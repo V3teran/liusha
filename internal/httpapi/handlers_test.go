@@ -41,7 +41,7 @@ func (f *fakeCred) Delete(_ context.Context, host string) error {
 	return nil
 }
 
-// fakeAbort 是 OwnersAPI 的内存实现。
+// fakeAbort 是 TaskAPI 的内存实现。
 type fakeAbort struct {
 	aborted []string
 }
@@ -53,8 +53,8 @@ func (f *fakeAbort) Abort(_ context.Context, id string) error {
 
 // List 简单 mock：返回固定 1 条 stub summary，足以让现有测试通过 typecheck；
 // 真正的 List handler 行为校验留给将来按需补 TestListSessions_*。
-func (f *fakeAbort) List(_ context.Context, _ int) ([]OwnerSummary, error) {
-	return []OwnerSummary{{ID: "stub-eid", Scope: `{"any":true}`, Status: "active"}}, nil
+func (f *fakeAbort) List(_ context.Context, _ int) ([]TaskSummary, error) {
+	return []TaskSummary{{ID: "stub-eid", Scope: `{"any":true}`, Status: "active"}}, nil
 }
 
 func newTestServer(t *testing.T, d Deps) *httptest.Server {
@@ -236,7 +236,7 @@ func TestCredentialDelete(t *testing.T) {
 
 func TestSessionAbort(t *testing.T) {
 	fa := &fakeAbort{}
-	srv := newTestServer(t, Deps{Owners: fa})
+	srv := newTestServer(t, Deps{Tasks: fa})
 	defer srv.Close()
 
 	req, _ := http.NewRequest("POST", srv.URL+"/session/eid-1/abort", nil)
@@ -256,7 +256,7 @@ func TestSessionAbort(t *testing.T) {
 
 func TestSessionAbort_RequiresAuth(t *testing.T) {
 	fa := &fakeAbort{}
-	srv := newTestServer(t, Deps{Owners: fa})
+	srv := newTestServer(t, Deps{Tasks: fa})
 	defer srv.Close()
 
 	req, _ := http.NewRequest("POST", srv.URL+"/session/eid-1/abort", nil)
@@ -274,15 +274,15 @@ func TestSessionAbort_RequiresAuth(t *testing.T) {
 }
 
 // 删除 TestPassiveScan_Created / _RequiresAuth / _LookupError 三个用例：
-// owner 多态坍缩为统一 task 后，OwnersAPI.EnsurePassiveSession 及 POST /scan/passive 路由已移除
+// owner 多态坍缩为统一 task 后，TaskAPI.EnsurePassiveSession 及 POST /scan/passive 路由已移除
 // （passive task 由 ingestor 按流量窗口聚合生成，不再走 API 预热路径）。
 
 // fakeActiveScan 是 ActiveScanAPI 的内存实现：记录最近一次 CreateActiveScan 入参，可注入 err。
 type fakeActiveScan struct {
-	gotBrief            string
-	calls               int
-	err                 error
-	retEID, retHunterID string
+	gotBrief               string
+	calls                  int
+	err                    error
+	retTaskID, retHunterID string
 }
 
 func (f *fakeActiveScan) CreateActiveScan(_ context.Context, brief string) (string, string, error) {
@@ -291,18 +291,18 @@ func (f *fakeActiveScan) CreateActiveScan(_ context.Context, brief string) (stri
 	if f.err != nil {
 		return "", "", f.err
 	}
-	eid := f.retEID
-	if eid == "" {
-		eid = "eid-active"
+	taskID := f.retTaskID
+	if taskID == "" {
+		taskID = "task-active-id"
 	}
 	tid := f.retHunterID
 	if tid == "" {
 		tid = "task-active"
 	}
-	return eid, tid, nil
+	return taskID, tid, nil
 }
 
-// TestActiveScan_Created：正常路径 → 200 + {owner_id, hunter_id}；fake 记录 brief 原文。
+// TestActiveScan_Created：正常路径 → 200 + {task_id, hunter_id}；fake 记录 brief 原文。
 func TestActiveScan_Created(t *testing.T) {
 	fs := &fakeActiveScan{}
 	srv := newTestServer(t, Deps{ActiveScan: fs})
@@ -324,14 +324,14 @@ func TestActiveScan_Created(t *testing.T) {
 		t.Fatalf("status=%d body=%s", resp.StatusCode, string(b))
 	}
 	var out struct {
-		OwnerID  string `json:"owner_id"`
+		TaskID   string `json:"task_id"`
 		HunterID string `json:"hunter_id"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if out.OwnerID != "eid-active" || out.HunterID != "task-active" {
-		t.Fatalf("ids: oid=%q tid=%q", out.OwnerID, out.HunterID)
+	if out.TaskID != "task-active-id" || out.HunterID != "task-active" {
+		t.Fatalf("ids: tid=%q hid=%q", out.TaskID, out.HunterID)
 	}
 	if fs.calls != 1 {
 		t.Fatalf("calls=%d, want 1", fs.calls)

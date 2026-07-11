@@ -373,6 +373,8 @@ scanner:
   flow_max_response_body: 8388608          # 8 MiB；flow.Store 入库截断阈值（与 proxy.max_response_body_size 对齐）
   queue_hunter_weight: 5                   # asynq 队列优先级权重（数字越大越优先）
   queue_dispatch_weight: 1
+  per_host_concurrency: 2                  # per-host 并发上限（§4.3）；同 host 同时运行 task 数超限则退避重试；≤0 关闭限速
+  lead_active_cooldown_hours: 168          # active task 终态后对该 host 情报黑板设冷却 TTL（§7.2）；≤0 关（不过期，靠 LTRIM 兜底）
 
 # ---- 主 ReAct 循环参数 ----
 react:
