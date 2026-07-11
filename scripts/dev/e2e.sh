@@ -62,10 +62,12 @@ echo "===== 2/6 清空 db / redis ====="
 # 错误**不再静默**——TRUNCATE 任一表失败会立即 exit，避免旧 task / finding 残留。
 # 表名演化：0043 agent_run→agent_task，0054 agent_task→hunter；0046 加 tool_invocation，0047 加 audit_log；
 # 0056 加 endpoint，0064 退役（攻击面改从流量派生 sitemap）；0059 删 finding_relation（→ finding.depends_on uuid[] 替代）；
-# 0073-0077：active_scan+passive_session 合并为 task；http_flow 拆 proxy_traffic+agent_traffic；conversation.scan_id→task_id。
+# 0073-0077：active_scan+passive_session 合并为 task；http_flow 拆 proxy_traffic+agent_traffic；conversation.scan_id→task_id；
+# 0078：assignment（下发容器）+ cron_schedule（定时模板）——assignment 是 task 的父表（task.assignment_id
+# REFERENCES assignment.id），不显式 truncate 会在多次 e2e 运行间无限堆积孤儿行。
 # task 放最后——CASCADE 会连带清 hunter/finding/... 的 task_id 引用行，但显式全列更清晰。
 if ! docker exec "$PG_CONTAINER" psql -U liusha -d liusha -c \
-    "TRUNCATE TABLE finding, lesson, llm_invocation, tool_invocation, audit_log, hunter, proxy_traffic, agent_traffic, conversation, task CASCADE;"; then
+    "TRUNCATE TABLE finding, lesson, llm_invocation, tool_invocation, audit_log, hunter, proxy_traffic, agent_traffic, conversation, task, assignment, cron_schedule CASCADE;"; then
   echo "  ✗ postgres TRUNCATE 失败 — 看上面 psql 错误（常见原因：容器不在 / schema 不一致 / migrate 未跑）"
   exit 1
 fi

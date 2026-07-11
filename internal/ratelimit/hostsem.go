@@ -30,7 +30,9 @@ func NewHostSemaphore(rdb *redis.Client, keyPrefix string, limit int, ttl time.D
 	return &HostSemaphore{rdb: rdb, keyPrefix: keyPrefix, limit: int64(limit), ttl: ttl}
 }
 
-func (s *HostSemaphore) key(host string) string { return s.keyPrefix + ":hostsem:" + host }
+// key 拼接：keyPrefix 约定自带尾部冒号（如 "credentials:"，见 credential.RedisProvider 同约定），
+// 直接紧跟 "hostsem:" 拼接，不再额外插入冒号（否则会出现 "credentials::hostsem:host" 双冒号）。
+func (s *HostSemaphore) key(host string) string { return s.keyPrefix + "hostsem:" + host }
 
 // Acquire 尝试为 host 占一个并发额度。
 //   - limit ≤ 0（不限）或 host 为空 → 返回 (noopRelease, true, nil)。
