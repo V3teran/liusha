@@ -110,6 +110,24 @@ func (h handler) handlePassiveEino(ctx context.Context, p worker.Payload, entryp
 	}
 	defer cleanup() // run 结束后 flush 异步事件 sink（关 channel + 等缓冲事件写完落库）
 
+	// task 终态收尾（trafficAnalysis 退出后无人收尾会卡 'active'）。§6.3 设计口径
+	// "passive task 是有界批分析，跑完即终态"此前只有文档没有代码——正常跑完从未显式
+	// Complete，只能靠 reaper 心跳超时误判为 aborted（语义错误：明明正常收工却被记成超时中止）。
+	finalizeAnalysis := func(complete bool, reason string) {
+		fctx, fcancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer fcancel()
+		var ferr error
+		if complete {
+			ferr = h.tasks.Complete(fctx, taskID)
+		} else {
+			ferr = h.tasks.Abort(fctx, taskID, reason)
+		}
+		if ferr != nil {
+			h.logger.Warn().Err(ferr).Str("task_id", taskID).Bool("complete", complete).
+				Msg("task 终态写失败（task 可能卡 active，待人工排查）")
+		}
+	}
+
 	// task 中止 watcher：eino 无 step 钩子，改后台轮询 task.Status，
 	// 非 active 即 cancel ctx 让 RunTrafficAnalysis 自然停。
 	runCtx, cancel := context.WithCancel(ctx)
@@ -119,8 +137,10 @@ func (h handler) handlePassiveEino(ctx context.Context, p worker.Payload, entryp
 	res, err := einoagent.RunTrafficAnalysis(runCtx, model, tools, instruction, userPrompt, h.passiveRole.MaxIterations, mws, agentHandlers, opts...)
 	if err != nil {
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			finalizeAnalysis(false, "ctx "+err.Error())
 			return h.abortTask(ctx, p.HunterID, "ctx "+err.Error())
 		}
+		finalizeAnalysis(false, err.Error())
 		return h.failTask(ctx, p.HunterID, err)
 	}
 
@@ -130,8 +150,10 @@ func (h handler) handlePassiveEino(ctx context.Context, p worker.Payload, entryp
 		"final_text": res.FinalText,
 	})
 	if err != nil {
+		finalizeAnalysis(false, "marshal task result")
 		return h.failTask(ctx, p.HunterID, fmt.Errorf("marshal task result: %w", err))
 	}
+	finalizeAnalysis(true, "")
 	return h.hunters.SetDone(ctx, p.HunterID, out)
 }
 

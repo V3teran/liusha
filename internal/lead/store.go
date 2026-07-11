@@ -16,7 +16,7 @@ const (
 	perKindLimit = 5
 )
 
-// Store 是情报黑板的 Redis 实现。key = "<keyPrefix>:lead:<host>"，value = LIST（每条一个 JSON）。
+// Store 是情报黑板的 Redis 实现。key = "<keyPrefix>lead:<host>"，value = LIST（每条一个 JSON）。
 type Store struct {
 	rdb       *redis.Client
 	keyPrefix string
@@ -27,8 +27,10 @@ func NewStore(rdb *redis.Client, keyPrefix string) *Store {
 	return &Store{rdb: rdb, keyPrefix: keyPrefix}
 }
 
+// key 拼接：keyPrefix 约定自带尾部冒号（如 "credentials:"，见 credential.RedisProvider 同约定），
+// 直接紧跟 "lead:" 拼接，不再额外插入冒号（否则会出现 "credentials::lead:host" 双冒号）。
 func (s *Store) key(host string) string {
-	return s.keyPrefix + ":lead:" + host
+	return s.keyPrefix + "lead:" + host
 }
 
 // Append 写一条情报（纯 append，agent 零负担：不编 key 不判重）。
