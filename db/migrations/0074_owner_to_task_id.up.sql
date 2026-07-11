@@ -35,7 +35,10 @@ ALTER TABLE llm_invocation ADD COLUMN task_id uuid REFERENCES task(id) ON DELETE
 CREATE INDEX llm_invocation_task_idx ON llm_invocation (task_id);
 
 -- ── tool_invocation
+-- tool_invocation_task_idx 这个名字被 0046 占用过（当时建在 agent_task_id 上）；
+-- 0055 把该列 rename 成 hunter_id 时索引未随之改名，需先清掉旧索引再建同名新索引。
 DROP INDEX IF EXISTS tool_invocation_owner_idx;
+DROP INDEX IF EXISTS tool_invocation_task_idx;
 ALTER TABLE tool_invocation DROP COLUMN IF EXISTS owner_type;
 ALTER TABLE tool_invocation DROP COLUMN IF EXISTS owner_id;
 ALTER TABLE tool_invocation ADD COLUMN task_id uuid NOT NULL REFERENCES task(id) ON DELETE CASCADE;

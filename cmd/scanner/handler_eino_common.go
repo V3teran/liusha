@@ -86,6 +86,7 @@ func (h handler) einoToolDeps(sandboxClient sandbox.Client) einoagent.TrafficAna
 		Findings:          h.findings,
 		Lessons:           h.lessons,
 		Credentials:       h.hunterDeps.Credentials,
+		Lead:              h.leads,
 		ProxyFlows:        h.proxyFlows,
 		AgentFlows:        h.agentFlows,
 		ToolingLoader:     h.hunterDeps.ToolingLoader,

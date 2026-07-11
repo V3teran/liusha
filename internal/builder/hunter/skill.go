@@ -14,6 +14,7 @@ import (
 
 	"github.com/V3teran/liusha/internal/credential"
 	"github.com/V3teran/liusha/internal/finding"
+	"github.com/V3teran/liusha/internal/lead"
 	"github.com/V3teran/liusha/internal/lesson"
 	"github.com/V3teran/liusha/internal/skill"
 	"github.com/V3teran/liusha/internal/toolinvocation"
@@ -47,6 +48,7 @@ type Deps struct {
 	Findings        *finding.Store
 	Lessons         *lesson.Store
 	Credentials     credential.Provider
+	Lead            *lead.Store           // user prompt 情报黑板段（§7.5，顶层 agent 只读注入，无工具）
 	ToolInvocations *toolinvocation.Store // tool_invocation 遥测落库
 	ToolingLoader   *skill.Loader         // read_tooling_skill；nil 不注册
 	ToolsManifest   *manifest.Manifest    // user prompt 的工具索引段（tooling_catalog）

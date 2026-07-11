@@ -15,11 +15,13 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/V3teran/liusha/internal/assignment"
 	"github.com/V3teran/liusha/internal/attackgraph"
 	"github.com/V3teran/liusha/internal/audit"
 	"github.com/V3teran/liusha/internal/config"
 	"github.com/V3teran/liusha/internal/conversation"
 	"github.com/V3teran/liusha/internal/credential"
+	"github.com/V3teran/liusha/internal/cronschedule"
 	"github.com/V3teran/liusha/internal/db"
 	"github.com/V3teran/liusha/internal/envx"
 	"github.com/V3teran/liusha/internal/finding"
@@ -71,8 +73,11 @@ func main() {
 
 	credAPI := credential.NewRedis(rdb, cfg.Credential.RedisKeyPrefix)
 	taskStore := task.NewStore(pool)
+	assignmentStore := assignment.NewStore(pool)
+	cronStore := cronschedule.NewStore(pool) // 定时模板（§3.3/§4.2），Scheduler goroutine 轮询
 	findStore := finding.NewStore(pool)
 	agentFlowStore := flow.NewAgentStore(pool) // sitemap 攻击面从 agent_traffic 派生
+	proxyFlowStore := flow.NewProxyStore(pool) // cron 定时触发 passive 展开时领取该 host 未消费流量
 	projector := &sitemap.Projector{
 		Findings: findStore,
 		Flows:    agentFlowStore, // 攻击面从 agent_traffic 派生（按 task）
@@ -85,7 +90,7 @@ func main() {
 	hunterStore := hunter.NewStore(pool)
 	enq := worker.NewClient(asynq.RedisClientOpt{Addr: os.Getenv("LIUSHA_REDIS_ADDR")})
 	defer enq.Close()
-	auditStore := audit.NewStore(pool)         // 0047：owner abort / create 审计
+	auditStore := audit.NewStore(pool)         // 0047：task abort / create 审计
 	convStore := conversation.NewStore(pool)   // 阶段B：对话/消息
 	toolStore := toolinvocation.NewStore(pool) // 对话用量合计：工具耗时来源
 	// 执行图（思维链+成果链）read-model 投影：复用 conv/finding store，不落表（docs/attack-graph-design.md）。
@@ -107,7 +112,23 @@ func main() {
 	// 执行图里程碑摘要：用 light LLM 把子代理推理总结成一句（派生层，按需调用）。
 	attackGraphProjector.Summary = llmSummarizer{router: router}
 	publisher := scanstream.NewPublisher(rdb)
-	activeAdapter := &activeScanAdapter{tasks: taskStore, hunters: hunterStore, enq: enq, audit: auditStore, conversations: convStore, roles: scenarioRoles, router: router, findings: findStore, publisher: publisher, activeRunTimeout: time.Duration(cfg.Scanner.ActiveAgentRunTimeoutSeconds) * time.Second}
+	activeAdapter := &activeScanAdapter{assignments: assignmentStore, tasks: taskStore, hunters: hunterStore, enq: enq, audit: auditStore, conversations: convStore, roles: scenarioRoles, router: router, findings: findStore, publisher: publisher, activeRunTimeout: time.Duration(cfg.Scanner.ActiveAgentRunTimeoutSeconds) * time.Second}
+
+	// cron Scheduler（§4.2/§10 P4）：轮询 cron_schedule 到点模板 → 克隆 assignment → 展开 task。
+	// 单副本够用；ctx 随进程关停取消（无需独立 shutdown 时限——轮询循环立即退出，无 in-flight 状态要收尾）。
+	cronCtx, cronCancel := context.WithCancel(context.Background())
+	defer cronCancel()
+	runner := &cronRunner{
+		schedules:   cronStore,
+		assignments: assignmentStore,
+		tasks:       taskStore,
+		proxyFlows:  proxyFlowStore,
+		hunters:     hunterStore,
+		enq:         enq,
+		active:      activeAdapter,
+		logger:      logger,
+	}
+	go runner.run(cronCtx)
 
 	// SSE stream cookie 密钥：对话功能开启时必填（EventSource 鉴权用），缺失 fail-fast。
 	streamSecret := []byte(os.Getenv("LIUSHA_STREAM_COOKIE_SECRET"))
@@ -124,7 +145,7 @@ func main() {
 			StreamCookieSecret: streamSecret,
 			CookieSecure:       os.Getenv("LIUSHA_COOKIE_SECURE") == "true",
 			Credentials:        credAPI,
-			Owners: ownerAPIAdapter{
+			Tasks: taskAPIAdapter{
 				tasks: taskStore,
 				audit: auditStore,
 			},
@@ -171,30 +192,30 @@ func main() {
 	logger.Info().Msg("api stopped")
 }
 
-// ownerAPIAdapter 把 task store 适配到 httpapi.OwnersAPI 窄接口。
+// taskAPIAdapter 把 task store 适配到 httpapi.TaskAPI 窄接口。
 //
-// 合表后 owner 概念坍缩为 task：Abort/List 直接走 task store，无双表试探。
+// Abort/List 直接走 task store，无双表试探。
 // HTTP API 不暴露 errMsg：用户主动取消 task 即视为正常结束，abort 恒传 ""。
-type ownerAPIAdapter struct {
+type taskAPIAdapter struct {
 	tasks *task.Store
 	audit *audit.Store // 0047：abort 写审计事件；nil 时跳过
 }
 
 // Abort 把 task 置为 aborted。errMsg 恒空（用户主动 abort 视为正常结束）。
 // 0047：成功 abort 后写 audit_log（actor=api_user，target_kind=task）。
-func (a ownerAPIAdapter) Abort(ctx context.Context, id string) error {
+func (a taskAPIAdapter) Abort(ctx context.Context, id string) error {
 	if _, err := a.tasks.GetByID(ctx, id); err != nil {
 		return fmt.Errorf("task %s not found: %w", id, err)
 	}
 	if err := a.tasks.Abort(ctx, id, ""); err != nil {
 		return err
 	}
-	a.writeAudit(ctx, audit.ActionOwnerAbort, "task", id)
+	a.writeAudit(ctx, audit.ActionTaskAbort, "task", id)
 	return nil
 }
 
 // writeAudit best-effort 写审计事件；失败不阻塞业务，但记 Warn 留可见痕迹。
-func (a ownerAPIAdapter) writeAudit(ctx context.Context, action, kind, id string) {
+func (a taskAPIAdapter) writeAudit(ctx context.Context, action, kind, id string) {
 	if a.audit == nil {
 		return
 	}
@@ -208,8 +229,8 @@ func (a ownerAPIAdapter) writeAudit(ctx context.Context, action, kind, id string
 	}
 }
 
-// List 列出最近的 task → httpapi.OwnerSummary（前端下拉/列表）。mode 混列，按 created_at desc。
-func (a ownerAPIAdapter) List(ctx context.Context, limit int) ([]httpapi.OwnerSummary, error) {
+// List 列出最近的 task → httpapi.TaskSummary（前端下拉/列表）。mode 混列，按 created_at desc。
+func (a taskAPIAdapter) List(ctx context.Context, limit int) ([]httpapi.TaskSummary, error) {
 	if limit <= 0 {
 		limit = 20
 	}
@@ -217,7 +238,7 @@ func (a ownerAPIAdapter) List(ctx context.Context, limit int) ([]httpapi.OwnerSu
 	if err != nil {
 		return nil, fmt.Errorf("list tasks: %w", err)
 	}
-	out := make([]httpapi.OwnerSummary, 0, len(tasks))
+	out := make([]httpapi.TaskSummary, 0, len(tasks))
 	for _, t := range tasks {
 		var scope map[string]string
 		if t.Mode == task.ModePassive {
@@ -226,7 +247,7 @@ func (a ownerAPIAdapter) List(ctx context.Context, limit int) ([]httpapi.OwnerSu
 			scope = map[string]string{"brief": t.Brief}
 		}
 		scopeJSON, _ := json.Marshal(scope)
-		s := httpapi.OwnerSummary{
+		s := httpapi.TaskSummary{
 			ID:           t.ID,
 			Scope:        string(scopeJSON),
 			Status:       string(t.Status),
@@ -242,14 +263,15 @@ func (a ownerAPIAdapter) List(ctx context.Context, limit int) ([]httpapi.OwnerSu
 	return out, nil
 }
 
-// activeScanAdapter 把 owner store + hunter.Store + worker.Client 组合成
+// activeScanAdapter 把 task store + hunter.Store + worker.Client 组合成
 // httpapi.ActiveScanAPI 一站式入口：建 active scan → 建 hunter agent_run → 入 asynq 队列。
 //
-// 任一步失败都不留中间状态（前面失败直接返错；owner 已建但 enqueue 失败会留
+// 任一步失败都不留中间状态（前面失败直接返错；task 已建但 enqueue 失败会留
 // active scan，由用户手动 abort 或后续 sweeper——保持简单不上事务，与
 // passive 模式 ingestor.enqueueMain 一致语义）。
 // 合表后：task.Store 管扫描生命周期，hunter.Store 建 run。
 type activeScanAdapter struct {
+	assignments   *assignment.Store
 	tasks         *task.Store
 	hunters       *hunter.Store
 	enq           *worker.Client
@@ -286,17 +308,35 @@ func (e eventStreamAdapter) Subscribe(ctx context.Context, conversationID string
 	return scanstream.Subscribe(ctx, e.rdb, conversationID)
 }
 
-// createScan 是建 active scan 的核心：建 active_scan + hunter run + 入 asynq 队列（带
+// createScan 是建 active scan 的核心：建 assignment + task + hunter run + 入 asynq 队列（带
 // conversationID）。CreateActiveScan（无对话纯后台）与 StartChatScan（对话发起）共用。
 func (a *activeScanAdapter) createScan(ctx context.Context, brief, conversationID, scenarioID string) (string, string, error) {
+	// 一切下发皆走 assignment（§3.1）：单发 = 单元素 assignment(active, manual) → 1 task。
+	asg, err := a.assignments.Create(ctx, assignment.NewParams{
+		Mode:   assignment.ModeActive,
+		Source: assignment.SourceManual,
+		Items:  []assignment.Item{{Brief: brief}},
+		Title:  briefTitle(brief),
+	})
+	if err != nil {
+		return "", "", fmt.Errorf("create assignment: %w", err)
+	}
+	return a.expandActiveItem(ctx, asg.ID, brief, conversationID, scenarioID)
+}
+
+// expandActiveItem 把 assignment 下的一个 active item（brief）展开成 task + hunter run + enqueue。
+// 单发（createScan，建单元素 assignment 后展开 1 条）与批量/定时（cron Scheduler，建多元素
+// assignment 后逐条展开）复用同一份展开逻辑，只是 assignment 的建法不同（§3.1 单发 vs 批量/cron）。
+//
+// target_host 留空——暂不在 API 层 parse brief，hunter LLM 从 brief 自识别（scanner 入口回填）。
+func (a *activeScanAdapter) expandActiveItem(ctx context.Context, assignmentID, brief, conversationID, scenarioID string) (string, string, error) {
 	// scope 与 entrypoint 都只装 brief 原文——目标 URL / host 由 hunter LLM
 	// 从 brief 自然语言里自行识别（不在 API 层做 NL parser）。
 	body, err := json.Marshal(map[string]string{"brief": brief})
 	if err != nil {
 		return "", "", fmt.Errorf("marshal brief: %w", err)
 	}
-	// target_host 留空——暂不在 API 层 parse brief，hunter LLM 从 brief 自识别（scanner 入口回填）。
-	tk, err := a.tasks.Create(ctx, task.NewParams{Mode: task.ModeActive, Brief: brief})
+	tk, err := a.tasks.Create(ctx, task.NewParams{Mode: task.ModeActive, AssignmentID: assignmentID, Brief: brief})
 	if err != nil {
 		return "", "", fmt.Errorf("create task: %w", err)
 	}
@@ -341,13 +381,13 @@ func (a *activeScanAdapter) createScan(ctx context.Context, brief, conversationI
 		meta, _ := json.Marshal(map[string]string{"brief_preview": briefPreview, "hunter_id": tid})
 		if _, err := a.audit.Append(ctx, audit.Event{
 			Actor:      audit.ActorAPIUser,
-			Action:     audit.ActionOwnerCreate,
+			Action:     audit.ActionTaskCreate,
 			TargetKind: "task",
 			TargetID:   tk.ID,
 			Metadata:   meta,
 		}); err != nil {
 			// best-effort：审计失败不阻塞业务返回，但记 Warn 留可见痕迹
-			auditLog.Warn().Err(err).Str("action", string(audit.ActionOwnerCreate)).Str("target", tk.ID).Msg("task 创建审计写入失败（不阻塞业务）")
+			auditLog.Warn().Err(err).Str("action", string(audit.ActionTaskCreate)).Str("target", tk.ID).Msg("task 创建审计写入失败（不阻塞业务）")
 		}
 	}
 

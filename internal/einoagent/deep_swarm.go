@@ -9,6 +9,8 @@ import (
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/compose"
 	"github.com/cloudwego/eino/schema"
+
+	"github.com/V3teran/liusha/internal/lead"
 )
 
 // deep_swarm.go：用 eino deep prebuilt 装配 orchestrator + 杀伤链 sub-agents（orchestrator 经 deep 自带 task 工具派活）。
@@ -23,11 +25,11 @@ import (
 
 // DeepSwarmConfig 是装配 deep orchestrator+sub-agents 所需依赖（scanner composition root 注入）。
 type DeepSwarmConfig struct {
-	Model        model.ToolCallingChatModel // orchestrator + 所有 sub-agent 共享（并发安全）
-	Orchestrator RoleDef                    // 主代理角色（kind=orchestrator）
-	SubAgents    []RoleDef                  // 杀伤链阶段子代理角色
-	ToolDeps     TrafficAnalysisToolDeps    // 工具装配依赖（store/loader/sandbox）
-	Params       TrafficAnalysisToolParams  // owner/host/hunter 注入值
+	Model        model.ToolCallingChatModel     // orchestrator + 所有 sub-agent 共享（并发安全）
+	Orchestrator RoleDef                        // 主代理角色（kind=orchestrator）
+	SubAgents    []RoleDef                      // 杀伤链阶段子代理角色
+	ToolDeps     TrafficAnalysisToolDeps        // 工具装配依赖（store/loader/sandbox）
+	Params       TrafficAnalysisToolParams      // owner/host/hunter 注入值
 	Middlewares  []adk.AgentMiddleware          // 截图回灌/遥测/事件（einoRunOpts 产，struct 版）
 	Handlers     []adk.ChatModelAgentMiddleware // ① summarization 上下文压缩（einoRunOpts 产，接口版 Handlers）
 	MaxIteration int                            // orchestrator 迭代上限；0=用 Orchestrator.MaxIterations 或默认
@@ -44,6 +46,25 @@ func subAgentTargetSection(host string) string {
 	return fmt.Sprintf("\n\n## 目标 Host（本次扫描的固定目标）\n\n`%s`\n\n"+
 		"所有侦察 / 利用都针对这个地址，按 `http(s)://<host>` 构造 URL。"+
 		"**不要**去访问 localhost / 127.0.0.1 / 容器内网来「找」目标——目标就是上面这个 host，沙箱可直连。\n", host)
+}
+
+// leadSection 读该 host 的情报黑板并渲染成追加到子代理 system prompt 末尾的固定段（§7.5）。
+// store/host 任一为空，或读取失败/无情报 → 返回空串，不污染提示。
+//
+// 这是"子代理看不到 orchestrator user message"的解——共享的是黑板，不是对话：不动 eino
+// WithFullChatHistoryAsInput（避免 token 爆炸），而是像 subAgentTargetSection 一样结构化注入。
+func leadSection(ctx context.Context, store LeadStore, host string) string {
+	if store == nil || host == "" {
+		return ""
+	}
+	grouped, err := store.ReadRecent(ctx, host)
+	if err != nil {
+		return ""
+	}
+	if section := lead.FormatSection(grouped); section != "" {
+		return "\n\n" + section
+	}
+	return ""
 }
 
 // BuildDeepSwarm 用 deep 装配 orchestrator。
@@ -69,13 +90,15 @@ func BuildDeepSwarm(ctx context.Context, cfg DeepSwarmConfig) (adk.Agent, error)
 		sa, err := adk.NewChatModelAgent(ctx, &adk.ChatModelAgentConfig{
 			Name:        role.ID,
 			Description: role.Description,
-			// 子代理系统提示 = 角色 md + 固定目标 Host 段。
+			// 子代理系统提示 = 角色 md + 固定目标 Host 段 + 情报黑板段。
 			// 子代理是 deep task 派的瞬时代理，只看到 orchestrator 写的 task 文案 + 自己的 system prompt，
-			// 看不到 orchestrator 的 user message（带 ## 目标 Host）。若 orchestrator 派活时漏写目标地址，
-			// 子代理就会瞎猜 localhost/127.0.0.1（实测 recon 误扫容器内网根因）。此处结构化注入目标 host，
-			// 不依赖 orchestrator LLM 每次都记得复述——与 buildUserPrompt 给顶层 agent 注入 host 同源思路。
-			Instruction: role.SystemPrompt + subAgentTargetSection(cfg.Params.Host),
-			Model:       cfg.Model,
+			// 看不到 orchestrator 的 user message（带 ## 目标 Host / 情报黑板）。若 orchestrator 派活时漏写
+			// 目标地址，子代理就会瞎猜 localhost/127.0.0.1（实测 recon 误扫容器内网根因）。此处结构化注入
+			// 目标 host + 该 host 已有情报，不依赖 orchestrator LLM 每次都记得复述/转述——
+			// 与 buildUserPrompt 给顶层 agent 注入 host/lead 同源思路。
+			Instruction: role.SystemPrompt + subAgentTargetSection(cfg.Params.Host) +
+				leadSection(ctx, cfg.ToolDeps.Lead, cfg.Params.Host),
+			Model:         cfg.Model,
 			ToolsConfig:   adk.ToolsConfig{ToolsNodeConfig: compose.ToolsNodeConfig{Tools: tools}},
 			MaxIterations: maxIter,
 			Middlewares:   cfg.Middlewares,

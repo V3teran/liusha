@@ -40,6 +40,7 @@ const (
 type Task struct {
 	ID           string
 	Mode         Mode
+	AssignmentID string // 所属 assignment（NOT NULL 强外键，一切 task 皆属某 assignment）
 	Brief        string
 	TargetHost   string
 	Status       Status
@@ -51,10 +52,12 @@ type Task struct {
 }
 
 // NewParams 是 Store.Create 的入参。
+//   - AssignmentID 必填（一切 task 皆属某 assignment，§3 "一切皆 assignment"）。
 //   - active：Brief 必填，TargetHost 可空（scanner 从 brief 抽到后 SetTargetHost 回填）。
 //   - passive：TargetHost 必填，Brief 留空。
 type NewParams struct {
-	Mode       Mode
-	Brief      string
-	TargetHost string
+	Mode         Mode
+	AssignmentID string
+	Brief        string
+	TargetHost   string
 }

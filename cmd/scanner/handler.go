@@ -17,8 +17,10 @@ import (
 	"github.com/V3teran/liusha/internal/finding"
 	"github.com/V3teran/liusha/internal/flow"
 	"github.com/V3teran/liusha/internal/hunter"
+	"github.com/V3teran/liusha/internal/lead"
 	"github.com/V3teran/liusha/internal/lesson"
 	"github.com/V3teran/liusha/internal/llminvocation"
+	"github.com/V3teran/liusha/internal/ratelimit"
 	"github.com/V3teran/liusha/internal/sandbox"
 	"github.com/V3teran/liusha/internal/scanstream"
 	"github.com/V3teran/liusha/internal/scenario"
@@ -32,9 +34,11 @@ type handler struct {
 	tasks      *task.Store
 	findings   *finding.Store
 	lessons    *lesson.Store
+	leads      *lead.Store // 情报黑板（§7）；active 任务终态后对 target_host 设冷却 TTL
 	proxyFlows *flow.ProxyStore
 	agentFlows *flow.AgentStore
 	calls      *llminvocation.Store
+	hostSem    *ratelimit.HostSemaphore // per-host 并发限速（§4.3）；仅对有 target_host 的 task 生效
 	cfg        config.Config
 	scannerCfg config.ScannerConfig
 	launcher   sandbox.Launcher
@@ -130,6 +134,26 @@ func (h handler) handle(ctx context.Context, p worker.Payload) (retErr error) {
 			Str("status", string(run.Status)).
 			Msg("asynq task 已被处理过，跳过重试（防 PG 僵尸 + 矛盾态）")
 		return asynq.SkipRetry
+	}
+
+	// per-host 并发限速（§4.3）：占一个 host 额度，超限则退避重试（此时 task 仍 pending，
+	// 下次重试入口 SkipRetry 检查不误拦）。active orchestrator 的 target_host 空 → 放行
+	// （真正打 host 的是它 spawn 的子任务）；passive task 恒有 host → 受限。
+	// 限速是增强非硬门：信号量本身出错（Redis 抖动）则放行，不卡死扫描。
+	if h.hostSem != nil {
+		if tk, tErr := h.tasks.GetByID(ctx, p.TaskID); tErr == nil && tk.TargetHost != "" {
+			rel, ok, semErr := h.hostSem.Acquire(ctx, tk.TargetHost)
+			switch {
+			case semErr != nil:
+				h.logger.Warn().Err(semErr).Str("host", tk.TargetHost).Msg("per-host 信号量 acquire 失败，放行不阻塞")
+			case !ok:
+				h.logger.Info().Str("host", tk.TargetHost).Str("task_id", p.TaskID).
+					Msg("per-host 并发已达上限，退避重试")
+				return fmt.Errorf("per-host 并发上限（host=%s），退避重试", tk.TargetHost)
+			default:
+				defer rel()
+			}
+		}
 	}
 
 	if err := h.hunters.SetRunning(ctx, p.HunterID); err != nil {

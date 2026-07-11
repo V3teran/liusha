@@ -222,6 +222,15 @@ type ScannerConfig struct {
 	// asynq queue 优先级权重（数字越大优先级越高）
 	QueueHunterWeight   int `mapstructure:"queue_hunter_weight"`
 	QueueDispatchWeight int `mapstructure:"queue_dispatch_weight"`
+
+	// per-host 并发上限（§4.3）：同 host 同时运行的 task 数 ≤ 此值，防同目标叠打触发 WAF 封 IP。
+	// ≤ 0 视为不限制。默认 2（渗透场景保守值）。仅对有 target_host 的 task 生效（active orchestrator
+	// host 空时放行——真正打 host 的是其 spawn 的子任务）。
+	PerHostConcurrency int `mapstructure:"per_host_concurrency"`
+
+	// active task 终态后，对该 host 的情报黑板（lead，§7.2）设冷却 TTL——避免一次性目标的情报
+	// 无限期常驻 Redis。默认 168 小时（7 天）。passive 不用此值：LTRIM 已够界。
+	LeadActiveCooldownHours int `mapstructure:"lead_active_cooldown_hours"`
 }
 
 // ReactConfig 主 ReAct 循环参数。
@@ -598,6 +607,12 @@ func applyScannerDefaults(c ScannerConfig) ScannerConfig {
 	}
 	if c.QueueDispatchWeight == 0 {
 		c.QueueDispatchWeight = 1
+	}
+	if c.PerHostConcurrency == 0 {
+		c.PerHostConcurrency = 2 // 默认同 host 并发 ≤ 2；显式设 -1 可关限速
+	}
+	if c.LeadActiveCooldownHours == 0 {
+		c.LeadActiveCooldownHours = 168 // 默认 7 天冷却；显式设 -1 可关（永不过期，交给 LTRIM 兜底）
 	}
 	return c
 }

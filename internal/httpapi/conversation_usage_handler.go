@@ -40,7 +40,7 @@ type ToolUsageAggregator interface {
 //
 //	{
 //	  "conversation_id": "...",
-//	  "owner_id": "...",                 // 纯聊天对话为空
+//	  "task_id": "...",                   // 纯聊天对话为空
 //	  "tokens": { "in": N, "out": N, "cached": N, "total": N },
 //	  "llm_latency_ms": N,               // 所有 LLM 调用耗时合计
 //	  "tool_duration_ms": N,             // 所有工具执行耗时合计

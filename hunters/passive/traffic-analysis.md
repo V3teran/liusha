@@ -11,6 +11,7 @@ tools:
   - update_finding
   - read_lessons
   - write_lesson
+  - write_lead
   - replay_flow
   - read_tooling_skill
   - read_vuln_skill

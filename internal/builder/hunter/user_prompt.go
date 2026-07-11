@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/V3teran/liusha/internal/finding"
+	"github.com/V3teran/liusha/internal/lead"
 	"github.com/V3teran/liusha/internal/lesson"
 	"github.com/V3teran/liusha/internal/skill"
 	"github.com/V3teran/liusha/internal/tools/manifest"
@@ -97,6 +98,13 @@ func buildUserPrompt(ctx context.Context, deps Deps, p skill.BuilderParams) stri
 	if knowledge := loadKnowledgeForPrompt(ctx, deps.Lessons, p.Host, lessonsLimit); knowledge != "" {
 		b.WriteString("\n\n")
 		b.WriteString(knowledge)
+	}
+
+	// 段 4.4: 情报黑板（lead，§7）——顶层 agent 只读注入，无工具（与子代理经
+	// leadSection 拼进 Instruction 同源，但顶层走 user prompt 而非 system prompt）。
+	if leadText := loadLeadForPrompt(ctx, deps.Lead, p.Host); leadText != "" {
+		b.WriteString("\n\n")
+		b.WriteString(leadText)
 	}
 
 	// 段 4.5: Tier 1 工具索引（Progressive Disclosure）——
@@ -365,6 +373,19 @@ func loadKnowledgeForPrompt(ctx context.Context, store *lesson.Store, host strin
 	}
 
 	return b.String()
+}
+
+// loadLeadForPrompt 拉该 host 的情报黑板（读时按 kind 分组去重截断，见 lead.FormatSection）。
+// store nil / host 空 / 读取失败 / 无情报 → 返回空串，不污染 prompt。
+func loadLeadForPrompt(ctx context.Context, store *lead.Store, host string) string {
+	if store == nil || host == "" {
+		return ""
+	}
+	grouped, err := store.ReadRecent(ctx, host)
+	if err != nil {
+		return ""
+	}
+	return lead.FormatSection(grouped)
 }
 
 func firstLine(s string, max int) string {

@@ -146,6 +146,14 @@ func (h handler) handleActiveEino(ctx context.Context, p worker.Payload, entrypo
 			h.logger.Warn().Err(ferr).Str("task_id", taskID).Bool("complete", complete).
 				Msg("task 终态写失败（task 可能卡 active，待人工排查）")
 		}
+		// 情报黑板冷却（§7.2）：active task 收尾即给该 host 的 lead 设 TTL，避免一次性目标的
+		// 情报无限期常驻 Redis。≤0 关闭（不过期，靠 LTRIM 兜底）；host 空（未抽到）不设。
+		if h.leads != nil && virtualHost != "" && h.scannerCfg.LeadActiveCooldownHours > 0 {
+			ttl := time.Duration(h.scannerCfg.LeadActiveCooldownHours) * time.Hour
+			if err := h.leads.ExpireHost(fctx, virtualHost, ttl); err != nil {
+				h.logger.Warn().Err(err).Str("host", virtualHost).Msg("lead ExpireHost 失败（不阻塞收尾）")
+			}
+		}
 	}
 
 	// task 中止 watcher：轮询 task.Status，非 active 即 cancel orchestrator。

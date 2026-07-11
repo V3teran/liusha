@@ -9,6 +9,7 @@ tools:
   - read_findings
   - read_lessons
   - write_lesson
+  - write_lead
   - replay_flow
   - list_flows
   - view_flow

@@ -1,0 +1,37 @@
+package lead
+
+import (
+	"strings"
+	"testing"
+)
+
+func TestFormatSection_Empty(t *testing.T) {
+	if got := FormatSection(map[Kind][]Entry{}); got != "" {
+		t.Fatalf("空 grouped 应返回空串，got %q", got)
+	}
+}
+
+func TestFormatSection_OrdersAndCites(t *testing.T) {
+	grouped := map[Kind][]Entry{
+		KindDeadend: {{Note: "d1", SourceTaskID: "t1"}},
+		KindClue:    {{Note: "c1", SourceTaskID: "t2"}},
+		KindFact:    {{Note: "f1"}},
+	}
+	got := FormatSection(grouped)
+
+	clueIdx := strings.Index(got, "待验证线索")
+	factIdx := strings.Index(got, "已确认事实")
+	deadendIdx := strings.Index(got, "死路")
+	if clueIdx < 0 || factIdx < 0 || deadendIdx < 0 {
+		t.Fatalf("三段标题都应出现: %s", got)
+	}
+	if !(clueIdx < factIdx && factIdx < deadendIdx) {
+		t.Fatalf("渲染顺序应为 clue→fact→deadend，got:\n%s", got)
+	}
+	if !strings.Contains(got, "c1（来自 task t2）") {
+		t.Fatalf("clue 应带来源溯源: %s", got)
+	}
+	if !strings.Contains(got, "- f1\n") {
+		t.Fatalf("无 source_task_id 时不应渲染来源括号: %s", got)
+	}
+}

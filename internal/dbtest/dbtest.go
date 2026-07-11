@@ -74,3 +74,17 @@ func repoPath(rel string) string {
 	_, file, _, _ := runtime.Caller(0)
 	return filepath.Join(filepath.Dir(file), "..", "..", rel)
 }
+
+// SeedAssignment 插入一条最小 assignment 并返回其 id，供需要 task 外键归属的测试复用。
+// mode 传 "active" 或 "passive"，与待建 task 的 mode 保持一致即可。
+func SeedAssignment(t *testing.T, pool *pgxpool.Pool, mode string) string {
+	t.Helper()
+	var id string
+	err := pool.QueryRow(context.Background(),
+		`INSERT INTO assignment (mode, source, payload, title)
+		 VALUES ($1, 'manual', '[]'::jsonb, 'test') RETURNING id`, mode).Scan(&id)
+	if err != nil {
+		t.Fatalf("seed assignment: %v", err)
+	}
+	return id
+}
