@@ -350,7 +350,7 @@ ingestor:
 session:
   # hunter user prompt 拼装上限（避免 prompt 膨胀；超出 LLM 用 read_findings/read_lessons 工具按需查）
   findings_limit_in_prompt: 1000    # 该 host finding DB 读上限安全闸（全量注入不截断；超长由 ① 压缩）
-  lessons_limit_in_prompt: 100      # 该 host 历史经验 + 跨 host 业务规则 hint 共用上限
+  # lessons_limit_in_prompt 已删：跨目标知识改 corpus PULL 检索（search_corpus），不再 PUSH 注入
 
 # ---- credential.RedisProvider redis 前缀 ----
 credential:
@@ -382,7 +382,6 @@ react:
   inspector_args_truncate: 256              # 喂 inspector LLM 的 tool args 截断字节数（80B 看不出意图）
   inspector_obs_truncate: 400               # 喂 inspector LLM 的 ObsSummary 截断字节数
   inspector_findings_limit: 30              # inspector 看 host 已有 finding 段条数（按 created_at DESC）
-  inspector_lessons_limit: 30               # inspector 看 host lesson 段条数（按 priority DESC）
   max_images_in_history: 3                  # 多模态历史保留图片张数上限（compressImages 用）
                                             # 慢 vision 节点可调 2 控延迟；商业 API（claude/gpt-4o）可放宽到 10+
 

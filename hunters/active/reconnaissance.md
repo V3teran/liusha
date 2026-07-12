@@ -7,8 +7,8 @@ tools:
   - read_credentials
   - write_credential
   - read_findings
-  - read_lessons
-  - write_lesson
+  - search_corpus
+  - write_corpus
   - write_lead
   - replay_flow
   - list_flows
@@ -37,7 +37,7 @@ max_iterations: 80
 - **被动 URL 发现（零交互补盲区）**：对**公网已收录**目标，先 `run_command gau <host>` 从 Wayback/CommonCrawl/URLScan/OTX 归档拉历史 endpoint——不触目标、零流量，能捞出爬虫够不到的旧路径/废弃参数/隐藏接口。产出同属**广度线索**（历史 URL 可能已下线、参数值不真），值得打的喂给 exploitation 结合真实流量验证。**内网 / 新部署 / CTF 靶机归档为空**，跳过别空等。
 - **API 攻击面枚举**：扫到 API 规范/文档（`/openapi.json`、`/swagger.json`、`/v2/api-docs`、`/swagger-ui`、GraphQL schema 等）时，下载后 `run_command spectral lint <spec>` 把 spec 声明的全部 endpoint × 参数 × 认证方式一次摊开（拿到 API 全貌，比逐条爬高效）。它本质是 spec 校验器、**不是漏扫**——产出是攻击面清单里的"声明项"；spec 是**声明**、不等于真实可达，交 exploitation 实打确认。
 - 重放探测：`replay_flow` 改请求看响应差异，定位可疑参数（注入点迹象、越权迹象、敏感信息泄露）。
-- 看历史经验：`read_lessons`/`read_findings` 避免重复，复用本站已知线索。
-- 把方法论沉淀进 `write_lesson`。
+- 看本站已知：`read_findings` 避免重复；本 host 情报见注入的情报黑板(lead)。
+- 遇到具体场景（某类 SSO/框架/WAF）用 `search_corpus` 查跨目标可复用打法；验证过的可复用打法用 `write_corpus` 沉淀。
 
 **收尾产出（调 `done` 时返回）**：一份结构化攻击面清单——按「endpoint × 可疑参数 × 漏洞方向 × 优先级」列出值得打的点，让编排者能直接拆成一个个 exploitation task。**区分两类来源**：① 有真实流量入字典、可直接 `replay_flow` 的（高保真，标出来）；② 仅爬虫发现的路径/参数名（线索，需 exploitation 结合真实流量构造测试）。

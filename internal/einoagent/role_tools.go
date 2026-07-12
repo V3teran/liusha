@@ -42,11 +42,11 @@ var toolRegistry = map[string]toolBuilder{
 	"update_finding": func(c ToolBuildCtx) (tool.BaseTool, error) {
 		return einotools.BuildUpdateFinding(c.Deps.Findings)
 	},
-	"read_lessons": func(c ToolBuildCtx) (tool.BaseTool, error) {
-		return einotools.BuildReadLessons(c.Deps.Lessons, c.Params.Host)
+	"search_corpus": func(c ToolBuildCtx) (tool.BaseTool, error) {
+		return einotools.BuildSearchCorpus(c.Deps.Corpus, c.Deps.Embedder, c.Deps.Reranker)
 	},
-	"write_lesson": func(c ToolBuildCtx) (tool.BaseTool, error) {
-		return einotools.BuildWriteLesson(c.Deps.Lessons, c.Params.Host)
+	"write_corpus": func(c ToolBuildCtx) (tool.BaseTool, error) {
+		return einotools.BuildWriteCorpus(c.Deps.Corpus, c.Deps.Embedder, c.Params.TaskID)
 	},
 	"write_lead": func(c ToolBuildCtx) (tool.BaseTool, error) {
 		return einotools.BuildWriteLead(c.Deps.Lead, c.Params.Host, c.Params.HunterID, c.Params.TaskID)

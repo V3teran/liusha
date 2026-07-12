@@ -14,7 +14,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	pgxvec "github.com/pgvector/pgvector-go/pgx"
 	tcpostgres "github.com/testcontainers/testcontainers-go/modules/postgres"
 )
 
@@ -39,7 +41,17 @@ func NewPgPool(t *testing.T) *pgxpool.Pool {
 	if err != nil {
 		t.Fatalf("获取 dsn 失败: %v", err)
 	}
-	pool, err := pgxpool.New(ctx, dsn)
+	cfg, err := pgxpool.ParseConfig(dsn)
+	if err != nil {
+		t.Fatalf("解析 dsn 失败: %v", err)
+	}
+	// 与生产 db.NewPgPool 一致：每条连接注册 pgvector 类型（corpus.embedding 扫描用）。
+	// 注册失败不致命——迁移建 vector 扩展前的连接仍可用（降级文本协议），对齐生产语义。
+	cfg.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
+		_ = pgxvec.RegisterTypes(ctx, conn)
+		return nil
+	}
+	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
 		t.Fatalf("创建 pgxpool 失败: %v", err)
 	}

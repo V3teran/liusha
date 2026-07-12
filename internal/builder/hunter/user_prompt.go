@@ -8,7 +8,6 @@ import (
 
 	"github.com/V3teran/liusha/internal/finding"
 	"github.com/V3teran/liusha/internal/lead"
-	"github.com/V3teran/liusha/internal/lesson"
 	"github.com/V3teran/liusha/internal/skill"
 	"github.com/V3teran/liusha/internal/tools/manifest"
 )
@@ -81,10 +80,6 @@ func buildUserPrompt(ctx context.Context, deps Deps, p skill.BuilderParams) stri
 	if findingsLimit <= 0 {
 		findingsLimit = 100
 	}
-	lessonsLimit := deps.LessonsLimit
-	if lessonsLimit <= 0 {
-		lessonsLimit = 100
-	}
 
 	// 段 3: 该 host 已有 finding（限本次 owner，不跨次扫描）
 	if existing := loadExistingFindings(ctx, deps.Findings, p.TaskID, p.Host, findingsLimit); existing != "" {
@@ -93,14 +88,10 @@ func buildUserPrompt(ctx context.Context, deps Deps, p skill.BuilderParams) stri
 	}
 
 	// notes 笔记板段已退役——agent 思路改输出到对话（reasoning），跨 task 上下文走对话历史。
+	// 跨目标长期知识（原 lesson 段）已改为 corpus PULL——agent 用 search_corpus 按需检索，
+	// 不再 PUSH 全量注入（大库无差别注入是噪音，见 lesson→corpus 重构设计）。
 
-	// 段 4: lesson + hint（跨 owner 长期经验）
-	if knowledge := loadKnowledgeForPrompt(ctx, deps.Lessons, p.Host, lessonsLimit); knowledge != "" {
-		b.WriteString("\n\n")
-		b.WriteString(knowledge)
-	}
-
-	// 段 4.4: 情报黑板（lead，§7）——顶层 agent 只读注入，无工具（与子代理经
+	// 段 4: 情报黑板（lead，§7）——顶层 agent 只读注入，无工具（与子代理经
 	// leadSection 拼进 Instruction 同源，但顶层走 user prompt 而非 system prompt）。
 	if leadText := loadLeadForPrompt(ctx, deps.Lead, p.Host); leadText != "" {
 		b.WriteString("\n\n")
@@ -309,7 +300,7 @@ func writeBodyBlock(b *strings.Builder, body []byte, limit int) {
 
 // loadExistingFindings 拉「owner + host」已有 finding 摘要（dedup 参考）。
 //
-// 范围限 owner+host，每次扫描独立，不被跨次扫描的历史污染（复用走 lesson，
+// 范围限 owner+host，每次扫描独立，不被跨次扫描的历史污染（跨目标复用走 corpus 检索，
 // 由 loadKnowledgeForPrompt 注入段 4）。
 // readLimit 仅作 DB 读上限的安全闸（取够高，正常扫描不触及）——读到的 finding **全量注入**，
 // 不在此 top-N 截断/压缩；prompt 超长由 ① summarization 统一压缩，agent 仍可 read_findings 取全。
@@ -330,52 +321,7 @@ func loadExistingFindings(ctx context.Context, store *finding.Store, taskID, hos
 	return b.String()
 }
 
-// loadKnowledgeForPrompt 拉 host 历史经验 + 全局业务规则 hint。
-// limit 由 caller 提供（来自 cfg.Session.LessonsLimitInPrompt，默认 100）；
-// lesson 与 hint 各取 top-N（按 priority desc）共用此 limit。
-func loadKnowledgeForPrompt(ctx context.Context, store *lesson.Store, host string, limit int) string {
-	if store == nil {
-		return ""
-	}
-	if limit <= 0 {
-		limit = 100
-	}
-
-	var b strings.Builder
-
-	if host != "" {
-		if lessons, err := store.ListByHost(ctx, host, limit); err == nil && len(lessons) > 0 {
-			// 先过滤再 numbering——避免跳号（如全局 hint 混进 host lessons 时）。
-			kept := make([]lesson.Lesson, 0, len(lessons))
-			for _, l := range lessons {
-				if l.Kind == lesson.KindHint && l.Host == lesson.HostGlobalHint {
-					continue
-				}
-				kept = append(kept, l)
-			}
-			if len(kept) > 0 {
-				b.WriteString("## Host 历史经验（distill 蒸馏，可能含旧情报；带具体 payload/手法可直接复用）\n\n")
-				for i, l := range kept {
-					fmt.Fprintf(&b, "%d. (priority=%d, hits=%d) %s\n", i+1, l.Priority, l.HitCount, l.Content)
-				}
-			}
-		}
-	}
-
-	if hints, err := store.ListGlobalHints(ctx, limit); err == nil && len(hints) > 0 {
-		if b.Len() > 0 {
-			b.WriteString("\n")
-		}
-		b.WriteString("## 跨 host 业务规则提醒（liusha 自定义判定逻辑，**必须遵守**——不是 OWASP 通用知识）\n\n")
-		for i, h := range hints {
-			fmt.Fprintf(&b, "%d. (priority=%d) %s\n", i+1, h.Priority, h.Content)
-		}
-	}
-
-	return b.String()
-}
-
-// loadLeadForPrompt 拉该 host 的情报黑板（读时按 kind 分组去重截断，见 lead.FormatSection）。
+// loadLeadForPrompt 拉该 host 的情报黑板（读时按 kind 分组去重，见 lead.FormatSection）。
 // store nil / host 空 / 读取失败 / 无情报 → 返回空串，不污染 prompt。
 func loadLeadForPrompt(ctx context.Context, store *lead.Store, host string) string {
 	if store == nil || host == "" {

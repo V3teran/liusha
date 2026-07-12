@@ -7,6 +7,7 @@ import (
 
 	"github.com/cloudwego/eino/components/tool"
 
+	"github.com/V3teran/liusha/internal/corpus"
 	"github.com/V3teran/liusha/internal/einotools"
 	"github.com/V3teran/liusha/internal/flow"
 	"github.com/V3teran/liusha/internal/lead"
@@ -14,7 +15,7 @@ import (
 	"github.com/V3teran/liusha/internal/skill"
 )
 
-// 必装 store 组合接口（accept interfaces）：*finding.Store / *lesson.Store /
+// 必装 store 组合接口（accept interfaces）：*finding.Store / *corpus.Store /
 // credential.Provider / *lead.Store 各自自动满足；单测可注入 fake。
 type (
 	// FindingStore 满足 read/write/update_finding 三工具。
@@ -23,10 +24,10 @@ type (
 		einotools.FindingWriter
 		einotools.FindingUpdater
 	}
-	// LessonStore 满足 read/write_lesson。
-	LessonStore interface {
-		einotools.LessonLister
-		einotools.LessonAdder
+	// CorpusStore 满足 search/write_corpus（跨目标知识库，hybrid RAG）。
+	CorpusStore interface {
+		einotools.CorpusSearcher
+		einotools.CorpusAdder
 	}
 	// CredentialStore 满足 read/write_credential。
 	CredentialStore interface {
@@ -44,9 +45,13 @@ type (
 // 由 cmd/scanner composition root 注入（与旧 hunter.Deps 同源 store）。
 type TrafficAnalysisToolDeps struct {
 	Findings    FindingStore
-	Lessons     LessonStore
+	Corpus      CorpusStore // 跨目标知识库（hybrid RAG）；search/write_corpus
 	Credentials CredentialStore
 	Lead        LeadStore // 情报黑板（§7）；write_lead 工具 + BuildDeepSwarm 子代理 Instruction 读同源
+
+	// Embedder / Reranker 供 corpus hybrid 检索用（Jina）；nil 时 corpus 降级（search 纯 sparse、write 不 embed）。
+	Embedder einotools.CorpusEmbedder
+	Reranker corpus.Reranker
 
 	// ProxyFlows / AgentFlows 是拆表后的两个流量 store（scanner 传 *flow.ProxyStore /
 	// *flow.AgentStore）；nil 时不注册 replay/list/view_flow。passive traffic-analysis 用
@@ -90,14 +95,14 @@ func BuildTrafficAnalysisTools(deps TrafficAnalysisToolDeps, p TrafficAnalysisTo
 		tools = append(tools, bt)
 	}
 
-	// credentials / findings(读写) / lessons（notes 已退役）
+	// credentials / findings(读写) / corpus(检索+写入跨目标知识库)
 	add(einotools.BuildReadCredentials(deps.Credentials, p.Host))
 	add(einotools.BuildWriteCredential(deps.Credentials, p.Host))
 	add(einotools.BuildReadFindings(deps.Findings, p.TaskID, p.Host))
 	add(einotools.BuildWriteFinding(deps.Findings, p.TaskID, p.HunterID, p.Host, p.FlowID))
 	add(einotools.BuildUpdateFinding(deps.Findings))
-	add(einotools.BuildReadLessons(deps.Lessons, p.Host))
-	add(einotools.BuildWriteLesson(deps.Lessons, p.Host))
+	add(einotools.BuildSearchCorpus(deps.Corpus, deps.Embedder, deps.Reranker))
+	add(einotools.BuildWriteCorpus(deps.Corpus, deps.Embedder, p.TaskID))
 	// write_lead（情报黑板，§7）：traffic-analysis 是 passive 的顶层 agent 也是唯一执行者，
 	// 既走 BuildUserPrompt 读 lead 段，也需要写权限。
 	add(einotools.BuildWriteLead(deps.Lead, p.Host, p.HunterID, p.TaskID))
