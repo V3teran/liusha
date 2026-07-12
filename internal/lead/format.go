@@ -39,7 +39,7 @@ func FormatSection(grouped map[Kind][]Entry) string {
 		}
 		fmt.Fprintf(&b, "\n### %s\n\n", sec.label)
 		for _, e := range entries {
-			b.WriteString("- " + e.Note)
+			b.WriteString("- " + e.Detail)
 			if e.SourceTaskID != "" {
 				fmt.Fprintf(&b, "（来自 task %s）", e.SourceTaskID)
 			}

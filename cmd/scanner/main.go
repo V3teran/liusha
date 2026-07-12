@@ -102,7 +102,8 @@ func main() {
 	proxyFlows := flow.NewProxyStore(pool) // 代理捕获流量（passive，按 host）
 	agentFlows := flow.NewAgentStore(pool) // agent 自产流量（active，按 task）
 	creds := credential.NewRedis(rdb, cfg.Credential.RedisKeyPrefix)
-	leads := lead.NewStore(rdb, cfg.Credential.RedisKeyPrefix) // 情报黑板（§7），与 credential 同 Redis 租户命名空间
+	// 情报黑板（§7），与 credential 同 Redis 租户命名空间；ttl 滚动过期（每次写刷新该 host TTL）。
+	leads := lead.NewStore(rdb, cfg.Credential.RedisKeyPrefix, time.Duration(cfg.Scanner.LeadTTLHours)*time.Hour)
 
 	// hunter system prompt 已编译期 embed（internal/builder/hunter/system_prompt.md），
 	// 不再需要运行时 skill loader 加载——下面的 vuln/tooling loader 服务 Progressive Disclosure。

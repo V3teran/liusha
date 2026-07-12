@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/redis/go-redis/v9"
@@ -16,7 +17,7 @@ func newTestLeadStore(t *testing.T) *lead.Store {
 	mr := miniredis.RunT(t)
 	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
 	t.Cleanup(func() { _ = rdb.Close() })
-	return lead.NewStore(rdb, "test")
+	return lead.NewStore(rdb, "test", time.Hour)
 }
 
 // loadLeadForPrompt 是顶层 agent（orchestrator/passive）经 BuildUserPrompt 读 lead 段的入口（§7.5）。
@@ -24,7 +25,7 @@ func TestLoadLeadForPrompt_RendersWrittenEntry(t *testing.T) {
 	store := newTestLeadStore(t)
 	ctx := context.Background()
 	if err := store.Append(ctx, "target.com", lead.Entry{
-		Kind: lead.KindFact, Note: "session cookie 不含 HttpOnly", SourceTaskID: "t1",
+		Kind: lead.KindFact, Detail: "session cookie 不含 HttpOnly", SourceTaskID: "t1",
 	}); err != nil {
 		t.Fatalf("append: %v", err)
 	}

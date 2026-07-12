@@ -16,10 +16,10 @@ type LeadAdder interface {
 	Append(ctx context.Context, host string, e lead.Entry) error
 }
 
-// writeLeadArgs 是 write_lead 入参；kind/note 均必填，身份值（host/hunter_id/source_task_id）闭包注入。
+// writeLeadArgs 是 write_lead 入参；kind/detail 均必填，身份值（host/hunter_id/source_task_id）闭包注入。
 type writeLeadArgs struct {
-	Kind string `json:"kind" jsonschema:"required,enum=clue,enum=fact,enum=deadend" jsonschema_description:"clue=可疑点(待验证)；fact=既成发现(记住并利用)；deadend=死路(绕开别试)"`
-	Note string `json:"note" jsonschema:"required" jsonschema_description:"一句人话，位置/细节都在这里说清（≤200 字）"`
+	Kind   string `json:"kind" jsonschema:"required,enum=clue,enum=fact,enum=deadend" jsonschema_description:"clue=可疑点(待验证)；fact=既成发现(记住并利用)；deadend=死路(绕开别试)"`
+	Detail string `json:"detail" jsonschema:"required" jsonschema_description:"一句人话，位置/细节都在这里说清（≤200 字）"`
 }
 
 // BuildWriteLead 造原生 eino write_lead 工具。host/hunterID/sourceTaskID 闭包捕获，不进 LLM 参数
@@ -45,12 +45,12 @@ func BuildWriteLead(store LeadAdder, host, hunterID, sourceTaskID string) (tool.
 			default:
 				return nil, fmt.Errorf("kind 取值非法 %q（仅支持 clue | fact | deadend）", in.Kind)
 			}
-			if in.Note == "" {
-				return nil, errors.New("note 必填")
+			if in.Detail == "" {
+				return nil, errors.New("detail 必填")
 			}
 			if err := store.Append(ctx, host, lead.Entry{
 				Kind:         kind,
-				Note:         in.Note,
+				Detail:       in.Detail,
 				HunterID:     hunterID,
 				SourceTaskID: sourceTaskID,
 			}); err != nil {

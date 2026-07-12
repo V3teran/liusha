@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/cloudwego/eino/components/tool"
@@ -45,7 +46,7 @@ func (f *fakeLeadReader) ReadRecent(context.Context, string) (map[lead.Kind][]le
 // 验证 recon 写的 lead 确实能被 leadSection 读出并渲染进子代理 system prompt 段。
 func TestLeadSection_RendersEntries(t *testing.T) {
 	store := &fakeLeadReader{grouped: map[lead.Kind][]lead.Entry{
-		lead.KindClue: {{Note: "/admin/backup 疑似可访问，未验证", SourceTaskID: "t1"}},
+		lead.KindClue: {{Detail: "/admin/backup 疑似可访问，未验证", SourceTaskID: "t1"}},
 	}}
 	got := leadSection(context.Background(), store, "target.com")
 	if !strings.Contains(got, "/admin/backup 疑似可访问，未验证") {
@@ -60,7 +61,7 @@ func TestLeadSection_EmptyWhenNoStoreOrHost(t *testing.T) {
 	if got := leadSection(context.Background(), nil, "target.com"); got != "" {
 		t.Fatalf("store nil 应返回空串: %q", got)
 	}
-	store := &fakeLeadReader{grouped: map[lead.Kind][]lead.Entry{lead.KindFact: {{Note: "x"}}}}
+	store := &fakeLeadReader{grouped: map[lead.Kind][]lead.Entry{lead.KindFact: {{Detail: "x"}}}}
 	if got := leadSection(context.Background(), store, ""); got != "" {
 		t.Fatalf("host 空应返回空串: %q", got)
 	}
@@ -85,7 +86,7 @@ func TestReconWriteLead_ExploitationReadsInSection(t *testing.T) {
 	mr := miniredis.RunT(t)
 	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
 	t.Cleanup(func() { _ = rdb.Close() })
-	store := lead.NewStore(rdb, "test")
+	store := lead.NewStore(rdb, "test", time.Hour)
 
 	host := "target.com"
 	reconTools, err := BuildRoleTools(RoleDef{ID: "reconnaissance", Tools: []string{"write_lead"}}, ToolBuildCtx{
@@ -102,7 +103,7 @@ func TestReconWriteLead_ExploitationReadsInSection(t *testing.T) {
 	if !ok {
 		t.Fatal("write_lead 不是 InvokableTool")
 	}
-	if _, err := it.InvokableRun(context.Background(), `{"kind":"clue","note":"/admin/backup 疑似可访问，未验证"}`); err != nil {
+	if _, err := it.InvokableRun(context.Background(), `{"kind":"clue","detail":"/admin/backup 疑似可访问，未验证"}`); err != nil {
 		t.Fatalf("recon 调 write_lead 失败: %v", err)
 	}
 

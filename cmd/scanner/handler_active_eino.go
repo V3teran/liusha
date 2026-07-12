@@ -133,7 +133,7 @@ func (h handler) handleActiveEino(ctx context.Context, p worker.Payload, entrypo
 	}
 
 	// task 终态收尾（orchestrator 退出后无人收尾会卡 'active'）。
-	finalizeScan := func(complete bool, reason string) {
+	finalizeTask := func(complete bool, reason string) {
 		fctx, fcancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer fcancel()
 		var ferr error
@@ -146,14 +146,7 @@ func (h handler) handleActiveEino(ctx context.Context, p worker.Payload, entrypo
 			h.logger.Warn().Err(ferr).Str("task_id", taskID).Bool("complete", complete).
 				Msg("task 终态写失败（task 可能卡 active，待人工排查）")
 		}
-		// 情报黑板冷却（§7.2）：active task 收尾即给该 host 的 lead 设 TTL，避免一次性目标的
-		// 情报无限期常驻 Redis。≤0 关闭（不过期，靠 LTRIM 兜底）；host 空（未抽到）不设。
-		if h.leads != nil && virtualHost != "" && h.scannerCfg.LeadActiveCooldownHours > 0 {
-			ttl := time.Duration(h.scannerCfg.LeadActiveCooldownHours) * time.Hour
-			if err := h.leads.ExpireHost(fctx, virtualHost, ttl); err != nil {
-				h.logger.Warn().Err(err).Str("host", virtualHost).Msg("lead ExpireHost 失败（不阻塞收尾）")
-			}
-		}
+		// 情报黑板（lead）过期不再在收尾特判：改由 lead.Store 每次写滚动刷新 TTL（active/passive 一视同仁）。
 	}
 
 	// task 中止 watcher：轮询 task.Status，非 active 即 cancel orchestrator。
@@ -164,10 +157,10 @@ func (h handler) handleActiveEino(ctx context.Context, p worker.Payload, entrypo
 	res, err := einoagent.RunDeepSwarm(runCtx, swarm, orchestratorPrompt, opts...)
 	if err != nil {
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-			finalizeScan(false, "ctx "+err.Error())
+			finalizeTask(false, "ctx "+err.Error())
 			return h.abortTask(ctx, p.HunterID, "ctx "+err.Error())
 		}
-		finalizeScan(false, err.Error())
+		finalizeTask(false, err.Error())
 		return h.failTask(ctx, p.HunterID, err)
 	}
 
@@ -178,10 +171,10 @@ func (h handler) handleActiveEino(ctx context.Context, p worker.Payload, entrypo
 		"final_text": res.FinalText,
 	})
 	if err != nil {
-		finalizeScan(false, "marshal task result")
+		finalizeTask(false, "marshal task result")
 		return h.failTask(ctx, p.HunterID, fmt.Errorf("marshal task result: %w", err))
 	}
-	finalizeScan(true, "")
+	finalizeTask(true, "")
 	return h.hunters.SetDone(ctx, p.HunterID, out)
 }
 
