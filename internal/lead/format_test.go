@@ -13,9 +13,9 @@ func TestFormatSection_Empty(t *testing.T) {
 
 func TestFormatSection_OrdersAndCites(t *testing.T) {
 	grouped := map[Kind][]Entry{
-		KindDeadend: {{Note: "d1", SourceTaskID: "t1"}},
-		KindClue:    {{Note: "c1", SourceTaskID: "t2"}},
-		KindFact:    {{Note: "f1"}},
+		KindDeadend: {{Detail: "d1", SourceTaskID: "t1"}},
+		KindClue:    {{Detail: "c1", SourceTaskID: "t2"}},
+		KindFact:    {{Detail: "f1"}},
 	}
 	got := FormatSection(grouped)
 
