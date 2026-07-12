@@ -12,13 +12,14 @@ import (
 	hunterbuilder "github.com/V3teran/liusha/internal/builder/hunter"
 	"github.com/V3teran/liusha/internal/config"
 	"github.com/V3teran/liusha/internal/conversation"
+	"github.com/V3teran/liusha/internal/corpus"
 	"github.com/V3teran/liusha/internal/einoagent"
 	"github.com/V3teran/liusha/internal/einollm"
+	"github.com/V3teran/liusha/internal/einotools"
 	"github.com/V3teran/liusha/internal/finding"
 	"github.com/V3teran/liusha/internal/flow"
 	"github.com/V3teran/liusha/internal/hunter"
 	"github.com/V3teran/liusha/internal/lead"
-	"github.com/V3teran/liusha/internal/lesson"
 	"github.com/V3teran/liusha/internal/llminvocation"
 	"github.com/V3teran/liusha/internal/ratelimit"
 	"github.com/V3teran/liusha/internal/sandbox"
@@ -33,8 +34,10 @@ type handler struct {
 	hunters    *hunter.Store
 	tasks      *task.Store
 	findings   *finding.Store
-	lessons    *lesson.Store
-	leads      *lead.Store // 情报黑板（§7）；active 任务终态后对 target_host 设冷却 TTL
+	corpus     *corpus.Store         // 跨目标知识库（hybrid RAG）；search/write_corpus
+	embedder   einotools.CorpusEmbedder // Jina embed（可 nil，降级纯 sparse）
+	reranker   corpus.Reranker          // Jina rerank（可 nil，降级合并序兜底）
+	leads      *lead.Store // 情报黑板（§7）；每次写滚动刷新 target_host 的 TTL
 	proxyFlows *flow.ProxyStore
 	agentFlows *flow.AgentStore
 	calls      *llminvocation.Store

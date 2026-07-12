@@ -187,9 +187,8 @@ type SessionConfig struct {
 	// hunter user prompt 拼装时的上限（避免 prompt 膨胀）。
 	// FindingsLimitInPrompt：该 host 已有 finding 段的 DB 读上限安全闸（取够高，正常扫描全量注入；
 	// 不在此 top-N 截断，prompt 超长由 ① summarization 统一压缩，agent 仍可 read_findings 取全）。
-	// LessonsLimitInPrompt：该 host 历史经验 + 跨 host 业务规则 hint 共用上限（按 priority desc）。
+	// （原 lessons_limit_in_prompt 已删：跨目标知识改 corpus PULL 检索，不再 PUSH 注入。）
 	FindingsLimitInPrompt int `mapstructure:"findings_limit_in_prompt"`
-	LessonsLimitInPrompt  int `mapstructure:"lessons_limit_in_prompt"`
 }
 
 // CredentialConfig 是 credential.RedisProvider 的 redis key 前缀。
@@ -240,11 +239,9 @@ type ReactConfig struct {
 	InspectorArgsTruncate int `mapstructure:"inspector_args_truncate"` // 喂 inspector LLM 的 tool args 截断字节数
 	InspectorObsTruncate  int `mapstructure:"inspector_obs_truncate"`  // 喂 inspector LLM 的 ObsSummary 截断字节数
 
-	// inspector prompt 背景段拉取数量上限（按 created_at DESC / priority DESC 各自排序）。
-	// 与 hunter 的 findings_limit_in_prompt / lessons_limit_in_prompt 解耦——
+	// inspector prompt 背景段拉取数量上限（按 created_at DESC / priority DESC 排序）。
 	// inspector 是轻量评估，看少量背景即可；hunter 干活需更全。
 	InspectorFindingsLimit int `mapstructure:"inspector_findings_limit"`
-	InspectorLessonsLimit  int `mapstructure:"inspector_lessons_limit"`
 
 	// MaxImagesInHistory 是 multimodal message 历史保留图片张数上限（compressImages 用）。
 	// 默认 3：实战 vision agent sweet spot——再多对 encoder 仅增延迟不增信息；慢节点可调 2，商业 API 可放宽 10+。
@@ -562,9 +559,6 @@ func applySessionDefaults(c SessionConfig) SessionConfig {
 	if c.FindingsLimitInPrompt == 0 {
 		c.FindingsLimitInPrompt = 1000 // 安全闸（正常扫描全量注入，不截断；超长交 ① 压缩）
 	}
-	if c.LessonsLimitInPrompt == 0 {
-		c.LessonsLimitInPrompt = 100
-	}
 	return c
 }
 
@@ -644,9 +638,6 @@ func applyReactDefaults(c ReactConfig) ReactConfig {
 	}
 	if c.InspectorFindingsLimit == 0 {
 		c.InspectorFindingsLimit = 30
-	}
-	if c.InspectorLessonsLimit == 0 {
-		c.InspectorLessonsLimit = 30
 	}
 	if c.MaxImagesInHistory == 0 {
 		c.MaxImagesInHistory = 3 // vision agent 实战经验值；yaml 显式 0 也会被兜到 3

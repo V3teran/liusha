@@ -9,15 +9,15 @@ import (
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/schema"
 
+	"github.com/V3teran/liusha/internal/corpus"
 	"github.com/V3teran/liusha/internal/credential"
 	"github.com/V3teran/liusha/internal/einoagent"
 	"github.com/V3teran/liusha/internal/finding"
 	"github.com/V3teran/liusha/internal/lead"
-	"github.com/V3teran/liusha/internal/lesson"
 	"github.com/V3teran/liusha/internal/sandbox"
 )
 
-// allFake 一把实现 FindingStore + LessonStore + CredentialStore + LeadStore（notes 已退役，不再实现）。
+// allFake 一把实现 FindingStore + CorpusStore + CredentialStore + LeadStore（notes 已退役，不再实现）。
 type allFake struct{}
 
 func (allFake) ListByTaskAndHost(context.Context, string, string, int) ([]finding.VulnFinding, error) {
@@ -29,8 +29,10 @@ func (allFake) Save(_ context.Context, f finding.VulnFinding) (finding.VulnFindi
 func (allFake) Update(context.Context, string, string, string, json.RawMessage, json.RawMessage, []string) error {
 	return nil
 }
-func (allFake) ListByHost(context.Context, string, int) ([]lesson.Lesson, error) { return nil, nil }
-func (allFake) Add(_ context.Context, l lesson.Lesson) (lesson.Lesson, error)    { return l, nil }
+func (allFake) SearchHybrid(context.Context, string, []float32, []string, int, int, corpus.Reranker) ([]corpus.Entry, error) {
+	return nil, nil
+}
+func (allFake) Add(_ context.Context, e corpus.Entry) (corpus.Entry, error) { return e, nil }
 func (allFake) GetIdentitiesByHost(context.Context, string) ([]credential.Identity, error) {
 	return nil, nil
 }
@@ -74,11 +76,11 @@ func toolNames(t *testing.T, deps einoagent.TrafficAnalysisToolDeps) []string {
 func TestBuildTrafficAnalysisTools_Mandatory(t *testing.T) {
 	f := allFake{}
 	names := toolNames(t, einoagent.TrafficAnalysisToolDeps{
-		Findings: f, Lessons: f, Credentials: f, Lead: f,
+		Findings: f, Corpus: f, Credentials: f, Lead: f,
 	})
 	want := []string{
-		"done", "read_credentials", "read_findings", "read_lessons",
-		"update_finding", "write_credential", "write_finding", "write_lead", "write_lesson",
+		"done", "read_credentials", "read_findings", "search_corpus",
+		"update_finding", "write_corpus", "write_credential", "write_finding", "write_lead",
 	}
 	if len(names) != len(want) {
 		t.Fatalf("必装应 %d 个，得到 %d: %v", len(want), len(names), names)
@@ -107,7 +109,7 @@ func (f *fakeModel) WithTools(_ []*schema.ToolInfo) (model.ToolCallingChatModel,
 func TestBuildTrafficAnalysisTools_SandboxAddsRunCommand(t *testing.T) {
 	f := allFake{}
 	names := toolNames(t, einoagent.TrafficAnalysisToolDeps{
-		Findings: f, Lessons: f, Credentials: f, Lead: f,
+		Findings: f, Corpus: f, Credentials: f, Lead: f,
 		Sandbox: fakeSandboxClient{}, MaxTimeoutSeconds: 600,
 	})
 	found := false

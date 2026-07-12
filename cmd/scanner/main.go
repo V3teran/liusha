@@ -31,15 +31,17 @@ import (
 	"github.com/V3teran/liusha/internal/conversation"
 	"github.com/V3teran/liusha/internal/credential"
 	"github.com/V3teran/liusha/internal/db"
+	"github.com/V3teran/liusha/internal/corpus"
 	"github.com/V3teran/liusha/internal/einoagent"
 	"github.com/V3teran/liusha/internal/einollm"
+	"github.com/V3teran/liusha/internal/einotools"
+	"github.com/V3teran/liusha/internal/embedding"
 	"github.com/V3teran/liusha/internal/envx"
 	"github.com/V3teran/liusha/internal/finding"
 	"github.com/V3teran/liusha/internal/flow"
 	hunterstore "github.com/V3teran/liusha/internal/hunter"
 	"github.com/V3teran/liusha/internal/ingestor"
 	"github.com/V3teran/liusha/internal/lead"
-	"github.com/V3teran/liusha/internal/lesson"
 	"github.com/V3teran/liusha/internal/llminvocation"
 	"github.com/V3teran/liusha/internal/logx"
 	"github.com/V3teran/liusha/internal/ratelimit"
@@ -97,13 +99,24 @@ func main() {
 	finds := finding.NewStore(pool)
 	toolCalls := toolinvocation.NewStore(pool)
 	calls := llminvocation.NewStoreWithConfig(pool, cfg.LLM.Invocation)
-	lessons := lesson.NewStore(pool)
+	corpusStore := corpus.NewStore(pool) // 跨目标知识库（hybrid RAG）
 	defer func() { _ = calls.Close() }()
 	proxyFlows := flow.NewProxyStore(pool) // 代理捕获流量（passive，按 host）
 	agentFlows := flow.NewAgentStore(pool) // agent 自产流量（active，按 task）
 	creds := credential.NewRedis(rdb, cfg.Credential.RedisKeyPrefix)
 	// 情报黑板（§7），与 credential 同 Redis 租户命名空间；ttl 滚动过期（每次写刷新该 host TTL）。
 	leads := lead.NewStore(rdb, cfg.Credential.RedisKeyPrefix, time.Duration(cfg.Scanner.LeadTTLHours)*time.Hour)
+
+	// Jina embedding + rerank client（corpus hybrid RAG 用）。密钥走 ENV JINA_API_KEY；
+	// 缺失时 jinaClient=nil，corpus 降级（search 退纯 sparse、write 不 embed）——不阻塞渗透主流程。
+	var embedder einotools.CorpusEmbedder
+	var reranker corpus.Reranker
+	if jc, err := embedding.NewClient(os.Getenv("JINA_API_KEY")); err != nil {
+		logger.Warn().Err(err).Msg("JINA_API_KEY 未配置，corpus 降级为纯 sparse 检索（不影响主流程）")
+	} else {
+		embedder = jc
+		reranker = jc
+	}
 
 	// hunter system prompt 已编译期 embed（internal/builder/hunter/system_prompt.md），
 	// 不再需要运行时 skill loader 加载——下面的 vuln/tooling loader 服务 Progressive Disclosure。
@@ -193,7 +206,6 @@ func main() {
 	// handler 每次 Spawn 注入，不持有在 Deps）。react 退路已删，只剩 eino 用的 store/loader/manifest。
 	hunterDeps := hunter.Deps{
 		Findings:        finds,
-		Lessons:         lessons,
 		Credentials:     creds,
 		Lead:            leads,
 		ToolInvocations: toolCalls,
@@ -201,7 +213,6 @@ func main() {
 		ToolsManifest:   toolsManifest,
 		VulnLoader:      vulnLoader,
 		FindingsLimit:   cfg.Session.FindingsLimitInPrompt,
-		LessonsLimit:    cfg.Session.LessonsLimitInPrompt,
 	}
 
 	// active deep 角色加载（hunters/active/*.md）：deep 装配主代理 + 杀伤链子代理。
@@ -259,7 +270,9 @@ func main() {
 		hunters:        hunters,
 		tasks:          taskStore,
 		findings:       finds,
-		lessons:        lessons,
+		corpus:         corpusStore,
+		embedder:       embedder,
+		reranker:       reranker,
 		leads:          leads,
 		proxyFlows:     proxyFlows,
 		agentFlows:     agentFlows,

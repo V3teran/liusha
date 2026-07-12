@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	pgxvec "github.com/pgvector/pgvector-go/pgx"
 )
 
 // NewPgPool 构造 pgxpool.Pool 并 Ping 验证。
@@ -32,6 +34,14 @@ func NewPgPool(ctx context.Context, dsn string, maxConns, minConns, connectTimeo
 	}
 	if maxConnLifetimeSec > 0 {
 		cfg.MaxConnLifetime = time.Duration(maxConnLifetimeSec) * time.Second
+	}
+	// 每条连接注册 pgvector 类型，启用 corpus.embedding vector 列的二进制编解码。
+	// 注册失败不致命（返回 nil）：vector 扩展尚未建立时（全新库、迁移先于建池的引导窗口）
+	// 连接仍应可用——pgvector.Vector 实现 driver.Valuer/sql.Scanner，缺注册时自动降级文本协议，
+	// vector 操作照常工作，只是少了二进制优化。不因类型注册失败阻断整个连接池。
+	cfg.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
+		_ = pgxvec.RegisterTypes(ctx, conn)
+		return nil
 	}
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {

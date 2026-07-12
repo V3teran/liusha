@@ -84,7 +84,9 @@ func (s einoToolSink) heartbeat(taskID string) {
 func (h handler) einoToolDeps(sandboxClient sandbox.Client) einoagent.TrafficAnalysisToolDeps {
 	return einoagent.TrafficAnalysisToolDeps{
 		Findings:          h.findings,
-		Lessons:           h.lessons,
+		Corpus:            h.corpus,
+		Embedder:          h.embedder,
+		Reranker:          h.reranker,
 		Credentials:       h.hunterDeps.Credentials,
 		Lead:              h.leads,
 		ProxyFlows:        h.proxyFlows,
