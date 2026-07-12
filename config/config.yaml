@@ -339,8 +339,8 @@ proxy:
 
 # ---- ingestor 流量摄入器（cmd/scanner 内 goroutine）----
 ingestor:
-  consumer_group: liusha-ingestor   # XREADGROUP consumer group 名
-  consumer_name: ingestor-1         # consumer 实例名（多实例时区分）
+  consumer_group: liusha-ingestor   # XREADGROUP 消费组名（负载均衡单元，多副本共享）
+  consumer_name: ""                 # consumer 实例名：留空自动派生 ingestor-<hostname>-<pid>（同组内唯一）；多副本务必留空
   read_batch: 16                    # 单次 XREADGROUP 取条数
   read_block_timeout_ms: 1000       # XREADGROUP BLOCK ms（无消息时阻塞上限）
   retry_delay_ms: 500               # XREADGROUP 失败重试延迟

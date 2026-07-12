@@ -515,12 +515,26 @@ func applyProxyDefaults(c ProxyConfig) ProxyConfig {
 	return c
 }
 
+// defaultConsumerName 生成每实例唯一的 Stream 消费者名。
+//
+// 消费组（ConsumerGroup）是负载均衡单元、多副本共享；消费者名（本值）是每实例身份，
+// 同组内必须唯一——否则多副本用同名进同组，Redis 无法区分 pending 归属，投递/ack 记账错乱
+// （且不报错，属静默故障）。故派生自 hostname + pid：容器/Pod 场景 hostname 通常已唯一，
+// 附加 pid 再兜住"同主机多进程"。取不到 hostname 时退化为 pid，仍保证同主机各进程互不撞名。
+func defaultConsumerName() string {
+	host, err := os.Hostname()
+	if err != nil || host == "" {
+		host = "unknown"
+	}
+	return fmt.Sprintf("ingestor-%s-%d", host, os.Getpid())
+}
+
 func applyIngestorDefaults(c IngestorConfig) IngestorConfig {
 	if c.ConsumerGroup == "" {
 		c.ConsumerGroup = "liusha-ingestor"
 	}
 	if c.ConsumerName == "" {
-		c.ConsumerName = "ingestor-1"
+		c.ConsumerName = defaultConsumerName()
 	}
 	if c.ReadBatch == 0 {
 		c.ReadBatch = 16

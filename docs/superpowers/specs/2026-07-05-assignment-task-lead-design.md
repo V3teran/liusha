@@ -551,6 +551,39 @@ http_flow → proxy_traffic + agent_traffic；消费工具/sitemap/attackgraph �
 - 防自激震荡（internal 不触发分析）：拆表后同构保留；**补显式不变量**："agent 自产流量只进 agent_traffic，绝不进 proxy_traffic"，聚合器/落库处加断言守卫。
 - active task 必有 target_host（否则 write_lead 的 host 闭包无值）：P0 约束或明确降级。
 
+## 14. §13 加固项实现后处置决议（2026-07-12 全量源码核查结论）
+
+> 背景：P0–P4 主干实现后，对全库源码（DDL / 函数体 / 调用链，非注释）逐项核查 §13
+> 的落地情况。结论：功能主干完整落地、`go build ./...` 通过；§13 加固层多数**被有意
+> 取舍**，并非遗忘。§13 本质是一份"通用编排成熟度清单"（为无状态、幂等、短任务总结），
+> 而本系统 active 主负载是**跑数小时的有状态 agent**，清单若照搬到有状态长任务上部分是
+> 错的或冗余的。以下逐项给出处置决议，供后续读代码/读文档者对齐，避免把有意偏离误读为欠账。
+
+### 14.1 决议总表
+
+| §13 项 | 原定级 | 核查实态 | 处置决议 |
+|--------|--------|----------|----------|
+| §13.9 DLQ / MaxRetry | 🟠 | active 显式 `MaxRetry(0)`（`cmd/api/main.go:360-373`） | **主动不采纳 DLQ。代码优于文档**——orchestrator 跑 ~4h、非幂等，asynq 默认 retry 25 次 = 4 天死循环 + retry 接管时 `parentRegistries` 空致 `PreDoneCheck` 永放行 + PG 僵尸 `running`。长任务的正确做法是"跑挂即挂、人工 abort 重发"，不是重试/死信。 |
+| §13.9 concurrency_policy | 🟠 | 未实现 cron 层 policy 列 | **不采纳（已有等效机制）**。定时同目标叠打的实际危害已由 **per-host 信号量（§4.3，已实现 `internal/ratelimit/hostsem.go`）** 挡住。语义上加 policy 更干净，但保护层已存在，非裸奔。 |
+| §13.9 幂等键 | 🟠 | 无独立幂等键列 | **不采纳（已有等效机制）**。幂等由 claim 达成：cron 靠 `MarkFired` 推进 + `next_run_at<=now` 查询；聚合器靠 `WHERE consumed_by_task_id IS NULL` + 行数校验。单副本部署（§4.2）下独立 key 属 belt-and-suspenders。 |
+| §13.3 对账（expected_task_count / partial） | 🔴 | 未实现 | **YAGNI，暂不做**。触发条件（批量下发 N 网站 UI）**当前不存在**——`assignment.Create` 全库仅 3 调用方（API 单发 1 条 / cron / passive 聚合器），HTTP 无批量端点。cron 多 item 路径已"逐 item Warn 跳过 + next_run_at 推进 + 下轮重试"（`scheduler.go:70-115`，有意设计）。真做批量下发 UI 时再补对账，届时才有意义。 |
+| §6.3 手动 passive 入口 | — | 常量 `SourceManual` 占位、无调用方 | **产品决策而非加固欠账**。勾选历史流量 / 粘贴 raw 是产品功能，建不建由产品优先级定，不计入"§13 欠账"。 |
+| §13.2A 建 task + 回填非同事务 | 🔴 | `tasks.Create` 与 `ClaimUnconsumedByHost` 两次独立往返（`ingestor/traffic.go:321,326`） | **有真实缺口但已有兜底，不急**。中间崩溃留孤儿 task（`status=active`、心跳冻结）→ **reaper 判死 abort 自愈**。同事务更干净，列为"可择机加固"。 |
+| §13.2B 滞留流量定时补偿 | 🟠 | sweep 只扫 Redis 活跃 host 集，不扫 DB `consumed_by IS NULL` | **有真实缺口、低概率，不急**。纯静默 host 崩在边界会永久 NULL；新流量到达会因 `ORDER BY captured_at ASC` 连带捞回。值得以后加个周期 DB 扫，不紧急。 |
+| §13.9 task deadline_at | 🟠 | 无行级 deadline | **不采纳（高度重叠）**。`asynq.Timeout`（队列层杀超时）+ reaper（心跳判死）已双重覆盖，行级墙钟边际价值小。 |
+| §13.1 ConsumerName 唯一化 | 🔴 | ~~静态 `ingestor-1`~~ → **已修复**（`config.go:defaultConsumerName`，派生 `ingestor-<hostname>-<pid>`） | **✅ 已落地（2026-07-12）**。消费组名（负载均衡单元）保持多副本共享；消费者名（实例身份）留空时自动派生自 hostname+pid，同组内唯一。`config.yaml` 的 `consumer_name` 改为留空触发派生（多副本务必留空）。这曾是唯一"扩容即触发"的静默地雷（多实例同名进同组 → pending 记账错乱且不报错），现已消除。 |
+| §13.8 lead 按 kind 分级截断 | 🟠 | 三 kind 共用 `perKindLimit=5`（`lead/store.go:16`） | **递减收益，可做可不做**。kind 已分桶隔离（clue 洪水挤不掉 deadend，主要危害已挡），"deadend 留更多"未做，收益递减。 |
+| §13.10 显式断言守卫 | 🟢 | 靠 `handleMessage` 按 source 分流的控制流保证 | **可做可不做**。行为不变量已由控制流成立，加显式 panic 守卫属防御深度。 |
+| P0 reaper 按 mode 分档 staleAfter | — | `ReapStale(mode, staleAfter)` 已参数化，调用点传同一保守值（`cmd/scanner/main.go`） | **可做可不做**。传保守大值偏安全（不冤杀），能力就位、未真正分档。 |
+
+### 14.2 底线结论
+
+上一轮变更**不是"欠账没还完"，而是功能主干完成后，对一份通用加固清单做了一次基本正确的取舍**。§13 与代码的差距，大部分是实现者正确地拒绝了不适配有状态长任务的 cargo-cult 加固——最能说明问题的是 `MaxRetry(0)`：文档让加 DLQ，代码反着做，且代码是对的。
+
+**唯一条件性必做项已闭环**：§13.1 ConsumerName 唯一化已于 2026-07-12 修复（见 §14.1），横向扩展 scanner 的静默地雷已消除。至此本清单**无一项阻塞**——其余为"可择机加固"（§13.2A/B）与"递减收益打磨"（§13.8/13.10、reaper 分档），按需推进，不构成红线。
+
+> §13.1 修复边界说明：本次修复保证**新起多副本不撞名**。若"先单副本跑一段再扩容"，旧 `ingestor-1` 名下未 ack 的 pending 不会被新实例自动接管（Redis 消费组固有语义，需 `XAUTOCLAIM`）。但现有 `sweepLoop` 超时补偿 + `consumed_by_task_id IS NULL` 兜底 + 扩容通常滚动重启（pending 先处理干净）三重因素下，此边界实践中基本碰不到，故未额外加 `XAUTOCLAIM`（YAGNI）。
+
 
 
 
