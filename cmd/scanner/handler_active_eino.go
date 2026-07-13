@@ -175,6 +175,8 @@ func (h handler) handleActiveEino(ctx context.Context, p worker.Payload, entrypo
 		return h.failTask(ctx, p.HunterID, fmt.Errorf("marshal task result: %w", err))
 	}
 	finalizeTask(true, "")
+	// 收尾反思蒸馏（§5.2）：正常 complete 才提炼跨目标知识（best-effort，不阻塞收尾）。
+	h.distillCorpus(ctx, taskID, p.ConversationID, "orchestrator", virtualHost)
 	return h.hunters.SetDone(ctx, p.HunterID, out)
 }
 
