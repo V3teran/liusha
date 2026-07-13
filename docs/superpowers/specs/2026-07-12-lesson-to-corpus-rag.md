@@ -1,6 +1,10 @@
 # lesson → corpus：跨目标知识库（hybrid RAG）重构设计
 
-> 状态：设计定稿（§9 评审确认点已全部拍板），待实施
+> 状态：已实施（P1-P3 完成，2026-07-12）。P1+P2 提交 e8a01d20；P3 见后续提交。
+>   - P1 地基：迁移 0079、internal/corpus、删 lesson 包、工具层 search/write_corpus、删 PUSH 注入。
+>   - P2 检索：internal/embedding（Jina embed+rerank）、hybrid（dense+sparse→rerank）、集成测试。
+>   - P3 写入三路：agent 直写 write_corpus（判据）、收尾蒸馏（finalizeTask complete）、专家导入 CLI（cmd/corpus-import）。
+>   - P4（prompt 边界细化）：hunters/*.md 已加 search/write_corpus 授权 + 边界口诀，随 P1 一并完成。
 > 日期：2026-07-12
 > 前置：可清库（lesson 存量可丢，纯 DDL 换表）；已完成 lead 去截断+滚动TTL重构（见 architecture-active-passive.md §3）
 > 依赖：pgvector 0.8.4（镜像已带）、pg_trgm（可用）、Jina embedding + reranker API
