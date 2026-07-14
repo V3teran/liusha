@@ -17,7 +17,7 @@ import (
 // fakeStore 满足 einotools 的 FindingReader+FindingWriter，记录写入用于断言。
 type fakeStore struct{ saved []finding.VulnFinding }
 
-func (f *fakeStore) ListByOwnerAndHost(_ context.Context, _, _, _ string, _ int) ([]finding.VulnFinding, error) {
+func (f *fakeStore) ListByTaskAndHost(_ context.Context, _, _ string, _ int) ([]finding.VulnFinding, error) {
 	return nil, nil
 }
 func (f *fakeStore) Save(_ context.Context, v finding.VulnFinding) (finding.VulnFinding, error) {
@@ -55,11 +55,11 @@ func TestRunTrafficAnalysis_Live(t *testing.T) {
 	}
 
 	store := &fakeStore{}
-	wf, err := einotools.BuildWriteFinding(store, "passive_session", "owner-live", "hunter-live", "target.example", 7)
+	wf, err := einotools.BuildWriteFinding(store, "task-live", "hunter-live", "target.example", 7)
 	if err != nil {
 		t.Fatal(err)
 	}
-	rf, err := einotools.BuildReadFindings(store, "passive_session", "owner-live", "target.example")
+	rf, err := einotools.BuildReadFindings(store, "task-live", "target.example")
 	if err != nil {
 		t.Fatal(err)
 	}

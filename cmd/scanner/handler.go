@@ -9,37 +9,43 @@ import (
 	"github.com/hibiken/asynq"
 	"github.com/rs/zerolog"
 
-	"github.com/V3teran/liusha/internal/activescan"
 	hunterbuilder "github.com/V3teran/liusha/internal/builder/hunter"
 	"github.com/V3teran/liusha/internal/config"
 	"github.com/V3teran/liusha/internal/conversation"
+	"github.com/V3teran/liusha/internal/corpus"
 	"github.com/V3teran/liusha/internal/einoagent"
 	"github.com/V3teran/liusha/internal/einollm"
+	"github.com/V3teran/liusha/internal/einotools"
 	"github.com/V3teran/liusha/internal/finding"
 	"github.com/V3teran/liusha/internal/flow"
 	"github.com/V3teran/liusha/internal/hunter"
-	"github.com/V3teran/liusha/internal/lesson"
+	"github.com/V3teran/liusha/internal/lead"
 	"github.com/V3teran/liusha/internal/llminvocation"
-	"github.com/V3teran/liusha/internal/passivesession"
+	"github.com/V3teran/liusha/internal/ratelimit"
 	"github.com/V3teran/liusha/internal/sandbox"
 	"github.com/V3teran/liusha/internal/scanstream"
 	"github.com/V3teran/liusha/internal/scenario"
+	"github.com/V3teran/liusha/internal/task"
 	"github.com/V3teran/liusha/internal/worker"
 )
 
 // handler 持有所有跨任务共享依赖。
 type handler struct {
-	tasks           *hunter.Store
-	passiveSessions *passivesession.Store
-	activeScans     *activescan.Store
-	findings        *finding.Store
-	lessons         *lesson.Store
-	flows           *flow.Store
-	calls           *llminvocation.Store
-	cfg             config.Config
-	scannerCfg      config.ScannerConfig
-	launcher        sandbox.Launcher
-	logger          zerolog.Logger
+	hunters    *hunter.Store
+	tasks      *task.Store
+	findings   *finding.Store
+	corpus     *corpus.Store         // 跨目标知识库（hybrid RAG）；search/write_corpus
+	embedder   einotools.CorpusEmbedder // Jina embed（可 nil，降级纯 sparse）
+	reranker   corpus.Reranker          // Jina rerank（可 nil，降级合并序兜底）
+	leads      *lead.Store // 情报黑板（§7）；每次写滚动刷新 target_host 的 TTL
+	proxyFlows *flow.ProxyStore
+	agentFlows *flow.AgentStore
+	calls      *llminvocation.Store
+	hostSem    *ratelimit.HostSemaphore // per-host 并发限速（§4.3）；仅对有 target_host 的 task 生效
+	cfg        config.Config
+	scannerCfg config.ScannerConfig
+	launcher   sandbox.Launcher
+	logger     zerolog.Logger
 
 	// eino agent：passive + active 路径走 eino ChatModelAgent（唯一路径，react 退路已删）。
 	//   - einoFactory：按 role 产独立 eino ChatModel
@@ -80,7 +86,7 @@ func terminalCtx(ctx context.Context) (context.Context, context.CancelFunc) {
 func (h handler) failTask(ctx context.Context, hunterID string, err error) error {
 	writeCtx, cancel := terminalCtx(ctx)
 	defer cancel()
-	if setErr := h.tasks.SetError(writeCtx, hunterID, err.Error()); setErr != nil {
+	if setErr := h.hunters.SetError(writeCtx, hunterID, err.Error()); setErr != nil {
 		h.logger.Warn().Err(setErr).Str("hunter_id", hunterID).
 			Msg("SetError 失败（task 留在 running，原始错误已透传给 caller）")
 	}
@@ -92,7 +98,7 @@ func (h handler) failTask(ctx context.Context, hunterID string, err error) error
 func (h handler) abortTask(ctx context.Context, hunterID, reason string) error {
 	writeCtx, cancel := terminalCtx(ctx)
 	defer cancel()
-	if setErr := h.tasks.SetAborted(writeCtx, hunterID); setErr != nil {
+	if setErr := h.hunters.SetAborted(writeCtx, hunterID); setErr != nil {
 		h.logger.Warn().Err(setErr).Str("hunter_id", hunterID).Str("reason", reason).
 			Msg("SetAborted 失败（task 留在 running）")
 	}
@@ -108,8 +114,7 @@ func (h handler) handle(ctx context.Context, p worker.Payload) (retErr error) {
 	taskStart := time.Now()
 	h.logger.Info().
 		Str("hunter_id", p.HunterID).
-		Str("owner_type", p.OwnerType).
-		Str("owner_id", p.OwnerID).
+		Str("task_id", p.TaskID).
 		Str("role", string(p.Role)).
 		Msg("asynq task ▶ enter")
 	defer func() {
@@ -118,7 +123,7 @@ func (h handler) handle(ctx context.Context, p worker.Payload) (retErr error) {
 			ev = h.logger.Warn().Err(retErr)
 		}
 		ev.Str("hunter_id", p.HunterID).
-			Str("owner_id", p.OwnerID).
+			Str("task_id", p.TaskID).
 			Dur("duration", time.Since(taskStart)).
 			Msg("asynq task ◀ exit")
 	}()
@@ -126,7 +131,7 @@ func (h handler) handle(ctx context.Context, p worker.Payload) (retErr error) {
 	// 入口检查：asynq 重试场景（PG status 已非 pending）→ SkipRetry。
 	// 防 orchestrator被重试时新 Registry 空 → PreDoneCheck 永放行 → 旧 PG exploitation 僵尸 + 矛盾态。
 	// GetByID 错误（PG 短时不可用等）不阻塞——让 SetRunning 走正常错误路径。
-	if run, getErr := h.tasks.GetByID(ctx, p.HunterID); getErr == nil && run.Status != hunter.StatusPending {
+	if run, getErr := h.hunters.GetByID(ctx, p.HunterID); getErr == nil && run.Status != hunter.StatusPending {
 		h.logger.Warn().
 			Str("hunter_id", p.HunterID).
 			Str("status", string(run.Status)).
@@ -134,7 +139,27 @@ func (h handler) handle(ctx context.Context, p worker.Payload) (retErr error) {
 		return asynq.SkipRetry
 	}
 
-	if err := h.tasks.SetRunning(ctx, p.HunterID); err != nil {
+	// per-host 并发限速（§4.3）：占一个 host 额度，超限则退避重试（此时 task 仍 pending，
+	// 下次重试入口 SkipRetry 检查不误拦）。active orchestrator 的 target_host 空 → 放行
+	// （真正打 host 的是它 spawn 的子任务）；passive task 恒有 host → 受限。
+	// 限速是增强非硬门：信号量本身出错（Redis 抖动）则放行，不卡死扫描。
+	if h.hostSem != nil {
+		if tk, tErr := h.tasks.GetByID(ctx, p.TaskID); tErr == nil && tk.TargetHost != "" {
+			rel, ok, semErr := h.hostSem.Acquire(ctx, tk.TargetHost)
+			switch {
+			case semErr != nil:
+				h.logger.Warn().Err(semErr).Str("host", tk.TargetHost).Msg("per-host 信号量 acquire 失败，放行不阻塞")
+			case !ok:
+				h.logger.Info().Str("host", tk.TargetHost).Str("task_id", p.TaskID).
+					Msg("per-host 并发已达上限，退避重试")
+				return fmt.Errorf("per-host 并发上限（host=%s），退避重试", tk.TargetHost)
+			default:
+				defer rel()
+			}
+		}
+	}
+
+	if err := h.hunters.SetRunning(ctx, p.HunterID); err != nil {
 		return err
 	}
 

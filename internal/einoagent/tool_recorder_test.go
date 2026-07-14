@@ -19,14 +19,14 @@ func (r *recordingSink) RecordTool(_ context.Context, inv einoagent.ToolInvocati
 }
 
 func TestNewToolRecorder_NilSinkNoop(t *testing.T) {
-	mw := einoagent.NewToolRecorder(nil, "h1", "active_scan", "o1")
+	mw := einoagent.NewToolRecorder(nil, "h1", "task-1")
 	if mw.WrapToolCall.Invokable != nil || mw.WrapToolCall.EnhancedInvokable != nil {
 		t.Error("nil sink 应返回 no-op middleware")
 	}
 }
 
 func TestNewToolRecorder_EmptyHunterNoop(t *testing.T) {
-	mw := einoagent.NewToolRecorder(&recordingSink{}, "", "active_scan", "o1")
+	mw := einoagent.NewToolRecorder(&recordingSink{}, "", "task-1")
 	if mw.WrapToolCall.Invokable != nil {
 		t.Error("空 hunterID 应返回 no-op middleware")
 	}
@@ -35,7 +35,7 @@ func TestNewToolRecorder_EmptyHunterNoop(t *testing.T) {
 // 直接驱动 Invokable middleware：包一个 fake endpoint，调用后断言 sink 落库正确。
 func TestToolRecorder_InvokableRecords(t *testing.T) {
 	sink := &recordingSink{}
-	mw := einoagent.NewToolRecorder(sink, "hunter-1", "active_scan", "owner-1")
+	mw := einoagent.NewToolRecorder(sink, "hunter-1", "task-1")
 
 	fakeEndpoint := func(_ context.Context, _ *compose.ToolInput) (*compose.ToolOutput, error) {
 		return &compose.ToolOutput{Result: `{"id":"f1"}`}, nil
@@ -49,7 +49,7 @@ func TestToolRecorder_InvokableRecords(t *testing.T) {
 		t.Fatalf("应落 1 行 tool_invocation，得到 %d", len(sink.got))
 	}
 	g := sink.got[0]
-	if g.ToolName != "write_finding" || g.HunterID != "hunter-1" || g.OwnerID != "owner-1" {
+	if g.ToolName != "write_finding" || g.HunterID != "hunter-1" || g.TaskID != "task-1" {
 		t.Errorf("注入/工具名错: %+v", g)
 	}
 	if string(g.Args) != `{"summary":"x"}` || g.OutputSize != len(`{"id":"f1"}`) {
@@ -63,7 +63,7 @@ func TestToolRecorder_InvokableRecords(t *testing.T) {
 // 工具报错也落库（ErrorMessage 非空）。
 func TestToolRecorder_RecordsError(t *testing.T) {
 	sink := &recordingSink{}
-	mw := einoagent.NewToolRecorder(sink, "hunter-1", "active_scan", "owner-1")
+	mw := einoagent.NewToolRecorder(sink, "hunter-1", "task-1")
 
 	failEndpoint := func(_ context.Context, _ *compose.ToolInput) (*compose.ToolOutput, error) {
 		return nil, errors.New("boom")

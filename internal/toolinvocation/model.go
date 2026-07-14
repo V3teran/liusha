@@ -5,7 +5,7 @@
 // 平均耗时 / 成功率"这类聚合查询直接 SQL 可达，不必扫 jsonb。
 //
 // 写路径：internal/einoagent/tool_recorder.go 在每次工具调用前后埋点 + Append。
-// 读路径：cmd/api 按 (owner_type, owner_id) 拉本次扫描的所有 tool 调用，供前端展示。
+// 读路径：cmd/api 按 task_id 拉本次扫描的所有 tool 调用，供前端展示。
 package toolinvocation
 
 import (
@@ -19,9 +19,8 @@ import (
 // 完整 output 仍在 LLM message history（llm_invocation.messages jsonb）里。
 type Invocation struct {
 	ID            int64
-	HunterID      string // FK→hunter.id（列名仍 hunter_id 是历史包袱）
-	OwnerType     string // 'passive_session' / 'active_scan'
-	OwnerID       string
+	HunterID      string // FK→hunter.id
+	TaskID        string // 所属 task.id
 	ToolName      string          // 'sqlmap' / 'curl' / 'write_finding' / ...
 	Args          json.RawMessage // 工具调用参数 jsonb
 	OutputSize    int             // 字节数

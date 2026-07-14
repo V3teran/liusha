@@ -1,18 +1,22 @@
 package einoagent
 
 import (
+	"context"
 	"errors"
 	"fmt"
 
 	"github.com/cloudwego/eino/components/tool"
 
+	"github.com/V3teran/liusha/internal/corpus"
 	"github.com/V3teran/liusha/internal/einotools"
+	"github.com/V3teran/liusha/internal/flow"
+	"github.com/V3teran/liusha/internal/lead"
 	"github.com/V3teran/liusha/internal/sandbox"
 	"github.com/V3teran/liusha/internal/skill"
 )
 
-// 必装 store 组合接口（accept interfaces）：*finding.Store / *lesson.Store /
-// credential.Provider 各自自动满足；单测可注入 fake。
+// 必装 store 组合接口（accept interfaces）：*finding.Store / *corpus.Store /
+// credential.Provider / *lead.Store 各自自动满足；单测可注入 fake。
 type (
 	// FindingStore 满足 read/write/update_finding 三工具。
 	FindingStore interface {
@@ -20,20 +24,20 @@ type (
 		einotools.FindingWriter
 		einotools.FindingUpdater
 	}
-	// LessonStore 满足 read/write_lesson。
-	LessonStore interface {
-		einotools.LessonLister
-		einotools.LessonAdder
+	// CorpusStore 满足 search/write_corpus（跨目标知识库，hybrid RAG）。
+	CorpusStore interface {
+		einotools.CorpusSearcher
+		einotools.CorpusAdder
 	}
 	// CredentialStore 满足 read/write_credential。
 	CredentialStore interface {
 		einotools.CredentialReader
 		einotools.CredentialWriter
 	}
-	// FlowStore 满足 replay_flow（Reader）+ list_flows（Lister）+ view_flow（Reader）。
-	FlowStore interface {
-		einotools.FlowReader
-		einotools.FlowLister
+	// LeadStore 满足 write_lead（写）+ BuildDeepSwarm 拼子代理 Instruction 用的读（§7.5）。
+	LeadStore interface {
+		einotools.LeadAdder
+		ReadRecent(ctx context.Context, host string) (map[lead.Kind][]lead.Entry, error)
 	}
 )
 
@@ -41,12 +45,19 @@ type (
 // 由 cmd/scanner composition root 注入（与旧 hunter.Deps 同源 store）。
 type TrafficAnalysisToolDeps struct {
 	Findings    FindingStore
-	Lessons     LessonStore
+	Corpus      CorpusStore // 跨目标知识库（hybrid RAG）；search/write_corpus
 	Credentials CredentialStore
+	Lead        LeadStore // 情报黑板（§7）；write_lead 工具 + BuildDeepSwarm 子代理 Instruction 读同源
 
-	// Flows 是接口（scanner 传 *flow.Store 满足）；nil 时不注册 replay/list/view_flow。
-	// 注意 nil 门控：scanner 始终传非 nil 真实 store，故无 typed-nil 装箱陷阱。
-	Flows FlowStore
+	// Embedder / Reranker 供 corpus hybrid 检索用（Jina）；nil 时 corpus 降级（search 纯 sparse、write 不 embed）。
+	Embedder einotools.CorpusEmbedder
+	Reranker corpus.Reranker
+
+	// ProxyFlows / AgentFlows 是拆表后的两个流量 store（scanner 传 *flow.ProxyStore /
+	// *flow.AgentStore）；nil 时不注册 replay/list/view_flow。passive traffic-analysis 用
+	// ProxyFlows（读本批消费的 proxy_traffic），active 用 AgentFlows（读自产 agent_traffic）。
+	ProxyFlows *flow.ProxyStore
+	AgentFlows *flow.AgentStore
 
 	// 可选：用具体指针类型，nil 时不注册对应工具（nil 门控语义与 hunter/skill.go 一致，
 	// 避免 typed-nil 装箱进接口后 != nil 的陷阱）。
@@ -59,12 +70,13 @@ type TrafficAnalysisToolDeps struct {
 }
 
 // TrafficAnalysisToolParams 是 per-run 注入值（LLM 不可控，防串库）。
+// Mode 决定流量源：active 读 agent_traffic，passive 读本批消费的 proxy_traffic（§13.6）。
 type TrafficAnalysisToolParams struct {
-	OwnerType string
-	OwnerID   string
-	HunterID  string
-	Host      string
-	FlowID    int64
+	TaskID   string
+	Mode     string // 'active' / 'passive'
+	HunterID string
+	Host     string
+	FlowID   int64
 }
 
 // BuildTrafficAnalysisTools 装配 trafficAnalysis（passive 单 agent）的工具集。
@@ -83,20 +95,27 @@ func BuildTrafficAnalysisTools(deps TrafficAnalysisToolDeps, p TrafficAnalysisTo
 		tools = append(tools, bt)
 	}
 
-	// credentials / findings(读写) / lessons（notes 已退役）
+	// credentials / findings(读写) / corpus(检索+写入跨目标知识库)
 	add(einotools.BuildReadCredentials(deps.Credentials, p.Host))
 	add(einotools.BuildWriteCredential(deps.Credentials, p.Host))
-	add(einotools.BuildReadFindings(deps.Findings, p.OwnerType, p.OwnerID, p.Host))
-	add(einotools.BuildWriteFinding(deps.Findings, p.OwnerType, p.OwnerID, p.HunterID, p.Host, p.FlowID))
+	add(einotools.BuildReadFindings(deps.Findings, p.TaskID, p.Host))
+	add(einotools.BuildWriteFinding(deps.Findings, p.TaskID, p.HunterID, p.Host, p.FlowID))
 	add(einotools.BuildUpdateFinding(deps.Findings))
-	add(einotools.BuildReadLessons(deps.Lessons, p.Host))
-	add(einotools.BuildWriteLesson(deps.Lessons, p.Host))
+	add(einotools.BuildSearchCorpus(deps.Corpus, deps.Embedder, deps.Reranker))
+	add(einotools.BuildWriteCorpus(deps.Corpus, deps.Embedder, p.TaskID))
+	// write_lead（情报黑板，§7）：traffic-analysis 是 passive 的顶层 agent 也是唯一执行者，
+	// 既走 BuildUserPrompt 读 lead 段，也需要写权限。
+	add(einotools.BuildWriteLead(deps.Lead, p.Host, p.HunterID, p.TaskID))
 	// done：prompt 是 react/eino 共享资产、深度依赖 done 收尾——不注册会「tool done not found」（e2e 实测）。
 	add(einotools.BuildDone())
 
-	// 流量字典：trafficAnalysis 只重放当前流量，不枚举站点（list/view 是 active 的事）。
-	if deps.Flows != nil {
-		add(einotools.BuildReplayFlow(deps.Flows, p.OwnerType, p.OwnerID, p.HunterID))
+	// 流量字典（passive）：本批消费的 proxy_traffic 的 list/view/replay——一批流量可能几十条，
+	// agent 需枚举（list_flows）+ 看完整请求响应（view_flow）+ 改参重发（replay_flow）。
+	if deps.ProxyFlows != nil {
+		scope := einotools.NewProxyFlowScope(deps.ProxyFlows, p.TaskID)
+		add(einotools.BuildListFlows(scope, p.Host))
+		add(einotools.BuildViewFlow(scope))
+		add(einotools.BuildReplayFlow(scope))
 	}
 
 	// 可选索引/沙箱（nil / 空 catalog 跳过，与 skill.go 门控一致）

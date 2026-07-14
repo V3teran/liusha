@@ -21,8 +21,7 @@ type CallSink interface {
 // RouteKey 写入 llm_invocation.role，取值如 "traffic-analysis" / "orchestrator" /
 // "exploitation" / "inspector"，便于按角色维度统计 token 用量和路由生效情况。
 type CallMeta struct {
-	HunterID  *string
-	OwnerType *string // 'passive_session' / 'active_scan'
-	OwnerID   *string // passive_session.id / active_scan.id
-	RouteKey  string
+	HunterID *string
+	TaskID   *string // 所属 task.id
+	RouteKey string
 }

@@ -235,8 +235,7 @@ func buildInvocation(ctx context.Context, meta llm.CallMeta, provider, defaultMo
 
 	rec := llminvocation.Invocation{
 		HunterID:     meta.HunterID,
-		OwnerType:    meta.OwnerType,
-		OwnerID:      meta.OwnerID,
+		TaskID:       meta.TaskID,
 		Provider:     provider,
 		Model:        mdl,
 		InTokens:     usage.InTokens,

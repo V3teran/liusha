@@ -36,7 +36,7 @@ func TestClient_Enqueue_RoutesQueue(t *testing.T) {
 	id, q, err := c.Enqueue(
 		context.Background(),
 		RoleHunter,
-		Payload{HunterID: "task-1", OwnerType: "passive_session", OwnerID: "owner-1", Role: RoleHunter},
+		Payload{HunterID: "task-1", TaskID: "task-1", Role: RoleHunter},
 	)
 	if err != nil {
 		t.Fatalf("Enqueue err = %v", err)
@@ -55,7 +55,7 @@ func TestClient_Enqueue_DispatchQueue(t *testing.T) {
 	_, q, err := c.Enqueue(
 		context.Background(),
 		RoleDispatch,
-		Payload{HunterID: "task-op-1", OwnerType: "passive_session", OwnerID: "owner-1", Role: RoleDispatch},
+		Payload{HunterID: "task-op-1", TaskID: "task-1", Role: RoleDispatch},
 	)
 	if err != nil {
 		t.Fatalf("Enqueue err = %v", err)
@@ -69,7 +69,7 @@ func TestClient_Enqueue_DispatchQueue(t *testing.T) {
 func TestClient_Enqueue_Idempotent(t *testing.T) {
 	c, _ := newTestClient(t)
 	ctx := context.Background()
-	p := Payload{HunterID: "dup-1", OwnerType: "passive_session", OwnerID: "owner-1", Role: RoleHunter}
+	p := Payload{HunterID: "dup-1", TaskID: "task-1", Role: RoleHunter}
 
 	if _, _, err := c.Enqueue(ctx, RoleHunter, p); err != nil {
 		t.Fatalf("first enqueue err = %v", err)
@@ -161,7 +161,7 @@ func TestEndToEnd_EnqueueAndProcess(t *testing.T) {
 	go func() { _ = srv.Run(m.AsynqMux()) }()
 	t.Cleanup(srv.Shutdown)
 
-	want := Payload{HunterID: "e2e-1", OwnerType: "passive_session", OwnerID: "owner-e2e", Role: RoleHunter}
+	want := Payload{HunterID: "e2e-1", TaskID: "task-e2e", Role: RoleHunter}
 	if _, _, err := c.Enqueue(ctx, RoleHunter, want); err != nil {
 		t.Fatalf("Enqueue err = %v", err)
 	}

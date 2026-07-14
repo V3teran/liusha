@@ -5,33 +5,35 @@ package llminvocation
 import (
 	"context"
 	"testing"
-	"time"
 
 	"github.com/V3teran/liusha/internal/config"
 	"github.com/V3teran/liusha/internal/dbtest"
-	"github.com/V3teran/liusha/internal/passivesession"
+	"github.com/V3teran/liusha/internal/task"
 )
 
-// setup 启动 Postgres、建 passive_session，返回 (Store, ownerType, ownerID)。
-func setup(t *testing.T) (*Store, string, string) {
+// setup 启动 Postgres、建一个 passive task 作为外键归属，返回 (Store, taskID)。
+func setup(t *testing.T) (*Store, string) {
 	t.Helper()
 	pool := dbtest.NewPgPool(t)
-	ps := passivesession.NewStore(pool)
-	sess, err := ps.LookupOrCreate(context.Background(), "test.example.com", 24*time.Hour)
+	ts := task.NewStore(pool)
+	tk, err := ts.Create(context.Background(), task.NewParams{
+		Mode:         task.ModePassive,
+		AssignmentID: dbtest.SeedAssignment(t, pool, "passive"),
+		TargetHost:   "test.example.com",
+	})
 	if err != nil {
-		t.Fatalf("create passive_session: %v", err)
+		t.Fatalf("create task: %v", err)
 	}
-	return NewStoreWithConfig(pool, config.InvocationConfig{}), "passive_session", sess.ID
+	return NewStoreWithConfig(pool, config.InvocationConfig{}), tk.ID
 }
 
-// TestStore_Append_ListByOwner 验证：插一条调用 → flush → 按 owner 读回，token/role 正确。
-func TestStore_Append_ListByOwner(t *testing.T) {
+// TestStore_Append_ListByTask 验证：插一条调用 → flush → 按 task 读回，token/role 正确。
+func TestStore_Append_ListByTask(t *testing.T) {
 	ctx := context.Background()
-	s, ot, oid := setup(t)
+	s, taskID := setup(t)
 
 	if _, err := s.Append(ctx, Invocation{
-		OwnerType:    &ot,
-		OwnerID:      &oid,
+		TaskID:       &taskID,
 		Provider:     "deepseek",
 		Model:        "deepseek-chat",
 		InTokens:     1200,
@@ -47,7 +49,7 @@ func TestStore_Append_ListByOwner(t *testing.T) {
 		t.Fatalf("flush: %v", err)
 	}
 
-	rows, err := s.ListByOwner(ctx, "", oid)
+	rows, err := s.ListByTask(ctx, taskID)
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
@@ -63,10 +65,10 @@ func TestStore_Append_ListByOwner(t *testing.T) {
 	}
 }
 
-// TestStore_AggregateByOwner 验证：插多条 → 合计 token/latency/calls 等于各项之和。
-func TestStore_AggregateByOwner(t *testing.T) {
+// TestStore_AggregateByTask 验证：插多条 → 合计 token/latency/calls 等于各项之和。
+func TestStore_AggregateByTask(t *testing.T) {
 	ctx := context.Background()
-	s, ot, oid := setup(t)
+	s, taskID := setup(t)
 
 	rows := []Invocation{
 		{Provider: "deepseek", Model: "deepseek-chat", Role: "orchestrator", InTokens: 100, OutTokens: 10, CachedTokens: 5, LatencyMs: 200},
@@ -74,8 +76,7 @@ func TestStore_AggregateByOwner(t *testing.T) {
 		{Provider: "deepseek", Model: "deepseek-chat", Role: "exploitation", InTokens: 50, OutTokens: 5, CachedTokens: 50, LatencyMs: 100},
 	}
 	for i := range rows {
-		rows[i].OwnerType = &ot
-		rows[i].OwnerID = &oid
+		rows[i].TaskID = &taskID
 		if _, err := s.Append(ctx, rows[i]); err != nil {
 			t.Fatalf("append %d: %v", i, err)
 		}
@@ -84,7 +85,7 @@ func TestStore_AggregateByOwner(t *testing.T) {
 		t.Fatalf("flush: %v", err)
 	}
 
-	agg, err := s.AggregateByOwner(ctx, oid)
+	agg, err := s.AggregateByTask(ctx, taskID)
 	if err != nil {
 		t.Fatalf("aggregate: %v", err)
 	}
@@ -99,16 +100,16 @@ func TestStore_AggregateByOwner(t *testing.T) {
 	}
 }
 
-// TestStore_AggregateByOwner_Empty 验证：无任何调用时返回零值，不报错。
-func TestStore_AggregateByOwner_Empty(t *testing.T) {
+// TestStore_AggregateByTask_Empty 验证：无任何调用时返回零值，不报错。
+func TestStore_AggregateByTask_Empty(t *testing.T) {
 	ctx := context.Background()
-	s, _, oid := setup(t)
+	s, taskID := setup(t)
 
-	agg, err := s.AggregateByOwner(ctx, oid)
+	agg, err := s.AggregateByTask(ctx, taskID)
 	if err != nil {
 		t.Fatalf("aggregate on empty: %v", err)
 	}
 	if agg.Calls != 0 || agg.InTokens != 0 || agg.LatencyMs != 0 {
-		t.Fatalf("空 owner 应全零, got %+v", agg)
+		t.Fatalf("空 task 应全零, got %+v", agg)
 	}
 }

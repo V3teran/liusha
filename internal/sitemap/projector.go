@@ -4,9 +4,9 @@
 // folder 层（path prefix 分组）不生成——它是显示概念不是攻击面对象，把 endpoint
 // 拍平到 domain 直连让辐射图第 1 圈就是真正的攻击面。
 //
-// 数据源（单一真相源）：http_flow（source=internal，DistinctRoutes 去重派生攻击面路由）
+// 数据源（单一真相源）：agent_traffic（DistinctRoutes 去重派生攻击面路由，按 task）
 // + finding 表（exploitation 写）。攻击面不再靠手动 endpoint 表/write_endpoint 转写——
-// recon 工具流量经 mitmproxy/CDP 自动入 http_flow，sitemap 从中派生（参数自动入库）。
+// recon 工具流量经 sandbox 自动入 agent_traffic，sitemap 从中派生（参数自动入库）。
 // passive 模式无 sitemap 视图（流水账型流量，前端走 findings 列表）。
 package sitemap
 
@@ -24,9 +24,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/V3teran/liusha/internal/activescan"
 	"github.com/V3teran/liusha/internal/finding"
 	"github.com/V3teran/liusha/internal/flow"
+	"github.com/V3teran/liusha/internal/task"
 )
 
 // 节点 kind 枚举（前端展示用）。
@@ -58,7 +58,7 @@ type SitemapNode struct {
 // 成果链（finding 组合依赖边）已迁出至 internal/attackgraph 执行图投影器，
 // 见 docs/attack-graph-design.md §10。
 type View struct {
-	OwnerID     string       `json:"owner_id"`
+	TaskID      string       `json:"task_id"`
 	Host        string       `json:"host"`
 	GeneratedAt time.Time    `json:"generated_at"`
 	Root        *SitemapNode `json:"root"`
@@ -66,18 +66,18 @@ type View struct {
 
 // FindingReader 是投影器读 finding 表所需的最小接口。
 type FindingReader interface {
-	ListByOwner(ctx context.Context, ownerType, ownerID string) ([]finding.VulnFinding, error)
+	ListByTask(ctx context.Context, taskID string) ([]finding.VulnFinding, error)
 }
 
-// FlowReader 是投影器读 http_flow 派生攻击面路由所需的最小接口。
-// *flow.Store 自动满足。带代表响应体片段供抽 <title> 作 UI 名。
+// FlowReader 是投影器读 agent_traffic 派生攻击面路由所需的最小接口。
+// *flow.AgentStore 自动满足。带代表响应体片段供抽 <title> 作 UI 名。
 type FlowReader interface {
-	DistinctRoutesWithRepresentative(ctx context.Context, ownerID, host string) ([]flow.RouteRepr, error)
+	DistinctRoutesWithRepresentative(ctx context.Context, taskID, host string) ([]flow.RouteRepr, error)
 }
 
-// ActiveReader 是投影器读 active_scan 表所需的最小接口（用于验证 owner 是 active 类型）。
-type ActiveReader interface {
-	GetByID(ctx context.Context, id string) (activescan.Scan, error)
+// TaskReader 是投影器读 task 表所需的最小接口（验证 task 是 active 模式）。
+type TaskReader interface {
+	GetByID(ctx context.Context, id string) (task.Task, error)
 }
 
 // Projector 是无状态 sitemap 投影器；可全局共享一份。
@@ -86,31 +86,35 @@ type ActiveReader interface {
 type Projector struct {
 	Findings FindingReader
 	Flows    FlowReader
-	Active   ActiveReader
+	Tasks    TaskReader
 }
 
-// Project 投影 (ownerID, host) 范围的 sitemap 树。
+// Project 投影 (taskID, host) 范围的 sitemap 树。
 //
-// owner_id 必须是 active_scan.id；passive_session.id 报错（passive 走 findings 列表）。
-// host 为空时显示该 active scan 下全部 host 的合并视图。
-func (p *Projector) Project(ctx context.Context, ownerID, host string) (View, error) {
-	if ownerID == "" {
-		return View{}, fmt.Errorf("owner_id 不能为空")
+// task 必须是 active 模式；passive task 报错（passive 走 findings 列表）。
+// host 为空时显示该 task 下全部 host 的合并视图。
+func (p *Projector) Project(ctx context.Context, taskID, host string) (View, error) {
+	if taskID == "" {
+		return View{}, fmt.Errorf("task_id 不能为空")
 	}
 
-	// 验证 owner 是 active 模式
-	if _, err := p.Active.GetByID(ctx, ownerID); err != nil {
-		return View{}, fmt.Errorf("sitemap 仅支持 active 模式 (owner_id=%s 不是 active scan，passive 用 /findings)", ownerID)
+	// 验证 task 是 active 模式
+	t, err := p.Tasks.GetByID(ctx, taskID)
+	if err != nil {
+		return View{}, fmt.Errorf("sitemap: 读 task %s 失败: %w", taskID, err)
+	}
+	if t.Mode != task.ModeActive {
+		return View{}, fmt.Errorf("sitemap 仅支持 active 模式 (task=%s 是 %s，passive 用 /findings)", taskID, t.Mode)
 	}
 
-	routes, err := p.Flows.DistinctRoutesWithRepresentative(ctx, ownerID, host)
+	routes, err := p.Flows.DistinctRoutesWithRepresentative(ctx, taskID, host)
 	if err != nil {
 		return View{}, fmt.Errorf("flow.DistinctRoutesWithRepresentative: %w", err)
 	}
 
-	findings, err := p.Findings.ListByOwner(ctx, "active_scan", ownerID)
+	findings, err := p.Findings.ListByTask(ctx, taskID)
 	if err != nil {
-		return View{}, fmt.Errorf("finding.ListByOwner: %w", err)
+		return View{}, fmt.Errorf("finding.ListByTask: %w", err)
 	}
 
 	// host 过滤（防 finding.host 跨 host 串）。
@@ -270,7 +274,7 @@ func (p *Projector) Project(ctx context.Context, ownerID, host string) (View, er
 	})
 
 	return View{
-		OwnerID:     ownerID,
+		TaskID:      taskID,
 		Host:        host,
 		GeneratedAt: time.Now().UTC(),
 		Root:        root,

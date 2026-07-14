@@ -339,22 +339,18 @@ proxy:
 
 # ---- ingestor 流量摄入器（cmd/scanner 内 goroutine）----
 ingestor:
-  consumer_group: liusha-ingestor   # XREADGROUP consumer group 名
-  consumer_name: ingestor-1         # consumer 实例名（多实例时区分）
+  consumer_group: liusha-ingestor   # XREADGROUP 消费组名（负载均衡单元，多副本共享）
+  consumer_name: ""                 # consumer 实例名：留空自动派生 ingestor-<hostname>-<pid>（同组内唯一）；多副本务必留空
   read_batch: 16                    # 单次 XREADGROUP 取条数
   read_block_timeout_ms: 1000       # XREADGROUP BLOCK ms（无消息时阻塞上限）
   retry_delay_ms: 500               # XREADGROUP 失败重试延迟
   recreate_group_delay_ms: 500      # NOGROUP 自愈重建后等待 ms
 
-# ---- session 生命周期参数（passive_session 生命周期 + hunter prompt 上限）----
+# ---- session 参数（hunter prompt 上限；合表后 passive task 无常驻监控，sweeper/TTL 已删）----
 session:
-  # passive_session sweeper 定时 goroutine 触发周期（主动 abort 过期 active passive session）
-  sweeper_interval_seconds: 600
-  # passive_session TTL：created_at 起超过此小时数即被 sweeper abort
-  max_age_hours: 24
   # hunter user prompt 拼装上限（避免 prompt 膨胀；超出 LLM 用 read_findings/read_lessons 工具按需查）
   findings_limit_in_prompt: 1000    # 该 host finding DB 读上限安全闸（全量注入不截断；超长由 ① 压缩）
-  lessons_limit_in_prompt: 100      # 该 host 历史经验 + 跨 host 业务规则 hint 共用上限
+  # lessons_limit_in_prompt 已删：跨目标知识改 corpus PULL 检索（search_corpus），不再 PUSH 注入
 
 # ---- credential.RedisProvider redis 前缀 ----
 credential:
@@ -377,6 +373,8 @@ scanner:
   flow_max_response_body: 8388608          # 8 MiB；flow.Store 入库截断阈值（与 proxy.max_response_body_size 对齐）
   queue_hunter_weight: 5                   # asynq 队列优先级权重（数字越大越优先）
   queue_dispatch_weight: 1
+  per_host_concurrency: 2                  # per-host 并发上限（§4.3）；同 host 同时运行 task 数超限则退避重试；≤0 关闭限速
+  lead_ttl_hours: 720                      # 情报黑板（lead，§7）滚动过期时长：每次写刷新该 host TTL，持续写则续命、停写后自净；active/passive 一视同仁；≤0 关（不过期，靠 LTRIM 兜底）
 
 # ---- 主 ReAct 循环参数 ----
 react:
@@ -384,7 +382,6 @@ react:
   inspector_args_truncate: 256              # 喂 inspector LLM 的 tool args 截断字节数（80B 看不出意图）
   inspector_obs_truncate: 400               # 喂 inspector LLM 的 ObsSummary 截断字节数
   inspector_findings_limit: 30              # inspector 看 host 已有 finding 段条数（按 created_at DESC）
-  inspector_lessons_limit: 30               # inspector 看 host lesson 段条数（按 priority DESC）
   max_images_in_history: 3                  # 多模态历史保留图片张数上限（compressImages 用）
                                             # 慢 vision 节点可调 2 控延迟；商业 API（claude/gpt-4o）可放宽到 10+
 

@@ -173,24 +173,22 @@ type IngestorConfig struct {
 	ReadBlockTimeoutMs   int    `mapstructure:"read_block_timeout_ms"`
 	RetryDelayMs         int    `mapstructure:"retry_delay_ms"`
 	RecreateGroupDelayMs int    `mapstructure:"recreate_group_delay_ms"`
+
+	// passive 聚合器参数（§6.2）：同 host 攒批建 passive task。
+	// AggregateBatchSize：一批多少条 proxy_traffic 触发建 task（默认 20；~一个用户操作单元的 XHR 量级）。
+	// AggregateWindowSeconds：距首条超此秒数即触发（默认 10；先到先触发）。
+	AggregateBatchSize     int `mapstructure:"aggregate_batch_size"`
+	AggregateWindowSeconds int `mapstructure:"aggregate_window_seconds"`
 }
 
-// SessionConfig 是 passive_session 生命周期 + hunter prompt 上限参数。
+// SessionConfig 是 hunter prompt 上限参数。
+// （合表后 passive task 是有界批分析、跑完即终态，无常驻监控会话，故原 sweeper/TTL 参数已删。）
 type SessionConfig struct {
-	// SweeperIntervalSeconds：passive_session sweeper 定时 goroutine 触发周期，
-	// 用于主动 abort 已过期但还挂 active 的 passive session（无流量时仍能换）。
-	SweeperIntervalSeconds int `mapstructure:"sweeper_interval_seconds"`
-
-	// passive_session 单一 TTL 阈值：created_at 起超过此小时数即被 sweeper abort。
-	// notes 走 Redis TTL 自治，finding 计数本身不触发轮转。
-	MaxAgeHours int `mapstructure:"max_age_hours"`
-
 	// hunter user prompt 拼装时的上限（避免 prompt 膨胀）。
 	// FindingsLimitInPrompt：该 host 已有 finding 段的 DB 读上限安全闸（取够高，正常扫描全量注入；
 	// 不在此 top-N 截断，prompt 超长由 ① summarization 统一压缩，agent 仍可 read_findings 取全）。
-	// LessonsLimitInPrompt：该 host 历史经验 + 跨 host 业务规则 hint 共用上限（按 priority desc）。
+	// （原 lessons_limit_in_prompt 已删：跨目标知识改 corpus PULL 检索，不再 PUSH 注入。）
 	FindingsLimitInPrompt int `mapstructure:"findings_limit_in_prompt"`
-	LessonsLimitInPrompt  int `mapstructure:"lessons_limit_in_prompt"`
 }
 
 // CredentialConfig 是 credential.RedisProvider 的 redis key 前缀。
@@ -223,6 +221,16 @@ type ScannerConfig struct {
 	// asynq queue 优先级权重（数字越大优先级越高）
 	QueueHunterWeight   int `mapstructure:"queue_hunter_weight"`
 	QueueDispatchWeight int `mapstructure:"queue_dispatch_weight"`
+
+	// per-host 并发上限（§4.3）：同 host 同时运行的 task 数 ≤ 此值，防同目标叠打触发 WAF 封 IP。
+	// ≤ 0 视为不限制。默认 2（渗透场景保守值）。仅对有 target_host 的 task 生效（active orchestrator
+	// host 空时放行——真正打 host 的是其 spawn 的子任务）。
+	PerHostConcurrency int `mapstructure:"per_host_concurrency"`
+
+	// 情报黑板（lead，§7）的滚动过期时长（小时）——每次写 lead 刷新该 host 的 TTL：持续写则一直
+	// 续命，停写后 TTL 到期自净。active/passive 一视同仁，不再分模式清理。默认 720 小时（30 天）。
+	// ≤0 关过期（永不过期，仅靠 LTRIM 兜底）。
+	LeadTTLHours int `mapstructure:"lead_ttl_hours"`
 }
 
 // ReactConfig 主 ReAct 循环参数。
@@ -231,11 +239,9 @@ type ReactConfig struct {
 	InspectorArgsTruncate int `mapstructure:"inspector_args_truncate"` // 喂 inspector LLM 的 tool args 截断字节数
 	InspectorObsTruncate  int `mapstructure:"inspector_obs_truncate"`  // 喂 inspector LLM 的 ObsSummary 截断字节数
 
-	// inspector prompt 背景段拉取数量上限（按 created_at DESC / priority DESC 各自排序）。
-	// 与 hunter 的 findings_limit_in_prompt / lessons_limit_in_prompt 解耦——
+	// inspector prompt 背景段拉取数量上限（按 created_at DESC / priority DESC 排序）。
 	// inspector 是轻量评估，看少量背景即可；hunter 干活需更全。
 	InspectorFindingsLimit int `mapstructure:"inspector_findings_limit"`
-	InspectorLessonsLimit  int `mapstructure:"inspector_lessons_limit"`
 
 	// MaxImagesInHistory 是 multimodal message 历史保留图片张数上限（compressImages 用）。
 	// 默认 3：实战 vision agent sweet spot——再多对 encoder 仅增延迟不增信息；慢节点可调 2，商业 API 可放宽 10+。
@@ -507,12 +513,26 @@ func applyProxyDefaults(c ProxyConfig) ProxyConfig {
 	return c
 }
 
+// defaultConsumerName 生成每实例唯一的 Stream 消费者名。
+//
+// 消费组（ConsumerGroup）是负载均衡单元、多副本共享；消费者名（本值）是每实例身份，
+// 同组内必须唯一——否则多副本用同名进同组，Redis 无法区分 pending 归属，投递/ack 记账错乱
+// （且不报错，属静默故障）。故派生自 hostname + pid：容器/Pod 场景 hostname 通常已唯一，
+// 附加 pid 再兜住"同主机多进程"。取不到 hostname 时退化为 pid，仍保证同主机各进程互不撞名。
+func defaultConsumerName() string {
+	host, err := os.Hostname()
+	if err != nil || host == "" {
+		host = "unknown"
+	}
+	return fmt.Sprintf("ingestor-%s-%d", host, os.Getpid())
+}
+
 func applyIngestorDefaults(c IngestorConfig) IngestorConfig {
 	if c.ConsumerGroup == "" {
 		c.ConsumerGroup = "liusha-ingestor"
 	}
 	if c.ConsumerName == "" {
-		c.ConsumerName = "ingestor-1"
+		c.ConsumerName = defaultConsumerName()
 	}
 	if c.ReadBatch == 0 {
 		c.ReadBatch = 16
@@ -526,21 +546,18 @@ func applyIngestorDefaults(c IngestorConfig) IngestorConfig {
 	if c.RecreateGroupDelayMs == 0 {
 		c.RecreateGroupDelayMs = 500
 	}
+	if c.AggregateBatchSize == 0 {
+		c.AggregateBatchSize = 20
+	}
+	if c.AggregateWindowSeconds == 0 {
+		c.AggregateWindowSeconds = 10
+	}
 	return c
 }
 
 func applySessionDefaults(c SessionConfig) SessionConfig {
-	if c.SweeperIntervalSeconds == 0 {
-		c.SweeperIntervalSeconds = 600
-	}
-	if c.MaxAgeHours == 0 {
-		c.MaxAgeHours = 24
-	}
 	if c.FindingsLimitInPrompt == 0 {
 		c.FindingsLimitInPrompt = 1000 // 安全闸（正常扫描全量注入，不截断；超长交 ① 压缩）
-	}
-	if c.LessonsLimitInPrompt == 0 {
-		c.LessonsLimitInPrompt = 100
 	}
 	return c
 }
@@ -600,6 +617,12 @@ func applyScannerDefaults(c ScannerConfig) ScannerConfig {
 	if c.QueueDispatchWeight == 0 {
 		c.QueueDispatchWeight = 1
 	}
+	if c.PerHostConcurrency == 0 {
+		c.PerHostConcurrency = 2 // 默认同 host 并发 ≤ 2；显式设 -1 可关限速
+	}
+	if c.LeadTTLHours == 0 {
+		c.LeadTTLHours = 720 // 默认 30 天滚动过期；显式设 -1 可关（永不过期，交给 LTRIM 兜底）
+	}
 	return c
 }
 
@@ -615,9 +638,6 @@ func applyReactDefaults(c ReactConfig) ReactConfig {
 	}
 	if c.InspectorFindingsLimit == 0 {
 		c.InspectorFindingsLimit = 30
-	}
-	if c.InspectorLessonsLimit == 0 {
-		c.InspectorLessonsLimit = 30
 	}
 	if c.MaxImagesInHistory == 0 {
 		c.MaxImagesInHistory = 3 // vision agent 实战经验值；yaml 显式 0 也会被兜到 3

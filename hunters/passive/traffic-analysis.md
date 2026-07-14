@@ -9,8 +9,9 @@ tools:
   - read_findings
   - write_finding
   - update_finding
-  - read_lessons
-  - write_lesson
+  - search_corpus
+  - write_corpus
+  - write_lead
   - replay_flow
   - read_tooling_skill
   - read_vuln_skill

@@ -10,7 +10,7 @@
 //
 // 纯 MITM passive 入口：无 healthz HTTP（存活探 TCP 8888）；active 抓流量 ingest endpoint 已迁到 cmd/scanner。
 //
-// 业务逻辑（passive_session.LookupOrCreate by host / flow.Append / Asynq 入队）
+// 业务逻辑（proxy_traffic 落库 by host / 聚合器建 passive task / Asynq 入队）
 // 全部在 cmd/scanner 内的 ingestor 包，proxy 只生产事件不做存储。
 package main
 
@@ -99,7 +99,7 @@ func main() {
 	go func() {
 		logger.Info().Str("public", publicAddr).Str("upstream", internalAddr).Str("source", "external").Msg("uri sanitizer listening")
 		// external listener：外部 passive 流量本就无凭证，仅做 URI patch。
-		// owner_id 关联走 host → passive_session 路径（ingestor LookupOrCreate）。
+		// 流量按 host 落 proxy_traffic，passive task 由 ingestor 聚合器按窗口生成。
 		if err := proxy.RunPassiveSanitizer(publicAddr, internalAddr); err != nil {
 			logger.Error().Err(err).Msg("external uri sanitizer exited")
 		}

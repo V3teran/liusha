@@ -7,35 +7,43 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
-	"time"
 
 	"github.com/V3teran/liusha/internal/dbtest"
-	"github.com/V3teran/liusha/internal/passivesession"
+	"github.com/V3teran/liusha/internal/task"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// setup 启动 Postgres 容器、建 passive_session，返回 (Store, passiveSessionID)。
-// maxReqBody=1024 / maxRespBody=2048 用于覆盖截断测试。
-func setup(t *testing.T) (*Store, string) {
+// newPassiveTask 建一个 passive task（proxy_traffic 消费方 / agent_traffic 归属方），返回 (pool, taskID)。
+func newPassiveTask(t *testing.T) (*pgxpool.Pool, string) {
 	t.Helper()
 	pool := dbtest.NewPgPool(t)
-	ps := passivesession.NewStore(pool)
-	sess, err := ps.LookupOrCreate(context.Background(), "test.example.com", 24*time.Hour)
+	tk, err := task.NewStore(pool).Create(context.Background(), task.NewParams{
+		Mode:         task.ModePassive,
+		AssignmentID: dbtest.SeedAssignment(t, pool, "passive"),
+		TargetHost:   "test.example.com",
+	})
 	if err != nil {
-		t.Fatalf("create passive_session: %v", err)
+		t.Fatalf("create task: %v", err)
 	}
-	return NewStore(pool, 1024, 2048), sess.ID
+	return pool, tk.ID
 }
 
-// TestStore_Append_TruncatesLargeBody 验证：超过 max 的 body 被截断到精确 max 字节。
-func TestStore_Append_TruncatesLargeBody(t *testing.T) {
-	ctx := context.Background()
-	s, sid := setup(t)
+// -------- ProxyStore（代理捕获流量，按 host 归属） --------
 
-	big := bytes.Repeat([]byte("x"), 5000)
-	id, err := s.Append(ctx, Flow{
-		OwnerType: "passive_session", OwnerID: sid, Source: "external",
+// TestProxyStore_Append_TruncatesLargeBody 验证：超过 32 KiB 的 body 被截断到精确 32 KiB。
+// 旧测试用可配置 maxReqBody=1024/maxRespBody=2048，新 store 固定 defaultMaxBody（32 KiB），
+// 故这里用大于阈值的 body 验证截断。
+func TestProxyStore_Append_TruncatesLargeBody(t *testing.T) {
+	ctx := context.Background()
+	pool, _ := newPassiveTask(t)
+	s := NewProxyStore(pool)
+
+	big := bytes.Repeat([]byte("x"), defaultMaxBody+5000)
+	id, err := s.Append(ctx, ProxyTraffic{
+		Host:            "test.example.com",
 		Method:          "POST",
-		URL:             "/api/x",
+		URL:             "http://test.example.com/api/x",
+		Path:            "/api/x",
 		RequestHeaders:  json.RawMessage(`{"x":"1"}`),
 		RequestBody:     big,
 		StatusCode:      200,
@@ -53,33 +61,32 @@ func TestStore_Append_TruncatesLargeBody(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get: %v", err)
 	}
-	if len(got.RequestBody) != 1024 {
-		t.Fatalf("req body len: want 1024 (truncated), got %d", len(got.RequestBody))
+	if len(got.RequestBody) != defaultMaxBody {
+		t.Fatalf("req body len: want %d (truncated), got %d", defaultMaxBody, len(got.RequestBody))
 	}
-	if len(got.ResponseBody) != 2048 {
-		t.Fatalf("resp body len: want 2048 (truncated), got %d", len(got.ResponseBody))
+	if len(got.ResponseBody) != defaultMaxBody {
+		t.Fatalf("resp body len: want %d (truncated), got %d", defaultMaxBody, len(got.ResponseBody))
 	}
-	if !bytes.Equal(got.RequestBody, big[:1024]) {
+	if !bytes.Equal(got.RequestBody, big[:defaultMaxBody]) {
 		t.Fatalf("req body bytes mismatch")
 	}
-	if !bytes.Equal(got.ResponseBody, big[:2048]) {
-		t.Fatalf("resp body bytes mismatch")
-	}
-	if got.Method != "POST" || got.URL != "/api/x" || got.StatusCode != 200 {
+	if got.Method != "POST" || got.Path != "/api/x" || got.StatusCode != 200 {
 		t.Fatalf("scalar fields mismatch: %+v", got)
 	}
 }
 
-// TestStore_Append_SmallBodyNoTruncation 验证：未达 max 的 body 原样保留。
-func TestStore_Append_SmallBodyNoTruncation(t *testing.T) {
+// TestProxyStore_Append_SmallBodyNoTruncation 验证：未达阈值的 body 原样保留。
+func TestProxyStore_Append_SmallBodyNoTruncation(t *testing.T) {
 	ctx := context.Background()
-	s, sid := setup(t)
+	pool, _ := newPassiveTask(t)
+	s := NewProxyStore(pool)
 
 	small := []byte("hello")
-	id, err := s.Append(ctx, Flow{
-		OwnerType: "passive_session", OwnerID: sid, Source: "external",
+	id, err := s.Append(ctx, ProxyTraffic{
+		Host:        "test.example.com",
 		Method:      "GET",
-		URL:         "/health",
+		URL:         "http://test.example.com/health",
+		Path:        "/health",
 		RequestBody: small,
 		StatusCode:  204,
 	})
@@ -95,90 +102,169 @@ func TestStore_Append_SmallBodyNoTruncation(t *testing.T) {
 	}
 }
 
-// TestStore_AppendBatch_CopyFrom 验证：CopyFrom 批插 N 条，所有行可被 ListByOwner 检出，
-// 且批内大 body 同样按 max 截断。
-func TestStore_AppendBatch_CopyFrom(t *testing.T) {
+// TestProxyStore_ClaimThenListByTask 验证：ClaimUnconsumedByHost 把 host 的未消费流量
+// 关联给某 passive task，之后 ListByTask 按 captured_at 升序取回这批（含 body）。
+// 取代旧「双表合并 ListByOwner」——现按 host claim → task 消费模型。
+func TestProxyStore_ClaimThenListByTask(t *testing.T) {
 	ctx := context.Background()
-	s, sid := setup(t)
+	pool, taskID := newPassiveTask(t)
+	s := NewProxyStore(pool)
 
-	big := bytes.Repeat([]byte("y"), 3000)
-	flows := []Flow{
-		{OwnerType: "passive_session", OwnerID: sid, Source: "external", Method: "GET", URL: "/a", StatusCode: 200, RequestBody: []byte("a")},
-		{OwnerType: "passive_session", OwnerID: sid, Source: "external", Method: "GET", URL: "/b", StatusCode: 404, ResponseBody: big},
-		{OwnerType: "passive_session", OwnerID: sid, Source: "external", Method: "POST", URL: "/c", StatusCode: 500, RequestBody: big, ResponseBody: big},
-	}
-	if err := s.AppendBatch(ctx, flows); err != nil {
-		t.Fatalf("append batch: %v", err)
+	paths := []string{"/a", "/b", "/c"}
+	for _, p := range paths {
+		if _, err := s.Append(ctx, ProxyTraffic{
+			Host: "test.example.com", Method: "GET",
+			URL: "http://test.example.com" + p, Path: p, StatusCode: 200,
+		}); err != nil {
+			t.Fatalf("seed %s: %v", p, err)
+		}
 	}
 
-	// ListByOwner SQL 通过 OR passive_session_id 命中（commit B5.4 兼容查询）。
-	list, err := s.ListByOwner(ctx, sid, 100, 0)
+	claimed, err := s.ClaimUnconsumedByHost(ctx, taskID, "test.example.com", 100)
 	if err != nil {
-		t.Fatalf("list: %v", err)
+		t.Fatalf("claim: %v", err)
+	}
+	if claimed != 3 {
+		t.Fatalf("应领取 3 条，得 %d", claimed)
+	}
+
+	list, err := s.ListByTask(ctx, taskID)
+	if err != nil {
+		t.Fatalf("list by task: %v", err)
 	}
 	if len(list) != 3 {
 		t.Fatalf("expect 3 rows, got %d", len(list))
 	}
-
-	wantBodyLen := map[string][2]int{
-		"/a": {1, 0},
-		"/b": {0, 2048},
-		"/c": {1024, 2048},
+	// captured_at ASC → 与插入顺序一致
+	if list[0].Path != "/a" || list[2].Path != "/c" {
+		t.Fatalf("排序应按 captured_at 升序: %+v", list)
 	}
-	for _, sum := range list {
-		want, ok := wantBodyLen[sum.URL]
-		if !ok {
-			t.Fatalf("unexpected url %q", sum.URL)
-		}
-		if sum.ID <= 0 {
-			t.Fatalf("expect id > 0 for %s", sum.URL)
-		}
-		got, err := s.GetByID(ctx, sum.ID)
-		if err != nil {
-			t.Fatalf("get %s: %v", sum.URL, err)
-		}
-		if len(got.RequestBody) != want[0] || len(got.ResponseBody) != want[1] {
-			t.Fatalf("url=%s body len want %v, got req=%d resp=%d", sum.URL, want, len(got.RequestBody), len(got.ResponseBody))
+	for _, f := range list {
+		if f.ConsumedByTaskID != taskID {
+			t.Fatalf("consumed_by_task_id 应为 %q, got %q", taskID, f.ConsumedByTaskID)
 		}
 	}
 }
 
-// TestStore_AppendBatch_Empty 验证：空切片不报错。
-func TestStore_AppendBatch_Empty(t *testing.T) {
+// TestProxyStore_ListByTaskFiltered_Pagination 验证：limit/offset 在 task 消费范围内起作用
+// （captured_at DESC，最新优先）。取代旧 ListByOwner 分页用例。
+func TestProxyStore_ListByTaskFiltered_Pagination(t *testing.T) {
 	ctx := context.Background()
-	s, _ := setup(t)
-	if err := s.AppendBatch(ctx, nil); err != nil {
-		t.Fatalf("nil slice: %v", err)
-	}
-	if err := s.AppendBatch(ctx, []Flow{}); err != nil {
-		t.Fatalf("empty slice: %v", err)
-	}
-}
+	pool, taskID := newPassiveTask(t)
+	s := NewProxyStore(pool)
 
-// TestStore_ListByOwner_Pagination 验证：limit / offset 起作用，按 ts 升序。
-func TestStore_ListByOwner_Pagination(t *testing.T) {
-	ctx := context.Background()
-	s, sid := setup(t)
-
-	urls := []string{"/p1", "/p2", "/p3", "/p4", "/p5"}
-	for _, u := range urls {
-		if _, err := s.Append(ctx, Flow{OwnerType: "passive_session", OwnerID: sid, Source: "external", Method: "GET", URL: u, StatusCode: 200}); err != nil {
+	paths := []string{"/p1", "/p2", "/p3", "/p4", "/p5"}
+	for _, p := range paths {
+		if _, err := s.Append(ctx, ProxyTraffic{
+			Host: "test.example.com", Method: "GET",
+			URL: "http://test.example.com" + p, Path: p, StatusCode: 200,
+		}); err != nil {
 			t.Fatalf("seed: %v", err)
 		}
 	}
+	if _, err := s.ClaimUnconsumedByHost(ctx, taskID, "test.example.com", 100); err != nil {
+		t.Fatalf("claim: %v", err)
+	}
 
-	page1, err := s.ListByOwner(ctx, sid, 2, 0)
+	// captured_at DESC：最新的 /p5 在前。
+	page1, err := s.ListByTaskFiltered(ctx, taskID, ProxyListFilter{Limit: 2, Offset: 0})
 	if err != nil {
 		t.Fatalf("page1: %v", err)
 	}
-	if len(page1) != 2 || page1[0].URL != "/p1" || page1[1].URL != "/p2" {
+	if len(page1) != 2 || page1[0].Path != "/p5" || page1[1].Path != "/p4" {
 		t.Fatalf("page1 unexpected: %+v", page1)
 	}
-	page2, err := s.ListByOwner(ctx, sid, 2, 2)
+	page2, err := s.ListByTaskFiltered(ctx, taskID, ProxyListFilter{Limit: 2, Offset: 2})
 	if err != nil {
 		t.Fatalf("page2: %v", err)
 	}
-	if len(page2) != 2 || page2[0].URL != "/p3" || page2[1].URL != "/p4" {
+	if len(page2) != 2 || page2[0].Path != "/p3" || page2[1].Path != "/p2" {
 		t.Fatalf("page2 unexpected: %+v", page2)
+	}
+}
+
+// -------- AgentStore（agent 自产流量，按 task 归属） --------
+
+// TestAgentStore_Append_TruncatesLargeBody 验证：agent_traffic 大 body 同样截断到 32 KiB。
+func TestAgentStore_Append_TruncatesLargeBody(t *testing.T) {
+	ctx := context.Background()
+	pool, taskID := newPassiveTask(t)
+	s := NewAgentStore(pool)
+
+	big := bytes.Repeat([]byte("y"), defaultMaxBody+3000)
+	id, err := s.Append(ctx, AgentTraffic{
+		TaskID:       taskID,
+		Tool:         "curl",
+		Method:       "POST",
+		URL:          "http://test.example.com/c",
+		Path:         "/c",
+		StatusCode:   500,
+		RequestBody:  big,
+		ResponseBody: big,
+	})
+	if err != nil {
+		t.Fatalf("append: %v", err)
+	}
+	got, err := s.GetByID(ctx, id)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if len(got.RequestBody) != defaultMaxBody || len(got.ResponseBody) != defaultMaxBody {
+		t.Fatalf("body len want %d/%d, got req=%d resp=%d",
+			defaultMaxBody, defaultMaxBody, len(got.RequestBody), len(got.ResponseBody))
+	}
+	if got.TaskID != taskID || got.Tool != "curl" || got.StatusCode != 500 {
+		t.Fatalf("scalar fields mismatch: %+v", got)
+	}
+}
+
+// TestAgentStore_ListByTaskFiltered 验证：Append 多条后 ListByTaskFiltered 按 task 取回摘要，
+// created_at DESC（最新优先），并可按 host 过滤。
+func TestAgentStore_ListByTaskFiltered(t *testing.T) {
+	ctx := context.Background()
+	pool, taskID := newPassiveTask(t)
+	s := NewAgentStore(pool)
+
+	seed := []struct {
+		host, path string
+		status     int
+	}{
+		{"test.example.com", "/a", 200},
+		{"test.example.com", "/b", 404},
+		{"other.example.com", "/c", 500},
+	}
+	for _, r := range seed {
+		if _, err := s.Append(ctx, AgentTraffic{
+			TaskID: taskID, Tool: "curl", Method: "GET",
+			URL: "http://" + r.host + r.path, Host: r.host, Path: r.path, StatusCode: r.status,
+		}); err != nil {
+			t.Fatalf("seed %s%s: %v", r.host, r.path, err)
+		}
+	}
+
+	all, err := s.ListByTaskFiltered(ctx, taskID, AgentListFilter{Limit: 100})
+	if err != nil {
+		t.Fatalf("list all: %v", err)
+	}
+	if len(all) != 3 {
+		t.Fatalf("expect 3 rows, got %d", len(all))
+	}
+	// created_at DESC：最后插入的 /c 在前。
+	if all[0].Path != "/c" {
+		t.Fatalf("排序应按 created_at 降序，头部应为 /c, got %+v", all)
+	}
+
+	// host 过滤：仅 test.example.com 两条。
+	filtered, err := s.ListByTaskFiltered(ctx, taskID, AgentListFilter{Host: "test.example.com", Limit: 100})
+	if err != nil {
+		t.Fatalf("list filtered: %v", err)
+	}
+	if len(filtered) != 2 {
+		t.Fatalf("host 过滤应得 2 条，got %d", len(filtered))
+	}
+	for _, sum := range filtered {
+		if sum.Host != "test.example.com" {
+			t.Fatalf("过滤后混入了 host=%q", sum.Host)
+		}
 	}
 }

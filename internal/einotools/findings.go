@@ -22,7 +22,7 @@ import (
 
 // FindingReader / FindingWriter 是窄接口，*finding.Store 自动满足（同旧工具的最小接口约定）。
 type FindingReader interface {
-	ListByOwnerAndHost(ctx context.Context, ownerType, ownerID, host string, limit int) ([]finding.VulnFinding, error)
+	ListByTaskAndHost(ctx context.Context, taskID, host string, limit int) ([]finding.VulnFinding, error)
 }
 
 type FindingWriter interface {
@@ -37,16 +37,16 @@ type FindingUpdater interface {
 // noArgs 是无入参工具的占位入参类型（InferTool 需要一个入参类型）。
 type noArgs struct{}
 
-// BuildReadFindings 造原生 eino read_findings 工具。owner/host 闭包捕获，不进 LLM 参数。
-func BuildReadFindings(store FindingReader, ownerType, ownerID, host string) (tool.BaseTool, error) {
+// BuildReadFindings 造原生 eino read_findings 工具。task/host 闭包捕获，不进 LLM 参数。
+func BuildReadFindings(store FindingReader, taskID, host string) (tool.BaseTool, error) {
 	return utils.InferTool(
 		"read_findings",
-		"列出本次扫描(owner+host)已有 finding（写 finding 前必查，防重复）。返回 [{id,severity,summary,source_flow_id,created_at}]。",
+		"列出本次扫描(task+host)已有 finding（写 finding 前必查，防重复）。返回 [{id,severity,summary,source_flow_id,created_at}]。",
 		func(ctx context.Context, _ noArgs) (map[string]any, error) {
-			if ownerType == "" || ownerID == "" || host == "" {
-				return nil, errors.New("read_findings: owner/host 注入缺失")
+			if taskID == "" || host == "" {
+				return nil, errors.New("read_findings: task/host 注入缺失")
 			}
-			fs, err := store.ListByOwnerAndHost(ctx, ownerType, ownerID, host, 0)
+			fs, err := store.ListByTaskAndHost(ctx, taskID, host, 0)
 			if err != nil {
 				return nil, err
 			}
@@ -85,8 +85,8 @@ type writeFindingArgs struct {
 	DependsOn     []string       `json:"depends_on,omitempty"     jsonschema_description:"组合漏洞前置 finding id 数组；基础漏洞省略"`
 }
 
-// BuildWriteFinding 造原生 eino write_finding 工具。owner/hunter/host/flow 闭包捕获。
-func BuildWriteFinding(store FindingWriter, ownerType, ownerID, hunterID, host string, flowID int64) (tool.BaseTool, error) {
+// BuildWriteFinding 造原生 eino write_finding 工具。task/hunter/host/flow 闭包捕获。
+func BuildWriteFinding(store FindingWriter, taskID, hunterID, host string, flowID int64) (tool.BaseTool, error) {
 	return utils.InferTool(
 		"write_finding",
 		"写一条新漏洞 finding。summary 一行短标题；详情/复现/payload 全进 evidence；severity 建议 critical/high/medium/low/info。质量红线见 system prompt。",
@@ -112,8 +112,7 @@ func BuildWriteFinding(store FindingWriter, ownerType, ownerID, hunterID, host s
 				flowPtr = &fid
 			}
 			saved, err := store.Save(ctx, finding.VulnFinding{
-				OwnerType:     ownerType,
-				OwnerID:       ownerID,
+				TaskID:        taskID,
 				HunterID:      hunterPtr,
 				SourceFlowID:  flowPtr,
 				Host:          host,

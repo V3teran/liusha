@@ -71,6 +71,13 @@ var activeProfiles = map[string]activeProfile{
 		brief:       "测试网站 http://111.229.193.40:34280/login.php，管理员是admin/password，普通用户是gordonb/abc123。**登录后立刻设 cookie `security=low`**（DVWA 默认 impossible 是修复版本，挖不到洞）。只挖掘未授权访问、垂直越权、水平越权漏洞。",
 		minFindings: 1,
 	},
+	// active:adhoc 一次性扫描——brief 留空，runner.go 强制从 LIUSHA_E2E_BRIEF 环境变量读取
+	// （避免把含密码的 brief 写进 git）。minFindings 可被 LIUSHA_E2E_MIN_FINDINGS 覆盖（默认 1）。
+	"adhoc": {
+		name:        "adhoc",
+		brief:       "",
+		minFindings: 1,
+	},
 }
 
 var profiles = map[string]profile{

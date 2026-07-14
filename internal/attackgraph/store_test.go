@@ -38,7 +38,7 @@ type fakeFindings struct {
 	err      error
 }
 
-func (f *fakeFindings) ListByOwner(_ context.Context, _, _ string) ([]finding.VulnFinding, error) {
+func (f *fakeFindings) ListByTask(_ context.Context, _ string) ([]finding.VulnFinding, error) {
 	if f.err != nil {
 		return nil, f.err
 	}
@@ -58,7 +58,7 @@ func TestProjectorProject(t *testing.T) {
 		}
 		p := &Projector{Messages: &fakeMessages{msgs: msgs}, Findings: &fakeFindings{}}
 
-		g, err := p.Project(ctx, "conv-1", "active_scan", "owner-1")
+		g, err := p.Project(ctx, "conv-1", "task-1")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -79,7 +79,7 @@ func TestProjectorProject(t *testing.T) {
 			Messages: fm,
 			Findings: &fakeFindings{findings: []finding.VulnFinding{mkFinding("a", "h", "high", "x")}},
 		}
-		g, err := p.Project(ctx, "", "active_scan", "o")
+		g, err := p.Project(ctx, "", "task-o")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -93,14 +93,14 @@ func TestProjectorProject(t *testing.T) {
 
 	t.Run("漏洞读取错误透传", func(t *testing.T) {
 		p := &Projector{Messages: &fakeMessages{}, Findings: &fakeFindings{err: errors.New("db down")}}
-		if _, err := p.Project(ctx, "", "active_scan", "o"); err == nil {
+		if _, err := p.Project(ctx, "", "task-o"); err == nil {
 			t.Fatal("期望错误透传")
 		}
 	})
 
 	t.Run("消息读取错误透传", func(t *testing.T) {
 		p := &Projector{Messages: &fakeMessages{err: errors.New("boom")}, Findings: &fakeFindings{}}
-		if _, err := p.Project(ctx, "conv-1", "active_scan", "o"); err == nil {
+		if _, err := p.Project(ctx, "conv-1", "task-o"); err == nil {
 			t.Fatal("期望错误透传")
 		}
 	})

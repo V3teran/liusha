@@ -15,23 +15,23 @@ import (
 	"github.com/V3teran/liusha/internal/toolinvocation"
 )
 
-// UsageOwnerResolver 把对话 id 解析成 owner id + 查运行态 + 墙钟时长（*conversation.Store 满足）。
-type UsageOwnerResolver interface {
-	ResolveOwnerID(ctx context.Context, convID string) (string, error)
+// UsageTaskResolver 把对话 id 解析成 task id + 查运行态 + 墙钟时长（*conversation.Store 满足）。
+type UsageTaskResolver interface {
+	ResolveTaskID(ctx context.Context, convID string) (string, error)
 	IsRunActive(ctx context.Context, convID string) (bool, error)
 	RunStatus(ctx context.Context, convID string) (string, error)
 	WallclockMs(ctx context.Context, convID string) (int64, error)
 }
 
-// LLMUsageAggregator 合计某 owner 的 LLM 用量（*llminvocation.Store 满足）。
+// LLMUsageAggregator 合计某 task 的 LLM 用量（*llminvocation.Store 满足）。
 type LLMUsageAggregator interface {
 	Flush(ctx context.Context) error
-	AggregateByOwner(ctx context.Context, ownerID string) (llminvocation.Aggregate, error)
+	AggregateByTask(ctx context.Context, taskID string) (llminvocation.Aggregate, error)
 }
 
-// ToolUsageAggregator 合计某 owner 的工具用量（*toolinvocation.Store 满足）。
+// ToolUsageAggregator 合计某 task 的工具用量（*toolinvocation.Store 满足）。
 type ToolUsageAggregator interface {
-	AggregateByOwner(ctx context.Context, ownerID string) (toolinvocation.Aggregate, error)
+	AggregateByTask(ctx context.Context, taskID string) (toolinvocation.Aggregate, error)
 }
 
 // conversationUsageHandler 处理 GET /conversations/:id/usage。
@@ -40,7 +40,7 @@ type ToolUsageAggregator interface {
 //
 //	{
 //	  "conversation_id": "...",
-//	  "owner_id": "...",                 // 纯聊天对话为空
+//	  "task_id": "...",                   // 纯聊天对话为空
 //	  "tokens": { "in": N, "out": N, "cached": N, "total": N },
 //	  "llm_latency_ms": N,               // 所有 LLM 调用耗时合计
 //	  "tool_duration_ms": N,             // 所有工具执行耗时合计
@@ -48,7 +48,7 @@ type ToolUsageAggregator interface {
 //	  "llm_calls": N, "tool_calls": N,
 //	  "running": bool                    // 是否仍有运行中的扫描（权威：owner 终态）
 //	}
-func conversationUsageHandler(conv UsageOwnerResolver, llm LLMUsageAggregator, tool ToolUsageAggregator) gin.HandlerFunc {
+func conversationUsageHandler(conv UsageTaskResolver, llm LLMUsageAggregator, tool ToolUsageAggregator) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id := c.Param("id")
 		if id == "" {
@@ -56,7 +56,7 @@ func conversationUsageHandler(conv UsageOwnerResolver, llm LLMUsageAggregator, t
 			return
 		}
 		ctx := c.Request.Context()
-		ownerID, err := conv.ResolveOwnerID(ctx, id)
+		taskID, err := conv.ResolveTaskID(ctx, id)
 		if err != nil {
 			if strings.Contains(err.Error(), "no rows in result set") {
 				c.JSON(404, gin.H{"error": "conversation not found", "conversation_id": id})
@@ -66,7 +66,7 @@ func conversationUsageHandler(conv UsageOwnerResolver, llm LLMUsageAggregator, t
 			return
 		}
 
-		// 运行态（权威）：active_scan / passive_session 是否仍 active。前端据此显示"工作中"。
+		// 运行态（权威）：关联 task 是否仍 active。前端据此显示"工作中"。
 		running, err := conv.IsRunActive(ctx, id)
 		if err != nil {
 			c.JSON(500, gin.H{"error": err.Error()})
@@ -87,20 +87,20 @@ func conversationUsageHandler(conv UsageOwnerResolver, llm LLMUsageAggregator, t
 			return
 		}
 
-		// 纯聊天（无关联 scan / passive_session）→ 零用量。
-		if ownerID == "" {
+		// 纯聊天（无关联 task）→ 零用量。
+		if taskID == "" {
 			c.JSON(200, zeroUsage(id, "", running, runStatus))
 			return
 		}
 
 		// 先 flush 异步 buffer，保证拿到最新落库的调用（支撑前端实时刷新口径一致）。
 		_ = llm.Flush(ctx)
-		la, err := llm.AggregateByOwner(ctx, ownerID)
+		la, err := llm.AggregateByTask(ctx, taskID)
 		if err != nil {
 			c.JSON(500, gin.H{"error": err.Error()})
 			return
 		}
-		ta, err := tool.AggregateByOwner(ctx, ownerID)
+		ta, err := tool.AggregateByTask(ctx, taskID)
 		if err != nil {
 			c.JSON(500, gin.H{"error": err.Error()})
 			return
@@ -108,7 +108,7 @@ func conversationUsageHandler(conv UsageOwnerResolver, llm LLMUsageAggregator, t
 
 		c.JSON(200, gin.H{
 			"conversation_id": id,
-			"owner_id":        ownerID,
+			"task_id":         taskID,
 			"tokens": gin.H{
 				"in":     la.InTokens,
 				"out":    la.OutTokens,
@@ -129,11 +129,11 @@ func conversationUsageHandler(conv UsageOwnerResolver, llm LLMUsageAggregator, t
 	}
 }
 
-// zeroUsage 造零用量响应（纯聊天对话无 owner 时）。
-func zeroUsage(convID, ownerID string, running bool, status string) gin.H {
+// zeroUsage 造零用量响应（纯聊天对话无 task 时）。
+func zeroUsage(convID, taskID string, running bool, status string) gin.H {
 	return gin.H{
 		"conversation_id":  convID,
-		"owner_id":         ownerID,
+		"task_id":          taskID,
 		"tokens":           gin.H{"in": 0, "out": 0, "cached": 0, "total": 0},
 		"llm_latency_ms":   0,
 		"tool_duration_ms": 0,

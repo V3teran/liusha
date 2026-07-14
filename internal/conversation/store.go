@@ -25,15 +25,15 @@ const (
 
 // 可空 uuid/text 列读用 COALESCE 把 NULL 折成空串（Conversation 字段是 string 不接 NULL）。
 // 不含 status 列：conversation.status 是僵尸字段（已退役），运行态一律派生（见 RunStatus）。
-const convCols = "id, COALESCE(title,''), COALESCE(scan_id::text,''), " +
+const convCols = "id, COALESCE(title,''), COALESCE(task_id::text,''), " +
 	"COALESCE(role_id,''), created_at, updated_at"
 
-// CreateConversation 建一个对话会话。title/scanID/roleID 为空时存 NULL。
-func (s *Store) CreateConversation(ctx context.Context, title, scanID, roleID string) (Conversation, error) {
+// CreateConversation 建一个对话会话。title/taskID/roleID 为空时存 NULL。
+func (s *Store) CreateConversation(ctx context.Context, title, taskID, roleID string) (Conversation, error) {
 	row := s.pool.QueryRow(ctx, `
-		INSERT INTO conversation (title, scan_id, role_id)
+		INSERT INTO conversation (title, task_id, role_id)
 		VALUES (NULLIF($1,''), NULLIF($2,'')::uuid, NULLIF($3,''))
-		RETURNING `+convCols, title, scanID, roleID)
+		RETURNING `+convCols, title, taskID, roleID)
 	var c Conversation
 	if err := scanConversation(row, &c); err != nil {
 		return Conversation{}, fmt.Errorf("create conversation: %w", err)
@@ -52,8 +52,8 @@ func (s *Store) GetConversation(ctx context.Context, id string) (Conversation, e
 }
 
 // DeleteConversation 删除对话及其消息（message FK ON DELETE CASCADE 自动连带删）。
-// 不动关联的 active_scan / finding（scan_id FK 是 SET NULL，渗透成果以 owner=scan 为根，
-// 不因删对话丢失）。id 不存在返回 not found 错误。
+// 不动关联的 task / finding（task_id FK 是 SET NULL，渗透成果以 task 为根，不因删对话丢失）。
+// id 不存在返回 not found 错误。
 func (s *Store) DeleteConversation(ctx context.Context, id string) error {
 	tag, err := s.pool.Exec(ctx, "DELETE FROM conversation WHERE id=$1", id)
 	if err != nil {
@@ -65,69 +65,42 @@ func (s *Store) DeleteConversation(ctx context.Context, id string) error {
 	return nil
 }
 
-// ResolveOwnerID 解析对话关联的 owner id（用于聚合 llm_invocation / tool_invocation 用量）。
-//   - active：conversation.scan_id 即 owner（active_scan id）。
-//   - passive：conversation 无 scan_id，反查 passive_session.conversation_id 拿会话 id。
-//   - 纯聊天：两者皆无 → 返回空串（调用方据此返回零用量）。
-func (s *Store) ResolveOwnerID(ctx context.Context, convID string) (string, error) {
+// ResolveTaskID 解析对话关联的 task id（用于聚合 llm_invocation / tool_invocation 用量）。
+// 两轨统一：conversation.task_id 即所属 task；纯聊天无关联 → 返回空串（调用方据此返回零用量）。
+func (s *Store) ResolveTaskID(ctx context.Context, convID string) (string, error) {
 	c, err := s.GetConversation(ctx, convID)
 	if err != nil {
 		return "", err
 	}
-	if c.ScanID != "" {
-		return c.ScanID, nil
-	}
-	var oid string
-	err = s.pool.QueryRow(ctx,
-		`SELECT id::text FROM passive_session WHERE conversation_id=$1 LIMIT 1`, convID).Scan(&oid)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return "", nil // 纯聊天，无关联 owner
-	}
-	if err != nil {
-		return "", fmt.Errorf("resolve passive owner for conversation %s: %w", convID, err)
-	}
-	return oid, nil
+	return c.TaskID, nil
 }
 
-// IsRunActive 返回本对话当前是否有正在运行的扫描（权威：后端 owner 终态，非客户端计时）。
-//   - active：关联 active_scan.status='active'（completed/aborted 为终态）。
-//   - passive：passive_session.status='active'。
-//   - 纯聊天 / 已结束：false。
-//
-// 前端据此显示"agent 工作中"指示器，避免历史回灌误判（双参传 convID 规避 uuid/text 参数歧义）。
+// IsRunActive 返回本对话当前是否有正在运行的扫描（权威：后端 task 终态，非客户端计时）。
+// 关联 task.status='active'（completed/aborted 为终态）；纯聊天 / 已结束返回 false。
+// 前端据此显示"agent 工作中"指示器，避免历史回灌误判。
 func (s *Store) IsRunActive(ctx context.Context, convID string) (bool, error) {
 	var running bool
 	err := s.pool.QueryRow(ctx, `
 		SELECT EXISTS(
-		         SELECT 1 FROM active_scan a JOIN conversation c ON c.scan_id = a.id
-		         WHERE c.id = $1 AND a.status = 'active'
-		       )
-		    OR EXISTS(
-		         SELECT 1 FROM passive_session p
-		         WHERE p.conversation_id = $2 AND p.status = 'active'
-		       )`, convID, convID).Scan(&running)
+		         SELECT 1 FROM task t JOIN conversation c ON c.task_id = t.id
+		         WHERE c.id = $1 AND t.status = 'active'
+		       )`, convID).Scan(&running)
 	if err != nil {
 		return false, fmt.Errorf("check run active for conversation %s: %w", convID, err)
 	}
 	return running, nil
 }
 
-// WallclockMs 返回本对话关联扫描的「纯工作」墙钟时长（毫秒）——发起→完成的流逝时间扣除停顿。
-// 跑中用 now()-created_at，结束用 ended_at-created_at；再减 active_scan.paused_ms（多轮 follow-up
-// 复活间的用户停顿累计，见 activescan.Reopen）——避免多轮场景把「完成→追加」的等待算进耗时。
-// 首次扫描 paused_ms=0，口径与原墙钟一致。区别于 Σ(LLM latency+工具 duration)（并发累加会更高）。
-// 纯聊天/无关联 owner 返回 0。passive_session 无复活、无停顿，不扣。
+// WallclockMs 返回本对话关联 task 的「纯工作」墙钟时长（毫秒）——发起→完成的流逝时间扣除停顿。
+// 跑中用 now()-created_at，结束用 ended_at-created_at；再减 task.paused_ms（多轮 follow-up
+// 复活间的用户停顿累计，见 task.Reopen）。首次扫描 paused_ms=0。纯聊天/无关联 task 返回 0。
 func (s *Store) WallclockMs(ctx context.Context, convID string) (int64, error) {
 	var ms *int64
 	err := s.pool.QueryRow(ctx, `
-		SELECT ((EXTRACT(EPOCH FROM (COALESCE(a.ended_at, now()) - a.created_at)) * 1000)::bigint - a.paused_ms)
-		FROM active_scan a JOIN conversation c ON c.scan_id = a.id
+		SELECT ((EXTRACT(EPOCH FROM (COALESCE(t.ended_at, now()) - t.created_at)) * 1000)::bigint - t.paused_ms)
+		FROM task t JOIN conversation c ON c.task_id = t.id
 		WHERE c.id = $1
-		UNION ALL
-		SELECT (EXTRACT(EPOCH FROM (COALESCE(p.ended_at, now()) - p.created_at)) * 1000)::bigint
-		FROM passive_session p
-		WHERE p.conversation_id = $2
-		LIMIT 1`, convID, convID).Scan(&ms)
+		LIMIT 1`, convID).Scan(&ms)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return 0, nil
 	}
@@ -143,16 +116,14 @@ func (s *Store) WallclockMs(ctx context.Context, convID string) (int64, error) {
 // ListConversations 按 updated_at DESC 列出最近活跃的对话（UI 列表）。
 func (s *Store) ListConversations(ctx context.Context, limit int) ([]Conversation, error) {
 	limit = clampLimit(limit)
-	// run_status：派生「真实运行态」——conversation.status 是僵尸字段（默认 active 从不更新），
-	// 不能用于显示。取关联 active_scan.status（active/completed/aborted），无 scan 则反查
-	// passive_session.status，都无（纯聊天）→ 空串。前端列表据此显示准确状态。
+	// run_status：派生「真实运行态」——取关联 task.status（active/completed/aborted）。
+	// 无关联 task（纯聊天）→ 空串。前端列表据此显示准确状态。
 	rows, err := s.pool.Query(ctx, `
-		SELECT c.id, COALESCE(c.title,''), COALESCE(c.scan_id::text,''),
+		SELECT c.id, COALESCE(c.title,''), COALESCE(c.task_id::text,''),
 			COALESCE(c.role_id,''), c.created_at, c.updated_at,
-			COALESCE(a.status, p.status, '') AS run_status
+			COALESCE(t.status, '') AS run_status
 		FROM conversation c
-		LEFT JOIN active_scan a ON a.id = c.scan_id
-		LEFT JOIN passive_session p ON p.conversation_id = c.id::text
+		LEFT JOIN task t ON t.id = c.task_id
 		ORDER BY c.updated_at DESC LIMIT $1`, limit)
 	if err != nil {
 		return nil, fmt.Errorf("list conversations: %w", err)
@@ -180,12 +151,12 @@ func (s *Store) SetTitle(ctx context.Context, id, title string) error {
 	return nil
 }
 
-// LinkScan 把对话关联到一次 active_scan（对话发起扫描后回填）。
-func (s *Store) LinkScan(ctx context.Context, convID, scanID string) error {
+// LinkTask 把对话关联到一个 task（对话发起扫描后回填）。
+func (s *Store) LinkTask(ctx context.Context, convID, taskID string) error {
 	_, err := s.pool.Exec(ctx,
-		"UPDATE conversation SET scan_id=NULLIF($1,'')::uuid, updated_at=now() WHERE id=$2", scanID, convID)
+		"UPDATE conversation SET task_id=NULLIF($1,'')::uuid, updated_at=now() WHERE id=$2", taskID, convID)
 	if err != nil {
-		return fmt.Errorf("link conversation %s scan: %w", convID, err)
+		return fmt.Errorf("link conversation %s task: %w", convID, err)
 	}
 	return nil
 }
@@ -275,24 +246,23 @@ type scanRow interface {
 }
 
 func scanConversation(r scanRow, c *Conversation) error {
-	return r.Scan(&c.ID, &c.Title, &c.ScanID, &c.RoleID, &c.CreatedAt, &c.UpdatedAt)
+	return r.Scan(&c.ID, &c.Title, &c.TaskID, &c.RoleID, &c.CreatedAt, &c.UpdatedAt)
 }
 
 // scanConversationWithRun 多扫一列 run_status（派生真实运行态，见 ListConversations）。
 func scanConversationWithRun(r scanRow, c *Conversation) error {
-	return r.Scan(&c.ID, &c.Title, &c.ScanID, &c.RoleID, &c.CreatedAt, &c.UpdatedAt, &c.RunStatus)
+	return r.Scan(&c.ID, &c.Title, &c.TaskID, &c.RoleID, &c.CreatedAt, &c.UpdatedAt, &c.RunStatus)
 }
 
-// RunStatus 返回对话关联扫描的「真实运行态」（active_scan.status：active/completed/aborted；
-// passive_session.status；纯聊天空串）——供顶部状态栏显示三态，区别于 IsRunActive 的二元布尔。
+// RunStatus 返回对话关联 task 的「真实运行态」（task.status：active/completed/aborted；
+// 纯聊天空串）——供顶部状态栏显示三态，区别于 IsRunActive 的二元布尔。
 // 用 conversation.status 是僵尸字段（默认 active 从不更新），不可用于显示。
 func (s *Store) RunStatus(ctx context.Context, convID string) (string, error) {
 	var status string
 	err := s.pool.QueryRow(ctx, `
-		SELECT COALESCE(a.status, p.status, '')
+		SELECT COALESCE(t.status, '')
 		FROM conversation c
-		LEFT JOIN active_scan a ON a.id = c.scan_id
-		LEFT JOIN passive_session p ON p.conversation_id = c.id::text
+		LEFT JOIN task t ON t.id = c.task_id
 		WHERE c.id = $1`, convID).Scan(&status)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", nil

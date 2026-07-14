@@ -2,8 +2,10 @@
 //
 // eino 路径（internal/einoagent + cmd/scanner/handler_*_eino）复用这里的：
 //   - SystemPromptFor / SystemPrompt：system prompt 分段（公共底座 + 角色段）
-//   - BuildUserPrompt：流量 / finding / notes / lesson / 工具索引 段的统一拼装
+//   - BuildUserPrompt：流量 / finding / 情报黑板(lead) / 工具索引 段的统一拼装
 //   - Deps：prompt 拼装所需的 store / loader / manifest 依赖
+//
+// 注：跨目标知识库 corpus 是 PULL（search_corpus 工具，agent 按需检索），不在此 PUSH 注入。
 //
 // react 退路已删除，本包只剩 prompt-as-code 资产；agent 编排装配在 internal/einoagent。
 package hunter
@@ -14,7 +16,7 @@ import (
 
 	"github.com/V3teran/liusha/internal/credential"
 	"github.com/V3teran/liusha/internal/finding"
-	"github.com/V3teran/liusha/internal/lesson"
+	"github.com/V3teran/liusha/internal/lead"
 	"github.com/V3teran/liusha/internal/skill"
 	"github.com/V3teran/liusha/internal/toolinvocation"
 	"github.com/V3teran/liusha/internal/tools/manifest"
@@ -37,7 +39,7 @@ func SystemPrompt() string {
 	return hunterSystemPrompt
 }
 
-// BuildUserPrompt 导出 buildUserPrompt，供 eino 路径复用流量/finding/notes/lesson/索引段的统一拼装。
+// BuildUserPrompt 导出 buildUserPrompt，供 eino 路径复用流量/finding/情报黑板/索引段的统一拼装。
 func BuildUserPrompt(ctx context.Context, deps Deps, p skill.BuilderParams) string {
 	return buildUserPrompt(ctx, deps, p)
 }
@@ -45,8 +47,8 @@ func BuildUserPrompt(ctx context.Context, deps Deps, p skill.BuilderParams) stri
 // Deps 是 prompt 拼装 + eino 工具装配的依赖注入（由 cmd/scanner/main.go 构造一份）。
 type Deps struct {
 	Findings        *finding.Store
-	Lessons         *lesson.Store
 	Credentials     credential.Provider
+	Lead            *lead.Store           // user prompt 情报黑板段（§7.5，顶层 agent 只读注入，无工具）
 	ToolInvocations *toolinvocation.Store // tool_invocation 遥测落库
 	ToolingLoader   *skill.Loader         // read_tooling_skill；nil 不注册
 	ToolsManifest   *manifest.Manifest    // user prompt 的工具索引段（tooling_catalog）
@@ -54,5 +56,4 @@ type Deps struct {
 
 	UserPromptBodyLimit int // 请求/响应 body 单段截断字节数；≤0 → 8192
 	FindingsLimit       int // user prompt 该 host 已有 finding 段显示条数；≤0 → 100
-	LessonsLimit        int // user prompt lesson + hint 段共用上限；≤0 → 100
 }

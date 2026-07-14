@@ -58,10 +58,10 @@ func TestFindingSubgraph(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			g := FindingSubgraph("owner-1", tt.findings)
+			g := FindingSubgraph("task-1", tt.findings)
 
-			if g.OwnerID != "owner-1" {
-				t.Errorf("OwnerID = %q, 期望 owner-1", g.OwnerID)
+			if g.TaskID != "task-1" {
+				t.Errorf("TaskID = %q, 期望 task-1", g.TaskID)
 			}
 			if len(g.Nodes) != tt.wantNodes {
 				t.Errorf("节点数 = %d, 期望 %d", len(g.Nodes), tt.wantNodes)

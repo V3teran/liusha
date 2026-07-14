@@ -24,8 +24,8 @@ func (s *Store) Append(ctx context.Context, v Invocation) (int64, error) {
 	if v.HunterID == "" {
 		return 0, fmt.Errorf("tool_invocation: HunterID 必填")
 	}
-	if v.OwnerType == "" || v.OwnerID == "" {
-		return 0, fmt.Errorf("tool_invocation: OwnerType + OwnerID 必填")
+	if v.TaskID == "" {
+		return 0, fmt.Errorf("tool_invocation: TaskID 必填")
 	}
 	if v.ToolName == "" {
 		return 0, fmt.Errorf("tool_invocation: ToolName 必填")
@@ -43,11 +43,11 @@ func (s *Store) Append(ctx context.Context, v Invocation) (int64, error) {
 	var id int64
 	err := s.pool.QueryRow(ctx, `
 		INSERT INTO tool_invocation
-			(hunter_id, owner_type, owner_id, tool_name, args,
+			(hunter_id, task_id, tool_name, args,
 			 output_size, output_preview, duration_ms, error_message, done)
-		VALUES ($1::uuid, $2, $3::uuid, $4, $5, $6, $7, $8, $9, $10)
+		VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7, $8, $9)
 		RETURNING id`,
-		v.HunterID, v.OwnerType, v.OwnerID, v.ToolName, args,
+		v.HunterID, v.TaskID, v.ToolName, args,
 		v.OutputSize, preview, v.DurationMs, errMsg, v.Done,
 	).Scan(&id)
 	if err != nil {
@@ -62,20 +62,20 @@ type Aggregate struct {
 	DurationMs int64 // 工具执行耗时合计（ms）
 }
 
-// AggregateByOwner 合计某 owner 的全部 tool_invocation 用量（仅叶子工具）。owner 无记录时返回零值。
+// AggregateByTask 合计某 task 的全部 tool_invocation 用量（仅叶子工具）。task 无记录时返回零值。
 //
 // 排除 tool_name='task'：task 是"派发子代理"的工具，其 duration_ms 是子代理整段运行的墙钟，
-// 已包含该子代理自身的 run_command 等叶子工具耗时（同 owner 另有明细行）+ 子代理 LLM 耗时
+// 已包含该子代理自身的 run_command 等叶子工具耗时（同 task 另有明细行）+ 子代理 LLM 耗时
 // （单独计入 llm_invocation.latency_ms）。计入 task 会与这两者重叠，导致总耗时翻倍。
 // 与 SSE 侧 einoagent/scan_event.go 的 task 排除同源。
-func (s *Store) AggregateByOwner(ctx context.Context, ownerID string) (Aggregate, error) {
+func (s *Store) AggregateByTask(ctx context.Context, taskID string) (Aggregate, error) {
 	var a Aggregate
 	err := s.pool.QueryRow(ctx, `
 		SELECT COUNT(*), COALESCE(SUM(duration_ms),0)
-		FROM tool_invocation WHERE owner_id=$1::uuid AND tool_name <> 'task'`, ownerID).
+		FROM tool_invocation WHERE task_id=$1::uuid AND tool_name <> 'task'`, taskID).
 		Scan(&a.Calls, &a.DurationMs)
 	if err != nil {
-		return Aggregate{}, fmt.Errorf("aggregate tool_invocation by owner %s: %w", ownerID, err)
+		return Aggregate{}, fmt.Errorf("aggregate tool_invocation by task %s: %w", taskID, err)
 	}
 	return a, nil
 }

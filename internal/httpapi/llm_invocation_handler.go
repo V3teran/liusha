@@ -14,19 +14,19 @@ import (
 // InvocationsAPI 是 handler 依赖的窄接口；*llminvocation.Store 自动满足。
 type InvocationsAPI interface {
 	Flush(ctx context.Context) error
-	ListByOwner(ctx context.Context, ownerType, ownerID string) ([]llminvocation.Invocation, error)
+	ListByTask(ctx context.Context, taskID string) ([]llminvocation.Invocation, error)
 }
 
-// llmInvocationsHandler 处理 GET /llm/invocations/:owner_id。
+// llmInvocationsHandler 处理 GET /llm/invocations/:task_id。
 //
-// 返回该 owner 下所有 llm_invocation 行，**按 hunter_id 分组**，
+// 返回该 task 下所有 llm_invocation 行，**按 hunter_id 分组**，
 // 每组内按 created_at ASC（与 react step 顺序一致）。hunter_id 为 NULL
 // 的归到 "unassigned" 分组。
 //
 // 响应结构（前端消费）：
 //
 //	{
-//	  "owner_id": "...",
+//	  "task_id": "...",
 //	  "total": 19,
 //	  "groups": [
 //	    {
@@ -40,17 +40,17 @@ type InvocationsAPI interface {
 // 先调 Flush() 等异步 buffer commit，保证拿到完整审计。
 func llmInvocationsHandler(api InvocationsAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		eid := c.Param("owner_id")
+		eid := c.Param("task_id")
 		if eid == "" {
-			c.JSON(400, gin.H{"error": "owner_id required"})
+			c.JSON(400, gin.H{"error": "task_id required"})
 			return
 		}
 		_ = api.Flush(c.Request.Context())
 
-		invocations, err := api.ListByOwner(c.Request.Context(), "", eid)
+		invocations, err := api.ListByTask(c.Request.Context(), eid)
 		if err != nil {
 			if strings.Contains(err.Error(), "no rows in result set") {
-				c.JSON(404, gin.H{"error": "owner not found", "owner_id": eid})
+				c.JSON(404, gin.H{"error": "task not found", "task_id": eid})
 				return
 			}
 			c.JSON(500, gin.H{"error": err.Error()})
@@ -73,8 +73,7 @@ func llmInvocationsHandler(api InvocationsAPI) gin.HandlerFunc {
 			groups[key] = append(groups[key], gin.H{
 				"id":            v.ID,
 				"hunter_id":     v.HunterID,
-				"owner_type":    v.OwnerType,
-				"owner_id":      v.OwnerID,
+				"task_id":       v.TaskID,
 				"provider":      v.Provider,
 				"model":         v.Model,
 				"in_tokens":     v.InTokens,
@@ -100,9 +99,9 @@ func llmInvocationsHandler(api InvocationsAPI) gin.HandlerFunc {
 		}
 
 		c.JSON(200, gin.H{
-			"owner_id": eid,
-			"total":    len(invocations),
-			"groups":   out,
+			"task_id": eid,
+			"total":   len(invocations),
+			"groups":  out,
 		})
 	}
 }
