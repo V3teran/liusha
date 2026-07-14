@@ -2,7 +2,6 @@ package flow
 
 import (
 	"encoding/json"
-	"net"
 	"strings"
 )
 
@@ -34,15 +33,6 @@ func nullIfEmpty(s string) any {
 		return nil
 	}
 	return s
-}
-
-// stripHostPort 把 host:port 归一化为裸 host，与存储的裸 host 键对齐。
-// IPv6 形如 [::1]:80 也能正确拆出 ::1；无端口时原样返回。
-func stripHostPort(host string) string {
-	if h, _, err := net.SplitHostPort(host); err == nil {
-		return h
-	}
-	return host
 }
 
 // sqlEscapeLike 转义 LIKE 模式里的 % 和 _ —— 但保留 *（上层转换为 %）。
