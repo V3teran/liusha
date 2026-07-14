@@ -45,10 +45,14 @@ func (h handler) distillCorpus(ctx context.Context, taskID, convID, role, host s
 	}
 	material := h.gatherDistillMaterial(ctx, taskID, convID, role, host)
 	if material == "" {
-		return // 无素材（空对话+无 finding+无 lead），没什么可提炼
+		h.logger.Info().Str("task_id", taskID).Msg("收尾蒸馏跳过：无素材（空对话 + 无 finding + 无 lead）")
+		return
 	}
+	// 无条件记录进入：让蒸馏链路可观测——「跑了返回空 / 没跑 / 调用失败」可区分，不靠反推。
+	h.logger.Info().Str("task_id", taskID).Int("material_bytes", len(material)).Msg("收尾蒸馏开始（喂 light 模型提炼跨目标知识）")
 
 	entries := h.runDistill(ctx, material)
+	saved := 0
 	for _, e := range entries {
 		if e.Content == "" || e.Title == "" {
 			continue
@@ -68,11 +72,13 @@ func (h handler) distillCorpus(ctx context.Context, taskID, convID, role, host s
 			Embedding:    vec,
 		}); err != nil {
 			h.logger.Warn().Err(err).Str("task_id", taskID).Msg("蒸馏写入 corpus 失败（不阻塞收尾）")
+			continue
 		}
+		saved++
 	}
-	if len(entries) > 0 {
-		h.logger.Info().Str("task_id", taskID).Int("distilled", len(entries)).Msg("收尾蒸馏已沉淀跨目标知识")
-	}
+	// 无条件记录产出（含 0）：0 条 = light 模型按高门槛判定「无跨目标可复用知识」，属正常。
+	h.logger.Info().Str("task_id", taskID).Int("distilled", len(entries)).Int("saved", saved).
+		Msg("收尾蒸馏完成")
 }
 
 // gatherDistillMaterial 拼蒸馏素材：压缩对话轨迹（复用 conversationContext）+ 本次 finding + 本 host 情报黑板。

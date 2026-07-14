@@ -56,15 +56,16 @@ func runActiveProfiles(ctx context.Context, profs []activeProfile, apiBase, apiK
 				Msg("adhoc brief 从 env 注入（不入仓库）")
 		}
 
-		taskID, hunterID, err := createActiveScan(apiBase, apiKey, ap.brief)
+		// 走对话入口（POST /chat）：建 conversation + 发 SSE 过程事件，前端可实时观察。
+		convID, taskID, err := createChatScan(apiBase, apiKey, ap.brief)
 		if err != nil {
-			return fmt.Errorf("active profile %s: createActiveScan: %w", ap.name, err)
+			return fmt.Errorf("active profile %s: createChatScan: %w", ap.name, err)
 		}
 		logger.Info().
 			Str("profile", ap.name).
 			Str("task_id", taskID).
-			Str("hunter_id", hunterID).
-			Msg("active scan dispatched")
+			Str("conversation_id", convID).
+			Msg("active chat scan dispatched（前端可看对话）")
 
 		startedAt := time.Now()
 		deadline := time.Now().Add(pollDeadline() + 10*time.Minute)
