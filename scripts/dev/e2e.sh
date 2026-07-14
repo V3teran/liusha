@@ -18,7 +18,7 @@
 #                                              # 可选 LIUSHA_E2E_MIN_FINDINGS=N 覆盖 PASS 门槛（默认 1）
 #
 # 清空范围（每次执行都做一次）：
-#   - postgres：9 张业务表 TRUNCATE（schema 保留）
+#   - postgres：12 张业务表 TRUNCATE（schema 保留）
 #   - redis：FLUSHDB；并立即 XGROUP CREATE MKSTREAM 重建 ingestor consumer group
 #   - logs：先关 service 再 rm —— 确保 lumberjack fd 释放，新 service 写干净 logs
 
@@ -65,9 +65,10 @@ echo "===== 2/6 清空 db / redis ====="
 # 0073-0077：active_scan+passive_session 合并为 task；http_flow 拆 proxy_traffic+agent_traffic；conversation.scan_id→task_id；
 # 0078：assignment（下发容器）+ cron_schedule（定时模板）——assignment 是 task 的父表（task.assignment_id
 # REFERENCES assignment.id），不显式 truncate 会在多次 e2e 运行间无限堆积孤儿行。
+# 0079：lesson → corpus（跨目标知识库，hybrid RAG）——lesson 表已删，改 truncate corpus。
 # task 放最后——CASCADE 会连带清 hunter/finding/... 的 task_id 引用行，但显式全列更清晰。
 if ! docker exec "$PG_CONTAINER" psql -U liusha -d liusha -c \
-    "TRUNCATE TABLE finding, lesson, llm_invocation, tool_invocation, audit_log, hunter, proxy_traffic, agent_traffic, conversation, task, assignment, cron_schedule CASCADE;"; then
+    "TRUNCATE TABLE finding, corpus, llm_invocation, tool_invocation, audit_log, hunter, proxy_traffic, agent_traffic, conversation, task, assignment, cron_schedule CASCADE;"; then
   echo "  ✗ postgres TRUNCATE 失败 — 看上面 psql 错误（常见原因：容器不在 / schema 不一致 / migrate 未跑）"
   exit 1
 fi
