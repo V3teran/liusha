@@ -18,6 +18,7 @@ import (
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/compose"
 	"github.com/cloudwego/eino/schema"
+	"github.com/rs/zerolog"
 )
 
 // defaultTrafficAnalysisMaxIters：passive 单 agent 迭代上限。passive 分析单条流量，
@@ -50,13 +51,13 @@ const defaultExploitationMaxIters = 60
 // opts 透传给 Runner.Run（如 adk.WithCallbacks 注入计费埋点 handler）。
 // maxIters 来自 passive 角色 frontmatter（hunters/passive/traffic-analysis.md 的 max_iterations）；
 // <=0 时回退 defaultTrafficAnalysisMaxIters。
-func RunTrafficAnalysis(ctx context.Context, m model.ToolCallingChatModel, tools []tool.BaseTool, instruction, flowText string, maxIters int, middlewares []adk.AgentMiddleware, handlers []adk.ChatModelAgentMiddleware, opts ...adk.AgentRunOption) (TrafficAnalysisResult, error) {
+func RunTrafficAnalysis(ctx context.Context, m model.ToolCallingChatModel, tools []tool.BaseTool, instruction, flowText string, maxIters int, middlewares []adk.AgentMiddleware, handlers []adk.ChatModelAgentMiddleware, logger zerolog.Logger, opts ...adk.AgentRunOption) (TrafficAnalysisResult, error) {
 	if maxIters <= 0 {
 		maxIters = defaultTrafficAnalysisMaxIters
 	}
 	return runSingleAgent(ctx, agentSpec{
 		name: "traffic-analysis", desc: "passive 侦察：分析一条流量挖漏洞", maxIters: maxIters,
-	}, m, tools, instruction, flowText, middlewares, handlers, opts...)
+	}, m, tools, instruction, flowText, middlewares, handlers, logger, opts...)
 }
 
 // agentSpec 是单 agent 的固定身份/预算。
@@ -68,13 +69,16 @@ type agentSpec struct {
 
 // runSingleAgent 装配 + 跑一个单 ChatModelAgent，消费事件流收集 ToolCalls + 最终文字。
 // trafficAnalysis / exploitation 共用此机制（eino 单 agent 不调工具即自然收尾，无需 done）。
-func runSingleAgent(ctx context.Context, spec agentSpec, m model.ToolCallingChatModel, tools []tool.BaseTool, instruction, userText string, middlewares []adk.AgentMiddleware, handlers []adk.ChatModelAgentMiddleware, opts ...adk.AgentRunOption) (TrafficAnalysisResult, error) {
+func runSingleAgent(ctx context.Context, spec agentSpec, m model.ToolCallingChatModel, tools []tool.BaseTool, instruction, userText string, middlewares []adk.AgentMiddleware, handlers []adk.ChatModelAgentMiddleware, logger zerolog.Logger, opts ...adk.AgentRunOption) (TrafficAnalysisResult, error) {
 	agent, err := adk.NewChatModelAgent(ctx, &adk.ChatModelAgentConfig{
-		Name:             spec.name,
-		Description:      spec.desc,
-		Instruction:      instruction,
-		Model:            m,
-		ToolsConfig:      adk.ToolsConfig{ToolsNodeConfig: compose.ToolsNodeConfig{Tools: tools}},
+		Name:        spec.name,
+		Description: spec.desc,
+		Instruction: instruction,
+		Model:       m,
+		ToolsConfig: adk.ToolsConfig{ToolsNodeConfig: compose.ToolsNodeConfig{
+			Tools:               tools,
+			UnknownToolsHandler: unknownToolsHandler(spec.name, logger),
+		}},
 		MaxIterations:    spec.maxIters,
 		Middlewares:      middlewares,
 		Handlers:         handlers,                                               // ① summarization 上下文压缩（接口版扩展点）

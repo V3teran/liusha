@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/cloudwego/eino/components/tool"
+	"github.com/rs/zerolog"
 
 	"github.com/V3teran/liusha/internal/config"
 	"github.com/V3teran/liusha/internal/einoagent"
@@ -71,7 +72,7 @@ func TestRunTrafficAnalysis_Live(t *testing.T) {
 		"## 流量响应\nHTTP/1.1 500 Internal Server Error\n\n" +
 		"body: You have an error in your SQL syntax near \"OR '1'='1\" at line 1"
 
-	res, err := einoagent.RunTrafficAnalysis(ctx, m, []tool.BaseTool{wf, rf}, instruction, flow, 0, nil, nil)
+	res, err := einoagent.RunTrafficAnalysis(ctx, m, []tool.BaseTool{wf, rf}, instruction, flow, 0, nil, nil, zerolog.Nop())
 	if err != nil {
 		t.Fatalf("RunTrafficAnalysis: %v", err)
 	}

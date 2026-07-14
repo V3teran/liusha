@@ -116,6 +116,7 @@ func (h handler) handleActiveEino(ctx context.Context, p worker.Payload, entrypo
 		Middlewares:  mws,
 		Handlers:     agentHandlers,
 		MaxIteration: orchestrator.MaxIterations,
+		Logger:       h.logger,
 	})
 	if err != nil {
 		return h.failTask(ctx, p.HunterID, fmt.Errorf("BuildDeepSwarm: %w", err))
