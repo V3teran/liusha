@@ -34,10 +34,10 @@ type handler struct {
 	hunters    *hunter.Store
 	tasks      *task.Store
 	findings   *finding.Store
-	corpus     *corpus.Store         // 跨目标知识库（hybrid RAG）；search/write_corpus
+	corpus     *corpus.Store            // 跨目标知识库（hybrid RAG）；search/write_corpus
 	embedder   einotools.CorpusEmbedder // Jina embed（可 nil，降级纯 sparse）
 	reranker   corpus.Reranker          // Jina rerank（可 nil，降级合并序兜底）
-	leads      *lead.Store // 情报黑板（§7）；每次写滚动刷新 target_host 的 TTL
+	leads      *lead.Store              // 情报黑板（§7）；每次写滚动刷新 target_host 的 TTL
 	proxyFlows *flow.ProxyStore
 	agentFlows *flow.AgentStore
 	calls      *llminvocation.Store

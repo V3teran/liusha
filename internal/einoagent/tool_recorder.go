@@ -102,7 +102,6 @@ func toolResultText(tr *schema.ToolResult) string {
 	return string(b)
 }
 
-
 func rawOrNil(s string) json.RawMessage {
 	if s == "" {
 		return nil

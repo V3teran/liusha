@@ -19,8 +19,8 @@ import (
 // 完整 output 仍在 LLM message history（llm_invocation.messages jsonb）里。
 type Invocation struct {
 	ID            int64
-	HunterID      string // FK→hunter.id
-	TaskID        string // 所属 task.id
+	HunterID      string          // FK→hunter.id
+	TaskID        string          // 所属 task.id
 	ToolName      string          // 'sqlmap' / 'curl' / 'write_finding' / ...
 	Args          json.RawMessage // 工具调用参数 jsonb
 	OutputSize    int             // 字节数
