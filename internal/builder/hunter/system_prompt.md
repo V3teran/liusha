@@ -57,10 +57,10 @@
 
 ## 凭证共享协议（read_credentials / write_credential）
 
-**所有角色统一**：本 host 的凭证（cookie / token / csrf / api_key 等任意位置任意条数）经 redis credentials key 共享，工具对：
+本 host 的凭证（cookie / token / csrf / api_key 等任意位置任意条数）经 redis credentials key 共享，工具对：
 
-- `read_credentials` — 拉本 host 已录入的全部身份（含 name/role/credentials[{type,key,value}]）
-- `write_credential` — 把自己刚拿到的活凭证录入，让 spawn 的 exploitation / 后续 task 通过 read 拿到
+- `read_credentials` — **所有角色统一**持有：拉本 host 已录入的全部身份（含 name/role/credentials[{type,key,value}]）
+- `write_credential` — **仅 reconnaissance / exploitation / traffic-analysis 持有**：把自己刚拿到的活凭证录入，让 spawn 的 exploitation / 后续 task 通过 read 拿到。**orchestrator 没有这个工具**（不登录、不亲自拿凭证，只编排派活）
 
 ### 标准流程（现场登录是活凭证之源，redis 只是被它刷新的缓存）
 

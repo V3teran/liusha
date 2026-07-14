@@ -136,7 +136,7 @@ func (h handler) handlePassiveEino(ctx context.Context, p worker.Payload, entryp
 	defer cancel()
 	go h.watchAbort(runCtx, cancel, taskID)
 
-	res, err := einoagent.RunTrafficAnalysis(runCtx, model, tools, instruction, userPrompt, h.passiveRole.MaxIterations, mws, agentHandlers, opts...)
+	res, err := einoagent.RunTrafficAnalysis(runCtx, model, tools, instruction, userPrompt, h.passiveRole.MaxIterations, mws, agentHandlers, h.logger, opts...)
 	if err != nil {
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			finalizeTask(false, "ctx "+err.Error())

@@ -9,6 +9,7 @@ import (
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/compose"
 	"github.com/cloudwego/eino/schema"
+	"github.com/rs/zerolog"
 
 	"github.com/V3teran/liusha/internal/lead"
 )
@@ -33,6 +34,7 @@ type DeepSwarmConfig struct {
 	Middlewares  []adk.AgentMiddleware          // 截图回灌/遥测/事件（einoRunOpts 产，struct 版）
 	Handlers     []adk.ChatModelAgentMiddleware // ① summarization 上下文压缩（einoRunOpts 产，接口版 Handlers）
 	MaxIteration int                            // orchestrator 迭代上限；0=用 Orchestrator.MaxIterations 或默认
+	Logger       zerolog.Logger                 // 兜底模型幻觉/工具授权不一致调用未注册工具时记录（见 unknownToolsHandler）
 }
 
 const defaultDeepMaxIter = 300
@@ -98,8 +100,11 @@ func BuildDeepSwarm(ctx context.Context, cfg DeepSwarmConfig) (adk.Agent, error)
 			// 与 buildUserPrompt 给顶层 agent 注入 host/lead 同源思路。
 			Instruction: role.SystemPrompt + subAgentTargetSection(cfg.Params.Host) +
 				leadSection(ctx, cfg.ToolDeps.Lead, cfg.Params.Host),
-			Model:         cfg.Model,
-			ToolsConfig:   adk.ToolsConfig{ToolsNodeConfig: compose.ToolsNodeConfig{Tools: tools}},
+			Model: cfg.Model,
+			ToolsConfig: adk.ToolsConfig{ToolsNodeConfig: compose.ToolsNodeConfig{
+				Tools:               tools,
+				UnknownToolsHandler: unknownToolsHandler(role.ID, cfg.Logger),
+			}},
 			MaxIterations: maxIter,
 			Middlewares:   cfg.Middlewares,
 			Handlers:      cfg.Handlers, // ① summarization 压缩挂每个子代理（子代理 run 各自独立计 token）
@@ -128,12 +133,15 @@ func BuildDeepSwarm(ctx context.Context, cfg DeepSwarmConfig) (adk.Agent, error)
 	}
 
 	orchestrator, err := deep.New(ctx, &deep.Config{
-		Name:                   cfg.Orchestrator.ID,
-		Description:            cfg.Orchestrator.Description,
-		ChatModel:              cfg.Model,
-		Instruction:            cfg.Orchestrator.SystemPrompt,
-		SubAgents:              subAgents,
-		ToolsConfig:            adk.ToolsConfig{ToolsNodeConfig: compose.ToolsNodeConfig{Tools: cmdTools}},
+		Name:        cfg.Orchestrator.ID,
+		Description: cfg.Orchestrator.Description,
+		ChatModel:   cfg.Model,
+		Instruction: cfg.Orchestrator.SystemPrompt,
+		SubAgents:   subAgents,
+		ToolsConfig: adk.ToolsConfig{ToolsNodeConfig: compose.ToolsNodeConfig{
+			Tools:               cmdTools,
+			UnknownToolsHandler: unknownToolsHandler(cfg.Orchestrator.ID, cfg.Logger),
+		}},
 		WithoutGeneralSubAgent: true, // 只用我们的杀伤链角色，不要 deep 默认 general-purpose
 		WithoutWriteTodos:      true, // liusha 不用 todo；过程靠 finding/note 黑板
 		MaxIteration:           maxIter,
