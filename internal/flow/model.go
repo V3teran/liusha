@@ -38,15 +38,15 @@ type ProxyTraffic struct {
 
 // AgentTraffic 是 agent_traffic 表行——agent 自产流量，按 task 归属。
 type AgentTraffic struct {
-	ID       int64
-	TaskID   string
-	HunterID string // 哪个 agent 发的（可空）
-	Identity string // 身份戳（browser_use identity / 登录账号；CLI 为空）
-	Tool     string // 工具戳（browser / curl / sqlmap…；external 为空）
-	Host     string
-	Method   string
-	URL      string
-	Path     string
+	ID              int64
+	TaskID          string
+	HunterID        string // 哪个 agent 发的（可空）
+	Identity        string // 身份戳（browser_use identity / 登录账号；CLI 为空）
+	Tool            string // 工具戳（browser / curl / sqlmap…；external 为空）
+	Host            string
+	Method          string
+	URL             string
+	Path            string
 	StatusCode      int
 	RequestHeaders  json.RawMessage
 	RequestBody     []byte

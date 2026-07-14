@@ -66,9 +66,9 @@ func TestSplitDialogByBudget_SplitsByToken(t *testing.T) {
 	// 每条 content 40 字符 ≈ 10 token；预算 15 → 只容得下最近 1 条。
 	c := strings.Repeat("x", 40)
 	msgs := []conversation.Message{
-		msg(conversation.RoleUser, c+"-old"),     // 最早
+		msg(conversation.RoleUser, c+"-old"), // 最早
 		msg(conversation.RoleAssistant, c+"-mid"),
-		msg(conversation.RoleUser, c+"-new"),     // 最近
+		msg(conversation.RoleUser, c+"-new"), // 最近
 	}
 	older, recent := splitDialogByBudget(msgs, 15)
 	if len(recent) == 0 || len(older) == 0 {
@@ -96,7 +96,7 @@ func TestSplitDialogByBudget_ZeroBudget(t *testing.T) {
 func TestFilterDialog_SkipsEmptyAndBrief(t *testing.T) {
 	msgs := []conversation.Message{
 		msg(conversation.RoleUser, "保留我"),
-		msg(conversation.RoleUser, "  "),     // 空，跳
+		msg(conversation.RoleUser, "  "),   // 空，跳
 		msg(conversation.RoleUser, "本轮问题"), // brief，跳
 	}
 	kept := filterDialog(msgs, "本轮问题")

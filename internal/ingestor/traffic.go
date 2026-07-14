@@ -54,13 +54,13 @@ type Traffic struct {
 	retryDelay    time.Duration
 	recreateDelay time.Duration
 
-	assignments   *assignment.Store    // 聚合建 passive assignment（一切 task 皆属某 assignment）
-	tasks         *task.Store          // passive task 建/查
-	agg           *aggregator          // 按 host 攒批窗口（Redis）
-	proxyFlows    *flow.ProxyStore     // 代理捕获流量落库 + 领取
-	agentFlows    *flow.AgentStore     // agent 自产流量落库
-	hunters       *hunter.Store        // internal 流量反查 hunter→task_id
-	conversations ConversationCreator  // 建 passive task 对话流（nil 跳过）
+	assignments   *assignment.Store   // 聚合建 passive assignment（一切 task 皆属某 assignment）
+	tasks         *task.Store         // passive task 建/查
+	agg           *aggregator         // 按 host 攒批窗口（Redis）
+	proxyFlows    *flow.ProxyStore    // 代理捕获流量落库 + 领取
+	agentFlows    *flow.AgentStore    // agent 自产流量落库
+	hunters       *hunter.Store       // internal 流量反查 hunter→task_id
+	conversations ConversationCreator // 建 passive task 对话流（nil 跳过）
 	enq           *worker.Client
 	logger        zerolog.Logger
 }

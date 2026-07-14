@@ -120,7 +120,7 @@ func TestMessageText_IncludesToolCalls(t *testing.T) {
 func TestCJKTokenCounter_CountsMessages(t *testing.T) {
 	in := &summarization.TokenCounterInput{
 		Messages: []adk.Message{
-			&schema.Message{Role: schema.User, Content: "你好世界"},     // 4 CJK = 4
+			&schema.Message{Role: schema.User, Content: "你好世界"},      // 4 CJK = 4
 			&schema.Message{Role: schema.Assistant, Content: "test"}, // 4 字符 = 1
 		},
 	}

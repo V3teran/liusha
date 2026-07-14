@@ -77,7 +77,7 @@ func runSingleAgent(ctx context.Context, spec agentSpec, m model.ToolCallingChat
 		ToolsConfig:      adk.ToolsConfig{ToolsNodeConfig: compose.ToolsNodeConfig{Tools: tools}},
 		MaxIterations:    spec.maxIters,
 		Middlewares:      middlewares,
-		Handlers:         handlers, // ① summarization 上下文压缩（接口版扩展点）
+		Handlers:         handlers,                                               // ① summarization 上下文压缩（接口版扩展点）
 		ModelRetryConfig: &adk.ModelRetryConfig{MaxRetries: defaultModelRetries}, // 瞬时 provider 错重试（默认指数退避+jitter）
 	})
 	if err != nil {

@@ -130,4 +130,3 @@ func TestAggregator_SweepCleansOrphan(t *testing.T) {
 		t.Fatalf("孤儿 host 应被 SREM，活跃集仍有 %v", members)
 	}
 }
-
