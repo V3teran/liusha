@@ -80,7 +80,8 @@ func (s *AgentStore) ListByTaskFiltered(ctx context.Context, taskID string, f Ag
 		q += " AND " + fmt.Sprintf(cond, len(args))
 	}
 	if f.Host != "" {
-		add("host=$%d", stripHostPort(f.Host))
+		// host 列存的是 host:port，不能剥端口去比——见 proxy_store.go 同处注释。
+		add("host=$%d", f.Host)
 	}
 	if f.Method != "" {
 		add("method=$%d", strings.ToUpper(f.Method))
@@ -140,8 +141,9 @@ func (s *AgentStore) DistinctRoutesWithRepresentative(ctx context.Context, taskI
 	      WHERE task_id=$1::uuid AND status_code NOT IN (404, 410)`
 	args := []any{taskID}
 	if host != "" {
+		// host 列存的是 host:port，不能剥端口去比——见 proxy_store.go 同处注释。
 		q += ` AND host=$2`
-		args = append(args, stripHostPort(host))
+		args = append(args, host)
 	}
 	q += ` ORDER BY host, method, path, status_code ASC`
 

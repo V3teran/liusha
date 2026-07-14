@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net"
 	"strings"
 	"time"
 
@@ -18,16 +17,9 @@ const (
 	listFlowsMaxLimit     = 200
 )
 
-// stripHostPort 把 host:port 归一化为裸 host，与流量表 host 存储键（去端口）对齐。
-func stripHostPort(host string) string {
-	if h, _, err := net.SplitHostPort(host); err == nil {
-		return h
-	}
-	return host
-}
-
 // listFlowsArgs 是 list_flows 入参；task/host 注入不在此（host 默认取当前 hunter host）。
-// source 过滤已随流量拆表移除：list_flows 只服务 active（读 agent_traffic），来源恒为 agent。
+// source 过滤已随流量拆表移除：active 经 agentFlowScope 读 agent_traffic，passive 经
+// proxyFlowScope 读 proxy_traffic（见 flowsource.go）——工具本身不感知来源，由注入的 FlowLister 决定。
 // 全字段可选——必须带 ,omitempty，否则全被误标 required 触发 mimo 400（见 findings.go 详注）。
 type listFlowsArgs struct {
 	Host      string `json:"host,omitempty"       jsonschema:"description=host filter，留空则用当前 hunter host"`
@@ -55,7 +47,6 @@ func BuildListFlows(src FlowLister, hunterHost string) (tool.BaseTool, error) {
 			if host == "" {
 				host = hunterHost
 			}
-			host = stripHostPort(host)
 
 			limit := in.Limit
 			if limit <= 0 {

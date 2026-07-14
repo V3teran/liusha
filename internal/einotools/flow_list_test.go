@@ -25,21 +25,22 @@ func (f *fakeFlowScope) GetInScope(_ context.Context, _ int64) (FlowRecord, bool
 	return f.viewFlow, f.viewOK, nil
 }
 
-func TestListFlows_DefaultHostAndStripPort(t *testing.T) {
+func TestListFlows_DefaultHostFromHunterHost(t *testing.T) {
 	store := &fakeFlowScope{rows: []FlowSummaryRecord{
-		{ID: 1, Method: "GET", Host: "target.com", Path: "/admin", StatusCode: 200},
+		{ID: 1, Method: "GET", Host: "target.com:8080", Path: "/admin", StatusCode: 200},
 	}}
 	lf, err := BuildListFlows(store, "target.com:8080")
 	if err != nil {
 		t.Fatal(err)
 	}
-	out := invoke(t, lf, `{}`) // 不传 host → 默认 hunterHost，剥端口
+	out := invoke(t, lf, `{}`) // 不传 host → 默认 hunterHost
 	if !strings.Contains(out, "/admin") {
 		t.Fatalf("输出缺 flow: %s", out)
 	}
-	// host 默认取 hunterHost 且剥端口 → "target.com"
-	if store.gotQuery.Host != "target.com" {
-		t.Errorf("host 应默认剥端口为 target.com，得到 %q", store.gotQuery.Host)
+	// host 默认取 hunterHost，原样透传（不剥端口——流量表 host 列存的就是 host:port，
+	// 剥了就和存储值对不上，过滤永远零命中，见 2026-07-14 e2e 实测的 bug）。
+	if store.gotQuery.Host != "target.com:8080" {
+		t.Errorf("host 应原样透传 target.com:8080，得到 %q", store.gotQuery.Host)
 	}
 }
 

@@ -111,7 +111,10 @@ func (s *ProxyStore) ListByTaskFiltered(ctx context.Context, taskID string, f Pr
 		q += " AND " + fmt.Sprintf(cond, len(args))
 	}
 	if f.Host != "" {
-		add("host=$%d", stripHostPort(f.Host))
+		// host 列存的是 host:port（与 task.target_host / credentials key 同格式），
+		// 这里不能再剥端口去比——剥了就和存储值对不上，过滤永远零命中（2026-07-14 e2e 实测：
+		// passive list_flows 对已认领的 15 条流量返回空，根因就是这处误剥端口）。
+		add("host=$%d", f.Host)
 	}
 	if f.Method != "" {
 		add("method=$%d", strings.ToUpper(f.Method))
