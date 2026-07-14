@@ -3,9 +3,9 @@
 // 数据流（Stream-based 业界最佳实践）：
 //
 //	cmd/proxy onResponse → filter → publisher.Publish (XADD liusha:flow_events)
-//	cmd/scanner ingestor → XREADGROUP → passive_session.LookupOrCreate(host) + flow.Append + 入 hunter 队列
+//	cmd/scanner ingestor → XREADGROUP → proxy_traffic 落库(按 host) + 聚合器攒批建 passive task + 入 hunter 队列
 //
-// proxy 进程无状态、可水平扩展；passive_session 创建/轮转逻辑集中在 scanner 端。
+// proxy 进程无状态、可水平扩展；proxy_traffic 落库 + passive task 生成逻辑集中在 scanner 端。
 package proxy
 
 import "time"
@@ -14,11 +14,9 @@ import "time"
 //
 // 身份关联：
 //
-//	HunterID             v35+：永远为空（CDP capture 链路已撤；唯一来源 passive 入口无 hunter 概念）。
-//	                     字段保留为后续可能恢复 per-hunter 流量归属预留位。
-//	OwnerType / OwnerID  external listener 按 host 查 passive_session 后填（owner_type=passive_session）。
-//	Source               'external'（8888 passive 入口；v35+ 唯一值）。
-//	                     字段保留以兼容历史 http_flow 数据 + 未来新入口扩展。
+//	HunterID             internal 入口填（sandbox 自产流量归属的 hunter run；ingestor 反查 task_id）。
+//	                     external（passive）入口为空。
+//	Source               'external'（8888 passive 入口）/ 'internal'（sandbox 自产）。
 //
 // URI 拆解：
 //
@@ -29,7 +27,7 @@ import "time"
 // 字段构成：
 //
 //	ID              全局唯一 id（uuid 等，由 proxy.Server 生成）
-//	Host            host header（去端口）；finding/lesson/note 按 host 切分；passive_session 也 per-host
+//	Host            host header（去端口）；finding/lesson/note 按 host 切分；proxy_traffic 也 per-host
 //	HostPort        host:port 原文（用于 fullURL 重放定位真实端口；空则由消费者退化到 Host）
 //	Method          GET/POST/...
 //	Scheme          http / https
@@ -47,8 +45,6 @@ import "time"
 type TrafficSnapshot struct {
 	ID              string              `json:"id"`
 	HunterID        string              `json:"hunter_id,omitempty"`
-	OwnerType       string              `json:"owner_type,omitempty"`
-	OwnerID         string              `json:"owner_id,omitempty"`
 	Source          string              `json:"source"`
 	Identity        string              `json:"identity,omitempty"`
 	Tool            string              `json:"tool,omitempty"`

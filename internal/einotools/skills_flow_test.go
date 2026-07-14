@@ -11,7 +11,6 @@ import (
 
 	"github.com/cloudwego/eino/components/tool"
 
-	"github.com/V3teran/liusha/internal/flow"
 	"github.com/V3teran/liusha/internal/skill"
 )
 
@@ -99,13 +98,16 @@ func TestBuildSkillReader_NilLoaderErrors(t *testing.T) {
 
 // ---- replay_flow ----
 
-type fakeFlowStore struct {
-	flow flow.Flow
+// fakeFlowReader 满足 FlowReader（replay_flow 用 GetInScope）。
+// task 范围隔离收敛到适配器：ok=false 表越界（原 OwnerID 跨 owner 判定）。
+type fakeFlowReader struct {
+	flow FlowRecord
+	ok   bool
 	err  error
 }
 
-func (f *fakeFlowStore) GetByID(_ context.Context, _ int64) (flow.Flow, error) {
-	return f.flow, f.err
+func (f *fakeFlowReader) GetInScope(_ context.Context, _ int64) (FlowRecord, bool, error) {
+	return f.flow, f.ok, f.err
 }
 
 func TestReplayFlow_InheritsAndModifies(t *testing.T) {
@@ -122,15 +124,14 @@ func TestReplayFlow_InheritsAndModifies(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	store := &fakeFlowStore{flow: flow.Flow{
+	store := &fakeFlowReader{ok: true, flow: FlowRecord{
 		ID:             5,
-		OwnerID:        "owner-1",
 		Method:         "GET",
 		URL:            srv.URL,
 		RequestHeaders: json.RawMessage(`{"authorization":"Bearer orig"}`),
 		RequestBody:    []byte("orig-body"),
 	}}
-	rf, err := BuildReplayFlow(store, "passive_session", "owner-1", "hunter-1")
+	rf, err := BuildReplayFlow(store)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -150,18 +151,19 @@ func TestReplayFlow_InheritsAndModifies(t *testing.T) {
 	}
 }
 
-func TestReplayFlow_RejectsCrossOwner(t *testing.T) {
-	store := &fakeFlowStore{flow: flow.Flow{ID: 5, OwnerID: "other-owner", URL: "http://x"}}
-	rf, _ := BuildReplayFlow(store, "passive_session", "owner-1", "h1")
+func TestReplayFlow_RejectsCrossTask(t *testing.T) {
+	// 越界流量：适配器返回 ok=false（原 OwnerID 跨 owner 判定移到 GetInScope 内）。
+	store := &fakeFlowReader{ok: false, flow: FlowRecord{ID: 5, URL: "http://x"}}
+	rf, _ := BuildReplayFlow(store)
 	it := rf.(tool.InvokableTool)
 	_, err := it.InvokableRun(context.Background(), `{"id":5}`)
-	if err == nil || !strings.Contains(err.Error(), "跨 owner") {
-		t.Fatalf("跨 owner replay 应被拒，得到: %v", err)
+	if err == nil || !strings.Contains(err.Error(), "当前 task") {
+		t.Fatalf("跨 task replay 应被拒，得到: %v", err)
 	}
 }
 
 func TestReplayFlow_IDRequired(t *testing.T) {
-	rf, _ := BuildReplayFlow(&fakeFlowStore{}, "passive_session", "owner-1", "h1")
+	rf, _ := BuildReplayFlow(&fakeFlowReader{})
 	it := rf.(tool.InvokableTool)
 	if _, err := it.InvokableRun(context.Background(), `{"id":0}`); err == nil {
 		t.Fatal("id<=0 应报错")

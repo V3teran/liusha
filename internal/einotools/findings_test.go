@@ -22,7 +22,7 @@ type fakeStore struct {
 	}
 }
 
-func (f *fakeStore) ListByOwnerAndHost(_ context.Context, _, _, _ string, _ int) ([]finding.VulnFinding, error) {
+func (f *fakeStore) ListByTaskAndHost(_ context.Context, _, _ string, _ int) ([]finding.VulnFinding, error) {
 	return f.list, nil
 }
 func (f *fakeStore) Save(_ context.Context, v finding.VulnFinding) (finding.VulnFinding, error) {
@@ -57,7 +57,7 @@ func TestReadFindings(t *testing.T) {
 	store := &fakeStore{list: []finding.VulnFinding{
 		{ID: "f1", Severity: "high", Summary: "SQLi in /user"},
 	}}
-	rf, err := BuildReadFindings(store, "active_scan", "owner-1", "host-1")
+	rf, err := BuildReadFindings(store, "task-1", "host-1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -67,17 +67,17 @@ func TestReadFindings(t *testing.T) {
 	}
 }
 
-func TestReadFindings_MissingOwnerInjection(t *testing.T) {
-	rf, _ := BuildReadFindings(&fakeStore{}, "", "", "")
+func TestReadFindings_MissingTaskInjection(t *testing.T) {
+	rf, _ := BuildReadFindings(&fakeStore{}, "", "")
 	it := rf.(tool.InvokableTool)
 	if _, err := it.InvokableRun(context.Background(), "{}"); err == nil {
-		t.Fatal("owner 注入缺失应报错")
+		t.Fatal("task/host 注入缺失应报错")
 	}
 }
 
 func TestWriteFinding_InjectionAndArgs(t *testing.T) {
 	store := &fakeStore{}
-	wf, err := BuildWriteFinding(store, "active_scan", "owner-9", "hunter-7", "host-9", 42)
+	wf, err := BuildWriteFinding(store, "task-9", "hunter-7", "host-9", 42)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -89,8 +89,8 @@ func TestWriteFinding_InjectionAndArgs(t *testing.T) {
 	}
 	// 断言注入字段（LLM 不可控）被正确填入
 	s := store.saved
-	if s.OwnerType != "active_scan" || s.OwnerID != "owner-9" || s.Host != "host-9" {
-		t.Errorf("owner/host 注入错: %+v", s)
+	if s.TaskID != "task-9" || s.Host != "host-9" {
+		t.Errorf("task/host 注入错: %+v", s)
 	}
 	if s.HunterID == nil || *s.HunterID != "hunter-7" {
 		t.Errorf("hunter 注入错: %+v", s.HunterID)
@@ -109,7 +109,7 @@ func TestWriteFinding_InjectionAndArgs(t *testing.T) {
 }
 
 func TestWriteFinding_SummaryRequired(t *testing.T) {
-	wf, _ := BuildWriteFinding(&fakeStore{}, "active_scan", "o", "", "h", 0)
+	wf, _ := BuildWriteFinding(&fakeStore{}, "task-1", "", "h", 0)
 	it := wf.(tool.InvokableTool)
 	if _, err := it.InvokableRun(context.Background(), `{"severity":"low"}`); err == nil {
 		t.Fatal("缺 summary 应报错")

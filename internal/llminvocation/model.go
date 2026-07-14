@@ -16,8 +16,7 @@ import "time"
 type Invocation struct {
 	ID           int64
 	HunterID     *string
-	OwnerType    *string // 'passive_session' / 'active_scan'
-	OwnerID      *string // passive_session.id / active_scan.id
+	TaskID       *string // 所属 task.id（可空：SET NULL 外键）
 	Provider     string
 	Model        string
 	InTokens     int

@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -49,5 +50,26 @@ func TestLoad_OK(t *testing.T) {
 	}
 	if cfg.LLM.DefaultProvider != "deepseek" || cfg.Providers["deepseek"].DefaultModel != "deepseek-chat" {
 		t.Fatalf("unexpected: %+v", cfg)
+	}
+}
+
+func TestApplyIngestorDefaults_ConsumerNameIsInstanceUnique(t *testing.T) {
+	// consumer_name 留空时应派生每实例唯一名，绝不能退回写死的 ingestor-1
+	// （多副本用同名进同组会静默 pending 混乱）。
+	got := applyIngestorDefaults(IngestorConfig{}).ConsumerName
+
+	if got == "ingestor-1" {
+		t.Fatalf("consumer name 仍是写死的 ingestor-1，多副本会撞名")
+	}
+	host, _ := os.Hostname()
+	want := "ingestor-" + host + "-" + fmt.Sprint(os.Getpid())
+	if got != want {
+		t.Fatalf("consumer name = %q, 期望派生自 hostname+pid = %q", got, want)
+	}
+
+	// 显式配置应被尊重，不被默认值覆盖。
+	explicit := applyIngestorDefaults(IngestorConfig{ConsumerName: "custom-name"}).ConsumerName
+	if explicit != "custom-name" {
+		t.Fatalf("显式 consumer_name 被覆盖: %q", explicit)
 	}
 }

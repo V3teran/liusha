@@ -7,8 +7,8 @@ import (
 
 	"github.com/cloudwego/eino/components/tool"
 
+	"github.com/V3teran/liusha/internal/corpus"
 	"github.com/V3teran/liusha/internal/credential"
-	"github.com/V3teran/liusha/internal/lesson"
 )
 
 // ---- credentials ----
@@ -80,64 +80,56 @@ func TestWriteCredential_RejectsBadType(t *testing.T) {
 	}
 }
 
-// ---- lessons ----
+// ---- corpus ----
 
-type fakeLessonStore struct {
-	list  []lesson.Lesson
-	added lesson.Lesson
+type fakeCorpusStore struct {
+	hits  []corpus.Entry // SearchHybrid 返回
+	added corpus.Entry   // Add 记录最近一次
 }
 
-func (f *fakeLessonStore) ListByHost(_ context.Context, _ string, _ int) ([]lesson.Lesson, error) {
-	return f.list, nil
+func (f *fakeCorpusStore) SearchHybrid(_ context.Context, _ string, _ []float32, _ []string, _, _ int, _ corpus.Reranker) ([]corpus.Entry, error) {
+	return f.hits, nil
 }
-func (f *fakeLessonStore) Add(_ context.Context, l lesson.Lesson) (lesson.Lesson, error) {
-	l.ID = "les-1"
-	f.added = l
-	return l, nil
+func (f *fakeCorpusStore) Add(_ context.Context, e corpus.Entry) (corpus.Entry, error) {
+	e.ID = "corp-1"
+	f.added = e
+	return e, nil
 }
 
-func TestReadLessons(t *testing.T) {
-	store := &fakeLessonStore{list: []lesson.Lesson{
-		{ID: "l1", Kind: lesson.KindLesson, Content: "DVWA 先 GET 拿 token", Priority: 7},
+func TestSearchCorpus(t *testing.T) {
+	store := &fakeCorpusStore{hits: []corpus.Entry{
+		{ID: "c1", Title: "CAS SSO 登录逆向", Content: "先逆前端 js 拿加密逻辑", Source: corpus.SourceExpert},
 	}}
-	rl, err := BuildReadLessons(store, "host-1")
+	// embedder/reranker 传 nil → 降级路径（纯 sparse + 合并序），工具仍应正常返回。
+	sc, err := BuildSearchCorpus(store, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	out := invoke(t, rl, "{}")
-	if !strings.Contains(out, "DVWA 先 GET 拿 token") {
-		t.Fatalf("read_lessons 输出缺经验: %s", out)
+	out := invoke(t, sc, `{"query":"某 SSO 怎么登录"}`)
+	if !strings.Contains(out, "先逆前端 js 拿加密逻辑") {
+		t.Fatalf("search_corpus 输出缺知识: %s", out)
 	}
 }
 
-func TestWriteLesson_DefaultKindKeepsHost(t *testing.T) {
-	store := &fakeLessonStore{}
-	wl, err := BuildWriteLesson(store, "host-1")
+func TestWriteCorpus_InjectsSourceAndTask(t *testing.T) {
+	store := &fakeCorpusStore{}
+	wc, err := BuildWriteCorpus(store, nil, "task-9") // emb nil → 不 embed
 	if err != nil {
 		t.Fatal(err)
 	}
-	invoke(t, wl, `{"content":"默认 admin:password","priority":6}`)
-	if store.added.Host != "host-1" || store.added.Kind != lesson.KindLesson {
-		t.Errorf("默认 kind 应保留注入 host: %+v", store.added)
+	invoke(t, wc, `{"title":"SSO 逆向套路","content":"逆前端 js","tags":["sso:cas"]}`)
+	if store.added.Source != corpus.SourceAgent || store.added.SourceTaskID != "task-9" {
+		t.Errorf("source/task 闭包注入错: %+v", store.added)
 	}
-	if store.added.Content != "默认 admin:password" || store.added.Priority != 6 {
-		t.Errorf("lesson 参数错: %+v", store.added)
-	}
-}
-
-func TestWriteLesson_HintForcesGlobalHost(t *testing.T) {
-	store := &fakeLessonStore{}
-	wl, _ := BuildWriteLesson(store, "host-1")
-	invoke(t, wl, `{"content":"价格篡改 ≥10% 才算","kind":"hint"}`)
-	if store.added.Host != lesson.HostGlobalHint || store.added.Kind != lesson.KindHint {
-		t.Errorf("hint 应强制全局 host: %+v", store.added)
+	if store.added.Title != "SSO 逆向套路" || store.added.Content != "逆前端 js" {
+		t.Errorf("corpus 参数错: %+v", store.added)
 	}
 }
 
-func TestWriteLesson_BadKind(t *testing.T) {
-	wl, _ := BuildWriteLesson(&fakeLessonStore{}, "host-1")
-	it := wl.(tool.InvokableTool)
-	if _, err := it.InvokableRun(context.Background(), `{"content":"x","kind":"bogus"}`); err == nil {
-		t.Fatal("非法 kind 应报错")
+func TestWriteCorpus_RejectsEmpty(t *testing.T) {
+	wc, _ := BuildWriteCorpus(&fakeCorpusStore{}, nil, "task-1")
+	it := wc.(tool.InvokableTool)
+	if _, err := it.InvokableRun(context.Background(), `{"title":"x"}`); err == nil {
+		t.Fatal("content 空应报错")
 	}
 }

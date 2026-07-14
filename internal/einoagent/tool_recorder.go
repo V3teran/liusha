@@ -21,8 +21,7 @@ const toolOutputPreviewLimit = 4096
 // ToolInvocation 是 tool_invocation 落库记录（einoagent 不直接依赖 toolinvocation 包，scanner 适配）。
 type ToolInvocation struct {
 	HunterID      string
-	OwnerType     string
-	OwnerID       string
+	TaskID        string
 	ToolName      string
 	Args          json.RawMessage
 	OutputSize    int
@@ -37,15 +36,14 @@ type ToolSink interface {
 }
 
 // NewToolRecorder 造记 tool_invocation 的 AgentMiddleware。sink nil 时返回零值 middleware（no-op）。
-func NewToolRecorder(sink ToolSink, hunterID, ownerType, ownerID string) adk.AgentMiddleware {
+func NewToolRecorder(sink ToolSink, hunterID, taskID string) adk.AgentMiddleware {
 	if sink == nil || hunterID == "" {
 		return adk.AgentMiddleware{}
 	}
 	record := func(name, args, result, errMsg string, dur time.Duration) {
 		sink.RecordTool(context.Background(), ToolInvocation{
 			HunterID:      hunterID,
-			OwnerType:     ownerType,
-			OwnerID:       ownerID,
+			TaskID:        taskID,
 			ToolName:      name,
 			Args:          rawOrNil(args),
 			OutputSize:    len(result),

@@ -18,8 +18,7 @@ import (
 // Target / Evidence 为 nil 时 Save 自动落空对象 '{}'。
 type VulnFinding struct {
 	ID           string
-	OwnerType    string // 'passive_session' / 'active_scan'
-	OwnerID      string
+	TaskID       string // 所属 task.id
 	HunterID     *string
 	SourceFlowID *int64
 	Host         string

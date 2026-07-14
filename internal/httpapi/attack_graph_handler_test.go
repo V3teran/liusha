@@ -11,15 +11,15 @@ import (
 )
 
 type fakeAttackGraph struct {
-	graph                      attackgraph.Graph
-	err                        error
-	milestones                 []attackgraph.Milestone
-	milestonesErr              error
-	gotConv, gotType, gotOwner string
+	graph            attackgraph.Graph
+	err              error
+	milestones       []attackgraph.Milestone
+	milestonesErr    error
+	gotConv, gotTask string
 }
 
-func (f *fakeAttackGraph) Project(_ context.Context, convID, ownerType, ownerID string) (attackgraph.Graph, error) {
-	f.gotConv, f.gotType, f.gotOwner = convID, ownerType, ownerID
+func (f *fakeAttackGraph) Project(_ context.Context, convID, taskID string) (attackgraph.Graph, error) {
+	f.gotConv, f.gotTask = convID, taskID
 	if f.err != nil {
 		return attackgraph.Graph{}, f.err
 	}
@@ -37,13 +37,13 @@ func (f *fakeAttackGraph) ProjectMilestones(_ context.Context, convID string) ([
 func TestAttackGraphHandler(t *testing.T) {
 	t.Run("200 返回图并透传参数", func(t *testing.T) {
 		fake := &fakeAttackGraph{graph: attackgraph.Graph{
-			OwnerID: "o1",
-			Nodes:   []attackgraph.Node{{ID: "n1", Kind: attackgraph.KindFinding, Title: "SQLi"}},
+			TaskID: "o1",
+			Nodes:  []attackgraph.Node{{ID: "n1", Kind: attackgraph.KindFinding, Title: "SQLi"}},
 		}}
 		srv := newTestServer(t, Deps{AttackGraph: fake})
 		defer srv.Close()
 
-		req, _ := http.NewRequest("GET", srv.URL+"/attack_graph/o1?conv=c1&type=active_scan", nil)
+		req, _ := http.NewRequest("GET", srv.URL+"/attack_graph/o1?conv=c1", nil)
 		req.Header.Set("X-API-Key", "k")
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
@@ -58,31 +58,15 @@ func TestAttackGraphHandler(t *testing.T) {
 		if err := json.NewDecoder(resp.Body).Decode(&g); err != nil {
 			t.Fatal(err)
 		}
-		if g.OwnerID != "o1" || len(g.Nodes) != 1 {
+		if g.TaskID != "o1" || len(g.Nodes) != 1 {
 			t.Errorf("响应图不符：%+v", g)
 		}
-		if fake.gotConv != "c1" || fake.gotType != "active_scan" || fake.gotOwner != "o1" {
-			t.Errorf("参数透传不符：conv=%q type=%q owner=%q", fake.gotConv, fake.gotType, fake.gotOwner)
+		if fake.gotConv != "c1" || fake.gotTask != "o1" {
+			t.Errorf("参数透传不符：conv=%q task=%q", fake.gotConv, fake.gotTask)
 		}
 	})
 
-	t.Run("type 缺省 active_scan", func(t *testing.T) {
-		fake := &fakeAttackGraph{}
-		srv := newTestServer(t, Deps{AttackGraph: fake})
-		defer srv.Close()
-
-		req, _ := http.NewRequest("GET", srv.URL+"/attack_graph/o1", nil)
-		req.Header.Set("X-API-Key", "k")
-		resp, err := http.DefaultClient.Do(req)
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer resp.Body.Close()
-
-		if fake.gotType != "active_scan" {
-			t.Errorf("缺省 type=%q，期望 active_scan", fake.gotType)
-		}
-	})
+	// 删除原「type 缺省 active_scan」用例：owner 多态坍缩为统一 task，路由不再有 type 参数与 owner 类型区分。
 
 	t.Run("no rows 返回 404", func(t *testing.T) {
 		fake := &fakeAttackGraph{err: errors.New("scan: no rows in result set")}

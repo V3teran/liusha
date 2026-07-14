@@ -9,18 +9,18 @@ import (
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/schema"
 
+	"github.com/V3teran/liusha/internal/corpus"
 	"github.com/V3teran/liusha/internal/credential"
 	"github.com/V3teran/liusha/internal/einoagent"
 	"github.com/V3teran/liusha/internal/finding"
-	"github.com/V3teran/liusha/internal/flow"
-	"github.com/V3teran/liusha/internal/lesson"
+	"github.com/V3teran/liusha/internal/lead"
 	"github.com/V3teran/liusha/internal/sandbox"
 )
 
-// allFake 一把实现 FindingStore + notes.Store + LessonStore + CredentialStore。
+// allFake 一把实现 FindingStore + CorpusStore + CredentialStore + LeadStore（notes 已退役，不再实现）。
 type allFake struct{}
 
-func (allFake) ListByOwnerAndHost(context.Context, string, string, string, int) ([]finding.VulnFinding, error) {
+func (allFake) ListByTaskAndHost(context.Context, string, string, int) ([]finding.VulnFinding, error) {
 	return nil, nil
 }
 func (allFake) Save(_ context.Context, f finding.VulnFinding) (finding.VulnFinding, error) {
@@ -29,22 +29,21 @@ func (allFake) Save(_ context.Context, f finding.VulnFinding) (finding.VulnFindi
 func (allFake) Update(context.Context, string, string, string, json.RawMessage, json.RawMessage, []string) error {
 	return nil
 }
-func (allFake) ReadNotes(context.Context, string, string) ([]byte, error)        { return nil, nil }
-func (allFake) AppendNote(context.Context, string, string, []byte) error         { return nil }
-func (allFake) ListByHost(context.Context, string, int) ([]lesson.Lesson, error) { return nil, nil }
-func (allFake) Add(_ context.Context, l lesson.Lesson) (lesson.Lesson, error)    { return l, nil }
+func (allFake) SearchHybrid(context.Context, string, []float32, []string, int, int, corpus.Reranker) ([]corpus.Entry, error) {
+	return nil, nil
+}
+func (allFake) Add(_ context.Context, e corpus.Entry) (corpus.Entry, error) { return e, nil }
 func (allFake) GetIdentitiesByHost(context.Context, string) ([]credential.Identity, error) {
 	return nil, nil
 }
 func (allFake) BatchSave(context.Context, map[string][]credential.Identity, int) error { return nil }
-
-// fakeFlowStore 实现 einoagent.FlowStore（FlowReader + FlowLister）。
-type fakeFlowStore struct{}
-
-func (fakeFlowStore) GetByID(context.Context, int64) (flow.Flow, error) { return flow.Flow{}, nil }
-func (fakeFlowStore) ListByOwnerFiltered(context.Context, string, flow.ListFilter) ([]flow.FlowSummary, error) {
+func (allFake) Append(context.Context, string, lead.Entry) error                       { return nil }
+func (allFake) ReadRecent(context.Context, string) (map[lead.Kind][]lead.Entry, error) {
 	return nil, nil
 }
+
+// 流量 store 拆表后是具体类型（*flow.ProxyStore / *flow.AgentStore），非接口，无法 fake；
+// 只测 Info（不触 pool）的用例用 flow.NewAgentStore(nil) / flow.NewProxyStore(nil) 即可。
 
 // fakeSandboxClient 实现 sandbox.Client。
 type fakeSandboxClient struct{}
@@ -57,7 +56,7 @@ func (fakeSandboxClient) Close() error { return nil }
 func toolNames(t *testing.T, deps einoagent.TrafficAnalysisToolDeps) []string {
 	t.Helper()
 	tools, err := einoagent.BuildTrafficAnalysisTools(deps, einoagent.TrafficAnalysisToolParams{
-		OwnerType: "passive_session", OwnerID: "o1", HunterID: "h1", Host: "host1", FlowID: 3,
+		TaskID: "task-1", Mode: "passive", HunterID: "h1", Host: "host1", FlowID: 3,
 	})
 	if err != nil {
 		t.Fatalf("BuildTrafficAnalysisTools: %v", err)
@@ -77,11 +76,11 @@ func toolNames(t *testing.T, deps einoagent.TrafficAnalysisToolDeps) []string {
 func TestBuildTrafficAnalysisTools_Mandatory(t *testing.T) {
 	f := allFake{}
 	names := toolNames(t, einoagent.TrafficAnalysisToolDeps{
-		Findings: f, Lessons: f, Credentials: f,
+		Findings: f, Corpus: f, Credentials: f, Lead: f,
 	})
 	want := []string{
-		"done", "read_credentials", "read_findings", "read_lessons",
-		"update_finding", "write_credential", "write_finding", "write_lesson",
+		"done", "read_credentials", "read_findings", "search_corpus",
+		"update_finding", "write_corpus", "write_credential", "write_finding", "write_lead",
 	}
 	if len(names) != len(want) {
 		t.Fatalf("必装应 %d 个，得到 %d: %v", len(want), len(names), names)
@@ -110,7 +109,7 @@ func (f *fakeModel) WithTools(_ []*schema.ToolInfo) (model.ToolCallingChatModel,
 func TestBuildTrafficAnalysisTools_SandboxAddsRunCommand(t *testing.T) {
 	f := allFake{}
 	names := toolNames(t, einoagent.TrafficAnalysisToolDeps{
-		Findings: f, Lessons: f, Credentials: f,
+		Findings: f, Corpus: f, Credentials: f, Lead: f,
 		Sandbox: fakeSandboxClient{}, MaxTimeoutSeconds: 600,
 	})
 	found := false
@@ -122,7 +121,7 @@ func TestBuildTrafficAnalysisTools_SandboxAddsRunCommand(t *testing.T) {
 	if !found {
 		t.Fatalf("注入 Sandbox 后应有 run_command，得到 %v", names)
 	}
-	if len(names) != 9 {
-		t.Errorf("8 必装（含 done）+ run_command = 9，得到 %d: %v", len(names), names)
+	if len(names) != 10 {
+		t.Errorf("9 必装（含 done）+ run_command = 10，得到 %d: %v", len(names), names)
 	}
 }

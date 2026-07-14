@@ -18,7 +18,7 @@ type MessageLister interface {
 
 // FindingLister 是投影器读漏洞所需的最小接口（*finding.Store 满足）。
 type FindingLister interface {
-	ListByOwner(ctx context.Context, ownerType, ownerID string) ([]finding.VulnFinding, error)
+	ListByTask(ctx context.Context, taskID string) ([]finding.VulnFinding, error)
 }
 
 // Projector 是 store 版执行图投影器；无状态，可全局共享一份。
@@ -35,8 +35,8 @@ type Projector struct {
 // Project 拉取一次扫描的对话事件流 + 漏洞，投影成执行图。
 //
 //   - convID：本次扫描绑定的对话 id（思维链来源）。空则思维链为空（纯 passive 自动路径可能无对话）。
-//   - ownerType/ownerID：成果链来源（finding.ListByOwner）。
-func (p *Projector) Project(ctx context.Context, convID, ownerType, ownerID string) (Graph, error) {
+//   - taskID：成果链来源（finding.ListByTask）。
+func (p *Projector) Project(ctx context.Context, convID, taskID string) (Graph, error) {
 	var msgs []conversation.Message
 	if convID != "" {
 		var err error
@@ -46,12 +46,12 @@ func (p *Projector) Project(ctx context.Context, convID, ownerType, ownerID stri
 		}
 	}
 
-	findings, err := p.Findings.ListByOwner(ctx, ownerType, ownerID)
+	findings, err := p.Findings.ListByTask(ctx, taskID)
 	if err != nil {
 		return Graph{}, fmt.Errorf("拉漏洞: %w", err)
 	}
 
-	return Project(ownerID, msgs, findings), nil
+	return Project(taskID, msgs, findings), nil
 }
 
 // ProjectMilestones 拉对话事件流，按子代理聚合 reasoning，调 LLM 总结成里程碑列表。

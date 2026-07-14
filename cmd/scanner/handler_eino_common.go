@@ -17,7 +17,7 @@ import (
 )
 
 // heartbeatThrottleMs：进度心跳节流窗口。每次工具调用都尝试续命，但同一 run 在窗口内只写一次
-// active_scan/passive_session.heartbeat_at，避免高频工具把 DB UPDATE 打爆。
+// task.heartbeat_at，避免高频工具把 DB UPDATE 打爆。
 const heartbeatThrottleMs = 10_000
 
 // toolSink 返回 tool_invocation 落库适配器（best-effort）；store 缺失时 nil（recorder no-op）。
@@ -38,8 +38,7 @@ type einoToolSink struct {
 func (s einoToolSink) RecordTool(ctx context.Context, inv einoagent.ToolInvocation) {
 	if _, err := s.store.Append(ctx, toolinvocation.Invocation{
 		HunterID:      inv.HunterID,
-		OwnerType:     inv.OwnerType,
-		OwnerID:       inv.OwnerID,
+		TaskID:        inv.TaskID,
 		ToolName:      inv.ToolName,
 		Args:          inv.Args,
 		OutputSize:    inv.OutputSize,
@@ -51,13 +50,13 @@ func (s einoToolSink) RecordTool(ctx context.Context, inv einoagent.ToolInvocati
 			Msg("eino tool_invocation 记录失败（不阻塞业务）")
 	}
 	// 进度心跳（B2）：工具有调用 = agent 仍在推进，续 heartbeat_at。reaper 据此判活，
-	// 防 scanner 崩溃/卡死后 active_scan 永远停在 active。节流避免高频写。best-effort，错误吞掉。
-	s.heartbeat(inv.OwnerType, inv.OwnerID)
+	// 防 scanner 崩溃/卡死后 task 永远停在 active。节流避免高频写。best-effort，错误吞掉。
+	s.heartbeat(inv.TaskID)
 }
 
-// heartbeat 按 owner 类型续 active_scan/passive_session 的 heartbeat_at（节流 + best-effort）。
-func (s einoToolSink) heartbeat(ownerType, ownerID string) {
-	if s.lastBeatMs == nil || ownerType == "" || ownerID == "" {
+// heartbeat 续 task 的 heartbeat_at（节流 + best-effort）。合表后无 owner 分支，统一 task.Heartbeat。
+func (s einoToolSink) heartbeat(taskID string) {
+	if s.lastBeatMs == nil || taskID == "" {
 		return
 	}
 	now := time.Now().UnixMilli()
@@ -71,32 +70,27 @@ func (s einoToolSink) heartbeat(ownerType, ownerID string) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	switch ownerType {
-	case "active_scan":
-		if s.h.activeScans != nil {
-			if err := s.h.activeScans.Heartbeat(ctx, ownerID); err != nil {
-				s.h.logger.Warn().Err(err).Str("owner_id", ownerID).Msg("active_scan 心跳失败（不阻塞业务）")
-			}
-		}
-	case "passive_session":
-		if s.h.passiveSessions != nil {
-			if err := s.h.passiveSessions.Heartbeat(ctx, ownerID); err != nil {
-				s.h.logger.Warn().Err(err).Str("owner_id", ownerID).Msg("passive_session 心跳失败（不阻塞业务）")
-			}
+	if s.h.tasks != nil {
+		if err := s.h.tasks.Heartbeat(ctx, taskID); err != nil {
+			s.h.logger.Warn().Err(err).Str("task_id", taskID).Msg("task 心跳失败（不阻塞业务）")
 		}
 	}
 }
 
 // handler_eino_common.go：eino passive/active 路径共享的装配胶水。
 
-// einoToolDeps 把 handler 的 store/loader（与旧 hunter.Deps 同源）打包成 einoagent 工具装配依赖。
+// einoToolDeps 把 handler 的 store/loader 打包成 einoagent 工具装配依赖。
 // sandboxClient 是本次 agent run 的容器（orchestrator + exploitation 共享）。
 func (h handler) einoToolDeps(sandboxClient sandbox.Client) einoagent.TrafficAnalysisToolDeps {
 	return einoagent.TrafficAnalysisToolDeps{
 		Findings:          h.findings,
-		Lessons:           h.lessons,
+		Corpus:            h.corpus,
+		Embedder:          h.embedder,
+		Reranker:          h.reranker,
 		Credentials:       h.hunterDeps.Credentials,
-		Flows:             h.flows,
+		Lead:              h.leads,
+		ProxyFlows:        h.proxyFlows,
+		AgentFlows:        h.agentFlows,
 		ToolingLoader:     h.hunterDeps.ToolingLoader,
 		VulnLoader:        h.hunterDeps.VulnLoader,
 		Sandbox:           sandboxClient,
@@ -115,7 +109,7 @@ func (h handler) einoToolDeps(sandboxClient sandbox.Client) einoagent.TrafficAna
 // conversationID 空（asynq 自动入口）时不发过程事件，纯后台扫描。
 // 返回值新增 cleanup func()：调用方在 agent run 结束后 defer 调用，flush 异步事件 sink
 // （关 channel + 等 writer 写完缓冲事件）。无事件 sink 时为 no-op。
-func (h handler) einoRunOpts(ctx context.Context, hunterID, ownerType, ownerID, role, conversationID string) ([]adk.AgentMiddleware, []adk.ChatModelAgentMiddleware, []adk.AgentRunOption, func(), error) {
+func (h handler) einoRunOpts(ctx context.Context, hunterID, taskID, role, conversationID string) ([]adk.AgentMiddleware, []adk.ChatModelAgentMiddleware, []adk.AgentRunOption, func(), error) {
 	var mws []adk.AgentMiddleware
 	// 事件 sink 提前创建（compaction + EventEmitter 共用）：对话发起时把 agent 过程事件异步落
 	// conversation message + publish redis，供前端实时展示。conversationID 空则 sink 为真 nil（纯后台扫描）。
@@ -148,7 +142,7 @@ func (h handler) einoRunOpts(ctx context.Context, hunterID, ownerType, ownerID, 
 	}
 	agentHandlers := []adk.ChatModelAgentMiddleware{summarizer}
 	// tool_invocation 遥测（gap②）：每次工具调用落库。store 缺失时 sink nil → recorder no-op。
-	mws = append(mws, einoagent.NewToolRecorder(h.toolSink(), hunterID, ownerType, ownerID))
+	mws = append(mws, einoagent.NewToolRecorder(h.toolSink(), hunterID, taskID))
 	// 截图视觉回灌（TODO-1）：run_command 的截图 image part 从 tool message 抽出转 user message
 	// （避免 mimo 400），按 role 的 provider 是否 vision 决定回灌或丢弃。
 	mws = append(mws, einoagent.NewVisionRelayMiddleware(h.einoFactory.SupportsVisionFor(role)))
@@ -163,7 +157,7 @@ func (h handler) einoRunOpts(ctx context.Context, hunterID, ownerType, ownerID, 
 
 	provider, model := h.einoFactory.ResolveProviderModel(role)
 	recorder := einollm.NewUsageRecorder(h.calls,
-		llm.CallMeta{HunterID: &hunterID, OwnerType: &ownerType, OwnerID: &ownerID, RouteKey: role},
+		llm.CallMeta{HunterID: &hunterID, TaskID: &taskID, RouteKey: role},
 		provider, model,
 	)
 	handlers := append([]callbacks.Handler{recorder}, extraCallbacks...)

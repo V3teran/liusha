@@ -9,11 +9,11 @@ import (
 
 // Project 把一次扫描的对话事件流 + 漏洞投影成完整图：思维链（messages）+ 成果链（findings）。
 //
-// 纯函数：入参为已加载的源记录，无 IO。store 版投影器按 owner 拉取后调它（见 store.go）。
+// 纯函数：入参为已加载的源记录，无 IO。store 版投影器按 task 拉取后调它（见 store.go）。
 // messages 须按 seq 升序传入（事件时序 = 思维链骨干顺序）。
-func Project(ownerID string, messages []conversation.Message, findings []finding.VulnFinding) Graph {
+func Project(taskID string, messages []conversation.Message, findings []finding.VulnFinding) Graph {
 	tNodes, tEdges, findingParent := ThinkingChain(messages)
-	fg := FindingSubgraph(ownerID, findings)
+	fg := FindingSubgraph(taskID, findings)
 
 	// 成果链挂思维链：finding 挂到产出它的 write_finding 动作下 + evidence 边（动作→finding），
 	// 否则 finding 会成为孤儿根、图散成碎片。
@@ -31,7 +31,7 @@ func Project(ownerID string, messages []conversation.Message, findings []finding
 	nodes := append(append([]Node{}, tNodes...), fg.Nodes...)
 	edges := append(append(append([]Edge{}, tEdges...), fg.Edges...), evidenceEdges...)
 	markOnPath(nodes) // 标记成果路径（通向 finding 的主干），前端「成果优先」据此默认折叠死路
-	return Graph{OwnerID: ownerID, Nodes: nodes, Edges: edges}
+	return Graph{TaskID: taskID, Nodes: nodes, Edges: edges}
 }
 
 // markOnPath 标记「成果路径」节点：从每个 finding 沿 ParentID 上溯到根，
@@ -69,7 +69,7 @@ const findingTitleMax = 120
 // 例：c.DependsOn = [a, b] → 2 条边 {a→c} + {b→c}。
 // 跳过空 / 自引用 / 指向不存在 finding 的依赖（防脏数据与孤儿边）。
 // 成果链边的唯一来源——原 sitemap.Projector 的 FindingChain 已于本次迁出（见设计 §10）。
-func FindingSubgraph(ownerID string, findings []finding.VulnFinding) Graph {
+func FindingSubgraph(taskID string, findings []finding.VulnFinding) Graph {
 	nodes := make([]Node, 0, len(findings))
 	ids := make(map[string]bool, len(findings))
 	for _, f := range findings {
@@ -94,7 +94,7 @@ func FindingSubgraph(ownerID string, findings []finding.VulnFinding) Graph {
 		}
 	}
 
-	return Graph{OwnerID: ownerID, Nodes: nodes, Edges: edges}
+	return Graph{TaskID: taskID, Nodes: nodes, Edges: edges}
 }
 
 // firstLine 取首行并按 rune 截断到 max（避免切断多字节 CJK 字符）。max<=0 不截断。

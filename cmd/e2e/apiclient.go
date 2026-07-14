@@ -8,62 +8,35 @@ import (
 	"net/http"
 )
 
-// createPassiveScan 调 POST /scan/passive 拿 owner_id；同 host 幂等。
-// 与 createActiveScan 对仗：passive 开"被动接流量入口"，active 触发"主动扫描"。
-func createPassiveScan(base, key, host string) (string, error) {
-	body, _ := json.Marshal(map[string]string{"host": host})
-	req, _ := http.NewRequest(http.MethodPost, base+"/scan/passive", bytes.NewReader(body))
-	req.Header.Set("X-API-Key", key)
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("post scan/passive: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusOK {
-		raw, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("scan/passive %d: %s", resp.StatusCode, string(raw))
-	}
-	var out struct {
-		OwnerID string `json:"owner_id"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
-		return "", fmt.Errorf("decode scan/passive: %w", err)
-	}
-	if out.OwnerID == "" {
-		return "", fmt.Errorf("scan/passive returned empty owner_id")
-	}
-	return out.OwnerID, nil
-}
-
-// createActiveScan 调 POST /scan/active 拿 (owner_id, hunter_id)。
-// brief 是用户自然语言任务简报（含目标 URL/IP / 账号密码 / 测试方向等），
-// 后端不解析，整段透传给 hunter LLM。
-func createActiveScan(base, key, brief string) (string, string, error) {
+// createChatScan 调 POST /chat 发起【对话式】active 扫描，返回 (conversationID, taskID)。
+// /chat 建 conversation + 发 SSE 过程事件，前端能实时看到对话——e2e active 走此入口使扫描
+// 在前端可观察（区别于纯后台无对话的 POST /scan/active）。taskID 即响应的 scan_id，
+// brief 是用户自然语言任务简报，后端不解析，整段透传给 hunter LLM。
+func createChatScan(base, key, brief string) (conversationID, taskID string, err error) {
 	body, _ := json.Marshal(map[string]string{"brief": brief})
-	req, _ := http.NewRequest(http.MethodPost, base+"/scan/active", bytes.NewReader(body))
+	req, _ := http.NewRequest(http.MethodPost, base+"/chat", bytes.NewReader(body))
 	req.Header.Set("X-API-Key", key)
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return "", "", fmt.Errorf("post scan/active: %w", err)
+		return "", "", fmt.Errorf("post chat: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		raw, _ := io.ReadAll(resp.Body)
-		return "", "", fmt.Errorf("scan/active %d: %s", resp.StatusCode, string(raw))
+		return "", "", fmt.Errorf("chat %d: %s", resp.StatusCode, string(raw))
 	}
 	var out struct {
-		OwnerID  string `json:"owner_id"`
-		HunterID string `json:"hunter_id"`
+		ConversationID string `json:"conversation_id"`
+		ScanID         string `json:"scan_id"` // = task_id
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
-		return "", "", fmt.Errorf("decode scan/active: %w", err)
+		return "", "", fmt.Errorf("decode chat: %w", err)
 	}
-	if out.OwnerID == "" || out.HunterID == "" {
-		return "", "", fmt.Errorf("scan/active returned empty ids")
+	if out.ConversationID == "" || out.ScanID == "" {
+		return "", "", fmt.Errorf("chat returned empty ids")
 	}
-	return out.OwnerID, out.HunterID, nil
+	return out.ConversationID, out.ScanID, nil
 }
 
 // saveCredsBatch 一次录入多 host 凭证（host → []credentialEntry 映射）。

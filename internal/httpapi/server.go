@@ -7,13 +7,13 @@ import (
 )
 
 // Deps 是 NewServer 的注入参数集合。
-// Credentials / Owners / Sitemap / ActiveScan 为 nil 时对应路由不注册（部分场景测试用）。
+// Credentials / Tasks / Sitemap / ActiveScan 为 nil 时对应路由不注册（部分场景测试用）。
 type Deps struct {
 	APIKey      string
 	Credentials CredentialsAPI
-	Owners      OwnersAPI
+	Tasks       TaskAPI
 	Sitemap     SitemapAPI // 仅 active 模式攻击面树视图
-	// AttackGraph 为 nil 时 /attack_graph/:owner_id 路由不注册。
+	// AttackGraph 为 nil 时 /attack_graph/:task_id 路由不注册。
 	// 由 cmd/api 注入 *attackgraph.Projector（自动满足 AttackGraphAPI）。
 	// 执行图（思维链+成果链）read-model 投影，见 docs/attack-graph-design.md。
 	AttackGraph AttackGraphAPI
@@ -25,7 +25,7 @@ type Deps struct {
 	// 前端（liusha-ui）用此 endpoint 按 orchestrator_id 拼任务树（subtask swarm 可观测）。
 	AgentRuns AgentRunsAPI
 	// ActiveScan 为 nil 时 /scan/active 路由不注册。
-	// 由 cmd/api 注入自定义 adapter（包 owner store + hunter.Store + worker.Client）。
+	// 由 cmd/api 注入自定义 adapter（包 task store + hunter.Store + worker.Client）。
 	ActiveScan ActiveScanAPI
 	// 阶段B 对话式平台（任一为 nil 时对应路由不注册）：
 	//   Chat          POST /chat 发起对话扫描（cmd/api 注入 chatAdapter）
@@ -46,9 +46,9 @@ type Deps struct {
 	Roles RolesAPI
 	// 对话用量合计（GET /conversations/:id/usage）：三者任一为 nil 则路由不注册。
 	// cmd/api 注入 convStore / invocationStore / toolStore（各满足对应窄接口）。
-	UsageOwners UsageOwnerResolver
-	UsageLLM    LLMUsageAggregator
-	UsageTools  ToolUsageAggregator
+	UsageTasks UsageTaskResolver
+	UsageLLM   LLMUsageAggregator
+	UsageTools ToolUsageAggregator
 	// EnableDevAutofill 仅 dev 用：true 时挂 GET /dev-config.json，把 APIKey 明文
 	// 暴露给 liusha-ui 自动填充——**production 严禁开启**。
 	// 由 cmd/api 读 LIUSHA_DEV_AUTOFILL 环境变量决定。
@@ -76,23 +76,22 @@ func NewServer(d Deps) http.Handler {
 		r.GET("/credential", listCredentialHandler(d.Credentials))
 		r.DELETE("/credential", deleteCredentialHandler(d.Credentials))
 	}
-	if d.Owners != nil {
-		r.POST("/scan/passive", passiveScanHandler(d.Owners))
-		r.POST("/session/:id/abort", abortHandler(d.Owners))
-		r.GET("/session", listSessionsHandler(d.Owners))
+	if d.Tasks != nil {
+		r.POST("/session/:id/abort", abortHandler(d.Tasks))
+		r.GET("/session", listSessionsHandler(d.Tasks))
 	}
 	if d.Sitemap != nil {
-		r.GET("/sitemap/:owner_id", sitemapHandler(d.Sitemap))
+		r.GET("/sitemap/:task_id", sitemapHandler(d.Sitemap))
 	}
 	if d.AttackGraph != nil {
-		r.GET("/attack_graph/:owner_id", attackGraphHandler(d.AttackGraph))
-		r.GET("/attack_graph/:owner_id/milestones", attackGraphMilestonesHandler(d.AttackGraph))
+		r.GET("/attack_graph/:task_id", attackGraphHandler(d.AttackGraph))
+		r.GET("/attack_graph/:task_id/milestones", attackGraphMilestonesHandler(d.AttackGraph))
 	}
 	if d.Invocations != nil {
-		r.GET("/llm/invocations/:owner_id", llmInvocationsHandler(d.Invocations))
+		r.GET("/llm/invocations/:task_id", llmInvocationsHandler(d.Invocations))
 	}
 	if d.AgentRuns != nil {
-		r.GET("/agent_runs/:owner_id", agentRunsHandler(d.AgentRuns))
+		r.GET("/agent_runs/:task_id", agentRunsHandler(d.AgentRuns))
 	}
 	if d.ActiveScan != nil {
 		r.POST("/scan/active", activeScanHandler(d.ActiveScan))
@@ -126,8 +125,8 @@ func NewServer(d Deps) http.Handler {
 			}
 		}
 	}
-	if d.UsageOwners != nil && d.UsageLLM != nil && d.UsageTools != nil {
-		r.GET("/conversations/:id/usage", conversationUsageHandler(d.UsageOwners, d.UsageLLM, d.UsageTools))
+	if d.UsageTasks != nil && d.UsageLLM != nil && d.UsageTools != nil {
+		r.GET("/conversations/:id/usage", conversationUsageHandler(d.UsageTasks, d.UsageLLM, d.UsageTools))
 	}
 	if d.EnableDevAutofill && d.APIKey != "" {
 		// dev-only：liusha-ui 启动时拉这个端点自动填充 API key，免去手输登录。
