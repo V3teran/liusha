@@ -86,11 +86,14 @@ func (s *einoEventSink) Close() {
 type reasoningDeltaFrame struct {
 	Delta bool   `json:"delta"`
 	Text  string `json:"text"`
+	// AgentName 让前端流式活动气泡按 agent 取色（紫=指挥/青=侦察…）+ 显示 agent 标签，
+	// 与最终落定的推理卡样式一致（否则流式为中性灰无标签、落定变彩色，前后两个样子）。
+	AgentName string `json:"agent_name,omitempty"`
 }
 
 // publishDelta 把流式推理增量瞬时广播到对话 channel（不落 PG，不占 seq）。
-func (s *einoEventSink) publishDelta(text string) {
-	payload, err := json.Marshal(reasoningDeltaFrame{Delta: true, Text: text})
+func (s *einoEventSink) publishDelta(text, agentName string) {
+	payload, err := json.Marshal(reasoningDeltaFrame{Delta: true, Text: text, AgentName: agentName})
 	if err != nil {
 		return
 	}
@@ -104,7 +107,7 @@ func (s *einoEventSink) publishDelta(text string) {
 func (s *einoEventSink) persist(ev einoagent.ScanEvent) {
 	// 流式推理增量：瞬时帧，不落库不占 seq，仅 publish 实时推（前端逐字渲染活动气泡）。
 	if ev.Kind == einoagent.ScanEventReasoningDelta {
-		s.publishDelta(ev.Text)
+		s.publishDelta(ev.Text, ev.AgentName)
 		return
 	}
 
