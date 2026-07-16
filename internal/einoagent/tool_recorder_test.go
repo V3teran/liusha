@@ -69,7 +69,7 @@ func TestToolRecorder_RecordsError(t *testing.T) {
 		return nil, errors.New("boom")
 	}
 	wrapped := mw.WrapToolCall.Invokable(failEndpoint)
-	_, _ = wrapped(context.Background(), &compose.ToolInput{Name: "replay_flow", Arguments: `{}`})
+	_, _ = wrapped(context.Background(), &compose.ToolInput{Name: "replay_traffic", Arguments: `{}`})
 	if len(sink.got) != 1 || sink.got[0].ErrorMessage != "boom" {
 		t.Fatalf("失败调用应落库带 error: %+v", sink.got)
 	}

@@ -3,7 +3,7 @@
 //   - proxy_traffic（ProxyStore）：代理捕获的真实用户流量，被分析的输入，属于 host，
 //     先于任何 task 存在。ingestor external 链路写入；passive traffic-analysis 读它。
 //   - agent_traffic（AgentStore）：agent 在 sandbox 自产的流量，干活副产物/弹药，属于 task。
-//     ingestor internal 链路写入（不触发分析，防自激震荡）；active 的 replay/list/view_flow
+//     ingestor internal 链路写入（不触发分析，防自激震荡）；active 的 replay/list/view_traffic
 //     工具与 sitemap 投影读它。
 //
 // 两表唯一共同点是「长得像 HTTP 请求」——共享的持久化机制（body 截断、header 归一、
@@ -56,7 +56,7 @@ type AgentTraffic struct {
 	CreatedAt       time.Time
 }
 
-// AgentSummary 是 agent_traffic 的瘦行（list_flows 用）：不含 body / headers，避免大 payload。
+// AgentSummary 是 agent_traffic 的瘦行（list_traffic 用）：不含 body / headers，避免大 payload。
 type AgentSummary struct {
 	ID         int64
 	TaskID     string

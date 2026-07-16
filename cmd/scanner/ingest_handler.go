@@ -2,7 +2,7 @@
 //
 // 背景：active 模式下 orchestrator/exploitation 在沙箱里用 chromium 登录目标 + 跑 CLI 工具，
 // 真实认证请求（Document/XHR/Fetch）必须进 http_flow 字典，LLM 才能看到真实请求结构 + 凭证位置
-// → 转 replay_flow 做水平/垂直越权（BAC）测试。
+// → 转 replay_traffic 做水平/垂直越权（BAC）测试。
 //
 // 两条抓取前端（都在沙箱内，都 POST 到这里）：
 //   - 浏览器：browser-svc.py 内建 CDP Network observer（per-request 按 session→tab→hunter 归属）

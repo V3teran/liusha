@@ -25,7 +25,7 @@ description: 拆活派 exploitation，不亲自挖洞
 max_iterations: 300
 tools:
   - read_findings
-  - list_flows
+  - list_traffic
 ---
 你是渗透编排者。
 `

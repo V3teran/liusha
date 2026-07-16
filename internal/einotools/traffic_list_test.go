@@ -8,28 +8,28 @@ import (
 	"github.com/cloudwego/eino/components/tool"
 )
 
-// fakeFlowScope 同时满足 FlowLister（ListInScope）+ FlowReader（GetInScope）。
+// fakeFlowScope 同时满足 TrafficLister（ListInScope）+ TrafficReader（GetInScope）。
 // task 范围隔离已收敛到适配器（GetInScope 返回 ok=false 表越界），fake 直接用 viewOK 模拟。
 type fakeFlowScope struct {
-	rows     []FlowSummaryRecord
-	gotQuery FlowQuery
-	viewFlow FlowRecord
+	rows     []TrafficSummary
+	gotQuery TrafficQuery
+	viewFlow TrafficRecord
 	viewOK   bool
 }
 
-func (f *fakeFlowScope) ListInScope(_ context.Context, q FlowQuery) ([]FlowSummaryRecord, error) {
+func (f *fakeFlowScope) ListInScope(_ context.Context, q TrafficQuery) ([]TrafficSummary, error) {
 	f.gotQuery = q
 	return f.rows, nil
 }
-func (f *fakeFlowScope) GetInScope(_ context.Context, _ int64) (FlowRecord, bool, error) {
+func (f *fakeFlowScope) GetInScope(_ context.Context, _ int64) (TrafficRecord, bool, error) {
 	return f.viewFlow, f.viewOK, nil
 }
 
 func TestListFlows_DefaultHostFromHunterHost(t *testing.T) {
-	store := &fakeFlowScope{rows: []FlowSummaryRecord{
+	store := &fakeFlowScope{rows: []TrafficSummary{
 		{ID: 1, Method: "GET", Host: "target.com:8080", Path: "/admin", StatusCode: 200},
 	}}
-	lf, err := BuildListFlows(store, "target.com:8080")
+	lf, err := BuildListAgentTraffic(store, "target.com:8080")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -46,10 +46,10 @@ func TestListFlows_DefaultHostFromHunterHost(t *testing.T) {
 
 func TestListFlows_LimitClamp(t *testing.T) {
 	store := &fakeFlowScope{}
-	lf, _ := BuildListFlows(store, "h")
+	lf, _ := BuildListAgentTraffic(store, "h")
 	invoke(t, lf, `{"limit":9999,"method":"post"}`)
-	if store.gotQuery.Limit != listFlowsMaxLimit {
-		t.Errorf("limit 应钳到 %d，得到 %d", listFlowsMaxLimit, store.gotQuery.Limit)
+	if store.gotQuery.Limit != listTrafficMaxLimit {
+		t.Errorf("limit 应钳到 %d，得到 %d", listTrafficMaxLimit, store.gotQuery.Limit)
 	}
 	if store.gotQuery.Method != "POST" {
 		t.Errorf("method 应大写: %q", store.gotQuery.Method)
@@ -57,12 +57,12 @@ func TestListFlows_LimitClamp(t *testing.T) {
 }
 
 // 旧 TestListFlows_MissingOwner 删除：owner 注入校验随 owner 概念坍缩移除，
-// task 范围现由 BuildListFlows 注入的 scope 适配器闭包绑定，工具零分支、无缺失可校验。
+// task 范围现由 BuildListAgentTraffic 注入的 scope 适配器闭包绑定，工具零分支、无缺失可校验。
 
 func TestViewFlow_ScopeIsolation(t *testing.T) {
 	// 越界流量：适配器返回 ok=false（原 OwnerID 跨 owner 判定移到 GetInScope 内）。
-	store := &fakeFlowScope{viewFlow: FlowRecord{ID: 5, Method: "GET"}, viewOK: false}
-	vf, err := BuildViewFlow(store)
+	store := &fakeFlowScope{viewFlow: TrafficRecord{ID: 5, Method: "GET"}, viewOK: false}
+	vf, err := BuildViewTraffic(store)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -73,11 +73,11 @@ func TestViewFlow_ScopeIsolation(t *testing.T) {
 }
 
 func TestViewFlow_ReturnsFull(t *testing.T) {
-	store := &fakeFlowScope{viewFlow: FlowRecord{
+	store := &fakeFlowScope{viewFlow: TrafficRecord{
 		ID: 5, Method: "POST", URL: "http://t/login",
 		RequestBody: []byte("user=admin"), StatusCode: 200,
 	}, viewOK: true}
-	vf, _ := BuildViewFlow(store)
+	vf, _ := BuildViewTraffic(store)
 	out := invoke(t, vf, `{"id":5}`)
 	if !strings.Contains(out, "user=admin") || !strings.Contains(out, "/login") {
 		t.Fatalf("view 应返回完整请求: %s", out)

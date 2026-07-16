@@ -60,13 +60,19 @@ func (h handler) handlePassiveEino(ctx context.Context, p worker.Payload, entryp
 		}
 	}()
 
-	// BuilderParams：passive fan-in 批分析——不再渲染单条 raw 流量，agent 用 list_flows/view_flow
-	// 枚举本批消费的 proxy_traffic（consumed_by_task_id=本 task）自行深挖。喂 finding/lesson/索引段。
+	// BuilderParams：passive fan-in 批分析——全读本 task 认领的整批 proxy_traffic 填 Flows，
+	// BuildUserPrompt 全量渲染成流量清单（摘要 + body 预览）推进 prompt，agent 开箱即见全部流量，
+	// 不必靠 list_traffic 发现（消灭「空手/幻觉 host」翻车）；需完整 body 才调 view_traffic。
+	flows, err := h.proxyFlows.ListByTask(ctx, taskID)
+	if err != nil {
+		return h.failTask(ctx, p.HunterID, fmt.Errorf("全读本批 proxy_traffic 失败: %w", err))
+	}
 	params := skill.BuilderParams{
 		TaskID:   taskID,
 		HunterID: tid,
 		Mode:     "passive",
 		Host:     ep.Host,
+		Flows:    flows,
 		Sandbox:  sandboxClient,
 	}
 

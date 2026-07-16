@@ -96,17 +96,17 @@ func TestBuildSkillReader_NilLoaderErrors(t *testing.T) {
 	}
 }
 
-// ---- replay_flow ----
+// ---- replay_traffic ----
 
-// fakeFlowReader 满足 FlowReader（replay_flow 用 GetInScope）。
+// fakeFlowReader 满足 TrafficReader（replay_traffic 用 GetInScope）。
 // task 范围隔离收敛到适配器：ok=false 表越界（原 OwnerID 跨 owner 判定）。
 type fakeFlowReader struct {
-	flow FlowRecord
+	flow TrafficRecord
 	ok   bool
 	err  error
 }
 
-func (f *fakeFlowReader) GetInScope(_ context.Context, _ int64) (FlowRecord, bool, error) {
+func (f *fakeFlowReader) GetInScope(_ context.Context, _ int64) (TrafficRecord, bool, error) {
 	return f.flow, f.ok, f.err
 }
 
@@ -124,14 +124,14 @@ func TestReplayFlow_InheritsAndModifies(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	store := &fakeFlowReader{ok: true, flow: FlowRecord{
+	store := &fakeFlowReader{ok: true, flow: TrafficRecord{
 		ID:             5,
 		Method:         "GET",
 		URL:            srv.URL,
 		RequestHeaders: json.RawMessage(`{"authorization":"Bearer orig"}`),
 		RequestBody:    []byte("orig-body"),
 	}}
-	rf, err := BuildReplayFlow(store)
+	rf, err := BuildReplayTraffic(store)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -153,8 +153,8 @@ func TestReplayFlow_InheritsAndModifies(t *testing.T) {
 
 func TestReplayFlow_RejectsCrossTask(t *testing.T) {
 	// 越界流量：适配器返回 ok=false（原 OwnerID 跨 owner 判定移到 GetInScope 内）。
-	store := &fakeFlowReader{ok: false, flow: FlowRecord{ID: 5, URL: "http://x"}}
-	rf, _ := BuildReplayFlow(store)
+	store := &fakeFlowReader{ok: false, flow: TrafficRecord{ID: 5, URL: "http://x"}}
+	rf, _ := BuildReplayTraffic(store)
 	it := rf.(tool.InvokableTool)
 	_, err := it.InvokableRun(context.Background(), `{"id":5}`)
 	if err == nil || !strings.Contains(err.Error(), "当前 task") {
@@ -163,7 +163,7 @@ func TestReplayFlow_RejectsCrossTask(t *testing.T) {
 }
 
 func TestReplayFlow_IDRequired(t *testing.T) {
-	rf, _ := BuildReplayFlow(&fakeFlowReader{})
+	rf, _ := BuildReplayTraffic(&fakeFlowReader{})
 	it := rf.(tool.InvokableTool)
 	if _, err := it.InvokableRun(context.Background(), `{"id":0}`); err == nil {
 		t.Fatal("id<=0 应报错")
