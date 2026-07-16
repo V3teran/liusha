@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"time"
 
-	"github.com/V3teran/liusha/internal/flow"
+	"github.com/V3teran/liusha/internal/traffic"
 )
 
 // flowsource.go：给 replay/list/view_traffic 工具一个「归一化 + 已限定 task 范围」的流量视图。
@@ -75,12 +75,12 @@ type TrafficLister interface {
 // ── agent 适配器（active：读 agent_traffic，按 task_id） ──
 
 type agentTrafficScope struct {
-	store  *flow.AgentStore
+	store  *traffic.AgentStore
 	taskID string
 }
 
 // NewAgentTrafficScope 把 AgentStore 限定到某 task，满足 TrafficReader + TrafficLister（active 用）。
-func NewAgentTrafficScope(store *flow.AgentStore, taskID string) *agentTrafficScope {
+func NewAgentTrafficScope(store *traffic.AgentStore, taskID string) *agentTrafficScope {
 	return &agentTrafficScope{store: store, taskID: taskID}
 }
 
@@ -102,7 +102,7 @@ func (a *agentTrafficScope) GetInScope(ctx context.Context, id int64) (TrafficRe
 }
 
 func (a *agentTrafficScope) ListInScope(ctx context.Context, q TrafficQuery) ([]TrafficSummary, error) {
-	rows, err := a.store.ListByTaskFiltered(ctx, a.taskID, flow.AgentListFilter{
+	rows, err := a.store.ListByTaskFiltered(ctx, a.taskID, traffic.AgentListFilter{
 		Host: q.Host, Method: q.Method, Path: q.Path, Identity: q.Identity, Tool: q.Tool,
 		StatusMin: q.StatusMin, StatusMax: q.StatusMax, Since: q.Since, Limit: q.Limit, Offset: q.Offset,
 	})
@@ -123,18 +123,18 @@ func (a *agentTrafficScope) ListInScope(ctx context.Context, q TrafficQuery) ([]
 // ── proxy 适配器（passive：读 proxy_traffic，按 consumed_by_task_id） ──
 
 type proxyTrafficScope struct {
-	store  *flow.ProxyStore
+	store  *traffic.ProxyStore
 	taskID string
 }
 
 // NewProxyTrafficScope 把 ProxyStore 限定到某 passive task（consumed_by_task_id），
 // 满足 TrafficReader（replay/view）+ TrafficLister（list_traffic 枚举本批流量）。
-func NewProxyTrafficScope(store *flow.ProxyStore, taskID string) *proxyTrafficScope {
+func NewProxyTrafficScope(store *traffic.ProxyStore, taskID string) *proxyTrafficScope {
 	return &proxyTrafficScope{store: store, taskID: taskID}
 }
 
 func (p *proxyTrafficScope) ListInScope(ctx context.Context, q TrafficQuery) ([]TrafficSummary, error) {
-	rows, err := p.store.ListByTaskFiltered(ctx, p.taskID, flow.ProxyListFilter{
+	rows, err := p.store.ListByTaskFiltered(ctx, p.taskID, traffic.ProxyListFilter{
 		Host: q.Host, Method: q.Method, Path: q.Path,
 		StatusMin: q.StatusMin, StatusMax: q.StatusMax, Limit: q.Limit, Offset: q.Offset,
 	})

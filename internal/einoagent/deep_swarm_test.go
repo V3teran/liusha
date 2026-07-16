@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/V3teran/liusha/internal/einoagent"
-	"github.com/V3teran/liusha/internal/flow"
+	"github.com/V3teran/liusha/internal/traffic"
 )
 
 // ---- 工具注册表 ----
@@ -15,7 +15,7 @@ func toolDefsFromCtx(t *testing.T, role einoagent.RoleDef) []string {
 	t.Helper()
 	f := allFake{}
 	tools, err := einoagent.BuildRoleTools(role, einoagent.ToolBuildCtx{
-		Deps:   einoagent.TrafficAnalysisToolDeps{Findings: f, Corpus: f, Credentials: f, AgentFlows: flow.NewAgentStore(nil)},
+		Deps:   einoagent.TrafficAnalysisToolDeps{Findings: f, Corpus: f, Credentials: f, AgentFlows: traffic.NewAgentStore(nil)},
 		Params: einoagent.TrafficAnalysisToolParams{TaskID: "task-1", Mode: "active", HunterID: "h", Host: "host"},
 	})
 	if err != nil {
@@ -101,7 +101,7 @@ func TestBuildDeepSwarm_AssemblesOrchestratorAndSubAgents(t *testing.T) {
 		Model:        &fakeModel{},
 		Orchestrator: orchestratorRole,
 		SubAgents:    []einoagent.RoleDef{exploitationRole},
-		ToolDeps:     einoagent.TrafficAnalysisToolDeps{Findings: f, Corpus: f, Credentials: f, AgentFlows: flow.NewAgentStore(nil)},
+		ToolDeps:     einoagent.TrafficAnalysisToolDeps{Findings: f, Corpus: f, Credentials: f, AgentFlows: traffic.NewAgentStore(nil)},
 		Params:       einoagent.TrafficAnalysisToolParams{TaskID: "task-1", Mode: "active", HunterID: "cmd", Host: "host"},
 	})
 	if err != nil {

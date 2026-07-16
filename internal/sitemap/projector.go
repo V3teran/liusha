@@ -25,8 +25,8 @@ import (
 	"time"
 
 	"github.com/V3teran/liusha/internal/finding"
-	"github.com/V3teran/liusha/internal/flow"
 	"github.com/V3teran/liusha/internal/task"
+	"github.com/V3teran/liusha/internal/traffic"
 )
 
 // 节点 kind 枚举（前端展示用）。
@@ -70,9 +70,9 @@ type FindingReader interface {
 }
 
 // FlowReader 是投影器读 agent_traffic 派生攻击面路由所需的最小接口。
-// *flow.AgentStore 自动满足。带代表响应体片段供抽 <title> 作 UI 名。
+// *traffic.AgentStore 自动满足。带代表响应体片段供抽 <title> 作 UI 名。
 type FlowReader interface {
-	DistinctRoutesWithRepresentative(ctx context.Context, taskID, host string) ([]flow.RouteRepr, error)
+	DistinctRoutesWithRepresentative(ctx context.Context, taskID, host string) ([]traffic.RouteRepr, error)
 }
 
 // TaskReader 是投影器读 task 表所需的最小接口（验证 task 是 active 模式）。
@@ -109,7 +109,7 @@ func (p *Projector) Project(ctx context.Context, taskID, host string) (View, err
 
 	routes, err := p.Flows.DistinctRoutesWithRepresentative(ctx, taskID, host)
 	if err != nil {
-		return View{}, fmt.Errorf("flow.DistinctRoutesWithRepresentative: %w", err)
+		return View{}, fmt.Errorf("traffic.DistinctRoutesWithRepresentative: %w", err)
 	}
 
 	findings, err := p.Findings.ListByTask(ctx, taskID)

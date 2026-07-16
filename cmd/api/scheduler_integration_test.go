@@ -15,9 +15,9 @@ import (
 	"github.com/V3teran/liusha/internal/assignment"
 	"github.com/V3teran/liusha/internal/cronschedule"
 	"github.com/V3teran/liusha/internal/dbtest"
-	"github.com/V3teran/liusha/internal/flow"
 	"github.com/V3teran/liusha/internal/hunter"
 	"github.com/V3teran/liusha/internal/task"
+	"github.com/V3teran/liusha/internal/traffic"
 	"github.com/V3teran/liusha/internal/worker"
 )
 
@@ -37,7 +37,7 @@ func newTestCronRunner(t *testing.T) (*cronRunner, *pgxpool.Pool) {
 		schedules:   cronschedule.NewStore(pool),
 		assignments: assignments,
 		tasks:       tasks,
-		proxyFlows:  flow.NewProxyStore(pool),
+		proxyFlows:  traffic.NewProxyStore(pool),
 		hunters:     hunters,
 		enq:         enq,
 		active: &activeScanAdapter{
@@ -129,7 +129,7 @@ func TestFireDue_PassiveSchedule_ClaimsUnconsumedTraffic(t *testing.T) {
 	ctx := context.Background()
 
 	host := "target.com"
-	if _, err := r.proxyFlows.Append(ctx, flow.ProxyTraffic{Host: host, Method: "GET", URL: "http://" + host + "/"}); err != nil {
+	if _, err := r.proxyFlows.Append(ctx, traffic.ProxyTraffic{Host: host, Method: "GET", URL: "http://" + host + "/"}); err != nil {
 		t.Fatalf("append proxy_traffic: %v", err)
 	}
 

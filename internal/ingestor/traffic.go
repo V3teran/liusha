@@ -23,10 +23,10 @@ import (
 	"github.com/V3teran/liusha/internal/assignment"
 	"github.com/V3teran/liusha/internal/config"
 	"github.com/V3teran/liusha/internal/conversation"
-	"github.com/V3teran/liusha/internal/flow"
 	"github.com/V3teran/liusha/internal/hunter"
 	"github.com/V3teran/liusha/internal/proxy"
 	"github.com/V3teran/liusha/internal/task"
+	"github.com/V3teran/liusha/internal/traffic"
 	"github.com/V3teran/liusha/internal/worker"
 )
 
@@ -57,8 +57,8 @@ type Traffic struct {
 	assignments   *assignment.Store   // 聚合建 passive assignment（一切 task 皆属某 assignment）
 	tasks         *task.Store         // passive task 建/查
 	agg           *aggregator         // 按 host 攒批窗口（Redis）
-	proxyFlows    *flow.ProxyStore    // 代理捕获流量落库 + 领取
-	agentFlows    *flow.AgentStore    // agent 自产流量落库
+	proxyFlows    *traffic.ProxyStore // 代理捕获流量落库 + 领取
+	agentFlows    *traffic.AgentStore // agent 自产流量落库
 	hunters       *hunter.Store       // internal 流量反查 hunter→task_id
 	conversations ConversationCreator // 建 passive task 对话流（nil 跳过）
 	enq           *worker.Client
@@ -73,8 +73,8 @@ type Deps struct {
 	Tenant        string // Redis key 前缀（聚合窗口 + 锁）
 	Assignments   *assignment.Store
 	Tasks         *task.Store
-	ProxyFlows    *flow.ProxyStore
-	AgentFlows    *flow.AgentStore
+	ProxyFlows    *traffic.ProxyStore
+	AgentFlows    *traffic.AgentStore
 	Hunters       *hunter.Store
 	Conversations ConversationCreator
 	Enqueuer      *worker.Client
@@ -264,7 +264,7 @@ func (t *Traffic) handleMessage(ctx context.Context, msg redis.XMessage) {
 func (t *Traffic) handleExternalSnap(ctx context.Context, snap *proxy.TrafficSnapshot) {
 	reqH, _ := json.Marshal(snap.RequestHeaders)
 	respH, _ := json.Marshal(snap.ResponseHeaders)
-	if _, err := t.proxyFlows.Append(ctx, flow.ProxyTraffic{
+	if _, err := t.proxyFlows.Append(ctx, traffic.ProxyTraffic{
 		Host:            snap.Host,
 		Method:          snap.Method,
 		Scheme:          snap.Scheme,
@@ -364,7 +364,7 @@ func (t *Traffic) handleInternalSnap(ctx context.Context, snap *proxy.TrafficSna
 
 	reqH, _ := json.Marshal(snap.RequestHeaders)
 	respH, _ := json.Marshal(snap.ResponseHeaders)
-	flowID, err := t.agentFlows.Append(ctx, flow.AgentTraffic{
+	flowID, err := t.agentFlows.Append(ctx, traffic.AgentTraffic{
 		TaskID:          run.TaskID,
 		HunterID:        snap.HunterID,
 		Identity:        snap.Identity,

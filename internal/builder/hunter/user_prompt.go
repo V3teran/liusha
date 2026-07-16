@@ -7,10 +7,10 @@ import (
 	"strings"
 
 	"github.com/V3teran/liusha/internal/finding"
-	"github.com/V3teran/liusha/internal/flow"
 	"github.com/V3teran/liusha/internal/lead"
 	"github.com/V3teran/liusha/internal/skill"
 	"github.com/V3teran/liusha/internal/tools/manifest"
+	"github.com/V3teran/liusha/internal/traffic"
 )
 
 // flowPreviewBodyLimit 是批流量清单里每条 req/resp body 的预览截断上限。
@@ -313,7 +313,7 @@ func writeBodyBlock(b *strings.Builder, body []byte, limit int) {
 // writeFlowBatch 全量渲染 passive 本批认领流量：概览表（method/path/status 一眼扫）+ 每条明细
 // （headers + body 预览，各截 flowPreviewBodyLimit）。agent 开箱即见本批全部流量，不必靠
 // list_traffic 发现；某条 body 被截、需看全文时才 view_traffic(id) 按需拉。
-func writeFlowBatch(b *strings.Builder, flows []flow.ProxyTraffic) {
+func writeFlowBatch(b *strings.Builder, flows []traffic.ProxyTraffic) {
 	host := ""
 	if len(flows) > 0 {
 		host = flows[0].Host

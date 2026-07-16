@@ -3,8 +3,8 @@ package skill
 import (
 	"encoding/json"
 
-	"github.com/V3teran/liusha/internal/flow"
 	"github.com/V3teran/liusha/internal/sandbox"
+	"github.com/V3teran/liusha/internal/traffic"
 )
 
 // BuilderParams 是 hunter agent 的启动参数（与 SKILL.md Loader 同包）。
@@ -41,7 +41,7 @@ type BuilderParams struct {
 	// Passive 批分析：本 task 认领的整批 proxy_traffic（consumed_by_task_id=本 task），
 	// handler 全读后填入，BuildUserPrompt 全量渲染成流量清单（摘要 + body 预览）推进 prompt——
 	// agent 开箱即见本批全部流量，不必靠 list_traffic 发现；需完整 body 才调 view_traffic。
-	Flows []flow.ProxyTraffic
+	Flows []traffic.ProxyTraffic
 
 	// Active 模式独有：用户自然语言任务简报（含目标 URL/凭据/测试方向等所有信息）。
 	Brief string

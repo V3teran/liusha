@@ -25,7 +25,6 @@ import (
 	"github.com/V3teran/liusha/internal/db"
 	"github.com/V3teran/liusha/internal/envx"
 	"github.com/V3teran/liusha/internal/finding"
-	"github.com/V3teran/liusha/internal/flow"
 	"github.com/V3teran/liusha/internal/httpapi"
 	"github.com/V3teran/liusha/internal/hunter"
 	"github.com/V3teran/liusha/internal/intent"
@@ -38,6 +37,7 @@ import (
 	"github.com/V3teran/liusha/internal/sitemap"
 	"github.com/V3teran/liusha/internal/task"
 	"github.com/V3teran/liusha/internal/toolinvocation"
+	"github.com/V3teran/liusha/internal/traffic"
 	"github.com/V3teran/liusha/internal/worker"
 
 	"github.com/hibiken/asynq"
@@ -76,8 +76,8 @@ func main() {
 	assignmentStore := assignment.NewStore(pool)
 	cronStore := cronschedule.NewStore(pool) // 定时模板（§3.3/§4.2），Scheduler goroutine 轮询
 	findStore := finding.NewStore(pool)
-	agentFlowStore := flow.NewAgentStore(pool) // sitemap 攻击面从 agent_traffic 派生
-	proxyFlowStore := flow.NewProxyStore(pool) // cron 定时触发 passive 展开时领取该 host 未消费流量
+	agentFlowStore := traffic.NewAgentStore(pool) // sitemap 攻击面从 agent_traffic 派生
+	proxyFlowStore := traffic.NewProxyStore(pool) // cron 定时触发 passive 展开时领取该 host 未消费流量
 	projector := &sitemap.Projector{
 		Findings: findStore,
 		Flows:    agentFlowStore, // 攻击面从 agent_traffic 派生（按 task）

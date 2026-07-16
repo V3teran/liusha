@@ -9,10 +9,10 @@ import (
 
 	"github.com/V3teran/liusha/internal/corpus"
 	"github.com/V3teran/liusha/internal/einotools"
-	"github.com/V3teran/liusha/internal/flow"
 	"github.com/V3teran/liusha/internal/lead"
 	"github.com/V3teran/liusha/internal/sandbox"
 	"github.com/V3teran/liusha/internal/skill"
+	"github.com/V3teran/liusha/internal/traffic"
 )
 
 // 必装 store 组合接口（accept interfaces）：*finding.Store / *corpus.Store /
@@ -53,11 +53,11 @@ type TrafficAnalysisToolDeps struct {
 	Embedder einotools.CorpusEmbedder
 	Reranker corpus.Reranker
 
-	// ProxyFlows / AgentFlows 是拆表后的两个流量 store（scanner 传 *flow.ProxyStore /
-	// *flow.AgentStore）；nil 时不注册 replay/list/view_traffic。passive traffic-analysis 用
+	// ProxyFlows / AgentFlows 是拆表后的两个流量 store（scanner 传 *traffic.ProxyStore /
+	// *traffic.AgentStore）；nil 时不注册 replay/list/view_traffic。passive traffic-analysis 用
 	// ProxyFlows（读本批消费的 proxy_traffic），active 用 AgentFlows（读自产 agent_traffic）。
-	ProxyFlows *flow.ProxyStore
-	AgentFlows *flow.AgentStore
+	ProxyFlows *traffic.ProxyStore
+	AgentFlows *traffic.AgentStore
 
 	// 可选：用具体指针类型，nil 时不注册对应工具（nil 门控语义与 hunter/skill.go 一致，
 	// 避免 typed-nil 装箱进接口后 != nil 的陷阱）。
