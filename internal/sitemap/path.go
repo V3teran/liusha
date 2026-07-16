@@ -11,7 +11,7 @@ import "strings"
 //   - 长 hex 串（≥ 16 字符且全 hex）→ ":hex"
 //   - 统一 trim 尾部 "/"（根 "/" 保留）——多数 server 把 /x 与 /x/ 当同一资源
 //
-// 设计意图：sitemap 投影按 (host, method, templatize(path)) 去重 http_flow 派生路由，
+// 设计意图：sitemap 投影按 (host, method, templatize(path)) 去重 agent_traffic 派生路由，
 // 与 mitm-capture.py addon 源头去重的 _templatize 语义对齐（双侧一致避免同语义路由分裂）。
 func TemplatizePath(p string) string {
 	parts := strings.Split(p, "/")

@@ -118,7 +118,7 @@ func (p *Projector) Project(ctx context.Context, taskID, host string) (View, err
 	}
 
 	// host 过滤（防 finding.host 跨 host 串）。
-	// finding.host 带端口（111.229.193.40:34280）、http_flow.host 是裸 host——两侧都剥端口再比，
+	// finding.host 带端口（111.229.193.40:34280）、agent_traffic.host 是裸 host——两侧都剥端口再比，
 	// 否则跨 host 过滤恒空、或下方 finding 永远匹配不上路由节点。
 	if host != "" {
 		want := stripHostPort(host)
@@ -317,7 +317,7 @@ func firstLine(s string, max int) string {
 	return s
 }
 
-// stripHostPort 把 host:port 归一化为裸 host，对齐 http_flow.host 存储键（去端口）。
+// stripHostPort 把 host:port 归一化为裸 host，对齐 agent_traffic.host 存储键（去端口）。
 // finding.host 带端口、routes.host 裸——两侧统一后才能匹配。无端口时原样返回。
 func stripHostPort(host string) string {
 	if h, _, err := net.SplitHostPort(host); err == nil {
