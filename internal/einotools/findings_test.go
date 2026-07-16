@@ -108,6 +108,26 @@ func TestWriteFinding_InjectionAndArgs(t *testing.T) {
 	}
 }
 
+func TestWriteFinding_ExplicitSourceFlowID(t *testing.T) {
+	// passive 批分析：闭包 flowID=0（无单条），agent 显式传 source_flow_id 锚定来源流量。
+	store := &fakeStore{}
+	wf, _ := BuildWriteFinding(store, "task-9", "", "host-9", 0)
+	invoke(t, wf, `{"summary":"SQLi in /login","source_flow_id":41,"evidence":{"repro_cmd":"curl ..."}}`)
+	if store.saved.SourceFlowID == nil || *store.saved.SourceFlowID != 41 {
+		t.Errorf("显式 source_flow_id 应生效: %+v", store.saved.SourceFlowID)
+	}
+}
+
+func TestWriteFinding_ExplicitSourceFlowIDOverridesClosure(t *testing.T) {
+	// active 单流量：闭包默认 42，agent 若显式传别的 id 以显式为准。
+	store := &fakeStore{}
+	wf, _ := BuildWriteFinding(store, "task-9", "", "host-9", 42)
+	invoke(t, wf, `{"summary":"x","source_flow_id":99,"evidence":{"repro_cmd":"c"}}`)
+	if store.saved.SourceFlowID == nil || *store.saved.SourceFlowID != 99 {
+		t.Errorf("显式 source_flow_id 应覆盖闭包默认: %+v", store.saved.SourceFlowID)
+	}
+}
+
 func TestWriteFinding_SummaryRequired(t *testing.T) {
 	wf, _ := BuildWriteFinding(&fakeStore{}, "task-1", "", "h", 0)
 	it := wf.(tool.InvokableTool)

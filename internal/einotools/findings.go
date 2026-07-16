@@ -83,6 +83,7 @@ type writeFindingArgs struct {
 	Target        map[string]any `json:"target,omitempty"         jsonschema_description:"漏洞定位 object，含 method/path"`
 	Evidence      map[string]any `json:"evidence,omitempty"       jsonschema_description:"证据 object，必须含可复现 repro_cmd"`
 	DependsOn     []string       `json:"depends_on,omitempty"     jsonschema_description:"组合漏洞前置 finding id 数组；基础漏洞省略"`
+	SourceFlowID  int64          `json:"source_flow_id,omitempty" jsonschema_description:"本 finding 来源流量 id（来自 prompt 流量清单 / list_traffic / view_traffic）；passive 批分析必填以锚定证据，单流量 active 场景省略则自动取当前流量"`
 }
 
 // BuildWriteFinding 造原生 eino write_finding 工具。task/hunter/host/flow 闭包捕获。
@@ -106,9 +107,15 @@ func BuildWriteFinding(store FindingWriter, taskID, hunterID, host string, flowI
 				h := hunterID
 				hunterPtr = &h
 			}
+			// 来源流量 id：优先用 agent 显式传的（passive 批分析——一批多条，须由 agent 锚定是哪条），
+			// 否则回退闭包默认（单流量 active 场景，闭包捕获当前流量 id）。
+			effectiveFlowID := in.SourceFlowID
+			if effectiveFlowID == 0 {
+				effectiveFlowID = flowID
+			}
 			var flowPtr *int64
-			if flowID != 0 {
-				fid := flowID
+			if effectiveFlowID != 0 {
+				fid := effectiveFlowID
 				flowPtr = &fid
 			}
 			saved, err := store.Save(ctx, finding.VulnFinding{
