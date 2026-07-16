@@ -19,7 +19,7 @@ import (
 const replayRespLimit = 256 * 1024 // 截断响应给 LLM 的上限（256 KiB）
 const replayTimeout = 30 * time.Second
 
-// replayMods 是 replay_flow 的可选修改；未指定字段全继承原请求。
+// replayMods 是 replay_traffic 的可选修改；未指定字段全继承原请求。
 // 全字段可选，带 ,omitempty 避免被误标 required（见 findings.go 详注）。
 type replayMods struct {
 	URL        string             `json:"url,omitempty"         jsonschema:"description=换完整 URL（含 path + query）；只改个别 query 参数用 query 字段更省"`
@@ -30,23 +30,23 @@ type replayMods struct {
 	BodyFields map[string]*string `json:"body_fields,omitempty" jsonschema:"description=字段级改 body（form-urlencoded / JSON 自动识别）：key=字段名 value=新值（JSON 体按 JSON 解析保留数字/布尔类型，否则当字符串），value=null 删；未列出的全继承（改单个 user_id 做 IDOR、换 body 里 CSRF 常用）"`
 }
 
-// replayFlowArgs 是 replay_flow 入参。
-type replayFlowArgs struct {
-	ID            int64      `json:"id"                      jsonschema:"required,description=原 flow id（来自 list_flows / view_flow）"`
+// replayTrafficArgs 是 replay_traffic 入参。
+type replayTrafficArgs struct {
+	ID            int64      `json:"id"                      jsonschema:"required,description=原 flow id（来自 list_traffic / view_traffic）"`
 	Modifications replayMods `json:"modifications,omitempty" jsonschema:"description=可选修改；未指定字段全继承原请求"`
 }
 
-// BuildReplayFlow 造原生 eino replay_flow 工具。流量源已限定 task 范围（active=agent_traffic /
+// BuildReplayTraffic 造原生 eino replay_traffic 工具。流量源已限定 task 范围（active=agent_traffic /
 // passive=proxy_traffic，见 flowsource.go），跨 task 访问被适配器挡下。
 //
 // v34+：直连目标（撤回 internal proxy）。重发流量不入字典——核心价值在 modifications
 // 改一两个字段 + 其余全继承（cookie/CSRF/auth/form 字段），比手写 curl 准 100x。
-func BuildReplayFlow(src FlowReader) (tool.BaseTool, error) {
+func BuildReplayTraffic(src TrafficReader) (tool.BaseTool, error) {
 	return utils.InferTool(
-		"replay_flow",
+		"replay_traffic",
 		"重发历史 HTTP 流量；modifications 可字段级改 header/query/body 单个字段或整体替换，未指定的全继承原请求（cookie/CSRF/auth/form 字段）。"+
 			"换身份值测越权、删/换凭证测未授权、改业务字段做 IDOR/fuzz——比手写 curl 准 100 倍，session 上下文自动保留。返回新响应详情。",
-		func(ctx context.Context, in replayFlowArgs) (map[string]any, error) {
+		func(ctx context.Context, in replayTrafficArgs) (map[string]any, error) {
 			if in.ID <= 0 {
 				return nil, fmt.Errorf("id 必填且 > 0")
 			}

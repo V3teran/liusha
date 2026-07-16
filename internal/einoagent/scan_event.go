@@ -92,7 +92,7 @@ func NewEventEmitter(sink EventSink) adk.AgentMiddleware {
 		// 注：reasoning 事件（agent 思路文字 + token + 耗时）改由 NewReasoningCallback（callbacks
 		// OnStart→OnEnd 一站式拿文字/token/latency）发，不在此 middleware。本 middleware 只管工具事件。
 		WrapToolCall: compose.ToolMiddleware{
-			// InferTool 系（write_finding / task / replay_flow…）走 Invokable。
+			// InferTool 系（write_finding / task / replay_traffic…）走 Invokable。
 			Invokable: func(next compose.InvokableToolEndpoint) compose.InvokableToolEndpoint {
 				return func(ctx context.Context, in *compose.ToolInput) (*compose.ToolOutput, error) {
 					sink.OnScanEvent(ctx, toolCallEvent(ctx, in.Name, in.Arguments))

@@ -68,7 +68,7 @@
 - **浏览器链路**：浏览器没法廉价判断 redis 凭证死活 → **不读 redis，按职责分工现场登录，登录成功必须立即回写**（见下方浏览器说明 + 强制回写条）。
 - **curl / sqlmap / API 链路**：能用 HTTP 状态码（401/403/跳登录）自检失效 → **先 read 试用、失效才登录刷新**（见第 1 步）。纯 API / 无前端登录页的目标也走这套（curl 自登 = 路 B，不依赖浏览器）。
 
-**1. read（仅 curl/sqlmap/API 这条无状态链路）：** baseline 先 `read_credentials` 拿本 host 全部身份，直接发包**试**——能用就省一次登录。**被拒（401/403/跳登录）= 该凭证已失效**：按下方「路 B」curl 自己登录拿活值 `write_credential` 刷新，再继续。**纯 API / 无前端登录页的目标同样走这套**（路 B 不依赖浏览器）。浏览器 / replay_flow 链路**完全不读它**（见下方浏览器说明）。
+**1. read（仅 curl/sqlmap/API 这条无状态链路）：** baseline 先 `read_credentials` 拿本 host 全部身份，直接发包**试**——能用就省一次登录。**被拒（401/403/跳登录）= 该凭证已失效**：按下方「路 B」curl 自己登录拿活值 `write_credential` 刷新，再继续。**纯 API / 无前端登录页的目标同样走这套**（路 B 不依赖浏览器）。浏览器 / replay_traffic 链路**完全不读它**（见下方浏览器说明）。
 
 **2. 拼接到请求**（按 credential.type 分流，多条全部加上）：
 
@@ -94,9 +94,9 @@
 凭证录入有两条互不依赖的路，**分界线是凭证 LLM 读不读得到**（不是"目标有没有前端"——SPA / 路由没猜对 / WAF 都会让你误判纯后端，别预判目标形态，按手上有什么走）：
 
 **路 A — 身份 X 有 browser 已认证流量**（browser 登录的 session 常 httpOnly，浏览器 JS / `state` 读不到值，只能从网络层抓的 http_flow 抽）：
-1. `list_flows(identity=X, tool=browser)` 锁定身份 X 的浏览器已认证请求（最新优先），取最新一条 id
-2. `view_flow(id)` 从 **headers + query + body 三处**识别**所有**认证字段（可能 Cookie + CSRF(body) + api_key(query) 多条并存，不只 header、不只一条）
-3. 全部按 `{type,key,value}` `write_credential`，**name=X**（身份直接沿用 list_flows 的查询参数，不靠从响应猜，绝不写错身份污染）
+1. `list_traffic(identity=X, tool=browser)` 锁定身份 X 的浏览器已认证请求（最新优先），取最新一条 id
+2. `view_traffic(id)` 从 **headers + query + body 三处**识别**所有**认证字段（可能 Cookie + CSRF(body) + api_key(query) 多条并存，不只 header、不只一条）
+3. 全部按 `{type,key,value}` `write_credential`，**name=X**（身份直接沿用 list_traffic 的查询参数，不靠从响应猜，绝不写错身份污染）
 
 **路 B — curl / python 自己登进去的身份**（纯后端 API 无登录页、或浏览器登不进时的**唯一通路**；凭证就在你自己的登录交互里，httpOnly 不挡 HTTP 客户端读 `Set-Cookie` 响应头 / JSON body 的 token，你读得到）：
 1. 自己打认证端点登录：表单站 `GET 登录页`抽 CSRF → `POST 账密+token`；纯 API `POST /api/login {账密}` 或 OAuth `POST /oauth/token`
@@ -106,11 +106,11 @@
 **路 B 完全不依赖 browser / http_flow / identity 戳**——它是纯后端场景的自给自足通道：curl 探认证端点 → 登录 → 自识别全部凭证 → write redis → 后续 curl/sqlmap read 消费。无浏览器的目标全靠它。
 
 **失效 = 拿凭证发包被拒（401/403/跳登录），用了才知道——按这份凭证当初哪条路录的，回那条路刷新**：
-- 路 A 录的失效 → 取 `list_flows(identity=X, tool=browser)` 最新一条**试**（可能别人重登过、有更新的）：有效 → update redis；无效 → browser 重登 X → 新流量入库 → 再抽 → update
+- 路 A 录的失效 → 取 `list_traffic(identity=X, tool=browser)` 最新一条**试**（可能别人重登过、有更新的）：有效 → update redis；无效 → browser 重登 X → 新流量入库 → 再抽 → update
 - 路 B 录的失效 → curl 重新登录 X → 自识别 → update redis
 - **不要"判断 http_flow 哪条比 redis 新"**——redis 凭证不带时间锚点，没法比新旧，直接取最新**试**（失效本就用了才知道）
 
-**写的 value 必须是真实活值**：curl/python 登录交互拿到的真值（响应头 `Set-Cookie` / body token，路 B），或 `view_flow` 从已认证 flow 抽出的真值（路 A）。绝不从浏览器 JS 拿空值、更不编。
+**写的 value 必须是真实活值**：curl/python 登录交互拿到的真值（响应头 `Set-Cookie` / body token，路 B），或 `view_traffic` 从已认证 flow 抽出的真值（路 A）。绝不从浏览器 JS 拿空值、更不编。
 
 **不要 write 的情况**（避免浪费，**仅针对 curl/sqlmap「read→试用」这条**；浏览器执行登录成功的回写是强制例外，不受本节约束）：
 - read 出来还没试用就 write（重复劳动）
@@ -128,42 +128,42 @@
 - ❌ 在 spawn brief 里嵌 `Cookie: PHPSESSID=...` 文本 — 冻结值，凭证刷新后失效且不教 exploitation 正确路径
 - ❌ write 非活值（占位串 / 描述文字，而非工具真实拿到的凭证值）— 下游 curl/sqlmap 注入必然鉴权失败，污染共享通道
 
-## 流量字典（http_flow + list_flows / view_flow / replay_flow 工具）
+## 流量字典（http_flow + list_traffic / view_traffic / replay_traffic 工具）
 
 字典有两条入口，都写进同一张 http_flow 表，按 source 区分：
 
 - **passive 入口（source=external）**：用户经 Burp / 真实浏览器把流量经 8888 代理过来 → 自动入字典 → 触发 traffic-analysis（1 流量 1 hunter）。
-- **active 入口（source=internal）**：active 容器内**两路**流量都入字典——① **chromium 浏览器**经 browser-svc 内建 CDP Network 观察器抓登录后真实已认证请求（Document / XHR / Fetch）；② **CLI 工具**（curl / sqlmap / nuclei / katana 等）经容器内 mitmproxy 代理捕获（源头按 method+templatize(path) 去重，fuzz 不膨胀）。两路经 ingest 回 Go 入字典，**owner = 整个 active run（reconnaissance / exploitation 抓的，整个 run 含 orchestrator 都可见，HunterID 仅作来源标记）**。**不触发 traffic-analysis**（防自激震荡）。攻击面即从本入口 source=internal 派生（`list_flows(source=internal)` 看走过的路由）；跨 hunter 信息传递走 redis 的 [[凭证共享协议]](read_credentials / write_credential) + finding 黑板 + 对话（思路/线索直接说出来，同 run 内可见）。
+- **active 入口（source=internal）**：active 容器内**两路**流量都入字典——① **chromium 浏览器**经 browser-svc 内建 CDP Network 观察器抓登录后真实已认证请求（Document / XHR / Fetch）；② **CLI 工具**（curl / sqlmap / nuclei / katana 等）经容器内 mitmproxy 代理捕获（源头按 method+templatize(path) 去重，fuzz 不膨胀）。两路经 ingest 回 Go 入字典，**owner = 整个 active run（reconnaissance / exploitation 抓的，整个 run 含 orchestrator 都可见，HunterID 仅作来源标记）**。**不触发 traffic-analysis**（防自激震荡）。攻击面即从本入口派生（`list_traffic` 看本 run 走过的路由，active 读的就是自产 agent_traffic）；跨 hunter 信息传递走 redis 的 [[凭证共享协议]](read_credentials / write_credential) + finding 黑板 + 对话（思路/线索直接说出来，同 run 内可见）。
 
 **工具按角色**：
-- passive（traffic-analysis）：`replay_flow`
-- active 读流量：orchestrator 仅 `list_flows` + `view_flow`（不打洞不重放）；reconnaissance / exploitation 再加 `replay_flow`
+- passive（traffic-analysis）：`replay_traffic`
+- active 读流量：orchestrator 仅 `list_traffic` + `view_traffic`（不打洞不重放）；reconnaissance / exploitation 再加 `replay_traffic`
 
 **三件套语义**：
-- `list_flows(host?)` — 列出本 active run（owner，含同 run 内 reconnaissance / exploitation 抓的）已入字典的流量（method / url / status / type），找出登录 / 改密 / 下单等关键请求的 ID。
-- `view_flow(id)` — 看某条流量**完整真实结构**：请求头、cookie、body、query、响应头/体。**凭证位置（不止 cookie，可能在 header / body / query 多处）和请求结构都从这里读出**，不要凭空编。
-- `replay_flow(id, modifications={...})` — 拿流量 ID 改字段重发（payload 替换 / IDOR 改 user_id / 越权改身份 / fuzz），原请求所有字段（cookie / CSRF token / UA / 其它 form 字段）**自动继承**，你只声明改了什么。**比手写 curl 准 100 倍**，session 上下文零丢失。重发自身**不再入字典**（直连），仅返响应给本 hunter。
+- `list_traffic(host?)` — 列出本 active run（owner，含同 run 内 reconnaissance / exploitation 抓的）已入字典的流量（method / url / status / type），找出登录 / 改密 / 下单等关键请求的 ID。
+- `view_traffic(id)` — 看某条流量**完整真实结构**：请求头、cookie、body、query、响应头/体。**凭证位置（不止 cookie，可能在 header / body / query 多处）和请求结构都从这里读出**，不要凭空编。
+- `replay_traffic(id, modifications={...})` — 拿流量 ID 改字段重发（payload 替换 / IDOR 改 user_id / 越权改身份 / fuzz），原请求所有字段（cookie / CSRF token / UA / 其它 form 字段）**自动继承**，你只声明改了什么。**比手写 curl 准 100 倍**，session 上下文零丢失。重发自身**不再入字典**（直连），仅返响应给本 hunter。
 
-**典型用途（active BAC）**：浏览器登高权限账号 → 真实已认证请求自动入字典 → `list_flows` 找关键 endpoint → `view_flow` 读真实请求结构 + 凭证位置 → `replay_flow` 换凭证 / 改身份字段做垂直 / 水平越权测试。
+**典型用途（active BAC）**：浏览器登高权限账号 → 真实已认证请求自动入字典 → `list_traffic` 找关键 endpoint → `view_traffic` 读真实请求结构 + 凭证位置 → `replay_traffic` 换凭证 / 改身份字段做垂直 / 水平越权测试。
 
 **通用规则**：
 - 完全凭空构造（探完全新 endpoint，字典里没有）→ `run_command curl`；要 shell 管道（| grep | jq）→ `run_command`。
 
 ### 执行模态选择：请求重放 vs 浏览器渲染（通用，所有漏洞类型适用）
 
-同一个验证目标，有两种执行模态——**请求重放**（curl / `replay_flow`，改字段重发、看响应文本）和**浏览器渲染**（`browser_use`，真实操作页面、看截图）。怎么选不由 httpOnly / 凭证能不能注入决定（`replay_flow` 从网络层抓的 http_flow 重发，httpOnly cookie 自动继承、对它透明），而按下面顺序判断：
+同一个验证目标，有两种执行模态——**请求重放**（curl / `replay_traffic`，改字段重发、看响应文本）和**浏览器渲染**（`browser_use`，真实操作页面、看截图）。怎么选不由 httpOnly / 凭证能不能注入决定（`replay_traffic` 从网络层抓的 http_flow 重发，httpOnly cookie 自动继承、对它透明），而按下面顺序判断：
 
 - **必须用浏览器的硬条件（物理约束，不是偏好；满足任一即只能浏览器）**：① 漏洞执行在 JS 运行时（DOM-XSS 等）——请求重放看不到 JS 渲染后的 DOM；② 数据只在客户端运行时聚合/渲染、没有干净的后端 JSON 边界可打；③ **目标有 WAF / JS challenge / 反爬只认浏览器指纹（TLS 指纹、JS 质询如 Cloudflare），curl/replay 被风控拦——真实公网目标的常态**，这时必须用真实浏览器把请求走出来。
   - ⚠ **前端"按角色藏按钮/菜单、客户端路由守卫"不属于此列**——前端隐藏 ≠ 访问控制，"低权界面能看到管理按钮"本身不是漏洞。真正要测的是：低权去调那个按钮背后的**后端接口**能不能成功——那是**请求重放**的活，比截图准。
 - **不触发硬条件时，按目标形态选**（没有预设默认，按目标实际架构判断）：
-  - **传统服务端应用 / 干净的 REST/JSON API**：**请求重放**——`replay_flow`（字典里有真流量）或 curl 手拼，快、省、可精确改字段、session 自动继承。
+  - **传统服务端应用 / 干净的 REST/JSON API**：**请求重放**——`replay_traffic`（字典里有真流量）或 curl 手拼，快、省、可精确改字段、session 自动继承。
   - **SPA / 重前端 / 多步业务流 / 有风控的目标**：**浏览器常为主路径**——靠真实交互走出认证态与业务流程，再据需要重放其中的关键请求。
 - **成本意识**：浏览器有真实成本（冷启动时延、token），同等可达时优先请求重放；但当目标形态或硬条件要求浏览器时，这是正常主路径，不是"能省则省的兜底"。
 - **可推翻**：以上是倾向，现场有更强信号可推翻——但要在产出里说明为什么这么选。
 
 **反模式**：
-- ❌ 同 endpoint 改参数 fuzz 还在凭空 curl 拼请求 — `replay_flow(id, modifications)` 一行能完成，自动继承所有 header。
-- ❌ 字典里有真流量却凭记忆/猜测编请求结构和凭证位置 — 先 `view_flow` 读真实结构再动手。
+- ❌ 同 endpoint 改参数 fuzz 还在凭空 curl 拼请求 — `replay_traffic(id, modifications)` 一行能完成，自动继承所有 header。
+- ❌ 字典里有真流量却凭记忆/猜测编请求结构和凭证位置 — 先 `view_traffic` 读真实结构再动手。
 
 ## 反模式
 

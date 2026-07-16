@@ -56,23 +56,23 @@ var toolRegistry = map[string]toolBuilder{
 	},
 
 	// 流量字典（active：读自产 agent_traffic，按 task_id）
-	"replay_flow": func(c ToolBuildCtx) (tool.BaseTool, error) {
+	"replay_traffic": func(c ToolBuildCtx) (tool.BaseTool, error) {
 		if c.Deps.AgentFlows == nil {
-			return nil, errFlowsNil("replay_flow")
+			return nil, errFlowsNil("replay_traffic")
 		}
-		return einotools.BuildReplayFlow(einotools.NewAgentFlowScope(c.Deps.AgentFlows, c.Params.TaskID))
+		return einotools.BuildReplayTraffic(einotools.NewAgentTrafficScope(c.Deps.AgentFlows, c.Params.TaskID))
 	},
-	"list_flows": func(c ToolBuildCtx) (tool.BaseTool, error) {
+	"list_traffic": func(c ToolBuildCtx) (tool.BaseTool, error) {
 		if c.Deps.AgentFlows == nil {
-			return nil, errFlowsNil("list_flows")
+			return nil, errFlowsNil("list_traffic")
 		}
-		return einotools.BuildListFlows(einotools.NewAgentFlowScope(c.Deps.AgentFlows, c.Params.TaskID), c.Params.Host)
+		return einotools.BuildListAgentTraffic(einotools.NewAgentTrafficScope(c.Deps.AgentFlows, c.Params.TaskID), c.Params.Host)
 	},
-	"view_flow": func(c ToolBuildCtx) (tool.BaseTool, error) {
+	"view_traffic": func(c ToolBuildCtx) (tool.BaseTool, error) {
 		if c.Deps.AgentFlows == nil {
-			return nil, errFlowsNil("view_flow")
+			return nil, errFlowsNil("view_traffic")
 		}
-		return einotools.BuildViewFlow(einotools.NewAgentFlowScope(c.Deps.AgentFlows, c.Params.TaskID))
+		return einotools.BuildViewTraffic(einotools.NewAgentTrafficScope(c.Deps.AgentFlows, c.Params.TaskID))
 	},
 
 	// 沙箱（需 Sandbox）

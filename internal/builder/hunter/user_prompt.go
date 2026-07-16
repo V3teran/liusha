@@ -7,10 +7,16 @@ import (
 	"strings"
 
 	"github.com/V3teran/liusha/internal/finding"
+	"github.com/V3teran/liusha/internal/flow"
 	"github.com/V3teran/liusha/internal/lead"
 	"github.com/V3teran/liusha/internal/skill"
 	"github.com/V3teran/liusha/internal/tools/manifest"
 )
+
+// flowPreviewBodyLimit 是批流量清单里每条 req/resp body 的预览截断上限。
+// passive 一批默认 20 条，若全渲染完整 body（各 32 KiB）最坏 ~1.28 MB / ~50 万 token 撑爆 prompt；
+// 各留头 2 KiB → 20 条 ×~4 KiB ≈ 80 KiB / 几万 token，稳。要看完整 body 调 view_traffic 按需拉。
+const flowPreviewBodyLimit = 2048
 
 func buildUserPrompt(ctx context.Context, deps Deps, p skill.BuilderParams) string {
 	bodyLimit := deps.UserPromptBodyLimit
@@ -20,17 +26,23 @@ func buildUserPrompt(ctx context.Context, deps Deps, p skill.BuilderParams) stri
 
 	var b strings.Builder
 
+	// passive 批分析：本 task 认领的整批 proxy_traffic 全量渲染成清单（摘要 + body 预览）——
+	// agent 开箱即见全部流量，不必靠 list_traffic 发现（消灭「空手/幻觉 host」翻车）。
+	if len(p.Flows) > 0 {
+		writeFlowBatch(&b, p.Flows)
+	}
+
 	// 字段触发渲染（不再 Mode-driven）：
 	//   - RequestHeaders 非空或 URL 非空 → 渲染 raw HTTP 段（trafficAnalysis / 带 flow_id 的 exploitation）
 	//   - Brief 非空 → 渲染 brief 段（orchestrator / exploitation）
 	// 两者可并存：trafficAnalysis spawn exploitation 带 flow_id 时，exploitation 同时看到 raw HTTP + brief。
 	if len(p.RequestHeaders) > 0 || p.URL != "" {
 		// 段 0（0060+ 流量字典）：本流量已入 http_flow 表，告诉 LLM flow_id 让它能用
-		// replay_flow(id=N, modifications={...}) 改参数重发——比手写 curl 准 100 倍，
+		// replay_traffic(id=N, modifications={...}) 改参数重发——比手写 curl 准 100 倍，
 		// 自动继承 cookie/CSRF/auth header/其它 form 字段。
 		if p.FlowID > 0 {
 			fmt.Fprintf(&b, "## 当前流量\n\n本流量 `flow_id=%d`。复用此请求改某参数 fuzz / IDOR / 注 payload，"+
-				"调 `replay_flow(id=%d, modifications={...})`，工具自动继承所有 header / cookie / form 字段。\n\n",
+				"调 `replay_traffic(id=%d, modifications={...})`，工具自动继承所有 header / cookie / form 字段。\n\n",
 				p.FlowID, p.FlowID)
 		}
 
@@ -296,6 +308,39 @@ func writeBodyBlock(b *strings.Builder, body []byte, limit int) {
 		b.Write(body)
 		b.WriteString("\n```\n")
 	}
+}
+
+// writeFlowBatch 全量渲染 passive 本批认领流量：概览表（method/path/status 一眼扫）+ 每条明细
+// （headers + body 预览，各截 flowPreviewBodyLimit）。agent 开箱即见本批全部流量，不必靠
+// list_traffic 发现；某条 body 被截、需看全文时才 view_traffic(id) 按需拉。
+func writeFlowBatch(b *strings.Builder, flows []flow.ProxyTraffic) {
+	host := ""
+	if len(flows) > 0 {
+		host = flows[0].Host
+	}
+	fmt.Fprintf(b, "## 本批待分析流量（%d 条，host=%s）\n\n", len(flows), host)
+	b.WriteString("下方已列出本次分析的全部流量，无需再调 `list_traffic` 发现。" +
+		"每条含 method/path/status + 请求/响应头 + body 预览；body 被截断需看全文时调 `view_traffic(id)`。\n\n")
+
+	// 概览表：让 agent 先一眼扫全批，再看明细。
+	b.WriteString("### 概览\n\n| id | method | path | status |\n|---|---|---|---|\n")
+	for _, f := range flows {
+		fmt.Fprintf(b, "| %d | %s | %s | %d |\n", f.ID, f.Method, f.Path, f.StatusCode)
+	}
+
+	// 明细：逐条 headers + body 预览。
+	for _, f := range flows {
+		fmt.Fprintf(b, "\n### 流量 #%d — %s %s → %d\n\n", f.ID, f.Method, f.Path, f.StatusCode)
+		b.WriteString("请求头：\n")
+		writeHeadersBlock(b, f.RequestHeaders)
+		b.WriteString("请求体：")
+		writeBodyBlock(b, f.RequestBody, flowPreviewBodyLimit)
+		b.WriteString("\n响应头：\n")
+		writeHeadersBlock(b, f.ResponseHeaders)
+		b.WriteString("响应体：")
+		writeBodyBlock(b, f.ResponseBody, flowPreviewBodyLimit)
+	}
+	b.WriteString("\n")
 }
 
 // loadExistingFindings 拉「owner + host」已有 finding 摘要（dedup 参考）。

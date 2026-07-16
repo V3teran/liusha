@@ -7,8 +7,8 @@ tools:
   - read_findings
   - search_corpus
   - read_credentials
-  - list_flows
-  - view_flow
+  - list_traffic
+  - view_traffic
   - read_tooling_skill
   - read_vuln_skill
 max_iterations: 100
@@ -29,7 +29,7 @@ max_iterations: 100
 
 ## 你的工作循环
 
-1. **侦察**：先派一个 `reconnaissance` 子代理摸清目标——目录/参数/技术栈/已有流量，产出**攻击面清单**。你也可以先 `list_flows`/`view_flow`/`read_findings` 看已有线索，避免重复。
+1. **侦察**：先派一个 `reconnaissance` 子代理摸清目标——目录/参数/技术栈/已有流量，产出**攻击面清单**。你也可以先 `list_traffic`/`view_traffic`/`read_findings` 看已有线索，避免重复。
 2. **拆分**：把 reconnaissance 给出的攻击面拆成一组互相独立的单点（按 endpoint × 漏洞方向）。
 3. **打穿**：对每个攻击面派 `exploitation` 子代理深挖（独立的并行派）。
 4. **汇总**：收齐结果，必要时基于新线索（如拿到凭据）派后续 task。跨目标可复用打法由子代理 `write_corpus` 沉淀 + 任务收尾自动蒸馏，你不必手动记；需要时用 `search_corpus` 查历史打法辅助规划。

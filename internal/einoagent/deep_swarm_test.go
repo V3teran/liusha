@@ -33,10 +33,10 @@ func toolDefsFromCtx(t *testing.T, role einoagent.RoleDef) []string {
 func TestBuildRoleTools_ByName(t *testing.T) {
 	role := einoagent.RoleDef{
 		ID:    "exploitation",
-		Tools: []string{"read_findings", "write_finding", "replay_flow", "list_flows", "view_flow", "done"},
+		Tools: []string{"read_findings", "write_finding", "replay_traffic", "list_traffic", "view_traffic", "done"},
 	}
 	names := toolDefsFromCtx(t, role)
-	want := []string{"done", "list_flows", "read_findings", "replay_flow", "view_flow", "write_finding"}
+	want := []string{"done", "list_traffic", "read_findings", "replay_traffic", "view_traffic", "write_finding"}
 	if len(names) != len(want) {
 		t.Fatalf("工具数错: 得 %v want %v", names, want)
 	}
@@ -76,7 +76,7 @@ func TestKnownToolNames_CoversCore(t *testing.T) {
 	for _, n := range einoagent.KnownToolNames() {
 		names[n] = true
 	}
-	for _, must := range []string{"read_findings", "write_finding", "run_command", "done", "list_flows"} {
+	for _, must := range []string{"read_findings", "write_finding", "run_command", "done", "list_traffic"} {
 		if !names[must] {
 			t.Errorf("注册表缺核心工具 %s", must)
 		}
@@ -90,7 +90,7 @@ func TestBuildDeepSwarm_AssemblesOrchestratorAndSubAgents(t *testing.T) {
 	orchestratorRole := einoagent.RoleDef{
 		ID: "orchestrator", Kind: einoagent.RoleOrchestrator,
 		Description: "拆活派 exploitation", SystemPrompt: "你是编排者",
-		Tools: []string{"read_findings", "list_flows"}, MaxIterations: 300,
+		Tools: []string{"read_findings", "list_traffic"}, MaxIterations: 300,
 	}
 	exploitationRole := einoagent.RoleDef{
 		ID: "exploitation", Kind: einoagent.RoleSubAgent,

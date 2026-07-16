@@ -54,7 +54,7 @@ type TrafficAnalysisToolDeps struct {
 	Reranker corpus.Reranker
 
 	// ProxyFlows / AgentFlows 是拆表后的两个流量 store（scanner 传 *flow.ProxyStore /
-	// *flow.AgentStore）；nil 时不注册 replay/list/view_flow。passive traffic-analysis 用
+	// *flow.AgentStore）；nil 时不注册 replay/list/view_traffic。passive traffic-analysis 用
 	// ProxyFlows（读本批消费的 proxy_traffic），active 用 AgentFlows（读自产 agent_traffic）。
 	ProxyFlows *flow.ProxyStore
 	AgentFlows *flow.AgentStore
@@ -83,7 +83,7 @@ type TrafficAnalysisToolParams struct {
 //
 // deep active 路径（orchestrator/exploitation 等杀伤链角色）改走 role_tools.go 的 BuildRoleTools——
 // 工具由角色 md 的 tools 清单声明、运行时注入身份建实例，不再用本函数。故这里只服务 passive
-// trafficAnalysis：固定工具集，无 list/view_flow（passive 单流量驱动不需枚举站点流量）、无 spawn。
+// trafficAnalysis：固定工具集，含 list/view/replay_traffic（读本批消费的 proxy_traffic）、无 spawn。
 func BuildTrafficAnalysisTools(deps TrafficAnalysisToolDeps, p TrafficAnalysisToolParams) ([]tool.BaseTool, error) {
 	var tools []tool.BaseTool
 	var errs []error
@@ -109,13 +109,14 @@ func BuildTrafficAnalysisTools(deps TrafficAnalysisToolDeps, p TrafficAnalysisTo
 	// done：prompt 是 react/eino 共享资产、深度依赖 done 收尾——不注册会「tool done not found」（e2e 实测）。
 	add(einotools.BuildDone())
 
-	// 流量字典（passive）：本批消费的 proxy_traffic 的 list/view/replay——一批流量可能几十条，
-	// agent 需枚举（list_flows）+ 看完整请求响应（view_flow）+ 改参重发（replay_flow）。
+	// 流量字典（passive）：本批消费的 proxy_traffic。流量已由 handler 全量推进 prompt，
+	// list_traffic 降为可选再过滤（passive 版 schema 只 host/method/path/status，不撒谎），
+	// view_traffic 按需拉完整 body，replay_traffic 改参重发。
 	if deps.ProxyFlows != nil {
-		scope := einotools.NewProxyFlowScope(deps.ProxyFlows, p.TaskID)
-		add(einotools.BuildListFlows(scope, p.Host))
-		add(einotools.BuildViewFlow(scope))
-		add(einotools.BuildReplayFlow(scope))
+		scope := einotools.NewProxyTrafficScope(deps.ProxyFlows, p.TaskID)
+		add(einotools.BuildListProxyTraffic(scope, p.Host))
+		add(einotools.BuildViewTraffic(scope))
+		add(einotools.BuildReplayTraffic(scope))
 	}
 
 	// 可选索引/沙箱（nil / 空 catalog 跳过，与 skill.go 门控一致）

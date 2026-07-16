@@ -55,7 +55,7 @@ func NewToolRecorder(sink ToolSink, hunterID, taskID string) adk.AgentMiddleware
 
 	return adk.AgentMiddleware{
 		WrapToolCall: compose.ToolMiddleware{
-			// InferTool 系（read/write_finding、notes、replay_flow…）走 Invokable。
+			// InferTool 系（read/write_finding、notes、replay_traffic…）走 Invokable。
 			Invokable: func(next compose.InvokableToolEndpoint) compose.InvokableToolEndpoint {
 				return func(ctx context.Context, in *compose.ToolInput) (*compose.ToolOutput, error) {
 					start := time.Now()
