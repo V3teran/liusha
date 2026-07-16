@@ -10,7 +10,7 @@
 // URL 抽取）在 httputil.go，领域差异（归属、消费标记、身份戳）在各自 store。
 //
 // body 大字段在 Append 内按 maxReqBody / maxRespBody 截断（32 KiB）。
-package flow
+package traffic
 
 import (
 	"encoding/json"

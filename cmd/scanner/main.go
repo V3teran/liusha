@@ -38,7 +38,6 @@ import (
 	"github.com/V3teran/liusha/internal/embedding"
 	"github.com/V3teran/liusha/internal/envx"
 	"github.com/V3teran/liusha/internal/finding"
-	"github.com/V3teran/liusha/internal/flow"
 	hunterstore "github.com/V3teran/liusha/internal/hunter"
 	"github.com/V3teran/liusha/internal/ingestor"
 	"github.com/V3teran/liusha/internal/lead"
@@ -52,6 +51,7 @@ import (
 	"github.com/V3teran/liusha/internal/task"
 	"github.com/V3teran/liusha/internal/toolinvocation"
 	"github.com/V3teran/liusha/internal/tools/manifest"
+	"github.com/V3teran/liusha/internal/traffic"
 	"github.com/V3teran/liusha/internal/worker"
 
 	"github.com/hibiken/asynq"
@@ -101,8 +101,8 @@ func main() {
 	calls := llminvocation.NewStoreWithConfig(pool, cfg.LLM.Invocation)
 	corpusStore := corpus.NewStore(pool) // 跨目标知识库（hybrid RAG）
 	defer func() { _ = calls.Close() }()
-	proxyFlows := flow.NewProxyStore(pool) // 代理捕获流量（passive，按 host）
-	agentFlows := flow.NewAgentStore(pool) // agent 自产流量（active，按 task）
+	proxyFlows := traffic.NewProxyStore(pool) // 代理捕获流量（passive，按 host）
+	agentFlows := traffic.NewAgentStore(pool) // agent 自产流量（active，按 task）
 	creds := credential.NewRedis(rdb, cfg.Credential.RedisKeyPrefix)
 	// 情报黑板（§7），与 credential 同 Redis 租户命名空间；ttl 滚动过期（每次写刷新该 host TTL）。
 	leads := lead.NewStore(rdb, cfg.Credential.RedisKeyPrefix, time.Duration(cfg.Scanner.LeadTTLHours)*time.Hour)

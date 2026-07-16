@@ -13,9 +13,9 @@ import (
 
 	"github.com/V3teran/liusha/internal/assignment"
 	"github.com/V3teran/liusha/internal/cronschedule"
-	"github.com/V3teran/liusha/internal/flow"
 	"github.com/V3teran/liusha/internal/hunter"
 	"github.com/V3teran/liusha/internal/task"
+	"github.com/V3teran/liusha/internal/traffic"
 	"github.com/V3teran/liusha/internal/worker"
 )
 
@@ -31,7 +31,7 @@ type cronRunner struct {
 	schedules   *cronschedule.Store
 	assignments *assignment.Store
 	tasks       *task.Store
-	proxyFlows  *flow.ProxyStore
+	proxyFlows  *traffic.ProxyStore
 	hunters     *hunter.Store
 	enq         *worker.Client
 	active      *activeScanAdapter // 复用 expandActiveItem（与单发/StartChatScan 同展开逻辑）

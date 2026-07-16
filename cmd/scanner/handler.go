@@ -17,7 +17,6 @@ import (
 	"github.com/V3teran/liusha/internal/einollm"
 	"github.com/V3teran/liusha/internal/einotools"
 	"github.com/V3teran/liusha/internal/finding"
-	"github.com/V3teran/liusha/internal/flow"
 	"github.com/V3teran/liusha/internal/hunter"
 	"github.com/V3teran/liusha/internal/lead"
 	"github.com/V3teran/liusha/internal/llminvocation"
@@ -26,6 +25,7 @@ import (
 	"github.com/V3teran/liusha/internal/scanstream"
 	"github.com/V3teran/liusha/internal/scenario"
 	"github.com/V3teran/liusha/internal/task"
+	"github.com/V3teran/liusha/internal/traffic"
 	"github.com/V3teran/liusha/internal/worker"
 )
 
@@ -38,8 +38,8 @@ type handler struct {
 	embedder   einotools.CorpusEmbedder // Jina embed（可 nil，降级纯 sparse）
 	reranker   corpus.Reranker          // Jina rerank（可 nil，降级合并序兜底）
 	leads      *lead.Store              // 情报黑板（§7）；每次写滚动刷新 target_host 的 TTL
-	proxyFlows *flow.ProxyStore
-	agentFlows *flow.AgentStore
+	proxyFlows *traffic.ProxyStore
+	agentFlows *traffic.AgentStore
 	calls      *llminvocation.Store
 	hostSem    *ratelimit.HostSemaphore // per-host 并发限速（§4.3）；仅对有 target_host 的 task 生效
 	cfg        config.Config

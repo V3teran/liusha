@@ -42,8 +42,8 @@ func (allFake) ReadRecent(context.Context, string) (map[lead.Kind][]lead.Entry, 
 	return nil, nil
 }
 
-// 流量 store 拆表后是具体类型（*flow.ProxyStore / *flow.AgentStore），非接口，无法 fake；
-// 只测 Info（不触 pool）的用例用 flow.NewAgentStore(nil) / flow.NewProxyStore(nil) 即可。
+// 流量 store 拆表后是具体类型（*traffic.ProxyStore / *traffic.AgentStore），非接口，无法 fake；
+// 只测 Info（不触 pool）的用例用 traffic.NewAgentStore(nil) / traffic.NewProxyStore(nil) 即可。
 
 // fakeSandboxClient 实现 sandbox.Client。
 type fakeSandboxClient struct{}

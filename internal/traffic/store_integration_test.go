@@ -1,6 +1,6 @@
 //go:build integration
 
-package flow
+package traffic
 
 import (
 	"bytes"
