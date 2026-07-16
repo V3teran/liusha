@@ -57,6 +57,7 @@ passive 模式——拿到本 task 认领的**一批** mitmproxy 捕获流量，
 ### 证据纪律（防幻觉）
 
 - finding **必须引用你实际 `view_traffic` 看过的流量 id 和响应证据**，不得凭 path/method 猜漏洞
+- `write_finding` **必须带 `source_flow_id`**：填本 finding 所依据的那条流量 id（来自 prompt 清单 / view_traffic）。一批多条流量，不锚定来源无从复核 —— 这是硬要求
 - 断言"响应泄露了 X" 前，先 `view_traffic` 确认该 X 真在 body 里（预览被截时尤其）
 - host / endpoint 一律以 prompt 清单列出的为准，绝不用记忆里的靶场默认值
 
