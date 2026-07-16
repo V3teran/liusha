@@ -30,7 +30,7 @@ func NewStore(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
 // colsSelect 是所有 SELECT / RETURNING 路径的统一列序，与 scan() 字段一一对应。
 // 0059 加 depends_on uuid[]（组合漏洞依赖：c.depends_on = [a.id, b.id]）。
 const colsSelect = "id, task_id::text AS task_id, " +
-	"hunter_id, source_flow_id, host, severity, summary, target, evidence, " +
+	"hunter_id, source_traffic_id, host, severity, summary, target, evidence, " +
 	"COALESCE(cwe_id, ''), COALESCE(owasp_category, ''), first_seen_at, COALESCE(remediation, ''), " +
 	"depends_on::text[], created_at"
 
@@ -71,14 +71,14 @@ func (s *Store) Save(ctx context.Context, f VulnFinding) (VulnFinding, error) {
 	}
 	row := tx.QueryRow(ctx, `
 		INSERT INTO finding
-			(task_id, hunter_id, source_flow_id, host, severity, summary, target, evidence,
+			(task_id, hunter_id, source_traffic_id, host, severity, summary, target, evidence,
 			 cwe_id, owasp_category, remediation, depends_on)
 		VALUES ($1::uuid, $2,$3,$4,$5,$6,$7,$8, NULLIF($9,''), NULLIF($10,''), NULLIF($11,''), $12::uuid[])
 		ON CONFLICT (task_id, dedup_key) DO UPDATE
 		SET first_seen_at = LEAST(finding.first_seen_at, EXCLUDED.first_seen_at)
 		RETURNING `+colsSelect,
 		f.TaskID,
-		f.HunterID, f.SourceFlowID, f.Host, f.Severity,
+		f.HunterID, f.SourceTrafficID, f.Host, f.Severity,
 		f.Summary, f.Target, f.Evidence,
 		f.CWEID, f.OWASPCategory, f.Remediation, deps)
 
@@ -269,15 +269,15 @@ type scanner interface {
 }
 
 // scan 是 colsSelect 列序的统一反序列化点。
-// hunterID / sourceFlowID 用指针接住 NULL；HunterID 是 *string 保留 nil，SourceFlowID 是 *int64 同。
+// hunterID / sourceTrafficID 用指针接住 NULL；HunterID 是 *string 保留 nil，SourceTrafficID 是 *int64 同。
 // DependsOn 是 uuid[]，扫到 []string（pgx v5 默认 codec）。
 func scan(r scanner, f *VulnFinding) error {
 	var hunterID *string
-	var sourceFlowID *int64
+	var sourceTrafficID *int64
 	var dependsOn []string
 	if err := r.Scan(
 		&f.ID, &f.TaskID,
-		&hunterID, &sourceFlowID, &f.Host, &f.Severity,
+		&hunterID, &sourceTrafficID, &f.Host, &f.Severity,
 		&f.Summary, &f.Target, &f.Evidence,
 		&f.CWEID, &f.OWASPCategory, &f.FirstSeenAt, &f.Remediation,
 		&dependsOn,
@@ -286,7 +286,7 @@ func scan(r scanner, f *VulnFinding) error {
 		return err
 	}
 	f.HunterID = hunterID
-	f.SourceFlowID = sourceFlowID
+	f.SourceTrafficID = sourceTrafficID
 	f.DependsOn = dependsOn
 	return nil
 }

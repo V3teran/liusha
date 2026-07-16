@@ -41,7 +41,7 @@ type noArgs struct{}
 func BuildReadFindings(store FindingReader, taskID, host string) (tool.BaseTool, error) {
 	return utils.InferTool(
 		"read_findings",
-		"列出本次扫描(task+host)已有 finding（写 finding 前必查，防重复）。返回 [{id,severity,summary,source_flow_id,created_at}]。",
+		"列出本次扫描(task+host)已有 finding（写 finding 前必查，防重复）。返回 [{id,severity,summary,source_traffic_id,created_at}]。",
 		func(ctx context.Context, _ noArgs) (map[string]any, error) {
 			if taskID == "" || host == "" {
 				return nil, errors.New("read_findings: task/host 注入缺失")
@@ -53,11 +53,11 @@ func BuildReadFindings(store FindingReader, taskID, host string) (tool.BaseTool,
 			items := make([]map[string]any, 0, len(fs))
 			for _, f := range fs {
 				items = append(items, map[string]any{
-					"id":             f.ID,
-					"severity":       f.Severity,
-					"summary":        f.Summary,
-					"source_flow_id": f.SourceFlowID,
-					"created_at":     f.CreatedAt,
+					"id":                f.ID,
+					"severity":          f.Severity,
+					"summary":           f.Summary,
+					"source_traffic_id": f.SourceTrafficID,
+					"created_at":        f.CreatedAt,
 				})
 			}
 			return map[string]any{"count": len(items), "findings": items}, nil
@@ -75,15 +75,15 @@ func BuildReadFindings(store FindingReader, taskID, host string) (tool.BaseTool,
 //  2. description 用独立 jsonschema_description tag——不可嵌进 jsonschema:"...,description=..."
 //     （eino doc.go:44：嵌进去触发逗号解析问题）。
 type writeFindingArgs struct {
-	Summary       string         `json:"summary"                  jsonschema:"required" jsonschema_description:"一行短标题（≤500 字符，无换行）；详情/复现进 evidence"`
-	Severity      string         `json:"severity,omitempty"       jsonschema_description:"critical/high/medium/low/info"`
-	CWEID         string         `json:"cwe_id,omitempty"         jsonschema_description:"CWE 编号（如 CWE-89），同类漏洞必须一致"`
-	OWASPCategory string         `json:"owasp_category,omitempty" jsonschema_description:"可选 OWASP 类别（如 A03:2021）"`
-	Remediation   string         `json:"remediation,omitempty"    jsonschema_description:"可选修复建议"`
-	Target        map[string]any `json:"target,omitempty"         jsonschema_description:"漏洞定位 object，含 method/path"`
-	Evidence      map[string]any `json:"evidence,omitempty"       jsonschema_description:"证据 object，必须含可复现 repro_cmd"`
-	DependsOn     []string       `json:"depends_on,omitempty"     jsonschema_description:"组合漏洞前置 finding id 数组；基础漏洞省略"`
-	SourceFlowID  int64          `json:"source_flow_id,omitempty" jsonschema_description:"本 finding 来源流量 id（来自 prompt 流量清单 / list_traffic / view_traffic）；passive 批分析必填以锚定证据，单流量 active 场景省略则自动取当前流量"`
+	Summary         string         `json:"summary"                  jsonschema:"required" jsonschema_description:"一行短标题（≤500 字符，无换行）；详情/复现进 evidence"`
+	Severity        string         `json:"severity,omitempty"       jsonschema_description:"critical/high/medium/low/info"`
+	CWEID           string         `json:"cwe_id,omitempty"         jsonschema_description:"CWE 编号（如 CWE-89），同类漏洞必须一致"`
+	OWASPCategory   string         `json:"owasp_category,omitempty" jsonschema_description:"可选 OWASP 类别（如 A03:2021）"`
+	Remediation     string         `json:"remediation,omitempty"    jsonschema_description:"可选修复建议"`
+	Target          map[string]any `json:"target,omitempty"         jsonschema_description:"漏洞定位 object，含 method/path"`
+	Evidence        map[string]any `json:"evidence,omitempty"       jsonschema_description:"证据 object，必须含可复现 repro_cmd"`
+	DependsOn       []string       `json:"depends_on,omitempty"     jsonschema_description:"组合漏洞前置 finding id 数组；基础漏洞省略"`
+	SourceTrafficID int64          `json:"source_traffic_id,omitempty" jsonschema_description:"本 finding 来源流量 id（来自 prompt 流量清单 / list_traffic / view_traffic）；passive 批分析必填以锚定证据，单流量 active 场景省略则自动取当前流量"`
 }
 
 // BuildWriteFinding 造原生 eino write_finding 工具。task/hunter/host/flow 闭包捕获。
@@ -109,28 +109,28 @@ func BuildWriteFinding(store FindingWriter, taskID, hunterID, host string, flowI
 			}
 			// 来源流量 id：优先用 agent 显式传的（passive 批分析——一批多条，须由 agent 锚定是哪条），
 			// 否则回退闭包默认（单流量 active 场景，闭包捕获当前流量 id）。
-			effectiveFlowID := in.SourceFlowID
-			if effectiveFlowID == 0 {
-				effectiveFlowID = flowID
+			effectiveTrafficID := in.SourceTrafficID
+			if effectiveTrafficID == 0 {
+				effectiveTrafficID = flowID
 			}
-			var flowPtr *int64
-			if effectiveFlowID != 0 {
-				fid := effectiveFlowID
-				flowPtr = &fid
+			var trafficPtr *int64
+			if effectiveTrafficID != 0 {
+				tid := effectiveTrafficID
+				trafficPtr = &tid
 			}
 			saved, err := store.Save(ctx, finding.VulnFinding{
-				TaskID:        taskID,
-				HunterID:      hunterPtr,
-				SourceFlowID:  flowPtr,
-				Host:          host,
-				Severity:      in.Severity,
-				Summary:       in.Summary,
-				Target:        targetJSON,
-				Evidence:      evidenceJSON,
-				CWEID:         in.CWEID,
-				OWASPCategory: in.OWASPCategory,
-				Remediation:   in.Remediation,
-				DependsOn:     in.DependsOn,
+				TaskID:          taskID,
+				HunterID:        hunterPtr,
+				SourceTrafficID: trafficPtr,
+				Host:            host,
+				Severity:        in.Severity,
+				Summary:         in.Summary,
+				Target:          targetJSON,
+				Evidence:        evidenceJSON,
+				CWEID:           in.CWEID,
+				OWASPCategory:   in.OWASPCategory,
+				Remediation:     in.Remediation,
+				DependsOn:       in.DependsOn,
 			})
 			if err != nil {
 				return nil, fmt.Errorf("保存 finding 失败: %w", err)
