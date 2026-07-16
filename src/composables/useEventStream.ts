@@ -66,8 +66,12 @@ export function openEventStream(convID: string, store: Store): StreamHandle {
     // event:delta —— 流式推理增量瞬时帧（无 seq、不落库），累积成逐字打字机活动气泡。
     src.addEventListener('delta', (e: MessageEvent) => {
       try {
-        const { text } = JSON.parse(e.data) as { delta: boolean; text: string }
-        store.appendReasoningDelta(text)
+        const { text, agent_name } = JSON.parse(e.data) as {
+          delta: boolean
+          text: string
+          agent_name?: string
+        }
+        store.appendReasoningDelta(text, agent_name)
       } catch {
         // 坏帧忽略
       }

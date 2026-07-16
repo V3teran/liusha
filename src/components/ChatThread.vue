@@ -9,6 +9,7 @@ import { classifyMessage, isCollapsibleTool } from '../lib/messageKind'
 import MessageItem from './MessageItem.vue'
 import StepTools from './StepTools.vue'
 import ReasoningCard from './cards/ReasoningCard.vue'
+import Avatar from './cards/Avatar.vue'
 
 const store = useConversationStore()
 const el = ref<HTMLElement>()
@@ -122,9 +123,16 @@ watch(() => store.liveReasoning, stickToBottom)
         <StepTools v-else-if="r.kind === 'tools'" :tools="r.tools" />
         <MessageItem v-else :msg="r.msg" :step="r.step" />
       </template>
-      <!-- 流式推理活动气泡：逐字打字机会触发上百次 DOM 变更，aria-hidden 避免屏读器逐字刷屏；
+      <!-- 流式推理活动气泡：套与落定推理卡相同的头像行布局（avatar-slot + 内容），
+           并传 agent-name 让配色/标签一致——否则流式为中性灰无头像、落定变彩色带头像，前后两个样子。
+           逐字打字机会触发上百次 DOM 变更，aria-hidden 避免屏读器逐字刷屏；
            推理最终帧作为正式消息落定时会被 aria-live 正常播报一次。 -->
-      <ReasoningCard v-if="store.liveReasoning" :text="store.liveReasoning" streaming aria-hidden="true" />
+      <div v-if="store.liveReasoning" class="msg-row" aria-hidden="true">
+        <div class="avatar-slot"><Avatar who="agent" /></div>
+        <div class="msg-content">
+          <ReasoningCard :text="store.liveReasoning" :agent-name="store.liveAgentName || undefined" streaming />
+        </div>
+      </div>
     </div>
     <!-- 跳到最新浮标：脱离底部时出现，带未读计数。滚动直播刷得快，翻看历史后一键回到实时。 -->
     <button v-if="!atBottom" class="jump-latest" type="button" @click="scrollToBottom">
@@ -191,5 +199,23 @@ watch(() => store.liveReasoning, stickToBottom)
   flex-shrink: 0;
   font-family: var(--mono);
   letter-spacing: 0.02em;
+}
+
+/* 流式活动气泡的头像行布局——与 MessageItem 的 agent 侧一致（头像槽 + 内容列），
+   让流式与落定的推理卡对齐（同缩进、同头像位）。 */
+.msg-row {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+.msg-row .avatar-slot {
+  width: 30px;
+  flex-shrink: 0;
+}
+.msg-row .msg-content {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
 }
 </style>

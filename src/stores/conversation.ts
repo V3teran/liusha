@@ -10,6 +10,9 @@ export const useConversationStore = defineStore('conversation', {
     // 流式推理活动气泡：SSE event:delta 逐 chunk 累积的文本；最终 reasoning 消息到达即清空。
     // eino 串行执行，同一时刻至多一个 ChatModel 在流式，单缓冲足够（无需按 streamID 分桶）。
     liveReasoning: '',
+    // 当前流式推理所属 agent 名（delta 帧带 agent_name）——驱动活动气泡按 agent 取色 + 标签，
+    // 与落定的推理卡样式一致（否则流式为中性灰、落定变彩色）。
+    liveAgentName: '',
   }),
   actions: {
     ingest(m: Message) {
@@ -19,7 +22,10 @@ export const useConversationStore = defineStore('conversation', {
       this.seqSet.add(m.Seq)
 
       // 推理消息（最终帧）落定 → 清空活动气泡，由正式推理卡接管渲染。
-      if (m.Metadata?.Kind === 'reasoning') this.liveReasoning = ''
+      if (m.Metadata?.Kind === 'reasoning') {
+        this.liveReasoning = ''
+        this.liveAgentName = ''
+      }
 
       // 二分查找插入位置以保持升序。
       // 事件多数尾部追加，但补历史可能乱序到达。
@@ -42,9 +48,11 @@ export const useConversationStore = defineStore('conversation', {
     },
 
     // appendReasoningDelta 累积一段流式推理增量（驱动逐字打字机活动气泡）。
-    appendReasoningDelta(chunk: string) {
+    // agentName 随首个 chunk 带入，驱动气泡按 agent 取色 + 标签。
+    appendReasoningDelta(chunk: string, agentName?: string) {
       if (!chunk) return
       this.liveReasoning += chunk
+      if (agentName) this.liveAgentName = agentName
     },
 
     reset() {
@@ -52,6 +60,7 @@ export const useConversationStore = defineStore('conversation', {
       this.seqSet = new Set()
       this.lastSeq = 0
       this.liveReasoning = ''
+      this.liveAgentName = ''
     },
   },
 })
