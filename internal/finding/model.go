@@ -14,14 +14,14 @@ import (
 // VulnFinding 是 finding 表行的 Go 表示。
 //
 // Host 必填；Save 内空字符串校验防漏填。
-// SourceFlowID 可空（不绑定具体流量时 nil）。
+// SourceTrafficID 可空（不绑定具体流量时 nil）；指向 proxy_traffic / agent_traffic 任一。
 // Target / Evidence 为 nil 时 Save 自动落空对象 '{}'。
 type VulnFinding struct {
-	ID           string
-	TaskID       string // 所属 task.id
-	HunterID     *string
-	SourceFlowID *int64
-	Host         string
+	ID              string
+	TaskID          string // 所属 task.id
+	HunterID        *string
+	SourceTrafficID *int64
+	Host            string
 	// Severity 自由文本（建议 critical/high/medium/low/info 保持配色一致；
 	// 其他值前端配色退化为蓝色）；DB 列无 enum CHECK 约束。
 	Severity string
