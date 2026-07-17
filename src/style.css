@@ -157,6 +157,9 @@ code, pre, .args, .out, .err, .meta { font-family: var(--mono); }
   background: var(--primary-soft);
   border-color: color-mix(in srgb, var(--primary) 40%, transparent);
   max-width: 70%;
+  /* 保留换行：passive 首条任务说明是多行请求清单（method path → status），需 pre-wrap 显示 */
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 .card.assistant { max-width: 85%; }
 .card.tool-call .tool-head {
