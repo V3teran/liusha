@@ -339,7 +339,13 @@ func (t *Traffic) spawnPassiveTask(ctx context.Context, host string) {
 		return
 	}
 
-	convID := t.ensureConversation(ctx, tk.ID, host, claimed)
+	// 取本批已认领流量的清单（供首条任务说明列出 method/path/status）；失败则降级为空清单
+	// （首条说明仍显示条数，只是列不出明细），不阻塞分析。
+	claimedFlows, err := t.proxyFlows.ListByTask(ctx, tk.ID)
+	if err != nil {
+		t.logger.Warn().Err(err).Str("task_id", tk.ID).Msg("取已认领流量清单失败（首条说明降级为无明细）")
+	}
+	convID := t.ensureConversation(ctx, tk.ID, host, claimedFlows)
 	if err := t.enqueuePassive(ctx, tk.ID, convID, host); err != nil {
 		t.logger.Warn().Err(err).Str("task_id", tk.ID).Msg("passive task 入队失败")
 		return
@@ -397,9 +403,9 @@ func (t *Traffic) handleInternalSnap(ctx context.Context, snap *proxy.TrafficSna
 
 // ensureConversation 为 passive task 建对话流（title=host）并回填 conversation.task_id，
 // 再写一条「任务说明」首条消息（role=user）——passive 无用户手打 brief，但有确定任务上下文
-// （host + 认领流量条数），合成一条说明作为对话首条右侧气泡（对齐 active 的 brief）。
+// （host + 本批捕获的请求清单），合成说明作为对话首条右侧气泡（对齐 active 的 brief）。
 // conversations nil / 建会话失败 → 返空串（降级：本次不绑，事件不落对话，但流量分析照常）。
-func (t *Traffic) ensureConversation(ctx context.Context, taskID, host string, flowCount int64) string {
+func (t *Traffic) ensureConversation(ctx context.Context, taskID, host string, flows []traffic.ProxyTraffic) string {
 	if t.conversations == nil {
 		return ""
 	}
@@ -409,12 +415,30 @@ func (t *Traffic) ensureConversation(ctx context.Context, taskID, host string, f
 		return ""
 	}
 	// 首条任务说明（role=user）：passive 流量驱动自动发起，合成说明让前端有"发起了什么"的锚点。
+	// 列出本批捕获的请求（method path → status），而非干巴的条数——用户一眼看清在分析哪些流量。
 	// best-effort——写失败仅缺首条气泡，不影响流量分析与后续事件落对话。
-	brief := fmt.Sprintf("被动流量分析：监听到 host `%s` 的 %d 条 HTTP 流量，发起分析——从响应线索反推可控点，追查漏洞。", host, flowCount)
-	if _, err := t.conversations.AppendMessage(ctx, conv.ID, conversation.RoleUser, conversation.KindMessage, brief, nil); err != nil {
+	if _, err := t.conversations.AppendMessage(ctx, conv.ID, conversation.RoleUser, conversation.KindMessage, passiveBrief(host, flows), nil); err != nil {
 		t.logger.Warn().Err(err).Str("conv", conv.ID).Msg("写 passive 任务说明首条消息失败（降级：对话缺首条气泡）")
 	}
 	return conv.ID
+}
+
+// passiveBriefMaxList 是首条说明里最多逐条列出的请求数；超出只显示"等 N 条"，避免超长批刷屏。
+const passiveBriefMaxList = 20
+
+// passiveBrief 合成 passive 首条任务说明：host + 本批捕获请求清单（method path → status，去重）。
+// 让用户一眼看清在分析哪些流量，而非干巴的条数。
+func passiveBrief(host string, flows []traffic.ProxyTraffic) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "被动流量分析：监听到 host `%s` 的 %d 条 HTTP 流量，发起分析——从响应线索反推可控点，追查漏洞。\n\n捕获请求：", host, len(flows))
+	for i, f := range flows {
+		if i >= passiveBriefMaxList {
+			fmt.Fprintf(&b, "\n… 等共 %d 条", len(flows))
+			break
+		}
+		fmt.Fprintf(&b, "\n%s %s → %d", f.Method, f.Path, f.StatusCode)
+	}
+	return b.String()
 }
 
 func (t *Traffic) enqueuePassive(ctx context.Context, taskID, convID, host string) error {
