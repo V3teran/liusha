@@ -430,6 +430,44 @@ func (a *activeScanAdapter) FollowUpScan(ctx context.Context, taskID, conversati
 	return tid, nil
 }
 
+// FollowUpPassive 是 passive 对话内的 action 续接：Reopen 原 task（沿用同一 task 累积 finding）
+// → 起一个 traffic-analysis run，entrypoint 带原 host + 用户手敲指令（directive）。
+// 与 FollowUpScan 同构，差异：mode=passive、role=traffic-analysis、directive 透传给 agent 验证。
+//
+// directive 是用户在对话里手敲的内容（自然语言指导，或直接粘的请求/命令）——passive handler
+// 拼进 prompt，让 agent 用 run_command/replay_traffic 照打验证；原批流量仍全读，上下文不丢。
+func (a *activeScanAdapter) FollowUpPassive(ctx context.Context, taskID, conversationID, host, directive string) (string, error) {
+	if err := a.tasks.Reopen(ctx, taskID); err != nil {
+		return "", fmt.Errorf("reopen task: %w", err)
+	}
+	body, err := json.Marshal(map[string]string{"host": host, "directive": directive})
+	if err != nil {
+		return "", fmt.Errorf("marshal entrypoint: %w", err)
+	}
+	payloadInput, err := json.Marshal(map[string]any{"mode": "passive", "entrypoint": json.RawMessage(body)})
+	if err != nil {
+		return "", fmt.Errorf("marshal payload: %w", err)
+	}
+	tid, err := a.hunters.Create(ctx, hunter.NewParams{
+		TaskID: taskID,
+		Role:   "traffic-analysis",
+		Input:  payloadInput,
+	})
+	if err != nil {
+		return "", fmt.Errorf("create hunter run: %w", err)
+	}
+	if _, _, err := a.enq.Enqueue(ctx, worker.RoleHunter, worker.Payload{
+		HunterID:       tid,
+		TaskID:         taskID,
+		ConversationID: conversationID,
+		Input:          payloadInput,
+		Role:           worker.RoleHunter,
+	}, asynq.MaxRetry(0), asynq.Timeout(a.activeRunTimeout)); err != nil {
+		return "", fmt.Errorf("enqueue passive followup: %w", err)
+	}
+	return tid, nil
+}
+
 // AbortConversationScan 满足 httpapi.AbortAPI：abort 对话关联的 task。
 func (a *activeScanAdapter) AbortConversationScan(ctx context.Context, convID string) error {
 	conv, err := a.conversations.GetConversation(ctx, convID)
@@ -469,31 +507,35 @@ func (a *activeScanAdapter) HandleMessage(ctx context.Context, convID, content s
 		return "", false, err
 	}
 
-	// passive task 的插话只记录消息——passive agent 下次分析流量时经 conversationContext 读到用户指导。
-	// 不走 active 的意图分流/续接（passive 由流量驱动，无"续接扫描"语义）。判别：关联 task 是 passive 模式。
-	if conv.TaskID != "" {
-		if tk, gerr := a.tasks.GetByID(ctx, conv.TaskID); gerr == nil && tk.Mode == task.ModePassive {
-			return "passive_note", false, nil
-		}
+	if conv.TaskID == "" {
+		return "", false, fmt.Errorf("conversation 无关联 task")
 	}
+	tk, err := a.tasks.GetByID(ctx, conv.TaskID)
+	if err != nil {
+		return "", false, err
+	}
+
+	// 意图分流（action/qa）对 active、passive 通用：判定走 light LLM。
 	g, err := a.router.For(ctx, "inspector") // light provider
 	if err != nil {
 		return "", false, err
 	}
 	switch intent.Classify(ctx, g, content) {
 	case intent.IntentAction:
-		tk, err := a.tasks.GetByID(ctx, conv.TaskID)
-		if err != nil {
-			return "", false, err
-		}
 		if tk.Status == task.StatusActive {
-			return "action", true, nil // 忙：队列留后续
+			return "action", true, nil // 忙：agent 在跑，本轮指导经 conversationContext 下次读到
 		}
-		if _, err := a.FollowUpScan(ctx, conv.TaskID, convID, "", content); err != nil {
+		// 按 mode 续接：passive 起 traffic-analysis（带 host + 手敲指令），active 起 orchestrator。
+		// 两者都 Reopen 同一 task，finding 累积在这次分析会话里（不新建 task）。
+		if tk.Mode == task.ModePassive {
+			if _, err := a.FollowUpPassive(ctx, conv.TaskID, convID, tk.TargetHost, content); err != nil {
+				return "", false, err
+			}
+		} else if _, err := a.FollowUpScan(ctx, conv.TaskID, convID, "", content); err != nil {
 			return "", false, err
 		}
 		return "action", false, nil
-	default: // qa
+	default: // qa：就已有 finding/流量提问，active/passive 同一套问答
 		if err := qa.New(a).Answer(ctx, convID, conv.TaskID, content); err != nil {
 			return "", false, err
 		}

@@ -21,7 +21,9 @@ type gen interface {
 	Generate(ctx context.Context, msgs []llm.Message, tools []llm.ToolSchema) (llm.Result, error)
 }
 
-const systemPrompt = `你是渗透测试对话的意图分类器。判断用户最新消息是想"让 agent 执行/继续扫描动作"（action），还是"就已挖到的结果提问/解释/总结"（qa）。
+const systemPrompt = `你是渗透测试对话的意图分类器。判断用户最新消息属于哪类：
+- action：让 agent 去执行——发起/继续扫描、验证某条请求、深挖某个点、重放或构造请求测试（含用户直接贴出的请求/命令要 agent 照打）。
+- qa：就已挖到的结果提问、解释、总结，不需要 agent 再动手。
 只输出一个词：action 或 qa。无法确定时输出 qa。`
 
 // Classify 调 light LLM 分类；解析不出 action/qa 或调用失败 → 默认 qa（便宜、安全：
