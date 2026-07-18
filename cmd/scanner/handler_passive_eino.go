@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	hunterbuilder "github.com/V3teran/liusha/internal/builder/hunter"
@@ -27,6 +28,9 @@ const abortPollInterval = 5 * time.Second
 func (h handler) handlePassiveEino(ctx context.Context, p worker.Payload, entrypoint json.RawMessage) error {
 	var ep struct {
 		Host string `json:"host"`
+		// Directive 非空 = 对话内 action 续接：用户手敲的验证指令/请求，拼进 prompt 让 agent 照打。
+		// 空 = 首轮流量驱动分析（聚合器建 task）。
+		Directive string `json:"directive"`
 	}
 	if err := json.Unmarshal(entrypoint, &ep); err != nil {
 		return h.failTask(ctx, p.HunterID, err)
@@ -104,8 +108,15 @@ func (h handler) handlePassiveEino(ctx context.Context, p worker.Payload, entryp
 
 	// 阶段2 可插话：把本 passive 会话最近的对话历史（含用户插话指导）拼到 prompt 前，
 	// 让 traffic agent 看到用户实时指导、调整分析方向（与 active orchestrator 同源 conversationContext）。
-	if hist := h.conversationContext(ctx, p.ConversationID, "traffic-analysis", ""); hist != "" {
+	if hist := h.conversationContext(ctx, p.ConversationID, "traffic-analysis", ep.Directive); hist != "" {
 		userPrompt = hist + "\n" + userPrompt
+	}
+
+	// 对话内 action 续接：把用户手敲指令置顶为「本轮任务」——它是当前最高优先的指示（验证某条请求 /
+	// 深挖某点 / 照打贴出的请求），agent 用 run_command/replay_traffic 执行；原批流量仍在下方全读，上下文不丢。
+	if d := strings.TrimSpace(ep.Directive); d != "" {
+		userPrompt = "## 本轮用户指令（最高优先，先执行）\n\n" + d +
+			"\n\n用 run_command / replay_traffic 执行验证；下方是本批流量与历史，供参考。\n\n" + userPrompt
 	}
 
 	// per-run 中间件 + 计费 callback：复用 einoRunOpts（与 active deep 路径同源）——
