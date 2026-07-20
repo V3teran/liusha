@@ -314,6 +314,9 @@ li {
   padding: 8px 10px;
   border-radius: 8px;
   cursor: pointer;
+  /* ul 是 flex 列，li 默认 flex-shrink:1；会话多到超出容器时会被压扁到比内容还矮
+     → 两行内容(标题+meta)溢出、条目重叠。锁死 flex-shrink:0，超出交给 ul 滚动。 */
+  flex-shrink: 0;
   transition: background var(--duration-fast, 150ms);
 }
 li:hover {
