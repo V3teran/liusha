@@ -3,7 +3,7 @@
 // 展开一张即载入该会话消息 + 开 SSE + 内联渲染作战轨迹（TimelineThread）+ follow-up 输入框。
 // 手风琴：同时只展开一张（业界惯例；且对话 store 是全局单例，多开会串消息）——展开新的先收旧的。
 //
-// 与自主渗透（ChatView）区别：passive 由流量驱动自动建会话（无「新对话」发起），列表按 host 组织，
+// 与渗透会话（ChatView）区别：passive 由流量驱动自动建会话（无「新对话」发起），列表按 host 组织，
 // 主视图是「批卡流」而非单会话对话。底层复用同一渲染管道（store/SSE/TimelineThread/Composer）。
 import { onMounted, onUnmounted, ref, computed } from 'vue'
 import { listConversations, listMessages, abortScan } from '../api/client'
@@ -23,7 +23,7 @@ const expandedId = ref('') // 当前展开的会话（手风琴：至多一个�
 const bodyLoading = ref(false) // 展开项补历史中
 let handle: StreamHandle | null = null
 
-// 仅 passive：本页只展示流量驱动的被动会话（active 在「自主渗透」页）。
+// 仅 passive：本页只展示流量驱动的被动会话（active 在「渗透会话」页）。
 const passiveConvs = computed(() => convs.value.filter((c) => c.Mode === 'passive'))
 
 async function refresh() {

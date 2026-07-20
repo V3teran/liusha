@@ -8,7 +8,7 @@ import type { Conversation } from '../api/types'
 import { relativeTime, fullTime } from '../lib/format'
 import { scanStatusMeta } from '../lib/scanStatus'
 
-// mode 过滤：自主渗透页传 'active'、流量分析页传 'passive'——只列该模式会话，两模式互不混。
+// mode 过滤：渗透会话页传 'active'、流量分析页传 'passive'——只列该模式会话，两模式互不混。
 // 纯聊天会话（Mode 空）不属于任一模式，传了 mode 就不显示。不传则列全部（向后兼容）。
 const props = defineProps<{ activeId?: string; mode?: string }>()
 const items = ref<Conversation[]>([])

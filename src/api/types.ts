@@ -53,7 +53,7 @@ export interface Conversation {
   RoleID: string
   // Status 已退役删除（后端不再返回）——运行态用 RunStatus。
   RunStatus?: string // 派生的真实运行态（active/completed/aborted；纯聊天空）——列表显示用此
-  Mode?: string // 派生的模式（active/passive；纯聊天空）——自主渗透页/流量分析页据此分流列表
+  Mode?: string // 派生的模式（active/passive；纯聊天空）——渗透会话页/流量分析页据此分流列表
   FindingCount?: number // 本对话关联 task 已挖到的漏洞数——流量分析 feed 卡「host · N findings」摘要
   CreatedAt: string
   UpdatedAt: string

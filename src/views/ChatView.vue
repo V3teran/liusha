@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// 自主渗透页：ConversationList(仅 active) + TimelineThread(作战轨迹) + Composer + SSE。
+// 渗透会话页：ConversationList(仅 active) + TimelineThread(作战轨迹) + Composer + SSE。
 // 选中/发起对话切流：关旧 SSE、清 store、补历史、订新流。
 // 状态条：用量端点权威 running 字段（active_scan/passive_session 终态）→ "agent 工作中"；
 //   不再用"N 秒无活动"启发——避免打开已结束会话因历史回灌误判为工作中。
