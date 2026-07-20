@@ -10,7 +10,12 @@ import { scanStatusMeta } from '../lib/scanStatus'
 
 // mode 过滤：渗透会话页传 'active'、流量分析页传 'passive'——只列该模式会话，两模式互不混。
 // 纯聊天会话（Mode 空）不属于任一模式，传了 mode 就不显示。不传则列全部（向后兼容）。
-const props = defineProps<{ activeId?: string; mode?: string }>()
+// allowNew：是否显示「+ 新对话」——active 可手动发起=true；passive 由流量驱动自动建会话=false。
+// emptyHint：无会话时的空态文案（passive 需引导「挂代理收流量」，与 active 不同）。
+const props = withDefaults(
+  defineProps<{ activeId?: string; mode?: string; allowNew?: boolean; emptyHint?: string }>(),
+  { allowNew: true },
+)
 const items = ref<Conversation[]>([])
 const emit = defineEmits<{ select: [convID: string]; new: []; deleted: [convID: string] }>()
 
@@ -157,8 +162,8 @@ async function commitRename(c: Conversation) {
 <template>
   <aside class="conv-list">
     <div class="cl-head">
-      <button class="new-conv" @click="emit('new')">+ 新对话</button>
-      <button class="refresh" title="刷新列表" @click="refresh">↻</button>
+      <button v-if="props.allowNew" class="new-conv" @click="emit('new')">+ 新对话</button>
+      <button class="refresh" :class="{ solo: !props.allowNew }" title="刷新列表" @click="refresh">↻</button>
     </div>
     <div class="cl-search">
       <input
@@ -192,6 +197,7 @@ async function commitRename(c: Conversation) {
           <div v-else class="cl-title" :title="fullTitle(c)">{{ displayTitle(c) }}</div>
           <div class="cl-meta">
             <span class="cl-status" :class="'st-' + statusMeta(c).key">{{ statusMeta(c).label }}</span>
+            <span v-if="c.FindingCount" class="cl-findings" :title="c.FindingCount + ' 个漏洞'">🐛 {{ c.FindingCount }}</span>
             <span class="cl-time" :title="fullTime(c.CreatedAt)">{{ relativeTime(c.CreatedAt) }}</span>
           </div>
         </div>
@@ -199,7 +205,7 @@ async function commitRename(c: Conversation) {
           <button class="cl-more" title="更多" @click="toggleMenu(c, $event)">⋯</button>
         </div>
       </li>
-      <li v-if="!filtered.length" class="cl-empty">{{ query.trim() ? '无匹配对话' : '暂无对话' }}</li>
+      <li v-if="!filtered.length" class="cl-empty">{{ query.trim() ? '无匹配对话' : (props.emptyHint || '暂无对话') }}</li>
     </ul>
     <!-- ⋯ 菜单 Teleport 到 body：fixed 视口定位，不被 ul overflow 裁剪 -->
     <Teleport to="body">
@@ -341,7 +347,20 @@ li.active {
   font-size: 11px;
   color: var(--muted);
   font-family: var(--mono);
+  margin-left: auto;
 }
+/* 漏洞计数徽标：琥珀色 pill，一眼标出「这批流量出了几个洞」 */
+.cl-findings {
+  font-size: 10.5px;
+  color: var(--sev-high, #f59e0b);
+  background: color-mix(in srgb, var(--sev-high, #f59e0b) 14%, transparent);
+  border-radius: 5px;
+  padding: 0 6px;
+  line-height: 1.5;
+  flex-shrink: 0;
+}
+/* passive 无「新对话」时，↻ 独占一行铺满（不再是 active 那个 36px 方钮） */
+.refresh.solo { width: 100%; }
 /* 状态文字色（只 color） */
 .st-active {
   color: #34d399;
