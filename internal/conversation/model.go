@@ -48,6 +48,12 @@ type Conversation struct {
 	// 纯聊天为空）。仅 ListConversations 填充。
 	// （注：conversation 表自身的 status 列是僵尸字段，已不读入；运行态一律派生自关联 task。）
 	RunStatus string `json:"RunStatus,omitempty"`
+	// Mode 是派生的模式（关联 task 的 mode：active/passive；纯聊天空）。仅 ListConversations 填充，
+	// 供前端按模式分流列表（自主渗透页只列 active、流量分析页只列 passive）。
+	Mode string `json:"Mode,omitempty"`
+	// FindingCount 是本对话关联 task 已挖到的漏洞数（派生自 finding 表）。仅 ListConversations 填充，
+	// 供前端列表/流量分析 feed 卡展示「host · N findings」摘要。纯聊天/无 task = 0。
+	FindingCount int `json:"FindingCount,omitempty"`
 }
 
 // Message 是 message 表行的 Go 表示。

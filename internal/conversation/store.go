@@ -121,7 +121,9 @@ func (s *Store) ListConversations(ctx context.Context, limit int) ([]Conversatio
 	rows, err := s.pool.Query(ctx, `
 		SELECT c.id, COALESCE(c.title,''), COALESCE(c.task_id::text,''),
 			COALESCE(c.role_id,''), c.created_at, c.updated_at,
-			COALESCE(t.status, '') AS run_status
+			COALESCE(t.status, '') AS run_status,
+			COALESCE(t.mode, '') AS mode,
+			COALESCE((SELECT count(*) FROM finding f WHERE f.task_id = c.task_id), 0) AS finding_count
 		FROM conversation c
 		LEFT JOIN task t ON t.id = c.task_id
 		ORDER BY c.updated_at DESC LIMIT $1`, limit)
@@ -249,9 +251,9 @@ func scanConversation(r scanRow, c *Conversation) error {
 	return r.Scan(&c.ID, &c.Title, &c.TaskID, &c.RoleID, &c.CreatedAt, &c.UpdatedAt)
 }
 
-// scanConversationWithRun 多扫一列 run_status（派生真实运行态，见 ListConversations）。
+// scanConversationWithRun 多扫 run_status + mode + finding_count（派生态 + 模式 + 漏洞数，见 ListConversations）。
 func scanConversationWithRun(r scanRow, c *Conversation) error {
-	return r.Scan(&c.ID, &c.Title, &c.TaskID, &c.RoleID, &c.CreatedAt, &c.UpdatedAt, &c.RunStatus)
+	return r.Scan(&c.ID, &c.Title, &c.TaskID, &c.RoleID, &c.CreatedAt, &c.UpdatedAt, &c.RunStatus, &c.Mode, &c.FindingCount)
 }
 
 // RunStatus 返回对话关联 task 的「真实运行态」（task.status：active/completed/aborted；
