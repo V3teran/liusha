@@ -27,7 +27,7 @@ const (
 	RoleTool      Role = "tool"
 )
 
-// Message 是一次对话中的一条消息。
+// Message 是一次会话中的一条消息。
 //
 // Content 与 ContentParts 互斥：纯文本走 Content（默认路径）；含图/多模态走 ContentParts。
 // ContentParts 非空时 provider 必须支持 vision；否则 Generate 返 ErrVisionUnsupported。
@@ -98,7 +98,7 @@ type Result struct {
 
 // Generator 是 LLM 生成器统一接口。
 type Generator interface {
-	// Generate 发起一次对话生成。tools 参数当前未使用（在 New 时一次绑定），
+	// Generate 发起一次会话生成。tools 参数当前未使用（在 New 时一次绑定），
 	// 保留是为了后续支持动态绑定或 mock。
 	Generate(ctx context.Context, messages []Message, tools []ToolSchema) (Result, error)
 	Provider() string

@@ -1,7 +1,7 @@
-// Package httpapi: 对话用量合计 handler（GET /conversations/:id/usage）。
+// Package httpapi: 会话用量合计 handler（GET /conversations/:id/usage）。
 //
 // 与 llm_invocation_handler.go（按 hunter 分组的明细列表）不同，本 handler 给前端会话头部
-// 提供"本对话累计 token / 耗时"的权威合计——直接 SUM llm_invocation + tool_invocation，
+// 提供"本会话累计 token / 耗时"的权威合计——直接 SUM llm_invocation + tool_invocation，
 // 而非前端按 SSE 事件求和（后者漏掉"无文字纯 tool_call"调用，见 reasoning_callback.go）。
 package httpapi
 
@@ -15,7 +15,7 @@ import (
 	"github.com/V3teran/liusha/internal/toolinvocation"
 )
 
-// UsageTaskResolver 把对话 id 解析成 task id + 查运行态 + 墙钟时长（*conversation.Store 满足）。
+// UsageTaskResolver 把会话 id 解析成 task id + 查运行态 + 墙钟时长（*conversation.Store 满足）。
 type UsageTaskResolver interface {
 	ResolveTaskID(ctx context.Context, convID string) (string, error)
 	IsRunActive(ctx context.Context, convID string) (bool, error)
@@ -40,7 +40,7 @@ type ToolUsageAggregator interface {
 //
 //	{
 //	  "conversation_id": "...",
-//	  "task_id": "...",                   // 纯聊天对话为空
+//	  "task_id": "...",                   // 纯聊天会话为空
 //	  "tokens": { "in": N, "out": N, "cached": N, "total": N },
 //	  "llm_latency_ms": N,               // 所有 LLM 调用耗时合计
 //	  "tool_duration_ms": N,             // 所有工具执行耗时合计
@@ -129,7 +129,7 @@ func conversationUsageHandler(conv UsageTaskResolver, llm LLMUsageAggregator, to
 	}
 }
 
-// zeroUsage 造零用量响应（纯聊天对话无 task 时）。
+// zeroUsage 造零用量响应（纯聊天会话无 task 时）。
 func zeroUsage(convID, taskID string, running bool, status string) gin.H {
 	return gin.H{
 		"conversation_id":  convID,

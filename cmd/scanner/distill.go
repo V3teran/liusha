@@ -15,7 +15,7 @@ import (
 
 // distill.go：收尾反思蒸馏（P3 写入三路之一，见 lesson→corpus 设计 §5.2）。
 //
-// task 正常 complete 时触发：取「压缩对话轨迹 + 本次 finding + 本 host 情报黑板」喂 light 模型，
+// task 正常 complete 时触发：取「压缩会话轨迹 + 本次 finding + 本 host 情报黑板」喂 light 模型，
 // 提炼出 0~N 条【跨目标可复用】知识写入 corpus（source=agent）。best-effort——任何失败只 warn，
 // 不阻塞收尾。与 agent 直写 write_corpus 并存（收尾兜底把散落经验提炼一遍，content_hash 去重）。
 
@@ -30,7 +30,7 @@ type distilledEntry struct {
 }
 
 // distillInstruction 是蒸馏 system 指引：只提炼跨目标可复用打法，判据同 write_corpus。
-const distillInstruction = `你是渗透知识蒸馏器。看完本次渗透交战的对话轨迹、坐实的漏洞、过程情报后，提炼出【跨目标可复用】的知识沉淀。
+const distillInstruction = `你是渗透知识蒸馏器。看完本次渗透交战的会话轨迹、坐实的漏洞、过程情报后，提炼出【跨目标可复用】的知识沉淀。
 
 只提炼满足全部三条的：① 验证过的（实战确认有效，非猜测）；② 可复用跨目标的（对『这类目标/技术』通用，如某 SSO 的登录逆向套路，凡用此 SSO 的系统皆可复用），不是本次目标专属细节；③ 非显然的（通用知识里没有的）。
 
@@ -45,7 +45,7 @@ func (h handler) distillCorpus(ctx context.Context, taskID, convID, role, host s
 	}
 	material := h.gatherDistillMaterial(ctx, taskID, convID, role, host)
 	if material == "" {
-		h.logger.Info().Str("task_id", taskID).Msg("收尾蒸馏跳过：无素材（空对话 + 无 finding + 无 lead）")
+		h.logger.Info().Str("task_id", taskID).Msg("收尾蒸馏跳过：无素材（空会话 + 无 finding + 无 lead）")
 		return
 	}
 	// 无条件记录进入：让蒸馏链路可观测——「跑了返回空 / 没跑 / 调用失败」可区分，不靠反推。
@@ -81,7 +81,7 @@ func (h handler) distillCorpus(ctx context.Context, taskID, convID, role, host s
 		Msg("收尾蒸馏完成")
 }
 
-// gatherDistillMaterial 拼蒸馏素材：压缩对话轨迹（复用 conversationContext）+ 本次 finding + 本 host 情报黑板。
+// gatherDistillMaterial 拼蒸馏素材：压缩会话轨迹（复用 conversationContext）+ 本次 finding + 本 host 情报黑板。
 // 三份都空则返空串（caller 跳过蒸馏）。
 func (h handler) gatherDistillMaterial(ctx context.Context, taskID, convID, role, host string) string {
 	var b strings.Builder
@@ -112,7 +112,7 @@ func (h handler) gatherDistillMaterial(ctx context.Context, taskID, convID, role
 
 // runDistill 调 light 模型蒸馏素材为结构化知识条目。失败/超时/解析失败返 nil（best-effort）。
 func (h handler) runDistill(ctx context.Context, material string) []distilledEntry {
-	model, err := h.einoFactory.For(ctx, "compactor") // light provider（与对话蒸馏同源）
+	model, err := h.einoFactory.For(ctx, "compactor") // light provider（与会话蒸馏同源）
 	if err != nil {
 		h.logger.Warn().Err(err).Msg("蒸馏：解析 compactor 模型失败（跳过）")
 		return nil

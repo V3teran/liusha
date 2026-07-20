@@ -33,20 +33,20 @@ func TestConversationStore_RoundTrip(t *testing.T) {
 	defer pool.Close()
 	store := conversation.NewStore(pool)
 
-	// 1. 建对话（空 title/taskID/roleID → 应存 NULL，读回空串）
+	// 1. 建会话（空 title/taskID/roleID → 应存 NULL，读回空串）
 	c, err := store.CreateConversation(ctx, "", "", "")
 	if err != nil {
 		t.Fatalf("CreateConversation: %v", err)
 	}
 	if c.ID == "" {
-		t.Fatal("对话 ID 为空")
+		t.Fatal("会话 ID 为空")
 	}
 	if c.Title != "" || c.TaskID != "" || c.RoleID != "" {
 		t.Errorf("空字段应读回空串: title=%q task=%q role=%q", c.Title, c.TaskID, c.RoleID)
 	}
 	// conversation.status 僵尸字段已退役（不读入 Conversation）——运行态派生自关联任务，见 RunStatus。
 	t.Cleanup(func() {
-		// message 经 FK CASCADE 随对话删。
+		// message 经 FK CASCADE 随会话删。
 		fctx, fc := context.WithTimeout(context.Background(), 10*time.Second)
 		defer fc()
 		_, _ = pool.Exec(fctx, "DELETE FROM conversation WHERE id=$1", c.ID)

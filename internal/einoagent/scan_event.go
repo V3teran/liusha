@@ -30,7 +30,7 @@ const (
 	ScanEventToolResult ScanEventKind = "tool_result"
 	// ScanEventReasoning：agent 每轮 ChatModel 调用后产出的推理文字（思路/分析/计划/决策叙述）。
 	// 经 reasoning callback 捕获 → 前端「推理卡」展示，让用户看到 agent 在想什么/打算干什么。
-	// 替代旧的 write_note（思路改输出到对话，notes 退役）。
+	// 替代旧的 write_note（思路改输出到会话，notes 退役）。
 	ScanEventReasoning ScanEventKind = "reasoning"
 	// ScanEventReasoningDelta：流式推理的增量片段（Text=本次 chunk）。模型走 Stream 时逐 chunk 发，
 	// 前端累积成「活动推理气泡」逐字渲染；最终 ScanEventReasoning 帧到达后替换之。
@@ -40,7 +40,7 @@ const (
 	// Args 含 {subagent_type, description}——派给谁、干什么。前端「派发卡」展示 AI 指挥 AI 团队。
 	ScanEventSpawn ScanEventKind = "spawn"
 	// ScanEventCompaction：上下文压缩发生（老 turn 蒸馏成 1 条摘要，防 context 爆）。
-	// Text=蒸馏摘要正文。前端「压缩卡」展示「这里压缩了 N 条历史」，让用户对长对话的上下文裁剪有感知。
+	// Text=蒸馏摘要正文。前端「压缩卡」展示「这里压缩了 N 条历史」，让用户对长会话的上下文裁剪有感知。
 	ScanEventCompaction ScanEventKind = "compaction"
 )
 
@@ -81,7 +81,7 @@ func toolCallEvent(ctx context.Context, name, args string) ScanEvent {
 // NewEventEmitter 造 WrapToolCall middleware：每次工具调用发 tool_call（执行前）+ tool_result
 // （执行后）两个事件给 sink，让前端先看到「正在跑 sqlmap…」再看到结果。
 //
-// sink nil 时返回零值 middleware（no-op，向后兼容 asynq 自动路径——无对话则不发事件）。
+// sink nil 时返回零值 middleware（no-op，向后兼容 asynq 自动路径——无会话则不发事件）。
 // 挂在 orchestrator + 所有 sub-agent 上（einoRunOpts → deep_swarm 给每个 agent 传 middlewares），
 // 故 exploitation 内部工具调用也发事件。复用 tool_recorder.go 的 truncate / toolResultText。
 func NewEventEmitter(sink EventSink) adk.AgentMiddleware {

@@ -103,7 +103,7 @@ func (h handler) einoToolDeps(sandboxClient sandbox.Client) einoagent.TrafficAna
 //   - 历史压缩 middleware（light compactor，装配失败降级跳过）
 //   - tool_invocation 遥测 + 截图回灌
 //   - 计费埋点 callbacks（按 hunterID/owner/role 落 llm_invocation）
-//   - 过程事件发射（仅 conversationID 非空，即对话发起时）：落 conversation message + redis publish
+//   - 过程事件发射（仅 conversationID 非空，即会话发起时）：落 conversation message + redis publish
 //
 // role ∈ trafficAnalysis/exploitation/orchestrator，决定 provider 解析 + token 用量聚合维度。
 // conversationID 空（asynq 自动入口）时不发过程事件，纯后台扫描。
@@ -111,7 +111,7 @@ func (h handler) einoToolDeps(sandboxClient sandbox.Client) einoagent.TrafficAna
 // （关 channel + 等 writer 写完缓冲事件）。无事件 sink 时为 no-op。
 func (h handler) einoRunOpts(ctx context.Context, hunterID, taskID, role, conversationID string) ([]adk.AgentMiddleware, []adk.ChatModelAgentMiddleware, []adk.AgentRunOption, func(), error) {
 	var mws []adk.AgentMiddleware
-	// 事件 sink 提前创建（compaction + EventEmitter 共用）：对话发起时把 agent 过程事件异步落
+	// 事件 sink 提前创建（compaction + EventEmitter 共用）：会话发起时把 agent 过程事件异步落
 	// conversation message + publish redis，供前端实时展示。conversationID 空则 sink 为真 nil（纯后台扫描）。
 	// 用 EventSink 接口类型声明——未赋值时是真 nil（避开 typed-nil 指针转接口后 != nil 的 Go 坑）。
 	cleanup := func() {} // 默认 no-op

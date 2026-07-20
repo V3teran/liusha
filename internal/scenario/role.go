@@ -1,4 +1,4 @@
-// Package scenario 实现「场景 role」——用户在前端对话选的扫描场景（Web 渗透 / CTF / 被动侦察…）。
+// Package scenario 实现「场景 role」——用户在前端会话选的扫描场景（Web 渗透 / CTF / 被动侦察…）。
 //
 // 与 einoagent 的杀伤链角色（hunters/*.md：orchestrator 主代理 + reconnaissance/exploitation subagent，deep 装配用）
 // 正交（见记忆 project_phaseb_sse_arch / reference_eino_vs_adk 的两层角色理解）：
@@ -25,9 +25,9 @@ import (
 type Mode string
 
 const (
-	// ModeActive：对话发起，deep 编排（orchestrator + 杀伤链 sub-agents）。
+	// ModeActive：会话发起，deep 编排（orchestrator + 杀伤链 sub-agents）。
 	ModeActive Mode = "active"
-	// ModePassive：流量自动驱动，trafficAnalysis 单 agent，不对话。
+	// ModePassive：流量自动驱动，trafficAnalysis 单 agent，不会话。
 	ModePassive Mode = "passive"
 )
 

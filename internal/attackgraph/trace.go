@@ -34,7 +34,7 @@ type traceEvent struct {
 // toolWriteFinding 是写漏洞工具名；其 tool_result 返回 {"id":<finding-id>}，用于把成果链挂到思维链。
 const toolWriteFinding = "write_finding"
 
-// ThinkingChain 从对话事件流（message KindEvent，按 seq 序入参）派生思维链节点 + flow 骨干边。
+// ThinkingChain 从会话事件流（message KindEvent，按 seq 序入参）派生思维链节点 + flow 骨干边。
 //
 //   - reasoning   → 想节点（Title=推理首行）
 //   - tool_call   → 做+得节点（开），后续同名 tool_result 回填 done/error 状态

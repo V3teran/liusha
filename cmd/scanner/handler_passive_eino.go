@@ -28,7 +28,7 @@ const abortPollInterval = 5 * time.Second
 func (h handler) handlePassiveEino(ctx context.Context, p worker.Payload, entrypoint json.RawMessage) error {
 	var ep struct {
 		Host string `json:"host"`
-		// Directive 非空 = 对话内 action 续接：用户手敲的验证指令/请求，拼进 prompt 让 agent 照打。
+		// Directive 非空 = 会话内 action 续接：用户手敲的验证指令/请求，拼进 prompt 让 agent 照打。
 		// 空 = 首轮流量驱动分析（聚合器建 task）。
 		Directive string `json:"directive"`
 	}
@@ -106,13 +106,13 @@ func (h handler) handlePassiveEino(ctx context.Context, p worker.Payload, entryp
 	instruction := hunterbuilder.SystemPrompt() + "\n\n" + h.passiveRole.SystemPrompt
 	userPrompt := hunterbuilder.BuildUserPrompt(ctx, h.hunterDeps, params)
 
-	// 阶段2 可插话：把本 passive 会话最近的对话历史（含用户插话指导）拼到 prompt 前，
+	// 阶段2 可插话：把本 passive 会话最近的会话历史（含用户插话指导）拼到 prompt 前，
 	// 让 traffic agent 看到用户实时指导、调整分析方向（与 active orchestrator 同源 conversationContext）。
 	if hist := h.conversationContext(ctx, p.ConversationID, "traffic-analysis", ep.Directive); hist != "" {
 		userPrompt = hist + "\n" + userPrompt
 	}
 
-	// 对话内 action 续接：把用户手敲指令置顶为「本轮任务」——它是当前最高优先的指示（验证某条请求 /
+	// 会话内 action 续接：把用户手敲指令置顶为「本轮任务」——它是当前最高优先的指示（验证某条请求 /
 	// 深挖某点 / 照打贴出的请求），agent 用 run_command/replay_traffic 执行；原批流量仍在下方全读，上下文不丢。
 	if d := strings.TrimSpace(ep.Directive); d != "" {
 		userPrompt = "## 本轮用户指令（最高优先，先执行）\n\n" + d +

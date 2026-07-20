@@ -91,8 +91,8 @@ func main() {
 	enq := worker.NewClient(asynq.RedisClientOpt{Addr: os.Getenv("LIUSHA_REDIS_ADDR")})
 	defer enq.Close()
 	auditStore := audit.NewStore(pool)         // 0047：task abort / create 审计
-	convStore := conversation.NewStore(pool)   // 阶段B：对话/消息
-	toolStore := toolinvocation.NewStore(pool) // 对话用量合计：工具耗时来源
+	convStore := conversation.NewStore(pool)   // 阶段B：会话/消息
+	toolStore := toolinvocation.NewStore(pool) // 会话用量合计：工具耗时来源
 	// 执行图（思维链+成果链）read-model 投影：复用 conv/finding store，不落表（docs/attack-graph-design.md）。
 	attackGraphProjector := &attackgraph.Projector{Messages: convStore, Findings: findStore}
 	// 阶段C：场景 role（scenarios/*.md）。加载失败仅警告——/roles 返回空、/chat 用空 role 兜底，
@@ -130,7 +130,7 @@ func main() {
 	}
 	go runner.run(cronCtx)
 
-	// SSE stream cookie 密钥：对话功能开启时必填（EventSource 鉴权用），缺失 fail-fast。
+	// SSE stream cookie 密钥：会话功能开启时必填（EventSource 鉴权用），缺失 fail-fast。
 	streamSecret := []byte(os.Getenv("LIUSHA_STREAM_COOKIE_SECRET"))
 	if len(streamSecret) == 0 {
 		logger.Fatal().Msg("LIUSHA_STREAM_COOKIE_SECRET 未配置——SSE stream cookie 鉴权需要它（fail-fast）")
@@ -154,17 +154,17 @@ func main() {
 			Invocations:       invocationStore,
 			AgentRuns:         hunterStore, // liusha-ui 拼任务树用（按 orchestrator_id）
 			ActiveScan:        activeAdapter,
-			Chat:              activeAdapter,                // 阶段B：POST /chat 对话发起扫描
+			Chat:              activeAdapter,                // 阶段B：POST /chat 会话发起扫描
 			FollowUp:          activeAdapter,                // 多轮：POST /conversations/:id/messages 动作续接
-			Abort:             activeAdapter,                // 多轮：POST /conversations/:id/abort 停止对话关联扫描
-			Deleter:           activeAdapter,                // DELETE /conversations/:id 删对话+消息；关联扫描进行中拒删（409，先停后删）
+			Abort:             activeAdapter,                // 多轮：POST /conversations/:id/abort 停止会话关联扫描
+			Deleter:           activeAdapter,                // DELETE /conversations/:id 删会话+消息；关联扫描进行中拒删（409，先停后删）
 			Renamer:           convStore,                    // PATCH /conversations/:id 重命名标题（convStore.SetTitle 直接满足）
-			Conversations:     convStore,                    // 阶段B：对话列表 / 消息回看
+			Conversations:     convStore,                    // 阶段B：会话列表 / 消息回看
 			EventStream:       eventStreamAdapter{rdb: rdb}, // 阶段B：SSE 订阅 redis 事件
 			Roles:             activeAdapter,                // 阶段C：GET /roles 场景列表
-			UsageTasks:        convStore,                    // 对话用量：对话→task 解析
-			UsageLLM:          invocationStore,              // 对话用量：LLM token/耗时合计
-			UsageTools:        toolStore,                    // 对话用量：工具耗时合计
+			UsageTasks:        convStore,                    // 会话用量：会话→task 解析
+			UsageLLM:          invocationStore,              // 会话用量：LLM token/耗时合计
+			UsageTools:        toolStore,                    // 会话用量：工具耗时合计
 			EnableDevAutofill: envx.OrDefault("LIUSHA_DEV_AUTOFILL", "") != "",
 		}),
 		ReadTimeout:  time.Duration(cfg.API.ReadTimeoutSeconds) * time.Second,
@@ -276,7 +276,7 @@ type activeScanAdapter struct {
 	hunters       *hunter.Store
 	enq           *worker.Client
 	audit         *audit.Store        // 0047：create 写审计事件；nil 跳过
-	conversations *conversation.Store // 阶段B：StartChatScan 建对话；nil 时仅 CreateActiveScan 可用
+	conversations *conversation.Store // 阶段B：StartChatScan 建会话；nil 时仅 CreateActiveScan 可用
 	roles         []scenario.Role     // 阶段C：场景 role（StartChatScan 默认兜底 + ListRoles 暴露）
 
 	router    *llm.Router           // 多轮：意图分类 + 问答（light provider）
@@ -309,7 +309,7 @@ func (e eventStreamAdapter) Subscribe(ctx context.Context, conversationID string
 }
 
 // createScan 是建 active scan 的核心：建 assignment + task + hunter run + 入 asynq 队列（带
-// conversationID）。CreateActiveScan（无对话纯后台）与 StartChatScan（对话发起）共用。
+// conversationID）。CreateActiveScan（无会话纯后台）与 StartChatScan（会话发起）共用。
 func (a *activeScanAdapter) createScan(ctx context.Context, brief, conversationID, scenarioID string) (string, string, error) {
 	// 一切下发皆走 assignment（§3.1）：单发 = 单元素 assignment(active, manual) → 1 task。
 	asg, err := a.assignments.Create(ctx, assignment.NewParams{
@@ -364,7 +364,7 @@ func (a *activeScanAdapter) expandActiveItem(ctx context.Context, assignmentID, 
 	if _, _, err := a.enq.Enqueue(ctx, worker.RoleHunter, worker.Payload{
 		HunterID:       tid,
 		TaskID:         tk.ID,
-		ConversationID: conversationID, // 阶段B：对话发起时非空 → scanner 发过程事件
+		ConversationID: conversationID, // 阶段B：会话发起时非空 → scanner 发过程事件
 		ScenarioID:     scenarioID,     // 阶段C：场景 role → scanner 注入主代理人设
 		Input:          payloadInput,
 		Role:           worker.RoleHunter,
@@ -430,11 +430,11 @@ func (a *activeScanAdapter) FollowUpScan(ctx context.Context, taskID, conversati
 	return tid, nil
 }
 
-// FollowUpPassive 是 passive 对话内的 action 续接：Reopen 原 task（沿用同一 task 累积 finding）
+// FollowUpPassive 是 passive 会话内的 action 续接：Reopen 原 task（沿用同一 task 累积 finding）
 // → 起一个 traffic-analysis run，entrypoint 带原 host + 用户手敲指令（directive）。
 // 与 FollowUpScan 同构，差异：mode=passive、role=traffic-analysis、directive 透传给 agent 验证。
 //
-// directive 是用户在对话里手敲的内容（自然语言指导，或直接粘的请求/命令）——passive handler
+// directive 是用户在会话里手敲的内容（自然语言指导，或直接粘的请求/命令）——passive handler
 // 拼进 prompt，让 agent 用 run_command/replay_traffic 照打验证；原批流量仍全读，上下文不丢。
 func (a *activeScanAdapter) FollowUpPassive(ctx context.Context, taskID, conversationID, host, directive string) (string, error) {
 	if err := a.tasks.Reopen(ctx, taskID); err != nil {
@@ -468,7 +468,7 @@ func (a *activeScanAdapter) FollowUpPassive(ctx context.Context, taskID, convers
 	return tid, nil
 }
 
-// AbortConversationScan 满足 httpapi.AbortAPI：abort 对话关联的 task。
+// AbortConversationScan 满足 httpapi.AbortAPI：abort 会话关联的 task。
 func (a *activeScanAdapter) AbortConversationScan(ctx context.Context, convID string) error {
 	conv, err := a.conversations.GetConversation(ctx, convID)
 	if err != nil {
@@ -480,9 +480,9 @@ func (a *activeScanAdapter) AbortConversationScan(ctx context.Context, convID st
 	return a.tasks.Abort(ctx, conv.TaskID, "用户停止")
 }
 
-// DeleteConversation 满足 httpapi.ConversationDeleter：删对话+消息，但关联 task 仍在跑时拒删。
+// DeleteConversation 满足 httpapi.ConversationDeleter：删会话+消息，但关联 task 仍在跑时拒删。
 // 「先停后删」的服务端把关——返回 httpapi.ErrConversationScanActive → handler 映射 409。
-// 防「删了对话、扫描脱缰后台跑、UI 再停不掉、还在烧 token」的孤儿（见 reference_deep_subagent_context 同源思路：
+// 防「删了会话、扫描脱缰后台跑、UI 再停不掉、还在烧 token」的孤儿（见 reference_deep_subagent_context 同源思路：
 // 不变量在服务端守，不靠前端）。仅在确证 active 时拦截；无 task / 终态 / task 读不到则照常删。
 func (a *activeScanAdapter) DeleteConversation(ctx context.Context, convID string) error {
 	conv, err := a.conversations.GetConversation(ctx, convID)
@@ -584,13 +584,13 @@ func (a *activeScanAdapter) Publish(ctx context.Context, convID string, payload 
 	return a.publisher.Publish(ctx, convID, payload)
 }
 
-// CreateActiveScan 满足 httpapi.ActiveScanAPI（无对话的纯后台扫描入口）。
+// CreateActiveScan 满足 httpapi.ActiveScanAPI（无会话的纯后台扫描入口）。
 func (a *activeScanAdapter) CreateActiveScan(ctx context.Context, brief string) (string, string, error) {
 	return a.createScan(ctx, brief, "", "")
 }
 
-// StartChatScan 满足 httpapi.ChatAPI：建对话（记 role_id）+ 落用户首条消息 + 发起扫描
-// （入队带 conversationID + scenarioID）+ 关联对话与 scan。返回 conversationID 供前端订阅 SSE。
+// StartChatScan 满足 httpapi.ChatAPI：建会话（记 role_id）+ 落用户首条消息 + 发起扫描
+// （入队带 conversationID + scenarioID）+ 关联会话与 scan。返回 conversationID 供前端订阅 SSE。
 // roleID 空时用默认 active 场景兜底。
 func (a *activeScanAdapter) StartChatScan(ctx context.Context, brief, roleID string) (string, string, error) {
 	if roleID == "" {
@@ -610,7 +610,7 @@ func (a *activeScanAdapter) StartChatScan(ctx context.Context, brief, roleID str
 	if err := a.conversations.LinkTask(ctx, conv.ID, taskID); err != nil {
 		return "", "", fmt.Errorf("link task: %w", err)
 	}
-	// 异步生成智能标题（light LLM 把 brief 总结成短标题）——不阻塞对话创建响应；
+	// 异步生成智能标题（light LLM 把 brief 总结成短标题）——不阻塞会话创建响应；
 	// 失败则保留 briefTitle 截断兜底。前端下次 refresh 列表即见新标题。
 	go a.genTitle(conv.ID, brief)
 	return conv.ID, taskID, nil
@@ -641,7 +641,7 @@ func (a *activeScanAdapter) genTitle(convID, brief string) {
 	_ = a.conversations.SetTitle(ctx, convID, title)
 }
 
-// briefTitle 取 brief 前 40 字（rune 安全，不截半个中文）作对话标题。
+// briefTitle 取 brief 前 40 字（rune 安全，不截半个中文）作会话标题。
 func briefTitle(brief string) string {
 	const maxRunes = 40
 	r := []rune(brief)

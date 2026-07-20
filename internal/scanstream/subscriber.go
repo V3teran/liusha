@@ -9,14 +9,14 @@ import (
 // subscribeBuffer 是订阅事件 channel 的缓冲，吸收 SSE 客户端短暂慢读，避免 redis 推送阻塞。
 const subscribeBuffer = 64
 
-// Subscription 是对一个对话 channel 的订阅（api SSE handler 侧）。
+// Subscription 是对一个会话 channel 的订阅（api SSE handler 侧）。
 // 内部 goroutine 把 redis 消息泵成 []byte channel；用完必须 Close（停泵 + 释放 redis 连接）。
 type Subscription struct {
 	pubsub *redis.PubSub
 	out    chan []byte
 }
 
-// Subscribe 订阅某对话的事件 channel。调用方用 Events() 取 payload，结束调 Close。
+// Subscribe 订阅某会话的事件 channel。调用方用 Events() 取 payload，结束调 Close。
 func Subscribe(ctx context.Context, rdb *redis.Client, conversationID string) *Subscription {
 	ps := rdb.Subscribe(ctx, Channel(conversationID))
 	s := &Subscription{pubsub: ps, out: make(chan []byte, subscribeBuffer)}

@@ -57,7 +57,7 @@ func agentNameFromCtx(ctx context.Context) string {
 	return ""
 }
 
-// NewReasoningCallback 造 reasoning 事件捕获 callbacks。sink nil 时返回 nil（无对话不发）。
+// NewReasoningCallback 造 reasoning 事件捕获 callbacks。sink nil 时返回 nil（无会话不发）。
 func NewReasoningCallback(sink EventSink) callbacks.Handler {
 	if sink == nil {
 		return nil

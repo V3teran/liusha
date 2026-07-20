@@ -392,8 +392,8 @@ react:
   # 协同：与 notes/lesson/finding 分层记忆联动——蒸馏 prompt 引导省略"已 write_* 上提"内容。
   history_compact:
     trigger_ratio: 0.75                     # > 75% × ctx_window 触发 eino summarization 压缩
-    trailing_budget_ratio: 0.15             # ② 对话历史最多占窗口比例（支撑性上下文，留 85% 给任务+finding+工作空间）；随窗口缩放
-    compactor_timeout_seconds: 30           # ② 旧对话蒸馏单次 light LLM 超时
+    trailing_budget_ratio: 0.15             # ② 会话历史最多占窗口比例（支撑性上下文，留 85% 给任务+finding+工作空间）；随窗口缩放
+    compactor_timeout_seconds: 30           # ② 旧会话蒸馏单次 light LLM 超时
 
 # ---- 容器化执行参数（sandbox.Launcher + external.RunCommand）----
 # 容器内存/CPU/并发数等运行时参数下放到 sandbox.DockerLauncher 内部硬编码

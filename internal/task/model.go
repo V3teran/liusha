@@ -1,6 +1,6 @@
 // Package task 实现统一扫描任务的 model + store（合并原 activescan + passivesession）。
 //
-// 业务定位：一次扫描活 = 一个对话。mode 区分主动/被动：
+// 业务定位：一次扫描活 = 一个会话。mode 区分主动/被动：
 //   - active：用户自然语言 brief 主动下发的一次性站点扫描（brief 是核心，target_host 可空）。
 //   - passive：对某 host 一批捕获流量的一次分析（target_host 必填=被分析 host）。
 //

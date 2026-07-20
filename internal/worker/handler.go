@@ -18,7 +18,7 @@ type Payload struct {
 	HunterID       string `json:"hunter_id"`
 	TaskID         string `json:"task_id"` // 所属 task.id
 	OrchestratorID string `json:"orchestrator_id,omitempty"`
-	// ConversationID 关联本任务所属对话（阶段B 对话发起时填）；asynq 自动入口为空——
+	// ConversationID 关联本任务所属会话（阶段B 会话发起时填）；asynq 自动入口为空——
 	// 空则 scanner 不发过程事件、不落 conversation message（向后兼容纯后台扫描）。
 	ConversationID string `json:"conversation_id,omitempty"`
 	// ScenarioID 是场景 role id（阶段C，web-pentest 等）；scanner 据此注入主代理人设。

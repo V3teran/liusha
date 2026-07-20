@@ -99,7 +99,7 @@ func buildUserPrompt(ctx context.Context, deps Deps, p skill.BuilderParams) stri
 		b.WriteString(existing)
 	}
 
-	// notes 笔记板段已退役——agent 思路改输出到对话（reasoning），跨 task 上下文走对话历史。
+	// notes 笔记板段已退役——agent 思路改输出到会话（reasoning），跨 task 上下文走会话历史。
 	// 跨目标长期知识（原 lesson 段）已改为 corpus PULL——agent 用 search_corpus 按需检索，
 	// 不再 PUSH 全量注入（大库无差别注入是噪音，见 lesson→corpus 重构设计）。
 
