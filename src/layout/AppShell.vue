@@ -12,11 +12,11 @@ import { useTheme } from '../composables/useTheme'
 const route = useRoute()
 const { theme, toggle } = useTheme()
 
-// 导航项平铺，均可点、同样式。主动扫描=对话发起 active；流量监听=被动代理流量分析。
+// 导航项平铺，均可点、同样式。自主渗透=下 brief AI 自主作战 active；流量分析=被动代理流量逐批分析。
 const nav = [
   { to: '/dashboard', label: '总览', icon: Dashboard },
-  { to: '/active-scan', label: '主动扫描', icon: Crosshair },
-  { to: '/traffic', label: '流量监听', icon: PlugConnected },
+  { to: '/engagement', label: '自主渗透', icon: Crosshair },
+  { to: '/traffic', label: '流量分析', icon: PlugConnected },
   { to: '/findings', label: '漏洞发现', icon: Bug },
   { to: '/sitemap', label: '攻击面', icon: Sitemap },
   { to: '/attack-graph', label: '执行图', icon: Affiliate },

@@ -2,67 +2,31 @@
 // 对话主线：从 store 读有序消息逐条渲染，末尾挂流式推理活动气泡（逐字打字机）。
 // 自动滚底：仅当用户本就贴在底部时，新消息/增量才把视图顶到最新——向上翻看历史时不打扰。
 import { computed, nextTick, ref, watch } from 'vue'
-import type { Message } from '../api/types'
 import { useConversationStore } from '../stores/conversation'
 import { dayKey, dayLabel } from '../lib/format'
-import { classifyMessage, isCollapsibleTool } from '../lib/messageKind'
+import { buildThreadRows } from '../lib/threadRows'
 import MessageItem from './MessageItem.vue'
 import StepTools from './StepTools.vue'
 import ReasoningCard from './cards/ReasoningCard.vue'
 import Avatar from './cards/Avatar.vue'
+import { useTypewriter } from '../composables/useTypewriter'
 
 const store = useConversationStore()
 const el = ref<HTMLElement>()
+
+// 流式推理逐字揭示：后端 reasoning 流经 eino ReAct 图被 ConcatMessageStream 拍平（逐 token 在
+// eino 内部即被抽干），到前端时整段 delta 毫秒内涌出。直接绑 liveReasoning 会整块蹦出、无逐字感。
+// useTypewriter 把「已到达全文」按稳定节奏本地揭示，与网络到达节奏解耦（业界通行：ChatGPT/Claude UI）。
+const typedReasoning = useTypewriter(computed(() => store.liveReasoning))
 
 // 在消息流中按天插入分隔条（今天 / 昨天 / 日期）——跨天对话一眼可辨，内联卡片只显示时分秒。
 // step：本次「用户指令」内的全局推理步号——每条 reasoning(想) 递增一步，跨所有 agent 统一计数
 // （不按 agent 分组：一个 type 如 exploitation 会被 spawn 多个并发实例，按 type 累计会混淆、
 //  按实例又无标识可分；全局序号无歧义）。**每条用户消息重置**：一次指令(发起→结束)是一个计数
 // 周期，追加(follow-up)算新指令、步号从头。配合卡片已有的 agent 标签（编排/侦察/利用）定位「谁的第几步」。
-// 按步分组渲染：reasoning(想)/spawn(派发)/finding(漏洞)/对话 留在外面独立成卡；
-// 紧随某步的普通工具调用(tool-call/tool-result)累积成一个折叠组（StepTools），默认收起、点击展开——
-// 减少噪音。'tools' row 即一段连续工具，遇到非工具消息(或换天)就 flush 收尾。
-type Row =
-  | { kind: 'divider'; key: string; label: string }
-  | { kind: 'msg'; key: number; msg: Message; step?: number }
-  | { kind: 'tools'; key: string; tools: Message[] }
-const rows = computed<Row[]>(() => {
-  const out: Row[] = []
-  let lastDay = ''
-  let step = 0
-  let bucket: Message[] = [] // 累积的连续工具调用，遇非工具消息时 flush
-  const flush = () => {
-    if (bucket.length) {
-      out.push({ kind: 'tools', key: 'tools-' + bucket[0].Seq, tools: bucket })
-      bucket = []
-    }
-  }
-  for (const m of store.messages) {
-    const tag = classifyMessage(m)
-    if (tag === 'hidden') continue
-    // 普通工具调用 → 进折叠桶，不单独成行。
-    if (isCollapsibleTool(tag)) {
-      bucket.push(m)
-      continue
-    }
-    flush() // 非工具消息：先收尾当前工具组
-    // 用户指令边界：每条用户消息重置步号（追加 = 新指令 = 新计数周期）。
-    if (m.Role === 'user') step = 0
-    const day = dayKey(m.CreatedAt)
-    if (day && day !== lastDay) {
-      out.push({ kind: 'divider', key: 'day-' + day, label: dayLabel(m.CreatedAt) })
-      lastDay = day
-    }
-    let stepNo: number | undefined
-    if (tag === 'reasoning') {
-      step += 1
-      stepNo = step
-    }
-    out.push({ kind: 'msg', key: m.Seq, msg: m, step: stepNo })
-  }
-  flush() // 末尾残留工具组
-  return out
-})
+// 按步分组渲染：分组逻辑抽到 lib/threadRows（与轨迹版 TimelineThread 共用，避免两处分歧）。
+// reasoning(想)/spawn(派发)/finding(漏洞)/对话 独立成卡；紧随某步的普通工具调用折叠成组（StepTools）。
+const rows = computed(() => buildThreadRows(store.messages, { dayKey, dayLabel }))
 
 function nearBottom() {
   const e = el.value
@@ -101,8 +65,9 @@ watch(
     else if (n > (prev ?? 0)) unread.value += n - (prev ?? 0)
   },
 )
-// 流式增量只在贴底时跟随滚动，不计未读（增量不是新消息）。
-watch(() => store.liveReasoning, stickToBottom)
+// 流式逐字揭示时贴底跟随滚动，不计未读（增量不是新消息）。跟 typedReasoning（渐进变化）
+// 而非 liveReasoning（整块跳变）——让滚动随打字机平滑推进，而不是一次跳到底。
+watch(typedReasoning, stickToBottom)
 </script>
 
 <template>
@@ -130,7 +95,7 @@ watch(() => store.liveReasoning, stickToBottom)
       <div v-if="store.liveReasoning" class="msg-row" aria-hidden="true">
         <div class="avatar-slot"><Avatar who="agent" /></div>
         <div class="msg-content">
-          <ReasoningCard :text="store.liveReasoning" :agent-name="store.liveAgentName || undefined" streaming />
+          <ReasoningCard :text="typedReasoning" :agent-name="store.liveAgentName || undefined" streaming />
         </div>
       </div>
     </div>

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// 对话页：复用既有对话链路（ConversationList + ChatThread + Composer + SSE）。
+// 自主渗透页：ConversationList(仅 active) + TimelineThread(作战轨迹) + Composer + SSE。
 // 选中/发起对话切流：关旧 SSE、清 store、补历史、订新流。
 // 状态条：用量端点权威 running 字段（active_scan/passive_session 终态）→ "agent 工作中"；
 //   不再用"N 秒无活动"启发——避免打开已结束会话因历史回灌误判为工作中。
@@ -11,7 +11,7 @@ import { useConversationStore } from '../stores/conversation'
 import { openEventStream, type StreamHandle } from '../composables/useEventStream'
 import ConversationList from '../components/ConversationList.vue'
 import Composer from '../components/Composer.vue'
-import ChatThread from '../components/ChatThread.vue'
+import TimelineThread from '../components/TimelineThread.vue'
 import { compactNumber, humanTokens, humanDuration, fullTime } from '../lib/format'
 import { scanStatusMeta } from '../lib/scanStatus'
 
@@ -182,6 +182,7 @@ async function stop() {
     <ConversationList
       ref="convList"
       :active-id="currentConv || undefined"
+      mode="active"
       @select="open"
       @new="newConversation"
       @deleted="onConvDeleted"
@@ -233,7 +234,7 @@ async function stop() {
           <div class="sk-line sk-w3" />
         </div>
       </div>
-      <ChatThread v-else-if="hasConv || store.messages.length" />
+      <TimelineThread v-else-if="hasConv || store.messages.length" />
       <div v-else class="chat-empty">
         <div class="empty-card">
           <div class="empty-mark">⌖</div>

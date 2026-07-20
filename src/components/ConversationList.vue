@@ -8,16 +8,20 @@ import type { Conversation } from '../api/types'
 import { relativeTime, fullTime } from '../lib/format'
 import { scanStatusMeta } from '../lib/scanStatus'
 
-const props = defineProps<{ activeId?: string }>()
+// mode 过滤：自主渗透页传 'active'、流量分析页传 'passive'——只列该模式会话，两模式互不混。
+// 纯聊天会话（Mode 空）不属于任一模式，传了 mode 就不显示。不传则列全部（向后兼容）。
+const props = defineProps<{ activeId?: string; mode?: string }>()
 const items = ref<Conversation[]>([])
 const emit = defineEmits<{ select: [convID: string]; new: []; deleted: [convID: string] }>()
 
-// 搜索过滤：按标题（去前缀后）+ id 前缀匹配，纯前端（列表本就全量拉取，无需再打后端）。
+// 搜索过滤：先按 mode 过滤，再按标题（去前缀后）+ id 前缀匹配，纯前端（列表本就全量拉取）。
 const query = ref('')
 const filtered = computed(() => {
+  let base = items.value
+  if (props.mode) base = base.filter((c) => c.Mode === props.mode)
   const q = query.value.trim().toLowerCase()
-  if (!q) return items.value
-  return items.value.filter(
+  if (!q) return base
+  return base.filter(
     (c) => fullTitle(c).toLowerCase().includes(q) || c.ID.toLowerCase().startsWith(q),
   )
 })
