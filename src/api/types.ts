@@ -43,7 +43,7 @@ export interface Message {
 }
 
 /**
- * 会话会话
+ * 会话
  * 大写键（Go 端序列化格式）
  */
 export interface Conversation {
