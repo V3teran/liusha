@@ -26,6 +26,7 @@ function onConvDeleted(convID: string) {
       :active-id="currentConv || undefined"
       mode="passive"
       :allow-new="false"
+      heading="流量批次"
       empty-hint="暂无流量分析会话——挂代理（passive 8888）收到流量后自动逐批分析"
       @select="selectConv"
       @deleted="onConvDeleted"

@@ -12,8 +12,9 @@ import { scanStatusMeta } from '../lib/scanStatus'
 // 纯聊天会话（Mode 空）不属于任一模式，传了 mode 就不显示。不传则列全部（向后兼容）。
 // allowNew：是否显示「+ 新对话」——active 可手动发起=true；passive 由流量驱动自动建会话=false。
 // emptyHint：无会话时的空态文案（passive 需引导「挂代理收流量」，与 active 不同）。
+// heading：无「新对话」时头部左侧的标题文案（passive 用「流量批次」；仅 allowNew=false 生效）。
 const props = withDefaults(
-  defineProps<{ activeId?: string; mode?: string; allowNew?: boolean; emptyHint?: string }>(),
+  defineProps<{ activeId?: string; mode?: string; allowNew?: boolean; emptyHint?: string; heading?: string }>(),
   { allowNew: true },
 )
 const items = ref<Conversation[]>([])
@@ -163,7 +164,12 @@ async function commitRename(c: Conversation) {
   <aside class="conv-list">
     <div class="cl-head">
       <button v-if="props.allowNew" class="new-conv" @click="emit('new')">+ 新对话</button>
-      <button class="refresh" :class="{ solo: !props.allowNew }" title="刷新列表" @click="refresh">↻</button>
+      <!-- passive 无「新对话」：头部改为「标题 + 计数」，↻ 靠右保持紧凑，不再撑满整行。 -->
+      <span v-else class="cl-heading">
+        {{ props.heading || '会话' }}
+        <span v-if="filtered.length" class="cl-count">{{ filtered.length }}</span>
+      </span>
+      <button class="refresh" title="刷新列表" @click="refresh">↻</button>
     </div>
     <div class="cl-search">
       <input
@@ -242,6 +248,7 @@ async function commitRename(c: Conversation) {
 }
 .cl-head {
   display: flex;
+  align-items: center;
   gap: 6px;
 }
 .new-conv {
@@ -359,8 +366,26 @@ li.active {
   line-height: 1.5;
   flex-shrink: 0;
 }
-/* passive 无「新对话」时，↻ 独占一行铺满（不再是 active 那个 36px 方钮） */
-.refresh.solo { width: 100%; }
+/* passive 头部：左标题 + 计数，↻ 靠右紧凑（不撑满） */
+.cl-heading {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  padding-left: 2px;
+}
+.cl-count {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+  background: var(--surface-2);
+  border-radius: 999px;
+  padding: 0 7px;
+  line-height: 1.6;
+}
 /* 状态文字色（只 color） */
 .st-active {
   color: #34d399;
