@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // 步内工具折叠：一个 reasoning(想) 之下的若干工具调用默认收起成一行按钮，点击展开。
-// 减少对话流噪音——工具调用细节按需查看；派发/漏洞/想 不进这里（由 ChatThread 留在外面）。
+// 减少会话流噪音——工具调用细节按需查看；派发/漏洞/想 不进这里（由 ChatThread 留在外面）。
 import { ref, computed } from 'vue'
 import type { Message } from '../api/types'
 import MessageItem from './MessageItem.vue'

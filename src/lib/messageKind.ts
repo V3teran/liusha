@@ -1,6 +1,6 @@
 import type { Message } from '../api/types'
 
-// 对话卡片分类——单一真相源，MessageItem（渲染分发）与 ChatThread（按步分组折叠）共用，避免逻辑分叉。
+// 会话卡片分类——单一真相源，MessageItem（渲染分发）与 ChatThread（按步分组折叠）共用，避免逻辑分叉。
 //
 // write_finding 一次产生两条事件：tool_call（带 Args=漏洞详情）+ tool_result（仅 {id}）。
 // → tool_call 渲染 finding 卡（须含 summary，否则是残缺重发→hidden）；tool_result 隐藏。
@@ -38,7 +38,7 @@ export function classifyMessage(m: Message): MessageKindTag {
   return 'tool-result'
 }
 
-// 普通工具调用（tool-call / tool-result）——会被折叠进步组；其余（漏洞/派发/派发完成/想/对话）留在外面。
+// 普通工具调用（tool-call / tool-result）——会被折叠进步组；其余（漏洞/派发/派发完成/想/会话）留在外面。
 export function isCollapsibleTool(tag: MessageKindTag): boolean {
   return tag === 'tool-call' || tag === 'tool-result'
 }

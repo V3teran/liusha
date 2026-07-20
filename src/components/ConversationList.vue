@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// 对话侧栏：挂载时拉对话列表，点击向上抛选中 ID；顶部「+ 新对话」抛 new。
+// 会话侧栏：挂载时拉会话列表，点击向上抛选中 ID；顶部「+ 新会话」抛 new。
 // 列表项展示真实状态点 + 标题 + 相对时间，hover 出 ⋯ 更多菜单（删除，留扩展位），当前选中高亮。
 // 对齐 ChatGPT/Claude/Claude Code 侧栏惯例。
 import { onMounted, ref, onBeforeUnmount, computed } from 'vue'
@@ -10,9 +10,9 @@ import { scanStatusMeta } from '../lib/scanStatus'
 
 // mode 过滤：渗透会话页传 'active'、流量分析页传 'passive'——只列该模式会话，两模式互不混。
 // 纯聊天会话（Mode 空）不属于任一模式，传了 mode 就不显示。不传则列全部（向后兼容）。
-// allowNew：是否显示「+ 新对话」——active 可手动发起=true；passive 由流量驱动自动建会话=false。
+// allowNew：是否显示「+ 新会话」——active 可手动发起=true；passive 由流量驱动自动建会话=false。
 // emptyHint：无会话时的空态文案（passive 需引导「挂代理收流量」，与 active 不同）。
-// heading：无「新对话」时头部左侧的标题文案（passive 用「流量批次」；仅 allowNew=false 生效）。
+// heading：无「新会话」时头部左侧的标题文案（passive 用「流量批次」；仅 allowNew=false 生效）。
 const props = withDefaults(
   defineProps<{ activeId?: string; mode?: string; allowNew?: boolean; emptyHint?: string; heading?: string }>(),
   { allowNew: true },
@@ -20,11 +20,16 @@ const props = withDefaults(
 const items = ref<Conversation[]>([])
 const emit = defineEmits<{ select: [convID: string]; new: []; deleted: [convID: string] }>()
 
-// 搜索过滤：先按 mode 过滤，再按标题（去前缀后）+ id 前缀匹配，纯前端（列表本就全量拉取）。
+// 本模式会话（仅按 mode 过滤、搜索前）——驱动计数条总数「共 N 个会话」。
+const modeFiltered = computed(() =>
+  props.mode ? items.value.filter((c) => c.Mode === props.mode) : items.value,
+)
+const modeTotal = computed(() => modeFiltered.value.length)
+
+// 搜索过滤：在本模式基础上再按标题（去前缀后）+ id 前缀匹配，纯前端（列表本就全量拉取）。
 const query = ref('')
 const filtered = computed(() => {
-  let base = items.value
-  if (props.mode) base = base.filter((c) => c.Mode === props.mode)
+  const base = modeFiltered.value
   const q = query.value.trim().toLowerCase()
   if (!q) return base
   return base.filter(
@@ -38,8 +43,8 @@ async function refresh() {
 onMounted(refresh)
 defineExpose({ refresh })
 
-// 自适应轮询：仅当列表存在「进行中(active)」对话时每 8s 刷新——感知后台对话跑完/状态变化，
-// 彻底覆盖「看着对话 A、对话 B 后台跑完」场景。全部终态则不轮询（零浪费）；菜单开着时跳过（不打断操作）。
+// 自适应轮询：仅当列表存在「进行中(active)」会话时每 8s 刷新——感知后台会话跑完/状态变化，
+// 彻底覆盖「看着会话 A、会话 B 后台跑完」场景。全部终态则不轮询（零浪费）；菜单开着时跳过（不打断操作）。
 let pollTimer: number | undefined
 onMounted(() => {
   pollTimer = window.setInterval(() => {
@@ -71,7 +76,7 @@ function fullTitle(c: Conversation): string {
 }
 
 // ⋯ 更多菜单：开/关 + 点外部关闭。
-// 菜单经 Teleport 渲染到 body、用 fixed 视口坐标定位——逃离对话列表 ul 的 overflow 裁剪
+// 菜单经 Teleport 渲染到 body、用 fixed 视口坐标定位——逃离会话列表 ul 的 overflow 裁剪
 // （否则底部/边缘列表项的下拉菜单会被 ul 的 overflow-y:auto 裁掉，显示不全）。
 const menuOpen = ref<string>('')
 const menuConv = ref<Conversation | null>(null)
@@ -97,18 +102,18 @@ onBeforeUnmount(() => document.removeEventListener('click', closeMenu))
 
 const deleting = ref<string>('')
 // 扫描进行中提示文案（前端拦截 + 后端 409 共用一套话术）。
-const SCAN_ACTIVE_HINT = '扫描进行中，无法删除。请先在对话页点「■ 停止扫描」，停止后再删除。'
+const SCAN_ACTIVE_HINT = '扫描进行中，无法删除。请先在会话页点「■ 停止扫描」，停止后再删除。'
 async function onDelete(c: Conversation, ev: Event) {
   ev.stopPropagation()
   menuOpen.value = ''
   if (deleting.value) return
-  // 活跃扫描不许删（业界惯例：先停后删，防「删了对话、扫描脱缰、UI 再停不掉」的孤儿）。
+  // 活跃扫描不许删（业界惯例：先停后删，防「删了会话、扫描脱缰、UI 再停不掉」的孤儿）。
   // 前端拦一道（即时反馈），后端 409 兜底（防列表态过期 / 绕过前端）。
   if (c.RunStatus === 'active') {
     window.alert(SCAN_ACTIVE_HINT)
     return
   }
-  if (!window.confirm(`删除对话「${displayTitle(c)}」？\n对话和消息会删除，扫描成果（漏洞/图）保留。`)) return
+  if (!window.confirm(`删除会话「${displayTitle(c)}」？\n会话和消息会删除，扫描成果（漏洞/图）保留。`)) return
   deleting.value = c.ID
   try {
     await deleteConversation(c.ID)
@@ -163,22 +168,24 @@ async function commitRename(c: Conversation) {
 <template>
   <aside class="conv-list">
     <div class="cl-head">
-      <button v-if="props.allowNew" class="new-conv" @click="emit('new')">+ 新对话</button>
-      <!-- passive 无「新对话」：头部改为「标题 + 计数」，↻ 靠右保持紧凑，不再撑满整行。 -->
-      <span v-else class="cl-heading">
-        {{ props.heading || '会话' }}
-        <span v-if="filtered.length" class="cl-count">{{ filtered.length }}</span>
-      </span>
+      <button v-if="props.allowNew" class="new-conv" @click="emit('new')">+ 新会话</button>
+      <!-- passive 无「新会话」：头部改为标题，↻ 靠右保持紧凑，不再撑满整行。计数统一放搜索下方。 -->
+      <span v-else class="cl-heading">{{ props.heading || '会话' }}</span>
       <button class="refresh" title="刷新列表" @click="refresh">↻</button>
     </div>
     <div class="cl-search">
       <input
         v-model="query"
         type="search"
-        placeholder="搜索对话…"
-        aria-label="搜索对话"
+        placeholder="搜索会话…"
+        aria-label="搜索会话"
         spellcheck="false"
       />
+    </div>
+    <!-- 会话计数条（两模式统一）：无搜索时显示总数，搜索时显示匹配数。 -->
+    <div v-if="items.length" class="cl-count-bar">
+      <span v-if="query.trim()">{{ filtered.length }} 个匹配 · 共 {{ modeTotal }}</span>
+      <span v-else>共 {{ modeTotal }} 个会话</span>
     </div>
     <ul>
       <li
@@ -211,7 +218,7 @@ async function commitRename(c: Conversation) {
           <button class="cl-more" title="更多" @click="toggleMenu(c, $event)">⋯</button>
         </div>
       </li>
-      <li v-if="!filtered.length" class="cl-empty">{{ query.trim() ? '无匹配对话' : (props.emptyHint || '暂无对话') }}</li>
+      <li v-if="!filtered.length" class="cl-empty">{{ query.trim() ? '无匹配会话' : (props.emptyHint || '暂无会话') }}</li>
     </ul>
     <!-- ⋯ 菜单 Teleport 到 body：fixed 视口定位，不被 ul overflow 裁剪 -->
     <Teleport to="body">
@@ -222,7 +229,7 @@ async function commitRename(c: Conversation) {
           v-if="menuConv.RunStatus === 'active'"
           class="cl-menu-item disabled-hint"
           disabled
-          title="扫描进行中，先在对话页「■ 停止扫描」，停止后再删除"
+          title="扫描进行中，先在会话页「■ 停止扫描」，停止后再删除"
         >
           ⏳ 扫描中 · 先停止再删
         </button>
@@ -232,7 +239,7 @@ async function commitRename(c: Conversation) {
           :disabled="deleting === menuConv.ID"
           @click="onDelete(menuConv, $event)"
         >
-          🗑 删除对话
+          🗑 删除会话
         </button>
       </div>
     </Teleport>
@@ -369,25 +376,22 @@ li.active {
   line-height: 1.5;
   flex-shrink: 0;
 }
-/* passive 头部：左标题 + 计数，↻ 靠右紧凑（不撑满） */
+/* passive 头部标题：↻ 靠右紧凑（不撑满） */
 .cl-heading {
   flex: 1;
   display: inline-flex;
   align-items: center;
-  gap: 7px;
   font-size: 13px;
   font-weight: 600;
   color: var(--text);
   padding-left: 2px;
 }
-.cl-count {
+/* 会话计数条（两模式统一，搜索框下方一行小字） */
+.cl-count-bar {
   font-size: 11px;
-  font-weight: 600;
   color: var(--muted);
-  background: var(--surface-2);
-  border-radius: 999px;
-  padding: 0 7px;
-  line-height: 1.6;
+  font-family: var(--mono);
+  padding: 0 2px 2px;
 }
 /* 状态文字色（只 color） */
 .st-active {

@@ -6,7 +6,7 @@ import { useConversationStore } from '../stores/conversation'
 
 describe('ChatThread', () => {
   beforeEach(() => setActivePinia(createPinia()))
-  it('对话消息独立成卡，普通工具调用折叠进步组（默认收起）', () => {
+  it('会话消息独立成卡，普通工具调用折叠进步组（默认收起）', () => {
     const s = useConversationStore()
     s.ingest({ Seq: 1, ID: 'm1', ConversationID: 'c', Role: 'user', Kind: 'message', Content: 'hi', Metadata: null, CreatedAt: '' })
     s.ingest({ Seq: 2, ID: 'm2', ConversationID: 'c', Role: 'tool', Kind: 'event', Content: '', Metadata: { Kind: 'tool_call', ToolName: 'run_command', Args: '', Result: '', DurationMs: 0, Err: '' }, CreatedAt: '' })

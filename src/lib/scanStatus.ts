@@ -3,7 +3,7 @@
 // 错显示成"已完成"）。
 //
 // 状态来自 active_scan.status / passive_session.status（任务层真实态）：
-//   active=进行中 / completed=已完成 / aborted=已中止 / 空=对话（纯聊天无关联扫描）。
+//   active=进行中 / completed=已完成 / aborted=已中止 / 空=会话（纯聊天无关联扫描）。
 export interface ScanStatusMeta {
   label: string
   key: string // active / done / aborted / idle —— 驱动 css class
@@ -19,6 +19,6 @@ export function scanStatusMeta(status: string | undefined): ScanStatusMeta {
     case 'aborted':
       return { label: '已中止', key: 'aborted', color: '#94a3b8' }
     default:
-      return { label: '对话', key: 'idle', color: '#64748b' } // 空/纯聊天
+      return { label: '会话', key: 'idle', color: '#64748b' } // 空/纯聊天
   }
 }

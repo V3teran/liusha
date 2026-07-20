@@ -45,7 +45,7 @@ describe('API 客户端', () => {
       })
     })
 
-    it('listConversations 返回对话列表', async () => {
+    it('listConversations 返回会话列表', async () => {
       const mockFetch = vi.fn().mockResolvedValue({
         ok: true,
         json: vi.fn().mockResolvedValue({

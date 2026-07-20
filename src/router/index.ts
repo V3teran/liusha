@@ -11,7 +11,7 @@ const routes: RouteRecordRaw[] = [
     children: [
       { path: '', redirect: '/active' },
       { path: 'dashboard', name: 'dashboard', component: () => import('../views/PlaceholderView.vue'), meta: { title: '总览' } },
-      // 渗透会话：用户下 brief → AI orchestrator 自主派子代理作战。此页发起 active 对话 + 观战。
+      // 渗透会话：用户下 brief → AI orchestrator 自主派子代理作战。此页发起 active 会话 + 观战。
       // path=/active 对齐后端 task.mode；页名避开 task/assignment 层级词（留给以后的批量/定时下发页）。
       { path: 'active', name: 'active', component: () => import('../views/ChatView.vue'), meta: { title: '渗透会话' } },
       { path: 'findings', name: 'findings', component: () => import('../views/FindingsView.vue'), meta: { title: '漏洞发现' } },

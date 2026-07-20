@@ -1,4 +1,4 @@
-// 时间与度量格式化：对话卡片时间戳 + 会话总计（token / 耗时）。
+// 时间与度量格式化：会话卡片时间戳 + 会话总计（token / 耗时）。
 
 const pad = (n: number): string => String(n).padStart(2, '0')
 

@@ -98,20 +98,20 @@ export async function listRoles(): Promise<Role[]> {
 }
 
 /**
- * 获取对话列表
+ * 获取会话列表
  */
 export async function listConversations(): Promise<Conversation[]> {
   return (await get<{ conversations: Conversation[] }>('/conversations')).conversations
 }
 
 /**
- * 获取对话中的消息（自动分页拉全）。
+ * 获取会话中的消息（自动分页拉全）。
  *
  * 后端单次返回上限 500 条（clampLimit），长会话（active 扫描动辄上千条事件）一次拉不完。
  * 故内部循环按 after_seq 翻页直到拉空——否则打开/刷新长会话只显示前 500 条，
  * 停在中途某条（实测停在 orchestrator 收尾报告之前，用户看不到最终结果）。
  *
- * @param convID 对话 ID
+ * @param convID 会话 ID
  * @param afterSeq 起始游标，仅返回 Seq > afterSeq 的消息（默认 0 = 从头拉全）
  */
 export async function listMessages(convID: string, afterSeq = 0): Promise<Message[]> {
@@ -131,7 +131,7 @@ export async function listMessages(convID: string, afterSeq = 0): Promise<Messag
 }
 
 /**
- * 拉取本对话的用量合计（权威：后端 SUM llm_invocation + tool_invocation）。
+ * 拉取本会话的用量合计（权威：后端 SUM llm_invocation + tool_invocation）。
  * 用于会话头部 token / 耗时 chip，支持轮询实时刷新。
  */
 export async function getConversationUsage(convID: string): Promise<ConversationUsage> {
@@ -155,7 +155,7 @@ export async function authStream(convID: string): Promise<void> {
 }
 
 /**
- * 发起对话扫描
+ * 发起会话扫描
  * 成功后后端 Set-Cookie liusha_stream（SSE 鉴权用）
  * @param brief 扫描目标描述
  * @param roleID 角色 ID
@@ -178,9 +178,9 @@ export async function startChat(
 }
 
 /**
- * 多轮：往已有对话追加动作消息。
+ * 多轮：往已有会话追加动作消息。
  * 扫描进行中（409）时抛带 busy 标记的错，前端提示停止后再发。
- * @param convID 对话 ID
+ * @param convID 会话 ID
  * @param content 消息内容
  * @returns intent 和可选的 scan_id
  */
@@ -206,8 +206,8 @@ export async function followUp(
 }
 
 /**
- * 停止对话关联的扫描。
- * @param convID 对话 ID
+ * 停止会话关联的扫描。
+ * @param convID 会话 ID
  */
 export async function abortScan(convID: string): Promise<void> {
   const res = await fetch(`/api/conversations/${convID}/abort`, {
@@ -217,7 +217,7 @@ export async function abortScan(convID: string): Promise<void> {
   if (!res.ok) throw new Error(`POST /conversations/${convID}/abort → ${res.status}`)
 }
 
-// 删除对话及其消息（后端 message FK CASCADE 连带删；不动关联 scan/finding 成果）。
+// 删除会话及其消息（后端 message FK CASCADE 连带删；不动关联 scan/finding 成果）。
 // 关联扫描仍在跑时后端返回 409 → 抛 'SCAN_ACTIVE' 哨兵，调用方提示「先停后删」。
 export async function deleteConversation(convID: string): Promise<void> {
   const res = await fetch(`/api/conversations/${convID}`, {
@@ -228,7 +228,7 @@ export async function deleteConversation(convID: string): Promise<void> {
   if (!res.ok) throw new Error(`DELETE /conversations/${convID} → ${res.status}`)
 }
 
-// 重命名对话标题（PATCH /conversations/:id）。空 title → 后端存 NULL，展示回落首条消息摘要。
+// 重命名会话标题（PATCH /conversations/:id）。空 title → 后端存 NULL，展示回落首条消息摘要。
 export async function renameConversation(convID: string, title: string): Promise<void> {
   const res = await fetch(`/api/conversations/${convID}`, {
     method: 'PATCH',
@@ -291,7 +291,7 @@ export async function getSitemap(ownerID: string, host = ''): Promise<SitemapVie
 
 /**
  * 拉取执行图（思维链 + 成果链）。read-model 实时投影。
- * @param conv 可选，对话 id（思维链来源）；缺省只出成果链
+ * @param conv 可选，会话 id（思维链来源）；缺省只出成果链
  * @param type owner 类型，缺省 active_scan
  */
 export async function getAttackGraph(

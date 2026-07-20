@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // 发起器：选角色 + 写 brief。
-// 有 convId 走追加（followUp），否则新建对话（startChat）并向上抛新对话 ID。
+// 有 convId 走追加（followUp），否则新建会话（startChat）并向上抛新会话 ID。
 import { ref } from 'vue'
 import { startChat, followUp } from '../api/client'
 import { useConversationStore } from '../stores/conversation'

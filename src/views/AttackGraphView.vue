@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// 执行图页：选 active owner → 解析对话（思维链来源）→ 拉执行图 → G6 分层 DAG 渲染。
+// 执行图页：选 active owner → 解析会话（思维链来源）→ 拉执行图 → G6 分层 DAG 渲染。
 // 节点：想(reasoning)/做+得(action)/漏洞(finding)/派(agent)；边：flow 实线、depends_on 虚线。
 // 布局 antv-dagre（自上而下）；点节点弹详情。canvas 渲染，颜色取自 CSS 变量（主题色）+ severityColor。
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
@@ -66,7 +66,7 @@ async function load() {
   error.value = ''
   data.value = null
   try {
-    // owner → conv：找 scan_id === owner 的对话（思维链来源）；无对话不致命，只出成果链。
+    // owner → conv：找 scan_id === owner 的会话（思维链来源）；无会话不致命，只出成果链。
     let conv = ''
     try {
       const convs = await listConversations()
@@ -88,7 +88,7 @@ async function load() {
   }
 }
 
-// 增量拉对话消息（仅 seq > lastContentSeq 的新消息），并入 message id → 内容映射，供钻取看原文。
+// 增量拉会话消息（仅 seq > lastContentSeq 的新消息），并入 message id → 内容映射，供钻取看原文。
 async function fetchContents(conv: string) {
   const m = { ...contentByRef.value }
   let after = lastContentSeq

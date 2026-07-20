@@ -17,7 +17,7 @@ export interface StreamHandle {
 const MAX_BACKOFF_MS = 15000
 
 /**
- * 订阅某对话的 SSE 流。
+ * 订阅某会话的 SSE 流。
  *
  * EventSource 不能带 X-API-Key header，鉴权靠 HttpOnly stream cookie——故每次（重）连前
  * 先 `authStream` 用 X-API-Key 换取/刷新该会话的 cookie，再开 EventSource。这样打开任意
@@ -27,8 +27,8 @@ const MAX_BACKOFF_MS = 15000
  * 自管重连：接管浏览器默认重连（onerror→close→退避后重新 authStream+连），以便每次重连
  * 都刷新 cookie；指数退避上限 15s。
  *
- * @param convID 对话 ID
- * @param store 对话 store 实例
+ * @param convID 会话 ID
+ * @param store 会话 store 实例
  * @returns 流句柄，调用 close() 关闭连接
  */
 export function openEventStream(convID: string, store: Store): StreamHandle {

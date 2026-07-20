@@ -43,7 +43,7 @@ export interface Message {
 }
 
 /**
- * 对话会话
+ * 会话会话
  * 大写键（Go 端序列化格式）
  */
 export interface Conversation {
@@ -54,19 +54,19 @@ export interface Conversation {
   // Status 已退役删除（后端不再返回）——运行态用 RunStatus。
   RunStatus?: string // 派生的真实运行态（active/completed/aborted；纯聊天空）——列表显示用此
   Mode?: string // 派生的模式（active/passive；纯聊天空）——渗透会话页/流量分析页据此分流列表
-  FindingCount?: number // 本对话关联 task 已挖到的漏洞数——流量分析 feed 卡「host · N findings」摘要
+  FindingCount?: number // 本会话关联 task 已挖到的漏洞数——流量分析 feed 卡「host · N findings」摘要
   CreatedAt: string
   UpdatedAt: string
 }
 
 /**
- * 对话用量合计（GET /conversations/:id/usage）
+ * 会话用量合计（GET /conversations/:id/usage）
  * 权威口径：后端 SUM llm_invocation + tool_invocation（覆盖纯 tool_call 调用 + 缓存 token），
  * 非前端按 SSE 事件求和。小写键（Go gin.H DTO）。
  */
 export interface ConversationUsage {
   conversation_id: string
-  owner_id: string // 纯聊天对话为空
+  owner_id: string // 纯聊天会话为空
   tokens: { in: number; out: number; cached: number; total: number }
   llm_latency_ms: number // 所有 LLM 调用耗时合计（明细）
   tool_duration_ms: number // 所有工具执行耗时合计（明细）
@@ -118,7 +118,7 @@ export interface OwnerSummary {
   expires_at?: string
   ended_at?: string
   error_message?: string
-  // 阶段2：passive 会话绑定的对话流 id；前端据此打开会话流实时观察 + 插话。
+  // 阶段2：passive 会话绑定的会话流 id；前端据此打开会话流实时观察 + 插话。
   conversation_id?: string
 }
 

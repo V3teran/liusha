@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // 压缩卡：上下文压缩发生时显示（老 turn 蒸馏成 1 条摘要，防 context 爆）。
-// 让用户对长对话的上下文裁剪有感知（对齐 Claude Code 的 compaction 可见），点击展开看蒸馏摘要。
+// 让用户对长会话的上下文裁剪有感知（对齐 Claude Code 的 compaction 可见），点击展开看蒸馏摘要。
 import { ref } from 'vue'
 
 defineProps<{

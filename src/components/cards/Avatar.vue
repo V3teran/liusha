@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// 对话头像：agent=鲨齿剑 logo，user=同款深底圆+红剪影。
+// 会话头像：agent=鲨齿剑 logo，user=同款深底圆+红剪影。
 // 两者同色系深底圆，双主题（深/浅）下都是清晰一致的深色圆头像，风格统一。
 defineProps<{ who: 'user' | 'agent' }>()
 </script>

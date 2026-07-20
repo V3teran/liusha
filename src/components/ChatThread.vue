@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// 对话主线：从 store 读有序消息逐条渲染，末尾挂流式推理活动气泡（逐字打字机）。
+// 会话主线：从 store 读有序消息逐条渲染，末尾挂流式推理活动气泡（逐字打字机）。
 // 自动滚底：仅当用户本就贴在底部时，新消息/增量才把视图顶到最新——向上翻看历史时不打扰。
 import { computed, nextTick, ref, watch } from 'vue'
 import { useConversationStore } from '../stores/conversation'
@@ -19,13 +19,13 @@ const el = ref<HTMLElement>()
 // useTypewriter 把「已到达全文」按稳定节奏本地揭示，与网络到达节奏解耦（业界通行：ChatGPT/Claude UI）。
 const typedReasoning = useTypewriter(computed(() => store.liveReasoning))
 
-// 在消息流中按天插入分隔条（今天 / 昨天 / 日期）——跨天对话一眼可辨，内联卡片只显示时分秒。
+// 在消息流中按天插入分隔条（今天 / 昨天 / 日期）——跨天会话一眼可辨，内联卡片只显示时分秒。
 // step：本次「用户指令」内的全局推理步号——每条 reasoning(想) 递增一步，跨所有 agent 统一计数
 // （不按 agent 分组：一个 type 如 exploitation 会被 spawn 多个并发实例，按 type 累计会混淆、
 //  按实例又无标识可分；全局序号无歧义）。**每条用户消息重置**：一次指令(发起→结束)是一个计数
 // 周期，追加(follow-up)算新指令、步号从头。配合卡片已有的 agent 标签（编排/侦察/利用）定位「谁的第几步」。
 // 按步分组渲染：分组逻辑抽到 lib/threadRows（与轨迹版 TimelineThread 共用，避免两处分歧）。
-// reasoning(想)/spawn(派发)/finding(漏洞)/对话 独立成卡；紧随某步的普通工具调用折叠成组（StepTools）。
+// reasoning(想)/spawn(派发)/finding(漏洞)/会话 独立成卡；紧随某步的普通工具调用折叠成组（StepTools）。
 const rows = computed(() => buildThreadRows(store.messages, { dayKey, dayLabel }))
 
 function nearBottom() {
@@ -80,7 +80,7 @@ watch(typedReasoning, stickToBottom)
       role="log"
       aria-live="polite"
       aria-relevant="additions"
-      aria-label="对话消息"
+      aria-label="会话消息"
       @scroll.passive="onScroll"
     >
       <template v-for="r in rows" :key="r.key">

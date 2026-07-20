@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import type { Message } from '../api/types'
 
-// 按 seq 有序去重持有当前对话的消息。SSE 补历史 + 实时可能重叠，靠 seq 去重。
+// 按 seq 有序去重持有当前会话的消息。SSE 补历史 + 实时可能重叠，靠 seq 去重。
 export const useConversationStore = defineStore('conversation', {
   state: () => ({
     messages: [] as Message[],

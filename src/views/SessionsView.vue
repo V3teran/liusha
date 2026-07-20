@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // 流量分析页（passive）：主从双栏——左 ConversationList(仅 passive，按 host 组织的流量批次) +
 // 右 ConversationDetail(分析轨迹)。与渗透会话页同一套主从骨架，差异仅在：
-//   · 左列表只列 passive 会话，无「+ 新对话」（passive 由代理流量驱动自动建会话，不手动发起）；
+//   · 左列表只列 passive 会话，无「+ 新会话」（passive 由代理流量驱动自动建会话，不手动发起）；
 //   · 右侧空状态文案是「选一批流量看分析」而非「发起扫描」；Composer 仅在选中会话时露出（可插话追问）。
 // 右侧渲染复用同一 TimelineThread：passive 是单 traffic-analysis 代理，脊柱自然扁平（无子代理缩进）。
 import { ref } from 'vue'

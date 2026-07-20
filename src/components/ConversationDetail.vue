@@ -207,12 +207,12 @@ const emptyCopy = computed(() =>
     <div v-if="loadError" class="cd-error">
       <div class="err-card">
         <div class="err-mark">⚠</div>
-        <h2>加载对话失败</h2>
+        <h2>加载会话失败</h2>
         <p>无法拉取历史消息，可能是网络或服务暂时不可用。</p>
         <button class="err-retry" @click="retryLoad">重试</button>
       </div>
     </div>
-    <div v-else-if="loading" class="cd-skeleton" aria-busy="true" aria-label="正在加载对话">
+    <div v-else-if="loading" class="cd-skeleton" aria-busy="true" aria-label="正在加载会话">
       <div v-for="n in 5" :key="n" class="sk-row" :class="n % 2 ? 'sk-left' : 'sk-right'">
         <div class="sk-line sk-w1" />
         <div class="sk-line sk-w2" />
