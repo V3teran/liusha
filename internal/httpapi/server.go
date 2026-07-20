@@ -27,8 +27,8 @@ type Deps struct {
 	// ActiveScan 为 nil 时 /scan/active 路由不注册。
 	// 由 cmd/api 注入自定义 adapter（包 task store + hunter.Store + worker.Client）。
 	ActiveScan ActiveScanAPI
-	// 阶段B 对话式平台（任一为 nil 时对应路由不注册）：
-	//   Chat          POST /chat 发起对话扫描（cmd/api 注入 chatAdapter）
+	// 阶段B 会话式平台（任一为 nil 时对应路由不注册）：
+	//   Chat          POST /chat 发起会话扫描（cmd/api 注入 chatAdapter）
 	//   Conversations GET /conversations[/:id/messages]（*conversation.Store 满足）
 	//   EventStream   GET /conversations/:id/stream SSE（cmd/api 注入 redis 适配器）
 	Chat          ChatAPI
@@ -36,15 +36,15 @@ type Deps struct {
 	EventStream   EventStream
 	// FollowUp 为 nil 时 POST /conversations/:id/messages 不注册（多轮动作续接）。
 	FollowUp FollowUpAPI
-	// Abort 为 nil 时 POST /conversations/:id/abort 不注册（停止对话关联扫描）。
+	// Abort 为 nil 时 POST /conversations/:id/abort 不注册（停止会话关联扫描）。
 	Abort AbortAPI
-	// Deleter 为 nil 时 DELETE /conversations/:id 不注册（删对话+消息，不动 scan/finding 成果）。
+	// Deleter 为 nil 时 DELETE /conversations/:id 不注册（删会话+消息，不动 scan/finding 成果）。
 	Deleter ConversationDeleter
-	// Renamer 为 nil 时 PATCH /conversations/:id 不注册（重命名对话标题）。
+	// Renamer 为 nil 时 PATCH /conversations/:id 不注册（重命名会话标题）。
 	Renamer ConversationRenamer
-	// Roles 为 nil 时 GET /roles 不注册（场景 role 列表，供前端对话选择）。
+	// Roles 为 nil 时 GET /roles 不注册（场景 role 列表，供前端会话选择）。
 	Roles RolesAPI
-	// 对话用量合计（GET /conversations/:id/usage）：三者任一为 nil 则路由不注册。
+	// 会话用量合计（GET /conversations/:id/usage）：三者任一为 nil 则路由不注册。
 	// cmd/api 注入 convStore / invocationStore / toolStore（各满足对应窄接口）。
 	UsageTasks UsageTaskResolver
 	UsageLLM   LLMUsageAggregator

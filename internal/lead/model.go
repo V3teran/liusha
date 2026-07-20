@@ -1,7 +1,7 @@
 // Package lead 实现情报黑板（见 spec §7）：一次交战内、需跨 agent / 跨 run 同步的过程情报。
 //
-// 定位是"跨 agent 情报黑板"——子代理看不到 orchestrator 对话，靠这块共享黑板同步过程情报
-// （agent 自己的 scratchpad 已由对话 reasoning 事件承担，lead 不重复那份）。
+// 定位是"跨 agent 情报黑板"——子代理看不到 orchestrator 会话，靠这块共享黑板同步过程情报
+// （agent 自己的 scratchpad 已由会话 reasoning 事件承担，lead 不重复那份）。
 //
 // 共享轴 = host（与 credential / lesson 同轴），不挂 assignment/task：情报本质"关于目标"，
 // 不"关于任务"——同 host 不管流量何时来、属哪个 task，情报自动汇一起。

@@ -19,7 +19,7 @@ type AttackGraphAPI interface {
 //
 // 返回执行图 JSON：思维链（想 / 做+得 / agent 节点 + flow 骨干边）
 // + 成果链（漏洞节点 + depends_on 边）。图是 read-model 实时投影，不落表（见 docs/attack-graph-design.md）。
-//   - conv 缺省空（无对话则只出成果链）。
+//   - conv 缺省空（无会话则只出成果链）。
 func attackGraphHandler(api AttackGraphAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		tid := c.Param("task_id")
@@ -32,7 +32,7 @@ func attackGraphHandler(api AttackGraphAPI) gin.HandlerFunc {
 		g, err := api.Project(c.Request.Context(), conv, tid)
 		if err != nil {
 			msg := err.Error()
-			// task / 对话不存在 → 404，让前端区分"没了"与"服务器真坏"
+			// task / 会话不存在 → 404，让前端区分"没了"与"服务器真坏"
 			if strings.Contains(msg, "no rows in result set") {
 				c.JSON(404, gin.H{"error": msg, "task_id": tid})
 				return
@@ -57,7 +57,7 @@ func attackGraphMilestonesHandler(api AttackGraphAPI) gin.HandlerFunc {
 				c.JSON(503, gin.H{"error": msg}) // 服务未配 LLM
 				return
 			}
-			if strings.Contains(msg, "无对话") {
+			if strings.Contains(msg, "无会话") {
 				c.JSON(400, gin.H{"error": msg})
 				return
 			}

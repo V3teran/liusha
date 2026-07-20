@@ -8,9 +8,9 @@ import (
 	"net/http"
 )
 
-// createChatScan 调 POST /chat 发起【对话式】active 扫描，返回 (conversationID, taskID)。
-// /chat 建 conversation + 发 SSE 过程事件，前端能实时看到对话——e2e active 走此入口使扫描
-// 在前端可观察（区别于纯后台无对话的 POST /scan/active）。taskID 即响应的 scan_id，
+// createChatScan 调 POST /chat 发起【会话式】active 扫描，返回 (conversationID, taskID)。
+// /chat 建 conversation + 发 SSE 过程事件，前端能实时看到会话——e2e active 走此入口使扫描
+// 在前端可观察（区别于纯后台无会话的 POST /scan/active）。taskID 即响应的 scan_id，
 // brief 是用户自然语言任务简报，后端不解析，整段透传给 hunter LLM。
 func createChatScan(base, key, brief string) (conversationID, taskID string, err error) {
 	body, _ := json.Marshal(map[string]string{"brief": brief})

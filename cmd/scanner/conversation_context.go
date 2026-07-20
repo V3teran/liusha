@@ -12,26 +12,26 @@ import (
 	"github.com/V3teran/liusha/internal/conversation"
 )
 
-// conversation_context.go：② 对话历史工作记忆（跨 run 的多轮连贯）。
+// conversation_context.go：② 会话历史工作记忆（跨 run 的多轮连贯）。
 //
-// eino summarization（①）管的是单 run 内存上下文，管不到「跨 run 的对话历史拼进 prompt」这层。
+// eino summarization（①）管的是单 run 内存上下文，管不到「跨 run 的会话历史拼进 prompt」这层。
 // ② 自己实现「token 预算 + 最近完整 + 旧的蒸馏」（与 ① 不同机制，分层正确，见 docs/memory-architecture-refactor）：
-//   - 从 message 表拉对话（最多 maxDialogFetch 条）
-//   - token 预算窗口（TrailingBudgetRatio × provider.ContextWindow）：预算内的最近对话原样保留
-//   - 超预算的更早对话用 light 模型蒸馏成 1 段摘要（旧的不丢、但不膨胀 prompt）
-//   - 每轮重算（方案 A，不缓存）：短对话零额外开销，仅长对话每轮 +1 次 light 蒸馏
+//   - 从 message 表拉会话（最多 maxDialogFetch 条）
+//   - token 预算窗口（TrailingBudgetRatio × provider.ContextWindow）：预算内的最近会话原样保留
+//   - 超预算的更早会话用 light 模型蒸馏成 1 段摘要（旧的不丢、但不膨胀 prompt）
+//   - 每轮重算（方案 A，不缓存）：短会话零额外开销，仅长会话每轮 +1 次 light 蒸馏
 
-// maxDialogFetch 是从 message 表拉取对话历史的条数硬上界（store clampLimit 会再夹）；
-// 真正的裁剪闸门是下面的 token 预算窗口，此值仅防超长对话全量拉爆内存。
+// maxDialogFetch 是从 message 表拉取会话历史的条数硬上界（store clampLimit 会再夹）；
+// 真正的裁剪闸门是下面的 token 预算窗口，此值仅防超长会话全量拉爆内存。
 const maxDialogFetch = 200
 
-// dialogHistoryHeader 是「对话历史」prompt 段标题。
-const dialogHistoryHeader = "## 对话历史（按时间正序）\n"
+// dialogHistoryHeader 是「会话历史」prompt 段标题。
+const dialogHistoryHeader = "## 会话历史（按时间正序）\n"
 
-// dialogDistillInstruction 是旧对话蒸馏的 system 指引（light 模型，对话维度，区别于 ① 的 ReAct 蒸馏）。
-const dialogDistillInstruction = `你是对话摘要器。把以下早期对话浓缩成 2-4 句中文摘要，保留：用户的关键意图与诉求、已确认的目标/范围、重要结论或决定；省略寒暄与冗余过程。直接输出摘要正文，不要任何前缀。`
+// dialogDistillInstruction 是旧会话蒸馏的 system 指引（light 模型，会话维度，区别于 ① 的 ReAct 蒸馏）。
+const dialogDistillInstruction = `你是会话摘要器。把以下早期会话浓缩成 2-4 句中文摘要，保留：用户的关键意图与诉求、已确认的目标/范围、重要结论或决定；省略寒暄与冗余过程。直接输出摘要正文，不要任何前缀。`
 
-// conversationContext 读该对话历史，按 token 预算保最近完整 + 旧的蒸馏，拼成「对话历史」prompt 段。
+// conversationContext 读该会话历史，按 token 预算保最近完整 + 旧的蒸馏，拼成「会话历史」prompt 段。
 //
 // role 决定 provider 上下文窗口（dialog 预算 = TrailingBudgetRatio × ContextWindow）。
 // convID 空 / store nil / 无历史 / 读失败 → 返空串（首轮或降级，不阻塞扫描）。
@@ -42,7 +42,7 @@ func (h handler) conversationContext(ctx context.Context, convID, role, currentB
 	}
 	msgs, err := h.conversations.ListRecentDialog(ctx, convID, maxDialogFetch)
 	if err != nil {
-		h.logger.Warn().Err(err).Str("conv", convID).Msg("读对话历史失败（降级：本轮不注入历史）")
+		h.logger.Warn().Err(err).Str("conv", convID).Msg("读会话历史失败（降级：本轮不注入历史）")
 		return ""
 	}
 	kept := filterDialog(msgs, currentBrief)
@@ -56,11 +56,11 @@ func (h handler) conversationContext(ctx context.Context, convID, role, currentB
 	b.WriteString(dialogHistoryHeader)
 	if len(older) > 0 {
 		if summary := h.distillOldDialog(ctx, older); summary != "" {
-			b.WriteString("〔更早对话摘要〕")
+			b.WriteString("〔更早会话摘要〕")
 			b.WriteString(summary)
 			b.WriteString("\n")
 		} else {
-			// 蒸馏失败：旧对话直接拼接（不丢），交由 ① 在 run 内兜底压缩。
+			// 蒸馏失败：旧会话直接拼接（不丢），交由 ① 在 run 内兜底压缩。
 			writeDialogLines(&b, older)
 		}
 	}
@@ -100,12 +100,12 @@ func splitDialogByBudget(msgs []conversation.Message, budget int) (older, recent
 	return msgs[:cut], msgs[cut:]
 }
 
-// estimateDialogTokens 按 chars/4 粗估单条对话 token（与 eino 默认 TokenCounter 同口径）。
+// estimateDialogTokens 按 chars/4 粗估单条会话 token（与 eino 默认 TokenCounter 同口径）。
 func estimateDialogTokens(content string) int {
 	return (len(strings.TrimSpace(content)) + 3) / 4
 }
 
-// writeDialogLines 把对话消息逐条写成「角色：内容」行（纯逻辑，无标题无过滤）。
+// writeDialogLines 把会话消息逐条写成「角色：内容」行（纯逻辑，无标题无过滤）。
 func writeDialogLines(b *strings.Builder, msgs []conversation.Message) {
 	for _, m := range msgs {
 		b.WriteString(dialogSpeaker(m.Role))
@@ -115,7 +115,7 @@ func writeDialogLines(b *strings.Builder, msgs []conversation.Message) {
 	}
 }
 
-// formatDialogHistory 过滤空+本轮 brief 后，格式化成带标题的「对话历史」段；全空返空串（纯逻辑，可测）。
+// formatDialogHistory 过滤空+本轮 brief 后，格式化成带标题的「会话历史」段；全空返空串（纯逻辑，可测）。
 func formatDialogHistory(msgs []conversation.Message, currentBrief string) string {
 	kept := filterDialog(msgs, currentBrief)
 	if len(kept) == 0 {
@@ -141,19 +141,19 @@ func (h handler) dialogTokenBudget(role string) int {
 	return int(float64(cw) * ratio)
 }
 
-// distillOldDialog 把更早的对话蒸馏成 1 段摘要；失败返空串（caller 降级为直接拼接，不丢历史）。
+// distillOldDialog 把更早的会话蒸馏成 1 段摘要；失败返空串（caller 降级为直接拼接，不丢历史）。
 //
 // 复用 eino 的同步蒸馏 summarization.SummarizeMessages（拥抱 eino：模型输入构造/重试由它管）；
-// ② 自己只做 token 预算切分（eino 无跨 run 对话概念，那部分无法复用）。关 PreserveUserMessages
+// ② 自己只做 token 预算切分（eino 无跨 run 会话概念，那部分无法复用）。关 PreserveUserMessages
 // （最近/旧切分 ② 自己已做）；取 ModelResponse（原始摘要，不带 eino 的 compaction 前导语/续接指令）。
 func (h handler) distillOldDialog(ctx context.Context, msgs []conversation.Message) string {
 	compactor, err := h.einoFactory.For(ctx, "compactor")
 	if err != nil {
-		h.logger.Warn().Err(err).Msg("② 旧对话蒸馏：解析 compactor 模型失败（降级：旧对话直接拼接）")
+		h.logger.Warn().Err(err).Msg("② 旧会话蒸馏：解析 compactor 模型失败（降级：旧会话直接拼接）")
 		return ""
 	}
 
-	// 转 eino 消息，保留 user/assistant 角色让摘要器看清对话结构。
+	// 转 eino 消息，保留 user/assistant 角色让摘要器看清会话结构。
 	ems := make([]adk.Message, 0, len(msgs))
 	for _, m := range msgs {
 		content := strings.TrimSpace(m.Content)
@@ -177,7 +177,7 @@ func (h handler) distillOldDialog(ctx context.Context, msgs []conversation.Messa
 		PreserveUserMessages: &summarization.PreserveUserMessages{Enabled: false},
 	}, ems)
 	if err != nil || out == nil || out.ModelResponse == nil {
-		h.logger.Warn().Err(err).Msg("② 旧对话蒸馏：eino SummarizeMessages 失败（降级：旧对话直接拼接）")
+		h.logger.Warn().Err(err).Msg("② 旧会话蒸馏：eino SummarizeMessages 失败（降级：旧会话直接拼接）")
 		return ""
 	}
 	return strings.TrimSpace(out.ModelResponse.Content)

@@ -93,7 +93,7 @@ func main() {
 	// Stores
 	taskStore := task.NewStore(pool)               // 统一 task store（合并 active_scan + passive_session）
 	assignmentStore := assignment.NewStore(pool)   // 聚合建 passive assignment（一切 task 皆属某 assignment）
-	convStore := conversation.NewStore(pool)       // 对话/消息 store（阶段B 过程事件落库）
+	convStore := conversation.NewStore(pool)       // 会话/消息 store（阶段B 过程事件落库）
 	eventPublisher := scanstream.NewPublisher(rdb) // 过程事件实时广播（阶段B redis 管道）
 	hunters := hunterstore.NewStore(pool)
 	finds := finding.NewStore(pool)
@@ -319,7 +319,7 @@ func main() {
 		ProxyFlows:    proxyFlows,
 		AgentFlows:    agentFlows,
 		Hunters:       hunters,
-		Conversations: convStore, // passive 聚合建 task 后建对话流
+		Conversations: convStore, // passive 聚合建 task 后建会话流
 		Enqueuer:      wc,
 		Logger:        logger,
 	})

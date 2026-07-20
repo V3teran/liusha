@@ -14,7 +14,7 @@ import (
 
 // role.go：liusha 自有的 hunter 角色动态加载（杀伤链阶段 sub-agent + orchestrator）。
 //
-// 设计（对话式平台规划，见 docs/superpowers/specs/2026-06-07-conversational-platform.md）：
+// 设计（会话式平台规划，见 docs/superpowers/specs/2026-06-07-conversational-platform.md）：
 //   - 角色定义 = 一个 markdown 文件（frontmatter 元信息 + body 系统提示），运行时扫目录加载
 //   - 借鉴「目录扫 markdown + frontmatter」的通用模式（Claude Code subagent 等），但 frontmatter
 //     字段是 liusha 自有（tools 指向 liusha einotools 名、kind 区分 deep 主/子代理）——与任何

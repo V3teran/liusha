@@ -7,7 +7,7 @@ import (
 	"github.com/V3teran/liusha/internal/finding"
 )
 
-// Project 把一次扫描的对话事件流 + 漏洞投影成完整图：思维链（messages）+ 成果链（findings）。
+// Project 把一次扫描的会话事件流 + 漏洞投影成完整图：思维链（messages）+ 成果链（findings）。
 //
 // 纯函数：入参为已加载的源记录，无 IO。store 版投影器按 task 拉取后调它（见 store.go）。
 // messages 须按 seq 升序传入（事件时序 = 思维链骨干顺序）。

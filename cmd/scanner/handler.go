@@ -61,7 +61,7 @@ type handler struct {
 	// passive 路径用其 SystemPrompt + MaxIterations 跑 RunTrafficAnalysis。
 	passiveRole einoagent.RoleDef
 
-	// conversations + eventPublisher 是阶段B 过程事件管道：对话发起（Payload.ConversationID
+	// conversations + eventPublisher 是阶段B 过程事件管道：会话发起（Payload.ConversationID
 	// 非空）时，agent 每次工具调用落 conversation message（PG）+ publish redis（实时推前端）。
 	// 二者任一 nil 时不发事件（向后兼容纯后台扫描）。
 	conversations  *conversation.Store

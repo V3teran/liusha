@@ -53,7 +53,7 @@ func subAgentTargetSection(host string) string {
 // leadSection 读该 host 的情报黑板并渲染成追加到子代理 system prompt 末尾的固定段（§7.5）。
 // store/host 任一为空，或读取失败/无情报 → 返回空串，不污染提示。
 //
-// 这是"子代理看不到 orchestrator user message"的解——共享的是黑板，不是对话：不动 eino
+// 这是"子代理看不到 orchestrator user message"的解——共享的是黑板，不是会话：不动 eino
 // WithFullChatHistoryAsInput（避免 token 爆炸），而是像 subAgentTargetSection 一样结构化注入。
 func leadSection(ctx context.Context, store LeadStore, host string) string {
 	if store == nil || host == "" {

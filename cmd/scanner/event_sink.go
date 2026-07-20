@@ -25,7 +25,7 @@ import (
 //   - Close() 在 agent run 结束后调：关 channel + 等 drain 写完剩余事件（用 Background ctx，
 //     run ctx 取消也能 flush 落库，保证前端重连能补到全部历史）。
 //
-// 仅当对话发起（ConversationID 非空）时装配；asynq 自动入口不装（sink nil，不发事件）。
+// 仅当会话发起（ConversationID 非空）时装配；asynq 自动入口不装（sink nil，不发事件）。
 
 // eventQueueSize 是进程内过程事件队列容量。突发由 buffer 吸收，持续过载才回压 agent。
 const eventQueueSize = 256
@@ -91,7 +91,7 @@ type reasoningDeltaFrame struct {
 	AgentName string `json:"agent_name,omitempty"`
 }
 
-// publishDelta 把流式推理增量瞬时广播到对话 channel（不落 PG，不占 seq）。
+// publishDelta 把流式推理增量瞬时广播到会话 channel（不落 PG，不占 seq）。
 func (s *einoEventSink) publishDelta(text, agentName string) {
 	payload, err := json.Marshal(reasoningDeltaFrame{Delta: true, Text: text, AgentName: agentName})
 	if err != nil {

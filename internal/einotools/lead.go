@@ -34,7 +34,7 @@ func BuildWriteLead(store LeadAdder, host, hunterID, sourceTaskID string) (tool.
 			"\n- deadend：试过没戏的死路，提醒后来者别浪费时间重试（如『/api/upload 已确认无文件类型校验绕过点，多种 payload 均被拒』）"+
 			"\n\n【与 write_finding 的边界】能给可复现 PoC + evidence → write_finding；仅观察到事实、还没做成 PoC → write_lead(kind=fact)。"+
 			"lead(fact) 验证成 PoC 后应改写 write_finding（lead 不必删，靠淘汰自然消失）。"+
-			"\n【禁写】通用 OWASP 理论 / 与本次目标无关的知识 → 不写；一次性无需跨 agent 共享的心算过程 → 直接在对话里说出（reasoning）。",
+			"\n【禁写】通用 OWASP 理论 / 与本次目标无关的知识 → 不写；一次性无需跨 agent 共享的心算过程 → 直接在会话里说出（reasoning）。",
 		func(ctx context.Context, in writeLeadArgs) (map[string]any, error) {
 			if host == "" {
 				return nil, errors.New("write_lead: Host 注入缺失")

@@ -30,12 +30,12 @@ import (
 	"github.com/V3teran/liusha/internal/worker"
 )
 
-// ConversationCreator 建 passive task 的对话流。聚合器建 task 后建一条 conversation，
+// ConversationCreator 建 passive task 的会话流。聚合器建 task 后建一条 conversation，
 // passive agent 过程事件落进去，前端可打开实时观察 + 插话。nil 时跳过（向后兼容）。
 //
-// AppendMessage 用于写对话首条「任务说明」消息（role=user）——passive 是流量驱动自动建 task、
+// AppendMessage 用于写会话首条「任务说明」消息（role=user）——passive 是流量驱动自动建 task、
 // 无用户手打 brief，但有确定的任务上下文（host + 认领流量条数）；合成一条说明作为首条右侧气泡，
-// 让前端对话有"发起了什么"的锚点（对齐 active 的 brief 首条消息）。
+// 让前端会话有"发起了什么"的锚点（对齐 active 的 brief 首条消息）。
 type ConversationCreator interface {
 	CreateConversation(ctx context.Context, title, taskID, roleID string) (conversation.Conversation, error)
 	AppendMessage(ctx context.Context, convID string, role conversation.Role, kind conversation.Kind, content string, metadata json.RawMessage) (conversation.Message, error)
@@ -65,7 +65,7 @@ type Traffic struct {
 	proxyFlows    *traffic.ProxyStore // 代理捕获流量落库 + 领取
 	agentFlows    *traffic.AgentStore // agent 自产流量落库
 	hunters       *hunter.Store       // internal 流量反查 hunter→task_id
-	conversations ConversationCreator // 建 passive task 对话流（nil 跳过）
+	conversations ConversationCreator // 建 passive task 会话流（nil 跳过）
 	enq           *worker.Client
 	logger        zerolog.Logger
 }
@@ -307,7 +307,7 @@ func (t *Traffic) handleExternalSnap(ctx context.Context, snap *proxy.TrafficSna
 }
 
 // spawnPassiveTask 为某 host 攒够的一批流量建 passive task：
-// 建 task → 领取该 host 未消费流量回填 consumed_by_task_id → 绑对话 → enqueue traffic-analysis。
+// 建 task → 领取该 host 未消费流量回填 consumed_by_task_id → 绑会话 → enqueue traffic-analysis。
 //
 // 领取用条件更新（consumed_by_task_id IS NULL），跨实例幂等（§13.2）。领到 0 条说明流量已被
 // 别的 task 消费或全部滞留锁定，回滚建的 task（abort）避免空任务。
@@ -401,24 +401,24 @@ func (t *Traffic) handleInternalSnap(ctx context.Context, snap *proxy.TrafficSna
 		Msg("internal 流量已入 agent_traffic（不触发 trafficAnalysis）")
 }
 
-// ensureConversation 为 passive task 建对话流（title=host）并回填 conversation.task_id，
+// ensureConversation 为 passive task 建会话流（title=host）并回填 conversation.task_id，
 // 再写一条「任务说明」首条消息（role=user）——passive 无用户手打 brief，但有确定任务上下文
-// （host + 本批捕获的请求清单），合成说明作为对话首条右侧气泡（对齐 active 的 brief）。
-// conversations nil / 建会话失败 → 返空串（降级：本次不绑，事件不落对话，但流量分析照常）。
+// （host + 本批捕获的请求清单），合成说明作为会话首条右侧气泡（对齐 active 的 brief）。
+// conversations nil / 建会话失败 → 返空串（降级：本次不绑，事件不落会话，但流量分析照常）。
 func (t *Traffic) ensureConversation(ctx context.Context, taskID, host string, flows []traffic.ProxyTraffic) string {
 	if t.conversations == nil {
 		return ""
 	}
 	conv, err := t.conversations.CreateConversation(ctx, host, taskID, "")
 	if err != nil {
-		t.logger.Warn().Err(err).Str("host", host).Msg("建 passive task 对话流失败（降级：本次不绑对话）")
+		t.logger.Warn().Err(err).Str("host", host).Msg("建 passive task 会话流失败（降级：本次不绑会话）")
 		return ""
 	}
 	// 首条任务说明（role=user）：passive 流量驱动自动发起，合成说明让前端有"发起了什么"的锚点。
 	// 列出本批捕获的请求（method path → status），而非干巴的条数——用户一眼看清在分析哪些流量。
-	// best-effort——写失败仅缺首条气泡，不影响流量分析与后续事件落对话。
+	// best-effort——写失败仅缺首条气泡，不影响流量分析与后续事件落会话。
 	if _, err := t.conversations.AppendMessage(ctx, conv.ID, conversation.RoleUser, conversation.KindMessage, passiveBrief(host, flows), nil); err != nil {
-		t.logger.Warn().Err(err).Str("conv", conv.ID).Msg("写 passive 任务说明首条消息失败（降级：对话缺首条气泡）")
+		t.logger.Warn().Err(err).Str("conv", conv.ID).Msg("写 passive 任务说明首条消息失败（降级：会话缺首条气泡）")
 	}
 	return conv.ID
 }

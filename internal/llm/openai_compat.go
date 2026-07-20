@@ -191,7 +191,7 @@ func toOpenAIMessages(in []Message, supportsVision bool) ([]openai.ChatCompletio
 		}
 		out = append(out, om)
 	}
-	// 对话以 tool message 收尾时（刚执行完工具、正要 LLM 看图回应），flush 末尾累积的图。
+	// 会话以 tool message 收尾时（刚执行完工具、正要 LLM 看图回应），flush 末尾累积的图。
 	flushImages()
 	return out, nil
 }

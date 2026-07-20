@@ -85,7 +85,7 @@
 - **浏览器登录成功 = 立即回写凭证（强制步骤，不是兜底）**：浏览器现场登录拿到的是**当下确凿活着**的 session，而 redis 里可能躺着上一轮早已失效的旧凭证（凭证不带时间锚点，你无法判断死活）。所以**每次** `identity:"X"` 浏览器登录验证成功后，**不要停**——立刻走下方「路 A」把这条活 session 从 http_flow 抽出 `write_credential`（name=X），用现登的活值覆盖 redis。这是 curl/sqlmap 链路能拿到活凭证的**唯一保证**：跳过它，后续 curl 读到的就是可能已死的旧值。
 - **identity 命名铁律**：`browser_use` 的 `identity` 参数 **= 该账号用户名**（brief 里 admin → `identity:"admin"`，gordonb → `identity:"gordonb"`）。**绝不用默认空 identity 登录有名账号**——空 identity 让"哪个账号"和"哪个 jar"失去映射：reconnaissance 把 admin 登进空 jar、exploitation 却用 `"gordonb"` 名开浏览器，两个 jar 互不相干 → admin 会话对 exploitation 不可见（实测漏 finding 的直接原因）。**同名 identity = 同一个 jar**，跨 reconnaissance/exploitation 自动复用，谁都不必同步"谁登了谁"。
 - **同一身份只登一次（幂等复用）**：同 identity 下所有 reconnaissance/exploitation 共用一个浏览器。要用某身份就先用**该身份名** `browser_use open` 受保护页——已有登录态直接用；落在登录页（没人登过 / 态过期）才自己登（`state`→`input`→`click`）。这对浏览器是**正确路径**，不是重复劳动。
-- **提交后必须验证成功，失败不要无限重登**：输完账密提交后，确认**真到达鉴权态**——再 `open` 一个受保护页或读提交后 `state`，看 URL 已离开登录页、页面不再是登录表单、无"登录失败/凭证错误"类提示。**同一身份连续 2 次提交仍落回登录页就停手**：这通常是凭证无效，或目标有防爆破 / 账号锁定机制（继续提交只会触发或延长锁定，之后连正确凭证也被拒，污染整个 engagement）。用文字记下现象（进对话）并在产出里上报，不要继续盲目提交。
+- **提交后必须验证成功，失败不要无限重登**：输完账密提交后，确认**真到达鉴权态**——再 `open` 一个受保护页或读提交后 `state`，看 URL 已离开登录页、页面不再是登录表单、无"登录失败/凭证错误"类提示。**同一身份连续 2 次提交仍落回登录页就停手**：这通常是凭证无效，或目标有防爆破 / 账号锁定机制（继续提交只会触发或延长锁定，之后连正确凭证也被拒，污染整个 engagement）。用文字记下现象（进会话）并在产出里上报，不要继续盲目提交。
 - **多账号对比**（越权/BAC）：brief 给几组账号就按命名铁律各开一个 `identity`（名=各自用户名）浏览器，每个各自在登录页登录，cookie jar 互不污染。
 - redis 凭证通道（read/write_credential）服务 curl/sqlmap 链路 + 同步过程中**新拿到**的凭证；浏览器登录态不走它。
 
@@ -133,7 +133,7 @@
 字典有两条入口，都写进同一张 http_flow 表，按 source 区分：
 
 - **passive 入口（source=external）**：用户经 Burp / 真实浏览器把流量经 8888 代理过来 → 自动入字典 → 触发 traffic-analysis（1 流量 1 hunter）。
-- **active 入口（source=internal）**：active 容器内**两路**流量都入字典——① **chromium 浏览器**经 browser-svc 内建 CDP Network 观察器抓登录后真实已认证请求（Document / XHR / Fetch）；② **CLI 工具**（curl / sqlmap / nuclei / katana 等）经容器内 mitmproxy 代理捕获（源头按 method+templatize(path) 去重，fuzz 不膨胀）。两路经 ingest 回 Go 入字典，**owner = 整个 active run（reconnaissance / exploitation 抓的，整个 run 含 orchestrator 都可见，HunterID 仅作来源标记）**。**不触发 traffic-analysis**（防自激震荡）。攻击面即从本入口派生（`list_traffic` 看本 run 走过的路由，active 读的就是自产 agent_traffic）；跨 hunter 信息传递走 redis 的 [[凭证共享协议]](read_credentials / write_credential) + finding 黑板 + 对话（思路/线索直接说出来，同 run 内可见）。
+- **active 入口（source=internal）**：active 容器内**两路**流量都入字典——① **chromium 浏览器**经 browser-svc 内建 CDP Network 观察器抓登录后真实已认证请求（Document / XHR / Fetch）；② **CLI 工具**（curl / sqlmap / nuclei / katana 等）经容器内 mitmproxy 代理捕获（源头按 method+templatize(path) 去重，fuzz 不膨胀）。两路经 ingest 回 Go 入字典，**owner = 整个 active run（reconnaissance / exploitation 抓的，整个 run 含 orchestrator 都可见，HunterID 仅作来源标记）**。**不触发 traffic-analysis**（防自激震荡）。攻击面即从本入口派生（`list_traffic` 看本 run 走过的路由，active 读的就是自产 agent_traffic）；跨 hunter 信息传递走 redis 的 [[凭证共享协议]](read_credentials / write_credential) + finding 黑板 + 会话（思路/线索直接说出来，同 run 内可见）。
 
 **工具按角色**：
 - passive（traffic-analysis）：`replay_traffic`

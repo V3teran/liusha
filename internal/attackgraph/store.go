@@ -8,10 +8,10 @@ import (
 	"github.com/V3teran/liusha/internal/finding"
 )
 
-// messagePageSize 是拉对话消息的翻页大小（思维链要全量历史，循环翻页拉尽）。
+// messagePageSize 是拉会话消息的翻页大小（思维链要全量历史，循环翻页拉尽）。
 const messagePageSize = 500
 
-// MessageLister 是投影器读对话事件流所需的最小接口（*conversation.Store 满足）。
+// MessageLister 是投影器读会话事件流所需的最小接口（*conversation.Store 满足）。
 type MessageLister interface {
 	ListMessages(ctx context.Context, convID string, afterSeq int64, limit int) ([]conversation.Message, error)
 }
@@ -23,7 +23,7 @@ type FindingLister interface {
 
 // Projector 是 store 版执行图投影器；无状态，可全局共享一份。
 //
-// 它把"按 owner / 对话拉源记录"和"纯函数 Project 拼图"接起来。
+// 它把"按 owner / 会话拉源记录"和"纯函数 Project 拼图"接起来。
 // owner→conversation 的解析在调用方（API handler）做：传入 convID + (ownerType, ownerID)。
 type Projector struct {
 	Messages MessageLister
@@ -32,9 +32,9 @@ type Projector struct {
 	Summary Summarizer
 }
 
-// Project 拉取一次扫描的对话事件流 + 漏洞，投影成执行图。
+// Project 拉取一次扫描的会话事件流 + 漏洞，投影成执行图。
 //
-//   - convID：本次扫描绑定的对话 id（思维链来源）。空则思维链为空（纯 passive 自动路径可能无对话）。
+//   - convID：本次扫描绑定的会话 id（思维链来源）。空则思维链为空（纯 passive 自动路径可能无会话）。
 //   - taskID：成果链来源（finding.ListByTask）。
 func (p *Projector) Project(ctx context.Context, convID, taskID string) (Graph, error) {
 	var msgs []conversation.Message
@@ -42,7 +42,7 @@ func (p *Projector) Project(ctx context.Context, convID, taskID string) (Graph, 
 		var err error
 		msgs, err = p.allMessages(ctx, convID)
 		if err != nil {
-			return Graph{}, fmt.Errorf("拉对话消息: %w", err)
+			return Graph{}, fmt.Errorf("拉会话消息: %w", err)
 		}
 	}
 
@@ -54,23 +54,23 @@ func (p *Projector) Project(ctx context.Context, convID, taskID string) (Graph, 
 	return Project(taskID, msgs, findings), nil
 }
 
-// ProjectMilestones 拉对话事件流，按子代理聚合 reasoning，调 LLM 总结成里程碑列表。
-// convID 为空（无对话）或 Summary 未注入时返回错误（里程碑依赖思维链 + LLM）。
+// ProjectMilestones 拉会话事件流，按子代理聚合 reasoning，调 LLM 总结成里程碑列表。
+// convID 为空（无会话）或 Summary 未注入时返回错误（里程碑依赖思维链 + LLM）。
 func (p *Projector) ProjectMilestones(ctx context.Context, convID string) ([]Milestone, error) {
 	if p.Summary == nil {
 		return nil, fmt.Errorf("未配置 LLM summarizer，里程碑不可用")
 	}
 	if convID == "" {
-		return nil, fmt.Errorf("无对话（conv 为空），里程碑不可用")
+		return nil, fmt.Errorf("无会话（conv 为空），里程碑不可用")
 	}
 	msgs, err := p.allMessages(ctx, convID)
 	if err != nil {
-		return nil, fmt.Errorf("拉对话消息: %w", err)
+		return nil, fmt.Errorf("拉会话消息: %w", err)
 	}
 	return Milestones(ctx, msgs, p.Summary)
 }
 
-// allMessages 循环翻页拉全对话消息（按 seq 升序）。
+// allMessages 循环翻页拉全会话消息（按 seq 升序）。
 func (p *Projector) allMessages(ctx context.Context, convID string) ([]conversation.Message, error) {
 	var all []conversation.Message
 	var after int64

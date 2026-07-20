@@ -17,18 +17,18 @@ import (
 	"github.com/V3teran/liusha/internal/scenario"
 )
 
-// ErrConversationScanActive：对话关联的 active_scan 仍在跑，拒绝删除（先停后删）。
-// 业界做法（GitHub Actions / 云控制台）：活跃作业不许删，只能先 Cancel。否则删了对话 = 扫描脱缰
+// ErrConversationScanActive：会话关联的 active_scan 仍在跑，拒绝删除（先停后删）。
+// 业界做法（GitHub Actions / 云控制台）：活跃作业不许删，只能先 Cancel。否则删了会话 = 扫描脱缰
 // 后台跑、UI 再停不掉、还在烧 token 的孤儿。Deleter 实现据此返回，handler 映射为 409。
-var ErrConversationScanActive = errors.New("对话关联扫描进行中，请先停止再删除")
+var ErrConversationScanActive = errors.New("会话关联扫描进行中，请先停止再删除")
 
 // sseLog 是 SSE 流的诊断 logger（连接/订阅/补历史/实时转发/退出全链路）。
 // 包级构建一次（避免每连接触发 logx 全局写入的 race）。LIUSHA_LOG_LEVEL=debug 看逐帧。
 var sseLog = logx.New("httpapi.sse")
 
-// conversation_handler.go：对话式平台（阶段B3/B4）的 HTTP 入口。
+// conversation_handler.go：会话式平台（阶段B3/B4）的 HTTP 入口。
 //
-//   - POST /chat            发起对话扫描：建 conversation + active_scan，入队带 conversationID
+//   - POST /chat            发起会话扫描：建 conversation + active_scan，入队带 conversationID
 //   - GET  /conversations            列表（UI 侧栏）
 //   - GET  /conversations/:id/messages   回看（afterSeq 增量）
 //   - GET  /conversations/:id/stream     SSE：补历史 + 实时推 agent 过程事件
@@ -36,13 +36,13 @@ var sseLog = logx.New("httpapi.sse")
 // SSE 认证：当前走标准 X-API-Key header（curl/fetch 可带）。前端 EventSource 不能带自定义
 // header——阶段D 前端用 fetch+ReadableStream 或 query-param token 解决，此处不动认证。
 
-// ChatAPI 是发起对话扫描的窄接口（cmd/api 注入 adapter：建 conversation + scan + 入队带 convID）。
+// ChatAPI 是发起会话扫描的窄接口（cmd/api 注入 adapter：建 conversation + scan + 入队带 convID）。
 // roleID 是用户选的场景 role（空时 adapter 用默认 active role 兜底）。
 type ChatAPI interface {
 	StartChatScan(ctx context.Context, brief, roleID string) (conversationID, scanID string, err error)
 }
 
-// RolesAPI 列出可选场景 role（前端对话选择用）。*scenario 加载结果由 cmd/api 适配注入。
+// RolesAPI 列出可选场景 role（前端会话选择用）。*scenario 加载结果由 cmd/api 适配注入。
 type RolesAPI interface {
 	ListRoles() []scenario.Role
 }
@@ -67,19 +67,19 @@ func rolesHandler(api RolesAPI) gin.HandlerFunc {
 	}
 }
 
-// ConversationsAPI 是对话/消息读取窄接口（*conversation.Store 自动满足）。
+// ConversationsAPI 是会话/消息读取窄接口（*conversation.Store 自动满足）。
 type ConversationsAPI interface {
 	ListConversations(ctx context.Context, limit int) ([]conversation.Conversation, error)
 	ListMessages(ctx context.Context, convID string, afterSeq int64, limit int) ([]conversation.Message, error)
 }
 
-// EventSubscription 是一次对话事件订阅（cmd/api 用 scanstream.Subscription 适配）。
+// EventSubscription 是一次会话事件订阅（cmd/api 用 scanstream.Subscription 适配）。
 type EventSubscription interface {
 	Events() <-chan []byte
 	Close() error
 }
 
-// EventStream 订阅某对话的实时事件 channel（cmd/api 注入 redis-backed 适配器）。
+// EventStream 订阅某会话的实时事件 channel（cmd/api 注入 redis-backed 适配器）。
 type EventStream interface {
 	Subscribe(ctx context.Context, conversationID string) EventSubscription
 }
@@ -96,7 +96,7 @@ type ChatResponse struct {
 	ScanID         string `json:"scan_id"`
 }
 
-// chatHandler 处理 POST /chat：校验 brief 非空，发起对话扫描，成功后下发 SSE 鉴权 cookie。
+// chatHandler 处理 POST /chat：校验 brief 非空，发起会话扫描，成功后下发 SSE 鉴权 cookie。
 func chatHandler(api ChatAPI, streamSecret []byte, secure bool) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req ChatRequest
@@ -158,7 +158,7 @@ func streamAuthHandler(streamSecret []byte, secure bool) gin.HandlerFunc {
 	}
 }
 
-// FollowUpAPI 处理对话追加消息：内部判意图（action/qa）+ 落消息 + 分流。
+// FollowUpAPI 处理会话追加消息：内部判意图（action/qa）+ 落消息 + 分流。
 // 返回 intent（"action"|"qa"）、busy（action 但扫描进行中 → 应排队/拒绝）、err。
 type FollowUpAPI interface {
 	HandleMessage(ctx context.Context, convID, content string) (intent string, busy bool, err error)
@@ -190,12 +190,12 @@ func followUpHandler(api FollowUpAPI) gin.HandlerFunc {
 	}
 }
 
-// AbortAPI 停止对话关联扫描（cmd/api 注入）。
+// AbortAPI 停止会话关联扫描（cmd/api 注入）。
 type AbortAPI interface {
 	AbortConversationScan(ctx context.Context, convID string) error
 }
 
-// abortConversationHandler 处理 POST /conversations/:id/abort：停掉对话关联的 active_scan。
+// abortConversationHandler 处理 POST /conversations/:id/abort：停掉会话关联的 active_scan。
 func abortConversationHandler(api AbortAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if err := api.AbortConversationScan(c.Request.Context(), c.Param("id")); err != nil {
@@ -206,12 +206,12 @@ func abortConversationHandler(api AbortAPI) gin.HandlerFunc {
 	}
 }
 
-// ConversationDeleter 删除对话及其消息（*conversation.Store 满足）。小接口、可选注册（同 Abort）。
+// ConversationDeleter 删除会话及其消息（*conversation.Store 满足）。小接口、可选注册（同 Abort）。
 type ConversationDeleter interface {
 	DeleteConversation(ctx context.Context, id string) error
 }
 
-// deleteConversationHandler 处理 DELETE /conversations/:id：删对话+消息（不动 scan/finding 成果）。
+// deleteConversationHandler 处理 DELETE /conversations/:id：删会话+消息（不动 scan/finding 成果）。
 // 关联扫描仍在跑时返回 409（ErrConversationScanActive）——后端兜底「先停后删」，前端守卫可被绕过，
 // 不变量必须在服务端把守，否则单次删除就能制造停不掉的孤儿扫描。
 func deleteConversationHandler(api ConversationDeleter) gin.HandlerFunc {
@@ -231,7 +231,7 @@ func deleteConversationHandler(api ConversationDeleter) gin.HandlerFunc {
 // maxConversationTitleRunes 手动重命名标题上限（rune 计）。与 briefTitle 自动摘要的 40 留同量级余量。
 const maxConversationTitleRunes = 80
 
-// ConversationRenamer 重命名对话标题（*conversation.Store 满足）。小接口、可选注册（同 Deleter）。
+// ConversationRenamer 重命名会话标题（*conversation.Store 满足）。小接口、可选注册（同 Deleter）。
 type ConversationRenamer interface {
 	SetTitle(ctx context.Context, id, title string) error
 }
@@ -260,7 +260,7 @@ func renameConversationHandler(api ConversationRenamer) gin.HandlerFunc {
 	}
 }
 
-// listConversationsHandler 处理 GET /conversations：最近活跃对话列表。
+// listConversationsHandler 处理 GET /conversations：最近活跃会话列表。
 func listConversationsHandler(api ConversationsAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		convs, err := api.ListConversations(c.Request.Context(), parseLimit(c, 50))

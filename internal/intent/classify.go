@@ -1,4 +1,4 @@
-// Package intent 用便宜 LLM 判定用户对话消息的意图：动作（触发扫描）还是问答（读结果回答）。
+// Package intent 用便宜 LLM 判定用户会话消息的意图：动作（触发扫描）还是问答（读结果回答）。
 package intent
 
 import (
@@ -21,7 +21,7 @@ type gen interface {
 	Generate(ctx context.Context, msgs []llm.Message, tools []llm.ToolSchema) (llm.Result, error)
 }
 
-const systemPrompt = `你是渗透测试对话的意图分类器。判断用户最新消息属于哪类：
+const systemPrompt = `你是渗透测试会话的意图分类器。判断用户最新消息属于哪类：
 - action：让 agent 去执行——发起/继续扫描、验证某条请求、深挖某个点、重放或构造请求测试（含用户直接贴出的请求/命令要 agent 照打）。
 - qa：就已挖到的结果提问、解释、总结，不需要 agent 再动手。
 只输出一个词：action 或 qa。无法确定时输出 qa。`

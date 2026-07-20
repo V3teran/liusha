@@ -12,7 +12,7 @@ import (
 // 两种模式：
 //   - passive: scanner ingestor 拉到 flow 后填 FlowID/URL/Method + Request*/Response*，
 //     hunter user prompt 拼完整 raw 流量（请求 + 响应）；Host = 流量真实 host。
-//   - active: 对话/API 入口填 Brief（用户自然语言整段），目标 URL/host/凭据/范围全塞 brief
+//   - active: 会话/API 入口填 Brief（用户自然语言整段），目标 URL/host/凭据/范围全塞 brief
 //     由 LLM 自识别；Host 由 extractHostFromBrief 先从 brief 抽真实 host，抽不到回退 task_id。
 //     findings/lessons 按 (task/host) 切分。
 //

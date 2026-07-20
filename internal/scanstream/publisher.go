@@ -18,13 +18,13 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-// channelPrefix 是对话事件 channel 的前缀；完整 channel = prefix + conversationID。
+// channelPrefix 是会话事件 channel 的前缀；完整 channel = prefix + conversationID。
 const channelPrefix = "liusha:conv:"
 
-// Channel 返回某对话的事件 channel 名（Publisher / Subscriber 共用，保证拼法一致）。
+// Channel 返回某会话的事件 channel 名（Publisher / Subscriber 共用，保证拼法一致）。
 func Channel(conversationID string) string { return channelPrefix + conversationID }
 
-// Publisher 把过程事件 publish 到对话 channel（scanner 侧）。
+// Publisher 把过程事件 publish 到会话 channel（scanner 侧）。
 type Publisher struct {
 	rdb *redis.Client
 }
@@ -32,7 +32,7 @@ type Publisher struct {
 // NewPublisher 用 redis client 构造 Publisher。
 func NewPublisher(rdb *redis.Client) *Publisher { return &Publisher{rdb: rdb} }
 
-// Publish 把 payload 广播到对话 channel。conversationID 为空时静默跳过（无对话不发）。
+// Publish 把 payload 广播到会话 channel。conversationID 为空时静默跳过（无会话不发）。
 // best-effort：订阅者不在线时 redis 返回 0 接收者，不算错误（实时流允许丢，PG 是真相源）。
 func (p *Publisher) Publish(ctx context.Context, conversationID string, payload []byte) error {
 	if conversationID == "" {

@@ -28,7 +28,7 @@ const (
 const convCols = "id, COALESCE(title,''), COALESCE(task_id::text,''), " +
 	"COALESCE(role_id,''), created_at, updated_at"
 
-// CreateConversation 建一个对话会话。title/taskID/roleID 为空时存 NULL。
+// CreateConversation 建一个会话。title/taskID/roleID 为空时存 NULL。
 func (s *Store) CreateConversation(ctx context.Context, title, taskID, roleID string) (Conversation, error) {
 	row := s.pool.QueryRow(ctx, `
 		INSERT INTO conversation (title, task_id, role_id)
@@ -41,7 +41,7 @@ func (s *Store) CreateConversation(ctx context.Context, title, taskID, roleID st
 	return c, nil
 }
 
-// GetConversation 按主键读对话（不限 status）。
+// GetConversation 按主键读会话（不限 status）。
 func (s *Store) GetConversation(ctx context.Context, id string) (Conversation, error) {
 	row := s.pool.QueryRow(ctx, "SELECT "+convCols+" FROM conversation WHERE id=$1", id)
 	var c Conversation
@@ -51,8 +51,8 @@ func (s *Store) GetConversation(ctx context.Context, id string) (Conversation, e
 	return c, nil
 }
 
-// DeleteConversation 删除对话及其消息（message FK ON DELETE CASCADE 自动连带删）。
-// 不动关联的 task / finding（task_id FK 是 SET NULL，渗透成果以 task 为根，不因删对话丢失）。
+// DeleteConversation 删除会话及其消息（message FK ON DELETE CASCADE 自动连带删）。
+// 不动关联的 task / finding（task_id FK 是 SET NULL，渗透成果以 task 为根，不因删会话丢失）。
 // id 不存在返回 not found 错误。
 func (s *Store) DeleteConversation(ctx context.Context, id string) error {
 	tag, err := s.pool.Exec(ctx, "DELETE FROM conversation WHERE id=$1", id)
@@ -65,7 +65,7 @@ func (s *Store) DeleteConversation(ctx context.Context, id string) error {
 	return nil
 }
 
-// ResolveTaskID 解析对话关联的 task id（用于聚合 llm_invocation / tool_invocation 用量）。
+// ResolveTaskID 解析会话关联的 task id（用于聚合 llm_invocation / tool_invocation 用量）。
 // 两轨统一：conversation.task_id 即所属 task；纯聊天无关联 → 返回空串（调用方据此返回零用量）。
 func (s *Store) ResolveTaskID(ctx context.Context, convID string) (string, error) {
 	c, err := s.GetConversation(ctx, convID)
@@ -75,7 +75,7 @@ func (s *Store) ResolveTaskID(ctx context.Context, convID string) (string, error
 	return c.TaskID, nil
 }
 
-// IsRunActive 返回本对话当前是否有正在运行的扫描（权威：后端 task 终态，非客户端计时）。
+// IsRunActive 返回本会话当前是否有正在运行的扫描（权威：后端 task 终态，非客户端计时）。
 // 关联 task.status='active'（completed/aborted 为终态）；纯聊天 / 已结束返回 false。
 // 前端据此显示"agent 工作中"指示器，避免历史回灌误判。
 func (s *Store) IsRunActive(ctx context.Context, convID string) (bool, error) {
@@ -91,7 +91,7 @@ func (s *Store) IsRunActive(ctx context.Context, convID string) (bool, error) {
 	return running, nil
 }
 
-// WallclockMs 返回本对话关联 task 的「纯工作」墙钟时长（毫秒）——发起→完成的流逝时间扣除停顿。
+// WallclockMs 返回本会话关联 task 的「纯工作」墙钟时长（毫秒）——发起→完成的流逝时间扣除停顿。
 // 跑中用 now()-created_at，结束用 ended_at-created_at；再减 task.paused_ms（多轮 follow-up
 // 复活间的用户停顿累计，见 task.Reopen）。首次扫描 paused_ms=0。纯聊天/无关联 task 返回 0。
 func (s *Store) WallclockMs(ctx context.Context, convID string) (int64, error) {
@@ -113,7 +113,7 @@ func (s *Store) WallclockMs(ctx context.Context, convID string) (int64, error) {
 	return *ms, nil
 }
 
-// ListConversations 按 updated_at DESC 列出最近活跃的对话（UI 列表）。
+// ListConversations 按 updated_at DESC 列出最近活跃的会话（UI 列表）。
 func (s *Store) ListConversations(ctx context.Context, limit int) ([]Conversation, error) {
 	limit = clampLimit(limit)
 	// run_status：派生「真实运行态」——取关联 task.status（active/completed/aborted）。
@@ -143,7 +143,7 @@ func (s *Store) ListConversations(ctx context.Context, limit int) ([]Conversatio
 	return out, rows.Err()
 }
 
-// SetTitle 回填对话标题（首条消息摘要）。空 title 存 NULL。
+// SetTitle 回填会话标题（首条消息摘要）。空 title 存 NULL。
 func (s *Store) SetTitle(ctx context.Context, id, title string) error {
 	_, err := s.pool.Exec(ctx,
 		"UPDATE conversation SET title=NULLIF($1,''), updated_at=now() WHERE id=$2", title, id)
@@ -153,7 +153,7 @@ func (s *Store) SetTitle(ctx context.Context, id, title string) error {
 	return nil
 }
 
-// LinkTask 把对话关联到一个 task（对话发起扫描后回填）。
+// LinkTask 把会话关联到一个 task（会话发起扫描后回填）。
 func (s *Store) LinkTask(ctx context.Context, convID, taskID string) error {
 	_, err := s.pool.Exec(ctx,
 		"UPDATE conversation SET task_id=NULLIF($1,'')::uuid, updated_at=now() WHERE id=$2", taskID, convID)
@@ -165,8 +165,8 @@ func (s *Store) LinkTask(ctx context.Context, convID, taskID string) error {
 
 const msgCols = "seq, id, conversation_id, role, kind, content, metadata, created_at"
 
-// AppendMessage 往对话追加一条消息（普通消息或 agent 过程事件），并刷新 conversation.updated_at
-// 让对话列表按活跃排序。metadata 可为 nil。
+// AppendMessage 往会话追加一条消息（普通消息或 agent 过程事件），并刷新 conversation.updated_at
+// 让会话列表按活跃排序。metadata 可为 nil。
 //
 // 不开事务：append + touch updated_at 两条 Exec，与项目"保持简单不上事务"一致——
 // touch 失败仅影响列表排序，不影响消息已落库。
@@ -179,7 +179,7 @@ func (s *Store) AppendMessage(ctx context.Context, convID string, role Role, kin
 	if err := scanMessage(row, &m); err != nil {
 		return Message{}, fmt.Errorf("append message to %s: %w", convID, err)
 	}
-	// touch updated_at（仅真实对话消息 user/assistant）：失败仅影响列表排序，消息已落库——不报错。
+	// touch updated_at（仅真实会话消息 user/assistant）：失败仅影响列表排序，消息已落库——不报错。
 	// KindEvent 是高频 agent 过程事件（active 一次几百条），不参与会话列表排序，跳过这次 DB 往返
 	// ——省掉热路径上每事件的第二次同步写。
 	if kind != KindEvent {
@@ -188,7 +188,7 @@ func (s *Store) AppendMessage(ctx context.Context, convID string, role Role, kin
 	return m, nil
 }
 
-// ListMessages 取对话内 seq>afterSeq 的消息（按 seq 升序）。afterSeq=0 取全部（回看）；
+// ListMessages 取会话内 seq>afterSeq 的消息（按 seq 升序）。afterSeq=0 取全部（回看）；
 // SSE 重连后传上次 seq 做增量拉取。
 func (s *Store) ListMessages(ctx context.Context, convID string, afterSeq int64, limit int) ([]Message, error) {
 	limit = clampLimit(limit)
@@ -211,12 +211,12 @@ func (s *Store) ListMessages(ctx context.Context, convID string, afterSeq int64,
 	return out, rows.Err()
 }
 
-// ListRecentDialog 取对话内最近 limit 条「普通对话消息」（KindMessage，即 user/assistant/system；
-// 滤掉高频 agent 过程事件 KindEvent），按 seq 升序返回。供 agent 读对话历史当工作上下文
+// ListRecentDialog 取会话内最近 limit 条「普通会话消息」（KindMessage，即 user/assistant/system；
+// 滤掉高频 agent 过程事件 KindEvent），按 seq 升序返回。供 agent 读会话历史当工作上下文
 // （阶段0：active 多轮追问连贯性）。limit ≤ 0 用默认。
 func (s *Store) ListRecentDialog(ctx context.Context, convID string, limit int) ([]Message, error) {
 	limit = clampLimit(limit)
-	// 先按 seq DESC 取最近 limit 条，再在 Go 里反转成升序（对话历史按时间正序喂 LLM）。
+	// 先按 seq DESC 取最近 limit 条，再在 Go 里反转成升序（会话历史按时间正序喂 LLM）。
 	rows, err := s.pool.Query(ctx,
 		"SELECT "+msgCols+" FROM message WHERE conversation_id=$1 AND kind=$2 ORDER BY seq DESC LIMIT $3",
 		convID, KindMessage, limit)
@@ -256,7 +256,7 @@ func scanConversationWithRun(r scanRow, c *Conversation) error {
 	return r.Scan(&c.ID, &c.Title, &c.TaskID, &c.RoleID, &c.CreatedAt, &c.UpdatedAt, &c.RunStatus, &c.Mode, &c.FindingCount)
 }
 
-// RunStatus 返回对话关联 task 的「真实运行态」（task.status：active/completed/aborted；
+// RunStatus 返回会话关联 task 的「真实运行态」（task.status：active/completed/aborted；
 // 纯聊天空串）——供顶部状态栏显示三态，区别于 IsRunActive 的二元布尔。
 // 用 conversation.status 是僵尸字段（默认 active 从不更新），不可用于显示。
 func (s *Store) RunStatus(ctx context.Context, convID string) (string, error) {

@@ -1,4 +1,4 @@
-// Package qa 实现多轮对话的问答路径：读 owner 黑板 finding，用便宜 LLM 就已挖结果回答，
+// Package qa 实现多轮会话的问答路径：读 owner 黑板 finding，用便宜 LLM 就已挖结果回答，
 // 不触发扫描。回答落 assistant 消息并 publish SSE（前端实时显示）。
 package qa
 
