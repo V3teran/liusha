@@ -20,7 +20,7 @@ function onConvDeleted(convID: string) {
 </script>
 
 <template>
-  <div class="traffic-view">
+  <div class="passive-view">
     <ConversationList
       ref="convList"
       :active-id="currentConv || undefined"
@@ -40,11 +40,11 @@ function onConvDeleted(convID: string) {
 </template>
 
 <style scoped>
-.traffic-view {
+.passive-view {
   display: grid;
   grid-template-columns: 256px 1fr;
   height: 100%;
   min-height: 0;
 }
-.traffic-view :deep(.conv-list) { border-right: 1px solid var(--border); padding: 10px; }
+.passive-view :deep(.conv-list) { border-right: 1px solid var(--border); padding: 10px; }
 </style>

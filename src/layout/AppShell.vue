@@ -16,7 +16,7 @@ const { theme, toggle } = useTheme()
 const nav = [
   { to: '/dashboard', label: '总览', icon: Dashboard },
   { to: '/active', label: '渗透会话', icon: Crosshair },
-  { to: '/traffic', label: '流量分析', icon: PlugConnected },
+  { to: '/passive', label: '流量分析', icon: PlugConnected },
   { to: '/findings', label: '漏洞发现', icon: Bug },
   { to: '/sitemap', label: '攻击面', icon: Sitemap },
   { to: '/attack-graph', label: '执行图', icon: Affiliate },

@@ -18,7 +18,8 @@ const routes: RouteRecordRaw[] = [
       { path: 'sitemap', name: 'sitemap', component: () => import('../views/SitemapView.vue'), meta: { title: '攻击面' } },
       { path: 'attack-graph', name: 'attack-graph', component: () => import('../views/AttackGraphView.vue'), meta: { title: '执行图' } },
       // 流量分析：挂代理收流量 → AI 逐批分析挖洞。独立工作区（左会话列表 + 右分析 feed）。
-      { path: 'traffic', name: 'traffic', component: () => import('../views/SessionsView.vue'), meta: { title: '流量分析' } },
+      // path=/passive 对齐后端 task.mode（与 /active 同维度：两个 path 都等于 mode 枚举值）。
+      { path: 'passive', name: 'passive', component: () => import('../views/PassiveView.vue'), meta: { title: '流量分析' } },
       { path: 'agent-runs', name: 'agent-runs', component: () => import('../views/AgentRunsView.vue'), meta: { title: 'Agent 任务' } },
       { path: 'llm-audit', name: 'llm-audit', component: () => import('../views/LlmAuditView.vue'), meta: { title: 'LLM 审计' } },
       { path: 'credentials', name: 'credentials', component: () => import('../views/PlaceholderView.vue'), meta: { title: '凭证库' } },
