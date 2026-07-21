@@ -1,5 +1,6 @@
 <script setup lang="ts">
-// 漏洞发现页：选 owner（active）→ 从 sitemap 树扁平化所有 endpoint.findings。
+// 漏洞管理页：选 owner（active）→ 从 sitemap 树扁平化所有 endpoint.findings。
+// 注：当前只读（分级饼图 + 严重度排序列表）；后续加 triage/状态流转/处置后名副其实。
 // 分级饼图 + 按严重度排序的漏洞列表（带所属端点）。
 // 说明：后端无独立 /findings 端点，漏洞内嵌在攻击面树里，故复用 getSitemap。
 import { computed } from 'vue'

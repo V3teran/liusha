@@ -14,7 +14,7 @@ const routes: RouteRecordRaw[] = [
       // 渗透会话：用户下 brief → AI orchestrator 自主派子代理作战。此页发起 active 会话 + 观战。
       // path=/active 对齐后端 task.mode；页名避开 task/assignment 层级词（留给以后的批量/定时下发页）。
       { path: 'active', name: 'active', component: () => import('../views/ChatView.vue'), meta: { title: '渗透会话' } },
-      { path: 'findings', name: 'findings', component: () => import('../views/FindingsView.vue'), meta: { title: '漏洞发现' } },
+      { path: 'findings', name: 'findings', component: () => import('../views/FindingsView.vue'), meta: { title: '漏洞管理' } },
       { path: 'sitemap', name: 'sitemap', component: () => import('../views/SitemapView.vue'), meta: { title: '攻击面' } },
       { path: 'attack-graph', name: 'attack-graph', component: () => import('../views/AttackGraphView.vue'), meta: { title: '执行图' } },
       // 流量分析：挂代理收流量 → AI 逐批分析挖洞。独立工作区（左会话列表 + 右分析 feed）。
