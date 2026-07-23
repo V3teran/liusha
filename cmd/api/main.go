@@ -150,6 +150,7 @@ func main() {
 				audit: auditStore,
 			},
 			Sitemap:           projector,
+			Findings:          findStore,            // 全局漏洞台账（active+passive 全量 + triage 处置）
 			AttackGraph:       attackGraphProjector, // 执行图（思维链+成果链）投影
 			Invocations:       invocationStore,
 			AgentRuns:         hunterStore, // liusha-ui 拼任务树用（按 orchestrator_id）

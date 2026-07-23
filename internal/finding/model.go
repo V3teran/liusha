@@ -42,5 +42,14 @@ type VulnFinding struct {
 	// sitemap projector 据此派生 chains 边（a→c + b→c）渲染成图上虚线弧形。
 	DependsOn []string
 
+	// —— triage 处置字段（0081 加入）——
+	// Status 是处置态：open/confirmed/fixed/false_positive/accepted（DB CHECK 约束五态）。
+	// write_finding 落库默认 open；人工在漏洞管理页 triage 流转。
+	Status string
+	// TriageNote 处置备注（自由文本，如误报原因）；未处置为空。
+	TriageNote string
+	// TriagedAt 最后状态变更时刻；open（从未处置）为 nil。
+	TriagedAt *time.Time
+
 	CreatedAt time.Time
 }

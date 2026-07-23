@@ -13,6 +13,9 @@ type Deps struct {
 	Credentials CredentialsAPI
 	Tasks       TaskAPI
 	Sitemap     SitemapAPI // 仅 active 模式攻击面树视图
+	// Findings 为 nil 时 /findings 路由不注册。由 cmd/api 注入 *finding.Store。
+	// 全局漏洞台账（active+passive 全量 + triage 处置），漏洞管理页用。
+	Findings FindingsAPI
 	// AttackGraph 为 nil 时 /attack_graph/:task_id 路由不注册。
 	// 由 cmd/api 注入 *attackgraph.Projector（自动满足 AttackGraphAPI）。
 	// 执行图（思维链+成果链）read-model 投影，见 docs/attack-graph-design.md。
@@ -82,6 +85,10 @@ func NewServer(d Deps) http.Handler {
 	}
 	if d.Sitemap != nil {
 		r.GET("/sitemap/:task_id", sitemapHandler(d.Sitemap))
+	}
+	if d.Findings != nil {
+		r.GET("/findings", listFindingsHandler(d.Findings))
+		r.PATCH("/findings/:id/status", updateFindingStatusHandler(d.Findings))
 	}
 	if d.AttackGraph != nil {
 		r.GET("/attack_graph/:task_id", attackGraphHandler(d.AttackGraph))
