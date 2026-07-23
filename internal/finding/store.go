@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -29,10 +30,11 @@ func NewStore(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
 
 // colsSelect 是所有 SELECT / RETURNING 路径的统一列序，与 scan() 字段一一对应。
 // 0059 加 depends_on uuid[]（组合漏洞依赖：c.depends_on = [a.id, b.id]）。
+// 0081 加 status / triage_note / triaged_at（triage 处置态）。
 const colsSelect = "id, task_id::text AS task_id, " +
 	"hunter_id, source_traffic_id, host, severity, summary, target, evidence, " +
 	"COALESCE(cwe_id, ''), COALESCE(owasp_category, ''), first_seen_at, COALESCE(remediation, ''), " +
-	"depends_on::text[], created_at"
+	"depends_on::text[], status, COALESCE(triage_note, ''), triaged_at, created_at"
 
 // Save 永远 INSERT 一行新 finding（append-only）。
 //
@@ -263,6 +265,153 @@ func (s *Store) ListByHost(ctx context.Context, host string, limit int) ([]VulnF
 	return out, rows.Err()
 }
 
+// LedgerRow 是全局漏洞台账的一行：finding 主体 + JOIN task 派生的 Mode（active/passive）。
+// 漏洞管理页跨 task/host 全量展示用，区别于 per-task 的 VulnFinding 列表。
+type LedgerRow struct {
+	VulnFinding
+	Mode string // 关联 task 的 mode：active / passive
+}
+
+// LedgerFilter 是台账查询的可选筛选（零值=不筛该维度）。
+type LedgerFilter struct {
+	Host     string
+	Severity string
+	Status   string
+	Mode     string
+	Limit    int
+}
+
+// ListAll 全局漏洞台账查询：跨 task/host 平铺列出漏洞，JOIN task 带出 mode，按可选维度筛选。
+//
+// 修复历史缺陷：漏洞管理页原走 /sitemap（仅 active），passive 漏洞（占多数）不可见。
+// 本方法不受 task/mode 作用域约束，active + passive 一网打尽，按 created_at desc 排序。
+//
+// 不做去重聚合：漏洞按「每次扫描各自独立」建模——同一个洞被多次扫描就是多条独立 finding，
+// 各自有各自的 triage 处置态，互不影响。台账平铺全部，不折叠。
+func (s *Store) ListAll(ctx context.Context, f LedgerFilter) ([]LedgerRow, error) {
+	where := make([]string, 0, 4)
+	args := make([]any, 0, 5)
+	idx := 1
+	add := func(clause string, val any) {
+		where = append(where, fmt.Sprintf(clause, idx))
+		args = append(args, val)
+		idx++
+	}
+	if f.Host != "" {
+		add("f.host = $%d", f.Host)
+	}
+	if f.Severity != "" {
+		add("f.severity = $%d", f.Severity)
+	}
+	if f.Status != "" {
+		add("f.status = $%d", f.Status)
+	}
+	if f.Mode != "" {
+		add("t.mode = $%d", f.Mode)
+	}
+
+	q := `SELECT ` + ledgerCols + `, t.mode
+		FROM finding f JOIN task t ON t.id = f.task_id`
+	if len(where) > 0 {
+		q += " WHERE " + strings.Join(where, " AND ")
+	}
+	q += " ORDER BY f.created_at DESC"
+	if f.Limit > 0 {
+		q += fmt.Sprintf(" LIMIT $%d", idx)
+		args = append(args, f.Limit)
+	}
+
+	rows, err := s.pool.Query(ctx, q, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list all findings: %w", err)
+	}
+	defer rows.Close()
+
+	var out []LedgerRow
+	for rows.Next() {
+		var r LedgerRow
+		if err := scanLedger(rows, &r); err != nil {
+			return nil, fmt.Errorf("scan ledger row: %w", err)
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+// UpdateTriage 人工处置一条 finding：状态 + 严重度 + 备注，triaged_at 打当前时刻，RETURNING 更新后的行。
+//
+// status 必须是五态之一（DB CHECK 兜底，这里前置校验给出友好错误）。
+// severity 传空则不改（保留扫描时 LLM 定的值）；非空则直接覆盖——人工可修正 LLM 定级（triage 标配）。
+// note 可空。finding 不存在返错（ErrNoRows）。返回行含后端权威 triaged_at（前端据此覆盖乐观值）。
+func (s *Store) UpdateTriage(ctx context.Context, id, status, severity, note string) (VulnFinding, error) {
+	if id == "" {
+		return VulnFinding{}, fmt.Errorf("finding.UpdateTriage: id 必填")
+	}
+	if !validStatus(status) {
+		return VulnFinding{}, fmt.Errorf("finding.UpdateTriage: 非法 status %q（须为 open/confirmed/fixed/false_positive/accepted）", status)
+	}
+	// severity 用 NULLIF 空跳过：传空保留原值，非空覆盖。COALESCE 让 SQL 单句表达「空则不改」。
+	row := s.pool.QueryRow(ctx,
+		`UPDATE finding
+		 SET status = $1, severity = COALESCE(NULLIF($2, ''), severity),
+		     triage_note = NULLIF($3, ''), triaged_at = now()
+		 WHERE id = $4
+		 RETURNING `+colsSelect,
+		status, severity, note, id)
+	var updated VulnFinding
+	if err := scan(row, &updated); err != nil {
+		if err == pgx.ErrNoRows {
+			return VulnFinding{}, fmt.Errorf("update finding triage %s: not found", id)
+		}
+		return VulnFinding{}, fmt.Errorf("update finding triage %s: %w", id, err)
+	}
+	findingLog.Info().Str("finding_id", id).Str("status", status).Str("severity", updated.Severity).Msg("finding triaged ✓")
+	return updated, nil
+}
+
+// validStatus 校验 triage 五态（与 DB CHECK 约束、迁移 0081 保持一致）。
+func validStatus(s string) bool {
+	switch s {
+	case "open", "confirmed", "fixed", "false_positive", "accepted":
+		return true
+	}
+	return false
+}
+
+// ledgerCols 是台账 JOIN 查询的列序（= colsSelect 但每列显式加 f. 前缀）。
+// 不用程序化前缀：colsSelect 含 COALESCE(...) / depends_on::text[] 等内部带逗号的表达式，
+// 按 ", " 切分会劈碎；且 JOIN task 后 id/status/created_at 列名歧义，必须 f. 限定。
+// 与 colsSelect 手工对齐；scanLedger 列序 = 本常量 + 末尾 mode。
+const ledgerCols = "f.id, f.task_id::text AS task_id, " +
+	"f.hunter_id, f.source_traffic_id, f.host, f.severity, f.summary, f.target, f.evidence, " +
+	"COALESCE(f.cwe_id, ''), COALESCE(f.owasp_category, ''), f.first_seen_at, COALESCE(f.remediation, ''), " +
+	"f.depends_on::text[], f.status, COALESCE(f.triage_note, ''), f.triaged_at, f.created_at"
+
+// scanLedger 扫 ledgerCols 列序 + 末尾 mode（比 scan() 多一列 mode）。
+func scanLedger(r scanner, out *LedgerRow) error {
+	var hunterID *string
+	var sourceTrafficID *int64
+	var dependsOn []string
+	var triagedAt *time.Time
+	if err := r.Scan(
+		&out.ID, &out.TaskID,
+		&hunterID, &sourceTrafficID, &out.Host, &out.Severity,
+		&out.Summary, &out.Target, &out.Evidence,
+		&out.CWEID, &out.OWASPCategory, &out.FirstSeenAt, &out.Remediation,
+		&dependsOn,
+		&out.Status, &out.TriageNote, &triagedAt,
+		&out.CreatedAt,
+		&out.Mode,
+	); err != nil {
+		return err
+	}
+	out.HunterID = hunterID
+	out.SourceTrafficID = sourceTrafficID
+	out.DependsOn = dependsOn
+	out.TriagedAt = triagedAt
+	return nil
+}
+
 // scanner 抽象 pgx.Row / pgx.Rows 的 Scan 方法。
 type scanner interface {
 	Scan(dest ...any) error
@@ -275,12 +424,14 @@ func scan(r scanner, f *VulnFinding) error {
 	var hunterID *string
 	var sourceTrafficID *int64
 	var dependsOn []string
+	var triagedAt *time.Time
 	if err := r.Scan(
 		&f.ID, &f.TaskID,
 		&hunterID, &sourceTrafficID, &f.Host, &f.Severity,
 		&f.Summary, &f.Target, &f.Evidence,
 		&f.CWEID, &f.OWASPCategory, &f.FirstSeenAt, &f.Remediation,
 		&dependsOn,
+		&f.Status, &f.TriageNote, &triagedAt,
 		&f.CreatedAt,
 	); err != nil {
 		return err
@@ -288,5 +439,6 @@ func scan(r scanner, f *VulnFinding) error {
 	f.HunterID = hunterID
 	f.SourceTrafficID = sourceTrafficID
 	f.DependsOn = dependsOn
+	f.TriagedAt = triagedAt
 	return nil
 }
