@@ -17,6 +17,8 @@ import type {
   LLMInvocationsResponse,
   AgentRunsResponse,
   Identity,
+  FindingRow,
+  FindingFilters,
 } from './types'
 
 const KEY_STORAGE = 'liusha_api_key'
@@ -287,6 +289,43 @@ export async function startActiveScan(
 export async function getSitemap(ownerID: string, host = ''): Promise<SitemapView> {
   const q = host ? `?host=${encodeURIComponent(host)}` : ''
   return get<SitemapView>(`/sitemap/${ownerID}${q}`)
+}
+
+/* ============================================================
+   全局漏洞台账（漏洞管理页）：跨 task/host 全量 + triage 处置
+   ============================================================ */
+
+/**
+ * 拉取全局漏洞台账（active + passive 全量）。可选按 host/severity/status/mode 筛选。
+ * 修复历史缺陷：旧漏洞页走 /sitemap 仅 active，passive 漏洞（占多数）不可见。
+ */
+export async function listFindings(filters: FindingFilters = {}): Promise<FindingRow[]> {
+  const params = new URLSearchParams()
+  for (const [k, v] of Object.entries(filters)) {
+    if (v) params.set(k, v)
+  }
+  const q = params.toString()
+  return (await get<{ findings: FindingRow[] }>(`/findings${q ? '?' + q : ''}`)).findings
+}
+
+/**
+ * 人工处置一条漏洞（triage）。status 五态之一；severity 传空保留扫描原值、非空覆盖；note 可空。
+ * 后端 triaged_at 自动打点并 RETURNING 更新后的行——返回它供前端覆盖乐观值（消除时钟偏差）。
+ * 非法 status 返 400、id 不存在返 404。
+ */
+export async function updateFindingTriage(
+  id: string,
+  status: string,
+  severity = '',
+  note = '',
+): Promise<FindingRow> {
+  const res = await fetch(`/api/findings/${id}/status`, {
+    method: 'PATCH',
+    headers: { 'X-API-Key': getApiKey(), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ status, severity, note }),
+  })
+  if (!res.ok) throw new Error(`PATCH /findings/${id}/status → ${res.status}`)
+  return (await res.json()).finding as FindingRow
 }
 
 /**

@@ -148,6 +148,40 @@ export interface SitemapView {
 }
 
 /* ============================================================
+   全局漏洞台账（GET /findings，跨 task/host，active+passive 全量 + triage）
+   ============================================================ */
+// FindingTarget 是 finding.target jsonb 的常见形态（LLM 自决，字段可缺）。
+export interface FindingTarget {
+  path?: string
+  method?: string
+}
+// FindingRow 是台账一行：漏洞主体 + 派生 mode + triage 处置态 + 聚合计数。
+export interface FindingRow {
+  id: string
+  severity: string
+  summary: string
+  host: string
+  cwe_id?: string
+  owasp_category?: string
+  remediation?: string
+  target?: FindingTarget
+  // evidence 是 LLM 自由 jsonb（PoC/复现命令/观察等，41 种 key），前端通用 KV 渲染。
+  evidence?: Record<string, unknown>
+  mode: string // active / passive（关联 task 派生）
+  status: string // open/confirmed/fixed/false_positive/accepted
+  triage_note?: string
+  triaged_at?: string | null // 未处置为 null
+  created_at: string
+}
+// 台账筛选参数（全为可选，省略=不筛该维度）。
+export interface FindingFilters {
+  host?: string
+  severity?: string
+  status?: string
+  mode?: string
+}
+
+/* ============================================================
    执行图（GET /attack_graph/:owner_id）：思维链 + 成果链
    read-model 实时投影，不落表（见后端 docs/attack-graph-design.md）
    ============================================================ */
