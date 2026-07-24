@@ -7,15 +7,17 @@ export interface AgentAccent {
   soft: string // chip 背景（低透明度同色）
 }
 
+// 单一真相源：全站统一 Tailwind 调色板（会话卡 + 执行图 canvas 共用，跨页同 agent 同色）。
+// orchestrator 紫 / reconnaissance 天蓝 / exploitation 翠绿 / traffic-analysis 靛蓝。
 const FIXED: Record<string, AgentAccent> = {
-  orchestrator: { accent: '#722ed1', soft: 'rgba(114, 46, 209, 0.14)' }, // 紫·指挥
-  reconnaissance: { accent: '#13a8a8', soft: 'rgba(19, 168, 168, 0.14)' }, // 青·侦察
-  exploitation: { accent: '#eb2f96', soft: 'rgba(235, 47, 150, 0.14)' }, // 玫红·利用（暖色，攻击语义）
-  'traffic-analysis': { accent: '#1890ff', soft: 'rgba(24, 144, 255, 0.14)' }, // 蓝·流量分析（passive）
+  orchestrator: { accent: '#a78bfa', soft: 'rgba(167, 139, 250, 0.14)' }, // violet·指挥
+  reconnaissance: { accent: '#38bdf8', soft: 'rgba(56, 189, 248, 0.14)' }, // sky·侦察
+  exploitation: { accent: '#34d399', soft: 'rgba(52, 211, 153, 0.14)' }, // emerald·利用
+  'traffic-analysis': { accent: '#818cf8', soft: 'rgba(129, 140, 248, 0.14)' }, // indigo·流量分析（passive）
 }
 
-// 未知 agent 的备选色盘（避开已占用的紫/青/玫红/蓝 + 语义色红橙黄绿）。
-const FALLBACK_PALETTE = ['#9254de', '#36cfc9', '#597ef7', '#9e1068', '#08979c']
+// 未知 agent 的备选色盘（Tailwind，避开已占用的紫/天蓝/翠绿/靛 + 语义色红橙黄）。
+const FALLBACK_PALETTE = ['#f472b6', '#22d3ee', '#a3e635', '#fb923c', '#c084fc']
 
 function hashIndex(s: string, mod: number): number {
   let h = 0

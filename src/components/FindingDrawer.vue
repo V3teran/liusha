@@ -257,8 +257,8 @@ const SEVERITY_OPTIONS = ['critical', 'high', 'medium', 'low', 'info']
 .fd-sev.sev-low { background: var(--sev-low); }
 .fd-sev.sev-info { background: var(--sev-info); }
 .fd-mode { font-size: 11px; font-weight: 600; border-radius: 4px; padding: 1px 8px; }
-.mode-active { color: #22d3ee; background: color-mix(in srgb, #22d3ee 14%, transparent); }
-.mode-passive { color: #a78bfa; background: color-mix(in srgb, #a78bfa 14%, transparent); }
+.mode-active { color: var(--mode-active); background: color-mix(in srgb, var(--mode-active) 14%, transparent); }
+.mode-passive { color: var(--mode-passive); background: color-mix(in srgb, var(--mode-passive) 14%, transparent); }
 .fd-close {
   margin-left: auto;
   background: transparent;

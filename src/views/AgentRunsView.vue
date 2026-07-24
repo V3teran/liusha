@@ -35,15 +35,17 @@ const statusCounts = computed(() => {
   return c
 })
 
+// 状态色统一到全站 Tailwind 调色板（与 severity/status 同源，不再自成一套）：
+// done=绿 / running=蓝 / pending=灰 / error=红 / aborted=琥珀。
 const statusColor: Record<string, string> = {
-  done: '#2ec27e',
-  running: '#58a6ff',
-  pending: '#8a92a6',
-  error: '#f85149',
-  aborted: '#d29922',
+  done: '#22c55e',
+  running: '#3b82f6',
+  pending: '#94a3b8',
+  error: '#ef4444',
+  aborted: '#f59e0b',
 }
 function tagColor(status: string) {
-  const c = statusColor[status] ?? '#8a92a6'
+  const c = statusColor[status] ?? '#94a3b8'
   return { color: c + '22', textColor: c, borderColor: c + '55' }
 }
 const fmtTime = (s: string) => (s ? new Date(s).toLocaleString() : '—')

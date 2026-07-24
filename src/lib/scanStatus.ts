@@ -13,9 +13,9 @@ export interface ScanStatusMeta {
 export function scanStatusMeta(status: string | undefined): ScanStatusMeta {
   switch (status) {
     case 'active':
-      return { label: '进行中', key: 'active', color: '#34d399' }
+      return { label: '进行中', key: 'active', color: '#22c55e' }
     case 'completed':
-      return { label: '已完成', key: 'done', color: '#38bdf8' }
+      return { label: '已完成', key: 'done', color: '#3b82f6' }
     case 'aborted':
       return { label: '已中止', key: 'aborted', color: '#94a3b8' }
     default:

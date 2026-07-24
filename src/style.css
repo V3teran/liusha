@@ -14,30 +14,35 @@
   /* 文本（Ant 浅色） */
   --text: rgba(0, 0, 0, 0.88);
   --muted: rgba(0, 0, 0, 0.45);
-  /* 主色 / 强调（Ant #1890ff） */
-  --primary: #1890ff;
-  --primary-hover: #40a9ff;
-  --primary-soft: rgba(24, 144, 255, 0.1);
-  --accent: #1890ff;
-  /* Ant 语义色 */
-  --success: #52c41a;
-  --warning: #faad14;
-  --error: #f5222d;
-  /* 漏洞分级语义色（Ant 调色板） */
-  --sev-critical: #f5222d;
-  --sev-high: #fa8c16;
-  --sev-medium: #faad14;
-  --sev-low: #8c8c8c;
-  --sev-info: #1890ff;
+  /* 主色 / 强调（统一 Tailwind 蓝，与内容语义色同源） */
+  --primary: #2563eb;
+  --primary-hover: #3b82f6;
+  --primary-soft: rgba(37, 99, 235, 0.1);
+  --accent: #2563eb;
+  /* 语义色（Tailwind 调色板，与 severity 同源） */
+  --success: #16a34a;
+  --warning: #f59e0b;
+  --error: #dc2626;
+  /* 漏洞分级语义色（单一真相源：与 lib/severity.ts Tailwind 调色板对齐） */
+  --sev-critical: #ef4444;
+  --sev-high: #f97316;
+  --sev-medium: #eab308;
+  --sev-low: #94a3b8;
+  --sev-info: #3b82f6;
+  /* 来源语义色（渗透/流量），全站复用 */
+  --mode-active: #06b6d4;
+  --mode-passive: #8b5cf6;
   /* 排版 / 形状 / 间距 */
   --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
   --mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
-  --radius-sm: 4px;
-  --radius: 6px;
-  --radius-lg: 8px;
+  --radius-sm: 6px;
+  --radius: 8px;
+  --radius-lg: 14px;
+  --radius-card: 14px;
   --space: 12px;
-  --shadow: 0 1px 2px rgba(0, 0, 0, 0.06), 0 2px 8px rgba(0, 0, 0, 0.08);
-  --shadow-lg: 0 4px 16px rgba(0, 0, 0, 0.12);
+  --shadow-sm: 0 1px 2px rgba(16, 26, 43, 0.05);
+  --shadow: 0 1px 3px rgba(16, 26, 43, 0.06), 0 8px 24px rgba(16, 26, 43, 0.08);
+  --shadow-lg: 0 4px 16px rgba(16, 26, 43, 0.14);
   color-scheme: light;
 }
 
@@ -52,20 +57,24 @@
   /* 文本 */
   --text: rgba(255, 255, 255, 0.85);
   --muted: rgba(255, 255, 255, 0.45);
-  /* 主色 */
-  --primary: #177ddc;
-  --primary-hover: #3c9ae8;
-  --primary-soft: rgba(23, 125, 220, 0.15);
-  --accent: #177ddc;
-  --success: #49aa19;
-  --warning: #d89614;
-  --error: #d32029;
-  --sev-critical: #d32029;
-  --sev-high: #d87a16;
-  --sev-medium: #d89614;
-  --sev-low: #8c8c8c;
-  --sev-info: #177ddc;
-  --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 2px 8px rgba(0, 0, 0, 0.35);
+  /* 主色（Tailwind 蓝，暗色略提亮） */
+  --primary: #3b82f6;
+  --primary-hover: #60a5fa;
+  --primary-soft: rgba(59, 130, 246, 0.16);
+  --accent: #3b82f6;
+  --success: #22c55e;
+  --warning: #f59e0b;
+  --error: #ef4444;
+  /* severity 单一真相源（暗背景下 Tailwind 调色板本就清晰，与浅色同源同值） */
+  --sev-critical: #ef4444;
+  --sev-high: #f97316;
+  --sev-medium: #eab308;
+  --sev-low: #94a3b8;
+  --sev-info: #3b82f6;
+  --mode-active: #22d3ee;
+  --mode-passive: #a78bfa;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow: 0 1px 3px rgba(0, 0, 0, 0.4), 0 8px 24px rgba(0, 0, 0, 0.3);
   --shadow-lg: 0 4px 16px rgba(0, 0, 0, 0.5);
   color-scheme: dark;
 }
@@ -300,6 +309,7 @@ pre {
   padding: 16px 18px;
   position: relative;
   overflow: hidden;
+  box-shadow: var(--shadow-sm);
 }
 .stat-card::after {
   content: '';
@@ -318,6 +328,7 @@ pre {
   border-radius: var(--radius-lg);
   padding: 16px 18px;
   margin-bottom: 16px;
+  box-shadow: var(--shadow-sm);
 }
 .panel-title {
   font-size: 13px;

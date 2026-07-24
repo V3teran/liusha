@@ -50,9 +50,10 @@ const accent = computed(() => agentAccent(props.agentName))
 <style scoped>
 .reasoning-card {
   /* --rc-accent / --rc-accent-soft 由 inline style 注入（agentAccent 按 agent 名取色，
-     紫=指挥/青=侦察/玫红=利用…）→ 边框/标题/标签/光标同色，一眼分清是哪个 agent 在推理 */
-  --rc-accent: #722ed1;
-  --rc-accent-soft: rgba(114, 46, 209, 0.14);
+     紫=指挥/天蓝=侦察/翠绿=利用…）→ 边框/标题/标签/光标同色，一眼分清是哪个 agent 在推理。
+     下方 fallback 对齐 agentColor.ts 的 orchestrator violet（仅 inline 缺失时兜底）。 */
+  --rc-accent: #a78bfa;
+  --rc-accent-soft: rgba(167, 139, 250, 0.14);
   align-self: flex-start;
   max-width: 88%;
   background: var(--surface);

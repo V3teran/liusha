@@ -19,7 +19,7 @@ export interface FindingStatusMeta {
 const META: Record<FindingStatus, FindingStatusMeta> = {
   open: { label: '待处理', key: 'open', color: '#f59e0b' },
   confirmed: { label: '已确认', key: 'confirmed', color: '#ef4444' },
-  fixed: { label: '已修复', key: 'fixed', color: '#34d399' },
+  fixed: { label: '已修复', key: 'fixed', color: '#22c55e' },
   false_positive: { label: '误报', key: 'fp', color: '#94a3b8' },
   accepted: { label: '接受风险', key: 'accepted', color: '#3b82f6' },
 }

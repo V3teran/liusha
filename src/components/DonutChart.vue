@@ -11,9 +11,9 @@ interface DonutDatum {
 }
 const props = defineProps<{ data: DonutDatum[]; valueFormat?: (v: number) => string }>()
 
-// 无指定色时的中性配色（按类目循环）；深浅主题都可读。
-const PALETTE = ['#58a6ff', '#2bb673', '#b07cff', '#d29922', '#ff7b35', '#f85149', '#6e7681', '#5ac8fa']
-const LABEL_COLOR = '#8a92a6'
+// 无指定色时的中性配色（按类目循环，Tailwind 400-500 调色板，与全站同源）；深浅主题都可读。
+const PALETTE = ['#3b82f6', '#22c55e', '#a78bfa', '#f59e0b', '#fb923c', '#ef4444', '#94a3b8', '#38bdf8']
+const LABEL_COLOR = '#94a3b8'
 
 const el = ref<HTMLDivElement | null>(null)
 let chart: Chart | null = null

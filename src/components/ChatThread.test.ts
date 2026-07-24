@@ -37,10 +37,10 @@ describe('ChatThread', () => {
     const avatar = w.find('.avatar-slot img.avatar')
     expect(avatar.exists()).toBe(true)
     expect(avatar.attributes('alt')).toBe('agent')
-    // (2) 配色：推理卡 accent 是 traffic-analysis 的蓝 #1890ff，不是空名回退的中性灰 #8c8c8c
+    // (2) 配色：推理卡 accent 是 traffic-analysis 的靛蓝 #818cf8，不是空名回退的中性灰
     const card = w.find('[data-card="reasoning"]')
     expect(card.exists()).toBe(true)
-    expect(card.attributes('style')).toContain('#1890ff')
+    expect(card.attributes('style')).toContain('#818cf8')
     // (3) 标签：显示中文 agent 标签「流量分析」
     expect(card.text()).toContain('流量分析')
   })

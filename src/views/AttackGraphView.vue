@@ -8,6 +8,7 @@ import OwnerPicker from '../components/OwnerPicker.vue'
 import { getAttackGraph, getMilestones, listConversations, listMessages } from '../api/client'
 import type { AttackGraph, AttackGraphNode, Milestone } from '../api/types'
 import { severityColor } from '../lib/severity'
+import { agentAccent } from '../lib/agentColor'
 
 const owner = ref('')
 const data = ref<AttackGraph | null>(null)
@@ -36,9 +37,9 @@ async function loadMilestones() {
     milestonesLoading.value = false
   }
 }
-// 里程碑卡按 agent 角色着色（与全局 Tailwind 调性统一）：指挥=紫 / 侦察=天蓝 / 利用=翠绿。
+// 里程碑卡按 agent 角色着色——复用全站单一真相源 agentColor.ts（会话卡/执行图同 agent 同色）。
 function agentColor(a: string): string {
-  return a === 'orchestrator' ? '#a78bfa' : a === 'reconnaissance' ? '#38bdf8' : a === 'exploitation' ? '#34d399' : '#94a3b8'
+  return agentAccent(a).accent
 }
 let pollTimer: ReturnType<typeof setInterval> | null = null
 let lastSig = '' // 上次图签名（节点+边数），变化检测防无谓重渲染
@@ -163,8 +164,8 @@ function readColors() {
   return {
     text: v('--text', '#cfd6e4'),
     border: v('--border', '#39414f'),
-    accent: v('--accent', '#58a6ff'),
-    primary: v('--primary', '#2bb673'),
+    accent: v('--accent', '#3b82f6'),
+    primary: v('--primary', '#3b82f6'),
   }
 }
 

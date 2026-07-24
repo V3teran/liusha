@@ -327,8 +327,8 @@ function sevVar(sev: string): string {
 .fr-note { font-size: 11px; flex-shrink: 0; }
 .fr-loc { font-size: 11.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fr-mode { font-size: 10.5px; font-weight: 600; padding: 1px 7px; border-radius: 5px; justify-self: start; }
-.fr-mode.active { color: #22d3ee; background: color-mix(in srgb, #22d3ee 14%, transparent); }
-.fr-mode.passive { color: #a78bfa; background: color-mix(in srgb, #a78bfa 14%, transparent); }
+.fr-mode.active { color: var(--mode-active); background: color-mix(in srgb, var(--mode-active) 14%, transparent); }
+.fr-mode.passive { color: var(--mode-passive); background: color-mix(in srgb, var(--mode-passive) 14%, transparent); }
 .fr-st { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--st); font-weight: 600; }
 .fr-st i { width: 7px; height: 7px; border-radius: 50%; background: var(--st); flex-shrink: 0; }
 .fr-arrow { color: var(--muted); opacity: 0.5; font-size: 18px; text-align: center; transition: 0.14s; }

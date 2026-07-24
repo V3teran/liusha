@@ -54,9 +54,9 @@ const fmtMs = (n?: number) => (n && n > 0 ? (n >= 1000 ? (n / 1000).toFixed(1) +
 .spawn-card {
   align-self: flex-start;
   max-width: 88%;
-  background: linear-gradient(180deg, rgba(114, 46, 209, 0.1), transparent), var(--surface);
+  background: linear-gradient(180deg, rgba(167, 139, 250, 0.1), transparent), var(--surface);
   border: 1px solid var(--border);
-  border-left: 3px solid #722ed1;
+  border-left: 3px solid #a78bfa;
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow);
   padding: 10px 14px;
@@ -68,7 +68,7 @@ const fmtMs = (n?: number) => (n && n > 0 ? (n >= 1000 ? (n / 1000).toFixed(1) +
   font-size: 13px;
 }
 .sp-icon { font-size: 14px; }
-.sp-label { font-size: 12px; font-weight: 600; color: #722ed1; }
+.sp-label { font-size: 12px; font-weight: 600; color: #a78bfa; }
 .sp-dur {
   margin-left: auto;
   font-family: var(--mono);
