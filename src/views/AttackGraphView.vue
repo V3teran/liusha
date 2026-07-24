@@ -17,6 +17,7 @@ const error = ref('')
 const selected = ref<AttackGraphNode | null>(null)
 const contentByRef = ref<Record<string, string>>({}) // message id → 完整原文（点节点钻取）
 const live = ref(true) // 实时轮询开关（扫描过程中观测）
+const scanRunning = ref(false) // 当前 owner 扫描是否运行中——终态不轮询（图不会再变）
 const simplified = ref(true) // 成果优先：默认只显示通向漏洞的主干路径，折叠死路探索（默认开，大图才可读）
 const expandedAnchors = ref<Set<string>>(new Set()) // 已展开的折叠段（按最近保留祖先 id；'' = 开场侦察段）
 const currentConv = ref('')
@@ -69,9 +70,14 @@ async function load() {
   try {
     // owner → conv：找 scan_id === owner 的会话（思维链来源）；无会话不致命，只出成果链。
     let conv = ''
+    scanRunning.value = false
     try {
       const convs = await listConversations()
-      conv = convs.find((c) => c.ScanID === owner.value)?.ID ?? ''
+      // owner 即 task_id：按 TaskID 匹配会话拿思维链。（曾误用 ScanID，其为空→匹配失败→
+      // conv 空→只投影 finding 五角星、思维链全丢，即"执行图只显示几个五角星"的根因。）
+      const matched = convs.find((c) => c.TaskID === owner.value)
+      conv = matched?.ID ?? ''
+      scanRunning.value = matched?.RunStatus === 'active' // 仅运行中的扫描图会增长
     } catch {
       conv = ''
     }
@@ -81,7 +87,9 @@ async function load() {
     data.value = await getAttackGraph(owner.value, conv)
     lastSig = sig(data.value)
     if (conv) void fetchContents(conv) // 异步填原文，不阻塞图渲染
-    if (live.value) startPoll()
+    // 性能：仅扫描运行中才轮询。终态（completed/aborted）图永不再变，轮询=对死图每 3s
+    // 全量重投影（445 节点白重算）+ 前端重渲染，纯浪费——终态直接不启动轮询。
+    if (live.value && scanRunning.value) startPoll()
   } catch (e) {
     error.value = e instanceof Error ? e.message : '加载失败'
   } finally {
@@ -143,7 +151,8 @@ function stopPoll() {
   }
 }
 
-watch(live, (v) => (v ? startPoll() : stopPoll()))
+// 手动切 live 开关：仅扫描运行中才真正启动轮询（终态开了也不轮询，图不会变）。
+watch(live, (v) => (v && scanRunning.value ? startPoll() : stopPoll()))
 watch(simplified, () => {
   expandedAnchors.value = new Set() // 切换成果优先/完整时重置已展开的折叠段
   renderGraph()

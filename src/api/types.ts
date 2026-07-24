@@ -50,6 +50,7 @@ export interface Conversation {
   ID: string
   Title: string
   ScanID: string
+  TaskID: string // 关联扫描 task.id（= owner id）——执行图/攻击面按此匹配会话拿思维链
   RoleID: string
   // Status 已退役删除（后端不再返回）——运行态用 RunStatus。
   RunStatus?: string // 派生的真实运行态（active/completed/aborted；纯聊天空）——列表显示用此
