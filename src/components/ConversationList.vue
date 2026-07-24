@@ -454,7 +454,7 @@ li:hover .cl-more,
   position: fixed; /* Teleport 到 body + JS 视口坐标定位（top/left 由 menuStyle 注入） */
   z-index: 1000;
   min-width: 132px;
-  background: var(--surface);
+  background: var(--surface-solid); /* 浮层用实底，避免半透明串下层背景 */
   border: 1px solid var(--border);
   border-radius: 8px;
   box-shadow: var(--shadow);

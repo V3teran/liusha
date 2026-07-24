@@ -6,10 +6,15 @@
 :root {
   /* 表面层次（Ant 浅色） */
   --bg: #f0f2f5;
+  --bg2: #f0f2f5; /* 浅色不做黑蓝渐变，与 --bg 同值（body 渐变退化为平色） */
   --surface: #ffffff;
   --surface-2: #fafafa;
+  --surface-solid: #ffffff;
   --elevated: #ffffff;
   --border: #f0f0f0;
+  --glass-blur: none; /* 浅色不启用玻璃拟态 */
+  --faint: rgba(0, 0, 0, 0.3);
+  --primary-glow: rgba(37, 99, 235, 0.25);
   --border-strong: #d9d9d9;
   /* 文本（Ant 浅色） */
   --text: rgba(0, 0, 0, 0.88);
@@ -47,35 +52,42 @@
 }
 
 :root[data-theme="dark"] {
-  /* 表面层次（Ant darkAlgorithm 风） */
-  --bg: #141414;
-  --surface: #1f1f1f;
-  --surface-2: #262626;
-  --elevated: #1f1f1f;
-  --border: #303030;
-  --border-strong: #424242;
-  /* 文本 */
-  --text: rgba(255, 255, 255, 0.85);
-  --muted: rgba(255, 255, 255, 0.45);
-  /* 主色（Tailwind 蓝，暗色略提亮） */
-  --primary: #3b82f6;
-  --primary-hover: #60a5fa;
-  --primary-soft: rgba(59, 130, 246, 0.16);
-  --accent: #3b82f6;
-  --success: #22c55e;
-  --warning: #f59e0b;
-  --error: #ef4444;
-  /* severity 单一真相源（暗背景下 Tailwind 调色板本就清晰，与浅色同源同值） */
-  --sev-critical: #ef4444;
-  --sev-high: #f97316;
-  --sev-medium: #eab308;
-  --sev-low: #94a3b8;
-  --sev-info: #3b82f6;
-  --mode-active: #22d3ee;
-  --mode-passive: #a78bfa;
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
-  --shadow: 0 1px 3px rgba(0, 0, 0, 0.4), 0 8px 24px rgba(0, 0, 0, 0.3);
-  --shadow-lg: 0 4px 16px rgba(0, 0, 0, 0.5);
+  /* 表面层次（黑蓝调 + 玻璃拟态）：bg 深蓝黑非纯黑，surface 半透明供 backdrop-filter 起效 */
+  --bg: #060912;
+  --bg2: #0a1120;
+  --surface: rgba(20, 32, 58, 0.55);
+  --surface-2: rgba(30, 45, 75, 0.5);
+  --surface-solid: #111a2e; /* 需实底时用（下拉浮层/输入框等透明会串背景的场景） */
+  --elevated: rgba(24, 38, 66, 0.7);
+  --border: rgba(80, 120, 190, 0.18);
+  --border-strong: rgba(90, 140, 220, 0.35);
+  /* 玻璃拟态模糊量（浅色为空=不模糊） */
+  --glass-blur: blur(12px);
+  /* 文本（带蓝调的中性，非纯白/纯灰） */
+  --text: rgba(235, 244, 255, 0.95);
+  --muted: rgba(150, 180, 225, 0.6);
+  --faint: rgba(150, 180, 225, 0.38);
+  /* 主色（Tailwind 蓝，暗色略提亮）+ 辉光 */
+  --primary: #4f8ff7;
+  --primary-hover: #6ba3f9;
+  --primary-soft: rgba(79, 143, 247, 0.18);
+  --primary-glow: rgba(79, 143, 247, 0.5);
+  --accent: #4f8ff7;
+  --success: #2ee08a;
+  --warning: #f5c542;
+  --error: #ff5a5f;
+  /* severity 单一真相源（黑蓝背景下略提亮饱和，与浅色同源同调） */
+  --sev-critical: #ff5a5f;
+  --sev-high: #ff8c42;
+  --sev-medium: #f5c542;
+  --sev-low: #9aa8bd;
+  --sev-info: #4f8ff7;
+  --mode-active: #2dd4ee;
+  --mode-passive: #b18cff;
+  /* 阴影带蓝调（黑蓝主题的投影不用纯黑，混一点深蓝更融） */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35);
+  --shadow: 0 2px 10px rgba(0, 0, 0, 0.5), 0 16px 48px rgba(0, 20, 60, 0.4);
+  --shadow-lg: 0 8px 40px rgba(0, 20, 60, 0.55);
   color-scheme: dark;
 }
 
@@ -85,7 +97,9 @@ html, body, #app { height: 100%; }
 
 body {
   margin: 0;
-  background: var(--bg);
+  /* 黑蓝径向渐变（深色）：顶部偏右一抹深蓝 → 深黑蓝底；浅色因 --bg2==--bg 退化为平色 */
+  background: radial-gradient(1200px 600px at 70% -10%, var(--bg2), var(--bg) 60%);
+  background-attachment: fixed;
   color: var(--text);
   font-family: var(--font);
   -webkit-font-smoothing: antialiased;
@@ -309,7 +323,9 @@ pre {
   padding: 16px 18px;
   position: relative;
   overflow: hidden;
-  box-shadow: var(--shadow-sm);
+  box-shadow: var(--shadow);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
 }
 .stat-card::after {
   content: '';
@@ -328,7 +344,9 @@ pre {
   border-radius: var(--radius-lg);
   padding: 16px 18px;
   margin-bottom: 16px;
-  box-shadow: var(--shadow-sm);
+  box-shadow: var(--shadow);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
 }
 .panel-title {
   font-size: 13px;
