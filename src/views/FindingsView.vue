@@ -143,6 +143,7 @@ function sevVar(sev: string): string {
 
 <template>
   <div class="fm-page">
+    <div class="fm-glow" aria-hidden="true" />
     <div class="fm-body">
       <div v-if="loading" class="fm-state"><a-spin size="large" /></div>
       <div v-else-if="error" class="fm-state err">⚠ {{ error }}</div>
@@ -164,7 +165,7 @@ function sevVar(sev: string): string {
                 :key="x.sev"
                 class="sm-seg"
                 :class="{ on: fSeverity === x.sev }"
-                :style="{ flex: x.n, background: sevVar(x.sev) }"
+                :style="{ flex: x.n, background: sevVar(x.sev), color: sevVar(x.sev) }"
                 :title="`${SEV_LABEL[x.sev]} ${x.n}`"
                 @click="toggleSevFilter(x.sev)"
               />
@@ -177,7 +178,7 @@ function sevVar(sev: string): string {
                 :class="{ on: fSeverity === x.sev, empty: !x.n }"
                 @click="x.n && toggleSevFilter(x.sev)"
               >
-                <i :style="{ background: sevVar(x.sev) }" />{{ SEV_LABEL[x.sev] }} <b>{{ x.n }}</b>
+                <i :style="{ background: sevVar(x.sev), color: sevVar(x.sev) }" />{{ SEV_LABEL[x.sev] }} <b>{{ x.n }}</b>
               </span>
             </div>
           </div>
@@ -223,7 +224,7 @@ function sevVar(sev: string): string {
             @keydown.enter.prevent="openDrawer(f)"
             @keydown.space.prevent="openDrawer(f)"
           >
-            <span class="fr-sev"><i :style="{ background: sevVar(f.severity) }" />{{ SEV_LABEL[f.severity.toLowerCase()] || f.severity }}</span>
+            <span class="fr-sev"><i :style="{ background: sevVar(f.severity), color: sevVar(f.severity) }" />{{ SEV_LABEL[f.severity.toLowerCase()] || f.severity }}</span>
             <span class="fr-sum">
               {{ f.summary }}
               <span v-if="f.triage_note" class="fr-note" title="有处置备注">📝</span>
@@ -242,8 +243,21 @@ function sevVar(sev: string): string {
 </template>
 
 <style scoped>
-.fm-page { height: 100%; display: flex; flex-direction: column; min-height: 0; }
-.fm-body { flex: 1; min-height: 0; overflow-y: auto; padding: 22px; }
+.fm-page { height: 100%; display: flex; flex-direction: column; min-height: 0; position: relative; }
+/* 顶部蓝光晕——黑蓝玻璃主题的灵魂（浅色 --primary-glow 很淡，几乎不可见，无害） */
+.fm-glow {
+  position: absolute;
+  top: -60px;
+  left: 15%;
+  right: 15%;
+  height: 240px;
+  pointer-events: none;
+  background: radial-gradient(ellipse at center, var(--primary-glow), transparent 70%);
+  filter: blur(40px);
+  opacity: 0.6;
+  z-index: 0;
+}
+.fm-body { flex: 1; min-height: 0; overflow-y: auto; padding: 22px; position: relative; z-index: 1; }
 .fm-state { text-align: center; color: var(--muted); padding: 60px 0; font-size: 13.5px; }
 .fm-state.err { color: var(--error); }
 
@@ -255,25 +269,39 @@ function sevVar(sev: string): string {
   padding: 18px 22px;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 14px;
+  border-radius: 18px;
   box-shadow: var(--shadow);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
   margin-bottom: 16px;
 }
 .sm-total { display: flex; align-items: center; gap: 14px; flex-shrink: 0; }
-.sm-total-n { font-size: 42px; font-weight: 700; line-height: 1; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; }
+/* 大数字：渐变文字（白→muted），更有质感 */
+.sm-total-n {
+  font-size: 48px;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+  background: linear-gradient(180deg, var(--text), var(--muted));
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
 .sm-total-l { font-size: 13px; color: var(--muted); line-height: 1.5; }
-.sm-total-l em { font-style: normal; font-size: 12px; color: var(--muted); opacity: 0.75; }
+.sm-total-l em { font-style: normal; font-size: 12px; color: var(--faint, var(--muted)); }
 .sm-bar-wrap { flex: 1; min-width: 0; }
-.sm-bar { display: flex; height: 14px; border-radius: 999px; overflow: hidden; gap: 2px; background: var(--surface-2); }
-.sm-seg { transition: flex 0.3s, opacity 0.15s; cursor: pointer; }
+.sm-bar { display: flex; height: 16px; border-radius: 999px; overflow: hidden; gap: 3px; background: color-mix(in srgb, var(--surface-2) 60%, transparent); }
+/* severity 色段带辉光——deep 玻璃主题的关键视觉 */
+.sm-seg { transition: flex 0.3s, opacity 0.15s; cursor: pointer; border-radius: 3px; box-shadow: 0 0 12px -2px currentColor; }
 .sm-seg:hover { opacity: 0.82; }
-.sm-seg.on { box-shadow: inset 0 0 0 2px var(--text); }
+.sm-seg.on { box-shadow: inset 0 0 0 2px var(--text), 0 0 12px -2px currentColor; }
 .sm-legend { display: flex; flex-wrap: wrap; gap: 8px 18px; margin-top: 12px; font-size: 12.5px; color: var(--muted); }
 .sm-legend .lg { cursor: pointer; padding: 2px 8px; border-radius: 7px; transition: 0.14s; user-select: none; }
 .sm-legend .lg:hover { background: var(--surface-2); }
 .sm-legend .lg.on { background: var(--surface-2); color: var(--text); box-shadow: inset 0 0 0 1px var(--border-strong); }
 .sm-legend .lg.empty { opacity: 0.4; cursor: default; }
-.sm-legend i { display: inline-block; width: 9px; height: 9px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
+.sm-legend i { display: inline-block; width: 9px; height: 9px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; box-shadow: 0 0 8px -1px; }
 .sm-legend b { color: var(--text); font-variant-numeric: tabular-nums; }
 
 /* 搜索 + 筛选栏 */
@@ -295,7 +323,7 @@ function sevVar(sev: string): string {
 .fm-count { font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; padding-left: 2px; flex-shrink: 0; }
 
 /* 密集表格 */
-.fm-table { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; overflow: hidden; box-shadow: var(--shadow-sm, var(--shadow)); }
+.fm-table { background: var(--surface); border: 1px solid var(--border); border-radius: 18px; overflow: hidden; box-shadow: var(--shadow); backdrop-filter: var(--glass-blur); -webkit-backdrop-filter: var(--glass-blur); }
 .fr {
   display: grid;
   grid-template-columns: 76px 1fr 280px 60px 96px 20px;
@@ -309,7 +337,7 @@ function sevVar(sev: string): string {
   transition: background 0.12s, border-color 0.12s, opacity 0.15s;
 }
 .fr:last-child { border-bottom: none; }
-.fr:not(.fr-head):hover { background: var(--surface-2); border-left-color: var(--sev); }
+.fr:not(.fr-head):hover { background: var(--surface-2); border-left-color: var(--sev); box-shadow: inset 0 0 30px -12px var(--sev); }
 .fr:not(.fr-head):focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
 .fr.saving { opacity: 0.55; }
 .fr-head {
@@ -322,7 +350,7 @@ function sevVar(sev: string): string {
   font-weight: 600;
 }
 .fr-sev { display: flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 600; }
-.fr-sev i { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.fr-sev i { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; box-shadow: 0 0 8px -1px; }
 .fr-sum { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: flex; align-items: center; gap: 6px; }
 .fr-note { font-size: 11px; flex-shrink: 0; }
 .fr-loc { font-size: 11.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -330,7 +358,7 @@ function sevVar(sev: string): string {
 .fr-mode.active { color: var(--mode-active); background: color-mix(in srgb, var(--mode-active) 14%, transparent); }
 .fr-mode.passive { color: var(--mode-passive); background: color-mix(in srgb, var(--mode-passive) 14%, transparent); }
 .fr-st { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--st); font-weight: 600; }
-.fr-st i { width: 7px; height: 7px; border-radius: 50%; background: var(--st); flex-shrink: 0; }
+.fr-st i { width: 7px; height: 7px; border-radius: 50%; background: var(--st); flex-shrink: 0; box-shadow: 0 0 8px -1px var(--st); }
 .fr-arrow { color: var(--muted); opacity: 0.5; font-size: 18px; text-align: center; transition: 0.14s; }
 .fr:hover .fr-arrow { color: var(--primary); opacity: 1; transform: translateX(2px); }
 
