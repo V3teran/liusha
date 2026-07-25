@@ -207,18 +207,33 @@ func (s *Store) copyFromBatch(ctx context.Context, batch []Invocation) error {
 	return nil
 }
 
-// ListByTask 列出 task 下所有 LLM invocation（按 created_at ASC）。
+// maxListLimit 是 ListByTask 单页硬上限——防无界查询（无论调用方传多大 limit，都不超它）。
+const maxListLimit = 1000
+
+// ListByTask 列出 task 下的 LLM invocation，按 id ASC 游标翻页（keyset pagination，非 offset）。
+//
+//   - afterID：上一页最后一行的 id；0 表示从头拉。
+//   - limit：本页行数上限；<=0 或超 maxListLimit 时收敛到 maxListLimit。
+//
+// 用 id 而非 created_at 排序：批量 worker 同一 flush 内的行 created_at 几乎相同（写入时刻，
+// 非调用时刻），排序不稳定；bigserial id 在同一批 CopyFrom 内严格单调，才是可靠的时序游标。
 // 调用方有责任先 Flush() 等异步 buffer commit，否则可能缺最近 0-1s 的记录。
-func (s *Store) ListByTask(ctx context.Context, taskID string) ([]Invocation, error) {
+//
+// 列表不选 messages/result（大字段，详情另走 GetByID 按需拉，见 docs 中"列表/详情分离"设计）。
+func (s *Store) ListByTask(ctx context.Context, taskID string, afterID int64, limit int) ([]Invocation, error) {
+	if limit <= 0 || limit > maxListLimit {
+		limit = maxListLimit
+	}
 	rows, err := s.pool.Query(ctx, `
-		SELECT id, hunter_id, task_id::text,
+		SELECT id, request_id, hunter_id, task_id::text,
 		       provider, model,
 		       in_tokens, out_tokens, cached_tokens,
 		       latency_ms, finish_reason, error_message, role,
-		       messages, result, created_at
+		       created_at
 		FROM llm_invocation
-		WHERE task_id=$1::uuid
-		ORDER BY created_at ASC`, taskID)
+		WHERE task_id=$1::uuid AND id > $2
+		ORDER BY id ASC
+		LIMIT $3`, taskID, afterID, limit)
 	if err != nil {
 		return nil, fmt.Errorf("list llm_invocation by task: %w", err)
 	}
@@ -229,11 +244,11 @@ func (s *Store) ListByTask(ctx context.Context, taskID string) ([]Invocation, er
 		var v Invocation
 		var hunterID, tid *string
 		if err := rows.Scan(
-			&v.ID, &hunterID, &tid,
+			&v.ID, &v.RequestID, &hunterID, &tid,
 			&v.Provider, &v.Model,
 			&v.InTokens, &v.OutTokens, &v.CachedTokens,
 			&v.LatencyMs, &v.FinishReason, &v.Error, &v.Role,
-			&v.Messages, &v.Result, &v.CreatedAt,
+			&v.CreatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scan llm_invocation: %w", err)
 		}
@@ -245,6 +260,33 @@ func (s *Store) ListByTask(ctx context.Context, taskID string) ([]Invocation, er
 		return nil, fmt.Errorf("iterate llm_invocation: %w", err)
 	}
 	return out, nil
+}
+
+// GetByID 取单条 invocation 的完整行（含 messages/result 大字段），供列表页点击钻取详情用。
+// 用 taskID+id 联合定位（而非裸 id）：防止跨 task 猜 id 越权读取审计原文。
+func (s *Store) GetByID(ctx context.Context, taskID string, id int64) (Invocation, error) {
+	var v Invocation
+	var hunterID, tid *string
+	err := s.pool.QueryRow(ctx, `
+		SELECT id, request_id, hunter_id, task_id::text,
+		       provider, model,
+		       in_tokens, out_tokens, cached_tokens,
+		       latency_ms, finish_reason, error_message, role,
+		       messages, result, created_at
+		FROM llm_invocation
+		WHERE id=$1 AND task_id=$2::uuid`, id, taskID).Scan(
+		&v.ID, &v.RequestID, &hunterID, &tid,
+		&v.Provider, &v.Model,
+		&v.InTokens, &v.OutTokens, &v.CachedTokens,
+		&v.LatencyMs, &v.FinishReason, &v.Error, &v.Role,
+		&v.Messages, &v.Result, &v.CreatedAt,
+	)
+	if err != nil {
+		return Invocation{}, fmt.Errorf("get llm_invocation %d: %w", id, err)
+	}
+	v.HunterID = hunterID
+	v.TaskID = tid
+	return v, nil
 }
 
 // Aggregate 是某 owner 下所有 LLM 调用的合计（会话用量总览）。
