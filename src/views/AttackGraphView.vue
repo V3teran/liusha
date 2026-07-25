@@ -463,7 +463,9 @@ onBeforeUnmount(() => {
 <template>
   <div class="page">
     <div class="page-toolbar">
-      <OwnerPicker v-model="owner" mode-filter="active" />
+      <!-- 不限 mode：active/passive 均可出执行图（后端投影不限 mode，passive 实测 14 节点有效）。
+           曾误加 mode-filter="active" 把 passive 挡在下拉外，与漏洞管理页 passive 不可见同源。 -->
+      <OwnerPicker v-model="owner" />
       <div v-if="nodes.length" class="legend">
         <span class="lg-group">过程</span>
         <span class="lg"><i class="sym reasoning">●</i>想</span>
