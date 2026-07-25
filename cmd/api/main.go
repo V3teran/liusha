@@ -153,7 +153,6 @@ func main() {
 			Findings:          findStore,            // 全局漏洞台账（active+passive 全量 + triage 处置）
 			AttackGraph:       attackGraphProjector, // 执行图（思维链+成果链）投影
 			Invocations:       invocationStore,
-			AgentRuns:         hunterStore, // liusha-ui 拼任务树用（按 orchestrator_id）
 			ActiveScan:        activeAdapter,
 			Chat:              activeAdapter,                // 阶段B：POST /chat 会话发起扫描
 			FollowUp:          activeAdapter,                // 多轮：POST /conversations/:id/messages 动作续接
