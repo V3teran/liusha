@@ -254,26 +254,6 @@ export interface LLMInvocationsResponse {
 }
 
 /* ============================================================
-   Agent 任务树（GET /agent_runs/:owner_id）
-   orchestrator_id='' 为根；input/result 为 inline jsonb
-   ============================================================ */
-export interface AgentRun {
-  id: string
-  orchestrator_id: string
-  role: string // 'orchestrator' | 'exploitation' | 'traffic-analysis'
-  status: string // 'pending' | 'running' | 'done' | 'error' | 'aborted'
-  input: unknown
-  result: unknown
-  created_at: string
-  updated_at: string
-}
-export interface AgentRunsResponse {
-  owner_id: string
-  total: number
-  runs: AgentRun[]
-}
-
-/* ============================================================
    凭证库（GET/POST/DELETE /credential）
    host → Identity[]（每个 Identity 含多条 Credential）
    ============================================================ */

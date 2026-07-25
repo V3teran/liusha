@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import {
   getApiKey, setApiKey, listRoles, listConversations, listMessages, startChat, followUp, abortScan,
-  listSessions, startActiveScan, abortSession, getSitemap, listLLMInvocations, listAgentRuns,
+  listSessions, startActiveScan, abortSession, getSitemap, listLLMInvocations,
   listCredentials, saveCredentialsBatch, deleteCredentials,
 } from './client'
 
@@ -232,17 +232,6 @@ describe('API 客户端', () => {
 
       expect(res.total).toBe(1)
       expect(res.groups[0].hunter_id).toBe('h1')
-    })
-
-    it('listAgentRuns 透传 runs', async () => {
-      ;(global as any).fetch = vi.fn().mockResolvedValue({
-        ok: true,
-        json: vi.fn().mockResolvedValue({ owner_id: 'o1', total: 2, runs: [] }),
-      })
-
-      const res = await listAgentRuns('o1')
-
-      expect(res.total).toBe(2)
     })
   })
 

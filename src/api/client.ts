@@ -15,7 +15,6 @@ import type {
   AttackGraph,
   Milestone,
   LLMInvocationsResponse,
-  AgentRunsResponse,
   Identity,
   FindingRow,
   FindingFilters,
@@ -270,7 +269,7 @@ export async function abortSession(id: string): Promise<void> {
 
 /**
  * 发起主动扫描。brief 为一句话自然语言任务简报，后端整段透传给 hunter LLM。
- * @returns owner_id 与 hunter_id（据此查任务进度 / agent_runs / llm 审计）
+ * @returns owner_id 与 hunter_id（据此查任务进度 / llm 审计）
  */
 export async function startActiveScan(
   brief: string
@@ -352,13 +351,6 @@ export async function getMilestones(ownerID: string, conv = ''): Promise<Milesto
  */
 export async function listLLMInvocations(ownerID: string): Promise<LLMInvocationsResponse> {
   return get<LLMInvocationsResponse>(`/llm/invocations/${ownerID}`)
-}
-
-/**
- * 拉取该 owner 下全部 agent_run（orchestrator_id='' 为根，用于拼任务树）。
- */
-export async function listAgentRuns(ownerID: string): Promise<AgentRunsResponse> {
-  return get<AgentRunsResponse>(`/agent_runs/${ownerID}`)
 }
 
 /* ============================================================
