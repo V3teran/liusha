@@ -91,7 +91,8 @@ CSAI 的做法（`internal/attackchain/builder.go` 实读）：
 - **树（parent / 时序）**：来自 `agent_task` 树 + 同一 run 内 `created_at` 顺序。
 - **依赖（depends_on）**：来自 `finding.DependsOn`，构成成果链。
 - **证据（evidence）**：finding → 产生它的 flow / action。
-- **死路、拐弯**：**投影时派生**（启发式：一枝走到头且无 finding = 死路；死路后的下一兄弟枝 = 拐弯近似），**不落库**。
+- **死路、拐弯**：**投影时派生**，不落库。
+  - **实现现状**：早期设想「一枝走到头且无 finding = 死路；死路后的下一兄弟枝 = 拐弯」的双重启发式，落地时收敛为**单一二元标记 `on_path`**（见 `project.go: markOnPath`）：从每个 finding 沿 `parent_id` 上溯到根，路径上的节点 `on_path=true`（成果主干），其余即死路/探索（`on_path=false`）。**不再单独识别「拐弯」**——它对可读性无额外增益，且靠兄弟枝顺序猜拐弯不可靠。前端「成果优先」视图据 `on_path` 默认折叠死路，死路不删（审计仍可下钻）。
 
 ---
 
@@ -121,6 +122,18 @@ agent 正常干活（已在发事件，不改它）
 - 节点 step-开始时出现（status=running，前端脉冲），step-结束时定型（落终态/token）。
 - **不给 agent 加"画图工具"**（重蹈 0026 `write_relation`：LLM 会忘、嫌烦、污染工具空间）。图是事件的被动副产物。
 
+> **实现现状（重要）**：上图是「事件驱动增量长图」的**目标形态**；**当前落地是前端 3s 轮询**整图投影（`GET /attack_graph/:task_id`），非 SSE 增量。
+> 理由：投影是纯 read-model，一次全量投影即便 445 节点也是毫秒级；轮询实现简单、无增量对账/丢帧问题。
+> 关键优化：**仅当 task 运行中才轮询**——响应回传 `running`（后端据 task 终态派生），终态（completed/aborted）图永不再变，前端立即停轮询，不再对死图每 3s 白重投影。
+> 若未来图规模或刷新率要求上来，再切 SSE 增量（源事件流已具备，见上）。
+
+### owner→会话解析在后端（不推给前端）
+
+图的思维链来源是 task 绑定的**会话**（`conversation.task_id`）。这层 `task → conv` 的解析**由后端做**：
+`GET /attack_graph/:task_id` 内部 `ResolveConvByTask(taskID)` 反解会话，投影后在响应 `conversation_id` 回传；
+`conv` 查询参数退化为可选显式覆盖。前端只认响应，不再 `listConversations()` 后按字段匹配找会话——
+那是把 join 推给客户端的隐式契约，也曾是「passive 不出图」「只出五角星」两个 bug 的同源根因。
+
 ---
 
 ## 8. LLM 的位置
@@ -129,7 +142,7 @@ agent 正常干活（已在发事件，不改它）
 |---|---|---|
 | 真相①：执行轨迹（想/做+得） | 代码，从事件流落库 | ❌ |
 | 真相②：漏洞 + 依赖 | 代码 | ❌ |
-| 派生：图结构、死路/拐弯 | 投影器（代码 + 启发式） | ❌ |
+| 派生：图结构、成果路径(on_path) | 投影器（代码） | ❌ |
 | 派生：里程碑摘要、叙事 | 异步 | ✅ 可用 |
 
 **铁律：LLM 产物永远是可重算的投影，绝不是真相。** 错了重算一遍，真相一字不动。
@@ -164,10 +177,13 @@ agent 正常干活（已在发事件，不改它）
 
 ## 12. 落地动作（最小）
 
-1. **新增一个投影器**（如 `internal/attackgraph/projector.go`）：读 message + tool_invocation + llm_call + agent_task + finding，按 run 树 + 时序 + DependsOn 拼成图；死路/拐弯投影时派生。
+> 下列为原始规划；实际落地见各节「实现现状」注（投影器落在 `internal/attackgraph/{project,trace,store}.go`；
+> 死路收敛为 `on_path` 二元；实时以轮询落地；owner→会话解析在后端）。
+
+1. **新增一个投影器**（`internal/attackgraph/`）：读 message（事件流）+ finding，按 agent 树 + 时序 + DependsOn 拼成图；成果路径 `on_path` 投影时派生。
 2. **迁移**：把 `sitemap.Projector` 里的 FindingChain 逻辑搬过来。
-3. **实时**：复用现有 SSE 事件流，前端把同一份流渲染成增量长出的图。
-4. **前端**：liusha-ui 加这张图的页面（分层布局，可借 CSAI 的 ELK 式呈现；点节点看原文/跳漏洞）。
+3. **实时**：当前以前端轮询整图投影落地（仅运行中轮询）；SSE 增量为后置演进项。
+4. **前端**：liusha-ui 加这张图的页面（G6 分层 DAG；点节点看原文/跳漏洞）。
 5. （可选，后置）派生层：里程碑摘要复用 compaction。
 
 **全程：新表 0、新事件种类 0、agent 不改。**
