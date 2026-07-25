@@ -15,6 +15,7 @@ import "time"
 // 类型为 []byte，由调用方 json.Marshal 后写入；nil 时落 default '[]' / '{}'。
 type Invocation struct {
 	ID           int64
+	RequestID    string // 跨系统关联键，db 侧 gen_random_uuid() 生成（写路径不传，见 store.go copyFromBatch）
 	HunterID     *string
 	TaskID       *string // 所属 task.id（可空：SET NULL 外键）
 	Provider     string

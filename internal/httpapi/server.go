@@ -92,6 +92,8 @@ func NewServer(d Deps) http.Handler {
 	}
 	if d.Invocations != nil {
 		r.GET("/llm/invocations/:task_id", llmInvocationsHandler(d.Invocations))
+		r.GET("/llm/invocations/:task_id/invocation/:id", llmInvocationDetailHandler(d.Invocations))
+		r.GET("/llm/invocations/:task_id/stat", llmInvocationStatHandler(d.Invocations))
 	}
 	if d.ActiveScan != nil {
 		r.POST("/scan/active", activeScanHandler(d.ActiveScan))
