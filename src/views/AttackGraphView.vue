@@ -47,6 +47,11 @@ let lastSig = '' // 上次图签名（节点+边数），变化检测防无谓�
 let lastContentSeq = 0 // 已拉取原文的最大 seq（增量拉新）
 
 const nodes = computed<AttackGraphNode[]>(() => data.value?.nodes ?? [])
+const graphReady = ref(false) // 首帧 fit 完成前藏画布，挡掉「右下角闪现」（见 renderGraph）
+// 有数据但画布还没揭幕（G6 正在跑 dagre 布局 + fitView，445 节点耗时可近 1s）：
+// 这段时间画布 opacity:0（挡右下角闪现），若不显式过渡态，网络 loading 一结束就会露出
+// 页面深色背景，看起来像"黑屏"。renderPending 期间让转圈继续转，直到 graphReady 揭幕。
+const renderPending = computed(() => !!data.value?.nodes?.length && !graphReady.value)
 // 选中节点的完整原文（reasoning 节点 = 完整推理；缺失则空）。
 const fullContent = computed(() => {
   const r = selected.value?.ref
@@ -164,7 +169,6 @@ function kindLabel(k: string): string {
 const canvasEl = ref<HTMLDivElement | null>(null)
 let graph: Graph | null = null
 let graphSized = false // 容器是否已获得真实尺寸（首帧渲染门槛，见 renderGraph/onMounted）
-const graphReady = ref(false) // 首帧 fit 完成前藏画布，挡掉「右下角闪现」（见 renderGraph）
 let resizeObs: ResizeObserver | null = null
 let refitRaf = 0
 
@@ -535,7 +539,7 @@ onBeforeUnmount(() => {
     <div class="page-body graph-body">
       <div ref="canvasEl" class="graph-canvas" :style="{ opacity: graphReady ? 1 : 0 }" />
 
-      <div v-if="loading" class="overlay state"><a-spin size="large" /></div>
+      <div v-if="loading || renderPending" class="overlay state"><a-spin size="large" /></div>
       <div v-else-if="error" class="overlay state"><span class="state-err">⚠ {{ error }}</span></div>
       <div v-else-if="!owner" class="overlay state">请选择一个扫描查看执行图</div>
       <div v-else-if="!nodes.length" class="overlay state">该扫描暂无执行图数据</div>
