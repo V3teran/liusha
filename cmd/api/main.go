@@ -94,7 +94,7 @@ func main() {
 	convStore := conversation.NewStore(pool)   // 阶段B：会话/消息
 	toolStore := toolinvocation.NewStore(pool) // 会话用量合计：工具耗时来源
 	// 执行图（思维链+成果链）read-model 投影：复用 conv/finding store，不落表（docs/attack-graph-design.md）。
-	attackGraphProjector := &attackgraph.Projector{Messages: convStore, Findings: findStore}
+	attackGraphProjector := &attackgraph.Projector{Messages: convStore, Findings: findStore, Conv: convStore}
 	// 阶段C：场景 role（scenarios/*.md）。加载失败仅警告——/roles 返回空、/chat 用空 role 兜底，
 	// 不阻塞 api 启动（场景人设是增强，缺了退化为通用扫描）。
 	scenarioRoles, err := scenario.LoadRoles(envx.OrDefault("LIUSHA_ROLES_DIR", "./scenarios"))
