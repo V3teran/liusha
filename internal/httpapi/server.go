@@ -23,10 +23,6 @@ type Deps struct {
 	// Invocations 为 nil 时 /llm/invocations/:eid 路由不注册。
 	// 由 cmd/api 注入 *llminvocation.Store（自动满足 InvocationsAPI 窄接口）。
 	Invocations InvocationsAPI
-	// AgentRuns 为 nil 时 /agent_runs/:eid 路由不注册。
-	// 由 cmd/api 注入 *hunter.Store（自动满足 AgentRunsAPI 窄接口）。
-	// 前端（liusha-ui）用此 endpoint 按 orchestrator_id 拼任务树（subtask swarm 可观测）。
-	AgentRuns AgentRunsAPI
 	// ActiveScan 为 nil 时 /scan/active 路由不注册。
 	// 由 cmd/api 注入自定义 adapter（包 task store + hunter.Store + worker.Client）。
 	ActiveScan ActiveScanAPI
@@ -96,9 +92,6 @@ func NewServer(d Deps) http.Handler {
 	}
 	if d.Invocations != nil {
 		r.GET("/llm/invocations/:task_id", llmInvocationsHandler(d.Invocations))
-	}
-	if d.AgentRuns != nil {
-		r.GET("/agent_runs/:task_id", agentRunsHandler(d.AgentRuns))
 	}
 	if d.ActiveScan != nil {
 		r.POST("/scan/active", activeScanHandler(d.ActiveScan))
