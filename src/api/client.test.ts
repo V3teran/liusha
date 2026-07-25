@@ -222,16 +222,21 @@ describe('API 客户端', () => {
       expect(mockFetch).toHaveBeenCalledWith('/api/sitemap/o1?host=a.com%3A80', { headers: { 'X-API-Key': '' } })
     })
 
-    it('listLLMInvocations 透传分组响应', async () => {
-      ;(global as any).fetch = vi.fn().mockResolvedValue({
+    it('listLLMInvocations 透传分组响应 + 分页游标', async () => {
+      const mockFetch = vi.fn().mockResolvedValue({
         ok: true,
-        json: vi.fn().mockResolvedValue({ owner_id: 'o1', total: 1, groups: [{ hunter_id: 'h1', count: 1, invocations: [] }] }),
+        json: vi
+          .fn()
+          .mockResolvedValue({ task_id: 't1', total: 1, next_after: 5, has_more: false, groups: [{ hunter_id: 'h1', count: 1, invocations: [] }] }),
       })
+      ;(global as any).fetch = mockFetch
 
-      const res = await listLLMInvocations('o1')
+      const res = await listLLMInvocations('t1', 3, 50)
 
       expect(res.total).toBe(1)
+      expect(res.next_after).toBe(5)
       expect(res.groups[0].hunter_id).toBe('h1')
+      expect(mockFetch).toHaveBeenCalledWith('/api/llm/invocations/t1?after=3&limit=50', { headers: { 'X-API-Key': '' } })
     })
   })
 

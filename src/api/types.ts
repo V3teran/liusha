@@ -221,14 +221,16 @@ export interface Milestone {
 }
 
 /* ============================================================
-   LLM 审计（GET /llm/invocations/:owner_id，按 hunter 分组）
-   messages/result 为后端 inline 的 jsonb，结构不定 → unknown
+   LLM 审计（GET /llm/invocations/:task_id，按 hunter 分组 + id 游标分页）
+   列表/详情接口分离：列表不带 messages/result（大字段，未用不传），
+   详情走 GET /llm/invocations/:task_id/invocation/:id 按需拉。
    ============================================================ */
-export interface LLMInvocation {
-  id: string
+// LLMInvocationSummary 是列表行——不含 messages/result。
+export interface LLMInvocationSummary {
+  id: number
+  request_id: string // 跨系统关联键（db 侧 gen_random_uuid() 生成）
   hunter_id: string | null
-  owner_type: string
-  owner_id: string
+  task_id: string | null
   provider: string
   model: string
   in_tokens: number
@@ -237,20 +239,34 @@ export interface LLMInvocation {
   latency_ms: number
   finish_reason: string
   error_message: string
-  role: string
+  role: string // 调用者角色：orchestrator/exploitation/traffic-analysis 等；同一 hunter 分组内可能混多个 role
+  created_at: string
+}
+// LLMInvocationDetail 是点击钻取的完整行（messages/result 为后端 inline jsonb，结构不定 → unknown）。
+export interface LLMInvocationDetail extends LLMInvocationSummary {
   messages: unknown
   result: unknown
-  created_at: string
 }
 export interface LLMInvocationGroup {
   hunter_id: string
   count: number
-  invocations: LLMInvocation[]
+  invocations: LLMInvocationSummary[]
 }
 export interface LLMInvocationsResponse {
-  owner_id: string
+  task_id: string
   total: number
+  next_after: number // 本页最后一行 id，翻下一页时作 after 参数
+  has_more: boolean
   groups: LLMInvocationGroup[]
+}
+// LLMInvocationStat 是 GET /llm/invocations/:task_id/stat 的数据库层聚合结果（不再前端 reduce 全量行）。
+export interface LLMInvocationStat {
+  task_id: string
+  calls: number
+  in_tokens: number
+  out_tokens: number
+  cached_tokens: number
+  latency_ms: number
 }
 
 /* ============================================================

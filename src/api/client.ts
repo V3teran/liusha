@@ -15,6 +15,8 @@ import type {
   AttackGraph,
   Milestone,
   LLMInvocationsResponse,
+  LLMInvocationDetail,
+  LLMInvocationStat,
   Identity,
   FindingRow,
   FindingFilters,
@@ -347,10 +349,33 @@ export async function getMilestones(ownerID: string, conv = ''): Promise<Milesto
 }
 
 /**
- * 拉取该 owner 下全部 LLM 调用审计（后端按 hunter_id 分组）。
+ * 拉取该 task 下 LLM 调用审计（后端按 hunter_id 分组，id 游标分页）。
+ * afterID：上一页 next_after；0 表示从头拉。列表不含 messages/result 大字段。
  */
-export async function listLLMInvocations(ownerID: string): Promise<LLMInvocationsResponse> {
-  return get<LLMInvocationsResponse>(`/llm/invocations/${ownerID}`)
+export async function listLLMInvocations(
+  taskID: string,
+  afterID = 0,
+  limit = 0,
+): Promise<LLMInvocationsResponse> {
+  const params = new URLSearchParams()
+  if (afterID > 0) params.set('after', String(afterID))
+  if (limit > 0) params.set('limit', String(limit))
+  const q = params.toString()
+  return get<LLMInvocationsResponse>(`/llm/invocations/${taskID}${q ? '?' + q : ''}`)
+}
+
+/**
+ * 拉取单条 LLM 调用的完整原文（含 messages/result），列表页点击钻取用。
+ */
+export async function getLLMInvocationDetail(taskID: string, id: number): Promise<LLMInvocationDetail> {
+  return get<LLMInvocationDetail>(`/llm/invocations/${taskID}/invocation/${id}`)
+}
+
+/**
+ * 拉取该 task 下 LLM 调用的数据库层聚合统计（不再前端对全量行 reduce）。
+ */
+export async function getLLMInvocationStat(taskID: string): Promise<LLMInvocationStat> {
+  return get<LLMInvocationStat>(`/llm/invocations/${taskID}/stat`)
 }
 
 /* ============================================================
