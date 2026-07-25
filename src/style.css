@@ -52,17 +52,19 @@
 }
 
 :root[data-theme="dark"] {
-  /* 表面层次（黑蓝调 + 玻璃拟态）：bg 深蓝黑非纯黑，surface 半透明供 backdrop-filter 起效 */
+  /* 表面层次（黑蓝调）：bg 深蓝黑非纯黑，surface 实底深蓝。
+     曾用半透明 + backdrop-filter blur 做玻璃拟态，但 blur 每帧实时模糊卡片背后内容，
+     卡片一多就卡顿 → 改实底深蓝 + 辉光"伪装"玻璃感（业界深色安全产品的常规做法）。 */
   --bg: #060912;
   --bg2: #0a1120;
-  --surface: rgba(20, 32, 58, 0.55);
-  --surface-2: rgba(30, 45, 75, 0.5);
-  --surface-solid: #111a2e; /* 需实底时用（下拉浮层/输入框等透明会串背景的场景） */
-  --elevated: rgba(24, 38, 66, 0.7);
+  --surface: #111a2e;
+  --surface-2: #17233c;
+  --surface-solid: #111a2e; /* 浮层实底（与 surface 同值；保留变量名兼容既有引用） */
+  --elevated: #18263f;
   --border: rgba(80, 120, 190, 0.18);
   --border-strong: rgba(90, 140, 220, 0.35);
-  /* 玻璃拟态模糊量（浅色为空=不模糊） */
-  --glass-blur: blur(12px);
+  /* glass-blur 停用（性能）：曾为 blur(12px)，现全站置 none，辉光仍在 */
+  --glass-blur: none;
   /* 文本（带蓝调的中性，非纯白/纯灰） */
   --text: rgba(235, 244, 255, 0.95);
   --muted: rgba(150, 180, 225, 0.6);
@@ -97,9 +99,10 @@ html, body, #app { height: 100%; }
 
 body {
   margin: 0;
-  /* 黑蓝径向渐变（深色）：顶部偏右一抹深蓝 → 深黑蓝底；浅色因 --bg2==--bg 退化为平色 */
+  /* 黑蓝径向渐变（深色）：顶部偏右一抹深蓝 → 深黑蓝底；浅色因 --bg2==--bg 退化为平色。
+     不用 background-attachment:fixed（滚动时强制重绘整背景，卡顿元凶）；
+     内容在内层容器(.page-body/.fm-body)滚动，body 本身不滚，去掉 fixed 视觉无变化。 */
   background: radial-gradient(1200px 600px at 70% -10%, var(--bg2), var(--bg) 60%);
-  background-attachment: fixed;
   color: var(--text);
   font-family: var(--font);
   -webkit-font-smoothing: antialiased;
@@ -324,8 +327,6 @@ pre {
   position: relative;
   overflow: hidden;
   box-shadow: var(--shadow);
-  backdrop-filter: var(--glass-blur);
-  -webkit-backdrop-filter: var(--glass-blur);
 }
 .stat-card::after {
   content: '';
@@ -345,8 +346,6 @@ pre {
   padding: 16px 18px;
   margin-bottom: 16px;
   box-shadow: var(--shadow);
-  backdrop-filter: var(--glass-blur);
-  -webkit-backdrop-filter: var(--glass-blur);
 }
 .panel-title {
   font-size: 13px;

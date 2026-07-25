@@ -143,7 +143,6 @@ function sevVar(sev: string): string {
 
 <template>
   <div class="fm-page">
-    <div class="fm-glow" aria-hidden="true" />
     <div class="fm-body">
       <div v-if="loading" class="fm-state"><a-spin size="large" /></div>
       <div v-else-if="error" class="fm-state err">⚠ {{ error }}</div>
@@ -243,21 +242,8 @@ function sevVar(sev: string): string {
 </template>
 
 <style scoped>
-.fm-page { height: 100%; display: flex; flex-direction: column; min-height: 0; position: relative; }
-/* 顶部蓝光晕——黑蓝玻璃主题的灵魂（浅色 --primary-glow 很淡，几乎不可见，无害） */
-.fm-glow {
-  position: absolute;
-  top: -60px;
-  left: 15%;
-  right: 15%;
-  height: 240px;
-  pointer-events: none;
-  background: radial-gradient(ellipse at center, var(--primary-glow), transparent 70%);
-  filter: blur(40px);
-  opacity: 0.6;
-  z-index: 0;
-}
-.fm-body { flex: 1; min-height: 0; overflow-y: auto; padding: 22px; position: relative; z-index: 1; }
+.fm-page { height: 100%; display: flex; flex-direction: column; min-height: 0; }
+.fm-body { flex: 1; min-height: 0; overflow-y: auto; padding: 22px; }
 .fm-state { text-align: center; color: var(--muted); padding: 60px 0; font-size: 13.5px; }
 .fm-state.err { color: var(--error); }
 
@@ -271,22 +257,17 @@ function sevVar(sev: string): string {
   border: 1px solid var(--border);
   border-radius: 18px;
   box-shadow: var(--shadow);
-  backdrop-filter: var(--glass-blur);
-  -webkit-backdrop-filter: var(--glass-blur);
   margin-bottom: 16px;
 }
 .sm-total { display: flex; align-items: center; gap: 14px; flex-shrink: 0; }
-/* 大数字：渐变文字（白→muted），更有质感 */
+/* 大数字：纯色（去掉渐变文字装饰，纯色更清晰） */
 .sm-total-n {
   font-size: 48px;
   font-weight: 800;
   line-height: 1;
   letter-spacing: -0.03em;
   font-variant-numeric: tabular-nums;
-  background: linear-gradient(180deg, var(--text), var(--muted));
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
+  color: var(--text);
 }
 .sm-total-l { font-size: 13px; color: var(--muted); line-height: 1.5; }
 .sm-total-l em { font-style: normal; font-size: 12px; color: var(--faint, var(--muted)); }
@@ -323,7 +304,7 @@ function sevVar(sev: string): string {
 .fm-count { font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; padding-left: 2px; flex-shrink: 0; }
 
 /* 密集表格 */
-.fm-table { background: var(--surface); border: 1px solid var(--border); border-radius: 18px; overflow: hidden; box-shadow: var(--shadow); backdrop-filter: var(--glass-blur); -webkit-backdrop-filter: var(--glass-blur); }
+.fm-table { background: var(--surface); border: 1px solid var(--border); border-radius: 18px; overflow: hidden; box-shadow: var(--shadow); }
 .fr {
   display: grid;
   grid-template-columns: 76px 1fr 280px 60px 96px 20px;
@@ -337,7 +318,7 @@ function sevVar(sev: string): string {
   transition: background 0.12s, border-color 0.12s, opacity 0.15s;
 }
 .fr:last-child { border-bottom: none; }
-.fr:not(.fr-head):hover { background: var(--surface-2); border-left-color: var(--sev); box-shadow: inset 0 0 30px -12px var(--sev); }
+.fr:not(.fr-head):hover { background: var(--surface-2); border-left-color: var(--sev); }
 .fr:not(.fr-head):focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
 .fr.saving { opacity: 0.55; }
 .fr-head {
