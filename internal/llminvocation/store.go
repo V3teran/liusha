@@ -3,6 +3,7 @@ package llminvocation
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -210,30 +211,81 @@ func (s *Store) copyFromBatch(ctx context.Context, batch []Invocation) error {
 // maxListLimit 是 ListByTask 单页硬上限——防无界查询（无论调用方传多大 limit，都不超它）。
 const maxListLimit = 1000
 
+// ListFilter 是列表 / 统计共用的筛选条件（零值 = 不筛，等价于全量）。
+//
+// 关键：列表与统计吃同一份筛选，否则筛选后"明细 3 条、合计仍是全量"会互相打脸。
+type ListFilter struct {
+	Role    string     // 精确匹配调用者角色；空 = 不筛
+	Model   string     // 精确匹配模型名；空 = 不筛
+	OnlyErr bool       // true = 只看失败调用（error_message 非空）
+	Start   *time.Time // created_at >= Start；nil = 不限
+	End     *time.Time // created_at <= End；nil = 不限
+	AfterID int64      // keyset 游标：只取 id > AfterID；0 = 从头
+	Limit   int        // 本页上限；<=0 或超 maxListLimit 收敛到 maxListLimit
+}
+
+// where 把筛选拼成 SQL 条件与参数（task_id 恒为 $1，故从 $2 起编号）。
+// 返回的 conds 已含 task_id 条件，调用方直接 strings.Join(conds, " AND ")。
+func (f ListFilter) where(taskID string, withCursor bool) (conds []string, args []any) {
+	args = []any{taskID}
+	conds = []string{"task_id=$1::uuid"}
+	add := func(cond string, val any) {
+		args = append(args, val)
+		conds = append(conds, fmt.Sprintf(cond, len(args)))
+	}
+	if withCursor && f.AfterID > 0 {
+		add("id > $%d", f.AfterID)
+	}
+	if f.Role != "" {
+		add("role = $%d", f.Role)
+	}
+	if f.Model != "" {
+		add("model = $%d", f.Model)
+	}
+	if f.OnlyErr {
+		conds = append(conds, "error_message <> ''")
+	}
+	if f.Start != nil {
+		add("created_at >= $%d", *f.Start)
+	}
+	if f.End != nil {
+		add("created_at <= $%d", *f.End)
+	}
+	return conds, args
+}
+
+// limitOrDefault 收敛分页上限，防无界查询。
+func (f ListFilter) limitOrDefault() int {
+	if f.Limit <= 0 || f.Limit > maxListLimit {
+		return maxListLimit
+	}
+	return f.Limit
+}
+
 // ListByTask 列出 task 下的 LLM invocation，按 id ASC 游标翻页（keyset pagination，非 offset）。
 //
-//   - afterID：上一页最后一行的 id；0 表示从头拉。
-//   - limit：本页行数上限；<=0 或超 maxListLimit 时收敛到 maxListLimit。
+// 筛选条件见 ListFilter（role/model/仅错误/时间范围 + 游标 + 上限）；
+// 与 AggregateByTask 吃同一份 filter，保证「明细」与「合计」口径一致。
 //
 // 用 id 而非 created_at 排序：批量 worker 同一 flush 内的行 created_at 几乎相同（写入时刻，
 // 非调用时刻），排序不稳定；bigserial id 在同一批 CopyFrom 内严格单调，才是可靠的时序游标。
 // 调用方有责任先 Flush() 等异步 buffer commit，否则可能缺最近 0-1s 的记录。
 //
 // 列表不选 messages/result（大字段，详情另走 GetByID 按需拉，见 docs 中"列表/详情分离"设计）。
-func (s *Store) ListByTask(ctx context.Context, taskID string, afterID int64, limit int) ([]Invocation, error) {
-	if limit <= 0 || limit > maxListLimit {
-		limit = maxListLimit
-	}
-	rows, err := s.pool.Query(ctx, `
+func (s *Store) ListByTask(ctx context.Context, taskID string, f ListFilter) ([]Invocation, error) {
+	conds, args := f.where(taskID, true)
+	args = append(args, f.limitOrDefault())
+	q := fmt.Sprintf(`
 		SELECT id, request_id, hunter_id, task_id::text,
 		       provider, model,
 		       in_tokens, out_tokens, cached_tokens,
 		       latency_ms, finish_reason, error_message, role,
 		       created_at
 		FROM llm_invocation
-		WHERE task_id=$1::uuid AND id > $2
+		WHERE %s
 		ORDER BY id ASC
-		LIMIT $3`, taskID, afterID, limit)
+		LIMIT $%d`, strings.Join(conds, " AND "), len(args))
+	rows, err := s.pool.Query(ctx, q, args...)
 	if err != nil {
 		return nil, fmt.Errorf("list llm_invocation by task: %w", err)
 	}
@@ -300,19 +352,67 @@ type Aggregate struct {
 	LatencyMs    int64 // LLM 调用耗时合计（ms）
 }
 
-// AggregateByTask 合计某 task 的全部 llm_invocation 用量。task 无记录时返回零值。
-// 调用前应先 Flush() 确保异步 buffer 已落库。
-func (s *Store) AggregateByTask(ctx context.Context, taskID string) (Aggregate, error) {
-	var a Aggregate
-	err := s.pool.QueryRow(ctx, `
+// AggregateByTask 合计某 task 的 llm_invocation 用量，按 filter 筛选（零值 filter = 全量）。
+// 无匹配记录时返回零值。调用前应先 Flush() 确保异步 buffer 已落库。
+//
+// 与 ListByTask 共用 ListFilter：审计页筛选后，合计跟着筛选变（对齐 NewAPI GetLogsStat 的做法），
+// 不会出现「明细只剩 3 条、合计仍是全量」的自相矛盾。游标（AfterID）不参与统计——
+// 统计是整个筛选结果集的合计，与翻到第几页无关。
+func (s *Store) AggregateByTask(ctx context.Context, taskID string, f ListFilter) (Aggregate, error) {
+	conds, args := f.where(taskID, false) // withCursor=false：统计不受翻页游标影响
+	q := fmt.Sprintf(`
 		SELECT COUNT(*),
 		       COALESCE(SUM(in_tokens),0), COALESCE(SUM(out_tokens),0),
 		       COALESCE(SUM(cached_tokens),0),
 		       COALESCE(SUM(latency_ms),0)
-		FROM llm_invocation WHERE task_id=$1::uuid`, taskID).
+		FROM llm_invocation WHERE %s`, strings.Join(conds, " AND "))
+	var a Aggregate
+	err := s.pool.QueryRow(ctx, q, args...).
 		Scan(&a.Calls, &a.InTokens, &a.OutTokens, &a.CachedTokens, &a.LatencyMs)
 	if err != nil {
 		return Aggregate{}, fmt.Errorf("aggregate llm_invocation by task %s: %w", taskID, err)
 	}
 	return a, nil
+}
+
+// Facets 是筛选下拉的候选值（该 task 下实际出现过的 role / model 去重集合）。
+type Facets struct {
+	Roles  []string
+	Models []string
+}
+
+// FacetsByTask 返回该 task 下 role / model 的 distinct 值，供前端筛选下拉。
+//
+// 必须服务端算：分页下前端只见当前页，从已加载行推候选会漏掉后续页里的 role/model。
+// 不吃 ListFilter——候选集合应始终是该 task 的全集，否则筛了 role 之后 role 下拉就只剩自己，
+// 用户无法切换到别的值（自锁死）。
+func (s *Store) FacetsByTask(ctx context.Context, taskID string) (Facets, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT DISTINCT 'role' AS kind, role AS val FROM llm_invocation
+		WHERE task_id=$1::uuid AND role <> ''
+		UNION
+		SELECT DISTINCT 'model' AS kind, model AS val FROM llm_invocation
+		WHERE task_id=$1::uuid AND model <> ''
+		ORDER BY kind, val`, taskID)
+	if err != nil {
+		return Facets{}, fmt.Errorf("facets llm_invocation by task %s: %w", taskID, err)
+	}
+	defer rows.Close()
+
+	var f Facets
+	for rows.Next() {
+		var kind, val string
+		if err := rows.Scan(&kind, &val); err != nil {
+			return Facets{}, fmt.Errorf("scan facets: %w", err)
+		}
+		if kind == "role" {
+			f.Roles = append(f.Roles, val)
+		} else {
+			f.Models = append(f.Models, val)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return Facets{}, fmt.Errorf("iterate facets: %w", err)
+	}
+	return f, nil
 }

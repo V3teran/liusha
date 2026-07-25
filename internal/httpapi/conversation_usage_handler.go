@@ -24,9 +24,10 @@ type UsageTaskResolver interface {
 }
 
 // LLMUsageAggregator 合计某 task 的 LLM 用量（*llminvocation.Store 满足）。
+// 会话用量总览要的是全量合计，故传零值 ListFilter（不筛）。
 type LLMUsageAggregator interface {
 	Flush(ctx context.Context) error
-	AggregateByTask(ctx context.Context, taskID string) (llminvocation.Aggregate, error)
+	AggregateByTask(ctx context.Context, taskID string, f llminvocation.ListFilter) (llminvocation.Aggregate, error)
 }
 
 // ToolUsageAggregator 合计某 task 的工具用量（*toolinvocation.Store 满足）。
@@ -95,7 +96,7 @@ func conversationUsageHandler(conv UsageTaskResolver, llm LLMUsageAggregator, to
 
 		// 先 flush 异步 buffer，保证拿到最新落库的调用（支撑前端实时刷新口径一致）。
 		_ = llm.Flush(ctx)
-		la, err := llm.AggregateByTask(ctx, taskID)
+		la, err := llm.AggregateByTask(ctx, taskID, llminvocation.ListFilter{}) // 会话总览：不筛，全量合计
 		if err != nil {
 			c.JSON(500, gin.H{"error": err.Error()})
 			return

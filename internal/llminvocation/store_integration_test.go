@@ -51,7 +51,7 @@ func TestStore_Append_ListByTask(t *testing.T) {
 		t.Fatalf("flush: %v", err)
 	}
 
-	rows, err := s.ListByTask(ctx, taskID, 0, 0)
+	rows, err := s.ListByTask(ctx, taskID, ListFilter{})
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
@@ -85,7 +85,7 @@ func TestStore_ListByTask_Pagination(t *testing.T) {
 		t.Fatalf("flush: %v", err)
 	}
 
-	page1, err := s.ListByTask(ctx, taskID, 0, 2)
+	page1, err := s.ListByTask(ctx, taskID, ListFilter{Limit: 2})
 	if err != nil {
 		t.Fatalf("list page1: %v", err)
 	}
@@ -96,7 +96,7 @@ func TestStore_ListByTask_Pagination(t *testing.T) {
 		t.Errorf("第一页顺序错: in_tokens=%d,%d", page1[0].InTokens, page1[1].InTokens)
 	}
 
-	page2, err := s.ListByTask(ctx, taskID, page1[len(page1)-1].ID, 2)
+	page2, err := s.ListByTask(ctx, taskID, ListFilter{AfterID: page1[len(page1)-1].ID, Limit: 2})
 	if err != nil {
 		t.Fatalf("list page2: %v", err)
 	}
@@ -125,7 +125,7 @@ func TestStore_GetByID(t *testing.T) {
 		t.Fatalf("flush: %v", err)
 	}
 
-	rows, err := s.ListByTask(ctx, taskID, 0, 0)
+	rows, err := s.ListByTask(ctx, taskID, ListFilter{})
 	if err != nil || len(rows) != 1 {
 		t.Fatalf("list: rows=%d err=%v", len(rows), err)
 	}
@@ -178,7 +178,7 @@ func TestStore_AggregateByTask(t *testing.T) {
 		t.Fatalf("flush: %v", err)
 	}
 
-	agg, err := s.AggregateByTask(ctx, taskID)
+	agg, err := s.AggregateByTask(ctx, taskID, ListFilter{})
 	if err != nil {
 		t.Fatalf("aggregate: %v", err)
 	}
@@ -193,12 +193,111 @@ func TestStore_AggregateByTask(t *testing.T) {
 	}
 }
 
+// seedFiltered 插入一组差异化的调用（role/model/error/时间各不同），供筛选类测试复用。
+func seedFiltered(t *testing.T, s *Store, taskID string) {
+	t.Helper()
+	ctx := context.Background()
+	rows := []Invocation{
+		{Role: "orchestrator", Model: "mimo-v2.5", InTokens: 100, OutTokens: 10},
+		{Role: "exploitation", Model: "mimo-v2.5", InTokens: 200, OutTokens: 20},
+		{Role: "exploitation", Model: "deepseek-chat", InTokens: 400, OutTokens: 40, Error: "429 rate limited"},
+	}
+	for i := range rows {
+		rows[i].TaskID = &taskID
+		rows[i].Provider = "x"
+		if _, err := s.Append(ctx, rows[i]); err != nil {
+			t.Fatalf("append %d: %v", i, err)
+		}
+	}
+	if err := s.Flush(ctx); err != nil {
+		t.Fatalf("flush: %v", err)
+	}
+}
+
+// TestStore_ListByTask_Filters 验证 role/model/仅错误 三个筛选维度各自生效。
+func TestStore_ListByTask_Filters(t *testing.T) {
+	ctx := context.Background()
+	s, taskID := setup(t)
+	seedFiltered(t, s, taskID)
+
+	cases := []struct {
+		name string
+		f    ListFilter
+		want int
+	}{
+		{"不筛=全量", ListFilter{}, 3},
+		{"按 role", ListFilter{Role: "exploitation"}, 2},
+		{"按 model", ListFilter{Model: "mimo-v2.5"}, 2},
+		{"仅错误", ListFilter{OnlyErr: true}, 1},
+		{"role+model 交集", ListFilter{Role: "exploitation", Model: "mimo-v2.5"}, 1},
+		{"无匹配", ListFilter{Role: "nobody"}, 0},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			rows, err := s.ListByTask(ctx, taskID, c.f)
+			if err != nil {
+				t.Fatalf("list: %v", err)
+			}
+			if len(rows) != c.want {
+				t.Errorf("命中 %d 行，期望 %d（filter=%+v）", len(rows), c.want, c.f)
+			}
+		})
+	}
+}
+
+// TestStore_AggregateByTask_Filtered 验证统计吃筛选（与列表同源），且不受分页游标影响——
+// 否则会出现「明细筛剩 1 条、合计仍是全量」的自相矛盾。
+func TestStore_AggregateByTask_Filtered(t *testing.T) {
+	ctx := context.Background()
+	s, taskID := setup(t)
+	seedFiltered(t, s, taskID)
+
+	agg, err := s.AggregateByTask(ctx, taskID, ListFilter{Role: "exploitation"})
+	if err != nil {
+		t.Fatalf("aggregate filtered: %v", err)
+	}
+	if agg.Calls != 2 || agg.InTokens != 600 || agg.OutTokens != 60 {
+		t.Errorf("按 role 筛选后合计错: %+v（期望 calls=2 in=600 out=60）", agg)
+	}
+
+	// AfterID 只属于列表翻页；统计是整个筛选结果集的合计，与翻到第几页无关。
+	rows, err := s.ListByTask(ctx, taskID, ListFilter{})
+	if err != nil || len(rows) == 0 {
+		t.Fatalf("list: rows=%d err=%v", len(rows), err)
+	}
+	withCursor, err := s.AggregateByTask(ctx, taskID, ListFilter{AfterID: rows[len(rows)-1].ID})
+	if err != nil {
+		t.Fatalf("aggregate with cursor: %v", err)
+	}
+	if withCursor.Calls != 3 {
+		t.Errorf("统计不该受 AfterID 影响，got calls=%d，期望 3", withCursor.Calls)
+	}
+}
+
+// TestStore_FacetsByTask 验证候选集合来自服务端 distinct（分页下前端推不出全集），且已去重排序。
+func TestStore_FacetsByTask(t *testing.T) {
+	ctx := context.Background()
+	s, taskID := setup(t)
+	seedFiltered(t, s, taskID)
+
+	f, err := s.FacetsByTask(ctx, taskID)
+	if err != nil {
+		t.Fatalf("facets: %v", err)
+	}
+	if len(f.Roles) != 2 || f.Roles[0] != "exploitation" || f.Roles[1] != "orchestrator" {
+		t.Errorf("roles 应去重且有序: %+v", f.Roles)
+	}
+	if len(f.Models) != 2 || f.Models[0] != "deepseek-chat" || f.Models[1] != "mimo-v2.5" {
+		t.Errorf("models 应去重且有序: %+v", f.Models)
+	}
+}
+
 // TestStore_AggregateByTask_Empty 验证：无任何调用时返回零值，不报错。
 func TestStore_AggregateByTask_Empty(t *testing.T) {
 	ctx := context.Background()
 	s, taskID := setup(t)
 
-	agg, err := s.AggregateByTask(ctx, taskID)
+	agg, err := s.AggregateByTask(ctx, taskID, ListFilter{})
 	if err != nil {
 		t.Fatalf("aggregate on empty: %v", err)
 	}
