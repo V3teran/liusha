@@ -330,25 +330,19 @@ export async function updateFindingTriage(
 
 /**
  * 拉取执行图（思维链 + 成果链）。read-model 实时投影。
- * @param conv 可选，会话 id（思维链来源）；缺省只出成果链
- * @param type owner 类型，缺省 active_scan
+ * conv 由后端按 task 自解析并在响应 conversation_id 回传——前端无需自己 join 会话列表。
+ * 保留 conv 可选参数仅作显式覆盖（一般不传）。
  */
-export async function getAttackGraph(
-  ownerID: string,
-  conv = '',
-  type = 'active_scan'
-): Promise<AttackGraph> {
-  const params = new URLSearchParams()
-  if (conv) params.set('conv', conv)
-  if (type) params.set('type', type)
-  const q = params.toString()
-  return get<AttackGraph>(`/attack_graph/${ownerID}${q ? '?' + q : ''}`)
+export async function getAttackGraph(ownerID: string, conv = ''): Promise<AttackGraph> {
+  const q = conv ? `?conv=${encodeURIComponent(conv)}` : ''
+  return get<AttackGraph>(`/attack_graph/${ownerID}${q}`)
 }
 
 /**
  * 拉取执行图里程碑摘要（按子代理聚合，LLM 生成）。按需调用——是 LLM 请求，较慢。
+ * conv 由后端按 task 自解析，前端一般不传。
  */
-export async function getMilestones(ownerID: string, conv: string): Promise<Milestone[]> {
+export async function getMilestones(ownerID: string, conv = ''): Promise<Milestone[]> {
   const q = conv ? `?conv=${encodeURIComponent(conv)}` : ''
   return (await get<{ milestones: Milestone[] }>(`/attack_graph/${ownerID}/milestones${q}`)).milestones
 }

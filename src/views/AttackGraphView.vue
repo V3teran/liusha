@@ -1,11 +1,11 @@
 <script setup lang="ts">
-// 执行图页：选 active owner → 解析会话（思维链来源）→ 拉执行图 → G6 分层 DAG 渲染。
+// 执行图页：选 owner（active/passive 均可）→ 后端按 task 自解析会话 → 拉执行图 → G6 分层 DAG 渲染。
 // 节点：想(reasoning)/做+得(action)/漏洞(finding)/派(agent)；边：flow 实线、depends_on 虚线。
 // 布局 antv-dagre（自上而下）；点节点弹详情。canvas 渲染，颜色取自 CSS 变量（主题色）+ severityColor。
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { Graph, NodeEvent, CanvasEvent } from '@antv/g6'
 import OwnerPicker from '../components/OwnerPicker.vue'
-import { getAttackGraph, getMilestones, listConversations, listMessages } from '../api/client'
+import { getAttackGraph, getMilestones, listMessages } from '../api/client'
 import type { AttackGraph, AttackGraphNode, Milestone } from '../api/types'
 import { severityColor } from '../lib/severity'
 import { agentAccent } from '../lib/agentColor'
@@ -68,25 +68,17 @@ async function load() {
   error.value = ''
   data.value = null
   try {
-    // owner → conv：找 scan_id === owner 的会话（思维链来源）；无会话不致命，只出成果链。
-    let conv = ''
-    scanRunning.value = false
-    try {
-      const convs = await listConversations()
-      // owner 即 task_id：按 TaskID 匹配会话拿思维链。（曾误用 ScanID，其为空→匹配失败→
-      // conv 空→只投影 finding 五角星、思维链全丢，即"执行图只显示几个五角星"的根因。）
-      const matched = convs.find((c) => c.TaskID === owner.value)
-      conv = matched?.ID ?? ''
-      scanRunning.value = matched?.RunStatus === 'active' // 仅运行中的扫描图会增长
-    } catch {
-      conv = ''
-    }
-    currentConv.value = conv
+    // owner→conv 由后端自解析：直接按 task 拉图，响应回传 conversation_id + running。
+    // 不再前端 listConversations() 字段匹配（曾误用 ScanID→匹配失败→只出五角星的根因，
+    // 现整条 join 移到后端，前端只认响应）。
     contentByRef.value = {}
     lastContentSeq = 0
-    data.value = await getAttackGraph(owner.value, conv)
-    lastSig = sig(data.value)
-    if (conv) void fetchContents(conv) // 异步填原文，不阻塞图渲染
+    const g = await getAttackGraph(owner.value)
+    data.value = g
+    currentConv.value = g.conversation_id
+    scanRunning.value = g.running // 权威运行态，后端据 task 终态派生
+    lastSig = sig(g)
+    if (g.conversation_id) void fetchContents(g.conversation_id) // 异步填原文，不阻塞图渲染
     // 性能：仅扫描运行中才轮询。终态（completed/aborted）图永不再变，轮询=对死图每 3s
     // 全量重投影（445 节点白重算）+ 前端重渲染，纯浪费——终态直接不启动轮询。
     if (live.value && scanRunning.value) startPoll()
@@ -130,14 +122,19 @@ async function poll() {
   if (!owner.value || !live.value) return
   let g: AttackGraph
   try {
-    g = await getAttackGraph(owner.value, currentConv.value)
+    g = await getAttackGraph(owner.value)
   } catch {
     return
+  }
+  // 扫描转终态：后端 running=false → 停轮询（死图不再变，省重投影）。
+  if (!g.running) {
+    scanRunning.value = false
+    stopPoll()
   }
   if (sig(g) === lastSig) return
   lastSig = sig(g)
   data.value = g
-  if (currentConv.value) void fetchContents(currentConv.value) // 增量拉新原文
+  if (g.conversation_id) void fetchContents(g.conversation_id) // 增量拉新原文
 }
 
 function startPoll() {
@@ -502,7 +499,7 @@ onBeforeUnmount(() => {
 
       <div v-if="loading" class="overlay state"><a-spin size="large" /></div>
       <div v-else-if="error" class="overlay state"><span class="state-err">⚠ {{ error }}</span></div>
-      <div v-else-if="!owner" class="overlay state">请选择一个 active 扫描查看执行图</div>
+      <div v-else-if="!owner" class="overlay state">请选择一个扫描查看执行图</div>
       <div v-else-if="!nodes.length" class="overlay state">该扫描暂无执行图数据</div>
 
       <aside v-if="selected" class="detail">

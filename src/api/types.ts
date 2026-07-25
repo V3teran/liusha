@@ -206,7 +206,9 @@ export interface AttackGraphEdge {
 }
 
 export interface AttackGraph {
-  owner_id: string
+  task_id: string
+  conversation_id: string // 后端按 task 自解析的思维链会话 id（钻取原文/里程碑用）；空=无绑定会话
+  running: boolean // 该 task 是否仍在扫描中（权威：task 终态）——前端据此决定是否轮询
   nodes: AttackGraphNode[]
   edges: AttackGraphEdge[]
 }
