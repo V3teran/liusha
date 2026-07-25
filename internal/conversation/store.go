@@ -75,6 +75,26 @@ func (s *Store) ResolveTaskID(ctx context.Context, convID string) (string, error
 	return c.TaskID, nil
 }
 
+// ResolveConvByTask 反向解析：task id → 绑定的会话 id（思维链来源）。
+// 一 task 常对应一会话；若有多条（follow-up 复活等）取最近更新的一条。
+// 无绑定会话（纯 passive 自动路径 / task 不存在）返回空串——调用方据此只出成果链，不报错。
+func (s *Store) ResolveConvByTask(ctx context.Context, taskID string) (string, error) {
+	if taskID == "" {
+		return "", nil
+	}
+	var convID string
+	err := s.pool.QueryRow(ctx,
+		`SELECT id FROM conversation WHERE task_id = $1 ORDER BY updated_at DESC LIMIT 1`,
+		taskID).Scan(&convID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("resolve conversation for task %s: %w", taskID, err)
+	}
+	return convID, nil
+}
+
 // IsRunActive 返回本会话当前是否有正在运行的扫描（权威：后端 task 终态，非客户端计时）。
 // 关联 task.status='active'（completed/aborted 为终态）；纯聊天 / 已结束返回 false。
 // 前端据此显示"agent 工作中"指示器，避免历史回灌误判。

@@ -26,8 +26,8 @@ func (f *fakeAttackGraph) Project(_ context.Context, convID, taskID string) (att
 	return f.graph, nil
 }
 
-func (f *fakeAttackGraph) ProjectMilestones(_ context.Context, convID string) ([]attackgraph.Milestone, error) {
-	f.gotConv = convID
+func (f *fakeAttackGraph) ProjectMilestones(_ context.Context, convID, taskID string) ([]attackgraph.Milestone, error) {
+	f.gotConv, f.gotTask = convID, taskID
 	if f.milestonesErr != nil {
 		return nil, f.milestonesErr
 	}

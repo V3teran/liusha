@@ -12,14 +12,15 @@ import (
 // AttackGraphAPI 是执行图投影的窄接口，handler 只依赖它。*attackgraph.Projector 自动满足。
 type AttackGraphAPI interface {
 	Project(ctx context.Context, convID, taskID string) (attackgraph.Graph, error)
-	ProjectMilestones(ctx context.Context, convID string) ([]attackgraph.Milestone, error)
+	ProjectMilestones(ctx context.Context, convID, taskID string) ([]attackgraph.Milestone, error)
 }
 
-// attackGraphHandler 处理 GET /attack_graph/:task_id?conv=<conv_id>。
+// attackGraphHandler 处理 GET /attack_graph/:task_id[?conv=<conv_id>]。
 //
 // 返回执行图 JSON：思维链（想 / 做+得 / agent 节点 + flow 骨干边）
 // + 成果链（漏洞节点 + depends_on 边）。图是 read-model 实时投影，不落表（见 docs/attack-graph-design.md）。
-//   - conv 缺省空（无会话则只出成果链）。
+//   - conv 可选：缺省时后端按 task 自解析绑定会话（前端不再需要 join 会话列表）；
+//     传入则作为显式覆盖。响应内回传 conversation_id + running 供前端钻取/轮询判定。
 func attackGraphHandler(api AttackGraphAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		tid := c.Param("task_id")
@@ -44,13 +45,19 @@ func attackGraphHandler(api AttackGraphAPI) gin.HandlerFunc {
 	}
 }
 
-// attackGraphMilestonesHandler 处理 GET /attack_graph/:task_id/milestones?conv=<conv_id>。
+// attackGraphMilestonesHandler 处理 GET /attack_graph/:task_id/milestones[?conv=<conv_id>]。
 //
-// 返回按子代理聚合的 LLM 里程碑摘要（派生层，异步算）。conv 缺失或未配 LLM 时 400/503。
+// 返回按子代理聚合的 LLM 里程碑摘要（派生层，异步算）。conv 缺省时按 task 自解析；
+// 无绑定会话或未配 LLM 时 400/503。
 func attackGraphMilestonesHandler(api AttackGraphAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		tid := c.Param("task_id")
+		if tid == "" {
+			c.JSON(400, gin.H{"error": "task_id required"})
+			return
+		}
 		conv := c.Query("conv")
-		ms, err := api.ProjectMilestones(c.Request.Context(), conv)
+		ms, err := api.ProjectMilestones(c.Request.Context(), conv, tid)
 		if err != nil {
 			msg := err.Error()
 			if strings.Contains(msg, "未配置 LLM") {

@@ -46,6 +46,11 @@ type Edge struct {
 // Graph 是投影结果（read-model，不落表）。
 type Graph struct {
 	TaskID string `json:"task_id"`
-	Nodes  []Node `json:"nodes"`
-	Edges  []Edge `json:"edges"`
+	// ConversationID 是本图思维链来源的会话 id（后端按 task 自解析回传）。
+	// 前端据此钻取原文 / 拉里程碑，无需自己 join 会话列表。空=无绑定会话（纯成果链）。
+	ConversationID string `json:"conversation_id"`
+	// Running 表示该 task 是否仍在扫描中（权威：task 终态）。前端据此决定是否轮询。
+	Running bool   `json:"running"`
+	Nodes   []Node `json:"nodes"`
+	Edges   []Edge `json:"edges"`
 }
