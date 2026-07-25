@@ -60,6 +60,7 @@ async function load() {
   selected.value = null
   milestones.value = [] // 换 owner 清空旧摘要
   milestonesErr.value = ''
+  graphReady.value = false // 首开/换 owner 都先藏画布，等新数据 fit 完再揭（挡右下角闪现）
   if (!owner.value) {
     data.value = null
     return
@@ -163,6 +164,7 @@ function kindLabel(k: string): string {
 const canvasEl = ref<HTMLDivElement | null>(null)
 let graph: Graph | null = null
 let graphSized = false // 容器是否已获得真实尺寸（首帧渲染门槛，见 renderGraph/onMounted）
+const graphReady = ref(false) // 首帧 fit 完成前藏画布，挡掉「右下角闪现」（见 renderGraph）
 let resizeObs: ResizeObserver | null = null
 let refitRaf = 0
 
@@ -321,13 +323,16 @@ function toG6(g: AttackGraph | null, collapse: boolean) {
 }
 
 async function renderGraph() {
-  // 容器还没拿到真实尺寸前不渲染：否则 G6 会以错误（初始偏大）的画布尺寸 fit+居中，
-  // 随后 autoResize 缩到真实尺寸却不重新适配 → 图先偏右下、再由下一次渲染跳回中间。
-  // 首帧交给 ResizeObserver 在尺寸就位后触发（见 onMounted）。
+  // 容器还没拿到真实尺寸前不渲染，首帧交给 ResizeObserver 在尺寸就位后触发（见 onMounted）。
   if (!graph || !graphSized) return
   graph.setData(toG6(data.value, simplified.value))
   await graph.render()
   await fitGraph()
+  // 首帧 fit 完成后再显画布：G6 默认把世界原点放画布中心，dagre 布局从原点往右下铺开，
+  // render() 会先把图画在右下象限，紧接着 fitView 才挪到中间——这两帧之间的「右下角闪现」
+  // 靠 opacity 门帘挡掉（fit 好了才揭帘）。只在确有节点时揭帘：尺寸就位而数据未到时会先渲染
+  // 一次空图，若此时揭帘，真数据到达再渲染就会在可见态下重闪，故空图保持藏着（覆盖层兜底）。
+  if (data.value?.nodes?.length) graphReady.value = true
 }
 
 // fitGraph 适配视口：思维链是长链，只横向适配、纵向保持节点可读大小（纵向超出靠滚动/拖动），
@@ -528,7 +533,7 @@ onBeforeUnmount(() => {
     </div>
 
     <div class="page-body graph-body">
-      <div ref="canvasEl" class="graph-canvas" />
+      <div ref="canvasEl" class="graph-canvas" :style="{ opacity: graphReady ? 1 : 0 }" />
 
       <div v-if="loading" class="overlay state"><a-spin size="large" /></div>
       <div v-else-if="error" class="overlay state"><span class="state-err">⚠ {{ error }}</span></div>
@@ -588,7 +593,7 @@ onBeforeUnmount(() => {
 .sym.err { color: #64748b; }
 
 .graph-body { position: relative; flex: 1; min-height: 420px; }
-.graph-canvas { position: absolute; inset: 0; }
+.graph-canvas { position: absolute; inset: 0; transition: opacity 0.15s ease; }
 .overlay {
   position: absolute;
   inset: 0;
