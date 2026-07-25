@@ -162,6 +162,9 @@ function kindLabel(k: string): string {
 // ===== G6 渲染 =====
 const canvasEl = ref<HTMLDivElement | null>(null)
 let graph: Graph | null = null
+let graphSized = false // 容器是否已获得真实尺寸（首帧渲染门槛，见 renderGraph/onMounted）
+let resizeObs: ResizeObserver | null = null
+let refitRaf = 0
 
 // canvas 用不了 CSS 变量，构建时读一次主题色（切主题需重进页面，可接受）。
 function readColors() {
@@ -318,12 +321,24 @@ function toG6(g: AttackGraph | null, collapse: boolean) {
 }
 
 async function renderGraph() {
-  if (!graph) return
+  // 容器还没拿到真实尺寸前不渲染：否则 G6 会以错误（初始偏大）的画布尺寸 fit+居中，
+  // 随后 autoResize 缩到真实尺寸却不重新适配 → 图先偏右下、再由下一次渲染跳回中间。
+  // 首帧交给 ResizeObserver 在尺寸就位后触发（见 onMounted）。
+  if (!graph || !graphSized) return
   graph.setData(toG6(data.value, simplified.value))
   await graph.render()
-  // 思维链是长链：只横向适配、纵向保持节点可读大小（纵向超出靠滚动/拖动），
-  // 而非 autoFit 把超高图整体压成细线。
-  await graph.fitView({ when: 'overflow', direction: 'x' })
+  await fitGraph()
+}
+
+// fitGraph 适配视口：思维链是长链，只横向适配、纵向保持节点可读大小（纵向超出靠滚动/拖动），
+// 而非把超高图整体压成细线。空图 fitView 可能抛错，吞掉不阻断。
+async function fitGraph() {
+  if (!graph) return
+  try {
+    await graph.fitView({ when: 'overflow', direction: 'x' })
+  } catch {
+    /* 空图无内容可适配，忽略 */
+  }
 }
 
 onMounted(() => {
@@ -445,13 +460,31 @@ onMounted(() => {
     selected.value = null
   })
 
-  renderGraph()
+  // 用 ResizeObserver 管尺寸，取代“onMounted 立即渲染”：
+  //  - 首个非零尺寸回调 → 触发首帧渲染（此时 fit 一次到位，不再先偏右下再跳中）
+  //  - 后续尺寸变化 → 只重新 fitView 居中（画布像素由 autoResize 负责），
+  //    修掉“画布缩小后内容停在右下角”——G6 的 autoResize 只改画布不重新适配。
+  resizeObs = new ResizeObserver(() => {
+    const el = canvasEl.value
+    if (!el || el.clientWidth === 0 || el.clientHeight === 0) return
+    if (!graphSized) {
+      graphSized = true
+      renderGraph()
+      return
+    }
+    if (refitRaf) cancelAnimationFrame(refitRaf)
+    refitRaf = requestAnimationFrame(() => fitGraph())
+  })
+  resizeObs.observe(canvasEl.value)
 })
 
 watch(data, renderGraph)
 
 onBeforeUnmount(() => {
   stopPoll()
+  if (refitRaf) cancelAnimationFrame(refitRaf)
+  resizeObs?.disconnect()
+  resizeObs = null
   graph?.destroy()
   graph = null
 })
