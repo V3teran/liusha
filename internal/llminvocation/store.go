@@ -186,7 +186,8 @@ func (s *Store) copyFromBatch(ctx context.Context, batch []Invocation) error {
 			c.HunterID, c.TaskID,
 			c.Provider, c.Model,
 			c.InTokens, c.OutTokens, c.CachedTokens,
-			c.LatencyMs, c.FinishReason, c.Error, c.Role,
+			c.LatencyMs, c.TTFTMs, c.IsStream,
+			c.FinishReason, c.Error, c.Role,
 			c.Messages, c.Result,
 		}
 	}
@@ -197,7 +198,8 @@ func (s *Store) copyFromBatch(ctx context.Context, batch []Invocation) error {
 			"hunter_id", "task_id",
 			"provider", "model",
 			"in_tokens", "out_tokens", "cached_tokens",
-			"latency_ms", "finish_reason", "error_message", "role",
+			"latency_ms", "ttft_ms", "is_stream",
+			"finish_reason", "error_message", "role",
 			"messages", "result",
 		},
 		pgx.CopyFromRows(rows),
@@ -279,7 +281,8 @@ func (s *Store) ListByTask(ctx context.Context, taskID string, f ListFilter) ([]
 		SELECT id, request_id, hunter_id, task_id::text,
 		       provider, model,
 		       in_tokens, out_tokens, cached_tokens,
-		       latency_ms, finish_reason, error_message, role,
+		       latency_ms, ttft_ms, is_stream,
+		       finish_reason, error_message, role,
 		       created_at
 		FROM llm_invocation
 		WHERE %s
@@ -299,7 +302,8 @@ func (s *Store) ListByTask(ctx context.Context, taskID string, f ListFilter) ([]
 			&v.ID, &v.RequestID, &hunterID, &tid,
 			&v.Provider, &v.Model,
 			&v.InTokens, &v.OutTokens, &v.CachedTokens,
-			&v.LatencyMs, &v.FinishReason, &v.Error, &v.Role,
+			&v.LatencyMs, &v.TTFTMs, &v.IsStream,
+			&v.FinishReason, &v.Error, &v.Role,
 			&v.CreatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scan llm_invocation: %w", err)
@@ -323,14 +327,16 @@ func (s *Store) GetByID(ctx context.Context, taskID string, id int64) (Invocatio
 		SELECT id, request_id, hunter_id, task_id::text,
 		       provider, model,
 		       in_tokens, out_tokens, cached_tokens,
-		       latency_ms, finish_reason, error_message, role,
+		       latency_ms, ttft_ms, is_stream,
+		       finish_reason, error_message, role,
 		       messages, result, created_at
 		FROM llm_invocation
 		WHERE id=$1 AND task_id=$2::uuid`, id, taskID).Scan(
 		&v.ID, &v.RequestID, &hunterID, &tid,
 		&v.Provider, &v.Model,
 		&v.InTokens, &v.OutTokens, &v.CachedTokens,
-		&v.LatencyMs, &v.FinishReason, &v.Error, &v.Role,
+		&v.LatencyMs, &v.TTFTMs, &v.IsStream,
+		&v.FinishReason, &v.Error, &v.Role,
 		&v.Messages, &v.Result, &v.CreatedAt,
 	)
 	if err != nil {

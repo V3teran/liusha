@@ -24,6 +24,11 @@ type Invocation struct {
 	OutTokens    int
 	CachedTokens int
 	LatencyMs    int
+	// TTFTMs 是首 token 延迟（ms）：区分「模型思考慢」与「输出长导致总时长长」。
+	// 仅流式可测（非流式一次性返回，首 token 即末 token）；0 = 未测得 / 非流式。
+	TTFTMs int
+	// IsStream 标记该次调用是否走流式；决定 TTFTMs 是否有意义，也决定前端如何解读延迟。
+	IsStream     bool
 	FinishReason string
 	Error        string
 	Role         string // 调用者角色：trafficAnalysis / orchestrator / exploitation / inspector 等；空 = 未分类
