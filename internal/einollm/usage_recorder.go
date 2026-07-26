@@ -108,7 +108,8 @@ func NewUsageRecorder(sink llm.CallSink, meta llm.CallMeta, provider, defaultMod
 			if out == nil {
 				return ctx
 			}
-			rec := buildInvocation(ctx, meta, provider, defaultModel, out)
+			// 非流式：一次性返回，首 token 即末 token，TTFT 无意义 → 传零值 timing。
+			rec := buildInvocation(ctx, meta, provider, defaultModel, out, callTiming{})
 			appendInvocation(sink, meta, rec)
 			return ctx
 		}).
@@ -122,11 +123,12 @@ func NewUsageRecorder(sink llm.CallSink, meta llm.CallMeta, provider, defaultMod
 			}
 			go func() {
 				defer output.Close()
-				merged := mergeStreamOutput(output)
+				merged, firstChunkAt := mergeStreamOutput(output)
 				if merged == nil {
 					return
 				}
-				rec := buildInvocation(ctx, meta, provider, defaultModel, merged)
+				rec := buildInvocation(ctx, meta, provider, defaultModel, merged,
+					callTiming{isStream: true, firstChunkAt: firstChunkAt})
 				appendInvocation(sink, meta, rec)
 			}()
 			return ctx
@@ -137,7 +139,8 @@ func NewUsageRecorder(sink llm.CallSink, meta llm.CallMeta, provider, defaultMod
 			if info == nil || info.Component != components.ComponentOfChatModel {
 				return ctx
 			}
-			rec := buildInvocation(ctx, meta, provider, defaultModel, &model.CallbackOutput{})
+			// 失败：没拿到任何 chunk，无 TTFT 可测；是否流式也无从判断 → 零值 timing。
+			rec := buildInvocation(ctx, meta, provider, defaultModel, &model.CallbackOutput{}, callTiming{})
 			if runErr != nil {
 				rec.Error = runErr.Error()
 			}
@@ -147,13 +150,26 @@ func NewUsageRecorder(sink llm.CallSink, meta llm.CallMeta, provider, defaultMod
 		Build()
 }
 
+// callTiming 携带只有调用现场才知道的时序信息（是否流式 + 首 token 到达时刻）。
+// 非流式为零值：一次性返回，首 token 即末 token，TTFT 无意义。
+type callTiming struct {
+	isStream bool
+	// firstChunkAt 是首个「有内容」chunk 的到达时刻；零值 = 未测得。
+	firstChunkAt time.Time
+}
+
 // mergeStreamOutput 读尽流式 ChatModel 输出副本，合并成一个 *model.CallbackOutput：
 // token usage 取末次非空（流式 usage 在最后 chunk），全文拼接进 Message（审计完整）。
 // 空流返回 nil（计费跳过）。读完不关流——调用方 defer Close。
-func mergeStreamOutput(sr *schema.StreamReader[callbacks.CallbackOutput]) *model.CallbackOutput {
+//
+// 同时测 TTFT：记录首个「有内容」chunk 的到达时刻。优先取首个 Content 非空的 chunk
+// （真正的首 token）；若整个流都没有文字（纯 tool_call 流），退化为首个非 nil chunk，
+// 否则这类调用的 TTFT 会永远测不到。
+func mergeStreamOutput(sr *schema.StreamReader[callbacks.CallbackOutput]) (*model.CallbackOutput, time.Time) {
 	var merged model.CallbackOutput
 	var content strings.Builder
 	var got bool
+	var firstAny, firstText time.Time
 	for {
 		chunk, err := sr.Recv()
 		if errors.Is(err, io.EOF) {
@@ -166,6 +182,9 @@ func mergeStreamOutput(sr *schema.StreamReader[callbacks.CallbackOutput]) *model
 		if out == nil {
 			continue
 		}
+		if !got {
+			firstAny = time.Now()
+		}
 		got = true
 		if out.TokenUsage != nil {
 			merged.TokenUsage = out.TokenUsage
@@ -174,12 +193,15 @@ func mergeStreamOutput(sr *schema.StreamReader[callbacks.CallbackOutput]) *model
 			merged.Config = out.Config
 		}
 		if out.Message != nil {
+			if firstText.IsZero() && out.Message.Content != "" {
+				firstText = time.Now()
+			}
 			content.WriteString(out.Message.Content)
 			merged.Message = out.Message // 保留末 chunk 的 ResponseMeta（FinishReason）
 		}
 	}
 	if !got {
-		return nil
+		return nil, time.Time{}
 	}
 	// 用累积全文覆盖末 chunk 的局部 content（审计 Result 要完整输出）。
 	if merged.Message != nil {
@@ -187,7 +209,10 @@ func mergeStreamOutput(sr *schema.StreamReader[callbacks.CallbackOutput]) *model
 		m.Content = content.String()
 		merged.Message = &m
 	}
-	return &merged
+	if !firstText.IsZero() {
+		return &merged, firstText
+	}
+	return &merged, firstAny
 }
 
 // appendInvocation 落库 + best-effort 错误处理（埋点失败仅 warn，不阻塞 agent run）。
@@ -199,12 +224,24 @@ func appendInvocation(sink llm.CallSink, meta llm.CallMeta, rec llminvocation.In
 }
 
 // buildInvocation 把 eino model callback 输出映射成 llminvocation.Invocation。
-func buildInvocation(ctx context.Context, meta llm.CallMeta, provider, defaultModel string, out *model.CallbackOutput) llminvocation.Invocation {
-	var latencyMs int
+// timing 由调用现场提供（是否流式 + 首 chunk 时刻）；非流式传零值。
+func buildInvocation(ctx context.Context, meta llm.CallMeta, provider, defaultModel string, out *model.CallbackOutput, timing callTiming) llminvocation.Invocation {
+	var latencyMs, ttftMs int
 	var input []*schema.Message
 	if st, ok := ctx.Value(recorderStateKey{}).(recorderState); ok {
 		latencyMs = int(time.Since(st.start).Milliseconds())
 		input = st.input
+		// TTFT = 首 chunk 到达 - 调用发起。仅流式可测；非流式首 token 即末 token，留 0。
+		// 测得但不足 1ms（本地 mock / 极快响应）时进位到 1——否则 0 会与「未测得」混淆，
+		// 前端无法区分「没这个数据」和「快到测不出」。
+		if !timing.firstChunkAt.IsZero() {
+			if d := timing.firstChunkAt.Sub(st.start); d > 0 {
+				ttftMs = int(d.Milliseconds())
+				if ttftMs == 0 {
+					ttftMs = 1
+				}
+			}
+		}
 	}
 
 	mdl := defaultModel
@@ -242,6 +279,8 @@ func buildInvocation(ctx context.Context, meta llm.CallMeta, provider, defaultMo
 		OutTokens:    usage.OutTokens,
 		CachedTokens: usage.CachedTokens,
 		LatencyMs:    latencyMs,
+		TTFTMs:       ttftMs,
+		IsStream:     timing.isStream,
 		FinishReason: finish,
 		Role:         role,
 	}

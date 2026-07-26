@@ -70,6 +70,38 @@ func TestStore_Append_ListByTask(t *testing.T) {
 	}
 }
 
+// TestStore_TTFTAndStream 验证 ttft_ms / is_stream 两列写入后能原样读回（列表与详情两条路径）。
+func TestStore_TTFTAndStream(t *testing.T) {
+	ctx := context.Background()
+	s, taskID := setup(t)
+
+	if _, err := s.Append(ctx, Invocation{
+		TaskID: &taskID, Provider: "x", Model: "m", Role: "orchestrator",
+		LatencyMs: 5000, TTFTMs: 420, IsStream: true,
+	}); err != nil {
+		t.Fatalf("append: %v", err)
+	}
+	if err := s.Flush(ctx); err != nil {
+		t.Fatalf("flush: %v", err)
+	}
+
+	rows, err := s.ListByTask(ctx, taskID, ListFilter{})
+	if err != nil || len(rows) != 1 {
+		t.Fatalf("list: rows=%d err=%v", len(rows), err)
+	}
+	if rows[0].TTFTMs != 420 || !rows[0].IsStream {
+		t.Errorf("列表未读回 ttft/is_stream: ttft=%d stream=%v", rows[0].TTFTMs, rows[0].IsStream)
+	}
+
+	got, err := s.GetByID(ctx, taskID, rows[0].ID)
+	if err != nil {
+		t.Fatalf("get by id: %v", err)
+	}
+	if got.TTFTMs != 420 || !got.IsStream {
+		t.Errorf("详情未读回 ttft/is_stream: ttft=%d stream=%v", got.TTFTMs, got.IsStream)
+	}
+}
+
 // TestStore_ListByTask_Pagination 验证：id 游标翻页——limit 截断 + afterID 取下一页，
 // 不重不漏，且顺序按 id ASC（而非 created_at，同批 flush 的行 created_at 几乎相同不可靠）。
 func TestStore_ListByTask_Pagination(t *testing.T) {

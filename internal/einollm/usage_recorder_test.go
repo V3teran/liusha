@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/cloudwego/eino/adk"
 	"github.com/cloudwego/eino/callbacks"
@@ -105,6 +106,109 @@ func TestUsageRecorder_RecordsFailure(t *testing.T) {
 	}
 	if sink.got.Provider != "xiaomi_mimo" || sink.got.Role != "traffic-analysis" {
 		t.Errorf("失败行 provider/role 错: %+v", sink.got)
+	}
+}
+
+// 非流式：一次性返回，首 token 即末 token → TTFT 无意义应留 0，且不标 is_stream。
+func TestUsageRecorder_NonStreamHasNoTTFT(t *testing.T) {
+	sink := &fakeSink{}
+	h := NewUsageRecorder(sink, llm.CallMeta{RouteKey: "orchestrator"}, "p", "m")
+	info := chatModelInfo()
+	ctx := h.OnStart(context.Background(), info, &model.CallbackInput{})
+	h.OnEnd(ctx, info, &model.CallbackOutput{TokenUsage: &model.TokenUsage{PromptTokens: 10, CompletionTokens: 5}})
+
+	if sink.got.IsStream {
+		t.Error("非流式调用不该标 is_stream")
+	}
+	if sink.got.TTFTMs != 0 {
+		t.Errorf("非流式 TTFT 应为 0，得到 %d", sink.got.TTFTMs)
+	}
+}
+
+// 流式：应标 is_stream 且测出 TTFT（首个有文字的 chunk 到达时刻 - 调用发起）。
+// 用两个 chunk 中间插延时，断言 TTFT 落在首 chunk 而非末 chunk。
+func TestUsageRecorder_StreamMeasuresTTFT(t *testing.T) {
+	sink := &fakeSink{}
+	h := NewUsageRecorder(sink, llm.CallMeta{RouteKey: "orchestrator"}, "p", "m")
+	info := chatModelInfo()
+	ctx := h.OnStart(context.Background(), info, &model.CallbackInput{})
+
+	sr, sw := schema.Pipe[callbacks.CallbackOutput](2)
+	go func() {
+		defer sw.Close()
+		// 首个有文字的 chunk：TTFT 锚点
+		sw.Send(&model.CallbackOutput{Message: &schema.Message{Role: schema.Assistant, Content: "he"}}, nil)
+		// 末 chunk 明显更晚；若 TTFT 误取末 chunk，下面 TTFT≈总时长 的断言会失败
+		time.Sleep(120 * time.Millisecond)
+		sw.Send(&model.CallbackOutput{
+			Message:    &schema.Message{Role: schema.Assistant, Content: "llo", ResponseMeta: &schema.ResponseMeta{FinishReason: "stop"}},
+			TokenUsage: &model.TokenUsage{PromptTokens: 10, CompletionTokens: 5},
+		}, nil)
+	}()
+
+	h.OnEndWithStreamOutput(ctx, info, sr)
+	// 落库在 goroutine 里，等它跑完
+	deadline := time.Now().Add(3 * time.Second)
+	for sink.count == 0 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	g := sink.got
+	if sink.count != 1 {
+		t.Fatalf("流式调用应落 1 行，得到 %d", sink.count)
+	}
+	if !g.IsStream {
+		t.Error("流式调用应标 is_stream")
+	}
+	if g.TTFTMs <= 0 {
+		t.Errorf("流式应测出 TTFT，得到 %d", g.TTFTMs)
+	}
+	// TTFT 是首 chunk，总时长含 120ms 等待——两者必须明显拉开，否则说明取的是末 chunk。
+	if g.LatencyMs-g.TTFTMs < 80 {
+		t.Errorf("TTFT 应锚在首 chunk（远早于末 chunk）：ttft=%d latency=%d", g.TTFTMs, g.LatencyMs)
+	}
+	if g.OutTokens != 5 {
+		t.Errorf("流式 token 应取末 chunk usage，得到 out=%d", g.OutTokens)
+	}
+	if g.FinishReason != "stop" {
+		t.Errorf("流式 finish_reason 应取末 chunk，得到 %q", g.FinishReason)
+	}
+}
+
+// 纯 tool_call 流（整个流无文字内容）：TTFT 退化为首个非 nil chunk，否则这类调用永远测不到。
+func TestUsageRecorder_StreamTTFTFallsBackWhenNoText(t *testing.T) {
+	sink := &fakeSink{}
+	h := NewUsageRecorder(sink, llm.CallMeta{RouteKey: "orchestrator"}, "p", "m")
+	info := chatModelInfo()
+	ctx := h.OnStart(context.Background(), info, &model.CallbackInput{})
+
+	sr, sw := schema.Pipe[callbacks.CallbackOutput](1)
+	go func() {
+		defer sw.Close()
+		// 无 Content，只有 tool_calls（orchestrator 派活的典型形态：实测占 93%）
+		sw.Send(&model.CallbackOutput{
+			Message: &schema.Message{
+				Role:      schema.Assistant,
+				ToolCalls: []schema.ToolCall{{ID: "c1", Function: schema.FunctionCall{Name: "task"}}},
+			},
+			TokenUsage: &model.TokenUsage{PromptTokens: 8},
+		}, nil)
+	}()
+
+	h.OnEndWithStreamOutput(ctx, info, sr)
+	deadline := time.Now().Add(3 * time.Second)
+	for sink.count == 0 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	if sink.count != 1 {
+		t.Fatalf("应落 1 行，得到 %d", sink.count)
+	}
+	if !sink.got.IsStream {
+		t.Error("应标 is_stream")
+	}
+	if sink.got.TTFTMs <= 0 {
+		t.Errorf("无文字的流也应测出 TTFT（退化为首个 chunk），得到 %d", sink.got.TTFTMs)
 	}
 }
 
