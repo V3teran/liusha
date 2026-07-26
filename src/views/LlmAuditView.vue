@@ -22,6 +22,7 @@ import type {
 } from '../api/types'
 import { agentAccent } from '../lib/agentColor'
 import { clockTime, compactNumber, fullTime, humanDuration, humanTokens } from '../lib/format'
+import { isTimeout, latencyLevel, throughputLabel, ttftLevel } from '../lib/llmTiming'
 
 const PAGE_SIZE = 100
 
@@ -126,11 +127,6 @@ function prevPage() {
   void load()
 }
 
-// 输出速率：out_tokens / 延迟，反映该次调用的吐字速度（对齐 NewAPI 的 TPS 列）。
-function tps(v: LLMInvocationSummary): string {
-  if (v.latency_ms <= 0 || v.out_tokens <= 0) return ''
-  return `${(v.out_tokens / (v.latency_ms / 1000)).toFixed(1)} t/s`
-}
 // role 配色复用全站单一真相源（会话卡/执行图同 agent 同色）。
 function roleColor(role: string): string {
   return agentAccent(role).accent
@@ -205,13 +201,13 @@ async function openDetail(v: LLMInvocationSummary) {
         <!-- 单张扁平密集表 -->
         <div class="la-table">
           <div class="lr lr-head">
-            <span>时刻</span><span>角色</span><span>模型</span><span>Tokens</span><span>延迟</span><span>结果</span><span></span>
+            <span>时刻</span><span>角色</span><span>模型</span><span>Tokens</span><span>计时</span><span></span>
           </div>
 
           <template v-if="loading">
             <!-- skeleton：占位骨架屏，避免转圈导致的布局跳动 -->
             <div v-for="i in 8" :key="`sk${i}`" class="lr lr-sk">
-              <span v-for="c in 7" :key="c" class="sk-bar" />
+              <span v-for="c in 6" :key="c" class="sk-bar" />
             </div>
           </template>
 
@@ -243,12 +239,20 @@ async function openDetail(v: LLMInvocationSummary) {
               <span class="mono tok-main">{{ humanTokens(v.in_tokens) }} / {{ humanTokens(v.out_tokens) }}</span>
               <em v-if="v.cached_tokens > 0" class="sub">缓存↓ {{ humanTokens(v.cached_tokens) }}</em>
             </span>
-            <span class="lr-lat">
-              <span class="mono">{{ humanDuration(v.latency_ms) }}</span>
-              <em v-if="tps(v)" class="sub">{{ tps(v) }}</em>
-            </span>
-            <span class="lr-fin" :title="v.error_message || v.finish_reason">
-              {{ v.error_message || v.finish_reason || '—' }}
+            <!-- 计时：流式先显示首 token（TTFT），再显示总时长；各自按阈值配色。
+                 超时打点单独标记——那个数字是看门狗截断值，不是真实响应耗时。 -->
+            <span class="lr-timing">
+              <em v-if="v.is_stream && v.ttft_ms > 0" class="tm-row sub">
+                <i :class="`lv-${ttftLevel(v.ttft_ms)}`" />首字 {{ humanDuration(v.ttft_ms) }}
+              </em>
+              <span v-if="isTimeout(v)" class="tm-row tm-timeout" title="达到 LLM 看门狗上限（5 分钟），该数字非真实响应耗时">
+                <i class="lv-bad" />超时
+              </span>
+              <span v-else class="tm-row">
+                <i :class="`lv-${latencyLevel(v.latency_ms, v.out_tokens)}`" />
+                <span class="mono">{{ humanDuration(v.latency_ms) }}</span>
+                <em v-if="throughputLabel(v)" class="tm-tps">{{ throughputLabel(v) }}</em>
+              </span>
             </span>
             <span class="lr-arrow">›</span>
           </div>
@@ -318,7 +322,7 @@ async function openDetail(v: LLMInvocationSummary) {
 .la-table { background: var(--surface); border: 1px solid var(--border); border-radius: 18px; overflow: hidden; box-shadow: var(--shadow); }
 .lr {
   display: grid;
-  grid-template-columns: 78px 128px 1fr 148px 92px 150px 20px;
+  grid-template-columns: 78px 128px 1fr 148px 168px 20px;
   gap: 14px;
   align-items: center;
   padding: 9px 18px;
@@ -352,9 +356,16 @@ async function openDetail(v: LLMInvocationSummary) {
 .lr-model { overflow: hidden; }
 .model-main { font-size: 12.5px; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tok-main { font-size: 12.5px; }
-.lr-lat { font-size: 12.5px; }
-.lr-fin { font-size: 11.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.lr.bad .lr-fin { color: var(--sev-critical); }
+
+/* 计时单元格：流式两行（首字 + 总时长），各行带分档色点 */
+.lr-timing { font-size: 12.5px; display: flex; flex-direction: column; gap: 1px; }
+.tm-row { display: flex; align-items: center; gap: 6px; }
+.tm-row i { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+.tm-row i.lv-good { background: var(--sev-low, #22c55e); }
+.tm-row i.lv-warn { background: var(--sev-medium, #f59e0b); }
+.tm-row i.lv-bad { background: var(--sev-critical, #ef4444); }
+.tm-tps { font-style: normal; font-size: 10.5px; color: var(--muted); opacity: 0.75; }
+.tm-timeout { font-size: 11.5px; font-weight: 600; color: var(--sev-critical); }
 .lr-arrow { color: var(--muted); opacity: 0.5; font-size: 18px; text-align: center; transition: 0.14s; }
 .lr:hover .lr-arrow { color: var(--primary); opacity: 1; transform: translateX(2px); }
 
@@ -366,8 +377,9 @@ async function openDetail(v: LLMInvocationSummary) {
 .la-pager { display: flex; align-items: center; justify-content: center; gap: 14px; padding: 14px 0 4px; }
 .pg-no { font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
 
+/* 窄屏隐藏 Tokens 列（第 4 列），保留计时——计时是本页的判读重点 */
 @media (max-width: 1100px) {
-  .lr { grid-template-columns: 74px 110px 1fr 130px 20px; }
-  .lr > :nth-child(5), .lr > :nth-child(6) { display: none; }
+  .lr { grid-template-columns: 74px 110px 1fr 150px 20px; }
+  .lr > :nth-child(4) { display: none; }
 }
 </style>

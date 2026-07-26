@@ -8,6 +8,7 @@ import { computed, ref, watch } from 'vue'
 import type { LLMInvocationDetail } from '../api/types'
 import { agentAccent } from '../lib/agentColor'
 import { fullTime, humanDuration, humanTokens } from '../lib/format'
+import { isTimeout, throughputLabel } from '../lib/llmTiming'
 
 const props = defineProps<{
   open: boolean
@@ -167,7 +168,15 @@ const msgColor = (role: string) => MSG_ROLE_COLOR[role] ?? '#94a3b8'
                 输入 {{ humanTokens(detail.in_tokens) }} · 输出 {{ humanTokens(detail.out_tokens) }}
                 <template v-if="detail.cached_tokens > 0"> · 缓存 {{ humanTokens(detail.cached_tokens) }}</template>
               </span>
-              <span class="mk">延迟</span><span class="mv mono">{{ humanDuration(detail.latency_ms) }}</span>
+              <span class="mk">计时</span>
+              <span class="mv mono">
+                <template v-if="detail.is_stream && detail.ttft_ms > 0">首字 {{ humanDuration(detail.ttft_ms) }} · </template>
+                总时长 {{ humanDuration(detail.latency_ms) }}
+                <template v-if="isTimeout(detail)"> · <span class="ld-timeout">看门狗超时</span></template>
+                <template v-else-if="throughputLabel(detail)"> · {{ throughputLabel(detail) }}</template>
+              </span>
+              <span class="mk">传输</span>
+              <span class="mv">{{ detail.is_stream ? '流式' : '非流式' }}</span>
               <template v-if="detail.hunter_id">
                 <span class="mk">hunter</span><span class="mv mono">{{ detail.hunter_id }}</span>
               </template>
@@ -241,6 +250,7 @@ const msgColor = (role: string) => MSG_ROLE_COLOR[role] ?? '#94a3b8'
   background: var(--surface-2);
 }
 .ld-badge.bad { color: var(--sev-critical); background: color-mix(in srgb, var(--sev-critical) 14%, transparent); }
+.ld-timeout { color: var(--sev-critical); font-weight: 600; }
 .ld-close { margin-left: auto; background: transparent; border: none; color: var(--muted); font-size: 16px; cursor: pointer; line-height: 1; }
 .ld-close:hover { color: var(--text); }
 .ld-model { margin-top: 8px; font-size: 12.5px; color: var(--text); }

@@ -238,6 +238,8 @@ export interface LLMInvocationSummary {
   out_tokens: number
   cached_tokens: number
   latency_ms: number
+  ttft_ms: number // 首 token 延迟；0 = 未测得 / 非流式（区分"思考慢"与"输出长"）
+  is_stream: boolean // 是否流式；决定 ttft_ms 是否有意义
   finish_reason: string
   error_message: string
   role: string // 调用者角色：orchestrator/exploitation/traffic-analysis 等
