@@ -17,6 +17,8 @@ import type {
   LLMInvocationsResponse,
   LLMInvocationDetail,
   LLMInvocationStat,
+  LLMInvocationFacets,
+  LLMInvocationFilters,
   Identity,
   FindingRow,
   FindingFilters,
@@ -349,15 +351,30 @@ export async function getMilestones(ownerID: string, conv = ''): Promise<Milesto
 }
 
 /**
- * 拉取该 task 下 LLM 调用审计（后端按 hunter_id 分组，id 游标分页）。
+ * 把筛选态序列化成后端 query 参数（列表与统计共用，保证两者口径一致）。
+ */
+function invocationFilterParams(f?: Partial<LLMInvocationFilters>): URLSearchParams {
+  const params = new URLSearchParams()
+  if (!f) return params
+  if (f.role) params.set('role', f.role)
+  if (f.model) params.set('model', f.model)
+  if (f.onlyErr) params.set('only_err', '1')
+  if (f.start) params.set('start', f.start)
+  if (f.end) params.set('end', f.end)
+  return params
+}
+
+/**
+ * 拉取该 task 下 LLM 调用审计（扁平 items，id 游标分页 + 服务端筛选）。
  * afterID：上一页 next_after；0 表示从头拉。列表不含 messages/result 大字段。
  */
 export async function listLLMInvocations(
   taskID: string,
   afterID = 0,
   limit = 0,
+  filters?: Partial<LLMInvocationFilters>,
 ): Promise<LLMInvocationsResponse> {
-  const params = new URLSearchParams()
+  const params = invocationFilterParams(filters)
   if (afterID > 0) params.set('after', String(afterID))
   if (limit > 0) params.set('limit', String(limit))
   const q = params.toString()
@@ -372,10 +389,21 @@ export async function getLLMInvocationDetail(taskID: string, id: number): Promis
 }
 
 /**
- * 拉取该 task 下 LLM 调用的数据库层聚合统计（不再前端对全量行 reduce）。
+ * 拉取该 task 下 LLM 调用的数据库层聚合统计（吃与列表同一套筛选，筛选后统计跟着变）。
  */
-export async function getLLMInvocationStat(taskID: string): Promise<LLMInvocationStat> {
-  return get<LLMInvocationStat>(`/llm/invocations/${taskID}/stat`)
+export async function getLLMInvocationStat(
+  taskID: string,
+  filters?: Partial<LLMInvocationFilters>,
+): Promise<LLMInvocationStat> {
+  const q = invocationFilterParams(filters).toString()
+  return get<LLMInvocationStat>(`/llm/invocations/${taskID}/stat${q ? '?' + q : ''}`)
+}
+
+/**
+ * 拉取筛选下拉候选（服务端 distinct 的 role/model，恒为该 task 全集）。
+ */
+export async function getLLMInvocationFacets(taskID: string): Promise<LLMInvocationFacets> {
+  return get<LLMInvocationFacets>(`/llm/invocations/${taskID}/facets`)
 }
 
 /* ============================================================

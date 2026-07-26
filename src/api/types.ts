@@ -221,9 +221,10 @@ export interface Milestone {
 }
 
 /* ============================================================
-   LLM 审计（GET /llm/invocations/:task_id，按 hunter 分组 + id 游标分页）
+   LLM 审计（GET /llm/invocations/:task_id，扁平 items + id 游标分页）
    列表/详情接口分离：列表不带 messages/result（大字段，未用不传），
    详情走 GET /llm/invocations/:task_id/invocation/:id 按需拉。
+   筛选（role/model/仅错误/时间范围）由服务端做，统计与列表吃同一套参数。
    ============================================================ */
 // LLMInvocationSummary 是列表行——不含 messages/result。
 export interface LLMInvocationSummary {
@@ -239,7 +240,7 @@ export interface LLMInvocationSummary {
   latency_ms: number
   finish_reason: string
   error_message: string
-  role: string // 调用者角色：orchestrator/exploitation/traffic-analysis 等；同一 hunter 分组内可能混多个 role
+  role: string // 调用者角色：orchestrator/exploitation/traffic-analysis 等
   created_at: string
 }
 // LLMInvocationDetail 是点击钻取的完整行（messages/result 为后端 inline jsonb，结构不定 → unknown）。
@@ -247,19 +248,14 @@ export interface LLMInvocationDetail extends LLMInvocationSummary {
   messages: unknown
   result: unknown
 }
-export interface LLMInvocationGroup {
-  hunter_id: string
-  count: number
-  invocations: LLMInvocationSummary[]
-}
 export interface LLMInvocationsResponse {
   task_id: string
-  total: number
+  total: number // 本页行数（非全量总数——全量看 stat.calls）
   next_after: number // 本页最后一行 id，翻下一页时作 after 参数
   has_more: boolean
-  groups: LLMInvocationGroup[]
+  items: LLMInvocationSummary[]
 }
-// LLMInvocationStat 是 GET /llm/invocations/:task_id/stat 的数据库层聚合结果（不再前端 reduce 全量行）。
+// LLMInvocationStat 是 GET /llm/invocations/:task_id/stat 的数据库层聚合（吃同一套筛选参数）。
 export interface LLMInvocationStat {
   task_id: string
   calls: number
@@ -267,6 +263,20 @@ export interface LLMInvocationStat {
   out_tokens: number
   cached_tokens: number
   latency_ms: number
+}
+// LLMInvocationFacets 是筛选下拉候选（服务端 distinct，恒为该 task 全集）。
+export interface LLMInvocationFacets {
+  task_id: string
+  roles: string[]
+  models: string[]
+}
+// LLMInvocationFilters 是前端持有的筛选态，序列化进 query 后由服务端筛。
+export interface LLMInvocationFilters {
+  role: string
+  model: string
+  onlyErr: boolean
+  start: string // RFC3339；空 = 不限
+  end: string
 }
 
 /* ============================================================
