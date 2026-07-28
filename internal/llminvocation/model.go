@@ -31,8 +31,13 @@ type Invocation struct {
 	IsStream     bool
 	FinishReason string
 	Error        string
-	Role         string // 调用者角色：trafficAnalysis / orchestrator / exploitation / inspector 等；空 = 未分类
-	Messages     []byte // jsonb：输入消息数组（[]llm.Message 序列化）
-	Result       []byte // jsonb：LLM 返回（llm.Result 序列化）
-	CreatedAt    time.Time
+	// ToolNames / TextPreview 是「这次调用产出了什么」的派生摘要，仅列表查询填充
+	// （由 SQL 从 result 里算出，不把 result 大字段传出库）。审计表据此一眼看出
+	// 该次调用是派活、跑命令还是写漏洞，而不必逐行点开详情。
+	ToolNames   []string
+	TextPreview string
+	Role        string // 调用者角色：trafficAnalysis / orchestrator / exploitation / inspector 等；空 = 未分类
+	Messages    []byte // jsonb：输入消息数组（[]llm.Message 序列化）
+	Result      []byte // jsonb：LLM 返回（llm.Result 序列化）
+	CreatedAt   time.Time
 }

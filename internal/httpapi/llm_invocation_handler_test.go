@@ -158,6 +158,46 @@ func TestLLMInvocationsHandler(t *testing.T) {
 		}
 	})
 
+	t.Run("列表带派生摘要 tool_names/text_preview（nil 归一成 []）", func(t *testing.T) {
+		taskID := "t1"
+		fake := &fakeInvocations{rows: []llminvocation.Invocation{
+			{ID: 1, TaskID: &taskID, ToolNames: []string{"run_command", "write_finding"}, TextPreview: "巡检目标端口"},
+			{ID: 2, TaskID: &taskID}, // 无工具无文本：tool_names 应为 []，非 null
+		}}
+		srv := newTestServer(t, Deps{Invocations: fake})
+		defer srv.Close()
+
+		req, _ := http.NewRequest("GET", srv.URL+"/llm/invocations/t1", nil)
+		req.Header.Set("X-API-Key", "k")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+
+		var body struct {
+			Items []struct {
+				ToolNames   []string `json:"tool_names"`
+				TextPreview string   `json:"text_preview"`
+			} `json:"items"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		if len(body.Items) != 2 {
+			t.Fatalf("items 数不符: %+v", body.Items)
+		}
+		if len(body.Items[0].ToolNames) != 2 || body.Items[0].ToolNames[0] != "run_command" {
+			t.Errorf("tool_names 未透传: %+v", body.Items[0].ToolNames)
+		}
+		if body.Items[0].TextPreview != "巡检目标端口" {
+			t.Errorf("text_preview 未透传: %q", body.Items[0].TextPreview)
+		}
+		if body.Items[1].ToolNames == nil {
+			t.Error("空 tool_names 应序列化成 [] 而非 null")
+		}
+	})
+
 	t.Run("筛选参数解析：role/model/only_err/时间范围", func(t *testing.T) {
 		fake := &fakeInvocations{}
 		srv := newTestServer(t, Deps{Invocations: fake})

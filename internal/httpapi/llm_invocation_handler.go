@@ -116,6 +116,9 @@ func llmInvocationsHandler(api InvocationsAPI) gin.HandlerFunc {
 				"error_message": v.Error,
 				"role":          v.Role,
 				"created_at":    v.CreatedAt,
+				// 派生摘要（库内算，不传 result 大字段）：这次调用产出了什么。
+				"tool_names":   toolNamesOrEmpty(v.ToolNames),
+				"text_preview": v.TextPreview,
 			})
 		}
 
@@ -182,6 +185,9 @@ func llmInvocationDetailHandler(api InvocationsAPI) gin.HandlerFunc {
 // 数据库层 SUM 聚合（复用 AggregateByTask，会话用量端点已验证过的口径），
 // 前端汇总卡不再对全量 invocations 数组做客户端 reduce。
 // 吃与列表**同一套筛选参数**（不含分页游标）：筛选后统计跟着变，避免「明细 3 条、合计全量」。
+//
+// 不回传会话相关字段：用量页的职责是「花了多少、快不快、失败没有」，
+// 不引导用户去看对话内容（那是会话模块的职责）——业界日志页同样如此。
 func llmInvocationStatHandler(api InvocationsAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		eid := c.Param("task_id")
@@ -241,4 +247,12 @@ func rawOrEmpty(b []byte, empty string) []byte {
 		return []byte(empty)
 	}
 	return b
+}
+
+// toolNamesOrEmpty 把 nil 切片归一成空数组——前端渲染工具徽章时不必判空。
+func toolNamesOrEmpty(names []string) []string {
+	if names == nil {
+		return []string{}
+	}
+	return names
 }

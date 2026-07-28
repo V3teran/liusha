@@ -213,6 +213,9 @@ func (s *Store) copyFromBatch(ctx context.Context, batch []Invocation) error {
 // maxListLimit 是 ListByTask 单页硬上限——防无界查询（无论调用方传多大 limit，都不超它）。
 const maxListLimit = 1000
 
+// textPreviewLimit 是列表摘要里文字预览的截断长度：够表格一行展示，又不至于把正文搬出库。
+const textPreviewLimit = 200
+
 // ListFilter 是列表 / 统计共用的筛选条件（零值 = 不筛，等价于全量）。
 //
 // 关键：列表与统计吃同一份筛选，否则筛选后"明细 3 条、合计仍是全量"会互相打脸。
@@ -273,7 +276,10 @@ func (f ListFilter) limitOrDefault() int {
 // 非调用时刻），排序不稳定；bigserial id 在同一批 CopyFrom 内严格单调，才是可靠的时序游标。
 // 调用方有责任先 Flush() 等异步 buffer commit，否则可能缺最近 0-1s 的记录。
 //
-// 列表不选 messages/result（大字段，详情另走 GetByID 按需拉，见 docs 中"列表/详情分离"设计）。
+// 列表不选 messages/result（大字段，详情另走 GetByID 按需拉，见 docs 中"列表/详情分离"设计），
+// 但在 SQL 里从 result 派生出 tool_names / text_preview 两个短摘要——审计表要能一眼看出
+// 「这次调用干了什么」（派活 / 跑命令 / 写漏洞），否则得逐行点开详情才知道。
+// 摘要在库内算完再出网，仍不传大字段。
 func (s *Store) ListByTask(ctx context.Context, taskID string, f ListFilter) ([]Invocation, error) {
 	conds, args := f.where(taskID, true)
 	args = append(args, f.limitOrDefault())
@@ -283,11 +289,15 @@ func (s *Store) ListByTask(ctx context.Context, taskID string, f ListFilter) ([]
 		       in_tokens, out_tokens, cached_tokens,
 		       latency_ms, ttft_ms, is_stream,
 		       finish_reason, error_message, role,
-		       created_at
+		       created_at,
+		       COALESCE((SELECT array_agg(tc->'function'->>'name' ORDER BY ord)
+		                 FROM jsonb_array_elements(result->'tool_calls') WITH ORDINALITY AS t(tc, ord)
+		                 WHERE jsonb_typeof(result->'tool_calls') = 'array'), '{}') AS tool_names,
+		       left(COALESCE(result->>'content', ''), %d) AS text_preview
 		FROM llm_invocation
 		WHERE %s
 		ORDER BY id ASC
-		LIMIT $%d`, strings.Join(conds, " AND "), len(args))
+		LIMIT $%d`, textPreviewLimit, strings.Join(conds, " AND "), len(args))
 	rows, err := s.pool.Query(ctx, q, args...)
 	if err != nil {
 		return nil, fmt.Errorf("list llm_invocation by task: %w", err)
@@ -305,6 +315,7 @@ func (s *Store) ListByTask(ctx context.Context, taskID string, f ListFilter) ([]
 			&v.LatencyMs, &v.TTFTMs, &v.IsStream,
 			&v.FinishReason, &v.Error, &v.Role,
 			&v.CreatedAt,
+			&v.ToolNames, &v.TextPreview,
 		); err != nil {
 			return nil, fmt.Errorf("scan llm_invocation: %w", err)
 		}
