@@ -83,6 +83,16 @@ const resultCalls = computed<ToolCallView[]>(() => {
   if (!r) return []
   return toToolCalls(r.tool_calls ?? r.function_call)
 })
+// 「返回结果」节的复制：只复制本节展示的东西（正文 + 工具调用），
+// 不把已拆到别节的思考过程 / extra / response_meta 一起裹进来——那是原始响应，另设按钮。
+const resultCopyText = computed(() => {
+  const parts: string[] = []
+  if (resultText.value) parts.push(resultText.value)
+  for (const tc of resultCalls.value) {
+    parts.push(tc.args ? `${tc.name}(${tc.args})` : `${tc.name}()`)
+  }
+  return parts.join('\n\n')
+})
 // 模型思考过程（reasoning_content / extra.reasoning-content）：R1 系模型的思维链，
 // 审计/调试视角高价值，独立成节。字段名两种写法都兜住。
 const reasoning = computed(() => {
@@ -231,8 +241,12 @@ const msgColor = (role: string) => MSG_ROLE_COLOR[role] ?? '#94a3b8'
           <section class="ld-sec">
             <h3 class="ld-sec-title">
               返回结果
-              <button class="ld-copy right" @click="copy('res', JSON.stringify(detail.result, null, 2))">
-                {{ copiedKey === 'res' ? '✓ 已复制' : '复制 JSON' }}
+              <button
+                v-if="resultCopyText"
+                class="ld-copy right"
+                @click="copy('res', resultCopyText)"
+              >
+                {{ copiedKey === 'res' ? '✓ 已复制' : '复制正文' }}
               </button>
             </h3>
             <pre v-if="resultText" class="ld-code">{{ resultText }}</pre>
@@ -242,6 +256,14 @@ const msgColor = (role: string) => MSG_ROLE_COLOR[role] ?? '#94a3b8'
             </template>
             <pre v-if="resultRaw" class="ld-code">{{ resultRaw }}</pre>
             <div v-if="!resultText && !resultCalls.length && !resultRaw" class="ld-empty">无返回内容</div>
+
+            <!-- 原始响应：取证用，含思考过程/extra/response_meta 等完整字段，
+                 与上方分节展示分开——名实相符，不让"复制正文"裹进一坨。 -->
+            <div v-if="detail.result != null" class="ld-raw-foot">
+              <button class="ld-copy" @click="copy('raw', JSON.stringify(detail.result, null, 2))">
+                {{ copiedKey === 'raw' ? '✓ 已复制' : '复制原始响应 JSON（完整字段）' }}
+              </button>
+            </div>
           </section>
         </template>
       </div>
@@ -335,5 +357,9 @@ const msgColor = (role: string) => MSG_ROLE_COLOR[role] ?? '#94a3b8'
 }
 .ld-copy:hover { border-color: var(--primary); color: var(--primary); }
 .ld-copy.right { margin-left: auto; }
+
+/* 原始响应复制：置于返回结果节底部，与上方分节展示留出间距，弱化为次要操作 */
+.ld-raw-foot { margin-top: 12px; padding-top: 10px; border-top: 1px dashed var(--border); }
+.ld-raw-foot .ld-copy { font-size: 10.5px; color: var(--muted); opacity: 0.85; }
 
 </style>
