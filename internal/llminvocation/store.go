@@ -30,6 +30,7 @@ import (
 type Store struct {
 	pool          *pgxpool.Pool
 	ch            chan Invocation
+	flushReq      chan chan struct{} // Flush() 请求 worker 立即落库；worker 处理完向回传的 chan 发信号
 	closed        chan struct{}
 	wg            sync.WaitGroup
 	log           zerolog.Logger
@@ -68,6 +69,7 @@ func NewStoreWithConfig(pool *pgxpool.Pool, c config.InvocationConfig) *Store {
 	s := &Store{
 		pool:          pool,
 		ch:            make(chan Invocation, bufSize),
+		flushReq:      make(chan chan struct{}),
 		closed:        make(chan struct{}),
 		log:           logx.New("llmcall.store"),
 		batchSize:     batchSize,
@@ -102,23 +104,28 @@ func (s *Store) Append(ctx context.Context, c Invocation) (int64, error) {
 	}
 }
 
-// Flush 阻塞直到 channel 排空 + 当前 batch 已 commit；测试与 AggregateByTask 前用。
+// Flush 请求 worker 立即落库当前 batch 并等其确认；测试与 AggregateByTask/ListByTask 前用。
+//
+// 曾经的实现是「channel 空了就 sleep(flushInterval+100ms)」——盲等固定时长，
+// 不管有没有数据要落库都要付这个代价：GET 请求场景 channel 几乎总是空的，
+// 结果每次查询前都白等 1.1s（flushInterval 默认 1000ms）。
+// 现在改成请求-确认：向 worker 发一个「立即 flush」信号 + 回传 chan，
+// worker 处理到这条信号时立即落库当前 batch 再关闭回传 chan，Flush 一收到就返回，
+// 没有待落库数据时几乎零延迟（一次 channel round-trip）。
 func (s *Store) Flush(ctx context.Context) error {
-	for {
-		if len(s.ch) == 0 {
-			// channel 空了；再等 flushInterval 让 worker 把最后一批 commit
-			select {
-			case <-time.After(s.flushInterval + 100*time.Millisecond):
-				return nil
-			case <-ctx.Done():
-				return ctx.Err()
-			}
-		}
-		select {
-		case <-time.After(50 * time.Millisecond):
-		case <-ctx.Done():
-			return ctx.Err()
-		}
+	done := make(chan struct{})
+	select {
+	case s.flushReq <- done:
+	case <-s.closed:
+		return nil // worker 已停（Close 中），无需再等
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
 	}
 }
 
@@ -154,6 +161,20 @@ func (s *Store) run() {
 		batch = batch[:0]
 	}
 
+	// drainAndFlush 非阻塞收走 channel 里已入队的行（Append 是 fire-and-forget，
+	// 此刻 channel 里的都是「已提交」的行）后落库一次；Flush()/closed 分支共用。
+	drainAndFlush := func() {
+		for {
+			select {
+			case c := <-s.ch:
+				batch = append(batch, c)
+			default:
+				flush()
+				return
+			}
+		}
+	}
+
 	for {
 		select {
 		case c := <-s.ch:
@@ -163,17 +184,14 @@ func (s *Store) run() {
 			}
 		case <-ticker.C:
 			flush()
+		case done := <-s.flushReq:
+			// Flush() 请求：立即落库当前 batch，再关 done 通知调用方——
+			// 不再靠盲等 flushInterval（那曾让每次查询前白等 1.1s）。
+			drainAndFlush()
+			close(done)
 		case <-s.closed:
-			// drain 剩余 channel，最后 flush 一次
-			for {
-				select {
-				case c := <-s.ch:
-					batch = append(batch, c)
-				default:
-					flush()
-					return
-				}
-			}
+			drainAndFlush()
+			return
 		}
 	}
 }
