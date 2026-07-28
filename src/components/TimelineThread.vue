@@ -4,7 +4,6 @@
 // 缩进 + 该 agent 配色竖条，一眼看出「编排在派活、侦察/利用在并行干活」。工具默认折叠。
 // 复用 lib/threadRows 分组 + 现有卡片（MessageItem/StepTools/ReasoningCard），仅换外层布局。
 import { computed, nextTick, ref, watch } from 'vue'
-import type { Message } from '../api/types'
 import { useConversationStore } from '../stores/conversation'
 import { dayKey, dayLabel } from '../lib/format'
 import { buildThreadRows, type ThreadRow } from '../lib/threadRows'

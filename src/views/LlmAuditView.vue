@@ -21,7 +21,7 @@ import type {
   LLMInvocationStat,
 } from '../api/types'
 import { agentAccent } from '../lib/agentColor'
-import { clockTime, compactNumber, fullTime, humanDuration, humanTokens } from '../lib/format'
+import { compactNumber, fullTime, humanDuration, humanTokens, shortDateTime } from '../lib/format'
 import { isTimeout, latencyLevel, throughputLabel, ttftLevel } from '../lib/llmTiming'
 
 const PAGE_SIZE = 100
@@ -132,6 +132,10 @@ function roleColor(role: string): string {
   return agentAccent(role).accent
 }
 
+// provider 只在该 task 下确实出现过多个时才逐行显示——单一 provider 时每行重复同一个值
+// 是纯噪声（实测全库只有 xiaomi_mimo 一种）。候选来自服务端 facets 的模型集合口径同理。
+const showProvider = computed(() => new Set(rows.value.map((r) => r.provider)).size > 1)
+
 // 详情钻取
 const drawerOpen = ref(false)
 const detail = ref<LLMInvocationDetail | null>(null)
@@ -201,13 +205,13 @@ async function openDetail(v: LLMInvocationSummary) {
         <!-- 单张扁平密集表 -->
         <div class="la-table">
           <div class="lr lr-head">
-            <span>时刻</span><span>角色</span><span>模型</span><span>Tokens</span><span>计时</span><span></span>
+            <span>时刻</span><span>角色</span><span>模型</span><span>Tokens</span><span>计时</span><span>内容</span><span></span>
           </div>
 
           <template v-if="loading">
             <!-- skeleton：占位骨架屏，避免转圈导致的布局跳动 -->
             <div v-for="i in 8" :key="`sk${i}`" class="lr lr-sk">
-              <span v-for="c in 6" :key="c" class="sk-bar" />
+              <span v-for="c in 7" :key="c" class="sk-bar" />
             </div>
           </template>
 
@@ -229,11 +233,11 @@ async function openDetail(v: LLMInvocationSummary) {
             @keydown.enter.prevent="openDetail(v)"
             @keydown.space.prevent="openDetail(v)"
           >
-            <span class="lr-time mono" :title="fullTime(v.created_at)">{{ clockTime(v.created_at) || '—' }}</span>
+            <span class="lr-time mono" :title="fullTime(v.created_at)">{{ shortDateTime(v.created_at) || '—' }}</span>
             <span class="lr-role"><i />{{ v.role || '—' }}</span>
-            <span class="lr-model">
+            <span class="lr-model" :title="`${v.model} · ${v.provider}`">
               <span class="mono model-main">{{ v.model || '—' }}</span>
-              <em class="sub">{{ v.provider }}</em>
+              <em v-if="showProvider" class="sub">{{ v.provider }}</em>
             </span>
             <span class="lr-tok">
               <span class="mono tok-main">{{ humanTokens(v.in_tokens) }} / {{ humanTokens(v.out_tokens) }}</span>
@@ -253,6 +257,15 @@ async function openDetail(v: LLMInvocationSummary) {
                 <span class="mono">{{ humanDuration(v.latency_ms) }}</span>
                 <em v-if="throughputLabel(v)" class="tm-tps">{{ throughputLabel(v) }}</em>
               </span>
+            </span>
+            <!-- 内容摘要：这次调用产出了什么。工具调用列徽章，纯文本回复列预览；
+                 两者皆无（罕见）兜底破折号。全部库内派生，不拉 result 大字段。 -->
+            <span class="lr-content">
+              <span v-if="v.tool_names.length" class="tool-badges">
+                <em v-for="(t, i) in v.tool_names" :key="`${v.id}-${i}`" class="tool-badge">{{ t }}</em>
+              </span>
+              <span v-else-if="v.text_preview" class="text-prev" :title="v.text_preview">{{ v.text_preview }}</span>
+              <span v-else class="prev-empty">—</span>
             </span>
             <span class="lr-arrow">›</span>
           </div>
@@ -322,7 +335,10 @@ async function openDetail(v: LLMInvocationSummary) {
 .la-table { background: var(--surface); border: 1px solid var(--border); border-radius: 18px; overflow: hidden; box-shadow: var(--shadow); }
 .lr {
   display: grid;
-  grid-template-columns: 78px 128px 1fr 148px 168px 20px;
+  /* 列宽：时刻/角色/模型/tokens/计时按实测内容定宽，"内容"列吸收剩余（1fr）——
+     它是唯一的长文本列（工具徽章串 + 文本预览），把弹性宽度给它才有意义，
+     不再像早先那样把 1fr 塞给模型/角色造成几百 px 的空白格子。 */
+  grid-template-columns: 112px 128px 112px 140px 168px 1fr 20px;
   gap: 14px;
   align-items: center;
   padding: 9px 18px;
@@ -366,6 +382,23 @@ async function openDetail(v: LLMInvocationSummary) {
 .tm-row i.lv-bad { background: var(--sev-critical, #ef4444); }
 .tm-tps { font-style: normal; font-size: 10.5px; color: var(--muted); opacity: 0.75; }
 .tm-timeout { font-size: 11.5px; font-weight: 600; color: var(--sev-critical); }
+
+/* 内容摘要：工具徽章成串（单行溢出隐藏），或文本预览（单行截断） */
+.lr-content { overflow: hidden; min-width: 0; }
+.tool-badges { display: flex; gap: 5px; overflow: hidden; flex-wrap: nowrap; }
+.tool-badge {
+  font-style: normal;
+  font-size: 11px;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  padding: 1px 7px;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--primary) 12%, transparent);
+  color: var(--primary);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.text-prev { display: block; font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.prev-empty { color: var(--muted); opacity: 0.4; }
 .lr-arrow { color: var(--muted); opacity: 0.5; font-size: 18px; text-align: center; transition: 0.14s; }
 .lr:hover .lr-arrow { color: var(--primary); opacity: 1; transform: translateX(2px); }
 
@@ -377,9 +410,10 @@ async function openDetail(v: LLMInvocationSummary) {
 .la-pager { display: flex; align-items: center; justify-content: center; gap: 14px; padding: 14px 0 4px; }
 .pg-no { font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
 
-/* 窄屏隐藏 Tokens 列（第 4 列），保留计时——计时是本页的判读重点 */
+/* 窄屏隐藏 Tokens（第 4 列），保留内容（弹性）与计时——二者是本页判读重点。
+   剩余 6 列：时刻 / 角色 / 模型 / 计时 / 内容(弹性) / 箭头；时刻含日期故不低于 104px。 */
 @media (max-width: 1100px) {
-  .lr { grid-template-columns: 74px 110px 1fr 150px 20px; }
+  .lr { grid-template-columns: 104px 112px 104px 150px 1fr 20px; }
   .lr > :nth-child(4) { display: none; }
 }
 </style>

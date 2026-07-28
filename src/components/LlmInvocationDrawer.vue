@@ -4,7 +4,7 @@
 // 对齐业界日志详情弹窗（NewAPI details-dialog）：分节 + KV 网格 + 逐项复制，
 // 而非把 messages/result 直接 JSON.stringify 成一坨裸 dump。
 // messages 是 OpenAI 风格消息数组，按条渲染（role 标签 + 正文）；结构不符时退化为 JSON 展示。
-import { computed, ref, watch } from 'vue'
+import { computed, ref } from 'vue'
 import type { LLMInvocationDetail } from '../api/types'
 import { agentAccent } from '../lib/agentColor'
 import { fullTime, humanDuration, humanTokens } from '../lib/format'
@@ -43,20 +43,29 @@ function contentToText(c: unknown): string {
   return JSON.stringify(c, null, 2)
 }
 
-// 输入消息：期望数组，逐条转视图；结构不符返回空数组（由模板回退到 JSON 视图）。
-const messages = computed<MsgView[]>(() => {
+function toMsgView(m: unknown): MsgView {
+  const o = (m ?? {}) as Record<string, unknown>
+  const text = contentToText(o.content)
+  // 工具调用没有 content，正文落在 tool_calls 上——否则这条消息会显示成空白。
+  const calls = o.tool_calls ?? o.function_call
+  return {
+    role: typeof o.role === 'string' ? o.role : 'unknown',
+    text: text || (calls ? JSON.stringify(calls, null, 2) : ''),
+  }
+}
+
+// messages 是「每轮完整重发的对话历史快照」——第 N 次调用的 messages 几乎完整包含第 N-1 次的。
+// 逐条铺开等于在审计页重建会话模块（同 task 会话侧有 608 条 message，是权威时序视图），
+// 且是给模型看的原始格式，不适合人读。这里只取**本次增量**：末条消息即"这次新喂进去的东西"
+// （上一轮的 tool 结果 / 用户新指令）。完整历史仍可「复制 JSON」取走，或去会话页看上下文。
+const inputDelta = computed<MsgView | null>(() => {
   const raw = props.detail?.messages
-  if (!Array.isArray(raw)) return []
-  return raw.map((m) => {
-    const o = (m ?? {}) as Record<string, unknown>
-    const text = contentToText(o.content)
-    // 工具调用没有 content，正文落在 tool_calls 上——否则这条消息会显示成空白。
-    const calls = o.tool_calls ?? o.function_call
-    return {
-      role: typeof o.role === 'string' ? o.role : 'unknown',
-      text: text || (calls ? JSON.stringify(calls, null, 2) : ''),
-    }
-  })
+  if (!Array.isArray(raw) || raw.length === 0) return null
+  return toMsgView(raw[raw.length - 1])
+})
+const historyCount = computed(() => {
+  const raw = props.detail?.messages
+  return Array.isArray(raw) ? raw.length : 0
 })
 
 // 返回结果：正文 + 工具调用分开看（result 是单条 assistant 消息）。
@@ -79,27 +88,11 @@ const resultRaw = computed(() =>
     ? JSON.stringify(props.detail.result, null, 2)
     : '',
 )
+// 结构不符预期（messages 不是数组）时的兜底：整体 JSON 展示，不让详情空白。
 const messagesRaw = computed(() =>
-  !messages.value.length && props.detail?.messages != null
+  !inputDelta.value && props.detail?.messages != null
     ? JSON.stringify(props.detail.messages, null, 2)
     : '',
-)
-
-// 长对话（实测单次调用可带 139 条历史消息）不能一次全渲染：
-// 141 个 <pre> 既压 DOM 又没法扫视。默认只渲染尾部 INITIAL_MSGS 条——
-// 尾部才是本次调用的即时上下文，头部是早已压缩过的历史，按需再展开。
-const INITIAL_MSGS = 20
-const showAllMsgs = ref(false)
-const visibleMessages = computed(() =>
-  showAllMsgs.value || messages.value.length <= INITIAL_MSGS
-    ? messages.value
-    : messages.value.slice(-INITIAL_MSGS),
-)
-const hiddenMsgCount = computed(() => messages.value.length - visibleMessages.value.length)
-// 换行/换条目时收起展开态，否则上一条的"已展开"会带到下一条（长对话直接卡）。
-watch(
-  () => props.detail?.id,
-  () => (showAllMsgs.value = false),
 )
 
 const roleColor = computed(() => agentAccent(props.detail?.role).accent)
@@ -189,24 +182,22 @@ const msgColor = (role: string) => MSG_ROLE_COLOR[role] ?? '#94a3b8'
             <pre class="ld-code bad">{{ detail.error_message }}</pre>
           </section>
 
-          <!-- 输入消息：按条渲染 -->
+          <!-- 本次输入增量：只显示末条消息（这次新喂给模型的东西）。
+               完整历史不在此铺开——那是会话模块的职责，此处只留取证入口。 -->
           <section class="ld-sec">
             <h3 class="ld-sec-title">
-              输入消息<span class="muted">{{ messages.length || '' }}{{ messages.length ? ' 条' : '' }}</span>
+              本次输入
+              <span v-if="historyCount > 1" class="muted">增量（上下文共 {{ historyCount }} 条）</span>
               <button class="ld-copy right" @click="copy('msgs', JSON.stringify(detail.messages, null, 2))">
-                {{ copiedKey === 'msgs' ? '✓ 已复制' : '复制 JSON' }}
+                {{ copiedKey === 'msgs' ? '✓ 已复制' : '复制完整上下文' }}
               </button>
             </h3>
-            <!-- 长对话默认只渲染尾部若干条（尾部=本次调用的即时上下文），头部按需展开 -->
-            <button v-if="hiddenMsgCount > 0" class="ld-more" @click="showAllMsgs = true">
-              ▾ 展开更早的 {{ hiddenMsgCount }} 条历史
-            </button>
-            <div v-for="(m, i) in visibleMessages" :key="i" class="ld-msg" :style="{ '--mc': msgColor(m.role) }">
-              <div class="ld-msg-head"><span class="ld-msg-role">{{ m.role }}</span></div>
-              <pre class="ld-code">{{ m.text || '(空)' }}</pre>
+            <div v-if="inputDelta" class="ld-msg" :style="{ '--mc': msgColor(inputDelta.role) }">
+              <div class="ld-msg-head"><span class="ld-msg-role">{{ inputDelta.role }}</span></div>
+              <pre class="ld-code">{{ inputDelta.text || '(空)' }}</pre>
             </div>
             <pre v-if="messagesRaw" class="ld-code">{{ messagesRaw }}</pre>
-            <div v-if="!messages.length && !messagesRaw" class="ld-empty">无输入消息</div>
+            <div v-if="!inputDelta && !messagesRaw" class="ld-empty">无输入消息</div>
           </section>
 
           <!-- 返回结果 -->
@@ -316,17 +307,4 @@ const msgColor = (role: string) => MSG_ROLE_COLOR[role] ?? '#94a3b8'
 .ld-copy:hover { border-color: var(--primary); color: var(--primary); }
 .ld-copy.right { margin-left: auto; }
 
-/* 长对话历史展开入口 */
-.ld-more {
-  width: 100%;
-  margin-bottom: 10px;
-  padding: 5px 0;
-  background: var(--surface-2);
-  border: 1px dashed var(--border);
-  border-radius: var(--radius, 8px);
-  color: var(--muted);
-  font-size: 11.5px;
-  cursor: pointer;
-}
-.ld-more:hover { color: var(--primary); border-color: var(--primary); }
 </style>
