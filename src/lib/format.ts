@@ -22,6 +22,14 @@ export function shortDateTime(iso: string): string {
   return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
 }
 
+/** 完整日期 YYYY-MM-DD（审计表时刻列首行用，年份不再藏进悬停）。 */
+export function dateOnly(iso: string): string {
+  if (!iso) return ''
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ''
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+}
+
 /** 悬停 title：完整日期时间 YYYY-MM-DD HH:MM:SS。 */
 export function fullTime(iso: string): string {
   if (!iso) return ''

@@ -21,7 +21,7 @@ import type {
   LLMInvocationStat,
 } from '../api/types'
 import { agentAccent } from '../lib/agentColor'
-import { compactNumber, fullTime, humanDuration, humanTokens, shortDateTime } from '../lib/format'
+import { clockTime, compactNumber, dateOnly, fullTime, humanDuration, humanTokens } from '../lib/format'
 import { isTimeout, latencyLevel, throughputLabel, ttftLevel } from '../lib/llmTiming'
 
 const PAGE_SIZE = 100
@@ -205,7 +205,13 @@ async function openDetail(v: LLMInvocationSummary) {
         <!-- 单张扁平密集表 -->
         <div class="la-table">
           <div class="lr lr-head">
-            <span>时刻</span><span>角色</span><span>模型</span><span>Tokens</span><span>计时</span><span>内容</span><span></span>
+            <span>时间</span>
+            <span>角色</span>
+            <span>模型</span>
+            <span>Tokens</span>
+            <span title="模型响应耗时。流式另显首字延迟（TTFT）与输出速率（token/秒）">响应耗时</span>
+            <span title="这次调用产出了什么：请求的工具名（徽章）或文本回复预览">内容</span>
+            <span></span>
           </div>
 
           <template v-if="loading">
@@ -233,7 +239,10 @@ async function openDetail(v: LLMInvocationSummary) {
             @keydown.enter.prevent="openDetail(v)"
             @keydown.space.prevent="openDetail(v)"
           >
-            <span class="lr-time mono" :title="fullTime(v.created_at)">{{ shortDateTime(v.created_at) || '—' }}</span>
+            <span class="lr-time mono" :title="fullTime(v.created_at)">
+              <span class="tm-date">{{ dateOnly(v.created_at) || '—' }}</span>
+              <em class="sub">{{ clockTime(v.created_at) }}</em>
+            </span>
             <span class="lr-role"><i />{{ v.role || '—' }}</span>
             <span class="lr-model" :title="`${v.model} · ${v.provider}`">
               <span class="mono model-main">{{ v.model || '—' }}</span>
@@ -261,7 +270,12 @@ async function openDetail(v: LLMInvocationSummary) {
             <!-- 内容摘要：这次调用产出了什么。工具调用列徽章，纯文本回复列预览；
                  两者皆无（罕见）兜底破折号。全部库内派生，不拉 result 大字段。 -->
             <span class="lr-content">
-              <span v-if="v.tool_names.length" class="tool-badges">
+              <span
+                v-if="v.tool_names.length"
+                class="tool-badges"
+                :title="`调用了 ${v.tool_names.length} 个工具：${v.tool_names.join('、')}`"
+              >
+                <i class="tb-icon">⚙</i>
                 <em v-for="(t, i) in v.tool_names" :key="`${v.id}-${i}`" class="tool-badge">{{ t }}</em>
               </span>
               <span v-else-if="v.text_preview" class="text-prev" :title="v.text_preview">{{ v.text_preview }}</span>
@@ -366,7 +380,8 @@ async function openDetail(v: LLMInvocationSummary) {
 .mono { font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace); font-variant-numeric: tabular-nums; }
 /* 两行单元格：主值一行，副信息更小更淡 */
 .sub { display: block; font-style: normal; font-size: 10.5px; color: var(--muted); opacity: 0.75; margin-top: 1px; }
-.lr-time { font-size: 12px; color: var(--muted); }
+.lr-time { font-size: 12px; color: var(--text); display: flex; flex-direction: column; gap: 1px; }
+.tm-date { font-size: 12px; }
 .lr-role { display: flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 600; color: var(--role); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .lr-role i { width: 8px; height: 8px; border-radius: 50%; background: var(--role); flex-shrink: 0; }
 .lr-model { overflow: hidden; }
@@ -385,7 +400,8 @@ async function openDetail(v: LLMInvocationSummary) {
 
 /* 内容摘要：工具徽章成串（单行溢出隐藏），或文本预览（单行截断） */
 .lr-content { overflow: hidden; min-width: 0; }
-.tool-badges { display: flex; gap: 5px; overflow: hidden; flex-wrap: nowrap; }
+.tool-badges { display: flex; align-items: center; gap: 5px; overflow: hidden; flex-wrap: nowrap; }
+.tb-icon { font-style: normal; font-size: 11px; color: var(--muted); flex-shrink: 0; opacity: 0.7; }
 .tool-badge {
   font-style: normal;
   font-size: 11px;

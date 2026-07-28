@@ -9,6 +9,8 @@ import type { LLMInvocationDetail } from '../api/types'
 import { agentAccent } from '../lib/agentColor'
 import { fullTime, humanDuration, humanTokens } from '../lib/format'
 import { isTimeout, throughputLabel } from '../lib/llmTiming'
+import { toToolCalls, type ToolCallView } from '../lib/toolCalls'
+import ToolCallCard from './ToolCallCard.vue'
 
 const props = defineProps<{
   open: boolean
@@ -20,9 +22,11 @@ const emit = defineEmits<{ 'update:open': [v: boolean] }>()
 const close = () => emit('update:open', false)
 
 // 一条消息的规范化视图；content 可能是字符串或多模态数组，统一成可读文本。
+// tool_calls 单独结构化（不再塞进 text），与返回结果共用卡片渲染。
 interface MsgView {
   role: string
   text: string
+  calls: ToolCallView[]
 }
 
 function contentToText(c: unknown): string {
@@ -45,12 +49,10 @@ function contentToText(c: unknown): string {
 
 function toMsgView(m: unknown): MsgView {
   const o = (m ?? {}) as Record<string, unknown>
-  const text = contentToText(o.content)
-  // 工具调用没有 content，正文落在 tool_calls 上——否则这条消息会显示成空白。
-  const calls = o.tool_calls ?? o.function_call
   return {
     role: typeof o.role === 'string' ? o.role : 'unknown',
-    text: text || (calls ? JSON.stringify(calls, null, 2) : ''),
+    text: contentToText(o.content),
+    calls: toToolCalls(o.tool_calls ?? o.function_call),
   }
 }
 
@@ -76,15 +78,24 @@ const resultText = computed(() => {
   const o = r as Record<string, unknown>
   return contentToText(o.content)
 })
-const resultCalls = computed(() => {
+const resultCalls = computed<ToolCallView[]>(() => {
+  const r = props.detail?.result as Record<string, unknown> | null | undefined
+  if (!r) return []
+  return toToolCalls(r.tool_calls ?? r.function_call)
+})
+// 模型思考过程（reasoning_content / extra.reasoning-content）：R1 系模型的思维链，
+// 审计/调试视角高价值，独立成节。字段名两种写法都兜住。
+const reasoning = computed(() => {
   const r = props.detail?.result as Record<string, unknown> | null | undefined
   if (!r) return ''
-  const calls = r.tool_calls ?? r.function_call
-  return calls ? JSON.stringify(calls, null, 2) : ''
+  if (typeof r.reasoning_content === 'string') return r.reasoning_content
+  const extra = r.extra as Record<string, unknown> | undefined
+  if (extra && typeof extra['reasoning-content'] === 'string') return extra['reasoning-content']
+  return ''
 })
 // 兜底：result 既无 content 也无 tool_calls 时（结构与预期不同），整体 JSON 展示，不让详情页空白。
 const resultRaw = computed(() =>
-  !resultText.value && !resultCalls.value && props.detail?.result != null
+  !resultText.value && !resultCalls.value.length && props.detail?.result != null
     ? JSON.stringify(props.detail.result, null, 2)
     : '',
 )
@@ -161,13 +172,15 @@ const msgColor = (role: string) => MSG_ROLE_COLOR[role] ?? '#94a3b8'
                 输入 {{ humanTokens(detail.in_tokens) }} · 输出 {{ humanTokens(detail.out_tokens) }}
                 <template v-if="detail.cached_tokens > 0"> · 缓存 {{ humanTokens(detail.cached_tokens) }}</template>
               </span>
-              <span class="mk">计时</span>
+              <span class="mk">响应耗时</span>
               <span class="mv mono">
                 <template v-if="detail.is_stream && detail.ttft_ms > 0">首字 {{ humanDuration(detail.ttft_ms) }} · </template>
                 总时长 {{ humanDuration(detail.latency_ms) }}
                 <template v-if="isTimeout(detail)"> · <span class="ld-timeout">看门狗超时</span></template>
                 <template v-else-if="throughputLabel(detail)"> · {{ throughputLabel(detail) }}</template>
               </span>
+              <span class="mk">结束原因</span>
+              <span class="mv mono">{{ detail.finish_reason || '—' }}</span>
               <span class="mk">传输</span>
               <span class="mv">{{ detail.is_stream ? '流式' : '非流式' }}</span>
               <template v-if="detail.hunter_id">
@@ -194,10 +207,24 @@ const msgColor = (role: string) => MSG_ROLE_COLOR[role] ?? '#94a3b8'
             </h3>
             <div v-if="inputDelta" class="ld-msg" :style="{ '--mc': msgColor(inputDelta.role) }">
               <div class="ld-msg-head"><span class="ld-msg-role">{{ inputDelta.role }}</span></div>
-              <pre class="ld-code">{{ inputDelta.text || '(空)' }}</pre>
+              <pre v-if="inputDelta.text" class="ld-code">{{ inputDelta.text }}</pre>
+              <ToolCallCard v-for="tc in inputDelta.calls" :key="tc.id" :call="tc" />
+              <div v-if="!inputDelta.text && !inputDelta.calls.length" class="ld-empty">(空)</div>
             </div>
             <pre v-if="messagesRaw" class="ld-code">{{ messagesRaw }}</pre>
             <div v-if="!inputDelta && !messagesRaw" class="ld-empty">无输入消息</div>
+          </section>
+
+          <!-- 模型思考过程（推理链）：有则单独成节，折叠默认展开 -->
+          <section v-if="reasoning" class="ld-sec">
+            <h3 class="ld-sec-title">
+              思考过程
+              <span class="muted">推理链</span>
+              <button class="ld-copy right" @click="copy('rsn', reasoning)">
+                {{ copiedKey === 'rsn' ? '✓ 已复制' : '复制' }}
+              </button>
+            </h3>
+            <pre class="ld-code ld-reason">{{ reasoning }}</pre>
           </section>
 
           <!-- 返回结果 -->
@@ -209,12 +236,12 @@ const msgColor = (role: string) => MSG_ROLE_COLOR[role] ?? '#94a3b8'
               </button>
             </h3>
             <pre v-if="resultText" class="ld-code">{{ resultText }}</pre>
-            <template v-if="resultCalls">
-              <p class="ld-sub-label">工具调用</p>
-              <pre class="ld-code">{{ resultCalls }}</pre>
+            <template v-if="resultCalls.length">
+              <p class="ld-sub-label">工具调用 · {{ resultCalls.length }}</p>
+              <ToolCallCard v-for="tc in resultCalls" :key="tc.id" :call="tc" />
             </template>
             <pre v-if="resultRaw" class="ld-code">{{ resultRaw }}</pre>
-            <div v-if="!resultText && !resultCalls && !resultRaw" class="ld-empty">无返回内容</div>
+            <div v-if="!resultText && !resultCalls.length && !resultRaw" class="ld-empty">无返回内容</div>
           </section>
         </template>
       </div>
@@ -293,6 +320,8 @@ const msgColor = (role: string) => MSG_ROLE_COLOR[role] ?? '#94a3b8'
   word-break: break-word;
 }
 .ld-code.bad { color: var(--sev-critical); border-color: color-mix(in srgb, var(--sev-critical) 40%, var(--border)); }
+/* 思考过程：次于正式产出，字色更淡 + 左侧点缀条，视觉上与"结果"区分 */
+.ld-reason { color: var(--muted); border-left: 3px solid color-mix(in srgb, var(--primary) 30%, var(--border)); }
 
 .ld-copy {
   background: transparent;
