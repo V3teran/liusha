@@ -1,0 +1,333 @@
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import {
+  getApiKey, setApiKey, listRoles, listConversations, listMessages, startChat, followUp, abortScan,
+  listTasks, startActiveScan, abortTask, getSitemap, listLLMInvocations,
+  getLLMInvocationStat, getLLMInvocationFacets,
+  listCredentials, saveCredentialsBatch, deleteCredentials,
+} from './client'
+
+describe('API 客户端', () => {
+  beforeEach(() => {
+    // 清理 sessionStorage
+    sessionStorage.clear()
+    // Mock fetch
+    ;(global as any).fetch = vi.fn()
+  })
+
+  afterEach(() => {
+    vi.clearAllMocks()
+    ;(global as any).fetch = undefined
+  })
+
+  describe('API key 管理', () => {
+    it('设置和获取 API key', () => {
+      setApiKey('test-key-123')
+      expect(getApiKey()).toBe('test-key-123')
+    })
+
+    it('初始时返回空字符串', () => {
+      expect(getApiKey()).toBe('')
+    })
+  })
+
+  describe('HTTP 请求', () => {
+    it('listRoles 添加 X-API-Key header', async () => {
+      setApiKey('my-key')
+      const mockFetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: vi.fn().mockResolvedValue({ roles: [{ id: 'r1', name: 'role1', description: 'desc', mode: 'active' }] }),
+      })
+      ;(global as any).fetch = mockFetch
+
+      await listRoles()
+
+      expect(mockFetch).toHaveBeenCalledWith('/api/roles', {
+        headers: { 'X-API-Key': 'my-key' },
+      })
+    })
+
+    it('listConversations 返回会话列表', async () => {
+      const mockFetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: vi.fn().mockResolvedValue({
+          conversations: [{ ID: 'c1', Title: 'scan1', ScanID: 's1', RoleID: 'r1', Status: 'running', CreatedAt: '2026-06-10T00:00:00Z', UpdatedAt: '2026-06-10T00:00:00Z' }],
+        }),
+      })
+      ;(global as any).fetch = mockFetch
+
+      const result = await listConversations()
+
+      expect(result).toHaveLength(1)
+      expect(result[0].ID).toBe('c1')
+    })
+
+    it('listMessages 接受 afterSeq 参数', async () => {
+      const mockFetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: vi.fn().mockResolvedValue({
+          messages: [{ Seq: 1, ID: 'm1', ConversationID: 'c1', Role: 'user', Kind: 'message', Content: 'hi', Metadata: null, CreatedAt: '2026-06-10T00:00:00Z' }],
+        }),
+      })
+      ;(global as any).fetch = mockFetch
+
+      await listMessages('c1', 100)
+
+      expect(mockFetch).toHaveBeenCalledWith('/api/conversations/c1/messages?after_seq=100', {
+        headers: { 'X-API-Key': '' },
+      })
+    })
+
+    it('startChat 发送 POST 并返回 conversation_id', async () => {
+      setApiKey('my-key')
+      const mockFetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: vi.fn().mockResolvedValue({ conversation_id: 'conv-123', scan_id: 'scan-456' }),
+      })
+      ;(global as any).fetch = mockFetch
+
+      const result = await startChat('scan target', 'r1')
+
+      expect(result.conversation_id).toBe('conv-123')
+      expect(result.scan_id).toBe('scan-456')
+      expect(mockFetch).toHaveBeenCalledWith('/api/chat', {
+        method: 'POST',
+        headers: {
+          'X-API-Key': 'my-key',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ brief: 'scan target', role_id: 'r1' }),
+      })
+    })
+
+    it('请求失败时抛出错误', async () => {
+      const mockFetch = vi.fn().mockResolvedValue({ ok: false, status: 401 })
+      ;(global as any).fetch = mockFetch
+
+      await expect(listRoles()).rejects.toThrow('GET /roles → 401')
+    })
+  })
+
+  describe('多轮方法', () => {
+    it('followUp POST 到 /conversations/:id/messages 带 content', async () => {
+      setApiKey('k')
+      const mockFetch = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: vi.fn().mockResolvedValue({ intent: 'action', scan_id: 's1' }),
+      })
+      ;(global as any).fetch = mockFetch
+
+      const result = await followUp('c1', '深挖')
+
+      expect(mockFetch).toHaveBeenCalledWith('/api/conversations/c1/messages', expect.objectContaining({ method: 'POST' }))
+      expect(result.intent).toBe('action')
+    })
+
+    it('followUp 409 抛带 busy 标记的错', async () => {
+      setApiKey('k')
+      const mockFetch = vi.fn().mockResolvedValue({
+        ok: false,
+        status: 409,
+        json: vi.fn().mockResolvedValue({ busy: true }),
+      })
+      ;(global as any).fetch = mockFetch
+
+      await expect(followUp('c1', 'x')).rejects.toMatchObject({ busy: true })
+    })
+
+    it('abortScan POST 到 /conversations/:id/abort', async () => {
+      setApiKey('k')
+      const mockFetch = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: vi.fn().mockResolvedValue({ aborted: true }),
+      })
+      ;(global as any).fetch = mockFetch
+
+      await abortScan('c1')
+
+      expect(mockFetch).toHaveBeenCalledWith('/api/conversations/c1/abort', expect.objectContaining({ method: 'POST' }))
+    })
+  })
+
+  describe('owner task / 扫描', () => {
+    it('listTasks 拆出 tasks 数组', async () => {
+      ;(global as any).fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: vi.fn().mockResolvedValue({
+          tasks: [{ id: 'o1', scope: '{"any":true}', status: 'running', mode: 'passive', created_at: '2026-06-11T00:00:00Z' }],
+        }),
+      })
+
+      const result = await listTasks()
+
+      expect(result).toHaveLength(1)
+      expect(result[0].id).toBe('o1')
+    })
+
+    it('listTasks 带 limit 拼 query', async () => {
+      const mockFetch = vi.fn().mockResolvedValue({ ok: true, json: vi.fn().mockResolvedValue({ tasks: [] }) })
+      ;(global as any).fetch = mockFetch
+
+      await listTasks(20)
+
+      expect(mockFetch).toHaveBeenCalledWith('/api/tasks?limit=20', { headers: { 'X-API-Key': '' } })
+    })
+
+    it('startActiveScan POST brief 返回 owner_id/hunter_id', async () => {
+      setApiKey('k')
+      const mockFetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: vi.fn().mockResolvedValue({ owner_id: 'o9', hunter_id: 'h9' }),
+      })
+      ;(global as any).fetch = mockFetch
+
+      const result = await startActiveScan('测试 http://t/login admin/pass 只测 XSS')
+
+      expect(result).toEqual({ owner_id: 'o9', hunter_id: 'h9' })
+      expect(mockFetch).toHaveBeenCalledWith('/api/scan/active', expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ brief: '测试 http://t/login admin/pass 只测 XSS' }),
+      }))
+    })
+
+    it('abortTask POST 到 /tasks/:id/abort', async () => {
+      const mockFetch = vi.fn().mockResolvedValue({ ok: true, json: vi.fn().mockResolvedValue({ ok: true }) })
+      ;(global as any).fetch = mockFetch
+
+      await abortTask('o1')
+
+      expect(mockFetch).toHaveBeenCalledWith('/api/tasks/o1/abort', expect.objectContaining({ method: 'POST' }))
+    })
+  })
+
+  describe('攻击面 / 审计 / 任务树', () => {
+    it('getSitemap 透传 SitemapView', async () => {
+      ;(global as any).fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: vi.fn().mockResolvedValue({ owner_id: 'o1', host: 'h', generated_at: '2026-06-11T00:00:00Z', root: null }),
+      })
+
+      const view = await getSitemap('o1')
+
+      expect(view.owner_id).toBe('o1')
+      expect(view.root).toBeNull()
+    })
+
+    it('getSitemap 带 host 拼 query', async () => {
+      const mockFetch = vi.fn().mockResolvedValue({ ok: true, json: vi.fn().mockResolvedValue({}) })
+      ;(global as any).fetch = mockFetch
+
+      await getSitemap('o1', 'a.com:80')
+
+      expect(mockFetch).toHaveBeenCalledWith('/api/sitemap/o1?host=a.com%3A80', { headers: { 'X-API-Key': '' } })
+    })
+
+    it('listLLMInvocations 透传扁平 items + 分页游标', async () => {
+      const mockFetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: vi
+          .fn()
+          .mockResolvedValue({ task_id: 't1', total: 1, next_after: 5, has_more: false, items: [{ id: 5, role: 'orchestrator' }] }),
+      })
+      ;(global as any).fetch = mockFetch
+
+      const res = await listLLMInvocations('t1', 3, 50)
+
+      expect(res.total).toBe(1)
+      expect(res.next_after).toBe(5)
+      expect(res.items[0].role).toBe('orchestrator')
+      expect(mockFetch).toHaveBeenCalledWith('/api/llm/invocations/t1?after=3&limit=50', { headers: { 'X-API-Key': '' } })
+    })
+
+    // 筛选参数必须序列化进 query 交服务端筛（分页下前端筛只会筛到当前页）。
+    it('listLLMInvocations 序列化筛选参数', async () => {
+      const mockFetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: vi.fn().mockResolvedValue({ task_id: 't1', total: 0, next_after: 0, has_more: false, items: [] }),
+      })
+      ;(global as any).fetch = mockFetch
+
+      await listLLMInvocations('t1', 0, 0, {
+        role: 'exploitation',
+        model: 'mimo-v2.5',
+        onlyErr: true,
+        start: '2026-07-20T00:00:00.000Z',
+        end: '',
+      })
+
+      const url = mockFetch.mock.calls[0][0] as string
+      expect(url).toContain('role=exploitation')
+      expect(url).toContain('model=mimo-v2.5')
+      expect(url).toContain('only_err=1')
+      expect(url).toContain('start=2026-07-20T00%3A00%3A00.000Z')
+      expect(url).not.toContain('end=') // 空值不发，避免后端把空串当条件
+    })
+
+    // 统计与列表必须吃同一套筛选，否则「明细筛剩 3 条、合计仍是全量」自相矛盾。
+    it('getLLMInvocationStat 带上同一套筛选参数', async () => {
+      const mockFetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: vi.fn().mockResolvedValue({ task_id: 't1', calls: 2, in_tokens: 1, out_tokens: 1, cached_tokens: 0, latency_ms: 0 }),
+      })
+      ;(global as any).fetch = mockFetch
+
+      await getLLMInvocationStat('t1', { role: 'exploitation', onlyErr: true })
+
+      const url = mockFetch.mock.calls[0][0] as string
+      expect(url).toContain('/llm/invocations/t1/stat?')
+      expect(url).toContain('role=exploitation')
+      expect(url).toContain('only_err=1')
+      expect(url).not.toContain('after=') // 统计不该带分页游标
+    })
+
+    it('getLLMInvocationFacets 拉候选集合', async () => {
+      const mockFetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: vi.fn().mockResolvedValue({ task_id: 't1', roles: ['orchestrator'], models: ['mimo-v2.5'] }),
+      })
+      ;(global as any).fetch = mockFetch
+
+      const f = await getLLMInvocationFacets('t1')
+
+      expect(f.roles).toEqual(['orchestrator'])
+      expect(mockFetch).toHaveBeenCalledWith('/api/llm/invocations/t1/facets', { headers: { 'X-API-Key': '' } })
+    })
+  })
+
+  describe('凭证库', () => {
+    it('listCredentials 按 host 拆 identities', async () => {
+      const mockFetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: vi.fn().mockResolvedValue({ identities: [{ name: 'admin', role: 'admin', credentials: [] }] }),
+      })
+      ;(global as any).fetch = mockFetch
+
+      const ids = await listCredentials('a.com')
+
+      expect(ids[0].name).toBe('admin')
+      expect(mockFetch).toHaveBeenCalledWith('/api/credential?host=a.com', { headers: { 'X-API-Key': '' } })
+    })
+
+    it('saveCredentialsBatch POST ttl + credentials', async () => {
+      const mockFetch = vi.fn().mockResolvedValue({ ok: true, json: vi.fn().mockResolvedValue({ ok: true }) })
+      ;(global as any).fetch = mockFetch
+
+      await saveCredentialsBatch({ 'a.com': [{ name: 'u', role: 'user', credentials: [] }] }, 3600)
+
+      expect(mockFetch).toHaveBeenCalledWith('/api/credential/batch', expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ ttl_seconds: 3600, credentials: { 'a.com': [{ name: 'u', role: 'user', credentials: [] }] } }),
+      }))
+    })
+
+    it('deleteCredentials DELETE 带 host query', async () => {
+      const mockFetch = vi.fn().mockResolvedValue({ ok: true, json: vi.fn().mockResolvedValue({ ok: true }) })
+      ;(global as any).fetch = mockFetch
+
+      await deleteCredentials('a.com')
+
+      expect(mockFetch).toHaveBeenCalledWith('/api/credential?host=a.com', expect.objectContaining({ method: 'DELETE' }))
+    })
+  })
+})

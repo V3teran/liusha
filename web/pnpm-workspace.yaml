@@ -1,0 +1,5 @@
+# pnpm 配置（v11 起此类设置从 package.json 迁到本文件）。
+# core-js 由 @antv/g6 / @antv/g2 间接引入；其 build 脚本仅打印赞助提示、无需运行。
+# 设 false = 不构建且不再触发 verify-deps-before-run 对 pnpm exec/run 的拦截。
+allowBuilds:
+  core-js: false
