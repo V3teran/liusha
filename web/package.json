@@ -1,0 +1,38 @@
+{
+  "name": "liusha-ui",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vue-tsc -b && vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@antv/g2": "^5.4.8",
+    "@antv/g6": "^5.1.1",
+    "@vicons/tabler": "^0.13.0",
+    "ant-design-vue": "^4.2.6",
+    "dompurify": "^3.4.10",
+    "highlight.js": "^11.11.1",
+    "marked": "^18.0.5",
+    "marked-highlight": "^2.2.4",
+    "pinia": "^3.0.4",
+    "vue": "^3.5.34",
+    "vue-router": "^5.1.0"
+  },
+  "devDependencies": {
+    "@types/dompurify": "^3.2.0",
+    "@types/node": "^24.12.3",
+    "@vitejs/plugin-vue": "^6.0.6",
+    "@vue/test-utils": "^2.4.11",
+    "@vue/tsconfig": "^0.9.1",
+    "jsdom": "^29.1.1",
+    "typescript": "~6.0.2",
+    "vite": "^8.0.12",
+    "vitest": "^4.1.8",
+    "vue-tsc": "^3.2.8"
+  }
+}
