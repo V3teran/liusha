@@ -157,7 +157,7 @@ const SEVERITY_OPTIONS = ['critical', 'high', 'medium', 'low', 'info']
       <div class="fd-head" :style="{ '--sev': sevColorVar }">
         <div class="fd-head-top">
           <span class="fd-sev" :class="'sev-' + finding.severity.toLowerCase()">{{ sevLabel }}</span>
-          <span class="fd-mode" :class="'mode-' + finding.mode">{{ finding.mode === 'passive' ? '流量分析' : '渗透会话' }}</span>
+          <span class="fd-mode" :class="'mode-' + finding.mode">{{ finding.mode === 'passive' ? '被动' : '主动' }}</span>
           <button class="fd-close" title="关闭" @click="close">✕</button>
         </div>
         <h2 class="fd-summary">{{ finding.summary }}</h2>

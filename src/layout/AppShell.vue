@@ -4,7 +4,7 @@
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 import {
-  Dashboard, Crosshair, PlugConnected, Bug, Sitemap, Affiliate,
+  Dashboard, Crosshair, Bug, Sitemap, Affiliate,
   Cpu, Key, Settings, Sun, Moon,
 } from '@vicons/tabler'
 import { useTheme } from '../composables/useTheme'
@@ -12,11 +12,11 @@ import { useTheme } from '../composables/useTheme'
 const route = useRoute()
 const { theme, toggle } = useTheme()
 
-// 导航项平铺，均可点、同样式。渗透会话=下 brief AI 自主作战 active；流量分析=被动代理流量逐批分析。
+// 导航项平铺，均可点、同样式。对话=渗透（active，下 brief AI 自主作战）+ 流量分析
+// （passive，被动代理流量逐批分析）合并入口，内部再分主动/被动 tab。
 const nav = [
   { to: '/dashboard', label: '总览', icon: Dashboard },
-  { to: '/active', label: '渗透会话', icon: Crosshair },
-  { to: '/passive', label: '流量分析', icon: PlugConnected },
+  { to: '/conversations/active', label: '对话', icon: Crosshair },
   { to: '/findings', label: '漏洞管理', icon: Bug },
   { to: '/sitemap', label: '攻击面', icon: Sitemap },
   { to: '/attack-graph', label: '执行图', icon: Affiliate },
@@ -24,6 +24,13 @@ const nav = [
   { to: '/credentials', label: '凭证库', icon: Key },
   { to: '/settings', label: '设置', icon: Settings },
 ]
+
+// 「对话」导航项覆盖 /conversations/active 与 /conversations/passive 两个子路由，
+// RouterLink 默认精确匹配只会在 active 子路由高亮，故用路径前缀单独判断整个导航项的高亮态。
+function isNavActive(to: string): boolean {
+  if (to === '/conversations/active') return route.path.startsWith('/conversations')
+  return route.path === to
+}
 
 const title = computed(() => (route.meta.title as string) || '流沙')
 </script>
@@ -40,7 +47,13 @@ const title = computed(() => (route.meta.title as string) || '流沙')
       </div>
 
       <nav class="nav">
-        <RouterLink v-for="n in nav" :key="n.to" :to="n.to" class="nav-item">
+        <RouterLink
+          v-for="n in nav"
+          :key="n.to"
+          :to="n.to"
+          class="nav-item"
+          :class="{ 'router-link-active': isNavActive(n.to) }"
+        >
           <span class="nav-icon"><component :is="n.icon" /></span>
           <span class="nav-label">{{ n.label }}</span>
         </RouterLink>

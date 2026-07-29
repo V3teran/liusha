@@ -2,18 +2,18 @@
 // owner 选择器：拉最近会话/扫描列表，下拉选一个 owner_id（v-model）。数据页共用。
 // 可选 modeFilter 只显示某模式（active/passive）。挂载时自动选第一个。
 import { computed, onMounted, ref } from 'vue'
-import { listSessions } from '../api/client'
+import { listTasks } from '../api/client'
 import type { OwnerSummary } from '../api/types'
 
 const model = defineModel<string>()
 const props = defineProps<{ modeFilter?: string }>()
 
-const sessions = ref<OwnerSummary[]>([])
+const tasks = ref<OwnerSummary[]>([])
 const loading = ref(false)
 const error = ref('')
 
 const options = computed(() =>
-  sessions.value.map((s) => ({
+  tasks.value.map((s) => ({
     label: `${s.mode || '?'} · ${s.id.slice(0, 8)} · ${s.status}`,
     value: s.id,
   }))
@@ -23,9 +23,9 @@ async function load() {
   loading.value = true
   error.value = ''
   try {
-    let list = await listSessions(50)
+    let list = await listTasks(50)
     if (props.modeFilter) list = list.filter((s) => s.mode === props.modeFilter)
-    sessions.value = list
+    tasks.value = list
     if (!model.value && list.length) model.value = list[0].id
   } catch (e) {
     error.value = e instanceof Error ? e.message : '加载会话失败'

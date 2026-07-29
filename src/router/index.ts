@@ -9,17 +9,22 @@ const routes: RouteRecordRaw[] = [
     path: '/',
     component: AppShell,
     children: [
-      { path: '', redirect: '/active' },
+      { path: '', redirect: '/conversations/active' },
       { path: 'dashboard', name: 'dashboard', component: () => import('../views/PlaceholderView.vue'), meta: { title: '总览' } },
-      // 渗透会话：用户下 brief → AI orchestrator 自主派子代理作战。此页发起 active 会话 + 观战。
-      // path=/active 对齐后端 task.mode；页名避开 task/assignment 层级词（留给以后的批量/定时下发页）。
-      { path: 'active', name: 'active', component: () => import('../views/ChatView.vue'), meta: { title: '渗透会话' } },
+      // 对话：渗透（active，用户下 brief → AI orchestrator 自主派子代理作战）与流量分析
+      // （passive，挂代理收流量 → AI 逐批分析挖洞）统一为「对话」模块，主动/被动为其下两个 tab。
+      // path 对齐后端 task.mode：两个子路由都等于 mode 枚举值。
+      {
+        path: 'conversations',
+        redirect: '/conversations/active',
+        children: [
+          { path: 'active', name: 'conversations-active', component: () => import('../views/ConversationsView.vue'), meta: { title: '对话', mode: 'active' } },
+          { path: 'passive', name: 'conversations-passive', component: () => import('../views/ConversationsView.vue'), meta: { title: '对话', mode: 'passive' } },
+        ],
+      },
       { path: 'findings', name: 'findings', component: () => import('../views/FindingsView.vue'), meta: { title: '漏洞管理' } },
       { path: 'sitemap', name: 'sitemap', component: () => import('../views/SitemapView.vue'), meta: { title: '攻击面' } },
       { path: 'attack-graph', name: 'attack-graph', component: () => import('../views/AttackGraphView.vue'), meta: { title: '执行图' } },
-      // 流量分析：挂代理收流量 → AI 逐批分析挖洞。独立工作区（左会话列表 + 右分析 feed）。
-      // path=/passive 对齐后端 task.mode（与 /active 同维度：两个 path 都等于 mode 枚举值）。
-      { path: 'passive', name: 'passive', component: () => import('../views/PassiveView.vue'), meta: { title: '流量分析' } },
       { path: 'llm-audit', name: 'llm-audit', component: () => import('../views/LlmAuditView.vue'), meta: { title: 'LLM 审计' } },
       { path: 'credentials', name: 'credentials', component: () => import('../views/PlaceholderView.vue'), meta: { title: '凭证库' } },
       { path: 'settings', name: 'settings', component: () => import('../views/PlaceholderView.vue'), meta: { title: '设置' } },

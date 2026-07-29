@@ -107,7 +107,7 @@ export function parseScanEvent(m: Message): ScanEvent | null {
 }
 
 /* ============================================================
-   owner 摘要：被动会话(/session) + 主动扫描共用（GET /session）
+   owner 摘要：被动 task + 主动扫描共用（GET /tasks）
    小写键（Go DTO OwnerSummary）。scope 是 jsonb 原文字符串。
    ============================================================ */
 export interface OwnerSummary {

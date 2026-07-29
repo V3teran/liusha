@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import {
   getApiKey, setApiKey, listRoles, listConversations, listMessages, startChat, followUp, abortScan,
-  listSessions, startActiveScan, abortSession, getSitemap, listLLMInvocations,
+  listTasks, startActiveScan, abortTask, getSitemap, listLLMInvocations,
   getLLMInvocationStat, getLLMInvocationFacets,
   listCredentials, saveCredentialsBatch, deleteCredentials,
 } from './client'
@@ -150,28 +150,28 @@ describe('API 客户端', () => {
     })
   })
 
-  describe('owner 会话 / 扫描', () => {
-    it('listSessions 拆出 sessions 数组', async () => {
+  describe('owner task / 扫描', () => {
+    it('listTasks 拆出 tasks 数组', async () => {
       ;(global as any).fetch = vi.fn().mockResolvedValue({
         ok: true,
         json: vi.fn().mockResolvedValue({
-          sessions: [{ id: 'o1', scope: '{"any":true}', status: 'running', mode: 'passive', created_at: '2026-06-11T00:00:00Z' }],
+          tasks: [{ id: 'o1', scope: '{"any":true}', status: 'running', mode: 'passive', created_at: '2026-06-11T00:00:00Z' }],
         }),
       })
 
-      const result = await listSessions()
+      const result = await listTasks()
 
       expect(result).toHaveLength(1)
       expect(result[0].id).toBe('o1')
     })
 
-    it('listSessions 带 limit 拼 query', async () => {
-      const mockFetch = vi.fn().mockResolvedValue({ ok: true, json: vi.fn().mockResolvedValue({ sessions: [] }) })
+    it('listTasks 带 limit 拼 query', async () => {
+      const mockFetch = vi.fn().mockResolvedValue({ ok: true, json: vi.fn().mockResolvedValue({ tasks: [] }) })
       ;(global as any).fetch = mockFetch
 
-      await listSessions(20)
+      await listTasks(20)
 
-      expect(mockFetch).toHaveBeenCalledWith('/api/session?limit=20', { headers: { 'X-API-Key': '' } })
+      expect(mockFetch).toHaveBeenCalledWith('/api/tasks?limit=20', { headers: { 'X-API-Key': '' } })
     })
 
     it('startActiveScan POST brief 返回 owner_id/hunter_id', async () => {
@@ -191,13 +191,13 @@ describe('API 客户端', () => {
       }))
     })
 
-    it('abortSession POST 到 /session/:id/abort', async () => {
+    it('abortTask POST 到 /tasks/:id/abort', async () => {
       const mockFetch = vi.fn().mockResolvedValue({ ok: true, json: vi.fn().mockResolvedValue({ ok: true }) })
       ;(global as any).fetch = mockFetch
 
-      await abortSession('o1')
+      await abortTask('o1')
 
-      expect(mockFetch).toHaveBeenCalledWith('/api/session/o1/abort', expect.objectContaining({ method: 'POST' }))
+      expect(mockFetch).toHaveBeenCalledWith('/api/tasks/o1/abort', expect.objectContaining({ method: 'POST' }))
     })
   })
 

@@ -244,31 +244,23 @@ export async function renameConversation(convID: string, title: string): Promise
 }
 
 /* ============================================================
-   被动会话 / 主动扫描（owner）
+   主动扫描 / 被动 task（owner）
    ============================================================ */
 
 /**
- * 开启被动会话（按 host 找/建 passive_session，幂等）。
- * @param host 形如 example.com:8080；空则后端返空 id（代理就绪信号）
- */
-export async function startPassiveSession(host = ''): Promise<{ owner_id: string }> {
-  return post('/scan/passive', { host })
-}
-
-/**
- * 列出最近的 owner 会话（被动 + 主动），按 created_at 倒序。
+ * 列出最近的 owner task（被动 + 主动），按 created_at 倒序。
  * @param limit 0 表示用后端默认条数
  */
-export async function listSessions(limit = 0): Promise<OwnerSummary[]> {
+export async function listTasks(limit = 0): Promise<OwnerSummary[]> {
   const q = limit > 0 ? `?limit=${limit}` : ''
-  return (await get<{ sessions: OwnerSummary[] }>(`/session${q}`)).sessions
+  return (await get<{ tasks: OwnerSummary[] }>(`/tasks${q}`)).tasks
 }
 
 /**
- * 停止（置 aborted）指定 owner 会话。
+ * 停止（置 aborted）指定 owner task。
  */
-export async function abortSession(id: string): Promise<void> {
-  await post(`/session/${id}/abort`)
+export async function abortTask(id: string): Promise<void> {
+  await post(`/tasks/${id}/abort`)
 }
 
 /**

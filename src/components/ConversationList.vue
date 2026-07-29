@@ -3,6 +3,7 @@
 // 列表项展示真实状态点 + 标题 + 相对时间，hover 出 ⋯ 更多菜单（删除，留扩展位），当前选中高亮。
 // 对齐 ChatGPT/Claude/Claude Code 侧栏惯例。
 import { onMounted, ref, onBeforeUnmount, computed } from 'vue'
+import { RouterLink } from 'vue-router'
 import { listConversations, deleteConversation, renameConversation } from '../api/client'
 import type { Conversation } from '../api/types'
 import { relativeTime, fullTime } from '../lib/format'
@@ -167,6 +168,11 @@ async function commitRename(c: Conversation) {
 
 <template>
   <aside class="conv-list">
+    <!-- 主动/被动 tab：对话模块内部切换，两个 tab 是同一视图组件的两条路由。 -->
+    <div class="cl-tabs">
+      <RouterLink :to="{ name: 'conversations-active' }" class="cl-tab">主动</RouterLink>
+      <RouterLink :to="{ name: 'conversations-passive' }" class="cl-tab">被动</RouterLink>
+    </div>
     <div class="cl-head">
       <button v-if="props.allowNew" class="new-conv" @click="emit('new')">+ 新会话</button>
       <!-- passive 无「新会话」：头部改为标题，↻ 靠右保持紧凑，不再撑满整行。计数统一放搜索下方。 -->
@@ -252,6 +258,32 @@ async function commitRename(c: Conversation) {
   flex-direction: column;
   gap: 8px;
   min-width: 0;
+}
+.cl-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 2px;
+  background: var(--surface-2);
+  border-radius: 9px;
+}
+.cl-tab {
+  flex: 1;
+  text-align: center;
+  padding: 6px 0;
+  border-radius: 7px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--muted);
+  text-decoration: none;
+  transition: background var(--duration-fast, 150ms), color var(--duration-fast, 150ms);
+}
+.cl-tab:hover {
+  color: var(--text);
+}
+.cl-tab.router-link-active {
+  background: var(--surface);
+  color: var(--primary);
+  box-shadow: var(--shadow);
 }
 .cl-head {
   display: flex;

@@ -191,8 +191,8 @@ function sevVar(sev: string): string {
           </div>
           <a-select v-model:value="fMode" style="width: 120px" @change="load">
             <a-select-option value="">全部来源</a-select-option>
-            <a-select-option value="active">渗透会话</a-select-option>
-            <a-select-option value="passive">流量分析</a-select-option>
+            <a-select-option value="active">主动</a-select-option>
+            <a-select-option value="passive">被动</a-select-option>
           </a-select>
           <a-select v-model:value="fStatus" style="width: 120px" @change="load">
             <a-select-option value="">全部状态</a-select-option>
