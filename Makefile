@@ -1,4 +1,4 @@
-.PHONY: up down logs migrate migrate-down run-api run-scanner build-api build-proxy build-scanner build-vulnapp build-pentools test test-unit test-integration lint fmt tidy vet e2e e2e-bac e2e-sqli e2e-active
+.PHONY: up down logs migrate migrate-down run-api run-scanner run-web build-api build-nginx build-proxy build-scanner build-vulnapp build-pentools web-install web-build web-test test test-unit test-integration lint fmt tidy vet e2e e2e-bac e2e-sqli e2e-active
 
 COMPOSE = docker compose -f deployments/docker-compose.yml
 MIGRATE_DSN ?= postgres://liusha:liusha@localhost:5432/liusha?sslmode=disable
@@ -28,8 +28,25 @@ run-api:
 run-scanner:
 	go run ./cmd/scanner
 
+# 前端（web/）：源码与后端同仓。dev 用 vite（/api 代理到 Go）；prod 由 nginx 镜像多阶段构建托管。
+run-web:
+	cd web && pnpm dev
+
+web-install:
+	cd web && pnpm install --frozen-lockfile
+
+web-build:
+	cd web && pnpm build
+
+web-test:
+	cd web && pnpm test
+
 build-api:
 	docker build -f cmd/api/Dockerfile -t liusha/api .
+
+# 前置 nginx 镜像：多阶段 build（node 编前端 dist + nginx 托管 + 反代 api）。
+build-nginx:
+	docker build -f deployments/nginx/Dockerfile -t liusha/nginx .
 
 build-proxy:
 	docker build -f cmd/proxy/Dockerfile -t liusha/proxy .
