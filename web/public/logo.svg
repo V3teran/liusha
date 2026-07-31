@@ -1,129 +1,71 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" fill="none">
   <defs>
-    <!-- 深色背景 -->
-    <radialGradient id="bgGrad">
+    <!-- 令牌底色：近黑，融入深色 UI 背景 -->
+    <radialGradient id="hexBg">
       <stop offset="0%" style="stop-color:#1a1a1a;stop-opacity:1" />
-      <stop offset="100%" style="stop-color:#0a0a0a;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#050505;stop-opacity:1" />
     </radialGradient>
-    
-    <!-- 剑身金属渐变 -->
-    <linearGradient id="blade" x1="0%" y1="0%" x2="100%" y2="0%">
-      <stop offset="0%" style="stop-color:#4a0000;stop-opacity:1" />
-      <stop offset="30%" style="stop-color:#dc2626;stop-opacity:1" />
-      <stop offset="50%" style="stop-color:#ef4444;stop-opacity:1" />
-      <stop offset="70%" style="stop-color:#dc2626;stop-opacity:1" />
-      <stop offset="100%" style="stop-color:#4a0000;stop-opacity:1" />
+
+    <!-- 黑金主渐变：边框、沙漏、内圈通用 -->
+    <linearGradient id="gold" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#f5d491;stop-opacity:1" />
+      <stop offset="45%" style="stop-color:#d4af37;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#6b4a0a;stop-opacity:1" />
     </linearGradient>
-    
-    <!-- 流沙渐变 -->
-    <linearGradient id="sand" x1="0%" y1="0%" x2="100%" y2="0%">
-      <stop offset="0%" style="stop-color:#78350f;stop-opacity:0.5" />
-      <stop offset="50%" style="stop-color:#f59e0b;stop-opacity:1" />
-      <stop offset="100%" style="stop-color:#78350f;stop-opacity:0.5" />
+
+    <!-- 流沙纹渐变：两端淡出，中段最亮 -->
+    <linearGradient id="sandGold" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#6b4a0a;stop-opacity:0" />
+      <stop offset="50%" style="stop-color:#f0c869;stop-opacity:0.9" />
+      <stop offset="100%" style="stop-color:#6b4a0a;stop-opacity:0" />
     </linearGradient>
-    
+
     <filter id="glow">
-      <feGaussianBlur stdDeviation="2" result="coloredBlur"/>
+      <feGaussianBlur stdDeviation="1.5" result="b" />
       <feMerge>
-        <feMergeNode in="coloredBlur"/>
-        <feMergeNode in="SourceGraphic"/>
+        <feMergeNode in="b" />
+        <feMergeNode in="SourceGraphic" />
       </feMerge>
     </filter>
   </defs>
-  
-  <!-- 背景 -->
-  <circle cx="60" cy="60" r="56" fill="url(#bgGrad)"/>
-  <circle cx="60" cy="60" r="52" fill="none" stroke="#1a1a1a" stroke-width="2"/>
-  
-  <!-- 鲨齿剑 -->
+
+  <!-- 六边形令牌 -->
+  <polygon
+    points="110,60 85,103.3 35,103.3 10,60 35,16.7 85,16.7"
+    fill="url(#hexBg)"
+    stroke="url(#gold)"
+    stroke-width="2.5"
+  />
+  <circle cx="60" cy="60" r="37" fill="none" stroke="url(#gold)" stroke-width="1" opacity="0.3" />
+
+  <!-- 流沙纹：三道流动线，呼应组织名 -->
+  <g opacity="0.85">
+    <path d="M 22 40 Q 41 37 60 40 Q 79 43 98 40" stroke="url(#sandGold)" stroke-width="2" fill="none" stroke-linecap="round">
+      <animate attributeName="d"
+        values="M 22 40 Q 41 37 60 40 Q 79 43 98 40;M 22 40 Q 41 43 60 40 Q 79 37 98 40;M 22 40 Q 41 37 60 40 Q 79 43 98 40"
+        dur="5s" repeatCount="indefinite" />
+    </path>
+    <path d="M 20 60 Q 40 57 60 60 Q 80 63 100 60" stroke="url(#sandGold)" stroke-width="1.5" fill="none" stroke-linecap="round" opacity="0.6">
+      <animate attributeName="d"
+        values="M 20 60 Q 40 57 60 60 Q 80 63 100 60;M 20 60 Q 40 63 60 60 Q 80 57 100 60;M 20 60 Q 40 57 60 60 Q 80 63 100 60"
+        dur="6s" begin="0.3s" repeatCount="indefinite" />
+    </path>
+    <path d="M 22 80 Q 41 83 60 80 Q 79 77 98 80" stroke="url(#sandGold)" stroke-width="2" fill="none" stroke-linecap="round">
+      <animate attributeName="d"
+        values="M 22 80 Q 41 83 60 80 Q 79 77 98 80;M 22 80 Q 41 77 60 80 Q 79 83 98 80;M 22 80 Q 41 83 60 80 Q 79 77 98 80"
+        dur="5s" begin="0.6s" repeatCount="indefinite" />
+    </path>
+  </g>
+
+  <!-- 沙漏：聚散流沙——上虚下实，喻沙已流尽、聚散无常 -->
   <g filter="url(#glow)">
-    <!-- 剑尖 -->
-    <path d="M 60 15 L 64 22 L 60 20 L 56 22 Z" fill="#ef4444"/>
-    
-    <!-- 剑身主体 -->
-    <rect x="56" y="22" width="8" height="60" fill="url(#blade)"/>
-    
-    <!-- 右侧锯齿 -->
-    <path d="M 64 22 
-             L 67 26 L 64 30 
-             L 67 34 L 64 38 
-             L 67 42 L 64 46 
-             L 67 50 L 64 54 
-             L 67 58 L 64 62 
-             L 67 66 L 64 70 
-             L 67 74 L 64 78 
-             L 66 82" 
-          fill="#991b1b"/>
-    
-    <!-- 左侧锯齿 -->
-    <path d="M 56 22 
-             L 53 26 L 56 30 
-             L 53 34 L 56 38 
-             L 53 42 L 56 46 
-             L 53 50 L 56 54 
-             L 53 58 L 56 62 
-             L 53 66 L 56 70 
-             L 53 74 L 56 78 
-             L 54 82" 
-          fill="#991b1b"/>
-    
-    <!-- 剑刃中心高光 -->
-    <rect x="59" y="22" width="2" height="60" fill="#fca5a5" opacity="0.6"/>
+    <rect x="46" y="36" width="28" height="3" rx="1.2" fill="url(#gold)" />
+    <rect x="46" y="81" width="28" height="3" rx="1.2" fill="url(#gold)" />
+    <polygon points="48,39 72,39 60,58.5" fill="none" stroke="url(#gold)" stroke-width="1.6" />
+    <polygon points="48,81 72,81 60,61.5" fill="url(#gold)" />
+    <circle cx="60" cy="60" r="1.4" fill="#f5d491">
+      <animate attributeName="cy" values="58.5;61.5;58.5" dur="2.2s" repeatCount="indefinite" />
+      <animate attributeName="opacity" values="1;0.3;1" dur="2.2s" repeatCount="indefinite" />
+    </circle>
   </g>
-  
-  <!-- 护手 -->
-  <rect x="48" y="82" width="24" height="4" rx="2" fill="#1a1a1a" stroke="#dc2626" stroke-width="2"/>
-  
-  <!-- 剑柄 -->
-  <rect x="57" y="86" width="6" height="16" fill="#2a0000"/>
-  <line x1="57" y1="89" x2="63" y2="89" stroke="#dc2626" stroke-width="1"/>
-  <line x1="57" y1="93" x2="63" y2="93" stroke="#dc2626" stroke-width="1"/>
-  <line x1="57" y1="97" x2="63" y2="97" stroke="#dc2626" stroke-width="1"/>
-  
-  <!-- 剑首 -->
-  <circle cx="60" cy="103" r="3" fill="#dc2626"/>
-  
-  <!-- 流沙效果 -->
-  <g opacity="0.9">
-    <path d="M 20 45 Q 40 42 60 45 Q 80 48 100 45" 
-          stroke="url(#sand)" 
-          stroke-width="2.5" 
-          fill="none" 
-          stroke-linecap="round">
-      <animate attributeName="d" 
-               values="M 20 45 Q 40 42 60 45 Q 80 48 100 45;
-                       M 20 45 Q 40 48 60 45 Q 80 42 100 45;
-                       M 20 45 Q 40 42 60 45 Q 80 48 100 45" 
-               dur="4s" 
-               repeatCount="indefinite"/>
-    </path>
-    
-    <path d="M 20 75 Q 40 78 60 75 Q 80 72 100 75" 
-          stroke="url(#sand)" 
-          stroke-width="3" 
-          fill="none" 
-          stroke-linecap="round">
-      <animate attributeName="d" 
-               values="M 20 75 Q 40 78 60 75 Q 80 72 100 75;
-                       M 20 75 Q 40 72 60 75 Q 80 78 100 75;
-                       M 20 75 Q 40 78 60 75 Q 80 72 100 75" 
-               dur="4s" 
-               begin="0.5s"
-               repeatCount="indefinite"/>
-    </path>
-  </g>
-  
-  <!-- 沙粒 -->
-  <circle cx="35" cy="45" r="1.5" fill="#f59e0b" opacity="0.7">
-    <animate attributeName="cy" values="45;40;45" dur="3s" repeatCount="indefinite"/>
-  </circle>
-  <circle cx="85" cy="45" r="1.5" fill="#f59e0b" opacity="0.7">
-    <animate attributeName="cy" values="45;40;45" dur="3.5s" repeatCount="indefinite"/>
-  </circle>
-  <circle cx="40" cy="77" r="1.2" fill="#b45309" opacity="0.6">
-    <animate attributeName="cy" values="77;82;77" dur="4s" repeatCount="indefinite"/>
-  </circle>
-  <circle cx="80" cy="77" r="1.2" fill="#b45309" opacity="0.6">
-    <animate attributeName="cy" values="77;82;77" dur="4.2s" repeatCount="indefinite"/>
-  </circle>
 </svg>

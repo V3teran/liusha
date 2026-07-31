@@ -1,0 +1,189 @@
+@import "tailwindcss";
+
+/* ============================================================
+   石墨深空 (Graphite) 设计 token
+   深色主打：zinc-950 底 + emerald-400 单一强调色，Geist Sans/Mono。
+   浅色对应版：zinc-50 底，同色系强调色。切换靠 html.dark class。
+   ============================================================ */
+@theme {
+  --font-sans: "Geist", -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-mono: "Geist Mono", "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+}
+
+:root {
+  /* 表面层次（浅色） */
+  --background: oklch(98.5% 0 0);
+  --surface: oklch(100% 0 0);
+  --surface-2: oklch(97% 0 0);
+  --border: oklch(91% 0 0);
+  --border-strong: oklch(85% 0 0);
+
+  /* 文本 */
+  --text: oklch(20% 0 0);
+  --muted: oklch(45% 0 0);
+  --faint: oklch(60% 0 0);
+
+  /* 强调色：emerald */
+  --accent: oklch(69% 0.17 162);
+  --accent-hover: oklch(63% 0.18 162);
+  --accent-soft: oklch(69% 0.17 162 / 0.12);
+
+  /* 语义色（威胁等级：仅红/黄/绿区分，其余中性） */
+  --sev-critical: oklch(58% 0.24 25);
+  --sev-high: oklch(64% 0.19 40);
+  --sev-medium: oklch(75% 0.15 85);
+  --sev-low: oklch(60% 0.02 260);
+  --sev-info: oklch(60% 0.15 240);
+
+  /* 来源语义色（渗透/流量） */
+  --mode-active: oklch(65% 0.15 220);
+  --mode-passive: oklch(65% 0.15 300);
+
+  /* 执行图 5 类语义节点色：task(任务/结构)=紫 / hypothesis(判断·想)=天蓝 /
+     probe(探测·做)=翠绿 / signal(信号·得)=青 / 死路探测=石板灰。finding(漏洞)用 severity 色。
+     边：informs(调查回环)=青 / confirms(证据→漏洞)=洋红 / depends_on(攻击链,最重要)=金；
+     其余骨干边(spawns/pursues/tests/reveals)走中性 border 色。 */
+  --graph-task: oklch(68% 0.15 290);
+  --graph-hypothesis: oklch(65% 0.16 230);
+  --graph-probe: oklch(68% 0.16 155);
+  --graph-signal: oklch(70% 0.13 195);
+  --graph-dead: oklch(55% 0.02 260);
+  --graph-informs: oklch(70% 0.13 195);
+  --graph-confirms: oklch(65% 0.22 330);
+  --graph-depends-on: oklch(75% 0.15 85);
+
+  --radius: 0.5rem;
+  --shadow-sm: 0 1px 2px oklch(0% 0 0 / 0.05);
+  --shadow: 0 1px 3px oklch(0% 0 0 / 0.06), 0 8px 24px oklch(0% 0 0 / 0.08);
+  --shadow-lg: 0 4px 20px oklch(0% 0 0 / 0.12);
+
+  color-scheme: light;
+}
+
+.dark {
+  /* 表面层次（zinc-950 深空） */
+  --background: oklch(14% 0.004 285);
+  --surface: oklch(17% 0.004 285);
+  --surface-2: oklch(20% 0.005 285);
+  --border: oklch(27% 0.006 285);
+  --border-strong: oklch(35% 0.008 285);
+
+  --text: oklch(94% 0.002 285);
+  --muted: oklch(65% 0.005 285);
+  --faint: oklch(50% 0.005 285);
+
+  /* 强调色：emerald-400，深色下更亮 */
+  --accent: oklch(76% 0.17 162);
+  --accent-hover: oklch(82% 0.16 162);
+  --accent-soft: oklch(76% 0.17 162 / 0.15);
+
+  --sev-critical: oklch(65% 0.22 25);
+  --sev-high: oklch(70% 0.18 45);
+  --sev-medium: oklch(80% 0.15 90);
+  --sev-low: oklch(55% 0.02 260);
+  --sev-info: oklch(65% 0.15 240);
+
+  --mode-active: oklch(70% 0.14 220);
+  --mode-passive: oklch(70% 0.14 300);
+
+  /* 执行图 5 类语义节点/边色（深色下更亮，同 :root 语义，见上方注释） */
+  --graph-task: oklch(75% 0.14 290);
+  --graph-hypothesis: oklch(72% 0.15 230);
+  --graph-probe: oklch(75% 0.15 155);
+  --graph-signal: oklch(76% 0.12 195);
+  --graph-dead: oklch(50% 0.02 260);
+  --graph-informs: oklch(76% 0.12 195);
+  --graph-confirms: oklch(70% 0.2 330);
+  --graph-depends-on: oklch(80% 0.15 85);
+
+  --shadow-sm: 0 1px 2px oklch(0% 0 0 / 0.4);
+  --shadow: 0 2px 10px oklch(0% 0 0 / 0.5), 0 16px 48px oklch(0% 0 0 / 0.3);
+  --shadow-lg: 0 8px 40px oklch(0% 0 0 / 0.55);
+
+  color-scheme: dark;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-text: var(--text);
+  --color-muted: var(--muted);
+  --color-faint: var(--faint);
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-soft: var(--accent-soft);
+  --color-sev-critical: var(--sev-critical);
+  --color-sev-high: var(--sev-high);
+  --color-sev-medium: var(--sev-medium);
+  --color-sev-low: var(--sev-low);
+  --color-sev-info: var(--sev-info);
+  --color-mode-active: var(--mode-active);
+  --color-mode-passive: var(--mode-passive);
+  --color-graph-task: var(--graph-task);
+  --color-graph-hypothesis: var(--graph-hypothesis);
+  --color-graph-probe: var(--graph-probe);
+  --color-graph-signal: var(--graph-signal);
+  --color-graph-dead: var(--graph-dead);
+  --color-graph-informs: var(--graph-informs);
+  --color-graph-confirms: var(--graph-confirms);
+  --color-graph-depends-on: var(--graph-depends-on);
+}
+
+/* 品牌黑金渐变：与 logo/favicon 沙漏令牌同色系，固定不随主题切换 */
+.brand-mark {
+  background: linear-gradient(135deg, #f5d491 0%, #d4af37 45%, #8a6210 100%);
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+}
+
+* {
+  box-sizing: border-box;
+  border-color: var(--border);
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--background);
+  color: var(--text);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+code,
+pre {
+  font-family: var(--font-mono);
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 8px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
