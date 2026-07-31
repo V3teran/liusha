@@ -5,6 +5,9 @@
 # ── Stage 0: 构建前端（web/ 源码 → dist/）──
 FROM node:22-alpine AS web-build
 RUN corepack enable
+# CI=true：pnpm 在非交互式环境（无 TTY）下，COPY 覆盖文件后会做依赖状态检查并尝试确认清空
+# node_modules 重装，无 TTY 时直接报 ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY 失败。
+ENV CI=true
 WORKDIR /web
 # 先拷锁文件，命中依赖层缓存。
 COPY web/package.json web/pnpm-lock.yaml web/pnpm-workspace.yaml web/.npmrc ./

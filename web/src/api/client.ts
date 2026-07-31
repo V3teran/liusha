@@ -103,10 +103,27 @@ export async function listRoles(): Promise<Role[]> {
 }
 
 /**
- * 获取会话列表
+ * 分页获取会话列表（offset 翻页——会话列表按 updated_at 排序，活跃会话会被顶到最前，
+ * 没有稳定单调游标可用，故用 offset；这个数据量级下足够，翻页时小幅重排是可接受的权衡）。
+ *
+ * mode 过滤下沉到服务端（非前端在单页结果上再过滤）：分页边界必须建立在已过滤的集合上，
+ * 否则「当前 tab 下共 N 个会话」与实际翻得到的条数会对不上。
+ *
+ * @param limit 每页条数（后端默认 30）
+ * @param offset 跳过条数（默认 0 = 首页）
+ * @param mode 可选，按会话模式过滤（active/passive）
  */
-export async function listConversations(): Promise<Conversation[]> {
-  return (await get<{ conversations: Conversation[] }>('/conversations')).conversations
+export async function listConversations(
+  limit = 30,
+  offset = 0,
+  mode = '',
+): Promise<{ conversations: Conversation[]; hasMore: boolean }> {
+  const q = new URLSearchParams({ limit: String(limit), offset: String(offset) })
+  if (mode) q.set('mode', mode)
+  const res = await get<{ conversations: Conversation[] | null; has_more: boolean }>(`/conversations?${q}`)
+  // 后端无数据时 conversations 返回 null（Go 的 nil slice 序列化为 null 而非 []）——
+  // 归一为空数组，避免下游 items.length 等消费点炸。
+  return { conversations: res.conversations ?? [], hasMore: res.has_more }
 }
 
 /**
@@ -133,6 +150,15 @@ export async function listMessages(convID: string, afterSeq = 0): Promise<Messag
     if (page.length < PAGE) break
   }
   return all
+}
+
+/**
+ * 按 id 取单条消息正文（按需拉取，供「点开节点看原文」用——如执行图详情面板）。
+ * 与 listMessages 的区别：listMessages 翻页拉整段会话历史；这里只拉一条，
+ * 不必为了看一个节点的原文就把整段会话正文都拉进内存。
+ */
+export async function getMessage(convID: string, msgID: string): Promise<Message> {
+  return get<Message>(`/conversations/${convID}/messages/${msgID}`)
 }
 
 /**

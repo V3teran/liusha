@@ -1,82 +1,27 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
   <defs>
-    <!-- 深色背景 -->
-    <radialGradient id="bgGrad">
+    <radialGradient id="hexBg">
       <stop offset="0%" style="stop-color:#1a1a1a;stop-opacity:1" />
-      <stop offset="100%" style="stop-color:#0a0a0a;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#050505;stop-opacity:1" />
     </radialGradient>
-    
-    <!-- 剑身金属渐变 -->
-    <linearGradient id="blade" x1="0%" y1="0%" x2="100%" y2="0%">
-      <stop offset="0%" style="stop-color:#4a0000;stop-opacity:1" />
-      <stop offset="30%" style="stop-color:#dc2626;stop-opacity:1" />
-      <stop offset="50%" style="stop-color:#ef4444;stop-opacity:1" />
-      <stop offset="70%" style="stop-color:#dc2626;stop-opacity:1" />
-      <stop offset="100%" style="stop-color:#4a0000;stop-opacity:1" />
+    <linearGradient id="gold" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#f5d491;stop-opacity:1" />
+      <stop offset="45%" style="stop-color:#d4af37;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#6b4a0a;stop-opacity:1" />
     </linearGradient>
-    
-    <!-- 流沙 -->
-    <linearGradient id="sand" x1="0%" y1="0%" x2="100%" y2="0%">
-      <stop offset="0%" style="stop-color:#78350f;stop-opacity:0.5" />
-      <stop offset="50%" style="stop-color:#f59e0b;stop-opacity:1" />
-      <stop offset="100%" style="stop-color:#78350f;stop-opacity:0.5" />
-    </linearGradient>
-    
-    <filter id="glow">
-      <feGaussianBlur stdDeviation="1" result="coloredBlur"/>
-      <feMerge>
-        <feMergeNode in="coloredBlur"/>
-        <feMergeNode in="SourceGraphic"/>
-      </feMerge>
-    </filter>
   </defs>
-  
-  <!-- 背景 -->
-  <circle cx="32" cy="32" r="30" fill="url(#bgGrad)"/>
-  
-  <!-- 鲨齿剑 -->
-  <g filter="url(#glow)">
-    <!-- 剑尖 -->
-    <path d="M 32 8 L 34 12 L 32 11 L 30 12 Z" fill="#ef4444"/>
-    
-    <!-- 剑身主体 -->
-    <rect x="30" y="12" width="4" height="32" fill="url(#blade)"/>
-    
-    <!-- 右侧锯齿 -->
-    <path d="M 34 12 L 35.5 14 L 34 16 L 35.5 18 L 34 20 L 35.5 22 L 34 24 L 35.5 26 L 34 28 L 35.5 30 L 34 32 L 35.5 34 L 34 36 L 35.5 38 L 34 40 L 35.5 42 L 34 44" 
-          fill="#991b1b"/>
-    
-    <!-- 左侧锯齿 -->
-    <path d="M 30 12 L 28.5 14 L 30 16 L 28.5 18 L 30 20 L 28.5 22 L 30 24 L 28.5 26 L 30 28 L 28.5 30 L 30 32 L 28.5 34 L 30 36 L 28.5 38 L 30 40 L 28.5 42 L 30 44" 
-          fill="#991b1b"/>
-    
-    <!-- 剑刃高光 -->
-    <rect x="31.5" y="12" width="1" height="32" fill="#fca5a5" opacity="0.6"/>
-  </g>
-  
-  <!-- 护手 -->
-  <rect x="26" y="44" width="12" height="2" rx="1" fill="#1a1a1a" stroke="#dc2626" stroke-width="1"/>
-  
-  <!-- 剑柄 -->
-  <rect x="30.5" y="46" width="3" height="8" fill="#2a0000"/>
-  <line x1="30.5" y1="48" x2="33.5" y2="48" stroke="#dc2626" stroke-width="0.5"/>
-  <line x1="30.5" y1="50" x2="33.5" y2="50" stroke="#dc2626" stroke-width="0.5"/>
-  <line x1="30.5" y1="52" x2="33.5" y2="52" stroke="#dc2626" stroke-width="0.5"/>
-  
-  <!-- 剑首 -->
-  <circle cx="32" cy="54.5" r="1.5" fill="#dc2626"/>
-  
-  <!-- 流沙 -->
-  <path d="M 12 28 Q 22 26 32 28 Q 42 30 52 28" 
-        stroke="url(#sand)" 
-        stroke-width="1.5" 
-        fill="none" 
-        stroke-linecap="round"
-        opacity="0.8"/>
-  <path d="M 12 36 Q 22 38 32 36 Q 42 34 52 36" 
-        stroke="url(#sand)" 
-        stroke-width="1.5" 
-        fill="none" 
-        stroke-linecap="round"
-        opacity="0.8"/>
+
+  <!-- 六边形令牌（简化：小尺寸下省去流沙纹与内圈，保留识别力） -->
+  <polygon
+    points="58.7,32 46.3,54.6 21.7,54.6 9.3,32 21.7,9.4 46.3,9.4"
+    fill="url(#hexBg)"
+    stroke="url(#gold)"
+    stroke-width="2"
+  />
+
+  <!-- 沙漏 -->
+  <rect x="24" y="18" width="16" height="2" rx="1" fill="url(#gold)" />
+  <rect x="24" y="44" width="16" height="2" rx="1" fill="url(#gold)" />
+  <polygon points="25,20.5 39,20.5 32,31.5" fill="none" stroke="url(#gold)" stroke-width="1.4" />
+  <polygon points="25,43.5 39,43.5 32,32.5" fill="url(#gold)" />
 </svg>

@@ -19,6 +19,6 @@ export function scanStatusMeta(status: string | undefined): ScanStatusMeta {
     case 'aborted':
       return { label: '已中止', key: 'aborted', color: '#94a3b8' }
     default:
-      return { label: '会话', key: 'idle', color: '#64748b' } // 空/纯聊天
+      return { label: '对话', key: 'idle', color: '#64748b' } // 空/纯聊天
   }
 }

@@ -7,7 +7,7 @@
 
 export type MessageKind = 'message' | 'event'
 export type MessageRole = 'user' | 'assistant' | 'system' | 'tool'
-export type ScanEventKind = 'tool_call' | 'tool_result' | 'reasoning' | 'spawn' | 'compaction'
+export type ScanEventKind = 'tool_call' | 'tool_result' | 'reasoning' | 'spawn' | 'insight' | 'compaction'
 
 /**
  * SSE 事件的元数据（agent 过程事件）
@@ -186,31 +186,57 @@ export interface FindingFilters {
    执行图（GET /attack_graph/:owner_id）：思维链 + 成果链
    read-model 实时投影，不落表（见后端 docs/attack-graph-design.md）
    ============================================================ */
+// 5 类语义节点（见后端 types.go §节点种类）。
+export type AttackGraphNodeKind = 'task' | 'hypothesis' | 'probe' | 'signal' | 'finding'
+// 7 类语义边（见后端 types.go §边类型）。
+export type AttackGraphEdgeType =
+  | 'spawns' // 任务 → 子任务
+  | 'pursues' // 任务 → 判断
+  | 'tests' // 判断 → 探测
+  | 'reveals' // 探测 → 信号
+  | 'informs' // 信号 → 判断（调查回环）
+  | 'confirms' // 信号/探测 → 漏洞
+  | 'depends_on' // 漏洞 → 漏洞（组合依赖）
+// 节点来源：确定性派生 / agent 自标（mark_insight）/ LLM 事后提炼。
+export type AttackGraphProvenance = 'derived' | 'agent' | 'llm'
+
 export interface AttackGraphNode {
   id: string
-  kind: string // reasoning(想) | action(做+得) | finding(漏洞) | agent(子代理边界)
-  parent_id?: string
-  agent?: string // 产出该节点的子代理（orchestrator/exploitation/…）
-  target?: string // 所属站
-  title: string // 短标签
+  kind: AttackGraphNodeKind // task(任务) | hypothesis(判断/想) | probe(探测/做) | signal(信号/得) | finding(漏洞)
+  parent_id?: string // 骨干树父节点（markOnPath 上溯 + 布局）
+  agent?: string // 产出该节点的代理（orchestrator/exploitation/…），前端按它分组/配色
+  title: string // 短标签（任务目标 / 判断摘要 / 工具名 / 信号摘要 / 漏洞标题）
   ref?: string // 指针：finding id / message id，点开取原文
   severity?: string // 漏洞节点配色
-  status?: string // 动作节点：done / error
-  on_path?: boolean // 成果路径：通向某 finding 的主干（成果优先视图默认展开）；false/缺省=死路，默认折叠
+  status?: string // probe: running/done/failed；hypothesis: open/confirmed/refuted；task: running/done
+  on_path: boolean // 成果路径：通向某 finding 的主干（成果优先视图默认展开）；false=探索/死路，默认折叠
+  provenance?: AttackGraphProvenance // 可信度标注：derived / agent / llm
+  host?: string // 漏洞所属站点
+  duration_ms?: number // probe 执行耗时
+  tokens?: number // hypothesis 对应推理的 LLM token 数（in+out）
 }
 
 export interface AttackGraphEdge {
   from: string
   to: string
-  type: string // flow(思维链骨干) | depends_on(成果链) | evidence
+  type: AttackGraphEdgeType
+}
+
+// CollapsedSegment 是一段被折叠的探索噪声元数据（后端算好，前端只管展开/收起）。
+export interface CollapsedSegment {
+  anchor: string // 折叠段挂靠的可见节点 id（空=开场段，挂在根前）
+  hidden_count: number // 该段折叠了多少个探索节点
+  opening: boolean // 是否开场段（侦察与初始访问）
 }
 
 export interface AttackGraph {
   task_id: string
   conversation_id: string // 后端按 task 自解析的思维链会话 id（钻取原文/里程碑用）；空=无绑定会话
-  running: boolean // 该 task 是否仍在扫描中（权威：task 终态）——前端据此决定是否轮询
+  running: boolean // 该 task 是否仍在扫描中（权威：task 终态）——前端据此决定是否订阅 SSE
+  enriched: boolean // 第二趟 LLM 语义提炼是否已完成（实时=false 骨架，扫描结束=true 完整语义图）
   nodes: AttackGraphNode[]
   edges: AttackGraphEdge[]
+  collapsed?: CollapsedSegment[] // 折叠段元数据（成果优先视图）
 }
 
 // 里程碑：按子代理聚合的 LLM 一句话摘要（派生层，按需生成）。
