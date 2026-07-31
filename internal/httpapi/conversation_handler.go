@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/jackc/pgx/v5"
 
 	"github.com/V3teran/liusha/internal/conversation"
 	"github.com/V3teran/liusha/internal/logx"
@@ -69,8 +70,9 @@ func rolesHandler(api RolesAPI) gin.HandlerFunc {
 
 // ConversationsAPI 是会话/消息读取窄接口（*conversation.Store 自动满足）。
 type ConversationsAPI interface {
-	ListConversations(ctx context.Context, limit int) ([]conversation.Conversation, error)
+	ListConversations(ctx context.Context, limit, offset int, mode string) ([]conversation.Conversation, bool, error)
 	ListMessages(ctx context.Context, convID string, afterSeq int64, limit int) ([]conversation.Message, error)
+	GetMessage(ctx context.Context, convID, msgID string) (conversation.Message, error)
 }
 
 // EventSubscription 是一次会话事件订阅（cmd/api 用 scanstream.Subscription 适配）。
@@ -260,15 +262,18 @@ func renameConversationHandler(api ConversationRenamer) gin.HandlerFunc {
 	}
 }
 
-// listConversationsHandler 处理 GET /conversations：最近活跃会话列表。
+// listConversationsHandler 处理 GET /conversations?limit=&offset=&mode=：分页会话列表（UI 侧栏翻页）。
+// mode 可选（active/passive），空则不过滤——过滤下沉到 SQL，保证分页边界与「当前 tab 下的
+// 总条数」一致（若仍由前端在已分页的单页结果上再过滤，页码和条数会对不上）。
+// has_more：本页拉满 limit+1 条时才可能有下一页（store 已裁剪到 limit，见 ListConversations）。
 func listConversationsHandler(api ConversationsAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		convs, err := api.ListConversations(c.Request.Context(), parseLimit(c, 50))
+		convs, hasMore, err := api.ListConversations(c.Request.Context(), parseLimit(c, 30), parseOffset(c), c.Query("mode"))
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-		c.JSON(http.StatusOK, gin.H{"conversations": convs})
+		c.JSON(http.StatusOK, gin.H{"conversations": convs, "has_more": hasMore})
 	}
 }
 
@@ -282,6 +287,27 @@ func messagesHandler(api ConversationsAPI) gin.HandlerFunc {
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"messages": msgs})
+	}
+}
+
+// messageDetailHandler 处理 GET /conversations/:id/messages/:msg_id：按 id 取单条消息正文。
+//
+// 供「点开节点看原文」按需拉取（如执行图详情面板）：只拉用户点开的那一条，不必像
+// messagesHandler 那样翻页拉整段会话历史进内存。convID 校验同一在 Store 层做（防跨会话越权）。
+func messageDetailHandler(api ConversationsAPI) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		convID := c.Param("id")
+		msgID := c.Param("msg_id")
+		msg, err := api.GetMessage(c.Request.Context(), convID, msgID)
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				c.JSON(http.StatusNotFound, gin.H{"error": "message not found"})
+				return
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, msg)
 	}
 }
 
@@ -403,6 +429,16 @@ func parseLimit(c *gin.Context, def int) int {
 		}
 	}
 	return def
+}
+
+// parseOffset 取分页偏移（GET /conversations?offset=）。缺失/非法/负数 → 0（首页）。
+func parseOffset(c *gin.Context) int {
+	if v := c.Query("offset"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			return n
+		}
+	}
+	return 0
 }
 
 // parseAfterSeq 取增量起点：优先 Last-Event-ID（SSE 重连自动带），回退 after_seq query。

@@ -76,8 +76,8 @@ func NewServer(d Deps) http.Handler {
 		r.DELETE("/credential", deleteCredentialHandler(d.Credentials))
 	}
 	if d.Tasks != nil {
-		r.POST("/session/:id/abort", abortHandler(d.Tasks))
-		r.GET("/session", listSessionsHandler(d.Tasks))
+		r.POST("/tasks/:id/abort", abortTaskHandler(d.Tasks))
+		r.GET("/tasks", listTasksHandler(d.Tasks))
 	}
 	if d.Sitemap != nil {
 		r.GET("/sitemap/:task_id", sitemapHandler(d.Sitemap))
@@ -108,6 +108,7 @@ func NewServer(d Deps) http.Handler {
 	if d.Conversations != nil {
 		r.GET("/conversations", listConversationsHandler(d.Conversations))
 		r.GET("/conversations/:id/messages", messagesHandler(d.Conversations))
+		r.GET("/conversations/:id/messages/:msg_id", messageDetailHandler(d.Conversations))
 		if d.FollowUp != nil {
 			r.POST("/conversations/:id/messages", followUpHandler(d.FollowUp))
 		}

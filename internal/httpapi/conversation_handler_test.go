@@ -2,12 +2,17 @@ package httpapi
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
+	"github.com/jackc/pgx/v5"
+
+	"github.com/V3teran/liusha/internal/conversation"
 )
 
 type fakeChat struct{}
@@ -163,4 +168,145 @@ func TestDeleteHandler_OK_200(t *testing.T) {
 	if w.Code != 200 || called != "c1" {
 		t.Errorf("正常删除应调用并 200，得 code=%d called=%q", w.Code, called)
 	}
+}
+
+// fakeConversations 满足 ConversationsAPI，记录 ListConversations 收到的 limit/offset/mode。
+type fakeConversations struct {
+	gotLimit, gotOffset int
+	gotMode             string
+	convs               []conversation.Conversation
+	hasMore             bool
+	getMessageResult    conversation.Message
+	getMessageErr       error
+}
+
+func (f *fakeConversations) ListConversations(_ context.Context, limit, offset int, mode string) ([]conversation.Conversation, bool, error) {
+	f.gotLimit, f.gotOffset, f.gotMode = limit, offset, mode
+	return f.convs, f.hasMore, nil
+}
+
+func (f *fakeConversations) ListMessages(_ context.Context, _ string, _ int64, _ int) ([]conversation.Message, error) {
+	return nil, nil
+}
+
+func (f *fakeConversations) GetMessage(_ context.Context, _, _ string) (conversation.Message, error) {
+	if f.getMessageErr != nil {
+		return conversation.Message{}, f.getMessageErr
+	}
+	return f.getMessageResult, nil
+}
+
+// TestListConversationsHandler_Pagination：offset/limit 透传给 store，响应带 has_more。
+func TestListConversationsHandler_Pagination(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	fc := &fakeConversations{
+		convs:   []conversation.Conversation{{ID: "c1"}, {ID: "c2"}},
+		hasMore: true,
+	}
+	r := gin.New()
+	r.GET("/conversations", listConversationsHandler(fc))
+	req := httptest.NewRequest("GET", "/conversations?limit=2&offset=30", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("want 200, got %d (%s)", w.Code, w.Body.String())
+	}
+	if fc.gotLimit != 2 || fc.gotOffset != 30 {
+		t.Errorf("limit/offset 应透传给 store，得 limit=%d offset=%d", fc.gotLimit, fc.gotOffset)
+	}
+	if !strings.Contains(w.Body.String(), `"has_more":true`) {
+		t.Errorf("响应应含 has_more:true，得 %s", w.Body.String())
+	}
+}
+
+// TestListConversationsHandler_DefaultOffsetZero：未传 offset → 默认 0（首页）。
+func TestListConversationsHandler_DefaultOffsetZero(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	fc := &fakeConversations{}
+	r := gin.New()
+	r.GET("/conversations", listConversationsHandler(fc))
+	req := httptest.NewRequest("GET", "/conversations", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if fc.gotOffset != 0 {
+		t.Errorf("未传 offset 应默认 0，得 %d", fc.gotOffset)
+	}
+	if fc.gotLimit != 30 {
+		t.Errorf("未传 limit 应默认 30，得 %d", fc.gotLimit)
+	}
+	if fc.gotMode != "" {
+		t.Errorf("未传 mode 应默认空（不过滤），得 %q", fc.gotMode)
+	}
+}
+
+// TestListConversationsHandler_ModeFilterPassedToStore：mode query 透传给 store，
+// 分页边界必须建立在过滤后的集合上（否则页码与实际条数会错位）。
+func TestListConversationsHandler_ModeFilterPassedToStore(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	fc := &fakeConversations{}
+	r := gin.New()
+	r.GET("/conversations", listConversationsHandler(fc))
+	req := httptest.NewRequest("GET", "/conversations?mode=passive", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if fc.gotMode != "passive" {
+		t.Errorf("mode=passive 应透传给 store，得 %q", fc.gotMode)
+	}
+}
+
+// TestMessageDetailHandler：按需拉单条消息（供执行图详情面板点开看原文），
+// 覆盖 200/404/500 三条路径——404 专门验证 pgx.ErrNoRows 被正确转译，不是泄漏成 500。
+func TestMessageDetailHandler(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	t.Run("200 返回消息正文", func(t *testing.T) {
+		fc := &fakeConversations{getMessageResult: conversation.Message{
+			ID: "m1", ConversationID: "c1", Content: "工具输出原文",
+		}}
+		r := gin.New()
+		r.GET("/conversations/:id/messages/:msg_id", messageDetailHandler(fc))
+		req := httptest.NewRequest("GET", "/conversations/c1/messages/m1", nil)
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
+		}
+		var got conversation.Message
+		if err := json.NewDecoder(w.Body).Decode(&got); err != nil {
+			t.Fatal(err)
+		}
+		if got.ID != "m1" || got.Content != "工具输出原文" {
+			t.Errorf("响应不符：%+v", got)
+		}
+	})
+
+	t.Run("消息不存在返回 404", func(t *testing.T) {
+		fc := &fakeConversations{getMessageErr: pgx.ErrNoRows}
+		r := gin.New()
+		r.GET("/conversations/:id/messages/:msg_id", messageDetailHandler(fc))
+		req := httptest.NewRequest("GET", "/conversations/c1/messages/missing", nil)
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+
+		if w.Code != http.StatusNotFound {
+			t.Errorf("status=%d 期望 404", w.Code)
+		}
+	})
+
+	t.Run("其他错误返回 500", func(t *testing.T) {
+		fc := &fakeConversations{getMessageErr: errors.New("db 连接超时")}
+		r := gin.New()
+		r.GET("/conversations/:id/messages/:msg_id", messageDetailHandler(fc))
+		req := httptest.NewRequest("GET", "/conversations/c1/messages/m1", nil)
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+
+		if w.Code != http.StatusInternalServerError {
+			t.Errorf("status=%d 期望 500", w.Code)
+		}
+	})
 }
