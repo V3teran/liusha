@@ -2,10 +2,20 @@ package attackgraph
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/V3teran/liusha/internal/conversation"
 	"github.com/V3teran/liusha/internal/finding"
+)
+
+// sentinel error：ProjectMilestones 的两种业务性失败，handler 用 errors.Is 判定映射 HTTP 状态码，
+// 不靠错误文案字符串匹配（文案改动不该牵动状态码）。
+var (
+	// ErrNoSummarizer：Projector 未注入 Summary（服务未配置 LLM）。
+	ErrNoSummarizer = errors.New("attackgraph: 未配置 LLM summarizer，里程碑不可用")
+	// ErrNoConversation：显式传入与自解析后 convID 均为空（纯 passive 无绑定会话）。
+	ErrNoConversation = errors.New("attackgraph: 无会话（conv 为空），里程碑不可用")
 )
 
 // messagePageSize 是拉会话消息的翻页大小（思维链要全量历史，循环翻页拉尽）。
@@ -71,24 +81,34 @@ func (p *Projector) Project(ctx context.Context, convID, taskID string) (Graph, 
 		return Graph{}, fmt.Errorf("拉漏洞: %w", err)
 	}
 
-	g := Project(taskID, msgs, findings)
-	g.ConversationID = convID
-	// 运行态：有会话则查 task 终态；无会话（纯 passive）默认非运行（图不再增长）。
+	// 运行态先查：决定投影趟数。有会话则查 task 终态；无会话（纯 passive）默认非运行（图不再增长）。
+	running := false
 	if convID != "" && p.Conv != nil {
-		running, err := p.Conv.IsRunActive(ctx, convID)
+		running, err = p.Conv.IsRunActive(ctx, convID)
 		if err != nil {
 			return Graph{}, fmt.Errorf("查运行态: %w", err)
 		}
-		g.Running = running
 	}
+
+	// 实时（running）出骨架，流畅不烧钱；扫描结束补 ① LLM 提炼出完整语义图（Enriched=true）。
+	// 前端在 running=false 后停止轮询，故提炼只在有限次请求上触发（首屏/手动刷新）。
+	var g Graph
+	if running || p.Summary == nil {
+		g = Project(taskID, msgs, findings)
+	} else {
+		g = ProjectEnriched(ctx, taskID, msgs, findings, p.Summary)
+	}
+	g.ConversationID = convID
+	g.Running = running
 	return g, nil
 }
 
 // ProjectMilestones 拉会话事件流，按子代理聚合 reasoning，调 LLM 总结成里程碑列表。
-// convID 为空时按 taskID 自解析（同 Project）；解析后仍空或 Summary 未注入则返回错误。
+// convID 为空时按 taskID 自解析（同 Project）；解析后仍空或 Summary 未注入则返回错误
+// （ErrNoSummarizer / ErrNoConversation，handler 用 errors.Is 判定，不靠错误文案字符串匹配）。
 func (p *Projector) ProjectMilestones(ctx context.Context, convID, taskID string) ([]Milestone, error) {
 	if p.Summary == nil {
-		return nil, fmt.Errorf("未配置 LLM summarizer，里程碑不可用")
+		return nil, ErrNoSummarizer
 	}
 	if convID == "" && p.Conv != nil {
 		resolved, err := p.Conv.ResolveConvByTask(ctx, taskID)
@@ -98,7 +118,7 @@ func (p *Projector) ProjectMilestones(ctx context.Context, convID, taskID string
 		convID = resolved
 	}
 	if convID == "" {
-		return nil, fmt.Errorf("无会话（conv 为空），里程碑不可用")
+		return nil, ErrNoConversation
 	}
 	msgs, err := p.allMessages(ctx, convID)
 	if err != nil {

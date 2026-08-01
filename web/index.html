@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>流沙 Liusha · AI 渗透作战台</title>
+    <script>
+      // 在 React 渲染前同步应用主题，避免深/浅色切换时的闪屏（FOUC）。
+      (function () {
+        var stored = localStorage.getItem('liusha-theme')
+        var theme = stored === 'light' ? 'light' : 'dark'
+        if (theme === 'dark') document.documentElement.classList.add('dark')
+      })()
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

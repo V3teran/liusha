@@ -103,3 +103,88 @@ func TestAttackGraphHandler(t *testing.T) {
 		}
 	})
 }
+
+// TestAttackGraphMilestonesHandler 验证 sentinel error → HTTP 状态码的映射（errors.Is 判定，
+// 不靠错误文案字符串匹配——即便 attackgraph 包改了错误文案，这里的状态码判定也不受影响）。
+func TestAttackGraphMilestonesHandler(t *testing.T) {
+	t.Run("200 返回里程碑列表", func(t *testing.T) {
+		fake := &fakeAttackGraph{milestones: []attackgraph.Milestone{{Agent: "exploitation", Summary: "拿到 shell", NodeCount: 12}}}
+		srv := newTestServer(t, Deps{AttackGraph: fake})
+		defer srv.Close()
+
+		req, _ := http.NewRequest("GET", srv.URL+"/attack_graph/o1/milestones?conv=c1", nil)
+		req.Header.Set("X-API-Key", "k")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != 200 {
+			t.Fatalf("状态码=%d，期望 200", resp.StatusCode)
+		}
+		var body struct {
+			Milestones []attackgraph.Milestone `json:"milestones"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		if len(body.Milestones) != 1 || body.Milestones[0].Agent != "exploitation" {
+			t.Errorf("响应里程碑不符：%+v", body.Milestones)
+		}
+	})
+
+	t.Run("未配置 LLM 返回 503", func(t *testing.T) {
+		fake := &fakeAttackGraph{milestonesErr: attackgraph.ErrNoSummarizer}
+		srv := newTestServer(t, Deps{AttackGraph: fake})
+		defer srv.Close()
+
+		req, _ := http.NewRequest("GET", srv.URL+"/attack_graph/o1/milestones", nil)
+		req.Header.Set("X-API-Key", "k")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != 503 {
+			t.Errorf("状态码=%d，期望 503", resp.StatusCode)
+		}
+	})
+
+	t.Run("无绑定会话返回 400", func(t *testing.T) {
+		fake := &fakeAttackGraph{milestonesErr: attackgraph.ErrNoConversation}
+		srv := newTestServer(t, Deps{AttackGraph: fake})
+		defer srv.Close()
+
+		req, _ := http.NewRequest("GET", srv.URL+"/attack_graph/o1/milestones", nil)
+		req.Header.Set("X-API-Key", "k")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != 400 {
+			t.Errorf("状态码=%d，期望 400", resp.StatusCode)
+		}
+	})
+
+	t.Run("其他错误返回 500", func(t *testing.T) {
+		fake := &fakeAttackGraph{milestonesErr: errors.New("拉会话消息: 连接超时")}
+		srv := newTestServer(t, Deps{AttackGraph: fake})
+		defer srv.Close()
+
+		req, _ := http.NewRequest("GET", srv.URL+"/attack_graph/o1/milestones", nil)
+		req.Header.Set("X-API-Key", "k")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != 500 {
+			t.Errorf("状态码=%d，期望 500", resp.StatusCode)
+		}
+	})
+}

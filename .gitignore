@@ -19,8 +19,9 @@ cmd/*/dist/
 .idea/
 .DS_Store
 
-# Embedded frontend build artifact (produced by liusha-ui, not checked in)
-internal/web/dist/
+# 前端构建产物（web/ 源码同仓，dist 由 nginx 镜像多阶段构建生成，不入 git）
+web/dist/
+web/node_modules/
 
 # Coverage
 coverage.out

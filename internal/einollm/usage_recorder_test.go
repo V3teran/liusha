@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -17,15 +18,32 @@ import (
 	"github.com/V3teran/liusha/internal/llminvocation"
 )
 
+// fakeSink 需加锁：流式出口在独立 goroutine 里 Append（usage_recorder.go OnEndWithStreamOutput），
+// 而测试主体轮询读 count/got，读写并发 → -race 会报竞争。用锁 + 访问器封装同步。
 type fakeSink struct {
+	mu    sync.Mutex
 	got   llminvocation.Invocation
 	count int
 }
 
 func (f *fakeSink) Append(_ context.Context, c llminvocation.Invocation) (int64, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.got = c
 	f.count++
 	return int64(f.count), nil
+}
+
+func (f *fakeSink) Count() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.count
+}
+
+func (f *fakeSink) Got() llminvocation.Invocation {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.got
 }
 
 func chatModelInfo() *callbacks.RunInfo {
@@ -58,10 +76,10 @@ func TestUsageRecorder_RecordsTokens(t *testing.T) {
 		},
 	})
 
-	if sink.count != 1 {
-		t.Fatalf("应落 1 行 llm_invocation，得到 %d", sink.count)
+	if sink.Count() != 1 {
+		t.Fatalf("应落 1 行 llm_invocation，得到 %d", sink.Count())
 	}
-	g := sink.got
+	g := sink.Got()
 	if g.InTokens != 100 || g.OutTokens != 50 || g.CachedTokens != 20 {
 		t.Errorf("token 映射错: %+v", g)
 	}
@@ -86,8 +104,8 @@ func TestUsageRecorder_IgnoresNonChatModel(t *testing.T) {
 	info := &callbacks.RunInfo{Component: components.ComponentOfTool}
 	ctx := h.OnStart(context.Background(), info, &model.CallbackInput{})
 	h.OnEnd(ctx, info, &model.CallbackOutput{TokenUsage: &model.TokenUsage{PromptTokens: 9}})
-	if sink.count != 0 {
-		t.Fatalf("非 ChatModel 组件不应落库，得到 %d 行", sink.count)
+	if sink.Count() != 0 {
+		t.Fatalf("非 ChatModel 组件不应落库，得到 %d 行", sink.Count())
 	}
 }
 
@@ -98,14 +116,14 @@ func TestUsageRecorder_RecordsFailure(t *testing.T) {
 	ctx := h.OnStart(context.Background(), info, &model.CallbackInput{})
 	// ChatModel 调用失败（瞬时 400 等）→ OnError 也落库带 error
 	h.OnError(ctx, info, errors.New("status code: 400, Param Incorrect"))
-	if sink.count != 1 {
-		t.Fatalf("失败调用应落 1 行 llm_invocation，得到 %d", sink.count)
+	if sink.Count() != 1 {
+		t.Fatalf("失败调用应落 1 行 llm_invocation，得到 %d", sink.Count())
 	}
-	if sink.got.Error == "" || !strings.Contains(sink.got.Error, "Param Incorrect") {
-		t.Errorf("失败行应带 error: %q", sink.got.Error)
+	if sink.Got().Error == "" || !strings.Contains(sink.Got().Error, "Param Incorrect") {
+		t.Errorf("失败行应带 error: %q", sink.Got().Error)
 	}
-	if sink.got.Provider != "xiaomi_mimo" || sink.got.Role != "traffic-analysis" {
-		t.Errorf("失败行 provider/role 错: %+v", sink.got)
+	if sink.Got().Provider != "xiaomi_mimo" || sink.Got().Role != "traffic-analysis" {
+		t.Errorf("失败行 provider/role 错: %+v", sink.Got())
 	}
 }
 
@@ -117,11 +135,11 @@ func TestUsageRecorder_NonStreamHasNoTTFT(t *testing.T) {
 	ctx := h.OnStart(context.Background(), info, &model.CallbackInput{})
 	h.OnEnd(ctx, info, &model.CallbackOutput{TokenUsage: &model.TokenUsage{PromptTokens: 10, CompletionTokens: 5}})
 
-	if sink.got.IsStream {
+	if sink.Got().IsStream {
 		t.Error("非流式调用不该标 is_stream")
 	}
-	if sink.got.TTFTMs != 0 {
-		t.Errorf("非流式 TTFT 应为 0，得到 %d", sink.got.TTFTMs)
+	if sink.Got().TTFTMs != 0 {
+		t.Errorf("非流式 TTFT 应为 0，得到 %d", sink.Got().TTFTMs)
 	}
 }
 
@@ -149,13 +167,13 @@ func TestUsageRecorder_StreamMeasuresTTFT(t *testing.T) {
 	h.OnEndWithStreamOutput(ctx, info, sr)
 	// 落库在 goroutine 里，等它跑完
 	deadline := time.Now().Add(3 * time.Second)
-	for sink.count == 0 && time.Now().Before(deadline) {
+	for sink.Count() == 0 && time.Now().Before(deadline) {
 		time.Sleep(10 * time.Millisecond)
 	}
 
-	g := sink.got
-	if sink.count != 1 {
-		t.Fatalf("流式调用应落 1 行，得到 %d", sink.count)
+	g := sink.Got()
+	if sink.Count() != 1 {
+		t.Fatalf("流式调用应落 1 行，得到 %d", sink.Count())
 	}
 	if !g.IsStream {
 		t.Error("流式调用应标 is_stream")
@@ -197,18 +215,18 @@ func TestUsageRecorder_StreamTTFTFallsBackWhenNoText(t *testing.T) {
 
 	h.OnEndWithStreamOutput(ctx, info, sr)
 	deadline := time.Now().Add(3 * time.Second)
-	for sink.count == 0 && time.Now().Before(deadline) {
+	for sink.Count() == 0 && time.Now().Before(deadline) {
 		time.Sleep(10 * time.Millisecond)
 	}
 
-	if sink.count != 1 {
-		t.Fatalf("应落 1 行，得到 %d", sink.count)
+	if sink.Count() != 1 {
+		t.Fatalf("应落 1 行，得到 %d", sink.Count())
 	}
-	if !sink.got.IsStream {
+	if !sink.Got().IsStream {
 		t.Error("应标 is_stream")
 	}
-	if sink.got.TTFTMs <= 0 {
-		t.Errorf("无文字的流也应测出 TTFT（退化为首个 chunk），得到 %d", sink.got.TTFTMs)
+	if sink.Got().TTFTMs <= 0 {
+		t.Errorf("无文字的流也应测出 TTFT（退化为首个 chunk），得到 %d", sink.Got().TTFTMs)
 	}
 }
 
@@ -225,10 +243,10 @@ func TestUsageRecorder_RoleFromAgentBoundary(t *testing.T) {
 	ctx = h.OnStart(ctx, cm, &model.CallbackInput{})
 	h.OnEnd(ctx, cm, &model.CallbackOutput{TokenUsage: &model.TokenUsage{PromptTokens: 10, CompletionTokens: 5}})
 
-	if sink.count != 1 {
+	if sink.Count() != 1 {
 		t.Fatalf("应落 1 行")
 	}
-	if sink.got.Role != "exploitation" {
-		t.Errorf("role 应取 Agent 边界名 exploitation，得到 %q", sink.got.Role)
+	if sink.Got().Role != "exploitation" {
+		t.Errorf("role 应取 Agent 边界名 exploitation，得到 %q", sink.Got().Role)
 	}
 }

@@ -10,6 +10,7 @@ tools:
   - search_corpus
   - write_corpus
   - write_lead
+  - mark_insight
   - replay_traffic
   - list_traffic
   - view_traffic
