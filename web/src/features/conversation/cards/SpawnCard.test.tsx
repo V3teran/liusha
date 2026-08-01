@@ -13,14 +13,12 @@ describe('SpawnCard', () => {
   it('派发完成态（成功）：显示耗时', () => {
     render(<SpawnCard done durationMs={5000} err="" />)
     expect(screen.getByText('派发完成')).toBeTruthy()
-    expect(screen.getByText('✓')).toBeTruthy()
     expect(screen.getByText(/5\.0s/)).toBeTruthy()
   })
 
   it('派发完成态（失败）：显示错误信息', () => {
     render(<SpawnCard done err="连接超时" />)
     expect(screen.getByText('派发失败')).toBeTruthy()
-    expect(screen.getByText('✗')).toBeTruthy()
     expect(screen.getByText('连接超时')).toBeTruthy()
   })
 

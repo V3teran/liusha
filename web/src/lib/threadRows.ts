@@ -1,8 +1,8 @@
 import type { Message } from '../api/types'
 import { classifyMessage, isCollapsibleTool } from './messageKind'
 
-// threadRows：把有序消息流分组成可渲染的「行」——ChatThread（气泡版）与 TimelineThread（轨迹版）
-// 共用这份分组逻辑，避免两处渲染各写一遍分歧。
+// threadRows：把有序消息流分组成可渲染的「行」——TimelineThread（活动时间轴）消费这份分组，
+// 分组逻辑与渲染解耦，便于独立测试。
 //
 // 分组规则：
 //   - reasoning(想)/spawn(派发)/spawn-done/finding(漏洞)/user/assistant 各自独立成 msg 行；
