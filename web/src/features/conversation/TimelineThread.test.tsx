@@ -48,12 +48,16 @@ describe('TimelineThread', () => {
     expect(screen.getByText(/1 次工具调用/)).toBeTruthy()
   })
 
-  it('子代理的工具组缩进（ml-[26px]）', () => {
+  // 方案 A：子代理缩进由 RailNode 的三列栅格承载（grid-cols-[14px_26px_1fr]，首列为配色连接线）。
+  const SUB_GRID = '.grid-cols-\\[14px_26px_1fr\\]'
+
+  it('子代理的工具组缩进（三列栅格连接线）', () => {
     const s = useConversationStore.getState()
     s.ingest(userMsg(1, 'hi'))
-    s.ingest(toolCallMsg(2, 'exploitation'))
+    s.ingest(reasoningMsg(2, 'orchestrator', '分派')) // 编排模式：存在调度者
+    s.ingest(toolCallMsg(3, 'exploitation'))
     const { container } = render(<TimelineThread />)
-    const row = container.querySelector('.ml-\\[26px\\]')
+    const row = container.querySelector(SUB_GRID)
     expect(row).toBeTruthy()
     expect(row?.textContent).toContain('1 次工具调用')
   })
@@ -63,37 +67,39 @@ describe('TimelineThread', () => {
     s.ingest(userMsg(1, 'hi'))
     s.ingest(toolCallMsg(2, 'orchestrator'))
     const { container } = render(<TimelineThread />)
-    expect(container.querySelector('.ml-\\[26px\\]')).toBeFalsy()
+    expect(container.querySelector(SUB_GRID)).toBeFalsy()
   })
 
-  it('root 消息（user）不缩进、不带 agent 标签', () => {
+  it('子代理 reasoning 行带 agent 标签 + 配色连接线（三列栅格）', () => {
     const s = useConversationStore.getState()
     s.ingest(userMsg(1, 'hi'))
+    s.ingest(reasoningMsg(2, 'orchestrator', '分派')) // 编排模式：存在调度者
+    s.ingest(reasoningMsg(3, 'reconnaissance', '扫端口'))
     const { container } = render(<TimelineThread />)
-    expect(container.querySelector('.ml-\\[26px\\]')).toBeFalsy()
+    expect(screen.getAllByText('侦察').length).toBeGreaterThan(0) // ReasoningCard 内 agentLabel
+    expect(container.querySelector(SUB_GRID)).toBeTruthy()
   })
 
-  it('子代理 reasoning 行带 agent 标签徽章 + 彩色左边框', () => {
-    const s = useConversationStore.getState()
-    s.ingest(userMsg(1, 'hi'))
-    s.ingest(reasoningMsg(2, 'reconnaissance', '扫端口'))
-    const { container } = render(<TimelineThread />)
-    expect(screen.getAllByText('侦察').length).toBeGreaterThan(0) // agentLabel('reconnaissance')
-    const borderEl = container.querySelector('.border-l-2')
-    expect(borderEl).toBeTruthy()
-    expect((borderEl as HTMLElement).style.borderColor).toBeTruthy()
-  })
-
-  it('orchestrator reasoning 行不带行级 agent 标签徽章（不缩进，无竖条）', () => {
+  it('orchestrator reasoning 行不缩进（无子代理三列栅格）', () => {
     const s = useConversationStore.getState()
     s.ingest(userMsg(1, 'hi'))
     s.ingest(reasoningMsg(2, 'orchestrator', '分派任务'))
     const { container } = render(<TimelineThread />)
-    // 行级缩进容器（sub && '-ml-0.5 border-l-2 pl-3'）不存在——orchestrator 不算子代理。
-    expect(container.querySelector('.border-l-2')).toBeFalsy()
+    expect(container.querySelector(SUB_GRID)).toBeFalsy()
   })
 
-  it('流式推理气泡：liveReasoning 设置时展示带 agent 配色的活动节点', () => {
+  it('passive 单 agent 模式：无 orchestrator 时主 agent（traffic-analysis）不缩进', () => {
+    const s = useConversationStore.getState()
+    s.ingest(userMsg(1, 'hi'))
+    s.ingest(reasoningMsg(2, 'traffic-analysis', '分析流量'))
+    s.ingest(toolCallMsg(3, 'traffic-analysis'))
+    const { container } = render(<TimelineThread />)
+    // 无调度者 → 不构成主从关系 → 平铺，不出现子代理三列栅格。
+    expect(container.querySelector(SUB_GRID)).toBeFalsy()
+    expect(screen.getAllByText('流量分析').length).toBeGreaterThan(0)
+  })
+
+  it('流式推理节点：liveReasoning 设置时展示带 agent 配色的活动节点', () => {
     const s = useConversationStore.getState()
     s.appendReasoningDelta('分析中…', 'traffic-analysis')
     const { container } = render(<TimelineThread />)
@@ -102,24 +108,44 @@ describe('TimelineThread', () => {
     expect(screen.getAllByText('流量分析').length).toBeGreaterThan(0)
   })
 
-  it('流式推理气泡为子代理时也缩进 + 带边框', () => {
+  it('流式推理节点为子代理时也缩进（三列栅格）', () => {
     const s = useConversationStore.getState()
+    s.ingest(reasoningMsg(1, 'orchestrator', '分派')) // 编排模式：存在调度者
     s.appendReasoningDelta('分析中…', 'exploitation')
     const { container } = render(<TimelineThread />)
-    const liveRow = container.querySelector('[aria-hidden="true"]')
-    expect(liveRow?.className).toContain('ml-[26px]')
+    const liveRow = container.querySelector('[data-live-node]')
+    expect(liveRow?.querySelector(SUB_GRID)).toBeTruthy()
   })
 
-  it('流式推理气泡为 orchestrator 时不缩进', () => {
+  it('流式推理节点为 orchestrator 时不缩进', () => {
     const s = useConversationStore.getState()
     s.appendReasoningDelta('派发任务…', 'orchestrator')
     const { container } = render(<TimelineThread />)
-    const liveRow = container.querySelector('[aria-hidden="true"]')
-    expect(liveRow?.className).not.toContain('ml-[26px]')
+    const liveRow = container.querySelector('[data-live-node]')
+    expect(liveRow?.querySelector(SUB_GRID)).toBeFalsy()
   })
 
   it('无 liveReasoning 时不渲染活动节点', () => {
     const { container } = render(<TimelineThread />)
-    expect(container.querySelector('[aria-hidden="true"]')).toBeFalsy()
+    expect(container.querySelector('[data-live-node]')).toBeFalsy()
+  })
+
+  it('user 消息走右侧指令块（CommandBlock），不进左侧导轨', () => {
+    const s = useConversationStore.getState()
+    s.ingest(userMsg(1, '扫这个目标'))
+    const { container } = render(<TimelineThread />)
+    // 指令块标题「指令」存在；不应有导轨图标点（h-[26px] w-[26px]），user 不占用导轨。
+    expect(screen.getByText('指令')).toBeTruthy()
+    expect(screen.getByText('扫这个目标')).toBeTruthy()
+    expect(container.querySelector('.h-\\[26px\\].w-\\[26px\\]')).toBeFalsy()
+  })
+
+  it('reasoning 等过程节点走图标导轨（含 26px 图标点）', () => {
+    const s = useConversationStore.getState()
+    s.ingest(userMsg(1, 'hi'))
+    s.ingest(reasoningMsg(2, 'orchestrator', '分析'))
+    const { container } = render(<TimelineThread />)
+    // 过程节点保留语义图标点（Brain 等），验证导轨未被误删。
+    expect(container.querySelector('.h-\\[26px\\].w-\\[26px\\]')).toBeTruthy()
   })
 })

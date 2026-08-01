@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { ChevronRight } from 'lucide-react'
 import { agentAccent, agentLabel } from '@/lib/agentColor'
 import { cn } from '@/lib/utils'
 
@@ -35,13 +36,13 @@ export function ToolCallCard({ tool, args, agentName }: ToolCallCardProps) {
           'hover:border-accent',
         )}
       >
-        <span className={cn('text-[11px] text-muted transition-transform', open && 'rotate-90')}>▸</span>
+        <ChevronRight className={cn('h-3 w-3 text-muted transition-transform', open && 'rotate-90')} strokeWidth={2.5} />
         <span className="h-1.5 w-1.5 rounded-full bg-accent" />
         <span className="text-muted">调用</span>
         <code className="font-mono font-semibold text-accent">{tool}</code>
         {agentName && (
           <span
-            className="rounded px-1.5 py-0 font-mono text-[10.5px]"
+            className="rounded-md px-1.5 py-0 font-mono text-[10.5px]"
             style={{ color: accent.accent, background: accent.soft }}
           >
             {agentLabel(agentName)}

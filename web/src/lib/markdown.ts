@@ -52,10 +52,40 @@ marked.use(
   }),
 )
 
+// GFM 自动链接的裸 URL 规则会吞掉 URL 后紧跟的所有非空格字符（含中文与全角标点），
+// 于是「http://host:port进行全面侦察，产出清单。」被当成一整条超链接。用一个严格的 inline
+// 扩展抢在内置 url tokenizer 之前：URL 只接受合法 ASCII 字符（RFC 3986 子集），遇到中文/
+// 全角标点即截断；再按 GFM 惯例剥除尾部 ASCII 标点。剩余文字回落为普通文本。
+const strictAutolink = {
+  name: 'strictAutolink',
+  level: 'inline' as const,
+  start(src: string) {
+    const i = src.search(/https?:\/\//)
+    return i < 0 ? undefined : i
+  },
+  tokenizer(src: string) {
+    const m = /^https?:\/\/[A-Za-z0-9._~:/?#[\]@!$&'()*+,;=%-]*/.exec(src)
+    if (!m) return undefined
+    let url = m[0]
+    // 剥除句尾 ASCII 标点（. , ; : ! ?），它们不该并入链接（GFM 同样这么处理）。
+    const trail = /[.,;:!?]+$/.exec(url)
+    if (trail) url = url.slice(0, url.length - trail[0].length)
+    if (url.length <= 'https://'.length) return undefined // 只剩协议头，非有效 URL
+    return {
+      type: 'link',
+      raw: url,
+      href: url,
+      text: url,
+      tokens: [{ type: 'text', raw: url, text: url }],
+    }
+  },
+}
+
+marked.use({ extensions: [strictAutolink] })
 marked.setOptions({ breaks: true, gfm: true })
 
 // renderMarkdown 把 markdown 文本转成安全 HTML 字符串（供 v-html）。
-// 渲染后给每个代码块外包一层带「复制」按钮的容器（源码存 data-code，供 ChatThread 事件委托读取）。
+// 渲染后给每个代码块外包一层带「复制」按钮的容器（源码存 data-code，供 Markdown 组件事件委托读取）。
 export function renderMarkdown(src: string): string {
   if (!src) return ''
   const raw = marked.parse(src, { async: false }) as string
