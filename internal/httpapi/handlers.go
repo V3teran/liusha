@@ -98,10 +98,10 @@ func deleteCredentialHandler(api CredentialsAPI) gin.HandlerFunc {
 	}
 }
 
-// listSessionsHandler 处理 GET /session?limit=<optional>。
+// listTasksHandler 处理 GET /tasks?limit=<optional>。
 // 返回最近 N 个 task 摘要，前端用作下拉选择。
 // 按 host 查找请改走 finding/flow 子资源接口。
-func listSessionsHandler(api TaskAPI) gin.HandlerFunc {
+func listTasksHandler(api TaskAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		limit := 0
 		if v := c.Query("limit"); v != "" {
@@ -113,14 +113,14 @@ func listSessionsHandler(api TaskAPI) gin.HandlerFunc {
 			c.JSON(500, gin.H{"error": err.Error()})
 			return
 		}
-		c.JSON(200, gin.H{"sessions": list})
+		c.JSON(200, gin.H{"tasks": list})
 	}
 }
 
-// abortHandler 把指定 task 置为 aborted。
+// abortTaskHandler 把指定 task 置为 aborted。
 // 底层 store 对未知 ID 当前返回成功（UPDATE 影响 0 行），保持原语义；
 // 如需 404 区分需调用方先 GetByID，本层不强加策略。
-func abortHandler(api TaskAPI) gin.HandlerFunc {
+func abortTaskHandler(api TaskAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id := c.Param("id")
 		if id == "" {

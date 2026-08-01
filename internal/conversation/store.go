@@ -133,9 +133,20 @@ func (s *Store) WallclockMs(ctx context.Context, convID string) (int64, error) {
 	return *ms, nil
 }
 
-// ListConversations 按 updated_at DESC 列出最近活跃的会话（UI 列表）。
-func (s *Store) ListConversations(ctx context.Context, limit int) ([]Conversation, error) {
+// ListConversations 按 updated_at DESC 分页列出会话（UI 列表）。offset<0 视为 0。
+// mode 非空时按关联 task.mode 过滤（"active"/"passive"）——分页边界必须建立在过滤后的集合上，
+// 否则「前端按 mode 过滤 + 后端按 offset 翻页」两者独立计数会导致页码与实际条数错位。
+//
+// 翻页用 offset（非 keyset 游标）：会话排序键是 updated_at，活跃会话会被追加消息"顶到最前"、
+// 破坏单调性——不像 llm_invocation 按自增 id 排序那样能用 keyset。这个数据量级（个人工具，
+// 不是海量 feed）offset 分页足够，也更简单：翻页时排序小幅重排是可接受的权衡。
+//
+// hasMore 判定用「多取一条」（LIMIT limit+1），不额外发 COUNT 查询。
+func (s *Store) ListConversations(ctx context.Context, limit, offset int, mode string) ([]Conversation, bool, error) {
 	limit = clampLimit(limit)
+	if offset < 0 {
+		offset = 0
+	}
 	// run_status：派生「真实运行态」——取关联 task.status（active/completed/aborted）。
 	// 无关联 task（纯聊天）→ 空串。前端列表据此显示准确状态。
 	rows, err := s.pool.Query(ctx, `
@@ -146,9 +157,10 @@ func (s *Store) ListConversations(ctx context.Context, limit int) ([]Conversatio
 			COALESCE((SELECT count(*) FROM finding f WHERE f.task_id = c.task_id), 0) AS finding_count
 		FROM conversation c
 		LEFT JOIN task t ON t.id = c.task_id
-		ORDER BY c.updated_at DESC LIMIT $1`, limit)
+		WHERE ($3 = '' OR t.mode = $3)
+		ORDER BY c.updated_at DESC LIMIT $1 OFFSET $2`, limit+1, offset, mode)
 	if err != nil {
-		return nil, fmt.Errorf("list conversations: %w", err)
+		return nil, false, fmt.Errorf("list conversations: %w", err)
 	}
 	defer rows.Close()
 
@@ -156,11 +168,18 @@ func (s *Store) ListConversations(ctx context.Context, limit int) ([]Conversatio
 	for rows.Next() {
 		var c Conversation
 		if err := scanConversationWithRun(rows, &c); err != nil {
-			return nil, fmt.Errorf("scan conversation: %w", err)
+			return nil, false, fmt.Errorf("scan conversation: %w", err)
 		}
 		out = append(out, c)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, false, err
+	}
+	hasMore := len(out) > limit
+	if hasMore {
+		out = out[:limit]
+	}
+	return out, hasMore, nil
 }
 
 // SetTitle 回填会话标题（首条消息摘要）。空 title 存 NULL。
@@ -204,6 +223,23 @@ func (s *Store) AppendMessage(ctx context.Context, convID string, role Role, kin
 	// ——省掉热路径上每事件的第二次同步写。
 	if kind != KindEvent {
 		_, _ = s.pool.Exec(ctx, "UPDATE conversation SET updated_at=now() WHERE id=$1", convID)
+	}
+	return m, nil
+}
+
+// GetMessage 按 id 取单条消息，用于「点开节点看原文」按需拉取——调用方（如执行图详情面板）
+// 只需要 selected.ref 指向的这一条正文，不必像 ListMessages 那样翻页拉整段会话历史。
+// convID 一并校验：防止跨会话用别处泄漏的 message id 越权读取到其他会话的内容。
+// 未找到（id 不存在 / 不属于该会话）返回 pgx.ErrNoRows，调用方按需转 404。
+func (s *Store) GetMessage(ctx context.Context, convID, msgID string) (Message, error) {
+	row := s.pool.QueryRow(ctx,
+		"SELECT "+msgCols+" FROM message WHERE conversation_id=$1 AND id=$2", convID, msgID)
+	var m Message
+	if err := scanMessage(row, &m); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return Message{}, err
+		}
+		return Message{}, fmt.Errorf("get message %s of %s: %w", msgID, convID, err)
 	}
 	return m, nil
 }

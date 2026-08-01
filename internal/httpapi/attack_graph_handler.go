@@ -2,6 +2,8 @@ package httpapi
 
 import (
 	"context"
+	"errors"
+	"net/http"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -25,7 +27,7 @@ func attackGraphHandler(api AttackGraphAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		tid := c.Param("task_id")
 		if tid == "" {
-			c.JSON(400, gin.H{"error": "task_id required"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "task_id required"})
 			return
 		}
 		conv := c.Query("conv")
@@ -33,15 +35,18 @@ func attackGraphHandler(api AttackGraphAPI) gin.HandlerFunc {
 		g, err := api.Project(c.Request.Context(), conv, tid)
 		if err != nil {
 			msg := err.Error()
-			// task / 会话不存在 → 404，让前端区分"没了"与"服务器真坏"
+			// task / 会话不存在 → 404，让前端区分"没了"与"服务器真坏"。
+			// 当前 Project 链路里 ResolveConvByTask 已把 pgx.ErrNoRows 吞成空 convID（不报错），
+			// ListMessages/ListByTask 走 Query 而非 QueryRow，此分支理论上不会命中——
+			// 保留作防御性兜底（底层实现变化时不静默降级成 500），不视为主要错误路径。
 			if strings.Contains(msg, "no rows in result set") {
-				c.JSON(404, gin.H{"error": msg, "task_id": tid})
+				c.JSON(http.StatusNotFound, gin.H{"error": msg, "task_id": tid})
 				return
 			}
-			c.JSON(500, gin.H{"error": msg})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": msg})
 			return
 		}
-		c.JSON(200, g)
+		c.JSON(http.StatusOK, g)
 	}
 }
 
@@ -53,24 +58,22 @@ func attackGraphMilestonesHandler(api AttackGraphAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		tid := c.Param("task_id")
 		if tid == "" {
-			c.JSON(400, gin.H{"error": "task_id required"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "task_id required"})
 			return
 		}
 		conv := c.Query("conv")
 		ms, err := api.ProjectMilestones(c.Request.Context(), conv, tid)
 		if err != nil {
-			msg := err.Error()
-			if strings.Contains(msg, "未配置 LLM") {
-				c.JSON(503, gin.H{"error": msg}) // 服务未配 LLM
-				return
+			switch {
+			case errors.Is(err, attackgraph.ErrNoSummarizer):
+				c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()}) // 服务未配 LLM
+			case errors.Is(err, attackgraph.ErrNoConversation):
+				c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			default:
+				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			}
-			if strings.Contains(msg, "无会话") {
-				c.JSON(400, gin.H{"error": msg})
-				return
-			}
-			c.JSON(500, gin.H{"error": msg})
 			return
 		}
-		c.JSON(200, gin.H{"milestones": ms})
+		c.JSON(http.StatusOK, gin.H{"milestones": ms})
 	}
 }

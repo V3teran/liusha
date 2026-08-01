@@ -72,24 +72,19 @@ func TestProjectorProject(t *testing.T) {
 		var msgs []conversation.Message
 		n := messagePageSize + 3 // 跨两页，验证翻页循环拉尽
 		for i := 0; i < n; i++ {
-			m := mkEventMsg(fmt.Sprintf("m%d", i), evReasoning, map[string]any{"Text": "想"})
+			m := mkEventMsg(fmt.Sprintf("m%d", i), evReasoning, map[string]any{"AgentName": "orchestrator", "Text": "想"})
 			m.Seq = int64(i + 1)
 			msgs = append(msgs, m)
 		}
-		p := &Projector{Messages: &fakeMessages{msgs: msgs}, Findings: &fakeFindings{}}
+		fm := &fakeMessages{msgs: msgs}
+		p := &Projector{Messages: fm, Findings: &fakeFindings{}}
 
-		g, err := p.Project(ctx, "conv-1", "task-1")
-		if err != nil {
+		if _, err := p.Project(ctx, "conv-1", "task-1"); err != nil {
 			t.Fatal(err)
 		}
-		reasoning := 0
-		for _, nd := range g.Nodes {
-			if nd.Kind == KindReasoning {
-				reasoning++
-			}
-		}
-		if reasoning != n {
-			t.Errorf("想节点=%d，期望 %d（翻页未拉全）", reasoning, n)
+		// 翻页循环：第一页满（messagePageSize 条）→ 继续；第二页 3 条不足页 → 收尾。共 2 次 List。
+		if fm.calls != 2 {
+			t.Errorf("ListMessages 调用=%d 次，期望 2（跨两页拉尽）", fm.calls)
 		}
 	})
 
@@ -126,11 +121,14 @@ func TestProjectorProject(t *testing.T) {
 	})
 
 	t.Run("空 convID 注入 Conv 时自解析", func(t *testing.T) {
-		msg := mkEventMsg("m1", evReasoning, map[string]any{"Text": "想"})
-		msg.Seq = 1
+		// 一次工具调用 → 骨架出一个探测节点，据此证明自解析后确实拉到并投影了会话事件。
+		call := mkEventMsg("t1", evToolCall, map[string]any{"AgentName": "orchestrator", "ToolName": "nmap", "CallID": "c1"})
+		call.Seq = 1
+		res := mkEventMsg("r1", evToolResult, map[string]any{"AgentName": "orchestrator", "ToolName": "nmap", "CallID": "c1"})
+		res.Seq = 2
 		fc := &fakeConv{convByTask: map[string]string{"task-x": "conv-resolved"}, running: true}
 		p := &Projector{
-			Messages: &fakeMessages{msgs: []conversation.Message{msg}},
+			Messages: &fakeMessages{msgs: []conversation.Message{call, res}},
 			Findings: &fakeFindings{},
 			Conv:     fc,
 		}
@@ -147,14 +145,14 @@ func TestProjectorProject(t *testing.T) {
 		if !g.Running {
 			t.Error("期望 Running=true（task 运行中）")
 		}
-		reasoning := 0
+		probes := 0
 		for _, nd := range g.Nodes {
-			if nd.Kind == KindReasoning {
-				reasoning++
+			if nd.Kind == KindProbe {
+				probes++
 			}
 		}
-		if reasoning != 1 {
-			t.Errorf("自解析后应拉到会话思维链，想节点=%d", reasoning)
+		if probes != 1 {
+			t.Errorf("自解析后应拉到会话事件并投影出探测，探测节点=%d", probes)
 		}
 	})
 

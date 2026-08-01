@@ -12,6 +12,7 @@ tools:
   - search_corpus
   - write_corpus
   - write_lead
+  - mark_insight
   - list_traffic
   - view_traffic
   - replay_traffic

@@ -54,6 +54,10 @@ var toolRegistry = map[string]toolBuilder{
 	"done": func(c ToolBuildCtx) (tool.BaseTool, error) {
 		return einotools.BuildDone()
 	},
+	// mark_insight：agent 自标关键判断/发现，喂执行图第二趟语义提炼（无副作用，事件由 middleware 发）。
+	"mark_insight": func(c ToolBuildCtx) (tool.BaseTool, error) {
+		return einotools.BuildMarkInsight()
+	},
 
 	// 流量字典（active：读自产 agent_traffic，按 task_id）
 	"replay_traffic": func(c ToolBuildCtx) (tool.BaseTool, error) {

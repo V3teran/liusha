@@ -1,0 +1,71 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" fill="none">
+  <defs>
+    <!-- 令牌底色：近黑，融入深色 UI 背景 -->
+    <radialGradient id="hexBg">
+      <stop offset="0%" style="stop-color:#1a1a1a;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#050505;stop-opacity:1" />
+    </radialGradient>
+
+    <!-- 黑金主渐变：边框、沙漏、内圈通用 -->
+    <linearGradient id="gold" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#f5d491;stop-opacity:1" />
+      <stop offset="45%" style="stop-color:#d4af37;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#6b4a0a;stop-opacity:1" />
+    </linearGradient>
+
+    <!-- 流沙纹渐变：两端淡出，中段最亮 -->
+    <linearGradient id="sandGold" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#6b4a0a;stop-opacity:0" />
+      <stop offset="50%" style="stop-color:#f0c869;stop-opacity:0.9" />
+      <stop offset="100%" style="stop-color:#6b4a0a;stop-opacity:0" />
+    </linearGradient>
+
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="1.5" result="b" />
+      <feMerge>
+        <feMergeNode in="b" />
+        <feMergeNode in="SourceGraphic" />
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- 六边形令牌 -->
+  <polygon
+    points="110,60 85,103.3 35,103.3 10,60 35,16.7 85,16.7"
+    fill="url(#hexBg)"
+    stroke="url(#gold)"
+    stroke-width="2.5"
+  />
+  <circle cx="60" cy="60" r="37" fill="none" stroke="url(#gold)" stroke-width="1" opacity="0.3" />
+
+  <!-- 流沙纹：三道流动线，呼应组织名 -->
+  <g opacity="0.85">
+    <path d="M 22 40 Q 41 37 60 40 Q 79 43 98 40" stroke="url(#sandGold)" stroke-width="2" fill="none" stroke-linecap="round">
+      <animate attributeName="d"
+        values="M 22 40 Q 41 37 60 40 Q 79 43 98 40;M 22 40 Q 41 43 60 40 Q 79 37 98 40;M 22 40 Q 41 37 60 40 Q 79 43 98 40"
+        dur="5s" repeatCount="indefinite" />
+    </path>
+    <path d="M 20 60 Q 40 57 60 60 Q 80 63 100 60" stroke="url(#sandGold)" stroke-width="1.5" fill="none" stroke-linecap="round" opacity="0.6">
+      <animate attributeName="d"
+        values="M 20 60 Q 40 57 60 60 Q 80 63 100 60;M 20 60 Q 40 63 60 60 Q 80 57 100 60;M 20 60 Q 40 57 60 60 Q 80 63 100 60"
+        dur="6s" begin="0.3s" repeatCount="indefinite" />
+    </path>
+    <path d="M 22 80 Q 41 83 60 80 Q 79 77 98 80" stroke="url(#sandGold)" stroke-width="2" fill="none" stroke-linecap="round">
+      <animate attributeName="d"
+        values="M 22 80 Q 41 83 60 80 Q 79 77 98 80;M 22 80 Q 41 77 60 80 Q 79 83 98 80;M 22 80 Q 41 83 60 80 Q 79 77 98 80"
+        dur="5s" begin="0.6s" repeatCount="indefinite" />
+    </path>
+  </g>
+
+  <!-- 沙漏：聚散流沙——上虚下实，喻沙已流尽、聚散无常 -->
+  <g filter="url(#glow)">
+    <rect x="46" y="36" width="28" height="3" rx="1.2" fill="url(#gold)" />
+    <rect x="46" y="81" width="28" height="3" rx="1.2" fill="url(#gold)" />
+    <polygon points="48,39 72,39 60,58.5" fill="none" stroke="url(#gold)" stroke-width="1.6" />
+    <polygon points="48,81 72,81 60,61.5" fill="url(#gold)" />
+    <circle cx="60" cy="60" r="1.4" fill="#f5d491">
+      <animate attributeName="cy" values="58.5;61.5;58.5" dur="2.2s" repeatCount="indefinite" />
+      <animate attributeName="opacity" values="1;0.3;1" dur="2.2s" repeatCount="indefinite" />
+    </circle>
+  </g>
+</svg>

@@ -1,6 +1,7 @@
 # liusha v1 docker-compose
-# 5 个 service：postgres / redis / api / proxy / scanner（+ vulnapp e2e profile）
-# 默认起 postgres/redis/api；用 --profile e2e 起完整栈（含 proxy + scanner + vulnapp）。
+# 6 个 service：postgres / redis / api / nginx / proxy / scanner（+ vulnapp e2e profile）
+# 默认起 postgres/redis/api/nginx；用 --profile e2e 起完整栈（含 proxy + scanner + vulnapp）。
+# nginx 前置：/ → 前端 SPA，/api/* → api:8080（前端源码在仓库根 web/，同仓 monorepo）。
 # proxy（cmd/proxy）：内嵌 proxify SDK 的 MITM + filter/dedup/aggregator + Asynq 生产者，监听 8888。
 # scanner（cmd/scanner）：Asynq 消费者 + ReAct 引擎，监听 9090（healthz）。
 # 业界最佳实践：proxy 与 worker 独立进程，故障隔离 + 独立扩缩。
@@ -79,6 +80,25 @@ services:
       - "8080:8080"
     healthcheck:
       test: ["CMD", "wget", "-qO-", "--header=X-API-Key: ${LIUSHA_API_KEY:-changeme-dev-key}", "http://localhost:8080/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  # nginx：前置反代 + 前端 SPA 托管。/ → web/dist（多阶段构建内嵌），/api/* → api:8080。
+  # 前端源码在仓库根 web/，与后端同仓（monorepo）。SSE 端点在 nginx.conf 里单独关缓冲。
+  nginx:
+    image: liusha/nginx
+    build:
+      context: ..
+      dockerfile: deployments/nginx/Dockerfile
+    container_name: liusha-nginx
+    ports:
+      - "80:80"
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:80/"]
       interval: 10s
       timeout: 3s
       retries: 3

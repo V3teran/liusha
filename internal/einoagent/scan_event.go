@@ -42,16 +42,25 @@ const (
 	// ScanEventCompaction：上下文压缩发生（老 turn 蒸馏成 1 条摘要，防 context 爆）。
 	// Text=蒸馏摘要正文。前端「压缩卡」展示「这里压缩了 N 条历史」，让用户对长会话的上下文裁剪有感知。
 	ScanEventCompaction ScanEventKind = "compaction"
+	// ScanEventInsight：agent 调 mark_insight 主动标记「关键判断 / 关键发现」（执行图第二趟提炼最可靠来源）。
+	// Args 含 {type, text, dead_end}——判断还是信号、一句话摘要、是否死路。投影时成 hypothesis / signal 节点
+	// （Provenance=agent）。不落业务表、不跑工具体逻辑，纯语义信号（同 spawn 由本工具调用捕获而来）。
+	ScanEventInsight ScanEventKind = "insight"
 )
 
 // deepTaskToolName 是 eino deep prebuilt 自带的派活工具名（orchestrator 经它 spawn 子代理）。
 // vendor 私有常量，值实测为 "task"（见 message 落库 ToolName）。
 const deepTaskToolName = "task"
 
+// markInsightToolName 是 agent 自标关键节点的工具名（见 einotools.BuildMarkInsight）。
+// 它经 WrapToolCall 捕获成 ScanEventInsight，故不发常规 tool_call/tool_result（否则会污染探测聚合）。
+const markInsightToolName = "mark_insight"
+
 // ScanEvent 是一次 agent 运行中的过程事件（liusha 自有，不依赖 eino 细节）。
 type ScanEvent struct {
 	Kind       ScanEventKind
 	ToolName   string // 工具名（run_command / write_finding / task / ...）
+	CallID     string // 本次工具调用的唯一 id（eino ToolInput.CallID），tool_call/tool_result 配对键
 	Args       string // tool_call 的入参（JSON 文本）
 	Result     string // tool_result 的结果（截断预览）
 	DurationMs int    // tool_result 的执行耗时
@@ -70,12 +79,30 @@ type EventSink interface {
 
 // toolCallEvent 按工具名造 tool_call 事件；deep 的 task 工具特殊化为 spawn（派子代理）。
 // 带 ctx 读 agent 名（与 reasoning 同源 agentNameFromCtx），让前端工具卡也能按主/子 agent 区分。
-func toolCallEvent(ctx context.Context, name, args string) ScanEvent {
+// callID 是本次调用的唯一 id（eino ToolInput.CallID），供 tool_result 回填时精确配对
+// （同名工具并发调用时，仅凭 ToolName 配对会错配到别的调用——callID 是唯一可靠键）。
+func toolCallEvent(ctx context.Context, name, args, callID string) ScanEvent {
 	an := agentNameFromCtx(ctx)
 	if name == deepTaskToolName {
-		return ScanEvent{Kind: ScanEventSpawn, ToolName: name, Args: args, AgentName: an}
+		return ScanEvent{Kind: ScanEventSpawn, ToolName: name, Args: args, AgentName: an, CallID: callID}
 	}
-	return ScanEvent{Kind: ScanEventToolCall, ToolName: name, Args: args, AgentName: an}
+	return ScanEvent{Kind: ScanEventToolCall, ToolName: name, Args: args, AgentName: an, CallID: callID}
+}
+
+// emitToolCall 发工具调用的「前置」事件；mark_insight 特殊化——不发 tool_call/tool_result 对，
+// 改在成功执行后发单条 ScanEventInsight（见 emitToolResult），避免污染探测（probe）聚合。
+// 返回 true 表示已按常规发了前置事件（调用方据此决定是否发后置结果事件）。
+func emitToolCall(ctx context.Context, sink EventSink, name, args, callID string) bool {
+	if name == markInsightToolName {
+		return false // insight 事件延到执行成功后发
+	}
+	sink.OnScanEvent(ctx, toolCallEvent(ctx, name, args, callID))
+	return true
+}
+
+// insightEvent 从 mark_insight 入参造 ScanEventInsight（args 原样透传，投影侧解析 {type,text,dead_end}）。
+func insightEvent(ctx context.Context, args, callID string) ScanEvent {
+	return ScanEvent{Kind: ScanEventInsight, ToolName: markInsightToolName, Args: args, AgentName: agentNameFromCtx(ctx), CallID: callID}
 }
 
 // NewEventEmitter 造 WrapToolCall middleware：每次工具调用发 tool_call（执行前）+ tool_result
@@ -95,12 +122,23 @@ func NewEventEmitter(sink EventSink) adk.AgentMiddleware {
 			// InferTool 系（write_finding / task / replay_traffic…）走 Invokable。
 			Invokable: func(next compose.InvokableToolEndpoint) compose.InvokableToolEndpoint {
 				return func(ctx context.Context, in *compose.ToolInput) (*compose.ToolOutput, error) {
-					sink.OnScanEvent(ctx, toolCallEvent(ctx, in.Name, in.Arguments))
+					emitted := emitToolCall(ctx, sink, in.Name, in.Arguments, in.CallID)
 					start := time.Now()
 					out, err := next(ctx, in)
+					// mark_insight：仅在成功执行后发单条 insight 事件（失败不成图）。
+					if in.Name == markInsightToolName {
+						if err == nil {
+							sink.OnScanEvent(ctx, insightEvent(ctx, in.Arguments, in.CallID))
+						}
+						return out, err
+					}
+					if !emitted {
+						return out, err
+					}
 					ev := ScanEvent{
 						Kind:       ScanEventToolResult,
 						ToolName:   in.Name,
+						CallID:     in.CallID,
 						AgentName:  agentNameFromCtx(ctx),
 						DurationMs: int(time.Since(start).Milliseconds()),
 					}
@@ -117,12 +155,13 @@ func NewEventEmitter(sink EventSink) adk.AgentMiddleware {
 			// run_command 走 EnhancedInvokable（多模态 ToolResult），text part 拼成预览。
 			EnhancedInvokable: func(next compose.EnhancedInvokableToolEndpoint) compose.EnhancedInvokableToolEndpoint {
 				return func(ctx context.Context, in *compose.ToolInput) (*compose.EnhancedInvokableToolOutput, error) {
-					sink.OnScanEvent(ctx, toolCallEvent(ctx, in.Name, in.Arguments))
+					sink.OnScanEvent(ctx, toolCallEvent(ctx, in.Name, in.Arguments, in.CallID))
 					start := time.Now()
 					out, err := next(ctx, in)
 					ev := ScanEvent{
 						Kind:       ScanEventToolResult,
 						ToolName:   in.Name,
+						CallID:     in.CallID,
 						AgentName:  agentNameFromCtx(ctx),
 						DurationMs: int(time.Since(start).Milliseconds()),
 					}

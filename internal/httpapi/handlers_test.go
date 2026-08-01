@@ -234,12 +234,12 @@ func TestCredentialDelete(t *testing.T) {
 	}
 }
 
-func TestSessionAbort(t *testing.T) {
+func TestTaskAbort(t *testing.T) {
 	fa := &fakeAbort{}
 	srv := newTestServer(t, Deps{Tasks: fa})
 	defer srv.Close()
 
-	req, _ := http.NewRequest("POST", srv.URL+"/session/eid-1/abort", nil)
+	req, _ := http.NewRequest("POST", srv.URL+"/tasks/eid-1/abort", nil)
 	req.Header.Set("X-API-Key", "k")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -254,12 +254,12 @@ func TestSessionAbort(t *testing.T) {
 	}
 }
 
-func TestSessionAbort_RequiresAuth(t *testing.T) {
+func TestTaskAbort_RequiresAuth(t *testing.T) {
 	fa := &fakeAbort{}
 	srv := newTestServer(t, Deps{Tasks: fa})
 	defer srv.Close()
 
-	req, _ := http.NewRequest("POST", srv.URL+"/session/eid-1/abort", nil)
+	req, _ := http.NewRequest("POST", srv.URL+"/tasks/eid-1/abort", nil)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("do: %v", err)
