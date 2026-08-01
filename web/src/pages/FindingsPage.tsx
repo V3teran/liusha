@@ -170,7 +170,7 @@ export function FindingsPage() {
               dot={false}
               color={mode === 'passive' ? 'var(--mode-passive)' : 'var(--mode-active)'}
             >
-              {mode === 'passive' ? '流量' : '渗透'}
+              {mode === 'passive' ? '被动' : '主动'}
             </Badge>
           )
         },

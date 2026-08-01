@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { ChevronRight } from 'lucide-react'
 import { agentAccent, agentLabel } from '@/lib/agentColor'
 import { cn } from '@/lib/utils'
 
@@ -44,13 +45,13 @@ export function ToolResultCard({ tool, result, durationMs, err, agentName }: Too
           err && 'border-sev-critical',
         )}
       >
-        <span className={cn('text-[11px] text-muted transition-transform', open && 'rotate-90')}>▸</span>
+        <ChevronRight className={cn('h-3 w-3 flex-shrink-0 text-muted transition-transform', open && 'rotate-90')} strokeWidth={2.5} />
         <span className={cn('h-1.5 w-1.5 flex-shrink-0 rounded-full', err ? 'bg-sev-critical' : 'bg-emerald-500')} />
         <code className="font-mono text-muted">{tool}</code>
         <span className="text-[11px] text-muted">{durationMs}ms</span>
         {agentName && (
           <span
-            className="flex-shrink-0 rounded px-1.5 py-0 font-mono text-[10.5px]"
+            className="flex-shrink-0 rounded-md px-1.5 py-0 font-mono text-[10.5px]"
             style={{ color: accent.accent, background: accent.soft }}
           >
             {agentLabel(agentName)}

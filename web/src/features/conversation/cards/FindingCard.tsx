@@ -30,11 +30,11 @@ export function FindingCard({ args }: FindingCardProps) {
   return (
     <div
       data-card="finding"
-      className="flex items-start gap-3 rounded-lg border border-border border-l-[3px] bg-surface px-3.5 py-3"
+      className="flex items-start gap-3 rounded-[10px] border border-border border-l-[3px] bg-surface px-3.5 py-3"
       style={{ borderLeftColor: tag.textColor }}
     >
       <span
-        className="flex-shrink-0 rounded-[5px] border px-2 py-0.5 font-mono text-[11px] font-bold"
+        className="flex-shrink-0 rounded-md border px-2 py-0.5 font-mono text-[11px] font-bold"
         style={{ background: tag.color, color: tag.textColor, borderColor: tag.borderColor }}
       >
         {sev.toUpperCase()}
@@ -48,9 +48,9 @@ export function FindingCard({ args }: FindingCardProps) {
               {f.target?.path}
             </span>
           )}
-          {f.cwe_id && <span className="rounded bg-surface-2 px-1.5 py-0.5 font-mono text-muted">{f.cwe_id}</span>}
+          {f.cwe_id && <span className="rounded-md bg-surface-2 px-1.5 py-0.5 font-mono text-muted">{f.cwe_id}</span>}
           {f.owasp_category && (
-            <span className="rounded bg-surface-2 px-1.5 py-0.5 font-mono text-muted">{f.owasp_category}</span>
+            <span className="rounded-md bg-surface-2 px-1.5 py-0.5 font-mono text-muted">{f.owasp_category}</span>
           )}
         </div>
       </div>

@@ -8,7 +8,7 @@ interface MarkdownProps {
 }
 
 // 共享的 markdown 富文本渲染：DOMPurify 消毒后的 HTML + 代码块复制事件委托。
-// 供 AssistantText / ReasoningCard 复用（两者渲染逻辑一致，仅外层容器样式不同）。
+// 供答复文字 / ReasoningCard 复用（两者渲染逻辑一致，仅外层容器样式不同）。
 export function Markdown({ content, className }: MarkdownProps) {
   return (
     <div

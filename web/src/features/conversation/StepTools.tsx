@@ -1,14 +1,17 @@
 import { useState } from 'react'
+import { ChevronRight } from 'lucide-react'
 import type { Message } from '@/api/types'
+import { classifyMessage } from '@/lib/messageKind'
 import { cn } from '@/lib/utils'
-import { MessageItem } from './MessageItem'
+import { ToolCallCard } from './cards/ToolCallCard'
+import { ToolResultCard } from './cards/ToolResultCard'
 
 interface StepToolsProps {
   tools: Message[]
 }
 
 // 步内工具折叠：一个 reasoning(想) 之下的若干工具调用默认收起成一行按钮，点击展开。
-// 减少会话流噪音——工具调用细节按需查看；派发/漏洞/想 不进这里（由 ChatThread 留在外面）。
+// 减少会话流噪音——工具调用细节按需查看；派发/漏洞/想 不进这里（由 TimelineThread 留在导轨上）。
 export function StepTools({ tools }: StepToolsProps) {
   const [expanded, setExpanded] = useState(false)
 
@@ -42,7 +45,7 @@ export function StepTools({ tools }: StepToolsProps) {
           'hover:bg-surface hover:text-text',
         )}
       >
-        <span className="w-[9px] text-[10px]">{expanded ? '▾' : '▸'}</span>
+        <ChevronRight className={cn('h-3 w-3 flex-none transition-transform', expanded && 'rotate-90')} strokeWidth={2.5} />
         <span className="font-semibold">{callCount} 次工具调用</span>
         {!expanded && preview && (
           <span className="ml-0.5 max-w-[320px] overflow-hidden truncate font-mono opacity-70">
@@ -52,9 +55,27 @@ export function StepTools({ tools }: StepToolsProps) {
       </button>
       {expanded && (
         <div className="mt-1.5 flex flex-col gap-1.5">
-          {tools.map((t) => (
-            <MessageItem key={t.Seq} msg={t} />
-          ))}
+          {tools.map((t) => {
+            const tag = classifyMessage(t)
+            if (tag === 'tool-call') {
+              return (
+                <ToolCallCard key={t.Seq} tool={t.Metadata?.ToolName || ''} args={t.Metadata?.Args || ''} agentName={t.Metadata?.AgentName} />
+              )
+            }
+            if (tag === 'tool-result') {
+              return (
+                <ToolResultCard
+                  key={t.Seq}
+                  tool={t.Metadata?.ToolName || ''}
+                  result={t.Metadata?.Result || ''}
+                  durationMs={t.Metadata?.DurationMs || 0}
+                  err={t.Metadata?.Err || ''}
+                  agentName={t.Metadata?.AgentName}
+                />
+              )
+            }
+            return null
+          })}
         </div>
       )}
     </div>

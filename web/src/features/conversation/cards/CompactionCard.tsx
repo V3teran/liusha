@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Archive, ChevronRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 interface CompactionCardProps {
@@ -21,8 +22,8 @@ export function CompactionCard({ label, summary }: CompactionCardProps) {
           'hover:border-accent hover:text-text',
         )}
       >
-        <span className={cn('text-[10px] transition-transform', open && 'rotate-90')}>▸</span>
-        <span className="text-xs">🗜</span>
+        <ChevronRight className={cn('h-3 w-3 flex-none transition-transform', open && 'rotate-90')} strokeWidth={2.5} />
+        <Archive className="h-3 w-3 flex-none" strokeWidth={2} />
         <span className="flex-1 text-left">上下文已压缩{label ? ` · ${label}` : ''}</span>
         <span className="text-[11px] opacity-70">{open ? '收起' : '看摘要'}</span>
       </button>
