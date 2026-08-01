@@ -79,8 +79,8 @@ type Node struct {
 	Status   string `json:"status,omitempty"`    // 见上方 Status 常量（按 Kind 适用）
 	OnPath   bool   `json:"on_path"`             // 成果路径：通向某 finding（默认展开）；false=探索/死路，默认折叠
 
-	Provenance string `json:"provenance,omitempty"` // derived / agent / llm
-	Host       string `json:"host,omitempty"`       // 漏洞所属站点（原 Target，老实透传，不再假装是切片键）
+	Provenance string `json:"provenance,omitempty"`  // derived / agent / llm
+	Host       string `json:"host,omitempty"`        // 漏洞所属站点（原 Target，老实透传，不再假装是切片键）
 	DurationMs int    `json:"duration_ms,omitempty"` // probe 执行耗时（原本落库却丢弃，现透传）
 	Tokens     int    `json:"tokens,omitempty"`      // hypothesis 对应推理的 LLM token 数（in+out）
 }
@@ -114,8 +114,8 @@ type Graph struct {
 	// Enriched 表示第二趟 LLM 语义提炼是否已完成。
 	// 实时阶段只出确定性骨架 + agent 自标（Enriched=false，流畅不烧钱）；
 	// 扫描结束/手动刷新补 LLM 提炼后 Enriched=true（完整语义图）。
-	Enriched bool               `json:"enriched"`
-	Nodes    []Node             `json:"nodes"`
-	Edges    []Edge             `json:"edges"`
+	Enriched  bool               `json:"enriched"`
+	Nodes     []Node             `json:"nodes"`
+	Edges     []Edge             `json:"edges"`
 	Collapsed []CollapsedSegment `json:"collapsed,omitempty"` // 折叠段元数据（成果优先视图）
 }

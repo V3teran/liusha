@@ -18,11 +18,11 @@ const knownOrchestratorAgent = "orchestrator"
 
 // 事件 Kind 字面量（对齐 internal/einoagent.ScanEventKind）。
 const (
-	evReasoning = "reasoning"
-	evToolCall  = "tool_call"
+	evReasoning  = "reasoning"
+	evToolCall   = "tool_call"
 	evToolResult = "tool_result"
-	evSpawn     = "spawn"
-	evInsight   = "insight" // mark_insight 工具：agent 自标关键判断/信号（§2 self-mark）
+	evSpawn      = "spawn"
+	evInsight    = "insight" // mark_insight 工具：agent 自标关键判断/信号（§2 self-mark）
 )
 
 // 工具名。
@@ -219,7 +219,7 @@ func (b *builder) handleInsight(msgID, agent string, c *agentCursor, ev traceEve
 			parent = c.task
 		}
 		b.add(Node{ID: msgID, Kind: KindHypothesis, ParentID: parent, Agent: agent, Title: firstLine(in.Text, hypothesisTitleMax), Status: StatusOpen, Provenance: ProvAgent, Ref: msgID})
-		c.attach = msgID            // 后续探测挂到这个判断下
+		c.attach = msgID             // 后续探测挂到这个判断下
 		b.taskHasHypo[c.task] = true // ②已覆盖此任务线，① 不再兜底
 	case insightSignal:
 		parent := c.last
