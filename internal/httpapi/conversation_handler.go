@@ -70,7 +70,7 @@ func rolesHandler(api RolesAPI) gin.HandlerFunc {
 
 // ConversationsAPI 是会话/消息读取窄接口（*conversation.Store 自动满足）。
 type ConversationsAPI interface {
-	ListConversations(ctx context.Context, limit, offset int, mode string) ([]conversation.Conversation, bool, error)
+	ListConversations(ctx context.Context, limit, offset int, scenarioID string) ([]conversation.Conversation, bool, error)
 	ListMessages(ctx context.Context, convID string, afterSeq int64, limit int) ([]conversation.Message, error)
 	GetMessage(ctx context.Context, convID, msgID string) (conversation.Message, error)
 }
@@ -262,13 +262,13 @@ func renameConversationHandler(api ConversationRenamer) gin.HandlerFunc {
 	}
 }
 
-// listConversationsHandler 处理 GET /conversations?limit=&offset=&mode=：分页会话列表（UI 侧栏翻页）。
-// mode 可选（active/passive），空则不过滤——过滤下沉到 SQL，保证分页边界与「当前 tab 下的
+// listConversationsHandler 处理 GET /conversations?limit=&offset=&scenario_id=：分页会话列表（UI 侧栏翻页）。
+// scenario_id 可选，空则不过滤——过滤下沉到 SQL，保证分页边界与「当前场景下的
 // 总条数」一致（若仍由前端在已分页的单页结果上再过滤，页码和条数会对不上）。
 // has_more：本页拉满 limit+1 条时才可能有下一页（store 已裁剪到 limit，见 ListConversations）。
 func listConversationsHandler(api ConversationsAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		convs, hasMore, err := api.ListConversations(c.Request.Context(), parseLimit(c, 30), parseOffset(c), c.Query("mode"))
+		convs, hasMore, err := api.ListConversations(c.Request.Context(), parseLimit(c, 30), parseOffset(c), c.Query("scenario_id"))
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
