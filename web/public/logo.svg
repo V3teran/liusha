@@ -1,71 +1,19 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" fill="none">
-  <defs>
-    <!-- 令牌底色：近黑，融入深色 UI 背景 -->
-    <radialGradient id="hexBg">
-      <stop offset="0%" style="stop-color:#1a1a1a;stop-opacity:1" />
-      <stop offset="100%" style="stop-color:#050505;stop-opacity:1" />
-    </radialGradient>
-
-    <!-- 黑金主渐变：边框、沙漏、内圈通用 -->
-    <linearGradient id="gold" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" style="stop-color:#f5d491;stop-opacity:1" />
-      <stop offset="45%" style="stop-color:#d4af37;stop-opacity:1" />
-      <stop offset="100%" style="stop-color:#6b4a0a;stop-opacity:1" />
-    </linearGradient>
-
-    <!-- 流沙纹渐变：两端淡出，中段最亮 -->
-    <linearGradient id="sandGold" x1="0%" y1="0%" x2="100%" y2="0%">
-      <stop offset="0%" style="stop-color:#6b4a0a;stop-opacity:0" />
-      <stop offset="50%" style="stop-color:#f0c869;stop-opacity:0.9" />
-      <stop offset="100%" style="stop-color:#6b4a0a;stop-opacity:0" />
-    </linearGradient>
-
-    <filter id="glow">
-      <feGaussianBlur stdDeviation="1.5" result="b" />
-      <feMerge>
-        <feMergeNode in="b" />
-        <feMergeNode in="SourceGraphic" />
-      </feMerge>
-    </filter>
-  </defs>
-
-  <!-- 六边形令牌 -->
-  <polygon
-    points="110,60 85,103.3 35,103.3 10,60 35,16.7 85,16.7"
-    fill="url(#hexBg)"
-    stroke="url(#gold)"
-    stroke-width="2.5"
-  />
-  <circle cx="60" cy="60" r="37" fill="none" stroke="url(#gold)" stroke-width="1" opacity="0.3" />
-
-  <!-- 流沙纹：三道流动线，呼应组织名 -->
-  <g opacity="0.85">
-    <path d="M 22 40 Q 41 37 60 40 Q 79 43 98 40" stroke="url(#sandGold)" stroke-width="2" fill="none" stroke-linecap="round">
-      <animate attributeName="d"
-        values="M 22 40 Q 41 37 60 40 Q 79 43 98 40;M 22 40 Q 41 43 60 40 Q 79 37 98 40;M 22 40 Q 41 37 60 40 Q 79 43 98 40"
-        dur="5s" repeatCount="indefinite" />
-    </path>
-    <path d="M 20 60 Q 40 57 60 60 Q 80 63 100 60" stroke="url(#sandGold)" stroke-width="1.5" fill="none" stroke-linecap="round" opacity="0.6">
-      <animate attributeName="d"
-        values="M 20 60 Q 40 57 60 60 Q 80 63 100 60;M 20 60 Q 40 63 60 60 Q 80 57 100 60;M 20 60 Q 40 57 60 60 Q 80 63 100 60"
-        dur="6s" begin="0.3s" repeatCount="indefinite" />
-    </path>
-    <path d="M 22 80 Q 41 83 60 80 Q 79 77 98 80" stroke="url(#sandGold)" stroke-width="2" fill="none" stroke-linecap="round">
-      <animate attributeName="d"
-        values="M 22 80 Q 41 83 60 80 Q 79 77 98 80;M 22 80 Q 41 77 60 80 Q 79 83 98 80;M 22 80 Q 41 83 60 80 Q 79 77 98 80"
-        dur="5s" begin="0.6s" repeatCount="indefinite" />
-    </path>
-  </g>
-
-  <!-- 沙漏：聚散流沙——上虚下实，喻沙已流尽、聚散无常 -->
-  <g filter="url(#glow)">
-    <rect x="46" y="36" width="28" height="3" rx="1.2" fill="url(#gold)" />
-    <rect x="46" y="81" width="28" height="3" rx="1.2" fill="url(#gold)" />
-    <polygon points="48,39 72,39 60,58.5" fill="none" stroke="url(#gold)" stroke-width="1.6" />
-    <polygon points="48,81 72,81 60,61.5" fill="url(#gold)" />
-    <circle cx="60" cy="60" r="1.4" fill="#f5d491">
-      <animate attributeName="cy" values="58.5;61.5;58.5" dur="2.2s" repeatCount="indefinite" />
-      <animate attributeName="opacity" values="1;0.3;1" dur="2.2s" repeatCount="indefinite" />
-    </circle>
-  </g>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" fill="none" role="img" aria-label="流沙 沙齿剑">
+  <!-- 流沙 · 沙齿剑徽记:剑脊阶梯鲨齿 + 犄角护手 + 蓝宝石 + 弯钩剑首。纯冷寒蓝,不随主题变。 -->
+  <path d="M52.5 35 C 51 26 50 18 51.5 11 C 52.5 5 67.5 5 68.5 11 C 70 18 69 26 67.5 35 Z" fill="#2a3d6b"/>
+  <path d="M52.8 31 L60 28.5 L67.2 31 M52.5 26 L60 23.5 L67.5 26 M52.3 21 L60 18.5 L67.7 21 M52.2 16 L60 13.5 L67.8 16 M52.2 16 L60 18.5 L67.8 16 M52.3 21 L60 23.5 L67.7 21 M52.5 26 L60 28.5 L67.5 26" stroke="#4a68a2" stroke-width="0.8" fill="none" opacity="0.85"/>
+  <rect x="51.5" y="31.5" width="17" height="2" rx="0.7" fill="#4a68a2"/>
+  <rect x="51.8" y="23" width="16.4" height="1.8" rx="0.7" fill="#4a68a2"/>
+  <path d="M51.5 11 C 47 6 48 1 55 1 C 61 1 64 6 60 10 C 58 6 53 7 53.5 12 Z" fill="#4a68a2"/>
+  <rect x="42" y="37" width="36" height="6" rx="1.5" fill="#4a68a2"/>
+  <path d="M48 43 C 39 42 32 37 28 29 C 26 25 26 21 28 19 C 29 24 33 29 40 32 C 44 34 47 36 48 37 Z" fill="#4a68a2"/>
+  <path d="M72 43 C 81 42 88 37 92 29 C 94 25 94 21 92 19 C 91 24 87 29 80 32 C 76 34 73 36 72 37 Z" fill="#4a68a2"/>
+  <rect x="52.5" y="30.5" width="15" height="17" rx="1.8" fill="#4a68a2"/>
+  <rect x="53.8" y="31.8" width="12.4" height="14.4" rx="1.2" fill="#2a3d6b"/>
+  <rect x="55.2" y="33.2" width="9.6" height="11.6" rx="1" fill="#2f6bd8"/>
+  <rect x="56.8" y="34.8" width="3.4" height="4.6" rx="0.9" fill="#a8c8ff"/>
+  <path d="M47.25 44 L47.25 92 L59 112 L72.75 92 L77.75 92 L77.75 87.6 L72.75 87.6 L72.75 84 L77.75 84 L77.75 79.6 L72.75 79.6 L72.75 76 L77.75 76 L77.75 71.6 L72.75 71.6 L72.75 68 L77.75 68 L77.75 63.6 L72.75 63.6 L72.75 60 L77.75 60 L77.75 55.6 L72.75 55.6 L72.75 52 L77.75 52 L77.75 47.6 L72.75 47.6 L72.75 44 L72.75 44 Z" fill="#c6d6ef"/>
+  <path d="M72.75 92 L77.75 92 L77.75 87.6 L72.75 87.6 L72.75 84 L77.75 84 L77.75 79.6 L72.75 79.6 L72.75 76 L77.75 76 L77.75 71.6 L72.75 71.6 L72.75 68 L77.75 68 L77.75 63.6 L72.75 63.6 L72.75 60 L77.75 60 L77.75 55.6 L72.75 55.6 L72.75 52 L77.75 52 L77.75 47.6 L72.75 47.6 L72.75 44 L72.75 44 Z" fill="#8ea6cc"/>
+  <rect x="58.4" y="47" width="3.2" height="44" rx="1.4" fill="#5f7cb0"/>
+  <path d="M48.85 46 L48.85 92" stroke="#eef4fc" stroke-width="1.4" opacity="0.7"/>
 </svg>
