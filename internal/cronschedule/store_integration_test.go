@@ -11,6 +11,8 @@ import (
 	"github.com/V3teran/liusha/internal/dbtest"
 )
 
+const testScenario = "web-pentest-killchain"
+
 // TestStore_CreateThenGetByID 验证：建定时模板后可按 ID 读回，next_run_at 已按 cron_expr 算出。
 func TestStore_CreateThenGetByID(t *testing.T) {
 	pool := dbtest.NewPgPool(t)
@@ -18,10 +20,10 @@ func TestStore_CreateThenGetByID(t *testing.T) {
 	ctx := context.Background()
 
 	c, err := s.Create(ctx, NewParams{
-		Mode:     assignment.ModeActive,
-		CronExpr: "0 4 * * *",
-		Items:    []assignment.Item{{Brief: "夜间复扫 http://target.com"}},
-		Title:    "夜间复扫",
+		ScenarioID: testScenario,
+		CronExpr:   "0 4 * * *",
+		Items:      []assignment.Item{{Brief: "夜间复扫 http://target.com"}},
+		Title:      "夜间复扫",
 	})
 	if err != nil {
 		t.Fatalf("create: %v", err)
@@ -40,21 +42,21 @@ func TestStore_CreateThenGetByID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get by id: %v", err)
 	}
-	if got.Mode != assignment.ModeActive || got.CronExpr != "0 4 * * *" || got.Title != "夜间复扫" {
+	if got.ScenarioID != testScenario || got.CronExpr != "0 4 * * *" || got.Title != "夜间复扫" {
 		t.Fatalf("字段不匹配: %+v", got)
 	}
 }
 
-// TestStore_Create_RejectsInvalidModeOrCron 验证：非法 mode / cron_expr 建不出模板。
-func TestStore_Create_RejectsInvalidModeOrCron(t *testing.T) {
+// TestStore_Create_RejectsMissingScenarioOrInvalidCron 验证：缺 scenario_id / 非法 cron_expr 建不出模板。
+func TestStore_Create_RejectsMissingScenarioOrInvalidCron(t *testing.T) {
 	pool := dbtest.NewPgPool(t)
 	s := NewStore(pool)
 	ctx := context.Background()
 
-	if _, err := s.Create(ctx, NewParams{Mode: "bogus", CronExpr: "* * * * *"}); err == nil {
-		t.Fatal("非法 mode 应报错")
+	if _, err := s.Create(ctx, NewParams{ScenarioID: "", CronExpr: "* * * * *"}); err == nil {
+		t.Fatal("缺 scenario_id 应报错")
 	}
-	if _, err := s.Create(ctx, NewParams{Mode: assignment.ModeActive, CronExpr: "not-a-cron"}); err == nil {
+	if _, err := s.Create(ctx, NewParams{ScenarioID: testScenario, CronExpr: "not-a-cron"}); err == nil {
 		t.Fatal("非法 cron_expr 应报错")
 	}
 }
@@ -65,7 +67,7 @@ func TestStore_SetEnabled(t *testing.T) {
 	s := NewStore(pool)
 	ctx := context.Background()
 
-	c, err := s.Create(ctx, NewParams{Mode: assignment.ModePassive, CronExpr: "* * * * *"})
+	c, err := s.Create(ctx, NewParams{ScenarioID: testScenario, CronExpr: "* * * * *"})
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
@@ -93,7 +95,7 @@ func TestStore_ListDue(t *testing.T) {
 	now := time.Now()
 
 	// 到点且启用：应出现
-	due, err := s.Create(ctx, NewParams{Mode: assignment.ModeActive, CronExpr: "* * * * *"})
+	due, err := s.Create(ctx, NewParams{ScenarioID: testScenario, CronExpr: "* * * * *"})
 	if err != nil {
 		t.Fatalf("create due: %v", err)
 	}
@@ -102,7 +104,7 @@ func TestStore_ListDue(t *testing.T) {
 	}
 
 	// 未到点：不应出现
-	notDue, err := s.Create(ctx, NewParams{Mode: assignment.ModeActive, CronExpr: "* * * * *"})
+	notDue, err := s.Create(ctx, NewParams{ScenarioID: testScenario, CronExpr: "* * * * *"})
 	if err != nil {
 		t.Fatalf("create not due: %v", err)
 	}
@@ -111,7 +113,7 @@ func TestStore_ListDue(t *testing.T) {
 	}
 
 	// 到点但已停用：不应出现
-	disabled, err := s.Create(ctx, NewParams{Mode: assignment.ModeActive, CronExpr: "* * * * *"})
+	disabled, err := s.Create(ctx, NewParams{ScenarioID: testScenario, CronExpr: "* * * * *"})
 	if err != nil {
 		t.Fatalf("create disabled: %v", err)
 	}
@@ -134,7 +136,7 @@ func TestStore_MarkFired(t *testing.T) {
 	s := NewStore(pool)
 	ctx := context.Background()
 
-	c, err := s.Create(ctx, NewParams{Mode: assignment.ModeActive, CronExpr: "0 4 * * *"})
+	c, err := s.Create(ctx, NewParams{ScenarioID: testScenario, CronExpr: "0 4 * * *"})
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
@@ -156,26 +158,26 @@ func TestStore_MarkFired(t *testing.T) {
 	}
 }
 
-// TestStore_List_FiltersByMode 验证 List 按 mode 过滤。
-func TestStore_List_FiltersByMode(t *testing.T) {
+// TestStore_List_FiltersByScenario 验证 List 按 scenario_id 过滤。
+func TestStore_List_FiltersByScenario(t *testing.T) {
 	pool := dbtest.NewPgPool(t)
 	s := NewStore(pool)
 	ctx := context.Background()
 
-	if _, err := s.Create(ctx, NewParams{Mode: assignment.ModeActive, CronExpr: "* * * * *", Title: "a1"}); err != nil {
-		t.Fatalf("create active: %v", err)
+	if _, err := s.Create(ctx, NewParams{ScenarioID: testScenario, CronExpr: "* * * * *", Title: "a1"}); err != nil {
+		t.Fatalf("create scenario a: %v", err)
 	}
-	if _, err := s.Create(ctx, NewParams{Mode: assignment.ModePassive, CronExpr: "* * * * *", Title: "p1"}); err != nil {
-		t.Fatalf("create passive: %v", err)
+	if _, err := s.Create(ctx, NewParams{ScenarioID: "traffic-analysis", CronExpr: "* * * * *", Title: "p1"}); err != nil {
+		t.Fatalf("create scenario b: %v", err)
 	}
 
-	actives, err := s.List(ctx, assignment.ModeActive, 0)
+	filtered, err := s.List(ctx, testScenario, 0)
 	if err != nil {
-		t.Fatalf("list active: %v", err)
+		t.Fatalf("list by scenario: %v", err)
 	}
-	for _, c := range actives {
-		if c.Mode != assignment.ModeActive {
-			t.Fatalf("List(ModeActive) 混入了 %s", c.Mode)
+	for _, c := range filtered {
+		if c.ScenarioID != testScenario {
+			t.Fatalf("List(%q) 混入了 %s", testScenario, c.ScenarioID)
 		}
 	}
 
