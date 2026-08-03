@@ -2,7 +2,9 @@
 id: passive-recon
 name: 被动流量侦察
 description: 自动模式，无需会话。逐条分析代理(MITM)捕获的真实业务流量，就地挖掘单条请求暴露的漏洞与敏感信息，沉淀为 finding 与跨会话经验。
-mode: passive
+engine: solo
+playbook: passive-recon
+domain: web
 ---
 
 ## 场景：被动流量侦察（自动模式）
