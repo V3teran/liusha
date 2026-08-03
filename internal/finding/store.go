@@ -265,11 +265,12 @@ func (s *Store) ListByHost(ctx context.Context, host string, limit int) ([]VulnF
 	return out, rows.Err()
 }
 
-// LedgerRow 是全局漏洞台账的一行：finding 主体 + JOIN task 派生的 ScenarioID。
+// LedgerRow 是全局漏洞台账的一行：finding 主体 + JOIN task/assignment 派生的 ScenarioID / Source。
 // 漏洞管理页跨 task/host 全量展示用，区别于 per-task 的 VulnFinding 列表。
 type LedgerRow struct {
 	VulnFinding
 	ScenarioID string // 关联 task 的 scenario_id
+	Source     string // 关联 assignment 的 source（manual 主动下发 / auto 被动代理）
 }
 
 // LedgerFilter 是台账查询的可选筛选（零值=不筛该维度）。
@@ -278,10 +279,11 @@ type LedgerFilter struct {
 	Severity   string
 	Status     string
 	ScenarioID string
+	Source     string // manual / auto（下发来源）
 	Limit      int
 }
 
-// ListAll 全局漏洞台账查询：跨 task/host 平铺列出漏洞，JOIN task 带出 scenario_id，按可选维度筛选。
+// ListAll 全局漏洞台账查询：跨 task/host 平铺列出漏洞，JOIN task/assignment 带出 scenario_id 与 source，按可选维度筛选。
 //
 // 本方法不受 task/scenario 作用域约束，跨场景一网打尽，按 created_at desc 排序。
 //
@@ -308,9 +310,14 @@ func (s *Store) ListAll(ctx context.Context, f LedgerFilter) ([]LedgerRow, error
 	if f.ScenarioID != "" {
 		add("t.scenario_id = $%d", f.ScenarioID)
 	}
+	if f.Source != "" {
+		add("a.source = $%d", f.Source)
+	}
 
-	q := `SELECT ` + ledgerCols + `, t.scenario_id
-		FROM finding f JOIN task t ON t.id = f.task_id`
+	q := `SELECT ` + ledgerCols + `, t.scenario_id, a.source
+		FROM finding f
+		JOIN task t ON t.id = f.task_id
+		JOIN assignment a ON a.id = t.assignment_id`
 	if len(where) > 0 {
 		q += " WHERE " + strings.Join(where, " AND ")
 	}
@@ -380,13 +387,13 @@ func validStatus(s string) bool {
 // ledgerCols 是台账 JOIN 查询的列序（= colsSelect 但每列显式加 f. 前缀）。
 // 不用程序化前缀：colsSelect 含 COALESCE(...) / depends_on::text[] 等内部带逗号的表达式，
 // 按 ", " 切分会劈碎；且 JOIN task 后 id/status/created_at 列名歧义，必须 f. 限定。
-// 与 colsSelect 手工对齐；scanLedger 列序 = 本常量 + 末尾 mode。
+// 与 colsSelect 手工对齐；scanLedger 列序 = 本常量 + 末尾 scenario_id, source。
 const ledgerCols = "f.id, f.task_id::text AS task_id, " +
 	"f.hunter_id, f.source_traffic_id, f.host, f.severity, f.summary, f.target, f.evidence, " +
 	"COALESCE(f.cwe_id, ''), COALESCE(f.owasp_category, ''), f.first_seen_at, COALESCE(f.remediation, ''), " +
 	"f.depends_on::text[], f.status, COALESCE(f.triage_note, ''), f.triaged_at, f.created_at"
 
-// scanLedger 扫 ledgerCols 列序 + 末尾 scenario_id（比 scan() 多一列 scenario_id）。
+// scanLedger 扫 ledgerCols 列序 + 末尾 scenario_id, source（比 scan() 多两列）。
 func scanLedger(r scanner, out *LedgerRow) error {
 	var hunterID *string
 	var sourceTrafficID *int64
@@ -400,7 +407,7 @@ func scanLedger(r scanner, out *LedgerRow) error {
 		&dependsOn,
 		&out.Status, &out.TriageNote, &triagedAt,
 		&out.CreatedAt,
-		&out.ScenarioID,
+		&out.ScenarioID, &out.Source,
 	); err != nil {
 		return err
 	}

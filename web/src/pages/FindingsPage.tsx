@@ -28,14 +28,14 @@ export function FindingsPage() {
   const [fHost, setFHost] = useState('')
   const [fSeverity, setFSeverity] = useState('')
   const [fStatus, setFStatus] = useState('')
-  const [fMode, setFMode] = useState('')
+  const [fSource, setFSource] = useState('')
   const [query, setQuery] = useState('')
   const [allHosts, setAllHosts] = useState<string[]>([])
   const [savingId, setSavingId] = useState('')
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [drawerFinding, setDrawerFinding] = useState<FindingRow | null>(null)
 
-  const load = useCallback(async (filters: { host: string; severity: string; status: string; mode: string }) => {
+  const load = useCallback(async (filters: { host: string; severity: string; status: string; source: string }) => {
     setLoading(true)
     setError('')
     try {
@@ -43,7 +43,7 @@ export function FindingsPage() {
       if (filters.host) f.host = filters.host
       if (filters.severity) f.severity = filters.severity
       if (filters.status) f.status = filters.status
-      if (filters.mode) f.mode = filters.mode
+      if (filters.source) f.source = filters.source
       setRows(await listFindings(f))
     } catch (e) {
       setError(e instanceof Error ? e.message : '加载失败')
@@ -53,9 +53,9 @@ export function FindingsPage() {
   }, [])
 
   useEffect(() => {
-    void load({ host: fHost, severity: fSeverity, status: fStatus, mode: fMode })
+    void load({ host: fHost, severity: fSeverity, status: fStatus, source: fSource })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fHost, fSeverity, fStatus, fMode])
+  }, [fHost, fSeverity, fStatus, fSource])
 
   // host 下拉选项来自一份全量快照（不受当前筛选收窄影响，保持稳定）。
   useEffect(() => {
@@ -85,10 +85,18 @@ export function FindingsPage() {
   // 点统计条某个 severity 段 = 按该 severity 筛选（重拉；再点取消）。
   const toggleSevFilter = (sev: string) => setFSeverity((prev) => (prev === sev ? '' : sev))
 
+  // PATCH 只改 triage 字段（status/severity/triage_note/triaged_at）；只叠加这几项，
+  // 不整行 spread——回传行的 source/scenario_id 等 JOIN 派生列为空，整覆盖会把它们抹成空串。
   const applyUpdated = (updated: FindingRow) => {
-    setRows((prev) => prev.map((x) => (x.id === updated.id ? { ...x, ...updated } : x)))
-    setDrawerFinding((prev) => (prev?.id === updated.id ? { ...prev, ...updated } : prev))
-    if (fStatus && fStatus !== updated.status) void load({ host: fHost, severity: fSeverity, status: fStatus, mode: fMode })
+    const patch = {
+      status: updated.status,
+      severity: updated.severity,
+      triage_note: updated.triage_note,
+      triaged_at: updated.triaged_at,
+    }
+    setRows((prev) => prev.map((x) => (x.id === updated.id ? { ...x, ...patch } : x)))
+    setDrawerFinding((prev) => (prev?.id === updated.id ? { ...prev, ...patch } : prev))
+    if (fStatus && fStatus !== updated.status) void load({ host: fHost, severity: fSeverity, status: fStatus, source: fSource })
   }
 
   const openDrawer = (f: FindingRow) => {
@@ -117,7 +125,7 @@ export function FindingsPage() {
     }
   }
 
-  const hasFilter = !!(fHost || fSeverity || fStatus || fMode)
+  const hasFilter = !!(fHost || fSeverity || fStatus || fSource)
 
   // 列定义单点声明列宽——不再是列头/数据行各自一份 grid-cols 字符串手动保持同步。
   const columns = useMemo(
@@ -160,17 +168,17 @@ export function FindingsPage() {
           )
         },
       }),
-      columnHelper.accessor('mode', {
+      columnHelper.accessor('source', {
         header: '来源',
-        size: 60,
+        size: 72,
         cell: (ctx) => {
-          const mode = ctx.getValue()
+          const source = ctx.getValue()
           return (
             <Badge
               dot={false}
-              color={mode === 'passive' ? 'var(--mode-passive)' : 'var(--mode-active)'}
+              color={source === 'auto' ? 'var(--source-auto)' : 'var(--source-manual)'}
             >
-              {mode === 'passive' ? '被动' : '主动'}
+              {source === 'auto' ? '被动代理' : '主动下发'}
             </Badge>
           )
         },
@@ -283,10 +291,10 @@ export function FindingsPage() {
                   className="flex-1 bg-transparent text-[13.5px] text-text outline-none placeholder:text-muted"
                 />
               </div>
-              <select value={fMode} onChange={(e) => setFMode(e.target.value)} className="w-[120px] rounded-md border border-border bg-surface px-2 py-1.5 text-sm text-text outline-none focus:border-accent">
+              <select value={fSource} onChange={(e) => setFSource(e.target.value)} className="w-[120px] rounded-md border border-border bg-surface px-2 py-1.5 text-sm text-text outline-none focus:border-accent">
                 <option value="">全部来源</option>
-                <option value="active">主动</option>
-                <option value="passive">被动</option>
+                <option value="manual">主动下发</option>
+                <option value="auto">被动代理</option>
               </select>
               <select value={fStatus} onChange={(e) => setFStatus(e.target.value)} className="w-[120px] rounded-md border border-border bg-surface px-2 py-1.5 text-sm text-text outline-none focus:border-accent">
                 <option value="">全部状态</option>

@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import {
-  getApiKey, setApiKey, listRoles, listConversations, listMessages, startChat, followUp, abortScan,
+  getApiKey, setApiKey, listScenarios, listConversations, listMessages, startChat, followUp, abortScan,
   listTasks, startActiveScan, abortTask, getSitemap, listLLMInvocations,
   getLLMInvocationStat, getLLMInvocationFacets,
   listCredentials, saveCredentialsBatch, deleteCredentials,
@@ -33,26 +33,28 @@ describe('API 客户端', () => {
   })
 
   describe('HTTP 请求', () => {
-    it('listRoles 添加 X-API-Key header', async () => {
+    it('listScenarios 添加 X-API-Key header 并拆出 scenarios', async () => {
       setApiKey('my-key')
       const mockFetch = vi.fn().mockResolvedValue({
         ok: true,
-        json: vi.fn().mockResolvedValue({ roles: [{ id: 'r1', name: 'role1', description: 'desc', mode: 'active' }] }),
+        json: vi.fn().mockResolvedValue({ scenarios: [{ id: 'u1', code: 'web_app', name: 'Web 应用', description: 'desc' }] }),
       })
       ;(global as any).fetch = mockFetch
 
-      await listRoles()
+      const scenarios = await listScenarios()
 
-      expect(mockFetch).toHaveBeenCalledWith('/api/roles', {
+      expect(mockFetch).toHaveBeenCalledWith('/api/scenarios', {
         headers: { 'X-API-Key': 'my-key' },
       })
+      expect(scenarios).toHaveLength(1)
+      expect(scenarios[0].code).toBe('web_app')
     })
 
     it('listConversations 返回会话列表 + hasMore，且带 limit/offset query', async () => {
       const mockFetch = vi.fn().mockResolvedValue({
         ok: true,
         json: vi.fn().mockResolvedValue({
-          conversations: [{ ID: 'c1', Title: 'scan1', ScanID: 's1', RoleID: 'r1', Status: 'running', CreatedAt: '2026-06-10T00:00:00Z', UpdatedAt: '2026-06-10T00:00:00Z' }],
+          conversations: [{ ID: 'c1', Title: 'scan1', ScanID: 's1', ScenarioID: 'web_app', Source: 'manual', Status: 'running', CreatedAt: '2026-06-10T00:00:00Z', UpdatedAt: '2026-06-10T00:00:00Z' }],
           has_more: true,
         }),
       })
@@ -67,16 +69,16 @@ describe('API 客户端', () => {
       expect(result.conversations).toHaveLength(1)
     })
 
-    it('listConversations 传 mode 时带 mode query（服务端过滤，保证分页边界正确）', async () => {
+    it('listConversations 传 source 时带 source query（服务端过滤，保证分页边界正确）', async () => {
       const mockFetch = vi.fn().mockResolvedValue({
         ok: true,
         json: vi.fn().mockResolvedValue({ conversations: [], has_more: false }),
       })
       ;(global as any).fetch = mockFetch
 
-      await listConversations(30, 0, 'passive')
+      await listConversations(30, 0, 'auto')
 
-      expect(mockFetch).toHaveBeenCalledWith(expect.stringContaining('mode=passive'), expect.anything())
+      expect(mockFetch).toHaveBeenCalledWith(expect.stringContaining('source=auto'), expect.anything())
     })
 
     it('listConversations 把后端 null（Go nil slice）归一为空数组，不透传 null', async () => {
@@ -86,7 +88,7 @@ describe('API 客户端', () => {
       })
       ;(global as any).fetch = mockFetch
 
-      const result = await listConversations(30, 0, 'passive')
+      const result = await listConversations(30, 0, 'auto')
 
       expect(result.conversations).toEqual([])
       expect(result.conversations).toHaveLength(0)
@@ -116,7 +118,7 @@ describe('API 客户端', () => {
       })
       ;(global as any).fetch = mockFetch
 
-      const result = await startChat('scan target', 'r1')
+      const result = await startChat('scan target', 'web_app')
 
       expect(result.conversation_id).toBe('conv-123')
       expect(result.scan_id).toBe('scan-456')
@@ -126,7 +128,7 @@ describe('API 客户端', () => {
           'X-API-Key': 'my-key',
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ brief: 'scan target', role_id: 'r1' }),
+        body: JSON.stringify({ brief: 'scan target', scenario_id: 'web_app' }),
       })
     })
 
@@ -134,7 +136,7 @@ describe('API 客户端', () => {
       const mockFetch = vi.fn().mockResolvedValue({ ok: false, status: 401 })
       ;(global as any).fetch = mockFetch
 
-      await expect(listRoles()).rejects.toThrow('GET /roles → 401')
+      await expect(listScenarios()).rejects.toThrow('GET /scenarios → 401')
     })
   })
 
@@ -186,7 +188,7 @@ describe('API 客户端', () => {
       ;(global as any).fetch = vi.fn().mockResolvedValue({
         ok: true,
         json: vi.fn().mockResolvedValue({
-          tasks: [{ id: 'o1', scope: '{"any":true}', status: 'running', mode: 'passive', created_at: '2026-06-11T00:00:00Z' }],
+          tasks: [{ id: 'o1', scope: '{"any":true}', status: 'running', scenario_id: 'web-pentest-killchain', created_at: '2026-06-11T00:00:00Z' }],
         }),
       })
 

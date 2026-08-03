@@ -18,7 +18,7 @@ func setup(t *testing.T) (*Store, string) {
 	ts := task.NewStore(pool)
 	tk, err := ts.Create(context.Background(), task.NewParams{
 		ScenarioID:   "passive-recon",
-		AssignmentID: dbtest.SeedAssignment(t, pool, "passive"),
+		AssignmentID: dbtest.SeedAssignment(t, pool, "passive-recon"),
 		TargetHost:   "test.example.com",
 	})
 	if err != nil {

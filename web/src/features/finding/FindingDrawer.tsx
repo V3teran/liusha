@@ -156,9 +156,9 @@ export function FindingDrawer({ open, finding, onOpenChange, onSave }: FindingDr
                   </span>
                   <Badge
                     dot={false}
-                    color={finding.mode === 'passive' ? 'var(--mode-passive)' : 'var(--mode-active)'}
+                    color={finding.source === 'auto' ? 'var(--source-auto)' : 'var(--source-manual)'}
                   >
-                    {finding.mode === 'passive' ? '被动' : '主动'}
+                    {finding.source === 'auto' ? '被动代理' : '主动下发'}
                   </Badge>
                   <Dialog.Close
                     aria-label="关闭"

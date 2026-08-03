@@ -28,7 +28,7 @@ type FindingsAPI interface {
 //
 //	{ "total": N, "findings": [{
 //	    "id","severity","summary","host","cwe_id","owasp_category","remediation",
-//	    "target":{...},"evidence":{...},"scenario_id":"...",
+//	    "target":{...},"evidence":{...},"scenario_id":"...","source":"manual|auto",
 //	    "status":"open|confirmed|fixed|false_positive|accepted","triage_note","triaged_at",
 //	    "created_at"
 //	}] }
@@ -39,6 +39,7 @@ func listFindingsHandler(api FindingsAPI) gin.HandlerFunc {
 			Severity:   c.Query("severity"),
 			Status:     c.Query("status"),
 			ScenarioID: c.Query("scenario_id"),
+			Source:     c.Query("source"),
 			Limit:      1000, // 台账全量；1000 远超单实例实际漏洞量
 		})
 		if err != nil {
@@ -107,6 +108,7 @@ func findingJSON(r finding.LedgerRow) gin.H {
 		"target":         json.RawMessage(rawOrEmpty(r.Target, "{}")),
 		"evidence":       json.RawMessage(rawOrEmpty(r.Evidence, "{}")),
 		"scenario_id":    r.ScenarioID,
+		"source":         r.Source,
 		"status":         r.Status,
 		"triage_note":    r.TriageNote,
 		"triaged_at":     r.TriagedAt, // *time.Time，未处置为 null

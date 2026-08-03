@@ -19,7 +19,7 @@ function makeFinding(overrides: Partial<FindingRow> = {}): FindingRow {
     severity: 'high',
     summary: 'SQL 注入漏洞',
     host: 'a.example.com',
-    mode: 'active',
+    source: 'manual',
     status: 'open',
     created_at: '2026-01-01T00:00:00Z',
     ...overrides,
@@ -127,18 +127,18 @@ describe('FindingsPage', () => {
     )
   })
 
-  it('mode 下拉筛选触发重新加载', async () => {
+  it('source 下拉筛选触发重新加载', async () => {
     const user = userEvent.setup()
     mockedListFindings.mockResolvedValue([makeFinding()])
     render(<FindingsPage />)
     await screen.findByText('SQL 注入漏洞')
     mockedListFindings.mockClear()
 
-    const modeSelect = screen.getByDisplayValue('全部来源')
-    await user.selectOptions(modeSelect, 'passive')
+    const sourceSelect = screen.getByDisplayValue('全部来源')
+    await user.selectOptions(sourceSelect, 'auto')
 
     await waitFor(() =>
-      expect(mockedListFindings).toHaveBeenCalledWith(expect.objectContaining({ mode: 'passive' })),
+      expect(mockedListFindings).toHaveBeenCalledWith(expect.objectContaining({ source: 'auto' })),
     )
   })
 

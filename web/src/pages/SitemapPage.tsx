@@ -21,7 +21,7 @@ export function SitemapPage() {
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex items-center border-b border-border px-5.5 py-3">
-        <OwnerPicker value={owner} onChange={setOwner} modeFilter="active" />
+        <OwnerPicker value={owner} onChange={setOwner} />
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto p-5.5">
