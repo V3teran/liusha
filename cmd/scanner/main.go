@@ -38,7 +38,7 @@ import (
 	"github.com/V3teran/liusha/internal/embedding"
 	"github.com/V3teran/liusha/internal/envx"
 	"github.com/V3teran/liusha/internal/finding"
-	hunterstore "github.com/V3teran/liusha/internal/hunter"
+	hunterstore "github.com/V3teran/liusha/internal/hunterrun"
 	"github.com/V3teran/liusha/internal/ingestor"
 	"github.com/V3teran/liusha/internal/lead"
 	"github.com/V3teran/liusha/internal/llminvocation"

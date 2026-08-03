@@ -13,7 +13,7 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/V3teran/liusha/internal/finding"
-	"github.com/V3teran/liusha/internal/hunter"
+	"github.com/V3teran/liusha/internal/hunterrun"
 	"github.com/V3teran/liusha/internal/task"
 )
 
@@ -32,7 +32,7 @@ type profilePlan struct {
 // 又会让日志难读。多 profile 按选中顺序串行。
 func runActiveProfiles(ctx context.Context, profs []activeProfile, apiBase, apiKey string, pool *pgxpool.Pool, logger zerolog.Logger) error {
 	store := finding.NewStore(pool)
-	agentRunStore := hunter.NewStore(pool)
+	agentRunStore := hunterrun.NewStore(pool)
 
 	for _, ap := range profs {
 		// active:adhoc 是占位 profile——brief 在源码中为空，强制从 LIUSHA_E2E_BRIEF 环境
@@ -258,7 +258,7 @@ func runAllUnified(ctx context.Context, plans []profilePlan, proxyHostPort, apiB
 
 	// 3. 统一 poll：发现聚合器为各 host 新建的 passive task → 聚合其 agent_run done + finding 数
 	store := finding.NewStore(pool)
-	agentRunStore := hunter.NewStore(pool)
+	agentRunStore := hunterrun.NewStore(pool)
 	taskStore := task.NewStore(pool)
 	// 多 profile 并发跑，deadline 给单 profile 上限 + 适度放大兜底大 LLM 抖动
 	deadline := time.Now().Add(pollDeadline() + 10*time.Minute)

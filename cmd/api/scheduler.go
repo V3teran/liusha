@@ -13,7 +13,7 @@ import (
 
 	"github.com/V3teran/liusha/internal/assignment"
 	"github.com/V3teran/liusha/internal/cronschedule"
-	"github.com/V3teran/liusha/internal/hunter"
+	"github.com/V3teran/liusha/internal/hunterrun"
 	"github.com/V3teran/liusha/internal/task"
 	"github.com/V3teran/liusha/internal/traffic"
 	"github.com/V3teran/liusha/internal/worker"
@@ -32,7 +32,7 @@ type cronRunner struct {
 	assignments *assignment.Store
 	tasks       *task.Store
 	proxyFlows  *traffic.ProxyStore
-	hunters     *hunter.Store
+	hunters     *hunterrun.Store
 	enq         *worker.Client
 	active      *activeScanAdapter // 复用 expandActiveItem（与单发/StartChatScan 同展开逻辑）
 	logger      zerolog.Logger
@@ -140,7 +140,7 @@ func (r *cronRunner) expandPassiveItem(ctx context.Context, assignmentID string,
 		"mode":       "passive",
 		"entrypoint": json.RawMessage(entrypoint),
 	})
-	hid, err := r.hunters.Create(ctx, hunter.NewParams{
+	hid, err := r.hunters.Create(ctx, hunterrun.NewParams{
 		TaskID: tk.ID,
 		Role:   "traffic-analysis",
 		Input:  payloadInput,

@@ -15,7 +15,7 @@ import (
 	"github.com/V3teran/liusha/internal/assignment"
 	"github.com/V3teran/liusha/internal/cronschedule"
 	"github.com/V3teran/liusha/internal/dbtest"
-	"github.com/V3teran/liusha/internal/hunter"
+	"github.com/V3teran/liusha/internal/hunterrun"
 	"github.com/V3teran/liusha/internal/task"
 	"github.com/V3teran/liusha/internal/traffic"
 	"github.com/V3teran/liusha/internal/worker"
@@ -32,7 +32,7 @@ func newTestCronRunner(t *testing.T) (*cronRunner, *pgxpool.Pool) {
 
 	assignments := assignment.NewStore(pool)
 	tasks := task.NewStore(pool)
-	hunters := hunter.NewStore(pool)
+	hunters := hunterrun.NewStore(pool)
 	r := &cronRunner{
 		schedules:   cronschedule.NewStore(pool),
 		assignments: assignments,

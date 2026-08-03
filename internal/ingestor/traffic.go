@@ -23,7 +23,7 @@ import (
 	"github.com/V3teran/liusha/internal/assignment"
 	"github.com/V3teran/liusha/internal/config"
 	"github.com/V3teran/liusha/internal/conversation"
-	"github.com/V3teran/liusha/internal/hunter"
+	"github.com/V3teran/liusha/internal/hunterrun"
 	"github.com/V3teran/liusha/internal/proxy"
 	"github.com/V3teran/liusha/internal/task"
 	"github.com/V3teran/liusha/internal/traffic"
@@ -64,7 +64,7 @@ type Traffic struct {
 	agg           *aggregator         // 按 host 攒批窗口（Redis）
 	proxyFlows    *traffic.ProxyStore // 代理捕获流量落库 + 领取
 	agentFlows    *traffic.AgentStore // agent 自产流量落库
-	hunters       *hunter.Store       // internal 流量反查 hunter→task_id
+	hunters       *hunterrun.Store       // internal 流量反查 hunter→task_id
 	conversations ConversationCreator // 建 passive task 会话流（nil 跳过）
 	enq           *worker.Client
 	logger        zerolog.Logger
@@ -80,7 +80,7 @@ type Deps struct {
 	Tasks         *task.Store
 	ProxyFlows    *traffic.ProxyStore
 	AgentFlows    *traffic.AgentStore
-	Hunters       *hunter.Store
+	Hunters       *hunterrun.Store
 	Conversations ConversationCreator
 	Enqueuer      *worker.Client
 	Logger        zerolog.Logger
@@ -449,7 +449,7 @@ func (t *Traffic) enqueuePassive(ctx context.Context, taskID, convID, host strin
 		"mode":       "passive",
 		"entrypoint": json.RawMessage(entrypoint),
 	})
-	hid, err := t.hunters.Create(ctx, hunter.NewParams{
+	hid, err := t.hunters.Create(ctx, hunterrun.NewParams{
 		TaskID: taskID,
 		Role:   "traffic-analysis",
 		Input:  payloadInput,
