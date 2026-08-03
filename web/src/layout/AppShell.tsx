@@ -3,10 +3,10 @@ import { Bug, Cpu, KeyRound, MessageSquare, Moon, Network, Settings, Sun, Waypoi
 import { useTheme } from '@/hooks/useTheme'
 import { cn } from '@/lib/utils'
 
-// 「对话」导航项覆盖 /conversations/active 与 /conversations/passive 两个子路由，
+// 「对话」导航项覆盖 /conversations/manual 与 /conversations/auto 两个子路由，
 // 高亮判定用 startsWith 而非精确匹配。
 const NAV_ITEMS = [
-  { to: '/conversations/active', label: '对话', icon: MessageSquare, match: '/conversations' },
+  { to: '/conversations/manual', label: '对话', icon: MessageSquare, match: '/conversations' },
   { to: '/findings', label: '漏洞管理', icon: Bug },
   { to: '/sitemap', label: '攻击面', icon: Waypoints },
   { to: '/attack-graph', label: '执行图', icon: Network },

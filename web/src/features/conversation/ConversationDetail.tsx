@@ -12,14 +12,14 @@ import { TimelineThread } from './TimelineThread'
 
 interface ConversationDetailProps {
   convId?: string
-  mode: 'active' | 'passive'
+  source: 'manual' | 'auto'
   onStarted: (convID: string) => void
   onRunningChanged: () => void
 }
 
-// 空状态文案按模式区分（active 可发起、passive 等流量）。
-function emptyCopy(mode: 'active' | 'passive') {
-  return mode === 'passive'
+// 空状态文案按来源区分（manual 可发起、auto 等流量）。
+function emptyCopy(source: 'manual' | 'auto') {
+  return source === 'auto'
     ? {
         mark: '⇄',
         title: '选择一批流量查看分析',
@@ -28,14 +28,14 @@ function emptyCopy(mode: 'active' | 'passive') {
     : {
         mark: '⌖',
         title: '发起一次渗透扫描',
-        desc: '在下方选择场景角色、描述目标（URL / 账号 / 测试方向），实时观察 orchestrator 派活、工具调用与漏洞产出。',
+        desc: '在下方选择场景、描述目标（URL / 账号 / 测试方向），实时观察 orchestrator 派活、工具调用与漏洞产出。',
       }
 }
 
 // 会话详情主区（主从双栏的「从」）：给定 convId，渲染其作战轨迹 + 顶部状态栏 + 插话框。
-// 渗透会话(active) 与 流量分析(passive) 两页共用此组件——统一骨架，右侧渲染同一 TimelineThread
-// （active 多代理→脊柱缩进分叉；passive 单代理→自然扁平），差异由数据本身表达，不做两套渲染器。
-export function ConversationDetail({ convId, mode, onStarted, onRunningChanged }: ConversationDetailProps) {
+// 主动下发(manual) 与 被动代理(auto) 两页共用此组件——统一骨架，右侧渲染同一 TimelineThread
+// （多代理→脊柱缩进分叉；单代理→自然扁平），差异由数据本身表达，不做两套渲染器。
+export function ConversationDetail({ convId, source, onStarted, onRunningChanged }: ConversationDetailProps) {
   const store = useConversationStore()
   const [loading, setLoading] = useState(false) // 补历史中→骨架屏
   const [loadError, setLoadError] = useState(false) // 补历史失败→错误重试卡
@@ -176,7 +176,7 @@ export function ConversationDetail({ convId, mode, onStarted, onRunningChanged }
     if (convId) await abortScan(convId)
   }
 
-  const copy = emptyCopy(mode)
+  const copy = emptyCopy(source)
 
   return (
     <section className="flex h-full min-h-0 min-w-0 flex-col">
@@ -273,12 +273,11 @@ export function ConversationDetail({ convId, mode, onStarted, onRunningChanged }
         </div>
       )}
 
-      {/* passive 无「发起新扫描」：仅当有选中会话时才露插话框；active 允许空态发起。 */}
-      {(mode === 'active' || hasConv) && (
+      {/* 被动代理(auto) 无「发起新扫描」：仅当有选中会话时才露插话框；主动下发(manual) 允许空态发起。 */}
+      {(source === 'manual' || hasConv) && (
         <Composer
           convId={convId}
           scanning={scanning}
-          mode={mode}
           onStarted={handleStarted}
           onAppended={handleAppended}
           onStop={() => void stop()}

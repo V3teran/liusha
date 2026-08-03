@@ -19,9 +19,9 @@ function mkConv(over: Partial<Conversation>): Conversation {
     Title: '我要扫描 example.com',
     ScanID: '',
     TaskID: '',
-    RoleID: '',
+    ScenarioID: 'web_app',
+    Source: 'manual',
     RunStatus: 'completed',
-    Mode: 'active',
     FindingCount: 0,
     CreatedAt: new Date().toISOString(),
     UpdatedAt: new Date().toISOString(),
@@ -64,12 +64,12 @@ describe('ConversationList', () => {
     })
   })
 
-  it('mode 过滤下沉到服务端：按 mode 调用 listConversations', async () => {
-    mockPage([mkConv({ ID: 'c1', Title: '我要扫描 active-x.com', Mode: 'active' })])
-    renderList({ mode: 'active' })
+  it('source 过滤下沉到服务端：按 source 调用 listConversations', async () => {
+    mockPage([mkConv({ ID: 'c1', Title: '我要扫描 manual-x.com', Source: 'manual' })])
+    renderList({ source: 'manual' })
     await waitFor(() => {
-      expect(listConversations).toHaveBeenCalledWith(30, 0, 'active')
-      expect(screen.getByText(/active-x\.com/)).toBeTruthy()
+      expect(listConversations).toHaveBeenCalledWith(30, 0, 'manual')
+      expect(screen.getByText(/manual-x\.com/)).toBeTruthy()
     })
   })
 
