@@ -26,7 +26,7 @@ import (
 	"github.com/V3teran/liusha/internal/envx"
 	"github.com/V3teran/liusha/internal/finding"
 	"github.com/V3teran/liusha/internal/httpapi"
-	"github.com/V3teran/liusha/internal/hunter"
+	"github.com/V3teran/liusha/internal/hunterrun"
 	"github.com/V3teran/liusha/internal/intent"
 	"github.com/V3teran/liusha/internal/llm"
 	"github.com/V3teran/liusha/internal/llminvocation"
@@ -87,7 +87,7 @@ func main() {
 	defer func() { _ = invocationStore.Close() }()
 
 	// hunter run store + asynq 入队器。
-	hunterStore := hunter.NewStore(pool)
+	hunterStore := hunterrun.NewStore(pool)
 	enq := worker.NewClient(asynq.RedisClientOpt{Addr: os.Getenv("LIUSHA_REDIS_ADDR")})
 	defer enq.Close()
 	auditStore := audit.NewStore(pool)         // 0047：task abort / create 审计
@@ -263,17 +263,17 @@ func (a taskAPIAdapter) List(ctx context.Context, limit int) ([]httpapi.TaskSumm
 	return out, nil
 }
 
-// activeScanAdapter 把 task store + hunter.Store + worker.Client 组合成
+// activeScanAdapter 把 task store + hunterrun.Store + worker.Client 组合成
 // httpapi.ActiveScanAPI 一站式入口：建 active scan → 建 hunter agent_run → 入 asynq 队列。
 //
 // 任一步失败都不留中间状态（前面失败直接返错；task 已建但 enqueue 失败会留
 // active scan，由用户手动 abort 或后续 sweeper——保持简单不上事务，与
 // passive 模式 ingestor.enqueueMain 一致语义）。
-// 合表后：task.Store 管扫描生命周期，hunter.Store 建 run。
+// 合表后：task.Store 管扫描生命周期，hunterrun.Store 建 run。
 type activeScanAdapter struct {
 	assignments   *assignment.Store
 	tasks         *task.Store
-	hunters       *hunter.Store
+	hunters       *hunterrun.Store
 	enq           *worker.Client
 	audit         *audit.Store        // 0047：create 写审计事件；nil 跳过
 	conversations *conversation.Store // 阶段B：StartChatScan 建会话；nil 时仅 CreateActiveScan 可用
@@ -348,7 +348,7 @@ func (a *activeScanAdapter) expandActiveItem(ctx context.Context, assignmentID, 
 		return "", "", fmt.Errorf("marshal payload: %w", err)
 	}
 
-	tid, err := a.hunters.Create(ctx, hunter.NewParams{
+	tid, err := a.hunters.Create(ctx, hunterrun.NewParams{
 		TaskID: tk.ID,
 		Role:   "orchestrator",
 		Input:  payloadInput,
@@ -409,7 +409,7 @@ func (a *activeScanAdapter) FollowUpScan(ctx context.Context, taskID, conversati
 	if err != nil {
 		return "", fmt.Errorf("marshal payload: %w", err)
 	}
-	tid, err := a.hunters.Create(ctx, hunter.NewParams{
+	tid, err := a.hunters.Create(ctx, hunterrun.NewParams{
 		TaskID: taskID,
 		Role:   "orchestrator",
 		Input:  payloadInput,
@@ -448,7 +448,7 @@ func (a *activeScanAdapter) FollowUpPassive(ctx context.Context, taskID, convers
 	if err != nil {
 		return "", fmt.Errorf("marshal payload: %w", err)
 	}
-	tid, err := a.hunters.Create(ctx, hunter.NewParams{
+	tid, err := a.hunters.Create(ctx, hunterrun.NewParams{
 		TaskID: taskID,
 		Role:   "traffic-analysis",
 		Input:  payloadInput,

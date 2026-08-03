@@ -17,7 +17,7 @@ import (
 	"github.com/V3teran/liusha/internal/einollm"
 	"github.com/V3teran/liusha/internal/einotools"
 	"github.com/V3teran/liusha/internal/finding"
-	"github.com/V3teran/liusha/internal/hunter"
+	"github.com/V3teran/liusha/internal/hunterrun"
 	"github.com/V3teran/liusha/internal/lead"
 	"github.com/V3teran/liusha/internal/llminvocation"
 	"github.com/V3teran/liusha/internal/ratelimit"
@@ -31,7 +31,7 @@ import (
 
 // handler 持有所有跨任务共享依赖。
 type handler struct {
-	hunters    *hunter.Store
+	hunters    *hunterrun.Store
 	tasks      *task.Store
 	findings   *finding.Store
 	corpus     *corpus.Store            // 跨目标知识库（hybrid RAG）；search/write_corpus
@@ -131,7 +131,7 @@ func (h handler) handle(ctx context.Context, p worker.Payload) (retErr error) {
 	// 入口检查：asynq 重试场景（PG status 已非 pending）→ SkipRetry。
 	// 防 orchestrator被重试时新 Registry 空 → PreDoneCheck 永放行 → 旧 PG exploitation 僵尸 + 矛盾态。
 	// GetByID 错误（PG 短时不可用等）不阻塞——让 SetRunning 走正常错误路径。
-	if run, getErr := h.hunters.GetByID(ctx, p.HunterID); getErr == nil && run.Status != hunter.StatusPending {
+	if run, getErr := h.hunters.GetByID(ctx, p.HunterID); getErr == nil && run.Status != hunterrun.StatusPending {
 		h.logger.Warn().
 			Str("hunter_id", p.HunterID).
 			Str("status", string(run.Status)).
