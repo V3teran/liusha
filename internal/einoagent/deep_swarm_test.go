@@ -16,7 +16,7 @@ func toolDefsFromCtx(t *testing.T, h einoagent.HunterDef) []string {
 	f := allFake{}
 	tools, err := einoagent.BuildHunterTools(h, einoagent.ToolBuildCtx{
 		Deps:   einoagent.TrafficAnalysisToolDeps{Findings: f, Corpus: f, Credentials: f, AgentFlows: traffic.NewAgentStore(nil)},
-		Params: einoagent.TrafficAnalysisToolParams{TaskID: "task-1", Mode: "active", HunterID: "h", Host: "host"},
+		Params: einoagent.TrafficAnalysisToolParams{TaskID: "task-1", HunterID: "h", Host: "host"},
 	})
 	if err != nil {
 		t.Fatalf("BuildHunterTools: %v", err)
@@ -102,7 +102,7 @@ func TestBuildDeepSwarm_AssemblesOrchestratorAndSubAgents(t *testing.T) {
 		Orchestrator: orchestratorHunter,
 		SubAgents:    []einoagent.HunterDef{exploitationHunter},
 		ToolDeps:     einoagent.TrafficAnalysisToolDeps{Findings: f, Corpus: f, Credentials: f, AgentFlows: traffic.NewAgentStore(nil)},
-		Params:       einoagent.TrafficAnalysisToolParams{TaskID: "task-1", Mode: "active", HunterID: "cmd", Host: "host"},
+		Params:       einoagent.TrafficAnalysisToolParams{TaskID: "task-1", HunterID: "cmd", Host: "host"},
 	})
 	if err != nil {
 		t.Fatalf("BuildDeepSwarm: %v", err)

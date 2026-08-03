@@ -31,8 +31,8 @@ import (
 	"github.com/V3teran/liusha/internal/conversation"
 	"github.com/V3teran/liusha/internal/corpus"
 	"github.com/V3teran/liusha/internal/credential"
+	"github.com/V3teran/liusha/internal/configstore"
 	"github.com/V3teran/liusha/internal/db"
-	"github.com/V3teran/liusha/internal/einoagent"
 	"github.com/V3teran/liusha/internal/einollm"
 	"github.com/V3teran/liusha/internal/einotools"
 	"github.com/V3teran/liusha/internal/embedding"
@@ -46,7 +46,6 @@ import (
 	"github.com/V3teran/liusha/internal/ratelimit"
 	"github.com/V3teran/liusha/internal/sandbox"
 	"github.com/V3teran/liusha/internal/scanstream"
-	"github.com/V3teran/liusha/internal/scenario"
 	"github.com/V3teran/liusha/internal/skill"
 	"github.com/V3teran/liusha/internal/task"
 	"github.com/V3teran/liusha/internal/toolinvocation"
@@ -215,53 +214,15 @@ func main() {
 		FindingsLimit:   cfg.Session.FindingsLimitInPrompt,
 	}
 
-	// active deep 角色加载（hunters/active/*.md）：deep 装配主代理 + 杀伤链子代理。
-	// 解析失败 / 无 orchestrator → fail-fast（active 扫描会无法装配 deep）。
-	activeDir := filepath.Join(cfg.Hunters.Root, "active")
-	roles, err := einoagent.LoadHunters(activeDir)
-	if err != nil {
-		logger.Fatal().Err(err).Str("dir", activeDir).Msg("active 角色加载失败——active 走 deep 需 hunters/active/*.md，fail-fast")
-	} else {
-		roleIDs := make([]string, 0, len(roles))
-		for _, r := range roles {
-			roleIDs = append(roleIDs, string(r.Kind)+":"+r.ID)
-		}
-		logger.Info().Strs("roles", roleIDs).Str("dir", activeDir).Msg("active deep 角色加载完成")
-	}
-
-	// passive 角色加载（hunters/passive/traffic-analysis.md）：passive 单 agent 用其 prompt + max_iterations。
-	// 子目录隔离 active/passive——active 的 LoadRoles 不会扫到 passive，passive 角色也不会被 deep swarm 误派。
-	passiveDir := filepath.Join(cfg.Hunters.Root, "passive")
-	passiveRoles, perr := einoagent.LoadHunters(passiveDir)
-	if perr != nil {
-		logger.Fatal().Err(perr).Str("dir", passiveDir).Msg("passive 角色加载失败——passive 需 hunters/passive/traffic-analysis.md，fail-fast")
-	}
-	var passiveRole einoagent.HunterDef
-	for _, r := range passiveRoles {
-		if r.ID == "traffic-analysis" {
-			passiveRole = r
-			break
-		}
-	}
-	if passiveRole.ID == "" {
-		logger.Fatal().Str("dir", passiveDir).Msg("passive 角色缺 traffic-analysis，fail-fast")
-	}
-
-	// 场景 role 加载（scenarios/*.md，阶段C）：active/passive handler 按 Payload.ScenarioID 注入主代理人设。
-	// 加载失败仅警告——不注入人设退化为通用扫描，不阻塞 scanner。
-	scenarioRoles, err := scenario.LoadRoles(envx.OrDefault("LIUSHA_ROLES_DIR", "./scenarios"))
-	if err != nil {
-		logger.Warn().Err(err).Msg("场景 role 加载失败（不注入人设，退化通用扫描）")
-	} else {
-		ids := make([]string, 0, len(scenarioRoles))
-		for _, r := range scenarioRoles {
-			ids = append(ids, string(r.Mode)+":"+r.ID)
-		}
-		logger.Info().Strs("scenario_roles", ids).Msg("场景 role 加载完成")
+	// 配置事实源（DB + 内存/redis 缓存）：运行期按需读 scenario/playbook/hunter 装配引擎。
+	// 文件仅是首次导入的种子（seed 导入在别处），进程运行期一律走 DB/缓存（见 D6/D7）。
+	cfgStore := configstore.New(pool, rdb)
+	if err := cfgStore.Subscribe(ctx); err != nil {
+		logger.Fatal().Err(err).Msg("configstore redis 失效订阅失败——配置跨进程失效不可用，fail-fast")
 	}
 
 	// handler
-	// per-host 并发信号量（§4.3）。TTL = active 超时 + 10min 缓冲：防长 task 运行期计数键被
+	// per-host 并发信号量（§4.3）。TTL = swarm 超时 + 10min 缓冲：防长 task 运行期计数键被
 	// TTL 误清导致 host 额度漂移；持有者崩溃时靠 TTL 到期兜底清零，不永久泄漏。
 	hostSemTTL := time.Duration(scannerCfg.ActiveAgentRunTimeoutSeconds)*time.Second + 10*time.Minute
 	hostSem := ratelimit.NewHostSemaphore(rdb, cfg.Credential.RedisKeyPrefix, scannerCfg.PerHostConcurrency, hostSemTTL)
@@ -284,11 +245,9 @@ func main() {
 		logger:         logger,
 		einoFactory:    einollm.New(cfg),
 		hunterDeps:     hunterDeps,
-		roles:          roles,
-		passiveRole:    passiveRole,
+		cfgStore:       cfgStore,
 		conversations:  convStore,
 		eventPublisher: eventPublisher,
-		scenarioRoles:  scenarioRoles,
 	}
 
 	mux := worker.NewMux()
@@ -336,9 +295,9 @@ func main() {
 	// （见 einoToolSink.heartbeat）+ handler 入口重置一次。scanner 进程崩溃或扫描卡死后心跳停摆，
 	// reaper 据此把超时孤儿判为 aborted——否则前端永远显示「进行中」。
 	//
-	// 合表后 passive_session 的 TTL sweeper 已删（passive task 是有界批分析，跑完即终态，无常驻监控
-	// 会话概念，无 TTL 轮换）。reaper 按 mode 分别判活：active run 内可能跑长工具（sqlmap/nmap）+
-	// 慢 LLM，staleAfter 较长；passive 单批分析轻量，用同一 staleAfter 亦安全（偏保守不冤杀）。
+	// task 是有界运行，跑完即终态，无常驻监控会话概念，无 TTL 轮换。reaper 统一判活：
+	// swarm run 内可能跑长工具（sqlmap/nmap）+ 慢 LLM，staleAfter 较长；solo 单批分析轻量，
+	// 用同一 staleAfter 亦安全（偏保守不冤杀）。
 	//
 	// staleAfter 必须 > 单 run 内两次工具调用之间的最长合法间隔，否则冤杀正在干活的扫描：
 	// 最长间隔 ≈ 一次长工具执行(step_tool_timeout) + 决定下一步的 LLM 生成(step_llm_timeout) +
@@ -353,13 +312,11 @@ func main() {
 			case <-flowCtx.Done():
 				return
 			case <-ticker.C:
-				for _, mode := range []task.Mode{task.ModeActive, task.ModePassive} {
-					if n, err := taskStore.ReapStale(flowCtx, mode, staleAfter); err != nil {
-						logger.Warn().Err(err).Str("mode", string(mode)).Msg("task reap stale failed")
-					} else if n > 0 {
-						logger.Warn().Int("aborted", n).Str("mode", string(mode)).Dur("stale_after", staleAfter).
-							Msg("task 心跳超时回收（进程崩溃或扫描卡死）")
-					}
+				if n, err := taskStore.ReapStale(flowCtx, staleAfter); err != nil {
+					logger.Warn().Err(err).Msg("task reap stale failed")
+				} else if n > 0 {
+					logger.Warn().Int("aborted", n).Dur("stale_after", staleAfter).
+						Msg("task 心跳超时回收（进程崩溃或扫描卡死）")
 				}
 			}
 		}

@@ -33,7 +33,6 @@ import (
 	"github.com/V3teran/liusha/internal/logx"
 	"github.com/V3teran/liusha/internal/qa"
 	"github.com/V3teran/liusha/internal/scanstream"
-	"github.com/V3teran/liusha/internal/scenario"
 	"github.com/V3teran/liusha/internal/sitemap"
 	"github.com/V3teran/liusha/internal/task"
 	"github.com/V3teran/liusha/internal/toolinvocation"
@@ -81,7 +80,6 @@ func main() {
 	projector := &sitemap.Projector{
 		Findings: findStore,
 		Flows:    agentFlowStore, // 攻击面从 agent_traffic 派生（按 task）
-		Tasks:    taskStore,      // sitemap 仅 active 模式（passive 用 findings 列表）
 	}
 	invocationStore := llminvocation.NewStoreWithConfig(pool, cfg.LLM.Invocation)
 	defer func() { _ = invocationStore.Close() }()
@@ -95,24 +93,12 @@ func main() {
 	toolStore := toolinvocation.NewStore(pool) // 会话用量合计：工具耗时来源
 	// 执行图（思维链+成果链）read-model 投影：复用 conv/finding store，不落表（docs/attack-graph-design.md）。
 	attackGraphProjector := &attackgraph.Projector{Messages: convStore, Findings: findStore, Conv: convStore}
-	// 阶段C：场景 role（scenarios/*.md）。加载失败仅警告——/roles 返回空、/chat 用空 role 兜底，
-	// 不阻塞 api 启动（场景人设是增强，缺了退化为通用扫描）。
-	scenarioRoles, err := scenario.LoadRoles(envx.OrDefault("LIUSHA_ROLES_DIR", "./scenarios"))
-	if err != nil {
-		logger.Warn().Err(err).Msg("场景 role 加载失败（/roles 返回空，/chat 用空 role）")
-	} else {
-		ids := make([]string, 0, len(scenarioRoles))
-		for _, r := range scenarioRoles {
-			ids = append(ids, string(r.Mode)+":"+r.ID)
-		}
-		logger.Info().Strs("scenario_roles", ids).Msg("场景 role 加载完成")
-	}
 	// 多轮问答/意图分类依赖：light provider 路由 + 问答读 finding + SSE publish。
 	router := llm.NewRouterWithOptions(llm.NewFactory(cfg), llm.RetryOptionsFromConfig(cfg.LLM.Retry))
 	// 执行图里程碑摘要：用 light LLM 把子代理推理总结成一句（派生层，按需调用）。
 	attackGraphProjector.Summary = llmSummarizer{router: router}
 	publisher := scanstream.NewPublisher(rdb)
-	activeAdapter := &activeScanAdapter{assignments: assignmentStore, tasks: taskStore, hunters: hunterStore, enq: enq, audit: auditStore, conversations: convStore, roles: scenarioRoles, router: router, findings: findStore, publisher: publisher, activeRunTimeout: time.Duration(cfg.Scanner.ActiveAgentRunTimeoutSeconds) * time.Second}
+	adapter := &scanAdapter{assignments: assignmentStore, tasks: taskStore, hunters: hunterStore, enq: enq, audit: auditStore, conversations: convStore, router: router, findings: findStore, publisher: publisher, activeRunTimeout: time.Duration(cfg.Scanner.ActiveAgentRunTimeoutSeconds) * time.Second}
 
 	// cron Scheduler（§4.2/§10 P4）：轮询 cron_schedule 到点模板 → 克隆 assignment → 展开 task。
 	// 单副本够用；ctx 随进程关停取消（无需独立 shutdown 时限——轮询循环立即退出，无 in-flight 状态要收尾）。
@@ -125,7 +111,7 @@ func main() {
 		proxyFlows:  proxyFlowStore,
 		hunters:     hunterStore,
 		enq:         enq,
-		active:      activeAdapter,
+		scan:        adapter,
 		logger:      logger,
 	}
 	go runner.run(cronCtx)
@@ -153,15 +139,14 @@ func main() {
 			Findings:          findStore,            // 全局漏洞台账（active+passive 全量 + triage 处置）
 			AttackGraph:       attackGraphProjector, // 执行图（思维链+成果链）投影
 			Invocations:       invocationStore,
-			ActiveScan:        activeAdapter,
-			Chat:              activeAdapter,                // 阶段B：POST /chat 会话发起扫描
-			FollowUp:          activeAdapter,                // 多轮：POST /conversations/:id/messages 动作续接
-			Abort:             activeAdapter,                // 多轮：POST /conversations/:id/abort 停止会话关联扫描
-			Deleter:           activeAdapter,                // DELETE /conversations/:id 删会话+消息；关联扫描进行中拒删（409，先停后删）
+			Scan:              adapter,
+			Chat:              adapter,                // 阶段B：POST /chat 会话发起扫描
+			FollowUp:          adapter,                // 多轮：POST /conversations/:id/messages 动作续接
+			Abort:             adapter,                // 多轮：POST /conversations/:id/abort 停止会话关联扫描
+			Deleter:           adapter,                // DELETE /conversations/:id 删会话+消息；关联扫描进行中拒删（409，先停后删）
 			Renamer:           convStore,                    // PATCH /conversations/:id 重命名标题（convStore.SetTitle 直接满足）
 			Conversations:     convStore,                    // 阶段B：会话列表 / 消息回看
 			EventStream:       eventStreamAdapter{rdb: rdb}, // 阶段B：SSE 订阅 redis 事件
-			Roles:             activeAdapter,                // 阶段C：GET /roles 场景列表
 			UsageTasks:        convStore,                    // 会话用量：会话→task 解析
 			UsageLLM:          invocationStore,              // 会话用量：LLM token/耗时合计
 			UsageTools:        toolStore,                    // 会话用量：工具耗时合计
@@ -229,7 +214,7 @@ func (a taskAPIAdapter) writeAudit(ctx context.Context, action, kind, id string)
 	}
 }
 
-// List 列出最近的 task → httpapi.TaskSummary（前端下拉/列表）。mode 混列，按 created_at desc。
+// List 列出最近的 task → httpapi.TaskSummary（前端下拉/列表）。各场景混列，按 created_at desc。
 func (a taskAPIAdapter) List(ctx context.Context, limit int) ([]httpapi.TaskSummary, error) {
 	if limit <= 0 {
 		limit = 20
@@ -240,18 +225,13 @@ func (a taskAPIAdapter) List(ctx context.Context, limit int) ([]httpapi.TaskSumm
 	}
 	out := make([]httpapi.TaskSummary, 0, len(tasks))
 	for _, t := range tasks {
-		var scope map[string]string
-		if t.Mode == task.ModePassive {
-			scope = map[string]string{"host": t.TargetHost}
-		} else {
-			scope = map[string]string{"brief": t.Brief}
-		}
-		scopeJSON, _ := json.Marshal(scope)
+		// 输入已统一（brief 主 + target_host 派生，见 D5）：始终输出两字段，不按场景分形状。
+		scopeJSON, _ := json.Marshal(map[string]string{"brief": t.Brief, "target_host": t.TargetHost})
 		s := httpapi.TaskSummary{
 			ID:           t.ID,
 			Scope:        string(scopeJSON),
 			Status:       string(t.Status),
-			Mode:         string(t.Mode),
+			ScenarioID:   t.ScenarioID,
 			CreatedAt:    t.CreatedAt.Format(time.RFC3339),
 			ErrorMessage: t.ErrorMessage,
 		}
@@ -263,21 +243,20 @@ func (a taskAPIAdapter) List(ctx context.Context, limit int) ([]httpapi.TaskSumm
 	return out, nil
 }
 
-// activeScanAdapter 把 task store + hunterrun.Store + worker.Client 组合成
-// httpapi.ActiveScanAPI 一站式入口：建 active scan → 建 hunter agent_run → 入 asynq 队列。
+// scanAdapter 把 task store + hunterrun.Store + worker.Client 组合成
+// httpapi.ScanAPI 一站式入口：建 scan → 建 hunter agent_run → 入 asynq 队列。
 //
 // 任一步失败都不留中间状态（前面失败直接返错；task 已建但 enqueue 失败会留
-// active scan，由用户手动 abort 或后续 sweeper——保持简单不上事务，与
-// passive 模式 ingestor.enqueueMain 一致语义）。
+// scan，由用户手动 abort 或后续 sweeper——保持简单不上事务，与
+// ingestor.enqueueMain 一致语义）。
 // 合表后：task.Store 管扫描生命周期，hunterrun.Store 建 run。
-type activeScanAdapter struct {
+type scanAdapter struct {
 	assignments   *assignment.Store
 	tasks         *task.Store
 	hunters       *hunterrun.Store
 	enq           *worker.Client
 	audit         *audit.Store        // 0047：create 写审计事件；nil 跳过
-	conversations *conversation.Store // 阶段B：StartChatScan 建会话；nil 时仅 CreateActiveScan 可用
-	roles         []scenario.Role     // 阶段C：场景 role（StartChatScan 默认兜底 + ListRoles 暴露）
+	conversations *conversation.Store // 阶段B：StartChatScan 建会话；nil 时仅 CreateScan 可用
 
 	router    *llm.Router           // 多轮：意图分类 + 问答（light provider）
 	findings  *finding.Store        // 问答读 task 黑板 finding
@@ -289,17 +268,6 @@ type activeScanAdapter struct {
 	activeRunTimeout time.Duration
 }
 
-// ListRoles 满足 httpapi.RolesAPI：列出所有场景 role 供前端选择。
-func (a *activeScanAdapter) ListRoles() []scenario.Role { return a.roles }
-
-// defaultActiveRoleID 返回默认 active 场景 id（用户未选 role 时兜底）；无 active role 时返空。
-func (a *activeScanAdapter) defaultActiveRoleID() string {
-	if r, ok := scenario.DefaultForMode(a.roles, scenario.ModeActive); ok {
-		return r.ID
-	}
-	return ""
-}
-
 // eventStreamAdapter 把 scanstream 订阅适配成 httpapi.EventStream（SSE handler 用）。
 // scanstream.Subscription 自带 Events()/Close()，满足 httpapi.EventSubscription。
 type eventStreamAdapter struct{ rdb *redis.Client }
@@ -308,44 +276,38 @@ func (e eventStreamAdapter) Subscribe(ctx context.Context, conversationID string
 	return scanstream.Subscribe(ctx, e.rdb, conversationID)
 }
 
-// createScan 是建 active scan 的核心：建 assignment + task + hunter run + 入 asynq 队列（带
-// conversationID）。CreateActiveScan（无会话纯后台）与 StartChatScan（会话发起）共用。
-func (a *activeScanAdapter) createScan(ctx context.Context, brief, conversationID, scenarioID string) (string, string, error) {
-	// 一切下发皆走 assignment（§3.1）：单发 = 单元素 assignment(active, manual) → 1 task。
+// createScan 是建 scan 的核心：建 assignment + task + hunter run + 入 asynq 队列（带
+// conversationID）。CreateScan（无会话纯后台）与 StartChatScan（会话发起）共用。
+// scenarioID 必填——标识场景 code，runner 据此解析引擎与 playbook（数据驱动派发）。
+func (a *scanAdapter) createScan(ctx context.Context, brief, conversationID, scenarioID string) (string, string, error) {
+	// 一切下发皆走 assignment（§3.1）：单发 = 单元素 assignment(manual) → 1 task。
 	asg, err := a.assignments.Create(ctx, assignment.NewParams{
-		Mode:   assignment.ModeActive,
-		Source: assignment.SourceManual,
-		Items:  []assignment.Item{{Brief: brief}},
-		Title:  briefTitle(brief),
+		ScenarioID: scenarioID,
+		Source:     assignment.SourceManual,
+		Items:      []assignment.Item{{Brief: brief}},
+		Title:      briefTitle(brief),
 	})
 	if err != nil {
 		return "", "", fmt.Errorf("create assignment: %w", err)
 	}
-	return a.expandActiveItem(ctx, asg.ID, brief, conversationID, scenarioID)
+	return a.expandItem(ctx, asg.ID, brief, conversationID, scenarioID)
 }
 
-// expandActiveItem 把 assignment 下的一个 active item（brief）展开成 task + hunter run + enqueue。
+// expandItem 把 assignment 下的一个 item（brief）展开成 task + hunter run + enqueue。
 // 单发（createScan，建单元素 assignment 后展开 1 条）与批量/定时（cron Scheduler，建多元素
 // assignment 后逐条展开）复用同一份展开逻辑，只是 assignment 的建法不同（§3.1 单发 vs 批量/cron）。
 //
-// target_host 留空——暂不在 API 层 parse brief，hunter LLM 从 brief 自识别（scanner 入口回填）。
-func (a *activeScanAdapter) expandActiveItem(ctx context.Context, assignmentID, brief, conversationID, scenarioID string) (string, string, error) {
-	// scope 与 entrypoint 都只装 brief 原文——目标 URL / host 由 hunter LLM
-	// 从 brief 自然语言里自行识别（不在 API 层做 NL parser）。
-	body, err := json.Marshal(map[string]string{"brief": brief})
-	if err != nil {
-		return "", "", fmt.Errorf("marshal brief: %w", err)
-	}
-	tk, err := a.tasks.Create(ctx, task.NewParams{Mode: task.ModeActive, AssignmentID: assignmentID, Brief: brief})
-	if err != nil {
-		return "", "", fmt.Errorf("create task: %w", err)
-	}
-	payloadInput, err := json.Marshal(map[string]any{
-		"mode":       "active",
-		"entrypoint": json.RawMessage(body),
-	})
+// target_host 留空——不在 API 层 parse brief，runner 入口从 brief 抽取后回填（派生列，见 D5）。
+// 引擎（solo/swarm）与 playbook 由 runner 按 scenarioID 解析，API 不关心（职责下沉，数据驱动）。
+func (a *scanAdapter) expandItem(ctx context.Context, assignmentID, brief, conversationID, scenarioID string) (string, string, error) {
+	// payload 只装 brief 原文——目标 URL / host 由 runner 从 brief 自识别回填。
+	payloadInput, err := json.Marshal(map[string]string{"brief": brief})
 	if err != nil {
 		return "", "", fmt.Errorf("marshal payload: %w", err)
+	}
+	tk, err := a.tasks.Create(ctx, task.NewParams{ScenarioID: scenarioID, AssignmentID: assignmentID, Brief: brief})
+	if err != nil {
+		return "", "", fmt.Errorf("create task: %w", err)
 	}
 
 	tid, err := a.hunters.Create(ctx, hunterrun.NewParams{
@@ -357,15 +319,14 @@ func (a *activeScanAdapter) expandActiveItem(ctx context.Context, assignmentID, 
 		return "", "", fmt.Errorf("create hunter run: %w", err)
 	}
 
-	// active orchestrator跑 ~4h，asynq 默认 retry 25 次 → 4 天死循环；且 retry 接管时
-	// 新 scanner 进程 parentRegistries 是空的，PreDoneCheck 永放行，旧 PG exploitation 留
-	// status=running 僵尸态 + 前端看到"orchestrator done + exploitation running"矛盾。
-	// MaxRetry(0)：orchestrator跑挂就跑挂，让用户手动 abort + 重新触发，不重试。
+	// orchestrator 跑 ~4h，asynq 默认 retry 25 次 → 4 天死循环；且 retry 接管时新 runner 进程
+	// parentRegistries 是空的，PreDoneCheck 永放行，旧 PG exploitation 留 status=running 僵尸态。
+	// MaxRetry(0)：跑挂就跑挂，让用户手动 abort + 重新触发，不重试。
 	if _, _, err := a.enq.Enqueue(ctx, worker.RoleHunter, worker.Payload{
 		HunterID:       tid,
 		TaskID:         tk.ID,
-		ConversationID: conversationID, // 阶段B：会话发起时非空 → scanner 发过程事件
-		ScenarioID:     scenarioID,     // 阶段C：场景 role → scanner 注入主代理人设
+		ConversationID: conversationID, // 阶段B：会话发起时非空 → runner 发过程事件
+		ScenarioID:     scenarioID,     // 场景 code：runner 据此数据驱动派发引擎/playbook
 		Input:          payloadInput,
 		Role:           worker.RoleHunter,
 	}, asynq.MaxRetry(0), asynq.Timeout(a.activeRunTimeout)); err != nil {
@@ -394,18 +355,17 @@ func (a *activeScanAdapter) expandActiveItem(ctx context.Context, assignmentID, 
 	return tk.ID, tid, nil
 }
 
-// FollowUpScan 在已有 task 上发起一次续接 run（多轮动作）：重开 task + 建 hunter run +
-// 入队（brief=追加消息）。复用 task 作用域黑板——新 orchestrator 经 BuildUserPrompt 看到先前 finding。
+// FollowUp 在已有 task 上发起一次续接 run（多轮动作）：重开 task + 建 hunter run + 入队
+// （brief=追加消息）。复用 task 作用域黑板——新 run 经 BuildUserPrompt 看到先前 finding。
 // 入队 Payload 与 createScan 同构，仅 TaskID 复用传入 taskID、不新建 task。
-func (a *activeScanAdapter) FollowUpScan(ctx context.Context, taskID, conversationID, scenarioID, brief string) (string, error) {
+//
+// 引擎由 runner 按 task 的 scenarioID 解析（数据驱动派发）——续接不区分 solo/swarm，
+// 统一走 brief 追加，runner 侧按场景装配对应引擎。scenarioID 从原 task 读取，保证与首轮一致。
+func (a *scanAdapter) FollowUp(ctx context.Context, taskID, conversationID, scenarioID, brief string) (string, error) {
 	if err := a.tasks.Reopen(ctx, taskID); err != nil {
 		return "", fmt.Errorf("reopen task: %w", err)
 	}
-	body, err := json.Marshal(map[string]string{"brief": brief})
-	if err != nil {
-		return "", fmt.Errorf("marshal brief: %w", err)
-	}
-	payloadInput, err := json.Marshal(map[string]any{"mode": "active", "entrypoint": json.RawMessage(body)})
+	payloadInput, err := json.Marshal(map[string]string{"brief": brief})
 	if err != nil {
 		return "", fmt.Errorf("marshal payload: %w", err)
 	}
@@ -430,46 +390,8 @@ func (a *activeScanAdapter) FollowUpScan(ctx context.Context, taskID, conversati
 	return tid, nil
 }
 
-// FollowUpPassive 是 passive 会话内的 action 续接：Reopen 原 task（沿用同一 task 累积 finding）
-// → 起一个 traffic-analysis run，entrypoint 带原 host + 用户手敲指令（directive）。
-// 与 FollowUpScan 同构，差异：mode=passive、role=traffic-analysis、directive 透传给 agent 验证。
-//
-// directive 是用户在会话里手敲的内容（自然语言指导，或直接粘的请求/命令）——passive handler
-// 拼进 prompt，让 agent 用 run_command/replay_traffic 照打验证；原批流量仍全读，上下文不丢。
-func (a *activeScanAdapter) FollowUpPassive(ctx context.Context, taskID, conversationID, host, directive string) (string, error) {
-	if err := a.tasks.Reopen(ctx, taskID); err != nil {
-		return "", fmt.Errorf("reopen task: %w", err)
-	}
-	body, err := json.Marshal(map[string]string{"host": host, "directive": directive})
-	if err != nil {
-		return "", fmt.Errorf("marshal entrypoint: %w", err)
-	}
-	payloadInput, err := json.Marshal(map[string]any{"mode": "passive", "entrypoint": json.RawMessage(body)})
-	if err != nil {
-		return "", fmt.Errorf("marshal payload: %w", err)
-	}
-	tid, err := a.hunters.Create(ctx, hunterrun.NewParams{
-		TaskID: taskID,
-		Role:   "traffic-analysis",
-		Input:  payloadInput,
-	})
-	if err != nil {
-		return "", fmt.Errorf("create hunter run: %w", err)
-	}
-	if _, _, err := a.enq.Enqueue(ctx, worker.RoleHunter, worker.Payload{
-		HunterID:       tid,
-		TaskID:         taskID,
-		ConversationID: conversationID,
-		Input:          payloadInput,
-		Role:           worker.RoleHunter,
-	}, asynq.MaxRetry(0), asynq.Timeout(a.activeRunTimeout)); err != nil {
-		return "", fmt.Errorf("enqueue passive followup: %w", err)
-	}
-	return tid, nil
-}
-
 // AbortConversationScan 满足 httpapi.AbortAPI：abort 会话关联的 task。
-func (a *activeScanAdapter) AbortConversationScan(ctx context.Context, convID string) error {
+func (a *scanAdapter) AbortConversationScan(ctx context.Context, convID string) error {
 	conv, err := a.conversations.GetConversation(ctx, convID)
 	if err != nil {
 		return err
@@ -484,7 +406,7 @@ func (a *activeScanAdapter) AbortConversationScan(ctx context.Context, convID st
 // 「先停后删」的服务端把关——返回 httpapi.ErrConversationScanActive → handler 映射 409。
 // 防「删了会话、扫描脱缰后台跑、UI 再停不掉、还在烧 token」的孤儿（见 reference_deep_subagent_context 同源思路：
 // 不变量在服务端守，不靠前端）。仅在确证 active 时拦截；无 task / 终态 / task 读不到则照常删。
-func (a *activeScanAdapter) DeleteConversation(ctx context.Context, convID string) error {
+func (a *scanAdapter) DeleteConversation(ctx context.Context, convID string) error {
 	conv, err := a.conversations.GetConversation(ctx, convID)
 	if err != nil {
 		return err
@@ -498,7 +420,7 @@ func (a *activeScanAdapter) DeleteConversation(ctx context.Context, convID strin
 }
 
 // HandleMessage 满足 httpapi.FollowUpAPI：落 user 消息 → 判意图 → qa 答 / action 续接。
-func (a *activeScanAdapter) HandleMessage(ctx context.Context, convID, content string) (string, bool, error) {
+func (a *scanAdapter) HandleMessage(ctx context.Context, convID, content string) (string, bool, error) {
 	conv, err := a.conversations.GetConversation(ctx, convID)
 	if err != nil {
 		return "", false, err
@@ -525,17 +447,13 @@ func (a *activeScanAdapter) HandleMessage(ctx context.Context, convID, content s
 		if tk.Status == task.StatusActive {
 			return "action", true, nil // 忙：agent 在跑，本轮指导经 conversationContext 下次读到
 		}
-		// 按 mode 续接：passive 起 traffic-analysis（带 host + 手敲指令），active 起 orchestrator。
-		// 两者都 Reopen 同一 task，finding 累积在这次分析会话里（不新建 task）。
-		if tk.Mode == task.ModePassive {
-			if _, err := a.FollowUpPassive(ctx, conv.TaskID, convID, tk.TargetHost, content); err != nil {
-				return "", false, err
-			}
-		} else if _, err := a.FollowUpScan(ctx, conv.TaskID, convID, "", content); err != nil {
+		// 续接沿用原 task 的场景（引擎由 runner 按 scenarioID 解析）：Reopen 同一 task，
+		// finding 累积在这次分析会话里（不新建 task）。追加消息作为新一轮 brief 下发。
+		if _, err := a.FollowUp(ctx, conv.TaskID, convID, tk.ScenarioID, content); err != nil {
 			return "", false, err
 		}
 		return "action", false, nil
-	default: // qa：就已有 finding/流量提问，active/passive 同一套问答
+	default: // qa：就已有 finding/流量提问，各场景同一套问答
 		if err := qa.New(a).Answer(ctx, convID, conv.TaskID, content); err != nil {
 			return "", false, err
 		}
@@ -546,7 +464,7 @@ func (a *activeScanAdapter) HandleMessage(ctx context.Context, convID, content s
 // ---- qa.Deps 实现 ----
 
 // FindingsSummary 满足 qa.Deps：把 task 黑板 finding 渲染成文本摘要。
-func (a *activeScanAdapter) FindingsSummary(ctx context.Context, _, taskID string) (string, error) {
+func (a *scanAdapter) FindingsSummary(ctx context.Context, _, taskID string) (string, error) {
 	fs, err := a.findings.ListByTask(ctx, taskID)
 	if err != nil {
 		return "", err
@@ -562,7 +480,7 @@ func (a *activeScanAdapter) FindingsSummary(ctx context.Context, _, taskID strin
 }
 
 // Generate 满足 qa.Deps：调 light provider。
-func (a *activeScanAdapter) Generate(ctx context.Context, msgs []llm.Message, tools []llm.ToolSchema) (llm.Result, error) {
+func (a *scanAdapter) Generate(ctx context.Context, msgs []llm.Message, tools []llm.ToolSchema) (llm.Result, error) {
 	g, err := a.router.For(ctx, "inspector")
 	if err != nil {
 		return llm.Result{}, err
@@ -571,7 +489,7 @@ func (a *activeScanAdapter) Generate(ctx context.Context, msgs []llm.Message, to
 }
 
 // AppendAssistant 满足 qa.Deps：落 assistant 消息，返回 SSE payload。
-func (a *activeScanAdapter) AppendAssistant(ctx context.Context, convID, content string) ([]byte, error) {
+func (a *scanAdapter) AppendAssistant(ctx context.Context, convID, content string) ([]byte, error) {
 	msg, err := a.conversations.AppendMessage(ctx, convID, conversation.RoleAssistant, conversation.KindMessage, content, nil)
 	if err != nil {
 		return nil, err
@@ -580,30 +498,27 @@ func (a *activeScanAdapter) AppendAssistant(ctx context.Context, convID, content
 }
 
 // Publish 满足 qa.Deps：推 SSE。
-func (a *activeScanAdapter) Publish(ctx context.Context, convID string, payload []byte) error {
+func (a *scanAdapter) Publish(ctx context.Context, convID string, payload []byte) error {
 	return a.publisher.Publish(ctx, convID, payload)
 }
 
-// CreateActiveScan 满足 httpapi.ActiveScanAPI（无会话的纯后台扫描入口）。
-func (a *activeScanAdapter) CreateActiveScan(ctx context.Context, brief string) (string, string, error) {
-	return a.createScan(ctx, brief, "", "")
+// CreateScan 满足 httpapi.ScanAPI（无会话的纯后台扫描入口）。scenarioID 必填。
+func (a *scanAdapter) CreateScan(ctx context.Context, brief, scenarioID string) (string, string, error) {
+	return a.createScan(ctx, brief, "", scenarioID)
 }
 
-// StartChatScan 满足 httpapi.ChatAPI：建会话（记 role_id）+ 落用户首条消息 + 发起扫描
+// StartChatScan 满足 httpapi.ChatAPI：建会话（记 scenario_id）+ 落用户首条消息 + 发起扫描
 // （入队带 conversationID + scenarioID）+ 关联会话与 scan。返回 conversationID 供前端订阅 SSE。
-// roleID 空时用默认 active 场景兜底。
-func (a *activeScanAdapter) StartChatScan(ctx context.Context, brief, roleID string) (string, string, error) {
-	if roleID == "" {
-		roleID = a.defaultActiveRoleID()
-	}
-	conv, err := a.conversations.CreateConversation(ctx, briefTitle(brief), "", roleID)
+// scenarioID 必填——前端 ScenarioPicker 选定（handler 已校验非空）。
+func (a *scanAdapter) StartChatScan(ctx context.Context, brief, scenarioID string) (string, string, error) {
+	conv, err := a.conversations.CreateConversation(ctx, briefTitle(brief), "")
 	if err != nil {
 		return "", "", fmt.Errorf("create conversation: %w", err)
 	}
 	if _, err := a.conversations.AppendMessage(ctx, conv.ID, conversation.RoleUser, conversation.KindMessage, brief, nil); err != nil {
 		return "", "", fmt.Errorf("append user message: %w", err)
 	}
-	taskID, _, err := a.createScan(ctx, brief, conv.ID, roleID)
+	taskID, _, err := a.createScan(ctx, brief, conv.ID, scenarioID)
 	if err != nil {
 		return "", "", err
 	}
@@ -618,7 +533,7 @@ func (a *activeScanAdapter) StartChatScan(ctx context.Context, brief, roleID str
 
 // genTitle 用 light LLM 把 brief 总结成 ≤16 字的简短标题，回填 conversation.title。
 // 异步调用（独立 context，不随请求结束被 cancel）；失败静默（保留 briefTitle 兜底）。
-func (a *activeScanAdapter) genTitle(convID, brief string) {
+func (a *scanAdapter) genTitle(convID, brief string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 	g, err := a.router.For(ctx, "inspector") // light provider，便宜

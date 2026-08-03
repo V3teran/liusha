@@ -8,12 +8,12 @@ import (
 	"net/http"
 )
 
-// createChatScan 调 POST /chat 发起【会话式】active 扫描，返回 (conversationID, taskID)。
-// /chat 建 conversation + 发 SSE 过程事件，前端能实时看到会话——e2e active 走此入口使扫描
-// 在前端可观察（区别于纯后台无会话的 POST /scan/active）。taskID 即响应的 scan_id，
-// brief 是用户自然语言任务简报，后端不解析，整段透传给 hunter LLM。
-func createChatScan(base, key, brief string) (conversationID, taskID string, err error) {
-	body, _ := json.Marshal(map[string]string{"brief": brief})
+// createChatScan 调 POST /chat 发起【会话式】扫描，返回 (conversationID, taskID)。
+// /chat 建 conversation + 发 SSE 过程事件，前端能实时看到会话——e2e 走此入口使扫描
+// 在前端可观察（区别于纯后台无会话的 POST /scan）。taskID 即响应的 scan_id，
+// brief 是用户自然语言任务简报，后端不解析，整段透传给 hunter LLM；scenarioID 选场景（决定 playbook + engine）。
+func createChatScan(base, key, brief, scenarioID string) (conversationID, taskID string, err error) {
+	body, _ := json.Marshal(map[string]string{"brief": brief, "scenario_id": scenarioID})
 	req, _ := http.NewRequest(http.MethodPost, base+"/chat", bytes.NewReader(body))
 	req.Header.Set("X-API-Key", key)
 	req.Header.Set("Content-Type", "application/json")

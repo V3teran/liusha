@@ -40,7 +40,7 @@ func newTestCronRunner(t *testing.T) (*cronRunner, *pgxpool.Pool) {
 		proxyFlows:  traffic.NewProxyStore(pool),
 		hunters:     hunters,
 		enq:         enq,
-		active: &activeScanAdapter{
+		scan: &scanAdapter{
 			assignments:      assignments,
 			tasks:            tasks,
 			hunters:          hunters,
@@ -69,7 +69,7 @@ func TestFireDue_ActiveSchedule_ExpandsTaskAndHunter(t *testing.T) {
 
 	items := []assignment.Item{{Brief: "夜间复扫 http://target.com"}}
 	sched, err := r.schedules.Create(ctx, cronschedule.NewParams{
-		Mode: assignment.ModeActive, CronExpr: "* * * * *", Items: items, Title: "nightly",
+		ScenarioID: "web-pentest", CronExpr: "* * * * *", Items: items, Title: "nightly",
 	})
 	if err != nil {
 		t.Fatalf("create schedule: %v", err)
@@ -89,7 +89,7 @@ func TestFireDue_ActiveSchedule_ExpandsTaskAndHunter(t *testing.T) {
 		t.Fatalf("触发后 next_run_at 应推进到未来，got %v", got.NextRunAt)
 	}
 
-	tasks, err := r.tasks.List(ctx, task.ModeActive, 10)
+	tasks, err := r.tasks.List(ctx, "web-pentest", 10)
 	if err != nil {
 		t.Fatalf("list tasks: %v", err)
 	}
@@ -122,8 +122,8 @@ func TestFireDue_ActiveSchedule_ExpandsTaskAndHunter(t *testing.T) {
 	}
 }
 
-// TestFireDue_PassiveSchedule_ClaimsUnconsumedTraffic 验证 passive 定时模板：领取该 host
-// 未消费的 proxy_traffic 后展开 task + traffic-analysis hunter run。
+// TestFireDue_PassiveSchedule_ClaimsUnconsumedTraffic 验证 passive-recon 定时模板：领取该 host
+// 未消费的 proxy_traffic 后展开 task + orchestrator hunter run。
 func TestFireDue_PassiveSchedule_ClaimsUnconsumedTraffic(t *testing.T) {
 	r, pool := newTestCronRunner(t)
 	ctx := context.Background()
@@ -135,7 +135,7 @@ func TestFireDue_PassiveSchedule_ClaimsUnconsumedTraffic(t *testing.T) {
 
 	items := []assignment.Item{{Host: host}}
 	sched, err := r.schedules.Create(ctx, cronschedule.NewParams{
-		Mode: assignment.ModePassive, CronExpr: "* * * * *", Items: items, Title: "recheck-" + host,
+		ScenarioID: "passive-recon", CronExpr: "* * * * *", Items: items, Title: "recheck-" + host,
 	})
 	if err != nil {
 		t.Fatalf("create schedule: %v", err)
@@ -144,7 +144,7 @@ func TestFireDue_PassiveSchedule_ClaimsUnconsumedTraffic(t *testing.T) {
 
 	r.fireDue(ctx)
 
-	tasks, err := r.tasks.List(ctx, task.ModePassive, 10)
+	tasks, err := r.tasks.List(ctx, "passive-recon", 10)
 	if err != nil {
 		t.Fatalf("list tasks: %v", err)
 	}
@@ -162,8 +162,8 @@ func TestFireDue_PassiveSchedule_ClaimsUnconsumedTraffic(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list hunter runs: %v", err)
 	}
-	if len(runs) != 1 || runs[0].Role != "traffic-analysis" {
-		t.Fatalf("应建出 1 条 traffic-analysis hunter run，got %+v", runs)
+	if len(runs) != 1 || runs[0].Role != "orchestrator" {
+		t.Fatalf("应建出 1 条 orchestrator hunter run，got %+v", runs)
 	}
 }
 
@@ -175,7 +175,7 @@ func TestFireDue_PassiveSchedule_NoTraffic_AbortsWithoutError(t *testing.T) {
 
 	items := []assignment.Item{{Host: "never-captured.com"}}
 	sched, err := r.schedules.Create(ctx, cronschedule.NewParams{
-		Mode: assignment.ModePassive, CronExpr: "* * * * *", Items: items,
+		ScenarioID: "passive-recon", CronExpr: "* * * * *", Items: items,
 	})
 	if err != nil {
 		t.Fatalf("create schedule: %v", err)
@@ -186,7 +186,7 @@ func TestFireDue_PassiveSchedule_NoTraffic_AbortsWithoutError(t *testing.T) {
 		t.Fatalf("无流量不应算 fireOne 失败: %v", err)
 	}
 
-	tasks, err := r.tasks.List(ctx, task.ModePassive, 10)
+	tasks, err := r.tasks.List(ctx, "passive-recon", 10)
 	if err != nil {
 		t.Fatalf("list tasks: %v", err)
 	}
@@ -211,7 +211,7 @@ func TestFireDue_DisabledSchedule_NotFired(t *testing.T) {
 
 	items := []assignment.Item{{Brief: "should not fire"}}
 	sched, err := r.schedules.Create(ctx, cronschedule.NewParams{
-		Mode: assignment.ModeActive, CronExpr: "* * * * *", Items: items,
+		ScenarioID: "web-pentest", CronExpr: "* * * * *", Items: items,
 	})
 	if err != nil {
 		t.Fatalf("create schedule: %v", err)
@@ -223,7 +223,7 @@ func TestFireDue_DisabledSchedule_NotFired(t *testing.T) {
 
 	r.fireDue(ctx)
 
-	tasks, err := r.tasks.List(ctx, task.ModeActive, 10)
+	tasks, err := r.tasks.List(ctx, "web-pentest", 10)
 	if err != nil {
 		t.Fatalf("list tasks: %v", err)
 	}

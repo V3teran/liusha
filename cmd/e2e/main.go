@@ -20,7 +20,7 @@
 //     注：e2e 环境应把 ingestor.aggregate_batch_size 调低（≤ 单 host 样本数），否则小样本攒不满一批不触发。
 //
 // Active 流程（按选中顺序串行跑）：
-//  1. POST /scan/active body={"brief":"<自然语言任务简报>"} → 拿 (task_id, hunter_id)
+//  1. POST /chat body={"brief":"<自然语言任务简报>","scenario_id":"<场景 code>"} → 拿 (conversation_id, scan_id)
 //  2. 按 task_id 轮询 finding + agent_run → ≥minFindings 为 PASS
 //
 // 内置 passive profile（13 个，全部 minFindings=1）：
