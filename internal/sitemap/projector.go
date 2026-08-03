@@ -1,4 +1,4 @@
-// Package sitemap 是攻击面 sitemap 投影器（仅 active 模式）。
+// Package sitemap 是攻击面 sitemap 投影器（跨场景统一建图）。
 //
 // 设计：domain → endpoint → findings（embed 在 endpoint 下）的 2 层结构。
 // folder 层（path prefix 分组）不生成——它是显示概念不是攻击面对象，把 endpoint
@@ -7,7 +7,7 @@
 // 数据源（单一真相源）：agent_traffic（DistinctRoutes 去重派生攻击面路由，按 task）
 // + finding 表（exploitation 写）。攻击面不再靠手动 endpoint 表/write_endpoint 转写——
 // recon 工具流量经 sandbox 自动入 agent_traffic，sitemap 从中派生（参数自动入库）。
-// passive 模式无 sitemap 视图（流水账型流量，前端走 findings 列表）。
+// 不按场景 gating：无流量的场景建出的图为空图，无害（见 D3，第一期不引 builds_sitemap 能力位）。
 package sitemap
 
 import (
@@ -25,7 +25,6 @@ import (
 	"time"
 
 	"github.com/V3teran/liusha/internal/finding"
-	"github.com/V3teran/liusha/internal/task"
 	"github.com/V3teran/liusha/internal/traffic"
 )
 
@@ -75,36 +74,18 @@ type FlowReader interface {
 	DistinctRoutesWithRepresentative(ctx context.Context, taskID, host string) ([]traffic.RouteRepr, error)
 }
 
-// TaskReader 是投影器读 task 表所需的最小接口（验证 task 是 active 模式）。
-type TaskReader interface {
-	GetByID(ctx context.Context, id string) (task.Task, error)
-}
-
-// Projector 是无状态 sitemap 投影器；可全局共享一份。
-//
-// 仅服务 active 模式——passive 模式无 sitemap 视图（流量是流水账，前端用 findings 列表）。
+// Projector 是无状态 sitemap 投影器；可全局共享一份。跨场景统一建图。
 type Projector struct {
 	Findings FindingReader
 	Flows    FlowReader
-	Tasks    TaskReader
 }
 
 // Project 投影 (taskID, host) 范围的 sitemap 树。
 //
-// task 必须是 active 模式；passive task 报错（passive 走 findings 列表）。
-// host 为空时显示该 task 下全部 host 的合并视图。
+// 跨场景统一建图，不按场景 gating。host 为空时显示该 task 下全部 host 的合并视图。
 func (p *Projector) Project(ctx context.Context, taskID, host string) (View, error) {
 	if taskID == "" {
 		return View{}, fmt.Errorf("task_id 不能为空")
-	}
-
-	// 验证 task 是 active 模式
-	t, err := p.Tasks.GetByID(ctx, taskID)
-	if err != nil {
-		return View{}, fmt.Errorf("sitemap: 读 task %s 失败: %w", taskID, err)
-	}
-	if t.Mode != task.ModeActive {
-		return View{}, fmt.Errorf("sitemap 仅支持 active 模式 (task=%s 是 %s，passive 用 /findings)", taskID, t.Mode)
 	}
 
 	routes, err := p.Flows.DistinctRoutesWithRepresentative(ctx, taskID, host)
