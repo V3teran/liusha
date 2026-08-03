@@ -75,18 +75,17 @@ func (s *Store) Heartbeat(ctx context.Context, id string) error {
 
 // ReapStale 把心跳超时的 active task 判为 aborted（进程崩溃/卡死的孤儿）。
 //
-// active / passive 判死阈值不同：active run 内可能跑长工具（sqlmap）+ 慢 LLM，阈值较长；
-// passive 单批分析轻量，阈值较短。caller 按 mode 传不同 staleAfter，各调用一次。返回回收条数。
-func (s *Store) ReapStale(ctx context.Context, mode Mode, staleAfter time.Duration) (int, error) {
+// 跨场景统一巡检：一次扫全部 active task，按 staleAfter 判死。返回回收条数。
+func (s *Store) ReapStale(ctx context.Context, staleAfter time.Duration) (int, error) {
 	tag, err := s.pool.Exec(ctx, `
 		UPDATE task SET
 			status='aborted',
 			ended_at=now(),
-			error_message='心跳超时（scanner 进程崩溃或任务卡死）'
-		WHERE status='active' AND mode=$1 AND heartbeat_at < now() - $2::interval`,
-		string(mode), fmt.Sprintf("%d milliseconds", staleAfter.Milliseconds()))
+			error_message='心跳超时（runner 进程崩溃或任务卡死）'
+		WHERE status='active' AND heartbeat_at < now() - $1::interval`,
+		fmt.Sprintf("%d milliseconds", staleAfter.Milliseconds()))
 	if err != nil {
-		return 0, fmt.Errorf("reap stale %s tasks: %w", mode, err)
+		return 0, fmt.Errorf("reap stale tasks: %w", err)
 	}
 	return int(tag.RowsAffected()), nil
 }

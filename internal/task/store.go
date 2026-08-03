@@ -16,7 +16,7 @@ type Store struct {
 func NewStore(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
 
 // colsSelect 是所有 SELECT / RETURNING 路径的统一列序，与 scan() 字段一一对应。
-const colsSelect = "id, mode, assignment_id, brief, target_host, status, heartbeat_at, paused_ms, " +
+const colsSelect = "id, scenario_id, assignment_id, brief, target_host, status, heartbeat_at, paused_ms, " +
 	"created_at, ended_at, error_message"
 
 const (
@@ -24,29 +24,21 @@ const (
 	maxListLimit     = 200
 )
 
-// Create 建一个新 task。
-//   - active：Brief 必填，TargetHost 可空。
-//   - passive：TargetHost 必填，Brief 留空。
+// Create 建一个新 task。ScenarioID + Brief 必填；TargetHost 可空（runner 回填）。
 func (s *Store) Create(ctx context.Context, p NewParams) (Task, error) {
 	if p.AssignmentID == "" {
 		return Task{}, fmt.Errorf("create task: assignment_id 必填")
 	}
-	switch p.Mode {
-	case ModeActive:
-		if p.Brief == "" {
-			return Task{}, fmt.Errorf("create active task: brief 必填")
-		}
-	case ModePassive:
-		if p.TargetHost == "" {
-			return Task{}, fmt.Errorf("create passive task: target_host 必填")
-		}
-	default:
-		return Task{}, fmt.Errorf("create task: 非法 mode %q", p.Mode)
+	if p.ScenarioID == "" {
+		return Task{}, fmt.Errorf("create task: scenario_id 必填")
+	}
+	if p.Brief == "" {
+		return Task{}, fmt.Errorf("create task: brief 必填")
 	}
 	row := s.pool.QueryRow(ctx, `
-		INSERT INTO task (mode, assignment_id, brief, target_host, status)
+		INSERT INTO task (scenario_id, assignment_id, brief, target_host, status)
 		VALUES ($1, $2, $3, $4, 'active')
-		RETURNING `+colsSelect, string(p.Mode), p.AssignmentID, p.Brief, p.TargetHost)
+		RETURNING `+colsSelect, p.ScenarioID, p.AssignmentID, p.Brief, p.TargetHost)
 	var t Task
 	if err := scan(row, &t); err != nil {
 		return Task{}, fmt.Errorf("create task: %w", err)
@@ -54,8 +46,8 @@ func (s *Store) Create(ctx context.Context, p NewParams) (Task, error) {
 	return t, nil
 }
 
-// List 按 created_at DESC 列出最近的 task。mode 为空时不过滤（两模式混列）。
-func (s *Store) List(ctx context.Context, mode Mode, limit int) ([]Task, error) {
+// List 按 created_at DESC 列出最近的 task。scenarioID 为空时不过滤（跨场景混列）。
+func (s *Store) List(ctx context.Context, scenarioID string, limit int) ([]Task, error) {
 	if limit <= 0 {
 		limit = defaultListLimit
 	}
@@ -64,9 +56,9 @@ func (s *Store) List(ctx context.Context, mode Mode, limit int) ([]Task, error) 
 	}
 	q := "SELECT " + colsSelect + " FROM task"
 	args := []any{}
-	if mode != "" {
-		q += " WHERE mode=$1"
-		args = append(args, string(mode))
+	if scenarioID != "" {
+		q += " WHERE scenario_id=$1"
+		args = append(args, scenarioID)
 	}
 	q += " ORDER BY created_at DESC LIMIT $" + fmt.Sprint(len(args)+1)
 	args = append(args, limit)
@@ -105,13 +97,12 @@ type scanner interface {
 
 // scan 是 colsSelect 列序的统一反序列化点。
 func scan(r scanner, t *Task) error {
-	var mode, status string
-	if err := r.Scan(&t.ID, &mode, &t.AssignmentID, &t.Brief, &t.TargetHost, &status,
+	var status string
+	if err := r.Scan(&t.ID, &t.ScenarioID, &t.AssignmentID, &t.Brief, &t.TargetHost, &status,
 		&t.HeartbeatAt, &t.PausedMs,
 		&t.CreatedAt, &t.EndedAt, &t.ErrorMessage); err != nil {
 		return err
 	}
-	t.Mode = Mode(mode)
 	t.Status = Status(status)
 	return nil
 }
