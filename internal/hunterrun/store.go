@@ -1,4 +1,4 @@
-package hunter
+package hunterrun
 
 import (
 	"context"
@@ -31,7 +31,7 @@ func (s *Store) Create(ctx context.Context, p NewParams) (string, error) {
 	}
 	var id string
 	err := s.pool.QueryRow(ctx, `
-		INSERT INTO hunter (task_id, orchestrator_id, role, input)
+		INSERT INTO hunter_run (task_id, orchestrator_id, role, input)
 		VALUES ($1::uuid, NULLIF($2, '')::uuid, $3, $4)
 		RETURNING id`,
 		p.TaskID, p.OrchestratorID, p.Role,
@@ -46,7 +46,7 @@ func (s *Store) Create(ctx context.Context, p NewParams) (string, error) {
 // SetRunning 把 pending hunter 运行推进到 running；非 pending 视为非法转换。
 func (s *Store) SetRunning(ctx context.Context, id string) error {
 	tag, err := s.pool.Exec(ctx, `
-		UPDATE hunter SET status='running', updated_at=now()
+		UPDATE hunter_run SET status='running', updated_at=now()
 		WHERE id=$1 AND status='pending'`, id)
 	if err != nil {
 		return fmt.Errorf("set running %s: %w", id, err)
@@ -63,7 +63,7 @@ func (s *Store) SetDone(ctx context.Context, id string, result json.RawMessage) 
 		result = json.RawMessage("{}")
 	}
 	tag, err := s.pool.Exec(ctx, `
-		UPDATE hunter SET status='done', result=$1, updated_at=now()
+		UPDATE hunter_run SET status='done', result=$1, updated_at=now()
 		WHERE id=$2 AND status IN ('pending','running')`, []byte(result), id)
 	if err != nil {
 		return fmt.Errorf("set done %s: %w", id, err)
@@ -78,7 +78,7 @@ func (s *Store) SetDone(ctx context.Context, id string, result json.RawMessage) 
 func (s *Store) SetError(ctx context.Context, id string, errMsg string) error {
 	body, _ := json.Marshal(map[string]string{"error": errMsg})
 	tag, err := s.pool.Exec(ctx, `
-		UPDATE hunter SET status='error', result=$1, updated_at=now()
+		UPDATE hunter_run SET status='error', result=$1, updated_at=now()
 		WHERE id=$2 AND status IN ('pending','running')`, body, id)
 	if err != nil {
 		return fmt.Errorf("set error %s: %w", id, err)
@@ -92,7 +92,7 @@ func (s *Store) SetError(ctx context.Context, id string, errMsg string) error {
 // SetAborted 把 pending|running 推进到 aborted（用于 owner abort 级联）。
 func (s *Store) SetAborted(ctx context.Context, id string) error {
 	tag, err := s.pool.Exec(ctx, `
-		UPDATE hunter SET status='aborted', updated_at=now()
+		UPDATE hunter_run SET status='aborted', updated_at=now()
 		WHERE id=$1 AND status IN ('pending','running')`, id)
 	if err != nil {
 		return fmt.Errorf("set aborted %s: %w", id, err)
@@ -105,7 +105,7 @@ func (s *Store) SetAborted(ctx context.Context, id string) error {
 
 // GetByID 按主键读取 hunter 运行行。
 func (s *Store) GetByID(ctx context.Context, id string) (Run, error) {
-	row := s.pool.QueryRow(ctx, `SELECT `+colsSelect+` FROM hunter WHERE id=$1`, id)
+	row := s.pool.QueryRow(ctx, `SELECT `+colsSelect+` FROM hunter_run WHERE id=$1`, id)
 	var r Run
 	if err := scanRun(row, &r); err != nil {
 		return Run{}, fmt.Errorf("get hunter run %s: %w", id, err)
@@ -116,7 +116,7 @@ func (s *Store) GetByID(ctx context.Context, id string) (Run, error) {
 // ListByTask 按 created_at 升序列出 task 下的 hunter 运行，最多 limit 条。
 func (s *Store) ListByTask(ctx context.Context, taskID string, limit int) ([]Run, error) {
 	rows, err := s.pool.Query(ctx,
-		`SELECT `+colsSelect+` FROM hunter WHERE task_id=$1::uuid ORDER BY created_at ASC LIMIT $2`,
+		`SELECT `+colsSelect+` FROM hunter_run WHERE task_id=$1::uuid ORDER BY created_at ASC LIMIT $2`,
 		taskID, limit)
 	if err != nil {
 		return nil, fmt.Errorf("list hunter runs by task: %w", err)

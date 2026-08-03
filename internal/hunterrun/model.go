@@ -1,4 +1,4 @@
-// Package hunter 实现 hunter 表持久化层：每次 hunter ReAct 运行对应一行。
+// Package hunterrun 实现 hunter 表持久化层：每次 hunter ReAct 运行对应一行。
 // 状态机 pending → running → done | error | aborted。
 //
 // 命名层级：
@@ -10,7 +10,7 @@
 //   - orchestrator / 独立任务：orchestrator_id = NULL
 //   - 现行 active 路径用 eino deep 进程内编排，exploitation 是临时 sub-agent，不单独建 hunter 行，
 //     故 orchestrator_id 多为 NULL。该列保留供前端按树渲染。
-package hunter
+package hunterrun
 
 import (
 	"encoding/json"

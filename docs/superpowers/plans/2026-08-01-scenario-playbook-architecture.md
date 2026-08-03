@@ -233,7 +233,7 @@ git commit -m "feat(db): 0085 运行记录表 hunter→hunter_run 腾名"
 - Modify→Rename: `internal/hunter/` → `internal/hunterrun/`（`model.go`/`store.go`/`store_integration_test.go`）
 
 **Interfaces:**
-- Produces: package `hunterrun`；`store.go` 内 6 处 SQL（`INSERT INTO hunter`、4 条 `UPDATE hunter`、2 条 `SELECT ... FROM hunter`）改表名 `hunter_run`。
+- Produces: package `hunterrun`；`store.go` 内 7 处 SQL（`INSERT INTO hunter`、4 条 `UPDATE hunter`、2 条 `SELECT ... FROM hunter`）改表名 `hunter_run`。
 - 类型名（如 `Run`/`Store`）**不改**（本就叫 Run，与新配置表无冲突），仅改包名与 SQL 表名。
 
 - [ ] **Step 1: 改集成测试驱动改名**
