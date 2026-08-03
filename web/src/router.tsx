@@ -10,6 +10,9 @@ const FindingsPage = lazy(() => import('@/pages/FindingsPage').then((m) => ({ de
 const SitemapPage = lazy(() => import('@/pages/SitemapPage').then((m) => ({ default: m.SitemapPage })))
 const LlmAuditPage = lazy(() => import('@/pages/LlmAuditPage').then((m) => ({ default: m.LlmAuditPage })))
 const AttackGraphPage = lazy(() => import('@/pages/AttackGraphPage').then((m) => ({ default: m.AttackGraphPage })))
+const ScenarioAdmin = lazy(() => import('@/pages/ScenarioAdmin').then((m) => ({ default: m.ScenarioAdmin })))
+const PlaybookAdmin = lazy(() => import('@/pages/PlaybookAdmin').then((m) => ({ default: m.PlaybookAdmin })))
+const HunterAdmin = lazy(() => import('@/pages/HunterAdmin').then((m) => ({ default: m.HunterAdmin })))
 
 function Loading() {
   return <div className="flex h-full items-center justify-center text-sm text-muted">加载中…</div>
@@ -42,6 +45,16 @@ export const router = createBrowserRouter([
       { path: 'sitemap', element: withSuspense(<SitemapPage />) },
       { path: 'attack-graph', element: withSuspense(<AttackGraphPage />) },
       { path: 'llm-audit', element: withSuspense(<LlmAuditPage />) },
+      {
+        // 配置管理：场景/剧本/猎手三资源各自独立页，侧栏三入口。
+        path: 'config',
+        children: [
+          { index: true, element: <Navigate to="/config/scenarios" replace /> },
+          { path: 'scenarios', element: withSuspense(<ScenarioAdmin />) },
+          { path: 'playbooks', element: withSuspense(<PlaybookAdmin />) },
+          { path: 'hunters', element: withSuspense(<HunterAdmin />) },
+        ],
+      },
       { path: 'credentials', element: <PlaceholderPage title="凭证库" /> },
       { path: 'settings', element: <PlaceholderPage title="设置" /> },
     ],

@@ -1,5 +1,18 @@
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
-import { Bug, Cpu, KeyRound, MessageSquare, Moon, Network, Settings, Sun, Waypoints } from 'lucide-react'
+import {
+  Bug,
+  Cpu,
+  KeyRound,
+  Layers,
+  MessageSquare,
+  Moon,
+  Network,
+  Settings,
+  Sun,
+  Swords,
+  Target,
+  Waypoints,
+} from 'lucide-react'
 import { useTheme } from '@/hooks/useTheme'
 import { cn } from '@/lib/utils'
 
@@ -12,6 +25,9 @@ const NAV_ITEMS = [
   { to: '/attack-graph', label: '执行图', icon: Network },
   { to: '/llm-audit', label: 'LLM 审计', icon: Cpu },
   { to: '/credentials', label: '凭证库', icon: KeyRound },
+  { to: '/config/scenarios', label: '场景', icon: Target },
+  { to: '/config/playbooks', label: '剧本', icon: Layers },
+  { to: '/config/hunters', label: '猎手', icon: Swords },
 ]
 
 export function AppShell() {

@@ -1,0 +1,204 @@
+import { useCallback, useEffect, useState } from 'react'
+import { listHunterConfigs, saveHunter, deleteHunter } from '@/api/config'
+import type { HunterConfig, HunterKind } from '@/api/types'
+import { Badge } from '@/components/ui/badge'
+import { ConfigListShell, ConfigRow } from '@/features/config/ConfigListShell'
+import { ConfigDrawer, Field, INPUT_CLASS } from '@/features/config/ConfigDrawer'
+
+const DEFAULT_MAX_ITERATIONS = 20
+
+// 新建猎手空白初值。kind 默认 domain（可被剧本组合的领域猎手）。
+function blankHunter(): HunterConfig {
+  return {
+    id: '',
+    code: '',
+    kind: 'domain',
+    name: '',
+    description: '',
+    body: '',
+    tools: [],
+    max_iterations: DEFAULT_MAX_ITERATIONS,
+    enabled: true,
+  }
+}
+
+// tools 数组 ↔ 每行一个的文本（编辑体验：一行一个工具 code，空行忽略）。
+function toolsToText(tools: string[]): string {
+  return tools.join('\n')
+}
+function textToTools(text: string): string[] {
+  return text
+    .split('\n')
+    .map((s) => s.trim())
+    .filter(Boolean)
+}
+
+// 猎手配置管理页：领域猎手方法论 charter + 工具集 + 派活摘要，全字段编辑。
+export function HunterAdmin() {
+  const [rows, setRows] = useState<HunterConfig[]>([])
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+  const [draft, setDraft] = useState<HunterConfig | null>(null)
+  const [toolsText, setToolsText] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    setError('')
+    try {
+      setRows(await listHunterConfigs())
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '加载失败')
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    void load()
+  }, [load])
+
+  const openDraft = (h: HunterConfig) => {
+    setDraft(h)
+    setToolsText(toolsToText(h.tools))
+  }
+
+  const patch = (p: Partial<HunterConfig>) => setDraft((d) => (d ? { ...d, ...p } : d))
+
+  const onSave = async () => {
+    if (!draft) return
+    setSaving(true)
+    try {
+      await saveHunter({ ...draft, tools: textToTools(toolsText) })
+      setDraft(null)
+      await load()
+    } catch (e) {
+      window.alert(e instanceof Error ? e.message : '保存失败')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const onDelete = async () => {
+    if (!draft?.id || !window.confirm(`确认删除猎手「${draft.name}」？`)) return
+    setSaving(true)
+    try {
+      await deleteHunter(draft.id)
+      setDraft(null)
+      await load()
+    } catch (e) {
+      window.alert(e instanceof Error ? e.message : '删除失败')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const saveDisabled = !draft?.code || !draft?.name
+
+  return (
+    <>
+      <ConfigListShell
+        title="猎手"
+        subtitle="领域猎手的方法论 charter、工具集与派活摘要，剧本据此组合"
+        loading={loading}
+        error={error}
+        empty={rows.length === 0}
+        emptyHint="暂无猎手——点右上「新建」创建第一个"
+        onNew={() => openDraft(blankHunter())}
+      >
+        {rows.map((h) => (
+          <ConfigRow
+            key={h.id}
+            code={h.code}
+            name={h.name}
+            dimmed={!h.enabled}
+            onClick={() => openDraft(h)}
+            right={
+              <div className="flex flex-shrink-0 items-center gap-2">
+                <Badge variant="outline">{h.kind === 'orchestrator' ? '编排' : '领域'}</Badge>
+                {!h.enabled && <Badge variant="outline">已停用</Badge>}
+              </div>
+            }
+          />
+        ))}
+      </ConfigListShell>
+
+      <ConfigDrawer
+        open={!!draft}
+        title={draft?.id ? '编辑猎手' : '新建猎手'}
+        onOpenChange={(o) => !o && setDraft(null)}
+        onSave={() => void onSave()}
+        onDelete={draft?.id ? () => void onDelete() : undefined}
+        saving={saving}
+        saveDisabled={saveDisabled}
+      >
+        {draft && (
+          <>
+            <div className="flex gap-3">
+              <Field label="Code" hint="业务主键">
+                <input
+                  className={INPUT_CLASS}
+                  value={draft.code}
+                  spellCheck={false}
+                  onChange={(e) => patch({ code: e.target.value })}
+                />
+              </Field>
+              <Field label="种类">
+                <select
+                  className={INPUT_CLASS}
+                  value={draft.kind}
+                  onChange={(e) => patch({ kind: e.target.value as HunterKind })}
+                >
+                  <option value="domain">领域（domain）</option>
+                  <option value="orchestrator">编排（orchestrator）</option>
+                </select>
+              </Field>
+            </div>
+            <Field label="名称">
+              <input className={INPUT_CLASS} value={draft.name} onChange={(e) => patch({ name: e.target.value })} />
+            </Field>
+            <Field label="派活摘要" hint="swarm 时注入编排者据此选派（非给人看的简介）">
+              <input
+                className={INPUT_CLASS}
+                value={draft.description}
+                onChange={(e) => patch({ description: e.target.value })}
+              />
+            </Field>
+            <Field label="方法论 charter" hint="该猎手跑起来时的 system 指令">
+              <textarea
+                className={INPUT_CLASS + ' min-h-40 resize-y font-mono'}
+                value={draft.body}
+                onChange={(e) => patch({ body: e.target.value })}
+              />
+            </Field>
+            <Field label="工具集" hint="内部函数工具 code，每行一个">
+              <textarea
+                className={INPUT_CLASS + ' min-h-24 resize-y font-mono'}
+                value={toolsText}
+                spellCheck={false}
+                onChange={(e) => setToolsText(e.target.value)}
+              />
+            </Field>
+            <Field label="最大迭代轮数" hint="ReAct 上限">
+              <input
+                type="number"
+                min={1}
+                className={INPUT_CLASS}
+                value={draft.max_iterations}
+                onChange={(e) => patch({ max_iterations: Number(e.target.value) })}
+              />
+            </Field>
+            <label className="flex items-center gap-2 text-[13px] text-text">
+              <input
+                type="checkbox"
+                checked={draft.enabled}
+                onChange={(e) => patch({ enabled: e.target.checked })}
+              />
+              启用
+            </label>
+          </>
+        )}
+      </ConfigDrawer>
+    </>
+  )
+}

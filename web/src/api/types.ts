@@ -51,11 +51,11 @@ export interface Conversation {
   Title: string
   ScanID: string
   TaskID: string // 关联扫描 task.id（= owner id）——执行图/攻击面按此匹配会话拿思维链
-  RoleID: string
   // Status 已退役删除（后端不再返回）——运行态用 RunStatus。
   RunStatus?: string // 派生的真实运行态（active/completed/aborted；纯聊天空）——列表显示用此
-  Mode?: string // 派生的模式（active/passive；纯聊天空）——渗透会话页/流量分析页据此分流列表
+  ScenarioID?: string // 派生的场景 code（关联 task 的 scenario_id；纯聊天空）——按场景分流列表
   FindingCount?: number // 本会话关联 task 已挖到的漏洞数——流量分析 feed 卡「host · N findings」摘要
+  Source?: string // 派生的下发来源（manual 主动下发 / auto 被动代理；纯聊天归 manual）——双 tab 分流
   CreatedAt: string
   UpdatedAt: string
 }
@@ -80,14 +80,73 @@ export interface ConversationUsage {
 }
 
 /**
- * 扫描角色（来自 /roles 端点）
- * 小写键（Go DTO 格式）
+ * 场景（来自 GET /scenarios 端点，仅 enabled，字段裁剪）
+ * 小写键（Go DTO 格式）。value 用 code（业务主键），不用 uuid。
  */
-export interface Role {
+export interface Scenario {
   id: string
+  code: string
   name: string
   description: string
-  mode: string
+}
+
+/* ============================================================
+   配置管理（scenario / playbook / hunter 三资源 CRUD）
+   小写键（Go gin.H DTO：scenarioJSON/playbookJSON/hunterJSON 单点序列化）。
+   与上面裁剪版 Scenario 区分：这里是全字段可编辑形态，配置管理页专用。
+   ============================================================ */
+
+// scenario 引擎：与 playbook 正交，任意场景可选。
+export type ScenarioEngine = 'solo' | 'swarm'
+// hunter 种类：orchestrator（swarm 唯一编排猎手，不进组合池）/ domain（可被剧本自由组合）。
+export type HunterKind = 'orchestrator' | 'domain'
+
+// ScenarioConfig 是配置管理页的场景全字段形态（GET /scenarios?all=1 与 /scenarios/:id）。
+export interface ScenarioConfig {
+  id: string
+  code: string
+  name: string
+  description: string
+  instruction: string
+  domain: string
+  engine: ScenarioEngine
+  playbook_id: string
+  enabled: boolean
+  created_at?: string
+  updated_at?: string
+}
+
+// PlaybookHunterRef 是剧本内一个有序猎手引用（position 由数组下标决定）。
+export interface PlaybookHunterRef {
+  hunter_id: string
+  position: number
+}
+
+// PlaybookConfig 是剧本全字段形态。列表页 hunters 省略（undefined），详情页带有序组合。
+export interface PlaybookConfig {
+  id: string
+  code: string
+  name: string
+  description: string
+  enabled: boolean
+  hunters?: PlaybookHunterRef[]
+  created_at?: string
+  updated_at?: string
+}
+
+// HunterConfig 是猎手全字段形态。tools 后端保证非 nil。
+export interface HunterConfig {
+  id: string
+  code: string
+  kind: HunterKind
+  name: string
+  description: string
+  body: string
+  tools: string[]
+  max_iterations: number
+  enabled: boolean
+  created_at?: string
+  updated_at?: string
 }
 
 /**
