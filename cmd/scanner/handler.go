@@ -58,7 +58,7 @@ type handler struct {
 	roles []einoagent.HunterDef
 
 	// passiveRole 是 passive 单 agent 猎手（hunters/passive/traffic-analysis.md 加载）；
-	// passive 路径用其 SystemPrompt + MaxIterations 跑 RunTrafficAnalysis。
+	// passive 路径用其 SystemPrompt + MaxIterations 跑 RunSolo。
 	passiveRole einoagent.HunterDef
 
 	// conversations + eventPublisher 是阶段B 过程事件管道：会话发起（Payload.ConversationID

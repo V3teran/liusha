@@ -27,11 +27,11 @@ func (f *fakeStore) Save(_ context.Context, v finding.VulnFinding) (finding.Vuln
 	return v, nil
 }
 
-// TestRunTrafficAnalysis_Live 是端到端 live 验证：真 einollm 工厂 + 真 einotools + RunTrafficAnalysis
+// TestRunSolo_Live 是端到端 live 验证：真 einollm 工厂 + 真 einotools + RunSolo
 // 跑一条 SQLi 流量，断言 LLM 调了 write_finding。缺 XIAOMI_API_KEY 时 skip（普通 CI 不跑）。
 //
 // 跑：XIAOMI_API_KEY=tp-xxx go test ./internal/einoagent/ -run Live -v
-func TestRunTrafficAnalysis_Live(t *testing.T) {
+func TestRunSolo_Live(t *testing.T) {
 	if os.Getenv("XIAOMI_API_KEY") == "" {
 		t.Skip("缺 XIAOMI_API_KEY，跳过 live 验证")
 	}
@@ -72,9 +72,9 @@ func TestRunTrafficAnalysis_Live(t *testing.T) {
 		"## 流量响应\nHTTP/1.1 500 Internal Server Error\n\n" +
 		"body: You have an error in your SQL syntax near \"OR '1'='1\" at line 1"
 
-	res, err := einoagent.RunTrafficAnalysis(ctx, m, []tool.BaseTool{wf, rf}, instruction, flow, 0, nil, nil, zerolog.Nop())
+	res, err := einoagent.RunSolo(ctx, "traffic-analysis", "分析一条流量挖漏洞", m, []tool.BaseTool{wf, rf}, instruction, flow, 0, nil, nil, zerolog.Nop())
 	if err != nil {
-		t.Fatalf("RunTrafficAnalysis: %v", err)
+		t.Fatalf("RunSolo: %v", err)
 	}
 
 	t.Logf("ToolCalls=%v  FinalText=%q", res.ToolCalls, res.FinalText)

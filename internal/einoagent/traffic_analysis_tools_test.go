@@ -100,7 +100,8 @@ func (f *fakeModel) Generate(_ context.Context, _ []*schema.Message, _ ...model.
 	return schema.AssistantMessage(f.reply, nil), nil
 }
 func (f *fakeModel) Stream(context.Context, []*schema.Message, ...model.Option) (*schema.StreamReader[*schema.Message], error) {
-	return nil, nil
+	// 返回单帧流：RunSolo 走 EnableStreaming，drainAgentEvents 用 GetMessage 聚合。
+	return schema.StreamReaderFromArray([]*schema.Message{schema.AssistantMessage(f.reply, nil)}), nil
 }
 func (f *fakeModel) WithTools(_ []*schema.ToolInfo) (model.ToolCallingChatModel, error) {
 	return f, nil
