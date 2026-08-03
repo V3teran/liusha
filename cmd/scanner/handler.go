@@ -53,13 +53,13 @@ type handler struct {
 	einoFactory *einollm.Factory
 	hunterDeps  hunterbuilder.Deps
 
-	// roles 是 active deep 角色定义（hunters/active/*.md 加载），active 路径用 BuildDeepSwarm 装配
+	// roles 是 active deep 猎手定义（hunters/active/*.md 加载），active 路径用 BuildDeepSwarm 装配
 	// 主代理（orchestrator）+ 杀伤链子代理。
-	roles []einoagent.RoleDef
+	roles []einoagent.HunterDef
 
-	// passiveRole 是 passive 单 agent 角色（hunters/passive/traffic-analysis.md 加载）；
+	// passiveRole 是 passive 单 agent 猎手（hunters/passive/traffic-analysis.md 加载）；
 	// passive 路径用其 SystemPrompt + MaxIterations 跑 RunTrafficAnalysis。
-	passiveRole einoagent.RoleDef
+	passiveRole einoagent.HunterDef
 
 	// conversations + eventPublisher 是阶段B 过程事件管道：会话发起（Payload.ConversationID
 	// 非空）时，agent 每次工具调用落 conversation message（PG）+ publish redis（实时推前端）。

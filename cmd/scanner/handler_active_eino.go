@@ -184,15 +184,15 @@ func (h handler) handleActiveEino(ctx context.Context, p worker.Payload, entrypo
 // composeOrchestratorInstruction 组装 orchestrator 完整 system prompt：
 // 公共底座（域上下文/黑板/finding 格式）+ 角色 md body（deep-native 编排 charter）。
 // 主代理只用公共底座 + hunters/orchestrator.md，不复用任何编译期角色 addendum（那些是子代理深挖方法论）。
-func composeOrchestratorInstruction(role einoagent.RoleDef) string {
-	return hunterbuilder.SystemPrompt() + "\n\n" + role.SystemPrompt
+func composeOrchestratorInstruction(h einoagent.HunterDef) string {
+	return hunterbuilder.SystemPrompt() + "\n\n" + h.SystemPrompt
 }
 
 // composeSubAgentInstruction 组装子代理完整 system prompt：公共底座 + 角色 md 自带的完整 charter
 // （hunters/active/<role>.md，含深挖方法论 + 单攻击面框架）。与 orchestrator 同构——各角色 charter 自包含，
 // 不再叠加编译期 exploitation addendum（已并入 hunters/active/exploitation.md，避免 recon 误吃 exploitation 方法论）。
-func composeSubAgentInstruction(role einoagent.RoleDef) string {
-	return hunterbuilder.SystemPrompt() + "\n\n" + role.SystemPrompt
+func composeSubAgentInstruction(h einoagent.HunterDef) string {
+	return hunterbuilder.SystemPrompt() + "\n\n" + h.SystemPrompt
 }
 
 // watchAbortActive 后台轮询 task 中止状态；非 active 即 cancel，让 RunDeepSwarm 停。

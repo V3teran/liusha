@@ -80,7 +80,7 @@ func TestLeadSection_EmptyOnReadErrorOrNoEntries(t *testing.T) {
 
 // TestReconWriteLead_ExploitationReadsInSection 端到端验证 §7.5 核心场景（recon 写 lead →
 // exploitation 在 task description/Instruction 里读到）：用真实 *lead.Store（miniredis）+
-// 生产装配路径 BuildRoleTools 建 write_lead 工具、recon 角色调用写入，再用 leadSection
+// 生产装配路径 BuildHunterTools 建 write_lead 工具、recon 猎手调用写入，再用 leadSection
 // （BuildDeepSwarm 拼子代理 Instruction 时调用的同一函数）验证 exploitation 能读到。
 func TestReconWriteLead_ExploitationReadsInSection(t *testing.T) {
 	mr := miniredis.RunT(t)
@@ -89,12 +89,12 @@ func TestReconWriteLead_ExploitationReadsInSection(t *testing.T) {
 	store := lead.NewStore(rdb, "test", time.Hour)
 
 	host := "target.com"
-	reconTools, err := BuildRoleTools(RoleDef{ID: "reconnaissance", Tools: []string{"write_lead"}}, ToolBuildCtx{
+	reconTools, err := BuildHunterTools(HunterDef{ID: "reconnaissance", Tools: []string{"write_lead"}}, ToolBuildCtx{
 		Deps:   TrafficAnalysisToolDeps{Lead: store},
 		Params: TrafficAnalysisToolParams{TaskID: "t1", Mode: "active", HunterID: "h-recon", Host: host},
 	})
 	if err != nil {
-		t.Fatalf("BuildRoleTools(reconnaissance): %v", err)
+		t.Fatalf("BuildHunterTools(reconnaissance): %v", err)
 	}
 	if len(reconTools) != 1 {
 		t.Fatalf("应恰好装出 1 个 write_lead 工具，got %d", len(reconTools))

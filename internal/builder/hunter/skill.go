@@ -25,7 +25,7 @@ import (
 // hunter agent system prompt = 公共底座（编译期嵌入）+ 角色 charter（外部 hunters/ 目录）。
 //   - 公共底座：通用规则（角色 / 写 finding 铁律 / 凭证协议 / mode-invariant 反模式），所有角色共用
 //   - 角色 charter：active 走 hunters/active/*.md（orchestrator + 杀伤链子代理），
-//     passive 走 hunters/passive/traffic-analysis.md——均由 einoagent.LoadRoles 加载，不再编译期嵌入。
+//     passive 走 hunters/passive/traffic-analysis.md——均由 einoagent.LoadHunters 加载，不再编译期嵌入。
 //
 // 历史上 trafficAnalysis / exploitation 段也编译期嵌入（system_prompt_*.md），已并入各自角色 md 退役。
 // 改 prompt 走 PR + review，与代码同路径管理（prompt-as-code 实践）。
