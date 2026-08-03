@@ -158,7 +158,7 @@ func BuildDeepSwarm(ctx context.Context, cfg DeepSwarmConfig) (adk.Agent, error)
 
 // RunDeepSwarm 跑一次 deep orchestrator（active 站点扫描），消费事件流收集 ToolCalls + 最终文字。
 // userText = 站点任务 brief。opts 透传 Runner.Run（计费埋点 handler）。
-func RunDeepSwarm(ctx context.Context, orchestrator adk.Agent, userText string, opts ...adk.AgentRunOption) (TrafficAnalysisResult, error) {
+func RunDeepSwarm(ctx context.Context, orchestrator adk.Agent, userText string, opts ...adk.AgentRunOption) (AgentResult, error) {
 	// 不开 EnableStreaming：deep prebuilt 的 orchestrator/子代理 ChatModelAgent 总带 builtin
 	// Handlers（writeTodos planning + task 派活 middleware），其 AfterModelRewriteState 需完整
 	// model 输出做 state rewrite，故 eino 的 stateModelWrapper.Stream 必 ConcatMessageStream 把

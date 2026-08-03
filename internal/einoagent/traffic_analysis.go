@@ -32,8 +32,8 @@ const defaultTrafficAnalysisMaxIters = 50
 // jitter，重试整轮 ChatModel 调用。MaxRetries=3 → 最多 4 次调用，瞬时错重试即恢复，永久错退避后传播。
 const defaultModelRetries = 3
 
-// TrafficAnalysisResult 是一次 trafficAnalysis 运行的产物摘要。
-type TrafficAnalysisResult struct {
+// AgentResult 是一次单/多代理运行的产物摘要（swarm 与 solo 共用）。
+type AgentResult struct {
 	FinalText string   // 最终 assistant 文字输出
 	ToolCalls []string // 按顺序调用过的工具名（用于断言/可观测）
 }
@@ -51,7 +51,7 @@ const defaultExploitationMaxIters = 60
 // opts 透传给 Runner.Run（如 adk.WithCallbacks 注入计费埋点 handler）。
 // maxIters 来自 passive 角色 frontmatter（hunters/passive/traffic-analysis.md 的 max_iterations）；
 // <=0 时回退 defaultTrafficAnalysisMaxIters。
-func RunTrafficAnalysis(ctx context.Context, m model.ToolCallingChatModel, tools []tool.BaseTool, instruction, flowText string, maxIters int, middlewares []adk.AgentMiddleware, handlers []adk.ChatModelAgentMiddleware, logger zerolog.Logger, opts ...adk.AgentRunOption) (TrafficAnalysisResult, error) {
+func RunTrafficAnalysis(ctx context.Context, m model.ToolCallingChatModel, tools []tool.BaseTool, instruction, flowText string, maxIters int, middlewares []adk.AgentMiddleware, handlers []adk.ChatModelAgentMiddleware, logger zerolog.Logger, opts ...adk.AgentRunOption) (AgentResult, error) {
 	if maxIters <= 0 {
 		maxIters = defaultTrafficAnalysisMaxIters
 	}
@@ -69,7 +69,7 @@ type agentSpec struct {
 
 // runSingleAgent 装配 + 跑一个单 ChatModelAgent，消费事件流收集 ToolCalls + 最终文字。
 // trafficAnalysis / exploitation 共用此机制（eino 单 agent 不调工具即自然收尾，无需 done）。
-func runSingleAgent(ctx context.Context, spec agentSpec, m model.ToolCallingChatModel, tools []tool.BaseTool, instruction, userText string, middlewares []adk.AgentMiddleware, handlers []adk.ChatModelAgentMiddleware, logger zerolog.Logger, opts ...adk.AgentRunOption) (TrafficAnalysisResult, error) {
+func runSingleAgent(ctx context.Context, spec agentSpec, m model.ToolCallingChatModel, tools []tool.BaseTool, instruction, userText string, middlewares []adk.AgentMiddleware, handlers []adk.ChatModelAgentMiddleware, logger zerolog.Logger, opts ...adk.AgentRunOption) (AgentResult, error) {
 	agent, err := adk.NewChatModelAgent(ctx, &adk.ChatModelAgentConfig{
 		Name:        spec.name,
 		Description: spec.desc,
@@ -85,7 +85,7 @@ func runSingleAgent(ctx context.Context, spec agentSpec, m model.ToolCallingChat
 		ModelRetryConfig: &adk.ModelRetryConfig{MaxRetries: defaultModelRetries}, // 瞬时 provider 错重试（默认指数退避+jitter）
 	})
 	if err != nil {
-		return TrafficAnalysisResult{}, fmt.Errorf("build %s agent: %w", spec.name, err)
+		return AgentResult{}, fmt.Errorf("build %s agent: %w", spec.name, err)
 	}
 
 	// EnableStreaming：让 ChatModel 走 Stream，agent 思路逐 token 产出 → reasoning callback 发
@@ -97,8 +97,8 @@ func runSingleAgent(ctx context.Context, spec agentSpec, m model.ToolCallingChat
 
 // drainAgentEvents 消费 eino AgentEvent 流，收集 assistant 的 ToolCalls + 最终文字。
 // trafficAnalysis/exploitation（runSingleAgent）与 deep orchestrator（RunDeepSwarm）共用。
-func drainAgentEvents(iter *adk.AsyncIterator[*adk.AgentEvent], label string) (TrafficAnalysisResult, error) {
-	var res TrafficAnalysisResult
+func drainAgentEvents(iter *adk.AsyncIterator[*adk.AgentEvent], label string) (AgentResult, error) {
+	var res AgentResult
 	var lastText strings.Builder
 	for {
 		ev, ok := iter.Next()
