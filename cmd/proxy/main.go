@@ -8,10 +8,10 @@
 //  4. proxy.NewServer + Run（监听 LIUSHA_PROXY_LISTEN_ADDR，默认 0.0.0.0:8888）
 //  5. graceful shutdown（SIGINT/SIGTERM → proxyServer.Stop + 关 redis）
 //
-// 纯 MITM passive 入口：无 healthz HTTP（存活探 TCP 8888）；active 抓流量 ingest endpoint 已迁到 cmd/scanner。
+// 纯 MITM passive 入口：无 healthz HTTP（存活探 TCP 8888）；active 抓流量 ingest endpoint 已迁到 cmd/runner。
 //
 // 业务逻辑（proxy_traffic 落库 by host / 聚合器建 passive task / Asynq 入队）
-// 全部在 cmd/scanner 内的 ingestor 包，proxy 只生产事件不做存储。
+// 全部在 cmd/runner 内的 ingestor 包，proxy 只生产事件不做存储。
 package main
 
 import (
@@ -85,7 +85,7 @@ func main() {
 	defer proxyCancel()
 
 	// 注：proxy 不再起 healthz HTTP server / ingest endpoint。
-	//   - active 抓流量 ingest endpoint 已迁到 cmd/scanner（沙箱回连 scanner :9090）。
+	//   - active 抓流量 ingest endpoint 已迁到 cmd/runner（沙箱回连 runner :9090）。
 	//   - 存活检测改 TCP 探 8888（MITM listen 口），见 docker-compose / run-svc。
 	// proxy 现在 = 纯 MITM passive 入口（external listener + sanitizer）。
 

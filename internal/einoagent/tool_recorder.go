@@ -18,7 +18,7 @@ import (
 
 const toolOutputPreviewLimit = 4096
 
-// ToolInvocation 是 tool_invocation 落库记录（einoagent 不直接依赖 toolinvocation 包，scanner 适配）。
+// ToolInvocation 是 tool_invocation 落库记录（einoagent 不直接依赖 toolinvocation 包，runner 适配）。
 type ToolInvocation struct {
 	HunterID      string
 	TaskID        string
@@ -30,7 +30,7 @@ type ToolInvocation struct {
 	ErrorMessage  string
 }
 
-// ToolSink 是 tool_invocation 持久化的最小接口（scanner 用 *toolinvocation.Store 适配）。
+// ToolSink 是 tool_invocation 持久化的最小接口（runner 用 *toolinvocation.Store 适配）。
 type ToolSink interface {
 	RecordTool(ctx context.Context, inv ToolInvocation)
 }

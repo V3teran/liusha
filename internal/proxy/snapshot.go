@@ -3,9 +3,9 @@
 // 数据流（Stream-based 业界最佳实践）：
 //
 //	cmd/proxy onResponse → filter → publisher.Publish (XADD liusha:flow_events)
-//	cmd/scanner ingestor → XREADGROUP → proxy_traffic 落库(按 host) + 聚合器攒批建 passive task + 入 hunter 队列
+//	cmd/runner ingestor → XREADGROUP → proxy_traffic 落库(按 host) + 聚合器攒批建 passive task + 入 hunter 队列
 //
-// proxy 进程无状态、可水平扩展；proxy_traffic 落库 + passive task 生成逻辑集中在 scanner 端。
+// proxy 进程无状态、可水平扩展；proxy_traffic 落库 + passive task 生成逻辑集中在 runner 端。
 package proxy
 
 import "time"

@@ -31,7 +31,7 @@ import (
 )
 
 // trafficScenarioCode 是流量驱动自动建 task 所属的场景 code（solo 引擎，逐条分析代理捕获流量）。
-// 聚合器建的 assignment/task 都挂此场景；scanner handler 据 scenario_id 走 solo 派发。
+// 聚合器建的 assignment/task 都挂此场景；runner handler 据 scenario_id 走 solo 派发。
 const trafficScenarioCode = "passive-recon"
 
 // ConversationCreator 建 passive task 的会话流。聚合器建 task 后建一条 conversation，
@@ -68,7 +68,7 @@ type Traffic struct {
 	agg           *aggregator         // 按 host 攒批窗口（Redis）
 	proxyFlows    *traffic.ProxyStore // 代理捕获流量落库 + 领取
 	agentFlows    *traffic.AgentStore // agent 自产流量落库
-	hunters       *hunterrun.Store       // internal 流量反查 hunter→task_id
+	hunters       *hunterrun.Store    // internal 流量反查 hunter→task_id
 	conversations ConversationCreator // 建 passive task 会话流（nil 跳过）
 	enq           *worker.Client
 	logger        zerolog.Logger
@@ -133,7 +133,7 @@ func NewTraffic(ctx context.Context, deps Deps) (*Traffic, error) {
 }
 
 // SubmitInternal 把 active 沙箱抓的 internal 流量直接入进程内队列（非阻塞），跳过 redis。
-// 返回 false 表示队列已满——调用方（scanner ingest_handler）据此回 503，给沙箱背压信号。
+// 返回 false 表示队列已满——调用方（runner ingest_handler）据此回 503，给沙箱背压信号。
 func (t *Traffic) SubmitInternal(snap *proxy.TrafficSnapshot) bool {
 	select {
 	case t.internalCh <- snap:
@@ -447,7 +447,7 @@ func passiveBrief(host string, flows []traffic.ProxyTraffic) string {
 
 func (t *Traffic) enqueuePassive(ctx context.Context, taskID, convID, host string) error {
 	// payload 只带一段 brief 文本（见 D5）：流量驱动无用户手打 brief，用 host 作 brief——
-	// scanner handler 据 scenario_id 走 solo 派发，从 brief 抽 host 回填。
+	// runner handler 据 scenario_id 走 solo 派发，从 brief 抽 host 回填。
 	payloadInput, _ := json.Marshal(map[string]any{"brief": host})
 	hid, err := t.hunters.Create(ctx, hunterrun.NewParams{
 		TaskID: taskID,

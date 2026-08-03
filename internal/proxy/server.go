@@ -258,7 +258,7 @@ func resolveCertDir(dir string) (string, error) {
 // 设计动机：HTTP 服务端常按 Accept-Encoding 协商压缩响应（DVWA 等典型场景），
 // 压缩字节流含  /  等 binary，被原样塞进 user prompt 后写入 PG jsonb
 // 列会被拒收（PG 不允许 jsonb 字符串含  ）。在最早的 proxy 层解压一次，
-// 下游 flow / scanner / LLM 都用解压后的明文。
+// 下游 flow / runner / LLM 都用解压后的明文。
 //
 // 失败时返回原 body + error（让 caller 决定降级策略）。
 func decompressIfEncoded(body []byte, encoding string) ([]byte, error) {

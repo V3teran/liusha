@@ -50,7 +50,7 @@ func (s einoToolSink) RecordTool(ctx context.Context, inv einoagent.ToolInvocati
 			Msg("eino tool_invocation 记录失败（不阻塞业务）")
 	}
 	// 进度心跳（B2）：工具有调用 = agent 仍在推进，续 heartbeat_at。reaper 据此判活，
-	// 防 scanner 崩溃/卡死后 task 永远停在 active。节流避免高频写。best-effort，错误吞掉。
+	// 防 runner 崩溃/卡死后 task 永远停在 active。节流避免高频写。best-effort，错误吞掉。
 	s.heartbeat(inv.TaskID)
 }
 

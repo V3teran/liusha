@@ -16,7 +16,7 @@ import (
 // run_command 工具，e2e 却记到 94 条 run_command，全是 exploitation 跑的），故能拿到 exploitation
 // 执行的命令 + 结果，让前端实时看到「exploitation 跑了什么、结果如何」。
 //
-// 事件去向（scanner 注入 EventSink）：落 conversation message（PG）+ publish redis（实时推前端）。
+// 事件去向（runner 注入 EventSink）：落 conversation message（PG）+ publish redis（实时推前端）。
 
 const scanEventResultPreviewLimit = 4096
 
@@ -34,7 +34,7 @@ const (
 	ScanEventReasoning ScanEventKind = "reasoning"
 	// ScanEventReasoningDelta：流式推理的增量片段（Text=本次 chunk）。模型走 Stream 时逐 chunk 发，
 	// 前端累积成「活动推理气泡」逐字渲染；最终 ScanEventReasoning 帧到达后替换之。
-	// 瞬时帧——scanner 仅 publish redis 实时推，不落库、不占 seq（重连补历史靠最终帧即可）。
+	// 瞬时帧——runner 仅 publish redis 实时推，不落库、不占 seq（重连补历史靠最终帧即可）。
 	ScanEventReasoningDelta ScanEventKind = "reasoning_delta"
 	// ScanEventSpawn：orchestrator 调 deep 的 task 工具派活给子代理（active swarm 团队协作）。
 	// Args 含 {subagent_type, description}——派给谁、干什么。前端「派发卡」展示 AI 指挥 AI 团队。
@@ -72,7 +72,7 @@ type ScanEvent struct {
 	LatencyMs  int    // reasoning：本次 LLM 调用耗时（ms）
 }
 
-// EventSink 消费 agent 过程事件。scanner 注入实现（落 conversation message + redis publish）。
+// EventSink 消费 agent 过程事件。runner 注入实现（落 conversation message + redis publish）。
 type EventSink interface {
 	OnScanEvent(ctx context.Context, ev ScanEvent)
 }

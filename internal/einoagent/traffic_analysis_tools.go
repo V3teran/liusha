@@ -42,7 +42,7 @@ type (
 )
 
 // TrafficAnalysisToolDeps 是装配 trafficAnalysis eino 工具集所需的依赖。
-// 由 cmd/scanner composition root 注入（与旧 hunter.Deps 同源 store）。
+// 由 cmd/runner composition root 注入（与 hunterrun store 同源）。
 type TrafficAnalysisToolDeps struct {
 	Findings    FindingStore
 	Corpus      CorpusStore // 跨目标知识库（hybrid RAG）；search/write_corpus
@@ -53,7 +53,7 @@ type TrafficAnalysisToolDeps struct {
 	Embedder einotools.CorpusEmbedder
 	Reranker corpus.Reranker
 
-	// ProxyFlows / AgentFlows 是拆表后的两个流量 store（scanner 传 *traffic.ProxyStore /
+	// ProxyFlows / AgentFlows 是拆表后的两个流量 store（runner 传 *traffic.ProxyStore /
 	// *traffic.AgentStore）；nil 时不注册 replay/list/view_traffic。passive traffic-analysis 用
 	// ProxyFlows（读本批消费的 proxy_traffic），active 用 AgentFlows（读自产 agent_traffic）。
 	ProxyFlows *traffic.ProxyStore

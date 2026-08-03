@@ -24,7 +24,7 @@ import (
 //   - sub-agent **内部**多工具并行（eino ToolsNode 原生）
 //   - 文件隔离：run_command 每命令独立临时目录（deep 无法 per-sub-agent 注入 key，einotools 侧处理）
 
-// DeepSwarmConfig 是装配 deep orchestrator+sub-agents 所需依赖（scanner composition root 注入）。
+// DeepSwarmConfig 是装配 deep orchestrator+sub-agents 所需依赖（runner composition root 注入）。
 type DeepSwarmConfig struct {
 	Model        model.ToolCallingChatModel     // orchestrator + 所有 sub-agent 共享（并发安全）
 	Orchestrator HunterDef                      // 主代理猎手（kind=orchestrator）

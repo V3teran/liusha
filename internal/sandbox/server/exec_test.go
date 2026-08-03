@@ -86,7 +86,7 @@ func TestHandleExec_Timeout_KillsProcessGroup(t *testing.T) {
 // sh 立即退出（exit 0），但孤儿子进程继续持有 stdout pipe writer end。cmd.Wait() 会一直等
 // stdio copy goroutine 退出（即子进程自然结束）才返回。真实场景 http.server 永不退 →
 // handleExec 挂到 client 31min timeout（"Client.Timeout exceeded while awaiting headers"）→
-// run_command 报错 → 整个 active run abort（logs/scanner.local.log 实测 tag=test-rfi-http-server）。
+// run_command 报错 → 整个 active run abort（logs/runner.local.log 实测 tag=test-rfi-http-server）。
 //
 // 仅靠进程组 SIGKILL（TestHandleExec_Timeout_KillsProcessGroup）救不了本例：子进程 `&` 后台化
 // 且这里 timeout 远未到、根本不触发 cmd.Cancel。修复靠 cmd.WaitDelay：进程退出/ctx 取消起算，

@@ -11,7 +11,7 @@ import (
 	"github.com/V3teran/liusha/internal/scanstream"
 )
 
-// event_sink.go：einoagent.EventSink 的 scanner 实现（阶段B2b）。
+// event_sink.go：einoagent.EventSink 的 runner 实现（阶段B2b）。
 //
 // 每个 agent 过程事件（tool_call / tool_result，含 exploitation 内部）：
 //  1. 落 conversation message（PG，得 seq，可回看 + 断线重连补历史）

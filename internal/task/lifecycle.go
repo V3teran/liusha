@@ -53,7 +53,7 @@ func (s *Store) Reopen(ctx context.Context, id string) error {
 	return nil
 }
 
-// SetTargetHost 回填 target_host（scanner 从 brief 抽到真实 host 时）。幂等覆盖，best-effort。
+// SetTargetHost 回填 target_host（runner 从 brief 抽到真实 host 时）。幂等覆盖，best-effort。
 func (s *Store) SetTargetHost(ctx context.Context, id, host string) error {
 	_, err := s.pool.Exec(ctx, `UPDATE task SET target_host=$1 WHERE id=$2`, host, id)
 	if err != nil {

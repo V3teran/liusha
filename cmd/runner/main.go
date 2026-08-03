@@ -1,11 +1,11 @@
-// Package main 是 liusha scanner 进程入口。
+// Package main 是 liusha runner 进程入口。
 //
 //	职责：
 //	  1. 启 ingestor.Traffic goroutine：消费 Redis Stream → 启发式打分 → 入 hunter 队列
 //	  2. 启 asynq.Server：消费 agent:react 队列，每个 task 跑 1 个 hunter agent
 //	  3. healthz HTTP；graceful shutdown
 //
-// **部署约束：scanner 当前是单实例**。subtask swarm 用 in-process parentRegistries
+// **部署约束：runner 当前是单实例**。subtask swarm 用 in-process parentRegistries
 // (sync.Map) 持有orchestrator的 Registry + exploitation goroutine——orchestrator一旦被 asynq 路由到本进程，
 // 它派的所有exploitation也只在本进程内跑（共享 ctx 树 + sandbox 容器 + WaitAll 清理）。
 // 多实例部署需先实现 Registry 跨进程协同（如 Redis-backed Registry）才能解锁。
@@ -28,10 +28,10 @@ import (
 	"github.com/V3teran/liusha/internal/assignment"
 	"github.com/V3teran/liusha/internal/builder/hunter"
 	"github.com/V3teran/liusha/internal/config"
+	"github.com/V3teran/liusha/internal/configstore"
 	"github.com/V3teran/liusha/internal/conversation"
 	"github.com/V3teran/liusha/internal/corpus"
 	"github.com/V3teran/liusha/internal/credential"
-	"github.com/V3teran/liusha/internal/configstore"
 	"github.com/V3teran/liusha/internal/db"
 	"github.com/V3teran/liusha/internal/einollm"
 	"github.com/V3teran/liusha/internal/einotools"
@@ -65,14 +65,14 @@ const (
 )
 
 func main() {
-	logger := logx.New("scanner")
+	logger := logx.New("runner")
 	ctx := context.Background()
 
 	cfg, err := config.Load(envx.OrDefault("LIUSHA_CONFIG", "./config/config.yaml"))
 	if err != nil {
 		logger.Fatal().Err(err).Msg("load config")
 	}
-	scannerCfg := cfg.Scanner
+	runnerCfg := cfg.Runner
 
 	pool, err := db.NewPgPool(ctx, os.Getenv("LIUSHA_POSTGRES_DSN"),
 		cfg.Postgres.MaxConns, cfg.Postgres.MinConns,
@@ -104,7 +104,7 @@ func main() {
 	agentFlows := traffic.NewAgentStore(pool) // agent 自产流量（active，按 task）
 	creds := credential.NewRedis(rdb, cfg.Credential.RedisKeyPrefix)
 	// 情报黑板（§7），与 credential 同 Redis 租户命名空间；ttl 滚动过期（每次写刷新该 host TTL）。
-	leads := lead.NewStore(rdb, cfg.Credential.RedisKeyPrefix, time.Duration(cfg.Scanner.LeadTTLHours)*time.Hour)
+	leads := lead.NewStore(rdb, cfg.Credential.RedisKeyPrefix, time.Duration(cfg.Runner.LeadTTLHours)*time.Hour)
 
 	// Jina embedding + rerank client（corpus hybrid RAG 用）。密钥走 ENV JINA_API_KEY；
 	// 缺失时 jinaClient=nil，corpus 降级（search 退纯 sparse、write 不 embed）——不阻塞渗透主流程。
@@ -178,20 +178,20 @@ func main() {
 	// active 容器内抓流量 → agent_traffic（source=internal）：
 	//   - 浏览器：browser-svc.py 内建 CDP Network observer 抓 chromium 真实流量
 	//   - CLI：容器内本地 mitmproxy + mitm-capture.py，工具经 HTTP_PROXY 走它
-	// 两者都经 LIUSHA_INGEST_URL POST 到 scanner 自己的 ingest endpoint（见下方 hsMux 注册）。
+	// 两者都经 LIUSHA_INGEST_URL POST 到 runner 自己的 ingest endpoint（见下方 hsMux 注册）。
 	// 凭证共享走 redis credentials key（read/write_credential）。
 	launcher := sandbox.NewDockerLauncher(cfg.Sandbox.DefaultImage)
 	// 注入视口尺寸到 launcher → docker run -e → 容器内 wrapper 透传 chromium。
 	launcher.ViewportWidth = cfg.Sandbox.ViewportWidth
 	launcher.ViewportHeight = cfg.Sandbox.ViewportHeight
-	// 拼 ingest URL/token 注入 launcher → docker run -e。scanner 跑在 host，容器经
-	// host.docker.internal 回连 scanner 自己的 healthz 端口（cfg.Scanner.HealthzAddr，默认 :9090）。
+	// 拼 ingest URL/token 注入 launcher → docker run -e。runner 跑在 host，容器经
+	// host.docker.internal 回连 runner 自己的 healthz 端口（cfg.Runner.HealthzAddr，默认 :9090）。
 	// token 与本进程 ingest handler 共享同一值（ENV LIUSHA_INGEST_TOKEN 覆盖 yaml）。
 	// 解析失败则不注入 → 沙箱读不到 LIUSHA_INGEST_URL → capture 不启用。
 	// 解析失败则不注入 → browser-svc.py/mitm-capture.py 读不到 LIUSHA_INGEST_URL，capture 不启用。
-	if _, port, splitErr := net.SplitHostPort(scannerCfg.HealthzAddr); splitErr != nil {
-		logger.Warn().Err(splitErr).Str("healthz_addr", scannerCfg.HealthzAddr).
-			Msg("解析 scanner healthz addr 失败，跳过 ingest 注入（capture 不启用）")
+	if _, port, splitErr := net.SplitHostPort(runnerCfg.HealthzAddr); splitErr != nil {
+		logger.Warn().Err(splitErr).Str("healthz_addr", runnerCfg.HealthzAddr).
+			Msg("解析 runner healthz addr 失败，跳过 ingest 注入（capture 不启用）")
 	} else {
 		launcher.IngestURL = "http://host.docker.internal:" + port + "/internal/v1/flows/ingest"
 		launcher.IngestToken = envx.OrDefault("LIUSHA_INGEST_TOKEN", cfg.Proxy.IngestToken)
@@ -200,7 +200,7 @@ func main() {
 		logger.Warn().Err(err).Msg("CleanupOrphans 失败（非致命，max lifetime 兜底）")
 	}
 
-	// hunter builder：scanner 启动时构造一次。
+	// hunter builder：runner 启动时构造一次。
 	// hunterDeps：prompt 拼装 + eino 工具装配的共享依赖（run_command 的 sandbox.Client 由
 	// handler 每次 Spawn 注入，不持有在 Deps）。react 退路已删，只剩 eino 用的 store/loader/manifest。
 	hunterDeps := hunter.Deps{
@@ -224,8 +224,8 @@ func main() {
 	// handler
 	// per-host 并发信号量（§4.3）。TTL = swarm 超时 + 10min 缓冲：防长 task 运行期计数键被
 	// TTL 误清导致 host 额度漂移；持有者崩溃时靠 TTL 到期兜底清零，不永久泄漏。
-	hostSemTTL := time.Duration(scannerCfg.ActiveAgentRunTimeoutSeconds)*time.Second + 10*time.Minute
-	hostSem := ratelimit.NewHostSemaphore(rdb, cfg.Credential.RedisKeyPrefix, scannerCfg.PerHostConcurrency, hostSemTTL)
+	hostSemTTL := time.Duration(runnerCfg.SwarmAgentRunTimeoutSeconds)*time.Second + 10*time.Minute
+	hostSem := ratelimit.NewHostSemaphore(rdb, cfg.Credential.RedisKeyPrefix, runnerCfg.PerHostConcurrency, hostSemTTL)
 
 	h := handler{
 		hunters:        hunters,
@@ -240,7 +240,7 @@ func main() {
 		calls:          calls,
 		hostSem:        hostSem,
 		cfg:            cfg,
-		scannerCfg:     scannerCfg,
+		runnerCfg:      runnerCfg,
 		launcher:       launcher,
 		logger:         logger,
 		einoFactory:    einollm.New(cfg),
@@ -256,10 +256,10 @@ func main() {
 	srv := asynq.NewServer(
 		asynq.RedisClientOpt{Addr: redisAddr},
 		asynq.Config{
-			Concurrency: scannerCfg.AsynqConcurrency,
+			Concurrency: runnerCfg.AsynqConcurrency,
 			Queues: map[string]int{
-				worker.QueueHunter:   scannerCfg.QueueHunterWeight,
-				worker.QueueDispatch: scannerCfg.QueueDispatchWeight,
+				worker.QueueHunter:   runnerCfg.QueueHunterWeight,
+				worker.QueueDispatch: runnerCfg.QueueDispatchWeight,
 			},
 		},
 	)
@@ -292,7 +292,7 @@ func main() {
 	}()
 
 	// task reaper goroutine（B2 进度探活）：task.heartbeat_at 由 agent 每次工具调用驱动续命
-	// （见 einoToolSink.heartbeat）+ handler 入口重置一次。scanner 进程崩溃或扫描卡死后心跳停摆，
+	// （见 einoToolSink.heartbeat）+ handler 入口重置一次。runner 进程崩溃或扫描卡死后心跳停摆，
 	// reaper 据此把超时孤儿判为 aborted——否则前端永远显示「进行中」。
 	//
 	// task 是有界运行，跑完即终态，无常驻监控会话概念，无 TTL 轮换。reaper 统一判活：
@@ -303,7 +303,7 @@ func main() {
 	// 最长间隔 ≈ 一次长工具执行(step_tool_timeout) + 决定下一步的 LLM 生成(step_llm_timeout) +
 	// 可能的上下文压缩 LLM(step_llm_timeout) + 缓冲。据此动态推导，不写死。
 	go func() {
-		staleAfter := time.Duration(cfg.Toolruntime.StepToolTimeoutSeconds+2*cfg.Scanner.StepLLMTimeoutSeconds)*time.Second + scanReaperStaleBuffer
+		staleAfter := time.Duration(cfg.Toolruntime.StepToolTimeoutSeconds+2*cfg.Runner.StepLLMTimeoutSeconds)*time.Second + scanReaperStaleBuffer
 		logger.Info().Dur("stale_after", staleAfter).Dur("interval", scanReaperInterval).Msg("task reaper started")
 		ticker := time.NewTicker(scanReaperInterval)
 		defer ticker.Stop()
@@ -332,13 +332,13 @@ func main() {
 	hsMux.HandleFunc("/internal/v1/flows/ingest",
 		newIngestHandler(trafficIngestor, envx.OrDefault("LIUSHA_INGEST_TOKEN", cfg.Proxy.IngestToken), logger))
 	hs := &http.Server{
-		Addr:              scannerCfg.HealthzAddr,
+		Addr:              runnerCfg.HealthzAddr,
 		Handler:           hsMux,
 		ReadHeaderTimeout: time.Duration(cfg.API.ReadHeaderTimeoutSeconds) * time.Second,
 	}
 
 	go func() {
-		logger.Info().Str("addr", hs.Addr).Msg("scanner healthz listening")
+		logger.Info().Str("addr", hs.Addr).Msg("runner healthz listening")
 		if err := hs.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			logger.Error().Err(err).Msg("healthz serve")
 		}
@@ -354,7 +354,7 @@ func main() {
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
 	sig := <-stop
-	logger.Info().Str("signal", sig.String()).Msg("scanner shutting down")
+	logger.Info().Str("signal", sig.String()).Msg("runner shutting down")
 
 	flowCancel()
 	asynqDone := make(chan struct{})
@@ -365,16 +365,16 @@ func main() {
 	select {
 	case <-asynqDone:
 		logger.Info().Msg("asynq shutdown clean")
-	case <-time.After(time.Duration(scannerCfg.AsynqShutdownTimeoutSeconds) * time.Second):
-		logger.Warn().Int("timeout_seconds", scannerCfg.AsynqShutdownTimeoutSeconds).
+	case <-time.After(time.Duration(runnerCfg.AsynqShutdownTimeoutSeconds) * time.Second):
+		logger.Warn().Int("timeout_seconds", runnerCfg.AsynqShutdownTimeoutSeconds).
 			Msg("asynq shutdown timeout — in-flight tasks may be aborted")
 	}
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), time.Duration(scannerCfg.ShutdownTimeoutSeconds)*time.Second)
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), time.Duration(runnerCfg.ShutdownTimeoutSeconds)*time.Second)
 	defer cancel()
 	if err := hs.Shutdown(shutdownCtx); err != nil {
 		logger.Error().Err(err).Msg("healthz shutdown")
 	}
-	logger.Info().Msg("scanner stopped")
+	logger.Info().Msg("runner stopped")
 }
 
 // handler struct + failTask/abortTask/handle 入口 已抽到 handler.go。
