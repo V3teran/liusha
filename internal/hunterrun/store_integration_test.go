@@ -1,6 +1,6 @@
 //go:build integration
 
-package hunter
+package hunterrun
 
 import (
 	"context"
