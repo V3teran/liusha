@@ -27,8 +27,8 @@ import (
 // DeepSwarmConfig 是装配 deep orchestrator+sub-agents 所需依赖（scanner composition root 注入）。
 type DeepSwarmConfig struct {
 	Model        model.ToolCallingChatModel     // orchestrator + 所有 sub-agent 共享（并发安全）
-	Orchestrator RoleDef                        // 主代理角色（kind=orchestrator）
-	SubAgents    []RoleDef                      // 杀伤链阶段子代理角色
+	Orchestrator HunterDef                      // 主代理猎手（kind=orchestrator）
+	SubAgents    []HunterDef                    // 杀伤链阶段子代理猎手
 	ToolDeps     TrafficAnalysisToolDeps        // 工具装配依赖（store/loader/sandbox）
 	Params       TrafficAnalysisToolParams      // owner/host/hunter 注入值
 	Middlewares  []adk.AgentMiddleware          // 截图回灌/遥测/事件（einoRunOpts 产，struct 版）
@@ -78,32 +78,32 @@ func BuildDeepSwarm(ctx context.Context, cfg DeepSwarmConfig) (adk.Agent, error)
 	if cfg.Model == nil {
 		return nil, fmt.Errorf("BuildDeepSwarm: Model 必填")
 	}
-	// 每个 sub-agent 角色 → ChatModelAgent
+	// 每个 sub-agent 猎手 → ChatModelAgent
 	subAgents := make([]adk.Agent, 0, len(cfg.SubAgents))
-	for _, role := range cfg.SubAgents {
-		tools, err := BuildRoleTools(role, ToolBuildCtx{Deps: cfg.ToolDeps, Params: cfg.Params})
+	for _, h := range cfg.SubAgents {
+		tools, err := BuildHunterTools(h, ToolBuildCtx{Deps: cfg.ToolDeps, Params: cfg.Params})
 		if err != nil {
-			return nil, fmt.Errorf("sub-agent %q 工具: %w", role.ID, err)
+			return nil, fmt.Errorf("sub-agent %q 工具: %w", h.ID, err)
 		}
-		maxIter := role.MaxIterations
+		maxIter := h.MaxIterations
 		if maxIter <= 0 {
 			maxIter = defaultExploitationMaxIters
 		}
 		sa, err := adk.NewChatModelAgent(ctx, &adk.ChatModelAgentConfig{
-			Name:        role.ID,
-			Description: role.Description,
-			// 子代理系统提示 = 角色 md + 固定目标 Host 段 + 情报黑板段。
+			Name:        h.ID,
+			Description: h.Description,
+			// 子代理系统提示 = 猎手 body + 固定目标 Host 段 + 情报黑板段。
 			// 子代理是 deep task 派的瞬时代理，只看到 orchestrator 写的 task 文案 + 自己的 system prompt，
 			// 看不到 orchestrator 的 user message（带 ## 目标 Host / 情报黑板）。若 orchestrator 派活时漏写
 			// 目标地址，子代理就会瞎猜 localhost/127.0.0.1（实测 recon 误扫容器内网根因）。此处结构化注入
 			// 目标 host + 该 host 已有情报，不依赖 orchestrator LLM 每次都记得复述/转述——
 			// 与 buildUserPrompt 给顶层 agent 注入 host/lead 同源思路。
-			Instruction: role.SystemPrompt + subAgentTargetSection(cfg.Params.Host) +
+			Instruction: h.SystemPrompt + subAgentTargetSection(cfg.Params.Host) +
 				leadSection(ctx, cfg.ToolDeps.Lead, cfg.Params.Host),
 			Model: cfg.Model,
 			ToolsConfig: adk.ToolsConfig{ToolsNodeConfig: compose.ToolsNodeConfig{
 				Tools:               tools,
-				UnknownToolsHandler: unknownToolsHandler(role.ID, cfg.Logger),
+				UnknownToolsHandler: unknownToolsHandler(h.ID, cfg.Logger),
 			}},
 			MaxIterations: maxIter,
 			Middlewares:   cfg.Middlewares,
@@ -113,13 +113,13 @@ func BuildDeepSwarm(ctx context.Context, cfg DeepSwarmConfig) (adk.Agent, error)
 			ModelRetryConfig: &adk.ModelRetryConfig{MaxRetries: defaultModelRetries},
 		})
 		if err != nil {
-			return nil, fmt.Errorf("sub-agent %q: %w", role.ID, err)
+			return nil, fmt.Errorf("sub-agent %q: %w", h.ID, err)
 		}
 		subAgents = append(subAgents, sa)
 	}
 
-	// orchestrator 工具集（Orchestrator 角色 md 声明；派活由 deep 自带 task 工具负责，不在此）
-	cmdTools, err := BuildRoleTools(cfg.Orchestrator, ToolBuildCtx{Deps: cfg.ToolDeps, Params: cfg.Params})
+	// orchestrator 工具集（Orchestrator 猎手 body 声明；派活由 deep 自带 task 工具负责，不在此）
+	cmdTools, err := BuildHunterTools(cfg.Orchestrator, ToolBuildCtx{Deps: cfg.ToolDeps, Params: cfg.Params})
 	if err != nil {
 		return nil, fmt.Errorf("orchestrator 工具: %w", err)
 	}

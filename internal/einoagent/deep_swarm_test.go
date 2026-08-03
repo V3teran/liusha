@@ -11,15 +11,15 @@ import (
 
 // ---- 工具注册表 ----
 
-func toolDefsFromCtx(t *testing.T, role einoagent.RoleDef) []string {
+func toolDefsFromCtx(t *testing.T, h einoagent.HunterDef) []string {
 	t.Helper()
 	f := allFake{}
-	tools, err := einoagent.BuildRoleTools(role, einoagent.ToolBuildCtx{
+	tools, err := einoagent.BuildHunterTools(h, einoagent.ToolBuildCtx{
 		Deps:   einoagent.TrafficAnalysisToolDeps{Findings: f, Corpus: f, Credentials: f, AgentFlows: traffic.NewAgentStore(nil)},
 		Params: einoagent.TrafficAnalysisToolParams{TaskID: "task-1", Mode: "active", HunterID: "h", Host: "host"},
 	})
 	if err != nil {
-		t.Fatalf("BuildRoleTools: %v", err)
+		t.Fatalf("BuildHunterTools: %v", err)
 	}
 	var names []string
 	for _, bt := range tools {
@@ -30,12 +30,12 @@ func toolDefsFromCtx(t *testing.T, role einoagent.RoleDef) []string {
 	return names
 }
 
-func TestBuildRoleTools_ByName(t *testing.T) {
-	role := einoagent.RoleDef{
+func TestBuildHunterTools_ByName(t *testing.T) {
+	h := einoagent.HunterDef{
 		ID:    "exploitation",
 		Tools: []string{"read_findings", "write_finding", "replay_traffic", "list_traffic", "view_traffic", "done"},
 	}
-	names := toolDefsFromCtx(t, role)
+	names := toolDefsFromCtx(t, h)
 	want := []string{"done", "list_traffic", "read_findings", "replay_traffic", "view_traffic", "write_finding"}
 	if len(names) != len(want) {
 		t.Fatalf("工具数错: 得 %v want %v", names, want)
@@ -47,10 +47,10 @@ func TestBuildRoleTools_ByName(t *testing.T) {
 	}
 }
 
-func TestBuildRoleTools_UnknownTool(t *testing.T) {
-	role := einoagent.RoleDef{ID: "x", Tools: []string{"read_findings", "no_such_tool"}}
+func TestBuildHunterTools_UnknownTool(t *testing.T) {
+	h := einoagent.HunterDef{ID: "x", Tools: []string{"read_findings", "no_such_tool"}}
 	f := allFake{}
-	_, err := einoagent.BuildRoleTools(role, einoagent.ToolBuildCtx{
+	_, err := einoagent.BuildHunterTools(h, einoagent.ToolBuildCtx{
 		Deps:   einoagent.TrafficAnalysisToolDeps{Findings: f, Corpus: f, Credentials: f},
 		Params: einoagent.TrafficAnalysisToolParams{TaskID: "task-1", Host: "h"},
 	})
@@ -59,10 +59,10 @@ func TestBuildRoleTools_UnknownTool(t *testing.T) {
 	}
 }
 
-func TestBuildRoleTools_RunCommandNeedsSandbox(t *testing.T) {
-	role := einoagent.RoleDef{ID: "x", Tools: []string{"run_command"}}
+func TestBuildHunterTools_RunCommandNeedsSandbox(t *testing.T) {
+	h := einoagent.HunterDef{ID: "x", Tools: []string{"run_command"}}
 	f := allFake{}
-	_, err := einoagent.BuildRoleTools(role, einoagent.ToolBuildCtx{
+	_, err := einoagent.BuildHunterTools(h, einoagent.ToolBuildCtx{
 		Deps:   einoagent.TrafficAnalysisToolDeps{Findings: f, Corpus: f, Credentials: f}, // Sandbox nil
 		Params: einoagent.TrafficAnalysisToolParams{TaskID: "task-1", Host: "h"},
 	})
@@ -87,20 +87,20 @@ func TestKnownToolNames_CoversCore(t *testing.T) {
 
 func TestBuildDeepSwarm_AssemblesOrchestratorAndSubAgents(t *testing.T) {
 	f := allFake{}
-	orchestratorRole := einoagent.RoleDef{
-		ID: "orchestrator", Kind: einoagent.RoleOrchestrator,
+	orchestratorHunter := einoagent.HunterDef{
+		ID: "orchestrator", Kind: einoagent.HunterOrchestrator,
 		Description: "拆活派 exploitation", SystemPrompt: "你是编排者",
 		Tools: []string{"read_findings", "list_traffic"}, MaxIterations: 300,
 	}
-	exploitationRole := einoagent.RoleDef{
-		ID: "exploitation", Kind: einoagent.RoleSubAgent,
+	exploitationHunter := einoagent.HunterDef{
+		ID: "exploitation", Kind: einoagent.HunterSubAgent,
 		Description: "深挖单点", SystemPrompt: "你是exploitation",
 		Tools: []string{"read_findings", "write_finding", "done"}, MaxIterations: 120,
 	}
 	agent, err := einoagent.BuildDeepSwarm(context.Background(), einoagent.DeepSwarmConfig{
 		Model:        &fakeModel{},
-		Orchestrator: orchestratorRole,
-		SubAgents:    []einoagent.RoleDef{exploitationRole},
+		Orchestrator: orchestratorHunter,
+		SubAgents:    []einoagent.HunterDef{exploitationHunter},
 		ToolDeps:     einoagent.TrafficAnalysisToolDeps{Findings: f, Corpus: f, Credentials: f, AgentFlows: traffic.NewAgentStore(nil)},
 		Params:       einoagent.TrafficAnalysisToolParams{TaskID: "task-1", Mode: "active", HunterID: "cmd", Host: "host"},
 	})

@@ -81,8 +81,8 @@ type TrafficAnalysisToolParams struct {
 
 // BuildTrafficAnalysisTools 装配 trafficAnalysis（passive 单 agent）的工具集。
 //
-// deep active 路径（orchestrator/exploitation 等杀伤链角色）改走 role_tools.go 的 BuildRoleTools——
-// 工具由角色 md 的 tools 清单声明、运行时注入身份建实例，不再用本函数。故这里只服务 passive
+// deep swarm 路径（orchestrator/exploitation 等杀伤链猎手）改走 hunter_tools.go 的 BuildHunterTools——
+// 工具由猎手的 tools 清单声明、运行时注入身份建实例，不再用本函数。故这里只服务 solo
 // trafficAnalysis：固定工具集，含 list/view/replay_traffic（读本批消费的 proxy_traffic）、无 spawn。
 func BuildTrafficAnalysisTools(deps TrafficAnalysisToolDeps, p TrafficAnalysisToolParams) ([]tool.BaseTool, error) {
 	var tools []tool.BaseTool
