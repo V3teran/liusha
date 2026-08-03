@@ -170,18 +170,18 @@ func TestDeleteHandler_OK_200(t *testing.T) {
 	}
 }
 
-// fakeConversations 满足 ConversationsAPI，记录 ListConversations 收到的 limit/offset/mode。
+// fakeConversations 满足 ConversationsAPI，记录 ListConversations 收到的 limit/offset/scenarioID。
 type fakeConversations struct {
 	gotLimit, gotOffset int
-	gotMode             string
+	gotScenarioID       string
 	convs               []conversation.Conversation
 	hasMore             bool
 	getMessageResult    conversation.Message
 	getMessageErr       error
 }
 
-func (f *fakeConversations) ListConversations(_ context.Context, limit, offset int, mode string) ([]conversation.Conversation, bool, error) {
-	f.gotLimit, f.gotOffset, f.gotMode = limit, offset, mode
+func (f *fakeConversations) ListConversations(_ context.Context, limit, offset int, scenarioID string) ([]conversation.Conversation, bool, error) {
+	f.gotLimit, f.gotOffset, f.gotScenarioID = limit, offset, scenarioID
 	return f.convs, f.hasMore, nil
 }
 
@@ -236,24 +236,24 @@ func TestListConversationsHandler_DefaultOffsetZero(t *testing.T) {
 	if fc.gotLimit != 30 {
 		t.Errorf("未传 limit 应默认 30，得 %d", fc.gotLimit)
 	}
-	if fc.gotMode != "" {
-		t.Errorf("未传 mode 应默认空（不过滤），得 %q", fc.gotMode)
+	if fc.gotScenarioID != "" {
+		t.Errorf("未传 scenario_id 应默认空（不过滤），得 %q", fc.gotScenarioID)
 	}
 }
 
-// TestListConversationsHandler_ModeFilterPassedToStore：mode query 透传给 store，
+// TestListConversationsHandler_ScenarioFilterPassedToStore：scenario_id query 透传给 store，
 // 分页边界必须建立在过滤后的集合上（否则页码与实际条数会错位）。
-func TestListConversationsHandler_ModeFilterPassedToStore(t *testing.T) {
+func TestListConversationsHandler_ScenarioFilterPassedToStore(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	fc := &fakeConversations{}
 	r := gin.New()
 	r.GET("/conversations", listConversationsHandler(fc))
-	req := httptest.NewRequest("GET", "/conversations?mode=passive", nil)
+	req := httptest.NewRequest("GET", "/conversations?scenario_id=traffic-analysis", nil)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
-	if fc.gotMode != "passive" {
-		t.Errorf("mode=passive 应透传给 store，得 %q", fc.gotMode)
+	if fc.gotScenarioID != "traffic-analysis" {
+		t.Errorf("scenario_id=traffic-analysis 应透传给 store，得 %q", fc.gotScenarioID)
 	}
 }
 

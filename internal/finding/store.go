@@ -265,26 +265,25 @@ func (s *Store) ListByHost(ctx context.Context, host string, limit int) ([]VulnF
 	return out, rows.Err()
 }
 
-// LedgerRow 是全局漏洞台账的一行：finding 主体 + JOIN task 派生的 Mode（active/passive）。
+// LedgerRow 是全局漏洞台账的一行：finding 主体 + JOIN task 派生的 ScenarioID。
 // 漏洞管理页跨 task/host 全量展示用，区别于 per-task 的 VulnFinding 列表。
 type LedgerRow struct {
 	VulnFinding
-	Mode string // 关联 task 的 mode：active / passive
+	ScenarioID string // 关联 task 的 scenario_id
 }
 
 // LedgerFilter 是台账查询的可选筛选（零值=不筛该维度）。
 type LedgerFilter struct {
-	Host     string
-	Severity string
-	Status   string
-	Mode     string
-	Limit    int
+	Host       string
+	Severity   string
+	Status     string
+	ScenarioID string
+	Limit      int
 }
 
-// ListAll 全局漏洞台账查询：跨 task/host 平铺列出漏洞，JOIN task 带出 mode，按可选维度筛选。
+// ListAll 全局漏洞台账查询：跨 task/host 平铺列出漏洞，JOIN task 带出 scenario_id，按可选维度筛选。
 //
-// 修复历史缺陷：漏洞管理页原走 /sitemap（仅 active），passive 漏洞（占多数）不可见。
-// 本方法不受 task/mode 作用域约束，active + passive 一网打尽，按 created_at desc 排序。
+// 本方法不受 task/scenario 作用域约束，跨场景一网打尽，按 created_at desc 排序。
 //
 // 不做去重聚合：漏洞按「每次扫描各自独立」建模——同一个洞被多次扫描就是多条独立 finding，
 // 各自有各自的 triage 处置态，互不影响。台账平铺全部，不折叠。
@@ -306,11 +305,11 @@ func (s *Store) ListAll(ctx context.Context, f LedgerFilter) ([]LedgerRow, error
 	if f.Status != "" {
 		add("f.status = $%d", f.Status)
 	}
-	if f.Mode != "" {
-		add("t.mode = $%d", f.Mode)
+	if f.ScenarioID != "" {
+		add("t.scenario_id = $%d", f.ScenarioID)
 	}
 
-	q := `SELECT ` + ledgerCols + `, t.mode
+	q := `SELECT ` + ledgerCols + `, t.scenario_id
 		FROM finding f JOIN task t ON t.id = f.task_id`
 	if len(where) > 0 {
 		q += " WHERE " + strings.Join(where, " AND ")
@@ -387,7 +386,7 @@ const ledgerCols = "f.id, f.task_id::text AS task_id, " +
 	"COALESCE(f.cwe_id, ''), COALESCE(f.owasp_category, ''), f.first_seen_at, COALESCE(f.remediation, ''), " +
 	"f.depends_on::text[], f.status, COALESCE(f.triage_note, ''), f.triaged_at, f.created_at"
 
-// scanLedger 扫 ledgerCols 列序 + 末尾 mode（比 scan() 多一列 mode）。
+// scanLedger 扫 ledgerCols 列序 + 末尾 scenario_id（比 scan() 多一列 scenario_id）。
 func scanLedger(r scanner, out *LedgerRow) error {
 	var hunterID *string
 	var sourceTrafficID *int64
@@ -401,7 +400,7 @@ func scanLedger(r scanner, out *LedgerRow) error {
 		&dependsOn,
 		&out.Status, &out.TriageNote, &triagedAt,
 		&out.CreatedAt,
-		&out.Mode,
+		&out.ScenarioID,
 	); err != nil {
 		return err
 	}
