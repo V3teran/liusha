@@ -5,21 +5,13 @@
 //
 //   - 单发   = 单元素 assignment（1 task）
 //   - 批量   = 多元素 assignment（fan-out 多 task）
-//   - passive = 一批流量 → 1 task（fan-in）
+//   - 聚合   = 一批流量 → 1 task（fan-in）
 //
-// assignment 无 status 列：整体状态由子 task 聚合派生（读时算，见 Store.DeriveStatus），
-// 不落存储——避免"assignment 状态与子 task 真实态不一致"的双写难题。
+// scenario_id 标识下发场景（配置驱动）；assignment 无 status 列：整体状态由子 task 聚合派生
+// （读时算，见 Store.DeriveStatus），不落存储——避免"assignment 状态与子 task 真实态不一致"的双写难题。
 package assignment
 
 import "time"
-
-// Mode 区分主动/被动下发（与 task.Mode 对齐）。
-type Mode string
-
-const (
-	ModeActive  Mode = "active"
-	ModePassive Mode = "passive"
-)
 
 // Source 标记谁发的：manual 人工（api 下发）/ auto 聚合器（流量自动攒批）。
 type Source string
@@ -41,11 +33,11 @@ const (
 
 // Assignment 是 assignment 表行的 Go 表示。
 //
-// Payload：下发清单的 jsonb 原文。active=[{brief,host}...]；passive=[{flow_id...}]。
+// Payload：下发清单的 jsonb 原文（[]Item 的序列化）。
 // ScheduleID：由哪个定时模板克隆而来（手动下发为 nil）。
 type Assignment struct {
 	ID         string
-	Mode       Mode
+	ScenarioID string
 	Source     Source
 	Payload    []byte // jsonb 原文（[]Item 的序列化）
 	Title      string
@@ -62,7 +54,7 @@ type Item struct {
 
 // NewParams 是 Store.Create 的入参。
 type NewParams struct {
-	Mode       Mode
+	ScenarioID string
 	Source     Source
 	Items      []Item
 	Title      string
