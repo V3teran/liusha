@@ -41,11 +41,11 @@ func newTestCronRunner(t *testing.T) (*cronRunner, *pgxpool.Pool) {
 		hunters:     hunters,
 		enq:         enq,
 		scan: &scanAdapter{
-			assignments:      assignments,
-			tasks:            tasks,
-			hunters:          hunters,
-			enq:              enq,
-			activeRunTimeout: time.Minute,
+			assignments:   assignments,
+			tasks:         tasks,
+			hunters:       hunters,
+			enq:           enq,
+			maxRunTimeout: time.Minute,
 		},
 		logger: zerolog.Nop(),
 	}

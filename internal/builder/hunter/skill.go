@@ -1,6 +1,6 @@
 // Package hunter 提供 hunter agent 的 prompt 资产（system prompt 分段 + user prompt 拼装）+ Deps。
 //
-// eino 路径（internal/einoagent + cmd/scanner/handler_*_eino）复用这里的：
+// eino 路径（internal/einoagent + cmd/runner/handler_*_eino）复用这里的：
 //   - SystemPromptFor / SystemPrompt：system prompt 分段（公共底座 + 角色段）
 //   - BuildUserPrompt：流量 / finding / 情报黑板(lead) / 工具索引 段的统一拼装
 //   - Deps：prompt 拼装所需的 store / loader / manifest 依赖
@@ -44,7 +44,7 @@ func BuildUserPrompt(ctx context.Context, deps Deps, p skill.BuilderParams) stri
 	return buildUserPrompt(ctx, deps, p)
 }
 
-// Deps 是 prompt 拼装 + eino 工具装配的依赖注入（由 cmd/scanner/main.go 构造一份）。
+// Deps 是 prompt 拼装 + eino 工具装配的依赖注入（由 cmd/runner/main.go 构造一份）。
 type Deps struct {
 	Findings        *finding.Store
 	Credentials     credential.Provider

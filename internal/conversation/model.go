@@ -6,7 +6,7 @@
 //   - Conversation：一次会话。TaskID 关联本会话所属的 task（纯聊天时空）。
 //   - Message：会话内的消息。Kind 区分普通会话消息与 agent 过程事件（UI 渲染不同）。
 //
-// 事件流式传输（scanner→Redis→api）在 B2/B3 实现；本包只管会话/消息的持久化。
+// 事件流式传输（runner→Redis→api）在 B2/B3 实现；本包只管会话/消息的持久化。
 package conversation
 
 import (

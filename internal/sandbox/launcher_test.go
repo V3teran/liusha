@@ -160,7 +160,7 @@ func TestDockerLauncher_Timeout(t *testing.T) {
 //
 // 后台 `&` 起的孤儿子进程（如 RFI 测试服务器 `python3 -m http.server &`）持有 stdout pipe writer end，
 // 没 WaitDelay 时 /exec 会挂到子进程自然结束才返回——真实场景 http.server 永不退 → 挂到 client 31min
-// timeout → run_command 报错 → 整个 active run abort（logs/scanner.local.log tag=test-rfi-http-server 实测）。
+// timeout → run_command 报错 → 整个 active run abort（logs/runner.local.log tag=test-rfi-http-server 实测）。
 //
 // 镜像内 sandbox-server 的 WaitDelay 是编译期固定值（10s），无法从 host 注入，故断言后台命令在
 // < 20s 返回（远小于 sleep 40s / timeout 60s）。若修复没编进镜像或失效，这里会等到 ~40s 而超阈值。

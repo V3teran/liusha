@@ -16,7 +16,7 @@ import (
 //
 // 设计：一个猎手定义 = 一段 frontmatter（元信息）+ body（系统提示）。运行期 DB 是事实源
 // （见 internal/config/* + configstore）；本文件的解析器仅服务测试与工具装配的内存表示，
-// 不再在生产运行期扫目录加载——scanner/runner 从 configstore 取猎手，映射成本包的 HunterDef。
+// 不再在生产运行期扫目录加载——runner 从 configstore 取猎手，映射成本包的 HunterDef。
 //
 // 词汇：einoagent 侧猎手 kind ∈ {orchestrator, subagent, solo}；配置层（cfghunter）用
 // {orchestrator, domain}。两侧不同物，跨层由 handler 的映射函数翻译（见 M5）。

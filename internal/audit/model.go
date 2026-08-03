@@ -16,7 +16,7 @@ import (
 
 // Event 是 audit_log 表行的 Go 表示。
 //
-// Actor 示例: 'system' / 'api_user:abcd1234' / 'scanner'
+// Actor 示例: 'system' / 'api_user:abcd1234' / 'runner'
 // Action 示例: 'task.abort' / 'task.create' / 'credential.set' / 'credential.delete'
 // TargetKind 示例: 'task' / 'credential'
 // TargetID 是 target 主键（uuid 字符串 / host key 等）
@@ -34,7 +34,7 @@ type Event struct {
 const (
 	ActorSystem  = "system"
 	ActorAPIUser = "api_user"
-	ActorScanner = "scanner"
+	ActorRunner  = "runner"
 
 	ActionTaskAbort        = "task.abort"
 	ActionTaskCreate       = "task.create"

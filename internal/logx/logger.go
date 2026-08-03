@@ -137,7 +137,7 @@ func loadConfig() config {
 
 // resolveProcessName 决定文件名（同进程所有 logger 共写此文件）。
 // 优先 LIUSHA_LOG_PROCESS env，fallback 到 os.Args[0] 的 basename
-// （即 cmd 二进制名，如 ./bin/scanner → "scanner"）。
+// （即 cmd 二进制名，如 ./bin/runner → "runner"）。
 func resolveProcessName() string {
 	if v := strings.TrimSpace(os.Getenv("LIUSHA_LOG_PROCESS")); v != "" {
 		return v

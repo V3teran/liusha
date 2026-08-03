@@ -65,7 +65,7 @@ func (f *Factory) build(ctx context.Context, providerKey string) (model.ToolCall
 			Model:   pc.DefaultModel,
 			// 单步 LLM 看门狗：超 step_llm_timeout_seconds 未返回即判定失败（配合 ModelRetryConfig 重试），
 			// 取代此前的"隐式不可控 deadline"。HTTPClient 非 nil（debug dump）时此 Timeout 不生效，由 debug client 自带。
-			Timeout:    time.Duration(f.cfg.Scanner.StepLLMTimeoutSeconds) * time.Second,
+			Timeout:    time.Duration(f.cfg.Runner.StepLLMTimeoutSeconds) * time.Second,
 			HTTPClient: newDebugHTTPClient(),
 		})
 		if err != nil {

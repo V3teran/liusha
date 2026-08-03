@@ -11,7 +11,7 @@
 api:
   read_timeout_seconds: 15
   write_timeout_seconds: 30
-  read_header_timeout_seconds: 5         # 也复用于 proxy/scanner healthz HTTP server
+  read_header_timeout_seconds: 5         # 也复用于 proxy/runner healthz HTTP server
   listen_addr: 0.0.0.0:8080
   shutdown_timeout_seconds: 5
 
@@ -332,12 +332,12 @@ proxy:
   stream_name: flow_events          # XADD 目标 stream
   stream_max_len: 100000            # XADD MAXLEN ~ 上限（约 5KiB×1e5 ≈ 500 MiB）
 
-  # active 容器内抓流量 → cmd/scanner 的 /internal/v1/flows/ingest endpoint Bearer token。
+  # 容器内抓流量 → cmd/runner 的 /internal/v1/flows/ingest endpoint Bearer token。
   # 空 = 不强制验证（开发模式，仅靠 bind 127.0.0.1 + docker bridge 网络隔离）。
-  # 生产用 ENV LIUSHA_INGEST_TOKEN 注入，cmd/scanner + sandbox 共享同一值（launcher 透传到 sandbox env）。
+  # 生产用 ENV LIUSHA_INGEST_TOKEN 注入，cmd/runner + sandbox 共享同一值（launcher 透传到 sandbox env）。
   ingest_token: ""
 
-# ---- ingestor 流量摄入器（cmd/scanner 内 goroutine）----
+# ---- ingestor 流量摄入器（cmd/runner 内 goroutine）----
 ingestor:
   consumer_group: liusha-ingestor   # XREADGROUP 消费组名（负载均衡单元，多副本共享）
   consumer_name: ""                 # consumer 实例名：留空自动派生 ingestor-<hostname>-<pid>（同组内唯一）；多副本务必留空
@@ -360,10 +360,10 @@ credential:
 skills:
   root: ./skills
 
-# ---- cmd/scanner 进程运行时参数 ----
-scanner:
-  agent_run_timeout_seconds: 3600          # passive 模式 agent_run 整体超时（asynq handler 入口 WithTimeout，60 分钟，> step_tool）
-  active_agent_run_timeout_seconds: 14400  # active 模式 agent_run 整体超时（4 小时，对齐 sandbox max lifetime；站点扫描爬+测耗时长）
+# ---- cmd/runner 进程运行时参数 ----
+runner:
+  solo_agent_run_timeout_seconds: 3600     # solo 引擎单个 hunter task 整体超时（asynq handler 入口 WithTimeout，60 分钟，> step_tool）
+  swarm_agent_run_timeout_seconds: 14400   # swarm 引擎整体超时（4 小时，对齐 sandbox max lifetime；站点扫描爬+测耗时长）
   step_llm_timeout_seconds: 300            # 单步 LLM Generate 看门狗（5 分钟）
   asynq_concurrency: 6                     # asynq 消费者并发数（同时跑的主 ReAct 数）
   asynq_shutdown_timeout_seconds: 30       # asynq.Shutdown 等 in-flight 主 ReAct 落地超时（超时后 asynq 强制中断）
@@ -409,7 +409,7 @@ sandbox:
 
 # ---- toolruntime Interceptor 参数 ----
 toolruntime:
-  step_tool_timeout_seconds: 1800       # 单步 tool Execute 上限（30 分钟）；run_command 用此值钳 LLM 自传的 timeout_seconds；其他工具（write_finding 等）受 Interceptor 层 WithTimeout 兜底。&lt; agent_run_timeout_seconds=3600
+  step_tool_timeout_seconds: 1800       # 单步 tool Execute 上限（30 分钟）；run_command 用此值钳 LLM 自传的 timeout_seconds；其他工具（write_finding 等）受 Interceptor 层 WithTimeout 兜底。&lt; solo_agent_run_timeout_seconds=3600
 
 # ---- heuristic 关键词清单 ----
 # yaml 化便于按业务扩中文/小语种关键词，AllAuthError 运行时 lowercase 匹配

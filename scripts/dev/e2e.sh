@@ -103,14 +103,14 @@ for port in 8001 8888 8090 9090; do
     kill -9 "$pid" 2>/dev/null || true
   fi
 done
-# pkill 兜底：scanner 启动若 healthz :9090 端口冲突会保留 exe 进程但不绑端口
+# pkill 兜底：runner 启动若 healthz :9090 端口冲突会保留 exe 进程但不绑端口
 # → lsof 找不到 → 老 binary 留下与 asynq 抢任务（曾踩坑：上次 commit 67f1c24
-# extractHostFromBrief 没生效就是因为老 scanner 拿到了 task 用旧逻辑跑）。
-# -9 强杀所有 scanner exe + go run 父进程兜底。
-pkill -9 -f 'exe/scanner' 2>/dev/null || true
-pkill -9 -f 'go run.*cmd/scanner' 2>/dev/null || true
+# extractHostFromBrief 没生效就是因为老 runner 拿到了 task 用旧逻辑跑）。
+# -9 强杀所有 runner exe + go run 父进程兜底。
+pkill -9 -f 'exe/runner' 2>/dev/null || true
+pkill -9 -f 'go run.*cmd/runner' 2>/dev/null || true
 sleep 1
-echo "  ✓ 旧 service 已关停（端口 8001/8888/8090/9090 释放 + scanner 进程兜底 pkill）"
+echo "  ✓ 旧 service 已关停（端口 8001/8888/8090/9090 释放 + runner 进程兜底 pkill）"
 
 echo ""
 echo "===== 4/6 清 logs（fd 已释放，rm 真正删除）====="
@@ -131,13 +131,13 @@ echo "  run-svc.sh background PID=${RUN_SVC_PID} (output: /tmp/liusha-run-svc.ou
 echo "  等 healthz 全部上线（最多 ${HEALTHZ_WAIT_SECONDS}s）..."
 deadline=$((SECONDS + HEALTHZ_WAIT_SECONDS))
 while [ $SECONDS -lt $deadline ]; do
-  api_ok=0; scanner_ok=0; proxy_ok=0; vulnapp_ok=0
+  api_ok=0; runner_ok=0; proxy_ok=0; vulnapp_ok=0
   curl -sf -m 2 "${LIUSHA_API_BASE}/healthz" >/dev/null 2>&1 && api_ok=1
-  curl -sf -m 2 http://localhost:9090/healthz >/dev/null 2>&1 && scanner_ok=1
+  curl -sf -m 2 http://localhost:9090/healthz >/dev/null 2>&1 && runner_ok=1
   # proxy 无 healthz HTTP（纯 MITM）——探 TCP 8888 mitm 口是否在听。
   nc -z localhost 8888 2>/dev/null && proxy_ok=1
   nc -z localhost 8001 2>/dev/null && vulnapp_ok=1
-  if [ "$((api_ok + scanner_ok + proxy_ok + vulnapp_ok))" -eq 4 ]; then
+  if [ "$((api_ok + runner_ok + proxy_ok + vulnapp_ok))" -eq 4 ]; then
     echo "  ✓ 4 service 全部 healthy"
     echo ""
     echo "  📊 前端：liusha-ui 独立仓 → pnpm dev（/api 代理到本 api，X-API-Key=${LIUSHA_API_KEY}）"
@@ -149,7 +149,7 @@ while [ $SECONDS -lt $deadline ]; do
   sleep 2
 done
 if [ $SECONDS -ge $deadline ]; then
-  echo "  ✗ healthz 等待超时（${HEALTHZ_WAIT_SECONDS}s）— api=$api_ok scanner=$scanner_ok proxy=$proxy_ok vulnapp=$vulnapp_ok"
+  echo "  ✗ healthz 等待超时（${HEALTHZ_WAIT_SECONDS}s）— api=$api_ok runner=$runner_ok proxy=$proxy_ok vulnapp=$vulnapp_ok"
   echo "  → 看 /tmp/liusha-run-svc.out 与 logs/*.stderr"
   exit 1
 fi
@@ -182,7 +182,7 @@ if [ $RC -eq 0 ]; then
 else
   echo "✗ e2e 失败（exit $RC = 失败的 profile 数）"
   echo "  排查："
-  echo "    1. logs/scanner.log 看 ReAct 循环是否跑"
+  echo "    1. logs/runner.log 看 ReAct 循环是否跑"
   echo "    2. docker exec ${PG_CONTAINER} psql -U liusha -d liusha -c \\"
   echo "       'SELECT kind,severity,confidence,title FROM finding ORDER BY created_at DESC;'"
   echo "    3. 前端看图：liusha-ui 独立仓 → pnpm dev（/api 代理到本 api）"

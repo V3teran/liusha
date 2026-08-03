@@ -33,7 +33,7 @@ coverage.html
 /vulnapp
 /e2e
 /proxy
-/scanner
+/runner
 
 # 本地调试产物（截图、playwright MCP 转储）
 /llm-view-*.png

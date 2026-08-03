@@ -98,7 +98,7 @@ func main() {
 	// 执行图里程碑摘要：用 light LLM 把子代理推理总结成一句（派生层，按需调用）。
 	attackGraphProjector.Summary = llmSummarizer{router: router}
 	publisher := scanstream.NewPublisher(rdb)
-	adapter := &scanAdapter{assignments: assignmentStore, tasks: taskStore, hunters: hunterStore, enq: enq, audit: auditStore, conversations: convStore, router: router, findings: findStore, publisher: publisher, activeRunTimeout: time.Duration(cfg.Scanner.ActiveAgentRunTimeoutSeconds) * time.Second}
+	adapter := &scanAdapter{assignments: assignmentStore, tasks: taskStore, hunters: hunterStore, enq: enq, audit: auditStore, conversations: convStore, router: router, findings: findStore, publisher: publisher, maxRunTimeout: time.Duration(cfg.Runner.SwarmAgentRunTimeoutSeconds) * time.Second}
 
 	// cron Scheduler（§4.2/§10 P4）：轮询 cron_schedule 到点模板 → 克隆 assignment → 展开 task。
 	// 单副本够用；ctx 随进程关停取消（无需独立 shutdown 时限——轮询循环立即退出，无 in-flight 状态要收尾）。
@@ -140,10 +140,10 @@ func main() {
 			AttackGraph:       attackGraphProjector, // 执行图（思维链+成果链）投影
 			Invocations:       invocationStore,
 			Scan:              adapter,
-			Chat:              adapter,                // 阶段B：POST /chat 会话发起扫描
-			FollowUp:          adapter,                // 多轮：POST /conversations/:id/messages 动作续接
-			Abort:             adapter,                // 多轮：POST /conversations/:id/abort 停止会话关联扫描
-			Deleter:           adapter,                // DELETE /conversations/:id 删会话+消息；关联扫描进行中拒删（409，先停后删）
+			Chat:              adapter,                      // 阶段B：POST /chat 会话发起扫描
+			FollowUp:          adapter,                      // 多轮：POST /conversations/:id/messages 动作续接
+			Abort:             adapter,                      // 多轮：POST /conversations/:id/abort 停止会话关联扫描
+			Deleter:           adapter,                      // DELETE /conversations/:id 删会话+消息；关联扫描进行中拒删（409，先停后删）
 			Renamer:           convStore,                    // PATCH /conversations/:id 重命名标题（convStore.SetTitle 直接满足）
 			Conversations:     convStore,                    // 阶段B：会话列表 / 消息回看
 			EventStream:       eventStreamAdapter{rdb: rdb}, // 阶段B：SSE 订阅 redis 事件
@@ -262,10 +262,10 @@ type scanAdapter struct {
 	findings  *finding.Store        // 问答读 task 黑板 finding
 	publisher *scanstream.Publisher // 问答回答 publish SSE
 
-	// active run 整体超时（= scanner.ActiveAgentRunTimeoutSeconds）。入队时设为 asynq.Timeout，
-	// 否则 asynq 默认 30min 任务 deadline 会架空 scanner handler 里 4h 的 WithTimeout——
-	// run 跑到 30min 就被 ctx cancel（实测 active 扫描 30min 整 abort、orchestrator 没机会收尾）。
-	activeRunTimeout time.Duration
+	// run 整体超时上限（取最长引擎 = runner.SwarmAgentRunTimeoutSeconds）。入队时设为 asynq.Timeout，
+	// 否则 asynq 默认 30min 任务 deadline 会架空 runner handler 里 4h 的 WithTimeout——
+	// run 跑到 30min 就被 ctx cancel（实测 swarm 扫描 30min 整 abort、orchestrator 没机会收尾）。
+	maxRunTimeout time.Duration
 }
 
 // eventStreamAdapter 把 scanstream 订阅适配成 httpapi.EventStream（SSE handler 用）。
@@ -329,7 +329,7 @@ func (a *scanAdapter) expandItem(ctx context.Context, assignmentID, brief, conve
 		ScenarioID:     scenarioID,     // 场景 code：runner 据此数据驱动派发引擎/playbook
 		Input:          payloadInput,
 		Role:           worker.RoleHunter,
-	}, asynq.MaxRetry(0), asynq.Timeout(a.activeRunTimeout)); err != nil {
+	}, asynq.MaxRetry(0), asynq.Timeout(a.maxRunTimeout)); err != nil {
 		return "", "", fmt.Errorf("enqueue: %w", err)
 	}
 
@@ -384,7 +384,7 @@ func (a *scanAdapter) FollowUp(ctx context.Context, taskID, conversationID, scen
 		ScenarioID:     scenarioID,
 		Input:          payloadInput,
 		Role:           worker.RoleHunter,
-	}, asynq.MaxRetry(0), asynq.Timeout(a.activeRunTimeout)); err != nil {
+	}, asynq.MaxRetry(0), asynq.Timeout(a.maxRunTimeout)); err != nil {
 		return "", fmt.Errorf("enqueue followup: %w", err)
 	}
 	return tid, nil

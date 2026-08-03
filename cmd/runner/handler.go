@@ -43,7 +43,7 @@ type handler struct {
 	calls      *llminvocation.Store
 	hostSem    *ratelimit.HostSemaphore // per-host 并发限速（§4.3）；仅对有 target_host 的 task 生效
 	cfg        config.Config
-	scannerCfg config.ScannerConfig
+	runnerCfg  config.RunnerConfig
 	launcher   sandbox.Launcher
 	logger     zerolog.Logger
 
@@ -101,8 +101,8 @@ func (h handler) abortTask(ctx context.Context, hunterID, reason string) error {
 
 // handle 是单个 hunter task 的处理入口。
 //
-// timeout 按 engine 分档：solo 用 AgentRunTimeoutSeconds（默认 1h），
-// swarm 用 ActiveAgentRunTimeoutSeconds（默认 4h，对齐 sandbox max lifetime）。
+// timeout 按 engine 分档：solo 用 SoloAgentRunTimeoutSeconds（默认 1h），
+// swarm 用 SwarmAgentRunTimeoutSeconds（默认 4h，对齐 sandbox max lifetime）。
 func (h handler) handle(ctx context.Context, p worker.Payload) (retErr error) {
 	taskStart := time.Now()
 	h.logger.Info().
@@ -180,11 +180,10 @@ func (h handler) handle(ctx context.Context, p worker.Payload) (retErr error) {
 		return h.failTask(ctx, p.HunterID, fmt.Errorf("playbook %s 组合猎手加载失败: %w", pb.Code, err))
 	}
 
-	// timeout 按 engine 取（swarm 用长超时，solo 用常规）——语义等价旧的 active/passive 分支。
-	// 本里程碑配置字段仍是旧名（M6 才 rename）：AgentRunTimeoutSeconds→Solo、ActiveAgentRunTimeoutSeconds→Swarm。
-	timeout := h.scannerCfg.AgentRunTimeoutSeconds
+	// timeout 按 engine 取：swarm 用长超时，solo 用常规。
+	timeout := h.runnerCfg.SoloAgentRunTimeoutSeconds
 	if scen.Engine == cfgscenario.EngineSwarm {
-		timeout = h.scannerCfg.ActiveAgentRunTimeoutSeconds
+		timeout = h.runnerCfg.SwarmAgentRunTimeoutSeconds
 	}
 	if timeout > 0 {
 		var cancel context.CancelFunc

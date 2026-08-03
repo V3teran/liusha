@@ -29,7 +29,7 @@ type Config struct {
 	Credential  CredentialConfig          `mapstructure:"credential"`
 	Skills      SkillsConfig              `mapstructure:"skills"`
 	Hunters     HuntersConfig             `mapstructure:"hunters_dir"`
-	Scanner     ScannerConfig             `mapstructure:"scanner"`
+	Runner      RunnerConfig              `mapstructure:"runner"`
 	React       ReactConfig               `mapstructure:"react"`
 	Sandbox     SandboxConfig             `mapstructure:"sandbox"`
 	Toolruntime ToolruntimeConfig         `mapstructure:"toolruntime"`
@@ -39,7 +39,7 @@ type Config struct {
 type APIConfig struct {
 	ReadTimeoutSeconds       int    `mapstructure:"read_timeout_seconds"`
 	WriteTimeoutSeconds      int    `mapstructure:"write_timeout_seconds"`
-	ReadHeaderTimeoutSeconds int    `mapstructure:"read_header_timeout_seconds"` // 也用于 proxy/scanner healthz HTTP server
+	ReadHeaderTimeoutSeconds int    `mapstructure:"read_header_timeout_seconds"` // 也用于 proxy/runner healthz HTTP server
 	ListenAddr               string `mapstructure:"listen_addr"`
 	ShutdownTimeoutSeconds   int    `mapstructure:"shutdown_timeout_seconds"`
 }
@@ -148,7 +148,7 @@ type ProxyConfig struct {
 	MaxResponseBodySize     int      `mapstructure:"max_response_body_size"`
 
 	// 进程入口（cmd/proxy）：纯 MITM passive 入口。存活检测探 TCP 8888，无独立 healthz HTTP。
-	// active 抓流量 ingest endpoint 已迁到 cmd/scanner（沙箱回连 scanner :9090）。
+	// active 抓流量 ingest endpoint 已迁到 cmd/runner（沙箱回连 runner :9090）。
 	ListenAddr             string `mapstructure:"listen_addr"`   // 0.0.0.0:8888 公开端口（sanitizer 接 raw TCP）
 	InternalAddr           string `mapstructure:"internal_addr"` // 127.0.0.1:18888 proxify loopback（sanitizer 转发到这）
 	CertSubdir             string `mapstructure:"cert_subdir"`
@@ -161,11 +161,11 @@ type ProxyConfig struct {
 	// IngestToken：active 容器内 browser-svc.py CDP Network 抓 chromium 流量 →
 	// /internal/v1/flows/ingest endpoint 的 Bearer token。空 = 不强制验证（开发模式，
 	// 仅靠 bind 127.0.0.1 + docker bridge 网络隔离）。
-	// 生产建议通过 ENV LIUSHA_INGEST_TOKEN 注入，三个进程（cmd/proxy + cmd/scanner + sandbox）共享同一值。
+	// 生产建议通过 ENV LIUSHA_INGEST_TOKEN 注入，三个进程（cmd/proxy + cmd/runner + sandbox）共享同一值。
 	IngestToken string `mapstructure:"ingest_token"`
 }
 
-// IngestorConfig 是 Stream 流量摄入器（cmd/scanner 内 goroutine）参数。
+// IngestorConfig 是 Stream 流量摄入器（cmd/runner 内 goroutine）参数。
 type IngestorConfig struct {
 	ConsumerGroup        string `mapstructure:"consumer_group"`
 	ConsumerName         string `mapstructure:"consumer_name"`
@@ -206,17 +206,17 @@ type HuntersConfig struct {
 	Root string `mapstructure:"root"`
 }
 
-// ScannerConfig 是 cmd/scanner 进程的运行时参数。
-type ScannerConfig struct {
-	AgentRunTimeoutSeconds       int    `mapstructure:"agent_run_timeout_seconds"`        // passive 模式单个 hunter task 整体超时（asynq handler 入口 WithTimeout）
-	ActiveAgentRunTimeoutSeconds int    `mapstructure:"active_agent_run_timeout_seconds"` // active 模式整体超时——站点扫描爬+测耗时长，独立配置（默认 4h，对齐 sandbox max lifetime）
-	StepLLMTimeoutSeconds        int    `mapstructure:"step_llm_timeout_seconds"`
-	AsynqConcurrency             int    `mapstructure:"asynq_concurrency"`
-	AsynqShutdownTimeoutSeconds  int    `mapstructure:"asynq_shutdown_timeout_seconds"` // asynq.Shutdown 等 in-flight task 完成的超时
-	ShutdownTimeoutSeconds       int    `mapstructure:"shutdown_timeout_seconds"`
-	HealthzAddr                  string `mapstructure:"healthz_addr"`
-	FlowMaxRequestBody           int    `mapstructure:"flow_max_request_body"`
-	FlowMaxResponseBody          int    `mapstructure:"flow_max_response_body"`
+// RunnerConfig 是 cmd/runner 进程的运行时参数。
+type RunnerConfig struct {
+	SoloAgentRunTimeoutSeconds  int    `mapstructure:"solo_agent_run_timeout_seconds"`  // solo 引擎单个 hunter task 整体超时（asynq handler 入口 WithTimeout）
+	SwarmAgentRunTimeoutSeconds int    `mapstructure:"swarm_agent_run_timeout_seconds"` // swarm 引擎整体超时——站点扫描爬+测耗时长，独立配置（默认 4h，对齐 sandbox max lifetime）
+	StepLLMTimeoutSeconds       int    `mapstructure:"step_llm_timeout_seconds"`
+	AsynqConcurrency            int    `mapstructure:"asynq_concurrency"`
+	AsynqShutdownTimeoutSeconds int    `mapstructure:"asynq_shutdown_timeout_seconds"` // asynq.Shutdown 等 in-flight task 完成的超时
+	ShutdownTimeoutSeconds      int    `mapstructure:"shutdown_timeout_seconds"`
+	HealthzAddr                 string `mapstructure:"healthz_addr"`
+	FlowMaxRequestBody          int    `mapstructure:"flow_max_request_body"`
+	FlowMaxResponseBody         int    `mapstructure:"flow_max_response_body"`
 
 	// asynq queue 优先级权重（数字越大优先级越高）
 	QueueHunterWeight   int `mapstructure:"queue_hunter_weight"`
@@ -307,7 +307,7 @@ type ToolruntimeConfig struct {
 
 // Load 从 path 读取 YAML，应用 LIUSHA_ ENV 覆盖，反序列化、应用默认值并校验。
 // Load 读配置 + 应用默认 + 完整校验（含 LLM provider key 在环境变量里非空）。
-// 调 LLM 的进程（scanner / api）用它。
+// 调 LLM 的进程（runner / api）用它。
 func Load(path string) (Config, error) { return load(path, true) }
 
 // LoadWithoutLLMKeys 与 Load 同，但跳过 LLM provider key 校验。
@@ -353,7 +353,7 @@ func (c *Config) ApplyDefaults() {
 	c.Credential = applyCredentialDefaults(c.Credential)
 	c.Skills = applySkillsDefaults(c.Skills)
 	c.Hunters = applyHuntersDefaults(c.Hunters)
-	c.Scanner = applyScannerDefaults(c.Scanner)
+	c.Runner = applyRunnerDefaults(c.Runner)
 	c.React = applyReactDefaults(c.React)
 	c.Sandbox = applySandboxDefaults(c.Sandbox)
 	c.Toolruntime = applyToolruntimeDefaults(c.Toolruntime)
@@ -583,12 +583,12 @@ func applyHuntersDefaults(c HuntersConfig) HuntersConfig {
 	return c
 }
 
-func applyScannerDefaults(c ScannerConfig) ScannerConfig {
-	if c.AgentRunTimeoutSeconds == 0 {
-		c.AgentRunTimeoutSeconds = 3600 // 60 分钟（> step_tool=1800，留 30min buffer 给主 ReAct 收尾）
+func applyRunnerDefaults(c RunnerConfig) RunnerConfig {
+	if c.SoloAgentRunTimeoutSeconds == 0 {
+		c.SoloAgentRunTimeoutSeconds = 3600 // 60 分钟（solo 引擎 agent_run 整体超时；> step_tool=1800，留 30min buffer 给主 ReAct 收尾）
 	}
-	if c.ActiveAgentRunTimeoutSeconds == 0 {
-		c.ActiveAgentRunTimeoutSeconds = 14400 // 4 小时（站点扫描爬+测耗时长；对齐 sandbox max lifetime 4h）
+	if c.SwarmAgentRunTimeoutSeconds == 0 {
+		c.SwarmAgentRunTimeoutSeconds = 14400 // 4 小时（swarm 引擎 agent_run 整体超时；站点扫描爬+测耗时长；对齐 sandbox max lifetime 4h）
 	}
 	if c.StepLLMTimeoutSeconds == 0 {
 		c.StepLLMTimeoutSeconds = 300
@@ -707,7 +707,7 @@ func validate(c Config) error {
 }
 
 // validateLLMKeys 强制 default_provider 必填，且 default/light/vision/fallback 的 api_key_env
-// 在环境变量里非空。仅调 LLM 的进程（scanner / api）需要——proxy 用 LoadWithoutLLMKeys 跳过。
+// 在环境变量里非空。仅调 LLM 的进程（runner / api）需要——proxy 用 LoadWithoutLLMKeys 跳过。
 func validateLLMKeys(c Config) error {
 	check := func(name, role string) error {
 		p, ok := c.Providers[name]

@@ -52,7 +52,7 @@ const (
 
 // DockerLauncher 是 Launcher 的 docker CLI 实现。
 //
-// 部署假设（A1 方案）：scanner 主进程跑在 host，sandbox 容器在 host docker；
+// 部署假设（A1 方案）：runner 主进程跑在 host，sandbox 容器在 host docker；
 // 端口映射 127.0.0.1:0:8080（绑 localhost 任意端口，不暴露 0.0.0.0 减少攻击面），
 // Spawn 时通过 `docker port` 拿到 host 端口拼 baseURL。
 type DockerLauncher struct {
@@ -71,11 +71,11 @@ type DockerLauncher struct {
 	// IngestURL 是 active 容器内抓流量 → /internal/v1/flows/ingest endpoint 的完整 URL。
 	//
 	// 两条抓取前端都 push 到本 URL：浏览器 browser-svc.py 内建 CDP Network observer；
-	// CLI 工具经容器内本地 mitmproxy（mitm-capture.py）。下游 → cmd/scanner ingest_handler 构造
+	// CLI 工具经容器内本地 mitmproxy（mitm-capture.py）。下游 → cmd/runner ingest_handler 构造
 	// TrafficSnapshot{Source:"internal"} → publisher.Publish → ingestor.handleInternalSnap。
 	//
-	// 典型值：http://host.docker.internal:9090/internal/v1/flows/ingest（cmd/scanner healthz 端口）。
-	// 空字符串时不注入——沙箱读不到 LIUSHA_INGEST_URL 则 capture 整体不启用（单测 / 无 scanner 部署）。
+	// 典型值：http://host.docker.internal:9090/internal/v1/flows/ingest（cmd/runner healthz 端口）。
+	// 空字符串时不注入——沙箱读不到 LIUSHA_INGEST_URL 则 capture 整体不启用（单测 / 无 runner 部署）。
 	IngestURL string
 
 	// IngestToken 是上面 URL 的 Bearer token。
@@ -214,7 +214,7 @@ func (l *DockerLauncher) Destroy(ctx context.Context, hunterID string) error {
 
 // CleanupOrphans 列出所有 liusha-sandbox-* 容器并强制删除。
 //
-// 用途：scanner worker 启动时一次性清理上次进程崩前残留的容器。
+// 用途：runner worker 启动时一次性清理上次进程崩前残留的容器。
 // 不是后台 sweeper——只在进程启动时跑一次，正常 Destroy + max lifetime 兜底已经覆盖大部分场景。
 func (l *DockerLauncher) CleanupOrphans(ctx context.Context) error {
 	bin := l.dockerBin()

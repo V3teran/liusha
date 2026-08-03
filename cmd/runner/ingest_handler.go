@@ -12,9 +12,9 @@
 //
 //	→ XADD flow_events stream → ingestor.handleInternalSnap 消费（与 sanitizer 路径同下游）。
 //
-// 路径：POST /internal/v1/flows/ingest（挂在 cmd/scanner healthz HTTP mux 上，默认 :9090）
+// 路径：POST /internal/v1/flows/ingest（挂在 cmd/runner healthz HTTP mux 上，默认 :9090）
 // 认证：Bearer <token>（token 空 = 开发模式不强制；prod 由 ENV LIUSHA_INGEST_TOKEN 注入）
-// 网络：scanner healthz 监听 :9090，沙箱容器经 host.docker.internal:9090 访问
+// 网络：runner healthz 监听 :9090，沙箱容器经 host.docker.internal:9090 访问
 package main
 
 import (

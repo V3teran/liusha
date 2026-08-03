@@ -8,7 +8,7 @@
 //
 //	go run ./cmd/corpus-import path/to/knowledge.md [more.md ...]
 //
-// 环境变量（复用 scanner 同源）：
+// 环境变量（复用 runner 同源）：
 //   - LIUSHA_POSTGRES_DSN：PG 连接串
 //   - LIUSHA_CONFIG：      config.yaml 路径（默认 ./config/config.yaml，取 light provider + LLM keys）
 //   - JINA_API_KEY：       embedding；缺失则只落行不 embed（仍可 sparse 检索）
