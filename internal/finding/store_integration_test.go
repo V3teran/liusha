@@ -12,7 +12,7 @@ import (
 	"github.com/V3teran/liusha/internal/finding"
 )
 
-// 用 dev DB 测 triage 新路径：ListAll 全局台账（JOIN task 带 scenario_id +
+// 用 dev DB 测 triage 新路径：ListAll 全局台账（JOIN task/assignment 带 scenario_id + source +
 // 按维度筛选）与 UpdateStatus（状态流转 + triaged_at 打点 + 枚举校验）。
 // 需 LIUSHA_POSTGRES_DSN；未设则 skip。
 //
@@ -83,6 +83,9 @@ func TestFindingStore_TriageRoundTrip(t *testing.T) {
 	}
 	if rows[0].ScenarioID != scenarioID {
 		t.Fatalf("ScenarioID 应派生为 %q，得 %q", scenarioID, rows[0].ScenarioID)
+	}
+	if rows[0].Source != "manual" {
+		t.Fatalf("Source 应经 JOIN assignment 派生为 manual，得 %q", rows[0].Source)
 	}
 	if len(rows[0].Evidence) == 0 || string(rows[0].Evidence) == "{}" {
 		t.Fatalf("evidence 应透传，得 %q", string(rows[0].Evidence))

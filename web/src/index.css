@@ -35,9 +35,9 @@
   --sev-low: oklch(60% 0.02 260);
   --sev-info: oklch(60% 0.15 240);
 
-  /* 来源语义色（渗透/流量） */
-  --mode-active: oklch(65% 0.15 220);
-  --mode-passive: oklch(65% 0.15 300);
+  /* 来源语义色（主动下发 manual / 被动代理 auto） */
+  --source-manual: oklch(65% 0.15 220);
+  --source-auto: oklch(65% 0.15 300);
 
   /* 执行图 5 类语义节点色：task(任务/结构)=紫 / hypothesis(判断·想)=天蓝 /
      probe(探测·做)=翠绿 / signal(信号·得)=青 / 死路探测=石板灰。finding(漏洞)用 severity 色。
@@ -83,8 +83,8 @@
   --sev-low: oklch(55% 0.02 260);
   --sev-info: oklch(65% 0.15 240);
 
-  --mode-active: oklch(70% 0.14 220);
-  --mode-passive: oklch(70% 0.14 300);
+  --source-manual: oklch(70% 0.14 220);
+  --source-auto: oklch(70% 0.14 300);
 
   /* 执行图 5 类语义节点/边色（深色下更亮，同 :root 语义，见上方注释） */
   --graph-task: oklch(75% 0.14 290);
@@ -120,8 +120,8 @@
   --color-sev-medium: var(--sev-medium);
   --color-sev-low: var(--sev-low);
   --color-sev-info: var(--sev-info);
-  --color-mode-active: var(--mode-active);
-  --color-mode-passive: var(--mode-passive);
+  --color-source-manual: var(--source-manual);
+  --color-source-auto: var(--source-auto);
   --color-graph-task: var(--graph-task);
   --color-graph-hypothesis: var(--graph-hypothesis);
   --color-graph-probe: var(--graph-probe);

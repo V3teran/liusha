@@ -166,20 +166,17 @@ export function parseScanEvent(m: Message): ScanEvent | null {
 }
 
 /* ============================================================
-   owner 摘要：被动 task + 主动扫描共用（GET /tasks）
-   小写键（Go DTO OwnerSummary）。scope 是 jsonb 原文字符串。
+   owner 摘要：所有 task 共用（GET /tasks，各场景混列）
+   小写键（Go DTO TaskSummary）。scope 是 jsonb 原文字符串。
    ============================================================ */
 export interface OwnerSummary {
   id: string
   scope: string
   status: string
-  mode: string
+  scenario_id: string // 所属场景 code
   created_at: string
-  expires_at?: string
   ended_at?: string
   error_message?: string
-  // 阶段2：passive 会话绑定的会话流 id；前端据此打开会话流实时观察 + 插话。
-  conversation_id?: string
 }
 
 /* ============================================================
@@ -215,7 +212,7 @@ export interface FindingTarget {
   path?: string
   method?: string
 }
-// FindingRow 是台账一行：漏洞主体 + 派生 mode + triage 处置态 + 聚合计数。
+// FindingRow 是台账一行：漏洞主体 + 派生 source + triage 处置态 + 聚合计数。
 export interface FindingRow {
   id: string
   severity: string
@@ -227,7 +224,8 @@ export interface FindingRow {
   target?: FindingTarget
   // evidence 是 LLM 自由 jsonb（PoC/复现命令/观察等，41 种 key），前端通用 KV 渲染。
   evidence?: Record<string, unknown>
-  mode: string // active / passive（关联 task 派生）
+  scenario_id?: string // 所属场景 code（JOIN task 派生）
+  source: string // manual 主动下发 / auto 被动代理（JOIN assignment 派生）
   status: string // open/confirmed/fixed/false_positive/accepted
   triage_note?: string
   triaged_at?: string | null // 未处置为 null
@@ -238,7 +236,7 @@ export interface FindingFilters {
   host?: string
   severity?: string
   status?: string
-  mode?: string
+  source?: string
 }
 
 /* ============================================================

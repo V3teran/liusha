@@ -19,7 +19,7 @@ func newPassiveTask(t *testing.T) (*pgxpool.Pool, string) {
 	pool := dbtest.NewPgPool(t)
 	tk, err := task.NewStore(pool).Create(context.Background(), task.NewParams{
 		ScenarioID:   "passive-recon",
-		AssignmentID: dbtest.SeedAssignment(t, pool, "passive"),
+		AssignmentID: dbtest.SeedAssignment(t, pool, "passive-recon"),
 		TargetHost:   "test.example.com",
 	})
 	if err != nil {

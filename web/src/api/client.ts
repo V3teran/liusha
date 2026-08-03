@@ -333,8 +333,8 @@ export async function getSitemap(ownerID: string, host = ''): Promise<SitemapVie
    ============================================================ */
 
 /**
- * 拉取全局漏洞台账（active + passive 全量）。可选按 host/severity/status/mode 筛选。
- * 修复历史缺陷：旧漏洞页走 /sitemap 仅 active，passive 漏洞（占多数）不可见。
+ * 拉取全局漏洞台账（全量）。可选按 host/severity/status/source 筛选。
+ * 修复历史缺陷：旧漏洞页走 /sitemap 仅覆盖部分场景，其余漏洞不可见。
  */
 export async function listFindings(filters: FindingFilters = {}): Promise<FindingRow[]> {
   const params = new URLSearchParams()

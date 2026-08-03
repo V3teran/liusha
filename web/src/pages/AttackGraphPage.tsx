@@ -214,7 +214,7 @@ export function AttackGraphPage() {
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex flex-wrap items-center gap-3 border-b border-border px-5.5 py-3">
-        {/* 不限 mode：active/passive 均可出执行图。 */}
+        {/* 不限场景：任意 task 均可出执行图。 */}
         <OwnerPicker value={owner} onChange={setOwner} />
         {nodes.length > 0 && (
           <div className="ml-4 flex flex-wrap items-center gap-x-3.5 gap-y-1 text-xs text-muted">
