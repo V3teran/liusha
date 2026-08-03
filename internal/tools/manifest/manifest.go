@@ -22,9 +22,9 @@ type Tool struct {
 	Name        string `yaml:"name"`
 	Category    string `yaml:"category"`
 	Description string `yaml:"description"`
-	// Scenarios 是交战场景标签（多值）。当前只有 web，全部工具标 [web]。
-	// 将来扩展 ctf/domain/container 时：跨场景复用的工具追加标签（如 [web, ctf]），
-	// catalog 按当次交战 scenario 过滤渲染。现在字段先落地被解析，过滤逻辑未接（单场景=no-op）。
+	// Scenarios 是交战域标签（多值，语义为「该扫描工具在哪些交战域可见」）。当前只有 web，全部工具标 [web]。
+	// 扩展 ctf/cloud/container 时：跨域复用的工具追加标签（如 [web, ctf]）。
+	// buildToolingCatalog 按当次 scenario.Domain 经 FilterByDomain 过滤渲染；空标签=通用工具全域可见（见 D11）。
 	Scenarios []string `yaml:"scenarios"`
 }
 
@@ -48,6 +48,37 @@ func Load(path string) (*Manifest, error) {
 		return nil, fmt.Errorf("tools manifest %q 不含任何工具（tools 列表为空）", path)
 	}
 	return &m, nil
+}
+
+// FilterByDomain 按交战域过滤工具目录，返回新 Manifest（不改原实例——不可变）。
+// 语义（见 D11/M7）：
+//   - 工具 scenarios 标签是粗粒度交战域（web/ctf/cloud…），非具体 scenario code；
+//   - 空 scenarios = 通用工具，任何域可见；
+//   - domain 为空（场景未配置域）= 不过滤，返回全集副本。
+//
+// 过滤键是 scenario.Domain 而非 scenario.Code：多个具体场景共享同一 domain，
+// 新增场景无需回头给每个工具补标签（工具与场景解耦，O(域) 维护量）。
+func (m *Manifest) FilterByDomain(domain string) *Manifest {
+	if domain == "" {
+		return &Manifest{Tools: append([]Tool(nil), m.Tools...)}
+	}
+	out := make([]Tool, 0, len(m.Tools))
+	for _, t := range m.Tools {
+		if len(t.Scenarios) == 0 || containsDomain(t.Scenarios, domain) {
+			out = append(out, t)
+		}
+	}
+	return &Manifest{Tools: out}
+}
+
+// containsDomain 报告 domains 是否含 target（多值标签任一命中即可见）。
+func containsDomain(domains []string, target string) bool {
+	for _, d := range domains {
+		if d == target {
+			return true
+		}
+	}
+	return false
 }
 
 // ByCategory 按 category 分桶；每桶内按 name 字典序——稳定 prompt 顺序，
