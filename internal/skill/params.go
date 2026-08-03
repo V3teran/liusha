@@ -43,6 +43,11 @@ type BuilderParams struct {
 	// Active 模式独有：用户自然语言任务简报（含目标 URL/凭据/测试方向等所有信息）。
 	Brief string
 
+	// Domain 是当次 scenario 的交战域（web/ctf/cloud…），来自 scenario.Domain。
+	// buildToolingCatalog 据此经 manifest.FilterByDomain 过滤 CLI 扫描工具目录（见 D11/M7）；
+	// 空串 = 场景未配域，不过滤（全集渲染）。
+	Domain string
+
 	// Sandbox 是本次 agent run 绑定的 sandbox-server HTTP RPC client（handler Spawn 后填）。
 	// nil 时不注册 run_command 工具。
 	Sandbox sandbox.Client

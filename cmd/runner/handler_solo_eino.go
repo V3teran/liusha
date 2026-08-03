@@ -87,6 +87,7 @@ func (h handler) handleSoloEino(ctx context.Context, p worker.Payload, scen cfgs
 		Brief:    brief,
 		Flows:    flows,
 		Sandbox:  sandboxClient,
+		Domain:   scen.Domain,
 	}
 
 	// tools 取各 domain 猎手工具集的并集（去重，见 D2）：合成一个 union HunterDef，复用

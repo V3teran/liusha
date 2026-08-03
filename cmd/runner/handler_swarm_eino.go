@@ -127,6 +127,7 @@ func (h handler) handleSwarmEino(ctx context.Context, p worker.Payload, scen cfg
 	orchestratorPrompt := hunterbuilder.BuildUserPrompt(ctx, h.hunterDeps, skill.BuilderParams{
 		TaskID: taskID, HunterID: tid,
 		Host: virtualHost, Brief: brief, Sandbox: sandboxClient,
+		Domain: scen.Domain,
 	})
 	// 阶段0：多轮追问连贯性——把本会话最近的会话历史拼到 prompt 前，让 orchestrator 看到上下文
 	// （如"刚才那个漏洞"）。首轮 / 无会话 / 读失败时为空串，不影响。
