@@ -1,32 +1,29 @@
 import { useEffect, useState } from 'react'
-import { listRoles } from '@/api/client'
-import type { Role } from '@/api/types'
+import { listScenarios } from '@/api/client'
+import type { Scenario } from '@/api/types'
 
-interface RolePickerProps {
+interface ScenarioPickerProps {
   value?: string
-  onChange: (id: string) => void
-  mode?: string
+  onChange: (code: string) => void
 }
 
-// 角色选择：挂载时拉 /roles，按 mode 过滤（主动扫描页只列 active），默认选过滤后第一个。
-export function RolePicker({ value, onChange, mode }: RolePickerProps) {
-  const [roles, setRoles] = useState<Role[]>([])
+// 场景选择：挂载时拉 GET /scenarios（仅 enabled），value 用 scenario.code（业务主键，非 uuid），
+// 默认选第一个。不再按 mode 过滤——场景已由后端统一枚举，来源/引擎与场景选择正交。
+export function ScenarioPicker({ value, onChange }: ScenarioPickerProps) {
+  const [scenarios, setScenarios] = useState<Scenario[]>([])
 
   useEffect(() => {
     let mounted = true
-    void listRoles().then((rs) => {
+    void listScenarios().then((ss) => {
       if (!mounted) return
-      setRoles(rs)
-      const filtered = mode ? rs.filter((r) => r.mode === mode) : rs
-      if (!value && filtered[0]) onChange(filtered[0].id)
+      setScenarios(ss)
+      if (!value && ss[0]) onChange(ss[0].code)
     })
     return () => {
       mounted = false
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
-
-  const filtered = mode ? roles.filter((r) => r.mode === mode) : roles
 
   return (
     <select
@@ -35,11 +32,11 @@ export function RolePicker({ value, onChange, mode }: RolePickerProps) {
       className="w-60 rounded-md border border-border bg-surface px-2 py-1 text-sm text-text outline-none focus:border-accent"
     >
       <option value="" disabled>
-        选择场景角色
+        选择场景
       </option>
-      {filtered.map((r) => (
-        <option key={r.id} value={r.id}>
-          {r.name}
+      {scenarios.map((s) => (
+        <option key={s.code} value={s.code}>
+          {s.name}
         </option>
       ))}
     </select>
