@@ -56,14 +56,16 @@ func TestChatHandler_SetsStreamCookie(t *testing.T) {
 }
 
 type fakeFollowUp struct {
-	convID       string
-	calledBrief  string
-	handleIntent string
-	handleBusy   bool
+	convID         string
+	calledBrief    string
+	calledScenario string
+	handleIntent   string
+	handleBusy     bool
 }
 
-func (f *fakeFollowUp) HandleMessage(_ context.Context, convID, content string) (string, bool, error) {
+func (f *fakeFollowUp) HandleMessage(_ context.Context, convID, scenarioID, content string) (string, bool, error) {
 	f.calledBrief = content
+	f.calledScenario = scenarioID
 	return f.handleIntent, f.handleBusy, nil
 }
 

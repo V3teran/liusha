@@ -18,6 +18,7 @@ import (
 	"github.com/V3teran/liusha/internal/assignment"
 	"github.com/V3teran/liusha/internal/attackgraph"
 	"github.com/V3teran/liusha/internal/audit"
+	"github.com/V3teran/liusha/internal/chat"
 	"github.com/V3teran/liusha/internal/config"
 	"github.com/V3teran/liusha/internal/conversation"
 	"github.com/V3teran/liusha/internal/credential"
@@ -46,6 +47,9 @@ import (
 // auditLog 专记审计写入的 best-effort 失败——审计是安全/合规轨迹，
 // 失败不阻塞业务但必须留可见日志（不能完全静默吞掉）。
 var auditLog = logx.New("api.audit")
+
+// chatLog 记纯聊天回答的 best-effort 失败——会话与用户消息已落库，回答缺失不阻断会话创建。
+var chatLog = logx.New("api.chat")
 
 func main() {
 	logger := logx.New("api")
@@ -419,8 +423,17 @@ func (a *scanAdapter) DeleteConversation(ctx context.Context, convID string) err
 	return a.conversations.DeleteConversation(ctx, convID)
 }
 
-// HandleMessage 满足 httpapi.FollowUpAPI：落 user 消息 → 判意图 → qa 答 / action 续接。
-func (a *scanAdapter) HandleMessage(ctx context.Context, convID, content string) (string, bool, error) {
+// HandleMessage 满足 httpapi.FollowUpAPI：落 user 消息 → 意图闸 → 分流。
+//
+// 两类会话共用一道意图闸（light LLM 判 action/qa）：
+//   - 已绑 task 的会话：action → Reopen 同一 task 续接（沿用原场景，finding 累积）；
+//     qa → qa.Answer 就已挖 finding 提问。
+//   - 纯聊天会话（无 task）：action → 用当前 scenarioID 建 task 并关联（首次升级为扫描）；
+//     qa/闲聊 → chat.Answer 通用助手回答（不读 finding、不下发 task）。
+//
+// scenarioID 由前端 ScenarioPicker 随 followup 带上（Composer 始终带场景选择），仅纯聊天会话
+// 升级为 action 时用于建 task；已绑 task 的会话续接沿用原 task 场景，忽略本参数。
+func (a *scanAdapter) HandleMessage(ctx context.Context, convID, scenarioID, content string) (string, bool, error) {
 	conv, err := a.conversations.GetConversation(ctx, convID)
 	if err != nil {
 		return "", false, err
@@ -429,21 +442,40 @@ func (a *scanAdapter) HandleMessage(ctx context.Context, convID, content string)
 		return "", false, err
 	}
 
-	if conv.TaskID == "" {
-		return "", false, fmt.Errorf("conversation 无关联 task")
-	}
-	tk, err := a.tasks.GetByID(ctx, conv.TaskID)
-	if err != nil {
-		return "", false, err
-	}
-
-	// 意图分流（action/qa）对 active、passive 通用：判定走 light LLM。
+	// 意图分流（action/qa）对纯聊天、active、passive 通用：判定走 light LLM。
 	g, err := a.router.For(ctx, "inspector") // light provider
 	if err != nil {
 		return "", false, err
 	}
-	switch intent.Classify(ctx, g, content) {
-	case intent.IntentAction:
+	isAction := intent.Classify(ctx, g, content) == intent.IntentAction
+
+	// 纯聊天会话（无 task）：升级为 action 时用当前场景建 task；否则通用助手回答。
+	if conv.TaskID == "" {
+		if !isAction {
+			if err := chat.New(a).Answer(ctx, convID, content); err != nil {
+				return "", false, err
+			}
+			return "qa", false, nil
+		}
+		if scenarioID == "" {
+			return "", false, fmt.Errorf("升级为扫描需指定 scenario_id")
+		}
+		taskID, _, err := a.createScan(ctx, content, convID, scenarioID)
+		if err != nil {
+			return "", false, err
+		}
+		if err := a.conversations.LinkTask(ctx, convID, taskID); err != nil {
+			return "", false, fmt.Errorf("link task: %w", err)
+		}
+		go a.genTitle(convID, content)
+		return "action", false, nil
+	}
+
+	tk, err := a.tasks.GetByID(ctx, conv.TaskID)
+	if err != nil {
+		return "", false, err
+	}
+	if isAction {
 		if tk.Status == task.StatusActive {
 			return "action", true, nil // 忙：agent 在跑，本轮指导经 conversationContext 下次读到
 		}
@@ -453,12 +485,12 @@ func (a *scanAdapter) HandleMessage(ctx context.Context, convID, content string)
 			return "", false, err
 		}
 		return "action", false, nil
-	default: // qa：就已有 finding/流量提问，各场景同一套问答
-		if err := qa.New(a).Answer(ctx, convID, conv.TaskID, content); err != nil {
-			return "", false, err
-		}
-		return "qa", false, nil
 	}
+	// qa：就已有 finding/流量提问，各场景同一套问答
+	if err := qa.New(a).Answer(ctx, convID, conv.TaskID, content); err != nil {
+		return "", false, err
+	}
+	return "qa", false, nil
 }
 
 // ---- qa.Deps 实现 ----
@@ -507,9 +539,12 @@ func (a *scanAdapter) CreateScan(ctx context.Context, brief, scenarioID string) 
 	return a.createScan(ctx, brief, "", scenarioID)
 }
 
-// StartChatScan 满足 httpapi.ChatAPI：建会话（记 scenario_id）+ 落用户首条消息 + 发起扫描
-// （入队带 conversationID + scenarioID）+ 关联会话与 scan。返回 conversationID 供前端订阅 SSE。
-// scenarioID 必填——前端 ScenarioPicker 选定（handler 已校验非空）。
+// StartChatScan 满足 httpapi.ChatAPI：建会话（记 scenario_id）+ 落用户首条消息，然后过意图闸
+// （light LLM 判 action/qa）——action 才发起扫描（入队带 conversationID + scenarioID）并关联
+// 会话与 scan；qa/闲聊则只作纯聊天回答，不下发 task（scanID 返回空）。返回 conversationID 供前端
+// 订阅 SSE。scenarioID 必填——前端 ScenarioPicker 选定（handler 已校验非空），供 action 时建 task。
+//
+// 首次对话与追加消息（HandleMessage）走同一道意图闸：避免把闲聊/答疑误判成动作而白烧一次扫描。
 func (a *scanAdapter) StartChatScan(ctx context.Context, brief, scenarioID string) (string, string, error) {
 	conv, err := a.conversations.CreateConversation(ctx, briefTitle(brief), "")
 	if err != nil {
@@ -518,6 +553,21 @@ func (a *scanAdapter) StartChatScan(ctx context.Context, brief, scenarioID strin
 	if _, err := a.conversations.AppendMessage(ctx, conv.ID, conversation.RoleUser, conversation.KindMessage, brief, nil); err != nil {
 		return "", "", fmt.Errorf("append user message: %w", err)
 	}
+
+	// 意图闸：light LLM 判 action/qa（解析失败默认 qa，见 intent.Classify）。
+	g, err := a.router.For(ctx, "inspector") // light provider
+	if err != nil {
+		return "", "", fmt.Errorf("intent provider: %w", err)
+	}
+	if intent.Classify(ctx, g, brief) != intent.IntentAction {
+		// 纯聊天：不下发 task，用通用助手回答（落 assistant 消息 + SSE，前端补历史即见）。
+		// 失败不阻断会话创建——会话与用户消息已落库，回答缺失可由用户再发一句触发。
+		if err := chat.New(a).Answer(ctx, conv.ID, brief); err != nil {
+			chatLog.Warn().Err(err).Str("conv", conv.ID).Msg("纯聊天回答失败")
+		}
+		return conv.ID, "", nil
+	}
+
 	taskID, _, err := a.createScan(ctx, brief, conv.ID, scenarioID)
 	if err != nil {
 		return "", "", err
