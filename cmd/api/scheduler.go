@@ -1,6 +1,10 @@
 // scheduler.go 实现定时下发（spec §4.2 + §10 P4）：轮询 cron_schedule.next_run_at 到点的
-// 模板 → 克隆一个新 assignment（source=auto，schedule_id 指回模板）→ 按 mode 展开子 task →
+// 模板 → 克隆一个新 assignment（source=auto，schedule_id 指回模板）→ 展开子 task →
 // 回写 last_run_at/next_run_at。单副本够用；api 多副本时需另抽 leader 选举，见 spec §4.2。
+//
+// 展开只按 item 形态派发输入供给（不关心引擎——引擎由 runner 按 task.scenario_id 解析，数据驱动）：
+//   - item.Host 非空 → 流量复检：建 task（brief=host）+ 领取该 host 未消费 proxy_traffic + enqueue。
+//   - 否则 → brief 扫描：建 task（brief 原文）+ enqueue，target_host 由 runner 从 brief 抽取回填。
 package main
 
 import (
@@ -34,7 +38,7 @@ type cronRunner struct {
 	proxyFlows  *traffic.ProxyStore
 	hunters     *hunterrun.Store
 	enq         *worker.Client
-	active      *activeScanAdapter // 复用 expandActiveItem（与单发/StartChatScan 同展开逻辑）
+	scan        *scanAdapter // 复用 expandItem（与单发/StartChatScan 同展开逻辑）
 	logger      zerolog.Logger
 }
 
@@ -81,7 +85,7 @@ func (r *cronRunner) fireOne(ctx context.Context, sched cronschedule.CronSchedul
 
 	scheduleID := sched.ID
 	asg, err := r.assignments.Create(ctx, assignment.NewParams{
-		Mode:       sched.Mode,
+		ScenarioID: sched.ScenarioID,
 		Source:     assignment.SourceAuto,
 		Items:      items,
 		Title:      sched.Title,
@@ -93,13 +97,10 @@ func (r *cronRunner) fireOne(ctx context.Context, sched cronschedule.CronSchedul
 
 	for _, item := range items {
 		var expandErr error
-		switch sched.Mode {
-		case assignment.ModeActive:
-			_, _, expandErr = r.active.expandActiveItem(ctx, asg.ID, item.Brief, "", "")
-		case assignment.ModePassive:
-			expandErr = r.expandPassiveItem(ctx, asg.ID, item)
-		default:
-			expandErr = fmt.Errorf("非法 mode %q", sched.Mode)
+		if item.Host != "" {
+			expandErr = r.expandTrafficItem(ctx, asg.ID, sched.ScenarioID, item)
+		} else {
+			_, _, expandErr = r.scan.expandItem(ctx, asg.ID, item.Brief, "", sched.ScenarioID)
 		}
 		if expandErr != nil {
 			r.logger.Warn().Err(expandErr).Str("schedule_id", sched.ID).Str("assignment_id", asg.ID).
@@ -115,12 +116,14 @@ func (r *cronRunner) fireOne(ctx context.Context, sched cronschedule.CronSchedul
 	return nil
 }
 
-// expandPassiveItem 把 assignment 下的一个 passive item（host）展开成 task + 领取该 host
-// 未消费的 proxy_traffic + enqueue traffic-analysis——与 ingestor.spawnPassiveTask 同语义，
-// 区别仅在触发源是定时器而非实时流量窗口（故用固定 passiveCronClaimLimit，不接聚合器配置）。
-func (r *cronRunner) expandPassiveItem(ctx context.Context, assignmentID string, item assignment.Item) error {
+// expandTrafficItem 把 assignment 下的一个流量复检 item（host）展开成 task + 领取该 host
+// 未消费的 proxy_traffic + enqueue——与 ingestor.spawnPassiveTask 同语义，区别仅在触发源是
+// 定时器而非实时流量窗口（故用固定 passiveCronClaimLimit，不接聚合器配置）。
+//
+// brief 存 host（统一输入，见 D5）；引擎由 runner 按 scenarioID 解析（此处不关心 solo/swarm）。
+func (r *cronRunner) expandTrafficItem(ctx context.Context, assignmentID, scenarioID string, item assignment.Item) error {
 	host := item.Host
-	tk, err := r.tasks.Create(ctx, task.NewParams{Mode: task.ModePassive, AssignmentID: assignmentID, TargetHost: host})
+	tk, err := r.tasks.Create(ctx, task.NewParams{ScenarioID: scenarioID, AssignmentID: assignmentID, Brief: host, TargetHost: host})
 	if err != nil {
 		return fmt.Errorf("create task: %w", err)
 	}
@@ -135,24 +138,21 @@ func (r *cronRunner) expandPassiveItem(ctx context.Context, assignmentID string,
 		return nil // 不算错误：到点但该 host 当前无未消费流量，正常空转
 	}
 
-	entrypoint, _ := json.Marshal(map[string]string{"host": host})
-	payloadInput, _ := json.Marshal(map[string]any{
-		"mode":       "passive",
-		"entrypoint": json.RawMessage(entrypoint),
-	})
+	payloadInput, _ := json.Marshal(map[string]string{"brief": host})
 	hid, err := r.hunters.Create(ctx, hunterrun.NewParams{
 		TaskID: tk.ID,
-		Role:   "traffic-analysis",
+		Role:   "orchestrator",
 		Input:  payloadInput,
 	})
 	if err != nil {
 		return fmt.Errorf("create hunter run: %w", err)
 	}
 	if _, _, err := r.enq.Enqueue(ctx, worker.RoleHunter, worker.Payload{
-		HunterID: hid,
-		TaskID:   tk.ID,
-		Input:    payloadInput,
-		Role:     worker.RoleHunter,
+		HunterID:   hid,
+		TaskID:     tk.ID,
+		ScenarioID: scenarioID,
+		Input:      payloadInput,
+		Role:       worker.RoleHunter,
 	}); err != nil {
 		return fmt.Errorf("enqueue: %w", err)
 	}

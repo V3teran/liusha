@@ -25,7 +25,7 @@ type profilePlan struct {
 	samplePth string
 }
 
-// runActiveProfiles 顺序跑被选的 active profile：调 POST /scan/active → 轮询
+// runActiveProfiles 顺序跑被选的 active profile：调 POST /chat → 轮询
 // finding 数。与 passive 流水线共用 PG pool / pollDeadline。
 //
 // 不并发跑——active 任务普遍长（默认 4h），并发既无意义（仍占满 sandbox/LLM 配额）
@@ -57,7 +57,7 @@ func runActiveProfiles(ctx context.Context, profs []activeProfile, apiBase, apiK
 		}
 
 		// 走会话入口（POST /chat）：建 conversation + 发 SSE 过程事件，前端可实时观察。
-		convID, taskID, err := createChatScan(apiBase, apiKey, ap.brief)
+		convID, taskID, err := createChatScan(apiBase, apiKey, ap.brief, activeScenarioCode)
 		if err != nil {
 			return fmt.Errorf("active profile %s: createChatScan: %w", ap.name, err)
 		}
@@ -142,11 +142,17 @@ func runActiveProfiles(ctx context.Context, profs []activeProfile, apiBase, apiK
 	return nil
 }
 
-// discoverPassiveTasks 列最近的 passive task，筛出 target_host ∈ hosts 且 created_at > baseline 的。
+// trafficScenarioCode 是流量驱动自动建 task 所属的场景 code（与 ingestor 侧一致）。
+const trafficScenarioCode = "passive-recon"
+
+// activeScenarioCode 是 active e2e 剧本（POST /chat）所选场景 code——全部剧本均为 Web 渗透。
+const activeScenarioCode = "web-pentest"
+
+// discoverPassiveTasks 列最近的流量复检 task，筛出 target_host ∈ hosts 且 created_at > baseline 的。
 // 聚合器为目标 host 新建的 task 即由此被 e2e 发现（同 host 多批 → 多 task 全收）。
 // limit 取 512 足够覆盖 e2e 场景（单次跑至多十几个 host × 数批）。
 func discoverPassiveTasks(ctx context.Context, ts *task.Store, hosts map[string]struct{}, baseline time.Time) ([]string, error) {
-	tasks, err := ts.List(ctx, task.ModePassive, 512)
+	tasks, err := ts.List(ctx, trafficScenarioCode, 512)
 	if err != nil {
 		return nil, err
 	}

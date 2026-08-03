@@ -4,7 +4,6 @@
 // （见 docs/superpowers/specs/2026-06-07-conversational-platform.md §B + 记忆 project_phaseb_sse_arch）。
 //
 //   - Conversation：一次会话。TaskID 关联本会话所属的 task（纯聊天时空）。
-//     RoleID 是场景 role（阶段C 用，先留字段不接线）。
 //   - Message：会话内的消息。Kind 区分普通会话消息与 agent 过程事件（UI 渲染不同）。
 //
 // 事件流式传输（scanner→Redis→api）在 B2/B3 实现；本包只管会话/消息的持久化。
@@ -41,7 +40,6 @@ type Conversation struct {
 	ID        string
 	Title     string // 可空——首条消息摘要，UI 列表用
 	TaskID    string // 可空——关联本会话所属的 task
-	RoleID    string // 可空——场景 role（阶段C）
 	CreatedAt time.Time
 	UpdatedAt time.Time
 	// RunStatus 是派生的「真实运行态」（关联 task 的 status：active/completed/aborted；

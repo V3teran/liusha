@@ -11,9 +11,10 @@ import (
 
 	hunterbuilder "github.com/V3teran/liusha/internal/builder/hunter"
 	"github.com/V3teran/liusha/internal/config"
+	cfgscenario "github.com/V3teran/liusha/internal/config/scenario"
+	"github.com/V3teran/liusha/internal/configstore"
 	"github.com/V3teran/liusha/internal/conversation"
 	"github.com/V3teran/liusha/internal/corpus"
-	"github.com/V3teran/liusha/internal/einoagent"
 	"github.com/V3teran/liusha/internal/einollm"
 	"github.com/V3teran/liusha/internal/einotools"
 	"github.com/V3teran/liusha/internal/finding"
@@ -23,7 +24,6 @@ import (
 	"github.com/V3teran/liusha/internal/ratelimit"
 	"github.com/V3teran/liusha/internal/sandbox"
 	"github.com/V3teran/liusha/internal/scanstream"
-	"github.com/V3teran/liusha/internal/scenario"
 	"github.com/V3teran/liusha/internal/task"
 	"github.com/V3teran/liusha/internal/traffic"
 	"github.com/V3teran/liusha/internal/worker"
@@ -47,29 +47,22 @@ type handler struct {
 	launcher   sandbox.Launcher
 	logger     zerolog.Logger
 
-	// eino agent：passive + active 路径走 eino ChatModelAgent（唯一路径，react 退路已删）。
+	// eino agent：solo + swarm 引擎路径走 eino ChatModelAgent（唯一路径，react 退路已删）。
 	//   - einoFactory：按 role 产独立 eino ChatModel
 	//   - hunterDeps：prompt 拼装 + 工具装配的 store/loader 依赖
 	einoFactory *einollm.Factory
 	hunterDeps  hunterbuilder.Deps
 
-	// roles 是 active deep 猎手定义（hunters/active/*.md 加载），active 路径用 BuildDeepSwarm 装配
-	// 主代理（orchestrator）+ 杀伤链子代理。
-	roles []einoagent.HunterDef
-
-	// passiveRole 是 passive 单 agent 猎手（hunters/passive/traffic-analysis.md 加载）；
-	// passive 路径用其 SystemPrompt + MaxIterations 跑 RunSolo。
-	passiveRole einoagent.HunterDef
+	// cfgStore 是配置事实源（DB + 内存/redis 缓存）的只读句柄：运行期按需读 scenario/playbook/hunter
+	// 装配引擎（solo 压扁 playbook 猎手；swarm 取全局 orchestrator + playbook domain 子代理）。
+	// 文件仅是首次导入的种子，进程运行期一律走 DB/缓存（见 D6/D7）。
+	cfgStore *configstore.Store
 
 	// conversations + eventPublisher 是阶段B 过程事件管道：会话发起（Payload.ConversationID
 	// 非空）时，agent 每次工具调用落 conversation message（PG）+ publish redis（实时推前端）。
 	// 二者任一 nil 时不发事件（向后兼容纯后台扫描）。
 	conversations  *conversation.Store
 	eventPublisher *scanstream.Publisher
-
-	// scenarioRoles 是场景 role（scenarios/*.md，阶段C）：active/passive handler 按 Payload.ScenarioID
-	// 注入主代理人设。空/未匹配时不注入（退化为通用扫描）。
-	scenarioRoles []scenario.Role
 }
 
 // terminalWriteTimeout 是终态写入（SetError/SetAborted）的独立超时上限。
@@ -108,8 +101,8 @@ func (h handler) abortTask(ctx context.Context, hunterID, reason string) error {
 
 // handle 是单个 hunter task 的处理入口。
 //
-// timeout 按 mode 分档：passive 用 AgentRunTimeoutSeconds（默认 1h），
-// active 用 ActiveAgentRunTimeoutSeconds（默认 4h，对齐 sandbox max lifetime）。
+// timeout 按 engine 分档：solo 用 AgentRunTimeoutSeconds（默认 1h），
+// swarm 用 ActiveAgentRunTimeoutSeconds（默认 4h，对齐 sandbox max lifetime）。
 func (h handler) handle(ctx context.Context, p worker.Payload) (retErr error) {
 	taskStart := time.Now()
 	h.logger.Info().
@@ -163,18 +156,34 @@ func (h handler) handle(ctx context.Context, p worker.Payload) (retErr error) {
 		return err
 	}
 
+	// payload 只带一段 brief 文本（见 D5）：输入统一，host 由 runner 从 brief 抽取回填，
+	// 不进 payload；不再有 mode/entrypoint 抽象。
 	var input struct {
-		Mode       string          `json:"mode"`
-		Entrypoint json.RawMessage `json:"entrypoint"`
+		Brief string `json:"brief"`
 	}
 	if err := json.Unmarshal(p.Input, &input); err != nil {
 		return h.failTask(ctx, p.HunterID, err)
 	}
 
-	// 按 mode 选 timeout（解析 input 后才知道 mode；未知 mode 用 passive 兜底，
-	// switch default 会立即报错，无超时浪费）。
+	// 派发链（数据驱动，见 D2/D3）：task.scenario_id 存 scenario code → 走 code 路取 scenario，
+	// 再按 uuid FK 取 playbook 与其有序 domain 猎手。engine 取自 scenario（与 playbook 正交）。
+	scen, err := h.cfgStore.ScenarioByCode(ctx, p.ScenarioID)
+	if err != nil {
+		return h.failTask(ctx, p.HunterID, fmt.Errorf("加载 scenario %s 失败: %w", p.ScenarioID, err))
+	}
+	pb, err := h.cfgStore.PlaybookByID(ctx, scen.PlaybookID)
+	if err != nil {
+		return h.failTask(ctx, p.HunterID, fmt.Errorf("scenario %s 引用的 playbook %s 加载失败: %w", scen.Code, scen.PlaybookID, err))
+	}
+	hunters, err := h.cfgStore.PlaybookHunters(ctx, pb.ID) // 有序 domain 猎手（按 playbook id）
+	if err != nil {
+		return h.failTask(ctx, p.HunterID, fmt.Errorf("playbook %s 组合猎手加载失败: %w", pb.Code, err))
+	}
+
+	// timeout 按 engine 取（swarm 用长超时，solo 用常规）——语义等价旧的 active/passive 分支。
+	// 本里程碑配置字段仍是旧名（M6 才 rename）：AgentRunTimeoutSeconds→Solo、ActiveAgentRunTimeoutSeconds→Swarm。
 	timeout := h.scannerCfg.AgentRunTimeoutSeconds
-	if input.Mode == "active" {
+	if scen.Engine == cfgscenario.EngineSwarm {
 		timeout = h.scannerCfg.ActiveAgentRunTimeoutSeconds
 	}
 	if timeout > 0 {
@@ -183,13 +192,12 @@ func (h handler) handle(ctx context.Context, p worker.Payload) (retErr error) {
 		defer cancel()
 	}
 
-	switch input.Mode {
-	case "passive":
-		return h.handlePassiveEino(ctx, p, input.Entrypoint)
-	case "active":
-		return h.handleActiveEino(ctx, p, input.Entrypoint)
+	switch scen.Engine {
+	case cfgscenario.EngineSolo:
+		return h.handleSoloEino(ctx, p, scen, pb, hunters, input.Brief)
+	case cfgscenario.EngineSwarm:
+		return h.handleSwarmEino(ctx, p, scen, pb, hunters, input.Brief)
 	default:
-		err := fmt.Errorf("unknown mode: %s", input.Mode)
-		return h.failTask(ctx, p.HunterID, err)
+		return h.failTask(ctx, p.HunterID, fmt.Errorf("unknown engine: %s", scen.Engine))
 	}
 }

@@ -91,7 +91,7 @@ func TestReconWriteLead_ExploitationReadsInSection(t *testing.T) {
 	host := "target.com"
 	reconTools, err := BuildHunterTools(HunterDef{ID: "reconnaissance", Tools: []string{"write_lead"}}, ToolBuildCtx{
 		Deps:   TrafficAnalysisToolDeps{Lead: store},
-		Params: TrafficAnalysisToolParams{TaskID: "t1", Mode: "active", HunterID: "h-recon", Host: host},
+		Params: TrafficAnalysisToolParams{TaskID: "t1", HunterID: "h-recon", Host: host},
 	})
 	if err != nil {
 		t.Fatalf("BuildHunterTools(reconnaissance): %v", err)

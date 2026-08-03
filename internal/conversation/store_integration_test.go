@@ -33,16 +33,16 @@ func TestConversationStore_RoundTrip(t *testing.T) {
 	defer pool.Close()
 	store := conversation.NewStore(pool)
 
-	// 1. 建会话（空 title/taskID/roleID → 应存 NULL，读回空串）
-	c, err := store.CreateConversation(ctx, "", "", "")
+	// 1. 建会话（空 title/taskID → 应存 NULL，读回空串）
+	c, err := store.CreateConversation(ctx, "", "")
 	if err != nil {
 		t.Fatalf("CreateConversation: %v", err)
 	}
 	if c.ID == "" {
 		t.Fatal("会话 ID 为空")
 	}
-	if c.Title != "" || c.TaskID != "" || c.RoleID != "" {
-		t.Errorf("空字段应读回空串: title=%q task=%q role=%q", c.Title, c.TaskID, c.RoleID)
+	if c.Title != "" || c.TaskID != "" {
+		t.Errorf("空字段应读回空串: title=%q task=%q", c.Title, c.TaskID)
 	}
 	// conversation.status 僵尸字段已退役（不读入 Conversation）——运行态派生自关联任务，见 RunStatus。
 	t.Cleanup(func() {

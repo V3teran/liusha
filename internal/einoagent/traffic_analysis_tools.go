@@ -70,10 +70,8 @@ type TrafficAnalysisToolDeps struct {
 }
 
 // TrafficAnalysisToolParams 是 per-run 注入值（LLM 不可控，防串库）。
-// Mode 决定流量源：active 读 agent_traffic，passive 读本批消费的 proxy_traffic（§13.6）。
 type TrafficAnalysisToolParams struct {
 	TaskID   string
-	Mode     string // 'active' / 'passive'
 	HunterID string
 	Host     string
 	FlowID   int64

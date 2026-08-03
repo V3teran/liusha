@@ -7,7 +7,7 @@ import (
 )
 
 // Deps 是 NewServer 的注入参数集合。
-// Credentials / Tasks / Sitemap / ActiveScan 为 nil 时对应路由不注册（部分场景测试用）。
+// Credentials / Tasks / Sitemap / Scan 为 nil 时对应路由不注册（部分场景测试用）。
 type Deps struct {
 	APIKey      string
 	Credentials CredentialsAPI
@@ -23,9 +23,9 @@ type Deps struct {
 	// Invocations 为 nil 时 /llm/invocations/:eid 路由不注册。
 	// 由 cmd/api 注入 *llminvocation.Store（自动满足 InvocationsAPI 窄接口）。
 	Invocations InvocationsAPI
-	// ActiveScan 为 nil 时 /scan/active 路由不注册。
+	// Scan 为 nil 时 /scan 路由不注册。
 	// 由 cmd/api 注入自定义 adapter（包 task store + hunter.Store + worker.Client）。
-	ActiveScan ActiveScanAPI
+	Scan ScanAPI
 	// 阶段B 会话式平台（任一为 nil 时对应路由不注册）：
 	//   Chat          POST /chat 发起会话扫描（cmd/api 注入 chatAdapter）
 	//   Conversations GET /conversations[/:id/messages]（*conversation.Store 满足）
@@ -41,8 +41,6 @@ type Deps struct {
 	Deleter ConversationDeleter
 	// Renamer 为 nil 时 PATCH /conversations/:id 不注册（重命名会话标题）。
 	Renamer ConversationRenamer
-	// Roles 为 nil 时 GET /roles 不注册（场景 role 列表，供前端会话选择）。
-	Roles RolesAPI
 	// ConfigStore 为 nil 时 scenario/playbook/hunter 配置 CRUD 路由不注册。
 	// 由 cmd/api 注入 *configstore.Store（自动满足 ConfigAPI 窄接口）。
 	// 写路径经其失效广播，保证 runner 进程 L1 被动失效（见 D7）。
@@ -100,11 +98,8 @@ func NewServer(d Deps) http.Handler {
 		r.GET("/llm/invocations/:task_id/stat", llmInvocationStatHandler(d.Invocations))
 		r.GET("/llm/invocations/:task_id/facets", llmInvocationFacetsHandler(d.Invocations))
 	}
-	if d.ActiveScan != nil {
-		r.POST("/scan/active", activeScanHandler(d.ActiveScan))
-	}
-	if d.Roles != nil {
-		r.GET("/roles", rolesHandler(d.Roles))
+	if d.Scan != nil {
+		r.POST("/scan", scanHandler(d.Scan))
 	}
 	if d.ConfigStore != nil {
 		// scenario/playbook/hunter 配置 CRUD（前端配置管理页）。路由挂在 root，

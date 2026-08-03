@@ -26,14 +26,14 @@ const (
 // 可空 uuid/text 列读用 COALESCE 把 NULL 折成空串（Conversation 字段是 string 不接 NULL）。
 // 不含 status 列：conversation.status 是僵尸字段（已退役），运行态一律派生（见 RunStatus）。
 const convCols = "id, COALESCE(title,''), COALESCE(task_id::text,''), " +
-	"COALESCE(role_id,''), created_at, updated_at"
+	"created_at, updated_at"
 
-// CreateConversation 建一个会话。title/taskID/roleID 为空时存 NULL。
-func (s *Store) CreateConversation(ctx context.Context, title, taskID, roleID string) (Conversation, error) {
+// CreateConversation 建一个会话。title/taskID 为空时存 NULL。
+func (s *Store) CreateConversation(ctx context.Context, title, taskID string) (Conversation, error) {
 	row := s.pool.QueryRow(ctx, `
-		INSERT INTO conversation (title, task_id, role_id)
-		VALUES (NULLIF($1,''), NULLIF($2,'')::uuid, NULLIF($3,''))
-		RETURNING `+convCols, title, taskID, roleID)
+		INSERT INTO conversation (title, task_id)
+		VALUES (NULLIF($1,''), NULLIF($2,'')::uuid)
+		RETURNING `+convCols, title, taskID)
 	var c Conversation
 	if err := scanConversation(row, &c); err != nil {
 		return Conversation{}, fmt.Errorf("create conversation: %w", err)
@@ -151,7 +151,7 @@ func (s *Store) ListConversations(ctx context.Context, limit, offset int, scenar
 	// 无关联 task（纯聊天）→ 空串。前端列表据此显示准确状态。
 	rows, err := s.pool.Query(ctx, `
 		SELECT c.id, COALESCE(c.title,''), COALESCE(c.task_id::text,''),
-			COALESCE(c.role_id,''), c.created_at, c.updated_at,
+			c.created_at, c.updated_at,
 			COALESCE(t.status, '') AS run_status,
 			COALESCE(t.scenario_id, '') AS scenario_id,
 			COALESCE((SELECT count(*) FROM finding f WHERE f.task_id = c.task_id), 0) AS finding_count
@@ -304,12 +304,12 @@ type scanRow interface {
 }
 
 func scanConversation(r scanRow, c *Conversation) error {
-	return r.Scan(&c.ID, &c.Title, &c.TaskID, &c.RoleID, &c.CreatedAt, &c.UpdatedAt)
+	return r.Scan(&c.ID, &c.Title, &c.TaskID, &c.CreatedAt, &c.UpdatedAt)
 }
 
 // scanConversationWithRun 多扫 run_status + scenario_id + finding_count（派生态 + 场景 + 漏洞数，见 ListConversations）。
 func scanConversationWithRun(r scanRow, c *Conversation) error {
-	return r.Scan(&c.ID, &c.Title, &c.TaskID, &c.RoleID, &c.CreatedAt, &c.UpdatedAt, &c.RunStatus, &c.ScenarioID, &c.FindingCount)
+	return r.Scan(&c.ID, &c.Title, &c.TaskID, &c.CreatedAt, &c.UpdatedAt, &c.RunStatus, &c.ScenarioID, &c.FindingCount)
 }
 
 // RunStatus 返回会话关联 task 的「真实运行态」（task.status：active/completed/aborted；

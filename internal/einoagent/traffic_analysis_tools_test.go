@@ -56,7 +56,7 @@ func (fakeSandboxClient) Close() error { return nil }
 func toolNames(t *testing.T, deps einoagent.TrafficAnalysisToolDeps) []string {
 	t.Helper()
 	tools, err := einoagent.BuildTrafficAnalysisTools(deps, einoagent.TrafficAnalysisToolParams{
-		TaskID: "task-1", Mode: "passive", HunterID: "h1", Host: "host1", FlowID: 3,
+		TaskID: "task-1", HunterID: "h1", Host: "host1", FlowID: 3,
 	})
 	if err != nil {
 		t.Fatalf("BuildTrafficAnalysisTools: %v", err)

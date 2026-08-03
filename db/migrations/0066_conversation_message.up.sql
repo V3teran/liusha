@@ -4,7 +4,6 @@
 --   - 用户在前端对话发起扫描；agent 过程事件经 Redis 中转流式推前端（方案A，保留分布式）；
 --     对话与事件落库可回看。
 --   - conversation：一次对话会话。scan_id 关联本对话发起的 active_scan（纯聊天/passive 时 NULL）。
---     role_id 是场景 role（阶段C 用，先留列不接线）。
 --   - message：对话内的消息。kind 区分「普通对话消息」与「agent 过程事件」（UI 渲染不同）：
 --       message —— user 提问 / assistant 回复 / system 提示
 --       event   —— agent 跑扫描时的过程事件（tool 调用 / 阶段切换 / finding 产出 …），
@@ -16,7 +15,6 @@ CREATE TABLE conversation (
     id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     title       text,
     scan_id     uuid REFERENCES active_scan(id) ON DELETE SET NULL,
-    role_id     text,
     status      text NOT NULL DEFAULT 'active'
                 CHECK (status IN ('active','archived')),
     created_at  timestamptz NOT NULL DEFAULT now(),

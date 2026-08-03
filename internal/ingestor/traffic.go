@@ -30,6 +30,10 @@ import (
 	"github.com/V3teran/liusha/internal/worker"
 )
 
+// trafficScenarioCode 是流量驱动自动建 task 所属的场景 code（solo 引擎，逐条分析代理捕获流量）。
+// 聚合器建的 assignment/task 都挂此场景；scanner handler 据 scenario_id 走 solo 派发。
+const trafficScenarioCode = "passive-recon"
+
 // ConversationCreator 建 passive task 的会话流。聚合器建 task 后建一条 conversation，
 // passive agent 过程事件落进去，前端可打开实时观察 + 插话。nil 时跳过（向后兼容）。
 //
@@ -37,7 +41,7 @@ import (
 // 无用户手打 brief，但有确定的任务上下文（host + 认领流量条数）；合成一条说明作为首条右侧气泡，
 // 让前端会话有"发起了什么"的锚点（对齐 active 的 brief 首条消息）。
 type ConversationCreator interface {
-	CreateConversation(ctx context.Context, title, taskID, roleID string) (conversation.Conversation, error)
+	CreateConversation(ctx context.Context, title, taskID string) (conversation.Conversation, error)
 	AppendMessage(ctx context.Context, convID string, role conversation.Role, kind conversation.Kind, content string, metadata json.RawMessage) (conversation.Message, error)
 }
 
@@ -314,16 +318,16 @@ func (t *Traffic) handleExternalSnap(ctx context.Context, snap *proxy.TrafficSna
 func (t *Traffic) spawnPassiveTask(ctx context.Context, host string) {
 	// 一切下发皆走 assignment（§3.1）：聚合器建 assignment(passive, auto, [host]) → 1 task（fan-in）。
 	asg, err := t.assignments.Create(ctx, assignment.NewParams{
-		Mode:   assignment.ModePassive,
-		Source: assignment.SourceAuto,
-		Items:  []assignment.Item{{Host: host}},
-		Title:  host,
+		ScenarioID: trafficScenarioCode,
+		Source:     assignment.SourceAuto,
+		Items:      []assignment.Item{{Host: host}},
+		Title:      host,
 	})
 	if err != nil {
 		t.logger.Warn().Err(err).Str("host", host).Msg("建 passive assignment 失败")
 		return
 	}
-	tk, err := t.tasks.Create(ctx, task.NewParams{Mode: task.ModePassive, AssignmentID: asg.ID, TargetHost: host})
+	tk, err := t.tasks.Create(ctx, task.NewParams{ScenarioID: trafficScenarioCode, AssignmentID: asg.ID, Brief: host, TargetHost: host})
 	if err != nil {
 		t.logger.Warn().Err(err).Str("host", host).Msg("建 passive task 失败")
 		return
@@ -409,7 +413,7 @@ func (t *Traffic) ensureConversation(ctx context.Context, taskID, host string, f
 	if t.conversations == nil {
 		return ""
 	}
-	conv, err := t.conversations.CreateConversation(ctx, host, taskID, "")
+	conv, err := t.conversations.CreateConversation(ctx, host, taskID)
 	if err != nil {
 		t.logger.Warn().Err(err).Str("host", host).Msg("建 passive task 会话流失败（降级：本次不绑会话）")
 		return ""
@@ -442,13 +446,9 @@ func passiveBrief(host string, flows []traffic.ProxyTraffic) string {
 }
 
 func (t *Traffic) enqueuePassive(ctx context.Context, taskID, convID, host string) error {
-	// entrypoint 嵌套与 active 结构对齐（handler 统一抽 input.Entrypoint 传给 mode handler）：
-	// active entrypoint={brief}，passive entrypoint={host}。
-	entrypoint, _ := json.Marshal(map[string]string{"host": host})
-	payloadInput, _ := json.Marshal(map[string]any{
-		"mode":       "passive",
-		"entrypoint": json.RawMessage(entrypoint),
-	})
+	// payload 只带一段 brief 文本（见 D5）：流量驱动无用户手打 brief，用 host 作 brief——
+	// scanner handler 据 scenario_id 走 solo 派发，从 brief 抽 host 回填。
+	payloadInput, _ := json.Marshal(map[string]any{"brief": host})
 	hid, err := t.hunters.Create(ctx, hunterrun.NewParams{
 		TaskID: taskID,
 		Role:   "traffic-analysis",
@@ -461,6 +461,7 @@ func (t *Traffic) enqueuePassive(ctx context.Context, taskID, convID, host strin
 		HunterID:       hid,
 		TaskID:         taskID,
 		ConversationID: convID,
+		ScenarioID:     trafficScenarioCode,
 		Input:          payloadInput,
 		Role:           worker.RoleHunter,
 	}); err != nil {

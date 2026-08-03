@@ -17,7 +17,7 @@ import (
 
 type fakeChat struct{}
 
-func (fakeChat) StartChatScan(_ context.Context, brief, roleID string) (string, string, error) {
+func (fakeChat) StartChatScan(_ context.Context, brief, scenarioID string) (string, string, error) {
 	return "conv-abc", "scan-xyz", nil
 }
 
@@ -27,7 +27,7 @@ func TestChatHandler_SetsStreamCookie(t *testing.T) {
 	r := gin.New()
 	r.POST("/chat", chatHandler(fakeChat{}, secret, true))
 
-	req := httptest.NewRequest("POST", "/chat", strings.NewReader(`{"brief":"扫这个","role_id":"web-pentest"}`))
+	req := httptest.NewRequest("POST", "/chat", strings.NewReader(`{"brief":"扫这个","scenario_id":"web-pentest"}`))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)

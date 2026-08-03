@@ -25,10 +25,7 @@ type BuilderParams struct {
 	OrchestratorID string
 	Host           string
 
-	// Mode 区分入口形态："passive" | "active"。
-	Mode string
-
-	// Passive 模式独有：原始 HTTP 流量（请求 + 响应）。
+	// 单条 HTTP 流量（请求 + 响应）的可选上下文。
 	FlowID          int64
 	URL             string
 	Method          string
