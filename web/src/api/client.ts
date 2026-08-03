@@ -9,7 +9,7 @@ import type {
   Conversation,
   ConversationUsage,
   Message,
-  Role,
+  Scenario,
   OwnerSummary,
   SitemapView,
   AttackGraph,
@@ -59,9 +59,10 @@ export async function bootstrapApiKey(): Promise<void> {
 }
 
 /**
- * 发起 GET 请求，自动添加 X-API-Key header
+ * 发起 GET 请求，自动添加 X-API-Key header。
+ * 导出供 config.ts 等同源模块复用（单一鉴权/错误口径，不各自再拼 header）。
  */
-async function get<T>(path: string): Promise<T> {
+export async function get<T>(path: string): Promise<T> {
   const res = await fetch('/api' + path, {
     headers: { 'X-API-Key': getApiKey() },
   })
@@ -73,7 +74,7 @@ async function get<T>(path: string): Promise<T> {
  * 发起 POST 请求（JSON body 可选），自动带 X-API-Key。
  * 注意：/chat 与 /conversations/:id/messages 有特殊语义（cookie / 409），各自单独实现。
  */
-async function post<T>(path: string, body?: unknown): Promise<T> {
+export async function post<T>(path: string, body?: unknown): Promise<T> {
   const res = await fetch('/api' + path, {
     method: 'POST',
     headers: { 'X-API-Key': getApiKey(), 'Content-Type': 'application/json' },
@@ -84,9 +85,22 @@ async function post<T>(path: string, body?: unknown): Promise<T> {
 }
 
 /**
+ * 发起 PUT 请求（JSON body），自动带 X-API-Key。配置管理页 upsert-by-code 用。
+ */
+export async function put<T>(path: string, body?: unknown): Promise<T> {
+  const res = await fetch('/api' + path, {
+    method: 'PUT',
+    headers: { 'X-API-Key': getApiKey(), 'Content-Type': 'application/json' },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  })
+  if (!res.ok) throw new Error(`PUT ${path} → ${res.status}`)
+  return res.json()
+}
+
+/**
  * 发起 DELETE 请求，自动带 X-API-Key。
  */
-async function del<T>(path: string): Promise<T> {
+export async function del<T>(path: string): Promise<T> {
   const res = await fetch('/api' + path, {
     method: 'DELETE',
     headers: { 'X-API-Key': getApiKey() },
@@ -96,30 +110,30 @@ async function del<T>(path: string): Promise<T> {
 }
 
 /**
- * 获取扫描角色列表
+ * 获取可选场景列表（仅 enabled）。前端 ScenarioPicker 消费，value 用 scenario.code。
  */
-export async function listRoles(): Promise<Role[]> {
-  return (await get<{ roles: Role[] }>('/roles')).roles
+export async function listScenarios(): Promise<Scenario[]> {
+  return (await get<{ scenarios: Scenario[] }>('/scenarios')).scenarios
 }
 
 /**
  * 分页获取会话列表（offset 翻页——会话列表按 updated_at 排序，活跃会话会被顶到最前，
  * 没有稳定单调游标可用，故用 offset；这个数据量级下足够，翻页时小幅重排是可接受的权衡）。
  *
- * mode 过滤下沉到服务端（非前端在单页结果上再过滤）：分页边界必须建立在已过滤的集合上，
+ * source 过滤下沉到服务端（非前端在单页结果上再过滤）：分页边界必须建立在已过滤的集合上，
  * 否则「当前 tab 下共 N 个会话」与实际翻得到的条数会对不上。
  *
  * @param limit 每页条数（后端默认 30）
  * @param offset 跳过条数（默认 0 = 首页）
- * @param mode 可选，按会话模式过滤（active/passive）
+ * @param source 可选，按下发来源过滤（manual 主动下发 / auto 被动代理；纯聊天归 manual）
  */
 export async function listConversations(
   limit = 30,
   offset = 0,
-  mode = '',
+  source = '',
 ): Promise<{ conversations: Conversation[]; hasMore: boolean }> {
   const q = new URLSearchParams({ limit: String(limit), offset: String(offset) })
-  if (mode) q.set('mode', mode)
+  if (source) q.set('source', source)
   const res = await get<{ conversations: Conversation[] | null; has_more: boolean }>(`/conversations?${q}`)
   // 后端无数据时 conversations 返回 null（Go 的 nil slice 序列化为 null 而非 []）——
   // 归一为空数组，避免下游 items.length 等消费点炸。
@@ -189,12 +203,12 @@ export async function authStream(convID: string): Promise<void> {
  * 发起会话扫描
  * 成功后后端 Set-Cookie liusha_stream（SSE 鉴权用）
  * @param brief 扫描目标描述
- * @param roleID 角色 ID
- * @returns conversation_id 和 scan_id
+ * @param scenarioID 场景 code（ScenarioPicker 选定，后端 action 时用于建 task）
+ * @returns conversation_id 和 scan_id（闲聊/qa 意图不下发 task 时 scan_id 为空）
  */
 export async function startChat(
   brief: string,
-  roleID: string
+  scenarioID: string
 ): Promise<{ conversation_id: string; scan_id: string }> {
   const res = await fetch('/api/chat', {
     method: 'POST',
@@ -202,7 +216,7 @@ export async function startChat(
       'X-API-Key': getApiKey(),
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ brief, role_id: roleID }),
+    body: JSON.stringify({ brief, scenario_id: scenarioID }),
   })
   if (!res.ok) throw new Error(`POST /chat → ${res.status}`)
   return res.json()
@@ -213,11 +227,13 @@ export async function startChat(
  * 扫描进行中（409）时抛带 busy 标记的错，前端提示停止后再发。
  * @param convID 会话 ID
  * @param content 消息内容
+ * @param scenarioID 场景 code（纯聊天会话升级为扫描时用于建 task；已绑 task 的会话忽略之）
  * @returns intent 和可选的 scan_id
  */
 export async function followUp(
   convID: string,
-  content: string
+  content: string,
+  scenarioID = ''
 ): Promise<{ intent: string; scan_id?: string }> {
   const res = await fetch(`/api/conversations/${convID}/messages`, {
     method: 'POST',
@@ -225,7 +241,7 @@ export async function followUp(
       'X-API-Key': getApiKey(),
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ content }),
+    body: JSON.stringify({ content, scenario_id: scenarioID }),
   })
   if (res.status === 409) {
     const err = new Error('扫描进行中') as Error & { busy?: boolean }

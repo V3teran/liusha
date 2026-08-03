@@ -48,18 +48,26 @@ func isForeignKeyViolation(err error) bool {
 
 // ── scenario ──────────────────────────────────────────────────────────
 
-// listScenariosHandler 处理 GET /scenarios（仅 enabled，字段裁剪为 {id,code,name,description}）。
-// 供前端 ScenarioPicker：只需展示可选场景的最小信息，不泄露 instruction/engine 等内部字段。
+// listScenariosHandler 处理 GET /scenarios。两种口径按 ?all 参数分流：
+//   - 默认（picker）：仅 enabled，字段裁剪为 {id,code,name,description}——ScenarioPicker
+//     只需最小信息，不泄露 instruction/engine 等内部字段；运行期也只装配 enabled 场景。
+//   - all=1（配置管理页）：全量（含 disabled）+ 全字段——admin 要能看见并重新启用停用的场景。
+//     可见 ≠ 可用：disabled 场景在此可读可编辑，但 picker/运行期仍拿不到、选不了。
 func listScenariosHandler(api ConfigAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		rows, err := api.ListScenarios(c.Request.Context(), true)
+		all := c.Query("all") == "1"
+		rows, err := api.ListScenarios(c.Request.Context(), !all)
 		if err != nil {
 			c.JSON(500, gin.H{"error": err.Error()})
 			return
 		}
 		out := make([]gin.H, 0, len(rows))
 		for _, r := range rows {
-			out = append(out, gin.H{"id": r.ID, "code": r.Code, "name": r.Name, "description": r.Description})
+			if all {
+				out = append(out, scenarioJSON(r))
+			} else {
+				out = append(out, gin.H{"id": r.ID, "code": r.Code, "name": r.Name, "description": r.Description})
+			}
 		}
 		c.JSON(200, gin.H{"scenarios": out})
 	}
