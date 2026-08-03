@@ -44,28 +44,28 @@ vi.mock('@/features/conversation/ConversationDetail', () => ({
   },
 }))
 
-function renderPage(mode: 'active' | 'passive', initialPath = '/') {
+function renderPage(source: 'manual' | 'auto', initialPath = '/') {
   return render(
     <MemoryRouter initialEntries={[initialPath]}>
-      <ConversationsPage mode={mode} />
+      <ConversationsPage source={source} />
     </MemoryRouter>,
   )
 }
 
 describe('ConversationsPage', () => {
-  it('active 模式下读取 ?conv= 并作为初始会话传给 ConversationDetail', () => {
+  it('主动下发(manual) 下读取 ?conv= 并作为初始会话传给 ConversationDetail', () => {
     listProps.mockClear()
     detailProps.mockClear()
-    renderPage('active', '/?conv=conv-from-query')
+    renderPage('manual', '/?conv=conv-from-query')
 
     const lastDetailCall = detailProps.mock.calls[detailProps.mock.calls.length - 1][0]
     expect(lastDetailCall.convId).toBe('conv-from-query')
   })
 
-  it('passive 模式下不读取 ?conv=（仅 active 生效）', () => {
+  it('被动代理(auto) 下不读取 ?conv=（仅 manual 生效）', () => {
     listProps.mockClear()
     detailProps.mockClear()
-    renderPage('passive', '/?conv=conv-from-query')
+    renderPage('auto', '/?conv=conv-from-query')
 
     const lastDetailCall = detailProps.mock.calls[detailProps.mock.calls.length - 1][0]
     expect(lastDetailCall.convId).toBeUndefined()
@@ -75,7 +75,7 @@ describe('ConversationsPage', () => {
     const user = userEvent.setup()
     listProps.mockClear()
     detailProps.mockClear()
-    renderPage('active')
+    renderPage('manual')
 
     await user.click(screen.getByText('start'))
 
@@ -87,7 +87,7 @@ describe('ConversationsPage', () => {
     const user = userEvent.setup()
     listProps.mockClear()
     detailProps.mockClear()
-    renderPage('active')
+    renderPage('manual')
 
     // 先选中 conv-selected
     await user.click(screen.getByText('select'))
@@ -104,7 +104,7 @@ describe('ConversationsPage', () => {
     const user = userEvent.setup()
     listProps.mockClear()
     detailProps.mockClear()
-    renderPage('active')
+    renderPage('manual')
 
     await user.click(screen.getByText('select'))
     await user.click(screen.getByText('delete-other'))
@@ -113,18 +113,18 @@ describe('ConversationsPage', () => {
     expect(lastDetailCall.convId).toBe('conv-selected')
   })
 
-  it('active 模式：allowNew=true，无自定义 heading/emptyHint', () => {
+  it('主动下发(manual)：allowNew=true，无自定义 heading/emptyHint', () => {
     listProps.mockClear()
-    renderPage('active')
+    renderPage('manual')
     const lastListCall = listProps.mock.calls[listProps.mock.calls.length - 1][0]
     expect(lastListCall.allowNew).toBe(true)
     expect(lastListCall.heading).toBeUndefined()
     expect(lastListCall.emptyHint).toBeUndefined()
   })
 
-  it('passive 模式：allowNew=false，heading=流量批次，emptyHint 有值', () => {
+  it('被动代理(auto)：allowNew=false，heading=流量批次，emptyHint 有值', () => {
     listProps.mockClear()
-    renderPage('passive')
+    renderPage('auto')
     const lastListCall = listProps.mock.calls[listProps.mock.calls.length - 1][0]
     expect(lastListCall.allowNew).toBe(false)
     expect(lastListCall.heading).toBe('流量批次')
@@ -135,7 +135,7 @@ describe('ConversationsPage', () => {
     const user = userEvent.setup()
     listProps.mockClear()
     detailProps.mockClear()
-    renderPage('active')
+    renderPage('manual')
 
     await user.click(screen.getByText('select')) // 先有个选中
     await user.click(screen.getByText('new')) // 再新建 → 清空
@@ -144,11 +144,11 @@ describe('ConversationsPage', () => {
     expect(lastDetailCall.convId).toBeUndefined()
   })
 
-  it('mode 透传给 ConversationList 与 ConversationDetail', () => {
+  it('source 透传给 ConversationList 与 ConversationDetail', () => {
     listProps.mockClear()
     detailProps.mockClear()
-    renderPage('passive')
-    expect(listProps.mock.calls[listProps.mock.calls.length - 1][0].mode).toBe('passive')
-    expect(detailProps.mock.calls[detailProps.mock.calls.length - 1][0].mode).toBe('passive')
+    renderPage('auto')
+    expect(listProps.mock.calls[listProps.mock.calls.length - 1][0].source).toBe('auto')
+    expect(detailProps.mock.calls[detailProps.mock.calls.length - 1][0].source).toBe('auto')
   })
 })
