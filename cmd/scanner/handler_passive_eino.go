@@ -16,12 +16,12 @@ import (
 )
 
 // abortPollInterval 是 eino passive 路径轮询 owner 中止状态的间隔。
-// （react 路径走 cfg.OnAbort step 内回调；eino RunTrafficAnalysis 无 step 钩子，改后台 watcher + cancel ctx。）
+// （react 路径走 cfg.OnAbort step 内回调；eino RunSolo 无 step 钩子，改后台 watcher + cancel ctx。）
 const abortPollInterval = 5 * time.Second
 
 // handlePassiveEino 是 handlePassive 的 eino 版（默认路径；LIUSHA_USE_REACT=1 才切回旧 react）：
 // einollm.For(trafficAnalysis) 独立 model + einoagent.BuildTrafficAnalysisTools 13 工具 + hunter prompt 资产
-// → einoagent.RunTrafficAnalysis（ChatModelAgent + Runner）替代 react.Run。
+// → einoagent.RunSolo（ChatModelAgent + Runner）替代 react.Run。
 //
 // 与 react 路径共享：sandbox 生命周期、prompt 资产、stores、owner 中止语义。
 // gap（待后续 eino middleware 增量补）：LLM 调用计费 instrument、inspector terminate/hints、history 压缩。
@@ -148,12 +148,12 @@ func (h handler) handlePassiveEino(ctx context.Context, p worker.Payload, entryp
 	}
 
 	// task 中止 watcher：eino 无 step 钩子，改后台轮询 task.Status，
-	// 非 active 即 cancel ctx 让 RunTrafficAnalysis 自然停。
+	// 非 active 即 cancel ctx 让 RunSolo 自然停。
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	go h.watchAbort(runCtx, cancel, taskID)
 
-	res, err := einoagent.RunTrafficAnalysis(runCtx, model, tools, instruction, userPrompt, h.passiveRole.MaxIterations, mws, agentHandlers, h.logger, opts...)
+	res, err := einoagent.RunSolo(runCtx, "traffic-analysis", "分析一条流量挖漏洞", model, tools, instruction, userPrompt, h.passiveRole.MaxIterations, mws, agentHandlers, h.logger, opts...)
 	if err != nil {
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			finalizeTask(false, "ctx "+err.Error())
@@ -178,7 +178,7 @@ func (h handler) handlePassiveEino(ctx context.Context, p worker.Payload, entryp
 	return h.hunters.SetDone(ctx, p.HunterID, out)
 }
 
-// watchAbort 后台轮询 task 中止状态；非 active 即 cancel，让 RunTrafficAnalysis 停。
+// watchAbort 后台轮询 task 中止状态；非 active 即 cancel，让 RunSolo 停。
 func (h handler) watchAbort(ctx context.Context, cancel context.CancelFunc, taskID string) {
 	ticker := time.NewTicker(abortPollInterval)
 	defer ticker.Stop()
