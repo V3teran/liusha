@@ -176,14 +176,15 @@ func TestDeleteHandler_OK_200(t *testing.T) {
 type fakeConversations struct {
 	gotLimit, gotOffset int
 	gotScenarioID       string
+	gotSource           string
 	convs               []conversation.Conversation
 	hasMore             bool
 	getMessageResult    conversation.Message
 	getMessageErr       error
 }
 
-func (f *fakeConversations) ListConversations(_ context.Context, limit, offset int, scenarioID string) ([]conversation.Conversation, bool, error) {
-	f.gotLimit, f.gotOffset, f.gotScenarioID = limit, offset, scenarioID
+func (f *fakeConversations) ListConversations(_ context.Context, limit, offset int, scenarioID, source string) ([]conversation.Conversation, bool, error) {
+	f.gotLimit, f.gotOffset, f.gotScenarioID, f.gotSource = limit, offset, scenarioID, source
 	return f.convs, f.hasMore, nil
 }
 
@@ -256,6 +257,22 @@ func TestListConversationsHandler_ScenarioFilterPassedToStore(t *testing.T) {
 
 	if fc.gotScenarioID != "traffic-analysis" {
 		t.Errorf("scenario_id=traffic-analysis 应透传给 store，得 %q", fc.gotScenarioID)
+	}
+}
+
+// TestListConversationsHandler_SourceFilterPassedToStore：source query 透传给 store，
+// 供前端「主动下发 / 被动代理」双 tab 按来源分流（manual/auto）。
+func TestListConversationsHandler_SourceFilterPassedToStore(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	fc := &fakeConversations{}
+	r := gin.New()
+	r.GET("/conversations", listConversationsHandler(fc))
+	req := httptest.NewRequest("GET", "/conversations?source=auto", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if fc.gotSource != "auto" {
+		t.Errorf("source=auto 应透传给 store，得 %q", fc.gotSource)
 	}
 }
 
