@@ -142,13 +142,16 @@ func streamAuthHandler(streamSecret []byte, secure bool) gin.HandlerFunc {
 
 // FollowUpAPI 处理会话追加消息：内部判意图（action/qa）+ 落消息 + 分流。
 // 返回 intent（"action"|"qa"）、busy（action 但扫描进行中 → 应排队/拒绝）、err。
+// scenarioID：纯聊天会话（无 task）升级为 action 时用于建 task；已绑 task 的会话续接忽略之。
 type FollowUpAPI interface {
-	HandleMessage(ctx context.Context, convID, content string) (intent string, busy bool, err error)
+	HandleMessage(ctx context.Context, convID, scenarioID, content string) (intent string, busy bool, err error)
 }
 
 // FollowUpRequest 是 POST /conversations/:id/messages 请求体。
+// scenario_id 可选：纯聊天会话升级为扫描时用（前端 ScenarioPicker 随 Composer 带上）。
 type FollowUpRequest struct {
-	Content string `json:"content"`
+	Content    string `json:"content"`
+	ScenarioID string `json:"scenario_id"`
 }
 
 func followUpHandler(api FollowUpAPI) gin.HandlerFunc {
@@ -159,7 +162,7 @@ func followUpHandler(api FollowUpAPI) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "content 不能为空"})
 			return
 		}
-		intent, busy, err := api.HandleMessage(c.Request.Context(), convID, req.Content)
+		intent, busy, err := api.HandleMessage(c.Request.Context(), convID, req.ScenarioID, req.Content)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
