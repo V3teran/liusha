@@ -138,7 +138,7 @@ export function ScenarioAdmin() {
                 onChange={(e) => patch({ description: e.target.value })}
               />
             </Field>
-            <Field label="剧本" hint="该场景使用的猎手组合">
+            <Field label="剧本" hint="该场景使用的智能体组合">
               <select
                 className={INPUT_CLASS}
                 value={draft.playbook_id}

@@ -2,7 +2,7 @@
 //
 // 写路径一律走 configstore（自动落 DB + redis 广播失效），绝不直穿底层 store——
 // 否则 api 进程改配置后 runner 进程的本地 L1 不失效，会用旧配置装配（见 D7）。
-// 读路径也走 configstore：单条读命中三级缓存，列表读直穿 DB（低频）。
+// 读路径也走 configstore：单条读命中 L1/L2 缓存，列表读直穿 DB（低频）。
 package httpapi
 
 import (
@@ -67,7 +67,7 @@ func listScenariosHandler(api ConfigAPI) gin.HandlerFunc {
 	}
 }
 
-// getScenarioHandler 处理 GET /scenarios/:id（单条读走 ScenarioByID 三级缓存的 id 路）。
+// getScenarioHandler 处理 GET /scenarios/:id（单条读走 ScenarioByID 多级缓存的 id 路）。
 func getScenarioHandler(api ConfigAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		sc, err := api.ScenarioByID(c.Request.Context(), c.Param("id"))

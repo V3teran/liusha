@@ -33,7 +33,7 @@ function textToTools(text: string): string[] {
     .filter(Boolean)
 }
 
-// 猎手配置管理页：领域猎手方法论 charter + 工具集 + 派活摘要，全字段编辑。
+// 智能体配置管理页（后端资源仍名 hunter）：领域智能体方法论 charter + 工具集 + 派活摘要，全字段编辑。
 export function HunterAdmin() {
   const [rows, setRows] = useState<HunterConfig[]>([])
   const [loading, setLoading] = useState(false)
@@ -80,7 +80,7 @@ export function HunterAdmin() {
   }
 
   const onDelete = async () => {
-    if (!draft?.id || !window.confirm(`确认删除猎手「${draft.name}」？`)) return
+    if (!draft?.id || !window.confirm(`确认删除智能体「${draft.name}」？`)) return
     setSaving(true)
     try {
       await deleteHunter(draft.id)
@@ -98,12 +98,12 @@ export function HunterAdmin() {
   return (
     <>
       <ConfigListShell
-        title="猎手"
-        subtitle="领域猎手的方法论 charter、工具集与派活摘要，剧本据此组合"
+        title="智能体"
+        subtitle="领域智能体的方法论 charter、工具集与派活摘要，剧本据此组合"
         loading={loading}
         error={error}
         empty={rows.length === 0}
-        emptyHint="暂无猎手——点右上「新建」创建第一个"
+        emptyHint="暂无智能体——点右上「新建」创建第一个"
         onNew={() => openDraft(blankHunter())}
       >
         {rows.map((h) => (
@@ -125,7 +125,7 @@ export function HunterAdmin() {
 
       <ConfigDrawer
         open={!!draft}
-        title={draft?.id ? '编辑猎手' : '新建猎手'}
+        title={draft?.id ? '编辑智能体' : '新建智能体'}
         onOpenChange={(o) => !o && setDraft(null)}
         onSave={() => void onSave()}
         onDelete={draft?.id ? () => void onDelete() : undefined}
@@ -164,7 +164,7 @@ export function HunterAdmin() {
                 onChange={(e) => patch({ description: e.target.value })}
               />
             </Field>
-            <Field label="方法论 charter" hint="该猎手跑起来时的 system 指令">
+            <Field label="方法论 charter" hint="该智能体跑起来时的 system 指令">
               <textarea
                 className={INPUT_CLASS + ' min-h-40 resize-y font-mono'}
                 value={draft.body}

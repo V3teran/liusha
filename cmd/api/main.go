@@ -99,7 +99,7 @@ func main() {
 	enq := worker.NewClient(asynq.RedisClientOpt{Addr: os.Getenv("LIUSHA_REDIS_ADDR")})
 	defer enq.Close()
 
-	// 配置三级缓存 Store（scenario/playbook/hunter CRUD 后端）。写路径经 redis 总线广播失效，
+	// 配置多级缓存 Store（scenario/playbook/hunter CRUD 后端）。写路径经 redis 总线广播失效，
 	// runner 进程被动失效其 L1。Subscribe 阻塞运行（内部 for-select 直到 ctx 取消），必须后台起——
 	// 同步调用会把 main goroutine 卡死在订阅循环。
 	cfgStore := configstore.New(pool, rdb)
