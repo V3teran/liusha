@@ -46,7 +46,7 @@ export const router = createBrowserRouter([
       { path: 'attack-graph', element: withSuspense(<AttackGraphPage />) },
       { path: 'llm-audit', element: withSuspense(<LlmAuditPage />) },
       {
-        // 配置管理：场景/剧本/猎手三资源各自独立页，侧栏三入口。
+        // 配置管理：场景/剧本/智能体（后端 hunter）三资源当前各自独立页，侧栏平铺入口。
         path: 'config',
         children: [
           { index: true, element: <Navigate to="/config/scenarios" replace /> },
