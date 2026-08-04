@@ -125,10 +125,13 @@ func doJSON(t *testing.T, method, url string, body any) (int, map[string]any) {
 	return resp.StatusCode, out
 }
 
-// TestListScenarios_EnabledFieldTrim：GET /scenarios 字段裁剪为 {id,code,name,description}。
-func TestListScenarios_EnabledFieldTrim(t *testing.T) {
+// TestListScenarios_ReturnsAllWithFullFields：GET /scenarios 单一口径返回全量（含
+// disabled）+ 全字段（含 instruction/engine/enabled）。picker 与配置页共用此响应，
+// 可见 ≠ 可用交由前端按 enabled 区分（无 ?all 分流）。
+func TestListScenarios_ReturnsAllWithFullFields(t *testing.T) {
 	fc := &fakeConfig{scenarios: []cfgscenario.Scenario{
-		{ID: "s1", Code: "web-pentest", Name: "Web 渗透", Description: "d", Instruction: "SECRET", Engine: "swarm", Enabled: true},
+		{ID: "s1", Code: "on", Name: "启用", Instruction: "I1", Engine: "swarm", PlaybookID: "pb-1", Enabled: true},
+		{ID: "s2", Code: "off", Name: "停用", Instruction: "I2", Engine: "solo", PlaybookID: "pb-1", Enabled: false},
 	}}
 	srv := newTestServer(t, Deps{ConfigStore: fc})
 	defer srv.Close()
@@ -138,52 +141,13 @@ func TestListScenarios_EnabledFieldTrim(t *testing.T) {
 		t.Fatalf("status=%d", code)
 	}
 	arr, _ := body["scenarios"].([]any)
-	if len(arr) != 1 {
-		t.Fatalf("want 1 scenario, got %d", len(arr))
-	}
-	first, _ := arr[0].(map[string]any)
-	if _, leaked := first["instruction"]; leaked {
-		t.Fatalf("instruction 泄露到列表响应: %v", first)
-	}
-	if _, leaked := first["engine"]; leaked {
-		t.Fatalf("engine 泄露到列表响应: %v", first)
-	}
-	for _, k := range []string{"id", "code", "name", "description"} {
-		if _, ok := first[k]; !ok {
-			t.Fatalf("缺字段 %q: %v", k, first)
-		}
-	}
-}
-
-// TestListScenarios_AllReturnsDisabledFullFields：GET /scenarios?all=1 返回全量（含
-// disabled）+ 全字段（含 instruction/engine），供配置管理页编辑。
-func TestListScenarios_AllReturnsDisabledFullFields(t *testing.T) {
-	fc := &fakeConfig{scenarios: []cfgscenario.Scenario{
-		{ID: "s1", Code: "on", Name: "启用", Instruction: "I1", Engine: "swarm", PlaybookID: "pb-1", Enabled: true},
-		{ID: "s2", Code: "off", Name: "停用", Instruction: "I2", Engine: "solo", PlaybookID: "pb-1", Enabled: false},
-	}}
-	srv := newTestServer(t, Deps{ConfigStore: fc})
-	defer srv.Close()
-
-	// 默认口径：仅 enabled、裁剪字段。
-	_, trimmed := doJSON(t, "GET", srv.URL+"/scenarios", nil)
-	if arr, _ := trimmed["scenarios"].([]any); len(arr) != 1 {
-		t.Fatalf("默认口径应仅返回 enabled，got %d", len(arr))
-	}
-
-	// all=1：全量 + 全字段。
-	code, body := doJSON(t, "GET", srv.URL+"/scenarios?all=1", nil)
-	if code != 200 {
-		t.Fatalf("status=%d", code)
-	}
-	arr, _ := body["scenarios"].([]any)
 	if len(arr) != 2 {
-		t.Fatalf("all=1 应返回全量含 disabled，got %d", len(arr))
+		t.Fatalf("应返回全量含 disabled，got %d", len(arr))
 	}
 	first, _ := arr[0].(map[string]any)
-	for _, k := range []string{"instruction", "engine", "playbook_id", "enabled"} {
+	for _, k := range []string{"id", "code", "name", "description", "instruction", "engine", "playbook_id", "enabled"} {
 		if _, ok := first[k]; !ok {
-			t.Fatalf("all=1 缺全字段 %q: %v", k, first)
+			t.Fatalf("缺全字段 %q: %v", k, first)
 		}
 	}
 }

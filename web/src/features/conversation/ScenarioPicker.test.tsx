@@ -3,16 +3,31 @@ import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { ScenarioPicker } from './ScenarioPicker'
 import { listScenarios } from '@/api/client'
-import type { Scenario } from '@/api/types'
+import type { ScenarioConfig } from '@/api/types'
 
 vi.mock('@/api/client', () => ({
   listScenarios: vi.fn(),
 }))
 
-const scenarios: Scenario[] = [
-  { id: 'u-1', code: 'web-scan', name: 'Web 漏洞扫描', description: '' },
-  { id: 'u-2', code: 'ctf', name: 'CTF 夺旗', description: '' },
-  { id: 'u-3', code: 'traffic-analysis', name: '流量分析', description: '' },
+function sc(o: Partial<ScenarioConfig>): ScenarioConfig {
+  return {
+    id: '',
+    code: '',
+    name: '',
+    description: '',
+    instruction: '',
+    domain: 'web',
+    engine: 'swarm',
+    playbook_id: 'pb-1',
+    enabled: true,
+    ...o,
+  }
+}
+
+const scenarios: ScenarioConfig[] = [
+  sc({ id: 'u-1', code: 'web-scan', name: 'Web 漏洞扫描' }),
+  sc({ id: 'u-2', code: 'ctf', name: 'CTF 夺旗' }),
+  sc({ id: 'u-3', code: 'traffic-analysis', name: '流量分析' }),
 ]
 
 describe('ScenarioPicker', () => {
@@ -20,7 +35,7 @@ describe('ScenarioPicker', () => {
     vi.mocked(listScenarios).mockReset()
   })
 
-  it('挂载时拉取场景并全部渲染为 options（不按 mode 过滤）', async () => {
+  it('挂载时拉取场景并全部渲染为 options（含停用，不按 mode 过滤）', async () => {
     vi.mocked(listScenarios).mockResolvedValue(scenarios)
     render(<ScenarioPicker value="" onChange={vi.fn()} />)
 
@@ -31,8 +46,25 @@ describe('ScenarioPicker', () => {
     expect(screen.getByText('流量分析')).toBeTruthy()
   })
 
-  it('value 为空时自动选中第一个场景的 code', async () => {
-    vi.mocked(listScenarios).mockResolvedValue(scenarios)
+  it('停用场景照常渲染但 option 置灰不可选（可见 ≠ 可用）', async () => {
+    vi.mocked(listScenarios).mockResolvedValue([
+      sc({ id: 'u-1', code: 'web-scan', name: 'Web 漏洞扫描' }),
+      sc({ id: 'u-2', code: 'ctf', name: 'CTF 夺旗', enabled: false }),
+    ])
+    render(<ScenarioPicker value="web-scan" onChange={vi.fn()} />)
+
+    const off = (await screen.findByText(/CTF 夺旗/)) as HTMLOptionElement
+    expect(off.disabled).toBe(true)
+    expect(off.textContent).toContain('已停用')
+    const on = screen.getByText('Web 漏洞扫描') as HTMLOptionElement
+    expect(on.disabled).toBe(false)
+  })
+
+  it('value 为空时自动选中第一个「启用」场景的 code（跳过停用）', async () => {
+    vi.mocked(listScenarios).mockResolvedValue([
+      sc({ id: 'u-0', code: 'off-one', name: '停用场景', enabled: false }),
+      sc({ id: 'u-1', code: 'web-scan', name: 'Web 漏洞扫描' }),
+    ])
     const onChange = vi.fn()
     render(<ScenarioPicker value="" onChange={onChange} />)
 
