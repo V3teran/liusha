@@ -79,21 +79,11 @@ export interface ConversationUsage {
   status?: string // 真实三态 active/completed/aborted（顶部状态栏三态显示；区别于二元 running）
 }
 
-/**
- * 场景（来自 GET /scenarios 端点，仅 enabled，字段裁剪）
- * 小写键（Go DTO 格式）。value 用 code（业务主键），不用 uuid。
- */
-export interface Scenario {
-  id: string
-  code: string
-  name: string
-  description: string
-}
-
 /* ============================================================
    配置管理（scenario / playbook / hunter 三资源 CRUD）
    小写键（Go gin.H DTO：scenarioJSON/playbookJSON/hunterJSON 单点序列化）。
-   与上面裁剪版 Scenario 区分：这里是全字段可编辑形态，配置管理页专用。
+   ScenarioConfig 是场景的唯一形态：GET /scenarios 单一口径返回全量全字段，
+   对话 ScenarioPicker 与配置管理页共用（停用场景由 enabled 区分：picker 置灰、页内可编辑）。
    ============================================================ */
 
 // scenario 引擎：与 playbook 正交，任意场景可选。
@@ -101,7 +91,7 @@ export type ScenarioEngine = 'solo' | 'swarm'
 // hunter 种类：orchestrator（swarm 唯一编排猎手，不进组合池）/ domain（可被剧本自由组合）。
 export type HunterKind = 'orchestrator' | 'domain'
 
-// ScenarioConfig 是配置管理页的场景全字段形态（GET /scenarios?all=1 与 /scenarios/:id）。
+// ScenarioConfig 是场景全字段形态（GET /scenarios 列表与 /scenarios/:id 单条）。
 export interface ScenarioConfig {
   id: string
   code: string

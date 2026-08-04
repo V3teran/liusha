@@ -9,7 +9,7 @@ import type {
   Conversation,
   ConversationUsage,
   Message,
-  Scenario,
+  ScenarioConfig,
   OwnerSummary,
   SitemapView,
   AttackGraph,
@@ -110,10 +110,11 @@ export async function del<T>(path: string): Promise<T> {
 }
 
 /**
- * 获取可选场景列表（仅 enabled）。前端 ScenarioPicker 消费，value 用 scenario.code。
+ * 获取全部场景（启用 + 停用，全字段）。GET /scenarios 单一口径，
+ * ScenarioPicker（停用置灰不可选）与配置管理页共用，value 用 scenario.code。
  */
-export async function listScenarios(): Promise<Scenario[]> {
-  return (await get<{ scenarios: Scenario[] }>('/scenarios')).scenarios
+export async function listScenarios(): Promise<ScenarioConfig[]> {
+  return (await get<{ scenarios: ScenarioConfig[] }>('/scenarios')).scenarios
 }
 
 /**

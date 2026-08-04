@@ -7,6 +7,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -20,6 +21,11 @@ import (
 	"github.com/V3teran/liusha/internal/audit"
 	"github.com/V3teran/liusha/internal/chat"
 	"github.com/V3teran/liusha/internal/config"
+	cfghunter "github.com/V3teran/liusha/internal/config/hunter"
+	cfgplaybook "github.com/V3teran/liusha/internal/config/playbook"
+	cfgscenario "github.com/V3teran/liusha/internal/config/scenario"
+	"github.com/V3teran/liusha/internal/config/seed"
+	"github.com/V3teran/liusha/internal/configstore"
 	"github.com/V3teran/liusha/internal/conversation"
 	"github.com/V3teran/liusha/internal/credential"
 	"github.com/V3teran/liusha/internal/cronschedule"
@@ -92,6 +98,26 @@ func main() {
 	hunterStore := hunterrun.NewStore(pool)
 	enq := worker.NewClient(asynq.RedisClientOpt{Addr: os.Getenv("LIUSHA_REDIS_ADDR")})
 	defer enq.Close()
+
+	// 配置三级缓存 Store（scenario/playbook/hunter CRUD 后端）。写路径经 redis 总线广播失效，
+	// runner 进程被动失效其 L1。Subscribe 阻塞运行（内部 for-select 直到 ctx 取消），必须后台起——
+	// 同步调用会把 main goroutine 卡死在订阅循环。
+	cfgStore := configstore.New(pool, rdb)
+	go func() {
+		if err := cfgStore.Subscribe(ctx); err != nil && !errors.Is(err, context.Canceled) {
+			logger.Error().Err(err).Msg("configstore 失效订阅退出——配置跨进程失效不可用")
+		}
+	}()
+
+	// 种子首填（insert-only）：空库时从磁盘 scenarios/playbooks/hunters 导入默认配置，
+	// 已存在的行按 code 整行跳过（DB 是事实源，不覆盖运维/前端改动）。
+	// 目录缺失时静默跳过（walkFiles 容忍不存在），非致命——失败仅告警不 fail-fast，
+	// 让 api 仍能起（配置可事后经 CRUD 补齐）。
+	seedDir := envx.OrDefault("LIUSHA_SEED_DIR", ".")
+	if err := seed.Import(ctx, seedDir,
+		cfghunter.NewStore(pool), cfgplaybook.NewStore(pool), cfgscenario.NewStore(pool)); err != nil {
+		logger.Warn().Err(err).Str("dir", seedDir).Msg("配置种子导入失败（跳过，可经 CRUD 手动补齐）")
+	}
 	auditStore := audit.NewStore(pool)         // 0047：task abort / create 审计
 	convStore := conversation.NewStore(pool)   // 阶段B：会话/消息
 	toolStore := toolinvocation.NewStore(pool) // 会话用量合计：工具耗时来源
@@ -149,6 +175,7 @@ func main() {
 			Abort:             adapter,                      // 多轮：POST /conversations/:id/abort 停止会话关联扫描
 			Deleter:           adapter,                      // DELETE /conversations/:id 删会话+消息；关联扫描进行中拒删（409，先停后删）
 			Renamer:           convStore,                    // PATCH /conversations/:id 重命名标题（convStore.SetTitle 直接满足）
+			ConfigStore:       cfgStore,                     // scenario/playbook/hunter 配置 CRUD（配置管理页 + 对话 ScenarioPicker）
 			Conversations:     convStore,                    // 阶段B：会话列表 / 消息回看
 			EventStream:       eventStreamAdapter{rdb: rdb}, // 阶段B：SSE 订阅 redis 事件
 			UsageTasks:        convStore,                    // 会话用量：会话→task 解析

@@ -10,14 +10,8 @@ import { get, post, put, getApiKey } from './client'
 import type { ScenarioConfig, PlaybookConfig, HunterConfig } from './types'
 
 // ── scenario ──────────────────────────────────────────────────────────
-
-/**
- * 配置管理页拉全量场景（含 disabled）+ 全字段（GET /scenarios?all=1）。
- * 区别于 listScenarios（enabled + 裁剪，喂 ScenarioPicker）。
- */
-export async function listScenarioConfigs(): Promise<ScenarioConfig[]> {
-  return (await get<{ scenarios: ScenarioConfig[] }>('/scenarios?all=1')).scenarios
-}
+// 读取（列表/单条）走 client.ts 的 listScenarios（GET /scenarios 单一口径，全量全字段）。
+// 此处仅保留变更操作（保存/删除）。
 
 /** 保存场景：有 id 走 PUT（按 id），否则 POST（新建，upsert-by-code）。 */
 export async function saveScenario(sc: ScenarioConfig): Promise<ScenarioConfig> {

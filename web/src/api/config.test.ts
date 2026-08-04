@@ -1,11 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
-import {
-  listScenarioConfigs,
-  saveScenario,
-  savePlaybook,
-  deletePlaybook,
-  saveHunter,
-} from './config'
+import { saveScenario, savePlaybook, deletePlaybook, saveHunter } from './config'
 import { setApiKey } from './client'
 import type { ScenarioConfig, PlaybookConfig, HunterConfig } from './types'
 
@@ -36,13 +30,6 @@ describe('config API 客户端', () => {
   beforeEach(() => {
     setApiKey('k')
     vi.unstubAllGlobals()
-  })
-
-  it('listScenarioConfigs 拉 /scenarios?all=1 并拆出 scenarios', async () => {
-    const fn = mockFetch(200, { scenarios: [{ ...SC, id: 's1' }] })
-    const rows = await listScenarioConfigs()
-    expect(fn).toHaveBeenCalledWith('/api/scenarios?all=1', expect.objectContaining({ headers: { 'X-API-Key': 'k' } }))
-    expect(rows[0].id).toBe('s1')
   })
 
   it('saveScenario 无 id 时 POST，全字段进 body', async () => {

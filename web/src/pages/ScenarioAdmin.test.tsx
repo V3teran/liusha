@@ -2,17 +2,21 @@ import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { ScenarioAdmin } from './ScenarioAdmin'
-import { listScenarioConfigs, saveScenario, deleteScenario, listPlaybookConfigs } from '@/api/config'
+import { listScenarios } from '@/api/client'
+import { saveScenario, deleteScenario, listPlaybookConfigs } from '@/api/config'
 import type { ScenarioConfig, PlaybookConfig } from '@/api/types'
 
+vi.mock('@/api/client', () => ({
+  listScenarios: vi.fn(),
+}))
+
 vi.mock('@/api/config', () => ({
-  listScenarioConfigs: vi.fn(),
   saveScenario: vi.fn(),
   deleteScenario: vi.fn(),
   listPlaybookConfigs: vi.fn(),
 }))
 
-const mListSc = listScenarioConfigs as unknown as ReturnType<typeof vi.fn>
+const mListSc = listScenarios as unknown as ReturnType<typeof vi.fn>
 const mSave = saveScenario as unknown as ReturnType<typeof vi.fn>
 const mDelete = deleteScenario as unknown as ReturnType<typeof vi.fn>
 const mListPb = listPlaybookConfigs as unknown as ReturnType<typeof vi.fn>

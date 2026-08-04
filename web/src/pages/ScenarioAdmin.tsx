@@ -1,10 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
-import {
-  listScenarioConfigs,
-  saveScenario,
-  deleteScenario,
-  listPlaybookConfigs,
-} from '@/api/config'
+import { listScenarios } from '@/api/client'
+import { saveScenario, deleteScenario, listPlaybookConfigs } from '@/api/config'
 import type { ScenarioConfig, PlaybookConfig, ScenarioEngine } from '@/api/types'
 import { Badge } from '@/components/ui/badge'
 import { ConfigListShell, ConfigRow } from '@/features/config/ConfigListShell'
@@ -38,7 +34,7 @@ export function ScenarioAdmin() {
     setLoading(true)
     setError('')
     try {
-      const [scs, pbs] = await Promise.all([listScenarioConfigs(), listPlaybookConfigs()])
+      const [scs, pbs] = await Promise.all([listScenarios(), listPlaybookConfigs()])
       setRows(scs)
       setPlaybooks(pbs)
     } catch (e) {
