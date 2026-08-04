@@ -2,6 +2,10 @@
 
 COMPOSE = docker compose -f deployments/docker-compose.yml
 MIGRATE_DSN ?= postgres://liusha:liusha@localhost:5432/liusha?sslmode=disable
+# migrate 走 go run 拉取 golang-migrate；默认全局 GOPROXY（goproxy.io）偶发 EOF，
+# 这里用可覆盖的镜像 fallback 链兜底：官方 → 国内镜像 → direct。可 `make migrate MIGRATE_GOPROXY=...` 覆盖。
+MIGRATE_GOPROXY ?= https://proxy.golang.org,https://goproxy.cn,direct
+MIGRATE = GOPROXY='$(MIGRATE_GOPROXY)' go run -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@v4.19.1
 
 up:
 	$(COMPOSE) up -d
@@ -13,12 +17,10 @@ logs:
 	$(COMPOSE) logs -f --tail=100
 
 migrate:
-	go run -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@v4.19.1 \
-		-path db/migrations -database '$(MIGRATE_DSN)' up
+	$(MIGRATE) -path db/migrations -database '$(MIGRATE_DSN)' up
 
 migrate-down:
-	go run -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@v4.19.1 \
-		-path db/migrations -database '$(MIGRATE_DSN)' down 1
+	$(MIGRATE) -path db/migrations -database '$(MIGRATE_DSN)' down 1
 
 run-api:
 	go run ./cmd/api

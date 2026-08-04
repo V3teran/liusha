@@ -5,9 +5,10 @@
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 
-echo "===== 1. 起 docker 基础设施（postgres + redis + proxify） ====="
+echo "===== 1. 起 docker 基础设施（postgres + redis） ====="
+# dev 模式只起 pg + redis；proxy/api/runner/vulnapp 由 run-svc.sh 在 host 跑
+# （host proxy 与 docker proxy 都绑 :8888，起 docker proxy 会端口冲突）。
 docker compose -f deployments/docker-compose.yml up -d postgres redis
-docker compose -f deployments/docker-compose.yml --profile proxy up -d proxify
 
 echo ""
 echo "===== 2. 等 healthcheck（最多 30s） ====="
