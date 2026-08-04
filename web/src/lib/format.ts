@@ -70,7 +70,7 @@ export function dayKey(iso: string): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
 }
 
-/** 相对时间：刚刚 / N分钟前 / N小时前 / 昨天 / YYYY年M月D日（对齐 ChatGPT/Claude 列表惯例）。 */
+/** 相对时间：刚刚 / N分钟前 / N小时前 / 昨天 / YYYY-MM-DD（对齐 ChatGPT/Claude 列表惯例）。 */
 export function relativeTime(iso: string): string {
   if (!iso) return ''
   const d = new Date(iso)
@@ -84,7 +84,7 @@ export function relativeTime(iso: string): string {
   return dayLabel(iso) // 跨天 → 昨天 / 日期
 }
 
-/** 按天分隔条标签：今天 / 昨天 / YYYY年M月D日。 */
+/** 按天分隔条标签：今天 / 昨天 / YYYY-MM-DD（绝对日期统一 ISO，不用中文年月日）。 */
 export function dayLabel(iso: string): string {
   const key = dayKey(iso)
   if (!key) return ''
@@ -92,6 +92,5 @@ export function dayLabel(iso: string): string {
   const yest = dayKey(new Date(Date.now() - 86400000).toISOString())
   if (key === today) return '今天'
   if (key === yest) return '昨天'
-  const d = new Date(iso)
-  return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日`
+  return key // YYYY-MM-DD（dayKey 已是本地 ISO 日期）
 }
