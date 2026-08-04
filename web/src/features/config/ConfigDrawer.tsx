@@ -28,11 +28,11 @@ export function ConfigDrawer({
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-40 bg-black/40" />
-        <Dialog.Content className="fixed inset-y-0 right-0 z-50 flex h-full w-[560px] flex-col bg-surface shadow-2xl focus:outline-none">
-          <div className="flex items-center justify-between border-b border-border px-5 py-4">
-            <Dialog.Title className="text-base font-semibold text-text">{title}</Dialog.Title>
-            <Dialog.Close className="text-muted hover:text-text" aria-label="关闭">
+        <Dialog.Overlay className="tac-modal-overlay fixed inset-0 z-40 bg-black/50 backdrop-blur-sm" />
+        <Dialog.Content className="tac-modal fixed left-1/2 top-1/2 z-50 flex max-h-[86vh] w-[560px] max-w-[calc(100vw-2rem)] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-xl border border-accent/30 bg-surface shadow-[var(--shadow-lg),var(--glow-accent)] focus:outline-none">
+          <div className="tac-dots relative flex items-center justify-between border-b border-border px-5 py-4">
+            <Dialog.Title className="font-mono text-base font-semibold text-text">{title}</Dialog.Title>
+            <Dialog.Close className="mr-11 text-muted hover:text-text" aria-label="关闭">
               <X className="h-4 w-4" />
             </Dialog.Close>
           </div>
@@ -54,7 +54,7 @@ export function ConfigDrawer({
               type="button"
               onClick={onSave}
               disabled={saving || saveDisabled}
-              className="ml-auto rounded-lg bg-accent px-5 py-1.5 text-[13px] text-white transition-colors hover:bg-accent-hover disabled:cursor-default disabled:opacity-40"
+              className="ml-auto rounded-lg bg-accent px-5 py-1.5 text-[13px] text-white transition-all hover:bg-accent-hover hover:shadow-[var(--glow-accent-strong)] disabled:cursor-default disabled:opacity-40 disabled:hover:shadow-none"
             >
               {saving ? '保存中…' : '保存'}
             </button>
@@ -86,6 +86,6 @@ export function Field({
   )
 }
 
-// 统一输入框样式（与漏洞抽屉一致）。
+// 统一输入框样式（与漏洞抽屉一致）。聚焦态：emerald 描边 + 深色发散荧光晕（战术终端）。
 export const INPUT_CLASS =
-  'w-full rounded-md border border-border bg-surface px-2.5 py-1.5 text-[13px] text-text outline-none focus:border-accent'
+  'w-full rounded-md border border-border bg-surface px-2.5 py-1.5 text-[13px] text-text outline-none transition-shadow focus:border-accent focus:shadow-[var(--glow-accent)]'

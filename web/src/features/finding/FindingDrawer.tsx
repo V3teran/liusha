@@ -134,8 +134,8 @@ export function FindingDrawer({ open, finding, onOpenChange, onSave }: FindingDr
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-40 bg-black/40" />
-        <Dialog.Content className="fixed inset-y-0 right-0 z-50 flex h-full w-[560px] flex-col bg-surface shadow-2xl focus:outline-none">
+        <Dialog.Overlay className="tac-modal-overlay fixed inset-0 z-40 bg-black/50 backdrop-blur-sm" />
+        <Dialog.Content className="tac-modal fixed left-1/2 top-1/2 z-50 flex max-h-[86vh] w-[560px] max-w-[calc(100vw-2rem)] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-xl border border-border bg-surface shadow-[var(--shadow-lg)] focus:outline-none">
           <Dialog.Title className="sr-only">漏洞详情</Dialog.Title>
           {finding && (
             <>

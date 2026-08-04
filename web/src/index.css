@@ -57,6 +57,11 @@
   --shadow: 0 1px 3px oklch(0% 0 0 / 0.06), 0 8px 24px oklch(0% 0 0 / 0.08);
   --shadow-lg: 0 4px 20px oklch(0% 0 0 / 0.12);
 
+  /* 战术终端辉光：浅色态克制（Swiss 式，仅微弱聚焦环，无发散辉光）。
+     深色态在 .dark 覆盖为发散荧光。全部走 --accent，不引入新色相。 */
+  --glow-accent: 0 0 0 1px var(--accent-soft);
+  --glow-accent-strong: 0 0 0 1px var(--accent);
+
   color-scheme: light;
 }
 
@@ -100,6 +105,11 @@
   --shadow: 0 2px 10px oklch(0% 0 0 / 0.5), 0 16px 48px oklch(0% 0 0 / 0.3);
   --shadow-lg: 0 8px 40px oklch(0% 0 0 / 0.55);
 
+  /* 战术终端辉光（深色态）：emerald 描边 + 向外发散的荧光晕。
+     仅用 box-shadow（合成器友好），不改 accent 色相。 */
+  --glow-accent: 0 0 0 1px var(--accent-soft), 0 0 16px oklch(76% 0.17 162 / 0.18);
+  --glow-accent-strong: 0 0 0 1px var(--accent), 0 0 24px oklch(76% 0.17 162 / 0.35);
+
   color-scheme: dark;
 }
 
@@ -135,6 +145,87 @@
 /* 品牌冷寒蓝：与 logo/favicon 沙齿剑徽记同色系，纯色，固定不随主题切换 */
 .brand-mark {
   color: #4a68a2;
+}
+
+/* ============================================================
+   战术终端质感工具类（配置资源管理三页共用）
+   全部走 --accent / --glow-* token，深浅色自适应；仅 box-shadow/opacity。
+   ============================================================ */
+
+/* 选中/聚焦荧光环：描边 + 深色态发散晕 */
+.tac-glow {
+  box-shadow: var(--glow-accent);
+}
+.tac-glow-strong {
+  box-shadow: var(--glow-accent-strong);
+}
+
+/* 列表行选中：左侧荧光竖条 + 描边（用 inset 竖条避免占位） */
+.tac-row-active {
+  box-shadow: inset 3px 0 0 var(--accent), var(--glow-accent);
+  border-color: var(--accent) !important;
+}
+
+/* 终端窗点：面板右上角 ● ● ● 装饰 */
+.tac-dots::before {
+  content: "";
+  position: absolute;
+  top: 1.15rem;
+  right: 1.25rem;
+  width: 34px;
+  height: 8px;
+  background-image: radial-gradient(circle, var(--accent) 3px, transparent 3.5px),
+    radial-gradient(circle, var(--border-strong) 3px, transparent 3.5px),
+    radial-gradient(circle, var(--border-strong) 3px, transparent 3.5px);
+  background-size: 8px 8px;
+  background-position: 0 0, 13px 0, 26px 0;
+  background-repeat: no-repeat;
+  opacity: 0.85;
+}
+
+/* 终端提示符：等宽绿色 ▚ 前缀，用于列表标题 */
+.tac-prompt::before {
+  content: "▚ ";
+  color: var(--accent);
+  font-family: var(--font-mono);
+}
+
+/* 光标闪烁：加载/空态末尾 ▋，reduced-motion 下不闪 */
+.tac-cursor::after {
+  content: "▋";
+  margin-left: 2px;
+  color: var(--accent);
+  animation: tac-blink 1.1s step-end infinite;
+}
+@keyframes tac-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tac-cursor::after {
+    animation: none;
+  }
+}
+
+/* 居中模态入场：遮罩淡入 + 面板弹出。用于配置抽屉 / 漏洞详情等居中 Dialog。
+   面板保留 Tailwind 的 -translate-x-1/2 -translate-y-1/2 定位，from 写全 transform、
+   to 隐含回到该定位值，故居中不漂移。reduced-motion 由全局 media query 兜住。 */
+.tac-modal-overlay[data-state='open'] {
+  animation: tac-fade 160ms ease-out;
+}
+.tac-modal[data-state='open'] {
+  animation: tac-pop 190ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+@keyframes tac-fade {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes tac-pop {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.96);
+  }
 }
 
 * {
