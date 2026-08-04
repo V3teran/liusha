@@ -38,6 +38,9 @@ describe('AppShell', () => {
     expect(screen.getByText('执行图')).toBeTruthy()
     expect(screen.getByText('LLM 审计')).toBeTruthy()
     expect(screen.getByText('凭证库')).toBeTruthy()
+    expect(screen.getByText('场景')).toBeTruthy()
+    expect(screen.getByText('剧本')).toBeTruthy()
+    expect(screen.getByText('智能体')).toBeTruthy()
     expect(screen.getByText('设置')).toBeTruthy()
   })
 

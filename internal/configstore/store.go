@@ -1,11 +1,11 @@
-// Package configstore 是 scenario/playbook/hunter 配置的三级缓存读写层：
+// Package configstore 是 scenario/playbook/hunter 配置的多级缓存读写层：
 // 内存 L1（本进程）→ redis L2（跨进程共享 + 失效总线）→ DB（事实源）。
 //
-// 为何三级（见 D7）：api 与 runner 是**多进程**。前端在 api 改配置后，runner 的本地
+// 为何分层（见 D7）：api 与 runner 是**多进程**。前端在 api 改配置后，runner 的本地
 // L1 必须被动失效，否则 runner 用旧配置装配。故写路径写 DB 后经 redis PUBLISH 广播失效，
 // 各进程 Subscribe goroutine 收到即清本地 L1 + L2，下次读回填最新值。
 //
-// 缓存粒度：仅**单条读**走三级缓存；列表读低频（仅 admin CRUD 列表页）且失效成本高
+// 缓存粒度：仅**单条读**走 L1/L2 缓存；列表读低频（仅 admin CRUD 列表页）且失效成本高
 // （任一成员变动都要废整表），故直穿 DB 不缓存。
 package configstore
 
@@ -68,7 +68,7 @@ type hunterStore interface {
 	GetOrchestrator(ctx context.Context) (cfghunter.Hunter, error)
 }
 
-// Store 编排三级读写：底层 DB store + redis(L2/总线) + 进程内 L1。
+// Store 编排多级读写：底层 DB store + redis(L2/总线) + 进程内 L1。
 type Store struct {
 	scenarios scenarioStore
 	playbooks playbookStore
@@ -77,7 +77,7 @@ type Store struct {
 	l1        *l1Cache
 }
 
-// New 用 pgxpool + redis 客户端构造三级缓存 Store（生产装配用）。
+// New 用 pgxpool + redis 客户端构造多级缓存 Store（生产装配用）。
 func New(pool *pgxpool.Pool, rdb *redis.Client) *Store {
 	return newWithStores(
 		cfgscenario.NewStore(pool),
@@ -112,7 +112,7 @@ func jsonUnmarshal(b []byte, v any) error { return json.Unmarshal(b, v) }
 // upsert 路径据此在 Update 落空时回退 Create。
 func isNotFound(err error) bool { return err != nil && errors.Is(err, pgx.ErrNoRows) }
 
-// readThrough 是三级读的统一泛型骨架：L1 命中即返 → L2（同键）命中回填 L1 → DB
+// readThrough 是多级读的统一泛型骨架：L1 命中即返 → L2（同键）命中回填 L1 → DB
 // 回填 L1+L2。miss 时经 load 打 DB，把结果 json 缓存到两级。fillKeys 返回该值应写入
 // 的全部缓存键（scenario 双键指向同值，其余单键）。
 func readThrough[T any](
@@ -159,7 +159,7 @@ func (s *Store) fill(ctx context.Context, v any, keys []string) {
 	}
 }
 
-// ── 单条读（三级缓存）─────────────────────────────────────────────────
+// ── 单条读（L1/L2 缓存）───────────────────────────────────────────────
 
 // ScenarioByCode 走 code 路读场景（运行期派发热路径——task.scenario_id 存 code，见 D3）。
 func (s *Store) ScenarioByCode(ctx context.Context, code string) (cfgscenario.Scenario, error) {

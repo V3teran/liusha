@@ -9,7 +9,7 @@
 - **Playbook** = 可复用、可命名、可预设、可调整的**猎手组合**（多对多引用 Hunter）。
 - **Hunter** 是唯一执行体，离散原子、可被任意 playbook 自由组合。`kind='orchestrator'` 是特殊猎手：engine=swarm 时由系统自动注入做派活编排，不进 playbook 组合池；`kind='domain'` 是领域猎手（recon/exploitation/traffic-analysis/…）。
 - **engine=swarm**：orchestrator + 各领域猎手（deep swarm，orchestrator 经 deep 自带 `task` 工具按 `hunter.description` 动态派活，不硬编码猎手名）。**engine=solo**：把 playbook 内各领域猎手的 `body` 拼进单个 ChatModelAgent 顺序执行。
-- **配置流（configstore 三级）**：内存 L1 → redis L2/失效总线 → DB 事实源；本地种子文件仅首次导入。第一期即上 redis 失效总线（多进程 api+runner 需跨进程失效）。此模式后续复用到 config 等其它配置。
+- **配置流（configstore 多级）**：内存 L1 → redis L2/失效总线 → DB 事实源；本地种子文件仅首次导入。第一期即上 redis 失效总线（多进程 api+runner 需跨进程失效）。此模式后续复用到 config 等其它配置。
 - Source（manual/auto）保持不变，仅作审计，正交于执行。task/assignment/cron_schedule 的持久化判别键由 `mode` 改为 `scenario_id`。
 
 **Tech Stack:** Go 1.x（github.com/V3teran/liusha）、cloudwego/eino（adk + deep prebuilt）、hibiken/asynq、golang-migrate v4、PostgreSQL、redis（失效总线）、React 19 + TS + Vite + zustand + react-router v7。
@@ -20,9 +20,9 @@
 - **不考虑变更成本**：不为平滑迁移保留过渡层。
 - **不保留兼容代码**：删除的字段/类型/迁移不留 deprecated 别名、不留 `omitempty` 兼容旧 payload、不留双读回退。
 - **命名变更彻底、零残留**：`role→hunter`、`scanner→runner`、`mode→scenario_id`（持久化判别键）、`运行记录表 hunter→hunter_run`（见 D0）四处改名必须覆盖代码/测试/配置/迁移/脚本/CI/docker/前端/文档，grep 校验零命中旧名。
-- **不抄袭**：Playbook/Scenario/Hunter 概念与表结构自主设计，不复制 CyberStrikeAI 的文件结构或命名（CSAI 无 playbook/kill-chain 概念，用 file-based role + 可选 workflow 图；本设计为 DB 事实源 + 三级 configstore，形态不同）。
+- **不抄袭**：Playbook/Scenario/Hunter 概念与表结构自主设计，不复制 CyberStrikeAI 的文件结构或命名（CSAI 无 playbook/kill-chain 概念，用 file-based role + 可选 workflow 图；本设计为 DB 事实源 + 多级 configstore，形态不同）。
 - **DB 为事实源，文件降级为种子**：4 张配置表（scenario/playbook/playbook_hunter/hunter）由 DB 承载、前端 CRUD；`scenarios/*.md`、`hunters/*.md`、`playbooks/*` 仅作首次导入的种子，导入后 DB 是唯一真相。
-- **configstore 三级**：内存 L1 → redis L2/失效总线 → DB。第一期即上 redis 失效总线。
+- **configstore 多级**：内存 L1 → redis L2/失效总线 → DB。第一期即上 redis 失效总线。
 - **中文注释**：新增/修改代码沿用仓库现有中文注释风格与密度。
 - **每个任务 TDD**：先写失败测试 → 跑挂 → 最小实现 → 跑过 → 提交。
 - **迁移用 golang-migrate**：`db/migrations/NNNN_*.up.sql` + `.down.sql` 成对，序号顺延当前最大号（当前 0084，本计划从 0085 起）。
@@ -120,7 +120,7 @@ CREATE INDEX scenario_playbook_idx ON scenario (playbook_id);
 - 种子内容映射：hunter md 的 frontmatter→`hunter`（code/kind/name/description/tools/max_iterations）、正文→`hunter.body`；scenario md 的 frontmatter→`scenario`（code/name/description/domain/engine/playbook）、正文→`scenario.instruction`；playbook yaml→`playbook` + `playbook_hunter` 组合。
 - orchestrator 作为 `kind='orchestrator'` 的一条 hunter 种子，不出现在任何 playbook 的组合里。
 
-**D7. configstore 三级（内存→redis→DB）**
+**D7. configstore 多级（内存→redis→DB）**
 - 读路径：内存 L1 命中即返回 → 未命中查 redis L2 → 再未命中查 DB 回填。写路径：写 DB → redis 发布失效消息 → 各进程（api/runner）清本地 L1。
 - 第一期即上 redis 失效总线（多进程需跨进程失效）。抽象为可复用的 `configstore` 包，后续用于 config 等其它配置。
 
@@ -157,7 +157,7 @@ CREATE INDEX scenario_playbook_idx ON scenario (playbook_id);
 | # | 里程碑 | 交付物 | 依赖 |
 |---|---|---|---|
 | M0 | 运行记录表 hunter→hunter_run 腾名 | 迁移 0085（表/索引/约束 rename）+ 包 `internal/hunter`→`internal/hunterrun` + 下游引用改名 | — |
-| M1 | 4 配置表迁移 + store + 种子导入 + configstore 三级 | 迁移 0086（hunter/playbook/playbook_hunter/scenario）+ store 层 + 种子 importer + configstore(内存/redis/DB) | M0 |
+| M1 | 4 配置表迁移 + store + 种子导入 + configstore 多级 | 迁移 0086（hunter/playbook/playbook_hunter/scenario）+ store 层 + 种子 importer + configstore(内存/redis/DB) | M0 |
 | M2 | einoagent 命名重构 role→hunter | HunterDef/HunterKind/LoadHunters/BuildHunterTools + HunterSolo | M1 |
 | M3 | 引擎数据驱动分发 + Solo 泛化 | RunSolo 泛化 + orchestrator 动态派活文案改写 | M2 |
 | M4 | DB 迁移 mode→scenario_id（task/assignment/cron_schedule）+ store 改造 | 迁移 0087/0088 + store 层改造 + projector 去 mode | M1 |
@@ -297,7 +297,7 @@ git commit -m "refactor: 下游改引 internal/hunterrun"
 
 ---
 
-## M1 — 4 配置表迁移 + store + 种子导入 + configstore 三级
+## M1 — 4 配置表迁移 + store + 种子导入 + configstore 多级
 
 **目标**：迁移 0086 建 4 张配置表（hunter/playbook/playbook_hunter/scenario，DDL 见 D1）；建 store 层（按 `id` 与 `code` 双路 CRUD）；建种子导入器（首次启动把 `hunters/*.md` + `playbooks/*.yaml` + `scenarios/*.md` 按 `code` **insert-only** 首填进 DB——已存在的 code 跳过不更新，并改写 orchestrator 种子正文为动态派活）；建可复用 `configstore` 包（内存 L1 → redis L2/失效总线 → DB）。此里程碑不碰 einoagent、不改 mode。**DB 是事实源，本地文件仅首次导入的种子。**
 
@@ -419,14 +419,14 @@ git commit -m "feat(config): 种子导入器（insert-only 首填）+ 拍平 hun
 ```
 
 
-### Task 1.4: configstore 三级缓存包（内存 L1 → redis L2 → DB）
+### Task 1.4: configstore 多级缓存包（内存 L1 → redis L2 → DB）
 
 **Files:**
 - Create: `internal/configstore/{store.go,cache.go,invalidation.go,store_test.go}`
 
 **Interfaces:**
-- Produces: `func New(pool *pgxpool.Pool, rdb *redis.Client) *Store`——可复用三级缓存，包裹 Task 1.2 的三个底层 store。
-  - **单条读**（缓存键按各自访问路径定，都是三级 L1→L2→DB 全程生效）：
+- Produces: `func New(pool *pgxpool.Pool, rdb *redis.Client) *Store`——可复用多级缓存，包裹 Task 1.2 的三个底层 store。
+  - **单条读**（缓存键按各自访问路径定，都是多级 L1→L2→DB 全程生效）：
     - scenario **双路**：`ScenarioByCode(ctx, code)`（**运行期派发热路径**——`task.scenario_id` 存的是 code，见 D3；缓存键 `scenario:code:{code}`）+ `ScenarioByID(ctx, id)`（admin CRUD `:id` 用；缓存键 `scenario:id:{id}`）。两路命中同一份 entry（code-map 与 id-map 各建一张映射指向同值，写失效时两张一起清）。
     - playbook / hunter **仅 by-id**：`PlaybookByID(ctx, id)`、`HunterByID(ctx, id)`。它们不经 code 访问——派发时经 `scenario.playbook_id`(uuid FK) 拿 playbook、经 `playbook_hunter`(uuid FK) 拿猎手，CRUD 走 `:id`，无 by-code 消费者，故不设 by-code 读（避免死代码，见 Global Constraints）。
     - `PlaybookHunters(ctx, playbookID) ([]cfghunter.Hunter, error)`（按 position 有序的 domain 猎手，缓存键 `playbook_hunters:{playbookID}`）、`Orchestrator(ctx) (cfghunter.Hunter, error)`（按 `kind='orchestrator' AND enabled` 取全局唯一编排猎手，包裹 `cfghunter.GetOrchestrator`，见 D1；缓存于固定哨兵键 `hunter:orchestrator`）。
@@ -437,7 +437,7 @@ git commit -m "feat(config): 种子导入器（insert-only 首填）+ 拍平 hun
 
 > **为何第一期即上 redis 失效总线**：api 与 runner 是**多进程**，前端在 api 改了配置，runner 的 L1 必须被动失效，否则 runner 用旧配置装配。单进程内存缓存不够（见 D7）。
 
-- L1 用 `sync.RWMutex` + `map[string]entry`（entry 带值，无 TTL，靠失效消息驱逐）。L2 redis 键与 L1 同键：scenario 两张 `configstore:scenario:code:{code}` 与 `configstore:scenario:id:{id}` 指向同值；playbook/hunter 单张 `configstore:{kind}:id:{id}`；派生键 `configstore:playbook_hunters:{id}` / `configstore:hunter:orchestrator`。均设保守 TTL（如 10min）兜底防订阅漏消息。三级读同键贯通：L1 miss → L2（同键）→ DB 回填 L1+L2，L2 层真正生效（不再有只写不读的死层）。scenario DB 回填时 code 与 id 两张一并写，供两路复用。
+- L1 用 `sync.RWMutex` + `map[string]entry`（entry 带值，无 TTL，靠失效消息驱逐）。L2 redis 键与 L1 同键：scenario 两张 `configstore:scenario:code:{code}` 与 `configstore:scenario:id:{id}` 指向同值；playbook/hunter 单张 `configstore:{kind}:id:{id}`；派生键 `configstore:playbook_hunters:{id}` / `configstore:hunter:orchestrator`。均设保守 TTL（如 10min）兜底防订阅漏消息。多级读同键贯通：L1 miss → L2（同键）→ DB 回填 L1+L2，L2 层真正生效（不再有只写不读的死层）。scenario DB 回填时 code 与 id 两张一并写，供两路复用。
 
 - [ ] **Step 1: 写单元测试（先挂）**
 
@@ -448,7 +448,7 @@ git commit -m "feat(config): 种子导入器（insert-only 首填）+ 拍平 hun
 
 Run: `go test ./internal/configstore/`　Expected: FAIL。
 
-- [ ] **Step 2: 实现三级读写 + 订阅**
+- [ ] **Step 2: 实现多级读写 + 订阅**
 
 `cache.go` 管 L1；`invalidation.go` 管 redis pub/sub（沿用 `internal/proxy/publisher.go` 的 go-redis v9 风格）；`store.go` 编排读写路径。json 编解码复用标准库。
 
@@ -457,7 +457,7 @@ Run: `go test ./internal/configstore/`　Expected: FAIL。
 Run: `go test ./internal/configstore/`　Expected: PASS。
 ```bash
 git add internal/configstore
-git commit -m "feat(configstore): 内存L1→redisL2/失效总线→DB 三级缓存"
+git commit -m "feat(configstore): 内存L1→redisL2/失效总线→DB 多级缓存"
 ```
 
 

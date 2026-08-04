@@ -116,7 +116,7 @@ export function PlaybookAdmin() {
     <>
       <ConfigListShell
         title="剧本"
-        subtitle="一组带顺序的领域猎手，场景引用剧本决定派哪些猎手作战"
+        subtitle="一组带顺序的领域智能体，场景引用剧本决定派哪些智能体作战"
         loading={loading}
         error={error}
         empty={rows.length === 0}
@@ -165,11 +165,11 @@ export function PlaybookAdmin() {
               />
             </Field>
 
-            <Field label="猎手组合" hint="按顺序执行，可上下移">
+            <Field label="智能体组合" hint="按顺序执行，可上下移">
               <div className="flex flex-col gap-1.5">
                 {selected.length === 0 && (
                   <p className="rounded-md border border-dashed border-border px-3 py-2 text-[12.5px] text-muted">
-                    尚未添加猎手，从下方选择
+                    尚未添加智能体，从下方选择
                   </p>
                 )}
                 {selected.map((id, idx) => (
@@ -214,7 +214,7 @@ export function PlaybookAdmin() {
                   disabled={available.length === 0}
                 >
                   <option value="" disabled>
-                    {available.length === 0 ? '无可添加的领域猎手' : '添加领域猎手…'}
+                    {available.length === 0 ? '无可添加的领域智能体' : '添加领域智能体…'}
                   </option>
                   {available.map((h) => (
                     <option key={h.id} value={h.id}>
