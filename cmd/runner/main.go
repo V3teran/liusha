@@ -217,9 +217,13 @@ func main() {
 	// 配置事实源（DB + 内存/redis 缓存）：运行期按需读 scenario/playbook/hunter 装配引擎。
 	// 文件仅是首次导入的种子（seed 导入在别处），进程运行期一律走 DB/缓存（见 D6/D7）。
 	cfgStore := configstore.New(pool, rdb)
-	if err := cfgStore.Subscribe(ctx); err != nil {
-		logger.Fatal().Err(err).Msg("configstore redis 失效订阅失败——配置跨进程失效不可用，fail-fast")
-	}
+	// Subscribe 阻塞运行（内部 for-select 直到 ctx 取消），必须后台起——
+	// 同步调用会把 main goroutine 卡死在订阅循环，后续 reaper / healthz 永不启动。
+	go func() {
+		if err := cfgStore.Subscribe(ctx); err != nil && !errors.Is(err, context.Canceled) {
+			logger.Error().Err(err).Msg("configstore 失效订阅退出——配置跨进程失效不可用")
+		}
+	}()
 
 	// handler
 	// per-host 并发信号量（§4.3）。TTL = swarm 超时 + 10min 缓冲：防长 task 运行期计数键被
