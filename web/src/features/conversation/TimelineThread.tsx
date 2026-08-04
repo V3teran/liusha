@@ -1,34 +1,29 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Bot, Bug, Rocket, Brain, Wrench, Archive, type LucideIcon } from 'lucide-react'
 import { useConversationStore } from '@/stores/conversation'
-import { dayKey, dayLabel, clockTime, fullTime } from '@/lib/format'
+import { dayKey, dayLabel } from '@/lib/format'
 import { buildThreadRows, type ThreadRow } from '@/lib/threadRows'
 import { classifyMessage } from '@/lib/messageKind'
 import { agentAccent } from '@/lib/agentColor'
 import { useTypewriter } from '@/hooks/useTypewriter'
 import { useCopyToClipboard } from '@/hooks/useCopyToClipboard'
-import { CopyButton } from '@/components/CopyButton'
-import { RailNode } from './RailNode'
+import { AgentCard } from './AgentCard'
 import { StepTools } from './StepTools'
 import { CommandBlock } from './cards/CommandBlock'
+import { ReplyBlock } from './cards/ReplyBlock'
 import { ReasoningCard } from './cards/ReasoningCard'
 import { SpawnCard } from './cards/SpawnCard'
 import { ToolCallCard } from './cards/ToolCallCard'
 import { ToolResultCard } from './cards/ToolResultCard'
 import { FindingCard } from './cards/FindingCard'
 import { CompactionCard } from './cards/CompactionCard'
-import { Markdown } from './cards/Markdown'
 
-// 每行的 agent 归属：驱动缩进（非 orchestrator = 子代理，缩进 + 配色连接线）+ 图标点配色。
-// reasoning/tool 取 Metadata.AgentName；tools 组取首条 tool 的 agent；其余（user/finding/派发）归 root。
+// 每行的 hunter 归属：驱动缩进（子代理右缩一档）+ 卡外图标配色 + 卡内领头名。
+// 取该行动作的施动 hunter（Metadata.AgentName）：推理/工具/漏洞归产出者，派发归调度者(编排)；
+// tools 组取首条 tool 的 hunter。user/assistant 不走此路（各自左右独立块）。
 function rowAgent(r: ThreadRow): string {
   if (r.kind === 'tools') return r.tools[0]?.Metadata?.AgentName || ''
-  if (r.kind === 'msg') {
-    const tag = classifyMessage(r.msg)
-    if (tag === 'reasoning' || tag === 'tool-call' || tag === 'tool-result') {
-      return r.msg.Metadata?.AgentName || ''
-    }
-  }
+  if (r.kind === 'msg') return r.msg.Metadata?.AgentName || ''
   return ''
 }
 
@@ -62,18 +57,19 @@ function rowIcon(r: ThreadRow): LucideIcon {
   }
 }
 
-// 是否走左侧作战导轨（AI 过程/答复节点）；用户指令走右侧独立块（CommandBlock），不在导轨上。
-function isRailRow(r: ThreadRow): boolean {
-  if (r.kind === 'tools') return true
-  if (r.kind === 'divider') return false
-  return classifyMessage(r.msg) !== 'user'
+// 卡内可复制正文：推理取推理文本，答复走独立块，其余（派发/漏洞/压缩）无脚注复制。
+function cardCopyText(r: Exclude<ThreadRow, { kind: 'divider' | 'tools' }>): string | undefined {
+  const m = r.msg
+  if (classifyMessage(m) === 'reasoning') return m.Metadata?.Text || m.Content
+  return undefined
 }
 
-// 方案 A · 统一活动时间轴：观测「AI 自主作战」。
-//   - 用户指令 → 右侧独立指令块（CommandBlock），与 AI 流分置左右，材质区分。
-//   - AI 全部动作（想/派发/工具/漏洞/答复）→ 左侧图标导轨节点（RailNode），图标点即身份 +
-//     分类，节点间以中性细脊连接；子代理（非 orchestrator）缩进一档 + 该 agent 配色连接线。
-//   - 推理/答复注入紧凑复制按钮（hover 显现），过程卡直接渲染，无气泡/头像双系统。
+// 方案 B · 统一活动时间轴：观测「AI 自主作战」。
+//   - 用户指令 → 右侧独立指令块（CommandBlock）：accent 软底 + 右上收角 + 脚注时间/复制。
+//   - AI 动作（推理/派发/漏洞/压缩）→ 左侧 agent 卡（AgentCard）：图标在卡外(形状=动作、色=hunter)
+//     + surface 卡框 + 脚注时间/复制，与用户块左右对称、材质等重；子代理右缩一档。
+//   - 卡内领头「hunter 动作」：hunter 名领头(hunter 色)、动作词弱化——每节点=某 hunter 在做某事。
+//   - 工具调用聚成独立缩进行（StepTools），不折进推理卡；答复走左侧 ReplyBlock，与用户块对称。
 export function TimelineThread() {
   const messages = useConversationStore((s) => s.messages)
   const liveReasoning = useConversationStore((s) => s.liveReasoning)
@@ -93,11 +89,6 @@ export function TimelineThread() {
   // 未读计数以「渲染行(动态)」为单位（非原始消息条数）：一次推理+工具调用后端落 3 条消息，
   // 渲染只成 2 行（想 + 折叠工具组），数原始消息会与用户实际看到的行数对不上。divider 不计。
   const activityCount = rows.reduce((n, r) => (r.kind === 'divider' ? n : n + 1), 0)
-  // 导轨脊线连接判定：最后一个导轨节点之后无节点（且无流式节点）→ 收尾不画向下延伸的脊线。
-  let lastRailIdx = -1
-  rows.forEach((r, i) => {
-    if (isRailRow(r)) lastRailIdx = i
-  })
 
   const nearBottom = useCallback(() => {
     const e = elRef.current
@@ -154,7 +145,7 @@ export function TimelineThread() {
         aria-label="作战轨迹"
         onScroll={onScroll}
       >
-        {rows.map((r, i) => {
+        {rows.map((r) => {
           if (r.kind === 'divider') {
             return (
               <div key={r.key} className="ml-[26px] my-2.5 flex items-center gap-3 text-[11.5px] text-muted">
@@ -164,7 +155,7 @@ export function TimelineThread() {
               </div>
             )
           }
-          // 用户指令 → 右侧独立指令块（不在左侧导轨上）。
+          // 用户指令 → 右侧独立指令块（与左侧 agent 卡左右对称）。
           if (r.kind === 'msg' && classifyMessage(r.msg) === 'user') {
             return (
               <CommandBlock
@@ -176,25 +167,52 @@ export function TimelineThread() {
               />
             )
           }
-          // AI 动作 → 左侧图标导轨节点。
+          // agent 答复 → 左侧独立答复块（与用户指令块左右对称）。
+          if (r.kind === 'msg' && classifyMessage(r.msg) === 'assistant') {
+            return (
+              <ReplyBlock
+                key={r.key}
+                content={r.msg.Content}
+                agentName={r.msg.Metadata?.AgentName}
+                createdAt={r.msg.CreatedAt}
+                copied={copiedKey === r.msg.ID}
+                onCopy={() => copy(r.msg.ID, r.msg.Content)}
+              />
+            )
+          }
+          // 工具组 → 独立缩进行（工具调用不是推理，不进 agent 卡）；子代理工具组再右缩一档。
+          if (r.kind === 'tools') {
+            return <StepTools key={r.key} tools={r.tools} sub={isSubAgent(rowAgent(r), hasOrchestrator)} />
+          }
+          // AI 动作（推理/派发/漏洞/压缩）→ 左侧 agent 卡（图标在卡外 + surface 卡框 + 脚注时间/复制）。
           const agent = rowAgent(r)
           const sub = isSubAgent(agent, hasOrchestrator)
           const color = agentAccent(agent)
           const Icon = rowIcon(r)
-          const last = i === lastRailIdx && !liveReasoning
+          const copyText = cardCopyText(r)
           return (
-            <RailNode key={r.key} icon={Icon} accent={color.accent} soft={color.soft} sub={sub} last={last}>
-              {renderCard(r, { copiedKey, copy })}
-            </RailNode>
+            <AgentCard
+              key={r.key}
+              icon={Icon}
+              accent={color.accent}
+              soft={color.soft}
+              sub={sub}
+              createdAt={r.msg.CreatedAt}
+              copied={copiedKey === r.msg.ID}
+              onCopy={copyText ? () => copy(r.msg.ID, copyText) : undefined}
+              copyText={copyText}
+            >
+              {renderCard(r)}
+            </AgentCard>
           )
         })}
 
-        {/* 流式活动节点：与落定节点同布局（图标导轨 + 缩进），逐字打字机揭示 */}
+        {/* 流式活动节点：与落定节点同布局（agent 卡），逐字打字机揭示 */}
         {liveReasoning && (
           <div data-live-node aria-hidden="true">
-            <RailNode icon={Brain} accent={liveColor.accent} soft={liveColor.soft} sub={liveIsSub} last>
+            <AgentCard icon={Brain} accent={liveColor.accent} soft={liveColor.soft} sub={liveIsSub}>
               <ReasoningCard text={typedReasoning} agentName={liveAgentName || undefined} streaming />
-            </RailNode>
+            </AgentCard>
           </div>
         )}
       </div>
@@ -213,27 +231,12 @@ export function TimelineThread() {
   )
 }
 
-interface CopyCtx {
-  copiedKey: string | null
-  copy: (key: string, text: string) => void
-}
-
-// 导轨节点内容：按分类渲染对应卡片。推理/答复注入 hover 复制按钮（业界通行的可发现复制）。
-function renderCard(r: Exclude<ThreadRow, { kind: 'divider' }>, { copiedKey, copy }: CopyCtx) {
-  if (r.kind === 'tools') return <StepTools tools={r.tools} />
-
+// agent 卡内容：按分类渲染对应卡片。复制/时间由外层 AgentCard 脚注承担（与用户块一致）。
+// tools 组不入此（map 里直接 StepTools 独立成行）；user/assistant 各走 CommandBlock/ReplyBlock。
+function renderCard(r: Exclude<ThreadRow, { kind: 'divider' | 'tools' }>) {
   const m = r.msg
   const md = m.Metadata
   const tag = classifyMessage(m)
-
-  const copyBtn = (text: string) => (
-    <CopyButton
-      compact
-      copied={copiedKey === m.ID}
-      onClick={() => copy(m.ID, text)}
-      className="opacity-0 transition-opacity focus-visible:opacity-100 group-hover:opacity-100"
-    />
-  )
 
   switch (tag) {
     case 'reasoning': {
@@ -246,29 +249,13 @@ function renderCard(r: Exclude<ThreadRow, { kind: 'divider' }>, { copiedKey, cop
           inTokens={md?.InTokens}
           outTokens={md?.OutTokens}
           latencyMs={md?.LatencyMs}
-          copySlot={copyBtn(text)}
         />
       )
     }
-    case 'assistant':
-      return (
-        <div data-card="assistant">
-          <div className="mb-1 flex items-center gap-1.5 text-xs">
-            <span className="font-semibold text-text">答复</span>
-            {m.CreatedAt && (
-              <time className="font-mono text-[11px] leading-none text-faint" dateTime={m.CreatedAt} title={fullTime(m.CreatedAt)}>
-                {clockTime(m.CreatedAt)}
-              </time>
-            )}
-            <span className="ml-auto">{copyBtn(m.Content)}</span>
-          </div>
-          <Markdown content={m.Content} className="text-sm leading-relaxed text-text" />
-        </div>
-      )
     case 'spawn':
-      return <SpawnCard args={md?.Args} />
+      return <SpawnCard dispatcher={md?.AgentName} args={md?.Args} />
     case 'spawn-done':
-      return <SpawnCard done durationMs={md?.DurationMs} err={md?.Err} />
+      return <SpawnCard done dispatcher={md?.AgentName} durationMs={md?.DurationMs} err={md?.Err} />
     case 'finding':
       return <FindingCard args={md?.Args || ''} />
     case 'compaction':

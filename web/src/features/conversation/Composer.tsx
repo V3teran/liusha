@@ -65,14 +65,14 @@ export function Composer({ convId, scanning, onStarted, onAppended, onStop }: Co
   }
 
   const placeholder = convId
-    ? '继续提问 / 追加指令…（Enter 发送，Shift+Enter 换行）'
+    ? '继续提问 / 追加指令…'
     : '描述要扫的目标 / 任务（URL、账号、测试方向）…'
 
   return (
     <div className="flex flex-shrink-0 flex-col gap-2.5 border-t border-border bg-surface px-4 py-3.5">
       <div className="flex items-center gap-3">
         <ScenarioPicker value={scenarioCode} onChange={setScenarioCode} />
-        <span className="text-xs text-muted">选择场景，Enter 发送，Shift+Enter 换行</span>
+        <span className="ml-auto text-[11px] text-faint">Enter 发送 · Shift+Enter 换行</span>
       </div>
       <div className="rounded-lg border border-border bg-background transition-colors focus-within:border-accent">
         <textarea
