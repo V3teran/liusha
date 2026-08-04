@@ -227,6 +227,7 @@ export interface FindingFilters {
   severity?: string
   status?: string
   source?: string
+  scenario_id?: string // 按来源场景（对话所属场景 code）分流——与会话列表同一分流维度
 }
 
 /* ============================================================

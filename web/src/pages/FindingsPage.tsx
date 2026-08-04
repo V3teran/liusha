@@ -29,40 +29,49 @@ export function FindingsPage() {
   const [fSeverity, setFSeverity] = useState('')
   const [fStatus, setFStatus] = useState('')
   const [fSource, setFSource] = useState('')
+  const [fScenario, setFScenario] = useState('')
   const [query, setQuery] = useState('')
   const [allHosts, setAllHosts] = useState<string[]>([])
+  const [allScenarios, setAllScenarios] = useState<string[]>([])
   const [savingId, setSavingId] = useState('')
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [drawerFinding, setDrawerFinding] = useState<FindingRow | null>(null)
 
-  const load = useCallback(async (filters: { host: string; severity: string; status: string; source: string }) => {
-    setLoading(true)
-    setError('')
-    try {
-      const f: FindingFilters = {}
-      if (filters.host) f.host = filters.host
-      if (filters.severity) f.severity = filters.severity
-      if (filters.status) f.status = filters.status
-      if (filters.source) f.source = filters.source
-      setRows(await listFindings(f))
-    } catch (e) {
-      setError(e instanceof Error ? e.message : '加载失败')
-    } finally {
-      setLoading(false)
-    }
-  }, [])
+  const load = useCallback(
+    async (filters: { host: string; severity: string; status: string; source: string; scenario: string }) => {
+      setLoading(true)
+      setError('')
+      try {
+        const f: FindingFilters = {}
+        if (filters.host) f.host = filters.host
+        if (filters.severity) f.severity = filters.severity
+        if (filters.status) f.status = filters.status
+        if (filters.source) f.source = filters.source
+        if (filters.scenario) f.scenario_id = filters.scenario
+        setRows(await listFindings(f))
+      } catch (e) {
+        setError(e instanceof Error ? e.message : '加载失败')
+      } finally {
+        setLoading(false)
+      }
+    },
+    [],
+  )
 
   useEffect(() => {
-    void load({ host: fHost, severity: fSeverity, status: fStatus, source: fSource })
+    void load({ host: fHost, severity: fSeverity, status: fStatus, source: fSource, scenario: fScenario })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fHost, fSeverity, fStatus, fSource])
+  }, [fHost, fSeverity, fStatus, fSource, fScenario])
 
-  // host 下拉选项来自一份全量快照（不受当前筛选收窄影响，保持稳定）。
+  // host / 场景下拉选项来自一份全量快照（不受当前筛选收窄影响，保持稳定）。
   useEffect(() => {
     void listFindings({}).then(
-      (all) => setAllHosts([...new Set(all.map((f) => f.host))].sort()),
+      (all) => {
+        setAllHosts([...new Set(all.map((f) => f.host))].sort())
+        setAllScenarios([...new Set(all.map((f) => f.scenario_id).filter((s): s is string => !!s))].sort())
+      },
       () => {
-        // 静默：host 下拉是增强项，失败则退化为空
+        // 静默：下拉是增强项，失败则退化为空
       },
     )
   }, [])
@@ -96,7 +105,8 @@ export function FindingsPage() {
     }
     setRows((prev) => prev.map((x) => (x.id === updated.id ? { ...x, ...patch } : x)))
     setDrawerFinding((prev) => (prev?.id === updated.id ? { ...prev, ...patch } : prev))
-    if (fStatus && fStatus !== updated.status) void load({ host: fHost, severity: fSeverity, status: fStatus, source: fSource })
+    if (fStatus && fStatus !== updated.status)
+      void load({ host: fHost, severity: fSeverity, status: fStatus, source: fSource, scenario: fScenario })
   }
 
   const openDrawer = (f: FindingRow) => {
@@ -125,7 +135,7 @@ export function FindingsPage() {
     }
   }
 
-  const hasFilter = !!(fHost || fSeverity || fStatus || fSource)
+  const hasFilter = !!(fHost || fSeverity || fStatus || fSource || fScenario)
 
   // 列定义单点声明列宽——不再是列头/数据行各自一份 grid-cols 字符串手动保持同步。
   const columns = useMemo(
@@ -291,6 +301,14 @@ export function FindingsPage() {
                   className="flex-1 bg-transparent text-[13.5px] text-text outline-none placeholder:text-muted"
                 />
               </div>
+              <select value={fScenario} onChange={(e) => setFScenario(e.target.value)} className="w-[150px] rounded-md border border-border bg-surface px-2 py-1.5 text-sm text-text outline-none focus:border-accent" title="按来源对话所属场景筛选">
+                <option value="">全部场景</option>
+                {allScenarios.map((s) => (
+                  <option key={s} value={s}>
+                    {s}
+                  </option>
+                ))}
+              </select>
               <select value={fSource} onChange={(e) => setFSource(e.target.value)} className="w-[120px] rounded-md border border-border bg-surface px-2 py-1.5 text-sm text-text outline-none focus:border-accent">
                 <option value="">全部来源</option>
                 <option value="manual">主动下发</option>
