@@ -1,13 +1,12 @@
-// Package seed 把磁盘上的 hunter/playbook/scenario 配置首次导入 DB。
+// Package seed 把磁盘上的 hunter/scenario 配置首次导入 DB。
 //
 // insert-only 首填语义（见 D6）：DB 是事实源，种子只填**空库**，按 code 判存在——
 // 已存在的行一律跳过，绝不覆盖前端/运维在 DB 里的改动。导入顺序遵守 FK 依赖：
-// hunter → playbook(+组合) → scenario。
+// hunter → scenario（scenario.solo_hunter_id 引用 hunter）。
 //
 // 目录约定（dir 为配置根）：
 //   - dir/hunters/*.md   ：猎手 charter（frontmatter 元信息 + body 方法论正文）
-//   - dir/playbooks/*.yaml：剧本组合（code + 有序 hunter code 清单）
-//   - dir/scenarios/*.md  ：场景（frontmatter + body 领域侧重 instruction）
+//   - dir/scenarios/*.md ：场景（frontmatter + body 领域侧重 instruction）
 package seed
 
 import (
@@ -24,40 +23,33 @@ import (
 	"gopkg.in/yaml.v3"
 
 	cfghunter "github.com/V3teran/liusha/internal/config/hunter"
-	cfgplaybook "github.com/V3teran/liusha/internal/config/playbook"
 	cfgscenario "github.com/V3teran/liusha/internal/config/scenario"
 )
 
 // hunterFront 是 hunters/*.md frontmatter 的解析目标。
 // id 用作稳定引用键 code；kind∈{orchestrator,domain}；body 取 markdown 正文。
+// cli_tools 是外置 CLI 工具白名单（tools.yaml 名字），空=交战域内全部可见。
 type hunterFront struct {
 	ID            string   `yaml:"id"`
 	Name          string   `yaml:"name"`
 	Description   string   `yaml:"description"`
 	Kind          string   `yaml:"kind"`
 	Tools         []string `yaml:"tools"`
+	CliTools      []string `yaml:"cli_tools"`
 	MaxIterations int      `yaml:"max_iterations"`
 }
 
 // scenarioFront 是 scenarios/*.md frontmatter 的解析目标。
-// id 用作 code；body 取 markdown 正文作 instruction；playbook 引用剧本 code。
+// id 用作 code；body 取 markdown 正文作 instruction。
+// solo_hunter 仅 solo 引擎需要（引用唯一执行猎手 code）；swarm 引擎留空
+// （子代理池=全部 enabled 领域猎手，无需在场景里枚举）。
 type scenarioFront struct {
 	ID          string `yaml:"id"`
 	Name        string `yaml:"name"`
 	Description string `yaml:"description"`
 	Engine      string `yaml:"engine"`
-	Playbook    string `yaml:"playbook"`
+	SoloHunter  string `yaml:"solo_hunter"`
 	Domain      string `yaml:"domain"`
-}
-
-// playbookFile 是 playbooks/*.yaml 的整文件解析目标。
-// id 用作稳定引用键 code（与 hunter/scenario frontmatter 对齐）；
-// hunters 是有序的 hunter id 清单，落 playbook_hunter.position。
-type playbookFile struct {
-	ID          string   `yaml:"id"`
-	Name        string   `yaml:"name"`
-	Description string   `yaml:"description"`
-	Hunters     []string `yaml:"hunters"`
 }
 
 var (
@@ -80,23 +72,19 @@ func splitFrontmatter(raw []byte) ([]byte, []byte, error) {
 	return r[:idx], bytes.TrimLeft(r[idx+len(closeMark):], "\n\r"), nil
 }
 
-// Import 把 dir 下的 hunter/playbook/scenario 配置 insert-only 首填进 DB。
-// 顺序遵守 FK：先 hunter，再 playbook + 组合，最后 scenario。
+// Import 把 dir 下的 hunter/scenario 配置 insert-only 首填进 DB。
+// 顺序遵守 FK：先 hunter，后 scenario（scenario.solo_hunter_id 引用 hunter）。
 // 每类按 code 判存在→仅不存在才 Create；已存在跳过（绝不覆盖 DB 事实源）。
 func Import(
 	ctx context.Context,
 	dir string,
 	h *cfghunter.Store,
-	p *cfgplaybook.Store,
 	s *cfgscenario.Store,
 ) error {
 	if err := importHunters(ctx, filepath.Join(dir, "hunters"), h); err != nil {
 		return fmt.Errorf("import hunters: %w", err)
 	}
-	if err := importPlaybooks(ctx, filepath.Join(dir, "playbooks"), p, h); err != nil {
-		return fmt.Errorf("import playbooks: %w", err)
-	}
-	if err := importScenarios(ctx, filepath.Join(dir, "scenarios"), s, p); err != nil {
+	if err := importScenarios(ctx, filepath.Join(dir, "scenarios"), s, h); err != nil {
 		return fmt.Errorf("import scenarios: %w", err)
 	}
 	return nil
@@ -165,6 +153,7 @@ func importHunters(ctx context.Context, dir string, h *cfghunter.Store) error {
 			Description:   strings.TrimSpace(f.Description),
 			Body:          string(body),
 			Tools:         f.Tools,
+			CliTools:      f.CliTools,
 			MaxIterations: f.MaxIterations,
 			Enabled:       true,
 		}); err != nil {
@@ -174,62 +163,10 @@ func importHunters(ctx context.Context, dir string, h *cfghunter.Store) error {
 	return nil
 }
 
-// importPlaybooks 扫 dir/*.yaml，insert-only 建剧本；仅**新建的**剧本才落组合关系
-// （已存在的剧本连同其组合一并跳过，不覆盖 DB 里的编排）。
-func importPlaybooks(ctx context.Context, dir string, p *cfgplaybook.Store, h *cfghunter.Store) error {
-	files, err := walkFiles(dir, ".yaml")
-	if err != nil {
-		return err
-	}
-	for _, path := range files {
-		raw, err := os.ReadFile(path)
-		if err != nil {
-			return fmt.Errorf("读取 %s: %w", path, err)
-		}
-		var f playbookFile
-		if err := yaml.Unmarshal(raw, &f); err != nil {
-			return fmt.Errorf("解析 %s: %w", path, err)
-		}
-		code := strings.TrimSpace(f.ID)
-		if code == "" {
-			return fmt.Errorf("%s: 缺 id", path)
-		}
-		if _, err := p.GetByCode(ctx, code); err == nil {
-			continue // 已存在→连组合一并跳过（insert-only）
-		} else if !notFound(err) {
-			return fmt.Errorf("查剧本 %q: %w", code, err)
-		}
-		pb, err := p.Create(ctx, cfgplaybook.NewParams{
-			Code:        code,
-			Name:        strings.TrimSpace(f.Name),
-			Description: strings.TrimSpace(f.Description),
-			Enabled:     true,
-		})
-		if err != nil {
-			return fmt.Errorf("建剧本 %q: %w", code, err)
-		}
-		items := make([]cfgplaybook.PlaybookHunter, 0, len(f.Hunters))
-		for i, hCode := range f.Hunters {
-			hunter, err := h.GetByCode(ctx, strings.TrimSpace(hCode))
-			if err != nil {
-				return fmt.Errorf("剧本 %q 引用猎手 %q: %w", code, hCode, err)
-			}
-			items = append(items, cfgplaybook.PlaybookHunter{
-				PlaybookID: pb.ID,
-				HunterID:   hunter.ID,
-				Position:   i,
-			})
-		}
-		if err := p.SetHunters(ctx, pb.ID, items); err != nil {
-			return fmt.Errorf("剧本 %q 落组合: %w", code, err)
-		}
-	}
-	return nil
-}
-
-// importScenarios 扫 dir/*.md，按 code(=frontmatter id) insert-only 建场景；
-// playbook 字段（剧本 code）解析成 playbook_id FK。
-func importScenarios(ctx context.Context, dir string, s *cfgscenario.Store, p *cfgplaybook.Store) error {
+// importScenarios 扫 dir/*.md，按 code(=frontmatter id) insert-only 建场景。
+// solo 引擎：solo_hunter 字段（猎手 code）解析成 solo_hunter_id FK；
+// swarm 引擎：solo_hunter 必须留空（子代理池=全部 enabled 领域猎手，运行期动态构成）。
+func importScenarios(ctx context.Context, dir string, s *cfgscenario.Store, h *cfghunter.Store) error {
 	files, err := walkFiles(dir, ".md")
 	if err != nil {
 		return err
@@ -256,23 +193,31 @@ func importScenarios(ctx context.Context, dir string, s *cfgscenario.Store, p *c
 		} else if !notFound(err) {
 			return fmt.Errorf("查场景 %q: %w", code, err)
 		}
-		pbCode := strings.TrimSpace(f.Playbook)
-		if pbCode == "" {
-			return fmt.Errorf("%s: 缺 playbook", path)
-		}
-		pb, err := p.GetByCode(ctx, pbCode)
-		if err != nil {
-			return fmt.Errorf("场景 %q 引用剧本 %q: %w", code, pbCode, err)
+		engine := strings.TrimSpace(f.Engine)
+		soloCode := strings.TrimSpace(f.SoloHunter)
+		// solo 引擎解析 solo_hunter code → hunter id；swarm 引擎不接受 solo_hunter。
+		var soloHunterID *string
+		if engine == cfgscenario.EngineSolo {
+			if soloCode == "" {
+				return fmt.Errorf("%s: solo 引擎缺 solo_hunter", path)
+			}
+			hunter, err := h.GetByCode(ctx, soloCode)
+			if err != nil {
+				return fmt.Errorf("场景 %q 引用猎手 %q: %w", code, soloCode, err)
+			}
+			soloHunterID = &hunter.ID
+		} else if soloCode != "" {
+			return fmt.Errorf("%s: swarm 引擎不接受 solo_hunter（子代理池=全部启用领域猎手）", path)
 		}
 		if _, err := s.Create(ctx, cfgscenario.NewParams{
-			Code:        code,
-			Name:        strings.TrimSpace(f.Name),
-			Description: strings.TrimSpace(f.Description),
-			Instruction: string(body),
-			Domain:      strings.TrimSpace(f.Domain),
-			Engine:      strings.TrimSpace(f.Engine),
-			PlaybookID:  pb.ID,
-			Enabled:     true,
+			Code:         code,
+			Name:         strings.TrimSpace(f.Name),
+			Description:  strings.TrimSpace(f.Description),
+			Instruction:  string(body),
+			Domain:       strings.TrimSpace(f.Domain),
+			Engine:       engine,
+			SoloHunterID: soloHunterID,
+			Enabled:      true,
 		}); err != nil {
 			return fmt.Errorf("建场景 %q: %w", code, err)
 		}

@@ -22,7 +22,6 @@ import (
 	"github.com/V3teran/liusha/internal/chat"
 	"github.com/V3teran/liusha/internal/config"
 	cfghunter "github.com/V3teran/liusha/internal/config/hunter"
-	cfgplaybook "github.com/V3teran/liusha/internal/config/playbook"
 	cfgscenario "github.com/V3teran/liusha/internal/config/scenario"
 	"github.com/V3teran/liusha/internal/config/seed"
 	"github.com/V3teran/liusha/internal/configstore"
@@ -43,6 +42,7 @@ import (
 	"github.com/V3teran/liusha/internal/sitemap"
 	"github.com/V3teran/liusha/internal/task"
 	"github.com/V3teran/liusha/internal/toolinvocation"
+	"github.com/V3teran/liusha/internal/tools/manifest"
 	"github.com/V3teran/liusha/internal/traffic"
 	"github.com/V3teran/liusha/internal/worker"
 
@@ -99,7 +99,7 @@ func main() {
 	enq := worker.NewClient(asynq.RedisClientOpt{Addr: os.Getenv("LIUSHA_REDIS_ADDR")})
 	defer enq.Close()
 
-	// 配置多级缓存 Store（scenario/playbook/hunter CRUD 后端）。写路径经 redis 总线广播失效，
+	// 配置多级缓存 Store（scenario/hunter CRUD 后端）。写路径经 redis 总线广播失效，
 	// runner 进程被动失效其 L1。Subscribe 阻塞运行（内部 for-select 直到 ctx 取消），必须后台起——
 	// 同步调用会把 main goroutine 卡死在订阅循环。
 	cfgStore := configstore.New(pool, rdb)
@@ -109,14 +109,24 @@ func main() {
 		}
 	}()
 
-	// 种子首填（insert-only）：空库时从磁盘 scenarios/playbooks/hunters 导入默认配置，
+	// 种子首填（insert-only）：空库时从磁盘 scenarios/hunters 导入默认配置，
 	// 已存在的行按 code 整行跳过（DB 是事实源，不覆盖运维/前端改动）。
 	// 目录缺失时静默跳过（walkFiles 容忍不存在），非致命——失败仅告警不 fail-fast，
 	// 让 api 仍能起（配置可事后经 CRUD 补齐）。
 	seedDir := envx.OrDefault("LIUSHA_SEED_DIR", ".")
 	if err := seed.Import(ctx, seedDir,
-		cfghunter.NewStore(pool), cfgplaybook.NewStore(pool), cfgscenario.NewStore(pool)); err != nil {
+		cfghunter.NewStore(pool), cfgscenario.NewStore(pool)); err != nil {
 		logger.Warn().Err(err).Str("dir", seedDir).Msg("配置种子导入失败（跳过，可经 CRUD 手动补齐）")
+	}
+
+	// Tools manifest（tools.yaml）：供 GET /tooling/tools 给 HunterAdmin cli_tools 白名单多选器
+	// 拉取候选。与 runner 同源加载；缺失非致命（仅该只读端点不注册，配置页 cli_tools 候选为空）。
+	toolsManifestPath := envx.OrDefault("LIUSHA_TOOLS_MANIFEST_PATH", "deployments/tool-images/pentools/tools.yaml")
+	var toolingAPI httpapi.ToolingAPI // 保持 nil 接口（非「含 nil 指针的非 nil 接口」），Load 成功才赋值
+	if m, mErr := manifest.Load(toolsManifestPath); mErr != nil {
+		logger.Warn().Err(mErr).Str("path", toolsManifestPath).Msg("tools.yaml 加载失败（跳过 /tooling/tools 端点）")
+	} else {
+		toolingAPI = m
 	}
 	auditStore := audit.NewStore(pool)         // 0047：task abort / create 审计
 	convStore := conversation.NewStore(pool)   // 阶段B：会话/消息
@@ -175,7 +185,8 @@ func main() {
 			Abort:             adapter,                      // 多轮：POST /conversations/:id/abort 停止会话关联扫描
 			Deleter:           adapter,                      // DELETE /conversations/:id 删会话+消息；关联扫描进行中拒删（409，先停后删）
 			Renamer:           convStore,                    // PATCH /conversations/:id 重命名标题（convStore.SetTitle 直接满足）
-			ConfigStore:       cfgStore,                     // scenario/playbook/hunter 配置 CRUD（配置管理页 + 对话 ScenarioPicker）
+			ConfigStore:       cfgStore,                     // scenario/hunter 配置 CRUD（配置管理页 + 对话 ScenarioPicker）
+			ToolsManifest:     toolingAPI,                   // GET /tooling/tools：HunterAdmin cli_tools 白名单候选
 			Conversations:     convStore,                    // 阶段B：会话列表 / 消息回看
 			EventStream:       eventStreamAdapter{rdb: rdb}, // 阶段B：SSE 订阅 redis 事件
 			UsageTasks:        convStore,                    // 会话用量：会话→task 解析
@@ -309,7 +320,7 @@ func (e eventStreamAdapter) Subscribe(ctx context.Context, conversationID string
 
 // createScan 是建 scan 的核心：建 assignment + task + hunter run + 入 asynq 队列（带
 // conversationID）。CreateScan（无会话纯后台）与 StartChatScan（会话发起）共用。
-// scenarioID 必填——标识场景 code，runner 据此解析引擎与 playbook（数据驱动派发）。
+// scenarioID 必填——标识场景 code，runner 据此解析引擎与猎手编排（数据驱动派发）。
 func (a *scanAdapter) createScan(ctx context.Context, brief, conversationID, scenarioID string) (string, string, error) {
 	// 一切下发皆走 assignment（§3.1）：单发 = 单元素 assignment(manual) → 1 task。
 	asg, err := a.assignments.Create(ctx, assignment.NewParams{
@@ -329,7 +340,7 @@ func (a *scanAdapter) createScan(ctx context.Context, brief, conversationID, sce
 // assignment 后逐条展开）复用同一份展开逻辑，只是 assignment 的建法不同（§3.1 单发 vs 批量/cron）。
 //
 // target_host 留空——不在 API 层 parse brief，runner 入口从 brief 抽取后回填（派生列，见 D5）。
-// 引擎（solo/swarm）与 playbook 由 runner 按 scenarioID 解析，API 不关心（职责下沉，数据驱动）。
+// 引擎（solo/swarm）与猎手编排由 runner 按 scenarioID 解析，API 不关心（职责下沉，数据驱动）。
 func (a *scanAdapter) expandItem(ctx context.Context, assignmentID, brief, conversationID, scenarioID string) (string, string, error) {
 	// payload 只装 brief 原文——目标 URL / host 由 runner 从 brief 自识别回填。
 	payloadInput, err := json.Marshal(map[string]string{"brief": brief})
@@ -357,7 +368,7 @@ func (a *scanAdapter) expandItem(ctx context.Context, assignmentID, brief, conve
 		HunterID:       tid,
 		TaskID:         tk.ID,
 		ConversationID: conversationID, // 阶段B：会话发起时非空 → runner 发过程事件
-		ScenarioID:     scenarioID,     // 场景 code：runner 据此数据驱动派发引擎/playbook
+		ScenarioID:     scenarioID,     // 场景 code：runner 据此数据驱动派发引擎/猎手编排
 		Input:          payloadInput,
 		Role:           worker.RoleHunter,
 	}, asynq.MaxRetry(0), asynq.Timeout(a.maxRunTimeout)); err != nil {

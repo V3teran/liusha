@@ -142,7 +142,7 @@ func (s *Store) WallclockMs(ctx context.Context, convID string) (int64, error) {
 //   - 'auto'：assignment.source='auto' 的会话（聚合器攒批的被动代理流量）。
 //
 // source 经 conversation.task_id → task.assignment_id → assignment.source 两跳 JOIN 解析。
-// 该维度与 scenario/playbook/engine 正交，仅用于列表分流，不影响场景/引擎解析。
+// 该维度与 scenario/engine 正交，仅用于列表分流，不影响场景/引擎解析。
 //
 // 翻页用 offset（非 keyset 游标）：会话排序键是 updated_at，活跃会话会被追加消息"顶到最前"、
 // 破坏单调性——不像 llm_invocation 按自增 id 排序那样能用 keyset。这个数据量级（个人工具,

@@ -26,7 +26,7 @@ const (
 
 // Task 是 task 表行的 Go 表示。
 //
-// ScenarioID：所属场景 code（配置驱动，标识引擎与 playbook）。
+// ScenarioID：所属场景 code（配置驱动，标识引擎与猎手编排）。
 // Brief：用户自然语言目标描述（统一输入）。
 // TargetHost：派生列，runner 从 brief 抽取后回填，可空。
 // PausedMs：FollowUp 历次停顿累计 ms；WallclockMs 减去它 = 纯 agent 耗时。

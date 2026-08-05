@@ -1,13 +1,13 @@
 /**
- * 配置管理 API 客户端（scenario / playbook / hunter 三资源 CRUD）
+ * 配置管理 API 客户端（scenario / hunter 两资源 CRUD + 只读工具目录）
  *
  * 复用 client.ts 的 get/post/put fetch 封装（单一 X-API-Key 鉴权口径）。
- * 删除单独实现：playbook/hunter 被下游引用时后端返回 409 + 中文 error，
+ * 删除单独实现：hunter 被 solo 场景引用时后端返回 409 + 中文 error，
  * 需把该提示透出给调用方（通用 del 只抛 HTTP 状态码，丢了中文原因）。
  */
 
 import { get, post, put, getApiKey } from './client'
-import type { ScenarioConfig, PlaybookConfig, HunterConfig } from './types'
+import type { ScenarioConfig, HunterConfig, ToolingTool } from './types'
 
 // ── scenario ──────────────────────────────────────────────────────────
 // 读取（列表/单条）走 client.ts 的 listScenarios（GET /scenarios 单一口径，全量全字段）。
@@ -22,7 +22,7 @@ export async function saveScenario(sc: ScenarioConfig): Promise<ScenarioConfig> 
     instruction: sc.instruction,
     domain: sc.domain,
     engine: sc.engine,
-    playbook_id: sc.playbook_id,
+    solo_hunter_id: sc.solo_hunter_id,
     enabled: sc.enabled,
   }
   const res = sc.id
@@ -34,41 +34,6 @@ export async function saveScenario(sc: ScenarioConfig): Promise<ScenarioConfig> 
 /** 删除场景（task.scenario_id 无 FK，不会撞 RESTRICT）。 */
 export async function deleteScenario(id: string): Promise<void> {
   await delConfig(`/scenarios/${id}`)
-}
-
-// ── playbook ────────────────────────────────────────────────────────────
-
-/** 拉全量剧本（列表页，不含 hunters 组合）。 */
-export async function listPlaybookConfigs(): Promise<PlaybookConfig[]> {
-  return (await get<{ playbooks: PlaybookConfig[] }>('/playbooks')).playbooks
-}
-
-/** 拉单个剧本（含有序 hunters 组合），编辑前取。 */
-export async function getPlaybookConfig(id: string): Promise<PlaybookConfig> {
-  return (await get<{ playbook: PlaybookConfig }>(`/playbooks/${id}`)).playbook
-}
-
-/**
- * 保存剧本：主体 upsert + 按序重设 hunters 组合（position 由数组下标决定）。
- * @param hunterIDs 有序领域猎手 id 列表
- */
-export async function savePlaybook(pb: PlaybookConfig, hunterIDs: string[]): Promise<PlaybookConfig> {
-  const body = {
-    code: pb.code,
-    name: pb.name,
-    description: pb.description,
-    enabled: pb.enabled,
-    hunters: hunterIDs,
-  }
-  const res = pb.id
-    ? await put<{ playbook: PlaybookConfig }>(`/playbooks/${pb.id}`, body)
-    : await post<{ playbook: PlaybookConfig }>('/playbooks', body)
-  return res.playbook
-}
-
-/** 删除剧本；被场景引用时后端 409 → 抛带中文原因的错。 */
-export async function deletePlaybook(id: string): Promise<void> {
-  await delConfig(`/playbooks/${id}`)
 }
 
 // ── hunter ────────────────────────────────────────────────────────────
@@ -87,6 +52,7 @@ export async function saveHunter(h: HunterConfig): Promise<HunterConfig> {
     description: h.description,
     body: h.body,
     tools: h.tools,
+    cli_tools: h.cli_tools,
     max_iterations: h.max_iterations,
     enabled: h.enabled,
   }
@@ -96,9 +62,16 @@ export async function saveHunter(h: HunterConfig): Promise<HunterConfig> {
   return res.hunter
 }
 
-/** 删除猎手；被剧本引用时后端 409 → 抛带中文原因的错。 */
+/** 删除猎手；被 solo 场景引用时后端 409 → 抛带中文原因的错。 */
 export async function deleteHunter(id: string): Promise<void> {
   await delConfig(`/hunters/${id}`)
+}
+
+// ── tooling（只读）────────────────────────────────────────────────────
+
+/** 拉外置 CLI 工具目录全集（HunterAdmin cli_tools 白名单多选器候选）。 */
+export async function listToolingTools(): Promise<ToolingTool[]> {
+  return (await get<{ tools: ToolingTool[] }>('/tooling/tools')).tools
 }
 
 /**

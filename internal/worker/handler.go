@@ -22,7 +22,7 @@ type Payload struct {
 	// 空则 runner 不发过程事件、不落 conversation message（纯后台扫描）。
 	ConversationID string `json:"conversation_id,omitempty"`
 	// ScenarioID 是场景 code（web-pentest / passive-recon 等）；runner 据此从 configstore
-	// 解析 scenario（含 engine + playbook），注入主代理人设。必填。注意区别于 Role（worker 任务路由角色）。
+	// 解析 scenario（含 engine + 猎手编排），注入主代理人设。必填。注意区别于 Role（worker 任务路由角色）。
 	ScenarioID string          `json:"scenario_id,omitempty"`
 	Role       Role            `json:"role"`
 	Input      json.RawMessage `json:"input,omitempty"`

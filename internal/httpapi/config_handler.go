@@ -1,4 +1,4 @@
-// Package httpapi: scenario/playbook/hunter 配置 CRUD handler（前端配置管理页）。
+// Package httpapi: scenario/hunter 配置 CRUD handler（前端配置管理页）。
 //
 // 写路径一律走 configstore（自动落 DB + redis 广播失效），绝不直穿底层 store——
 // 否则 api 进程改配置后 runner 进程的本地 L1 不失效，会用旧配置装配（见 D7）。
@@ -13,11 +13,10 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 
 	cfghunter "github.com/V3teran/liusha/internal/config/hunter"
-	cfgplaybook "github.com/V3teran/liusha/internal/config/playbook"
 	cfgscenario "github.com/V3teran/liusha/internal/config/scenario"
 )
 
-// ConfigAPI 是三资源 CRUD handler 依赖的窄接口；*configstore.Store 自动满足。
+// ConfigAPI 是两资源（scenario/hunter）CRUD handler 依赖的窄接口；*configstore.Store 自动满足。
 // 读经缓存、写经失效广播的语义全在 configstore 内，handler 只做 HTTP 编解码 + 应用层校验。
 type ConfigAPI interface {
 	// scenario
@@ -25,13 +24,6 @@ type ConfigAPI interface {
 	ScenarioByID(ctx context.Context, id string) (cfgscenario.Scenario, error)
 	SaveScenario(ctx context.Context, p cfgscenario.NewParams) (cfgscenario.Scenario, error)
 	DeleteScenario(ctx context.Context, id, code string) error
-	// playbook
-	ListPlaybooks(ctx context.Context) ([]cfgplaybook.Playbook, error)
-	PlaybookByID(ctx context.Context, id string) (cfgplaybook.Playbook, error)
-	PlaybookHunters(ctx context.Context, playbookID string) ([]cfghunter.Hunter, error)
-	SavePlaybook(ctx context.Context, p cfgplaybook.NewParams) (cfgplaybook.Playbook, error)
-	SetHunters(ctx context.Context, playbookID string, items []cfgplaybook.PlaybookHunter) error
-	DeletePlaybook(ctx context.Context, id, code string) error
 	// hunter
 	ListHunters(ctx context.Context, onlyEnabled bool) ([]cfghunter.Hunter, error)
 	HunterByID(ctx context.Context, id string) (cfghunter.Hunter, error)
@@ -40,7 +32,7 @@ type ConfigAPI interface {
 }
 
 // isForeignKeyViolation 判定错误是否为 DB 外键约束冲突（pg 23503）。
-// 删 playbook/hunter 若被下游引用会撞 ON DELETE RESTRICT，据此转 409。
+// 删 hunter 若被 scenario.solo_hunter_id 引用会撞 ON DELETE RESTRICT，据此转 409。
 func isForeignKeyViolation(err error) bool {
 	var pgErr *pgconn.PgError
 	return errors.As(err, &pgErr) && pgErr.Code == "23503"
@@ -80,15 +72,16 @@ func getScenarioHandler(api ConfigAPI) gin.HandlerFunc {
 }
 
 // scenarioBody 是 POST/PUT scenario 的请求体。engine 应用层白名单校验。
+// SoloHunterID：solo 引擎必填（指定唯一执行猎手），swarm 引擎必须为空（子代理池=全部 enabled 领域猎手）。
 type scenarioBody struct {
-	Code        string `json:"code"`
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	Instruction string `json:"instruction"`
-	Domain      string `json:"domain"`
-	Engine      string `json:"engine"`
-	PlaybookID  string `json:"playbook_id"`
-	Enabled     bool   `json:"enabled"`
+	Code         string `json:"code"`
+	Name         string `json:"name"`
+	Description  string `json:"description"`
+	Instruction  string `json:"instruction"`
+	Domain       string `json:"domain"`
+	Engine       string `json:"engine"`
+	SoloHunterID string `json:"solo_hunter_id"`
+	Enabled      bool   `json:"enabled"`
 }
 
 // saveScenarioHandler 处理 POST /scenarios 与 PUT /scenarios/:id（均走 upsert-by-code）。
@@ -107,13 +100,23 @@ func saveScenarioHandler(api ConfigAPI) gin.HandlerFunc {
 			c.JSON(400, gin.H{"error": "非法 engine（应为 solo|swarm）"})
 			return
 		}
-		if b.PlaybookID == "" {
-			c.JSON(400, gin.H{"error": "playbook_id 不能为空"})
+		// solo 必须指定唯一猎手；swarm 不接受 solo_hunter_id（子代理池由全部 enabled 领域猎手动态构成）。
+		// 具体互斥再由 configstore→scenario.store 的 validateParams 做二次强校验，此处早失败给前端友好提示。
+		if b.Engine == cfgscenario.EngineSolo && b.SoloHunterID == "" {
+			c.JSON(400, gin.H{"error": "solo 引擎必须指定 solo_hunter_id"})
 			return
+		}
+		if b.Engine == cfgscenario.EngineSwarm && b.SoloHunterID != "" {
+			c.JSON(400, gin.H{"error": "swarm 引擎不接受 solo_hunter_id（子代理池=全部启用领域猎手）"})
+			return
+		}
+		var soloHunterID *string
+		if b.SoloHunterID != "" {
+			soloHunterID = &b.SoloHunterID
 		}
 		sc, err := api.SaveScenario(c.Request.Context(), cfgscenario.NewParams{
 			Code: b.Code, Name: b.Name, Description: b.Description, Instruction: b.Instruction,
-			Domain: b.Domain, Engine: b.Engine, PlaybookID: b.PlaybookID, Enabled: b.Enabled,
+			Domain: b.Domain, Engine: b.Engine, SoloHunterID: soloHunterID, Enabled: b.Enabled,
 		})
 		if err != nil {
 			c.JSON(500, gin.H{"error": err.Error()})
@@ -142,134 +145,18 @@ func deleteScenarioHandler(api ConfigAPI) gin.HandlerFunc {
 }
 
 // scenarioJSON 是 scenario 响应的单一序列化点（防字段漂移）。
+// solo_hunter_id 为空指针时序列化为 null（swarm 场景 / 未配置）。
 func scenarioJSON(sc cfgscenario.Scenario) gin.H {
+	var soloHunterID any
+	if sc.SoloHunterID != nil {
+		soloHunterID = *sc.SoloHunterID
+	}
 	return gin.H{
 		"id": sc.ID, "code": sc.Code, "name": sc.Name, "description": sc.Description,
 		"instruction": sc.Instruction, "domain": sc.Domain, "engine": sc.Engine,
-		"playbook_id": sc.PlaybookID, "enabled": sc.Enabled,
+		"solo_hunter_id": soloHunterID, "enabled": sc.Enabled,
 		"created_at": sc.CreatedAt, "updated_at": sc.UpdatedAt,
 	}
-}
-
-// ── playbook ──────────────────────────────────────────────────────────
-
-// listPlaybooksHandler 处理 GET /playbooks（全量，含 enabled）。
-func listPlaybooksHandler(api ConfigAPI) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		rows, err := api.ListPlaybooks(c.Request.Context())
-		if err != nil {
-			c.JSON(500, gin.H{"error": err.Error()})
-			return
-		}
-		out := make([]gin.H, 0, len(rows))
-		for _, r := range rows {
-			out = append(out, playbookJSON(r, nil))
-		}
-		c.JSON(200, gin.H{"playbooks": out})
-	}
-}
-
-// getPlaybookHandler 处理 GET /playbooks/:id（含有序 hunters 组合 [{hunter_id,position}]）。
-func getPlaybookHandler(api ConfigAPI) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		id := c.Param("id")
-		pb, err := api.PlaybookByID(c.Request.Context(), id)
-		if err != nil {
-			c.JSON(404, gin.H{"error": err.Error(), "id": id})
-			return
-		}
-		hunters, err := api.PlaybookHunters(c.Request.Context(), pb.ID)
-		if err != nil {
-			c.JSON(500, gin.H{"error": err.Error()})
-			return
-		}
-		c.JSON(200, gin.H{"playbook": playbookJSON(pb, hunters)})
-	}
-}
-
-// playbookBody 是 POST/PUT playbook 的请求体。hunters 非空时一并重设组合（SetHunters）。
-type playbookBody struct {
-	Code        string `json:"code"`
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	Enabled     bool   `json:"enabled"`
-	// Hunters：按序的领域猎手 id 列表；position 由数组下标决定（0-based）。
-	Hunters []string `json:"hunters"`
-}
-
-// savePlaybookHandler 处理 POST /playbooks 与 PUT /playbooks/:id。
-// 先 upsert playbook 主体（拿到权威 id），再按 hunters 数组重设组合关系。
-func savePlaybookHandler(api ConfigAPI) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		var b playbookBody
-		if err := c.ShouldBindJSON(&b); err != nil {
-			c.JSON(400, gin.H{"error": "请求体非法: " + err.Error()})
-			return
-		}
-		if b.Code == "" || b.Name == "" {
-			c.JSON(400, gin.H{"error": "code 与 name 不能为空"})
-			return
-		}
-		pb, err := api.SavePlaybook(c.Request.Context(), cfgplaybook.NewParams{
-			Code: b.Code, Name: b.Name, Description: b.Description, Enabled: b.Enabled,
-		})
-		if err != nil {
-			c.JSON(500, gin.H{"error": err.Error()})
-			return
-		}
-		items := make([]cfgplaybook.PlaybookHunter, 0, len(b.Hunters))
-		for i, hid := range b.Hunters {
-			items = append(items, cfgplaybook.PlaybookHunter{PlaybookID: pb.ID, HunterID: hid, Position: i})
-		}
-		if err := api.SetHunters(c.Request.Context(), pb.ID, items); err != nil {
-			c.JSON(500, gin.H{"error": err.Error()})
-			return
-		}
-		hunters, err := api.PlaybookHunters(c.Request.Context(), pb.ID)
-		if err != nil {
-			c.JSON(500, gin.H{"error": err.Error()})
-			return
-		}
-		c.JSON(200, gin.H{"playbook": playbookJSON(pb, hunters)})
-	}
-}
-
-// deletePlaybookHandler 处理 DELETE /playbooks/:id。
-// 被 scenario 引用时撞 DB ON DELETE RESTRICT（FK 23503）→ 409 中文提示。
-func deletePlaybookHandler(api ConfigAPI) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		id := c.Param("id")
-		pb, err := api.PlaybookByID(c.Request.Context(), id)
-		if err != nil {
-			c.JSON(404, gin.H{"error": err.Error(), "id": id})
-			return
-		}
-		if err := api.DeletePlaybook(c.Request.Context(), pb.ID, pb.Code); err != nil {
-			if isForeignKeyViolation(err) {
-				c.JSON(409, gin.H{"error": "该剧本仍被场景引用，请先解除引用再删除"})
-				return
-			}
-			c.JSON(500, gin.H{"error": err.Error()})
-			return
-		}
-		c.JSON(200, gin.H{"ok": true})
-	}
-}
-
-// playbookJSON 是 playbook 响应的单一序列化点。hunters 为 nil 时省略组合（列表页）。
-func playbookJSON(pb cfgplaybook.Playbook, hunters []cfghunter.Hunter) gin.H {
-	h := gin.H{
-		"id": pb.ID, "code": pb.Code, "name": pb.Name, "description": pb.Description,
-		"enabled": pb.Enabled, "created_at": pb.CreatedAt, "updated_at": pb.UpdatedAt,
-	}
-	if hunters != nil {
-		items := make([]gin.H, 0, len(hunters))
-		for i, hu := range hunters {
-			items = append(items, gin.H{"hunter_id": hu.ID, "position": i})
-		}
-		h["hunters"] = items
-	}
-	return h
 }
 
 // ── hunter ────────────────────────────────────────────────────────────
@@ -304,6 +191,7 @@ func getHunterHandler(api ConfigAPI) gin.HandlerFunc {
 }
 
 // hunterBody 是 POST/PUT hunter 的请求体。kind 应用层白名单校验。
+// Tools=内置函数工具；CliTools=外置 CLI 工具白名单（tools.yaml 名字），空=交战域内全部可见。
 type hunterBody struct {
 	Code          string   `json:"code"`
 	Kind          string   `json:"kind"`
@@ -311,6 +199,7 @@ type hunterBody struct {
 	Description   string   `json:"description"`
 	Body          string   `json:"body"`
 	Tools         []string `json:"tools"`
+	CliTools      []string `json:"cli_tools"`
 	MaxIterations int      `json:"max_iterations"`
 	Enabled       bool     `json:"enabled"`
 }
@@ -334,7 +223,8 @@ func saveHunterHandler(api ConfigAPI) gin.HandlerFunc {
 		}
 		h, err := api.SaveHunter(c.Request.Context(), cfghunter.NewParams{
 			Code: b.Code, Kind: kind, Name: b.Name, Description: b.Description,
-			Body: b.Body, Tools: b.Tools, MaxIterations: b.MaxIterations, Enabled: b.Enabled,
+			Body: b.Body, Tools: b.Tools, CliTools: b.CliTools,
+			MaxIterations: b.MaxIterations, Enabled: b.Enabled,
 		})
 		if err != nil {
 			c.JSON(500, gin.H{"error": err.Error()})
@@ -345,7 +235,7 @@ func saveHunterHandler(api ConfigAPI) gin.HandlerFunc {
 }
 
 // deleteHunterHandler 处理 DELETE /hunters/:id。
-// 被 playbook_hunter 引用时撞 DB ON DELETE RESTRICT（FK 23503）→ 409 中文提示。
+// 被 scenario.solo_hunter_id 引用时撞 DB ON DELETE RESTRICT（FK 23503）→ 409 中文提示。
 func deleteHunterHandler(api ConfigAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id := c.Param("id")
@@ -356,7 +246,7 @@ func deleteHunterHandler(api ConfigAPI) gin.HandlerFunc {
 		}
 		if err := api.DeleteHunter(c.Request.Context(), h.ID, h.Code); err != nil {
 			if isForeignKeyViolation(err) {
-				c.JSON(409, gin.H{"error": "该猎手仍被剧本引用，请先从剧本移除再删除"})
+				c.JSON(409, gin.H{"error": "该猎手仍被场景引用（solo 场景执行猎手），请先解除引用再删除"})
 				return
 			}
 			c.JSON(500, gin.H{"error": err.Error()})
@@ -366,15 +256,19 @@ func deleteHunterHandler(api ConfigAPI) gin.HandlerFunc {
 	}
 }
 
-// hunterJSON 是 hunter 响应的单一序列化点。tools 保证非 nil（前端按数组渲染）。
+// hunterJSON 是 hunter 响应的单一序列化点。tools/cli_tools 保证非 nil（前端按数组渲染）。
 func hunterJSON(h cfghunter.Hunter) gin.H {
 	tools := h.Tools
 	if tools == nil {
 		tools = []string{}
 	}
+	cliTools := h.CliTools
+	if cliTools == nil {
+		cliTools = []string{}
+	}
 	return gin.H{
 		"id": h.ID, "code": h.Code, "kind": string(h.Kind), "name": h.Name,
-		"description": h.Description, "body": h.Body, "tools": tools,
+		"description": h.Description, "body": h.Body, "tools": tools, "cli_tools": cliTools,
 		"max_iterations": h.MaxIterations, "enabled": h.Enabled,
 		"created_at": h.CreatedAt, "updated_at": h.UpdatedAt,
 	}

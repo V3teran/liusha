@@ -11,7 +11,6 @@ import (
 	"github.com/redis/go-redis/v9"
 
 	cfghunter "github.com/V3teran/liusha/internal/config/hunter"
-	cfgplaybook "github.com/V3teran/liusha/internal/config/playbook"
 	cfgscenario "github.com/V3teran/liusha/internal/config/scenario"
 )
 
@@ -45,7 +44,7 @@ func (f *fakeScenarios) GetByID(_ context.Context, id string) (cfgscenario.Scena
 }
 
 func (f *fakeScenarios) Create(_ context.Context, p cfgscenario.NewParams) (cfgscenario.Scenario, error) {
-	sc := cfgscenario.Scenario{ID: "id-" + p.Code, Code: p.Code, Name: p.Name, Instruction: p.Instruction, Engine: p.Engine, PlaybookID: p.PlaybookID, Enabled: p.Enabled}
+	sc := cfgscenario.Scenario{ID: "id-" + p.Code, Code: p.Code, Name: p.Name, Instruction: p.Instruction, Engine: p.Engine, SoloHunterID: p.SoloHunterID, Enabled: p.Enabled}
 	f.byCode[p.Code] = sc
 	return sc, nil
 }
@@ -74,10 +73,12 @@ func (f *fakeScenarios) List(_ context.Context, _ bool) ([]cfgscenario.Scenario,
 	return out, nil
 }
 
-// fakeHunters 是最小 hunter 底层 store 假实现（PlaybookHunters/Orchestrator 测试够用）。
+// fakeHunters 是最小 hunter 底层 store 假实现（EnabledDomain/Orchestrator 测试够用）。
 type fakeHunters struct {
-	orch    cfghunter.Hunter
-	orchHit int64
+	orch      cfghunter.Hunter
+	orchHit   int64
+	domain    []cfghunter.Hunter
+	domainHit int64
 }
 
 func (f *fakeHunters) GetByID(_ context.Context, id string) (cfghunter.Hunter, error) {
@@ -96,35 +97,13 @@ func (f *fakeHunters) Delete(_ context.Context, _ string) error { return nil }
 func (f *fakeHunters) List(_ context.Context, _ bool) ([]cfghunter.Hunter, error) {
 	return nil, nil
 }
+func (f *fakeHunters) ListEnabledDomain(_ context.Context) ([]cfghunter.Hunter, error) {
+	atomic.AddInt64(&f.domainHit, 1)
+	return f.domain, nil
+}
 func (f *fakeHunters) GetOrchestrator(_ context.Context) (cfghunter.Hunter, error) {
 	atomic.AddInt64(&f.orchHit, 1)
 	return f.orch, nil
-}
-
-// fakePlaybooks 是最小 playbook 底层 store 假实现。
-type fakePlaybooks struct{}
-
-func (fakePlaybooks) GetByID(_ context.Context, id string) (cfgplaybook.Playbook, error) {
-	return cfgplaybook.Playbook{ID: id}, nil
-}
-func (fakePlaybooks) GetByCode(_ context.Context, _ string) (cfgplaybook.Playbook, error) {
-	return cfgplaybook.Playbook{}, pgxErrNoRows()
-}
-func (fakePlaybooks) Create(_ context.Context, p cfgplaybook.NewParams) (cfgplaybook.Playbook, error) {
-	return cfgplaybook.Playbook{ID: "id-" + p.Code, Code: p.Code}, nil
-}
-func (fakePlaybooks) Update(_ context.Context, _ cfgplaybook.NewParams) (cfgplaybook.Playbook, error) {
-	return cfgplaybook.Playbook{}, pgxErrNoRows()
-}
-func (fakePlaybooks) Delete(_ context.Context, _ string) error { return nil }
-func (fakePlaybooks) List(_ context.Context) ([]cfgplaybook.Playbook, error) {
-	return nil, nil
-}
-func (fakePlaybooks) SetHunters(_ context.Context, _ string, _ []cfgplaybook.PlaybookHunter) error {
-	return nil
-}
-func (fakePlaybooks) ListHunters(_ context.Context, _ string) ([]cfghunter.Hunter, error) {
-	return nil, nil
 }
 
 // newTestStore 用 miniredis + 假底层 store 构造 Store，返回 store、场景假实现、miniredis。
@@ -134,7 +113,7 @@ func newTestStore(t *testing.T) (*Store, *fakeScenarios, *miniredis.Miniredis) {
 	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
 	t.Cleanup(func() { _ = rdb.Close() })
 	fs := &fakeScenarios{byCode: map[string]cfgscenario.Scenario{}}
-	s := newWithStores(fs, fakePlaybooks{}, &fakeHunters{}, rdb)
+	s := newWithStores(fs, &fakeHunters{}, rdb)
 	return s, fs, mr
 }
 
@@ -207,8 +186,8 @@ func TestSubscribe_CrossProcessInvalidation(t *testing.T) {
 		"web": {ID: "id-web", Code: "web", Name: "旧名", Engine: cfgscenario.EngineSwarm},
 	}}
 	fsB := &fakeScenarios{byCode: fsA.byCode} // 共享底层数据（同一 DB）
-	a := newWithStores(fsA, fakePlaybooks{}, &fakeHunters{}, rdb)
-	b := newWithStores(fsB, fakePlaybooks{}, &fakeHunters{}, rdb)
+	a := newWithStores(fsA, &fakeHunters{}, rdb)
+	b := newWithStores(fsB, &fakeHunters{}, rdb)
 
 	// 进程 B 起订阅。
 	go func() { _ = b.Subscribe(ctx) }()
@@ -221,7 +200,7 @@ func TestSubscribe_CrossProcessInvalidation(t *testing.T) {
 
 	// A 改名（走 upsert Update），PUBLISH 失效。
 	if _, err := a.SaveScenario(ctx, cfgscenario.NewParams{
-		Code: "web", Name: "新名", Engine: cfgscenario.EngineSwarm, PlaybookID: "id-pb",
+		Code: "web", Name: "新名", Engine: cfgscenario.EngineSwarm,
 	}); err != nil {
 		t.Fatalf("A save: %v", err)
 	}
@@ -247,7 +226,7 @@ func TestOrchestrator_SentinelKeyCached(t *testing.T) {
 	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
 	t.Cleanup(func() { _ = rdb.Close() })
 	fh := &fakeHunters{orch: cfghunter.Hunter{ID: "id-orch", Code: "orchestrator", Kind: cfghunter.KindOrchestrator}}
-	s := newWithStores(&fakeScenarios{byCode: map[string]cfgscenario.Scenario{}}, fakePlaybooks{}, fh, rdb)
+	s := newWithStores(&fakeScenarios{byCode: map[string]cfgscenario.Scenario{}}, fh, rdb)
 
 	for i := 0; i < 3; i++ {
 		if _, err := s.Orchestrator(ctx); err != nil {
@@ -256,6 +235,65 @@ func TestOrchestrator_SentinelKeyCached(t *testing.T) {
 	}
 	if got := atomic.LoadInt64(&fh.orchHit); got != 1 {
 		t.Fatalf("期望编排猎手只打底层 1 次，实际 %d", got)
+	}
+}
+
+// TestEnabledDomainHunters_SentinelKeyCached 验证：EnabledDomainHunters 首读打底层、
+// 后续命中哨兵键缓存（swarm 子代理池的读穿透）。
+func TestEnabledDomainHunters_SentinelKeyCached(t *testing.T) {
+	ctx := context.Background()
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { _ = rdb.Close() })
+	fh := &fakeHunters{domain: []cfghunter.Hunter{
+		{ID: "id-recon", Code: "reconnaissance", Kind: cfghunter.KindDomain},
+		{ID: "id-exploit", Code: "exploitation", Kind: cfghunter.KindDomain},
+	}}
+	s := newWithStores(&fakeScenarios{byCode: map[string]cfgscenario.Scenario{}}, fh, rdb)
+
+	for i := 0; i < 3; i++ {
+		got, err := s.EnabledDomainHunters(ctx)
+		if err != nil {
+			t.Fatalf("enabled domain read #%d: %v", i, err)
+		}
+		if len(got) != 2 {
+			t.Fatalf("期望 2 个领域猎手，实际 %d", len(got))
+		}
+	}
+	if got := atomic.LoadInt64(&fh.domainHit); got != 1 {
+		t.Fatalf("期望领域池只打底层 1 次，实际 %d", got)
+	}
+}
+
+// TestSaveHunter_InvalidatesSentinels 验证：SaveHunter 后两个哨兵键都被清（下次读重打底层）。
+func TestSaveHunter_InvalidatesSentinels(t *testing.T) {
+	ctx := context.Background()
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { _ = rdb.Close() })
+	fh := &fakeHunters{
+		orch:   cfghunter.Hunter{ID: "id-orch", Code: "orchestrator", Kind: cfghunter.KindOrchestrator},
+		domain: []cfghunter.Hunter{{ID: "id-recon", Code: "reconnaissance", Kind: cfghunter.KindDomain}},
+	}
+	s := newWithStores(&fakeScenarios{byCode: map[string]cfgscenario.Scenario{}}, fh, rdb)
+
+	// 暖起两个哨兵键。
+	if _, err := s.Orchestrator(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.EnabledDomainHunters(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	// 写一个猎手 → 两个哨兵键应被失效。
+	if _, err := s.SaveHunter(ctx, cfghunter.NewParams{Code: "new", Kind: cfghunter.KindDomain, Name: "新"}); err != nil {
+		t.Fatalf("save hunter: %v", err)
+	}
+	if _, ok := s.l1.get(keyOrchestrator); ok {
+		t.Fatal("编排哨兵键应被清")
+	}
+	if _, ok := s.l1.get(keyEnabledDomain); ok {
+		t.Fatal("领域池哨兵键应被清")
 	}
 }
 

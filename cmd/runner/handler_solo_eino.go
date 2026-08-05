@@ -10,7 +10,6 @@ import (
 
 	hunterbuilder "github.com/V3teran/liusha/internal/builder/hunter"
 	cfghunter "github.com/V3teran/liusha/internal/config/hunter"
-	cfgplaybook "github.com/V3teran/liusha/internal/config/playbook"
 	cfgscenario "github.com/V3teran/liusha/internal/config/scenario"
 	"github.com/V3teran/liusha/internal/einoagent"
 	"github.com/V3teran/liusha/internal/skill"
@@ -22,21 +21,19 @@ import (
 // （react 路径走 cfg.OnAbort step 内回调；eino RunSolo 无 step 钩子，改后台 watcher + cancel ctx。）
 const abortPollInterval = 5 * time.Second
 
-// handleSoloEino 是 solo 引擎入口（单代理，playbook domain 猎手压扁）。
+// handleSoloEino 是 solo 引擎入口（单代理，无编排）。
 //
-// 装配规则（对应 D2）：不用 orchestrator；把 playbook 内各 domain 猎手的 body 按 position 有序拼成
-// 单个 ChatModelAgent 的 system 指令（scen.Instruction 作领域侧重置于其前），tools 取各猎手工具集的并集
-// （去重）→ einoagent.RunSolo（ChatModelAgent + Runner）。
+// 装配规则（对应 D2）：scenario.solo_hunter_id 指向唯一执行 hunter。以该 hunter 的 code 为
+// LLM 路由 role（einoFactory.For 未配置即回退默认 provider）、body 为 system 指令（scen.Instruction
+// 作领域侧重置于其前）、Tools 为其内置工具集 → einoagent.RunSolo（ChatModelAgent + Runner）。
 //
 // 与 swarm 路径共享：sandbox 生命周期、prompt 资产、stores、owner 中止语义、per-run 中间件（einoRunOpts）。
-func (h handler) handleSoloEino(ctx context.Context, p worker.Payload, scen cfgscenario.Scenario, pb cfgplaybook.Playbook, hunters []cfghunter.Hunter, brief string) error {
+func (h handler) handleSoloEino(ctx context.Context, p worker.Payload, scen cfgscenario.Scenario, hunter cfghunter.Hunter, brief string) error {
 	if brief == "" {
 		return h.failTask(ctx, p.HunterID, fmt.Errorf("solo 引擎缺 brief"))
 	}
-	if len(hunters) == 0 {
-		return h.failTask(ctx, p.HunterID, fmt.Errorf("playbook %s 无 domain 猎手", pb.Code))
-	}
 
+	role := hunter.Code // LLM 路由键 + 计费/会话归属键（全 handler 统一用它，不再硬编码）
 	tid := p.HunterID
 	taskID := p.TaskID
 	// 入口重置心跳：把 reaper 判活的起点从「建 task」移到「worker 真正接手」，避免排队时间吃掉
@@ -53,8 +50,8 @@ func (h handler) handleSoloEino(ctx context.Context, p worker.Payload, scen cfgs
 		}
 	}
 
-	// per-hunter 独立 eino ChatModel（铁律）
-	model, err := h.einoFactory.For(ctx, "traffic-analysis")
+	// per-hunter 独立 eino ChatModel（铁律）：按该 hunter 的 code 路由 provider/model。
+	model, err := h.einoFactory.For(ctx, role)
 	if err != nil {
 		return h.failTask(ctx, p.HunterID, err)
 	}
@@ -88,12 +85,12 @@ func (h handler) handleSoloEino(ctx context.Context, p worker.Payload, scen cfgs
 		Flows:    flows,
 		Sandbox:  sandboxClient,
 		Domain:   scen.Domain,
+		CliTools: hunter.CliTools,
 	}
 
-	// tools 取各 domain 猎手工具集的并集（去重，见 D2）：合成一个 union HunterDef，复用
-	// BuildHunterTools 的注册表建法（与 swarm 子代理同源门控——依赖缺失即报错，暴露配置缺漏）。
-	unionDef := einoagent.HunterDef{ID: scen.Code, Tools: unionHunterTools(hunters)}
-	tools, err := einoagent.BuildHunterTools(unionDef, einoagent.ToolBuildCtx{
+	// tools 取该 hunter 的内置工具集：复用 BuildHunterTools 的注册表建法（与 swarm 子代理同源
+	// 门控——依赖缺失即报错，暴露配置缺漏）。
+	tools, err := einoagent.BuildHunterTools(hunterDefFromConfig(hunter), einoagent.ToolBuildCtx{
 		Deps: h.einoToolDeps(sandboxClient),
 		Params: einoagent.TrafficAnalysisToolParams{
 			TaskID:   taskID,
@@ -105,15 +102,15 @@ func (h handler) handleSoloEino(ctx context.Context, p worker.Payload, scen cfgs
 		return h.failTask(ctx, p.HunterID, err)
 	}
 
-	// instruction：公共底座 + 各 domain 猎手 body 按 position 有序拼接（scen.Instruction 作领域侧重置于其前）。
-	instruction := composeSoloInstruction(scen, hunters)
-	// maxIters 取所选猎手 MaxIterations 的最大值（0 = 用 RunSolo 默认）。
-	maxIters := maxHunterIterations(hunters)
+	// instruction：公共底座 + 该 hunter 的 body（scen.Instruction 作领域侧重置于 body 前）。
+	instruction := composeSoloInstruction(scen, hunter)
+	// maxIters 取该 hunter 的 MaxIterations（0 = 用 RunSolo 默认）。
+	maxIters := hunter.MaxIterations
 	userPrompt := hunterbuilder.BuildUserPrompt(ctx, h.hunterDeps, params)
 
 	// 多轮追问连贯性：把本会话最近历史（含用户实时指导）拼到 prompt 前，让 agent 看到上下文、
 	// 调整方向（与 swarm orchestrator 同源 conversationContext）。首轮/无会话/读失败时为空串。
-	if hist := h.conversationContext(ctx, p.ConversationID, "traffic-analysis", brief); hist != "" {
+	if hist := h.conversationContext(ctx, p.ConversationID, role, brief); hist != "" {
 		userPrompt = hist + "\n" + userPrompt
 	}
 
@@ -121,7 +118,7 @@ func (h handler) handleSoloEino(ctx context.Context, p worker.Payload, scen cfgs
 	// compaction（防 context 爆）+ tool_invocation 遥测 + 截图回灌 + llm_invocation 计费。
 	// ★ 早期 passive handler 手工只挂了 compaction + 计费，漏了 ToolRecorder（→ tool_invocation
 	// 不落库）和 VisionRelay（→ trafficAnalysis 跑 run_command 截图会 mimo 400）。统一走 einoRunOpts 补齐。
-	mws, agentHandlers, opts, cleanup, err := h.einoRunOpts(ctx, tid, taskID, "traffic-analysis", p.ConversationID)
+	mws, agentHandlers, opts, cleanup, err := h.einoRunOpts(ctx, tid, taskID, role, p.ConversationID)
 	if err != nil {
 		return h.failTask(ctx, p.HunterID, fmt.Errorf("einoRunOpts: %w", err))
 	}
@@ -172,54 +169,24 @@ func (h handler) handleSoloEino(ctx context.Context, p worker.Payload, scen cfgs
 	}
 	finalizeTask(true, "")
 	// 收尾反思蒸馏（§5.2）：正常 complete 才提炼跨目标知识（best-effort，不阻塞收尾）。
-	h.distillCorpus(ctx, taskID, p.ConversationID, "traffic-analysis", host)
+	h.distillCorpus(ctx, taskID, p.ConversationID, role, host)
 	return h.hunters.SetDone(ctx, p.HunterID, out)
 }
 
-// composeSoloInstruction 拼 solo 单代理 system 指令：公共底座 + 各 domain 猎手 body 按 position 有序
-// 拼接（scen.Instruction 作领域侧重置于猎手 body 前）。
-func composeSoloInstruction(scen cfgscenario.Scenario, hunters []cfghunter.Hunter) string {
+// composeSoloInstruction 拼 solo 单代理 system 指令：公共底座 + 该 hunter 的 body
+// （scen.Instruction 作领域侧重置于 body 前）。
+func composeSoloInstruction(scen cfgscenario.Scenario, hunter cfghunter.Hunter) string {
 	var b strings.Builder
 	b.WriteString(hunterbuilder.SystemPrompt())
 	if scen.Instruction != "" {
 		b.WriteString("\n\n")
 		b.WriteString(scen.Instruction)
 	}
-	for _, hn := range hunters {
-		if hn.Body == "" {
-			continue
-		}
+	if hunter.Body != "" {
 		b.WriteString("\n\n")
-		b.WriteString(hn.Body)
+		b.WriteString(hunter.Body)
 	}
 	return b.String()
-}
-
-// unionHunterTools 取各猎手 Tools 的并集（去重，保序：按猎手顺序、猎手内工具顺序首次出现）。
-func unionHunterTools(hunters []cfghunter.Hunter) []string {
-	seen := make(map[string]struct{})
-	var out []string
-	for _, hn := range hunters {
-		for _, t := range hn.Tools {
-			if _, dup := seen[t]; dup {
-				continue
-			}
-			seen[t] = struct{}{}
-			out = append(out, t)
-		}
-	}
-	return out
-}
-
-// maxHunterIterations 取各猎手 MaxIterations 的最大值（0 = 交给 RunSolo 用默认）。
-func maxHunterIterations(hunters []cfghunter.Hunter) int {
-	max := 0
-	for _, hn := range hunters {
-		if hn.MaxIterations > max {
-			max = hn.MaxIterations
-		}
-	}
-	return max
 }
 
 // watchAbort 后台轮询 task 中止状态；非 active 即 cancel，让 RunSolo 停。

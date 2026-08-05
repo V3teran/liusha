@@ -68,10 +68,11 @@ echo "===== 2/6 清空 db / redis ====="
 # 0079：lesson → corpus（跨目标知识库，hybrid RAG）——lesson 表已删，改 truncate corpus。
 # 0085：运行时表 hunter → hunter_run 改名。此后 hunter 是 config 定义表（seed 首填的事实源，
 # 跨 run 持久），运行时行落 hunter_run。**绝不能 truncate config 表**——
-# hunter/playbook/playbook_hunter/scenario 是 seed insert-only 语义的前提；一旦 truncate hunter，
-# CASCADE 会连带清空 playbook_hunter 结合（hunter_id FK），而 playbook 表不清 → 重启 seed 判定
-# 剧本「已存在」跳过组合 → 结合永久为空 → orchestrator「无 domain 子代理」→ task 失败。
-# 故这里清运行时表 hunter_run（旧脚本误清 config 表 hunter，是 swarm 派发失败根因）。
+# hunter/scenario 是 seed insert-only 语义的前提；一旦 truncate hunter，
+# CASCADE 会连带清空 scenario.solo_hunter_id 引用（ON DELETE RESTRICT 反会阻断），
+# 且重启 seed 判定 hunter「已存在」跳过 → swarm 领域池空 → orchestrator「无 domain 子代理」→ task 失败。
+# 0089：playbook 层整体删除（playbook/playbook_hunter 表已 drop）——swarm 池=全部 enabled 领域猎手，
+# solo 由 scenario.solo_hunter_id 单点指定。故这里清运行时表 hunter_run（旧脚本误清 config 表 hunter，是 swarm 派发失败根因）。
 # task 放最后——CASCADE 会连带清 hunter_run/finding/... 的 task_id 引用行，但显式全列更清晰。
 if ! docker exec "$PG_CONTAINER" psql -U liusha -d liusha -c \
     "TRUNCATE TABLE finding, corpus, llm_invocation, tool_invocation, audit_log, hunter_run, proxy_traffic, agent_traffic, conversation, task, assignment, cron_schedule CASCADE;"; then

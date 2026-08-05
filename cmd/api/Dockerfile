@@ -15,5 +15,8 @@ COPY --from=build /out/api /app/api
 COPY config /app/config
 # scenarios：场景 role（roles/*.md）。cmd/api 默认从 ./scenarios 读，漏拷会致 /roles 空、场景人设失效。
 COPY scenarios /app/scenarios
+# tools.yaml：供 GET /tooling/tools 给 HunterAdmin cli_tools 白名单候选。cmd/api 默认从
+# ./deployments/tool-images/pentools/tools.yaml 读，漏拷则该端点不注册、配置页候选为空。
+COPY deployments/tool-images/pentools/tools.yaml /app/deployments/tool-images/pentools/tools.yaml
 EXPOSE 8080
 ENTRYPOINT ["/app/api"]

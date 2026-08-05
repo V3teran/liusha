@@ -5,7 +5,6 @@ import {
   Bug,
   Cpu,
   KeyRound,
-  Layers,
   MessageSquare,
   Moon,
   Network,
@@ -34,7 +33,6 @@ const NAV_ITEMS: NavItem[] = [
   { to: '/llm-audit', label: 'LLM 审计', icon: Cpu },
   { to: '/credentials', label: '凭证库', icon: KeyRound },
   { to: '/config/scenarios', label: '场景', icon: Target },
-  { to: '/config/playbooks', label: '剧本', icon: Layers },
   { to: '/config/hunters', label: '智能体', icon: Bot },
 ]
 

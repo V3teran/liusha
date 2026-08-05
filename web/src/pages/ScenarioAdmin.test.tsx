@@ -3,8 +3,8 @@ import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { ScenarioAdmin } from './ScenarioAdmin'
 import { listScenarios } from '@/api/client'
-import { saveScenario, deleteScenario, listPlaybookConfigs } from '@/api/config'
-import type { ScenarioConfig, PlaybookConfig } from '@/api/types'
+import { saveScenario, deleteScenario, listHunterConfigs } from '@/api/config'
+import type { ScenarioConfig, HunterConfig } from '@/api/types'
 
 vi.mock('@/api/client', () => ({
   listScenarios: vi.fn(),
@@ -13,13 +13,13 @@ vi.mock('@/api/client', () => ({
 vi.mock('@/api/config', () => ({
   saveScenario: vi.fn(),
   deleteScenario: vi.fn(),
-  listPlaybookConfigs: vi.fn(),
+  listHunterConfigs: vi.fn(),
 }))
 
 const mListSc = listScenarios as unknown as ReturnType<typeof vi.fn>
 const mSave = saveScenario as unknown as ReturnType<typeof vi.fn>
 const mDelete = deleteScenario as unknown as ReturnType<typeof vi.fn>
-const mListPb = listPlaybookConfigs as unknown as ReturnType<typeof vi.fn>
+const mListHunters = listHunterConfigs as unknown as ReturnType<typeof vi.fn>
 
 function sc(o: Partial<ScenarioConfig> = {}): ScenarioConfig {
   return {
@@ -30,20 +30,31 @@ function sc(o: Partial<ScenarioConfig> = {}): ScenarioConfig {
     instruction: '',
     domain: 'web',
     engine: 'swarm',
-    playbook_id: 'pb-1',
+    solo_hunter_id: '',
     enabled: true,
     ...o,
   }
 }
-const pb: PlaybookConfig = { id: 'pb-1', code: 'p', name: 'Web 剧本', description: '', enabled: true }
+const hunter: HunterConfig = {
+  id: 'h-recon',
+  code: 'recon',
+  kind: 'domain',
+  name: '侦察智能体',
+  description: '',
+  body: '',
+  tools: [],
+  cli_tools: [],
+  max_iterations: 20,
+  enabled: true,
+}
 
 describe('ScenarioAdmin', () => {
   beforeEach(() => {
     mListSc.mockReset()
     mSave.mockReset()
     mDelete.mockReset()
-    mListPb.mockReset()
-    mListPb.mockResolvedValue([pb])
+    mListHunters.mockReset()
+    mListHunters.mockResolvedValue([hunter])
     vi.spyOn(window, 'alert').mockImplementation(() => {})
     vi.spyOn(window, 'confirm').mockReturnValue(true)
   })
@@ -98,5 +109,22 @@ describe('ScenarioAdmin', () => {
     render(<ScenarioAdmin />)
     await userEvent.click(await screen.findByText('新建'))
     expect((await screen.findByText('保存')).closest('button')).toHaveProperty('disabled', true)
+  })
+
+  it('solo 场景回填执行智能体选择器', async () => {
+    mListSc.mockResolvedValue([sc({ engine: 'solo', solo_hunter_id: 'h-recon' })])
+    render(<ScenarioAdmin />)
+    await userEvent.click(await screen.findByText('Web 渗透'))
+    expect(await screen.findByText('执行智能体')).toBeTruthy()
+    // 选中项应为回填的领域智能体。
+    const select = (await screen.findByText('侦察智能体')).closest('select') as HTMLSelectElement
+    expect(select.value).toBe('h-recon')
+  })
+
+  it('swarm 场景显示无需指定提示', async () => {
+    mListSc.mockResolvedValue([sc({ engine: 'swarm' })])
+    render(<ScenarioAdmin />)
+    await userEvent.click(await screen.findByText('Web 渗透'))
+    expect(await screen.findByText(/运行期自动纳入全部启用的领域智能体/)).toBeTruthy()
   })
 })

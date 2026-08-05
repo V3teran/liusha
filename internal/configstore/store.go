@@ -1,4 +1,4 @@
-// Package configstore 是 scenario/playbook/hunter 配置的多级缓存读写层：
+// Package configstore 是 scenario/hunter 配置的多级缓存读写层：
 // 内存 L1（本进程）→ redis L2（跨进程共享 + 失效总线）→ DB（事实源）。
 //
 // 为何分层（见 D7）：api 与 runner 是**多进程**。前端在 api 改配置后，runner 的本地
@@ -20,14 +20,12 @@ import (
 	"github.com/redis/go-redis/v9"
 
 	cfghunter "github.com/V3teran/liusha/internal/config/hunter"
-	cfgplaybook "github.com/V3teran/liusha/internal/config/playbook"
 	cfgscenario "github.com/V3teran/liusha/internal/config/scenario"
 )
 
 // 资源类型标签（失效消息 kind 字段 + 缓存键前缀）。
 const (
 	kindScenario = "scenario"
-	kindPlaybook = "playbook"
 	kindHunter   = "hunter"
 )
 
@@ -45,18 +43,6 @@ type scenarioStore interface {
 	List(ctx context.Context, onlyEnabled bool) ([]cfgscenario.Scenario, error)
 }
 
-// playbookStore 是 configstore 依赖的 playbook 底层能力（*cfgplaybook.Store 满足）。
-type playbookStore interface {
-	GetByID(ctx context.Context, id string) (cfgplaybook.Playbook, error)
-	GetByCode(ctx context.Context, code string) (cfgplaybook.Playbook, error)
-	Create(ctx context.Context, p cfgplaybook.NewParams) (cfgplaybook.Playbook, error)
-	Update(ctx context.Context, p cfgplaybook.NewParams) (cfgplaybook.Playbook, error)
-	Delete(ctx context.Context, code string) error
-	List(ctx context.Context) ([]cfgplaybook.Playbook, error)
-	SetHunters(ctx context.Context, playbookID string, items []cfgplaybook.PlaybookHunter) error
-	ListHunters(ctx context.Context, playbookID string) ([]cfghunter.Hunter, error)
-}
-
 // hunterStore 是 configstore 依赖的 hunter 底层能力（*cfghunter.Store 满足）。
 type hunterStore interface {
 	GetByID(ctx context.Context, id string) (cfghunter.Hunter, error)
@@ -65,13 +51,13 @@ type hunterStore interface {
 	Update(ctx context.Context, p cfghunter.NewParams) (cfghunter.Hunter, error)
 	Delete(ctx context.Context, code string) error
 	List(ctx context.Context, onlyEnabled bool) ([]cfghunter.Hunter, error)
+	ListEnabledDomain(ctx context.Context) ([]cfghunter.Hunter, error)
 	GetOrchestrator(ctx context.Context) (cfghunter.Hunter, error)
 }
 
 // Store 编排多级读写：底层 DB store + redis(L2/总线) + 进程内 L1。
 type Store struct {
 	scenarios scenarioStore
-	playbooks playbookStore
 	hunters   hunterStore
 	rdb       *redis.Client
 	l1        *l1Cache
@@ -81,26 +67,28 @@ type Store struct {
 func New(pool *pgxpool.Pool, rdb *redis.Client) *Store {
 	return newWithStores(
 		cfgscenario.NewStore(pool),
-		cfgplaybook.NewStore(pool),
 		cfghunter.NewStore(pool),
 		rdb,
 	)
 }
 
 // newWithStores 用已构造的底层 store 装配（测试注入 mock 用）。
-func newWithStores(sc scenarioStore, pb playbookStore, hn hunterStore, rdb *redis.Client) *Store {
-	return &Store{scenarios: sc, playbooks: pb, hunters: hn, rdb: rdb, l1: newL1()}
+func newWithStores(sc scenarioStore, hn hunterStore, rdb *redis.Client) *Store {
+	return &Store{scenarios: sc, hunters: hn, rdb: rdb, l1: newL1()}
 }
 
 // ── 缓存键（L1/L2 同键，统一前缀 configstore:）───────────────────────────
 
-const keyOrchestrator = "configstore:hunter:orchestrator"
+// keyOrchestrator / keyEnabledDomain 是两个哨兵键（无参），分别缓存全局唯一编排猎手
+// 与 swarm 的 enabled 领域池。任一 hunter 存/删即失效二者（见 SaveHunter/DeleteHunter）。
+const (
+	keyOrchestrator  = "configstore:hunter:orchestrator"
+	keyEnabledDomain = "configstore:hunters:enabled_domain"
+)
 
-func keyScenarioCode(code string) string  { return "configstore:scenario:code:" + code }
-func keyScenarioID(id string) string      { return "configstore:scenario:id:" + id }
-func keyPlaybookID(id string) string      { return "configstore:playbook:id:" + id }
-func keyHunterID(id string) string        { return "configstore:hunter:id:" + id }
-func keyPlaybookHunters(id string) string { return "configstore:playbook_hunters:" + id }
+func keyScenarioCode(code string) string { return "configstore:scenario:code:" + code }
+func keyScenarioID(id string) string     { return "configstore:scenario:id:" + id }
+func keyHunterID(id string) string       { return "configstore:hunter:id:" + id }
 
 // ── 小工具 ────────────────────────────────────────────────────────────
 
@@ -183,16 +171,7 @@ func (s *Store) ScenarioByID(ctx context.Context, id string) (cfgscenario.Scenar
 		})
 }
 
-// PlaybookByID 按 uuid 读剧本（派发经 scenario.playbook_id FK；无 by-code 消费者）。
-func (s *Store) PlaybookByID(ctx context.Context, id string) (cfgplaybook.Playbook, error) {
-	return readThrough(ctx, s, keyPlaybookID(id),
-		func(pb cfgplaybook.Playbook) []string { return []string{keyPlaybookID(pb.ID)} },
-		func(ctx context.Context) (cfgplaybook.Playbook, error) {
-			return s.playbooks.GetByID(ctx, id)
-		})
-}
-
-// HunterByID 按 uuid 读猎手（CRUD :id；无 by-code 消费者）。
+// HunterByID 按 uuid 读猎手（CRUD :id；solo 派发经 scenario.solo_hunter_id）。
 func (s *Store) HunterByID(ctx context.Context, id string) (cfghunter.Hunter, error) {
 	return readThrough(ctx, s, keyHunterID(id),
 		func(h cfghunter.Hunter) []string { return []string{keyHunterID(h.ID)} },
@@ -201,12 +180,12 @@ func (s *Store) HunterByID(ctx context.Context, id string) (cfghunter.Hunter, er
 		})
 }
 
-// PlaybookHunters 按 position 有序返回剧本内 domain 猎手（solo 拼 body / swarm 列子代理）。
-func (s *Store) PlaybookHunters(ctx context.Context, playbookID string) ([]cfghunter.Hunter, error) {
-	return readThrough(ctx, s, keyPlaybookHunters(playbookID),
-		func([]cfghunter.Hunter) []string { return []string{keyPlaybookHunters(playbookID)} },
+// EnabledDomainHunters 返回全部 enabled 领域猎手（swarm 子代理池），缓存于哨兵键。
+func (s *Store) EnabledDomainHunters(ctx context.Context) ([]cfghunter.Hunter, error) {
+	return readThrough(ctx, s, keyEnabledDomain,
+		func([]cfghunter.Hunter) []string { return []string{keyEnabledDomain} },
 		func(ctx context.Context) ([]cfghunter.Hunter, error) {
-			return s.playbooks.ListHunters(ctx, playbookID)
+			return s.hunters.ListEnabledDomain(ctx)
 		})
 }
 
@@ -224,11 +203,6 @@ func (s *Store) Orchestrator(ctx context.Context) (cfghunter.Hunter, error) {
 // ListScenarios 直穿底层 store（admin 列表页低频，不落缓存）。
 func (s *Store) ListScenarios(ctx context.Context, onlyEnabled bool) ([]cfgscenario.Scenario, error) {
 	return s.scenarios.List(ctx, onlyEnabled)
-}
-
-// ListPlaybooks 直穿底层 store。
-func (s *Store) ListPlaybooks(ctx context.Context) ([]cfgplaybook.Playbook, error) {
-	return s.playbooks.List(ctx)
 }
 
 // ListHunters 直穿底层 store。
@@ -262,23 +236,8 @@ func (s *Store) SaveScenario(ctx context.Context, p cfgscenario.NewParams) (cfgs
 	return sc, nil
 }
 
-// SavePlaybook upsert 一个剧本（按 code），失效其 id 键。组合关系另经 SetHunters。
-func (s *Store) SavePlaybook(ctx context.Context, p cfgplaybook.NewParams) (cfgplaybook.Playbook, error) {
-	pb, err := s.playbooks.Update(ctx, p)
-	if isNotFound(err) {
-		pb, err = s.playbooks.Create(ctx, p)
-	}
-	if err != nil {
-		return cfgplaybook.Playbook{}, err
-	}
-	if err := s.invalidate(ctx, invalidation{Kind: kindPlaybook, ID: pb.ID}); err != nil {
-		return pb, err
-	}
-	return pb, nil
-}
-
-// SaveHunter upsert 一个猎手（按 code），失效其 id 键；并**总是**失效编排哨兵键
-// （猎手可能被提/降为 orchestrator，一律清哨兵最省心且正确）。
+// SaveHunter upsert 一个猎手（按 code），失效其 id 键；并**总是**失效两个哨兵键
+// （猎手可能被提/降为 orchestrator，或 enabled/kind 变动影响领域池，一律清哨兵最省心且正确）。
 func (s *Store) SaveHunter(ctx context.Context, p cfghunter.NewParams) (cfghunter.Hunter, error) {
 	h, err := s.hunters.Update(ctx, p)
 	if isNotFound(err) {
@@ -287,18 +246,10 @@ func (s *Store) SaveHunter(ctx context.Context, p cfghunter.NewParams) (cfghunte
 	if err != nil {
 		return cfghunter.Hunter{}, err
 	}
-	if err := s.invalidate(ctx, invalidation{Kind: kindHunter, ID: h.ID, Orchestrator: true}); err != nil {
+	if err := s.invalidate(ctx, invalidation{Kind: kindHunter, ID: h.ID, Sentinels: true}); err != nil {
 		return h, err
 	}
 	return h, nil
-}
-
-// SetHunters 事务重设剧本组合，失效该剧本的 playbook_hunters 派生键。
-func (s *Store) SetHunters(ctx context.Context, playbookID string, items []cfgplaybook.PlaybookHunter) error {
-	if err := s.playbooks.SetHunters(ctx, playbookID, items); err != nil {
-		return err
-	}
-	return s.invalidate(ctx, invalidation{Kind: kindPlaybook, PlaybookID: playbookID})
 }
 
 // DeleteScenario 按 code 删场景，失效 code+id 两张映射。
@@ -309,20 +260,11 @@ func (s *Store) DeleteScenario(ctx context.Context, id, code string) error {
 	return s.invalidate(ctx, invalidation{Kind: kindScenario, ID: id, Code: code})
 }
 
-// DeletePlaybook 按 code 删剧本（组合随 CASCADE 清），失效其 id 键 + 组合派生键。
-// 被 scenario 引用时撞 DB ON DELETE RESTRICT，错误透传给 handler 转 409。
-func (s *Store) DeletePlaybook(ctx context.Context, id, code string) error {
-	if err := s.playbooks.Delete(ctx, code); err != nil {
-		return err
-	}
-	return s.invalidate(ctx, invalidation{Kind: kindPlaybook, ID: id, PlaybookID: id})
-}
-
-// DeleteHunter 按 code 删猎手，失效其 id 键 + 编排哨兵键。
-// 被 playbook_hunter 引用时撞 DB ON DELETE RESTRICT，错误透传给 handler 转 409。
+// DeleteHunter 按 code 删猎手，失效其 id 键 + 两个哨兵键。
+// 被 scenario.solo_hunter_id 引用时撞 DB ON DELETE RESTRICT，错误透传给 handler 转 409。
 func (s *Store) DeleteHunter(ctx context.Context, id, code string) error {
 	if err := s.hunters.Delete(ctx, code); err != nil {
 		return err
 	}
-	return s.invalidate(ctx, invalidation{Kind: kindHunter, ID: id, Orchestrator: true})
+	return s.invalidate(ctx, invalidation{Kind: kindHunter, ID: id, Sentinels: true})
 }
