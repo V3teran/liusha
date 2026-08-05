@@ -33,7 +33,7 @@ function textToTools(text: string): string[] {
     .filter(Boolean)
 }
 
-// 智能体配置管理页（后端资源仍名 hunter）：领域智能体方法论 charter + 工具集 + 派活摘要，全字段编辑。
+// 智能体配置管理页（后端资源仍名 hunter）：领域智能体系统提示词 + 工具集 + 调度摘要，全字段编辑。
 export function HunterAdmin() {
   const [rows, setRows] = useState<HunterConfig[]>([])
   const [loading, setLoading] = useState(false)
@@ -99,7 +99,7 @@ export function HunterAdmin() {
     <>
       <ConfigListShell
         title="智能体"
-        subtitle="领域智能体的方法论 charter、工具集与派活摘要，剧本据此组合"
+        subtitle="领域智能体的系统提示词、工具集与调度摘要，剧本据此编排"
         loading={loading}
         error={error}
         empty={rows.length === 0}
@@ -109,8 +109,8 @@ export function HunterAdmin() {
         {rows.map((h) => (
           <ConfigRow
             key={h.id}
-            code={h.code}
             name={h.name}
+            description={h.description}
             dimmed={!h.enabled}
             onClick={() => openDraft(h)}
             right={
@@ -135,7 +135,7 @@ export function HunterAdmin() {
         {draft && (
           <>
             <div className="flex gap-3">
-              <Field label="Code" hint="业务主键">
+              <Field label="标识符" hint="业务主键">
                 <input
                   className={INPUT_CLASS}
                   value={draft.code}
@@ -143,35 +143,35 @@ export function HunterAdmin() {
                   onChange={(e) => patch({ code: e.target.value })}
                 />
               </Field>
-              <Field label="种类">
+              <Field label="类型">
                 <select
                   className={INPUT_CLASS}
                   value={draft.kind}
                   onChange={(e) => patch({ kind: e.target.value as HunterKind })}
                 >
-                  <option value="domain">领域（domain）</option>
-                  <option value="orchestrator">编排（orchestrator）</option>
+                  <option value="domain">领域智能体</option>
+                  <option value="orchestrator">编排智能体</option>
                 </select>
               </Field>
             </div>
             <Field label="名称">
               <input className={INPUT_CLASS} value={draft.name} onChange={(e) => patch({ name: e.target.value })} />
             </Field>
-            <Field label="派活摘要" hint="swarm 时注入编排者据此选派（非给人看的简介）">
+            <Field label="调度摘要" hint="多智能体协同时编排者据此选派（非面向用户的描述）">
               <input
                 className={INPUT_CLASS}
                 value={draft.description}
                 onChange={(e) => patch({ description: e.target.value })}
               />
             </Field>
-            <Field label="方法论 charter" hint="该智能体跑起来时的 system 指令">
+            <Field label="系统提示词" hint="该智能体运行时的 system prompt">
               <textarea
                 className={INPUT_CLASS + ' min-h-40 resize-y font-mono'}
                 value={draft.body}
                 onChange={(e) => patch({ body: e.target.value })}
               />
             </Field>
-            <Field label="工具集" hint="内部函数工具 code，每行一个">
+            <Field label="工具集" hint="内部函数工具标识符，每行一个">
               <textarea
                 className={INPUT_CLASS + ' min-h-24 resize-y font-mono'}
                 value={toolsText}
@@ -179,7 +179,7 @@ export function HunterAdmin() {
                 onChange={(e) => setToolsText(e.target.value)}
               />
             </Field>
-            <Field label="最大迭代轮数" hint="ReAct 上限">
+            <Field label="最大迭代轮数" hint="ReAct 推理循环上限">
               <input
                 type="number"
                 min={1}

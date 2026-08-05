@@ -1,6 +1,6 @@
 # 被动流量侦察剧本（solo 引擎用）
 # solo 拼接剧本内 domain 猎手的 body 作单代理提示；此剧本仅一名流量分析猎手。
-code: passive-recon
+id: passive-recon
 name: 被动流量侦察剧本
 description: solo 单代理执行的被动流量分析组合。
 hunters:

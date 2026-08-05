@@ -28,7 +28,7 @@ function emptyCopy(source: 'manual' | 'auto') {
     : {
         mark: '⌖',
         title: '发起一次渗透扫描',
-        desc: '在下方选择场景、描述目标（URL / 账号 / 测试方向），实时观察 orchestrator 派活、工具调用与漏洞产出。',
+        desc: '在下方选择场景、描述目标（URL / 账号 / 测试方向），实时观察智能体调度、工具调用与漏洞产出。',
       }
 }
 

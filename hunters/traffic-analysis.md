@@ -1,6 +1,6 @@
 ---
 id: traffic-analysis
-name: traffic-analysis
+name: 流量分析智能体
 kind: domain
 description: 流量分析域猎手。拿本 task 认领的一批 mitmproxy 捕获流量（已在 prompt 全量列出），从 response 线索反推可控点、追到漏洞落库。不主动发现攻击面（流量已绑 host）。用于 solo 引擎的被动流量分析 playbook。
 tools:

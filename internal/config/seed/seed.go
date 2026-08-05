@@ -51,9 +51,10 @@ type scenarioFront struct {
 }
 
 // playbookFile 是 playbooks/*.yaml 的整文件解析目标。
-// hunters 是有序的 hunter code 清单，落 playbook_hunter.position。
+// id 用作稳定引用键 code（与 hunter/scenario frontmatter 对齐）；
+// hunters 是有序的 hunter id 清单，落 playbook_hunter.position。
 type playbookFile struct {
-	Code        string   `yaml:"code"`
+	ID          string   `yaml:"id"`
 	Name        string   `yaml:"name"`
 	Description string   `yaml:"description"`
 	Hunters     []string `yaml:"hunters"`
@@ -189,9 +190,9 @@ func importPlaybooks(ctx context.Context, dir string, p *cfgplaybook.Store, h *c
 		if err := yaml.Unmarshal(raw, &f); err != nil {
 			return fmt.Errorf("解析 %s: %w", path, err)
 		}
-		code := strings.TrimSpace(f.Code)
+		code := strings.TrimSpace(f.ID)
 		if code == "" {
-			return fmt.Errorf("%s: 缺 code", path)
+			return fmt.Errorf("%s: 缺 id", path)
 		}
 		if _, err := p.GetByCode(ctx, code); err == nil {
 			continue // 已存在→连组合一并跳过（insert-only）
