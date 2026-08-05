@@ -142,7 +142,7 @@ export function TimelineThread() {
         role="log"
         aria-live="polite"
         aria-relevant="additions"
-        aria-label="作战轨迹"
+        aria-label="执行轨迹"
         onScroll={onScroll}
       >
         {rows.map((r) => {

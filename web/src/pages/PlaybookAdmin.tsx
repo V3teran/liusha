@@ -16,8 +16,8 @@ function blankPlaybook(): PlaybookConfig {
   return { id: '', code: '', name: '', description: '', enabled: true, hunters: [] }
 }
 
-// 剧本配置管理页：一个剧本 = 一组带顺序的领域猎手。编辑时拉全量猎手作候选，
-// 已选猎手按序展示、可上下移/移除；保存时按数组下标定 position。
+// 剧本配置管理页：一个剧本 = 一组有序的领域智能体。编辑时拉全量智能体作候选，
+// 已选按序展示、可上下移/移除；保存时按数组下标定 position。
 export function PlaybookAdmin() {
   const [rows, setRows] = useState<PlaybookConfig[]>([])
   const [hunters, setHunters] = useState<HunterConfig[]>([])
@@ -116,7 +116,7 @@ export function PlaybookAdmin() {
     <>
       <ConfigListShell
         title="剧本"
-        subtitle="一组带顺序的领域智能体，场景引用剧本决定派哪些智能体作战"
+        subtitle="一组有序的领域智能体，场景绑定剧本决定派发哪些智能体"
         loading={loading}
         error={error}
         empty={rows.length === 0}
@@ -126,8 +126,8 @@ export function PlaybookAdmin() {
         {rows.map((pb) => (
           <ConfigRow
             key={pb.id}
-            code={pb.code}
             name={pb.name}
+            description={pb.description}
             dimmed={!pb.enabled}
             onClick={() => void openEdit(pb)}
             right={!pb.enabled ? <Badge variant="outline">已停用</Badge> : undefined}
@@ -146,7 +146,7 @@ export function PlaybookAdmin() {
       >
         {draft && (
           <>
-            <Field label="Code" hint="业务主键">
+            <Field label="标识符" hint="业务主键">
               <input
                 className={INPUT_CLASS}
                 value={draft.code}
@@ -157,7 +157,7 @@ export function PlaybookAdmin() {
             <Field label="名称">
               <input className={INPUT_CLASS} value={draft.name} onChange={(e) => patch({ name: e.target.value })} />
             </Field>
-            <Field label="简介">
+            <Field label="描述">
               <input
                 className={INPUT_CLASS}
                 value={draft.description}
@@ -165,7 +165,7 @@ export function PlaybookAdmin() {
               />
             </Field>
 
-            <Field label="智能体组合" hint="按顺序执行，可上下移">
+            <Field label="智能体序列" hint="按顺序执行，可上下移">
               <div className="flex flex-col gap-1.5">
                 {selected.length === 0 && (
                   <p className="rounded-md border border-dashed border-border px-3 py-2 text-[12.5px] text-muted">

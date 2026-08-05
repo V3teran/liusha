@@ -28,8 +28,8 @@ export function ConfigDrawer({
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
-        <Dialog.Overlay className="tac-modal-overlay fixed inset-0 z-40 bg-black/50 backdrop-blur-sm" />
-        <Dialog.Content className="tac-modal fixed left-1/2 top-1/2 z-50 flex max-h-[86vh] w-[560px] max-w-[calc(100vw-2rem)] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-xl border border-accent/30 bg-surface shadow-[var(--shadow-lg),var(--glow-accent)] focus:outline-none">
+        <Dialog.Overlay className="tac-modal-overlay fixed inset-0 z-40 bg-black/40 backdrop-blur-[2px]" />
+        <Dialog.Content className="tac-modal fixed left-1/2 top-1/2 z-50 flex max-h-[88vh] w-[820px] max-w-[calc(100vw-2rem)] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-xl border border-accent/30 bg-surface shadow-[var(--shadow-lg),var(--glow-accent)] focus:outline-none">
           <div className="tac-dots relative flex items-center justify-between border-b border-border px-5 py-4">
             <Dialog.Title className="font-mono text-base font-semibold text-text">{title}</Dialog.Title>
             <Dialog.Close className="mr-11 text-muted hover:text-text" aria-label="关闭">

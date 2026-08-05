@@ -64,7 +64,7 @@ export function ConfigListShell({
         ) : empty ? (
           <div className="py-16 text-center text-[13.5px] text-muted">{emptyHint}</div>
         ) : (
-          <div className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-3">{pageItems}</div>
+          <div className="grid grid-cols-[repeat(auto-fill,minmax(300px,1fr))] gap-4">{pageItems}</div>
         )}
       </div>
 
@@ -114,18 +114,18 @@ function PagerBar({
   )
 }
 
-// 配置卡片：整卡可点开编辑抽屉。顶部 code（等宽）+ 右侧徽章/元信息，下方 name。
-// 从「整行」改为网格卡片，消除单行铺满的空旷感。
+// 配置卡片：整卡可点开编辑抽屉。名称为主（大字），描述为次（多行省略），右上徽章/元信息。
+// 不展示 code（内部标识符），面向用户只见名称与描述。
 export function ConfigRow({
-  code,
   name,
+  description,
   onClick,
   right,
   dimmed = false,
   active = false,
 }: {
-  code: string
   name: string
+  description?: string // 次要说明，两行截断
   onClick: () => void
   right?: ReactNode // 右侧徽章/元信息
   dimmed?: boolean // disabled 项淡显
@@ -136,7 +136,7 @@ export function ConfigRow({
       type="button"
       onClick={onClick}
       className={
-        'flex min-h-[76px] flex-col justify-between gap-2 rounded-xl border bg-surface px-4 py-3 text-left transition-all ' +
+        'flex min-h-[120px] flex-col gap-2 rounded-xl border bg-surface px-5 py-4 text-left transition-all ' +
         (active
           ? 'tac-row-active'
           : 'border-border hover:border-accent/60 hover:bg-surface-2 hover:shadow-[var(--glow-accent)]') +
@@ -144,12 +144,12 @@ export function ConfigRow({
       }
     >
       <div className="flex items-start justify-between gap-2">
-        <code className="flex-shrink-0 rounded border border-accent/30 bg-accent-soft px-1.5 py-0.5 font-mono text-[11.5px] text-accent">
-          {code}
-        </code>
-        {right}
+        <span className="min-w-0 flex-1 truncate text-[15px] font-semibold text-text">{name}</span>
+        {right && <div className="flex-shrink-0">{right}</div>}
       </div>
-      <span className="min-w-0 truncate text-[13.5px] text-text">{name}</span>
+      <p className="tac-clamp-2 min-w-0 text-[12.5px] leading-relaxed text-muted">
+        {description || '暂无描述'}
+      </p>
     </button>
   )
 }

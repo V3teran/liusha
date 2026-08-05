@@ -6,6 +6,12 @@ import { Badge } from '@/components/ui/badge'
 import { ConfigListShell, ConfigRow } from '@/features/config/ConfigListShell'
 import { ConfigDrawer, Field, INPUT_CLASS } from '@/features/config/ConfigDrawer'
 
+// 执行模式展示标签（后端枚举值不变，仅前端呈现）。
+const ENGINE_LABEL: Record<ScenarioEngine, string> = {
+  solo: '单智能体',
+  swarm: '多智能体协同',
+}
+
 // 新建场景的空白初值。engine 默认 swarm，enabled 默认 true。
 function blankScenario(): ScenarioConfig {
   return {
@@ -21,7 +27,7 @@ function blankScenario(): ScenarioConfig {
   }
 }
 
-// 场景配置管理页：全字段编辑（含 disabled）。场景 = 引用一个剧本 + 选 engine + 交战域。
+// 场景配置管理页：全字段编辑（含 disabled）。场景 = 绑定一个剧本 + 执行模式 + 领域。
 export function ScenarioAdmin() {
   const [rows, setRows] = useState<ScenarioConfig[]>([])
   const [playbooks, setPlaybooks] = useState<PlaybookConfig[]>([])
@@ -85,7 +91,7 @@ export function ScenarioAdmin() {
     <>
       <ConfigListShell
         title="场景"
-        subtitle="引用一个剧本 + 选引擎（solo/swarm）+ 交战域，是运行期派发的入口配置"
+        subtitle="绑定一个剧本、执行模式与领域，是运行期派发的入口配置"
         loading={loading}
         error={error}
         empty={rows.length === 0}
@@ -95,13 +101,13 @@ export function ScenarioAdmin() {
         {rows.map((sc) => (
           <ConfigRow
             key={sc.id}
-            code={sc.code}
             name={sc.name}
+            description={sc.description}
             dimmed={!sc.enabled}
             onClick={() => setDraft(sc)}
             right={
               <div className="flex flex-shrink-0 items-center gap-2">
-                <Badge variant="outline">{sc.engine}</Badge>
+                <Badge variant="outline">{ENGINE_LABEL[sc.engine]}</Badge>
                 {!sc.enabled && <Badge variant="outline">已停用</Badge>}
               </div>
             }
@@ -120,7 +126,7 @@ export function ScenarioAdmin() {
       >
         {draft && (
           <>
-            <Field label="Code" hint="业务主键，创建后作 task.scenario_id 存值">
+            <Field label="标识符" hint="业务主键，创建后作 task.scenario_id 存值">
               <input
                 className={INPUT_CLASS}
                 value={draft.code}
@@ -131,14 +137,14 @@ export function ScenarioAdmin() {
             <Field label="名称">
               <input className={INPUT_CLASS} value={draft.name} onChange={(e) => patch({ name: e.target.value })} />
             </Field>
-            <Field label="简介">
+            <Field label="描述">
               <input
                 className={INPUT_CLASS}
                 value={draft.description}
                 onChange={(e) => patch({ description: e.target.value })}
               />
             </Field>
-            <Field label="剧本" hint="该场景使用的智能体组合">
+            <Field label="剧本" hint="该场景派发的智能体序列">
               <select
                 className={INPUT_CLASS}
                 value={draft.playbook_id}
@@ -155,17 +161,17 @@ export function ScenarioAdmin() {
               </select>
             </Field>
             <div className="flex gap-3">
-              <Field label="引擎">
+              <Field label="执行模式" hint="单体或多智能体协同">
                 <select
                   className={INPUT_CLASS}
                   value={draft.engine}
                   onChange={(e) => patch({ engine: e.target.value as ScenarioEngine })}
                 >
-                  <option value="solo">solo</option>
-                  <option value="swarm">swarm</option>
+                  <option value="solo">单智能体</option>
+                  <option value="swarm">多智能体协同</option>
                 </select>
               </Field>
-              <Field label="交战域" hint="web/ctf/cloud…">
+              <Field label="领域" hint="web / ctf / cloud…">
                 <input
                   className={INPUT_CLASS}
                   value={draft.domain}
@@ -174,7 +180,7 @@ export function ScenarioAdmin() {
                 />
               </Field>
             </div>
-            <Field label="领域指令" hint="注入 AI 的场景侧重（system 指令）">
+            <Field label="场景系统提示" hint="注入模型的场景侧重（system prompt）">
               <textarea
                 className={INPUT_CLASS + ' min-h-32 resize-y font-mono'}
                 value={draft.instruction}
@@ -187,7 +193,7 @@ export function ScenarioAdmin() {
                 checked={draft.enabled}
                 onChange={(e) => patch({ enabled: e.target.checked })}
               />
-              启用（停用后 picker 与运行期都拿不到此场景）
+              启用（停用后选择器与运行期都拿不到此场景）
             </label>
           </>
         )}
