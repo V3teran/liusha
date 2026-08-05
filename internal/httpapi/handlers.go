@@ -35,7 +35,7 @@ type TaskSummary struct {
 	ID           string `json:"id"`
 	Scope        string `json:"scope"` // jsonb raw：{"brief":..., "target_host":...}
 	Status       string `json:"status"`
-	ScenarioID   string `json:"scenario_id"`        // 所属场景 code（引擎/playbook 由其解析）
+	ScenarioID   string `json:"scenario_id"`        // 所属场景 code（引擎/猎手编排由其解析）
 	CreatedAt    string `json:"created_at"`         // RFC3339
 	EndedAt      string `json:"ended_at,omitempty"` // RFC3339（可空）
 	ErrorMessage string `json:"error_message,omitempty"`
@@ -145,7 +145,7 @@ type ScanAPI interface {
 //
 // Brief 必填——用户自然语言任务简报，含目标 URL/IP / 账号密码 / 测试方向等全部信息。
 // 后端不解析 brief（不抽 URL、不做 NL parser），整段透传给 hunter LLM 自行识别。
-// ScenarioID 必填——场景 code，runner 据此数据驱动派发引擎与 playbook。
+// ScenarioID 必填——场景 code，runner 据此数据驱动派发引擎与猎手编排。
 //
 // 例：
 //

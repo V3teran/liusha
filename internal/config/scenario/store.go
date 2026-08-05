@@ -19,16 +19,24 @@ func NewStore(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
 const defaultDomain = "web"
 
 // colsSelect 是所有 SELECT / RETURNING 路径的统一列序，与 scan() 字段一一对应。
-const colsSelect = "id, code, name, description, instruction, domain, engine, playbook_id::text, enabled, created_at, updated_at"
+const colsSelect = "id, code, name, description, instruction, domain, engine, solo_hunter_id::text, enabled, created_at, updated_at"
 
-// validateEngine 应用层校验 engine（与 DB CHECK 双保险）。
-func validateEngine(e string) error {
-	switch e {
-	case EngineSolo, EngineSwarm:
-		return nil
+// validateParams 应用层校验 engine 与 solo_hunter_id 的耦合（与 DB CHECK 双保险）：
+// solo 必须指定 solo_hunter_id，swarm 必须为空。
+func validateParams(p NewParams) error {
+	switch p.Engine {
+	case EngineSolo:
+		if p.SoloHunterID == nil || *p.SoloHunterID == "" {
+			return fmt.Errorf("solo 场景必须指定 solo_hunter_id")
+		}
+	case EngineSwarm:
+		if p.SoloHunterID != nil && *p.SoloHunterID != "" {
+			return fmt.Errorf("swarm 场景不得指定 solo_hunter_id")
+		}
 	default:
-		return fmt.Errorf("非法 engine %q（应为 solo|swarm）", e)
+		return fmt.Errorf("非法 engine %q（应为 solo|swarm）", p.Engine)
 	}
+	return nil
 }
 
 // normalizeDomain 把空 domain 折成默认值 web（应用层兜底，DB 也有 DEFAULT）。
@@ -41,15 +49,15 @@ func normalizeDomain(d string) string {
 
 // Create 插入一行场景，返回回读的完整行。
 func (s *Store) Create(ctx context.Context, p NewParams) (Scenario, error) {
-	if err := validateEngine(p.Engine); err != nil {
+	if err := validateParams(p); err != nil {
 		return Scenario{}, fmt.Errorf("create scenario: %w", err)
 	}
 	row := s.pool.QueryRow(ctx, `
-		INSERT INTO scenario (code, name, description, instruction, domain, engine, playbook_id, enabled)
+		INSERT INTO scenario (code, name, description, instruction, domain, engine, solo_hunter_id, enabled)
 		VALUES ($1, $2, $3, $4, $5, $6, $7::uuid, $8)
 		RETURNING `+colsSelect,
 		p.Code, p.Name, p.Description, p.Instruction, normalizeDomain(p.Domain),
-		p.Engine, p.PlaybookID, p.Enabled)
+		p.Engine, p.SoloHunterID, p.Enabled)
 	var sc Scenario
 	if err := scan(row, &sc); err != nil {
 		return Scenario{}, fmt.Errorf("create scenario %q: %w", p.Code, err)
@@ -59,16 +67,16 @@ func (s *Store) Create(ctx context.Context, p NewParams) (Scenario, error) {
 
 // Update 按 code 全量更新一行场景。
 func (s *Store) Update(ctx context.Context, p NewParams) (Scenario, error) {
-	if err := validateEngine(p.Engine); err != nil {
+	if err := validateParams(p); err != nil {
 		return Scenario{}, fmt.Errorf("update scenario: %w", err)
 	}
 	row := s.pool.QueryRow(ctx, `
 		UPDATE scenario
-		SET name=$2, description=$3, instruction=$4, domain=$5, engine=$6, playbook_id=$7::uuid, enabled=$8, updated_at=now()
+		SET name=$2, description=$3, instruction=$4, domain=$5, engine=$6, solo_hunter_id=$7::uuid, enabled=$8, updated_at=now()
 		WHERE code=$1
 		RETURNING `+colsSelect,
 		p.Code, p.Name, p.Description, p.Instruction, normalizeDomain(p.Domain),
-		p.Engine, p.PlaybookID, p.Enabled)
+		p.Engine, p.SoloHunterID, p.Enabled)
 	var sc Scenario
 	if err := scan(row, &sc); err != nil {
 		return Scenario{}, fmt.Errorf("update scenario %q: %w", p.Code, err)
@@ -140,5 +148,5 @@ type scanner interface {
 // scan 是 colsSelect 列序的统一反序列化点。
 func scan(r scanner, sc *Scenario) error {
 	return r.Scan(&sc.ID, &sc.Code, &sc.Name, &sc.Description, &sc.Instruction,
-		&sc.Domain, &sc.Engine, &sc.PlaybookID, &sc.Enabled, &sc.CreatedAt, &sc.UpdatedAt)
+		&sc.Domain, &sc.Engine, &sc.SoloHunterID, &sc.Enabled, &sc.CreatedAt, &sc.UpdatedAt)
 }

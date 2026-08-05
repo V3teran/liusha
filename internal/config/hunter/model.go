@@ -6,8 +6,8 @@
 // 的 hunter 包（M2）冲突。
 //
 // kind：
-//   - orchestrator：engine=swarm 时自动注入的编排猎手，全局唯一，不进 playbook 组合池
-//   - domain      ：领域猎手，可被任意 playbook 自由组合
+//   - orchestrator：engine=swarm 时自动注入的编排猎手，全局唯一，不进领域池
+//   - domain      ：领域猎手，swarm 时入自动池、solo 时被场景单点引用
 package hunter
 
 import "time"
@@ -23,7 +23,8 @@ const (
 // Hunter 是 hunter 配置表行的 Go 表示。
 //   - Description：派活摘要，swarm 时注入 deep task 工具供编排者据此选派（非给人看的简介）
 //   - Body       ：方法论正文（charter），该猎手跑起来时的 system 指令
-//   - Tools      ：本猎手工具集（内部函数工具 code 列表），走 jsonb ↔ []string
+//   - Tools      ：内置函数工具集（run_command/write_finding… 的 code 列表），走 jsonb ↔ []string
+//   - CliTools    ：外置 CLI 工具白名单（tools.yaml 名字），独立于 Tools；空 = 域内全部可见
 type Hunter struct {
 	ID            string
 	Code          string
@@ -32,6 +33,7 @@ type Hunter struct {
 	Description   string
 	Body          string
 	Tools         []string
+	CliTools      []string
 	MaxIterations int
 	Enabled       bool
 	CreatedAt     time.Time
@@ -46,6 +48,7 @@ type NewParams struct {
 	Description   string
 	Body          string
 	Tools         []string
+	CliTools      []string
 	MaxIterations int
 	Enabled       bool
 }

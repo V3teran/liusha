@@ -11,24 +11,18 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 
 	cfghunter "github.com/V3teran/liusha/internal/config/hunter"
-	cfgplaybook "github.com/V3teran/liusha/internal/config/playbook"
 	cfgscenario "github.com/V3teran/liusha/internal/config/scenario"
+	"github.com/V3teran/liusha/internal/tools/manifest"
 )
 
-// fakeConfig 是 ConfigAPI 的内存实现，记录调用以断言 handler 编排。
+// fakeConfig 是 ConfigAPI 的内存实现，记录调用以断言 handler 编排（playbook 层已废）。
 type fakeConfig struct {
 	scenarios []cfgscenario.Scenario
-	playbooks map[string]cfgplaybook.Playbook // by id
-	hunters   map[string]cfghunter.Hunter     // by id
+	hunters   map[string]cfghunter.Hunter // by id
 
-	savedPlaybook  *cfgplaybook.NewParams
-	setHuntersCall *setHuntersArgs
-	deletePlaybook error // DeletePlaybook 返回的错误（模拟 RESTRICT）
-}
-
-type setHuntersArgs struct {
-	playbookID string
-	items      []cfgplaybook.PlaybookHunter
+	savedScenario *cfgscenario.NewParams
+	savedHunter   *cfghunter.NewParams
+	deleteHunter  error // DeleteHunter 返回的错误（模拟 FK RESTRICT）
 }
 
 func (f *fakeConfig) ListScenarios(_ context.Context, onlyEnabled bool) ([]cfgscenario.Scenario, error) {
@@ -52,35 +46,10 @@ func (f *fakeConfig) ScenarioByID(_ context.Context, id string) (cfgscenario.Sce
 	return cfgscenario.Scenario{}, pgxErrNoRows()
 }
 func (f *fakeConfig) SaveScenario(_ context.Context, p cfgscenario.NewParams) (cfgscenario.Scenario, error) {
-	return cfgscenario.Scenario{ID: "sc-new", Code: p.Code, Name: p.Name, Engine: p.Engine, PlaybookID: p.PlaybookID}, nil
+	f.savedScenario = &p
+	return cfgscenario.Scenario{ID: "sc-new", Code: p.Code, Name: p.Name, Engine: p.Engine, SoloHunterID: p.SoloHunterID}, nil
 }
 func (f *fakeConfig) DeleteScenario(_ context.Context, _, _ string) error { return nil }
-
-func (f *fakeConfig) ListPlaybooks(_ context.Context) ([]cfgplaybook.Playbook, error) {
-	out := make([]cfgplaybook.Playbook, 0, len(f.playbooks))
-	for _, p := range f.playbooks {
-		out = append(out, p)
-	}
-	return out, nil
-}
-func (f *fakeConfig) PlaybookByID(_ context.Context, id string) (cfgplaybook.Playbook, error) {
-	if p, ok := f.playbooks[id]; ok {
-		return p, nil
-	}
-	return cfgplaybook.Playbook{}, pgxErrNoRows()
-}
-func (f *fakeConfig) PlaybookHunters(_ context.Context, _ string) ([]cfghunter.Hunter, error) {
-	return nil, nil
-}
-func (f *fakeConfig) SavePlaybook(_ context.Context, p cfgplaybook.NewParams) (cfgplaybook.Playbook, error) {
-	f.savedPlaybook = &p
-	return cfgplaybook.Playbook{ID: "pb-1", Code: p.Code, Name: p.Name}, nil
-}
-func (f *fakeConfig) SetHunters(_ context.Context, playbookID string, items []cfgplaybook.PlaybookHunter) error {
-	f.setHuntersCall = &setHuntersArgs{playbookID: playbookID, items: items}
-	return nil
-}
-func (f *fakeConfig) DeletePlaybook(_ context.Context, _, _ string) error { return f.deletePlaybook }
 
 func (f *fakeConfig) ListHunters(_ context.Context, _ bool) ([]cfghunter.Hunter, error) {
 	out := make([]cfghunter.Hunter, 0, len(f.hunters))
@@ -96,9 +65,15 @@ func (f *fakeConfig) HunterByID(_ context.Context, id string) (cfghunter.Hunter,
 	return cfghunter.Hunter{}, pgxErrNoRows()
 }
 func (f *fakeConfig) SaveHunter(_ context.Context, p cfghunter.NewParams) (cfghunter.Hunter, error) {
-	return cfghunter.Hunter{ID: "h-new", Code: p.Code, Kind: p.Kind, Name: p.Name}, nil
+	f.savedHunter = &p
+	return cfghunter.Hunter{ID: "h-new", Code: p.Code, Kind: p.Kind, Name: p.Name, CliTools: p.CliTools}, nil
 }
-func (f *fakeConfig) DeleteHunter(_ context.Context, _, _ string) error { return nil }
+func (f *fakeConfig) DeleteHunter(_ context.Context, _, _ string) error { return f.deleteHunter }
+
+// fakeTooling 是 ToolingAPI 的内存实现，供 /tooling/tools 测试。
+type fakeTooling struct{ byCat map[string][]manifest.Tool }
+
+func (f *fakeTooling) ByCategory() map[string][]manifest.Tool { return f.byCat }
 
 // pgxErrNoRows 复用底层 store 的 not-found 语义供 mock 返回。
 func pgxErrNoRows() error { return pgx.ErrNoRows }
@@ -126,12 +101,13 @@ func doJSON(t *testing.T, method, url string, body any) (int, map[string]any) {
 }
 
 // TestListScenarios_ReturnsAllWithFullFields：GET /scenarios 单一口径返回全量（含
-// disabled）+ 全字段（含 instruction/engine/enabled）。picker 与配置页共用此响应，
-// 可见 ≠ 可用交由前端按 enabled 区分（无 ?all 分流）。
+// disabled）+ 全字段（含 instruction/engine/solo_hunter_id/enabled）。picker 与配置页
+// 共用此响应，可见 ≠ 可用交由前端按 enabled 区分（无 ?all 分流）。
 func TestListScenarios_ReturnsAllWithFullFields(t *testing.T) {
+	solo := "h-recon"
 	fc := &fakeConfig{scenarios: []cfgscenario.Scenario{
-		{ID: "s1", Code: "on", Name: "启用", Instruction: "I1", Engine: "swarm", PlaybookID: "pb-1", Enabled: true},
-		{ID: "s2", Code: "off", Name: "停用", Instruction: "I2", Engine: "solo", PlaybookID: "pb-1", Enabled: false},
+		{ID: "s1", Code: "on", Name: "启用", Instruction: "I1", Engine: "swarm", Enabled: true},
+		{ID: "s2", Code: "off", Name: "停用", Instruction: "I2", Engine: "solo", SoloHunterID: &solo, Enabled: false},
 	}}
 	srv := newTestServer(t, Deps{ConfigStore: fc})
 	defer srv.Close()
@@ -145,10 +121,63 @@ func TestListScenarios_ReturnsAllWithFullFields(t *testing.T) {
 		t.Fatalf("应返回全量含 disabled，got %d", len(arr))
 	}
 	first, _ := arr[0].(map[string]any)
-	for _, k := range []string{"id", "code", "name", "description", "instruction", "engine", "playbook_id", "enabled"} {
+	for _, k := range []string{"id", "code", "name", "description", "instruction", "engine", "solo_hunter_id", "enabled"} {
 		if _, ok := first[k]; !ok {
 			t.Fatalf("缺全字段 %q: %v", k, first)
 		}
+	}
+}
+
+// TestPostScenario_SoloRequiresHunter：solo 引擎缺 solo_hunter_id → 400 中文。
+func TestPostScenario_SoloRequiresHunter(t *testing.T) {
+	srv := newTestServer(t, Deps{ConfigStore: &fakeConfig{}})
+	defer srv.Close()
+
+	code, body := doJSON(t, "POST", srv.URL+"/scenarios", map[string]any{
+		"code": "c", "name": "n", "engine": "solo",
+	})
+	if code != 400 {
+		t.Fatalf("want 400, got %d (%v)", code, body)
+	}
+	if _, ok := body["error"].(string); !ok {
+		t.Fatalf("缺中文 error 字段: %v", body)
+	}
+}
+
+// TestPostScenario_SwarmRejectsHunter：swarm 引擎带 solo_hunter_id → 400 中文
+// （子代理池=全部 enabled 领域猎手，不接受单点指定）。
+func TestPostScenario_SwarmRejectsHunter(t *testing.T) {
+	srv := newTestServer(t, Deps{ConfigStore: &fakeConfig{}})
+	defer srv.Close()
+
+	code, body := doJSON(t, "POST", srv.URL+"/scenarios", map[string]any{
+		"code": "c", "name": "n", "engine": "swarm", "solo_hunter_id": "h-recon",
+	})
+	if code != 400 {
+		t.Fatalf("want 400, got %d (%v)", code, body)
+	}
+	if _, ok := body["error"].(string); !ok {
+		t.Fatalf("缺中文 error 字段: %v", body)
+	}
+}
+
+// TestPostScenario_SoloWiresHunter：solo + solo_hunter_id → SaveScenario 收到 *string。
+func TestPostScenario_SoloWiresHunter(t *testing.T) {
+	fc := &fakeConfig{}
+	srv := newTestServer(t, Deps{ConfigStore: fc})
+	defer srv.Close()
+
+	code, _ := doJSON(t, "POST", srv.URL+"/scenarios", map[string]any{
+		"code": "passive", "name": "被动", "engine": "solo", "solo_hunter_id": "h-recon",
+	})
+	if code != 200 {
+		t.Fatalf("status=%d", code)
+	}
+	if fc.savedScenario == nil {
+		t.Fatal("SaveScenario 未被调用")
+	}
+	if fc.savedScenario.SoloHunterID == nil || *fc.savedScenario.SoloHunterID != "h-recon" {
+		t.Fatalf("SoloHunterID 未透传: %+v", fc.savedScenario)
 	}
 }
 
@@ -178,47 +207,64 @@ func TestPostHunter_ValidationRejects(t *testing.T) {
 	}
 }
 
-// TestPutPlaybook_WiresHuntersInOrder：PUT /playbooks/:id 带 hunters → SavePlaybook + SetHunters 按序。
-func TestPutPlaybook_WiresHuntersInOrder(t *testing.T) {
-	fc := &fakeConfig{playbooks: map[string]cfgplaybook.Playbook{
-		"pb-1": {ID: "pb-1", Code: "web-pentest", Name: "Web"},
-	}}
+// TestPostHunter_WiresCliTools：POST /hunters 带 cli_tools → SaveHunter 收到白名单透传。
+func TestPostHunter_WiresCliTools(t *testing.T) {
+	fc := &fakeConfig{}
 	srv := newTestServer(t, Deps{ConfigStore: fc})
 	defer srv.Close()
 
-	code, _ := doJSON(t, "PUT", srv.URL+"/playbooks/pb-1", map[string]any{
-		"code": "web-pentest", "name": "Web", "hunters": []string{"h-recon", "h-exploit"},
+	code, _ := doJSON(t, "POST", srv.URL+"/hunters", map[string]any{
+		"code": "recon", "name": "侦察", "kind": "domain", "cli_tools": []string{"nmap", "nuclei"},
 	})
 	if code != 200 {
 		t.Fatalf("status=%d", code)
 	}
-	if fc.savedPlaybook == nil {
-		t.Fatal("SavePlaybook 未被调用")
+	if fc.savedHunter == nil {
+		t.Fatal("SaveHunter 未被调用")
 	}
-	if fc.setHuntersCall == nil {
-		t.Fatal("SetHunters 未被调用")
-	}
-	items := fc.setHuntersCall.items
-	if len(items) != 2 || items[0].HunterID != "h-recon" || items[0].Position != 0 ||
-		items[1].HunterID != "h-exploit" || items[1].Position != 1 {
-		t.Fatalf("hunters 组合顺序错误: %+v", items)
+	if len(fc.savedHunter.CliTools) != 2 || fc.savedHunter.CliTools[0] != "nmap" || fc.savedHunter.CliTools[1] != "nuclei" {
+		t.Fatalf("cli_tools 未透传: %+v", fc.savedHunter.CliTools)
 	}
 }
 
-// TestDeletePlaybook_RestrictConflict：底层 FK RESTRICT → 409。
-func TestDeletePlaybook_RestrictConflict(t *testing.T) {
+// TestDeleteHunter_RestrictConflict：底层 FK RESTRICT（被 solo 场景引用）→ 409。
+func TestDeleteHunter_RestrictConflict(t *testing.T) {
 	fc := &fakeConfig{
-		playbooks:      map[string]cfgplaybook.Playbook{"pb-1": {ID: "pb-1", Code: "web-pentest"}},
-		deletePlaybook: &pgconn.PgError{Code: "23503", Message: "FK violation"},
+		hunters:      map[string]cfghunter.Hunter{"h-1": {ID: "h-1", Code: "recon", Kind: cfghunter.KindDomain}},
+		deleteHunter: &pgconn.PgError{Code: "23503", Message: "FK violation"},
 	}
 	srv := newTestServer(t, Deps{ConfigStore: fc})
 	defer srv.Close()
 
-	code, body := doJSON(t, "DELETE", srv.URL+"/playbooks/pb-1", nil)
+	code, body := doJSON(t, "DELETE", srv.URL+"/hunters/h-1", nil)
 	if code != 409 {
 		t.Fatalf("want 409, got %d (%v)", code, body)
 	}
 	if _, ok := body["error"].(string); !ok {
 		t.Fatalf("缺中文 error 字段: %v", body)
+	}
+}
+
+// TestListTooling_ReturnsFlatCatalog：GET /tooling/tools 分组扁平化返回 name+category+description。
+func TestListTooling_ReturnsFlatCatalog(t *testing.T) {
+	ft := &fakeTooling{byCat: map[string][]manifest.Tool{
+		"recon": {{Name: "nmap", Category: "recon", Description: "端口扫描"}},
+	}}
+	srv := newTestServer(t, Deps{ConfigStore: &fakeConfig{}, ToolsManifest: ft})
+	defer srv.Close()
+
+	code, body := doJSON(t, "GET", srv.URL+"/tooling/tools", nil)
+	if code != 200 {
+		t.Fatalf("status=%d", code)
+	}
+	arr, _ := body["tools"].([]any)
+	if len(arr) != 1 {
+		t.Fatalf("want 1 tool, got %d (%v)", len(arr), body)
+	}
+	first, _ := arr[0].(map[string]any)
+	for _, k := range []string{"name", "category", "description"} {
+		if _, ok := first[k]; !ok {
+			t.Fatalf("缺字段 %q: %v", k, first)
+		}
 	}
 }

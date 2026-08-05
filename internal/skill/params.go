@@ -48,6 +48,11 @@ type BuilderParams struct {
 	// 空串 = 场景未配域，不过滤（全集渲染）。
 	Domain string
 
+	// CliTools 是本猎手的外置 CLI 工具白名单（tools.yaml 名字），来自 hunter.CliTools。
+	// buildToolingCatalog 在 FilterByDomain 之上再经 manifest.FilterByNames 二级细过滤：
+	// 空 = 不细过滤（域内全部可见）；非空 = 只渲染白名单内工具（猎手专精，只给它这几把刀）。
+	CliTools []string
+
 	// Sandbox 是本次 agent run 绑定的 sandbox-server HTTP RPC client（handler Spawn 后填）。
 	// nil 时不注册 run_command 工具。
 	Sandbox sandbox.Client

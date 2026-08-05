@@ -80,18 +80,21 @@ export interface ConversationUsage {
 }
 
 /* ============================================================
-   配置管理（scenario / playbook / hunter 三资源 CRUD）
-   小写键（Go gin.H DTO：scenarioJSON/playbookJSON/hunterJSON 单点序列化）。
+   配置管理（scenario / hunter 两资源 CRUD）
+   小写键（Go gin.H DTO：scenarioJSON/hunterJSON 单点序列化）。
    ScenarioConfig 是场景的唯一形态：GET /scenarios 单一口径返回全量全字段，
    对话 ScenarioPicker 与配置管理页共用（停用场景由 enabled 区分：picker 置灰、页内可编辑）。
    ============================================================ */
 
-// scenario 引擎：与 playbook 正交，任意场景可选。
+// scenario 引擎：
+//   - solo ：单猎手独立执行，由 solo_hunter_id 单点指定
+//   - swarm：orchestrator + 全部 enabled 领域猎手池，运行时动态 handoff（无需枚举）
 export type ScenarioEngine = 'solo' | 'swarm'
-// hunter 种类：orchestrator（swarm 唯一编排猎手，不进组合池）/ domain（可被剧本自由组合）。
+// hunter 种类：orchestrator（swarm 唯一编排猎手，不进领域池）/ domain（领域猎手）。
 export type HunterKind = 'orchestrator' | 'domain'
 
 // ScenarioConfig 是场景全字段形态（GET /scenarios 列表与 /scenarios/:id 单条）。
+// solo_hunter_id：solo 引擎唯一执行猎手 id；swarm 场景为空串（后端 null 序列化）。
 export interface ScenarioConfig {
   id: string
   code: string
@@ -100,31 +103,15 @@ export interface ScenarioConfig {
   instruction: string
   domain: string
   engine: ScenarioEngine
-  playbook_id: string
+  solo_hunter_id: string
   enabled: boolean
   created_at?: string
   updated_at?: string
 }
 
-// PlaybookHunterRef 是剧本内一个有序猎手引用（position 由数组下标决定）。
-export interface PlaybookHunterRef {
-  hunter_id: string
-  position: number
-}
-
-// PlaybookConfig 是剧本全字段形态。列表页 hunters 省略（undefined），详情页带有序组合。
-export interface PlaybookConfig {
-  id: string
-  code: string
-  name: string
-  description: string
-  enabled: boolean
-  hunters?: PlaybookHunterRef[]
-  created_at?: string
-  updated_at?: string
-}
-
-// HunterConfig 是猎手全字段形态。tools 后端保证非 nil。
+// HunterConfig 是猎手全字段形态。tools/cli_tools 后端保证非 nil。
+//   - tools    ：内置函数工具集（code 列表）
+//   - cli_tools：外置 CLI 工具白名单（tools.yaml 名字），空 = 域内全部可见
 export interface HunterConfig {
   id: string
   code: string
@@ -133,10 +120,18 @@ export interface HunterConfig {
   description: string
   body: string
   tools: string[]
+  cli_tools: string[]
   max_iterations: number
   enabled: boolean
   created_at?: string
   updated_at?: string
+}
+
+// ToolingTool 是外置 CLI 工具目录一项（GET /tooling/tools，HunterAdmin cli_tools 多选器候选）。
+export interface ToolingTool {
+  name: string
+  category: string
+  description: string
 }
 
 /**

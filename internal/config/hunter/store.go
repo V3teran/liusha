@@ -20,7 +20,7 @@ func NewStore(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
 const defaultMaxIterations = 40
 
 // colsSelect 是所有 SELECT / RETURNING 路径的统一列序，与 scan() 字段一一对应。
-const colsSelect = "id, code, kind, name, description, body, tools, max_iterations, enabled, created_at, updated_at"
+const colsSelect = "id, code, kind, name, description, body, tools, cli_tools, max_iterations, enabled, created_at, updated_at"
 
 // validateKind 应用层校验 kind（与 DB CHECK 双保险）。
 func validateKind(k Kind) error {
@@ -41,15 +41,19 @@ func (s *Store) Create(ctx context.Context, p NewParams) (Hunter, error) {
 	if err != nil {
 		return Hunter{}, fmt.Errorf("create hunter: %w", err)
 	}
+	cliTools, err := marshalTools(p.CliTools)
+	if err != nil {
+		return Hunter{}, fmt.Errorf("create hunter: %w", err)
+	}
 	maxIter := p.MaxIterations
 	if maxIter <= 0 {
 		maxIter = defaultMaxIterations
 	}
 	row := s.pool.QueryRow(ctx, `
-		INSERT INTO hunter (code, kind, name, description, body, tools, max_iterations, enabled)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		INSERT INTO hunter (code, kind, name, description, body, tools, cli_tools, max_iterations, enabled)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		RETURNING `+colsSelect,
-		p.Code, string(p.Kind), p.Name, p.Description, p.Body, tools, maxIter, p.Enabled)
+		p.Code, string(p.Kind), p.Name, p.Description, p.Body, tools, cliTools, maxIter, p.Enabled)
 	var h Hunter
 	if err := scan(row, &h); err != nil {
 		return Hunter{}, fmt.Errorf("create hunter %q: %w", p.Code, err)
@@ -66,16 +70,20 @@ func (s *Store) Update(ctx context.Context, p NewParams) (Hunter, error) {
 	if err != nil {
 		return Hunter{}, fmt.Errorf("update hunter: %w", err)
 	}
+	cliTools, err := marshalTools(p.CliTools)
+	if err != nil {
+		return Hunter{}, fmt.Errorf("update hunter: %w", err)
+	}
 	maxIter := p.MaxIterations
 	if maxIter <= 0 {
 		maxIter = defaultMaxIterations
 	}
 	row := s.pool.QueryRow(ctx, `
 		UPDATE hunter
-		SET kind=$2, name=$3, description=$4, body=$5, tools=$6, max_iterations=$7, enabled=$8, updated_at=now()
+		SET kind=$2, name=$3, description=$4, body=$5, tools=$6, cli_tools=$7, max_iterations=$8, enabled=$9, updated_at=now()
 		WHERE code=$1
 		RETURNING `+colsSelect,
-		p.Code, string(p.Kind), p.Name, p.Description, p.Body, tools, maxIter, p.Enabled)
+		p.Code, string(p.Kind), p.Name, p.Description, p.Body, tools, cliTools, maxIter, p.Enabled)
 	var h Hunter
 	if err := scan(row, &h); err != nil {
 		return Hunter{}, fmt.Errorf("update hunter %q: %w", p.Code, err)
@@ -83,7 +91,7 @@ func (s *Store) Update(ctx context.Context, p NewParams) (Hunter, error) {
 	return h, nil
 }
 
-// Delete 按 code 删除。被 playbook_hunter 引用时会撞 DB ON DELETE RESTRICT。
+// Delete 按 code 删除。被 scenario.solo_hunter_id 引用时会撞 DB ON DELETE RESTRICT。
 func (s *Store) Delete(ctx context.Context, code string) error {
 	tag, err := s.pool.Exec(ctx, "DELETE FROM hunter WHERE code=$1", code)
 	if err != nil {
@@ -133,6 +141,27 @@ func (s *Store) List(ctx context.Context, onlyEnabled bool) ([]Hunter, error) {
 		var h Hunter
 		if err := scan(rows, &h); err != nil {
 			return nil, fmt.Errorf("scan hunter: %w", err)
+		}
+		out = append(out, h)
+	}
+	return out, rows.Err()
+}
+
+// ListEnabledDomain 按 code 升序列出全部 enabled 的领域猎手（kind='domain'）。
+// 这是 swarm 引擎的子代理池来源：LLM 运行时在此池内动态 handoff（见 D2）。
+func (s *Store) ListEnabledDomain(ctx context.Context) ([]Hunter, error) {
+	rows, err := s.pool.Query(ctx,
+		"SELECT "+colsSelect+" FROM hunter WHERE kind='domain' AND enabled=true ORDER BY code ASC")
+	if err != nil {
+		return nil, fmt.Errorf("list enabled domain hunters: %w", err)
+	}
+	defer rows.Close()
+
+	var out []Hunter
+	for rows.Next() {
+		var h Hunter
+		if err := scan(rows, &h); err != nil {
+			return nil, fmt.Errorf("scan domain hunter: %w", err)
 		}
 		out = append(out, h)
 	}
@@ -190,15 +219,20 @@ type scanner interface {
 // scan 是 colsSelect 列序的统一反序列化点。
 func scan(r scanner, h *Hunter) error {
 	var kind string
-	var tools []byte
+	var tools, cliTools []byte
 	if err := r.Scan(&h.ID, &h.Code, &kind, &h.Name, &h.Description, &h.Body,
-		&tools, &h.MaxIterations, &h.Enabled, &h.CreatedAt, &h.UpdatedAt); err != nil {
+		&tools, &cliTools, &h.MaxIterations, &h.Enabled, &h.CreatedAt, &h.UpdatedAt); err != nil {
 		return err
 	}
 	h.Kind = Kind(kind)
 	if len(tools) > 0 {
 		if err := json.Unmarshal(tools, &h.Tools); err != nil {
 			return fmt.Errorf("unmarshal tools: %w", err)
+		}
+	}
+	if len(cliTools) > 0 {
+		if err := json.Unmarshal(cliTools, &h.CliTools); err != nil {
+			return fmt.Errorf("unmarshal cli_tools: %w", err)
 		}
 	}
 	return nil

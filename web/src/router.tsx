@@ -11,7 +11,6 @@ const SitemapPage = lazy(() => import('@/pages/SitemapPage').then((m) => ({ defa
 const LlmAuditPage = lazy(() => import('@/pages/LlmAuditPage').then((m) => ({ default: m.LlmAuditPage })))
 const AttackGraphPage = lazy(() => import('@/pages/AttackGraphPage').then((m) => ({ default: m.AttackGraphPage })))
 const ScenarioAdmin = lazy(() => import('@/pages/ScenarioAdmin').then((m) => ({ default: m.ScenarioAdmin })))
-const PlaybookAdmin = lazy(() => import('@/pages/PlaybookAdmin').then((m) => ({ default: m.PlaybookAdmin })))
 const HunterAdmin = lazy(() => import('@/pages/HunterAdmin').then((m) => ({ default: m.HunterAdmin })))
 
 function Loading() {
@@ -24,7 +23,7 @@ function withSuspense(el: React.ReactNode) {
 
 // 路由表：根用 AppShell 外壳，子路由为各业务页。
 // 对话：按来源分两个 tab——主动下发（source=manual，用户下 brief → AI orchestrator 自主派子代理作战）
-// 与被动代理（source=auto，挂代理收流量 → AI 逐批分析挖洞）。来源轴与场景/剧本/引擎正交。
+// 与被动代理（source=auto，挂代理收流量 → AI 逐批分析挖洞）。来源轴与场景/引擎正交。
 // path 对齐后端 assignment.source：两个子路由都等于 source 枚举值。
 export const router = createBrowserRouter([
   {
@@ -46,12 +45,11 @@ export const router = createBrowserRouter([
       { path: 'attack-graph', element: withSuspense(<AttackGraphPage />) },
       { path: 'llm-audit', element: withSuspense(<LlmAuditPage />) },
       {
-        // 配置管理：场景/剧本/智能体（后端 hunter）三资源当前各自独立页，侧栏平铺入口。
+        // 配置管理：场景/智能体（后端 hunter）两资源各自独立页，侧栏平铺入口。
         path: 'config',
         children: [
           { index: true, element: <Navigate to="/config/scenarios" replace /> },
           { path: 'scenarios', element: withSuspense(<ScenarioAdmin />) },
-          { path: 'playbooks', element: withSuspense(<PlaybookAdmin />) },
           { path: 'hunters', element: withSuspense(<HunterAdmin />) },
         ],
       },

@@ -53,8 +53,8 @@ type handler struct {
 	einoFactory *einollm.Factory
 	hunterDeps  hunterbuilder.Deps
 
-	// cfgStore 是配置事实源（DB + 内存/redis 缓存）的只读句柄：运行期按需读 scenario/playbook/hunter
-	// 装配引擎（solo 压扁 playbook 猎手；swarm 取全局 orchestrator + playbook domain 子代理）。
+	// cfgStore 是配置事实源（DB + 内存/redis 缓存）的只读句柄：运行期按需读 scenario/hunter
+	// 装配引擎（solo 取 scenario 指定的单一猎手；swarm 取全局 orchestrator + 全部 enabled 领域子代理）。
 	// 文件仅是首次导入的种子，进程运行期一律走 DB/缓存（见 D6/D7）。
 	cfgStore *configstore.Store
 
@@ -165,19 +165,13 @@ func (h handler) handle(ctx context.Context, p worker.Payload) (retErr error) {
 		return h.failTask(ctx, p.HunterID, err)
 	}
 
-	// 派发链（数据驱动，见 D2/D3）：task.scenario_id 存 scenario code → 走 code 路取 scenario，
-	// 再按 uuid FK 取 playbook 与其有序 domain 猎手。engine 取自 scenario（与 playbook 正交）。
+	// 派发链（数据驱动，见 D2/D3）：task.scenario_id 存 scenario code → 走 code 路取 scenario。
+	// engine 取自 scenario：
+	//   - solo ：scenario.solo_hunter_id 指向唯一执行 hunter（无编排、无合体）
+	//   - swarm：orchestrator（handler 内取）+ 全部 enabled 领域 hunter 作子代理池，LLM 运行时动态 handoff
 	scen, err := h.cfgStore.ScenarioByCode(ctx, p.ScenarioID)
 	if err != nil {
 		return h.failTask(ctx, p.HunterID, fmt.Errorf("加载 scenario %s 失败: %w", p.ScenarioID, err))
-	}
-	pb, err := h.cfgStore.PlaybookByID(ctx, scen.PlaybookID)
-	if err != nil {
-		return h.failTask(ctx, p.HunterID, fmt.Errorf("scenario %s 引用的 playbook %s 加载失败: %w", scen.Code, scen.PlaybookID, err))
-	}
-	hunters, err := h.cfgStore.PlaybookHunters(ctx, pb.ID) // 有序 domain 猎手（按 playbook id）
-	if err != nil {
-		return h.failTask(ctx, p.HunterID, fmt.Errorf("playbook %s 组合猎手加载失败: %w", pb.Code, err))
 	}
 
 	// timeout 按 engine 取：swarm 用长超时，solo 用常规。
@@ -193,9 +187,20 @@ func (h handler) handle(ctx context.Context, p worker.Payload) (retErr error) {
 
 	switch scen.Engine {
 	case cfgscenario.EngineSolo:
-		return h.handleSoloEino(ctx, p, scen, pb, hunters, input.Brief)
+		if scen.SoloHunterID == nil || *scen.SoloHunterID == "" {
+			return h.failTask(ctx, p.HunterID, fmt.Errorf("solo scenario %s 未指定 solo_hunter_id", scen.Code))
+		}
+		hunter, err := h.cfgStore.HunterByID(ctx, *scen.SoloHunterID)
+		if err != nil {
+			return h.failTask(ctx, p.HunterID, fmt.Errorf("scenario %s 引用的 hunter %s 加载失败: %w", scen.Code, *scen.SoloHunterID, err))
+		}
+		return h.handleSoloEino(ctx, p, scen, hunter, input.Brief)
 	case cfgscenario.EngineSwarm:
-		return h.handleSwarmEino(ctx, p, scen, pb, hunters, input.Brief)
+		hunters, err := h.cfgStore.EnabledDomainHunters(ctx) // swarm 子代理池 = 全部 enabled 领域猎手
+		if err != nil {
+			return h.failTask(ctx, p.HunterID, fmt.Errorf("加载 enabled 领域猎手失败: %w", err))
+		}
+		return h.handleSwarmEino(ctx, p, scen, hunters, input.Brief)
 	default:
 		return h.failTask(ctx, p.HunterID, fmt.Errorf("unknown engine: %s", scen.Engine))
 	}

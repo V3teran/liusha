@@ -113,7 +113,7 @@ func buildUserPrompt(ctx context.Context, deps Deps, p skill.BuilderParams) stri
 	// 段 4.5: Tier 1 工具索引（Progressive Disclosure）——
 	// 列出沙箱内所有可调外部 CLI 工具的 name + 一句话用途，来源 tools.yaml（与 Dockerfile 同步）。
 	// 详情按需调 read_tooling_skill(name) 拉 SKILL.md，不在 prompt 常驻。
-	if catalog := buildToolingCatalog(deps.ToolsManifest, p.Domain); catalog != "" {
+	if catalog := buildToolingCatalog(deps.ToolsManifest, p.Domain, p.CliTools); catalog != "" {
 		b.WriteString("\n\n")
 		b.WriteString(catalog)
 	}
@@ -169,12 +169,13 @@ var vulnCategoryOrder = []categoryItem{
 
 // buildToolingCatalog 渲染工具索引段——数据来自 ToolsManifest（tools.yaml，与 Dockerfile 同步）。
 // 与 vuln 不同：工具是否存在由 manifest 决定，SKILL.md 仅是可选详细手册（按需 read_tooling_skill 拉）。
-// 按当次 scenario 的 domain 经 FilterByDomain 过滤：只渲染该交战域可见的 CLI 工具 + 通用工具（见 D11）。
-func buildToolingCatalog(m *manifest.Manifest, domain string) string {
+// 两级过滤：先按当次 scenario 的 domain 经 FilterByDomain（交战域粗过滤，见 D11），再按本猎手的
+// cliTools 白名单经 FilterByNames（猎手专精细过滤）。cliTools 空 = 不细过滤，域内全部可见。
+func buildToolingCatalog(m *manifest.Manifest, domain string, cliTools []string) string {
 	if m == nil || len(m.Tools) == 0 {
 		return ""
 	}
-	m = m.FilterByDomain(domain)
+	m = m.FilterByDomain(domain).FilterByNames(cliTools)
 	if len(m.Tools) == 0 {
 		return ""
 	}

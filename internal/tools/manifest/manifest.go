@@ -103,3 +103,27 @@ func (m *Manifest) Names() []string {
 	sort.Strings(out)
 	return out
 }
+
+// FilterByNames 按猎手 cli_tools 白名单过滤工具目录，返回新 Manifest（不改原实例——不可变）。
+// 这是 domain 粗过滤（FilterByDomain）之上的第二级细过滤：
+//   - names 为空 = 不过滤，返回全集副本（该猎手可见其交战域内的全部工具）；
+//   - names 非空 = 只保留名字在白名单里的工具（猎手专精：只给它这几把刀）。
+//
+// 两级过滤的顺序是先 domain 后 names：FilterByDomain(domain).FilterByNames(cliTools)。
+// 未匹配到任何白名单名的工具全部剔除；白名单里不存在的名字静默忽略（配置漂移不致命）。
+func (m *Manifest) FilterByNames(names []string) *Manifest {
+	if len(names) == 0 {
+		return &Manifest{Tools: append([]Tool(nil), m.Tools...)}
+	}
+	allow := make(map[string]struct{}, len(names))
+	for _, n := range names {
+		allow[n] = struct{}{}
+	}
+	out := make([]Tool, 0, len(names))
+	for _, t := range m.Tools {
+		if _, ok := allow[t.Name]; ok {
+			out = append(out, t)
+		}
+	}
+	return &Manifest{Tools: out}
+}

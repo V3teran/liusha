@@ -18,7 +18,7 @@ function sc(o: Partial<ScenarioConfig>): ScenarioConfig {
     instruction: '',
     domain: 'web',
     engine: 'swarm',
-    playbook_id: 'pb-1',
+    solo_hunter_id: '',
     enabled: true,
     ...o,
   }

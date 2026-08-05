@@ -12,15 +12,13 @@ const invalidateChannel = "configstore:invalidate"
 
 // invalidation 是一条失效消息：kind 定资源类型，id/code 定具体行。
 //   - scenario：id 与 code **都必填**（它有 id-map 与 code-map 两张映射，缺一残留脏条目）
-//   - playbook/hunter：仅 id（无 code-map），code 留空
-//   - playbookID：非空表示额外失效该 playbook 的组合派生键 playbook_hunters:{id}
-//   - orchestrator：true 表示改动了编排猎手，额外失效哨兵键 hunter:orchestrator
+//   - hunter：仅 id（无 code-map），code 留空
+//   - sentinels：true 表示改动了猎手，额外失效两个哨兵键（编排猎手 + enabled 领域池）
 type invalidation struct {
-	Kind         string `json:"kind"`
-	ID           string `json:"id"`
-	Code         string `json:"code,omitempty"`
-	PlaybookID   string `json:"playbook_id,omitempty"`
-	Orchestrator bool   `json:"orchestrator,omitempty"`
+	Kind      string `json:"kind"`
+	ID        string `json:"id"`
+	Code      string `json:"code,omitempty"`
+	Sentinels bool   `json:"sentinels,omitempty"`
 }
 
 // publish 把一条失效消息广播到总线。写路径在清完本地缓存后调用。
@@ -79,20 +77,13 @@ func keysFor(msg invalidation) []string {
 		if msg.ID != "" {
 			keys = append(keys, keyScenarioID(msg.ID))
 		}
-	case kindPlaybook:
-		if msg.ID != "" {
-			keys = append(keys, keyPlaybookID(msg.ID))
-		}
 	case kindHunter:
 		if msg.ID != "" {
 			keys = append(keys, keyHunterID(msg.ID))
 		}
 	}
-	if msg.PlaybookID != "" {
-		keys = append(keys, keyPlaybookHunters(msg.PlaybookID))
-	}
-	if msg.Orchestrator {
-		keys = append(keys, keyOrchestrator)
+	if msg.Sentinels {
+		keys = append(keys, keyOrchestrator, keyEnabledDomain)
 	}
 	return keys
 }

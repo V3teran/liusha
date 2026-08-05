@@ -9,7 +9,6 @@ import (
 
 	hunterbuilder "github.com/V3teran/liusha/internal/builder/hunter"
 	cfghunter "github.com/V3teran/liusha/internal/config/hunter"
-	cfgplaybook "github.com/V3teran/liusha/internal/config/playbook"
 	cfgscenario "github.com/V3teran/liusha/internal/config/scenario"
 	"github.com/V3teran/liusha/internal/einoagent"
 	"github.com/V3teran/liusha/internal/skill"
@@ -17,10 +16,10 @@ import (
 	"github.com/V3teran/liusha/internal/worker"
 )
 
-// handleSwarmEino 是 swarm 引擎的入口（orchestrator + playbook domain 猎手动态派活）。
+// handleSwarmEino 是 swarm 引擎的入口（orchestrator + 全部 enabled 领域猎手动态派活）。
 //
 // 用 eino deep prebuilt 装配：主代理（全局唯一 orchestrator 猎手，按 kind='orchestrator' 从配置表取）
-// + 子代理（scenario 引用的 playbook 内各 domain 猎手，按 position 有序）。orchestrator 通过 deep 内建
+// + 子代理（全部 kind='domain' 且 enabled 的猎手，按 code 有序）。orchestrator 通过 deep 内建
 // task 工具按各子代理的 name+description 动态派活；子代理串行（杀伤链本串行），子代理内部多工具并行
 // （ToolsNode）。所有 agent 共享同一 ChatModel（per-model 铁律已作废，实测共享并发安全）+ 同一 sandbox。
 //
@@ -30,12 +29,12 @@ import (
 //     落 orchestrator 的 hunter_id（用户已认可 hunter_id=orchestrator 的 deep 语义）
 //   - token 用量：单 UsageRecorder callback 挂顶层 runner，经 ctx 传播到子代理模型调用（task_tool
 //     透传 ctx）；role 按 Agent 边界真实产出的子代理名归集（见 usage_recorder #3），hunter_id 仍归 orchestrator
-func (h handler) handleSwarmEino(ctx context.Context, p worker.Payload, scen cfgscenario.Scenario, pb cfgplaybook.Playbook, hunters []cfghunter.Hunter, brief string) error {
+func (h handler) handleSwarmEino(ctx context.Context, p worker.Payload, scen cfgscenario.Scenario, hunters []cfghunter.Hunter, brief string) error {
 	if brief == "" {
 		return h.failTask(ctx, p.HunterID, fmt.Errorf("swarm 引擎缺 brief"))
 	}
 	if len(hunters) == 0 {
-		return h.failTask(ctx, p.HunterID, fmt.Errorf("playbook %s 无 domain 子代理", pb.Code))
+		return h.failTask(ctx, p.HunterID, fmt.Errorf("swarm 引擎无 enabled 领域猎手"))
 	}
 
 	tid := p.HunterID
@@ -53,13 +52,13 @@ func (h handler) handleSwarmEino(ctx context.Context, p worker.Payload, scen cfg
 		}
 	}
 
-	// 主代理：全局唯一 orchestrator 猎手（按 kind='orchestrator' 从配置表取，非从 playbook 取）。
+	// 主代理：全局唯一 orchestrator 猎手（按 kind='orchestrator' 从配置表取）。
 	orchHunter, err := h.cfgStore.Orchestrator(ctx)
 	if err != nil {
 		return h.failTask(ctx, p.HunterID, fmt.Errorf("swarm 缺全局 orchestrator 猎手: %w", err))
 	}
 	orchestrator := hunterDefFromConfig(orchHunter)
-	// 子代理：playbook 内各 domain 猎手（hunters 参数已按 position 有序）。
+	// 子代理：全部 enabled 领域猎手（hunters 参数已按 code 有序）。
 	subAgents := make([]einoagent.HunterDef, 0, len(hunters))
 	for _, hn := range hunters {
 		subAgents = append(subAgents, hunterDefFromConfig(hn))
@@ -127,7 +126,7 @@ func (h handler) handleSwarmEino(ctx context.Context, p worker.Payload, scen cfg
 	orchestratorPrompt := hunterbuilder.BuildUserPrompt(ctx, h.hunterDeps, skill.BuilderParams{
 		TaskID: taskID, HunterID: tid,
 		Host: virtualHost, Brief: brief, Sandbox: sandboxClient,
-		Domain: scen.Domain,
+		Domain: scen.Domain, CliTools: orchHunter.CliTools,
 	})
 	// 阶段0：多轮追问连贯性——把本会话最近的会话历史拼到 prompt 前，让 orchestrator 看到上下文
 	// （如"刚才那个漏洞"）。首轮 / 无会话 / 读失败时为空串，不影响。

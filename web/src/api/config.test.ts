@@ -1,7 +1,7 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
-import { saveScenario, savePlaybook, deletePlaybook, saveHunter } from './config'
+import { saveScenario, saveHunter, deleteHunter, listToolingTools } from './config'
 import { setApiKey } from './client'
-import type { ScenarioConfig, PlaybookConfig, HunterConfig } from './types'
+import type { ScenarioConfig, HunterConfig } from './types'
 
 // 用假 fetch 断言 config.ts 打的 URL/method/body 与后端契约一致。
 function mockFetch(status: number, json: unknown) {
@@ -22,7 +22,7 @@ const SC: ScenarioConfig = {
   instruction: 'I',
   domain: 'web',
   engine: 'swarm',
-  playbook_id: 'pb-1',
+  solo_hunter_id: '',
   enabled: true,
 }
 
@@ -45,9 +45,15 @@ describe('config API 客户端', () => {
       instruction: 'I',
       domain: 'web',
       engine: 'swarm',
-      playbook_id: 'pb-1',
+      solo_hunter_id: '',
       enabled: true,
     })
+  })
+
+  it('saveScenario solo 引擎透传 solo_hunter_id', async () => {
+    const fn = mockFetch(200, { scenario: { id: 's2' } })
+    await saveScenario({ ...SC, engine: 'solo', solo_hunter_id: 'h-recon' })
+    expect(JSON.parse(fn.mock.calls[0][1].body).solo_hunter_id).toBe('h-recon')
   })
 
   it('saveScenario 有 id 时 PUT /scenarios/:id', async () => {
@@ -58,16 +64,7 @@ describe('config API 客户端', () => {
     expect(init.method).toBe('PUT')
   })
 
-  it('savePlaybook 把有序 hunterIDs 放进 body.hunters', async () => {
-    const fn = mockFetch(200, { playbook: { id: 'pb-1' } })
-    const pb: PlaybookConfig = { id: 'pb-1', code: 'c', name: 'n', description: '', enabled: true }
-    await savePlaybook(pb, ['h-a', 'h-b'])
-    const [url, init] = fn.mock.calls[0]
-    expect(url).toBe('/api/playbooks/pb-1')
-    expect(JSON.parse(init.body).hunters).toEqual(['h-a', 'h-b'])
-  })
-
-  it('saveHunter 传 kind/tools/max_iterations', async () => {
+  it('saveHunter 传 kind/tools/cli_tools/max_iterations', async () => {
     const fn = mockFetch(200, { hunter: { id: 'h1' } })
     const h: HunterConfig = {
       id: '',
@@ -77,6 +74,7 @@ describe('config API 客户端', () => {
       description: '',
       body: 'B',
       tools: ['http_get'],
+      cli_tools: ['nmap', 'nuclei'],
       max_iterations: 12,
       enabled: true,
     }
@@ -84,11 +82,18 @@ describe('config API 客户端', () => {
     const body = JSON.parse(fn.mock.calls[0][1].body)
     expect(body.kind).toBe('domain')
     expect(body.tools).toEqual(['http_get'])
+    expect(body.cli_tools).toEqual(['nmap', 'nuclei'])
     expect(body.max_iterations).toBe(12)
   })
 
-  it('deletePlaybook 遇 409 抛后端中文 error', async () => {
-    mockFetch(409, { error: '该剧本仍被场景引用，请先解除引用再删除' })
-    await expect(deletePlaybook('pb-1')).rejects.toThrow('该剧本仍被场景引用')
+  it('deleteHunter 遇 409 抛后端中文 error', async () => {
+    mockFetch(409, { error: '该猎手仍被场景引用（solo 场景执行猎手），请先解除引用再删除' })
+    await expect(deleteHunter('h-1')).rejects.toThrow('该猎手仍被场景引用')
+  })
+
+  it('listToolingTools 拆 { tools } 信封', async () => {
+    mockFetch(200, { tools: [{ name: 'nmap', category: 'recon', description: '端口扫描' }] })
+    const tools = await listToolingTools()
+    expect(tools).toEqual([{ name: 'nmap', category: 'recon', description: '端口扫描' }])
   })
 })

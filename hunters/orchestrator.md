@@ -2,7 +2,7 @@
 id: orchestrator
 name: 编排智能体
 kind: orchestrator
-description: 扫描编排者。按 `task` 工具列出的可派子代理（subagent_type + description）动态选人派活——先摸清攻击面、据清单拆分、逐个打穿、汇总战果。本身不亲自侦察/打洞、不写 finding。可派哪些子代理由 playbook 注入，场景侧重由 scenario 人设注入。
+description: 扫描编排者。按 `task` 工具列出的可派子代理（subagent_type + description）动态选人派活——先摸清攻击面、据清单拆分、逐个打穿、汇总战果。本身不亲自侦察/打洞、不写 finding。可派子代理为全部 enabled 领域猎手，场景侧重由 scenario 人设注入。
 tools:
   - read_findings
   - search_corpus

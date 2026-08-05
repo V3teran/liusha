@@ -214,7 +214,7 @@ func main() {
 		FindingsLimit:   cfg.Session.FindingsLimitInPrompt,
 	}
 
-	// 配置事实源（DB + 内存/redis 缓存）：运行期按需读 scenario/playbook/hunter 装配引擎。
+	// 配置事实源（DB + 内存/redis 缓存）：运行期按需读 scenario/hunter 装配引擎。
 	// 文件仅是首次导入的种子（seed 导入在别处），进程运行期一律走 DB/缓存（见 D6/D7）。
 	cfgStore := configstore.New(pool, rdb)
 	// Subscribe 阻塞运行（内部 for-select 直到 ctx 取消），必须后台起——

@@ -41,10 +41,13 @@ type Deps struct {
 	Deleter ConversationDeleter
 	// Renamer 为 nil 时 PATCH /conversations/:id 不注册（重命名会话标题）。
 	Renamer ConversationRenamer
-	// ConfigStore 为 nil 时 scenario/playbook/hunter 配置 CRUD 路由不注册。
+	// ConfigStore 为 nil 时 scenario/hunter 配置 CRUD 路由不注册。
 	// 由 cmd/api 注入 *configstore.Store（自动满足 ConfigAPI 窄接口）。
 	// 写路径经其失效广播，保证 runner 进程 L1 被动失效（见 D7）。
 	ConfigStore ConfigAPI
+	// ToolsManifest 为 nil 时 GET /tooling/tools 不注册。由 cmd/api 注入 *manifest.Manifest
+	// （自动满足 ToolingAPI 窄接口）。供 HunterAdmin cli_tools 白名单多选器拉取候选工具名。
+	ToolsManifest ToolingAPI
 	// 会话用量合计（GET /conversations/:id/usage）：三者任一为 nil 则路由不注册。
 	// cmd/api 注入 convStore / invocationStore / toolStore（各满足对应窄接口）。
 	UsageTasks UsageTaskResolver
@@ -102,7 +105,7 @@ func NewServer(d Deps) http.Handler {
 		r.POST("/scan", scanHandler(d.Scan))
 	}
 	if d.ConfigStore != nil {
-		// scenario/playbook/hunter 配置 CRUD（前端配置管理页）。路由挂在 root，
+		// scenario/hunter 配置 CRUD（前端配置管理页）。路由挂在 root，
 		// 与现有约定一致——前端/反代把 /api/* 前缀剥离后打到这里（见 web/vite.config.ts）。
 		r.GET("/scenarios", listScenariosHandler(d.ConfigStore))
 		r.GET("/scenarios/:id", getScenarioHandler(d.ConfigStore))
@@ -110,17 +113,15 @@ func NewServer(d Deps) http.Handler {
 		r.PUT("/scenarios/:id", saveScenarioHandler(d.ConfigStore))
 		r.DELETE("/scenarios/:id", deleteScenarioHandler(d.ConfigStore))
 
-		r.GET("/playbooks", listPlaybooksHandler(d.ConfigStore))
-		r.GET("/playbooks/:id", getPlaybookHandler(d.ConfigStore))
-		r.POST("/playbooks", savePlaybookHandler(d.ConfigStore))
-		r.PUT("/playbooks/:id", savePlaybookHandler(d.ConfigStore))
-		r.DELETE("/playbooks/:id", deletePlaybookHandler(d.ConfigStore))
-
 		r.GET("/hunters", listHuntersHandler(d.ConfigStore))
 		r.GET("/hunters/:id", getHunterHandler(d.ConfigStore))
 		r.POST("/hunters", saveHunterHandler(d.ConfigStore))
 		r.PUT("/hunters/:id", saveHunterHandler(d.ConfigStore))
 		r.DELETE("/hunters/:id", deleteHunterHandler(d.ConfigStore))
+	}
+	if d.ToolsManifest != nil {
+		// 外置 CLI 工具目录（只读）：供 HunterAdmin 的 cli_tools 白名单多选器拉取候选。
+		r.GET("/tooling/tools", toolingToolsHandler(d.ToolsManifest))
 	}
 	if d.Chat != nil {
 		r.POST("/chat", chatHandler(d.Chat, d.StreamCookieSecret, d.CookieSecure))
