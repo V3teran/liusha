@@ -66,9 +66,15 @@ echo "===== 2/6 清空 db / redis ====="
 # 0078：assignment（下发容器）+ cron_schedule（定时模板）——assignment 是 task 的父表（task.assignment_id
 # REFERENCES assignment.id），不显式 truncate 会在多次 e2e 运行间无限堆积孤儿行。
 # 0079：lesson → corpus（跨目标知识库，hybrid RAG）——lesson 表已删，改 truncate corpus。
-# task 放最后——CASCADE 会连带清 hunter/finding/... 的 task_id 引用行，但显式全列更清晰。
+# 0085：运行时表 hunter → hunter_run 改名。此后 hunter 是 config 定义表（seed 首填的事实源，
+# 跨 run 持久），运行时行落 hunter_run。**绝不能 truncate config 表**——
+# hunter/playbook/playbook_hunter/scenario 是 seed insert-only 语义的前提；一旦 truncate hunter，
+# CASCADE 会连带清空 playbook_hunter 结合（hunter_id FK），而 playbook 表不清 → 重启 seed 判定
+# 剧本「已存在」跳过组合 → 结合永久为空 → orchestrator「无 domain 子代理」→ task 失败。
+# 故这里清运行时表 hunter_run（旧脚本误清 config 表 hunter，是 swarm 派发失败根因）。
+# task 放最后——CASCADE 会连带清 hunter_run/finding/... 的 task_id 引用行，但显式全列更清晰。
 if ! docker exec "$PG_CONTAINER" psql -U liusha -d liusha -c \
-    "TRUNCATE TABLE finding, corpus, llm_invocation, tool_invocation, audit_log, hunter, proxy_traffic, agent_traffic, conversation, task, assignment, cron_schedule CASCADE;"; then
+    "TRUNCATE TABLE finding, corpus, llm_invocation, tool_invocation, audit_log, hunter_run, proxy_traffic, agent_traffic, conversation, task, assignment, cron_schedule CASCADE;"; then
   echo "  ✗ postgres TRUNCATE 失败 — 看上面 psql 错误（常见原因：容器不在 / schema 不一致 / migrate 未跑）"
   exit 1
 fi
