@@ -88,4 +88,4 @@ export function Field({
 
 // 统一输入框样式（与漏洞抽屉一致）。聚焦态：emerald 描边 + 深色发散荧光晕（战术终端）。
 export const INPUT_CLASS =
-  'w-full rounded-md border border-border bg-surface px-2.5 py-1.5 text-[13px] text-text outline-none transition-shadow focus:border-accent focus:shadow-[var(--glow-accent)]'
+  'w-full rounded-md border border-border bg-surface px-2.5 py-1.5 text-[13px] text-text outline-none transition-shadow focus:border-accent focus:shadow-[var(--glow-accent)] disabled:cursor-not-allowed disabled:opacity-60'

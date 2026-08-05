@@ -126,11 +126,12 @@ export function ScenarioAdmin() {
       >
         {draft && (
           <>
-            <Field label="标识符" hint="业务主键，创建后作 task.scenario_id 存值">
+            <Field label="标识符" hint={draft?.id ? 'ID' : 'ID，创建后作 task.scenario_id 存值'}>
               <input
                 className={INPUT_CLASS}
                 value={draft.code}
                 spellCheck={false}
+                disabled={!!draft?.id}
                 onChange={(e) => patch({ code: e.target.value })}
               />
             </Field>
