@@ -135,11 +135,12 @@ export function HunterAdmin() {
         {draft && (
           <>
             <div className="flex gap-3">
-              <Field label="标识符" hint="业务主键">
+              <Field label="标识符" hint="ID">
                 <input
                   className={INPUT_CLASS}
                   value={draft.code}
                   spellCheck={false}
+                  disabled={!!draft?.id}
                   onChange={(e) => patch({ code: e.target.value })}
                 />
               </Field>
