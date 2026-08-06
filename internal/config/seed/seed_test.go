@@ -33,7 +33,7 @@ id: orchestrator
 name: 编排者
 description: 扫描编排者
 kind: orchestrator
-tools:
+function_tools:
   - read_findings
 max_iterations: 100
 ---
@@ -44,7 +44,7 @@ id: reconnaissance
 name: 侦察
 description: 侦察摸底
 kind: domain
-tools:
+function_tools:
   - run_command
 cli_tools:
   - nmap
@@ -57,19 +57,17 @@ id: web-pentest
 name: Web 渗透测试
 description: 全面 Web 渗透
 engine: swarm
-domain: web
 ---
 Web 场景领域侧重正文
 `)
-	mustWrite("scenarios/passive-recon.md", `---
-id: passive-recon
-name: 被动侦察
-description: 单猎手流量分析
+	mustWrite("scenarios/api-pentest.md", `---
+id: api-pentest
+name: API 渗透
+description: 单猎手 HTTP 数据包漏洞测试
 engine: solo
 solo_hunter: reconnaissance
-domain: web
 ---
-被动侦察领域侧重正文
+API 渗透领域侧重正文
 `)
 	return root
 }
@@ -124,18 +122,18 @@ func TestImport_HuntersAndScenarios(t *testing.T) {
 	}
 
 	// solo 场景：SoloHunterID 解析到领域猎手 id
-	passive, err := s.GetByCode(ctx, "passive-recon")
+	apiScen, err := s.GetByCode(ctx, "api-pentest")
 	if err != nil {
-		t.Fatalf("GetByCode passive-recon: %v", err)
+		t.Fatalf("GetByCode api-pentest: %v", err)
 	}
-	if passive.Engine != cfgscenario.EngineSolo {
-		t.Fatalf("passive-recon engine = %q, want solo", passive.Engine)
+	if apiScen.Engine != cfgscenario.EngineSolo {
+		t.Fatalf("api-pentest engine = %q, want solo", apiScen.Engine)
 	}
-	if passive.SoloHunterID == nil {
+	if apiScen.SoloHunterID == nil {
 		t.Fatal("solo scenario SoloHunterID = nil, want reconnaissance id")
 	}
-	if *passive.SoloHunterID != recon.ID {
-		t.Fatalf("passive-recon SoloHunterID = %q, want %q", *passive.SoloHunterID, recon.ID)
+	if *apiScen.SoloHunterID != recon.ID {
+		t.Fatalf("api-pentest SoloHunterID = %q, want %q", *apiScen.SoloHunterID, recon.ID)
 	}
 }
 

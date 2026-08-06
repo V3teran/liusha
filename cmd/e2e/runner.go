@@ -143,7 +143,7 @@ func runActiveProfiles(ctx context.Context, profs []activeProfile, apiBase, apiK
 }
 
 // trafficScenarioCode 是流量驱动自动建 task 所属的场景 code（与 ingestor 侧一致）。
-const trafficScenarioCode = "passive-recon"
+const trafficScenarioCode = "api-pentest"
 
 // activeScenarioCode 是 active e2e 剧本（POST /chat）所选场景 code——全部剧本均为 Web 渗透。
 const activeScenarioCode = "web-pentest"

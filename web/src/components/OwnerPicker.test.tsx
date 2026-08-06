@@ -61,13 +61,13 @@ describe('OwnerPicker', () => {
   })
 
   it('选项标签展示场景 code', async () => {
-    const tasks = [makeTask({ id: 'aaaaaaaa-1111', scenario_id: 'passive-recon' })]
+    const tasks = [makeTask({ id: 'aaaaaaaa-1111', scenario_id: 'api-pentest' })]
     mockedListTasks.mockResolvedValue(tasks)
     const onChange = vi.fn()
 
     render(<OwnerPicker value="" onChange={onChange} />)
 
-    expect(await screen.findByText(/passive-recon/)).toBeTruthy()
+    expect(await screen.findByText(/api-pentest/)).toBeTruthy()
   })
 
   it('点击刷新按钮重新拉取列表', async () => {
