@@ -12,6 +12,7 @@ const LlmAuditPage = lazy(() => import('@/pages/LlmAuditPage').then((m) => ({ de
 const AttackGraphPage = lazy(() => import('@/pages/AttackGraphPage').then((m) => ({ default: m.AttackGraphPage })))
 const ScenarioAdmin = lazy(() => import('@/pages/ScenarioAdmin').then((m) => ({ default: m.ScenarioAdmin })))
 const HunterAdmin = lazy(() => import('@/pages/HunterAdmin').then((m) => ({ default: m.HunterAdmin })))
+const ToolsPage = lazy(() => import('@/pages/ToolsPage').then((m) => ({ default: m.ToolsPage })))
 
 function Loading() {
   return <div className="flex h-full items-center justify-center text-sm text-muted">加载中…</div>
@@ -51,6 +52,7 @@ export const router = createBrowserRouter([
           { index: true, element: <Navigate to="/config/scenarios" replace /> },
           { path: 'scenarios', element: withSuspense(<ScenarioAdmin />) },
           { path: 'hunters', element: withSuspense(<HunterAdmin />) },
+          { path: 'tools', element: withSuspense(<ToolsPage />) },
         ],
       },
       { path: 'credentials', element: <PlaceholderPage title="凭证库" /> },

@@ -116,8 +116,8 @@ func errLoaderEmpty(name string) error { return fmt.Errorf("%s: Loader nil 或�
 //
 // 依赖缺失（如 run_command 声明了但 Sandbox nil）→ 报错，启动期暴露配置/装配缺漏。
 func BuildHunterTools(h HunterDef, c ToolBuildCtx) ([]tool.BaseTool, error) {
-	tools := make([]tool.BaseTool, 0, len(h.Tools))
-	for _, name := range h.Tools {
+	tools := make([]tool.BaseTool, 0, len(h.FunctionTools))
+	for _, name := range h.FunctionTools {
 		b, ok := toolRegistry[name]
 		if !ok {
 			return nil, fmt.Errorf("猎手 %q: 未知工具 %q（不在注册表）", h.ID, name)

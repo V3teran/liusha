@@ -2,48 +2,29 @@ package manifest
 
 import "testing"
 
-// fixture 覆盖三类：单域标签、多域标签、空标签（通用工具）。
+// fixture 覆盖多个 category，供 ByCategory / Names / FilterByNames 断言。
 func fixture() *Manifest {
 	return &Manifest{Tools: []Tool{
-		{Name: "nuclei", Category: "vulnscan", Scenarios: []string{"web"}},
-		{Name: "trivy", Category: "vulnscan", Scenarios: []string{"cloud", "container"}},
-		{Name: "curl", Category: "utility", Scenarios: nil}, // 空 = 通用，全域可见
+		{Name: "nuclei", Category: "vulnscan"},
+		{Name: "trivy", Category: "vulnscan"},
+		{Name: "curl", Category: "utility"},
 	}}
 }
 
-// TestFilterByDomain_MatchesTaggedDomain 验证：按域过滤只留标了该域的工具 + 通用工具。
-func TestFilterByDomain_MatchesTaggedDomain(t *testing.T) {
-	got := fixture().FilterByDomain("web").Names()
-	want := []string{"curl", "nuclei"} // trivy(cloud/container) 被过滤，curl 通用保留
-	if !equal(got, want) {
-		t.Fatalf("domain=web 期望 %v，得 %v", want, got)
+// TestFilterByNames_EmptyReturnsNone 验证：空白名单 = 空集（严格白名单，不再是"全部可见"魔法）。
+func TestFilterByNames_EmptyReturnsNone(t *testing.T) {
+	got := fixture().FilterByNames(nil).Names()
+	if len(got) != 0 {
+		t.Fatalf("空白名单期望空集，得 %v", got)
 	}
 }
 
-// TestFilterByDomain_MultiValueTag 验证：多域标签工具在其任一域下可见。
-func TestFilterByDomain_MultiValueTag(t *testing.T) {
-	got := fixture().FilterByDomain("cloud").Names()
-	want := []string{"curl", "trivy"}
+// TestFilterByNames_KeepsWhitelisted 验证：非空白名单只保留其中的工具。
+func TestFilterByNames_KeepsWhitelisted(t *testing.T) {
+	got := fixture().FilterByNames([]string{"curl", "nuclei", "absent"}).Names()
+	want := []string{"curl", "nuclei"} // absent 不在目录，静默忽略
 	if !equal(got, want) {
-		t.Fatalf("domain=cloud 期望 %v，得 %v", want, got)
-	}
-}
-
-// TestFilterByDomain_UnknownDomainKeepsUniversal 验证：未知域也保留通用工具（空标签）。
-func TestFilterByDomain_UnknownDomainKeepsUniversal(t *testing.T) {
-	got := fixture().FilterByDomain("ctf").Names()
-	want := []string{"curl"}
-	if !equal(got, want) {
-		t.Fatalf("domain=ctf 期望仅通用工具 %v，得 %v", want, got)
-	}
-}
-
-// TestFilterByDomain_EmptyDomainReturnsAll 验证：空 domain（未配置）不过滤，返回全集。
-func TestFilterByDomain_EmptyDomainReturnsAll(t *testing.T) {
-	got := fixture().FilterByDomain("").Names()
-	want := []string{"curl", "nuclei", "trivy"}
-	if !equal(got, want) {
-		t.Fatalf("空 domain 期望全集 %v，得 %v", want, got)
+		t.Fatalf("白名单期望 %v，得 %v", want, got)
 	}
 }
 

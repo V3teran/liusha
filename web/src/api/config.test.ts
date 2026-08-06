@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
-import { saveScenario, saveHunter, deleteHunter, listToolingTools } from './config'
+import { saveScenario, saveHunter, deleteHunter, listTools, listToolCandidates, getTool, assignTool } from './config'
 import { setApiKey } from './client'
 import type { ScenarioConfig, HunterConfig } from './types'
 
@@ -20,7 +20,6 @@ const SC: ScenarioConfig = {
   name: 'Web',
   description: '',
   instruction: 'I',
-  domain: 'web',
   engine: 'swarm',
   solo_hunter_id: '',
   enabled: true,
@@ -43,7 +42,6 @@ describe('config API 客户端', () => {
       name: 'Web',
       description: '',
       instruction: 'I',
-      domain: 'web',
       engine: 'swarm',
       solo_hunter_id: '',
       enabled: true,
@@ -73,7 +71,7 @@ describe('config API 客户端', () => {
       name: '侦察',
       description: '',
       body: 'B',
-      tools: ['http_get'],
+      function_tools: ['http_get'],
       cli_tools: ['nmap', 'nuclei'],
       max_iterations: 12,
       enabled: true,
@@ -81,7 +79,7 @@ describe('config API 客户端', () => {
     await saveHunter(h)
     const body = JSON.parse(fn.mock.calls[0][1].body)
     expect(body.kind).toBe('domain')
-    expect(body.tools).toEqual(['http_get'])
+    expect(body.function_tools).toEqual(['http_get'])
     expect(body.cli_tools).toEqual(['nmap', 'nuclei'])
     expect(body.max_iterations).toBe(12)
   })
@@ -91,9 +89,44 @@ describe('config API 客户端', () => {
     await expect(deleteHunter('h-1')).rejects.toThrow('该猎手仍被场景引用')
   })
 
-  it('listToolingTools 拆 { tools } 信封', async () => {
-    mockFetch(200, { tools: [{ name: 'nmap', category: 'recon', description: '端口扫描' }] })
-    const tools = await listToolingTools()
-    expect(tools).toEqual([{ name: 'nmap', category: 'recon', description: '端口扫描' }])
+  it('listTools 分页透传 page/size/q/kind 到 query', async () => {
+    const fn = mockFetch(200, { tools: [], total: 0 })
+    await listTools({ page: 2, size: 12, q: 'nmap', kind: 'cli' })
+    const url = fn.mock.calls[0][0] as string
+    expect(url).toMatch(/^\/api\/tools\?/)
+    const qs = new URLSearchParams(url.split('?')[1])
+    expect(qs.get('page')).toBe('2')
+    expect(qs.get('size')).toBe('12')
+    expect(qs.get('q')).toBe('nmap')
+    expect(qs.get('kind')).toBe('cli')
+  })
+
+  it('listTools 无参时不带 query（全量口径）', async () => {
+    const fn = mockFetch(200, { tools: [], total: 0 })
+    await listTools()
+    expect(fn.mock.calls[0][0]).toBe('/api/tools')
+  })
+
+  it('listToolCandidates 仅按 kind 过滤、拆出 tools 数组', async () => {
+    const fn = mockFetch(200, { tools: [{ name: 'read_findings', kind: 'function', category: 'findings', description: 'd', sort_order: 0 }], total: 1 })
+    const tools = await listToolCandidates('function')
+    expect(new URLSearchParams((fn.mock.calls[0][0] as string).split('?')[1]).get('kind')).toBe('function')
+    expect(tools).toHaveLength(1)
+    expect(tools[0].name).toBe('read_findings')
+  })
+
+  it('getTool 打 /tools/:name 并对名字做 URL 编码', async () => {
+    const fn = mockFetch(200, { tool: { name: 'run_command' }, agents: [] })
+    await getTool('run_command')
+    expect(fn.mock.calls[0][0]).toBe('/api/tools/run_command')
+  })
+
+  it('assignTool 打 PUT /tools/:name/agents/:code 带 involved', async () => {
+    const fn = mockFetch(200, { code: 'recon', involved: true })
+    await assignTool('write_finding', 'recon', true)
+    const [url, init] = fn.mock.calls[0]
+    expect(url).toBe('/api/tools/write_finding/agents/recon')
+    expect(init.method).toBe('PUT')
+    expect(JSON.parse(init.body).involved).toBe(true)
   })
 })

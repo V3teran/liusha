@@ -21,14 +21,47 @@ import (
 type ConfigAPI interface {
 	// scenario
 	ListScenarios(ctx context.Context, onlyEnabled bool) ([]cfgscenario.Scenario, error)
+	ListScenariosPaged(ctx context.Context, p cfgscenario.ListParams) ([]cfgscenario.Scenario, error)
+	CountScenarios(ctx context.Context, p cfgscenario.ListParams) (int, error)
 	ScenarioByID(ctx context.Context, id string) (cfgscenario.Scenario, error)
 	SaveScenario(ctx context.Context, p cfgscenario.NewParams) (cfgscenario.Scenario, error)
 	DeleteScenario(ctx context.Context, id, code string) error
 	// hunter
 	ListHunters(ctx context.Context, onlyEnabled bool) ([]cfghunter.Hunter, error)
+	ListHuntersPaged(ctx context.Context, p cfghunter.ListParams) ([]cfghunter.Hunter, error)
+	CountHunters(ctx context.Context, p cfghunter.ListParams) (int, error)
 	HunterByID(ctx context.Context, id string) (cfghunter.Hunter, error)
+	HunterByCode(ctx context.Context, code string) (cfghunter.Hunter, error)
 	SaveHunter(ctx context.Context, p cfghunter.NewParams) (cfghunter.Hunter, error)
 	DeleteHunter(ctx context.Context, id, code string) error
+}
+
+// configPageSize 约束 scenario/hunter 分页 size 上限，防超大扫描。
+const (
+	defaultConfigPageSize = 12
+	maxConfigPageSize     = 100
+)
+
+// parsePaging 解析 page/size：page 缺省/非法 = 0（表示不分页，返回全量，供 picker/selector 复用）。
+// page>=1 时分页；size 缺省 defaultConfigPageSize，clamp 到 [1,maxConfigPageSize]。
+// 返回 (page, size, paged)：paged=false 时调用方走全量分支。
+func parsePaging(c *gin.Context) (page, size int, paged bool) {
+	pageStr := c.Query("page")
+	if pageStr == "" {
+		return 0, 0, false
+	}
+	page = atoiOr(pageStr, 0)
+	if page < 1 {
+		return 0, 0, false
+	}
+	size = atoiOr(c.Query("size"), defaultConfigPageSize)
+	if size < 1 {
+		size = defaultConfigPageSize
+	}
+	if size > maxConfigPageSize {
+		size = maxConfigPageSize
+	}
+	return page, size, true
 }
 
 // isForeignKeyViolation 判定错误是否为 DB 外键约束冲突（pg 23503）。
@@ -46,7 +79,30 @@ func isForeignKeyViolation(err error) bool {
 // 不再靠服务端两套响应形态分流（此端点全程 X-API-Key 鉴权，无字段泄露顾虑）。
 func listScenariosHandler(api ConfigAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		rows, err := api.ListScenarios(c.Request.Context(), false)
+		ctx := c.Request.Context()
+		page, size, paged := parsePaging(c)
+		// 无 page 参数：全量（含 disabled、全字段），保 ScenarioPicker 一次拉全。
+		if !paged {
+			rows, err := api.ListScenarios(ctx, false)
+			if err != nil {
+				c.JSON(500, gin.H{"error": err.Error()})
+				return
+			}
+			out := make([]gin.H, 0, len(rows))
+			for _, r := range rows {
+				out = append(out, scenarioJSON(r))
+			}
+			c.JSON(200, gin.H{"scenarios": out})
+			return
+		}
+		// 分页：配置管理页搜索 + 翻页，附 total。
+		params := cfgscenario.ListParams{Q: c.Query("q"), Limit: size, Offset: (page - 1) * size}
+		total, err := api.CountScenarios(ctx, params)
+		if err != nil {
+			c.JSON(500, gin.H{"error": err.Error()})
+			return
+		}
+		rows, err := api.ListScenariosPaged(ctx, params)
 		if err != nil {
 			c.JSON(500, gin.H{"error": err.Error()})
 			return
@@ -55,7 +111,7 @@ func listScenariosHandler(api ConfigAPI) gin.HandlerFunc {
 		for _, r := range rows {
 			out = append(out, scenarioJSON(r))
 		}
-		c.JSON(200, gin.H{"scenarios": out})
+		c.JSON(200, gin.H{"scenarios": out, "total": total})
 	}
 }
 
@@ -78,7 +134,6 @@ type scenarioBody struct {
 	Name         string `json:"name"`
 	Description  string `json:"description"`
 	Instruction  string `json:"instruction"`
-	Domain       string `json:"domain"`
 	Engine       string `json:"engine"`
 	SoloHunterID string `json:"solo_hunter_id"`
 	Enabled      bool   `json:"enabled"`
@@ -116,7 +171,7 @@ func saveScenarioHandler(api ConfigAPI) gin.HandlerFunc {
 		}
 		sc, err := api.SaveScenario(c.Request.Context(), cfgscenario.NewParams{
 			Code: b.Code, Name: b.Name, Description: b.Description, Instruction: b.Instruction,
-			Domain: b.Domain, Engine: b.Engine, SoloHunterID: soloHunterID, Enabled: b.Enabled,
+			Engine: b.Engine, SoloHunterID: soloHunterID, Enabled: b.Enabled,
 		})
 		if err != nil {
 			c.JSON(500, gin.H{"error": err.Error()})
@@ -153,7 +208,7 @@ func scenarioJSON(sc cfgscenario.Scenario) gin.H {
 	}
 	return gin.H{
 		"id": sc.ID, "code": sc.Code, "name": sc.Name, "description": sc.Description,
-		"instruction": sc.Instruction, "domain": sc.Domain, "engine": sc.Engine,
+		"instruction": sc.Instruction, "engine": sc.Engine,
 		"solo_hunter_id": soloHunterID, "enabled": sc.Enabled,
 		"created_at": sc.CreatedAt, "updated_at": sc.UpdatedAt,
 	}
@@ -164,7 +219,30 @@ func scenarioJSON(sc cfgscenario.Scenario) gin.H {
 // listHuntersHandler 处理 GET /hunters（全量，含 enabled + orchestrator/domain 两类）。
 func listHuntersHandler(api ConfigAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		rows, err := api.ListHunters(c.Request.Context(), false)
+		ctx := c.Request.Context()
+		page, size, paged := parsePaging(c)
+		// 无 page 参数：全量（含 orchestrator/domain 两类），保 solo_hunter 选择器一次拉全。
+		if !paged {
+			rows, err := api.ListHunters(ctx, false)
+			if err != nil {
+				c.JSON(500, gin.H{"error": err.Error()})
+				return
+			}
+			out := make([]gin.H, 0, len(rows))
+			for _, r := range rows {
+				out = append(out, hunterJSON(r))
+			}
+			c.JSON(200, gin.H{"hunters": out})
+			return
+		}
+		// 分页：配置管理页搜索 + 翻页，附 total。
+		params := cfghunter.ListParams{Q: c.Query("q"), Limit: size, Offset: (page - 1) * size}
+		total, err := api.CountHunters(ctx, params)
+		if err != nil {
+			c.JSON(500, gin.H{"error": err.Error()})
+			return
+		}
+		rows, err := api.ListHuntersPaged(ctx, params)
 		if err != nil {
 			c.JSON(500, gin.H{"error": err.Error()})
 			return
@@ -173,7 +251,7 @@ func listHuntersHandler(api ConfigAPI) gin.HandlerFunc {
 		for _, r := range rows {
 			out = append(out, hunterJSON(r))
 		}
-		c.JSON(200, gin.H{"hunters": out})
+		c.JSON(200, gin.H{"hunters": out, "total": total})
 	}
 }
 
@@ -191,14 +269,14 @@ func getHunterHandler(api ConfigAPI) gin.HandlerFunc {
 }
 
 // hunterBody 是 POST/PUT hunter 的请求体。kind 应用层白名单校验。
-// Tools=内置函数工具；CliTools=外置 CLI 工具白名单（tools.yaml 名字），空=交战域内全部可见。
+// FunctionTools=内置函数工具；CliTools=外置 CLI 工具集（tools.yaml 名字），严格白名单，空=不装配任何外部工具。
 type hunterBody struct {
 	Code          string   `json:"code"`
 	Kind          string   `json:"kind"`
 	Name          string   `json:"name"`
 	Description   string   `json:"description"`
 	Body          string   `json:"body"`
-	Tools         []string `json:"tools"`
+	FunctionTools []string `json:"function_tools"`
 	CliTools      []string `json:"cli_tools"`
 	MaxIterations int      `json:"max_iterations"`
 	Enabled       bool     `json:"enabled"`
@@ -223,7 +301,7 @@ func saveHunterHandler(api ConfigAPI) gin.HandlerFunc {
 		}
 		h, err := api.SaveHunter(c.Request.Context(), cfghunter.NewParams{
 			Code: b.Code, Kind: kind, Name: b.Name, Description: b.Description,
-			Body: b.Body, Tools: b.Tools, CliTools: b.CliTools,
+			Body: b.Body, FunctionTools: b.FunctionTools, CliTools: b.CliTools,
 			MaxIterations: b.MaxIterations, Enabled: b.Enabled,
 		})
 		if err != nil {
@@ -256,11 +334,11 @@ func deleteHunterHandler(api ConfigAPI) gin.HandlerFunc {
 	}
 }
 
-// hunterJSON 是 hunter 响应的单一序列化点。tools/cli_tools 保证非 nil（前端按数组渲染）。
+// hunterJSON 是 hunter 响应的单一序列化点。function_tools/cli_tools 保证非 nil（前端按数组渲染）。
 func hunterJSON(h cfghunter.Hunter) gin.H {
-	tools := h.Tools
-	if tools == nil {
-		tools = []string{}
+	fnTools := h.FunctionTools
+	if fnTools == nil {
+		fnTools = []string{}
 	}
 	cliTools := h.CliTools
 	if cliTools == nil {
@@ -268,7 +346,7 @@ func hunterJSON(h cfghunter.Hunter) gin.H {
 	}
 	return gin.H{
 		"id": h.ID, "code": h.Code, "kind": string(h.Kind), "name": h.Name,
-		"description": h.Description, "body": h.Body, "tools": tools, "cli_tools": cliTools,
+		"description": h.Description, "body": h.Body, "function_tools": fnTools, "cli_tools": cliTools,
 		"max_iterations": h.MaxIterations, "enabled": h.Enabled,
 		"created_at": h.CreatedAt, "updated_at": h.UpdatedAt,
 	}

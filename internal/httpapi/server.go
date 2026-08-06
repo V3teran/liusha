@@ -45,9 +45,11 @@ type Deps struct {
 	// 由 cmd/api 注入 *configstore.Store（自动满足 ConfigAPI 窄接口）。
 	// 写路径经其失效广播，保证 runner 进程 L1 被动失效（见 D7）。
 	ConfigStore ConfigAPI
-	// ToolsManifest 为 nil 时 GET /tooling/tools 不注册。由 cmd/api 注入 *manifest.Manifest
-	// （自动满足 ToolingAPI 窄接口）。供 HunterAdmin cli_tools 白名单多选器拉取候选工具名。
-	ToolsManifest ToolingAPI
+	// ToolCatalog 或 ConfigStore 为 nil 时工具目录路由（/tools 系列）不注册——
+	// 详情/装配需列举、改写智能体，故与 ConfigStore 同守卫。
+	// 由 cmd/api 注入 *cfgtool.Store（自动满足 ToolCatalogAPI 窄接口）。数据源是 tool 表
+	// （启动期由代码事实源 reconcile 同步），供前端工具模块检索/展示 + 智能体配置页选工具。
+	ToolCatalog ToolCatalogAPI
 	// 会话用量合计（GET /conversations/:id/usage）：三者任一为 nil 则路由不注册。
 	// cmd/api 注入 convStore / invocationStore / toolStore（各满足对应窄接口）。
 	UsageTasks UsageTaskResolver
@@ -119,9 +121,14 @@ func NewServer(d Deps) http.Handler {
 		r.PUT("/hunters/:id", saveHunterHandler(d.ConfigStore))
 		r.DELETE("/hunters/:id", deleteHunterHandler(d.ConfigStore))
 	}
-	if d.ToolsManifest != nil {
-		// 外置 CLI 工具目录（只读）：供 HunterAdmin 的 cli_tools 白名单多选器拉取候选。
-		r.GET("/tooling/tools", toolingToolsHandler(d.ToolsManifest))
+	if d.ToolCatalog != nil && d.ConfigStore != nil {
+		// 工具目录（只读检索）+ 工具↔智能体装配（读写下沉后端，单一权威）：
+		// 内置 function + 外置 cli 两套体系。前端工具模块检索/分页；详情附全量智能体及
+		// 各自 involved（是否已装配）；PUT .../agents/:code 从工具侧装/卸该智能体的该工具。
+		// 装配读写都要智能体数据，故与 ConfigStore 同守卫。
+		r.GET("/tools", listToolsHandler(d.ToolCatalog))
+		r.GET("/tools/:name", getToolHandler(d.ToolCatalog, d.ConfigStore))
+		r.PUT("/tools/:name/agents/:code", assignToolHandler(d.ToolCatalog, d.ConfigStore))
 	}
 	if d.Chat != nil {
 		r.POST("/chat", chatHandler(d.Chat, d.StreamCookieSecret, d.CookieSecure))

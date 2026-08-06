@@ -12,6 +12,7 @@ import {
   Sun,
   Target,
   Waypoints,
+  Wrench,
 } from 'lucide-react'
 import { useTheme } from '@/hooks/useTheme'
 import { cn } from '@/lib/utils'
@@ -34,6 +35,7 @@ const NAV_ITEMS: NavItem[] = [
   { to: '/credentials', label: '凭证库', icon: KeyRound },
   { to: '/config/scenarios', label: '场景', icon: Target },
   { to: '/config/hunters', label: '智能体', icon: Bot },
+  { to: '/config/tools', label: '工具', icon: Wrench },
 ]
 
 export function AppShell() {

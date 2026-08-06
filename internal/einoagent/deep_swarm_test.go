@@ -33,7 +33,7 @@ func toolDefsFromCtx(t *testing.T, h einoagent.HunterDef) []string {
 func TestBuildHunterTools_ByName(t *testing.T) {
 	h := einoagent.HunterDef{
 		ID:    "exploitation",
-		Tools: []string{"read_findings", "write_finding", "replay_traffic", "list_traffic", "view_traffic", "done"},
+		FunctionTools: []string{"read_findings", "write_finding", "replay_traffic", "list_traffic", "view_traffic", "done"},
 	}
 	names := toolDefsFromCtx(t, h)
 	want := []string{"done", "list_traffic", "read_findings", "replay_traffic", "view_traffic", "write_finding"}
@@ -48,7 +48,7 @@ func TestBuildHunterTools_ByName(t *testing.T) {
 }
 
 func TestBuildHunterTools_UnknownTool(t *testing.T) {
-	h := einoagent.HunterDef{ID: "x", Tools: []string{"read_findings", "no_such_tool"}}
+	h := einoagent.HunterDef{ID: "x", FunctionTools: []string{"read_findings", "no_such_tool"}}
 	f := allFake{}
 	_, err := einoagent.BuildHunterTools(h, einoagent.ToolBuildCtx{
 		Deps:   einoagent.TrafficAnalysisToolDeps{Findings: f, Corpus: f, Credentials: f},
@@ -60,7 +60,7 @@ func TestBuildHunterTools_UnknownTool(t *testing.T) {
 }
 
 func TestBuildHunterTools_RunCommandNeedsSandbox(t *testing.T) {
-	h := einoagent.HunterDef{ID: "x", Tools: []string{"run_command"}}
+	h := einoagent.HunterDef{ID: "x", FunctionTools: []string{"run_command"}}
 	f := allFake{}
 	_, err := einoagent.BuildHunterTools(h, einoagent.ToolBuildCtx{
 		Deps:   einoagent.TrafficAnalysisToolDeps{Findings: f, Corpus: f, Credentials: f}, // Sandbox nil
@@ -90,12 +90,12 @@ func TestBuildDeepSwarm_AssemblesOrchestratorAndSubAgents(t *testing.T) {
 	orchestratorHunter := einoagent.HunterDef{
 		ID: "orchestrator", Kind: einoagent.HunterOrchestrator,
 		Description: "拆活派 exploitation", SystemPrompt: "你是编排者",
-		Tools: []string{"read_findings", "list_traffic"}, MaxIterations: 300,
+		FunctionTools: []string{"read_findings", "list_traffic"}, MaxIterations: 300,
 	}
 	exploitationHunter := einoagent.HunterDef{
 		ID: "exploitation", Kind: einoagent.HunterSubAgent,
 		Description: "深挖单点", SystemPrompt: "你是exploitation",
-		Tools: []string{"read_findings", "write_finding", "done"}, MaxIterations: 120,
+		FunctionTools: []string{"read_findings", "write_finding", "done"}, MaxIterations: 120,
 	}
 	agent, err := einoagent.BuildDeepSwarm(context.Background(), einoagent.DeepSwarmConfig{
 		Model:        &fakeModel{},

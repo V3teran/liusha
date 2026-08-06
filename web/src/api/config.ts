@@ -7,7 +7,14 @@
  */
 
 import { get, post, put, getApiKey } from './client'
-import type { ScenarioConfig, HunterConfig, ToolingTool } from './types'
+import type {
+  ScenarioConfig,
+  HunterConfig,
+  Tool,
+  ToolKind,
+  ToolDetail,
+  ToolListResponse,
+} from './types'
 
 // ── scenario ──────────────────────────────────────────────────────────
 // 读取（列表/单条）走 client.ts 的 listScenarios（GET /scenarios 单一口径，全量全字段）。
@@ -20,7 +27,6 @@ export async function saveScenario(sc: ScenarioConfig): Promise<ScenarioConfig> 
     name: sc.name,
     description: sc.description,
     instruction: sc.instruction,
-    domain: sc.domain,
     engine: sc.engine,
     solo_hunter_id: sc.solo_hunter_id,
     enabled: sc.enabled,
@@ -51,7 +57,7 @@ export async function saveHunter(h: HunterConfig): Promise<HunterConfig> {
     name: h.name,
     description: h.description,
     body: h.body,
-    tools: h.tools,
+    function_tools: h.function_tools,
     cli_tools: h.cli_tools,
     max_iterations: h.max_iterations,
     enabled: h.enabled,
@@ -67,11 +73,55 @@ export async function deleteHunter(id: string): Promise<void> {
   await delConfig(`/hunters/${id}`)
 }
 
-// ── tooling（只读）────────────────────────────────────────────────────
+// ── tool（只读目录）────────────────────────────────────────────────────
 
-/** 拉外置 CLI 工具目录全集（HunterAdmin cli_tools 白名单多选器候选）。 */
-export async function listToolingTools(): Promise<ToolingTool[]> {
-  return (await get<{ tools: ToolingTool[] }>('/tooling/tools')).tools
+// listTools 的查询参数：kind 过滤、q 关键词、分页（page/size 缺省 = 全量不分页）。
+export interface ToolQuery {
+  kind?: ToolKind
+  q?: string
+  page?: number // 1-based；缺省 = 全量（智能体多选器候选用全量）
+  size?: number
+}
+
+/**
+ * 拉工具目录。
+ *   - 传 page → 分页（响应带 total），工具模块列表用。
+ *   - 不传 page → 全量（total = 列表长度），HunterAdmin 多选器候选用。
+ */
+export async function listTools(query: ToolQuery = {}): Promise<ToolListResponse> {
+  const qs = new URLSearchParams()
+  if (query.kind) qs.set('kind', query.kind)
+  if (query.q) qs.set('q', query.q)
+  if (query.page) qs.set('page', String(query.page))
+  if (query.size) qs.set('size', String(query.size))
+  const suffix = qs.toString() ? `?${qs}` : ''
+  return get<ToolListResponse>(`/tools${suffix}`)
+}
+
+/** 拉某工具全量候选（不分页），供 HunterAdmin function_tools/cli_tools 多选器。 */
+export async function listToolCandidates(kind: ToolKind): Promise<Tool[]> {
+  return (await listTools({ kind })).tools
+}
+
+/** 拉工具详情（含全量智能体及各自装配态 involved），工具模块详情面板用。 */
+export async function getTool(name: string): Promise<ToolDetail> {
+  return get<ToolDetail>(`/tools/${encodeURIComponent(name)}`)
+}
+
+/**
+ * 从工具侧装配（involved=true）/卸载（false）某智能体的该工具。
+ * 后端按工具 kind 改该智能体的 function_tools / cli_tools 并回存，幂等。
+ * 装配读写都在后端（单一权威），前端不再搬运智能体全量 body。
+ */
+export async function assignTool(
+  name: string,
+  code: string,
+  involved: boolean,
+): Promise<void> {
+  await put<{ code: string; involved: boolean }>(
+    `/tools/${encodeURIComponent(name)}/agents/${encodeURIComponent(code)}`,
+    { involved },
+  )
 }
 
 /**

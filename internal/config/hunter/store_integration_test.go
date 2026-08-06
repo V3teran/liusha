@@ -20,7 +20,7 @@ func TestStore_CreateThenGetByCode(t *testing.T) {
 		Name:          "侦察猎手",
 		Description:   "资产测绘与信息收集",
 		Body:          "# 方法论\n先枚举再指纹",
-		Tools:         []string{"run_command", "http_request"},
+		FunctionTools: []string{"run_command", "http_request"},
 		MaxIterations: 30,
 		Enabled:       true,
 	})
@@ -38,8 +38,8 @@ func TestStore_CreateThenGetByCode(t *testing.T) {
 	if got.Name != "侦察猎手" || got.Kind != KindDomain {
 		t.Fatalf("字段不匹配: %+v", got)
 	}
-	if len(got.Tools) != 2 || got.Tools[0] != "run_command" || got.Tools[1] != "http_request" {
-		t.Fatalf("tools jsonb 往返错误: %+v", got.Tools)
+	if len(got.FunctionTools) != 2 || got.FunctionTools[0] != "run_command" || got.FunctionTools[1] != "http_request" {
+		t.Fatalf("function_tools jsonb 往返错误: %+v", got.FunctionTools)
 	}
 	if got.MaxIterations != 30 {
 		t.Fatalf("max_iterations=%d, want 30", got.MaxIterations)

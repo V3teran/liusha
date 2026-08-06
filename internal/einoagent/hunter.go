@@ -39,7 +39,7 @@ type HunterDef struct {
 	Name          string     `yaml:"name"`           // 显示名（中文友好）
 	Description   string     `yaml:"description"`    // 给 deep task 工具：主代理据此决定派给谁（必填）
 	Kind          HunterKind `yaml:"kind"`           // orchestrator | subagent | solo；空视为 subagent
-	Tools         []string   `yaml:"tools"`          // 工具名清单（从 liusha einotools 选）；空=不挂工具
+	FunctionTools []string   `yaml:"function_tools"` // 内置函数工具名清单（从 liusha einotools 选）；空=不挂工具
 	MaxIterations int        `yaml:"max_iterations"` // 0=用默认
 	SystemPrompt  string     `yaml:"-"`              // markdown body（猎手系统提示）
 	SourceFile    string     `yaml:"-"`              // 来源文件路径（诊断用；DB 事实源下可空）

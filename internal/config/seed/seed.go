@@ -28,13 +28,14 @@ import (
 
 // hunterFront 是 hunters/*.md frontmatter 的解析目标。
 // id 用作稳定引用键 code；kind∈{orchestrator,domain}；body 取 markdown 正文。
-// cli_tools 是外置 CLI 工具白名单（tools.yaml 名字），空=交战域内全部可见。
+// function_tools 是内置函数工具（进程内原生函数 code 列表）。
+// cli_tools 是外置 CLI 工具集（tools.yaml 名字），严格白名单，空=不装配任何外部工具。
 type hunterFront struct {
 	ID            string   `yaml:"id"`
 	Name          string   `yaml:"name"`
 	Description   string   `yaml:"description"`
 	Kind          string   `yaml:"kind"`
-	Tools         []string `yaml:"tools"`
+	FunctionTools []string `yaml:"function_tools"`
 	CliTools      []string `yaml:"cli_tools"`
 	MaxIterations int      `yaml:"max_iterations"`
 }
@@ -49,7 +50,6 @@ type scenarioFront struct {
 	Description string `yaml:"description"`
 	Engine      string `yaml:"engine"`
 	SoloHunter  string `yaml:"solo_hunter"`
-	Domain      string `yaml:"domain"`
 }
 
 var (
@@ -152,7 +152,7 @@ func importHunters(ctx context.Context, dir string, h *cfghunter.Store) error {
 			Name:          strings.TrimSpace(f.Name),
 			Description:   strings.TrimSpace(f.Description),
 			Body:          string(body),
-			Tools:         f.Tools,
+			FunctionTools: f.FunctionTools,
 			CliTools:      f.CliTools,
 			MaxIterations: f.MaxIterations,
 			Enabled:       true,
@@ -214,7 +214,6 @@ func importScenarios(ctx context.Context, dir string, s *cfgscenario.Store, h *c
 			Name:         strings.TrimSpace(f.Name),
 			Description:  strings.TrimSpace(f.Description),
 			Instruction:  string(body),
-			Domain:       strings.TrimSpace(f.Domain),
 			Engine:       engine,
 			SoloHunterID: soloHunterID,
 			Enabled:      true,

@@ -16,7 +16,6 @@ function sc(o: Partial<ScenarioConfig>): ScenarioConfig {
     name: '',
     description: '',
     instruction: '',
-    domain: 'web',
     engine: 'swarm',
     solo_hunter_id: '',
     enabled: true,

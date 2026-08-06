@@ -84,7 +84,6 @@ func (h handler) handleSoloEino(ctx context.Context, p worker.Payload, scen cfgs
 		Brief:    brief,
 		Flows:    flows,
 		Sandbox:  sandboxClient,
-		Domain:   scen.Domain,
 		CliTools: hunter.CliTools,
 	}
 

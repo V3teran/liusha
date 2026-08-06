@@ -101,7 +101,6 @@ export interface ScenarioConfig {
   name: string
   description: string
   instruction: string
-  domain: string
   engine: ScenarioEngine
   solo_hunter_id: string
   enabled: boolean
@@ -109,9 +108,9 @@ export interface ScenarioConfig {
   updated_at?: string
 }
 
-// HunterConfig 是猎手全字段形态。tools/cli_tools 后端保证非 nil。
-//   - tools    ：内置函数工具集（code 列表）
-//   - cli_tools：外置 CLI 工具白名单（tools.yaml 名字），空 = 域内全部可见
+// HunterConfig 是猎手全字段形态。function_tools/cli_tools 后端保证非 nil。
+//   - function_tools：内置函数工具集（进程内原生函数 code 列表）
+//   - cli_tools     ：外置 CLI 工具集（tools.yaml 名字，严格白名单），空 = 不装配任何外置工具
 export interface HunterConfig {
   id: string
   code: string
@@ -119,7 +118,7 @@ export interface HunterConfig {
   name: string
   description: string
   body: string
-  tools: string[]
+  function_tools: string[]
   cli_tools: string[]
   max_iterations: number
   enabled: boolean
@@ -127,11 +126,38 @@ export interface HunterConfig {
   updated_at?: string
 }
 
-// ToolingTool 是外置 CLI 工具目录一项（GET /tooling/tools，HunterAdmin cli_tools 多选器候选）。
-export interface ToolingTool {
+// 工具种类：function（进程内函数工具）/ cli（外置 CLI 工具白名单项）。
+export type ToolKind = 'function' | 'cli'
+
+// Tool 是工具目录一项（GET /tools 列表、HunterAdmin function_tools/cli_tools 多选器候选）。
+// 源出代码（函数注册表 + tools.yaml），DB 为启动期同步的只读目录。
+export interface Tool {
   name: string
+  kind: ToolKind
   category: string
   description: string
+  sort_order: number
+  synced_at?: string
+}
+
+// ToolListResponse 是 GET /tools 的响应信封（分页时带 total）。
+export interface ToolListResponse {
+  tools: Tool[]
+  total: number
+}
+
+// ToolAgent 是工具详情里的一个智能体条目：轻量标识 + 是否已装配该工具（involved）。
+// involved 由后端权威计算（按工具 kind 判 function_tools/cli_tools 是否含该工具名）。
+export interface ToolAgent {
+  code: string
+  name: string
+  involved: boolean
+}
+
+// ToolDetail 是 GET /tools/:name 的响应：工具全字段 + 全量智能体及各自装配态。
+export interface ToolDetail {
+  tool: Tool
+  agents: ToolAgent[]
 }
 
 /**
