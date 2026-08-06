@@ -122,7 +122,7 @@ func TestFireDue_ActiveSchedule_ExpandsTaskAndHunter(t *testing.T) {
 	}
 }
 
-// TestFireDue_PassiveSchedule_ClaimsUnconsumedTraffic 验证 passive-recon 定时模板：领取该 host
+// TestFireDue_PassiveSchedule_ClaimsUnconsumedTraffic 验证 api-pentest 定时模板：领取该 host
 // 未消费的 proxy_traffic 后展开 task + orchestrator hunter run。
 func TestFireDue_PassiveSchedule_ClaimsUnconsumedTraffic(t *testing.T) {
 	r, pool := newTestCronRunner(t)
@@ -135,7 +135,7 @@ func TestFireDue_PassiveSchedule_ClaimsUnconsumedTraffic(t *testing.T) {
 
 	items := []assignment.Item{{Host: host}}
 	sched, err := r.schedules.Create(ctx, cronschedule.NewParams{
-		ScenarioID: "passive-recon", CronExpr: "* * * * *", Items: items, Title: "recheck-" + host,
+		ScenarioID: "api-pentest", CronExpr: "* * * * *", Items: items, Title: "recheck-" + host,
 	})
 	if err != nil {
 		t.Fatalf("create schedule: %v", err)
@@ -144,7 +144,7 @@ func TestFireDue_PassiveSchedule_ClaimsUnconsumedTraffic(t *testing.T) {
 
 	r.fireDue(ctx)
 
-	tasks, err := r.tasks.List(ctx, "passive-recon", 10)
+	tasks, err := r.tasks.List(ctx, "api-pentest", 10)
 	if err != nil {
 		t.Fatalf("list tasks: %v", err)
 	}
@@ -175,7 +175,7 @@ func TestFireDue_PassiveSchedule_NoTraffic_AbortsWithoutError(t *testing.T) {
 
 	items := []assignment.Item{{Host: "never-captured.com"}}
 	sched, err := r.schedules.Create(ctx, cronschedule.NewParams{
-		ScenarioID: "passive-recon", CronExpr: "* * * * *", Items: items,
+		ScenarioID: "api-pentest", CronExpr: "* * * * *", Items: items,
 	})
 	if err != nil {
 		t.Fatalf("create schedule: %v", err)
@@ -186,7 +186,7 @@ func TestFireDue_PassiveSchedule_NoTraffic_AbortsWithoutError(t *testing.T) {
 		t.Fatalf("无流量不应算 fireOne 失败: %v", err)
 	}
 
-	tasks, err := r.tasks.List(ctx, "passive-recon", 10)
+	tasks, err := r.tasks.List(ctx, "api-pentest", 10)
 	if err != nil {
 		t.Fatalf("list tasks: %v", err)
 	}

@@ -32,7 +32,6 @@ func TestStore_CreateThenGetByCode(t *testing.T) {
 		Code:        "web-pentest-killchain",
 		Name:        "Web 渗透杀伤链",
 		Instruction: "聚焦 Web 应用漏洞利用链",
-		Domain:      "web",
 		Engine:      EngineSwarm,
 		Enabled:     true,
 	})
@@ -47,12 +46,12 @@ func TestStore_CreateThenGetByCode(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get by code: %v", err)
 	}
-	if got.Engine != EngineSwarm || got.Domain != "web" || got.SoloHunterID != nil {
+	if got.Engine != EngineSwarm || got.SoloHunterID != nil {
 		t.Fatalf("字段不匹配: %+v", got)
 	}
 }
 
-// TestStore_SoloReferencesHunter 验证：solo 场景按 solo_hunter_id 回读一致，domain 空折 web。
+// TestStore_SoloReferencesHunter 验证：solo 场景按 solo_hunter_id 回读一致。
 func TestStore_SoloReferencesHunter(t *testing.T) {
 	ctx := context.Background()
 	pool := dbtest.NewPgPool(t)
@@ -61,14 +60,11 @@ func TestStore_SoloReferencesHunter(t *testing.T) {
 
 	hID := seedHunter(t, hs, "traffic-analysis")
 	sc, err := s.Create(ctx, NewParams{
-		Code: "passive-recon", Name: "被动侦察", Engine: EngineSolo,
+		Code: "api-pentest", Name: "API 渗透", Engine: EngineSolo,
 		SoloHunterID: &hID, Enabled: true,
 	})
 	if err != nil {
 		t.Fatal(err)
-	}
-	if sc.Domain != "web" {
-		t.Fatalf("空 domain 应折成 web，得 %q", sc.Domain)
 	}
 	if sc.SoloHunterID == nil || *sc.SoloHunterID != hID {
 		t.Fatalf("solo_hunter_id 应回读为 %s，得 %+v", hID, sc.SoloHunterID)

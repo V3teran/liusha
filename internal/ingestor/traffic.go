@@ -30,9 +30,9 @@ import (
 	"github.com/V3teran/liusha/internal/worker"
 )
 
-// trafficScenarioCode 是流量驱动自动建 task 所属的场景 code（solo 引擎，逐条分析代理捕获流量）。
+// trafficScenarioCode 是流量驱动自动建 task 所属的场景 code（solo 引擎，逐条测 HTTP 数据包漏洞）。
 // 聚合器建的 assignment/task 都挂此场景；runner handler 据 scenario_id 走 solo 派发。
-const trafficScenarioCode = "passive-recon"
+const trafficScenarioCode = "api-pentest"
 
 // ConversationCreator 建 passive task 的会话流。聚合器建 task 后建一条 conversation，
 // passive agent 过程事件落进去，前端可打开实时观察 + 插话。nil 时跳过（向后兼容）。
