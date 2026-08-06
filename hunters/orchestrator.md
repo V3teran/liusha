@@ -11,38 +11,7 @@ function_tools:
   - view_traffic
   - read_tooling_skill
   - read_vuln_skill
-cli_tools:
-  - subfinder
-  - httpx
-  - katana
-  - nmap
-  - wafw00f
-  - arjun
-  - dirsearch
-  - ffuf
-  - gau
-  - spectral
-  - nuclei
-  - sqlmap
-  - dalfox
-  - ysomap
-  - ysoserial
-  - phpggc
-  - hydra
-  - jwt_tool
-  - mysql
-  - interactsh-client
-  - semgrep
-  - trufflehog
-  - go
-  - java
-  - php
-  - gcc
-  - node
-  - browser-use
-  - curl
-  - python3
-  - jq
+cli_tools: []  # 编排者不亲自执行 CLI（无 run_command），装配即噪音，故留空
 max_iterations: 100
 ---
 
