@@ -72,6 +72,16 @@ func (f *fakeScenarios) List(_ context.Context, _ bool) ([]cfgscenario.Scenario,
 	}
 	return out, nil
 }
+func (f *fakeScenarios) ListPaged(_ context.Context, _ cfgscenario.ListParams) ([]cfgscenario.Scenario, error) {
+	out := make([]cfgscenario.Scenario, 0, len(f.byCode))
+	for _, sc := range f.byCode {
+		out = append(out, sc)
+	}
+	return out, nil
+}
+func (f *fakeScenarios) Count(_ context.Context, _ cfgscenario.ListParams) (int, error) {
+	return len(f.byCode), nil
+}
 
 // fakeHunters 是最小 hunter 底层 store 假实现（EnabledDomain/Orchestrator 测试够用）。
 type fakeHunters struct {
@@ -96,6 +106,12 @@ func (f *fakeHunters) Update(_ context.Context, _ cfghunter.NewParams) (cfghunte
 func (f *fakeHunters) Delete(_ context.Context, _ string) error { return nil }
 func (f *fakeHunters) List(_ context.Context, _ bool) ([]cfghunter.Hunter, error) {
 	return nil, nil
+}
+func (f *fakeHunters) ListPaged(_ context.Context, _ cfghunter.ListParams) ([]cfghunter.Hunter, error) {
+	return nil, nil
+}
+func (f *fakeHunters) CountList(_ context.Context, _ cfghunter.ListParams) (int, error) {
+	return 0, nil
 }
 func (f *fakeHunters) ListEnabledDomain(_ context.Context) ([]cfghunter.Hunter, error) {
 	atomic.AddInt64(&f.domainHit, 1)

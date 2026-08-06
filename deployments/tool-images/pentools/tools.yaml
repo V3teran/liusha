@@ -1,7 +1,7 @@
 # liusha 沙箱预装工具清单（31 个）
 #
 # 单一真相源：本文件同时驱动两条链，互不干扰——
-#   1. agent 视图：Go(manifest.go) 只读 name/category/description/scenarios → 渲染进 SystemPrompt 的
+#   1. agent 视图：Go(manifest.go) 只读 name/category/description → 渲染进 SystemPrompt 的
 #      tooling_catalog（Tier 1 索引）。**install 字段不进 prompt**（Go 结构体不含它，yaml.v3 忽略）。
 #   2. 构建期：scripts/build/install-from-manifest.sh 用 yq 读 install → 装齐工具。
 #
@@ -20,164 +20,132 @@
 # category 取值与 hunter/user_prompt.go 的 toolingCategoryOrder 保持一致（能力轴，领域中立）；
 # 未列入 toolingCategoryOrder 的 category 会落到"未分类"组提醒维护者。
 #
-# scenarios 字段（交战场景标签，多值）：当前只有 web，故全部工具标 [web]。
-#   这是**预留扩展点**——将来加 ctf/domain/container 场景时：
-#     - 跨场景复用的工具（curl/python3/nmap/ffuf/nuclei 等）追加标签，如 [web, ctf, domain]；
-#     - catalog 按当次交战 scenario 过滤渲染（当前单场景 = no-op，过滤逻辑尚未接）；
-#     - 工具集完全不同的重场景（pwn 的 ghidra、AD 的 mimikatz）走独立镜像变体，不堆进本共享清单。
-#   加字段是非破坏改动（yaml.v3 忽略未知/manifest.go 已解析），无需 migration。
+# 工具装配走智能体 cli_tools 严格白名单（所选即所得），本清单不与场景挂钩。
 
 tools:
   # ===== recon（侦察 — 资产/服务/技术栈/指纹发现）=====
   - name: subfinder
     category: recon
-    scenarios: [web]
     description: 子域名被动枚举（多源 OSINT）。零接触目标，只查公网情报源（crt.sh/passive DNS）。
     install: { method: apt }  # Kali apt 有 subfinder 2.14.0
   - name: httpx
     category: recon
-    scenarios: [web]
     description: HTTP 探活 + 指纹 + tech detection。subfinder 之后必跑过滤死域。
     install: { method: apt, pkg: httpx-toolkit }  # Kali 包名 httpx-toolkit；Dockerfile 包装成 httpx 命令
   - name: katana
     category: recon
-    scenarios: [web]
     description: 现代 Web 爬虫——爬一个起点 url 拿全部站内链接 + JS 解析的 endpoint。
     install: { method: release, ref: projectdiscovery/katana@v1.6.1 }
   - name: nmap
     category: recon
-    scenarios: [web]
     description: 端口扫描 + 服务指纹 + NSE 脚本（半个漏扫器）。发现主端口外的高危服务用。
     install: { method: apt }
   - name: wafw00f
     category: recon
-    scenarios: [web]
     description: WAF 指纹识别（CloudFlare/Akamai/AWS WAF/F5）——选 sqlmap --tamper / dalfox bypass 前先跑。
     install: { method: apt }
 
   # ===== discovery（内容/参数发现）=====
   - name: arjun
     category: discovery
-    scenarios: [web]
     description: HTTP 隐藏参数发现——爆 25k+ 参数名 wordlist 找未文档化的参数（admin/debug/role 类）。
     install: { method: apt }  # Kali apt 有 arjun 2.2.7
   - name: dirsearch
     category: discovery
-    scenarios: [web]
     description: 智能目录/文件爆破——自带 11k+ 行 wordlist + 扩展名探测 + smart filter，目录爆破首选。
     install: { method: apt }
   - name: ffuf
     category: discovery
-    scenarios: [web]
     description: 通用 web fuzzer——任意位置 FUZZ 占位符替换 wordlist。dirsearch 不擅长的复杂场景用 ffuf。
     install: { method: apt }
   - name: gau
     category: discovery
-    scenarios: [web]
     description: 被动 URL 发现——从 Wayback/Common Crawl/URLScan/OTX 归档拉历史 endpoint。仅对公网已收录站有结果，内网/新部署/CTF 靶机返回空。
     install: { method: release, ref: lc/gau@v2.2.4 }
   - name: spectral
     category: discovery
-    scenarios: [web]
     description: API 规范解析/校验（OpenAPI/Swagger/GraphQL）——`spectral lint <spec_url_或_文件>` 把 spec 声明的 endpoint × 参数 × 认证方式全摊开，一次拿到 API 攻击面（同 arjun 找参数）。默认规则集只校验规范质量/合法性，**非安全扫描**；可选挂 OWASP 规则集做设计层提示（不碰目标、不确认可利用）。需先拿到 spec：从 /openapi.json、/swagger.json、/v2/api-docs、/swagger-ui 发现并下载。
     install: { method: npm, pkg: "@stoplight/spectral-cli" }  # 官方推荐 npm（6.x 无 arm64 binary）
 
   # ===== vulnscan（自动化模板漏扫）=====
   - name: nuclei
     category: vulnscan
-    scenarios: [web]
     description: 模板化漏扫引擎——业界事实标准。10k+ 模板覆盖 CVE/misconfig/exposure/dast。（模板由 Dockerfile git clone nuclei-templates 预拉）
     install: { method: apt }  # Kali apt 有 nuclei 3.10.0（模板由 Dockerfile git clone 预拉）
 
   # ===== injection（注入类专项）=====
   - name: sqlmap
     category: injection
-    scenarios: [web]
     description: SQL 注入自动探测/利用，web SQLi 首选；GraphQL/NoSQL 不归它管。
     install: { method: apt }
   - name: dalfox
     category: injection
-    scenarios: [web]
     description: XSS 自动探测 + 利用（反射/存储/DOM）。Go 实现，业界 XSS 之于 sqlmap。
     # install 省略：由 Dockerfile 专属层装（release，带版本名的单文件归档，不适配通用 release 方法）。
 
   # ===== deserialization（反序列化 payload 生成）=====
   - name: ysomap
     category: deserialization
-    scenarios: [web]
     description: Java 反序列化利用框架（主力）——比 ysoserial 更强的 bypass/高版本绕过 + JNDI 联动 + 内存马注入，支持交互 cli（`ysomap cli`）与脚本模式（`ysomap script x.yso`）。经典链先试 ysoserial，bypass/JNDI/高版本场景用 ysomap。用 JDK8 运行。
     # install 省略：由 Dockerfile 专属层装（git clone master + mvn package，取 2025 最新利用链）。
   - name: ysoserial
     category: deserialization
-    scenarios: [web]
     description: Java 反序列化 payload 生成器（经典链兜底）——CommonsCollections/Groovy/Spring 等经典 gadget chain + cmd → payload，最稳最全。用 JDK8 运行。
     # install 省略：由 Dockerfile 专属层装（jar 下载 + jdk8 java -jar wrapper）。
   - name: phpggc
     category: deserialization
-    scenarios: [web]
     description: PHP 反序列化 payload 生成器——Laravel/Symfony/Drupal/WordPress 框架向。
     install: { method: apt }  # Kali apt 有 phpggc
 
   # ===== auth（认证/凭证攻击）=====
   - name: hydra
     category: auth
-    scenarios: [web]
     description: 弱口令爆破——支持 50+ 协议（http-form/http-basic/ssh/ftp/smb/mysql 等）。
     install: { method: apt }
   - name: jwt_tool
     category: auth
-    scenarios: [web]
     description: JWT 攻击瑞士军刀——解码/伪造/None 算法/算法混淆/key confusion/弱 secret 暴破。
     # install 省略：由 Dockerfile 专属层装（git clone + pip 依赖 + python wrapper）。
   - name: mysql
     category: auth
-    scenarios: [web]
     description: MySQL/MariaDB CLI 客户端——拿到 DB 凭证后直接连库验证/dump（mysql -h <host> -P <port> -u <user> -p<pass> -e "..."）。Python 等价：import pymysql（已预装）。
     install: { method: apt, pkg: default-mysql-client }
 
   # ===== oob（带外回调检测 — Blind SSRF/RCE/XXE/XSS）=====
   - name: interactsh-client
     category: oob
-    scenarios: [web]
     description: OOB（Out-Of-Band）回调检测——拿 oast.fun 子域名作 callback 钩子。Blind SSRF/RCE/XXE/XSS 唯一通用挖法。
     install: { method: release, ref: projectdiscovery/interactsh@v1.3.1 }
 
   # ===== sast（源码静态分析）=====
   - name: semgrep
     category: sast
-    scenarios: [web]
     description: 静态代码分析——找代码逻辑漏洞（SQLi/XSS sink、不安全反序列化）。目标暴露源码时秒杀黑盒。
     install: { method: pip }  # 官方推荐 pip（无 arm64 binary）
   - name: trufflehog
     category: sast
-    scenarios: [web]
     description: Secrets 扫描——源码 / git 历史 / 文件系统 / S3 bucket 找硬编码 API key / token / 凭证。
     install: { method: apt }  # Kali apt 有 trufflehog 3.94.3
 
   # ===== runtime（语言运行时/编译器 — 现场编写/编译/运行 payload）=====
   - name: go
     category: runtime
-    scenarios: [web]
     description: Go 编译器——CTF/渗透中现场编译 Go payload 或小工具（go run x.go / go build）。Kali apt golang 1.26。
     install: { method: apt, pkg: golang }
   - name: java
     category: runtime
-    scenarios: [web]
     description: Java 运行/编译（反序列化 gadget、JNDI、RCE payload、CTF Java 题手写利用）。双 JDK 可切换——默认 `java`/`javac`=JDK8（class v52 向前兼容所有更高目标，配合 ysomap/ysoserial）；现代 Spring Boot 3.x 目标用 `java17`/`javac17`。反序列化优先用 ysomap/ysoserial 生成，自写 payload 时用 javac 编译。
     # install 省略：由 Dockerfile 专属层装（Temurin JDK8 8u352 + JDK17 tar.gz + update-alternatives + java8/java17 包装）。
   - name: php
     category: runtime
-    scenarios: [web]
     description: PHP 解释器（php 8.4）——写/跑 PHP payload、验证 PHP 反序列化（配合 phpggc）、LFI 链、webshell 逻辑、magic hash 等 PHP 特性利用。`php x.php` 或 `php -r "代码"`。
     install: { method: apt, pkg: php-cli }
   - name: gcc
     category: runtime
-    scenarios: [web]
     description: C/C++ 编译器（gcc/g++ 15）——CTF pwn 编译 exploit、编译本地提权 PoC、编译目标环境所需的 .so/二进制。`gcc x.c -o x`。
     install: { method: apt, pkg: build-essential }
   - name: node
     category: runtime
-    scenarios: [web]
     description: Node.js（node 24）——JS payload 与利用：原型链污染、客户端 SSTI、JWT 弱密钥/算法混淆脚本、复杂前端逻辑复现。`node x.js`。
     install: { method: apt, pkg: nodejs }
 
@@ -186,22 +154,18 @@ tools:
   # 安装器遍历到它时 command -v 已命中 → 信任跳过；若 venv 层失败导致缺失 → 安装器 FATAL，构建失败。
   - name: browser-use
     category: browser
-    scenarios: [web]
     description: 无头 Chromium 浏览器自动化，typed `browser_use` 工具是首选入口。
 
   # ===== utility（通用胶水：HTTP/JSON/脚本）=====
   - name: curl
     category: utility
-    scenarios: [web]
     description: 原生 HTTP 客户端，所有漏洞验证的瑞士军刀。
     install: { method: apt }
   - name: python3
     category: utility
-    scenarios: [web]
     description: 自定义脚本兜底（GraphQL/NoSQL 注入、复杂登录链、并发 fuzz、二阶段 payload、自定义编码绕过）。已装 pwntools（pwn 交互）+ pycryptodome（crypto）。
     install: { method: apt }
   - name: jq
     category: utility
-    scenarios: [web]
     description: JSON 解析/提取/重构。配合 curl pipe 用，避免自己 grep JSON 跑偏。
     install: { method: apt }

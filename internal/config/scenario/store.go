@@ -3,6 +3,7 @@ package scenario
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -15,11 +16,8 @@ type Store struct {
 // NewStore 用 pgxpool 构造 Store。
 func NewStore(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
 
-// defaultDomain 是 Domain 留空时的回退值（与 D1 DDL DEFAULT 'web' 对齐）。
-const defaultDomain = "web"
-
 // colsSelect 是所有 SELECT / RETURNING 路径的统一列序，与 scan() 字段一一对应。
-const colsSelect = "id, code, name, description, instruction, domain, engine, solo_hunter_id::text, enabled, created_at, updated_at"
+const colsSelect = "id, code, name, description, instruction, engine, solo_hunter_id::text, enabled, created_at, updated_at"
 
 // validateParams 应用层校验 engine 与 solo_hunter_id 的耦合（与 DB CHECK 双保险）：
 // solo 必须指定 solo_hunter_id，swarm 必须为空。
@@ -39,24 +37,16 @@ func validateParams(p NewParams) error {
 	return nil
 }
 
-// normalizeDomain 把空 domain 折成默认值 web（应用层兜底，DB 也有 DEFAULT）。
-func normalizeDomain(d string) string {
-	if d == "" {
-		return defaultDomain
-	}
-	return d
-}
-
 // Create 插入一行场景，返回回读的完整行。
 func (s *Store) Create(ctx context.Context, p NewParams) (Scenario, error) {
 	if err := validateParams(p); err != nil {
 		return Scenario{}, fmt.Errorf("create scenario: %w", err)
 	}
 	row := s.pool.QueryRow(ctx, `
-		INSERT INTO scenario (code, name, description, instruction, domain, engine, solo_hunter_id, enabled)
-		VALUES ($1, $2, $3, $4, $5, $6, $7::uuid, $8)
+		INSERT INTO scenario (code, name, description, instruction, engine, solo_hunter_id, enabled)
+		VALUES ($1, $2, $3, $4, $5, $6::uuid, $7)
 		RETURNING `+colsSelect,
-		p.Code, p.Name, p.Description, p.Instruction, normalizeDomain(p.Domain),
+		p.Code, p.Name, p.Description, p.Instruction,
 		p.Engine, p.SoloHunterID, p.Enabled)
 	var sc Scenario
 	if err := scan(row, &sc); err != nil {
@@ -72,10 +62,10 @@ func (s *Store) Update(ctx context.Context, p NewParams) (Scenario, error) {
 	}
 	row := s.pool.QueryRow(ctx, `
 		UPDATE scenario
-		SET name=$2, description=$3, instruction=$4, domain=$5, engine=$6, solo_hunter_id=$7::uuid, enabled=$8, updated_at=now()
+		SET name=$2, description=$3, instruction=$4, engine=$5, solo_hunter_id=$6::uuid, enabled=$7, updated_at=now()
 		WHERE code=$1
 		RETURNING `+colsSelect,
-		p.Code, p.Name, p.Description, p.Instruction, normalizeDomain(p.Domain),
+		p.Code, p.Name, p.Description, p.Instruction,
 		p.Engine, p.SoloHunterID, p.Enabled)
 	var sc Scenario
 	if err := scan(row, &sc); err != nil {
@@ -140,6 +130,63 @@ func (s *Store) List(ctx context.Context, onlyEnabled bool) ([]Scenario, error) 
 	return out, rows.Err()
 }
 
+// ListParams 是分页/搜索列表的入参（配置管理页用；picker 仍走全量 List）。
+//   - Q     ：按 code/name/description 模糊匹配（空 = 不过滤）
+//   - Limit ：<=0 表示不分页（全量）
+//   - Offset：分页偏移
+type ListParams struct {
+	Q      string
+	Limit  int
+	Offset int
+}
+
+// buildFilter 拼装 ListPaged/Count 共用的 WHERE 子句与参数（DRY）。
+func buildFilter(p ListParams) (string, []any) {
+	q := strings.TrimSpace(p.Q)
+	if q == "" {
+		return "", nil
+	}
+	return " WHERE (code ILIKE $1 OR name ILIKE $1 OR description ILIKE $1)", []any{"%" + q + "%"}
+}
+
+// ListPaged 按 code 升序、支持模糊搜索 + 分页列出场景（配置管理页）。
+// Limit<=0 时返回过滤后全量。
+func (s *Store) ListPaged(ctx context.Context, p ListParams) ([]Scenario, error) {
+	where, args := buildFilter(p)
+	q := "SELECT " + colsSelect + " FROM scenario" + where + " ORDER BY code ASC"
+	if p.Limit > 0 {
+		args = append(args, p.Limit)
+		q += fmt.Sprintf(" LIMIT $%d", len(args))
+		args = append(args, p.Offset)
+		q += fmt.Sprintf(" OFFSET $%d", len(args))
+	}
+	rows, err := s.pool.Query(ctx, q, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list scenarios paged: %w", err)
+	}
+	defer rows.Close()
+
+	var out []Scenario
+	for rows.Next() {
+		var sc Scenario
+		if err := scan(rows, &sc); err != nil {
+			return nil, fmt.Errorf("scan scenario: %w", err)
+		}
+		out = append(out, sc)
+	}
+	return out, rows.Err()
+}
+
+// Count 返回与 ListPaged 相同过滤条件下的总行数（分页 total）。
+func (s *Store) Count(ctx context.Context, p ListParams) (int, error) {
+	where, args := buildFilter(p)
+	var n int
+	if err := s.pool.QueryRow(ctx, "SELECT COUNT(*) FROM scenario"+where, args...).Scan(&n); err != nil {
+		return 0, fmt.Errorf("count scenarios: %w", err)
+	}
+	return n, nil
+}
+
 // scanner 抽象 pgx.Row / pgx.Rows 的 Scan 方法。
 type scanner interface {
 	Scan(dest ...any) error
@@ -148,5 +195,5 @@ type scanner interface {
 // scan 是 colsSelect 列序的统一反序列化点。
 func scan(r scanner, sc *Scenario) error {
 	return r.Scan(&sc.ID, &sc.Code, &sc.Name, &sc.Description, &sc.Instruction,
-		&sc.Domain, &sc.Engine, &sc.SoloHunterID, &sc.Enabled, &sc.CreatedAt, &sc.UpdatedAt)
+		&sc.Engine, &sc.SoloHunterID, &sc.Enabled, &sc.CreatedAt, &sc.UpdatedAt)
 }

@@ -23,7 +23,7 @@ name: 渗透编排者
 kind: orchestrator
 description: 拆活派 exploitation，不亲自挖洞
 max_iterations: 300
-tools:
+function_tools:
   - read_findings
   - list_traffic
 ---
@@ -36,7 +36,7 @@ name: 渗透exploitation
 kind: subagent
 description: 接 brief 深挖单个攻击面并 write_finding
 max_iterations: 120
-tools:
+function_tools:
   - read_findings
   - write_finding
   - run_command
@@ -72,8 +72,8 @@ func TestLoadHunters_ParsesAndClassifies(t *testing.T) {
 	if st.Name != "渗透exploitation" || st.Kind != einoagent.HunterSubAgent || st.MaxIterations != 120 {
 		t.Errorf("exploitation 字段错: %+v", st)
 	}
-	if len(st.Tools) != 4 || st.Tools[1] != "write_finding" {
-		t.Errorf("exploitation tools 错: %v", st.Tools)
+	if len(st.FunctionTools) != 4 || st.FunctionTools[1] != "write_finding" {
+		t.Errorf("exploitation function_tools 错: %v", st.FunctionTools)
 	}
 	if !strings.Contains(st.SystemPrompt, "深挖") {
 		t.Errorf("exploitation body 错: %q", st.SystemPrompt)

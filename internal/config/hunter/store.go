@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -20,7 +21,7 @@ func NewStore(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
 const defaultMaxIterations = 40
 
 // colsSelect 是所有 SELECT / RETURNING 路径的统一列序，与 scan() 字段一一对应。
-const colsSelect = "id, code, kind, name, description, body, tools, cli_tools, max_iterations, enabled, created_at, updated_at"
+const colsSelect = "id, code, kind, name, description, body, function_tools, cli_tools, max_iterations, enabled, created_at, updated_at"
 
 // validateKind 应用层校验 kind（与 DB CHECK 双保险）。
 func validateKind(k Kind) error {
@@ -37,7 +38,7 @@ func (s *Store) Create(ctx context.Context, p NewParams) (Hunter, error) {
 	if err := validateKind(p.Kind); err != nil {
 		return Hunter{}, fmt.Errorf("create hunter: %w", err)
 	}
-	tools, err := marshalTools(p.Tools)
+	tools, err := marshalTools(p.FunctionTools)
 	if err != nil {
 		return Hunter{}, fmt.Errorf("create hunter: %w", err)
 	}
@@ -50,7 +51,7 @@ func (s *Store) Create(ctx context.Context, p NewParams) (Hunter, error) {
 		maxIter = defaultMaxIterations
 	}
 	row := s.pool.QueryRow(ctx, `
-		INSERT INTO hunter (code, kind, name, description, body, tools, cli_tools, max_iterations, enabled)
+		INSERT INTO hunter (code, kind, name, description, body, function_tools, cli_tools, max_iterations, enabled)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		RETURNING `+colsSelect,
 		p.Code, string(p.Kind), p.Name, p.Description, p.Body, tools, cliTools, maxIter, p.Enabled)
@@ -66,7 +67,7 @@ func (s *Store) Update(ctx context.Context, p NewParams) (Hunter, error) {
 	if err := validateKind(p.Kind); err != nil {
 		return Hunter{}, fmt.Errorf("update hunter: %w", err)
 	}
-	tools, err := marshalTools(p.Tools)
+	tools, err := marshalTools(p.FunctionTools)
 	if err != nil {
 		return Hunter{}, fmt.Errorf("update hunter: %w", err)
 	}
@@ -80,7 +81,7 @@ func (s *Store) Update(ctx context.Context, p NewParams) (Hunter, error) {
 	}
 	row := s.pool.QueryRow(ctx, `
 		UPDATE hunter
-		SET kind=$2, name=$3, description=$4, body=$5, tools=$6, cli_tools=$7, max_iterations=$8, enabled=$9, updated_at=now()
+		SET kind=$2, name=$3, description=$4, body=$5, function_tools=$6, cli_tools=$7, max_iterations=$8, enabled=$9, updated_at=now()
 		WHERE code=$1
 		RETURNING `+colsSelect,
 		p.Code, string(p.Kind), p.Name, p.Description, p.Body, tools, cliTools, maxIter, p.Enabled)
@@ -145,6 +146,63 @@ func (s *Store) List(ctx context.Context, onlyEnabled bool) ([]Hunter, error) {
 		out = append(out, h)
 	}
 	return out, rows.Err()
+}
+
+// ListParams 是分页/搜索列表的入参（配置管理页用；swarm 池仍走 ListEnabledDomain 全量）。
+//   - Q     ：按 code/name/description 模糊匹配（空 = 不过滤）
+//   - Limit ：<=0 表示不分页（全量）
+//   - Offset：分页偏移
+type ListParams struct {
+	Q      string
+	Limit  int
+	Offset int
+}
+
+// buildFilter 拼装 ListPaged/CountList 共用的 WHERE 子句与参数（DRY）。
+func buildFilter(p ListParams) (string, []any) {
+	q := strings.TrimSpace(p.Q)
+	if q == "" {
+		return "", nil
+	}
+	return " WHERE (code ILIKE $1 OR name ILIKE $1 OR description ILIKE $1)", []any{"%" + q + "%"}
+}
+
+// ListPaged 按 code 升序、支持模糊搜索 + 分页列出配置猎手（配置管理页）。
+// Limit<=0 时返回过滤后全量。
+func (s *Store) ListPaged(ctx context.Context, p ListParams) ([]Hunter, error) {
+	where, args := buildFilter(p)
+	q := "SELECT " + colsSelect + " FROM hunter" + where + " ORDER BY code ASC"
+	if p.Limit > 0 {
+		args = append(args, p.Limit)
+		q += fmt.Sprintf(" LIMIT $%d", len(args))
+		args = append(args, p.Offset)
+		q += fmt.Sprintf(" OFFSET $%d", len(args))
+	}
+	rows, err := s.pool.Query(ctx, q, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list hunters paged: %w", err)
+	}
+	defer rows.Close()
+
+	var out []Hunter
+	for rows.Next() {
+		var h Hunter
+		if err := scan(rows, &h); err != nil {
+			return nil, fmt.Errorf("scan hunter: %w", err)
+		}
+		out = append(out, h)
+	}
+	return out, rows.Err()
+}
+
+// CountList 返回与 ListPaged 相同过滤条件下的总行数（分页 total）。
+func (s *Store) CountList(ctx context.Context, p ListParams) (int, error) {
+	where, args := buildFilter(p)
+	var n int
+	if err := s.pool.QueryRow(ctx, "SELECT COUNT(*) FROM hunter"+where, args...).Scan(&n); err != nil {
+		return 0, fmt.Errorf("count hunters: %w", err)
+	}
+	return n, nil
 }
 
 // ListEnabledDomain 按 code 升序列出全部 enabled 的领域猎手（kind='domain'）。
@@ -219,15 +277,15 @@ type scanner interface {
 // scan 是 colsSelect 列序的统一反序列化点。
 func scan(r scanner, h *Hunter) error {
 	var kind string
-	var tools, cliTools []byte
+	var fnTools, cliTools []byte
 	if err := r.Scan(&h.ID, &h.Code, &kind, &h.Name, &h.Description, &h.Body,
-		&tools, &cliTools, &h.MaxIterations, &h.Enabled, &h.CreatedAt, &h.UpdatedAt); err != nil {
+		&fnTools, &cliTools, &h.MaxIterations, &h.Enabled, &h.CreatedAt, &h.UpdatedAt); err != nil {
 		return err
 	}
 	h.Kind = Kind(kind)
-	if len(tools) > 0 {
-		if err := json.Unmarshal(tools, &h.Tools); err != nil {
-			return fmt.Errorf("unmarshal tools: %w", err)
+	if len(fnTools) > 0 {
+		if err := json.Unmarshal(fnTools, &h.FunctionTools); err != nil {
+			return fmt.Errorf("unmarshal function_tools: %w", err)
 		}
 	}
 	if len(cliTools) > 0 {

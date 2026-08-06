@@ -23,6 +23,7 @@ import (
 	"github.com/V3teran/liusha/internal/config"
 	cfghunter "github.com/V3teran/liusha/internal/config/hunter"
 	cfgscenario "github.com/V3teran/liusha/internal/config/scenario"
+	cfgtool "github.com/V3teran/liusha/internal/config/tool"
 	"github.com/V3teran/liusha/internal/config/seed"
 	"github.com/V3teran/liusha/internal/configstore"
 	"github.com/V3teran/liusha/internal/conversation"
@@ -122,12 +123,22 @@ func main() {
 	// Tools manifest（tools.yaml）：供 GET /tooling/tools 给 HunterAdmin cli_tools 白名单多选器
 	// 拉取候选。与 runner 同源加载；缺失非致命（仅该只读端点不注册，配置页 cli_tools 候选为空）。
 	toolsManifestPath := envx.OrDefault("LIUSHA_TOOLS_MANIFEST_PATH", "deployments/tool-images/pentools/tools.yaml")
-	var toolingAPI httpapi.ToolingAPI // 保持 nil 接口（非「含 nil 指针的非 nil 接口」），Load 成功才赋值
+	var toolManifest *manifest.Manifest // cli 工具事实源；nil = tools.yaml 缺失（降级：仅同步 function 工具）
 	if m, mErr := manifest.Load(toolsManifestPath); mErr != nil {
-		logger.Warn().Err(mErr).Str("path", toolsManifestPath).Msg("tools.yaml 加载失败（跳过 /tooling/tools 端点）")
+		logger.Warn().Err(mErr).Str("path", toolsManifestPath).Msg("tools.yaml 加载失败（工具目录仅同步内置 function 工具）")
 	} else {
-		toolingAPI = m
+		toolManifest = m
 	}
+
+	// 工具目录同步：把两套工具体系（内置 function + 外置 cli）幂等同步进 tool 表，
+	// 供前端工具模块检索/展示、智能体配置页「选工具」。代码为事实源，启动期 reconcile 一次。
+	cfgToolStore := cfgtool.NewStore(pool)
+	if up, pr, rErr := cfgtool.Reconcile(ctx, cfgToolStore, toolManifest); rErr != nil {
+		logger.Warn().Err(rErr).Msg("工具目录同步失败（工具模块可能展示陈旧目录）")
+	} else {
+		logger.Info().Int("upserted", up).Int("pruned", pr).Msg("工具目录已同步")
+	}
+
 	auditStore := audit.NewStore(pool)         // 0047：task abort / create 审计
 	convStore := conversation.NewStore(pool)   // 阶段B：会话/消息
 	toolStore := toolinvocation.NewStore(pool) // 会话用量合计：工具耗时来源
@@ -186,7 +197,7 @@ func main() {
 			Deleter:           adapter,                      // DELETE /conversations/:id 删会话+消息；关联扫描进行中拒删（409，先停后删）
 			Renamer:           convStore,                    // PATCH /conversations/:id 重命名标题（convStore.SetTitle 直接满足）
 			ConfigStore:       cfgStore,                     // scenario/hunter 配置 CRUD（配置管理页 + 对话 ScenarioPicker）
-			ToolsManifest:     toolingAPI,                   // GET /tooling/tools：HunterAdmin cli_tools 白名单候选
+			ToolCatalog:       cfgToolStore,                 // GET /tools、/tools/:name：工具目录检索/详情 + 智能体选工具
 			Conversations:     convStore,                    // 阶段B：会话列表 / 消息回看
 			EventStream:       eventStreamAdapter{rdb: rdb}, // 阶段B：SSE 订阅 redis 事件
 			UsageTasks:        convStore,                    // 会话用量：会话→task 解析

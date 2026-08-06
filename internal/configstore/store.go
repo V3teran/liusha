@@ -41,6 +41,8 @@ type scenarioStore interface {
 	Update(ctx context.Context, p cfgscenario.NewParams) (cfgscenario.Scenario, error)
 	Delete(ctx context.Context, code string) error
 	List(ctx context.Context, onlyEnabled bool) ([]cfgscenario.Scenario, error)
+	ListPaged(ctx context.Context, p cfgscenario.ListParams) ([]cfgscenario.Scenario, error)
+	Count(ctx context.Context, p cfgscenario.ListParams) (int, error)
 }
 
 // hunterStore 是 configstore 依赖的 hunter 底层能力（*cfghunter.Store 满足）。
@@ -51,6 +53,8 @@ type hunterStore interface {
 	Update(ctx context.Context, p cfghunter.NewParams) (cfghunter.Hunter, error)
 	Delete(ctx context.Context, code string) error
 	List(ctx context.Context, onlyEnabled bool) ([]cfghunter.Hunter, error)
+	ListPaged(ctx context.Context, p cfghunter.ListParams) ([]cfghunter.Hunter, error)
+	CountList(ctx context.Context, p cfghunter.ListParams) (int, error)
 	ListEnabledDomain(ctx context.Context) ([]cfghunter.Hunter, error)
 	GetOrchestrator(ctx context.Context) (cfghunter.Hunter, error)
 }
@@ -180,6 +184,13 @@ func (s *Store) HunterByID(ctx context.Context, id string) (cfghunter.Hunter, er
 		})
 }
 
+// HunterByCode 按 code 读猎手，直穿底层 store（不缓存）：hunter 缓存只建 id 键，
+// SaveHunter 也只失效 id+哨兵；若在此缓存 code 键，SaveHunter 后会 stale。工具装配
+// 写路径按 code 取完整猎手再改数组回存，直读最新即可，无需缓存。
+func (s *Store) HunterByCode(ctx context.Context, code string) (cfghunter.Hunter, error) {
+	return s.hunters.GetByCode(ctx, code)
+}
+
 // EnabledDomainHunters 返回全部 enabled 领域猎手（swarm 子代理池），缓存于哨兵键。
 func (s *Store) EnabledDomainHunters(ctx context.Context) ([]cfghunter.Hunter, error) {
 	return readThrough(ctx, s, keyEnabledDomain,
@@ -208,6 +219,26 @@ func (s *Store) ListScenarios(ctx context.Context, onlyEnabled bool) ([]cfgscena
 // ListHunters 直穿底层 store。
 func (s *Store) ListHunters(ctx context.Context, onlyEnabled bool) ([]cfghunter.Hunter, error) {
 	return s.hunters.List(ctx, onlyEnabled)
+}
+
+// ListScenariosPaged 直穿底层 store：搜索 + 分页（配置管理页）。
+func (s *Store) ListScenariosPaged(ctx context.Context, p cfgscenario.ListParams) ([]cfgscenario.Scenario, error) {
+	return s.scenarios.ListPaged(ctx, p)
+}
+
+// CountScenarios 直穿底层 store：与 ListScenariosPaged 同过滤的总数。
+func (s *Store) CountScenarios(ctx context.Context, p cfgscenario.ListParams) (int, error) {
+	return s.scenarios.Count(ctx, p)
+}
+
+// ListHuntersPaged 直穿底层 store：搜索 + 分页（配置管理页）。
+func (s *Store) ListHuntersPaged(ctx context.Context, p cfghunter.ListParams) ([]cfghunter.Hunter, error) {
+	return s.hunters.ListPaged(ctx, p)
+}
+
+// CountHunters 直穿底层 store：与 ListHuntersPaged 同过滤的总数。
+func (s *Store) CountHunters(ctx context.Context, p cfghunter.ListParams) (int, error) {
+	return s.hunters.CountList(ctx, p)
 }
 
 // ── 写（前端 CRUD 走这里，保证跨进程一致）─────────────────────────────

@@ -9,14 +9,14 @@ import (
 
 func TestBuildToolingCatalog(t *testing.T) {
 	t.Run("nil manifest 返回空串", func(t *testing.T) {
-		if got := buildToolingCatalog(nil, "", nil); got != "" {
+		if got := buildToolingCatalog(nil, nil); got != "" {
 			t.Errorf("want empty, got %q", got)
 		}
 	})
 
 	t.Run("空 tools 返回空串", func(t *testing.T) {
 		m := &manifest.Manifest{Tools: nil}
-		if got := buildToolingCatalog(m, "", nil); got != "" {
+		if got := buildToolingCatalog(m, nil); got != "" {
 			t.Errorf("want empty, got %q", got)
 		}
 	})
@@ -29,7 +29,7 @@ func TestBuildToolingCatalog(t *testing.T) {
 			{Name: "subfinder", Category: "recon", Description: "子域枚举"},
 			{Name: "curl", Category: "utility", Description: "原生 HTTP"},
 		}}
-		got := buildToolingCatalog(m, "", nil)
+		got := buildToolingCatalog(m, []string{"sqlmap", "httpx", "subfinder", "curl"})
 
 		mustContain(t, got, "## 可用外部工具索引")
 		mustContain(t, got, "subfinder")
@@ -48,7 +48,7 @@ func TestBuildToolingCatalog(t *testing.T) {
 			{Name: "nuclei", Category: "vulnscan", Description: "漏扫"},
 			{Name: "myweirdtool", Category: "magic", Description: "未来类别"},
 		}}
-		got := buildToolingCatalog(m, "", nil)
+		got := buildToolingCatalog(m, []string{"nuclei", "myweirdtool"})
 		mustContain(t, got, "未分类")
 		mustContain(t, got, "myweirdtool")
 		// 已知 category 应排在未分类之前。
@@ -59,33 +59,30 @@ func TestBuildToolingCatalog(t *testing.T) {
 		m := &manifest.Manifest{Tools: []manifest.Tool{
 			{Name: "orphan", Category: "", Description: "缺 category"},
 		}}
-		got := buildToolingCatalog(m, "", nil)
+		got := buildToolingCatalog(m, []string{"orphan"})
 		mustContain(t, got, "未分类")
 		mustContain(t, got, "orphan")
 	})
 
-	t.Run("domain 过滤：只渲染该域可见 + 通用工具", func(t *testing.T) {
+	t.Run("空白名单：严格白名单下不渲染任何工具", func(t *testing.T) {
 		m := &manifest.Manifest{Tools: []manifest.Tool{
-			{Name: "nuclei", Category: "vulnscan", Description: "漏扫", Scenarios: []string{"web"}},
-			{Name: "trivy", Category: "vulnscan", Description: "镜像扫描", Scenarios: []string{"cloud"}},
-			{Name: "curl", Category: "utility", Description: "通用 HTTP"}, // 空标签=全域可见
+			{Name: "nuclei", Category: "vulnscan", Description: "漏扫"},
+			{Name: "curl", Category: "utility", Description: "通用 HTTP"},
 		}}
-		got := buildToolingCatalog(m, "web", nil)
-		mustContain(t, got, "nuclei")
-		mustContain(t, got, "curl")
-		if strings.Contains(got, "trivy") {
-			t.Errorf("domain=web 不应渲染 cloud 专属工具 trivy，got %q", got)
+		// 空 cliTools = 空集：不装配任何外部工具，索引段整体不渲染（返回空串）。
+		if got := buildToolingCatalog(m, nil); got != "" {
+			t.Errorf("空白名单期望不渲染工具索引，got %q", got)
 		}
 	})
 
-	t.Run("cliTools 白名单：域内再按名字二级过滤", func(t *testing.T) {
+	t.Run("cliTools 严格白名单：只渲染白名单内的工具", func(t *testing.T) {
 		m := &manifest.Manifest{Tools: []manifest.Tool{
-			{Name: "nuclei", Category: "vulnscan", Description: "漏扫", Scenarios: []string{"web"}},
-			{Name: "sqlmap", Category: "injection", Description: "SQLi", Scenarios: []string{"web"}},
+			{Name: "nuclei", Category: "vulnscan", Description: "漏扫"},
+			{Name: "sqlmap", Category: "injection", Description: "SQLi"},
 			{Name: "curl", Category: "utility", Description: "通用 HTTP"},
 		}}
-		// 域=web 全可见，但白名单只放 nuclei —— sqlmap/curl 应被二级过滤剔除。
-		got := buildToolingCatalog(m, "web", []string{"nuclei"})
+		// 白名单只放 nuclei —— sqlmap/curl 应被剔除。
+		got := buildToolingCatalog(m, []string{"nuclei"})
 		mustContain(t, got, "nuclei")
 		if strings.Contains(got, "sqlmap") {
 			t.Errorf("白名单外的 sqlmap 不应渲染，got %q", got)

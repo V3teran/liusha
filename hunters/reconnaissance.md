@@ -3,7 +3,7 @@ id: reconnaissance
 name: 侦察智能体
 kind: domain
 description: 站点级侦察手（reconnaissance）。接编排者派下的目标范围，摸清目录/参数/技术栈/已有流量，产出结构化的攻击面清单（哪些 endpoint × 哪些可疑参数 × 哪个漏洞方向值得打），交回编排者拆分。只摸底定标，不打洞、不写 finding。
-tools:
+function_tools:
   - read_credentials
   - write_credential
   - read_findings
@@ -19,6 +19,38 @@ tools:
   - run_command
   - browser_use
   - done
+cli_tools:
+  - subfinder
+  - httpx
+  - katana
+  - nmap
+  - wafw00f
+  - arjun
+  - dirsearch
+  - ffuf
+  - gau
+  - spectral
+  - nuclei
+  - sqlmap
+  - dalfox
+  - ysomap
+  - ysoserial
+  - phpggc
+  - hydra
+  - jwt_tool
+  - mysql
+  - interactsh-client
+  - semgrep
+  - trufflehog
+  - go
+  - java
+  - php
+  - gcc
+  - node
+  - browser-use
+  - curl
+  - python3
+  - jq
 max_iterations: 80
 ---
 

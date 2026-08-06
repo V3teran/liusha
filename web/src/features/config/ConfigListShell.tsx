@@ -1,8 +1,23 @@
 import { Children, useEffect, useMemo, useState, type ReactNode } from 'react'
-import { ChevronLeft, ChevronRight, Plus } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Plus, Search } from 'lucide-react'
 
 // 每页卡片数：4 列 × 3 行的整屏网格。超过才出翻页条，数据少时零干扰。
 const PAGE_SIZE = 12
+
+// 服务端分页描述：父组件已按页取数，外壳只负责渲染翻页条并回调换页。
+export interface ServerPaging {
+  page: number // 1-based 当前页
+  totalPages: number
+  count: number // 总条数（跨页）
+  onPage: (page: number) => void // 换页（传 1-based 目标页）
+}
+
+// 头部搜索框描述：受控输入，值与回调由父组件持有（配合服务端过滤）。
+export interface SearchBox {
+  value: string
+  onChange: (v: string) => void
+  placeholder?: string
+}
 
 interface ConfigListShellProps {
   title: string
@@ -11,12 +26,17 @@ interface ConfigListShellProps {
   error: string
   empty: boolean
   emptyHint: string
-  onNew: () => void
-  children: ReactNode // 卡片集合（每个资源一张 ConfigCard）
+  onNew?: () => void // 缺省 = 不渲染「新建」（只读资源如工具目录）
+  children: ReactNode // 卡片集合（每个资源一张 ConfigRow）
+  search?: SearchBox // 传入 = 头部渲染搜索框
+  server?: ServerPaging // 传入 = 服务端分页（外壳不再客户端切片）；缺省 = 客户端分页
+  headerExtra?: ReactNode // 头部标题行右侧额外控件（如卡片/表格视图切换）
 }
 
-// 配置管理三页共用的列表外壳：头部（标题 + 说明 + 新建）+ 加载/错误/空态 + 卡片网格 + 客户端分页。
-// 各页只管把「卡片」作为 children 注入；网格布局、翻页、状态分支统一在此。
+// 配置管理三页共用的列表外壳：头部（标题 + 说明 + 搜索 + 新建）+ 加载/错误/空态 + 卡片网格 + 分页。
+// 两种分页模式：
+//   - server 传入：父组件按页取数，外壳原样渲染当前页 children，翻页回调父组件重取。
+//   - server 缺省：客户端分页，外壳按 PAGE_SIZE 切片 children。
 export function ConfigListShell({
   title,
   subtitle,
@@ -26,34 +46,59 @@ export function ConfigListShell({
   emptyHint,
   onNew,
   children,
+  search,
+  server,
+  headerExtra,
 }: ConfigListShellProps) {
   const items = useMemo(() => Children.toArray(children), [children])
-  const totalPages = Math.max(1, Math.ceil(items.length / PAGE_SIZE))
-  const [page, setPage] = useState(0)
+
+  // 客户端分页态（仅 server 缺省时启用）。
+  const clientTotalPages = Math.max(1, Math.ceil(items.length / PAGE_SIZE))
+  const [clientPage, setClientPage] = useState(0)
 
   // 数据量变化（重载/增删）后夹紧页码，避免停在已不存在的空页。
   useEffect(() => {
-    setPage((p) => Math.min(p, totalPages - 1))
-  }, [totalPages])
+    setClientPage((p) => Math.min(p, clientTotalPages - 1))
+  }, [clientTotalPages])
 
-  const start = page * PAGE_SIZE
-  const pageItems = items.slice(start, start + PAGE_SIZE)
+  const pageItems = server ? items : items.slice(clientPage * PAGE_SIZE, clientPage * PAGE_SIZE + PAGE_SIZE)
+
+  // 分页条参数：server 模式用父组件的 1-based 值；client 模式用内部 0-based 转 1-based。
+  const showPager = server ? server.totalPages > 1 : clientTotalPages > 1
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <header className="flex items-center justify-between border-b border-border px-6 py-4">
-        <div>
+      <header className="flex items-center justify-between gap-4 border-b border-border px-6 py-4">
+        <div className="min-w-0">
           <h1 className="tac-prompt font-mono text-[15px] font-semibold text-text">{title}</h1>
           <p className="mt-0.5 text-[12.5px] text-muted">{subtitle}</p>
         </div>
-        <button
-          type="button"
-          onClick={onNew}
-          className="flex items-center gap-1.5 rounded-lg bg-accent px-3.5 py-1.5 text-[13px] text-white transition-all hover:bg-accent-hover hover:shadow-[var(--glow-accent-strong)]"
-        >
-          <Plus className="h-4 w-4" />
-          新建
-        </button>
+        <div className="flex flex-shrink-0 items-center gap-3">
+          {search && (
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted" />
+              <input
+                type="search"
+                value={search.value}
+                spellCheck={false}
+                placeholder={search.placeholder ?? '搜索'}
+                onChange={(e) => search.onChange(e.target.value)}
+                className="w-52 rounded-md border border-border bg-surface py-1.5 pl-8 pr-2.5 text-[13px] text-text outline-none transition-shadow placeholder:text-faint focus:border-accent focus:shadow-[var(--glow-accent)]"
+              />
+            </div>
+          )}
+          {headerExtra}
+          {onNew && (
+            <button
+              type="button"
+              onClick={onNew}
+              className="flex items-center gap-1.5 rounded-lg bg-accent px-3.5 py-1.5 text-[13px] text-white transition-all hover:bg-accent-hover hover:shadow-[var(--glow-accent-strong)]"
+            >
+              <Plus className="h-4 w-4" />
+              新建
+            </button>
+          )}
+        </div>
       </header>
 
       <div className="min-h-0 flex-1 overflow-y-auto p-6">
@@ -68,14 +113,27 @@ export function ConfigListShell({
         )}
       </div>
 
-      {totalPages > 1 && (
-        <PagerBar page={page} totalPages={totalPages} count={items.length} onPage={setPage} />
-      )}
+      {showPager &&
+        (server ? (
+          <PagerBar
+            page={server.page - 1}
+            totalPages={server.totalPages}
+            count={server.count}
+            onPage={(p) => server.onPage(p + 1)}
+          />
+        ) : (
+          <PagerBar
+            page={clientPage}
+            totalPages={clientTotalPages}
+            count={items.length}
+            onPage={setClientPage}
+          />
+        ))}
     </div>
   )
 }
 
-// 翻页条：上一页/下一页 + 「第 x / y 页」。仅在多于一页时由外壳挂出。
+// 翻页条：上一页/下一页 + 「第 x / y 页」。page 为 0-based。仅在多于一页时挂出。
 function PagerBar({
   page,
   totalPages,

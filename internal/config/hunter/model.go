@@ -23,8 +23,8 @@ const (
 // Hunter 是 hunter 配置表行的 Go 表示。
 //   - Description：派活摘要，swarm 时注入 deep task 工具供编排者据此选派（非给人看的简介）
 //   - Body       ：方法论正文（charter），该猎手跑起来时的 system 指令
-//   - Tools      ：内置函数工具集（run_command/write_finding… 的 code 列表），走 jsonb ↔ []string
-//   - CliTools    ：外置 CLI 工具白名单（tools.yaml 名字），独立于 Tools；空 = 域内全部可见
+//   - FunctionTools：内置函数工具集（run_command/write_finding… 的 code 列表），走 jsonb ↔ []string
+//   - CliTools     ：外置 CLI 工具集（tools.yaml 名字），独立于 FunctionTools；严格白名单，空 = 不装配任何外部工具
 type Hunter struct {
 	ID            string
 	Code          string
@@ -32,7 +32,7 @@ type Hunter struct {
 	Name          string
 	Description   string
 	Body          string
-	Tools         []string
+	FunctionTools []string
 	CliTools      []string
 	MaxIterations int
 	Enabled       bool
@@ -47,7 +47,7 @@ type NewParams struct {
 	Name          string
 	Description   string
 	Body          string
-	Tools         []string
+	FunctionTools []string
 	CliTools      []string
 	MaxIterations int
 	Enabled       bool

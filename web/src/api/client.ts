@@ -10,6 +10,7 @@ import type {
   ConversationUsage,
   Message,
   ScenarioConfig,
+  HunterConfig,
   OwnerSummary,
   SitemapView,
   AttackGraph,
@@ -115,6 +116,37 @@ export async function del<T>(path: string): Promise<T> {
  */
 export async function listScenarios(): Promise<ScenarioConfig[]> {
   return (await get<{ scenarios: ScenarioConfig[] }>('/scenarios')).scenarios
+}
+
+/**
+ * 分页 + 搜索获取场景（配置管理页用）。带 page 参数 → 后端走分页分支返回 total；
+ * 不带 page 的 listScenarios 仍是全量（ScenarioPicker / solo 选择器共用）。
+ * @param page 1-based 页码
+ * @param size 每页条数
+ * @param q 关键词（code/name/description 模糊匹配），空则不过滤
+ */
+export async function listScenariosPaged(
+  page: number,
+  size: number,
+  q = '',
+): Promise<{ scenarios: ScenarioConfig[]; total: number }> {
+  const params = new URLSearchParams({ page: String(page), size: String(size) })
+  if (q) params.set('q', q)
+  return get<{ scenarios: ScenarioConfig[]; total: number }>(`/scenarios?${params}`)
+}
+
+/**
+ * 分页 + 搜索获取智能体（配置管理页用）。语义同 listScenariosPaged。
+ * 不带 page 的 listHunterConfigs 仍是全量（场景 solo 选择器候选共用）。
+ */
+export async function listHuntersPaged(
+  page: number,
+  size: number,
+  q = '',
+): Promise<{ hunters: HunterConfig[]; total: number }> {
+  const params = new URLSearchParams({ page: String(page), size: String(size) })
+  if (q) params.set('q', q)
+  return get<{ hunters: HunterConfig[]; total: number }>(`/hunters?${params}`)
 }
 
 /**

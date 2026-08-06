@@ -43,14 +43,9 @@ type BuilderParams struct {
 	// Active 模式独有：用户自然语言任务简报（含目标 URL/凭据/测试方向等所有信息）。
 	Brief string
 
-	// Domain 是当次 scenario 的交战域（web/ctf/cloud…），来自 scenario.Domain。
-	// buildToolingCatalog 据此经 manifest.FilterByDomain 过滤 CLI 扫描工具目录（见 D11/M7）；
-	// 空串 = 场景未配域，不过滤（全集渲染）。
-	Domain string
-
-	// CliTools 是本猎手的外置 CLI 工具白名单（tools.yaml 名字），来自 hunter.CliTools。
-	// buildToolingCatalog 在 FilterByDomain 之上再经 manifest.FilterByNames 二级细过滤：
-	// 空 = 不细过滤（域内全部可见）；非空 = 只渲染白名单内工具（猎手专精，只给它这几把刀）。
+	// CliTools 是本猎手的外置 CLI 工具集（tools.yaml 名字），来自 hunter.CliTools。
+	// buildToolingCatalog 经 manifest.FilterByNames 严格白名单过滤：
+	// 空 = 空集（不装配任何外部工具）；非空 = 只渲染白名单内工具（猎手专精，只给它这几把刀）。
 	CliTools []string
 
 	// Sandbox 是本次 agent run 绑定的 sandbox-server HTTP RPC client（handler Spawn 后填）。

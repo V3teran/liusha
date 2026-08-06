@@ -89,7 +89,7 @@ func TestReconWriteLead_ExploitationReadsInSection(t *testing.T) {
 	store := lead.NewStore(rdb, "test", time.Hour)
 
 	host := "target.com"
-	reconTools, err := BuildHunterTools(HunterDef{ID: "reconnaissance", Tools: []string{"write_lead"}}, ToolBuildCtx{
+	reconTools, err := BuildHunterTools(HunterDef{ID: "reconnaissance", FunctionTools: []string{"write_lead"}}, ToolBuildCtx{
 		Deps:   TrafficAnalysisToolDeps{Lead: store},
 		Params: TrafficAnalysisToolParams{TaskID: "t1", HunterID: "h-recon", Host: host},
 	})

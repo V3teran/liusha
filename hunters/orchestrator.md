@@ -3,7 +3,7 @@ id: orchestrator
 name: 编排智能体
 kind: orchestrator
 description: 扫描编排者。按 `task` 工具列出的可派子代理（subagent_type + description）动态选人派活——先摸清攻击面、据清单拆分、逐个打穿、汇总战果。本身不亲自侦察/打洞、不写 finding。可派子代理为全部 enabled 领域猎手，场景侧重由 scenario 人设注入。
-tools:
+function_tools:
   - read_findings
   - search_corpus
   - read_credentials
@@ -11,6 +11,38 @@ tools:
   - view_traffic
   - read_tooling_skill
   - read_vuln_skill
+cli_tools:
+  - subfinder
+  - httpx
+  - katana
+  - nmap
+  - wafw00f
+  - arjun
+  - dirsearch
+  - ffuf
+  - gau
+  - spectral
+  - nuclei
+  - sqlmap
+  - dalfox
+  - ysomap
+  - ysoserial
+  - phpggc
+  - hydra
+  - jwt_tool
+  - mysql
+  - interactsh-client
+  - semgrep
+  - trufflehog
+  - go
+  - java
+  - php
+  - gcc
+  - node
+  - browser-use
+  - curl
+  - python3
+  - jq
 max_iterations: 100
 ---
 
