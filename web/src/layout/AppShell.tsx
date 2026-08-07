@@ -1,7 +1,9 @@
 import type { ComponentType } from 'react'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import {
+  Activity,
   Bot,
+  Boxes,
   Bug,
   Cpu,
   KeyRound,
@@ -9,6 +11,7 @@ import {
   Moon,
   Network,
   Settings,
+  SlidersHorizontal,
   Sun,
   Target,
   Waypoints,
@@ -30,12 +33,15 @@ const NAV_ITEMS: NavItem[] = [
   { to: '/conversations/manual', label: '对话', icon: MessageSquare, match: '/conversations' },
   { to: '/findings', label: '漏洞管理', icon: Bug },
   { to: '/sitemap', label: '攻击面', icon: Waypoints },
+  { to: '/traffic', label: '流量', icon: Activity },
   { to: '/attack-graph', label: '执行图', icon: Network },
   { to: '/llm-audit', label: 'LLM 审计', icon: Cpu },
   { to: '/credentials', label: '凭证库', icon: KeyRound },
   { to: '/config/scenarios', label: '场景', icon: Target },
   { to: '/config/hunters', label: '智能体', icon: Bot },
   { to: '/config/tools', label: '工具', icon: Wrench },
+  { to: '/config/models', label: '模型', icon: Boxes },
+  { to: '/config/system', label: '系统配置', icon: SlidersHorizontal },
 ]
 
 export function AppShell() {

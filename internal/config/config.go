@@ -72,8 +72,6 @@ type LLMConfig struct {
 	LightProvider    string            `mapstructure:"light_provider"`
 	VisionProvider   string            `mapstructure:"vision_provider"`
 	FallbackProvider string            `mapstructure:"fallback_provider"`
-	MaxSteps         int               `mapstructure:"max_steps"`
-	MaxTokensPerCall int               `mapstructure:"max_tokens_per_call"`
 	Agents           map[string]string `mapstructure:"agents"`
 	Utilities        map[string]string `mapstructure:"utilities"`
 
@@ -235,18 +233,6 @@ type RunnerConfig struct {
 
 // ReactConfig 主 ReAct 循环参数。
 type ReactConfig struct {
-	InspectorEverySteps   int `mapstructure:"inspector_every_steps"`
-	InspectorArgsTruncate int `mapstructure:"inspector_args_truncate"` // 喂 inspector LLM 的 tool args 截断字节数
-	InspectorObsTruncate  int `mapstructure:"inspector_obs_truncate"`  // 喂 inspector LLM 的 ObsSummary 截断字节数
-
-	// inspector prompt 背景段拉取数量上限（按 created_at DESC / priority DESC 排序）。
-	// inspector 是轻量评估，看少量背景即可；hunter 干活需更全。
-	InspectorFindingsLimit int `mapstructure:"inspector_findings_limit"`
-
-	// MaxImagesInHistory 是 multimodal message 历史保留图片张数上限（compressImages 用）。
-	// 默认 3：实战 vision agent sweet spot——再多对 encoder 仅增延迟不增信息；慢节点可调 2，商业 API 可放宽 10+。
-	MaxImagesInHistory int `mapstructure:"max_images_in_history"`
-
 	// HistoryCompact 是 hunter ReAct msgs 滑窗压缩参数（防 context 爆）。
 	// 触发：每步 Generate 前算 total tokens，超 TriggerRatio×provider.ContextWindow 启动压缩。
 	// 设计原则：永保 system + 首 user，trailing 反向累加保最近 TrailingBudgetRatio×ctx_window，
@@ -399,12 +385,6 @@ func applyRedisDefaults(c RedisConfig) RedisConfig {
 }
 
 func applyLLMDefaults(c LLMConfig) LLMConfig {
-	if c.MaxSteps == 0 {
-		c.MaxSteps = 30
-	}
-	if c.MaxTokensPerCall == 0 {
-		c.MaxTokensPerCall = 4096
-	}
 	c.Retry = applyRetryDefaults(c.Retry)
 	c.Invocation = applyInvocationDefaults(c.Invocation)
 	return c
@@ -627,21 +607,6 @@ func applyRunnerDefaults(c RunnerConfig) RunnerConfig {
 }
 
 func applyReactDefaults(c ReactConfig) ReactConfig {
-	if c.InspectorEverySteps == 0 {
-		c.InspectorEverySteps = 5
-	}
-	if c.InspectorArgsTruncate == 0 {
-		c.InspectorArgsTruncate = 256
-	}
-	if c.InspectorObsTruncate == 0 {
-		c.InspectorObsTruncate = 400
-	}
-	if c.InspectorFindingsLimit == 0 {
-		c.InspectorFindingsLimit = 30
-	}
-	if c.MaxImagesInHistory == 0 {
-		c.MaxImagesInHistory = 3 // vision agent 实战经验值；yaml 显式 0 也会被兜到 3
-	}
 	c.HistoryCompact = applyHistoryCompactDefaults(c.HistoryCompact)
 	return c
 }
@@ -706,9 +671,17 @@ func validate(c Config) error {
 	return nil
 }
 
-// validateLLMKeys 强制 default_provider 必填，且 default/light/vision/fallback 的 api_key_env
-// 在环境变量里非空。仅调 LLM 的进程（runner / api）需要——proxy 用 LoadWithoutLLMKeys 跳过。
+// validateLLMKeys 校验 yaml 内 LLM 种子的自洽性。仅调 LLM 的进程（runner / api）需要——
+// proxy 用 LoadWithoutLLMKeys 跳过。
+//
+// 事实源是 DB（前端「模型」模块 CRUD 改 llm_provider/alias/role_route），yaml 仅首次
+// insert-only 种子（见 seed.ImportLLM）。故 providers 留空 = 完全依赖 DB，此时跳过全部校验，
+// 不再强制 default_provider——否则空 yaml + 满 DB 的正常部署会被误判 fail-fast。
+// providers 一旦非空则按老规矩校验（default 必填 + 各槽 api_key_env 在 ENV 非空），保证种子可用。
 func validateLLMKeys(c Config) error {
+	if len(c.Providers) == 0 {
+		return nil
+	}
 	check := func(name, role string) error {
 		p, ok := c.Providers[name]
 		if !ok {

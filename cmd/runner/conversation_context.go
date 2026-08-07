@@ -50,7 +50,7 @@ func (h handler) conversationContext(ctx context.Context, convID, role, currentB
 		return ""
 	}
 
-	older, recent := splitDialogByBudget(kept, h.dialogTokenBudget(role))
+	older, recent := splitDialogByBudget(kept, h.dialogTokenBudget(ctx, role))
 
 	var b strings.Builder
 	b.WriteString(dialogHistoryHeader)
@@ -129,12 +129,13 @@ func formatDialogHistory(msgs []conversation.Message, currentBrief string) strin
 
 // dialogTokenBudget 算 dialog 段 token 预算 = TrailingBudgetRatio × provider.ContextWindow。
 // provider 未配 ContextWindow（返 0）时返 0 → splitDialogByBudget 降级为全 verbatim。
-func (h handler) dialogTokenBudget(role string) int {
-	cw := h.einoFactory.ContextWindowFor(role)
+func (h handler) dialogTokenBudget(ctx context.Context, role string) int {
+	cw := h.einoFactory.ContextWindowFor(ctx, role)
 	if cw <= 0 {
 		return 0
 	}
-	ratio := h.cfg.React.HistoryCompact.TrailingBudgetRatio
+	react, _ := h.settings.React(ctx) // DB/缓存现读；读失败取零值，下方兜底
+	ratio := react.TrailingBudgetRatio
 	if ratio <= 0 {
 		ratio = 0.50
 	}
@@ -164,7 +165,8 @@ func (h handler) distillOldDialog(ctx context.Context, msgs []conversation.Messa
 		}
 	}
 
-	timeout := h.cfg.React.HistoryCompact.CompactorTimeoutSeconds
+	react, _ := h.settings.React(ctx) // DB/缓存现读；读失败取零值，下方兜底
+	timeout := react.CompactorTimeoutSeconds
 	if timeout <= 0 {
 		timeout = 30
 	}

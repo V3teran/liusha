@@ -81,7 +81,8 @@ func (s einoToolSink) heartbeat(taskID string) {
 
 // einoToolDeps 把 handler 的 store/loader 打包成 einoagent 工具装配依赖。
 // sandboxClient 是本次 agent run 的容器（orchestrator + exploitation 共享）。
-func (h handler) einoToolDeps(sandboxClient sandbox.Client) einoagent.TrafficAnalysisToolDeps {
+func (h handler) einoToolDeps(ctx context.Context, sandboxClient sandbox.Client) einoagent.TrafficAnalysisToolDeps {
+	rt, _ := h.settings.Runtime(ctx) // DB/缓存现读 runtime 组；读失败取零值，工具侧各自兜底
 	return einoagent.TrafficAnalysisToolDeps{
 		Findings:          h.findings,
 		Corpus:            h.corpus,
@@ -94,8 +95,8 @@ func (h handler) einoToolDeps(sandboxClient sandbox.Client) einoagent.TrafficAna
 		ToolingLoader:     h.hunterDeps.ToolingLoader,
 		VulnLoader:        h.hunterDeps.VulnLoader,
 		Sandbox:           sandboxClient,
-		MaxTimeoutSeconds: h.cfg.Toolruntime.StepToolTimeoutSeconds,
-		TailBytes:         h.cfg.Sandbox.RunTailBytes,
+		MaxTimeoutSeconds: rt.StepToolTimeoutSeconds,
+		TailBytes:         rt.RunTailBytes,
 	}
 }
 
@@ -133,9 +134,10 @@ func (h handler) einoRunOpts(ctx context.Context, hunterID, taskID, role, conver
 		return nil, nil, nil, cleanup, fmt.Errorf("einoRunOpts: 解析 compactor 模型失败: %w", err)
 	}
 	// 传 sink → 压缩经 eino Callback 发 ScanEventCompaction，前端「压缩卡」可见上下文裁剪。
+	react, _ := h.settings.React(ctx) // DB/缓存现读 react 组；读失败取零值，SummarizationHandler 内部对 0 有兜底
 	summarizer, err := einoagent.NewSummarizationHandler(compactor, einoagent.SummarizationParams{
-		ContextWindow: h.einoFactory.ContextWindowFor(role),
-		TriggerRatio:  h.cfg.React.HistoryCompact.TriggerRatio,
+		ContextWindow: h.einoFactory.ContextWindowFor(ctx, role),
+		TriggerRatio:  react.TriggerRatio,
 	}, sink)
 	if err != nil {
 		return nil, nil, nil, cleanup, fmt.Errorf("einoRunOpts: 装配 summarization 失败: %w", err)
@@ -145,7 +147,7 @@ func (h handler) einoRunOpts(ctx context.Context, hunterID, taskID, role, conver
 	mws = append(mws, einoagent.NewToolRecorder(h.toolSink(), hunterID, taskID))
 	// 截图视觉回灌（TODO-1）：run_command 的截图 image part 从 tool message 抽出转 user message
 	// （避免 mimo 400），按 role 的 provider 是否 vision 决定回灌或丢弃。
-	mws = append(mws, einoagent.NewVisionRelayMiddleware(h.einoFactory.SupportsVisionFor(role)))
+	mws = append(mws, einoagent.NewVisionRelayMiddleware(h.einoFactory.SupportsVisionFor(ctx, role)))
 	var extraCallbacks []callbacks.Handler
 	if sink != nil {
 		mws = append(mws, einoagent.NewEventEmitter(sink))
@@ -155,7 +157,7 @@ func (h handler) einoRunOpts(ctx context.Context, hunterID, taskID, role, conver
 		}
 	}
 
-	provider, model := h.einoFactory.ResolveProviderModel(role)
+	provider, model := h.einoFactory.ResolveProviderModel(ctx, role)
 	recorder := einollm.NewUsageRecorder(h.calls,
 		llm.CallMeta{HunterID: &hunterID, TaskID: &taskID, RouteKey: role},
 		provider, model,

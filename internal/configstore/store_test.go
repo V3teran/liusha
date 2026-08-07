@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/redis/go-redis/v9"
 
+	"github.com/V3teran/liusha/internal/cachestore"
 	cfghunter "github.com/V3teran/liusha/internal/config/hunter"
 	cfgscenario "github.com/V3teran/liusha/internal/config/scenario"
 )
@@ -129,7 +130,7 @@ func newTestStore(t *testing.T) (*Store, *fakeScenarios, *miniredis.Miniredis) {
 	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
 	t.Cleanup(func() { _ = rdb.Close() })
 	fs := &fakeScenarios{byCode: map[string]cfgscenario.Scenario{}}
-	s := newWithStores(fs, &fakeHunters{}, rdb)
+	s := newWithStores(fs, &fakeHunters{}, cachestore.New(rdb, 0))
 	return s, fs, mr
 }
 
@@ -162,7 +163,7 @@ func TestReadThrough_L2HitSkipsDB(t *testing.T) {
 	if _, err := s.ScenarioByCode(ctx, "web"); err != nil { // 回填 L1+L2
 		t.Fatalf("warm: %v", err)
 	}
-	s.l1.del(keyScenarioCode("web"), keyScenarioID("id-web")) // 仅清 L1，保留 L2
+	s.cache.DropL1(keyScenarioCode("web"), keyScenarioID("id-web")) // 仅清 L1，保留 L2
 
 	if _, err := s.ScenarioByCode(ctx, "web"); err != nil {
 		t.Fatalf("read after L1 evict: %v", err)
@@ -202,11 +203,12 @@ func TestSubscribe_CrossProcessInvalidation(t *testing.T) {
 		"web": {ID: "id-web", Code: "web", Name: "旧名", Engine: cfgscenario.EngineSwarm},
 	}}
 	fsB := &fakeScenarios{byCode: fsA.byCode} // 共享底层数据（同一 DB）
-	a := newWithStores(fsA, &fakeHunters{}, rdb)
-	b := newWithStores(fsB, &fakeHunters{}, rdb)
+	a := newWithStores(fsA, &fakeHunters{}, cachestore.New(rdb, 0))
+	bCache := cachestore.New(rdb, 0)
+	b := newWithStores(fsB, &fakeHunters{}, bCache)
 
-	// 进程 B 起订阅。
-	go func() { _ = b.Subscribe(ctx) }()
+	// 进程 B 起订阅（订阅在共享 cachestore 内核上，一条循环覆盖所有资源）。
+	go func() { _ = bCache.Subscribe(ctx) }()
 	waitSubscribed(t, mr, 1)
 
 	// B 先读，暖起 B 的 L1。
@@ -223,8 +225,7 @@ func TestSubscribe_CrossProcessInvalidation(t *testing.T) {
 
 	// B 的 L1 应被订阅清除→下次读拿到新名。
 	waitForCondition(t, func() bool {
-		_, ok := b.l1.get(keyScenarioCode("web"))
-		return !ok
+		return !b.cache.L1Has(keyScenarioCode("web"))
 	})
 	got, err := b.ScenarioByCode(ctx, "web")
 	if err != nil {
@@ -242,7 +243,7 @@ func TestOrchestrator_SentinelKeyCached(t *testing.T) {
 	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
 	t.Cleanup(func() { _ = rdb.Close() })
 	fh := &fakeHunters{orch: cfghunter.Hunter{ID: "id-orch", Code: "orchestrator", Kind: cfghunter.KindOrchestrator}}
-	s := newWithStores(&fakeScenarios{byCode: map[string]cfgscenario.Scenario{}}, fh, rdb)
+	s := newWithStores(&fakeScenarios{byCode: map[string]cfgscenario.Scenario{}}, fh, cachestore.New(rdb, 0))
 
 	for i := 0; i < 3; i++ {
 		if _, err := s.Orchestrator(ctx); err != nil {
@@ -265,7 +266,7 @@ func TestEnabledDomainHunters_SentinelKeyCached(t *testing.T) {
 		{ID: "id-recon", Code: "reconnaissance", Kind: cfghunter.KindDomain},
 		{ID: "id-exploit", Code: "exploitation", Kind: cfghunter.KindDomain},
 	}}
-	s := newWithStores(&fakeScenarios{byCode: map[string]cfgscenario.Scenario{}}, fh, rdb)
+	s := newWithStores(&fakeScenarios{byCode: map[string]cfgscenario.Scenario{}}, fh, cachestore.New(rdb, 0))
 
 	for i := 0; i < 3; i++ {
 		got, err := s.EnabledDomainHunters(ctx)
@@ -291,7 +292,7 @@ func TestSaveHunter_InvalidatesSentinels(t *testing.T) {
 		orch:   cfghunter.Hunter{ID: "id-orch", Code: "orchestrator", Kind: cfghunter.KindOrchestrator},
 		domain: []cfghunter.Hunter{{ID: "id-recon", Code: "reconnaissance", Kind: cfghunter.KindDomain}},
 	}
-	s := newWithStores(&fakeScenarios{byCode: map[string]cfgscenario.Scenario{}}, fh, rdb)
+	s := newWithStores(&fakeScenarios{byCode: map[string]cfgscenario.Scenario{}}, fh, cachestore.New(rdb, 0))
 
 	// 暖起两个哨兵键。
 	if _, err := s.Orchestrator(ctx); err != nil {
@@ -305,10 +306,10 @@ func TestSaveHunter_InvalidatesSentinels(t *testing.T) {
 	if _, err := s.SaveHunter(ctx, cfghunter.NewParams{Code: "new", Kind: cfghunter.KindDomain, Name: "新"}); err != nil {
 		t.Fatalf("save hunter: %v", err)
 	}
-	if _, ok := s.l1.get(keyOrchestrator); ok {
+	if s.cache.L1Has(keyOrchestrator) {
 		t.Fatal("编排哨兵键应被清")
 	}
-	if _, ok := s.l1.get(keyEnabledDomain); ok {
+	if s.cache.L1Has(keyEnabledDomain) {
 		t.Fatal("领域池哨兵键应被清")
 	}
 }

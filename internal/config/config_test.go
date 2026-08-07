@@ -53,6 +53,26 @@ func TestLoad_OK(t *testing.T) {
 	}
 }
 
+// TestLoad_EmptyProvidersRelyOnDB：providers 留空时事实源在 DB，Load 不应 fail-fast
+// 强制 default_provider——空 yaml + 满 DB 的正常部署必须能启动（见 validateLLMKeys）。
+func TestLoad_EmptyProvidersRelyOnDB(t *testing.T) {
+	const noProvidersYAML = `
+api: {read_timeout_seconds: 15, write_timeout_seconds: 30}
+postgres: {max_conns: 20, min_conns: 2}
+llm: {max_steps: 30, max_tokens_per_call: 4096}
+proxy: {window_batch: 20, window_max_age_seconds: 30, allow_hosts: [vulnapp]}
+session: {sweeper_interval_seconds: 600}
+skills: {root: ./skills}
+`
+	cfg, err := Load(writeConfig(t, noProvidersYAML))
+	if err != nil {
+		t.Fatalf("providers 留空应放行（DB 为事实源），got err: %v", err)
+	}
+	if len(cfg.Providers) != 0 {
+		t.Fatalf("期望空 providers，got %+v", cfg.Providers)
+	}
+}
+
 func TestApplyIngestorDefaults_ConsumerNameIsInstanceUnique(t *testing.T) {
 	// consumer_name 留空时应派生每实例唯一名，绝不能退回写死的 ingestor-1
 	// （多副本用同名进同组会静默 pending 混乱）。

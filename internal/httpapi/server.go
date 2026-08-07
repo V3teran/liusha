@@ -45,11 +45,22 @@ type Deps struct {
 	// 由 cmd/api 注入 *configstore.Store（自动满足 ConfigAPI 窄接口）。
 	// 写路径经其失效广播，保证 runner 进程 L1 被动失效（见 D7）。
 	ConfigStore ConfigAPI
+	// Traffic 为 nil 时代理捕获流量浏览路由（/traffic 系列）不注册。
+	// 由 cmd/api 注入 *traffic.ProxyStore（自动满足 TrafficAPI 窄接口）。只读浏览，无写入。
+	Traffic TrafficAPI
 	// ToolCatalog 或 ConfigStore 为 nil 时工具目录路由（/tools 系列）不注册——
 	// 详情/装配需列举、改写智能体，故与 ConfigStore 同守卫。
 	// 由 cmd/api 注入 *cfgtool.Store（自动满足 ToolCatalogAPI 窄接口）。数据源是 tool 表
 	// （启动期由代码事实源 reconcile 同步），供前端工具模块检索/展示 + 智能体配置页选工具。
 	ToolCatalog ToolCatalogAPI
+	// Models 为 nil 时模型模块路由（/models 系列）不注册。
+	// 由 cmd/api 注入 *llmstore.Store（自动满足 ModelAPI 窄接口）。
+	// provider 部署 CRUD + 别名/角色路由面板；写经其失效广播，runner 进程下次 For(role) 读到最新（见 D7）。
+	Models ModelAPI
+	// Settings 为 nil 时系统配置路由（/settings 系列）不注册。
+	// 由 cmd/api 注入 *settingstore.Store（自动满足 SettingsAPI 窄接口）。
+	// react/runtime 写经失效广播 runner 现读即生效；proxy_filter 写触发 proxy 进程热换过滤链（见 D7）。
+	Settings SettingsAPI
 	// 会话用量合计（GET /conversations/:id/usage）：三者任一为 nil 则路由不注册。
 	// cmd/api 注入 convStore / invocationStore / toolStore（各满足对应窄接口）。
 	UsageTasks UsageTaskResolver
@@ -121,6 +132,13 @@ func NewServer(d Deps) http.Handler {
 		r.PUT("/hunters/:id", saveHunterHandler(d.ConfigStore))
 		r.DELETE("/hunters/:id", deleteHunterHandler(d.ConfigStore))
 	}
+	if d.Traffic != nil {
+		// 代理捕获流量只读浏览（前端流量模块）：全局分页列表 + host 下拉 + 单条详情。
+		// :id 与 /hosts 都挂在 /traffic 下，注意 /traffic/hosts 须先于 /traffic/:id 注册避免冲突。
+		r.GET("/traffic", listTrafficHandler(d.Traffic))
+		r.GET("/traffic/hosts", trafficHostsHandler(d.Traffic))
+		r.GET("/traffic/:id", trafficDetailHandler(d.Traffic))
+	}
 	if d.ToolCatalog != nil && d.ConfigStore != nil {
 		// 工具目录（只读检索）+ 工具↔智能体装配（读写下沉后端，单一权威）：
 		// 内置 function + 外置 cli 两套体系。前端工具模块检索/分页；详情附全量智能体及
@@ -129,6 +147,30 @@ func NewServer(d Deps) http.Handler {
 		r.GET("/tools", listToolsHandler(d.ToolCatalog))
 		r.GET("/tools/:name", getToolHandler(d.ToolCatalog, d.ConfigStore))
 		r.PUT("/tools/:name/agents/:code", assignToolHandler(d.ToolCatalog, d.ConfigStore))
+	}
+	if d.Models != nil {
+		// 模型模块（前端「模型」配置页）：provider 部署 CRUD + 角色 → provider 直连路由（0099 拆别名层）。
+		// provider key 是稳定引用键（角色路由 FK 指向它），故 GET/PUT/DELETE 用 :key 而非自增 id。
+		// /providers 下 POST 与 PUT :key 都走 upsert-by-key。routing 一次拉齐全部角色路由供面板全景。
+		r.GET("/models/providers", listProvidersHandler(d.Models))
+		r.GET("/models/providers/:key", getProviderHandler(d.Models))
+		r.POST("/models/providers", saveProviderHandler(d.Models))
+		r.PUT("/models/providers/:key", saveProviderHandler(d.Models))
+		r.DELETE("/models/providers/:key", deleteProviderHandler(d.Models))
+
+		r.GET("/models/routing", listRoutingHandler(d.Models))
+		r.PUT("/models/routes/:role", saveRoleRouteHandler(d.Models))
+		r.DELETE("/models/routes/:role", deleteRoleRouteHandler(d.Models))
+	}
+	if d.Settings != nil {
+		// 系统配置模块（前端「系统配置」页）：三组业务旋钮全量读写。
+		// react/runtime 写后 runner 现读即生效；proxy_filter 写后 proxy 进程热换过滤链。
+		r.GET("/settings/react", getReactSettingsHandler(d.Settings))
+		r.PUT("/settings/react", putReactSettingsHandler(d.Settings))
+		r.GET("/settings/runtime", getRuntimeSettingsHandler(d.Settings))
+		r.PUT("/settings/runtime", putRuntimeSettingsHandler(d.Settings))
+		r.GET("/settings/proxy-filter", getProxyFilterSettingsHandler(d.Settings))
+		r.PUT("/settings/proxy-filter", putProxyFilterSettingsHandler(d.Settings))
 	}
 	if d.Chat != nil {
 		r.POST("/chat", chatHandler(d.Chat, d.StreamCookieSecret, d.CookieSecure))

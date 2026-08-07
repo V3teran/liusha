@@ -9,11 +9,19 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/V3teran/liusha/internal/config"
+	"github.com/V3teran/liusha/internal/config/llmcfg"
 	"github.com/V3teran/liusha/internal/einoagent"
 	"github.com/V3teran/liusha/internal/einollm"
 	"github.com/V3teran/liusha/internal/einotools"
 	"github.com/V3teran/liusha/internal/finding"
 )
+
+// liveResolver 把任意 role 解析到固定的小米部署（live 测试不依赖 DB 路由）。
+type liveResolver struct{ p llmcfg.Provider }
+
+func (r liveResolver) ProviderForRole(_ context.Context, _ string) (llmcfg.Provider, error) {
+	return r.p, nil
+}
 
 // fakeStore 满足 einotools 的 FindingReader+FindingWriter，记录写入用于断言。
 type fakeStore struct{ saved []finding.VulnFinding }
@@ -36,21 +44,17 @@ func TestRunSolo_Live(t *testing.T) {
 		t.Skip("缺 XIAOMI_API_KEY，跳过 live 验证")
 	}
 
-	cfg := config.Config{
-		Providers: map[string]config.ProviderConfig{
-			"xiaomi_mimo": {
-				Type:         "openai_compat",
-				BaseURL:      "https://token-plan-cn.xiaomimimo.com/v1",
-				DefaultModel: "mimo-v2.5",
-				APIKeyEnv:    "XIAOMI_API_KEY",
-			},
-		},
-		LLM: config.LLMConfig{DefaultProvider: "xiaomi_mimo"},
-	}
+	resolver := liveResolver{p: llmcfg.Provider{
+		Key:          "xiaomi_mimo",
+		Type:         "openai_compat",
+		BaseURL:      "https://token-plan-cn.xiaomimimo.com/v1",
+		DefaultModel: "mimo-v2.5",
+		APIKeyEnv:    "XIAOMI_API_KEY",
+	}}
 
 	ctx := context.Background()
 	// per-hunter 独立实例（铁律）：For 每次产新实例
-	m, err := einollm.New(cfg).For(ctx, "traffic-analysis")
+	m, err := einollm.New(resolver, config.Config{}).For(ctx, "traffic-analysis")
 	if err != nil {
 		t.Fatalf("einollm.For: %v", err)
 	}

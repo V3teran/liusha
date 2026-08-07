@@ -42,41 +42,34 @@ type recorderStateKey struct{}
 type recorderAgentKey struct{}
 
 // ResolveProviderModel 返回某 role 解析到的 provider key + 默认 model，
-// 供埋点 handler 填 Invocation.Provider/Model（provider key 与旧 Generator.Provider() 一致，
-// 保证 token 用量聚合口径不变）。
-func (f *Factory) ResolveProviderModel(role string) (provider, model string) {
-	key := f.resolveProviderKey(role)
-	if key == "" {
+// 供埋点 handler 填 Invocation.Provider/Model（provider key 保证 token 用量聚合口径不变）。
+// 解析失败（路由未配置）返回空串——埋点仅审计用途，不因此阻塞 agent run。
+func (f *Factory) ResolveProviderModel(ctx context.Context, role string) (provider, model string) {
+	p, err := f.resolver.ProviderForRole(ctx, role)
+	if err != nil {
 		return "", ""
 	}
-	return key, f.cfg.Providers[key].DefaultModel
+	return p.Key, p.DefaultModel
 }
 
 // SupportsVisionFor 返回某 role 路由到的 provider 是否支持 vision（截图回灌开关，见 VisionRelayMiddleware）。
-// config.Providers[key].SupportsVision 是 *bool（启动期 validate 强制非 nil）；缺失保守返 false。
-func (f *Factory) SupportsVisionFor(role string) bool {
-	key := f.resolveProviderKey(role)
-	if key == "" {
+// 解析失败保守返 false（不回灌截图，安全侧）。
+func (f *Factory) SupportsVisionFor(ctx context.Context, role string) bool {
+	p, err := f.resolver.ProviderForRole(ctx, role)
+	if err != nil {
 		return false
 	}
-	if sv := f.cfg.Providers[key].SupportsVision; sv != nil {
-		return *sv
-	}
-	return false
+	return p.SupportsVision
 }
 
 // ContextWindowFor 返回某 role 路由到的 provider 的总上下文窗口 tokens（① summarization 触发阈值用）。
-// config.Providers[key].ContextWindow 是 *int（启动期 validate 强制非 nil）；缺失保守返 0
-// （NewSummarizationHandler 见 0 即报错，不瞎猜窗口）。
-func (f *Factory) ContextWindowFor(role string) int {
-	key := f.resolveProviderKey(role)
-	if key == "" {
+// 解析失败保守返 0（NewSummarizationHandler 见 0 即报错，不瞎猜窗口）。
+func (f *Factory) ContextWindowFor(ctx context.Context, role string) int {
+	p, err := f.resolver.ProviderForRole(ctx, role)
+	if err != nil {
 		return 0
 	}
-	if cw := f.cfg.Providers[key].ContextWindow; cw != nil {
-		return *cw
-	}
-	return 0
+	return p.ContextWindow
 }
 
 // NewUsageRecorder 造一个只关心 ChatModel 组件的 callbacks.Handler，把每次调用的 token usage

@@ -12,6 +12,7 @@ import (
 	hunterbuilder "github.com/V3teran/liusha/internal/builder/hunter"
 	"github.com/V3teran/liusha/internal/config"
 	cfgscenario "github.com/V3teran/liusha/internal/config/scenario"
+	"github.com/V3teran/liusha/internal/config/settingstore"
 	"github.com/V3teran/liusha/internal/configstore"
 	"github.com/V3teran/liusha/internal/conversation"
 	"github.com/V3teran/liusha/internal/corpus"
@@ -42,7 +43,7 @@ type handler struct {
 	agentFlows *traffic.AgentStore
 	calls      *llminvocation.Store
 	hostSem    *ratelimit.HostSemaphore // per-host 并发限速（§4.3）；仅对有 target_host 的 task 生效
-	cfg        config.Config
+	settings   *settingstore.Store      // 业务旋钮事实源（DB + 多级缓存）：react/runtime 组运行期现读，DB 改即生效
 	runnerCfg  config.RunnerConfig
 	launcher   sandbox.Launcher
 	logger     zerolog.Logger

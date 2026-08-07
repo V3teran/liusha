@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/V3teran/liusha/internal/config"
@@ -47,15 +48,22 @@ type SnapshotPublisher interface {
 	Publish(ctx context.Context, snap *TrafficSnapshot) error
 }
 
+// filterState 是 proxy_filter 组的运行期快照：过滤链 + 两个 body 上限一并原子替换。
+// 三者同属 proxy_filter 分组 KV，热改时整体换入，避免链与上限撕裂（半旧半新）。
+type filterState struct {
+	filter              *filter.TrafficFilter
+	maxRequestBodySize  int
+	maxResponseBodySize int
+}
+
 type Server struct {
-	proxy      *proxify.Proxy
-	filter     *filter.TrafficFilter
-	publisher  SnapshotPublisher
-	cfg        config.ProxyConfig
-	listenAddr string
-	certDir    string
-	source     string // 'external' / 'internal'，注入到每条 snapshot 用于 ingestor 分流
-	logger     zerolog.Logger
+	proxy       *proxify.Proxy
+	filterState atomic.Pointer[filterState] // proxy_filter 组热改：cmd/proxy 订阅失效后 SwapFilter 原子换入
+	publisher   SnapshotPublisher
+	listenAddr  string
+	certDir     string
+	source      string // 'external' / 'internal'，注入到每条 snapshot 用于 ingestor 分流
+	logger      zerolog.Logger
 }
 
 // ServerDeps 注入服务依赖；ListenAddr / CertDir 为空时走默认值。
@@ -103,14 +111,17 @@ func NewServer(deps ServerDeps) (*Server, error) {
 	}
 
 	srv := &Server{
-		filter:     deps.Filter,
 		publisher:  deps.Publisher,
-		cfg:        deps.Cfg,
 		listenAddr: listenAddr,
 		certDir:    certDir,
 		source:     source,
 		logger:     deps.Logger,
 	}
+	srv.filterState.Store(&filterState{
+		filter:              deps.Filter,
+		maxRequestBodySize:  deps.Cfg.MaxRequestBodySize,
+		maxResponseBodySize: deps.Cfg.MaxResponseBodySize,
+	})
 
 	opts := &proxify.Options{
 		ListenAddrHTTP:     listenAddr,
@@ -146,8 +157,11 @@ func (s *Server) onResponse(resp *http.Response, ctx *martian.Context) error {
 
 	req := resp.Request
 
+	// 取一次运行期快照：本条流量全程用同一份 filter + body 上限（热改在下条流量生效，不半旧半新）。
+	fs := s.filterState.Load()
+
 	// 1) 过滤
-	if ok, reason := s.filter.ShouldProcess(req, resp); !ok {
+	if ok, reason := fs.filter.ShouldProcess(req, resp); !ok {
 		s.logger.Debug().
 			Str("method", req.Method).
 			Str("host", req.URL.Host).
@@ -159,12 +173,12 @@ func (s *Server) onResponse(resp *http.Response, ctx *martian.Context) error {
 	}
 
 	// 2) 读+重建 body（请求 / 响应都要）
-	reqBody, err := readAndRebuildBody(&req.Body, s.cfg.MaxRequestBodySize)
+	reqBody, err := readAndRebuildBody(&req.Body, fs.maxRequestBodySize)
 	if err != nil {
 		s.logger.Warn().Err(err).Msg("读取请求体失败，跳过该流量")
 		return nil
 	}
-	respBody, err := readAndRebuildBody(&resp.Body, s.cfg.MaxResponseBodySize)
+	respBody, err := readAndRebuildBody(&resp.Body, fs.maxResponseBodySize)
 	if err != nil {
 		s.logger.Warn().Err(err).Msg("读取响应体失败，跳过该流量")
 		return nil
@@ -228,6 +242,17 @@ func (s *Server) Stop() {
 	if s.proxy != nil {
 		s.proxy.Stop()
 	}
+}
+
+// SwapFilter 原子换入新的过滤链 + body 上限（proxy_filter 组热改）。
+// cmd/proxy 订阅 settingstore proxy_filter 失效后，用最新 ProxyFilterSettings 重建 filter 调用本方法；
+// 换入后下一条流量即走新规则，进行中的流量仍用其加载时的快照，无锁无撕裂。
+func (s *Server) SwapFilter(f *filter.TrafficFilter, maxReqBody, maxRespBody int) {
+	s.filterState.Store(&filterState{
+		filter:              f,
+		maxRequestBodySize:  maxReqBody,
+		maxResponseBodySize: maxRespBody,
+	})
 }
 
 // resolveCertDir 把 ~ 展开成 $HOME/.liusha；空字符串走默认。

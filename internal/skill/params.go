@@ -51,4 +51,8 @@ type BuilderParams struct {
 	// Sandbox 是本次 agent run 绑定的 sandbox-server HTTP RPC client（handler Spawn 后填）。
 	// nil 时不注册 run_command 工具。
 	Sandbox sandbox.Client
+
+	// FindingsLimit 是 user prompt「该 host 已有 finding」段的显示条数上限；≤0 → 100。
+	// 由 handler 每次装 prompt 时从 settingstore(runtime 组) 现读注入，DB 改即生效（不再启动烘焙）。
+	FindingsLimit int
 }

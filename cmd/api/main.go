@@ -19,12 +19,15 @@ import (
 	"github.com/V3teran/liusha/internal/assignment"
 	"github.com/V3teran/liusha/internal/attackgraph"
 	"github.com/V3teran/liusha/internal/audit"
+	"github.com/V3teran/liusha/internal/cachestore"
 	"github.com/V3teran/liusha/internal/chat"
 	"github.com/V3teran/liusha/internal/config"
 	cfghunter "github.com/V3teran/liusha/internal/config/hunter"
+	"github.com/V3teran/liusha/internal/config/llmcfg"
 	cfgscenario "github.com/V3teran/liusha/internal/config/scenario"
-	cfgtool "github.com/V3teran/liusha/internal/config/tool"
 	"github.com/V3teran/liusha/internal/config/seed"
+	"github.com/V3teran/liusha/internal/config/settingstore"
+	cfgtool "github.com/V3teran/liusha/internal/config/tool"
 	"github.com/V3teran/liusha/internal/configstore"
 	"github.com/V3teran/liusha/internal/conversation"
 	"github.com/V3teran/liusha/internal/credential"
@@ -37,6 +40,7 @@ import (
 	"github.com/V3teran/liusha/internal/intent"
 	"github.com/V3teran/liusha/internal/llm"
 	"github.com/V3teran/liusha/internal/llminvocation"
+	"github.com/V3teran/liusha/internal/llmstore"
 	"github.com/V3teran/liusha/internal/logx"
 	"github.com/V3teran/liusha/internal/qa"
 	"github.com/V3teran/liusha/internal/scanstream"
@@ -100,15 +104,28 @@ func main() {
 	enq := worker.NewClient(asynq.RedisClientOpt{Addr: os.Getenv("LIUSHA_REDIS_ADDR")})
 	defer enq.Close()
 
-	// 配置多级缓存 Store（scenario/hunter CRUD 后端）。写路径经 redis 总线广播失效，
-	// runner 进程被动失效其 L1。Subscribe 阻塞运行（内部 for-select 直到 ctx 取消），必须后台起——
+	// 共享多级缓存内核（L1 内存 + L2 redis + 跨进程失效总线）。所有配置资源
+	// （scenario/hunter，后续 llm/system）复用同一实例；一条 Subscribe 循环覆盖全部资源。
+	// Subscribe 阻塞运行（内部 for-select 直到 ctx 取消），必须后台起——
 	// 同步调用会把 main goroutine 卡死在订阅循环。
-	cfgStore := configstore.New(pool, rdb)
+	cache := cachestore.New(rdb, 0)
 	go func() {
-		if err := cfgStore.Subscribe(ctx); err != nil && !errors.Is(err, context.Canceled) {
-			logger.Error().Err(err).Msg("configstore 失效订阅退出——配置跨进程失效不可用")
+		if err := cache.Subscribe(ctx); err != nil && !errors.Is(err, context.Canceled) {
+			logger.Error().Err(err).Msg("cachestore 失效订阅退出——配置跨进程失效不可用")
 		}
 	}()
+
+	// 配置多级缓存 Store（scenario/hunter CRUD 后端）。写路径经 cachestore 广播失效，
+	// runner 进程被动失效其 L1。
+	cfgStore := configstore.New(pool, cache)
+
+	// LLM 配置多级缓存 Store（provider 部署 / 别名 / 角色路由）。既是「模型模块」CRUD 后端，
+	// 又是两个 LLM 工厂运行期 role→provider 解析的事实源（复用同一 cache 实例）。
+	llmStore := llmstore.New(pool, cache)
+
+	// 系统业务旋钮 Store（react/runtime/proxy_filter 三组）。既是「系统配置」CRUD 后端，
+	// 又是 runner 现读 / proxy 热换过滤链的事实源（复用同一 cache 实例——写后失效广播即时可见）。
+	settingStore := settingstore.New(pool, cache)
 
 	// 种子首填（insert-only）：空库时从磁盘 scenarios/hunters 导入默认配置，
 	// 已存在的行按 code 整行跳过（DB 是事实源，不覆盖运维/前端改动）。
@@ -118,6 +135,19 @@ func main() {
 	if err := seed.Import(ctx, seedDir,
 		cfghunter.NewStore(pool), cfgscenario.NewStore(pool)); err != nil {
 		logger.Warn().Err(err).Str("dir", seedDir).Msg("配置种子导入失败（跳过，可经 CRUD 手动补齐）")
+	}
+
+	// LLM 配置种子（insert-only）：把 config.yaml 的 providers:/llm.* 首填进
+	// llm_provider/alias/role_route，空库时建默认路由。已存在的行整行跳过（DB 事实源）。
+	if err := seed.ImportLLM(ctx, cfg, llmcfg.NewStore(pool)); err != nil {
+		logger.Warn().Err(err).Msg("LLM 配置种子导入失败（跳过，可经模型模块 CRUD 手动补齐）")
+	}
+
+	// 系统业务旋钮种子（insert-only）：把 config.yaml 的 react/runtime/proxy_filter 三组
+	// 首填进 system_setting，空库时建默认旋钮。已存在的组整组跳过（DB 事实源）。
+	// 复用同一 cache 实例——写后经失效总线广播，runner/proxy 立即读到最新旋钮。
+	if err := seed.ImportSystem(ctx, cfg, settingStore); err != nil {
+		logger.Warn().Err(err).Msg("系统配置种子导入失败（跳过，可经系统配置 CRUD 手动补齐）")
 	}
 
 	// Tools manifest（tools.yaml）：供 GET /tooling/tools 给 HunterAdmin cli_tools 白名单多选器
@@ -145,7 +175,7 @@ func main() {
 	// 执行图（思维链+成果链）read-model 投影：复用 conv/finding store，不落表（docs/attack-graph-design.md）。
 	attackGraphProjector := &attackgraph.Projector{Messages: convStore, Findings: findStore, Conv: convStore}
 	// 多轮问答/意图分类依赖：light provider 路由 + 问答读 finding + SSE publish。
-	router := llm.NewRouterWithOptions(llm.NewFactory(cfg), llm.RetryOptionsFromConfig(cfg.LLM.Retry))
+	router := llm.NewRouterWithOptions(llm.NewFactory(llmStore), llm.RetryOptionsFromConfig(cfg.LLM.Retry))
 	// 执行图里程碑摘要：用 light LLM 把子代理推理总结成一句（派生层，按需调用）。
 	attackGraphProjector.Summary = llmSummarizer{router: router}
 	publisher := scanstream.NewPublisher(rdb)
@@ -198,6 +228,9 @@ func main() {
 			Renamer:           convStore,                    // PATCH /conversations/:id 重命名标题（convStore.SetTitle 直接满足）
 			ConfigStore:       cfgStore,                     // scenario/hunter 配置 CRUD（配置管理页 + 对话 ScenarioPicker）
 			ToolCatalog:       cfgToolStore,                 // GET /tools、/tools/:name：工具目录检索/详情 + 智能体选工具
+			Models:            llmStore,                     // GET/POST/PUT/DELETE /models：provider 部署 CRUD + 别名/角色路由面板
+			Settings:          settingStore,                 // GET/PUT /settings 系列：react/runtime/proxy_filter 三组业务旋钮
+			Traffic:           proxyFlowStore,               // GET /traffic 系列：代理捕获流量只读浏览（流量模块）
 			Conversations:     convStore,                    // 阶段B：会话列表 / 消息回看
 			EventStream:       eventStreamAdapter{rdb: rdb}, // 阶段B：SSE 订阅 redis 事件
 			UsageTasks:        convStore,                    // 会话用量：会话→task 解析

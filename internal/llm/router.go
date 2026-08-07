@@ -35,9 +35,9 @@ func NewRouterWithOptions(factory *Factory, opts RetryOptions) *Router {
 // 修复 v1 Factory 缓存 Generator 导致跨 task tools 错乱的并发 bug。
 //
 // fallback 解析规则：
-//   - 取 cfg.LLM.FallbackProvider 字段值（provider key，如 "qwen"）
-//   - 通过 Factory 按 provider key 直接构造（与 primary 共享底层 ClientPool 内的 HTTP client）
-//   - fallback 为空 string 时不传 fallback（WithRetry 收 nil 后耗尽即抛）
+//   - 取保留 role __fallback__ 绑定的 provider（前端「角色指派 · 全局备胎」配置）
+//   - 通过 Factory 经 Resolver 直接构造（与 primary 共享底层 ClientPool 内的 HTTP client）
+//   - 备胎未配置时不传 fallback（WithRetry 收 nil 后耗尽即抛）
 //   - fallback 实例本身不套 retry：避免循环重试 / 双层 backoff
 func (r *Router) For(ctx context.Context, role string) (Generator, error) {
 	primary, err := r.factory.For(ctx, role)
@@ -45,13 +45,10 @@ func (r *Router) For(ctx context.Context, role string) (Generator, error) {
 		return nil, err
 	}
 
+	// fallback 走全局备胎（保留 role __fallback__；未配置时静默降级：primary retry 耗尽后直接抛错）。
 	var fallback Generator
-	if fbKey := r.factory.cfg.LLM.FallbackProvider; fbKey != "" {
-		fb, fbErr := r.factory.forProviderKey(ctx, fbKey)
-		if fbErr == nil {
-			fallback = fb
-		}
-		// fallback 构造失败时静默降级：primary retry 耗尽后直接抛错（与无 fallback 等价）。
+	if fb, fbErr := r.factory.forFallback(ctx); fbErr == nil {
+		fallback = fb
 	}
 	return WithRetry(primary, fallback, r.opts), nil
 }
