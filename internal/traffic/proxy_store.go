@@ -149,6 +149,96 @@ func (s *ProxyStore) ListByTaskFiltered(ctx context.Context, taskID string, f Pr
 	return out, rows.Err()
 }
 
+// proxyWhere 把 ProxyListFilter 编译成 WHERE 片段 + 参数（全局浏览用，不含 task 归属约束）。
+// startArg 是首个占位符序号（调用方已用掉的参数个数 + 1），返回拼好的条件串与追加的参数。
+// 与 ListByTaskFiltered 同口径：host 等值不剥端口、method 自动 upper、path glob（'*'→'%'）。
+func proxyWhere(f ProxyListFilter, startArg int) (string, []any) {
+	var conds []string
+	var args []any
+	add := func(tmpl string, val any) {
+		args = append(args, val)
+		conds = append(conds, fmt.Sprintf(tmpl, startArg+len(args)-1))
+	}
+	if f.Host != "" {
+		add("host=$%d", f.Host)
+	}
+	if f.Method != "" {
+		add("method=$%d", strings.ToUpper(f.Method))
+	}
+	if f.Path != "" {
+		add("path LIKE $%d", strings.ReplaceAll(sqlEscapeLike(f.Path), "*", "%"))
+	}
+	if f.StatusMin > 0 {
+		add("status_code >= $%d", f.StatusMin)
+	}
+	if f.StatusMax > 0 {
+		add("status_code <= $%d", f.StatusMax)
+	}
+	if len(conds) == 0 {
+		return "", args
+	}
+	return " WHERE " + strings.Join(conds, " AND "), args
+}
+
+// ListPagedGlobal 跨全部 host 分页浏览代理捕获流量摘要（前端流量模块用），不限 task 归属。
+// captured_at DESC（最新优先）。Limit<=0 兜底 50。offset 分页由调用方 clamp。
+func (s *ProxyStore) ListPagedGlobal(ctx context.Context, f ProxyListFilter) ([]ProxySummary, error) {
+	if f.Limit <= 0 {
+		f.Limit = 50
+	}
+	where, args := proxyWhere(f, 1)
+	args = append(args, f.Limit, f.Offset)
+	q := "SELECT id, host, method, path, status_code, duration_ms, captured_at FROM proxy_traffic" +
+		where + fmt.Sprintf(" ORDER BY captured_at DESC, id DESC LIMIT $%d OFFSET $%d", len(args)-1, len(args))
+
+	rows, err := s.pool.Query(ctx, q, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list proxy_traffic paged: %w", err)
+	}
+	defer rows.Close()
+
+	var out []ProxySummary
+	for rows.Next() {
+		var sum ProxySummary
+		if err := rows.Scan(&sum.ID, &sum.Host, &sum.Method, &sum.Path,
+			&sum.StatusCode, &sum.DurationMs, &sum.CapturedAt); err != nil {
+			return nil, fmt.Errorf("scan proxy_traffic summary: %w", err)
+		}
+		out = append(out, sum)
+	}
+	return out, rows.Err()
+}
+
+// CountGlobal 返回同筛选口径下的全局总行数（分页 total）。
+func (s *ProxyStore) CountGlobal(ctx context.Context, f ProxyListFilter) (int, error) {
+	where, args := proxyWhere(f, 1)
+	var n int
+	if err := s.pool.QueryRow(ctx, "SELECT count(*) FROM proxy_traffic"+where, args...).Scan(&n); err != nil {
+		return 0, fmt.Errorf("count proxy_traffic: %w", err)
+	}
+	return n, nil
+}
+
+// DistinctHosts 返回 proxy_traffic 里出现过的全部 host（前端筛选下拉候选），按名排序。
+// 全表 distinct，不吃筛选——候选恒为全集，否则筛完下拉自锁死（对齐 llm facets 口径）。
+func (s *ProxyStore) DistinctHosts(ctx context.Context) ([]string, error) {
+	rows, err := s.pool.Query(ctx, "SELECT DISTINCT host FROM proxy_traffic ORDER BY host")
+	if err != nil {
+		return nil, fmt.Errorf("distinct proxy_traffic hosts: %w", err)
+	}
+	defer rows.Close()
+
+	var out []string
+	for rows.Next() {
+		var h string
+		if err := rows.Scan(&h); err != nil {
+			return nil, fmt.Errorf("scan host: %w", err)
+		}
+		out = append(out, h)
+	}
+	return out, rows.Err()
+}
+
 // ListByTask 按 captured_at 升序列出某 passive task 消费的流量（含 body），供 traffic-analysis 读这批。
 func (s *ProxyStore) ListByTask(ctx context.Context, taskID string) ([]ProxyTraffic, error) {
 	rows, err := s.pool.Query(ctx,

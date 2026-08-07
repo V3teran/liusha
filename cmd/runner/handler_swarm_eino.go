@@ -93,7 +93,7 @@ func (h handler) handleSwarmEino(ctx context.Context, p worker.Payload, scen cfg
 		}
 	}()
 
-	toolDeps := h.einoToolDeps(sandboxClient)
+	toolDeps := h.einoToolDeps(ctx, sandboxClient)
 	// 所有 agent（orchestrator + 子代理）的工具都用 orchestrator 的注入值建（owner/host/hunter=orchestrator）。
 	// 子代理写 finding/note 落 orchestrator hunter_id（deep 临时子代理无独立 id，用户已认可）。
 	params := einoagent.TrafficAnalysisToolParams{TaskID: taskID, HunterID: tid, Host: virtualHost}
@@ -123,10 +123,12 @@ func (h handler) handleSwarmEino(ctx context.Context, p worker.Payload, scen cfg
 	}
 
 	// orchestrator 的 user message：复用 buildUserPrompt 注入 brief + 流量/finding/lesson/索引段。
+	rt, _ := h.settings.Runtime(ctx) // finding 段显示条数现读（settingstore runtime 组）；读失败取零值，user_prompt 内兜底 100
 	orchestratorPrompt := hunterbuilder.BuildUserPrompt(ctx, h.hunterDeps, skill.BuilderParams{
 		TaskID: taskID, HunterID: tid,
 		Host: virtualHost, Brief: brief, Sandbox: sandboxClient,
-		CliTools: orchHunter.CliTools,
+		CliTools:      orchHunter.CliTools,
+		FindingsLimit: rt.FindingsLimitInPrompt,
 	})
 	// 阶段0：多轮追问连贯性——把本会话最近的会话历史拼到 prompt 前，让 orchestrator 看到上下文
 	// （如"刚才那个漏洞"）。首轮 / 无会话 / 读失败时为空串，不影响。

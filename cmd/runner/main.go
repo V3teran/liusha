@@ -27,8 +27,11 @@ import (
 
 	"github.com/V3teran/liusha/internal/assignment"
 	"github.com/V3teran/liusha/internal/builder/hunter"
+	"github.com/V3teran/liusha/internal/cachestore"
 	"github.com/V3teran/liusha/internal/config"
+	"github.com/V3teran/liusha/internal/config/settingstore"
 	"github.com/V3teran/liusha/internal/configstore"
+	"github.com/V3teran/liusha/internal/llmstore"
 	"github.com/V3teran/liusha/internal/conversation"
 	"github.com/V3teran/liusha/internal/corpus"
 	"github.com/V3teran/liusha/internal/credential"
@@ -211,19 +214,29 @@ func main() {
 		ToolingLoader:   toolingLoader,
 		ToolsManifest:   toolsManifest,
 		VulnLoader:      vulnLoader,
-		FindingsLimit:   cfg.Session.FindingsLimitInPrompt,
 	}
+
+	// 共享多级缓存内核（L1 内存 + L2 redis + 跨进程失效总线）：一条 Subscribe 循环
+	// 覆盖全部配置资源。Subscribe 阻塞运行（内部 for-select 直到 ctx 取消），必须后台起——
+	// 同步调用会把 main goroutine 卡死在订阅循环，后续 reaper / healthz 永不启动。
+	cache := cachestore.New(rdb, 0)
+	go func() {
+		if err := cache.Subscribe(ctx); err != nil && !errors.Is(err, context.Canceled) {
+			logger.Error().Err(err).Msg("cachestore 失效订阅退出——配置跨进程失效不可用")
+		}
+	}()
 
 	// 配置事实源（DB + 内存/redis 缓存）：运行期按需读 scenario/hunter 装配引擎。
 	// 文件仅是首次导入的种子（seed 导入在别处），进程运行期一律走 DB/缓存（见 D6/D7）。
-	cfgStore := configstore.New(pool, rdb)
-	// Subscribe 阻塞运行（内部 for-select 直到 ctx 取消），必须后台起——
-	// 同步调用会把 main goroutine 卡死在订阅循环，后续 reaper / healthz 永不启动。
-	go func() {
-		if err := cfgStore.Subscribe(ctx); err != nil && !errors.Is(err, context.Canceled) {
-			logger.Error().Err(err).Msg("configstore 失效订阅退出——配置跨进程失效不可用")
-		}
-	}()
+	cfgStore := configstore.New(pool, cache)
+
+	// LLM 配置事实源：einoFactory 运行期按 role 解析 provider 部署即读它（多级缓存）。
+	// api 进程改「模型模块」后经 cachestore 广播失效，runner 下次 For(role) 即读到最新部署。
+	llmStore := llmstore.New(pool, cache)
+
+	// 业务旋钮事实源（react/runtime/proxy_filter 分组 KV）：handler 运行期现读 react/runtime，
+	// api 进程改「系统配置」后经 cachestore 广播失效，runner 下次读即拿到最新旋钮（真热改）。
+	settingStore := settingstore.New(pool, cache)
 
 	// handler
 	// per-host 并发信号量（§4.3）。TTL = swarm 超时 + 10min 缓冲：防长 task 运行期计数键被
@@ -243,11 +256,11 @@ func main() {
 		agentFlows:     agentFlows,
 		calls:          calls,
 		hostSem:        hostSem,
-		cfg:            cfg,
+		settings:       settingStore,
 		runnerCfg:      runnerCfg,
 		launcher:       launcher,
 		logger:         logger,
-		einoFactory:    einollm.New(cfg),
+		einoFactory:    einollm.New(llmStore, cfg),
 		hunterDeps:     hunterDeps,
 		cfgStore:       cfgStore,
 		conversations:  convStore,

@@ -77,20 +77,22 @@ func (h handler) handleSoloEino(ctx context.Context, p worker.Payload, scen cfgs
 	if err != nil {
 		return h.failTask(ctx, p.HunterID, fmt.Errorf("全读本批 proxy_traffic 失败: %w", err))
 	}
+	rt, _ := h.settings.Runtime(ctx) // finding 段显示条数现读（settingstore runtime 组）；读失败取零值，user_prompt 内兜底 100
 	params := skill.BuilderParams{
-		TaskID:   taskID,
-		HunterID: tid,
-		Host:     host,
-		Brief:    brief,
-		Flows:    flows,
-		Sandbox:  sandboxClient,
-		CliTools: hunter.CliTools,
+		TaskID:        taskID,
+		HunterID:      tid,
+		Host:          host,
+		Brief:         brief,
+		Flows:         flows,
+		Sandbox:       sandboxClient,
+		CliTools:      hunter.CliTools,
+		FindingsLimit: rt.FindingsLimitInPrompt,
 	}
 
 	// tools 取该 hunter 的内置工具集：复用 BuildHunterTools 的注册表建法（与 swarm 子代理同源
 	// 门控——依赖缺失即报错，暴露配置缺漏）。
 	tools, err := einoagent.BuildHunterTools(hunterDefFromConfig(hunter), einoagent.ToolBuildCtx{
-		Deps: h.einoToolDeps(sandboxClient),
+		Deps: h.einoToolDeps(ctx, sandboxClient),
 		Params: einoagent.TrafficAnalysisToolParams{
 			TaskID:   taskID,
 			HunterID: tid,

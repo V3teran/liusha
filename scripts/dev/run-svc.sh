@@ -35,10 +35,8 @@ export LIUSHA_LOG_TO_STDOUT="${LIUSHA_LOG_TO_STDOUT:-false}"
 export LIUSHA_LOG_TO_FILE="${LIUSHA_LOG_TO_FILE:-true}"
 export LIUSHA_CONFIG="${LIUSHA_CONFIG:-./config/config.yaml}"
 
-# dev 覆盖：把 light/fallback/vision 全路由到 deepseek，绕开 ANTHROPIC/OPENAI key 校验
-export LIUSHA_LLM_LIGHT_PROVIDER="${LIUSHA_LLM_LIGHT_PROVIDER:-deepseek}"
-export LIUSHA_LLM_FALLBACK_PROVIDER="${LIUSHA_LLM_FALLBACK_PROVIDER:-deepseek}"
-export LIUSHA_LLM_VISION_PROVIDER="${LIUSHA_LLM_VISION_PROVIDER:-deepseek}"
+# 注：0099 拆别名层后，light/fallback/vision 槽位覆盖 env 已废弃（无代码读取）。
+# 路由事实源在 DB（llm_role_route），dev 靠 config.yaml 的 llm.* 种子首填。
 
 # proxy 进程参数（纯 MITM，无独立 healthz；存活探 TCP 8888）
 export LIUSHA_PROXY_LISTEN_ADDR="${LIUSHA_PROXY_LISTEN_ADDR:-0.0.0.0:8888}"

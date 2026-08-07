@@ -55,5 +55,6 @@ type Deps struct {
 	VulnLoader      *skill.Loader         // read_vuln_skill + 漏洞挖掘指南索引段；nil 不注入
 
 	UserPromptBodyLimit int // 请求/响应 body 单段截断字节数；≤0 → 8192
-	FindingsLimit       int // user prompt 该 host 已有 finding 段显示条数；≤0 → 100
+	// FindingsLimit 已移出：改由 BuilderParams.FindingsLimit 每次现读注入（settingstore runtime 组），
+	// 不再随 Deps 启动烘焙。见 skill.BuilderParams。
 }

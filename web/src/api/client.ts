@@ -20,6 +20,9 @@ import type {
   LLMInvocationStat,
   LLMInvocationFacets,
   LLMInvocationFilters,
+  TrafficListResponse,
+  TrafficDetail,
+  TrafficFilters,
   Identity,
   FindingRow,
   FindingFilters,
@@ -471,6 +474,47 @@ export async function getLLMInvocationStat(
  */
 export async function getLLMInvocationFacets(taskID: string): Promise<LLMInvocationFacets> {
   return get<LLMInvocationFacets>(`/llm/invocations/${taskID}/facets`)
+}
+
+/* ============================================================
+   流量模块（GET /traffic 系列）：代理捕获流量只读浏览
+   ============================================================ */
+
+function trafficFilterParams(f?: Partial<TrafficFilters>): URLSearchParams {
+  const params = new URLSearchParams()
+  if (!f) return params
+  if (f.host) params.set('host', f.host)
+  if (f.method) params.set('method', f.method)
+  if (f.path) params.set('path', f.path)
+  if (f.statusMin && f.statusMin > 0) params.set('status_min', String(f.statusMin))
+  if (f.statusMax && f.statusMax > 0) params.set('status_max', String(f.statusMax))
+  return params
+}
+
+/**
+ * 分页浏览代理捕获流量（全局，跨全部 host）。page 1-based；size 默认后端 50、上限 200。
+ * 返回瘦摘要（不含 body/headers）+ 同筛选口径的全局 total。
+ */
+export async function listTraffic(
+  page = 1,
+  size = 0,
+  filters?: Partial<TrafficFilters>,
+): Promise<TrafficListResponse> {
+  const params = trafficFilterParams(filters)
+  if (page > 1) params.set('page', String(page))
+  if (size > 0) params.set('size', String(size))
+  const q = params.toString()
+  return get<TrafficListResponse>(`/traffic${q ? '?' + q : ''}`)
+}
+
+/** 拉取单条流量完整原文（含 request/response body + headers），列表点击钻取用。 */
+export async function getTrafficDetail(id: number): Promise<TrafficDetail> {
+  return get<TrafficDetail>(`/traffic/${id}`)
+}
+
+/** 拉取筛选下拉候选（服务端 distinct 的 host，恒为全表全集）。 */
+export async function listTrafficHosts(): Promise<string[]> {
+  return (await get<{ hosts: string[] }>('/traffic/hosts')).hosts
 }
 
 /* ============================================================

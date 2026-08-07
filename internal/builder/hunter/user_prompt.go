@@ -88,7 +88,7 @@ func buildUserPrompt(ctx context.Context, deps Deps, p skill.BuilderParams) stri
 		}
 	}
 
-	findingsLimit := deps.FindingsLimit
+	findingsLimit := p.FindingsLimit // handler 从 settingstore(runtime) 现读注入；≤0 兜底 100
 	if findingsLimit <= 0 {
 		findingsLimit = 100
 	}

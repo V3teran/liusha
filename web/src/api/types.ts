@@ -160,6 +160,58 @@ export interface ToolDetail {
   agents: ToolAgent[]
 }
 
+/* ============================================================
+   模型模块（GET/POST/PUT/DELETE /models）
+   三资源对应后端 llm_provider / llm_alias / llm_role_route（事实源在 DB）。
+   解析链：role → 别名（alias）→ provider 部署 key。
+   小写键（Go gin.H DTO：providerJSON/aliasJSON/roleRouteJSON 单点序列化）。
+   安全铁律：api_key_env 只是**环境变量名**，密钥值永不出网；key_present 仅提示该 ENV 是否已注入。
+   ============================================================ */
+
+// provider 协议类型：openai_compat（OpenAI 兼容族，deepseek/qwen/…）/ anthropic（Claude 原生）。
+export type ProviderType = 'openai_compat' | 'anthropic'
+
+// ProviderConfig 是一个 LLM provider 部署（连接参数 + 能力标志）。
+// key 是稳定引用键（角色路由 FK 指向它），创建后不可改。
+export interface ProviderConfig {
+  key: string
+  type: ProviderType
+  base_url: string
+  default_model: string
+  api_key_env: string // 仅 ENV 变量名，非密钥值
+  key_present: boolean // 该 ENV 当前是否非空（后端只读 os.Getenv 判定；不含值）
+  max_tokens: number
+  supports_tools: boolean
+  supports_vision: boolean
+  context_window: number // model 总上下文窗口 tokens（react 历史压缩按此算阈值）
+  description: string
+  sort_order: number
+  enabled: boolean
+  created_at?: string
+  updated_at?: string
+}
+
+// RoleRouteConfig 是角色 → provider 直连映射（orchestrator→deepseek 等）。
+// 别名中间层已废弃（0099）：消费方角色一跳落到具体 provider key。
+// 两个保留角色替代原全局别名槽：
+//   __default__  角色未命中时的兜底 provider
+//   __fallback__ 主 provider 重试耗尽后的备份 provider
+export interface RoleRouteConfig {
+  role: string
+  provider_key: string
+  created_at?: string
+  updated_at?: string
+}
+
+// RoutingResponse 是 GET /models/routing 的信封：角色→provider 路由表（无别名层）。
+export interface RoutingResponse {
+  routes: RoleRouteConfig[]
+}
+
+// 两个保留角色的字面常量（与后端 llmcfg.RoleDefault/RoleFallback 对齐）。
+export const ROLE_DEFAULT = '__default__'
+export const ROLE_FALLBACK = '__fallback__'
+
 /**
  * 判断消息是否为 event 类型
  */
@@ -379,6 +431,47 @@ export interface LLMInvocationFilters {
 }
 
 /* ============================================================
+   流量模块（GET /traffic 系列）
+   proxy_traffic：代理捕获的真实用户流量，按 host 归属、先于 task。只读浏览。
+   列表/详情分离：列表瘦摘要（不含 body/headers），详情按需拉完整原文。
+   筛选（host/method/path/status 范围）由服务端做，offset 分页。
+   ============================================================ */
+// TrafficSummary 是流量列表行——不含 body/headers（大字段列表页不展示）。
+export interface TrafficSummary {
+  id: number
+  host: string
+  method: string
+  path: string
+  status_code: number
+  duration_ms: number
+  captured_at: string
+}
+// TrafficDetail 是点击钻取的完整行（含 request/response body + headers 原文）。
+export interface TrafficDetail extends TrafficSummary {
+  scheme: string
+  url: string
+  consumed_by_task_id: string // 消费本条流量的 passive task；未消费为空
+  request_headers: unknown // 归一后的 header map（header→值列表）
+  request_body: string
+  response_headers: unknown
+  response_body: string
+}
+export interface TrafficListResponse {
+  items: TrafficSummary[]
+  total: number // 同筛选口径的全局总行数
+  page: number
+  size: number
+}
+// TrafficFilters 是前端持有的筛选态，序列化进 query 后由服务端筛。
+export interface TrafficFilters {
+  host: string
+  method: string
+  path: string // glob，'*' 通配
+  statusMin: number // 0 = 不限
+  statusMax: number
+}
+
+/* ============================================================
    凭证库（GET/POST/DELETE /credential）
    host → Identity[]（每个 Identity 含多条 Credential）
    ============================================================ */
@@ -391,4 +484,38 @@ export interface Identity {
   name: string
   role: string
   credentials: Credential[]
+}
+
+/* ============================================================
+   系统配置（GET/PUT /settings/react|runtime|proxy-filter）
+   三组业务旋钮，各字段与后端 settingstore 的 json tag 一一对应。
+   写经后端失效广播：react/runtime 令 runner 现读即生效，
+   proxy_filter 触发 proxy 进程热换流量过滤链（无需重启）。
+   ============================================================ */
+
+// ReactSettings 会话历史压缩旋钮（ReAct 循环）。
+export interface ReactSettings {
+  trigger_ratio: number // 触发压缩的窗口占比，(0,1]
+  trailing_budget_ratio: number // 会话历史占窗口比例，(0,1]
+  compactor_timeout_seconds: number // 旧会话蒸馏单次 LLM 超时秒，>0
+}
+
+// RuntimeSettings 工具运行时旋钮。
+export interface RuntimeSettings {
+  step_tool_timeout_seconds: number // 单步工具执行兜底超时秒，>0
+  run_tail_bytes: number // stdout/stderr 截尾字节数，>0
+  findings_limit_in_prompt: number // prompt 注入 finding 的 DB 读上限，>0
+}
+
+// ProxyFilterSettings 代理流量过滤规则（黑白名单 + body 上限）。
+export interface ProxyFilterSettings {
+  allow_hosts: string[] // 非空则仅放行这些 host（白名单）
+  exclude_methods: string[] // 排除的 HTTP 方法
+  exclude_hosts: string[] // 排除的 host（黑名单）
+  exclude_upgrade_protocols: string[] // 排除的 Upgrade 协议
+  exclude_suffixes: string[] // 排除的 URL 后缀
+  exclude_content_types: string[] // 排除的 Content-Type
+  exclude_status_codes: number[] // 排除的响应状态码
+  max_request_body_size: number // 请求体切片上限字节，>0
+  max_response_body_size: number // 响应体切片上限字节，>0
 }

@@ -240,6 +240,49 @@ func TestServer_OnResponse_PublishError_NotPropagated(t *testing.T) {
 	}
 }
 
+// 热换过滤链：SwapFilter 后同一条流量的处置随新规则改变（原子替换生效）。
+func TestServer_SwapFilter_HotReload(t *testing.T) {
+	tmp := t.TempDir()
+	srv, pub := newTestServer(t, "127.0.0.1:0", tmp, defaultCfg())
+
+	// 初始：OPTIONS 放行 → 有 snapshot。
+	resp1 := makeResponse(t, "OPTIONS", "http://api.example.com/foo", nil, 200, []byte("{}"))
+	if err := srv.onResponse(resp1, nil); err != nil {
+		t.Fatalf("onResponse#1: %v", err)
+	}
+	if got := len(pub.Snapshots()); got != 1 {
+		t.Fatalf("热换前 OPTIONS 应放行，snapshots=%d", got)
+	}
+
+	// 热换：把 OPTIONS 加入方法黑名单 + 收紧 body 上限。
+	newCfg := defaultCfg()
+	newCfg.ExcludeMethods = []string{"OPTIONS"}
+	newCfg.MaxResponseBodySize = 5
+	srv.SwapFilter(filter.NewTrafficFilter(newCfg), newCfg.MaxRequestBodySize, newCfg.MaxResponseBodySize)
+
+	// 换后：同样的 OPTIONS 流量被拦 → snapshot 数不增。
+	resp2 := makeResponse(t, "OPTIONS", "http://api.example.com/foo", nil, 200, []byte("{}"))
+	if err := srv.onResponse(resp2, nil); err != nil {
+		t.Fatalf("onResponse#2: %v", err)
+	}
+	if got := len(pub.Snapshots()); got != 1 {
+		t.Fatalf("热换后 OPTIONS 应被拦，snapshots=%d（应仍为 1）", got)
+	}
+
+	// 换后：GET 放行，且 body 上限用新值（5 字节截断）。
+	resp3 := makeResponse(t, "GET", "http://api.example.com/bar", nil, 200, bytes.Repeat([]byte("A"), 20))
+	if err := srv.onResponse(resp3, nil); err != nil {
+		t.Fatalf("onResponse#3: %v", err)
+	}
+	snaps := pub.Snapshots()
+	if len(snaps) != 2 {
+		t.Fatalf("热换后 GET 应放行，snapshots=%d（应为 2）", len(snaps))
+	}
+	if got := len(snaps[1].ResponseBody); got != 5 {
+		t.Fatalf("热换后 body 上限应为新值 5，实际截断到 %d", got)
+	}
+}
+
 func TestServer_RunCancellation(t *testing.T) {
 	tmp := t.TempDir()
 	srv, _ := newTestServer(t, "127.0.0.1:0", tmp, defaultCfg())

@@ -47,8 +47,6 @@ llm:
   light_provider: glm_text_flash
   vision_provider: glm_vision_flash
   fallback_provider: glm_text_flash
-  max_steps: 30                 # ReAct 单任务步数上限，被 Role.Budget 覆盖
-  max_tokens_per_call: 4096
   # 双 namespace：把"真 agent"与"single-shot utility"语义分开。
   # 角色路由（PTES 功能命名）：traffic-analysis（passive 流量分析）/ orchestrator（active 编排）/
   # exploitation（active 利用）/ inspector（旁路督查/压缩）。
@@ -378,13 +376,6 @@ runner:
 
 # ---- 主 ReAct 循环参数 ----
 react:
-  inspector_every_steps: 5                  # 每 N 步触发一次 Inspector 评估
-  inspector_args_truncate: 256              # 喂 inspector LLM 的 tool args 截断字节数（80B 看不出意图）
-  inspector_obs_truncate: 400               # 喂 inspector LLM 的 ObsSummary 截断字节数
-  inspector_findings_limit: 30              # inspector 看 host 已有 finding 段条数（按 created_at DESC）
-  max_images_in_history: 3                  # 多模态历史保留图片张数上限（compressImages 用）
-                                            # 慢 vision 节点可调 2 控延迟；商业 API（claude/gpt-4o）可放宽到 10+
-
   # ReAct msgs 滑窗压缩参数（防 context 爆 + 控延迟）。
   # 触发时机：每步 Generate 前算 total tokens；超 trigger_ratio × provider.context_window 启动压缩。
   # 永保策略：system + 首条 user prompt + trailing_budget_ratio × ctx_window 反向累加（turn 边界对齐）。

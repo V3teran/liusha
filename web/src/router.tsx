@@ -13,6 +13,9 @@ const AttackGraphPage = lazy(() => import('@/pages/AttackGraphPage').then((m) =>
 const ScenarioAdmin = lazy(() => import('@/pages/ScenarioAdmin').then((m) => ({ default: m.ScenarioAdmin })))
 const HunterAdmin = lazy(() => import('@/pages/HunterAdmin').then((m) => ({ default: m.HunterAdmin })))
 const ToolsPage = lazy(() => import('@/pages/ToolsPage').then((m) => ({ default: m.ToolsPage })))
+const TrafficPage = lazy(() => import('@/pages/TrafficPage').then((m) => ({ default: m.TrafficPage })))
+const ModelPage = lazy(() => import('@/pages/ModelPage').then((m) => ({ default: m.ModelPage })))
+const SystemConfig = lazy(() => import('@/pages/SystemConfig').then((m) => ({ default: m.SystemConfig })))
 
 function Loading() {
   return <div className="flex h-full items-center justify-center text-sm text-muted">加载中…</div>
@@ -43,6 +46,7 @@ export const router = createBrowserRouter([
       },
       { path: 'findings', element: withSuspense(<FindingsPage />) },
       { path: 'sitemap', element: withSuspense(<SitemapPage />) },
+      { path: 'traffic', element: withSuspense(<TrafficPage />) },
       { path: 'attack-graph', element: withSuspense(<AttackGraphPage />) },
       { path: 'llm-audit', element: withSuspense(<LlmAuditPage />) },
       {
@@ -53,6 +57,10 @@ export const router = createBrowserRouter([
           { path: 'scenarios', element: withSuspense(<ScenarioAdmin />) },
           { path: 'hunters', element: withSuspense(<HunterAdmin />) },
           { path: 'tools', element: withSuspense(<ToolsPage />) },
+          { path: 'models', element: withSuspense(<ModelPage />) },
+          // 旧「模型路由」独立路由已并入 /config/models（模块内 ?tab=assignment），重定向保链接可用。
+          { path: 'routing', element: <Navigate to="/config/models?tab=assignment" replace /> },
+          { path: 'system', element: withSuspense(<SystemConfig />) },
         ],
       },
       { path: 'credentials', element: <PlaceholderPage title="凭证库" /> },

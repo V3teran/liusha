@@ -118,7 +118,8 @@ func (h handler) runDistill(ctx context.Context, material string) []distilledEnt
 		return nil
 	}
 
-	timeout := h.cfg.React.HistoryCompact.CompactorTimeoutSeconds
+	react, _ := h.settings.React(ctx) // DB/缓存现读；读失败取零值，下方兜底
+	timeout := react.CompactorTimeoutSeconds
 	if timeout <= 0 {
 		timeout = 30
 	}
