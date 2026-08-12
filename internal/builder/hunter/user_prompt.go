@@ -13,10 +13,10 @@ import (
 	"github.com/V3teran/liusha/internal/traffic"
 )
 
-// flowPreviewBodyLimit 是批流量清单里每条 req/resp body 的预览截断上限。
+// trafficPreviewBodyLimit 是批流量清单里每条 req/resp body 的预览截断上限。
 // passive 一批默认 20 条，若全渲染完整 body（各 32 KiB）最坏 ~1.28 MB / ~50 万 token 撑爆 prompt；
 // 各留头 2 KiB → 20 条 ×~4 KiB ≈ 80 KiB / 几万 token，稳。要看完整 body 调 view_traffic 按需拉。
-const flowPreviewBodyLimit = 2048
+const trafficPreviewBodyLimit = 2048
 
 func buildUserPrompt(ctx context.Context, deps Deps, p skill.BuilderParams) string {
 	bodyLimit := deps.UserPromptBodyLimit
@@ -28,22 +28,22 @@ func buildUserPrompt(ctx context.Context, deps Deps, p skill.BuilderParams) stri
 
 	// passive 批分析：本 task 认领的整批 proxy_traffic 全量渲染成清单（摘要 + body 预览）——
 	// agent 开箱即见全部流量，不必靠 list_traffic 发现（消灭「空手/幻觉 host」翻车）。
-	if len(p.Flows) > 0 {
-		writeFlowBatch(&b, p.Flows)
+	if len(p.Traffic) > 0 {
+		writeTrafficBatch(&b, p.Traffic)
 	}
 
 	// 字段触发渲染（不再 Mode-driven）：
-	//   - RequestHeaders 非空或 URL 非空 → 渲染 raw HTTP 段（trafficAnalysis / 带 flow_id 的 exploitation）
+	//   - RequestHeaders 非空或 URL 非空 → 渲染 raw HTTP 段（trafficAnalysis / 带 traffic_id 的 exploitation）
 	//   - Brief 非空 → 渲染 brief 段（orchestrator / exploitation）
-	// 两者可并存：trafficAnalysis spawn exploitation 带 flow_id 时，exploitation 同时看到 raw HTTP + brief。
+	// 两者可并存：trafficAnalysis spawn exploitation 带 traffic_id 时，exploitation 同时看到 raw HTTP + brief。
 	if len(p.RequestHeaders) > 0 || p.URL != "" {
-		// 段 0（0060+ 流量字典）：本流量已入 agent_traffic 表，告诉 LLM flow_id 让它能用
+		// 段 0（0060+ 流量字典）：本流量已入 agent_traffic 表，告诉 LLM traffic_id 让它能用
 		// replay_traffic(id=N, modifications={...}) 改参数重发——比手写 curl 准 100 倍，
 		// 自动继承 cookie/CSRF/auth header/其它 form 字段。
-		if p.FlowID > 0 {
-			fmt.Fprintf(&b, "## 当前流量\n\n本流量 `flow_id=%d`。复用此请求改某参数 fuzz / IDOR / 注 payload，"+
+		if p.TrafficID > 0 {
+			fmt.Fprintf(&b, "## 当前流量\n\n本流量 `traffic_id=%d`。复用此请求改某参数 fuzz / IDOR / 注 payload，"+
 				"调 `replay_traffic(id=%d, modifications={...})`，工具自动继承所有 header / cookie / form 字段。\n\n",
-				p.FlowID, p.FlowID)
+				p.TrafficID, p.TrafficID)
 		}
 
 		// 段 1: 请求
@@ -73,8 +73,8 @@ func buildUserPrompt(ctx context.Context, deps Deps, p skill.BuilderParams) stri
 		writeBodyBlock(&b, p.ResponseBody, bodyLimit)
 	}
 	if p.Brief != "" {
-		// 段 3 (orchestrator 独有) 或 段 1 (exploitation 无 flow): 自然语言 brief。
-		// exploitation brief 是 orchestrator LLM 写的指令；orchestrator 同时传 flow_id 时，本段位于流量段之后。
+		// 段 3 (orchestrator 独有) 或 段 1 (exploitation 无 traffic): 自然语言 brief。
+		// exploitation brief 是 orchestrator LLM 写的指令；orchestrator 同时传 traffic_id 时，本段位于流量段之后。
 		if b.Len() > 0 {
 			b.WriteString("\n\n")
 		}
@@ -142,8 +142,9 @@ type catalogEntry struct {
 	Desc string
 }
 
-// toolingCategoryOrder 是工具索引段的固定渲染顺序——
-// 与 PTES/OWASP 渗透阶段流水线对齐：侦察 → 发现 → 漏扫 → 利用 → 辅助。
+// toolingCategoryOrder 是工具索引段的固定渲染顺序——沿 PTES 流水线延伸覆盖六域能力轴：
+// web 侦察→发现→漏扫→注入 … → binary（reverse/pwn）→ cloud（cloud/container）
+// → 渗透（exploitation/post-exploit）→ CTF（crypto/forensics/stego/cracking）→ 支撑轴（runtime/browser/utility）。
 // 顺序固定让 prompt cache 命中率最高（同一批工具集 → 同一 prefix）。
 // 未在本表内的 category（含空值）→ 落入末尾的"未分类"组，提醒维护者补 frontmatter。
 var toolingCategoryOrder = []categoryItem{
@@ -155,6 +156,16 @@ var toolingCategoryOrder = []categoryItem{
 	{"auth", "auth（认证/凭证攻击）"},
 	{"oob", "oob（带外回调检测 — Blind SSRF/RCE/XXE/XSS）"},
 	{"sast", "sast（源码静态分析）"},
+	{"reverse", "reverse（二进制静态逆向 — 反汇编/反编译/结构修补）"},
+	{"pwn", "pwn（二进制动态利用 — 调试/ROP/符号执行/模糊测试）"},
+	{"cloud", "cloud（云平台攻击 — IAM/配置/枚举，AWS 向）"},
+	{"container", "container（容器/K8s 攻击 — 镜像扫描/集群横移/基线）"},
+	{"exploitation", "exploitation（拿初始 shell — 利用框架/协议攻击/中继）"},
+	{"post-exploit", "post-exploit（后渗透 — 横向移动/AD 攻击/隧道代理）"},
+	{"crypto", "crypto（密码学攻击/分析）"},
+	{"forensics", "forensics（取证 — 内存/磁盘/流量/固件）"},
+	{"stego", "stego（隐写术）"},
+	{"cracking", "cracking（哈希/密码破解）"},
 	{"runtime", "runtime（语言运行时/编译器 — 现场编写/编译/运行 payload）"},
 	{"browser", "browser（无头浏览器自动化）"},
 	{"utility", "utility（通用胶水：HTTP/JSON/脚本）"},
@@ -315,35 +326,31 @@ func writeBodyBlock(b *strings.Builder, body []byte, limit int) {
 	}
 }
 
-// writeFlowBatch 全量渲染 passive 本批认领流量：概览表（method/path/status 一眼扫）+ 每条明细
-// （headers + body 预览，各截 flowPreviewBodyLimit）。agent 开箱即见本批全部流量，不必靠
+// writeTrafficBatch 全量渲染 passive 本批认领流量：概览表（method/path/status 一眼扫）+ 每条明细
+// （headers + body 预览，各截 trafficPreviewBodyLimit）。agent 开箱即见本批全部流量，不必靠
 // list_traffic 发现；某条 body 被截、需看全文时才 view_traffic(id) 按需拉。
-func writeFlowBatch(b *strings.Builder, flows []traffic.ProxyTraffic) {
+func writeTrafficBatch(b *strings.Builder, trafficList []traffic.ProxyTraffic) {
 	host := ""
-	if len(flows) > 0 {
-		host = flows[0].Host
+	if len(trafficList) > 0 {
+		host = trafficList[0].Host
 	}
-	fmt.Fprintf(b, "## 本批待分析流量（%d 条，host=%s）\n\n", len(flows), host)
+	fmt.Fprintf(b, "## 本批待分析流量（%d 条，host=%s）\n\n", len(trafficList), host)
 	b.WriteString("下方已列出本次分析的全部流量，无需再调 `list_traffic` 发现。" +
 		"每条含 method/path/status + 请求/响应头 + body 预览；body 被截断需看全文时调 `view_traffic(id)`。\n\n")
 
 	// 概览表：让 agent 先一眼扫全批，再看明细。
 	b.WriteString("### 概览\n\n| id | method | path | status |\n|---|---|---|---|\n")
-	for _, f := range flows {
+	for _, f := range trafficList {
 		fmt.Fprintf(b, "| %d | %s | %s | %d |\n", f.ID, f.Method, f.Path, f.StatusCode)
 	}
 
-	// 明细：逐条 headers + body 预览。
-	for _, f := range flows {
+	// 明细：逐条完整请求/响应报文（raw 单一源，v0100+），各截 trafficPreviewBodyLimit。
+	for _, f := range trafficList {
 		fmt.Fprintf(b, "\n### 流量 #%d — %s %s → %d\n\n", f.ID, f.Method, f.Path, f.StatusCode)
-		b.WriteString("请求头：\n")
-		writeHeadersBlock(b, f.RequestHeaders)
-		b.WriteString("请求体：")
-		writeBodyBlock(b, f.RequestBody, flowPreviewBodyLimit)
-		b.WriteString("\n响应头：\n")
-		writeHeadersBlock(b, f.ResponseHeaders)
-		b.WriteString("响应体：")
-		writeBodyBlock(b, f.ResponseBody, flowPreviewBodyLimit)
+		b.WriteString("请求报文：")
+		writeBodyBlock(b, f.RequestRaw, trafficPreviewBodyLimit)
+		b.WriteString("\n响应报文：")
+		writeBodyBlock(b, f.ResponseRaw, trafficPreviewBodyLimit)
 	}
 	b.WriteString("\n")
 }

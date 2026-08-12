@@ -1,37 +1,33 @@
-# liusha 沙箱预装工具清单（31 个）
+# liusha 沙箱预装工具清单（六域能力轴）
 #
-# 单一真相源：本文件同时驱动两条链，互不干扰——
+# 单一真相源，驱动两条互不干扰的链——
 #   1. agent 视图：Go(manifest.go) 只读 name/category/description → 渲染进 SystemPrompt 的
-#      tooling_catalog（Tier 1 索引）。**install 字段不进 prompt**（Go 结构体不含它，yaml.v3 忽略）。
+#      tooling_catalog。**install 字段不进 prompt**（Go 结构体不含它，yaml.v3 忽略）。
 #   2. 构建期：scripts/build/install-from-manifest.sh 用 yq 读 install → 装齐工具。
 #
-# install 字段（全部可选；不写 = 由 Dockerfile 专属层负责安装，构建期 command -v 实测，缺了即构建失败）：
-#   method: apt|pip|pipx|npm|go|release|release-bin|git
-#   pkg:    包名（method=apt/npm 且包名 != name 时）
+# install 字段（全部可选；不写 = 由 Dockerfile 专属层负责安装，构建期 command -v <name> 实测，缺了即构建失败）：
+#   method: apt|pip|pipx|npm|go|gem|release|release-bin|git
+#   pkg:    包名（method=apt/npm/pip/pipx/gem 且包名 != name 时）
 #   ref:    owner/repo@vX（release/release-bin）| go module@vX（go）| git url（git）
-#   asset:  release-bin 资产名，可含 ${ARCH}(amd64/arm64) ${ARCHX}(x86_64/aarch64) ${ARCH64}(x64/arm64)
+#   asset:  release-bin 资产名（amd64-only，架构名硬定）
 #   bin:    release 压缩包内二进制名（默认 = name）
-#   force:  true → 即使已存在也覆盖装（版本有问题时用；默认信任已装版本不写）
-#   check:  装后 sanity 命令（省略则仅以 command -v 为准）
+#   force:  true → 即使已存在也覆盖装
+#   check:  装后 sanity 命令
 #
-# 版本策略：apt 工具信任发行版版本；release/go/pip 工具 pin 版本。
-# 可复现由镜像 tag(sha) 冻结整份产物兜底。
-#
-# category 取值与 hunter/user_prompt.go 的 toolingCategoryOrder 保持一致（能力轴，领域中立）；
-# 未列入 toolingCategoryOrder 的 category 会落到"未分类"组提醒维护者。
-#
-# 工具装配走智能体 cli_tools 严格白名单（所选即所得），本清单不与场景挂钩。
+# 铁律：name 必须是真实可调用命令（安装器 command -v 硬校验）；库（sympy/fpylll 等）无命令，归进 python3 描述。
+# category = 能力轴（领域中立），取值与 hunter/user_prompt.go 的 toolingCategoryOrder 一致；未列入者落"未分类"。
+# 工具装配走智能体 cli_tools 严格白名单，本清单不与场景挂钩。
 
 tools:
   # ===== recon（侦察 — 资产/服务/技术栈/指纹发现）=====
   - name: subfinder
     category: recon
     description: 子域名被动枚举（多源 OSINT）。零接触目标，只查公网情报源（crt.sh/passive DNS）。
-    install: { method: apt }  # Kali apt 有 subfinder 2.14.0
+    install: { method: apt }
   - name: httpx
     category: recon
     description: HTTP 探活 + 指纹 + tech detection。subfinder 之后必跑过滤死域。
-    install: { method: apt, pkg: httpx-toolkit }  # Kali 包名 httpx-toolkit；Dockerfile 包装成 httpx 命令
+    install: { method: apt, pkg: httpx-toolkit }
   - name: katana
     category: recon
     description: 现代 Web 爬虫——爬一个起点 url 拿全部站内链接 + JS 解析的 endpoint。
@@ -49,14 +45,14 @@ tools:
   - name: arjun
     category: discovery
     description: HTTP 隐藏参数发现——爆 25k+ 参数名 wordlist 找未文档化的参数（admin/debug/role 类）。
-    install: { method: apt }  # Kali apt 有 arjun 2.2.7
-  - name: dirsearch
+    install: { method: apt }
+  - name: feroxbuster
     category: discovery
-    description: 智能目录/文件爆破——自带 11k+ 行 wordlist + 扩展名探测 + smart filter，目录爆破首选。
+    description: 递归目录/文件爆破（Rust，快）——自动递归子目录 + 扩展名探测 + smart filter，目录爆破首选。
     install: { method: apt }
   - name: ffuf
     category: discovery
-    description: 通用 web fuzzer——任意位置 FUZZ 占位符替换 wordlist。dirsearch 不擅长的复杂场景用 ffuf。
+    description: 通用 web fuzzer——任意位置 FUZZ 占位符替换 wordlist。feroxbuster 不擅长的复杂场景用 ffuf。
     install: { method: apt }
   - name: gau
     category: discovery
@@ -64,38 +60,50 @@ tools:
     install: { method: release, ref: lc/gau@v2.2.4 }
   - name: spectral
     category: discovery
-    description: API 规范解析/校验（OpenAPI/Swagger/GraphQL）——`spectral lint <spec_url_或_文件>` 把 spec 声明的 endpoint × 参数 × 认证方式全摊开，一次拿到 API 攻击面（同 arjun 找参数）。默认规则集只校验规范质量/合法性，**非安全扫描**；可选挂 OWASP 规则集做设计层提示（不碰目标、不确认可利用）。需先拿到 spec：从 /openapi.json、/swagger.json、/v2/api-docs、/swagger-ui 发现并下载。
-    install: { method: npm, pkg: "@stoplight/spectral-cli" }  # 官方推荐 npm（6.x 无 arm64 binary）
+    description: API 规范解析/校验（OpenAPI/Swagger/GraphQL）——`spectral lint <spec>` 把 spec 声明的 endpoint × 参数 × 认证方式全摊开，一次拿到 API 攻击面。默认规则集只校验规范质量，**非安全扫描**。需先从 /openapi.json、/swagger.json、/v2/api-docs 发现并下载 spec。
+    install: { method: npm, pkg: "@stoplight/spectral-cli" }
 
   # ===== vulnscan（自动化模板漏扫）=====
   - name: nuclei
     category: vulnscan
     description: 模板化漏扫引擎——业界事实标准。10k+ 模板覆盖 CVE/misconfig/exposure/dast。（模板由 Dockerfile git clone nuclei-templates 预拉）
-    install: { method: apt }  # Kali apt 有 nuclei 3.10.0（模板由 Dockerfile git clone 预拉）
+    install: { method: apt }
 
   # ===== injection（注入类专项）=====
   - name: sqlmap
     category: injection
     description: SQL 注入自动探测/利用，web SQLi 首选；GraphQL/NoSQL 不归它管。
     install: { method: apt }
+  - name: commix
+    category: injection
+    description: 命令注入自动探测/利用（OS command injection）——参数级注入点自动 fuzz + 拿 shell，sqlmap 之于 SQLi 的命令注入版。
+    install: { method: apt }
   - name: dalfox
     category: injection
     description: XSS 自动探测 + 利用（反射/存储/DOM）。Go 实现，业界 XSS 之于 sqlmap。
-    # install 省略：由 Dockerfile 专属层装（release，带版本名的单文件归档，不适配通用 release 方法）。
+    # install 省略：Dockerfile 专属层（带版本名单文件归档，不适配通用 release 方法）。
+  - name: SSTImap
+    category: injection
+    description: 模板注入（SSTI）自动探测/利用——覆盖 Jinja2/Twig/Freemarker/Velocity 等引擎，探测到即尝试拿 RCE。
+    # install 省略：Dockerfile 专属层（git clone + python wrapper）。
+  - name: SSRFmap
+    category: injection
+    description: SSRF 自动利用——内网端口扫描/元数据接口(169.254.169.254)/gopher 协议打内网服务，配合 interactsh 验带外。
+    # install 省略：Dockerfile 专属层（git clone + python wrapper）。
 
   # ===== deserialization（反序列化 payload 生成）=====
   - name: ysomap
     category: deserialization
-    description: Java 反序列化利用框架（主力）——比 ysoserial 更强的 bypass/高版本绕过 + JNDI 联动 + 内存马注入，支持交互 cli（`ysomap cli`）与脚本模式（`ysomap script x.yso`）。经典链先试 ysoserial，bypass/JNDI/高版本场景用 ysomap。用 JDK8 运行。
-    # install 省略：由 Dockerfile 专属层装（git clone master + mvn package，取 2025 最新利用链）。
+    description: Java 反序列化利用框架（主力）——比 ysoserial 更强的 bypass/高版本绕过 + JNDI 联动 + 内存马注入，支持交互 cli（`ysomap cli`）与脚本模式。经典链先试 ysoserial，bypass/JNDI/高版本场景用 ysomap。用 JDK8 运行。
+    # install 省略：Dockerfile 专属层（git clone master + mvn package）。
   - name: ysoserial
     category: deserialization
     description: Java 反序列化 payload 生成器（经典链兜底）——CommonsCollections/Groovy/Spring 等经典 gadget chain + cmd → payload，最稳最全。用 JDK8 运行。
-    # install 省略：由 Dockerfile 专属层装（jar 下载 + jdk8 java -jar wrapper）。
+    # install 省略：Dockerfile 专属层（jar 下载 + jdk8 java -jar wrapper）。
   - name: phpggc
     category: deserialization
     description: PHP 反序列化 payload 生成器——Laravel/Symfony/Drupal/WordPress 框架向。
-    install: { method: apt }  # Kali apt 有 phpggc
+    install: { method: apt }
 
   # ===== auth（认证/凭证攻击）=====
   - name: hydra
@@ -105,10 +113,10 @@ tools:
   - name: jwt_tool
     category: auth
     description: JWT 攻击瑞士军刀——解码/伪造/None 算法/算法混淆/key confusion/弱 secret 暴破。
-    # install 省略：由 Dockerfile 专属层装（git clone + pip 依赖 + python wrapper）。
+    # install 省略：Dockerfile 专属层（git clone + pip 依赖 + python wrapper）。
   - name: mysql
     category: auth
-    description: MySQL/MariaDB CLI 客户端——拿到 DB 凭证后直接连库验证/dump（mysql -h <host> -P <port> -u <user> -p<pass> -e "..."）。Python 等价：import pymysql（已预装）。
+    description: MySQL/MariaDB CLI 客户端——拿到 DB 凭证后直接连库验证/dump。Python 等价：import pymysql（已预装）。
     install: { method: apt, pkg: default-mysql-client }
 
   # ===== oob（带外回调检测 — Blind SSRF/RCE/XXE/XSS）=====
@@ -121,40 +129,235 @@ tools:
   - name: semgrep
     category: sast
     description: 静态代码分析——找代码逻辑漏洞（SQLi/XSS sink、不安全反序列化）。目标暴露源码时秒杀黑盒。
-    install: { method: pip }  # 官方推荐 pip（无 arm64 binary）
+    install: { method: pip }
   - name: trufflehog
     category: sast
     description: Secrets 扫描——源码 / git 历史 / 文件系统 / S3 bucket 找硬编码 API key / token / 凭证。
-    install: { method: apt }  # Kali apt 有 trufflehog 3.94.3
+    install: { method: apt }
+
+  # ===== reverse（二进制静态逆向 — 反汇编/反编译/结构修补）=====
+  - name: ghidra
+    category: reverse
+    description: 反编译/反汇编套件（NSA 开源，业界主力）——无头模式 `analyzeHeadless` 批量反编译；CTF re 题拿伪 C 代码首选。apt 12.x（自带拉 JDK）。
+    install: { method: apt }
+  - name: radare2
+    category: reverse
+    description: 命令行逆向框架（`r2`）——反汇编/调试/patch/二进制 diff，脚本化强，轻量补 ghidra。
+    install: { method: apt }
+  - name: patchelf
+    category: reverse
+    description: 修改 ELF 的 interpreter/rpath——pwn 换 libc 打远程时把题目二进制指向指定 ld/libc。
+    install: { method: apt }
+  - name: strace
+    category: reverse
+    description: 系统调用跟踪——动态观察二进制的 syscall/文件/网络行为，快速摸清程序逻辑与 sink。
+    install: { method: apt }
+
+  # ===== pwn（二进制动态利用 — 调试/ROP/符号执行/模糊测试）=====
+  - name: gdb
+    category: pwn
+    description: 调试器（已挂 pwndbg 插件）——断点/内存/寄存器/堆观察，pwn 调 exploit 主场；`gdb ./bin`。
+    # install 省略：Dockerfile 专属层（apt gdb + git pwndbg + gdbinit）。
+  - name: ROPgadget
+    category: pwn
+    description: ROP gadget 搜索——从二进制里找 ret/syscall gadget 拼 ROP 链（绕 NX/构造 rop）。PyPI ROPGadget，命令小写 ROPgadget。
+    install: { method: pip, ref: ROPGadget }
+  - name: one_gadget
+    category: pwn
+    description: 一键 execve("/bin/sh") gadget 搜索——给 libc 直接找 one-shot RCE 偏移，堆/格式化串利用提速。
+    install: { method: gem }
+  - name: angr
+    category: pwn
+    description: 符号执行引擎——自动求解约束找触发路径/绕过校验（CTF re/pwn 自动化解题）。`angr <script.py>` 走独立 venv。
+    # install 省略：Dockerfile 专属层（独立 venv + angr 包装命令）。
+  - name: afl-fuzz
+    category: pwn
+    description: 覆盖率引导模糊测试（AFL++）——插桩目标喂变异输入找崩溃点，二进制漏洞挖掘主力。apt 包名 afl++。
+    install: { method: apt, pkg: "afl++" }
+  - name: pwninit
+    category: pwn
+    description: pwn 题一键初始化——自动下载/patch 对应 libc+ld、生成 exploit 模板骨架。
+    # install 省略：Dockerfile 专属层（release 预编译裸二进制，不装 rust）。
+  - name: seccomp-tools
+    category: pwn
+    description: seccomp 沙箱分析——dump 目标 seccomp-bpf 规则、判断哪些 syscall 被禁，定 pwn 利用路线。
+    install: { method: gem }
+
+  # ===== cloud（云平台攻击 — IAM/配置/枚举，AWS 向）=====
+  - name: prowler
+    category: cloud
+    description: 云安全基线扫描（AWS/Azure/GCP）——数百条 CIS/合规检查，找错配 IAM/公开 S3/暴露资源。需目标云只读凭证。
+    install: { method: pipx }
+  - name: pacu
+    category: cloud
+    description: AWS 渗透框架（Metasploit 之于 AWS）——拿到 AWS 凭证后枚举权限/找提权路径/横移，模块化利用。
+    install: { method: pipx }
+  - name: cloudsplaining
+    category: cloud
+    description: AWS IAM 策略风险分析——离线解析 IAM policy 找过度授权/提权/资源暴露，出 HTML 报告。
+    install: { method: pipx }
+  - name: cloudfox
+    category: cloud
+    description: 云攻击面枚举（AWS 向）——一把梭列出可利用资源/凭证/横移点，红队踩点提速。
+    # install 省略：Dockerfile 专属层（release .zip 内含子目录，不适配通用 release 方法）。
+
+  # ===== container（容器/K8s 攻击 — 镜像扫描/集群横移/基线）=====
+  - name: trivy
+    category: container
+    description: 容器/IaC 漏洞扫描——镜像/文件系统/仓库扫 CVE + 错配 + secret，容器安全事实标准。
+    # install 省略：Dockerfile 专属层（release 资产名 Linux-64bit，不适配通用 release 方法）。
+  - name: kubectl
+    category: container
+    description: Kubernetes 官方 CLI——拿到 kubeconfig/serviceaccount token 后枚举/操作集群资源，横移基础。
+    # install 省略：Dockerfile 专属层（官方 release-bin 裸二进制）。
+  - name: peirates
+    category: container
+    description: K8s 渗透框架——集群内枚举 secret/serviceaccount、pod 逃逸、节点横移的一体化利用工具。
+    # install 省略：Dockerfile 专属层（release .tar.xz，不适配通用 release 方法）。
+  - name: kube-bench
+    category: container
+    description: K8s CIS 基线检查——判集群配置是否满足安全基线，找错配攻击面。
+    # install 省略：Dockerfile 专属层（release 资产名带版本，不适配通用 release 方法）。
+
+  # ===== exploitation（拿初始 shell — 利用框架/协议攻击/中继）=====
+  - name: msfconsole
+    category: exploitation
+    description: Metasploit 利用框架——公开漏洞 exploit + payload/handler + 后渗透模块，拿初始 shell 主力。`msfconsole -q`；`msfvenom` 生成 payload。apt metasploit-framework。
+    install: { method: apt, pkg: metasploit-framework }
+  - name: impacket-secretsdump
+    category: exploitation
+    description: Impacket 工具集入口（apt 装成 impacket-* 前缀命令）——secretsdump(dump 域凭证)/psexec/wmiexec(远程执行)/GetNPUsers(AS-REP roast) 等 SMB/AD 协议攻击瑞士军刀。此 name 是代表命令，同装 impacket-psexec/impacket-wmiexec 等。
+    install: { method: apt, pkg: python3-impacket }
+  - name: netexec
+    category: exploitation
+    description: 网络协议横扫/利用（CrackMapExec 继任，命令 nxc/netexec）——SMB/WinRM/LDAP/MSSQL 批量喷洒凭证、枚举共享、执行命令。内网横移主力。
+    install: { method: pipx }
+  - name: responder
+    category: exploitation
+    description: LLMNR/NBT-NS/mDNS 投毒 + 凭证抓取——内网抓 NetNTLM hash 供 relay/破解。装于 /usr/sbin。
+    install: { method: apt }
+  - name: evil-winrm
+    category: exploitation
+    description: WinRM 交互 shell——拿到 Windows 凭证/hash 后开交互式远程 shell（支持 pass-the-hash），Windows 落地首选。
+    install: { method: gem }
+
+  # ===== post-exploit（后渗透 — 横向移动/AD 攻击/隧道代理）=====
+  - name: bloodhound-python
+    category: post-exploit
+    description: AD 关系采集器（Python 版 SharpHound）——从域内枚举用户/组/ACL/会话，产出 BloodHound 图数据找最短提权/横移路径。真包名 bloodhound（bloodhound-python 是 PyPI 空壳）。
+    install: { method: pipx, ref: bloodhound }
+  - name: certipy
+    category: post-exploit
+    description: AD CS（证书服务）攻击——枚举/利用易受攻击的证书模板（ESC1-ESC8）拿域管，现代 AD 提权主线。PyPI 包名 certipy-ad，命令 certipy。
+    install: { method: pipx, ref: certipy-ad }
+  - name: ligolo-ng
+    category: post-exploit
+    description: 隧道/内网代理（tun 接口，比 socks 稳）——拿到跳板后建反向隧道打穿内网网段。release 解包为 proxy 二进制。
+    # install 省略：Dockerfile 专属层（release 二进制名 proxy，需重命名 ligolo-ng）。
+  - name: proxychains4
+    category: post-exploit
+    description: 强制任意程序流量走代理链——配合 ligolo/msf socks 让 nmap/curl 等经内网跳板访问不可达网段。apt proxychains-ng。
+    install: { method: apt, pkg: proxychains-ng }
+
+  # ===== crypto（密码学攻击/分析）=====
+  - name: RsaCtfTool
+    category: crypto
+    description: RSA 攻击一把梭——集成 Wiener/Fermat/共模/小 e/已知因子等数十种攻击，给公钥/密文自动试解。Python 数学库 sympy/pycryptodome/primefac/fpylll 已预装（`python3 -c` 现写攻击脚本）。
+    # install 省略：Dockerfile 专属层（git clone + 独立 venv，PyPI 同名是抢注包）。
+
+  # ===== forensics（取证 — 内存/磁盘/流量/固件）=====
+  - name: binwalk
+    category: forensics
+    description: 固件/文件分析与提取——识别嵌入的文件系统/压缩包/固件并递归解包，misc/固件题首选。
+    install: { method: apt }
+  - name: vol
+    category: forensics
+    description: 内存取证（Volatility3，命令 vol）——从内存 dump 提进程/网络连接/注入/凭证/文件，内存镜像题主力。
+    # install 省略：Dockerfile 专属层（独立 venv + vol 包装命令）。
+  - name: exiftool
+    category: forensics
+    description: 文件元数据读写——读图片/文档 EXIF/元数据找隐藏线索（GPS/作者/注释），misc 题基本操作。
+    install: { method: apt, pkg: libimage-exiftool-perl }
+  - name: foremost
+    category: forensics
+    description: 文件雕复（file carving）——按文件头/尾特征从磁盘镜像/dd 数据里恢复被删/嵌入文件。
+    install: { method: apt }
+  - name: testdisk
+    category: forensics
+    description: 磁盘分区恢复 + 文件恢复（含 photorec）——修复分区表/找回删除文件，磁盘取证题用。
+    install: { method: apt }
+  - name: tshark
+    category: forensics
+    description: 命令行流量分析（Wireshark 引擎）——过滤/提取 pcap 里的会话/凭证/文件，流量题主力。
+    install: { method: apt }
+
+  # ===== stego（隐写术）=====
+  - name: steghide
+    category: stego
+    description: 图片/音频隐写提取（JPEG/BMP/WAV/AU）——带 passphrase 的经典隐写，`steghide extract`。
+    install: { method: apt }
+  - name: stegseek
+    category: stego
+    description: steghide 密码爆破（快）——字典暴破 steghide 隐写文件的 passphrase，比原生快数千倍。
+    install: { method: apt }
+  - name: zsteg
+    category: stego
+    description: PNG/BMP LSB 隐写检测——扫 LSB/位平面里藏的数据，PNG 隐写题首选。
+    install: { method: gem }
+  - name: stegoveritas
+    category: stego
+    description: 图片隐写全家桶——一次跑遍 LSB/颜色通道/元数据/多种隐写检测，隐写题无思路时全量扫。
+    # install 省略：Dockerfile 专属层（pip install + stegoveritas_install_deps）。
+
+  # ===== cracking（哈希/密码破解）=====
+  - name: john
+    category: cracking
+    description: 密码破解（John the Ripper）——无 GPU 主力，*2john 系列把 zip/pdf/ssh/hash 转格式再破，覆盖面最广。
+    install: { method: apt }
+  - name: hashcat
+    category: cracking
+    description: GPU 加速哈希破解——强规则/掩码引擎，有算力时首选；CTF 定制掩码/规则攻击也用它。
+    install: { method: apt }
+  - name: fcrackzip
+    category: cracking
+    description: ZIP 密码爆破——字典/暴力破加密 zip，misc/取证题拿加密压缩包时用。
+    install: { method: apt }
+  - name: hash-identifier
+    category: cracking
+    description: 哈希类型识别——给未知 hash 判类型（MD5/SHA/NTLM/bcrypt…），选 john/hashcat 模式前先跑。
+    install: { method: apt }
 
   # ===== runtime（语言运行时/编译器 — 现场编写/编译/运行 payload）=====
   - name: go
     category: runtime
-    description: Go 编译器——CTF/渗透中现场编译 Go payload 或小工具（go run x.go / go build）。Kali apt golang 1.26。
+    description: Go 编译器——现场编译 Go payload 或小工具（go run x.go / go build）。Kali apt golang 1.26。
     install: { method: apt, pkg: golang }
   - name: java
     category: runtime
-    description: Java 运行/编译（反序列化 gadget、JNDI、RCE payload、CTF Java 题手写利用）。双 JDK 可切换——默认 `java`/`javac`=JDK8（class v52 向前兼容所有更高目标，配合 ysomap/ysoserial）；现代 Spring Boot 3.x 目标用 `java17`/`javac17`。反序列化优先用 ysomap/ysoserial 生成，自写 payload 时用 javac 编译。
-    # install 省略：由 Dockerfile 专属层装（Temurin JDK8 8u352 + JDK17 tar.gz + update-alternatives + java8/java17 包装）。
+    description: Java 运行/编译（反序列化 gadget、JNDI、RCE payload、CTF Java 题）。双 JDK 可切换——默认 `java`/`javac`=JDK8（配合 ysomap/ysoserial）；现代 Spring Boot 3.x 用 `java17`/`javac17`。反序列化优先用 ysomap/ysoserial 生成。
+    # install 省略：Dockerfile 专属层（Temurin JDK8 + JDK17 + update-alternatives + java8/java17 包装）。
   - name: php
     category: runtime
-    description: PHP 解释器（php 8.4）——写/跑 PHP payload、验证 PHP 反序列化（配合 phpggc）、LFI 链、webshell 逻辑、magic hash 等 PHP 特性利用。`php x.php` 或 `php -r "代码"`。
+    description: PHP 解释器（php 8.4）——写/跑 PHP payload、验证反序列化（配合 phpggc）、LFI 链、webshell、magic hash。`php x.php` 或 `php -r`。
     install: { method: apt, pkg: php-cli }
   - name: gcc
     category: runtime
-    description: C/C++ 编译器（gcc/g++ 15）——CTF pwn 编译 exploit、编译本地提权 PoC、编译目标环境所需的 .so/二进制。`gcc x.c -o x`。
+    description: C/C++ 编译器（gcc/g++ 15）——CTF pwn 编译 exploit、编译本地提权 PoC、编译 .so/二进制。`gcc x.c -o x`。
     install: { method: apt, pkg: build-essential }
   - name: node
     category: runtime
-    description: Node.js（node 24）——JS payload 与利用：原型链污染、客户端 SSTI、JWT 弱密钥/算法混淆脚本、复杂前端逻辑复现。`node x.js`。
+    description: Node.js（node 24）——JS payload 与利用：原型链污染、客户端 SSTI、JWT 弱密钥/算法混淆脚本、前端逻辑复现。`node x.js`。
     install: { method: apt, pkg: nodejs }
+  - name: ruby
+    category: runtime
+    description: Ruby 解释器（ruby 3.3，ruby-full）——跑 Ruby payload/PoC，也是 zsteg/one_gadget/seccomp-tools/evil-winrm 等 gem 工具的运行时。`ruby x.rb`。
+    install: { method: apt, pkg: ruby-full }
 
   # ===== browser（无头浏览器自动化）=====
-  # browser-use 无 install 字段：由 Dockerfile 专属 Python 3.12 venv 层安装（见 Dockerfile browser-use 层）。
-  # 安装器遍历到它时 command -v 已命中 → 信任跳过；若 venv 层失败导致缺失 → 安装器 FATAL，构建失败。
   - name: browser-use
     category: browser
     description: 无头 Chromium 浏览器自动化，typed `browser_use` 工具是首选入口。
+    # install 省略：Dockerfile 专属 Python 3.12 venv 层。
 
   # ===== utility（通用胶水：HTTP/JSON/脚本）=====
   - name: curl
@@ -163,7 +366,7 @@ tools:
     install: { method: apt }
   - name: python3
     category: utility
-    description: 自定义脚本兜底（GraphQL/NoSQL 注入、复杂登录链、并发 fuzz、二阶段 payload、自定义编码绕过）。已装 pwntools（pwn 交互）+ pycryptodome（crypto）。
+    description: 自定义脚本兜底（GraphQL/NoSQL 注入、复杂登录链、并发 fuzz、二阶段 payload、编码绕过）。已装 pwntools（pwn 交互）+ pycryptodome/sympy/primefac/fpylll（crypto）+ pymysql。
     install: { method: apt }
   - name: jq
     category: utility

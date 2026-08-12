@@ -1,25 +1,25 @@
 # syntax=docker/dockerfile:1.7
-# liusha pentools 镜像：web 渗透专用沙箱 = 精选 web 安全工具集 + browser-use + sandbox-server
+# liusha pentools 镜像：六域渗透沙箱 = 六能力域工具集 + browser-use + sandbox-server
+#   六域：web 漏洞挖掘 / 二进制漏洞挖掘 / 漏洞利用 / 多阶段渗透 / 云攻击 / CTF
 #
 # 设计要点：
 #   - base = kalilinux/kali-rolling，但【绝不装 kali-linux-headless 元包】
-#     （headless 会拉 ~160 个 wifi/AD/取证工具，web 专项用不到，镜像白膨胀 3-4GB）
+#     （headless 会拉 ~160 个 GUI/驱动工具，镜像白膨胀 3-4GB）
 #     只 apt install 需要的工具——最大化利用 Kali 维护的安全工具仓（版本新、免下载）
-#   - Kali apt 直供的工具走 apt（sqlmap/hydra/ffuf/dirsearch/arjun/wafw00f/nmap/
-#     subfinder/httpx-toolkit/nuclei/phpggc/trufflehog）
-#   - Kali apt 没有的走官方推荐方式：katana/gau/interactsh(release)、semgrep(pip)、
-#     jwt_tool(git+pip)、ysoserial(jar)、ysomap(git+mvn)、dalfox(release musl)、spectral(npm)
-#   - httpx 在 Kali 包名是 httpx-toolkit（避与 python3-httpx 冲突），命令也叫 httpx-toolkit，
-#     包装成 /usr/local/bin/httpx 给 agent 用
+#   - Kali apt 直供的走 apt（含 ghidra/radare2/afl++/commix/feroxbuster/metasploit/
+#     netexec 走安装器 Layer 8；nmap/sqlmap 等 web 基线在 Layer 2）
+#   - Kali apt 没有的走官方推荐：katana/gau/interactsh(release)、semgrep(pip)、
+#     jwt_tool(git)、ysoserial(jar)、ysomap(git+mvn)、dalfox(release)、spectral(npm)，
+#     以及六域新增的 release/venv/git 专属层（trivy/kubectl/angr/volatility3/RsaCtfTool 等）
+#   - httpx 在 Kali 包名是 httpx-toolkit，包装成 /usr/local/bin/httpx 给 agent 用
 #   - 双 JDK（Temurin）：JDK8(8u352)默认 + JDK17(17.0.19) 现代目标；java8/java17 显式切换。
-#     Java 反序列化/RCE payload：默认 JDK8 编译（class v52 向前兼容所有更高目标）。
-#     ysomap/ysoserial 包装脚本硬编码 JDK8 运行。
-#   - CTF 兼顾：Go(apt) 编 Go payload；Python 加 pwntools(pwn)+pycryptodome(crypto)；
-#     php/gcc/g++ 已含（PHP/C payload）。
-#   - PEP 668 在 Kali 同样开启，pip 需 --break-system-packages(env) + --ignore-installed
+#     ysomap/ysoserial 包装脚本硬编码 JDK8 运行。ghidra 走 apt（自带拉 JDK，不占这两个）。
+#   - runtime：Go/PHP/Node/gcc(apt) + Ruby(ruby-full，供 gem 系工具) + Python
+#   - 重型/死 pin 的 Python 工具各自独立 venv：angr / volatility3 / RsaCtfTool（不污染系统 py）
+#   - PEP 668 在 Kali 开启，pip 需 --break-system-packages(env) + --ignore-installed
 #   - browser-use 跑独立 Python 3.12 venv（隔离 Kali rolling python）
 #   - multi-stage：Stage 0 编译 sandbox-server，Stage 1 运行镜像
-#   - 全程 linux/arm64（CI runner = ubuntu-24.04-arm）
+#   - linux/amd64-only（CI runner = ubuntu-24.04）；架构变体全硬编码，无 arm64 分支
 #
 # 工具清单真相源：同目录 tools.yaml（agent 索引 + 构建期 install 双用）
 
@@ -43,6 +43,8 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PIP_TIMEOUT=60 \
     PIP_BREAK_SYSTEM_PACKAGES=1 \
     BROWSER_USE_VENV=/opt/browser-use-venv \
+    PIPX_HOME=/opt/pipx \
+    PIPX_BIN_DIR=/usr/local/bin \
     PATH=/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
 # apt 重试（网络抖动不让整层 abort）
@@ -76,14 +78,9 @@ RUN apt-get update \
 #     Java8 编译的 class（v52）向前兼容所有更高 Java 目标，payload 兼容面最广；
 #     ysomap 官方也要求 JDK8 环境编译/运行（XStream 部分 payload 依赖）。
 #   - JDK 17（17.0.19+10）→ /opt/jdk17：现代目标（Spring Boot 3.x 强制 17+）专项。
-# 架构映射：arm64→aarch64，amd64→x64（Temurin 命名）。
-# 版本段无连字符：8u352b08 / 17.0.19_10。
+# amd64-only：Temurin 架构名硬定 x64。版本段无连字符：8u352b08 / 17.0.19_10。
 RUN set -eux \
- && case "${TARGETARCH}" in \
-      arm64) J_ARCH=aarch64 ;; \
-      amd64) J_ARCH=x64     ;; \
-      *)     echo "[FATAL] 不支持的架构 ${TARGETARCH}"; exit 1 ;; \
-    esac \
+ && J_ARCH=x64 \
  # JDK 8u352-b08
  && wget -q --tries=3 --waitretry=5 \
         "https://github.com/adoptium/temurin8-binaries/releases/download/jdk8u352-b08/OpenJDK8U-jdk_${J_ARCH}_linux_hotspot_8u352b08.tar.gz" \
@@ -120,9 +117,10 @@ RUN set -eux \
 # httpx 包名是 httpx-toolkit（命令同名，Layer 3 包装成 /usr/local/bin/httpx）。
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
-        nmap sqlmap hydra ffuf dirsearch wafw00f arjun \
+        nmap sqlmap hydra ffuf feroxbuster wafw00f arjun \
         subfinder httpx-toolkit nuclei \
         phpggc trufflehog \
+        seclists \
  && rm -rf /var/lib/apt/lists/*
 
 # ── Layer 3: PD 系工具 -duc wrapper + httpx 命名兼容 ─────────────────────────
@@ -178,6 +176,16 @@ RUN pip install --quiet --ignore-installed semgrep \
  && npm install -g @stoplight/spectral-cli \
  && spectral --version
 
+# ── Layer 5b: ruby + pipx 基座（供 Layer 8 安装器的 gem/pipx 系工具）───────────
+# 必须在 Layer 8 之前就位——安装器逐行处理 tools.yaml，轮到 gem(zsteg/one_gadget/
+# seccomp-tools/evil-winrm)/pipx(prowler/pacu/cloudsplaining/netexec/bloodhound/certipy)
+# 工具时 ruby/pipx 需已存在。pipx 命令目录由 ENV PIPX_BIN_DIR=/usr/local/bin 定向到 PATH。
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends ruby-full pipx \
+ && rm -rf /var/lib/apt/lists/* \
+ && ruby --version \
+ && pipx --version
+
 # ── Layer 6: 专属安装层（逻辑复杂，Kali apt 没有）────────────────────────────
 # jwt_tool（https://github.com/ticarpi/jwt_tool）requirements: termcolor cprint pycryptodomex requests ratelimit
 RUN git clone --depth 1 https://github.com/ticarpi/jwt_tool.git /opt/jwt_tool \
@@ -187,12 +195,8 @@ RUN git clone --depth 1 https://github.com/ticarpi/jwt_tool.git /opt/jwt_tool \
  && jwt_tool --help 2>&1 | head -1 || true
 
 # dalfox v3.1.2（https://github.com/hahwul/dalfox/releases）
-# 架构映射 arm64→aarch64 / amd64→x86_64；用 musl 静态版跨发行版可用；内部路径含子目录
-RUN case "${TARGETARCH}" in \
-      arm64) DALFOX_ARCH=aarch64 ;; \
-      amd64) DALFOX_ARCH=x86_64  ;; \
-      *)     DALFOX_ARCH="${TARGETARCH}" ;; \
-    esac \
+# amd64-only：架构名硬定 x86_64；用 musl 静态版跨发行版可用；内部路径含子目录
+RUN DALFOX_ARCH=x86_64 \
  && wget -q --tries=3 --waitretry=5 \
         "https://github.com/hahwul/dalfox/releases/download/v3.1.2/dalfox-v3.1.2-linux-${DALFOX_ARCH}-musl.tar.gz" \
         -O /tmp/dalfox.tar.gz \
@@ -225,6 +229,121 @@ RUN git clone --depth 1 https://github.com/wh1t3p1g/ysomap.git /opt/ysomap-src \
  && printf '#!/bin/sh\nexec /opt/jdk8/bin/java -jar /opt/ysomap.jar "$@"\n' > /usr/local/bin/ysomap \
  && chmod +x /usr/local/bin/ysomap \
  && ysomap 2>&1 | head -1 || true
+
+# ── Layer 6b: injection 专项（git clone + python wrapper，命令名 = tools.yaml name）──
+# SSTImap（https://github.com/vladko312/SSTImap）模板注入自动利用
+# SSRFmap（https://github.com/swisskyrepo/SSRFmap）SSRF 自动利用
+RUN git clone --depth 1 https://github.com/vladko312/SSTImap.git /opt/SSTImap \
+ && pip install --quiet --ignore-installed -r /opt/SSTImap/requirements.txt \
+ && printf '#!/bin/sh\nexec python3 /opt/SSTImap/sstimap.py "$@"\n' > /usr/local/bin/SSTImap \
+ && chmod +x /usr/local/bin/SSTImap \
+ && SSTImap --help >/dev/null 2>&1 || true \
+ && git clone --depth 1 https://github.com/swisskyrepo/SSRFmap.git /opt/SSRFmap \
+ && pip install --quiet --ignore-installed -r /opt/SSRFmap/requirements.txt \
+ && printf '#!/bin/sh\nexec python3 /opt/SSRFmap/ssrfmap.py "$@"\n' > /usr/local/bin/SSRFmap \
+ && chmod +x /usr/local/bin/SSRFmap \
+ && SSRFmap --help >/dev/null 2>&1 || true
+
+# ── Layer 6c: gdb + pwndbg（pwn 调试主场；命令名 gdb）────────────────────────
+# apt gdb + git pwndbg + setup.sh；pwndbg 装 gdbinit 让 gdb 启动即加载插件。
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends gdb \
+ && rm -rf /var/lib/apt/lists/* \
+ && git clone --depth 1 https://github.com/pwndbg/pwndbg.git /opt/pwndbg \
+ && cd /opt/pwndbg \
+ && ./setup.sh --update 2>/dev/null || ./setup.sh 2>/dev/null || pip install --quiet --ignore-installed -e /opt/pwndbg \
+ && grep -q pwndbg /root/.gdbinit 2>/dev/null || echo "source /opt/pwndbg/gdbinit.py" >> /root/.gdbinit \
+ && gdb --version | head -1
+
+# ── Layer 6d: cloud/container release 二进制（资产名/布局各异，逐个硬编码，amd64）──
+# 资产名全部经 gh release 实测（非 latest_download 猜测）：
+#   trivy      v0.73.0  trivy_0.73.0_Linux-64bit.tar.gz          → 根部 trivy
+#   kubectl    v1.36.3  dl.k8s.io stable 官方 URL                → 裸二进制
+#   peirates   v1.29a   peirates-linux-amd64.tar.xz              → 子目录 peirates-linux-amd64/peirates
+#   kube-bench v0.16.0  kube-bench_0.16.0_linux_amd64.tar.gz     → 根部 kube-bench + cfg/（必须一起解到 /opt）
+#   ligolo-ng  v0.9.1   ligolo-ng_proxy_0.9.1_linux_amd64.tar.gz → 解包 proxy，改名 ligolo-ng
+#   pwninit    3.3.3    裸预编译二进制 pwninit（无 tag v 前缀，不装 rust）
+#   cloudfox   v2.0.5   cloudfox-linux-amd64.zip                 → 子目录 cloudfox/cloudfox
+RUN set -eux \
+ # trivy（漏洞库运行时按需拉，构建期不烘焙）
+ && wget -q --tries=3 --waitretry=5 \
+        "https://github.com/aquasecurity/trivy/releases/download/v0.73.0/trivy_0.73.0_Linux-64bit.tar.gz" \
+        -O /tmp/trivy.tgz \
+ && tar -xzf /tmp/trivy.tgz -C /usr/local/bin trivy \
+ && chmod +x /usr/local/bin/trivy && rm /tmp/trivy.tgz && trivy --version | head -1 \
+ # kubectl（官方 dl.k8s.io stable）
+ && wget -q --tries=3 --waitretry=5 \
+        "https://dl.k8s.io/release/v1.36.3/bin/linux/amd64/kubectl" \
+        -O /usr/local/bin/kubectl \
+ && chmod +x /usr/local/bin/kubectl && kubectl version --client 2>&1 | head -1 \
+ # peirates（.tar.xz，子目录）
+ && wget -q --tries=3 --waitretry=5 \
+        "https://github.com/inguardians/peirates/releases/download/v1.29a/peirates-linux-amd64.tar.xz" \
+        -O /tmp/peirates.txz \
+ && tar -xJf /tmp/peirates.txz -C /tmp \
+ && mv /tmp/peirates-linux-amd64/peirates /usr/local/bin/peirates \
+ && chmod +x /usr/local/bin/peirates && rm -rf /tmp/peirates.txz /tmp/peirates-linux-amd64 \
+ && command -v peirates \
+ # kube-bench（二进制 + cfg/ 基线目录一起放 /opt/kube-bench，wrapper 指定 --config-dir）
+ && wget -q --tries=3 --waitretry=5 \
+        "https://github.com/aquasecurity/kube-bench/releases/download/v0.16.0/kube-bench_0.16.0_linux_amd64.tar.gz" \
+        -O /tmp/kb.tgz \
+ && mkdir -p /opt/kube-bench && tar -xzf /tmp/kb.tgz -C /opt/kube-bench && rm /tmp/kb.tgz \
+ && printf '#!/bin/sh\nexec /opt/kube-bench/kube-bench --config-dir /opt/kube-bench/cfg "$@"\n' > /usr/local/bin/kube-bench \
+ && chmod +x /usr/local/bin/kube-bench && test -d /opt/kube-bench/cfg \
+ # ligolo-ng proxy 端（解包 proxy，改名）
+ && wget -q --tries=3 --waitretry=5 \
+        "https://github.com/nicocha30/ligolo-ng/releases/download/v0.9.1/ligolo-ng_proxy_0.9.1_linux_amd64.tar.gz" \
+        -O /tmp/ligolo.tgz \
+ && tar -xzf /tmp/ligolo.tgz -C /tmp proxy \
+ && mv /tmp/proxy /usr/local/bin/ligolo-ng \
+ && chmod +x /usr/local/bin/ligolo-ng && rm /tmp/ligolo.tgz && command -v ligolo-ng \
+ # pwninit（裸预编译二进制，无 tag v 前缀）
+ && wget -q --tries=3 --waitretry=5 \
+        "https://github.com/io12/pwninit/releases/download/3.3.3/pwninit" \
+        -O /usr/local/bin/pwninit \
+ && chmod +x /usr/local/bin/pwninit && command -v pwninit \
+ # cloudfox（zip 内子目录 cloudfox/cloudfox）
+ && wget -q --tries=3 --waitretry=5 \
+        "https://github.com/BishopFox/cloudfox/releases/download/v2.0.5/cloudfox-linux-amd64.zip" \
+        -O /tmp/cloudfox.zip \
+ && unzip -oq /tmp/cloudfox.zip -d /tmp/cloudfox-x \
+ && mv /tmp/cloudfox-x/cloudfox/cloudfox /usr/local/bin/cloudfox \
+ && chmod +x /usr/local/bin/cloudfox && rm -rf /tmp/cloudfox.zip /tmp/cloudfox-x \
+ && cloudfox --version 2>&1 | head -1 || true
+
+# ── Layer 6e: 重依赖/死 pin 的 Python 工具（各自独立 venv，不污染系统 py3.13）──
+# volatility3：pip 装，console_script=vol（pyproject [project.scripts] 实测）。符号表运行时按需拉。
+# angr：符号执行，依赖极重且 pin 死；无官方 CLI → wrapper 执行 venv python（agent 写 angr 脚本跑）。
+# RsaCtfTool：PyPI 同名是抢注包，必须 git clone；死 pin(cryptography==39/gmpy2==2.2.1/urllib3==1.26.5)
+#   在 py3.13 装轮子有风险 → venv 内装 requirements，console_script=RsaCtfTool。
+RUN set -eux \
+ # volatility3 venv
+ && python3 -m venv /opt/venv-vol \
+ && /opt/venv-vol/bin/pip install --quiet volatility3 \
+ && ln -sf /opt/venv-vol/bin/vol /usr/local/bin/vol \
+ && vol --help >/dev/null 2>&1 && echo "vol OK" \
+ # angr venv（无 CLI，wrapper 跑 venv python -c 兜底 sanity）
+ && python3 -m venv /opt/venv-angr \
+ && /opt/venv-angr/bin/pip install --quiet angr \
+ && /opt/venv-angr/bin/python -c 'import angr' \
+ && printf '#!/bin/sh\nexec /opt/venv-angr/bin/python "$@"\n' > /usr/local/bin/angr \
+ && chmod +x /usr/local/bin/angr && command -v angr \
+ # RsaCtfTool venv（git clone + 死 pin requirements）
+ && python3 -m venv /opt/venv-rsactf \
+ && git clone --depth 1 https://github.com/RsaCtfTool/RsaCtfTool.git /opt/RsaCtfTool-src \
+ && /opt/venv-rsactf/bin/pip install --quiet -r /opt/RsaCtfTool-src/requirements.txt \
+ && /opt/venv-rsactf/bin/pip install --quiet /opt/RsaCtfTool-src \
+ && ln -sf /opt/venv-rsactf/bin/RsaCtfTool /usr/local/bin/RsaCtfTool \
+ && RsaCtfTool --help >/dev/null 2>&1 && echo "RsaCtfTool OK"
+
+# ── Layer 6f: stegoveritas（pip 装本体 + stegoveritas_install_deps 装系统二进制依赖）──
+# 只装本体命令在（command -v）但缺 zsteg/foremost/exiftool 等系统依赖时运行时炸，
+# 官方要求装完跑 stegoveritas_install_deps 补齐（本镜像已另装 zsteg/foremost/exiftool，此处兜底其余）。
+RUN pip install --quiet --ignore-installed stegoveritas \
+ && (stegoveritas_install_deps 2>/dev/null || true) \
+ && command -v stegoveritas
+
 
 # ── Layer 7: browser-use 薄客户端提前 COPY（manifest 安装器需 command -v browser-use 命中）──
 COPY deployments/tool-images/pentools/browser-use /usr/local/bin/browser-use
