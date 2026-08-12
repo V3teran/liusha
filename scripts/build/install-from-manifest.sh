@@ -18,7 +18,7 @@
 #
 # ── tools.yaml 的 install 字段（全部可选；不写=期望上层 Dockerfile 已安装）──
 #   install:
-#     method: apt|pip|pipx|npm|go|release|release-bin|git
+#     method: apt|pip|pipx|npm|go|gem|release|release-bin|git
 #     pkg:    <包名>                # method=apt/npm 且包名 != name 时
 #     ref:    <owner/repo@vX | go module path@vX | git url>
 #     asset:  <release-bin 资产名，可含 ${ARCH}/${ARCHX}/${ARCH64}>
@@ -26,20 +26,15 @@
 #     force:  true                  # 即使已存在也覆盖装
 #     check:  '<sanity 命令>'       # 省略则仅以 command -v 为准
 #
-# 依赖：yq(mikefarah v4)、curl、wget、tar、unzip、git；go/pip/pipx/npm 视 method 出现而定。
+# 依赖：yq(mikefarah v4)、curl、wget、tar、unzip、git；go/pip/pipx/npm/gem 视 method 出现而定。
 set -uo pipefail
 
 MANIFEST="${1:-deployments/tool-images/pentools/tools.yaml}"
 BIN_DIR="${BIN_DIR:-/usr/local/bin}"
 TMP="${TMPDIR:-/tmp}/install-from-manifest"
 
-# docker buildx 注入 TARGETARCH；否则探测。amd64/arm64 → 各家 release 命名常用变体。
-ARCH="${TARGETARCH:-$(dpkg --print-architecture 2>/dev/null || echo amd64)}"
-case "$ARCH" in
-  amd64) ARCHX=x86_64; ARCH64=x64 ;;     # ARCHX: dalfox 等用 x86_64；ARCH64: spectral/node 系用 x64
-  arm64) ARCHX=aarch64; ARCH64=arm64 ;;  # ARCHX: aarch64；ARCH64: arm64
-  *)     ARCHX="$ARCH"; ARCH64="$ARCH" ;;
-esac
+# amd64-only：各家 release 命名的架构变体统一硬定。
+ARCH=amd64; ARCHX=x86_64; ARCH64=x64
 
 fail=0
 note() { printf '[install] %s\n' "$*"; }
@@ -94,6 +89,9 @@ install_one() { # <name>
     npm)
       pkg=$(field_by_name "$name" pkg); [ -n "$pkg" ] || pkg="$name"
       npm install -g "$pkg" || { bad "$name: npm 装 $pkg 失败"; return 1; } ;;
+    gem)
+      pkg=$(field_by_name "$name" pkg); [ -n "$pkg" ] || pkg="$name"
+      gem install --no-document "$pkg" || { bad "$name: gem 装 $pkg 失败"; return 1; } ;;
     go)
       ref=$(field_by_name "$name" ref); [ -n "$ref" ] || { bad "$name: method=go 缺 ref(module@version)"; return 1; }
       GOBIN="$BIN_DIR" go install "$ref" || { bad "$name: go install $ref 失败"; return 1; } ;;
