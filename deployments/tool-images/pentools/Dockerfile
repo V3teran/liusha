@@ -178,7 +178,7 @@ RUN pip install --quiet --ignore-installed semgrep \
 
 # ── Layer 5b: ruby + pipx 基座（供 Layer 8 安装器的 gem/pipx 系工具）───────────
 # 必须在 Layer 8 之前就位——安装器逐行处理 tools.yaml，轮到 gem(zsteg/one_gadget/
-# seccomp-tools/evil-winrm)/pipx(prowler/pacu/cloudsplaining/netexec/bloodhound/certipy)
+# seccomp-tools/evil-winrm)/pipx(prowler/pacu/cloudsplaining/bloodhound/certipy)
 # 工具时 ruby/pipx 需已存在。pipx 命令目录由 ENV PIPX_BIN_DIR=/usr/local/bin 定向到 PATH。
 RUN apt-get update \
  && apt-get install -y --no-install-recommends ruby-full pipx \
@@ -191,8 +191,7 @@ RUN apt-get update \
 RUN git clone --depth 1 https://github.com/ticarpi/jwt_tool.git /opt/jwt_tool \
  && pip install --quiet --ignore-installed -r /opt/jwt_tool/requirements.txt \
  && printf '#!/bin/sh\nexec python3 /opt/jwt_tool/jwt_tool.py "$@"\n' > /usr/local/bin/jwt_tool \
- && chmod +x /usr/local/bin/jwt_tool \
- && jwt_tool --help 2>&1 | head -1 || true
+ && chmod +x /usr/local/bin/jwt_tool
 
 # dalfox v3.1.2（https://github.com/hahwul/dalfox/releases）
 # amd64-only：架构名硬定 x86_64；用 musl 静态版跨发行版可用；内部路径含子目录
@@ -231,18 +230,19 @@ RUN git clone --depth 1 https://github.com/wh1t3p1g/ysomap.git /opt/ysomap-src \
  && ysomap 2>&1 | head -1 || true
 
 # ── Layer 6b: injection 专项（git clone + python wrapper，命令名 = tools.yaml name）──
-# SSTImap（https://github.com/vladko312/SSTImap）模板注入自动利用
-# SSRFmap（https://github.com/swisskyrepo/SSRFmap）SSRF 自动利用
+# 每工具独立 RUN，全链 && 无 `|| true` 兜底——任一步失败即在此层炸，不留到 Layer 8。
+# SSTImap（https://github.com/vladko312/SSTImap）模板注入自动利用；仓库带 requirements.txt
 RUN git clone --depth 1 https://github.com/vladko312/SSTImap.git /opt/SSTImap \
  && pip install --quiet --ignore-installed -r /opt/SSTImap/requirements.txt \
  && printf '#!/bin/sh\nexec python3 /opt/SSTImap/sstimap.py "$@"\n' > /usr/local/bin/SSTImap \
- && chmod +x /usr/local/bin/SSTImap \
- && SSTImap --help >/dev/null 2>&1 || true \
- && git clone --depth 1 https://github.com/swisskyrepo/SSRFmap.git /opt/SSRFmap \
- && pip install --quiet --ignore-installed -r /opt/SSRFmap/requirements.txt \
+ && chmod +x /usr/local/bin/SSTImap
+
+# SSRFmap（https://github.com/swisskyrepo/SSRFmap）SSRF 自动利用
+# 已迁移 uv/pyproject（无 requirements.txt）——按 pyproject 运行依赖显式装（不锁版本，避免与系统冲突）。
+RUN git clone --depth 1 https://github.com/swisskyrepo/SSRFmap.git /opt/SSRFmap \
+ && pip install --quiet --ignore-installed dnslib dnspython flask requests tldextract \
  && printf '#!/bin/sh\nexec python3 /opt/SSRFmap/ssrfmap.py "$@"\n' > /usr/local/bin/SSRFmap \
- && chmod +x /usr/local/bin/SSRFmap \
- && SSRFmap --help >/dev/null 2>&1 || true
+ && chmod +x /usr/local/bin/SSRFmap
 
 # ── Layer 6c: gdb + pwndbg（pwn 调试主场；命令名 gdb）────────────────────────
 # apt gdb + git pwndbg + setup.sh；pwndbg 装 gdbinit 让 gdb 启动即加载插件。

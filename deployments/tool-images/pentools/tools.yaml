@@ -231,7 +231,7 @@ tools:
   - name: netexec
     category: exploitation
     description: 网络协议横扫/利用（CrackMapExec 继任，命令 nxc/netexec）——SMB/WinRM/LDAP/MSSQL 批量喷洒凭证、枚举共享、执行命令。内网横移主力。
-    install: { method: pipx }
+    install: { method: apt }
   - name: responder
     category: exploitation
     description: LLMNR/NBT-NS/mDNS 投毒 + 凭证抓取——内网抓 NetNTLM hash 供 relay/破解。装于 /usr/sbin。
