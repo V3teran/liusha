@@ -9,105 +9,139 @@ import (
 	"github.com/hibiken/asynq"
 	"github.com/rs/zerolog"
 
-	hunterbuilder "github.com/V3teran/liusha/internal/builder/hunter"
-	"github.com/V3teran/liusha/internal/config"
 	cfgscenario "github.com/V3teran/liusha/internal/config/scenario"
+	"github.com/V3teran/liusha/internal/config"
 	"github.com/V3teran/liusha/internal/config/settingstore"
 	"github.com/V3teran/liusha/internal/configstore"
 	"github.com/V3teran/liusha/internal/conversation"
 	"github.com/V3teran/liusha/internal/corpus"
-	"github.com/V3teran/liusha/internal/einollm"
-	"github.com/V3teran/liusha/internal/einotools"
+	"github.com/V3teran/liusha/internal/credential"
+	"github.com/V3teran/liusha/internal/executor"
 	"github.com/V3teran/liusha/internal/finding"
-	"github.com/V3teran/liusha/internal/hunterrun"
 	"github.com/V3teran/liusha/internal/lead"
 	"github.com/V3teran/liusha/internal/llminvocation"
+	"github.com/V3teran/liusha/internal/agentrun"
+	"github.com/V3teran/liusha/internal/provider"
 	"github.com/V3teran/liusha/internal/ratelimit"
 	"github.com/V3teran/liusha/internal/sandbox"
 	"github.com/V3teran/liusha/internal/scanstream"
+	"github.com/V3teran/liusha/internal/skill"
 	"github.com/V3teran/liusha/internal/task"
+	"github.com/V3teran/liusha/internal/toolinvocation"
+	"github.com/V3teran/liusha/internal/tools/manifest"
 	"github.com/V3teran/liusha/internal/traffic"
 	"github.com/V3teran/liusha/internal/worker"
+	"github.com/V3teran/liusha/internal/worldmodel"
+	"github.com/V3teran/liusha/internal/actor"
+	"github.com/V3teran/liusha/internal/ledger"
 )
 
 // handler 持有所有跨任务共享依赖。
 type handler struct {
-	hunters    *hunterrun.Store
+	operators  *agentrun.Store
 	tasks      *task.Store
 	findings   *finding.Store
-	corpus     *corpus.Store            // 跨目标知识库（hybrid RAG）；search/write_corpus
-	embedder   einotools.CorpusEmbedder // Jina embed（可 nil，降级纯 sparse）
-	reranker   corpus.Reranker          // Jina rerank（可 nil，降级合并序兜底）
-	leads      *lead.Store              // 情报黑板（§7）；每次写滚动刷新 target_host 的 TTL
-	proxyFlows *traffic.ProxyStore
-	agentFlows *traffic.AgentStore
+	corpus     *corpus.Store
+	embedder   corpus.Embedder      // Jina embed（可 nil，降级纯 sparse）
+	reranker   corpus.Reranker
+	leads      *lead.Store
+	proxyStore *traffic.ProxyStore
+	agentStore *traffic.AgentStore
 	calls      *llminvocation.Store
-	hostSem    *ratelimit.HostSemaphore // per-host 并发限速（§4.3）；仅对有 target_host 的 task 生效
-	settings   *settingstore.Store      // 业务旋钮事实源（DB + 多级缓存）：react/runtime 组运行期现读，DB 改即生效
+	hostSem    *ratelimit.HostSemaphore
+	settings   *settingstore.Store
 	runnerCfg  config.RunnerConfig
-	launcher   sandbox.Launcher
+	sandboxMgr *sandbox.Manager
 	logger     zerolog.Logger
 
-	// eino agent：solo + swarm 引擎路径走 eino ChatModelAgent（唯一路径，react 退路已删）。
-	//   - einoFactory：按 role 产独立 eino ChatModel
-	//   - hunterDeps：prompt 拼装 + 工具装配的 store/loader 依赖
-	einoFactory *einollm.Factory
-	hunterDeps  hunterbuilder.Deps
+	// LLM 路由（tier → provider）
+	router *provider.Router
 
-	// cfgStore 是配置事实源（DB + 内存/redis 缓存）的只读句柄：运行期按需读 scenario/hunter
-	// 装配引擎（solo 取 scenario 指定的单一猎手；swarm 取全局 orchestrator + 全部 enabled 领域子代理）。
-	// 文件仅是首次导入的种子，进程运行期一律走 DB/缓存（见 D6/D7）。
+	// 工具装配依赖（与 prompt 拼装共用）
+	creds         credential.Provider
+	toolCalls     *toolinvocation.Store
+	toolingLoader *skill.Loader
+	vulnLoader    *skill.Loader
+	toolsManifest *manifest.Manifest
+
 	cfgStore *configstore.Store
 
-	// conversations + eventPublisher 是阶段B 过程事件管道：会话发起（Payload.ConversationID
-	// 非空）时，agent 每次工具调用落 conversation message（PG）+ publish redis（实时推前端）。
-	// 二者任一 nil 时不发事件（向后兼容纯后台扫描）。
 	conversations  *conversation.Store
 	eventPublisher *scanstream.Publisher
+
+	profiles *executor.Registry
+	world    *worldmodel.Store
+
+	// Actor 基础设施
+	ledger     *ledger.Ledger
+	checkpoint actor.CheckpointStore
 }
 
-// terminalWriteTimeout 是终态写入（SetError/SetAborted）的独立超时上限。
+// onboard 用域注册表解析 brief 目标，并完成三件 best-effort 副作用：
+//  1. 落 L3 世界模型 KindTarget 节点（幂等 upsert）；
+//  2. 回填 task.target_host 派生列；
+//  3. 返回 host key 供调用方下传。
+func (h handler) onboard(ctx context.Context, assignmentID, taskID, brief string) string {
+	refs, ok := h.profiles.Onboard(ctx, executor.BriefInput{Brief: brief})
+	if !ok || len(refs) == 0 || refs[0].Locator == "" {
+		return taskID
+	}
+
+	if h.world != nil && assignmentID != "" {
+		for _, ref := range refs {
+			if _, err := h.world.UpsertNode(ctx, worldmodel.Node{
+				TaskID: assignmentID,
+				Kind:   worldmodel.KindTarget,
+				Ref:    ref,
+			}); err != nil {
+				h.logger.Warn().Err(err).Str("assignment_id", assignmentID).
+					Str("locator", ref.Locator).Msg("落 KindTarget 世界模型节点失败（不阻塞扫描）")
+			}
+		}
+	}
+
+	host := refs[0].Locator
+	if host != taskID {
+		if err := h.tasks.SetTargetHost(ctx, taskID, host); err != nil {
+			h.logger.Warn().Err(err).Str("task_id", taskID).Str("host", host).
+				Msg("回填 task.target_host 失败（不阻塞扫描）")
+		}
+	}
+	return host
+}
+
 const terminalWriteTimeout = 10 * time.Second
 
-// terminalCtx 从入参 ctx 派生一个「不随其取消/超时失效」的写入 ctx（WithoutCancel 保留携带值用于日志关联）。
-// 终态写入必须与请求生命周期解耦：当任务失败原因正是 ctx 超时/取消时，复用入参 ctx 会让 SetError/SetAborted
-// 也立即失败，task 便永远悬挂 running（active_scan 已终态但 hunter 还 running 的不一致根因）。
 func terminalCtx(ctx context.Context) (context.Context, context.CancelFunc) {
 	return context.WithTimeout(context.WithoutCancel(ctx), terminalWriteTimeout)
 }
 
-// failTask 把错误标记到 task 表。
-func (h handler) failTask(ctx context.Context, hunterID string, err error) error {
+func (h handler) failTask(ctx context.Context, operatorID string, err error) error {
 	writeCtx, cancel := terminalCtx(ctx)
 	defer cancel()
-	if setErr := h.hunters.SetError(writeCtx, hunterID, err.Error()); setErr != nil {
-		h.logger.Warn().Err(setErr).Str("hunter_id", hunterID).
+	if setErr := h.operators.SetError(writeCtx, operatorID, err.Error()); setErr != nil {
+		h.logger.Warn().Err(setErr).Str("operator_id", operatorID).
 			Msg("SetError 失败（task 留在 running，原始错误已透传给 caller）")
 	}
 	return err
 }
 
-// abortTask 把 task 推进到 aborted 终态（inspector 终止 / owner 中止 / ctx 取消）。
-// 与 failTask 区别：aborted 是"主动收手"非错误，不应触发告警。
-func (h handler) abortTask(ctx context.Context, hunterID, reason string) error {
+func (h handler) abortTask(ctx context.Context, operatorID, reason string) error {
 	writeCtx, cancel := terminalCtx(ctx)
 	defer cancel()
-	if setErr := h.hunters.SetAborted(writeCtx, hunterID); setErr != nil {
-		h.logger.Warn().Err(setErr).Str("hunter_id", hunterID).Str("reason", reason).
+	if setErr := h.operators.SetAborted(writeCtx, operatorID); setErr != nil {
+		h.logger.Warn().Err(setErr).Str("operator_id", operatorID).Str("reason", reason).
 			Msg("SetAborted 失败（task 留在 running）")
 	}
-	h.logger.Info().Str("hunter_id", hunterID).Str("reason", reason).Msg("task aborted")
+	h.logger.Info().Str("operator_id", operatorID).Str("reason", reason).Msg("task aborted")
 	return nil
 }
 
 // handle 是单个 hunter task 的处理入口。
-//
-// timeout 按 engine 分档：solo 用 SoloAgentRunTimeoutSeconds（默认 1h），
-// swarm 用 SwarmAgentRunTimeoutSeconds（默认 4h，对齐 sandbox max lifetime）。
 func (h handler) handle(ctx context.Context, p worker.Payload) (retErr error) {
 	taskStart := time.Now()
 	h.logger.Info().
-		Str("hunter_id", p.HunterID).
+		Str("operator_id", p.OperatorID).
 		Str("task_id", p.TaskID).
 		Str("role", string(p.Role)).
 		Msg("asynq task ▶ enter")
@@ -116,27 +150,20 @@ func (h handler) handle(ctx context.Context, p worker.Payload) (retErr error) {
 		if retErr != nil {
 			ev = h.logger.Warn().Err(retErr)
 		}
-		ev.Str("hunter_id", p.HunterID).
+		ev.Str("operator_id", p.OperatorID).
 			Str("task_id", p.TaskID).
 			Dur("duration", time.Since(taskStart)).
 			Msg("asynq task ◀ exit")
 	}()
 
-	// 入口检查：asynq 重试场景（PG status 已非 pending）→ SkipRetry。
-	// 防 orchestrator被重试时新 Registry 空 → PreDoneCheck 永放行 → 旧 PG exploitation 僵尸 + 矛盾态。
-	// GetByID 错误（PG 短时不可用等）不阻塞——让 SetRunning 走正常错误路径。
-	if run, getErr := h.hunters.GetByID(ctx, p.HunterID); getErr == nil && run.Status != hunterrun.StatusPending {
+	if run, getErr := h.operators.GetByID(ctx, p.OperatorID); getErr == nil && run.Status != agentrun.StatusPending {
 		h.logger.Warn().
-			Str("hunter_id", p.HunterID).
+			Str("operator_id", p.OperatorID).
 			Str("status", string(run.Status)).
 			Msg("asynq task 已被处理过，跳过重试（防 PG 僵尸 + 矛盾态）")
 		return asynq.SkipRetry
 	}
 
-	// per-host 并发限速（§4.3）：占一个 host 额度，超限则退避重试（此时 task 仍 pending，
-	// 下次重试入口 SkipRetry 检查不误拦）。active orchestrator 的 target_host 空 → 放行
-	// （真正打 host 的是它 spawn 的子任务）；passive task 恒有 host → 受限。
-	// 限速是增强非硬门：信号量本身出错（Redis 抖动）则放行，不卡死扫描。
 	if h.hostSem != nil {
 		if tk, tErr := h.tasks.GetByID(ctx, p.TaskID); tErr == nil && tk.TargetHost != "" {
 			rel, ok, semErr := h.hostSem.Acquire(ctx, tk.TargetHost)
@@ -153,29 +180,22 @@ func (h handler) handle(ctx context.Context, p worker.Payload) (retErr error) {
 		}
 	}
 
-	if err := h.hunters.SetRunning(ctx, p.HunterID); err != nil {
+	if err := h.operators.SetRunning(ctx, p.OperatorID); err != nil {
 		return err
 	}
 
-	// payload 只带一段 brief 文本（见 D5）：输入统一，host 由 runner 从 brief 抽取回填，
-	// 不进 payload；不再有 mode/entrypoint 抽象。
 	var input struct {
 		Brief string `json:"brief"`
 	}
 	if err := json.Unmarshal(p.Input, &input); err != nil {
-		return h.failTask(ctx, p.HunterID, err)
+		return h.failTask(ctx, p.OperatorID, err)
 	}
 
-	// 派发链（数据驱动，见 D2/D3）：task.scenario_id 存 scenario code → 走 code 路取 scenario。
-	// engine 取自 scenario：
-	//   - solo ：scenario.solo_hunter_id 指向唯一执行 hunter（无编排、无合体）
-	//   - swarm：orchestrator（handler 内取）+ 全部 enabled 领域 hunter 作子代理池，LLM 运行时动态 handoff
 	scen, err := h.cfgStore.ScenarioByCode(ctx, p.ScenarioID)
 	if err != nil {
-		return h.failTask(ctx, p.HunterID, fmt.Errorf("加载 scenario %s 失败: %w", p.ScenarioID, err))
+		return h.failTask(ctx, p.OperatorID, fmt.Errorf("加载 scenario %s 失败: %w", p.ScenarioID, err))
 	}
 
-	// timeout 按 engine 取：swarm 用长超时，solo 用常规。
 	timeout := h.runnerCfg.SoloAgentRunTimeoutSeconds
 	if scen.Engine == cfgscenario.EngineSwarm {
 		timeout = h.runnerCfg.SwarmAgentRunTimeoutSeconds
@@ -188,21 +208,21 @@ func (h handler) handle(ctx context.Context, p worker.Payload) (retErr error) {
 
 	switch scen.Engine {
 	case cfgscenario.EngineSolo:
-		if scen.SoloHunterID == nil || *scen.SoloHunterID == "" {
-			return h.failTask(ctx, p.HunterID, fmt.Errorf("solo scenario %s 未指定 solo_hunter_id", scen.Code))
+		if scen.SoloOperatorID == nil || *scen.SoloOperatorID == "" {
+			return h.failTask(ctx, p.OperatorID, fmt.Errorf("solo scenario %s 未指定 solo_operator_id", scen.Code))
 		}
-		hunter, err := h.cfgStore.HunterByID(ctx, *scen.SoloHunterID)
+		op, err := h.cfgStore.OperatorByID(ctx, *scen.SoloOperatorID)
 		if err != nil {
-			return h.failTask(ctx, p.HunterID, fmt.Errorf("scenario %s 引用的 hunter %s 加载失败: %w", scen.Code, *scen.SoloHunterID, err))
+			return h.failTask(ctx, p.OperatorID, fmt.Errorf("scenario %s 引用的 operator %s 加载失败: %w", scen.Code, *scen.SoloOperatorID, err))
 		}
-		return h.handleSoloEino(ctx, p, scen, hunter, input.Brief)
+		return h.handleSolo(ctx, p, scen, op, input.Brief)
 	case cfgscenario.EngineSwarm:
-		hunters, err := h.cfgStore.EnabledDomainHunters(ctx) // swarm 子代理池 = 全部 enabled 领域猎手
+		operators, err := h.cfgStore.EnabledDomainOperators(ctx)
 		if err != nil {
-			return h.failTask(ctx, p.HunterID, fmt.Errorf("加载 enabled 领域猎手失败: %w", err))
+			return h.failTask(ctx, p.OperatorID, fmt.Errorf("加载 enabled 领域操作员失败: %w", err))
 		}
-		return h.handleSwarmEino(ctx, p, scen, hunters, input.Brief)
+		return h.handleSwarm(ctx, p, scen, operators, input.Brief)
 	default:
-		return h.failTask(ctx, p.HunterID, fmt.Errorf("unknown engine: %s", scen.Engine))
+		return h.failTask(ctx, p.OperatorID, fmt.Errorf("unknown engine: %s", scen.Engine))
 	}
 }
