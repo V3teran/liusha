@@ -21,12 +21,10 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"regexp"
 	"syscall"
 	"time"
 
 	"github.com/V3teran/liusha/internal/assignment"
-	"github.com/V3teran/liusha/internal/builder/hunter"
 	"github.com/V3teran/liusha/internal/cachestore"
 	"github.com/V3teran/liusha/internal/config"
 	"github.com/V3teran/liusha/internal/config/settingstore"
@@ -35,15 +33,16 @@ import (
 	"github.com/V3teran/liusha/internal/conversation"
 	"github.com/V3teran/liusha/internal/corpus"
 	"github.com/V3teran/liusha/internal/credential"
+	"github.com/V3teran/liusha/internal/cryptx"
 	"github.com/V3teran/liusha/internal/db"
-	"github.com/V3teran/liusha/internal/einollm"
-	"github.com/V3teran/liusha/internal/einotools"
+	"github.com/V3teran/liusha/internal/provider"
 	"github.com/V3teran/liusha/internal/embedding"
 	"github.com/V3teran/liusha/internal/envx"
 	"github.com/V3teran/liusha/internal/finding"
-	hunterstore "github.com/V3teran/liusha/internal/hunterrun"
+	hunterstore "github.com/V3teran/liusha/internal/agentrun"
 	"github.com/V3teran/liusha/internal/ingestor"
 	"github.com/V3teran/liusha/internal/lead"
+	"github.com/V3teran/liusha/internal/ledger"
 	"github.com/V3teran/liusha/internal/llminvocation"
 	"github.com/V3teran/liusha/internal/logx"
 	"github.com/V3teran/liusha/internal/ratelimit"
@@ -52,9 +51,13 @@ import (
 	"github.com/V3teran/liusha/internal/skill"
 	"github.com/V3teran/liusha/internal/task"
 	"github.com/V3teran/liusha/internal/toolinvocation"
+	"github.com/V3teran/liusha/internal/executor"
+	executorweb "github.com/V3teran/liusha/internal/executor/web"
 	"github.com/V3teran/liusha/internal/tools/manifest"
 	"github.com/V3teran/liusha/internal/traffic"
 	"github.com/V3teran/liusha/internal/worker"
+	"github.com/V3teran/liusha/internal/worldmodel"
+	"github.com/V3teran/liusha/internal/actor"
 
 	"github.com/hibiken/asynq"
 )
@@ -97,21 +100,22 @@ func main() {
 	assignmentStore := assignment.NewStore(pool)   // 聚合建 passive assignment（一切 task 皆属某 assignment）
 	convStore := conversation.NewStore(pool)       // 会话/消息 store（阶段B 过程事件落库）
 	eventPublisher := scanstream.NewPublisher(rdb) // 过程事件实时广播（阶段B redis 管道）
-	hunters := hunterstore.NewStore(pool)
+	operatorRuns := hunterstore.NewStore(pool)
 	finds := finding.NewStore(pool)
+	worldStore := worldmodel.NewStore(pool) // L3 世界模型持久层（onboard 落 KindTarget 节点）
 	toolCalls := toolinvocation.NewStore(pool)
 	calls := llminvocation.NewStoreWithConfig(pool, cfg.LLM.Invocation)
 	corpusStore := corpus.NewStore(pool) // 跨目标知识库（hybrid RAG）
 	defer func() { _ = calls.Close() }()
-	proxyFlows := traffic.NewProxyStore(pool) // 代理捕获流量（passive，按 host）
-	agentFlows := traffic.NewAgentStore(pool) // agent 自产流量（active，按 task）
+	proxyStore := traffic.NewProxyStore(pool) // 代理捕获流量（passive，按 host）
+	agentStore := traffic.NewAgentStore(pool) // agent 自产流量（active，按 task）
 	creds := credential.NewRedis(rdb, cfg.Credential.RedisKeyPrefix)
 	// 情报黑板（§7），与 credential 同 Redis 租户命名空间；ttl 滚动过期（每次写刷新该 host TTL）。
 	leads := lead.NewStore(rdb, cfg.Credential.RedisKeyPrefix, time.Duration(cfg.Runner.LeadTTLHours)*time.Hour)
 
 	// Jina embedding + rerank client（corpus hybrid RAG 用）。密钥走 ENV JINA_API_KEY；
 	// 缺失时 jinaClient=nil，corpus 降级（search 退纯 sparse、write 不 embed）——不阻塞渗透主流程。
-	var embedder einotools.CorpusEmbedder
+	var embedder corpus.Embedder
 	var reranker corpus.Reranker
 	if jc, err := embedding.NewClient(os.Getenv("JINA_API_KEY")); err != nil {
 		logger.Warn().Err(err).Msg("JINA_API_KEY 未配置，corpus 降级为纯 sparse 检索（不影响主流程）")
@@ -120,7 +124,7 @@ func main() {
 		reranker = jc
 	}
 
-	// hunter system prompt 已编译期 embed（internal/builder/hunter/system_prompt.md），
+	// operator system prompt 已编译期 embed（internal/builder/operator/system_prompt.md），
 	// 不再需要运行时 skill loader 加载——下面的 vuln/tooling loader 服务 Progressive Disclosure。
 
 	// Tooling loader（Progressive Disclosure）：root=skills/tooling，
@@ -151,6 +155,12 @@ func main() {
 		logger.Fatal().Err(err).Str("path", toolsManifestPath).Msg("tools.yaml 加载失败——LLM 看不到沙箱工具会无法 ReAct，fail-fast")
 	}
 	logger.Info().Strs("tools", toolsManifest.Names()).Int("count", len(toolsManifest.Tools)).Str("path", toolsManifestPath).Msg("tools manifest loaded")
+
+	// L2 域适配注册表：注册各域 Profile（目标接入/工具镜像/finding schema）。
+	// 加新域 = New 一个 Profile 并 Register，此处外无核心改动（架构试金石）。
+	profiles := executor.NewRegistry()
+	profiles.Register(executorweb.New())
+	logger.Info().Strs("domains", profiles.Domains()).Msg("domain profiles registered")
 
 	// Vuln loader（Progressive Disclosure）：root=skills/vuln，
 	// 每个子目录一份 SKILL.md = 一种漏洞类型的挖掘指南。
@@ -203,18 +213,7 @@ func main() {
 		logger.Warn().Err(err).Msg("CleanupOrphans 失败（非致命，max lifetime 兜底）")
 	}
 
-	// hunter builder：runner 启动时构造一次。
-	// hunterDeps：prompt 拼装 + eino 工具装配的共享依赖（run_command 的 sandbox.Client 由
-	// handler 每次 Spawn 注入，不持有在 Deps）。react 退路已删，只剩 eino 用的 store/loader/manifest。
-	hunterDeps := hunter.Deps{
-		Findings:        finds,
-		Credentials:     creds,
-		Lead:            leads,
-		ToolInvocations: toolCalls,
-		ToolingLoader:   toolingLoader,
-		ToolsManifest:   toolsManifest,
-		VulnLoader:      vulnLoader,
-	}
+	// operatorDeps 已拆平到 handler 各字段，无需独立 Deps 结构体。
 
 	// 共享多级缓存内核（L1 内存 + L2 redis + 跨进程失效总线）：一条 Subscribe 循环
 	// 覆盖全部配置资源。Subscribe 阻塞运行（内部 for-select 直到 ctx 取消），必须后台起——
@@ -230,9 +229,19 @@ func main() {
 	// 文件仅是首次导入的种子（seed 导入在别处），进程运行期一律走 DB/缓存（见 D6/D7）。
 	cfgStore := configstore.New(pool, cache)
 
-	// LLM 配置事实源：einoFactory 运行期按 role 解析 provider 部署即读它（多级缓存）。
-	// api 进程改「模型模块」后经 cachestore 广播失效，runner 下次 For(role) 即读到最新部署。
-	llmStore := llmstore.New(pool, cache)
+	// LLM 配置事实源：provider.Router 运行期按 tier 解析 provider 部署即读它（多级缓存）。
+	// api 进程改「LLM 配置」模块后经 cachestore 广播失效，runner 下次 For(tier) 即读到最新部署。
+	// hunter.tier 覆盖 agent→tier 第一跳（0107）：agent 在「智能体」页改档后，api 经 cachestore
+	// 广播失效 tier 键，runner 被动清 L1，下次 For(tier) 即读到新档（TierByCode 走多级缓存）。
+	llmStore := llmstore.New(pool, cache).
+		WithTierOverride(llmstore.OperatorTierOverride(cfgStore, logger))
+
+	// LLM provider API Key 加密密钥（migration 0103）：同 cmd/api 的 fail-fast 校验——
+	// runner 是解密密钥、真正拿明文打 LLM 请求的一端，缺密钥直接拒启动。
+	llmKeyCipher, err := cryptx.NewFromEnv("LIUSHA_LLM_KEY_SECRET")
+	if err != nil {
+		logger.Fatal().Err(err).Msg("LIUSHA_LLM_KEY_SECRET 未配置或不合法——provider 密钥解密需要它（fail-fast）")
+	}
 
 	// 业务旋钮事实源（react/runtime/proxy_filter 分组 KV）：handler 运行期现读 react/runtime，
 	// api 进程改「系统配置」后经 cachestore 广播失效，runner 下次读即拿到最新旋钮（真热改）。
@@ -244,57 +253,68 @@ func main() {
 	hostSemTTL := time.Duration(runnerCfg.SwarmAgentRunTimeoutSeconds)*time.Second + 10*time.Minute
 	hostSem := ratelimit.NewHostSemaphore(rdb, cfg.Credential.RedisKeyPrefix, runnerCfg.PerHostConcurrency, hostSemTTL)
 
+	// Sandbox Manager：按 Assignment 粒度管理容器，多 Task 共享
+	sandboxMgr := sandbox.NewManager(launcher)
+
 	h := handler{
-		hunters:        hunters,
+		operators: operatorRuns,
 		tasks:          taskStore,
 		findings:       finds,
 		corpus:         corpusStore,
 		embedder:       embedder,
 		reranker:       reranker,
 		leads:          leads,
-		proxyFlows:     proxyFlows,
-		agentFlows:     agentFlows,
+		proxyStore:     proxyStore,
+		agentStore:     agentStore,
 		calls:          calls,
 		hostSem:        hostSem,
 		settings:       settingStore,
 		runnerCfg:      runnerCfg,
-		launcher:       launcher,
+		sandboxMgr:     sandboxMgr,
 		logger:         logger,
-		einoFactory:    einollm.New(llmStore, cfg),
-		hunterDeps:     hunterDeps,
+		router:        provider.NewRouter(llmStore.AsRouterStore(), llmKeyCipher),
+		creds:         creds,
+		toolCalls:     toolCalls,
+		toolingLoader: toolingLoader,
+		vulnLoader:    vulnLoader,
+		toolsManifest: toolsManifest,
 		cfgStore:       cfgStore,
 		conversations:  convStore,
 		eventPublisher: eventPublisher,
+		profiles:       profiles,
+		world:          worldStore,
+		ledger:         ledger.New(worldStore.AsLedgerStore()),
+		checkpoint:     actor.NewPGCheckpointStore(pool),
 	}
 
 	mux := worker.NewMux()
-	mux.Register(worker.RoleHunter, h.handle)
+	mux.Register(worker.RoleOperator, h.handle)
 
 	srv := asynq.NewServer(
 		asynq.RedisClientOpt{Addr: redisAddr},
 		asynq.Config{
 			Concurrency: runnerCfg.AsynqConcurrency,
 			Queues: map[string]int{
-				worker.QueueHunter:   runnerCfg.QueueHunterWeight,
+				worker.QueueOperator:   runnerCfg.QueueHunterWeight,
 				worker.QueueDispatch: runnerCfg.QueueDispatchWeight,
 			},
 		},
 	)
 
 	// Ingestor goroutine：消费 Redis Stream → 启发式 → 入 main 队列。
-	flowCtx, flowCancel := context.WithCancel(context.Background())
-	defer flowCancel()
+	trafficCtx, trafficCancel := context.WithCancel(context.Background())
+	defer trafficCancel()
 
-	trafficIngestor, err := ingestor.NewTraffic(flowCtx, ingestor.Deps{
+	trafficIngestor, err := ingestor.NewTraffic(trafficCtx, ingestor.Deps{
 		Redis:         rdb,
 		Cfg:           cfg.Ingestor,
 		Stream:        cfg.Proxy.StreamName,
 		Tenant:        cfg.Credential.RedisKeyPrefix,
 		Assignments:   assignmentStore,
 		Tasks:         taskStore,
-		ProxyFlows:    proxyFlows,
-		AgentFlows:    agentFlows,
-		Hunters:       hunters,
+		ProxyStore:    proxyStore,
+		AgentStore:    agentStore,
+		Hunters: operatorRuns,
 		Conversations: convStore, // passive 聚合建 task 后建会话流
 		Enqueuer:      wc,
 		Logger:        logger,
@@ -303,13 +323,13 @@ func main() {
 		logger.Fatal().Err(err).Msg("new ingestor.traffic")
 	}
 	go func() {
-		if err := trafficIngestor.Run(flowCtx); err != nil && !errors.Is(err, context.Canceled) {
+		if err := trafficIngestor.Run(trafficCtx); err != nil && !errors.Is(err, context.Canceled) {
 			logger.Error().Err(err).Msg("ingestor.traffic exited")
 		}
 	}()
 
 	// task reaper goroutine（B2 进度探活）：task.heartbeat_at 由 agent 每次工具调用驱动续命
-	// （见 einoToolSink.heartbeat）+ handler 入口重置一次。runner 进程崩溃或扫描卡死后心跳停摆，
+	// （见 toolRecordInterceptor 心跳逻辑）+ handler 入口重置一次。runner 进程崩溃或扫描卡死后心跳停摆，
 	// reaper 据此把超时孤儿判为 aborted——否则前端永远显示「进行中」。
 	//
 	// task 是有界运行，跑完即终态，无常驻监控会话概念，无 TTL 轮换。reaper 统一判活：
@@ -326,10 +346,10 @@ func main() {
 		defer ticker.Stop()
 		for {
 			select {
-			case <-flowCtx.Done():
+			case <-trafficCtx.Done():
 				return
 			case <-ticker.C:
-				if n, err := taskStore.ReapStale(flowCtx, staleAfter); err != nil {
+				if n, err := taskStore.ReapStale(trafficCtx, staleAfter); err != nil {
 					logger.Warn().Err(err).Msg("task reap stale failed")
 				} else if n > 0 {
 					logger.Warn().Int("aborted", n).Dur("stale_after", staleAfter).
@@ -373,7 +393,12 @@ func main() {
 	sig := <-stop
 	logger.Info().Str("signal", sig.String()).Msg("runner shutting down")
 
-	flowCancel()
+	// 清理所有活跃 Sandbox 容器
+	if err := sandboxMgr.DestroyAll(context.Background()); err != nil {
+		logger.Warn().Err(err).Msg("sandboxMgr.DestroyAll 失败（best-effort）")
+	}
+
+	trafficCancel()
 	asynqDone := make(chan struct{})
 	go func() {
 		srv.Shutdown()
@@ -396,25 +421,6 @@ func main() {
 
 // handler struct + failTask/abortTask/handle 入口 已抽到 handler.go。
 // handlePassive 在 handler_passive.go；handleActive 在 handler_active.go。
-
-// briefHostRe 匹配 http(s):// 后到 / 或 空白 之前的 host (含端口)。
 //
-// 例子（捕获组 [1]）：
-//
-//	"测试 http://target.com:8080/login.php" → "target.com:8080"
-//	"扫 https://api.foo.io/v1"             → "api.foo.io"
-//	"test bar.com"                          → 无匹配（缺 http(s):// 前缀）
-var briefHostRe = regexp.MustCompile(`https?://([^/\s]+)`)
-
-// extractHostFromBrief 从 active brief 抽 URL host 当 (owner, host) 切分键。
-//
-// 抽不到时回退 fallback（task_id 兜底），此时 lesson 跨 task 复用失效。
-// 这是按 brief 自然语言的弱契约设计：让 active 任务能自动按真实站点身份归档
-// note/finding/lesson，同时不破坏"自然语言 brief"的简单 API。
-func extractHostFromBrief(brief, fallback string) string {
-	m := briefHostRe.FindStringSubmatch(brief)
-	if len(m) < 2 {
-		return fallback
-	}
-	return m[1]
-}
+// brief → host 抽取已迁至 L2 域注册表（handler.onboardHost → executor.Registry.Onboard）：
+// host 抽取归各域 Profile，核心不再持有 briefHostRe 正则。
