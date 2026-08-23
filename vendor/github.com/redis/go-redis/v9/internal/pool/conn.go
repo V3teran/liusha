@@ -750,7 +750,7 @@ func (cn *Conn) GetStateMachine() *ConnStateMachine {
 // waiter notification, and benchmarks show 1-3% improvement. If the state machine ever
 // needs to notify waiters on these transitions, update this to use TryTransitionFast().
 func (cn *Conn) TryAcquire() bool {
-	// The || operator short-circuits, so only 1 CAS in the common case
+	// The || executor short-circuits, so only 1 CAS in the common case
 	return cn.stateMachine.state.CompareAndSwap(uint32(StateIdle), uint32(StateInUse)) ||
 		cn.stateMachine.state.CompareAndSwap(uint32(StateCreated), uint32(StateCreated))
 }

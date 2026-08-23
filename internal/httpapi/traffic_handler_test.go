@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -13,12 +14,13 @@ import (
 
 // fakeTraffic 是 TrafficAPI 的内存实现，用于路由级单测。
 type fakeTraffic struct {
-	rows      []traffic.ProxySummary
-	total     int
-	hosts     []string
-	byID      map[int64]traffic.ProxyTraffic
-	err       error
-	gotFilter traffic.ProxyListFilter // 列表收到的筛选（断言 query 解析）
+	rows         []traffic.ProxySummary
+	total        int
+	hosts        []string
+	contentTypes []string
+	byID         map[int64]traffic.ProxyTraffic
+	err          error
+	gotFilter    traffic.ProxyListFilter // 列表收到的筛选（断言 query 解析）
 }
 
 func (f *fakeTraffic) ListPagedGlobal(_ context.Context, filter traffic.ProxyListFilter) ([]traffic.ProxySummary, error) {
@@ -37,6 +39,10 @@ func (f *fakeTraffic) DistinctHosts(_ context.Context) ([]string, error) {
 	return f.hosts, f.err
 }
 
+func (f *fakeTraffic) DistinctContentTypes(_ context.Context) ([]string, error) {
+	return f.contentTypes, f.err
+}
+
 func (f *fakeTraffic) GetByID(_ context.Context, id int64) (traffic.ProxyTraffic, error) {
 	v, ok := f.byID[id]
 	if !ok {
@@ -49,14 +55,14 @@ func TestTrafficHandler(t *testing.T) {
 	t.Run("列表：筛选+分页透传，返回 items/total", func(t *testing.T) {
 		fake := &fakeTraffic{
 			rows: []traffic.ProxySummary{
-				{ID: 2, Host: "a.com", Method: "GET", Path: "/x", StatusCode: 200, DurationMs: 12, CapturedAt: time.Now()},
+				{ID: 2, Host: "a.com", Method: "GET", Path: "/x", StatusCode: 200, RespLen: 128, CapturedAt: time.Now()},
 			},
 			total: 37,
 		}
 		srv := newTestServer(t, Deps{Traffic: fake})
 		defer srv.Close()
 
-		req, _ := http.NewRequest("GET", srv.URL+"/traffic?host=a.com&method=get&path=/x*&status_min=200&status_max=299&page=2&size=10", nil)
+		req, _ := http.NewRequest("GET", srv.URL+"/traffic?host=a.com&method=get&path=/x*&content_type=application/json&search=admin*&status_min=200&status_max=299&since=2026-08-01T00:00:00Z&until=2026-08-07T00:00:00Z&page=2&size=10", nil)
 		req.Header.Set("X-API-Key", "k")
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
@@ -92,6 +98,39 @@ func TestTrafficHandler(t *testing.T) {
 		}
 		if fake.gotFilter.StatusMin != 200 || fake.gotFilter.StatusMax != 299 {
 			t.Errorf("status 边界透传错: %+v", fake.gotFilter)
+		}
+		// 新增维度：content_type 等值、search 跨列检索、since/until 时间区间（RFC3339）。
+		if fake.gotFilter.ContentType != "application/json" || fake.gotFilter.Search != "admin*" {
+			t.Errorf("content_type/search 透传错: %+v", fake.gotFilter)
+		}
+		wantSince := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
+		wantUntil := time.Date(2026, 8, 7, 0, 0, 0, 0, time.UTC)
+		if !fake.gotFilter.Since.Equal(wantSince) || !fake.gotFilter.Until.Equal(wantUntil) {
+			t.Errorf("时间区间透传错: since=%v until=%v", fake.gotFilter.Since, fake.gotFilter.Until)
+		}
+	})
+
+	t.Run("content-types 下拉：nil 归一为 []", func(t *testing.T) {
+		fake := &fakeTraffic{contentTypes: nil}
+		srv := newTestServer(t, Deps{Traffic: fake})
+		defer srv.Close()
+
+		req, _ := http.NewRequest("GET", srv.URL+"/traffic/content-types", nil)
+		req.Header.Set("X-API-Key", "k")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+
+		var body struct {
+			ContentTypes []string `json:"content_types"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		if body.ContentTypes == nil {
+			t.Error("content_types nil 应归一为空数组")
 		}
 	})
 
@@ -139,8 +178,10 @@ func TestTrafficHandler(t *testing.T) {
 	t.Run("详情：命中返回 body，未命中 404", func(t *testing.T) {
 		fake := &fakeTraffic{byID: map[int64]traffic.ProxyTraffic{
 			5: {ID: 5, Host: "a.com", Method: "POST", URL: "https://a.com/login", Path: "/login",
-				StatusCode: 200, RequestBody: []byte("u=admin"), ResponseBody: []byte("ok"),
-				RequestHeaders: json.RawMessage(`{"Content-Type":["text/plain"]}`)},
+				StatusCode: 200, ContentType: "text/plain", HTTPVersion: "HTTP/1.1",
+				RequestRaw:  []byte("POST /login HTTP/1.1\r\nHost: a.com\r\n\r\nu=admin"),
+				ResponseRaw: []byte("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\nok"),
+				ConsumedBy:  []traffic.ConsumerTask{{TaskID: "t1", ScenarioID: "api-pentest", Host: "a.com", Status: "completed"}}},
 		}}
 		srv := newTestServer(t, Deps{Traffic: fake})
 		defer srv.Close()
@@ -153,17 +194,24 @@ func TestTrafficHandler(t *testing.T) {
 			t.Fatal(err)
 		}
 		var body struct {
-			ID           int64           `json:"id"`
-			RequestBody  string          `json:"request_body"`
-			ResponseBody string          `json:"response_body"`
-			ReqHeaders   json.RawMessage `json:"request_headers"`
+			ID          int64  `json:"id"`
+			RequestRaw  string `json:"request_raw"`
+			ResponseRaw string `json:"response_raw"`
+			ContentType string `json:"content_type"`
+			ConsumedBy  []struct {
+				TaskID string `json:"task_id"`
+				ConvID string `json:"conv_id"`
+			} `json:"consumed_by"`
 		}
 		if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
 			t.Fatal(err)
 		}
 		resp.Body.Close()
-		if body.ID != 5 || body.RequestBody != "u=admin" || body.ResponseBody != "ok" {
-			t.Errorf("详情 body 不符: %+v", body)
+		if body.ID != 5 || !strings.Contains(body.RequestRaw, "u=admin") || !strings.Contains(body.ResponseRaw, "ok") {
+			t.Errorf("详情 raw 报文不符: %+v", body)
+		}
+		if len(body.ConsumedBy) != 1 || body.ConsumedBy[0].TaskID != "t1" {
+			t.Errorf("consumed_by 不符: %+v", body.ConsumedBy)
 		}
 
 		// 未命中 → 404

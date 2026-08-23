@@ -54,7 +54,7 @@ type CountRequest struct {
 	AllowNoIndices    *bool
 	Analyzer          string
 	AnalyzeWildcard   *bool
-	DefaultOperator   string
+	DefaultExecutor   string
 	Df                string
 	ExpandWildcards   string
 	IgnoreThrottled   *bool
@@ -112,8 +112,8 @@ func (r CountRequest) Do(ctx context.Context, transport Transport) (*Response, e
 		params["analyze_wildcard"] = strconv.FormatBool(*r.AnalyzeWildcard)
 	}
 
-	if r.DefaultOperator != "" {
-		params["default_operator"] = r.DefaultOperator
+	if r.DefaultExecutor != "" {
+		params["default_executor"] = r.DefaultExecutor
 	}
 
 	if r.Df != "" {
@@ -268,10 +268,10 @@ func (f Count) WithAnalyzeWildcard(v bool) func(*CountRequest) {
 	}
 }
 
-// WithDefaultOperator - the default operator for query string query (and or or).
-func (f Count) WithDefaultOperator(v string) func(*CountRequest) {
+// WithDefaultExecutor - the default executor for query string query (and or or).
+func (f Count) WithDefaultExecutor(v string) func(*CountRequest) {
 	return func(r *CountRequest) {
-		r.DefaultOperator = v
+		r.DefaultExecutor = v
 	}
 }
 

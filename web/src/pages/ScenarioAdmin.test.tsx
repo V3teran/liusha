@@ -3,8 +3,8 @@ import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { ScenarioAdmin } from './ScenarioAdmin'
 import { listScenariosPaged } from '@/api/client'
-import { saveScenario, deleteScenario, listHunterConfigs } from '@/api/config'
-import type { ScenarioConfig, HunterConfig } from '@/api/types'
+import { saveScenario, deleteScenario, listAgentConfigs } from '@/api/config'
+import type { ScenarioConfig, AgentConfig } from '@/api/types'
 
 vi.mock('@/api/client', () => ({
   listScenariosPaged: vi.fn(),
@@ -13,13 +13,13 @@ vi.mock('@/api/client', () => ({
 vi.mock('@/api/config', () => ({
   saveScenario: vi.fn(),
   deleteScenario: vi.fn(),
-  listHunterConfigs: vi.fn(),
+  listAgentConfigs: vi.fn(),
 }))
 
 const mListSc = listScenariosPaged as unknown as ReturnType<typeof vi.fn>
 const mSave = saveScenario as unknown as ReturnType<typeof vi.fn>
 const mDelete = deleteScenario as unknown as ReturnType<typeof vi.fn>
-const mListHunters = listHunterConfigs as unknown as ReturnType<typeof vi.fn>
+const mListAgents = listAgentConfigs as unknown as ReturnType<typeof vi.fn>
 
 // listScenariosPaged 返回 {scenarios,total} 信封——用 helper 从场景数组构造。
 const paged = (rows: ScenarioConfig[]) => ({ scenarios: rows, total: rows.length })
@@ -32,12 +32,12 @@ function sc(o: Partial<ScenarioConfig> = {}): ScenarioConfig {
     description: '',
     instruction: '',
     engine: 'swarm',
-    solo_hunter_id: '',
+    solo_agent_id: '',
     enabled: true,
     ...o,
   }
 }
-const hunter: HunterConfig = {
+const agent: AgentConfig = {
   id: 'h-recon',
   code: 'recon',
   kind: 'domain',
@@ -55,8 +55,8 @@ describe('ScenarioAdmin', () => {
     mListSc.mockReset()
     mSave.mockReset()
     mDelete.mockReset()
-    mListHunters.mockReset()
-    mListHunters.mockResolvedValue([hunter])
+    mListAgents.mockReset()
+    mListAgents.mockResolvedValue([agent])
     vi.spyOn(window, 'alert').mockImplementation(() => {})
     vi.spyOn(window, 'confirm').mockReturnValue(true)
   })
@@ -115,7 +115,7 @@ describe('ScenarioAdmin', () => {
   })
 
   it('solo 场景回填执行智能体选择器', async () => {
-    mListSc.mockResolvedValue(paged([sc({ engine: 'solo', solo_hunter_id: 'h-recon' })]))
+    mListSc.mockResolvedValue(paged([sc({ engine: 'solo', solo_agent_id: 'h-recon' })]))
     render(<ScenarioAdmin />)
     await userEvent.click(await screen.findByText('Web 渗透'))
     expect(await screen.findByText('执行智能体')).toBeTruthy()

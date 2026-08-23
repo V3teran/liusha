@@ -9,18 +9,23 @@ import (
 	"github.com/hibiken/asynq"
 	"github.com/rs/zerolog"
 
-	cfgscenario "github.com/V3teran/liusha/internal/config/scenario"
+	"github.com/V3teran/liusha/internal/actor"
+	"github.com/V3teran/liusha/internal/agentrun"
+	"github.com/V3teran/liusha/internal/cognition"
 	"github.com/V3teran/liusha/internal/config"
+	cfgscenario "github.com/V3teran/liusha/internal/config/scenario"
 	"github.com/V3teran/liusha/internal/config/settingstore"
 	"github.com/V3teran/liusha/internal/configstore"
+	"github.com/V3teran/liusha/internal/controlplane"
 	"github.com/V3teran/liusha/internal/conversation"
 	"github.com/V3teran/liusha/internal/corpus"
 	"github.com/V3teran/liusha/internal/credential"
 	"github.com/V3teran/liusha/internal/executor"
+	"github.com/V3teran/liusha/internal/executionplan"
 	"github.com/V3teran/liusha/internal/finding"
 	"github.com/V3teran/liusha/internal/lead"
+	"github.com/V3teran/liusha/internal/ledger"
 	"github.com/V3teran/liusha/internal/llminvocation"
-	"github.com/V3teran/liusha/internal/agentrun"
 	"github.com/V3teran/liusha/internal/provider"
 	"github.com/V3teran/liusha/internal/ratelimit"
 	"github.com/V3teran/liusha/internal/sandbox"
@@ -32,13 +37,11 @@ import (
 	"github.com/V3teran/liusha/internal/traffic"
 	"github.com/V3teran/liusha/internal/worker"
 	"github.com/V3teran/liusha/internal/worldmodel"
-	"github.com/V3teran/liusha/internal/actor"
-	"github.com/V3teran/liusha/internal/ledger"
 )
 
 // handler 持有所有跨任务共享依赖。
 type handler struct {
-	operators  *agentrun.Store
+	executors  *agentrun.Store
 	tasks      *task.Store
 	findings   *finding.Store
 	corpus     *corpus.Store
@@ -51,7 +54,7 @@ type handler struct {
 	hostSem    *ratelimit.HostSemaphore
 	settings   *settingstore.Store
 	runnerCfg  config.RunnerConfig
-	sandboxMgr *sandbox.Manager
+	sandboxMgr *sandbox.PooledManager
 	logger     zerolog.Logger
 
 	// LLM 路由（tier → provider）
@@ -75,6 +78,12 @@ type handler struct {
 	// Actor 基础设施
 	ledger     *ledger.Ledger
 	checkpoint actor.CheckpointStore
+
+	// 事件驱动的 Planner Agent 基础设施
+	eventBus     *cognition.EventBus
+	planStore    *executionplan.Store
+	plannerMgr   *plannerAgentManager
+	controlPlane *controlplane.Store
 }
 
 // onboard 用域注册表解析 brief 目标，并完成三件 best-effort 副作用：
@@ -116,32 +125,32 @@ func terminalCtx(ctx context.Context) (context.Context, context.CancelFunc) {
 	return context.WithTimeout(context.WithoutCancel(ctx), terminalWriteTimeout)
 }
 
-func (h handler) failTask(ctx context.Context, operatorID string, err error) error {
+func (h handler) failTask(ctx context.Context, executorID string, err error) error {
 	writeCtx, cancel := terminalCtx(ctx)
 	defer cancel()
-	if setErr := h.operators.SetError(writeCtx, operatorID, err.Error()); setErr != nil {
-		h.logger.Warn().Err(setErr).Str("operator_id", operatorID).
+	if setErr := h.executors.SetError(writeCtx, executorID, err.Error()); setErr != nil {
+		h.logger.Warn().Err(setErr).Str("executor_id", executorID).
 			Msg("SetError 失败（task 留在 running，原始错误已透传给 caller）")
 	}
 	return err
 }
 
-func (h handler) abortTask(ctx context.Context, operatorID, reason string) error {
+func (h handler) abortTask(ctx context.Context, executorID, reason string) error {
 	writeCtx, cancel := terminalCtx(ctx)
 	defer cancel()
-	if setErr := h.operators.SetAborted(writeCtx, operatorID); setErr != nil {
-		h.logger.Warn().Err(setErr).Str("operator_id", operatorID).Str("reason", reason).
+	if setErr := h.executors.SetAborted(writeCtx, executorID); setErr != nil {
+		h.logger.Warn().Err(setErr).Str("executor_id", executorID).Str("reason", reason).
 			Msg("SetAborted 失败（task 留在 running）")
 	}
-	h.logger.Info().Str("operator_id", operatorID).Str("reason", reason).Msg("task aborted")
+	h.logger.Info().Str("executor_id", executorID).Str("reason", reason).Msg("task aborted")
 	return nil
 }
 
-// handle 是单个 hunter task 的处理入口。
+// handle 是单个 agent task 的处理入口。
 func (h handler) handle(ctx context.Context, p worker.Payload) (retErr error) {
 	taskStart := time.Now()
 	h.logger.Info().
-		Str("operator_id", p.OperatorID).
+		Str("executor_id", p.ExecutorID).
 		Str("task_id", p.TaskID).
 		Str("role", string(p.Role)).
 		Msg("asynq task ▶ enter")
@@ -150,18 +159,26 @@ func (h handler) handle(ctx context.Context, p worker.Payload) (retErr error) {
 		if retErr != nil {
 			ev = h.logger.Warn().Err(retErr)
 		}
-		ev.Str("operator_id", p.OperatorID).
+		ev.Str("executor_id", p.ExecutorID).
 			Str("task_id", p.TaskID).
 			Dur("duration", time.Since(taskStart)).
 			Msg("asynq task ◀ exit")
+
+		// Task 结束时停止 Planner Agent
+		h.plannerMgr.Stop(p.TaskID)
 	}()
 
-	if run, getErr := h.operators.GetByID(ctx, p.OperatorID); getErr == nil && run.Status != agentrun.StatusPending {
+	if run, getErr := h.executors.GetByID(ctx, p.ExecutorID); getErr == nil && run.Status != agentrun.StatusPending {
 		h.logger.Warn().
-			Str("operator_id", p.OperatorID).
+			Str("executor_id", p.ExecutorID).
 			Str("status", string(run.Status)).
 			Msg("asynq task 已被处理过，跳过重试（防 PG 僵尸 + 矛盾态）")
 		return asynq.SkipRetry
+	}
+
+	// 启动 Planner Agent（异步，事件驱动）
+	if err := h.plannerMgr.Start(ctx, h, p.TaskID); err != nil {
+		h.logger.Error().Err(err).Str("task_id", p.TaskID).Msg("启动 Planner Agent 失败（不阻塞任务）")
 	}
 
 	if h.hostSem != nil {
@@ -180,7 +197,7 @@ func (h handler) handle(ctx context.Context, p worker.Payload) (retErr error) {
 		}
 	}
 
-	if err := h.operators.SetRunning(ctx, p.OperatorID); err != nil {
+	if err := h.executors.SetRunning(ctx, p.ExecutorID); err != nil {
 		return err
 	}
 
@@ -188,12 +205,12 @@ func (h handler) handle(ctx context.Context, p worker.Payload) (retErr error) {
 		Brief string `json:"brief"`
 	}
 	if err := json.Unmarshal(p.Input, &input); err != nil {
-		return h.failTask(ctx, p.OperatorID, err)
+		return h.failTask(ctx, p.ExecutorID, err)
 	}
 
 	scen, err := h.cfgStore.ScenarioByCode(ctx, p.ScenarioID)
 	if err != nil {
-		return h.failTask(ctx, p.OperatorID, fmt.Errorf("加载 scenario %s 失败: %w", p.ScenarioID, err))
+		return h.failTask(ctx, p.ExecutorID, fmt.Errorf("加载 scenario %s 失败: %w", p.ScenarioID, err))
 	}
 
 	timeout := h.runnerCfg.SoloAgentRunTimeoutSeconds
@@ -208,21 +225,21 @@ func (h handler) handle(ctx context.Context, p worker.Payload) (retErr error) {
 
 	switch scen.Engine {
 	case cfgscenario.EngineSolo:
-		if scen.SoloOperatorID == nil || *scen.SoloOperatorID == "" {
-			return h.failTask(ctx, p.OperatorID, fmt.Errorf("solo scenario %s 未指定 solo_operator_id", scen.Code))
+		if scen.SoloExecutorID == nil || *scen.SoloExecutorID == "" {
+			return h.failTask(ctx, p.ExecutorID, fmt.Errorf("solo scenario %s 未指定 solo_executor_id", scen.Code))
 		}
-		op, err := h.cfgStore.OperatorByID(ctx, *scen.SoloOperatorID)
+		op, err := h.cfgStore.ExecutorByID(ctx, *scen.SoloExecutorID)
 		if err != nil {
-			return h.failTask(ctx, p.OperatorID, fmt.Errorf("scenario %s 引用的 operator %s 加载失败: %w", scen.Code, *scen.SoloOperatorID, err))
+			return h.failTask(ctx, p.ExecutorID, fmt.Errorf("scenario %s 引用的 executor %s 加载失败: %w", scen.Code, *scen.SoloExecutorID, err))
 		}
 		return h.handleSolo(ctx, p, scen, op, input.Brief)
 	case cfgscenario.EngineSwarm:
-		operators, err := h.cfgStore.EnabledDomainOperators(ctx)
+		executors, err := h.cfgStore.EnabledDomainExecutors(ctx)
 		if err != nil {
-			return h.failTask(ctx, p.OperatorID, fmt.Errorf("加载 enabled 领域操作员失败: %w", err))
+			return h.failTask(ctx, p.ExecutorID, fmt.Errorf("加载 enabled 领域操作员失败: %w", err))
 		}
-		return h.handleSwarm(ctx, p, scen, operators, input.Brief)
+		return h.handleSwarm(ctx, p, scen, executors, input.Brief)
 	default:
-		return h.failTask(ctx, p.OperatorID, fmt.Errorf("unknown engine: %s", scen.Engine))
+		return h.failTask(ctx, p.ExecutorID, fmt.Errorf("unknown engine: %s", scen.Engine))
 	}
 }

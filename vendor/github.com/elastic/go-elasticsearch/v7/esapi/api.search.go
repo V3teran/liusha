@@ -59,7 +59,7 @@ type SearchRequest struct {
 	AnalyzeWildcard            *bool
 	BatchedReduceSize          *int
 	CcsMinimizeRoundtrips      *bool
-	DefaultOperator            string
+	DefaultExecutor            string
 	Df                         string
 	DocvalueFields             []string
 	ExpandWildcards            string
@@ -155,8 +155,8 @@ func (r SearchRequest) Do(ctx context.Context, transport Transport) (*Response, 
 		params["ccs_minimize_roundtrips"] = strconv.FormatBool(*r.CcsMinimizeRoundtrips)
 	}
 
-	if r.DefaultOperator != "" {
-		params["default_operator"] = r.DefaultOperator
+	if r.DefaultExecutor != "" {
+		params["default_executor"] = r.DefaultExecutor
 	}
 
 	if r.Df != "" {
@@ -436,10 +436,10 @@ func (f Search) WithCcsMinimizeRoundtrips(v bool) func(*SearchRequest) {
 	}
 }
 
-// WithDefaultOperator - the default operator for query string query (and or or).
-func (f Search) WithDefaultOperator(v string) func(*SearchRequest) {
+// WithDefaultExecutor - the default executor for query string query (and or or).
+func (f Search) WithDefaultExecutor(v string) func(*SearchRequest) {
 	return func(r *SearchRequest) {
-		r.DefaultOperator = v
+		r.DefaultExecutor = v
 	}
 }
 

@@ -17,7 +17,7 @@ function sc(o: Partial<ScenarioConfig>): ScenarioConfig {
     description: '',
     instruction: '',
     engine: 'swarm',
-    solo_hunter_id: '',
+    solo_agent_id: '',
     enabled: true,
     ...o,
   }

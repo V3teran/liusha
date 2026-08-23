@@ -1,4 +1,4 @@
-// Package chat 实现无 task 的纯聊天路径：意图闸（internal/intent）判定用户消息不是要下发
+// Package chat 实现无 task 的纯聊天路径：消息分流闸（internal/msgclass）判定用户消息不是要下发
 // 扫描（action）时，用便宜 LLM 作为通用渗透测试助手回答，不读黑板 finding、不触发扫描。
 //
 // 与 internal/qa 的分工：qa 就"已挖到的 finding"答（需 task 黑板）；chat 是无 task 语境的

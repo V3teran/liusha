@@ -26,9 +26,11 @@ function renderShell(n: number) {
 }
 
 describe('ConfigListShell 分页', () => {
-  it('不足一页（≤12 项）时不渲染翻页条', () => {
+  it('不足一页（≤12 项）时仍显示翻页条，但下一页置灰', () => {
     renderShell(12)
-    expect(screen.queryByText('下一页')).toBeNull()
+    const next = screen.getByText('下一页').closest('button')!
+    expect(next).toBeDisabled()
+    expect(screen.getByText('共 12 项')).toBeTruthy()
     expect(screen.getByText('item-11')).toBeTruthy()
   })
 

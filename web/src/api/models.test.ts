@@ -26,7 +26,7 @@ const PROV: ProviderConfig = {
   type: 'openai_compat',
   base_url: 'https://api.deepseek.com',
   default_model: 'deepseek-chat',
-  api_key_env: 'DEEPSEEK_API_KEY',
+  api_key: 'sk-test-secret',
   key_present: true,
   max_tokens: 4096,
   supports_tools: true,
@@ -63,7 +63,7 @@ describe('models API 客户端', () => {
       type: 'openai_compat',
       base_url: 'https://api.deepseek.com',
       default_model: 'deepseek-chat',
-      api_key_env: 'DEEPSEEK_API_KEY',
+      api_key: 'sk-test-secret',
       max_tokens: 4096,
       supports_tools: true,
       supports_vision: false,
@@ -72,9 +72,9 @@ describe('models API 客户端', () => {
       sort_order: 0,
       enabled: true,
     })
-    // 安全：密钥值从不经前端，body 只带环境变量名，且不回传 key_present。
+    // 安全：body 只带明文 api_key（走 HTTPS 一次性提交，后端加密落库），不回传 key_present。
     expect(body).not.toHaveProperty('key_present')
-    expect(body.api_key_env).toBe('DEEPSEEK_API_KEY')
+    expect(body.api_key).toBe('sk-test-secret')
   })
 
   it('saveProvider 编辑走 PUT /models/providers/:key（key 做 URL 编码）', async () => {
@@ -92,26 +92,26 @@ describe('models API 客户端', () => {
 
   it('getRouting 打 /models/routing 返回 routes（无别名层）', async () => {
     const fn = mockFetch(200, {
-      routes: [{ role: 'orchestrator', provider_key: 'deepseek' }],
+      routes: [{ role: 'planner', provider_key: 'deepseek' }],
     })
     const r = await getRouting()
     expect(fn.mock.calls[0][0]).toBe('/api/models/routing')
-    expect(r.routes[0].role).toBe('orchestrator')
+    expect(r.routes[0].role).toBe('planner')
     expect(r.routes[0].provider_key).toBe('deepseek')
   })
 
   it('saveRoleRoute 打 PUT /models/routes/:role 带 provider_key', async () => {
-    const fn = mockFetch(200, { route: { role: 'orchestrator', provider_key: 'deepseek' } })
-    await saveRoleRoute('orchestrator', 'deepseek')
+    const fn = mockFetch(200, { route: { role: 'planner', provider_key: 'deepseek' } })
+    await saveRoleRoute('planner', 'deepseek')
     const [url, init] = fn.mock.calls[0]
-    expect(url).toBe('/api/models/routes/orchestrator')
+    expect(url).toBe('/api/models/routes/planner')
     expect(init.method).toBe('PUT')
     expect(JSON.parse(init.body)).toEqual({ provider_key: 'deepseek' })
   })
 
   it('saveRoleRoute 遇 409 抛后端中文 error（provider 不存在）', async () => {
     mockFetch(409, { error: 'provider_key 不存在，请先创建对应 provider' })
-    await expect(saveRoleRoute('orchestrator', 'ghost')).rejects.toThrow('provider_key 不存在')
+    await expect(saveRoleRoute('planner', 'ghost')).rejects.toThrow('provider_key 不存在')
   })
 
   it('deleteRoleRoute 打 DELETE /models/routes/:role', async () => {

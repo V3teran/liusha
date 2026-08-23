@@ -1,28 +1,28 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { HunterAdmin } from './HunterAdmin'
-import { listHuntersPaged } from '@/api/client'
-import { saveHunter, deleteHunter, listToolCandidates } from '@/api/config'
-import type { HunterConfig, Tool, ToolKind } from '@/api/types'
+import { AgentAdmin } from './AgentAdmin'
+import { listAgentsPaged } from '@/api/client'
+import { saveAgent, deleteAgent, listToolCandidates } from '@/api/config'
+import type { AgentConfig, Tool, ToolKind } from '@/api/types'
 
 vi.mock('@/api/client', () => ({
-  listHuntersPaged: vi.fn(),
+  listAgentsPaged: vi.fn(),
 }))
 
 vi.mock('@/api/config', () => ({
-  saveHunter: vi.fn(),
-  deleteHunter: vi.fn(),
+  saveAgent: vi.fn(),
+  deleteAgent: vi.fn(),
   listToolCandidates: vi.fn(),
 }))
 
-const mList = listHuntersPaged as unknown as ReturnType<typeof vi.fn>
-const mSave = saveHunter as unknown as ReturnType<typeof vi.fn>
-const mDelete = deleteHunter as unknown as ReturnType<typeof vi.fn>
+const mList = listAgentsPaged as unknown as ReturnType<typeof vi.fn>
+const mSave = saveAgent as unknown as ReturnType<typeof vi.fn>
+const mDelete = deleteAgent as unknown as ReturnType<typeof vi.fn>
 const mListCandidates = listToolCandidates as unknown as ReturnType<typeof vi.fn>
 
-// listHuntersPaged 返回 {hunters,total} 信封。
-const paged = (rows: HunterConfig[]) => ({ hunters: rows, total: rows.length })
+// listAgentsPaged 返回 {agents,total} 信封。
+const paged = (rows: AgentConfig[]) => ({ agents: rows, total: rows.length })
 
 function tool(name: string, kind: ToolKind, category: string): Tool {
   return { name, kind, category, description: `${name} 描述`, sort_order: 0 }
@@ -32,11 +32,11 @@ function tool(name: string, kind: ToolKind, category: string): Tool {
 const FUNCTION_TOOLS = [tool('read_findings', 'function', 'findings'), tool('write_finding', 'function', 'findings')]
 const CLI_TOOLS = [tool('nmap', 'cli', 'recon'), tool('nuclei', 'cli', 'vulnscan')]
 
-function h(o: Partial<HunterConfig> = {}): HunterConfig {
+function h(o: Partial<AgentConfig> = {}): AgentConfig {
   return {
     id: 'h1',
     code: 'recon',
-    kind: 'domain',
+    kind: 'executor',
     name: '侦察猎手',
     description: '',
     body: 'charter',
@@ -48,7 +48,7 @@ function h(o: Partial<HunterConfig> = {}): HunterConfig {
   }
 }
 
-describe('HunterAdmin', () => {
+describe('AgentAdmin', () => {
   beforeEach(() => {
     mList.mockReset()
     mSave.mockReset()
@@ -63,13 +63,13 @@ describe('HunterAdmin', () => {
 
   it('挂载加载猎手列表', async () => {
     mList.mockResolvedValue(paged([h()]))
-    render(<HunterAdmin />)
+    render(<AgentAdmin />)
     expect(await screen.findByText('侦察猎手')).toBeTruthy()
   })
 
   it('内部工具集从目录读取候选并回填选中态', async () => {
     mList.mockResolvedValue(paged([h()])) // function_tools=['read_findings']
-    render(<HunterAdmin />)
+    render(<AgentAdmin />)
     await userEvent.click(await screen.findByText('侦察猎手'))
     await screen.findByText('编辑智能体')
     await userEvent.click(screen.getByRole('tab', { name: '工具集' }))
@@ -83,7 +83,7 @@ describe('HunterAdmin', () => {
   it('勾选内部函数工具后保存进 function_tools', async () => {
     mList.mockResolvedValue(paged([h()])) // 初值 function_tools=['read_findings']
     mSave.mockResolvedValue(h())
-    render(<HunterAdmin />)
+    render(<AgentAdmin />)
     await userEvent.click(await screen.findByText('侦察猎手'))
     await screen.findByText('编辑智能体')
     await userEvent.click(screen.getByRole('tab', { name: '工具集' }))
@@ -94,15 +94,15 @@ describe('HunterAdmin', () => {
   })
 
   it('编排猎手显示编排徽章', async () => {
-    mList.mockResolvedValue(paged([h({ kind: 'orchestrator', name: '编排猎手' })]))
-    render(<HunterAdmin />)
+    mList.mockResolvedValue(paged([h({ kind: 'planner', name: '编排猎手' })]))
+    render(<AgentAdmin />)
     expect(await screen.findByText('编排')).toBeTruthy()
   })
 
-  it('删除走确认后调 deleteHunter', async () => {
+  it('删除走确认后调 deleteAgent', async () => {
     mList.mockResolvedValue(paged([h()]))
     mDelete.mockResolvedValue(undefined)
-    render(<HunterAdmin />)
+    render(<AgentAdmin />)
     await userEvent.click(await screen.findByText('侦察猎手'))
     await userEvent.click(await screen.findByText('删除'))
     await waitFor(() => expect(mDelete).toHaveBeenCalledWith('h1'))
@@ -111,7 +111,7 @@ describe('HunterAdmin', () => {
   it('工具候选拉取失败时降级为空、不拖垮智能体列表', async () => {
     mList.mockResolvedValue(paged([h()]))
     mListCandidates.mockRejectedValue(new Error('500'))
-    render(<HunterAdmin />)
+    render(<AgentAdmin />)
     // 主体列表仍渲染，不进整页错误态。
     expect(await screen.findByText('侦察猎手')).toBeTruthy()
     await userEvent.click(screen.getByText('侦察猎手'))
@@ -123,7 +123,7 @@ describe('HunterAdmin', () => {
   it('勾选外部工具白名单后保存进 cli_tools', async () => {
     mList.mockResolvedValue(paged([h()])) // 初值 cli_tools=[]
     mSave.mockResolvedValue(h())
-    render(<HunterAdmin />)
+    render(<AgentAdmin />)
     await userEvent.click(await screen.findByText('侦察猎手'))
     await screen.findByText('编辑智能体')
     await userEvent.click(screen.getByRole('tab', { name: '工具集' }))

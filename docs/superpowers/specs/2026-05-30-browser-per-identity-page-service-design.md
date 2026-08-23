@@ -13,7 +13,7 @@
 
 0529 回归 browse-use 原生 `--session`，删掉了手动 chromium daemon + `--cdp-url`，确实修好了「首个调用后 daemon 永久锁死」。模型定为：
 
-- **session = 身份（cookie jar）**：同身份 orchestrator/exploitation 共用一个 `--session` 浏览器。
+- **session = 身份（cookie jar）**：同身份 planner/exploitation 共用一个 `--session` 浏览器。
 - **tab = agent**：谁先 `open` 占 tab0，后来者 `window.open(url)` 新 tab；tab 号记 `/tmp/browser-tab-${SESSION}-${TASK_ID}.idx`。
 - **flock 串行**：每个需要 tab 上下文的子命令，先 `exec 9>"$LOCK"; flock -x 9`，临界区内 `switch $TAB_IDX` + 跑命令。
 
@@ -23,11 +23,11 @@
 
 `browser-use-cli` 的 daemon 只有**一个全局"当前活动 tab"**，所有操作作用在它上面，要操作 tab N 必须先 `switch tab N`。同身份多个 agent 并发时，「A switch tab1 → B switch tab2 → A click」会点到 tab2（串台）。wrapper 用 flock 把「switch + 操作」锁成原子来防串台。
 
-代价：**flock 握着跑完整条 bu 命令，包括最慢的 page-settle**。于是同身份下 N 个 agent 的 browser 操作被锁成完全串行——单线程 warm open <1s，但 orchestrator + 3-5 exploitation 真并发时，抢不到锁的 agent 干等，墙钟随并发度线性恶化，且抢不到锁的 exploitation 不去干别的活、纯阻塞空等。
+代价：**flock 握着跑完整条 bu 命令，包括最慢的 page-settle**。于是同身份下 N 个 agent 的 browser 操作被锁成完全串行——单线程 warm open <1s，但 planner + 3-5 exploitation 真并发时，抢不到锁的 agent 干等，墙钟随并发度线性恶化，且抢不到锁的 exploitation 不去干别的活、纯阻塞空等。
 
 ### 这次复盘的实测佐证（本会话）
 
-重放上一次过了的 `active:xss`（PASS=3 findings），逐条 LLM 交互 + tool_invocation 复盘发现：**PASS 不是干净的 Choice A**——orchestrator 预热 open 被 LLM 传的 `timeout_seconds=30` 在 30s 砍掉，jar 没种上；exploitations 各自在登录页重登 / curl 旁路；同身份 flock 争用让 browser 操作排队；伴随每 exploitation 重登的凭证风暴。结论：能力可用但**机制脏**，PASS 靠 exploitation 蛮力 + 一点运气。
+重放上一次过了的 `active:xss`（PASS=3 findings），逐条 LLM 交互 + tool_invocation 复盘发现：**PASS 不是干净的 Choice A**——planner 预热 open 被 LLM 传的 `timeout_seconds=30` 在 30s 砍掉，jar 没种上；exploitations 各自在登录页重登 / curl 旁路；同身份 flock 争用让 browser 操作排队；伴随每 exploitation 重登的凭证风暴。结论：能力可用但**机制脏**，PASS 靠 exploitation 蛮力 + 一点运气。
 
 ### 根因
 
@@ -61,13 +61,13 @@ serialized.llm_representation()                            # 就是 CLI state �
 - **删掉全局 flock + `/tmp/*.idx` + tab0-claimed marker 这套 sh/文件簿记**，换成一个**每身份进程内 Page 路由服务**：在内存里持有 `BrowserSession` + `pages[task_id] → actor.Page`，操作直打本 tab 的 CDP session。同身份多 agent **真并发**，互不串台、互不阻塞。
 - **100% 复用 browse-use** —— DomService、序列化器、numbered 索引、extract、mouse 全沿用，**0 行重造**。只是不再走 `browser-use-cli` 的 daemon 门面，改直接调 `actor.Page` API。
 - **保留 0529 的身份/tab 模型**：session=身份(cookie jar)、tab=agent、同身份共浏览器 tab 隔离、多身份多 chromium。
-- **保留 `browser_use.go` 工具接口零变化**：action 枚举 / 参数 schema / grounding 坐标换算 / 自动截图全不动；上层 hunter LLM 逐步驱动不变。
+- **保留 `browser_use.go` 工具接口零变化**：action 枚举 / 参数 schema / grounding 坐标换算 / 自动截图全不动；上层 agent LLM 逐步驱动不变。
 - **登录态原生共享**：同身份同 context，任一 tab 登录后全身份 tab 共享全套(cookie + localStorage + token)，**无导出导入、无 redis 注入**。
 
 ## 非目标
 
 - 不全迁 playwright（browse-use 一行不动，playwright/CDP 本就在底下）。
-- 不改 browse-use 自主 agent（LLM driver 仍是我们的 hunter LLM，离散 action 不变）。
+- 不改 browse-use 自主 agent（LLM driver 仍是我们的 agent LLM，离散 action 不变）。
 - 不做 cookie/jar 跨浏览器克隆（凭证不止 cookie、位置不固定，导不准——干净版靠"同 context 原生共享"绕过，根本不导）。
 - 不动 `vuln/bac` skill 的 curl-replay 多身份对比逻辑（不涉浏览器）。
 - 不恢复 CDP capture（v35 已收口）。
@@ -99,7 +99,7 @@ Go 侧（`browser_use.go`）发的命令形状不变：`IDENTITY=x browser-use <
 - **一身份一进程**：owns 一个 `BrowserSession`（一个 chromium、一个 cookie jar、一个 `cdp_client`）。
 - **懒启动 + 幂等守卫**：某身份第一个命令到达时，若服务未起则启动它 + 让 browse-use 自启 chromium（冷启 ~20s 只付一次）。守卫只锁这一次启动，**登完即放**——这是全系统唯一保留的锁，且只在「启动」期短暂持有，不在每次操作上。
 - **Page 注册表**：`pages: dict[task_id -> Page]`。某 (身份,task) 第一个 `open` → 建新 target(tab) + 注册其 `Page`；后续命令按 `task_id` 查表复用同一 `Page`。这张内存 dict **取代** `/tmp/browser-tab-*.idx` + `tab0-claimed` marker + flock 的全部簿记。
-- **谁先开 role-agnostic**：orchestrator 或 exploitation，谁的命令先到就建 tab、注册 Page；与角色无关，天然「丝滑」。
+- **谁先开 role-agnostic**：planner 或 exploitation，谁的命令先到就建 tab、注册 Page；与角色无关，天然「丝滑」。
 - **无全局锁的并发**：服务跑一个 asyncio loop，每个请求一个 task，操作 `await` CDP；`cdp_client` 单 websocket 按 message-id + session_id 多路复用（cdp_use 负责），**不同 tab 的操作天然交错并发**。同一 tab 不会被并发请求命中（task=单 agent），故无需 per-page 锁。
 
 ### action → actor.Page 映射（全部复用 browse-use，0 重造）
@@ -146,7 +146,7 @@ flock 是 contention 根。一旦操作按 target 直达，全局锁失去存在
 
 ### 决策 3：保留 `browser_use.go` 接口，wrapper 退化为薄客户端
 
-Go 侧 action/schema/grounding/自动截图全不动，向后兼容，hunter prompt 无需改。wrapper 从「shell 编排 flock+switch」退化成「把命令 + HUNTER_ID 转发到 socket」，逻辑大幅变薄。
+Go 侧 action/schema/grounding/自动截图全不动，向后兼容，agent prompt 无需改。wrapper 从「shell 编排 flock+switch」退化成「把命令 + HUNTER_ID 转发到 socket」，逻辑大幅变薄。
 
 ### 决策 4：唯一保留的锁是「每身份启动一次」守卫
 
@@ -171,7 +171,7 @@ PoC 用 `data:` URL（probe3，无外网纯净对照）+ e2e 靶机真实 origin
 
 ## 待落地核实（实现期解决，不影响结论）
 
-- **extract / get_element_by_prompt 需要 LLM**：`page.extract_content` 要传 `BaseChatModel`。需把我们现有的 LLM 配置注入服务（沿用 hunter 的 provider）。确认 browse-use `llm` 接口与我们的 client 适配方式。
+- **extract / get_element_by_prompt 需要 LLM**：`page.extract_content` 要传 `BaseChatModel`。需把我们现有的 LLM 配置注入服务（沿用 agent 的 provider）。确认 browse-use `llm` 接口与我们的 client 适配方式。
 
 ---
 

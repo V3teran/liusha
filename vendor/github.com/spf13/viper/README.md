@@ -875,7 +875,7 @@ different vipers.
 ### Why is it called “Viper”?
 
 A: Viper is designed to be a [companion](http://en.wikipedia.org/wiki/Viper_(G.I._Joe))
-to [Cobra](https://github.com/spf13/cobra). While both can operate completely
+to [Cobra](https://github.com/spf13/cobra). While both can execute completely
 independently, together they make a powerful pair to handle much of your
 application foundation needs.
 

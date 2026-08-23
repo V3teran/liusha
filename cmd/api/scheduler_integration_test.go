@@ -12,10 +12,10 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/rs/zerolog"
 
+	"github.com/V3teran/liusha/internal/agentrun"
 	"github.com/V3teran/liusha/internal/assignment"
 	"github.com/V3teran/liusha/internal/cronschedule"
 	"github.com/V3teran/liusha/internal/dbtest"
-	"github.com/V3teran/liusha/internal/hunterrun"
 	"github.com/V3teran/liusha/internal/task"
 	"github.com/V3teran/liusha/internal/traffic"
 	"github.com/V3teran/liusha/internal/worker"
@@ -32,18 +32,18 @@ func newTestCronRunner(t *testing.T) (*cronRunner, *pgxpool.Pool) {
 
 	assignments := assignment.NewStore(pool)
 	tasks := task.NewStore(pool)
-	hunters := hunterrun.NewStore(pool)
+	executorRuns := agentrun.NewStore(pool)
 	r := &cronRunner{
 		schedules:   cronschedule.NewStore(pool),
 		assignments: assignments,
 		tasks:       tasks,
-		proxyFlows:  traffic.NewProxyStore(pool),
-		hunters:     hunters,
+		proxyStore:  traffic.NewProxyStore(pool),
+		executors: executorRuns,
 		enq:         enq,
 		scan: &scanAdapter{
 			assignments:   assignments,
 			tasks:         tasks,
-			hunters:       hunters,
+			executors: executorRuns,
 			enq:           enq,
 			maxRunTimeout: time.Minute,
 		},
@@ -61,9 +61,9 @@ func forceDue(t *testing.T, pool *pgxpool.Pool, scheduleID string) {
 	}
 }
 
-// TestFireDue_ActiveSchedule_ExpandsTaskAndHunter 验证 P4 核心场景：active 定时模板到点 →
-// 克隆 assignment → 展开 task + hunter run + enqueue，且 next_run_at 推进到未来。
-func TestFireDue_ActiveSchedule_ExpandsTaskAndHunter(t *testing.T) {
+// TestFireDue_ActiveSchedule_ExpandsTaskAndAgent 验证 P4 核心场景：active 定时模板到点 →
+// 克隆 assignment → 展开 task + agent run + enqueue，且 next_run_at 推进到未来。
+func TestFireDue_ActiveSchedule_ExpandsTaskAndAgent(t *testing.T) {
 	r, pool := newTestCronRunner(t)
 	ctx := context.Background()
 
@@ -113,23 +113,23 @@ func TestFireDue_ActiveSchedule_ExpandsTaskAndHunter(t *testing.T) {
 		t.Fatalf("克隆的 assignment 应回指模板 id，got %+v", asg.ScheduleID)
 	}
 
-	runs, err := r.hunters.ListByTask(ctx, found.ID, 10)
+	runs, err := r.executors.ListByTask(ctx, found.ID, 10)
 	if err != nil {
-		t.Fatalf("list hunter runs: %v", err)
+		t.Fatalf("list executor runs: %v", err)
 	}
-	if len(runs) != 1 || runs[0].Role != "orchestrator" {
-		t.Fatalf("应建出 1 条 orchestrator hunter run，got %+v", runs)
+	if len(runs) != 1 || runs[0].Role != "planner" {
+		t.Fatalf("应建出 1 条 planner executor run，got %+v", runs)
 	}
 }
 
 // TestFireDue_PassiveSchedule_ClaimsUnconsumedTraffic 验证 api-pentest 定时模板：领取该 host
-// 未消费的 proxy_traffic 后展开 task + orchestrator hunter run。
+// 未消费的 proxy_traffic 后展开 task + planner agent run。
 func TestFireDue_PassiveSchedule_ClaimsUnconsumedTraffic(t *testing.T) {
 	r, pool := newTestCronRunner(t)
 	ctx := context.Background()
 
 	host := "target.com"
-	if _, err := r.proxyFlows.Append(ctx, traffic.ProxyTraffic{Host: host, Method: "GET", URL: "http://" + host + "/"}); err != nil {
+	if _, err := r.proxyStore.Append(ctx, traffic.ProxyTraffic{Host: host, Method: "GET", URL: "http://" + host + "/"}); err != nil {
 		t.Fatalf("append proxy_traffic: %v", err)
 	}
 
@@ -158,12 +158,12 @@ func TestFireDue_PassiveSchedule_ClaimsUnconsumedTraffic(t *testing.T) {
 		t.Fatalf("应展开出 host=%q 的 passive task，got %+v", host, tasks)
 	}
 
-	runs, err := r.hunters.ListByTask(ctx, found.ID, 10)
+	runs, err := r.executors.ListByTask(ctx, found.ID, 10)
 	if err != nil {
-		t.Fatalf("list hunter runs: %v", err)
+		t.Fatalf("list executor runs: %v", err)
 	}
-	if len(runs) != 1 || runs[0].Role != "orchestrator" {
-		t.Fatalf("应建出 1 条 orchestrator hunter run，got %+v", runs)
+	if len(runs) != 1 || runs[0].Role != "planner" {
+		t.Fatalf("应建出 1 条 planner executor run，got %+v", runs)
 	}
 }
 

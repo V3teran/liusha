@@ -44,9 +44,9 @@ type Path string
 // Encoding
 //
 // An object path is a textual and (with training) human-readable encoding
-// of a sequence of destructuring operators, starting from a types.Package.
+// of a sequence of destructuring executors, starting from a types.Package.
 // The sequences represent a path through the package/object/type graph.
-// We classify these operators by their type:
+// We classify these executors by their type:
 //
 //	PO package->object	Package.Scope.Lookup
 //	OT  object->type 	Object.Type
@@ -59,13 +59,13 @@ type Path string
 //	objectpath = PO (OT TT* TO)*
 //
 // The concrete encoding follows directly:
-//   - The only PO operator is Package.Scope.Lookup, which requires an identifier.
-//   - The only OT operator is Object.Type,
+//   - The only PO executor is Package.Scope.Lookup, which requires an identifier.
+//   - The only OT executor is Object.Type,
 //     which we encode as '.' because dot cannot appear in an identifier.
-//   - The TT operators are encoded as [EKPRUTrCa];
+//   - The TT executors are encoded as [EKPRUTrCa];
 //     two of these ({,Recv}TypeParams) require an integer operand,
 //     which is encoded as a string of decimal digits.
-//   - The TO operators are encoded as [AFMO];
+//   - The TO executors are encoded as [AFMO];
 //     three of these (At,Field,Method) require an integer operand,
 //     which is encoded as a string of decimal digits.
 //     These indices are stable across different representations
@@ -93,10 +93,10 @@ type Path string
 // followed by an A, for example---but this simplifies the
 // encoder and decoder.
 const (
-	// object->type operators
+	// object->type executors
 	opType = '.' // .Type()		  (Object)
 
-	// type->type operators
+	// type->type executors
 	opElem          = 'E' // .Elem()		(Pointer, Slice, Array, Chan, Map)
 	opKey           = 'K' // .Key()			(Map)
 	opParams        = 'P' // .Params()		(Signature)
@@ -107,7 +107,7 @@ const (
 	opConstraint    = 'C' // .Constraint()		(TypeParam)
 	opRhs           = 'a' // .Rhs()			(Alias)
 
-	// type->object operators
+	// type->object executors
 	opAt     = 'A' // .At(i)	(Tuple)
 	opField  = 'F' // .Field(i)	(Struct)
 	opMethod = 'M' // .Method(i)	(Named or Interface; not Struct: "promoted" names are ignored)
@@ -785,7 +785,7 @@ func Object(pkg *types.Package, p Path) (types.Object, error) {
 	}
 
 	if obj == nil {
-		panic(p) // path does not end in an object-valued operator
+		panic(p) // path does not end in an object-valued executor
 	}
 
 	if obj.Pkg() != pkg {

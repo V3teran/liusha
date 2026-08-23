@@ -1,14 +1,14 @@
 import { SlidersHorizontal } from 'lucide-react'
 import {
-  getReactSettings,
-  saveReactSettings,
+  getCompactionSettings,
+  saveCompactionSettings,
   getRuntimeSettings,
   saveRuntimeSettings,
   getProxyFilterSettings,
   saveProxyFilterSettings,
 } from '@/api/settings'
 import type {
-  ReactSettings,
+  CompactionSettings,
   RuntimeSettings,
   ProxyFilterSettings,
 } from '@/api/types'
@@ -20,7 +20,7 @@ import { linesToList, listToLines, codesToText, textToCodes } from '@/features/s
 const TEXTAREA_CLASS = INPUT_CLASS + ' min-h-[76px] font-mono leading-relaxed'
 
 // 系统配置页：三组业务旋钮（会话压缩 / 工具运行时 / 代理流量过滤）分区独立保存。
-// 事实源在 DB，写经后端失效广播即热改——react/runtime 令 runner 现读即生效，
+// 事实源在 DB，写经后端失效广播即热改——compaction/runtime 令 runner 现读即生效，
 // proxy_filter 触发 proxy 进程热换过滤链（无需重启）。故非「列表」而是「表单」形态。
 export function SystemConfig() {
   return (
@@ -37,7 +37,7 @@ export function SystemConfig() {
 
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto flex max-w-3xl flex-col gap-6 p-6">
-          <ReactSection />
+          <CompactionSection />
           <RuntimeSection />
           <ProxyFilterSection />
         </div>
@@ -46,10 +46,10 @@ export function SystemConfig() {
   )
 }
 
-// ── react（会话历史压缩）─────────────────────────────────────────────
+// ── compaction（会话历史压缩）────────────────────────────────────────
 
-function ReactSection() {
-  const s = useSettingSection<ReactSettings>(getReactSettings, saveReactSettings)
+function CompactionSection() {
+  const s = useSettingSection<CompactionSettings>(getCompactionSettings, saveCompactionSettings)
   const d = s.draft
   const invalid =
     !d ||
@@ -62,13 +62,15 @@ function ReactSection() {
   return (
     <SettingsSection
       title="会话历史压缩"
-      subtitle="ReAct 循环上下文接近窗口时的触发阈值与蒸馏预算"
+      subtitle="会话上下文接近窗口时的触发阈值与蒸馏预算"
       loading={s.loading}
       error={s.error}
       saving={s.saving}
       saved={s.saved}
       saveDisabled={invalid}
+      isDirty={s.isDirty}
       onSave={() => void s.onSave()}
+      onReset={s.reset}
     >
       {d && (
         <>
@@ -129,7 +131,9 @@ function RuntimeSection() {
       saving={s.saving}
       saved={s.saved}
       saveDisabled={invalid}
+      isDirty={s.isDirty}
       onSave={() => void s.onSave()}
+      onReset={s.reset}
     >
       {d && (
         <>
@@ -185,7 +189,9 @@ function ProxyFilterSection() {
       saving={s.saving}
       saved={s.saved}
       saveDisabled={invalid}
+      isDirty={s.isDirty}
       onSave={() => void s.onSave()}
+      onReset={s.reset}
     >
       {d && (
         <>

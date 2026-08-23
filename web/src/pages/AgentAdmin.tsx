@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
-import { listHuntersPaged } from '@/api/client'
-import { saveHunter, deleteHunter, listToolCandidates } from '@/api/config'
-import type { HunterConfig, HunterKind, Tool } from '@/api/types'
+import { listAgentsPaged } from '@/api/client'
+import { saveAgent, deleteAgent, listToolCandidates } from '@/api/config'
+import type { AgentConfig, AgentKind, Tool } from '@/api/types'
 import { Badge } from '@/components/ui/badge'
 import { ConfigListShell, ConfigRow } from '@/features/config/ConfigListShell'
 import { usePagedList } from '@/features/config/usePagedList'
@@ -10,36 +10,37 @@ import { ConfigDrawer, Field, INPUT_CLASS } from '@/features/config/ConfigDrawer
 const DEFAULT_MAX_ITERATIONS = 20
 
 // 智能体分页取数：适配 usePagedList 的 (page,size,q) → {items,total} 契约。
-const fetchHunters = async (page: number, size: number, q: string) => {
-  const res = await listHuntersPaged(page, size, q)
-  return { items: res.hunters, total: res.total }
+const fetchAgents = async (page: number, size: number, q: string) => {
+  const res = await listAgentsPaged(page, size, q)
+  return { items: res.agents, total: res.total }
 }
 
-// 新建猎手空白初值。kind 默认 domain（领域智能体）。
-function blankHunter(): HunterConfig {
+// 新建猎手空白初值。kind 默认 executor（领域智能体）。
+function blankAgent(): AgentConfig {
   return {
     id: '',
     code: '',
-    kind: 'domain',
+    kind: 'executor',
     name: '',
     description: '',
     body: '',
     function_tools: [],
     cli_tools: [],
     max_iterations: DEFAULT_MAX_ITERATIONS,
+    tier: 'heavy',
     enabled: true,
   }
 }
 
-// 智能体配置管理页（后端资源仍名 hunter）：领域智能体系统提示词 + 工具集 + 调度摘要，全字段编辑。
+// 智能体配置管理页（后端资源仍名 agent）：领域智能体系统提示词 + 工具集 + 调度摘要，全字段编辑。
 // 工具集从工具目录（DB）读取候选，勾选而非填空——function_tools（内部函数工具）与 cli_tools（外部 CLI 工具）分区多选。
-export function HunterAdmin() {
-  const list = usePagedList<HunterConfig>(fetchHunters)
+export function AgentAdmin() {
+  const list = usePagedList<AgentConfig>(fetchAgents)
   const { rows, loading, error, reload } = list
   // 工具候选：函数工具 / CLI 工具两套全量目录，一次性拉取供勾选。
   const [functionTools, setFunctionTools] = useState<Tool[]>([])
   const [cliTools, setCliTools] = useState<Tool[]>([])
-  const [draft, setDraft] = useState<HunterConfig | null>(null)
+  const [draft, setDraft] = useState<AgentConfig | null>(null)
   const [saving, setSaving] = useState(false)
 
   useEffect(() => {
@@ -51,7 +52,7 @@ export function HunterAdmin() {
       .catch(() => setCliTools([]))
   }, [])
 
-  const patch = (p: Partial<HunterConfig>) => setDraft((d) => (d ? { ...d, ...p } : d))
+  const patch = (p: Partial<AgentConfig>) => setDraft((d) => (d ? { ...d, ...p } : d))
 
   // 切换 function_tools / cli_tools 里某工具的选中态（不可变：返回新数组）。
   const toggleTool = (field: 'function_tools' | 'cli_tools', name: string) =>
@@ -70,7 +71,7 @@ export function HunterAdmin() {
     if (!draft) return
     setSaving(true)
     try {
-      await saveHunter(draft)
+      await saveAgent(draft)
       setDraft(null)
       reload()
     } catch (e) {
@@ -84,7 +85,7 @@ export function HunterAdmin() {
     if (!draft?.id || !window.confirm(`确认删除智能体「${draft.name}」？`)) return
     setSaving(true)
     try {
-      await deleteHunter(draft.id)
+      await deleteAgent(draft.id)
       setDraft(null)
       reload()
     } catch (e) {
@@ -105,13 +106,15 @@ export function HunterAdmin() {
         error={error}
         empty={rows.length === 0}
         emptyHint={list.query ? '无匹配智能体' : '暂无智能体——点右上「新建」创建第一个'}
-        onNew={() => setDraft(blankHunter())}
+        onNew={() => setDraft(blankAgent())}
         search={{ value: list.query, onChange: list.setQuery, placeholder: '搜索名称 / 标识 / 描述' }}
         server={{
           page: list.page,
           totalPages: list.totalPages,
           count: list.total,
           onPage: list.setPage,
+          size: list.size,
+          onSize: list.setSize,
         }}
       >
         {rows.map((h) => (
@@ -123,7 +126,7 @@ export function HunterAdmin() {
             onClick={() => setDraft(h)}
             right={
               <div className="flex flex-shrink-0 items-center gap-2">
-                <Badge variant="outline">{h.kind === 'orchestrator' ? '编排' : '领域'}</Badge>
+                <Badge variant="outline">{h.kind === 'planner' ? '编排' : '领域'}</Badge>
                 {!h.enabled && <Badge variant="outline">已停用</Badge>}
               </div>
             }
@@ -161,10 +164,10 @@ export function HunterAdmin() {
                           <select
                             className={INPUT_CLASS}
                             value={draft.kind}
-                            onChange={(e) => patch({ kind: e.target.value as HunterKind })}
+                            onChange={(e) => patch({ kind: e.target.value as AgentKind })}
                           >
-                            <option value="domain">领域智能体</option>
-                            <option value="orchestrator">编排智能体</option>
+                            <option value="executor">领域智能体</option>
+                            <option value="planner">编排智能体</option>
                           </select>
                         </Field>
                       </div>
@@ -190,6 +193,20 @@ export function HunterAdmin() {
                           value={draft.max_iterations}
                           onChange={(e) => patch({ max_iterations: Number(e.target.value) })}
                         />
+                      </Field>
+                      <Field
+                        label="能力档"
+                        hint="决定该智能体的 LLM 路由档位：重推理 / 多模态 / 轻任务。在「模型」页把每档指到某个部署。"
+                      >
+                        <select
+                          className={INPUT_CLASS}
+                          value={draft.tier}
+                          onChange={(e) => patch({ tier: e.target.value })}
+                        >
+                          <option value="heavy">重推理（heavy）</option>
+                          <option value="vision">多模态（vision）</option>
+                          <option value="light">轻任务（light）</option>
+                        </select>
                       </Field>
                       <label className="flex items-center gap-2 text-[13px] text-text">
                         <input

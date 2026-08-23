@@ -7,13 +7,13 @@ import (
 	"github.com/V3teran/liusha/internal/config/llmcfg"
 )
 
-// routerResolver：orchestrator→primary、inspector→light、__default__→primary、__fallback__→fb。
+// routerResolver：planner→primary、inspector→light、__default__→primary、__fallback__→fb。
 // 路由解析已下沉到 Resolver（运行期多级缓存），Router 只负责 retry/fallback 装配。
 func routerResolver() fakeResolver {
 	primary := prov("primary", "primary-model", "K1")
 	return fakeResolver{
 		byRole: map[string]llmcfg.Provider{
-			"orchestrator": primary,
+			"planner": primary,
 			"inspector":    prov("light", "light-model", "K2"),
 		},
 		def:    primary,
@@ -33,7 +33,7 @@ func builderFromMap(gens map[string]Generator) Builder {
 	}
 }
 
-// TestRouter_For_RoutesAndWraps：For("orchestrator") 应解析到 primary 且经 retry 装饰
+// TestRouter_For_RoutesAndWraps：For("planner") 应解析到 primary 且经 retry 装饰
 func TestRouter_For_RoutesAndWraps(t *testing.T) {
 	primary := &testGen{tag: "primary", model: "primary-model"}
 	light := &testGen{tag: "light", model: "light-model"}
@@ -44,9 +44,9 @@ func TestRouter_For_RoutesAndWraps(t *testing.T) {
 	factory := NewFactoryWithBuilder(routerResolver(), builder)
 	r := NewRouter(factory)
 
-	g, err := r.For(context.Background(), "orchestrator")
+	g, err := r.For(context.Background(), "planner")
 	if err != nil {
-		t.Fatalf("For orchestrator 失败: %v", err)
+		t.Fatalf("For planner 失败: %v", err)
 	}
 	if _, ok := g.(*retryGen); !ok {
 		t.Errorf("Router.For 返回的 Generator 应是 *retryGen（被 retry 装饰），实际 %T", g)
@@ -96,7 +96,7 @@ func TestRouter_For_FallbackTriggers(t *testing.T) {
 	factory := NewFactoryWithBuilder(routerResolver(), builder)
 	r := NewRouterWithOptions(factory, noSleep())
 
-	g, err := r.For(context.Background(), "orchestrator")
+	g, err := r.For(context.Background(), "planner")
 	if err != nil {
 		t.Fatalf("For 失败: %v", err)
 	}
@@ -127,7 +127,7 @@ func TestRouter_For_NoFallbackConfigured(t *testing.T) {
 	factory := NewFactoryWithBuilder(res, builder)
 	r := NewRouterWithOptions(factory, noSleep())
 
-	g, err := r.For(context.Background(), "orchestrator")
+	g, err := r.For(context.Background(), "planner")
 	if err != nil {
 		t.Fatalf("For 失败: %v", err)
 	}

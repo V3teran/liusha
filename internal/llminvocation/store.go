@@ -201,7 +201,7 @@ func (s *Store) copyFromBatch(ctx context.Context, batch []Invocation) error {
 	rows := make([][]any, len(batch))
 	for i, c := range batch {
 		rows[i] = []any{
-			c.HunterID, c.TaskID,
+			c.ExecutorID, c.TaskID,
 			c.Provider, c.Model,
 			c.InTokens, c.OutTokens, c.CachedTokens,
 			c.LatencyMs, c.TTFTMs, c.IsStream,
@@ -213,7 +213,7 @@ func (s *Store) copyFromBatch(ctx context.Context, batch []Invocation) error {
 		ctx,
 		pgx.Identifier{"llm_invocation"},
 		[]string{
-			"hunter_id", "task_id",
+			"agent_run_id", "task_id",
 			"provider", "model",
 			"in_tokens", "out_tokens", "cached_tokens",
 			"latency_ms", "ttft_ms", "is_stream",
@@ -243,21 +243,18 @@ type ListFilter struct {
 	OnlyErr bool       // true = 只看失败调用（error_message 非空）
 	Start   *time.Time // created_at >= Start；nil = 不限
 	End     *time.Time // created_at <= End；nil = 不限
-	AfterID int64      // keyset 游标：只取 id > AfterID；0 = 从头
 	Limit   int        // 本页上限；<=0 或超 maxListLimit 收敛到 maxListLimit
+	Offset  int        // 本页起点（offset 分页——对齐流量/漏洞模块的总数+跳页体验）
 }
 
 // where 把筛选拼成 SQL 条件与参数（task_id 恒为 $1，故从 $2 起编号）。
 // 返回的 conds 已含 task_id 条件，调用方直接 strings.Join(conds, " AND ")。
-func (f ListFilter) where(taskID string, withCursor bool) (conds []string, args []any) {
+func (f ListFilter) where(taskID string) (conds []string, args []any) {
 	args = []any{taskID}
 	conds = []string{"task_id=$1::uuid"}
 	add := func(cond string, val any) {
 		args = append(args, val)
 		conds = append(conds, fmt.Sprintf(cond, len(args)))
-	}
-	if withCursor && f.AfterID > 0 {
-		add("id > $%d", f.AfterID)
 	}
 	if f.Role != "" {
 		add("role = $%d", f.Role)
@@ -285,13 +282,14 @@ func (f ListFilter) limitOrDefault() int {
 	return f.Limit
 }
 
-// ListByTask 列出 task 下的 LLM invocation，按 id ASC 游标翻页（keyset pagination，非 offset）。
+// ListByTask 列出 task 下的 LLM invocation，按 id ASC + offset 翻页
+// （对齐流量/漏洞模块的「共 X 条 + N/M 页」体验，配合 CountByTask 算总页数）。
 //
-// 筛选条件见 ListFilter（role/model/仅错误/时间范围 + 游标 + 上限）；
+// 筛选条件见 ListFilter（role/model/仅错误/时间范围 + limit/offset）；
 // 与 AggregateByTask 吃同一份 filter，保证「明细」与「合计」口径一致。
 //
 // 用 id 而非 created_at 排序：批量 worker 同一 flush 内的行 created_at 几乎相同（写入时刻，
-// 非调用时刻），排序不稳定；bigserial id 在同一批 CopyFrom 内严格单调，才是可靠的时序游标。
+// 非调用时刻），排序不稳定；bigserial id 在同一批 CopyFrom 内严格单调，才是可靠的排序键。
 // 调用方有责任先 Flush() 等异步 buffer commit，否则可能缺最近 0-1s 的记录。
 //
 // 列表不选 messages/result（大字段，详情另走 GetByID 按需拉，见 docs 中"列表/详情分离"设计），
@@ -299,10 +297,10 @@ func (f ListFilter) limitOrDefault() int {
 // 「这次调用干了什么」（派活 / 跑命令 / 写漏洞），否则得逐行点开详情才知道。
 // 摘要在库内算完再出网，仍不传大字段。
 func (s *Store) ListByTask(ctx context.Context, taskID string, f ListFilter) ([]Invocation, error) {
-	conds, args := f.where(taskID, true)
-	args = append(args, f.limitOrDefault())
+	conds, args := f.where(taskID)
+	args = append(args, f.limitOrDefault(), f.Offset)
 	q := fmt.Sprintf(`
-		SELECT id, request_id, hunter_id, task_id::text,
+		SELECT id, request_id, agent_run_id, task_id::text,
 		       provider, model,
 		       in_tokens, out_tokens, cached_tokens,
 		       latency_ms, ttft_ms, is_stream,
@@ -315,7 +313,7 @@ func (s *Store) ListByTask(ctx context.Context, taskID string, f ListFilter) ([]
 		FROM llm_invocation
 		WHERE %s
 		ORDER BY id ASC
-		LIMIT $%d`, textPreviewLimit, strings.Join(conds, " AND "), len(args))
+		LIMIT $%d OFFSET $%d`, textPreviewLimit, strings.Join(conds, " AND "), len(args)-1, len(args))
 	rows, err := s.pool.Query(ctx, q, args...)
 	if err != nil {
 		return nil, fmt.Errorf("list llm_invocation by task: %w", err)
@@ -325,9 +323,9 @@ func (s *Store) ListByTask(ctx context.Context, taskID string, f ListFilter) ([]
 	var out []Invocation
 	for rows.Next() {
 		var v Invocation
-		var hunterID, tid *string
+		var agentRunID, tid *string
 		if err := rows.Scan(
-			&v.ID, &v.RequestID, &hunterID, &tid,
+			&v.ID, &v.RequestID, &agentRunID, &tid,
 			&v.Provider, &v.Model,
 			&v.InTokens, &v.OutTokens, &v.CachedTokens,
 			&v.LatencyMs, &v.TTFTMs, &v.IsStream,
@@ -337,7 +335,7 @@ func (s *Store) ListByTask(ctx context.Context, taskID string, f ListFilter) ([]
 		); err != nil {
 			return nil, fmt.Errorf("scan llm_invocation: %w", err)
 		}
-		v.HunterID = hunterID
+		v.ExecutorID = agentRunID
 		v.TaskID = tid
 		out = append(out, v)
 	}
@@ -351,9 +349,9 @@ func (s *Store) ListByTask(ctx context.Context, taskID string, f ListFilter) ([]
 // 用 taskID+id 联合定位（而非裸 id）：防止跨 task 猜 id 越权读取审计原文。
 func (s *Store) GetByID(ctx context.Context, taskID string, id int64) (Invocation, error) {
 	var v Invocation
-	var hunterID, tid *string
+	var agentRunID, tid *string
 	err := s.pool.QueryRow(ctx, `
-		SELECT id, request_id, hunter_id, task_id::text,
+		SELECT id, request_id, agent_run_id, task_id::text,
 		       provider, model,
 		       in_tokens, out_tokens, cached_tokens,
 		       latency_ms, ttft_ms, is_stream,
@@ -361,7 +359,7 @@ func (s *Store) GetByID(ctx context.Context, taskID string, id int64) (Invocatio
 		       messages, result, created_at
 		FROM llm_invocation
 		WHERE id=$1 AND task_id=$2::uuid`, id, taskID).Scan(
-		&v.ID, &v.RequestID, &hunterID, &tid,
+		&v.ID, &v.RequestID, &agentRunID, &tid,
 		&v.Provider, &v.Model,
 		&v.InTokens, &v.OutTokens, &v.CachedTokens,
 		&v.LatencyMs, &v.TTFTMs, &v.IsStream,
@@ -371,7 +369,7 @@ func (s *Store) GetByID(ctx context.Context, taskID string, id int64) (Invocatio
 	if err != nil {
 		return Invocation{}, fmt.Errorf("get llm_invocation %d: %w", id, err)
 	}
-	v.HunterID = hunterID
+	v.ExecutorID = agentRunID
 	v.TaskID = tid
 	return v, nil
 }
@@ -391,10 +389,10 @@ type Aggregate struct {
 // 无匹配记录时返回零值。调用前应先 Flush() 确保异步 buffer 已落库。
 //
 // 与 ListByTask 共用 ListFilter：审计页筛选后，合计跟着筛选变（对齐 NewAPI GetLogsStat 的做法），
-// 不会出现「明细只剩 3 条、合计仍是全量」的自相矛盾。游标（AfterID）不参与统计——
+// 不会出现「明细只剩 3 条、合计仍是全量」的自相矛盾。Limit/Offset 不参与统计——
 // 统计是整个筛选结果集的合计，与翻到第几页无关。
 func (s *Store) AggregateByTask(ctx context.Context, taskID string, f ListFilter) (Aggregate, error) {
-	conds, args := f.where(taskID, false) // withCursor=false：统计不受翻页游标影响
+	conds, args := f.where(taskID)
 	q := fmt.Sprintf(`
 		SELECT COUNT(*),
 		       COALESCE(SUM(in_tokens),0), COALESCE(SUM(out_tokens),0),
@@ -408,6 +406,18 @@ func (s *Store) AggregateByTask(ctx context.Context, taskID string, f ListFilter
 		return Aggregate{}, fmt.Errorf("aggregate llm_invocation by task %s: %w", taskID, err)
 	}
 	return a, nil
+}
+
+// CountByTask 返回该 task 下匹配 filter 的总行数（不含 limit/offset），供前端算总页数。
+// 与 ListByTask/AggregateByTask 共用同一份筛选口径。
+func (s *Store) CountByTask(ctx context.Context, taskID string, f ListFilter) (int, error) {
+	conds, args := f.where(taskID)
+	q := fmt.Sprintf(`SELECT COUNT(*) FROM llm_invocation WHERE %s`, strings.Join(conds, " AND "))
+	var total int
+	if err := s.pool.QueryRow(ctx, q, args...).Scan(&total); err != nil {
+		return 0, fmt.Errorf("count llm_invocation by task %s: %w", taskID, err)
+	}
+	return total, nil
 }
 
 // Facets 是筛选下拉的候选值（该 task 下实际出现过的 role / model 去重集合）。

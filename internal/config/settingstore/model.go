@@ -2,7 +2,7 @@
 // 构建在资源无关的 cachestore 内核之上：内存 L1（本进程）→ redis L2（跨进程共享 + 失效总线）
 // → DB（事实源，system_setting 分组 KV 表）。
 //
-// 为何分层：api / runner / proxy 是**多进程**。前端在 api 改系统配置后，runner 的 ReAct 压缩、
+// 为何分层：api / runner / proxy 是**多进程**。前端在 api 改系统配置后，runner 的会话历史压缩、
 // 工具超时等消费点，及 proxy 的流量过滤链必须在运行期读到最新值并热改，否则仍按旧参数跑。
 // 故写路径写 DB 后经 cachestore 广播失效键，各进程共享的 Subscribe goroutine 收到即清本地
 // L1 + L2，下次读回填最新值（proxy 侧再据此原子换过滤链）。
@@ -22,13 +22,13 @@ import (
 
 // 分组键——与 migration 0098 的 CHECK(group_key IN ...) 一一对应。
 const (
-	groupReact       = "react"
+	groupCompaction  = "compaction"
 	groupRuntime     = "runtime"
 	groupProxyFilter = "proxy_filter"
 )
 
-// ReactSettings 是 hunter ReAct 会话压缩旋钮（对应 config.HistoryCompactConfig 的活字段）。
-type ReactSettings struct {
+// CompactionSettings 是 agent 会话历史压缩旋钮（对应 config.HistoryCompactConfig 的活字段）。
+type CompactionSettings struct {
 	TriggerRatio            float64 `json:"trigger_ratio"`             // 触发阈值占 ContextWindow 比例，(0,1]
 	TrailingBudgetRatio     float64 `json:"trailing_budget_ratio"`     // trailing window 占 ContextWindow 比例，(0,1]
 	CompactorTimeoutSeconds int     `json:"compactor_timeout_seconds"` // 单次蒸馏 LLM 调用超时秒
@@ -38,7 +38,7 @@ type ReactSettings struct {
 type RuntimeSettings struct {
 	StepToolTimeoutSeconds int `json:"step_tool_timeout_seconds"` // 单次工具执行兜底超时上限秒
 	RunTailBytes           int `json:"run_tail_bytes"`            // run_command stdout/stderr 截尾字节数
-	FindingsLimitInPrompt  int `json:"findings_limit_in_prompt"`  // hunter prompt 注入既有 finding 的 DB 读上限
+	FindingsLimitInPrompt  int `json:"findings_limit_in_prompt"`  // agent prompt 注入既有 finding 的 DB 读上限
 }
 
 // ProxyFilterSettings 是代理流量过滤责任链规则（对应 config.ProxyConfig 的过滤字段）。
@@ -123,11 +123,11 @@ func saveGroup[T any](ctx context.Context, pool *pgxpool.Pool, group string, v T
 	return nil
 }
 
-func (s *dbStore) GetReact(ctx context.Context) (ReactSettings, error) {
-	return getGroup[ReactSettings](ctx, s.pool, groupReact)
+func (s *dbStore) GetCompaction(ctx context.Context) (CompactionSettings, error) {
+	return getGroup[CompactionSettings](ctx, s.pool, groupCompaction)
 }
-func (s *dbStore) SaveReact(ctx context.Context, v ReactSettings) error {
-	return saveGroup(ctx, s.pool, groupReact, v)
+func (s *dbStore) SaveCompaction(ctx context.Context, v CompactionSettings) error {
+	return saveGroup(ctx, s.pool, groupCompaction, v)
 }
 
 func (s *dbStore) GetRuntime(ctx context.Context) (RuntimeSettings, error) {

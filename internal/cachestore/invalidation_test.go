@@ -88,7 +88,7 @@ func TestOnInvalidate_MultipleHooks(t *testing.T) {
 	go func() { _ = c.Subscribe(ctx) }()
 	waitSubscribed(t, c)
 
-	if err := c.Invalidate(ctx, "settingstore:react"); err != nil {
+	if err := c.Invalidate(ctx, "settingstore:compaction"); err != nil {
 		t.Fatalf("Invalidate: %v", err)
 	}
 

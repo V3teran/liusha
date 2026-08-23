@@ -25,7 +25,7 @@ type EvaluableExpression struct {
 	/*
 		Whether or not to safely check types when evaluating.
 		If true, this library will return error messages when invalid types are used.
-		If false, the library will panic when operators encounter types they can't use.
+		If false, the library will panic when executors encounter types they can't use.
 
 		This is exclusively for users who need to squeeze every ounce of speed out of the library as they can,
 		and you should only set this to false if you know exactly what you're doing.
@@ -217,7 +217,7 @@ func (this EvaluableExpression) evaluateStage(stage *evaluationStage, parameters
 				return nil, err
 			}
 		} else {
-			// special case where the type check needs to know both sides to determine if the operator can handle it
+			// special case where the type check needs to know both sides to determine if the executor can handle it
 			if !stage.typeCheck(left, right) {
 				errorMsg := fmt.Sprintf(stage.typeErrorFormat, left, stage.symbol.String())
 				return nil, errors.New(errorMsg)
@@ -225,10 +225,10 @@ func (this EvaluableExpression) evaluateStage(stage *evaluationStage, parameters
 		}
 	}
 
-	return stage.operator(left, right, parameters)
+	return stage.executor(left, right, parameters)
 }
 
-func typeCheck(check stageTypeCheck, value interface{}, symbol OperatorSymbol, format string) error {
+func typeCheck(check stageTypeCheck, value interface{}, symbol ExecutorSymbol, format string) error {
 
 	if check == nil {
 		return nil

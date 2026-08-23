@@ -38,7 +38,7 @@ func vf(id string, repro string) finding.VulnFinding {
 
 const goodRepro = `{"traffic_id":1,"modifications":{},"assert":{"status_code":200}}`
 
-func TestOperator_Execute_HarvestsOnlyNew(t *testing.T) {
+func TestExecutor_Execute_HarvestsOnlyNew(t *testing.T) {
 	before := []finding.VulnFinding{vf("old-1", goodRepro)}
 	after := []finding.VulnFinding{vf("new-1", goodRepro), vf("old-1", goodRepro)}
 	lister := &fakeLister{batches: [][]finding.VulnFinding{before, after}}
@@ -62,7 +62,7 @@ func TestOperator_Execute_HarvestsOnlyNew(t *testing.T) {
 	}
 }
 
-func TestOperator_Execute_SkipsNoRepro(t *testing.T) {
+func TestExecutor_Execute_SkipsNoRepro(t *testing.T) {
 	after := []finding.VulnFinding{vf("new-1", ""), vf("new-2", goodRepro)}
 	lister := &fakeLister{batches: [][]finding.VulnFinding{nil, after}}
 	op := NewExecutor("s", "t", "h", lister, func(context.Context, planner.Move) error { return nil })
@@ -76,7 +76,7 @@ func TestOperator_Execute_SkipsNoRepro(t *testing.T) {
 	}
 }
 
-func TestOperator_Execute_AgentError(t *testing.T) {
+func TestExecutor_Execute_AgentError(t *testing.T) {
 	lister := &fakeLister{batches: [][]finding.VulnFinding{nil}}
 	sentinel := errors.New("boom")
 	op := NewExecutor("s", "t", "h", lister, func(context.Context, planner.Move) error { return sentinel })
@@ -87,7 +87,7 @@ func TestOperator_Execute_AgentError(t *testing.T) {
 	}
 }
 
-func TestOperator_Execute_ListError(t *testing.T) {
+func TestExecutor_Execute_ListError(t *testing.T) {
 	lister := &fakeLister{err: errors.New("db down")}
 	op := NewExecutor("s", "t", "h", lister, func(context.Context, planner.Move) error { return nil })
 

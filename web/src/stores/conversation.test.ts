@@ -41,7 +41,7 @@ describe('conversation store', () => {
   it('reset 清空', () => {
     const s = useConversationStore.getState()
     s.ingest(msg(1))
-    s.appendReasoningDelta('x', 'orchestrator')
+    s.appendReasoningDelta('x', 'planner')
     s.reset()
     const state = useConversationStore.getState()
     expect(state.messages).toHaveLength(0)

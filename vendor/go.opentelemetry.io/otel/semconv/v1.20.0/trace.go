@@ -938,7 +938,7 @@ const (
 )
 
 var (
-	// The operation has been validated by an Application developer or Operator to have completed successfully
+	// The operation has been validated by an Application developer or Executor to have completed successfully
 	OTelStatusCodeOk = OTelStatusCodeKey.String("OK")
 	// The operation contains an error
 	OTelStatusCodeError = OTelStatusCodeKey.String("ERROR")
@@ -2288,7 +2288,7 @@ const (
 	// Stability: stable
 	// Examples: 0, 1, 2
 	// Note: Instrumentations SHOULD NOT set `messaging.batch.message_count` on
-	// spans that operate with a single message. When a messaging client
+	// spans that execute with a single message. When a messaging client
 	// library supports both batch and single-message API for the same
 	// operation, instrumentations SHOULD use `messaging.batch.message_count`
 	// for batching APIs and SHOULD NOT use it for single-message APIs.

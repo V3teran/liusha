@@ -1,7 +1,7 @@
 // Package tool 实现工具目录（tool 表）的持久化层。
 //
 // 两套工具体系统一入库为可查询目录：
-//   - kind=function：进程内原生函数工具，事实源 = einotools.FunctionToolCatalog
+//   - kind=function：进程内原生函数工具，事实源 = registry.FunctionToolCatalog
 //   - kind=cli     ：外置沙箱 CLI 工具，事实源 = deployments/.../tools.yaml
 //
 // 代码为事实源，本表是启动期 Reconcile 幂等同步出的副本（见 reconcile.go）。

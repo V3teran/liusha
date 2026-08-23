@@ -30,7 +30,7 @@ type profile struct {
 // activeProfile 描述一个 active 模式 e2e 验收剧本：自然语言任务简报 + 验收门槛。
 //
 // 与 passive 的 profile 不同——active 没有 sample 流量文件，直接把 brief 自然
-// 语言（含目标 URL/凭据/测试方向）整段 POST /chat 喂给 hunter LLM，由
+// 语言（含目标 URL/凭据/测试方向）整段 POST /chat 喂给 agent LLM，由
 // LLM 自行识别 + 自主扫描。
 type activeProfile struct {
 	name        string
@@ -185,7 +185,7 @@ var profiles = map[string]profile{
 		name:           "api",
 		defaultSamples: "examples/sample_api_raw.json",
 		minFindings:    1,
-		// 同 DVWA 远程靶场。/vulnerabilities/api/ 是 API 类漏洞入口（具体漏洞类型由 hunter
+		// 同 DVWA 远程靶场。/vulnerabilities/api/ 是 API 类漏洞入口（具体漏洞类型由 agent
 		// agent 探测：可能是 IDOR / 信息泄露 / 弱认证 / 注入等）。Referer 来自 cryptography
 		// 页面意味着这是从其他漏洞链路跳过来的 API 端点。
 		credsForHost: func(_ string) []credentialEntry {
@@ -201,7 +201,7 @@ var profiles = map[string]profile{
 		defaultSamples: "examples/sample_cryptography_raw.json",
 		minFindings:    1,
 		// 同 DVWA 远程靶场。/vulnerabilities/cryptography/ 是密码学相关漏洞类（OWASP CWE-310/327）：
-		// 弱加密算法 / 硬编码密钥 / 弱随机数 / IV 复用 / 弱哈希等。具体漏洞由 hunter agent
+		// 弱加密算法 / 硬编码密钥 / 弱随机数 / IV 复用 / 弱哈希等。具体漏洞由 agent agent
 		// 通过 read_vuln_skill + 读源码 / 多请求差分等手段判定。
 		credsForHost: func(_ string) []credentialEntry {
 			return []credentialEntry{
@@ -216,7 +216,7 @@ var profiles = map[string]profile{
 		defaultSamples: "examples/sample_redirect_raw.json",
 		minFindings:    1,
 		// 同 DVWA 远程靶场。/vulnerabilities/open_redirect/ 是开放重定向（OWASP CWE-601）：
-		// URL 参数控制跳转目标但未做域白名单校验，可被钓鱼利用。hunter agent 通过构造
+		// URL 参数控制跳转目标但未做域白名单校验，可被钓鱼利用。agent agent 通过构造
 		// redirect=<外部域> 参数 + 看 Location header 是否原样返回判定。
 		credsForHost: func(_ string) []credentialEntry {
 			return []credentialEntry{
@@ -231,7 +231,7 @@ var profiles = map[string]profile{
 		defaultSamples: "examples/sample_authbypass_raw.json",
 		minFindings:    1,
 		// 同 DVWA 远程靶场。/vulnerabilities/authbypass/ 是认证绕过类（OWASP CWE-287/863）：
-		// 鉴权逻辑缺陷可直接越过登录访问受保护资源。hunter agent 通过 anonymous /
+		// 鉴权逻辑缺陷可直接越过登录访问受保护资源。agent agent 通过 anonymous /
 		// 修改 cookie / Header 篡改等多手法判定。
 		credsForHost: func(_ string) []credentialEntry {
 			return []credentialEntry{
@@ -247,7 +247,7 @@ var profiles = map[string]profile{
 		minFindings:    1,
 		// 同 DVWA 远程靶场。/vulnerabilities/csp/ 是 Content-Security-Policy 配置问题
 		// （OWASP CWE-1021）：过宽 CSP（含 unsafe-inline / unsafe-eval / 通配符 source）
-		// 削弱 XSS 防护。hunter agent 通过读 Content-Security-Policy 响应头判定。
+		// 削弱 XSS 防护。agent agent 通过读 Content-Security-Policy 响应头判定。
 		credsForHost: func(_ string) []credentialEntry {
 			return []credentialEntry{
 				{Name: "admin", Role: "admin", Credentials: []map[string]string{
@@ -261,7 +261,7 @@ var profiles = map[string]profile{
 		defaultSamples: "examples/sample_exec_raw.json",
 		minFindings:    1,
 		// 同 DVWA 远程靶场。/vulnerabilities/exec/ 是命令注入（OWASP CWE-77/78）：
-		// 用户输入未经 escape 拼到 shell 命令。hunter agent 通过 ;ls / `id` / |whoami
+		// 用户输入未经 escape 拼到 shell 命令。agent agent 通过 ;ls / `id` / |whoami
 		// 等 payload + 看 stdout 回显判定。
 		credsForHost: func(_ string) []credentialEntry {
 			return []credentialEntry{

@@ -43,7 +43,7 @@ func TestStore_Append_ListByTask(t *testing.T) {
 		CachedTokens: 100,
 		LatencyMs:    850,
 		FinishReason: "stop",
-		Role:         "orchestrator",
+		Role:         "planner",
 	}); err != nil {
 		t.Fatalf("append: %v", err)
 	}
@@ -62,7 +62,7 @@ func TestStore_Append_ListByTask(t *testing.T) {
 	if g.InTokens != 1200 || g.OutTokens != 300 || g.CachedTokens != 100 {
 		t.Errorf("token 映射错: %+v", g)
 	}
-	if g.Role != "orchestrator" {
+	if g.Role != "planner" {
 		t.Errorf("role 错: %q", g.Role)
 	}
 	if g.RequestID == "" {
@@ -76,7 +76,7 @@ func TestStore_TTFTAndStream(t *testing.T) {
 	s, taskID := setup(t)
 
 	if _, err := s.Append(ctx, Invocation{
-		TaskID: &taskID, Provider: "x", Model: "m", Role: "orchestrator",
+		TaskID: &taskID, Provider: "x", Model: "m", Role: "planner",
 		LatencyMs: 5000, TTFTMs: 420, IsStream: true,
 	}); err != nil {
 		t.Fatalf("append: %v", err)
@@ -109,7 +109,7 @@ func TestStore_ListByTask_Pagination(t *testing.T) {
 	s, taskID := setup(t)
 
 	for i := 0; i < 3; i++ {
-		if _, err := s.Append(ctx, Invocation{TaskID: &taskID, Provider: "deepseek", Model: "deepseek-chat", Role: "orchestrator", InTokens: i}); err != nil {
+		if _, err := s.Append(ctx, Invocation{TaskID: &taskID, Provider: "deepseek", Model: "deepseek-chat", Role: "planner", InTokens: i}); err != nil {
 			t.Fatalf("append %d: %v", i, err)
 		}
 	}
@@ -147,7 +147,7 @@ func TestStore_GetByID(t *testing.T) {
 	s, taskID := setup(t)
 
 	if _, err := s.Append(ctx, Invocation{
-		TaskID: &taskID, Provider: "deepseek", Model: "deepseek-chat", Role: "orchestrator",
+		TaskID: &taskID, Provider: "deepseek", Model: "deepseek-chat", Role: "planner",
 		Messages: []byte(`[{"role":"user","content":"hi"}]`),
 		Result:   []byte(`{"content":"hello"}`),
 	}); err != nil {
@@ -196,7 +196,7 @@ func TestStore_AggregateByTask(t *testing.T) {
 	s, taskID := setup(t)
 
 	rows := []Invocation{
-		{Provider: "deepseek", Model: "deepseek-chat", Role: "orchestrator", InTokens: 100, OutTokens: 10, CachedTokens: 5, LatencyMs: 200},
+		{Provider: "deepseek", Model: "deepseek-chat", Role: "planner", InTokens: 100, OutTokens: 10, CachedTokens: 5, LatencyMs: 200},
 		{Provider: "deepseek", Model: "deepseek-chat", Role: "exploitation", InTokens: 200, OutTokens: 20, CachedTokens: 0, LatencyMs: 300},
 		{Provider: "deepseek", Model: "deepseek-chat", Role: "exploitation", InTokens: 50, OutTokens: 5, CachedTokens: 50, LatencyMs: 100},
 	}
@@ -230,7 +230,7 @@ func seedFiltered(t *testing.T, s *Store, taskID string) {
 	t.Helper()
 	ctx := context.Background()
 	rows := []Invocation{
-		{Role: "orchestrator", Model: "mimo-v2.5", InTokens: 100, OutTokens: 10},
+		{Role: "planner", Model: "mimo-v2.5", InTokens: 100, OutTokens: 10},
 		{Role: "exploitation", Model: "mimo-v2.5", InTokens: 200, OutTokens: 20},
 		{Role: "exploitation", Model: "deepseek-chat", InTokens: 400, OutTokens: 40, Error: "429 rate limited"},
 	}
@@ -316,7 +316,7 @@ func TestStore_FacetsByTask(t *testing.T) {
 	if err != nil {
 		t.Fatalf("facets: %v", err)
 	}
-	if len(f.Roles) != 2 || f.Roles[0] != "exploitation" || f.Roles[1] != "orchestrator" {
+	if len(f.Roles) != 2 || f.Roles[0] != "exploitation" || f.Roles[1] != "planner" {
 		t.Errorf("roles 应去重且有序: %+v", f.Roles)
 	}
 	if len(f.Models) != 2 || f.Models[0] != "deepseek-chat" || f.Models[1] != "mimo-v2.5" {

@@ -97,7 +97,7 @@ Expressions are parsed once, and can be re-used multiple times. Parsing is the c
 	}
 ```
 
-The normal C-standard order of operators is respected. When writing an expression, be sure that you either order the operators correctly, or use parenthesis to clarify which portions of an expression should be run first.
+The normal C-standard order of executors is respected. When writing an expression, be sure that you either order the executors correctly, or use parenthesis to clarify which portions of an expression should be run first.
 
 Escaping characters
 --
@@ -124,7 +124,7 @@ Backslashes can be used anywhere in an expression to escape the very next charac
 Functions
 --
 
-You may have cases where you want to call a function on a parameter during execution of the expression. Perhaps you want to aggregate some set of data, but don't know the exact aggregation you want to use until you're writing the expression itself. Or maybe you have a mathematical operation you want to perform, for which there is no operator; like `log` or `tan` or `sqrt`. For cases like this, you can provide a map of functions to `NewEvaluableExpressionWithFunctions`, which will then be able to use them during execution. For instance;
+You may have cases where you want to call a function on a parameter during execution of the expression. Perhaps you want to aggregate some set of data, but don't know the exact aggregation you want to use until you're writing the expression itself. Or maybe you have a mathematical operation you want to perform, for which there is no executor; like `log` or `tan` or `sqrt`. For cases like this, you can provide a map of functions to `NewEvaluableExpressionWithFunctions`, which will then be able to use them during execution. For instance;
 
 ```go
 	functions := map[string]govaluate.ExpressionFunction {
@@ -141,7 +141,7 @@ You may have cases where you want to call a function on a parameter during execu
 	// result is now "false", the boolean value
 ```
 
-Functions can accept any number of arguments, correctly handles nested functions, and arguments can be of any type (even if none of this library's operators support evaluation of that type). For instance, each of these usages of functions in an expression are valid (assuming that the appropriate functions and parameters are given):
+Functions can accept any number of arguments, correctly handles nested functions, and arguments can be of any type (even if none of this library's executors support evaluation of that type). For instance, each of these usages of functions in an expression are valid (assuming that the appropriate functions and parameters are given):
 
 ```go
 "sqrt(x1 ** y1, x2 ** y2)"
@@ -150,7 +150,7 @@ Functions can accept any number of arguments, correctly handles nested functions
 
 Functions cannot be passed as parameters, they must be known at the time when the expression is parsed, and are unchangeable after parsing.
 
-What operators and types does this support?
+What executors and types does this support?
 --
 
 * Modifiers: `+` `-` `/` `*` `&` `|` `^` `**` `%` `>>` `<<`
@@ -166,14 +166,14 @@ What operators and types does this support?
 * Ternary conditional: `?` `:`
 * Null coalescence: `??`
 
-See [MANUAL.md](https://github.com/Knetic/govaluate/blob/master/MANUAL.md) for exacting details on what types each operator supports.
+See [MANUAL.md](https://github.com/Knetic/govaluate/blob/master/MANUAL.md) for exacting details on what types each executor supports.
 
 Types
 --
 
-Some operators don't make sense when used with some types. For instance, what does it mean to get the modulo of a string? What happens if you check to see if two numbers are logically AND'ed together?
+Some executors don't make sense when used with some types. For instance, what does it mean to get the modulo of a string? What happens if you check to see if two numbers are logically AND'ed together?
 
-Everyone has a different intuition about the answers to these questions. To prevent confusion, this library will _refuse to operate_ upon types for which there is not an unambiguous meaning for the operation. See [MANUAL.md](https://github.com/Knetic/govaluate/blob/master/MANUAL.md) for details about what operators are valid for which types.
+Everyone has a different intuition about the answers to these questions. To prevent confusion, this library will _refuse to execute_ upon types for which there is not an unambiguous meaning for the operation. See [MANUAL.md](https://github.com/Knetic/govaluate/blob/master/MANUAL.md) for details about what executors are valid for which types.
 
 Benchmarks
 --

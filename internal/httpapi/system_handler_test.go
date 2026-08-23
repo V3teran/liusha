@@ -9,20 +9,20 @@ import (
 
 // fakeSettings 是 SettingsAPI 的内存实现，记录写入以断言 handler 编排。
 type fakeSettings struct {
-	react       settingstore.ReactSettings
+	compaction  settingstore.CompactionSettings
 	runtime     settingstore.RuntimeSettings
 	proxyFilter settingstore.ProxyFilterSettings
 
-	savedReact       *settingstore.ReactSettings
+	savedCompaction  *settingstore.CompactionSettings
 	savedRuntime     *settingstore.RuntimeSettings
 	savedProxyFilter *settingstore.ProxyFilterSettings
 }
 
-func (f *fakeSettings) React(_ context.Context) (settingstore.ReactSettings, error) {
-	return f.react, nil
+func (f *fakeSettings) Compaction(_ context.Context) (settingstore.CompactionSettings, error) {
+	return f.compaction, nil
 }
-func (f *fakeSettings) SaveReact(_ context.Context, v settingstore.ReactSettings) error {
-	f.savedReact = &v
+func (f *fakeSettings) SaveCompaction(_ context.Context, v settingstore.CompactionSettings) error {
+	f.savedCompaction = &v
 	return nil
 }
 func (f *fakeSettings) Runtime(_ context.Context) (settingstore.RuntimeSettings, error) {
@@ -40,26 +40,26 @@ func (f *fakeSettings) SaveProxyFilter(_ context.Context, v settingstore.ProxyFi
 	return nil
 }
 
-// TestGetReactSettings_ReturnsGroup：GET /settings/react 回 react 组当前旋钮。
-func TestGetReactSettings_ReturnsGroup(t *testing.T) {
-	fs := &fakeSettings{react: settingstore.ReactSettings{
+// TestGetCompactionSettings_ReturnsGroup：GET /settings/compaction 回 compaction 组当前旋钮。
+func TestGetCompactionSettings_ReturnsGroup(t *testing.T) {
+	fs := &fakeSettings{compaction: settingstore.CompactionSettings{
 		TriggerRatio: 0.8, TrailingBudgetRatio: 0.5, CompactorTimeoutSeconds: 30,
 	}}
 	srv := newTestServer(t, Deps{Settings: fs})
 	defer srv.Close()
 
-	code, body := doJSON(t, "GET", srv.URL+"/settings/react", nil)
+	code, body := doJSON(t, "GET", srv.URL+"/settings/compaction", nil)
 	if code != 200 {
 		t.Fatalf("status=%d", code)
 	}
-	r, _ := body["react"].(map[string]any)
+	r, _ := body["compaction"].(map[string]any)
 	if r["trigger_ratio"] != 0.8 || r["compactor_timeout_seconds"] != float64(30) {
-		t.Fatalf("react 组未回传: %v", body["react"])
+		t.Fatalf("compaction 组未回传: %v", body["compaction"])
 	}
 }
 
-// TestPutReactSettings_ValidationRejects：比例越界或超时非正 → 400 中文。
-func TestPutReactSettings_ValidationRejects(t *testing.T) {
+// TestPutCompactionSettings_ValidationRejects：比例越界或超时非正 → 400 中文。
+func TestPutCompactionSettings_ValidationRejects(t *testing.T) {
 	srv := newTestServer(t, Deps{Settings: &fakeSettings{}})
 	defer srv.Close()
 
@@ -74,7 +74,7 @@ func TestPutReactSettings_ValidationRejects(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			code, body := doJSON(t, "PUT", srv.URL+"/settings/react", tc.body)
+			code, body := doJSON(t, "PUT", srv.URL+"/settings/compaction", tc.body)
 			if code != 400 {
 				t.Fatalf("want 400, got %d (%v)", code, body)
 			}
@@ -85,21 +85,21 @@ func TestPutReactSettings_ValidationRejects(t *testing.T) {
 	}
 }
 
-// TestPutReactSettings_Wires：合法 PUT → SaveReact 收到全字段透传。
-func TestPutReactSettings_Wires(t *testing.T) {
+// TestPutCompactionSettings_Wires：合法 PUT → SaveCompaction 收到全字段透传。
+func TestPutCompactionSettings_Wires(t *testing.T) {
 	fs := &fakeSettings{}
 	srv := newTestServer(t, Deps{Settings: fs})
 	defer srv.Close()
 
-	code, _ := doJSON(t, "PUT", srv.URL+"/settings/react", map[string]any{
+	code, _ := doJSON(t, "PUT", srv.URL+"/settings/compaction", map[string]any{
 		"trigger_ratio": 0.75, "trailing_budget_ratio": 0.4, "compactor_timeout_seconds": 45,
 	})
 	if code != 200 {
 		t.Fatalf("status=%d", code)
 	}
-	if fs.savedReact == nil || fs.savedReact.TriggerRatio != 0.75 ||
-		fs.savedReact.TrailingBudgetRatio != 0.4 || fs.savedReact.CompactorTimeoutSeconds != 45 {
-		t.Fatalf("react 未透传: %+v", fs.savedReact)
+	if fs.savedCompaction == nil || fs.savedCompaction.TriggerRatio != 0.75 ||
+		fs.savedCompaction.TrailingBudgetRatio != 0.4 || fs.savedCompaction.CompactorTimeoutSeconds != 45 {
+		t.Fatalf("compaction 未透传: %+v", fs.savedCompaction)
 	}
 }
 
@@ -216,7 +216,7 @@ func TestSettingsRoutes_NotRegisteredWhenNil(t *testing.T) {
 	srv := newTestServer(t, Deps{})
 	defer srv.Close()
 
-	code, _ := doJSON(t, "GET", srv.URL+"/settings/react", nil)
+	code, _ := doJSON(t, "GET", srv.URL+"/settings/compaction", nil)
 	if code != 404 {
 		t.Fatalf("Settings=nil 应 404，got %d", code)
 	}

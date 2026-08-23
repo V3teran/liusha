@@ -4,6 +4,7 @@ package finding_test
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"testing"
 	"time"
@@ -53,7 +54,8 @@ func TestFindingStore_TriageRoundTrip(t *testing.T) {
 		_, _ = pool.Exec(ctx, `DELETE FROM assignment WHERE id=$1::uuid`, assignmentID)
 	}()
 
-	// 存一条 finding（默认 status=open）+ evidence。
+	// 存一条 finding（默认 status=open）+ evidence + repro 复现配方（喂 Verifier 复现门）。
+	reproRecipe := []byte(`{"traffic_id":42,"modifications":{"query":{"id":"2"}},"assert":{"status_code":200,"body_contains":["other user"]}}`)
 	saved, err := store.Save(ctx, finding.VulnFinding{
 		TaskID:   taskID,
 		Host:     "triage-test.local",
@@ -62,6 +64,7 @@ func TestFindingStore_TriageRoundTrip(t *testing.T) {
 		CWEID:    "CWE-89",
 		Target:   []byte(`{"path":"/t","method":"GET"}`),
 		Evidence: []byte(`{"repro_cmd":"curl x","observation":"ok"}`),
+		Repro:    reproRecipe,
 	})
 	if err != nil {
 		t.Fatalf("Save: %v", err)
@@ -89,6 +92,22 @@ func TestFindingStore_TriageRoundTrip(t *testing.T) {
 	}
 	if len(rows[0].Evidence) == 0 || string(rows[0].Evidence) == "{}" {
 		t.Fatalf("evidence 应透传，得 %q", string(rows[0].Evidence))
+	}
+	// repro 复现配方往返：存进的 jsonb 应原样回读（供 Verifier 解析 ReplayRecipe）。
+	if len(rows[0].Repro) == 0 {
+		t.Fatal("repro 复现配方应透传回读，得空")
+	}
+	var recipe struct {
+		TrafficID int64 `json:"traffic_id"`
+		Assert    struct {
+			StatusCode int `json:"status_code"`
+		} `json:"assert"`
+	}
+	if err := json.Unmarshal(rows[0].Repro, &recipe); err != nil {
+		t.Fatalf("repro 应为合法 JSON 配方: %v（got %q）", err, string(rows[0].Repro))
+	}
+	if recipe.TrafficID != 42 || recipe.Assert.StatusCode != 200 {
+		t.Fatalf("repro 字段应原样保真，得 traffic_id=%d status_code=%d", recipe.TrafficID, recipe.Assert.StatusCode)
 	}
 
 	// 不去重：第二个 task 挖到同一漏洞（host+cwe+path 相同）→ 台账平铺应 2 条独立（各自 triage）。

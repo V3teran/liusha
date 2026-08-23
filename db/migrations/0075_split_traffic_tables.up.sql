@@ -39,7 +39,7 @@ CREATE INDEX proxy_traffic_path_idx ON proxy_traffic (host, path);
 CREATE TABLE agent_traffic (
     id           bigserial PRIMARY KEY,
     task_id      uuid NOT NULL REFERENCES task(id) ON DELETE CASCADE,
-    hunter_id    uuid REFERENCES hunter(id) ON DELETE SET NULL,  -- 哪个 agent 发的
+    agent_id    uuid REFERENCES agent(id) ON DELETE SET NULL,  -- 哪个 agent 发的
     identity     text,   -- 身份戳（browser_use 的 identity / 登录账号）
     tool         text,   -- 工具戳（browser / curl / sqlmap ...）
     host         text NOT NULL,

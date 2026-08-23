@@ -60,22 +60,22 @@ echo "===== 2/6 清空 db / redis ====="
 
 # postgres：业务表 TRUNCATE（schema 保留）。
 # 错误**不再静默**——TRUNCATE 任一表失败会立即 exit，避免旧 task / finding 残留。
-# 表名演化：0043 agent_run→agent_task，0054 agent_task→hunter；0046 加 tool_invocation，0047 加 audit_log；
+# 表名演化：0043 agent_run→agent_task，0054 agent_task→agent；0046 加 tool_invocation，0047 加 audit_log；
 # 0056 加 endpoint，0064 退役（攻击面改从流量派生 sitemap）；0059 删 finding_relation（→ finding.depends_on uuid[] 替代）；
 # 0073-0077：active_scan+passive_session 合并为 task；http_flow 拆 proxy_traffic+agent_traffic；conversation.scan_id→task_id；
 # 0078：assignment（下发容器）+ cron_schedule（定时模板）——assignment 是 task 的父表（task.assignment_id
 # REFERENCES assignment.id），不显式 truncate 会在多次 e2e 运行间无限堆积孤儿行。
 # 0079：lesson → corpus（跨目标知识库，hybrid RAG）——lesson 表已删，改 truncate corpus。
-# 0085：运行时表 hunter → hunter_run 改名。此后 hunter 是 config 定义表（seed 首填的事实源，
-# 跨 run 持久），运行时行落 hunter_run。**绝不能 truncate config 表**——
-# hunter/scenario 是 seed insert-only 语义的前提；一旦 truncate hunter，
-# CASCADE 会连带清空 scenario.solo_hunter_id 引用（ON DELETE RESTRICT 反会阻断），
-# 且重启 seed 判定 hunter「已存在」跳过 → swarm 领域池空 → orchestrator「无 domain 子代理」→ task 失败。
-# 0089：playbook 层整体删除（playbook/playbook_hunter 表已 drop）——swarm 池=全部 enabled 领域猎手，
-# solo 由 scenario.solo_hunter_id 单点指定。故这里清运行时表 hunter_run（旧脚本误清 config 表 hunter，是 swarm 派发失败根因）。
-# task 放最后——CASCADE 会连带清 hunter_run/finding/... 的 task_id 引用行，但显式全列更清晰。
+# 0085：运行时表 agent → agent_run 改名。此后 agent 是 config 定义表（seed 首填的事实源，
+# 跨 run 持久），运行时行落 agent_run。**绝不能 truncate config 表**——
+# agent/scenario 是 seed insert-only 语义的前提；一旦 truncate agent，
+# CASCADE 会连带清空 scenario.solo_agent_id 引用（ON DELETE RESTRICT 反会阻断），
+# 且重启 seed 判定 agent「已存在」跳过 → swarm 领域池空 → planner「无 domain 子代理」→ task 失败。
+# 0089：playbook 层整体删除（playbook/playbook_agent 表已 drop）——swarm 池=全部 enabled 领域猎手，
+# solo 由 scenario.solo_agent_id 单点指定。故这里清运行时表 agent_run（旧脚本误清 config 表 agent，是 swarm 派发失败根因）。
+# task 放最后——CASCADE 会连带清 agent_run/finding/... 的 task_id 引用行，但显式全列更清晰。
 if ! docker exec "$PG_CONTAINER" psql -U liusha -d liusha -c \
-    "TRUNCATE TABLE finding, corpus, llm_invocation, tool_invocation, audit_log, hunter_run, proxy_traffic, agent_traffic, conversation, task, assignment, cron_schedule CASCADE;"; then
+    "TRUNCATE TABLE finding, corpus, llm_invocation, tool_invocation, audit_log, agent_run, proxy_traffic, agent_traffic, conversation, task, assignment, cron_schedule CASCADE;"; then
   echo "  ✗ postgres TRUNCATE 失败 — 看上面 psql 错误（常见原因：容器不在 / schema 不一致 / migrate 未跑）"
   exit 1
 fi

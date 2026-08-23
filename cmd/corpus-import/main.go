@@ -21,9 +21,10 @@ import (
 	"github.com/V3teran/liusha/internal/cachestore"
 	"github.com/V3teran/liusha/internal/config"
 	"github.com/V3teran/liusha/internal/corpus"
+	"github.com/V3teran/liusha/internal/cryptx"
 	"github.com/V3teran/liusha/internal/db"
-	"github.com/V3teran/liusha/internal/einollm"
 	"github.com/V3teran/liusha/internal/embedding"
+	"github.com/V3teran/liusha/internal/provider"
 	"github.com/V3teran/liusha/internal/envx"
 	"github.com/V3teran/liusha/internal/llmstore"
 	"github.com/V3teran/liusha/internal/logx"
@@ -60,8 +61,15 @@ func main() {
 	defer func() { _ = rdb.Close() }()
 	llmStore := llmstore.New(pool, cachestore.New(rdb, 0))
 
+	// LLM provider API Key 加密密钥（migration 0103）：同 cmd/api/cmd/runner 的 fail-fast 校验——
+	// tagger 打标要真正解密出明文才能打 LLM 请求。
+	llmKeyCipher, err := cryptx.NewFromEnv("LIUSHA_LLM_KEY_SECRET")
+	if err != nil {
+		logger.Fatal().Err(err).Msg("LIUSHA_LLM_KEY_SECRET 未配置或不合法——provider 密钥解密需要它（fail-fast）")
+	}
+
 	store := corpus.NewStore(pool)
-	tagger := einollm.New(llmStore, cfg) // light 别名 provider 打标
+	tagger := provider.NewRouter(llmStore.AsRouterStore(), llmKeyCipher)
 	var embedder *embedding.Client
 	if ec, err := embedding.NewClient(os.Getenv("JINA_API_KEY")); err != nil {
 		logger.Warn().Err(err).Msg("JINA_API_KEY 未配置：只落行不 embed（仍可 sparse 检索）")

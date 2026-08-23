@@ -43,19 +43,22 @@ github.com/alicebob/miniredis/v2/size
 ## explicit; go 1.13
 github.com/andybalholm/brotli
 github.com/andybalholm/brotli/matchfinder
-# github.com/anthropics/anthropic-sdk-go v1.26.0
-## explicit; go 1.23.0
+# github.com/anthropics/anthropic-sdk-go v1.56.0
+## explicit; go 1.24
 github.com/anthropics/anthropic-sdk-go
+github.com/anthropics/anthropic-sdk-go/config
 github.com/anthropics/anthropic-sdk-go/internal
 github.com/anthropics/anthropic-sdk-go/internal/apierror
 github.com/anthropics/anthropic-sdk-go/internal/apiform
 github.com/anthropics/anthropic-sdk-go/internal/apijson
 github.com/anthropics/anthropic-sdk-go/internal/apiquery
+github.com/anthropics/anthropic-sdk-go/internal/auth
 github.com/anthropics/anthropic-sdk-go/internal/encoding/json
 github.com/anthropics/anthropic-sdk-go/internal/encoding/json/sentinel
 github.com/anthropics/anthropic-sdk-go/internal/encoding/json/shims
 github.com/anthropics/anthropic-sdk-go/internal/paramutil
 github.com/anthropics/anthropic-sdk-go/internal/requestconfig
+github.com/anthropics/anthropic-sdk-go/internal/stainlessheader
 github.com/anthropics/anthropic-sdk-go/option
 github.com/anthropics/anthropic-sdk-go/packages/jsonl
 github.com/anthropics/anthropic-sdk-go/packages/pagination
@@ -77,10 +80,7 @@ github.com/bahlo/generic-list-go
 # github.com/bits-and-blooms/bitset v1.13.0
 ## explicit; go 1.16
 github.com/bits-and-blooms/bitset
-# github.com/bmatcuk/doublestar/v4 v4.10.0
-## explicit; go 1.16
-github.com/bmatcuk/doublestar/v4
-# github.com/buger/jsonparser v1.1.1
+# github.com/buger/jsonparser v1.1.2
 ## explicit; go 1.13
 github.com/buger/jsonparser
 # github.com/bytedance/gopkg v0.1.3
@@ -183,41 +183,6 @@ github.com/cloudwego/base64x/internal/native
 github.com/cloudwego/base64x/internal/native/avx2
 github.com/cloudwego/base64x/internal/native/sse
 github.com/cloudwego/base64x/internal/rt
-# github.com/cloudwego/eino v0.8.13
-## explicit; go 1.18
-github.com/cloudwego/eino/adk
-github.com/cloudwego/eino/adk/filesystem
-github.com/cloudwego/eino/adk/internal
-github.com/cloudwego/eino/adk/middlewares/filesystem
-github.com/cloudwego/eino/adk/middlewares/summarization
-github.com/cloudwego/eino/adk/prebuilt/deep
-github.com/cloudwego/eino/callbacks
-github.com/cloudwego/eino/components
-github.com/cloudwego/eino/components/document
-github.com/cloudwego/eino/components/document/parser
-github.com/cloudwego/eino/components/embedding
-github.com/cloudwego/eino/components/indexer
-github.com/cloudwego/eino/components/model
-github.com/cloudwego/eino/components/prompt
-github.com/cloudwego/eino/components/retriever
-github.com/cloudwego/eino/components/tool
-github.com/cloudwego/eino/components/tool/utils
-github.com/cloudwego/eino/compose
-github.com/cloudwego/eino/internal
-github.com/cloudwego/eino/internal/callbacks
-github.com/cloudwego/eino/internal/core
-github.com/cloudwego/eino/internal/generic
-github.com/cloudwego/eino/internal/gmap
-github.com/cloudwego/eino/internal/gslice
-github.com/cloudwego/eino/internal/safe
-github.com/cloudwego/eino/internal/serialization
-github.com/cloudwego/eino/schema
-# github.com/cloudwego/eino-ext/components/model/openai v0.1.13
-## explicit; go 1.18
-github.com/cloudwego/eino-ext/components/model/openai
-# github.com/cloudwego/eino-ext/libs/acl/openai v0.1.17
-## explicit; go 1.18
-github.com/cloudwego/eino-ext/libs/acl/openai
 # github.com/containerd/errdefs v1.0.0
 ## explicit; go 1.20
 github.com/containerd/errdefs
@@ -262,9 +227,6 @@ github.com/dsnet/compress/bzip2/internal/sais
 github.com/dsnet/compress/internal
 github.com/dsnet/compress/internal/errors
 github.com/dsnet/compress/internal/prefix
-# github.com/dustin/go-humanize v1.0.1
-## explicit; go 1.16
-github.com/dustin/go-humanize
 # github.com/eapache/go-resiliency v1.3.0
 ## explicit; go 1.13
 github.com/eapache/go-resiliency/breaker
@@ -281,18 +243,12 @@ github.com/ebitengine/purego/internal/cgo
 github.com/ebitengine/purego/internal/fakecgo
 github.com/ebitengine/purego/internal/strings
 github.com/ebitengine/purego/internal/xreflect
-# github.com/eino-contrib/jsonschema v1.0.3
-## explicit; go 1.18
-github.com/eino-contrib/jsonschema
 # github.com/elastic/go-elasticsearch/v7 v7.17.10
 ## explicit; go 1.11
 github.com/elastic/go-elasticsearch/v7
 github.com/elastic/go-elasticsearch/v7/esapi
 github.com/elastic/go-elasticsearch/v7/estransport
 github.com/elastic/go-elasticsearch/v7/internal/version
-# github.com/evanphx/json-patch v0.5.2
-## explicit; go 1.14
-github.com/evanphx/json-patch
 # github.com/fatih/color v1.16.0
 ## explicit; go 1.17
 github.com/fatih/color
@@ -374,9 +330,6 @@ github.com/golang/snappy
 # github.com/google/uuid v1.6.0
 ## explicit
 github.com/google/uuid
-# github.com/goph/emperror v0.17.2
-## explicit; go 1.12
-github.com/goph/emperror
 # github.com/gorilla/css v1.0.1
 ## explicit; go 1.20
 github.com/gorilla/css/scanner
@@ -414,6 +367,9 @@ github.com/hibiken/asynq/internal/log
 github.com/hibiken/asynq/internal/proto
 github.com/hibiken/asynq/internal/rdb
 github.com/hibiken/asynq/internal/timeutil
+# github.com/invopop/jsonschema v0.14.0
+## explicit; go 1.24
+github.com/invopop/jsonschema
 # github.com/jackc/pgpassfile v1.0.0
 ## explicit; go 1.12
 github.com/jackc/pgpassfile
@@ -523,10 +479,6 @@ github.com/lufia/plan9stats
 # github.com/magiconair/properties v1.8.10
 ## explicit; go 1.19
 github.com/magiconair/properties
-# github.com/mailru/easyjson v0.7.7
-## explicit; go 1.12
-github.com/mailru/easyjson/buffer
-github.com/mailru/easyjson/jwriter
 # github.com/mattn/go-colorable v0.1.14
 ## explicit; go 1.18
 github.com/mattn/go-colorable
@@ -536,11 +488,6 @@ github.com/mattn/go-isatty
 # github.com/mdelapenya/tlscert v0.2.0
 ## explicit; go 1.23
 github.com/mdelapenya/tlscert
-# github.com/meguminnnnnnnnn/go-openai v0.1.2
-## explicit; go 1.18
-github.com/meguminnnnnnnnn/go-openai
-github.com/meguminnnnnnnnn/go-openai/internal
-github.com/meguminnnnnnnnn/go-openai/jsonschema
 # github.com/mholt/archiver/v3 v3.5.1
 ## explicit; go 1.13
 github.com/mholt/archiver/v3
@@ -611,22 +558,11 @@ github.com/modern-go/concurrent
 # github.com/modern-go/reflect2 v1.0.2
 ## explicit; go 1.12
 github.com/modern-go/reflect2
-# github.com/nikolalohinski/gonja v1.5.3
-## explicit; go 1.20
-github.com/nikolalohinski/gonja
-github.com/nikolalohinski/gonja/builtins
-github.com/nikolalohinski/gonja/builtins/statements
-github.com/nikolalohinski/gonja/config
-github.com/nikolalohinski/gonja/docs
-github.com/nikolalohinski/gonja/exec
-github.com/nikolalohinski/gonja/loaders
-github.com/nikolalohinski/gonja/nodes
-github.com/nikolalohinski/gonja/parser
-github.com/nikolalohinski/gonja/tokens
-github.com/nikolalohinski/gonja/utils
 # github.com/nwaples/rardecode v1.1.3
 ## explicit
 github.com/nwaples/rardecode
+# github.com/onsi/ginkgo v1.16.5
+## explicit; go 1.16
 # github.com/opencontainers/go-digest v1.0.0
 ## explicit; go 1.13
 github.com/opencontainers/go-digest
@@ -634,6 +570,9 @@ github.com/opencontainers/go-digest
 ## explicit; go 1.18
 github.com/opencontainers/image-spec/specs-go
 github.com/opencontainers/image-spec/specs-go/v1
+# github.com/pb33f/ordered-map/v2 v2.3.1
+## explicit; go 1.24
+github.com/pb33f/ordered-map/v2
 # github.com/pelletier/go-toml/v2 v2.2.4
 ## explicit; go 1.21.0
 github.com/pelletier/go-toml/v2
@@ -814,9 +753,6 @@ github.com/shirou/gopsutil/v4/process
 # github.com/sirupsen/logrus v1.9.4
 ## explicit; go 1.17
 github.com/sirupsen/logrus
-# github.com/slongfield/pyfmt v0.0.0-20220222012616-ea85ff4c361f
-## explicit; go 1.9
-github.com/slongfield/pyfmt
 # github.com/sourcegraph/conc v0.3.1-0.20240121214520-5f936abd7ae8
 ## explicit; go 1.20
 github.com/sourcegraph/conc
@@ -845,6 +781,9 @@ github.com/spf13/viper/internal/encoding/json
 github.com/spf13/viper/internal/encoding/toml
 github.com/spf13/viper/internal/encoding/yaml
 github.com/spf13/viper/internal/features
+# github.com/standard-webhooks/standard-webhooks/libraries v0.0.1
+## explicit; go 1.21.0
+github.com/standard-webhooks/standard-webhooks/libraries/go
 # github.com/stretchr/testify v1.11.1
 ## explicit; go 1.17
 github.com/stretchr/testify/assert
@@ -953,18 +892,12 @@ github.com/ulikunitz/xz/lzma
 # github.com/weppos/publicsuffix-go v0.30.1-0.20230422193905-8fecedd899db
 ## explicit; go 1.16
 github.com/weppos/publicsuffix-go/publicsuffix
-# github.com/wk8/go-ordered-map/v2 v2.1.8
-## explicit; go 1.18
-github.com/wk8/go-ordered-map/v2
 # github.com/x448/float16 v0.8.4
 ## explicit; go 1.11
 github.com/x448/float16
 # github.com/xi2/xz v0.0.0-20171230120015-48954b6210f8
 ## explicit
 github.com/xi2/xz
-# github.com/yargevad/filepathx v1.0.0
-## explicit; go 1.14
-github.com/yargevad/filepathx
 # github.com/yuin/gopher-lua v1.1.1
 ## explicit; go 1.17
 github.com/yuin/gopher-lua
@@ -1043,6 +976,9 @@ go.uber.org/multierr
 # go.yaml.in/yaml/v3 v3.0.4
 ## explicit; go 1.16
 go.yaml.in/yaml/v3
+# go.yaml.in/yaml/v4 v4.0.0-rc.2
+## explicit; go 1.18
+go.yaml.in/yaml/v4
 # golang.org/x/arch v0.22.0
 ## explicit; go 1.24.0
 golang.org/x/arch/x86/x86asm
@@ -1069,7 +1005,6 @@ golang.org/x/crypto/ssh/internal/bcrypt_pbkdf
 ## explicit; go 1.23.0
 golang.org/x/exp/constraints
 golang.org/x/exp/maps
-golang.org/x/exp/slices
 # golang.org/x/mod v0.33.0
 ## explicit; go 1.24.0
 golang.org/x/mod/semver

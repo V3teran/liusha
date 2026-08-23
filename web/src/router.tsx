@@ -7,11 +7,10 @@ import { PlaceholderPage } from '@/pages/PlaceholderPage'
 // 独立成块，不拖慢首屏。ConversationsPage 是最常用入口，保留同类动态导入以保持一致。
 const ConversationsPage = lazy(() => import('@/pages/ConversationsPage').then((m) => ({ default: m.ConversationsPage })))
 const FindingsPage = lazy(() => import('@/pages/FindingsPage').then((m) => ({ default: m.FindingsPage })))
-const SitemapPage = lazy(() => import('@/pages/SitemapPage').then((m) => ({ default: m.SitemapPage })))
 const LlmAuditPage = lazy(() => import('@/pages/LlmAuditPage').then((m) => ({ default: m.LlmAuditPage })))
 const AttackGraphPage = lazy(() => import('@/pages/AttackGraphPage').then((m) => ({ default: m.AttackGraphPage })))
 const ScenarioAdmin = lazy(() => import('@/pages/ScenarioAdmin').then((m) => ({ default: m.ScenarioAdmin })))
-const HunterAdmin = lazy(() => import('@/pages/HunterAdmin').then((m) => ({ default: m.HunterAdmin })))
+const AgentAdmin = lazy(() => import('@/pages/AgentAdmin').then((m) => ({ default: m.AgentAdmin })))
 const ToolsPage = lazy(() => import('@/pages/ToolsPage').then((m) => ({ default: m.ToolsPage })))
 const TrafficPage = lazy(() => import('@/pages/TrafficPage').then((m) => ({ default: m.TrafficPage })))
 const ModelPage = lazy(() => import('@/pages/ModelPage').then((m) => ({ default: m.ModelPage })))
@@ -26,7 +25,7 @@ function withSuspense(el: React.ReactNode) {
 }
 
 // 路由表：根用 AppShell 外壳，子路由为各业务页。
-// 对话：按来源分两个 tab——主动下发（source=manual，用户下 brief → AI orchestrator 自主派子代理作战）
+// 对话：按来源分两个 tab——主动下发（source=manual，用户下 brief → AI planner 自主派子代理作战）
 // 与被动代理（source=auto，挂代理收流量 → AI 逐批分析挖洞）。来源轴与场景/引擎正交。
 // path 对齐后端 assignment.source：两个子路由都等于 source 枚举值。
 export const router = createBrowserRouter([
@@ -45,17 +44,16 @@ export const router = createBrowserRouter([
         ],
       },
       { path: 'findings', element: withSuspense(<FindingsPage />) },
-      { path: 'sitemap', element: withSuspense(<SitemapPage />) },
       { path: 'traffic', element: withSuspense(<TrafficPage />) },
       { path: 'attack-graph', element: withSuspense(<AttackGraphPage />) },
       { path: 'llm-audit', element: withSuspense(<LlmAuditPage />) },
       {
-        // 配置管理：场景/智能体（后端 hunter）两资源各自独立页，侧栏平铺入口。
+        // 配置管理：场景/智能体（后端 agent）两资源各自独立页，侧栏平铺入口。
         path: 'config',
         children: [
           { index: true, element: <Navigate to="/config/scenarios" replace /> },
           { path: 'scenarios', element: withSuspense(<ScenarioAdmin />) },
-          { path: 'hunters', element: withSuspense(<HunterAdmin />) },
+          { path: 'agents', element: withSuspense(<AgentAdmin />) },
           { path: 'tools', element: withSuspense(<ToolsPage />) },
           { path: 'models', element: withSuspense(<ModelPage />) },
           // 旧「模型路由」独立路由已并入 /config/models（模块内 ?tab=assignment），重定向保链接可用。

@@ -1,38 +1,60 @@
-import { ROLE_DEFAULT, ROLE_FALLBACK } from '@/api/types'
+import { ROLE_FALLBACK, TIER_HEAVY, TIER_VISION, TIER_LIGHT } from '@/api/types'
 
-// 角色元信息：给已知消费方角色配中文标签 + 一句职责说明，路由表可读性远高于裸 role 字面。
-// 未在此表的 role 原样展示（自定义角色/未来扩展），不阻塞。
-export interface RoleMeta {
-  role: string
+// 能力分档元信息：给三档配中文标签 + 职责说明，供「能力分档」页可读渲染。
+// 归入本档的 agent agent 不再写死——由 AssignmentView 从 agent.tier 真实数据动态分组，
+// 用户在分档页勾选即改 agent.tier（PATCH 移档，与「智能体」页下拉读写同一份数据）。
+// builtinKeys 是**代码内建的路由键**（inspector/compactor 等，不在 agent 表、无法改档），
+// 仅只读展示——让用户知道这一档还服务哪些非 agent 的旁路调用。
+export interface TierMeta {
+  tier: string
   label: string
   desc: string
-  reserved?: boolean // 保留角色（__default__/__fallback__）：语义特殊，单列一组
+  builtinKeys: string[] // 落本档的内建路由键（llmcfg.agentTierTable 中的非 agent key，只读）
+  reserved?: boolean // 保留槽（__fallback__）：非能力档，语义特殊，单列一组
 }
 
-// 消费方角色（与 config.yaml agents 段对齐）。运行期真正走 For(role) 的是
-// traffic-analysis / orchestrator / inspector；exploitation 经 deep task 复用 orchestrator。
-export const KNOWN_ROLES: RoleMeta[] = [
-  { role: 'orchestrator', label: '编排主代理', desc: 'active 主代理，派活决策，含 browser-use 截图（多模态）' },
-  { role: 'traffic-analysis', label: '流量分析', desc: 'passive 单代理，流量驱动逐批挖洞（纯文本路径）' },
-  { role: 'exploitation', label: '利用子代理', desc: 'active 深挖单点，经 deep task 复用编排主代理模型' },
-  { role: 'inspector', label: '督查 / 压缩', desc: '旁路过程督查官与会话历史压缩（轻模型即可）' },
+// 三个能力档（与后端 llmcfg TierHeavy/TierVision/TierLight 对齐）。
+export const TIERS: TierMeta[] = [
+  {
+    tier: TIER_HEAVY,
+    label: '重推理',
+    desc: '强文本推理档，编排决策与流量逐批挖洞；未显式归档的 agent 也落此档（隐式默认）',
+    builtinKeys: [],
+  },
+  {
+    tier: TIER_VISION,
+    label: '多模态',
+    desc: '需读图的 active 链路：browser-use 截图驱动的编排与利用',
+    builtinKeys: [],
+  },
+  {
+    tier: TIER_LIGHT,
+    label: '轻任务',
+    desc: '意图分类、摘要与会话历史压缩等旁路轻量调用，轻模型即可省钱',
+    builtinKeys: ['inspector', 'compactor'],
+  },
 ]
 
-// 保留角色：替代原全局别名槽，语义特殊，UI 单列「兜底」一组以示区别。
-export const RESERVED_ROLES: RoleMeta[] = [
-  { role: ROLE_DEFAULT, label: '默认兜底', desc: '角色未命中任何指派时的兜底 provider', reserved: true },
-  { role: ROLE_FALLBACK, label: '重试备份', desc: '主 provider 重试耗尽后切换的备份 provider', reserved: true },
+// 保留槽：唯一的兜底部署，主 provider 重试耗尽后切换。非能力档，UI 单列一组以示区别。
+export const RESERVED_TIERS: TierMeta[] = [
+  {
+    tier: ROLE_FALLBACK,
+    label: '兜底部署',
+    desc: '任一档主 provider 重试耗尽后切换的备份 provider',
+    builtinKeys: [],
+    reserved: true,
+  },
 ]
 
-const META_BY_ROLE = new Map<string, RoleMeta>(
-  [...KNOWN_ROLES, ...RESERVED_ROLES].map((m) => [m.role, m]),
+const META_BY_TIER = new Map<string, TierMeta>(
+  [...TIERS, ...RESERVED_TIERS].map((m) => [m.tier, m]),
 )
 
-/** 取角色元信息；未知角色回退为原样 label（无描述、非保留）。 */
-export function roleMeta(role: string): RoleMeta {
-  return META_BY_ROLE.get(role) ?? { role, label: role, desc: '自定义角色' }
+/** 取档位元信息；未知档回退为原样 label（无描述、非保留）。 */
+export function tierMeta(tier: string): TierMeta {
+  return META_BY_TIER.get(tier) ?? { tier, label: tier, desc: '自定义档位', builtinKeys: [] }
 }
 
-export function isReservedRole(role: string): boolean {
-  return role === ROLE_DEFAULT || role === ROLE_FALLBACK
+export function isReservedTier(tier: string): boolean {
+  return tier === ROLE_FALLBACK
 }

@@ -4,7 +4,7 @@
 //   - 本 Manifest 是"工具是否存在"的真实来源——和 Dockerfile 装的 binary 严格对应
 //   - skills/tooling/<name>/SKILL.md 是"是否有详细手册"——独立可选
 //
-// hunter 在每个 turn 把本 Manifest 渲染成 tooling_catalog 段塞进 SystemPrompt（Tier 1 索引），
+// agent 在每个 turn 把本 Manifest 渲染成 tooling_catalog 段塞进 SystemPrompt（Tier 1 索引），
 // LLM 看到全集就知道"沙箱有哪些工具"。详细手册仍走 read_tooling_skill(name) 按需读 SKILL.md。
 package manifest
 
@@ -30,7 +30,7 @@ type Manifest struct {
 }
 
 // Load 从 yaml 文件加载 Manifest；返回 error 时调用方应 fail-fast——
-// 工具清单缺失会让 LLM 看不到沙箱有什么工具，hunter 无法 ReAct 决策。
+// 工具清单缺失会让 LLM 看不到沙箱有什么工具，agent 无法 ReAct 决策。
 func Load(path string) (*Manifest, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -69,9 +69,9 @@ func (m *Manifest) Names() []string {
 	return out
 }
 
-// FilterByNames 按猎手 cli_tools 严格白名单过滤工具目录，返回新 Manifest（不改原实例——不可变）。
-//   - names 为空 = 空集，该猎手不装配任何外部 CLI 工具（严格白名单，所选即所得）；
-//   - names 非空 = 只保留名字在白名单里的工具（猎手专精：只给它这几把刀）。
+// FilterByNames 按操作员 cli_tools 严格白名单过滤工具目录，返回新 Manifest（不改原实例——不可变）。
+//   - names 为空 = 空集，该操作员不装配任何外部 CLI 工具（严格白名单，所选即所得）；
+//   - names 非空 = 只保留名字在白名单里的工具（操作员专精：只给它这几把刀）。
 //
 // 白名单里不存在的名字静默忽略（配置漂移不致命）。
 func (m *Manifest) FilterByNames(names []string) *Manifest {

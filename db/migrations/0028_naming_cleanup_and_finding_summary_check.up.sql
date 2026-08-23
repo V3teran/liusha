@@ -1,8 +1,8 @@
 -- 0028: 命名清理 + finding.summary 形态收紧
 --
 -- 背景（本会话审计发现）：
---   1. agent_run.skill 是 v0024 单层 hunter 架构前的遗留——单层后 role 总等于 skill
---      （DB 实测 'hunter'/'hunter' 100% 命中），字段冗余。
+--   1. agent_run.skill 是 v0024 单层 agent 架构前的遗留——单层后 role 总等于 skill
+--      （DB 实测 'agent'/'agent' 100% 命中），字段冗余。
 --   2. llm_invocation 表已从 llm_call 改名，但 sequence / pkey / engagement_idx /
 --      engagement_id_fkey 4 处仍带旧前缀 `llm_call_`，命名不一致难维护。
 --   3. finding.summary 设计本意是 "git commit subject 风格的一行短标题"

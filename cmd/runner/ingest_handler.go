@@ -1,12 +1,12 @@
 // ingest_handler.go — active 沙箱抓流量 → 流量字典的 HTTP 入口（从 cmd/proxy 迁来）。
 //
-// 背景：active 模式下 orchestrator/exploitation 在沙箱里用 chromium 登录目标 + 跑 CLI 工具，
+// 背景：active 模式下 planner/exploitation 在沙箱里用 chromium 登录目标 + 跑 CLI 工具，
 // 真实认证请求（Document/XHR/Fetch）必须进 agent_traffic 字典，LLM 才能看到真实请求结构 + 凭证位置
 // → 转 replay_traffic 做水平/垂直越权（BAC）测试。
 //
 // 两条抓取前端（都在沙箱内，都 POST 到这里）：
-//   - 浏览器：browser-svc.py 内建 CDP Network observer（per-request 按 session→tab→hunter 归属）
-//   - CLI：容器内本地 mitmdump + mitm-capture.py，工具经 HTTP_PROXY 走它（owner 级归属，hunter_id 走 env）
+//   - 浏览器：browser-svc.py 内建 CDP Network observer（per-request 按 session→tab→agent 归属）
+//   - CLI：容器内本地 mitmdump + mitm-capture.py，工具经 HTTP_PROXY 走它（owner 级归属，executor_id 走 env）
 //
 // 本 handler 收到后构造 proxy.TrafficSnapshot{Source:"internal"} → publisher.Publish
 //
@@ -31,13 +31,13 @@ import (
 // ingestRequest 是沙箱抓流量推送的 JSON 体。
 //
 // 与 proxy.TrafficSnapshot 字段一一对应但有两点差异：
-//   - ID 由本 handler 生成（"cdp-<hunterID>-<timestamp>"），不依赖 pentools 端
+//   - ID 由本 handler 生成（"cdp-<agentID>-<timestamp>"），不依赖 pentools 端
 //   - Duration 单位 ms（避免 nanosecond 跨语言 JSON 精度坑——python json.dumps int 安全）
 //
 // RequestBody/ResponseBody 是 []byte：JSON 里走 base64 字符串（Go encoding/json 约定，
 // python 端 base64.b64encode）。空字符串 → 空 []byte。
 type ingestRequest struct {
-	HunterID        string              `json:"hunter_id"`
+	ExecutorID        string              `json:"executor_id"`
 	Identity        string              `json:"identity,omitempty"` // 身份名（browser 抓的填；CLI 空）
 	Tool            string              `json:"tool,omitempty"`     // 发起工具（browser='browser'；CLI=UA 解析）
 	Host            string              `json:"host"`
@@ -69,7 +69,7 @@ type internalSink interface {
 // 错误响应：
 //   - 405 method 非 POST
 //   - 401 token 不匹配（仅 token 非空时）
-//   - 400 JSON 解析失败 / hunter_id 缺失
+//   - 400 JSON 解析失败 / executor_id 缺失
 //   - 503 ingestor 队列已满（背压——沙箱应退避重试）
 //   - 200 成功（不返 body，节省带宽）
 func newIngestHandler(sink internalSink, token string, logger zerolog.Logger) http.HandlerFunc {
@@ -97,8 +97,8 @@ func newIngestHandler(sink internalSink, token string, logger zerolog.Logger) ht
 			http.Error(w, "bad request: "+err.Error(), http.StatusBadRequest)
 			return
 		}
-		if req.HunterID == "" {
-			http.Error(w, "hunter_id required", http.StatusBadRequest)
+		if req.ExecutorID == "" {
+			http.Error(w, "executor_id required", http.StatusBadRequest)
 			return
 		}
 
@@ -108,8 +108,8 @@ func newIngestHandler(sink internalSink, token string, logger zerolog.Logger) ht
 		}
 
 		snap := &proxy.TrafficSnapshot{
-			ID:              "cdp-" + req.HunterID + "-" + ts.Format("20060102T150405.000000000"),
-			HunterID:        req.HunterID,
+			ID:              "cdp-" + req.ExecutorID + "-" + ts.Format("20060102T150405.000000000"),
+			ExecutorID:        req.ExecutorID,
 			Source:          "internal",
 			Identity:        req.Identity,
 			Tool:            req.Tool,
@@ -130,13 +130,13 @@ func newIngestHandler(sink internalSink, token string, logger zerolog.Logger) ht
 		}
 
 		if !sink.SubmitInternal(snap) {
-			logger.Warn().Str("hunter_id", req.HunterID).Msg("ingest 队列已满，背压 503（沙箱应退避重试）")
+			logger.Warn().Str("executor_id", req.ExecutorID).Msg("ingest 队列已满，背压 503（沙箱应退避重试）")
 			http.Error(w, "ingest queue full", http.StatusServiceUnavailable)
 			return
 		}
 
 		logger.Info().
-			Str("hunter_id", req.HunterID).
+			Str("executor_id", req.ExecutorID).
 			Str("method", req.Method).
 			Str("host", req.Host).
 			Str("uri", req.URI).

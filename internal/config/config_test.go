@@ -11,8 +11,9 @@ const minimalYAML = `
 api: {read_timeout_seconds: 15, write_timeout_seconds: 30}
 postgres: {max_conns: 20, min_conns: 2}
 llm:
-  default_provider: deepseek
-  vision_provider: anthropic
+  tiers:
+    heavy: deepseek
+    vision: anthropic
   max_steps: 30
   max_tokens_per_call: 4096
 providers:
@@ -33,7 +34,7 @@ func writeConfig(t *testing.T, body string) string {
 	return p
 }
 
-func TestLoad_MissingDefaultProviderKey(t *testing.T) {
+func TestLoad_MissingHeavyTierKey(t *testing.T) {
 	t.Setenv("DEEPSEEK_API_KEY", "")
 	t.Setenv("ANTHROPIC_API_KEY", "k-anth")
 	if _, err := Load(writeConfig(t, minimalYAML)); err == nil {
@@ -48,7 +49,7 @@ func TestLoad_OK(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.LLM.DefaultProvider != "deepseek" || cfg.Providers["deepseek"].DefaultModel != "deepseek-chat" {
+	if cfg.LLM.Tiers["heavy"] != "deepseek" || cfg.Providers["deepseek"].DefaultModel != "deepseek-chat" {
 		t.Fatalf("unexpected: %+v", cfg)
 	}
 }

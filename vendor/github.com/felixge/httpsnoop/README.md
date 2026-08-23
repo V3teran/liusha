@@ -50,7 +50,7 @@ Another approach I've seen people take is to return a struct that implements
 all of the interfaces above. However, that's also problematic, because it's
 difficult to fake some of these interfaces behaviors when the underlying
 `http.ResponseWriter` doesn't have an implementation. It's also dangerous,
-because an application may choose to operate differently, merely because it
+because an application may choose to execute differently, merely because it
 detects the presence of these additional interfaces.
 
 This package solves this problem by checking which additional interfaces a

@@ -21,16 +21,16 @@
 | 前端 | liusha-ui（Vue3 控制台，独立仓） |
 | agent | 已迁 eino（spawn_exploitation 自定义 swarm），已转默认；react 留退路 |
 | passive | proxy → ingestor → scanner（asynq）→ traffic-analysis 单 agent 挖洞 → 落库 |
-| active | scanner → orchestrator+exploitation（当前 spawn_exploitation） |
+| active | scanner → planner+exploitation（当前 spawn_exploitation） |
 | 缺失 | 无对话、无 SSE、无 role/场景、无 deep 编排 |
 
 ## 3. 关键设计决策（已与用户对齐 + 源码/实测支撑）
 
 1. **agent 编排改用 eino `deep` prebuilt**（替换 spawn_exploitation）。
-   - 实测：共享 ChatModel 并发安全 → **per-hunter 独立 model「铁律」作废**（spike/eino-sharedmodel）。
+   - 实测：共享 ChatModel 并发安全 → **per-agent 独立 model「铁律」作废**（spike/eino-sharedmodel）。
    - deep 的 sub-agent 之间串行 → **符合杀伤链流程本就串行**；sub-agent **内部**多工具并行（eino ToolsNode 原生）。用户已认可。
 2. **两层角色（照 CyberStrikeAI 的正交结构，但实现自研）**：
-   - **role（场景）**：CTF / Web 扫描 / 渗透… → 换**主代理（orchestrator/orchestrator）**的人设 prompt + 工具集。用户前端选。
+   - **role（场景）**：CTF / Web 扫描 / 渗透… → 换**主代理（planner/planner）**的人设 prompt + 工具集。用户前端选。
    - **agents（杀伤链阶段 sub-agent）**：recon / 攻击面枚举 / 漏洞分诊 / 渗透利用 / 提权 / 横向… → deep.Config.SubAgents。**不随 role 变**，所有场景共用。
    - 维度判定：sub-agent 按**杀伤链阶段/职能**切（不是单漏洞、不是漏洞类型）——这是 deep「预定义固定模板」模型的唯一契合维度。
 3. **角色动态加载（自研，非抄 CyberStrikeAI）**：markdown + frontmatter，运行时扫目录装配。
@@ -50,7 +50,7 @@
                               │ agent mode 分发
                               ▼
                     deep 编排器（einoagent，改造）
-                      orchestrator(orchestrator) + 动态加载的杀伤链 sub-agents
+                      planner(planner) + 动态加载的杀伤链 sub-agents
                               │ EmitInternalEvents + callbacks
                               ▼
                     progressCallback → SSE 事件
@@ -69,7 +69,7 @@ proxy → ingestor → scanner（asynq，复用）
 > 原则：每阶段独立可验收、可 commit；底层先行；前端最后。
 
 ### 阶段 A：agent 编排换 deep + 动态角色加载（后端核心）
-- 内容：orchestrator+exploitation（spawn_exploitation）→ deep；定义杀伤链 sub-agent（起步最小：recon + exploitation/渗透利用，可后续加）；markdown+frontmatter 动态加载；run_command 改每命令临时目录。
+- 内容：planner+exploitation（spawn_exploitation）→ deep；定义杀伤链 sub-agent（起步最小：recon + exploitation/渗透利用，可后续加）；markdown+frontmatter 动态加载；run_command 改每命令临时目录。
 - 不碰：前端 / SSE / role 场景层。
 - 验收：active e2e（deep 编排）跑通，sub-agent 按阶段派活、出 finding；passive traffic-analysis 不受影响。
 - 风险：中。有 spike（eino-deep-swarm 已验证 deep 动态派+共享 model）+ 实测基础。
@@ -81,7 +81,7 @@ proxy → ingestor → scanner（asynq，复用）
 
 ### 阶段 C：role 多场景系统（用户选场景）
 - 内容：role 定义（场景人设+工具集，动态加载）；主代理按 role 换 prompt+工具；API 暴露 role 列表供前端选。
-- 验收：选不同 role 发起，orchestrator 人设/工具随之变，sub-agents 不变。
+- 验收：选不同 role 发起，planner 人设/工具随之变，sub-agents 不变。
 - 风险：中。
 
 ### 阶段 D：前端对话 UI

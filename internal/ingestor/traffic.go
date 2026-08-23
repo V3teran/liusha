@@ -4,7 +4,7 @@
 //	ingestor.Traffic XREADGROUP → 按 source 分流：
 //	  external（代理捕获真实流量）→ 落 proxy_traffic（按 host）→ 喂 Redis 聚合窗口
 //	                                → 攒批（20 条/10s）→ 建 passive task → 回填 consumed_by_task_id → enqueue
-//	  internal（agent sandbox 自产）→ 反查 hunter 得 task_id → 落 agent_traffic（不 enqueue，防自激震荡）
+//	  internal（agent sandbox 自产）→ 反查 agent 得 task_id → 落 agent_traffic（不 enqueue，防自激震荡）
 //
 // 这里不再做二次过滤：是否丢弃流量完全由 proxy 端 filter chain 决定。
 package ingestor
@@ -20,10 +20,10 @@ import (
 	"github.com/redis/go-redis/v9"
 	"github.com/rs/zerolog"
 
+	"github.com/V3teran/liusha/internal/agentrun"
 	"github.com/V3teran/liusha/internal/assignment"
 	"github.com/V3teran/liusha/internal/config"
 	"github.com/V3teran/liusha/internal/conversation"
-	"github.com/V3teran/liusha/internal/hunterrun"
 	"github.com/V3teran/liusha/internal/proxy"
 	"github.com/V3teran/liusha/internal/task"
 	"github.com/V3teran/liusha/internal/traffic"
@@ -66,9 +66,9 @@ type Traffic struct {
 	assignments   *assignment.Store   // 聚合建 passive assignment（一切 task 皆属某 assignment）
 	tasks         *task.Store         // passive task 建/查
 	agg           *aggregator         // 按 host 攒批窗口（Redis）
-	proxyFlows    *traffic.ProxyStore // 代理捕获流量落库 + 领取
-	agentFlows    *traffic.AgentStore // agent 自产流量落库
-	hunters       *hunterrun.Store    // internal 流量反查 hunter→task_id
+	proxyStore    *traffic.ProxyStore // 代理捕获流量落库 + 领取
+	agentStore    *traffic.AgentStore // agent 自产流量落库
+	executors    *agentrun.Store    // internal 流量反查 agent→task_id
 	conversations ConversationCreator // 建 passive task 会话流（nil 跳过）
 	enq           *worker.Client
 	logger        zerolog.Logger
@@ -82,9 +82,9 @@ type Deps struct {
 	Tenant        string // Redis key 前缀（聚合窗口 + 锁）
 	Assignments   *assignment.Store
 	Tasks         *task.Store
-	ProxyFlows    *traffic.ProxyStore
-	AgentFlows    *traffic.AgentStore
-	Hunters       *hunterrun.Store
+	ProxyStore    *traffic.ProxyStore
+	AgentStore    *traffic.AgentStore
+	Agents       *agentrun.Store
 	Conversations ConversationCreator
 	Enqueuer      *worker.Client
 	Logger        zerolog.Logger
@@ -92,9 +92,9 @@ type Deps struct {
 
 // NewTraffic 构造并 ensure consumer group 存在。
 func NewTraffic(ctx context.Context, deps Deps) (*Traffic, error) {
-	if deps.Redis == nil || deps.Assignments == nil || deps.Tasks == nil || deps.ProxyFlows == nil ||
-		deps.AgentFlows == nil || deps.Hunters == nil || deps.Enqueuer == nil {
-		return nil, errors.New("ingestor.NewTraffic: redis/assignments/tasks/proxyFlows/agentFlows/hunters/enqueuer 必填")
+	if deps.Redis == nil || deps.Assignments == nil || deps.Tasks == nil || deps.ProxyStore == nil ||
+		deps.AgentStore == nil || deps.Agents == nil || deps.Enqueuer == nil {
+		return nil, errors.New("ingestor.NewTraffic: redis/assignments/tasks/proxyStore/agentStore/executors/enqueuer 必填")
 	}
 	if strings.TrimSpace(deps.Stream) == "" {
 		return nil, errors.New("ingestor.NewTraffic: stream 必填（应来自 cfg.Proxy.StreamName）")
@@ -116,9 +116,9 @@ func NewTraffic(ctx context.Context, deps Deps) (*Traffic, error) {
 		assignments:   deps.Assignments,
 		tasks:         deps.Tasks,
 		agg:           newAggregator(deps.Redis, prefix, deps.Cfg.AggregateBatchSize, window),
-		proxyFlows:    deps.ProxyFlows,
-		agentFlows:    deps.AgentFlows,
-		hunters:       deps.Hunters,
+		proxyStore:    deps.ProxyStore,
+		agentStore:    deps.AgentStore,
+		executors: deps.Agents,
 		conversations: deps.Conversations,
 		enq:           deps.Enqueuer,
 		logger:        deps.Logger,
@@ -271,20 +271,18 @@ func (t *Traffic) handleMessage(ctx context.Context, msg redis.XMessage) {
 
 // handleExternalSnap 处理代理捕获流量：落 proxy_traffic（按 host）+ 喂聚合窗口，达阈值则建 passive task。
 func (t *Traffic) handleExternalSnap(ctx context.Context, snap *proxy.TrafficSnapshot) {
-	reqH, _ := json.Marshal(snap.RequestHeaders)
-	respH, _ := json.Marshal(snap.ResponseHeaders)
-	if _, err := t.proxyFlows.Append(ctx, traffic.ProxyTraffic{
-		Host:            snap.Host,
-		Method:          snap.Method,
-		Scheme:          snap.Scheme,
-		URL:             fullURL(snap),
-		Path:            snap.Path,
-		StatusCode:      snap.StatusCode,
-		RequestHeaders:  reqH,
-		RequestBody:     snap.RequestBody,
-		ResponseHeaders: respH,
-		ResponseBody:    snap.ResponseBody,
-		DurationMs:      int(snap.Duration.Milliseconds()),
+	if _, err := t.proxyStore.Append(ctx, traffic.ProxyTraffic{
+		Host:        snap.Host,
+		Method:      snap.Method,
+		Scheme:      snap.Scheme,
+		URL:         fullURL(snap),
+		Path:        snap.Path,
+		StatusCode:  snap.StatusCode,
+		RequestRaw:  snap.RequestRaw(),
+		ResponseRaw: snap.ResponseRaw(),
+		ContentType: snap.ContentType(),
+		HTTPVersion: snap.HTTPVersion,
+		RespLen:     int64(len(snap.ResponseBody)),
 	}); err != nil {
 		t.logger.Warn().Err(err).Str("host", snap.Host).Msg("proxy_traffic 落库失败，跳过本流量")
 		return
@@ -332,7 +330,7 @@ func (t *Traffic) spawnPassiveTask(ctx context.Context, host string) {
 		t.logger.Warn().Err(err).Str("host", host).Msg("建 passive task 失败")
 		return
 	}
-	claimed, err := t.proxyFlows.ClaimUnconsumedByHost(ctx, tk.ID, host, t.agg.batchN())
+	claimed, err := t.proxyStore.ClaimUnconsumedByHost(ctx, tk.ID, host, t.agg.batchN())
 	if err != nil {
 		t.logger.Warn().Err(err).Str("task_id", tk.ID).Msg("领取 proxy_traffic 失败，abort 本 task")
 		_ = t.tasks.Abort(ctx, tk.ID, "领取流量失败")
@@ -345,43 +343,43 @@ func (t *Traffic) spawnPassiveTask(ctx context.Context, host string) {
 
 	// 取本批已认领流量的清单（供首条任务说明列出 method/path/status）；失败则降级为空清单
 	// （首条说明仍显示条数，只是列不出明细），不阻塞分析。
-	claimedFlows, err := t.proxyFlows.ListByTask(ctx, tk.ID)
+	claimedTraffic, err := t.proxyStore.ListByTask(ctx, tk.ID)
 	if err != nil {
 		t.logger.Warn().Err(err).Str("task_id", tk.ID).Msg("取已认领流量清单失败（首条说明降级为无明细）")
 	}
-	convID := t.ensureConversation(ctx, tk.ID, host, claimedFlows)
+	convID := t.ensureConversation(ctx, tk.ID, host, claimedTraffic)
 	if err := t.enqueuePassive(ctx, tk.ID, convID, host); err != nil {
 		t.logger.Warn().Err(err).Str("task_id", tk.ID).Msg("passive task 入队失败")
 		return
 	}
 	t.logger.Info().
-		Str("task_id", tk.ID).Str("host", host).Int64("flows", claimed).
+		Str("task_id", tk.ID).Str("host", host).Int64("traffic", claimed).
 		Msg("passive task 已建并入 traffic-analysis 队列")
 }
 
-// handleInternalSnap 处理 agent sandbox 自产流量：反查 hunter 得 task_id，落 agent_traffic，不 enqueue。
+// handleInternalSnap 处理 agent sandbox 自产流量：反查 agent 得 task_id，落 agent_traffic，不 enqueue。
 //
 // source=internal 唯一来源：browser-svc.py 持 CDP 连接，把 chromium 的 Document/XHR/Fetch（含真实
-// 认证凭证位置）→ POST /internal/v1/flows/ingest → snap.Source="internal" + snap.HunterID。
-// 反查 hunter 表得 task_id 写 agent_traffic。不 enqueue：agent 自己挖的流量回头触发分析会自激震荡。
+// 认证凭证位置）→ POST /internal/v1/flows/ingest → snap.Source="internal" + snap.ExecutorID。
+// 反查 agent 表得 task_id 写 agent_traffic。不 enqueue：agent 自己挖的流量回头触发分析会自激震荡。
 func (t *Traffic) handleInternalSnap(ctx context.Context, snap *proxy.TrafficSnapshot) {
-	if snap.HunterID == "" {
+	if snap.ExecutorID == "" {
 		t.logger.Warn().Str("host", snap.Host).Str("uri", snap.URI).
-			Msg("internal 流量缺 hunter_id，丢弃（browser-svc.py session→hunter 归属异常？）")
+			Msg("internal 流量缺 executor_id，丢弃（browser-svc.py session→executor 归属异常？）")
 		return
 	}
-	run, err := t.hunters.GetByID(ctx, snap.HunterID)
+	run, err := t.executors.GetByID(ctx, snap.ExecutorID)
 	if err != nil {
-		t.logger.Warn().Err(err).Str("hunter_id", snap.HunterID).
-			Msg("internal 流量反查 hunter 失败，丢弃（hunter 已被清理 / 跨进程脏数据？）")
+		t.logger.Warn().Err(err).Str("agent_id", snap.ExecutorID).
+			Msg("internal 流量反查 executor 失败，丢弃（executor 已被清理 / 跨进程脏数据？）")
 		return
 	}
 
 	reqH, _ := json.Marshal(snap.RequestHeaders)
 	respH, _ := json.Marshal(snap.ResponseHeaders)
-	flowID, err := t.agentFlows.Append(ctx, traffic.AgentTraffic{
+	trafficID, err := t.agentStore.Append(ctx, traffic.AgentTraffic{
 		TaskID:          run.TaskID,
-		HunterID:        snap.HunterID,
+		ExecutorID:        snap.ExecutorID,
 		Identity:        snap.Identity,
 		Tool:            snap.Tool,
 		Host:            snap.Host,
@@ -400,7 +398,7 @@ func (t *Traffic) handleInternalSnap(ctx context.Context, snap *proxy.TrafficSna
 		return
 	}
 	t.logger.Info().
-		Str("task_id", run.TaskID).Str("hunter_id", snap.HunterID).Int64("flow_id", flowID).
+		Str("task_id", run.TaskID).Str("agent_id", snap.ExecutorID).Int64("traffic_id", trafficID).
 		Str("method", snap.Method).Str("url", snap.URI).
 		Msg("internal 流量已入 agent_traffic（不触发 trafficAnalysis）")
 }
@@ -409,7 +407,7 @@ func (t *Traffic) handleInternalSnap(ctx context.Context, snap *proxy.TrafficSna
 // 再写一条「任务说明」首条消息（role=user）——passive 无用户手打 brief，但有确定任务上下文
 // （host + 本批捕获的请求清单），合成说明作为会话首条右侧气泡（对齐 active 的 brief）。
 // conversations nil / 建会话失败 → 返空串（降级：本次不绑，事件不落会话，但流量分析照常）。
-func (t *Traffic) ensureConversation(ctx context.Context, taskID, host string, flows []traffic.ProxyTraffic) string {
+func (t *Traffic) ensureConversation(ctx context.Context, taskID, host string, trafficList []traffic.ProxyTraffic) string {
 	if t.conversations == nil {
 		return ""
 	}
@@ -421,7 +419,7 @@ func (t *Traffic) ensureConversation(ctx context.Context, taskID, host string, f
 	// 首条任务说明（role=user）：passive 流量驱动自动发起，合成说明让前端有"发起了什么"的锚点。
 	// 列出本批捕获的请求（method path → status），而非干巴的条数——用户一眼看清在分析哪些流量。
 	// best-effort——写失败仅缺首条气泡，不影响流量分析与后续事件落会话。
-	if _, err := t.conversations.AppendMessage(ctx, conv.ID, conversation.RoleUser, conversation.KindMessage, passiveBrief(host, flows), nil); err != nil {
+	if _, err := t.conversations.AppendMessage(ctx, conv.ID, conversation.RoleUser, conversation.KindMessage, passiveBrief(host, trafficList), nil); err != nil {
 		t.logger.Warn().Err(err).Str("conv", conv.ID).Msg("写 passive 任务说明首条消息失败（降级：会话缺首条气泡）")
 	}
 	return conv.ID
@@ -432,12 +430,12 @@ const passiveBriefMaxList = 20
 
 // passiveBrief 合成 passive 首条任务说明：host + 本批捕获请求清单（method path → status，去重）。
 // 让用户一眼看清在分析哪些流量，而非干巴的条数。
-func passiveBrief(host string, flows []traffic.ProxyTraffic) string {
+func passiveBrief(host string, trafficList []traffic.ProxyTraffic) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "被动流量分析：监听到 host `%s` 的 %d 条 HTTP 流量，发起分析——从响应线索反推可控点，追查漏洞。\n\n捕获请求：", host, len(flows))
-	for i, f := range flows {
+	fmt.Fprintf(&b, "被动流量分析：监听到 host `%s` 的 %d 条 HTTP 流量，发起分析——从响应线索反推可控点，追查漏洞。\n\n捕获请求：", host, len(trafficList))
+	for i, f := range trafficList {
 		if i >= passiveBriefMaxList {
-			fmt.Fprintf(&b, "\n… 等共 %d 条", len(flows))
+			fmt.Fprintf(&b, "\n… 等共 %d 条", len(trafficList))
 			break
 		}
 		fmt.Fprintf(&b, "\n%s %s → %d", f.Method, f.Path, f.StatusCode)
@@ -449,21 +447,21 @@ func (t *Traffic) enqueuePassive(ctx context.Context, taskID, convID, host strin
 	// payload 只带一段 brief 文本（见 D5）：流量驱动无用户手打 brief，用 host 作 brief——
 	// runner handler 据 scenario_id 走 solo 派发，从 brief 抽 host 回填。
 	payloadInput, _ := json.Marshal(map[string]any{"brief": host})
-	hid, err := t.hunters.Create(ctx, hunterrun.NewParams{
+	hid, err := t.executors.Create(ctx, agentrun.NewParams{
 		TaskID: taskID,
 		Role:   "traffic-analysis",
 		Input:  payloadInput,
 	})
 	if err != nil {
-		return fmt.Errorf("hunters.Create: %w", err)
+		return fmt.Errorf("executors.Create: %w", err)
 	}
-	if _, _, err := t.enq.Enqueue(ctx, worker.RoleHunter, worker.Payload{
-		HunterID:       hid,
+	if _, _, err := t.enq.Enqueue(ctx, worker.RoleExecutor, worker.Payload{
+		ExecutorID:       hid,
 		TaskID:         taskID,
 		ConversationID: convID,
 		ScenarioID:     trafficScenarioCode,
 		Input:          payloadInput,
-		Role:           worker.RoleHunter,
+		Role:           worker.RoleExecutor,
 	}); err != nil {
 		return fmt.Errorf("enq.Enqueue: %w", err)
 	}

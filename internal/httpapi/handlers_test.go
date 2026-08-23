@@ -283,7 +283,7 @@ type fakeScan struct {
 	gotScenarioID          string
 	calls                  int
 	err                    error
-	retTaskID, retHunterID string
+	retTaskID, retExecutorID string
 }
 
 func (f *fakeScan) CreateScan(_ context.Context, brief, scenarioID string) (string, string, error) {
@@ -297,14 +297,14 @@ func (f *fakeScan) CreateScan(_ context.Context, brief, scenarioID string) (stri
 	if taskID == "" {
 		taskID = "task-id"
 	}
-	tid := f.retHunterID
+	tid := f.retExecutorID
 	if tid == "" {
-		tid = "hunter-id"
+		tid = "agent-id"
 	}
 	return taskID, tid, nil
 }
 
-// TestScan_Created：正常路径 → 200 + {task_id, hunter_id}；fake 记录 brief + scenario_id 原文。
+// TestScan_Created：正常路径 → 200 + {task_id, agent_id}；fake 记录 brief + scenario_id 原文。
 func TestScan_Created(t *testing.T) {
 	fs := &fakeScan{}
 	srv := newTestServer(t, Deps{Scan: fs})
@@ -327,13 +327,13 @@ func TestScan_Created(t *testing.T) {
 	}
 	var out struct {
 		TaskID   string `json:"task_id"`
-		HunterID string `json:"hunter_id"`
+		ExecutorID string `json:"agent_id"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if out.TaskID != "task-id" || out.HunterID != "hunter-id" {
-		t.Fatalf("ids: tid=%q hid=%q", out.TaskID, out.HunterID)
+	if out.TaskID != "task-id" || out.ExecutorID != "agent-id" {
+		t.Fatalf("ids: tid=%q hid=%q", out.TaskID, out.ExecutorID)
 	}
 	if fs.calls != 1 {
 		t.Fatalf("calls=%d, want 1", fs.calls)

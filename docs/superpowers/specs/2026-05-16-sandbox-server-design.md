@@ -3,7 +3,7 @@
 **状态**: 设计中
 **日期**: 2026-05-16
 **作者**: V3teran
-**关联**: hunter agent run 容器执行模型
+**关联**: agent agent run 容器执行模型
 
 ---
 
@@ -20,7 +20,7 @@
    `docker run --rm` 每次新容器意味着新 chrome 进程，跨多次工具调用无法保持浏览器状态。
 2. **二进制产物（截图、pcap 等）**——stdout 是文本流，无法干净返回二进制。
 
-site 模式（下阶段）必然要浏览器爬虫，proxy 模式 hunter 也可能用浏览器复现/验证漏洞。
+site 模式（下阶段）必然要浏览器爬虫，proxy 模式 agent 也可能用浏览器复现/验证漏洞。
 浏览器能力是基础设施层面的必要扩展。
 
 ## 目标
@@ -49,7 +49,7 @@ site 模式（下阶段）必然要浏览器爬虫，proxy 模式 hunter 也可�
 │                                                                  │
 │  ┌── 主进程容器（cmd/scanner）───────────────┐                   │
 │  │                                            │                   │
-│  │  hunter agent run                          │                   │
+│  │  agent agent run                          │                   │
 │  │    ├─ SandboxLauncher (spawn / destroy)    │                   │
 │  │    └─ SandboxClient (HTTP RPC)             │                   │
 │  │                ↓                           │                   │
@@ -290,7 +290,7 @@ res, err := a.Sandbox.Exec(ctx, sandbox.ExecRequest{
 **绑定到 `react.Run`**：
 
 ```
-hunter Builder 被调用
+agent Builder 被调用
   └─ launcher.Spawn(ctx, runID) -> client          // agent run 开始
        |
   react.Run(ctx, Config{Sandbox: client, ...})
@@ -330,7 +330,7 @@ task = 一次 react.Run）使用完全相同的容器生命周期机制。
 **决策**：agent run
 
 **理由**：
-- hunter 的状态共享通道是 PG（finding/lesson）+ Redis（notes），**不走容器文件系统**——
+- agent 的状态共享通道是 PG（finding/lesson）+ Redis（notes），**不走容器文件系统**——
   这是项目现有显式设计，没有"长生命周期容器换状态复用"的真实收益
 - engagement 粒度（24h）状态污染 + 失败放大 + 跨 host 风险
 - agent run 粒度让 proxy / site 完全对称，架构无特例
@@ -440,7 +440,7 @@ task = 一次 react.Run）使用完全相同的容器生命周期机制。
    - `internal/tools/external/run_command.go` 改 Execute
    - 删除 `internal/tools/runners/`
    - cmd/scanner 装配处同步更新
-   - hunter Builder 入口处加 Spawn / Destroy
+   - agent Builder 入口处加 Spawn / Destroy
 
 4. **端到端验收**
    - proxy 模式回归
@@ -482,7 +482,7 @@ task = 一次 react.Run）使用完全相同的容器生命周期机制。
 
 **修改**：
 - `internal/tools/external/run_command.go`（Execute 内部）
-- `internal/builder/hunter/*.go`（Builder 入口 spawn / destroy）
+- `internal/builder/agent/*.go`（Builder 入口 spawn / destroy）
 - `cmd/scanner/main.go`（装配 SandboxLauncher，启动时 CleanupOrphans）
 - `config/*.yaml`（新增 sandbox 镜像名 + network 名两个配置项）
 

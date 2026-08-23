@@ -52,7 +52,7 @@ func (f *Float32) CAS(old, new float32) (swapped bool) {
 
 // CompareAndSwap is an atomic compare-and-swap for float32 values.
 //
-// Note: CompareAndSwap handles NaN incorrectly. NaN != NaN using Go's inbuilt operators
+// Note: CompareAndSwap handles NaN incorrectly. NaN != NaN using Go's inbuilt executors
 // but CompareAndSwap allows a stored NaN to compare equal to a passed in NaN.
 // This avoids typical CompareAndSwap loops from blocking forever, e.g.,
 //

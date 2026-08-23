@@ -2,14 +2,14 @@ import { describe, expect, it } from 'vitest'
 import { methodColor, statusColor } from './httpStatus'
 
 describe('statusColor', () => {
-  it('2xx → sev-low', () => {
-    expect(statusColor(200)).toBe('var(--sev-low)')
-    expect(statusColor(204)).toBe('var(--sev-low)')
+  it('2xx 成功 → accent（绿）', () => {
+    expect(statusColor(200)).toBe('var(--accent)')
+    expect(statusColor(204)).toBe('var(--accent)')
   })
 
-  it('3xx → accent', () => {
-    expect(statusColor(301)).toBe('var(--accent)')
-    expect(statusColor(304)).toBe('var(--accent)')
+  it('3xx 跳转 → muted（中性）', () => {
+    expect(statusColor(301)).toBe('var(--muted)')
+    expect(statusColor(304)).toBe('var(--muted)')
   })
 
   it('4xx → sev-medium', () => {
@@ -35,10 +35,10 @@ describe('methodColor', () => {
     expect(methodColor('delete')).toBe('var(--sev-critical)') // 大小写无关
   })
 
-  it('写方法 POST/PUT/PATCH → accent', () => {
-    expect(methodColor('POST')).toBe('var(--accent)')
-    expect(methodColor('put')).toBe('var(--accent)')
-    expect(methodColor('Patch')).toBe('var(--accent)')
+  it('写方法 POST/PUT/PATCH → sev-info（蓝）', () => {
+    expect(methodColor('POST')).toBe('var(--sev-info)')
+    expect(methodColor('put')).toBe('var(--sev-info)')
+    expect(methodColor('Patch')).toBe('var(--sev-info)')
   })
 
   it('读方法及其它 → muted', () => {

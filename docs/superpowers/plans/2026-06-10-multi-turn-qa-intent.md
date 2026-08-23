@@ -14,7 +14,7 @@
 - 参考 `cmd/scanner/main.go:162`：`llm.NewRouterWithOptions(llm.NewFactory(cfg), llm.RetryOptionsFromConfig(cfg.LLM.Retry))`。
 - `internal/finding/store.go`：`ListByOwner(ctx, ownerType, ownerID string)→([]VulnFinding, error)`。VulnFinding 字段名以 `internal/finding/model.go` 实际为准（Severity/Title 等）。ownerType 用 `owner.Active`（`internal/owner`）。
 - `internal/scanstream`：`NewPublisher(rdb)→*Publisher`；`Publisher.Publish(ctx, conversationID string, payload []byte)→error`。payload 是 `conversation.Message` 的 JSON（前端 SSE 帧）。
-- `internal/conversation`：`AppendMessage(ctx, convID, role, kind, content, metadata)→(Message, error)`；`RoleAssistant`/`KindMessage` 常量；`GetConversation(ctx,id)→Conversation{ScanID}`。
+- `internal/conversation`：`AppendMessage(ctx, convID, role, kind, content, metadata)→(Message, error)`；`RoleAssistant`/`KindMessage` 常量；`GetConversation(ctx,id)→Conversation{TaskID}`。
 - Plan 1 已有：`internal/httpapi/conversation_handler.go` 的 `FollowUpAPI`（GetConversationScan/AppendUserMessage/FollowUpScan）+ `followUpHandler`，`cmd/api` 的 `activeScanAdapter`（字段 `conversations *conversation.Store`、`activeScans *activescan.Store`；需新增 `router`、`findings`、`publisher`）。
 - 前端 liusha-ui：assistant 的 KindMessage 消息已由 `src/components/MessageItem.vue` → `AssistantText.vue` 渲染（阶段D）。QA 回答经 SSE 落 assistant 消息 → ChatThread 自动显示，前端基本无需新组件。
 
@@ -276,8 +276,8 @@ import (
 
 // Deps 是问答所需的最小依赖（cmd/api 注入实现）。
 type Deps interface {
-	// FindingsSummary 返回该 (conversationID, scanID) 关联 owner 的 finding 文本摘要。
-	FindingsSummary(ctx context.Context, conversationID, scanID string) (string, error)
+	// FindingsSummary 返回该 (conversationID, taskID) 关联 owner 的 finding 文本摘要。
+	FindingsSummary(ctx context.Context, conversationID, taskID string) (string, error)
 	// Generate 调便宜 LLM。
 	Generate(ctx context.Context, msgs []llm.Message, tools []llm.ToolSchema) (llm.Result, error)
 	// AppendAssistant 落 assistant 消息（KindMessage），返回该消息的 SSE JSON payload。
@@ -296,8 +296,8 @@ const systemPrompt = `你是渗透测试助手。**只依据下面已挖到的 f
 若 finding 为空或不足以回答，如实说明"目前还没挖到相关结果"。回答简洁中文。`
 
 // Answer 读黑板 → LLM 生成回答 → 落 assistant 消息 + publish SSE。
-func (s *Service) Answer(ctx context.Context, conversationID, scanID, question string) error {
-	findings, err := s.deps.FindingsSummary(ctx, conversationID, scanID)
+func (s *Service) Answer(ctx context.Context, conversationID, taskID, question string) error {
+	findings, err := s.deps.FindingsSummary(ctx, conversationID, taskID)
 	if err != nil {
 		return fmt.Errorf("读 finding: %w", err)
 	}
@@ -465,19 +465,19 @@ func (a *activeScanAdapter) HandleMessage(ctx context.Context, convID, content s
 	}
 	switch intent.Classify(ctx, g, content) {
 	case intent.IntentAction:
-		sc, err := a.activeScans.GetByID(ctx, conv.ScanID)
+		sc, err := a.activeScans.GetByID(ctx, conv.TaskID)
 		if err != nil {
 			return "", false, err
 		}
 		if sc.Status == activescan.StatusActive {
 			return "action", true, nil // 忙：队列留 Plan 2b
 		}
-		if _, err := a.FollowUpScan(ctx, conv.ScanID, convID, "", content); err != nil {
+		if _, err := a.FollowUpScan(ctx, conv.TaskID, convID, "", content); err != nil {
 			return "", false, err
 		}
 		return "action", false, nil
 	default: // qa
-		if err := qa.New(a).Answer(ctx, convID, conv.ScanID, content); err != nil {
+		if err := qa.New(a).Answer(ctx, convID, conv.TaskID, content); err != nil {
 			return "", false, err
 		}
 		return "qa", false, nil
@@ -487,8 +487,8 @@ func (a *activeScanAdapter) HandleMessage(ctx context.Context, convID, content s
 // ---- qa.Deps 实现 ----
 
 // FindingsSummary 满足 qa.Deps：把 owner 黑板 finding 渲染成文本摘要。
-func (a *activeScanAdapter) FindingsSummary(ctx context.Context, _, scanID string) (string, error) {
-	fs, err := a.findings.ListByOwner(ctx, owner.Active, scanID)
+func (a *activeScanAdapter) FindingsSummary(ctx context.Context, _, taskID string) (string, error) {
+	fs, err := a.findings.ListByOwner(ctx, owner.Active, taskID)
 	if err != nil {
 		return "", err
 	}
@@ -586,8 +586,8 @@ git commit -m "feat(ui): 追加消息按意图提示（问答/触发扫描）"
 
 1. Go 仓重启（`./scripts/dev/run-svc.sh`）+ 前端 `pnpm dev`，5173 登入。
 2. 发起扫描 → 跑完出 finding。
-3. 同对话追加**问句**"解释下那个 SQLi" → 几秒后对话里出现 assistant 回答（不新建 run；DB：hunter 行数不增；message 多一条 assistant KindMessage）。
-4. 同对话追加**动作**"再深挖那个上传点" → 触发同 scan 新 run（hunter 行数+1，active_scan 回 active）。
+3. 同对话追加**问句**"解释下那个 SQLi" → 几秒后对话里出现 assistant 回答（不新建 run；DB：agent 行数不增；message 多一条 assistant KindMessage）。
+4. 同对话追加**动作**"再深挖那个上传点" → 触发同 scan 新 run（agent 行数+1，active_scan 回 active）。
 5. 扫描进行中追加动作 → 前端提示"扫描进行中"（409）；追加问句仍能答（qa 不受扫描状态限制）。
 
 ## 测试清单映射

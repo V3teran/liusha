@@ -21,7 +21,7 @@ import (
 //     Empty bytes (regardless of nil-ness) are considered equal.
 //
 //   - Floating point values are equal if they contain the same value.
-//     Unlike the == operator, a NaN is equal to another NaN.
+//     Unlike the == executor, a NaN is equal to another NaN.
 //
 //   - Enums are equal if they contain the same number.
 //     Since [Value] does not contain an enum descriptor,

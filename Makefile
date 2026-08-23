@@ -90,7 +90,7 @@ tidy:
 #   make e2e              # 不带参 = 跑全部 passive profile
 #   make e2e-bac          # 仅 passive bac
 #   make e2e-sqli         # 仅 passive sqli
-#   make e2e-active       # 仅 active:xss（自然语言 brief 喂 hunter LLM）
+#   make e2e-active       # 仅 active:xss（自然语言 brief 喂 agent LLM）
 #   go run ./cmd/e2e bac sqli active:xss   # 混合（直接调 binary）
 e2e:
 	go run ./cmd/e2e

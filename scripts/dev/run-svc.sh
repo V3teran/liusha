@@ -41,9 +41,11 @@ export LIUSHA_CONFIG="${LIUSHA_CONFIG:-./config/config.yaml}"
 # proxy 进程参数（纯 MITM，无独立 healthz；存活探 TCP 8888）
 export LIUSHA_PROXY_LISTEN_ADDR="${LIUSHA_PROXY_LISTEN_ADDR:-0.0.0.0:8888}"
 
-# api key 校验（必填）
-if [ -z "${DEEPSEEK_API_KEY:-}" ]; then
-  echo "✗ DEEPSEEK_API_KEY 未设（请在 .env.local 中填入）"
+# api key 校验（必填）：校验当前激活 provider 的密钥。
+# config.yaml 已切 xiaomi-only（mimo-v2.5，api_key_env: XIAOMI_API_KEY），
+# 旧的 DEEPSEEK_API_KEY 前置检查已废弃——按实际激活 provider 校验。
+if [ -z "${XIAOMI_API_KEY:-}" ]; then
+  echo "✗ XIAOMI_API_KEY 未设（请在 .env.local 中填入；config.yaml 激活 provider=mimo）"
   exit 1
 fi
 
@@ -52,7 +54,6 @@ echo "  config:        $LIUSHA_CONFIG"
 echo "  postgres:      $LIUSHA_POSTGRES_DSN"
 echo "  redis:         $LIUSHA_REDIS_ADDR"
 echo "  proxy:         $LIUSHA_PROXY_LISTEN_ADDR (mitm, 无 healthz)"
-echo "  llm overrides: light=$LIUSHA_LLM_LIGHT_PROVIDER fallback=$LIUSHA_LLM_FALLBACK_PROVIDER vision=$LIUSHA_LLM_VISION_PROVIDER"
 echo ""
 
 # 预清旧 dev 进程：避免端口被旧 nohup/run-svc 进程占着导致新启动 fatal "address

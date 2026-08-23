@@ -15,24 +15,24 @@ import (
 
 // fakeDB 是带命中计数的 settingDB 假实现（读穿透 + 缺组兜底断言用）。
 type fakeDB struct {
-	react      *ReactSettings
-	runtime    *RuntimeSettings
-	proxy      *ProxyFilterSettings
-	reactHit   int64
-	runtimeHit int64
-	proxyHit   int64
+	compaction    *CompactionSettings
+	runtime       *RuntimeSettings
+	proxy         *ProxyFilterSettings
+	compactionHit int64
+	runtimeHit    int64
+	proxyHit      int64
 }
 
-func (f *fakeDB) GetReact(_ context.Context) (ReactSettings, error) {
-	atomic.AddInt64(&f.reactHit, 1)
-	if f.react == nil {
-		return ReactSettings{}, pgx.ErrNoRows
+func (f *fakeDB) GetCompaction(_ context.Context) (CompactionSettings, error) {
+	atomic.AddInt64(&f.compactionHit, 1)
+	if f.compaction == nil {
+		return CompactionSettings{}, pgx.ErrNoRows
 	}
-	return *f.react, nil
+	return *f.compaction, nil
 }
-func (f *fakeDB) SaveReact(_ context.Context, v ReactSettings) error {
+func (f *fakeDB) SaveCompaction(_ context.Context, v CompactionSettings) error {
 	cp := v
-	f.react = &cp
+	f.compaction = &cp
 	return nil
 }
 func (f *fakeDB) GetRuntime(_ context.Context) (RuntimeSettings, error) {
@@ -75,22 +75,22 @@ func newTestStore(t *testing.T) (*Store, *fakeDB, *miniredis.Miniredis) {
 	return s, db, mr
 }
 
-// TestReact_RefillHitsDBOnce 验证：首读打 DB，二读命中 L1（DB 计数不增）。
-func TestReact_RefillHitsDBOnce(t *testing.T) {
+// TestCompaction_RefillHitsDBOnce 验证：首读打 DB，二读命中 L1（DB 计数不增）。
+func TestCompaction_RefillHitsDBOnce(t *testing.T) {
 	ctx := context.Background()
 	s, db, _ := newTestStore(t)
-	db.react = &ReactSettings{TriggerRatio: 0.75, TrailingBudgetRatio: 0.15, CompactorTimeoutSeconds: 30}
+	db.compaction = &CompactionSettings{TriggerRatio: 0.75, TrailingBudgetRatio: 0.15, CompactorTimeoutSeconds: 30}
 
 	for i := 0; i < 3; i++ {
-		got, err := s.React(ctx)
+		got, err := s.Compaction(ctx)
 		if err != nil {
-			t.Fatalf("react read #%d: %v", i, err)
+			t.Fatalf("compaction read #%d: %v", i, err)
 		}
 		if got.TriggerRatio != 0.75 {
 			t.Fatalf("期望 trigger_ratio 0.75，实际 %v", got.TriggerRatio)
 		}
 	}
-	if got := atomic.LoadInt64(&db.reactHit); got != 1 {
+	if got := atomic.LoadInt64(&db.compactionHit); got != 1 {
 		t.Fatalf("期望 DB 只打 1 次（二读命中 L1），实际 %d", got)
 	}
 }
@@ -131,25 +131,25 @@ func TestProxyFilter_NilSlicesNormalized(t *testing.T) {
 	}
 }
 
-// TestSaveReact_InvalidatesSnapshot 验证：SaveReact 后哨兵键被清、下次读打 DB 拿新值。
-func TestSaveReact_InvalidatesSnapshot(t *testing.T) {
+// TestSaveCompaction_InvalidatesSnapshot 验证：SaveCompaction 后哨兵键被清、下次读打 DB 拿新值。
+func TestSaveCompaction_InvalidatesSnapshot(t *testing.T) {
 	ctx := context.Background()
 	s, db, _ := newTestStore(t)
-	db.react = &ReactSettings{TriggerRatio: 0.75}
+	db.compaction = &CompactionSettings{TriggerRatio: 0.75}
 
-	if _, err := s.React(ctx); err != nil { // 暖 L1
+	if _, err := s.Compaction(ctx); err != nil { // 暖 L1
 		t.Fatal(err)
 	}
-	if !s.cache.L1Has(keyReact) {
+	if !s.cache.L1Has(keyCompaction) {
 		t.Fatal("首读后哨兵键应在 L1")
 	}
-	if err := s.SaveReact(ctx, ReactSettings{TriggerRatio: 0.90, TrailingBudgetRatio: 0.20, CompactorTimeoutSeconds: 45}); err != nil {
-		t.Fatalf("save react: %v", err)
+	if err := s.SaveCompaction(ctx, CompactionSettings{TriggerRatio: 0.90, TrailingBudgetRatio: 0.20, CompactorTimeoutSeconds: 45}); err != nil {
+		t.Fatalf("save compaction: %v", err)
 	}
-	if s.cache.L1Has(keyReact) {
+	if s.cache.L1Has(keyCompaction) {
 		t.Fatal("写后哨兵键应被失效")
 	}
-	got, err := s.React(ctx)
+	got, err := s.Compaction(ctx)
 	if err != nil {
 		t.Fatalf("reread: %v", err)
 	}
@@ -196,11 +196,11 @@ func TestSaveProxyFilter_CrossProcessInvalidation(t *testing.T) {
 	}
 }
 
-// TestReact_NotFoundPropagates 验证：缺组时读返回 IsNotFound 可识别的错误（种子据此判存与否）。
-func TestReact_NotFoundPropagates(t *testing.T) {
+// TestCompaction_NotFoundPropagates 验证：缺组时读返回 IsNotFound 可识别的错误（种子据此判存与否）。
+func TestCompaction_NotFoundPropagates(t *testing.T) {
 	ctx := context.Background()
 	s, _, _ := newTestStore(t)
-	_, err := s.GetReactRaw(ctx)
+	_, err := s.GetCompactionRaw(ctx)
 	if !IsNotFound(err) {
 		t.Fatalf("缺组应返回 IsNotFound 为真的错误，实际 %v", err)
 	}

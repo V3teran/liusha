@@ -13,20 +13,20 @@ func TestFormatSection_Empty(t *testing.T) {
 
 func TestFormatSection_OrdersAndCites(t *testing.T) {
 	grouped := map[Kind][]Entry{
-		KindDeadend: {{Detail: "d1", SourceTaskID: "t1"}},
-		KindClue:    {{Detail: "c1", SourceTaskID: "t2"}},
-		KindFact:    {{Detail: "f1"}},
+		KindDeadend:     {{Detail: "d1", SourceTaskID: "t1"}},
+		KindClue:        {{Detail: "c1", SourceTaskID: "t2"}},
+		KindObservation: {{Detail: "f1"}},
 	}
 	got := FormatSection(grouped)
 
 	clueIdx := strings.Index(got, "待验证线索")
-	factIdx := strings.Index(got, "已确认事实")
+	factIdx := strings.Index(got, "已确认发现")
 	deadendIdx := strings.Index(got, "死路")
 	if clueIdx < 0 || factIdx < 0 || deadendIdx < 0 {
 		t.Fatalf("三段标题都应出现: %s", got)
 	}
 	if !(clueIdx < factIdx && factIdx < deadendIdx) {
-		t.Fatalf("渲染顺序应为 clue→fact→deadend，got:\n%s", got)
+		t.Fatalf("渲染顺序应为 clue→observation→deadend，got:\n%s", got)
 	}
 	if !strings.Contains(got, "c1（来自 task t2）") {
 		t.Fatalf("clue 应带来源溯源: %s", got)

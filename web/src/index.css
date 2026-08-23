@@ -41,16 +41,15 @@
 
   /* 执行图 5 类语义节点色：task(任务/结构)=紫 / hypothesis(判断·想)=天蓝 /
      probe(探测·做)=翠绿 / signal(信号·得)=青 / 死路探测=石板灰。finding(漏洞)用 severity 色。
-     边：informs(调查回环)=青 / confirms(证据→漏洞)=洋红 / depends_on(攻击链,最重要)=金；
-     其余骨干边(spawns/pursues/tests/reveals)走中性 border 色。 */
-  --graph-task: oklch(68% 0.15 290);
-  --graph-hypothesis: oklch(65% 0.16 230);
-  --graph-probe: oklch(68% 0.16 155);
-  --graph-signal: oklch(70% 0.13 195);
-  --graph-dead: oklch(55% 0.02 260);
-  --graph-informs: oklch(70% 0.13 195);
-  --graph-confirms: oklch(65% 0.22 330);
-  --graph-depends-on: oklch(75% 0.15 85);
+     攻击图（L3 世界模型）5 类节点：target(交战根)=紫 / asset(攻击面)=翠绿 /
+     credential(凭据)=天蓝 / access(立足点,多阶段核心)=琥珀；finding 用 severity 威胁色。
+     3 类边：enables(攻击链,最重要)=金 / derives(认知因果)=青 / on(归属)走中性 border 色。 */
+  --graph-target: oklch(68% 0.15 290);
+  --graph-asset: oklch(68% 0.16 155);
+  --graph-credential: oklch(65% 0.16 230);
+  --graph-access: oklch(72% 0.15 65);
+  --graph-enables: oklch(75% 0.15 85);
+  --graph-derives: oklch(70% 0.13 195);
 
   --radius: 0.5rem;
   --shadow-sm: 0 1px 2px oklch(0% 0 0 / 0.05);
@@ -91,15 +90,13 @@
   --source-manual: oklch(70% 0.14 220);
   --source-auto: oklch(70% 0.14 300);
 
-  /* 执行图 5 类语义节点/边色（深色下更亮，同 :root 语义，见上方注释） */
-  --graph-task: oklch(75% 0.14 290);
-  --graph-hypothesis: oklch(72% 0.15 230);
-  --graph-probe: oklch(75% 0.15 155);
-  --graph-signal: oklch(76% 0.12 195);
-  --graph-dead: oklch(50% 0.02 260);
-  --graph-informs: oklch(76% 0.12 195);
-  --graph-confirms: oklch(70% 0.2 330);
-  --graph-depends-on: oklch(80% 0.15 85);
+  /* 攻击图 5 类节点/边色（深色下更亮，同 :root 语义，见上方注释） */
+  --graph-target: oklch(75% 0.14 290);
+  --graph-asset: oklch(75% 0.15 155);
+  --graph-credential: oklch(72% 0.15 230);
+  --graph-access: oklch(78% 0.14 65);
+  --graph-enables: oklch(80% 0.15 85);
+  --graph-derives: oklch(76% 0.12 195);
 
   --shadow-sm: 0 1px 2px oklch(0% 0 0 / 0.4);
   --shadow: 0 2px 10px oklch(0% 0 0 / 0.5), 0 16px 48px oklch(0% 0 0 / 0.3);
@@ -132,14 +129,12 @@
   --color-sev-info: var(--sev-info);
   --color-source-manual: var(--source-manual);
   --color-source-auto: var(--source-auto);
-  --color-graph-task: var(--graph-task);
-  --color-graph-hypothesis: var(--graph-hypothesis);
-  --color-graph-probe: var(--graph-probe);
-  --color-graph-signal: var(--graph-signal);
-  --color-graph-dead: var(--graph-dead);
-  --color-graph-informs: var(--graph-informs);
-  --color-graph-confirms: var(--graph-confirms);
-  --color-graph-depends-on: var(--graph-depends-on);
+  --color-graph-target: var(--graph-target);
+  --color-graph-asset: var(--graph-asset);
+  --color-graph-credential: var(--graph-credential);
+  --color-graph-access: var(--graph-access);
+  --color-graph-enables: var(--graph-enables);
+  --color-graph-derives: var(--graph-derives);
 }
 
 /* 品牌冷寒蓝：与 logo/favicon 沙齿剑徽记同色系，纯色，固定不随主题切换 */

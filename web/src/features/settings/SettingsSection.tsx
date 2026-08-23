@@ -10,7 +10,9 @@ export function SettingsSection({
   saving,
   saved,
   saveDisabled,
+  isDirty = false,
   onSave,
+  onReset,
   children,
 }: {
   title: string
@@ -20,7 +22,9 @@ export function SettingsSection({
   saving: boolean
   saved: boolean
   saveDisabled?: boolean
+  isDirty?: boolean // 有未保存改动：驱动「未保存」提示 + 放弃按钮 + 保存按钮启用
   onSave: () => void
+  onReset?: () => void // 放弃改动回滚到基线；未传则不渲染放弃按钮
   children: ReactNode
 }) {
   return (
@@ -42,11 +46,26 @@ export function SettingsSection({
           <div className="flex flex-col gap-4 px-5 py-4">{children}</div>
           <div className="flex items-center justify-end gap-3 border-t border-border px-5 py-3">
             {error && <span className="text-[12.5px] text-sev-critical">⚠ {error}</span>}
-            {saved && !error && <span className="text-[12.5px] text-accent">已保存并热生效</span>}
+            {saved && !error && !isDirty && (
+              <span className="text-[12.5px] text-accent">已保存并热生效</span>
+            )}
+            {isDirty && !error && (
+              <span className="mr-auto text-[12.5px] text-sev-high">● 有未保存改动</span>
+            )}
+            {onReset && isDirty && (
+              <button
+                type="button"
+                onClick={onReset}
+                disabled={saving}
+                className="rounded-lg border border-border px-3.5 py-1.5 text-[13px] text-muted transition-colors hover:border-sev-high/50 hover:text-sev-high disabled:opacity-50"
+              >
+                放弃
+              </button>
+            )}
             <button
               type="button"
               onClick={onSave}
-              disabled={saving || saveDisabled}
+              disabled={saving || saveDisabled || !isDirty}
               className="rounded-lg bg-accent px-4 py-1.5 text-[13px] text-white transition-all hover:bg-accent-hover hover:shadow-[var(--glow-accent-strong)] disabled:cursor-not-allowed disabled:opacity-60"
             >
               {saving ? '保存中…' : '保存'}

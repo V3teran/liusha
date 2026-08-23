@@ -7,7 +7,7 @@
 //
 // 相较旧双表的语义变化（见 docs/superpowers/specs/2026-07-05-assignment-task-lead-design.md §2）：
 //   - 每批流量/每次下发产一个独立 task，同 host 可多个。「是否在监控」从 proxy_traffic 派生。
-//   - owner_type + owner_id 多态坍缩为 task_id：附属表（hunter/finding/...）直接挂 task.id。
+//   - owner_type + owner_id 多态坍缩为 task_id：附属表（agent/finding/...）直接挂 task.id。
 //
 // 状态机：active → completed（自然跑完）| aborted（用户停/取消/错误/心跳超时）。
 // FollowUp 可 Reopen 终态 task 续跑（累计停顿进 paused_ms）。
@@ -20,13 +20,13 @@ type Status string
 
 const (
 	StatusActive    Status = "active"
-	StatusCompleted Status = "completed" // orchestrator run 自然跑完的终态
+	StatusCompleted Status = "completed" // planner run 自然跑完的终态
 	StatusAborted   Status = "aborted"   // 用户主动停 / ctx 取消 / 错误 / 心跳超时
 )
 
 // Task 是 task 表行的 Go 表示。
 //
-// ScenarioID：所属场景 code（配置驱动，标识引擎与猎手编排）。
+// ScenarioID：所属场景 code（配置驱动，标识引擎与操作员编排）。
 // Brief：用户自然语言目标描述（统一输入）。
 // TargetHost：派生列，runner 从 brief 抽取后回填，可空。
 // PausedMs：FollowUp 历次停顿累计 ms；WallclockMs 减去它 = 纯 agent 耗时。

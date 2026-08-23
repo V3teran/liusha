@@ -4,12 +4,12 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/V3teran/liusha/internal/einotools"
+	"github.com/V3teran/liusha/internal/registry"
 	"github.com/V3teran/liusha/internal/tools/manifest"
 )
 
 // Reconcile 把两套工具体系的事实源（代码）幂等同步进 tool 目录表：
-//   - function 工具：einotools.FunctionToolCatalog（进程内声明式清单）
+//   - function 工具：registry.FunctionToolCatalog（进程内声明式清单）
 //   - cli 工具     ：tools.yaml 解析出的 Manifest（可为 nil：加载失败时降级，只同步 function 部分）
 //
 // 语义：按体系分别 upsert + 按体系 prune 掉不再存在的旧行（下线工具）。启动期调用一次即可。
@@ -18,7 +18,7 @@ import (
 func Reconcile(ctx context.Context, store *Store, m *manifest.Manifest) (upserted, pruned int, err error) {
 	// ① function 工具：按 catalog 声明顺序赋 sort_order，稳定前端展示。
 	var keepFn []string
-	for i, meta := range einotools.FunctionToolCatalog {
+	for i, meta := range registry.FunctionToolCatalog {
 		t := Tool{
 			Name:        meta.Name,
 			Kind:        KindFunction,

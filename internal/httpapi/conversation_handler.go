@@ -39,7 +39,7 @@ var sseLog = logx.New("httpapi.sse")
 // ChatAPI 是发起会话扫描的窄接口（cmd/api 注入 adapter：建 conversation + scan + 入队带 convID）。
 // scenarioID 是用户选的场景 code（必选——前端 ScenarioPicker 走 GET /scenarios）。
 type ChatAPI interface {
-	StartChatScan(ctx context.Context, brief, scenarioID string) (conversationID, scanID string, err error)
+	StartChatScan(ctx context.Context, brief, scenarioID string) (conversationID, taskID string, err error)
 }
 
 // 可选场景列表由 GET /scenarios（configstore）提供，前端 ScenarioPicker 消费。
@@ -71,7 +71,7 @@ type ChatRequest struct {
 // ChatResponse 是 POST /chat 响应：前端用 conversation_id 订阅 SSE。
 type ChatResponse struct {
 	ConversationID string `json:"conversation_id"`
-	ScanID         string `json:"scan_id"`
+	TaskID         string `json:"task_id"`
 }
 
 // chatHandler 处理 POST /chat：校验 brief 非空，发起会话扫描，成功后下发 SSE 鉴权 cookie。
@@ -90,13 +90,13 @@ func chatHandler(api ChatAPI, streamSecret []byte, secure bool) gin.HandlerFunc 
 			c.JSON(http.StatusBadRequest, gin.H{"error": "scenario_id 不能为空"})
 			return
 		}
-		convID, scanID, err := api.StartChatScan(c.Request.Context(), req.Brief, req.ScenarioID)
+		convID, taskID, err := api.StartChatScan(c.Request.Context(), req.Brief, req.ScenarioID)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
 		setStreamCookie(c, streamSecret, convID, secure)
-		c.JSON(http.StatusOK, ChatResponse{ConversationID: convID, ScanID: scanID})
+		c.JSON(http.StatusOK, ChatResponse{ConversationID: convID, TaskID: taskID})
 	}
 }
 

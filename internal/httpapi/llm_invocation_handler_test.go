@@ -29,16 +29,21 @@ func (f *fakeInvocations) ListByTask(_ context.Context, _ string, filter llminvo
 	if f.err != nil {
 		return nil, f.err
 	}
-	var out []llminvocation.Invocation
-	for _, r := range f.rows {
-		if r.ID > filter.AfterID {
-			out = append(out, r)
+	out := f.rows
+	if filter.Offset > 0 {
+		if filter.Offset >= len(out) {
+			return nil, nil
 		}
+		out = out[filter.Offset:]
 	}
 	if filter.Limit > 0 && len(out) > filter.Limit {
 		out = out[:filter.Limit]
 	}
 	return out, nil
+}
+
+func (f *fakeInvocations) CountByTask(_ context.Context, _ string, _ llminvocation.ListFilter) (int, error) {
+	return len(f.rows), f.err
 }
 
 func (f *fakeInvocations) GetByID(_ context.Context, taskID string, id int64) (llminvocation.Invocation, error) {
@@ -59,17 +64,17 @@ func (f *fakeInvocations) FacetsByTask(_ context.Context, _ string) (llminvocati
 }
 
 func TestLLMInvocationsHandler(t *testing.T) {
-	t.Run("列表分页：limit 截断 + next_after/has_more", func(t *testing.T) {
+	t.Run("列表分页：size 截断 + total/page/size（offset 分页）", func(t *testing.T) {
 		taskID := "t1"
 		fake := &fakeInvocations{rows: []llminvocation.Invocation{
-			{ID: 1, TaskID: &taskID, RequestID: "r1", Role: "orchestrator"},
+			{ID: 1, TaskID: &taskID, RequestID: "r1", Role: "planner"},
 			{ID: 2, TaskID: &taskID, RequestID: "r2", Role: "exploitation"},
 			{ID: 3, TaskID: &taskID, RequestID: "r3", Role: "exploitation"},
 		}}
 		srv := newTestServer(t, Deps{Invocations: fake})
 		defer srv.Close()
 
-		req, _ := http.NewRequest("GET", srv.URL+"/llm/invocations/t1?limit=2", nil)
+		req, _ := http.NewRequest("GET", srv.URL+"/llm/invocations/t1?size=2", nil)
 		req.Header.Set("X-API-Key", "k")
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
@@ -78,10 +83,10 @@ func TestLLMInvocationsHandler(t *testing.T) {
 		defer resp.Body.Close()
 
 		var body struct {
-			Total     int   `json:"total"`
-			NextAfter int64 `json:"next_after"`
-			HasMore   bool  `json:"has_more"`
-			Items     []struct {
+			Total int `json:"total"`
+			Page  int `json:"page"`
+			Size  int `json:"size"`
+			Items []struct {
 				ID        int64  `json:"id"`
 				RequestID string `json:"request_id"`
 				Role      string `json:"role"`
@@ -90,19 +95,16 @@ func TestLLMInvocationsHandler(t *testing.T) {
 		if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
 			t.Fatal(err)
 		}
-		if body.Total != 2 {
-			t.Errorf("total=%d，期望 2（limit 截断）", body.Total)
+		if body.Total != 3 {
+			t.Errorf("total=%d，期望 3（跨页总数，不受 size 截断）", body.Total)
 		}
-		if !body.HasMore {
-			t.Error("拉满一页应 has_more=true")
-		}
-		if body.NextAfter != 2 {
-			t.Errorf("next_after=%d，期望 2（本页最后一行 id）", body.NextAfter)
+		if body.Page != 1 || body.Size != 2 {
+			t.Errorf("page/size=%d/%d，期望 1/2", body.Page, body.Size)
 		}
 		if fake.gotFilter.Limit != 2 {
 			t.Errorf("limit 未透传，got %d", fake.gotFilter.Limit)
 		}
-		// 扁平 items（不再按 hunter 分组），request_id/role 随行返回。
+		// 扁平 items（不再按 agent 分组），request_id/role 随行返回。
 		if len(body.Items) != 2 {
 			t.Fatalf("items 不符: %+v", body.Items)
 		}
@@ -111,12 +113,12 @@ func TestLLMInvocationsHandler(t *testing.T) {
 		}
 	})
 
-	t.Run("limit 缺省/超上限收敛到默认值", func(t *testing.T) {
+	t.Run("size 缺省/超上限收敛到默认值", func(t *testing.T) {
 		fake := &fakeInvocations{}
 		srv := newTestServer(t, Deps{Invocations: fake})
 		defer srv.Close()
 
-		req, _ := http.NewRequest("GET", srv.URL+"/llm/invocations/t1?limit=99999", nil)
+		req, _ := http.NewRequest("GET", srv.URL+"/llm/invocations/t1?size=99999", nil)
 		req.Header.Set("X-API-Key", "k")
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
@@ -126,6 +128,40 @@ func TestLLMInvocationsHandler(t *testing.T) {
 
 		if fake.gotFilter.Limit != defaultInvocationPageSize {
 			t.Errorf("超上限应收敛到默认值 %d，got %d", defaultInvocationPageSize, fake.gotFilter.Limit)
+		}
+	})
+
+	t.Run("page 参数驱动 offset", func(t *testing.T) {
+		taskID := "t1"
+		fake := &fakeInvocations{rows: []llminvocation.Invocation{
+			{ID: 1, TaskID: &taskID, RequestID: "r1"},
+			{ID: 2, TaskID: &taskID, RequestID: "r2"},
+			{ID: 3, TaskID: &taskID, RequestID: "r3"},
+		}}
+		srv := newTestServer(t, Deps{Invocations: fake})
+		defer srv.Close()
+
+		req, _ := http.NewRequest("GET", srv.URL+"/llm/invocations/t1?page=2&size=2", nil)
+		req.Header.Set("X-API-Key", "k")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+
+		var body struct {
+			Items []struct {
+				RequestID string `json:"request_id"`
+			} `json:"items"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		if fake.gotFilter.Offset != 2 {
+			t.Errorf("offset=%d，期望 2（page=2,size=2 → (2-1)*2）", fake.gotFilter.Offset)
+		}
+		if len(body.Items) != 1 || body.Items[0].RequestID != "r3" {
+			t.Errorf("第 2 页应只剩第 3 行: %+v", body.Items)
 		}
 	})
 
@@ -204,8 +240,8 @@ func TestLLMInvocationsHandler(t *testing.T) {
 		defer srv.Close()
 
 		req, _ := http.NewRequest("GET",
-			srv.URL+"/llm/invocations/t1?role=orchestrator&model=mimo-v2.5&only_err=1"+
-				"&start=2026-07-20T00:00:00Z&end=2026-07-21T00:00:00Z&after=7", nil)
+			srv.URL+"/llm/invocations/t1?role=planner&model=mimo-v2.5&only_err=1"+
+				"&start=2026-07-20T00:00:00Z&end=2026-07-21T00:00:00Z", nil)
 		req.Header.Set("X-API-Key", "k")
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
@@ -214,11 +250,8 @@ func TestLLMInvocationsHandler(t *testing.T) {
 		defer resp.Body.Close()
 
 		f := fake.gotFilter
-		if f.Role != "orchestrator" || f.Model != "mimo-v2.5" || !f.OnlyErr {
+		if f.Role != "planner" || f.Model != "mimo-v2.5" || !f.OnlyErr {
 			t.Errorf("role/model/only_err 解析错: %+v", f)
-		}
-		if f.AfterID != 7 {
-			t.Errorf("after 未解析，got %d", f.AfterID)
 		}
 		if f.Start == nil || f.Start.UTC().Format(time.RFC3339) != "2026-07-20T00:00:00Z" {
 			t.Errorf("start 解析错: %v", f.Start)
@@ -328,13 +361,13 @@ func TestLLMInvocationStatHandler(t *testing.T) {
 	})
 
 	// 统计必须吃与列表同一套筛选，否则会出现「明细筛剩 3 条、合计仍是全量」的自相矛盾。
-	t.Run("统计吃同一套筛选，但不吃分页游标", func(t *testing.T) {
+	t.Run("统计吃同一套筛选，但不吃分页", func(t *testing.T) {
 		fake := &fakeInvocations{}
 		srv := newTestServer(t, Deps{Invocations: fake})
 		defer srv.Close()
 
 		req, _ := http.NewRequest("GET",
-			srv.URL+"/llm/invocations/t1/stat?role=exploitation&model=mimo-v2.5&only_err=1&after=99", nil)
+			srv.URL+"/llm/invocations/t1/stat?role=exploitation&model=mimo-v2.5&only_err=1", nil)
 		req.Header.Set("X-API-Key", "k")
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
@@ -346,8 +379,8 @@ func TestLLMInvocationStatHandler(t *testing.T) {
 		if f.Role != "exploitation" || f.Model != "mimo-v2.5" || !f.OnlyErr {
 			t.Errorf("统计未收到筛选条件: %+v", f)
 		}
-		if f.AfterID != 0 {
-			t.Errorf("统计不该受分页游标影响，got AfterID=%d", f.AfterID)
+		if f.Limit != 0 || f.Offset != 0 {
+			t.Errorf("统计不该受分页影响，got Limit=%d Offset=%d", f.Limit, f.Offset)
 		}
 	})
 }
@@ -355,7 +388,7 @@ func TestLLMInvocationStatHandler(t *testing.T) {
 func TestLLMInvocationFacetsHandler(t *testing.T) {
 	t.Run("200 返回 role/model 候选", func(t *testing.T) {
 		fake := &fakeInvocations{facets: llminvocation.Facets{
-			Roles:  []string{"exploitation", "orchestrator"},
+			Roles:  []string{"exploitation", "planner"},
 			Models: []string{"mimo-v2.5"},
 		}}
 		srv := newTestServer(t, Deps{Invocations: fake})

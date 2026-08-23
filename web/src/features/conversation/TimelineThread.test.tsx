@@ -43,7 +43,7 @@ describe('TimelineThread', () => {
   it('普通工具调用折叠进 StepTools', () => {
     const s = useConversationStore.getState()
     s.ingest(userMsg(1, 'hi'))
-    s.ingest(toolCallMsg(2, 'orchestrator'))
+    s.ingest(toolCallMsg(2, 'planner'))
     render(<TimelineThread />)
     expect(screen.getByText(/1 次工具调用/)).toBeTruthy()
   })
@@ -54,31 +54,31 @@ describe('TimelineThread', () => {
   it('子代理的工具组缩进（pl-6）', () => {
     const s = useConversationStore.getState()
     s.ingest(userMsg(1, 'hi'))
-    s.ingest(reasoningMsg(2, 'orchestrator', '分派')) // 编排模式：存在调度者
+    s.ingest(reasoningMsg(2, 'planner', '分派')) // 编排模式：存在调度者
     s.ingest(toolCallMsg(3, 'exploitation'))
     const { container } = render(<TimelineThread />)
     expect(screen.getByText(/1 次工具调用/)).toBeTruthy()
   })
 
-  it('子代理 reasoning 行带 hunter 领头标签 + 缩进（pl-6）', () => {
+  it('子代理 reasoning 行带 agent 领头标签 + 缩进（pl-6）', () => {
     const s = useConversationStore.getState()
     s.ingest(userMsg(1, 'hi'))
-    s.ingest(reasoningMsg(2, 'orchestrator', '分派')) // 编排模式：存在调度者
+    s.ingest(reasoningMsg(2, 'planner', '分派')) // 编排模式：存在调度者
     s.ingest(reasoningMsg(3, 'reconnaissance', '扫端口'))
     const { container } = render(<TimelineThread />)
-    expect(screen.getAllByText('侦察').length).toBeGreaterThan(0) // ReasoningCard 内 hunter 领头
+    expect(screen.getAllByText('侦察').length).toBeGreaterThan(0) // ReasoningCard 内 agent 领头
     expect(container.querySelector(SUB_INDENT)).toBeTruthy()
   })
 
-  it('orchestrator reasoning 行不缩进（无 pl-6）', () => {
+  it('planner reasoning 行不缩进（无 pl-6）', () => {
     const s = useConversationStore.getState()
     s.ingest(userMsg(1, 'hi'))
-    s.ingest(reasoningMsg(2, 'orchestrator', '分派任务'))
+    s.ingest(reasoningMsg(2, 'planner', '分派任务'))
     const { container } = render(<TimelineThread />)
     expect(container.querySelector(SUB_INDENT)).toBeFalsy()
   })
 
-  it('passive 单 agent 模式：无 orchestrator 时主 agent（traffic-analysis）不缩进', () => {
+  it('passive 单 agent 模式：无 planner 时主 agent（traffic-analysis）不缩进', () => {
     const s = useConversationStore.getState()
     s.ingest(userMsg(1, 'hi'))
     s.ingest(reasoningMsg(2, 'traffic-analysis', '分析流量'))
@@ -100,16 +100,16 @@ describe('TimelineThread', () => {
 
   it('流式推理节点为子代理时也缩进（pl-6）', () => {
     const s = useConversationStore.getState()
-    s.ingest(reasoningMsg(1, 'orchestrator', '分派')) // 编排模式：存在调度者
+    s.ingest(reasoningMsg(1, 'planner', '分派')) // 编排模式：存在调度者
     s.appendReasoningDelta('分析中…', 'exploitation')
     const { container } = render(<TimelineThread />)
     const liveRow = container.querySelector('[data-live-node]')
     expect(liveRow?.querySelector(SUB_INDENT)).toBeTruthy()
   })
 
-  it('流式推理节点为 orchestrator 时不缩进', () => {
+  it('流式推理节点为 planner 时不缩进', () => {
     const s = useConversationStore.getState()
-    s.appendReasoningDelta('派发任务…', 'orchestrator')
+    s.appendReasoningDelta('派发任务…', 'planner')
     const { container } = render(<TimelineThread />)
     const liveRow = container.querySelector('[data-live-node]')
     expect(liveRow?.querySelector(SUB_INDENT)).toBeFalsy()
@@ -133,7 +133,7 @@ describe('TimelineThread', () => {
   it('reasoning 等过程节点走 agent 卡（含卡外 26px 图标点）', () => {
     const s = useConversationStore.getState()
     s.ingest(userMsg(1, 'hi'))
-    s.ingest(reasoningMsg(2, 'orchestrator', '分析'))
+    s.ingest(reasoningMsg(2, 'planner', '分析'))
     const { container } = render(<TimelineThread />)
     // 过程节点保留卡外语义图标点（Brain 等），验证 AgentCard 图标未被误删。
     expect(container.querySelector('.h-\\[26px\\].w-\\[26px\\]')).toBeTruthy()

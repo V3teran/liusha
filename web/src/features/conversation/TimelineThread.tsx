@@ -18,20 +18,20 @@ import { ToolResultCard } from './cards/ToolResultCard'
 import { FindingCard } from './cards/FindingCard'
 import { CompactionCard } from './cards/CompactionCard'
 
-// 每行的 hunter 归属：驱动缩进（子代理右缩一档）+ 卡外图标配色 + 卡内领头名。
-// 取该行动作的施动 hunter（Metadata.AgentName）：推理/工具/漏洞归产出者，派发归调度者(编排)；
-// tools 组取首条 tool 的 hunter。user/assistant 不走此路（各自左右独立块）。
+// 每行的 agent 归属：驱动缩进（子代理右缩一档）+ 卡外图标配色 + 卡内领头名。
+// 取该行动作的施动 agent（Metadata.AgentName）：推理/工具/漏洞归产出者，派发归调度者(编排)；
+// tools 组取首条 tool 的 agent。user/assistant 不走此路（各自左右独立块）。
 function rowAgent(r: ThreadRow): string {
   if (r.kind === 'tools') return r.tools[0]?.Metadata?.AgentName || ''
   if (r.kind === 'msg') return r.msg.Metadata?.AgentName || ''
   return ''
 }
 
-// 子代理缩进：缩进表达「从属于某个调度者」，而非「名字不是 orchestrator」。
-// 仅在编排模式（会话里出现过 orchestrator 派发子代理）下，非 orchestrator 的 agent 才缩进一档 +
+// 子代理缩进：缩进表达「从属于某个调度者」，而非「名字不是 planner」。
+// 仅在编排模式（会话里出现过 planner 派发子代理）下，非 planner 的 agent 才缩进一档 +
 // 配色连接线。passive/chatmodel 单 agent 模式没有调度者，主 agent（如 traffic-analysis）不缩进。
-function isSubAgent(agent: string, hasOrchestrator: boolean): boolean {
-  return hasOrchestrator && !!agent && agent !== 'orchestrator'
+function isSubAgent(agent: string, hasplanner: boolean): boolean {
+  return hasplanner && !!agent && agent !== 'planner'
 }
 
 // 行图标：每行按语义取一个 lucide 图标（想=Brain、工具=Wrench、派发=Rocket、漏洞=Bug、
@@ -66,9 +66,9 @@ function cardCopyText(r: Exclude<ThreadRow, { kind: 'divider' | 'tools' }>): str
 
 // 方案 B · 统一活动时间轴：观测「AI 自主作战」。
 //   - 用户指令 → 右侧独立指令块（CommandBlock）：accent 软底 + 右上收角 + 脚注时间/复制。
-//   - AI 动作（推理/派发/漏洞/压缩）→ 左侧 agent 卡（AgentCard）：图标在卡外(形状=动作、色=hunter)
+//   - AI 动作（推理/派发/漏洞/压缩）→ 左侧 agent 卡（AgentCard）：图标在卡外(形状=动作、色=agent)
 //     + surface 卡框 + 脚注时间/复制，与用户块左右对称、材质等重；子代理右缩一档。
-//   - 卡内领头「hunter 动作」：hunter 名领头(hunter 色)、动作词弱化——每节点=某 hunter 在做某事。
+//   - 卡内领头「agent 动作」：agent 名领头(agent 色)、动作词弱化——每节点=某 agent 在做某事。
 //   - 工具调用聚成独立缩进行（StepTools），不折进推理卡；答复走左侧 ReplyBlock，与用户块对称。
 export function TimelineThread() {
   const messages = useConversationStore((s) => s.messages)
@@ -82,10 +82,10 @@ export function TimelineThread() {
 
   const typedReasoning = useTypewriter(liveReasoning)
   const rows = buildThreadRows(messages, { dayKey, dayLabel })
-  // 是否编排模式：会话里出现过 orchestrator 归属的消息 = 存在调度者，子代理才缩进。
-  // passive/chatmodel 单 agent 模式无 orchestrator，主 agent 平铺不缩进。流式态也纳入判断。
-  const hasOrchestrator =
-    liveAgentName === 'orchestrator' || messages.some((m) => m.Metadata?.AgentName === 'orchestrator')
+  // 是否编排模式：会话里出现过 planner 归属的消息 = 存在调度者，子代理才缩进。
+  // passive/chatmodel 单 agent 模式无 planner，主 agent 平铺不缩进。流式态也纳入判断。
+  const hasplanner =
+    liveAgentName === 'planner' || messages.some((m) => m.Metadata?.AgentName === 'planner')
   // 未读计数以「渲染行(动态)」为单位（非原始消息条数）：一次推理+工具调用后端落 3 条消息，
   // 渲染只成 2 行（想 + 折叠工具组），数原始消息会与用户实际看到的行数对不上。divider 不计。
   const activityCount = rows.reduce((n, r) => (r.kind === 'divider' ? n : n + 1), 0)
@@ -131,7 +131,7 @@ export function TimelineThread() {
     stickToBottom()
   }, [typedReasoning, stickToBottom])
 
-  const liveIsSub = isSubAgent(liveAgentName, hasOrchestrator)
+  const liveIsSub = isSubAgent(liveAgentName, hasplanner)
   const liveColor = agentAccent(liveAgentName)
 
   return (
@@ -182,11 +182,11 @@ export function TimelineThread() {
           }
           // 工具组 → 独立缩进行（工具调用不是推理，不进 agent 卡）；子代理工具组再右缩一档。
           if (r.kind === 'tools') {
-            return <StepTools key={r.key} tools={r.tools} sub={isSubAgent(rowAgent(r), hasOrchestrator)} />
+            return <StepTools key={r.key} tools={r.tools} sub={isSubAgent(rowAgent(r), hasplanner)} />
           }
           // AI 动作（推理/派发/漏洞/压缩）→ 左侧 agent 卡（图标在卡外 + surface 卡框 + 脚注时间/复制）。
           const agent = rowAgent(r)
-          const sub = isSubAgent(agent, hasOrchestrator)
+          const sub = isSubAgent(agent, hasplanner)
           const color = agentAccent(agent)
           const Icon = rowIcon(r)
           const copyText = cardCopyText(r)

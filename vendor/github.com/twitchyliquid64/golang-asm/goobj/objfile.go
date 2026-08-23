@@ -6,7 +6,7 @@
 // for reading and writing object files.
 
 // The object file is understood by the compiler, assembler, linker, and tools. They
-// have "high level" code that operates on object files, handling application-specific
+// have "high level" code that executes on object files, handling application-specific
 // logics, and use this package for the actual reading and writing. Specifically, the
 // code below:
 //
@@ -20,14 +20,15 @@ package goobj
 
 import (
 	"bytes"
-	"github.com/twitchyliquid64/golang-asm/bio"
 	"crypto/sha1"
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"github.com/twitchyliquid64/golang-asm/unsafeheader"
 	"io"
 	"unsafe"
+
+	"github.com/twitchyliquid64/golang-asm/bio"
+	"github.com/twitchyliquid64/golang-asm/unsafeheader"
 )
 
 // New object file format.

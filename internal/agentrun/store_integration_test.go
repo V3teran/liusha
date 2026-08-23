@@ -134,7 +134,7 @@ func TestStore_TerminalIsSticky(t *testing.T) {
 	}
 }
 
-// TestStore_CreateWithParent 验证：NewParams.OrchestratorID 写入 + GetByID 读出往返一致。
+// TestStore_CreateWithParent 验证：NewParams.plannerID 写入 + GetByID 读出往返一致。
 func TestStore_CreateWithParent(t *testing.T) {
 	ctx := context.Background()
 	s, taskID := setup(t)
@@ -147,7 +147,7 @@ func TestStore_CreateWithParent(t *testing.T) {
 	childID, err := s.Create(ctx, NewParams{
 		TaskID:         taskID,
 		Role:           "traffic-analysis",
-		OrchestratorID: parentID,
+		plannerID: parentID,
 	})
 	if err != nil {
 		t.Fatalf("create child: %v", err)
@@ -157,21 +157,21 @@ func TestStore_CreateWithParent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get child: %v", err)
 	}
-	if got.OrchestratorID != parentID {
-		t.Fatalf("child.OrchestratorID=%q, want %q", got.OrchestratorID, parentID)
+	if got.plannerID != parentID {
+		t.Fatalf("child.plannerID=%q, want %q", got.plannerID, parentID)
 	}
 
-	// orchestrator自己 OrchestratorID 必须为空（独立/根任务）
+	// planner自己 plannerID 必须为空（独立/根任务）
 	gotParent, err := s.GetByID(ctx, parentID)
 	if err != nil {
 		t.Fatalf("get parent: %v", err)
 	}
-	if gotParent.OrchestratorID != "" {
-		t.Fatalf("parent.OrchestratorID=%q, want empty", gotParent.OrchestratorID)
+	if gotParent.plannerID != "" {
+		t.Fatalf("parent.plannerID=%q, want empty", gotParent.plannerID)
 	}
 }
 
-// TestStore_ListByTask 验证：ListByTask 取回 task 下所有 hunter run（取代旧 ListByOwner）。
+// TestStore_ListByTask 验证：ListByTask 取回 task 下所有 agent run（取代旧 ListByOwner）。
 func TestStore_ListByTask(t *testing.T) {
 	ctx := context.Background()
 	s, taskID := setup(t)

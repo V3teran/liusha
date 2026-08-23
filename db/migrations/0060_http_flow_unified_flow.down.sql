@@ -4,7 +4,7 @@
 -- 删新索引
 DROP INDEX IF EXISTS http_flow_path_idx;
 DROP INDEX IF EXISTS http_flow_source_idx;
-DROP INDEX IF EXISTS http_flow_hunter_idx;
+DROP INDEX IF EXISTS http_flow_agent_idx;
 DROP INDEX IF EXISTS http_flow_owner_host_idx;
 
 -- 加回 passive_session_id 字段
@@ -31,7 +31,7 @@ CREATE INDEX http_flow_passive_session_idx
 ALTER TABLE http_flow DROP CONSTRAINT http_flow_owner_type_check;
 ALTER TABLE http_flow DROP COLUMN path;
 ALTER TABLE http_flow DROP COLUMN duration_ms;
-ALTER TABLE http_flow DROP COLUMN hunter_id;
+ALTER TABLE http_flow DROP COLUMN agent_id;
 ALTER TABLE http_flow DROP COLUMN source;
 ALTER TABLE http_flow DROP COLUMN owner_id;
 ALTER TABLE http_flow DROP COLUMN owner_type;

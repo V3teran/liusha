@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { listScenariosPaged } from '@/api/client'
-import { saveScenario, deleteScenario, listHunterConfigs } from '@/api/config'
-import type { ScenarioConfig, HunterConfig, ScenarioEngine } from '@/api/types'
+import { saveScenario, deleteScenario, listAgentConfigs } from '@/api/config'
+import type { ScenarioConfig, AgentConfig, ScenarioEngine } from '@/api/types'
 import { Badge } from '@/components/ui/badge'
 import { ConfigListShell, ConfigRow } from '@/features/config/ConfigListShell'
 import { usePagedList } from '@/features/config/usePagedList'
@@ -28,7 +28,7 @@ function blankScenario(): ScenarioConfig {
     description: '',
     instruction: '',
     engine: 'swarm',
-    solo_hunter_id: '',
+    solo_agent_id: '',
     enabled: true,
   }
 }
@@ -39,21 +39,21 @@ export function ScenarioAdmin() {
   const list = usePagedList<ScenarioConfig>(fetchScenarios)
   const { rows, loading, error, reload } = list
   // solo 选择器需要全量领域智能体候选（与分页列表解耦，单独一次性拉取）。
-  const [hunters, setHunters] = useState<HunterConfig[]>([])
+  const [agents, setAgents] = useState<AgentConfig[]>([])
   const [draft, setDraft] = useState<ScenarioConfig | null>(null)
   const [saving, setSaving] = useState(false)
 
   useEffect(() => {
-    void listHunterConfigs()
-      .then(setHunters)
-      .catch(() => setHunters([]))
+    void listAgentConfigs()
+      .then(setAgents)
+      .catch(() => setAgents([]))
   }, [])
 
   const patch = (p: Partial<ScenarioConfig>) => setDraft((d) => (d ? { ...d, ...p } : d))
 
-  // 切引擎时清理互斥字段：切到 swarm 清掉 solo_hunter_id（后端会拒带值的 swarm）。
+  // 切引擎时清理互斥字段：切到 swarm 清掉 solo_agent_id（后端会拒带值的 swarm）。
   const onEngineChange = (engine: ScenarioEngine) =>
-    patch(engine === 'swarm' ? { engine, solo_hunter_id: '' } : { engine })
+    patch(engine === 'swarm' ? { engine, solo_agent_id: '' } : { engine })
 
   const onSave = async () => {
     if (!draft) return
@@ -83,11 +83,11 @@ export function ScenarioAdmin() {
     }
   }
 
-  // solo 引擎的候选仅领域智能体（orchestrator 不可单点执行）。
-  const domainHunters = hunters.filter((h) => h.kind === 'domain')
-  // solo 必须选中 solo_hunter_id；swarm 不校验（后端拒带值）。
+  // solo 引擎的候选仅领域智能体（planner 不可单点执行）。
+  const domainAgents = agents.filter((h) => h.kind === 'domain')
+  // solo 必须选中 solo_agent_id；swarm 不校验（后端拒带值）。
   const saveDisabled =
-    !draft?.code || !draft?.name || (draft?.engine === 'solo' && !draft?.solo_hunter_id)
+    !draft?.code || !draft?.name || (draft?.engine === 'solo' && !draft?.solo_agent_id)
 
   return (
     <>
@@ -105,6 +105,8 @@ export function ScenarioAdmin() {
           totalPages: list.totalPages,
           count: list.total,
           onPage: list.setPage,
+          size: list.size,
+          onSize: list.setSize,
         }}
       >
         {rows.map((sc) => (
@@ -177,13 +179,13 @@ export function ScenarioAdmin() {
                         <Field label="执行智能体" hint="单智能体模式下唯一执行的领域智能体">
                           <select
                             className={INPUT_CLASS}
-                            value={draft.solo_hunter_id}
-                            onChange={(e) => patch({ solo_hunter_id: e.target.value })}
+                            value={draft.solo_agent_id}
+                            onChange={(e) => patch({ solo_agent_id: e.target.value })}
                           >
                             <option value="" disabled>
                               选择智能体
                             </option>
-                            {domainHunters.map((h) => (
+                            {domainAgents.map((h) => (
                               <option key={h.id} value={h.id}>
                                 {h.name}
                               </option>

@@ -5,16 +5,16 @@
 //   - 路由不再读静态 cfg：role→provider 的解析由 Resolver（*llmstore.Store）在**运行期**
 //     经多级缓存完成，前端改「模型」模块即时生效（取代旧的 cfg.LLM.Agents + lookupLLMField switch）。
 //
-// 路由规则（全在 Resolver 内，见 internal/llmstore；0099 拆别名层后为一跳直连）：
-//   - role → 角色路由表命中的 provider key；未命中走 __default__ 兜底
+// 路由规则（全在 Resolver 内，见 internal/llmstore；0105 引入 tier 中间层后为两跳）：
+//   - role → AgentTier(role) 归档（heavy/vision/light，固定在代码）→ 该档命中的 provider key；
+//     档未绑定则回落隐式默认档 heavy
 //   - provider key → llm_provider 部署行
-//   - 解析不出（__default__ 兜底缺失）→ Resolver 返回 *llmstore.UnresolvedError，For 透传
+//   - 解析不出（档及 heavy 均未绑定）→ Resolver 返回 *llmstore.UnresolvedError，For 透传
 package llm
 
 import (
 	"context"
 	"fmt"
-	"os"
 
 	"github.com/V3teran/liusha/internal/config/llmcfg"
 )
@@ -47,9 +47,11 @@ type Factory struct {
 	builder  Builder
 }
 
-// NewFactory 用默认 BuildProvider 构造一个 Factory。
-func NewFactory(resolver Resolver) *Factory {
-	return NewFactoryWithBuilder(resolver, BuildProvider)
+// NewFactory 用默认 BuildProvider 构造一个 Factory；dec 解密 provider 的加密密钥
+// （*cryptx.Cipher 满足 llmcfg.KeyDecrypter），仅在此处（即将构造 client 前）解密，
+// 解密结果不进任何缓存层。
+func NewFactory(resolver Resolver, dec llmcfg.KeyDecrypter) *Factory {
+	return NewFactoryWithBuilder(resolver, newBuildProvider(dec))
 }
 
 // NewFactoryWithBuilder 用自定义 builder 构造，便于测试。
@@ -86,15 +88,38 @@ func (f *Factory) forFallback(ctx context.Context) (Generator, error) {
 	return g, nil
 }
 
-// BuildProvider 用 ClientPool 共享 HTTP client，构造无状态 Generator。
+// newBuildProvider 用给定的解密器构造一个 Builder：解密只发生在这一刻（即将构造 client 前），
+// 解密结果（明文 key）不返回给调用方、不落任何结构体字段、不进缓存——用完即弃。
+func newBuildProvider(dec llmcfg.KeyDecrypter) Builder {
+	return func(ctx context.Context, p llmcfg.Provider, pool *ClientPool) (Generator, error) {
+		return buildProvider(ctx, p, pool, dec)
+	}
+}
+
+// BuildProvider 是测试/无加密场景的默认 Builder：解密器为空时，ResolveAPIKey 回退
+// os.Getenv(APIKeyEnv)（旧数据路径），EncryptedAPIKey 非空但无解密器会报错。
+func BuildProvider(ctx context.Context, p llmcfg.Provider, pool *ClientPool) (Generator, error) {
+	return buildProvider(ctx, p, pool, nil)
+}
+
+// buildProvider 用 ClientPool 共享 HTTP client，构造无状态 Generator。
 //
 // 按 Provider.Type 路由到 OpenAI 兼容（sashabaranov/go-openai）或 Anthropic 原生 SDK。
-// APIKey 从 Provider.APIKeyEnv 指向的环境变量取，为空报错（密钥值只在 ENV，绝不落库）。
-func BuildProvider(ctx context.Context, p llmcfg.Provider, pool *ClientPool) (Generator, error) {
-	apiKey := os.Getenv(p.APIKeyEnv)
-	if apiKey == "" {
-		return nil, fmt.Errorf("env %s 为空（provider=%s）", p.APIKeyEnv, p.Key)
+// dec 为 nil 时 ResolveAPIKey 只能走 APIKeyEnv 回退路径（EncryptedAPIKey 非空会报错）。
+func buildProvider(ctx context.Context, p llmcfg.Provider, pool *ClientPool, dec llmcfg.KeyDecrypter) (Generator, error) {
+	apiKey, err := llmcfg.ResolveAPIKey(p, dec)
+	if err != nil {
+		return nil, err
 	}
+	return BuildProviderWithKey(ctx, p, pool, apiKey)
+}
+
+// BuildProviderWithKey 用已解析好的明文 key 构造 Generator，跳过 ResolveAPIKey 的密钥来源解析。
+//
+// 供实连探测（测试连接）复用：前端可直填一把尚未落库的明文 key（新建/更换密钥场景），
+// 此时密钥不来自 EncryptedAPIKey 也不来自 env，直接注入。常规路径经 buildProvider → 本函数，
+// 二者共享同一 openai/anthropic client 构造分支（DRY），探测与运行期行为一致。
+func BuildProviderWithKey(ctx context.Context, p llmcfg.Provider, pool *ClientPool, apiKey string) (Generator, error) {
 	switch p.Type {
 	case ProviderTypeOpenAICompat, "":
 		// 默认（type 为空）按 OpenAI 兼容协议。

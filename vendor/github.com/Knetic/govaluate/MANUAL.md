@@ -1,7 +1,7 @@
 govaluate
 ====
 
-This library contains quite a lot of functionality, this document is meant to be formal documentation on the operators and features of it.
+This library contains quite a lot of functionality, this document is meant to be formal documentation on the executors and features of it.
 Some of this documentation may duplicate what's in README.md, but should never conflict.
 
 # Types
@@ -12,15 +12,15 @@ All numeric literals, with or without a radix, will be converted to `float64` fo
 
 Any string _literal_ (not parameter) which is interpretable as a date will be converted to a `float64` representation of that date's unix time. Any `time.Time` parameters will not be operable with these date literals; such parameters will need to use the `time.Time.Unix()` method to get a numeric representation.
 
-Arrays are untyped, and can be mixed-type. Internally they're all just `interface{}`. Only two operators can interact with arrays, `IN` and `,`. All other operators will refuse to operate on arrays.
+Arrays are untyped, and can be mixed-type. Internally they're all just `interface{}`. Only two executors can interact with arrays, `IN` and `,`. All other executors will refuse to execute on arrays.
 
-# Operators
+# Executors
 
 ## Modifiers
 
 ### Addition, concatenation `+`
 
-If either left or right sides of the `+` operator are a `string`, then this operator will perform string concatenation and return that result. If neither are string, then both must be numeric, and this will return a numeric result.
+If either left or right sides of the `+` executor are a `string`, then this executor will perform string concatenation and return that result. If neither are string, then both must be numeric, and this will return a numeric result.
 
 Any other case is invalid.
 
@@ -34,7 +34,7 @@ Any other case is invalid.
 
 ### Bitwise shifts, masks `>>` `<<` `|` `&` `^`
 
-All of these operators convert their `float64` left and right sides to `int64`, perform their operation, and then convert back.
+All of these executors convert their `float64` left and right sides to `int64`, perform their operation, and then convert back.
 Given how this library assumes numeric are represented (as `float64`), it is unlikely that this behavior will change, even though it may cause havoc with extremely large or small numbers.
 
 * _Left side_: numeric
@@ -62,9 +62,9 @@ Prefix only. This can never have a left-hand value.
 * _Right side_: numeric
 * _Returns_: numeric
 
-## Logical Operators
+## Logical Executors
 
-For all logical operators, this library will short-circuit the operation if the left-hand side is sufficient to determine what to do. For instance, `true || expensiveOperation()` will not actually call `expensiveOperation()`, since it knows the left-hand side is `true`.
+For all logical executors, this library will short-circuit the operation if the left-hand side is sufficient to determine what to do. For instance, `true || expensiveOperation()` will not actually call `expensiveOperation()`, since it knows the left-hand side is `true`.
 
 ### Logical AND/OR `&&` `||`
 
@@ -75,7 +75,7 @@ For all logical operators, this library will short-circuit the operation if the 
 ### Ternary true `?`
 
 Checks if the left side is `true`. If so, returns the right side. If the left side is `false`, returns `nil`.
-In practice, this is commonly used with the other ternary operator.
+In practice, this is commonly used with the other ternary executor.
 
 * _Left side_: bool
 * _Right side_: Any type.
@@ -84,7 +84,7 @@ In practice, this is commonly used with the other ternary operator.
 ### Ternary false `:`
 
 Checks if the left side is `nil`. If so, returns the right side. If the left side is non-nil, returns the left side.
-In practice, this is commonly used with the other ternary operator.
+In practice, this is commonly used with the other ternary executor.
 
 * _Left side_: Any type.
 * _Right side_: Any type.
@@ -92,7 +92,7 @@ In practice, this is commonly used with the other ternary operator.
 
 ### Null coalescence `??`
 
-Similar to the C# operator. If the left value is non-nil, it returns that. If not, then the right-value is returned.
+Similar to the C# executor. If the left value is non-nil, it returns that. If not, then the right-value is returned.
 
 * _Left side_: Any type.
 * _Right side_: Any type.
@@ -126,8 +126,8 @@ Again, this should always be used with parenthesis; like `(1, 2, 3, 4)`.
 
 ### Membership `IN`
 
-The only operator with a text name, this operator checks the right-hand side array to see if it contains a value that is equal to the left-side value.
-Equality is determined by the use of the `==` operator, and this library doesn't check types between the values. Any two values, when cast to `interface{}`, and can still be checked for equality with `==` will act as expected.
+The only executor with a text name, this executor checks the right-hand side array to see if it contains a value that is equal to the left-side value.
+Equality is determined by the use of the `==` executor, and this library doesn't check types between the values. Any two values, when cast to `interface{}`, and can still be checked for equality with `==` will act as expected.
 
 Note that you can use a parameter for the array, but it must be an `[]interface{}`.
 
@@ -137,7 +137,7 @@ Note that you can use a parameter for the array, but it must be an `[]interface{
 
 # Parameters
 
-Parameters must be passed in every time the expression is evaluated. Parameters can be of any type, but will not cause errors unless actually used in an erroneous way. There is no difference in behavior for any of the above operators for parameters - they are type checked when used.
+Parameters must be passed in every time the expression is evaluated. Parameters can be of any type, but will not cause errors unless actually used in an erroneous way. There is no difference in behavior for any of the above executors for parameters - they are type checked when used.
 
 All `int` and `float` values of any width will be converted to `float64` before use.
 
@@ -167,10 +167,10 @@ Where `args` is whatever is passed to the function when called. If a non-nil err
 
 There aren't any builtin functions. The author is opposed to maintaining a standard library of functions to be used.
 
-Every use case of this library is different, and even in simple use cases (such as parameters, see above) different users need different behavior, naming, or even functionality. The author prefers that users make their own decisions about what functions they need, and how they operate.
+Every use case of this library is different, and even in simple use cases (such as parameters, see above) different users need different behavior, naming, or even functionality. The author prefers that users make their own decisions about what functions they need, and how they execute.
 
 # Equality
 
-The `==` and `!=` operators involve a moderately complex workflow. They use [`reflect.DeepEqual`](https://golang.org/pkg/reflect/#DeepEqual). This is for complicated reasons, but there are some types in Go that cannot be compared with the native `==` operator. Arrays, in particular, cannot be compared - Go will panic if you try. One might assume this could be handled with the type checking system in `govaluate`, but unfortunately without reflection there is no way to know if a variable is a slice/array. Worse, structs can be incomparable if they _contain incomparable types_.
+The `==` and `!=` executors involve a moderately complex workflow. They use [`reflect.DeepEqual`](https://golang.org/pkg/reflect/#DeepEqual). This is for complicated reasons, but there are some types in Go that cannot be compared with the native `==` executor. Arrays, in particular, cannot be compared - Go will panic if you try. One might assume this could be handled with the type checking system in `govaluate`, but unfortunately without reflection there is no way to know if a variable is a slice/array. Worse, structs can be incomparable if they _contain incomparable types_.
 
 It's all very complicated. Fortunately, Go includes the `reflect.DeepEqual` function to handle all the edge cases. Currently, `govaluate` uses that for all equality/inequality.

@@ -3,36 +3,36 @@ import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { SystemConfig } from './SystemConfig'
 import {
-  getReactSettings,
-  saveReactSettings,
+  getCompactionSettings,
+  saveCompactionSettings,
   getRuntimeSettings,
   saveRuntimeSettings,
   getProxyFilterSettings,
   saveProxyFilterSettings,
 } from '@/api/settings'
 import type {
-  ReactSettings,
+  CompactionSettings,
   RuntimeSettings,
   ProxyFilterSettings,
 } from '@/api/types'
 
 vi.mock('@/api/settings', () => ({
-  getReactSettings: vi.fn(),
-  saveReactSettings: vi.fn(),
+  getCompactionSettings: vi.fn(),
+  saveCompactionSettings: vi.fn(),
   getRuntimeSettings: vi.fn(),
   saveRuntimeSettings: vi.fn(),
   getProxyFilterSettings: vi.fn(),
   saveProxyFilterSettings: vi.fn(),
 }))
 
-const mGetReact = getReactSettings as unknown as ReturnType<typeof vi.fn>
-const mSaveReact = saveReactSettings as unknown as ReturnType<typeof vi.fn>
+const mGetCompaction = getCompactionSettings as unknown as ReturnType<typeof vi.fn>
+const mSaveCompaction = saveCompactionSettings as unknown as ReturnType<typeof vi.fn>
 const mGetRuntime = getRuntimeSettings as unknown as ReturnType<typeof vi.fn>
 const mSaveRuntime = saveRuntimeSettings as unknown as ReturnType<typeof vi.fn>
 const mGetProxy = getProxyFilterSettings as unknown as ReturnType<typeof vi.fn>
 const mSaveProxy = saveProxyFilterSettings as unknown as ReturnType<typeof vi.fn>
 
-const react: ReactSettings = {
+const compaction: CompactionSettings = {
   trigger_ratio: 0.8,
   trailing_budget_ratio: 0.5,
   compactor_timeout_seconds: 30,
@@ -56,8 +56,8 @@ const proxy: ProxyFilterSettings = {
 
 describe('SystemConfig', () => {
   beforeEach(() => {
-    mGetReact.mockReset().mockResolvedValue(react)
-    mSaveReact.mockReset().mockImplementation((v: ReactSettings) => Promise.resolve(v))
+    mGetCompaction.mockReset().mockResolvedValue(compaction)
+    mSaveCompaction.mockReset().mockImplementation((v: CompactionSettings) => Promise.resolve(v))
     mGetRuntime.mockReset().mockResolvedValue(runtime)
     mSaveRuntime.mockReset().mockImplementation((v: RuntimeSettings) => Promise.resolve(v))
     mGetProxy.mockReset().mockResolvedValue(proxy)
@@ -70,13 +70,13 @@ describe('SystemConfig', () => {
     expect(await screen.findByText('会话历史压缩')).toBeInTheDocument()
     expect(screen.getByText('工具运行时')).toBeInTheDocument()
     expect(screen.getByText('代理流量过滤规则')).toBeInTheDocument()
-    // react 触发阈值回填
+    // compaction 触发阈值回填
     await waitFor(() => expect(screen.getByDisplayValue('0.8')).toBeInTheDocument())
     // proxy 白名单以多行文本回填
     expect(screen.getByDisplayValue('*.target.com')).toBeInTheDocument()
   })
 
-  it('编辑 react 触发阈值后保存 → 调 saveReactSettings 透传新值', async () => {
+  it('编辑 compaction 触发阈值后保存 → 调 saveCompactionSettings 透传新值', async () => {
     const user = userEvent.setup()
     render(<SystemConfig />)
     const input = await screen.findByDisplayValue('30') // compactor_timeout_seconds
@@ -84,10 +84,10 @@ describe('SystemConfig', () => {
     await user.type(input, '45')
 
     const saveButtons = screen.getAllByRole('button', { name: '保存' })
-    await user.click(saveButtons[0]) // 第一区 = react
+    await user.click(saveButtons[0]) // 第一区 = compaction
 
-    await waitFor(() => expect(mSaveReact).toHaveBeenCalledTimes(1))
-    expect(mSaveReact.mock.calls[0][0].compactor_timeout_seconds).toBe(45)
+    await waitFor(() => expect(mSaveCompaction).toHaveBeenCalledTimes(1))
+    expect(mSaveCompaction.mock.calls[0][0].compactor_timeout_seconds).toBe(45)
     expect(await screen.findByText('已保存并热生效')).toBeInTheDocument()
   })
 

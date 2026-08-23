@@ -11,7 +11,7 @@
 
 ### 问题现象
 
-active e2e 反复出现：orchestrator/exploitation 首次 `browser_use open` 成功（~8s），**之后所有 browser_use 调用全部卡满超时**（state/click/eval，甚至重新 open 都 60s timeout），最终靠 curl fallback 才让 e2e PASS。浏览器能力实际不可用。
+active e2e 反复出现：planner/exploitation 首次 `browser_use open` 成功（~8s），**之后所有 browser_use 调用全部卡满超时**（state/click/eval，甚至重新 open 都 60s timeout），最终靠 curl fallback 才让 e2e PASS。浏览器能力实际不可用。
 
 ### 本次调查证据（2026-05-29，留容器 `LIUSHA_KEEP_SANDBOX=1` 现场复现）
 
@@ -60,14 +60,14 @@ Dockerfile 注释（Layer 2.5）本就写明设计意图：「session 自动管�
 ## 目标
 
 - browser_use 回归 browse-use 原生 `--session` 会话管理，**删除 wrapper 手动 chromium daemon + `--cdp-url`**。
-- 保留现有 `browser_use` 工具接口（离散 action：open/state/click/input/wait/eval/extract/source/reset）——**hunter LLM 逐步驱动**：open→自动截图→LLM 看图决定→click/input→再截图→…直到目标达成（如登录）。
-- 保留多 agent 共享模型：**一 host 一 active 任务 = 一个共享浏览器**，orchestrator 占 tab0，exploitation `window.open` 新 tab。
+- 保留现有 `browser_use` 工具接口（离散 action：open/state/click/input/wait/eval/extract/source/reset）——**agent LLM 逐步驱动**：open→自动截图→LLM 看图决定→click/input→再截图→…直到目标达成（如登录）。
+- 保留多 agent 共享模型：**一 host 一 active 任务 = 一个共享浏览器**，planner 占 tab0，exploitation `window.open` 新 tab。
 - 跨离散调用**状态保持**（页面活着）、**无 rot**。
 - 修 sandbox-server（PID 1）不回收僵尸的次要 bug。
 
 ## 非目标
 
-- 不把 browser_use 改成 browse-use 自主 agent（「一次调用 = 一个完整 NL 任务」）——LLM driver 仍是我们的 hunter LLM，离散 action 不变。
+- 不把 browser_use 改成 browse-use 自主 agent（「一次调用 = 一个完整 NL 任务」）——LLM driver 仍是我们的 agent LLM，离散 action 不变。
 - 不动 `browser_use.go` 工具的 action 枚举 / 参数 schema / grounding 坐标换算（接口零变化）。
 - 不恢复 CDP capture / 流量入字典（v35 已收口，凭证共享走 redis）。
 
@@ -79,13 +79,13 @@ Dockerfile 注释（Layer 2.5）本就写明设计意图：「session 自动管�
 
 实测确认（2026-05-29 同容器）：`--session A` 种的 cookie，`--session B` 读不到，且各自独立 chromium daemon 并发。故 **session = 身份（cookie jar 边界）**：
 
-- **同一身份**：`SESSION = ${IDENTITY:-default}`。orchestrator+exploitation 共用一个 `--session <身份>` 浏览器，登录态共享，**tab 隔离**页面/截图/并发。
+- **同一身份**：`SESSION = ${IDENTITY:-default}`。planner+exploitation 共用一个 `--session <身份>` 浏览器，登录态共享，**tab 隔离**页面/截图/并发。
 - **多身份（越权/BAC）**：不同 `IDENTITY` → 不同 `--session` → 独立浏览器（独立 cookie jar，按需多起 chromium）。身份数 = 同时在用的账号数（常态 1，BAC 2-3），**不是** agent 数。单/多账号的越权判断逻辑在 `vuln/bac` skill。
 - 首个命令由 browse-use 自启 chrome（冷启 ~20s）；后续跨 CLI 进程复用、状态保持。`browser_use` 工具新增可选 `identity` 字段（= 凭证 name），缺省走共享 `default`。
 
 ### 共享 + tab 隔离模型（同一身份内）
 
-- **谁先 open 谁占 tab0**（role-agnostic，orchestrator/exploitation 皆可——实际不一定 orchestrator 先碰浏览器）。
+- **谁先 open 谁占 tab0**（role-agnostic，planner/exploitation 皆可——实际不一定 planner 先碰浏览器）。
 - **后来者新 tab**：用 `window.open(目标URL)` **一步建+导航**新 tab（实测：先 `window.open(about:blank)` 再独立进程 `open` 会让空 tab 被回收塌缩；直接带 URL 开则稳定）。tab 号记到 `/tmp/browser-tab-${SESSION}-${TASK_ID}.idx`。
 - 每次后续 action 先 `switch $TAB_IDX` 回本 (身份,task) tab 再执行（实测跨进程 switch 有效）。flock（按身份 `/tmp/browser-${SESSION}.lock`）串行防并发 race。
 - **tab0 认领去竞态**：每身份一个 marker `/tmp/browser-tab0-${SESSION}.claimed`，flock 临界区内判定——不存在 → 占 tab0 + 建 marker；存在 → `window.open` 新 tab。
@@ -122,7 +122,7 @@ sandbox-server 是容器 PID 1，超时杀进程组后孤儿被 reparent 到 PID
 
 ### 决策 2：保留离散 action，不改 browse-use 自主 agent
 
-用户要的是「hunter LLM 逐步驱动 + 每步截图回灌」，不是把决策权交给 browse-use 内部 LLM。`--session` 已让离散 action 跨调用状态保持，无需引入第二个 LLM（成本/复杂度）。
+用户要的是「agent LLM 逐步驱动 + 每步截图回灌」，不是把决策权交给 browse-use 内部 LLM。`--session` 已让离散 action 跨调用状态保持，无需引入第二个 LLM（成本/复杂度）。
 
 ### 决策 3：session 名 = 身份（cookie jar），tab 区分 agent
 
@@ -137,7 +137,7 @@ sandbox-server 是容器 PID 1，超时杀进程组后孤儿被 reparent 到 PID
 ## 验收标准
 
 - [ ] 容器内手动跑通：单 task `open→state→click→input` 序列跨调用状态保持，无超时。
-- [ ] 多 agent tab 模型：tab0（orchestrator）+ window.open 新 tab（exploitation）并存，switch 不串。
+- [ ] 多 agent tab 模型：tab0（planner）+ window.open 新 tab（exploitation）并存，switch 不串。
 - [ ] 重跑 `e2e.sh active:xss`：browser_use 调用 duration 正常（首个 ~20s，后续秒级），**不再出现连续 60s timeout 级联**。
 - [ ] `reset` 能恢复（close daemon → 下次 open 重启）。
 - [ ] 容器内 `ps` 无 `<defunct>` 僵尸堆积（`--init` 生效）。

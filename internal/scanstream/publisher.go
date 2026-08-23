@@ -8,7 +8,7 @@
 // 不用 Redis Stream（避免 PG/Redis 双真相源）。
 //
 // payload 是已序列化的字节（runner 传 conversation.Message 的 JSON）；本包不解释内容、
-// 不依赖 conversation/einoagent，纯传输层。
+// 不依赖 conversation/scanagent，纯传输层。
 package scanstream
 
 import (
