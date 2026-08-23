@@ -3,7 +3,7 @@
 #   - 仅放非敏感、可入库的开关与默认值
 #   - 所有 *_API_KEY 走 env，本文件不出现密钥
 #   - env 用 LIUSHA_ 前缀，支持二级覆盖
-#     例 LIUSHA_LLM_DEFAULT_PROVIDER 覆盖 llm.default_provider
+#     例 LIUSHA_LLM_FALLBACK 覆盖 llm.fallback
 #   - 任一字段缺省时 config.ApplyDefaults() 自动兜底，不会拒启动
 # ============================================================================
 
@@ -12,7 +12,7 @@ api:
   read_timeout_seconds: 15
   write_timeout_seconds: 30
   read_header_timeout_seconds: 5         # 也复用于 proxy/runner healthz HTTP server
-  listen_addr: 0.0.0.0:8080
+  listen_addr: 0.0.0.0:8090
   shutdown_timeout_seconds: 5
 
 # ---- pgxpool 连接参数 ----
@@ -33,30 +33,24 @@ redis:
   read_timeout_seconds: 0                  # 0 = SDK 默认 3
   write_timeout_seconds: 0                 # 0 = SDK 默认 3
 
-# ---- LLM 多 provider 路由（黑客松借鉴：创新 11）----
-# default_provider:  主 ReAct（sniffer / 子任务）共用，重模型
-# light_provider:    Inspector / Compaction 走的轻模型（更轻更快）
-# vision_provider:   v1.5 的 browser.screenshot 用，v1 仅作为备用主 LLM
-# fallback_provider: 429/529 退避耗尽后切到，retry 中间件用
+# ---- LLM 能力分档路由 ----
+# 事实源已迁 DB（前端「模型 / 能力分档」页 CRUD，见 migration 0097/0099/0103/0105），本段仅供空库
+# 首次种子导入（insert-only，见 internal/config/seed/llm.go），DB 已有数据后不再生效。
+#
+# 分档模型（0105 起）：agent → tier → provider 两跳。
+#   · agent → tier 的绑定固定在代码里（internal/config/llmcfg AgentTier），运行期不可改：
+#       planner / exploitation → vision（需 browser-use 截图，多模态）
+#       traffic-analysis            → heavy （流量逐批挖洞，重推理纯文本）
+#       inspector / compactor       → light （旁路督查 / 历史压缩，轻任务省钱）
+#     未显式归档的 agent 一律落 heavy（隐式默认档）。
+#   · tier → provider 的绑定落 DB（前端「能力分档」页可配），此处仅首次种子。
+# 全路径统一小米 MiMo（provider key: mimo），fallback 亦指向同一 provider（当前仅此一个模型）。
 llm:
-  # 智谱 GLM 路由（OpenAI 兼容协议，bigmodel.cn）
-  # 全 4 槽位免费试水：vision/default→glm-4.6v-flash 免费多模态；
-  # light/fallback→glm-4.5-flash 纯文本免费。同一个 GLM_API_KEY 通用。
-  # 想升级旗舰：default_provider 改 glm_vision_pro（需在 providers 段加 glm-4.6v 1元/3元）。
-  default_provider: glm_vision_flash
-  light_provider: glm_text_flash
-  vision_provider: glm_vision_flash
-  fallback_provider: glm_text_flash
-  # 双 namespace：把"真 agent"与"single-shot utility"语义分开。
-  # 角色路由（PTES 功能命名）：traffic-analysis（passive 流量分析）/ orchestrator（active 编排）/
-  # exploitation（active 利用）/ inspector（旁路督查/压缩）。
-  # 注：active 子代理（reconnaissance/exploitation）经 deep task 共享 orchestrator 的 model，
-  # 不单独走 For()，故 exploitation 键仅作文档对齐，实际路由只取 orchestrator/traffic-analysis/inspector。
-  agents:
-    traffic-analysis: default_provider   # passive 单 agent（流量驱动，纯文本路径）
-    orchestrator:     vision_provider    # active 主代理（派活决策，需 browser-use 截图 → multimodal）
-    exploitation:     vision_provider    # active 子代理（深挖单点，需 browser-use 截图 → multimodal）
-    inspector:        light_provider     # 旁路过程督查官 / 历史压缩
+  tiers:
+    simple:  mimo   # 快速响应，简单任务（信息提取、格式化）
+    medium:  mimo   # 标准推理，常规任务（漏洞检测、工具调用）- 默认档位
+    complex: mimo   # 深度推理，复杂决策（战略规划、多步分析、多模态）
+  fallback: mimo   # 主 provider 重试耗尽后的全局备胎
 
   # spec §8.5 错误码退避表（429/529/5xx/网络超时）
   retry:
@@ -76,167 +70,11 @@ llm:
     flush_interval_ms: 1000          # 兜底 flush 周期
     insert_timeout_sec: 5            # 单次 batch insert 超时
 
-# 每个 provider 一节；只填要用的，其它留空即可
-# api_key_env 是从 env 读 key 的变量名
+# 仅供空库首次种子导入（insert-only，见上方 llm: 段说明）；DB 是事实源，改模型走前端「LLM 配置」页。
 providers:
-  # type: openai_compat → sashabaranov/go-openai 调 /v1/chat/completions
-  # type: anthropic     → anthropics/anthropic-sdk-go 调 /v1/messages
-  deepseek:
-    type: openai_compat
-    base_url: https://api.deepseek.com/v1
-    default_model: deepseek-chat
-    api_key_env: DEEPSEEK_API_KEY
-    max_tokens: 4096
-    supports_tools: true
-    supports_vision: false
-    context_window: 65536            # deepseek-chat 64k
-
-  anthropic:
-    type: anthropic
-    base_url: https://api.anthropic.com
-    default_model: claude-sonnet-4-6
-    vision_model: claude-haiku-4-5
-    api_key_env: ANTHROPIC_API_KEY
-    max_tokens: 8192
-    supports_tools: true
-    supports_vision: true
-    context_window: 200000           # claude-sonnet-4-6 / haiku-4-5 同 200k
-
-  anthropic_haiku:
-    type: anthropic
-    base_url: https://api.anthropic.com
-    default_model: claude-haiku-4-5
-    api_key_env: ANTHROPIC_API_KEY
-    max_tokens: 4096
-    supports_tools: true
-    supports_vision: true
-    context_window: 200000
-
-  openai:
-    type: openai_compat
-    base_url: https://api.openai.com/v1
-    default_model: gpt-4o
-    api_key_env: OPENAI_API_KEY
-    max_tokens: 4096
-    supports_tools: true
-    supports_vision: true
-    context_window: 128000           # gpt-4o 128k
-
-  moonshot:
-    type: openai_compat
-    base_url: https://api.moonshot.cn/v1
-    default_model: kimi-k2-0905-preview
-    api_key_env: MOONSHOT_API_KEY
-    max_tokens: 4096
-    supports_tools: true
-    supports_vision: false
-    context_window: 131072           # kimi-k2-0905 128k
-
-  qwen:
-    type: openai_compat
-    base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
-    default_model: qwen3-max
-    api_key_env: QWEN_API_KEY
-    max_tokens: 4096
-    supports_tools: true
-    supports_vision: false
-    context_window: 131072           # qwen3-max 128k
-
-  # Ollama 本地模型——走 OpenAI 兼容协议（/v1/chat/completions），复用 openai_compat 实现。
-  # 不验 API key，但 factory.go BuildProvider 校验 env 非空——export OLLAMA_API_KEY=ollama 占位。
-  # 模型需支持 function calling（react.runtime 依赖 tool_calls）：
-  #   qwen2.5-coder / qwen3 / llama3.1+ / mistral-nemo 都 OK；老模型不行。
-  # 默认 ctx 偏小（4k），实际跑 react loop 建议 Modelfile 改 num_ctx 32768：
-  #   FROM qwen2.5-coder:14b
-  #   PARAMETER num_ctx 32768
-  ollama:
-    type: openai_compat
-    base_url: http://localhost:11434/v1
-    default_model: qwen2.5-coder:14b
-    api_key_env: OLLAMA_API_KEY
-    max_tokens: 8192
-    supports_tools: true
-    supports_vision: false
-    context_window: 32768            # qwen2.5-coder:14b 默认 32k（建议 Modelfile 改 131072）
-
-  # —— 公网 CN ollama 节点（orchestrator/exploitation 视觉路由）
-  # 模型选型演化：
-  #   1) qwen2.5vl:72b @ 115.231.236.153 → Ollama modelfile 未 declare tools → 400
-  #   2) qwen3-vl:30b @ 58.246.65.11 → 简化 prompt OK，react 完整 prompt 76s 后 EOF（节点 timeout）
-  #   3) qwen3-vl:32b-instruct @ 120.220.102.83 → 实测长 prompt + 多 tools 仅 15.1s 完成，task 派活正确
-  # 健康度自检：curl -fsS <base_url>/api/tags || 视为下线
-  # 启动需 export OLLAMA_API_KEY=ollama（占位，ollama 不验 key）
-  ollama_vision_cn:
-    type: openai_compat
-    base_url: http://106.15.205.82:11434/v1
-    default_model: qwen3-vl:32b               # 33.4B Q4_K_M @ 阿里云华东，长 prompt + 多 tool 实测 5-7s/turn
-    api_key_env: OLLAMA_API_KEY
-    max_tokens: 16384                          # ReAct loop 含截图+history 易超 8k
-    supports_tools: true
-    supports_vision: true
-    context_window: 32768                      # qwen3-vl 节点 Modelfile 默认 32k
-
-  # —— 公网 CN ollama 节点（inspector 路由 + fallback）
-  # 14B 选型：纯 JSON 输出场景（inspector decision），无需 tool_calls，速度极快（0.1s/turn）。
-  # 注意：qwen2.5:14b 在 ReAct 长 prompt + tools 路径下会退化为纯文本不调 tool（实测验证），
-  # 故 traffic-analysis 改路由到 ollama_tracker_cn 走 qwen3:32b。
-  ollama_text_cn:
-    type: openai_compat
-    base_url: http://122.152.194.29:11434/v1
-    default_model: qwen2.5:14b                # 14.7B Q4_K_M @ 腾讯云上海，实测 0.1s/turn
-    api_key_env: OLLAMA_API_KEY               # 共用同一占位 env
-    max_tokens: 16384
-    supports_tools: true
-    supports_vision: false
-    context_window: 32768                     # qwen2.5:14b Modelfile 默认
-
-  # —— 公网 CN ollama 节点（traffic-analysis 强 tool_calls 路由）
-  # 模型选型演化：
-  #   1) qwen2.5:14b → 跳过 tool_calls 直接吐文本（无 tools 优化）
-  #   2) qwen3:32b → 长 prompt + 多 tools 场景下 thinking mode 吞掉 tool_calls，输出 markdown
-  #   3) qwen3-coder:30b → Qwen 专为 agent/code 优化，**默认 no_think + tool_calls 强约束**
-  # 实测（长 prompt 模拟 react）：tool_calls=1 + has_think=False + 首步精准调 curl 复现流量。
-  # 16s/turn 延迟可接受（passive 60 步约 16min，比公网 72B 节点 50s 快 3x）。
-  ollama_tracker_cn:
-    type: openai_compat
-    base_url: http://14.55.117.95:11434/v1
-    default_model: qwen3-coder:30b            # 30.5B Q4_K_M @ 中国电信，agent 优化版
-    api_key_env: OLLAMA_API_KEY
-    max_tokens: 16384
-    supports_tools: true
-    supports_vision: false
-    context_window: 131072                    # qwen3-coder:30b Modelfile 默认 128k
-
-  # —— 智谱 GLM（OpenAI 兼容协议，bigmodel.cn）
-  # glm-4.6v-flash：9B vision 蒸馏免费版（永久 0 元），原生 function call + 128k context，
-  # MMBench 接近 4.6V 旗舰；默认 5 QPS / 5 并发（控制台可调到 10）。
-  # 升级旗舰：仅改 default_model 为 glm-4.6v（1元/3元 per M tokens，同 key 通用）。
-  glm_vision_flash:
-    type: openai_compat
-    base_url: https://open.bigmodel.cn/api/paas/v4
-    default_model: glm-4.6v-flash             # 免费旗舰蒸馏版（vision + tool_calls）
-    api_key_env: GLM_API_KEY
-    max_tokens: 16384
-    supports_tools: true
-    supports_vision: true
-    context_window: 131072                    # glm-4.6v-flash 128k
-
-  # —— 智谱 GLM 文本档（inspector 督查官 + fallback）
-  # glm-4.5-flash：纯文本免费版，inspector 仅需短 JSON 输出，无需 vision encoder 省 latency。
-  # 同 key 通用。
-  glm_text_flash:
-    type: openai_compat
-    base_url: https://open.bigmodel.cn/api/paas/v4
-    default_model: glm-4.5-flash              # 纯文本免费（inspector / fallback 用）
-    api_key_env: GLM_API_KEY
-    max_tokens: 8192
-    supports_tools: true
-    supports_vision: false
-    context_window: 131072                    # glm-4.5-flash 128k
-
-  # —— 小米 MiMo（Token Plan 固定订阅，OpenAI 兼容协议，token-plan-cn.xiaomimimo.com）★当前激活：default/vision/light 三角色（见 .env.local）
+  # —— 小米 MiMo（Token Plan 固定订阅，OpenAI 兼容协议，token-plan-cn.xiaomimimo.com）★当前唯一激活 provider（见 .env.local）
   # 同 XIAOMI_API_KEY（tp- 开头）；mimo-v2.5 支持 vision + tool calls。
-  xiaomi_mimo:
+  mimo:
     type: openai_compat
     base_url: https://token-plan-cn.xiaomimimo.com/v1
     default_model: mimo-v2.5
@@ -245,35 +83,6 @@ providers:
     supports_tools: true
     supports_vision: true
     context_window: 1048576                   # 小米官方 1M 上下文
-
-  # —— 火山方舟豆包（OpenAI 兼容协议，ark.cn-beijing.volces.com）※保留定义备用，当前未选用（已切小米）
-  # 关键差异：model 字段必须填 endpoint ID（控制台「在线推理 → 推理接入点」创建），
-  # 不是模型名。同 ARK_API_KEY 可调任何已创建的 endpoint。
-  # 当前 ep-20260523102117-7nrdq 绑定 Doubao-Seed-2.0-mini：256K 上下文 + vision + tool calls。
-  # 付费 vision 入门档；新人代金券通常够跑数百次 e2e。
-  doubao_vision_mini:
-    type: openai_compat
-    base_url: https://ark.cn-beijing.volces.com/api/v3
-    default_model: ep-20260523102117-7nrdq    # endpoint ID（非模型名）
-    api_key_env: ARK_API_KEY
-    max_tokens: 16384
-    supports_tools: true
-    supports_vision: true
-    context_window: 262144                    # Mini 全系 256k
-    # endpoint ID 模式无法走 model name registry，靠 vendor base_url 兜底命中
-
-  # —— 豆包 Lite 档（中档，比 Mini 强）※保留定义备用，当前未选用
-  # 用途：替代 GLM Flash 当 light_provider —— inspector / notes compactor / history compactor。
-  # instruction following 显著优于激进蒸馏的 Mini。
-  doubao_vision_lite:
-    type: openai_compat
-    base_url: https://ark.cn-beijing.volces.com/api/v3
-    default_model: ep-20260524204125-nh28p    # endpoint ID 绑定 Doubao-Seed-2.0-Lite
-    api_key_env: ARK_API_KEY
-    max_tokens: 16384
-    supports_tools: true
-    supports_vision: true
-    context_window: 262144                    # Lite 全系 256k
 
 # ---- proxy 内嵌 MITM + 责任链过滤 + 聚合参数 + 进程入口 ----
 proxy:
@@ -298,7 +107,7 @@ proxy:
     - .woff2
   exclude_content_types: []     # Content-Type 黑名单（支持 image/* 通配；大小写不敏感）
   exclude_status_codes:         # 状态码黑名单：原始流量为 4xx/5xx 表示业务异常，扫描无意义
-    # 注：v0024 重构后 hunter 直接由 sandbox 工具（sqlmap/curl/nuclei…）直接打目标，不再走 internal/replay 重放
+    # 注：v0024 重构后 agent 直接由 sandbox 工具（sqlmap/curl/nuclei…）直接打目标，不再走 internal/replay 重放
     - 400      # Bad Request
     - 401      # Unauthorized
     - 403      # Forbidden
@@ -344,9 +153,9 @@ ingestor:
   retry_delay_ms: 500               # XREADGROUP 失败重试延迟
   recreate_group_delay_ms: 500      # NOGROUP 自愈重建后等待 ms
 
-# ---- session 参数（hunter prompt 上限；合表后 passive task 无常驻监控，sweeper/TTL 已删）----
+# ---- session 参数（agent prompt 上限；合表后 passive task 无常驻监控，sweeper/TTL 已删）----
 session:
-  # hunter user prompt 拼装上限（避免 prompt 膨胀；超出 LLM 用 read_findings/read_lessons 工具按需查）
+  # agent user prompt 拼装上限（避免 prompt 膨胀；超出 LLM 用 read_findings/read_lessons 工具按需查）
   findings_limit_in_prompt: 1000    # 该 host finding DB 读上限安全闸（全量注入不截断；超长由 ① 压缩）
   # lessons_limit_in_prompt 已删：跨目标知识改 corpus PULL 检索（search_corpus），不再 PUSH 注入
 
@@ -360,23 +169,23 @@ skills:
 
 # ---- cmd/runner 进程运行时参数 ----
 runner:
-  solo_agent_run_timeout_seconds: 3600     # solo 引擎单个 hunter task 整体超时（asynq handler 入口 WithTimeout，60 分钟，> step_tool）
+  solo_agent_run_timeout_seconds: 3600     # solo 引擎单个 agent task 整体超时（asynq handler 入口 WithTimeout，60 分钟，> step_tool）
   swarm_agent_run_timeout_seconds: 14400   # swarm 引擎整体超时（4 小时，对齐 sandbox max lifetime；站点扫描爬+测耗时长）
   step_llm_timeout_seconds: 300            # 单步 LLM Generate 看门狗（5 分钟）
   asynq_concurrency: 6                     # asynq 消费者并发数（同时跑的主 ReAct 数）
   asynq_shutdown_timeout_seconds: 30       # asynq.Shutdown 等 in-flight 主 ReAct 落地超时（超时后 asynq 强制中断）
   shutdown_timeout_seconds: 5              # graceful shutdown 超时（healthz/db pool 等）
   healthz_addr: ":9090"                    # /healthz HTTP 监听地址
-  flow_max_request_body: 2097152           # 2 MiB；flow.Store 入库截断阈值（与 proxy.max_request_body_size 对齐）
-  flow_max_response_body: 8388608          # 8 MiB；flow.Store 入库截断阈值（与 proxy.max_response_body_size 对齐）
-  queue_hunter_weight: 5                   # asynq 队列优先级权重（数字越大越优先）
+  traffic_max_request_body: 2097152        # 2 MiB；traffic.Store 入库截断阈值（与 proxy.max_request_body_size 对齐）
+  traffic_max_response_body: 8388608       # 8 MiB；traffic.Store 入库截断阈值（与 proxy.max_response_body_size 对齐）
+  queue_agent_weight: 5                   # asynq 队列优先级权重（数字越大越优先）
   queue_dispatch_weight: 1
   per_host_concurrency: 2                  # per-host 并发上限（§4.3）；同 host 同时运行 task 数超限则退避重试；≤0 关闭限速
   lead_ttl_hours: 720                      # 情报黑板（lead，§7）滚动过期时长：每次写刷新该 host TTL，持续写则续命、停写后自净；active/passive 一视同仁；≤0 关（不过期，靠 LTRIM 兜底）
 
-# ---- 主 ReAct 循环参数 ----
-react:
-  # ReAct msgs 滑窗压缩参数（防 context 爆 + 控延迟）。
+# ---- 会话历史压缩参数 ----
+compaction:
+  # 会话 msgs 滑窗压缩参数（防 context 爆 + 控延迟）。
   # 触发时机：每步 Generate 前算 total tokens；超 trigger_ratio × provider.context_window 启动压缩。
   # 永保策略：system + 首条 user prompt + trailing_budget_ratio × ctx_window 反向累加（turn 边界对齐）。
   # 蒸馏：候选集一次性送 light_provider；失败 head-truncate 兜底。

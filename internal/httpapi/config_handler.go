@@ -1,4 +1,4 @@
-// Package httpapi: scenario/hunter 配置 CRUD handler（前端配置管理页）。
+// Package httpapi: scenario/executor 配置 CRUD handler（前端配置管理页）。
 //
 // 写路径一律走 configstore（自动落 DB + redis 广播失效），绝不直穿底层 store——
 // 否则 api 进程改配置后 runner 进程的本地 L1 不失效，会用旧配置装配（见 D7）。
@@ -12,11 +12,11 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgconn"
 
-	cfghunter "github.com/V3teran/liusha/internal/config/hunter"
+	cfgagent "github.com/V3teran/liusha/internal/config/agent"
 	cfgscenario "github.com/V3teran/liusha/internal/config/scenario"
 )
 
-// ConfigAPI 是两资源（scenario/hunter）CRUD handler 依赖的窄接口；*configstore.Store 自动满足。
+// ConfigAPI 是两资源（scenario/executor）CRUD handler 依赖的窄接口；*configstore.Store 自动满足。
 // 读经缓存、写经失效广播的语义全在 configstore 内，handler 只做 HTTP 编解码 + 应用层校验。
 type ConfigAPI interface {
 	// scenario
@@ -26,17 +26,18 @@ type ConfigAPI interface {
 	ScenarioByID(ctx context.Context, id string) (cfgscenario.Scenario, error)
 	SaveScenario(ctx context.Context, p cfgscenario.NewParams) (cfgscenario.Scenario, error)
 	DeleteScenario(ctx context.Context, id, code string) error
-	// hunter
-	ListHunters(ctx context.Context, onlyEnabled bool) ([]cfghunter.Hunter, error)
-	ListHuntersPaged(ctx context.Context, p cfghunter.ListParams) ([]cfghunter.Hunter, error)
-	CountHunters(ctx context.Context, p cfghunter.ListParams) (int, error)
-	HunterByID(ctx context.Context, id string) (cfghunter.Hunter, error)
-	HunterByCode(ctx context.Context, code string) (cfghunter.Hunter, error)
-	SaveHunter(ctx context.Context, p cfghunter.NewParams) (cfghunter.Hunter, error)
-	DeleteHunter(ctx context.Context, id, code string) error
+	// agent
+	ListExecutors(ctx context.Context, onlyEnabled bool) ([]cfgagent.Agent, error)
+	ListExecutorsPaged(ctx context.Context, p cfgagent.ListParams) ([]cfgagent.Agent, error)
+	CountExecutors(ctx context.Context, p cfgagent.ListParams) (int, error)
+	ExecutorByID(ctx context.Context, id string) (cfgagent.Agent, error)
+	ExecutorByCode(ctx context.Context, code string) (cfgagent.Agent, error)
+	SaveExecutor(ctx context.Context, p cfgagent.NewParams) (cfgagent.Agent, error)
+	UpdateExecutorComplexity(ctx context.Context, id, complexity string) (cfgagent.Agent, error)
+	DeleteExecutor(ctx context.Context, id, code string) error
 }
 
-// configPageSize 约束 scenario/hunter 分页 size 上限，防超大扫描。
+// configPageSize 约束 scenario/executor 分页 size 上限，防超大扫描。
 const (
 	defaultConfigPageSize = 12
 	maxConfigPageSize     = 100
@@ -65,7 +66,7 @@ func parsePaging(c *gin.Context) (page, size int, paged bool) {
 }
 
 // isForeignKeyViolation 判定错误是否为 DB 外键约束冲突（pg 23503）。
-// 删 hunter 若被 scenario.solo_hunter_id 引用会撞 ON DELETE RESTRICT，据此转 409。
+// 删 executor 若被 scenario.solo_executor_id 引用会撞 ON DELETE RESTRICT，据此转 409。
 func isForeignKeyViolation(err error) bool {
 	var pgErr *pgconn.PgError
 	return errors.As(err, &pgErr) && pgErr.Code == "23503"
@@ -128,14 +129,14 @@ func getScenarioHandler(api ConfigAPI) gin.HandlerFunc {
 }
 
 // scenarioBody 是 POST/PUT scenario 的请求体。engine 应用层白名单校验。
-// SoloHunterID：solo 引擎必填（指定唯一执行猎手），swarm 引擎必须为空（子代理池=全部 enabled 领域猎手）。
+// SoloExecutorID：solo 引擎必填（指定唯一执行操作员），swarm 引擎必须为空（子代理池=全部 enabled 领域操作员）。
 type scenarioBody struct {
 	Code         string `json:"code"`
 	Name         string `json:"name"`
 	Description  string `json:"description"`
 	Instruction  string `json:"instruction"`
 	Engine       string `json:"engine"`
-	SoloHunterID string `json:"solo_hunter_id"`
+	SoloExecutorID string `json:"solo_executor_id"`
 	Enabled      bool   `json:"enabled"`
 }
 
@@ -155,23 +156,23 @@ func saveScenarioHandler(api ConfigAPI) gin.HandlerFunc {
 			c.JSON(400, gin.H{"error": "非法 engine（应为 solo|swarm）"})
 			return
 		}
-		// solo 必须指定唯一猎手；swarm 不接受 solo_hunter_id（子代理池由全部 enabled 领域猎手动态构成）。
+		// solo 必须指定唯一操作员；swarm 不接受 solo_executor_id（子代理池由全部 enabled 领域操作员动态构成）。
 		// 具体互斥再由 configstore→scenario.store 的 validateParams 做二次强校验，此处早失败给前端友好提示。
-		if b.Engine == cfgscenario.EngineSolo && b.SoloHunterID == "" {
-			c.JSON(400, gin.H{"error": "solo 引擎必须指定 solo_hunter_id"})
+		if b.Engine == cfgscenario.EngineSolo && b.SoloExecutorID == "" {
+			c.JSON(400, gin.H{"error": "solo 引擎必须指定 solo_executor_id"})
 			return
 		}
-		if b.Engine == cfgscenario.EngineSwarm && b.SoloHunterID != "" {
-			c.JSON(400, gin.H{"error": "swarm 引擎不接受 solo_hunter_id（子代理池=全部启用领域猎手）"})
+		if b.Engine == cfgscenario.EngineSwarm && b.SoloExecutorID != "" {
+			c.JSON(400, gin.H{"error": "swarm 引擎不接受 solo_executor_id（子代理池=全部启用领域操作员）"})
 			return
 		}
-		var soloHunterID *string
-		if b.SoloHunterID != "" {
-			soloHunterID = &b.SoloHunterID
+		var soloExecutorID *string
+		if b.SoloExecutorID != "" {
+			soloExecutorID = &b.SoloExecutorID
 		}
 		sc, err := api.SaveScenario(c.Request.Context(), cfgscenario.NewParams{
 			Code: b.Code, Name: b.Name, Description: b.Description, Instruction: b.Instruction,
-			Engine: b.Engine, SoloHunterID: soloHunterID, Enabled: b.Enabled,
+			Engine: b.Engine, SoloExecutorID: soloExecutorID, Enabled: b.Enabled,
 		})
 		if err != nil {
 			c.JSON(500, gin.H{"error": err.Error()})
@@ -200,77 +201,77 @@ func deleteScenarioHandler(api ConfigAPI) gin.HandlerFunc {
 }
 
 // scenarioJSON 是 scenario 响应的单一序列化点（防字段漂移）。
-// solo_hunter_id 为空指针时序列化为 null（swarm 场景 / 未配置）。
+// solo_executor_id 为空指针时序列化为 null（swarm 场景 / 未配置）。
 func scenarioJSON(sc cfgscenario.Scenario) gin.H {
-	var soloHunterID any
-	if sc.SoloHunterID != nil {
-		soloHunterID = *sc.SoloHunterID
+	var soloExecutorID any
+	if sc.SoloExecutorID != nil {
+		soloExecutorID = *sc.SoloExecutorID
 	}
 	return gin.H{
 		"id": sc.ID, "code": sc.Code, "name": sc.Name, "description": sc.Description,
 		"instruction": sc.Instruction, "engine": sc.Engine,
-		"solo_hunter_id": soloHunterID, "enabled": sc.Enabled,
+		"solo_executor_id": soloExecutorID, "enabled": sc.Enabled,
 		"created_at": sc.CreatedAt, "updated_at": sc.UpdatedAt,
 	}
 }
 
-// ── hunter ────────────────────────────────────────────────────────────
+// ── agent ────────────────────────────────────────────────────────────
 
-// listHuntersHandler 处理 GET /hunters（全量，含 enabled + orchestrator/domain 两类）。
-func listHuntersHandler(api ConfigAPI) gin.HandlerFunc {
+// listExecutorsHandler 处理 GET /executors（全量，含 enabled + planner/domain 两类）。
+func listExecutorsHandler(api ConfigAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		ctx := c.Request.Context()
 		page, size, paged := parsePaging(c)
-		// 无 page 参数：全量（含 orchestrator/domain 两类），保 solo_hunter 选择器一次拉全。
+		// 无 page 参数：全量（含 planner/domain 两类），保 solo_agent 选择器一次拉全。
 		if !paged {
-			rows, err := api.ListHunters(ctx, false)
+			rows, err := api.ListExecutors(ctx, false)
 			if err != nil {
 				c.JSON(500, gin.H{"error": err.Error()})
 				return
 			}
 			out := make([]gin.H, 0, len(rows))
 			for _, r := range rows {
-				out = append(out, hunterJSON(r))
+				out = append(out, executorJSON(r))
 			}
-			c.JSON(200, gin.H{"hunters": out})
+			c.JSON(200, gin.H{"executors": out})
 			return
 		}
 		// 分页：配置管理页搜索 + 翻页，附 total。
-		params := cfghunter.ListParams{Q: c.Query("q"), Limit: size, Offset: (page - 1) * size}
-		total, err := api.CountHunters(ctx, params)
+		params := cfgagent.ListParams{Q: c.Query("q"), Limit: size, Offset: (page - 1) * size}
+		total, err := api.CountExecutors(ctx, params)
 		if err != nil {
 			c.JSON(500, gin.H{"error": err.Error()})
 			return
 		}
-		rows, err := api.ListHuntersPaged(ctx, params)
+		rows, err := api.ListExecutorsPaged(ctx, params)
 		if err != nil {
 			c.JSON(500, gin.H{"error": err.Error()})
 			return
 		}
 		out := make([]gin.H, 0, len(rows))
 		for _, r := range rows {
-			out = append(out, hunterJSON(r))
+			out = append(out, executorJSON(r))
 		}
-		c.JSON(200, gin.H{"hunters": out, "total": total})
+		c.JSON(200, gin.H{"executors": out, "total": total})
 	}
 }
 
-// getHunterHandler 处理 GET /hunters/:id。
-func getHunterHandler(api ConfigAPI) gin.HandlerFunc {
+// getExecutorHandler 处理 GET /executors/:id。
+func getExecutorHandler(api ConfigAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id := c.Param("id")
-		h, err := api.HunterByID(c.Request.Context(), id)
+		h, err := api.ExecutorByID(c.Request.Context(), id)
 		if err != nil {
 			c.JSON(404, gin.H{"error": err.Error(), "id": id})
 			return
 		}
-		c.JSON(200, gin.H{"hunter": hunterJSON(h)})
+		c.JSON(200, gin.H{"executor": executorJSON(h)})
 	}
 }
 
-// hunterBody 是 POST/PUT hunter 的请求体。kind 应用层白名单校验。
+// agentBody 是 POST/PUT executor 的请求体。kind 应用层白名单校验。
 // FunctionTools=内置函数工具；CliTools=外置 CLI 工具集（tools.yaml 名字），严格白名单，空=不装配任何外部工具。
-type hunterBody struct {
+type agentBody struct {
 	Code          string   `json:"code"`
 	Kind          string   `json:"kind"`
 	Name          string   `json:"name"`
@@ -279,13 +280,14 @@ type hunterBody struct {
 	FunctionTools []string `json:"function_tools"`
 	CliTools      []string `json:"cli_tools"`
 	MaxIterations int      `json:"max_iterations"`
+	Complexity    string   `json:"complexity"`
 	Enabled       bool     `json:"enabled"`
 }
 
-// saveHunterHandler 处理 POST /hunters 与 PUT /hunters/:id（均走 upsert-by-code）。
-func saveHunterHandler(api ConfigAPI) gin.HandlerFunc {
+// saveExecutorHandler 处理 POST /executors 与 PUT /executors/:id（均走 upsert-by-code）。
+func saveExecutorHandler(api ConfigAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		var b hunterBody
+		var b agentBody
 		if err := c.ShouldBindJSON(&b); err != nil {
 			c.JSON(400, gin.H{"error": "请求体非法: " + err.Error()})
 			return
@@ -294,37 +296,64 @@ func saveHunterHandler(api ConfigAPI) gin.HandlerFunc {
 			c.JSON(400, gin.H{"error": "code 与 name 不能为空"})
 			return
 		}
-		kind := cfghunter.Kind(b.Kind)
-		if kind != cfghunter.KindOrchestrator && kind != cfghunter.KindDomain {
-			c.JSON(400, gin.H{"error": "非法 kind（应为 orchestrator|domain）"})
+		kind := cfgagent.Kind(b.Kind)
+		if kind != cfgagent.KindPlanner && kind != cfgagent.KindExecutor {
+			c.JSON(400, gin.H{"error": "非法 kind（应为 planner|domain）"})
 			return
 		}
-		h, err := api.SaveHunter(c.Request.Context(), cfghunter.NewParams{
+		h, err := api.SaveExecutor(c.Request.Context(), cfgagent.NewParams{
 			Code: b.Code, Kind: kind, Name: b.Name, Description: b.Description,
 			Body: b.Body, FunctionTools: b.FunctionTools, CliTools: b.CliTools,
-			MaxIterations: b.MaxIterations, Enabled: b.Enabled,
+			MaxIterations: b.MaxIterations, Complexity: b.Complexity, Enabled: b.Enabled,
 		})
 		if err != nil {
 			c.JSON(500, gin.H{"error": err.Error()})
 			return
 		}
-		c.JSON(200, gin.H{"hunter": hunterJSON(h)})
+		c.JSON(200, gin.H{"executor": executorJSON(h)})
 	}
 }
 
-// deleteHunterHandler 处理 DELETE /hunters/:id。
-// 被 scenario.solo_hunter_id 引用时撞 DB ON DELETE RESTRICT（FK 23503）→ 409 中文提示。
-func deleteHunterHandler(api ConfigAPI) gin.HandlerFunc {
+// updateExecutorTierHandler 处理 PATCH /executors/:id/tier：只改能力档单字段（分档页移档用）。
+// 不碰 agent 其余字段——避免整体 upsert 覆盖别处刚改的 body/工具。
+func updateExecutorTierHandler(api ConfigAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id := c.Param("id")
-		h, err := api.HunterByID(c.Request.Context(), id)
+		var b struct {
+			Complexity string `json:"complexity"`
+		}
+		if err := c.ShouldBindJSON(&b); err != nil {
+			c.JSON(400, gin.H{"error": "请求体非法: " + err.Error()})
+			return
+		}
+		switch b.Complexity {
+		case "simple", "medium", "complex":
+		default:
+			c.JSON(400, gin.H{"error": "非法 complexity（应为 simple|medium|complex）"})
+			return
+		}
+		h, err := api.UpdateExecutorComplexity(c.Request.Context(), id, b.Complexity)
+		if err != nil {
+			c.JSON(500, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(200, gin.H{"executor": executorJSON(h)})
+	}
+}
+
+// deleteExecutorHandler 处理 DELETE /executors/:id。
+// 被 scenario.solo_executor_id 引用时撞 DB ON DELETE RESTRICT（FK 23503）→ 409 中文提示。
+func deleteExecutorHandler(api ConfigAPI) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		id := c.Param("id")
+		h, err := api.ExecutorByID(c.Request.Context(), id)
 		if err != nil {
 			c.JSON(404, gin.H{"error": err.Error(), "id": id})
 			return
 		}
-		if err := api.DeleteHunter(c.Request.Context(), h.ID, h.Code); err != nil {
+		if err := api.DeleteExecutor(c.Request.Context(), h.ID, h.Code); err != nil {
 			if isForeignKeyViolation(err) {
-				c.JSON(409, gin.H{"error": "该猎手仍被场景引用（solo 场景执行猎手），请先解除引用再删除"})
+				c.JSON(409, gin.H{"error": "该操作员仍被场景引用（solo 场景执行操作员），请先解除引用再删除"})
 				return
 			}
 			c.JSON(500, gin.H{"error": err.Error()})
@@ -334,8 +363,8 @@ func deleteHunterHandler(api ConfigAPI) gin.HandlerFunc {
 	}
 }
 
-// hunterJSON 是 hunter 响应的单一序列化点。function_tools/cli_tools 保证非 nil（前端按数组渲染）。
-func hunterJSON(h cfghunter.Hunter) gin.H {
+// executorJSON 是 executor 响应的单一序列化点。function_tools/cli_tools 保证非 nil（前端按数组渲染）。
+func executorJSON(h cfgagent.Agent) gin.H {
 	fnTools := h.FunctionTools
 	if fnTools == nil {
 		fnTools = []string{}
@@ -347,7 +376,7 @@ func hunterJSON(h cfghunter.Hunter) gin.H {
 	return gin.H{
 		"id": h.ID, "code": h.Code, "kind": string(h.Kind), "name": h.Name,
 		"description": h.Description, "body": h.Body, "function_tools": fnTools, "cli_tools": cliTools,
-		"max_iterations": h.MaxIterations, "enabled": h.Enabled,
+		"max_iterations": h.MaxIterations, "complexity": h.Complexity, "enabled": h.Enabled,
 		"created_at": h.CreatedAt, "updated_at": h.UpdatedAt,
 	}
 }

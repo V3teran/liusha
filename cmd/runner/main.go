@@ -1,16 +1,16 @@
 // Package main 是 liusha runner 进程入口。
 //
 //	职责：
-//	  1. 启 ingestor.Traffic goroutine：消费 Redis Stream → 启发式打分 → 入 hunter 队列
-//	  2. 启 asynq.Server：消费 agent:react 队列，每个 task 跑 1 个 hunter agent
+//	  1. 启 ingestor.Traffic goroutine：消费 Redis Stream → 启发式打分 → 入 agent 队列
+//	  2. 启 asynq.Server：消费 agent:react 队列，每个 task 跑 1 个 agent agent
 //	  3. healthz HTTP；graceful shutdown
 //
 // **部署约束：runner 当前是单实例**。subtask swarm 用 in-process parentRegistries
-// (sync.Map) 持有orchestrator的 Registry + exploitation goroutine——orchestrator一旦被 asynq 路由到本进程，
+// (sync.Map) 持有planner的 Registry + exploitation goroutine——planner一旦被 asynq 路由到本进程，
 // 它派的所有exploitation也只在本进程内跑（共享 ctx 树 + sandbox 容器 + WaitAll 清理）。
 // 多实例部署需先实现 Registry 跨进程协同（如 Redis-backed Registry）才能解锁。
-// active orchestrator在 enqueue 时已设 asynq.MaxRetry(0)，crash 后不重试——配合本约束
-// 避免"orchestrator 在 A 实例 crash → asynq retry 给 B → B 看不到 A 内存的 exploitation Registry"僵尸场景。
+// active planner在 enqueue 时已设 asynq.MaxRetry(0)，crash 后不重试——配合本约束
+// 避免"planner 在 A 实例 crash → asynq retry 给 B → B 看不到 A 内存的 exploitation Registry"僵尸场景。
 package main
 
 import (
@@ -24,40 +24,43 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/V3teran/liusha/internal/actor"
+	agentstore "github.com/V3teran/liusha/internal/agentrun"
 	"github.com/V3teran/liusha/internal/assignment"
 	"github.com/V3teran/liusha/internal/cachestore"
+	"github.com/V3teran/liusha/internal/cognition"
 	"github.com/V3teran/liusha/internal/config"
 	"github.com/V3teran/liusha/internal/config/settingstore"
 	"github.com/V3teran/liusha/internal/configstore"
-	"github.com/V3teran/liusha/internal/llmstore"
+	"github.com/V3teran/liusha/internal/controlplane"
 	"github.com/V3teran/liusha/internal/conversation"
 	"github.com/V3teran/liusha/internal/corpus"
 	"github.com/V3teran/liusha/internal/credential"
 	"github.com/V3teran/liusha/internal/cryptx"
 	"github.com/V3teran/liusha/internal/db"
-	"github.com/V3teran/liusha/internal/provider"
 	"github.com/V3teran/liusha/internal/embedding"
 	"github.com/V3teran/liusha/internal/envx"
+	"github.com/V3teran/liusha/internal/executor"
+	executorweb "github.com/V3teran/liusha/internal/executor/web"
+	"github.com/V3teran/liusha/internal/executionplan"
 	"github.com/V3teran/liusha/internal/finding"
-	hunterstore "github.com/V3teran/liusha/internal/agentrun"
 	"github.com/V3teran/liusha/internal/ingestor"
 	"github.com/V3teran/liusha/internal/lead"
 	"github.com/V3teran/liusha/internal/ledger"
 	"github.com/V3teran/liusha/internal/llminvocation"
+	"github.com/V3teran/liusha/internal/llmstore"
 	"github.com/V3teran/liusha/internal/logx"
+	"github.com/V3teran/liusha/internal/provider"
 	"github.com/V3teran/liusha/internal/ratelimit"
 	"github.com/V3teran/liusha/internal/sandbox"
 	"github.com/V3teran/liusha/internal/scanstream"
 	"github.com/V3teran/liusha/internal/skill"
 	"github.com/V3teran/liusha/internal/task"
 	"github.com/V3teran/liusha/internal/toolinvocation"
-	"github.com/V3teran/liusha/internal/executor"
-	executorweb "github.com/V3teran/liusha/internal/executor/web"
 	"github.com/V3teran/liusha/internal/tools/manifest"
 	"github.com/V3teran/liusha/internal/traffic"
 	"github.com/V3teran/liusha/internal/worker"
 	"github.com/V3teran/liusha/internal/worldmodel"
-	"github.com/V3teran/liusha/internal/actor"
 
 	"github.com/hibiken/asynq"
 )
@@ -100,7 +103,7 @@ func main() {
 	assignmentStore := assignment.NewStore(pool)   // 聚合建 passive assignment（一切 task 皆属某 assignment）
 	convStore := conversation.NewStore(pool)       // 会话/消息 store（阶段B 过程事件落库）
 	eventPublisher := scanstream.NewPublisher(rdb) // 过程事件实时广播（阶段B redis 管道）
-	operatorRuns := hunterstore.NewStore(pool)
+	executorRuns := agentstore.NewStore(pool)
 	finds := finding.NewStore(pool)
 	worldStore := worldmodel.NewStore(pool) // L3 世界模型持久层（onboard 落 KindTarget 节点）
 	toolCalls := toolinvocation.NewStore(pool)
@@ -124,14 +127,14 @@ func main() {
 		reranker = jc
 	}
 
-	// operator system prompt 已编译期 embed（internal/builder/operator/system_prompt.md），
+	// executor system prompt 已编译期 embed（internal/builder/executor/system_prompt.md），
 	// 不再需要运行时 skill loader 加载——下面的 vuln/tooling loader 服务 Progressive Disclosure。
 
 	// Tooling loader（Progressive Disclosure）：root=skills/tooling，
 	// 每个子目录一份 SKILL.md = 一个外部 CLI 工具的完整手册。
-	// hunter buildUserPrompt 用 List() 拼"工具索引"段（Tier 1）；
+	// agent buildUserPrompt 用 List() 拼"工具索引"段（Tier 1）；
 	// LLM 调 read_tooling_skill(name) 拿完整 body（Tier 2）。
-	// 目录不存在或扫描失败 → 置 nil，hunter 自动 fallback 不注入索引段、不注册工具。
+	// 目录不存在或扫描失败 → 置 nil，agent 自动 fallback 不注入索引段、不注册工具。
 	toolingLoader := skill.NewLoader(filepath.Join(cfg.Skills.Root, "tooling"))
 	if _, err := toolingLoader.Index(); err != nil {
 		logger.Warn().Err(err).Str("root", filepath.Join(cfg.Skills.Root, "tooling")).
@@ -146,7 +149,7 @@ func main() {
 	}
 
 	// Tools manifest（tools.yaml）：与 Dockerfile 装的 binary 严格对应——
-	// hunter 用它渲染 SystemPrompt 的 tooling_catalog 段（Tier 1 索引）。
+	// agent 用它渲染 SystemPrompt 的 tooling_catalog 段（Tier 1 索引）。
 	// 与 SKILL.md frontmatter 解耦：删 SKILL ≠ 工具消失。
 	// 路径可通过 LIUSHA_TOOLS_MANIFEST_PATH env override，缺省 deployments/tool-images/pentools/tools.yaml。
 	toolsManifestPath := envx.OrDefault("LIUSHA_TOOLS_MANIFEST_PATH", "deployments/tool-images/pentools/tools.yaml")
@@ -164,9 +167,9 @@ func main() {
 
 	// Vuln loader（Progressive Disclosure）：root=skills/vuln，
 	// 每个子目录一份 SKILL.md = 一种漏洞类型的挖掘指南。
-	// hunter buildUserPrompt 用 List() 拼"漏洞挖掘指南索引"段（Tier 1）；
+	// agent buildUserPrompt 用 List() 拼"漏洞挖掘指南索引"段（Tier 1）；
 	// LLM 按 user_prompt 注入的"漏洞类型索引"判完方向后调 read_vuln_skill(name) 拿完整 body（Tier 2）。
-	// 目录不存在或扫描失败 → 置 nil，hunter 自动 fallback 不注入索引段、不注册工具。
+	// 目录不存在或扫描失败 → 置 nil，agent 自动 fallback 不注入索引段、不注册工具。
 	vulnLoader := skill.NewLoader(filepath.Join(cfg.Skills.Root, "vuln"))
 	if _, err := vulnLoader.Index(); err != nil {
 		logger.Warn().Err(err).Str("root", filepath.Join(cfg.Skills.Root, "vuln")).
@@ -213,7 +216,7 @@ func main() {
 		logger.Warn().Err(err).Msg("CleanupOrphans 失败（非致命，max lifetime 兜底）")
 	}
 
-	// operatorDeps 已拆平到 handler 各字段，无需独立 Deps 结构体。
+	// executorDeps 已拆平到 handler 各字段，无需独立 Deps 结构体。
 
 	// 共享多级缓存内核（L1 内存 + L2 redis + 跨进程失效总线）：一条 Subscribe 循环
 	// 覆盖全部配置资源。Subscribe 阻塞运行（内部 for-select 直到 ctx 取消），必须后台起——
@@ -225,16 +228,16 @@ func main() {
 		}
 	}()
 
-	// 配置事实源（DB + 内存/redis 缓存）：运行期按需读 scenario/hunter 装配引擎。
+	// 配置事实源（DB + 内存/redis 缓存）：运行期按需读 scenario/agent 装配引擎。
 	// 文件仅是首次导入的种子（seed 导入在别处），进程运行期一律走 DB/缓存（见 D6/D7）。
 	cfgStore := configstore.New(pool, cache)
 
 	// LLM 配置事实源：provider.Router 运行期按 tier 解析 provider 部署即读它（多级缓存）。
 	// api 进程改「LLM 配置」模块后经 cachestore 广播失效，runner 下次 For(tier) 即读到最新部署。
-	// hunter.tier 覆盖 agent→tier 第一跳（0107）：agent 在「智能体」页改档后，api 经 cachestore
+	// agent.tier 覆盖 agent→tier 第一跳（0107）：agent 在「智能体」页改档后，api 经 cachestore
 	// 广播失效 tier 键，runner 被动清 L1，下次 For(tier) 即读到新档（TierByCode 走多级缓存）。
 	llmStore := llmstore.New(pool, cache).
-		WithTierOverride(llmstore.OperatorTierOverride(cfgStore, logger))
+		WithComplexityOverride(llmstore.AgentComplexityOverride(cfgStore, logger))
 
 	// LLM provider API Key 加密密钥（migration 0103）：同 cmd/api 的 fail-fast 校验——
 	// runner 是解密密钥、真正拿明文打 LLM 请求的一端，缺密钥直接拒启动。
@@ -253,11 +256,26 @@ func main() {
 	hostSemTTL := time.Duration(runnerCfg.SwarmAgentRunTimeoutSeconds)*time.Second + 10*time.Minute
 	hostSem := ratelimit.NewHostSemaphore(rdb, cfg.Credential.RedisKeyPrefix, runnerCfg.PerHostConcurrency, hostSemTTL)
 
-	// Sandbox Manager：按 Assignment 粒度管理容器，多 Task 共享
-	sandboxMgr := sandbox.NewManager(launcher)
+	// Sandbox Manager：按 Assignment 粒度管理容器，多 Task 共享，带引用计数
+	sandboxMgr := sandbox.NewPooledManager(launcher, logger, 30000) // 30 秒 grace period
+
+	// EventBus：事件驱动的 Planner Agent 基础设施（进程单例，跨 Task 共享）
+	eventBusCtx, eventBusCancel := context.WithCancel(context.Background())
+	defer eventBusCancel()
+	eventBus := cognition.NewEventBus(eventBusCtx)
+
+	// PlanStore：execution_plan 表的持久化层
+	planStore := executionplan.NewStore(pool)
+
+	// ControlPlane：task_control_event 表的持久化层（人工干预）
+	controlPlaneStore := controlplane.NewStore(pool)
+
+	// PlannerAgentManager：管理所有 Planner Agent 的生命周期
+	plannerMgr := newPlannerAgentManager(logger)
+	defer plannerMgr.StopAll()
 
 	h := handler{
-		operators: operatorRuns,
+		executors: executorRuns,
 		tasks:          taskStore,
 		findings:       finds,
 		corpus:         corpusStore,
@@ -285,17 +303,21 @@ func main() {
 		world:          worldStore,
 		ledger:         ledger.New(worldStore.AsLedgerStore()),
 		checkpoint:     actor.NewPGCheckpointStore(pool),
+		eventBus:       eventBus,
+		planStore:      planStore,
+		plannerMgr:     plannerMgr,
+		controlPlane:   controlPlaneStore,
 	}
 
 	mux := worker.NewMux()
-	mux.Register(worker.RoleOperator, h.handle)
+	mux.Register(worker.RoleExecutor, h.handle)
 
 	srv := asynq.NewServer(
 		asynq.RedisClientOpt{Addr: redisAddr},
 		asynq.Config{
 			Concurrency: runnerCfg.AsynqConcurrency,
 			Queues: map[string]int{
-				worker.QueueOperator:   runnerCfg.QueueHunterWeight,
+				worker.QueueExecutor:   runnerCfg.QueueAgentWeight,
 				worker.QueueDispatch: runnerCfg.QueueDispatchWeight,
 			},
 		},
@@ -314,7 +336,7 @@ func main() {
 		Tasks:         taskStore,
 		ProxyStore:    proxyStore,
 		AgentStore:    agentStore,
-		Hunters: operatorRuns,
+		Agents: executorRuns,
 		Conversations: convStore, // passive 聚合建 task 后建会话流
 		Enqueuer:      wc,
 		Logger:        logger,
