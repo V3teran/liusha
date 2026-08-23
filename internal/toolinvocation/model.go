@@ -4,7 +4,7 @@
 // 输出大小 / 错误。从 llm_invocation.result jsonb 里分离独立成表，让"sqlmap 跑了几次 /
 // 平均耗时 / 成功率"这类聚合查询直接 SQL 可达，不必扫 jsonb。
 //
-// 写路径：internal/einoagent/tool_recorder.go 在每次工具调用前后埋点 + Append。
+// 写路径：handler_run.go toolRecordInterceptor 在每次工具调用前后埋点 + Append。
 // 读路径：cmd/api 按 task_id 拉本次扫描的所有 tool 调用，供前端展示。
 package toolinvocation
 
@@ -19,7 +19,7 @@ import (
 // 完整 output 仍在 LLM message history（llm_invocation.messages jsonb）里。
 type Invocation struct {
 	ID            int64
-	HunterID      string          // FK→hunter.id
+	ExecutorID      string          // FK→agent.id
 	TaskID        string          // 所属 task.id
 	ToolName      string          // 'sqlmap' / 'curl' / 'write_finding' / ...
 	Args          json.RawMessage // 工具调用参数 jsonb

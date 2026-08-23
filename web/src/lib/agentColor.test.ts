@@ -3,7 +3,7 @@ import { agentAccent, agentLabel } from './agentColor'
 
 describe('agentAccent', () => {
   it('已知 agent 返回固定配色', () => {
-    expect(agentAccent('orchestrator').accent).toBe('#a78bfa')
+    expect(agentAccent('planner').accent).toBe('#a78bfa')
     expect(agentAccent('reconnaissance').accent).toBe('#38bdf8')
     expect(agentAccent('exploitation').accent).toBe('#34d399')
     expect(agentAccent('traffic-analysis').accent).toBe('#818cf8')
@@ -31,7 +31,7 @@ describe('agentAccent', () => {
 
 describe('agentLabel', () => {
   it('已知 agent 返回中文标签', () => {
-    expect(agentLabel('orchestrator')).toBe('编排')
+    expect(agentLabel('planner')).toBe('编排')
     expect(agentLabel('reconnaissance')).toBe('侦察')
     expect(agentLabel('exploitation')).toBe('利用')
     expect(agentLabel('traffic-analysis')).toBe('流量分析')

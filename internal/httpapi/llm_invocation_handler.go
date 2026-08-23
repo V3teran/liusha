@@ -1,4 +1,4 @@
-// Package httpapi: LLM invocation 审计 handler（按 hunter_id 分组；列表/详情/统计三端点分离）。
+// Package httpapi: LLM invocation 审计 handler（按 agent_id 分组；列表/详情/统计三端点分离）。
 package httpapi
 
 import (
@@ -17,6 +17,7 @@ import (
 type InvocationsAPI interface {
 	Flush(ctx context.Context) error
 	ListByTask(ctx context.Context, taskID string, f llminvocation.ListFilter) ([]llminvocation.Invocation, error)
+	CountByTask(ctx context.Context, taskID string, f llminvocation.ListFilter) (int, error)
 	GetByID(ctx context.Context, taskID string, id int64) (llminvocation.Invocation, error)
 	AggregateByTask(ctx context.Context, taskID string, f llminvocation.ListFilter) (llminvocation.Aggregate, error)
 	FacetsByTask(ctx context.Context, taskID string) (llminvocation.Facets, error)
@@ -31,11 +32,13 @@ const (
 
 // parseInvocationFilter 从 query 解析筛选条件（列表与统计共用，保证两者口径一致）。
 //
-//	role=<角色> model=<模型> only_err=1 start=<RFC3339> end=<RFC3339> after=<id> limit=<n>
+//	role=<角色> model=<模型> only_err=1 start=<RFC3339> end=<RFC3339> page=<n> size=<n>
 //
 // 时间用 RFC3339（前端 Date.toISOString() 直出）；解析失败的时间视为未传，不报错——
 // 审计筛选是查询辅助，宁可退化成不筛也不要因为一个坏参数把整页打成 400。
-func parseInvocationFilter(c *gin.Context, withPaging bool) llminvocation.ListFilter {
+//
+// offset 分页（非游标）：对齐流量/漏洞模块的「共 X 条 + N/M 页」体验，配合 CountByTask 算总页数。
+func parseInvocationFilter(c *gin.Context, page, size int) llminvocation.ListFilter {
 	f := llminvocation.ListFilter{
 		Role:    c.Query("role"),
 		Model:   c.Query("model"),
@@ -51,30 +54,41 @@ func parseInvocationFilter(c *gin.Context, withPaging bool) llminvocation.ListFi
 			f.End = &t
 		}
 	}
-	if withPaging {
-		f.AfterID, _ = strconv.ParseInt(c.Query("after"), 10, 64)
-		limit, _ := strconv.Atoi(c.Query("limit"))
-		if limit <= 0 || limit > maxInvocationPageSize {
-			limit = defaultInvocationPageSize
-		}
-		f.Limit = limit
+	if size > 0 {
+		f.Limit = size
+		f.Offset = (page - 1) * size
 	}
 	return f
 }
 
-// llmInvocationsHandler 处理 GET /llm/invocations/:task_id?after=&limit=&role=&model=&only_err=&start=&end=。
+// parseInvocationPaging 解析 page/size query 参数：page 缺省/非法 = 1；size 缺省
+// defaultInvocationPageSize，超 maxInvocationPageSize 收敛到上限。
+func parseInvocationPaging(c *gin.Context) (page, size int) {
+	page, _ = strconv.Atoi(c.Query("page"))
+	if page < 1 {
+		page = 1
+	}
+	size, _ = strconv.Atoi(c.Query("size"))
+	if size <= 0 || size > maxInvocationPageSize {
+		size = defaultInvocationPageSize
+	}
+	return page, size
+}
+
+// llmInvocationsHandler 处理 GET /llm/invocations/:task_id?page=&size=&role=&model=&only_err=&start=&end=。
 //
-// 按 id 游标翻页（keyset，非 offset——避免无界查询）；**不返回 messages/result**（大字段，
-// 列表页从不展示，详情走 GET /llm/invocations/:task_id/invocation/:id 按需拉）。
+// offset 分页（非游标）：对齐流量/漏洞模块的「共 X 条 + N/M 页」体验，配合 CountByTask 算总页数。
+// **不返回 messages/result**（大字段，列表页从不展示，详情走
+// GET /llm/invocations/:task_id/invocation/:id 按需拉）。
 //
-// 返回**扁平 items**，不再按 hunter_id 分组：审计表的可读性来自单表密度 + 单元格内 badge
-// （对齐业界日志页做法），而非把一张表切成 N 段——分组既压缩不了信息量，又让跨 hunter 的
-// 时序对比、排序、筛选全部失效。hunter_id/role 作为普通列随行返回，需要聚合看时用筛选。
+// 返回**扁平 items**，不再按 agent_id 分组：审计表的可读性来自单表密度 + 单元格内 badge
+// （对齐业界日志页做法），而非把一张表切成 N 段——分组既压缩不了信息量，又让跨 agent 的
+// 时序对比、排序、筛选全部失效。agent_id/role 作为普通列随行返回，需要聚合看时用筛选。
 //
 // 响应结构（前端消费）：
 //
 //	{
-//	  "task_id": "...", "total": 19, "next_after": 1093, "has_more": false,
+//	  "task_id": "...", "total": 19, "page": 1, "size": 200,
 //	  "items": [{...不含 messages/result}]
 //	}
 func llmInvocationsHandler(api InvocationsAPI) gin.HandlerFunc {
@@ -84,7 +98,8 @@ func llmInvocationsHandler(api InvocationsAPI) gin.HandlerFunc {
 			c.JSON(400, gin.H{"error": "task_id required"})
 			return
 		}
-		f := parseInvocationFilter(c, true)
+		page, size := parseInvocationPaging(c)
+		f := parseInvocationFilter(c, page, size)
 		_ = api.Flush(c.Request.Context())
 
 		invocations, err := api.ListByTask(c.Request.Context(), eid, f)
@@ -96,13 +111,18 @@ func llmInvocationsHandler(api InvocationsAPI) gin.HandlerFunc {
 			c.JSON(500, gin.H{"error": err.Error()})
 			return
 		}
+		total, err := api.CountByTask(c.Request.Context(), eid, f)
+		if err != nil {
+			c.JSON(500, gin.H{"error": err.Error()})
+			return
+		}
 
 		items := make([]gin.H, 0, len(invocations))
 		for _, v := range invocations {
 			items = append(items, gin.H{
 				"id":            v.ID,
 				"request_id":    v.RequestID,
-				"hunter_id":     v.HunterID,
+				"agent_id":     v.ExecutorID,
 				"task_id":       v.TaskID,
 				"provider":      v.Provider,
 				"model":         v.Model,
@@ -122,16 +142,12 @@ func llmInvocationsHandler(api InvocationsAPI) gin.HandlerFunc {
 			})
 		}
 
-		var nextAfter int64
-		if len(invocations) > 0 {
-			nextAfter = invocations[len(invocations)-1].ID
-		}
 		c.JSON(200, gin.H{
-			"task_id":    eid,
-			"total":      len(invocations),
-			"next_after": nextAfter,
-			"has_more":   len(invocations) == f.Limit, // 拉满一页才可能有下一页；不满页即到底
-			"items":      items,
+			"task_id": eid,
+			"total":   total,
+			"page":    page,
+			"size":    size,
+			"items":   items,
 		})
 	}
 }
@@ -160,7 +176,7 @@ func llmInvocationDetailHandler(api InvocationsAPI) gin.HandlerFunc {
 		c.JSON(200, gin.H{
 			"id":            v.ID,
 			"request_id":    v.RequestID,
-			"hunter_id":     v.HunterID,
+			"agent_id":     v.ExecutorID,
 			"task_id":       v.TaskID,
 			"provider":      v.Provider,
 			"model":         v.Model,
@@ -196,7 +212,8 @@ func llmInvocationStatHandler(api InvocationsAPI) gin.HandlerFunc {
 			return
 		}
 		_ = api.Flush(c.Request.Context())
-		a, err := api.AggregateByTask(c.Request.Context(), eid, parseInvocationFilter(c, false))
+		// 统计吃与列表同一套筛选，但不分页（page/size=0 → parseInvocationFilter 不设 Limit/Offset）。
+		a, err := api.AggregateByTask(c.Request.Context(), eid, parseInvocationFilter(c, 1, 0))
 		if err != nil {
 			c.JSON(500, gin.H{"error": err.Error()})
 			return

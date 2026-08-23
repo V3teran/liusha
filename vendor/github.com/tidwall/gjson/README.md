@@ -74,7 +74,7 @@ The dot and wildcard characters can be escaped with '\\'.
   "name": {"first": "Tom", "last": "Anderson"},
   "age":37,
   "children": ["Sara","Alex","Jack"],
-  "fav.movie": "Deer Hunter",
+  "fav.movie": "Deer Agent",
   "friends": [
     {"first": "Dale", "last": "Murphy", "age": 44, "nets": ["ig", "fb", "tw"]},
     {"first": "Roger", "last": "Craig", "age": 68, "nets": ["fb", "tw"]},
@@ -90,15 +90,15 @@ The dot and wildcard characters can be escaped with '\\'.
 "children.1"         >> "Alex"
 "child*.2"           >> "Jack"
 "c?ildren.0"         >> "Sara"
-"fav\.movie"         >> "Deer Hunter"
+"fav\.movie"         >> "Deer Agent"
 "friends.#.first"    >> ["Dale","Roger","Jane"]
 "friends.1.last"     >> "Craig"
 ```
 
 You can also query an array for the first match by using `#(...)`, or find all 
 matches with `#(...)#`. Queries support the `==`, `!=`, `<`, `<=`, `>`, `>=` 
-comparison operators and the simple pattern matching `%` (like) and `!%` 
-(not like) operators.
+comparison executors and the simple pattern matching `%` (like) and `!%` 
+(not like) executors.
 
 ```
 friends.#(last=="Murphy").first    >> "Dale"
@@ -232,7 +232,7 @@ Which makes the json pretty and orders all of its keys.
 {
   "age":37,
   "children": ["Sara","Alex","Jack"],
-  "fav.movie": "Deer Hunter",
+  "fav.movie": "Deer Agent",
   "friends": [
     {"age": 44, "first": "Dale", "last": "Murphy"},
     {"age": 68, "first": "Roger", "last": "Craig"},
@@ -311,7 +311,7 @@ Suppose you want all the last names from the following json:
       "lastName": "McLaughlin", 
     }, {
       "firstName": "Elliotte", 
-      "lastName": "Hunter", 
+      "lastName": "Agent", 
     }, {
       "firstName": "Jason", 
       "lastName": "Harold", 
@@ -332,7 +332,7 @@ for _, name := range result.Array() {
 You can also query an object inside an array:
 
 ```go
-name := gjson.Get(json, `programmers.#(lastName="Hunter").firstName`)
+name := gjson.Get(json, `programmers.#(lastName="Agent").firstName`)
 println(name.String())  // prints "Elliotte"
 ```
 

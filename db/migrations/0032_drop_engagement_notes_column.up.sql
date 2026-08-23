@@ -1,6 +1,6 @@
 -- 0032: 删除 engagement.notes 列
 --
--- 背景：短期工作笔记板（hunter 跨 task 共享）从 PG jsonb 迁出至 Redis
+-- 背景：短期工作笔记板（agent 跨 task 共享）从 PG jsonb 迁出至 Redis
 -- （internal/notes 包，key=liusha:note:{engagement_id}，TTL 24h）。
 -- PG 列已无任何 Go 代码写入 / 读取——store.AppendNote/ReadNotes 已删除。
 --

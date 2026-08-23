@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# scripts/dev/run-svc.sh — host 侧并行跑 vulnapp + proxy + api + scanner
+# scripts/dev/run-svc.sh — host 侧并行跑 vulnapp + proxy + api + runner
 # 应用层（logx）自管落盘到 logs/{service}.log（lumberjack 轮转），shell 不再重定向。
 # Ctrl-C 全部关闭
 
@@ -35,17 +35,17 @@ export LIUSHA_LOG_TO_STDOUT="${LIUSHA_LOG_TO_STDOUT:-false}"
 export LIUSHA_LOG_TO_FILE="${LIUSHA_LOG_TO_FILE:-true}"
 export LIUSHA_CONFIG="${LIUSHA_CONFIG:-./config/config.yaml}"
 
-# dev 覆盖：把 light/fallback/vision 全路由到 deepseek，绕开 ANTHROPIC/OPENAI key 校验
-export LIUSHA_LLM_LIGHT_PROVIDER="${LIUSHA_LLM_LIGHT_PROVIDER:-deepseek}"
-export LIUSHA_LLM_FALLBACK_PROVIDER="${LIUSHA_LLM_FALLBACK_PROVIDER:-deepseek}"
-export LIUSHA_LLM_VISION_PROVIDER="${LIUSHA_LLM_VISION_PROVIDER:-deepseek}"
+# 注：0099 拆别名层后，light/fallback/vision 槽位覆盖 env 已废弃（无代码读取）。
+# 路由事实源在 DB（llm_role_route），dev 靠 config.yaml 的 llm.* 种子首填。
 
 # proxy 进程参数（纯 MITM，无独立 healthz；存活探 TCP 8888）
 export LIUSHA_PROXY_LISTEN_ADDR="${LIUSHA_PROXY_LISTEN_ADDR:-0.0.0.0:8888}"
 
-# api key 校验（必填）
-if [ -z "${DEEPSEEK_API_KEY:-}" ]; then
-  echo "✗ DEEPSEEK_API_KEY 未设（请在 .env.local 中填入）"
+# api key 校验（必填）：校验当前激活 provider 的密钥。
+# config.yaml 已切 xiaomi-only（mimo-v2.5，api_key_env: XIAOMI_API_KEY），
+# 旧的 DEEPSEEK_API_KEY 前置检查已废弃——按实际激活 provider 校验。
+if [ -z "${XIAOMI_API_KEY:-}" ]; then
+  echo "✗ XIAOMI_API_KEY 未设（请在 .env.local 中填入；config.yaml 激活 provider=mimo）"
   exit 1
 fi
 
@@ -54,15 +54,14 @@ echo "  config:        $LIUSHA_CONFIG"
 echo "  postgres:      $LIUSHA_POSTGRES_DSN"
 echo "  redis:         $LIUSHA_REDIS_ADDR"
 echo "  proxy:         $LIUSHA_PROXY_LISTEN_ADDR (mitm, 无 healthz)"
-echo "  llm overrides: light=$LIUSHA_LLM_LIGHT_PROVIDER fallback=$LIUSHA_LLM_FALLBACK_PROVIDER vision=$LIUSHA_LLM_VISION_PROVIDER"
 echo ""
 
 # 预清旧 dev 进程：避免端口被旧 nohup/run-svc 进程占着导致新启动 fatal "address
 # already in use"，进而出现"半新半旧"的混跑栈（曾踩坑：proxy/api 留旧版，
-# scanner/vulnapp 用新版，调试极难）。
+# runner/vulnapp 用新版，调试极难）。
 #
 # 按端口杀（不靠 cmdline 模式）：go run 的 build cache 路径形如
-# /Users/.../go-build/<hash>-d/scanner，没有 "cmd/" 或 "exe/" 字样，
+# /Users/.../go-build/<hash>-d/runner，没有 "cmd/" 或 "exe/" 字样，
 # 匹配模式不可靠；按 5 个目标端口找 PID 精确 kill 才稳。先 SIGTERM 再 SIGKILL。
 for port in 8001 8888 8090 9090; do
   pid=$(lsof -nP -iTCP:"$port" -sTCP:LISTEN -t 2>/dev/null | head -1) || true
@@ -93,7 +92,7 @@ if [ "${#PORT_BUSY[@]}" -gt 0 ]; then
   exit 1
 fi
 
-# 启动顺序：vulnapp → proxy → api → scanner
+# 启动顺序：vulnapp → proxy → api → runner
 # 应用层 logx 直接写 logs/{service}.log；shell 这里 stderr 兜底捕获 panic 前的早期输出
 echo "[1/4] vulnapp on :8001"
 go run -mod=mod ./cmd/vulnapp 2>logs/vulnapp.stderr &
@@ -110,8 +109,8 @@ go run -mod=mod ./cmd/api 2>logs/api.stderr &
 API_PID=$!
 
 sleep 2
-echo "[4/4] scanner on :9090"
-go run -mod=mod ./cmd/scanner 2>logs/scanner.stderr &
+echo "[4/4] runner on :9090"
+go run -mod=mod ./cmd/runner 2>logs/runner.stderr &
 WORKER_PID=$!
 
 # 等服务起来
@@ -132,7 +131,7 @@ cleanup() {
 trap cleanup INT TERM
 
 echo ""
-echo "✓ 四服务在跑（pids: vulnapp=${VULNAPP_PID} proxy=${PROXY_PID} api=${API_PID} scanner=${WORKER_PID}）"
+echo "✓ 四服务在跑（pids: vulnapp=${VULNAPP_PID} proxy=${PROXY_PID} api=${API_PID} runner=${WORKER_PID}）"
 echo ""
 echo "📊 前端：liusha-ui 独立仓 → cd 该仓 pnpm dev（/api 已代理到本 api）"
 echo "  (X-API-Key=${LIUSHA_API_KEY}，task_id 跑完 e2e 后从 finding 表查)"
@@ -141,7 +140,7 @@ echo "  日志合并 tail（Ctrl-C 关闭服务+退出 tail）："
 echo ""
 
 # logx 自管落盘：等待文件出现后再 tail（避免 tail 启动时 lumberjack 还没创建文件）
-for f in logs/vulnapp.log logs/proxy.log logs/api.log logs/scanner.log; do
+for f in logs/vulnapp.log logs/proxy.log logs/api.log logs/runner.log; do
   for _ in $(seq 1 20); do
     [ -f "$f" ] && break
     sleep 0.5
@@ -149,4 +148,4 @@ for f in logs/vulnapp.log logs/proxy.log logs/api.log logs/scanner.log; do
 done
 
 # tail -F 四个日志（go-stack panic 等会落到 *.stderr，需要时再单独看）
-tail -F logs/vulnapp.log logs/proxy.log logs/api.log logs/scanner.log
+tail -F logs/vulnapp.log logs/proxy.log logs/api.log logs/runner.log

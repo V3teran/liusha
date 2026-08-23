@@ -288,10 +288,10 @@ const (
 	BlankIfaceMethod
 
 	// IncomparableMapKey occurs when a map key type does not support the == and
-	// != operators.
+	// != executors.
 	//
 	// Per the spec:
-	//  "The comparison operators == and != must be fully defined for operands of
+	//  "The comparison executors == and != must be fully defined for operands of
 	//  the key type; thus the key type must not be a function, map, or slice."
 	//
 	// Example:
@@ -450,7 +450,7 @@ const (
 
 	/* exprs > operation */
 
-	// UndefinedOp occurs when an operator is not defined for the type(s) used
+	// UndefinedOp occurs when an executor is not defined for the type(s) used
 	// in an operation.
 	//
 	// Example:
@@ -474,7 +474,7 @@ const (
 	//  var x int = 1/divisor
 	DivByZero
 
-	// NonNumericIncDec occurs when an increment or decrement operator is
+	// NonNumericIncDec occurs when an increment or decrement executor is
 	// applied to a non-numeric value.
 	//
 	// Example:
@@ -486,7 +486,7 @@ const (
 
 	/* exprs > ptr */
 
-	// UnaddressableOperand occurs when the & operator is applied to an
+	// UnaddressableOperand occurs when the & executor is applied to an
 	// unaddressable expression.
 	//
 	// Example:
@@ -494,7 +494,7 @@ const (
 	UnaddressableOperand
 
 	// InvalidIndirection occurs when a non-pointer value is indirected via the
-	// '*' operator.
+	// '*' executor.
 	//
 	// Example:
 	//  var x int
@@ -535,7 +535,7 @@ const (
 	//  var _ = []int{1,2,3}[2:1]
 	SwappedSliceIndices
 
-	/* operators > slice */
+	/* executors > slice */
 
 	// NonSliceableOperand occurs when a slice operation is applied to a value
 	// whose type is not sliceable, or is unaddressable.
@@ -776,7 +776,7 @@ const (
 	//  }
 	MisplacedDotDotDot
 
-	// InvalidDotDotDotOperand occurs when a "..." operator is applied to a
+	// InvalidDotDotDotOperand occurs when a "..." executor is applied to a
 	// single-valued operand.
 	//
 	// Example:

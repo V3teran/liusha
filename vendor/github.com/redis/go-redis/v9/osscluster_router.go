@@ -107,7 +107,7 @@ func (c *ClusterClient) executeOnAllShards(ctx context.Context, cmd Cmder, polic
 	return c.executeParallel(ctx, cmd, state.Masters, policy)
 }
 
-// executeMultiShard handles commands that operate on multiple keys across shards
+// executeMultiShard handles commands that execute on multiple keys across shards
 func (c *ClusterClient) executeMultiShard(ctx context.Context, cmd Cmder, policy *routing.CommandPolicy) error {
 	args := cmd.Args()
 	firstKeyPos := int(cmdFirstKeyPos(cmd))
@@ -496,7 +496,7 @@ func (c *ClusterClient) pickArbitraryNode(ctx context.Context) *clusterNode {
 	return allNodes[idx]
 }
 
-// hasKeys checks if a command operates on keys
+// hasKeys checks if a command executes on keys
 func (c *ClusterClient) hasKeys(cmd Cmder) bool {
 	firstKeyPos := cmdFirstKeyPos(cmd)
 	return firstKeyPos > 0

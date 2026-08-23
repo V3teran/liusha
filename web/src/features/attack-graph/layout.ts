@@ -10,12 +10,12 @@ export interface PositionedNode {
   height: number
 }
 
-// 节点尺寸：漏洞星形最大（组合漏洞更大以示攻击链），折叠占位最小，
-// 其余 4 类语义节点（task/hypothesis/probe/signal）统一尺寸——形状+颜色已分维度，无需再靠大小区分。
+// 节点尺寸：漏洞星形最大（攻击链终点，视觉锚），target 次之（交战根），
+// 其余 3 类语义节点（asset/credential/access）统一尺寸——形状+颜色已分维度，无需再靠大小区分。
 export function nodeSize(data: GraphNodeData): number {
-  if (data.kind === 'collapsed') return 20
-  if (data.kind === 'finding') return data.chained ? 50 : 38
-  return 24
+  if (data.kind === 'finding') return 44
+  if (data.kind === 'target') return 36
+  return 26
 }
 
 // 标签最多显示的行数（与 nodes.tsx 的 line-clamp-2 对齐，二者必须一致：

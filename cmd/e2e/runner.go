@@ -12,8 +12,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/rs/zerolog"
 
+	"github.com/V3teran/liusha/internal/agentrun"
 	"github.com/V3teran/liusha/internal/finding"
-	"github.com/V3teran/liusha/internal/hunter"
 	"github.com/V3teran/liusha/internal/task"
 )
 
@@ -25,14 +25,14 @@ type profilePlan struct {
 	samplePth string
 }
 
-// runActiveProfiles 顺序跑被选的 active profile：调 POST /scan/active → 轮询
+// runActiveProfiles 顺序跑被选的 active profile：调 POST /chat → 轮询
 // finding 数。与 passive 流水线共用 PG pool / pollDeadline。
 //
 // 不并发跑——active 任务普遍长（默认 4h），并发既无意义（仍占满 sandbox/LLM 配额）
 // 又会让日志难读。多 profile 按选中顺序串行。
 func runActiveProfiles(ctx context.Context, profs []activeProfile, apiBase, apiKey string, pool *pgxpool.Pool, logger zerolog.Logger) error {
 	store := finding.NewStore(pool)
-	agentRunStore := hunter.NewStore(pool)
+	agentRunStore := agentrun.NewStore(pool)
 
 	for _, ap := range profs {
 		// active:adhoc 是占位 profile——brief 在源码中为空，强制从 LIUSHA_E2E_BRIEF 环境
@@ -57,7 +57,7 @@ func runActiveProfiles(ctx context.Context, profs []activeProfile, apiBase, apiK
 		}
 
 		// 走会话入口（POST /chat）：建 conversation + 发 SSE 过程事件，前端可实时观察。
-		convID, taskID, err := createChatScan(apiBase, apiKey, ap.brief)
+		convID, taskID, err := createChatScan(apiBase, apiKey, ap.brief, activeScenarioCode)
 		if err != nil {
 			return fmt.Errorf("active profile %s: createChatScan: %w", ap.name, err)
 		}
@@ -76,13 +76,13 @@ func runActiveProfiles(ctx context.Context, profs []activeProfile, apiBase, apiK
 			runs, runErr := agentRunStore.ListByTask(ctx, taskID, 100)
 			unfinished, totalRuns := 0, 0
 			if runErr != nil {
-				// 之前 silent swallow：导致 e2e 看不到 orchestrator 但不知为何。必须 log 出来。
-				logger.Warn().Err(runErr).Str("task_id", taskID).Msg("ListByTask(hunter) failed — totalRuns 强制 0 是误报")
+				// 之前 silent swallow：导致 e2e 看不到 planner 但不知为何。必须 log 出来。
+				logger.Warn().Err(runErr).Str("task_id", taskID).Msg("ListByTask(executor) failed — totalRuns 强制 0 是误报")
 			} else {
-				// active 每次都新建 session——taskID 已唯一定位本次 run 全集（orchestrator + spawn 的 exploitations）。
+				// active 每次都新建 session——taskID 已唯一定位本次 run 全集（planner + spawn 的 exploitations）。
 				// 不再用 startedAt 时间窗过滤 agent_run：dispatched 返回前 server 端 PG now()
-				// 已先于 Go time.Now() 触发，orchestrator run.CreatedAt < startedAt → After() = false
-				// → orchestrator 被误滤 → total_runs=0 → observed 永远 false → e2e 超时不 PASS。
+				// 已先于 Go time.Now() 触发，planner run.CreatedAt < startedAt → After() = false
+				// → planner 被误滤 → total_runs=0 → observed 永远 false → e2e 超时不 PASS。
 				for _, r := range runs {
 					totalRuns++
 					if r.Status == "pending" || r.Status == "running" {
@@ -142,11 +142,17 @@ func runActiveProfiles(ctx context.Context, profs []activeProfile, apiBase, apiK
 	return nil
 }
 
-// discoverPassiveTasks 列最近的 passive task，筛出 target_host ∈ hosts 且 created_at > baseline 的。
+// trafficScenarioCode 是流量驱动自动建 task 所属的场景 code（与 ingestor 侧一致）。
+const trafficScenarioCode = "api-pentest"
+
+// activeScenarioCode 是 active e2e 剧本（POST /chat）所选场景 code——全部剧本均为 Web 渗透。
+const activeScenarioCode = "web-pentest"
+
+// discoverPassiveTasks 列最近的流量复检 task，筛出 target_host ∈ hosts 且 created_at > baseline 的。
 // 聚合器为目标 host 新建的 task 即由此被 e2e 发现（同 host 多批 → 多 task 全收）。
 // limit 取 512 足够覆盖 e2e 场景（单次跑至多十几个 host × 数批）。
 func discoverPassiveTasks(ctx context.Context, ts *task.Store, hosts map[string]struct{}, baseline time.Time) ([]string, error) {
-	tasks, err := ts.List(ctx, task.ModePassive, 512)
+	tasks, err := ts.List(ctx, trafficScenarioCode, 512)
 	if err != nil {
 		return nil, err
 	}
@@ -180,7 +186,7 @@ func buildPlans(selected []profile, vulnBase string) ([]profilePlan, error) {
 }
 
 // enrollAllCreds 一次写入"所有已注册 profile"对应 host 的全部身份。
-// 不论 args 选了哪些 profile，这里都把所有 profile 的凭证池预填——hunter agent
+// 不论 args 选了哪些 profile，这里都把所有 profile 的凭证池预填——agent agent
 // 的 credentials 工具可能跨 profile 拉取，提前录入更省事。
 func enrollAllCreds(apiBase, apiKey, vulnBase string) error {
 	hostCreds := map[string][]credentialEntry{}
@@ -258,7 +264,7 @@ func runAllUnified(ctx context.Context, plans []profilePlan, proxyHostPort, apiB
 
 	// 3. 统一 poll：发现聚合器为各 host 新建的 passive task → 聚合其 agent_run done + finding 数
 	store := finding.NewStore(pool)
-	agentRunStore := hunter.NewStore(pool)
+	agentRunStore := agentrun.NewStore(pool)
 	taskStore := task.NewStore(pool)
 	// 多 profile 并发跑，deadline 给单 profile 上限 + 适度放大兜底大 LLM 抖动
 	deadline := time.Now().Add(pollDeadline() + 10*time.Minute)

@@ -277,40 +277,42 @@ func TestTaskAbort_RequiresAuth(t *testing.T) {
 // owner 多态坍缩为统一 task 后，TaskAPI.EnsurePassiveSession 及 POST /scan/passive 路由已移除
 // （passive task 由 ingestor 按流量窗口聚合生成，不再走 API 预热路径）。
 
-// fakeActiveScan 是 ActiveScanAPI 的内存实现：记录最近一次 CreateActiveScan 入参，可注入 err。
-type fakeActiveScan struct {
+// fakeScan 是 ScanAPI 的内存实现：记录最近一次 CreateScan 入参，可注入 err。
+type fakeScan struct {
 	gotBrief               string
+	gotScenarioID          string
 	calls                  int
 	err                    error
-	retTaskID, retHunterID string
+	retTaskID, retExecutorID string
 }
 
-func (f *fakeActiveScan) CreateActiveScan(_ context.Context, brief string) (string, string, error) {
+func (f *fakeScan) CreateScan(_ context.Context, brief, scenarioID string) (string, string, error) {
 	f.calls++
 	f.gotBrief = brief
+	f.gotScenarioID = scenarioID
 	if f.err != nil {
 		return "", "", f.err
 	}
 	taskID := f.retTaskID
 	if taskID == "" {
-		taskID = "task-active-id"
+		taskID = "task-id"
 	}
-	tid := f.retHunterID
+	tid := f.retExecutorID
 	if tid == "" {
-		tid = "task-active"
+		tid = "agent-id"
 	}
 	return taskID, tid, nil
 }
 
-// TestActiveScan_Created：正常路径 → 200 + {task_id, hunter_id}；fake 记录 brief 原文。
-func TestActiveScan_Created(t *testing.T) {
-	fs := &fakeActiveScan{}
-	srv := newTestServer(t, Deps{ActiveScan: fs})
+// TestScan_Created：正常路径 → 200 + {task_id, agent_id}；fake 记录 brief + scenario_id 原文。
+func TestScan_Created(t *testing.T) {
+	fs := &fakeScan{}
+	srv := newTestServer(t, Deps{Scan: fs})
 	defer srv.Close()
 
 	brief := "测试网站 http://111.229.193.40:34280/login.php，账号 admin/password，只测 XSS"
-	body, _ := json.Marshal(CreateActiveScanRequest{Brief: brief})
-	req, _ := http.NewRequest("POST", srv.URL+"/scan/active", bytes.NewReader(body))
+	body, _ := json.Marshal(CreateScanRequest{Brief: brief, ScenarioID: "web-pentest"})
+	req, _ := http.NewRequest("POST", srv.URL+"/scan", bytes.NewReader(body))
 	req.Header.Set("X-API-Key", "k")
 	req.Header.Set("Content-Type", "application/json")
 
@@ -325,13 +327,13 @@ func TestActiveScan_Created(t *testing.T) {
 	}
 	var out struct {
 		TaskID   string `json:"task_id"`
-		HunterID string `json:"hunter_id"`
+		ExecutorID string `json:"agent_id"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if out.TaskID != "task-active-id" || out.HunterID != "task-active" {
-		t.Fatalf("ids: tid=%q hid=%q", out.TaskID, out.HunterID)
+	if out.TaskID != "task-id" || out.ExecutorID != "agent-id" {
+		t.Fatalf("ids: tid=%q hid=%q", out.TaskID, out.ExecutorID)
 	}
 	if fs.calls != 1 {
 		t.Fatalf("calls=%d, want 1", fs.calls)
@@ -339,17 +341,20 @@ func TestActiveScan_Created(t *testing.T) {
 	if fs.gotBrief != brief {
 		t.Fatalf("gotBrief mismatch: got=%q want=%q", fs.gotBrief, brief)
 	}
+	if fs.gotScenarioID != "web-pentest" {
+		t.Fatalf("gotScenarioID mismatch: got=%q want=%q", fs.gotScenarioID, "web-pentest")
+	}
 }
 
-// TestActiveScan_MissingBrief：brief 缺失或全空白 → 400。
-func TestActiveScan_MissingBrief(t *testing.T) {
+// TestScan_MissingBrief：brief 缺失或全空白 → 400（scenario_id 合法）。
+func TestScan_MissingBrief(t *testing.T) {
 	cases := []string{"", "   "}
 	for _, b := range cases {
-		fs := &fakeActiveScan{}
-		srv := newTestServer(t, Deps{ActiveScan: fs})
+		fs := &fakeScan{}
+		srv := newTestServer(t, Deps{Scan: fs})
 
-		body, _ := json.Marshal(CreateActiveScanRequest{Brief: b})
-		req, _ := http.NewRequest("POST", srv.URL+"/scan/active", bytes.NewReader(body))
+		body, _ := json.Marshal(CreateScanRequest{Brief: b, ScenarioID: "web-pentest"})
+		req, _ := http.NewRequest("POST", srv.URL+"/scan", bytes.NewReader(body))
 		req.Header.Set("X-API-Key", "k")
 		req.Header.Set("Content-Type", "application/json")
 
@@ -368,14 +373,41 @@ func TestActiveScan_MissingBrief(t *testing.T) {
 	}
 }
 
-// TestActiveScan_RequiresAuth：缺 X-API-Key → 401。
-func TestActiveScan_RequiresAuth(t *testing.T) {
-	fs := &fakeActiveScan{}
-	srv := newTestServer(t, Deps{ActiveScan: fs})
+// TestScan_MissingScenarioID：scenario_id 缺失或全空白 → 400（brief 合法）。
+func TestScan_MissingScenarioID(t *testing.T) {
+	cases := []string{"", "   "}
+	for _, s := range cases {
+		fs := &fakeScan{}
+		srv := newTestServer(t, Deps{Scan: fs})
+
+		body, _ := json.Marshal(CreateScanRequest{Brief: "测试 https://x.com", ScenarioID: s})
+		req, _ := http.NewRequest("POST", srv.URL+"/scan", bytes.NewReader(body))
+		req.Header.Set("X-API-Key", "k")
+		req.Header.Set("Content-Type", "application/json")
+
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatalf("scenario=%q do: %v", s, err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != 400 {
+			t.Fatalf("scenario=%q status=%d, want 400", s, resp.StatusCode)
+		}
+		if fs.calls != 0 {
+			t.Fatalf("scenario=%q 不应调底层: calls=%d", s, fs.calls)
+		}
+		srv.Close()
+	}
+}
+
+// TestScan_RequiresAuth：缺 X-API-Key → 401。
+func TestScan_RequiresAuth(t *testing.T) {
+	fs := &fakeScan{}
+	srv := newTestServer(t, Deps{Scan: fs})
 	defer srv.Close()
 
-	body, _ := json.Marshal(CreateActiveScanRequest{Brief: "测试 https://x.com"})
-	req, _ := http.NewRequest("POST", srv.URL+"/scan/active", bytes.NewReader(body))
+	body, _ := json.Marshal(CreateScanRequest{Brief: "测试 https://x.com", ScenarioID: "web-pentest"})
+	req, _ := http.NewRequest("POST", srv.URL+"/scan", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := http.DefaultClient.Do(req)
@@ -391,14 +423,14 @@ func TestActiveScan_RequiresAuth(t *testing.T) {
 	}
 }
 
-// TestActiveScan_BackendError：底层报错 → 500。
-func TestActiveScan_BackendError(t *testing.T) {
-	fs := &fakeActiveScan{err: errors.New("db boom")}
-	srv := newTestServer(t, Deps{ActiveScan: fs})
+// TestScan_BackendError：底层报错 → 500。
+func TestScan_BackendError(t *testing.T) {
+	fs := &fakeScan{err: errors.New("db boom")}
+	srv := newTestServer(t, Deps{Scan: fs})
 	defer srv.Close()
 
-	body, _ := json.Marshal(CreateActiveScanRequest{Brief: "测试 https://x.com"})
-	req, _ := http.NewRequest("POST", srv.URL+"/scan/active", bytes.NewReader(body))
+	body, _ := json.Marshal(CreateScanRequest{Brief: "测试 https://x.com", ScenarioID: "web-pentest"})
+	req, _ := http.NewRequest("POST", srv.URL+"/scan", bytes.NewReader(body))
 	req.Header.Set("X-API-Key", "k")
 	req.Header.Set("Content-Type", "application/json")
 

@@ -50,6 +50,21 @@ export function humanDuration(ms: number): string {
   return s ? `${m}分${s}秒` : `${m}分`
 }
 
+/** 响应体字节数（1024 进制）：0 → "0 B"、1536 → "1.5 KB"、5242880 → "5 MB"。 */
+export function humanBytes(n: number): string {
+  if (!n || n < 0) return '0 B'
+  if (n < 1024) return `${n} B`
+  const units = ['KB', 'MB', 'GB', 'TB']
+  let val = n / 1024
+  let i = 0
+  while (val >= 1024 && i < units.length - 1) {
+    val /= 1024
+    i++
+  }
+  // <10 保留一位小数（1.5 KB），≥10 取整（128 KB）——紧凑且不失精度
+  return `${val < 10 ? val.toFixed(1) : Math.round(val)} ${units[i]}`
+}
+
 /** token 总数（千分位分隔，精确值——用于 tooltip）。 */
 export function humanTokens(n: number): string {
   if (!n || n < 0) return '0'
@@ -70,7 +85,7 @@ export function dayKey(iso: string): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
 }
 
-/** 相对时间：刚刚 / N分钟前 / N小时前 / 昨天 / YYYY年M月D日（对齐 ChatGPT/Claude 列表惯例）。 */
+/** 相对时间：刚刚 / N分钟前 / N小时前 / 昨天 / YYYY-MM-DD（对齐 ChatGPT/Claude 列表惯例）。 */
 export function relativeTime(iso: string): string {
   if (!iso) return ''
   const d = new Date(iso)
@@ -84,7 +99,7 @@ export function relativeTime(iso: string): string {
   return dayLabel(iso) // 跨天 → 昨天 / 日期
 }
 
-/** 按天分隔条标签：今天 / 昨天 / YYYY年M月D日。 */
+/** 按天分隔条标签：今天 / 昨天 / YYYY-MM-DD（绝对日期统一 ISO，不用中文年月日）。 */
 export function dayLabel(iso: string): string {
   const key = dayKey(iso)
   if (!key) return ''
@@ -92,6 +107,5 @@ export function dayLabel(iso: string): string {
   const yest = dayKey(new Date(Date.now() - 86400000).toISOString())
   if (key === today) return '今天'
   if (key === yest) return '昨天'
-  const d = new Date(iso)
-  return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日`
+  return key // YYYY-MM-DD（dayKey 已是本地 ISO 日期）
 }

@@ -3,7 +3,7 @@
  *
  * Author: Michael Cross <https://github.com/xi2>
  *
- * This file has been put into the public domain.
+ * This file has been put into the public executor.
  * You can do whatever you want with this file.
  */
 

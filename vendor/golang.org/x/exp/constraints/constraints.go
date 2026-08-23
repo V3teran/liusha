@@ -42,7 +42,7 @@ type Complex interface {
 }
 
 // Ordered is a constraint that permits any ordered type: any type
-// that supports the operators < <= >= >.
+// that supports the executors < <= >= >.
 // If future releases of Go add new ordered types,
 // this constraint will be modified to include them.
 //

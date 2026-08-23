@@ -11,8 +11,8 @@ import (
 
 // Deps 是问答所需的最小依赖（cmd/api 注入实现）。
 type Deps interface {
-	// FindingsSummary 返回该 (conversationID, scanID) 关联 owner 的 finding 文本摘要。
-	FindingsSummary(ctx context.Context, conversationID, scanID string) (string, error)
+	// FindingsSummary 返回该 (conversationID, taskID) 关联 owner 的 finding 文本摘要。
+	FindingsSummary(ctx context.Context, conversationID, taskID string) (string, error)
 	// Generate 调便宜 LLM。
 	Generate(ctx context.Context, msgs []llm.Message, tools []llm.ToolSchema) (llm.Result, error)
 	// AppendAssistant 落 assistant 消息（KindMessage），返回该消息的 SSE JSON payload。
@@ -33,8 +33,8 @@ const systemPrompt = `你是渗透测试助手。**只依据下面已挖到的 f
 若 finding 为空或不足以回答，如实说明"目前还没挖到相关结果"。回答简洁中文。`
 
 // Answer 读黑板 → LLM 生成回答 → 落 assistant 消息 + publish SSE。
-func (s *Service) Answer(ctx context.Context, conversationID, scanID, question string) error {
-	findings, err := s.deps.FindingsSummary(ctx, conversationID, scanID)
+func (s *Service) Answer(ctx context.Context, conversationID, taskID, question string) error {
+	findings, err := s.deps.FindingsSummary(ctx, conversationID, taskID)
 	if err != nil {
 		return fmt.Errorf("读 finding: %w", err)
 	}

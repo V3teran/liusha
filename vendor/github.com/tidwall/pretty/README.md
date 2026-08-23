@@ -24,7 +24,7 @@ Using this example:
 ```json
 {"name":  {"first":"Tom","last":"Anderson"},  "age":37,
 "children": ["Sara","Alex","Jack"],
-"fav.movie": "Deer Hunter", "friends": [
+"fav.movie": "Deer Agent", "friends": [
     {"first": "Janet", "last": "Murphy", "age": 44}
   ]}
 ```
@@ -44,7 +44,7 @@ Will format the json to:
   },
   "age": 37,
   "children": ["Sara", "Alex", "Jack"],
-  "fav.movie": "Deer Hunter",
+  "fav.movie": "Deer Agent",
   "friends": [
     {
       "first": "Janet",
@@ -76,7 +76,7 @@ result = pretty.Ugly(example)
 Will format the json to:
 
 ```json
-{"name":{"first":"Tom","last":"Anderson"},"age":37,"children":["Sara","Alex","Jack"],"fav.movie":"Deer Hunter","friends":[{"first":"Janet","last":"Murphy","age":44}]}```
+{"name":{"first":"Tom","last":"Anderson"},"age":37,"children":["Sara","Alex","Jack"],"fav.movie":"Deer Agent","friends":[{"first":"Janet","last":"Murphy","age":44}]}```
 ```
 
 ## Customized output

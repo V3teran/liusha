@@ -126,7 +126,7 @@ func classify(err error) errorClass {
 		strings.Contains(low, "i/o timeout") {
 		return classNet
 	}
-	// 4. 启发式：err.Error() 含状态码（不优雅但兼容 eino 不暴露 code 的场景）
+	// 4. 启发式：err.Error() 含状态码（不优雅但部分 provider 不在 error 结构里暴露 code）
 	if strings.Contains(msg, "429") {
 		return class429
 	}

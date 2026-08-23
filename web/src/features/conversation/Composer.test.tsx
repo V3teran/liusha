@@ -2,14 +2,13 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Composer } from './Composer'
-import { followUp, startChat } from '@/api/client'
-import { listRoles } from '@/api/client'
+import { followUp, startChat, listScenarios } from '@/api/client'
 import { useConversationStore } from '@/stores/conversation'
 
 vi.mock('@/api/client', () => ({
   followUp: vi.fn(),
   startChat: vi.fn(),
-  listRoles: vi.fn(),
+  listScenarios: vi.fn(),
 }))
 
 describe('Composer', () => {
@@ -17,18 +16,18 @@ describe('Composer', () => {
     useConversationStore.getState().reset()
     vi.mocked(followUp).mockReset()
     vi.mocked(startChat).mockReset()
-    vi.mocked(listRoles).mockReset()
-    vi.mocked(listRoles).mockResolvedValue([])
+    vi.mocked(listScenarios).mockReset()
+    vi.mocked(listScenarios).mockResolvedValue([])
   })
 
-  it('无 convId 时渲染 RolePicker（新会话）', () => {
+  it('渲染 ScenarioPicker（新会话与追加都常驻，供纯聊天升级为 action 用）', () => {
     render(<Composer onStarted={vi.fn()} onAppended={vi.fn()} onStop={vi.fn()} />)
     expect(screen.getByRole('combobox')).toBeTruthy()
   })
 
-  it('有 convId 时不渲染 RolePicker', () => {
+  it('有 convId 时仍渲染 ScenarioPicker（升级路径需要当前场景）', () => {
     render(<Composer convId="c1" onStarted={vi.fn()} onAppended={vi.fn()} onStop={vi.fn()} />)
-    expect(screen.queryByRole('combobox')).toBeFalsy()
+    expect(screen.getByRole('combobox')).toBeTruthy()
   })
 
   it('无 convId 发送时调用 startChat 并触发 onStarted', async () => {
@@ -62,13 +61,13 @@ describe('Composer', () => {
     const onAppended = vi.fn()
     render(<Composer convId="c1" onStarted={vi.fn()} onAppended={onAppended} onStop={vi.fn()} />)
 
-    const textarea = screen.getByPlaceholderText(/追加指令/)
+    const textarea = screen.getByPlaceholderText(/继续提问/)
     await userEvent.type(textarea, '继续扫')
     const sendBtn = screen.getByRole('button', { name: '追加' })
     await userEvent.click(sendBtn)
 
     await waitFor(() => {
-      expect(followUp).toHaveBeenCalledWith('c1', '继续扫')
+      expect(followUp).toHaveBeenCalledWith('c1', '继续扫', '')
       expect(onAppended).toHaveBeenCalledWith(7)
     })
   })
@@ -94,7 +93,7 @@ describe('Composer', () => {
     const onAppended = vi.fn()
     render(<Composer convId="c1" onStarted={vi.fn()} onAppended={onAppended} onStop={vi.fn()} />)
 
-    const textarea = screen.getByPlaceholderText(/追加指令/)
+    const textarea = screen.getByPlaceholderText(/继续提问/)
     await userEvent.type(textarea, '继续扫')
     await userEvent.click(screen.getByRole('button', { name: '追加' }))
 
@@ -122,7 +121,7 @@ describe('Composer', () => {
     vi.mocked(followUp).mockRejectedValue(err)
     render(<Composer convId="c1" onStarted={vi.fn()} onAppended={vi.fn()} onStop={vi.fn()} />)
 
-    const textarea = screen.getByPlaceholderText(/追加指令/)
+    const textarea = screen.getByPlaceholderText(/继续提问/)
     await userEvent.type(textarea, '继续扫')
     await userEvent.click(screen.getByRole('button', { name: '追加' }))
 
@@ -137,12 +136,12 @@ describe('Composer', () => {
     vi.mocked(followUp).mockResolvedValue({ intent: 'qa' })
     render(<Composer convId="c1" scanning onStarted={vi.fn()} onAppended={vi.fn()} onStop={vi.fn()} />)
 
-    const textarea = screen.getByPlaceholderText(/追加指令/)
+    const textarea = screen.getByPlaceholderText(/继续提问/)
     await userEvent.type(textarea, '这批流量里有没有可疑的')
     await userEvent.click(screen.getByRole('button', { name: '追加' }))
 
     await waitFor(() => {
-      expect(followUp).toHaveBeenCalledWith('c1', '这批流量里有没有可疑的')
+      expect(followUp).toHaveBeenCalledWith('c1', '这批流量里有没有可疑的', '')
     })
   })
 
@@ -152,7 +151,7 @@ describe('Composer', () => {
     vi.mocked(followUp).mockRejectedValue(err)
     render(<Composer convId="c1" scanning onStarted={vi.fn()} onAppended={vi.fn()} onStop={vi.fn()} />)
 
-    const textarea = screen.getByPlaceholderText(/追加指令/)
+    const textarea = screen.getByPlaceholderText(/继续提问/)
     await userEvent.type(textarea, '继续扫')
     await userEvent.click(screen.getByRole('button', { name: '追加' }))
 

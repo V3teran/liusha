@@ -5,12 +5,10 @@ import type { OwnerSummary } from '@/api/types'
 interface OwnerPickerProps {
   value?: string
   onChange: (id: string) => void
-  modeFilter?: string
 }
 
-// owner 选择器：拉最近会话/扫描列表，下拉选一个 owner_id。数据页共用。
-// 可选 modeFilter 只显示某模式（active/passive）。挂载时自动选第一个。
-export function OwnerPicker({ value, onChange, modeFilter }: OwnerPickerProps) {
+// owner 选择器：拉最近 task 列表，下拉选一个 owner_id。数据页共用。挂载时自动选第一个。
+export function OwnerPicker({ value, onChange }: OwnerPickerProps) {
   const [tasks, setTasks] = useState<OwnerSummary[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -19,8 +17,7 @@ export function OwnerPicker({ value, onChange, modeFilter }: OwnerPickerProps) {
     setLoading(true)
     setError('')
     try {
-      let list = await listTasks(50)
-      if (modeFilter) list = list.filter((s) => s.mode === modeFilter)
+      const list = await listTasks(50)
       setTasks(list)
       if (!value && list.length) onChange(list[0].id)
     } catch (e) {
@@ -29,7 +26,7 @@ export function OwnerPicker({ value, onChange, modeFilter }: OwnerPickerProps) {
       setLoading(false)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [modeFilter])
+  }, [])
 
   useEffect(() => {
     void load()
@@ -50,7 +47,7 @@ export function OwnerPicker({ value, onChange, modeFilter }: OwnerPickerProps) {
         </option>
         {tasks.map((s) => (
           <option key={s.id} value={s.id}>
-            {s.mode || '?'} · {s.id.slice(0, 8)} · {s.status}
+            {s.scenario_id || '?'} · {s.id.slice(0, 8)} · {s.status}
           </option>
         ))}
       </select>

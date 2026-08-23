@@ -1,7 +1,11 @@
-.PHONY: up down logs migrate migrate-down run-api run-scanner run-web build-api build-nginx build-proxy build-scanner build-vulnapp build-pentools web-install web-build web-test test test-unit test-integration lint fmt tidy vet e2e e2e-bac e2e-sqli e2e-active
+.PHONY: up down logs migrate migrate-down run-api run-runner run-web build-api build-nginx build-proxy build-runner build-vulnapp build-pentools web-install web-build web-test test test-unit test-integration lint fmt tidy vet e2e e2e-bac e2e-sqli e2e-active
 
 COMPOSE = docker compose -f deployments/docker-compose.yml
 MIGRATE_DSN ?= postgres://liusha:liusha@localhost:5432/liusha?sslmode=disable
+# migrate 走 go run 拉取 golang-migrate；默认全局 GOPROXY（goproxy.io）偶发 EOF，
+# 这里用可覆盖的镜像 fallback 链兜底：官方 → 国内镜像 → direct。可 `make migrate MIGRATE_GOPROXY=...` 覆盖。
+MIGRATE_GOPROXY ?= https://proxy.golang.org,https://goproxy.cn,direct
+MIGRATE = GOPROXY='$(MIGRATE_GOPROXY)' go run -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@v4.19.1
 
 up:
 	$(COMPOSE) up -d
@@ -13,20 +17,18 @@ logs:
 	$(COMPOSE) logs -f --tail=100
 
 migrate:
-	go run -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@v4.19.1 \
-		-path db/migrations -database '$(MIGRATE_DSN)' up
+	$(MIGRATE) -path db/migrations -database '$(MIGRATE_DSN)' up
 
 migrate-down:
-	go run -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@v4.19.1 \
-		-path db/migrations -database '$(MIGRATE_DSN)' down 1
+	$(MIGRATE) -path db/migrations -database '$(MIGRATE_DSN)' down 1
 
 run-api:
 	go run ./cmd/api
 
-# A1 部署方案：scanner 跑在 host（开发 + production 当前形态），
+# A1 部署方案：runner 跑在 host（开发 + production 当前形态），
 # 用 host 的 docker daemon 起 sandbox 容器。需 host 上有 PG/Redis（`make up`）+ pentools 镜像（`make build-pentools`）。
-run-scanner:
-	go run ./cmd/scanner
+run-runner:
+	go run ./cmd/runner
 
 # 前端（web/）：源码与后端同仓。dev 用 vite（/api 代理到 Go）；prod 由 nginx 镜像多阶段构建托管。
 run-web:
@@ -51,8 +53,8 @@ build-nginx:
 build-proxy:
 	docker build -f cmd/proxy/Dockerfile -t liusha/proxy .
 
-build-scanner:
-	docker build -f cmd/scanner/Dockerfile -t liusha/scanner .
+build-runner:
+	docker build -f cmd/runner/Dockerfile -t liusha/runner .
 
 build-vulnapp:
 	docker build -f cmd/vulnapp/Dockerfile -t liusha/vulnapp .
@@ -88,7 +90,7 @@ tidy:
 #   make e2e              # 不带参 = 跑全部 passive profile
 #   make e2e-bac          # 仅 passive bac
 #   make e2e-sqli         # 仅 passive sqli
-#   make e2e-active       # 仅 active:xss（自然语言 brief 喂 hunter LLM）
+#   make e2e-active       # 仅 active:xss（自然语言 brief 喂 agent LLM）
 #   go run ./cmd/e2e bac sqli active:xss   # 混合（直接调 binary）
 e2e:
 	go run ./cmd/e2e

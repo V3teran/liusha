@@ -1,13 +1,13 @@
 package govaluate
 
 /*
-	Represents the valid symbols for operators.
+	Represents the valid symbols for executors.
 
 */
-type OperatorSymbol int
+type ExecutorSymbol int
 
 const (
-	VALUE OperatorSymbol = iota
+	VALUE ExecutorSymbol = iota
 	LITERAL
 	NOOP
 	EQ
@@ -47,10 +47,10 @@ const (
 	SEPARATE
 )
 
-type operatorPrecedence int
+type executorPrecedence int
 
 const (
-	noopPrecedence operatorPrecedence = iota
+	noopPrecedence executorPrecedence = iota
 	valuePrecedence
 	functionalPrecedence
 	prefixPrecedence
@@ -66,7 +66,7 @@ const (
 	separatePrecedence
 )
 
-func findOperatorPrecedenceForSymbol(symbol OperatorSymbol) operatorPrecedence {
+func findExecutorPrecedenceForSymbol(symbol ExecutorSymbol) executorPrecedence {
 
 	switch symbol {
 	case NOOP:
@@ -143,7 +143,7 @@ func findOperatorPrecedenceForSymbol(symbol OperatorSymbol) operatorPrecedence {
 	Used during parsing of expressions to determine if a symbol is, in fact, a comparator.
 	Also used during evaluation to determine exactly which comparator is being used.
 */
-var comparatorSymbols = map[string]OperatorSymbol{
+var comparatorSymbols = map[string]ExecutorSymbol{
 	"==": EQ,
 	"!=": NEQ,
 	">":  GT,
@@ -155,51 +155,51 @@ var comparatorSymbols = map[string]OperatorSymbol{
 	"in": IN,
 }
 
-var logicalSymbols = map[string]OperatorSymbol{
+var logicalSymbols = map[string]ExecutorSymbol{
 	"&&": AND,
 	"||": OR,
 }
 
-var bitwiseSymbols = map[string]OperatorSymbol{
+var bitwiseSymbols = map[string]ExecutorSymbol{
 	"^": BITWISE_XOR,
 	"&": BITWISE_AND,
 	"|": BITWISE_OR,
 }
 
-var bitwiseShiftSymbols = map[string]OperatorSymbol{
+var bitwiseShiftSymbols = map[string]ExecutorSymbol{
 	">>": BITWISE_RSHIFT,
 	"<<": BITWISE_LSHIFT,
 }
 
-var additiveSymbols = map[string]OperatorSymbol{
+var additiveSymbols = map[string]ExecutorSymbol{
 	"+": PLUS,
 	"-": MINUS,
 }
 
-var multiplicativeSymbols = map[string]OperatorSymbol{
+var multiplicativeSymbols = map[string]ExecutorSymbol{
 	"*": MULTIPLY,
 	"/": DIVIDE,
 	"%": MODULUS,
 }
 
-var exponentialSymbolsS = map[string]OperatorSymbol{
+var exponentialSymbolsS = map[string]ExecutorSymbol{
 	"**": EXPONENT,
 }
 
-var prefixSymbols = map[string]OperatorSymbol{
+var prefixSymbols = map[string]ExecutorSymbol{
 	"-": NEGATE,
 	"!": INVERT,
 	"~": BITWISE_NOT,
 }
 
-var ternarySymbols = map[string]OperatorSymbol{
+var ternarySymbols = map[string]ExecutorSymbol{
 	"?":  TERNARY_TRUE,
 	":":  TERNARY_FALSE,
 	"??": COALESCE,
 }
 
 // this is defined separately from additiveSymbols et al because it's needed for parsing, not stage planning.
-var modifierSymbols = map[string]OperatorSymbol{
+var modifierSymbols = map[string]ExecutorSymbol{
 	"+":  PLUS,
 	"-":  MINUS,
 	"*":  MULTIPLY,
@@ -213,15 +213,15 @@ var modifierSymbols = map[string]OperatorSymbol{
 	"<<": BITWISE_LSHIFT,
 }
 
-var separatorSymbols = map[string]OperatorSymbol{
+var separatorSymbols = map[string]ExecutorSymbol{
 	",": SEPARATE,
 }
 
 /*
-	Returns true if this operator is contained by the given array of candidate symbols.
+	Returns true if this executor is contained by the given array of candidate symbols.
 	False otherwise.
 */
-func (this OperatorSymbol) IsModifierType(candidate []OperatorSymbol) bool {
+func (this ExecutorSymbol) IsModifierType(candidate []ExecutorSymbol) bool {
 
 	for _, symbolType := range candidate {
 		if this == symbolType {
@@ -235,10 +235,10 @@ func (this OperatorSymbol) IsModifierType(candidate []OperatorSymbol) bool {
 /*
 	Generally used when formatting type check errors.
 	We could store the stringified symbol somewhere else and not require a duplicated codeblock to translate
-	OperatorSymbol to string, but that would require more memory, and another field somewhere.
-	Adding operators is rare enough that we just stringify it here instead.
+	ExecutorSymbol to string, but that would require more memory, and another field somewhere.
+	Adding executors is rare enough that we just stringify it here instead.
 */
-func (this OperatorSymbol) String() string {
+func (this ExecutorSymbol) String() string {
 
 	switch this {
 	case NOOP:

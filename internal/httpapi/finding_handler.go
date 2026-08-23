@@ -1,12 +1,12 @@
-// Package httpapi: 全局漏洞台账 handler（漏洞管理页）。
+// Package httpapi: 全局漏洞台账 handler（漏洞页）。
 //
-// 修复历史缺陷：漏洞管理页原走 /sitemap（仅 active），passive 漏洞（占多数）不可见。
-// 本组端点跨 task/host/mode 全量拉取，支持 triage 处置流转。
+// 本组端点跨 task/host/scenario 全量拉取，支持 triage 处置流转。
 package httpapi
 
 import (
 	"context"
 	"encoding/json"
+	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -17,31 +17,63 @@ import (
 // FindingsAPI 是 handler 依赖的窄接口；*finding.Store 自动满足。
 type FindingsAPI interface {
 	ListAll(ctx context.Context, f finding.LedgerFilter) ([]finding.LedgerRow, error)
+	CountAll(ctx context.Context, f finding.LedgerFilter) (int, error)
+	DistinctHosts(ctx context.Context) ([]string, error)
+	DistinctScenarios(ctx context.Context) ([]string, error)
 	UpdateTriage(ctx context.Context, id, status, severity, note string) (finding.VulnFinding, error)
 }
 
-// listFindingsHandler 处理 GET /findings?host=&severity=&status=&mode=。
+// 漏洞台账分页默认值/上限（与流量列表 defaultTrafficPageSize/maxTrafficPageSize 同一口径，
+// 前端分页大小选择器 10/50/100 也复用这个上限）。
+const (
+	defaultFindingPageSize = 50
+	maxFindingPageSize     = 200
+)
+
+// listFindingsHandler 处理 GET /findings?host=&severity=&status=&scenario_id=&source=&page=&size=。
 //
-// 全局台账：跨 task/host 列出所有漏洞（active + passive），按可选维度筛选，created_at desc。
-// 空筛选=全量。响应含 mode（active/passive）+ triage 处置态，供前端就地流转。
+// 全局台账：跨 task/host 列出所有漏洞，按可选维度筛选，created_at desc（最新优先）。
+// 空筛选=全量。响应含 scenario_id + triage 处置态，供前端就地流转。
+// page 缺省/非法=1；size clamp 到 [1,maxFindingPageSize]，缺省 defaultFindingPageSize。
 //
 // 响应结构（findingJSON 单一序列化点）：
 //
-//	{ "total": N, "findings": [{
-//	    "id","severity","summary","host","cwe_id","owasp_category","remediation",
-//	    "target":{...},"evidence":{...},"mode":"active|passive",
+//	{ "total": N, "page": P, "size": S, "findings": [{
+//	    "id","seq","severity","summary","host","cwe_id","owasp_category","remediation",
+//	    "target":{...},"evidence":{...},"scenario_id":"...","source":"manual|auto",
 //	    "status":"open|confirmed|fixed|false_positive|accepted","triage_note","triaged_at",
 //	    "created_at"
 //	}] }
 func listFindingsHandler(api FindingsAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		rows, err := api.ListAll(c.Request.Context(), finding.LedgerFilter{
-			Host:     c.Query("host"),
-			Severity: c.Query("severity"),
-			Status:   c.Query("status"),
-			Mode:     c.Query("mode"),
-			Limit:    1000, // 台账全量；1000 远超单实例实际漏洞量
-		})
+		page, _ := strconv.Atoi(c.Query("page"))
+		if page < 1 {
+			page = 1
+		}
+		size, _ := strconv.Atoi(c.Query("size"))
+		if size < 1 {
+			size = defaultFindingPageSize
+		}
+		if size > maxFindingPageSize {
+			size = maxFindingPageSize
+		}
+
+		f := finding.LedgerFilter{
+			Host:       c.Query("host"),
+			Severity:   c.Query("severity"),
+			Status:     c.Query("status"),
+			ScenarioID: c.Query("scenario_id"),
+			Source:     c.Query("source"),
+			Limit:      size,
+			Offset:     (page - 1) * size,
+		}
+
+		rows, err := api.ListAll(c.Request.Context(), f)
+		if err != nil {
+			c.JSON(500, gin.H{"error": err.Error()})
+			return
+		}
+		total, err := api.CountAll(c.Request.Context(), f)
 		if err != nil {
 			c.JSON(500, gin.H{"error": err.Error()})
 			return
@@ -51,7 +83,37 @@ func listFindingsHandler(api FindingsAPI) gin.HandlerFunc {
 		for _, r := range rows {
 			out = append(out, findingJSON(r))
 		}
-		c.JSON(200, gin.H{"total": len(rows), "findings": out})
+		c.JSON(200, gin.H{"total": total, "page": page, "size": size, "findings": out})
+	}
+}
+
+// findingHostsHandler 处理 GET /findings/hosts：全表 distinct host，供筛选下拉。
+func findingHostsHandler(api FindingsAPI) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		hosts, err := api.DistinctHosts(c.Request.Context())
+		if err != nil {
+			c.JSON(500, gin.H{"error": err.Error()})
+			return
+		}
+		if hosts == nil {
+			hosts = []string{}
+		}
+		c.JSON(200, gin.H{"hosts": hosts})
+	}
+}
+
+// findingScenariosHandler 处理 GET /findings/scenarios：全表 distinct scenario_id，供筛选下拉。
+func findingScenariosHandler(api FindingsAPI) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		scenarios, err := api.DistinctScenarios(c.Request.Context())
+		if err != nil {
+			c.JSON(500, gin.H{"error": err.Error()})
+			return
+		}
+		if scenarios == nil {
+			scenarios = []string{}
+		}
+		c.JSON(200, gin.H{"scenarios": scenarios})
 	}
 }
 
@@ -89,7 +151,7 @@ func updateFindingStatusHandler(api FindingsAPI) gin.HandlerFunc {
 			return
 		}
 		// 回传更新后的行（含后端权威 triaged_at + 覆盖后的 severity）——前端据此覆盖乐观值，消除时钟偏差。
-		// UpdateTriage 返回 VulnFinding（无 mode），补零值即可（前端改处置不依赖 mode）。
+		// UpdateTriage 返回 VulnFinding（无 scenario_id），补零值即可（前端改处置不依赖 scenario_id）。
 		c.JSON(200, gin.H{"ok": true, "finding": findingJSON(finding.LedgerRow{VulnFinding: updated})})
 	}
 }
@@ -99,6 +161,7 @@ func updateFindingStatusHandler(api FindingsAPI) gin.HandlerFunc {
 func findingJSON(r finding.LedgerRow) gin.H {
 	return gin.H{
 		"id":             r.ID,
+		"seq":            r.Seq,
 		"severity":       r.Severity,
 		"summary":        r.Summary,
 		"host":           r.Host,
@@ -107,7 +170,8 @@ func findingJSON(r finding.LedgerRow) gin.H {
 		"remediation":    r.Remediation,
 		"target":         json.RawMessage(rawOrEmpty(r.Target, "{}")),
 		"evidence":       json.RawMessage(rawOrEmpty(r.Evidence, "{}")),
-		"mode":           r.Mode,
+		"scenario_id":    r.ScenarioID,
+		"source":         r.Source,
 		"status":         r.Status,
 		"triage_note":    r.TriageNote,
 		"triaged_at":     r.TriagedAt, // *time.Time，未处置为 null

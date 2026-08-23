@@ -295,7 +295,7 @@ https://github.com/klauspost/compress/pull/919 https://github.com/klauspost/comp
 	* gzhttp: Add zstd to transport [#400](https://github.com/klauspost/compress/pull/400)
 	* gzhttp: Make content-type optional [#510](https://github.com/klauspost/compress/pull/510)
 
-Both compression and decompression now supports "synchronous" stream operations. This means that whenever "concurrency" is set to 1, they will operate without spawning goroutines.
+Both compression and decompression now supports "synchronous" stream operations. This means that whenever "concurrency" is set to 1, they will execute without spawning goroutines.
 
 Stream decompression is now faster on asynchronous, since the goroutine allocation much more effectively splits the workload. On typical streams this will typically use 2 cores fully for decompression. When a stream has finished decoding no goroutines will be left over, so decoders can now safely be pooled and still be garbage collected.
 

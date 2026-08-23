@@ -54,7 +54,7 @@ type ExplainRequest struct {
 
 	Analyzer        string
 	AnalyzeWildcard *bool
-	DefaultOperator string
+	DefaultExecutor string
 	Df              string
 	Lenient         *bool
 	Preference      string
@@ -111,8 +111,8 @@ func (r ExplainRequest) Do(ctx context.Context, transport Transport) (*Response,
 		params["analyze_wildcard"] = strconv.FormatBool(*r.AnalyzeWildcard)
 	}
 
-	if r.DefaultOperator != "" {
-		params["default_operator"] = r.DefaultOperator
+	if r.DefaultExecutor != "" {
+		params["default_executor"] = r.DefaultExecutor
 	}
 
 	if r.Df != "" {
@@ -249,10 +249,10 @@ func (f Explain) WithAnalyzeWildcard(v bool) func(*ExplainRequest) {
 	}
 }
 
-// WithDefaultOperator - the default operator for query string query (and or or).
-func (f Explain) WithDefaultOperator(v string) func(*ExplainRequest) {
+// WithDefaultExecutor - the default executor for query string query (and or or).
+func (f Explain) WithDefaultExecutor(v string) func(*ExplainRequest) {
 	return func(r *ExplainRequest) {
-		r.DefaultOperator = v
+		r.DefaultExecutor = v
 	}
 }
 

@@ -12,7 +12,7 @@ import (
 // ">= 1.0".
 type Constraint struct {
 	f        constraintFunc
-	op       operator
+	op       executor
 	check    *Version
 	original string
 }
@@ -27,17 +27,17 @@ type Constraints []*Constraint
 
 type constraintFunc func(v, c *Version) bool
 
-var constraintOperators map[string]constraintOperation
+var constraintExecutors map[string]constraintOperation
 
 type constraintOperation struct {
-	op operator
+	op executor
 	f  constraintFunc
 }
 
 var constraintRegexp *regexp.Regexp
 
 func init() {
-	constraintOperators = map[string]constraintOperation{
+	constraintExecutors = map[string]constraintOperation{
 		"":   {op: equal, f: constraintEqual},
 		"=":  {op: equal, f: constraintEqual},
 		"!=": {op: notEqual, f: constraintNotEqual},
@@ -48,8 +48,8 @@ func init() {
 		"~>": {op: pessimistic, f: constraintPessimistic},
 	}
 
-	ops := make([]string, 0, len(constraintOperators))
-	for k := range constraintOperators {
+	ops := make([]string, 0, len(constraintExecutors))
+	for k := range constraintExecutors {
 		ops = append(ops, regexp.QuoteMeta(k))
 	}
 
@@ -104,7 +104,7 @@ func (cs Constraints) Check(v *Version) bool {
 // e.g. even though '>0.1,>0.2' is logically equivalent
 // to '>0.2' it is *NOT* treated as equal.
 //
-// Missing operator is treated as equal to '=', whitespaces
+// Missing executor is treated as equal to '=', whitespaces
 // are ignored and constraints are sorted before comaparison.
 func (cs Constraints) Equals(c Constraints) bool {
 	if len(cs) != len(c) {
@@ -184,7 +184,7 @@ func parseSingle(v string) (*Constraint, error) {
 		return nil, err
 	}
 
-	cop := constraintOperators[matches[1]]
+	cop := constraintExecutors[matches[1]]
 
 	return &Constraint{
 		f:        cop.f,
@@ -207,7 +207,7 @@ func prereleaseCheck(v, c *Version) bool {
 		return false
 
 	case cPre && !vPre:
-		// OK, except with the pessimistic operator
+		// OK, except with the pessimistic executor
 	case !cPre && !vPre:
 		// OK
 	}
@@ -218,16 +218,16 @@ func prereleaseCheck(v, c *Version) bool {
 // Constraint functions
 //-------------------------------------------------------------------
 
-type operator rune
+type executor rune
 
 const (
-	equal            operator = '='
-	notEqual         operator = '≠'
-	greaterThan      operator = '>'
-	lessThan         operator = '<'
-	greaterThanEqual operator = '≥'
-	lessThanEqual    operator = '≤'
-	pessimistic      operator = '~'
+	equal            executor = '='
+	notEqual         executor = '≠'
+	greaterThan      executor = '>'
+	lessThan         executor = '<'
+	greaterThanEqual executor = '≥'
+	lessThanEqual    executor = '≤'
+	pessimistic      executor = '~'
 )
 
 func constraintEqual(v, c *Version) bool {

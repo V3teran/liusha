@@ -7,12 +7,13 @@
 package obj
 
 import (
-	"github.com/twitchyliquid64/golang-asm/dwarf"
-	"github.com/twitchyliquid64/golang-asm/objabi"
-	"github.com/twitchyliquid64/golang-asm/src"
 	"fmt"
 	"sort"
 	"sync"
+
+	"github.com/twitchyliquid64/golang-asm/dwarf"
+	"github.com/twitchyliquid64/golang-asm/objabi"
+	"github.com/twitchyliquid64/golang-asm/src"
 )
 
 // Generate a sequence of opcodes that is as short as possible.
@@ -90,7 +91,7 @@ func (ctxt *Link) generateDebugLinesSymbol(s, lines *LSym) {
 
 	// Because these symbols will be concatenated together by the
 	// linker, we need to reset the state machine that controls the
-	// debug symbols. Do this using an end-of-sequence operator.
+	// debug symbols. Do this using an end-of-sequence executor.
 	//
 	// Note: at one point in time, Delve did not support multiple end
 	// sequence ops within a compilation unit (bug for this:

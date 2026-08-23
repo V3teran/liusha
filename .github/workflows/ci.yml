@@ -37,7 +37,7 @@ jobs:
       - uses: docker/setup-buildx-action@v3
       - name: build api image
         run: docker build -f cmd/api/Dockerfile -t liusha/api:ci .
-      - name: build scanner image
-        run: docker build -f cmd/scanner/Dockerfile -t liusha/scanner:ci .
+      - name: build runner image
+        run: docker build -f cmd/runner/Dockerfile -t liusha/runner:ci .
       - name: build vulnapp image
         run: docker build -f cmd/vulnapp/Dockerfile -t liusha/vulnapp:ci .

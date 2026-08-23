@@ -15,7 +15,6 @@ import (
 
 	"github.com/V3teran/liusha/internal/conversation"
 	"github.com/V3teran/liusha/internal/logx"
-	"github.com/V3teran/liusha/internal/scenario"
 )
 
 // ErrConversationScanActive：会话关联的 active_scan 仍在跑，拒绝删除（先停后删）。
@@ -38,39 +37,16 @@ var sseLog = logx.New("httpapi.sse")
 // header——阶段D 前端用 fetch+ReadableStream 或 query-param token 解决，此处不动认证。
 
 // ChatAPI 是发起会话扫描的窄接口（cmd/api 注入 adapter：建 conversation + scan + 入队带 convID）。
-// roleID 是用户选的场景 role（空时 adapter 用默认 active role 兜底）。
+// scenarioID 是用户选的场景 code（必选——前端 ScenarioPicker 走 GET /scenarios）。
 type ChatAPI interface {
-	StartChatScan(ctx context.Context, brief, roleID string) (conversationID, scanID string, err error)
+	StartChatScan(ctx context.Context, brief, scenarioID string) (conversationID, taskID string, err error)
 }
 
-// RolesAPI 列出可选场景 role（前端会话选择用）。*scenario 加载结果由 cmd/api 适配注入。
-type RolesAPI interface {
-	ListRoles() []scenario.Role
-}
-
-// roleDTO 是 GET /roles 的对外视图——只暴露选择所需字段，不含内部 SystemPrompt/SourceFile。
-type roleDTO struct {
-	ID          string `json:"id"`
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	Mode        string `json:"mode"`
-}
-
-// rolesHandler 处理 GET /roles：列出可选场景供前端选择。
-func rolesHandler(api RolesAPI) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		roles := api.ListRoles()
-		out := make([]roleDTO, 0, len(roles))
-		for _, r := range roles {
-			out = append(out, roleDTO{ID: r.ID, Name: r.Name, Description: r.Description, Mode: string(r.Mode)})
-		}
-		c.JSON(http.StatusOK, gin.H{"roles": out})
-	}
-}
+// 可选场景列表由 GET /scenarios（configstore）提供，前端 ScenarioPicker 消费。
 
 // ConversationsAPI 是会话/消息读取窄接口（*conversation.Store 自动满足）。
 type ConversationsAPI interface {
-	ListConversations(ctx context.Context, limit, offset int, mode string) ([]conversation.Conversation, bool, error)
+	ListConversations(ctx context.Context, limit, offset int, scenarioID, source string) ([]conversation.Conversation, bool, error)
 	ListMessages(ctx context.Context, convID string, afterSeq int64, limit int) ([]conversation.Message, error)
 	GetMessage(ctx context.Context, convID, msgID string) (conversation.Message, error)
 }
@@ -88,14 +64,14 @@ type EventStream interface {
 
 // ChatRequest 是 POST /chat 请求体。
 type ChatRequest struct {
-	Brief  string `json:"brief"`
-	RoleID string `json:"role_id"` // 场景 role（空时 adapter 用默认 active role 兜底）
+	Brief      string `json:"brief"`
+	ScenarioID string `json:"scenario_id"` // 场景 code（必选，前端 ScenarioPicker 选定）
 }
 
 // ChatResponse 是 POST /chat 响应：前端用 conversation_id 订阅 SSE。
 type ChatResponse struct {
 	ConversationID string `json:"conversation_id"`
-	ScanID         string `json:"scan_id"`
+	TaskID         string `json:"task_id"`
 }
 
 // chatHandler 处理 POST /chat：校验 brief 非空，发起会话扫描，成功后下发 SSE 鉴权 cookie。
@@ -110,13 +86,17 @@ func chatHandler(api ChatAPI, streamSecret []byte, secure bool) gin.HandlerFunc 
 			c.JSON(http.StatusBadRequest, gin.H{"error": "brief 不能为空"})
 			return
 		}
-		convID, scanID, err := api.StartChatScan(c.Request.Context(), req.Brief, req.RoleID)
+		if req.ScenarioID == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "scenario_id 不能为空"})
+			return
+		}
+		convID, taskID, err := api.StartChatScan(c.Request.Context(), req.Brief, req.ScenarioID)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
 		setStreamCookie(c, streamSecret, convID, secure)
-		c.JSON(http.StatusOK, ChatResponse{ConversationID: convID, ScanID: scanID})
+		c.JSON(http.StatusOK, ChatResponse{ConversationID: convID, TaskID: taskID})
 	}
 }
 
@@ -162,13 +142,16 @@ func streamAuthHandler(streamSecret []byte, secure bool) gin.HandlerFunc {
 
 // FollowUpAPI 处理会话追加消息：内部判意图（action/qa）+ 落消息 + 分流。
 // 返回 intent（"action"|"qa"）、busy（action 但扫描进行中 → 应排队/拒绝）、err。
+// scenarioID：纯聊天会话（无 task）升级为 action 时用于建 task；已绑 task 的会话续接忽略之。
 type FollowUpAPI interface {
-	HandleMessage(ctx context.Context, convID, content string) (intent string, busy bool, err error)
+	HandleMessage(ctx context.Context, convID, scenarioID, content string) (intent string, busy bool, err error)
 }
 
 // FollowUpRequest 是 POST /conversations/:id/messages 请求体。
+// scenario_id 可选：纯聊天会话升级为扫描时用（前端 ScenarioPicker 随 Composer 带上）。
 type FollowUpRequest struct {
-	Content string `json:"content"`
+	Content    string `json:"content"`
+	ScenarioID string `json:"scenario_id"`
 }
 
 func followUpHandler(api FollowUpAPI) gin.HandlerFunc {
@@ -179,7 +162,7 @@ func followUpHandler(api FollowUpAPI) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "content 不能为空"})
 			return
 		}
-		intent, busy, err := api.HandleMessage(c.Request.Context(), convID, req.Content)
+		intent, busy, err := api.HandleMessage(c.Request.Context(), convID, req.ScenarioID, req.Content)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
@@ -262,13 +245,14 @@ func renameConversationHandler(api ConversationRenamer) gin.HandlerFunc {
 	}
 }
 
-// listConversationsHandler 处理 GET /conversations?limit=&offset=&mode=：分页会话列表（UI 侧栏翻页）。
-// mode 可选（active/passive），空则不过滤——过滤下沉到 SQL，保证分页边界与「当前 tab 下的
+// listConversationsHandler 处理 GET /conversations?limit=&offset=&scenario_id=&source=：分页会话列表（UI 侧栏翻页）。
+// scenario_id / source 可选，空则不过滤——过滤下沉到 SQL，保证分页边界与「当前过滤下的
 // 总条数」一致（若仍由前端在已分页的单页结果上再过滤，页码和条数会对不上）。
+// source ∈ {manual,auto}：前端「主动下发 / 被动代理」双 tab（纯聊天归 manual 侧，见 store）。
 // has_more：本页拉满 limit+1 条时才可能有下一页（store 已裁剪到 limit，见 ListConversations）。
 func listConversationsHandler(api ConversationsAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		convs, hasMore, err := api.ListConversations(c.Request.Context(), parseLimit(c, 30), parseOffset(c), c.Query("mode"))
+		convs, hasMore, err := api.ListConversations(c.Request.Context(), parseLimit(c, 30), parseOffset(c), c.Query("scenario_id"), c.Query("source"))
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return

@@ -33,7 +33,7 @@ Given this JSON
   "name": {"first": "Tom", "last": "Anderson"},
   "age":37,
   "children": ["Sara","Alex","Jack"],
-  "fav.movie": "Deer Hunter",
+  "fav.movie": "Deer Agent",
   "friends": [
     {"first": "Dale", "last": "Murphy", "age": 44, "nets": ["ig", "fb", "tw"]},
     {"first": "Roger", "last": "Craig", "age": 68, "nets": ["fb", "tw"]},
@@ -74,7 +74,7 @@ c?ildren.0             "Sara"
 Special purpose characters, such as `.`, `*`, and `?` can be escaped with `\`. 
 
 ```go
-fav\.movie             "Deer Hunter"
+fav\.movie             "Deer Agent"
 ```
 
 You'll also need to make sure that the `\` character is correctly escaped when hardcoding a path in your source code.
@@ -106,8 +106,8 @@ friends.#.age         [44,68,47]
 ### Queries
 
 You can also query an array for the first match by  using `#(...)`, or find all matches with `#(...)#`. 
-Queries support the `==`, `!=`, `<`, `<=`, `>`, `>=` comparison operators, 
-and the simple pattern matching `%` (like) and `!%` (not like) operators.
+Queries support the `==`, `!=`, `<`, `<=`, `>`, `>=` comparison executors, 
+and the simple pattern matching `%` (like) and `!%` (not like) executors.
 
 ```go
 friends.#(last=="Murphy").first     "Dale"
@@ -117,7 +117,7 @@ friends.#(first%"D*").last          "Murphy"
 friends.#(first!%"D*").last         "Craig"
 ```
 
-To query for a non-object value in an array, you can forgo the string to the right of the operator.
+To query for a non-object value in an array, you can forgo the string to the right of the executor.
 
 ```go
 children.#(!%"*a*")                 "Alex"
@@ -135,7 +135,7 @@ changed in v1.3.0 as to avoid confusion with the new [multipath](#multipaths)
 syntax. For backwards compatibility, `#[...]` will continue to work until the
 next major release.*
 
-The `~` (tilde) operator will convert a value to a boolean before comparison.
+The `~` (tilde) executor will convert a value to a boolean before comparison.
 
 Supported tilde comparison type are:
 
@@ -276,7 +276,7 @@ Which makes the json pretty and orders all of its keys.
 {
   "age":37,
   "children": ["Sara","Alex","Jack"],
-  "fav.movie": "Deer Hunter",
+  "fav.movie": "Deer Agent",
   "friends": [
     {"age": 44, "first": "Dale", "last": "Murphy"},
     {"age": 68, "first": "Roger", "last": "Craig"},

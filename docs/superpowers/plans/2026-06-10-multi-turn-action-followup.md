@@ -11,11 +11,11 @@
 **Tech Stack:** Go + gin + pgx（后端）；Vue3 + Vite + TS（前端 liusha-ui）。
 
 **关键事实（实现前必读）：**
-- `internal/conversation/store.go`：`GetConversation(ctx,id)→(Conversation,error)`、`AppendMessage(ctx,convID,role,kind,content,metadata)→(Message,error)`、`ListMessages(ctx,convID,afterSeq,limit)`。`Conversation` 有 `ScanID string`（关联的 active_scan）。
+- `internal/conversation/store.go`：`GetConversation(ctx,id)→(Conversation,error)`、`AppendMessage(ctx,convID,role,kind,content,metadata)→(Message,error)`、`ListMessages(ctx,convID,afterSeq,limit)`。`Conversation` 有 `TaskID string`（关联的 active_scan）。
 - `internal/activescan/store.go`：`GetByID`、`Abort(ctx,id,errMsg)`、`Complete(ctx,id)`。Status：`active`/`aborted`/`completed`。**无 Reopen**（本计划 Task 1 加）。
 - `internal/activescan/model.go`：`StatusActive/StatusAborted/StatusCompleted Status`（type Status string）。
-- 动作重跑靠黑板：`internal/builder/hunter/user_prompt.go` 的 `BuildUserPrompt` 注入"该 host 已有 finding（限本 owner）"+ notes/lesson —— 同 owner 新 run 自动看到先前产出，无需重塞 LLM 上下文。
-- `cmd/api/main.go` 的 `activeScanAdapter`（约 290 行起）有字段 `activeScans/tasks/enq/audit/conversations/roles`，方法 `createScan(ctx,brief,convID,scenarioID)→(scanID,hunterID,error)` 负责建 active_scan + hunter run + 入 asynq（`worker.RoleHunter`，`worker.Payload{HunterID,OwnerType:owner.Active,OwnerID,ConversationID,ScenarioID,Input}`，`asynq.MaxRetry(0)`）。
+- 动作重跑靠黑板：`internal/builder/agent/user_prompt.go` 的 `BuildUserPrompt` 注入"该 host 已有 finding（限本 owner）"+ notes/lesson —— 同 owner 新 run 自动看到先前产出，无需重塞 LLM 上下文。
+- `cmd/api/main.go` 的 `activeScanAdapter`（约 290 行起）有字段 `activeScans/tasks/enq/audit/conversations/roles`，方法 `createScan(ctx,brief,convID,scenarioID)→(taskID,agentID,error)` 负责建 active_scan + agent run + 入 asynq（`worker.RoleAgent`，`worker.Payload{AgentID,OwnerType:owner.Active,OwnerID,ConversationID,ScenarioID,Input}`，`asynq.MaxRetry(0)`）。
 - httpapi 路由注册在 `internal/httpapi/server.go`，`Conversations`/`Chat` 等接口经 `Deps` 注入；对话路由在 `if d.Conversations != nil { ... }` 块内。
 - 全局鉴权 `RequireAPIKey`（auth.go）已覆盖所有非 /healthz、/dev-config.json 路由。
 - 前端 liusha-ui：`src/api/client.ts`（`startChat`/`listMessages` 等，带 X-API-Key）、`src/App.vue`（`open(convID)` 切换+订阅）、`src/components/Composer.vue`（输入+`startChat`→emit started）、`src/components/ConversationList.vue`。
@@ -81,12 +81,12 @@ git commit -m "feat(activescan): Reopen 方法（终态→active，供动作续�
 **Files:**
 - Modify: `cmd/api/main.go`（`activeScanAdapter` 加方法；可能新增 `activeScans` 接口的 Reopen）
 
-把 createScan 里"入 asynq 队列"那段复用：FollowUpScan 不新建 active_scan，而是 Reopen 现有 scan + 建 hunter run + 入队（brief=追加消息）。
+把 createScan 里"入 asynq 队列"那段复用：FollowUpScan 不新建 active_scan，而是 Reopen 现有 scan + 建 agent run + 入队（brief=追加消息）。
 
 - [ ] **Step 1: 看 createScan 全文确认入队片段**
 
 Run: `sed -n '315,384p' cmd/api/main.go`
-Expected: 看到 `a.activeScans.Create` → `a.tasks.Create(... Role:"orchestrator" ...)` → `a.enq.Enqueue(... worker.Payload{...} ..., asynq.MaxRetry(0))`。
+Expected: 看到 `a.activeScans.Create` → `a.tasks.Create(... Role:"planner" ...)` → `a.enq.Enqueue(... worker.Payload{...} ..., asynq.MaxRetry(0))`。
 
 - [ ] **Step 2: 确认 activeScans 字段类型有 Reopen**
 
@@ -97,11 +97,11 @@ Expected: 看到 `a.activeScans.Create` → `a.tasks.Create(... Role:"orchestrat
 在 `cmd/api/main.go` 的 `activeScanAdapter` 方法区（createScan 之后）加：
 
 ```go
-// FollowUpScan 在已有 active_scan 上发起一次续接 run（多轮动作）：重开 scan + 建 hunter run +
-// 入队（brief=追加消息）。复用 owner 作用域黑板——新 orchestrator 经 BuildUserPrompt 看到先前 finding/notes。
-// 入队 Payload 与 createScan 同构，仅 OwnerID 复用传入 scanID、不新建 active_scan。
-func (a *activeScanAdapter) FollowUpScan(ctx context.Context, scanID, conversationID, scenarioID, brief string) (string, error) {
-	if err := a.activeScans.Reopen(ctx, scanID); err != nil {
+// FollowUpScan 在已有 active_scan 上发起一次续接 run（多轮动作）：重开 scan + 建 agent run +
+// 入队（brief=追加消息）。复用 owner 作用域黑板——新 planner 经 BuildUserPrompt 看到先前 finding/notes。
+// 入队 Payload 与 createScan 同构，仅 OwnerID 复用传入 taskID、不新建 active_scan。
+func (a *activeScanAdapter) FollowUpScan(ctx context.Context, taskID, conversationID, scenarioID, brief string) (string, error) {
+	if err := a.activeScans.Reopen(ctx, taskID); err != nil {
 		return "", fmt.Errorf("reopen scan: %w", err)
 	}
 	body, err := json.Marshal(map[string]string{"brief": brief})
@@ -112,19 +112,19 @@ func (a *activeScanAdapter) FollowUpScan(ctx context.Context, scanID, conversati
 	if err != nil {
 		return "", fmt.Errorf("marshal payload: %w", err)
 	}
-	tid, err := a.tasks.Create(ctx, hunter.NewParams{
+	tid, err := a.tasks.Create(ctx, agent.NewParams{
 		OwnerType: owner.Active,
-		OwnerID:   scanID,
-		Role:      "orchestrator",
+		OwnerID:   taskID,
+		Role:      "planner",
 		Input:     payloadInput,
 	})
 	if err != nil {
-		return "", fmt.Errorf("create hunter run: %w", err)
+		return "", fmt.Errorf("create agent run: %w", err)
 	}
-	if _, _, err := a.enq.Enqueue(ctx, worker.RoleHunter, worker.Payload{
-		HunterID:       tid,
+	if _, _, err := a.enq.Enqueue(ctx, worker.RoleAgent, worker.Payload{
+		AgentID:       tid,
 		OwnerType:      owner.Active,
-		OwnerID:        scanID,
+		OwnerID:        taskID,
 		ConversationID: conversationID,
 		ScenarioID:     scenarioID,
 		Input:          payloadInput,
@@ -165,27 +165,27 @@ git commit -m "feat(api): activeScanAdapter.FollowUpScan（同一 scan 重开+�
 
 ```go
 type fakeFollowUp struct {
-	convID, scanID, status string
+	convID, taskID, status string
 	calledBrief            string
 }
 
-func (f *fakeFollowUp) GetConversationScan(_ context.Context, convID string) (scanID, scanStatus string, err error) {
+func (f *fakeFollowUp) GetConversationScan(_ context.Context, convID string) (taskID, scanStatus string, err error) {
 	if convID != f.convID {
 		return "", "", errNotFound
 	}
-	return f.scanID, f.status, nil
+	return f.taskID, f.status, nil
 }
 func (f *fakeFollowUp) AppendUserMessage(_ context.Context, _, _ string) error { return nil }
-func (f *fakeFollowUp) FollowUpScan(_ context.Context, scanID, convID, scenarioID, brief string) (string, error) {
+func (f *fakeFollowUp) FollowUpScan(_ context.Context, taskID, convID, scenarioID, brief string) (string, error) {
 	f.calledBrief = brief
-	return "hunter-1", nil
+	return "agent-1", nil
 }
 
 var errNotFound = fmt.Errorf("not found")
 
 func TestFollowUpHandler_IdleScan_TriggersRun(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	fu := &fakeFollowUp{convID: "c1", scanID: "s1", status: "completed"}
+	fu := &fakeFollowUp{convID: "c1", taskID: "s1", status: "completed"}
 	r := gin.New()
 	r.POST("/conversations/:id/messages", followUpHandler(fu))
 
@@ -204,7 +204,7 @@ func TestFollowUpHandler_IdleScan_TriggersRun(t *testing.T) {
 
 func TestFollowUpHandler_BusyScan_409(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	fu := &fakeFollowUp{convID: "c1", scanID: "s1", status: "active"}
+	fu := &fakeFollowUp{convID: "c1", taskID: "s1", status: "active"}
 	r := gin.New()
 	r.POST("/conversations/:id/messages", followUpHandler(fu))
 	req := httptest.NewRequest("POST", "/conversations/c1/messages", strings.NewReader(`{"content":"再测下"}`))
@@ -227,12 +227,12 @@ Expected: FAIL（followUpHandler/FollowUpAPI 未定义）
 ```go
 // FollowUpAPI 是多轮动作续接的窄接口（cmd/api 注入 adapter 实现）。
 type FollowUpAPI interface {
-	// GetConversationScan 返回对话关联的 scanID 与该 scan 当前状态。
-	GetConversationScan(ctx context.Context, convID string) (scanID, scanStatus string, err error)
+	// GetConversationScan 返回对话关联的 taskID 与该 scan 当前状态。
+	GetConversationScan(ctx context.Context, convID string) (taskID, scanStatus string, err error)
 	// AppendUserMessage 把用户追加消息落库（KindMessage / RoleUser）。
 	AppendUserMessage(ctx context.Context, convID, content string) error
-	// FollowUpScan 在已有 scan 上重开+入队续接 run，返回 hunterID。
-	FollowUpScan(ctx context.Context, scanID, convID, scenarioID, brief string) (string, error)
+	// FollowUpScan 在已有 scan 上重开+入队续接 run，返回 agentID。
+	FollowUpScan(ctx context.Context, taskID, convID, scenarioID, brief string) (string, error)
 }
 
 // FollowUpRequest 是 POST /conversations/:id/messages 请求体。
@@ -249,7 +249,7 @@ func followUpHandler(api FollowUpAPI) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "content 不能为空"})
 			return
 		}
-		scanID, status, err := api.GetConversationScan(c.Request.Context(), convID)
+		taskID, status, err := api.GetConversationScan(c.Request.Context(), convID)
 		if err != nil {
 			c.JSON(http.StatusNotFound, gin.H{"error": "conversation 不存在"})
 			return
@@ -263,11 +263,11 @@ func followUpHandler(api FollowUpAPI) gin.HandlerFunc {
 			c.JSON(http.StatusConflict, gin.H{"error": "扫描进行中，停止后再发", "busy": true})
 			return
 		}
-		if _, err := api.FollowUpScan(c.Request.Context(), scanID, convID, "", req.Content); err != nil {
+		if _, err := api.FollowUpScan(c.Request.Context(), taskID, convID, "", req.Content); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-		c.JSON(http.StatusOK, gin.H{"intent": "action", "scan_id": scanID})
+		c.JSON(http.StatusOK, gin.H{"intent": "action", "scan_id": taskID})
 	}
 }
 ```
@@ -305,14 +305,14 @@ func (a *activeScanAdapter) GetConversationScan(ctx context.Context, convID stri
 	if err != nil {
 		return "", "", err
 	}
-	if conv.ScanID == "" {
+	if conv.TaskID == "" {
 		return "", "", fmt.Errorf("conversation 无关联 scan")
 	}
-	sc, err := a.activeScans.GetByID(ctx, conv.ScanID)
+	sc, err := a.activeScans.GetByID(ctx, conv.TaskID)
 	if err != nil {
 		return "", "", err
 	}
-	return conv.ScanID, string(sc.Status), nil
+	return conv.TaskID, string(sc.Status), nil
 }
 
 // AppendUserMessage 满足 httpapi.FollowUpAPI：落用户追加消息。
@@ -416,10 +416,10 @@ func (a *activeScanAdapter) AbortConversationScan(ctx context.Context, convID st
 	if err != nil {
 		return err
 	}
-	if conv.ScanID == "" {
+	if conv.TaskID == "" {
 		return fmt.Errorf("conversation 无关联 scan")
 	}
-	return a.activeScans.Abort(ctx, conv.ScanID, "用户停止")
+	return a.activeScans.Abort(ctx, conv.TaskID, "用户停止")
 }
 ```
 
@@ -671,8 +671,8 @@ git commit -m "feat(ui): 多轮装配（Composer 追加/新建、新对话按钮
 
 1. Go 仓重启服务（`./scripts/dev/run-svc.sh`，已含 cookie secret）。
 2. liusha-ui `VITE_API_TARGET=http://localhost:8090 pnpm dev`，开 5173 登入。
-3. 选场景发起一次扫描 → 等它跑完（orchestrator done）。
-4. 在**同一对话**输入框追加"深挖刚才那个漏洞" → 应触发**同一 scan** 上的新 run（DB：`SELECT count(*) FROM hunter WHERE owner_id=<scanID>` 增加；active_scan 状态回 active 再 completed）；新 run 经 BuildUserPrompt 能看到上一轮 finding。
+3. 选场景发起一次扫描 → 等它跑完（planner done）。
+4. 在**同一对话**输入框追加"深挖刚才那个漏洞" → 应触发**同一 scan** 上的新 run（DB：`SELECT count(*) FROM agent WHERE owner_id=<taskID>` 增加；active_scan 状态回 active 再 completed）；新 run 经 BuildUserPrompt 能看到上一轮 finding。
 5. 扫描进行中再追加 → 前端提示"扫描进行中，先点停止再发"；点「停止扫描」→ 当前 run 被 cancel（active_scan→aborted）。
 6. 点「+ 新对话」→ 清空，回新建模式。
 
@@ -689,4 +689,4 @@ git commit -m "feat(ui): 多轮装配（Composer 追加/新建、新对话按钮
 
 - 意图路由（action/qa 分流）+ 问答路径（读黑板回答）
 - 动作排队（忙时自动 pending + 当前 run 完成自动调度）——本计划忙时直接 409
-- 对话历史 user 消息注入 orchestrator（本计划 brief 仅新消息，靠黑板当记忆）
+- 对话历史 user 消息注入 planner（本计划 brief 仅新消息，靠黑板当记忆）

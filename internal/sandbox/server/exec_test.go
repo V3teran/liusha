@@ -44,7 +44,7 @@ func TestHandleExec_Timeout_KillsProcessGroup(t *testing.T) {
 	defer ts.Close()
 
 	body, err := json.Marshal(sandbox.ExecRequest{
-		HunterID:       "test-kill-pg",
+		ExecutorID:       "test-kill-pg",
 		Command:        "sleep 100 | tail",
 		TimeoutSeconds: 1,
 		Tag:            "kill-pg",
@@ -86,7 +86,7 @@ func TestHandleExec_Timeout_KillsProcessGroup(t *testing.T) {
 // sh 立即退出（exit 0），但孤儿子进程继续持有 stdout pipe writer end。cmd.Wait() 会一直等
 // stdio copy goroutine 退出（即子进程自然结束）才返回。真实场景 http.server 永不退 →
 // handleExec 挂到 client 31min timeout（"Client.Timeout exceeded while awaiting headers"）→
-// run_command 报错 → 整个 active run abort（logs/scanner.local.log 实测 tag=test-rfi-http-server）。
+// run_command 报错 → 整个 active run abort（logs/runner.local.log 实测 tag=test-rfi-http-server）。
 //
 // 仅靠进程组 SIGKILL（TestHandleExec_Timeout_KillsProcessGroup）救不了本例：子进程 `&` 后台化
 // 且这里 timeout 远未到、根本不触发 cmd.Cancel。修复靠 cmd.WaitDelay：进程退出/ctx 取消起算，
@@ -106,7 +106,7 @@ func TestHandleExec_BackgroundOrphan_DoesNotHangPastWaitDelay(t *testing.T) {
 	// `sleep 30 &`：sh 后台启子进程后立即退出，但 sleep 持有 stdout pipe 30s。
 	// timeout 60s 远大于 sleep → cmdCtx 不触发，纯靠 WaitDelay 兜底。
 	body, err := json.Marshal(sandbox.ExecRequest{
-		HunterID:       "test-bg-orphan",
+		ExecutorID:       "test-bg-orphan",
 		Command:        "sleep 30 &",
 		TimeoutSeconds: 60,
 		Tag:            "bg-orphan",
@@ -147,7 +147,7 @@ func TestHandleExec_Normal_Succeeds(t *testing.T) {
 	defer ts.Close()
 
 	body, err := json.Marshal(sandbox.ExecRequest{
-		HunterID:       "test-baseline",
+		ExecutorID:       "test-baseline",
 		Command:        "echo hello && echo err >&2",
 		TimeoutSeconds: 5,
 		Tag:            "baseline",
@@ -181,8 +181,8 @@ func TestHandleExec_Normal_Succeeds(t *testing.T) {
 	}
 }
 
-// TestHandleExec_HunterIDValidation 验证 HunterID 必填 + path-safe 字符集（防 path traversal）。
-func TestHandleExec_HunterIDValidation(t *testing.T) {
+// TestHandleExec_ExecutorIDValidation 验证 ExecutorID 必填 + path-safe 字符集（防 path traversal）。
+func TestHandleExec_ExecutorIDValidation(t *testing.T) {
 	setupTestRoots(t)
 	srv := New()
 	ts := httptest.NewServer(srv.mux)
@@ -190,7 +190,7 @@ func TestHandleExec_HunterIDValidation(t *testing.T) {
 
 	cases := []struct {
 		name     string
-		hunterID string
+		agentID string
 	}{
 		{"empty", ""},
 		{"path traversal", "../etc"},
@@ -202,7 +202,7 @@ func TestHandleExec_HunterIDValidation(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			body, _ := json.Marshal(sandbox.ExecRequest{
-				HunterID:       c.hunterID,
+				ExecutorID:       c.agentID,
 				Command:        "echo x",
 				TimeoutSeconds: 5,
 				Tag:            "validate",
@@ -213,7 +213,7 @@ func TestHandleExec_HunterIDValidation(t *testing.T) {
 			}
 			resp.Body.Close()
 			if resp.StatusCode != http.StatusBadRequest {
-				t.Errorf("HunterID=%q expect 400 got %d", c.hunterID, resp.StatusCode)
+				t.Errorf("ExecutorID=%q expect 400 got %d", c.agentID, resp.StatusCode)
 			}
 		})
 	}
@@ -222,17 +222,17 @@ func TestHandleExec_HunterIDValidation(t *testing.T) {
 // TestHandleExec_PerTaskIsolation 验证 2 个 task 写到 OUTPUT_DIR 的文件互不可见。
 //
 // task-a 写 a.txt；task-b 写 b.txt；task-a 再扫描时只看到 a.txt。
-// 模拟 subtask swarm orchestrator / exploitation 并发场景的核心隔离不变量。
+// 模拟 subtask swarm planner / exploitation 并发场景的核心隔离不变量。
 func TestHandleExec_PerTaskIsolation(t *testing.T) {
 	setupTestRoots(t)
 	srv := New()
 	ts := httptest.NewServer(srv.mux)
 	defer ts.Close()
 
-	post := func(t *testing.T, hunterID, cmd string) sandbox.ExecResult {
+	post := func(t *testing.T, agentID, cmd string) sandbox.ExecResult {
 		t.Helper()
 		body, _ := json.Marshal(sandbox.ExecRequest{
-			HunterID:       hunterID,
+			ExecutorID:       agentID,
 			Command:        cmd,
 			TimeoutSeconds: 5,
 			Tag:            "isolation",

@@ -257,7 +257,7 @@ func (self *Parser) unit(nest int, repo Repository) (*Expr, error) {
 	} else if tk.tag == _T_punc && tk.u64 == '~' {
 		return not2(self.unit(nest, repo))
 	} else {
-		return nil, newSyntaxError(tk.pos, "integer, unary operator or nested expression expected")
+		return nil, newSyntaxError(tk.pos, "integer, unary executor or nested expression expected")
 	}
 }
 
@@ -270,7 +270,7 @@ func (self *Parser) term(prec int, nest int, repo Repository) (*Expr, error) {
 		return nil, err
 	}
 
-	/* parse all the operators of the same precedence */
+	/* parse all the executors of the same precedence */
 	for {
 		var op int
 		var rv *Expr
@@ -290,12 +290,12 @@ func (self *Parser) term(prec int, nest int, repo Repository) (*Expr, error) {
 			return val, nil
 		}
 
-		/* must be an operator */
+		/* must be an executor */
 		if tk.tag != _T_punc {
-			return nil, newSyntaxError(tk.pos, "operators expected")
+			return nil, newSyntaxError(tk.pos, "executors expected")
 		}
 
-		/* check for the operator precedence */
+		/* check for the executor precedence */
 		if op = int(tk.u64); !precedence[prec][op] {
 			self.pos = pp
 			return val, nil

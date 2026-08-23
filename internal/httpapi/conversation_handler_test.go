@@ -17,7 +17,7 @@ import (
 
 type fakeChat struct{}
 
-func (fakeChat) StartChatScan(_ context.Context, brief, roleID string) (string, string, error) {
+func (fakeChat) StartChatScan(_ context.Context, brief, scenarioID string) (string, string, error) {
 	return "conv-abc", "scan-xyz", nil
 }
 
@@ -27,7 +27,7 @@ func TestChatHandler_SetsStreamCookie(t *testing.T) {
 	r := gin.New()
 	r.POST("/chat", chatHandler(fakeChat{}, secret, true))
 
-	req := httptest.NewRequest("POST", "/chat", strings.NewReader(`{"brief":"扫这个","role_id":"web-pentest"}`))
+	req := httptest.NewRequest("POST", "/chat", strings.NewReader(`{"brief":"扫这个","scenario_id":"web-pentest"}`))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
@@ -56,14 +56,16 @@ func TestChatHandler_SetsStreamCookie(t *testing.T) {
 }
 
 type fakeFollowUp struct {
-	convID       string
-	calledBrief  string
-	handleIntent string
-	handleBusy   bool
+	convID         string
+	calledBrief    string
+	calledScenario string
+	handleIntent   string
+	handleBusy     bool
 }
 
-func (f *fakeFollowUp) HandleMessage(_ context.Context, convID, content string) (string, bool, error) {
+func (f *fakeFollowUp) HandleMessage(_ context.Context, convID, scenarioID, content string) (string, bool, error) {
 	f.calledBrief = content
+	f.calledScenario = scenarioID
 	return f.handleIntent, f.handleBusy, nil
 }
 
@@ -170,18 +172,19 @@ func TestDeleteHandler_OK_200(t *testing.T) {
 	}
 }
 
-// fakeConversations 满足 ConversationsAPI，记录 ListConversations 收到的 limit/offset/mode。
+// fakeConversations 满足 ConversationsAPI，记录 ListConversations 收到的 limit/offset/scenarioID。
 type fakeConversations struct {
 	gotLimit, gotOffset int
-	gotMode             string
+	gotScenarioID       string
+	gotSource           string
 	convs               []conversation.Conversation
 	hasMore             bool
 	getMessageResult    conversation.Message
 	getMessageErr       error
 }
 
-func (f *fakeConversations) ListConversations(_ context.Context, limit, offset int, mode string) ([]conversation.Conversation, bool, error) {
-	f.gotLimit, f.gotOffset, f.gotMode = limit, offset, mode
+func (f *fakeConversations) ListConversations(_ context.Context, limit, offset int, scenarioID, source string) ([]conversation.Conversation, bool, error) {
+	f.gotLimit, f.gotOffset, f.gotScenarioID, f.gotSource = limit, offset, scenarioID, source
 	return f.convs, f.hasMore, nil
 }
 
@@ -236,24 +239,40 @@ func TestListConversationsHandler_DefaultOffsetZero(t *testing.T) {
 	if fc.gotLimit != 30 {
 		t.Errorf("未传 limit 应默认 30，得 %d", fc.gotLimit)
 	}
-	if fc.gotMode != "" {
-		t.Errorf("未传 mode 应默认空（不过滤），得 %q", fc.gotMode)
+	if fc.gotScenarioID != "" {
+		t.Errorf("未传 scenario_id 应默认空（不过滤），得 %q", fc.gotScenarioID)
 	}
 }
 
-// TestListConversationsHandler_ModeFilterPassedToStore：mode query 透传给 store，
+// TestListConversationsHandler_ScenarioFilterPassedToStore：scenario_id query 透传给 store，
 // 分页边界必须建立在过滤后的集合上（否则页码与实际条数会错位）。
-func TestListConversationsHandler_ModeFilterPassedToStore(t *testing.T) {
+func TestListConversationsHandler_ScenarioFilterPassedToStore(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	fc := &fakeConversations{}
 	r := gin.New()
 	r.GET("/conversations", listConversationsHandler(fc))
-	req := httptest.NewRequest("GET", "/conversations?mode=passive", nil)
+	req := httptest.NewRequest("GET", "/conversations?scenario_id=traffic-analysis", nil)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
-	if fc.gotMode != "passive" {
-		t.Errorf("mode=passive 应透传给 store，得 %q", fc.gotMode)
+	if fc.gotScenarioID != "traffic-analysis" {
+		t.Errorf("scenario_id=traffic-analysis 应透传给 store，得 %q", fc.gotScenarioID)
+	}
+}
+
+// TestListConversationsHandler_SourceFilterPassedToStore：source query 透传给 store，
+// 供前端「主动下发 / 被动代理」双 tab 按来源分流（manual/auto）。
+func TestListConversationsHandler_SourceFilterPassedToStore(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	fc := &fakeConversations{}
+	r := gin.New()
+	r.GET("/conversations", listConversationsHandler(fc))
+	req := httptest.NewRequest("GET", "/conversations?source=auto", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if fc.gotSource != "auto" {
+		t.Errorf("source=auto 应透传给 store，得 %q", fc.gotSource)
 	}
 }
 

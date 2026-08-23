@@ -32,9 +32,9 @@ func NewStore(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
 // 0059 加 depends_on uuid[]（组合漏洞依赖：c.depends_on = [a.id, b.id]）。
 // 0081 加 status / triage_note / triaged_at（triage 处置态）。
 const colsSelect = "id, task_id::text AS task_id, " +
-	"hunter_id, source_traffic_id, host, severity, summary, target, evidence, " +
+	"agent_run_id, source_traffic_id, host, severity, summary, target, evidence, " +
 	"COALESCE(cwe_id, ''), COALESCE(owasp_category, ''), first_seen_at, COALESCE(remediation, ''), " +
-	"depends_on::text[], status, COALESCE(triage_note, ''), triaged_at, created_at"
+	"depends_on::text[], status, COALESCE(triage_note, ''), triaged_at, created_at, seq, repro"
 
 // Save 永远 INSERT 一行新 finding（append-only）。
 //
@@ -64,7 +64,7 @@ func (s *Store) Save(ctx context.Context, f VulnFinding) (VulnFinding, error) {
 
 	// 0074 UNIQUE(task_id, dedup_key) — dedup_key 是 PG generated column（host + summary 前 60 字，
 	// 宁可误判不漏判），单次扫描（task）内去重。
-	// orchestrator / exploitation agent 并发写同一漏洞时，ON CONFLICT 保留首个写入（first_seen_at 取较早），后续 dup
+	// planner / exploitation agent 并发写同一漏洞时，ON CONFLICT 保留首个写入（first_seen_at 取较早），后续 dup
 	// 不报错而是返回 existing 行——LLM 视角 Save 始终幂等成功，dedup 在 DB 层无声完成。
 	// depends_on 是 uuid[]，empty slice → DEFAULT '{}'（PG 数组默认值）
 	deps := f.DependsOn
@@ -73,16 +73,16 @@ func (s *Store) Save(ctx context.Context, f VulnFinding) (VulnFinding, error) {
 	}
 	row := tx.QueryRow(ctx, `
 		INSERT INTO finding
-			(task_id, hunter_id, source_traffic_id, host, severity, summary, target, evidence,
-			 cwe_id, owasp_category, remediation, depends_on)
-		VALUES ($1::uuid, $2,$3,$4,$5,$6,$7,$8, NULLIF($9,''), NULLIF($10,''), NULLIF($11,''), $12::uuid[])
+			(task_id, agent_run_id, source_traffic_id, host, severity, summary, target, evidence,
+			 cwe_id, owasp_category, remediation, depends_on, repro)
+		VALUES ($1::uuid, $2,$3,$4,$5,$6,$7,$8, NULLIF($9,''), NULLIF($10,''), NULLIF($11,''), $12::uuid[], $13)
 		ON CONFLICT (task_id, dedup_key) DO UPDATE
 		SET first_seen_at = LEAST(finding.first_seen_at, EXCLUDED.first_seen_at)
 		RETURNING `+colsSelect,
 		f.TaskID,
-		f.HunterID, f.SourceTrafficID, f.Host, f.Severity,
+		f.ExecutorID, f.SourceTrafficID, f.Host, f.Severity,
 		f.Summary, f.Target, f.Evidence,
-		f.CWEID, f.OWASPCategory, f.Remediation, deps)
+		f.CWEID, f.OWASPCategory, f.Remediation, deps, f.Repro)
 
 	var saved VulnFinding
 	if err := scan(row, &saved); err != nil {
@@ -94,8 +94,8 @@ func (s *Store) Save(ctx context.Context, f VulnFinding) (VulnFinding, error) {
 	}
 
 	// dup 命中：DB 层把后续重复写无声合并到已有行；saved 是 existing 行内容。
-	// hunter_id 不会被覆盖（DO UPDATE 只动 first_seen_at），所以 saved.HunterID 反映首次写入者。
-	dedupHit := f.HunterID != nil && saved.HunterID != nil && *f.HunterID != *saved.HunterID
+	// agent_run_id 不会被覆盖（DO UPDATE 只动 first_seen_at），所以 saved.ExecutorID 反映首次写入者。
+	dedupHit := f.ExecutorID != nil && saved.ExecutorID != nil && *f.ExecutorID != *saved.ExecutorID
 	ev := findingLog.Info()
 	if dedupHit {
 		ev = ev.Bool("dedup_hit", true)
@@ -265,31 +265,29 @@ func (s *Store) ListByHost(ctx context.Context, host string, limit int) ([]VulnF
 	return out, rows.Err()
 }
 
-// LedgerRow 是全局漏洞台账的一行：finding 主体 + JOIN task 派生的 Mode（active/passive）。
-// 漏洞管理页跨 task/host 全量展示用，区别于 per-task 的 VulnFinding 列表。
+// LedgerRow 是全局漏洞台账的一行：finding 主体 + JOIN task/assignment 派生的 ScenarioID / Source。
+// 漏洞页跨 task/host 全量展示用，区别于 per-task 的 VulnFinding 列表。
 type LedgerRow struct {
 	VulnFinding
-	Mode string // 关联 task 的 mode：active / passive
+	ScenarioID string // 关联 task 的 scenario_id
+	Source     string // 关联 assignment 的 source（manual 主动下发 / auto 被动代理）
 }
 
-// LedgerFilter 是台账查询的可选筛选（零值=不筛该维度）。
+// LedgerFilter 是台账查询的可选筛选（零值=不筛该维度）+ 分页。
+// Limit<=0 时 ListAll 不分页（历史行为，内部调用方/测试用）；handler 层始终传 >0。
 type LedgerFilter struct {
-	Host     string
-	Severity string
-	Status   string
-	Mode     string
-	Limit    int
+	Host       string
+	Severity   string
+	Status     string
+	ScenarioID string
+	Source     string // manual / auto（下发来源）
+	Limit      int
+	Offset     int
 }
 
-// ListAll 全局漏洞台账查询：跨 task/host 平铺列出漏洞，JOIN task 带出 mode，按可选维度筛选。
-//
-// 修复历史缺陷：漏洞管理页原走 /sitemap（仅 active），passive 漏洞（占多数）不可见。
-// 本方法不受 task/mode 作用域约束，active + passive 一网打尽，按 created_at desc 排序。
-//
-// 不做去重聚合：漏洞按「每次扫描各自独立」建模——同一个洞被多次扫描就是多条独立 finding，
-// 各自有各自的 triage 处置态，互不影响。台账平铺全部，不折叠。
-func (s *Store) ListAll(ctx context.Context, f LedgerFilter) ([]LedgerRow, error) {
-	where := make([]string, 0, 4)
+// ledgerWhere 拼 LedgerFilter 的 WHERE 子句（ListAll / CountAll 共用，防筛选口径漂移）。
+func ledgerWhere(f LedgerFilter) (string, []any) {
+	where := make([]string, 0, 5)
 	args := make([]any, 0, 5)
 	idx := 1
 	add := func(clause string, val any) {
@@ -306,19 +304,35 @@ func (s *Store) ListAll(ctx context.Context, f LedgerFilter) ([]LedgerRow, error
 	if f.Status != "" {
 		add("f.status = $%d", f.Status)
 	}
-	if f.Mode != "" {
-		add("t.mode = $%d", f.Mode)
+	if f.ScenarioID != "" {
+		add("t.scenario_id = $%d", f.ScenarioID)
 	}
+	if f.Source != "" {
+		add("a.source = $%d", f.Source)
+	}
+	if len(where) == 0 {
+		return "", args
+	}
+	return " WHERE " + strings.Join(where, " AND "), args
+}
 
-	q := `SELECT ` + ledgerCols + `, t.mode
-		FROM finding f JOIN task t ON t.id = f.task_id`
-	if len(where) > 0 {
-		q += " WHERE " + strings.Join(where, " AND ")
-	}
-	q += " ORDER BY f.created_at DESC"
+// ListAll 全局漏洞台账查询：跨 task/host 平铺列出漏洞，JOIN task/assignment 带出 scenario_id 与 source，按可选维度筛选。
+//
+// 本方法不受 task/scenario 作用域约束，跨场景一网打尽，按 seq desc 排序（对外顺序号倒序，最新发现优先，
+// 且是全局单调序，不会像 created_at 那样同批写入并列时出现顺序不稳定）。
+// Limit>0 时分页（Offset 配合翻页）；Limit<=0 时不限（历史全量口径，内部调用方用）。
+//
+// 不做去重聚合：漏洞按「每次扫描各自独立」建模——同一个洞被多次扫描就是多条独立 finding，
+// 各自有各自的 triage 处置态，互不影响。台账平铺全部，不折叠。
+func (s *Store) ListAll(ctx context.Context, f LedgerFilter) ([]LedgerRow, error) {
+	where, args := ledgerWhere(f)
+	q := `SELECT ` + ledgerCols + `, t.scenario_id, a.source
+		FROM finding f
+		JOIN task t ON t.id = f.task_id
+		JOIN assignment a ON a.id = t.assignment_id` +
+		where + " ORDER BY f.seq DESC"
 	if f.Limit > 0 {
-		q += fmt.Sprintf(" LIMIT $%d", idx)
-		args = append(args, f.Limit)
+		q += fmt.Sprintf(" LIMIT %d OFFSET %d", f.Limit, f.Offset)
 	}
 
 	rows, err := s.pool.Query(ctx, q, args...)
@@ -336,6 +350,56 @@ func (s *Store) ListAll(ctx context.Context, f LedgerFilter) ([]LedgerRow, error
 		out = append(out, r)
 	}
 	return out, rows.Err()
+}
+
+// DistinctHosts 返回 finding 表全量 distinct host（供筛选下拉，不受分页/筛选影响）。
+func (s *Store) DistinctHosts(ctx context.Context) ([]string, error) {
+	rows, err := s.pool.Query(ctx, "SELECT DISTINCT host FROM finding ORDER BY host")
+	if err != nil {
+		return nil, fmt.Errorf("distinct finding hosts: %w", err)
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var h string
+		if err := rows.Scan(&h); err != nil {
+			return nil, fmt.Errorf("scan host: %w", err)
+		}
+		out = append(out, h)
+	}
+	return out, rows.Err()
+}
+
+// DistinctScenarios 返回台账全量 distinct scenario_id（JOIN task；供筛选下拉）。
+func (s *Store) DistinctScenarios(ctx context.Context) ([]string, error) {
+	rows, err := s.pool.Query(ctx,
+		`SELECT DISTINCT t.scenario_id FROM finding f JOIN task t ON t.id = f.task_id ORDER BY t.scenario_id`)
+	if err != nil {
+		return nil, fmt.Errorf("distinct finding scenarios: %w", err)
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var sc string
+		if err := rows.Scan(&sc); err != nil {
+			return nil, fmt.Errorf("scan scenario_id: %w", err)
+		}
+		out = append(out, sc)
+	}
+	return out, rows.Err()
+}
+
+// CountAll 返回同筛选口径下的全局总行数（分页 total；忽略 Limit/Offset）。
+func (s *Store) CountAll(ctx context.Context, f LedgerFilter) (int, error) {
+	where, args := ledgerWhere(f)
+	q := `SELECT count(*) FROM finding f
+		JOIN task t ON t.id = f.task_id
+		JOIN assignment a ON a.id = t.assignment_id` + where
+	var n int
+	if err := s.pool.QueryRow(ctx, q, args...).Scan(&n); err != nil {
+		return 0, fmt.Errorf("count all findings: %w", err)
+	}
+	return n, nil
 }
 
 // UpdateTriage 人工处置一条 finding：状态 + 严重度 + 备注，triaged_at 打当前时刻，RETURNING 更新后的行。
@@ -381,31 +445,31 @@ func validStatus(s string) bool {
 // ledgerCols 是台账 JOIN 查询的列序（= colsSelect 但每列显式加 f. 前缀）。
 // 不用程序化前缀：colsSelect 含 COALESCE(...) / depends_on::text[] 等内部带逗号的表达式，
 // 按 ", " 切分会劈碎；且 JOIN task 后 id/status/created_at 列名歧义，必须 f. 限定。
-// 与 colsSelect 手工对齐；scanLedger 列序 = 本常量 + 末尾 mode。
+// 与 colsSelect 手工对齐；scanLedger 列序 = 本常量 + 末尾 scenario_id, source。
 const ledgerCols = "f.id, f.task_id::text AS task_id, " +
-	"f.hunter_id, f.source_traffic_id, f.host, f.severity, f.summary, f.target, f.evidence, " +
+	"f.agent_run_id, f.source_traffic_id, f.host, f.severity, f.summary, f.target, f.evidence, " +
 	"COALESCE(f.cwe_id, ''), COALESCE(f.owasp_category, ''), f.first_seen_at, COALESCE(f.remediation, ''), " +
-	"f.depends_on::text[], f.status, COALESCE(f.triage_note, ''), f.triaged_at, f.created_at"
+	"f.depends_on::text[], f.status, COALESCE(f.triage_note, ''), f.triaged_at, f.created_at, f.seq, f.repro"
 
-// scanLedger 扫 ledgerCols 列序 + 末尾 mode（比 scan() 多一列 mode）。
+// scanLedger 扫 ledgerCols 列序 + 末尾 scenario_id, source（比 scan() 多两列）。
 func scanLedger(r scanner, out *LedgerRow) error {
-	var hunterID *string
+	var agentID *string
 	var sourceTrafficID *int64
 	var dependsOn []string
 	var triagedAt *time.Time
 	if err := r.Scan(
 		&out.ID, &out.TaskID,
-		&hunterID, &sourceTrafficID, &out.Host, &out.Severity,
+		&agentID, &sourceTrafficID, &out.Host, &out.Severity,
 		&out.Summary, &out.Target, &out.Evidence,
 		&out.CWEID, &out.OWASPCategory, &out.FirstSeenAt, &out.Remediation,
 		&dependsOn,
 		&out.Status, &out.TriageNote, &triagedAt,
-		&out.CreatedAt,
-		&out.Mode,
+		&out.CreatedAt, &out.Seq, &out.Repro,
+		&out.ScenarioID, &out.Source,
 	); err != nil {
 		return err
 	}
-	out.HunterID = hunterID
+	out.ExecutorID = agentID
 	out.SourceTrafficID = sourceTrafficID
 	out.DependsOn = dependsOn
 	out.TriagedAt = triagedAt
@@ -418,25 +482,25 @@ type scanner interface {
 }
 
 // scan 是 colsSelect 列序的统一反序列化点。
-// hunterID / sourceTrafficID 用指针接住 NULL；HunterID 是 *string 保留 nil，SourceTrafficID 是 *int64 同。
+// agentID / sourceTrafficID 用指针接住 NULL；ExecutorID 是 *string 保留 nil，SourceTrafficID 是 *int64 同。
 // DependsOn 是 uuid[]，扫到 []string（pgx v5 默认 codec）。
 func scan(r scanner, f *VulnFinding) error {
-	var hunterID *string
+	var agentID *string
 	var sourceTrafficID *int64
 	var dependsOn []string
 	var triagedAt *time.Time
 	if err := r.Scan(
 		&f.ID, &f.TaskID,
-		&hunterID, &sourceTrafficID, &f.Host, &f.Severity,
+		&agentID, &sourceTrafficID, &f.Host, &f.Severity,
 		&f.Summary, &f.Target, &f.Evidence,
 		&f.CWEID, &f.OWASPCategory, &f.FirstSeenAt, &f.Remediation,
 		&dependsOn,
 		&f.Status, &f.TriageNote, &triagedAt,
-		&f.CreatedAt,
+		&f.CreatedAt, &f.Seq, &f.Repro,
 	); err != nil {
 		return err
 	}
-	f.HunterID = hunterID
+	f.ExecutorID = agentID
 	f.SourceTrafficID = sourceTrafficID
 	f.DependsOn = dependsOn
 	f.TriagedAt = triagedAt

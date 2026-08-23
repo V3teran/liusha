@@ -375,7 +375,7 @@ func chatHandler(api ChatAPI, streamSecret []byte) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "brief 不能为空"})
 			return
 		}
-		convID, scanID, err := api.StartChatScan(c.Request.Context(), req.Brief, req.RoleID)
+		convID, taskID, err := api.StartChatScan(c.Request.Context(), req.Brief, req.RoleID)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
@@ -388,7 +388,7 @@ func chatHandler(api ChatAPI, streamSecret []byte) gin.HandlerFunc {
 			c.SetSameSite(http.SameSiteLaxMode)
 			c.SetCookie(streamCookieName, tok, ttl, "/conversations", "", false, true)
 		}
-		c.JSON(http.StatusOK, ChatResponse{ConversationID: convID, ScanID: scanID})
+		c.JSON(http.StatusOK, ChatResponse{ConversationID: convID, TaskID: taskID})
 	}
 }
 ```
@@ -579,7 +579,7 @@ export interface Message {
 export interface Conversation {
   ID: string
   Title: string
-  ScanID: string
+  TaskID: string
   RoleID: string
   Status: string
   CreatedAt: string

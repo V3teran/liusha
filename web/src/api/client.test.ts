@@ -1,11 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import {
-  getApiKey, setApiKey, listRoles, listConversations, listMessages, startChat, followUp, abortScan,
-  listTasks, startActiveScan, abortTask, getSitemap, listLLMInvocations,
+  getApiKey, setApiKey, listScenarios, listConversations, listMessages, startChat, followUp, abortScan,
+  listTasks, startActiveScan, abortTask, listLLMInvocations,
   getLLMInvocationStat, getLLMInvocationFacets,
   listCredentials, saveCredentialsBatch, deleteCredentials,
   deleteConversation, renameConversation, authStream, bootstrapApiKey,
-  listFindings, updateFindingTriage, getAttackGraph, getMilestones, getLLMInvocationDetail,
+  listFindings, listFindingHosts, listFindingScenarios, updateFindingTriage, getAttackGraph, getLLMInvocationDetail,
 } from './client'
 
 describe('API 客户端', () => {
@@ -33,26 +33,28 @@ describe('API 客户端', () => {
   })
 
   describe('HTTP 请求', () => {
-    it('listRoles 添加 X-API-Key header', async () => {
+    it('listScenarios 添加 X-API-Key header 并拆出 scenarios', async () => {
       setApiKey('my-key')
       const mockFetch = vi.fn().mockResolvedValue({
         ok: true,
-        json: vi.fn().mockResolvedValue({ roles: [{ id: 'r1', name: 'role1', description: 'desc', mode: 'active' }] }),
+        json: vi.fn().mockResolvedValue({ scenarios: [{ id: 'u1', code: 'web_app', name: 'Web 应用', description: 'desc' }] }),
       })
       ;(global as any).fetch = mockFetch
 
-      await listRoles()
+      const scenarios = await listScenarios()
 
-      expect(mockFetch).toHaveBeenCalledWith('/api/roles', {
+      expect(mockFetch).toHaveBeenCalledWith('/api/scenarios', {
         headers: { 'X-API-Key': 'my-key' },
       })
+      expect(scenarios).toHaveLength(1)
+      expect(scenarios[0].code).toBe('web_app')
     })
 
     it('listConversations 返回会话列表 + hasMore，且带 limit/offset query', async () => {
       const mockFetch = vi.fn().mockResolvedValue({
         ok: true,
         json: vi.fn().mockResolvedValue({
-          conversations: [{ ID: 'c1', Title: 'scan1', ScanID: 's1', RoleID: 'r1', Status: 'running', CreatedAt: '2026-06-10T00:00:00Z', UpdatedAt: '2026-06-10T00:00:00Z' }],
+          conversations: [{ ID: 'c1', Title: 'scan1', TaskID: 's1', ScenarioID: 'web_app', Source: 'manual', Status: 'running', CreatedAt: '2026-06-10T00:00:00Z', UpdatedAt: '2026-06-10T00:00:00Z' }],
           has_more: true,
         }),
       })
@@ -67,16 +69,16 @@ describe('API 客户端', () => {
       expect(result.conversations).toHaveLength(1)
     })
 
-    it('listConversations 传 mode 时带 mode query（服务端过滤，保证分页边界正确）', async () => {
+    it('listConversations 传 source 时带 source query（服务端过滤，保证分页边界正确）', async () => {
       const mockFetch = vi.fn().mockResolvedValue({
         ok: true,
         json: vi.fn().mockResolvedValue({ conversations: [], has_more: false }),
       })
       ;(global as any).fetch = mockFetch
 
-      await listConversations(30, 0, 'passive')
+      await listConversations(30, 0, 'auto')
 
-      expect(mockFetch).toHaveBeenCalledWith(expect.stringContaining('mode=passive'), expect.anything())
+      expect(mockFetch).toHaveBeenCalledWith(expect.stringContaining('source=auto'), expect.anything())
     })
 
     it('listConversations 把后端 null（Go nil slice）归一为空数组，不透传 null', async () => {
@@ -86,7 +88,7 @@ describe('API 客户端', () => {
       })
       ;(global as any).fetch = mockFetch
 
-      const result = await listConversations(30, 0, 'passive')
+      const result = await listConversations(30, 0, 'auto')
 
       expect(result.conversations).toEqual([])
       expect(result.conversations).toHaveLength(0)
@@ -116,7 +118,7 @@ describe('API 客户端', () => {
       })
       ;(global as any).fetch = mockFetch
 
-      const result = await startChat('scan target', 'r1')
+      const result = await startChat('scan target', 'web_app')
 
       expect(result.conversation_id).toBe('conv-123')
       expect(result.scan_id).toBe('scan-456')
@@ -126,7 +128,7 @@ describe('API 客户端', () => {
           'X-API-Key': 'my-key',
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ brief: 'scan target', role_id: 'r1' }),
+        body: JSON.stringify({ brief: 'scan target', scenario_id: 'web_app' }),
       })
     })
 
@@ -134,7 +136,7 @@ describe('API 客户端', () => {
       const mockFetch = vi.fn().mockResolvedValue({ ok: false, status: 401 })
       ;(global as any).fetch = mockFetch
 
-      await expect(listRoles()).rejects.toThrow('GET /roles → 401')
+      await expect(listScenarios()).rejects.toThrow('GET /scenarios → 401')
     })
   })
 
@@ -186,7 +188,7 @@ describe('API 客户端', () => {
       ;(global as any).fetch = vi.fn().mockResolvedValue({
         ok: true,
         json: vi.fn().mockResolvedValue({
-          tasks: [{ id: 'o1', scope: '{"any":true}', status: 'running', mode: 'passive', created_at: '2026-06-11T00:00:00Z' }],
+          tasks: [{ id: 'o1', scope: '{"any":true}', status: 'running', scenario_id: 'web-pentest-killchain', created_at: '2026-06-11T00:00:00Z' }],
         }),
       })
 
@@ -205,17 +207,17 @@ describe('API 客户端', () => {
       expect(mockFetch).toHaveBeenCalledWith('/api/tasks?limit=20', { headers: { 'X-API-Key': '' } })
     })
 
-    it('startActiveScan POST brief 返回 owner_id/hunter_id', async () => {
+    it('startActiveScan POST brief 返回 owner_id/agent_id', async () => {
       setApiKey('k')
       const mockFetch = vi.fn().mockResolvedValue({
         ok: true,
-        json: vi.fn().mockResolvedValue({ owner_id: 'o9', hunter_id: 'h9' }),
+        json: vi.fn().mockResolvedValue({ owner_id: 'o9', agent_id: 'h9' }),
       })
       ;(global as any).fetch = mockFetch
 
       const result = await startActiveScan('测试 http://t/login admin/pass 只测 XSS')
 
-      expect(result).toEqual({ owner_id: 'o9', hunter_id: 'h9' })
+      expect(result).toEqual({ owner_id: 'o9', agent_id: 'h9' })
       expect(mockFetch).toHaveBeenCalledWith('/api/scan/active', expect.objectContaining({
         method: 'POST',
         body: JSON.stringify({ brief: '测试 http://t/login admin/pass 只测 XSS' }),
@@ -232,54 +234,33 @@ describe('API 客户端', () => {
     })
   })
 
-  describe('攻击面 / 审计 / 任务树', () => {
-    it('getSitemap 透传 SitemapView', async () => {
-      ;(global as any).fetch = vi.fn().mockResolvedValue({
-        ok: true,
-        json: vi.fn().mockResolvedValue({ owner_id: 'o1', host: 'h', generated_at: '2026-06-11T00:00:00Z', root: null }),
-      })
-
-      const view = await getSitemap('o1')
-
-      expect(view.owner_id).toBe('o1')
-      expect(view.root).toBeNull()
-    })
-
-    it('getSitemap 带 host 拼 query', async () => {
-      const mockFetch = vi.fn().mockResolvedValue({ ok: true, json: vi.fn().mockResolvedValue({}) })
-      ;(global as any).fetch = mockFetch
-
-      await getSitemap('o1', 'a.com:80')
-
-      expect(mockFetch).toHaveBeenCalledWith('/api/sitemap/o1?host=a.com%3A80', { headers: { 'X-API-Key': '' } })
-    })
-
-    it('listLLMInvocations 透传扁平 items + 分页游标', async () => {
+  describe('审计 / 任务树', () => {
+    it('listLLMInvocations 透传扁平 items + offset 分页', async () => {
       const mockFetch = vi.fn().mockResolvedValue({
         ok: true,
         json: vi
           .fn()
-          .mockResolvedValue({ task_id: 't1', total: 1, next_after: 5, has_more: false, items: [{ id: 5, role: 'orchestrator' }] }),
+          .mockResolvedValue({ task_id: 't1', total: 1, page: 3, size: 50, items: [{ id: 5, role: 'planner' }] }),
       })
       ;(global as any).fetch = mockFetch
 
       const res = await listLLMInvocations('t1', 3, 50)
 
       expect(res.total).toBe(1)
-      expect(res.next_after).toBe(5)
-      expect(res.items[0].role).toBe('orchestrator')
-      expect(mockFetch).toHaveBeenCalledWith('/api/llm/invocations/t1?after=3&limit=50', { headers: { 'X-API-Key': '' } })
+      expect(res.page).toBe(3)
+      expect(res.items[0].role).toBe('planner')
+      expect(mockFetch).toHaveBeenCalledWith('/api/llm/invocations/t1?page=3&size=50', { headers: { 'X-API-Key': '' } })
     })
 
     // 筛选参数必须序列化进 query 交服务端筛（分页下前端筛只会筛到当前页）。
     it('listLLMInvocations 序列化筛选参数', async () => {
       const mockFetch = vi.fn().mockResolvedValue({
         ok: true,
-        json: vi.fn().mockResolvedValue({ task_id: 't1', total: 0, next_after: 0, has_more: false, items: [] }),
+        json: vi.fn().mockResolvedValue({ task_id: 't1', total: 0, page: 1, size: 0, items: [] }),
       })
       ;(global as any).fetch = mockFetch
 
-      await listLLMInvocations('t1', 0, 0, {
+      await listLLMInvocations('t1', 1, 0, {
         role: 'exploitation',
         model: 'mimo-v2.5',
         onlyErr: true,
@@ -315,13 +296,13 @@ describe('API 客户端', () => {
     it('getLLMInvocationFacets 拉候选集合', async () => {
       const mockFetch = vi.fn().mockResolvedValue({
         ok: true,
-        json: vi.fn().mockResolvedValue({ task_id: 't1', roles: ['orchestrator'], models: ['mimo-v2.5'] }),
+        json: vi.fn().mockResolvedValue({ task_id: 't1', roles: ['planner'], models: ['mimo-v2.5'] }),
       })
       ;(global as any).fetch = mockFetch
 
       const f = await getLLMInvocationFacets('t1')
 
-      expect(f.roles).toEqual(['orchestrator'])
+      expect(f.roles).toEqual(['planner'])
       expect(mockFetch).toHaveBeenCalledWith('/api/llm/invocations/t1/facets', { headers: { 'X-API-Key': '' } })
     })
   })
@@ -445,16 +426,17 @@ describe('API 客户端', () => {
   })
 
   describe('全局漏洞台账', () => {
-    it('listFindings 拆出 findings 数组', async () => {
+    it('listFindings 返回分页响应（findings + total/page/size）', async () => {
       const mockFetch = vi.fn().mockResolvedValue({
         ok: true,
-        json: vi.fn().mockResolvedValue({ findings: [{ id: 'f1', severity: 'high' }] }),
+        json: vi.fn().mockResolvedValue({ findings: [{ id: 'f1', severity: 'high' }], total: 1, page: 1, size: 50 }),
       })
       ;(global as any).fetch = mockFetch
 
-      const rows = await listFindings()
+      const res = await listFindings()
 
-      expect(rows).toHaveLength(1)
+      expect(res.findings).toHaveLength(1)
+      expect(res.total).toBe(1)
       expect(mockFetch).toHaveBeenCalledWith('/api/findings', { headers: { 'X-API-Key': '' } })
     })
 
@@ -468,6 +450,37 @@ describe('API 客户端', () => {
       expect(url).toContain('host=a.com')
       expect(url).toContain('status=open')
       expect(url).not.toContain('severity=')
+    })
+
+    it('listFindings 带 page/size 拼 query', async () => {
+      const mockFetch = vi.fn().mockResolvedValue({ ok: true, json: vi.fn().mockResolvedValue({ findings: [] }) })
+      ;(global as any).fetch = mockFetch
+
+      await listFindings({ page: 2, size: 100 })
+
+      const url = mockFetch.mock.calls[0][0] as string
+      expect(url).toContain('page=2')
+      expect(url).toContain('size=100')
+    })
+
+    it('listFindingHosts 拆出 hosts 数组', async () => {
+      const mockFetch = vi.fn().mockResolvedValue({ ok: true, json: vi.fn().mockResolvedValue({ hosts: ['a.com', 'b.com'] }) })
+      ;(global as any).fetch = mockFetch
+
+      const hosts = await listFindingHosts()
+
+      expect(hosts).toEqual(['a.com', 'b.com'])
+      expect(mockFetch).toHaveBeenCalledWith('/api/findings/hosts', { headers: { 'X-API-Key': '' } })
+    })
+
+    it('listFindingScenarios 拆出 scenarios 数组', async () => {
+      const mockFetch = vi.fn().mockResolvedValue({ ok: true, json: vi.fn().mockResolvedValue({ scenarios: ['api-pentest'] }) })
+      ;(global as any).fetch = mockFetch
+
+      const scenarios = await listFindingScenarios()
+
+      expect(scenarios).toEqual(['api-pentest'])
+      expect(mockFetch).toHaveBeenCalledWith('/api/findings/scenarios', { headers: { 'X-API-Key': '' } })
     })
 
     it('updateFindingTriage PATCH 状态/严重度/备注，返回更新后的行', async () => {
@@ -487,9 +500,9 @@ describe('API 客户端', () => {
     })
   })
 
-  describe('执行图', () => {
-    it('getAttackGraph 透传响应', async () => {
-      const graph = { task_id: 't1', conversation_id: 'c1', running: false, nodes: [], edges: [] }
+  describe('攻击图（世界模型投影）', () => {
+    it('getAttackGraph 按 task_id 透传响应', async () => {
+      const graph = { task_id: 't1', scan_id: 's1', nodes: [], edges: [], verifications: [] }
       const mockFetch = vi.fn().mockResolvedValue({ ok: true, json: vi.fn().mockResolvedValue(graph) })
       ;(global as any).fetch = mockFetch
 
@@ -497,31 +510,6 @@ describe('API 客户端', () => {
 
       expect(g).toEqual(graph)
       expect(mockFetch).toHaveBeenCalledWith('/api/attack_graph/o1', { headers: { 'X-API-Key': '' } })
-    })
-
-    it('getAttackGraph 带 conv 覆盖参数拼 query', async () => {
-      const mockFetch = vi.fn().mockResolvedValue({
-        ok: true,
-        json: vi.fn().mockResolvedValue({ task_id: 't', conversation_id: '', running: false, nodes: [], edges: [] }),
-      })
-      ;(global as any).fetch = mockFetch
-
-      await getAttackGraph('o1', 'c2')
-
-      expect(mockFetch).toHaveBeenCalledWith('/api/attack_graph/o1?conv=c2', { headers: { 'X-API-Key': '' } })
-    })
-
-    it('getMilestones 拆出 milestones 数组', async () => {
-      const mockFetch = vi.fn().mockResolvedValue({
-        ok: true,
-        json: vi.fn().mockResolvedValue({ milestones: [{ agent: 'exploitation', summary: 'x', node_count: 3 }] }),
-      })
-      ;(global as any).fetch = mockFetch
-
-      const ms = await getMilestones('o1')
-
-      expect(ms).toHaveLength(1)
-      expect(mockFetch).toHaveBeenCalledWith('/api/attack_graph/o1/milestones', { headers: { 'X-API-Key': '' } })
     })
   })
 

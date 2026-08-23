@@ -29,11 +29,11 @@ CREATE INDEX finding_owner_idx ON finding (owner_type, owner_id, created_at DESC
     WHERE owner_type IS NOT NULL;
 CREATE UNIQUE INDEX finding_owner_dedup_uniq ON finding (owner_id, dedup_key);
 
--- ── hunter
-DROP INDEX IF EXISTS hunter_task_idx;
-ALTER TABLE hunter DROP COLUMN IF EXISTS task_id;
-ALTER TABLE hunter ADD COLUMN owner_type text
+-- ── agent
+DROP INDEX IF EXISTS agent_task_idx;
+ALTER TABLE agent DROP COLUMN IF EXISTS task_id;
+ALTER TABLE agent ADD COLUMN owner_type text
     CHECK (owner_type IS NULL OR owner_type IN ('passive_session','active_scan'));
-ALTER TABLE hunter ADD COLUMN owner_id uuid;
-CREATE INDEX agent_run_owner_idx ON hunter (owner_type, owner_id, created_at DESC)
+ALTER TABLE agent ADD COLUMN owner_id uuid;
+CREATE INDEX agent_run_owner_idx ON agent (owner_type, owner_id, created_at DESC)
     WHERE owner_type IS NOT NULL;

@@ -1,7 +1,7 @@
 -- http_flow 加 identity + tool 两字段：给每条 internal 流量盖"身份戳"和"工具戳"。
 --
 -- 动机：http_flow 此前无身份维度，导致"按身份从流量抽凭证写 redis"找不到对应身份
--- （一个 hunter_id 下混着 admin/gordonb 多个会话、无标签）。盖戳后 LLM 能
+-- （一个 agent_id 下混着 admin/gordonb 多个会话、无标签）。盖戳后 LLM 能
 -- list_flows(identity=X, tool=browser) 精确锁定身份 X 的浏览器已认证请求 → view_flow
 -- 从 headers/query/body 三处抽全部凭证 → 按 name=X write/update redis（身份不搞错）。
 --

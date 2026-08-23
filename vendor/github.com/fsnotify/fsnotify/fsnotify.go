@@ -229,7 +229,7 @@ var (
 	// added.
 	ErrNonExistentWatch = errors.New("fsnotify: can't remove non-existent watch")
 
-	// ErrClosed is used when trying to operate on a closed Watcher.
+	// ErrClosed is used when trying to execute on a closed Watcher.
 	ErrClosed = errors.New("fsnotify: watcher already closed")
 
 	// ErrEventOverflow is reported from the Errors channel when there are too
