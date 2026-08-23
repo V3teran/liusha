@@ -8,7 +8,7 @@
 //
 //	go run ./cmd/corpus-import path/to/knowledge.md [more.md ...]
 //
-// 环境变量（复用 scanner 同源）：
+// 环境变量（复用 runner 同源）：
 //   - LIUSHA_POSTGRES_DSN：PG 连接串
 //   - LIUSHA_CONFIG：      config.yaml 路径（默认 ./config/config.yaml，取 light provider + LLM keys）
 //   - JINA_API_KEY：       embedding；缺失则只落行不 embed（仍可 sparse 检索）
@@ -18,12 +18,15 @@ import (
 	"context"
 	"os"
 
+	"github.com/V3teran/liusha/internal/cachestore"
 	"github.com/V3teran/liusha/internal/config"
 	"github.com/V3teran/liusha/internal/corpus"
+	"github.com/V3teran/liusha/internal/cryptx"
 	"github.com/V3teran/liusha/internal/db"
-	"github.com/V3teran/liusha/internal/einollm"
 	"github.com/V3teran/liusha/internal/embedding"
+	"github.com/V3teran/liusha/internal/provider"
 	"github.com/V3teran/liusha/internal/envx"
+	"github.com/V3teran/liusha/internal/llmstore"
 	"github.com/V3teran/liusha/internal/logx"
 )
 
@@ -48,8 +51,25 @@ func main() {
 	}
 	defer pool.Close()
 
+	// LLM 配置事实源：tagger 打标解析 light 别名对应 provider 部署。CLI 一次性运行，
+	// 无跨进程失效需求，但 cachestore 需 redis 承载 L2——连不上则致命（打标离不开 LLM 路由）。
+	redisAddr := os.Getenv("LIUSHA_REDIS_ADDR")
+	rdb, err := db.NewRedis(ctx, redisAddr, cfg.Redis)
+	if err != nil {
+		logger.Fatal().Err(err).Msg("连接 Redis 失败")
+	}
+	defer func() { _ = rdb.Close() }()
+	llmStore := llmstore.New(pool, cachestore.New(rdb, 0))
+
+	// LLM provider API Key 加密密钥（migration 0103）：同 cmd/api/cmd/runner 的 fail-fast 校验——
+	// tagger 打标要真正解密出明文才能打 LLM 请求。
+	llmKeyCipher, err := cryptx.NewFromEnv("LIUSHA_LLM_KEY_SECRET")
+	if err != nil {
+		logger.Fatal().Err(err).Msg("LIUSHA_LLM_KEY_SECRET 未配置或不合法——provider 密钥解密需要它（fail-fast）")
+	}
+
 	store := corpus.NewStore(pool)
-	tagger := einollm.New(cfg) // light provider 打标
+	tagger := provider.NewRouter(llmStore.AsRouterStore(), llmKeyCipher)
 	var embedder *embedding.Client
 	if ec, err := embedding.NewClient(os.Getenv("JINA_API_KEY")); err != nil {
 		logger.Warn().Err(err).Msg("JINA_API_KEY 未配置：只落行不 embed（仍可 sparse 检索）")

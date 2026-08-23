@@ -5,7 +5,6 @@ package traffic
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"testing"
 
 	"github.com/V3teran/liusha/internal/dbtest"
@@ -18,8 +17,9 @@ func newPassiveTask(t *testing.T) (*pgxpool.Pool, string) {
 	t.Helper()
 	pool := dbtest.NewPgPool(t)
 	tk, err := task.NewStore(pool).Create(context.Background(), task.NewParams{
-		Mode:         task.ModePassive,
-		AssignmentID: dbtest.SeedAssignment(t, pool, "passive"),
+		ScenarioID:   "api-pentest",
+		AssignmentID: dbtest.SeedAssignment(t, pool, "api-pentest"),
+		Brief:        "test traffic ingest",
 		TargetHost:   "test.example.com",
 	})
 	if err != nil {
@@ -30,25 +30,25 @@ func newPassiveTask(t *testing.T) (*pgxpool.Pool, string) {
 
 // -------- ProxyStore（代理捕获流量，按 host 归属） --------
 
-// TestProxyStore_Append_TruncatesLargeBody 验证：超过 32 KiB 的 body 被截断到精确 32 KiB。
-// 旧测试用可配置 maxReqBody=1024/maxRespBody=2048，新 store 固定 defaultMaxBody（32 KiB），
-// 故这里用大于阈值的 body 验证截断。
-func TestProxyStore_Append_TruncatesLargeBody(t *testing.T) {
+// TestProxyStore_Append_RawRoundtrip 验证：raw 报文（请求/响应）作为唯一存储原样写入并取回，
+// body 截断在 ingest 组装 raw 前完成，store 不再二次截断。
+func TestProxyStore_Append_RawRoundtrip(t *testing.T) {
 	ctx := context.Background()
 	pool, _ := newPassiveTask(t)
 	s := NewProxyStore(pool)
 
-	big := bytes.Repeat([]byte("x"), defaultMaxBody+5000)
+	reqRaw := []byte("POST /api/x HTTP/1.1\r\nHost: test.example.com\r\nContent-Type: application/json\r\n\r\n{\"a\":1}")
+	respRaw := []byte("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n{\"ok\":true}")
 	id, err := s.Append(ctx, ProxyTraffic{
-		Host:            "test.example.com",
-		Method:          "POST",
-		URL:             "http://test.example.com/api/x",
-		Path:            "/api/x",
-		RequestHeaders:  json.RawMessage(`{"x":"1"}`),
-		RequestBody:     big,
-		StatusCode:      200,
-		ResponseHeaders: json.RawMessage(`{"y":"2"}`),
-		ResponseBody:    big,
+		Host:        "test.example.com",
+		Method:      "POST",
+		URL:         "http://test.example.com/api/x",
+		Path:        "/api/x",
+		StatusCode:  200,
+		RequestRaw:  reqRaw,
+		ResponseRaw: respRaw,
+		ContentType: "application/json",
+		HTTPVersion: "HTTP/1.1",
 	})
 	if err != nil {
 		t.Fatalf("append: %v", err)
@@ -61,62 +61,38 @@ func TestProxyStore_Append_TruncatesLargeBody(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get: %v", err)
 	}
-	if len(got.RequestBody) != defaultMaxBody {
-		t.Fatalf("req body len: want %d (truncated), got %d", defaultMaxBody, len(got.RequestBody))
-	}
-	if len(got.ResponseBody) != defaultMaxBody {
-		t.Fatalf("resp body len: want %d (truncated), got %d", defaultMaxBody, len(got.ResponseBody))
-	}
-	if !bytes.Equal(got.RequestBody, big[:defaultMaxBody]) {
-		t.Fatalf("req body bytes mismatch")
+	if !bytes.Equal(got.RequestRaw, reqRaw) || !bytes.Equal(got.ResponseRaw, respRaw) {
+		t.Fatalf("raw roundtrip mismatch: req=%q resp=%q", got.RequestRaw, got.ResponseRaw)
 	}
 	if got.Method != "POST" || got.Path != "/api/x" || got.StatusCode != 200 {
 		t.Fatalf("scalar fields mismatch: %+v", got)
 	}
-}
-
-// TestProxyStore_Append_SmallBodyNoTruncation 验证：未达阈值的 body 原样保留。
-func TestProxyStore_Append_SmallBodyNoTruncation(t *testing.T) {
-	ctx := context.Background()
-	pool, _ := newPassiveTask(t)
-	s := NewProxyStore(pool)
-
-	small := []byte("hello")
-	id, err := s.Append(ctx, ProxyTraffic{
-		Host:        "test.example.com",
-		Method:      "GET",
-		URL:         "http://test.example.com/health",
-		Path:        "/health",
-		RequestBody: small,
-		StatusCode:  204,
-	})
-	if err != nil {
-		t.Fatalf("append: %v", err)
-	}
-	got, err := s.GetByID(ctx, id)
-	if err != nil {
-		t.Fatalf("get: %v", err)
-	}
-	if !bytes.Equal(got.RequestBody, small) {
-		t.Fatalf("req body roundtrip mismatch: %q", got.RequestBody)
+	if got.ContentType != "application/json" || got.HTTPVersion != "HTTP/1.1" {
+		t.Fatalf("meta fields mismatch: %+v", got)
 	}
 }
 
-// TestProxyStore_ClaimThenListByTask 验证：ClaimUnconsumedByHost 把 host 的未消费流量
-// 关联给某 passive task，之后 ListByTask 按 captured_at 升序取回这批（含 body）。
-// 取代旧「双表合并 ListByOwner」——现按 host claim → task 消费模型。
+// TestProxyStore_ClaimThenListByTask 验证：ClaimUnconsumedByHost 把 host 的流量关联给某 passive
+// task（M:N traffic_task），之后 ListByTask 按 captured_at 升序取回这批（含 raw）；GetByID 的
+// ConsumedBy 列出该消费者。取代旧 consumed_by_task_id 单列模型。
 func TestProxyStore_ClaimThenListByTask(t *testing.T) {
 	ctx := context.Background()
 	pool, taskID := newPassiveTask(t)
 	s := NewProxyStore(pool)
 
+	var firstID int64
 	paths := []string{"/a", "/b", "/c"}
-	for _, p := range paths {
-		if _, err := s.Append(ctx, ProxyTraffic{
+	for i, p := range paths {
+		id, err := s.Append(ctx, ProxyTraffic{
 			Host: "test.example.com", Method: "GET",
 			URL: "http://test.example.com" + p, Path: p, StatusCode: 200,
-		}); err != nil {
+			RequestRaw: []byte("GET " + p + " HTTP/1.1\r\nHost: test.example.com\r\n\r\n"),
+		})
+		if err != nil {
 			t.Fatalf("seed %s: %v", p, err)
+		}
+		if i == 0 {
+			firstID = id
 		}
 	}
 
@@ -126,6 +102,15 @@ func TestProxyStore_ClaimThenListByTask(t *testing.T) {
 	}
 	if claimed != 3 {
 		t.Fatalf("应领取 3 条，得 %d", claimed)
+	}
+
+	// 重复领取幂等：本 task 已关联全部，再领得 0。
+	again, err := s.ClaimUnconsumedByHost(ctx, taskID, "test.example.com", 100)
+	if err != nil {
+		t.Fatalf("re-claim: %v", err)
+	}
+	if again != 0 {
+		t.Fatalf("重复领取应幂等得 0，得 %d", again)
 	}
 
 	list, err := s.ListByTask(ctx, taskID)
@@ -139,10 +124,67 @@ func TestProxyStore_ClaimThenListByTask(t *testing.T) {
 	if list[0].Path != "/a" || list[2].Path != "/c" {
 		t.Fatalf("排序应按 captured_at 升序: %+v", list)
 	}
-	for _, f := range list {
-		if f.ConsumedByTaskID != taskID {
-			t.Fatalf("consumed_by_task_id 应为 %q, got %q", taskID, f.ConsumedByTaskID)
+
+	// GetByID 的 ConsumedBy 应含本 task。
+	got, err := s.GetByID(ctx, firstID)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if !consumedByTaskID(got.ConsumedBy, taskID) {
+		t.Fatalf("ConsumedBy 应含 task %q, got %+v", taskID, got.ConsumedBy)
+	}
+}
+
+// consumedByTaskID 测试辅助：判断消费者列表是否含某 task。
+func consumedByTaskID(consumers []ConsumerTask, taskID string) bool {
+	for _, c := range consumers {
+		if c.TaskID == taskID {
+			return true
 		}
+	}
+	return false
+}
+
+// TestProxyStore_ClaimByIDs 验证：显式 id 集合领取（manual TrafficIDs 路径）只关联点名的流量。
+func TestProxyStore_ClaimByIDs(t *testing.T) {
+	ctx := context.Background()
+	pool, taskID := newPassiveTask(t)
+	s := NewProxyStore(pool)
+
+	var ids []int64
+	for _, p := range []string{"/x", "/y", "/z"} {
+		id, err := s.Append(ctx, ProxyTraffic{
+			Host: "test.example.com", Method: "GET",
+			URL: "http://test.example.com" + p, Path: p, StatusCode: 200,
+		})
+		if err != nil {
+			t.Fatalf("seed %s: %v", p, err)
+		}
+		ids = append(ids, id)
+	}
+
+	// 只领前两条。
+	claimed, err := s.ClaimByIDs(ctx, taskID, ids[:2])
+	if err != nil {
+		t.Fatalf("claim by ids: %v", err)
+	}
+	if claimed != 2 {
+		t.Fatalf("应领取 2 条，得 %d", claimed)
+	}
+	list, err := s.ListByTask(ctx, taskID)
+	if err != nil {
+		t.Fatalf("list by task: %v", err)
+	}
+	if len(list) != 2 {
+		t.Fatalf("expect 2 rows, got %d", len(list))
+	}
+	// 重复领取幂等。
+	again, err := s.ClaimByIDs(ctx, taskID, ids[:2])
+	if err != nil {
+		t.Fatalf("re-claim by ids: %v", err)
+	}
+	if again != 0 {
+		t.Fatalf("重复 ClaimByIDs 应幂等得 0，得 %d", again)
 	}
 }
 

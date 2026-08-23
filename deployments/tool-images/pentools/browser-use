@@ -7,11 +7,11 @@ sys.executable 拉起 browser-svc.py，二者同跑 venv python → import brows
 
 模型不变：
   IDENTITY = 身份（cookie jar 边界 = 独立 chromium）。缺省 "default"。
-  HUNTER_ID = 同身份下的 agent（orchestrator/exploitation），各占一个 tab（页面/截图/并发隔离）。
+  HUNTER_ID = 同身份下的 agent（planner/exploitation），各占一个 tab（页面/截图/并发隔离）。
 
 热路径不再有全局 active tab，也不再需要 flock 串行化 —— 服务用 actor.Page 按 target_id 寻址，
 同身份多 agent 并发各操作自己的 tab。本客户端只做：选身份 socket → 确保服务起（flock 守冷启）→
-转发 {sub,args,hunter_id,output_dir} → 回放 stdout/stderr + exit code。
+转发 {sub,args,agent_id,output_dir} → 回放 stdout/stderr + exit code。
 
 管理类子命令（install/doctor/setup/...）不需浏览器，直接透传底层 browser-use-cli。
 """
@@ -93,7 +93,7 @@ def main() -> int:
     else:
         s = ensure_service()
 
-    req = json.dumps({"sub": sub, "args": args, "hunter_id": HUNTER_ID, "output_dir": OUTPUT_DIR})
+    req = json.dumps({"sub": sub, "args": args, "agent_id": HUNTER_ID, "output_dir": OUTPUT_DIR})
     s.sendall(req.encode() + b"\n")
     buf = b""
     while True:

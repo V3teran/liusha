@@ -23,7 +23,7 @@ type Config struct {
 	PruneFilters         []string               `json:"pruneFilters,omitempty"`
 	Proxies              map[string]ProxyConfig `json:"proxies,omitempty"`
 	Experimental         string                 `json:"experimental,omitempty"`
-	StackOrchestrator    string                 `json:"stackOrchestrator,omitempty"`
+	Stackplanner    string                 `json:"stackplanner,omitempty"`
 	Kubernetes           *KubernetesConfig      `json:"kubernetes,omitempty"`
 	CurrentContext       string                 `json:"currentContext,omitempty"`
 	CLIPluginsExtraDirs  []string               `json:"cliPluginsExtraDirs,omitempty"`
@@ -59,7 +59,7 @@ type AuthConfig struct {
 	RegistryToken string `json:"registrytoken,omitempty"`
 }
 
-// KubernetesConfig contains Kubernetes orchestrator settings.
+// KubernetesConfig contains Kubernetes planner settings.
 type KubernetesConfig struct {
 	AllNamespaces string `json:"allNamespaces,omitempty"`
 }

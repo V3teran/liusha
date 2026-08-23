@@ -8,12 +8,10 @@ import type { LLMInvocationFilters } from '@/api/types'
 // placeholderData: keepPreviousData 让筛选/翻页时旧数据先留在屏幕上，等新数据到达再替换，
 // 不必每次都整表闪成 loading 骨架。
 
-export const LLM_AUDIT_PAGE_SIZE = 100
-
 const llmAuditKeys = {
   facets: (owner: string) => ['llm-audit', 'facets', owner] as const,
-  list: (owner: string, filters: LLMInvocationFilters, after: number) =>
-    ['llm-audit', 'list', owner, filters, after] as const,
+  list: (owner: string, filters: LLMInvocationFilters, page: number, size: number) =>
+    ['llm-audit', 'list', owner, filters, page, size] as const,
   stat: (owner: string, filters: LLMInvocationFilters) => ['llm-audit', 'stat', owner, filters] as const,
   detail: (owner: string, id: number | null) => ['llm-audit', 'detail', owner, id] as const,
 }
@@ -27,11 +25,11 @@ export function useLlmAuditFacets(owner: string) {
   })
 }
 
-/** 明细分页列表：吃 owner + 筛选 + 游标。 */
-export function useLlmAuditList(owner: string, filters: LLMInvocationFilters, after: number) {
+/** 明细分页列表：吃 owner + 筛选 + page/size（offset 分页，对齐流量/漏洞模块）。 */
+export function useLlmAuditList(owner: string, filters: LLMInvocationFilters, page: number, size: number) {
   return useQuery({
-    queryKey: llmAuditKeys.list(owner, filters, after),
-    queryFn: () => listLLMInvocations(owner, after, LLM_AUDIT_PAGE_SIZE, filters),
+    queryKey: llmAuditKeys.list(owner, filters, page, size),
+    queryFn: () => listLLMInvocations(owner, page, size, filters),
     enabled: !!owner,
     placeholderData: keepPreviousData,
   })

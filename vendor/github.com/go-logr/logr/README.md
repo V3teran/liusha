@@ -272,7 +272,7 @@ interoperable with logr.
 
 #### Why V-levels?
 
-**V-levels give operators an easy way to control the chattiness of log
+**V-levels give executors an easy way to control the chattiness of log
 operations**.  V-levels provide a way for a given package to distinguish
 the relative importance or verbosity of a given log message.  Then, if
 a particular logger or package is logging too many messages, the user

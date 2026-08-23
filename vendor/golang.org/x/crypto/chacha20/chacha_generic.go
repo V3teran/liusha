@@ -83,7 +83,7 @@ func newUnauthenticatedCipher(c *Cipher, key, nonce []byte) (*Cipher, error) {
 	}
 	if len(nonce) == NonceSizeX {
 		// XChaCha20 uses the ChaCha20 core to mix 16 bytes of the nonce into a
-		// derived key, allowing it to operate on a nonce of 24 bytes. See
+		// derived key, allowing it to execute on a nonce of 24 bytes. See
 		// draft-irtf-cfrg-xchacha-01, Section 2.3.
 		key, _ = HChaCha20(key, nonce[0:16])
 		cNonce := make([]byte, NonceSize)

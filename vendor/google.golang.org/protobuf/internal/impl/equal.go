@@ -179,7 +179,7 @@ func equalMessageList(lx, ly protoreflect.List) bool {
 		return false
 	}
 	for i := 0; i < lx.Len(); i++ {
-		// We only operate on messages here since equalImpl will not call us in any other case.
+		// We only execute on messages here since equalImpl will not call us in any other case.
 		if !equalMessage(lx.Get(i).Message(), ly.Get(i).Message()) {
 			return false
 		}

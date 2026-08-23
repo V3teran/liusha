@@ -2,28 +2,31 @@ import { useState } from 'react'
 import { Send, Square } from 'lucide-react'
 import { followUp, startChat } from '@/api/client'
 import { useConversationStore } from '@/stores/conversation'
-import { RolePicker } from './RolePicker'
+import { ScenarioPicker } from './ScenarioPicker'
 
 interface ComposerProps {
   convId?: string
   scanning?: boolean
-  mode?: 'active' | 'passive'
   onStarted: (convID: string) => void
   onAppended: (afterSeq: number) => void
   onStop: () => void
 }
 
-// 发起器：选角色 + 写 brief。
+// 发起器：选场景 + 写 brief。
 // 有 convId 走追加（followUp），否则新建会话（startChat）并向上抛新会话 ID。
 //
-// 追加发送不再由前端按 scanning 一刀切拦截——passive 会话的 task 往往长期 active（持续收流量），
+// scenario_id 始终随消息带上（picker 常驻，默认选第一个）：新建会话时供后端 action 意图建 task；
+// 追加消息时供「纯聊天会话升级为 action」用当前场景建 task（已绑 task 的会话后端忽略此参数）。
+//
+// 首次消息不再必然下发扫描——后端先过意图闸（intent.Classify）：action 才建 task，qa/闲聊只回答。
+// 追加发送不由前端按 scanning 一刀切拦截——passive 会话的 task 往往长期 active（持续收流量），
 // 若在此按 scanning 拦，QA 类追问（passive 下最常见用法）会被永久锁死。真正该拦的只是「意图为
 // action 且扫描在跑」，这个判断后端已经做了（HandleMessage 先判意图，仅 action+busy 才 409）。
 // 前端一律放行，交给后端按 409 busy 精确拒绝，qa 类追问随时可用。
-export function Composer({ convId, scanning, mode, onStarted, onAppended, onStop }: ComposerProps) {
+export function Composer({ convId, scanning, onStarted, onAppended, onStop }: ComposerProps) {
   const lastSeq = useConversationStore((s) => s.lastSeq)
   const [brief, setBrief] = useState('')
-  const [roleID, setRoleID] = useState('')
+  const [scenarioCode, setScenarioCode] = useState('')
   const [busyMsg, setBusyMsg] = useState('')
   const [sending, setSending] = useState(false)
 
@@ -35,12 +38,12 @@ export function Composer({ convId, scanning, mode, onStarted, onAppended, onStop
       if (convId) {
         // followUp 前快照 seq——user 消息 seq 必 > 此（发送后才新增）；后续 SSE 推高 lastSeq 不影响此快照值。
         const beforeSeq = lastSeq
-        const r = await followUp(convId, brief)
+        const r = await followUp(convId, brief, scenarioCode)
         setBrief('')
         setBusyMsg(r.intent === 'qa' ? '正在回答…' : '已触发扫描')
         onAppended(beforeSeq)
       } else {
-        const { conversation_id } = await startChat(brief, roleID)
+        const { conversation_id } = await startChat(brief, scenarioCode)
         setBrief('')
         onStarted(conversation_id)
       }
@@ -62,19 +65,15 @@ export function Composer({ convId, scanning, mode, onStarted, onAppended, onStop
   }
 
   const placeholder = convId
-    ? mode === 'passive'
-      ? '针对这批流量继续提问…（Enter 发送，Shift+Enter 换行）'
-      : '追加指令（在同一目标上继续）…（Enter 发送，Shift+Enter 换行）'
+    ? '继续提问 / 追加指令…'
     : '描述要扫的目标 / 任务（URL、账号、测试方向）…'
 
   return (
     <div className="flex flex-shrink-0 flex-col gap-2.5 border-t border-border bg-surface px-4 py-3.5">
-      {!convId && (
-        <div className="flex items-center gap-3">
-          <RolePicker value={roleID} onChange={setRoleID} mode="active" />
-          <span className="text-xs text-muted">选择场景，Enter 发送，Shift+Enter 换行</span>
-        </div>
-      )}
+      <div className="flex items-center gap-3">
+        <ScenarioPicker value={scenarioCode} onChange={setScenarioCode} />
+        <span className="ml-auto text-[11px] text-faint">Enter 发送 · Shift+Enter 换行</span>
+      </div>
       <div className="rounded-lg border border-border bg-background transition-colors focus-within:border-accent">
         <textarea
           value={brief}

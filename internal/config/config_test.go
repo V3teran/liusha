@@ -11,8 +11,9 @@ const minimalYAML = `
 api: {read_timeout_seconds: 15, write_timeout_seconds: 30}
 postgres: {max_conns: 20, min_conns: 2}
 llm:
-  default_provider: deepseek
-  vision_provider: anthropic
+  tiers:
+    heavy: deepseek
+    vision: anthropic
   max_steps: 30
   max_tokens_per_call: 4096
 providers:
@@ -33,7 +34,7 @@ func writeConfig(t *testing.T, body string) string {
 	return p
 }
 
-func TestLoad_MissingDefaultProviderKey(t *testing.T) {
+func TestLoad_MissingHeavyTierKey(t *testing.T) {
 	t.Setenv("DEEPSEEK_API_KEY", "")
 	t.Setenv("ANTHROPIC_API_KEY", "k-anth")
 	if _, err := Load(writeConfig(t, minimalYAML)); err == nil {
@@ -48,8 +49,28 @@ func TestLoad_OK(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.LLM.DefaultProvider != "deepseek" || cfg.Providers["deepseek"].DefaultModel != "deepseek-chat" {
+	if cfg.LLM.Tiers["heavy"] != "deepseek" || cfg.Providers["deepseek"].DefaultModel != "deepseek-chat" {
 		t.Fatalf("unexpected: %+v", cfg)
+	}
+}
+
+// TestLoad_EmptyProvidersRelyOnDB：providers 留空时事实源在 DB，Load 不应 fail-fast
+// 强制 default_provider——空 yaml + 满 DB 的正常部署必须能启动（见 validateLLMKeys）。
+func TestLoad_EmptyProvidersRelyOnDB(t *testing.T) {
+	const noProvidersYAML = `
+api: {read_timeout_seconds: 15, write_timeout_seconds: 30}
+postgres: {max_conns: 20, min_conns: 2}
+llm: {max_steps: 30, max_tokens_per_call: 4096}
+proxy: {window_batch: 20, window_max_age_seconds: 30, allow_hosts: [vulnapp]}
+session: {sweeper_interval_seconds: 600}
+skills: {root: ./skills}
+`
+	cfg, err := Load(writeConfig(t, noProvidersYAML))
+	if err != nil {
+		t.Fatalf("providers 留空应放行（DB 为事实源），got err: %v", err)
+	}
+	if len(cfg.Providers) != 0 {
+		t.Fatalf("期望空 providers，got %+v", cfg.Providers)
 	}
 }
 

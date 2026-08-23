@@ -38,8 +38,9 @@ func (s *Store) key(host string) string {
 // Append 写一条情报（纯 append，agent 零负担：不编 key 不判重，重复留给读时收敛）。
 // LPUSH 后 LTRIM 保留最新 maxEntries 条，再滚动刷新 key TTL（持续写则一直续命，停写后自净）。
 func (s *Store) Append(ctx context.Context, host string, e Entry) error {
+	e.Kind = normalizeKind(e.Kind)
 	switch e.Kind {
-	case KindClue, KindFact, KindDeadend:
+	case KindClue, KindObservation, KindDeadend:
 	default:
 		return fmt.Errorf("lead: 非法 kind %q", e.Kind)
 	}
@@ -81,6 +82,7 @@ func (s *Store) ReadRecent(ctx context.Context, host string) (map[Kind][]Entry, 
 		if err := json.Unmarshal([]byte(item), &e); err != nil {
 			continue
 		}
+		e.Kind = normalizeKind(e.Kind) // 兼容历史 "fact" 值
 		dedupKey := string(e.Kind) + "\x00" + e.Detail
 		if _, dup := seen[dedupKey]; dup {
 			continue

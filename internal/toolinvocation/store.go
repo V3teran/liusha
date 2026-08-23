@@ -21,8 +21,8 @@ func NewStore(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
 
 // Append 单条插入。args 为 nil 时落空 jsonb；output 超 previewMax 自动截断 preview。
 func (s *Store) Append(ctx context.Context, v Invocation) (int64, error) {
-	if v.HunterID == "" {
-		return 0, fmt.Errorf("tool_invocation: HunterID 必填")
+	if v.ExecutorID == "" {
+		return 0, fmt.Errorf("tool_invocation: ExecutorID 必填")
 	}
 	if v.TaskID == "" {
 		return 0, fmt.Errorf("tool_invocation: TaskID 必填")
@@ -43,11 +43,11 @@ func (s *Store) Append(ctx context.Context, v Invocation) (int64, error) {
 	var id int64
 	err := s.pool.QueryRow(ctx, `
 		INSERT INTO tool_invocation
-			(hunter_id, task_id, tool_name, args,
+			(agent_run_id, task_id, tool_name, args,
 			 output_size, output_preview, duration_ms, error_message, done)
 		VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7, $8, $9)
 		RETURNING id`,
-		v.HunterID, v.TaskID, v.ToolName, args,
+		v.ExecutorID, v.TaskID, v.ToolName, args,
 		v.OutputSize, preview, v.DurationMs, errMsg, v.Done,
 	).Scan(&id)
 	if err != nil {
@@ -67,7 +67,7 @@ type Aggregate struct {
 // 排除 tool_name='task'：task 是"派发子代理"的工具，其 duration_ms 是子代理整段运行的墙钟，
 // 已包含该子代理自身的 run_command 等叶子工具耗时（同 task 另有明细行）+ 子代理 LLM 耗时
 // （单独计入 llm_invocation.latency_ms）。计入 task 会与这两者重叠，导致总耗时翻倍。
-// 与 SSE 侧 einoagent/scan_event.go 的 task 排除同源。
+// 与 SSE 侧 scanagent.ScanEvent 的 task 排除同源。
 func (s *Store) AggregateByTask(ctx context.Context, taskID string) (Aggregate, error) {
 	var a Aggregate
 	err := s.pool.QueryRow(ctx, `

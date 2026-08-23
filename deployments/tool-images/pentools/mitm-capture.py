@@ -4,7 +4,7 @@
 设计（与 browser-svc.py CDP capture 同款模式，复用同一 ingest endpoint）：
   - 容器内跑 `mitmdump -s mitm-capture.py`，CLI 工具经 HTTP_PROXY/HTTPS_PROXY 走本代理
   - response 钩子构造与 cmd/proxy ingestRequest 一一对应的 JSON → POST ingest
-  - 归属：hunter_id 从容器 env 取（容器 per-run，owner 级归属足够）
+  - 归属：agent_id 从容器 env 取（容器 per-run，owner 级归属足够）
 
 fuzz/噪音治理（源头去重，避免 agent_traffic 膨胀 + 污染攻击面图）：
   - 内存维护 per-run 已见集合 (method, templatize(path))，重复直接不上报
@@ -135,7 +135,7 @@ class CLICapture:
         if resp.timestamp_end and req.timestamp_start:
             dur_ms = int(max(0.0, resp.timestamp_end - req.timestamp_start) * 1000)
         return {
-            "hunter_id": HUNTER_ID,
+            "agent_id": HUNTER_ID,
             "host": req.host or "",
             "host_port": f"{req.host}:{req.port}" if req.host else "",
             "method": req.method,

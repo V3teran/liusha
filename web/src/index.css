@@ -35,27 +35,31 @@
   --sev-low: oklch(60% 0.02 260);
   --sev-info: oklch(60% 0.15 240);
 
-  /* 来源语义色（渗透/流量） */
-  --mode-active: oklch(65% 0.15 220);
-  --mode-passive: oklch(65% 0.15 300);
+  /* 来源语义色（主动下发 manual / 被动代理 auto） */
+  --source-manual: oklch(65% 0.15 220);
+  --source-auto: oklch(65% 0.15 300);
 
   /* 执行图 5 类语义节点色：task(任务/结构)=紫 / hypothesis(判断·想)=天蓝 /
      probe(探测·做)=翠绿 / signal(信号·得)=青 / 死路探测=石板灰。finding(漏洞)用 severity 色。
-     边：informs(调查回环)=青 / confirms(证据→漏洞)=洋红 / depends_on(攻击链,最重要)=金；
-     其余骨干边(spawns/pursues/tests/reveals)走中性 border 色。 */
-  --graph-task: oklch(68% 0.15 290);
-  --graph-hypothesis: oklch(65% 0.16 230);
-  --graph-probe: oklch(68% 0.16 155);
-  --graph-signal: oklch(70% 0.13 195);
-  --graph-dead: oklch(55% 0.02 260);
-  --graph-informs: oklch(70% 0.13 195);
-  --graph-confirms: oklch(65% 0.22 330);
-  --graph-depends-on: oklch(75% 0.15 85);
+     攻击图（L3 世界模型）5 类节点：target(交战根)=紫 / asset(攻击面)=翠绿 /
+     credential(凭据)=天蓝 / access(立足点,多阶段核心)=琥珀；finding 用 severity 威胁色。
+     3 类边：enables(攻击链,最重要)=金 / derives(认知因果)=青 / on(归属)走中性 border 色。 */
+  --graph-target: oklch(68% 0.15 290);
+  --graph-asset: oklch(68% 0.16 155);
+  --graph-credential: oklch(65% 0.16 230);
+  --graph-access: oklch(72% 0.15 65);
+  --graph-enables: oklch(75% 0.15 85);
+  --graph-derives: oklch(70% 0.13 195);
 
   --radius: 0.5rem;
   --shadow-sm: 0 1px 2px oklch(0% 0 0 / 0.05);
   --shadow: 0 1px 3px oklch(0% 0 0 / 0.06), 0 8px 24px oklch(0% 0 0 / 0.08);
   --shadow-lg: 0 4px 20px oklch(0% 0 0 / 0.12);
+
+  /* 战术终端辉光：浅色态克制（Swiss 式，仅微弱聚焦环，无发散辉光）。
+     深色态在 .dark 覆盖为发散荧光。全部走 --accent，不引入新色相。 */
+  --glow-accent: 0 0 0 1px var(--accent-soft);
+  --glow-accent-strong: 0 0 0 1px var(--accent);
 
   color-scheme: light;
 }
@@ -83,22 +87,25 @@
   --sev-low: oklch(55% 0.02 260);
   --sev-info: oklch(65% 0.15 240);
 
-  --mode-active: oklch(70% 0.14 220);
-  --mode-passive: oklch(70% 0.14 300);
+  --source-manual: oklch(70% 0.14 220);
+  --source-auto: oklch(70% 0.14 300);
 
-  /* 执行图 5 类语义节点/边色（深色下更亮，同 :root 语义，见上方注释） */
-  --graph-task: oklch(75% 0.14 290);
-  --graph-hypothesis: oklch(72% 0.15 230);
-  --graph-probe: oklch(75% 0.15 155);
-  --graph-signal: oklch(76% 0.12 195);
-  --graph-dead: oklch(50% 0.02 260);
-  --graph-informs: oklch(76% 0.12 195);
-  --graph-confirms: oklch(70% 0.2 330);
-  --graph-depends-on: oklch(80% 0.15 85);
+  /* 攻击图 5 类节点/边色（深色下更亮，同 :root 语义，见上方注释） */
+  --graph-target: oklch(75% 0.14 290);
+  --graph-asset: oklch(75% 0.15 155);
+  --graph-credential: oklch(72% 0.15 230);
+  --graph-access: oklch(78% 0.14 65);
+  --graph-enables: oklch(80% 0.15 85);
+  --graph-derives: oklch(76% 0.12 195);
 
   --shadow-sm: 0 1px 2px oklch(0% 0 0 / 0.4);
   --shadow: 0 2px 10px oklch(0% 0 0 / 0.5), 0 16px 48px oklch(0% 0 0 / 0.3);
   --shadow-lg: 0 8px 40px oklch(0% 0 0 / 0.55);
+
+  /* 战术终端辉光（深色态）：emerald 描边 + 向外发散的荧光晕。
+     仅用 box-shadow（合成器友好），不改 accent 色相。 */
+  --glow-accent: 0 0 0 1px var(--accent-soft), 0 0 16px oklch(76% 0.17 162 / 0.18);
+  --glow-accent-strong: 0 0 0 1px var(--accent), 0 0 24px oklch(76% 0.17 162 / 0.35);
 
   color-scheme: dark;
 }
@@ -120,21 +127,109 @@
   --color-sev-medium: var(--sev-medium);
   --color-sev-low: var(--sev-low);
   --color-sev-info: var(--sev-info);
-  --color-mode-active: var(--mode-active);
-  --color-mode-passive: var(--mode-passive);
-  --color-graph-task: var(--graph-task);
-  --color-graph-hypothesis: var(--graph-hypothesis);
-  --color-graph-probe: var(--graph-probe);
-  --color-graph-signal: var(--graph-signal);
-  --color-graph-dead: var(--graph-dead);
-  --color-graph-informs: var(--graph-informs);
-  --color-graph-confirms: var(--graph-confirms);
-  --color-graph-depends-on: var(--graph-depends-on);
+  --color-source-manual: var(--source-manual);
+  --color-source-auto: var(--source-auto);
+  --color-graph-target: var(--graph-target);
+  --color-graph-asset: var(--graph-asset);
+  --color-graph-credential: var(--graph-credential);
+  --color-graph-access: var(--graph-access);
+  --color-graph-enables: var(--graph-enables);
+  --color-graph-derives: var(--graph-derives);
 }
 
 /* 品牌冷寒蓝：与 logo/favicon 沙齿剑徽记同色系，纯色，固定不随主题切换 */
 .brand-mark {
   color: #4a68a2;
+}
+
+/* ============================================================
+   战术终端质感工具类（配置资源管理三页共用）
+   全部走 --accent / --glow-* token，深浅色自适应；仅 box-shadow/opacity。
+   ============================================================ */
+
+/* 多行截断：超出显示省略号（卡片描述用两行） */
+.tac-clamp-2 {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* 选中/聚焦荧光环：描边 + 深色态发散晕 */
+.tac-glow {
+  box-shadow: var(--glow-accent);
+}
+.tac-glow-strong {
+  box-shadow: var(--glow-accent-strong);
+}
+
+/* 列表行选中：左侧荧光竖条 + 描边（用 inset 竖条避免占位） */
+.tac-row-active {
+  box-shadow: inset 3px 0 0 var(--accent), var(--glow-accent);
+  border-color: var(--accent) !important;
+}
+
+/* 终端窗点：面板右上角 ● ● ● 装饰 */
+.tac-dots::before {
+  content: "";
+  position: absolute;
+  top: 1.15rem;
+  right: 1.25rem;
+  width: 34px;
+  height: 8px;
+  background-image: radial-gradient(circle, var(--accent) 3px, transparent 3.5px),
+    radial-gradient(circle, var(--border-strong) 3px, transparent 3.5px),
+    radial-gradient(circle, var(--border-strong) 3px, transparent 3.5px);
+  background-size: 8px 8px;
+  background-position: 0 0, 13px 0, 26px 0;
+  background-repeat: no-repeat;
+  opacity: 0.85;
+}
+
+/* 终端提示符：等宽绿色 ▚ 前缀，用于列表标题 */
+.tac-prompt::before {
+  content: "▚ ";
+  color: var(--accent);
+  font-family: var(--font-mono);
+}
+
+/* 光标闪烁：加载/空态末尾 ▋，reduced-motion 下不闪 */
+.tac-cursor::after {
+  content: "▋";
+  margin-left: 2px;
+  color: var(--accent);
+  animation: tac-blink 1.1s step-end infinite;
+}
+@keyframes tac-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tac-cursor::after {
+    animation: none;
+  }
+}
+
+/* 居中模态入场：遮罩淡入 + 面板弹出。用于配置抽屉 / 漏洞详情等居中 Dialog。
+   面板保留 Tailwind 的 -translate-x-1/2 -translate-y-1/2 定位，from 写全 transform、
+   to 隐含回到该定位值，故居中不漂移。reduced-motion 由全局 media query 兜住。 */
+.tac-modal-overlay[data-state='open'] {
+  animation: tac-fade 160ms ease-out;
+}
+.tac-modal[data-state='open'] {
+  animation: tac-pop 190ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+@keyframes tac-fade {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes tac-pop {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.96);
+  }
 }
 
 * {

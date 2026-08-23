@@ -12,7 +12,7 @@
 
 **一个对话 = 一个 active_scan（owner），所有轮次共享同一持久化黑板**（finding / notes / lesson / flow / credential，均按 owner 持久化）。
 
-- agent 的"记忆"= owner 作用域的黑板，**不是 LLM token 上下文**。已验证：`internal/builder/hunter/user_prompt.go` 的 `BuildUserPrompt` 注入"该 host 已有 finding（限本次 owner）"+ notes/lesson，故同一 active_scan 上的新 agent run 自动看到所有先前产出。
+- agent 的"记忆"= owner 作用域的黑板，**不是 LLM token 上下文**。已验证：`internal/builder/agent/user_prompt.go` 的 `BuildUserPrompt` 注入"该 host 已有 finding（限本次 owner）"+ notes/lesson，故同一 active_scan 上的新 agent run 自动看到所有先前产出。
 - 多轮 = 同一 owner 上的「多次 agent run（动作）」+「便宜 LLM 读黑板回答（问答）」。
 - 优势：无 token 窗口限制，比 ChatGPT 的 token 续接更稳——记忆是结构化持久数据，不是会被压缩的对话历史。
 
@@ -51,7 +51,7 @@
 - active_scan 若为 completed → **重开**为 active（新增 store 方法 `Reopen` 或复用 status 更新）
 - 入队新 agent run（同 owner，复用 `createScan` 的入队逻辑，但不新建 active_scan）：
   - entrypoint brief = 最新 user 动作消息
-  - orchestrator user prompt 额外注入**对话历史 user 消息**（让 agent 知道原始目标 + 本次细化）——在 scanner 侧 BuildUserPrompt 调用处加一段，或把历史拼进 brief
+  - planner user prompt 额外注入**对话历史 user 消息**（让 agent 知道原始目标 + 本次细化）——在 scanner 侧 BuildUserPrompt 调用处加一段，或把历史拼进 brief
 - run 跑完 → active_scan 回 completed → 若有 pending action 则调度下一个
 
 ### 5.4 排队
@@ -85,6 +85,6 @@
 ## 9. 开放问题
 
 - 路由分类的 prompt 与阈值留实现期调；先用 light provider 默认
-- 「对话历史 user 消息」注入 orchestrator 的具体形式（拼进 brief vs 独立 prompt 段）留实现期定
+- 「对话历史 user 消息」注入 planner 的具体形式（拼进 brief vs 独立 prompt 段）留实现期定
 - active_scan「重开」是复用 status 字段还是加新状态，留实现期看 store 现状定
 - pending action 存哪（conversation 表加字段 vs 新表）留实现期定

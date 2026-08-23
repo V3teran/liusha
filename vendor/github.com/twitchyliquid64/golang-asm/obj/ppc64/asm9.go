@@ -30,13 +30,14 @@
 package ppc64
 
 import (
-	"github.com/twitchyliquid64/golang-asm/obj"
-	"github.com/twitchyliquid64/golang-asm/objabi"
 	"encoding/binary"
 	"fmt"
 	"log"
 	"math"
 	"sort"
+
+	"github.com/twitchyliquid64/golang-asm/obj"
+	"github.com/twitchyliquid64/golang-asm/objabi"
 )
 
 // ctxt9 holds state while assembling a single function.
@@ -3192,7 +3193,7 @@ func (c *ctxt9) asmout(p *obj.Prog, o *Optab, out []uint32) {
 		switch p.As {
 		/* The assembler accepts a 4-operand l*arx instruction. The fourth operand is an Exclusive Access Hint (EH) */
 		/* The EH field can be used as a lock acquire/release hint as follows: */
-		/* 0 = Atomic Update (fetch-and-operate or similar algorithm) */
+		/* 0 = Atomic Update (fetch-and-execute or similar algorithm) */
 		/* 1 = Exclusive Access (lock acquire and release) */
 		case ALBAR, ALHAR, ALWAR, ALDAR:
 			if p.From3Type() != obj.TYPE_NONE {

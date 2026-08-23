@@ -24,7 +24,7 @@ func TestStore_AppendThenReadRecent(t *testing.T) {
 	ctx := context.Background()
 
 	if err := s.Append(ctx, "target.com", Entry{
-		Kind: KindClue, Detail: "登录页有隐藏调试参数 debug=1", HunterID: "h1", SourceTaskID: "t1",
+		Kind: KindClue, Detail: "登录页有隐藏调试参数 debug=1", ExecutorID: "h1", SourceTaskID: "t1",
 	}); err != nil {
 		t.Fatalf("append: %v", err)
 	}
@@ -37,7 +37,7 @@ func TestStore_AppendThenReadRecent(t *testing.T) {
 	if len(clues) != 1 {
 		t.Fatalf("clues 数量=%d，期望 1", len(clues))
 	}
-	if clues[0].Detail != "登录页有隐藏调试参数 debug=1" || clues[0].HunterID != "h1" || clues[0].SourceTaskID != "t1" {
+	if clues[0].Detail != "登录页有隐藏调试参数 debug=1" || clues[0].ExecutorID != "h1" || clues[0].SourceTaskID != "t1" {
 		t.Fatalf("字段不匹配: %+v", clues[0])
 	}
 }
@@ -50,7 +50,7 @@ func TestStore_Append_Validates(t *testing.T) {
 	if err := s.Append(ctx, "target.com", Entry{Kind: "bogus", Detail: "x"}); err == nil {
 		t.Fatal("非法 kind 应报错")
 	}
-	if err := s.Append(ctx, "target.com", Entry{Kind: KindFact, Detail: ""}); err == nil {
+	if err := s.Append(ctx, "target.com", Entry{Kind: KindObservation, Detail: ""}); err == nil {
 		t.Fatal("空 note 应报错")
 	}
 }
@@ -77,7 +77,7 @@ func TestStore_ReadRecent_GroupsAllAndDedups(t *testing.T) {
 			t.Fatalf("append uniq clue #%d: %v", i, err)
 		}
 	}
-	if err := s.Append(ctx, "target.com", Entry{Kind: KindFact, Detail: "fact-1", SourceTaskID: "t1"}); err != nil {
+	if err := s.Append(ctx, "target.com", Entry{Kind: KindObservation, Detail: "fact-1", SourceTaskID: "t1"}); err != nil {
 		t.Fatalf("append fact: %v", err)
 	}
 
@@ -89,8 +89,8 @@ func TestStore_ReadRecent_GroupsAllAndDedups(t *testing.T) {
 	if len(got[KindClue]) != 4 {
 		t.Fatalf("clue 数量=%d，期望去重后 4 条（1 重复 + 3 独立）", len(got[KindClue]))
 	}
-	if len(got[KindFact]) != 1 || got[KindFact][0].Detail != "fact-1" {
-		t.Fatalf("fact 不匹配: %+v", got[KindFact])
+	if len(got[KindObservation]) != 1 || got[KindObservation][0].Detail != "fact-1" {
+		t.Fatalf("fact 不匹配: %+v", got[KindObservation])
 	}
 }
 
@@ -135,7 +135,7 @@ func TestStore_Append_RefreshesTTL(t *testing.T) {
 	s, mr := newTestStore(t) // newTestStore 用 ttl=time.Hour
 	ctx := context.Background()
 
-	if err := s.Append(ctx, "target.com", Entry{Kind: KindFact, Detail: "x"}); err != nil {
+	if err := s.Append(ctx, "target.com", Entry{Kind: KindObservation, Detail: "x"}); err != nil {
 		t.Fatalf("append: %v", err)
 	}
 	if ttl := mr.TTL(s.key("target.com")); ttl <= 0 {
@@ -160,7 +160,7 @@ func TestStore_Append_NoTTLWhenDisabled(t *testing.T) {
 	s := NewStore(rdb, "test", 0) // ttl=0 关过期
 
 	ctx := context.Background()
-	if err := s.Append(ctx, "target.com", Entry{Kind: KindFact, Detail: "x"}); err != nil {
+	if err := s.Append(ctx, "target.com", Entry{Kind: KindObservation, Detail: "x"}); err != nil {
 		t.Fatalf("append: %v", err)
 	}
 	if ttl := mr.TTL(s.key("target.com")); ttl != 0 {

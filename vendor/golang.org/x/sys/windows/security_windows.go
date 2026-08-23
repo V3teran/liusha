@@ -352,14 +352,14 @@ const (
 	WinBuiltinUsersSid                            = 27
 	WinBuiltinGuestsSid                           = 28
 	WinBuiltinPowerUsersSid                       = 29
-	WinBuiltinAccountOperatorsSid                 = 30
-	WinBuiltinSystemOperatorsSid                  = 31
-	WinBuiltinPrintOperatorsSid                   = 32
-	WinBuiltinBackupOperatorsSid                  = 33
+	WinBuiltinAccountExecutorsSid                 = 30
+	WinBuiltinSystemExecutorsSid                  = 31
+	WinBuiltinPrintExecutorsSid                   = 32
+	WinBuiltinBackupExecutorsSid                  = 33
 	WinBuiltinReplicatorSid                       = 34
 	WinBuiltinPreWindows2000CompatibleAccessSid   = 35
 	WinBuiltinRemoteDesktopUsersSid               = 36
-	WinBuiltinNetworkConfigurationOperatorsSid    = 37
+	WinBuiltinNetworkConfigurationExecutorsSid    = 37
 	WinAccountAdministratorSid                    = 38
 	WinAccountGuestSid                            = 39
 	WinAccountKrbtgtSid                           = 40
@@ -386,7 +386,7 @@ const (
 	WinBuiltinDCOMUsersSid                        = 61
 	WinBuiltinIUsersSid                           = 62
 	WinIUserSid                                   = 63
-	WinBuiltinCryptoOperatorsSid                  = 64
+	WinBuiltinCryptoExecutorsSid                  = 64
 	WinUntrustedLabelSid                          = 65
 	WinLowLabelSid                                = 66
 	WinMediumLabelSid                             = 67
@@ -423,7 +423,7 @@ const (
 	WinUserModeDriversSid                         = 98
 	WinBuiltinHyperVAdminsSid                     = 99
 	WinAccountCloneableControllersSid             = 100
-	WinBuiltinAccessControlAssistanceOperatorsSid = 101
+	WinBuiltinAccessControlAssistanceExecutorsSid = 101
 	WinBuiltinRemoteManagementUsersSid            = 102
 	WinAuthenticationAuthorityAssertedSid         = 103
 	WinAuthenticationServiceAssertedSid           = 104

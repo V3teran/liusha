@@ -1,7 +1,7 @@
 -- 删 finding_relation 表 + finding 加 depends_on uuid[] 字段。
 --
 -- 设计反思（finding_relation 实测从未被使用）：
--- 4+ 次 e2e 跑（v8-v11），orchestrator/exploitation 全程 0 次调用 write_relation。
+-- 4+ 次 e2e 跑（v8-v11），planner/exploitation 全程 0 次调用 write_relation。
 -- 根因：操作链长（先 read_findings 拿 ID → 再 write_relation），LLM 自然倾向把 chaining
 -- 描述写在 finding.summary 里。独立的关系表是过度设计。
 --

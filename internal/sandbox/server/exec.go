@@ -20,13 +20,13 @@ import (
 // outputDirRoot / workdirRoot 是 per-task 文件隔离的根目录。
 //
 // v1.3：单 task 1 容器，所有 /exec 共享 /tmp/sandbox-output（同 task 内跨 exec 复用文件）。
-// v1.4 subtask swarm：orchestrator / exploitation 共享同一容器（避免账号 cookie 顶掉），但orchestrator / exploitation 并发跑命令会
-// 互相串扰——modtime 过滤无法分清"orchestrator 刚写的 vs exploitation 刚写的"；wget -O ./x.html 类命令会互覆。
+// v1.4 subtask swarm：planner / exploitation 共享同一容器（避免账号 cookie 顶掉），但planner / exploitation 并发跑命令会
+// 互相串扰——modtime 过滤无法分清"planner 刚写的 vs exploitation 刚写的"；wget -O ./x.html 类命令会互覆。
 //
 // 隔离设计：
-//   - OUTPUT_DIR = /tmp/sandbox-output/<HunterID>/  → 附件按 task 切，collectAttachments 只扫本 task 子目录
-//   - cwd        = /workspace/<HunterID>/           → LLM 写相对路径自动落到 per-task workdir
-//   - 共享：home 目录（cookies / auth state）、二进制工具 — 这是orchestrator / exploitation 共享容器的目的
+//   - OUTPUT_DIR = /tmp/sandbox-output/<ExecutorID>/  → 附件按 task 切，collectAttachments 只扫本 task 子目录
+//   - cwd        = /workspace/<ExecutorID>/           → LLM 写相对路径自动落到 per-task workdir
+//   - 共享：home 目录（cookies / auth state）、二进制工具 — 这是planner / exploitation 共享容器的目的
 //
 // task 容器销毁时整个目录树自然消失，无残留泄露风险。
 // var（非 const）便于 server 包内单测用 t.TempDir() override：
@@ -57,12 +57,12 @@ func (s *Server) handleExec(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "decode request: %v", err)
 		return
 	}
-	if req.HunterID == "" {
-		writeError(w, http.StatusBadRequest, "hunter_id required (subtask swarm 按 hunter 切目录隔离)")
+	if req.ExecutorID == "" {
+		writeError(w, http.StatusBadRequest, "executor_id required (subtask swarm 按 executor 切目录隔离)")
 		return
 	}
-	if !isPathSafeHunterID(req.HunterID) {
-		writeError(w, http.StatusBadRequest, "hunter_id must be [A-Za-z0-9._-]{1,64}")
+	if !isPathSafeExecutorID(req.ExecutorID) {
+		writeError(w, http.StatusBadRequest, "agent_id must be [A-Za-z0-9._-]{1,64}")
 		return
 	}
 	if req.Command == "" {
@@ -74,9 +74,9 @@ func (s *Server) handleExec(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// per-task 隔离：orchestrator / exploitation 共享容器但文件互不串扰（同 task 内跨 exec 仍共享 outputDir）
-	outputDir := filepath.Join(outputDirRoot, req.HunterID)
-	workdir := filepath.Join(workdirRoot, req.HunterID)
+	// per-task 隔离：planner / exploitation 共享容器但文件互不串扰（同 task 内跨 exec 仍共享 outputDir）
+	outputDir := filepath.Join(outputDirRoot, req.ExecutorID)
+	workdir := filepath.Join(workdirRoot, req.ExecutorID)
 	if err := os.MkdirAll(outputDir, 0o777); err != nil {
 		writeError(w, http.StatusInternalServerError, "create output dir: %v", err)
 		return
@@ -101,7 +101,7 @@ func (s *Server) handleExec(w http.ResponseWriter, r *http.Request) {
 	cmd.Dir = workdir
 	cmd.Env = append(os.Environ(),
 		"OUTPUT_DIR="+outputDir,
-		"HUNTER_ID="+req.HunterID, // browser-use wrapper（每 hunter 独立 tab）用此区分
+		"HUNTER_ID="+req.ExecutorID, // browser-use wrapper（每 agent 独立 tab）用此区分
 	)
 
 	// 让 sh 成为新进程组 leader；ctx 超时时 cmd.Cancel 杀整个进程组——
@@ -213,12 +213,12 @@ func collectAttachments(outputDir string, since time.Time) ([]sandbox.Attachment
 	return files, warnings
 }
 
-// isPathSafeHunterID 校验 HunterID 是否仅含 path-safe 字符（[A-Za-z0-9._-]{1,64}）。
+// isPathSafeExecutorID 校验 ExecutorID 是否仅含 path-safe 字符（[A-Za-z0-9._-]{1,64}）。
 //
-// 防 path traversal：req.HunterID 由 LLM 调用方注入 → server 端直接 filepath.Join
+// 防 path traversal：req.ExecutorID 由 LLM 调用方注入 → server 端直接 filepath.Join
 // 拼路径，若不校验可被 `../../etc/passwd` 类输入逃逸到 /workspace 根之外。
 // 合法 agent_run id 是 uuid（36 字符含连字符），天然匹配本字符集。
-func isPathSafeHunterID(s string) bool {
+func isPathSafeExecutorID(s string) bool {
 	if len(s) == 0 || len(s) > 64 {
 		return false
 	}

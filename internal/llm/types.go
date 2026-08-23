@@ -2,7 +2,7 @@
 //
 // 设计要点：
 //   - Generator 接口屏蔽 provider 差异（DeepSeek/Claude/OpenAI...）。
-//   - Generator 不安全跨 goroutine 并发使用（eino BindTools 改变内部状态）；
+//   - Generator 不安全跨 goroutine 并发使用（BindTools 改变内部状态）；
 //     调用方负责每个任务建独立实例。
 //   - tools 在 New 时一次性绑定，Generate 不再传 tools（保留参数仅为接口对称）。
 package llm

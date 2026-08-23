@@ -1,1 +1,1 @@
-ALTER TABLE agent_task DROP CONSTRAINT IF EXISTS agent_task_orchestrator_id_fkey;
+ALTER TABLE agent_task DROP CONSTRAINT IF EXISTS agent_task_planner_id_fkey;

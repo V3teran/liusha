@@ -4,6 +4,7 @@ package finding_test
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"testing"
 	"time"
@@ -12,7 +13,7 @@ import (
 	"github.com/V3teran/liusha/internal/finding"
 )
 
-// 用 dev DB（已跑过 0081 migration）测 triage 新路径：ListAll 全局台账（JOIN task 带 mode +
+// 用 dev DB 测 triage 新路径：ListAll 全局台账（JOIN task/assignment 带 scenario_id + source +
 // 按维度筛选）与 UpdateStatus（状态流转 + triaged_at 打点 + 枚举校验）。
 // 需 LIUSHA_POSTGRES_DSN；未设则 skip。
 //
@@ -33,16 +34,18 @@ func TestFindingStore_TriageRoundTrip(t *testing.T) {
 	defer pool.Close()
 	store := finding.NewStore(pool)
 
-	// 建 FK 链：assignment → task（active 模式）。测试尾部 CASCADE 清理。
+	// 建 FK 链：assignment → task。测试尾部 CASCADE 清理。
+	const scenarioID = "web-pentest-killchain"
 	var assignmentID, taskID string
 	if err := pool.QueryRow(ctx,
-		`INSERT INTO assignment (mode, source) VALUES ('active','manual') RETURNING id`,
+		`INSERT INTO assignment (scenario_id, source) VALUES ($1,'manual') RETURNING id`,
+		scenarioID,
 	).Scan(&assignmentID); err != nil {
 		t.Fatalf("建 assignment: %v", err)
 	}
 	if err := pool.QueryRow(ctx,
-		`INSERT INTO task (mode, assignment_id, target_host) VALUES ('active',$1::uuid,'triage-test.local') RETURNING id`,
-		assignmentID,
+		`INSERT INTO task (scenario_id, assignment_id, brief, target_host) VALUES ($1,$2::uuid,'扫描 triage-test.local','triage-test.local') RETURNING id`,
+		scenarioID, assignmentID,
 	).Scan(&taskID); err != nil {
 		t.Fatalf("建 task: %v", err)
 	}
@@ -51,7 +54,8 @@ func TestFindingStore_TriageRoundTrip(t *testing.T) {
 		_, _ = pool.Exec(ctx, `DELETE FROM assignment WHERE id=$1::uuid`, assignmentID)
 	}()
 
-	// 存一条 finding（默认 status=open）+ evidence。
+	// 存一条 finding（默认 status=open）+ evidence + repro 复现配方（喂 Verifier 复现门）。
+	reproRecipe := []byte(`{"traffic_id":42,"modifications":{"query":{"id":"2"}},"assert":{"status_code":200,"body_contains":["other user"]}}`)
 	saved, err := store.Save(ctx, finding.VulnFinding{
 		TaskID:   taskID,
 		Host:     "triage-test.local",
@@ -60,6 +64,7 @@ func TestFindingStore_TriageRoundTrip(t *testing.T) {
 		CWEID:    "CWE-89",
 		Target:   []byte(`{"path":"/t","method":"GET"}`),
 		Evidence: []byte(`{"repro_cmd":"curl x","observation":"ok"}`),
+		Repro:    reproRecipe,
 	})
 	if err != nil {
 		t.Fatalf("Save: %v", err)
@@ -71,7 +76,7 @@ func TestFindingStore_TriageRoundTrip(t *testing.T) {
 		t.Fatalf("未处置 finding triaged_at 应为 nil，得 %v", saved.TriagedAt)
 	}
 
-	// ListAll 按 host 筛应命中本条，Mode 派生 active，evidence 透传。
+	// ListAll 按 host 筛应命中本条，ScenarioID 派生，evidence 透传。
 	rows, err := store.ListAll(ctx, finding.LedgerFilter{Host: "triage-test.local"})
 	if err != nil {
 		t.Fatalf("ListAll: %v", err)
@@ -79,18 +84,37 @@ func TestFindingStore_TriageRoundTrip(t *testing.T) {
 	if len(rows) != 1 {
 		t.Fatalf("ListAll host 筛应 1 条，得 %d", len(rows))
 	}
-	if rows[0].Mode != "active" {
-		t.Fatalf("Mode 应派生为 active，得 %q", rows[0].Mode)
+	if rows[0].ScenarioID != scenarioID {
+		t.Fatalf("ScenarioID 应派生为 %q，得 %q", scenarioID, rows[0].ScenarioID)
+	}
+	if rows[0].Source != "manual" {
+		t.Fatalf("Source 应经 JOIN assignment 派生为 manual，得 %q", rows[0].Source)
 	}
 	if len(rows[0].Evidence) == 0 || string(rows[0].Evidence) == "{}" {
 		t.Fatalf("evidence 应透传，得 %q", string(rows[0].Evidence))
+	}
+	// repro 复现配方往返：存进的 jsonb 应原样回读（供 Verifier 解析 ReplayRecipe）。
+	if len(rows[0].Repro) == 0 {
+		t.Fatal("repro 复现配方应透传回读，得空")
+	}
+	var recipe struct {
+		TrafficID int64 `json:"traffic_id"`
+		Assert    struct {
+			StatusCode int `json:"status_code"`
+		} `json:"assert"`
+	}
+	if err := json.Unmarshal(rows[0].Repro, &recipe); err != nil {
+		t.Fatalf("repro 应为合法 JSON 配方: %v（got %q）", err, string(rows[0].Repro))
+	}
+	if recipe.TrafficID != 42 || recipe.Assert.StatusCode != 200 {
+		t.Fatalf("repro 字段应原样保真，得 traffic_id=%d status_code=%d", recipe.TrafficID, recipe.Assert.StatusCode)
 	}
 
 	// 不去重：第二个 task 挖到同一漏洞（host+cwe+path 相同）→ 台账平铺应 2 条独立（各自 triage）。
 	var taskID2 string
 	if err := pool.QueryRow(ctx,
-		`INSERT INTO task (mode, assignment_id, target_host) VALUES ('active',$1::uuid,'triage-test.local') RETURNING id`,
-		assignmentID,
+		`INSERT INTO task (scenario_id, assignment_id, brief, target_host) VALUES ($1,$2::uuid,'再扫 triage-test.local','triage-test.local') RETURNING id`,
+		scenarioID, assignmentID,
 	).Scan(&taskID2); err != nil {
 		t.Fatalf("建 task2: %v", err)
 	}

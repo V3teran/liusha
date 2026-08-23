@@ -8,7 +8,7 @@
 --     assignment.schedule_id 外键当场成立，避免 P4 再 ALTER 改表两次。
 --
 -- 存量可丢（spec §9）：task 已存在（P0 建，无 assignment_id）。空库无搬运负担——
--- 先清 task（CASCADE 连带清 hunter/finding/... 的 task_id 引用），再加 NOT NULL 列。
+-- 先清 task（CASCADE 连带清 agent/finding/... 的 task_id 引用），再加 NOT NULL 列。
 
 -- ── cron_schedule（定时模板，学 K8s CronJob；P1 只建表）
 CREATE TABLE cron_schedule (

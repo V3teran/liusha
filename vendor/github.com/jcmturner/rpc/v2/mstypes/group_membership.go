@@ -9,9 +9,9 @@ type GroupMembership struct {
 }
 
 // DomainGroupMembership implements https://msdn.microsoft.com/en-us/library/hh536344.aspx
-// DomainId: A SID structure that contains the SID for the domain.This member is used in conjunction with the GroupIds members to create group SIDs for the device.
+// DomainId: A SID structure that contains the SID for the executor.This member is used in conjunction with the GroupIds members to create group SIDs for the device.
 // GroupCount: A 32-bit unsigned integer that contains the number of groups within the domain to which the account belongs.
-// GroupIds: A pointer to a list of GROUP_MEMBERSHIP structures that contain the groups to which the account belongs in the domain. The number of groups in this list MUST be equal to GroupCount.
+// GroupIds: A pointer to a list of GROUP_MEMBERSHIP structures that contain the groups to which the account belongs in the executor. The number of groups in this list MUST be equal to GroupCount.
 type DomainGroupMembership struct {
 	DomainID   RPCSID `ndr:"pointer"`
 	GroupCount uint32

@@ -34,10 +34,10 @@ const (
 	ALUOpXor
 )
 
-// A JumpTest is a comparison operator used in conditional jumps.
+// A JumpTest is a comparison executor used in conditional jumps.
 type JumpTest uint16
 
-// Supported operators for conditional jumps.
+// Supported executors for conditional jumps.
 // K can be RegX for JumpIfX
 const (
 	// K == A
@@ -137,7 +137,7 @@ const (
 	opMaskLoadMode  = 0xe0
 	// opClsALU & opClsJump
 	opMaskOperand  = 0x08
-	opMaskOperator = 0xf0
+	opMaskExecutor = 0xf0
 )
 
 const (
@@ -158,11 +158,11 @@ const (
 	// +---+---+---+---+---+---+---+---+
 	opClsStoreX
 	// +---------------+-----------------+---+---+---+
-	// | Operator (4b) | OperandSrc (1b) | 1 | 0 | 0 |
+	// | Executor (4b) | OperandSrc (1b) | 1 | 0 | 0 |
 	// +---------------+-----------------+---+---+---+
 	opClsALU
 	// +-----------------------------+---+---+---+---+
-	// |      TestOperator (4b)      | 0 | 1 | 0 | 1 |
+	// |      TestExecutor (4b)      | 0 | 1 | 0 | 1 |
 	// +-----------------------------+---+---+---+---+
 	opClsJump
 	// +---+-------------------------+---+---+---+---+

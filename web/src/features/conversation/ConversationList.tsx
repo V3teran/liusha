@@ -14,7 +14,7 @@ export interface ConversationListHandle {
 
 interface ConversationListProps {
   activeId?: string
-  mode?: string
+  source?: string
   allowNew?: boolean
   emptyHint?: string
   heading?: string
@@ -47,10 +47,10 @@ const HEADER_CONTROL = 'flex-1 inline-flex items-center justify-center gap-1.5 r
 
 // 会话侧栏：按页拉会话（offset 翻页，见 api/client.ts listConversations 注释），点击向上抛选中 ID；
 // 顶部「+ 新会话」抛 new。列表项展示序号 + 真实状态点 + 标题 + 相对时间，hover 出 ⋯ 更多菜单
-// （删除/重命名），当前选中高亮。mode 过滤下沉到服务端——分页边界建立在已过滤集合上。
+// （删除/重命名），当前选中高亮。source 过滤（manual/auto）下沉到服务端——分页边界建立在已过滤集合上。
 export const ConversationList = forwardRef<ConversationListHandle, ConversationListProps>(
   function ConversationList(
-    { activeId, mode, allowNew = true, emptyHint, heading, onSelect, onNew, onDeleted },
+    { activeId, source, allowNew = true, emptyHint, heading, onSelect, onNew, onDeleted },
     ref,
   ) {
     const [items, setItems] = useState<Conversation[]>([])
@@ -76,7 +76,7 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
       async (o: number) => {
         setLoading(true)
         try {
-          const { conversations, hasMore: hm } = await listConversations(PAGE_SIZE, o, mode ?? '')
+          const { conversations, hasMore: hm } = await listConversations(PAGE_SIZE, o, source ?? '')
           setItems(conversations)
           setHasMore(hm)
           setOffset(o)
@@ -84,7 +84,7 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
           setLoading(false)
         }
       },
-      [mode],
+      [source],
     )
 
     // 供外部（父组件）调用的 refresh：语义是「有新变化，给我最新视图」——回第 1 页，
@@ -95,7 +95,7 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
     useEffect(() => {
       void load(0)
       // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [mode])
+    }, [source])
 
     // 自适应轮询：仅当当前页存在「进行中(active)」会话时每 8s 刷新（停留当前页，不跳页）——
     // 感知后台会话跑完/状态变化。全部终态则不轮询；菜单开着时跳过（不打断操作）。
@@ -200,10 +200,10 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
 
     return (
       <aside className="flex h-full min-h-0 flex-col gap-2">
-        {/* 主动/被动 tab：对话模块内部切换，两个 tab 是同一视图组件的两条路由。 */}
+        {/* 主动下发/被动代理 tab：按来源（source=manual/auto）切换，两个 tab 是同一视图组件的两条路由。 */}
         <div className="flex flex-shrink-0 gap-1 rounded-[9px] bg-surface-2 p-0.5">
           <NavLink
-            to="/conversations/active"
+            to="/conversations/manual"
             className={({ isActive }) =>
               cn(
                 'flex-1 rounded-[7px] py-1.5 text-center text-[12.5px] font-semibold text-muted transition-colors hover:text-text',
@@ -211,10 +211,10 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
               )
             }
           >
-            主动
+            主动下发
           </NavLink>
           <NavLink
-            to="/conversations/passive"
+            to="/conversations/auto"
             className={({ isActive }) =>
               cn(
                 'flex-1 rounded-[7px] py-1.5 text-center text-[12.5px] font-semibold text-muted transition-colors hover:text-text',
@@ -222,7 +222,7 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
               )
             }
           >
-            被动
+            被动代理
           </NavLink>
         </div>
         <div className="flex flex-shrink-0 items-stretch gap-1.5">

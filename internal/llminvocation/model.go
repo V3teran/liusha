@@ -2,13 +2,13 @@
 // （含失败）落一行用于 token 用量 + 路由审计。
 //
 // 列命名约定：
-//   - role 是"调用者角色"（trafficAnalysis/orchestrator/exploitation/inspector/react_main），与 OpenAI message.role 区分
+//   - role 是"调用者角色"（trafficAnalysis/planner/exploitation/inspector/react_main），与 OpenAI message.role 区分
 //   - messages / result 是 jsonb 列（完整输入/输出 payload，审计回放用）
 package llminvocation
 
 import "time"
 
-// Invocation 是 llm_invocation 表行的 Go 表示。HunterID 可空（外键 SET NULL）。
+// Invocation 是 llm_invocation 表行的 Go 表示。ExecutorID 可空（外键 SET NULL）。
 //
 // Messages / Result 是完整的输入/输出 payload，用于审计与回放。
 // 始终落库（不脱敏、不开关），cookie 等敏感头会原样保留。
@@ -16,7 +16,7 @@ import "time"
 type Invocation struct {
 	ID           int64
 	RequestID    string // 跨系统关联键，db 侧 gen_random_uuid() 生成（写路径不传，见 store.go copyFromBatch）
-	HunterID     *string
+	ExecutorID     *string
 	TaskID       *string // 所属 task.id（可空：SET NULL 外键）
 	Provider     string
 	Model        string
@@ -36,7 +36,7 @@ type Invocation struct {
 	// 该次调用是派活、跑命令还是写漏洞，而不必逐行点开详情。
 	ToolNames   []string
 	TextPreview string
-	Role        string // 调用者角色：trafficAnalysis / orchestrator / exploitation / inspector 等；空 = 未分类
+	Role        string // 调用者角色：trafficAnalysis / planner / exploitation / inspector 等；空 = 未分类
 	Messages    []byte // jsonb：输入消息数组（[]llm.Message 序列化）
 	Result      []byte // jsonb：LLM 返回（llm.Result 序列化）
 	CreatedAt   time.Time

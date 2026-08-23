@@ -9,19 +9,22 @@ import type {
   Conversation,
   ConversationUsage,
   Message,
-  Role,
+  ScenarioConfig,
+  AgentConfig,
   OwnerSummary,
-  SitemapView,
   AttackGraph,
-  Milestone,
   LLMInvocationsResponse,
   LLMInvocationDetail,
   LLMInvocationStat,
   LLMInvocationFacets,
   LLMInvocationFilters,
+  TrafficListResponse,
+  TrafficDetail,
+  TrafficFilters,
   Identity,
   FindingRow,
   FindingFilters,
+  FindingListResponse,
 } from './types'
 
 const KEY_STORAGE = 'liusha_api_key'
@@ -59,9 +62,10 @@ export async function bootstrapApiKey(): Promise<void> {
 }
 
 /**
- * 发起 GET 请求，自动添加 X-API-Key header
+ * 发起 GET 请求，自动添加 X-API-Key header。
+ * 导出供 config.ts 等同源模块复用（单一鉴权/错误口径，不各自再拼 header）。
  */
-async function get<T>(path: string): Promise<T> {
+export async function get<T>(path: string): Promise<T> {
   const res = await fetch('/api' + path, {
     headers: { 'X-API-Key': getApiKey() },
   })
@@ -73,7 +77,7 @@ async function get<T>(path: string): Promise<T> {
  * 发起 POST 请求（JSON body 可选），自动带 X-API-Key。
  * 注意：/chat 与 /conversations/:id/messages 有特殊语义（cookie / 409），各自单独实现。
  */
-async function post<T>(path: string, body?: unknown): Promise<T> {
+export async function post<T>(path: string, body?: unknown): Promise<T> {
   const res = await fetch('/api' + path, {
     method: 'POST',
     headers: { 'X-API-Key': getApiKey(), 'Content-Type': 'application/json' },
@@ -84,9 +88,35 @@ async function post<T>(path: string, body?: unknown): Promise<T> {
 }
 
 /**
+ * 发起 PUT 请求（JSON body），自动带 X-API-Key。配置管理页 upsert-by-code 用。
+ */
+export async function put<T>(path: string, body?: unknown): Promise<T> {
+  const res = await fetch('/api' + path, {
+    method: 'PUT',
+    headers: { 'X-API-Key': getApiKey(), 'Content-Type': 'application/json' },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  })
+  if (!res.ok) throw new Error(`PUT ${path} → ${res.status}`)
+  return res.json()
+}
+
+/**
+ * 发起 PATCH 请求（单字段/局部更新，如 agent 改能力档），自动带 X-API-Key。
+ */
+export async function patch<T>(path: string, body?: unknown): Promise<T> {
+  const res = await fetch('/api' + path, {
+    method: 'PATCH',
+    headers: { 'X-API-Key': getApiKey(), 'Content-Type': 'application/json' },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  })
+  if (!res.ok) throw new Error(`PATCH ${path} → ${res.status}`)
+  return res.json()
+}
+
+/**
  * 发起 DELETE 请求，自动带 X-API-Key。
  */
-async function del<T>(path: string): Promise<T> {
+export async function del<T>(path: string): Promise<T> {
   const res = await fetch('/api' + path, {
     method: 'DELETE',
     headers: { 'X-API-Key': getApiKey() },
@@ -96,30 +126,62 @@ async function del<T>(path: string): Promise<T> {
 }
 
 /**
- * 获取扫描角色列表
+ * 获取全部场景（启用 + 停用，全字段）。GET /scenarios 单一口径，
+ * ScenarioPicker（停用置灰不可选）与配置管理页共用，value 用 scenario.code。
  */
-export async function listRoles(): Promise<Role[]> {
-  return (await get<{ roles: Role[] }>('/roles')).roles
+export async function listScenarios(): Promise<ScenarioConfig[]> {
+  return (await get<{ scenarios: ScenarioConfig[] }>('/scenarios')).scenarios
+}
+
+/**
+ * 分页 + 搜索获取场景（配置管理页用）。带 page 参数 → 后端走分页分支返回 total；
+ * 不带 page 的 listScenarios 仍是全量（ScenarioPicker / solo 选择器共用）。
+ * @param page 1-based 页码
+ * @param size 每页条数
+ * @param q 关键词（code/name/description 模糊匹配），空则不过滤
+ */
+export async function listScenariosPaged(
+  page: number,
+  size: number,
+  q = '',
+): Promise<{ scenarios: ScenarioConfig[]; total: number }> {
+  const params = new URLSearchParams({ page: String(page), size: String(size) })
+  if (q) params.set('q', q)
+  return get<{ scenarios: ScenarioConfig[]; total: number }>(`/scenarios?${params}`)
+}
+
+/**
+ * 分页 + 搜索获取智能体（配置管理页用）。语义同 listScenariosPaged。
+ * 不带 page 的 listAgentConfigs 仍是全量（场景 solo 选择器候选共用）。
+ */
+export async function listAgentsPaged(
+  page: number,
+  size: number,
+  q = '',
+): Promise<{ agents: AgentConfig[]; total: number }> {
+  const params = new URLSearchParams({ page: String(page), size: String(size) })
+  if (q) params.set('q', q)
+  return get<{ agents: AgentConfig[]; total: number }>(`/executors?${params}`)
 }
 
 /**
  * 分页获取会话列表（offset 翻页——会话列表按 updated_at 排序，活跃会话会被顶到最前，
  * 没有稳定单调游标可用，故用 offset；这个数据量级下足够，翻页时小幅重排是可接受的权衡）。
  *
- * mode 过滤下沉到服务端（非前端在单页结果上再过滤）：分页边界必须建立在已过滤的集合上，
+ * source 过滤下沉到服务端（非前端在单页结果上再过滤）：分页边界必须建立在已过滤的集合上，
  * 否则「当前 tab 下共 N 个会话」与实际翻得到的条数会对不上。
  *
  * @param limit 每页条数（后端默认 30）
  * @param offset 跳过条数（默认 0 = 首页）
- * @param mode 可选，按会话模式过滤（active/passive）
+ * @param source 可选，按下发来源过滤（manual 主动下发 / auto 被动代理；纯聊天归 manual）
  */
 export async function listConversations(
   limit = 30,
   offset = 0,
-  mode = '',
+  source = '',
 ): Promise<{ conversations: Conversation[]; hasMore: boolean }> {
   const q = new URLSearchParams({ limit: String(limit), offset: String(offset) })
-  if (mode) q.set('mode', mode)
+  if (source) q.set('source', source)
   const res = await get<{ conversations: Conversation[] | null; has_more: boolean }>(`/conversations?${q}`)
   // 后端无数据时 conversations 返回 null（Go 的 nil slice 序列化为 null 而非 []）——
   // 归一为空数组，避免下游 items.length 等消费点炸。
@@ -131,7 +193,7 @@ export async function listConversations(
  *
  * 后端单次返回上限 500 条（clampLimit），长会话（active 扫描动辄上千条事件）一次拉不完。
  * 故内部循环按 after_seq 翻页直到拉空——否则打开/刷新长会话只显示前 500 条，
- * 停在中途某条（实测停在 orchestrator 收尾报告之前，用户看不到最终结果）。
+ * 停在中途某条（实测停在 planner 收尾报告之前，用户看不到最终结果）。
  *
  * @param convID 会话 ID
  * @param afterSeq 起始游标，仅返回 Seq > afterSeq 的消息（默认 0 = 从头拉全）
@@ -189,12 +251,12 @@ export async function authStream(convID: string): Promise<void> {
  * 发起会话扫描
  * 成功后后端 Set-Cookie liusha_stream（SSE 鉴权用）
  * @param brief 扫描目标描述
- * @param roleID 角色 ID
- * @returns conversation_id 和 scan_id
+ * @param scenarioID 场景 code（ScenarioPicker 选定，后端 action 时用于建 task）
+ * @returns conversation_id 和 scan_id（闲聊/qa 意图不下发 task 时 scan_id 为空）
  */
 export async function startChat(
   brief: string,
-  roleID: string
+  scenarioID: string
 ): Promise<{ conversation_id: string; scan_id: string }> {
   const res = await fetch('/api/chat', {
     method: 'POST',
@@ -202,7 +264,7 @@ export async function startChat(
       'X-API-Key': getApiKey(),
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ brief, role_id: roleID }),
+    body: JSON.stringify({ brief, scenario_id: scenarioID }),
   })
   if (!res.ok) throw new Error(`POST /chat → ${res.status}`)
   return res.json()
@@ -213,11 +275,13 @@ export async function startChat(
  * 扫描进行中（409）时抛带 busy 标记的错，前端提示停止后再发。
  * @param convID 会话 ID
  * @param content 消息内容
+ * @param scenarioID 场景 code（纯聊天会话升级为扫描时用于建 task；已绑 task 的会话忽略之）
  * @returns intent 和可选的 scan_id
  */
 export async function followUp(
   convID: string,
-  content: string
+  content: string,
+  scenarioID = ''
 ): Promise<{ intent: string; scan_id?: string }> {
   const res = await fetch(`/api/conversations/${convID}/messages`, {
     method: 'POST',
@@ -225,7 +289,7 @@ export async function followUp(
       'X-API-Key': getApiKey(),
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ content }),
+    body: JSON.stringify({ content, scenario_id: scenarioID }),
   })
   if (res.status === 409) {
     const err = new Error('扫描进行中') as Error & { busy?: boolean }
@@ -290,43 +354,44 @@ export async function abortTask(id: string): Promise<void> {
 }
 
 /**
- * 发起主动扫描。brief 为一句话自然语言任务简报，后端整段透传给 hunter LLM。
- * @returns owner_id 与 hunter_id（据此查任务进度 / llm 审计）
+ * 发起主动扫描。brief 为一句话自然语言任务简报，后端整段透传给 agent LLM。
+ * @returns owner_id 与 agent_id（据此查任务进度 / llm 审计）
  */
 export async function startActiveScan(
   brief: string
-): Promise<{ owner_id: string; hunter_id: string }> {
+): Promise<{ owner_id: string; agent_id: string }> {
   return post('/scan/active', { brief })
 }
 
 /* ============================================================
-   攻击面 / LLM 审计 / Agent 任务树（按 owner 只读）
+   LLM 审计 / Agent 任务树（按 owner 只读）
    ============================================================ */
-
-/**
- * 拉取攻击面树（仅 active 模式 owner；passive 会 404）。
- * @param host 可选，按 host 过滤；缺省合并该 owner 全部 host
- */
-export async function getSitemap(ownerID: string, host = ''): Promise<SitemapView> {
-  const q = host ? `?host=${encodeURIComponent(host)}` : ''
-  return get<SitemapView>(`/sitemap/${ownerID}${q}`)
-}
 
 /* ============================================================
-   全局漏洞台账（漏洞管理页）：跨 task/host 全量 + triage 处置
+   全局漏洞台账（漏洞页）：跨 task/host 全量 + triage 处置
    ============================================================ */
 
 /**
- * 拉取全局漏洞台账（active + passive 全量）。可选按 host/severity/status/mode 筛选。
- * 修复历史缺陷：旧漏洞页走 /sitemap 仅 active，passive 漏洞（占多数）不可见。
+ * 分页拉取全局漏洞台账。可选按 host/severity/status/source/scenario_id 筛选；
+ * page/size 缺省时后端落 1 / 50。修复历史缺陷：旧漏洞页走 /sitemap 仅覆盖部分场景，其余漏洞不可见。
  */
-export async function listFindings(filters: FindingFilters = {}): Promise<FindingRow[]> {
+export async function listFindings(filters: FindingFilters = {}): Promise<FindingListResponse> {
   const params = new URLSearchParams()
   for (const [k, v] of Object.entries(filters)) {
-    if (v) params.set(k, v)
+    if (v) params.set(k, String(v))
   }
   const q = params.toString()
-  return (await get<{ findings: FindingRow[] }>(`/findings${q ? '?' + q : ''}`)).findings
+  return get<FindingListResponse>(`/findings${q ? '?' + q : ''}`)
+}
+
+/** 拉取筛选下拉候选（服务端 distinct 的 host，恒为全表全集，不受当前筛选/分页影响）。 */
+export async function listFindingHosts(): Promise<string[]> {
+  return (await get<{ hosts: string[] }>('/findings/hosts')).hosts
+}
+
+/** 拉取筛选下拉候选（服务端 distinct 的 scenario_id，恒为全表全集）。 */
+export async function listFindingScenarios(): Promise<string[]> {
+  return (await get<{ scenarios: string[] }>('/findings/scenarios')).scenarios
 }
 
 /**
@@ -350,22 +415,11 @@ export async function updateFindingTriage(
 }
 
 /**
- * 拉取执行图（思维链 + 成果链）。read-model 实时投影。
- * conv 由后端按 task 自解析并在响应 conversation_id 回传——前端无需自己 join 会话列表。
- * 保留 conv 可选参数仅作显式覆盖（一般不传）。
+ * 拉取攻击图（L3 世界模型投影）：Verifier 坐实的世界状态节点 + 关系边 + 取证链。
+ * 前端传选中的 task_id，后端按 task→assignment 解析出图的 scan_id（一交战一图）。
  */
-export async function getAttackGraph(ownerID: string, conv = ''): Promise<AttackGraph> {
-  const q = conv ? `?conv=${encodeURIComponent(conv)}` : ''
-  return get<AttackGraph>(`/attack_graph/${ownerID}${q}`)
-}
-
-/**
- * 拉取执行图里程碑摘要（按子代理聚合，LLM 生成）。按需调用——是 LLM 请求，较慢。
- * conv 由后端按 task 自解析，前端一般不传。
- */
-export async function getMilestones(ownerID: string, conv = ''): Promise<Milestone[]> {
-  const q = conv ? `?conv=${encodeURIComponent(conv)}` : ''
-  return (await get<{ milestones: Milestone[] }>(`/attack_graph/${ownerID}/milestones${q}`)).milestones
+export async function getAttackGraph(taskID: string): Promise<AttackGraph> {
+  return get<AttackGraph>(`/attack_graph/${taskID}`)
 }
 
 /**
@@ -383,18 +437,18 @@ function invocationFilterParams(f?: Partial<LLMInvocationFilters>): URLSearchPar
 }
 
 /**
- * 拉取该 task 下 LLM 调用审计（扁平 items，id 游标分页 + 服务端筛选）。
- * afterID：上一页 next_after；0 表示从头拉。列表不含 messages/result 大字段。
+ * 拉取该 task 下 LLM 调用审计（扁平 items，offset 分页 + 服务端筛选）。
+ * 列表不含 messages/result 大字段。
  */
 export async function listLLMInvocations(
   taskID: string,
-  afterID = 0,
-  limit = 0,
+  page = 1,
+  size = 0,
   filters?: Partial<LLMInvocationFilters>,
 ): Promise<LLMInvocationsResponse> {
   const params = invocationFilterParams(filters)
-  if (afterID > 0) params.set('after', String(afterID))
-  if (limit > 0) params.set('limit', String(limit))
+  if (page > 1) params.set('page', String(page))
+  if (size > 0) params.set('size', String(size))
   const q = params.toString()
   return get<LLMInvocationsResponse>(`/llm/invocations/${taskID}${q ? '?' + q : ''}`)
 }
@@ -422,6 +476,57 @@ export async function getLLMInvocationStat(
  */
 export async function getLLMInvocationFacets(taskID: string): Promise<LLMInvocationFacets> {
   return get<LLMInvocationFacets>(`/llm/invocations/${taskID}/facets`)
+}
+
+/* ============================================================
+   流量模块（GET /traffic 系列）：代理捕获流量只读浏览
+   ============================================================ */
+
+// statusClass 单字符大类（'2'..'5'）→ 后端 status_min/max 闭区间（2xx=200..299 等）。
+// 空或非法值不落参数（不筛状态）。
+function applyStatusClass(params: URLSearchParams, statusClass?: string): void {
+  const d = Number(statusClass)
+  if (!Number.isInteger(d) || d < 1 || d > 9) return
+  params.set('status_min', String(d * 100))
+  params.set('status_max', String(d * 100 + 99))
+}
+
+function trafficFilterParams(f?: Partial<TrafficFilters>): URLSearchParams {
+  const params = new URLSearchParams()
+  if (!f) return params
+  if (f.method) params.set('method', f.method)
+  if (f.contentType) params.set('content_type', f.contentType)
+  if (f.search) params.set('search', f.search)
+  if (f.since) params.set('since', f.since)
+  if (f.until) params.set('until', f.until)
+  applyStatusClass(params, f.statusClass)
+  return params
+}
+
+/**
+ * 分页浏览代理捕获流量（全局，跨全部 host）。page 1-based；size 默认后端 50、上限 200。
+ * 返回瘦摘要（不含 body/headers）+ 同筛选口径的全局 total。
+ */
+export async function listTraffic(
+  page = 1,
+  size = 0,
+  filters?: Partial<TrafficFilters>,
+): Promise<TrafficListResponse> {
+  const params = trafficFilterParams(filters)
+  if (page > 1) params.set('page', String(page))
+  if (size > 0) params.set('size', String(size))
+  const q = params.toString()
+  return get<TrafficListResponse>(`/traffic${q ? '?' + q : ''}`)
+}
+
+/** 拉取单条流量完整原文（含 request/response body + headers），列表点击钻取用。 */
+export async function getTrafficDetail(id: number): Promise<TrafficDetail> {
+  return get<TrafficDetail>(`/traffic/${id}`)
+}
+
+/** 拉取筛选下拉候选（服务端 distinct 的 content_type，恒为全表全集）。 */
+export async function listTrafficContentTypes(): Promise<string[]> {
+  return (await get<{ content_types: string[] }>('/traffic/content-types')).content_types
 }
 
 /* ============================================================

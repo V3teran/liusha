@@ -1,22 +1,8 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
-  <defs>
-    <!-- 深色背景（与 logo/favicon 同款 hexBg，双主题下风格一致） -->
-    <radialGradient id="uaBg">
-      <stop offset="0%" style="stop-color:#1a1a1a;stop-opacity:1" />
-      <stop offset="100%" style="stop-color:#050505;stop-opacity:1" />
-    </radialGradient>
-    <!-- 黑金剪影渐变（呼应 logo 沙漏令牌，替换旧红色方案） -->
-    <linearGradient id="uaFg" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" style="stop-color:#f5d491;stop-opacity:1" />
-      <stop offset="100%" style="stop-color:#8a6210;stop-opacity:1" />
-    </linearGradient>
-  </defs>
-
-  <!-- 背景圆 -->
-  <circle cx="32" cy="32" r="30" fill="url(#uaBg)"/>
-  <circle cx="32" cy="32" r="29" fill="none" stroke="#d4af37" stroke-width="1" opacity="0.3"/>
-
-  <!-- 用户剪影：头 + 肩 -->
-  <circle cx="32" cy="26" r="9" fill="url(#uaFg)"/>
-  <path d="M 16 50 C 16 40 24 36 32 36 C 40 36 48 40 48 50 Z" fill="url(#uaFg)"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none" role="img" aria-label="用户">
+  <!-- 用户头像：人物剪影（头+肩），冷寒蓝配色与沙齿剑 logo 同色系。
+       与 agent（剑徽记 logo）图形明确区分——身份一眼可辨，风格仍统一。 -->
+  <circle cx="32" cy="32" r="30" fill="#2a3d6b"/>
+  <circle cx="32" cy="32" r="29" fill="none" stroke="#4a68a2" stroke-width="1" opacity="0.5"/>
+  <circle cx="32" cy="26" r="9" fill="#c6d6ef"/>
+  <path d="M 16 50 C 16 40 24 36 32 36 C 40 36 48 40 48 50 Z" fill="#c6d6ef"/>
 </svg>

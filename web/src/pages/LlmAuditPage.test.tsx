@@ -36,7 +36,7 @@ function makeSummary(overrides: Partial<LLMInvocationSummary> = {}): LLMInvocati
   return {
     id: 1,
     request_id: 'req-1',
-    hunter_id: null,
+    agent_id: null,
     task_id: 'owner-1',
     provider: 'openai',
     model: 'gpt-5',
@@ -48,7 +48,7 @@ function makeSummary(overrides: Partial<LLMInvocationSummary> = {}): LLMInvocati
     is_stream: false,
     finish_reason: 'stop',
     error_message: '',
-    role: 'orchestrator',
+    role: 'planner',
     created_at: '2026-01-01T00:00:00Z',
     tool_names: [],
     text_preview: '一些文本预览',
@@ -72,12 +72,12 @@ function setupDefaultMocks() {
   mockedListLLMInvocations.mockResolvedValue({
     task_id: 'owner-1',
     total: 1,
-    next_after: 1,
-    has_more: false,
+    page: 1,
+    size: 50,
     items: [makeSummary()],
   })
   mockedGetLLMInvocationStat.mockResolvedValue(makeStat())
-  mockedGetLLMInvocationFacets.mockResolvedValue({ task_id: 'owner-1', roles: ['orchestrator', 'exploitation'], models: ['gpt-5'] })
+  mockedGetLLMInvocationFacets.mockResolvedValue({ task_id: 'owner-1', roles: ['planner', 'exploitation'], models: ['gpt-5'] })
 }
 
 // React Query 需要 Provider；筛选/分页状态走 URL 需要 Router。retry:false 避免测试里
@@ -123,8 +123,8 @@ describe('LlmAuditPage', () => {
     mockedListLLMInvocations.mockResolvedValue({
       task_id: 'owner-1',
       total: 1,
-      next_after: 1,
-      has_more: false,
+      page: 1,
+      size: 50,
       items: [makeSummary({ role: 'exploitation', model: 'gpt-5-mini' })],
     })
     renderPage()
@@ -145,14 +145,14 @@ describe('LlmAuditPage', () => {
     mockedListLLMInvocations.mockClear()
 
     const roleSelect = screen.getByText('全部角色').closest('select')!
-    await user.selectOptions(roleSelect, 'orchestrator')
+    await user.selectOptions(roleSelect, 'planner')
 
     await waitFor(() =>
       expect(mockedListLLMInvocations).toHaveBeenCalledWith(
         'owner-1',
-        0,
-        100,
-        expect.objectContaining({ role: 'orchestrator' }),
+        1,
+        50,
+        expect.objectContaining({ role: 'planner' }),
       ),
     )
   })
@@ -171,20 +171,20 @@ describe('LlmAuditPage', () => {
     await waitFor(() =>
       expect(mockedListLLMInvocations).toHaveBeenCalledWith(
         'owner-1',
-        0,
-        100,
+        1,
+        50,
         expect.objectContaining({ onlyErr: true }),
       ),
     )
   })
 
-  it('下一页使用 next_after 作为游标，上一页弹栈回退', async () => {
+  it('下一页翻页使用 page 参数（offset 分页），上一页回退', async () => {
     const user = userEvent.setup()
     mockedGetLLMInvocationStat.mockResolvedValue(makeStat())
     mockedGetLLMInvocationFacets.mockResolvedValue({ task_id: 'owner-1', roles: [], models: [] })
     mockedListLLMInvocations
-      .mockResolvedValueOnce({ task_id: 'owner-1', total: 1, next_after: 10, has_more: true, items: [makeSummary({ id: 1 })] })
-      .mockResolvedValueOnce({ task_id: 'owner-1', total: 1, next_after: 20, has_more: false, items: [makeSummary({ id: 2, role: 'exploitation' })] })
+      .mockResolvedValueOnce({ task_id: 'owner-1', total: 150, page: 1, size: 50, items: [makeSummary({ id: 1 })] })
+      .mockResolvedValueOnce({ task_id: 'owner-1', total: 150, page: 2, size: 50, items: [makeSummary({ id: 2, role: 'exploitation' })] })
 
     renderPage()
     await user.click(screen.getByText(/pick:/))
@@ -194,20 +194,20 @@ describe('LlmAuditPage', () => {
     await user.click(nextBtn)
 
     await waitFor(() =>
-      expect(mockedListLLMInvocations).toHaveBeenLastCalledWith('owner-1', 10, 100, expect.anything()),
+      expect(mockedListLLMInvocations).toHaveBeenLastCalledWith('owner-1', 2, 50, expect.anything()),
     )
     expect(await screen.findByText('利用')).toBeTruthy() // agentLabel('exploitation')
 
     const prevBtn = screen.getByRole('button', { name: '上一页' })
     await user.click(prevBtn)
     await waitFor(() =>
-      expect(mockedListLLMInvocations).toHaveBeenLastCalledWith('owner-1', 0, 100, expect.anything()),
+      expect(mockedListLLMInvocations).toHaveBeenLastCalledWith('owner-1', 1, 50, expect.anything()),
     )
   })
 
-  it('下一页按钮在 hasMore=false 时 disabled', async () => {
+  it('单页数据时翻页按钮 disabled', async () => {
     const user = userEvent.setup()
-    setupDefaultMocks() // has_more: false
+    setupDefaultMocks() // total=1, size=50 → totalPages=1
     renderPage()
     await user.click(screen.getByText(/pick:/))
     await screen.findByLabelText(/查看调用详情/)

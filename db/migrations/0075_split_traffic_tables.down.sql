@@ -8,7 +8,7 @@ CREATE TABLE http_flow (
     id               bigserial PRIMARY KEY,
     owner_type       text NOT NULL CHECK (owner_type IN ('passive_session','active_scan')),
     owner_id         uuid NOT NULL,
-    hunter_id        uuid REFERENCES hunter(id) ON DELETE SET NULL,
+    agent_id        uuid REFERENCES agent(id) ON DELETE SET NULL,
     source           text NOT NULL DEFAULT 'external' CHECK (source IN ('external','internal')),
     identity         text,
     tool             text,
@@ -25,7 +25,7 @@ CREATE TABLE http_flow (
     created_at       timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX http_flow_owner_host_idx ON http_flow (owner_id, host, created_at DESC);
-CREATE INDEX http_flow_hunter_idx     ON http_flow (hunter_id) WHERE hunter_id IS NOT NULL;
+CREATE INDEX http_flow_agent_idx     ON http_flow (agent_id) WHERE agent_id IS NOT NULL;
 CREATE INDEX http_flow_source_idx     ON http_flow (source, created_at DESC);
 CREATE INDEX http_flow_path_idx       ON http_flow (host, path);
 

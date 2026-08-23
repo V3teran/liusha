@@ -16,7 +16,7 @@ function makeTask(overrides: Partial<OwnerSummary> = {}): OwnerSummary {
     id: 'owner-aaaaaaaa-1111',
     scope: '{}',
     status: 'running',
-    mode: 'active',
+    scenario_id: 'web-pentest-killchain',
     created_at: '2026-01-01T00:00:00Z',
     ...overrides,
   }
@@ -28,7 +28,7 @@ describe('OwnerPicker', () => {
   })
 
   it('挂载时加载任务列表并渲染选项', async () => {
-    const tasks = [makeTask({ id: 'aaaaaaaa-1111' }), makeTask({ id: 'bbbbbbbb-2222', mode: 'passive' })]
+    const tasks = [makeTask({ id: 'aaaaaaaa-1111' }), makeTask({ id: 'bbbbbbbb-2222' })]
     mockedListTasks.mockResolvedValue(tasks)
     const onChange = vi.fn()
 
@@ -60,20 +60,14 @@ describe('OwnerPicker', () => {
     expect(onChange).not.toHaveBeenCalled()
   })
 
-  it('modeFilter 只显示匹配模式的任务', async () => {
-    const tasks = [
-      makeTask({ id: 'aaaaaaaa-1111', mode: 'active' }),
-      makeTask({ id: 'bbbbbbbb-2222', mode: 'passive' }),
-    ]
+  it('选项标签展示场景 code', async () => {
+    const tasks = [makeTask({ id: 'aaaaaaaa-1111', scenario_id: 'api-pentest' })]
     mockedListTasks.mockResolvedValue(tasks)
     const onChange = vi.fn()
 
-    render(<OwnerPicker value="" onChange={onChange} modeFilter="passive" />)
+    render(<OwnerPicker value="" onChange={onChange} />)
 
-    await waitFor(() => expect(screen.queryByText(/bbbbbbbb/)).toBeTruthy())
-    expect(screen.queryByText(/aaaaaaaa/)).toBeNull()
-    // 过滤后第一个匹配项也应自动选中
-    await waitFor(() => expect(onChange).toHaveBeenCalledWith('bbbbbbbb-2222'))
+    expect(await screen.findByText(/api-pentest/)).toBeTruthy()
   })
 
   it('点击刷新按钮重新拉取列表', async () => {

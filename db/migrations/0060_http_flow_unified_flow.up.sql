@@ -4,13 +4,13 @@
 --   v1.x 阶段 http_flow 仅服务 passive 流量（外部代理捕获 → ingestor → traffic-analysis）。
 --   v2 阶段 active 模式 agent 工具流量（curl/python/browser_use）也走 liusha proxy
 --   （cmd/proxy 双端口 8888=external/8889=internal），同表存储统一流量字典，
---   orchestrator/exploitation 通过 list_flows/view_flow/replay_flow 工具复用历史流量。
+--   planner/exploitation 通过 list_flows/view_flow/replay_flow 工具复用历史流量。
 --
 -- 字段变更：
 --   + owner_type  text NOT NULL CHECK (passive_session|active_scan)
 --   + owner_id    uuid NOT NULL              -- 多态 owner（替代 passive_session_id 单值）
 --   + source      text NOT NULL CHECK (external|internal) DEFAULT 'external'
---   + hunter_id   uuid NULL FK→hunter(id)    -- 仅 internal 填（哪个 agent 发的）
+--   + agent_id   uuid NULL FK→agent(id)    -- 仅 internal 填（哪个 agent 发的）
 --   + duration_ms int  NOT NULL DEFAULT 0
 --   + path        text NOT NULL              -- 从 url 抽出（glob 查询索引用）
 --   - passive_session_id                     -- 被 owner_type+owner_id 完全替代，删除
@@ -18,7 +18,7 @@
 -- 索引变更：
 --   - http_flow_host_idx (passive_session_id, host)  -- 老索引随字段删自动消失
 --   + http_flow_owner_host_idx (owner_id, host, created_at DESC)
---   + http_flow_hunter_idx    (hunter_id) WHERE hunter_id IS NOT NULL  -- partial
+--   + http_flow_agent_idx    (agent_id) WHERE agent_id IS NOT NULL  -- partial
 --   + http_flow_source_idx    (source, created_at DESC)
 --   + http_flow_path_idx      (host, path)  -- glob 查询
 
@@ -27,7 +27,7 @@ ALTER TABLE http_flow ADD COLUMN owner_type text;
 ALTER TABLE http_flow ADD COLUMN owner_id uuid;
 ALTER TABLE http_flow ADD COLUMN source text NOT NULL DEFAULT 'external'
     CHECK (source IN ('external', 'internal'));
-ALTER TABLE http_flow ADD COLUMN hunter_id uuid REFERENCES hunter(id) ON DELETE SET NULL;
+ALTER TABLE http_flow ADD COLUMN agent_id uuid REFERENCES agent(id) ON DELETE SET NULL;
 ALTER TABLE http_flow ADD COLUMN duration_ms int NOT NULL DEFAULT 0;
 ALTER TABLE http_flow ADD COLUMN path text;
 
@@ -54,6 +54,6 @@ ALTER TABLE http_flow DROP COLUMN passive_session_id;
 
 -- ── 6) 新索引
 CREATE INDEX http_flow_owner_host_idx ON http_flow (owner_id, host, created_at DESC);
-CREATE INDEX http_flow_hunter_idx     ON http_flow (hunter_id) WHERE hunter_id IS NOT NULL;
+CREATE INDEX http_flow_agent_idx     ON http_flow (agent_id) WHERE agent_id IS NOT NULL;
 CREATE INDEX http_flow_source_idx     ON http_flow (source, created_at DESC);
 CREATE INDEX http_flow_path_idx       ON http_flow (host, path);

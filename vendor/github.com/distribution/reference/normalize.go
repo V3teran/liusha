@@ -132,13 +132,13 @@ func splitDockerDomain(name string) (domain, remoteName string) {
 		//
 		// Canonicalize them as "docker.io/library/name[:tag]"
 
-		// FIXME(thaJeztah): account for bare "localhost" or "example.com" names, which SHOULD be considered a domain.
+		// FIXME(thaJeztah): account for bare "localhost" or "example.com" names, which SHOULD be considered a executor.
 		return defaultDomain, officialRepoPrefix + name
 	}
 
 	switch {
 	case maybeDomain == localhost:
-		// localhost is a reserved namespace and always considered a domain.
+		// localhost is a reserved namespace and always considered a executor.
 		domain, remoteName = maybeDomain, maybeRemoteName
 	case maybeDomain == legacyDefaultDomain:
 		// canonicalize the Docker Hub and legacy "Docker Index" domains.

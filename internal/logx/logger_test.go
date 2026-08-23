@@ -140,16 +140,16 @@ func TestParseLevelDefaults(t *testing.T) {
 func TestE2E_ProcessAggregation(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("LIUSHA_LOG_DIR", dir)
-	t.Setenv("LIUSHA_LOG_PROCESS", "scanner-proc")
+	t.Setenv("LIUSHA_LOG_PROCESS", "runner-proc")
 	t.Setenv("LIUSHA_LOG_TO_STDOUT", "false")
 	t.Setenv("LIUSHA_LOG_TO_FILE", "true")
 	t.Setenv("LIUSHA_LOG_FORMAT", "json")
 	t.Setenv("LIUSHA_INSTANCE", "pid-x@host-y")
 
-	// 模拟 scanner 进程：cmd 入口 logger + 7 个包级 logger
+	// 模拟 runner 进程：cmd 入口 logger + 7 个包级 logger
 	services := []string{
-		"scanner",
-		"flow", "vulnfinding", "reactrun",
+		"runner",
+		"traffic", "vulnfinding", "reactrun",
 		"llm.instrument", "llmcall.store", "tools.run_command",
 	}
 	for _, s := range services {
@@ -162,16 +162,16 @@ func TestE2E_ProcessAggregation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("readdir: %v", err)
 	}
-	if len(entries) != 1 || entries[0].Name() != "scanner-proc.log" {
+	if len(entries) != 1 || entries[0].Name() != "runner-proc.log" {
 		names := make([]string, len(entries))
 		for i, e := range entries {
 			names[i] = e.Name()
 		}
-		t.Fatalf("want exactly 1 file [scanner-proc.log], got %v", names)
+		t.Fatalf("want exactly 1 file [runner-proc.log], got %v", names)
 	}
 
 	// 文件中应有 N 行，按 service 字段索引
-	raw, err := os.ReadFile(filepath.Join(dir, "scanner-proc.log"))
+	raw, err := os.ReadFile(filepath.Join(dir, "runner-proc.log"))
 	if err != nil {
 		t.Fatalf("read aggregated log: %v", err)
 	}

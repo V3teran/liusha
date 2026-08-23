@@ -1,6 +1,6 @@
--- 0081: finding 加 triage 处置字段（漏洞管理页从「只读片段」升级为「全局台账 + 处置」）。
+-- 0081: finding 加 triage 处置字段（漏洞页从「只读片段」升级为「全局台账 + 处置」）。
 --
--- 背景：漏洞管理页原走 /sitemap（仅 active），2/3 的 passive 漏洞不可见。改为全局台账后
+-- 背景：漏洞页原走 /sitemap（仅 active），2/3 的 passive 漏洞不可见。改为全局台账后
 -- 需要处置生命周期——对齐 DefectDojo / GitHub Security 的 triage 状态机（业界通用五态）。
 --
 -- status 五态：

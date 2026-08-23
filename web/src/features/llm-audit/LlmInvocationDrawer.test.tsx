@@ -7,7 +7,7 @@ function makeDetail(overrides: Partial<LLMInvocationDetail> = {}): LLMInvocation
   return {
     id: 1,
     request_id: 'req-abc-123',
-    hunter_id: null,
+    agent_id: null,
     task_id: 'task-1',
     provider: 'openai',
     model: 'gpt-5',
@@ -19,7 +19,7 @@ function makeDetail(overrides: Partial<LLMInvocationDetail> = {}): LLMInvocation
     is_stream: false,
     finish_reason: 'stop',
     error_message: '',
-    role: 'orchestrator',
+    role: 'planner',
     created_at: '2026-01-01T00:00:00Z',
     tool_names: [],
     text_preview: '',

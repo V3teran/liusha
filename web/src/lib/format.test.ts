@@ -114,8 +114,8 @@ describe('format', () => {
     it('昨天返回"昨天"', () => {
       expect(dayLabel(new Date(Date.now() - 86400000).toISOString())).toBe('昨天')
     })
-    it('更早日期返回中文日期', () => {
-      expect(dayLabel('2020-01-15T00:00:00Z')).toMatch(/2020年1月1[45]日/)
+    it('更早日期返回 ISO 日期（YYYY-MM-DD，无中文年月日）', () => {
+      expect(dayLabel('2020-01-15T00:00:00Z')).toMatch(/^2020-01-1[45]$/)
     })
     it('空串返回空串', () => {
       expect(dayLabel('')).toBe('')

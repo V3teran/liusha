@@ -3,8 +3,9 @@
 // 设计原则：
 //   - 所有可调参数统一收敛到本文件，避免散落各包的硬编码常量
 //   - 每个 sub-struct 字段缺省值由 ApplyDefaults() 兜底，避免 yaml 缺字段时进程拒启动
-//   - 仅 LLM provider key（DefaultProvider 等）做强制 validate（密钥读取必须有 provider 信息）
-//   - ENV 覆盖前缀 LIUSHA_，二级用 _ 分隔（如 LIUSHA_LLM_DEFAULT_PROVIDER）
+//   - 仅 LLM provider key（tiers.heavy 等）做强制 validate（密钥读取必须有 provider 信息）
+//   - ENV 覆盖前缀 LIUSHA_，二级用 _ 分隔（如 LIUSHA_LLM_FALLBACK）；注意 llm.tiers 是 map，
+//     AutomaticEnv 不覆盖单个 map key，改档位 provider 走 yaml 或前端「能力分档」页
 package config
 
 import (
@@ -28,9 +29,9 @@ type Config struct {
 	Session     SessionConfig             `mapstructure:"session"`
 	Credential  CredentialConfig          `mapstructure:"credential"`
 	Skills      SkillsConfig              `mapstructure:"skills"`
-	Hunters     HuntersConfig             `mapstructure:"hunters_dir"`
-	Scanner     ScannerConfig             `mapstructure:"scanner"`
-	React       ReactConfig               `mapstructure:"react"`
+	Agents     AgentsConfig             `mapstructure:"agents_dir"`
+	Runner      RunnerConfig              `mapstructure:"runner"`
+	Compaction  CompactionConfig          `mapstructure:"compaction"`
 	Sandbox     SandboxConfig             `mapstructure:"sandbox"`
 	Toolruntime ToolruntimeConfig         `mapstructure:"toolruntime"`
 }
@@ -39,7 +40,7 @@ type Config struct {
 type APIConfig struct {
 	ReadTimeoutSeconds       int    `mapstructure:"read_timeout_seconds"`
 	WriteTimeoutSeconds      int    `mapstructure:"write_timeout_seconds"`
-	ReadHeaderTimeoutSeconds int    `mapstructure:"read_header_timeout_seconds"` // 也用于 proxy/scanner healthz HTTP server
+	ReadHeaderTimeoutSeconds int    `mapstructure:"read_header_timeout_seconds"` // 也用于 proxy/runner healthz HTTP server
 	ListenAddr               string `mapstructure:"listen_addr"`
 	ShutdownTimeoutSeconds   int    `mapstructure:"shutdown_timeout_seconds"`
 }
@@ -65,17 +66,15 @@ type RedisConfig struct {
 	WriteTimeoutSeconds int `mapstructure:"write_timeout_seconds"`
 }
 
-// LLMConfig 包含主/轻/视觉/降级 4 个 provider 字段 + 双 namespace 路由表 + retry 参数 +
-// llm_invocation 异步 batch 写入参数。
+// LLMConfig 是 LLM 能力分档路由 + retry 参数 + llm_invocation 异步 batch 写入参数。
+//
+// 能力分档（tier）取代旧的 default/light/vision 四槽 + per-agent 摊平路由：
+// agent → tier 的绑定固定在代码里（见 llmcfg.AgentTier，运行期不可改）；
+// tier → provider 的绑定落 DB（前端「能力分档」页可配），此处 yaml 仅首次 insert-only 种子。
+// 三档：heavy（重推理纯文本）/ vision（多模态 browser-use 截图）/ light（轻任务省钱）。
 type LLMConfig struct {
-	DefaultProvider  string            `mapstructure:"default_provider"`
-	LightProvider    string            `mapstructure:"light_provider"`
-	VisionProvider   string            `mapstructure:"vision_provider"`
-	FallbackProvider string            `mapstructure:"fallback_provider"`
-	MaxSteps         int               `mapstructure:"max_steps"`
-	MaxTokensPerCall int               `mapstructure:"max_tokens_per_call"`
-	Agents           map[string]string `mapstructure:"agents"`
-	Utilities        map[string]string `mapstructure:"utilities"`
+	Tiers    map[string]string `mapstructure:"tiers"`    // tier(heavy/vision/light) → provider key
+	Fallback string            `mapstructure:"fallback"` // 主 provider 重试耗尽后的全局备胎 provider key
 
 	Retry      RetryConfig      `mapstructure:"retry"`
 	Invocation InvocationConfig `mapstructure:"invocation"`
@@ -127,7 +126,7 @@ type ProviderConfig struct {
 	SupportsVision *bool `mapstructure:"supports_vision"`
 
 	// ContextWindow 是 model 总上下文窗口（input + output 合计 tokens）。
-	// runtime ReAct 上下文压缩按此值算阈值（trigger_ratio × ContextWindow）。
+	// 会话历史压缩按此值算阈值（trigger_ratio × ContextWindow）。
 	// 同 SupportsVision 模式：*int 区分"未填"（nil）与"显式 0"——validate 强制必填，
 	// 避免 caller 用默认值估算导致 prompt 真爆（例如 32k 模型按 128k 算阈值）。
 	ContextWindow *int `mapstructure:"context_window"`
@@ -148,7 +147,7 @@ type ProxyConfig struct {
 	MaxResponseBodySize     int      `mapstructure:"max_response_body_size"`
 
 	// 进程入口（cmd/proxy）：纯 MITM passive 入口。存活检测探 TCP 8888，无独立 healthz HTTP。
-	// active 抓流量 ingest endpoint 已迁到 cmd/scanner（沙箱回连 scanner :9090）。
+	// active 抓流量 ingest endpoint 已迁到 cmd/runner（沙箱回连 runner :9090）。
 	ListenAddr             string `mapstructure:"listen_addr"`   // 0.0.0.0:8888 公开端口（sanitizer 接 raw TCP）
 	InternalAddr           string `mapstructure:"internal_addr"` // 127.0.0.1:18888 proxify loopback（sanitizer 转发到这）
 	CertSubdir             string `mapstructure:"cert_subdir"`
@@ -161,11 +160,11 @@ type ProxyConfig struct {
 	// IngestToken：active 容器内 browser-svc.py CDP Network 抓 chromium 流量 →
 	// /internal/v1/flows/ingest endpoint 的 Bearer token。空 = 不强制验证（开发模式，
 	// 仅靠 bind 127.0.0.1 + docker bridge 网络隔离）。
-	// 生产建议通过 ENV LIUSHA_INGEST_TOKEN 注入，三个进程（cmd/proxy + cmd/scanner + sandbox）共享同一值。
+	// 生产建议通过 ENV LIUSHA_INGEST_TOKEN 注入，三个进程（cmd/proxy + cmd/runner + sandbox）共享同一值。
 	IngestToken string `mapstructure:"ingest_token"`
 }
 
-// IngestorConfig 是 Stream 流量摄入器（cmd/scanner 内 goroutine）参数。
+// IngestorConfig 是 Stream 流量摄入器（cmd/runner 内 goroutine）参数。
 type IngestorConfig struct {
 	ConsumerGroup        string `mapstructure:"consumer_group"`
 	ConsumerName         string `mapstructure:"consumer_name"`
@@ -181,10 +180,10 @@ type IngestorConfig struct {
 	AggregateWindowSeconds int `mapstructure:"aggregate_window_seconds"`
 }
 
-// SessionConfig 是 hunter prompt 上限参数。
+// SessionConfig 是 agent prompt 上限参数。
 // （合表后 passive task 是有界批分析、跑完即终态，无常驻监控会话，故原 sweeper/TTL 参数已删。）
 type SessionConfig struct {
-	// hunter user prompt 拼装时的上限（避免 prompt 膨胀）。
+	// agent user prompt 拼装时的上限（避免 prompt 膨胀）。
 	// FindingsLimitInPrompt：该 host 已有 finding 段的 DB 读上限安全闸（取够高，正常扫描全量注入；
 	// 不在此 top-N 截断，prompt 超长由 ① summarization 统一压缩，agent 仍可 read_findings 取全）。
 	// （原 lessons_limit_in_prompt 已删：跨目标知识改 corpus PULL 检索，不再 PUSH 注入。）
@@ -201,29 +200,29 @@ type SkillsConfig struct {
 	Root string `mapstructure:"root"`
 }
 
-// HuntersConfig 是 deep hunter 角色 markdown 外部目录（hunters/*.md，orchestrator + 杀伤链子代理）。
-type HuntersConfig struct {
+// ExecutorsConfig 是 executor 角色 markdown 外部目录（agents/*.md，planner + 杀伤链子代理）。
+type AgentsConfig struct {
 	Root string `mapstructure:"root"`
 }
 
-// ScannerConfig 是 cmd/scanner 进程的运行时参数。
-type ScannerConfig struct {
-	AgentRunTimeoutSeconds       int    `mapstructure:"agent_run_timeout_seconds"`        // passive 模式单个 hunter task 整体超时（asynq handler 入口 WithTimeout）
-	ActiveAgentRunTimeoutSeconds int    `mapstructure:"active_agent_run_timeout_seconds"` // active 模式整体超时——站点扫描爬+测耗时长，独立配置（默认 4h，对齐 sandbox max lifetime）
-	StepLLMTimeoutSeconds        int    `mapstructure:"step_llm_timeout_seconds"`
-	AsynqConcurrency             int    `mapstructure:"asynq_concurrency"`
-	AsynqShutdownTimeoutSeconds  int    `mapstructure:"asynq_shutdown_timeout_seconds"` // asynq.Shutdown 等 in-flight task 完成的超时
-	ShutdownTimeoutSeconds       int    `mapstructure:"shutdown_timeout_seconds"`
-	HealthzAddr                  string `mapstructure:"healthz_addr"`
-	FlowMaxRequestBody           int    `mapstructure:"flow_max_request_body"`
-	FlowMaxResponseBody          int    `mapstructure:"flow_max_response_body"`
+// RunnerConfig 是 cmd/runner 进程的运行时参数。
+type RunnerConfig struct {
+	SoloAgentRunTimeoutSeconds  int    `mapstructure:"solo_agent_run_timeout_seconds"`  // solo 引擎单个 agent task 整体超时（asynq handler 入口 WithTimeout）
+	SwarmAgentRunTimeoutSeconds int    `mapstructure:"swarm_agent_run_timeout_seconds"` // swarm 引擎整体超时——站点扫描爬+测耗时长，独立配置（默认 4h，对齐 sandbox max lifetime）
+	StepLLMTimeoutSeconds       int    `mapstructure:"step_llm_timeout_seconds"`
+	AsynqConcurrency            int    `mapstructure:"asynq_concurrency"`
+	AsynqShutdownTimeoutSeconds int    `mapstructure:"asynq_shutdown_timeout_seconds"` // asynq.Shutdown 等 in-flight task 完成的超时
+	ShutdownTimeoutSeconds      int    `mapstructure:"shutdown_timeout_seconds"`
+	HealthzAddr                 string `mapstructure:"healthz_addr"`
+	TrafficMaxRequestBody       int    `mapstructure:"traffic_max_request_body"`
+	TrafficMaxResponseBody      int    `mapstructure:"traffic_max_response_body"`
 
 	// asynq queue 优先级权重（数字越大优先级越高）
-	QueueHunterWeight   int `mapstructure:"queue_hunter_weight"`
+	QueueAgentWeight   int `mapstructure:"queue_agent_weight"`
 	QueueDispatchWeight int `mapstructure:"queue_dispatch_weight"`
 
 	// per-host 并发上限（§4.3）：同 host 同时运行的 task 数 ≤ 此值，防同目标叠打触发 WAF 封 IP。
-	// ≤ 0 视为不限制。默认 2（渗透场景保守值）。仅对有 target_host 的 task 生效（active orchestrator
+	// ≤ 0 视为不限制。默认 2（渗透场景保守值）。仅对有 target_host 的 task 生效（active planner
 	// host 空时放行——真正打 host 的是其 spawn 的子任务）。
 	PerHostConcurrency int `mapstructure:"per_host_concurrency"`
 
@@ -233,21 +232,9 @@ type ScannerConfig struct {
 	LeadTTLHours int `mapstructure:"lead_ttl_hours"`
 }
 
-// ReactConfig 主 ReAct 循环参数。
-type ReactConfig struct {
-	InspectorEverySteps   int `mapstructure:"inspector_every_steps"`
-	InspectorArgsTruncate int `mapstructure:"inspector_args_truncate"` // 喂 inspector LLM 的 tool args 截断字节数
-	InspectorObsTruncate  int `mapstructure:"inspector_obs_truncate"`  // 喂 inspector LLM 的 ObsSummary 截断字节数
-
-	// inspector prompt 背景段拉取数量上限（按 created_at DESC / priority DESC 排序）。
-	// inspector 是轻量评估，看少量背景即可；hunter 干活需更全。
-	InspectorFindingsLimit int `mapstructure:"inspector_findings_limit"`
-
-	// MaxImagesInHistory 是 multimodal message 历史保留图片张数上限（compressImages 用）。
-	// 默认 3：实战 vision agent sweet spot——再多对 encoder 仅增延迟不增信息；慢节点可调 2，商业 API 可放宽 10+。
-	MaxImagesInHistory int `mapstructure:"max_images_in_history"`
-
-	// HistoryCompact 是 hunter ReAct msgs 滑窗压缩参数（防 context 爆）。
+// CompactionConfig 会话历史压缩参数。
+type CompactionConfig struct {
+	// HistoryCompact 是 agent msgs 滑窗压缩参数（防 context 爆）。
 	// 触发：每步 Generate 前算 total tokens，超 TriggerRatio×provider.ContextWindow 启动压缩。
 	// 设计原则：永保 system + 首 user，trailing 反向累加保最近 TrailingBudgetRatio×ctx_window，
 	// 候选集一次性送 light_provider 蒸馏成 1 条；失败 head-truncate 兜底。
@@ -255,8 +242,8 @@ type ReactConfig struct {
 	HistoryCompact HistoryCompactConfig `mapstructure:"history_compact"`
 }
 
-// HistoryCompactConfig 是 react.history_compact 段配置。
-// 全部字段缺省时 applyReactDefaults 兜底——非阻塞启动。
+// HistoryCompactConfig 是 compaction.history_compact 段配置。
+// 全部字段缺省时 applyCompactionDefaults 兜底——非阻塞启动。
 type HistoryCompactConfig struct {
 	// TriggerRatio 是触发阈值占 provider.ContextWindow 比例；> 此值触发压缩。
 	// 默认 0.75 偏保守：32k 模型阈值 24k，留 8k 给输出 + tools + cushion；
@@ -264,12 +251,12 @@ type HistoryCompactConfig struct {
 	TriggerRatio float64 `mapstructure:"trigger_ratio"`
 
 	// TrailingBudgetRatio 是 trailing window 占 ContextWindow 比例。
-	// 反向累加保最近 TrailingBudgetRatio × ContextWindow tokens，严格按 ReAct turn 边界。
+	// 反向累加保最近 TrailingBudgetRatio × ContextWindow tokens，严格按对话 turn 边界。
 	// 默认 0.50——业界共识 trailing context 30-50%。
 	TrailingBudgetRatio float64 `mapstructure:"trailing_budget_ratio"`
 
 	// CompactorTimeoutSeconds 是单次 light LLM 蒸馏调用超时（含网络 + LLM 推理）。
-	// 超时退化为 head-truncate 兜底，不阻断 ReAct。默认 30s。
+	// 超时退化为 head-truncate 兜底，不阻断主循环。默认 30s。
 	CompactorTimeoutSeconds int `mapstructure:"compactor_timeout_seconds"`
 }
 
@@ -307,7 +294,7 @@ type ToolruntimeConfig struct {
 
 // Load 从 path 读取 YAML，应用 LIUSHA_ ENV 覆盖，反序列化、应用默认值并校验。
 // Load 读配置 + 应用默认 + 完整校验（含 LLM provider key 在环境变量里非空）。
-// 调 LLM 的进程（scanner / api）用它。
+// 调 LLM 的进程（runner / api）用它。
 func Load(path string) (Config, error) { return load(path, true) }
 
 // LoadWithoutLLMKeys 与 Load 同，但跳过 LLM provider key 校验。
@@ -352,9 +339,9 @@ func (c *Config) ApplyDefaults() {
 	c.Session = applySessionDefaults(c.Session)
 	c.Credential = applyCredentialDefaults(c.Credential)
 	c.Skills = applySkillsDefaults(c.Skills)
-	c.Hunters = applyHuntersDefaults(c.Hunters)
-	c.Scanner = applyScannerDefaults(c.Scanner)
-	c.React = applyReactDefaults(c.React)
+	c.Agents = applyAgentsDefaults(c.Agents)
+	c.Runner = applyRunnerDefaults(c.Runner)
+	c.Compaction = applyCompactionDefaults(c.Compaction)
 	c.Sandbox = applySandboxDefaults(c.Sandbox)
 	c.Toolruntime = applyToolruntimeDefaults(c.Toolruntime)
 }
@@ -370,7 +357,7 @@ func applyAPIDefaults(c APIConfig) APIConfig {
 		c.ReadHeaderTimeoutSeconds = 5
 	}
 	if c.ListenAddr == "" {
-		c.ListenAddr = "0.0.0.0:8080"
+		c.ListenAddr = "0.0.0.0:8090"
 	}
 	if c.ShutdownTimeoutSeconds == 0 {
 		c.ShutdownTimeoutSeconds = 5
@@ -399,12 +386,6 @@ func applyRedisDefaults(c RedisConfig) RedisConfig {
 }
 
 func applyLLMDefaults(c LLMConfig) LLMConfig {
-	if c.MaxSteps == 0 {
-		c.MaxSteps = 30
-	}
-	if c.MaxTokensPerCall == 0 {
-		c.MaxTokensPerCall = 4096
-	}
 	c.Retry = applyRetryDefaults(c.Retry)
 	c.Invocation = applyInvocationDefaults(c.Invocation)
 	return c
@@ -576,19 +557,19 @@ func applySkillsDefaults(c SkillsConfig) SkillsConfig {
 	return c
 }
 
-func applyHuntersDefaults(c HuntersConfig) HuntersConfig {
+func applyAgentsDefaults(c AgentsConfig) AgentsConfig {
 	if c.Root == "" {
-		c.Root = "./hunters"
+		c.Root = "./agents"
 	}
 	return c
 }
 
-func applyScannerDefaults(c ScannerConfig) ScannerConfig {
-	if c.AgentRunTimeoutSeconds == 0 {
-		c.AgentRunTimeoutSeconds = 3600 // 60 分钟（> step_tool=1800，留 30min buffer 给主 ReAct 收尾）
+func applyRunnerDefaults(c RunnerConfig) RunnerConfig {
+	if c.SoloAgentRunTimeoutSeconds == 0 {
+		c.SoloAgentRunTimeoutSeconds = 3600 // 60 分钟（solo 引擎 agent_run 整体超时；> step_tool=1800，留 30min buffer 给 agent 主循环收尾）
 	}
-	if c.ActiveAgentRunTimeoutSeconds == 0 {
-		c.ActiveAgentRunTimeoutSeconds = 14400 // 4 小时（站点扫描爬+测耗时长；对齐 sandbox max lifetime 4h）
+	if c.SwarmAgentRunTimeoutSeconds == 0 {
+		c.SwarmAgentRunTimeoutSeconds = 14400 // 4 小时（swarm 引擎 agent_run 整体超时；站点扫描爬+测耗时长；对齐 sandbox max lifetime 4h）
 	}
 	if c.StepLLMTimeoutSeconds == 0 {
 		c.StepLLMTimeoutSeconds = 300
@@ -597,7 +578,7 @@ func applyScannerDefaults(c ScannerConfig) ScannerConfig {
 		c.AsynqConcurrency = 6
 	}
 	if c.AsynqShutdownTimeoutSeconds == 0 {
-		c.AsynqShutdownTimeoutSeconds = 30 // graceful 等 in-flight 主 ReAct 落地，超时强制中断
+		c.AsynqShutdownTimeoutSeconds = 30 // graceful 等 in-flight 主循环落地，超时强制中断
 	}
 	if c.ShutdownTimeoutSeconds == 0 {
 		c.ShutdownTimeoutSeconds = 5
@@ -605,14 +586,14 @@ func applyScannerDefaults(c ScannerConfig) ScannerConfig {
 	if c.HealthzAddr == "" {
 		c.HealthzAddr = ":9090"
 	}
-	if c.FlowMaxRequestBody == 0 {
-		c.FlowMaxRequestBody = 2 << 20
+	if c.TrafficMaxRequestBody == 0 {
+		c.TrafficMaxRequestBody = 2 << 20
 	}
-	if c.FlowMaxResponseBody == 0 {
-		c.FlowMaxResponseBody = 8 << 20
+	if c.TrafficMaxResponseBody == 0 {
+		c.TrafficMaxResponseBody = 8 << 20
 	}
-	if c.QueueHunterWeight == 0 {
-		c.QueueHunterWeight = 5
+	if c.QueueAgentWeight == 0 {
+		c.QueueAgentWeight = 5
 	}
 	if c.QueueDispatchWeight == 0 {
 		c.QueueDispatchWeight = 1
@@ -626,27 +607,12 @@ func applyScannerDefaults(c ScannerConfig) ScannerConfig {
 	return c
 }
 
-func applyReactDefaults(c ReactConfig) ReactConfig {
-	if c.InspectorEverySteps == 0 {
-		c.InspectorEverySteps = 5
-	}
-	if c.InspectorArgsTruncate == 0 {
-		c.InspectorArgsTruncate = 256
-	}
-	if c.InspectorObsTruncate == 0 {
-		c.InspectorObsTruncate = 400
-	}
-	if c.InspectorFindingsLimit == 0 {
-		c.InspectorFindingsLimit = 30
-	}
-	if c.MaxImagesInHistory == 0 {
-		c.MaxImagesInHistory = 3 // vision agent 实战经验值；yaml 显式 0 也会被兜到 3
-	}
+func applyCompactionDefaults(c CompactionConfig) CompactionConfig {
 	c.HistoryCompact = applyHistoryCompactDefaults(c.HistoryCompact)
 	return c
 }
 
-// applyHistoryCompactDefaults 给 react.history_compact 段缺省字段兜底。
+// applyHistoryCompactDefaults 给 compaction.history_compact 段缺省字段兜底。
 // 设计取舍：所有比例/超时都允许 yaml 显式 0 → 仍兜默认（不让用户误填 0 关掉压缩）。
 // 想关压缩走 TriggerRatio 设极大值（如 99）让永不触发；或在 runtime 层注入 NoopHistoryCompactor。
 func applyHistoryCompactDefaults(c HistoryCompactConfig) HistoryCompactConfig {
@@ -691,14 +657,14 @@ func applyToolruntimeDefaults(c ToolruntimeConfig) ToolruntimeConfig {
 // 不碰 LLM key，所有进程（含纯 ingress 的 proxy）都跑。
 func validate(c Config) error {
 	// 所有 provider 必须显式声明 supports_vision——nil 视为未填，启动 fail-fast。
-	// 设计原则：caller（react.runtime / openai_compat）路由含图 message 时依赖此 flag，
+	// 设计原则：caller（runtime / openai_compat）路由含图 message 时依赖此 flag，
 	// 默认零值（false）会让 deepseek 等 OpenAI 协议族在 yaml 漏填时被当成不支持 vision，
 	// 实际可能反过来（如 gpt-4o）——强制显式声明消除歧义。
 	for name, p := range c.Providers {
 		if p.SupportsVision == nil {
 			return fmt.Errorf("provider %q: supports_vision 必填（yaml 必须显式写 true 或 false）", name)
 		}
-		// context_window 同强制必填——react 历史压缩按此算阈值；漏填会用 0 兜底导致一直触发或永不触发。
+		// context_window 同强制必填——会话历史压缩按此算阈值；漏填会用 0 兜底导致一直触发或永不触发。
 		if p.ContextWindow == nil || *p.ContextWindow <= 0 {
 			return fmt.Errorf("provider %q: context_window 必填且 > 0（model 总上下文窗口 tokens 数）", name)
 		}
@@ -706,9 +672,17 @@ func validate(c Config) error {
 	return nil
 }
 
-// validateLLMKeys 强制 default_provider 必填，且 default/light/vision/fallback 的 api_key_env
-// 在环境变量里非空。仅调 LLM 的进程（scanner / api）需要——proxy 用 LoadWithoutLLMKeys 跳过。
+// validateLLMKeys 校验 yaml 内 LLM 种子的自洽性。仅调 LLM 的进程（runner / api）需要——
+// proxy 用 LoadWithoutLLMKeys 跳过。
+//
+// 事实源是 DB（前端「模型/能力分档」模块 CRUD 改 llm_provider/llm_role_route），yaml 仅首次
+// insert-only 种子（见 seed.ImportLLM）。故 providers 留空 = 完全依赖 DB，此时跳过全部校验，
+// 不再强制 tiers.heavy——否则空 yaml + 满 DB 的正常部署会被误判 fail-fast。
+// providers 一旦非空则按老规矩校验（heavy 档必填 + 各档 api_key_env 在 ENV 非空），保证种子可用。
 func validateLLMKeys(c Config) error {
+	if len(c.Providers) == 0 {
+		return nil
+	}
 	check := func(name, role string) error {
 		p, ok := c.Providers[name]
 		if !ok {
@@ -722,16 +696,18 @@ func validateLLMKeys(c Config) error {
 		}
 		return nil
 	}
-	if c.LLM.DefaultProvider == "" {
-		return fmt.Errorf("llm.default_provider required")
+	// heavy 是隐式默认档（agent 未显式归档即落 heavy），故种子必须配它。
+	heavy := c.LLM.Tiers["heavy"]
+	if heavy == "" {
+		return fmt.Errorf("llm.tiers.heavy required")
 	}
-	if err := check(c.LLM.DefaultProvider, "default_provider"); err != nil {
+	if err := check(heavy, "tiers.heavy"); err != nil {
 		return err
 	}
 	for _, pair := range []struct{ name, role string }{
-		{c.LLM.LightProvider, "light_provider"},
-		{c.LLM.VisionProvider, "vision_provider"},
-		{c.LLM.FallbackProvider, "fallback_provider"},
+		{c.LLM.Tiers["light"], "tiers.light"},
+		{c.LLM.Tiers["vision"], "tiers.vision"},
+		{c.LLM.Fallback, "fallback"},
 	} {
 		if pair.name != "" {
 			if err := check(pair.name, pair.role); err != nil {

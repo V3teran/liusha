@@ -55,7 +55,7 @@ type IndicesValidateQueryRequest struct {
 	AllShards         *bool
 	Analyzer          string
 	AnalyzeWildcard   *bool
-	DefaultOperator   string
+	DefaultExecutor   string
 	Df                string
 	ExpandWildcards   string
 	Explain           *bool
@@ -116,8 +116,8 @@ func (r IndicesValidateQueryRequest) Do(ctx context.Context, transport Transport
 		params["analyze_wildcard"] = strconv.FormatBool(*r.AnalyzeWildcard)
 	}
 
-	if r.DefaultOperator != "" {
-		params["default_operator"] = r.DefaultOperator
+	if r.DefaultExecutor != "" {
+		params["default_executor"] = r.DefaultExecutor
 	}
 
 	if r.Df != "" {
@@ -267,10 +267,10 @@ func (f IndicesValidateQuery) WithAnalyzeWildcard(v bool) func(*IndicesValidateQ
 	}
 }
 
-// WithDefaultOperator - the default operator for query string query (and or or).
-func (f IndicesValidateQuery) WithDefaultOperator(v string) func(*IndicesValidateQueryRequest) {
+// WithDefaultExecutor - the default executor for query string query (and or or).
+func (f IndicesValidateQuery) WithDefaultExecutor(v string) func(*IndicesValidateQueryRequest) {
 	return func(r *IndicesValidateQueryRequest) {
-		r.DefaultOperator = v
+		r.DefaultExecutor = v
 	}
 }
 

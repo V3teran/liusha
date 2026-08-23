@@ -1,6 +1,6 @@
 // Package pgconn is a low-level PostgreSQL database driver.
 /*
-pgconn provides lower level access to a PostgreSQL connection than a database/sql or pgx connection. It operates at
+pgconn provides lower level access to a PostgreSQL connection than a database/sql or pgx connection. It executes at
 nearly the same level is the C library libpq.
 
 Establishing a Connection

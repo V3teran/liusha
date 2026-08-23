@@ -19,7 +19,7 @@ import (
 type VulnFinding struct {
 	ID              string
 	TaskID          string // 所属 task.id
-	HunterID        *string
+	ExecutorID        *string
 	SourceTrafficID *int64
 	Host            string
 	// Severity 自由文本（建议 critical/high/medium/low/info 保持配色一致；
@@ -30,6 +30,9 @@ type VulnFinding struct {
 	Summary  string
 	Target   json.RawMessage
 	Evidence json.RawMessage
+	// Repro 是机器可验的复现配方（web={traffic_id,modifications,assert}），喂 L4 Verifier
+	// 复现门自动晋升成世界模型节点。形状 domain-specific，本层只作 jsonb 透传；nil=未产配方。
+	Repro json.RawMessage
 	// 元数据字段（0045 加入）
 	CWEID         string    // 例 "CWE-89"
 	OWASPCategory string    // 例 "A03:2021"
@@ -44,12 +47,16 @@ type VulnFinding struct {
 
 	// —— triage 处置字段（0081 加入）——
 	// Status 是处置态：open/confirmed/fixed/false_positive/accepted（DB CHECK 约束五态）。
-	// write_finding 落库默认 open；人工在漏洞管理页 triage 流转。
+	// write_finding 落库默认 open；人工在漏洞页 triage 流转。
 	Status string
 	// TriageNote 处置备注（自由文本，如误报原因）；未处置为空。
 	TriageNote string
 	// TriagedAt 最后状态变更时刻；open（从未处置）为 nil。
 	TriagedAt *time.Time
+
+	// Seq 是对外顺序号（bigserial，单调递增，跨 task/host 唯一）；报告/会话引用用。
+	// 内部主键仍是 ID(uuid)；Seq 仅作人可读短标识（类 GitHub #123）。
+	Seq int64
 
 	CreatedAt time.Time
 }

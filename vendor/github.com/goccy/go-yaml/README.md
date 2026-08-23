@@ -363,7 +363,7 @@ go install github.com/goccy/go-yaml/cmd/ycat@latest
 
 # Looking for Sponsors
 
-I'm looking for sponsors this library. This library is being developed as a personal project in my spare time. If you want a quick response or problem resolution when using this library in your project, please register as a [sponsor](https://github.com/sponsors/goccy). I will cooperate as much as possible. Of course, this library is developed as an MIT license, so you can use it freely for free.
+I'm looking for sponsors this library. This library is being developed as a personal project in my spare time. If you want a quick response or problem resolution when using this library in your project, please register as a [sponsor](https://github.com/sponsors/goccy). I will coexecute as much as possible. Of course, this library is developed as an MIT license, so you can use it freely for free.
 
 # License
 

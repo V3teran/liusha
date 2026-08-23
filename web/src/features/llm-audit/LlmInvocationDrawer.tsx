@@ -130,10 +130,10 @@ export function LlmInvocationDrawer({ open, detail, loading, error, onOpenChange
                     <dd className="font-mono text-[12.5px] text-text">{detail.finish_reason || '—'}</dd>
                     <dt className="text-xs text-muted">传输</dt>
                     <dd className="text-[12.5px] text-text">{detail.is_stream ? '流式' : '非流式'}</dd>
-                    {detail.hunter_id && (
+                    {detail.agent_id && (
                       <>
-                        <dt className="text-xs text-muted">hunter</dt>
-                        <dd className="font-mono text-[12.5px] text-text">{detail.hunter_id}</dd>
+                        <dt className="text-xs text-muted">agent</dt>
+                        <dd className="font-mono text-[12.5px] text-text">{detail.agent_id}</dd>
                       </>
                     )}
                   </dl>
