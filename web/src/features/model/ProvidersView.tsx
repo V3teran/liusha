@@ -1,14 +1,18 @@
 import { useCallback, useEffect, useState } from 'react'
+import { Boxes } from 'lucide-react'
 import { listProviders, saveProvider, deleteProvider } from '@/api/models'
 import type { ProviderConfig } from '@/api/types'
-import { Badge } from '@/components/ui/badge'
-import { ConfigListShell, ConfigRow } from '@/features/config/ConfigListShell'
-import { ConfigDrawer } from '@/features/config/ConfigDrawer'
-import { TYPE_LABEL, blankProvider, providerInvalid, providerTabs } from './providerForm'
+import { ProviderListPanel } from './ProviderListPanel'
+import { ProviderDetailPanel } from './ProviderDetailPanel'
+import { blankProvider, providerInvalid } from './providerForm'
 
-// 部署视图：provider 连接参数 + 能力标志的全字段 CRUD（后端 llm_provider）。
+// 部署视图：左列表 + 右常驻详情面板的主从分栏（非卡片网格+模态抽屉）。
+// provider 部署量小、改动频繁——同屏对照列表与表单，选中/新建即在右侧原地展开，
+// 不需要「点开覆盖列表→关闭」的抽屉往返（对齐本项目「对话」页 ConversationList+Detail 分栏）。
 // 事实源在 DB，前端写即改运行期装配（写经 llmstore 失效广播，runner 下次 For(role) 读到最新）。
-// 安全：api_key_env 只填**环境变量名**，密钥值永不经前端——「密钥未注入」徽章据 key_present 提示。
+// 安全：API Key 仅在保存时明文提交一次，后端加密落库，GET 响应永不回传——
+// 「密钥未注入」徽章据 key_present 提示。
+// 视图切换 tab 已上移至 ModelPage 顶部，本视图只管部署列表 + 详情。
 export function ProvidersView() {
   const [providers, setProviders] = useState<ProviderConfig[]>([])
   const [loading, setLoading] = useState(true)
@@ -42,8 +46,9 @@ export function ProvidersView() {
     if (!draft) return
     setSaving(true)
     try {
-      await saveProvider(draft, isNew)
-      setDraft(null)
+      const saved = await saveProvider(draft, isNew)
+      setDraft(saved)
+      setIsNew(false)
       reload()
     } catch (e) {
       window.alert(e instanceof Error ? e.message : '保存失败')
@@ -67,48 +72,32 @@ export function ProvidersView() {
   }
 
   return (
-    <>
-      <ConfigListShell
-        title="模型部署"
-        subtitle="provider 连接参数与能力标志；角色指派据此解析到具体部署"
+    <div className="grid h-full min-h-0 grid-cols-[280px_1fr]">
+      <ProviderListPanel
+        providers={providers}
         loading={loading}
         error={error}
-        empty={providers.length === 0}
-        emptyHint="暂无部署——点右上「新建」接入第一个 provider"
+        selectedKey={isNew ? '__new__' : draft?.key ?? ''}
+        onSelect={openEdit}
         onNew={openNew}
-      >
-        {providers.map((p) => (
-          <ConfigRow
-            key={p.key}
-            name={p.key}
-            description={`${p.default_model} · ${p.base_url}`}
-            dimmed={!p.enabled}
-            onClick={() => openEdit(p)}
-            right={
-              <div className="flex flex-shrink-0 items-center gap-2">
-                <Badge variant="outline">{TYPE_LABEL[p.type]}</Badge>
-                {!p.key_present && (
-                  <Badge variant="outline" className="border-sev-high/50 text-sev-high">
-                    密钥未注入
-                  </Badge>
-                )}
-                {!p.enabled && <Badge variant="outline">已停用</Badge>}
-              </div>
-            }
-          />
-        ))}
-      </ConfigListShell>
-
-      <ConfigDrawer
-        open={!!draft}
-        title={isNew ? '接入 provider' : `编辑 ${draft?.key ?? ''}`}
-        onOpenChange={(o) => !o && setDraft(null)}
-        onSave={() => void onSave()}
-        onDelete={isNew ? undefined : () => void onDelete()}
-        saving={saving}
-        saveDisabled={providerInvalid(draft)}
-        tabs={draft ? providerTabs(draft, patch, isNew) : []}
       />
-    </>
+      {draft ? (
+        <ProviderDetailPanel
+          key={isNew ? '__new__' : draft.key}
+          draft={draft}
+          isNew={isNew}
+          saving={saving}
+          saveDisabled={providerInvalid(draft, isNew)}
+          onPatch={patch}
+          onSave={() => void onSave()}
+          onDelete={isNew ? undefined : () => void onDelete()}
+        />
+      ) : (
+        <div className="flex h-full min-h-0 flex-col items-center justify-center gap-2 text-muted">
+          <Boxes className="h-8 w-8 text-faint" />
+          <p className="text-[13px]">选择左侧部署查看详情，或点「+」新建</p>
+        </div>
+      )}
+    </div>
   )
 }

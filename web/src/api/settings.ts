@@ -1,28 +1,28 @@
 /**
- * 系统配置 API 客户端（react / runtime / proxy_filter 三组业务旋钮）
+ * 系统配置 API 客户端（compaction / runtime / proxy_filter 三组业务旋钮）
  *
  * 复用 client.ts 的 get/put fetch 封装（单一 X-API-Key 鉴权口径）。
  * 各组全量读写：GET 拉当前快照，PUT 覆写整组。
  *
- * 事实源是 DB；写经后端 settingstore 失效广播——react/runtime 令 runner 进程下次现读即生效，
+ * 事实源是 DB；写经后端 settingstore 失效广播——compaction/runtime 令 runner 进程下次现读即生效，
  * proxy_filter 触发 proxy 进程热换流量过滤链（真热改，无需重启）。
  */
 
 import { get, put } from './client'
 import type {
-  ReactSettings,
+  CompactionSettings,
   RuntimeSettings,
   ProxyFilterSettings,
 } from './types'
 
-// ── react（会话历史压缩）─────────────────────────────────────────────
+// ── compaction（会话历史压缩）────────────────────────────────────────
 
-export async function getReactSettings(): Promise<ReactSettings> {
-  return (await get<{ react: ReactSettings }>('/settings/react')).react
+export async function getCompactionSettings(): Promise<CompactionSettings> {
+  return (await get<{ compaction: CompactionSettings }>('/settings/compaction')).compaction
 }
 
-export async function saveReactSettings(v: ReactSettings): Promise<ReactSettings> {
-  return (await put<{ react: ReactSettings }>('/settings/react', v)).react
+export async function saveCompactionSettings(v: CompactionSettings): Promise<CompactionSettings> {
+  return (await put<{ compaction: CompactionSettings }>('/settings/compaction', v)).compaction
 }
 
 // ── runtime（工具运行时）─────────────────────────────────────────────

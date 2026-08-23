@@ -21,7 +21,7 @@ Outside of these first two goals, the intended use becomes relevant.
 This package is intended to be used in the `go.opentelemetry.io/otel` global API as a default when the auto-instrumentation is running.
 Because of this, this package needs to not add unnecessary dependencies to that API.
 Ideally, it adds none.
-It also needs to operate efficiently.
+It also needs to execute efficiently.
 
 Finally, this module is designed to be user-friendly to Go development.
 It hides complexity in order to provide simpler APIs when the previous goals can all still be met.

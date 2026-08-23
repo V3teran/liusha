@@ -44,7 +44,7 @@ describe('ToolResultCard', () => {
   })
 
   it('有 agentName 时显示中文标签', () => {
-    render(<ToolResultCard tool="x" result="ok" durationMs={1} err="" agentName="orchestrator" />)
+    render(<ToolResultCard tool="x" result="ok" durationMs={1} err="" agentName="planner" />)
     expect(screen.getByText('编排')).toBeTruthy()
   })
 

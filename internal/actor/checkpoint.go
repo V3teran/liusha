@@ -1,0 +1,65 @@
+package actor
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
+)
+
+// PGCheckpointStore 是基于 PostgreSQL 的 CheckpointStore 实现。
+// 表结构见 db/migrations/0110_actor_checkpoint.up.sql。
+type PGCheckpointStore struct{ pool *pgxpool.Pool }
+
+// NewPGCheckpointStore 构造 PGCheckpointStore。
+func NewPGCheckpointStore(pool *pgxpool.Pool) *PGCheckpointStore {
+	return &PGCheckpointStore{pool: pool}
+}
+
+// Write UPSERT 一条 Checkpoint（同 task_id+move_id 只保留最新步）。
+func (s *PGCheckpointStore) Write(ctx context.Context, cp Checkpoint) error {
+	hyp, err := json.Marshal(cp.Hypotheses)
+	if err != nil {
+		hyp = []byte("[]")
+	}
+	const q = `
+		INSERT INTO actor_checkpoint (task_id, move_id, step_idx, thought, hypotheses, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6)
+		ON CONFLICT (task_id, move_id) DO UPDATE
+		SET step_idx   = EXCLUDED.step_idx,
+		    thought    = EXCLUDED.thought,
+		    hypotheses = EXCLUDED.hypotheses,
+		    created_at = EXCLUDED.created_at`
+	createdAt := cp.CreatedAt
+	if createdAt.IsZero() {
+		createdAt = time.Now()
+	}
+	_, err = s.pool.Exec(ctx, q, cp.TaskID, cp.MoveID, cp.StepIdx, cp.Thought, hyp, createdAt)
+	if err != nil {
+		return fmt.Errorf("actor: checkpoint write (scan=%s move=%s): %w", cp.TaskID, cp.MoveID, err)
+	}
+	return nil
+}
+
+// Last 返回 (task_id, move_id) 对应的最新 Checkpoint；不存在时返回 nil, nil。
+func (s *PGCheckpointStore) Last(ctx context.Context, taskID, moveID string) (*Checkpoint, error) {
+	const q = `SELECT task_id, move_id, step_idx, thought, hypotheses, created_at
+	           FROM actor_checkpoint WHERE task_id = $1 AND move_id = $2`
+	row := s.pool.QueryRow(ctx, q, taskID, moveID)
+	var cp Checkpoint
+	var hyp []byte
+	if err := row.Scan(&cp.TaskID, &cp.MoveID, &cp.StepIdx, &cp.Thought, &hyp, &cp.CreatedAt); err != nil {
+		if isNoRows(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("actor: checkpoint last (scan=%s move=%s): %w", taskID, moveID, err)
+	}
+	_ = json.Unmarshal(hyp, &cp.Hypotheses)
+	return &cp, nil
+}
+
+func isNoRows(err error) bool {
+	return err != nil && err.Error() == "no rows in result set"
+}

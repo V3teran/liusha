@@ -5,7 +5,7 @@
 -- 沿用业界（LiteLLM/OpenRouter/Portkey）两层结构：
 --   · llm_provider  = 部署注册表（连接参数 + 能力标志）；一个 base_url+model+key 一条
 --   · llm_alias     = 命名别名（default/light/vision/fallback，可扩），别名 → provider
---   · llm_role_route= 角色 → 别名（orchestrator→vision 等）；role 缺省走 'default' 别名
+--   · llm_role_route= 角色 → 别名（planner→vision 等）；role 缺省走 'default' 别名
 -- 消费方按 role 解析：role → 别名 → provider。别名层让「换一个视觉模型」改一处即全量跟随。
 --
 -- 关键约束：api_key_env 只存**环境变量名**（如 GLM_API_KEY），密钥值永不落库（见安全规范）。
@@ -42,7 +42,7 @@ CREATE TABLE llm_alias (
 COMMENT ON TABLE llm_alias IS 'LLM 命名别名 → provider；别名层让换模型改一处即全量跟随（default 别名兼作缺省路由）';
 
 CREATE TABLE llm_role_route (
-    role       text        NOT NULL PRIMARY KEY,               -- traffic-analysis/orchestrator/exploitation/inspector/compactor…
+    role       text        NOT NULL PRIMARY KEY,               -- traffic-analysis/planner/exploitation/inspector/compactor…
     alias      text        NOT NULL REFERENCES llm_alias(name) ON DELETE RESTRICT,
     created_at timestamptz NOT NULL DEFAULT now(),
     updated_at timestamptz NOT NULL DEFAULT now()

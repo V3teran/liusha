@@ -1,12 +1,12 @@
 // Package httpapi: 系统配置 handler（前端「系统配置」页）。
 //
 // 三组业务旋钮对应 migration 0098 的 system_setting 分组 KV：
-//   - react        ：会话历史压缩（触发阈值 / trailing 预算 / 蒸馏超时）
+//   - compaction   ：会话历史压缩（触发阈值 / trailing 预算 / 蒸馏超时）
 //   - runtime      ：工具运行时（单步工具超时 / 输出截尾 / prompt finding 上限）
 //   - proxy_filter ：代理流量过滤规则（黑白名单 + body 上限）
 //
 // 写路径一律走 settingstore（落 DB + redis 广播失效）：runner 下次现读即拿到最新
-// react/runtime 旋钮；proxy 进程订阅 proxy_filter 失效后热换过滤链（真热改，无需重启）。
+// compaction/runtime 旋钮；proxy 进程订阅 proxy_filter 失效后热换过滤链（真热改，无需重启）。
 // handler 只做 HTTP 编解码 + 校验，绝不直穿底层 store。
 package httpapi
 
@@ -21,32 +21,32 @@ import (
 // SettingsAPI 是系统配置 CRUD 依赖的窄接口；*settingstore.Store 自动满足。
 // 读经多级缓存、写经失效广播的语义全在 settingstore 内。
 type SettingsAPI interface {
-	React(ctx context.Context) (settingstore.ReactSettings, error)
-	SaveReact(ctx context.Context, v settingstore.ReactSettings) error
+	Compaction(ctx context.Context) (settingstore.CompactionSettings, error)
+	SaveCompaction(ctx context.Context, v settingstore.CompactionSettings) error
 	Runtime(ctx context.Context) (settingstore.RuntimeSettings, error)
 	SaveRuntime(ctx context.Context, v settingstore.RuntimeSettings) error
 	ProxyFilter(ctx context.Context) (settingstore.ProxyFilterSettings, error)
 	SaveProxyFilter(ctx context.Context, v settingstore.ProxyFilterSettings) error
 }
 
-// ── react（会话历史压缩旋钮）─────────────────────────────────────────
+// ── compaction（会话历史压缩旋钮）────────────────────────────────────
 
-// getReactSettingsHandler 处理 GET /settings/react。
-func getReactSettingsHandler(api SettingsAPI) gin.HandlerFunc {
+// getCompactionSettingsHandler 处理 GET /settings/compaction。
+func getCompactionSettingsHandler(api SettingsAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		v, err := api.React(c.Request.Context())
+		v, err := api.Compaction(c.Request.Context())
 		if err != nil {
 			c.JSON(500, gin.H{"error": err.Error()})
 			return
 		}
-		c.JSON(200, gin.H{"react": v})
+		c.JSON(200, gin.H{"compaction": v})
 	}
 }
 
-// putReactSettingsHandler 处理 PUT /settings/react（全量覆写 + 校验）。
-func putReactSettingsHandler(api SettingsAPI) gin.HandlerFunc {
+// putCompactionSettingsHandler 处理 PUT /settings/compaction（全量覆写 + 校验）。
+func putCompactionSettingsHandler(api SettingsAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		var b settingstore.ReactSettings
+		var b settingstore.CompactionSettings
 		if err := c.ShouldBindJSON(&b); err != nil {
 			c.JSON(400, gin.H{"error": "请求体非法: " + err.Error()})
 			return
@@ -64,11 +64,11 @@ func putReactSettingsHandler(api SettingsAPI) gin.HandlerFunc {
 			c.JSON(400, gin.H{"error": "compactor_timeout_seconds 必须 > 0（旧会话蒸馏单次 LLM 超时秒数）"})
 			return
 		}
-		if err := api.SaveReact(c.Request.Context(), b); err != nil {
+		if err := api.SaveCompaction(c.Request.Context(), b); err != nil {
 			c.JSON(500, gin.H{"error": err.Error()})
 			return
 		}
-		c.JSON(200, gin.H{"react": b})
+		c.JSON(200, gin.H{"compaction": b})
 	}
 }
 

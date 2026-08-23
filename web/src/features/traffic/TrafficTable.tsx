@@ -8,6 +8,7 @@ interface TrafficTableProps {
   loading: boolean
   hasFilter: boolean
   showHost: boolean
+  selectedId: number | null
   onRowClick: (row: TrafficSummary) => void
 }
 
@@ -15,7 +16,7 @@ const SKELETON_ROWS = 8
 
 // 密集流量表：真实 <table> 语义（对齐 LlmAuditTable / FindingsPage 的 react-table 模式），
 // 列宽由 buildTrafficColumns 单点定义，table-fixed + colgroup 百分比宽度随容器等比缩放。
-export function TrafficTable({ rows, loading, hasFilter, showHost, onRowClick }: TrafficTableProps) {
+export function TrafficTable({ rows, loading, hasFilter, showHost, selectedId, onRowClick }: TrafficTableProps) {
   const columns = buildTrafficColumns(showHost)
   const table = useReactTable({
     data: rows,
@@ -66,12 +67,14 @@ export function TrafficTable({ rows, loading, hasFilter, showHost, onRowClick }:
           ) : (
             table.getRowModel().rows.map((row) => {
               const v = row.original
+              const selected = v.id === selectedId
               return (
                 <tr
                   key={row.id}
                   role="button"
                   tabIndex={0}
                   aria-label={`查看流量详情 ${v.method} ${v.path}`}
+                  aria-selected={selected}
                   onClick={() => onRowClick(v)}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' || e.key === ' ') {
@@ -79,7 +82,7 @@ export function TrafficTable({ rows, loading, hasFilter, showHost, onRowClick }:
                       onRowClick(v)
                     }
                   }}
-                  className="cursor-pointer border-b border-border text-[13px] transition-colors last:border-b-0 hover:bg-surface-2 data-[error=true]:bg-sev-critical/[0.08] data-[error=true]:hover:bg-sev-critical/[0.14]"
+                  className="cursor-pointer border-b border-border text-[13px] transition-colors last:border-b-0 hover:bg-surface-2 data-[error=true]:bg-sev-critical/[0.08] data-[error=true]:hover:bg-sev-critical/[0.14] aria-selected:!bg-accent/12 aria-selected:shadow-[inset_2px_0_0_var(--accent)]"
                   data-error={v.status_code >= 500}
                 >
                   {row.getVisibleCells().map((cell) => (

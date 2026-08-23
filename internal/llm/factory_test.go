@@ -58,13 +58,13 @@ func (r fakeResolver) ProviderForFallback(_ context.Context) (llmcfg.Provider, e
 	return llmcfg.Provider{}, errors.New("unresolved fallback")
 }
 
-// makeResolver：orchestrator→deepseek、inspector→anthropic_haiku、__default__ 兜底→deepseek、
+// makeResolver：planner→deepseek、inspector→anthropic_haiku、__default__ 兜底→deepseek、
 // __fallback__ 备胎→qwen（角色路由解析的正确性由 llmstore 单测覆盖，这里只喂结果）。
 func makeResolver() fakeResolver {
 	deepseek := prov("deepseek", "deepseek-chat", "DEEPSEEK_API_KEY")
 	return fakeResolver{
 		byRole: map[string]llmcfg.Provider{
-			"orchestrator": deepseek,
+			"planner": deepseek,
 			"inspector":    prov("anthropic_haiku", "claude-haiku-4-5", "ANTHROPIC_API_KEY"),
 		},
 		def:    deepseek,
@@ -74,14 +74,14 @@ func makeResolver() fakeResolver {
 	}
 }
 
-// TestFactory_For_ReactMain：orchestrator 解析到 deepseek
+// TestFactory_For_ReactMain：planner 解析到 deepseek
 func TestFactory_For_ReactMain(t *testing.T) {
 	builder, _ := newFakeBuilder()
 	f := NewFactoryWithBuilder(makeResolver(), builder)
 
-	g, err := f.For(context.Background(), "orchestrator")
+	g, err := f.For(context.Background(), "planner")
 	if err != nil {
-		t.Fatalf("For orchestrator 失败: %v", err)
+		t.Fatalf("For planner 失败: %v", err)
 	}
 	if g.Provider() != "deepseek" {
 		t.Errorf("provider 应为 deepseek，实际 %s", g.Provider())
@@ -136,11 +136,11 @@ func TestFactory_For_NoCache(t *testing.T) {
 	builder, count := newFakeBuilder()
 	f := NewFactoryWithBuilder(makeResolver(), builder)
 
-	g1, err := f.For(context.Background(), "orchestrator")
+	g1, err := f.For(context.Background(), "planner")
 	if err != nil {
 		t.Fatalf("第一次 For 失败: %v", err)
 	}
-	g2, err := f.For(context.Background(), "orchestrator")
+	g2, err := f.For(context.Background(), "planner")
 	if err != nil {
 		t.Fatalf("第二次 For 失败: %v", err)
 	}
@@ -163,7 +163,7 @@ func TestFactory_For_ConcurrentSafe(t *testing.T) {
 	for i := 0; i < N; i++ {
 		go func() {
 			defer wg.Done()
-			if _, err := f.For(context.Background(), "orchestrator"); err != nil {
+			if _, err := f.For(context.Background(), "planner"); err != nil {
 				t.Errorf("并发 For 失败: %v", err)
 			}
 		}()

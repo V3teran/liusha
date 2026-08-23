@@ -44,7 +44,7 @@ func AttemptFromFinding(taskID string, f finding.VulnFinding) (verifier.Attempt,
 	}
 
 	return verifier.Attempt{
-		ScanID:     taskID,
+		TaskID:     taskID,
 		Kind:       worldmodel.KindFinding,
 		Target:     endpointRef(f),
 		Primitives: f.Repro, // 形状已是 ReplayRecipe，Verifier 侧 web.Replayer 解析

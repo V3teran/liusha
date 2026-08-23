@@ -4,7 +4,7 @@
 >   - P1 地基：迁移 0079、internal/corpus、删 lesson 包、工具层 search/write_corpus、删 PUSH 注入。
 >   - P2 检索：internal/embedding（Jina embed+rerank）、hybrid（dense+sparse→rerank）、集成测试。
 >   - P3 写入三路：agent 直写 write_corpus（判据）、收尾蒸馏（finalizeTask complete）、专家导入 CLI（cmd/corpus-import）。
->   - P4（prompt 边界细化）：hunters/*.md 已加 search/write_corpus 授权 + 边界口诀，随 P1 一并完成。
+>   - P4（prompt 边界细化）：agents/*.md 已加 search/write_corpus 授权 + 边界口诀，随 P1 一并完成。
 > 日期：2026-07-12
 > 前置：可清库（lesson 存量可丢，纯 DDL 换表）；已完成 lead 去截断+滚动TTL重构（见 architecture-active-passive.md §3）
 > 依赖：pgvector 0.8.4（镜像已带）、pg_trgm（可用）、Jina embedding + reranker API
@@ -161,9 +161,9 @@ CREATE UNIQUE INDEX corpus_content_hash_uniq ON corpus (content_hash);
 - 删 `internal/lesson` 包。
 - `internal/einotools/lessons.go` → `corpus.go`：`BuildReadLessons`/`BuildWriteLesson` → `BuildSearchCorpus`（PULL）/`BuildWriteCorpus`。**注意 read 语义变了**：原 `read_lessons` 是无参列全部，新 `search_corpus` 是带 query 的检索。
 - `internal/einoagent/{role_tools,traffic_analysis_tools}.go`：`LessonStore` → `CorpusStore`，工具注册名改 `search_corpus`/`write_corpus`。
-- `internal/builder/hunter/user_prompt.go`：**删掉 lesson 的 PUSH 注入**（`loadKnowledgeForPrompt` 那段）——corpus 改 PULL，不再无差别注入。per-host 经验的注入职责已由 lead 承担。
+- `internal/builder/agent/user_prompt.go`：**删掉 lesson 的 PUSH 注入**（`loadKnowledgeForPrompt` 那段）——corpus 改 PULL，不再无差别注入。per-host 经验的注入职责已由 lead 承担。
 - `cmd/scanner/*`：`h.lessons` → `h.corpus`；`finalizeTask` 加蒸馏调用（complete 分支）。
-- 授权角色：`search_corpus` + `write_corpus` 授 recon/exploitation/traffic-analysis（同 lead）；orchestrator 不授 write（与现状一致）。
+- 授权角色：`search_corpus` + `write_corpus` 授 recon/exploitation/traffic-analysis（同 lead）；planner 不授 write（与现状一致）。
 
 ## 8. 实施阶段
 

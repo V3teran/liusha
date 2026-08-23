@@ -50,6 +50,21 @@ export function humanDuration(ms: number): string {
   return s ? `${m}分${s}秒` : `${m}分`
 }
 
+/** 响应体字节数（1024 进制）：0 → "0 B"、1536 → "1.5 KB"、5242880 → "5 MB"。 */
+export function humanBytes(n: number): string {
+  if (!n || n < 0) return '0 B'
+  if (n < 1024) return `${n} B`
+  const units = ['KB', 'MB', 'GB', 'TB']
+  let val = n / 1024
+  let i = 0
+  while (val >= 1024 && i < units.length - 1) {
+    val /= 1024
+    i++
+  }
+  // <10 保留一位小数（1.5 KB），≥10 取整（128 KB）——紧凑且不失精度
+  return `${val < 10 ? val.toFixed(1) : Math.round(val)} ${units[i]}`
+}
+
 /** token 总数（千分位分隔，精确值——用于 tooltip）。 */
 export function humanTokens(n: number): string {
   if (!n || n < 0) return '0'

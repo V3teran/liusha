@@ -15,9 +15,9 @@ import (
 
 	"github.com/rs/zerolog"
 
+	"github.com/V3teran/liusha/internal/agentrun"
 	"github.com/V3teran/liusha/internal/assignment"
 	"github.com/V3teran/liusha/internal/cronschedule"
-	"github.com/V3teran/liusha/internal/hunterrun"
 	"github.com/V3teran/liusha/internal/task"
 	"github.com/V3teran/liusha/internal/traffic"
 	"github.com/V3teran/liusha/internal/worker"
@@ -35,8 +35,8 @@ type cronRunner struct {
 	schedules   *cronschedule.Store
 	assignments *assignment.Store
 	tasks       *task.Store
-	proxyFlows  *traffic.ProxyStore
-	hunters     *hunterrun.Store
+	proxyStore  *traffic.ProxyStore
+	executors    *agentrun.Store
 	enq         *worker.Client
 	scan        *scanAdapter // 复用 expandItem（与单发/StartChatScan 同展开逻辑）
 	logger      zerolog.Logger
@@ -97,9 +97,13 @@ func (r *cronRunner) fireOne(ctx context.Context, sched cronschedule.CronSchedul
 
 	for _, item := range items {
 		var expandErr error
-		if item.Host != "" {
+		switch {
+		case len(item.TrafficIDs) > 0:
+			// 显式流量集：下发时点名的 proxy_traffic id 集合（M:N 精确复检），host 从流量派生。
 			expandErr = r.expandTrafficItem(ctx, asg.ID, sched.ScenarioID, item)
-		} else {
+		case item.Host != "":
+			expandErr = r.expandTrafficItem(ctx, asg.ID, sched.ScenarioID, item)
+		default:
 			_, _, expandErr = r.scan.expandItem(ctx, asg.ID, item.Brief, "", sched.ScenarioID)
 		}
 		if expandErr != nil {
@@ -128,31 +132,37 @@ func (r *cronRunner) expandTrafficItem(ctx context.Context, assignmentID, scenar
 		return fmt.Errorf("create task: %w", err)
 	}
 
-	claimed, err := r.proxyFlows.ClaimUnconsumedByHost(ctx, tk.ID, host, passiveCronClaimLimit)
+	// 显式流量集（TrafficIDs 非空）走精确领取，否则按 host 领未被本 task 消费的流量。
+	var claimed int64
+	if len(item.TrafficIDs) > 0 {
+		claimed, err = r.proxyStore.ClaimByIDs(ctx, tk.ID, item.TrafficIDs)
+	} else {
+		claimed, err = r.proxyStore.ClaimUnconsumedByHost(ctx, tk.ID, host, passiveCronClaimLimit)
+	}
 	if err != nil {
 		_ = r.tasks.Abort(ctx, tk.ID, "领取流量失败")
-		return fmt.Errorf("claim unconsumed proxy_traffic for host %s: %w", host, err)
+		return fmt.Errorf("claim proxy_traffic for host %s: %w", host, err)
 	}
 	if claimed == 0 {
-		_ = r.tasks.Abort(ctx, tk.ID, "无未消费流量可分析")
-		return nil // 不算错误：到点但该 host 当前无未消费流量，正常空转
+		_ = r.tasks.Abort(ctx, tk.ID, "无可分析流量")
+		return nil // 不算错误：到点但无流量可领（host 无未消费 / 显式集已被消费），正常空转
 	}
 
 	payloadInput, _ := json.Marshal(map[string]string{"brief": host})
-	hid, err := r.hunters.Create(ctx, hunterrun.NewParams{
+	hid, err := r.executors.Create(ctx, agentrun.NewParams{
 		TaskID: tk.ID,
-		Role:   "orchestrator",
+		Role:   "planner",
 		Input:  payloadInput,
 	})
 	if err != nil {
-		return fmt.Errorf("create hunter run: %w", err)
+		return fmt.Errorf("create executor run: %w", err)
 	}
-	if _, _, err := r.enq.Enqueue(ctx, worker.RoleHunter, worker.Payload{
-		HunterID:   hid,
+	if _, _, err := r.enq.Enqueue(ctx, worker.RoleExecutor, worker.Payload{
+		ExecutorID:   hid,
 		TaskID:     tk.ID,
 		ScenarioID: scenarioID,
 		Input:      payloadInput,
-		Role:       worker.RoleHunter,
+		Role:       worker.RoleExecutor,
 	}); err != nil {
 		return fmt.Errorf("enqueue: %w", err)
 	}

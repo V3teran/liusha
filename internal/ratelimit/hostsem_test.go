@@ -78,7 +78,7 @@ func TestHostSemaphore_UnlimitedWhenLimitNonPositive(t *testing.T) {
 	}
 }
 
-// host 为空时恒放行（active orchestrator 无 target_host 的场景）。
+// host 为空时恒放行（active planner 无 target_host 的场景）。
 func TestHostSemaphore_EmptyHostPassthrough(t *testing.T) {
 	sem, _ := newTestSemaphore(t, 1, time.Minute)
 	ctx := context.Background()

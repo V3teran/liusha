@@ -3,7 +3,7 @@ import { agentAccent, agentLabel } from '@/lib/agentColor'
 import { CardHeader } from './CardHeader'
 
 interface SpawnCardProps {
-  dispatcher?: string // 派发者 hunter（编排）——领头
+  dispatcher?: string // 派发者 agent（编排）——领头
   args?: string
   durationMs?: number // 完成时：子代理执行总耗时
   err?: string // 完成时：子代理出错信息
@@ -25,8 +25,8 @@ function parseArgs(args?: string): SpawnArgs {
 
 const fmtMs = (n?: number) => (n && n > 0 ? (n >= 1000 ? (n / 1000).toFixed(1) + 's' : n + 'ms') : '')
 
-// 派发正文（方案 B）：编排 hunter 派子 hunter（AI 指挥 AI 团队）。外层 AgentCard 承载图标。
-// 领头「编排 派发 → 侦察」：编排(施动)领头，动作弱化，目标 hunter 以其配色收尾——主语不再漂移。
+// 派发正文（方案 B）：编排 agent 派子 agent（AI 指挥 AI 团队）。外层 AgentCard 承载图标。
+// 领头「编排 派发 → 侦察」：编排(施动)领头，动作弱化，目标 agent 以其配色收尾——主语不再漂移。
 //   - 派发开始（args）：编排 派发 → 侦察 + brief
 //   - 派发完成（done + durationMs）：编排 派发完成/失败 + ✓/✗ + 子代理执行总时长
 export function SpawnCard({ dispatcher, args, durationMs, err, done }: SpawnCardProps) {
@@ -41,8 +41,8 @@ export function SpawnCard({ dispatcher, args, durationMs, err, done }: SpawnCard
     return (
       <div data-card="spawn">
         <CardHeader
-          hunter={dispText}
-          hunterColor={disp.accent}
+          agent={dispText}
+          agentColor={disp.accent}
           action={err ? '派发失败' : '派发完成'}
           extras={
             <>
@@ -70,8 +70,8 @@ export function SpawnCard({ dispatcher, args, durationMs, err, done }: SpawnCard
   return (
     <div data-card="spawn">
       <CardHeader
-        hunter={dispText}
-        hunterColor={disp.accent}
+        agent={dispText}
+        agentColor={disp.accent}
         action="派发"
         target={{ name: targetText, color: target.accent }}
       />

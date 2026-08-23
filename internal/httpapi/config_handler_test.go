@@ -10,7 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 
-	cfghunter "github.com/V3teran/liusha/internal/config/hunter"
+	cfgagent "github.com/V3teran/liusha/internal/config/agent"
 	cfgscenario "github.com/V3teran/liusha/internal/config/scenario"
 	cfgtool "github.com/V3teran/liusha/internal/config/tool"
 )
@@ -18,11 +18,13 @@ import (
 // fakeConfig 是 ConfigAPI 的内存实现，记录调用以断言 handler 编排（playbook 层已废）。
 type fakeConfig struct {
 	scenarios []cfgscenario.Scenario
-	hunters   map[string]cfghunter.Hunter // by id
+	executors  map[string]cfgagent.Agent // by id
 
 	savedScenario *cfgscenario.NewParams
-	savedHunter   *cfghunter.NewParams
-	deleteHunter  error // DeleteHunter 返回的错误（模拟 FK RESTRICT）
+	savedAgent   *cfgagent.NewParams
+	patchedTierID string // UpdateExecutorTier 收到的 id（断言 PATCH 编排）
+	patchedTier   string // UpdateExecutorTier 收到的 tier
+	deleteAgent  error  // DeleteExecutor 返回的错误（模拟 FK RESTRICT）
 }
 
 func (f *fakeConfig) ListScenarios(_ context.Context, onlyEnabled bool) ([]cfgscenario.Scenario, error) {
@@ -47,7 +49,7 @@ func (f *fakeConfig) ScenarioByID(_ context.Context, id string) (cfgscenario.Sce
 }
 func (f *fakeConfig) SaveScenario(_ context.Context, p cfgscenario.NewParams) (cfgscenario.Scenario, error) {
 	f.savedScenario = &p
-	return cfgscenario.Scenario{ID: "sc-new", Code: p.Code, Name: p.Name, Engine: p.Engine, SoloHunterID: p.SoloHunterID}, nil
+	return cfgscenario.Scenario{ID: "sc-new", Code: p.Code, Name: p.Name, Engine: p.Engine, SoloExecutorID: p.SoloExecutorID}, nil
 }
 func (f *fakeConfig) DeleteScenario(_ context.Context, _, _ string) error { return nil }
 func (f *fakeConfig) ListScenariosPaged(_ context.Context, _ cfgscenario.ListParams) ([]cfgscenario.Scenario, error) {
@@ -57,41 +59,49 @@ func (f *fakeConfig) CountScenarios(_ context.Context, _ cfgscenario.ListParams)
 	return len(f.scenarios), nil
 }
 
-func (f *fakeConfig) ListHunters(_ context.Context, _ bool) ([]cfghunter.Hunter, error) {
-	out := make([]cfghunter.Hunter, 0, len(f.hunters))
-	for _, h := range f.hunters {
+func (f *fakeConfig) ListExecutors(_ context.Context, _ bool) ([]cfgagent.Agent, error) {
+	out := make([]cfgagent.Agent, 0, len(f.executors))
+	for _, h := range f.executors {
 		out = append(out, h)
 	}
 	return out, nil
 }
-func (f *fakeConfig) HunterByID(_ context.Context, id string) (cfghunter.Hunter, error) {
-	if h, ok := f.hunters[id]; ok {
+func (f *fakeConfig) ExecutorByID(_ context.Context, id string) (cfgagent.Agent, error) {
+	if h, ok := f.executors[id]; ok {
 		return h, nil
 	}
-	return cfghunter.Hunter{}, pgxErrNoRows()
+	return cfgagent.Agent{}, pgxErrNoRows()
 }
-func (f *fakeConfig) HunterByCode(_ context.Context, code string) (cfghunter.Hunter, error) {
-	for _, h := range f.hunters {
+func (f *fakeConfig) ExecutorByCode(_ context.Context, code string) (cfgagent.Agent, error) {
+	for _, h := range f.executors {
 		if h.Code == code {
 			return h, nil
 		}
 	}
-	return cfghunter.Hunter{}, pgxErrNoRows()
+	return cfgagent.Agent{}, pgxErrNoRows()
 }
-func (f *fakeConfig) SaveHunter(_ context.Context, p cfghunter.NewParams) (cfghunter.Hunter, error) {
-	f.savedHunter = &p
-	return cfghunter.Hunter{ID: "h-new", Code: p.Code, Kind: p.Kind, Name: p.Name, FunctionTools: p.FunctionTools, CliTools: p.CliTools}, nil
+func (f *fakeConfig) SaveExecutor(_ context.Context, p cfgagent.NewParams) (cfgagent.Agent, error) {
+	f.savedAgent = &p
+	return cfgagent.Agent{ID: "h-new", Code: p.Code, Kind: p.Kind, Name: p.Name, FunctionTools: p.FunctionTools, CliTools: p.CliTools}, nil
 }
-func (f *fakeConfig) DeleteHunter(_ context.Context, _, _ string) error { return f.deleteHunter }
-func (f *fakeConfig) ListHuntersPaged(_ context.Context, _ cfghunter.ListParams) ([]cfghunter.Hunter, error) {
-	out := make([]cfghunter.Hunter, 0, len(f.hunters))
-	for _, h := range f.hunters {
+func (f *fakeConfig) UpdateExecutorTier(_ context.Context, id, tier string) (cfgagent.Agent, error) {
+	f.patchedTierID = id
+	f.patchedTier = tier
+	h := f.executors[id]
+	h.ID = id
+	h.Tier = tier
+	return h, nil
+}
+func (f *fakeConfig) DeleteExecutor(_ context.Context, _, _ string) error { return f.deleteAgent }
+func (f *fakeConfig) ListExecutorsPaged(_ context.Context, _ cfgagent.ListParams) ([]cfgagent.Agent, error) {
+	out := make([]cfgagent.Agent, 0, len(f.executors))
+	for _, h := range f.executors {
 		out = append(out, h)
 	}
 	return out, nil
 }
-func (f *fakeConfig) CountHunters(_ context.Context, _ cfghunter.ListParams) (int, error) {
-	return len(f.hunters), nil
+func (f *fakeConfig) CountExecutors(_ context.Context, _ cfgagent.ListParams) (int, error) {
+	return len(f.executors), nil
 }
 
 // fakeToolCatalog 是 ToolCatalogAPI 的内存实现，供 /tools、/tools/:name 测试。
@@ -147,13 +157,13 @@ func doJSON(t *testing.T, method, url string, body any) (int, map[string]any) {
 }
 
 // TestListScenarios_ReturnsAllWithFullFields：GET /scenarios 单一口径返回全量（含
-// disabled）+ 全字段（含 instruction/engine/solo_hunter_id/enabled）。picker 与配置页
+// disabled）+ 全字段（含 instruction/engine/solo_agent_id/enabled）。picker 与配置页
 // 共用此响应，可见 ≠ 可用交由前端按 enabled 区分（无 ?all 分流）。
 func TestListScenarios_ReturnsAllWithFullFields(t *testing.T) {
 	solo := "h-recon"
 	fc := &fakeConfig{scenarios: []cfgscenario.Scenario{
 		{ID: "s1", Code: "on", Name: "启用", Instruction: "I1", Engine: "swarm", Enabled: true},
-		{ID: "s2", Code: "off", Name: "停用", Instruction: "I2", Engine: "solo", SoloHunterID: &solo, Enabled: false},
+		{ID: "s2", Code: "off", Name: "停用", Instruction: "I2", Engine: "solo", SoloExecutorID: &solo, Enabled: false},
 	}}
 	srv := newTestServer(t, Deps{ConfigStore: fc})
 	defer srv.Close()
@@ -167,15 +177,15 @@ func TestListScenarios_ReturnsAllWithFullFields(t *testing.T) {
 		t.Fatalf("应返回全量含 disabled，got %d", len(arr))
 	}
 	first, _ := arr[0].(map[string]any)
-	for _, k := range []string{"id", "code", "name", "description", "instruction", "engine", "solo_hunter_id", "enabled"} {
+	for _, k := range []string{"id", "code", "name", "description", "instruction", "engine", "solo_agent_id", "enabled"} {
 		if _, ok := first[k]; !ok {
 			t.Fatalf("缺全字段 %q: %v", k, first)
 		}
 	}
 }
 
-// TestPostScenario_SoloRequiresHunter：solo 引擎缺 solo_hunter_id → 400 中文。
-func TestPostScenario_SoloRequiresHunter(t *testing.T) {
+// TestPostScenario_SoloRequiresAgent：solo 引擎缺 solo_agent_id → 400 中文。
+func TestPostScenario_SoloRequiresAgent(t *testing.T) {
 	srv := newTestServer(t, Deps{ConfigStore: &fakeConfig{}})
 	defer srv.Close()
 
@@ -190,14 +200,14 @@ func TestPostScenario_SoloRequiresHunter(t *testing.T) {
 	}
 }
 
-// TestPostScenario_SwarmRejectsHunter：swarm 引擎带 solo_hunter_id → 400 中文
-// （子代理池=全部 enabled 领域猎手，不接受单点指定）。
-func TestPostScenario_SwarmRejectsHunter(t *testing.T) {
+// TestPostScenario_SwarmRejectsAgent：swarm 引擎带 solo_agent_id → 400 中文
+// （子代理池=全部 enabled 领域操作员，不接受单点指定）。
+func TestPostScenario_SwarmRejectsAgent(t *testing.T) {
 	srv := newTestServer(t, Deps{ConfigStore: &fakeConfig{}})
 	defer srv.Close()
 
 	code, body := doJSON(t, "POST", srv.URL+"/scenarios", map[string]any{
-		"code": "c", "name": "n", "engine": "swarm", "solo_hunter_id": "h-recon",
+		"code": "c", "name": "n", "engine": "swarm", "solo_agent_id": "h-recon",
 	})
 	if code != 400 {
 		t.Fatalf("want 400, got %d (%v)", code, body)
@@ -207,14 +217,14 @@ func TestPostScenario_SwarmRejectsHunter(t *testing.T) {
 	}
 }
 
-// TestPostScenario_SoloWiresHunter：solo + solo_hunter_id → SaveScenario 收到 *string。
-func TestPostScenario_SoloWiresHunter(t *testing.T) {
+// TestPostScenario_SoloWiresAgent：solo + solo_agent_id → SaveScenario 收到 *string。
+func TestPostScenario_SoloWiresAgent(t *testing.T) {
 	fc := &fakeConfig{}
 	srv := newTestServer(t, Deps{ConfigStore: fc})
 	defer srv.Close()
 
 	code, _ := doJSON(t, "POST", srv.URL+"/scenarios", map[string]any{
-		"code": "passive", "name": "被动", "engine": "solo", "solo_hunter_id": "h-recon",
+		"code": "passive", "name": "被动", "engine": "solo", "solo_agent_id": "h-recon",
 	})
 	if code != 200 {
 		t.Fatalf("status=%d", code)
@@ -222,13 +232,13 @@ func TestPostScenario_SoloWiresHunter(t *testing.T) {
 	if fc.savedScenario == nil {
 		t.Fatal("SaveScenario 未被调用")
 	}
-	if fc.savedScenario.SoloHunterID == nil || *fc.savedScenario.SoloHunterID != "h-recon" {
-		t.Fatalf("SoloHunterID 未透传: %+v", fc.savedScenario)
+	if fc.savedScenario.SoloExecutorID == nil || *fc.savedScenario.SoloExecutorID != "h-recon" {
+		t.Fatalf("SoloExecutorID 未透传: %+v", fc.savedScenario)
 	}
 }
 
-// TestPostHunter_ValidationRejects：缺 code/kind 或 kind 非法 → 400 中文。
-func TestPostHunter_ValidationRejects(t *testing.T) {
+// TestPostAgent_ValidationRejects：缺 code/kind 或 kind 非法 → 400 中文。
+func TestPostAgent_ValidationRejects(t *testing.T) {
 	srv := newTestServer(t, Deps{ConfigStore: &fakeConfig{}})
 	defer srv.Close()
 
@@ -242,7 +252,7 @@ func TestPostHunter_ValidationRejects(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			code, body := doJSON(t, "POST", srv.URL+"/hunters", tc.body)
+			code, body := doJSON(t, "POST", srv.URL+"/executors", tc.body)
 			if code != 400 {
 				t.Fatalf("want 400, got %d (%v)", code, body)
 			}
@@ -253,36 +263,36 @@ func TestPostHunter_ValidationRejects(t *testing.T) {
 	}
 }
 
-// TestPostHunter_WiresCliTools：POST /hunters 带 cli_tools → SaveHunter 收到白名单透传。
-func TestPostHunter_WiresCliTools(t *testing.T) {
+// TestPostAgent_WiresCliTools：POST /executors 带 cli_tools → SaveExecutor 收到白名单透传。
+func TestPostAgent_WiresCliTools(t *testing.T) {
 	fc := &fakeConfig{}
 	srv := newTestServer(t, Deps{ConfigStore: fc})
 	defer srv.Close()
 
-	code, _ := doJSON(t, "POST", srv.URL+"/hunters", map[string]any{
+	code, _ := doJSON(t, "POST", srv.URL+"/executors", map[string]any{
 		"code": "recon", "name": "侦察", "kind": "domain", "cli_tools": []string{"nmap", "nuclei"},
 	})
 	if code != 200 {
 		t.Fatalf("status=%d", code)
 	}
-	if fc.savedHunter == nil {
-		t.Fatal("SaveHunter 未被调用")
+	if fc.savedAgent == nil {
+		t.Fatal("SaveExecutor 未被调用")
 	}
-	if len(fc.savedHunter.CliTools) != 2 || fc.savedHunter.CliTools[0] != "nmap" || fc.savedHunter.CliTools[1] != "nuclei" {
-		t.Fatalf("cli_tools 未透传: %+v", fc.savedHunter.CliTools)
+	if len(fc.savedAgent.CliTools) != 2 || fc.savedAgent.CliTools[0] != "nmap" || fc.savedAgent.CliTools[1] != "nuclei" {
+		t.Fatalf("cli_tools 未透传: %+v", fc.savedAgent.CliTools)
 	}
 }
 
-// TestDeleteHunter_RestrictConflict：底层 FK RESTRICT（被 solo 场景引用）→ 409。
-func TestDeleteHunter_RestrictConflict(t *testing.T) {
+// TestDeleteAgent_RestrictConflict：底层 FK RESTRICT（被 solo 场景引用）→ 409。
+func TestDeleteAgent_RestrictConflict(t *testing.T) {
 	fc := &fakeConfig{
-		hunters:      map[string]cfghunter.Hunter{"h-1": {ID: "h-1", Code: "recon", Kind: cfghunter.KindDomain}},
-		deleteHunter: &pgconn.PgError{Code: "23503", Message: "FK violation"},
+		executors: map[string]cfgagent.Agent{"h-1": {ID: "h-1", Code: "recon", Kind: cfgagent.KindExecutor}},
+		deleteAgent: &pgconn.PgError{Code: "23503", Message: "FK violation"},
 	}
 	srv := newTestServer(t, Deps{ConfigStore: fc})
 	defer srv.Close()
 
-	code, body := doJSON(t, "DELETE", srv.URL+"/hunters/h-1", nil)
+	code, body := doJSON(t, "DELETE", srv.URL+"/executors/h-1", nil)
 	if code != 409 {
 		t.Fatalf("want 409, got %d (%v)", code, body)
 	}
@@ -373,9 +383,9 @@ func TestListTools_RejectsBadKind(t *testing.T) {
 // TestGetTool_ReturnsAgentsWithInvolved：GET /tools/:name 返回 tool + 全量智能体，
 // 装配了该 function 工具的 involved=true，其余 false。
 func TestGetTool_ReturnsAgentsWithInvolved(t *testing.T) {
-	fc := &fakeConfig{hunters: map[string]cfghunter.Hunter{
-		"recon": {ID: "recon", Code: "recon", Name: "侦察猎手", FunctionTools: []string{"write_finding"}},
-		"web":   {ID: "web", Code: "web", Name: "Web 猎手", FunctionTools: []string{}},
+	fc := &fakeConfig{executors: map[string]cfgagent.Agent{
+		"recon": {ID: "recon", Code: "recon", Name: "侦察操作员", FunctionTools: []string{"write_finding"}},
+		"web":   {ID: "web", Code: "web", Name: "Web 操作员", FunctionTools: []string{}},
 	}}
 	srv := newTestServer(t, Deps{ConfigStore: fc, ToolCatalog: &fakeToolCatalog{}})
 	defer srv.Close()
@@ -401,10 +411,47 @@ func TestGetTool_ReturnsAgentsWithInvolved(t *testing.T) {
 	}
 }
 
+// TestUpdateExecutorTier_OK：PATCH /executors/:id/tier 合法档 → 调 UpdateExecutorTier，回响带新 tier。
+func TestUpdateExecutorTier_OK(t *testing.T) {
+	fc := &fakeConfig{executors: map[string]cfgagent.Agent{
+		"h1": {ID: "h1", Code: "planner", Kind: cfgagent.KindPlanner, Name: "编排", Tier: "heavy"},
+	}}
+	srv := newTestServer(t, Deps{ConfigStore: fc})
+	defer srv.Close()
+
+	code, body := doJSON(t, "PATCH", srv.URL+"/executors/h1/tier", map[string]any{"tier": "light"})
+	if code != 200 {
+		t.Fatalf("status=%d body=%v", code, body)
+	}
+	if fc.patchedTierID != "h1" || fc.patchedTier != "light" {
+		t.Fatalf("want UpdateExecutorTier(h1,light), got (%q,%q)", fc.patchedTierID, fc.patchedTier)
+	}
+	h := body["executor"].(map[string]any)
+	if h["tier"] != "light" {
+		t.Fatalf("响应 tier=%v，want light", h["tier"])
+	}
+}
+
+// TestUpdateExecutorTier_Rejects：非法档位（含空）→ 400，且不调 store。
+func TestUpdateExecutorTier_Rejects(t *testing.T) {
+	for _, bad := range []string{"", "turbo", "HEAVY"} {
+		fc := &fakeConfig{}
+		srv := newTestServer(t, Deps{ConfigStore: fc})
+		code, _ := doJSON(t, "PATCH", srv.URL+"/executors/h1/tier", map[string]any{"tier": bad})
+		srv.Close()
+		if code != 400 {
+			t.Fatalf("tier=%q want 400, got %d", bad, code)
+		}
+		if fc.patchedTierID != "" {
+			t.Fatalf("tier=%q 不该调 store，却收到 id=%q", bad, fc.patchedTierID)
+		}
+	}
+}
+
 // TestAssignTool_AddsFunctionTool：PUT .../agents/:code involved=true → 追加到 function_tools 回存。
 func TestAssignTool_AddsFunctionTool(t *testing.T) {
-	fc := &fakeConfig{hunters: map[string]cfghunter.Hunter{
-		"web": {ID: "web", Code: "web", Kind: cfghunter.KindDomain, Name: "Web 猎手", FunctionTools: []string{}},
+	fc := &fakeConfig{executors: map[string]cfgagent.Agent{
+		"web": {ID: "web", Code: "web", Kind: cfgagent.KindExecutor, Name: "Web 操作员", FunctionTools: []string{}},
 	}}
 	srv := newTestServer(t, Deps{ConfigStore: fc, ToolCatalog: &fakeToolCatalog{}})
 	defer srv.Close()
@@ -413,18 +460,18 @@ func TestAssignTool_AddsFunctionTool(t *testing.T) {
 	if code != 200 {
 		t.Fatalf("status=%d", code)
 	}
-	if fc.savedHunter == nil {
-		t.Fatal("未回存猎手")
+	if fc.savedAgent == nil {
+		t.Fatal("未回存操作员")
 	}
-	if got := fc.savedHunter.FunctionTools; len(got) != 1 || got[0] != "write_finding" {
+	if got := fc.savedAgent.FunctionTools; len(got) != 1 || got[0] != "write_finding" {
 		t.Fatalf("want function_tools=[write_finding], got %v", got)
 	}
 }
 
 // TestAssignTool_RemovesCliTool：PUT .../agents/:code involved=false → 从 cli_tools 剔除回存（kind=cli）。
 func TestAssignTool_RemovesCliTool(t *testing.T) {
-	fc := &fakeConfig{hunters: map[string]cfghunter.Hunter{
-		"web": {ID: "web", Code: "web", Kind: cfghunter.KindDomain, Name: "Web 猎手", CliTools: []string{"nmap", "ffuf"}},
+	fc := &fakeConfig{executors: map[string]cfgagent.Agent{
+		"web": {ID: "web", Code: "web", Kind: cfgagent.KindExecutor, Name: "Web 操作员", CliTools: []string{"nmap", "ffuf"}},
 	}}
 	srv := newTestServer(t, Deps{ConfigStore: fc, ToolCatalog: &fakeToolCatalog{getKind: cfgtool.KindCLI}})
 	defer srv.Close()
@@ -433,14 +480,14 @@ func TestAssignTool_RemovesCliTool(t *testing.T) {
 	if code != 200 {
 		t.Fatalf("status=%d", code)
 	}
-	if got := fc.savedHunter.CliTools; len(got) != 1 || got[0] != "ffuf" {
+	if got := fc.savedAgent.CliTools; len(got) != 1 || got[0] != "ffuf" {
 		t.Fatalf("want cli_tools=[ffuf], got %v", got)
 	}
 }
 
-// TestAssignTool_ToolNotFound / HunterNotFound：工具或智能体不存在均 404，且不回存。
+// TestAssignTool_ToolNotFound / AgentNotFound：工具或智能体不存在均 404，且不回存。
 func TestAssignTool_ToolNotFound(t *testing.T) {
-	fc := &fakeConfig{hunters: map[string]cfghunter.Hunter{}}
+	fc := &fakeConfig{executors: map[string]cfgagent.Agent{}}
 	srv := newTestServer(t, Deps{ConfigStore: fc, ToolCatalog: &fakeToolCatalog{getErr: pgxErrNoRows()}})
 	defer srv.Close()
 
@@ -448,13 +495,13 @@ func TestAssignTool_ToolNotFound(t *testing.T) {
 	if code != 404 {
 		t.Fatalf("want 404, got %d", code)
 	}
-	if fc.savedHunter != nil {
+	if fc.savedAgent != nil {
 		t.Fatal("工具不存在不应回存")
 	}
 }
 
-func TestAssignTool_HunterNotFound(t *testing.T) {
-	fc := &fakeConfig{hunters: map[string]cfghunter.Hunter{}}
+func TestAssignTool_AgentNotFound(t *testing.T) {
+	fc := &fakeConfig{executors: map[string]cfgagent.Agent{}}
 	srv := newTestServer(t, Deps{ConfigStore: fc, ToolCatalog: &fakeToolCatalog{}})
 	defer srv.Close()
 
@@ -462,7 +509,7 @@ func TestAssignTool_HunterNotFound(t *testing.T) {
 	if code != 404 {
 		t.Fatalf("want 404, got %d", code)
 	}
-	if fc.savedHunter != nil {
+	if fc.savedAgent != nil {
 		t.Fatal("智能体不存在不应回存")
 	}
 }

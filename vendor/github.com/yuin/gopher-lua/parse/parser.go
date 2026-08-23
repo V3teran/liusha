@@ -3,13 +3,11 @@
 //line parser.go.y:2
 package parse
 
-import __yyfmt__ "fmt"
-
-//line parser.go.y:2
-
 import (
+	__yyfmt__ "fmt"
+
 	"github.com/yuin/gopher-lua/ast"
-)
+) //line parser.go.y:2
 
 //line parser.go.y:34
 type yySymType struct {
@@ -1065,56 +1063,56 @@ yydefault:
 		yyDollar = yyS[yypt-3 : yypt+1]
 //line parser.go.y:317
 		{
-			yyVAL.expr = &ast.LogicalOpExpr{Lhs: yyDollar[1].expr, Operator: "or", Rhs: yyDollar[3].expr}
+			yyVAL.expr = &ast.LogicalOpExpr{Lhs: yyDollar[1].expr, Executor: "or", Rhs: yyDollar[3].expr}
 			yyVAL.expr.SetLine(yyDollar[1].expr.Line())
 		}
 	case 52:
 		yyDollar = yyS[yypt-3 : yypt+1]
 //line parser.go.y:321
 		{
-			yyVAL.expr = &ast.LogicalOpExpr{Lhs: yyDollar[1].expr, Operator: "and", Rhs: yyDollar[3].expr}
+			yyVAL.expr = &ast.LogicalOpExpr{Lhs: yyDollar[1].expr, Executor: "and", Rhs: yyDollar[3].expr}
 			yyVAL.expr.SetLine(yyDollar[1].expr.Line())
 		}
 	case 53:
 		yyDollar = yyS[yypt-3 : yypt+1]
 //line parser.go.y:325
 		{
-			yyVAL.expr = &ast.RelationalOpExpr{Lhs: yyDollar[1].expr, Operator: ">", Rhs: yyDollar[3].expr}
+			yyVAL.expr = &ast.RelationalOpExpr{Lhs: yyDollar[1].expr, Executor: ">", Rhs: yyDollar[3].expr}
 			yyVAL.expr.SetLine(yyDollar[1].expr.Line())
 		}
 	case 54:
 		yyDollar = yyS[yypt-3 : yypt+1]
 //line parser.go.y:329
 		{
-			yyVAL.expr = &ast.RelationalOpExpr{Lhs: yyDollar[1].expr, Operator: "<", Rhs: yyDollar[3].expr}
+			yyVAL.expr = &ast.RelationalOpExpr{Lhs: yyDollar[1].expr, Executor: "<", Rhs: yyDollar[3].expr}
 			yyVAL.expr.SetLine(yyDollar[1].expr.Line())
 		}
 	case 55:
 		yyDollar = yyS[yypt-3 : yypt+1]
 //line parser.go.y:333
 		{
-			yyVAL.expr = &ast.RelationalOpExpr{Lhs: yyDollar[1].expr, Operator: ">=", Rhs: yyDollar[3].expr}
+			yyVAL.expr = &ast.RelationalOpExpr{Lhs: yyDollar[1].expr, Executor: ">=", Rhs: yyDollar[3].expr}
 			yyVAL.expr.SetLine(yyDollar[1].expr.Line())
 		}
 	case 56:
 		yyDollar = yyS[yypt-3 : yypt+1]
 //line parser.go.y:337
 		{
-			yyVAL.expr = &ast.RelationalOpExpr{Lhs: yyDollar[1].expr, Operator: "<=", Rhs: yyDollar[3].expr}
+			yyVAL.expr = &ast.RelationalOpExpr{Lhs: yyDollar[1].expr, Executor: "<=", Rhs: yyDollar[3].expr}
 			yyVAL.expr.SetLine(yyDollar[1].expr.Line())
 		}
 	case 57:
 		yyDollar = yyS[yypt-3 : yypt+1]
 //line parser.go.y:341
 		{
-			yyVAL.expr = &ast.RelationalOpExpr{Lhs: yyDollar[1].expr, Operator: "==", Rhs: yyDollar[3].expr}
+			yyVAL.expr = &ast.RelationalOpExpr{Lhs: yyDollar[1].expr, Executor: "==", Rhs: yyDollar[3].expr}
 			yyVAL.expr.SetLine(yyDollar[1].expr.Line())
 		}
 	case 58:
 		yyDollar = yyS[yypt-3 : yypt+1]
 //line parser.go.y:345
 		{
-			yyVAL.expr = &ast.RelationalOpExpr{Lhs: yyDollar[1].expr, Operator: "~=", Rhs: yyDollar[3].expr}
+			yyVAL.expr = &ast.RelationalOpExpr{Lhs: yyDollar[1].expr, Executor: "~=", Rhs: yyDollar[3].expr}
 			yyVAL.expr.SetLine(yyDollar[1].expr.Line())
 		}
 	case 59:
@@ -1128,42 +1126,42 @@ yydefault:
 		yyDollar = yyS[yypt-3 : yypt+1]
 //line parser.go.y:353
 		{
-			yyVAL.expr = &ast.ArithmeticOpExpr{Lhs: yyDollar[1].expr, Operator: "+", Rhs: yyDollar[3].expr}
+			yyVAL.expr = &ast.ArithmeticOpExpr{Lhs: yyDollar[1].expr, Executor: "+", Rhs: yyDollar[3].expr}
 			yyVAL.expr.SetLine(yyDollar[1].expr.Line())
 		}
 	case 61:
 		yyDollar = yyS[yypt-3 : yypt+1]
 //line parser.go.y:357
 		{
-			yyVAL.expr = &ast.ArithmeticOpExpr{Lhs: yyDollar[1].expr, Operator: "-", Rhs: yyDollar[3].expr}
+			yyVAL.expr = &ast.ArithmeticOpExpr{Lhs: yyDollar[1].expr, Executor: "-", Rhs: yyDollar[3].expr}
 			yyVAL.expr.SetLine(yyDollar[1].expr.Line())
 		}
 	case 62:
 		yyDollar = yyS[yypt-3 : yypt+1]
 //line parser.go.y:361
 		{
-			yyVAL.expr = &ast.ArithmeticOpExpr{Lhs: yyDollar[1].expr, Operator: "*", Rhs: yyDollar[3].expr}
+			yyVAL.expr = &ast.ArithmeticOpExpr{Lhs: yyDollar[1].expr, Executor: "*", Rhs: yyDollar[3].expr}
 			yyVAL.expr.SetLine(yyDollar[1].expr.Line())
 		}
 	case 63:
 		yyDollar = yyS[yypt-3 : yypt+1]
 //line parser.go.y:365
 		{
-			yyVAL.expr = &ast.ArithmeticOpExpr{Lhs: yyDollar[1].expr, Operator: "/", Rhs: yyDollar[3].expr}
+			yyVAL.expr = &ast.ArithmeticOpExpr{Lhs: yyDollar[1].expr, Executor: "/", Rhs: yyDollar[3].expr}
 			yyVAL.expr.SetLine(yyDollar[1].expr.Line())
 		}
 	case 64:
 		yyDollar = yyS[yypt-3 : yypt+1]
 //line parser.go.y:369
 		{
-			yyVAL.expr = &ast.ArithmeticOpExpr{Lhs: yyDollar[1].expr, Operator: "%", Rhs: yyDollar[3].expr}
+			yyVAL.expr = &ast.ArithmeticOpExpr{Lhs: yyDollar[1].expr, Executor: "%", Rhs: yyDollar[3].expr}
 			yyVAL.expr.SetLine(yyDollar[1].expr.Line())
 		}
 	case 65:
 		yyDollar = yyS[yypt-3 : yypt+1]
 //line parser.go.y:373
 		{
-			yyVAL.expr = &ast.ArithmeticOpExpr{Lhs: yyDollar[1].expr, Operator: "^", Rhs: yyDollar[3].expr}
+			yyVAL.expr = &ast.ArithmeticOpExpr{Lhs: yyDollar[1].expr, Executor: "^", Rhs: yyDollar[3].expr}
 			yyVAL.expr.SetLine(yyDollar[1].expr.Line())
 		}
 	case 66:

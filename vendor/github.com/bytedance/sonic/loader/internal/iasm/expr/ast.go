@@ -49,12 +49,12 @@ func (self Type) String() string {
 	}
 }
 
-// Operator represents an operation to perform when Type is EXPR.
-type Operator uint8
+// Executor represents an operation to perform when Type is EXPR.
+type Executor uint8
 
 const (
 	// ADD performs "Add Expr.Left and Expr.Right".
-	ADD Operator = iota
+	ADD Executor = iota
 
 	// SUB performs "Subtract Expr.Left by Expr.Right".
 	SUB
@@ -93,7 +93,7 @@ const (
 	NEG
 )
 
-var operatorNames = map[Operator]string{
+var executorNames = map[Executor]string{
 	ADD: "Add",
 	SUB: "Subtract",
 	MUL: "Multiply",
@@ -110,11 +110,11 @@ var operatorNames = map[Operator]string{
 }
 
 // String returns the string representation of a Type.
-func (self Operator) String() string {
-	if v, ok := operatorNames[self]; ok {
+func (self Executor) String() string {
+	if v, ok := executorNames[self]; ok {
 		return v
 	} else {
-		return fmt.Sprintf("expr.Operator(%d)", self)
+		return fmt.Sprintf("expr.Executor(%d)", self)
 	}
 }
 
@@ -122,7 +122,7 @@ func (self Operator) String() string {
 type Expr struct {
 	Type  Type
 	Term  Term
-	Op    Operator
+	Op    Executor
 	Left  *Expr
 	Right *Expr
 	Const int64
@@ -180,7 +180,7 @@ func (self *Expr) Evaluate() (int64, error) {
 
 /** Expression Combinator **/
 
-func combine(a *Expr, op Operator, b *Expr) (r *Expr) {
+func combine(a *Expr, op Executor, b *Expr) (r *Expr) {
 	r = newExpression()
 	r.Op = op
 	r.Type = EXPR
@@ -230,7 +230,7 @@ func (self *Expr) eval() (int64, error) {
 		return 0, err
 	}
 
-	/* check for unary operators */
+	/* check for unary executors */
 	switch self.Op {
 	case NOT:
 		return self.unaryNot(lhs)
@@ -238,17 +238,17 @@ func (self *Expr) eval() (int64, error) {
 		return self.unaryNeg(lhs)
 	}
 
-	/* check for operators */
+	/* check for executors */
 	if vfn = binaryEvaluators[self.Op]; vfn == nil {
-		panic("invalid operator: " + self.Op.String())
+		panic("invalid executor: " + self.Op.String())
 	}
 
 	/* must be a binary expression */
 	if self.Right == nil {
-		panic("operator " + self.Op.String() + " is a binary operator")
+		panic("executor " + self.Op.String() + " is a binary executor")
 	}
 
-	/* evaluate RHS, and call the operator */
+	/* evaluate RHS, and call the executor */
 	if rhs, err = self.Right.Evaluate(); err != nil {
 		return 0, err
 	} else {
@@ -260,7 +260,7 @@ func (self *Expr) unaryNot(v int64) (int64, error) {
 	if self.Right == nil {
 		return ^v, nil
 	} else {
-		panic("operator Invert is an unary operator")
+		panic("executor Invert is an unary executor")
 	}
 }
 
@@ -268,6 +268,6 @@ func (self *Expr) unaryNeg(v int64) (int64, error) {
 	if self.Right == nil {
 		return -v, nil
 	} else {
-		panic("operator Negate is an unary operator")
+		panic("executor Negate is an unary executor")
 	}
 }

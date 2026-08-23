@@ -12,6 +12,9 @@
 import { get, post, put, getApiKey } from './client'
 import type {
   ProviderConfig,
+  ProviderProbeRequest,
+  ProviderTestResult,
+  ProviderModelsResult,
   RoleRouteConfig,
   RoutingResponse,
 } from './types'
@@ -33,7 +36,7 @@ export async function saveProvider(
     type: p.type,
     base_url: p.base_url,
     default_model: p.default_model,
-    api_key_env: p.api_key_env,
+    api_key: p.api_key ?? '',
     max_tokens: p.max_tokens,
     supports_tools: p.supports_tools,
     supports_vision: p.supports_vision,
@@ -54,6 +57,30 @@ export async function saveProvider(
 /** 删除 provider；被角色路由 FK 引用时后端 409 → 抛带中文原因的错。 */
 export async function deleteProvider(key: string): Promise<void> {
   await delModel(`/models/providers/${encodeURIComponent(key)}`)
+}
+
+// ── 实连探测（测试连接 / 模型列表拉取） ────────────────────────────────────
+
+/**
+ * 测试连接：发一条最小 chat completion 验证 base_url+key+model 三者全对。
+ * 连接失败不是 HTTP 错——后端统一 200 回 {ok:false, err_msg}，直接返回给调用方原地回显。
+ * api_key 留空时后端据 key 用已存密钥（编辑态不必重填）。
+ */
+export async function testProvider(
+  req: ProviderProbeRequest,
+): Promise<ProviderTestResult> {
+  return post<ProviderTestResult>('/models/providers/test', req)
+}
+
+/**
+ * 模型探测：拉 provider 可用模型名，供 default_model 下拉。
+ * 拉不到（不支持 /models 或临时失败）返回空 models，调用方回退纯手填。
+ */
+export async function listProviderModels(
+  req: ProviderProbeRequest,
+): Promise<string[]> {
+  return (await post<ProviderModelsResult>('/models/providers/list-models', req))
+    .models
 }
 
 // ── 角色指派（角色 → provider 直连） ──────────────────────────────────────

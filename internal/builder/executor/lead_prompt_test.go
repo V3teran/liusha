@@ -1,4 +1,4 @@
-package operator
+package executor
 
 import (
 	"context"
@@ -20,7 +20,7 @@ func newTestLeadStore(t *testing.T) *lead.Store {
 	return lead.NewStore(rdb, "test", time.Hour)
 }
 
-// loadLeadForPrompt 是顶层 agent（orchestrator/passive）经 BuildUserPrompt 读 lead 段的入口（§7.5）。
+// loadLeadForPrompt 是顶层 agent（planner/passive）经 BuildUserPrompt 读 lead 段的入口（§7.5）。
 func TestLoadLeadForPrompt_RendersWrittenEntry(t *testing.T) {
 	store := newTestLeadStore(t)
 	ctx := context.Background()

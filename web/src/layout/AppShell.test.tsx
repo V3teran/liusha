@@ -33,9 +33,8 @@ describe('AppShell', () => {
     renderShell('/conversations/manual')
 
     expect(screen.getByText('对话')).toBeTruthy()
-    expect(screen.getByText('漏洞管理')).toBeTruthy()
-    expect(screen.getByText('攻击面')).toBeTruthy()
-    expect(screen.getByText('执行图')).toBeTruthy()
+    expect(screen.getByText('漏洞')).toBeTruthy()
+    expect(screen.getByText('攻击图')).toBeTruthy()
     expect(screen.getByText('LLM 审计')).toBeTruthy()
     expect(screen.getByText('凭证库')).toBeTruthy()
     expect(screen.getByText('场景')).toBeTruthy()
@@ -54,7 +53,7 @@ describe('AppShell', () => {
     renderShell('/conversations/manual')
 
     const activeLink = screen.getByText('对话').closest('a')
-    const inactiveLink = screen.getByText('漏洞管理').closest('a')
+    const inactiveLink = screen.getByText('漏洞').closest('a')
     expect(activeLink?.className).toContain('bg-accent-soft')
     expect(inactiveLink?.className).not.toContain('bg-accent-soft')
   })
@@ -70,7 +69,7 @@ describe('AppShell', () => {
     mockedUseTheme.mockReturnValue({ theme: 'dark', toggle: vi.fn() })
     renderShell('/findings')
 
-    const findingsLink = screen.getByText('漏洞管理').closest('a')
+    const findingsLink = screen.getByText('漏洞').closest('a')
     const conversationsLink = screen.getByText('对话').closest('a')
     expect(findingsLink?.className).toContain('bg-accent-soft')
     expect(conversationsLink?.className).not.toContain('bg-accent-soft')

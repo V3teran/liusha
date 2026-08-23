@@ -31,8 +31,8 @@ func (bwt *burrowsWheelerTransform) Encode(buf []byte) (ptr int) {
 
 	// TODO(dsnet): Find a way to avoid the duplicate input string method.
 	// We only need to do this because suffix arrays (by definition) only
-	// operate non-wrapped suffixes of a string. On the other hand,
-	// the BWT specifically used in bzip2 operate on a strings that wrap-around
+	// execute non-wrapped suffixes of a string. On the other hand,
+	// the BWT specifically used in bzip2 execute on a strings that wrap-around
 	// when being sorted.
 
 	// Step 1: Concatenate the input string to itself so that we can use the

@@ -4,8 +4,8 @@ import { Markdown } from './Markdown'
 
 interface ReasoningCardProps {
   text: string
-  agentName?: string // 产出该推理的 hunter（编排/侦察/利用/流量分析）
-  step?: number // 本次用户指令内的全局推理步号（跨 hunter 统一计数，追加指令从头）
+  agentName?: string // 产出该推理的 agent（编排/侦察/利用/流量分析）
+  step?: number // 本次用户指令内的全局推理步号（跨 agent 统一计数，追加指令从头）
   inTokens?: number
   outTokens?: number
   latencyMs?: number
@@ -17,17 +17,17 @@ const fmtMs = (n?: number) => (n && n > 0 ? (n >= 1000 ? (n / 1000).toFixed(1) +
 
 const chipClass = 'rounded-md bg-surface-2 px-1.5 py-0.5 font-mono text-[11px] text-muted'
 
-// 推理正文（方案 B）：hunter 的思路/分析/计划（markdown 富文本）+ step/token/耗时元信息。
-// 外层 AgentCard 承载图标（谁在想）+ 脚注复制；卡内领头「hunter 推理」+ 元信息 chip。
+// 推理正文（方案 B）：agent 的思路/分析/计划（markdown 富文本）+ step/token/耗时元信息。
+// 外层 AgentCard 承载图标（谁在想）+ 脚注复制；卡内领头「agent 推理」+ 元信息 chip。
 export function ReasoningCard({ text, agentName, step, inTokens, outTokens, latencyMs, streaming }: ReasoningCardProps) {
   const accent = agentAccent(agentName)
-  const hunter = toLabel(agentName)
+  const agent = toLabel(agentName)
 
   return (
     <div data-card="reasoning">
       <CardHeader
-        hunter={hunter || undefined}
-        hunterColor={accent.accent}
+        agent={agent || undefined}
+        agentColor={accent.accent}
         action={streaming ? '推理中' : '推理'}
         extras={
           <>

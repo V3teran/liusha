@@ -71,7 +71,7 @@ func NoEffects(info *types.Info, expr ast.Expr) bool {
 
 // CallsPureBuiltin reports whether call is a call of a built-in
 // function that is a pure computation over its operands (analogous to
-// a + operator). Because it does not depend on program state, it may
+// a + executor). Because it does not depend on program state, it may
 // be evaluated at any point--though not necessarily at multiple
 // points (consider new, make).
 func CallsPureBuiltin(info *types.Info, call *ast.CallExpr) bool {

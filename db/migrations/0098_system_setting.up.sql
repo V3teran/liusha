@@ -1,5 +1,5 @@
 -- 0098: 系统业务旋钮迁 DB——会话压缩 / 运行时 / 代理流量过滤三组标量集合。
--- 取代 config.yaml 里散落的 react.history_compact / toolruntime / sandbox / session /
+-- 取代 config.yaml 里散落的 compaction.history_compact / toolruntime / sandbox / session /
 -- proxy.filter 等业务参数：DB 成事实源，前端「系统配置模块」改这些行，api/runner/proxy
 -- 经多级缓存运行期热读（改一处、跨进程即时生效，无需重启进程）。
 --
@@ -13,11 +13,11 @@
 
 CREATE TABLE system_setting (
     group_key  text        NOT NULL PRIMARY KEY
-               CHECK (group_key IN ('react', 'runtime', 'proxy_filter')),
+               CHECK (group_key IN ('compaction', 'runtime', 'proxy_filter')),
     value      jsonb       NOT NULL,                      -- 该分组的类型化快照 JSON
     updated_at timestamptz NOT NULL DEFAULT now()
 );
 
 COMMENT ON TABLE system_setting IS '系统业务旋钮（分组 KV，DB 为事实源，运行期多级缓存热读）；基础设施参数不入此表';
-COMMENT ON COLUMN system_setting.group_key IS '分组键：react（会话压缩）/ runtime（工具运行时+沙箱+会话）/ proxy_filter（代理流量过滤规则）';
+COMMENT ON COLUMN system_setting.group_key IS '分组键：compaction（会话压缩）/ runtime（工具运行时+沙箱+会话）/ proxy_filter（代理流量过滤规则）';
 COMMENT ON COLUMN system_setting.value IS '该分组类型化快照的 JSONB；settingstore 按 group 反序列化为 struct';

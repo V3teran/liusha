@@ -139,7 +139,7 @@ func readToken(stream *lexerStream, state lexerState, functions map[string]Expre
 				}
 			}
 
-			// textual operator?
+			// textual executor?
 			if tokenValue == "in" || tokenValue == "IN" {
 
 				// force lower case for consistency
@@ -304,13 +304,13 @@ func readUntilFalse(stream *lexerStream, includeWhitespace bool, breakWhitespace
 func optimizeTokens(tokens []ExpressionToken) ([]ExpressionToken, error) {
 
 	var token ExpressionToken
-	var symbol OperatorSymbol
+	var symbol ExecutorSymbol
 	var err error
 	var index int
 
 	for index, token = range tokens {
 
-		// if we find a regex operator, and the right-hand value is a constant, precompile and replace with a pattern.
+		// if we find a regex executor, and the right-hand value is a constant, precompile and replace with a pattern.
 		if token.Kind != COMPARATOR {
 			continue
 		}

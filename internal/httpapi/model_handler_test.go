@@ -52,7 +52,7 @@ func (f *fakeModel) SaveProvider(_ context.Context, p llmcfg.ProviderParams) (ll
 	f.savedProvider = &p
 	return llmcfg.Provider{
 		Key: p.Key, Type: p.Type, BaseURL: p.BaseURL, DefaultModel: p.DefaultModel,
-		APIKeyEnv: p.APIKeyEnv, MaxTokens: p.MaxTokens, SupportsTools: p.SupportsTools,
+		EncryptedAPIKey: p.EncryptedAPIKey, MaxTokens: p.MaxTokens, SupportsTools: p.SupportsTools,
 		SupportsVision: p.SupportsVision, ContextWindow: p.ContextWindow,
 		Description: p.Description, SortOrder: p.SortOrder, Enabled: p.Enabled,
 	}, nil
@@ -80,13 +80,19 @@ func (f *fakeModel) DeleteRoleRoute(_ context.Context, role string) error {
 	return nil
 }
 
+// fakeEncrypter 是 KeyEncrypter 的测试替身：不做真加密，只加前缀方便断言「确实经过加密路径」。
+type fakeEncrypter struct{}
+
+func (fakeEncrypter) Encrypt(plaintext string) ([]byte, error) {
+	return []byte("sealed:" + plaintext), nil
+}
+
 // TestListProviders_ReturnsAllWithKeyPresent：GET /models/providers 全量含 disabled，
-// 每条附 key_present（ENV 是否注入）但绝不含密钥值本身。
+// 每条附 key_present（是否已有可用密钥来源）但绝不含密钥值本身（明文或密文）。
 func TestListProviders_ReturnsAllWithKeyPresent(t *testing.T) {
-	t.Setenv("TEST_DEEPSEEK_KEY", "sk-xxx") // 注入的
 	fm := &fakeModel{providers: []llmcfg.Provider{
-		{Key: "deepseek", Type: "openai_compat", BaseURL: "https://api.deepseek.com", DefaultModel: "deepseek-chat", APIKeyEnv: "TEST_DEEPSEEK_KEY", ContextWindow: 64000, Enabled: true},
-		{Key: "qwen", Type: "openai_compat", BaseURL: "https://x", DefaultModel: "qwen-max", APIKeyEnv: "TEST_QWEN_KEY_UNSET", ContextWindow: 32000, Enabled: false},
+		{Key: "deepseek", Type: "openai_compat", BaseURL: "https://api.deepseek.com", DefaultModel: "deepseek-chat", EncryptedAPIKey: []byte("sealed:x"), ContextWindow: 64000, Enabled: true},
+		{Key: "qwen", Type: "openai_compat", BaseURL: "https://x", DefaultModel: "qwen-max", ContextWindow: 32000, Enabled: false},
 	}}
 	srv := newTestServer(t, Deps{Models: fm})
 	defer srv.Close()
@@ -100,37 +106,41 @@ func TestListProviders_ReturnsAllWithKeyPresent(t *testing.T) {
 		t.Fatalf("应返回全量含 disabled，got %d", len(arr))
 	}
 	first, _ := arr[0].(map[string]any)
-	for _, k := range []string{"key", "type", "base_url", "default_model", "api_key_env", "key_present", "context_window", "enabled"} {
+	for _, k := range []string{"key", "type", "base_url", "default_model", "key_present", "context_window", "enabled"} {
 		if _, ok := first[k]; !ok {
 			t.Fatalf("缺字段 %q: %v", k, first)
 		}
 	}
 	if first["key_present"] != true {
-		t.Fatalf("deepseek ENV 已注入应 key_present=true: %v", first)
+		t.Fatalf("deepseek 已加密存密钥应 key_present=true: %v", first)
 	}
-	// 铁律：响应绝不含密钥值本身
-	if first["api_key_env"] != "TEST_DEEPSEEK_KEY" {
-		t.Fatalf("api_key_env 应回 ENV 变量名: %v", first)
+	// 铁律：响应绝不含密钥值本身（无论明文还是密文）
+	if _, hasKey := first["api_key"]; hasKey {
+		t.Fatalf("响应不应含 api_key 字段: %v", first)
+	}
+	if _, hasEnc := first["encrypted_api_key"]; hasEnc {
+		t.Fatalf("响应不应含 encrypted_api_key 字段: %v", first)
 	}
 	second, _ := arr[1].(map[string]any)
 	if second["key_present"] != false {
-		t.Fatalf("qwen ENV 未注入应 key_present=false: %v", second)
+		t.Fatalf("qwen 无密钥来源应 key_present=false: %v", second)
 	}
 }
 
 // TestSaveProvider_ValidationRejects：缺关键字段或 type 非法 → 400 中文。
 func TestSaveProvider_ValidationRejects(t *testing.T) {
-	srv := newTestServer(t, Deps{Models: &fakeModel{}})
+	srv := newTestServer(t, Deps{Models: &fakeModel{}, KeyEncrypter: fakeEncrypter{}})
 	defer srv.Close()
 
 	cases := []struct {
 		name string
 		body map[string]any
 	}{
-		{"缺 key", map[string]any{"type": "openai_compat", "base_url": "u", "default_model": "m", "api_key_env": "E", "context_window": 1}},
-		{"type 非法", map[string]any{"key": "k", "type": "foo", "base_url": "u", "default_model": "m", "api_key_env": "E", "context_window": 1}},
-		{"缺 base_url", map[string]any{"key": "k", "type": "openai_compat", "default_model": "m", "api_key_env": "E", "context_window": 1}},
-		{"context_window<=0", map[string]any{"key": "k", "type": "openai_compat", "base_url": "u", "default_model": "m", "api_key_env": "E", "context_window": 0}},
+		{"缺 key", map[string]any{"type": "openai_compat", "base_url": "u", "default_model": "m", "api_key": "k", "context_window": 1}},
+		{"type 非法", map[string]any{"key": "k", "type": "foo", "base_url": "u", "default_model": "m", "api_key": "k", "context_window": 1}},
+		{"缺 base_url", map[string]any{"key": "k", "type": "openai_compat", "default_model": "m", "api_key": "k", "context_window": 1}},
+		{"新建缺 api_key", map[string]any{"key": "k", "type": "openai_compat", "base_url": "u", "default_model": "m", "context_window": 1}},
+		{"context_window<=0", map[string]any{"key": "k", "type": "openai_compat", "base_url": "u", "default_model": "m", "api_key": "k", "context_window": 0}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -144,15 +154,16 @@ func TestSaveProvider_ValidationRejects(t *testing.T) {
 		})
 	}
 }
-// TestSaveProvider_WiresParams：合法 POST → SaveProvider 收到全字段透传。
+
+// TestSaveProvider_WiresParams：合法 POST → SaveProvider 收到加密后的密文（非明文）。
 func TestSaveProvider_WiresParams(t *testing.T) {
 	fm := &fakeModel{}
-	srv := newTestServer(t, Deps{Models: fm})
+	srv := newTestServer(t, Deps{Models: fm, KeyEncrypter: fakeEncrypter{}})
 	defer srv.Close()
 
 	code, _ := doJSON(t, "POST", srv.URL+"/models/providers", map[string]any{
 		"key": "anthropic", "type": "anthropic", "base_url": "https://api.anthropic.com",
-		"default_model": "claude", "api_key_env": "ANTHROPIC_API_KEY", "context_window": 200000,
+		"default_model": "claude", "api_key": "sk-real-secret", "context_window": 200000,
 		"supports_vision": true, "enabled": true,
 	})
 	if code != 200 {
@@ -161,8 +172,43 @@ func TestSaveProvider_WiresParams(t *testing.T) {
 	if fm.savedProvider == nil {
 		t.Fatal("SaveProvider 未被调用")
 	}
-	if fm.savedProvider.Key != "anthropic" || fm.savedProvider.APIKeyEnv != "ANTHROPIC_API_KEY" || !fm.savedProvider.SupportsVision {
+	if fm.savedProvider.Key != "anthropic" || !fm.savedProvider.SupportsVision {
 		t.Fatalf("参数未透传: %+v", fm.savedProvider)
+	}
+	if string(fm.savedProvider.EncryptedAPIKey) != "sealed:sk-real-secret" {
+		t.Fatalf("api_key 应经加密器处理，不应是明文: %v", fm.savedProvider.EncryptedAPIKey)
+	}
+}
+
+// TestSaveProvider_EditWithoutAPIKeyKeepsExisting：PUT 不带 api_key → KeepExistingKey，不清空已存密钥。
+func TestSaveProvider_EditWithoutAPIKeyKeepsExisting(t *testing.T) {
+	fm := &fakeModel{}
+	srv := newTestServer(t, Deps{Models: fm, KeyEncrypter: fakeEncrypter{}})
+	defer srv.Close()
+
+	code, _ := doJSON(t, "PUT", srv.URL+"/models/providers/deepseek", map[string]any{
+		"key": "deepseek", "type": "openai_compat", "base_url": "https://api.deepseek.com",
+		"default_model": "deepseek-chat", "context_window": 64000, "enabled": true,
+	})
+	if code != 200 {
+		t.Fatalf("status=%d", code)
+	}
+	if fm.savedProvider == nil || !fm.savedProvider.KeepExistingKey {
+		t.Fatalf("未重填 api_key 应设 KeepExistingKey: %+v", fm.savedProvider)
+	}
+}
+
+// TestSaveProvider_NoEncrypterMeansRouteNotRegistered：缺 KeyEncrypter 时写路径不注册（404），
+// fail-closed——不能让前端明文 API Key 落到一个不会加密的路径。
+func TestSaveProvider_NoEncrypterMeansRouteNotRegistered(t *testing.T) {
+	srv := newTestServer(t, Deps{Models: &fakeModel{}}) // 无 KeyEncrypter
+	defer srv.Close()
+
+	code, _ := doJSON(t, "POST", srv.URL+"/models/providers", map[string]any{
+		"key": "x", "type": "openai_compat", "base_url": "u", "default_model": "m", "api_key": "k", "context_window": 1,
+	})
+	if code != 404 {
+		t.Fatalf("缺加密器时写路径应不注册（404），got %d", code)
 	}
 }
 
@@ -185,8 +231,8 @@ func TestDeleteProvider_RestrictConflict(t *testing.T) {
 func TestListRouting_ReturnsRoutes(t *testing.T) {
 	fm := &fakeModel{
 		routes: []llmcfg.RoleRoute{
-			{Role: "orchestrator", ProviderKey: "deepseek"},
-			{Role: llmcfg.RoleDefault, ProviderKey: "deepseek"},
+			{Role: llmcfg.TierVision, ProviderKey: "deepseek"},
+			{Role: llmcfg.TierHeavy, ProviderKey: "deepseek"},
 		},
 	}
 	srv := newTestServer(t, Deps{Models: fm})
@@ -203,13 +249,14 @@ func TestListRouting_ReturnsRoutes(t *testing.T) {
 		t.Fatalf("want 2 routes, got %v", body["routes"])
 	}
 }
+
 // TestSaveRoleRoute_FKConflict：provider_key 不存在撞 FK → 409。
 func TestSaveRoleRoute_FKConflict(t *testing.T) {
 	fm := &fakeModel{fkOn: map[string]bool{"upsert_route": true}}
 	srv := newTestServer(t, Deps{Models: fm})
 	defer srv.Close()
 
-	code, _ := doJSON(t, "PUT", srv.URL+"/models/routes/orchestrator", map[string]any{"provider_key": "ghost"})
+	code, _ := doJSON(t, "PUT", srv.URL+"/models/routes/planner", map[string]any{"provider_key": "ghost"})
 	if code != 409 {
 		t.Fatalf("want 409, got %d", code)
 	}
@@ -221,11 +268,11 @@ func TestSaveRoleRoute_Wires(t *testing.T) {
 	srv := newTestServer(t, Deps{Models: fm})
 	defer srv.Close()
 
-	code, _ := doJSON(t, "PUT", srv.URL+"/models/routes/orchestrator", map[string]any{"provider_key": "deepseek"})
+	code, _ := doJSON(t, "PUT", srv.URL+"/models/routes/planner", map[string]any{"provider_key": "deepseek"})
 	if code != 200 {
 		t.Fatalf("status=%d", code)
 	}
-	if fm.savedRoute == nil || fm.savedRoute.Role != "orchestrator" || fm.savedRoute.ProviderKey != "deepseek" {
+	if fm.savedRoute == nil || fm.savedRoute.Role != "planner" || fm.savedRoute.ProviderKey != "deepseek" {
 		t.Fatalf("路由未透传: %+v", fm.savedRoute)
 	}
 }
@@ -235,7 +282,7 @@ func TestSaveRoleRoute_MissingProviderKey(t *testing.T) {
 	srv := newTestServer(t, Deps{Models: &fakeModel{}})
 	defer srv.Close()
 
-	code, _ := doJSON(t, "PUT", srv.URL+"/models/routes/orchestrator", map[string]any{})
+	code, _ := doJSON(t, "PUT", srv.URL+"/models/routes/planner", map[string]any{})
 	if code != 400 {
 		t.Fatalf("want 400, got %d", code)
 	}
@@ -247,11 +294,11 @@ func TestDeleteRoleRoute_OK(t *testing.T) {
 	srv := newTestServer(t, Deps{Models: fm})
 	defer srv.Close()
 
-	code, _ := doJSON(t, "DELETE", srv.URL+"/models/routes/orchestrator", nil)
+	code, _ := doJSON(t, "DELETE", srv.URL+"/models/routes/planner", nil)
 	if code != 200 {
 		t.Fatalf("status=%d", code)
 	}
-	if len(fm.deleted) != 1 || fm.deleted[0] != "orchestrator" {
+	if len(fm.deleted) != 1 || fm.deleted[0] != "planner" {
 		t.Fatalf("未记录删除: %v", fm.deleted)
 	}
 }

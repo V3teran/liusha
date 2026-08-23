@@ -14,7 +14,6 @@ import {
   SlidersHorizontal,
   Sun,
   Target,
-  Waypoints,
   Wrench,
 } from 'lucide-react'
 import { useTheme } from '@/hooks/useTheme'
@@ -31,16 +30,15 @@ interface NavItem {
 // 高亮判定用 startsWith 而非精确匹配。
 const NAV_ITEMS: NavItem[] = [
   { to: '/conversations/manual', label: '对话', icon: MessageSquare, match: '/conversations' },
-  { to: '/findings', label: '漏洞管理', icon: Bug },
-  { to: '/sitemap', label: '攻击面', icon: Waypoints },
+  { to: '/findings', label: '漏洞', icon: Bug },
   { to: '/traffic', label: '流量', icon: Activity },
-  { to: '/attack-graph', label: '执行图', icon: Network },
+  { to: '/attack-graph', label: '攻击图', icon: Network },
   { to: '/llm-audit', label: 'LLM 审计', icon: Cpu },
   { to: '/credentials', label: '凭证库', icon: KeyRound },
   { to: '/config/scenarios', label: '场景', icon: Target },
-  { to: '/config/hunters', label: '智能体', icon: Bot },
+  { to: '/config/agents', label: '智能体', icon: Bot },
   { to: '/config/tools', label: '工具', icon: Wrench },
-  { to: '/config/models', label: '模型', icon: Boxes },
+  { to: '/config/models', label: 'LLM 配置', icon: Boxes },
   { to: '/config/system', label: '系统配置', icon: SlidersHorizontal },
 ]
 

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
-import { saveScenario, saveHunter, deleteHunter, listTools, listToolCandidates, getTool, assignTool } from './config'
+import { saveScenario, saveAgent, deleteAgent, listTools, listToolCandidates, getTool, assignTool } from './config'
 import { setApiKey } from './client'
-import type { ScenarioConfig, HunterConfig } from './types'
+import type { ScenarioConfig, AgentConfig } from './types'
 
 // 用假 fetch 断言 config.ts 打的 URL/method/body 与后端契约一致。
 function mockFetch(status: number, json: unknown) {
@@ -21,7 +21,7 @@ const SC: ScenarioConfig = {
   description: '',
   instruction: 'I',
   engine: 'swarm',
-  solo_hunter_id: '',
+  solo_agent_id: '',
   enabled: true,
 }
 
@@ -43,15 +43,15 @@ describe('config API 客户端', () => {
       description: '',
       instruction: 'I',
       engine: 'swarm',
-      solo_hunter_id: '',
+      solo_agent_id: '',
       enabled: true,
     })
   })
 
-  it('saveScenario solo 引擎透传 solo_hunter_id', async () => {
+  it('saveScenario solo 引擎透传 solo_agent_id', async () => {
     const fn = mockFetch(200, { scenario: { id: 's2' } })
-    await saveScenario({ ...SC, engine: 'solo', solo_hunter_id: 'h-recon' })
-    expect(JSON.parse(fn.mock.calls[0][1].body).solo_hunter_id).toBe('h-recon')
+    await saveScenario({ ...SC, engine: 'solo', solo_agent_id: 'h-recon' })
+    expect(JSON.parse(fn.mock.calls[0][1].body).solo_agent_id).toBe('h-recon')
   })
 
   it('saveScenario 有 id 时 PUT /scenarios/:id', async () => {
@@ -62,9 +62,9 @@ describe('config API 客户端', () => {
     expect(init.method).toBe('PUT')
   })
 
-  it('saveHunter 传 kind/tools/cli_tools/max_iterations', async () => {
-    const fn = mockFetch(200, { hunter: { id: 'h1' } })
-    const h: HunterConfig = {
+  it('saveAgent 传 kind/tools/cli_tools/max_iterations', async () => {
+    const fn = mockFetch(200, { agent: { id: 'h1' } })
+    const h: AgentConfig = {
       id: '',
       code: 'recon',
       kind: 'domain',
@@ -76,7 +76,7 @@ describe('config API 客户端', () => {
       max_iterations: 12,
       enabled: true,
     }
-    await saveHunter(h)
+    await saveAgent(h)
     const body = JSON.parse(fn.mock.calls[0][1].body)
     expect(body.kind).toBe('domain')
     expect(body.function_tools).toEqual(['http_get'])
@@ -84,9 +84,9 @@ describe('config API 客户端', () => {
     expect(body.max_iterations).toBe(12)
   })
 
-  it('deleteHunter 遇 409 抛后端中文 error', async () => {
-    mockFetch(409, { error: '该猎手仍被场景引用（solo 场景执行猎手），请先解除引用再删除' })
-    await expect(deleteHunter('h-1')).rejects.toThrow('该猎手仍被场景引用')
+  it('deleteAgent 遇 409 抛后端中文 error', async () => {
+    mockFetch(409, { error: '该智能体仍被场景引用（solo 场景执行猎手），请先解除引用再删除' })
+    await expect(deleteAgent('h-1')).rejects.toThrow('该智能体仍被场景引用')
   })
 
   it('listTools 分页透传 page/size/q/kind 到 query', async () => {

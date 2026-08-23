@@ -54,7 +54,7 @@ type OrchestrationConfig struct {
 // TaskDefaults parameterizes cluster-level task creation with default values.
 type TaskDefaults struct {
 	// LogDriver selects the log driver to use for tasks created in the
-	// orchestrator if unspecified by a service.
+	// planner if unspecified by a service.
 	//
 	// Updating this value will only have an affect on new tasks. Old tasks
 	// will continue use their previously configured log driver until

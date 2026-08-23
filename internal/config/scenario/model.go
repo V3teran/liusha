@@ -1,13 +1,13 @@
 // Package scenario 实现场景（scenario 表）的持久化层——选 engine（solo/swarm）。solo
-// 场景额外指向唯一执行 hunter（SoloHunterID）。是运行期派发的入口配置（task.scenario_id
+// 场景额外指向唯一执行 agent（SoloExecutorID）。是运行期派发的入口配置（task.scenario_id
 // 存 scenario.code）。import 时用别名 cfgscenario，区别于旧 role 系统 internal/scenario。
 package scenario
 
 import "time"
 
 // 引擎常量：
-//   - solo ：单 hunter 独立执行（SoloHunterID 指定），无编排
-//   - swarm：orchestrator + 全部 enabled 领域 hunter 池，LLM 运行时动态 handoff
+//   - solo ：单 agent 独立执行（SoloExecutorID 指定），无编排
+//   - swarm：planner + 全部 enabled 领域 agent 池，LLM 运行时动态 handoff
 const (
 	EngineSolo  = "solo"
 	EngineSwarm = "swarm"
@@ -16,7 +16,7 @@ const (
 // Scenario 是 scenario 表行的 Go 表示。
 //   - Instruction ：场景领域侧重，注入 AI（旧 scenario md 正文）
 //   - Engine       ∈ {EngineSolo, EngineSwarm}
-//   - SoloHunterID：solo 引擎唯一执行 hunter 的 uuid；swarm 场景为 nil（DB CHECK 双保险）
+//   - SoloExecutorID：solo 引擎唯一执行 agent 的 uuid；swarm 场景为 nil（DB CHECK 双保险）
 type Scenario struct {
 	ID           string
 	Code         string
@@ -24,7 +24,7 @@ type Scenario struct {
 	Description  string
 	Instruction  string
 	Engine       string
-	SoloHunterID *string
+	SoloExecutorID *string
 	Enabled      bool
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
@@ -37,6 +37,6 @@ type NewParams struct {
 	Description  string
 	Instruction  string
 	Engine       string
-	SoloHunterID *string
+	SoloExecutorID *string
 	Enabled      bool
 }

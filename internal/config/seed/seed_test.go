@@ -8,13 +8,13 @@ import (
 	"path/filepath"
 	"testing"
 
-	cfghunter "github.com/V3teran/liusha/internal/config/hunter"
+	cfgagent "github.com/V3teran/liusha/internal/config/agent"
 	cfgscenario "github.com/V3teran/liusha/internal/config/scenario"
 	"github.com/V3teran/liusha/internal/dbtest"
 )
 
-// writeSeedTree 在 t.TempDir 下铺一套最小种子：1 编排猎手 + 1 领域猎手、
-// 1 swarm 场景（无需枚举子代理）+ 1 solo 场景（引用领域猎手）。返回根目录。
+// writeSeedTree 在 t.TempDir 下铺一套最小种子：1 编排操作员 + 1 领域操作员、
+// 1 swarm 场景（无需枚举子代理）+ 1 solo 场景（引用领域操作员）。返回根目录。
 func writeSeedTree(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
@@ -28,18 +28,18 @@ func writeSeedTree(t *testing.T) string {
 		}
 	}
 
-	mustWrite("hunters/orchestrator.md", `---
-id: orchestrator
+	mustWrite("agents/planner.md", `---
+id: planner
 name: 编排者
 description: 扫描编排者
-kind: orchestrator
+kind: planner
 function_tools:
   - read_findings
 max_iterations: 100
 ---
 编排者正文
 `)
-	mustWrite("hunters/reconnaissance.md", `---
+	mustWrite("agents/reconnaissance.md", `---
 id: reconnaissance
 name: 侦察
 description: 侦察摸底
@@ -63,9 +63,9 @@ Web 场景领域侧重正文
 	mustWrite("scenarios/api-pentest.md", `---
 id: api-pentest
 name: API 渗透
-description: 单猎手 HTTP 数据包漏洞测试
+description: 单操作员 HTTP 数据包漏洞测试
 engine: solo
-solo_hunter: reconnaissance
+solo_agent: reconnaissance
 ---
 API 渗透领域侧重正文
 `)
@@ -73,15 +73,15 @@ API 渗透领域侧重正文
 }
 
 // stores 一次建齐两个配置 store（playbook 层已废）。
-func stores(t *testing.T) (*cfghunter.Store, *cfgscenario.Store) {
+func stores(t *testing.T) (*cfgagent.Store, *cfgscenario.Store) {
 	t.Helper()
 	pool := dbtest.NewPgPool(t)
-	return cfghunter.NewStore(pool), cfgscenario.NewStore(pool)
+	return cfgagent.NewStore(pool), cfgscenario.NewStore(pool)
 }
 
-// TestImport_HuntersAndScenarios 覆盖新两 store 模型：猎手（含 cli_tools）+ 场景
-// （swarm 无 solo_hunter，solo 解析 solo_hunter code→id）。
-func TestImport_HuntersAndScenarios(t *testing.T) {
+// TestImport_AgentsAndScenarios 覆盖新两 store 模型：操作员（含 cli_tools）+ 场景
+// （swarm 无 solo_agent，solo 解析 solo_agent code→id）。
+func TestImport_AgentsAndScenarios(t *testing.T) {
 	ctx := context.Background()
 	h, s := stores(t)
 	root := writeSeedTree(t)
@@ -90,26 +90,26 @@ func TestImport_HuntersAndScenarios(t *testing.T) {
 		t.Fatalf("Import: %v", err)
 	}
 
-	// 猎手：编排者 + 领域猎手，cli_tools 落库
-	orch, err := h.GetByCode(ctx, "orchestrator")
+	// 操作员：编排者 + 领域操作员，cli_tools 落库
+	orch, err := h.GetByCode(ctx, "planner")
 	if err != nil {
-		t.Fatalf("GetByCode orchestrator: %v", err)
+		t.Fatalf("GetByCode planner: %v", err)
 	}
-	if orch.Kind != cfghunter.KindOrchestrator {
-		t.Fatalf("orchestrator kind = %q, want orchestrator", orch.Kind)
+	if orch.Kind != cfgagent.KindPlanner {
+		t.Fatalf("planner kind = %q, want planner", orch.Kind)
 	}
 	recon, err := h.GetByCode(ctx, "reconnaissance")
 	if err != nil {
 		t.Fatalf("GetByCode reconnaissance: %v", err)
 	}
-	if recon.Kind != cfghunter.KindDomain {
+	if recon.Kind != cfgagent.KindExecutor {
 		t.Fatalf("reconnaissance kind = %q, want domain", recon.Kind)
 	}
 	if len(recon.CliTools) != 1 || recon.CliTools[0] != "nmap" {
 		t.Fatalf("reconnaissance cli_tools = %v, want [nmap]", recon.CliTools)
 	}
 
-	// swarm 场景：无 SoloHunterID
+	// swarm 场景：无 SoloExecutorID
 	web, err := s.GetByCode(ctx, "web-pentest")
 	if err != nil {
 		t.Fatalf("GetByCode web-pentest: %v", err)
@@ -117,11 +117,11 @@ func TestImport_HuntersAndScenarios(t *testing.T) {
 	if web.Engine != cfgscenario.EngineSwarm {
 		t.Fatalf("web-pentest engine = %q, want swarm", web.Engine)
 	}
-	if web.SoloHunterID != nil {
-		t.Fatalf("swarm scenario SoloHunterID = %v, want nil", *web.SoloHunterID)
+	if web.SoloExecutorID != nil {
+		t.Fatalf("swarm scenario SoloExecutorID = %v, want nil", *web.SoloExecutorID)
 	}
 
-	// solo 场景：SoloHunterID 解析到领域猎手 id
+	// solo 场景：SoloExecutorID 解析到领域操作员 id
 	apiScen, err := s.GetByCode(ctx, "api-pentest")
 	if err != nil {
 		t.Fatalf("GetByCode api-pentest: %v", err)
@@ -129,11 +129,11 @@ func TestImport_HuntersAndScenarios(t *testing.T) {
 	if apiScen.Engine != cfgscenario.EngineSolo {
 		t.Fatalf("api-pentest engine = %q, want solo", apiScen.Engine)
 	}
-	if apiScen.SoloHunterID == nil {
-		t.Fatal("solo scenario SoloHunterID = nil, want reconnaissance id")
+	if apiScen.SoloExecutorID == nil {
+		t.Fatal("solo scenario SoloExecutorID = nil, want reconnaissance id")
 	}
-	if *apiScen.SoloHunterID != recon.ID {
-		t.Fatalf("api-pentest SoloHunterID = %q, want %q", *apiScen.SoloHunterID, recon.ID)
+	if *apiScen.SoloExecutorID != recon.ID {
+		t.Fatalf("api-pentest SoloExecutorID = %q, want %q", *apiScen.SoloExecutorID, recon.ID)
 	}
 }
 
@@ -150,11 +150,11 @@ func TestImport_Idempotent(t *testing.T) {
 		t.Fatalf("Import #2 (idempotent): %v", err)
 	}
 
-	hunters, err := h.List(ctx, false)
+	executors, err := h.List(ctx, false)
 	if err != nil {
-		t.Fatalf("List hunters: %v", err)
+		t.Fatalf("List executors: %v", err)
 	}
-	if len(hunters) != 2 {
-		t.Fatalf("hunters count = %d, want 2 (no duplicates)", len(hunters))
+	if len(executors) != 2 {
+		t.Fatalf("executors count = %d, want 2 (no duplicates)", len(executors))
 	}
 }

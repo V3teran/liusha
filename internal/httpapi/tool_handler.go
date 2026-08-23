@@ -11,7 +11,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	cfghunter "github.com/V3teran/liusha/internal/config/hunter"
+	cfgagent "github.com/V3teran/liusha/internal/config/agent"
 	cfgtool "github.com/V3teran/liusha/internal/config/tool"
 )
 
@@ -76,7 +76,7 @@ func listToolsHandler(api ToolCatalogAPI) gin.HandlerFunc {
 
 // toolArrayContains 判断某智能体是否已装配该工具：按工具 kind 选 function_tools / cli_tools 数组。
 // 是装配态判据的单一实现，读（involved）与写（增删）共用，避免两处逻辑漂移。
-func toolArrayContains(h cfghunter.Hunter, kind cfgtool.Kind, name string) bool {
+func toolArrayContains(h cfgagent.Agent, kind cfgtool.Kind, name string) bool {
 	arr := h.FunctionTools
 	if kind == cfgtool.KindCLI {
 		arr = h.CliTools
@@ -100,13 +100,13 @@ func getToolHandler(tools ToolCatalogAPI, cfg ConfigAPI) gin.HandlerFunc {
 			c.JSON(404, gin.H{"error": err.Error(), "name": name})
 			return
 		}
-		hunters, err := cfg.ListHunters(ctx, false)
+		executors, err := cfg.ListExecutors(ctx, false)
 		if err != nil {
 			c.JSON(500, gin.H{"error": err.Error()})
 			return
 		}
-		agents := make([]gin.H, 0, len(hunters))
-		for _, h := range hunters {
+		agents := make([]gin.H, 0, len(executors))
+		for _, h := range executors {
 			agents = append(agents, gin.H{
 				"code": h.Code, "name": h.Name,
 				"involved": toolArrayContains(h, t.Kind, t.Name),
@@ -123,7 +123,7 @@ type assignBody struct {
 
 // assignToolHandler 处理 PUT /tools/:name/agents/:code → {code, involved}。
 // 从工具侧增删某智能体的该工具：校验工具存在（定 kind）→ 按 code 取智能体 → 按 kind 改
-// 对应数组 → SaveHunter 回存。幂等：目标态已达成则原样保存。工具/智能体不存在均 404。
+// 对应数组 → SaveExecutor 回存。幂等：目标态已达成则原样保存。工具/智能体不存在均 404。
 func assignToolHandler(tools ToolCatalogAPI, cfg ConfigAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		name := c.Param("name")
@@ -139,13 +139,13 @@ func assignToolHandler(tools ToolCatalogAPI, cfg ConfigAPI) gin.HandlerFunc {
 			c.JSON(404, gin.H{"error": err.Error(), "name": name})
 			return
 		}
-		h, err := cfg.HunterByCode(ctx, code)
+		h, err := cfg.ExecutorByCode(ctx, code)
 		if err != nil {
 			c.JSON(404, gin.H{"error": err.Error(), "code": code})
 			return
 		}
 		fnTools, cliTools := applyAssignment(h, t.Kind, t.Name, b.Involved)
-		if _, err := cfg.SaveHunter(ctx, cfghunter.NewParams{
+		if _, err := cfg.SaveExecutor(ctx, cfgagent.NewParams{
 			Code: h.Code, Kind: h.Kind, Name: h.Name, Description: h.Description,
 			Body: h.Body, FunctionTools: fnTools, CliTools: cliTools,
 			MaxIterations: h.MaxIterations, Enabled: h.Enabled,
@@ -159,7 +159,7 @@ func assignToolHandler(tools ToolCatalogAPI, cfg ConfigAPI) gin.HandlerFunc {
 
 // applyAssignment 返回该智能体装/卸某工具后的 (function_tools, cli_tools) 新数组（不改原切片）。
 // 按工具 kind 只动对应数组；involved=true 缺则追加，false 有则剔除，幂等。
-func applyAssignment(h cfghunter.Hunter, kind cfgtool.Kind, name string, involved bool) (fn, cli []string) {
+func applyAssignment(h cfgagent.Agent, kind cfgtool.Kind, name string, involved bool) (fn, cli []string) {
 	fn, cli = h.FunctionTools, h.CliTools
 	if kind == cfgtool.KindCLI {
 		cli = toggleName(cli, name, involved)

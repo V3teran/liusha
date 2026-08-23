@@ -1,6 +1,6 @@
 //go:build integration
 
-package operator
+package executor
 
 import (
 	"context"
@@ -84,32 +84,32 @@ func TestStore_ListOnlyEnabled(t *testing.T) {
 	}
 }
 
-// TestStore_GetOrchestrator 验证：全局唯一编排操作员可取；零条/多条均报错。
-func TestStore_GetOrchestrator(t *testing.T) {
+// TestStore_GetPlanner 验证：全局唯一编排操作员可取；零条/多条均报错。
+func TestStore_GetPlanner(t *testing.T) {
 	ctx := context.Background()
 	s := NewStore(dbtest.NewPgPool(t))
 
 	// 零条 → 报错
-	if _, err := s.GetOrchestrator(ctx); err == nil {
+	if _, err := s.GetPlanner(ctx); err == nil {
 		t.Fatal("无编排操作员时应报错")
 	}
 
 	if _, err := s.Create(ctx, NewParams{Code: "orch", Kind: KindPlanner, Name: "编排", Enabled: true}); err != nil {
 		t.Fatal(err)
 	}
-	got, err := s.GetOrchestrator(ctx)
+	got, err := s.GetPlanner(ctx)
 	if err != nil {
-		t.Fatalf("get orchestrator: %v", err)
+		t.Fatalf("get planner: %v", err)
 	}
 	if got.Code != "orch" {
-		t.Fatalf("orchestrator code=%q, want orch", got.Code)
+		t.Fatalf("planner code=%q, want orch", got.Code)
 	}
 
-	// 第二条 enabled orchestrator → 违反全局唯一 → 报错
+	// 第二条 enabled planner → 违反全局唯一 → 报错
 	if _, err := s.Create(ctx, NewParams{Code: "orch2", Kind: KindPlanner, Name: "编排2", Enabled: true}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.GetOrchestrator(ctx); err == nil {
+	if _, err := s.GetPlanner(ctx); err == nil {
 		t.Fatal("多条编排操作员应报错")
 	}
 }

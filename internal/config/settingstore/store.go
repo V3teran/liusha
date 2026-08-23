@@ -10,8 +10,8 @@ import (
 
 // settingDB 是 settingstore 依赖的底层持久化能力（*dbStore 自动满足）。
 type settingDB interface {
-	GetReact(ctx context.Context) (ReactSettings, error)
-	SaveReact(ctx context.Context, v ReactSettings) error
+	GetCompaction(ctx context.Context) (CompactionSettings, error)
+	SaveCompaction(ctx context.Context, v CompactionSettings) error
 	GetRuntime(ctx context.Context) (RuntimeSettings, error)
 	SaveRuntime(ctx context.Context, v RuntimeSettings) error
 	GetProxyFilter(ctx context.Context) (ProxyFilterSettings, error)
@@ -37,9 +37,9 @@ func newWithStore(db settingDB, cache *cachestore.Cache) *Store {
 
 // ── 缓存键（L1/L2 同键，统一前缀 settingstore:）────────────────────────
 //
-// 三组各一个哨兵键：该组任一字段写即失效对应键（见 SaveReact/SaveRuntime/SaveProxyFilter）。
+// 三组各一个哨兵键：该组任一字段写即失效对应键（见 SaveCompaction/SaveRuntime/SaveProxyFilter）。
 const (
-	keyReact       = "settingstore:react"
+	keyCompaction  = "settingstore:compaction"
 	keyRuntime     = "settingstore:runtime"
 	keyProxyFilter = "settingstore:proxy_filter"
 )
@@ -50,12 +50,12 @@ const KeyProxyFilter = keyProxyFilter
 
 // ── 读（运行期热路径，走 L1/L2 缓存）──────────────────────────────────
 
-// React 读会话压缩旋钮快照（runner ReAct 每 task 现读，命中多级缓存）。
-func (s *Store) React(ctx context.Context) (ReactSettings, error) {
-	return cachestore.ReadThrough(ctx, s.cache, keyReact,
-		func(ReactSettings) []string { return []string{keyReact} },
-		func(ctx context.Context) (ReactSettings, error) {
-			return s.db.GetReact(ctx)
+// Compaction 读会话历史压缩旋钮快照（runner 每 task 现读，命中多级缓存）。
+func (s *Store) Compaction(ctx context.Context) (CompactionSettings, error) {
+	return cachestore.ReadThrough(ctx, s.cache, keyCompaction,
+		func(CompactionSettings) []string { return []string{keyCompaction} },
+		func(ctx context.Context) (CompactionSettings, error) {
+			return s.db.GetCompaction(ctx)
 		})
 }
 
@@ -81,12 +81,12 @@ func (s *Store) ProxyFilter(ctx context.Context) (ProxyFilterSettings, error) {
 //
 // 每个写方法：写 DB → cachestore.Invalidate（本进程即时清 L1+L2 + 广播失效键给其它进程）。
 
-// SaveReact 覆写会话压缩旋钮，失效其快照键。
-func (s *Store) SaveReact(ctx context.Context, v ReactSettings) error {
-	if err := s.db.SaveReact(ctx, v); err != nil {
+// SaveCompaction 覆写会话历史压缩旋钮，失效其快照键。
+func (s *Store) SaveCompaction(ctx context.Context, v CompactionSettings) error {
+	if err := s.db.SaveCompaction(ctx, v); err != nil {
 		return err
 	}
-	return s.cache.Invalidate(ctx, keyReact)
+	return s.cache.Invalidate(ctx, keyCompaction)
 }
 
 // SaveRuntime 覆写工具运行时旋钮，失效其快照键。
@@ -107,9 +107,11 @@ func (s *Store) SaveProxyFilter(ctx context.Context, v ProxyFilterSettings) erro
 
 // ── 种子（insert-only，缺组才写；见 seed 包）────────────────────────
 
-// GetReactRaw / GetRuntimeRaw / GetProxyFilterRaw 直穿底层 store（种子判存与否用，绕缓存）。
+// GetCompactionRaw / GetRuntimeRaw / GetProxyFilterRaw 直穿底层 store（种子判存与否用，绕缓存）。
 // isNotFound(err) 为真表示该组缺行。
-func (s *Store) GetReactRaw(ctx context.Context) (ReactSettings, error) { return s.db.GetReact(ctx) }
+func (s *Store) GetCompactionRaw(ctx context.Context) (CompactionSettings, error) {
+	return s.db.GetCompaction(ctx)
+}
 func (s *Store) GetRuntimeRaw(ctx context.Context) (RuntimeSettings, error) {
 	return s.db.GetRuntime(ctx)
 }

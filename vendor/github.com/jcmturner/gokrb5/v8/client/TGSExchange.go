@@ -50,7 +50,7 @@ func (cl *Client) TGSExchange(tgsReq messages.TGSReq, kdcRealm string, tgt messa
 			return tgsReq, tgsRep, krberror.Errorf(err, krberror.KRBMsgError, "TGS Exchange Error: maximum number of referrals exceeded")
 		}
 		// Server referral https://tools.ietf.org/html/rfc6806.html#section-8
-		// The TGS Rep contains a TGT for another domain as the service resides in that domain.
+		// The TGS Rep contains a TGT for another domain as the service resides in that executor.
 		cl.addSession(tgsRep.Ticket, tgsRep.DecryptedEncPart)
 		realm := tgsRep.Ticket.SName.NameString[len(tgsRep.Ticket.SName.NameString)-1]
 		referral++

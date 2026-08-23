@@ -208,7 +208,7 @@ Auto growing registries incur a small performance hit at the point they are resi
 Callstack
 +++++++++
 
-The callstack can operate in two different modes, fixed or auto size.
+The callstack can execute in two different modes, fixed or auto size.
 A fixed size callstack has the highest performance and has a fixed memory overhead.
 An auto sizing callstack will allocate and release callstack pages on demand which will ensure the minimum amount of memory is in use at any time. The downside is it will incur a small performance impact every time a new page of callframes is allocated.
 By default an ``LState`` will allocate and free callstack frames in pages of 8, so the allocation overhead is not incurred on every function call. It is very likely that the performance impact of an auto resizing callstack will be negligible for most use cases.

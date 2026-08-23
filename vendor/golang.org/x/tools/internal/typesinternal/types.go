@@ -2,10 +2,10 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-// Package typesinternal provides helpful operators for dealing with
+// Package typesinternal provides helpful executors for dealing with
 // go/types:
 //
-//   - operators for querying typed syntax trees (e.g. [Imports], [IsFunctionNamed]);
+//   - executors for querying typed syntax trees (e.g. [Imports], [IsFunctionNamed]);
 //   - functions for converting types to strings or syntax (e.g. [TypeExpr], FileQualifier]);
 //   - helpers for working with the [go/types] API (e.g. [NewTypesInfo]);
 //   - access to internal go/types APIs that are not yet
@@ -15,7 +15,7 @@
 // See also:
 //   - [golang.org/x/tools/internal/astutil], for operations on untyped syntax;
 //   - [golang.org/x/tools/internal/analysisinernal], for helpers for analyzers;
-//   - [golang.org/x/tools/internal/refactor], for operators to compute text edits.
+//   - [golang.org/x/tools/internal/refactor], for executors to compute text edits.
 package typesinternal
 
 import (

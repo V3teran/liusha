@@ -45,11 +45,11 @@ type Assignment struct {
 	CreatedAt  time.Time
 }
 
-// Item 是 payload 数组的单个条目。active 用 Brief（+可选 Host）；passive 用 FlowIDs。
+// Item 是 payload 数组的单个条目。active 用 Brief（+可选 Host）；passive 用 TrafficIDs。
 type Item struct {
 	Brief   string  `json:"brief,omitempty"`
-	Host    string  `json:"host,omitempty"`
-	FlowIDs []int64 `json:"flow_ids,omitempty"`
+	Host       string  `json:"host,omitempty"`
+	TrafficIDs []int64 `json:"traffic_ids,omitempty"`
 }
 
 // NewParams 是 Store.Create 的入参。

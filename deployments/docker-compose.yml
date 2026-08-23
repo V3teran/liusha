@@ -47,7 +47,7 @@ services:
     environment:
       LIUSHA_POSTGRES_DSN: postgres://liusha:liusha@postgres:5432/liusha?sslmode=disable
       LIUSHA_REDIS_ADDR: redis:6379
-      LIUSHA_API_ADDR: 0.0.0.0:8080
+      LIUSHA_API_ADDR: 0.0.0.0:8090
       LIUSHA_API_KEY: "${LIUSHA_API_KEY:-changeme-dev-key}"
       LIUSHA_ENV: development
       LIUSHA_LOG_LEVEL: info

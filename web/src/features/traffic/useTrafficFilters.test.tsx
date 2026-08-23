@@ -21,35 +21,38 @@ function renderFilters(initialEntry = '/traffic') {
 }
 
 describe('useTrafficFilters', () => {
+  const EMPTY = { method: '', contentType: '', statusClass: '', search: '', since: '', until: '' }
+
   it('无 URL 参数时给出空筛选与第 1 页', () => {
     const { result } = renderFilters()
-    expect(result.current.filters).toEqual({ host: '', method: '', path: '', statusMin: 0, statusMax: 0 })
+    expect(result.current.filters).toEqual(EMPTY)
     expect(result.current.page).toBe(1)
   })
 
   it('从 URL search params 还原筛选与页码', () => {
-    const { result } = renderFilters('/traffic?host=api.example.com&method=POST&path=/v1/*&status_min=400&status_max=499&page=3')
+    const { result } = renderFilters(
+      '/traffic?method=POST&content_type=application/json&status=4&search=api.example.com*&since=2026-08-01T00:00:00.000Z&until=2026-08-07T00:00:00.000Z&page=3',
+    )
     expect(result.current.filters).toEqual({
-      host: 'api.example.com',
       method: 'POST',
-      path: '/v1/*',
-      statusMin: 400,
-      statusMax: 499,
+      contentType: 'application/json',
+      statusClass: '4',
+      search: 'api.example.com*',
+      since: '2026-08-01T00:00:00.000Z',
+      until: '2026-08-07T00:00:00.000Z',
     })
     expect(result.current.page).toBe(3)
   })
 
   it('setFilters 回写 URL，并清掉非空字段、丢弃 page', () => {
     const { result } = renderFilters('/traffic?page=5')
-    act(() => result.current.setFilters({ host: 'h1', method: 'GET', path: '', statusMin: 500, statusMax: 0 }))
+    act(() => result.current.setFilters({ ...EMPTY, method: 'GET', contentType: 'text/html' }))
 
     const params = new URLSearchParams(result.current.search)
-    expect(params.get('host')).toBe('h1')
     expect(params.get('method')).toBe('GET')
-    expect(params.get('status_min')).toBe('500')
+    expect(params.get('content_type')).toBe('text/html')
     // 空值字段不落 URL
-    expect(params.has('path')).toBe(false)
-    expect(params.has('status_max')).toBe(false)
+    expect(params.has('search')).toBe(false)
     // 筛选变化回到第一页：page 被清除
     expect(params.has('page')).toBe(false)
     expect(result.current.page).toBe(1)
@@ -67,14 +70,39 @@ describe('useTrafficFilters', () => {
   })
 
   it('resetFilters 清空所有筛选参数', () => {
-    const { result } = renderFilters('/traffic?host=h1&method=POST&status_min=400&page=2')
+    const { result } = renderFilters('/traffic?method=POST&content_type=text/html&status=5&page=2')
     act(() => result.current.resetFilters())
 
     const params = new URLSearchParams(result.current.search)
-    expect(params.has('host')).toBe(false)
     expect(params.has('method')).toBe(false)
-    expect(params.has('status_min')).toBe(false)
+    expect(params.has('content_type')).toBe(false)
+    expect(params.has('status')).toBe(false)
     expect(params.has('page')).toBe(false)
-    expect(result.current.filters).toEqual({ host: '', method: '', path: '', statusMin: 0, statusMax: 0 })
+    expect(result.current.filters).toEqual(EMPTY)
+  })
+
+  it('无 URL 参数时默认每页 50 条', () => {
+    const { result } = renderFilters()
+    expect(result.current.size).toBe(50)
+  })
+
+  it('从 URL 还原合法 size；非法值回退默认', () => {
+    expect(renderFilters('/traffic?size=100').result.current.size).toBe(100)
+    expect(renderFilters('/traffic?size=999').result.current.size).toBe(50)
+  })
+
+  it('setSize 写 size 参数并回到第一页；设回默认值时清除该参数', () => {
+    const { result } = renderFilters('/traffic?page=3')
+    act(() => result.current.setSize(100))
+
+    let params = new URLSearchParams(result.current.search)
+    expect(params.get('size')).toBe('100')
+    expect(params.has('page')).toBe(false)
+    expect(result.current.size).toBe(100)
+
+    act(() => result.current.setSize(50))
+    params = new URLSearchParams(result.current.search)
+    expect(params.has('size')).toBe(false)
+    expect(result.current.size).toBe(50)
   })
 })

@@ -6,24 +6,30 @@ import { LlmInvocationDrawer } from '@/features/llm-audit/LlmInvocationDrawer'
 import { useLlmAuditFilters } from '@/features/llm-audit/useLlmAuditFilters'
 import { useLlmAuditFacets, useLlmAuditList, useLlmAuditStat, useLlmInvocationDetail } from '@/features/llm-audit/useLlmAuditQueries'
 import type { LLMInvocationSummary } from '@/api/types'
-import { humanTokens } from '@/lib/format'
+import { humanTokens, compactNumber } from '@/lib/format'
+import { PageSizeSelect } from '@/components/ui/PageSizeSelect'
 
-// LLM 审计页：选会话 → 服务端筛选 + id 游标分页拉调用明细。
-// 布局：工具栏统计 chip（非大卡片）+ 筛选栏 + 单张扁平密集表 + 上下页。点行右侧抽屉钻取完整原文。
+// 分页按钮：图标化前后翻页（‹ ›），对齐流量/漏洞模块的样式。
+const PAGER_BTN =
+  'inline-flex h-7 w-7 items-center justify-center rounded-md border border-border text-sm text-muted transition-colors hover:border-border-strong hover:text-text disabled:pointer-events-none disabled:opacity-35'
+
+// LLM 审计页：选会话 → 服务端筛选 + offset 分页拉调用明细。
+// 布局：工具栏统计 chip（非大卡片）+ 筛选栏 + 单张扁平密集表 + 总数/每页条数/翻页。点行右侧抽屉钻取完整原文。
 //
-// 数据层走 React Query（见 useLlmAuditQueries）：query key 含 task/filters/游标，任一变化
+// 数据层走 React Query（见 useLlmAuditQueries）：query key 含 task/filters/page/size，任一变化
 // 即视为新查询，过期请求自动被丢弃（不再有「快速切筛选后旧请求覆盖新结果」的竞态）；
 // placeholderData: keepPreviousData 让筛选/翻页时旧数据先留在屏幕上，不必每次整表闪成骨架。
 // 筛选/分页状态持久化进 URL（见 useLlmAuditFilters）：刷新/前进后退/分享链接都能还原视图。
 export function LlmAuditPage() {
-  const { taskId, filters, cursors, pageNo, setTaskId, setFilters, goNextPage, goPrevPage, resetFilters } = useLlmAuditFilters()
-  const after = cursors[cursors.length - 1] ?? 0
+  const { taskId, filters, page, size, setTaskId, setFilters, setPage, setSize, resetFilters } = useLlmAuditFilters()
 
   const facetsQuery = useLlmAuditFacets(taskId)
-  const listQuery = useLlmAuditList(taskId, filters, after)
+  const listQuery = useLlmAuditList(taskId, filters, page, size)
   const statQuery = useLlmAuditStat(taskId, filters)
 
   const rows = listQuery.data?.items ?? []
+  const total = listQuery.data?.total ?? 0
+  const totalPages = Math.max(1, Math.ceil(total / size))
   const hasFilter = !!(filters.role || filters.model || filters.onlyErr || filters.start || filters.end)
 
   // provider 只在该 task 下确实出现过多个时才逐行显示——单一 provider 时每行重复同一个值是纯噪声。
@@ -58,9 +64,37 @@ export function LlmAuditPage() {
               onChange={setFilters}
               onReset={resetFilters}
               trailing={
-                <>
-                  第 {pageNo} 页 · 本页 {rows.length} 条{statQuery.data && ` / 共 ${humanTokens(statQuery.data.calls)}`}
-                </>
+                (rows.length > 0 || page > 1) ? (
+                  <>
+                    <span className="text-[12px] text-muted tabular-nums">
+                      共 {compactNumber(total)} 条{statQuery.data && ` / ${humanTokens(statQuery.data.calls)}`}
+                    </span>
+                    <PageSizeSelect value={size} onChange={setSize} />
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        disabled={page <= 1 || listQuery.isFetching}
+                        onClick={() => setPage(page - 1)}
+                        aria-label="上一页"
+                        className={PAGER_BTN}
+                      >
+                        <span aria-hidden>‹</span>
+                      </button>
+                      <span className="min-w-[52px] text-center text-[12px] text-muted tabular-nums">
+                        <span className="font-semibold text-text">{page}</span> / {totalPages}
+                      </span>
+                      <button
+                        type="button"
+                        disabled={page >= totalPages || listQuery.isFetching}
+                        onClick={() => setPage(page + 1)}
+                        aria-label="下一页"
+                        className={PAGER_BTN}
+                      >
+                        <span aria-hidden>›</span>
+                      </button>
+                    </div>
+                  </>
+                ) : null
               }
             />
 
@@ -71,28 +105,6 @@ export function LlmAuditPage() {
               showProvider={showProvider}
               onRowClick={openDetail}
             />
-
-            {(rows.length > 0 || pageNo > 1) && (
-              <div className="flex items-center justify-center gap-3.5 pb-1 pt-3.5">
-                <button
-                  type="button"
-                  disabled={pageNo <= 1 || listQuery.isFetching}
-                  onClick={goPrevPage}
-                  className="rounded-md border border-border px-3 py-1 text-xs text-text disabled:opacity-40"
-                >
-                  上一页
-                </button>
-                <span className="text-[12.5px] text-muted tabular-nums">第 {pageNo} 页</span>
-                <button
-                  type="button"
-                  disabled={!listQuery.data?.has_more || listQuery.isFetching}
-                  onClick={() => goNextPage(listQuery.data?.next_after ?? 0)}
-                  className="rounded-md border border-border px-3 py-1 text-xs text-text disabled:opacity-40"
-                >
-                  下一页
-                </button>
-              </div>
-            )}
           </>
         )}
       </div>

@@ -1,145 +1,104 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { createColumnHelper, flexRender, getCoreRowModel, useReactTable } from '@tanstack/react-table'
 import { ChevronRight, Search, StickyNote } from 'lucide-react'
-import { listFindings, updateFindingTriage } from '@/api/client'
-import type { FindingFilters, FindingRow } from '@/api/types'
-import { SEVERITIES, severityColor, severityLabel, severityRank } from '@/lib/severity'
+import { updateFindingTriage } from '@/api/client'
+import type { FindingRow } from '@/api/types'
+import { SEVERITIES, severityColor, severityLabel } from '@/lib/severity'
 import { FINDING_STATUS_OPTIONS, findingStatusMeta } from '@/lib/findingStatus'
 import { Badge } from '@/components/ui/badge'
+import { PageSizeSelect } from '@/components/ui/PageSizeSelect'
 import { columnWidthPercents } from '@/lib/tableLayout'
+import { compactNumber } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { FindingDrawer } from '@/features/finding/FindingDrawer'
+import { useFindingFilters } from '@/features/finding/useFindingFilters'
+import { useFindingHosts, useFindingList, useFindingScenarios } from '@/features/finding/useFindingQueries'
+import { useQueryClient } from '@tanstack/react-query'
 
 function sevVar(sev: string): string {
   return severityColor[sev.toLowerCase()] ?? '#6e7681'
 }
 
+// 分页按钮：图标化前后翻页（‹ ›），对齐流量模块 TrafficPage 的样式。
+const PAGER_BTN =
+  'inline-flex h-7 w-7 items-center justify-center rounded-md border border-border text-sm text-muted transition-colors hover:border-border-strong hover:text-text disabled:pointer-events-none disabled:opacity-35'
+
 const columnHelper = createColumnHelper<FindingRow>()
 
-// 漏洞管理页（全局台账）：跨 task/host 展示所有漏洞（active + passive），支持 triage 处置流转。
+// 漏洞页（全局台账）：跨 task/host 展示所有漏洞（active + passive），支持 triage 处置流转。
 // 布局：紧凑的一行 severity 统计条（并入筛选栏上方，不再是占地 100px 的独立大卡片）+
 // 搜索/筛选栏 + TanStack Table 渲染的密集表格（真实 <table> 语义，列宽由 column def 单点定义，
 // 不再是列头/数据行各自一份 grid-cols 字符串手动同步）。
 // 每行整行可点 → 右侧详情抽屉（evidence/PoC/修复建议/状态·严重度·备注编辑）；行尾 › 展开提示。
+//
+// 数据层走 React Query + URL state（对齐流量模块 useTrafficQueries/useTrafficFilters）：
+// 服务端分页（seq desc，最新优先），筛选/page/size 持久化进 URL，可刷新/分享还原。
 export function FindingsPage() {
-  const [rows, setRows] = useState<FindingRow[]>([])
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState('')
-  const [fHost, setFHost] = useState('')
-  const [fSeverity, setFSeverity] = useState('')
-  const [fStatus, setFStatus] = useState('')
-  const [fSource, setFSource] = useState('')
-  const [fScenario, setFScenario] = useState('')
+  const { filters, page, size, setFilters, setPage, setSize } = useFindingFilters()
+  const queryClient = useQueryClient()
+
+  const hostsQuery = useFindingHosts()
+  const scenariosQuery = useFindingScenarios()
+  const listQuery = useFindingList(filters, page, size)
+
+  const rows = useMemo(() => listQuery.data?.findings ?? [], [listQuery.data])
+  const total = listQuery.data?.total ?? 0
+  const totalPages = Math.max(1, Math.ceil(total / size))
+
   const [query, setQuery] = useState('')
-  const [allHosts, setAllHosts] = useState<string[]>([])
-  const [allScenarios, setAllScenarios] = useState<string[]>([])
   const [savingId, setSavingId] = useState('')
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [drawerFinding, setDrawerFinding] = useState<FindingRow | null>(null)
 
-  const load = useCallback(
-    async (filters: { host: string; severity: string; status: string; source: string; scenario: string }) => {
-      setLoading(true)
-      setError('')
-      try {
-        const f: FindingFilters = {}
-        if (filters.host) f.host = filters.host
-        if (filters.severity) f.severity = filters.severity
-        if (filters.status) f.status = filters.status
-        if (filters.source) f.source = filters.source
-        if (filters.scenario) f.scenario_id = filters.scenario
-        setRows(await listFindings(f))
-      } catch (e) {
-        setError(e instanceof Error ? e.message : '加载失败')
-      } finally {
-        setLoading(false)
-      }
-    },
-    [],
-  )
-
-  useEffect(() => {
-    void load({ host: fHost, severity: fSeverity, status: fStatus, source: fSource, scenario: fScenario })
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fHost, fSeverity, fStatus, fSource, fScenario])
-
-  // host / 场景下拉选项来自一份全量快照（不受当前筛选收窄影响，保持稳定）。
-  useEffect(() => {
-    void listFindings({}).then(
-      (all) => {
-        setAllHosts([...new Set(all.map((f) => f.host))].sort())
-        setAllScenarios([...new Set(all.map((f) => f.scenario_id).filter((s): s is string => !!s))].sort())
-      },
-      () => {
-        // 静默：下拉是增强项，失败则退化为空
-      },
-    )
-  }, [])
-
-  // 前端搜索过滤后的行（后端已按维度筛，这里叠加标题/host/path 模糊）。
+  // 前端搜索过滤后的行（后端已按维度筛 + 分页，这里叠加标题/host/path 模糊，仅作用于当前页）。
   const visible = useMemo(() => {
     const q = query.trim().toLowerCase()
-    const base = q
-      ? rows.filter((f) => `${f.summary}${f.host}${f.target?.path ?? ''}`.toLowerCase().includes(q))
-      : rows
-    return [...base].sort((a, b) => severityRank(a.severity) - severityRank(b.severity))
+    if (!q) return rows
+    return rows.filter((f) => `${f.summary}${f.host}${f.target?.path ?? ''}`.toLowerCase().includes(q))
   }, [rows, query])
 
-  // severity 计数（紧凑统计条），基于当前可见集。
+  // severity 计数（紧凑统计条），基于当前页可见集——分页后不再是全量口径，仅反映本页分布。
   const sevCounts = useMemo(
     () => SEVERITIES.map((s) => ({ sev: s, n: visible.filter((f) => f.severity.toLowerCase() === s).length })),
     [visible],
   )
 
   // 点统计条某个 severity 段 = 按该 severity 筛选（重拉；再点取消）。
-  const toggleSevFilter = (sev: string) => setFSeverity((prev) => (prev === sev ? '' : sev))
+  const toggleSevFilter = (sev: string) => setFilters({ ...filters, severity: filters.severity === sev ? '' : sev })
 
-  // PATCH 只改 triage 字段（status/severity/triage_note/triaged_at）；只叠加这几项，
-  // 不整行 spread——回传行的 source/scenario_id 等 JOIN 派生列为空，整覆盖会把它们抹成空串。
-  const applyUpdated = (updated: FindingRow) => {
-    const patch = {
-      status: updated.status,
-      severity: updated.severity,
-      triage_note: updated.triage_note,
-      triaged_at: updated.triaged_at,
-    }
-    setRows((prev) => prev.map((x) => (x.id === updated.id ? { ...x, ...patch } : x)))
-    setDrawerFinding((prev) => (prev?.id === updated.id ? { ...prev, ...patch } : prev))
-    if (fStatus && fStatus !== updated.status)
-      void load({ host: fHost, severity: fSeverity, status: fStatus, source: fSource, scenario: fScenario })
-  }
+  const invalidateList = () => void queryClient.invalidateQueries({ queryKey: ['findings', 'list'] })
 
   const openDrawer = (f: FindingRow) => {
     setDrawerFinding(f)
     setDrawerOpen(true)
   }
 
-  // 抽屉内保存 triage（状态 + 严重度 + 备注一起）：乐观更新 + 用返回行覆盖 / 失败回滚。
+  // 抽屉内保存 triage（状态 + 严重度 + 备注一起）：成功后重拉当前页（服务端权威覆盖乐观态）。
   const saveTriage = async (payload: { id: string; status: string; severity: string; note: string }) => {
-    const before = rows.find((x) => x.id === payload.id)
     setSavingId(payload.id)
-    setRows((prev) =>
-      prev.map((x) =>
-        x.id === payload.id
-          ? { ...x, status: payload.status, severity: payload.severity, triage_note: payload.note, triaged_at: new Date().toISOString() }
-          : x,
-      ),
-    )
     try {
-      applyUpdated(await updateFindingTriage(payload.id, payload.status, payload.severity, payload.note))
+      const updated = await updateFindingTriage(payload.id, payload.status, payload.severity, payload.note)
+      setDrawerFinding((prev) => (prev?.id === updated.id ? { ...prev, ...updated } : prev))
+      invalidateList()
     } catch {
-      if (before) setRows((prev) => prev.map((x) => (x.id === payload.id ? before : x)))
       window.alert('处置保存失败，请重试')
     } finally {
       setSavingId('')
     }
   }
 
-  const hasFilter = !!(fHost || fSeverity || fStatus || fSource || fScenario)
+  const hasFilter = !!(filters.host || filters.severity || filters.status || filters.source || filters.scenario_id)
 
   // 列定义单点声明列宽——不再是列头/数据行各自一份 grid-cols 字符串手动保持同步。
   const columns = useMemo(
     () => [
+      columnHelper.accessor('seq', {
+        header: '#',
+        size: 48, // 紧凑对外顺序号（bigserial）——短号可引用，内部主键仍是 uuid
+        cell: (ctx) => (
+          <span className="block text-right font-mono text-[12px] tabular-nums text-muted opacity-70">{ctx.getValue()}</span>
+        ),
+      }),
       columnHelper.accessor('severity', {
         header: '严重度',
         size: 76, // 相对权重（非像素）——经 columnWidthPercents 换算成百分比，随容器宽度缩放
@@ -220,13 +179,15 @@ export function FindingsPage() {
   const leafColumns = table.getAllLeafColumns()
   const widthPercents = columnWidthPercents(leafColumns.map((col) => col.columnDef.size ?? 0))
 
+  const listError = listQuery.isError ? (listQuery.error instanceof Error ? listQuery.error.message : '加载失败') : ''
+
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="min-h-0 flex-1 overflow-y-auto p-5.5">
-        {loading ? (
+        {listQuery.isPending ? (
           <div className="py-16 text-center text-[13.5px] text-muted">加载中…</div>
-        ) : error ? (
-          <div className="py-16 text-center text-[13.5px] text-sev-critical">⚠ {error}</div>
+        ) : listError ? (
+          <div className="py-16 text-center text-[13.5px] text-sev-critical">⚠ {listError}</div>
         ) : rows.length === 0 ? (
           <div className="py-16 text-center text-[13.5px] text-muted">
             {hasFilter ? '当前筛选无匹配漏洞' : '暂无漏洞——发起扫描或挂代理收流量后，AI 挖到的漏洞会汇总到此'}
@@ -238,7 +199,7 @@ export function FindingsPage() {
             <div className="mb-4 flex items-center gap-8 rounded-[18px] border border-border bg-surface px-5.5 py-4.5 shadow">
               <div className="flex flex-shrink-0 items-center gap-3.5">
                 <span className="text-[48px] font-extrabold leading-none tracking-tight text-text tabular-nums">
-                  {visible.length}
+                  {total}
                 </span>
                 <span className="text-[13px] leading-relaxed text-muted">
                   漏洞总数
@@ -246,6 +207,7 @@ export function FindingsPage() {
                   <em className="text-xs font-normal not-italic text-faint">
                     {visible.filter((f) => f.status === 'open').length} 待处理 ·{' '}
                     {visible.filter((f) => f.status === 'confirmed').length} 已确认
+                    <span className="ml-1">（本页）</span>
                   </em>
                 </span>
               </div>
@@ -262,7 +224,7 @@ export function FindingsPage() {
                         style={{ flex: x.n, background: sevVar(x.sev) }}
                         className={cn(
                           'rounded-[3px] transition-opacity hover:opacity-80',
-                          fSeverity === x.sev && 'ring-2 ring-inset ring-text',
+                          filters.severity === x.sev && 'ring-2 ring-inset ring-text',
                         )}
                       />
                     ))}
@@ -277,7 +239,7 @@ export function FindingsPage() {
                       className={cn(
                         'select-none rounded-md px-2 py-0.5 transition-colors',
                         x.n ? 'hover:bg-surface-2' : 'cursor-default opacity-40',
-                        fSeverity === x.sev && 'bg-surface-2 text-text ring-1 ring-inset ring-border-strong',
+                        filters.severity === x.sev && 'bg-surface-2 text-text ring-1 ring-inset ring-border-strong',
                       )}
                     >
                       <i className="mr-1.5 inline-block h-2.5 w-2.5 rounded-[3px] align-[-1px]" style={{ background: sevVar(x.sev) }} />
@@ -296,25 +258,38 @@ export function FindingsPage() {
                   type="search"
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
-                  placeholder="搜索漏洞标题 / host / 路径…"
+                  placeholder="搜索漏洞标题 / host / 路径…（仅筛当前页）"
                   spellCheck={false}
                   className="flex-1 bg-transparent text-[13.5px] text-text outline-none placeholder:text-muted"
                 />
               </div>
-              <select value={fScenario} onChange={(e) => setFScenario(e.target.value)} className="w-[150px] rounded-md border border-border bg-surface px-2 py-1.5 text-sm text-text outline-none focus:border-accent" title="按来源对话所属场景筛选">
+              <select
+                value={filters.scenario_id}
+                onChange={(e) => setFilters({ ...filters, scenario_id: e.target.value })}
+                className="w-[150px] rounded-md border border-border bg-surface px-2 py-1.5 text-sm text-text outline-none focus:border-accent"
+                title="按来源对话所属场景筛选"
+              >
                 <option value="">全部场景</option>
-                {allScenarios.map((s) => (
+                {(scenariosQuery.data ?? []).map((s) => (
                   <option key={s} value={s}>
                     {s}
                   </option>
                 ))}
               </select>
-              <select value={fSource} onChange={(e) => setFSource(e.target.value)} className="w-[120px] rounded-md border border-border bg-surface px-2 py-1.5 text-sm text-text outline-none focus:border-accent">
+              <select
+                value={filters.source}
+                onChange={(e) => setFilters({ ...filters, source: e.target.value })}
+                className="w-[120px] rounded-md border border-border bg-surface px-2 py-1.5 text-sm text-text outline-none focus:border-accent"
+              >
                 <option value="">全部来源</option>
                 <option value="manual">主动下发</option>
                 <option value="auto">被动代理</option>
               </select>
-              <select value={fStatus} onChange={(e) => setFStatus(e.target.value)} className="w-[120px] rounded-md border border-border bg-surface px-2 py-1.5 text-sm text-text outline-none focus:border-accent">
+              <select
+                value={filters.status}
+                onChange={(e) => setFilters({ ...filters, status: e.target.value })}
+                className="w-[120px] rounded-md border border-border bg-surface px-2 py-1.5 text-sm text-text outline-none focus:border-accent"
+              >
                 <option value="">全部状态</option>
                 {FINDING_STATUS_OPTIONS.map((o) => (
                   <option key={o.value} value={o.value}>
@@ -322,15 +297,45 @@ export function FindingsPage() {
                   </option>
                 ))}
               </select>
-              <select value={fHost} onChange={(e) => setFHost(e.target.value)} className="w-[180px] rounded-md border border-border bg-surface px-2 py-1.5 text-sm text-text outline-none focus:border-accent">
+              <select
+                value={filters.host}
+                onChange={(e) => setFilters({ ...filters, host: e.target.value })}
+                className="w-[180px] rounded-md border border-border bg-surface px-2 py-1.5 text-sm text-text outline-none focus:border-accent"
+              >
                 <option value="">全部 host</option>
-                {allHosts.map((h) => (
+                {(hostsQuery.data ?? []).map((h) => (
                   <option key={h} value={h}>
                     {h}
                   </option>
                 ))}
               </select>
-              <span className="flex-shrink-0 pl-0.5 text-[12.5px] text-muted tabular-nums">{visible.length} 条</span>
+
+              {/* 总数 + 每页条数 + 翻页——与流量模块同一套控件与交互。 */}
+              <span className="flex-shrink-0 pl-0.5 text-[12.5px] text-muted tabular-nums">共 {compactNumber(total)} 条</span>
+              <PageSizeSelect value={size} onChange={setSize} />
+              <div className="flex flex-shrink-0 items-center gap-1.5">
+                <button
+                  type="button"
+                  disabled={page <= 1 || listQuery.isFetching}
+                  onClick={() => setPage(page - 1)}
+                  aria-label="上一页"
+                  className={PAGER_BTN}
+                >
+                  <span aria-hidden>‹</span>
+                </button>
+                <span className="min-w-[52px] text-center text-[12px] text-muted tabular-nums">
+                  <span className="font-semibold text-text">{page}</span> / {totalPages}
+                </span>
+                <button
+                  type="button"
+                  disabled={page >= totalPages || listQuery.isFetching}
+                  onClick={() => setPage(page + 1)}
+                  aria-label="下一页"
+                  className={PAGER_BTN}
+                >
+                  <span aria-hidden>›</span>
+                </button>
+              </div>
             </div>
 
             {/* 密集表格：真实 <table> 语义，table-fixed + colgroup 百分比宽度——列宽由

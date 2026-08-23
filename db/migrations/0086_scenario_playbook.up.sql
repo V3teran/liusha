@@ -1,12 +1,12 @@
--- 0086: 建 4 张配置表 hunter / playbook / playbook_hunter / scenario（DB 事实源）。
--- DDL 逐字取自 plan D1；建表顺序满足 FK 依赖：hunter、playbook → playbook_hunter → scenario。
--- 前置：M0 的 0085 已把旧运行记录表 hunter 腾名为 hunter_run，此处 hunter 是全新配置表。
+-- 0086: 建 4 张配置表 agent / playbook / playbook_agent / scenario（DB 事实源）。
+-- DDL 逐字取自 plan D1；建表顺序满足 FK 依赖：agent、playbook → playbook_agent → scenario。
+-- 前置：M0 的 0085 已把旧运行记录表 agent 腾名为 agent_run，此处 agent 是全新配置表。
 
--- ① hunter：离散领域猎手（原子，可被任意 playbook 组合）
-CREATE TABLE hunter (
+-- ① agent：离散领域猎手（原子，可被任意 playbook 组合）
+CREATE TABLE agent (
     id             uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
     code           text        NOT NULL UNIQUE,
-    kind           text        NOT NULL CHECK (kind IN ('orchestrator','domain')),
+    kind           text        NOT NULL CHECK (kind IN ('planner','domain')),
     name           text        NOT NULL,
     description    text        NOT NULL DEFAULT '',
     body           text        NOT NULL DEFAULT '',
@@ -28,14 +28,14 @@ CREATE TABLE playbook (
     updated_at   timestamptz NOT NULL DEFAULT now()
 );
 
--- ③ playbook_hunter：组合关系（多对多 + 顺序）
-CREATE TABLE playbook_hunter (
+-- ③ playbook_agent：组合关系（多对多 + 顺序）
+CREATE TABLE playbook_agent (
     playbook_id  uuid  NOT NULL REFERENCES playbook(id) ON DELETE CASCADE,
-    hunter_id    uuid  NOT NULL REFERENCES hunter(id)   ON DELETE RESTRICT,
+    agent_id    uuid  NOT NULL REFERENCES agent(id)   ON DELETE RESTRICT,
     position     int   NOT NULL DEFAULT 0,
-    PRIMARY KEY (playbook_id, hunter_id)
+    PRIMARY KEY (playbook_id, agent_id)
 );
-CREATE INDEX playbook_hunter_playbook_idx ON playbook_hunter (playbook_id, position);
+CREATE INDEX playbook_agent_playbook_idx ON playbook_agent (playbook_id, position);
 
 -- ④ scenario：场景（引用一个 playbook + 独立选 engine）
 CREATE TABLE scenario (

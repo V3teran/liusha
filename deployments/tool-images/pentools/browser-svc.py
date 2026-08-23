@@ -37,7 +37,7 @@ SOCK = sys.argv[2] if len(sys.argv) > 2 else f"/tmp/browser-svc-{IDENTITY}.sock"
 # ---- B1：CDP Network capture → cmd/proxy /internal/v1/flows/ingest ----
 # active 容器内 browser-svc.py 持单一 CDP 连接，内建 Network observer 把 chromium 真实认证请求
 # （含凭证位置）抓出 → POST 到 LIUSHA_INGEST_URL → ingestor.handleInternalSnap（source=internal，
-# owner=active_scan）→ orchestrator/exploitation 经 list_flows/view_flow 看真实请求结构 + 凭证 → replay_flow
+# owner=active_scan）→ planner/exploitation 经 list_flows/view_flow 看真实请求结构 + 凭证 → replay_flow
 # 做水平/垂直越权（BAC）测试。LIUSHA_INGEST_URL 空 → 整体不启用（单测 / passive-only / 无 cmd/proxy 部署）。
 INGEST_URL = os.getenv("LIUSHA_INGEST_URL", "").strip()
 INGEST_TOKEN = os.getenv("LIUSHA_INGEST_TOKEN", "").strip()
@@ -92,8 +92,8 @@ def parse_timeout_ms(args, default=30000) -> int:
 class Service:
     def __init__(self):
         self.bs: BrowserSession | None = None
-        self.tabs: dict[str, str] = {}       # hunter_id -> target_id
-        self.smaps: dict[str, dict] = {}     # hunter_id -> selector_map(index->node)
+        self.tabs: dict[str, str] = {}       # agent_id -> target_id
+        self.smaps: dict[str, dict] = {}     # agent_id -> selector_map(index->node)
         self.tab_lock = asyncio.Lock()       # 仅守 tab 创建
         self.start_lock = asyncio.Lock()     # 仅守首次冷启
         self.server: asyncio.AbstractServer | None = None
@@ -101,7 +101,7 @@ class Service:
         self._http: httpx.AsyncClient | None = None   # 懒构造 POST 客户端
         self._cap_client = None                       # 已注册 handler 的 cdp_client 身份（重连换实例时重注册）
         self._cap_sids: set[str] = set()              # 已 Network.enable 的 session_id（幂等）
-        self._sess2hunter: dict[str, str] = {}        # session_id -> hunter_id（逐请求归属）
+        self._sess2agent: dict[str, str] = {}        # session_id -> agent_id（逐请求归属）
         self._cap_reqs: dict[str, dict] = {}          # requestId -> 累积的 req/resp 元数据
         self._cap_extra: dict[str, str] = {}          # requestId -> 真实 Cookie（ExtraInfo 早于 request 到达时暂存）
         self._cap_tasks: set[asyncio.Task] = set()    # 持 flush task 引用防 GC
@@ -130,9 +130,9 @@ class Service:
                 return
             await asyncio.sleep(0.25)
 
-    def page(self, hunter_id: str) -> Page:
+    def page(self, agent_id: str) -> Page:
         # 每次现构造，自带当前 cdp_client，重连安全（target_id 跨重连稳定）。
-        return Page(self.bs, self.tabs[hunter_id])
+        return Page(self.bs, self.tabs[agent_id])
 
     async def eval_raw(self, page: Page, code: str):
         """裸 Runtime.evaluate（returnByValue），对齐 CLI _execute_js，保留「末表达式=返回值」语义。"""
@@ -145,18 +145,18 @@ class Service:
             raise RuntimeError(str(r["exceptionDetails"]))
         return r.get("result", {}).get("value")
 
-    async def ensure_tab(self, hunter_id: str, url: str):
+    async def ensure_tab(self, agent_id: str, url: str):
         """为 task 建/取 tab：首个 task 占初始 about:blank，后来者 new_tab=True。"""
         async with self.tab_lock:
-            if hunter_id in self.tabs:
-                await self.page(hunter_id).goto(url)
+            if agent_id in self.tabs:
+                await self.page(agent_id).goto(url)
                 await self.settle(0.5)
                 return
             if not self.tabs:
                 # 首个 open：走事件总线把初始 blank 页导到目标（更新焦点 + 离开 about:blank）。
                 await self.bs.event_bus.dispatch(NavigateToUrlEvent(url=url, new_tab=False))
                 await self.settle()
-                self.tabs[hunter_id] = self.bs.get_page_targets()[0].target_id
+                self.tabs[agent_id] = self.bs.get_page_targets()[0].target_id
                 return
             # 后来者：new_tab=True，用 target 差集认领新 tab。
             before = {t.target_id for t in self.bs.get_page_targets()}
@@ -164,17 +164,17 @@ class Service:
             await self.settle()
             after = self.bs.get_page_targets()
             new = [t.target_id for t in after if t.target_id not in before]
-            self.tabs[hunter_id] = new[0] if new else after[-1].target_id
+            self.tabs[agent_id] = new[0] if new else after[-1].target_id
 
-    def require_tab(self, hunter_id: str):
-        if hunter_id not in self.tabs:
+    def require_tab(self, agent_id: str):
+        if agent_id not in self.tabs:
             raise RuntimeError(
-                f"身份={IDENTITY} HUNTER_ID={hunter_id} 还没 open 过 URL；先 browser_use open <URL>"
+                f"身份={IDENTITY} HUNTER_ID={agent_id} 还没 open 过 URL；先 browser_use open <URL>"
             )
 
-    async def element_by_index(self, hunter_id: str, page: Page, idx: int):
+    async def element_by_index(self, agent_id: str, page: Page, idx: int):
         """index → selector_map 缓存节点 → actor.Element；index 失效返回 None。"""
-        node = self.smaps.get(hunter_id, {}).get(idx)
+        node = self.smaps.get(agent_id, {}).get(idx)
         if node is None:
             return None
         return await page.get_element(node.backend_node_id)
@@ -216,13 +216,13 @@ class Service:
         self._cap_client = client
         self._cap_sids.clear()  # client 实例已换 → 旧 session enable 作废，让 _ensure_capture 重 enable
 
-    async def _ensure_capture(self, hunter_id: str, page: Page):
-        """把 page 的 session 登记到 hunter + 在该 session 上幂等开 Network domain。"""
+    async def _ensure_capture(self, agent_id: str, page: Page):
+        """把 page 的 session 登记到 agent + 在该 session 上幂等开 Network domain。"""
         if not INGEST_URL:
             return
         self._ensure_handlers()
         sid = await page.session_id
-        self._sess2hunter[sid] = hunter_id
+        self._sess2agent[sid] = agent_id
         if sid in self._cap_sids:
             return
         try:
@@ -233,7 +233,7 @@ class Service:
 
     # sync handlers：不可 await——重活塞进 _cap_reqs / 调度 task。
     def _cap_on_request(self, params: dict, session_id: str):
-        if session_id not in self._sess2hunter:
+        if session_id not in self._sess2agent:
             return
         req = params.get("request", {})
         rid = params["requestId"]
@@ -254,7 +254,7 @@ class Service:
     def _cap_on_request_extra(self, params: dict, session_id: str):
         # ExtraInfo 携带网络层真实发出的头（含 httpOnly Cookie），requestWillBeSent 里没有。
         # 两事件不保证先后：req 已登记则直接补 cookie，否则暂存等 _cap_on_request 取。
-        if session_id not in self._sess2hunter:
+        if session_id not in self._sess2agent:
             return
         cookie = ""
         for k, v in (params.get("headers") or {}).items():
@@ -294,8 +294,8 @@ class Service:
 
     async def _cap_flush(self, request_id: str, ent: dict):
         """取 response body → 组 payload → POST。任何异常吞掉，绝不影响浏览。"""
-        hunter_id = self._sess2hunter.get(ent["sid"], "")
-        if not hunter_id:
+        agent_id = self._sess2agent.get(ent["sid"], "")
+        if not agent_id:
             return
         body_b64 = ""
         try:
@@ -309,12 +309,12 @@ class Service:
         except Exception:
             pass  # body 取不到（已 evict / redirect / 无 body）→ 仅上报元数据
         try:
-            await self._cap_post(self._cap_build(hunter_id, ent, body_b64))
+            await self._cap_post(self._cap_build(agent_id, ent, body_b64))
         except Exception:
             pass
 
     @staticmethod
-    def _cap_build(hunter_id: str, ent: dict, body_b64: str) -> dict:
+    def _cap_build(agent_id: str, ent: dict, body_b64: str) -> dict:
         u = urlsplit(ent.get("url", ""))
         # Go []byte 字段 JSON 走 base64 字符串：request_body / response_body 都要 b64。
         req_body = ent.get("req_body", "") or ""
@@ -330,7 +330,7 @@ class Service:
             req_h = {k: v for k, v in req_h.items() if k.lower() != "cookie"}
             req_h["Cookie"] = cookie
         payload = {
-            "hunter_id": hunter_id,
+            "agent_id": agent_id,
             "identity": IDENTITY,  # 进程级身份（= browser_use identity），给 internal flow 盖身份戳
             "tool": "browser",     # 发起工具固定 browser（CLI 工具走 mitmproxy 从 UA 解析）
             "host": u.hostname or "",
@@ -364,38 +364,38 @@ class Service:
     async def dispatch(self, req: dict):
         sub = req.get("sub", "")
         args = req.get("args", [])
-        hunter_id = req.get("hunter_id", "default")
+        agent_id = req.get("agent_id", "default")
         output_dir = req.get("output_dir", "")
 
         if sub == "release-tab":
-            await self._release_tab(hunter_id)
+            await self._release_tab(agent_id)
             return {}
         if sub == "reset":
             return {"_raw_text": "ok"}  # 真正杀进程在 handle_conn 回包后做
 
         await self.ensure_started()
-        # B1：已建 tab 的 hunter，确保其 session 已挂 Network capture（幂等；重连后下条命令自动重武装）。
-        if INGEST_URL and hunter_id in self.tabs:
-            await self._ensure_capture(hunter_id, self.page(hunter_id))
+        # B1：已建 tab 的 agent，确保其 session 已挂 Network capture（幂等；重连后下条命令自动重武装）。
+        if INGEST_URL and agent_id in self.tabs:
+            await self._ensure_capture(agent_id, self.page(agent_id))
 
         if sub == "open":
             url = args[0]
-            await self.ensure_tab(hunter_id, url)
+            await self.ensure_tab(agent_id, url)
             # 新 tab 刚建好就武装 capture——尽早覆盖登录交互（首帧 Document GET 仍可能漏，见 _ensure_handlers 取舍）。
             if INGEST_URL:
-                await self._ensure_capture(hunter_id, self.page(hunter_id))
+                await self._ensure_capture(agent_id, self.page(agent_id))
             data = {"url": url}
 
         elif sub == "state":
-            self.require_tab(hunter_id)
-            page = self.page(hunter_id)
+            self.require_tab(agent_id)
+            page = self.page(agent_id)
             enhanced, _ = await page.dom_service.get_dom_tree(
                 target_id=page._target_id, all_frames=None
             )
             serialized, _ = DOMTreeSerializer(
                 enhanced, None, paint_order_filtering=True, session_id=self.bs.id
             ).serialize_accessible_elements()
-            self.smaps[hunter_id] = serialized.selector_map
+            self.smaps[agent_id] = serialized.selector_map
             text = serialized.llm_representation()
             try:
                 vp = json.loads(await self.eval_raw(page, VIEWPORT_JS))
@@ -410,8 +410,8 @@ class Service:
             return {"_raw_text": text}
 
         elif sub == "click":
-            self.require_tab(hunter_id)
-            page = self.page(hunter_id)
+            self.require_tab(agent_id)
+            page = self.page(agent_id)
             if len(args) == 2:
                 x, y = int(args[0]), int(args[1])
                 mouse = await page.mouse
@@ -419,7 +419,7 @@ class Service:
                 data = {"clicked_coordinate": {"x": x, "y": y}}
             else:
                 idx = int(args[0])
-                el = await self.element_by_index(hunter_id, page, idx)
+                el = await self.element_by_index(agent_id, page, idx)
                 if el is None:
                     data = {"error": f"Element index {idx} not found - page may have changed"}
                 else:
@@ -427,10 +427,10 @@ class Service:
                     data = {"clicked": idx}
 
         elif sub == "input":
-            self.require_tab(hunter_id)
-            page = self.page(hunter_id)
+            self.require_tab(agent_id)
+            page = self.page(agent_id)
             idx, text = int(args[0]), args[1]
-            el = await self.element_by_index(hunter_id, page, idx)
+            el = await self.element_by_index(agent_id, page, idx)
             if el is None:
                 data = {"error": f"Element index {idx} not found - page may have changed"}
             else:
@@ -438,18 +438,18 @@ class Service:
                 data = {"input": text, "element": idx}
 
         elif sub == "type":
-            self.require_tab(hunter_id)
-            page = self.page(hunter_id)
+            self.require_tab(agent_id)
+            page = self.page(agent_id)
             text = args[0]
             sid = await page.session_id
             await page._client.send.Input.insertText(params={"text": text}, session_id=sid)
             data = {"typed": text}
 
         elif sub == "select":
-            self.require_tab(hunter_id)
-            page = self.page(hunter_id)
+            self.require_tab(agent_id)
+            page = self.page(agent_id)
             idx, value = int(args[0]), args[1]
-            el = await self.element_by_index(hunter_id, page, idx)
+            el = await self.element_by_index(agent_id, page, idx)
             if el is None:
                 data = {"error": f"Element index {idx} not found - page may have changed"}
             else:
@@ -457,10 +457,10 @@ class Service:
                 data = {"selected": value, "element": idx}
 
         elif sub in ("hover", "dblclick", "rightclick"):
-            self.require_tab(hunter_id)
-            page = self.page(hunter_id)
+            self.require_tab(agent_id)
+            page = self.page(agent_id)
             idx = int(args[0])
-            el = await self.element_by_index(hunter_id, page, idx)
+            el = await self.element_by_index(agent_id, page, idx)
             if el is None:
                 data = {"error": f"Element index {idx} not found - page may have changed"}
             elif sub == "hover":
@@ -474,8 +474,8 @@ class Service:
                 data = {"right_clicked": idx}
 
         elif sub == "scroll":
-            self.require_tab(hunter_id)
-            page = self.page(hunter_id)
+            self.require_tab(agent_id)
+            page = self.page(agent_id)
             direction = args[0] if args else "down"
             amount = int(args[1]) if len(args) > 1 else 500
             dx, dy = 0, 0
@@ -491,19 +491,19 @@ class Service:
             data = {"scrolled": direction, "amount": amount}
 
         elif sub == "back":
-            self.require_tab(hunter_id)
-            await self.page(hunter_id).go_back()
+            self.require_tab(agent_id)
+            await self.page(agent_id).go_back()
             data = {"back": True}
 
         elif sub == "keys":
-            self.require_tab(hunter_id)
+            self.require_tab(agent_id)
             keys = args[0]
-            await self.page(hunter_id).press(keys)
+            await self.page(agent_id).press(keys)
             data = {"sent": keys}
 
         elif sub == "wait":
-            self.require_tab(hunter_id)
-            page = self.page(hunter_id)
+            self.require_tab(agent_id)
+            page = self.page(agent_id)
             kind = args[0]
             cond = args[1]
             timeout_s = parse_timeout_ms(args) / 1000.0
@@ -523,8 +523,8 @@ class Service:
                     else {"text": cond, "found": found})
 
         elif sub == "eval":
-            self.require_tab(hunter_id)
-            page = self.page(hunter_id)
+            self.require_tab(agent_id)
+            page = self.page(agent_id)
             result = await self.eval_raw(page, args[0])
             data = {"result": result}
 
@@ -533,8 +533,8 @@ class Service:
             data = {"query": args[0] if args else "", "error": "extract is not yet implemented"}
 
         elif sub == "get":
-            self.require_tab(hunter_id)
-            page = self.page(hunter_id)
+            self.require_tab(agent_id)
+            page = self.page(agent_id)
             gc = args[0] if args else "html"
             if gc == "html":
                 html = await self.eval_raw(page, "document.documentElement.outerHTML")
@@ -546,8 +546,8 @@ class Service:
                 data = {"error": f"unsupported get command: {gc}"}
 
         elif sub == "screenshot":
-            self.require_tab(hunter_id)
-            page = self.page(hunter_id)
+            self.require_tab(agent_id)
+            page = self.page(agent_id)
             b64 = await page.screenshot(format="png")
             raw = base64.b64decode(b64)
             if args:
@@ -561,15 +561,15 @@ class Service:
             raise RuntimeError(f"未知子命令: {sub}")
 
         if sub in STATE_CHANGING and "error" not in data:
-            await self.auto_screenshot(self.page(hunter_id), output_dir)
+            await self.auto_screenshot(self.page(agent_id), output_dir)
         return data
 
-    async def _release_tab(self, hunter_id: str):
-        tid = self.tabs.pop(hunter_id, None)
-        self.smaps.pop(hunter_id, None)
-        # 清 capture 反查表里属于该 hunter 的 session，避免后续 session 复用 id 时脏归属。
-        for sid in [s for s, h in self._sess2hunter.items() if h == hunter_id]:
-            self._sess2hunter.pop(sid, None)
+    async def _release_tab(self, agent_id: str):
+        tid = self.tabs.pop(agent_id, None)
+        self.smaps.pop(agent_id, None)
+        # 清 capture 反查表里属于该 agent 的 session，避免后续 session 复用 id 时脏归属。
+        for sid in [s for s, h in self._sess2agent.items() if h == agent_id]:
+            self._sess2agent.pop(sid, None)
             self._cap_sids.discard(sid)
         if tid and self.bs is not None:
             try:

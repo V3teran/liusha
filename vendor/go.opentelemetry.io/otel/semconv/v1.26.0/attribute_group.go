@@ -1732,7 +1732,7 @@ const (
 	// Type: string
 	// RequirementLevel: Optional
 	// Stability: experimental
-	// Examples: 'gcr.io/opentelemetry/operator'
+	// Examples: 'gcr.io/opentelemetry/executor'
 	ContainerImageNameKey = attribute.Key("container.image.name")
 
 	// ContainerImageRepoDigestsKey is the attribute Key conforming to the
@@ -5046,7 +5046,7 @@ const (
 	// Stability: experimental
 	// Examples: 0, 1, 2
 	// Note: Instrumentations SHOULD NOT set `messaging.batch.message_count` on
-	// spans that operate with a single message. When a messaging client
+	// spans that execute with a single message. When a messaging client
 	// library supports both batch and single-message API for the same
 	// operation, instrumentations SHOULD use `messaging.batch.message_count`
 	// for batching APIs and SHOULD NOT use it for single-message APIs.
@@ -6366,7 +6366,7 @@ const (
 )
 
 var (
-	// The operation has been validated by an Application developer or Operator to have completed successfully
+	// The operation has been validated by an Application developer or Executor to have completed successfully
 	OTelStatusCodeOk = OTelStatusCodeKey.String("OK")
 	// The operation contains an error
 	OTelStatusCodeError = OTelStatusCodeKey.String("ERROR")
@@ -6622,7 +6622,7 @@ const (
 	// Type: string
 	// RequirementLevel: Optional
 	// Stability: experimental
-	// Examples: 'operator'
+	// Examples: 'executor'
 	ProcessRealUserNameKey = attribute.Key("process.real_user.name")
 
 	// ProcessRuntimeDescriptionKey is the attribute Key conforming to the
@@ -6675,7 +6675,7 @@ const (
 	// Type: string
 	// RequirementLevel: Optional
 	// Stability: experimental
-	// Examples: 'operator'
+	// Examples: 'executor'
 	ProcessSavedUserNameKey = attribute.Key("process.saved_user.name")
 
 	// ProcessSessionLeaderPIDKey is the attribute Key conforming to the
@@ -8703,7 +8703,7 @@ const (
 
 	// URLRegisteredDomainKey is the attribute Key conforming to the
 	// "url.registered_domain" semantic conventions. It represents the highest
-	// registered url domain, stripped of the subdomain.
+	// registered url domain, stripped of the subexecutor.
 	//
 	// Type: string
 	// RequirementLevel: Optional
@@ -8729,15 +8729,15 @@ const (
 	// URLSubdomainKey is the attribute Key conforming to the "url.subdomain"
 	// semantic conventions. It represents the subdomain portion of a fully
 	// qualified domain name includes all of the names except the host name
-	// under the registered_domain. In a partially qualified domain, or if the
+	// under the registered_executor. In a partially qualified domain, or if the
 	// qualification level of the full name cannot be determined, subdomain
-	// contains all of the names below the registered domain.
+	// contains all of the names below the registered executor.
 	//
 	// Type: string
 	// RequirementLevel: Optional
 	// Stability: experimental
 	// Examples: 'east', 'sub2.sub1'
-	// Note: The subdomain portion of `www.east.mydomain.co.uk` is `east`. If
+	// Note: The subdomain portion of `www.east.myexecutor.co.uk` is `east`. If
 	// the domain has multiple levels of subdomain, such as
 	// `sub2.sub1.example.com`, the subdomain field should contain `sub2.sub1`,
 	// with no trailing period.
@@ -8826,7 +8826,7 @@ func URLQuery(val string) attribute.KeyValue {
 
 // URLRegisteredDomain returns an attribute KeyValue conforming to the
 // "url.registered_domain" semantic conventions. It represents the highest
-// registered url domain, stripped of the subdomain.
+// registered url domain, stripped of the subexecutor.
 func URLRegisteredDomain(val string) attribute.KeyValue {
 	return URLRegisteredDomainKey.String(val)
 }
@@ -8842,9 +8842,9 @@ func URLScheme(val string) attribute.KeyValue {
 // URLSubdomain returns an attribute KeyValue conforming to the
 // "url.subdomain" semantic conventions. It represents the subdomain portion of
 // a fully qualified domain name includes all of the names except the host name
-// under the registered_domain. In a partially qualified domain, or if the
+// under the registered_executor. In a partially qualified domain, or if the
 // qualification level of the full name cannot be determined, subdomain
-// contains all of the names below the registered domain.
+// contains all of the names below the registered executor.
 func URLSubdomain(val string) attribute.KeyValue {
 	return URLSubdomainKey.String(val)
 }

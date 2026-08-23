@@ -9,7 +9,7 @@
 
 本次重构起于一连串架构追问，最终收敛为四件事：
 
-1. **命名不对称 + 多态冗余**：`active_scan`（强调动作）与 `passive_session`（强调时段）命名不齐；4 张共享表（hunter/finding/http_flow/llm_invocation）+ tool_invocation 靠 `(owner_type, owner_id)` 多态挂载，`owner_type` 每加一种就要改一堆地方，且 `owner_id` 无外键约束（裸 uuid）。
+1. **命名不对称 + 多态冗余**：`active_scan`（强调动作）与 `passive_session`（强调时段）命名不齐；4 张共享表（agent/finding/http_flow/llm_invocation）+ tool_invocation 靠 `(owner_type, owner_id)` 多态挂载，`owner_type` 每加一种就要改一堆地方，且 `owner_id` 无外键约束（裸 uuid）。
 2. **缺"下发单元"**：批量扫描（一次提交 N 个系统）、passive 流量聚合（攒批成一个任务）、定时执行都没有载体，只能一个对话一个对话手动发。
 3. **note 退役留下的情报共享洞**：子代理之间、passive 同 host 跨 run 之间，缺一块"过程情报"黑板（可疑点 / 既成发现 / 失败死路）。
 4. **http_flow 混装了两种性质不同的流量**：`source=external`（代理捕获的真实用户流量，是被分析的输入，属于 host）与 `source=internal`（agent 在 sandbox 自产的流量，是干活副产物，属于 task）本质不同却共表，这是 flow 归属混乱的根因。
@@ -21,7 +21,7 @@
                               task（mode: active|passive）      按 host（Redis）:
 active:                        = 一次扫描 / 一批流量分析            lead ★新（情报便签）
   assignment（下发单元）        │                                  credential（现有）
-  1 → N task（fan-out）         ├─ hunter run × N（FollowUp 追加）  按 host（PG）:
+  1 → N task（fan-out）         ├─ agent run × N（FollowUp 追加）  按 host（PG）:
   cron_schedule（定时模板）      │                                  lesson（现有）
     → 每次触发克隆 assignment    ├─ agent_traffic（internal，挂 task）★拆分
                                 └─ finding（挂 task，无 TTL）
@@ -32,7 +32,7 @@ passive:
 ### 三条轴各司其职
 
 - **下发轴（assignment / cron_schedule）**：只负责"提交了什么、何时提交、拆成几个 task"。纯下发容器，不承担共享。
-- **执行轴（task → hunter run）**：task = "一次扫描活 = 一个对话"；hunter run = 每次 ReAct 执行。
+- **执行轴（task → agent run）**：task = "一次扫描活 = 一个对话"；agent run = 每次 ReAct 执行。
 - **共享轴（key，不靠容器）**：情报按 `host` 归集（lead / credential / lesson），漏洞按 `task` 归集（finding）。共享不依赖 assignment 容器。
 
 ### 四个根本修正（相对第 1 版）
@@ -54,7 +54,7 @@ assignment (mode=active)
    ▼
 task (一个网站的一次扫描)
    ├─ 1—1  conversation
-   ├─ 1—N  hunter run（初始 + 每 FollowUp 一个，同对话追加）
+   ├─ 1—N  agent run（初始 + 每 FollowUp 一个，同对话追加）
    ├─ 1—N  agent_traffic（agent 自产，挂 task_id）
    ├─ 1—N  finding（挂 task_id，去重按 host）
    └─ 1—1  attackgraph（按 task 投影）
@@ -71,7 +71,7 @@ assignment (mode=passive, source=auto)
    ▼
 task (这批流量的一次分析)
    ├─ 1—1  conversation
-   ├─ 1—N  hunter run（一般 1 个 traffic-analysis）
+   ├─ 1—N  agent run（一般 1 个 traffic-analysis）
    ├─ N—1  proxy_traffic（这批回填 consumed_by_task_id 指向本 task）
    ├─ 1—N  finding（挂 task_id）
    └─ 1—1  attackgraph（按 task 投影）
@@ -84,7 +84,7 @@ task (这批流量的一次分析)
 | assignment→task | **1—N**（fan-out 拆网站） | **1—1**（一批流量一个 task） |
 | "一个网站"是什么 | `task.target_host`（task 绑一个网站） | `host`（归集 key，非实体；一 host 多 task） |
 | task→对话 | 1—1 | 1—1 |
-| task→hunter run | 1—N（FollowUp） | 1—N（一般 1） |
+| task→agent run | 1—N（FollowUp） | 1—N（一般 1） |
 | task 的流量 | `agent_traffic`（自产，挂 task） | `proxy_traffic`（捕获，挂 host，回填 consumed_by_task_id） |
 | 流量与 task 时序 | task 先、流量后 | **流量先、task 后** |
 | finding/attackgraph | 挂 task，按 task | 挂 task，按 task |
@@ -125,7 +125,7 @@ CREATE INDEX task_host_idx ON task (target_host) WHERE target_host <> '';
 ### 与 conversation 的关系
 
 - 统一为 `conversation.task_id → task`（对话持有，FK ON DELETE SET NULL），两轨对称。取代现状的 `conversation.scan_id`（active）+ `passive_session.conversation_id`（passive 反向持有）不对称设计。
-- 基数：`conversation 0..1 ↔ 1 task`。FollowUp 同对话追加新 hunter run，不新建对话。
+- 基数：`conversation 0..1 ↔ 1 task`。FollowUp 同对话追加新 agent run，不新建对话。
 
 ## 3. assignment + cron_schedule：下发容器与定时模板分层
 
@@ -255,7 +255,7 @@ CREATE INDEX proxy_traffic_unconsumed_idx ON proxy_traffic (host)
 CREATE TABLE agent_traffic (
     id          bigserial PRIMARY KEY,
     task_id     uuid NOT NULL REFERENCES task(id) ON DELETE CASCADE,
-    hunter_id   uuid REFERENCES hunter(id) ON DELETE SET NULL,  -- 哪个 agent 发的
+    agent_id   uuid REFERENCES agent(id) ON DELETE SET NULL,  -- 哪个 agent 发的
     identity    text,   -- 身份戳（browser_use 的 identity / 登录账号）
     tool        text,   -- 工具戳（browser / curl...）
     host        text NOT NULL,
@@ -288,7 +288,7 @@ CREATE INDEX agent_traffic_identity_tool_idx ON agent_traffic (task_id, identity
 sandbox 内 agent 的 browser/CLI 打请求
   → POST /internal/v1/flows/ingest（ingest_handler）
   → ingestor.SubmitInternal → handleInternalSnap
-  → 【改造点】反查 hunter：现在拿 owner_type/owner_id，改为拿 task_id
+  → 【改造点】反查 agent：现在拿 owner_type/owner_id，改为拿 task_id
   → 落 agent_traffic（按 task_id）
   → 不 enqueue（防自激震荡，不变）
 ```
@@ -332,7 +332,7 @@ sandbox 内 agent 的 browser/CLI 打请求
 - **流量本体不缓存在聚合器**：已在 proxy_traffic，窗口只攒 id 范围。窗口内存态，进程重启丢窗口无妨（未消费流量仍在表里，`consumed_by_task_id IS NULL` 可被下一轮或补偿逻辑重新捞）。
 - 参数 20 条 / 10s 可配。20 条 ≈ 一个用户操作单元的 XHR 量级；100 条太多（撑爆上下文）。
 - **手动 passive**（勾选历史流量 / 粘贴 raw）：payload 里给 proxy_traffic 的 id 集合（或 raw 直接建临时记录）→ 建 assignment(source=manual) → 1 task，同样回填 consumed_by_task_id。
-- 落点：`internal/ingestor/traffic.go` 的 `handleExternalSnap` 改为"落 proxy_traffic + 喂窗口累加器"（不再 LookupOrCreate session、不再逐条 enqueue）；`handleInternalSnap` 改为落 agent_traffic（反查 hunter→task_id，见 §5.4 链路二）。
+- 落点：`internal/ingestor/traffic.go` 的 `handleExternalSnap` 改为"落 proxy_traffic + 喂窗口累加器"（不再 LookupOrCreate session、不再逐条 enqueue）；`handleInternalSnap` 改为落 agent_traffic（反查 agent→task_id，见 §5.4 链路二）。
 
 ### 6.4 "监控中 host 列表" —— 派生，不落表
 
@@ -363,13 +363,13 @@ lead 是高频写（agent 边做边记）+ 高频读（每轮注入）+ 会过�
 {
   "kind": "clue|fact|deadend",
   "note": "一句人话（位置/细节都在这里说清）",
-  "hunter_id": "...",
+  "agent_id": "...",
   "source_task_id": "...",   // 哪次 task 发现的（溯源，前端展示"来自哪次扫描"）
   "created_at": "..."
 }
 ```
 
-补 `source_task_id`（第 1 版遗漏）：lead 跨 task 共享，只记 hunter_id 无法回答"这条线索哪次扫描发现的"，故补。
+补 `source_task_id`（第 1 版遗漏）：lead 跨 task 共享，只记 agent_id 无法回答"这条线索哪次扫描发现的"，故补。
 
 ### 7.3 kind 三类：按 agent 动作分（最少且穷尽）
 
@@ -383,12 +383,12 @@ lead 是高频写（agent 边做边记）+ 高频读（每轮注入）+ 会过�
 
 抄 finding 的"写诚实、读去重"：写时纯 append（agent 零负担，不编 key 不判重）；读时（注入前）按 `(host, kind)` 分组取最近 N 条（每 kind ≤ 5），新压旧、时序+数量截断，不做语义合并（过重）。
 
-### 7.5 读写工具与注入（解"子代理看不到 orchestrator"）
+### 7.5 读写工具与注入（解"子代理看不到 planner"）
 
-- 写入工具 `write_lead(kind, note)`：身份值（host/hunter_id/source_task_id）闭包注入，不进 LM 参数（防串库）。LM 只填 kind + note。授予 recon / exploitation / traffic-analysis。
+- 写入工具 `write_lead(kind, note)`：身份值（host/agent_id/source_task_id）闭包注入，不进 LM 参数（防串库）。LM 只填 kind + note。授予 recon / exploitation / traffic-analysis。
 - 读取靠注入，不给 read 工具（与 lesson 一致）：
   - 顶层 agent：`BuildUserPrompt` 加"情报黑板(lead)"段，按 host 捞 + 读时去重后注入。
-  - 子代理：orchestrator 派 `task` 时把该 host 的 lead 索引拼进 **task description**（不动 eino `WithFullChatHistoryAsInput`，避免 token 爆炸）。**这就是"子代理看不到 orchestrator user message"的优雅解——共享的是黑板，不是对话。**
+  - 子代理：planner 派 `task` 时把该 host 的 lead 索引拼进 **task description**（不动 eino `WithFullChatHistoryAsInput`，避免 token 爆炸）。**这就是"子代理看不到 planner user message"的优雅解——共享的是黑板，不是对话。**
 
 ### 7.6 lead(fact) 与 finding 的边界
 
@@ -443,7 +443,7 @@ owner→task_id + 合表牵动三条运维链路，易被"happy path 跑通"掩�
 已确认可清库，两个大迁移纯 DDL 换表、无数据搬运。
 
 - **A. active_scan + passive_session → task**：建 task 表，旧两表存量丢弃。`internal/activescan` + `internal/passivesession` → 统一 `internal/task` 包；`internal/passivesession` 删除。
-- **B. owner 多态 → task_id**：4 张共享表（hunter/finding/llm_invocation/tool_invocation）`owner_type+owner_id` → 单列 `task_id uuid REFERENCES task(id)`。合表后单外键天然成立，`internal/owner` 包删除。
+- **B. owner 多态 → task_id**：4 张共享表（agent/finding/llm_invocation/tool_invocation）`owner_type+owner_id` → 单列 `task_id uuid REFERENCES task(id)`。合表后单外键天然成立，`internal/owner` 包删除。
 - **C. http_flow 拆表**：删 http_flow，建 `proxy_traffic`（host）+ `agent_traffic`（task_id）。ingestor（external→proxy_traffic、internal→agent_traffic）/ flow store / 消费工具 / sitemap 全部改接新表。
 - **D. 新增表**：assignment、cron_schedule、lead（Redis，无 migration）。`conversation.scan_id → task_id`。
 
@@ -461,7 +461,7 @@ http_flow → proxy_traffic + agent_traffic；消费工具/sitemap/attackgraph �
 删 passive_session；ingestor `handleExternalSnap` 改落 proxy_traffic + host 窗口累加（20 条/10s）→ 建 passive assignment→task→回填 consumed_by；"监控中 host 列表"改派生。验证：模拟同 host 连续流量按窗口聚合，非逐条。
 
 ### P3：lead 情报黑板
-`internal/lead`（Redis，append + 读时去重 + LTRIM/EXPIRE 淘汰）；`write_lead` 授三角色；`BuildUserPrompt` 加 lead 段 + orchestrator 派 task 注入 task description；prompt 写清 lead/finding 边界。验证：recon 写 lead → exploitation 在 task description 读到。
+`internal/lead`（Redis，append + 读时去重 + LTRIM/EXPIRE 淘汰）；`write_lead` 授三角色；`BuildUserPrompt` 加 lead 段 + planner 派 task 注入 task description；prompt 写清 lead/finding 边界。验证：recon 写 lead → exploitation 在 task description 读到。
 
 ### P4：cron 定时 + finding host 视图
 建 cron_schedule 表；api Scheduler goroutine 扫 due 模板→克隆 assignment；`finding.ListByHost` + 前端 host 漏洞全景。验证：定时模板到点克隆执行；host 视图跨 task 聚合。
@@ -515,7 +515,7 @@ http_flow → proxy_traffic + agent_traffic；消费工具/sitemap/attackgraph �
 
 ### 13.4 🔴 P0/P1 阶段边界重划（半迁移不可运行）
 
-问题：P0 砍 hunter.owner 后，仍在 http_flow 上的 `handleInternalSnap`（`traffic.go:282`）读 `run.OwnerType/OwnerID` 写 flow → P0 末态 internal 流量入库断裂，要等 P1 拆表才恢复。P0 不是独立可运行阶段。
+问题：P0 砍 agent.owner 后，仍在 http_flow 上的 `handleInternalSnap`（`traffic.go:282`）读 `run.OwnerType/OwnerID` 写 flow → P0 末态 internal 流量入库断裂，要等 P1 拆表才恢复。P0 不是独立可运行阶段。
 
 修正：**P0 合并 owner 坍缩 + 流量拆表**（原 P0+P1 合一）。理由：owner→task_id 与 http_flow 拆表在 `handleInternalSnap` 这一点强耦合，拆两阶段必有不可运行窗口。合并后 P0 一步到位：task 合表 + owner→task_id + http_flow 拆 proxy/agent_traffic + ingestor 两条链路改造 + 运维横切（§8.3）。P0 变重但可运行。后续 P1=assignment、P2=passive 聚合器、P3=lead、P4=cron+视图。
 
@@ -563,7 +563,7 @@ http_flow → proxy_traffic + agent_traffic；消费工具/sitemap/attackgraph �
 
 | §13 项 | 原定级 | 核查实态 | 处置决议 |
 |--------|--------|----------|----------|
-| §13.9 DLQ / MaxRetry | 🟠 | active 显式 `MaxRetry(0)`（`cmd/api/main.go:360-373`） | **主动不采纳 DLQ。代码优于文档**——orchestrator 跑 ~4h、非幂等，asynq 默认 retry 25 次 = 4 天死循环 + retry 接管时 `parentRegistries` 空致 `PreDoneCheck` 永放行 + PG 僵尸 `running`。长任务的正确做法是"跑挂即挂、人工 abort 重发"，不是重试/死信。 |
+| §13.9 DLQ / MaxRetry | 🟠 | active 显式 `MaxRetry(0)`（`cmd/api/main.go:360-373`） | **主动不采纳 DLQ。代码优于文档**——planner 跑 ~4h、非幂等，asynq 默认 retry 25 次 = 4 天死循环 + retry 接管时 `parentRegistries` 空致 `PreDoneCheck` 永放行 + PG 僵尸 `running`。长任务的正确做法是"跑挂即挂、人工 abort 重发"，不是重试/死信。 |
 | §13.9 concurrency_policy | 🟠 | 未实现 cron 层 policy 列 | **不采纳（已有等效机制）**。定时同目标叠打的实际危害已由 **per-host 信号量（§4.3，已实现 `internal/ratelimit/hostsem.go`）** 挡住。语义上加 policy 更干净，但保护层已存在，非裸奔。 |
 | §13.9 幂等键 | 🟠 | 无独立幂等键列 | **不采纳（已有等效机制）**。幂等由 claim 达成：cron 靠 `MarkFired` 推进 + `next_run_at<=now` 查询；聚合器靠 `WHERE consumed_by_task_id IS NULL` + 行数校验。单副本部署（§4.2）下独立 key 属 belt-and-suspenders。 |
 | §13.3 对账（expected_task_count / partial） | 🔴 | 未实现 | **YAGNI，暂不做**。触发条件（批量下发 N 网站 UI）**当前不存在**——`assignment.Create` 全库仅 3 调用方（API 单发 1 条 / cron / passive 聚合器），HTTP 无批量端点。cron 多 item 路径已"逐 item Warn 跳过 + next_run_at 推进 + 下轮重试"（`scheduler.go:70-115`，有意设计）。真做批量下发 UI 时再补对账，届时才有意义。 |

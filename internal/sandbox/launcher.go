@@ -21,8 +21,8 @@ import (
 //
 // 见 docs/superpowers/specs/2026-05-16-sandbox-server-design.md
 type Launcher interface {
-	Spawn(ctx context.Context, hunterID string) (Client, error)
-	Destroy(ctx context.Context, hunterID string) error
+	Spawn(ctx context.Context, agentID string) (Client, error)
+	Destroy(ctx context.Context, agentID string) error
 	CleanupOrphans(ctx context.Context) error
 }
 
@@ -90,21 +90,21 @@ func NewDockerLauncher(image string) *DockerLauncher {
 
 // Spawn 启动 sandbox 容器并等待 healthz。返回绑定到该容器 host 端口的 Client。
 //
-// hunterID：仅作 docker 容器名（per-hunter 隔离）。注意 orchestrator + exploitation 共享同一容器，
-// 所以容器级不注入 hunter 身份 env——身份由 browser-svc.py 按 session→hunter 逐请求归属
+// agentID：仅作 docker 容器名（per-agent 隔离）。注意 planner + exploitation 共享同一容器，
+// 所以容器级不注入 agent 身份 env——身份由 browser-svc.py 按 session→agent 逐请求归属
 // （sandbox-server /exec 每命令带 HUNTER_ID env → wrapper 经 unix socket 转发 → daemon 建 tab 时登记）。
 // 容器级只注入 LIUSHA_INGEST_URL/TOKEN（常量），供 browser-svc.py CDP capture push 流量。
 // 凭证共享仍走 redis credentials key（read/write_credential）。
 //
 // 失败路径：任一步出错都会尝试 Destroy（best-effort），避免容器残留。
-func (l *DockerLauncher) Spawn(ctx context.Context, hunterID string) (Client, error) {
+func (l *DockerLauncher) Spawn(ctx context.Context, agentID string) (Client, error) {
 	if l.Image == "" {
-		return nil, errors.New("DockerLauncher.Image 必填")
+		return nil, errors.New("DockerLauncher: 镜像必填（launcher.Image 空）")
 	}
-	if hunterID == "" {
-		return nil, errors.New("hunterID 必填（用作容器名隔离）")
+	if agentID == "" {
+		return nil, errors.New("agentID 必填（用作容器名隔离）")
 	}
-	name := containerNamePrefix + hunterID
+	name := containerNamePrefix + agentID
 	bin := l.dockerBin()
 
 	// docker run -d --init -p 127.0.0.1:0:8080 --name=<name> --memory=2g --cpus=2
@@ -133,14 +133,14 @@ func (l *DockerLauncher) Spawn(ctx context.Context, hunterID string) (Client, er
 	}
 	// CDP capture ingest env（容器级常量，非身份）：browser-svc.py 读 LIUSHA_INGEST_URL 决定是否
 	// 启用 Network observer，读 LIUSHA_INGEST_TOKEN 作 Bearer。URL 空则整体不注入 → capture 不启用。
-	// hunter_id 不在这注入——orchestrator/exploitation 共享容器，由 browser-svc.py 按 session→hunter 逐请求归属。
+	// agent_id 不在这注入——planner/exploitation 共享容器，由 browser-svc.py 按 session→agent 逐请求归属。
 	if l.IngestURL != "" {
 		args = append(args, "-e", "LIUSHA_INGEST_URL="+l.IngestURL)
 		if l.IngestToken != "" {
 			args = append(args, "-e", "LIUSHA_INGEST_TOKEN="+l.IngestToken)
 		}
 		// CLI 流量捕获入字典：CLI 工具经容器内 mitmproxy（标准代理 env，工具自动尊重）→
-		// mitm-capture.py addon → POST ingest。hunter_id 走 env（容器 per-run，owner 级归属足够，
+		// mitm-capture.py addon → POST ingest。agent_id 走 env（容器 per-run，owner 级归属足够，
 		// 与 browser-svc.py 的 per-request 归属互补：浏览器 CDP / CLI 走 mitmproxy）。
 		// NO_PROXY 排除 ingest(host.docker.internal) + loopback，避免 addon 自身 POST 与
 		// sandbox-server 被代理（死循环 / 自拦截）。
@@ -154,7 +154,7 @@ func (l *DockerLauncher) Spawn(ctx context.Context, hunterID string) (Client, er
 			"-e", "ALL_PROXY="+proxyURL,
 			"-e", "NO_PROXY="+noProxy,
 			"-e", "no_proxy="+noProxy,
-			"-e", "LIUSHA_HUNTER_ID="+hunterID,
+			"-e", "LIUSHA_HUNTER_ID="+agentID,
 		)
 	}
 	args = append(args, l.Image)
@@ -166,12 +166,12 @@ func (l *DockerLauncher) Spawn(ctx context.Context, hunterID string) (Client, er
 	// 拿 host 端口：docker port <name> 8080 输出形如 "127.0.0.1:54321"（可能两行 IPv4 + IPv6）。
 	portOut, err := exec.CommandContext(ctx, bin, "port", name, containerSandboxPort).Output()
 	if err != nil {
-		_ = l.Destroy(context.Background(), hunterID)
+		_ = l.Destroy(context.Background(), agentID)
 		return nil, fmt.Errorf("docker port %s: %w", name, err)
 	}
 	hostAddr := strings.TrimSpace(strings.SplitN(string(portOut), "\n", 2)[0])
 	if hostAddr == "" {
-		_ = l.Destroy(context.Background(), hunterID)
+		_ = l.Destroy(context.Background(), agentID)
 		return nil, fmt.Errorf("docker port %s 输出空", name)
 	}
 
@@ -179,7 +179,7 @@ func (l *DockerLauncher) Spawn(ctx context.Context, hunterID string) (Client, er
 	client := newHTTPClient(baseURL)
 
 	if err := waitHealthz(ctx, baseURL); err != nil {
-		_ = l.Destroy(context.Background(), hunterID)
+		_ = l.Destroy(context.Background(), agentID)
 		return nil, fmt.Errorf("等待 healthz %s: %w", name, err)
 	}
 	return client, nil
@@ -192,14 +192,14 @@ func (l *DockerLauncher) Spawn(ctx context.Context, hunterID string) (Client, er
 //
 // LIUSHA_KEEP_SANDBOX env：非空时跳过 docker 操作，容器残留供 debug
 // （/tmp/cdp-capture.log 等容器内日志可 docker exec 进去看）。下次启动 CleanupOrphans 兜底回收。
-func (l *DockerLauncher) Destroy(ctx context.Context, hunterID string) error {
-	if hunterID == "" {
-		return errors.New("hunterID 必填")
+func (l *DockerLauncher) Destroy(ctx context.Context, agentID string) error {
+	if agentID == "" {
+		return errors.New("agentID 必填")
 	}
 	if os.Getenv("LIUSHA_KEEP_SANDBOX") != "" {
 		return nil
 	}
-	name := containerNamePrefix + hunterID
+	name := containerNamePrefix + agentID
 	bin := l.dockerBin()
 
 	// docker stop 失败不致命（容器可能已死），继续走 rm -f

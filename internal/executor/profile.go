@@ -4,7 +4,7 @@
 // 该域的多态目标（TargetRef）。核心对 Profile 只认接口、零硬编——加新域 = 实现一个
 // Profile 并注册，核心零改动（这是架构试金石）。
 //
-// 工具集/skills/finding 形状不走 Profile：工具真相源是 Operator.cli_tools（严格白名单
+// 工具集/skills/finding 形状不走 Profile：工具真相源是 Executor.cli_tools（严格白名单
 // 过滤 tools.yaml manifest），skills 走 internal/skill 目录加载——都与域正交（能力轴，
 // 领域中立），Profile 不做工具/技能的域维度过滤。
 //

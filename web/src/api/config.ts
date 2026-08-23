@@ -1,15 +1,15 @@
 /**
- * 配置管理 API 客户端（scenario / hunter 两资源 CRUD + 只读工具目录）
+ * 配置管理 API 客户端（scenario / executor 两资源 CRUD + 只读工具目录）
  *
  * 复用 client.ts 的 get/post/put fetch 封装（单一 X-API-Key 鉴权口径）。
- * 删除单独实现：hunter 被 solo 场景引用时后端返回 409 + 中文 error，
+ * 删除单独实现：executor 被 solo 场景引用时后端返回 409 + 中文 error，
  * 需把该提示透出给调用方（通用 del 只抛 HTTP 状态码，丢了中文原因）。
  */
 
-import { get, post, put, getApiKey } from './client'
+import { get, post, put, patch, getApiKey } from './client'
 import type {
   ScenarioConfig,
-  HunterConfig,
+  AgentConfig,
   Tool,
   ToolKind,
   ToolDetail,
@@ -28,7 +28,7 @@ export async function saveScenario(sc: ScenarioConfig): Promise<ScenarioConfig> 
     description: sc.description,
     instruction: sc.instruction,
     engine: sc.engine,
-    solo_hunter_id: sc.solo_hunter_id,
+    solo_agent_id: sc.solo_agent_id,
     enabled: sc.enabled,
   }
   const res = sc.id
@@ -42,15 +42,15 @@ export async function deleteScenario(id: string): Promise<void> {
   await delConfig(`/scenarios/${id}`)
 }
 
-// ── hunter ────────────────────────────────────────────────────────────
+// ── executor ──────────────────────────────────────────────────────────
 
-/** 拉全量猎手（含 orchestrator/domain 两类、含 disabled）。 */
-export async function listHunterConfigs(): Promise<HunterConfig[]> {
-  return (await get<{ hunters: HunterConfig[] }>('/hunters')).hunters
+/** 拉全量操作员（含 planner/executor 两类、含 disabled）。 */
+export async function listAgentConfigs(): Promise<AgentConfig[]> {
+  return (await get<{ agents: AgentConfig[] }>('/executors')).agents
 }
 
-/** 保存猎手：有 id 走 PUT，否则 POST。 */
-export async function saveHunter(h: HunterConfig): Promise<HunterConfig> {
+/** 保存操作员：有 id 走 PUT，否则 POST。 */
+export async function saveAgent(h: AgentConfig): Promise<AgentConfig> {
   const body = {
     code: h.code,
     kind: h.kind,
@@ -60,17 +60,27 @@ export async function saveHunter(h: HunterConfig): Promise<HunterConfig> {
     function_tools: h.function_tools,
     cli_tools: h.cli_tools,
     max_iterations: h.max_iterations,
+    tier: h.tier,
     enabled: h.enabled,
   }
   const res = h.id
-    ? await put<{ hunter: HunterConfig }>(`/hunters/${h.id}`, body)
-    : await post<{ hunter: HunterConfig }>('/hunters', body)
-  return res.hunter
+    ? await put<{ agent: AgentConfig }>(`/executors/${h.id}`, body)
+    : await post<{ agent: AgentConfig }>('/executors', body)
+  return res.agent
 }
 
-/** 删除猎手；被 solo 场景引用时后端 409 → 抛带中文原因的错。 */
-export async function deleteHunter(id: string): Promise<void> {
-  await delConfig(`/hunters/${id}`)
+/**
+ * 改操作员能力档（分档页「每档选 agent」移档用）：只 PATCH tier 单字段，
+ * 不整体 upsert——避免用列表快照覆盖别处刚改的 body/工具。返回回读的完整 executor。
+ */
+export async function saveAgentTier(id: string, tier: string): Promise<AgentConfig> {
+  const res = await patch<{ agent: AgentConfig }>(`/executors/${id}/tier`, { tier })
+  return res.agent
+}
+
+/** 删除操作员；被 solo 场景引用时后端 409 → 抛带中文原因的错。 */
+export async function deleteAgent(id: string): Promise<void> {
+  await delConfig(`/executors/${id}`)
 }
 
 // ── tool（只读目录）────────────────────────────────────────────────────
@@ -86,7 +96,7 @@ export interface ToolQuery {
 /**
  * 拉工具目录。
  *   - 传 page → 分页（响应带 total），工具模块列表用。
- *   - 不传 page → 全量（total = 列表长度），HunterAdmin 多选器候选用。
+ *   - 不传 page → 全量（total = 列表长度），AgentAdmin 多选器候选用。
  */
 export async function listTools(query: ToolQuery = {}): Promise<ToolListResponse> {
   const qs = new URLSearchParams()
@@ -98,7 +108,7 @@ export async function listTools(query: ToolQuery = {}): Promise<ToolListResponse
   return get<ToolListResponse>(`/tools${suffix}`)
 }
 
-/** 拉某工具全量候选（不分页），供 HunterAdmin function_tools/cli_tools 多选器。 */
+/** 拉某工具全量候选（不分页），供 AgentAdmin function_tools/cli_tools 多选器。 */
 export async function listToolCandidates(kind: ToolKind): Promise<Tool[]> {
   return (await listTools({ kind })).tools
 }

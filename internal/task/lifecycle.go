@@ -21,7 +21,7 @@ func (s *Store) Abort(ctx context.Context, id, errMsg string) error {
 	return nil
 }
 
-// Complete 把 task 置为 completed（orchestrator run 自然跑完的成功终态），写 ended_at。
+// Complete 把 task 置为 completed（planner run 自然跑完的成功终态），写 ended_at。
 // 与 Abort 区别：completed 无 error_message（成功收尾），aborted 带原因。
 func (s *Store) Complete(ctx context.Context, id string) error {
 	_, err := s.pool.Exec(ctx, `

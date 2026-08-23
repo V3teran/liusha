@@ -20,7 +20,7 @@ var hostRe = regexp.MustCompile(`https?://([^/\s]+)`)
 // Profile 实现 executor.Profile，域标识 "web"：把 brief 解析成 web 目标（host[:port]）。
 type Profile struct{}
 
-// New 构造 web Profile。工具/skills 不经 Profile（走 Operator.cli_tools + skill 目录）。
+// New 构造 web Profile。工具/skills 不经 Profile（走 Executor.cli_tools + skill 目录）。
 func New() *Profile {
 	return &Profile{}
 }

@@ -17,19 +17,19 @@ type Store struct {
 func NewStore(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
 
 // colsSelect 是所有 SELECT / RETURNING 路径的统一列序，与 scan() 字段一一对应。
-const colsSelect = "id, code, name, description, instruction, engine, solo_hunter_id::text, enabled, created_at, updated_at"
+const colsSelect = "id, code, name, description, instruction, engine, solo_executor_id::text, enabled, created_at, updated_at"
 
-// validateParams 应用层校验 engine 与 solo_hunter_id 的耦合（与 DB CHECK 双保险）：
-// solo 必须指定 solo_hunter_id，swarm 必须为空。
+// validateParams 应用层校验 engine 与 solo_executor_id 的耦合（与 DB CHECK 双保险）：
+// solo 必须指定 solo_executor_id，swarm 必须为空。
 func validateParams(p NewParams) error {
 	switch p.Engine {
 	case EngineSolo:
-		if p.SoloHunterID == nil || *p.SoloHunterID == "" {
-			return fmt.Errorf("solo 场景必须指定 solo_hunter_id")
+		if p.SoloExecutorID == nil || *p.SoloExecutorID == "" {
+			return fmt.Errorf("solo 场景必须指定 solo_executor_id")
 		}
 	case EngineSwarm:
-		if p.SoloHunterID != nil && *p.SoloHunterID != "" {
-			return fmt.Errorf("swarm 场景不得指定 solo_hunter_id")
+		if p.SoloExecutorID != nil && *p.SoloExecutorID != "" {
+			return fmt.Errorf("swarm 场景不得指定 solo_executor_id")
 		}
 	default:
 		return fmt.Errorf("非法 engine %q（应为 solo|swarm）", p.Engine)
@@ -43,11 +43,11 @@ func (s *Store) Create(ctx context.Context, p NewParams) (Scenario, error) {
 		return Scenario{}, fmt.Errorf("create scenario: %w", err)
 	}
 	row := s.pool.QueryRow(ctx, `
-		INSERT INTO scenario (code, name, description, instruction, engine, solo_hunter_id, enabled)
+		INSERT INTO scenario (code, name, description, instruction, engine, solo_executor_id, enabled)
 		VALUES ($1, $2, $3, $4, $5, $6::uuid, $7)
 		RETURNING `+colsSelect,
 		p.Code, p.Name, p.Description, p.Instruction,
-		p.Engine, p.SoloHunterID, p.Enabled)
+		p.Engine, p.SoloExecutorID, p.Enabled)
 	var sc Scenario
 	if err := scan(row, &sc); err != nil {
 		return Scenario{}, fmt.Errorf("create scenario %q: %w", p.Code, err)
@@ -62,11 +62,11 @@ func (s *Store) Update(ctx context.Context, p NewParams) (Scenario, error) {
 	}
 	row := s.pool.QueryRow(ctx, `
 		UPDATE scenario
-		SET name=$2, description=$3, instruction=$4, engine=$5, solo_hunter_id=$6::uuid, enabled=$7, updated_at=now()
+		SET name=$2, description=$3, instruction=$4, engine=$5, solo_executor_id=$6::uuid, enabled=$7, updated_at=now()
 		WHERE code=$1
 		RETURNING `+colsSelect,
 		p.Code, p.Name, p.Description, p.Instruction,
-		p.Engine, p.SoloHunterID, p.Enabled)
+		p.Engine, p.SoloExecutorID, p.Enabled)
 	var sc Scenario
 	if err := scan(row, &sc); err != nil {
 		return Scenario{}, fmt.Errorf("update scenario %q: %w", p.Code, err)
@@ -195,5 +195,5 @@ type scanner interface {
 // scan 是 colsSelect 列序的统一反序列化点。
 func scan(r scanner, sc *Scenario) error {
 	return r.Scan(&sc.ID, &sc.Code, &sc.Name, &sc.Description, &sc.Instruction,
-		&sc.Engine, &sc.SoloHunterID, &sc.Enabled, &sc.CreatedAt, &sc.UpdatedAt)
+		&sc.Engine, &sc.SoloExecutorID, &sc.Enabled, &sc.CreatedAt, &sc.UpdatedAt)
 }

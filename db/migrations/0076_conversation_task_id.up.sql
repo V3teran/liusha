@@ -6,7 +6,7 @@
 --   合表后统一为 conversation.task_id→task（对话持有），两轨对称。
 --   passive_session 表在 0077 删除，其 conversation_id 列一并消失。
 --
--- 基数：conversation 0..1 ↔ 1 task。FollowUp 同对话追加 hunter run，不新建对话。
+-- 基数：conversation 0..1 ↔ 1 task。FollowUp 同对话追加 agent run，不新建对话。
 -- FK ON DELETE SET NULL：删 task 不连带删对话（对话是用户资产）。
 
 DROP INDEX IF EXISTS conversation_scan_idx;

@@ -18,23 +18,22 @@ type FindingLister interface {
 }
 
 // AgentFunc 按招法跑一次战术 agent（RunSolo 的注入点，cmd/runner 侧实现）。
-// 只返回 error——产出的漏洞由 agent 内 write_finding 落 finding.Store，Operator 事后收割。
-// 招法范围内「怎么打」全权归 agent（LLM 战术自由），Operator 不干预。
+// 只返回 error——产出的漏洞由 agent 内 write_finding 落 finding.Store，Executor 事后收割。
+// 招法范围内「怎么打」全权归 agent（LLM 战术自由），Executor 不干预。
 type AgentFunc func(ctx context.Context, m planner.Move) error
 
-// Operator 是 web 域的 cognition.Executor：跑 move-scoped agent → 收割新 finding → 转 Attempt。
+// Executor 是 web 域的 cognition.Executor：跑 move-scoped agent → 收割新 finding → 转 Attempt。
 // 提议权兑现——只产候选晋升，不写图（裁决权归 Verifier）。
 type Executor struct {
-	taskID   string
 	taskID   string
 	host     string
 	findings FindingLister
 	run      AgentFunc
 }
 
-// NewOperator 构造 web Operator。taskID=图归属，taskID/host=finding 收割键。
-func NewExecutor(taskID, taskID, host string, findings FindingLister, run AgentFunc) *Executor {
-	return &Executor{taskID: taskID, taskID: taskID, host: host, findings: findings, run: run}
+// NewExecutor 构造 web Executor。taskID=图归属，taskID/host=finding 收割键。
+func NewExecutor(taskID, host string, findings FindingLister, run AgentFunc) *Executor {
+	return &Executor{taskID: taskID, host: host, findings: findings, run: run}
 }
 
 // Execute 实现 cognition.Executor：快照运行前 finding → 跑 agent → 差集收割新 finding → 转 Attempt。
@@ -44,7 +43,7 @@ func NewExecutor(taskID, taskID, host string, findings FindingLister, run AgentF
 func (o *Executor) Execute(ctx context.Context, m planner.Move) ([]verifier.Attempt, error) {
 	before, err := o.findings.ListByTaskAndHost(ctx, o.taskID, o.host, 0)
 	if err != nil {
-		return nil, fmt.Errorf("web.Operator: 快照运行前 finding 失败: %w", err)
+		return nil, fmt.Errorf("web.Executor: 快照运行前 finding 失败: %w", err)
 	}
 	seen := make(map[string]bool, len(before))
 	for _, f := range before {
@@ -52,12 +51,12 @@ func (o *Executor) Execute(ctx context.Context, m planner.Move) ([]verifier.Atte
 	}
 
 	if err := o.run(ctx, m); err != nil {
-		return nil, fmt.Errorf("web.Operator: 战术 agent 执行失败: %w", err)
+		return nil, fmt.Errorf("web.Executor: 战术 agent 执行失败: %w", err)
 	}
 
 	after, err := o.findings.ListByTaskAndHost(ctx, o.taskID, o.host, 0)
 	if err != nil {
-		return nil, fmt.Errorf("web.Operator: 收割 finding 失败: %w", err)
+		return nil, fmt.Errorf("web.Executor: 收割 finding 失败: %w", err)
 	}
 
 	var attempts []verifier.Attempt
@@ -67,7 +66,7 @@ func (o *Executor) Execute(ctx context.Context, m planner.Move) ([]verifier.Atte
 		}
 		a, ok, err := AttemptFromFinding(o.taskID, f)
 		if err != nil {
-			return nil, fmt.Errorf("web.Operator: finding %s 转 Attempt 失败: %w", f.ID, err)
+			return nil, fmt.Errorf("web.Executor: finding %s 转 Attempt 失败: %w", f.ID, err)
 		}
 		if ok {
 			attempts = append(attempts, a)

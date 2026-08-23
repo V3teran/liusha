@@ -1,7 +1,7 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import {
-  getReactSettings,
-  saveReactSettings,
+  getCompactionSettings,
+  saveCompactionSettings,
   getRuntimeSettings,
   saveRuntimeSettings,
   getProxyFilterSettings,
@@ -27,22 +27,22 @@ describe('settings API 客户端', () => {
     vi.unstubAllGlobals()
   })
 
-  it('getReactSettings 拆出 react 快照', async () => {
+  it('getCompactionSettings 拆出 compaction 快照', async () => {
     const fn = mockFetch(200, {
-      react: { trigger_ratio: 0.8, trailing_budget_ratio: 0.5, compactor_timeout_seconds: 30 },
+      compaction: { trigger_ratio: 0.8, trailing_budget_ratio: 0.5, compactor_timeout_seconds: 30 },
     })
-    const v = await getReactSettings()
+    const v = await getCompactionSettings()
     expect(v.trigger_ratio).toBe(0.8)
-    expect(fn.mock.calls[0][0]).toBe('/api/settings/react')
+    expect(fn.mock.calls[0][0]).toBe('/api/settings/compaction')
   })
 
-  it('saveReactSettings PUT 整组并回传', async () => {
+  it('saveCompactionSettings PUT 整组并回传', async () => {
     const body = { trigger_ratio: 0.75, trailing_budget_ratio: 0.4, compactor_timeout_seconds: 45 }
-    const fn = mockFetch(200, { react: body })
-    const v = await saveReactSettings(body)
+    const fn = mockFetch(200, { compaction: body })
+    const v = await saveCompactionSettings(body)
     expect(v.compactor_timeout_seconds).toBe(45)
     const [url, init] = fn.mock.calls[0]
-    expect(url).toBe('/api/settings/react')
+    expect(url).toBe('/api/settings/compaction')
     expect(init.method).toBe('PUT')
     expect(JSON.parse(init.body)).toEqual(body)
   })

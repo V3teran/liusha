@@ -15,7 +15,7 @@
 #   check:  装后 sanity 命令
 #
 # 铁律：name 必须是真实可调用命令（安装器 command -v 硬校验）；库（sympy/fpylll 等）无命令，归进 python3 描述。
-# category = 能力轴（领域中立），取值与 hunter/user_prompt.go 的 toolingCategoryOrder 一致；未列入者落"未分类"。
+# category = 能力轴（领域中立），取值与 agent/user_prompt.go 的 toolingCategoryOrder 一致；未列入者落"未分类"。
 # 工具装配走智能体 cli_tools 严格白名单，本清单不与场景挂钩。
 
 tools:

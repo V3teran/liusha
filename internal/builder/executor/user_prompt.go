@@ -1,4 +1,4 @@
-package operator
+package executor
 
 import (
 	"context"
@@ -34,7 +34,7 @@ func buildUserPrompt(ctx context.Context, deps Deps, p skill.BuilderParams) stri
 
 	// 字段触发渲染（不再 Mode-driven）：
 	//   - RequestHeaders 非空或 URL 非空 → 渲染 raw HTTP 段（trafficAnalysis / 带 traffic_id 的 exploitation）
-	//   - Brief 非空 → 渲染 brief 段（orchestrator / exploitation）
+	//   - Brief 非空 → 渲染 brief 段（planner / exploitation）
 	// 两者可并存：trafficAnalysis spawn exploitation 带 traffic_id 时，exploitation 同时看到 raw HTTP + brief。
 	if len(p.RequestHeaders) > 0 || p.URL != "" {
 		// 段 0（0060+ 流量字典）：本流量已入 agent_traffic 表，告诉 LLM traffic_id 让它能用
@@ -73,14 +73,14 @@ func buildUserPrompt(ctx context.Context, deps Deps, p skill.BuilderParams) stri
 		writeBodyBlock(&b, p.ResponseBody, bodyLimit)
 	}
 	if p.Brief != "" {
-		// 段 3 (orchestrator 独有) 或 段 1 (exploitation 无 traffic): 自然语言 brief。
-		// exploitation brief 是 orchestrator LLM 写的指令；orchestrator 同时传 traffic_id 时，本段位于流量段之后。
+		// 段 3 (planner 独有) 或 段 1 (exploitation 无 traffic): 自然语言 brief。
+		// exploitation brief 是 planner LLM 写的指令；planner 同时传 traffic_id 时，本段位于流量段之后。
 		if b.Len() > 0 {
 			b.WriteString("\n\n")
 		}
 		fmt.Fprintf(&b, "## 站点任务\n\n%s\n", p.Brief)
-		// active 路径强制注入 host（orchestrator/exploitation 都看得见）。
-		// 否则 orchestrator prompt 写"不要在 brief 里复述站点 URL（host 自动注入）"，
+		// active 路径强制注入 host（planner/exploitation 都看得见）。
+		// 否则 planner prompt 写"不要在 brief 里复述站点 URL（host 自动注入）"，
 		// 但 buildUserPrompt 在 brief-only 路径下原本不渲染 host —— exploitation 只能猜
 		// localhost / dvwa 等，公网 host 全 502/404，挖不到 finding。
 		if p.Host != "" {

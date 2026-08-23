@@ -90,10 +90,6 @@ jsonparser.EachKey(data, func(idx int, value []byte, vt jsonparser.ValueType, er
 // For more information see docs below
 ```
 
-## Need to speedup your app?
-
-I'm available for consulting and can help you push your app performance to the limits. Ping me at: leonsbox@gmail.com.
-
 ## Reference
 
 Library API is really simple. You just need the `Get` method to perform any operation. The rest is just helpers around it.
@@ -231,7 +227,7 @@ Note that keys can be an array indexes: `jsonparser.Delete(data, "person", "avat
 
 ## What makes it so fast?
 * It does not rely on `encoding/json`, `reflection` or `interface{}`, the only real package dependency is `bytes`.
-* Operates with JSON payload on byte level, providing you pointers to the original data structure: no memory allocation.
+* Executes with JSON payload on byte level, providing you pointers to the original data structure: no memory allocation.
 * No automatic type conversions, by default everything is a []byte, but it provides you value type, so you can convert by yourself (there is few helpers included).
 * Does not parse full record, only keys you specified
 
@@ -256,7 +252,7 @@ Compared libraries:
 
 #### TLDR
 If you want to skip next sections we have 2 winner: `jsonparser` and `easyjson`.
-`jsonparser` is up to 10 times faster than standard `encoding/json` package (depending on payload size and usage), and almost infinitely (literally) better in memory consumption because it operates with data on byte level, and provide direct slice pointers.
+`jsonparser` is up to 10 times faster than standard `encoding/json` package (depending on payload size and usage), and almost infinitely (literally) better in memory consumption because it executes with data on byte level, and provide direct slice pointers.
 `easyjson` wins in CPU in medium tests and frankly i'm impressed with this package: it is remarkable results considering that it is almost drop-in replacement for `encoding/json` (require some code generation).
 
 It's hard to fully compare `jsonparser` and `easyjson` (or `ffson`), they a true parsers and fully process record, unlike `jsonparser` which parse only keys you specified.
@@ -290,7 +286,7 @@ buger/jsonparser | **1367** | **0** | **0**
 buger/jsonparser (EachKey API) | **809** | **0** | **0** 
 
 Winners are ffjson, easyjson and jsonparser, where jsonparser is up to 9.8x faster than encoding/json and 4.6x faster than ffjson, and slightly faster than easyjson.
-If you look at memory allocation, jsonparser has no rivals, as it makes no data copy and operates with raw []byte structures and pointers to it.
+If you look at memory allocation, jsonparser has no rivals, as it makes no data copy and executes with raw []byte structures and pointers to it.
 
 #### Medium payload
 

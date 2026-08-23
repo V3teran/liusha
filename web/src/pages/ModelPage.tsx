@@ -4,17 +4,17 @@ import { ProvidersView } from '@/features/model/ProvidersView'
 import { AssignmentView } from '@/features/model/AssignmentView'
 import { cn } from '@/lib/utils'
 
-// 模型模块：合并原「模型部署」与「模型路由」为单一模块（别名中间层已废弃）。
+// 模型模块：单模块内 tab 切换两视图，共用一套 provider 事实源。
 //   · 部署（providers）：接入哪些 provider，连接参数与能力标志。
-//   · 角色指派（assignment）：各消费方角色一跳直连到具体 provider。
-// 两视图共用一套 provider 事实源，同模块内切换比跨侧栏跳转更贴合心智——
-// 「先接部署，再把角色指过去」是同一件事的两步。
+//   · 能力分档（assignment）：每档绑定一个部署，并勾选归入本档的智能体（读写 agent.tier，
+//     与「智能体」页能力档下拉同源，只是展示维度不同）。
+// 「先接部署，再给各档选模型并归档 agent」是同一件事的两步，同模块内切换比跨侧栏跳转更贴心智。
 // 活动视图持久化进 URL search（?tab=），刷新/分享/前进后退都能还原。
 type Tab = 'providers' | 'assignment'
 
 const TABS: { key: Tab; label: string; icon: typeof Boxes }[] = [
   { key: 'providers', label: '部署', icon: Boxes },
-  { key: 'assignment', label: '角色指派', icon: Route },
+  { key: 'assignment', label: '能力分档', icon: Route },
 ]
 
 export function ModelPage() {

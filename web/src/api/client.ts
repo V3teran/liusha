@@ -10,11 +10,9 @@ import type {
   ConversationUsage,
   Message,
   ScenarioConfig,
-  HunterConfig,
+  AgentConfig,
   OwnerSummary,
-  SitemapView,
   AttackGraph,
-  Milestone,
   LLMInvocationsResponse,
   LLMInvocationDetail,
   LLMInvocationStat,
@@ -26,6 +24,7 @@ import type {
   Identity,
   FindingRow,
   FindingFilters,
+  FindingListResponse,
 } from './types'
 
 const KEY_STORAGE = 'liusha_api_key'
@@ -102,6 +101,19 @@ export async function put<T>(path: string, body?: unknown): Promise<T> {
 }
 
 /**
+ * 发起 PATCH 请求（单字段/局部更新，如 agent 改能力档），自动带 X-API-Key。
+ */
+export async function patch<T>(path: string, body?: unknown): Promise<T> {
+  const res = await fetch('/api' + path, {
+    method: 'PATCH',
+    headers: { 'X-API-Key': getApiKey(), 'Content-Type': 'application/json' },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  })
+  if (!res.ok) throw new Error(`PATCH ${path} → ${res.status}`)
+  return res.json()
+}
+
+/**
  * 发起 DELETE 请求，自动带 X-API-Key。
  */
 export async function del<T>(path: string): Promise<T> {
@@ -140,16 +152,16 @@ export async function listScenariosPaged(
 
 /**
  * 分页 + 搜索获取智能体（配置管理页用）。语义同 listScenariosPaged。
- * 不带 page 的 listHunterConfigs 仍是全量（场景 solo 选择器候选共用）。
+ * 不带 page 的 listAgentConfigs 仍是全量（场景 solo 选择器候选共用）。
  */
-export async function listHuntersPaged(
+export async function listAgentsPaged(
   page: number,
   size: number,
   q = '',
-): Promise<{ hunters: HunterConfig[]; total: number }> {
+): Promise<{ agents: AgentConfig[]; total: number }> {
   const params = new URLSearchParams({ page: String(page), size: String(size) })
   if (q) params.set('q', q)
-  return get<{ hunters: HunterConfig[]; total: number }>(`/hunters?${params}`)
+  return get<{ agents: AgentConfig[]; total: number }>(`/executors?${params}`)
 }
 
 /**
@@ -181,7 +193,7 @@ export async function listConversations(
  *
  * 后端单次返回上限 500 条（clampLimit），长会话（active 扫描动辄上千条事件）一次拉不完。
  * 故内部循环按 after_seq 翻页直到拉空——否则打开/刷新长会话只显示前 500 条，
- * 停在中途某条（实测停在 orchestrator 收尾报告之前，用户看不到最终结果）。
+ * 停在中途某条（实测停在 planner 收尾报告之前，用户看不到最终结果）。
  *
  * @param convID 会话 ID
  * @param afterSeq 起始游标，仅返回 Seq > afterSeq 的消息（默认 0 = 从头拉全）
@@ -342,43 +354,44 @@ export async function abortTask(id: string): Promise<void> {
 }
 
 /**
- * 发起主动扫描。brief 为一句话自然语言任务简报，后端整段透传给 hunter LLM。
- * @returns owner_id 与 hunter_id（据此查任务进度 / llm 审计）
+ * 发起主动扫描。brief 为一句话自然语言任务简报，后端整段透传给 agent LLM。
+ * @returns owner_id 与 agent_id（据此查任务进度 / llm 审计）
  */
 export async function startActiveScan(
   brief: string
-): Promise<{ owner_id: string; hunter_id: string }> {
+): Promise<{ owner_id: string; agent_id: string }> {
   return post('/scan/active', { brief })
 }
 
 /* ============================================================
-   攻击面 / LLM 审计 / Agent 任务树（按 owner 只读）
+   LLM 审计 / Agent 任务树（按 owner 只读）
    ============================================================ */
-
-/**
- * 拉取攻击面树（仅 active 模式 owner；passive 会 404）。
- * @param host 可选，按 host 过滤；缺省合并该 owner 全部 host
- */
-export async function getSitemap(ownerID: string, host = ''): Promise<SitemapView> {
-  const q = host ? `?host=${encodeURIComponent(host)}` : ''
-  return get<SitemapView>(`/sitemap/${ownerID}${q}`)
-}
 
 /* ============================================================
-   全局漏洞台账（漏洞管理页）：跨 task/host 全量 + triage 处置
+   全局漏洞台账（漏洞页）：跨 task/host 全量 + triage 处置
    ============================================================ */
 
 /**
- * 拉取全局漏洞台账（全量）。可选按 host/severity/status/source 筛选。
- * 修复历史缺陷：旧漏洞页走 /sitemap 仅覆盖部分场景，其余漏洞不可见。
+ * 分页拉取全局漏洞台账。可选按 host/severity/status/source/scenario_id 筛选；
+ * page/size 缺省时后端落 1 / 50。修复历史缺陷：旧漏洞页走 /sitemap 仅覆盖部分场景，其余漏洞不可见。
  */
-export async function listFindings(filters: FindingFilters = {}): Promise<FindingRow[]> {
+export async function listFindings(filters: FindingFilters = {}): Promise<FindingListResponse> {
   const params = new URLSearchParams()
   for (const [k, v] of Object.entries(filters)) {
-    if (v) params.set(k, v)
+    if (v) params.set(k, String(v))
   }
   const q = params.toString()
-  return (await get<{ findings: FindingRow[] }>(`/findings${q ? '?' + q : ''}`)).findings
+  return get<FindingListResponse>(`/findings${q ? '?' + q : ''}`)
+}
+
+/** 拉取筛选下拉候选（服务端 distinct 的 host，恒为全表全集，不受当前筛选/分页影响）。 */
+export async function listFindingHosts(): Promise<string[]> {
+  return (await get<{ hosts: string[] }>('/findings/hosts')).hosts
+}
+
+/** 拉取筛选下拉候选（服务端 distinct 的 scenario_id，恒为全表全集）。 */
+export async function listFindingScenarios(): Promise<string[]> {
+  return (await get<{ scenarios: string[] }>('/findings/scenarios')).scenarios
 }
 
 /**
@@ -402,22 +415,11 @@ export async function updateFindingTriage(
 }
 
 /**
- * 拉取执行图（思维链 + 成果链）。read-model 实时投影。
- * conv 由后端按 task 自解析并在响应 conversation_id 回传——前端无需自己 join 会话列表。
- * 保留 conv 可选参数仅作显式覆盖（一般不传）。
+ * 拉取攻击图（L3 世界模型投影）：Verifier 坐实的世界状态节点 + 关系边 + 取证链。
+ * 前端传选中的 task_id，后端按 task→assignment 解析出图的 scan_id（一交战一图）。
  */
-export async function getAttackGraph(ownerID: string, conv = ''): Promise<AttackGraph> {
-  const q = conv ? `?conv=${encodeURIComponent(conv)}` : ''
-  return get<AttackGraph>(`/attack_graph/${ownerID}${q}`)
-}
-
-/**
- * 拉取执行图里程碑摘要（按子代理聚合，LLM 生成）。按需调用——是 LLM 请求，较慢。
- * conv 由后端按 task 自解析，前端一般不传。
- */
-export async function getMilestones(ownerID: string, conv = ''): Promise<Milestone[]> {
-  const q = conv ? `?conv=${encodeURIComponent(conv)}` : ''
-  return (await get<{ milestones: Milestone[] }>(`/attack_graph/${ownerID}/milestones${q}`)).milestones
+export async function getAttackGraph(taskID: string): Promise<AttackGraph> {
+  return get<AttackGraph>(`/attack_graph/${taskID}`)
 }
 
 /**
@@ -435,18 +437,18 @@ function invocationFilterParams(f?: Partial<LLMInvocationFilters>): URLSearchPar
 }
 
 /**
- * 拉取该 task 下 LLM 调用审计（扁平 items，id 游标分页 + 服务端筛选）。
- * afterID：上一页 next_after；0 表示从头拉。列表不含 messages/result 大字段。
+ * 拉取该 task 下 LLM 调用审计（扁平 items，offset 分页 + 服务端筛选）。
+ * 列表不含 messages/result 大字段。
  */
 export async function listLLMInvocations(
   taskID: string,
-  afterID = 0,
-  limit = 0,
+  page = 1,
+  size = 0,
   filters?: Partial<LLMInvocationFilters>,
 ): Promise<LLMInvocationsResponse> {
   const params = invocationFilterParams(filters)
-  if (afterID > 0) params.set('after', String(afterID))
-  if (limit > 0) params.set('limit', String(limit))
+  if (page > 1) params.set('page', String(page))
+  if (size > 0) params.set('size', String(size))
   const q = params.toString()
   return get<LLMInvocationsResponse>(`/llm/invocations/${taskID}${q ? '?' + q : ''}`)
 }
@@ -480,14 +482,24 @@ export async function getLLMInvocationFacets(taskID: string): Promise<LLMInvocat
    流量模块（GET /traffic 系列）：代理捕获流量只读浏览
    ============================================================ */
 
+// statusClass 单字符大类（'2'..'5'）→ 后端 status_min/max 闭区间（2xx=200..299 等）。
+// 空或非法值不落参数（不筛状态）。
+function applyStatusClass(params: URLSearchParams, statusClass?: string): void {
+  const d = Number(statusClass)
+  if (!Number.isInteger(d) || d < 1 || d > 9) return
+  params.set('status_min', String(d * 100))
+  params.set('status_max', String(d * 100 + 99))
+}
+
 function trafficFilterParams(f?: Partial<TrafficFilters>): URLSearchParams {
   const params = new URLSearchParams()
   if (!f) return params
-  if (f.host) params.set('host', f.host)
   if (f.method) params.set('method', f.method)
-  if (f.path) params.set('path', f.path)
-  if (f.statusMin && f.statusMin > 0) params.set('status_min', String(f.statusMin))
-  if (f.statusMax && f.statusMax > 0) params.set('status_max', String(f.statusMax))
+  if (f.contentType) params.set('content_type', f.contentType)
+  if (f.search) params.set('search', f.search)
+  if (f.since) params.set('since', f.since)
+  if (f.until) params.set('until', f.until)
+  applyStatusClass(params, f.statusClass)
   return params
 }
 
@@ -512,9 +524,9 @@ export async function getTrafficDetail(id: number): Promise<TrafficDetail> {
   return get<TrafficDetail>(`/traffic/${id}`)
 }
 
-/** 拉取筛选下拉候选（服务端 distinct 的 host，恒为全表全集）。 */
-export async function listTrafficHosts(): Promise<string[]> {
-  return (await get<{ hosts: string[] }>('/traffic/hosts')).hosts
+/** 拉取筛选下拉候选（服务端 distinct 的 content_type，恒为全表全集）。 */
+export async function listTrafficContentTypes(): Promise<string[]> {
+  return (await get<{ content_types: string[] }>('/traffic/content-types')).content_types
 }
 
 /* ============================================================

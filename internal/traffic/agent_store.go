@@ -8,8 +8,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// AgentStore 封装 agent_traffic 表——agent 自产流量，按 task 归属，是 replay/list/view_traffic
-// 弹药 + sitemap 攻击面源。
+// AgentStore 封装 agent_traffic 表——agent 自产流量，按 task 归属，是 replay/list/view_traffic 弹药。
 type AgentStore struct {
 	pool        *pgxpool.Pool
 	maxReqBody  int
@@ -21,11 +20,11 @@ func NewAgentStore(pool *pgxpool.Pool) *AgentStore {
 	return &AgentStore{pool: pool, maxReqBody: defaultMaxBody, maxRespBody: defaultMaxBody}
 }
 
-const agentCols = "id, task_id::text, COALESCE(hunter_id::text, ''), " +
+const agentCols = "id, task_id::text, COALESCE(agent_run_id::text, ''), " +
 	"COALESCE(identity, ''), COALESCE(tool, ''), host, method, url, path, " +
 	"request_headers, request_body, status_code, response_headers, response_body, duration_ms, created_at"
 
-const agentSummaryCols = "id, task_id::text, COALESCE(hunter_id::text, ''), " +
+const agentSummaryCols = "id, task_id::text, COALESCE(agent_run_id::text, ''), " +
 	"COALESCE(identity, ''), COALESCE(tool, ''), host, method, url, path, " +
 	"status_code, duration_ms, created_at"
 
@@ -42,11 +41,11 @@ func (s *AgentStore) Append(ctx context.Context, f AgentTraffic) (int64, error) 
 	var id int64
 	err := s.pool.QueryRow(ctx, `
 		INSERT INTO agent_traffic
-			(task_id, hunter_id, identity, tool, host, method, url, path, status_code,
+			(task_id, agent_run_id, identity, tool, host, method, url, path, status_code,
 			 request_headers, request_body, response_headers, response_body, duration_ms)
 		VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
 		RETURNING id`,
-		f.TaskID, nullIfEmpty(f.HunterID), nullIfEmpty(f.Identity), nullIfEmpty(f.Tool),
+		f.TaskID, nullIfEmpty(f.ExecutorID), nullIfEmpty(f.Identity), nullIfEmpty(f.Tool),
 		host, f.Method, f.URL, path, f.StatusCode,
 		normalizeHeaders(f.RequestHeaders), truncate(f.RequestBody, s.maxReqBody),
 		normalizeHeaders(f.ResponseHeaders), truncate(f.ResponseBody, s.maxRespBody), f.DurationMs,
@@ -117,49 +116,12 @@ func (s *AgentStore) ListByTaskFiltered(ctx context.Context, taskID string, f Ag
 	var out []AgentSummary
 	for rows.Next() {
 		var sum AgentSummary
-		if err := rows.Scan(&sum.ID, &sum.TaskID, &sum.HunterID, &sum.Identity, &sum.Tool,
+		if err := rows.Scan(&sum.ID, &sum.TaskID, &sum.ExecutorID, &sum.Identity, &sum.Tool,
 			&sum.Host, &sum.Method, &sum.URL, &sum.Path,
 			&sum.StatusCode, &sum.DurationMs, &sum.CreatedAt); err != nil {
 			return nil, fmt.Errorf("scan agent_traffic summary: %w", err)
 		}
 		out = append(out, sum)
-	}
-	return out, rows.Err()
-}
-
-// DistinctRoutesWithRepresentative 返回 task 范围内的去重路由（DISTINCT ON host,method,path），
-// 每路由附一条代表 flow 的响应体片段（前 16KiB），供 sitemap 投影派生攻击面 + 抽 <title>。
-//
-// 代表 flow：ORDER BY status_code ASC → 每路由取最小状态码（2xx 优先）。
-// 排除 404/410（资源不存在，多是猜路径噪声）；403/401/405/5xx 保留（端点存在，是真实攻击面）。
-func (s *AgentStore) DistinctRoutesWithRepresentative(ctx context.Context, taskID, host string) ([]RouteRepr, error) {
-	q := `SELECT DISTINCT ON (host, method, path)
-	             host,
-	             COALESCE(substring(url from '^https?://([^/]+)'), host) AS host_port,
-	             method, path, substring(response_body from 1 for 16384)
-	      FROM agent_traffic
-	      WHERE task_id=$1::uuid AND status_code NOT IN (404, 410)`
-	args := []any{taskID}
-	if host != "" {
-		// host 列存的是 host:port，不能剥端口去比——见 proxy_store.go 同处注释。
-		q += ` AND host=$2`
-		args = append(args, host)
-	}
-	q += ` ORDER BY host, method, path, status_code ASC`
-
-	rows, err := s.pool.Query(ctx, q, args...)
-	if err != nil {
-		return nil, fmt.Errorf("distinct routes (repr): %w", err)
-	}
-	defer rows.Close()
-
-	var out []RouteRepr
-	for rows.Next() {
-		var r RouteRepr
-		if err := rows.Scan(&r.Host, &r.HostPort, &r.Method, &r.Path, &r.BodyHead); err != nil {
-			return nil, fmt.Errorf("scan route repr: %w", err)
-		}
-		out = append(out, r)
 	}
 	return out, rows.Err()
 }
@@ -171,7 +133,7 @@ type scanner interface {
 
 func scanAgent(r scanner, f *AgentTraffic) error {
 	var reqH, respH []byte
-	if err := r.Scan(&f.ID, &f.TaskID, &f.HunterID, &f.Identity, &f.Tool,
+	if err := r.Scan(&f.ID, &f.TaskID, &f.ExecutorID, &f.Identity, &f.Tool,
 		&f.Host, &f.Method, &f.URL, &f.Path,
 		&reqH, &f.RequestBody, &f.StatusCode, &respH, &f.ResponseBody, &f.DurationMs, &f.CreatedAt); err != nil {
 		return err
