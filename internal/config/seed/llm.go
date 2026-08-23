@@ -11,34 +11,16 @@ import (
 // llm.go：把 config.yaml 的 providers:/llm.* 静态配置 insert-only 首填进 llm_provider /
 // llm_role_route 两表（migration 0097 + 0099）。
 //
-// 迁移语义（对齐 hunter/scenario 种子）：DB 是事实源，种子只填**缺失行**——
+// 迁移语义（对齐 agent/scenario 种子）：DB 是事实源，种子只填**缺失行**——
 // provider 按 key、role_route 按 role 判存在，已存在一律跳过，
 // 绝不覆盖前端「模型」模块或运维在 DB 里的改动。
 //
-// 路由还原（0099 拆别名层后：role → provider **一跳直连**）：
-//   - llm.agents/utilities 的 role → field-name（如 "vision_provider"）→ 该 field 对应的 provider key
-//     （field-name 只是 yaml 里指向 llm.*_provider 槽位的间接层，解引用到真实 provider key）
-//   - llm.default_provider  → 保留 role __default__（role 未命中兜底）
-//   - llm.fallback_provider → 保留 role __fallback__（retry 耗尽备胎）
+// 路由种子（0105 分档：agent → tier → provider 两跳，agent→tier 固定在代码 llmcfg.AgentTier）：
+//   - llm.tiers.{heavy,vision,light} → 各档路由行（role 列存 tier 名）
+//   - llm.fallback                   → 保留 role __fallback__（retry 耗尽备胎）
+// 种子只写这 3 档 + 1 备胎，不再 per-agent 摊平（agent→tier 由代码定，无需入库）。
 //
 // 安全：provider.api_key_env 只搬**环境变量名**，密钥值不经手（本就不在 yaml 里）。
-
-// fieldToProviderKey 把 yaml 里的 field-name 间接值（"vision_provider" 等）解引用到真实 provider key。
-// 未知 field-name 返回空串，调用方据此报错（不静默丢路由）。
-func fieldToProviderKey(field string, cfg config.Config) string {
-	switch field {
-	case "default_provider":
-		return cfg.LLM.DefaultProvider
-	case "light_provider":
-		return cfg.LLM.LightProvider
-	case "vision_provider":
-		return cfg.LLM.VisionProvider
-	case "fallback_provider":
-		return cfg.LLM.FallbackProvider
-	default:
-		return ""
-	}
-}
 
 // ImportLLM 把 cfg 里的 provider/角色路由 insert-only 首填进 DB。
 // 顺序遵守 FK：provider → role_route（引用 provider）。
@@ -72,16 +54,16 @@ func importProviders(ctx context.Context, cfg config.Config, s *llmcfg.Store) er
 			contextWindow = *p.ContextWindow
 		}
 		if _, err := s.CreateProvider(ctx, llmcfg.ProviderParams{
-			Key:            key,
-			Type:           typ,
-			BaseURL:        p.BaseURL,
-			DefaultModel:   p.DefaultModel,
-			APIKeyEnv:      p.APIKeyEnv,
-			MaxTokens:      p.MaxTokens,
-			SupportsTools:  p.SupportsTools,
-			SupportsVision: supportsVision,
-			ContextWindow:  contextWindow,
-			Enabled:        true,
+			Key:             key,
+			Type:            typ,
+			BaseURL:         p.BaseURL,
+			DefaultModel:    p.DefaultModel,
+			LegacyAPIKeyEnv: p.APIKeyEnv,
+			MaxTokens:       p.MaxTokens,
+			SupportsTools:   p.SupportsTools,
+			SupportsVision:  supportsVision,
+			ContextWindow:   contextWindow,
+			Enabled:         true,
 		}); err != nil {
 			return fmt.Errorf("建 provider %q: %w", key, err)
 		}
@@ -89,9 +71,9 @@ func importProviders(ctx context.Context, cfg config.Config, s *llmcfg.Store) er
 	return nil
 }
 
-// importRoleRoutes 按 role insert-only 建角色路由（role → provider key 直连），合并 agents + utilities，
-// 并把 default/fallback 全局槽折成保留 role __default__ / __fallback__。
-// 目标 provider 不存在（对应 llm.*_provider 槽位空或未建）时跳过该 role——避免撞 FK RESTRICT。
+// importRoleRoutes 按 role insert-only 建路由行：3 个能力档（heavy/vision/light）+ 保留 role __fallback__。
+// role 列存 tier 名（heavy/vision/light）或 __fallback__；agent→tier 的绑定固定在代码，不入库。
+// 目标 provider 不存在（对应 tier 槽位空或 provider 未建）时跳过该行——避免撞 FK RESTRICT。
 func importRoleRoutes(ctx context.Context, cfg config.Config, s *llmcfg.Store) error {
 	existing, err := s.ListRoleRoutes(ctx)
 	if err != nil {
@@ -102,24 +84,13 @@ func importRoleRoutes(ctx context.Context, cfg config.Config, s *llmcfg.Store) e
 		routeSet[rr.Role] = true
 	}
 
-	// 业务 role：agents（真 agent）+ utilities（single-shot 工具）同一路由语义，合并处理；
-	// 值是 field-name 间接层，需解引用到真实 provider key。
-	merged := make(map[string]string, len(cfg.LLM.Agents)+len(cfg.LLM.Utilities)+2)
-	for role, field := range cfg.LLM.Agents {
-		merged[role] = fieldToProviderKey(field, cfg)
-		if merged[role] == "" {
-			return fmt.Errorf("角色 %q 的路由值 %q 未知（应为 *_provider）", role, field)
-		}
+	// 三档 + 备胎，key 直接是 complexity 名 / 保留 role，value 是 provider key（无 field-name 间接层）。
+	merged := map[string]string{
+		llmcfg.ComplexitySimple:  cfg.LLM.Tiers[llmcfg.ComplexitySimple],
+		llmcfg.ComplexityMedium:  cfg.LLM.Tiers[llmcfg.ComplexityMedium],
+		llmcfg.ComplexityComplex: cfg.LLM.Tiers[llmcfg.ComplexityComplex],
+		llmcfg.RoleFallback:      cfg.LLM.Fallback,
 	}
-	for role, field := range cfg.LLM.Utilities {
-		merged[role] = fieldToProviderKey(field, cfg)
-		if merged[role] == "" {
-			return fmt.Errorf("角色 %q 的路由值 %q 未知（应为 *_provider）", role, field)
-		}
-	}
-	// 两个全局槽 → 保留 role（直接取 provider key，非 field-name）。
-	merged[llmcfg.RoleDefault] = cfg.LLM.DefaultProvider
-	merged[llmcfg.RoleFallback] = cfg.LLM.FallbackProvider
 
 	for role, providerKey := range merged {
 		if routeSet[role] {

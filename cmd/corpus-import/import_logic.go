@@ -8,29 +8,25 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cloudwego/eino/schema"
 	"github.com/rs/zerolog"
 
 	"github.com/V3teran/liusha/internal/corpus"
-	"github.com/V3teran/liusha/internal/einollm"
 	"github.com/V3teran/liusha/internal/embedding"
+	"github.com/V3teran/liusha/internal/provider"
 )
 
-// tagInstruction 让 light 模型为一段知识生成 title + tags（JSON 输出）。
 const tagInstruction = `你是渗透知识库标注器。给定一段知识正文，生成：
 - title：一句话主题（≤30 字，概括这段讲什么）
 - tags：技术/场景标签数组（如 sso:cas、jwt、fastjson、waf:cloudflare、cve:2023-xxx），2-5 个，用于检索时按标签过滤
 
 严格输出 JSON（无前后缀、无 markdown 代码块）：{"title":"...","tags":["...","..."]}`
 
-// tagResult 是打标 LLM 的产出。
 type tagResult struct {
 	Title string   `json:"title"`
 	Tags  []string `json:"tags"`
 }
 
-// importFile 读一个 markdown 文件，按 ## 段切条，逐条打标 + embed + 落库（source=expert）。返回导入条数。
-func importFile(ctx context.Context, logger zerolog.Logger, store *corpus.Store, tagger *einollm.Factory, embedder *embedding.Client, path string) (int, error) {
+func importFile(ctx context.Context, logger zerolog.Logger, store *corpus.Store, router *provider.Router, embedder *embedding.Client, path string) (int, error) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		return 0, fmt.Errorf("读文件: %w", err)
@@ -43,7 +39,7 @@ func importFile(ctx context.Context, logger zerolog.Logger, store *corpus.Store,
 
 	n := 0
 	for _, content := range chunks {
-		tag := autoTag(ctx, logger, tagger, content)
+		tag := autoTag(ctx, logger, router, content)
 
 		var vec []float32
 		if embedder != nil {
@@ -68,8 +64,6 @@ func importFile(ctx context.Context, logger zerolog.Logger, store *corpus.Store,
 	return n, nil
 }
 
-// splitMarkdown 按 ## / # 标题切段——每个标题及其下正文为一条知识。无标题的整篇作一条。
-// 空白段跳过。标题行并入正文（保留上下文）。
 func splitMarkdown(md string) []string {
 	lines := strings.Split(md, "\n")
 	var chunks []string
@@ -82,7 +76,7 @@ func splitMarkdown(md string) []string {
 	}
 	for _, ln := range lines {
 		if strings.HasPrefix(strings.TrimSpace(ln), "#") {
-			flush() // 遇新标题，收束上一段
+			flush()
 		}
 		cur.WriteString(ln)
 		cur.WriteString("\n")
@@ -91,11 +85,10 @@ func splitMarkdown(md string) []string {
 	return chunks
 }
 
-// autoTag 调 light 模型给一段知识打标；失败降级用正文首行当 title、空 tags（不阻塞导入）。
-func autoTag(ctx context.Context, logger zerolog.Logger, tagger *einollm.Factory, content string) tagResult {
-	fallback := tagResult{Title: firstLine(content), Tags: nil}
+func autoTag(ctx context.Context, logger zerolog.Logger, router *provider.Router, content string) tagResult {
+	fallback := tagResult{Title: firstLine(content)}
 
-	model, err := tagger.For(ctx, "compactor") // light provider
+	p, err := router.For(ctx, provider.ComplexitySimple)
 	if err != nil {
 		logger.Warn().Err(err).Msg("打标模型解析失败（降级：首行当 title）")
 		return fallback
@@ -103,23 +96,25 @@ func autoTag(ctx context.Context, logger zerolog.Logger, tagger *einollm.Factory
 	tctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
-	out, err := model.Generate(tctx, []*schema.Message{
-		schema.SystemMessage(tagInstruction),
-		schema.UserMessage(content),
+	resp, err := p.Complete(tctx, provider.Request{
+		Messages: []provider.Message{
+			{Role: provider.RoleSystem, Content: tagInstruction},
+			{Role: provider.RoleUser, Content: content},
+		},
+		MaxTokens: 256,
 	})
-	if err != nil || out == nil {
+	if err != nil {
 		logger.Warn().Err(err).Msg("打标调用失败（降级：首行当 title）")
 		return fallback
 	}
 	var tr tagResult
-	if err := json.Unmarshal([]byte(cleanJSON(out.Content)), &tr); err != nil || tr.Title == "" {
+	if err := json.Unmarshal([]byte(cleanJSON(resp.Content)), &tr); err != nil || tr.Title == "" {
 		logger.Warn().Err(err).Msg("打标 JSON 解析失败（降级：首行当 title）")
 		return fallback
 	}
 	return tr
 }
 
-// firstLine 取正文首个非空行（去 markdown 标题符），截断 30 字符当降级 title。
 func firstLine(s string) string {
 	for _, ln := range strings.Split(s, "\n") {
 		ln = strings.TrimSpace(strings.TrimLeft(ln, "# "))
@@ -135,7 +130,6 @@ func firstLine(s string) string {
 	return "未命名知识"
 }
 
-// cleanJSON 剥掉 LLM 可能加的 ```json 代码块包裹。
 func cleanJSON(s string) string {
 	s = strings.TrimSpace(s)
 	s = strings.TrimPrefix(s, "```json")

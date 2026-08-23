@@ -9,10 +9,12 @@ import (
 	"sync/atomic"
 	"time"
 
-	operatorbuilder "github.com/V3teran/liusha/internal/builder/executor"
+	"github.com/google/uuid"
+
+	"github.com/V3teran/liusha/internal/actor"
+	executorbuilder "github.com/V3teran/liusha/internal/builder/executor"
 	cfgagent "github.com/V3teran/liusha/internal/config/agent"
 	cfgscenario "github.com/V3teran/liusha/internal/config/scenario"
-	"github.com/V3teran/liusha/internal/actor"
 	"github.com/V3teran/liusha/internal/dispatcher"
 	"github.com/V3teran/liusha/internal/planner"
 	"github.com/V3teran/liusha/internal/provider"
@@ -37,7 +39,7 @@ const heartbeatThrottleMs = 10_000
 
 // toolRecordInterceptor returns a registry.Interceptor that records every tool
 // call to toolinvocation.Store and throttles task heartbeats.
-func (h handler) toolRecordInterceptor(operatorID, taskID string) registry.Interceptor {
+func (h handler) toolRecordInterceptor(executorID, taskID string) registry.Interceptor {
 	lastBeatMs := new(atomic.Int64)
 	return func(ctx context.Context, t registry.Tool, args []byte, next registry.ExecuteFunc) (registry.ToolResult, error) {
 		start := time.Now()
@@ -56,7 +58,7 @@ func (h handler) toolRecordInterceptor(operatorID, taskID string) registry.Inter
 				preview = preview[:512]
 			}
 			_, _ = h.toolCalls.Append(ctx, toolinvocation.Invocation{
-				OperatorID:    operatorID,
+				ExecutorID:    executorID,
 				TaskID:        taskID,
 				ToolName:      t.Name(),
 				Args:          json.RawMessage(args),
@@ -114,9 +116,9 @@ func (a *sseEmitterAdapter) Emit(ev actor.SSEEvent) {
 //  Prompt helpers
 // ─────────────────────────────────────────────────────────────
 
-// buildPromptDeps reconstructs an operatorbuilder.Deps from the flat handler fields.
-func (h handler) buildPromptDeps() operatorbuilder.Deps {
-	return operatorbuilder.Deps{
+// buildPromptDeps reconstructs an executorbuilder.Deps from the flat handler fields.
+func (h handler) buildPromptDeps() executorbuilder.Deps {
+	return executorbuilder.Deps{
 		Findings:        h.findings,
 		Credentials:     h.creds,
 		Lead:            h.leads,
@@ -128,10 +130,10 @@ func (h handler) buildPromptDeps() operatorbuilder.Deps {
 }
 
 // composeSoloInstruction builds the full system prompt for a solo agent:
-// shared base + optional scenario instruction + operator body.
+// shared base + optional scenario instruction + executor body.
 func composeSoloInstruction(scen cfgscenario.Scenario, op cfgagent.Agent) string {
 	var b strings.Builder
-	b.WriteString(operatorbuilder.SystemPrompt())
+	b.WriteString(executorbuilder.SystemPrompt())
 	if scen.Instruction != "" {
 		b.WriteString("\n\n")
 		b.WriteString(scen.Instruction)
@@ -143,21 +145,21 @@ func composeSoloInstruction(scen cfgscenario.Scenario, op cfgagent.Agent) string
 	return b.String()
 }
 
-// composeOrchestratorInstruction builds the full system prompt for the orchestrator agent.
-func composeOrchestratorInstruction(body string) string {
-	return operatorbuilder.SystemPrompt() + "\n\n" + body
+// composeplannerInstruction builds the full system prompt for the planner agent.
+func composeplannerInstruction(body string) string {
+	return executorbuilder.SystemPrompt() + "\n\n" + body
 }
 
 // composeSubAgentInstruction builds the full system prompt for a sub-agent.
 func composeSubAgentInstruction(body string) string {
-	return operatorbuilder.SystemPrompt() + "\n\n" + body
+	return executorbuilder.SystemPrompt() + "\n\n" + body
 }
 
-// swarmSystemPrompt combines orchestrator + all sub-agent descriptions into a single
+// swarmSystemPrompt combines planner + all sub-agent descriptions into a single
 // system prompt for the unified swarm run.
 func swarmSystemPrompt(orchBody, scenInstruction string, subAgents []cfgagent.Agent) string {
 	var b strings.Builder
-	b.WriteString(composeOrchestratorInstruction(orchBody))
+	b.WriteString(composeplannerInstruction(orchBody))
 	if scenInstruction != "" {
 		b.WriteString("\n\n")
 		b.WriteString(scenInstruction)
@@ -179,13 +181,13 @@ func swarmSystemPrompt(orchBody, scenInstruction string, subAgents []cfgagent.Ag
 // The caller is responsible for registering tools into the returned registry.
 func (h handler) buildDispatcher(
 	ctx context.Context,
-	tier provider.Tier,
+	complexity provider.Complexity,
 	systemPrompt string,
 	sink scanagent.EventSink,
 ) (*dispatcher.Dispatcher, *registry.Registry, error) {
-	p, err := h.router.For(ctx, tier)
+	p, err := h.router.For(ctx, complexity)
 	if err != nil {
-		return nil, nil, fmt.Errorf("buildDispatcher: resolve provider tier=%s: %w", tier, err)
+		return nil, nil, fmt.Errorf("buildDispatcher: resolve provider complexity=%s: %w", complexity, err)
 	}
 
 	reg := registry.New()
@@ -271,10 +273,10 @@ func (h handler) handleSolo(
 	brief string,
 ) error {
 	if brief == "" {
-		return h.failTask(ctx, p.OperatorID, fmt.Errorf("solo 引擎缺 brief"))
+		return h.failTask(ctx, p.ExecutorID, fmt.Errorf("solo 引擎缺 brief"))
 	}
 
-	tid := p.OperatorID
+	tid := p.ExecutorID
 	taskID := p.TaskID
 	if err := h.tasks.Heartbeat(ctx, taskID); err != nil {
 		h.logger.Warn().Err(err).Str("task_id", taskID).Msg("task 入口心跳失败（不阻塞）")
@@ -288,12 +290,12 @@ func (h handler) handleSolo(
 
 	trafficList, err := h.proxyStore.ListByTask(ctx, taskID)
 	if err != nil {
-		return h.failTask(ctx, p.OperatorID, fmt.Errorf("读 proxy_traffic 失败: %w", err))
+		return h.failTask(ctx, p.ExecutorID, fmt.Errorf("读 proxy_traffic 失败: %w", err))
 	}
 	rt, _ := h.settings.Runtime(ctx)
 	params := skill.BuilderParams{
 		TaskID:        taskID,
-		OperatorID:    tid,
+		ExecutorID:    tid,
 		Host:          host,
 		Brief:         brief,
 		Traffic:       trafficList,
@@ -303,7 +305,7 @@ func (h handler) handleSolo(
 	}
 
 	instruction := composeSoloInstruction(scen, op)
-	userPrompt := operatorbuilder.BuildUserPrompt(ctx, h.buildPromptDeps(), params)
+	userPrompt := executorbuilder.BuildUserPrompt(ctx, h.buildPromptDeps(), params)
 	if hist := h.conversationContext(ctx, p.ConversationID, op.Code, brief); hist != "" {
 		userPrompt = hist + "\n" + userPrompt
 	}
@@ -318,20 +320,25 @@ func (h handler) handleSolo(
 	}
 	defer cleanup()
 
-	// Sandbox 按 Assignment 粒度管理，多 Task 共享同一容器
-	sandboxClient, err := h.sandboxMgr.GetOrSpawn(ctx, assignmentID)
+	// Sandbox 按 Assignment 粒度管理，多 Task 共享同一容器（引用计数）
+	sandboxClient, err := h.sandboxMgr.Acquire(ctx, assignmentID)
 	if err != nil {
-		return h.failTask(ctx, p.OperatorID, fmt.Errorf("sandboxMgr.GetOrSpawn(%s): %w", assignmentID, err))
+		return h.failTask(ctx, p.ExecutorID, fmt.Errorf("sandboxMgr.Acquire(%s): %w", assignmentID, err))
 	}
-	// 注意：不在 Task 级 Destroy，容器由 Assignment 级生命周期管理
+	// 任务结束时释放引用，引用计数归零后延迟清理容器
+	defer func() {
+		if err := h.sandboxMgr.Release(context.Background(), assignmentID); err != nil {
+			h.logger.Warn().Err(err).Str("assignment_id", assignmentID).Msg("sandboxMgr.Release 失败")
+		}
+	}()
 
-	d, reg, err := h.buildDispatcher(ctx, provider.TierOperator, instruction, sink)
+	d, reg, err := h.buildDispatcher(ctx, provider.ComplexityMedium, instruction, sink)
 	if err != nil {
-		return h.failTask(ctx, p.OperatorID, err)
+		return h.failTask(ctx, p.ExecutorID, err)
 	}
 	tools.RegisterAll(reg, tools.Deps{
 		TaskID:        taskID,
-		OperatorID:    tid,
+		ExecutorID:    tid,
 		Host:          host,
 		Findings:      h.findings,
 		Corpus:        h.corpus,
@@ -413,20 +420,20 @@ func (h handler) handleSolo(
 	if err != nil {
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			finalizeTask(false, "ctx "+err.Error())
-			return h.abortTask(ctx, p.OperatorID, "ctx "+err.Error())
+			return h.abortTask(ctx, p.ExecutorID, "ctx "+err.Error())
 		}
 		finalizeTask(false, err.Error())
-		return h.failTask(ctx, p.OperatorID, err)
+		return h.failTask(ctx, p.ExecutorID, err)
 	}
 
 	out, err := json.Marshal(buildRunResult(string(scen.Engine), execResult, report))
 	if err != nil {
 		finalizeTask(false, "marshal task result")
-		return h.failTask(ctx, p.OperatorID, fmt.Errorf("marshal task result: %w", err))
+		return h.failTask(ctx, p.ExecutorID, fmt.Errorf("marshal task result: %w", err))
 	}
 	finalizeTask(true, "")
 	h.distillCorpus(ctx, taskID, p.ConversationID, op.Code, host)
-	return h.operators.SetDone(ctx, p.OperatorID, out)
+	return h.executors.SetDone(ctx, p.ExecutorID, out)
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -434,23 +441,23 @@ func (h handler) handleSolo(
 // ─────────────────────────────────────────────────────────────
 
 // handleSwarm runs a multi-agent orchestration task via the dispatcher.
-// The orchestrator system prompt absorbs all sub-agent descriptions so the
+// The planner system prompt absorbs all sub-agent descriptions so the
 // underlying actor can reason about delegation natively.
 func (h handler) handleSwarm(
 	ctx context.Context,
 	p worker.Payload,
 	scen cfgscenario.Scenario,
-	operators []cfgagent.Agent,
+	executors []cfgagent.Agent,
 	brief string,
 ) error {
 	if brief == "" {
-		return h.failTask(ctx, p.OperatorID, fmt.Errorf("swarm 引擎缺 brief"))
+		return h.failTask(ctx, p.ExecutorID, fmt.Errorf("swarm 引擎缺 brief"))
 	}
-	if len(operators) == 0 {
-		return h.failTask(ctx, p.OperatorID, fmt.Errorf("swarm 引擎无 enabled 领域操作员"))
+	if len(executors) == 0 {
+		return h.failTask(ctx, p.ExecutorID, fmt.Errorf("swarm 引擎无 enabled 领域操作员"))
 	}
 
-	tid := p.OperatorID
+	tid := p.ExecutorID
 	taskID := p.TaskID
 	if err := h.tasks.Heartbeat(ctx, taskID); err != nil {
 		h.logger.Warn().Err(err).Str("task_id", taskID).Msg("task 入口心跳失败（不阻塞）")
@@ -462,23 +469,23 @@ func (h handler) handleSwarm(
 	}
 	virtualHost := h.onboard(ctx, assignmentID, taskID, brief)
 
-	orchHunter, err := h.cfgStore.Orchestrator(ctx)
+	orchAgent, err := h.cfgStore.Planner(ctx)
 	if err != nil {
-		return h.failTask(ctx, p.OperatorID, fmt.Errorf("swarm 缺全局 orchestrator 操作员: %w", err))
+		return h.failTask(ctx, p.ExecutorID, fmt.Errorf("swarm 缺全局 planner 操作员: %w", err))
 	}
 
-	sysPrompt := swarmSystemPrompt(orchHunter.Body, scen.Instruction, operators)
+	sysPrompt := swarmSystemPrompt(orchAgent.Body, scen.Instruction, executors)
 
 	rt, _ := h.settings.Runtime(ctx)
-	orchPrompt := operatorbuilder.BuildUserPrompt(ctx, h.buildPromptDeps(), skill.BuilderParams{
+	orchPrompt := executorbuilder.BuildUserPrompt(ctx, h.buildPromptDeps(), skill.BuilderParams{
 		TaskID:        taskID,
-		OperatorID:    tid,
+		ExecutorID:    tid,
 		Host:          virtualHost,
 		Brief:         brief,
-		CliTools:      orchHunter.CliTools,
+		CliTools:      orchAgent.CliTools,
 		FindingsLimit: rt.FindingsLimitInPrompt,
 	})
-	if hist := h.conversationContext(ctx, p.ConversationID, "orchestrator", brief); hist != "" {
+	if hist := h.conversationContext(ctx, p.ConversationID, "planner", brief); hist != "" {
 		orchPrompt = hist + "\n" + orchPrompt
 	}
 
@@ -491,20 +498,25 @@ func (h handler) handleSwarm(
 	}
 	defer cleanup()
 
-	// Sandbox 按 Assignment 粒度管理，多 Task 共享同一容器
-	sandboxClient, err := h.sandboxMgr.GetOrSpawn(ctx, assignmentID)
+	// Sandbox 按 Assignment 粒度管理，多 Task 共享同一容器（引用计数）
+	sandboxClient, err := h.sandboxMgr.Acquire(ctx, assignmentID)
 	if err != nil {
-		return h.failTask(ctx, p.OperatorID, fmt.Errorf("sandboxMgr.GetOrSpawn(%s): %w", assignmentID, err))
+		return h.failTask(ctx, p.ExecutorID, fmt.Errorf("sandboxMgr.Acquire(%s): %w", assignmentID, err))
 	}
-	// 注意：不在 Task 级 Destroy，容器由 Assignment 级生命周期管理
+	// 任务结束时释放引用，引用计数归零后延迟清理容器
+	defer func() {
+		if err := h.sandboxMgr.Release(context.Background(), assignmentID); err != nil {
+			h.logger.Warn().Err(err).Str("assignment_id", assignmentID).Msg("sandboxMgr.Release 失败")
+		}
+	}()
 
-	d, reg, err := h.buildDispatcher(ctx, provider.TierPlanner, sysPrompt, sink)
+	d, reg, err := h.buildDispatcher(ctx, provider.ComplexityComplex, sysPrompt, sink)
 	if err != nil {
-		return h.failTask(ctx, p.OperatorID, err)
+		return h.failTask(ctx, p.ExecutorID, err)
 	}
 	tools.RegisterAll(reg, tools.Deps{
 		TaskID:        taskID,
-		OperatorID:    p.OperatorID,
+		ExecutorID:    p.ExecutorID,
 		Host:          virtualHost,
 		Findings:      h.findings,
 		Corpus:        h.corpus,
@@ -573,6 +585,13 @@ func (h handler) handleSwarm(
 			if err := h.ledger.RecordMoveComplete(runCtx, moveID, outcome, nil); err != nil {
 				h.logger.Warn().Err(err).Str("move_id", moveID).Msg("RecordMoveComplete 失败（不阻塞）")
 			}
+
+			// 发布 Move 完成事件，触发 Planner 重新规划
+			if h.eventBus != nil {
+				if moveUUID, parseErr := uuid.Parse(moveID); parseErr == nil {
+					h.eventBus.PublishMoveCompleted(taskID, moveUUID)
+				}
+			}
 		}
 
 		return nil
@@ -585,20 +604,20 @@ func (h handler) handleSwarm(
 	if err != nil {
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			finalizeTask(false, "ctx "+err.Error())
-			return h.abortTask(ctx, p.OperatorID, "ctx "+err.Error())
+			return h.abortTask(ctx, p.ExecutorID, "ctx "+err.Error())
 		}
 		finalizeTask(false, err.Error())
-		return h.failTask(ctx, p.OperatorID, err)
+		return h.failTask(ctx, p.ExecutorID, err)
 	}
 
 	out, err := json.Marshal(buildRunResult(string(scen.Engine), execResult, report))
 	if err != nil {
 		finalizeTask(false, "marshal task result")
-		return h.failTask(ctx, p.OperatorID, fmt.Errorf("marshal task result: %w", err))
+		return h.failTask(ctx, p.ExecutorID, fmt.Errorf("marshal task result: %w", err))
 	}
 	finalizeTask(true, "")
-	h.distillCorpus(ctx, taskID, p.ConversationID, "orchestrator", virtualHost)
-	return h.operators.SetDone(ctx, p.OperatorID, out)
+	h.distillCorpus(ctx, taskID, p.ConversationID, "planner", virtualHost)
+	return h.executors.SetDone(ctx, p.ExecutorID, out)
 }
 
 // ─────────────────────────────────────────────────────────────
