@@ -1,3 +1,3 @@
--- 0122 down: 删除 leads 表
+-- 0122 down: 删除 lead 表
 
-DROP TABLE IF EXISTS leads;
+DROP TABLE IF EXISTS lead;
