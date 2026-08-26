@@ -83,8 +83,8 @@ export function ScenarioAdmin() {
     }
   }
 
-  // solo 引擎的候选仅领域智能体（planner 不可单点执行）。
-  const domainAgents = agents.filter((h) => h.kind === 'domain')
+  // solo 引擎的候选仅执行智能体（planner 不可单点执行）。
+  const domainAgents = agents.filter((h) => h.kind === 'executor')
   // solo 必须选中 solo_agent_id；swarm 不校验（后端拒带值）。
   const saveDisabled =
     !draft?.code || !draft?.name || (draft?.engine === 'solo' && !draft?.solo_agent_id)

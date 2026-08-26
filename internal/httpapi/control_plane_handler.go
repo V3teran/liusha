@@ -28,10 +28,10 @@ type CreateControlEventRequest struct {
 }
 
 // handleCreateControlEvent 创建控制事件
-// POST /tasks/:taskID/control
+// POST /tasks/:id/control
 func handleCreateControlEvent(cp ControlPlaneAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		taskID := c.Param("taskID")
+		taskID := c.Param("id")
 		if taskID == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "task_id required"})
 			return
@@ -63,8 +63,14 @@ func handleCreateControlEvent(cp ControlPlaneAPI) gin.HandlerFunc {
 			return
 		}
 
+		// 确保 payload 不为 nil（数据库字段 NOT NULL）
+		payload := req.Payload
+		if payload == nil {
+			payload = json.RawMessage("{}")
+		}
+
 		// 创建控制事件
-		eventID, err := cp.Create(c.Request.Context(), taskID, command, req.Payload)
+		eventID, err := cp.Create(c.Request.Context(), taskID, command, payload)
 		if err != nil {
 			controlLog.Error().Err(err).Str("task_id", taskID).Msg("create control event failed")
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
@@ -84,10 +90,10 @@ func handleCreateControlEvent(cp ControlPlaneAPI) gin.HandlerFunc {
 }
 
 // handleListControlEvents 列出任务的控制事件
-// GET /tasks/:taskID/control
+// GET /tasks/:id/control
 func handleListControlEvents(cp ControlPlaneAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		taskID := c.Param("taskID")
+		taskID := c.Param("id")
 		if taskID == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "task_id required"})
 			return

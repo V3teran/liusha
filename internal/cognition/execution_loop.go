@@ -5,47 +5,43 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 
-	"github.com/V3teran/liusha/internal/executionplan"
-	"github.com/V3teran/liusha/internal/planner"
+	"github.com/V3teran/liusha/internal/worldmodel"
 )
 
-// ExecutionLoop 基于 execution_plan 的异步执行循环。
-// 与传统的 Loop 不同，ExecutionLoop 从 execution_plan 表持续读取待执行 Move，
-// 执行完成后更新状态并发布事件，触发 Planner Agent 重新规划。
+// ExecutionLoop 基于统一世界模型的执行循环
 type ExecutionLoop struct {
-	planStore *executionplan.Store
-	executor  Executor
-	promoter  Promoter
-	eventBus  *EventBus
-	logger    zerolog.Logger
+	world    *worldmodel.Store
+	executor Executor
+	promoter Promoter
+	eventBus *EventBus
+	logger   zerolog.Logger
 
-	pollInterval time.Duration // 轮询 execution_plan 的间隔
-	maxSteps     int           // 最大执行步数
+	pollInterval time.Duration
+	maxSteps     int
 }
 
-// NewExecutionLoop 创建基于 execution_plan 的执行循环
+// NewExecutionLoop 创建执行循环
 func NewExecutionLoop(
-	planStore *executionplan.Store,
+	world *worldmodel.Store,
 	executor Executor,
 	promoter Promoter,
 	eventBus *EventBus,
 	logger zerolog.Logger,
 ) *ExecutionLoop {
 	return &ExecutionLoop{
-		planStore:    planStore,
+		world:        world,
 		executor:     executor,
 		promoter:     promoter,
 		eventBus:     eventBus,
 		logger:       logger,
-		pollInterval: 2 * time.Second, // 默认 2 秒轮询一次
-		maxSteps:     50,
+		pollInterval: 2 * time.Second,
+		maxSteps:     100,
 	}
 }
 
-// Run 运行执行循环：持续从 execution_plan 读取 Move 并执行
+// Run 运行执行循环
 func (l *ExecutionLoop) Run(ctx context.Context, taskID string) (Report, error) {
 	if taskID == "" {
 		return Report{}, fmt.Errorf("execution loop: taskID 为空")
@@ -67,81 +63,96 @@ func (l *ExecutionLoop) Run(ctx context.Context, taskID string) (Report, error) 
 			return rep, ctx.Err()
 
 		case <-ticker.C:
-			// 定期检查是否有新的待执行 Move
 			if err := l.processPendingMoves(ctx, taskID, &rep); err != nil {
+				rep.StopWhy = stopError
 				return rep, err
 			}
 
-			// 检查是否达到最大步数
+			// 停止条件：达到最大步数
 			if rep.Steps >= l.maxSteps {
 				rep.StopWhy = stopMaxSteps
 				return rep, nil
 			}
 
-			// 检查是否无待执行 Move 且已运行过至少一轮
-			if rep.Steps > 0 {
-				pendingCount, err := l.countPendingMoves(ctx, taskID)
-				if err != nil {
-					l.logger.Warn().Err(err).Msg("count pending moves failed")
-					continue
-				}
-				if pendingCount == 0 {
-					// 再等待一个周期，确保 Planner Agent 有机会产出新 Move
-					time.Sleep(l.pollInterval)
-					pendingCount, _ = l.countPendingMoves(ctx, taskID)
-					if pendingCount == 0 {
-						rep.StopWhy = stopExhausted
-						return rep, nil
-					}
-				}
+			// 停止条件：无待执行 Move
+			pendingCount, err := l.countPendingMoves(ctx, taskID)
+			if err != nil {
+				return rep, err
+			}
+			if pendingCount == 0 {
+				rep.StopWhy = stopNoProgress
+				return rep, nil
 			}
 		}
 	}
 }
 
-// processPendingMoves 处理所有待执行的 Move
+// processPendingMoves 处理所有可执行的 Move（支持依赖调度）
 func (l *ExecutionLoop) processPendingMoves(ctx context.Context, taskID string, rep *Report) error {
-	pendingMoves, err := l.planStore.ListPending(ctx, taskID)
+	// 获取所有 open 状态的 Move
+	openMoves, err := l.world.ListOpenMoves(ctx, taskID)
 	if err != nil {
-		return fmt.Errorf("list pending moves: %w", err)
+		return fmt.Errorf("list open moves: %w", err)
 	}
 
-	for _, pm := range pendingMoves {
+	if len(openMoves) == 0 {
+		return nil
+	}
+
+	// 获取已完成的 Move ID 集合
+	completed, err := l.getCompletedMoveIDs(ctx, taskID)
+	if err != nil {
+		return fmt.Errorf("get completed moves: %w", err)
+	}
+
+	// 筛选出当前可执行的 Move（无依赖或依赖已满足）
+	var executable []worldmodel.Node
+	for _, m := range openMoves {
+		if m.CanExecute(completed) {
+			executable = append(executable, m)
+		}
+	}
+
+	if len(executable) == 0 {
+		l.logger.Debug().
+			Int("open", len(openMoves)).
+			Msg("有 open Move 但无可执行（等待依赖）")
+		return nil
+	}
+
+	// 顺序执行可执行的 Move（TODO: 后续支持并行）
+	for _, move := range executable {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
 
-		// 标记为执行中
-		if err := l.planStore.MarkExecuting(ctx, pm.ID); err != nil {
-			l.logger.Error().Err(err).Str("move_id", pm.ID.String()).Msg("mark executing failed")
+		// 标记为 running
+		if err := l.world.UpdateMoveState(ctx, move.ID, worldmodel.StateRunning, nil); err != nil {
+			l.logger.Error().Err(err).Str("move_id", move.ID).Msg("mark running failed")
 			continue
 		}
 
-		// 转换为 planner.Move
-		move := planner.Move{
-			Kind:     convertToPlannerMoveKind(pm.Kind),
-			Target:   pm.TargetRef,
-			Reason:   pm.Reason,
-			Priority: pm.Priority,
-		}
-
 		// 执行 Move
-		execErr := l.executeMove(ctx, taskID, pm.ID, move, rep)
+		execErr := l.executeMove(ctx, taskID, move, rep)
 
 		// 更新状态
 		if execErr != nil {
-			if err := l.planStore.MarkFailed(ctx, pm.ID, execErr.Error()); err != nil {
-				l.logger.Error().Err(err).Str("move_id", pm.ID.String()).Msg("mark failed failed")
+			errMsg := execErr.Error()
+			if err := l.world.UpdateMoveState(ctx, move.ID, worldmodel.StateFailed, &errMsg); err != nil {
+				l.logger.Error().Err(err).Str("move_id", move.ID).Msg("mark failed failed")
 			}
 		} else {
-			if err := l.planStore.MarkCompleted(ctx, pm.ID); err != nil {
-				l.logger.Error().Err(err).Str("move_id", pm.ID.String()).Msg("mark completed failed")
+			if err := l.world.UpdateMoveState(ctx, move.ID, worldmodel.StateDone, nil); err != nil {
+				l.logger.Error().Err(err).Str("move_id", move.ID).Msg("mark done failed")
 			}
 
 			// 发布 Move 完成事件
 			if l.eventBus != nil {
-				l.eventBus.PublishMoveCompleted(taskID, pm.ID)
+				l.eventBus.PublishMoveCompleted(taskID, move.ID)
 			}
+
+			// 更新已完成集合
+			completed[move.ID] = true
 		}
 
 		rep.Steps++
@@ -154,21 +165,19 @@ func (l *ExecutionLoop) processPendingMoves(ctx context.Context, taskID string, 
 func (l *ExecutionLoop) executeMove(
 	ctx context.Context,
 	taskID string,
-	moveID uuid.UUID,
-	move planner.Move,
+	move worldmodel.Node,
 	rep *Report,
 ) error {
 	l.logger.Info().
-		Str("task_id", taskID).
-		Str("move_id", moveID.String()).
+		Str("move_id", move.ID).
 		Str("kind", string(move.Kind)).
-		Str("target", move.Target.Locator).
+		Int("priority", move.Priority).
 		Msg("executing move")
 
-	// Executor 执行 Move，产出 Attempt
+	// Executor 执行 Move
 	attempts, err := l.executor.Execute(ctx, move)
 	if err != nil {
-		l.logger.Error().Err(err).Str("move_id", moveID.String()).Msg("executor failed")
+		l.logger.Error().Err(err).Str("move_id", move.ID).Msg("executor failed")
 		return err
 	}
 
@@ -184,11 +193,21 @@ func (l *ExecutionLoop) executeMove(
 		if node != nil {
 			rep.Promoted++
 
+			// 创建溯源边：move → observation/discovery
+			edge := worldmodel.Edge{
+				TaskID:    taskID,
+				SrcID:     move.ID,
+				Rel:       worldmodel.RelProduces,
+				DstID:     node.ID,
+				CreatedAt: time.Now(),
+			}
+			if err := l.world.CreateEdge(ctx, edge); err != nil {
+				l.logger.Error().Err(err).Msg("create edge failed")
+			}
+
 			// 发布验证通过事件
 			if l.eventBus != nil && node.TaskID != "" {
-				if nodeID, parseErr := uuid.Parse(node.ID); parseErr == nil {
-					l.eventBus.PublishVerificationPassed(node.TaskID, nodeID)
-				}
+				l.eventBus.PublishVerificationPassed(node.TaskID, node.ID)
 			}
 		}
 	}
@@ -196,29 +215,26 @@ func (l *ExecutionLoop) executeMove(
 	return nil
 }
 
+// getCompletedMoveIDs 获取已完成的 Move ID 集合
+func (l *ExecutionLoop) getCompletedMoveIDs(ctx context.Context, taskID string) (map[string]bool, error) {
+	completedMoves, err := l.world.ListCompletedMoves(ctx, taskID)
+	if err != nil {
+		return nil, err
+	}
+
+	completed := make(map[string]bool, len(completedMoves))
+	for _, m := range completedMoves {
+		completed[m.ID] = true
+	}
+
+	return completed, nil
+}
+
 // countPendingMoves 统计待执行 Move 数量
 func (l *ExecutionLoop) countPendingMoves(ctx context.Context, taskID string) (int, error) {
-	moves, err := l.planStore.ListPending(ctx, taskID)
+	moves, err := l.world.ListOpenMoves(ctx, taskID)
 	if err != nil {
 		return 0, err
 	}
 	return len(moves), nil
-}
-
-// convertToPlannerMoveKind 转换 executionplan.MoveKind 到 planner.MoveKind
-func convertToPlannerMoveKind(kind executionplan.MoveKind) planner.MoveKind {
-	switch kind {
-	case executionplan.MoveEnumerate:
-		return planner.MoveEnumerate
-	case executionplan.MoveProbe:
-		return planner.MoveProbe
-	case executionplan.MoveExploit:
-		return planner.MoveExploit
-	case executionplan.MoveEscalate:
-		return planner.MoveEscalate
-	case executionplan.MovePersist:
-		return planner.MovePersist
-	default:
-		return planner.MoveEnumerate
-	}
 }

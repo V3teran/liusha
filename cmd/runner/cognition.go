@@ -2,12 +2,13 @@ package main
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/V3teran/liusha/internal/cognition"
 	domainweb "github.com/V3teran/liusha/internal/executor/web"
 	executorweb "github.com/V3teran/liusha/internal/executor/web"
 	"github.com/V3teran/liusha/internal/httpreplay"
-	"github.com/V3teran/liusha/internal/planner"
+	"github.com/V3teran/liusha/internal/planneragent"
 	"github.com/V3teran/liusha/internal/traffic"
 	"github.com/V3teran/liusha/internal/verifier"
 )
@@ -38,49 +39,46 @@ func (s *agentTrafficScope) GetInScope(ctx context.Context, id int64) (httprepla
 }
 
 // runCognition drives a single engagement through the L4 cognition loop:
-// Planner (strategy) → Executor (tactical run) → Verifier (promotion gate).
-//
-// When planStore is available, uses ExecutionLoop (execution_plan-based, async).
-// Otherwise, falls back to traditional Loop (in-memory planner, sync).
+// PlannerAgent (async strategy) → ExecutionLoop → Executor (tactical run) → Verifier (promotion gate).
 func (h handler) runCognition(
 	ctx context.Context,
 	assignmentID, taskID, host string,
 	run executorweb.AgentFunc,
 ) (cognition.Report, error) {
-	if h.world == nil || assignmentID == "" {
-		return cognition.Report{}, run(ctx, planner.Move{})
+	if h.world == nil || taskID == "" || h.eventBus == nil {
+		return cognition.Report{}, fmt.Errorf("world and eventBus are required")
 	}
 
-	executor := executorweb.NewExecutor(assignmentID, host, h.findings, run)
+	executor := executorweb.NewExecutor(taskID, host, h.findings, run)
 	replaySource := &agentTrafficScope{store: h.agentStore, taskID: taskID}
 	promoter := verifier.New(h.world, domainweb.NewReplayer(replaySource))
 
-	// 若有 planStore，使用新的 ExecutionLoop（execution_plan 驱动）
-	if h.planStore != nil && h.eventBus != nil {
-		execLoop := cognition.NewExecutionLoop(
-			h.planStore,
-			executor,
-			promoter,
-			h.eventBus,
-			h.logger.With().Str("component", "execution_loop").Str("task_id", taskID).Logger(),
-		)
-		return execLoop.Run(ctx, taskID)
-	}
+	// 启动 PlannerAgent（异步规划器）
+	// PlannerAgent 内部会通过 h.router 获取 LLM
 
-	// 降级到传统 Loop（内存规划器，同步）
-	var strategy planner.Strategy
-	if p, err := h.router.For(ctx, "planner"); err == nil {
-		strategy = planner.NewLLMStrategy(p)
-	} else {
-		strategy = planner.NewKillChainStrategy()
-	}
+	plannerAgent := planneragent.New(planneragent.Config{
+		TaskID:       taskID,
+		EventBus:     h.eventBus,
+		World:        h.world,
+		ControlPlane: h.controlPlane,
+		Router:       h.router,
+		Logger:       h.logger,
+	})
 
-	loop := cognition.New(
-		planner.New(h.world, strategy),
+	// 在独立 goroutine 中启动 PlannerAgent
+	go func() {
+		if err := plannerAgent.Start(ctx); err != nil && ctx.Err() == nil {
+			h.logger.Error().Err(err).Str("task_id", taskID).Msg("planner agent stopped with error")
+		}
+	}()
+	h.logger.Info().Str("task_id", taskID).Msg("planner agent started")
+
+	execLoop := cognition.NewExecutionLoop(
+		h.world,
 		executor,
 		promoter,
-		0,
-	).WithEventBus(h.eventBus)
-
-	return loop.Run(ctx, assignmentID)
+		h.eventBus,
+		h.logger.With().Str("component", "execution_loop").Str("task_id", taskID).Logger(),
+	)
+	return execLoop.Run(ctx, taskID)
 }

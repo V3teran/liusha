@@ -18,15 +18,16 @@ import (
 //
 // runner 路径用此结构传给 executor.BuildUserPrompt 拼 user prompt。
 type BuilderParams struct {
-	TaskID   string // 所属 task.id（也用作 finding/lesson 归属）
-	ExecutorID string
+	TaskID       string // 所属 task.id（也用作 finding/lesson 归属）
+	AssignmentID string // 所属 assignment.id（用于查询情报黑板）
+	ExecutorID   string
 	// plannerID 非空表示本任务是子任务（旧 subtask swarm 语义）；deep 临时 sub-agent 不建
 	// 独立 agent，active 主任务此字段为空。保留供 BuildUserPrompt 兼容。
 	plannerID string
-	Host           string
+	Host      string
 
 	// 单条 HTTP 流量（请求 + 响应）的可选上下文。
-	TrafficID          int64
+	TrafficID       int64
 	URL             string
 	Method          string
 	RequestHeaders  json.RawMessage

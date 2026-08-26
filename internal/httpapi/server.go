@@ -115,8 +115,8 @@ func NewServer(d Deps) http.Handler {
 		r.GET("/tasks", listTasksHandler(d.Tasks))
 	}
 	if d.ControlPlane != nil {
-		r.POST("/tasks/:taskID/control", handleCreateControlEvent(d.ControlPlane))
-		r.GET("/tasks/:taskID/control", handleListControlEvents(d.ControlPlane))
+		r.POST("/tasks/:id/control", handleCreateControlEvent(d.ControlPlane))
+		r.GET("/tasks/:id/control", handleListControlEvents(d.ControlPlane))
 		r.GET("/control-events/:eventID", handleGetControlEvent(d.ControlPlane))
 	}
 	if d.Findings != nil {

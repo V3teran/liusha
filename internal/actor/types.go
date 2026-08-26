@@ -15,14 +15,15 @@ import (
 //  Move（策略意图单元）
 // ─────────────────────────────────────────────
 
-type MoveKind string
+// Complexity 是 Move 的执行复杂度，决定资源配额。
+type Complexity string
 
 const (
-	MoveKindEnumerate MoveKind = "enumerate" // 信息收集/枚举（web目录、端口、云资产、域对象、CTF初探）
-	MoveKindProbe     MoveKind = "probe"     // 漏洞探测/弱点发现（扫描/fuzz/初步PoC，不坐实）
-	MoveKindExploit   MoveKind = "exploit"   // 漏洞利用/坐实（PoC确认、初始立足点获取）
-	MoveKindEscalate  MoveKind = "escalate"  // 权限提升/横向移动（本机提权/域提权/云IAM/跨主机）
-	MoveKindPersist   MoveKind = "persist"   // 后渗透（数据采集/持久化/C2/影响评估）
+	ComplexityTrivial  Complexity = "trivial"  // 极简：<5 步
+	ComplexitySimple   Complexity = "simple"   // 简单：~10 步
+	ComplexityModerate Complexity = "moderate" // 中等：~30 步
+	ComplexityComplex  Complexity = "complex"  // 复杂：~50 步
+	ComplexityExtreme  Complexity = "extreme"  // 极限：~100 步
 )
 
 // LandmarkRef 唯一标识一个目标节点，域无关三元组。
@@ -48,9 +49,9 @@ func (r LandmarkRef) Display() string {
 // Move 是 Planner 生成的单个战术意图单元。
 type Move struct {
 	ID          string
-	Kind        MoveKind
+	Complexity  Complexity
 	Target      LandmarkRef
-	Objective   string
+	Instruction string // 自然语言描述要做什么
 	Cues        []string
 	Constraints []registry.Constraint
 	Priority    int
@@ -318,13 +319,13 @@ type PlannerState struct {
 
 // PlanReq 是 Planner.Plan 的输入（分级，无全量 Landmarks）。
 type PlanReq struct {
-	TaskID           string
-	Frontier         []Landmark        // confirmed 且无出边，通常 <20
-	TopKLandmarks    []Landmark        // 按相关性 Top-30 Summary
-	History          []MoveRecord
-	State            PlannerState
-	EnabledMoveKinds []MoveKind
-	Budget           ScanBudgetRemaining
+	TaskID            string
+	Frontier          []Landmark        // confirmed 且无出边，通常 <20
+	TopKLandmarks     []Landmark        // 按相关性 Top-30 Summary
+	History           []MoveRecord
+	State             PlannerState
+	EnabledComplexity []Complexity      // 允许的复杂度级别
+	Budget            ScanBudgetRemaining
 }
 
 // PlanHalt 是 Planner 给出的终止信号。
@@ -351,11 +352,11 @@ type Target struct {
 
 // Campaign 是前端可配置的扫描策略。
 type Campaign struct {
-	EnabledMoveKinds   []MoveKind
-	BudgetOverrides    map[MoveKind]Budget
-	GlobalConstraints  []registry.Constraint
-	ScanBudget         ScanBudget
-	PostScanHook       func(taskID string) // 扫描结束后自动触发，非 MoveKind
+	EnabledComplexity []Complexity
+	BudgetOverrides   map[Complexity]Budget
+	GlobalConstraints []registry.Constraint
+	ScanBudget        ScanBudget
+	PostScanHook      func(taskID string)
 }
 
 type Assignment struct {

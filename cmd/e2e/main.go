@@ -87,7 +87,7 @@ func main() {
 	logger := logx.New("e2e")
 	ctx := context.Background()
 
-	apiBase := envx.OrDefault("LIUSHA_API_BASE", "http://localhost:8080")
+	apiBase := envx.OrDefault("LIUSHA_API_BASE", "http://localhost:8090")
 	apiKey := envx.OrDefault("LIUSHA_API_KEY", "changeme-dev-key")
 	pgDSN := envx.OrDefault("LIUSHA_POSTGRES_DSN", "postgres://liusha:liusha@localhost:5432/liusha?sslmode=disable")
 	proxyURL := envx.OrDefault("LIUSHA_PROXY_ADDR", "http://localhost:8888")

@@ -1,6 +1,6 @@
-// Package dispatcher — Move-aware Actor 工厂。
+// Package dispatcher — Complexity-aware Actor 工厂。
 //
-// 按 MoveKind 选 Profile，循环执行 Actor.Run，Critic 给 Steer 后重跑。
+// 按 Move.Complexity 选 Profile，循环执行 Actor.Run，Critic 给 Steer 后重跑。
 package dispatcher
 
 import (
@@ -12,9 +12,9 @@ import (
 	"github.com/V3teran/liusha/internal/registry"
 )
 
-// Profile 是针对单个 MoveKind 的 Actor 配置。
+// Profile 是针对单个 Complexity 的 Actor 配置。
 type Profile struct {
-	MoveKind      actor.MoveKind
+	Complexity    actor.Complexity
 	SystemPrompt  string
 	Tools         []string // 允许使用的工具名列表
 	Budget        actor.Budget
@@ -22,9 +22,9 @@ type Profile struct {
 	MaxExecutions int // Critic Steer 最多重跑次数，默认 3
 }
 
-// Dispatcher 是 Move-aware Actor 工厂。
+// Dispatcher 是 Complexity-aware Actor 工厂。
 type Dispatcher struct {
-	profiles   map[actor.MoveKind]Profile
+	profiles   map[actor.Complexity]Profile
 	provider   provider.Provider
 	registry   *registry.Registry
 	compactor  actor.Compactor
@@ -43,7 +43,7 @@ func New(
 	emitter actor.SSEEmitter,
 ) *Dispatcher {
 	return &Dispatcher{
-		profiles:   make(map[actor.MoveKind]Profile),
+		profiles:   make(map[actor.Complexity]Profile),
 		provider:   p,
 		registry:   reg,
 		compactor:  compactor,
@@ -53,16 +53,16 @@ func New(
 	}
 }
 
-// RegisterProfile 注册 MoveKind 对应的 Profile。
+// RegisterProfile 注册 Complexity 对应的 Profile。
 func (d *Dispatcher) RegisterProfile(p Profile) {
-	d.profiles[p.MoveKind] = p
+	d.profiles[p.Complexity] = p
 }
 
-// Execute 按 Move.Kind 选 Profile，执行 Actor 循环，返回所有 Execution。
+// Execute 按 Move.Complexity 选 Profile，执行 Actor 循环，返回所有 Execution。
 func (d *Dispatcher) Execute(ctx context.Context, move actor.Move) ([]actor.Execution, error) {
-	profile, ok := d.profiles[move.Kind]
+	profile, ok := d.profiles[move.Complexity]
 	if !ok {
-		return nil, fmt.Errorf("dispatcher: no profile for move kind %q", move.Kind)
+		return nil, fmt.Errorf("dispatcher: no profile for complexity %q", move.Complexity)
 	}
 
 	maxExec := profile.MaxExecutions
@@ -128,16 +128,16 @@ func (d *Dispatcher) buildActorReq(profile Profile, move actor.Move, hypotheses 
 		}
 	}
 
-	objective := fmt.Sprintf("Kind: %s\nTarget: %s\nObjective: %s",
-		move.Kind, move.Target.Display(), move.Objective)
+	instruction := fmt.Sprintf("Complexity: %s\nTarget: %s\nInstruction: %s",
+		move.Complexity, move.Target.Display(), move.Instruction)
 	for _, cue := range move.Cues {
-		objective += "\nCue: " + cue
+		instruction += "\nCue: " + cue
 	}
 
 	return actor.ActorReq{
 		System: system,
 		Inbox: []actor.Message{
-			{Role: "user", Content: objective},
+			{Role: "user", Content: instruction},
 		},
 		Hypotheses:         hypotheses,
 		Budget:             profile.Budget,

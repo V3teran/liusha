@@ -11,6 +11,7 @@ import (
 	"github.com/V3teran/liusha/internal/lead"
 	"github.com/V3teran/liusha/internal/sandbox"
 	"github.com/V3teran/liusha/internal/skill"
+	"github.com/V3teran/liusha/internal/task"
 	"github.com/V3teran/liusha/internal/traffic"
 )
 
@@ -21,15 +22,16 @@ type Deps struct {
 	ExecutorID string
 	Host       string
 
+	Tasks      *task.Store
 	Findings   *finding.Store
 	Corpus     *corpus.Store
-	Embedder   corpus.Embedder  // 可 nil → 退化为纯 sparse 检索
+	Embedder   corpus.Embedder // 可 nil → 退化为纯 sparse 检索
 	Reranker   corpus.Reranker
 	Leads      *lead.Store
 	ProxyStore *traffic.ProxyStore
 	AgentStore *traffic.AgentStore
 	Creds      credential.Provider
-	Sandbox    sandbox.Client   // Spawn 后注入，可 nil
+	Sandbox    sandbox.Client // Spawn 后注入，可 nil
 	ToolingLoader *skill.Loader
 	VulnLoader    *skill.Loader
 }

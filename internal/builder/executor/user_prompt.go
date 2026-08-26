@@ -105,7 +105,7 @@ func buildUserPrompt(ctx context.Context, deps Deps, p skill.BuilderParams) stri
 
 	// 段 4: 情报黑板（lead，§7）——顶层 agent 只读注入，无工具（与子代理经
 	// leadSection 拼进 Instruction 同源，但顶层走 user prompt 而非 system prompt）。
-	if leadText := loadLeadForPrompt(ctx, deps.Lead, p.Host); leadText != "" {
+	if leadText := loadLeadForPrompt(ctx, deps.Lead, p.AssignmentID); leadText != "" {
 		b.WriteString("\n\n")
 		b.WriteString(leadText)
 	}
@@ -378,13 +378,13 @@ func loadExistingFindings(ctx context.Context, store *finding.Store, taskID, hos
 	return b.String()
 }
 
-// loadLeadForPrompt 拉该 host 的情报黑板（读时按 kind 分组去重，见 lead.FormatSection）。
-// store nil / host 空 / 读取失败 / 无情报 → 返回空串，不污染 prompt。
-func loadLeadForPrompt(ctx context.Context, store *lead.Store, host string) string {
-	if store == nil || host == "" {
+// loadLeadForPrompt 拉该 assignment 的情报黑板（读时按 kind 分组去重，见 lead.FormatSection）。
+// store nil / assignmentID 空 / 读取失败 / 无情报 → 返回空串，不污染 prompt。
+func loadLeadForPrompt(ctx context.Context, store *lead.Store, assignmentID string) string {
+	if store == nil || assignmentID == "" {
 		return ""
 	}
-	grouped, err := store.ReadRecent(ctx, host)
+	grouped, err := store.ReadRecent(ctx, assignmentID)
 	if err != nil {
 		return ""
 	}

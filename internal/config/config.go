@@ -71,7 +71,7 @@ type RedisConfig struct {
 // 能力分档（tier）取代旧的 default/light/vision 四槽 + per-agent 摊平路由：
 // agent → tier 的绑定固定在代码里（见 llmcfg.AgentTier，运行期不可改）；
 // tier → provider 的绑定落 DB（前端「能力分档」页可配），此处 yaml 仅首次 insert-only 种子。
-// 三档：heavy（重推理纯文本）/ vision（多模态 browser-use 截图）/ light（轻任务省钱）。
+// 三档：complex（深度推理）/ medium（标准推理）/ simple（快速响应）。
 type LLMConfig struct {
 	Tiers    map[string]string `mapstructure:"tiers"`    // tier(heavy/vision/light) → provider key
 	Fallback string            `mapstructure:"fallback"` // 主 provider 重试耗尽后的全局备胎 provider key
@@ -696,17 +696,17 @@ func validateLLMKeys(c Config) error {
 		}
 		return nil
 	}
-	// heavy 是隐式默认档（agent 未显式归档即落 heavy），故种子必须配它。
-	heavy := c.LLM.Tiers["heavy"]
-	if heavy == "" {
-		return fmt.Errorf("llm.tiers.heavy required")
+	// medium 是隐式默认档（agent 未显式归档即落 medium），故种子必须配它。
+	medium := c.LLM.Tiers["medium"]
+	if medium == "" {
+		return fmt.Errorf("llm.tiers.medium required")
 	}
-	if err := check(heavy, "tiers.heavy"); err != nil {
+	if err := check(medium, "tiers.medium"); err != nil {
 		return err
 	}
 	for _, pair := range []struct{ name, role string }{
-		{c.LLM.Tiers["light"], "tiers.light"},
-		{c.LLM.Tiers["vision"], "tiers.vision"},
+		{c.LLM.Tiers["simple"], "tiers.simple"},
+		{c.LLM.Tiers["complex"], "tiers.complex"},
 		{c.LLM.Fallback, "fallback"},
 	} {
 		if pair.name != "" {

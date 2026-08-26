@@ -9,15 +9,17 @@ import (
 	"github.com/V3teran/liusha/internal/worldmodel"
 )
 
-// findingAttrs 是 finding 晋升成世界模型 KindFinding 节点时写入 Attrs 的漏洞元数据。
+// findingContent 是 finding 晋升成世界模型 discovery 节点时写入 Content 的漏洞元数据。
 // 回指 finding_id/seq 闭合「图节点 ↔ finding 记录」双向溯源。
-type findingAttrs struct {
+type findingContent struct {
+	Type      string `json:"type"`      // "vulnerability"
 	FindingID string `json:"finding_id"`
 	Seq       int64  `json:"seq,omitempty"`
 	Severity  string `json:"severity,omitempty"`
 	Summary   string `json:"summary"`
 	CWEID     string `json:"cwe_id,omitempty"`
 	OWASP     string `json:"owasp_category,omitempty"`
+	TargetRef worldmodel.TargetRef `json:"target_ref"`
 }
 
 // AttemptFromFinding 把一条 web finding 翻译成 verifier.Attempt（提议权兑现：报告 → 待裁决晋升）。
@@ -31,24 +33,31 @@ func AttemptFromFinding(taskID string, f finding.VulnFinding) (verifier.Attempt,
 		return verifier.Attempt{}, false, nil
 	}
 
-	attrs, err := json.Marshal(findingAttrs{
+	targetRef := endpointRef(f)
+
+	content, err := json.Marshal(findingContent{
+		Type:      "vulnerability",
 		FindingID: f.ID,
 		Seq:       f.Seq,
 		Severity:  f.Severity,
 		Summary:   f.Summary,
 		CWEID:     f.CWEID,
 		OWASP:     f.OWASPCategory,
+		TargetRef: targetRef,
 	})
 	if err != nil {
 		return verifier.Attempt{}, false, err
 	}
 
+	// 计算优先级：severity 映射
+	priority := severityToPriority(f.Severity)
+
 	return verifier.Attempt{
 		TaskID:     taskID,
-		Kind:       worldmodel.KindFinding,
-		Target:     endpointRef(f),
-		Primitives: f.Repro, // 形状已是 ReplayRecipe，Verifier 侧 web.Replayer 解析
-		Attrs:      attrs,
+		Kind:       worldmodel.KindDiscovery, // 漏洞是重要发现
+		Primitives: f.Repro,                  // 形状已是 ReplayRecipe，Verifier 侧 web.Replayer 解析
+		Content:    content,
+		Priority:   priority,
 	}, true, nil
 }
 
@@ -81,4 +90,22 @@ func ensureLeadingSlash(p string) string {
 		return p
 	}
 	return "/" + p
+}
+
+// severityToPriority 将 severity 映射到优先级（1-10）
+func severityToPriority(severity string) int {
+	switch strings.ToLower(severity) {
+	case "critical":
+		return 10
+	case "high":
+		return 8
+	case "medium":
+		return 5
+	case "low":
+		return 3
+	case "info":
+		return 1
+	default:
+		return 5
+	}
 }

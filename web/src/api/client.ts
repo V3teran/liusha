@@ -25,6 +25,7 @@ import type {
   FindingRow,
   FindingFilters,
   FindingListResponse,
+  ControlEvent,
 } from './types'
 
 const KEY_STORAGE = 'liusha_api_key'
@@ -557,4 +558,31 @@ export async function saveCredentialsBatch(
  */
 export async function deleteCredentials(host: string): Promise<void> {
   await del(`/credential?host=${encodeURIComponent(host)}`)
+}
+
+/* ============================================================
+   控制平面（POST/GET /tasks/:id/control）：人工干预活跃任务
+   ============================================================ */
+
+/**
+ * 创建控制事件（人工干预指令）
+ */
+export async function createControlEvent(
+  taskID: string,
+  command: string,
+  payload?: Record<string, unknown>
+): Promise<{ event_id: string }> {
+  return post<{ event_id: string }>(`/tasks/${taskID}/control`, {
+    command,
+    payload: payload ?? null,
+  })
+}
+
+/**
+ * 列出任务的控制事件（最多 100 条）
+ */
+export async function listControlEvents(taskID: string): Promise<{
+  events: ControlEvent[]
+}> {
+  return get(`/tasks/${taskID}/control`)
 }

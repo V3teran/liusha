@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/hibiken/asynq"
 	"github.com/rs/zerolog"
 
@@ -21,7 +22,7 @@ import (
 	"github.com/V3teran/liusha/internal/corpus"
 	"github.com/V3teran/liusha/internal/credential"
 	"github.com/V3teran/liusha/internal/executor"
-	"github.com/V3teran/liusha/internal/executionplan"
+	"github.com/V3teran/liusha/internal/worldmodel"
 	"github.com/V3teran/liusha/internal/finding"
 	"github.com/V3teran/liusha/internal/lead"
 	"github.com/V3teran/liusha/internal/ledger"
@@ -36,7 +37,6 @@ import (
 	"github.com/V3teran/liusha/internal/tools/manifest"
 	"github.com/V3teran/liusha/internal/traffic"
 	"github.com/V3teran/liusha/internal/worker"
-	"github.com/V3teran/liusha/internal/worldmodel"
 )
 
 // handler 持有所有跨任务共享依赖。
@@ -81,7 +81,6 @@ type handler struct {
 
 	// 事件驱动的 Planner Agent 基础设施
 	eventBus     *cognition.EventBus
-	planStore    *executionplan.Store
 	plannerMgr   *plannerAgentManager
 	controlPlane *controlplane.Store
 }
@@ -96,15 +95,25 @@ func (h handler) onboard(ctx context.Context, assignmentID, taskID, brief string
 		return taskID
 	}
 
-	if h.world != nil && assignmentID != "" {
+	if h.world != nil && taskID != "" {
 		for _, ref := range refs {
-			if _, err := h.world.UpsertNode(ctx, worldmodel.Node{
-				TaskID: assignmentID,
-				Kind:   worldmodel.KindTarget,
-				Ref:    ref,
-			}); err != nil {
-				h.logger.Warn().Err(err).Str("assignment_id", assignmentID).
-					Str("locator", ref.Locator).Msg("落 KindTarget 世界模型节点失败（不阻塞扫描）")
+			content, _ := json.Marshal(map[string]interface{}{
+				"target_ref": ref,
+			})
+			node := worldmodel.Node{
+				ID:         uuid.New().String(),
+				TaskID:     taskID,
+				Kind:       worldmodel.KindObjective,
+				Content:    content,
+				Priority:   5,
+				SourceType: "user",
+				SourceID:   "task_init",
+				CreatedAt:  time.Now(),
+				UpdatedAt:  time.Now(),
+			}
+			if _, err := h.world.CreateNode(ctx, node); err != nil {
+				h.logger.Warn().Err(err).Str("task_id", taskID).
+					Str("locator", ref.Locator).Msg("创建 objective 节点失败（不阻塞扫描）")
 			}
 		}
 	}
