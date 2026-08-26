@@ -27,7 +27,7 @@ func (s *Store) Append(ctx context.Context, assignmentID string, entry Entry) er
 	}
 
 	query := `
-		INSERT INTO leads (assignment_id, kind, detail, executor_id, source_task_id, created_at)
+		INSERT INTO lead (assignment_id, kind, detail, executor_id, source_task_id, created_at)
 		VALUES ($1, $2, $3, $4, $5, $6)
 	`
 	_, err := s.pool.Exec(ctx, query,
@@ -54,7 +54,7 @@ func (s *Store) List(ctx context.Context, assignmentID string, limit int) ([]Ent
 
 	query := `
 		SELECT kind, detail, executor_id, source_task_id, created_at
-		FROM leads
+		FROM lead
 		WHERE assignment_id = $1
 		ORDER BY created_at DESC
 	`
