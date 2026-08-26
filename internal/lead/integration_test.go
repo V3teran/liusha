@@ -1,0 +1,203 @@
+package lead
+
+import (
+	"context"
+	"testing"
+	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+// TestAssignmentIsolation 测试 assignment 级别隔离
+func TestAssignmentIsolation(t *testing.T) {
+	if testing.Short() {
+		t.Skip("跳过集成测试")
+	}
+
+	ctx := context.Background()
+	pool := setupTestDB(t)
+	defer pool.Close()
+
+	store := NewStore(pool)
+
+	assignmentA := "assignment-a"
+	assignmentB := "assignment-b"
+
+	// assignmentA 写入情报
+	err := store.Append(ctx, assignmentA, Entry{
+		Kind:         KindClue,
+		Detail:       "assignmentA 的秘密情报",
+		ExecutorID:   "executor-1",
+		SourceTaskID: "task-1",
+		CreatedAt:    time.Now(),
+	})
+	require.NoError(t, err)
+
+	// assignmentB 写入情报
+	err = store.Append(ctx, assignmentB, Entry{
+		Kind:         KindObservation,
+		Detail:       "assignmentB 的秘密情报",
+		ExecutorID:   "executor-2",
+		SourceTaskID: "task-2",
+		CreatedAt:    time.Now(),
+	})
+	require.NoError(t, err)
+
+	// assignmentA 只能看到自己的情报
+	listA, err := store.List(ctx, assignmentA, 100)
+	require.NoError(t, err)
+	assert.Len(t, listA, 1)
+	assert.Equal(t, "assignmentA 的秘密情报", listA[0].Detail)
+
+	// assignmentB 只能看到自己的情报
+	listB, err := store.List(ctx, assignmentB, 100)
+	require.NoError(t, err)
+	assert.Len(t, listB, 1)
+	assert.Equal(t, "assignmentB 的秘密情报", listB[0].Detail)
+}
+
+// TestCrossTaskSharing 测试同一 assignment 下多个 task 共享情报
+func TestCrossTaskSharing(t *testing.T) {
+	if testing.Short() {
+		t.Skip("跳过集成测试")
+	}
+
+	ctx := context.Background()
+	pool := setupTestDB(t)
+	defer pool.Close()
+
+	store := NewStore(pool)
+
+	assignmentID := "assignment-shared"
+
+	// task-1 写入情报
+	err := store.Append(ctx, assignmentID, Entry{
+		Kind:         KindClue,
+		Detail:       "task-1 发现的线索",
+		ExecutorID:   "executor-1",
+		SourceTaskID: "task-1",
+		CreatedAt:    time.Now(),
+	})
+	require.NoError(t, err)
+
+	// task-2 写入情报
+	err = store.Append(ctx, assignmentID, Entry{
+		Kind:         KindObservation,
+		Detail:       "task-2 确认的发现",
+		ExecutorID:   "executor-2",
+		SourceTaskID: "task-2",
+		CreatedAt:    time.Now(),
+	})
+	require.NoError(t, err)
+
+	// task-3 写入情报
+	err = store.Append(ctx, assignmentID, Entry{
+		Kind:         KindDeadend,
+		Detail:       "task-3 踩的坑",
+		ExecutorID:   "executor-3",
+		SourceTaskID: "task-3",
+		CreatedAt:    time.Now(),
+	})
+	require.NoError(t, err)
+
+	// 所有 task 都能看到全部情报
+	list, err := store.List(ctx, assignmentID, 100)
+	require.NoError(t, err)
+	assert.Len(t, list, 3)
+
+	// 验证来源
+	sources := make(map[string]bool)
+	for _, e := range list {
+		sources[e.SourceTaskID] = true
+	}
+	assert.True(t, sources["task-1"])
+	assert.True(t, sources["task-2"])
+	assert.True(t, sources["task-3"])
+}
+
+// TestReadRecentGrouping 测试 ReadRecent 按 Kind 分组
+func TestReadRecentGrouping(t *testing.T) {
+	if testing.Short() {
+		t.Skip("跳过集成测试")
+	}
+
+	ctx := context.Background()
+	pool := setupTestDB(t)
+	defer pool.Close()
+
+	store := NewStore(pool)
+
+	assignmentID := "assignment-grouped"
+
+	// 写入不同 kind 的情报
+	entries := []Entry{
+		{Kind: KindClue, Detail: "线索1", ExecutorID: "e1", SourceTaskID: "t1", CreatedAt: time.Now()},
+		{Kind: KindClue, Detail: "线索2", ExecutorID: "e1", SourceTaskID: "t1", CreatedAt: time.Now()},
+		{Kind: KindObservation, Detail: "发现1", ExecutorID: "e2", SourceTaskID: "t2", CreatedAt: time.Now()},
+		{Kind: KindDeadend, Detail: "死路1", ExecutorID: "e3", SourceTaskID: "t3", CreatedAt: time.Now()},
+	}
+
+	for _, e := range entries {
+		err := store.Append(ctx, assignmentID, e)
+		require.NoError(t, err)
+	}
+
+	// ReadRecent 返回分组结果
+	grouped, err := store.ReadRecent(ctx, assignmentID)
+	require.NoError(t, err)
+
+	assert.Len(t, grouped[KindClue], 2)
+	assert.Len(t, grouped[KindObservation], 1)
+	assert.Len(t, grouped[KindDeadend], 1)
+}
+
+// TestPersistence 测试持久化（无 TTL）
+func TestPersistence(t *testing.T) {
+	if testing.Short() {
+		t.Skip("跳过集成测试")
+	}
+
+	ctx := context.Background()
+	pool := setupTestDB(t)
+	defer pool.Close()
+
+	store := NewStore(pool)
+
+	assignmentID := "assignment-persist"
+
+	// 写入情报
+	err := store.Append(ctx, assignmentID, Entry{
+		Kind:         KindObservation,
+		Detail:       "持久化测试",
+		ExecutorID:   "executor-1",
+		SourceTaskID: "task-1",
+		CreatedAt:    time.Now().Add(-24 * time.Hour), // 24 小时前
+	})
+	require.NoError(t, err)
+
+	// 立即读取，应该能读到
+	list, err := store.List(ctx, assignmentID, 100)
+	require.NoError(t, err)
+	assert.Len(t, list, 1)
+	assert.Equal(t, "持久化测试", list[0].Detail)
+
+	// 验证：没有 TTL，旧数据不会过期
+	// （实际测试中无法等待真实时间，这里只是语义验证）
+}
+
+// setupTestDB 设置测试数据库连接
+func setupTestDB(t *testing.T) *pgxpool.Pool {
+	// 从环境变量读取测试数据库连接
+	dsn := "postgres://postgres:postgres@localhost:5432/liusha_test?sslmode=disable"
+
+	pool, err := pgxpool.New(context.Background(), dsn)
+	require.NoError(t, err, "连接测试数据库失败，请确保 PostgreSQL 运行在 localhost:5432，数据库名为 liusha_test")
+
+	// 清理测试数据
+	_, err = pool.Exec(context.Background(), "TRUNCATE TABLE lead")
+	require.NoError(t, err, "清理测试数据失败")
+
+	return pool
+}
