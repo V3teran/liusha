@@ -9,14 +9,13 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/google/uuid"
-
 	"github.com/V3teran/liusha/internal/actor"
 	executorbuilder "github.com/V3teran/liusha/internal/builder/executor"
 	cfgagent "github.com/V3teran/liusha/internal/config/agent"
 	cfgscenario "github.com/V3teran/liusha/internal/config/scenario"
+	"github.com/V3teran/liusha/internal/conversation"
 	"github.com/V3teran/liusha/internal/dispatcher"
-	"github.com/V3teran/liusha/internal/planner"
+	dispatcherprofile "github.com/V3teran/liusha/internal/dispatcher/profile"
 	"github.com/V3teran/liusha/internal/provider"
 	"github.com/V3teran/liusha/internal/registry"
 	"github.com/V3teran/liusha/internal/scanagent"
@@ -25,6 +24,7 @@ import (
 	"github.com/V3teran/liusha/internal/toolinvocation"
 	"github.com/V3teran/liusha/internal/tools"
 	"github.com/V3teran/liusha/internal/worker"
+	"github.com/V3teran/liusha/internal/worldmodel"
 )
 
 // abortPollInterval is the task-status poll cadence for the abort watcher.
@@ -200,36 +200,11 @@ func (h handler) buildDispatcher(
 	}
 
 	d := dispatcher.New(p, reg, noopCompactor{}, critic, h.checkpoint, emitter)
-	d.RegisterProfile(dispatcher.Profile{
-		MoveKind:      actor.MoveKindEnumerate,
-		SystemPrompt:  systemPrompt,
-		Budget:        actor.DefaultBudget(),
-		MaxExecutions: 1,
-	})
-	d.RegisterProfile(dispatcher.Profile{
-		MoveKind:      actor.MoveKindProbe,
-		SystemPrompt:  systemPrompt,
-		Budget:        actor.DefaultBudget(),
-		MaxExecutions: 2,
-	})
-	d.RegisterProfile(dispatcher.Profile{
-		MoveKind:      actor.MoveKindExploit,
-		SystemPrompt:  systemPrompt,
-		Budget:        actor.DefaultBudget(),
-		MaxExecutions: 3,
-	})
-	d.RegisterProfile(dispatcher.Profile{
-		MoveKind:      actor.MoveKindEscalate,
-		SystemPrompt:  systemPrompt,
-		Budget:        actor.DefaultBudget(),
-		MaxExecutions: 3,
-	})
-	d.RegisterProfile(dispatcher.Profile{
-		MoveKind:      actor.MoveKindPersist,
-		SystemPrompt:  systemPrompt,
-		Budget:        actor.DefaultBudget(),
-		MaxExecutions: 2,
-	})
+
+	// 注册全部 5 个 Complexity Profile
+	for _, profile := range dispatcherprofile.Profiles(systemPrompt) {
+		d.RegisterProfile(profile)
+	}
 
 	return d, reg, nil
 }
@@ -295,6 +270,7 @@ func (h handler) handleSolo(
 	rt, _ := h.settings.Runtime(ctx)
 	params := skill.BuilderParams{
 		TaskID:        taskID,
+		AssignmentID:  assignmentID,
 		ExecutorID:    tid,
 		Host:          host,
 		Brief:         brief,
@@ -340,6 +316,7 @@ func (h handler) handleSolo(
 		TaskID:        taskID,
 		ExecutorID:    tid,
 		Host:          host,
+		Tasks:         h.tasks,
 		Findings:      h.findings,
 		Corpus:        h.corpus,
 		Embedder:      h.embedder,
@@ -375,41 +352,15 @@ func (h handler) handleSolo(
 
 	var execResult []actor.Execution
 	var agentErr error
-	var moveID string
-	runAgent := func(runCtx context.Context, m planner.Move) error {
-		// 1. Move 开始前：记录到世界模型（spawns 边）
-		if m.OnNodeID != "" && m.Kind != "" {
-			mid, err := h.ledger.RecordMoveStart(runCtx, assignmentID, string(m.Kind), m.OnNodeID, m.Reason)
-			if err != nil {
-				h.logger.Warn().Err(err).Str("move_kind", string(m.Kind)).Msg("RecordMoveStart 失败（不阻塞）")
-			} else {
-				moveID = mid
-			}
-		}
-
-		// 2. 执行 Move
-		move := plannerMoveToActorMove(m, userPrompt)
+	runAgent := func(runCtx context.Context, m worldmodel.Node) error {
+		// 执行 Move
+		move := nodeToActorMove(m, userPrompt)
 		execs, err := d.Execute(runCtx, move)
 		if err != nil {
 			agentErr = err
 			return err
 		}
 		execResult = execs
-
-		// 3. Move 完成后：记录 outcome（produces 边在外层补）
-		if moveID != "" {
-			outcome := map[string]interface{}{
-				"engine":     "solo",
-				"final_text": "",
-			}
-			if len(execs) > 0 {
-				outcome["final_text"] = execs[len(execs)-1].Result.Conclusion
-			}
-			if err := h.ledger.RecordMoveComplete(runCtx, moveID, outcome, nil); err != nil {
-				h.logger.Warn().Err(err).Str("move_id", moveID).Msg("RecordMoveComplete 失败（不阻塞）")
-			}
-		}
-
 		return nil
 	}
 
@@ -431,6 +382,19 @@ func (h handler) handleSolo(
 		finalizeTask(false, "marshal task result")
 		return h.failTask(ctx, p.ExecutorID, fmt.Errorf("marshal task result: %w", err))
 	}
+
+	// 保存 assistant 的最终回复到 conversation
+	if p.ConversationID != "" && h.conversations != nil {
+		var result map[string]any
+		if err := json.Unmarshal(out, &result); err == nil {
+			if finalText, ok := result["final_text"].(string); ok && finalText != "" {
+				if _, err := h.conversations.AppendMessage(ctx, p.ConversationID, conversation.RoleAssistant, conversation.KindMessage, finalText, nil); err != nil {
+					h.logger.Warn().Err(err).Str("conversation_id", p.ConversationID).Msg("保存 assistant 消息失败")
+				}
+			}
+		}
+	}
+
 	finalizeTask(true, "")
 	h.distillCorpus(ctx, taskID, p.ConversationID, op.Code, host)
 	return h.executors.SetDone(ctx, p.ExecutorID, out)
@@ -479,6 +443,7 @@ func (h handler) handleSwarm(
 	rt, _ := h.settings.Runtime(ctx)
 	orchPrompt := executorbuilder.BuildUserPrompt(ctx, h.buildPromptDeps(), skill.BuilderParams{
 		TaskID:        taskID,
+		AssignmentID:  assignmentID,
 		ExecutorID:    tid,
 		Host:          virtualHost,
 		Brief:         brief,
@@ -518,6 +483,7 @@ func (h handler) handleSwarm(
 		TaskID:        taskID,
 		ExecutorID:    p.ExecutorID,
 		Host:          virtualHost,
+		Tasks:         h.tasks,
 		Findings:      h.findings,
 		Corpus:        h.corpus,
 		Embedder:      h.embedder,
@@ -552,48 +518,15 @@ func (h handler) handleSwarm(
 
 	var execResult []actor.Execution
 	var agentErr error
-	var moveID string
-	runAgent := func(runCtx context.Context, m planner.Move) error {
-		// 1. Move 开始前：记录到世界模型（spawns 边）
-		if m.OnNodeID != "" && m.Kind != "" {
-			mid, err := h.ledger.RecordMoveStart(runCtx, assignmentID, string(m.Kind), m.OnNodeID, m.Reason)
-			if err != nil {
-				h.logger.Warn().Err(err).Str("move_kind", string(m.Kind)).Msg("RecordMoveStart 失败（不阻塞）")
-			} else {
-				moveID = mid
-			}
-		}
-
-		// 2. 执行 Move
-		move := plannerMoveToActorMove(m, orchPrompt)
+	runAgent := func(runCtx context.Context, m worldmodel.Node) error {
+		// 执行 Move
+		move := nodeToActorMove(m, orchPrompt)
 		execs, err := d.Execute(runCtx, move)
 		if err != nil {
 			agentErr = err
 			return err
 		}
 		execResult = execs
-
-		// 3. Move 完成后：记录 outcome（produces 边在外层补）
-		if moveID != "" {
-			outcome := map[string]interface{}{
-				"engine":     "swarm",
-				"final_text": "",
-			}
-			if len(execs) > 0 {
-				outcome["final_text"] = execs[len(execs)-1].Result.Conclusion
-			}
-			if err := h.ledger.RecordMoveComplete(runCtx, moveID, outcome, nil); err != nil {
-				h.logger.Warn().Err(err).Str("move_id", moveID).Msg("RecordMoveComplete 失败（不阻塞）")
-			}
-
-			// 发布 Move 完成事件，触发 Planner 重新规划
-			if h.eventBus != nil {
-				if moveUUID, parseErr := uuid.Parse(moveID); parseErr == nil {
-					h.eventBus.PublishMoveCompleted(taskID, moveUUID)
-				}
-			}
-		}
-
 		return nil
 	}
 
@@ -615,6 +548,19 @@ func (h handler) handleSwarm(
 		finalizeTask(false, "marshal task result")
 		return h.failTask(ctx, p.ExecutorID, fmt.Errorf("marshal task result: %w", err))
 	}
+
+	// 保存 assistant 的最终回复到 conversation
+	if p.ConversationID != "" && h.conversations != nil {
+		var result map[string]any
+		if err := json.Unmarshal(out, &result); err == nil {
+			if finalText, ok := result["final_text"].(string); ok && finalText != "" {
+				if _, err := h.conversations.AppendMessage(ctx, p.ConversationID, conversation.RoleAssistant, conversation.KindMessage, finalText, nil); err != nil {
+					h.logger.Warn().Err(err).Str("conversation_id", p.ConversationID).Msg("保存 assistant 消息失败")
+				}
+			}
+		}
+	}
+
 	finalizeTask(true, "")
 	h.distillCorpus(ctx, taskID, p.ConversationID, "planner", virtualHost)
 	return h.executors.SetDone(ctx, p.ExecutorID, out)
@@ -624,43 +570,53 @@ func (h handler) handleSwarm(
 //  Helpers
 // ─────────────────────────────────────────────────────────────
 
-// plannerMoveToActorMove translates a planner.Move to actor.Move.
-// When the planner has no move (zero value), defaults to MoveKindEnumerate with the
-// user prompt as the objective.
-func plannerMoveToActorMove(m planner.Move, userPrompt string) actor.Move {
-	kind := plannerKindToActorKind(m.Kind)
-	objective := userPrompt
-	if d := m.Directive(); d != "" {
-		objective = d + "\n" + userPrompt
-	} else if m.Reason != "" {
-		objective = m.Reason + "\n" + userPrompt
+// nodeToActorMove translates a worldmodel.Node (kind=move) to actor.Move.
+// Extracts complexity and instruction from the move node.
+func nodeToActorMove(node worldmodel.Node, userPrompt string) actor.Move {
+	if !node.IsMove() {
+		// Fallback for non-move nodes
+		return actor.Move{
+			Complexity:  actor.ComplexitySimple,
+			Instruction: userPrompt,
+		}
 	}
-	return actor.Move{
-		Kind: kind,
-		Target: actor.LandmarkRef{
-			Domain:  m.Target.Domain,
-			RefKind: m.Target.RefKind,
-			Locator: m.Target.Locator,
-		},
-		Objective: objective,
-	}
-}
 
-// plannerKindToActorKind maps planner.MoveKind to actor.MoveKind.
-func plannerKindToActorKind(k planner.MoveKind) actor.MoveKind {
-	switch k {
-	case planner.MoveEnumerate:
-		return actor.MoveKindEnumerate
-	case planner.MoveProbe:
-		return actor.MoveKindProbe
-	case planner.MoveExploit:
-		return actor.MoveKindExploit
-	case planner.MoveEscalate:
-		return actor.MoveKindEscalate
-	case planner.MovePersist:
-		return actor.MoveKindPersist
-	default:
-		return actor.MoveKindEnumerate
+	// 解析 content
+	var content map[string]interface{}
+	_ = json.Unmarshal(node.Content, &content)
+
+	instruction, _ := content["instruction"].(string)
+	if instruction == "" {
+		instruction = userPrompt
+	}
+
+	// 解析 target_ref（可选）
+	var targetRef worldmodel.TargetRef
+	if tr, ok := content["target_ref"].(map[string]interface{}); ok {
+		domain, _ := tr["domain"].(string)
+		refKind, _ := tr["ref_kind"].(string)
+		locator, _ := tr["locator"].(string)
+		targetRef = worldmodel.TargetRef{
+			Domain:  domain,
+			RefKind: refKind,
+			Locator: locator,
+		}
+	}
+
+	// 使用节点的 complexity，如果为空则默认 simple
+	complexity := actor.ComplexitySimple
+	if node.Complexity != nil {
+		complexity = actor.Complexity(*node.Complexity)
+	}
+
+	return actor.Move{
+		Complexity: complexity,
+		Target: actor.LandmarkRef{
+			Domain:  targetRef.Domain,
+			RefKind: targetRef.RefKind,
+			Locator: targetRef.Locator,
+		},
+		Instruction: instruction,
 	}
 }
 

@@ -123,7 +123,7 @@ func (s *Store) Update(ctx context.Context, p NewParams) (Agent, error) {
 
 // Delete 按 code 删除。被 scenario.solo_agent_id 引用时会撞 DB ON DELETE RESTRICT。
 func (s *Store) Delete(ctx context.Context, code string) error {
-	tag, err := s.pool.Exec(ctx, "DELETE FROM executor WHERE code=$1", code)
+	tag, err := s.pool.Exec(ctx, "DELETE FROM agent WHERE code=$1", code)
 	if err != nil {
 		return fmt.Errorf("delete executor %q: %w", code, err)
 	}
@@ -135,7 +135,7 @@ func (s *Store) Delete(ctx context.Context, code string) error {
 
 // GetByID 按主键读取。
 func (s *Store) GetByID(ctx context.Context, id string) (Agent, error) {
-	row := s.pool.QueryRow(ctx, "SELECT "+colsSelect+" FROM executor WHERE id=$1", id)
+	row := s.pool.QueryRow(ctx, "SELECT "+colsSelect+" FROM agent WHERE id=$1", id)
 	var h Agent
 	if err := scan(row, &h); err != nil {
 		return Agent{}, fmt.Errorf("get executor %s: %w", id, err)
@@ -180,7 +180,7 @@ func (s *Store) ComplexityByCode(ctx context.Context, code string) (complexity s
 
 // GetByCode 按稳定引用名读取（代码与种子的主要访问路径）。
 func (s *Store) GetByCode(ctx context.Context, code string) (Agent, error) {
-	row := s.pool.QueryRow(ctx, "SELECT "+colsSelect+" FROM executor WHERE code=$1", code)
+	row := s.pool.QueryRow(ctx, "SELECT "+colsSelect+" FROM agent WHERE code=$1", code)
 	var h Agent
 	if err := scan(row, &h); err != nil {
 		return Agent{}, fmt.Errorf("get executor %q: %w", code, err)
@@ -190,7 +190,7 @@ func (s *Store) GetByCode(ctx context.Context, code string) (Agent, error) {
 
 // List 按 code 升序列出配置操作员；onlyEnabled=true 时过滤 enabled=false。
 func (s *Store) List(ctx context.Context, onlyEnabled bool) ([]Agent, error) {
-	q := "SELECT " + colsSelect + " FROM executor"
+	q := "SELECT " + colsSelect + " FROM agent"
 	if onlyEnabled {
 		q += " WHERE enabled=true"
 	}
@@ -235,7 +235,7 @@ func buildFilter(p ListParams) (string, []any) {
 // Limit<=0 时返回过滤后全量。
 func (s *Store) ListPaged(ctx context.Context, p ListParams) ([]Agent, error) {
 	where, args := buildFilter(p)
-	q := "SELECT " + colsSelect + " FROM executor" + where + " ORDER BY code ASC"
+	q := "SELECT " + colsSelect + " FROM agent" + where + " ORDER BY code ASC"
 	if p.Limit > 0 {
 		args = append(args, p.Limit)
 		q += fmt.Sprintf(" LIMIT $%d", len(args))
@@ -263,7 +263,7 @@ func (s *Store) ListPaged(ctx context.Context, p ListParams) ([]Agent, error) {
 func (s *Store) CountList(ctx context.Context, p ListParams) (int, error) {
 	where, args := buildFilter(p)
 	var n int
-	if err := s.pool.QueryRow(ctx, "SELECT COUNT(*) FROM executor"+where, args...).Scan(&n); err != nil {
+	if err := s.pool.QueryRow(ctx, "SELECT COUNT(*) FROM agent"+where, args...).Scan(&n); err != nil {
 		return 0, fmt.Errorf("count executors: %w", err)
 	}
 	return n, nil
@@ -273,7 +273,7 @@ func (s *Store) CountList(ctx context.Context, p ListParams) (int, error) {
 // 这是 swarm 引擎的子代理池来源：LLM 运行时在此池内动态 handoff（见 D2）。
 func (s *Store) ListEnabledDomain(ctx context.Context) ([]Agent, error) {
 	rows, err := s.pool.Query(ctx,
-		"SELECT "+colsSelect+" FROM executor WHERE kind='domain' AND enabled=true ORDER BY code ASC")
+		"SELECT "+colsSelect+" FROM agent WHERE kind='domain' AND enabled=true ORDER BY code ASC")
 	if err != nil {
 		return nil, fmt.Errorf("list enabled domain executors: %w", err)
 	}
@@ -294,7 +294,7 @@ func (s *Store) ListEnabledDomain(ctx context.Context) ([]Agent, error) {
 // 命中零条或多条均报错，以保证 swarm 装配时编排者全局唯一（见 D1）。
 func (s *Store) GetPlanner(ctx context.Context) (Agent, error) {
 	rows, err := s.pool.Query(ctx,
-		"SELECT "+colsSelect+" FROM executor WHERE kind='planner' AND enabled=true ORDER BY code ASC")
+		"SELECT "+colsSelect+" FROM agent WHERE kind='planner' AND enabled=true ORDER BY code ASC")
 	if err != nil {
 		return Agent{}, fmt.Errorf("get planner: %w", err)
 	}

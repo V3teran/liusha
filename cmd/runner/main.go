@@ -42,11 +42,10 @@ import (
 	"github.com/V3teran/liusha/internal/envx"
 	"github.com/V3teran/liusha/internal/executor"
 	executorweb "github.com/V3teran/liusha/internal/executor/web"
-	"github.com/V3teran/liusha/internal/executionplan"
 	"github.com/V3teran/liusha/internal/finding"
 	"github.com/V3teran/liusha/internal/ingestor"
 	"github.com/V3teran/liusha/internal/lead"
-	"github.com/V3teran/liusha/internal/ledger"
+	// "github.com/V3teran/liusha/internal/ledger"  // TODO: 需要重新实现 ledger 适配层
 	"github.com/V3teran/liusha/internal/llminvocation"
 	"github.com/V3teran/liusha/internal/llmstore"
 	"github.com/V3teran/liusha/internal/logx"
@@ -113,8 +112,8 @@ func main() {
 	proxyStore := traffic.NewProxyStore(pool) // 代理捕获流量（passive，按 host）
 	agentStore := traffic.NewAgentStore(pool) // agent 自产流量（active，按 task）
 	creds := credential.NewRedis(rdb, cfg.Credential.RedisKeyPrefix)
-	// 情报黑板（§7），与 credential 同 Redis 租户命名空间；ttl 滚动过期（每次写刷新该 host TTL）。
-	leads := lead.NewStore(rdb, cfg.Credential.RedisKeyPrefix, time.Duration(cfg.Runner.LeadTTLHours)*time.Hour)
+	// 情报黑板（§7）：PostgreSQL 持久化，按 assignment 隔离
+	leads := lead.NewStore(pool)
 
 	// Jina embedding + rerank client（corpus hybrid RAG 用）。密钥走 ENV JINA_API_KEY；
 	// 缺失时 jinaClient=nil，corpus 降级（search 退纯 sparse、write 不 embed）——不阻塞渗透主流程。
@@ -265,7 +264,7 @@ func main() {
 	eventBus := cognition.NewEventBus(eventBusCtx)
 
 	// PlanStore：execution_plan 表的持久化层
-	planStore := executionplan.NewStore(pool)
+	// worldmodel.Store 在前面已初始化为 worldStore
 
 	// ControlPlane：task_control_event 表的持久化层（人工干预）
 	controlPlaneStore := controlplane.NewStore(pool)
@@ -301,10 +300,9 @@ func main() {
 		eventPublisher: eventPublisher,
 		profiles:       profiles,
 		world:          worldStore,
-		ledger:         ledger.New(worldStore.AsLedgerStore()),
+		// ledger:         ledger.New(worldStore.AsLedgerStore()),  // TODO: 需要重新实现 AsLedgerStore
 		checkpoint:     actor.NewPGCheckpointStore(pool),
 		eventBus:       eventBus,
-		planStore:      planStore,
 		plannerMgr:     plannerMgr,
 		controlPlane:   controlPlaneStore,
 	}

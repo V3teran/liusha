@@ -47,7 +47,7 @@ services:
     environment:
       LIUSHA_POSTGRES_DSN: postgres://liusha:liusha@postgres:5432/liusha?sslmode=disable
       LIUSHA_REDIS_ADDR: redis:6379
-      LIUSHA_API_ADDR: 0.0.0.0:8090
+      LIUSHA_API_ADDR: 0.0.0.0:8080
       LIUSHA_API_KEY: "${LIUSHA_API_KEY:-changeme-dev-key}"
       LIUSHA_ENV: development
       LIUSHA_LOG_LEVEL: info
@@ -69,6 +69,8 @@ services:
       LIUSHA_LLM_VISION_PROVIDER: "${LIUSHA_LLM_VISION_PROVIDER:-deepseek}"
       # SSE stream cookie 签名密钥：cmd/api fail-fast 必需（空则启动崩溃）。dev 默认占位，prod 必须覆盖。
       LIUSHA_STREAM_COOKIE_SECRET: "${LIUSHA_STREAM_COOKIE_SECRET:-changeme-dev-stream-secret}"
+      # LLM provider 密钥加密密钥：用于加密存储在数据库中的 API keys
+      LIUSHA_LLM_KEY_SECRET: "${LIUSHA_LLM_KEY_SECRET:-changeme-dev-encryption-secret-must-be-32-chars}"
     volumes:
       - ../logs:/app/logs
     depends_on:
@@ -175,6 +177,8 @@ services:
       LIUSHA_LLM_LIGHT_PROVIDER: "${LIUSHA_LLM_LIGHT_PROVIDER:-deepseek}"
       LIUSHA_LLM_FALLBACK_PROVIDER: "${LIUSHA_LLM_FALLBACK_PROVIDER:-deepseek}"
       LIUSHA_LLM_VISION_PROVIDER: "${LIUSHA_LLM_VISION_PROVIDER:-deepseek}"
+      # LLM provider 密钥加密密钥：用于加密存储在数据库中的 API keys
+      LIUSHA_LLM_KEY_SECRET: "${LIUSHA_LLM_KEY_SECRET:-changeme-dev-encryption-secret-must-be-32-chars}"
       # eino 迁移：默认走 eino ChatModelAgent 路径；=1 切回旧 react（渐进迁移期退路）
       LIUSHA_USE_REACT: "${LIUSHA_USE_REACT:-}"
     volumes:

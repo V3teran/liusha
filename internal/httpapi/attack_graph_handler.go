@@ -13,46 +13,44 @@ import (
 	"github.com/V3teran/liusha/internal/worldmodel"
 )
 
-// WorldModelAPI 是攻击图（L3 世界模型）读出的窄接口，handler 只依赖它。
-// *worldmodel.Store 自动满足。图按 scan_id（=assignment_id）归属。
+// WorldModelAPI 是攻击图（世界模型）读出的窄接口。
+// *worldmodel.Store 满足此接口。
 type WorldModelAPI interface {
-	ListNodes(ctx context.Context, taskID string) ([]worldmodel.Node, error)
-	ListEdges(ctx context.Context, taskID string) ([]worldmodel.Edge, error)
-	ListVerifications(ctx context.Context, taskID string) ([]worldmodel.Verification, error)
+	ListNodesByKind(ctx context.Context, taskID string, kind worldmodel.NodeKind) ([]worldmodel.Node, error)
+	ListEdgesFrom(ctx context.Context, taskID, srcID string) ([]worldmodel.Edge, error)
+	ListEdgesTo(ctx context.Context, taskID, dstID string) ([]worldmodel.Edge, error)
 }
 
 // TaskScanResolver 把前端选中的 task 反解为其所属 assignment（=图的 scan_id）。
-// *task.Store 自动满足。前端选 task 不变，图按交战聚合的语义由后端解析承担。
 type TaskScanResolver interface {
 	GetByID(ctx context.Context, id string) (task.Task, error)
 }
 
-// attackGraphNodeDTO 是 wm_node 的对外形状。model.Node 无 JSON tag（领域层不背序列化契约），
-// 读出层显式建 DTO 定契约：seq 作对外稳定短号，ref 三元组多态目标，attrs 原样透传（形状由 kind 定）。
+// attackGraphNodeDTO 是 wm_node 的对外形状
 type attackGraphNodeDTO struct {
-	ID         string              `json:"id"`
-	Seq        int64               `json:"seq"`
-	Kind       worldmodel.NodeKind `json:"kind"`
-	Ref        worldmodel.TargetRef `json:"ref"`
-	Attrs      json.RawMessage     `json:"attrs"`
-	Confidence worldmodel.Confidence `json:"confidence"`
-	VerifiedBy *string             `json:"verified_by,omitempty"`
+	ID         string                  `json:"id"`
+	Kind       worldmodel.NodeKind     `json:"kind"`
+	Content    json.RawMessage         `json:"content"`
+	State      *worldmodel.State       `json:"state,omitempty"`       // Move 专用
+	Complexity *worldmodel.Complexity  `json:"complexity,omitempty"`  // Move 专用
+	Confidence *worldmodel.Confidence  `json:"confidence,omitempty"`  // Observation/Discovery 专用
+	Priority   int                     `json:"priority"`
+	CreatedAt  string                  `json:"created_at"`
+	UpdatedAt  string                  `json:"updated_at"`
 }
 
-// attackGraphEdgeDTO 是 wm_edge 的对外形状。领域层用 Src/Dst，前端 React Flow 用 source/target——
-// 在此单点转换，前端不必知道后端字段名。
+// attackGraphEdgeDTO 是 wm_edge 的对外形状
 type attackGraphEdgeDTO struct {
-	ID     string           `json:"id"`
-	Rel    worldmodel.EdgeRel `json:"rel"`
-	Source string           `json:"source"`
-	Target string           `json:"target"`
-	Attrs  json.RawMessage  `json:"attrs"`
+	SrcID  string              `json:"source"` // React Flow 使用 source/target
+	Rel    worldmodel.Relation `json:"rel"`
+	DstID  string              `json:"target"`
+	Attrs  json.RawMessage     `json:"attrs"`
 }
 
-// attackGraphVerificationDTO 是 wm_verification 的对外形状——取证链（可复现交付 + 合规审计的证据源）。
+// attackGraphVerificationDTO 是 wm_verification 的对外形状
 type attackGraphVerificationDTO struct {
 	ID         string                   `json:"id"`
-	LeadID     string                   `json:"lead_id"`
+	NodeID     string                   `json:"node_id"`
 	Primitives json.RawMessage          `json:"primitives"`
 	Outcome    worldmodel.VerifyOutcome `json:"outcome"`
 	Evidence   json.RawMessage          `json:"evidence"`
@@ -60,111 +58,107 @@ type attackGraphVerificationDTO struct {
 	CreatedAt  string                   `json:"created_at"`
 }
 
-// attackGraphResponse 是 GET /attack_graph/:task_id 的响应封套。
+// attackGraphResponse 是 GET /attack_graph/:task_id 的响应封套
 type attackGraphResponse struct {
-	TaskID        string                       `json:"task_id"`
-	ScanID        string                       `json:"scan_id"` // =assignment_id，图归属键
-	Nodes         []attackGraphNodeDTO         `json:"nodes"`
-	Edges         []attackGraphEdgeDTO         `json:"edges"`
-	Verifications []attackGraphVerificationDTO `json:"verifications"`
+	TaskID        string                        `json:"task_id"`
+	ScanID        string                        `json:"scan_id"`
+	Nodes         []attackGraphNodeDTO          `json:"nodes"`
+	Edges         []attackGraphEdgeDTO          `json:"edges"`
+	Verifications []attackGraphVerificationDTO  `json:"verifications"`
 }
 
-// attackGraphHandler 处理 GET /attack_graph/:task_id。
+// attackGraphHandler 处理 GET /attack_graph/:task_id
 //
-// 返回攻击图（L3 世界模型投影）：已确证/假定的世界状态节点（target/asset/credential/access/finding）
-// + 关系边（derives 认知因果 / enables 攻击链 / on 归属）+ Verifier 取证链。
-// 与旧「思维链 read-model」不同——本图只落 Verifier 坐实的真相，是可复现交付的权威视图。
-//
-// 前端选 task，后端按 task→assignment 解析出图的 scan_id（一交战一图，跨多阶段 task）。
+// 返回攻击图（世界模型投影）：目标、Move、观察、发现及其关系边。
 func attackGraphHandler(wm WorldModelAPI, resolver TaskScanResolver) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		tid := c.Param("task_id")
-		if tid == "" {
+		taskID := c.Param("task_id")
+		if taskID == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "task_id required"})
 			return
 		}
-		ctx := c.Request.Context()
 
-		tk, err := resolver.GetByID(ctx, tid)
+		// 解析 task → assignment (scan_id)
+		t, err := resolver.GetByID(c.Request.Context(), taskID)
 		if err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
-				c.JSON(http.StatusNotFound, gin.H{"error": "task not found", "task_id": tid})
+				c.JSON(http.StatusNotFound, gin.H{"error": "task not found"})
 				return
 			}
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-		taskID := tk.AssignmentID
 
-		nodes, err := wm.ListNodes(ctx, taskID)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
-		edges, err := wm.ListEdges(ctx, taskID)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
-		vers, err := wm.ListVerifications(ctx, taskID)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		scanID := t.AssignmentID
+		if scanID == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "task has no assignment_id"})
 			return
 		}
 
-		c.JSON(http.StatusOK, attackGraphResponse{
-			TaskID:        tid,
-			ScanID:        taskID,
-			Nodes:         nodesToDTO(nodes),
-			Edges:         edgesToDTO(edges),
-			Verifications: verificationsToDTO(vers),
-		})
-	}
-}
+		// 读取所有类型的节点
+		var allNodes []worldmodel.Node
+		for _, kind := range []worldmodel.NodeKind{
+			worldmodel.KindObjective,
+			worldmodel.KindMove,
+			worldmodel.KindObservation,
+			worldmodel.KindDiscovery,
+		} {
+			nodes, err := wm.ListNodesByKind(c.Request.Context(), scanID, kind)
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+				return
+			}
+			allNodes = append(allNodes, nodes...)
+		}
 
-// nodesToDTO 投影节点并归一 nil 为空数组（前端对 nodes 直接迭代，null 会崩）。
-func nodesToDTO(nodes []worldmodel.Node) []attackGraphNodeDTO {
-	out := make([]attackGraphNodeDTO, 0, len(nodes))
-	for _, n := range nodes {
-		out = append(out, attackGraphNodeDTO{
-			ID:         n.ID,
-			Seq:        n.Seq,
-			Kind:       n.Kind,
-			Ref:        n.Ref,
-			Attrs:      n.Attrs,
-			Confidence: n.Confidence,
-			VerifiedBy: n.VerifiedBy,
-		})
-	}
-	return out
-}
+		// 转换为 DTO
+		nodesDTOs := make([]attackGraphNodeDTO, 0, len(allNodes))
+		for _, n := range allNodes {
+			nodesDTOs = append(nodesDTOs, attackGraphNodeDTO{
+				ID:         n.ID,
+				Kind:       n.Kind,
+				Content:    n.Content,
+				State:      n.State,
+				Complexity: n.Complexity,
+				Confidence: n.Confidence,
+				Priority:   n.Priority,
+				CreatedAt:  n.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
+				UpdatedAt:  n.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),
+			})
+		}
 
-func edgesToDTO(edges []worldmodel.Edge) []attackGraphEdgeDTO {
-	out := make([]attackGraphEdgeDTO, 0, len(edges))
-	for _, e := range edges {
-		out = append(out, attackGraphEdgeDTO{
-			ID:     e.ID,
-			Rel:    e.Rel,
-			Source: e.Src,
-			Target: e.Dst,
-			Attrs:  e.Attrs,
-		})
-	}
-	return out
-}
+		// 读取边（简化：只从每个节点读出边）
+		edgeMap := make(map[string]bool)
+		var edgesDTOs []attackGraphEdgeDTO
+		for _, n := range allNodes {
+			edges, err := wm.ListEdgesFrom(c.Request.Context(), scanID, n.ID)
+			if err != nil {
+				continue // 非致命错误，继续
+			}
+			for _, e := range edges {
+				key := e.SrcID + "-" + string(e.Rel) + "-" + e.DstID
+				if edgeMap[key] {
+					continue // 去重
+				}
+				edgeMap[key] = true
+				edgesDTOs = append(edgesDTOs, attackGraphEdgeDTO{
+					SrcID: e.SrcID,
+					Rel:   e.Rel,
+					DstID: e.DstID,
+					Attrs: e.Attrs,
+				})
+			}
+		}
 
-func verificationsToDTO(vers []worldmodel.Verification) []attackGraphVerificationDTO {
-	out := make([]attackGraphVerificationDTO, 0, len(vers))
-	for _, v := range vers {
-		out = append(out, attackGraphVerificationDTO{
-			ID:         v.ID,
-			LeadID:     v.LeadID,
-			Primitives: v.Primitives,
-			Outcome:    v.Outcome,
-			Evidence:   v.Evidence,
-			DurationMs: v.DurationMs,
-			CreatedAt:  v.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
-		})
+		// 返回响应（暂时不返回 verifications，需要额外查询）
+		resp := attackGraphResponse{
+			TaskID:        taskID,
+			ScanID:        scanID,
+			Nodes:         nodesDTOs,
+			Edges:         edgesDTOs,
+			Verifications: []attackGraphVerificationDTO{}, // TODO: 需要添加 ListVerifications 方法
+		}
+
+		c.JSON(http.StatusOK, resp)
 	}
-	return out
 }

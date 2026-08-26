@@ -114,7 +114,11 @@ func (r *Router) build(ctx context.Context, complexity Complexity) (Provider, er
 	var p Provider
 	switch provCfg.Type {
 	case llmcfg.ProviderTypeAnthropic:
-		client := anthropicsdk.NewClient(anthropicoption.WithAPIKey(apiKey))
+		opts := []anthropicoption.RequestOption{anthropicoption.WithAPIKey(apiKey)}
+		if provCfg.BaseURL != "" {
+			opts = append(opts, anthropicoption.WithBaseURL(provCfg.BaseURL))
+		}
+		client := anthropicsdk.NewClient(opts...)
 		p, err = NewAnthropic(&client, model, provCfg.MaxTokens)
 	case llmcfg.ProviderTypeOpenAICompat:
 		ocfg := openaisdk.DefaultConfig(apiKey)

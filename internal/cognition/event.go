@@ -5,8 +5,6 @@ package cognition
 import (
 	"context"
 	"time"
-
-	"github.com/google/uuid"
 )
 
 // EventType 定义触发 Planner 重新规划的事件类型
@@ -125,12 +123,12 @@ func (b *EventBus) Publish(event Event) {
 }
 
 // PublishMoveCompleted 发布 Move 完成事件
-func (b *EventBus) PublishMoveCompleted(taskID string, moveID uuid.UUID) {
+func (b *EventBus) PublishMoveCompleted(taskID string, moveID string) {
 	b.Publish(Event{
 		Type:   EventMoveCompleted,
 		TaskID: taskID,
 		Payload: map[string]interface{}{
-			"move_id": moveID.String(),
+			"move_id": moveID,
 		},
 	})
 }
@@ -147,12 +145,12 @@ func (b *EventBus) PublishFindingDiscovered(taskID string, findingID string) {
 }
 
 // PublishVerificationPassed 发布验证通过事件
-func (b *EventBus) PublishVerificationPassed(taskID string, nodeID uuid.UUID) {
+func (b *EventBus) PublishVerificationPassed(taskID string, nodeID string) {
 	b.Publish(Event{
 		Type:   EventVerificationPassed,
 		TaskID: taskID,
 		Payload: map[string]interface{}{
-			"node_id": nodeID.String(),
+			"node_id": nodeID,
 		},
 	})
 }

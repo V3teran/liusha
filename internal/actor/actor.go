@@ -72,7 +72,7 @@ func (c *LLMCritic) Evaluate(ctx context.Context, move Move, recent []Step) (Ass
 		Messages: []provider.Message{
 			{
 				Role:    "user",
-				Content: fmt.Sprintf("Move objective: %s\n\nRecent thoughts:\n%s\n\nIs this making progress? Reply JSON: {\"advancing\":bool,\"observation\":\"...\",\"verdict\":\"continue|steer|abandon\"}", move.Objective, thoughts),
+				Content: fmt.Sprintf("Move instruction: %s\n\nRecent thoughts:\n%s\n\nIs this making progress? Reply JSON: {\"advancing\":bool,\"observation\":\"...\",\"verdict\":\"continue|steer|abandon\"}", move.Instruction, thoughts),
 			},
 		},
 		MaxTokens: 256,
@@ -260,7 +260,7 @@ func (a *Actor) Run(ctx context.Context, moveID string, req ActorReq) (ActorResu
 				recentSteps = recentSteps[len(recentSteps)-req.Budget.CriticInterval:]
 			}
 			// Critic 调用不阻塞主循环，忽略错误
-			_, _ = a.critic.Evaluate(ctx, Move{Objective: "pentest move"}, recentSteps)
+			_, _ = a.critic.Evaluate(ctx, Move{Instruction: "pentest move"}, recentSteps)
 		}
 
 		// budget 检查

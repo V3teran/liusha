@@ -1,0 +1,37 @@
+// Package cognition 定义 L4 认知引擎的核心接口。
+//
+// 更新（2026-08-26）：适配统一世界模型（Move 合并到 Node）
+package cognition
+
+import (
+	"context"
+
+	"github.com/V3teran/liusha/internal/verifier"
+	"github.com/V3teran/liusha/internal/worldmodel"
+)
+
+// Executor 执行一个 Move，产出 Attempt 列表（domain-agnostic）
+type Executor interface {
+	Execute(ctx context.Context, move worldmodel.Node) ([]verifier.Attempt, error)
+}
+
+// Promoter 验证 Attempt 并晋升到世界模型（domain-agnostic）
+type Promoter interface {
+	Promote(ctx context.Context, a verifier.Attempt) (*worldmodel.Node, error)
+}
+
+// Report 是认知循环的执行报告
+type Report struct {
+	Steps    int    // 执行的 Move 数量
+	Promoted int    // 晋升的节点数量
+	Attempts int    // 产出的 Attempt 数量
+	StopWhy  string // 停止原因
+}
+
+// 停止原因常量
+const (
+	stopMaxSteps   = "达到最大步数"
+	stopNoProgress = "连续无进展"
+	stopCanceled   = "任务取消"
+	stopError      = "执行错误"
+)

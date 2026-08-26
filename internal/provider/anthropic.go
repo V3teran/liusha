@@ -347,8 +347,12 @@ func toAnthropicTools(schemas []ToolSchema) ([]anthropic.ToolUnionParam, error) 
 			required = raw.Required
 		}
 		tp := &anthropic.ToolParam{
-			Name:        s.Name,
-			InputSchema: anthropic.ToolInputSchemaParam{Properties: props, Required: required},
+			Name: s.Name,
+			InputSchema: anthropic.ToolInputSchemaParam{
+				Type:       "object",
+				Properties: props,
+				Required:   required,
+			},
 		}
 		if s.Description != "" {
 			tp.Description = anthropic.String(s.Description)

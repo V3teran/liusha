@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/V3teran/liusha/internal/lead"
 	"github.com/V3teran/liusha/internal/registry"
@@ -22,9 +23,9 @@ var writeLeadSchema = json.RawMessage(`{
 type writeLeadTool struct{ deps Deps }
 
 func (t *writeLeadTool) Name() string            { return "write_lead" }
-func (t *writeLeadTool) ShortDesc() string       { return "写一条跨 agent 情报" }
+func (t *writeLeadTool) ShortDesc() string       { return "写一条跨 task 情报" }
 func (t *writeLeadTool) Desc() string {
-	return "写一条跨 agent 情报到情报黑板（按 host 共享给子代理/跨 run，不进交付报告）。"
+	return "写一条情报到 assignment 级别的黑板（同一批测试的多个 task 共享，跨 agent 可见）。"
 }
 func (t *writeLeadTool) Schema() json.RawMessage { return writeLeadSchema }
 
@@ -40,14 +41,23 @@ func (t *writeLeadTool) Execute(ctx context.Context, args json.RawMessage) (regi
 		return registry.ToolResult{Error: "write_lead: detail 必填"}, nil
 	}
 
+	// 查询当前 task 所属的 assignment_id
+	task, err := t.deps.Tasks.GetByID(ctx, t.deps.TaskID)
+	if err != nil {
+		return registry.ToolResult{Error: fmt.Sprintf("write_lead: 查询 task 失败: %v", err)}, nil
+	}
+
 	entry := lead.Entry{
 		Kind:         lead.Kind(a.Kind),
 		Detail:       a.Detail,
 		ExecutorID:   t.deps.ExecutorID,
 		SourceTaskID: t.deps.TaskID,
+		CreatedAt:    time.Now(),
 	}
-	if err := t.deps.Leads.Append(ctx, t.deps.Host, entry); err != nil {
+
+	if err := t.deps.Leads.Append(ctx, task.AssignmentID, entry); err != nil {
 		return registry.ToolResult{Error: fmt.Sprintf("write_lead: %v", err)}, nil
 	}
+
 	return registry.ToolResult{Output: fmt.Sprintf("情报已写入黑板: [%s] %s", a.Kind, a.Detail)}, nil
 }

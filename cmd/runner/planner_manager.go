@@ -44,9 +44,7 @@ func (m *plannerAgentManager) Start(ctx context.Context, h handler, taskID strin
 	agent := planneragent.New(planneragent.Config{
 		TaskID:       taskID,
 		EventBus:     h.eventBus,
-		PlanStore:    h.planStore,
 		World:        h.world,
-		Leads:        h.leads,
 		ControlPlane: h.controlPlane,
 		Router:       h.router,
 		Logger:       h.logger.With().Str("component", "planner_agent").Str("task_id", taskID).Logger(),

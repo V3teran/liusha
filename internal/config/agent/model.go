@@ -17,7 +17,7 @@ type Kind string
 
 const (
 	KindPlanner Kind = "planner"
-	KindExecutor       Kind = "executor"
+	KindExecutor       Kind = "domain"
 )
 
 // Agent 是 agent 配置表行的 Go 表示。

@@ -49,7 +49,6 @@ export interface Message {
 export interface Conversation {
   ID: string
   Title: string
-  TaskID: string
   TaskID: string // 关联扫描 task.id（= owner id）——执行图/攻击面按此匹配会话拿思维链
   // Status 已退役删除（后端不再返回）——运行态用 RunStatus。
   RunStatus?: string // 派生的真实运行态（active/completed/aborted；纯聊天空）——列表显示用此
@@ -551,4 +550,35 @@ export interface ProxyFilterSettings {
   exclude_status_codes: number[] // 排除的响应状态码
   max_request_body_size: number // 请求体切片上限字节，>0
   max_response_body_size: number // 响应体切片上限字节，>0
+}
+
+// ControlCommand 控制平面命令类型
+export type ControlCommand =
+  | 'adjust_goal'
+  | 'inject_move'
+  | 'pause'
+  | 'resume'
+  | 'terminate'
+
+// AdjustGoalPayload 调整目标命令的 payload
+export interface AdjustGoalPayload {
+  new_goal: string
+}
+
+// InjectMovePayload 注入 Move 命令的 payload
+export interface InjectMovePayload {
+  kind: string // MoveKind: enumerate/probe/exploit/escalate/persist
+  target: Record<string, unknown> // 目标定位符
+  reason?: string
+  priority?: number
+}
+
+// ControlEvent 控制事件记录
+export interface ControlEvent {
+  id: string
+  task_id: string
+  command: ControlCommand
+  payload?: AdjustGoalPayload | InjectMovePayload | Record<string, unknown>
+  created_at: string
+  processed_at?: string
 }
