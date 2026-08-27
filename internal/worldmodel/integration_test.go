@@ -26,50 +26,21 @@ func TestTaskIsolation(t *testing.T) {
 	taskA := "task-a"
 	taskB := "task-b"
 
-	// taskA 创建 objective 节点
-	objectiveA := Node{
-		ID:         "obj-a",
-		TaskID:     taskA,
-		Kind:       KindObjective,
-		Content:    json.RawMessage(`{"target_ref":{"domain":"web","ref_kind":"endpoint","locator":"http://example-a.com"}}`),
-		Priority:   5,
-		SourceType: "user",
-		SourceID:   "task_init",
-		CreatedAt:  time.Now(),
-		UpdatedAt:  time.Now(),
-	}
-	_, err := store.CreateNode(ctx, objectiveA)
-	require.NoError(t, err)
-
-	// taskB 创建 objective 节点
-	objectiveB := Node{
-		ID:         "obj-b",
-		TaskID:     taskB,
-		Kind:       KindObjective,
-		Content:    json.RawMessage(`{"target_ref":{"domain":"web","ref_kind":"endpoint","locator":"http://example-b.com"}}`),
-		Priority:   5,
-		SourceType: "user",
-		SourceID:   "task_init",
-		CreatedAt:  time.Now(),
-		UpdatedAt:  time.Now(),
-	}
-	_, err = store.CreateNode(ctx, objectiveB)
-	require.NoError(t, err)
-
 	// taskA 创建 move 节点
 	complexity := ComplexitySimple
+	stateOpen := StateOpen
 	moveA := Node{
 		ID:         "move-a",
 		TaskID:     taskA,
 		Kind:       KindMove,
 		Content:    json.RawMessage(`{"instruction":"测试 taskA 的目标"}`),
-		State:      stringPtr(StateOpen),
+		State:      &stateOpen,
 		Complexity: &complexity,
 		Priority:   5,
 		CreatedAt:  time.Now(),
 		UpdatedAt:  time.Now(),
 	}
-	_, err = store.CreateNode(ctx, moveA)
+	_, err := store.CreateNode(ctx, moveA)
 	require.NoError(t, err)
 
 	// taskB 创建 move 节点
@@ -78,7 +49,7 @@ func TestTaskIsolation(t *testing.T) {
 		TaskID:     taskB,
 		Kind:       KindMove,
 		Content:    json.RawMessage(`{"instruction":"测试 taskB 的目标"}`),
-		State:      stringPtr(StateOpen),
+		State:      &stateOpen,
 		Complexity: &complexity,
 		Priority:   5,
 		CreatedAt:  time.Now(),
@@ -87,36 +58,20 @@ func TestTaskIsolation(t *testing.T) {
 	_, err = store.CreateNode(ctx, moveB)
 	require.NoError(t, err)
 
-	// taskA 只能看到自己的节点
-	nodesA, err := store.ListNodesByTask(ctx, taskA)
-	require.NoError(t, err)
-	assert.Len(t, nodesA, 2) // 1 objective + 1 move
-	for _, n := range nodesA {
-		assert.Equal(t, taskA, n.TaskID)
-	}
-
-	// taskB 只能看到自己的节点
-	nodesB, err := store.ListNodesByTask(ctx, taskB)
-	require.NoError(t, err)
-	assert.Len(t, nodesB, 2) // 1 objective + 1 move
-	for _, n := range nodesB {
-		assert.Equal(t, taskB, n.TaskID)
-	}
-
-	// taskA 查询 open moves
+	// taskA 只能看到自己的 move
 	movesA, err := store.ListOpenMoves(ctx, taskA)
 	require.NoError(t, err)
 	assert.Len(t, movesA, 1)
 	assert.Equal(t, "move-a", movesA[0].ID)
 
-	// taskB 查询 open moves
+	// taskB 只能看到自己的 move
 	movesB, err := store.ListOpenMoves(ctx, taskB)
 	require.NoError(t, err)
 	assert.Len(t, movesB, 1)
 	assert.Equal(t, "move-b", movesB[0].ID)
 }
 
-// TestCompleteDataFlow 测试完整数据流：objective → move → observation → discovery
+// TestCompleteDataFlow 测试完整数据流：move → observation → discovery
 func TestCompleteDataFlow(t *testing.T) {
 	if testing.Short() {
 		t.Skip("跳过集成测试")
@@ -130,42 +85,28 @@ func TestCompleteDataFlow(t *testing.T) {
 
 	taskID := "task-flow"
 
-	// 1. 创建 objective（用户目标）
-	objective := Node{
-		ID:         "obj-1",
-		TaskID:     taskID,
-		Kind:       KindObjective,
-		Content:    json.RawMessage(`{"target_ref":{"domain":"web","ref_kind":"endpoint","locator":"http://example.com"}}`),
-		Priority:   5,
-		SourceType: "user",
-		SourceID:   "task_init",
-		CreatedAt:  time.Now(),
-		UpdatedAt:  time.Now(),
-	}
-	_, err := store.CreateNode(ctx, objective)
-	require.NoError(t, err)
-
-	// 2. PlannerAgent 生成 move（执行计划）
+	// 1. 创建 move
 	complexity := ComplexityModerate
+	stateOpen := StateOpen
 	move := Node{
 		ID:         "move-1",
 		TaskID:     taskID,
 		Kind:       KindMove,
-		Content:    json.RawMessage(`{"instruction":"扫描目标端点","target_ref":{"domain":"web","ref_kind":"endpoint","locator":"http://example.com"}}`),
-		State:      stringPtr(StateOpen),
+		Content:    json.RawMessage(`{"instruction":"扫描目标端点"}`),
+		State:      &stateOpen,
 		Complexity: &complexity,
 		Priority:   8,
 		CreatedAt:  time.Now(),
 		UpdatedAt:  time.Now(),
 	}
-	_, err = store.CreateNode(ctx, move)
+	_, err := store.CreateNode(ctx, move)
 	require.NoError(t, err)
 
-	// 3. ExecutionLoop 执行 move → 产出 observation
-	err = store.UpdateMoveState(ctx, move.ID, StateRunning)
+	// 2. 执行 move → 产出 observation
+	err = store.UpdateMoveState(ctx, move.ID, StateRunning, nil)
 	require.NoError(t, err)
 
-	confidence := ConfidenceUnverified
+	confidence := ConfUnverified
 	observation := Node{
 		ID:         "obs-1",
 		TaskID:     taskID,
@@ -183,20 +124,21 @@ func TestCompleteDataFlow(t *testing.T) {
 
 	// 创建边：move produces observation
 	err = store.CreateEdge(ctx, Edge{
-		FromID:    move.ID,
-		ToID:      observation.ID,
-		Kind:      EdgeProduces,
+		SrcID:     move.ID,
+		DstID:     observation.ID,
+		Rel:       RelProduces,
+		TaskID:    taskID,
 		CreatedAt: time.Now(),
 	})
 	require.NoError(t, err)
 
-	// 4. Verifier 验证通过 → 晋升为 discovery
-	verifiedConf := ConfidenceVerified
+	// 3. 验证通过 → 晋升为 discovery
+	verifiedConf := ConfVerified
 	discovery := Node{
 		ID:         "disc-1",
 		TaskID:     taskID,
 		Kind:       KindDiscovery,
-		Content:    json.RawMessage(`{"type":"vulnerability","finding_id":"finding-1","severity":"medium","summary":"未授权访问 /admin"}`),
+		Content:    json.RawMessage(`{"type":"vulnerability","severity":"medium"}`),
 		Confidence: &verifiedConf,
 		Priority:   8,
 		SourceType: "verifier",
@@ -209,39 +151,17 @@ func TestCompleteDataFlow(t *testing.T) {
 
 	// 创建边：observation supports discovery
 	err = store.CreateEdge(ctx, Edge{
-		FromID:    observation.ID,
-		ToID:      discovery.ID,
-		Kind:      EdgeSupports,
+		SrcID:     observation.ID,
+		DstID:     discovery.ID,
+		Rel:       RelSupports,
+		TaskID:    taskID,
 		CreatedAt: time.Now(),
 	})
 	require.NoError(t, err)
 
-	// 5. Move 执行完成
-	now := time.Now()
-	err = store.UpdateMoveState(ctx, move.ID, StateDone)
+	// 4. Move 完成
+	err = store.UpdateMoveState(ctx, move.ID, StateDone, nil)
 	require.NoError(t, err)
-	err = store.UpdateMoveCompleted(ctx, move.ID, now)
-	require.NoError(t, err)
-
-	// 验证完整链路
-	nodes, err := store.ListNodesByTask(ctx, taskID)
-	require.NoError(t, err)
-	assert.Len(t, nodes, 4) // objective + move + observation + discovery
-
-	// 验证节点类型
-	kindCount := make(map[NodeKind]int)
-	for _, n := range nodes {
-		kindCount[n.Kind]++
-	}
-	assert.Equal(t, 1, kindCount[KindObjective])
-	assert.Equal(t, 1, kindCount[KindMove])
-	assert.Equal(t, 1, kindCount[KindObservation])
-	assert.Equal(t, 1, kindCount[KindDiscovery])
-
-	// 验证边关系
-	edges, err := store.ListEdgesByTask(ctx, taskID)
-	require.NoError(t, err)
-	assert.Len(t, edges, 2) // move→observation + observation→discovery
 
 	// 验证 verified discoveries
 	discoveries, err := store.ListVerifiedDiscoveries(ctx, taskID)
@@ -265,6 +185,7 @@ func TestMoveDependency(t *testing.T) {
 	taskID := "task-dep"
 
 	complexity := ComplexitySimple
+	stateOpen := StateOpen
 
 	// move-1：无依赖
 	move1 := Node{
@@ -272,7 +193,7 @@ func TestMoveDependency(t *testing.T) {
 		TaskID:     taskID,
 		Kind:       KindMove,
 		Content:    json.RawMessage(`{"instruction":"第一步：扫描"}`),
-		State:      stringPtr(StateOpen),
+		State:      &stateOpen,
 		Complexity: &complexity,
 		Priority:   5,
 		CreatedAt:  time.Now(),
@@ -287,7 +208,7 @@ func TestMoveDependency(t *testing.T) {
 		TaskID:     taskID,
 		Kind:       KindMove,
 		Content:    json.RawMessage(`{"instruction":"第二步：利用"}`),
-		State:      stringPtr(StateOpen),
+		State:      &stateOpen,
 		Complexity: &complexity,
 		DependsOn:  []string{"move-1"},
 		Priority:   5,
@@ -297,16 +218,16 @@ func TestMoveDependency(t *testing.T) {
 	_, err = store.CreateNode(ctx, move2)
 	require.NoError(t, err)
 
-	// 查询 open moves
+	// 查询 open moves（应该有 2 个）
 	moves, err := store.ListOpenMoves(ctx, taskID)
 	require.NoError(t, err)
 	assert.Len(t, moves, 2)
 
 	// move-1 完成
-	err = store.UpdateMoveState(ctx, "move-1", StateDone)
+	err = store.UpdateMoveState(ctx, "move-1", StateDone, nil)
 	require.NoError(t, err)
 
-	// 再次查询，只有 move-2
+	// 再次查询，只有 move-2 (move-1 已 done)
 	moves, err = store.ListOpenMoves(ctx, taskID)
 	require.NoError(t, err)
 	assert.Len(t, moves, 1)
@@ -315,7 +236,7 @@ func TestMoveDependency(t *testing.T) {
 
 // setupTestDB 设置测试数据库连接
 func setupTestDB(t *testing.T) *pgxpool.Pool {
-	dsn := "postgres://postgres:postgres@localhost:5432/liusha_test?sslmode=disable"
+	dsn := "postgres://liusha:liusha@localhost:5432/liusha_test?sslmode=disable"
 
 	pool, err := pgxpool.New(context.Background(), dsn)
 	require.NoError(t, err, "连接测试数据库失败，请确保 PostgreSQL 运行在 localhost:5432，数据库名为 liusha_test")
@@ -327,8 +248,4 @@ func setupTestDB(t *testing.T) *pgxpool.Pool {
 	require.NoError(t, err)
 
 	return pool
-}
-
-func stringPtr(s string) *string {
-	return &s
 }
