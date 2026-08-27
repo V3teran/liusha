@@ -103,7 +103,7 @@ func main() {
 	eventPublisher := scanstream.NewPublisher(rdb) // 过程事件实时广播（阶段B redis 管道）
 	executorRuns := agentstore.NewStore(pool)
 	finds := finding.NewStore(pool)
-	worldStore := worldmodel.NewStore(pool) // L3 世界模型持久层（onboard 落 KindTarget 节点）
+	worldStore := worldmodel.NewStore(pool) // L3 世界模型持久层（onboard 落 KindObjective 节点）
 	toolCalls := toolinvocation.NewStore(pool)
 	calls := llminvocation.NewStoreWithConfig(pool, cfg.LLM.Invocation)
 	corpusStore := corpus.NewStore(pool) // 跨目标知识库（hybrid RAG）

@@ -84,7 +84,7 @@ type handler struct {
 }
 
 // onboard 用域注册表解析 brief 目标，并完成三件 best-effort 副作用：
-//  1. 落 L3 世界模型 KindTarget 节点（幂等 upsert）；
+//  1. 落 L3 世界模型 KindObjective 节点（目标）；
 //  2. 回填 task.target_host 派生列；
 //  3. 返回 host key 供调用方下传。
 func (h handler) onboard(ctx context.Context, assignmentID, taskID, brief string) string {
