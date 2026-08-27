@@ -181,7 +181,6 @@ runner:
   queue_agent_weight: 5                   # asynq 队列优先级权重（数字越大越优先）
   queue_dispatch_weight: 1
   per_host_concurrency: 2                  # per-host 并发上限（§4.3）；同 host 同时运行 task 数超限则退避重试；≤0 关闭限速
-  lead_ttl_hours: 720                      # 情报黑板（lead，§7）滚动过期时长：每次写刷新该 host TTL，持续写则续命、停写后自净；active/passive 一视同仁；≤0 关（不过期，靠 LTRIM 兜底）
 
 # ---- 会话历史压缩参数 ----
 compaction:
