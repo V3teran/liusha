@@ -111,7 +111,7 @@ func main() {
 	proxyStore := traffic.NewProxyStore(pool) // 代理捕获流量（passive，按 host）
 	agentStore := traffic.NewAgentStore(pool) // agent 自产流量（active，按 task）
 	creds := credential.NewRedis(rdb, cfg.Credential.RedisKeyPrefix)
-	// 情报黑板（§7）：PostgreSQL 持久化，按 assignment 隔离
+	// 情报黑板：assignment 级别的长期情报共享，PostgreSQL 持久化，按 assignment_id 隔离
 	leads := lead.NewStore(pool)
 
 	// Jina embedding + rerank client（corpus hybrid RAG 用）。密钥走 ENV JINA_API_KEY；
