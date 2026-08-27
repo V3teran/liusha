@@ -10,11 +10,12 @@ import (
 	"github.com/V3teran/liusha/internal/actor"
 	"github.com/V3teran/liusha/internal/provider"
 	"github.com/V3teran/liusha/internal/registry"
+	"github.com/V3teran/liusha/internal/worldmodel"
 )
 
 // Profile 是针对单个 Complexity 的 Actor 配置。
 type Profile struct {
-	Complexity    actor.Complexity
+	Complexity    worldmodel.Complexity
 	SystemPrompt  string
 	Tools         []string // 允许使用的工具名列表
 	Budget        actor.Budget
@@ -24,7 +25,7 @@ type Profile struct {
 
 // Dispatcher 是 Complexity-aware Actor 工厂。
 type Dispatcher struct {
-	profiles   map[actor.Complexity]Profile
+	profiles   map[worldmodel.Complexity]Profile
 	provider   provider.Provider
 	registry   *registry.Registry
 	compactor  actor.Compactor
@@ -43,7 +44,7 @@ func New(
 	emitter actor.SSEEmitter,
 ) *Dispatcher {
 	return &Dispatcher{
-		profiles:   make(map[actor.Complexity]Profile),
+		profiles:   make(map[worldmodel.Complexity]Profile),
 		provider:   p,
 		registry:   reg,
 		compactor:  compactor,

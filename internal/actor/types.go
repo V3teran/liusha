@@ -9,22 +9,13 @@ import (
 	"time"
 
 	"github.com/V3teran/liusha/internal/registry"
+	"github.com/V3teran/liusha/internal/worldmodel"
 )
 
 // ─────────────────────────────────────────────
 //  Move（策略意图单元）
 // ─────────────────────────────────────────────
-
-// Complexity 是 Move 的执行复杂度，决定资源配额。
-type Complexity string
-
-const (
-	ComplexityTrivial  Complexity = "trivial"  // 极简：<5 步
-	ComplexitySimple   Complexity = "simple"   // 简单：~10 步
-	ComplexityModerate Complexity = "moderate" // 中等：~30 步
-	ComplexityComplex  Complexity = "complex"  // 复杂：~50 步
-	ComplexityExtreme  Complexity = "extreme"  // 极限：~100 步
-)
+// Complexity 已迁移至 worldmodel 包
 
 // LandmarkRef 唯一标识一个目标节点，域无关三元组。
 type LandmarkRef struct {
@@ -49,7 +40,7 @@ func (r LandmarkRef) Display() string {
 // Move 是 Planner 生成的单个战术意图单元。
 type Move struct {
 	ID          string
-	Complexity  Complexity
+	Complexity  worldmodel.Complexity
 	Target      LandmarkRef
 	Instruction string // 自然语言描述要做什么
 	Cues        []string
@@ -324,7 +315,7 @@ type PlanReq struct {
 	TopKLandmarks     []Landmark        // 按相关性 Top-30 Summary
 	History           []MoveRecord
 	State             PlannerState
-	EnabledComplexity []Complexity      // 允许的复杂度级别
+	EnabledComplexity []worldmodel.Complexity      // 允许的复杂度级别
 	Budget            ScanBudgetRemaining
 }
 
@@ -352,8 +343,8 @@ type Target struct {
 
 // Campaign 是前端可配置的扫描策略。
 type Campaign struct {
-	EnabledComplexity []Complexity
-	BudgetOverrides   map[Complexity]Budget
+	EnabledComplexity []worldmodel.Complexity
+	BudgetOverrides   map[worldmodel.Complexity]Budget
 	GlobalConstraints []registry.Constraint
 	ScanBudget        ScanBudget
 	PostScanHook      func(taskID string)

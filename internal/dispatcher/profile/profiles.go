@@ -7,6 +7,7 @@ package profile
 import (
 	"github.com/V3teran/liusha/internal/actor"
 	"github.com/V3teran/liusha/internal/dispatcher"
+	"github.com/V3teran/liusha/internal/worldmodel"
 )
 
 // Profiles 返回全部 5 个 Complexity 的默认 Profile 列表，传入的 systemPrompt
@@ -44,7 +45,7 @@ func Trivial(systemPrompt string) dispatcher.Profile {
 `
 
 	return dispatcher.Profile{
-		Complexity:   actor.ComplexityTrivial,
+		Complexity:   worldmodel.ComplexityTrivial,
 		SystemPrompt: systemPrompt + body,
 		Tools: []string{
 			"list_traffic", "view_traffic",
@@ -91,7 +92,7 @@ func Simple(systemPrompt string) dispatcher.Profile {
 `
 
 	return dispatcher.Profile{
-		Complexity:   actor.ComplexitySimple,
+		Complexity:   worldmodel.ComplexitySimple,
 		SystemPrompt: systemPrompt + body,
 		Tools: []string{
 			"list_traffic", "view_traffic",
@@ -146,7 +147,7 @@ func Moderate(systemPrompt string) dispatcher.Profile {
 `
 
 	return dispatcher.Profile{
-		Complexity:   actor.ComplexityModerate,
+		Complexity:   worldmodel.ComplexityModerate,
 		SystemPrompt: systemPrompt + body,
 		Tools: []string{
 			"list_traffic", "view_traffic", "replay_traffic",
@@ -199,7 +200,7 @@ func Complex(systemPrompt string) dispatcher.Profile {
 `
 
 	return dispatcher.Profile{
-		Complexity:   actor.ComplexityComplex,
+		Complexity:   worldmodel.ComplexityComplex,
 		SystemPrompt: systemPrompt + body,
 		Tools: []string{
 			"list_traffic", "view_traffic", "replay_traffic",
@@ -252,7 +253,7 @@ func Extreme(systemPrompt string) dispatcher.Profile {
 `
 
 	return dispatcher.Profile{
-		Complexity:   actor.ComplexityExtreme,
+		Complexity:   worldmodel.ComplexityExtreme,
 		SystemPrompt: systemPrompt + body,
 		Tools:        nil, // nil = 全部工具可用
 		Budget: actor.Budget{
