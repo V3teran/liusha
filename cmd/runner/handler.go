@@ -25,7 +25,6 @@ import (
 	"github.com/V3teran/liusha/internal/worldmodel"
 	"github.com/V3teran/liusha/internal/finding"
 	"github.com/V3teran/liusha/internal/lead"
-	"github.com/V3teran/liusha/internal/ledger"
 	"github.com/V3teran/liusha/internal/llminvocation"
 	"github.com/V3teran/liusha/internal/provider"
 	"github.com/V3teran/liusha/internal/ratelimit"
@@ -76,7 +75,6 @@ type handler struct {
 	world    *worldmodel.Store
 
 	// Actor 基础设施
-	ledger     *ledger.Ledger
 	checkpoint actor.CheckpointStore
 
 	// 事件驱动的 Planner Agent 基础设施

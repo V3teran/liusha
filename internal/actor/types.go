@@ -5,7 +5,6 @@
 package actor
 
 import (
-	"encoding/json"
 	"time"
 
 	"github.com/V3teran/liusha/internal/registry"
@@ -65,107 +64,6 @@ type MoveRecord struct {
 	Status   MoveStatus
 	HaltWhy  string   // Critic/Budget 给的终止原因摘要
 	Findings []string // Finding.ID 列表
-}
-
-// ─────────────────────────────────────────────
-//  Landmark / Finding（世界模型 + 报告实体）
-// ─────────────────────────────────────────────
-
-type LandmarkKind string
-
-const (
-	LandmarkTarget     LandmarkKind = "target"
-	LandmarkService    LandmarkKind = "service"
-	LandmarkEndpoint   LandmarkKind = "endpoint"
-	LandmarkCredential LandmarkKind = "credential"
-	LandmarkWeakness   LandmarkKind = "weakness"
-	LandmarkSession    LandmarkKind = "session"
-	LandmarkArtifact   LandmarkKind = "artifact"
-	LandmarkGoal       LandmarkKind = "goal"
-)
-
-type LandmarkState string
-
-const (
-	LandmarkHypothesized LandmarkState = "hypothesized"
-	LandmarkConfirmed    LandmarkState = "confirmed"
-	LandmarkRefuted      LandmarkState = "refuted"
-)
-
-type Landmark struct {
-	ID         string
-	Ref        LandmarkRef
-	Kind       LandmarkKind
-	State      LandmarkState
-	Summary    string  // ≤1 行，注入 Planner/Actor 系统提示
-	Detail     string  // 完整内容，read_landmark(id) 按需拉取
-	Signals    []registry.Signal
-	Confidence float64 // 0~1，基于 Signal 权重加权均值
-	TaskID     string
-	MoveID     string
-	CreatedAt  time.Time
-	UpdatedAt  time.Time
-}
-
-// CalcConfidence 按 Signal 权重均值（前三条）计算 Confidence。
-func CalcConfidence(signals []registry.Signal) float64 {
-	if len(signals) == 0 {
-		return 0
-	}
-	top := signals
-	if len(top) > 3 {
-		top = top[:3]
-	}
-	var sum float64
-	for _, s := range top {
-		sum += registry.SignalWeight(s.Kind)
-	}
-	v := sum / float64(len(top))
-	if v > 1.0 {
-		v = 1.0
-	}
-	return v
-}
-
-type Severity string
-
-const (
-	SeverityCritical Severity = "critical"
-	SeverityHigh     Severity = "high"
-	SeverityMedium   Severity = "medium"
-	SeverityLow      Severity = "low"
-	SeverityInfo     Severity = "info"
-)
-
-type FindingStatus string
-
-const (
-	FindingStatusOpen          FindingStatus = "open"
-	FindingStatusConfirmed     FindingStatus = "confirmed"
-	FindingStatusFixed         FindingStatus = "fixed"
-	FindingStatusFalsePositive FindingStatus = "false_positive"
-	FindingStatusAccepted      FindingStatus = "accepted"
-)
-
-type Finding struct {
-	ID            string
-	TaskID        string
-	LandmarkID    string
-	Title         string
-	Severity      Severity
-	Description   string
-	Evidence      []registry.Signal
-	Remediation   string
-	DependsOn     []string
-	MoveID        string
-	CWEID         string        // "CWE-89"，去重键
-	OWASPCategory string        // "A03:2021"
-	Repro         json.RawMessage
-	Status        FindingStatus
-	TriageNote    string
-	TriagedAt     *time.Time
-	Seq           int64
-	CreatedAt     time.Time
 }
 
 // ─────────────────────────────────────────────
@@ -306,29 +204,6 @@ type PlannerState struct {
 	StrategyNotes string            `json:"strategy_notes"`
 	Hypotheses    []string          `json:"hypotheses"`
 	Extensions    map[string]string `json:"extensions"` // 仅允许：domain_notes, priority_override
-}
-
-// PlanReq 是 Planner.Plan 的输入（分级，无全量 Landmarks）。
-type PlanReq struct {
-	TaskID            string
-	Frontier          []Landmark        // confirmed 且无出边，通常 <20
-	TopKLandmarks     []Landmark        // 按相关性 Top-30 Summary
-	History           []MoveRecord
-	State             PlannerState
-	EnabledComplexity []worldmodel.Complexity      // 允许的复杂度级别
-	Budget            ScanBudgetRemaining
-}
-
-// PlanHalt 是 Planner 给出的终止信号。
-type PlanHalt struct {
-	Reason string
-}
-
-// PlanResult 是 Planner.Plan 的输出。
-type PlanResult struct {
-	Moves []Move
-	State PlannerState
-	Halt  *PlanHalt // nil = 继续
 }
 
 // ─────────────────────────────────────────────

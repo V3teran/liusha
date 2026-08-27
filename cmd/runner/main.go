@@ -45,7 +45,6 @@ import (
 	"github.com/V3teran/liusha/internal/finding"
 	"github.com/V3teran/liusha/internal/ingestor"
 	"github.com/V3teran/liusha/internal/lead"
-	// "github.com/V3teran/liusha/internal/ledger"  // TODO: 需要重新实现 ledger 适配层
 	"github.com/V3teran/liusha/internal/llminvocation"
 	"github.com/V3teran/liusha/internal/llmstore"
 	"github.com/V3teran/liusha/internal/logx"
@@ -300,7 +299,6 @@ func main() {
 		eventPublisher: eventPublisher,
 		profiles:       profiles,
 		world:          worldStore,
-		// ledger:         ledger.New(worldStore.AsLedgerStore()),  // TODO: 需要重新实现 AsLedgerStore
 		checkpoint:     actor.NewPGCheckpointStore(pool),
 		eventBus:       eventBus,
 		plannerMgr:     plannerMgr,
