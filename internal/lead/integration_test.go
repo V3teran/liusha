@@ -189,8 +189,8 @@ func TestPersistence(t *testing.T) {
 
 // setupTestDB 设置测试数据库连接
 func setupTestDB(t *testing.T) *pgxpool.Pool {
-	// 从环境变量读取测试数据库连接
-	dsn := "postgres://postgres:postgres@localhost:5432/liusha_test?sslmode=disable"
+	// 从环境变量读取测试数据库连接，默认使用 liusha 用户
+	dsn := "postgres://liusha:liusha@localhost:5432/liusha_test?sslmode=disable"
 
 	pool, err := pgxpool.New(context.Background(), dsn)
 	require.NoError(t, err, "连接测试数据库失败，请确保 PostgreSQL 运行在 localhost:5432，数据库名为 liusha_test")
