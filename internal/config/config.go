@@ -225,11 +225,6 @@ type RunnerConfig struct {
 	// ≤ 0 视为不限制。默认 2（渗透场景保守值）。仅对有 target_host 的 task 生效（active planner
 	// host 空时放行——真正打 host 的是其 spawn 的子任务）。
 	PerHostConcurrency int `mapstructure:"per_host_concurrency"`
-
-	// 情报黑板（lead，§7）的滚动过期时长（小时）——每次写 lead 刷新该 host 的 TTL：持续写则一直
-	// 续命，停写后 TTL 到期自净。active/passive 一视同仁，不再分模式清理。默认 720 小时（30 天）。
-	// ≤0 关过期（永不过期，仅靠 LTRIM 兜底）。
-	LeadTTLHours int `mapstructure:"lead_ttl_hours"`
 }
 
 // CompactionConfig 会话历史压缩参数。
@@ -600,9 +595,6 @@ func applyRunnerDefaults(c RunnerConfig) RunnerConfig {
 	}
 	if c.PerHostConcurrency == 0 {
 		c.PerHostConcurrency = 2 // 默认同 host 并发 ≤ 2；显式设 -1 可关限速
-	}
-	if c.LeadTTLHours == 0 {
-		c.LeadTTLHours = 720 // 默认 30 天滚动过期；显式设 -1 可关（永不过期，交给 LTRIM 兜底）
 	}
 	return c
 }
