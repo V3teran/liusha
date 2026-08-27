@@ -76,13 +76,14 @@ func TestOnboard_LandsTargetNodes(t *testing.T) {
 	}
 	for _, n := range nodes {
 		if n.Kind != worldmodel.KindObjective {
-			t.Errorf("节点 kind 应 target, got %s", n.Kind)
+			t.Errorf("节点 kind 应 objective, got %s", n.Kind)
 		}
 		if n.Ref.Domain != "web" || n.Ref.RefKind != "host" {
 			t.Errorf("节点 ref 域/种类错: %+v", n.Ref)
 		}
-		if n.Confidence != worldmodel.ConfAssumed {
-			t.Errorf("onboard 目标默认应 assumed, got %s", n.Confidence)
+		// Objective 节点不使用 Confidence 字段（Confidence 只适用于 Observation/Discovery）
+		if n.Confidence != nil {
+			t.Errorf("objective 节点不应有 confidence 字段, got %v", *n.Confidence)
 		}
 	}
 	// 逐字保真：含端口的目标 locator 带端口。
