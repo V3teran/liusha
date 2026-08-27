@@ -576,7 +576,7 @@ func nodeToActorMove(node worldmodel.Node, userPrompt string) actor.Move {
 	if !node.IsMove() {
 		// Fallback for non-move nodes
 		return actor.Move{
-			Complexity:  actor.ComplexitySimple,
+			Complexity:  worldmodel.ComplexitySimple,
 			Instruction: userPrompt,
 		}
 	}
@@ -604,9 +604,9 @@ func nodeToActorMove(node worldmodel.Node, userPrompt string) actor.Move {
 	}
 
 	// 使用节点的 complexity，如果为空则默认 simple
-	complexity := actor.ComplexitySimple
+	complexity := worldmodel.ComplexitySimple
 	if node.Complexity != nil {
-		complexity = actor.Complexity(*node.Complexity)
+		complexity = worldmodel.Complexity(*node.Complexity)
 	}
 
 	return actor.Move{
