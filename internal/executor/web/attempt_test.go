@@ -30,7 +30,7 @@ func TestAttemptFromFinding_WithRepro(t *testing.T) {
 	if a.TaskID != "scan-1" {
 		t.Errorf("TaskID=%q，期望 scan-1", a.TaskID)
 	}
-	if a.Kind != worldmodel.KindFinding {
+	if a.Kind != worldmodel.KindDiscovery {
 		t.Errorf("Kind=%q，期望 finding", a.Kind)
 	}
 	if a.Target.Domain != "web" || a.Target.RefKind != "endpoint" {

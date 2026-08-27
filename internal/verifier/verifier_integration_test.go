@@ -50,7 +50,7 @@ func TestVerifier_PromoteAgainstRealStore(t *testing.T) {
 		return verifier.Attempt{
 			TaskID:     taskID,
 			LeadID:     "lead-" + loc,
-			Kind:       worldmodel.KindFinding,
+			Kind:       worldmodel.KindDiscovery,
 			Target:     worldmodel.TargetRef{Domain: "web", RefKind: "host", Locator: loc},
 			Primitives: json.RawMessage(`[{"op":"http_request"}]`),
 			Attrs:      json.RawMessage(`{"severity":"high","taxonomy":["owasp:A03"]}`),
