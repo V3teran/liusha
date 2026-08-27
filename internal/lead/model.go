@@ -2,8 +2,9 @@
 //
 // 定位：同一 assignment 下的多个 task 共享情报黑板，子代理通过黑板同步过程情报。
 //
-// 隔离维度：assignment_id（租户隔离，同一批测试共享）
-// 存储：PostgreSQL（持久化，废弃 Redis）
+// 隔离维度：assignment_id（按批次隔离）
+// 存储：PostgreSQL（持久化，无 TTL）
+// 生命周期：与 assignment 一致，长期记忆，不自动过期
 package lead
 
 import "time"
