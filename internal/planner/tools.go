@@ -213,6 +213,10 @@ func (t *ProposeMovesTool) Schema() provider.ToolSchema {
 								"type": "array",
 								"description": "依赖的其他 Move ID 列表（可选）",
 								"items": {"type": "string"}
+							},
+							"enable_by": {
+								"type": "string",
+								"description": "此 action 由哪个 finding 使能（可选，finding ID）"
 							}
 						},
 						"required": ["instruction", "complexity", "priority"]
@@ -278,6 +282,9 @@ func (t *ProposeMovesTool) Execute(ctx context.Context, input map[string]interfa
 			}
 		}
 
+		// 解析 enable_by（可选）
+		enableBy, _ := moveMap["enable_by"].(string)
+
 		// 构建 Content
 		content := map[string]interface{}{
 			"instruction": instruction,
@@ -307,6 +314,21 @@ func (t *ProposeMovesTool) Execute(ctx context.Context, input map[string]interfa
 
 		if _, err := t.world.CreateNode(ctx, node); err != nil {
 			return nil, fmt.Errorf("create move node: %w", err)
+		}
+
+		// 如果指定了 enable_by，创建 ENABLES 关系
+		if enableBy != "" {
+			edge := worldmodel.Edge{
+				TaskID:    taskID,
+				SrcID:     enableBy, // finding ID
+				Rel:       worldmodel.RelEnables,
+				DstID:     moveID, // action ID
+				CreatedAt: time.Now(),
+			}
+			if err := t.world.CreateEdge(ctx, edge); err != nil {
+				// 记录错误但不中断流程
+				// （可能是 finding 不存在，但 action 已创建）
+			}
 		}
 
 		created = append(created, moveID)
