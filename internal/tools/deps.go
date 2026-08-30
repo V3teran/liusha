@@ -13,6 +13,7 @@ import (
 	"github.com/V3teran/liusha/internal/skill"
 	"github.com/V3teran/liusha/internal/task"
 	"github.com/V3teran/liusha/internal/traffic"
+	"github.com/V3teran/liusha/internal/worldmodel"
 )
 
 // Deps 持有单次 agent run 所需的全部上下文与依赖。
@@ -34,4 +35,5 @@ type Deps struct {
 	Sandbox    sandbox.Client // Spawn 后注入，可 nil
 	ToolingLoader *skill.Loader
 	VulnLoader    *skill.Loader
+	World      *worldmodel.Store // WorldModel Store（新增）
 }
