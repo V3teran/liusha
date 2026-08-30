@@ -213,15 +213,8 @@ func (h handler) handle(ctx context.Context, p worker.Payload) (retErr error) {
 		return h.failTask(ctx, p.ExecutorID, err)
 	}
 
-	scen, err := h.cfgStore.ScenarioByCode(ctx, p.ScenarioID)
-	if err != nil {
-		return h.failTask(ctx, p.ExecutorID, fmt.Errorf("加载 scenario %s 失败: %w", p.ScenarioID, err))
-	}
-
-	timeout := h.runnerCfg.SoloAgentRunTimeoutSeconds
-	if scen.Engine == cfgscenario.EngineSwarm {
-		timeout = h.runnerCfg.SwarmAgentRunTimeoutSeconds
-	}
+	// 设置超时
+	timeout := h.runnerCfg.SwarmAgentRunTimeoutSeconds
 	if timeout > 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, time.Duration(timeout)*time.Second)
