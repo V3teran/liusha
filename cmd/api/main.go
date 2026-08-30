@@ -288,7 +288,7 @@ type taskAPIAdapter struct {
 }
 
 // Abort 把 task 置为 aborted。errMsg 恒空（用户主动 abort 视为正常结束）。
-// 0047：成功 abort 后写 audit_log（actor=api_user，target_kind=task）。
+// 0047：成功 abort 后写 audit_log（executor=api_user，target_kind=task）。
 func (a taskAPIAdapter) Abort(ctx context.Context, id string) error {
 	if _, err := a.tasks.GetByID(ctx, id); err != nil {
 		return fmt.Errorf("task %s not found: %w", id, err)

@@ -37,7 +37,7 @@ func TestAssignmentIsolation(t *testing.T) {
 
 	// assignmentB 写入情报
 	err = store.Append(ctx, assignmentB, Entry{
-		Kind:         KindObservation,
+		Kind:         KindHypothesis,
 		Detail:       "assignmentB 的秘密情报",
 		ExecutorID:   "executor-2",
 		SourceTaskID: "task-2",
@@ -84,7 +84,7 @@ func TestCrossTaskSharing(t *testing.T) {
 
 	// task-2 写入情报
 	err = store.Append(ctx, assignmentID, Entry{
-		Kind:         KindObservation,
+		Kind:         KindHypothesis,
 		Detail:       "task-2 确认的发现",
 		ExecutorID:   "executor-2",
 		SourceTaskID: "task-2",
@@ -135,7 +135,7 @@ func TestReadRecentGrouping(t *testing.T) {
 	entries := []Entry{
 		{Kind: KindClue, Detail: "线索1", ExecutorID: "e1", SourceTaskID: "t1", CreatedAt: time.Now()},
 		{Kind: KindClue, Detail: "线索2", ExecutorID: "e1", SourceTaskID: "t1", CreatedAt: time.Now()},
-		{Kind: KindObservation, Detail: "发现1", ExecutorID: "e2", SourceTaskID: "t2", CreatedAt: time.Now()},
+		{Kind: KindHypothesis, Detail: "发现1", ExecutorID: "e2", SourceTaskID: "t2", CreatedAt: time.Now()},
 		{Kind: KindDeadend, Detail: "死路1", ExecutorID: "e3", SourceTaskID: "t3", CreatedAt: time.Now()},
 	}
 
@@ -149,7 +149,7 @@ func TestReadRecentGrouping(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Len(t, grouped[KindClue], 2)
-	assert.Len(t, grouped[KindObservation], 1)
+	assert.Len(t, grouped[KindHypothesis], 1)
 	assert.Len(t, grouped[KindDeadend], 1)
 }
 
@@ -169,7 +169,7 @@ func TestPersistence(t *testing.T) {
 
 	// 写入情报
 	err := store.Append(ctx, assignmentID, Entry{
-		Kind:         KindObservation,
+		Kind:         KindHypothesis,
 		Detail:       "持久化测试",
 		ExecutorID:   "executor-1",
 		SourceTaskID: "task-1",

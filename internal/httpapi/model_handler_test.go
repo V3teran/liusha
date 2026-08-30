@@ -231,8 +231,8 @@ func TestDeleteProvider_RestrictConflict(t *testing.T) {
 func TestListRouting_ReturnsRoutes(t *testing.T) {
 	fm := &fakeModel{
 		routes: []llmcfg.RoleRoute{
-			{Role: llmcfg.TierVision, ProviderKey: "deepseek"},
-			{Role: llmcfg.TierHeavy, ProviderKey: "deepseek"},
+			{Role: "vision", ProviderKey: "deepseek"},
+			{Role: "heavy", ProviderKey: "deepseek"},
 		},
 	}
 	srv := newTestServer(t, Deps{Models: fm})

@@ -5,7 +5,7 @@
 package profile
 
 import (
-	"github.com/V3teran/liusha/internal/actor"
+	"github.com/V3teran/liusha/internal/executor"
 	"github.com/V3teran/liusha/internal/dispatcher"
 	"github.com/V3teran/liusha/internal/worldmodel"
 )
@@ -53,19 +53,17 @@ func Trivial(systemPrompt string) dispatcher.Profile {
 			"write_lead",
 			"done",
 		},
-		Budget: actor.Budget{
+		Budget: executor.Budget{
 			MaxSteps:          5,
 			MaxTokens:         10000,
 			WatchdogSecs:      60,
 			CompactionTrigger: 0.70,
-			CriticInterval:    5,
 		},
-		Settle: actor.SettleConfig{
+		Settle: executor.SettleConfig{
 			Threshold:    0.90,
 			Directive:    "任务预算耗尽，立即输出当前结果并调用 done。",
 			AllowedTools: []string{"done"},
 		},
-		MaxExecutions: 1,
 	}
 }
 
@@ -102,19 +100,17 @@ func Simple(systemPrompt string) dispatcher.Profile {
 			"run_command",
 			"done",
 		},
-		Budget: actor.Budget{
+		Budget: executor.Budget{
 			MaxSteps:          15,
 			MaxTokens:         30000,
 			WatchdogSecs:      180,
 			CompactionTrigger: 0.70,
-			CriticInterval:    5,
 		},
-		Settle: actor.SettleConfig{
+		Settle: executor.SettleConfig{
 			Threshold:    0.85,
 			Directive:    "预算接近上限，整理已发现的线索并调用 done。",
 			AllowedTools: []string{"write_lead", "write_finding", "done"},
 		},
-		MaxExecutions: 1,
 	}
 }
 
@@ -159,19 +155,17 @@ func Moderate(systemPrompt string) dispatcher.Profile {
 			"run_command",
 			"done",
 		},
-		Budget: actor.Budget{
+		Budget: executor.Budget{
 			MaxSteps:          40,
 			MaxTokens:         80000,
 			WatchdogSecs:      360,
 			CompactionTrigger: 0.70,
-			CriticInterval:    5,
 		},
-		Settle: actor.SettleConfig{
+		Settle: executor.SettleConfig{
 			Threshold:    0.85,
 			Directive:    "预算接近上限，整理已验证的发现写入 finding，然后调用 done。",
 			AllowedTools: []string{"write_finding", "update_finding", "write_lead", "done"},
 		},
-		MaxExecutions: 2,
 	}
 }
 
@@ -212,19 +206,17 @@ func Complex(systemPrompt string) dispatcher.Profile {
 			"run_command", "browser_use",
 			"done",
 		},
-		Budget: actor.Budget{
+		Budget: executor.Budget{
 			MaxSteps:          60,
 			MaxTokens:         120000,
 			WatchdogSecs:      600,
 			CompactionTrigger: 0.70,
-			CriticInterval:    5,
 		},
-		Settle: actor.SettleConfig{
+		Settle: executor.SettleConfig{
 			Threshold:    0.85,
 			Directive:    "预算接近上限，整理已验证的漏洞和利用链写入 finding，然后调用 done。",
 			AllowedTools: []string{"write_finding", "update_finding", "write_credential", "write_lead", "done"},
 		},
-		MaxExecutions: 3,
 	}
 }
 
@@ -256,18 +248,16 @@ func Extreme(systemPrompt string) dispatcher.Profile {
 		Complexity:   worldmodel.ComplexityExtreme,
 		SystemPrompt: systemPrompt + body,
 		Tools:        nil, // nil = 全部工具可用
-		Budget: actor.Budget{
+		Budget: executor.Budget{
 			MaxSteps:          100,
 			MaxTokens:         200000,
 			WatchdogSecs:      900,
 			CompactionTrigger: 0.70,
-			CriticInterval:    5,
 		},
-		Settle: actor.SettleConfig{
+		Settle: executor.SettleConfig{
 			Threshold:    0.85,
 			Directive:    "预算接近上限，整理完整攻击链和所有发现写入 finding，然后调用 done。",
 			AllowedTools: []string{"write_finding", "update_finding", "write_credential", "write_lead", "write_corpus", "done"},
 		},
-		MaxExecutions: 3,
 	}
 }

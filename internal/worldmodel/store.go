@@ -28,14 +28,14 @@ func (s *Store) CreateNode(ctx context.Context, node Node) (string, error) {
 			id, task_id, kind, content,
 			state, complexity, depends_on, blocked_reason,
 			confidence,
-			priority, owner, source_type, source_id, tags,
+			priority, owner, source_type, source_id, tags, metadata,
 			created_at, updated_at, completed_at
 		) VALUES (
 			$1, $2, $3, $4,
 			$5, $6, $7, $8,
 			$9,
-			$10, $11, $12, $13, $14,
-			$15, $16, $17
+			$10, $11, $12, $13, $14, $15,
+			$16, $17, $18
 		) RETURNING id
 	`
 
@@ -44,7 +44,7 @@ func (s *Store) CreateNode(ctx context.Context, node Node) (string, error) {
 		node.ID, node.TaskID, node.Kind, node.Content,
 		node.State, node.Complexity, node.DependsOn, node.BlockedReason,
 		node.Confidence,
-		node.Priority, node.Owner, node.SourceType, node.SourceID, node.Tags,
+		node.Priority, node.Owner, node.SourceType, node.SourceID, node.Tags, node.Metadata,
 		node.CreatedAt, node.UpdatedAt, node.CompletedAt,
 	).Scan(&id)
 
@@ -60,7 +60,7 @@ func (s *Store) GetNode(ctx context.Context, id string) (*Node, error) {
 		SELECT id, task_id, kind, content,
 		       state, complexity, depends_on, blocked_reason,
 		       confidence,
-		       priority, owner, source_type, source_id, tags,
+		       priority, owner, source_type, source_id, tags, metadata,
 		       created_at, updated_at, completed_at
 		FROM wm_node
 		WHERE id = $1
@@ -71,7 +71,7 @@ func (s *Store) GetNode(ctx context.Context, id string) (*Node, error) {
 		&node.ID, &node.TaskID, &node.Kind, &node.Content,
 		&node.State, &node.Complexity, &node.DependsOn, &node.BlockedReason,
 		&node.Confidence,
-		&node.Priority, &node.Owner, &node.SourceType, &node.SourceID, &node.Tags,
+		&node.Priority, &node.Owner, &node.SourceType, &node.SourceID, &node.Tags, &node.Metadata,
 		&node.CreatedAt, &node.UpdatedAt, &node.CompletedAt,
 	)
 
@@ -87,7 +87,7 @@ func (s *Store) ListNodesByKind(ctx context.Context, taskID string, kind NodeKin
 		SELECT id, task_id, kind, content,
 		       state, complexity, depends_on, blocked_reason,
 		       confidence,
-		       priority, owner, source_type, source_id, tags,
+		       priority, owner, source_type, source_id, tags, metadata,
 		       created_at, updated_at, completed_at
 		FROM wm_node
 		WHERE task_id = $1 AND kind = $2
@@ -107,7 +107,7 @@ func (s *Store) ListNodesByKind(ctx context.Context, taskID string, kind NodeKin
 			&node.ID, &node.TaskID, &node.Kind, &node.Content,
 			&node.State, &node.Complexity, &node.DependsOn, &node.BlockedReason,
 			&node.Confidence,
-			&node.Priority, &node.Owner, &node.SourceType, &node.SourceID, &node.Tags,
+			&node.Priority, &node.Owner, &node.SourceType, &node.SourceID, &node.Tags, &node.Metadata,
 			&node.CreatedAt, &node.UpdatedAt, &node.CompletedAt,
 		)
 		if err != nil {
@@ -119,22 +119,22 @@ func (s *Store) ListNodesByKind(ctx context.Context, taskID string, kind NodeKin
 	return nodes, rows.Err()
 }
 
-// ListMovesByState 列出指定 task 和 state 的 Move 节点
-func (s *Store) ListMovesByState(ctx context.Context, taskID string, state State) ([]Node, error) {
+// ListActionsByState 列出指定 task 和 state 的 action 节点
+func (s *Store) ListActionsByState(ctx context.Context, taskID string, state State) ([]Node, error) {
 	query := `
 		SELECT id, task_id, kind, content,
 		       state, complexity, depends_on, blocked_reason,
 		       confidence,
-		       priority, owner, source_type, source_id, tags,
+		       priority, owner, source_type, source_id, tags, metadata,
 		       created_at, updated_at, completed_at
 		FROM wm_node
-		WHERE task_id = $1 AND kind = 'move' AND state = $2
+		WHERE task_id = $1 AND kind = 'action' AND state = $2
 		ORDER BY priority DESC, created_at ASC
 	`
 
 	rows, err := s.pool.Query(ctx, query, taskID, state)
 	if err != nil {
-		return nil, fmt.Errorf("list moves by state: %w", err)
+		return nil, fmt.Errorf("list actions by state: %w", err)
 	}
 	defer rows.Close()
 
@@ -145,7 +145,7 @@ func (s *Store) ListMovesByState(ctx context.Context, taskID string, state State
 			&node.ID, &node.TaskID, &node.Kind, &node.Content,
 			&node.State, &node.Complexity, &node.DependsOn, &node.BlockedReason,
 			&node.Confidence,
-			&node.Priority, &node.Owner, &node.SourceType, &node.SourceID, &node.Tags,
+			&node.Priority, &node.Owner, &node.SourceType, &node.SourceID, &node.Tags, &node.Metadata,
 			&node.CreatedAt, &node.UpdatedAt, &node.CompletedAt,
 		)
 		if err != nil {
@@ -157,31 +157,31 @@ func (s *Store) ListMovesByState(ctx context.Context, taskID string, state State
 	return nodes, rows.Err()
 }
 
-// UpdateMoveState 更新 Move 的状态
-func (s *Store) UpdateMoveState(ctx context.Context, id string, state State, blockedReason *string) error {
+// UpdateActionState 更新 action 的状态
+func (s *Store) UpdateActionState(ctx context.Context, id string, state State, blockedReason *string) error {
 	query := `
 		UPDATE wm_node
 		SET state = $2, blocked_reason = $3, updated_at = now(),
 		    completed_at = CASE WHEN $2 IN ('done', 'failed', 'exhausted', 'aborted') THEN now() ELSE NULL END
-		WHERE id = $1 AND kind = 'move'
+		WHERE id = $1 AND kind = 'action'
 	`
 
 	tag, err := s.pool.Exec(ctx, query, id, state, blockedReason)
 	if err != nil {
-		return fmt.Errorf("update move state: %w", err)
+		return fmt.Errorf("update action state: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("move not found: %s", id)
+		return fmt.Errorf("action not found: %s", id)
 	}
 	return nil
 }
 
-// UpdateNodeConfidence 更新 observation/discovery 的置信度
+// UpdateNodeConfidence 更新 hypothesis/finding 的置信度
 func (s *Store) UpdateNodeConfidence(ctx context.Context, id string, confidence Confidence) error {
 	query := `
 		UPDATE wm_node
 		SET confidence = $2, updated_at = now()
-		WHERE id = $1 AND kind IN ('observation', 'discovery')
+		WHERE id = $1 AND kind IN ('hypothesis', 'finding')
 	`
 
 	tag, err := s.pool.Exec(ctx, query, id, confidence)
@@ -189,7 +189,7 @@ func (s *Store) UpdateNodeConfidence(ctx context.Context, id string, confidence 
 		return fmt.Errorf("update node confidence: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("node not found or not observation/discovery: %s", id)
+		return fmt.Errorf("node not found or not hypothesis/finding: %s", id)
 	}
 	return nil
 }
@@ -282,6 +282,34 @@ func (s *Store) ListEdgesTo(ctx context.Context, taskID, dstID string) ([]Edge, 
 	return edges, rows.Err()
 }
 
+// ListEdgesByRelation 列出指定 task 和关系类型的所有边
+func (s *Store) ListEdgesByRelation(ctx context.Context, taskID string, rel Relation) ([]Edge, error) {
+	query := `
+		SELECT task_id, src_id, rel, dst_id, attrs, created_at
+		FROM wm_edge
+		WHERE task_id = $1 AND rel = $2
+		ORDER BY created_at ASC
+	`
+
+	rows, err := s.pool.Query(ctx, query, taskID, rel)
+	if err != nil {
+		return nil, fmt.Errorf("list edges by relation: %w", err)
+	}
+	defer rows.Close()
+
+	var edges []Edge
+	for rows.Next() {
+		var edge Edge
+		err := rows.Scan(&edge.TaskID, &edge.SrcID, &edge.Rel, &edge.DstID, &edge.Attrs, &edge.CreatedAt)
+		if err != nil {
+			return nil, fmt.Errorf("scan edge: %w", err)
+		}
+		edges = append(edges, edge)
+	}
+
+	return edges, rows.Err()
+}
+
 // ─────────────────────────────────────────────
 //  Verification 操作
 // ─────────────────────────────────────────────
@@ -328,37 +356,37 @@ func (s *Store) GetVerification(ctx context.Context, id string) (*Verification, 
 //  便捷方法
 // ─────────────────────────────────────────────
 
-// ListOpenMoves 列出待执行的 Move（state=open）
-func (s *Store) ListOpenMoves(ctx context.Context, taskID string) ([]Node, error) {
-	return s.ListMovesByState(ctx, taskID, StateOpen)
+// ListOpenActions 列出待执行的 action（state=open）
+func (s *Store) ListOpenActions(ctx context.Context, taskID string) ([]Node, error) {
+	return s.ListActionsByState(ctx, taskID, StateOpen)
 }
 
-// ListCompletedMoves 列出已完成的 Move（state=done）
-func (s *Store) ListCompletedMoves(ctx context.Context, taskID string) ([]Node, error) {
-	return s.ListMovesByState(ctx, taskID, StateDone)
+// ListCompletedActions 列出已完成的 action（state=done）
+func (s *Store) ListCompletedActions(ctx context.Context, taskID string) ([]Node, error) {
+	return s.ListActionsByState(ctx, taskID, StateDone)
 }
 
-// ListDiscoveries 列出所有重要发现
-func (s *Store) ListDiscoveries(ctx context.Context, taskID string) ([]Node, error) {
-	return s.ListNodesByKind(ctx, taskID, KindDiscovery)
+// ListFindings 列出所有发现
+func (s *Store) ListFindings(ctx context.Context, taskID string) ([]Node, error) {
+	return s.ListNodesByKind(ctx, taskID, KindFinding)
 }
 
-// ListVerifiedDiscoveries 列出已验证的发现
-func (s *Store) ListVerifiedDiscoveries(ctx context.Context, taskID string) ([]Node, error) {
+// ListVerifiedFindings 列出已验证的发现
+func (s *Store) ListVerifiedFindings(ctx context.Context, taskID string) ([]Node, error) {
 	query := `
 		SELECT id, task_id, kind, content,
 		       state, complexity, depends_on, blocked_reason,
 		       confidence,
-		       priority, owner, source_type, source_id, tags,
+		       priority, owner, source_type, source_id, tags, metadata,
 		       created_at, updated_at, completed_at
 		FROM wm_node
-		WHERE task_id = $1 AND kind = 'discovery' AND confidence = 'verified'
+		WHERE task_id = $1 AND kind = 'finding' AND confidence = 'verified'
 		ORDER BY priority DESC, created_at ASC
 	`
 
 	rows, err := s.pool.Query(ctx, query, taskID)
 	if err != nil {
-		return nil, fmt.Errorf("list verified discoveries: %w", err)
+		return nil, fmt.Errorf("list verified findings: %w", err)
 	}
 	defer rows.Close()
 
@@ -369,7 +397,50 @@ func (s *Store) ListVerifiedDiscoveries(ctx context.Context, taskID string) ([]N
 			&node.ID, &node.TaskID, &node.Kind, &node.Content,
 			&node.State, &node.Complexity, &node.DependsOn, &node.BlockedReason,
 			&node.Confidence,
-			&node.Priority, &node.Owner, &node.SourceType, &node.SourceID, &node.Tags,
+			&node.Priority, &node.Owner, &node.SourceType, &node.SourceID, &node.Tags, &node.Metadata,
+			&node.CreatedAt, &node.UpdatedAt, &node.CompletedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("scan node: %w", err)
+		}
+		nodes = append(nodes, node)
+	}
+
+	return nodes, rows.Err()
+}
+
+// ListHypotheses 列出所有假设
+func (s *Store) ListHypotheses(ctx context.Context, taskID string) ([]Node, error) {
+	return s.ListNodesByKind(ctx, taskID, KindHypothesis)
+}
+
+// ListUnverifiedHypotheses 列出未验证的假设
+func (s *Store) ListUnverifiedHypotheses(ctx context.Context, taskID string) ([]Node, error) {
+	query := `
+		SELECT id, task_id, kind, content,
+		       state, complexity, depends_on, blocked_reason,
+		       confidence,
+		       priority, owner, source_type, source_id, tags, metadata,
+		       created_at, updated_at, completed_at
+		FROM wm_node
+		WHERE task_id = $1 AND kind = 'hypothesis' AND confidence = 'unverified'
+		ORDER BY priority DESC, created_at ASC
+	`
+
+	rows, err := s.pool.Query(ctx, query, taskID)
+	if err != nil {
+		return nil, fmt.Errorf("list unverified hypotheses: %w", err)
+	}
+	defer rows.Close()
+
+	var nodes []Node
+	for rows.Next() {
+		var node Node
+		err := rows.Scan(
+			&node.ID, &node.TaskID, &node.Kind, &node.Content,
+			&node.State, &node.Complexity, &node.DependsOn, &node.BlockedReason,
+			&node.Confidence,
+			&node.Priority, &node.Owner, &node.SourceType, &node.SourceID, &node.Tags, &node.Metadata,
 			&node.CreatedAt, &node.UpdatedAt, &node.CompletedAt,
 		)
 		if err != nil {

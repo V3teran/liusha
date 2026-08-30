@@ -1,4 +1,4 @@
-package actor
+package executor
 
 import (
 	"context"
@@ -18,16 +18,16 @@ func NewPGCheckpointStore(pool *pgxpool.Pool) *PGCheckpointStore {
 	return &PGCheckpointStore{pool: pool}
 }
 
-// Write UPSERT 一条 Checkpoint（同 task_id+move_id 只保留最新步）。
+// Write UPSERT 一条 Checkpoint（同 task_id+action_id 只保留最新步）。
 func (s *PGCheckpointStore) Write(ctx context.Context, cp Checkpoint) error {
 	hyp, err := json.Marshal(cp.Hypotheses)
 	if err != nil {
 		hyp = []byte("[]")
 	}
 	const q = `
-		INSERT INTO actor_checkpoint (task_id, move_id, step_idx, thought, hypotheses, created_at)
+		INSERT INTO actor_checkpoint (task_id, action_id, step_idx, thought, hypotheses, created_at)
 		VALUES ($1, $2, $3, $4, $5, $6)
-		ON CONFLICT (task_id, move_id) DO UPDATE
+		ON CONFLICT (task_id, action_id) DO UPDATE
 		SET step_idx   = EXCLUDED.step_idx,
 		    thought    = EXCLUDED.thought,
 		    hypotheses = EXCLUDED.hypotheses,
@@ -36,25 +36,25 @@ func (s *PGCheckpointStore) Write(ctx context.Context, cp Checkpoint) error {
 	if createdAt.IsZero() {
 		createdAt = time.Now()
 	}
-	_, err = s.pool.Exec(ctx, q, cp.TaskID, cp.MoveID, cp.StepIdx, cp.Thought, hyp, createdAt)
+	_, err = s.pool.Exec(ctx, q, cp.TaskID, cp.ActionID, cp.StepIdx, cp.Thought, hyp, createdAt)
 	if err != nil {
-		return fmt.Errorf("actor: checkpoint write (scan=%s move=%s): %w", cp.TaskID, cp.MoveID, err)
+		return fmt.Errorf("checkpoint: write (task=%s action=%s): %w", cp.TaskID, cp.ActionID, err)
 	}
 	return nil
 }
 
-// Last 返回 (task_id, move_id) 对应的最新 Checkpoint；不存在时返回 nil, nil。
-func (s *PGCheckpointStore) Last(ctx context.Context, taskID, moveID string) (*Checkpoint, error) {
-	const q = `SELECT task_id, move_id, step_idx, thought, hypotheses, created_at
-	           FROM actor_checkpoint WHERE task_id = $1 AND move_id = $2`
-	row := s.pool.QueryRow(ctx, q, taskID, moveID)
+// Last 返回 (task_id, action_id) 对应的最新 Checkpoint；不存在时返回 nil, nil。
+func (s *PGCheckpointStore) Last(ctx context.Context, taskID, actionID string) (*Checkpoint, error) {
+	const q = `SELECT task_id, action_id, step_idx, thought, hypotheses, created_at
+	           FROM actor_checkpoint WHERE task_id = $1 AND action_id = $2`
+	row := s.pool.QueryRow(ctx, q, taskID, actionID)
 	var cp Checkpoint
 	var hyp []byte
-	if err := row.Scan(&cp.TaskID, &cp.MoveID, &cp.StepIdx, &cp.Thought, &hyp, &cp.CreatedAt); err != nil {
+	if err := row.Scan(&cp.TaskID, &cp.ActionID, &cp.StepIdx, &cp.Thought, &hyp, &cp.CreatedAt); err != nil {
 		if isNoRows(err) {
 			return nil, nil
 		}
-		return nil, fmt.Errorf("actor: checkpoint last (scan=%s move=%s): %w", taskID, moveID, err)
+		return nil, fmt.Errorf("checkpoint: last (task=%s action=%s): %w", taskID, actionID, err)
 	}
 	_ = json.Unmarshal(hyp, &cp.Hypotheses)
 	return &cp, nil

@@ -24,7 +24,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/V3teran/liusha/internal/actor"
+	"github.com/V3teran/liusha/internal/executor"
+	"github.com/V3teran/liusha/internal/domain"
+	domainweb "github.com/V3teran/liusha/internal/domain/web"
 	agentstore "github.com/V3teran/liusha/internal/agentrun"
 	"github.com/V3teran/liusha/internal/assignment"
 	"github.com/V3teran/liusha/internal/cachestore"
@@ -40,8 +42,7 @@ import (
 	"github.com/V3teran/liusha/internal/db"
 	"github.com/V3teran/liusha/internal/embedding"
 	"github.com/V3teran/liusha/internal/envx"
-	"github.com/V3teran/liusha/internal/executor"
-	executorweb "github.com/V3teran/liusha/internal/executor/web"
+	"github.com/V3teran/liusha/internal/eventbus"
 	"github.com/V3teran/liusha/internal/finding"
 	"github.com/V3teran/liusha/internal/ingestor"
 	"github.com/V3teran/liusha/internal/lead"
@@ -159,8 +160,8 @@ func main() {
 
 	// L2 域适配注册表：注册各域 Profile（目标接入/工具镜像/finding schema）。
 	// 加新域 = New 一个 Profile 并 Register，此处外无核心改动（架构试金石）。
-	profiles := executor.NewRegistry()
-	profiles.Register(executorweb.New())
+	profiles := domain.NewRegistry()
+	profiles.Register(domainweb.New())
 	logger.Info().Strs("domains", profiles.Domains()).Msg("domain profiles registered")
 
 	// Vuln loader（Progressive Disclosure）：root=skills/vuln，
@@ -272,6 +273,9 @@ func main() {
 	plannerMgr := newPlannerAgentManager(logger)
 	defer plannerMgr.StopAll()
 
+	// Action 级别事件总线（Executor 监听 Planner 的 Kill/Steer 事件）
+	actionBus := eventbus.New()
+
 	h := handler{
 		executors: executorRuns,
 		tasks:          taskStore,
@@ -299,8 +303,9 @@ func main() {
 		eventPublisher: eventPublisher,
 		profiles:       profiles,
 		world:          worldStore,
-		checkpoint:     actor.NewPGCheckpointStore(pool),
+		checkpoint:     executor.NewPGCheckpointStore(pool),
 		eventBus:       eventBus,
+		actionBus:      actionBus,
 		plannerMgr:     plannerMgr,
 		controlPlane:   controlPlaneStore,
 	}

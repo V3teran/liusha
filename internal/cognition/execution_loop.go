@@ -52,7 +52,7 @@ func (l *ExecutionLoop) Run(ctx context.Context, taskID string) (Report, error) 
 	defer ticker.Stop()
 
 	// 初始检查一次
-	if err := l.processPendingMoves(ctx, taskID, &rep); err != nil {
+	if err := l.processPendingActions(ctx, taskID, &rep); err != nil {
 		return rep, err
 	}
 
@@ -63,7 +63,7 @@ func (l *ExecutionLoop) Run(ctx context.Context, taskID string) (Report, error) 
 			return rep, ctx.Err()
 
 		case <-ticker.C:
-			if err := l.processPendingMoves(ctx, taskID, &rep); err != nil {
+			if err := l.processPendingActions(ctx, taskID, &rep); err != nil {
 				rep.StopWhy = stopError
 				return rep, err
 			}
@@ -74,8 +74,8 @@ func (l *ExecutionLoop) Run(ctx context.Context, taskID string) (Report, error) 
 				return rep, nil
 			}
 
-			// 停止条件：无待执行 Move
-			pendingCount, err := l.countPendingMoves(ctx, taskID)
+			// 停止条件：无待执行 Action
+			pendingCount, err := l.countPendingActions(ctx, taskID)
 			if err != nil {
 				return rep, err
 			}
@@ -87,15 +87,15 @@ func (l *ExecutionLoop) Run(ctx context.Context, taskID string) (Report, error) 
 	}
 }
 
-// processPendingMoves 处理所有可执行的 Move（支持依赖调度）
-func (l *ExecutionLoop) processPendingMoves(ctx context.Context, taskID string, rep *Report) error {
+// processPendingActions 处理所有可执行的 Action（支持依赖调度）
+func (l *ExecutionLoop) processPendingActions(ctx context.Context, taskID string, rep *Report) error {
 	// 获取所有 open 状态的 Move
-	openMoves, err := l.world.ListOpenMoves(ctx, taskID)
+	openActions, err := l.world.ListOpenActions(ctx, taskID)
 	if err != nil {
 		return fmt.Errorf("list open moves: %w", err)
 	}
 
-	if len(openMoves) == 0 {
+	if len(openActions) == 0 {
 		return nil
 	}
 
@@ -107,7 +107,7 @@ func (l *ExecutionLoop) processPendingMoves(ctx context.Context, taskID string, 
 
 	// 筛选出当前可执行的 Move（无依赖或依赖已满足）
 	var executable []worldmodel.Node
-	for _, m := range openMoves {
+	for _, m := range openActions {
 		if m.CanExecute(completed) {
 			executable = append(executable, m)
 		}
@@ -115,7 +115,7 @@ func (l *ExecutionLoop) processPendingMoves(ctx context.Context, taskID string, 
 
 	if len(executable) == 0 {
 		l.logger.Debug().
-			Int("open", len(openMoves)).
+			Int("open", len(openActions)).
 			Msg("有 open Move 但无可执行（等待依赖）")
 		return nil
 	}
@@ -127,28 +127,28 @@ func (l *ExecutionLoop) processPendingMoves(ctx context.Context, taskID string, 
 		}
 
 		// 标记为 running
-		if err := l.world.UpdateMoveState(ctx, move.ID, worldmodel.StateRunning, nil); err != nil {
+		if err := l.world.UpdateActionState(ctx, move.ID, worldmodel.StateRunning, nil); err != nil {
 			l.logger.Error().Err(err).Str("move_id", move.ID).Msg("mark running failed")
 			continue
 		}
 
-		// 执行 Move
+		// 执行 Action
 		execErr := l.executeMove(ctx, taskID, move, rep)
 
 		// 更新状态
 		if execErr != nil {
 			errMsg := execErr.Error()
-			if err := l.world.UpdateMoveState(ctx, move.ID, worldmodel.StateFailed, &errMsg); err != nil {
+			if err := l.world.UpdateActionState(ctx, move.ID, worldmodel.StateFailed, &errMsg); err != nil {
 				l.logger.Error().Err(err).Str("move_id", move.ID).Msg("mark failed failed")
 			}
 		} else {
-			if err := l.world.UpdateMoveState(ctx, move.ID, worldmodel.StateDone, nil); err != nil {
+			if err := l.world.UpdateActionState(ctx, move.ID, worldmodel.StateDone, nil); err != nil {
 				l.logger.Error().Err(err).Str("move_id", move.ID).Msg("mark done failed")
 			}
 
-			// 发布 Move 完成事件
+			// 发布 Action 完成事件
 			if l.eventBus != nil {
-				l.eventBus.PublishMoveCompleted(taskID, move.ID)
+				l.eventBus.PublishActionCompleted(taskID, move.ID)
 			}
 
 			// 更新已完成集合
@@ -174,7 +174,7 @@ func (l *ExecutionLoop) executeMove(
 		Int("priority", move.Priority).
 		Msg("executing move")
 
-	// Executor 执行 Move
+	// Executor 执行 Action
 	attempts, err := l.executor.Execute(ctx, move)
 	if err != nil {
 		l.logger.Error().Err(err).Str("move_id", move.ID).Msg("executor failed")
@@ -197,7 +197,7 @@ func (l *ExecutionLoop) executeMove(
 			edge := worldmodel.Edge{
 				TaskID:    taskID,
 				SrcID:     move.ID,
-				Rel:       worldmodel.RelProduces,
+				Rel:       worldmodel.RelGenerates,
 				DstID:     node.ID,
 				CreatedAt: time.Now(),
 			}
@@ -217,22 +217,22 @@ func (l *ExecutionLoop) executeMove(
 
 // getCompletedMoveIDs 获取已完成的 Move ID 集合
 func (l *ExecutionLoop) getCompletedMoveIDs(ctx context.Context, taskID string) (map[string]bool, error) {
-	completedMoves, err := l.world.ListCompletedMoves(ctx, taskID)
+	completedActions, err := l.world.ListCompletedActions(ctx, taskID)
 	if err != nil {
 		return nil, err
 	}
 
-	completed := make(map[string]bool, len(completedMoves))
-	for _, m := range completedMoves {
+	completed := make(map[string]bool, len(completedActions))
+	for _, m := range completedActions {
 		completed[m.ID] = true
 	}
 
 	return completed, nil
 }
 
-// countPendingMoves 统计待执行 Move 数量
-func (l *ExecutionLoop) countPendingMoves(ctx context.Context, taskID string) (int, error) {
-	moves, err := l.world.ListOpenMoves(ctx, taskID)
+// countPendingActions 统计待执行 Action 数量
+func (l *ExecutionLoop) countPendingActions(ctx context.Context, taskID string) (int, error) {
+	moves, err := l.world.ListOpenActions(ctx, taskID)
 	if err != nil {
 		return 0, err
 	}

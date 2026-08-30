@@ -149,7 +149,7 @@ type catalogEntry struct {
 // 未在本表内的 category（含空值）→ 落入末尾的"未分类"组，提醒维护者补 frontmatter。
 var toolingCategoryOrder = []categoryItem{
 	{"recon", "recon（侦察 — 资产/服务/技术栈/指纹发现）"},
-	{"discovery", "discovery（内容/参数发现）"},
+	{"finding", "discovery（内容/参数发现）"},
 	{"vulnscan", "vulnscan（自动化模板漏扫）"},
 	{"injection", "injection（注入类专项）"},
 	{"deserialization", "deserialization（反序列化 payload 生成）"},

@@ -25,7 +25,7 @@ func TestLoadLeadForPrompt_RendersWrittenEntry(t *testing.T) {
 	store := newTestLeadStore(t)
 	ctx := context.Background()
 	if err := store.Append(ctx, "target.com", lead.Entry{
-		Kind: lead.KindObservation, Detail: "session cookie 不含 HttpOnly", SourceTaskID: "t1",
+		Kind: lead.KindHypothesis, Detail: "session cookie 不含 HttpOnly", SourceTaskID: "t1",
 	}); err != nil {
 		t.Fatalf("append: %v", err)
 	}

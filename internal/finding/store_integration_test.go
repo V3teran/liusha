@@ -63,7 +63,7 @@ func TestFindingStore_TriageRoundTrip(t *testing.T) {
 		Summary:  "triage 集成测试用漏洞",
 		CWEID:    "CWE-89",
 		Target:   []byte(`{"path":"/t","method":"GET"}`),
-		Evidence: []byte(`{"repro_cmd":"curl x","observation":"ok"}`),
+		Evidence: []byte(`{"repro_cmd":"curl x","hypothesis":"ok"}`),
 		Repro:    reproRecipe,
 	})
 	if err != nil {

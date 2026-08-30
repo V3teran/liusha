@@ -48,7 +48,7 @@ func TestAttackGraphHandler(t *testing.T) {
 	t.Run("200 返回图并按 task 解析出 task_id", func(t *testing.T) {
 		wm := &fakeWorldModel{
 			nodes: []worldmodel.Node{{
-				ID: "n1", Seq: 1, Kind: worldmodel.KindDiscovery,
+				ID: "n1", Seq: 1, Kind: worldmodel.KindFinding,
 				Ref:        worldmodel.TargetRef{Domain: "web", RefKind: "endpoint", Locator: "/login"},
 				Attrs:      json.RawMessage(`{"summary":"SQLi"}`),
 				Confidence: worldmodel.ConfConfirmed,
@@ -82,7 +82,7 @@ func TestAttackGraphHandler(t *testing.T) {
 		if wm.gotTaskID != "a1" {
 			t.Errorf("应按 task→assignment 解析出 task_id=a1，实得 %q", wm.gotTaskID)
 		}
-		if len(body.Nodes) != 1 || body.Nodes[0].Kind != worldmodel.KindDiscovery {
+		if len(body.Nodes) != 1 || body.Nodes[0].Kind != worldmodel.KindFinding {
 			t.Errorf("节点不符：%+v", body.Nodes)
 		}
 		// Edge Src/Dst → source/target 单点转换。

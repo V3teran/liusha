@@ -23,7 +23,7 @@ const colsSelect = "id, actor, action, target_kind, target_id, metadata, created
 // 必填：Actor / Action / TargetKind / TargetID；Metadata 为空时落 '{}'。
 func (s *Store) Append(ctx context.Context, e Event) (int64, error) {
 	if e.Actor == "" || e.Action == "" {
-		return 0, fmt.Errorf("audit: Actor + Action 必填")
+		return 0, fmt.Errorf("audit: Executor + Action 必填")
 	}
 	if e.TargetKind == "" || e.TargetID == "" {
 		return 0, fmt.Errorf("audit: TargetKind + TargetID 必填")

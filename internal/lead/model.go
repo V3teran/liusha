@@ -1,32 +1,80 @@
-// Package lead 实现情报黑板：assignment 级别的跨 task 情报共享。
-//
-// 定位：同一 assignment 下的多个 task 共享情报黑板，子代理通过黑板同步过程情报。
-//
-// 隔离维度：assignment_id（按批次隔离）
-// 存储：PostgreSQL（持久化，无 TTL）
-// 生命周期：与 assignment 一致，长期记忆，不自动过期
 package lead
 
 import "time"
 
-// Kind 是情报能触发的 agent 动作分类——按动作分（最少且穷尽），不按主题分。
-type Kind string
+// Category 是情报的信息分类
+type Category string
 
 const (
-	KindClue        Kind = "clue"        // 可疑点 → 去验证
-	KindObservation Kind = "observation" // 既成发现 → 记住并继续
-	KindDeadend     Kind = "deadend"     // 死路 → 绕开别试
+	// 信息类
+	CategoryTarget        Category = "target"        // 目标信息
+	CategoryCredential    Category = "credential"    // 凭证信息
+	CategoryInfrastructure Category = "infrastructure" // 基础设施
+	CategoryBusiness      Category = "business"      // 业务逻辑
+	CategoryData          Category = "data"          // 数据特征
+
+	// 发现类
+	CategoryFinding       Category = "finding"       // 发现（漏洞/问题）
+
+	// 其他
+	CategoryObstacle      Category = "obstacle"      // 障碍
+	CategoryNote          Category = "note"          // 笔记
 )
 
-// Entry 是一条情报。
-//
-// SourceTaskID：哪次 task 发现的（溯源，前端展示"来自哪次扫描"）。
-// lead(observation) 与 finding 的边界：finding = 有 evidence、可复现 repro_cmd、进交付报告的漏洞；
-// lead(observation) = 尚未坐实成 PoC 的认知/观察。升级路径：验证成 PoC → 写 finding；lead 保留在黑板。
+// Priority 是优先级
+type Priority string
+
+const (
+	PriorityCritical Priority = "critical" // 关键（P0）
+	PriorityHigh     Priority = "high"     // 高（P1）
+	PriorityMedium   Priority = "medium"   // 中（P2）
+	PriorityLow      Priority = "low"      // 低（P3）
+)
+
+// Confidence 是置信度
+type Confidence string
+
+const (
+	ConfidenceConfirmed Confidence = "confirmed" // 已确认
+	ConfidenceProbable  Confidence = "probable"  // 很可能
+	ConfidencePossible  Confidence = "possible"  // 可能
+)
+
+// Entry 是一条情报记录
 type Entry struct {
-	Kind         Kind      `json:"kind"`
-	Detail       string    `json:"detail"` // 一句人话，位置/细节都在这里说清
-	ExecutorID   string    `json:"executor_id"`
-	SourceTaskID string    `json:"source_task_id"`
-	CreatedAt    time.Time `json:"created_at"`
+	ID           string     `json:"id"`
+	AssignmentID string     `json:"assignment_id"`
+
+	// 三维分类
+	Category     Category   `json:"category"`
+	Priority     Priority   `json:"priority"`
+	Confidence   Confidence `json:"confidence"`
+
+	// 内容
+	Summary      string     `json:"summary"`
+	Body         string     `json:"body,omitempty"`
+	Tags         []string   `json:"tags,omitempty"`
+
+	// 追溯
+	SourceTaskID  string    `json:"source_task_id"`
+	SourceAgentID string    `json:"source_agent_id,omitempty"`
+
+	// 时间
+	CreatedAt    time.Time  `json:"created_at"`
+	UpdatedAt    time.Time  `json:"updated_at"`
+}
+
+// IsCritical 判断是否为关键优先级
+func (e *Entry) IsCritical() bool {
+	return e.Priority == PriorityCritical
+}
+
+// IsHighPriority 判断是否为高优先级或关键
+func (e *Entry) IsHighPriority() bool {
+	return e.Priority == PriorityCritical || e.Priority == PriorityHigh
+}
+
+// IsConfirmed 判断是否已确认
+func (e *Entry) IsConfirmed() bool {
+	return e.Confidence == ConfidenceConfirmed
 }

@@ -1,7 +1,7 @@
 // Package registry 定义工具接口、执行结果类型、Signal 证据类型，
 // 并实现带 Interceptor 链的 Registry。
 //
-// 依赖方向：registry ← actor ← dispatcher
+// 依赖方向：registry ← executor ← dispatcher
 package registry
 
 import (

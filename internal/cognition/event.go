@@ -11,8 +11,8 @@ import (
 type EventType string
 
 const (
-	// EventMoveCompleted 当一个 Move 执行完成时触发
-	EventMoveCompleted EventType = "move_completed"
+	// EventActionCompleted 当一个 Action 执行完成时触发
+	EventActionCompleted EventType = "action_completed"
 
 	// EventFindingDiscovered 当发现新的 Finding 时触发
 	EventFindingDiscovered EventType = "finding_discovered"
@@ -122,13 +122,13 @@ func (b *EventBus) Publish(event Event) {
 	}
 }
 
-// PublishMoveCompleted 发布 Move 完成事件
-func (b *EventBus) PublishMoveCompleted(taskID string, moveID string) {
+// PublishActionCompleted 发布 Action 完成事件
+func (b *EventBus) PublishActionCompleted(taskID string, actionID string) {
 	b.Publish(Event{
-		Type:   EventMoveCompleted,
+		Type:   EventActionCompleted,
 		TaskID: taskID,
 		Payload: map[string]interface{}{
-			"move_id": moveID,
+			"action_id": actionID,
 		},
 	})
 }

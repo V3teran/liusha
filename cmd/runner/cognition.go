@@ -5,10 +5,9 @@ import (
 	"fmt"
 
 	"github.com/V3teran/liusha/internal/cognition"
-	domainweb "github.com/V3teran/liusha/internal/executor/web"
-	executorweb "github.com/V3teran/liusha/internal/executor/web"
+	domainweb "github.com/V3teran/liusha/internal/domain/web"
 	"github.com/V3teran/liusha/internal/httpreplay"
-	"github.com/V3teran/liusha/internal/planneragent"
+	"github.com/V3teran/liusha/internal/planner"
 	"github.com/V3teran/liusha/internal/traffic"
 	"github.com/V3teran/liusha/internal/verifier"
 )
@@ -43,20 +42,20 @@ func (s *agentTrafficScope) GetInScope(ctx context.Context, id int64) (httprepla
 func (h handler) runCognition(
 	ctx context.Context,
 	assignmentID, taskID, host string,
-	run executorweb.AgentFunc,
+	run domainweb.AgentFunc,
 ) (cognition.Report, error) {
 	if h.world == nil || taskID == "" || h.eventBus == nil {
 		return cognition.Report{}, fmt.Errorf("world and eventBus are required")
 	}
 
-	executor := executorweb.NewExecutor(taskID, host, h.findings, run)
+	executor := domainweb.NewExecutor(taskID, host, h.findings, run)
 	replaySource := &agentTrafficScope{store: h.agentStore, taskID: taskID}
 	promoter := verifier.New(h.world, domainweb.NewReplayer(replaySource))
 
 	// 启动 PlannerAgent（异步规划器）
 	// PlannerAgent 内部会通过 h.router 获取 LLM
 
-	plannerAgent := planneragent.New(planneragent.Config{
+	plannerAgent := planner.New(planner.Config{
 		TaskID:       taskID,
 		EventBus:     h.eventBus,
 		World:        h.world,

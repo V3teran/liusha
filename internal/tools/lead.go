@@ -13,11 +13,39 @@ import (
 var writeLeadSchema = json.RawMessage(`{
   "type": "object",
   "properties": {
-    "kind":   {"type": "string", "enum": ["clue", "observation", "deadend"],
-                "description": "clue=可疑点待验证 / observation=既成发现 / deadend=死路绕开。"},
-    "detail": {"type": "string", "description": "一句人话，位置/细节都在这里说清。"}
+    "category": {
+      "type": "string",
+      "enum": ["target", "credential", "infrastructure", "business", "data", "finding", "obstacle", "note"],
+      "description": "信息分类：target（目标）/credential（凭证）/infrastructure（基础设施）/business（业务逻辑）/data（数据）/finding（发现）/obstacle（障碍）/note（笔记）"
+    },
+    "priority": {
+      "type": "string",
+      "enum": ["critical", "high", "medium", "low"],
+      "default": "medium",
+      "description": "优先级：critical（关键，P0）/high（高，P1）/medium（中，P2）/low（低，P3）"
+    },
+    "confidence": {
+      "type": "string",
+      "enum": ["possible", "probable", "confirmed"],
+      "default": "possible",
+      "description": "置信度：possible（可能）/probable（很可能）/confirmed（已确认）"
+    },
+    "summary": {
+      "type": "string",
+      "maxLength": 200,
+      "description": "一句话摘要（必填，200 字符以内）"
+    },
+    "body": {
+      "type": "string",
+      "description": "详细内容（可选，markdown 格式）"
+    },
+    "tags": {
+      "type": "array",
+      "items": {"type": "string"},
+      "description": "自由标签（可选）"
+    }
   },
-  "required": ["kind", "detail"]
+  "required": ["category", "summary"]
 }`)
 
 type writeLeadTool struct{ deps Deps }
@@ -31,14 +59,29 @@ func (t *writeLeadTool) Schema() json.RawMessage { return writeLeadSchema }
 
 func (t *writeLeadTool) Execute(ctx context.Context, args json.RawMessage) (registry.ToolResult, error) {
 	var a struct {
-		Kind   string `json:"kind"`
-		Detail string `json:"detail"`
+		Category   string   `json:"category"`
+		Priority   string   `json:"priority"`
+		Confidence string   `json:"confidence"`
+		Summary    string   `json:"summary"`
+		Body       string   `json:"body"`
+		Tags       []string `json:"tags"`
 	}
 	if err := json.Unmarshal(args, &a); err != nil {
 		return registry.ToolResult{Error: "write_lead: 解析参数失败: " + err.Error()}, nil
 	}
-	if a.Detail == "" {
-		return registry.ToolResult{Error: "write_lead: detail 必填"}, nil
+	if a.Summary == "" {
+		return registry.ToolResult{Error: "write_lead: summary 必填"}, nil
+	}
+	if a.Category == "" {
+		return registry.ToolResult{Error: "write_lead: category 必填"}, nil
+	}
+
+	// 默认值
+	if a.Priority == "" {
+		a.Priority = "medium"
+	}
+	if a.Confidence == "" {
+		a.Confidence = "possible"
 	}
 
 	// 查询当前 task 所属的 assignment_id
@@ -48,16 +91,23 @@ func (t *writeLeadTool) Execute(ctx context.Context, args json.RawMessage) (regi
 	}
 
 	entry := lead.Entry{
-		Kind:         lead.Kind(a.Kind),
-		Detail:       a.Detail,
-		ExecutorID:   t.deps.ExecutorID,
-		SourceTaskID: t.deps.TaskID,
-		CreatedAt:    time.Now(),
+		Category:      lead.Category(a.Category),
+		Priority:      lead.Priority(a.Priority),
+		Confidence:    lead.Confidence(a.Confidence),
+		Summary:       a.Summary,
+		Body:          a.Body,
+		Tags:          a.Tags,
+		SourceTaskID:  t.deps.TaskID,
+		SourceAgentID: t.deps.ExecutorID,
+		CreatedAt:     time.Now(),
+		UpdatedAt:     time.Now(),
 	}
 
 	if err := t.deps.Leads.Append(ctx, task.AssignmentID, entry); err != nil {
 		return registry.ToolResult{Error: fmt.Sprintf("write_lead: %v", err)}, nil
 	}
 
-	return registry.ToolResult{Output: fmt.Sprintf("情报已写入黑板: [%s] %s", a.Kind, a.Detail)}, nil
+	return registry.ToolResult{
+		Output: fmt.Sprintf("情报已写入黑板: [%s/%s/%s] %s", a.Category, a.Priority, a.Confidence, a.Summary),
+	}, nil
 }

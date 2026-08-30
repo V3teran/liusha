@@ -1,8 +1,8 @@
-// Package actor 定义 Agent 系统的核心领域类型。
+// Package executor 定义 Agent 系统的核心领域类型。
 //
 // 依赖方向：actor → registry → provider
 // 所有跨包共享的领域模型在此定义，避免循环依赖。
-package actor
+package executor
 
 import (
 	"time"
@@ -12,62 +12,62 @@ import (
 )
 
 // ─────────────────────────────────────────────
-//  Move（策略意图单元）
+//  Action（执行意图单元）
 // ─────────────────────────────────────────────
 // Complexity 已迁移至 worldmodel 包
 
-// LandmarkRef 唯一标识一个目标节点，域无关三元组。
-type LandmarkRef struct {
+// TargetRef 唯一标识一个目标节点，域无关三元组。
+type TargetRef struct {
 	Domain  string `json:"domain"`   // "web" | "binary" | "cloud" | "lateral"
 	RefKind string `json:"ref_kind"` // endpoint | file | resource | node | ...
 	Locator string `json:"locator"`  // 域内寻址，url-encoded
 }
 
 // Key 返回规范化唯一键：domain:ref_kind:locator
-func (r LandmarkRef) Key() string {
+func (r TargetRef) Key() string {
 	return r.Domain + ":" + r.RefKind + ":" + r.Locator
 }
 
 // Display 返回人类可读短文本。
-func (r LandmarkRef) Display() string {
+func (r TargetRef) Display() string {
 	if r.Locator != "" {
 		return r.Domain + "/" + r.RefKind + ":" + r.Locator
 	}
 	return r.Domain + "/" + r.RefKind
 }
 
-// Move 是 Planner 生成的单个战术意图单元。
-type Move struct {
+// Action 是 Planner 生成的单个执行意图单元。
+type Action struct {
 	ID          string
 	Complexity  worldmodel.Complexity
-	Target      LandmarkRef
+	Target      TargetRef
 	Instruction string // 自然语言描述要做什么
 	Cues        []string
 	Constraints []registry.Constraint
 	Priority    int
-	DependsOn   []string // 依赖的 Move.ID，空=无依赖（可并发）
+	DependsOn   []string // 依赖的其他 Action.ID，空=无依赖（可并发）
 }
 
-// MoveStatus 是 Move 的执行状态。
-type MoveStatus string
+// ActionStatus 是 Action 的执行状态。
+type ActionStatus string
 
 const (
-	MoveStatusInFlight  MoveStatus = "in_flight"
-	MoveStatusDone      MoveStatus = "done"
-	MoveStatusAbandoned MoveStatus = "abandoned"
-	MoveStatusStalled   MoveStatus = "stalled"
+	ActionStatusInFlight  ActionStatus = "in_flight"
+	ActionStatusDone      ActionStatus = "done"
+	ActionStatusAbandoned ActionStatus = "abandoned"
+	ActionStatusStalled   ActionStatus = "stalled"
 )
 
-// MoveRecord 携带 Move 执行结果，供 Planner 下轮决策。
-type MoveRecord struct {
-	Move
-	Status   MoveStatus
-	HaltWhy  string   // Critic/Budget 给的终止原因摘要
+// ActionRecord 携带 Action 执行结果，供 Planner 下轮决策。
+type ActionRecord struct {
+	Action
+	Status   ActionStatus
+	HaltWhy  string   // Budget/Done 给的终止原因摘要
 	Findings []string // Finding.ID 列表
 }
 
 // ─────────────────────────────────────────────
-//  Actor 核心类型
+//  Executor 核心类型
 // ─────────────────────────────────────────────
 
 type HaltReason string
@@ -81,13 +81,12 @@ const (
 	HaltError      HaltReason = "error"
 )
 
-// Budget 是单次 Move 的执行预算。
+// Budget 是单次 Action 的执行预算。
 type Budget struct {
 	MaxSteps          int
 	MaxTokens         int
 	WatchdogSecs      int
 	CompactionTrigger float64 // 默认 0.70，触发上下文压缩
-	CriticInterval    int     // 默认 5，每 N 步评估一次
 }
 
 func DefaultBudget() Budget {
@@ -96,59 +95,72 @@ func DefaultBudget() Budget {
 		MaxTokens:         100000,
 		WatchdogSecs:      300,
 		CompactionTrigger: 0.70,
-		CriticInterval:    5,
 	}
 }
 
 // SettleConfig 是结算阶段配置。
 type SettleConfig struct {
 	Threshold    float64  // 默认 0.85，触发结算指令注入
-	Directive    string   // 结算指令（per MoveKind 不同，由 Profile 定义）
+	Directive    string   // 结算指令（per Complexity 不同，由 Profile 定义）
 	AllowedTools []string // 结算阶段只开放这些工具
 }
 
 // ScanBudget 是 Scan 级别总预算。
 type ScanBudget struct {
-	MaxMoves           int
-	MaxTotalTime       time.Duration
-	MaxConcurrentMoves int // 并发 Move 上限，默认 3
+	MaxActions           int
+	MaxTotalTime         time.Duration
+	MaxConcurrentActions int // 并发 Action 上限，默认 3
 }
 
 func DefaultScanBudget() ScanBudget {
 	return ScanBudget{
-		MaxMoves:           100,
-		MaxTotalTime:       4 * time.Hour,
-		MaxConcurrentMoves: 3,
+		MaxActions:           100,
+		MaxTotalTime:         4 * time.Hour,
+		MaxConcurrentActions: 3,
 	}
 }
 
 type ScanBudgetRemaining struct {
-	RemainingMoves int
-	RemainingTime  time.Duration
+	RemainingActions int
+	RemainingTime    time.Duration
 }
 
 // ─────────────────────────────────────────────
 //  Step / Execution（执行记录）
 // ─────────────────────────────────────────────
 
-// Step 是 Actor 的一次 ReAct 步。
+// Step 是 Executor 的一次 ReAct 步。
 type Step struct {
-	Index      int
-	Thought    string // LLM 文本部分（tool call 之前的推理）
-	Hypotheses []string
+	Index       int
+	Thought     string // LLM 文本部分（tool call 之前的推理）
+	ToolCalls   []ToolCall
+	ToolResults []ToolResult
+	Hypotheses  []string
 }
 
-// Execution 是 Dispatcher 对单个 Move 的一次完整执行包装。
-// 一个 Move 可被执行多次（Critic Steer 后重跑）。
+// ToolCall 是工具调用记录。
+type ToolCall struct {
+	ID   string
+	Name string
+	Args string
+}
+
+// ToolResult 是工具执行结果。
+type ToolResult struct {
+	ToolCallID string
+	Output     string
+	Error      string
+}
+
+// Execution 是 Dispatcher 对单个 Action 的一次完整执行包装。
 type Execution struct {
 	Index      int
-	Result     ActorResult
-	Steer      string   // Critic 给的 steering 文本，首次为空
+	Result     ExecutorResult
 	Hypotheses []string // 本次 Execution 结束时的 Working Memory
 }
 
-// ActorReq 是 Actor.Run 的输入。
-type ActorReq struct {
+// ExecutorReq 是 Actor.Run 的输入。
+type ExecutorReq struct {
 	System             string             // 不参与压缩：Profile.SystemPrompt + Landmark summaries
 	Inbox              []Message          // 参与压缩：初始指令
 	Hypotheses         []string           // Working Memory
@@ -157,14 +169,14 @@ type ActorReq struct {
 	PendingConstraints []registry.Constraint
 }
 
-// Message 是 Actor 内部会话消息（薄包装，转发给 Provider）。
+// Message 是 Executor 内部会话消息（薄包装，转发给 Provider）。
 type Message struct {
 	Role    string
 	Content string
 }
 
-// ActorResult 是 Actor.Run 的输出。
-type ActorResult struct {
+// ExecutorResult 是 Actor.Run 的输出。
+type ExecutorResult struct {
 	Steps      []Step
 	Conclusion string
 	Halt       HaltReason
@@ -172,26 +184,15 @@ type ActorResult struct {
 }
 
 // ─────────────────────────────────────────────
-//  Critic
+//  Self-Monitoring
 // ─────────────────────────────────────────────
 
-type Verdict string
-
-const (
-	VerdictContinue Verdict = "continue"
-	VerdictSteer    Verdict = "steer"
-	VerdictAbandon  Verdict = "abandon"
-)
-
-type Assessment struct {
-	Advancing   bool
-	Observation string
-	Verdict     Verdict
-}
-
-// Critic 评估 Actor 执行进展，决定是否继续/引导/放弃。
-type Critic interface {
-	Evaluate(ctx interface{ Deadline() (time.Time, bool) }, move Move, recent []Step) (Assessment, error)
+// SelfAssessment 是自我评估结果。
+type SelfAssessment struct {
+	Status     string // "on_track" | "off_track" | "stalled"
+	Severity   string // "low" | "medium" | "high"
+	Reasoning  string
+	Correction string // 如果跑偏，如何纠正
 }
 
 // ─────────────────────────────────────────────

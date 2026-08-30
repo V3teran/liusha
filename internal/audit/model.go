@@ -1,7 +1,7 @@
 // Package audit 实现 audit_log 表的 model + store。
 //
 // 业务定位：系统级敏感操作的审计日志——谁在何时建/中止 task、删凭证。
-// 通用 actor / action / target 三元结构覆盖：
+// 通用 executor / action / target 三元结构覆盖：
 //   - 安全合规需求（审计追踪）
 //   - 误操作复盘根因（凭证被删 / task 被意外 abort）
 //
@@ -16,7 +16,7 @@ import (
 
 // Event 是 audit_log 表行的 Go 表示。
 //
-// Actor 示例: 'system' / 'api_user:abcd1234' / 'runner'
+// Executor 示例: 'system' / 'api_user:abcd1234' / 'runner'
 // Action 示例: 'task.abort' / 'task.create' / 'credential.set' / 'credential.delete'
 // TargetKind 示例: 'task' / 'credential'
 // TargetID 是 target 主键（uuid 字符串 / host key 等）
@@ -30,7 +30,7 @@ type Event struct {
 	CreatedAt  time.Time
 }
 
-// 常量化常用 actor / action 字符串，避免散落字面量拼写错。
+// 常量化常用 executor / action 字符串，避免散落字面量拼写错。
 const (
 	ActorSystem  = "system"
 	ActorAPIUser = "api_user"

@@ -42,7 +42,7 @@ func baseAttempt() Attempt {
 	return Attempt{
 		TaskID:     "asg-1",
 		NodeID:     "node-source",
-		Kind:       worldmodel.KindDiscovery,
+		Kind:       worldmodel.KindFinding,
 		Primitives: json.RawMessage(`[{"op":"http_request"}]`),
 		Content:    json.RawMessage(`{"severity":"high","type":"vulnerability"}`),
 		Priority:   8,
@@ -61,7 +61,7 @@ func TestPromote_Confirmed(t *testing.T) {
 	if node == nil {
 		t.Fatal("坐实应返回晋升后的节点")
 	}
-	if node.Confidence == nil || *node.Confidence != worldmodel.ConfVerified {
+	if node.Confidence == nil || *node.Confidence != worldmodel.ConfidenceVerified {
 		t.Errorf("节点应 verified, got %v", node.Confidence)
 	}
 	if node.SourceID != "ver-99" {
