@@ -10,14 +10,16 @@ import (
 
 	"github.com/V3teran/liusha/internal/cognition"
 	"github.com/V3teran/liusha/internal/controlplane"
+	"github.com/V3teran/liusha/internal/eventbus"
 	"github.com/V3teran/liusha/internal/provider"
 	"github.com/V3teran/liusha/internal/worldmodel"
 )
 
-// Agent 是事件驱动的 Planner Agent，通过 LLM 推理产出 Move
+// Agent 是事件驱动的 Planner Agent，通过 LLM 推理产出 Action
 type Agent struct {
 	taskID       string
-	eventBus     *cognition.EventBus
+	eventBus     *cognition.EventBus  // Task 级事件总线（接收触发）
+	actionBus    *eventbus.Bus        // Action 级事件总线（发送控制）
 	world        *worldmodel.Store
 	controlPlane *controlplane.Store
 	router       *provider.Router
@@ -30,7 +32,8 @@ type Agent struct {
 // Config 配置 Planner Agent
 type Config struct {
 	TaskID       string
-	EventBus     *cognition.EventBus
+	EventBus     *cognition.EventBus // Task 级事件总线
+	ActionBus    *eventbus.Bus       // Action 级事件总线
 	World        *worldmodel.Store
 	ControlPlane *controlplane.Store
 	Router       *provider.Router
@@ -47,6 +50,7 @@ func New(cfg Config) *Agent {
 	return &Agent{
 		taskID:       cfg.TaskID,
 		eventBus:     cfg.EventBus,
+		actionBus:    cfg.ActionBus,
 		world:        cfg.World,
 		controlPlane: cfg.ControlPlane,
 		router:       cfg.Router,
@@ -64,9 +68,9 @@ func (a *Agent) Start(ctx context.Context) error {
 	events := a.eventBus.Subscribe(a.taskID)
 	defer a.eventBus.Unsubscribe(a.taskID)
 
-	// 心跳定时器（30 秒）
-	heartbeatTicker := time.NewTicker(30 * time.Second)
-	defer heartbeatTicker.Stop()
+	// 全局评估定时器（6 分钟）
+	evaluationTicker := time.NewTicker(6 * time.Minute)
+	defer evaluationTicker.Stop()
 
 	// 初始规划
 	if err := a.replan(ctx, cognition.Event{
@@ -96,8 +100,11 @@ func (a *Agent) Start(ctx context.Context) error {
 				a.logger.Error().Err(err).Str("event_type", string(event.Type)).Msg("replan failed")
 			}
 
-		case <-heartbeatTicker.C:
-			a.eventBus.PublishHeartbeat(a.taskID)
+		case <-evaluationTicker.C:
+			// 定期全局评估
+			if err := a.periodicEvaluation(ctx); err != nil {
+				a.logger.Error().Err(err).Msg("periodic evaluation failed")
+			}
 		}
 	}
 }
@@ -105,6 +112,37 @@ func (a *Agent) Start(ctx context.Context) error {
 // Stop 停止 Planner Agent
 func (a *Agent) Stop() {
 	close(a.stopCh)
+}
+
+// periodicEvaluation 执行定期全局评估（每 6 分钟）。
+func (a *Agent) periodicEvaluation(ctx context.Context) error {
+	a.logger.Info().Str("task_id", a.taskID).Msg("starting periodic evaluation")
+
+	// 1. 获取全局状态
+	state, err := a.getGlobalState(ctx, a.taskID)
+	if err != nil {
+		return fmt.Errorf("get global state: %w", err)
+	}
+
+	// 2. LLM 全局评估
+	assessment, err := a.evaluateGlobal(ctx, state)
+	if err != nil {
+		return fmt.Errorf("evaluate global: %w", err)
+	}
+
+	a.logger.Info().
+		Str("strategy", assessment.Strategy).
+		Int("kills", len(assessment.ActionsToKill)).
+		Int("steers", len(assessment.ActionsToSteer)).
+		Int("new_actions", len(assessment.NewActions)).
+		Msg("evaluation completed")
+
+	// 3. 执行决策（Kill/Steer/CreateAction）
+	if err := a.executeDecisions(ctx, a.taskID, assessment); err != nil {
+		return fmt.Errorf("execute decisions: %w", err)
+	}
+
+	return nil
 }
 
 // replan 执行重新规划（调用 LLM）

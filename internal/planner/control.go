@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/V3teran/liusha/internal/cognition"
+	"github.com/V3teran/liusha/internal/eventbus"
 	"github.com/V3teran/liusha/internal/worldmodel"
 )
 
@@ -109,13 +109,18 @@ func (p *Agent) Kill(ctx context.Context, actionID string, reason string) error 
 		return fmt.Errorf("update action state: %w", err)
 	}
 
-	// 6. 发布事件：通知 Executor 停止
-	if p.eventBus != nil {
-		p.eventBus.Publish(cognition.Event{
-			Type: cognition.EventType("action.killed"),
-			Payload: map[string]interface{}{"action_id": actionID, "reason": reason},
+	// 6. 发布到 actionBus（Action 级事件总线）
+	if p.actionBus != nil {
+		p.actionBus.Publish(eventbus.Event{
+			Type:      eventbus.EventActionKilled,
+			ActionID:  actionID,
 			Timestamp: time.Now(),
+			Payload: map[string]interface{}{
+				"reason": reason,
+				"source": "planner",
+			},
 		})
+		p.logger.Info().Str("action_id", actionID).Msg("published action.killed to actionBus")
 	}
 
 	return nil
@@ -161,13 +166,18 @@ func (p *Agent) Steer(ctx context.Context, actionID string, guidance string) err
 		return fmt.Errorf("update metadata: %w", err)
 	}
 
-	// 5. 发布事件：通知 Actor
-	if p.eventBus != nil {
-		p.eventBus.Publish(cognition.Event{
-			Type: cognition.EventType("action.steered"),
-			Payload: map[string]interface{}{"action_id": actionID, "guidance": guidance},
+	// 5. 发布到 actionBus（Action 级事件总线）
+	if p.actionBus != nil {
+		p.actionBus.Publish(eventbus.Event{
+			Type:      eventbus.EventActionSteered,
+			ActionID:  actionID,
 			Timestamp: time.Now(),
+			Payload: map[string]interface{}{
+				"guidance": guidance,
+				"source":   "planner",
+			},
 		})
+		p.logger.Info().Str("action_id", actionID).Msg("published action.steered to actionBus")
 	}
 
 	return nil
