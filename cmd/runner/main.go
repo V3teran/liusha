@@ -30,7 +30,7 @@ import (
 	agentstore "github.com/V3teran/liusha/internal/agentrun"
 	"github.com/V3teran/liusha/internal/assignment"
 	"github.com/V3teran/liusha/internal/cachestore"
-	"github.com/V3teran/liusha/internal/cognition"
+	"github.com/V3teran/liusha/internal/orchestrator"
 	"github.com/V3teran/liusha/internal/config"
 	"github.com/V3teran/liusha/internal/config/settingstore"
 	"github.com/V3teran/liusha/internal/configstore"
@@ -261,7 +261,7 @@ func main() {
 	// EventBus：事件驱动的 Planner Agent 基础设施（进程单例，跨 Task 共享）
 	eventBusCtx, eventBusCancel := context.WithCancel(context.Background())
 	defer eventBusCancel()
-	eventBus := cognition.NewEventBus(eventBusCtx)
+	eventBus := orchestrator.NewEventBus(eventBusCtx)
 
 	// PlanStore：execution_plan 表的持久化层
 	// worldmodel.Store 在前面已初始化为 worldStore

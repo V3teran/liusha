@@ -1,4 +1,4 @@
-package cognition
+package orchestrator
 
 import (
 	"context"

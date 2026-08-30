@@ -8,7 +8,7 @@ import (
 
 	"github.com/rs/zerolog"
 
-	"github.com/V3teran/liusha/internal/cognition"
+	"github.com/V3teran/liusha/internal/orchestrator"
 	"github.com/V3teran/liusha/internal/controlplane"
 	"github.com/V3teran/liusha/internal/eventbus"
 	"github.com/V3teran/liusha/internal/provider"
@@ -18,7 +18,7 @@ import (
 // Agent 是事件驱动的 Planner Agent，通过 LLM 推理产出 Action
 type Agent struct {
 	taskID       string
-	eventBus     *cognition.EventBus  // Task 级事件总线（接收触发）
+	eventBus     *orchestrator.EventBus  // Task 级事件总线（接收触发）
 	actionBus    *eventbus.Bus        // Action 级事件总线（发送控制）
 	world        *worldmodel.Store
 	controlPlane *controlplane.Store
@@ -32,7 +32,7 @@ type Agent struct {
 // Config 配置 Planner Agent
 type Config struct {
 	TaskID       string
-	EventBus     *cognition.EventBus // Task 级事件总线
+	EventBus     *orchestrator.EventBus // Task 级事件总线
 	ActionBus    *eventbus.Bus       // Action 级事件总线
 	World        *worldmodel.Store
 	ControlPlane *controlplane.Store
@@ -73,8 +73,8 @@ func (a *Agent) Start(ctx context.Context) error {
 	defer evaluationTicker.Stop()
 
 	// 初始规划
-	if err := a.replan(ctx, cognition.Event{
-		Type:   cognition.EventTaskStarted,
+	if err := a.replan(ctx, orchestrator.Event{
+		Type:   orchestrator.EventTaskStarted,
 		TaskID: a.taskID,
 	}); err != nil {
 		a.logger.Error().Err(err).Msg("initial planning failed")
@@ -146,7 +146,7 @@ func (a *Agent) periodicEvaluation(ctx context.Context) error {
 }
 
 // replan 执行重新规划（调用 LLM）
-func (a *Agent) replan(ctx context.Context, event cognition.Event) error {
+func (a *Agent) replan(ctx context.Context, event orchestrator.Event) error {
 	startTime := time.Now()
 
 	// 构建系统提示词
@@ -265,22 +265,22 @@ func (a *Agent) buildSystemPrompt() string {
 }
 
 // buildUserPrompt 构建用户提示词
-func (a *Agent) buildUserPrompt(ctx context.Context, event cognition.Event) (string, error) {
+func (a *Agent) buildUserPrompt(ctx context.Context, event orchestrator.Event) (string, error) {
 	prompt := fmt.Sprintf("事件类型：%s\n\n", event.Type)
 
 	switch event.Type {
-	case cognition.EventTaskStarted:
+	case orchestrator.EventTaskStarted:
 		prompt += "任务刚刚启动，请生成初始 Move。\n"
-	case cognition.EventActionCompleted:
+	case orchestrator.EventActionCompleted:
 		moveID := event.Payload["move_id"].(string)
 		prompt += fmt.Sprintf("Move %s 已完成，请根据新状态重新规划。\n", moveID)
-	case cognition.EventVerificationPassed:
+	case orchestrator.EventVerificationPassed:
 		nodeID := event.Payload["node_id"].(string)
 		prompt += fmt.Sprintf("节点 %s 验证通过，请根据新发现调整计划。\n", nodeID)
-	case cognition.EventManualGuidance:
+	case orchestrator.EventManualGuidance:
 		guidance := event.Payload["guidance"].(string)
 		prompt += fmt.Sprintf("人工指导：%s\n", guidance)
-	case cognition.EventHeartbeat:
+	case orchestrator.EventHeartbeat:
 		prompt += "定期检查：评估当前进展，必要时生成新 Move。\n"
 	}
 

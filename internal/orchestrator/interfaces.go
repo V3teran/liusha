@@ -1,7 +1,7 @@
 // Package cognition 定义 L4 认知引擎的核心接口。
 //
 // 更新（2026-08-26）：适配统一世界模型（Move 合并到 Node）
-package cognition
+package orchestrator
 
 import (
 	"context"

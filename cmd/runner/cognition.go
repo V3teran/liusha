@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/V3teran/liusha/internal/cognition"
+	"github.com/V3teran/liusha/internal/orchestrator"
 	domainweb "github.com/V3teran/liusha/internal/domain/web"
 	"github.com/V3teran/liusha/internal/httpreplay"
 	"github.com/V3teran/liusha/internal/planner"
@@ -43,9 +43,9 @@ func (h handler) runCognition(
 	ctx context.Context,
 	assignmentID, taskID, host string,
 	run domainweb.AgentFunc,
-) (cognition.Report, error) {
+) (orchestrator.Report, error) {
 	if h.world == nil || taskID == "" || h.eventBus == nil {
-		return cognition.Report{}, fmt.Errorf("world and eventBus are required")
+		return orchestrator.Report{}, fmt.Errorf("world and eventBus are required")
 	}
 
 	executor := domainweb.NewExecutor(taskID, host, h.findings, run)
@@ -72,7 +72,7 @@ func (h handler) runCognition(
 	}()
 	h.logger.Info().Str("task_id", taskID).Msg("planner agent started")
 
-	execLoop := cognition.NewExecutionLoop(
+	execLoop := orchestrator.NewExecutionLoop(
 		h.world,
 		executor,
 		promoter,
