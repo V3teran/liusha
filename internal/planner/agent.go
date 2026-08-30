@@ -1,4 +1,4 @@
-package planneragent
+package planner
 
 import (
 	"context"
@@ -233,7 +233,7 @@ func (a *Agent) buildUserPrompt(ctx context.Context, event cognition.Event) (str
 	switch event.Type {
 	case cognition.EventTaskStarted:
 		prompt += "任务刚刚启动，请生成初始 Move。\n"
-	case cognition.EventMoveCompleted:
+	case cognition.EventActionCompleted:
 		moveID := event.Payload["move_id"].(string)
 		prompt += fmt.Sprintf("Move %s 已完成，请根据新状态重新规划。\n", moveID)
 	case cognition.EventVerificationPassed:

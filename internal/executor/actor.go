@@ -1,17 +1,18 @@
-// Package actor — ReAct 执行引擎。
+// Package executor — ReAct 执行引擎。
 //
 // 每 Step：CountTokens → 压缩判断 → Provider.Complete → ExecuteParallel
-//   → checkpoint.Write → SSE 推送 → 每 CriticInterval 步 Critic.Evaluate
-package actor
+//   → checkpoint.Write → SSE 推送
+package executor
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
-	"fmt"
 	"time"
 
 	"github.com/V3teran/liusha/internal/provider"
 	"github.com/V3teran/liusha/internal/registry"
+	"github.com/rs/zerolog"
 )
 
 // Compactor 压缩过长的上下文历史。
@@ -22,13 +23,13 @@ type Compactor interface {
 // CheckpointStore 持久化每步快照，用于崩溃恢复。
 type CheckpointStore interface {
 	Write(ctx context.Context, cp Checkpoint) error
-	Last(ctx context.Context, taskID, moveID string) (*Checkpoint, error)
+	Last(ctx context.Context, taskID, actionID string) (*Checkpoint, error)
 }
 
 // Checkpoint 是单步快照。
 type Checkpoint struct {
 	TaskID     string
-	MoveID     string
+	ActionID   string
 	StepIdx    int
 	Thought    string
 	Hypotheses []string
@@ -42,100 +43,137 @@ type SSEEmitter interface {
 
 // SSEEvent 是推给前端的一条事件。
 type SSEEvent struct {
-	Kind   string // "thinking" | "tool_start" | "tool_end" | "landmark" | "finding" | "move_done"
-	MoveID string
-	StepID int
-	Data   any
-}
-
-// LLMCritic 是基于 LLM Provider 的 Critic 实现。
-type LLMCritic struct {
-	provider provider.Provider
-}
-
-func NewLLMCritic(p provider.Provider) *LLMCritic {
-	return &LLMCritic{provider: p}
-}
-
-func (c *LLMCritic) Evaluate(ctx context.Context, move Move, recent []Step) (Assessment, error) {
-	if len(recent) == 0 {
-		return Assessment{Advancing: true, Verdict: VerdictContinue}, nil
-	}
-	// 构造简短评估提示
-	var thoughts string
-	for _, s := range recent {
-		if s.Thought != "" {
-			thoughts += s.Thought + "\n"
-		}
-	}
-	req := provider.Request{
-		Messages: []provider.Message{
-			{
-				Role:    "user",
-				Content: fmt.Sprintf("Move instruction: %s\n\nRecent thoughts:\n%s\n\nIs this making progress? Reply JSON: {\"advancing\":bool,\"observation\":\"...\",\"verdict\":\"continue|steer|abandon\"}", move.Instruction, thoughts),
-			},
-		},
-		MaxTokens: 256,
-	}
-	resp, err := c.provider.Complete(ctx, req)
-	if err != nil {
-		// critic 失败不中断执行，继续
-		return Assessment{Advancing: true, Verdict: VerdictContinue}, nil
-	}
-	_ = resp
-	// 简单启发式：默认继续（完整解析留具体实现扩展）
-	return Assessment{Advancing: true, Observation: resp.Content, Verdict: VerdictContinue}, nil
+	Kind     string // "thinking" | "tool_start" | "tool_end" | "landmark" | "finding" | "action_done"
+	ActionID string
+	StepID   int
+	Data     any
 }
 
 // ─────────────────────────────────────────────
 //  Actor
 // ─────────────────────────────────────────────
 
-// Actor 是 ReAct 执行引擎。每个 Move 新建一个 Actor 实例。
-type Actor struct {
+// Executor 是 ReAct 执行引擎。每个 Move 新建一个 Executor 实例。
+type Executor struct {
 	provider   provider.Provider
 	reg        *registry.Registry
 	compactor  Compactor
-	critic     *LLMCritic
 	checkpoint CheckpointStore
 	emitter    SSEEmitter // 可为 nil
+	logger     zerolog.Logger
+	worldmodel WorldModelReader // 用于读取 metadata
+
+	// 自我监察配置
+	monitorEnabled       bool
+	monitorStepInterval  int           // 每 N 步评估一次
+	monitorEvaluateSteps int           // 评估最近 N 步
+	monitorProvider      provider.Provider // 用于监察的 LLM
+
+	// 事件总线（用于接收外部控制）
+	eventBus EventBus
 }
 
-// New 构造 Actor。emitter 可为 nil（无 SSE 推送）。
+// WorldModelReader 是只读的 worldmodel 接口（用于解耦）。
+type WorldModelReader interface {
+	GetNode(ctx context.Context, id string) (*WorldModelNode, error)
+}
+
+// WorldModelNode 是 worldmodel 节点的简化表示。
+type WorldModelNode struct {
+	ID       string
+	Metadata json.RawMessage
+}
+
+// EventBus 是事件总线接口（用于解耦）。
+type EventBus interface {
+	Subscribe(ctx context.Context, actionID string) EventSubscription
+	Publish(event Event)
+}
+
+// EventSubscription 是订阅句柄接口。
+type EventSubscription interface {
+	Events() <-chan Event
+	Unsubscribe()
+}
+
+// Event 是事件载体。
+type Event struct {
+	Type      string
+	ActionID  string
+	Payload   map[string]interface{}
+	Timestamp time.Time
+}
+
+// New 构造 Actor。emitter 和 worldmodel 可为 nil。
 func New(
 	p provider.Provider,
 	reg *registry.Registry,
 	compactor Compactor,
-	critic *LLMCritic,
 	cp CheckpointStore,
 	emitter SSEEmitter,
-) *Actor {
-	return &Actor{
+	logger zerolog.Logger,
+	worldmodel WorldModelReader,
+) *Executor {
+	return &Executor{
 		provider:   p,
 		reg:        reg,
 		compactor:  compactor,
-		critic:     critic,
 		checkpoint: cp,
 		emitter:    emitter,
+		logger:     logger,
+		worldmodel: worldmodel,
+
+		// 默认启用监察，每 5 步评估一次，评估最近 5 步
+		monitorEnabled:       true,
+		monitorStepInterval:  5,
+		monitorEvaluateSteps: 5,
+		monitorProvider:      p, // 默认用同一个 provider
+		eventBus:             nil, // 默认无事件总线
 	}
 }
 
+// WithEventBus 配置事件总线。
+func (a *Executor) WithEventBus(bus EventBus) *Executor {
+	a.eventBus = bus
+	return a
+}
+
+// WithMonitor 配置自我监察。
+func (a *Executor) WithMonitor(enabled bool, stepInterval int, evaluateSteps int, provider provider.Provider) *Executor {
+	a.monitorEnabled = enabled
+	a.monitorStepInterval = stepInterval
+	a.monitorEvaluateSteps = evaluateSteps
+	if provider != nil {
+		a.monitorProvider = provider
+	}
+	return a
+}
+
 // Run 执行 ReAct 循环，直到 done/budget/error/cancel。
-func (a *Actor) Run(ctx context.Context, moveID string, req ActorReq) (ActorResult, error) {
+// 如果启用监察，将启动两个协程：执行协程和监察协程。
+func (a *Executor) Run(ctx context.Context, actionID string, req ExecutorReq) (ExecutorResult, error) {
 	if req.Budget.MaxSteps <= 0 {
 		req.Budget = DefaultBudget()
-	}
-	if req.Budget.CriticInterval <= 0 {
-		req.Budget.CriticInterval = 5
 	}
 	if req.Budget.CompactionTrigger <= 0 {
 		req.Budget.CompactionTrigger = 0.70
 	}
 
+	// 如果未启用监察，使用原有单协程逻辑
+	if !a.monitorEnabled {
+		return a.runSingleThreaded(ctx, actionID, req)
+	}
+
+	// 双协程模式
+	return a.runWithMonitoring(ctx, actionID, req)
+}
+
+// runSingleThreaded 是原有的单协程执行逻辑（未启用监察时使用）。
+func (a *Executor) runSingleThreaded(ctx context.Context, actionID string, req ExecutorReq) (ExecutorResult, error) {
 	// 从 checkpoint 恢复起点
 	startStep := 0
 	if a.checkpoint != nil {
-		if cp, err := a.checkpoint.Last(ctx, extractTaskID(ctx), moveID); err == nil && cp != nil {
+		if cp, err := a.checkpoint.Last(ctx, extractTaskID(ctx), actionID); err == nil && cp != nil {
 			startStep = cp.StepIdx + 1
 		}
 	}
@@ -186,9 +224,9 @@ func (a *Actor) Run(ctx context.Context, moveID string, req ActorReq) (ActorResu
 		})
 		if err != nil {
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-				return ActorResult{Steps: steps, Halt: HaltCancelled, TokensUsed: totalTokens}, nil
+				return ExecutorResult{Steps: steps, Halt: HaltCancelled, TokensUsed: totalTokens}, nil
 			}
-			return ActorResult{Steps: steps, Halt: HaltError, TokensUsed: totalTokens}, err
+			return ExecutorResult{Steps: steps, Halt: HaltError, TokensUsed: totalTokens}, err
 		}
 		totalTokens += resp.Usage.InTokens + resp.Usage.OutTokens
 
@@ -196,7 +234,7 @@ func (a *Actor) Run(ctx context.Context, moveID string, req ActorReq) (ActorResu
 		step := Step{Index: stepIdx, Thought: resp.Content}
 
 		if a.emitter != nil && resp.Content != "" {
-			a.emitter.Emit(SSEEvent{Kind: "thinking", MoveID: moveID, StepID: stepIdx, Data: resp.Content})
+			a.emitter.Emit(SSEEvent{Kind: "thinking", ActionID: actionID, StepID: stepIdx, Data: resp.Content})
 		}
 
 		// 将 assistant 回复加入历史
@@ -210,7 +248,7 @@ func (a *Actor) Run(ctx context.Context, moveID string, req ActorReq) (ActorResu
 		if len(resp.ToolCalls) > 0 {
 			if a.emitter != nil {
 				for _, tc := range resp.ToolCalls {
-					a.emitter.Emit(SSEEvent{Kind: "tool_start", MoveID: moveID, StepID: stepIdx, Data: tc.Name})
+					a.emitter.Emit(SSEEvent{Kind: "tool_start", ActionID: actionID, StepID: stepIdx, Data: tc.Name})
 				}
 			}
 
@@ -230,7 +268,7 @@ func (a *Actor) Run(ctx context.Context, moveID string, req ActorReq) (ActorResu
 				})
 
 				if a.emitter != nil {
-					a.emitter.Emit(SSEEvent{Kind: "tool_end", MoveID: moveID, StepID: stepIdx, Data: r})
+					a.emitter.Emit(SSEEvent{Kind: "tool_end", ActionID: actionID, StepID: stepIdx, Data: r})
 				}
 			}
 
@@ -239,44 +277,34 @@ func (a *Actor) Run(ctx context.Context, moveID string, req ActorReq) (ActorResu
 				if tc.Name == "done" {
 					step.Thought += "\n[concluded]"
 					steps = append(steps, step)
-					saveCheckpoint(ctx, a.checkpoint, moveID, stepIdx, step)
-					return ActorResult{Steps: steps, Conclusion: resp.Content, Halt: HaltDone, TokensUsed: totalTokens}, nil
+					saveCheckpoint(ctx, a.checkpoint, actionID, stepIdx, step)
+					return ExecutorResult{Steps: steps, Conclusion: resp.Content, Halt: HaltDone, TokensUsed: totalTokens}, nil
 				}
 			}
 		}
 
 		steps = append(steps, step)
-		saveCheckpoint(ctx, a.checkpoint, moveID, stepIdx, step)
+		saveCheckpoint(ctx, a.checkpoint, actionID, stepIdx, step)
 
 		// done 判断（无工具调用 + FinishReason=stop）
 		if len(resp.ToolCalls) == 0 && resp.FinishReason == "stop" {
-			return ActorResult{Steps: steps, Conclusion: resp.Content, Halt: HaltDone, TokensUsed: totalTokens}, nil
-		}
-
-		// 5. Critic 评估
-		if a.critic != nil && stepIdx > 0 && stepIdx%req.Budget.CriticInterval == 0 {
-			recentSteps := steps
-			if len(recentSteps) > req.Budget.CriticInterval {
-				recentSteps = recentSteps[len(recentSteps)-req.Budget.CriticInterval:]
-			}
-			// Critic 调用不阻塞主循环，忽略错误
-			_, _ = a.critic.Evaluate(ctx, Move{Instruction: "pentest move"}, recentSteps)
+			return ExecutorResult{Steps: steps, Conclusion: resp.Content, Halt: HaltDone, TokensUsed: totalTokens}, nil
 		}
 
 		// budget 检查
 		if req.Budget.MaxTokens > 0 && totalTokens >= req.Budget.MaxTokens {
-			return ActorResult{Steps: steps, Halt: HaltBudget, TokensUsed: totalTokens}, nil
+			return ExecutorResult{Steps: steps, Halt: HaltBudget, TokensUsed: totalTokens}, nil
 		}
 	}
 
-	return ActorResult{Steps: steps, Halt: HaltBudget, TokensUsed: totalTokens}, nil
+	return ExecutorResult{Steps: steps, Halt: HaltBudget, TokensUsed: totalTokens}, nil
 }
 
 // ─────────────────────────────────────────────
 //  辅助函数
 // ─────────────────────────────────────────────
 
-func buildInitialMessages(req ActorReq) []provider.Message {
+func buildInitialMessages(req ExecutorReq) []provider.Message {
 	msgs := make([]provider.Message, 0, 1+len(req.Inbox))
 	if req.System != "" {
 		msgs = append(msgs, provider.Message{Role: "system", Content: req.System})
@@ -301,13 +329,13 @@ func extractTaskID(ctx context.Context) string {
 	return ""
 }
 
-func saveCheckpoint(ctx context.Context, store CheckpointStore, moveID string, stepIdx int, step Step) {
+func saveCheckpoint(ctx context.Context, store CheckpointStore, actionID string, stepIdx int, step Step) {
 	if store == nil {
 		return
 	}
 	_ = store.Write(ctx, Checkpoint{
 		TaskID:     extractTaskID(ctx),
-		MoveID:     moveID,
+		ActionID:   actionID,
 		StepIdx:    stepIdx,
 		Thought:    step.Thought,
 		Hypotheses: step.Hypotheses,

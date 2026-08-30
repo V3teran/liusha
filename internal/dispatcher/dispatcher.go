@@ -1,56 +1,62 @@
-// Package dispatcher — Complexity-aware Actor 工厂。
+// Package dispatcher — Complexity-aware Executor 工厂。
 //
-// 按 Move.Complexity 选 Profile，循环执行 Actor.Run，Critic 给 Steer 后重跑。
+// 按 Action.Complexity 选 Profile，执行 Executor.Run。
 package dispatcher
 
 import (
 	"context"
 	"fmt"
 
-	"github.com/V3teran/liusha/internal/actor"
+	"github.com/V3teran/liusha/internal/executor"
 	"github.com/V3teran/liusha/internal/provider"
 	"github.com/V3teran/liusha/internal/registry"
 	"github.com/V3teran/liusha/internal/worldmodel"
+	"github.com/rs/zerolog"
 )
 
-// Profile 是针对单个 Complexity 的 Actor 配置。
+// Profile 是针对单个 Complexity 的 Executor 配置。
 type Profile struct {
-	Complexity    worldmodel.Complexity
-	SystemPrompt  string
-	Tools         []string // 允许使用的工具名列表
-	Budget        actor.Budget
-	Settle        actor.SettleConfig
-	MaxExecutions int // Critic Steer 最多重跑次数，默认 3
+	Complexity   worldmodel.Complexity
+	SystemPrompt string
+	Tools        []string // 允许使用的工具名列表
+	Budget       executor.Budget
+	Settle       executor.SettleConfig
 }
 
-// Dispatcher 是 Complexity-aware Actor 工厂。
+// Dispatcher 是 Complexity-aware Executor 工厂。
 type Dispatcher struct {
 	profiles   map[worldmodel.Complexity]Profile
 	provider   provider.Provider
 	registry   *registry.Registry
-	compactor  actor.Compactor
-	critic     *actor.LLMCritic
-	checkpoint actor.CheckpointStore
-	emitter    actor.SSEEmitter
+	compactor  executor.Compactor
+	checkpoint executor.CheckpointStore
+	emitter    executor.SSEEmitter
+	logger     zerolog.Logger
+	worldmodel *worldmodel.Store
+	eventBus   executor.EventBus
 }
 
 // New 构造 Dispatcher。
 func New(
 	p provider.Provider,
 	reg *registry.Registry,
-	compactor actor.Compactor,
-	critic *actor.LLMCritic,
-	cp actor.CheckpointStore,
-	emitter actor.SSEEmitter,
+	compactor executor.Compactor,
+	cp executor.CheckpointStore,
+	emitter executor.SSEEmitter,
+	logger zerolog.Logger,
+	wm *worldmodel.Store,
+	eventBus executor.EventBus,
 ) *Dispatcher {
 	return &Dispatcher{
 		profiles:   make(map[worldmodel.Complexity]Profile),
 		provider:   p,
 		registry:   reg,
 		compactor:  compactor,
-		critic:     critic,
 		checkpoint: cp,
 		emitter:    emitter,
+		logger:     logger,
+		worldmodel: wm,
+		eventBus:   eventBus,
 	}
 }
 
@@ -59,52 +65,37 @@ func (d *Dispatcher) RegisterProfile(p Profile) {
 	d.profiles[p.Complexity] = p
 }
 
-// Execute 按 Move.Complexity 选 Profile，执行 Actor 循环，返回所有 Execution。
-func (d *Dispatcher) Execute(ctx context.Context, move actor.Move) ([]actor.Execution, error) {
-	profile, ok := d.profiles[move.Complexity]
+// Execute 按 Action.Complexity 选 Profile，执行 Executor，返回 Execution。
+func (d *Dispatcher) Execute(ctx context.Context, action executor.Action) (executor.Execution, error) {
+	profile, ok := d.profiles[action.Complexity]
 	if !ok {
-		return nil, fmt.Errorf("dispatcher: no profile for complexity %q", move.Complexity)
-	}
-
-	maxExec := profile.MaxExecutions
-	if maxExec <= 0 {
-		maxExec = 3
+		return executor.Execution{}, fmt.Errorf("dispatcher: no profile for complexity %q", action.Complexity)
 	}
 
 	// 构造工具受限的 sub-registry
 	subReg := d.buildSubRegistry(profile.Tools)
 
-	a := actor.New(d.provider, subReg, d.compactor, d.critic, d.checkpoint, d.emitter)
+	// 创建 worldmodel 适配器
+	wmReader := executor.NewWorldModelAdapter(d.worldmodel)
 
-	var executions []actor.Execution
-	var hypotheses []string
+	a := executor.New(d.provider, subReg, d.compactor, d.checkpoint, d.emitter, d.logger, wmReader)
 
-	for i := 0; i < maxExec; i++ {
-		req := d.buildActorReq(profile, move, hypotheses)
-		result, err := a.Run(ctx, move.ID, req)
-		if err != nil {
-			return executions, fmt.Errorf("dispatcher: actor run #%d: %w", i, err)
-		}
-
-		exec := actor.Execution{
-			Index:      i,
-			Result:     result,
-			Hypotheses: hypotheses,
-		}
-		executions = append(executions, exec)
-
-		// Critic 评估
-		assessment, cerr := d.critic.Evaluate(ctx, move, result.Steps)
-		if cerr != nil || assessment.Verdict == actor.VerdictContinue || assessment.Verdict == actor.VerdictAbandon {
-			break
-		}
-		// VerdictSteer：注入 steering 文本，下次 Execution 带上
-		if assessment.Verdict == actor.VerdictSteer {
-			executions[len(executions)-1].Steer = assessment.Observation
-			hypotheses = append(hypotheses, assessment.Observation)
-		}
+	// 配置 eventBus（启用 Planner → Executor 通信）
+	if d.eventBus != nil {
+		a = a.WithEventBus(d.eventBus)
 	}
-	return executions, nil
+
+	req := d.buildExecutorReq(profile, action, nil)
+	result, err := a.Run(ctx, action.ID, req)
+	if err != nil {
+		return executor.Execution{}, fmt.Errorf("dispatcher: executor run: %w", err)
+	}
+
+	return executor.Execution{
+		Index:      0,
+		Result:     result,
+		Hypotheses: nil,
+	}, nil
 }
 
 func (d *Dispatcher) buildSubRegistry(allowedTools []string) *registry.Registry {
@@ -120,7 +111,7 @@ func (d *Dispatcher) buildSubRegistry(allowedTools []string) *registry.Registry 
 	return sub
 }
 
-func (d *Dispatcher) buildActorReq(profile Profile, move actor.Move, hypotheses []string) actor.ActorReq {
+func (d *Dispatcher) buildExecutorReq(profile Profile, action executor.Action, hypotheses []string) executor.ExecutorReq {
 	system := profile.SystemPrompt
 	if len(hypotheses) > 0 {
 		system += "\n\n# Working Memory\n"
@@ -130,19 +121,19 @@ func (d *Dispatcher) buildActorReq(profile Profile, move actor.Move, hypotheses 
 	}
 
 	instruction := fmt.Sprintf("Complexity: %s\nTarget: %s\nInstruction: %s",
-		move.Complexity, move.Target.Display(), move.Instruction)
-	for _, cue := range move.Cues {
+		action.Complexity, action.Target.Display(), action.Instruction)
+	for _, cue := range action.Cues {
 		instruction += "\nCue: " + cue
 	}
 
-	return actor.ActorReq{
+	return executor.ExecutorReq{
 		System: system,
-		Inbox: []actor.Message{
+		Inbox: []executor.Message{
 			{Role: "user", Content: instruction},
 		},
 		Hypotheses:         hypotheses,
 		Budget:             profile.Budget,
 		Settle:             profile.Settle,
-		PendingConstraints: move.Constraints,
+		PendingConstraints: action.Constraints,
 	}
 }

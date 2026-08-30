@@ -10,7 +10,7 @@ import (
 
 	"github.com/V3teran/liusha/internal/db"
 	"github.com/V3teran/liusha/internal/executor"
-	executorweb "github.com/V3teran/liusha/internal/executor/web"
+	executorweb "github.com/V3teran/liusha/internal/domain/web"
 	"github.com/V3teran/liusha/internal/worldmodel"
 )
 

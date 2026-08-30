@@ -12,8 +12,9 @@ api: {read_timeout_seconds: 15, write_timeout_seconds: 30}
 postgres: {max_conns: 20, min_conns: 2}
 llm:
   tiers:
-    heavy: deepseek
-    vision: anthropic
+    simple: deepseek
+    medium: deepseek
+    complex: anthropic
   max_steps: 30
   max_tokens_per_call: 4096
 providers:
@@ -49,7 +50,7 @@ func TestLoad_OK(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.LLM.Tiers["heavy"] != "deepseek" || cfg.Providers["deepseek"].DefaultModel != "deepseek-chat" {
+	if cfg.LLM.Tiers["medium"] != "deepseek" || cfg.Providers["deepseek"].DefaultModel != "deepseek-chat" {
 		t.Fatalf("unexpected: %+v", cfg)
 	}
 }

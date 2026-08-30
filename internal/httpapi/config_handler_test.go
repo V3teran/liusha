@@ -22,8 +22,8 @@ type fakeConfig struct {
 
 	savedScenario *cfgscenario.NewParams
 	savedAgent   *cfgagent.NewParams
-	patchedTierID string // UpdateExecutorTier 收到的 id（断言 PATCH 编排）
-	patchedTier   string // UpdateExecutorTier 收到的 tier
+	patchedComplexityID string // UpdateExecutorComplexity 收到的 id
+	patchedComplexity   string // UpdateExecutorComplexity 收到的 complexity
 	deleteAgent  error  // DeleteExecutor 返回的错误（模拟 FK RESTRICT）
 }
 
@@ -84,12 +84,12 @@ func (f *fakeConfig) SaveExecutor(_ context.Context, p cfgagent.NewParams) (cfga
 	f.savedAgent = &p
 	return cfgagent.Agent{ID: "h-new", Code: p.Code, Kind: p.Kind, Name: p.Name, FunctionTools: p.FunctionTools, CliTools: p.CliTools}, nil
 }
-func (f *fakeConfig) UpdateExecutorTier(_ context.Context, id, tier string) (cfgagent.Agent, error) {
-	f.patchedTierID = id
-	f.patchedTier = tier
+func (f *fakeConfig) UpdateExecutorComplexity(_ context.Context, id, complexity string) (cfgagent.Agent, error) {
+	f.patchedComplexityID = id
+	f.patchedComplexity = complexity
 	h := f.executors[id]
 	h.ID = id
-	h.Tier = tier
+	h.Complexity = complexity
 	return h, nil
 }
 func (f *fakeConfig) DeleteExecutor(_ context.Context, _, _ string) error { return f.deleteAgent }
@@ -177,7 +177,7 @@ func TestListScenarios_ReturnsAllWithFullFields(t *testing.T) {
 		t.Fatalf("应返回全量含 disabled，got %d", len(arr))
 	}
 	first, _ := arr[0].(map[string]any)
-	for _, k := range []string{"id", "code", "name", "description", "instruction", "engine", "solo_agent_id", "enabled"} {
+	for _, k := range []string{"id", "code", "name", "description", "instruction", "engine", "solo_executor_id", "enabled"} {
 		if _, ok := first[k]; !ok {
 			t.Fatalf("缺全字段 %q: %v", k, first)
 		}
@@ -207,7 +207,7 @@ func TestPostScenario_SwarmRejectsAgent(t *testing.T) {
 	defer srv.Close()
 
 	code, body := doJSON(t, "POST", srv.URL+"/scenarios", map[string]any{
-		"code": "c", "name": "n", "engine": "swarm", "solo_agent_id": "h-recon",
+		"code": "c", "name": "n", "engine": "swarm", "solo_executor_id": "h-recon",
 	})
 	if code != 400 {
 		t.Fatalf("want 400, got %d (%v)", code, body)
@@ -224,7 +224,7 @@ func TestPostScenario_SoloWiresAgent(t *testing.T) {
 	defer srv.Close()
 
 	code, _ := doJSON(t, "POST", srv.URL+"/scenarios", map[string]any{
-		"code": "passive", "name": "被动", "engine": "solo", "solo_agent_id": "h-recon",
+		"code": "passive", "name": "被动", "engine": "solo", "solo_executor_id": "h-recon",
 	})
 	if code != 200 {
 		t.Fatalf("status=%d", code)
@@ -411,24 +411,24 @@ func TestGetTool_ReturnsAgentsWithInvolved(t *testing.T) {
 	}
 }
 
-// TestUpdateExecutorTier_OK：PATCH /executors/:id/tier 合法档 → 调 UpdateExecutorTier，回响带新 tier。
+// TestUpdateExecutorTier_OK：PATCH /executors/:id/tier 合法档 → 调 UpdateExecutorComplexity，回响带新 complexity。
 func TestUpdateExecutorTier_OK(t *testing.T) {
 	fc := &fakeConfig{executors: map[string]cfgagent.Agent{
-		"h1": {ID: "h1", Code: "planner", Kind: cfgagent.KindPlanner, Name: "编排", Tier: "heavy"},
+		"h1": {ID: "h1", Code: "planner", Kind: cfgagent.KindPlanner, Name: "编排", Complexity: "complex"},
 	}}
 	srv := newTestServer(t, Deps{ConfigStore: fc})
 	defer srv.Close()
 
-	code, body := doJSON(t, "PATCH", srv.URL+"/executors/h1/tier", map[string]any{"tier": "light"})
+	code, body := doJSON(t, "PATCH", srv.URL+"/executors/h1/tier", map[string]any{"complexity": "simple"})
 	if code != 200 {
 		t.Fatalf("status=%d body=%v", code, body)
 	}
-	if fc.patchedTierID != "h1" || fc.patchedTier != "light" {
-		t.Fatalf("want UpdateExecutorTier(h1,light), got (%q,%q)", fc.patchedTierID, fc.patchedTier)
+	if fc.patchedComplexityID != "h1" || fc.patchedComplexity != "simple" {
+		t.Fatalf("want UpdateExecutorComplexity(h1,simple), got (%q,%q)", fc.patchedComplexityID, fc.patchedComplexity)
 	}
 	h := body["executor"].(map[string]any)
-	if h["tier"] != "light" {
-		t.Fatalf("响应 tier=%v，want light", h["tier"])
+	if h["complexity"] != "simple" {
+		t.Fatalf("响应 complexity=%v，want simple", h["complexity"])
 	}
 }
 
@@ -437,13 +437,13 @@ func TestUpdateExecutorTier_Rejects(t *testing.T) {
 	for _, bad := range []string{"", "turbo", "HEAVY"} {
 		fc := &fakeConfig{}
 		srv := newTestServer(t, Deps{ConfigStore: fc})
-		code, _ := doJSON(t, "PATCH", srv.URL+"/executors/h1/tier", map[string]any{"tier": bad})
+		code, _ := doJSON(t, "PATCH", srv.URL+"/executors/h1/tier", map[string]any{"complexity": bad})
 		srv.Close()
 		if code != 400 {
 			t.Fatalf("tier=%q want 400, got %d", bad, code)
 		}
-		if fc.patchedTierID != "" {
-			t.Fatalf("tier=%q 不该调 store，却收到 id=%q", bad, fc.patchedTierID)
+		if fc.patchedComplexityID != "" {
+			t.Fatalf("tier=%q 不该调 store，却收到 id=%q", bad, fc.patchedComplexityID)
 		}
 	}
 }

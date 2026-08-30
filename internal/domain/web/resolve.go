@@ -30,7 +30,7 @@ type Extractor struct {
 // extract 从重发结果里抽值。抽不到返回 error——绝不返回空串静默放过（护栏2）。
 func (e Extractor) extract(res httpreplay.Result) (string, error) {
 	if e.Name == "" {
-		return "", fmt.Errorf("extractor.name 必填")
+		return "", fmt.Errorf("extrexecutor.name 必填")
 	}
 	if e.Regex != "" && e.JSON != "" {
 		return "", fmt.Errorf("extractor %q: regex 与 json 互斥，只能给一个", e.Name)

@@ -50,7 +50,7 @@ func (r *retryProvider) Complete(ctx context.Context, req Request) (Response, er
 	return Response{}, lastErr
 }
 
-// Stream 不在重试层包装：流式调用建立连接后出错由 Actor 层决策是否重跑整个 Step。
+// Stream 不在重试层包装：流式调用建立连接后出错由 Executor 层决策是否重跑整个 Step。
 func (r *retryProvider) Stream(ctx context.Context, req Request) (<-chan StreamEvent, error) {
 	return r.inner.Stream(ctx, req)
 }

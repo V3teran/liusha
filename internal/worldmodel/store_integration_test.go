@@ -100,7 +100,7 @@ func TestWorldModel_PromotionFlow(t *testing.T) {
 	// 4) 晋升：落 confirmed 的 finding 节点，verified_by 指向取证记录。
 	finding, err := store.UpsertNode(ctx, worldmodel.Node{
 		TaskID:     taskID,
-		Kind:       worldmodel.KindDiscovery,
+		Kind:       worldmodel.KindFinding,
 		Ref:        worldmodel.TargetRef{Domain: "web", RefKind: "endpoint", Locator: "https://t.local/login#sqli"},
 		Attrs:      json.RawMessage(`{"severity":"high","taxonomy":["owasp:A03"]}`),
 		Confidence: worldmodel.ConfConfirmed,
@@ -119,7 +119,7 @@ func TestWorldModel_PromotionFlow(t *testing.T) {
 	// 5) confidence 单向：对已 confirmed 的 finding 再写 assumed，不得降级。
 	fDown, err := store.UpsertNode(ctx, worldmodel.Node{
 		TaskID:     taskID,
-		Kind:       worldmodel.KindDiscovery,
+		Kind:       worldmodel.KindFinding,
 		Ref:        finding.Ref,
 		Attrs:      json.RawMessage(`{"note":"re-observed"}`),
 		Confidence: worldmodel.ConfAssumed,

@@ -95,13 +95,14 @@ func attackGraphHandler(wm WorldModelAPI, resolver TaskScanResolver) gin.Handler
 			return
 		}
 
-		// 读取所有类型的节点
+		// 读取所有类型的节点（5 种）
 		var allNodes []worldmodel.Node
 		for _, kind := range []worldmodel.NodeKind{
 			worldmodel.KindObjective,
-			worldmodel.KindMove,
-			worldmodel.KindObservation,
-			worldmodel.KindDiscovery,
+			worldmodel.KindAction,
+			worldmodel.KindHypothesis,
+			worldmodel.KindEvidence,
+			worldmodel.KindFinding,
 		} {
 			nodes, err := wm.ListNodesByKind(c.Request.Context(), scanID, kind)
 			if err != nil {

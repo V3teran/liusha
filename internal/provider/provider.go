@@ -5,7 +5,7 @@
 //   - 支持精确 token 计数（CountTokens），非估算
 //   - 不依赖外部 LLM 框架，可独立测试替换
 //
-// 依赖方向：provider ← actor ← dispatcher ← cognition
+// 依赖方向：provider ← executor ← dispatcher ← cognition
 // provider 本身不引用项目内任何业务包。
 package provider
 

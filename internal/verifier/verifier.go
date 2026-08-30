@@ -120,7 +120,7 @@ func (v *Verifier) Promote(ctx context.Context, a Attempt) (*worldmodel.Node, er
 	}
 
 	// 坐实：晋升成 verified 节点
-	verified := worldmodel.ConfVerified
+	verified := worldmodel.ConfidenceVerified
 	node := worldmodel.Node{
 		ID:         nodeID,
 		TaskID:     a.TaskID,
@@ -128,7 +128,7 @@ func (v *Verifier) Promote(ctx context.Context, a Attempt) (*worldmodel.Node, er
 		Content:    a.Content,
 		Confidence: &verified,
 		Priority:   a.Priority,
-		SourceType: "verifier",
+		SourceType: worldmodel.SourceVerifier,
 		SourceID:   verID,
 		CreatedAt:  time.Now(),
 		UpdatedAt:  time.Now(),

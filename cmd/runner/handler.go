@@ -10,7 +10,8 @@ import (
 	"github.com/hibiken/asynq"
 	"github.com/rs/zerolog"
 
-	"github.com/V3teran/liusha/internal/actor"
+	"github.com/V3teran/liusha/internal/executor"
+	"github.com/V3teran/liusha/internal/domain"
 	"github.com/V3teran/liusha/internal/agentrun"
 	"github.com/V3teran/liusha/internal/cognition"
 	"github.com/V3teran/liusha/internal/config"
@@ -21,7 +22,7 @@ import (
 	"github.com/V3teran/liusha/internal/conversation"
 	"github.com/V3teran/liusha/internal/corpus"
 	"github.com/V3teran/liusha/internal/credential"
-	"github.com/V3teran/liusha/internal/executor"
+	"github.com/V3teran/liusha/internal/eventbus"
 	"github.com/V3teran/liusha/internal/worldmodel"
 	"github.com/V3teran/liusha/internal/finding"
 	"github.com/V3teran/liusha/internal/lead"
@@ -71,14 +72,11 @@ type handler struct {
 	conversations  *conversation.Store
 	eventPublisher *scanstream.Publisher
 
-	profiles *executor.Registry
-	world    *worldmodel.Store
-
-	// Actor 基础设施
-	checkpoint actor.CheckpointStore
-
-	// 事件驱动的 Planner Agent 基础设施
-	eventBus     *cognition.EventBus
+	profiles     *domain.Registry
+	world        *worldmodel.Store
+	checkpoint   executor.CheckpointStore
+	eventBus     *cognition.EventBus     // Task 级别事件总线（Planner 用）
+	actionBus    *eventbus.Bus           // Action 级别事件总线（Executor 用）
 	plannerMgr   *plannerAgentManager
 	controlPlane *controlplane.Store
 }
@@ -88,7 +86,7 @@ type handler struct {
 //  2. 回填 task.target_host 派生列；
 //  3. 返回 host key 供调用方下传。
 func (h handler) onboard(ctx context.Context, assignmentID, taskID, brief string) string {
-	refs, ok := h.profiles.Onboard(ctx, executor.BriefInput{Brief: brief})
+	refs, ok := h.profiles.Onboard(ctx, domain.BriefInput{Brief: brief})
 	if !ok || len(refs) == 0 || refs[0].Locator == "" {
 		return taskID
 	}

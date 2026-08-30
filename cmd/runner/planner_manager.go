@@ -6,7 +6,7 @@ import (
 
 	"github.com/rs/zerolog"
 
-	"github.com/V3teran/liusha/internal/planneragent"
+	"github.com/V3teran/liusha/internal/planner"
 )
 
 // plannerAgentManager 管理所有活跃的 Planner Agent 生命周期
@@ -17,7 +17,7 @@ type plannerAgentManager struct {
 }
 
 type plannerAgentInstance struct {
-	agent  *planneragent.Agent
+	agent  *planner.Agent
 	cancel context.CancelFunc
 }
 
@@ -41,7 +41,7 @@ func (m *plannerAgentManager) Start(ctx context.Context, h handler, taskID strin
 
 	// 创建 Planner Agent
 	agentCtx, cancel := context.WithCancel(ctx)
-	agent := planneragent.New(planneragent.Config{
+	agent := planner.New(planner.Config{
 		TaskID:       taskID,
 		EventBus:     h.eventBus,
 		World:        h.world,

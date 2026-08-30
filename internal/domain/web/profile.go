@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"regexp"
 
-	"github.com/V3teran/liusha/internal/executor"
+	"github.com/V3teran/liusha/internal/domain"
 	"github.com/V3teran/liusha/internal/worldmodel"
 )
 
@@ -17,7 +17,7 @@ import (
 // 捕获组 [1] 即 host[:port]，与旧 target_host / 归档切分键逐字一致（保行为）。
 var hostRe = regexp.MustCompile(`https?://([^/\s]+)`)
 
-// Profile 实现 executor.Profile，域标识 "web"：把 brief 解析成 web 目标（host[:port]）。
+// Profile 实现 domain.Profile，域标识 "web"：把 brief 解析成 web 目标（host[:port]）。
 type Profile struct{}
 
 // New 构造 web Profile。工具/skills 不经 Profile（走 Executor.cli_tools + skill 目录）。
@@ -32,7 +32,7 @@ func (p *Profile) Domain() string { return "web" }
 //
 // Locator = host[:port]（非整条 URL）：目标粒度是"站点/scope"，endpoint 是后续爬取/
 // 流量发现的 asset。host key 与旧 target_host / 归档切分键逐字一致（保行为）。去重保序。
-func (p *Profile) Onboard(_ context.Context, in executor.BriefInput) ([]worldmodel.TargetRef, error) {
+func (p *Profile) Onboard(_ context.Context, in domain.BriefInput) ([]worldmodel.TargetRef, error) {
 	hosts := extractHosts(in.Brief)
 	if len(hosts) == 0 {
 		return nil, fmt.Errorf("web.Onboard: brief 中未发现 http(s) 目标")
@@ -68,5 +68,5 @@ func extractHosts(brief string) []string {
 	return out
 }
 
-// 编译期断言：Profile 满足 executor.Profile 接口。
-var _ executor.Profile = (*Profile)(nil)
+// 编译期断言：Profile 满足 domain.Profile 接口。
+var _ domain.Profile = (*Profile)(nil)

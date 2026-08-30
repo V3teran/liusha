@@ -36,9 +36,9 @@ func NewExecutor(taskID, host string, findings FindingLister, run AgentFunc) *Ex
 }
 
 // Execute 实现 cognition.Executor：快照运行前 finding → 跑 agent → 差集收割新 finding → 转 Attempt
-func (o *Executor) Execute(ctx context.Context, move worldmodel.Node) ([]verifier.Attempt, error) {
-	if !move.IsMove() {
-		return nil, fmt.Errorf("web.Executor: 节点不是 Move: %s", move.ID)
+func (o *Executor) Execute(ctx context.Context, action worldmodel.Node) ([]verifier.Attempt, error) {
+	if !action.IsAction() {
+		return nil, fmt.Errorf("web.Executor: 节点不是 Action: %s", action.ID)
 	}
 
 	// 快照运行前的 finding
@@ -52,7 +52,7 @@ func (o *Executor) Execute(ctx context.Context, move worldmodel.Node) ([]verifie
 	}
 
 	// 执行 agent
-	if err := o.run(ctx, move); err != nil {
+	if err := o.run(ctx, action); err != nil {
 		return nil, fmt.Errorf("web.Executor: 战术 agent 执行失败: %w", err)
 	}
 

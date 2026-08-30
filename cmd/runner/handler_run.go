@@ -9,7 +9,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/V3teran/liusha/internal/actor"
+	"github.com/V3teran/liusha/internal/executor"
 	executorbuilder "github.com/V3teran/liusha/internal/builder/executor"
 	cfgagent "github.com/V3teran/liusha/internal/config/agent"
 	cfgscenario "github.com/V3teran/liusha/internal/config/scenario"
@@ -87,7 +87,7 @@ func (h handler) toolRecordInterceptor(executorID, taskID string) registry.Inter
 }
 
 // ─────────────────────────────────────────────────────────────
-//  No-op actor infrastructure stubs
+//  No-op executor infrastructure stubs
 // ─────────────────────────────────────────────────────────────
 
 type noopCompactor struct{}
@@ -97,18 +97,18 @@ func (noopCompactor) Compact(_ context.Context, _ provider.Provider, msgs []prov
 }
 
 // ─────────────────────────────────────────────────────────────
-//  SSE emitter bridging actor.SSEEvent → scanagent.ScanEvent
+//  SSE emitter bridging executor.SSEEvent → scanagent.ScanEvent
 // ─────────────────────────────────────────────────────────────
 
 type sseEmitterAdapter struct{ sink scanagent.EventSink }
 
-func (a *sseEmitterAdapter) Emit(ev actor.SSEEvent) {
+func (a *sseEmitterAdapter) Emit(ev executor.SSEEvent) {
 	if a.sink == nil {
 		return
 	}
 	a.sink.OnScanEvent(context.Background(), scanagent.ScanEvent{
 		Kind: scanagent.ScanEventKind(ev.Kind),
-		Text: fmt.Sprintf("move=%s step=%d", ev.MoveID, ev.StepID),
+		Text: fmt.Sprintf("action=%s step=%d", ev.ActionID, ev.StepID),
 	})
 }
 
@@ -192,14 +192,14 @@ func (h handler) buildDispatcher(
 
 	reg := registry.New()
 
-	critic := actor.NewLLMCritic(p)
-
-	var emitter actor.SSEEmitter
+	var emitter executor.SSEEmitter
 	if sink != nil {
 		emitter = &sseEmitterAdapter{sink: sink}
 	}
 
-	d := dispatcher.New(p, reg, noopCompactor{}, critic, h.checkpoint, emitter)
+	// 使用 Action 级别的 EventBus（通过适配器）
+	actionEventBus := executor.NewEventBusAdapter(h.actionBus)
+	d := dispatcher.New(p, reg, noopCompactor{}, h.checkpoint, emitter, h.logger, h.world, actionEventBus)
 
 	// 注册全部 5 个 Complexity Profile
 	for _, profile := range dispatcherprofile.Profiles(systemPrompt) {
@@ -227,7 +227,7 @@ func (h handler) watchAbort(ctx context.Context, cancel context.CancelFunc, task
 				continue
 			}
 			if tk.Status != task.StatusActive {
-				h.logger.Info().Str("task_id", taskID).Msg("task 中止，cancel actor run")
+				h.logger.Info().Str("task_id", taskID).Msg("task 中止，cancel executor run")
 				cancel()
 				return
 			}
@@ -350,17 +350,17 @@ func (h handler) handleSolo(
 	defer cancel()
 	go h.watchAbort(runCtx, cancel, taskID)
 
-	var execResult []actor.Execution
+	var execResult []executor.Execution
 	var agentErr error
 	runAgent := func(runCtx context.Context, m worldmodel.Node) error {
 		// 执行 Move
-		move := nodeToActorMove(m, userPrompt)
-		execs, err := d.Execute(runCtx, move)
+		action := nodeToExecutorAction(m, userPrompt)
+		exec, err := d.Execute(runCtx, action)
 		if err != nil {
 			agentErr = err
 			return err
 		}
-		execResult = execs
+		execResult = []executor.Execution{exec}
 		return nil
 	}
 
@@ -406,7 +406,7 @@ func (h handler) handleSolo(
 
 // handleSwarm runs a multi-agent orchestration task via the dispatcher.
 // The planner system prompt absorbs all sub-agent descriptions so the
-// underlying actor can reason about delegation natively.
+// underlying executor can reason about delegation natively.
 func (h handler) handleSwarm(
 	ctx context.Context,
 	p worker.Payload,
@@ -516,17 +516,17 @@ func (h handler) handleSwarm(
 	defer cancel()
 	go h.watchAbort(runCtx, cancel, taskID)
 
-	var execResult []actor.Execution
+	var execResult []executor.Execution
 	var agentErr error
 	runAgent := func(runCtx context.Context, m worldmodel.Node) error {
-		// 执行 Move
-		move := nodeToActorMove(m, orchPrompt)
-		execs, err := d.Execute(runCtx, move)
+		// 执行 Action
+		action := nodeToExecutorAction(m, orchPrompt)
+		exec, err := d.Execute(runCtx, action)
 		if err != nil {
 			agentErr = err
 			return err
 		}
-		execResult = execs
+		execResult = []executor.Execution{exec}
 		return nil
 	}
 
@@ -570,12 +570,12 @@ func (h handler) handleSwarm(
 //  Helpers
 // ─────────────────────────────────────────────────────────────
 
-// nodeToActorMove translates a worldmodel.Node (kind=move) to actor.Move.
-// Extracts complexity and instruction from the move node.
-func nodeToActorMove(node worldmodel.Node, userPrompt string) actor.Move {
-	if !node.IsMove() {
-		// Fallback for non-move nodes
-		return actor.Move{
+// nodeToExecutorAction translates a worldmodel.Node (kind=action) to executor.Action.
+// Extracts complexity and instruction from the action node.
+func nodeToExecutorAction(node worldmodel.Node, userPrompt string) executor.Action {
+	if !node.IsAction() {
+		// Fallback for non-action nodes
+		return executor.Action{
 			Complexity:  worldmodel.ComplexitySimple,
 			Instruction: userPrompt,
 		}
@@ -609,9 +609,9 @@ func nodeToActorMove(node worldmodel.Node, userPrompt string) actor.Move {
 		complexity = worldmodel.Complexity(*node.Complexity)
 	}
 
-	return actor.Move{
+	return executor.Action{
 		Complexity: complexity,
-		Target: actor.LandmarkRef{
+		Target: executor.TargetRef{
 			Domain:  targetRef.Domain,
 			RefKind: targetRef.RefKind,
 			Locator: targetRef.Locator,
@@ -620,8 +620,8 @@ func nodeToActorMove(node worldmodel.Node, userPrompt string) actor.Move {
 	}
 }
 
-// buildRunResult marshals actor executions + cognition report into the task output envelope.
-func buildRunResult(engine string, execs []actor.Execution, report interface{}) map[string]any {
+// buildRunResult marshals executor executions + cognition report into the task output envelope.
+func buildRunResult(engine string, execs []executor.Execution, report interface{}) map[string]any {
 	toolCalls := []string{}
 	finalText := ""
 	for _, ex := range execs {

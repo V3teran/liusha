@@ -1,4 +1,4 @@
-package planneragent
+package planner
 
 import (
 	"context"
@@ -110,7 +110,7 @@ func (t *ObserveStateTool) Execute(ctx context.Context, input map[string]interfa
 	result["objectives"] = objectives
 
 	// 获取 open Move
-	openMoves, err := t.world.ListOpenMoves(ctx, taskID)
+	openMoves, err := t.world.ListOpenActions(ctx, taskID)
 	if err != nil {
 		return nil, fmt.Errorf("list open moves: %w", err)
 	}
@@ -119,7 +119,7 @@ func (t *ObserveStateTool) Execute(ctx context.Context, input map[string]interfa
 
 	// 可选：已完成的 Move
 	if includeCompleted {
-		completedMoves, err := t.world.ListCompletedMoves(ctx, taskID)
+		completedMoves, err := t.world.ListCompletedActions(ctx, taskID)
 		if err != nil {
 			return nil, fmt.Errorf("list completed moves: %w", err)
 		}
@@ -128,14 +128,14 @@ func (t *ObserveStateTool) Execute(ctx context.Context, input map[string]interfa
 	}
 
 	// 获取观察记录
-	observations, err := t.world.ListNodesByKind(ctx, taskID, worldmodel.KindObservation)
+	observations, err := t.world.ListNodesByKind(ctx, taskID, worldmodel.KindHypothesis)
 	if err != nil {
 		return nil, fmt.Errorf("list observations: %w", err)
 	}
 	result["observations_count"] = len(observations)
 
 	// 获取重要发现
-	discoveries, err := t.world.ListDiscoveries(ctx, taskID)
+	discoveries, err := t.world.ListFindings(ctx, taskID)
 	if err != nil {
 		return nil, fmt.Errorf("list discoveries: %w", err)
 	}
@@ -143,7 +143,7 @@ func (t *ObserveStateTool) Execute(ctx context.Context, input map[string]interfa
 	result["discoveries_count"] = len(discoveries)
 
 	// 获取已验证的发现
-	verifiedDiscoveries, err := t.world.ListVerifiedDiscoveries(ctx, taskID)
+	verifiedDiscoveries, err := t.world.ListVerifiedFindings(ctx, taskID)
 	if err != nil {
 		return nil, fmt.Errorf("list verified discoveries: %w", err)
 	}
@@ -293,7 +293,7 @@ func (t *ProposeMovesTool) Execute(ctx context.Context, input map[string]interfa
 		node := worldmodel.Node{
 			ID:         moveID,
 			TaskID:     taskID,
-			Kind:       worldmodel.KindMove,
+			Kind:       worldmodel.KindAction,
 			Content:    contentJSON,
 			State:      &state,
 			Complexity: &complexity,
@@ -356,10 +356,10 @@ func (t *EvaluateProgressTool) Execute(ctx context.Context, input map[string]int
 	}
 
 	// 统计各种节点数量
-	openMoves, _ := t.world.ListOpenMoves(ctx, taskID)
-	completedMoves, _ := t.world.ListCompletedMoves(ctx, taskID)
-	discoveries, _ := t.world.ListDiscoveries(ctx, taskID)
-	verifiedDiscoveries, _ := t.world.ListVerifiedDiscoveries(ctx, taskID)
+	openMoves, _ := t.world.ListOpenActions(ctx, taskID)
+	completedMoves, _ := t.world.ListCompletedActions(ctx, taskID)
+	discoveries, _ := t.world.ListFindings(ctx, taskID)
+	verifiedDiscoveries, _ := t.world.ListVerifiedFindings(ctx, taskID)
 
 	result := map[string]interface{}{
 		"open_moves_count":      len(openMoves),
