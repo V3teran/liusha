@@ -53,4 +53,10 @@ func RegisterAll(reg *registry.Registry, deps Deps) {
 	if deps.VulnLoader != nil {
 		reg.Register(&readVulnSkillTool{deps: deps})
 	}
+
+	// worldmodel
+	if deps.World != nil {
+		reg.Register(&writeHypothesisTool{deps: deps})
+		reg.Register(&writeEvidenceTool{deps: deps})
+	}
 }
