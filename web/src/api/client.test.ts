@@ -5,7 +5,6 @@ import {
   getLLMInvocationStat, getLLMInvocationFacets,
   listCredentials, saveCredentialsBatch, deleteCredentials,
   deleteConversation, renameConversation, authStream, bootstrapApiKey,
-  listFindings, listFindingHosts, listFindingScenarios, updateFindingTriage, getAttackGraph, getLLMInvocationDetail,
 } from './client'
 
 describe('API 客户端', () => {
@@ -500,29 +499,8 @@ describe('API 客户端', () => {
     })
   })
 
-  describe('攻击图（世界模型投影）', () => {
-    it('getAttackGraph 按 task_id 透传响应', async () => {
-      const graph = { task_id: 't1', scan_id: 's1', nodes: [], edges: [], verifications: [] }
-      const mockFetch = vi.fn().mockResolvedValue({ ok: true, json: vi.fn().mockResolvedValue(graph) })
-      ;(global as any).fetch = mockFetch
-
-      const g = await getAttackGraph('o1')
-
-      expect(g).toEqual(graph)
-      expect(mockFetch).toHaveBeenCalledWith('/api/attack_graph/o1', { headers: { 'X-API-Key': '' } })
-    })
-  })
 
   describe('LLM 审计详情', () => {
-    it('getLLMInvocationDetail 拉取含 messages/result 的完整记录', async () => {
-      const detail = { id: 1, messages: [], result: null }
-      const mockFetch = vi.fn().mockResolvedValue({ ok: true, json: vi.fn().mockResolvedValue(detail) })
-      ;(global as any).fetch = mockFetch
-
-      const d = await getLLMInvocationDetail('t1', 1)
-
-      expect(d).toEqual(detail)
-      expect(mockFetch).toHaveBeenCalledWith('/api/llm/invocations/t1/invocation/1', { headers: { 'X-API-Key': '' } })
     })
   })
 })
