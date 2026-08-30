@@ -1,4 +1,4 @@
-package executor
+package agent
 
 import (
 	"context"
@@ -12,6 +12,7 @@ import (
 )
 
 // Store 封装 agent 配置表的持久化操作。
+// Agent表只包含2个固定的内置Agent（Planner和Executor）。
 type Store struct {
 	pool *pgxpool.Pool
 }
@@ -26,15 +27,15 @@ const defaultMaxIterations = 40
 const defaultComplexity = "medium"
 
 // colsSelect 是所有 SELECT / RETURNING 路径的统一列序，与 scan() 字段一一对应。
-const colsSelect = "id, code, kind, name, description, body, function_tools, cli_tools, max_iterations, enabled, complexity, created_at, updated_at"
+const colsSelect = "id, code, kind, name, description, system_prompt, skills, function_tools, cli_tools, max_iterations, complexity, is_builtin, enabled, created_at, updated_at"
 
-// validateKind 应用层校验 kind（与 DB CHECK 双保险）。
+// validateKind 应用层校验 kind。
 func validateKind(k Kind) error {
 	switch k {
 	case KindPlanner, KindExecutor:
 		return nil
 	default:
-		return fmt.Errorf("非法 kind %q（应为 planner|domain）", k)
+		return fmt.Errorf("非法 kind %q（应为 planner|executor）", k)
 	}
 }
 
@@ -48,89 +49,76 @@ func validateComplexity(c string) error {
 	}
 }
 
-// Create 插入一行配置操作员，返回回读的完整行（含 uuid+timestamps）。
-func (s *Store) Create(ctx context.Context, p NewParams) (Agent, error) {
-	if err := validateKind(p.Kind); err != nil {
-		return Agent{}, fmt.Errorf("create executor: %w", err)
-	}
-	if err := validateComplexity(p.Complexity); err != nil {
-		return Agent{}, fmt.Errorf("create executor: %w", err)
-	}
-	tools, err := marshalTools(p.FunctionTools)
-	if err != nil {
-		return Agent{}, fmt.Errorf("create executor: %w", err)
-	}
-	cliTools, err := marshalTools(p.CliTools)
-	if err != nil {
-		return Agent{}, fmt.Errorf("create executor: %w", err)
-	}
-	maxIter := p.MaxIterations
-	if maxIter <= 0 {
-		maxIter = defaultMaxIterations
-	}
-	complexity := p.Complexity
-	if complexity == "" {
-		complexity = defaultComplexity
-	}
-	row := s.pool.QueryRow(ctx, `
-		INSERT INTO agent (code, kind, name, description, body, function_tools, cli_tools, max_iterations, enabled, complexity)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-		RETURNING `+colsSelect,
-		p.Code, string(p.Kind), p.Name, p.Description, p.Body, tools, cliTools, maxIter, p.Enabled, complexity)
-	var h Agent
-	if err := scan(row, &h); err != nil {
-		return Agent{}, fmt.Errorf("create executor %q: %w", p.Code, err)
-	}
-	return h, nil
-}
+// Update 更新Agent配置（只允许更新SystemPrompt、Skills和工具）。
+// 不允许修改code、kind、name、description（这些是固定的）。
+func (s *Store) Update(ctx context.Context, code string, p UpdateParams) (Agent, error) {
+	setParts := []string{}
+	args := []any{code}
+	argIdx := 2
 
-// Update 按 code 全量更新一行配置操作员（code 是稳定引用键，不可改）。
-func (s *Store) Update(ctx context.Context, p NewParams) (Agent, error) {
-	if err := validateKind(p.Kind); err != nil {
-		return Agent{}, fmt.Errorf("update executor: %w", err)
+	if p.SystemPrompt != nil {
+		setParts = append(setParts, fmt.Sprintf("system_prompt=$%d", argIdx))
+		args = append(args, *p.SystemPrompt)
+		argIdx++
 	}
-	if err := validateComplexity(p.Complexity); err != nil {
-		return Agent{}, fmt.Errorf("update executor: %w", err)
+	if p.Skills != nil {
+		skillsJSON, err := marshalTools(*p.Skills)
+		if err != nil {
+			return Agent{}, fmt.Errorf("marshal skills: %w", err)
+		}
+		setParts = append(setParts, fmt.Sprintf("skills=$%d", argIdx))
+		args = append(args, skillsJSON)
+		argIdx++
 	}
-	tools, err := marshalTools(p.FunctionTools)
-	if err != nil {
-		return Agent{}, fmt.Errorf("update executor: %w", err)
+	if p.FunctionTools != nil {
+		toolsJSON, err := marshalTools(*p.FunctionTools)
+		if err != nil {
+			return Agent{}, fmt.Errorf("marshal function_tools: %w", err)
+		}
+		setParts = append(setParts, fmt.Sprintf("function_tools=$%d", argIdx))
+		args = append(args, toolsJSON)
+		argIdx++
 	}
-	cliTools, err := marshalTools(p.CliTools)
-	if err != nil {
-		return Agent{}, fmt.Errorf("update executor: %w", err)
+	if p.CliTools != nil {
+		cliJSON, err := marshalTools(*p.CliTools)
+		if err != nil {
+			return Agent{}, fmt.Errorf("marshal cli_tools: %w", err)
+		}
+		setParts = append(setParts, fmt.Sprintf("cli_tools=$%d", argIdx))
+		args = append(args, cliJSON)
+		argIdx++
 	}
-	maxIter := p.MaxIterations
-	if maxIter <= 0 {
-		maxIter = defaultMaxIterations
+	if p.MaxIterations != nil {
+		setParts = append(setParts, fmt.Sprintf("max_iterations=$%d", argIdx))
+		args = append(args, *p.MaxIterations)
+		argIdx++
 	}
-	complexity := p.Complexity
-	if complexity == "" {
-		complexity = defaultComplexity
+	if p.Complexity != nil {
+		if err := validateComplexity(*p.Complexity); err != nil {
+			return Agent{}, err
+		}
+		setParts = append(setParts, fmt.Sprintf("complexity=$%d", argIdx))
+		args = append(args, *p.Complexity)
+		argIdx++
 	}
-	row := s.pool.QueryRow(ctx, `
+
+	if len(setParts) == 0 {
+		return Agent{}, fmt.Errorf("没有要更新的字段")
+	}
+
+	setParts = append(setParts, "updated_at=now()")
+	query := fmt.Sprintf(`
 		UPDATE agent
-		SET kind=$2, name=$3, description=$4, body=$5, function_tools=$6, cli_tools=$7, max_iterations=$8, enabled=$9, complexity=$10, updated_at=now()
+		SET %s
 		WHERE code=$1
-		RETURNING `+colsSelect,
-		p.Code, string(p.Kind), p.Name, p.Description, p.Body, tools, cliTools, maxIter, p.Enabled, complexity)
-	var h Agent
-	if err := scan(row, &h); err != nil {
-		return Agent{}, fmt.Errorf("update executor %q: %w", p.Code, err)
-	}
-	return h, nil
-}
+		RETURNING `+colsSelect, strings.Join(setParts, ", "))
 
-// Delete 按 code 删除。被 scenario.solo_agent_id 引用时会撞 DB ON DELETE RESTRICT。
-func (s *Store) Delete(ctx context.Context, code string) error {
-	tag, err := s.pool.Exec(ctx, "DELETE FROM agent WHERE code=$1", code)
-	if err != nil {
-		return fmt.Errorf("delete executor %q: %w", code, err)
+	row := s.pool.QueryRow(ctx, query, args...)
+	var a Agent
+	if err := scan(row, &a); err != nil {
+		return Agent{}, fmt.Errorf("update agent %q: %w", code, err)
 	}
-	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("delete executor %q: 不存在", code)
-	}
-	return nil
+	return a, nil
 }
 
 // GetByID 按主键读取。
@@ -290,35 +278,34 @@ func (s *Store) ListEnabledDomain(ctx context.Context) ([]Agent, error) {
 	return out, rows.Err()
 }
 
-// GetPlanner 取全局唯一的编排操作员（kind='planner' AND enabled）。
-// 命中零条或多条均报错，以保证 swarm 装配时编排者全局唯一（见 D1）。
+// GetPlanner 获取唯一的Planner。
 func (s *Store) GetPlanner(ctx context.Context) (Agent, error) {
-	rows, err := s.pool.Query(ctx,
-		"SELECT "+colsSelect+" FROM agent WHERE kind='planner' AND enabled=true ORDER BY code ASC")
-	if err != nil {
-		return Agent{}, fmt.Errorf("get planner: %w", err)
+	row := s.pool.QueryRow(ctx, `
+		SELECT `+colsSelect+`
+		FROM agent
+		WHERE kind='planner' AND enabled=true
+		LIMIT 1
+	`)
+	var a Agent
+	if err := scan(row, &a); err != nil {
+		return Agent{}, fmt.Errorf("获取planner: %w", err)
 	}
-	defer rows.Close()
+	return a, nil
+}
 
-	var out []Agent
-	for rows.Next() {
-		var h Agent
-		if err := scan(rows, &h); err != nil {
-			return Agent{}, fmt.Errorf("scan planner: %w", err)
-		}
-		out = append(out, h)
+// GetExecutor 获取唯一的Executor。
+func (s *Store) GetExecutor(ctx context.Context) (Agent, error) {
+	row := s.pool.QueryRow(ctx, `
+		SELECT `+colsSelect+`
+		FROM agent
+		WHERE kind='executor' AND enabled=true
+		LIMIT 1
+	`)
+	var a Agent
+	if err := scan(row, &a); err != nil {
+		return Agent{}, fmt.Errorf("获取executor: %w", err)
 	}
-	if err := rows.Err(); err != nil {
-		return Agent{}, fmt.Errorf("iterate planner: %w", err)
-	}
-	switch len(out) {
-	case 1:
-		return out[0], nil
-	case 0:
-		return Agent{}, fmt.Errorf("get planner: 无 enabled 编排执行体")
-	default:
-		return Agent{}, fmt.Errorf("get planner: 命中 %d 条编排执行体，应全局唯一", len(out))
-	}
+	return a, nil
 }
 
 // marshalTools 把 []string 序列化为 jsonb；nil 落空数组。
@@ -341,12 +328,19 @@ type scanner interface {
 // scan 是 colsSelect 列序的统一反序列化点。
 func scan(r scanner, h *Agent) error {
 	var kind string
-	var fnTools, cliTools []byte
-	if err := r.Scan(&h.ID, &h.Code, &kind, &h.Name, &h.Description, &h.Body,
-		&fnTools, &cliTools, &h.MaxIterations, &h.Enabled, &h.Complexity, &h.CreatedAt, &h.UpdatedAt); err != nil {
+	var skillsJSON, fnTools, cliTools []byte
+	if err := r.Scan(&h.ID, &h.Code, &kind, &h.Name, &h.Description, &h.SystemPrompt,
+		&skillsJSON, &fnTools, &cliTools, &h.MaxIterations, &h.Complexity, &h.IsBuiltin, &h.Enabled,
+		&h.CreatedAt, &h.UpdatedAt); err != nil {
 		return err
 	}
 	h.Kind = Kind(kind)
+
+	if len(skillsJSON) > 0 {
+		if err := json.Unmarshal(skillsJSON, &h.Skills); err != nil {
+			return fmt.Errorf("unmarshal skills: %w", err)
+		}
+	}
 	if len(fnTools) > 0 {
 		if err := json.Unmarshal(fnTools, &h.FunctionTools); err != nil {
 			return fmt.Errorf("unmarshal function_tools: %w", err)
