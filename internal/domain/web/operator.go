@@ -4,13 +4,13 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/V3teran/liusha/internal/cognition"
+	"github.com/V3teran/liusha/internal/orchestrator"
 	"github.com/V3teran/liusha/internal/finding"
 	"github.com/V3teran/liusha/internal/verifier"
 	"github.com/V3teran/liusha/internal/worldmodel"
 )
 
-var _ cognition.Executor = (*Executor)(nil)
+var _ orchestrator.Executor = (*Executor)(nil)
 
 // FindingLister 列出 task+host 下的 finding。收窄依赖 + 便于测试替身。
 type FindingLister interface {
@@ -22,7 +22,7 @@ type FindingLister interface {
 // 「怎么打」全权归 agent（LLM 战术自由），Executor 不干预。
 type AgentFunc func(ctx context.Context, move worldmodel.Node) error
 
-// Executor 是 web 域的 cognition.Executor：跑 move-scoped agent → 收割新 finding → 转 Attempt。
+// Executor 是 web 域的 orchestrator.Executor：跑 move-scoped agent → 收割新 finding → 转 Attempt。
 type Executor struct {
 	taskID   string
 	host     string
@@ -35,7 +35,7 @@ func NewExecutor(taskID, host string, findings FindingLister, run AgentFunc) *Ex
 	return &Executor{taskID: taskID, host: host, findings: findings, run: run}
 }
 
-// Execute 实现 cognition.Executor：快照运行前 finding → 跑 agent → 差集收割新 finding → 转 Attempt
+// Execute 实现 orchestrator.Executor：快照运行前 finding → 跑 agent → 差集收割新 finding → 转 Attempt
 func (o *Executor) Execute(ctx context.Context, action worldmodel.Node) ([]verifier.Attempt, error) {
 	if !action.IsAction() {
 		return nil, fmt.Errorf("web.Executor: 节点不是 Action: %s", action.ID)

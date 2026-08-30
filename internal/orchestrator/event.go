@@ -1,6 +1,6 @@
 // Package cognition 实现 L4 认知循环（PAE: Plan-Act-Evolve）的事件驱动基础设施。
 // Planner Agent 通过事件通道被唤醒重新规划，而非轮询。
-package cognition
+package orchestrator
 
 import (
 	"context"
