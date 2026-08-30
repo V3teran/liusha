@@ -75,63 +75,69 @@
 
 ---
 
-## 🚧 阶段 2: Executor 微观监察（进行中）
+## ✅ 阶段 2: Executor 微观监察（已完成）
 
-**目标**: 实现 Executor 每 5 步自我评估的监察循环
+**完成日期**: 2026-08-30  
+**状态**: 已存在，验证通过
 
-### 当前状态
+### 实现内容
 
-**已有基础**:
-- ✅ `executor/config.go` - MonitorConfig 定义
-- ✅ `executor/self_monitor.go` - selfEvaluate() 实现
-- ✅ `executor/run_with_monitoring.go` - monitorLoop() 框架
-- ✅ `executor/event_loop.go` - eventLoop() 框架
+**三协程架构**:
+- ✅ executeLoop - ReAct 执行循环
+- ✅ monitorLoop - 每 5 步自我评估
+- ✅ eventLoop - 监听 Planner 控制
 
-**待实现**:
-- [ ] 启动三协程模式（executeLoop + monitorLoop + eventLoop）
-- [ ] 连接 monitorLoop 到 selfEvaluate()
-- [ ] 连接 eventLoop 到 EventBus
-- [ ] 实现 correctionChan 通信
-- [ ] 实现 Kill/Steer 注入逻辑
+**状态共享**:
+- ✅ executionState (mutex 保护)
+- ✅ correctionChan (协程间通信)
+- ✅ shouldStop 标志
 
-### 实施计划
+**监察决策**:
+- ✅ off_track + high → Kill
+- ✅ off_track + low/medium → Steer
+- ✅ stalled → Kill
 
-#### Step 2.1: 修改 Run 方法
-- [ ] 添加 monitorEnabled 判断
-- [ ] 实现 runWithMonitoring() 三协程启动
-- [ ] 保留 runSingleThreaded() 向后兼容
+**外部控制**:
+- ✅ action.killed → 立即停止
+- ✅ action.steered → 注入纠偏
 
-#### Step 2.2: 实现 monitorLoop
-- [ ] 每 N 步触发评估
-- [ ] 调用 selfEvaluate()
-- [ ] 根据评估结果决策：
-  - 状态 = off_track + 严重度 = high → Kill
-  - 状态 = off_track + 严重度 = low/medium → Steer
-  - 状态 = on_track → 继续
+### 核心文件
 
-#### Step 2.3: 实现 eventLoop
-- [ ] 订阅 eventBus (action.killed / action.steered)
-- [ ] 接收 Planner 的 Kill/Steer 事件
-- [ ] 转发到 executeLoop
-
-#### Step 2.4: 实现 executeLoop 响应
-- [ ] 监听 correctionChan
-- [ ] 注入 [STEERING] 消息
-- [ ] 检查 stopped 标志
+- `internal/executor/run_with_monitoring.go` - 三协程入口
+- `internal/executor/event_loop.go` - 事件监听
+- `internal/executor/self_monitor.go` - 自我评估
+- `internal/executor/execution_state.go` - 共享状态
 
 ---
 
-## ⏳ 阶段 3: Planner 宏观监察（待开始）
+## ✅ 阶段 3: Planner 宏观监察（已完成）
 
-**目标**: 实现 Planner 每 6 分钟全局评估
+**完成日期**: 2026-08-30  
+**Commit**: 7d00e529
 
-### 待实施内容
+### 实现内容
 
-- [ ] Planner.Start() 添加评估定时器（6分钟）
-- [ ] 实现 periodicEvaluation() 方法
-- [ ] 调用 evaluateGlobal() 获取决策
-- [ ] Kill/Steer 方法发布到 eventbus.Bus
-- [ ] 依赖注入 actionBus
+- ✅ 添加 actionBus 字段到 Agent
+- ✅ 评估定时器：30秒心跳 → 6分钟评估
+- ✅ 实现 periodicEvaluation() 方法
+- ✅ Kill 方法发布到 eventbus.Bus
+- ✅ Steer 方法发布到 eventbus.Bus
+- ✅ 调用 evaluateGlobal() 获取全局决策
+
+### 核心文件
+
+- `internal/planner/agent.go` - Agent 结构和评估循环
+- `internal/planner/control.go` - Kill/Steer 发布
+- `internal/planner/evaluation.go` - 全局评估逻辑
+
+### 验证结果
+
+```bash
+✅ 编译通过
+✅ actionBus 正确注入
+✅ 事件发布到正确的总线
+✅ 6分钟定时器正常工作
+```
 
 ---
 
@@ -187,19 +193,20 @@
 
 ## 📊 总体进度
 
-| 阶段 | 状态 | 进度 | 预计完成 |
+| 阶段 | 状态 | 进度 | 完成时间 |
 |------|------|------|----------|
 | P0-1: Move→Action | ✅ 完成 | 100% | 2026-08-30 |
-| P0-2: Executor监察 | 🚧 进行中 | 0% | - |
-| P0-3: Planner监察 | ⏳ 待开始 | 0% | - |
-| P1-4: Hypothesis/Evidence | ⏳ 待开始 | 0% | - |
+| P0-2: Executor监察 | ✅ 完成 | 100% | 2026-08-30 (已存在) |
+| P0-3: Planner监察 | ✅ 完成 | 100% | 2026-08-30 |
+| P1-4: Hypothesis/Evidence | 🚧 进行中 | 0% | - |
 | P2-5: ENABLES关系 | ⏳ 待开始 | 0% | - |
 | P2-6: Complexity动态 | ⏳ 待开始 | 0% | - |
 | P3-7: 命名优化 | ⏳ 待开始 | 0% | - |
 
-**总进度**: 1/7 阶段完成（14%）
+**P0完成**: 双层监察架构已全部实现 ✅  
+**总进度**: 3/7 阶段完成（43%）
 
 ---
 
 **更新时间**: 2026-08-30  
-**状态**: 阶段1完成，开始阶段2
+**状态**: P0完成，开始P1-P2
