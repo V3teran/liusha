@@ -228,23 +228,6 @@ func (h handler) handle(ctx context.Context, p worker.Payload) (retErr error) {
 		defer cancel()
 	}
 
-	switch scen.Engine {
-	case cfgscenario.EngineSolo:
-		if scen.SoloExecutorID == nil || *scen.SoloExecutorID == "" {
-			return h.failTask(ctx, p.ExecutorID, fmt.Errorf("solo scenario %s 未指定 solo_executor_id", scen.Code))
-		}
-		op, err := h.cfgStore.ExecutorByID(ctx, *scen.SoloExecutorID)
-		if err != nil {
-			return h.failTask(ctx, p.ExecutorID, fmt.Errorf("scenario %s 引用的 executor %s 加载失败: %w", scen.Code, *scen.SoloExecutorID, err))
-		}
-		return h.handleSolo(ctx, p, scen, op, input.Brief)
-	case cfgscenario.EngineSwarm:
-		executors, err := h.cfgStore.EnabledDomainExecutors(ctx)
-		if err != nil {
-			return h.failTask(ctx, p.ExecutorID, fmt.Errorf("加载 enabled 领域操作员失败: %w", err))
-		}
-		return h.handleSwarm(ctx, p, scen, executors, input.Brief)
-	default:
-		return h.failTask(ctx, p.ExecutorID, fmt.Errorf("unknown engine: %s", scen.Engine))
-	}
+	// 新架构：统一走Planner + Executor
+	return h.handleCognition(ctx, p, input.Brief)
 }
