@@ -12,7 +12,6 @@ import type {
   ScenarioConfig,
   AgentConfig,
   OwnerSummary,
-  AttackGraph,
   LLMInvocationsResponse,
   LLMInvocationDetail,
   LLMInvocationStat,
@@ -415,16 +414,6 @@ export async function updateFindingTriage(
   return (await res.json()).finding as FindingRow
 }
 
-/**
- * 拉取攻击图（L3 世界模型投影）：Verifier 坐实的世界状态节点 + 关系边 + 取证链。
- * 前端传选中的 task_id，后端按 task→assignment 解析出图的 scan_id（一交战一图）。
- */
-export async function getAttackGraph(taskID: string): Promise<AttackGraph> {
-  return get<AttackGraph>(`/attack_graph/${taskID}`)
-}
-
-/**
- * 把筛选态序列化成后端 query 参数（列表与统计共用，保证两者口径一致）。
  */
 function invocationFilterParams(f?: Partial<LLMInvocationFilters>): URLSearchParams {
   const params = new URLSearchParams()

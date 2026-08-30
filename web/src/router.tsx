@@ -3,12 +3,10 @@ import { createBrowserRouter, Navigate } from 'react-router-dom'
 import { AppShell } from '@/layout/AppShell'
 import { PlaceholderPage } from '@/pages/PlaceholderPage'
 
-// 路由级代码分割：各业务页按需加载，尤其 AttackGraphPage（React Flow + dagre，体量大）
 // 独立成块，不拖慢首屏。ConversationsPage 是最常用入口，保留同类动态导入以保持一致。
 const ConversationsPage = lazy(() => import('@/pages/ConversationsPage').then((m) => ({ default: m.ConversationsPage })))
 const FindingsPage = lazy(() => import('@/pages/FindingsPage').then((m) => ({ default: m.FindingsPage })))
 const LlmAuditPage = lazy(() => import('@/pages/LlmAuditPage').then((m) => ({ default: m.LlmAuditPage })))
-const AttackGraphPage = lazy(() => import('@/pages/AttackGraphPage').then((m) => ({ default: m.AttackGraphPage })))
 const ScenarioAdmin = lazy(() => import('@/pages/ScenarioAdmin').then((m) => ({ default: m.ScenarioAdmin })))
 const AgentAdmin = lazy(() => import('@/pages/AgentAdmin').then((m) => ({ default: m.AgentAdmin })))
 const ToolsPage = lazy(() => import('@/pages/ToolsPage').then((m) => ({ default: m.ToolsPage })))
@@ -45,7 +43,6 @@ export const router = createBrowserRouter([
       },
       { path: 'findings', element: withSuspense(<FindingsPage />) },
       { path: 'traffic', element: withSuspense(<TrafficPage />) },
-      { path: 'attack-graph', element: withSuspense(<AttackGraphPage />) },
       { path: 'llm-audit', element: withSuspense(<LlmAuditPage />) },
       {
         // 配置管理：场景/智能体（后端 agent）两资源各自独立页，侧栏平铺入口。

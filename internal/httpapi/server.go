@@ -15,14 +15,6 @@ type Deps struct {
 	// Findings 为 nil 时 /findings 路由不注册。由 cmd/api 注入 *finding.Store。
 	// 全局漏洞台账（active+passive 全量 + triage 处置），漏洞页用。
 	Findings FindingsAPI
-	// WorldModel + Tasks 任一为 nil 时 /attack_graph/:task_id 路由不注册。
-	// WorldModel 由 cmd/api 注入 *worldmodel.Store（读 L3 攻击图三表）；
-	// task→assignment 解析复用 Tasks（*task.Store 满足 TaskScanResolver）。
-	// 攻击图 = Verifier 坐实的世界状态投影（target/asset/credential/access/finding + 关系边 + 取证链）。
-	WorldModel WorldModelAPI
-	// TaskScan 把前端选中的 task 反解为其所属 assignment（图的 task_id）。
-	// 由 cmd/api 注入 *task.Store（满足 TaskScanResolver）。与 WorldModel 同守卫。
-	TaskScan TaskScanResolver
 	// Invocations 为 nil 时 /llm/invocations/:eid 路由不注册。
 	// 由 cmd/api 注入 *llminvocation.Store（自动满足 InvocationsAPI 窄接口）。
 	Invocations InvocationsAPI
@@ -125,9 +117,6 @@ func NewServer(d Deps) http.Handler {
 		r.GET("/findings/hosts", findingHostsHandler(d.Findings))
 		r.GET("/findings/scenarios", findingScenariosHandler(d.Findings))
 		r.PATCH("/findings/:id/status", updateFindingStatusHandler(d.Findings))
-	}
-	if d.WorldModel != nil && d.TaskScan != nil {
-		r.GET("/attack_graph/:task_id", attackGraphHandler(d.WorldModel, d.TaskScan))
 	}
 	if d.Invocations != nil {
 		r.GET("/llm/invocations/:task_id", llmInvocationsHandler(d.Invocations))

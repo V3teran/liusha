@@ -325,59 +325,6 @@ export interface FindingListResponse {
 }
 
 /* ============================================================
-   攻击图（GET /attack_graph/:task_id）：L3 世界模型投影
-   Verifier 坐实的世界状态（节点）+ 关系（边）+ 取证链（verifications）。
-   按 scan_id=assignment_id 归属（一交战一图，跨多阶段 task）；前端选 task，后端解析。
-   ============================================================ */
-// 5 类持久节点（见后端 worldmodel/model.go §NodeKind）。
-export type AttackGraphNodeKind = 'target' | 'asset' | 'credential' | 'access' | 'finding'
-// 3 类关系边（见后端 worldmodel/model.go §EdgeRel）。攻击链 = enables 边的路径。
-export type AttackGraphEdgeRel =
-  | 'derives' // 认知因果：A 推出 B
-  | 'enables' // 能力使能：Credential→Access、Access→Asset（攻击链）
-  | 'on' // 归属附着：Finding on Asset、Asset on Target
-// 节点确证程度（图里只两态；Verifier 通过才置 confirmed）。
-export type AttackGraphConfidence = 'confirmed' | 'assumed'
-
-// 多态目标标识（TargetRef）：domain 由 Profile 定义，locator 语义仅由对应 Profile 解释。
-export interface AttackGraphRef {
-  domain: string // web|binary|cloud|host
-  ref_kind: string // endpoint|file|resource|node|...
-  locator: string // 域内寻址
-}
-
-export interface AttackGraphNode {
-  id: string
-  seq: number // 对外稳定短号
-  kind: AttackGraphNodeKind
-  ref: AttackGraphRef
-  attrs: Record<string, unknown> // 载荷形状由 kind 决定（finding: severity/summary/cwe_id/... ）
-  confidence: AttackGraphConfidence
-  verified_by?: string // 指向 verification.id；assumed 节点为空
-}
-
-export interface AttackGraphEdge {
-  id: string
-  rel: AttackGraphEdgeRel
-  source: string // wm_node.id（后端 Src→source 单点转换）
-  target: string // wm_node.id
-  attrs: Record<string, unknown>
-}
-
-// Verification 是 Verifier 晋升门的取证记录（可复现交付 + 合规审计的证据链源）。
-export interface AttackGraphVerification {
-  id: string
-  lead_id: string
-  primitives: unknown // 回放了哪些 L1 原语
-  outcome: 'confirmed' | 'refuted'
-  evidence: Record<string, unknown> // 复现证据
-  duration_ms: number
-  created_at: string
-}
-
-export interface AttackGraph {
-  task_id: string
-  scan_id: string // =assignment_id，图归属键
   nodes: AttackGraphNode[]
   edges: AttackGraphEdge[]
   verifications: AttackGraphVerification[]
