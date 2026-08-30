@@ -444,22 +444,36 @@ func (h handler) handleSolo(
 //  Swarm handler
 // ─────────────────────────────────────────────────────────────
 
-// handleSwarm runs a multi-agent orchestration task via the dispatcher.
-// The planner system prompt absorbs all sub-agent descriptions so the
-// underlying executor can reason about delegation natively.
-func (h handler) handleSwarm(
+// handleCognition 统一的任务执行入口（新架构）。
+// 所有任务都走：Planner（6分钟评估） + Executor（5步评估）。
+func (h handler) handleCognition(
 	ctx context.Context,
 	p worker.Payload,
-	scen cfgscenario.Scenario,
-	executors []cfgagent.Agent,
 	brief string,
 ) error {
 	if brief == "" {
-		return h.failTask(ctx, p.ExecutorID, fmt.Errorf("swarm 引擎缺 brief"))
+		return h.failTask(ctx, p.ExecutorID, fmt.Errorf("任务缺少 brief"))
 	}
-	if len(executors) == 0 {
-		return h.failTask(ctx, p.ExecutorID, fmt.Errorf("swarm 引擎无 enabled 领域操作员"))
+
+	taskID := p.TaskID
+	if err := h.tasks.Heartbeat(ctx, taskID); err != nil {
+		h.logger.Warn().Err(err).Str("task_id", taskID).Msg("task入口心跳失败")
 	}
+
+	// 获取Planner和Executor配置
+	planner, err := h.cfgStore.GetPlanner(ctx)
+	if err != nil {
+		return h.failTask(ctx, p.ExecutorID, fmt.Errorf("获取planner失败: %w", err))
+	}
+
+	executor, err := h.cfgStore.GetExecutor(ctx)
+	if err != nil {
+		return h.failTask(ctx, p.ExecutorID, fmt.Errorf("获取executor失败: %w", err))
+	}
+
+	// 调用cognition.go中的runCognition
+	return h.runCognition(ctx, taskID, brief, planner, executor)
+}
 
 	tid := p.ExecutorID
 	taskID := p.TaskID
