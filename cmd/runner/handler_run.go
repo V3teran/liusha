@@ -236,6 +236,43 @@ func (h handler) watchAbort(ctx context.Context, cancel context.CancelFunc, task
 }
 
 // ─────────────────────────────────────────────────────────────
+//  Complexity 推断
+// ─────────────────────────────────────────────────────────────
+
+// inferComplexity 根据 brief 内容推断初始 complexity
+func (h handler) inferComplexity(brief string) provider.Complexity {
+	lower := strings.ToLower(brief)
+
+	// Trivial: 查询类（如果 provider 包没有定义，使用 Simple）
+	if strings.Contains(lower, "列举") || strings.Contains(lower, "查询") ||
+		strings.Contains(lower, "检查") || strings.Contains(lower, "读取") {
+		return provider.ComplexitySimple
+	}
+
+	// Simple: 基础枚举
+	if strings.Contains(lower, "扫描") || strings.Contains(lower, "探测") ||
+		strings.Contains(lower, "枚举") || strings.Contains(lower, "发现") {
+		return provider.ComplexitySimple
+	}
+
+	// Complex: 漏洞利用
+	if strings.Contains(lower, "利用") || strings.Contains(lower, "getshell") ||
+		strings.Contains(lower, "提权") || strings.Contains(lower, "执行") ||
+		strings.Contains(lower, "绕过") {
+		return provider.ComplexityComplex
+	}
+
+	// Extreme: 复杂攻击链（使用 Complex 作为最高级）
+	if strings.Contains(lower, "横移") || strings.Contains(lower, "持久化") ||
+		strings.Contains(lower, "攻击链") || strings.Contains(lower, "域控") {
+		return provider.ComplexityComplex
+	}
+
+	// Moderate: 默认（漏洞测试）
+	return provider.ComplexityMedium
+}
+
+// ─────────────────────────────────────────────────────────────
 //  Solo handler
 // ─────────────────────────────────────────────────────────────
 
@@ -308,7 +345,10 @@ func (h handler) handleSolo(
 		}
 	}()
 
-	d, reg, err := h.buildDispatcher(ctx, provider.ComplexityMedium, instruction, sink)
+	// 动态推断 complexity（而非固定 Medium）
+	defaultComplexity := h.inferComplexity(brief)
+
+	d, reg, err := h.buildDispatcher(ctx, defaultComplexity, instruction, sink)
 	if err != nil {
 		return h.failTask(ctx, p.ExecutorID, err)
 	}
@@ -475,7 +515,13 @@ func (h handler) handleSwarm(
 		}
 	}()
 
-	d, reg, err := h.buildDispatcher(ctx, provider.ComplexityComplex, sysPrompt, sink)
+	// 动态推断 complexity（编排任务通常更复杂，默认 Complex）
+	defaultComplexity := provider.ComplexityComplex
+	if brief != "" {
+		defaultComplexity = h.inferComplexity(brief)
+	}
+
+	d, reg, err := h.buildDispatcher(ctx, defaultComplexity, sysPrompt, sink)
 	if err != nil {
 		return h.failTask(ctx, p.ExecutorID, err)
 	}
