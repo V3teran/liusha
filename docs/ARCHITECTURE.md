@@ -1,7 +1,7 @@
 # liusha 架构文档
 
 **最后更新**: 2026-08-30  
-**版本**: v4.2（Planner/Executor 架构 - 包名统一）
+**版本**: v4.3（架构改进完成 - 100%）
 
 ---
 
@@ -11,12 +11,13 @@
 
 | 架构层 | 概念 | 代码包 | 核心类型 |
 |--------|------|--------|---------|
+| 任务编排 | Orchestrator | `internal/orchestrator` | `orchestrator.EventBus`, `orchestrator.ExecutionLoop` |
 | 宏观规划 | Planner | `internal/planner` | `planner.Agent` |
 | 微观执行 | Executor | `internal/executor` | `executor.Executor` |
 | 域适配 | Domain | `internal/domain` | `domain.Profile` |
 | 工厂调度 | Dispatcher | `internal/dispatcher` | `dispatcher.Dispatcher` |
 
-> **注**：包名与架构概念完全一致。历史上曾使用 `planneragent`、`actor`、`executor/react` 等名称，已于 v4.2 统一重构。
+> **注**：包名与架构概念完全一致。历史上曾使用 `orchestrator`（已重命名为 `orchestrator`）、`planneragent`、`actor` 等名称，已于 v4.2 统一重构。
 
 ---
 
@@ -479,7 +480,7 @@ planner := planner.New(worldmodel, provider, bus, logger).
 go planner.Run(ctx, taskID)
 
 // 执行 Executor
-result, err := executor.Run(ctx, moveID, req)
+result, err := executor.Run(ctx, actionID, req)
 ```
 
 ---
