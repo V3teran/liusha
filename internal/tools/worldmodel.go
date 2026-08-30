@@ -78,13 +78,13 @@ func (t *writeHypothesisTool) Execute(ctx context.Context, args json.RawMessage)
 	var confidence worldmodel.Confidence
 	switch input.Confidence {
 	case "low":
-		confidence = worldmodel.ConfidenceLow
+		confidence = "low"
 	case "medium":
-		confidence = worldmodel.ConfidenceMedium
+		confidence = "medium"
 	case "high":
-		confidence = worldmodel.ConfidenceHigh
+		confidence = "high"
 	default:
-		confidence = worldmodel.ConfidenceLow
+		confidence = "low"
 	}
 
 	// 创建节点
@@ -234,7 +234,7 @@ func (t *writeEvidenceTool) Execute(ctx context.Context, args json.RawMessage) (
 		})
 
 		// 更新 hypothesis 的置信度为 verified
-		verified := worldmodel.ConfidenceVerified
+		verified := worldmodel.Confidence("verified")
 		_ = t.deps.World.UpdateNodeConfidence(ctx, input.HypothesisID, verified)
 
 		// 3. 如果有 finding_id，创建 evidence → finding (CONFIRMS)
@@ -257,7 +257,7 @@ func (t *writeEvidenceTool) Execute(ctx context.Context, args json.RawMessage) (
 		})
 
 		// 更新 hypothesis 的置信度为 low
-		low := worldmodel.ConfidenceLow
+		low := worldmodel.Confidence("low")
 		_ = t.deps.World.UpdateNodeConfidence(ctx, input.HypothesisID, low)
 	}
 
