@@ -42,16 +42,14 @@ type scenarioStore interface {
 type executorStore interface {
 	GetByID(ctx context.Context, id string) (cfgagent.Agent, error)
 	GetByCode(ctx context.Context, code string) (cfgagent.Agent, error)
-	ComplexityByCode(ctx context.Context, code string) (complexity string, found bool, err error)
-	Create(ctx context.Context, p cfgagent.NewParams) (cfgagent.Agent, error)
-	Update(ctx context.Context, p cfgagent.NewParams) (cfgagent.Agent, error)
+	GetPlanner(ctx context.Context) (cfgagent.Agent, error)
+	GetExecutor(ctx context.Context) (cfgagent.Agent, error)
+	Update(ctx context.Context, code string, p cfgagent.UpdateParams) (cfgagent.Agent, error)
 	UpdateComplexity(ctx context.Context, id, complexity string) (cfgagent.Agent, error)
-	Delete(ctx context.Context, code string) error
 	List(ctx context.Context, onlyEnabled bool) ([]cfgagent.Agent, error)
 	ListPaged(ctx context.Context, p cfgagent.ListParams) ([]cfgagent.Agent, error)
 	CountList(ctx context.Context, p cfgagent.ListParams) (int, error)
-	ListEnabledDomain(ctx context.Context) ([]cfgagent.Agent, error)
-	GetPlanner(ctx context.Context) (cfgagent.Agent, error)
+	ComplexityByCode(ctx context.Context, code string) (complexity string, found bool, err error)
 }
 
 // Store 编排 scenario/agent 的多级读写：底层 DB store + 共享 cachestore 内核。
@@ -82,7 +80,7 @@ func newWithStores(sc scenarioStore, hn executorStore, cache *cachestore.Cache) 
 // 与 swarm 的 enabled 领域池。任一 agent 存/删即失效二者（见 SaveExecutor/DeleteExecutor）。
 const (
 	keyplanner  = "configstore:executor:planner"
-	keyEnabledDomain = "configstore:executors: enabled_domain"
+	keyExecutor = "configstore:executor:executor"
 )
 
 func keyScenarioCode(code string) string { return "configstore:scenario:code:" + code }
@@ -282,12 +280,9 @@ func (s *Store) SaveScenario(ctx context.Context, p cfgscenario.NewParams) (cfgs
 	return sc, nil
 }
 
-// SaveExecutor upsert 一个操作员（按 code），失效其 id 键 + 两个哨兵键。
-func (s *Store) SaveExecutor(ctx context.Context, p cfgagent.NewParams) (cfgagent.Agent, error) {
-	h, err := s.executors.Update(ctx, p)
-	if isNotFound(err) {
-		h, err = s.executors.Create(ctx, p)
-	}
+// UpdateExecutor 更新Agent配置（只能更新SystemPrompt、Skills和工具）。
+func (s *Store) UpdateExecutor(ctx context.Context, code string, p cfgagent.UpdateParams) (cfgagent.Agent, error) {
+	h, err := s.executors.Update(ctx, code, p)
 	if err != nil {
 		return cfgagent.Agent{}, err
 	}
@@ -318,11 +313,3 @@ func (s *Store) DeleteScenario(ctx context.Context, id, code string) error {
 	return s.cache.Invalidate(ctx, scenarioKeys(id, code)...)
 }
 
-// DeleteExecutor 按 code 删操作员，失效其 id 键 + 两个哨兵键。
-// 被 scenario.solo_agent_id 引用时撞 DB ON DELETE RESTRICT，错误透传给 handler 转 409。
-func (s *Store) DeleteExecutor(ctx context.Context, id, code string) error {
-	if err := s.executors.Delete(ctx, code); err != nil {
-		return err
-	}
-	return s.cache.Invalidate(ctx, agentKeys(id, code)...)
-}
