@@ -174,16 +174,3 @@ func scanHandler(api ScanAPI) gin.HandlerFunc {
 			return
 		}
 			return
-		}
-
-		taskID, agentID, err := api.CreateScan(c.Request.Context(), brief)
-		if err != nil {
-			c.JSON(500, gin.H{"error": err.Error()})
-			return
-		}
-		c.JSON(200, gin.H{
-			"task_id":   taskID,
-			"agent_id": agentID,
-		})
-	}
-}
