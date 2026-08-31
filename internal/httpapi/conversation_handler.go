@@ -38,7 +38,7 @@ var sseLog = logx.New("httpapi.sse")
 
 // ChatAPI 是发起会话扫描的窄接口（cmd/api 注入 adapter：建 conversation + scan + 入队带 convID）。
 type ChatAPI interface {
-	StartChatScan(ctx context.Context, brief, ) (conversationID, taskID string, err error)
+	StartChatScan(ctx context.Context, brief string) (conversationID, taskID string, err error)
 }
 
 // 可选场景列表由 GET /scenarios（configstore）提供，前端 ScenarioPicker 消费。
