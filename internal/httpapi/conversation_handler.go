@@ -64,7 +64,6 @@ type EventStream interface {
 // ChatRequest 是 POST /chat 请求体。
 type ChatRequest struct {
 	Brief      string `json:"brief"`
-	ScenarioID string `json:""` // 场景 code（必选，前端 ScenarioPicker 选定）
 }
 
 // ChatResponse 是 POST /chat 响应：前端用 conversation_id 订阅 SSE。
@@ -138,7 +137,6 @@ type FollowUpAPI interface {
 // _id 可选：纯聊天会话升级为扫描时用（前端 ScenarioPicker 随 Composer 带上）。
 type FollowUpRequest struct {
 	Content    string `json:"content"`
-	ScenarioID string `json:""`
 }
 
 func followUpHandler(api FollowUpAPI) gin.HandlerFunc {
