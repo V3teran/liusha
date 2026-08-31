@@ -100,9 +100,9 @@ func (r *cronRunner) fireOne(ctx context.Context, sched cronschedule.CronSchedul
 		switch {
 		case len(item.TrafficIDs) > 0:
 			// 显式流量集：下发时点名的 proxy_traffic id 集合（M:N 精确复检），host 从流量派生。
-			expandErr = r.expandTrafficItem(ctx, asg.ID, "", item)
+			expandErr = r.expandTrafficItem(ctx, item, item)
 		case item.Host != "":
-			expandErr = r.expandTrafficItem(ctx, asg.ID, "", item)
+			expandErr = r.expandTrafficItem(ctx, item, item)
 		default:
 			_, _, expandErr = r.scan.expandItem(ctx, asg.ID, item.Brief, "")
 		}
