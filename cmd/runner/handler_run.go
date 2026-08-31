@@ -12,7 +12,6 @@ import (
 	"github.com/V3teran/liusha/internal/executor"
 	executorbuilder "github.com/V3teran/liusha/internal/builder/executor"
 	cfgagent "github.com/V3teran/liusha/internal/config/agent"
-	cfgscenario "github.com/V3teran/liusha/internal/config/scenario"
 	"github.com/V3teran/liusha/internal/conversation"
 	"github.com/V3teran/liusha/internal/dispatcher"
 	dispatcherprofile "github.com/V3teran/liusha/internal/dispatcher/profile"
@@ -131,12 +130,12 @@ func (h handler) buildPromptDeps() executorbuilder.Deps {
 
 // composeSoloInstruction builds the full system prompt for a solo agent:
 // shared base + optional scenario instruction + executor body.
-func composeSoloInstruction(scen cfgscenario.Scenario, op cfgagent.Agent) string {
+func composeSoloInstruction(instruction string, op cfgagent.Agent) string {
 	var b strings.Builder
 	b.WriteString(executorbuilder.SystemPrompt())
-	if scen.Instruction != "" {
+	if instruction != "" {
 		b.WriteString("\n\n")
-		b.WriteString(scen.Instruction)
+		b.WriteString(instruction)
 	}
 	if op.SystemPrompt != "" {
 		b.WriteString("\n\n")
@@ -280,7 +279,7 @@ func (h handler) inferComplexity(brief string) provider.Complexity {
 func (h handler) handleSolo(
 	ctx context.Context,
 	p worker.Payload,
-	scen cfgscenario.Scenario,
+	instruction string,
 	op cfgagent.Agent,
 	brief string,
 ) error {
@@ -317,7 +316,7 @@ func (h handler) handleSolo(
 		FindingsLimit: rt.FindingsLimitInPrompt,
 	}
 
-	instruction := composeSoloInstruction(scen, op)
+	sysPrompt := composeSoloInstruction(instruction, op)
 	userPrompt := executorbuilder.BuildUserPrompt(ctx, h.buildPromptDeps(), params)
 	if hist := h.conversationContext(ctx, p.ConversationID, op.Code, brief); hist != "" {
 		userPrompt = hist + "\n" + userPrompt
@@ -348,7 +347,7 @@ func (h handler) handleSolo(
 	// 动态推断 complexity（而非固定 Medium）
 	defaultComplexity := h.inferComplexity(brief)
 
-	d, reg, err := h.buildDispatcher(ctx, defaultComplexity, instruction, sink)
+	d, reg, err := h.buildDispatcher(ctx, defaultComplexity, sysPrompt, sink)
 	if err != nil {
 		return h.failTask(ctx, p.ExecutorID, err)
 	}
@@ -417,7 +416,7 @@ func (h handler) handleSolo(
 		return h.failTask(ctx, p.ExecutorID, err)
 	}
 
-	out, err := json.Marshal(buildRunResult(string(scen.Engine), execResult, report))
+	out, err := json.Marshal(buildRunResult("solo", execResult, report))
 	if err != nil {
 		finalizeTask(false, "marshal task result")
 		return h.failTask(ctx, p.ExecutorID, fmt.Errorf("marshal task result: %w", err))

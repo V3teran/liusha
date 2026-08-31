@@ -65,7 +65,7 @@ func (r *cronRunner) fireDue(ctx context.Context) {
 		return
 	}
 	for _, sched := range due {
-		if err := r.fireOne(ctx, sched); err != nil {
+		if err = r.fireOne(ctx, sched); err != nil {
 			r.logger.Warn().Err(err).Str("schedule_id", sched.ID).Msg("cron 触发失败（模板保留待下轮重试）")
 			continue
 		}
@@ -79,13 +79,12 @@ func (r *cronRunner) fireDue(ctx context.Context) {
 // 模板 next_run_at 仍照常推进，下次到点重新尝试）。
 func (r *cronRunner) fireOne(ctx context.Context, sched cronschedule.CronSchedule) error {
 	var items []assignment.Item
-	if err := json.Unmarshal(sched.Payload, &items); err != nil {
+	if err = json.Unmarshal(sched.Payload, &items); err != nil {
 		return fmt.Errorf("unmarshal schedule %s payload: %w", sched.ID, err)
 	}
 
 	scheduleID := sched.ID
 	asg, err := r.assignments.Create(ctx, assignment.NewParams{
-		ScenarioID: sched.ScenarioID,
 		Source:     assignment.SourceAuto,
 		Items:      items,
 		Title:      sched.Title,
@@ -100,11 +99,11 @@ func (r *cronRunner) fireOne(ctx context.Context, sched cronschedule.CronSchedul
 		switch {
 		case len(item.TrafficIDs) > 0:
 			// 显式流量集：下发时点名的 proxy_traffic id 集合（M:N 精确复检），host 从流量派生。
-			expandErr = r.expandTrafficItem(ctx, asg.ID, sched.ScenarioID, item)
+			expandErr = r.expandTrafficItem(ctx, asg.ID, "", item)
 		case item.Host != "":
-			expandErr = r.expandTrafficItem(ctx, asg.ID, sched.ScenarioID, item)
+			expandErr = r.expandTrafficItem(ctx, asg.ID, "", item)
 		default:
-			_, _, expandErr = r.scan.expandItem(ctx, asg.ID, item.Brief, "", sched.ScenarioID)
+			_, _, expandErr = r.scan.expandItem(ctx, asg.ID, item.Brief, "", "")
 		}
 		if expandErr != nil {
 			r.logger.Warn().Err(expandErr).Str("schedule_id", sched.ID).Str("assignment_id", asg.ID).
@@ -112,7 +111,7 @@ func (r *cronRunner) fireOne(ctx context.Context, sched cronschedule.CronSchedul
 		}
 	}
 
-	if err := r.schedules.MarkFired(ctx, sched.ID, time.Now()); err != nil {
+	if err = r.schedules.MarkFired(ctx, sched.ID, time.Now()); err != nil {
 		return fmt.Errorf("mark schedule %s fired: %w", sched.ID, err)
 	}
 	r.logger.Info().Str("schedule_id", sched.ID).Str("assignment_id", asg.ID).Int("items", len(items)).
@@ -125,9 +124,8 @@ func (r *cronRunner) fireOne(ctx context.Context, sched cronschedule.CronSchedul
 // 定时器而非实时流量窗口（故用固定 passiveCronClaimLimit，不接聚合器配置）。
 //
 // brief 存 host（统一输入，见 D5）；引擎由 runner 按 scenarioID 解析（此处不关心 solo/swarm）。
-func (r *cronRunner) expandTrafficItem(ctx context.Context, assignmentID, scenarioID string, item assignment.Item) error {
+func (r *cronRunner) expandTrafficItem(ctx context.Context, assignmentID,  item assignment.Item) error {
 	host := item.Host
-	tk, err := r.tasks.Create(ctx, task.NewParams{ScenarioID: scenarioID, AssignmentID: assignmentID, Brief: host, TargetHost: host})
 	if err != nil {
 		return fmt.Errorf("create task: %w", err)
 	}
@@ -160,7 +158,6 @@ func (r *cronRunner) expandTrafficItem(ctx context.Context, assignmentID, scenar
 	if _, _, err := r.enq.Enqueue(ctx, worker.RoleExecutor, worker.Payload{
 		ExecutorID:   hid,
 		TaskID:     tk.ID,
-		ScenarioID: scenarioID,
 		Input:      payloadInput,
 		Role:       worker.RoleExecutor,
 	}); err != nil {

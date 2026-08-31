@@ -37,7 +37,6 @@ var sseLog = logx.New("httpapi.sse")
 // header——阶段D 前端用 fetch+ReadableStream 或 query-param token 解决，此处不动认证。
 
 // ChatAPI 是发起会话扫描的窄接口（cmd/api 注入 adapter：建 conversation + scan + 入队带 convID）。
-// scenarioID 是用户选的场景 code（必选——前端 ScenarioPicker 走 GET /scenarios）。
 type ChatAPI interface {
 	StartChatScan(ctx context.Context, brief, scenarioID string) (conversationID, taskID string, err error)
 }
@@ -144,7 +143,7 @@ func streamAuthHandler(streamSecret []byte, secure bool) gin.HandlerFunc {
 // 返回 intent（"action"|"qa"）、busy（action 但扫描进行中 → 应排队/拒绝）、err。
 // scenarioID：纯聊天会话（无 task）升级为 action 时用于建 task；已绑 task 的会话续接忽略之。
 type FollowUpAPI interface {
-	HandleMessage(ctx context.Context, convID, scenarioID, content string) (intent string, busy bool, err error)
+	HandleMessage(ctx context.Context, convID, content string) (intent string, busy bool, err error)
 }
 
 // FollowUpRequest 是 POST /conversations/:id/messages 请求体。
@@ -162,7 +161,7 @@ func followUpHandler(api FollowUpAPI) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "content 不能为空"})
 			return
 		}
-		intent, busy, err := api.HandleMessage(c.Request.Context(), convID, req.ScenarioID, req.Content)
+		intent, busy, err := api.HandleMessage(c.Request.Context(), convID, req.Content, req.ScenarioID)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return

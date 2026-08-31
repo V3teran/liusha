@@ -1,16 +1,16 @@
-// Package configstore 是 scenario/agent 配置的多级缓存读写层，构建在资源无关的
+// Package configstore 是 agent 配置的多级缓存读写层，构建在资源无关的
 // cachestore 内核之上：内存 L1（本进程）→ redis L2（跨进程共享 + 失效总线）→ DB（事实源）。
 //
 // 为何分层（见 D7）：api 与 runner 是**多进程**。前端在 api 改配置后，runner 的本地
 // L1 必须被动失效，否则 runner 用旧配置装配。故写路径写 DB 后经 cachestore 广播失效键，
 // 各进程共享的 cachestore.Subscribe goroutine 收到即清本地 L1 + L2，下次读回填最新值。
 //
-// 本包只贡献 scenario/agent 专有的缓存键与读写方法，缓存机制（L1/L2/总线）全在 cachestore。
+// 本包只贡献 agent 专有的缓存键与读写方法，缓存机制（L1/L2/总线）全在 cachestore。
 //
 // 缓存粒度：单条读 + **key 空间固定**的读均走 L1/L2 缓存——单条读（id/code/tier）、
-// 全量列表读（ListExecutors/ListScenarios 按 onlyEnabled 分 2 键）、两个哨兵（planner/
-// enabled_domain）。任一成员写即失效对应固定键。唯**分页/搜索列表**（ListExecutorsPaged/
-// ListScenariosPaged + Count）不缓存：其键含搜索词 × limit × offset，key 空间随查询无限
+// 全量列表读（ListExecutors 按 onlyEnabled 分 2 键）、两个哨兵（planner/
+// enabled_domain）。任一成员写即失效对应固定键。唯**分页/搜索列表**（ListExecutorsPaged
+// + Count）不缓存：其键含搜索词 × limit × offset，key 空间随查询无限
 // 增长，L1 无 TTL 会堆积孤儿键（内存泄漏），且配置管理页低频，缓存收益近零，故直穿 DB。
 package configstore
 
@@ -24,20 +24,7 @@ import (
 
 	"github.com/V3teran/liusha/internal/cachestore"
 	cfgagent "github.com/V3teran/liusha/internal/config/agent"
-	cfgscenario "github.com/V3teran/liusha/internal/config/scenario"
 )
-
-// scenarioStore 是 configstore 依赖的 scenario 底层能力（*cfgscenario.Store 满足）。
-type scenarioStore interface {
-	GetByCode(ctx context.Context, code string) (cfgscenario.Scenario, error)
-	GetByID(ctx context.Context, id string) (cfgscenario.Scenario, error)
-	Create(ctx context.Context, p cfgscenario.NewParams) (cfgscenario.Scenario, error)
-	Update(ctx context.Context, p cfgscenario.NewParams) (cfgscenario.Scenario, error)
-	Delete(ctx context.Context, code string) error
-	List(ctx context.Context, onlyEnabled bool) ([]cfgscenario.Scenario, error)
-	ListPaged(ctx context.Context, p cfgscenario.ListParams) ([]cfgscenario.Scenario, error)
-	Count(ctx context.Context, p cfgscenario.ListParams) (int, error)
-}
 
 // executorStore 是 configstore 依赖的 agent 底层能力（*cfgagent.Store 满足）。
 type executorStore interface {
@@ -53,10 +40,9 @@ type executorStore interface {
 	ComplexityByCode(ctx context.Context, code string) (complexity string, found bool, err error)
 }
 
-// Store 编排 scenario/agent 的多级读写：底层 DB store + 共享 cachestore 内核。
+// Store 编排 agent 的多级读写：底层 DB store + 共享 cachestore 内核。
 type Store struct {
-	scenarios scenarioStore
-	executors   executorStore
+	executors executorStore
 	cache     *cachestore.Cache
 }
 
@@ -64,15 +50,14 @@ type Store struct {
 // cache 由进程唯一构造并已 go cache.Subscribe(ctx)，可被多个资源仓储共享。
 func New(pool *pgxpool.Pool, cache *cachestore.Cache) *Store {
 	return newWithStores(
-		cfgscenario.NewStore(pool),
 		cfgagent.NewStore(pool),
 		cache,
 	)
 }
 
 // newWithStores 用已构造的底层 store 装配（测试注入 mock 用）。
-func newWithStores(sc scenarioStore, hn executorStore, cache *cachestore.Cache) *Store {
-	return &Store{scenarios: sc, executors: hn, cache: cache}
+func newWithStores(hn executorStore, cache *cachestore.Cache) *Store {
+	return &Store{executors: hn, cache: cache}
 }
 
 // ── 缓存键（L1/L2 同键，统一前缀 configstore:）───────────────────────────
@@ -84,18 +69,13 @@ const (
 	keyExecutor = "configstore:executor:executor"
 )
 
-func keyScenarioCode(code string) string { return "configstore:scenario:code:" + code }
-func keyScenarioID(id string) string     { return "configstore:scenario:id:" + id }
 func keyExecutorID(id string) string       { return "configstore:executor:id:" + id }
 func keyExecutorComplexity(code string) string { return "configstore:executor:complexity:code:" + code }
 
-// keyAgentsList / keyScenariosList 是全量列表读的缓存键，按 onlyEnabled 分两键（有界）。
-// 任一 agent/scenario 写即失效其资源的两个 list 键（enabled 变动会跨 true/false 两表）。
+// keyAgentsList 是全量列表读的缓存键，按 onlyEnabled 分两键（有界）。
+// 任一 agent 写即失效其资源的两个 list 键（enabled 变动会跨 true/false 两表）。
 func keyAgentsList(onlyEnabled bool) string {
-	return "configstore:executors: list:" + boolKey(onlyEnabled)
-}
-func keyScenariosList(onlyEnabled bool) string {
-	return "configstore:scenarios:list:" + boolKey(onlyEnabled)
+	return "configstore:executors:list:" + boolKey(onlyEnabled)
 }
 
 // boolKey 把 onlyEnabled 稳定映射为键后缀。
@@ -114,29 +94,7 @@ func isNotFound(err error) bool { return err != nil && errors.Is(err, pgx.ErrNoR
 
 // ── 单条读（L1/L2 缓存）───────────────────────────────────────────────
 
-// ScenarioByCode 走 code 路读场景（运行期派发热路径——task.scenario_id 存 code，见 D3）。
-func (s *Store) ScenarioByCode(ctx context.Context, code string) (cfgscenario.Scenario, error) {
-	return cachestore.ReadThrough(ctx, s.cache, keyScenarioCode(code),
-		func(sc cfgscenario.Scenario) []string {
-			return []string{keyScenarioCode(sc.Code), keyScenarioID(sc.ID)}
-		},
-		func(ctx context.Context) (cfgscenario.Scenario, error) {
-			return s.scenarios.GetByCode(ctx, code)
-		})
-}
-
-// ScenarioByID 走 id 路读场景（admin CRUD :id 用）。与 code 路命中同一份值。
-func (s *Store) ScenarioByID(ctx context.Context, id string) (cfgscenario.Scenario, error) {
-	return cachestore.ReadThrough(ctx, s.cache, keyScenarioID(id),
-		func(sc cfgscenario.Scenario) []string {
-			return []string{keyScenarioCode(sc.Code), keyScenarioID(sc.ID)}
-		},
-		func(ctx context.Context) (cfgscenario.Scenario, error) {
-			return s.scenarios.GetByID(ctx, id)
-		})
-}
-
-// ExecutorByID 按 uuid 读操作员（CRUD :id；solo 派发经 scenario.solo_agent_id）。
+// ExecutorByID 按 uuid 读操作员（CRUD :id）。
 func (s *Store) ExecutorByID(ctx context.Context, id string) (cfgagent.Agent, error) {
 	return cachestore.ReadThrough(ctx, s.cache, keyExecutorID(id),
 		func(h cfgagent.Agent) []string { return []string{keyExecutorID(h.ID)} },
@@ -202,15 +160,6 @@ func (s *Store) Planner(ctx context.Context) (cfgagent.Agent, error) {
 
 // ── 全量列表读（L1/L2 缓存，按 onlyEnabled 分键）─────────────────────────
 
-// ListScenarios 全量列表读，走多级缓存（按 onlyEnabled 分键）。任一场景写即失效两键。
-func (s *Store) ListScenarios(ctx context.Context, onlyEnabled bool) ([]cfgscenario.Scenario, error) {
-	return cachestore.ReadThrough(ctx, s.cache, keyScenariosList(onlyEnabled),
-		func([]cfgscenario.Scenario) []string { return []string{keyScenariosList(onlyEnabled)} },
-		func(ctx context.Context) ([]cfgscenario.Scenario, error) {
-			return s.scenarios.List(ctx, onlyEnabled)
-		})
-}
-
 // ListExecutors 全量列表读，走多级缓存（按 onlyEnabled 分键）。任一操作员写即失效两键。
 func (s *Store) ListExecutors(ctx context.Context, onlyEnabled bool) ([]cfgagent.Agent, error) {
 	return cachestore.ReadThrough(ctx, s.cache, keyAgentsList(onlyEnabled),
@@ -224,16 +173,6 @@ func (s *Store) ListExecutors(ctx context.Context, onlyEnabled bool) ([]cfgagent
 //
 // 键含搜索词 × limit × offset，key 空间随查询无限增长；L1 无 TTL 会堆积孤儿键（内存泄漏）。
 // 配置管理页低频，缓存收益近零，故直穿 DB（与 liusha2 一致）。
-
-// ListScenariosPaged 直穿底层 store：搜索 + 分页（配置管理页）。
-func (s *Store) ListScenariosPaged(ctx context.Context, p cfgscenario.ListParams) ([]cfgscenario.Scenario, error) {
-	return s.scenarios.ListPaged(ctx, p)
-}
-
-// CountScenarios 直穿底层 store：与 ListScenariosPaged 同过滤的总数。
-func (s *Store) CountScenarios(ctx context.Context, p cfgscenario.ListParams) (int, error) {
-	return s.scenarios.Count(ctx, p)
-}
 
 // ListExecutorsPaged 直穿底层 store：搜索 + 分页（配置管理页）。
 func (s *Store) ListExecutorsPaged(ctx context.Context, p cfgagent.ListParams) ([]cfgagent.Agent, error) {
@@ -250,14 +189,6 @@ func (s *Store) CountExecutors(ctx context.Context, p cfgagent.ListParams) (int,
 // 每个写方法：写 DB → cachestore.Invalidate（本进程即时清 L1+L2 + 广播失效键给其它进程）。
 // 失效的键由写方直接列出（与 ReadThrough 的 fillKeys 对应），无 per-resource 语义 switch。
 
-// scenarioKeys 是一条场景写/删要清的全部缓存键：code + id 双映射（同一份值）
-// + 两个全量列表键（enabled 变动跨 true/false 两表，一律清最省心且正确）。
-func scenarioKeys(id, code string) []string {
-	return []string{
-		keyScenarioCode(code), keyScenarioID(id),
-		keyScenariosList(true), keyScenariosList(false),
-	}
-}
 
 // agentKeys 是一次操作员写/删要清的全部缓存键：其 id 键 + complexity 键（code 路，热路径路由用）
 // + 两个哨兵键（提/降 planner 或 enabled/kind 变动影响领域池）+ 两个全量列表键。
@@ -270,20 +201,6 @@ func agentKeys(id, code string) []string {
 	}
 }
 
-// SaveScenario upsert 一个场景（按 code：存在则更新、不存在则新建），失效 code+id 两张映射。
-func (s *Store) SaveScenario(ctx context.Context, p cfgscenario.NewParams) (cfgscenario.Scenario, error) {
-	sc, err := s.scenarios.Update(ctx, p)
-	if isNotFound(err) {
-		sc, err = s.scenarios.Create(ctx, p)
-	}
-	if err != nil {
-		return cfgscenario.Scenario{}, err
-	}
-	if err := s.cache.Invalidate(ctx, scenarioKeys(sc.ID, sc.Code)...); err != nil {
-		return sc, err
-	}
-	return sc, nil
-}
 
 // UpdateExecutor 更新Agent配置（只能更新SystemPrompt、Skills和工具）。
 func (s *Store) UpdateExecutor(ctx context.Context, code string, p cfgagent.UpdateParams) (cfgagent.Agent, error) {
@@ -316,11 +233,4 @@ func (s *Store) DeleteExecutor(ctx context.Context, id, code string) error {
 	return fmt.Errorf("不支持删除内置Agent")
 }
 
-// DeleteScenario 按 code 删场景，失效 code+id 两张映射。
-func (s *Store) DeleteScenario(ctx context.Context, id, code string) error {
-	if err := s.scenarios.Delete(ctx, code); err != nil {
-		return err
-	}
-	return s.cache.Invalidate(ctx, scenarioKeys(id, code)...)
-}
 

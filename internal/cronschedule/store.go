@@ -21,7 +21,7 @@ type Store struct {
 func NewStore(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
 
 // colsSelect 是所有 SELECT / RETURNING 路径的统一列序，与 scan() 字段一一对应。
-const colsSelect = "id, scenario_id, cron_expr, payload, title, enabled, next_run_at, last_run_at, created_at"
+const colsSelect = "id, cron_expr, payload, title, enabled, next_run_at, last_run_at, created_at"
 
 const (
 	defaultListLimit = 20
@@ -39,8 +39,8 @@ func NextRun(expr string, from time.Time) (time.Time, error) {
 
 // Create 建一个新定时模板；cron_expr 当场校验并算出首次 next_run_at。
 func (s *Store) Create(ctx context.Context, p NewParams) (CronSchedule, error) {
-	if p.ScenarioID == "" {
-		return CronSchedule{}, fmt.Errorf("create cron_schedule: scenario_id 必填")
+	if p.CronExpr == "" {
+		return CronSchedule{}, fmt.Errorf("create cron_schedule: cron_expr 必填")
 	}
 	next, err := NextRun(p.CronExpr, time.Now())
 	if err != nil {
@@ -55,10 +55,10 @@ func (s *Store) Create(ctx context.Context, p NewParams) (CronSchedule, error) {
 		return CronSchedule{}, fmt.Errorf("marshal cron_schedule payload: %w", err)
 	}
 	row := s.pool.QueryRow(ctx, `
-		INSERT INTO cron_schedule (scenario_id, cron_expr, payload, title, next_run_at)
-		VALUES ($1, $2, $3, $4, $5)
+		INSERT INTO cron_schedule (cron_expr, payload, title, next_run_at)
+		VALUES ($1, $2, $3, $4)
 		RETURNING `+colsSelect,
-		p.ScenarioID, p.CronExpr, payload, p.Title, next)
+		p.CronExpr, payload, p.Title, next)
 	var c CronSchedule
 	if err := scan(row, &c); err != nil {
 		return CronSchedule{}, fmt.Errorf("create cron_schedule: %w", err)
@@ -76,24 +76,17 @@ func (s *Store) GetByID(ctx context.Context, id string) (CronSchedule, error) {
 	return c, nil
 }
 
-// List 按 created_at DESC 列出定时模板。scenarioID 为空时不过滤。
-func (s *Store) List(ctx context.Context, scenarioID string, limit int) ([]CronSchedule, error) {
+// List 按 created_at DESC 列出定时模板。
+func (s *Store) List(ctx context.Context, limit int) ([]CronSchedule, error) {
 	if limit <= 0 {
 		limit = defaultListLimit
 	}
 	if limit > maxListLimit {
 		limit = maxListLimit
 	}
-	q := "SELECT " + colsSelect + " FROM cron_schedule"
-	args := []any{}
-	if scenarioID != "" {
-		q += " WHERE scenario_id=$1"
-		args = append(args, scenarioID)
-	}
-	q += " ORDER BY created_at DESC LIMIT $" + fmt.Sprint(len(args)+1)
-	args = append(args, limit)
+	q := "SELECT " + colsSelect + " FROM cron_schedule ORDER BY created_at DESC LIMIT $1"
 
-	rows, err := s.pool.Query(ctx, q, args...)
+	rows, err := s.pool.Query(ctx, q, limit)
 	if err != nil {
 		return nil, fmt.Errorf("list cron_schedules: %w", err)
 	}
@@ -168,7 +161,7 @@ type scanner interface {
 
 // scan 是 colsSelect 列序的统一反序列化点。
 func scan(r scanner, c *CronSchedule) error {
-	if err := r.Scan(&c.ID, &c.ScenarioID, &c.CronExpr, &c.Payload, &c.Title,
+	if err := r.Scan(&c.ID, &c.CronExpr, &c.Payload, &c.Title,
 		&c.Enabled, &c.NextRunAt, &c.LastRunAt, &c.CreatedAt); err != nil {
 		return err
 	}

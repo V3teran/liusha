@@ -11,7 +11,6 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 
 	cfgagent "github.com/V3teran/liusha/internal/config/agent"
-	cfgscenario "github.com/V3teran/liusha/internal/config/scenario"
 	cfgtool "github.com/V3teran/liusha/internal/config/tool"
 )
 

@@ -134,22 +134,19 @@ func (s *Store) WallclockMs(ctx context.Context, convID string) (int64, error) {
 }
 
 // ListConversations 按 updated_at DESC 分页列出会话（UI 列表）。offset<0 视为 0。
-// scenarioID 非空时按关联 task.scenario_id 过滤——分页边界必须建立在过滤后的集合上，
-// 否则「前端按场景过滤 + 后端按 offset 翻页」两者独立计数会导致页码与实际条数错位。
 //
 // source 非空时按下发来源过滤（前端「主动下发 / 被动代理」双 tab）：
 //   - 'manual'：assignment.source='manual' 的会话 + 纯聊天会话（无 task → 无 source，归主动侧）；
 //   - 'auto'：assignment.source='auto' 的会话（聚合器攒批的被动代理流量）。
 //
 // source 经 conversation.task_id → task.assignment_id → assignment.source 两跳 JOIN 解析。
-// 该维度与 scenario/engine 正交，仅用于列表分流，不影响场景/引擎解析。
 //
 // 翻页用 offset（非 keyset 游标）：会话排序键是 updated_at，活跃会话会被追加消息"顶到最前"、
 // 破坏单调性——不像 llm_invocation 按自增 id 排序那样能用 keyset。这个数据量级（个人工具,
 // 不是海量 feed）offset 分页足够，也更简单：翻页时排序小幅重排是可接受的权衡。
 //
 // hasMore 判定用「多取一条」（LIMIT limit+1），不额外发 COUNT 查询。
-func (s *Store) ListConversations(ctx context.Context, limit, offset int, scenarioID, source string) ([]Conversation, bool, error) {
+func (s *Store) ListConversations(ctx context.Context, limit, offset int, source string) ([]Conversation, bool, error) {
 	limit = clampLimit(limit)
 	if offset < 0 {
 		offset = 0
@@ -161,17 +158,15 @@ func (s *Store) ListConversations(ctx context.Context, limit, offset int, scenar
 		SELECT c.id, COALESCE(c.title,''), COALESCE(c.task_id::text,''),
 			c.created_at, c.updated_at,
 			COALESCE(t.status, '') AS run_status,
-			COALESCE(t.scenario_id, '') AS scenario_id,
 			COALESCE((SELECT count(*) FROM finding f WHERE f.task_id = c.task_id), 0) AS finding_count,
 			COALESCE(a.source, '') AS source
 		FROM conversation c
 		LEFT JOIN task t ON t.id = c.task_id
 		LEFT JOIN assignment a ON a.id = t.assignment_id
-		WHERE ($3 = '' OR t.scenario_id = $3)
-		  AND ($4 = ''
-		       OR a.source = $4
-		       OR ($4 = 'manual' AND c.task_id IS NULL))
-		ORDER BY c.updated_at DESC LIMIT $1 OFFSET $2`, limit+1, offset, scenarioID, source)
+		WHERE ($3 = ''
+		       OR a.source = $3
+		       OR ($3 = 'manual' AND c.task_id IS NULL))
+		ORDER BY c.updated_at DESC LIMIT $1 OFFSET $2`, limit+1, offset, source)
 	if err != nil {
 		return nil, false, fmt.Errorf("list conversations: %w", err)
 	}
@@ -320,10 +315,10 @@ func scanConversation(r scanRow, c *Conversation) error {
 	return r.Scan(&c.ID, &c.Title, &c.TaskID, &c.CreatedAt, &c.UpdatedAt)
 }
 
-// scanConversationWithRun 多扫 run_status + scenario_id + finding_count + source
-// （派生态 + 场景 + 漏洞数 + 下发来源，见 ListConversations）。
+// scanConversationWithRun 多扫 run_status + finding_count + source
+// （派生态 + 漏洞数 + 下发来源，见 ListConversations）。
 func scanConversationWithRun(r scanRow, c *Conversation) error {
-	return r.Scan(&c.ID, &c.Title, &c.TaskID, &c.CreatedAt, &c.UpdatedAt, &c.RunStatus, &c.ScenarioID, &c.FindingCount, &c.Source)
+	return r.Scan(&c.ID, &c.Title, &c.TaskID, &c.CreatedAt, &c.UpdatedAt, &c.RunStatus, &c.FindingCount, &c.Source)
 }
 
 // RunStatus 返回会话关联 task 的「真实运行态」（task.status：active/completed/aborted；

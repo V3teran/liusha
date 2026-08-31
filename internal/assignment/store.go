@@ -17,7 +17,7 @@ type Store struct {
 func NewStore(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
 
 // colsSelect 是所有 SELECT / RETURNING 路径的统一列序，与 scan() 字段一一对应。
-const colsSelect = "id, scenario_id, source, payload, title, schedule_id, created_at"
+const colsSelect = "id, source, payload, title, schedule_id, created_at"
 
 const (
 	defaultListLimit = 20
@@ -27,9 +27,6 @@ const (
 // Create 建一个新 assignment（下发容器）。Items 序列化进 payload jsonb。
 // 调用方随后据返回的 assignment.ID 展开子 task（task.assignment_id 强外键）。
 func (s *Store) Create(ctx context.Context, p NewParams) (Assignment, error) {
-	if p.ScenarioID == "" {
-		return Assignment{}, fmt.Errorf("create assignment: scenario_id 必填")
-	}
 	switch p.Source {
 	case SourceManual, SourceAuto:
 	default:
@@ -44,10 +41,10 @@ func (s *Store) Create(ctx context.Context, p NewParams) (Assignment, error) {
 		return Assignment{}, fmt.Errorf("marshal assignment payload: %w", err)
 	}
 	row := s.pool.QueryRow(ctx, `
-		INSERT INTO assignment (scenario_id, source, payload, title, schedule_id)
-		VALUES ($1, $2, $3, $4, $5)
+		INSERT INTO assignment (source, payload, title, schedule_id)
+		VALUES ($1, $2, $3, $4)
 		RETURNING `+colsSelect,
-		p.ScenarioID, string(p.Source), payload, p.Title, p.ScheduleID)
+		string(p.Source), payload, p.Title, p.ScheduleID)
 	var a Assignment
 	if err := scan(row, &a); err != nil {
 		return Assignment{}, fmt.Errorf("create assignment: %w", err)
@@ -66,7 +63,7 @@ func (s *Store) GetByID(ctx context.Context, id string) (Assignment, error) {
 }
 
 // List 按 created_at DESC 列出最近的 assignment。scenarioID 为空时不过滤。
-func (s *Store) List(ctx context.Context, scenarioID string, limit int) ([]Assignment, error) {
+func (s *Store) List(ctx context.Context,  limit int) ([]Assignment, error) {
 	if limit <= 0 {
 		limit = defaultListLimit
 	}
@@ -75,9 +72,9 @@ func (s *Store) List(ctx context.Context, scenarioID string, limit int) ([]Assig
 	}
 	q := "SELECT " + colsSelect + " FROM assignment"
 	args := []any{}
-	if scenarioID != "" {
+	if false {
 		q += " WHERE scenario_id=$1"
-		args = append(args, scenarioID)
+		args = append(args)
 	}
 	q += " ORDER BY created_at DESC LIMIT $" + fmt.Sprint(len(args)+1)
 	args = append(args, limit)
@@ -135,12 +132,11 @@ type scanner interface {
 
 // scan 是 colsSelect 列序的统一反序列化点。
 func scan(r scanner, a *Assignment) error {
-	var scenarioID, source string
-	if err := r.Scan(&a.ID, &scenarioID, &source, &a.Payload, &a.Title,
+	var source string
+	if err := r.Scan(&a.ID, &source, &a.Payload, &a.Title,
 		&a.ScheduleID, &a.CreatedAt); err != nil {
 		return err
 	}
-	a.ScenarioID = scenarioID
 	a.Source = Source(source)
 	return nil
 }
