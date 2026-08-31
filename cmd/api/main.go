@@ -551,17 +551,20 @@ func (a *scanAdapter) HandleMessage(ctx context.Context, convID, content string)
 		return "", false, fmt.Errorf("link task: %w", err)
 	}
 	go a.genTitle(convID, content)
-		return "action", false, nil
-		if tk.Status == task.StatusActive {
-			return "action", true, nil // 忙：agent 在跑，本轮指导经 conversationContext 下次读到
-		}
-		// finding 累积在这次分析会话里（不新建 task）。追加消息作为新一轮 brief 下发。
-		if _, err := a.FollowUp(ctx, conv.TaskID, convID, content); err != nil {
-			return "", false, err
-		}
-		return "action", false, nil
-		}
-		// qa：就已有 finding/流量提问，各场景同一套问答
+		tk, err := a.tasks.GetByID(ctx, conv.TaskID)
+	if err != nil {
+		return "", false, err
+	}
+	if isAction {
+	if tk.Status == task.StatusActive {
+		return "action", true, nil // 忙：agent 在跑，本轮指导经 conversationContext 下次读到
+	}
+	// finding 累积在这次分析会话里（不新建 task）。追加消息作为新一轮 brief 下发。
+	if _, err := a.FollowUp(ctx, conv.TaskID, convID, content); err != nil {
+	}
+	return "action", false, nil
+	}
+	// qa：就已有 finding/流量提问，各场景同一套问答
 	if err := qa.New(a).Answer(ctx, convID, conv.TaskID, content); err != nil {
 		return "", false, err
 	}
