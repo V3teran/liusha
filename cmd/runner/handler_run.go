@@ -138,9 +138,9 @@ func composeSoloInstruction(scen cfgscenario.Scenario, op cfgagent.Agent) string
 		b.WriteString("\n\n")
 		b.WriteString(scen.Instruction)
 	}
-	if op.Body != "" {
+	if op.SystemPrompt != "" {
 		b.WriteString("\n\n")
-		b.WriteString(op.Body)
+		b.WriteString(op.SystemPrompt)
 	}
 	return b.String()
 }
@@ -441,7 +441,7 @@ func (h handler) handleSolo(
 }
 
 // ─────────────────────────────────────────────────────────────
-//  Swarm handler
+//  Cognition handler (新架构统一入口)
 // ─────────────────────────────────────────────────────────────
 
 // handleCognition 统一的任务执行入口（新架构）。
@@ -460,53 +460,39 @@ func (h handler) handleCognition(
 		h.logger.Warn().Err(err).Str("task_id", taskID).Msg("task入口心跳失败")
 	}
 
-	// 获取Planner和Executor配置
-	planner, err := h.cfgStore.GetPlanner(ctx)
-	if err != nil {
-		return h.failTask(ctx, p.ExecutorID, fmt.Errorf("获取planner失败: %w", err))
-	}
-
-	executor, err := h.cfgStore.GetExecutor(ctx)
-	if err != nil {
-		return h.failTask(ctx, p.ExecutorID, fmt.Errorf("获取executor失败: %w", err))
-	}
-
-	// 调用cognition.go中的runCognition
-	return h.runCognition(ctx, taskID, brief, planner, executor)
-}
-
-	tid := p.ExecutorID
-	taskID := p.TaskID
-	if err := h.tasks.Heartbeat(ctx, taskID); err != nil {
-		h.logger.Warn().Err(err).Str("task_id", taskID).Msg("task 入口心跳失败（不阻塞）")
-	}
-
 	var assignmentID string
 	if tk, err := h.tasks.GetByID(ctx, taskID); err == nil {
 		assignmentID = tk.AssignmentID
 	}
 	virtualHost := h.onboard(ctx, assignmentID, taskID, brief)
 
-	orchAgent, err := h.cfgStore.Planner(ctx)
+	// Sandbox 按 Assignment 粒度管理
+	sandboxClient, err := h.sandboxMgr.Acquire(ctx, assignmentID)
 	if err != nil {
-		return h.failTask(ctx, p.ExecutorID, fmt.Errorf("swarm 缺全局 planner 操作员: %w", err))
+		return h.failTask(ctx, p.ExecutorID, fmt.Errorf("sandboxMgr.Acquire(%s): %w", assignmentID, err))
+	}
+	defer func() {
+		if err := h.sandboxMgr.Release(context.Background(), assignmentID); err != nil {
+			h.logger.Warn().Err(err).Str("assignment_id", assignmentID).Msg("sandboxMgr.Release 失败")
+		}
+	}()
+
+	// 获取Planner和Executor配置
+	planner, err := h.cfgStore.GetPlanner(ctx)
+	if err != nil {
+		return h.failTask(ctx, p.ExecutorID, fmt.Errorf("获取planner失败: %w", err))
 	}
 
-	sysPrompt := swarmSystemPrompt(orchAgent.Body, scen.Instruction, executors)
-
-	rt, _ := h.settings.Runtime(ctx)
-	orchPrompt := executorbuilder.BuildUserPrompt(ctx, h.buildPromptDeps(), skill.BuilderParams{
-		TaskID:        taskID,
-		AssignmentID:  assignmentID,
-		ExecutorID:    tid,
-		Host:          virtualHost,
-		Brief:         brief,
-		CliTools:      orchAgent.CliTools,
-		FindingsLimit: rt.FindingsLimitInPrompt,
-	})
-	if hist := h.conversationContext(ctx, p.ConversationID, "planner", brief); hist != "" {
-		orchPrompt = hist + "\n" + orchPrompt
+	executorAgent, err := h.cfgStore.GetExecutor(ctx)
+	if err != nil {
+		return h.failTask(ctx, p.ExecutorID, fmt.Errorf("获取executor失败: %w", err))
 	}
+
+	// 构建system prompt
+	sysPrompt := composeplannerInstruction(planner.SystemPrompt)
+
+	// 动态推断 complexity
+	defaultComplexity := h.inferComplexity(brief)
 
 	cleanup := func() {}
 	var sink scanagent.EventSink
@@ -516,24 +502,6 @@ func (h handler) handleCognition(
 		cleanup = es.Close
 	}
 	defer cleanup()
-
-	// Sandbox 按 Assignment 粒度管理，多 Task 共享同一容器（引用计数）
-	sandboxClient, err := h.sandboxMgr.Acquire(ctx, assignmentID)
-	if err != nil {
-		return h.failTask(ctx, p.ExecutorID, fmt.Errorf("sandboxMgr.Acquire(%s): %w", assignmentID, err))
-	}
-	// 任务结束时释放引用，引用计数归零后延迟清理容器
-	defer func() {
-		if err := h.sandboxMgr.Release(context.Background(), assignmentID); err != nil {
-			h.logger.Warn().Err(err).Str("assignment_id", assignmentID).Msg("sandboxMgr.Release 失败")
-		}
-	}()
-
-	// 动态推断 complexity（编排任务通常更复杂，默认 Complex）
-	defaultComplexity := provider.ComplexityComplex
-	if brief != "" {
-		defaultComplexity = h.inferComplexity(brief)
-	}
 
 	d, reg, err := h.buildDispatcher(ctx, defaultComplexity, sysPrompt, sink)
 	if err != nil {
@@ -578,8 +546,22 @@ func (h handler) handleCognition(
 
 	var execResult []executor.Execution
 	var agentErr error
+
+	rt, _ := h.settings.Runtime(ctx)
+	orchPrompt := executorbuilder.BuildUserPrompt(ctx, h.buildPromptDeps(), skill.BuilderParams{
+		TaskID:        taskID,
+		AssignmentID:  assignmentID,
+		ExecutorID:    p.ExecutorID,
+		Host:          virtualHost,
+		Brief:         brief,
+		CliTools:      executorAgent.CliTools,
+		FindingsLimit: rt.FindingsLimitInPrompt,
+	})
+	if hist := h.conversationContext(ctx, p.ConversationID, "planner", brief); hist != "" {
+		orchPrompt = hist + "\n" + orchPrompt
+	}
+
 	runAgent := func(runCtx context.Context, m worldmodel.Node) error {
-		// 执行 Action
 		action := nodeToExecutorAction(m, orchPrompt)
 		exec, err := d.Execute(runCtx, action)
 		if err != nil {
@@ -603,7 +585,7 @@ func (h handler) handleCognition(
 		return h.failTask(ctx, p.ExecutorID, err)
 	}
 
-	out, err := json.Marshal(buildRunResult(string(scen.Engine), execResult, report))
+	out, err := json.Marshal(buildRunResult("cognition", execResult, report))
 	if err != nil {
 		finalizeTask(false, "marshal task result")
 		return h.failTask(ctx, p.ExecutorID, fmt.Errorf("marshal task result: %w", err))
@@ -627,10 +609,9 @@ func (h handler) handleCognition(
 }
 
 // ─────────────────────────────────────────────────────────────
-//  Helpers
+//  Helper functions
 // ─────────────────────────────────────────────────────────────
 
-// nodeToExecutorAction translates a worldmodel.Node (kind=action) to executor.Action.
 // Extracts complexity and instruction from the action node.
 func nodeToExecutorAction(node worldmodel.Node, userPrompt string) executor.Action {
 	if !node.IsAction() {
