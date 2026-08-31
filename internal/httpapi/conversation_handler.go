@@ -38,33 +38,40 @@ var sseLog = logx.New("httpapi.sse")
 
 // ChatAPI 是发起会话扫描的窄接口（cmd/api 注入 adapter：建 conversation + scan + 入队带 convID）。
 type ChatAPI interface {
-	StartChatScan(ctx context.Context, brief string) (conversationID, taskID string, err error)
+	StartChatScan(ctx context.Context, brief, ) (conversationID, taskID string, err error)
+}
 
 // 可选场景列表由 GET /scenarios（configstore）提供，前端 ScenarioPicker 消费。
 
 // ConversationsAPI 是会话/消息读取窄接口（*conversation.Store 自动满足）。
 type ConversationsAPI interface {
-	ListConversations(ctx context.Context, limit, offset int,  source string) ([]conversation.Conversation, bool, error)
+	ListConversations(ctx context.Context, limit, offset int, source string) ([]conversation.Conversation, bool, error)
 	ListMessages(ctx context.Context, convID string, afterSeq int64, limit int) ([]conversation.Message, error)
 	GetMessage(ctx context.Context, convID, msgID string) (conversation.Message, error)
+}
 
 // EventSubscription 是一次会话事件订阅（cmd/api 用 scanstream.Subscription 适配）。
 type EventSubscription interface {
 	Events() <-chan []byte
 	Close() error
+}
 
 // EventStream 订阅某会话的实时事件 channel（cmd/api 注入 redis-backed 适配器）。
 type EventStream interface {
 	Subscribe(ctx context.Context, conversationID string) EventSubscription
+}
 
 // ChatRequest 是 POST /chat 请求体。
 type ChatRequest struct {
 	Brief      string `json:"brief"`
+	ScenarioID string `json:""` // 场景 code（必选，前端 ScenarioPicker 选定）
+}
 
 // ChatResponse 是 POST /chat 响应：前端用 conversation_id 订阅 SSE。
 type ChatResponse struct {
 	ConversationID string `json:"conversation_id"`
 	TaskID         string `json:"task_id"`
+}
 
 // chatHandler 处理 POST /chat：校验 brief 非空，发起会话扫描，成功后下发 SSE 鉴权 cookie。
 func chatHandler(api ChatAPI, streamSecret []byte, secure bool) gin.HandlerFunc {
@@ -73,16 +80,24 @@ func chatHandler(api ChatAPI, streamSecret []byte, secure bool) gin.HandlerFunc 
 		if err := c.ShouldBindJSON(&req); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid json"})
 			return
+		}
 		if req.Brief == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "brief 不能为空"})
 			return
+		}
+		if req.ScenarioID == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "scenario_id 不能为空"})
 			return
-		convID, taskID, err := api.StartChatScan(c.Request.Context(), req.Brief, )
+		}
+		convID, taskID, err := api.StartChatScan(c.Request.Context(), req.Brief, req.ScenarioID)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
+		}
 		setStreamCookie(c, streamSecret, convID, secure)
 		c.JSON(http.StatusOK, ChatResponse{ConversationID: convID, TaskID: taskID})
+	}
+}
 
 // streamCookieTTLSeconds 是 SSE 鉴权 cookie 时效（秒）。前端打开会话/重连时按需重签，
 // 故 TTL 只需覆盖单次连接周期，长扫描靠重连重签维持。
@@ -97,9 +112,11 @@ const streamCookieTTLSeconds = 30 * 60
 func setStreamCookie(c *gin.Context, streamSecret []byte, convID string, secure bool) {
 	if len(streamSecret) == 0 || convID == "" {
 		return
+	}
 	tok := signStreamToken(streamSecret, convID, time.Now().Add(streamCookieTTLSeconds*time.Second))
 	c.SetSameSite(http.SameSiteLaxMode)
 	c.SetCookie(streamCookieName, tok, streamCookieTTLSeconds, "/", "", secure, true)
+}
 
 // streamAuthHandler 处理 POST /conversations/:id/stream-auth（X-API-Key 保护）。
 //
@@ -112,22 +129,29 @@ func streamAuthHandler(streamSecret []byte, secure bool) gin.HandlerFunc {
 		if id == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "id required"})
 			return
+		}
 		if len(streamSecret) == 0 {
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "stream 鉴权未启用"})
 			return
+		}
 		setStreamCookie(c, streamSecret, id, secure)
 		c.JSON(http.StatusOK, gin.H{"ok": true})
+	}
+}
 
 // FollowUpAPI 处理会话追加消息：内部判意图（action/qa）+ 落消息 + 分流。
 // 返回 intent（"action"|"qa"）、busy（action 但扫描进行中 → 应排队/拒绝）、err。
 // scenarioID：纯聊天会话（无 task）升级为 action 时用于建 task；已绑 task 的会话续接忽略之。
 type FollowUpAPI interface {
 	HandleMessage(ctx context.Context, convID, content string) (intent string, busy bool, err error)
+}
 
 // FollowUpRequest 是 POST /conversations/:id/messages 请求体。
 // scenario_id 可选：纯聊天会话升级为扫描时用（前端 ScenarioPicker 随 Composer 带上）。
 type FollowUpRequest struct {
 	Content    string `json:"content"`
+	ScenarioID string `json:""`
+}
 
 func followUpHandler(api FollowUpAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -136,18 +160,24 @@ func followUpHandler(api FollowUpAPI) gin.HandlerFunc {
 		if err := c.ShouldBindJSON(&req); err != nil || req.Content == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "content 不能为空"})
 			return
-		intent, busy, err := api.HandleMessage(c.Request.Context(), convID, req.Content, )
+		}
+		intent, busy, err := api.HandleMessage(c.Request.Context(), convID, req.Content, req.ScenarioID)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
+		}
 		if busy {
 			c.JSON(http.StatusConflict, gin.H{"error": "扫描进行中，停止后再发", "busy": true, "intent": intent})
 			return
+		}
 		c.JSON(http.StatusOK, gin.H{"intent": intent})
+	}
+}
 
 // AbortAPI 停止会话关联扫描（cmd/api 注入）。
 type AbortAPI interface {
 	AbortConversationScan(ctx context.Context, convID string) error
+}
 
 // abortConversationHandler 处理 POST /conversations/:id/abort：停掉会话关联的 active_scan。
 func abortConversationHandler(api AbortAPI) gin.HandlerFunc {
@@ -155,11 +185,15 @@ func abortConversationHandler(api AbortAPI) gin.HandlerFunc {
 		if err := api.AbortConversationScan(c.Request.Context(), c.Param("id")); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
+		}
 		c.JSON(http.StatusOK, gin.H{"aborted": true})
+	}
+}
 
 // ConversationDeleter 删除会话及其消息（*conversation.Store 满足）。小接口、可选注册（同 Abort）。
 type ConversationDeleter interface {
 	DeleteConversation(ctx context.Context, id string) error
+}
 
 // deleteConversationHandler 处理 DELETE /conversations/:id：删会话+消息（不动 scan/finding 成果）。
 // 关联扫描仍在跑时返回 409（ErrConversationScanActive）——后端兜底「先停后删」，前端守卫可被绕过，
@@ -170,9 +204,13 @@ func deleteConversationHandler(api ConversationDeleter) gin.HandlerFunc {
 			if errors.Is(err, ErrConversationScanActive) {
 				c.JSON(http.StatusConflict, gin.H{"error": err.Error(), "scan_active": true})
 				return
+			}
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
+		}
 		c.JSON(http.StatusOK, gin.H{"deleted": true})
+	}
+}
 
 // maxConversationTitleRunes 手动重命名标题上限（rune 计）。与 briefTitle 自动摘要的 40 留同量级余量。
 const maxConversationTitleRunes = 80
@@ -180,6 +218,7 @@ const maxConversationTitleRunes = 80
 // ConversationRenamer 重命名会话标题（*conversation.Store 满足）。小接口、可选注册（同 Deleter）。
 type ConversationRenamer interface {
 	SetTitle(ctx context.Context, id, title string) error
+}
 
 // renameConversationHandler 处理 PATCH /conversations/:id：改标题。
 // body: {"title": "..."}。空 title 由 store 存 NULL（回落到首条消息摘要展示）。
@@ -187,17 +226,23 @@ func renameConversationHandler(api ConversationRenamer) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var body struct {
 			Title string `json:"title"`
+		}
 		if err := c.ShouldBindJSON(&body); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "无效请求体：" + err.Error()})
 			return
+		}
 		title := strings.TrimSpace(body.Title)
 		if len([]rune(title)) > maxConversationTitleRunes {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "标题过长"})
 			return
+		}
 		if err := api.SetTitle(c.Request.Context(), c.Param("id"), title); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
+		}
 		c.JSON(http.StatusOK, gin.H{"title": title})
+	}
+}
 
 // listConversationsHandler 处理 GET /conversations?limit=&offset=&scenario_id=&source=：分页会话列表（UI 侧栏翻页）。
 // scenario_id / source 可选，空则不过滤——过滤下沉到 SQL，保证分页边界与「当前过滤下的
@@ -206,11 +251,14 @@ func renameConversationHandler(api ConversationRenamer) gin.HandlerFunc {
 // has_more：本页拉满 limit+1 条时才可能有下一页（store 已裁剪到 limit，见 ListConversations）。
 func listConversationsHandler(api ConversationsAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		convs, hasMore, err := api.ListConversations(c.Request.Context(), parseLimit(c, 30), parseOffset(c), "", c.Query("source"))
+		convs, hasMore, err := api.ListConversations(c.Request.Context(), parseLimit(c, 30), parseOffset(c), c.Query(""), c.Query("source"))
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
+		}
 		c.JSON(http.StatusOK, gin.H{"conversations": convs, "has_more": hasMore})
+	}
+}
 
 // messagesHandler 处理 GET /conversations/:id/messages：回看（after_seq 增量）。
 func messagesHandler(api ConversationsAPI) gin.HandlerFunc {
@@ -220,7 +268,10 @@ func messagesHandler(api ConversationsAPI) gin.HandlerFunc {
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
+		}
 		c.JSON(http.StatusOK, gin.H{"messages": msgs})
+	}
+}
 
 // messageDetailHandler 处理 GET /conversations/:id/messages/:msg_id：按 id 取单条消息正文。
 //
@@ -235,9 +286,13 @@ func messageDetailHandler(api ConversationsAPI) gin.HandlerFunc {
 			if errors.Is(err, pgx.ErrNoRows) {
 				c.JSON(http.StatusNotFound, gin.H{"error": "message not found"})
 				return
+			}
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
+		}
 		c.JSON(http.StatusOK, msg)
+	}
+}
 
 // streamHandler 处理 GET /conversations/:id/stream：SSE 推 agent 过程事件。
 //
@@ -260,6 +315,7 @@ func streamHandler(convs ConversationsAPI, stream EventStream) gin.HandlerFunc {
 			sseLog.Error().Str("conv", convID).Msg("SSE: ResponseWriter 不支持 Flusher")
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "streaming unsupported"})
 			return
+		}
 		// SSE 长连接：清除 http.Server.WriteTimeout，否则数十秒后连接被切断。
 		// gin responseWriter 实现 Unwrap，ResponseController 可达底层 conn；不支持则降级。
 		_ = http.NewResponseController(c.Writer).SetWriteDeadline(time.Time{})
@@ -276,9 +332,11 @@ func streamHandler(convs ConversationsAPI, stream EventStream) gin.HandlerFunc {
 			sseLog.Error().Err(err).Str("conv", convID).Msg("SSE: 补历史失败")
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
+		}
 		for _, m := range history {
 			writeSSEMessage(c.Writer, m.Seq, m)
 			lastSeq = m.Seq
+		}
 		flusher.Flush()
 		sseLog.Info().Str("conv", convID).Int("history", len(history)).Int64("last_seq", lastSeq).
 			Msg("SSE: 补历史完成，进入实时转发")
@@ -296,63 +354,87 @@ func streamHandler(convs ConversationsAPI, stream EventStream) gin.HandlerFunc {
 					sseLog.Warn().Str("conv", convID).Int("live", live).Int("deltas", deltas).
 						Msg("SSE: redis 订阅 channel 关闭")
 					return
+				}
 				// 流式推理增量：瞬时帧（无 seq、不落库），写命名事件 event:delta，前端单独累积，不参与 seq 去重。
 				var probe struct {
 					Delta bool `json:"delta"`
+				}
 				if json.Unmarshal(payload, &probe); probe.Delta {
 					writeSSEEvent(c.Writer, "delta", payload)
 					flusher.Flush()
 					deltas++
 					continue
+				}
 				var m conversation.Message
 				if err := json.Unmarshal(payload, &m); err != nil {
 					sseLog.Warn().Err(err).Str("conv", convID).Msg("SSE: 实时帧 unmarshal 失败，跳过")
 					continue
+				}
 				if m.Seq <= lastSeq {
 					dups++
 					continue // 与补历史重叠，跳过
+				}
 				writeSSERaw(c.Writer, m.Seq, payload)
 				lastSeq = m.Seq
 				live++
 				sseLog.Debug().Str("conv", convID).Int64("seq", m.Seq).Str("kind", string(m.Kind)).
 					Str("role", string(m.Role)).Msg("SSE: 实时转发一帧")
 				flusher.Flush()
+			}
+		}
+	}
+}
 
 // writeSSEMessage 把 message 序列化成 SSE 帧（id=seq 支持 Last-Event-ID 重连）。
 func writeSSEMessage(w http.ResponseWriter, seq int64, m conversation.Message) {
 	payload, err := json.Marshal(m)
 	if err != nil {
 		return
+	}
 	writeSSERaw(w, seq, payload)
+}
 
 // writeSSERaw 写一帧 SSE：id: {seq}\ndata: {json}\n\n。
 func writeSSERaw(w http.ResponseWriter, seq int64, payload []byte) {
 	fmt.Fprintf(w, "id: %d\ndata: %s\n\n", seq, payload)
+}
 
 // writeSSEEvent 写一帧命名 SSE：event: {name}\ndata: {json}\n\n（无 id，不参与 Last-Event-ID 续传）。
 // 用于流式推理增量等瞬时帧——前端按事件名单独监听，不混入默认 message 流的 seq 去重。
 func writeSSEEvent(w http.ResponseWriter, name string, payload []byte) {
 	fmt.Fprintf(w, "event: %s\ndata: %s\n\n", name, payload)
+}
 
 func parseLimit(c *gin.Context, def int) int {
 	if v := c.Query("limit"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
 			return n
+		}
+	}
 	return def
+}
 
 // parseOffset 取分页偏移（GET /conversations?offset=）。缺失/非法/负数 → 0（首页）。
 func parseOffset(c *gin.Context) int {
 	if v := c.Query("offset"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
 			return n
+		}
+	}
 	return 0
+}
 
 // parseAfterSeq 取增量起点：优先 Last-Event-ID（SSE 重连自动带），回退 after_seq query。
 func parseAfterSeq(c *gin.Context) int64 {
 	if v := c.GetHeader("Last-Event-ID"); v != "" {
 		if n, err := strconv.ParseInt(v, 10, 64); err == nil {
 			return n
+		}
+	}
 	if v := c.Query("after_seq"); v != "" {
 		if n, err := strconv.ParseInt(v, 10, 64); err == nil {
 			return n
+		}
+	}
 	return 0
+}
