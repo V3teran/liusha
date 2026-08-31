@@ -38,7 +38,7 @@ var sseLog = logx.New("httpapi.sse")
 
 // ChatAPI 是发起会话扫描的窄接口（cmd/api 注入 adapter：建 conversation + scan + 入队带 convID）。
 type ChatAPI interface {
-	StartChatScan(ctx context.Context, brief, scenarioID string) (conversationID, taskID string, err error)
+	StartChatScan(ctx context.Context, brief string) (conversationID, taskID string, err error)
 }
 
 // 可选场景列表由 GET /scenarios（configstore）提供，前端 ScenarioPicker 消费。
@@ -64,7 +64,6 @@ type EventStream interface {
 // ChatRequest 是 POST /chat 请求体。
 type ChatRequest struct {
 	Brief      string `json:"brief"`
-	 `json:"scenario_id"` // 场景 code（必选，前端 ScenarioPicker 选定）
 }
 
 // ChatResponse 是 POST /chat 响应：前端用 conversation_id 订阅 SSE。
@@ -86,7 +85,6 @@ func chatHandler(api ChatAPI, streamSecret []byte, secure bool) gin.HandlerFunc 
 			return
 		}
 		if  == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "scenario_id 不能为空"})
 			return
 		}
 		convID, taskID, err := api.StartChatScan(c.Request.Context(), req.Brief, )
@@ -150,7 +148,6 @@ type FollowUpAPI interface {
 // scenario_id 可选：纯聊天会话升级为扫描时用（前端 ScenarioPicker 随 Composer 带上）。
 type FollowUpRequest struct {
 	Content    string `json:"content"`
-	 `json:"scenario_id"`
 }
 
 func followUpHandler(api FollowUpAPI) gin.HandlerFunc {
@@ -251,7 +248,7 @@ func renameConversationHandler(api ConversationRenamer) gin.HandlerFunc {
 // has_more：本页拉满 limit+1 条时才可能有下一页（store 已裁剪到 limit，见 ListConversations）。
 func listConversationsHandler(api ConversationsAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		convs, hasMore, err := api.ListConversations(c.Request.Context(), parseLimit(c, 30), parseOffset(c), c.Query("scenario_id"), c.Query("source"))
+		convs, hasMore, err := api.ListConversations(c.Request.Context(), parseLimit(c, 30), parseOffset(c), "", c.Query("source"))
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
