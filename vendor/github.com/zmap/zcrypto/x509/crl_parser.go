@@ -62,7 +62,7 @@ func ParseRevocationList(der []byte) (*RevocationList, error) {
 	input := cryptobyte.String(der)
 	// we read the SEQUENCE including length and tag bytes so that
 	// we can populate RevocationList.Raw, before unwrapping the
-	// SEQUENCE so it can be executed on
+	// SEQUENCE so it can be operated on
 	if !input.ReadASN1Element(&input, cryptobyte_asn1.SEQUENCE) {
 		return nil, errors.New("x509: malformed crl")
 	}

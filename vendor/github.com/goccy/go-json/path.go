@@ -9,10 +9,10 @@ import (
 // CreatePath creates JSON Path.
 //
 // JSON Path rule
-// $   : root object or element. The JSON Path format must start with this executor, which refers to the outermost level of the JSON-formatted string.
-// .   : child executor. You can identify child values using dot-notation.
+// $   : root object or element. The JSON Path format must start with this operator, which refers to the outermost level of the JSON-formatted string.
+// .   : child operator. You can identify child values using dot-notation.
 // ..  : recursive descent.
-// []  : subscript executor. If the JSON object is an array, you can use brackets to specify the array index.
+// []  : subscript operator. If the JSON object is an array, you can use brackets to specify the array index.
 // [*] : all objects/elements for array.
 //
 // Reserved words must be properly escaped when included in Path.

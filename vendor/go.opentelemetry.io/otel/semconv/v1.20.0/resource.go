@@ -629,7 +629,7 @@ const (
 	// Type: string
 	// RequirementLevel: Optional
 	// Stability: stable
-	// Examples: 'gcr.io/opentelemetry/executor'
+	// Examples: 'gcr.io/opentelemetry/operator'
 	ContainerImageNameKey = attribute.Key("container.image.name")
 
 	// ContainerImageTagKey is the attribute Key conforming to the

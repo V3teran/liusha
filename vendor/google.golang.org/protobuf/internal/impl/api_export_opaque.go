@@ -44,7 +44,7 @@ func (Export) SetPresent(part *uint32, num uint32, size uint32) {
 	}
 }
 
-// SetPresentNonAtomic is like SetPresent, but executes non-atomically.
+// SetPresentNonAtomic is like SetPresent, but operates non-atomically.
 // It is meant for use by builder methods, where the message is known not
 // to be accessible yet by other goroutines.
 func (Export) SetPresentNonAtomic(part *uint32, num uint32, size uint32) {

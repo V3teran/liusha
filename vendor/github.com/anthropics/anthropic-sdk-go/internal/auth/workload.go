@@ -111,11 +111,11 @@ func NewOIDCFederationCredentials(cfg OIDCFederationConfig) TokenProvider {
 		}
 
 		if resp.StatusCode != http.StatusOK {
-			// A 401 is the auth-failure case worth a hint: point the executor
+			// A 401 is the auth-failure case worth a hint: point the operator
 			// at the federation rule and the authentication-events log in
 			// Claude Console. When no WorkspaceID is configured, also surface
 			// the most common ambiguous-401 cause — a federation rule spanning
-			// multiple workspaces — so the executor doesn't have to dig
+			// multiple workspaces — so the operator doesn't have to dig
 			// through docs. Other statuses (5xx, non-401 4xx) get no hint:
 			// they don't indicate a config problem this guidance would fix.
 			var hint string

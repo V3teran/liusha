@@ -15,7 +15,7 @@
     - It utilizes slice resizing semantics to optimize common cases
       like appending into the same error object from a loop.
 - **Interoperable**:
-  multierr interexecutes with the Go standard library's error APIs seamlessly:
+  multierr interoperates with the Go standard library's error APIs seamlessly:
     - The `errors.Is` and `errors.As` functions *just work*.
 - **Lightweight**:
   multierr comes with virtually no dependencies.

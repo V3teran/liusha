@@ -58,7 +58,7 @@ type DeleteByQueryRequest struct {
 	Analyzer            string
 	AnalyzeWildcard     *bool
 	Conflicts           string
-	DefaultExecutor     string
+	DefaultOperator     string
 	Df                  string
 	ExpandWildcards     string
 	From                *int
@@ -137,8 +137,8 @@ func (r DeleteByQueryRequest) Do(ctx context.Context, transport Transport) (*Res
 		params["conflicts"] = r.Conflicts
 	}
 
-	if r.DefaultExecutor != "" {
-		params["default_executor"] = r.DefaultExecutor
+	if r.DefaultOperator != "" {
+		params["default_operator"] = r.DefaultOperator
 	}
 
 	if r.Df != "" {
@@ -346,10 +346,10 @@ func (f DeleteByQuery) WithConflicts(v string) func(*DeleteByQueryRequest) {
 	}
 }
 
-// WithDefaultExecutor - the default executor for query string query (and or or).
-func (f DeleteByQuery) WithDefaultExecutor(v string) func(*DeleteByQueryRequest) {
+// WithDefaultOperator - the default operator for query string query (and or or).
+func (f DeleteByQuery) WithDefaultOperator(v string) func(*DeleteByQueryRequest) {
 	return func(r *DeleteByQueryRequest) {
-		r.DefaultExecutor = v
+		r.DefaultOperator = v
 	}
 }
 

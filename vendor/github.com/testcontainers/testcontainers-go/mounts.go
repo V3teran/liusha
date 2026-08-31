@@ -44,7 +44,7 @@ type ContainerMountSource interface {
 
 // Deprecated: use Files or HostConfigModifier in the ContainerRequest, or copy files container APIs to make containers portable across Docker environments
 // GenericBindMountSource implements ContainerMountSource and represents a bind mount
-// Optionally mount.BindOptions might be added for advanced s
+// Optionally mount.BindOptions might be added for advanced scenarios
 type GenericBindMountSource struct {
 	// HostPath is the path mounted into the container
 	// the same host path might be mounted to multiple locations within a single container
@@ -77,7 +77,7 @@ func (GenericVolumeMountSource) Type() MountType {
 }
 
 // GenericTmpfsMountSource implements ContainerMountSource and represents a TmpFS mount
-// Optionally mount.TmpfsOptions might be added for advanced s
+// Optionally mount.TmpfsOptions might be added for advanced scenarios
 type GenericTmpfsMountSource struct{}
 
 func (s GenericTmpfsMountSource) Source() string {

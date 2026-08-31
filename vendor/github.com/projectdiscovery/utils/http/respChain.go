@@ -135,7 +135,7 @@ func (r *ResponseChain) Fill() error {
 	if r.resp.StatusCode != http.StatusSwitchingProtocols && !r.reloaded {
 		// Note about reloaded:
 		// this is a known behaviour existing from earlier version
-		// when redirect is followed and executors are executed on all redirect chain
+		// when redirect is followed and operators are executed on all redirect chain
 		// body of those requests is not available since its already been redirected
 		// This is not a issue since redirect happens with empty body according to RFC
 		// but this may be required sometimes

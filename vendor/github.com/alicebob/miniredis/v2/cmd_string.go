@@ -1124,7 +1124,7 @@ func countBits(v []byte) int {
 	return count
 }
 
-// sliceBinOp applies an executor to all slice elements, with Redis string
+// sliceBinOp applies an operator to all slice elements, with Redis string
 // padding logic.
 func sliceBinOp(f func(a, b byte) byte, a, b []byte) []byte {
 	maxl := len(a)

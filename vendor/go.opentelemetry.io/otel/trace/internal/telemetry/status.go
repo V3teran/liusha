@@ -13,7 +13,7 @@ const (
 	// StatusCodeUnset is the default status.
 	StatusCodeUnset StatusCode = 0
 	// StatusCodeOK is used when the Span has been validated by an Application
-	// developer or Executor to have completed successfully.
+	// developer or Operator to have completed successfully.
 	StatusCodeOK StatusCode = 1
 	// StatusCodeError is used when the Span contains an error.
 	StatusCodeError StatusCode = 2

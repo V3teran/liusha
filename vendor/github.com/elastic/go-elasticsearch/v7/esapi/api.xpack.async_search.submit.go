@@ -56,7 +56,7 @@ type AsyncSearchSubmitRequest struct {
 	Analyzer                   string
 	AnalyzeWildcard            *bool
 	BatchedReduceSize          *int
-	DefaultExecutor            string
+	DefaultOperator            string
 	Df                         string
 	DocvalueFields             []string
 	ExpandWildcards            string
@@ -143,8 +143,8 @@ func (r AsyncSearchSubmitRequest) Do(ctx context.Context, transport Transport) (
 		params["batched_reduce_size"] = strconv.FormatInt(int64(*r.BatchedReduceSize), 10)
 	}
 
-	if r.DefaultExecutor != "" {
-		params["default_executor"] = r.DefaultExecutor
+	if r.DefaultOperator != "" {
+		params["default_operator"] = r.DefaultOperator
 	}
 
 	if r.Df != "" {
@@ -406,10 +406,10 @@ func (f AsyncSearchSubmit) WithBatchedReduceSize(v int) func(*AsyncSearchSubmitR
 	}
 }
 
-// WithDefaultExecutor - the default executor for query string query (and or or).
-func (f AsyncSearchSubmit) WithDefaultExecutor(v string) func(*AsyncSearchSubmitRequest) {
+// WithDefaultOperator - the default operator for query string query (and or or).
+func (f AsyncSearchSubmit) WithDefaultOperator(v string) func(*AsyncSearchSubmitRequest) {
 	return func(r *AsyncSearchSubmitRequest) {
-		r.DefaultExecutor = v
+		r.DefaultOperator = v
 	}
 }
 

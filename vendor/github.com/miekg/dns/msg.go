@@ -360,7 +360,7 @@ func isRootLabel(s string, bs []byte, off, end int) bool {
 // In addition to the simple sequences of counted strings above,
 // domain names are allowed to refer to strings elsewhere in the
 // packet, to avoid repeating common suffixes when returning
-// many entries in a single executor.  The pointers are marked
+// many entries in a single domain.  The pointers are marked
 // by a length byte with the top two bits set.  Ignoring those
 // two bits, that byte and the next give a 14 bit offset from msg[0]
 // where we should pick up the trail.

@@ -155,7 +155,7 @@ func (sm *ConnStateMachine) GetState() ConnState {
 //
 // Performance: Single CAS operation - as fast as the old atomic bool!
 // For multiple from states, use: sm.TryTransitionFast(State1, Target) || sm.TryTransitionFast(State2, Target)
-// The || executor short-circuits, so only 1 CAS is executed in the common case.
+// The || operator short-circuits, so only 1 CAS is executed in the common case.
 func (sm *ConnStateMachine) TryTransitionFast(fromState, targetState ConnState) bool {
 	return sm.state.CompareAndSwap(uint32(fromState), uint32(targetState))
 }

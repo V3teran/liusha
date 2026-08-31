@@ -2,7 +2,7 @@
 //
 // Keccak-f[1600] is the permutation underlying several algorithms such as
 // Keccak, SHA3 and SHAKE. Running two or four permutations in parallel is
-// useful in some s like in hash-based signatures.
+// useful in some scenarios like in hash-based signatures.
 //
 // # Limitations
 //

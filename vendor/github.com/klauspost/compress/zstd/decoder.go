@@ -14,7 +14,7 @@ import (
 )
 
 // Decoder provides decoding of zstandard streams.
-// The decoder has been designed to execute without allocations after a warmup.
+// The decoder has been designed to operate without allocations after a warmup.
 // This means that you should store the decoder for best performance.
 // To re-use a stream decoder, use the Reset(r io.Reader) error to switch to another stream.
 // A decoder can safely be re-used even if the previous stream failed.

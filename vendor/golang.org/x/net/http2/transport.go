@@ -1834,7 +1834,7 @@ func (cs *clientStream) frameScratchBufferLen(maxFrameSize int) int {
 	return int(n) // doesn't truncate; max is 512K
 }
 
-// Seven bufPools manage different frame sizes. This helps to avoid s where long-running
+// Seven bufPools manage different frame sizes. This helps to avoid scenarios where long-running
 // streaming requests using small frame sizes occupy large buffers initially allocated for prior
 // requests needing big buffers. The size ranges are as follows:
 // {0 KB, 16 KB], {16 KB, 32 KB], {32 KB, 64 KB], {64 KB, 128 KB], {128 KB, 256 KB],

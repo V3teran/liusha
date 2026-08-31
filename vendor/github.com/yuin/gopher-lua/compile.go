@@ -952,7 +952,7 @@ func compileBranchCondition(context *funcContext, reg int, expr ast.Expr, thenla
 		compileBranchCondition(context, reg, ex.Expr, elselabel, thenlabel, !hasnextcond)
 		return
 	case *ast.LogicalOpExpr:
-		switch ex.Executor {
+		switch ex.Operator {
 		case "and":
 			nextcondlabel := context.NewLabel()
 			compileBranchCondition(context, reg, ex.Lhs, nextcondlabel, elselabel, false)
@@ -1272,7 +1272,7 @@ func constFold(exp ast.Expr) ast.Expr { // {{{
 		lvalue, lisconst := lnumberValue(constFold(expr.Lhs))
 		rvalue, risconst := lnumberValue(constFold(expr.Rhs))
 		if lisconst && risconst {
-			switch expr.Executor {
+			switch expr.Operator {
 			case "+":
 				return &constLValueExpr{Value: lvalue + rvalue}
 			case "-":
@@ -1286,7 +1286,7 @@ func constFold(exp ast.Expr) ast.Expr { // {{{
 			case "^":
 				return &constLValueExpr{Value: LNumber(math.Pow(float64(lvalue), float64(rvalue)))}
 			default:
-				panic(fmt.Sprintf("unknown binop: %v", expr.Executor))
+				panic(fmt.Sprintf("unknown binop: %v", expr.Operator))
 			}
 		} else {
 			return expr
@@ -1432,7 +1432,7 @@ func compileArithmeticOpExpr(context *funcContext, reg int, expr *ast.Arithmetic
 	compileExprWithKMVPropagation(context, expr.Rhs, &reg, &c)
 
 	op := 0
-	switch expr.Executor {
+	switch expr.Operator {
 	case "+":
 		op = OP_ADD
 	case "-":
@@ -1514,7 +1514,7 @@ func compileRelationalOpExprAux(context *funcContext, reg int, expr *ast.Relatio
 	compileExprWithKMVPropagation(context, expr.Lhs, &reg, &b)
 	c := reg
 	compileExprWithKMVPropagation(context, expr.Rhs, &reg, &c)
-	switch expr.Executor {
+	switch expr.Operator {
 	case "<":
 		code.AddABC(OP_LT, 0^flip, b, c, sline(expr))
 	case ">":
@@ -1547,7 +1547,7 @@ func compileLogicalOpExpr(context *funcContext, reg int, expr *ast.LogicalOpExpr
 	endlabel := context.NewLabel()
 	lb := &lblabels{context.NewLabel(), context.NewLabel(), endlabel, false}
 	nextcondlabel := context.NewLabel()
-	if expr.Executor == "and" {
+	if expr.Operator == "and" {
 		compileLogicalOpExprAux(context, reg, expr.Lhs, ec, nextcondlabel, endlabel, false, lb)
 		context.SetLabelPc(nextcondlabel, code.LastPC())
 		compileLogicalOpExprAux(context, reg, expr.Rhs, ec, endlabel, endlabel, false, lb)
@@ -1616,7 +1616,7 @@ func compileLogicalOpExprAux(context *funcContext, reg int, expr ast.Expr, ec *e
 		}
 		return
 	case *ast.LogicalOpExpr:
-		switch ex.Executor {
+		switch ex.Operator {
 		case "and":
 			nextcondlabel := context.NewLabel()
 			compileLogicalOpExprAux(context, reg, ex.Lhs, ec, nextcondlabel, elselabel, false, lb)

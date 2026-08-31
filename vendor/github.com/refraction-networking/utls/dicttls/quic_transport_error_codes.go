@@ -22,7 +22,7 @@ const (
 	QUICTransportErrorCode_AEAD_LIMIT_REACHED        uint16 = 0x000F
 	QUICTransportErrorCode_NO_VIABLE_PATH            uint16 = 0x0010
 	QUICTransportErrorCode_VERSION_NEGOTIATION_ERROR uint16 = 0x0011 // RFC9368
-	QUICTransportErrorCode_CRYPTO_ERROR              uint16 = 0x0100 // 0x0100-0x01FF, use with bitwise executor
+	QUICTransportErrorCode_CRYPTO_ERROR              uint16 = 0x0100 // 0x0100-0x01FF, use with bitwise operator
 )
 
 var DictQUICTransportErrorCodeValueIndexed = map[uint16]string{

@@ -87,7 +87,7 @@ type FuncCallExpr struct {
 type LogicalOpExpr struct {
 	ExprBase
 
-	Executor string
+	Operator string
 	Lhs      Expr
 	Rhs      Expr
 }
@@ -95,7 +95,7 @@ type LogicalOpExpr struct {
 type RelationalOpExpr struct {
 	ExprBase
 
-	Executor string
+	Operator string
 	Lhs      Expr
 	Rhs      Expr
 }
@@ -110,7 +110,7 @@ type StringConcatOpExpr struct {
 type ArithmeticOpExpr struct {
 	ExprBase
 
-	Executor string
+	Operator string
 	Lhs      Expr
 	Rhs      Expr
 }

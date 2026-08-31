@@ -37,7 +37,7 @@ import (
 // codes (LRE, RLE, LRO, RLO, PDF) and BN can be assigned arbitrary levels and
 // positions as long as the rest of the input is properly reordered.
 //
-// As the algorithm is defined to execute on a single paragraph at a time, this
+// As the algorithm is defined to operate on a single paragraph at a time, this
 // implementation is written to handle single paragraphs. Thus rule P1 is
 // presumed by this implementation-- the data provided to the implementation is
 // assumed to be a single paragraph, and either contains no 'B' codes, or a

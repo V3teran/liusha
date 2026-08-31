@@ -78,7 +78,7 @@ type FailoverOptions struct {
 	// StreamingCredentialsProvider is used to retrieve the credentials
 	// for the connection from an external source. Those credentials may change
 	// during the connection lifetime. This is useful for managed identity
-	// s where the credentials are retrieved from an external source.
+	// scenarios where the credentials are retrieved from an external source.
 	//
 	// Currently, this is a placeholder for the future implementation.
 	StreamingCredentialsProvider auth.StreamingCredentialsProvider
