@@ -555,7 +555,6 @@ func (a *scanAdapter) HandleMessage(ctx context.Context, convID, content string)
 		return "action", false, nil
 	}
 
-	tk, err := a.tasks.GetByID(ctx, conv.TaskID)
 	if err != nil {
 		return "", false, err
 	}
