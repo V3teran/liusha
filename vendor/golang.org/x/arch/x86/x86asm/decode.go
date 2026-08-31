@@ -1714,7 +1714,7 @@ var isCondJmp = [maxOp + 1]bool{
 	JS:  true,
 }
 
-// isLoop records the loop executors.
+// isLoop records the loop operators.
 var isLoop = [maxOp + 1]bool{
 	LOOP:   true,
 	LOOPE:  true,

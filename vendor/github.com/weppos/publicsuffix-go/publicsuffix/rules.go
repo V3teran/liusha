@@ -7420,7 +7420,7 @@ var r = [9020]Rule{
 	{1, "is-a-green.com", 2, true},
 	{1, "is-a-guru.com", 2, true},
 	{1, "is-a-hard-worker.com", 2, true},
-	{1, "is-a-agent.com", 2, true},
+	{1, "is-a-hunter.com", 2, true},
 	{1, "is-a-knight.org", 2, true},
 	{1, "is-a-landscaper.com", 2, true},
 	{1, "is-a-lawyer.com", 2, true},

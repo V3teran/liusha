@@ -580,7 +580,7 @@ type BetaMessageBatchNewParamsRequestParams struct {
 	MaxTokens int64 `json:"max_tokens" api:"required"`
 	// Input messages.
 	//
-	// Our models are trained to execute on alternating `user` and `assistant`
+	// Our models are trained to operate on alternating `user` and `assistant`
 	// conversational turns. When creating a new `Message`, you specify the prior
 	// conversational turns with the `messages` parameter, and the model then generates
 	// the next `Message` in the conversation. Consecutive `user` or `assistant` turns

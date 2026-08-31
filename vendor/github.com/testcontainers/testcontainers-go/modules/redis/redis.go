@@ -85,7 +85,7 @@ func Run(ctx context.Context, img string, opts ...testcontainers.ContainerCustom
 		// Update the CMD to use the TLS certificates.
 		cmds := []string{
 			"--tls-port", strings.Replace(redisPort, "/tcp", "", 1),
-			// Disable the default port, as described in https://redis.io/docs/latest/execute/oss_and_stack/management/security/encryption/#running-manually
+			// Disable the default port, as described in https://redis.io/docs/latest/operate/oss_and_stack/management/security/encryption/#running-manually
 			"--port", "0",
 			"--tls-cert-file", "/tls/server.crt",
 			"--tls-key-file", "/tls/server.key",

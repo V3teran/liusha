@@ -17,7 +17,7 @@ import (
 //
 // YAMLPath rule
 // $     : the root object/element
-// .     : child executor
+// .     : child operator
 // ..    : recursive descent
 // [num] : object/element of array by number
 // [*]   : all objects/elements for array.

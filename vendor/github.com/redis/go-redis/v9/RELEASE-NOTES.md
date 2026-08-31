@@ -146,7 +146,7 @@ This beta release introduces comprehensive support for Redis COMMAND-based reque
   - `special` - Custom aggregation logic (e.g., FT.CURSOR)
 - **Raw Command Support**: Policies are enforced on `Client.Do(ctx, args...)`
 
-This feature is particularly useful for Redis Stack commands like RediSearch that need to execute across multiple shards in a cluster.
+This feature is particularly useful for Redis Stack commands like RediSearch that need to operate across multiple shards in a cluster.
 
 ### Connection Pool Improvements
 
@@ -473,7 +473,7 @@ We'd like to thank all the contributors who worked on this release!
 
 ## 🚀 Highlights
 
-- This release includes support for [Redis 8.2](https://redis.io/docs/latest/execute/oss_and_stack/stack-with-enterprise/release-notes/redisce/redisos-8.2-release-notes/).
+- This release includes support for [Redis 8.2](https://redis.io/docs/latest/operate/oss_and_stack/stack-with-enterprise/release-notes/redisce/redisos-8.2-release-notes/).
 - Introduces an experimental Query Builders for `FTSearch`, `FTAggregate` and other search commands.
 - Adds support for `EPSILON` option in `FT.VSIM`.
 - Includes bug fixes and improvements contributed by the community related to ring and [redisotel](https://github.com/redis/go-redis/tree/master/extra/redisotel).

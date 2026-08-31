@@ -570,7 +570,7 @@ func lookupNonEmpty(key string) (string, bool) {
 // LoadProfile loads the config for the named profile from the given config
 // directory, bypassing ANTHROPIC_PROFILE / active_config resolution. Use
 // [DefaultDir] for the standard location. This is the building block CLIs use
-// to inspect or execute on a profile other than the currently-active one.
+// to inspect or operate on a profile other than the currently-active one.
 func LoadProfile(dir, profile string) (*Config, error) {
 	return loadProfile(dir, profile)
 }

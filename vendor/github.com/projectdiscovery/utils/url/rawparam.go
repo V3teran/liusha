@@ -113,7 +113,7 @@ func (p Params) Encode() string {
 }
 
 // Decode is opposite of Encode() where ("bar=baz&foo=quux") is parsed
-// Parameters are loosely parsed to allow any 
+// Parameters are loosely parsed to allow any scenario
 func (p Params) Decode(raw string) {
 	if raw == "" {
 		return

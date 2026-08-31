@@ -4,36 +4,36 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"reflect"
 	"regexp"
+	"reflect"
 )
 
 const (
-	logicalErrorFormat    string = "Value '%v' cannot be used with the logical executor '%v', it is not a bool"
+	logicalErrorFormat    string = "Value '%v' cannot be used with the logical operator '%v', it is not a bool"
 	modifierErrorFormat   string = "Value '%v' cannot be used with the modifier '%v', it is not a number"
 	comparatorErrorFormat string = "Value '%v' cannot be used with the comparator '%v', it is not a number"
-	ternaryErrorFormat    string = "Value '%v' cannot be used with the ternary executor '%v', it is not a bool"
+	ternaryErrorFormat    string = "Value '%v' cannot be used with the ternary operator '%v', it is not a bool"
 	prefixErrorFormat     string = "Value '%v' cannot be used with the prefix '%v'"
 )
 
-type evaluationExecutor func(left interface{}, right interface{}, parameters Parameters) (interface{}, error)
+type evaluationOperator func(left interface{}, right interface{}, parameters Parameters) (interface{}, error)
 type stageTypeCheck func(value interface{}) bool
 type stageCombinedTypeCheck func(left interface{}, right interface{}) bool
 
 type evaluationStage struct {
-	symbol ExecutorSymbol
+	symbol OperatorSymbol
 
 	leftStage, rightStage *evaluationStage
 
 	// the operation that will be used to evaluate this stage (such as adding [left] to [right] and return the result)
-	executor evaluationExecutor
+	operator evaluationOperator
 
 	// ensures that both left and right values are appropriate for this stage. Returns an error if they aren't operable.
 	leftTypeCheck  stageTypeCheck
 	rightTypeCheck stageTypeCheck
 
 	// if specified, will override whatever is used in "leftTypeCheck" and "rightTypeCheck".
-	// primarily used for specific executors that don't care which side a given type is on, but still requires one side to be of a given type
+	// primarily used for specific operators that don't care which side a given type is on, but still requires one side to be of a given type
 	// (like string concat)
 	typeCheck stageCombinedTypeCheck
 
@@ -56,7 +56,7 @@ func (this *evaluationStage) swapWith(other *evaluationStage) {
 func (this *evaluationStage) setToNonStage(other evaluationStage) {
 
 	this.symbol = other.symbol
-	this.executor = other.executor
+	this.operator = other.operator
 	this.leftTypeCheck = other.leftTypeCheck
 	this.rightTypeCheck = other.rightTypeCheck
 	this.typeCheck = other.typeCheck
@@ -211,7 +211,7 @@ func rightShiftStage(left interface{}, right interface{}, parameters Parameters)
 	return float64(uint64(left.(float64)) >> uint64(right.(float64))), nil
 }
 
-func makeParameterStage(parameterName string) evaluationExecutor {
+func makeParameterStage(parameterName string) evaluationOperator {
 
 	return func(left interface{}, right interface{}, parameters Parameters) (interface{}, error) {
 		value, err := parameters.Get(parameterName)
@@ -223,13 +223,13 @@ func makeParameterStage(parameterName string) evaluationExecutor {
 	}
 }
 
-func makeLiteralStage(literal interface{}) evaluationExecutor {
+func makeLiteralStage(literal interface{}) evaluationOperator {
 	return func(left interface{}, right interface{}, parameters Parameters) (interface{}, error) {
 		return literal, nil
 	}
 }
 
-func makeFunctionStage(function ExpressionFunction) evaluationExecutor {
+func makeFunctionStage(function ExpressionFunction) evaluationOperator {
 
 	return func(left interface{}, right interface{}, parameters Parameters) (interface{}, error) {
 

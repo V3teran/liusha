@@ -33,7 +33,7 @@ type OAuthTokenError struct {
 	// suppress the "re-run `anthropic auth login`" remediation suffix.
 	// That suffix only makes sense for the interactive user_oauth flow;
 	// machine credentials have no browser login to re-run, and suggesting
-	// one sends executors down the wrong path. The zero value keeps the
+	// one sends operators down the wrong path. The zero value keeps the
 	// suffix so the user_oauth flow needs no change at its call site.
 	WorkloadIdentity bool
 }

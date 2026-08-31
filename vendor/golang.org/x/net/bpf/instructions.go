@@ -87,7 +87,7 @@ func (ri RawInstruction) Disassemble() Instruction {
 		return StoreScratch{Src: RegX, N: int(ri.K)}
 
 	case opClsALU:
-		switch op := ALUOp(ri.Op & opMaskExecutor); op {
+		switch op := ALUOp(ri.Op & opMaskOperator); op {
 		case ALUOpAdd, ALUOpSub, ALUOpMul, ALUOpDiv, ALUOpOr, ALUOpAnd, ALUOpShiftLeft, ALUOpShiftRight, ALUOpMod, ALUOpXor:
 			switch operand := opOperand(ri.Op & opMaskOperand); operand {
 			case opOperandX:
@@ -104,7 +104,7 @@ func (ri RawInstruction) Disassemble() Instruction {
 		}
 
 	case opClsJump:
-		switch op := jumpOp(ri.Op & opMaskExecutor); op {
+		switch op := jumpOp(ri.Op & opMaskOperator); op {
 		case opJumpAlways:
 			return Jump{Skip: ri.K}
 		case opJumpEqual, opJumpGT, opJumpGE, opJumpSet:

@@ -40,10 +40,10 @@ func ConnReadN(ctx context.Context, reader io.Reader, N int64) ([]byte, error) {
 	pr, pw := io.Pipe()
 
 	// When using the Nuclei network protocol to read all available data from a connection,
-	// there may be a timeout error after data has been sent by server. In this ,
+	// there may be a timeout error after data has been sent by server. In this scenario,
 	// we should return the data and ignore the error (if it is a timeout error).
 	// To avoid race conditions, we use io.Pipe() along with a goroutine.
-	// For an example of this , refer to TestConnReadN#6.
+	// For an example of this scenario, refer to TestConnReadN#6.
 
 	go func() {
 		defer pw.Close()

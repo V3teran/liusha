@@ -75,7 +75,7 @@ const shouldSetPsk shouldLoadSessionResult = 2
 const shouldLoad shouldLoadSessionResult = 3
 
 // shouldLoadSession determines the appropriate action to take when it is time to load the session for the clientHello.
-// There are several possible s:
+// There are several possible scenarios:
 //   - If a session ticket is already initialized, typically via the `initSessionTicketExt()` function, the ticket should be set in the client hello.
 //   - If a pre-shared key (PSK) is already initialized, typically via the `overridePskExt()` function, the PSK should be set in the client hello.
 //   - If both the `sessionTicketExt` and `pskExtension` are nil, which might occur if the client hello spec does not include them, we should skip the loadSession().

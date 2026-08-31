@@ -1200,7 +1200,7 @@ func (client *client) findCoordinator(coordinatorKey string, coordinatorType Coo
 		} else if errors.Is(response.Err, ErrConsumerCoordinatorNotAvailable) {
 			Logger.Printf("client/coordinator coordinator for %s is not available\n", coordinatorKey)
 
-			// This is very ugly, but this  will only happen once per cluster.
+			// This is very ugly, but this scenario will only happen once per cluster.
 			// The __consumer_offsets topic only has to be created one time.
 			// The number of partitions not configurable, but partition 0 should always exist.
 			if _, err := client.Leader("__consumer_offsets", 0); err != nil {

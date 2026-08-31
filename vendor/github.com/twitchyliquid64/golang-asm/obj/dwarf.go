@@ -7,13 +7,12 @@
 package obj
 
 import (
-	"fmt"
-	"sort"
-	"sync"
-
 	"github.com/twitchyliquid64/golang-asm/dwarf"
 	"github.com/twitchyliquid64/golang-asm/objabi"
 	"github.com/twitchyliquid64/golang-asm/src"
+	"fmt"
+	"sort"
+	"sync"
 )
 
 // Generate a sequence of opcodes that is as short as possible.
@@ -91,7 +90,7 @@ func (ctxt *Link) generateDebugLinesSymbol(s, lines *LSym) {
 
 	// Because these symbols will be concatenated together by the
 	// linker, we need to reset the state machine that controls the
-	// debug symbols. Do this using an end-of-sequence executor.
+	// debug symbols. Do this using an end-of-sequence operator.
 	//
 	// Note: at one point in time, Delve did not support multiple end
 	// sequence ops within a compilation unit (bug for this:
@@ -639,7 +638,7 @@ func (ft *DwarfFixupTable) AbsFuncDwarfSym(fnsym *LSym) *LSym {
 
 // Called after all functions have been compiled; the main job of this
 // function is to identify cases where there are outstanding fixups.
-// This  crops up when we have references to variables of an
+// This scenario crops up when we have references to variables of an
 // inlined routine, but that routine is defined in some other package.
 // This helper walks through and locate these fixups, then invokes a
 // helper to create an abstract subprogram DIE for each one.

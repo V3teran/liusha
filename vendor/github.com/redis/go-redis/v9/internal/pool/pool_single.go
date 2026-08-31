@@ -45,7 +45,7 @@ func (p *SingleConnPool) Get(_ context.Context) (*Conn, error) {
 		return nil, ErrClosed
 	}
 
-	// NOTE: SingleConnPool is NOT thread-safe by design and is used in special s:
+	// NOTE: SingleConnPool is NOT thread-safe by design and is used in special scenarios:
 	// - During initialization (connection is in INITIALIZING state)
 	// - During re-authentication (connection is in UNUSABLE state)
 	// - For transactions (connection might be in various states)

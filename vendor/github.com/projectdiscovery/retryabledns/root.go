@@ -4,7 +4,7 @@ type RootDNS struct {
 	Host     string
 	IPv4     string
 	IPv6     string
-	Executor string
+	Operator string
 }
 
 // https://www.iana.org/domains/root/servers

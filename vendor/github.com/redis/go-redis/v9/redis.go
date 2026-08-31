@@ -385,7 +385,7 @@ func (c *baseClient) wrappedOnClose(newOnClose func() error) func() error {
 }
 
 func (c *baseClient) initConn(ctx context.Context, cn *pool.Conn) error {
-	// This function is called in two s:
+	// This function is called in two scenarios:
 	// 1. First-time init: Connection is in CREATED state (from pool.Get())
 	//    - We need to transition CREATED → INITIALIZING and do the initialization
 	//    - If another goroutine is already initializing, we WAIT for it to finish

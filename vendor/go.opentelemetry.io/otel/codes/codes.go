@@ -22,7 +22,7 @@ const (
 	Error Code = 1
 
 	// Ok indicates operation has been validated by an Application developers
-	// or Executor to have completed successfully, or contain no error.
+	// or Operator to have completed successfully, or contain no error.
 	//
 	// NOTE: The Ok code in OTLP is 1.
 	// The value of this enum is only relevant to the internals

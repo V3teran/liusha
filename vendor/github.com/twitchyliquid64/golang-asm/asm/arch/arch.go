@@ -6,9 +6,6 @@
 package arch
 
 import (
-	"fmt"
-	"strings"
-
 	"github.com/twitchyliquid64/golang-asm/obj"
 	"github.com/twitchyliquid64/golang-asm/obj/arm"
 	"github.com/twitchyliquid64/golang-asm/obj/arm64"
@@ -18,6 +15,8 @@ import (
 	"github.com/twitchyliquid64/golang-asm/obj/s390x"
 	"github.com/twitchyliquid64/golang-asm/obj/wasm"
 	"github.com/twitchyliquid64/golang-asm/obj/x86"
+	"fmt"
+	"strings"
 )
 
 // Pseudo-registers whose names are the constant name without the leading R.
@@ -292,7 +291,7 @@ func archArm64() *Arch {
 	register["PSTL3KEEP"] = arm64.REG_PSTL3KEEP
 	register["PSTL3STRM"] = arm64.REG_PSTL3STRM
 
-	// Conditional executors, like EQ, NE, etc.
+	// Conditional operators, like EQ, NE, etc.
 	register["EQ"] = arm64.COND_EQ
 	register["NE"] = arm64.COND_NE
 	register["HS"] = arm64.COND_HS

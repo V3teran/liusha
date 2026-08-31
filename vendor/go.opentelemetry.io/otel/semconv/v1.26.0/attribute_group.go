@@ -1732,7 +1732,7 @@ const (
 	// Type: string
 	// RequirementLevel: Optional
 	// Stability: experimental
-	// Examples: 'gcr.io/opentelemetry/executor'
+	// Examples: 'gcr.io/opentelemetry/operator'
 	ContainerImageNameKey = attribute.Key("container.image.name")
 
 	// ContainerImageRepoDigestsKey is the attribute Key conforming to the
@@ -5046,7 +5046,7 @@ const (
 	// Stability: experimental
 	// Examples: 0, 1, 2
 	// Note: Instrumentations SHOULD NOT set `messaging.batch.message_count` on
-	// spans that execute with a single message. When a messaging client
+	// spans that operate with a single message. When a messaging client
 	// library supports both batch and single-message API for the same
 	// operation, instrumentations SHOULD use `messaging.batch.message_count`
 	// for batching APIs and SHOULD NOT use it for single-message APIs.
@@ -5232,9 +5232,9 @@ const (
 var (
 	// One or more messages are provided for publishing to an intermediary. If a single message is published, the context of the "Publish" span can be used as the creation context and no "Create" span needs to be created
 	MessagingOperationTypePublish = MessagingOperationTypeKey.String("publish")
-	// A message is created. "Create" spans always refer to a single message and are used to provide a unique creation context for messages in batch publishing s
+	// A message is created. "Create" spans always refer to a single message and are used to provide a unique creation context for messages in batch publishing scenarios
 	MessagingOperationTypeCreate = MessagingOperationTypeKey.String("create")
-	// One or more messages are requested by a consumer. This operation refers to pull-based s, where consumers explicitly call methods of messaging SDKs to receive messages
+	// One or more messages are requested by a consumer. This operation refers to pull-based scenarios, where consumers explicitly call methods of messaging SDKs to receive messages
 	MessagingOperationTypeReceive = MessagingOperationTypeKey.String("receive")
 	// One or more messages are delivered to or processed by a consumer
 	MessagingOperationTypeDeliver = MessagingOperationTypeKey.String("process")
@@ -6366,7 +6366,7 @@ const (
 )
 
 var (
-	// The operation has been validated by an Application developer or Executor to have completed successfully
+	// The operation has been validated by an Application developer or Operator to have completed successfully
 	OTelStatusCodeOk = OTelStatusCodeKey.String("OK")
 	// The operation contains an error
 	OTelStatusCodeError = OTelStatusCodeKey.String("ERROR")
@@ -6622,7 +6622,7 @@ const (
 	// Type: string
 	// RequirementLevel: Optional
 	// Stability: experimental
-	// Examples: 'executor'
+	// Examples: 'operator'
 	ProcessRealUserNameKey = attribute.Key("process.real_user.name")
 
 	// ProcessRuntimeDescriptionKey is the attribute Key conforming to the
@@ -6675,7 +6675,7 @@ const (
 	// Type: string
 	// RequirementLevel: Optional
 	// Stability: experimental
-	// Examples: 'executor'
+	// Examples: 'operator'
 	ProcessSavedUserNameKey = attribute.Key("process.saved_user.name")
 
 	// ProcessSessionLeaderPIDKey is the attribute Key conforming to the
@@ -8703,7 +8703,7 @@ const (
 
 	// URLRegisteredDomainKey is the attribute Key conforming to the
 	// "url.registered_domain" semantic conventions. It represents the highest
-	// registered url domain, stripped of the subexecutor.
+	// registered url domain, stripped of the subdomain.
 	//
 	// Type: string
 	// RequirementLevel: Optional
@@ -8729,15 +8729,15 @@ const (
 	// URLSubdomainKey is the attribute Key conforming to the "url.subdomain"
 	// semantic conventions. It represents the subdomain portion of a fully
 	// qualified domain name includes all of the names except the host name
-	// under the registered_executor. In a partially qualified domain, or if the
+	// under the registered_domain. In a partially qualified domain, or if the
 	// qualification level of the full name cannot be determined, subdomain
-	// contains all of the names below the registered executor.
+	// contains all of the names below the registered domain.
 	//
 	// Type: string
 	// RequirementLevel: Optional
 	// Stability: experimental
 	// Examples: 'east', 'sub2.sub1'
-	// Note: The subdomain portion of `www.east.myexecutor.co.uk` is `east`. If
+	// Note: The subdomain portion of `www.east.mydomain.co.uk` is `east`. If
 	// the domain has multiple levels of subdomain, such as
 	// `sub2.sub1.example.com`, the subdomain field should contain `sub2.sub1`,
 	// with no trailing period.
@@ -8826,7 +8826,7 @@ func URLQuery(val string) attribute.KeyValue {
 
 // URLRegisteredDomain returns an attribute KeyValue conforming to the
 // "url.registered_domain" semantic conventions. It represents the highest
-// registered url domain, stripped of the subexecutor.
+// registered url domain, stripped of the subdomain.
 func URLRegisteredDomain(val string) attribute.KeyValue {
 	return URLRegisteredDomainKey.String(val)
 }
@@ -8842,9 +8842,9 @@ func URLScheme(val string) attribute.KeyValue {
 // URLSubdomain returns an attribute KeyValue conforming to the
 // "url.subdomain" semantic conventions. It represents the subdomain portion of
 // a fully qualified domain name includes all of the names except the host name
-// under the registered_executor. In a partially qualified domain, or if the
+// under the registered_domain. In a partially qualified domain, or if the
 // qualification level of the full name cannot be determined, subdomain
-// contains all of the names below the registered executor.
+// contains all of the names below the registered domain.
 func URLSubdomain(val string) attribute.KeyValue {
 	return URLSubdomainKey.String(val)
 }
@@ -8880,7 +8880,7 @@ const (
 	// from original string. In the case of using a user-agent for non-browser
 	// products, such as microservices with multiple names/versions inside the
 	// `user_agent.original`, the most significant name SHOULD be selected. In
-	// such a  it should align with `user_agent.version`
+	// such a scenario it should align with `user_agent.version`
 	UserAgentNameKey = attribute.Key("user_agent.name")
 
 	// UserAgentOriginalKey is the attribute Key conforming to the
@@ -8911,7 +8911,7 @@ const (
 	// version from original string. In the case of using a user-agent for
 	// non-browser products, such as microservices with multiple names/versions
 	// inside the `user_agent.original`, the most significant version SHOULD be
-	// selected. In such a  it should align with `user_agent.name`
+	// selected. In such a scenario it should align with `user_agent.name`
 	UserAgentVersionKey = attribute.Key("user_agent.version")
 )
 

@@ -116,7 +116,7 @@ func (e *encoder) writeLiteral(l lit) error {
 	return nil
 }
 
-// iverson implements the Iverson executor as proposed by Donald Knuth in his
+// iverson implements the Iverson operator as proposed by Donald Knuth in his
 // book Concrete Mathematics.
 func iverson(ok bool) uint32 {
 	if ok {

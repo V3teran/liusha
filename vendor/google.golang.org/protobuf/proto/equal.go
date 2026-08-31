@@ -18,7 +18,7 @@ import (
 //     Empty bytes (regardless of nil-ness) are considered equal.
 //
 //   - Floating-point fields are equal if they contain the same value.
-//     Unlike the == executor, a NaN is equal to another NaN.
+//     Unlike the == operator, a NaN is equal to another NaN.
 //
 //   - Other scalar fields are equal if they contain the same value.
 //

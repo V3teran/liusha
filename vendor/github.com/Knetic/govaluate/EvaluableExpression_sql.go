@@ -110,7 +110,7 @@ func (this EvaluableExpression) findNextSQLString(stream *tokenStream, transacti
 		case TERNARY_TRUE:
 			fallthrough
 		case TERNARY_FALSE:
-			return "", errors.New("Ternary executors are unsupported in SQL output")
+			return "", errors.New("Ternary operators are unsupported in SQL output")
 		}
 	case PREFIX:
 		switch prefixSymbols[token.Value.(string)] {

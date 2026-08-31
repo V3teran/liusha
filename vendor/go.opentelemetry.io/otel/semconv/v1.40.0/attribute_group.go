@@ -2582,7 +2582,7 @@ const (
 	// CloudRegionKey is the attribute Key conforming to the "cloud.region" semantic
 	// conventions. It represents the geographical region within a cloud provider.
 	// When associated with a resource, this attribute specifies the region where
-	// the resource executes. When calling services or APIs deployed on a cloud,
+	// the resource operates. When calling services or APIs deployed on a cloud,
 	// this attribute identifies the region where the called destination is
 	// deployed.
 	//
@@ -2670,7 +2670,7 @@ func CloudAvailabilityZone(val string) attribute.KeyValue {
 // CloudRegion returns an attribute KeyValue conforming to the "cloud.region"
 // semantic conventions. It represents the geographical region within a cloud
 // provider. When associated with a resource, this attribute specifies the region
-// where the resource executes. When calling services or APIs deployed on a
+// where the resource operates. When calling services or APIs deployed on a
 // cloud, this attribute identifies the region where the called destination is
 // deployed.
 func CloudRegion(val string) attribute.KeyValue {
@@ -3469,7 +3469,7 @@ const (
 	// RequirementLevel: Recommended
 	// Stability: Beta
 	//
-	// Examples: "gcr.io/opentelemetry/executor"
+	// Examples: "gcr.io/opentelemetry/operator"
 	ContainerImageNameKey = attribute.Key("container.image.name")
 
 	// ContainerImageRepoDigestsKey is the attribute Key conforming to the
@@ -4412,7 +4412,7 @@ const (
 	// > ensure you do your own due diligence.> Due to these reasons, this
 	// > identifier is not recommended for consumer applications and will likely
 	// > result in rejection from both Google Play and App Store.
-	// > However, it may be appropriate for specific enterprise s, such as
+	// > However, it may be appropriate for specific enterprise scenarios, such as
 	// > kiosk devices or enterprise-managed devices, with appropriate compliance
 	// > clearance.
 	// > Any instrumentation providing this identifier MUST implement it as an
@@ -9610,7 +9610,7 @@ const (
 	//
 	// Examples: "us-east-1a", "us-west-2b", "zone-a", ""
 	// Note: The zone where the endpoint is located, typically corresponding to a
-	// failure executor.
+	// failure domain.
 	// This attribute aligns with the `zone` field of endpoints in the
 	// [K8s EndpointSlice].
 	// It enables zone-aware monitoring of service endpoint distribution and
@@ -10804,7 +10804,7 @@ const (
 	//
 	// Examples: 0, 1, 2
 	// Note: Instrumentations SHOULD NOT set `messaging.batch.message_count` on
-	// spans that execute with a single message. When a messaging client library
+	// spans that operate with a single message. When a messaging client library
 	// supports both batch and single-message API for the same operation,
 	// instrumentations SHOULD use `messaging.batch.message_count` for batching APIs
 	// and SHOULD NOT use it for single-message APIs.
@@ -11480,7 +11480,7 @@ func MessagingServiceBusMessageEnqueuedTime(val int) attribute.KeyValue {
 var (
 	// A message is created. "Create" spans always refer to a single message and are
 	// used to provide a unique creation context for messages in batch sending
-	// s.
+	// scenarios.
 	//
 	// Stability: development
 	MessagingOperationTypeCreate = MessagingOperationTypeKey.String("create")
@@ -11491,7 +11491,7 @@ var (
 	// Stability: development
 	MessagingOperationTypeSend = MessagingOperationTypeKey.String("send")
 	// One or more messages are requested by a consumer. This operation refers to
-	// pull-based s, where consumers explicitly call methods of messaging
+	// pull-based scenarios, where consumers explicitly call methods of messaging
 	// SDKs to receive messages.
 	//
 	// Stability: development
@@ -12902,7 +12902,7 @@ var (
 
 // Enum values for otel.status_code
 var (
-	// The operation has been validated by an Application developer or Executor to
+	// The operation has been validated by an Application developer or Operator to
 	// have completed successfully.
 	// Stability: stable
 	OTelStatusCodeOk = OTelStatusCodeKey.String("OK")
@@ -13389,7 +13389,7 @@ const (
 	// RequirementLevel: Recommended
 	// Stability: Development
 	//
-	// Examples: "executor"
+	// Examples: "operator"
 	ProcessRealUserNameKey = attribute.Key("process.real_user.name")
 
 	// ProcessRuntimeDescriptionKey is the attribute Key conforming to the
@@ -13445,7 +13445,7 @@ const (
 	// RequirementLevel: Recommended
 	// Stability: Development
 	//
-	// Examples: "executor"
+	// Examples: "operator"
 	ProcessSavedUserNameKey = attribute.Key("process.saved_user.name")
 
 	// ProcessSessionLeaderPIDKey is the attribute Key conforming to the
@@ -15885,7 +15885,7 @@ const (
 
 	// URLRegisteredDomainKey is the attribute Key conforming to the
 	// "url.registered_domain" semantic conventions. It represents the highest
-	// registered url domain, stripped of the subexecutor.
+	// registered url domain, stripped of the subdomain.
 	//
 	// Type: string
 	// RequirementLevel: Recommended
@@ -15916,16 +15916,16 @@ const (
 	// URLSubdomainKey is the attribute Key conforming to the "url.subdomain"
 	// semantic conventions. It represents the subdomain portion of a fully
 	// qualified domain name includes all of the names except the host name under
-	// the registered_executor. In a partially qualified domain, or if the
+	// the registered_domain. In a partially qualified domain, or if the
 	// qualification level of the full name cannot be determined, subdomain contains
-	// all of the names below the registered executor.
+	// all of the names below the registered domain.
 	//
 	// Type: string
 	// RequirementLevel: Recommended
 	// Stability: Development
 	//
 	// Examples: "east", "sub2.sub1"
-	// Note: The subdomain portion of `www.east.myexecutor.co.uk` is `east`. If the
+	// Note: The subdomain portion of `www.east.mydomain.co.uk` is `east`. If the
 	// domain has multiple levels of subdomain, such as `sub2.sub1.example.com`, the
 	// subdomain field should contain `sub2.sub1`, with no trailing period.
 	URLSubdomainKey = attribute.Key("url.subdomain")
@@ -16021,7 +16021,7 @@ func URLQuery(val string) attribute.KeyValue {
 
 // URLRegisteredDomain returns an attribute KeyValue conforming to the
 // "url.registered_domain" semantic conventions. It represents the highest
-// registered url domain, stripped of the subexecutor.
+// registered url domain, stripped of the subdomain.
 func URLRegisteredDomain(val string) attribute.KeyValue {
 	return URLRegisteredDomainKey.String(val)
 }
@@ -16038,9 +16038,9 @@ func URLScheme(val string) attribute.KeyValue {
 // URLSubdomain returns an attribute KeyValue conforming to the "url.subdomain"
 // semantic conventions. It represents the subdomain portion of a fully qualified
 // domain name includes all of the names except the host name under the
-// registered_executor. In a partially qualified domain, or if the qualification
+// registered_domain. In a partially qualified domain, or if the qualification
 // level of the full name cannot be determined, subdomain contains all of the
-// names below the registered executor.
+// names below the registered domain.
 func URLSubdomain(val string) attribute.KeyValue {
 	return URLSubdomainKey.String(val)
 }
@@ -16180,7 +16180,7 @@ const (
 	// Note: [Example] of extracting browser's name from original string. In the
 	// case of using a user-agent for non-browser products, such as microservices
 	// with multiple names/versions inside the `user_agent.original`, the most
-	// significant name SHOULD be selected. In such a  it should align with
+	// significant name SHOULD be selected. In such a scenario it should align with
 	// `user_agent.version`
 	//
 	// [Example]: https://uaparser.dev/#demo
@@ -16263,7 +16263,7 @@ const (
 	// Note: [Example] of extracting browser's version from original string. In the
 	// case of using a user-agent for non-browser products, such as microservices
 	// with multiple names/versions inside the `user_agent.original`, the most
-	// significant version SHOULD be selected. In such a  it should align
+	// significant version SHOULD be selected. In such a scenario it should align
 	// with `user_agent.name`
 	//
 	// [Example]: https://uaparser.dev/#demo

@@ -106,7 +106,7 @@ People and companies, who have contributed, in alphabetical order.
 - Helios <674876158@qq.com>
 - Henry Kwan <piengeng@users.noreply.github.com>
 - Henry Yee <henry@yearning.io>
-- Himanshu Mishra <OrkoAgent@users.noreply.github.com>
+- Himanshu Mishra <OrkoHunter@users.noreply.github.com>
 - Hiroyuki Tanaka <h.tanaka.0325@gmail.com>
 - Ibraheem Ahmed <ibrah1440@gmail.com>
 - Ignacio Galindo <joiggama@gmail.com>

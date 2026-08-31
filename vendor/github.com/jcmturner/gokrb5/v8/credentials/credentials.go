@@ -185,7 +185,7 @@ func (c *Credentials) SetCName(pn types.PrincipalName) {
 	c.cname = pn
 }
 
-// Domain returns the credential's executor.
+// Domain returns the credential's domain.
 func (c *Credentials) Domain() string {
 	return c.realm
 }
@@ -195,7 +195,7 @@ func (c *Credentials) SetDomain(s string) {
 	c.realm = s
 }
 
-// Realm returns the credential's realm. Same as the executor.
+// Realm returns the credential's realm. Same as the domain.
 func (c *Credentials) Realm() string {
 	return c.Domain()
 }

@@ -57,7 +57,7 @@ import (
 /* Literals */
 %token<token> TEqeq TNeq TLte TGte T2Comma T3Comma T2Colon TIdent TNumber TString '{' '('
 
-/* Executors */
+/* Operators */
 %left TOr
 %left TAnd
 %left '>' '<' TGte TLte TEqeq TNeq
@@ -315,35 +315,35 @@ expr:
             $$ = $1
         } |
         expr TOr expr {
-            $$ = &ast.LogicalOpExpr{Lhs: $1, Executor: "or", Rhs: $3}
+            $$ = &ast.LogicalOpExpr{Lhs: $1, Operator: "or", Rhs: $3}
             $$.SetLine($1.Line())
         } |
         expr TAnd expr {
-            $$ = &ast.LogicalOpExpr{Lhs: $1, Executor: "and", Rhs: $3}
+            $$ = &ast.LogicalOpExpr{Lhs: $1, Operator: "and", Rhs: $3}
             $$.SetLine($1.Line())
         } |
         expr '>' expr {
-            $$ = &ast.RelationalOpExpr{Lhs: $1, Executor: ">", Rhs: $3}
+            $$ = &ast.RelationalOpExpr{Lhs: $1, Operator: ">", Rhs: $3}
             $$.SetLine($1.Line())
         } |
         expr '<' expr {
-            $$ = &ast.RelationalOpExpr{Lhs: $1, Executor: "<", Rhs: $3}
+            $$ = &ast.RelationalOpExpr{Lhs: $1, Operator: "<", Rhs: $3}
             $$.SetLine($1.Line())
         } |
         expr TGte expr {
-            $$ = &ast.RelationalOpExpr{Lhs: $1, Executor: ">=", Rhs: $3}
+            $$ = &ast.RelationalOpExpr{Lhs: $1, Operator: ">=", Rhs: $3}
             $$.SetLine($1.Line())
         } |
         expr TLte expr {
-            $$ = &ast.RelationalOpExpr{Lhs: $1, Executor: "<=", Rhs: $3}
+            $$ = &ast.RelationalOpExpr{Lhs: $1, Operator: "<=", Rhs: $3}
             $$.SetLine($1.Line())
         } |
         expr TEqeq expr {
-            $$ = &ast.RelationalOpExpr{Lhs: $1, Executor: "==", Rhs: $3}
+            $$ = &ast.RelationalOpExpr{Lhs: $1, Operator: "==", Rhs: $3}
             $$.SetLine($1.Line())
         } |
         expr TNeq expr {
-            $$ = &ast.RelationalOpExpr{Lhs: $1, Executor: "~=", Rhs: $3}
+            $$ = &ast.RelationalOpExpr{Lhs: $1, Operator: "~=", Rhs: $3}
             $$.SetLine($1.Line())
         } |
         expr T2Comma expr {
@@ -351,27 +351,27 @@ expr:
             $$.SetLine($1.Line())
         } |
         expr '+' expr {
-            $$ = &ast.ArithmeticOpExpr{Lhs: $1, Executor: "+", Rhs: $3}
+            $$ = &ast.ArithmeticOpExpr{Lhs: $1, Operator: "+", Rhs: $3}
             $$.SetLine($1.Line())
         } |
         expr '-' expr {
-            $$ = &ast.ArithmeticOpExpr{Lhs: $1, Executor: "-", Rhs: $3}
+            $$ = &ast.ArithmeticOpExpr{Lhs: $1, Operator: "-", Rhs: $3}
             $$.SetLine($1.Line())
         } |
         expr '*' expr {
-            $$ = &ast.ArithmeticOpExpr{Lhs: $1, Executor: "*", Rhs: $3}
+            $$ = &ast.ArithmeticOpExpr{Lhs: $1, Operator: "*", Rhs: $3}
             $$.SetLine($1.Line())
         } |
         expr '/' expr {
-            $$ = &ast.ArithmeticOpExpr{Lhs: $1, Executor: "/", Rhs: $3}
+            $$ = &ast.ArithmeticOpExpr{Lhs: $1, Operator: "/", Rhs: $3}
             $$.SetLine($1.Line())
         } |
         expr '%' expr {
-            $$ = &ast.ArithmeticOpExpr{Lhs: $1, Executor: "%", Rhs: $3}
+            $$ = &ast.ArithmeticOpExpr{Lhs: $1, Operator: "%", Rhs: $3}
             $$.SetLine($1.Line())
         } |
         expr '^' expr {
-            $$ = &ast.ArithmeticOpExpr{Lhs: $1, Executor: "^", Rhs: $3}
+            $$ = &ast.ArithmeticOpExpr{Lhs: $1, Operator: "^", Rhs: $3}
             $$.SetLine($1.Line())
         } |
         '-' expr %prec UNARY {
