@@ -79,6 +79,7 @@ func (r *cronRunner) fireDue(ctx context.Context) {
 // 模板 next_run_at 仍照常推进，下次到点重新尝试）。
 func (r *cronRunner) fireOne(ctx context.Context, sched cronschedule.CronSchedule) error {
 	var items []assignment.Item
+var err error
 	if err = json.Unmarshal(sched.Payload, &items); err != nil {
 		return fmt.Errorf("unmarshal schedule %s payload: %w", sched.ID, err)
 	}
@@ -103,7 +104,7 @@ func (r *cronRunner) fireOne(ctx context.Context, sched cronschedule.CronSchedul
 		case item.Host != "":
 			expandErr = r.expandTrafficItem(ctx, asg.ID, "", item)
 		default:
-			_, _, expandErr = r.scan.expandItem(ctx, asg.ID, item.Brief, "", "")
+			_, _, expandErr = r.scan.expandItem(ctx, asg.ID, item.Brief, "")
 		}
 		if expandErr != nil {
 			r.logger.Warn().Err(expandErr).Str("schedule_id", sched.ID).Str("assignment_id", asg.ID).
