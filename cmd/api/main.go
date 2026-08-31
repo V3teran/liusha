@@ -541,19 +541,19 @@ func (a *scanAdapter) HandleMessage(ctx context.Context, convID, content string)
 				return "", false, err
 			}
 			return "qa", false, nil
-		}
-		}
-		taskID, _, err := a.createScan(ctx, content, convID)
-		if err != nil {
-			return "", false, err
-		}
-		if err := a.conversations.LinkTask(ctx, convID, taskID); err != nil {
-			return "", false, fmt.Errorf("link task: %w", err)
-		}
-		go a.genTitle(convID, content)
-		return "action", false, nil
 	}
-		if tk.Status == task.StatusActive {
+	}
+	taskID, _, err := a.createScan(ctx, content, convID)
+	if err != nil {
+		return "", false, err
+	}
+	if err := a.conversations.LinkTask(ctx, convID, taskID); err != nil {
+		return "", false, fmt.Errorf("link task: %w", err)
+	}
+	go a.genTitle(convID, content)
+	return "action", false, nil
+	}
+	if tk.Status == task.StatusActive {
 		return "action", true, nil // 忙：agent 在跑，本轮指导经 conversationContext 下次读到
 	}
 	// finding 累积在这次分析会话里（不新建 task）。追加消息作为新一轮 brief 下发。
