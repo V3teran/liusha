@@ -81,8 +81,16 @@ func chatHandler(api ChatAPI, streamSecret []byte, secure bool) gin.HandlerFunc 
 			return
 		}
 		if req.Brief == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "brief 不能为空"})
 			return
 		}
+		convID, taskID, err := api.StartChatScan(c.Request.Context(), req.Brief)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		setStreamCookie(c, streamSecret, convID, secure)
+		c.JSON(http.StatusOK, ChatResponse{ConversationID: convID, TaskID: taskID})
 	}
 }
 
