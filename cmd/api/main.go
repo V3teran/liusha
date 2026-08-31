@@ -50,7 +50,6 @@ import (
 	"github.com/V3teran/liusha/internal/tools/manifest"
 	"github.com/V3teran/liusha/internal/traffic"
 	"github.com/V3teran/liusha/internal/worker"
-	"github.com/V3teran/liusha/internal/worldmodel"
 
 	"github.com/hibiken/asynq"
 	"github.com/redis/go-redis/v9"
@@ -180,8 +179,6 @@ func main() {
 	auditStore := audit.NewStore(pool)         // 0047：task abort / create 审计
 	convStore := conversation.NewStore(pool)   // 阶段B：会话/消息
 	toolStore := toolinvocation.NewStore(pool) // 会话用量合计：工具耗时来源
-	// 攻击图（L3 世界模型）读出：Verifier 坐实的世界状态三表投影，按 task_id=assignment_id 归属。
-	worldStore := worldmodel.NewStore(pool)
 	// 多轮问答/意图分类依赖：light provider 路由 + 问答读 finding + SSE publish。
 	// llmKeyCipher 解密 provider 的加密密钥（migration 0103），构造 client 前才解密，不进缓存。
 	router := llm.NewRouterWithOptions(llm.NewFactory(llmStore, llmKeyCipher), llm.RetryOptionsFromConfig(cfg.LLM.Retry))
@@ -228,8 +225,6 @@ func main() {
 				audit: auditStore,
 			},
 			Findings:          findStore,  // 全局漏洞台账（active+passive 全量 + triage 处置）
-			WorldModel:        worldStore, // 攻击图（L3 世界模型）：Verifier 坐实的世界状态投影
-			TaskScan:          taskStore,  // task→assignment 解析（攻击图按交战聚合）
 			Invocations:       invocationStore,
 			Scan:              adapter,
 			Chat:              adapter,                      // 阶段B：POST /chat 会话发起扫描

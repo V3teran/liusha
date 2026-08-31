@@ -147,17 +147,13 @@ func importExecutors(ctx context.Context, dir string, h *cfgagent.Store) error {
 		} else if !notFound(err) {
 			return fmt.Errorf("查操作员 %q: %w", code, err)
 		}
-		if _, err := h.Create(ctx, cfgagent.NewParams{
-			Code:          code,
-			Kind:          cfgagent.Kind(strings.TrimSpace(f.Kind)),
-			Name:          strings.TrimSpace(f.Name),
-			Description:   strings.TrimSpace(f.Description),
-			Body:          string(body),
-			FunctionTools: f.FunctionTools,
-			CliTools:      f.CliTools,
-			MaxIterations: f.MaxIterations,
-			Complexity:    strings.TrimSpace(f.Tier),
-			Enabled:       true,
+		systemPrompt := string(body)
+		if _, err := h.Update(ctx, code, cfgagent.UpdateParams{
+			SystemPrompt:  &systemPrompt,
+			FunctionTools: &f.FunctionTools,
+			CliTools:      &f.CliTools,
+			MaxIterations: &f.MaxIterations,
+			Complexity:    strPtr(strings.TrimSpace(f.Tier)),
 		}); err != nil {
 			return fmt.Errorf("建操作员 %q: %w", code, err)
 		}
@@ -225,3 +221,4 @@ func importScenarios(ctx context.Context, dir string, s *cfgscenario.Store, h *c
 	}
 	return nil
 }
+func strPtr(s string) *string { return &s }
