@@ -373,7 +373,6 @@ func (e eventStreamAdapter) Subscribe(ctx context.Context, conversationID string
 
 // createScan 是建 scan 的核心：建 assignment + task + agent run + 入 asynq 队列（带
 // conversationID）。CreateScan（无会话纯后台）与 StartChatScan（会话发起）共用。
-// scenarioID 必填——标识场景 code，runner 据此解析引擎与操作员编排（数据驱动派发）。
 func (a *scanAdapter) createScan(ctx context.Context, brief, conversationID string) (string, string, error) {
 	// 一切下发皆走 assignment（§3.1）：单发 = 单元素 assignment(manual) → 1 task。
 	asg, err := a.assignments.Create(ctx, assignment.NewParams{
@@ -393,7 +392,6 @@ func (a *scanAdapter) createScan(ctx context.Context, brief, conversationID stri
 // assignment 后逐条展开）复用同一份展开逻辑，只是 assignment 的建法不同（§3.1 单发 vs 批量/cron）。
 //
 // target_host 留空——不在 API 层 parse brief，runner 入口从 brief 抽取后回填（派生列，见 D5）。
-// 引擎（solo/swarm）与操作员编排由 runner 按 scenarioID 解析，API 不关心（职责下沉，数据驱动）。
 func (a *scanAdapter) expandItem(ctx context.Context, assignmentID, brief, conversationID string) (string, string, error) {
 	// payload 只装 brief 原文——目标 URL / host 由 runner 从 brief 自识别回填。
 	payloadInput, err := json.Marshal(map[string]string{"brief": brief})
@@ -454,8 +452,6 @@ func (a *scanAdapter) expandItem(ctx context.Context, assignmentID, brief, conve
 // （brief=追加消息）。复用 task 作用域黑板——新 run 经 BuildUserPrompt 看到先前 finding。
 // 入队 Payload 与 createScan 同构，仅 TaskID 复用传入 taskID、不新建 task。
 //
-// 引擎由 runner 按 task 的 scenarioID 解析（数据驱动派发）——续接不区分 solo/swarm，
-// 统一走 brief 追加，runner 侧按场景装配对应引擎。scenarioID 从原 task 读取，保证与首轮一致。
 func (a *scanAdapter) FollowUp(ctx context.Context, taskID, conversationID, brief string) (string, error) {
 	if err := a.tasks.Reopen(ctx, taskID); err != nil {
 		return "", fmt.Errorf("reopen task: %w", err)
@@ -519,10 +515,8 @@ func (a *scanAdapter) DeleteConversation(ctx context.Context, convID string) err
 // 两类会话共用一道意图闸（light LLM 判 action/qa）：
 //   - 已绑 task 的会话：action → Reopen 同一 task 续接（沿用原场景，finding 累积）；
 //     qa → qa.Answer 就已挖 finding 提问。
-//   - 纯聊天会话（无 task）：action → 用当前 scenarioID 建 task 并关联（首次升级为扫描）；
 //     qa/闲聊 → chat.Answer 通用助手回答（不读 finding、不下发 task）。
 //
-// scenarioID 由前端 ScenarioPicker 随 followup 带上（Composer 始终带场景选择），仅纯聊天会话
 // 升级为 action 时用于建 task；已绑 task 的会话续接沿用原 task 场景，忽略本参数。
 func (a *scanAdapter) HandleMessage(ctx context.Context, convID, content string) (string, bool, error) {
 	conv, err := a.conversations.GetConversation(ctx, convID)
@@ -548,7 +542,6 @@ func (a *scanAdapter) HandleMessage(ctx context.Context, convID, content string)
 			}
 			return "qa", false, nil
 		}
-		if scenarioID == "" {
 			return "", false, fmt.Errorf("升级为扫描需指定 brief")
 		}
 		taskID, _, err := a.createScan(ctx, content, convID)
@@ -570,7 +563,6 @@ func (a *scanAdapter) HandleMessage(ctx context.Context, convID, content string)
 		if tk.Status == task.StatusActive {
 			return "action", true, nil // 忙：agent 在跑，本轮指导经 conversationContext 下次读到
 		}
-		// 续接沿用原 task 的场景（引擎由 runner 按 scenarioID 解析）：Reopen 同一 task，
 		// finding 累积在这次分析会话里（不新建 task）。追加消息作为新一轮 brief 下发。
 		if _, err := a.FollowUp(ctx, conv.TaskID, convID, content); err != nil {
 			return "", false, err
