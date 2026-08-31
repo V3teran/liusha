@@ -145,10 +145,10 @@ func assignToolHandler(tools ToolCatalogAPI, cfg ConfigAPI) gin.HandlerFunc {
 			return
 		}
 		fnTools, cliTools := applyAssignment(h, t.Kind, t.Name, b.Involved)
-		if _, err := cfg.SaveExecutor(ctx, cfgagent.NewParams{
-			Code: h.Code, Kind: h.Kind, Name: h.Name, Description: h.Description,
-			Body: h.Body, FunctionTools: fnTools, CliTools: cliTools,
-			MaxIterations: h.MaxIterations, Enabled: h.Enabled,
+		if _, err := cfg.UpdateExecutor(ctx, h.Code, cfgagent.UpdateParams{
+			SystemPrompt:  &h.SystemPrompt,
+			FunctionTools: &fnTools,
+			CliTools:      &cliTools,
 		}); err != nil {
 			c.JSON(500, gin.H{"error": err.Error()})
 			return

@@ -32,7 +32,7 @@ type ConfigAPI interface {
 	CountExecutors(ctx context.Context, p cfgagent.ListParams) (int, error)
 	ExecutorByID(ctx context.Context, id string) (cfgagent.Agent, error)
 	ExecutorByCode(ctx context.Context, code string) (cfgagent.Agent, error)
-	SaveExecutor(ctx context.Context, p cfgagent.NewParams) (cfgagent.Agent, error)
+	UpdateExecutor(ctx context.Context, code string, p cfgagent.UpdateParams) (cfgagent.Agent, error)
 	UpdateExecutorComplexity(ctx context.Context, id, complexity string) (cfgagent.Agent, error)
 	DeleteExecutor(ctx context.Context, id, code string) error
 }
@@ -276,7 +276,7 @@ type agentBody struct {
 	Kind          string   `json:"kind"`
 	Name          string   `json:"name"`
 	Description   string   `json:"description"`
-	Body          string   `json:"body"`
+	SystemPrompt  string   `json:"system_prompt"` // 改为SystemPrompt
 	FunctionTools []string `json:"function_tools"`
 	CliTools      []string `json:"cli_tools"`
 	MaxIterations int      `json:"max_iterations"`
@@ -298,13 +298,15 @@ func saveExecutorHandler(api ConfigAPI) gin.HandlerFunc {
 		}
 		kind := cfgagent.Kind(b.Kind)
 		if kind != cfgagent.KindPlanner && kind != cfgagent.KindExecutor {
-			c.JSON(400, gin.H{"error": "非法 kind（应为 planner|domain）"})
+			c.JSON(400, gin.H{"error": "非法 kind（应为 planner|executor）"})
 			return
 		}
-		h, err := api.SaveExecutor(c.Request.Context(), cfgagent.NewParams{
-			Code: b.Code, Kind: kind, Name: b.Name, Description: b.Description,
-			Body: b.Body, FunctionTools: b.FunctionTools, CliTools: b.CliTools,
-			MaxIterations: b.MaxIterations, Complexity: b.Complexity, Enabled: b.Enabled,
+		h, err := api.UpdateExecutor(c.Request.Context(), b.Code, cfgagent.UpdateParams{
+			SystemPrompt:  &b.SystemPrompt,
+			FunctionTools: &b.FunctionTools,
+			CliTools:      &b.CliTools,
+			MaxIterations: &b.MaxIterations,
+			Complexity:    &b.Complexity,
 		})
 		if err != nil {
 			c.JSON(500, gin.H{"error": err.Error()})
@@ -375,7 +377,7 @@ func executorJSON(h cfgagent.Agent) gin.H {
 	}
 	return gin.H{
 		"id": h.ID, "code": h.Code, "kind": string(h.Kind), "name": h.Name,
-		"description": h.Description, "body": h.Body, "function_tools": fnTools, "cli_tools": cliTools,
+		"description": h.Description, "system_prompt": h.SystemPrompt, "function_tools": fnTools, "cli_tools": cliTools,
 		"max_iterations": h.MaxIterations, "complexity": h.Complexity, "enabled": h.Enabled,
 		"created_at": h.CreatedAt, "updated_at": h.UpdatedAt,
 	}

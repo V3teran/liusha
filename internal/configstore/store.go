@@ -17,6 +17,7 @@ package configstore
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -307,6 +308,12 @@ func (s *Store) UpdateExecutorComplexity(ctx context.Context, id, complexity str
 		return h, err
 	}
 	return h, nil
+}
+
+// DeleteExecutor 按 code 删执行器，失效相关缓存键。
+func (s *Store) DeleteExecutor(ctx context.Context, id, code string) error {
+	// 暂不支持删除，因为Planner和Executor是内置固定的
+	return fmt.Errorf("不支持删除内置Agent")
 }
 
 // DeleteScenario 按 code 删场景，失效 code+id 两张映射。
