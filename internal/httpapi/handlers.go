@@ -35,7 +35,6 @@ type TaskSummary struct {
 	ID           string `json:"id"`
 	Scope        string `json:"scope"` // jsonb raw：{"brief":..., "target_host":...}
 	Status       string `json:"status"`
-	ScenarioID   string `json:"scenario_id"`        // 所属场景 code（引擎/操作员编排由其解析）
 	CreatedAt    string `json:"created_at"`         // RFC3339
 	EndedAt      string `json:"ended_at,omitempty"` // RFC3339（可空）
 	ErrorMessage string `json:"error_message,omitempty"`
@@ -154,7 +153,6 @@ type ScanAPI interface {
 // 这种"一句话"形态便于将来接通微信 / 飞书 / 钉钉机器人——平台原文直接转发即可。
 type CreateScanRequest struct {
 	Brief      string `json:"brief"`
-	ScenarioID string `json:"scenario_id"`
 }
 
 // scanHandler 处理 POST /scan：校验 brief + scenario_id 非空 + 调 ScanAPI 起任务。
@@ -174,9 +172,6 @@ func scanHandler(api ScanAPI) gin.HandlerFunc {
 			c.JSON(400, gin.H{"error": "brief required"})
 			return
 		}
-		scenarioID := strings.TrimSpace(req.ScenarioID)
-		if scenarioID == "" {
-			c.JSON(400, gin.H{"error": "scenario_id required"})
 			return
 		}
 
