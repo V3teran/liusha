@@ -45,7 +45,7 @@ type ChatAPI interface {
 
 // ConversationsAPI 是会话/消息读取窄接口（*conversation.Store 自动满足）。
 type ConversationsAPI interface {
-	ListConversations(ctx context.Context, limit, offset int, scenarioID, source string) ([]conversation.Conversation, bool, error)
+	ListConversations(ctx context.Context, limit, offset int,  source string) ([]conversation.Conversation, bool, error)
 	ListMessages(ctx context.Context, convID string, afterSeq int64, limit int) ([]conversation.Message, error)
 	GetMessage(ctx context.Context, convID, msgID string) (conversation.Message, error)
 }
@@ -64,7 +64,7 @@ type EventStream interface {
 // ChatRequest 是 POST /chat 请求体。
 type ChatRequest struct {
 	Brief      string `json:"brief"`
-	ScenarioID string `json:"scenario_id"` // 场景 code（必选，前端 ScenarioPicker 选定）
+	 `json:"scenario_id"` // 场景 code（必选，前端 ScenarioPicker 选定）
 }
 
 // ChatResponse 是 POST /chat 响应：前端用 conversation_id 订阅 SSE。
@@ -85,11 +85,11 @@ func chatHandler(api ChatAPI, streamSecret []byte, secure bool) gin.HandlerFunc 
 			c.JSON(http.StatusBadRequest, gin.H{"error": "brief 不能为空"})
 			return
 		}
-		if req.ScenarioID == "" {
+		if  == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "scenario_id 不能为空"})
 			return
 		}
-		convID, taskID, err := api.StartChatScan(c.Request.Context(), req.Brief, req.ScenarioID)
+		convID, taskID, err := api.StartChatScan(c.Request.Context(), req.Brief, )
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
@@ -150,7 +150,7 @@ type FollowUpAPI interface {
 // scenario_id 可选：纯聊天会话升级为扫描时用（前端 ScenarioPicker 随 Composer 带上）。
 type FollowUpRequest struct {
 	Content    string `json:"content"`
-	ScenarioID string `json:"scenario_id"`
+	 `json:"scenario_id"`
 }
 
 func followUpHandler(api FollowUpAPI) gin.HandlerFunc {
@@ -161,7 +161,7 @@ func followUpHandler(api FollowUpAPI) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "content 不能为空"})
 			return
 		}
-		intent, busy, err := api.HandleMessage(c.Request.Context(), convID, req.Content, req.ScenarioID)
+		intent, busy, err := api.HandleMessage(c.Request.Context(), convID, req.Content, )
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return

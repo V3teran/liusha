@@ -138,7 +138,7 @@ func abortTaskHandler(api TaskAPI) gin.HandlerFunc {
 // CreateScan 一站式做三件事：建 scan、建 agent agent_run、入 asynq 队列；
 // 由 cmd/api 的 adapter 用 task store + agent.Store + worker.Client 实现。
 type ScanAPI interface {
-	CreateScan(ctx context.Context, brief, scenarioID string) (taskID, agentID string, err error)
+	CreateScan(ctx context.Context, brief, ) (taskID, agentID string, err error)
 }
 
 // CreateScanRequest 是 POST /scan 请求体。
@@ -180,7 +180,7 @@ func scanHandler(api ScanAPI) gin.HandlerFunc {
 			return
 		}
 
-		taskID, agentID, err := api.CreateScan(c.Request.Context(), brief, scenarioID)
+		taskID, agentID, err := api.CreateScan(c.Request.Context(), brief)
 		if err != nil {
 			c.JSON(500, gin.H{"error": err.Error()})
 			return
