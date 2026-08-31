@@ -173,4 +173,3 @@ func scanHandler(api ScanAPI) gin.HandlerFunc {
 			c.JSON(400, gin.H{"error": "brief required"})
 			return
 		}
-			return
