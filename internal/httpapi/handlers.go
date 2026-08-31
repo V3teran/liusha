@@ -154,7 +154,6 @@ type ScanAPI interface {
 // 这种"一句话"形态便于将来接通微信 / 飞书 / 钉钉机器人——平台原文直接转发即可。
 type CreateScanRequest struct {
 	Brief      string `json:"brief"`
-	ScenarioID string `json:""`
 }
 
 // scanHandler 处理 POST /scan：校验 brief + _id 非空 + 调 ScanAPI 起任务。
@@ -174,9 +173,6 @@ func scanHandler(api ScanAPI) gin.HandlerFunc {
 			c.JSON(400, gin.H{"error": "brief required"})
 			return
 		}
-		ID := strings.TrimSpace(req.ScenarioID)
-		if ID == "" {
-			c.JSON(400, gin.H{"error": "_id required"})
 			return
 		}
 
