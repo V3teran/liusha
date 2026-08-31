@@ -109,11 +109,11 @@ func (f *fakeExecutors) ComplexityByCode(_ context.Context, code string) (string
 	complexity, ok := f.complexityByCode[code]
 	return complexity, ok, nil
 }
-func (f *fakeExecutors) Create(_ context.Context, p cfgagent.NewParams) (cfgagent.Agent, error) {
-	return cfgagent.Agent{ID: "id-" + p.Code, Code: p.Code}, nil
+func (f *fakeExecutors) Create(_ context.Context, code string, p cfgagent.UpdateParams) (cfgagent.Agent, error) {
+	return cfgagent.Agent{ID: "id-" + code, Code: code}, nil
 }
-func (f *fakeExecutors) Update(_ context.Context, _ cfgagent.NewParams) (cfgagent.Agent, error) {
-	return cfgagent.Agent{}, pgxErrNoRows()
+func (f *fakeExecutors) Update(_ context.Context, code string, p cfgagent.UpdateParams) (cfgagent.Agent, error) {
+	return cfgagent.Agent{ID: "id-" + code, Code: code}, nil
 }
 func (f *fakeExecutors) UpdateComplexity(_ context.Context, id, complexity string) (cfgagent.Agent, error) {
 	// 生产 UpdateComplexity 用 RETURNING colsSelect，返回行含 Code；假实现据 codeByID 回填。
@@ -137,6 +137,13 @@ func (f *fakeExecutors) ListEnabledDomain(_ context.Context) ([]cfgagent.Agent, 
 func (f *fakeExecutors) GetPlanner(_ context.Context) (cfgagent.Agent, error) {
 	atomic.AddInt64(&f.orchHit, 1)
 	return f.orch, nil
+}
+func (f *fakeExecutors) GetExecutor(_ context.Context) (cfgagent.Agent, error) {
+	atomic.AddInt64(&f.domainHit, 1)
+	if len(f.domain) == 0 {
+		return cfgagent.Agent{}, pgxErrNoRows()
+	}
+	return f.domain[0], nil
 }
 
 // newTestStore 用 miniredis + 假底层 store 构造 Store，返回 store、场景假实现、miniredis。
@@ -272,15 +279,14 @@ func TestPlanner_SentinelKeyCached(t *testing.T) {
 }
 
 // TestEnabledDomainExecutors_SentinelKeyCached 验证：EnabledDomainExecutors 首读打底层、
-// 后续命中哨兵键缓存（swarm 子代理池的读穿透）。
+// 后续命中哨兵键缓存。新架构下只返回1个通用Executor。
 func TestEnabledDomainExecutors_SentinelKeyCached(t *testing.T) {
 	ctx := context.Background()
 	mr := miniredis.RunT(t)
 	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
 	t.Cleanup(func() { _ = rdb.Close() })
 	fh := &fakeExecutors{domain: []cfgagent.Agent{
-		{ID: "id-recon", Code: "reconnaissance", Kind: cfgagent.KindExecutor},
-		{ID: "id-exploit", Code: "exploitation", Kind: cfgagent.KindExecutor},
+		{ID: "id-executor", Code: "executor", Kind: cfgagent.KindExecutor},
 	}}
 	s := newWithStores(&fakeScenarios{byCode: map[string]cfgscenario.Scenario{}}, fh, cachestore.New(rdb, 0))
 
@@ -289,17 +295,17 @@ func TestEnabledDomainExecutors_SentinelKeyCached(t *testing.T) {
 		if err != nil {
 			t.Fatalf("enabled domain read #%d: %v", i, err)
 		}
-		if len(got) != 2 {
-			t.Fatalf("期望 2 个领域操作员，实际 %d", len(got))
+		if len(got) != 1 {
+			t.Fatalf("期望 1 个执行者，实际 %d", len(got))
 		}
 	}
 	if got := atomic.LoadInt64(&fh.domainHit); got != 1 {
-		t.Fatalf("期望领域池只打底层 1 次，实际 %d", got)
+		t.Fatalf("期望执行者池只打底层 1 次，实际 %d", got)
 	}
 }
 
-// TestSaveExecutor_InvalidatesSentinels 验证：SaveExecutor 后两个哨兵键都被清（下次读重打底层）。
-func TestSaveExecutor_InvalidatesSentinels(t *testing.T) {
+// TestUpdateExecutor_InvalidatesSentinels 验证：UpdateExecutor 后两个哨兵键都被清（下次读重打底层）。
+func TestUpdateExecutor_InvalidatesSentinels(t *testing.T) {
 	ctx := context.Background()
 	mr := miniredis.RunT(t)
 	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
@@ -319,16 +325,19 @@ func TestSaveExecutor_InvalidatesSentinels(t *testing.T) {
 	}
 
 	// 写一个操作员 → 两个哨兵键应被失效。
-	if _, err := s.SaveExecutor(ctx, cfgagent.NewParams{Code: "new", Kind: cfgagent.KindExecutor, Name: "新"}); err != nil {
-		t.Fatalf("save executor: %v", err)
+	complexityStr := "medium"
+	if _, err := s.UpdateExecutor(ctx, "new", cfgagent.UpdateParams{Complexity: &complexityStr}); err != nil {
+		t.Fatalf("update executor: %v", err)
 	}
 	if s.cache.L1Has(keyplanner) {
 		t.Fatal("编排哨兵键应被清")
 	}
-	if s.cache.L1Has(keyEnabledDomain) {
-		t.Fatal("领域池哨兵键应被清")
+	if s.cache.L1Has(keyExecutor) {
+		t.Fatal("executor哨兵键应被清")
 	}
 }
+
+func strPtr(s string) *string { return &s }
 
 // newAgentTestStore 用 miniredis + 假 agent 底层 store 构造，返回 store 与 agent 假实现。
 func newAgentTestStore(t *testing.T, fh *fakeExecutors) *Store {
@@ -409,8 +418,8 @@ func TestUpdateExecutorComplexity_InvalidatesTierKey(t *testing.T) {
 	}
 }
 
-// TestSaveExecutor_InvalidatesComplexityKey 验证：整体保存（第二个 complexity 写入口）也失效 complexity 键。
-func TestSaveExecutor_InvalidatesComplexityKey(t *testing.T) {
+// TestUpdateExecutor_InvalidatesComplexityKey 验证：整体更新（第二个 complexity 写入口）也失效 complexity 键。
+func TestUpdateExecutor_InvalidatesComplexityKey(t *testing.T) {
 	ctx := context.Background()
 	fh := &fakeExecutors{complexityByCode: map[string]string{"new": "medium"}}
 	s := newAgentTestStore(t, fh)
@@ -418,12 +427,13 @@ func TestSaveExecutor_InvalidatesComplexityKey(t *testing.T) {
 	if _, _, err := s.ComplexityByCode(ctx, "new"); err != nil { // 暖起 complexity 键
 		t.Fatal(err)
 	}
-	// SaveExecutor 走 upsert：fakeExecutors.Update 返回 NoRows → Create 返回含 code 的行。
-	if _, err := s.SaveExecutor(ctx, cfgagent.NewParams{Code: "new", Kind: cfgagent.KindExecutor, Name: "新"}); err != nil {
-		t.Fatalf("save executor: %v", err)
+	// UpdateExecutor 走更新
+	complexityStr := "medium"
+	if _, err := s.UpdateExecutor(ctx, "new", cfgagent.UpdateParams{Complexity: &complexityStr}); err != nil {
+		t.Fatalf("update executor: %v", err)
 	}
 	if s.cache.L1Has(keyExecutorComplexity("new")) {
-		t.Fatal("SaveExecutor 也应失效 complexity 键（第二写入口）")
+		t.Fatal("UpdateExecutor 也应失效 complexity 键（第二写入口）")
 	}
 }
 
@@ -443,8 +453,9 @@ func TestListExecutors_CachedAndInvalidated(t *testing.T) {
 		t.Fatalf("期望列表只打底层 1 次（二读命中缓存），实际 %d", got)
 	}
 	// 写一个操作员 → 列表键应被失效。
-	if _, err := s.SaveExecutor(ctx, cfgagent.NewParams{Code: "b", Kind: cfgagent.KindExecutor, Name: "b"}); err != nil {
-		t.Fatalf("save: %v", err)
+	complexityStr := "medium"
+	if _, err := s.UpdateExecutor(ctx, "b", cfgagent.UpdateParams{Complexity: &complexityStr}); err != nil {
+		t.Fatalf("update: %v", err)
 	}
 	if s.cache.L1Has(keyAgentsList(false)) {
 		t.Fatal("executors 列表键应被失效")
