@@ -524,7 +524,7 @@ func (a *scanAdapter) DeleteConversation(ctx context.Context, convID string) err
 //
 // scenarioID 由前端 ScenarioPicker 随 followup 带上（Composer 始终带场景选择），仅纯聊天会话
 // 升级为 action 时用于建 task；已绑 task 的会话续接沿用原 task 场景，忽略本参数。
-func (a *scanAdapter) HandleMessage(ctx context.Context, convID, content, ) (string, bool, error) {
+func (a *scanAdapter) HandleMessage(ctx context.Context, convID, content string) (string, bool, error) {
 	conv, err := a.conversations.GetConversation(ctx, convID)
 	if err != nil {
 		return "", false, err
@@ -626,7 +626,7 @@ func (a *scanAdapter) Publish(ctx context.Context, convID string, payload []byte
 }
 
 // CreateScan 满足 httpapi.ScanAPI（无会话的纯后台扫描入口）。
-func (a *scanAdapter) CreateScan(ctx context.Context, brief, ) (string, string, error) {
+func (a *scanAdapter) CreateScan(ctx context.Context, brief string) (string, string, error) {
 	return a.createScan(ctx, brief, "")
 }
 
@@ -634,7 +634,7 @@ func (a *scanAdapter) CreateScan(ctx context.Context, brief, ) (string, string, 
 // （light LLM 判 action/qa）——action 才发起扫描。返回 conversationID 供前端订阅 SSE。
 //
 // 首次对话与追加消息（HandleMessage）走同一道意图闸：避免把闲聊/答疑误判成动作而白烧一次扫描。
-func (a *scanAdapter) StartChatScan(ctx context.Context, brief, ) (string, string, error) {
+func (a *scanAdapter) StartChatScan(ctx context.Context, brief string) (string, string, error) {
 	conv, err := a.conversations.CreateConversation(ctx, briefTitle(brief), "")
 	if err != nil {
 		return "", "", fmt.Errorf("create conversation: %w", err)
