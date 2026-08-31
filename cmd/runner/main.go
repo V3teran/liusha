@@ -227,7 +227,7 @@ func main() {
 		}
 	}()
 
-	// 配置事实源（DB + 内存/redis 缓存）：运行期按需读 scenario/agent 装配引擎。
+	// 配置事实源（DB + 内存/redis 缓存）：运行期按需读 agent 装配引擎。
 	// 文件仅是首次导入的种子（seed 导入在别处），进程运行期一律走 DB/缓存（见 D6/D7）。
 	cfgStore := configstore.New(pool, cache)
 

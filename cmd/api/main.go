@@ -24,7 +24,6 @@ import (
 	"github.com/V3teran/liusha/internal/config"
 	cfgagent "github.com/V3teran/liusha/internal/config/agent"
 	"github.com/V3teran/liusha/internal/config/llmcfg"
-	cfgscenario "github.com/V3teran/liusha/internal/config/scenario"
 	"github.com/V3teran/liusha/internal/config/seed"
 	"github.com/V3teran/liusha/internal/config/settingstore"
 	cfgtool "github.com/V3teran/liusha/internal/config/tool"
@@ -101,7 +100,7 @@ func main() {
 	defer enq.Close()
 
 	// 共享多级缓存内核（L1 内存 + L2 redis + 跨进程失效总线）。所有配置资源
-	// （scenario/agent，后续 llm/system）复用同一实例；一条 Subscribe 循环覆盖全部资源。
+	// （agent，后续 llm/system）复用同一实例；一条 Subscribe 循环覆盖全部资源。
 	// Subscribe 阻塞运行（内部 for-select 直到 ctx 取消），必须后台起——
 	// 同步调用会把 main goroutine 卡死在订阅循环。
 	cache := cachestore.New(rdb, 0)
@@ -111,7 +110,7 @@ func main() {
 		}
 	}()
 
-	// 配置多级缓存 Store（scenario/agent CRUD 后端）。写路径经 cachestore 广播失效，
+	// 配置多级缓存 Store（agent CRUD 后端）。写路径经 cachestore 广播失效，
 	// runner 进程被动失效其 L1。
 	cfgStore := configstore.New(pool, cache)
 
@@ -132,7 +131,7 @@ func main() {
 	// 让 api 仍能起（配置可事后经 CRUD 补齐）。
 	seedDir := envx.OrDefault("LIUSHA_SEED_DIR", ".")
 	if err := seed.Import(ctx, seedDir,
-		cfgAgentStore, cfgscenario.NewStore(pool)); err != nil {
+		cfgAgentStore); err != nil {
 		logger.Warn().Err(err).Str("dir", seedDir).Msg("配置种子导入失败（跳过，可经 CRUD 手动补齐）")
 	}
 
@@ -232,7 +231,7 @@ func main() {
 			Abort:             adapter,                      // 多轮：POST /conversations/:id/abort 停止会话关联扫描
 			Deleter:           adapter,                      // DELETE /conversations/:id 删会话+消息；关联扫描进行中拒删（409，先停后删）
 			Renamer:           convStore,                    // PATCH /conversations/:id 重命名标题（convStore.SetTitle 直接满足）
-			ConfigStore:       cfgStore,                     // scenario/agent 配置 CRUD（配置管理页 + 对话 ScenarioPicker）
+			ConfigStore:       cfgStore,                     // agent 配置 CRUD（配置管理页 + 对话 ScenarioPicker）
 			ToolCatalog:       cfgToolStore,                 // GET /tools、/tools/:name：工具目录检索/详情 + 智能体选工具
 			Models:            llmStore,                     // GET/POST/PUT/DELETE /models：provider 部署 CRUD + 角色路由面板
 			KeyEncrypter:      llmKeyCipher,                 // POST/PUT /models/providers：加密前端直填的明文 API Key
@@ -315,7 +314,7 @@ func (a taskAPIAdapter) List(ctx context.Context, limit int) ([]httpapi.TaskSumm
 	if limit <= 0 {
 		limit = 20
 	}
-	tasks, err := a.tasks.List(ctx, "", limit)
+	tasks, err := a.tasks.List(ctx, limit)
 	if err != nil {
 		return nil, fmt.Errorf("list tasks: %w", err)
 	}
@@ -327,7 +326,7 @@ func (a taskAPIAdapter) List(ctx context.Context, limit int) ([]httpapi.TaskSumm
 			ID:           t.ID,
 			Scope:        string(scopeJSON),
 			Status:       string(t.Status),
-			ScenarioID:   t.ScenarioID,
+			
 			CreatedAt:    t.CreatedAt.Format(time.RFC3339),
 			ErrorMessage: t.ErrorMessage,
 		}
@@ -375,10 +374,10 @@ func (e eventStreamAdapter) Subscribe(ctx context.Context, conversationID string
 // createScan 是建 scan 的核心：建 assignment + task + agent run + 入 asynq 队列（带
 // conversationID）。CreateScan（无会话纯后台）与 StartChatScan（会话发起）共用。
 // scenarioID 必填——标识场景 code，runner 据此解析引擎与操作员编排（数据驱动派发）。
-func (a *scanAdapter) createScan(ctx context.Context, brief, conversationID, scenarioID string) (string, string, error) {
+func (a *scanAdapter) createScan(ctx context.Context, brief, conversationID string) (string, string, error) {
 	// 一切下发皆走 assignment（§3.1）：单发 = 单元素 assignment(manual) → 1 task。
 	asg, err := a.assignments.Create(ctx, assignment.NewParams{
-		ScenarioID: scenarioID,
+		
 		Source:     assignment.SourceManual,
 		Items:      []assignment.Item{{Brief: brief}},
 		Title:      briefTitle(brief),
@@ -386,7 +385,7 @@ func (a *scanAdapter) createScan(ctx context.Context, brief, conversationID, sce
 	if err != nil {
 		return "", "", fmt.Errorf("create assignment: %w", err)
 	}
-	return a.expandItem(ctx, asg.ID, brief, conversationID, scenarioID)
+	return a.expandItem(ctx, asg.ID, brief, conversationID)
 }
 
 // expandItem 把 assignment 下的一个 item（brief）展开成 task + agent run + enqueue。
@@ -395,13 +394,13 @@ func (a *scanAdapter) createScan(ctx context.Context, brief, conversationID, sce
 //
 // target_host 留空——不在 API 层 parse brief，runner 入口从 brief 抽取后回填（派生列，见 D5）。
 // 引擎（solo/swarm）与操作员编排由 runner 按 scenarioID 解析，API 不关心（职责下沉，数据驱动）。
-func (a *scanAdapter) expandItem(ctx context.Context, assignmentID, brief, conversationID, scenarioID string) (string, string, error) {
+func (a *scanAdapter) expandItem(ctx context.Context, assignmentID, brief, conversationID string) (string, string, error) {
 	// payload 只装 brief 原文——目标 URL / host 由 runner 从 brief 自识别回填。
 	payloadInput, err := json.Marshal(map[string]string{"brief": brief})
 	if err != nil {
 		return "", "", fmt.Errorf("marshal payload: %w", err)
 	}
-	tk, err := a.tasks.Create(ctx, task.NewParams{ScenarioID: scenarioID, AssignmentID: assignmentID, Brief: brief})
+	tk, err := a.tasks.Create(ctx, task.NewParams{ Brief: brief})
 	if err != nil {
 		return "", "", fmt.Errorf("create task: %w", err)
 	}
@@ -422,7 +421,7 @@ func (a *scanAdapter) expandItem(ctx context.Context, assignmentID, brief, conve
 		ExecutorID:       tid,
 		TaskID:         tk.ID,
 		ConversationID: conversationID, // 阶段B：会话发起时非空 → runner 发过程事件
-		ScenarioID:     scenarioID,     // 场景 code：runner 据此数据驱动派发引擎/操作员编排
+		     // 场景 code：runner 据此数据驱动派发引擎/操作员编排
 		Input:          payloadInput,
 		Role:           worker.RoleExecutor,
 	}, asynq.MaxRetry(0), asynq.Timeout(a.maxRunTimeout)); err != nil {
@@ -457,7 +456,7 @@ func (a *scanAdapter) expandItem(ctx context.Context, assignmentID, brief, conve
 //
 // 引擎由 runner 按 task 的 scenarioID 解析（数据驱动派发）——续接不区分 solo/swarm，
 // 统一走 brief 追加，runner 侧按场景装配对应引擎。scenarioID 从原 task 读取，保证与首轮一致。
-func (a *scanAdapter) FollowUp(ctx context.Context, taskID, conversationID, scenarioID, brief string) (string, error) {
+func (a *scanAdapter) FollowUp(ctx context.Context, taskID, conversationID, brief string) (string, error) {
 	if err := a.tasks.Reopen(ctx, taskID); err != nil {
 		return "", fmt.Errorf("reopen task: %w", err)
 	}
@@ -477,7 +476,7 @@ func (a *scanAdapter) FollowUp(ctx context.Context, taskID, conversationID, scen
 		ExecutorID:       tid,
 		TaskID:         taskID,
 		ConversationID: conversationID,
-		ScenarioID:     scenarioID,
+		
 		Input:          payloadInput,
 		Role:           worker.RoleExecutor,
 	}, asynq.MaxRetry(0), asynq.Timeout(a.maxRunTimeout)); err != nil {
@@ -525,7 +524,7 @@ func (a *scanAdapter) DeleteConversation(ctx context.Context, convID string) err
 //
 // scenarioID 由前端 ScenarioPicker 随 followup 带上（Composer 始终带场景选择），仅纯聊天会话
 // 升级为 action 时用于建 task；已绑 task 的会话续接沿用原 task 场景，忽略本参数。
-func (a *scanAdapter) HandleMessage(ctx context.Context, convID, scenarioID, content string) (string, bool, error) {
+func (a *scanAdapter) HandleMessage(ctx context.Context, convID, content, ) (string, bool, error) {
 	conv, err := a.conversations.GetConversation(ctx, convID)
 	if err != nil {
 		return "", false, err
@@ -550,9 +549,9 @@ func (a *scanAdapter) HandleMessage(ctx context.Context, convID, scenarioID, con
 			return "qa", false, nil
 		}
 		if scenarioID == "" {
-			return "", false, fmt.Errorf("升级为扫描需指定 scenario_id")
+			return "", false, fmt.Errorf("升级为扫描需指定 brief")
 		}
-		taskID, _, err := a.createScan(ctx, content, convID, scenarioID)
+		taskID, _, err := a.createScan(ctx, content, convID)
 		if err != nil {
 			return "", false, err
 		}
@@ -573,7 +572,7 @@ func (a *scanAdapter) HandleMessage(ctx context.Context, convID, scenarioID, con
 		}
 		// 续接沿用原 task 的场景（引擎由 runner 按 scenarioID 解析）：Reopen 同一 task，
 		// finding 累积在这次分析会话里（不新建 task）。追加消息作为新一轮 brief 下发。
-		if _, err := a.FollowUp(ctx, conv.TaskID, convID, tk.ScenarioID, content); err != nil {
+		if _, err := a.FollowUp(ctx, conv.TaskID, convID, content); err != nil {
 			return "", false, err
 		}
 		return "action", false, nil
@@ -626,18 +625,16 @@ func (a *scanAdapter) Publish(ctx context.Context, convID string, payload []byte
 	return a.publisher.Publish(ctx, convID, payload)
 }
 
-// CreateScan 满足 httpapi.ScanAPI（无会话的纯后台扫描入口）。scenarioID 必填。
-func (a *scanAdapter) CreateScan(ctx context.Context, brief, scenarioID string) (string, string, error) {
-	return a.createScan(ctx, brief, "", scenarioID)
+// CreateScan 满足 httpapi.ScanAPI（无会话的纯后台扫描入口）。
+func (a *scanAdapter) CreateScan(ctx context.Context, brief, ) (string, string, error) {
+	return a.createScan(ctx, brief, "")
 }
 
-// StartChatScan 满足 httpapi.ChatAPI：建会话（记 scenario_id）+ 落用户首条消息，然后过意图闸
-// （light LLM 判 action/qa）——action 才发起扫描（入队带 conversationID + scenarioID）并关联
-// 会话与 scan；qa/闲聊则只作纯聊天回答，不下发 task（taskID 返回空）。返回 conversationID 供前端
-// 订阅 SSE。scenarioID 必填——前端 ScenarioPicker 选定（handler 已校验非空），供 action 时建 task。
+// StartChatScan 满足 httpapi.ChatAPI：建会话（记 brief）+ 落用户首条消息，然后过意图闸
+// （light LLM 判 action/qa）——action 才发起扫描。返回 conversationID 供前端订阅 SSE。
 //
 // 首次对话与追加消息（HandleMessage）走同一道意图闸：避免把闲聊/答疑误判成动作而白烧一次扫描。
-func (a *scanAdapter) StartChatScan(ctx context.Context, brief, scenarioID string) (string, string, error) {
+func (a *scanAdapter) StartChatScan(ctx context.Context, brief, ) (string, string, error) {
 	conv, err := a.conversations.CreateConversation(ctx, briefTitle(brief), "")
 	if err != nil {
 		return "", "", fmt.Errorf("create conversation: %w", err)
@@ -660,7 +657,7 @@ func (a *scanAdapter) StartChatScan(ctx context.Context, brief, scenarioID strin
 		return conv.ID, "", nil
 	}
 
-	taskID, _, err := a.createScan(ctx, brief, conv.ID, scenarioID)
+	taskID, _, err := a.createScan(ctx, brief, conv.ID)
 	if err != nil {
 		return "", "", err
 	}

@@ -280,7 +280,7 @@ func TestTaskAbort_RequiresAuth(t *testing.T) {
 // fakeScan 是 ScanAPI 的内存实现：记录最近一次 CreateScan 入参，可注入 err。
 type fakeScan struct {
 	gotBrief               string
-	gotScenarioID          string
+	got
 	calls                  int
 	err                    error
 	retTaskID, retExecutorID string

@@ -46,15 +46,11 @@ type Conversation struct {
 	// 纯聊天为空）。仅 ListConversations 填充。
 	// （注：conversation 表自身的 status 列是僵尸字段，已不读入；运行态一律派生自关联 task。）
 	RunStatus string `json:"RunStatus,omitempty"`
-	// ScenarioID 是派生的场景 code（关联 task 的 scenario_id；纯聊天空）。仅 ListConversations 填充，
-	// 供前端按场景分流列表。
-	ScenarioID string `json:"ScenarioID,omitempty"`
 	// FindingCount 是本会话关联 task 已挖到的漏洞数（派生自 finding 表）。仅 ListConversations 填充，
 	// 供前端列表/流量分析 feed 卡展示「host · N findings」摘要。纯聊天/无 task = 0。
 	FindingCount int `json:"FindingCount,omitempty"`
 	// Source 是派生的下发来源（关联 assignment 的 source：manual 人工下发 / auto 聚合器攒批；
 	// 纯聊天/无 task 归 manual）。仅 ListConversations 填充，供前端「主动下发 / 被动代理」双 tab 分流。
-	// 与 scenario/engine 正交——仅审计/来源维度，不参与场景解析。
 	Source string `json:"Source,omitempty"`
 }
 

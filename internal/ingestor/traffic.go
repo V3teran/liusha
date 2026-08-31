@@ -316,7 +316,6 @@ func (t *Traffic) handleExternalSnap(ctx context.Context, snap *proxy.TrafficSna
 func (t *Traffic) spawnPassiveTask(ctx context.Context, host string) {
 	// 一切下发皆走 assignment（§3.1）：聚合器建 assignment(passive, auto, [host]) → 1 task（fan-in）。
 	asg, err := t.assignments.Create(ctx, assignment.NewParams{
-		ScenarioID: trafficScenarioCode,
 		Source:     assignment.SourceAuto,
 		Items:      []assignment.Item{{Host: host}},
 		Title:      host,
@@ -325,7 +324,11 @@ func (t *Traffic) spawnPassiveTask(ctx context.Context, host string) {
 		t.logger.Warn().Err(err).Str("host", host).Msg("建 passive assignment 失败")
 		return
 	}
-	tk, err := t.tasks.Create(ctx, task.NewParams{ScenarioID: trafficScenarioCode, AssignmentID: asg.ID, Brief: host, TargetHost: host})
+	tk, err := t.tasks.Create(ctx, task.NewParams{
+		AssignmentID: asg.ID,
+		Brief:        fmt.Sprintf("分析 %s 的被动流量", host),
+		TargetHost:   host,
+	})
 	if err != nil {
 		t.logger.Warn().Err(err).Str("host", host).Msg("建 passive task 失败")
 		return
@@ -459,7 +462,6 @@ func (t *Traffic) enqueuePassive(ctx context.Context, taskID, convID, host strin
 		ExecutorID:       hid,
 		TaskID:         taskID,
 		ConversationID: convID,
-		ScenarioID:     trafficScenarioCode,
 		Input:          payloadInput,
 		Role:           worker.RoleExecutor,
 	}); err != nil {

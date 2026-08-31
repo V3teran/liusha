@@ -175,7 +175,7 @@ func TestDeleteHandler_OK_200(t *testing.T) {
 // fakeConversations 满足 ConversationsAPI，记录 ListConversations 收到的 limit/offset/scenarioID。
 type fakeConversations struct {
 	gotLimit, gotOffset int
-	gotScenarioID       string
+	got
 	gotSource           string
 	convs               []conversation.Conversation
 	hasMore             bool

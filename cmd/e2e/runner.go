@@ -152,7 +152,7 @@ const activeScenarioCode = "web-pentest"
 // 聚合器为目标 host 新建的 task 即由此被 e2e 发现（同 host 多批 → 多 task 全收）。
 // limit 取 512 足够覆盖 e2e 场景（单次跑至多十几个 host × 数批）。
 func discoverPassiveTasks(ctx context.Context, ts *task.Store, hosts map[string]struct{}, baseline time.Time) ([]string, error) {
-	tasks, err := ts.List(ctx, trafficScenarioCode, 512)
+	tasks, err := ts.List(ctx, 512)
 	if err != nil {
 		return nil, err
 	}

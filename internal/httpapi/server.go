@@ -36,7 +36,7 @@ type Deps struct {
 	Deleter ConversationDeleter
 	// Renamer 为 nil 时 PATCH /conversations/:id 不注册（重命名会话标题）。
 	Renamer ConversationRenamer
-	// ConfigStore 为 nil 时 scenario/agent 配置 CRUD 路由不注册。
+	// ConfigStore 为 nil 时 executor 配置 CRUD 路由不注册。
 	// 由 cmd/api 注入 *configstore.Store（自动满足 ConfigAPI 窄接口）。
 	// 写路径经其失效广播，保证 runner 进程 L1 被动失效（见 D7）。
 	ConfigStore ConfigAPI
@@ -112,10 +112,9 @@ func NewServer(d Deps) http.Handler {
 		r.GET("/control-events/:eventID", handleGetControlEvent(d.ControlPlane))
 	}
 	if d.Findings != nil {
-		// 静态子路由（/hosts、/scenarios）须先于 :id 类路由注册避免冲突（同 /traffic 组的既有约定）。
+		// 静态子路由（/hosts）须先于 :id 类路由注册避免冲突（同 /traffic 组的既有约定）。
 		r.GET("/findings", listFindingsHandler(d.Findings))
 		r.GET("/findings/hosts", findingHostsHandler(d.Findings))
-		r.GET("/findings/scenarios", findingScenariosHandler(d.Findings))
 		r.PATCH("/findings/:id/status", updateFindingStatusHandler(d.Findings))
 	}
 	if d.Invocations != nil {
@@ -128,14 +127,8 @@ func NewServer(d Deps) http.Handler {
 		r.POST("/scan", scanHandler(d.Scan))
 	}
 	if d.ConfigStore != nil {
-		// scenario/agent 配置 CRUD（前端配置管理页）。路由挂在 root，
+		// executor 配置 CRUD（前端配置管理页）。路由挂在 root，
 		// 与现有约定一致——前端/反代把 /api/* 前缀剥离后打到这里（见 web/vite.config.ts）。
-		r.GET("/scenarios", listScenariosHandler(d.ConfigStore))
-		r.GET("/scenarios/:id", getScenarioHandler(d.ConfigStore))
-		r.POST("/scenarios", saveScenarioHandler(d.ConfigStore))
-		r.PUT("/scenarios/:id", saveScenarioHandler(d.ConfigStore))
-		r.DELETE("/scenarios/:id", deleteScenarioHandler(d.ConfigStore))
-
 		r.GET("/executors", listExecutorsHandler(d.ConfigStore))
 		r.GET("/executors/:id", getExecutorHandler(d.ConfigStore))
 		r.POST("/executors", saveExecutorHandler(d.ConfigStore))

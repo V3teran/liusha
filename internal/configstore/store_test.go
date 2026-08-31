@@ -12,7 +12,6 @@ import (
 
 	"github.com/V3teran/liusha/internal/cachestore"
 	cfgagent "github.com/V3teran/liusha/internal/config/agent"
-	cfgscenario "github.com/V3teran/liusha/internal/config/scenario"
 )
 
 // errNoRows 是底层 store「不存在」的 sentinel，与生产 store 用 %w 包的 pgx.ErrNoRows 一致，
