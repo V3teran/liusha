@@ -157,7 +157,7 @@ type CreateScanRequest struct {
 	ScenarioID string `json:""`
 }
 
-// scanHandler 处理 POST /scan：校验 brief + scenario_id 非空 + 调 ScanAPI 起任务。
+// scanHandler 处理 POST /scan：校验 brief + _id 非空 + 调 ScanAPI 起任务。
 //
 // 成功返 200 + {task_id, agent_id}；调用方据此查任务进度
 // （前端 / GET /llm/invocations/:task_id）。
@@ -174,9 +174,9 @@ func scanHandler(api ScanAPI) gin.HandlerFunc {
 			c.JSON(400, gin.H{"error": "brief required"})
 			return
 		}
-		scenarioID := strings.TrimSpace(req.ScenarioID)
-		if scenarioID == "" {
-			c.JSON(400, gin.H{"error": "scenario_id required"})
+		ID := strings.TrimSpace(req.ScenarioID)
+		if ID == "" {
+			c.JSON(400, gin.H{"error": "_id required"})
 			return
 		}
 

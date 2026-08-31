@@ -179,7 +179,7 @@ func trafficDetailHandler(api TrafficAPI, resolver TaskConvResolver) gin.Handler
 			}
 			consumers = append(consumers, gin.H{
 				"task_id":     ct.TaskID,
-				"scenario_id": ct.ScenarioID,
+				"_id": ct.ScenarioID,
 				"host":        ct.Host,
 				"status":      ct.Status,
 				"conv_id":     convID,

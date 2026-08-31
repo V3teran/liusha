@@ -11,7 +11,7 @@ import (
 // llm.go：把 config.yaml 的 providers:/llm.* 静态配置 insert-only 首填进 llm_provider /
 // llm_role_route 两表（migration 0097 + 0099）。
 //
-// 迁移语义（对齐 agent/scenario 种子）：DB 是事实源，种子只填**缺失行**——
+// 迁移语义（对齐 agent/ 种子）：DB 是事实源，种子只填**缺失行**——
 // provider 按 key、role_route 按 role 判存在，已存在一律跳过，
 // 绝不覆盖前端「模型」模块或运维在 DB 里的改动。
 //

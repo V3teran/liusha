@@ -88,12 +88,12 @@ func repoPath(rel string) string {
 }
 
 // SeedAssignment 插入一条最小 assignment 并返回其 id，供需要 task 外键归属的测试复用。
-// scenarioID 传待建 task 所属场景 code，与 task 的 scenario_id 保持一致即可。
+// ID 传待建 task 所属场景 code，与 task 的 _id 保持一致即可。
 func SeedAssignment(t *testing.T, pool *pgxpool.Pool, ) string {
 	t.Helper()
 	var id string
 	err := pool.QueryRow(context.Background(),
-		`INSERT INTO assignment (scenario_id, source, payload, title)
+		`INSERT INTO assignment (_id, source, payload, title)
 		 VALUES ($1, 'manual', '[]'::jsonb, 'test') RETURNING id`).Scan(&id)
 	if err != nil {
 		t.Fatalf("seed assignment: %v", err)

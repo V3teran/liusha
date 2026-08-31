@@ -41,7 +41,7 @@ type ChatAPI interface {
 	StartChatScan(ctx context.Context, brief string) (conversationID, taskID string, err error)
 }
 
-// 可选场景列表由 GET /scenarios（configstore）提供，前端 ScenarioPicker 消费。
+// 可选场景列表由 GET /s（configstore）提供，前端 ScenarioPicker 消费。
 
 // ConversationsAPI 是会话/消息读取窄接口（*conversation.Store 自动满足）。
 type ConversationsAPI interface {
@@ -86,7 +86,7 @@ func chatHandler(api ChatAPI, streamSecret []byte, secure bool) gin.HandlerFunc 
 			return
 		}
 		if req.ScenarioID == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "scenario_id 不能为空"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "_id 不能为空"})
 			return
 		}
 		convID, taskID, err := api.StartChatScan(c.Request.Context(), req.Brief)
@@ -141,13 +141,13 @@ func streamAuthHandler(streamSecret []byte, secure bool) gin.HandlerFunc {
 
 // FollowUpAPI 处理会话追加消息：内部判意图（action/qa）+ 落消息 + 分流。
 // 返回 intent（"action"|"qa"）、busy（action 但扫描进行中 → 应排队/拒绝）、err。
-// scenarioID：纯聊天会话（无 task）升级为 action 时用于建 task；已绑 task 的会话续接忽略之。
+// ID：纯聊天会话（无 task）升级为 action 时用于建 task；已绑 task 的会话续接忽略之。
 type FollowUpAPI interface {
 	HandleMessage(ctx context.Context, convID, content string) (intent string, busy bool, err error)
 }
 
 // FollowUpRequest 是 POST /conversations/:id/messages 请求体。
-// scenario_id 可选：纯聊天会话升级为扫描时用（前端 ScenarioPicker 随 Composer 带上）。
+// _id 可选：纯聊天会话升级为扫描时用（前端 ScenarioPicker 随 Composer 带上）。
 type FollowUpRequest struct {
 	Content    string `json:"content"`
 	ScenarioID string `json:""`
@@ -244,8 +244,8 @@ func renameConversationHandler(api ConversationRenamer) gin.HandlerFunc {
 	}
 }
 
-// listConversationsHandler 处理 GET /conversations?limit=&offset=&scenario_id=&source=：分页会话列表（UI 侧栏翻页）。
-// scenario_id / source 可选，空则不过滤——过滤下沉到 SQL，保证分页边界与「当前过滤下的
+// listConversationsHandler 处理 GET /conversations?limit=&offset=&_id=&source=：分页会话列表（UI 侧栏翻页）。
+// _id / source 可选，空则不过滤——过滤下沉到 SQL，保证分页边界与「当前过滤下的
 // 总条数」一致（若仍由前端在已分页的单页结果上再过滤，页码和条数会对不上）。
 // source ∈ {manual,auto}：前端「主动下发 / 被动代理」双 tab（纯聊天归 manual 侧，见 store）。
 // has_more：本页拉满 limit+1 条时才可能有下一页（store 已裁剪到 limit，见 ListConversations）。

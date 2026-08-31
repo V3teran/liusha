@@ -19,25 +19,25 @@ var mountTypeMapping = map[MountType]mount.Type{
 
 // Deprecated: use Files or HostConfigModifier in the ContainerRequest, or copy files container APIs to make containers portable across Docker environments
 // BindMounter can optionally be implemented by mount sources
-// to support advanced scenarios based on mount.BindOptions
+// to support advanced s based on mount.BindOptions
 type BindMounter interface {
 	GetBindOptions() *mount.BindOptions
 }
 
 // VolumeMounter can optionally be implemented by mount sources
-// to support advanced scenarios based on mount.VolumeOptions
+// to support advanced s based on mount.VolumeOptions
 type VolumeMounter interface {
 	GetVolumeOptions() *mount.VolumeOptions
 }
 
 // TmpfsMounter can optionally be implemented by mount sources
-// to support advanced scenarios based on mount.TmpfsOptions
+// to support advanced s based on mount.TmpfsOptions
 type TmpfsMounter interface {
 	GetTmpfsOptions() *mount.TmpfsOptions
 }
 
 // ImageMounter can optionally be implemented by mount sources
-// to support advanced scenarios based on mount.ImageOptions
+// to support advanced s based on mount.ImageOptions
 type ImageMounter interface {
 	ImageOptions() *mount.ImageOptions
 }

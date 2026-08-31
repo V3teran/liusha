@@ -125,7 +125,7 @@ func main() {
 	// 又是 runner 现读 / proxy 热换过滤链的事实源（复用同一 cache 实例——写后失效广播即时可见）。
 	settingStore := settingstore.New(pool, cache)
 
-	// 种子首填（insert-only）：空库时从磁盘 scenarios/agents 导入默认配置，
+	// 种子首填（insert-only）：空库时从磁盘 s/agents 导入默认配置，
 	// 已存在的行按 code 整行跳过（DB 是事实源，不覆盖运维/前端改动）。
 	// 目录缺失时静默跳过（walkFiles 容忍不存在），非致命——失败仅告警不 fail-fast，
 	// 让 api 仍能起（配置可事后经 CRUD 补齐）。

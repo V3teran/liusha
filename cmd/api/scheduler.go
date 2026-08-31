@@ -2,7 +2,7 @@
 // 模板 → 克隆一个新 assignment（source=auto，schedule_id 指回模板）→ 展开子 task →
 // 回写 last_run_at/next_run_at。单副本够用；api 多副本时需另抽 leader 选举，见 spec §4.2。
 //
-// 展开只按 item 形态派发输入供给（不关心引擎——引擎由 runner 按 task.scenario_id 解析，数据驱动）：
+// 展开只按 item 形态派发输入供给（不关心引擎——引擎由 runner 按 task._id 解析，数据驱动）：
 //   - item.Host 非空 → 流量复检：建 task（brief=host）+ 领取该 host 未消费 proxy_traffic + enqueue。
 //   - 否则 → brief 扫描：建 task（brief 原文）+ enqueue，target_host 由 runner 从 brief 抽取回填。
 package main
@@ -124,7 +124,7 @@ func (r *cronRunner) fireOne(ctx context.Context, sched cronschedule.CronSchedul
 // 未消费的 proxy_traffic + enqueue——与 ingestor.spawnPassiveTask 同语义，区别仅在触发源是
 // 定时器而非实时流量窗口（故用固定 passiveCronClaimLimit，不接聚合器配置）。
 //
-// brief 存 host（统一输入，见 D5）；引擎由 runner 按 scenarioID 解析（此处不关心 solo/swarm）。
+// brief 存 host（统一输入，见 D5）；引擎由 runner 按 ID 解析（此处不关心 solo/swarm）。
 func (r *cronRunner) expandTrafficItem(ctx context.Context, assignmentID,  item assignment.Item) error {
 	host := item.Host
 	var err error

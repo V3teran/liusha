@@ -701,10 +701,10 @@ func readCodeLengthCodeLengths(s *Reader) int {
 }
 
 /* Decodes the Huffman tables.
-   There are 2 scenarios:
+   There are 2 s:
     A) Huffman code contains only few symbols (1..4). Those symbols are read
        directly; their code lengths are defined by the number of symbols.
-       For this scenario 4 - 49 bits will be read.
+       For this  4 - 49 bits will be read.
 
     B) 2-phase decoding:
     B.1) Small Huffman table is decoded; it is specified with code lengths

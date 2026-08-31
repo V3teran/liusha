@@ -91,7 +91,7 @@ elements and attributes that are safe for user generated content. Note that
 this policy does not allow iframes, object, embed, styles, script, etc.
 
 The essence of building a policy is to determine which HTML elements and
-attributes are considered safe for your scenario. OWASP provide an XSS
+attributes are considered safe for your . OWASP provide an XSS
 prevention cheat sheet ( https://www.google.com/search?q=xss+prevention+cheat+sheet )
 to help explain the risks, but essentially:
 

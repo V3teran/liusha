@@ -192,7 +192,7 @@ func updateExecutorTierHandler(api ConfigAPI) gin.HandlerFunc {
 }
 
 // deleteExecutorHandler 处理 DELETE /executors/:id。
-// 被 scenario.solo_executor_id 引用时撞 DB ON DELETE RESTRICT（FK 23503）→ 409 中文提示。
+// 被 .solo_executor_id 引用时撞 DB ON DELETE RESTRICT（FK 23503）→ 409 中文提示。
 func deleteExecutorHandler(api ConfigAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id := c.Param("id")
