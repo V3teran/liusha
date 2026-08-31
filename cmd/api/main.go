@@ -555,7 +555,6 @@ func (a *scanAdapter) HandleMessage(ctx context.Context, convID, content string)
 		return "action", false, nil
 	}
 
-	if isAction {
 		if tk.Status == task.StatusActive {
 			return "action", true, nil // 忙：agent 在跑，本轮指导经 conversationContext 下次读到
 		}
