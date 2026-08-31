@@ -639,7 +639,7 @@ func (ft *DwarfFixupTable) AbsFuncDwarfSym(fnsym *LSym) *LSym {
 
 // Called after all functions have been compiled; the main job of this
 // function is to identify cases where there are outstanding fixups.
-// This scenario crops up when we have references to variables of an
+// This  crops up when we have references to variables of an
 // inlined routine, but that routine is defined in some other package.
 // This helper walks through and locate these fixups, then invokes a
 // helper to create an abstract subprogram DIE for each one.

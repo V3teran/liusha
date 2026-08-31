@@ -9,7 +9,7 @@
 // 领域中立），Profile 不做工具/技能的域维度过滤。
 //
 // 迁移史铁律：domain 概念只活在 Profile 实现里，永不进 DB 当过滤维度
-// （scenario.domain 删过 0094、tool.scenarios 删过 0093，不许第三次复活）。
+// （.domain 删过 0094、tool.s 删过 0093，不许第三次复活）。
 package domain
 
 import (

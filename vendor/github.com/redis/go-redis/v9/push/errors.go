@@ -138,7 +138,7 @@ func NewProcessorError(processorType ProcessorType, operation ProcessorOperation
 	}
 }
 
-// Helper functions for common error scenarios
+// Helper functions for common error s
 
 // IsHandlerNilError checks if an error is due to a nil handler
 func IsHandlerNilError(err error) bool {

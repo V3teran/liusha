@@ -27,7 +27,7 @@ const (
 	//
 	// Typically, we cannot decode non-nil stream value into
 	// nil interface with methods (e.g. io.Reader).
-	// However, in some scenarios, this should be allowed:
+	// However, in some s, this should be allowed:
 	//   - MapType
 	//   - SliceType
 	//   - Extensions

@@ -269,7 +269,7 @@ func (s *Store) ListByHost(ctx context.Context, host string, limit int) ([]VulnF
 // 漏洞页跨 task/host 全量展示用，区别于 per-task 的 VulnFinding 列表。
 type LedgerRow struct {
 	VulnFinding
-	ScenarioID string // 关联 task 的 scenario_id
+	ScenarioID string // 关联 task 的 _id
 	Source     string // 关联 assignment 的 source（manual 主动下发 / auto 被动代理）
 }
 
@@ -305,7 +305,7 @@ func ledgerWhere(f LedgerFilter) (string, []any) {
 		add("f.status = $%d", f.Status)
 	}
 	if f.ScenarioID != "" {
-		add("t.scenario_id = $%d", f.ScenarioID)
+		add("t._id = $%d", f.ScenarioID)
 	}
 	if f.Source != "" {
 		add("a.source = $%d", f.Source)
@@ -316,9 +316,9 @@ func ledgerWhere(f LedgerFilter) (string, []any) {
 	return " WHERE " + strings.Join(where, " AND "), args
 }
 
-// ListAll 全局漏洞台账查询：跨 task/host 平铺列出漏洞，JOIN task/assignment 带出 scenario_id 与 source，按可选维度筛选。
+// ListAll 全局漏洞台账查询：跨 task/host 平铺列出漏洞，JOIN task/assignment 带出 _id 与 source，按可选维度筛选。
 //
-// 本方法不受 task/scenario 作用域约束，跨场景一网打尽，按 seq desc 排序（对外顺序号倒序，最新发现优先，
+// 本方法不受 task/ 作用域约束，跨场景一网打尽，按 seq desc 排序（对外顺序号倒序，最新发现优先，
 // 且是全局单调序，不会像 created_at 那样同批写入并列时出现顺序不稳定）。
 // Limit>0 时分页（Offset 配合翻页）；Limit<=0 时不限（历史全量口径，内部调用方用）。
 //
@@ -326,7 +326,7 @@ func ledgerWhere(f LedgerFilter) (string, []any) {
 // 各自有各自的 triage 处置态，互不影响。台账平铺全部，不折叠。
 func (s *Store) ListAll(ctx context.Context, f LedgerFilter) ([]LedgerRow, error) {
 	where, args := ledgerWhere(f)
-	q := `SELECT ` + ledgerCols + `, t.scenario_id, a.source
+	q := `SELECT ` + ledgerCols + `, t._id, a.source
 		FROM finding f
 		JOIN task t ON t.id = f.task_id
 		JOIN assignment a ON a.id = t.assignment_id` +
@@ -370,19 +370,19 @@ func (s *Store) DistinctHosts(ctx context.Context) ([]string, error) {
 	return out, rows.Err()
 }
 
-// DistinctScenarios 返回台账全量 distinct scenario_id（JOIN task；供筛选下拉）。
+// DistinctScenarios 返回台账全量 distinct _id（JOIN task；供筛选下拉）。
 func (s *Store) DistinctScenarios(ctx context.Context) ([]string, error) {
 	rows, err := s.pool.Query(ctx,
-		`SELECT DISTINCT t.scenario_id FROM finding f JOIN task t ON t.id = f.task_id ORDER BY t.scenario_id`)
+		`SELECT DISTINCT t._id FROM finding f JOIN task t ON t.id = f.task_id ORDER BY t._id`)
 	if err != nil {
-		return nil, fmt.Errorf("distinct finding scenarios: %w", err)
+		return nil, fmt.Errorf("distinct finding s: %w", err)
 	}
 	defer rows.Close()
 	var out []string
 	for rows.Next() {
 		var sc string
 		if err := rows.Scan(&sc); err != nil {
-			return nil, fmt.Errorf("scan scenario_id: %w", err)
+			return nil, fmt.Errorf("scan _id: %w", err)
 		}
 		out = append(out, sc)
 	}
@@ -445,13 +445,13 @@ func validStatus(s string) bool {
 // ledgerCols 是台账 JOIN 查询的列序（= colsSelect 但每列显式加 f. 前缀）。
 // 不用程序化前缀：colsSelect 含 COALESCE(...) / depends_on::text[] 等内部带逗号的表达式，
 // 按 ", " 切分会劈碎；且 JOIN task 后 id/status/created_at 列名歧义，必须 f. 限定。
-// 与 colsSelect 手工对齐；scanLedger 列序 = 本常量 + 末尾 scenario_id, source。
+// 与 colsSelect 手工对齐；scanLedger 列序 = 本常量 + 末尾 _id, source。
 const ledgerCols = "f.id, f.task_id::text AS task_id, " +
 	"f.agent_run_id, f.source_traffic_id, f.host, f.severity, f.summary, f.target, f.evidence, " +
 	"COALESCE(f.cwe_id, ''), COALESCE(f.owasp_category, ''), f.first_seen_at, COALESCE(f.remediation, ''), " +
 	"f.depends_on::text[], f.status, COALESCE(f.triage_note, ''), f.triaged_at, f.created_at, f.seq, f.repro"
 
-// scanLedger 扫 ledgerCols 列序 + 末尾 scenario_id, source（比 scan() 多两列）。
+// scanLedger 扫 ledgerCols 列序 + 末尾 _id, source（比 scan() 多两列）。
 func scanLedger(r scanner, out *LedgerRow) error {
 	var agentID *string
 	var sourceTrafficID *int64

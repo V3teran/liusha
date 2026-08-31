@@ -1,6 +1,6 @@
 // Package httpapi: 全局漏洞台账 handler（漏洞页）。
 //
-// 本组端点跨 task/host/scenario 全量拉取，支持 triage 处置流转。
+// 本组端点跨 task/host/ 全量拉取，支持 triage 处置流转。
 package httpapi
 
 import (
@@ -30,17 +30,17 @@ const (
 	maxFindingPageSize     = 200
 )
 
-// listFindingsHandler 处理 GET /findings?host=&severity=&status=&scenario_id=&source=&page=&size=。
+// listFindingsHandler 处理 GET /findings?host=&severity=&status=&_id=&source=&page=&size=。
 //
 // 全局台账：跨 task/host 列出所有漏洞，按可选维度筛选，created_at desc（最新优先）。
-// 空筛选=全量。响应含 scenario_id + triage 处置态，供前端就地流转。
+// 空筛选=全量。响应含 _id + triage 处置态，供前端就地流转。
 // page 缺省/非法=1；size clamp 到 [1,maxFindingPageSize]，缺省 defaultFindingPageSize。
 //
 // 响应结构（findingJSON 单一序列化点）：
 //
 //	{ "total": N, "page": P, "size": S, "findings": [{
 //	    "id","seq","severity","summary","host","cwe_id","owasp_category","remediation",
-//	    "target":{...},"evidence":{...},"scenario_id":"...","source":"manual|auto",
+//	    "target":{...},"evidence":{...},"_id":"...","source":"manual|auto",
 //	    "status":"open|confirmed|fixed|false_positive|accepted","triage_note","triaged_at",
 //	    "created_at"
 //	}] }
@@ -102,18 +102,18 @@ func findingHostsHandler(api FindingsAPI) gin.HandlerFunc {
 	}
 }
 
-// findingScenariosHandler 处理 GET /findings/scenarios：全表 distinct scenario_id，供筛选下拉。
+// findingScenariosHandler 处理 GET /findings/s：全表 distinct _id，供筛选下拉。
 func findingScenariosHandler(api FindingsAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		scenarios, err := api.DistinctScenarios(c.Request.Context())
+		s, err := api.DistinctScenarios(c.Request.Context())
 		if err != nil {
 			c.JSON(500, gin.H{"error": err.Error()})
 			return
 		}
-		if scenarios == nil {
-			scenarios = []string{}
+		if s == nil {
+			s = []string{}
 		}
-		c.JSON(200, gin.H{"scenarios": scenarios})
+		c.JSON(200, gin.H{"s": s})
 	}
 }
 
@@ -151,7 +151,7 @@ func updateFindingStatusHandler(api FindingsAPI) gin.HandlerFunc {
 			return
 		}
 		// 回传更新后的行（含后端权威 triaged_at + 覆盖后的 severity）——前端据此覆盖乐观值，消除时钟偏差。
-		// UpdateTriage 返回 VulnFinding（无 scenario_id），补零值即可（前端改处置不依赖 scenario_id）。
+		// UpdateTriage 返回 VulnFinding（无 _id），补零值即可（前端改处置不依赖 _id）。
 		c.JSON(200, gin.H{"ok": true, "finding": findingJSON(finding.LedgerRow{VulnFinding: updated})})
 	}
 }
@@ -170,7 +170,7 @@ func findingJSON(r finding.LedgerRow) gin.H {
 		"remediation":    r.Remediation,
 		"target":         json.RawMessage(rawOrEmpty(r.Target, "{}")),
 		"evidence":       json.RawMessage(rawOrEmpty(r.Evidence, "{}")),
-		"scenario_id":    r.ScenarioID,
+		"_id":    r.ScenarioID,
 		"source":         r.Source,
 		"status":         r.Status,
 		"triage_note":    r.TriageNote,

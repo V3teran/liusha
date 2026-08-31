@@ -717,7 +717,7 @@ type Config struct {
 	//
 	// There may be cases where users enable session resumption (SessionTicketsDisabled: false && ClientSessionCache: non-nil), but they do not provide SessionTicketExtension or PreSharedKeyExtension in the ClientHelloSpec. This could be intentional or accidental.
 	//
-	// By default, utls throws an exception in such scenarios. Set this to true to skip the resumption and suppress the exception.
+	// By default, utls throws an exception in such s. Set this to true to skip the resumption and suppress the exception.
 	PreferSkipResumptionOnNilExtension bool // [uTLS]
 
 	// CipherSuites is a list of enabled TLS 1.0–1.2 cipher suites. The order of

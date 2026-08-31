@@ -129,7 +129,7 @@ func (h handler) buildPromptDeps() executorbuilder.Deps {
 }
 
 // composeSoloInstruction builds the full system prompt for a solo agent:
-// shared base + optional scenario instruction + executor body.
+// shared base + optional  instruction + executor body.
 func composeSoloInstruction(instruction string, op cfgagent.Agent) string {
 	var b strings.Builder
 	b.WriteString(executorbuilder.SystemPrompt())

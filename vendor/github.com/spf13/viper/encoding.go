@@ -29,7 +29,7 @@ type Codec interface {
 	Decoder
 }
 
-// TODO: consider adding specific errors for not found scenarios
+// TODO: consider adding specific errors for not found s
 
 // EncoderRegistry returns an [Encoder] for a given format.
 //

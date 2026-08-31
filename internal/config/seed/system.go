@@ -11,7 +11,7 @@ import (
 // system.go：把 config.yaml 的业务旋钮（compaction 会话压缩 / runtime 工具运行时 / proxy_filter
 // 流量过滤规则）insert-only 首填进 system_setting（migration 0098）三行分组 KV。
 //
-// 迁移语义（对齐 agent/scenario/llm 种子）：DB 是事实源，种子只填**缺失组**——
+// 迁移语义（对齐 agent//llm 种子）：DB 是事实源，种子只填**缺失组**——
 // 每组按 group_key 判存在（GetXxxRaw 绕缓存直穿 DB），缺行才写；已存在一律跳过，
 // 绝不覆盖前端「系统配置」或运维在 DB 里的改动。三组彼此独立，各自判存。
 

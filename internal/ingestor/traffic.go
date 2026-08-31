@@ -31,7 +31,7 @@ import (
 )
 
 // trafficScenarioCode 是流量驱动自动建 task 所属的场景 code（solo 引擎，逐条测 HTTP 数据包漏洞）。
-// 聚合器建的 assignment/task 都挂此场景；runner handler 据 scenario_id 走 solo 派发。
+// 聚合器建的 assignment/task 都挂此场景；runner handler 据 _id 走 solo 派发。
 const trafficScenarioCode = "api-pentest"
 
 // ConversationCreator 建 passive task 的会话流。聚合器建 task 后建一条 conversation，
@@ -448,7 +448,7 @@ func passiveBrief(host string, trafficList []traffic.ProxyTraffic) string {
 
 func (t *Traffic) enqueuePassive(ctx context.Context, taskID, convID, host string) error {
 	// payload 只带一段 brief 文本（见 D5）：流量驱动无用户手打 brief，用 host 作 brief——
-	// runner handler 据 scenario_id 走 solo 派发，从 brief 抽 host 回填。
+	// runner handler 据 _id 走 solo 派发，从 brief 抽 host 回填。
 	payloadInput, _ := json.Marshal(map[string]any{"brief": host})
 	hid, err := t.executors.Create(ctx, agentrun.NewParams{
 		TaskID: taskID,

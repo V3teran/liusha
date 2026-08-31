@@ -5232,9 +5232,9 @@ const (
 var (
 	// One or more messages are provided for publishing to an intermediary. If a single message is published, the context of the "Publish" span can be used as the creation context and no "Create" span needs to be created
 	MessagingOperationTypePublish = MessagingOperationTypeKey.String("publish")
-	// A message is created. "Create" spans always refer to a single message and are used to provide a unique creation context for messages in batch publishing scenarios
+	// A message is created. "Create" spans always refer to a single message and are used to provide a unique creation context for messages in batch publishing s
 	MessagingOperationTypeCreate = MessagingOperationTypeKey.String("create")
-	// One or more messages are requested by a consumer. This operation refers to pull-based scenarios, where consumers explicitly call methods of messaging SDKs to receive messages
+	// One or more messages are requested by a consumer. This operation refers to pull-based s, where consumers explicitly call methods of messaging SDKs to receive messages
 	MessagingOperationTypeReceive = MessagingOperationTypeKey.String("receive")
 	// One or more messages are delivered to or processed by a consumer
 	MessagingOperationTypeDeliver = MessagingOperationTypeKey.String("process")
@@ -8880,7 +8880,7 @@ const (
 	// from original string. In the case of using a user-agent for non-browser
 	// products, such as microservices with multiple names/versions inside the
 	// `user_agent.original`, the most significant name SHOULD be selected. In
-	// such a scenario it should align with `user_agent.version`
+	// such a  it should align with `user_agent.version`
 	UserAgentNameKey = attribute.Key("user_agent.name")
 
 	// UserAgentOriginalKey is the attribute Key conforming to the
@@ -8911,7 +8911,7 @@ const (
 	// version from original string. In the case of using a user-agent for
 	// non-browser products, such as microservices with multiple names/versions
 	// inside the `user_agent.original`, the most significant version SHOULD be
-	// selected. In such a scenario it should align with `user_agent.name`
+	// selected. In such a  it should align with `user_agent.name`
 	UserAgentVersionKey = attribute.Key("user_agent.version")
 )
 

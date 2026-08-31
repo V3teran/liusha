@@ -101,7 +101,7 @@ func (p *parser) peek() yaml_event_type_t {
 	}
 	// It's curious choice from the underlying API to generally return a
 	// positive result on success, but on this case return true in an error
-	// scenario. This was the source of bugs in the past (issue #666).
+	// . This was the source of bugs in the past (issue #666).
 	if !yaml_parser_parse(&p.parser, &p.event) || p.parser.error != yaml_NO_ERROR {
 		p.fail()
 	}
@@ -485,7 +485,7 @@ func allowedAliasRatio(decodeCount int) float64 {
 	default:
 		// scale smoothly from 99% down to 10% over the range.
 		// this maps to 396,000 - 400,000 allowed alias-driven decodes over the range.
-		// 400,000 decode operations is ~100MB of allocations in worst-case scenarios (single-item maps).
+		// 400,000 decode operations is ~100MB of allocations in worst-case s (single-item maps).
 		return 0.99 - 0.89*(float64(decodeCount-alias_ratio_range_low)/alias_ratio_range)
 	}
 }

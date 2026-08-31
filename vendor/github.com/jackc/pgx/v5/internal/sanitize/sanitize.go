@@ -148,7 +148,7 @@ func (q *Query) init(sql string) {
 func QuoteString(dst []byte, str string) []byte {
 	const quote = '\''
 
-	// Preallocate space for the worst case scenario
+	// Preallocate space for the worst case 
 	dst = slices.Grow(dst, len(str)*2+2)
 
 	// Add opening quote

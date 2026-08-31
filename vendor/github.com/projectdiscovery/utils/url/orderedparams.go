@@ -116,7 +116,7 @@ func (o *OrderedParams) Encode() string {
 }
 
 // Decode is opposite of Encode() where ("bar=baz&foo=quux") is parsed
-// Parameters are loosely parsed to allow any scenario
+// Parameters are loosely parsed to allow any 
 func (o *OrderedParams) Decode(raw string) {
 	if o.om.Len() == 0 {
 		o.om = mapsutil.NewOrderedMap[string, []string]()

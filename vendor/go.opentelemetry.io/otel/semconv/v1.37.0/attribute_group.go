@@ -4339,7 +4339,7 @@ const (
 	// > ensure you do your own due diligence.> Due to these reasons, this
 	// > identifier is not recommended for consumer applications and will likely
 	// > result in rejection from both Google Play and App Store.
-	// > However, it may be appropriate for specific enterprise scenarios, such as
+	// > However, it may be appropriate for specific enterprise s, such as
 	// > kiosk devices or enterprise-managed devices, with appropriate compliance
 	// > clearance.
 	// > Any instrumentation providing this identifier MUST implement it as an
@@ -10210,7 +10210,7 @@ func MessagingServiceBusMessageEnqueuedTime(val int) attribute.KeyValue {
 var (
 	// A message is created. "Create" spans always refer to a single message and are
 	// used to provide a unique creation context for messages in batch sending
-	// scenarios.
+	// s.
 	//
 	// Stability: development
 	MessagingOperationTypeCreate = MessagingOperationTypeKey.String("create")
@@ -10221,7 +10221,7 @@ var (
 	// Stability: development
 	MessagingOperationTypeSend = MessagingOperationTypeKey.String("send")
 	// One or more messages are requested by a consumer. This operation refers to
-	// pull-based scenarios, where consumers explicitly call methods of messaging
+	// pull-based s, where consumers explicitly call methods of messaging
 	// SDKs to receive messages.
 	//
 	// Stability: development
@@ -14512,7 +14512,7 @@ const (
 	// Note: [Example] of extracting browser's name from original string. In the
 	// case of using a user-agent for non-browser products, such as microservices
 	// with multiple names/versions inside the `user_agent.original`, the most
-	// significant name SHOULD be selected. In such a scenario it should align with
+	// significant name SHOULD be selected. In such a  it should align with
 	// `user_agent.version`
 	//
 	// [Example]: https://www.whatsmyua.info
@@ -14595,7 +14595,7 @@ const (
 	// Note: [Example] of extracting browser's version from original string. In the
 	// case of using a user-agent for non-browser products, such as microservices
 	// with multiple names/versions inside the `user_agent.original`, the most
-	// significant version SHOULD be selected. In such a scenario it should align
+	// significant version SHOULD be selected. In such a  it should align
 	// with `user_agent.name`
 	//
 	// [Example]: https://www.whatsmyua.info
