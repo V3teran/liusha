@@ -89,7 +89,7 @@ func chatHandler(api ChatAPI, streamSecret []byte, secure bool) gin.HandlerFunc 
 			c.JSON(http.StatusBadRequest, gin.H{"error": "scenario_id 不能为空"})
 			return
 		}
-		convID, taskID, err := api.StartChatScan(c.Request.Context(), req.Brief, req.ScenarioID)
+		convID, taskID, err := api.StartChatScan(c.Request.Context(), req.Brief)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
@@ -161,7 +161,7 @@ func followUpHandler(api FollowUpAPI) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "content 不能为空"})
 			return
 		}
-		intent, busy, err := api.HandleMessage(c.Request.Context(), convID, req.Content, req.ScenarioID)
+		intent, busy, err := api.HandleMessage(c.Request.Context(), convID, req.Content)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
