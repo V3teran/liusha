@@ -84,12 +84,6 @@ func chatHandler(api ChatAPI, streamSecret []byte, secure bool) gin.HandlerFunc 
 		if req.Brief == "" {
 			return
 		}
-		if req.ScenarioID == "" {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
-		setStreamCookie(c, streamSecret, convID, secure)
-		c.JSON(http.StatusOK, ChatResponse{ConversationID: convID, TaskID: taskID})
 	}
 }
 
