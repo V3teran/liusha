@@ -170,7 +170,7 @@ func findingJSON(r finding.LedgerRow) gin.H {
 		"remediation":    r.Remediation,
 		"target":         json.RawMessage(rawOrEmpty(r.Target, "{}")),
 		"evidence":       json.RawMessage(rawOrEmpty(r.Evidence, "{}")),
-		"_id":    r.ScenarioID,
+		"_id": "",
 		"source":         r.Source,
 		"status":         r.Status,
 		"triage_note":    r.TriageNote,
