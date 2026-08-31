@@ -80,7 +80,6 @@ func (r *cronRunner) fireDue(ctx context.Context) {
 func (r *cronRunner) fireOne(ctx context.Context, sched cronschedule.CronSchedule) error {
 	var items []assignment.Item
 	var err error
-var err error
 	if err = json.Unmarshal(sched.Payload, &items); err != nil {
 		return fmt.Errorf("unmarshal schedule %s payload: %w", sched.ID, err)
 	}
@@ -128,6 +127,8 @@ var err error
 // brief 存 host（统一输入，见 D5）；引擎由 runner 按 scenarioID 解析（此处不关心 solo/swarm）。
 func (r *cronRunner) expandTrafficItem(ctx context.Context, assignmentID,  item assignment.Item) error {
 	host := item.Host
+	var err error
+	var tk task.Task
 	if err != nil {
 		return fmt.Errorf("create task: %w", err)
 	}
