@@ -76,7 +76,7 @@ func newWithStores(sc scenarioStore, hn executorStore, cache *cachestore.Cache) 
 
 // ── 缓存键（L1/L2 同键，统一前缀 configstore:）───────────────────────────
 
-// keyplanner / keyEnabledDomain 是两个哨兵键（无参），分别缓存全局唯一编排操作员
+// keyplanner / keyExecutor 是两个哨兵键（无参），分别缓存全局唯一的 Planner 和 Executor
 // 与 swarm 的 enabled 领域池。任一 agent 存/删即失效二者（见 SaveExecutor/DeleteExecutor）。
 const (
 	keyplanner  = "configstore:executor:planner"
@@ -179,10 +179,14 @@ func (s *Store) ComplexityByCode(ctx context.Context, code string) (complexity s
 
 // EnabledDomainExecutors 返回全部 enabled 领域操作员（swarm 子代理池），缓存于哨兵键。
 func (s *Store) EnabledDomainExecutors(ctx context.Context) ([]cfgagent.Agent, error) {
-	return cachestore.ReadThrough(ctx, s.cache, keyEnabledDomain,
-		func([]cfgagent.Agent) []string { return []string{keyEnabledDomain} },
+	return cachestore.ReadThrough(ctx, s.cache, keyExecutor,
+		func([]cfgagent.Agent) []string { return []string{keyExecutor} },
 		func(ctx context.Context) ([]cfgagent.Agent, error) {
-			return s.executors.ListEnabledDomain(ctx)
+			executor, err := s.executors.GetExecutor(ctx)
+			if err != nil {
+				return nil, err
+			}
+			return []cfgagent.Agent{executor}, nil
 		})
 }
 
@@ -260,7 +264,7 @@ func scenarioKeys(id, code string) []string {
 func agentKeys(id, code string) []string {
 	return []string{
 		keyExecutorID(id), keyExecutorComplexity(code),
-		keyplanner, keyEnabledDomain,
+		keyplanner, keyExecutor,
 		keyAgentsList(true), keyAgentsList(false),
 	}
 }

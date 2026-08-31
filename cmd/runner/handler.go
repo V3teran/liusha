@@ -15,7 +15,6 @@ import (
 	"github.com/V3teran/liusha/internal/agentrun"
 	"github.com/V3teran/liusha/internal/orchestrator"
 	"github.com/V3teran/liusha/internal/config"
-	cfgscenario "github.com/V3teran/liusha/internal/config/scenario"
 	"github.com/V3teran/liusha/internal/config/settingstore"
 	"github.com/V3teran/liusha/internal/configstore"
 	"github.com/V3teran/liusha/internal/controlplane"
