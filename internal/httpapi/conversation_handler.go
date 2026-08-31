@@ -85,10 +85,6 @@ func chatHandler(api ChatAPI, streamSecret []byte, secure bool) gin.HandlerFunc 
 			return
 		}
 		if req.ScenarioID == "" {
-			return
-		}
-		convID, taskID, err := api.StartChatScan(c.Request.Context(), req.Brief)
-		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
