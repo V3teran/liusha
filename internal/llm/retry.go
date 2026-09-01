@@ -12,6 +12,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"strings"
 	"time"
@@ -118,15 +119,21 @@ func classify(err error) errorClass {
 	if errors.As(err, &ne) && ne.Timeout() {
 		return classNet
 	}
-	// 3. connection reset / refused / i/o timeout
+	// 3. EOF 错误（连接意外关闭）
+	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+		return classNet
+	}
+	// 4. connection reset / refused / i/o timeout / eof (字符串兜底)
 	msg := err.Error()
 	low := strings.ToLower(msg)
 	if strings.Contains(low, "connection reset") ||
 		strings.Contains(low, "connection refused") ||
-		strings.Contains(low, "i/o timeout") {
+		strings.Contains(low, "connection closed") ||
+		strings.Contains(low, "i/o timeout") ||
+		strings.Contains(low, "eof") {
 		return classNet
 	}
-	// 4. 启发式：err.Error() 含状态码（不优雅但部分 provider 不在 error 结构里暴露 code）
+	// 5. 启发式：err.Error() 含状态码（不优雅但部分 provider 不在 error 结构里暴露 code）
 	if strings.Contains(msg, "429") {
 		return class429
 	}
