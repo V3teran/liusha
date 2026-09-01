@@ -175,6 +175,10 @@ func (l *DockerLauncher) Spawn(ctx context.Context, agentID string) (Client, err
 		return nil, fmt.Errorf("docker port %s 输出空", name)
 	}
 
+	// 修复 Docker-in-Docker 场景：runner 容器内无法访问宿主机的 127.0.0.1，
+	// 需要替换为 host.docker.internal（已通过 --add-host 映射到宿主机）
+	hostAddr = strings.Replace(hostAddr, "127.0.0.1", "host.docker.internal", 1)
+
 	baseURL := "http://" + hostAddr
 	client := newHTTPClient(baseURL)
 
