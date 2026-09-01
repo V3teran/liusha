@@ -183,6 +183,7 @@ services:
       LIUSHA_USE_REACT: "${LIUSHA_USE_REACT:-}"
     volumes:
       - ../logs:/app/logs
+      - /var/run/docker.sock:/var/run/docker.sock
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
