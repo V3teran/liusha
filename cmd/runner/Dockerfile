@@ -9,7 +9,7 @@ ENV CGO_ENABLED=0
 RUN go build -mod=vendor -o /out/runner ./cmd/runner
 
 FROM alpine:3.20
-RUN apk add --no-cache ca-certificates wget
+RUN apk add --no-cache ca-certificates wget docker-cli
 WORKDIR /app
 COPY --from=build /out/runner /app/runner
 COPY config /app/config
