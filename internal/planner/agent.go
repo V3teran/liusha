@@ -3,7 +3,9 @@ package planner
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -74,15 +76,15 @@ func (a *Agent) Start(ctx context.Context) error {
 	evaluationTicker := time.NewTicker(6 * time.Minute)
 	defer evaluationTicker.Stop()
 
-	// 初始规划
-	if err := a.replan(ctx, executor.Event{
-		Type:   executor.EventTaskStarted,
-		TaskID: a.taskID,
-	}); err != nil {
-		a.logger.Error().Err(err).Msg("initial planning failed")
+	// 初始规划：关键路径，失败则中止任务
+	// 与后续 replan 不同：初始 planning 是任务的前置条件，必须成功
+	if err := a.performInitialPlanning(ctx); err != nil {
+		// 通知失败（Executor 会看到 channel 关闭但没有成功标记）
+		close(a.initialPlanDoneCh)
+		return fmt.Errorf("initial planning failed, aborting task: %w", err)
 	}
 
-	// 通知初始规划完成
+	// 通知初始规划成功
 	close(a.initialPlanDoneCh)
 
 	for {
@@ -112,6 +114,104 @@ func (a *Agent) Start(ctx context.Context) error {
 			}
 		}
 	}
+}
+
+// performInitialPlanning 执行初始规划，带重试逻辑
+//
+// 设计要点：
+//   - 初始规划是任务的前置条件，失败则任务无法执行
+//   - 重试 3 次，指数退避（2s, 4s, 6s）
+//   - 客户端错误（401, 403）不重试，立即失败
+//   - 网络错误、限流、服务端错误会重试
+func (a *Agent) performInitialPlanning(ctx context.Context) error {
+	const maxAttempts = 3
+	baseDelay := 2 * time.Second
+
+	event := executor.Event{
+		Type:   executor.EventTaskStarted,
+		TaskID: a.taskID,
+	}
+
+	var lastErr error
+
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		a.logger.Info().
+			Int("attempt", attempt).
+			Int("max_attempts", maxAttempts).
+			Str("task_id", a.taskID).
+			Msg("attempting initial planning")
+
+		err := a.replan(ctx, event)
+
+		if err == nil {
+			a.logger.Info().
+				Int("attempt", attempt).
+				Str("task_id", a.taskID).
+				Msg("initial planning succeeded")
+			return nil
+		}
+
+		lastErr = err
+
+		a.logger.Warn().
+			Err(err).
+			Int("attempt", attempt).
+			Str("task_id", a.taskID).
+			Msg("initial planning attempt failed")
+
+		// 检查是否是明确的客户端错误（不应重试）
+		if isClientError(err) {
+			a.logger.Error().
+				Err(err).
+				Str("task_id", a.taskID).
+				Msg("initial planning failed with client error (non-retriable)")
+			return fmt.Errorf("initial planning failed with client error: %w", err)
+		}
+
+		// 还有重试机会
+		if attempt < maxAttempts {
+			// 指数退避
+			delay := time.Duration(attempt) * baseDelay
+			a.logger.Info().
+				Dur("delay", delay).
+				Str("task_id", a.taskID).
+				Msg("retrying initial planning after backoff")
+
+			select {
+			case <-time.After(delay):
+				// 继续下一次尝试
+			case <-ctx.Done():
+				return fmt.Errorf("context canceled during retry backoff: %w", ctx.Err())
+			}
+		}
+	}
+
+	return fmt.Errorf("initial planning failed after %d attempts: %w", maxAttempts, lastErr)
+}
+
+// isClientError 判断是否是客户端错误（不应重试的错误）
+//
+// 包括：
+//   - 401 Unauthorized: API Key 无效
+//   - 403 Forbidden: 权限不足
+//   - 400 Bad Request: 请求格式错误
+//   - context.Canceled: 用户主动取消
+func isClientError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	// context 取消不应重试
+	if errors.Is(err, context.Canceled) {
+		return true
+	}
+
+	// 检查错误消息中的 HTTP 状态码
+	// 注意：这是启发式判断，理想情况应该用类型断言
+	errMsg := err.Error()
+	return strings.Contains(errMsg, "401") ||
+		strings.Contains(errMsg, "403") ||
+		strings.Contains(errMsg, "400")
 }
 
 // Stop 停止 Planner Agent
