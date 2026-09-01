@@ -14,5 +14,6 @@ WORKDIR /app
 COPY --from=build /out/runner /app/runner
 COPY config /app/config
 COPY skills /app/skills
+COPY deployments/tool-images/pentools/tools.yaml /app/deployments/tool-images/pentools/tools.yaml
 EXPOSE 9090
 ENTRYPOINT ["/app/runner"]
