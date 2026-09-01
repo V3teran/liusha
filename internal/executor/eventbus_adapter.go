@@ -27,7 +27,7 @@ func (a *eventBusAdapter) Subscribe(ctx context.Context, actionID string) EventS
 }
 
 // Publish 发布事件。
-func (a *eventBusAdapter) Publish(event Event) {
+func (a *eventBusAdapter) Publish(event ControlEvent) {
 	a.bus.Publish(eventbus.Event{
 		Type:      eventbus.EventType(event.Type),
 		ActionID:  event.ActionID,
@@ -42,13 +42,13 @@ type eventSubscriptionAdapter struct {
 }
 
 // Events 返回事件通道。
-func (a *eventSubscriptionAdapter) Events() <-chan Event {
+func (a *eventSubscriptionAdapter) Events() <-chan ControlEvent {
 	// 创建转换通道
-	out := make(chan Event, 10)
+	out := make(chan ControlEvent, 10)
 	go func() {
 		defer close(out)
 		for evt := range a.sub.Events() {
-			out <- Event{
+			out <- ControlEvent{
 				Type:      string(evt.Type),
 				ActionID:  evt.ActionID,
 				Payload:   evt.Payload,

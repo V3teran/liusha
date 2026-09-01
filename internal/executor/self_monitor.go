@@ -10,7 +10,7 @@ import (
 )
 
 // selfEvaluate 执行自我评估，判断是否跑偏。
-func (a *Executor) selfEvaluate(ctx context.Context, goal string, recentSteps []Step) (SelfAssessment, error) {
+func (a *Agent) selfEvaluate(ctx context.Context, goal string, recentSteps []Step) (SelfAssessment, error) {
 	if len(recentSteps) == 0 {
 		return SelfAssessment{Status: "on_track", Severity: "low"}, nil
 	}

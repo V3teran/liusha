@@ -1,6 +1,6 @@
 // Package cognition 实现 L4 认知循环（PAE: Plan-Act-Evolve）的事件驱动基础设施。
 // Planner Agent 通过事件通道被唤醒重新规划，而非轮询。
-package orchestrator
+package executor
 
 import (
 	"context"
@@ -38,8 +38,8 @@ type Event struct {
 	Payload   map[string]interface{} `json:"payload,omitempty"`
 }
 
-// EventBus 管理事件的发布和订阅
-type EventBus struct {
+// PlannerEventBus 管理事件的发布和订阅（用于 Planner 层）
+type PlannerEventBus struct {
 	// 每个 TaskID 一个事件通道
 	channels map[string]chan Event
 	// 用于通知新任务注册
@@ -51,9 +51,9 @@ type EventBus struct {
 	ctx context.Context
 }
 
-// NewEventBus 创建新的事件总线
-func NewEventBus(ctx context.Context) *EventBus {
-	bus := &EventBus{
+// NewPlannerEventBus 创建新的事件总线
+func NewPlannerEventBus(ctx context.Context) *PlannerEventBus {
+	bus := &PlannerEventBus{
 		channels:   make(map[string]chan Event),
 		register:   make(chan string, 10),
 		unregister: make(chan string, 10),
@@ -65,7 +65,7 @@ func NewEventBus(ctx context.Context) *EventBus {
 }
 
 // run 运行事件总线的主循环
-func (b *EventBus) run() {
+func (b *PlannerEventBus) run() {
 	for {
 		select {
 		case <-b.ctx.Done():
@@ -99,7 +99,7 @@ func (b *EventBus) run() {
 }
 
 // Subscribe 订阅指定 TaskID 的事件（Planner Agent 调用）
-func (b *EventBus) Subscribe(taskID string) <-chan Event {
+func (b *PlannerEventBus) Subscribe(taskID string) <-chan Event {
 	b.register <- taskID
 	// 等待通道创建
 	time.Sleep(10 * time.Millisecond)
@@ -107,12 +107,12 @@ func (b *EventBus) Subscribe(taskID string) <-chan Event {
 }
 
 // Unsubscribe 取消订阅（Task 结束时调用）
-func (b *EventBus) Unsubscribe(taskID string) {
+func (b *PlannerEventBus) Unsubscribe(taskID string) {
 	b.unregister <- taskID
 }
 
 // Publish 发布事件
-func (b *EventBus) Publish(event Event) {
+func (b *PlannerEventBus) Publish(event Event) {
 	if event.Timestamp.IsZero() {
 		event.Timestamp = time.Now()
 	}
@@ -123,7 +123,7 @@ func (b *EventBus) Publish(event Event) {
 }
 
 // PublishActionCompleted 发布 Action 完成事件
-func (b *EventBus) PublishActionCompleted(taskID string, actionID string) {
+func (b *PlannerEventBus) PublishActionCompleted(taskID string, actionID string) {
 	b.Publish(Event{
 		Type:   EventActionCompleted,
 		TaskID: taskID,
@@ -134,7 +134,7 @@ func (b *EventBus) PublishActionCompleted(taskID string, actionID string) {
 }
 
 // PublishFindingDiscovered 发布 Finding 发现事件
-func (b *EventBus) PublishFindingDiscovered(taskID string, findingID string) {
+func (b *PlannerEventBus) PublishFindingDiscovered(taskID string, findingID string) {
 	b.Publish(Event{
 		Type:   EventFindingDiscovered,
 		TaskID: taskID,
@@ -145,7 +145,7 @@ func (b *EventBus) PublishFindingDiscovered(taskID string, findingID string) {
 }
 
 // PublishVerificationPassed 发布验证通过事件
-func (b *EventBus) PublishVerificationPassed(taskID string, nodeID string) {
+func (b *PlannerEventBus) PublishVerificationPassed(taskID string, nodeID string) {
 	b.Publish(Event{
 		Type:   EventVerificationPassed,
 		TaskID: taskID,
@@ -156,7 +156,7 @@ func (b *EventBus) PublishVerificationPassed(taskID string, nodeID string) {
 }
 
 // PublishManualGuidance 发布人工干预事件
-func (b *EventBus) PublishManualGuidance(taskID string, guidance string) {
+func (b *PlannerEventBus) PublishManualGuidance(taskID string, guidance string) {
 	b.Publish(Event{
 		Type:   EventManualGuidance,
 		TaskID: taskID,
@@ -167,7 +167,7 @@ func (b *EventBus) PublishManualGuidance(taskID string, guidance string) {
 }
 
 // PublishTaskStarted 发布任务启动事件
-func (b *EventBus) PublishTaskStarted(taskID string) {
+func (b *PlannerEventBus) PublishTaskStarted(taskID string) {
 	b.Publish(Event{
 		Type:   EventTaskStarted,
 		TaskID: taskID,
@@ -175,7 +175,7 @@ func (b *EventBus) PublishTaskStarted(taskID string) {
 }
 
 // PublishHeartbeat 发布心跳事件（定期触发）
-func (b *EventBus) PublishHeartbeat(taskID string) {
+func (b *PlannerEventBus) PublishHeartbeat(taskID string) {
 	b.Publish(Event{
 		Type:   EventHeartbeat,
 		TaskID: taskID,

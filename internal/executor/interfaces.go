@@ -1,7 +1,7 @@
-// Package cognition 定义 L4 认知引擎的核心接口。
+// Package executor 定义执行层的核心接口。
 //
 // 更新（2026-08-26）：适配统一世界模型（Move 合并到 Node）
-package orchestrator
+package executor
 
 import (
 	"context"
@@ -10,8 +10,8 @@ import (
 	"github.com/V3teran/liusha/internal/worldmodel"
 )
 
-// Executor 执行一个 Move，产出 Attempt 列表（domain-agnostic）
-type Executor interface {
+// ExecutorInterface 执行一个 Move，产出 Attempt 列表（domain-agnostic）
+type ExecutorInterface interface {
 	Execute(ctx context.Context, move worldmodel.Node) ([]verifier.Attempt, error)
 }
 

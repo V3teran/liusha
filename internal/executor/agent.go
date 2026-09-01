@@ -1,4 +1,4 @@
-// Package executor — ReAct 执行引擎。
+// Package executor 提供执行层的所有组件。
 //
 // 每 Step：CountTokens → 压缩判断 → Provider.Complete → ExecuteParallel
 //   → checkpoint.Write → SSE 推送
@@ -54,7 +54,7 @@ type SSEEvent struct {
 // ─────────────────────────────────────────────
 
 // Executor 是 ReAct 执行引擎。每个 Move 新建一个 Executor 实例。
-type Executor struct {
+type Agent struct {
 	provider   provider.Provider
 	reg        *registry.Registry
 	compactor  Compactor
@@ -87,17 +87,17 @@ type WorldModelNode struct {
 // EventBus 是事件总线接口（用于解耦）。
 type EventBus interface {
 	Subscribe(ctx context.Context, actionID string) EventSubscription
-	Publish(event Event)
+	Publish(event ControlEvent)
 }
 
 // EventSubscription 是订阅句柄接口。
 type EventSubscription interface {
-	Events() <-chan Event
+	Events() <-chan ControlEvent
 	Unsubscribe()
 }
 
 // Event 是事件载体。
-type Event struct {
+type ControlEvent struct {
 	Type      string
 	ActionID  string
 	Payload   map[string]interface{}
@@ -105,7 +105,7 @@ type Event struct {
 }
 
 // New 构造 Actor。emitter 和 worldmodel 可为 nil。
-func New(
+func NewAgent(
 	p provider.Provider,
 	reg *registry.Registry,
 	compactor Compactor,
@@ -113,8 +113,8 @@ func New(
 	emitter SSEEmitter,
 	logger zerolog.Logger,
 	worldmodel WorldModelReader,
-) *Executor {
-	return &Executor{
+) *Agent {
+	return &Agent{
 		provider:   p,
 		reg:        reg,
 		compactor:  compactor,
@@ -133,13 +133,13 @@ func New(
 }
 
 // WithEventBus 配置事件总线。
-func (a *Executor) WithEventBus(bus EventBus) *Executor {
+func (a *Agent) WithEventBus(bus EventBus) *Agent {
 	a.eventBus = bus
 	return a
 }
 
 // WithMonitor 配置自我监察。
-func (a *Executor) WithMonitor(enabled bool, stepInterval int, evaluateSteps int, provider provider.Provider) *Executor {
+func (a *Agent) WithMonitor(enabled bool, stepInterval int, evaluateSteps int, provider provider.Provider) *Agent {
 	a.monitorEnabled = enabled
 	a.monitorStepInterval = stepInterval
 	a.monitorEvaluateSteps = evaluateSteps
@@ -151,7 +151,7 @@ func (a *Executor) WithMonitor(enabled bool, stepInterval int, evaluateSteps int
 
 // Run 执行 ReAct 循环，直到 done/budget/error/cancel。
 // 如果启用监察，将启动两个协程：执行协程和监察协程。
-func (a *Executor) Run(ctx context.Context, actionID string, req ExecutorReq) (ExecutorResult, error) {
+func (a *Agent) Run(ctx context.Context, actionID string, req ExecutorReq) (ExecutorResult, error) {
 	if req.Budget.MaxSteps <= 0 {
 		req.Budget = DefaultBudget()
 	}
@@ -169,7 +169,7 @@ func (a *Executor) Run(ctx context.Context, actionID string, req ExecutorReq) (E
 }
 
 // runSingleThreaded 是原有的单协程执行逻辑（未启用监察时使用）。
-func (a *Executor) runSingleThreaded(ctx context.Context, actionID string, req ExecutorReq) (ExecutorResult, error) {
+func (a *Agent) runSingleThreaded(ctx context.Context, actionID string, req ExecutorReq) (ExecutorResult, error) {
 	// 从 checkpoint 恢复起点
 	startStep := 0
 	if a.checkpoint != nil {

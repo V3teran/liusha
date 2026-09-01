@@ -1,7 +1,7 @@
 // Package web 是第一个 Domain Profile 实现（L2）：把自由文本 brief 里的 http(s) 目标
 // 解析成 web 域的 TargetRef。它证明架构试金石——加一个域只需实现接口 + 注册，核心零改动。
 // 二进制/云/lateral 域后续按同样方式各出一个包。
-package web
+package executor
 
 import (
 	"context"
@@ -35,7 +35,7 @@ func (p *Profile) Domain() string { return "web" }
 func (p *Profile) Onboard(_ context.Context, in domain.BriefInput) ([]worldmodel.TargetRef, error) {
 	hosts := extractHosts(in.Brief)
 	if len(hosts) == 0 {
-		return nil, fmt.Errorf("web.Onboard: brief 中未发现 http(s) 目标")
+		return nil, fmt.Errorf("executor.Onboard: brief 中未发现 http(s) 目标")
 	}
 	refs := make([]worldmodel.TargetRef, 0, len(hosts))
 	for _, h := range hosts {

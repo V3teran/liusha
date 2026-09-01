@@ -78,7 +78,7 @@ func (d *Dispatcher) Execute(ctx context.Context, action executor.Action) (execu
 	// 创建 worldmodel 适配器
 	wmReader := executor.NewWorldModelAdapter(d.worldmodel)
 
-	a := executor.New(d.provider, subReg, d.compactor, d.checkpoint, d.emitter, d.logger, wmReader)
+	a := executor.NewAgent(d.provider, subReg, d.compactor, d.checkpoint, d.emitter, d.logger, wmReader)
 
 	// 配置 eventBus（启用 Planner → Executor 通信）
 	if d.eventBus != nil {

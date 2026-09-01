@@ -398,7 +398,10 @@ func (a *scanAdapter) expandItem(ctx context.Context, assignmentID, brief, conve
 	if err != nil {
 		return "", "", fmt.Errorf("marshal payload: %w", err)
 	}
-	tk, err := a.tasks.Create(ctx, task.NewParams{ Brief: brief})
+	tk, err := a.tasks.Create(ctx, task.NewParams{
+		AssignmentID: assignmentID,
+		Brief:        brief,
+	})
 	if err != nil {
 		return "", "", fmt.Errorf("create task: %w", err)
 	}

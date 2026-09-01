@@ -26,11 +26,9 @@ import (
 
 	"github.com/V3teran/liusha/internal/executor"
 	"github.com/V3teran/liusha/internal/domain"
-	domainweb "github.com/V3teran/liusha/internal/domain/web"
 	agentstore "github.com/V3teran/liusha/internal/agentrun"
 	"github.com/V3teran/liusha/internal/assignment"
 	"github.com/V3teran/liusha/internal/cachestore"
-	"github.com/V3teran/liusha/internal/orchestrator"
 	"github.com/V3teran/liusha/internal/config"
 	"github.com/V3teran/liusha/internal/config/settingstore"
 	"github.com/V3teran/liusha/internal/configstore"
@@ -161,7 +159,7 @@ func main() {
 	// L2 域适配注册表：注册各域 Profile（目标接入/工具镜像/finding schema）。
 	// 加新域 = New 一个 Profile 并 Register，此处外无核心改动（架构试金石）。
 	profiles := domain.NewRegistry()
-	profiles.Register(domainweb.New())
+	profiles.Register(executor.New())
 	logger.Info().Strs("domains", profiles.Domains()).Msg("domain profiles registered")
 
 	// Vuln loader（Progressive Disclosure）：root=skills/vuln，
@@ -261,7 +259,7 @@ func main() {
 	// EventBus：事件驱动的 Planner Agent 基础设施（进程单例，跨 Task 共享）
 	eventBusCtx, eventBusCancel := context.WithCancel(context.Background())
 	defer eventBusCancel()
-	eventBus := orchestrator.NewEventBus(eventBusCtx)
+	eventBus := executor.NewPlannerEventBus(eventBusCtx)
 
 	// PlanStore：execution_plan 表的持久化层
 	// worldmodel.Store 在前面已初始化为 worldStore

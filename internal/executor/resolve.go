@@ -1,4 +1,4 @@
-package web
+package executor
 
 import (
 	"encoding/json"

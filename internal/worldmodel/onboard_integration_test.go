@@ -10,7 +10,7 @@ import (
 
 	"github.com/V3teran/liusha/internal/db"
 	"github.com/V3teran/liusha/internal/executor"
-	executorweb "github.com/V3teran/liusha/internal/domain/web"
+github.com/V3teran/liusha/internal/executor
 	"github.com/V3teran/liusha/internal/worldmodel"
 )
 
@@ -39,7 +39,7 @@ func TestOnboard_LandsTargetNodes(t *testing.T) {
 
 	// L2：注册 web Profile，从 brief 解析目标（含端口保真、多目标）。
 	reg := executor.NewRegistry()
-	reg.Register(executorweb.New())
+	reg.Register(executor.New())
 	refs, ok := reg.Onboard(ctx, executor.BriefInput{
 		Brief: "渗透 https://api.foo.com:8443/login 与 http://bar.local 两个站点",
 	})

@@ -4,8 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/V3teran/liusha/internal/orchestrator"
-	domainweb "github.com/V3teran/liusha/internal/domain/web"
+	"github.com/V3teran/liusha/internal/executor"
 	"github.com/V3teran/liusha/internal/httpreplay"
 	"github.com/V3teran/liusha/internal/planner"
 	"github.com/V3teran/liusha/internal/traffic"
@@ -13,7 +12,7 @@ import (
 )
 
 // agentTrafficScope scopes AgentStore reads to a single task.
-// Satisfies domainweb.TrafficSource: returns (Source, ok, err) where ok=false
+// Satisfies executor.TrafficSource: returns (Source, ok, err) where ok=false
 // when the record does not belong to the task.
 type agentTrafficScope struct {
 	store  *traffic.AgentStore
@@ -38,19 +37,19 @@ func (s *agentTrafficScope) GetInScope(ctx context.Context, id int64) (httprepla
 }
 
 // runCognition drives a single engagement through the L4 cognition loop:
-// PlannerAgent (async strategy) → ExecutionLoop → Executor (tactical run) → Verifier (promotion gate).
+// PlannerAgent (async strategy) → Loop → Agent (tactical run) → Verifier (promotion gate).
 func (h handler) runCognition(
 	ctx context.Context,
 	assignmentID, taskID, host string,
-	run domainweb.AgentFunc,
-) (orchestrator.Report, error) {
+	run executor.AgentFunc,
+) (executor.Report, error) {
 	if h.world == nil || taskID == "" || h.eventBus == nil {
-		return orchestrator.Report{}, fmt.Errorf("world and eventBus are required")
+		return executor.Report{}, fmt.Errorf("world and eventBus are required")
 	}
 
-	executor := domainweb.NewExecutor(taskID, host, h.findings, run)
+	coord := executor.NewCoordinator(taskID, host, h.findings, run)
 	replaySource := &agentTrafficScope{store: h.agentStore, taskID: taskID}
-	promoter := verifier.New(h.world, domainweb.NewReplayer(replaySource))
+	promoter := verifier.New(h.world, executor.NewReplayer(replaySource))
 
 	// 启动 PlannerAgent（异步规划器）
 	// PlannerAgent 内部会通过 h.router 获取 LLM
@@ -72,9 +71,17 @@ func (h handler) runCognition(
 	}()
 	h.logger.Info().Str("task_id", taskID).Msg("planner agent started")
 
-	execLoop := orchestrator.NewExecutionLoop(
+	// 等待初始规划完成后再启动 Loop
+	select {
+	case <-plannerAgent.WaitInitialPlanDone():
+		h.logger.Info().Str("task_id", taskID).Msg("initial planning done, starting execution loop")
+	case <-ctx.Done():
+		return executor.Report{}, ctx.Err()
+	}
+
+	execLoop := executor.NewLoop(
 		h.world,
-		executor,
+		coord,
 		promoter,
 		h.eventBus,
 		h.logger.With().Str("component", "execution_loop").Str("task_id", taskID).Logger(),

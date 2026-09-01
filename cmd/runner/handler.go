@@ -13,7 +13,6 @@ import (
 	"github.com/V3teran/liusha/internal/executor"
 	"github.com/V3teran/liusha/internal/domain"
 	"github.com/V3teran/liusha/internal/agentrun"
-	"github.com/V3teran/liusha/internal/orchestrator"
 	"github.com/V3teran/liusha/internal/config"
 	"github.com/V3teran/liusha/internal/config/settingstore"
 	"github.com/V3teran/liusha/internal/configstore"
@@ -74,7 +73,7 @@ type handler struct {
 	profiles     *domain.Registry
 	world        *worldmodel.Store
 	checkpoint   executor.CheckpointStore
-	eventBus     *orchestrator.EventBus     // Task 级别事件总线（Planner 用）
+	eventBus     *executor.PlannerEventBus // Task 级别事件总线（Planner 用）
 	actionBus    *eventbus.Bus           // Action 级别事件总线（Executor 用）
 	plannerMgr   *plannerAgentManager
 	controlPlane *controlplane.Store

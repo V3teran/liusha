@@ -8,7 +8,7 @@ import (
 
 	"github.com/rs/zerolog"
 
-	"github.com/V3teran/liusha/internal/orchestrator"
+	"github.com/V3teran/liusha/internal/executor"
 	"github.com/V3teran/liusha/internal/controlplane"
 	"github.com/V3teran/liusha/internal/eventbus"
 	"github.com/V3teran/liusha/internal/provider"
@@ -18,7 +18,7 @@ import (
 // Agent 是事件驱动的 Planner Agent，通过 LLM 推理产出 Action
 type Agent struct {
 	taskID       string
-	eventBus     *orchestrator.EventBus  // Task 级事件总线（接收触发）
+	eventBus     *executor.PlannerEventBus  // Task 级事件总线（接收触发）
 	actionBus    *eventbus.Bus        // Action 级事件总线（发送控制）
 	world        *worldmodel.Store
 	controlPlane *controlplane.Store
@@ -26,13 +26,14 @@ type Agent struct {
 	tools        *ToolRegistry
 	logger       zerolog.Logger
 
-	stopCh chan struct{}
+	stopCh             chan struct{}
+	initialPlanDoneCh  chan struct{}  // 初始规划完成信号
 }
 
 // Config 配置 Planner Agent
 type Config struct {
 	TaskID       string
-	EventBus     *orchestrator.EventBus // Task 级事件总线
+	EventBus     *executor.PlannerEventBus // Task 级事件总线
 	ActionBus    *eventbus.Bus       // Action 级事件总线
 	World        *worldmodel.Store
 	ControlPlane *controlplane.Store
@@ -48,15 +49,16 @@ func New(cfg Config) *Agent {
 	tools.Register(NewEvaluateProgressTool(cfg.World))
 
 	return &Agent{
-		taskID:       cfg.TaskID,
-		eventBus:     cfg.EventBus,
-		actionBus:    cfg.ActionBus,
-		world:        cfg.World,
-		controlPlane: cfg.ControlPlane,
-		router:       cfg.Router,
-		tools:        tools,
-		logger:       cfg.Logger,
-		stopCh:       make(chan struct{}),
+		taskID:             cfg.TaskID,
+		eventBus:           cfg.EventBus,
+		actionBus:          cfg.ActionBus,
+		world:              cfg.World,
+		controlPlane:       cfg.ControlPlane,
+		router:             cfg.Router,
+		tools:              tools,
+		logger:             cfg.Logger,
+		stopCh:             make(chan struct{}),
+		initialPlanDoneCh:  make(chan struct{}),
 	}
 }
 
@@ -73,12 +75,15 @@ func (a *Agent) Start(ctx context.Context) error {
 	defer evaluationTicker.Stop()
 
 	// 初始规划
-	if err := a.replan(ctx, orchestrator.Event{
-		Type:   orchestrator.EventTaskStarted,
+	if err := a.replan(ctx, executor.Event{
+		Type:   executor.EventTaskStarted,
 		TaskID: a.taskID,
 	}); err != nil {
 		a.logger.Error().Err(err).Msg("initial planning failed")
 	}
+
+	// 通知初始规划完成
+	close(a.initialPlanDoneCh)
 
 	for {
 		select {
@@ -114,6 +119,11 @@ func (a *Agent) Stop() {
 	close(a.stopCh)
 }
 
+// WaitInitialPlanDone 等待初始规划完成
+func (a *Agent) WaitInitialPlanDone() <-chan struct{} {
+	return a.initialPlanDoneCh
+}
+
 // periodicEvaluation 执行定期全局评估（每 6 分钟）。
 func (a *Agent) periodicEvaluation(ctx context.Context) error {
 	a.logger.Info().Str("task_id", a.taskID).Msg("starting periodic evaluation")
@@ -146,7 +156,7 @@ func (a *Agent) periodicEvaluation(ctx context.Context) error {
 }
 
 // replan 执行重新规划（调用 LLM）
-func (a *Agent) replan(ctx context.Context, event orchestrator.Event) error {
+func (a *Agent) replan(ctx context.Context, event executor.Event) error {
 	startTime := time.Now()
 
 	// 构建系统提示词
@@ -265,22 +275,22 @@ func (a *Agent) buildSystemPrompt() string {
 }
 
 // buildUserPrompt 构建用户提示词
-func (a *Agent) buildUserPrompt(ctx context.Context, event orchestrator.Event) (string, error) {
+func (a *Agent) buildUserPrompt(ctx context.Context, event executor.Event) (string, error) {
 	prompt := fmt.Sprintf("事件类型：%s\n\n", event.Type)
 
 	switch event.Type {
-	case orchestrator.EventTaskStarted:
+	case executor.EventTaskStarted:
 		prompt += "任务刚刚启动，请生成初始 Move。\n"
-	case orchestrator.EventActionCompleted:
+	case executor.EventActionCompleted:
 		moveID := event.Payload["move_id"].(string)
 		prompt += fmt.Sprintf("Move %s 已完成，请根据新状态重新规划。\n", moveID)
-	case orchestrator.EventVerificationPassed:
+	case executor.EventVerificationPassed:
 		nodeID := event.Payload["node_id"].(string)
 		prompt += fmt.Sprintf("节点 %s 验证通过，请根据新发现调整计划。\n", nodeID)
-	case orchestrator.EventManualGuidance:
+	case executor.EventManualGuidance:
 		guidance := event.Payload["guidance"].(string)
 		prompt += fmt.Sprintf("人工指导：%s\n", guidance)
-	case orchestrator.EventHeartbeat:
+	case executor.EventHeartbeat:
 		prompt += "定期检查：评估当前进展，必要时生成新 Move。\n"
 	}
 
@@ -389,6 +399,7 @@ func (a *Agent) executeTool(ctx context.Context, tc ToolCall) (interface{}, erro
 		return nil, fmt.Errorf("unknown tool: %s", tc.Name)
 	}
 
+	ctx = context.WithValue(ctx, "task_id", a.taskID)
 	return tool.Execute(ctx, tc.Input)
 }
 
