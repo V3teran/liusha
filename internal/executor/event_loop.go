@@ -5,7 +5,7 @@ import (
 )
 
 // eventLoop 监听外部事件（Planner 的控制指令）。
-func (a *Executor) eventLoop(ctx context.Context, cancel context.CancelFunc, subscription EventSubscription, state *executionState) {
+func (a *Agent) eventLoop(ctx context.Context, cancel context.CancelFunc, subscription EventSubscription, state *executionState) {
 	for {
 		select {
 		case event := <-subscription.Events():
@@ -18,7 +18,7 @@ func (a *Executor) eventLoop(ctx context.Context, cancel context.CancelFunc, sub
 }
 
 // handleEvent 处理事件。
-func (a *Executor) handleEvent(ctx context.Context, cancel context.CancelFunc, event Event, state *executionState) {
+func (a *Agent) handleEvent(ctx context.Context, cancel context.CancelFunc, event ControlEvent, state *executionState) {
 	switch event.Type {
 	case "action.killed":
 		// Kill：立即停止执行

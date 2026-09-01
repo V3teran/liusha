@@ -11,7 +11,7 @@ import (
 )
 
 // runWithMonitoring 是双协程模式：执行协程 + 监察协程 + 事件监听。
-func (a *Executor) runWithMonitoring(ctx context.Context, actionID string, req ExecutorReq) (ExecutorResult, error) {
+func (a *Agent) runWithMonitoring(ctx context.Context, actionID string, req ExecutorReq) (ExecutorResult, error) {
 	// 创建可取消的 context
 	execCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -76,7 +76,7 @@ func (a *Executor) runWithMonitoring(ctx context.Context, actionID string, req E
 }
 
 // executeLoop 执行协程：ReAct 循环。
-func (a *Executor) executeLoop(ctx context.Context, actionID string, req ExecutorReq, state *executionState) (ExecutorResult, error) {
+func (a *Agent) executeLoop(ctx context.Context, actionID string, req ExecutorReq, state *executionState) (ExecutorResult, error) {
 	// 从 checkpoint 恢复起点
 	startStep := 0
 	if a.checkpoint != nil {
@@ -231,7 +231,7 @@ func (a *Executor) executeLoop(ctx context.Context, actionID string, req Executo
 }
 
 // monitorLoop 监察协程：每 N 步评估一次。
-func (a *Executor) monitorLoop(ctx context.Context, cancel context.CancelFunc, state *executionState) {
+func (a *Agent) monitorLoop(ctx context.Context, cancel context.CancelFunc, state *executionState) {
 	lastEvaluatedStep := 0
 
 	ticker := time.NewTicker(1 * time.Second) // 每秒检查一次步数

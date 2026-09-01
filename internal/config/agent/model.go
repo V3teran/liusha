@@ -20,24 +20,20 @@ const (
 // Agent 是 agent 配置表的 Go 表示。
 //
 // 字段说明：
-//   - SystemPrompt：Agent的System Prompt，定义其行为和能力
-//   - Skills：Skill ID列表，每个Skill是一个工具包
+//   - SystemPrompt：Agent的System Prompt，定义其行为和能力（对应数据库的 body 列）
 //   - FunctionTools：LLM可直接调用的function calling工具
 //   - CliTools：外部命令行工具
-//   - IsBuiltin：是否为内置Agent（内置Agent不可删除）
 type Agent struct {
 	ID            string
 	Code          string
 	Kind          Kind
 	Name          string
 	Description   string
-	SystemPrompt  string   // 原Body字段
-	Skills        []string // 新增
+	SystemPrompt  string   // 对应数据库的 body 列
 	FunctionTools []string
 	CliTools      []string
 	MaxIterations int
 	Complexity    string
-	IsBuiltin     bool // 新增
 	Enabled       bool
 	CreatedAt     time.Time
 	UpdatedAt     time.Time
@@ -46,7 +42,6 @@ type Agent struct {
 // UpdateParams 是 Store.Update 的入参。
 type UpdateParams struct {
 	SystemPrompt  *string
-	Skills        *[]string
 	FunctionTools *[]string
 	CliTools      *[]string
 	MaxIterations *int

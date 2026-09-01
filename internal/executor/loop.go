@@ -1,4 +1,4 @@
-package orchestrator
+package executor
 
 import (
 	"context"
@@ -10,27 +10,27 @@ import (
 	"github.com/V3teran/liusha/internal/worldmodel"
 )
 
-// ExecutionLoop 基于统一世界模型的执行循环
-type ExecutionLoop struct {
+// Loop 基于统一世界模型的执行循环
+type Loop struct {
 	world    *worldmodel.Store
-	executor Executor
+	executor ExecutorInterface
 	promoter Promoter
-	eventBus *EventBus
+	eventBus *PlannerEventBus
 	logger   zerolog.Logger
 
 	pollInterval time.Duration
 	maxSteps     int
 }
 
-// NewExecutionLoop 创建执行循环
-func NewExecutionLoop(
+// NewLoop 创建执行循环
+func NewLoop(
 	world *worldmodel.Store,
-	executor Executor,
+	executor ExecutorInterface,
 	promoter Promoter,
-	eventBus *EventBus,
+	eventBus *PlannerEventBus,
 	logger zerolog.Logger,
-) *ExecutionLoop {
-	return &ExecutionLoop{
+) *Loop {
+	return &Loop{
 		world:        world,
 		executor:     executor,
 		promoter:     promoter,
@@ -42,7 +42,7 @@ func NewExecutionLoop(
 }
 
 // Run 运行执行循环
-func (l *ExecutionLoop) Run(ctx context.Context, taskID string) (Report, error) {
+func (l *Loop) Run(ctx context.Context, taskID string) (Report, error) {
 	if taskID == "" {
 		return Report{}, fmt.Errorf("execution loop: taskID 为空")
 	}
@@ -55,6 +55,9 @@ func (l *ExecutionLoop) Run(ctx context.Context, taskID string) (Report, error) 
 	if err := l.processPendingActions(ctx, taskID, &rep); err != nil {
 		return rep, err
 	}
+
+	consecutiveEmptyPolls := 0
+	maxEmptyPolls := 60  // 2 分钟无进展则退出（Planner 已完成初始规划）
 
 	for {
 		select {
@@ -74,21 +77,26 @@ func (l *ExecutionLoop) Run(ctx context.Context, taskID string) (Report, error) 
 				return rep, nil
 			}
 
-			// 停止条件：无待执行 Action
+			// 停止条件：无待执行 Action（等待 Planner 创建初始 action）
 			pendingCount, err := l.countPendingActions(ctx, taskID)
 			if err != nil {
 				return rep, err
 			}
 			if pendingCount == 0 {
-				rep.StopWhy = stopNoProgress
-				return rep, nil
+				consecutiveEmptyPolls++
+				if consecutiveEmptyPolls >= maxEmptyPolls {
+					rep.StopWhy = stopNoProgress
+					return rep, nil
+				}
+			} else {
+				consecutiveEmptyPolls = 0
 			}
 		}
 	}
 }
 
 // processPendingActions 处理所有可执行的 Action（支持依赖调度）
-func (l *ExecutionLoop) processPendingActions(ctx context.Context, taskID string, rep *Report) error {
+func (l *Loop) processPendingActions(ctx context.Context, taskID string, rep *Report) error {
 	// 获取所有 open 状态的 Move
 	openActions, err := l.world.ListOpenActions(ctx, taskID)
 	if err != nil {
@@ -162,7 +170,7 @@ func (l *ExecutionLoop) processPendingActions(ctx context.Context, taskID string
 }
 
 // executeMove 执行单个 Move
-func (l *ExecutionLoop) executeMove(
+func (l *Loop) executeMove(
 	ctx context.Context,
 	taskID string,
 	move worldmodel.Node,
@@ -216,7 +224,7 @@ func (l *ExecutionLoop) executeMove(
 }
 
 // getCompletedMoveIDs 获取已完成的 Move ID 集合
-func (l *ExecutionLoop) getCompletedMoveIDs(ctx context.Context, taskID string) (map[string]bool, error) {
+func (l *Loop) getCompletedMoveIDs(ctx context.Context, taskID string) (map[string]bool, error) {
 	completedActions, err := l.world.ListCompletedActions(ctx, taskID)
 	if err != nil {
 		return nil, err
@@ -231,7 +239,7 @@ func (l *ExecutionLoop) getCompletedMoveIDs(ctx context.Context, taskID string) 
 }
 
 // countPendingActions 统计待执行 Action 数量
-func (l *ExecutionLoop) countPendingActions(ctx context.Context, taskID string) (int, error) {
+func (l *Loop) countPendingActions(ctx context.Context, taskID string) (int, error) {
 	moves, err := l.world.ListOpenActions(ctx, taskID)
 	if err != nil {
 		return 0, err

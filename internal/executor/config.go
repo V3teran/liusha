@@ -26,7 +26,7 @@ func DefaultMonitorConfig() MonitorConfig {
 }
 
 // WithMonitorConfig 使用配置结构配置监察。
-func (a *Executor) WithMonitorConfig(config MonitorConfig) *Executor {
+func (a *Agent) WithMonitorConfig(config MonitorConfig) *Agent {
 	a.monitorEnabled = config.Enabled
 	a.monitorStepInterval = config.StepInterval
 	a.monitorEvaluateSteps = config.EvaluateSteps

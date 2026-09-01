@@ -1,16 +1,15 @@
-package web
+package executor
 
 import (
 	"context"
 	"fmt"
 
-	"github.com/V3teran/liusha/internal/orchestrator"
 	"github.com/V3teran/liusha/internal/finding"
 	"github.com/V3teran/liusha/internal/verifier"
 	"github.com/V3teran/liusha/internal/worldmodel"
 )
 
-var _ orchestrator.Executor = (*Executor)(nil)
+var _ ExecutorInterface = (*Coordinator)(nil)
 
 // FindingLister 列出 task+host 下的 finding。收窄依赖 + 便于测试替身。
 type FindingLister interface {
@@ -22,8 +21,8 @@ type FindingLister interface {
 // 「怎么打」全权归 agent（LLM 战术自由），Executor 不干预。
 type AgentFunc func(ctx context.Context, move worldmodel.Node) error
 
-// Executor 是 web 域的 orchestrator.Executor：跑 move-scoped agent → 收割新 finding → 转 Attempt。
-type Executor struct {
+// Coordinator 是执行层的协调器：跑 move-scoped agent → 收割新 finding → 转 Attempt。
+type Coordinator struct {
 	taskID   string
 	host     string
 	findings FindingLister
@@ -31,20 +30,20 @@ type Executor struct {
 }
 
 // NewExecutor 构造 web Executor
-func NewExecutor(taskID, host string, findings FindingLister, run AgentFunc) *Executor {
-	return &Executor{taskID: taskID, host: host, findings: findings, run: run}
+func NewCoordinator(taskID, host string, findings FindingLister, run AgentFunc) *Coordinator {
+	return &Coordinator{taskID: taskID, host: host, findings: findings, run: run}
 }
 
-// Execute 实现 orchestrator.Executor：快照运行前 finding → 跑 agent → 差集收割新 finding → 转 Attempt
-func (o *Executor) Execute(ctx context.Context, action worldmodel.Node) ([]verifier.Attempt, error) {
+// Execute 实现 ExecutorInterface：快照运行前 finding → 跑 agent → 差集收割新 finding → 转 Attempt
+func (c *Coordinator) Execute(ctx context.Context, action worldmodel.Node) ([]verifier.Attempt, error) {
 	if !action.IsAction() {
-		return nil, fmt.Errorf("web.Executor: 节点不是 Action: %s", action.ID)
+		return nil, fmt.Errorf("Coordinator: 节点不是 Action: %s", action.ID)
 	}
 
 	// 快照运行前的 finding
-	before, err := o.findings.ListByTaskAndHost(ctx, o.taskID, o.host, 0)
+	before, err := c.findings.ListByTaskAndHost(ctx, c.taskID, c.host, 0)
 	if err != nil {
-		return nil, fmt.Errorf("web.Executor: 快照运行前 finding 失败: %w", err)
+		return nil, fmt.Errorf("Coordinator: 快照运行前 finding 失败: %w", err)
 	}
 	seen := make(map[string]bool, len(before))
 	for _, f := range before {
@@ -52,14 +51,14 @@ func (o *Executor) Execute(ctx context.Context, action worldmodel.Node) ([]verif
 	}
 
 	// 执行 agent
-	if err := o.run(ctx, action); err != nil {
-		return nil, fmt.Errorf("web.Executor: 战术 agent 执行失败: %w", err)
+	if err := c.run(ctx, action); err != nil {
+		return nil, fmt.Errorf("Coordinator: 战术 agent 执行失败: %w", err)
 	}
 
 	// 收割新 finding
-	after, err := o.findings.ListByTaskAndHost(ctx, o.taskID, o.host, 0)
+	after, err := c.findings.ListByTaskAndHost(ctx, c.taskID, c.host, 0)
 	if err != nil {
-		return nil, fmt.Errorf("web.Executor: 收割 finding 失败: %w", err)
+		return nil, fmt.Errorf("Coordinator: 收割 finding 失败: %w", err)
 	}
 
 	var attempts []verifier.Attempt
@@ -67,9 +66,9 @@ func (o *Executor) Execute(ctx context.Context, action worldmodel.Node) ([]verif
 		if seen[f.ID] {
 			continue
 		}
-		a, ok, err := AttemptFromFinding(o.taskID, f)
+		a, ok, err := AttemptFromFinding(c.taskID, f)
 		if err != nil {
-			return nil, fmt.Errorf("web.Executor: finding %s 转 Attempt 失败: %w", f.ID, err)
+			return nil, fmt.Errorf("Coordinator: finding %s 转 Attempt 失败: %w", f.ID, err)
 		}
 		if ok {
 			attempts = append(attempts, a)

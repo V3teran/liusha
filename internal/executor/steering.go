@@ -31,7 +31,7 @@ type KilledReason struct {
 }
 
 // applySteeringMessages 读取 worldmodel 中的 steering 消息并注入到对话历史。
-func (a *Executor) applySteeringMessages(ctx context.Context, actionID string, messages []provider.Message) []provider.Message {
+func (a *Agent) applySteeringMessages(ctx context.Context, actionID string, messages []provider.Message) []provider.Message {
 	// 如果没有 worldmodel 访问权限，跳过
 	if a.worldmodel == nil {
 		return messages
