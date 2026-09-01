@@ -52,21 +52,11 @@ services:
       LIUSHA_ENV: development
       LIUSHA_LOG_LEVEL: info
       LIUSHA_CONFIG: /app/config/config.yaml
-      # LLM provider key：cfg.LLM.Validate() 启动时强校验所有 provider 的 key，
-      # 即使 api 进程不直接调 LLM 也必须传，否则启动崩溃。
-      DEEPSEEK_API_KEY: "${DEEPSEEK_API_KEY:-}"
-      ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
-      OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
-      MOONSHOT_API_KEY: "${MOONSHOT_API_KEY:-}"
-      QWEN_API_KEY: "${QWEN_API_KEY:-}"
-      # GLM/XIAOMI：config.yaml 默认 provider=glm_vision_flash，cfg.LLM.Validate() 启动强校验，
-      # 必须与 runner 段一致传入，否则 api 启动崩溃（即使不直接调 LLM）。
-      # GLM/XIAOMI：与 runner 段对齐传入（此前漏传 = api 起不来根因；config 默认 provider 用 glm）。
-      GLM_API_KEY: "${GLM_API_KEY:-}"
+      # LLM provider key：只保留 XIAOMI_API_KEY (mimo)
       XIAOMI_API_KEY: "${XIAOMI_API_KEY:-}"
-      LIUSHA_LLM_LIGHT_PROVIDER: "${LIUSHA_LLM_LIGHT_PROVIDER:-deepseek}"
-      LIUSHA_LLM_FALLBACK_PROVIDER: "${LIUSHA_LLM_FALLBACK_PROVIDER:-deepseek}"
-      LIUSHA_LLM_VISION_PROVIDER: "${LIUSHA_LLM_VISION_PROVIDER:-deepseek}"
+      LIUSHA_LLM_LIGHT_PROVIDER: "${LIUSHA_LLM_LIGHT_PROVIDER:-mimo}"
+      LIUSHA_LLM_FALLBACK_PROVIDER: "${LIUSHA_LLM_FALLBACK_PROVIDER:-mimo}"
+      LIUSHA_LLM_VISION_PROVIDER: "${LIUSHA_LLM_VISION_PROVIDER:-mimo}"
       # SSE stream cookie 签名密钥：cmd/api fail-fast 必需（空则启动崩溃）。dev 默认占位，prod 必须覆盖。
       LIUSHA_STREAM_COOKIE_SECRET: "${LIUSHA_STREAM_COOKIE_SECRET:-changeme-dev-stream-secret}"
       # LLM provider 密钥加密密钥：用于加密存储在数据库中的 API keys
@@ -120,15 +110,11 @@ services:
       LIUSHA_LOG_LEVEL: info
       LIUSHA_PROXY_LISTEN_ADDR: 0.0.0.0:8888
       LIUSHA_PROXY_CERT_DIR: /app/certs
-      # LLM provider key：cfg.LLM.Validate() 启动时强校验，proxy 进程虽不调 LLM 也必须传。
-      DEEPSEEK_API_KEY: "${DEEPSEEK_API_KEY:-}"
-      ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
-      OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
-      MOONSHOT_API_KEY: "${MOONSHOT_API_KEY:-}"
-      QWEN_API_KEY: "${QWEN_API_KEY:-}"
-      LIUSHA_LLM_LIGHT_PROVIDER: "${LIUSHA_LLM_LIGHT_PROVIDER:-deepseek}"
-      LIUSHA_LLM_FALLBACK_PROVIDER: "${LIUSHA_LLM_FALLBACK_PROVIDER:-deepseek}"
-      LIUSHA_LLM_VISION_PROVIDER: "${LIUSHA_LLM_VISION_PROVIDER:-deepseek}"
+      # LLM provider key：只保留 XIAOMI_API_KEY (mimo)
+      XIAOMI_API_KEY: "${XIAOMI_API_KEY:-}"
+      LIUSHA_LLM_LIGHT_PROVIDER: "${LIUSHA_LLM_LIGHT_PROVIDER:-mimo}"
+      LIUSHA_LLM_FALLBACK_PROVIDER: "${LIUSHA_LLM_FALLBACK_PROVIDER:-mimo}"
+      LIUSHA_LLM_VISION_PROVIDER: "${LIUSHA_LLM_VISION_PROVIDER:-mimo}"
     volumes:
       - liusha-proxy-certs:/app/certs
       - ../logs:/app/logs
@@ -165,18 +151,12 @@ services:
       LIUSHA_CONFIG: /app/config/config.yaml
       LIUSHA_ENV: development
       LIUSHA_LOG_LEVEL: info
-      # provider api_key（config.yaml 里 api_key_env 配的就是这些名字，不带 LIUSHA_ 前缀）
-      DEEPSEEK_API_KEY: "${DEEPSEEK_API_KEY:-}"
-      ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
-      OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
-      MOONSHOT_API_KEY: "${MOONSHOT_API_KEY:-}"
-      QWEN_API_KEY: "${QWEN_API_KEY:-}"
-      GLM_API_KEY: "${GLM_API_KEY:-}"
+      # LLM provider api_key：只保留 XIAOMI_API_KEY (mimo)
       XIAOMI_API_KEY: "${XIAOMI_API_KEY:-}"
-      # 临时覆盖：把 light/fallback 都路由到 deepseek，避免 ANTHROPIC_API_KEY 空时 validate 失败
-      LIUSHA_LLM_LIGHT_PROVIDER: "${LIUSHA_LLM_LIGHT_PROVIDER:-deepseek}"
-      LIUSHA_LLM_FALLBACK_PROVIDER: "${LIUSHA_LLM_FALLBACK_PROVIDER:-deepseek}"
-      LIUSHA_LLM_VISION_PROVIDER: "${LIUSHA_LLM_VISION_PROVIDER:-deepseek}"
+      # LLM 路由覆盖（全部使用 mimo）
+      LIUSHA_LLM_LIGHT_PROVIDER: "${LIUSHA_LLM_LIGHT_PROVIDER:-mimo}"
+      LIUSHA_LLM_FALLBACK_PROVIDER: "${LIUSHA_LLM_FALLBACK_PROVIDER:-mimo}"
+      LIUSHA_LLM_VISION_PROVIDER: "${LIUSHA_LLM_VISION_PROVIDER:-mimo}"
       # LLM provider 密钥加密密钥：用于加密存储在数据库中的 API keys
       LIUSHA_LLM_KEY_SECRET: "${LIUSHA_LLM_KEY_SECRET:-changeme-dev-encryption-secret-must-be-32-chars}"
       # eino 迁移：默认走 eino ChatModelAgent 路径；=1 切回旧 react（渐进迁移期退路）
