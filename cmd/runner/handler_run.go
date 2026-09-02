@@ -399,6 +399,8 @@ func (h handler) handleSolo(
 	})
 	reg.AddInterceptor(h.toolRecordInterceptor(tid, taskID))
 
+	fmt.Printf("[HANDLER] Added toolRecordInterceptor, registry now has %d interceptors\n", len(reg.Interceptors()))
+
 	finalizeTask := func(complete bool, reason string) {
 		fctx, fcancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer fcancel()
@@ -574,6 +576,10 @@ func (h handler) handleCognition(
 		ToolingLoader: h.toolingLoader,
 		VulnLoader:    h.vulnLoader,
 	})
+
+	// 添加工具调用记录拦截器
+	reg.AddInterceptor(h.toolRecordInterceptor(p.ExecutorID, taskID))
+	fmt.Printf("[HANDLER.handleCognition] Added toolRecordInterceptor, registry now has %d interceptors\n", len(reg.Interceptors()))
 
 	finalizeTask := func(complete bool, reason string) {
 		fctx, fcancel := context.WithTimeout(context.Background(), 10*time.Second)
