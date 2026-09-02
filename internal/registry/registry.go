@@ -24,13 +24,10 @@ type Interceptor func(ctx context.Context, tool Tool, args []byte, next ExecuteF
 
 // chain 将多个 Interceptor 组合成一条调用链。
 func chain(interceptors []Interceptor, final ExecuteFunc) ExecuteFunc {
-	fmt.Printf("[CHAIN] Building chain with %d interceptors\n", len(interceptors))
 	if len(interceptors) == 0 {
-		fmt.Printf("[CHAIN] No interceptors, returning final executor\n")
 		return final
 	}
 	return func(ctx context.Context, tool Tool, args []byte) (ToolResult, error) {
-		fmt.Printf("[CHAIN] Calling interceptor 0 for tool: %s (remaining: %d)\n", tool.Name(), len(interceptors))
 		return interceptors[0](ctx, tool, args, chain(interceptors[1:], final))
 	}
 }
@@ -231,53 +228,36 @@ func (r *Registry) Schemas() []provider.ToolSchema {
 
 // execute 通过 Interceptor 链执行单个工具调用。
 func (r *Registry) execute(ctx context.Context, call provider.ToolCall) ToolResult {
-	fmt.Printf("[REGISTRY.execute] Starting execution of tool: %s\n", call.Name)
 	t, ok := r.Get(call.Name)
 	if !ok {
-		fmt.Printf("[REGISTRY.execute] Tool %s not found!\n", call.Name)
 		return ToolResult{Error: fmt.Sprintf("tool %q not registered", call.Name)}
 	}
-	fmt.Printf("[REGISTRY.execute] Tool %s found, building interceptor chain with %d interceptors\n", call.Name, len(r.interceptors))
 	final := ExecuteFunc(func(ctx context.Context, tool Tool, args []byte) (ToolResult, error) {
-		fmt.Printf("[REGISTRY.execute] Final executor called for tool: %s\n", tool.Name())
 		return tool.Execute(ctx, args)
 	})
-	fmt.Printf("[REGISTRY.execute] Calling chain() for tool: %s\n", call.Name)
 	res, err := chain(r.interceptors, final)(ctx, t, call.Arguments)
 	if err != nil {
-		fmt.Printf("[REGISTRY.execute] Tool %s failed with error: %v\n", call.Name, err)
 		// 到这里说明是 context cancel，直接标记错误
 		return ToolResult{Error: err.Error()}
 	}
-	fmt.Printf("[REGISTRY.execute] Tool %s completed successfully\n", call.Name)
 	return res
 }
 
 // ExecuteParallel 并发执行一批 tool_call，结果按原始顺序收集。
 // LLM 单次返回多个 tool_call 时使用。
 func (r *Registry) ExecuteParallel(ctx context.Context, calls []provider.ToolCall) []ToolResult {
-	fmt.Printf("[REGISTRY] ExecuteParallel called with %d tool calls\n", len(calls))
 	if len(calls) == 0 {
 		return nil
 	}
-
-	// 打印工具名称
-	for i, call := range calls {
-		fmt.Printf("[REGISTRY] Tool %d: %s\n", i, call.Name)
-	}
-
 	results := make([]ToolResult, len(calls))
 	var wg sync.WaitGroup
 	for i, call := range calls {
 		wg.Add(1)
 		go func(idx int, c provider.ToolCall) {
 			defer wg.Done()
-			fmt.Printf("[REGISTRY] Executing tool %s (index %d)\n", c.Name, idx)
 			results[idx] = r.execute(ctx, c)
-			fmt.Printf("[REGISTRY] Tool %s completed (index %d)\n", c.Name, idx)
 		}(i, call)
 	}
 	wg.Wait()
-	fmt.Printf("[REGISTRY] All %d tools completed\n", len(calls))
 	return results
 }

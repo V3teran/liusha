@@ -41,7 +41,6 @@ const heartbeatThrottleMs = 10_000
 func (h handler) toolRecordInterceptor(executorID, taskID string) registry.Interceptor {
 	lastBeatMs := new(atomic.Int64)
 	return func(ctx context.Context, t registry.Tool, args []byte, next registry.ExecuteFunc) (registry.ToolResult, error) {
-		fmt.Printf("[INTERCEPTOR] Tool call intercepted: %s (task=%s)\n", t.Name(), taskID)
 		h.logger.Info().
 			Str("task_id", taskID).
 			Str("tool_name", t.Name()).
@@ -51,7 +50,6 @@ func (h handler) toolRecordInterceptor(executorID, taskID string) registry.Inter
 		res, err := next(ctx, t, args)
 		durMs := int(time.Since(start).Milliseconds())
 
-		fmt.Printf("[INTERCEPTOR] Tool call completed: %s (duration=%dms)\n", t.Name(), durMs)
 
 		errMsg := ""
 		if res.Error != "" {
@@ -76,13 +74,11 @@ func (h handler) toolRecordInterceptor(executorID, taskID string) registry.Inter
 				ErrorMessage:  errMsg,
 			})
 			if appendErr != nil {
-				fmt.Printf("[INTERCEPTOR] Failed to record: %v\n", appendErr)
 				h.logger.Error().Err(appendErr).
 					Str("task_id", taskID).
 					Str("tool_name", t.Name()).
 					Msg("[INTERCEPTOR] Failed to record tool invocation")
 			} else {
-				fmt.Printf("[INTERCEPTOR] Recorded successfully: id=%d\n", invID)
 				h.logger.Info().
 					Str("task_id", taskID).
 					Str("tool_name", t.Name()).
@@ -90,7 +86,6 @@ func (h handler) toolRecordInterceptor(executorID, taskID string) registry.Inter
 					Msg("[INTERCEPTOR] Tool invocation recorded successfully")
 			}
 		} else {
-			fmt.Printf("[INTERCEPTOR] h.toolCalls is nil!\n")
 			h.logger.Warn().
 				Str("task_id", taskID).
 				Str("tool_name", t.Name()).
@@ -399,7 +394,6 @@ func (h handler) handleSolo(
 	})
 	reg.AddInterceptor(h.toolRecordInterceptor(tid, taskID))
 
-	fmt.Printf("[HANDLER] Added toolRecordInterceptor, registry now has %d interceptors\n", len(reg.Interceptors()))
 
 	finalizeTask := func(complete bool, reason string) {
 		fctx, fcancel := context.WithTimeout(context.Background(), 10*time.Second)
