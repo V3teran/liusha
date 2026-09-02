@@ -103,6 +103,11 @@ func (l *Loop) processPendingActions(ctx context.Context, taskID string, rep *Re
 		return fmt.Errorf("list open moves: %w", err)
 	}
 
+	l.logger.Info().
+		Int("open_count", len(openActions)).
+		Str("task_id", taskID).
+		Msg("[EXEC_LOOP] found open actions")
+
 	if len(openActions) == 0 {
 		return nil
 	}
@@ -113,18 +118,36 @@ func (l *Loop) processPendingActions(ctx context.Context, taskID string, rep *Re
 		return fmt.Errorf("get completed moves: %w", err)
 	}
 
+	l.logger.Info().
+		Int("completed_count", len(completed)).
+		Str("task_id", taskID).
+		Msg("[EXEC_LOOP] completed actions count")
+
 	// 筛选出当前可执行的 Move（无依赖或依赖已满足）
 	var executable []worldmodel.Node
 	for _, m := range openActions {
-		if m.CanExecute(completed) {
+		canExec := m.CanExecute(completed)
+		l.logger.Debug().
+			Str("action_id", m.ID).
+			Bool("can_execute", canExec).
+			Int("depends_on_count", len(m.DependsOn)).
+			Msg("[EXEC_LOOP] checking action executability")
+
+		if canExec {
 			executable = append(executable, m)
 		}
 	}
 
+	l.logger.Info().
+		Int("executable_count", len(executable)).
+		Int("open_count", len(openActions)).
+		Str("task_id", taskID).
+		Msg("[EXEC_LOOP] executable actions filtered")
+
 	if len(executable) == 0 {
-		l.logger.Debug().
+		l.logger.Warn().
 			Int("open", len(openActions)).
-			Msg("有 open Move 但无可执行（等待依赖）")
+			Msg("[EXEC_LOOP] 有 open Move 但无可执行（等待依赖）")
 		return nil
 	}
 
@@ -134,14 +157,28 @@ func (l *Loop) processPendingActions(ctx context.Context, taskID string, rep *Re
 			return err
 		}
 
+		l.logger.Info().
+			Str("action_id", move.ID).
+			Int("priority", move.Priority).
+			Msg("[EXEC_LOOP] marking action as running")
+
 		// 标记为 running
 		if err := l.world.UpdateActionState(ctx, move.ID, worldmodel.StateRunning, nil); err != nil {
 			l.logger.Error().Err(err).Str("move_id", move.ID).Msg("mark running failed")
 			continue
 		}
 
+		l.logger.Info().
+			Str("action_id", move.ID).
+			Msg("[EXEC_LOOP] calling executeMove")
+
 		// 执行 Action
 		execErr := l.executeMove(ctx, taskID, move, rep)
+
+		l.logger.Info().
+			Str("action_id", move.ID).
+			Bool("success", execErr == nil).
+			Msg("[EXEC_LOOP] executeMove returned")
 
 		// 更新状态
 		if execErr != nil {

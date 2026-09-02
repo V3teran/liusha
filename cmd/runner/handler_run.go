@@ -392,9 +392,25 @@ func (h handler) handleSolo(
 	var execResult []executor.Execution
 	var agentErr error
 	runAgent := func(runCtx context.Context, m worldmodel.Node) error {
+		h.logger.Info().
+			Str("action_id", m.ID).
+			Str("kind", string(m.Kind)).
+			Msg("[RUN_AGENT] runAgent called")
+
 		// 执行 Move
 		action := nodeToExecutorAction(m, userPrompt)
+
+		h.logger.Info().
+			Str("action_id", action.ID).
+			Msg("[RUN_AGENT] calling d.Execute")
+
 		exec, err := d.Execute(runCtx, action)
+
+		h.logger.Info().
+			Str("action_id", action.ID).
+			Bool("success", err == nil).
+			Msg("[RUN_AGENT] d.Execute returned")
+
 		if err != nil {
 			agentErr = err
 			return err
@@ -561,8 +577,24 @@ func (h handler) handleCognition(
 	}
 
 	runAgent := func(runCtx context.Context, m worldmodel.Node) error {
+		h.logger.Info().
+			Str("action_id", m.ID).
+			Str("kind", string(m.Kind)).
+			Msg("[RUN_AGENT_2] runAgent called (cognition mode)")
+
 		action := nodeToExecutorAction(m, orchPrompt)
+
+		h.logger.Info().
+			Str("action_id", action.ID).
+			Msg("[RUN_AGENT_2] calling d.Execute")
+
 		exec, err := d.Execute(runCtx, action)
+
+		h.logger.Info().
+			Str("action_id", action.ID).
+			Bool("success", err == nil).
+			Msg("[RUN_AGENT_2] d.Execute returned")
+
 		if err != nil {
 			agentErr = err
 			return err
