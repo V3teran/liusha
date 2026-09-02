@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/rs/zerolog/log"
+
 	"github.com/V3teran/liusha/internal/finding"
 	"github.com/V3teran/liusha/internal/verifier"
 	"github.com/V3teran/liusha/internal/worldmodel"
@@ -40,6 +42,8 @@ func (c *Coordinator) Execute(ctx context.Context, action worldmodel.Node) ([]ve
 		return nil, fmt.Errorf("Coordinator: 节点不是 Action: %s", action.ID)
 	}
 
+	log.Info().Str("action_id", action.ID).Msg("[COORDINATOR] Execute called")
+
 	// 快照运行前的 finding
 	before, err := c.findings.ListByTaskAndHost(ctx, c.taskID, c.host, 0)
 	if err != nil {
@@ -50,16 +54,27 @@ func (c *Coordinator) Execute(ctx context.Context, action worldmodel.Node) ([]ve
 		seen[f.ID] = true
 	}
 
+	log.Info().Int("findings_before", len(before)).Msg("[COORDINATOR] Before execution")
+	log.Info().Msg("[COORDINATOR] Calling c.run (AgentFunc)...")
+
 	// 执行 agent
 	if err := c.run(ctx, action); err != nil {
+		log.Error().Err(err).Msg("[COORDINATOR] c.run returned error")
 		return nil, fmt.Errorf("Coordinator: 战术 agent 执行失败: %w", err)
 	}
+
+	log.Info().Msg("[COORDINATOR] c.run completed successfully")
 
 	// 收割新 finding
 	after, err := c.findings.ListByTaskAndHost(ctx, c.taskID, c.host, 0)
 	if err != nil {
 		return nil, fmt.Errorf("Coordinator: 收割 finding 失败: %w", err)
 	}
+
+	log.Info().
+		Int("findings_after", len(after)).
+		Int("findings_before", len(before)).
+		Msg("[COORDINATOR] After execution")
 
 	var attempts []verifier.Attempt
 	for _, f := range after {
@@ -74,5 +89,7 @@ func (c *Coordinator) Execute(ctx context.Context, action worldmodel.Node) ([]ve
 			attempts = append(attempts, a)
 		}
 	}
+
+	log.Info().Int("attempts", len(attempts)).Msg("[COORDINATOR] Returning attempts")
 	return attempts, nil
 }
