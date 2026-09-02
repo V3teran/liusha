@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/rs/zerolog"
 	"github.com/V3teran/liusha/internal/finding"
 	"github.com/V3teran/liusha/internal/verifier"
 	"github.com/V3teran/liusha/internal/worldmodel"
@@ -27,11 +28,12 @@ type Coordinator struct {
 	host     string
 	findings FindingLister
 	run      AgentFunc
+	logger   zerolog.Logger
 }
 
 // NewExecutor 构造 web Executor
-func NewCoordinator(taskID, host string, findings FindingLister, run AgentFunc) *Coordinator {
-	return &Coordinator{taskID: taskID, host: host, findings: findings, run: run}
+func NewCoordinator(taskID, host string, findings FindingLister, run AgentFunc, logger zerolog.Logger) *Coordinator {
+	return &Coordinator{taskID: taskID, host: host, findings: findings, run: run, logger: logger}
 }
 
 // Execute 实现 ExecutorInterface：快照运行前 finding → 跑 agent → 差集收割新 finding → 转 Attempt
@@ -40,7 +42,10 @@ func (c *Coordinator) Execute(ctx context.Context, action worldmodel.Node) ([]ve
 		return nil, fmt.Errorf("Coordinator: 节点不是 Action: %s", action.ID)
 	}
 
-	fmt.Printf("[COORDINATOR] Execute called for action: %s\n", action.ID)
+	c.logger.Info().
+		Str("action_id", action.ID).
+		Str("run_func_ptr", fmt.Sprintf("%p", c.run)).
+		Msg("[COORDINATOR] Execute called")
 
 	// 快照运行前的 finding
 	before, err := c.findings.ListByTaskAndHost(ctx, c.taskID, c.host, 0)
@@ -52,16 +57,27 @@ func (c *Coordinator) Execute(ctx context.Context, action worldmodel.Node) ([]ve
 		seen[f.ID] = true
 	}
 
-	fmt.Printf("[COORDINATOR] Before execution: %d findings exist\n", len(before))
-	fmt.Printf("[COORDINATOR] Calling c.run (AgentFunc)...\n")
+	c.logger.Info().
+		Int("findings_before", len(before)).
+		Str("action_id", action.ID).
+		Msg("[COORDINATOR] Before execution snapshot")
+
+	c.logger.Info().
+		Str("action_id", action.ID).
+		Msg("[COORDINATOR] Calling c.run (AgentFunc)...")
 
 	// 执行 agent
 	if err := c.run(ctx, action); err != nil {
-		fmt.Printf("[COORDINATOR] c.run returned error: %v\n", err)
+		c.logger.Error().
+			Err(err).
+			Str("action_id", action.ID).
+			Msg("[COORDINATOR] c.run returned error")
 		return nil, fmt.Errorf("Coordinator: 战术 agent 执行失败: %w", err)
 	}
 
-	fmt.Printf("[COORDINATOR] c.run completed successfully\n")
+	c.logger.Info().
+		Str("action_id", action.ID).
+		Msg("[COORDINATOR] c.run completed successfully")
 
 	// 收割新 finding
 	after, err := c.findings.ListByTaskAndHost(ctx, c.taskID, c.host, 0)
@@ -69,7 +85,11 @@ func (c *Coordinator) Execute(ctx context.Context, action worldmodel.Node) ([]ve
 		return nil, fmt.Errorf("Coordinator: 收割 finding 失败: %w", err)
 	}
 
-	fmt.Printf("[COORDINATOR] After execution: %d findings exist (was %d)\n", len(after), len(before))
+	c.logger.Info().
+		Int("findings_after", len(after)).
+		Int("findings_before", len(before)).
+		Str("action_id", action.ID).
+		Msg("[COORDINATOR] After execution harvest")
 
 	var attempts []verifier.Attempt
 	for _, f := range after {
@@ -85,6 +105,10 @@ func (c *Coordinator) Execute(ctx context.Context, action worldmodel.Node) ([]ve
 		}
 	}
 
-	fmt.Printf("[COORDINATOR] Returning %d attempts\n", len(attempts))
+	c.logger.Info().
+		Int("attempts", len(attempts)).
+		Str("action_id", action.ID).
+		Msg("[COORDINATOR] Returning attempts")
+
 	return attempts, nil
 }

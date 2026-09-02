@@ -43,11 +43,16 @@ func (h handler) runCognition(
 	assignmentID, taskID, host string,
 	run executor.AgentFunc,
 ) (executor.Report, error) {
+	h.logger.Info().
+		Str("task_id", taskID).
+		Str("run_func_ptr", fmt.Sprintf("%p", run)).
+		Msg("[RUN_COGNITION] Entry: received AgentFunc")
+
 	if h.world == nil || taskID == "" || h.eventBus == nil {
 		return executor.Report{}, fmt.Errorf("world and eventBus are required")
 	}
 
-	coord := executor.NewCoordinator(taskID, host, h.findings, run)
+	coord := executor.NewCoordinator(taskID, host, h.findings, run, h.logger)
 	replaySource := &agentTrafficScope{store: h.agentStore, taskID: taskID}
 	promoter := verifier.New(h.world, executor.NewReplayer(replaySource))
 
