@@ -292,37 +292,53 @@ err := coord.run(ctx, action)
 - ✅ 没有 panic
 - ✅ 任务可以继续执行
 
-### 🔍 问题 2: Agent 执行但不调用 LLM 和工具（排查中）
+### 🔍 问题 2: LLM 和工具调用记录缺失（排查中）
+
 **现象**：
-- Execution Loop 正常运行
-- Actions 被标记为 done
-- `attempts=0`, `findings=0`
-- 没有 LLM 调用记录
-- 没有工具调用记录
-- Agent.Run 相关日志完全缺失
+- ✅ Planner 正常工作：调用 LLM，执行工具（observe_state, propose_moves），创建 actions
+- ✅ Executor 正常工作：调用 LLM（Provider.Complete），LLM 返回 tool_calls，执行耗时合理
+- ❌ llm_invocation 表为空（但 LLM 确实被调用了）
+- ❌ tool_invocation 表为空（但工具确实被调用了）
+- ❌ 因此没有 findings 产生
 
-**已确认的调用链**：
+**已确认**：
 ```
-✅ Execution Loop 启动
-✅ executeMove 被调用
-✅ Coordinator.Execute 被调用
-✅ runAgent 闭包被调用
-✅ Dispatcher.Execute 被调用
-❌ Agent.Run ??? (日志缺失)
-❌ LLM 调用 (没有记录)
-❌ 工具调用 (没有记录)
+✅ Planner Agent
+  ✅ 调用 LLM（通过 Router）
+  ✅ 提取工具调用（observe_state, propose_moves）
+  ✅ 执行工具（写入 World Model）
+  ✅ 创建 Actions（已验证在数据库中）
+
+✅ Execution Loop
+  ✅ 读取 open actions
+  ✅ 调用 Coordinator.Execute
+  ✅ 调用 runAgent 闭包
+  ✅ 调用 Dispatcher.Execute
+  
+✅ Executor Agent
+  ✅ Agent.Run 被调用
+  ✅ executeLoop 进入 ReAct 循环
+  ✅ Provider.Complete 被调用（多次，step 0-7+）
+  ✅ LLM 返回 tool_calls（tool_calls=1, 2, 3...）
+  ✅ 执行耗时合理（20-40秒/action）
+
+❌ 调用记录层
+  ❌ llm_invocation 表空（应该有 Planner + Executor 的所有 LLM 调用）
+  ❌ tool_invocation 表空（应该有 Executor 的所有工具调用）
 ```
 
-**可能原因**：
-1. **Agent.Run 立即返回** - Budget.MaxSteps = 0 或其他配置问题
-2. **Agent.Run 未被调用** - Dispatcher.Execute 提前返回
-3. **Logger 配置问题** - 日志被过滤或未正确输出
-4. **错误被静默吞掉** - 某处有 recover 或空 error 处理
+**问题定位**：
+- **拦截器未生效** - llminvocation.Store 和 toolinvocation.Store 存在于 handler 中，但没有被使用
+- **可能原因**：
+  1. Provider 没有被包装（需要一个 InterceptingProvider）
+  2. Tool Registry 没有被包装（需要一个 InterceptingRegistry）
+  3. 或者拦截器存在但被跳过了
 
-**排查进展**：
-- 已添加详细的 Agent 执行日志（Agent.Run, executeLoop, Provider.Complete）
-- 提交：3134ab1a
-- 下一步：验证日志是否出现，或继续深挖调用链
+**待排查**：
+1. 检查 Provider.Router 是否有拦截器机制
+2. 检查 Tool Registry 是否有拦截器机制
+3. 查找为什么 handler.calls 和 handler.toolCalls 没有被使用
+4. 添加拦截器或包装器来记录调用
 
 ### ❌ 问题 3: 任务卡在 active 状态（已理解）
 **现象**：

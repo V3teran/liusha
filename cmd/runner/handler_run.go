@@ -41,9 +41,18 @@ const heartbeatThrottleMs = 10_000
 func (h handler) toolRecordInterceptor(executorID, taskID string) registry.Interceptor {
 	lastBeatMs := new(atomic.Int64)
 	return func(ctx context.Context, t registry.Tool, args []byte, next registry.ExecuteFunc) (registry.ToolResult, error) {
+		fmt.Printf("[INTERCEPTOR] Tool call intercepted: %s (task=%s)\n", t.Name(), taskID)
+		h.logger.Info().
+			Str("task_id", taskID).
+			Str("tool_name", t.Name()).
+			Msg("[INTERCEPTOR] Tool call intercepted")
+
 		start := time.Now()
 		res, err := next(ctx, t, args)
 		durMs := int(time.Since(start).Milliseconds())
+
+		fmt.Printf("[INTERCEPTOR] Tool call completed: %s (duration=%dms)\n", t.Name(), durMs)
+
 		errMsg := ""
 		if res.Error != "" {
 			errMsg = res.Error
@@ -56,7 +65,7 @@ func (h handler) toolRecordInterceptor(executorID, taskID string) registry.Inter
 			if len(preview) > 512 {
 				preview = preview[:512]
 			}
-			_, _ = h.toolCalls.Append(ctx, toolinvocation.Invocation{
+			invID, appendErr := h.toolCalls.Append(ctx, toolinvocation.Invocation{
 				ExecutorID:    executorID,
 				TaskID:        taskID,
 				ToolName:      t.Name(),
@@ -66,6 +75,26 @@ func (h handler) toolRecordInterceptor(executorID, taskID string) registry.Inter
 				DurationMs:    durMs,
 				ErrorMessage:  errMsg,
 			})
+			if appendErr != nil {
+				fmt.Printf("[INTERCEPTOR] Failed to record: %v\n", appendErr)
+				h.logger.Error().Err(appendErr).
+					Str("task_id", taskID).
+					Str("tool_name", t.Name()).
+					Msg("[INTERCEPTOR] Failed to record tool invocation")
+			} else {
+				fmt.Printf("[INTERCEPTOR] Recorded successfully: id=%d\n", invID)
+				h.logger.Info().
+					Str("task_id", taskID).
+					Str("tool_name", t.Name()).
+					Int64("invocation_id", invID).
+					Msg("[INTERCEPTOR] Tool invocation recorded successfully")
+			}
+		} else {
+			fmt.Printf("[INTERCEPTOR] h.toolCalls is nil!\n")
+			h.logger.Warn().
+				Str("task_id", taskID).
+				Str("tool_name", t.Name()).
+				Msg("[INTERCEPTOR] h.toolCalls is nil, cannot record invocation")
 		}
 		// throttled heartbeat
 		if taskID != "" {

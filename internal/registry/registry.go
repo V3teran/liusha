@@ -192,6 +192,17 @@ func (r *Registry) AddInterceptor(i Interceptor) {
 	}
 }
 
+// Interceptors 返回当前注册的所有拦截器的副本。
+// 用于创建 sub-registry 时复制拦截器链。
+func (r *Registry) Interceptors() []Interceptor {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	// 返回副本，避免外部修改
+	interceptors := make([]Interceptor, len(r.interceptors))
+	copy(interceptors, r.interceptors)
+	return interceptors
+}
+
 // Get 按名称查找工具。
 func (r *Registry) Get(name string) (Tool, bool) {
 	r.mu.RLock()
