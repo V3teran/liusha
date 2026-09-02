@@ -1,0 +1,24 @@
+===== 1/6 跑 migrate（确保 schema 跟得上代码改动）=====
+GOPROXY='https://proxy.golang.org,https://goproxy.cn,direct' go run -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@v4.19.1 -path db/migrations -database 'postgres://liusha:liusha@localhost:5432/liusha?sslmode=disable' up
+no change
+  ✓ migrate 完成（含已应用的 noop）
+
+===== 2/6 清空 db / redis =====
+NOTICE:  truncate cascades to table "message"
+NOTICE:  truncate cascades to table "traffic_task"
+TRUNCATE TABLE
+  ✓ postgres 业务表已 truncate
+  ✓ redis FLUSHDB
+  ✓ ingestor consumer group 已重建（XGROUP CREATE MKSTREAM）
+
+===== 3/6 关旧 service（按端口找 PID） =====
+  ✓ 旧 service 已关停（端口 8001/8888/8090/9090 释放 + runner 进程兜底 pkill）
+
+===== 4/6 清 logs（fd 已释放，rm 真正删除）=====
+  ✓ logs 已清空（删 4 个文件）
+
+===== 5/6 重启 service =====
+  run-svc.sh background PID=36928 (output: /tmp/liusha-run-svc.out)
+  等 healthz 全部上线（最多 60s）...
+  ✗ healthz 等待超时（60s）— api=1 runner=0 proxy=1 vulnapp=1
+  → 看 /tmp/liusha-run-svc.out 与 logs/*.stderr
