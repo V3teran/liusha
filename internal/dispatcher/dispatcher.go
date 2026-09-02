@@ -100,12 +100,10 @@ func (d *Dispatcher) Execute(ctx context.Context, action executor.Action) (execu
 
 func (d *Dispatcher) buildSubRegistry(allowedTools []string) *registry.Registry {
 	if len(allowedTools) == 0 {
-		fmt.Printf("[DISPATCHER] Using full registry (no tool restrictions)\n")
 		d.logger.Info().Msg("[DISPATCHER] Using full registry (no tool restrictions)")
 		return d.registry
 	}
 
-	fmt.Printf("[DISPATCHER] Building sub-registry with %d allowed tools\n", len(allowedTools))
 	d.logger.Info().
 		Int("allowed_tools_count", len(allowedTools)).
 		Strs("allowed_tools", allowedTools).
@@ -121,7 +119,6 @@ func (d *Dispatcher) buildSubRegistry(allowedTools []string) *registry.Registry 
 
 	// 重要：复制所有拦截器（包括 toolRecordInterceptor）
 	interceptors := d.registry.Interceptors()
-	fmt.Printf("[DISPATCHER] Copying %d interceptors to sub-registry\n", len(interceptors))
 	d.logger.Info().
 		Int("interceptor_count", len(interceptors)).
 		Msg("[DISPATCHER] Copying interceptors to sub-registry")
