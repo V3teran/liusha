@@ -16,7 +16,7 @@ package sandbox
 //   - TimeoutSeconds：本次命令硬超时（秒），超时被 SIGKILL
 //   - Tag：运维标签（如 "sqlmap-l5"），仅用于日志/诊断，不影响执行
 type ExecRequest struct {
-	ExecutorID       string `json:"agent_id"`
+	ExecutorID     string `json:"executor_id"`
 	Command        string `json:"command"`
 	TimeoutSeconds int    `json:"timeout_seconds"`
 	Tag            string `json:"tag,omitempty"`
