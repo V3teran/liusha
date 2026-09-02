@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/rs/zerolog/log"
-
 	"github.com/V3teran/liusha/internal/finding"
 	"github.com/V3teran/liusha/internal/verifier"
 	"github.com/V3teran/liusha/internal/worldmodel"
@@ -42,7 +40,7 @@ func (c *Coordinator) Execute(ctx context.Context, action worldmodel.Node) ([]ve
 		return nil, fmt.Errorf("Coordinator: 节点不是 Action: %s", action.ID)
 	}
 
-	log.Info().Str("action_id", action.ID).Msg("[COORDINATOR] Execute called")
+	fmt.Printf("[COORDINATOR] Execute called for action: %s\n", action.ID)
 
 	// 快照运行前的 finding
 	before, err := c.findings.ListByTaskAndHost(ctx, c.taskID, c.host, 0)
@@ -54,16 +52,16 @@ func (c *Coordinator) Execute(ctx context.Context, action worldmodel.Node) ([]ve
 		seen[f.ID] = true
 	}
 
-	log.Info().Int("findings_before", len(before)).Msg("[COORDINATOR] Before execution")
-	log.Info().Msg("[COORDINATOR] Calling c.run (AgentFunc)...")
+	fmt.Printf("[COORDINATOR] Before execution: %d findings exist\n", len(before))
+	fmt.Printf("[COORDINATOR] Calling c.run (AgentFunc)...\n")
 
 	// 执行 agent
 	if err := c.run(ctx, action); err != nil {
-		log.Error().Err(err).Msg("[COORDINATOR] c.run returned error")
+		fmt.Printf("[COORDINATOR] c.run returned error: %v\n", err)
 		return nil, fmt.Errorf("Coordinator: 战术 agent 执行失败: %w", err)
 	}
 
-	log.Info().Msg("[COORDINATOR] c.run completed successfully")
+	fmt.Printf("[COORDINATOR] c.run completed successfully\n")
 
 	// 收割新 finding
 	after, err := c.findings.ListByTaskAndHost(ctx, c.taskID, c.host, 0)
@@ -71,10 +69,7 @@ func (c *Coordinator) Execute(ctx context.Context, action worldmodel.Node) ([]ve
 		return nil, fmt.Errorf("Coordinator: 收割 finding 失败: %w", err)
 	}
 
-	log.Info().
-		Int("findings_after", len(after)).
-		Int("findings_before", len(before)).
-		Msg("[COORDINATOR] After execution")
+	fmt.Printf("[COORDINATOR] After execution: %d findings exist (was %d)\n", len(after), len(before))
 
 	var attempts []verifier.Attempt
 	for _, f := range after {
@@ -90,6 +85,6 @@ func (c *Coordinator) Execute(ctx context.Context, action worldmodel.Node) ([]ve
 		}
 	}
 
-	log.Info().Int("attempts", len(attempts)).Msg("[COORDINATOR] Returning attempts")
+	fmt.Printf("[COORDINATOR] Returning %d attempts\n", len(attempts))
 	return attempts, nil
 }
