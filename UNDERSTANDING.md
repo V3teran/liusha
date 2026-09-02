@@ -271,39 +271,67 @@ err := coord.run(ctx, action)
 
 ## 🐛 已知问题分析
 
-### 问题 1: Runner 进程崩溃
+### ✅ 问题 1: Planner Agent Panic（已修复）
 **现象**：
+- Runner 进程在处理 ActionCompleted 事件时崩溃
 - 日志在某个时间点后停止
 - 任务状态一直是 active
-- 没有产生 findings
 
-**可能原因**：
-1. Panic 未被捕获
-2. Context 被取消但没有正确处理
-3. 死锁或无限等待
-4. 资源耗尽（内存、goroutine 泄漏）
+**根本原因**：
+- EventActionCompleted 事件发送时使用 `action_id` 字段
+- 但接收时尝试读取 `move_id` 字段
+- 导致 `nil.(string)` panic
 
-### 问题 2: 没有产生 Findings
+**修复**：
+- 统一使用 `action_id` 字段名
+- 添加安全的类型断言检查，避免 panic
+- 提交：26af9630
+
+**验证结果**：
+- ✅ ActionCompleted 事件被正确接收和处理
+- ✅ 没有 panic
+- ✅ 任务可以继续执行
+
+### 🔍 问题 2: Agent 执行但不调用 LLM 和工具（排查中）
 **现象**：
-- attempts=0
-- findings_after=0
-- Agent 执行成功但没有结果
+- Execution Loop 正常运行
+- Actions 被标记为 done
+- `attempts=0`, `findings=0`
+- 没有 LLM 调用记录
+- 没有工具调用记录
+- Agent.Run 相关日志完全缺失
+
+**已确认的调用链**：
+```
+✅ Execution Loop 启动
+✅ executeMove 被调用
+✅ Coordinator.Execute 被调用
+✅ runAgent 闭包被调用
+✅ Dispatcher.Execute 被调用
+❌ Agent.Run ??? (日志缺失)
+❌ LLM 调用 (没有记录)
+❌ 工具调用 (没有记录)
+```
 
 **可能原因**：
-1. Agent 没有调用工具（LLM 只思考不执行）
-2. 工具调用失败但被静默忽略
-3. 流量没有被采集（Proxy 或 Ingestor 问题）
-4. Finding 生成逻辑有 bug
+1. **Agent.Run 立即返回** - Budget.MaxSteps = 0 或其他配置问题
+2. **Agent.Run 未被调用** - Dispatcher.Execute 提前返回
+3. **Logger 配置问题** - 日志被过滤或未正确输出
+4. **错误被静默吞掉** - 某处有 recover 或空 error 处理
 
-### 问题 3: 任务卡在 active 状态
+**排查进展**：
+- 已添加详细的 Agent 执行日志（Agent.Run, executeLoop, Provider.Complete）
+- 提交：3134ab1a
+- 下一步：验证日志是否出现，或继续深挖调用链
+
+### ❌ 问题 3: 任务卡在 active 状态（已理解）
 **现象**：
 - Task.status 一直是 active
 - Execution Loop 停止但没有更新状态
 
-**可能原因**：
-1. Execution Loop 提前退出
-2. 异常未被处理，没有执行 defer 中的状态更新
-3. 数据库事务问题
+**原因**：
+- 问题 1 导致 Runner 崩溃，defer 中的状态更新未执行
+- 修复问题 1 后，此问题应该也解决了
 
 ## 🎯 下一步排查计划
 
