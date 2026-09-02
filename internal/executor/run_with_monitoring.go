@@ -77,16 +77,29 @@ func (a *Agent) runWithMonitoring(ctx context.Context, actionID string, req Exec
 
 // executeLoop 执行协程：ReAct 循环。
 func (a *Agent) executeLoop(ctx context.Context, actionID string, req ExecutorReq, state *executionState) (ExecutorResult, error) {
+	a.logger.Info().
+		Str("action_id", actionID).
+		Int("max_steps", req.Budget.MaxSteps).
+		Msg("[AGENT] executeLoop started")
+
 	// 从 checkpoint 恢复起点
 	startStep := 0
 	if a.checkpoint != nil {
 		if cp, err := a.checkpoint.Last(ctx, extractTaskID(ctx), actionID); err == nil && cp != nil {
 			startStep = cp.StepIdx + 1
+			a.logger.Info().
+				Str("action_id", actionID).
+				Int("start_step", startStep).
+				Msg("[AGENT] Resuming from checkpoint")
 		}
 	}
 
 	// 构建初始消息列表
 	messages := buildInitialMessages(req)
+	a.logger.Info().
+		Str("action_id", actionID).
+		Int("initial_message_count", len(messages)).
+		Msg("[AGENT] Built initial messages")
 
 	// 读取并应用 steering 消息（从 worldmodel）
 	messages = a.applySteeringMessages(ctx, actionID, messages)
@@ -98,9 +111,25 @@ func (a *Agent) executeLoop(ctx context.Context, actionID string, req ExecutorRe
 		ctx = registry.WithConstraints(ctx, req.PendingConstraints)
 	}
 
+	a.logger.Info().
+		Str("action_id", actionID).
+		Int("start_step", startStep).
+		Int("max_steps", req.Budget.MaxSteps).
+		Msg("[AGENT] Starting ReAct loop")
+
 	for stepIdx := startStep; stepIdx < req.Budget.MaxSteps; stepIdx++ {
+		a.logger.Info().
+			Str("action_id", actionID).
+			Int("step_idx", stepIdx).
+			Int("max_steps", req.Budget.MaxSteps).
+			Msg("[AGENT] Loop iteration started")
+
 		// 检查是否被监察协程停止
 		if stopped, _ := state.isStopped(); stopped {
+			a.logger.Info().
+				Str("action_id", actionID).
+				Int("step_idx", stepIdx).
+				Msg("[AGENT] Stopped by monitor")
 			steps := state.getRecentSteps(999999) // 获取所有步骤
 			return ExecutorResult{
 				Steps:      steps,
@@ -135,6 +164,12 @@ func (a *Agent) executeLoop(ctx context.Context, actionID string, req ExecutorRe
 		}
 
 		// 2. 调用 Provider
+		a.logger.Info().
+			Str("action_id", actionID).
+			Int("step_idx", stepIdx).
+			Int("message_count", len(messages)).
+			Msg("[AGENT] Calling provider.Complete")
+
 		tools := a.reg.Schemas()
 		resp, err := a.provider.Complete(ctx, provider.Request{
 			Messages:  messages,
@@ -142,6 +177,11 @@ func (a *Agent) executeLoop(ctx context.Context, actionID string, req ExecutorRe
 			MaxTokens: req.Budget.MaxTokens,
 		})
 		if err != nil {
+			a.logger.Error().
+				Err(err).
+				Str("action_id", actionID).
+				Int("step_idx", stepIdx).
+				Msg("[AGENT] Provider.Complete failed")
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 				steps := state.getRecentSteps(999999)
 				return ExecutorResult{Steps: steps, Halt: HaltCancelled, TokensUsed: state.getTokens()}, nil
@@ -149,6 +189,12 @@ func (a *Agent) executeLoop(ctx context.Context, actionID string, req ExecutorRe
 			steps := state.getRecentSteps(999999)
 			return ExecutorResult{Steps: steps, Halt: HaltError, TokensUsed: state.getTokens()}, err
 		}
+		a.logger.Info().
+			Str("action_id", actionID).
+			Int("step_idx", stepIdx).
+			Int("tool_calls", len(resp.ToolCalls)).
+			Str("finish_reason", resp.FinishReason).
+			Msg("[AGENT] Provider.Complete returned")
 		totalTokens += resp.Usage.InTokens + resp.Usage.OutTokens
 		state.addTokens(resp.Usage.InTokens + resp.Usage.OutTokens)
 

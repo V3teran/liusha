@@ -152,7 +152,18 @@ func (a *Agent) WithMonitor(enabled bool, stepInterval int, evaluateSteps int, p
 // Run 执行 ReAct 循环，直到 done/budget/error/cancel。
 // 如果启用监察，将启动两个协程：执行协程和监察协程。
 func (a *Agent) Run(ctx context.Context, actionID string, req ExecutorReq) (ExecutorResult, error) {
+	a.logger.Info().
+		Str("action_id", actionID).
+		Int("max_steps", req.Budget.MaxSteps).
+		Int("max_tokens", req.Budget.MaxTokens).
+		Bool("monitor_enabled", a.monitorEnabled).
+		Msg("[AGENT] Run called")
+
 	if req.Budget.MaxSteps <= 0 {
+		a.logger.Warn().
+			Str("action_id", actionID).
+			Int("original_max_steps", req.Budget.MaxSteps).
+			Msg("[AGENT] MaxSteps <= 0, using default budget")
 		req.Budget = DefaultBudget()
 	}
 	if req.Budget.CompactionTrigger <= 0 {
@@ -161,10 +172,12 @@ func (a *Agent) Run(ctx context.Context, actionID string, req ExecutorReq) (Exec
 
 	// 如果未启用监察，使用原有单协程逻辑
 	if !a.monitorEnabled {
+		a.logger.Info().Str("action_id", actionID).Msg("[AGENT] Using single-threaded mode")
 		return a.runSingleThreaded(ctx, actionID, req)
 	}
 
 	// 双协程模式
+	a.logger.Info().Str("action_id", actionID).Msg("[AGENT] Using monitoring mode")
 	return a.runWithMonitoring(ctx, actionID, req)
 }
 
