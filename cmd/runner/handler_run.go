@@ -395,6 +395,7 @@ func (h handler) handleSolo(
 		h.logger.Info().
 			Str("action_id", m.ID).
 			Str("kind", string(m.Kind)).
+			Str("location", "handler_run.go:Solo").
 			Msg("[RUN_AGENT] runAgent called")
 
 		// 执行 Move
@@ -418,6 +419,11 @@ func (h handler) handleSolo(
 		execResult = []executor.Execution{exec}
 		return nil
 	}
+
+	h.logger.Info().
+		Str("task_id", taskID).
+		Str("closure_ptr", fmt.Sprintf("%p", runAgent)).
+		Msg("[HANDLER] Created runAgent closure for Solo mode, calling runCognition")
 
 	report, err := h.runCognition(runCtx, assignmentID, taskID, host, runAgent)
 	if err == nil {
@@ -580,6 +586,7 @@ func (h handler) handleCognition(
 		h.logger.Info().
 			Str("action_id", m.ID).
 			Str("kind", string(m.Kind)).
+			Str("location", "handler_run.go:Cognition").
 			Msg("[RUN_AGENT_2] runAgent called (cognition mode)")
 
 		action := nodeToExecutorAction(m, orchPrompt)
@@ -602,6 +609,11 @@ func (h handler) handleCognition(
 		execResult = []executor.Execution{exec}
 		return nil
 	}
+
+	h.logger.Info().
+		Str("task_id", taskID).
+		Str("closure_ptr", fmt.Sprintf("%p", runAgent)).
+		Msg("[HANDLER] Created runAgent closure for Cognition mode, calling runCognition")
 
 	report, err := h.runCognition(runCtx, assignmentID, taskID, virtualHost, runAgent)
 	if err == nil {
