@@ -292,53 +292,91 @@ err := coord.run(ctx, action)
 - ✅ 没有 panic
 - ✅ 任务可以继续执行
 
-### 🔍 问题 2: LLM 和工具调用记录缺失（排查中）
+## 🎯 已修复的问题
 
-**现象**：
-- ✅ Planner 正常工作：调用 LLM，执行工具（observe_state, propose_moves），创建 actions
-- ✅ Executor 正常工作：调用 LLM（Provider.Complete），LLM 返回 tool_calls，执行耗时合理
-- ❌ llm_invocation 表为空（但 LLM 确实被调用了）
-- ❌ tool_invocation 表为空（但工具确实被调用了）
-- ❌ 因此没有 findings 产生
+### ✅ 问题 1: Planner Agent Panic
+**原因**：Event payload 字段名不匹配（action_id vs move_id）
+**修复**：统一使用 action_id，添加安全类型断言
+**提交**：26af9630
 
-**已确认**：
+### ✅ 问题 2: 工具调用记录完全丢失
+**原因**：三个连锁问题
+1. **Sub-registry 拦截器丢失** - Dispatcher.buildSubRegistry 只复制工具，不复制拦截器
+2. **handleCognition 缺失拦截器** - 只有 handleSolo 注册了 toolRecordInterceptor，但实际使用的是 handleCognition
+3. **SQL 列名不匹配** - tool_invocation INSERT 使用 agent_run_id，但表中是 agent_id
+
+**修复**：
+1. 添加 Registry.Interceptors() 方法返回拦截器列表
+2. Dispatcher.buildSubRegistry 现在复制拦截器到 sub-registry
+3. handleCognition 中添加 toolRecordInterceptor 注册
+4. 修复 SQL 列名：agent_run_id → agent_id
+
+**验证**：✅ 工具调用成功记录（测试中记录了 29 个工具调用）
+**提交**：fa22bb9e, 8db45cc5
+
+---
+
+## 🔍 待修复的问题
+
+### ⚠️ 问题 3: LLM 调用记录缺失（待实现）
+
+**现象**：llm_invocation 表始终为空，虽然 LLM 确实被调用了
+
+**原因分析**：
+- ✅ 已有 `llminvocation.Store` 和数据模型
+- ✅ 已有 `llm.CallSink` 接口定义
+- ❌ **Provider 没有装饰器/拦截器机制**
+- ❌ Router.For() 返回的 Provider 不记录调用
+
+**架构对比**：
 ```
-✅ Planner Agent
-  ✅ 调用 LLM（通过 Router）
-  ✅ 提取工具调用（observe_state, propose_moves）
-  ✅ 执行工具（写入 World Model）
-  ✅ 创建 Actions（已验证在数据库中）
+工具调用记录（已修复）：
+  Agent → Registry.ExecuteParallel
+    → registry.execute
+      → chain(interceptors, final)  ← 拦截器链
+        → toolRecordInterceptor     ← 记录到数据库
+          → tool.Execute
 
-✅ Execution Loop
-  ✅ 读取 open actions
-  ✅ 调用 Coordinator.Execute
-  ✅ 调用 runAgent 闭包
-  ✅ 调用 Dispatcher.Execute
-  
-✅ Executor Agent
-  ✅ Agent.Run 被调用
-  ✅ executeLoop 进入 ReAct 循环
-  ✅ Provider.Complete 被调用（多次，step 0-7+）
-  ✅ LLM 返回 tool_calls（tool_calls=1, 2, 3...）
-  ✅ 执行耗时合理（20-40秒/action）
-
-❌ 调用记录层
-  ❌ llm_invocation 表空（应该有 Planner + Executor 的所有 LLM 调用）
-  ❌ tool_invocation 表空（应该有 Executor 的所有工具调用）
+LLM 调用记录（待实现）：
+  Agent → Provider.Complete         ← 需要装饰器
+    → ??? (缺少记录层)
+      → 实际 LLM API 调用
 ```
 
-**问题定位**：
-- **拦截器未生效** - llminvocation.Store 和 toolinvocation.Store 存在于 handler 中，但没有被使用
-- **可能原因**：
-  1. Provider 没有被包装（需要一个 InterceptingProvider）
-  2. Tool Registry 没有被包装（需要一个 InterceptingRegistry）
-  3. 或者拦截器存在但被跳过了
+**建议方案**：
+1. **创建 InstrumentedProvider 装饰器**
+   ```go
+   type InstrumentedProvider struct {
+       inner    Provider
+       callSink llm.CallSink
+       taskID   string
+       executorID string
+   }
+   
+   func (p *InstrumentedProvider) Complete(ctx, msgs, tools) {
+       start := time.Now()
+       resp, err := p.inner.Complete(ctx, msgs, tools)
+       
+       // 记录到 llm_invocation
+       p.callSink.Append(ctx, llminvocation.Invocation{
+           TaskID: p.taskID,
+           ExecutorID: p.executorID,
+           // ... 其他字段
+       })
+       
+       return resp, err
+   }
+   ```
 
-**待排查**：
-1. 检查 Provider.Router 是否有拦截器机制
-2. 检查 Tool Registry 是否有拦截器机制
-3. 查找为什么 handler.calls 和 handler.toolCalls 没有被使用
-4. 添加拦截器或包装器来记录调用
+2. **在 Router.For() 或 buildDispatcher 中包装**
+   ```go
+   provider := router.For(ctx, complexity)
+   instrumented := NewInstrumentedProvider(provider, llmStore, taskID, executorID)
+   ```
+
+3. **或者在 Agent 层面包装** - 类似于 registry 拦截器的方式
+
+**优先级**：中等（系统功能正常，只是缺少可观测性数据）
 
 ### ❌ 问题 3: 任务卡在 active 状态（已理解）
 **现象**：
