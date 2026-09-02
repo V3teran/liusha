@@ -22,3 +22,101 @@ TRUNCATE TABLE
   等 healthz 全部上线（最多 60s）...
   ✗ healthz 等待超时（60s）— api=1 runner=0 proxy=1 vulnapp=1
   → 看 /tmp/liusha-run-svc.out 与 logs/*.stderr
+===== 1/6 跑 migrate（确保 schema 跟得上代码改动）=====
+GOPROXY='https://proxy.golang.org,https://goproxy.cn,direct' go run -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@v4.19.1 -path db/migrations -database 'postgres://liusha:liusha@localhost:5432/liusha?sslmode=disable' up
+no change
+  ✓ migrate 完成（含已应用的 noop）
+
+===== 2/6 清空 db / redis =====
+NOTICE:  truncate cascades to table "message"
+NOTICE:  truncate cascades to table "traffic_task"
+TRUNCATE TABLE
+  ✓ postgres 业务表已 truncate
+  ✓ redis FLUSHDB
+  ✓ ingestor consumer group 已重建（XGROUP CREATE MKSTREAM）
+
+===== 3/6 关旧 service（按端口找 PID） =====
+  ✓ 旧 service 已关停（端口 8001/8888/8090/9090 释放 + runner 进程兜底 pkill）
+
+===== 4/6 清 logs（fd 已释放，rm 真正删除）=====
+  ✓ logs 已清空（删 7 个文件）
+
+===== 5/6 重启 service =====
+  run-svc.sh background PID=38754 (output: /tmp/liusha-run-svc.out)
+  等 healthz 全部上线（最多 60s）...
+  ✓ 4 service 全部 healthy
+
+  📊 前端：liusha-ui 独立仓 → pnpm dev（/api 代理到本 api，X-API-Key=changeme-dev-key）
+     task_id 跑完 e2e 后从 finding 表查：
+       docker exec liusha-postgres psql -U liusha -d liusha -c \
+         "SELECT DISTINCT task_id FROM finding ORDER BY task_id;"
+
+===== 6/6 跑 e2e 触发器 profile=[active:full]（约 1-6 分钟/个）=====
+[90m10:33:32.428[0m [32mINF[0m [36m[e2e][0m [1me2e/runner.go:68[0m[36m >[0m [1mactive chat scan dispatched（前端可看会话）[0m [36mconversation_id=[0m900e596b-4fa6-4ec3-97b4-7348e4cd73fa [36mprofile=[0mfull [36mtask_id=[0m6591ceec-492e-490d-8264-a37922f58240
+[90m10:33:32.453[0m [32mINF[0m [36m[e2e][0m [1me2e/runner.go:114[0m[36m >[0m [1mactive poll[0m [36mfindings=[0m0 [36mmin_required=[0m8 [36mobserved=[0mtrue [36mprofile=[0mfull [36mtotal_runs=[0m1 [36munfinished_runs=[0m1
+[90m10:33:47.469[0m [32mINF[0m [36m[e2e][0m [1me2e/runner.go:114[0m[36m >[0m [1mactive poll[0m [36mfindings=[0m0 [36mmin_required=[0m8 [36mobserved=[0mtrue [36mprofile=[0mfull [36mtotal_runs=[0m1 [36munfinished_runs=[0m1
+[90m10:34:02.477[0m [32mINF[0m [36m[e2e][0m [1me2e/runner.go:114[0m[36m >[0m [1mactive poll[0m [36mfindings=[0m0 [36mmin_required=[0m8 [36mobserved=[0mtrue [36mprofile=[0mfull [36mtotal_runs=[0m1 [36munfinished_runs=[0m1
+[90m10:34:17.489[0m [32mINF[0m [36m[e2e][0m [1me2e/runner.go:114[0m[36m >[0m [1mactive poll[0m [36mfindings=[0m0 [36mmin_required=[0m8 [36mobserved=[0mtrue [36mprofile=[0mfull [36mtotal_runs=[0m1 [36munfinished_runs=[0m1
+[90m10:34:32.516[0m [32mINF[0m [36m[e2e][0m [1me2e/runner.go:114[0m[36m >[0m [1mactive poll[0m [36mfindings=[0m0 [36mmin_required=[0m8 [36mobserved=[0mtrue [36mprofile=[0mfull [36mtotal_runs=[0m1 [36munfinished_runs=[0m1
+[90m10:34:47.531[0m [32mINF[0m [36m[e2e][0m [1me2e/runner.go:114[0m[36m >[0m [1mactive poll[0m [36mfindings=[0m0 [36mmin_required=[0m8 [36mobserved=[0mtrue [36mprofile=[0mfull [36mtotal_runs=[0m1 [36munfinished_runs=[0m1
+[90m10:35:02.537[0m [32mINF[0m [36m[e2e][0m [1me2e/runner.go:114[0m[36m >[0m [1mactive poll[0m [36mfindings=[0m0 [36mmin_required=[0m8 [36mobserved=[0mtrue [36mprofile=[0mfull [36mtotal_runs=[0m1 [36munfinished_runs=[0m1
+[90m10:35:17.541[0m [32mINF[0m [36m[e2e][0m [1me2e/runner.go:114[0m[36m >[0m [1mactive poll[0m [36mfindings=[0m0 [36mmin_required=[0m8 [36mobserved=[0mtrue [36mprofile=[0mfull [36mtotal_runs=[0m1 [36munfinished_runs=[0m1
+[90m10:35:32.565[0m [32mINF[0m [36m[e2e][0m [1me2e/runner.go:114[0m[36m >[0m [1mactive poll[0m [36mfindings=[0m0 [36mmin_required=[0m8 [36mobserved=[0mtrue [36mprofile=[0mfull [36mtotal_runs=[0m1 [36munfinished_runs=[0m1
+[90m10:35:47.574[0m [32mINF[0m [36m[e2e][0m [1me2e/runner.go:114[0m[36m >[0m [1mactive poll[0m [36mfindings=[0m0 [36mmin_required=[0m8 [36mobserved=[0mtrue [36mprofile=[0mfull [36mtotal_runs=[0m1 [36munfinished_runs=[0m1
+[90m10:36:02.578[0m [32mINF[0m [36m[e2e][0m [1me2e/runner.go:114[0m[36m >[0m [1mactive poll[0m [36mfindings=[0m0 [36mmin_required=[0m8 [36mobserved=[0mtrue [36mprofile=[0mfull [36mtotal_runs=[0m1 [36munfinished_runs=[0m1
+[90m10:36:17.586[0m [32mINF[0m [36m[e2e][0m [1me2e/runner.go:114[0m[36m >[0m [1mactive poll[0m [36mfindings=[0m0 [36mmin_required=[0m8 [36mobserved=[0mtrue [36mprofile=[0mfull [36mtotal_runs=[0m1 [36munfinished_runs=[0m1
+[90m10:36:32.598[0m [32mINF[0m [36m[e2e][0m [1me2e/runner.go:114[0m[36m >[0m [1mactive poll[0m [36mfindings=[0m0 [36mmin_required=[0m8 [36mobserved=[0mtrue [36mprofile=[0mfull [36mtotal_runs=[0m1 [36munfinished_runs=[0m1
+[90m10:36:47.601[0m [32mINF[0m [36m[e2e][0m [1me2e/runner.go:114[0m[36m >[0m [1mactive poll[0m [36mfindings=[0m0 [36mmin_required=[0m8 [36mobserved=[0mtrue [36mprofile=[0mfull [36mtotal_runs=[0m1 [36munfinished_runs=[0m1
+[90m10:37:02.605[0m [32mINF[0m [36m[e2e][0m [1me2e/runner.go:114[0m[36m >[0m [1mactive poll[0m [36mfindings=[0m0 [36mmin_required=[0m8 [36mobserved=[0mtrue [36mprofile=[0mfull [36mtotal_runs=[0m1 [36munfinished_runs=[0m1
+[90m10:37:17.611[0m [32mINF[0m [36m[e2e][0m [1me2e/runner.go:114[0m[36m >[0m [1mactive poll[0m [36mfindings=[0m0 [36mmin_required=[0m8 [36mobserved=[0mtrue [36mprofile=[0mfull [36mtotal_runs=[0m1 [36munfinished_runs=[0m1
+[90m10:37:32.617[0m [32mINF[0m [36m[e2e][0m [1me2e/runner.go:114[0m[36m >[0m [1mactive poll[0m [36mfindings=[0m0 [36mmin_required=[0m8 [36mobserved=[0mtrue [36mprofile=[0mfull [36mtotal_runs=[0m1 [36munfinished_runs=[0m1
+[90m10:37:47.624[0m [32mINF[0m [36m[e2e][0m [1me2e/runner.go:114[0m[36m >[0m [1mactive poll[0m [36mfindings=[0m0 [36mmin_required=[0m8 [36mobserved=[0mtrue [36mprofile=[0mfull [36mtotal_runs=[0m1 [36munfinished_runs=[0m1
+[90m10:38:02.632[0m [32mINF[0m [36m[e2e][0m [1me2e/runner.go:114[0m[36m >[0m [1mactive poll[0m [36mfindings=[0m0 [36mmin_required=[0m8 [36mobserved=[0mtrue [36mprofile=[0mfull [36mtotal_runs=[0m1 [36munfinished_runs=[0m1
+[90m10:38:17.638[0m [32mINF[0m [36m[e2e][0m [1me2e/runner.go:114[0m[36m >[0m [1mactive poll[0m [36mfindings=[0m0 [36mmin_required=[0m8 [36mobserved=[0mtrue [36mprofile=[0mfull [36mtotal_runs=[0m1 [36munfinished_runs=[0m1
+[90m10:38:32.645[0m [32mINF[0m [36m[e2e][0m [1me2e/runner.go:114[0m[36m >[0m [1mactive poll[0m [36mfindings=[0m0 [36mmin_required=[0m8 [36mobserved=[0mtrue [36mprofile=[0mfull [36mtotal_runs=[0m1 [36munfinished_runs=[0m1
+[90m10:38:47.661[0m [32mINF[0m [36m[e2e][0m [1me2e/runner.go:114[0m[36m >[0m [1mactive poll[0m [36mfindings=[0m0 [36mmin_required=[0m8 [36mobserved=[0mtrue [36mprofile=[0mfull [36mtotal_runs=[0m1 [36munfinished_runs=[0m1
+[90m10:39:02.666[0m [32mINF[0m [36m[e2e][0m [1me2e/runner.go:114[0m[36m >[0m [1mactive poll[0m [36mfindings=[0m0 [36mmin_required=[0m8 [36mobserved=[0mtrue [36mprofile=[0mfull [36mtotal_runs=[0m1 [36munfinished_runs=[0m1
+[90m10:39:17.675[0m [32mINF[0m [36m[e2e][0m [1me2e/runner.go:114[0m[36m >[0m [1mactive poll[0m [36mfindings=[0m0 [36mmin_required=[0m8 [36mobserved=[0mtrue [36mprofile=[0mfull [36mtotal_runs=[0m1 [36munfinished_runs=[0m1
+[90m10:39:32.685[0m [32mINF[0m [36m[e2e][0m [1me2e/runner.go:114[0m[36m >[0m [1mactive poll[0m [36mfindings=[0m0 [36mmin_required=[0m8 [36mobserved=[0mtrue [36mprofile=[0mfull [36mtotal_runs=[0m1 [36munfinished_runs=[0m1
+[90m10:39:47.696[0m [32mINF[0m [36m[e2e][0m [1me2e/runner.go:114[0m[36m >[0m [1mactive poll[0m [36mfindings=[0m0 [36mmin_required=[0m8 [36mobserved=[0mtrue [36mprofile=[0mfull [36mtotal_runs=[0m1 [36munfinished_runs=[0m1
+[90m10:40:02.711[0m [32mINF[0m [36m[e2e][0m [1me2e/runner.go:114[0m[36m >[0m [1mactive poll[0m [36mfindings=[0m0 [36mmin_required=[0m8 [36mobserved=[0mtrue [36mprofile=[0mfull [36mtotal_runs=[0m1 [36munfinished_runs=[0m1
+[90m10:40:17.720[0m [32mINF[0m [36m[e2e][0m [1me2e/runner.go:114[0m[36m >[0m [1mactive poll[0m [36mfindings=[0m0 [36mmin_required=[0m8 [36mobserved=[0mtrue [36mprofile=[0mfull [36mtotal_runs=[0m1 [36munfinished_runs=[0m1
+[90m10:40:32.730[0m [32mINF[0m [36m[e2e][0m [1me2e/runner.go:114[0m[36m >[0m [1mactive poll[0m [36mfindings=[0m0 [36mmin_required=[0m8 [36mobserved=[0mtrue [36mprofile=[0mfull [36mtotal_runs=[0m1 [36munfinished_runs=[0m1
+[90m10:40:47.735[0m [32mINF[0m [36m[e2e][0m [1me2e/runner.go:114[0m[36m >[0m [1mactive poll[0m [36mfindings=[0m0 [36mmin_required=[0m8 [36mobserved=[0mtrue [36mprofile=[0mfull [36mtotal_runs=[0m1 [36munfinished_runs=[0m1
+[90m10:41:02.741[0m [32mINF[0m [36m[e2e][0m [1me2e/runner.go:114[0m[36m >[0m [1mactive poll[0m [36mfindings=[0m0 [36mmin_required=[0m8 [36mobserved=[0mtrue [36mprofile=[0mfull [36mtotal_runs=[0m1 [36munfinished_runs=[0m1
+[90m10:41:17.747[0m [32mINF[0m [36m[e2e][0m [1me2e/runner.go:114[0m[36m >[0m [1mactive poll[0m [36mfindings=[0m0 [36mmin_required=[0m8 [36mobserved=[0mtrue [36mprofile=[0mfull [36mtotal_runs=[0m1 [36munfinished_runs=[0m1
+[90m10:41:32.753[0m [32mINF[0m [36m[e2e][0m [1me2e/runner.go:114[0m[36m >[0m [1mactive poll[0m [36mfindings=[0m0 [36mmin_required=[0m8 [36mobserved=[0mtrue [36mprofile=[0mfull [36mtotal_runs=[0m1 [36munfinished_runs=[0m1
+[90m10:41:47.760[0m [32mINF[0m [36m[e2e][0m [1me2e/runner.go:114[0m[36m >[0m [1mactive poll[0m [36mfindings=[0m0 [36mmin_required=[0m8 [36mobserved=[0mtrue [36mprofile=[0mfull [36mtotal_runs=[0m1 [36munfinished_runs=[0m1
+[90m10:42:02.768[0m [32mINF[0m [36m[e2e][0m [1me2e/runner.go:114[0m[36m >[0m [1mactive poll[0m [36mfindings=[0m0 [36mmin_required=[0m8 [36mobserved=[0mtrue [36mprofile=[0mfull [36mtotal_runs=[0m1 [36munfinished_runs=[0m1
+[90m10:42:17.774[0m [32mINF[0m [36m[e2e][0m [1me2e/runner.go:114[0m[36m >[0m [1mactive poll[0m [36mfindings=[0m0 [36mmin_required=[0m8 [36mobserved=[0mtrue [36mprofile=[0mfull [36mtotal_runs=[0m1 [36munfinished_runs=[0m1
+[90m10:42:32.786[0m [32mINF[0m [36m[e2e][0m [1me2e/runner.go:114[0m[36m >[0m [1mactive poll[0m [36mfindings=[0m0 [36mmin_required=[0m8 [36mobserved=[0mtrue [36mprofile=[0mfull [36mtotal_runs=[0m1 [36munfinished_runs=[0m1
+[90m10:42:47.791[0m [32mINF[0m [36m[e2e][0m [1me2e/runner.go:114[0m[36m >[0m [1mactive poll[0m [36mfindings=[0m0 [36mmin_required=[0m8 [36mobserved=[0mtrue [36mprofile=[0mfull [36mtotal_runs=[0m1 [36munfinished_runs=[0m1
+[90m10:43:02.798[0m [32mINF[0m [36m[e2e][0m [1me2e/runner.go:114[0m[36m >[0m [1mactive poll[0m [36mfindings=[0m0 [36mmin_required=[0m8 [36mobserved=[0mtrue [36mprofile=[0mfull [36mtotal_runs=[0m1 [36munfinished_runs=[0m1
+[90m10:43:17.806[0m [32mINF[0m [36m[e2e][0m [1me2e/runner.go:114[0m[36m >[0m [1mactive poll[0m [36mfindings=[0m0 [36mmin_required=[0m8 [36mobserved=[0mtrue [36mprofile=[0mfull [36mtotal_runs=[0m1 [36munfinished_runs=[0m1
+[90m10:43:32.813[0m [32mINF[0m [36m[e2e][0m [1me2e/runner.go:114[0m[36m >[0m [1mactive poll[0m [36mfindings=[0m0 [36mmin_required=[0m8 [36mobserved=[0mtrue [36mprofile=[0mfull [36mtotal_runs=[0m1 [36munfinished_runs=[0m1
+[90m10:43:47.822[0m [32mINF[0m [36m[e2e][0m [1me2e/runner.go:114[0m[36m >[0m [1mactive poll[0m [36mfindings=[0m0 [36mmin_required=[0m8 [36mobserved=[0mtrue [36mprofile=[0mfull [36mtotal_runs=[0m1 [36munfinished_runs=[0m1
+[90m10:44:02.828[0m [32mINF[0m [36m[e2e][0m [1me2e/runner.go:114[0m[36m >[0m [1mactive poll[0m [36mfindings=[0m0 [36mmin_required=[0m8 [36mobserved=[0mtrue [36mprofile=[0mfull [36mtotal_runs=[0m1 [36munfinished_runs=[0m1
+[90m10:44:17.832[0m [32mINF[0m [36m[e2e][0m [1me2e/runner.go:114[0m[36m >[0m [1mactive poll[0m [36mfindings=[0m0 [36mmin_required=[0m8 [36mobserved=[0mtrue [36mprofile=[0mfull [36mtotal_runs=[0m1 [36munfinished_runs=[0m1
+[90m10:44:32.843[0m [32mINF[0m [36m[e2e][0m [1me2e/runner.go:114[0m[36m >[0m [1mactive poll[0m [36mfindings=[0m0 [36mmin_required=[0m8 [36mobserved=[0mtrue [36mprofile=[0mfull [36mtotal_runs=[0m1 [36munfinished_runs=[0m1
+[90m10:44:47.942[0m [32mINF[0m [36m[e2e][0m [1me2e/runner.go:114[0m[36m >[0m [1mactive poll[0m [36mfindings=[0m0 [36mmin_required=[0m8 [36mobserved=[0mtrue [36mprofile=[0mfull [36mtotal_runs=[0m1 [36munfinished_runs=[0m1
+[90m10:45:02.954[0m [32mINF[0m [36m[e2e][0m [1me2e/runner.go:114[0m[36m >[0m [1mactive poll[0m [36mfindings=[0m0 [36mmin_required=[0m8 [36mobserved=[0mtrue [36mprofile=[0mfull [36mtotal_runs=[0m1 [36munfinished_runs=[0m1
+[90m10:45:17.961[0m [32mINF[0m [36m[e2e][0m [1me2e/runner.go:114[0m[36m >[0m [1mactive poll[0m [36mfindings=[0m0 [36mmin_required=[0m8 [36mobserved=[0mtrue [36mprofile=[0mfull [36mtotal_runs=[0m1 [36munfinished_runs=[0m1
+[90m10:45:32.975[0m [32mINF[0m [36m[e2e][0m [1me2e/runner.go:114[0m[36m >[0m [1mactive poll[0m [36mfindings=[0m0 [36mmin_required=[0m8 [36mobserved=[0mtrue [36mprofile=[0mfull [36mtotal_runs=[0m1 [36munfinished_runs=[0m1
+[90m10:45:47.982[0m [32mINF[0m [36m[e2e][0m [1me2e/runner.go:114[0m[36m >[0m [1mactive poll[0m [36mfindings=[0m0 [36mmin_required=[0m8 [36mobserved=[0mtrue [36mprofile=[0mfull [36mtotal_runs=[0m1 [36munfinished_runs=[0m1
+[90m10:46:02.985[0m [32mINF[0m [36m[e2e][0m [1me2e/runner.go:114[0m[36m >[0m [1mactive poll[0m [36mfindings=[0m0 [36mmin_required=[0m8 [36mobserved=[0mtrue [36mprofile=[0mfull [36mtotal_runs=[0m1 [36munfinished_runs=[0m1
+[90m10:46:17.992[0m [32mINF[0m [36m[e2e][0m [1me2e/runner.go:114[0m[36m >[0m [1mactive poll[0m [36mfindings=[0m0 [36mmin_required=[0m8 [36mobserved=[0mtrue [36mprofile=[0mfull [36mtotal_runs=[0m1 [36munfinished_runs=[0m1
+[90m10:46:33.000[0m [32mINF[0m [36m[e2e][0m [1me2e/runner.go:114[0m[36m >[0m [1mactive poll[0m [36mfindings=[0m0 [36mmin_required=[0m8 [36mobserved=[0mtrue [36mprofile=[0mfull [36mtotal_runs=[0m1 [36munfinished_runs=[0m1
+[90m10:46:48.007[0m [32mINF[0m [36m[e2e][0m [1me2e/runner.go:114[0m[36m >[0m [1mactive poll[0m [36mfindings=[0m0 [36mmin_required=[0m8 [36mobserved=[0mtrue [36mprofile=[0mfull [36mtotal_runs=[0m1 [36munfinished_runs=[0m1
+[90m10:47:03.013[0m [32mINF[0m [36m[e2e][0m [1me2e/runner.go:114[0m[36m >[0m [1mactive poll[0m [36mfindings=[0m0 [36mmin_required=[0m8 [36mobserved=[0mtrue [36mprofile=[0mfull [36mtotal_runs=[0m1 [36munfinished_runs=[0m1
+[90m10:47:18.019[0m [32mINF[0m [36m[e2e][0m [1me2e/runner.go:114[0m[36m >[0m [1mactive poll[0m [36mfindings=[0m0 [36mmin_required=[0m8 [36mobserved=[0mtrue [36mprofile=[0mfull [36mtotal_runs=[0m1 [36munfinished_runs=[0m1
+[90m10:47:33.181[0m [32mINF[0m [36m[e2e][0m [1me2e/runner.go:114[0m[36m >[0m [1mactive poll[0m [36mfindings=[0m0 [36mmin_required=[0m8 [36mobserved=[0mtrue [36mprofile=[0mfull [36mtotal_runs=[0m1 [36munfinished_runs=[0m1
+[90m10:47:48.188[0m [32mINF[0m [36m[e2e][0m [1me2e/runner.go:114[0m[36m >[0m [1mactive poll[0m [36mfindings=[0m0 [36mmin_required=[0m8 [36mobserved=[0mtrue [36mprofile=[0mfull [36mtotal_runs=[0m1 [36munfinished_runs=[0m1
+[90m10:48:03.198[0m [32mINF[0m [36m[e2e][0m [1me2e/runner.go:114[0m[36m >[0m [1mactive poll[0m [36mfindings=[0m0 [36mmin_required=[0m8 [36mobserved=[0mtrue [36mprofile=[0mfull [36mtotal_runs=[0m1 [36munfinished_runs=[0m1
+[90m10:48:18.202[0m [32mINF[0m [36m[e2e][0m [1me2e/runner.go:114[0m[36m >[0m [1mactive poll[0m [36mfindings=[0m0 [36mmin_required=[0m8 [36mobserved=[0mtrue [36mprofile=[0mfull [36mtotal_runs=[0m1 [36munfinished_runs=[0m1
+[90m10:48:33.210[0m [32mINF[0m [36m[e2e][0m [1me2e/runner.go:114[0m[36m >[0m [1mactive poll[0m [36mfindings=[0m0 [36mmin_required=[0m8 [36mobserved=[0mtrue [36mprofile=[0mfull [36mtotal_runs=[0m1 [36munfinished_runs=[0m1
+[90m10:48:48.458[0m [32mINF[0m [36m[e2e][0m [1me2e/runner.go:114[0m[36m >[0m [1mactive poll[0m [36mfindings=[0m0 [36mmin_required=[0m8 [36mobserved=[0mtrue [36mprofile=[0mfull [36mtotal_runs=[0m1 [36munfinished_runs=[0m1
+[90m10:49:03.467[0m [32mINF[0m [36m[e2e][0m [1me2e/runner.go:114[0m[36m >[0m [1mactive poll[0m [36mfindings=[0m0 [36mmin_required=[0m8 [36mobserved=[0mtrue [36mprofile=[0mfull [36mtotal_runs=[0m1 [36munfinished_runs=[0m1
+[90m10:49:18.484[0m [32mINF[0m [36m[e2e][0m [1me2e/runner.go:114[0m[36m >[0m [1mactive poll[0m [36mfindings=[0m0 [36mmin_required=[0m8 [36mobserved=[0mtrue [36mprofile=[0mfull [36mtotal_runs=[0m1 [36munfinished_runs=[0m1
+[90m10:49:33.490[0m [32mINF[0m [36m[e2e][0m [1me2e/runner.go:114[0m[36m >[0m [1mactive poll[0m [36mfindings=[0m0 [36mmin_required=[0m8 [36mobserved=[0mtrue [36mprofile=[0mfull [36mtotal_runs=[0m1 [36munfinished_runs=[0m1
+Terminated: 15             go run -mod=mod ./cmd/e2e "$@"
+[90m10:49:48.497[0m [32mINF[0m [36m[e2e][0m [1me2e/runner.go:114[0m[36m >[0m [1mactive poll[0m [36mfindings=[0m0 [36mmin_required=[0m8 [36mobserved=[0mtrue [36mprofile=[0mfull [36mtotal_runs=[0m1 [36munfinished_runs=[0m1

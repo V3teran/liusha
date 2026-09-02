@@ -382,13 +382,23 @@ func (a *Agent) buildUserPrompt(ctx context.Context, event executor.Event) (stri
 	case executor.EventTaskStarted:
 		prompt += "任务刚刚启动，请生成初始 Move。\n"
 	case executor.EventActionCompleted:
-		moveID := event.Payload["move_id"].(string)
-		prompt += fmt.Sprintf("Move %s 已完成，请根据新状态重新规划。\n", moveID)
+		// 修复：字段名应为 action_id，不是 move_id
+		actionID, ok := event.Payload["action_id"].(string)
+		if !ok || actionID == "" {
+			return "", fmt.Errorf("EventActionCompleted missing action_id in payload")
+		}
+		prompt += fmt.Sprintf("Action %s 已完成，请根据新状态重新规划。\n", actionID)
 	case executor.EventVerificationPassed:
-		nodeID := event.Payload["node_id"].(string)
+		nodeID, ok := event.Payload["node_id"].(string)
+		if !ok || nodeID == "" {
+			return "", fmt.Errorf("EventVerificationPassed missing node_id in payload")
+		}
 		prompt += fmt.Sprintf("节点 %s 验证通过，请根据新发现调整计划。\n", nodeID)
 	case executor.EventManualGuidance:
-		guidance := event.Payload["guidance"].(string)
+		guidance, ok := event.Payload["guidance"].(string)
+		if !ok {
+			return "", fmt.Errorf("EventManualGuidance missing guidance in payload")
+		}
 		prompt += fmt.Sprintf("人工指导：%s\n", guidance)
 	case executor.EventHeartbeat:
 		prompt += "定期检查：评估当前进展，必要时生成新 Move。\n"
