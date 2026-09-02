@@ -225,6 +225,12 @@ func (a *Agent) executeLoop(ctx context.Context, actionID string, req ExecutorRe
 
 		// 4. 执行工具调用
 		if len(resp.ToolCalls) > 0 {
+			a.logger.Info().
+				Str("action_id", actionID).
+				Int("step_idx", stepIdx).
+				Int("tool_count", len(resp.ToolCalls)).
+				Msg("[AGENT] Executing tools")
+
 			if a.emitter != nil {
 				for _, tc := range resp.ToolCalls {
 					a.emitter.Emit(SSEEvent{Kind: "tool_start", ActionID: actionID, StepID: stepIdx, Data: tc.Name})
@@ -233,9 +239,24 @@ func (a *Agent) executeLoop(ctx context.Context, actionID string, req ExecutorRe
 
 			results := a.reg.ExecuteParallel(ctx, resp.ToolCalls)
 
+			a.logger.Info().
+				Str("action_id", actionID).
+				Int("step_idx", stepIdx).
+				Int("results_count", len(results)).
+				Msg("[AGENT] Tools executed")
+
 			// 把工具结果追加为 tool messages，并记录到 step
 			for i, tc := range resp.ToolCalls {
 				r := results[i]
+				a.logger.Debug().
+					Str("action_id", actionID).
+					Int("step_idx", stepIdx).
+					Str("tool_name", tc.Name).
+					Str("tool_call_id", tc.ID).
+					Bool("has_error", r.Error != "").
+					Int("output_len", len(r.Output)).
+					Msg("[AGENT] Tool result")
+
 				content := r.Output
 				if r.Error != "" {
 					content = "ERROR: " + r.Error

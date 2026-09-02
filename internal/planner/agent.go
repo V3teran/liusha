@@ -277,16 +277,34 @@ func (a *Agent) replan(ctx context.Context, event executor.Event) error {
 	maxRounds := 5
 	for round := 0; round < maxRounds; round++ {
 		// 调用 LLM
+		a.logger.Info().
+			Str("task_id", a.taskID).
+			Int("round", round+1).
+			Int("max_rounds", maxRounds).
+			Msg("[PLANNER] Calling LLM")
+
 		response, err := a.invokeRouter(ctx, systemPrompt, messages)
 		if err != nil {
 			return fmt.Errorf("invoke LLM (round %d): %w", round+1, err)
 		}
+
+		a.logger.Info().
+			Str("task_id", a.taskID).
+			Int("round", round+1).
+			Msg("[PLANNER] LLM returned")
 
 		// 将 LLM 响应加入消息历史
 		messages = append(messages, response)
 
 		// 提取工具调用
 		toolCalls := a.extractToolCalls(response)
+
+		a.logger.Info().
+			Str("task_id", a.taskID).
+			Int("round", round+1).
+			Int("tool_calls_count", len(toolCalls)).
+			Msg("[PLANNER] Extracted tool calls")
+
 		if len(toolCalls) == 0 {
 			// 无工具调用，LLM 完成规划
 			a.logger.Info().
@@ -298,8 +316,21 @@ func (a *Agent) replan(ctx context.Context, event executor.Event) error {
 		}
 
 		// 执行工具调用
+		a.logger.Info().
+			Str("task_id", a.taskID).
+			Int("round", round+1).
+			Int("tool_calls_count", len(toolCalls)).
+			Msg("[PLANNER] Executing tools")
+
 		toolResults := make([]map[string]interface{}, 0, len(toolCalls))
-		for _, tc := range toolCalls {
+		for i, tc := range toolCalls {
+			a.logger.Info().
+				Str("task_id", a.taskID).
+				Int("round", round+1).
+				Int("tool_index", i).
+				Str("tool_name", tc.Name).
+				Msg("[PLANNER] Executing tool")
+
 			result, err := a.executeTool(ctx, tc)
 			if err != nil {
 				a.logger.Error().Err(err).Str("tool", tc.Name).Msg("tool execution failed")
