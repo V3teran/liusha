@@ -56,16 +56,15 @@ func TestChatHandler_SetsStreamCookie(t *testing.T) {
 }
 
 type fakeFollowUp struct {
-	convID         string
-	calledBrief    string
-	calledScenario string
-	handleIntent   string
-	handleBusy     bool
+	convID       string
+	calledBrief  string
+	handleIntent string
+	handleBusy   bool
 }
 
-func (f *fakeFollowUp) HandleMessage(_ context.Context, convID, scenarioID, content string) (string, bool, error) {
+func (f *fakeFollowUp) HandleMessage(_ context.Context, convID, content string) (string, bool, error) {
+	f.convID = convID
 	f.calledBrief = content
-	f.calledScenario = scenarioID
 	return f.handleIntent, f.handleBusy, nil
 }
 
@@ -172,10 +171,9 @@ func TestDeleteHandler_OK_200(t *testing.T) {
 	}
 }
 
-// fakeConversations 满足 ConversationsAPI，记录 ListConversations 收到的 limit/offset/scenarioID。
+// fakeConversations 满足 ConversationsAPI，记录 ListConversations 收到的 limit/offset/source。
 type fakeConversations struct {
 	gotLimit, gotOffset int
-	got
 	gotSource           string
 	convs               []conversation.Conversation
 	hasMore             bool
@@ -183,8 +181,8 @@ type fakeConversations struct {
 	getMessageErr       error
 }
 
-func (f *fakeConversations) ListConversations(_ context.Context, limit, offset int, scenarioID, source string) ([]conversation.Conversation, bool, error) {
-	f.gotLimit, f.gotOffset, f.gotScenarioID, f.gotSource = limit, offset, scenarioID, source
+func (f *fakeConversations) ListConversations(_ context.Context, limit, offset int, source string) ([]conversation.Conversation, bool, error) {
+	f.gotLimit, f.gotOffset, f.gotSource = limit, offset, source
 	return f.convs, f.hasMore, nil
 }
 
@@ -238,25 +236,6 @@ func TestListConversationsHandler_DefaultOffsetZero(t *testing.T) {
 	}
 	if fc.gotLimit != 30 {
 		t.Errorf("未传 limit 应默认 30，得 %d", fc.gotLimit)
-	}
-	if fc.gotScenarioID != "" {
-		t.Errorf("未传 scenario_id 应默认空（不过滤），得 %q", fc.gotScenarioID)
-	}
-}
-
-// TestListConversationsHandler_ScenarioFilterPassedToStore：scenario_id query 透传给 store，
-// 分页边界必须建立在过滤后的集合上（否则页码与实际条数会错位）。
-func TestListConversationsHandler_ScenarioFilterPassedToStore(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	fc := &fakeConversations{}
-	r := gin.New()
-	r.GET("/conversations", listConversationsHandler(fc))
-	req := httptest.NewRequest("GET", "/conversations?scenario_id=traffic-analysis", nil)
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
-
-	if fc.gotScenarioID != "traffic-analysis" {
-		t.Errorf("scenario_id=traffic-analysis 应透传给 store，得 %q", fc.gotScenarioID)
 	}
 }
 

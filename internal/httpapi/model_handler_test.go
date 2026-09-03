@@ -1,13 +1,20 @@
 package httpapi
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
+	"net/http"
 	"testing"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/V3teran/liusha/internal/config/llmcfg"
 )
+
+// pgxErrNoRows 复用底层 store 的 not-found 语义供 mock 返回。
+func pgxErrNoRows() error { return pgx.ErrNoRows }
 
 // fakeModel 是 ModelAPI 的内存实现，记录调用以断言 handler 编排。
 // fkOn 里的方法名（"delete_provider"/"upsert_route"）触发 23503，模拟 FK 约束。
@@ -301,4 +308,26 @@ func TestDeleteRoleRoute_OK(t *testing.T) {
 	if len(fm.deleted) != 1 || fm.deleted[0] != "planner" {
 		t.Fatalf("未记录删除: %v", fm.deleted)
 	}
+}
+
+// doJSON 发一条带鉴权的请求，返回状态码 + 解码后的 body。
+func doJSON(t *testing.T, method, url string, body any) (int, map[string]any) {
+	t.Helper()
+	var rdr *bytes.Reader
+	if body != nil {
+		b, _ := json.Marshal(body)
+		rdr = bytes.NewReader(b)
+	} else {
+		rdr = bytes.NewReader(nil)
+	}
+	req, _ := http.NewRequest(method, url, rdr)
+	req.Header.Set("X-API-Key", "k")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("do: %v", err)
+	}
+	defer resp.Body.Close()
+	var out map[string]any
+	_ = json.NewDecoder(resp.Body).Decode(&out)
+	return resp.StatusCode, out
 }
