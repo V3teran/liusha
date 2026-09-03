@@ -40,12 +40,24 @@ tools:
     category: recon
     description: WAF 指纹识别（CloudFlare/Akamai/AWS WAF/F5）——选 sqlmap --tamper / dalfox bypass 前先跑。
     install: { method: apt }
+  - name: masscan
+    category: recon
+    description: 超高速端口扫描——比 nmap 快 1000x（6 分钟扫全网 IPv4），先用它快速发现开放端口，再用 nmap -A 深度探测存活端口。适合大范围 C 段扫描。
+    install: { method: apt }
+  - name: fscan
+    category: recon
+    description: 国产内网综合扫描（一键打点）——集成端口扫描 + 服务爆破 + 漏洞检测（MS17-010/Redis/SMB/FTP/MySQL），内网横向首选，一条命令拿下全 C 段资产。
+    install: { method: release, ref: shadow1ng/fscan@1.8.4 }
 
   # ===== discovery（内容/参数发现）=====
   - name: arjun
     category: discovery
     description: HTTP 隐藏参数发现——爆 25k+ 参数名 wordlist 找未文档化的参数（admin/debug/role 类）。
     install: { method: apt }
+  - name: paramspider
+    category: discovery
+    description: 参数挖掘（爬历史 URL）——从 Wayback Machine 历史快照中提取带参数的 URL，找未文档化的隐藏参数。与 arjun 互补（arjun 是爆破，paramspider 是历史挖掘）。
+    install: { method: git, ref: https://github.com/devanshbatham/ParamSpider }
   - name: feroxbuster
     category: discovery
     description: 递归目录/文件爆破（Rust，快）——自动递归子目录 + 扩展名探测 + smart filter，目录爆破首选。
@@ -67,6 +79,18 @@ tools:
   - name: nuclei
     category: vulnscan
     description: 模板化漏扫引擎——业界事实标准。10k+ 模板覆盖 CVE/misconfig/exposure/dast。（模板由 Dockerfile git clone nuclei-templates 预拉）
+    install: { method: apt }
+  - name: trufflehog
+    category: vulnscan
+    description: 密钥泄露扫描——Git 历史 + 文件系统 + S3/Docker 镜像扫密钥/token，供应链审计必跑。600+ 密钥规则（AWS/GitHub/Slack/DB 等）。
+    install: { method: apt }
+  - name: nikto
+    category: vulnscan
+    description: 经典 Web 服务器配置审计——6700+ 测试项：HTTP 响应头安全检查 + Apache/Nginx 配置弱点 + 老旧 CGI 漏洞 + SSL/TLS 测试。与 nuclei 互补（nuclei 侧重 CVE 检测，nikto 侧重配置审计）。
+    install: { method: apt }
+  - name: wpscan
+    category: vulnscan
+    description: WordPress 专用漏洞扫描——枚举插件/主题漏洞 + 用户名 + 弱口令爆破 + WPVulnDB API 联动。WordPress 站点必用，nuclei 的 WP 模板覆盖不全。
     install: { method: apt }
 
   # ===== injection（注入类专项）=====
@@ -178,6 +202,10 @@ tools:
     category: pwn
     description: pwn 题一键初始化——自动下载/patch 对应 libc+ld、生成 exploit 模板骨架。
     # install 省略：Dockerfile 专属层（release 预编译裸二进制，不装 rust）。
+  - name: checksec
+    category: pwn
+    description: ELF 二进制保护检查——快速查看 NX/PIE/Canary/RELRO/ASLR 状态，判断漏洞利用难度。pwn 题第一步必跑，比 pwntools 的 checksec 输出更清晰。
+    install: { method: apt, pkg: checksec }
   - name: seccomp-tools
     category: pwn
     description: seccomp 沙箱分析——dump 目标 seccomp-bpf 规则、判断哪些 syscall 被禁，定 pwn 利用路线。
@@ -200,6 +228,10 @@ tools:
     category: cloud
     description: 云攻击面枚举（AWS 向）——一把梭列出可利用资源/凭证/横移点，红队踩点提速。
     # install 省略：Dockerfile 专属层（release .zip 内含子目录，不适配通用 release 方法）。
+  - name: checkov
+    category: cloud
+    description: IaC 安全扫描——扫描 Terraform/CloudFormation/Kubernetes YAML/Dockerfile 的安全配置错误（1000+ 内置规则），DevSecOps 必备。支持 AWS/Azure/GCP/阿里云。
+    install: { method: pipx, ref: checkov }
 
   # ===== container（容器/K8s 攻击 — 镜像扫描/集群横移/基线）=====
   - name: trivy
@@ -218,6 +250,10 @@ tools:
     category: container
     description: K8s CIS 基线检查——判集群配置是否满足安全基线，找错配攻击面。
     # install 省略：Dockerfile 专属层（release 资产名带版本，不适配通用 release 方法）。
+  - name: kube-hunter
+    category: container
+    description: Kubernetes 渗透测试——主动探测 K8s 集群暴露的攻击面（API Server/etcd/kubelet/dashboard），枚举权限提升路径。与 kube-bench 互补（kube-bench 是合规检查，kube-hunter 是渗透测试）。
+    install: { method: pipx, ref: kube-hunter }
 
   # ===== exploitation（拿初始 shell — 利用框架/协议攻击/中继）=====
   - name: msfconsole
@@ -254,6 +290,14 @@ tools:
     category: post-exploit
     description: 隧道/内网代理（tun 接口，比 socks 稳）——拿到跳板后建反向隧道打穿内网网段。release 解包为 proxy 二进制。
     # install 省略：Dockerfile 专属层（release 二进制名 proxy，需重命名 ligolo-ng）。
+  - name: chisel
+    category: post-exploit
+    description: 快速 TCP/UDP 隧道（HTTP 传输）——Go 单文件，轻量级内网穿透，支持 SOCKS5 代理。与 ligolo-ng 互补（chisel 更轻量，ligolo-ng 更稳定）。
+    install: { method: release-bin, ref: jpillora/chisel@v1.10.1, asset: chisel_${VERSION}_linux_amd64.gz, bin: chisel }
+  - name: linpeas
+    category: post-exploit
+    description: Linux 提权检查脚本——自动枚举 SUID/sudo 滥用 + 内核漏洞 + 敏感文件 + 定时任务 + 容器逃逸，后渗透提权第一步。
+    install: { method: release-bin, ref: carlospolop/PEASS-ng@refs/tags/20241231-1a3e8d5e, asset: linpeas.sh }
   - name: proxychains4
     category: post-exploit
     description: 强制任意程序流量走代理链——配合 ligolo/msf socks 让 nmap/curl 等经内网跳板访问不可达网段。apt proxychains-ng。
