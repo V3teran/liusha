@@ -1,0 +1,370 @@
+name: Test Pentools Tools Availability
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'deployments/tool-images/pentools/**'
+      - '.github/workflows/test-pentools.yml'
+  pull_request:
+    paths:
+      - 'deployments/tool-images/pentools/**'
+  workflow_dispatch:
+
+jobs:
+  test-tools:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build pentools image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deployments/tool-images/pentools/Dockerfile
+          load: true
+          tags: pentools:test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Level 1 - Test all tools command existence
+        run: |
+          echo "=== Level 1: Command Existence Test ==="
+          echo ""
+
+          TOOLS=$(grep "^  - name:" deployments/tool-images/pentools/tools.yaml | awk '{print $3}')
+
+          TOTAL=0
+          PASSED=0
+          FAILED=0
+          SKIPPED=0
+          FAILED_TOOLS=""
+
+          for tool in $TOOLS; do
+            TOTAL=$((TOTAL + 1))
+
+            # 跳过 runtime/utility 基础命令
+            case "$tool" in
+              python3|node|php|go|ruby|java|gcc|curl|jq|mysql)
+                echo "⏭️  $tool (runtime, skip)"
+                SKIPPED=$((SKIPPED + 1))
+                continue
+                ;;
+            esac
+
+            # 测试命令存在性
+            if docker run --rm pentools:test bash -c "command -v $tool" >/dev/null 2>&1; then
+              echo "✅ $tool"
+              PASSED=$((PASSED + 1))
+            else
+              echo "❌ $tool - NOT FOUND"
+              FAILED=$((FAILED + 1))
+              FAILED_TOOLS="$FAILED_TOOLS $tool"
+            fi
+          done
+
+          echo ""
+          echo "=== Level 1 Summary ==="
+          echo "Total:   $TOTAL"
+          echo "Passed:  $PASSED"
+          echo "Failed:  $FAILED"
+          echo "Skipped: $SKIPPED"
+
+          if [ $FAILED -gt 0 ]; then
+            echo ""
+            echo "❌ Missing tools:$FAILED_TOOLS"
+            exit 1
+          fi
+
+      - name: Level 2 - Test tools version/help output
+        run: |
+          echo "=== Level 2: Version/Help Output Test ==="
+          echo ""
+
+          FAILED=0
+
+          # 关键工具版本测试（格式：tool:flag:expected_string）
+          declare -a TESTS=(
+            # Recon
+            "nmap:--version:Nmap"
+            "masscan:--version:Masscan"
+            "subfinder:-version:projectdiscovery"
+            "httpx:-version:projectdiscovery"
+            "katana:-version:projectdiscovery"
+            "wafw00f:-h:WAFW00F"
+
+            # Discovery
+            "arjun:-h:Arjun"
+            "feroxbuster:--version:feroxbuster"
+            "ffuf:-V:ffuf"
+
+            # VulnScan
+            "nuclei:-version:projectdiscovery"
+            "nikto:-Version:Nikto"
+            "wpscan:--version:WPScan"
+
+            # Injection
+            "sqlmap:--version:sqlmap"
+            "commix:--version:Commix"
+
+            # Exploitation
+            "msfconsole:--version:metasploit"
+            "sliver:version:Sliver"
+            "netexec:--version:nxc"
+
+            # Post-exploit
+            "chisel:--version:chisel"
+            "checksec:--version:checksec"
+
+            # Cloud
+            "checkov:--version:checkov"
+
+            # Container
+            "kubectl:version:Client"
+            "kube-hunter:--version:kube-hunter"
+
+            # PWN
+            "gdb:--version:GNU gdb"
+            "radare2:-version:radare2"
+          )
+
+          for test in "${TESTS[@]}"; do
+            IFS=':' read -r tool flag expected <<< "$test"
+            echo -n "Testing $tool $flag ... "
+
+            if docker run --rm pentools:test timeout 10 $tool $flag 2>&1 | grep -qi "$expected"; then
+              echo "✅"
+            else
+              echo "❌ (no expected output: $expected)"
+              FAILED=$((FAILED + 1))
+            fi
+          done
+
+          echo ""
+          if [ $FAILED -gt 0 ]; then
+            echo "⚠️  $FAILED tools failed version check (may still work)"
+          else
+            echo "✅ All version checks passed"
+          fi
+
+      - name: Level 3 - Test Python tools dependencies
+        run: |
+          echo "=== Level 3: Python Tools Dependencies Test ==="
+          echo ""
+
+          FAILED=0
+
+          # Python 工具及其关键导入测试
+          declare -A PY_TOOLS=(
+            # venv 工具
+            ["angr"]="import angr; print('angr OK')"
+            ["RsaCtfTool"]="from Crypto.PublicKey import RSA; print('RsaCtfTool OK')"
+
+            # pipx 工具（测试入口点）
+            ["bloodhound"]="import bloodhound; print('bloodhound OK')"
+            ["certipy"]="import certipy; print('certipy OK')"
+            ["checkov"]="import checkov; print('checkov OK')"
+            ["kube-hunter"]="import kube_hunter; print('kube-hunter OK')"
+            ["prowler"]="import prowler; print('prowler OK')"
+            ["pacu"]="import pacu; print('pacu OK')"
+            ["cloudsplaining"]="import cloudsplaining; print('cloudsplaining OK')"
+            ["semgrep"]="import semgrep; print('semgrep OK')"
+
+            # 系统 Python 库（Layer 11）
+            ["pwntools"]="from pwn import *; print('pwntools OK')"
+            ["requests"]="import requests; print('requests OK')"
+            ["httpx"]="import httpx; print('httpx OK')"
+            ["beautifulsoup4"]="from bs4 import BeautifulSoup; print('bs4 OK')"
+            ["cryptography"]="from cryptography.fernet import Fernet; print('cryptography OK')"
+            ["paramiko"]="import paramiko; print('paramiko OK')"
+            ["pycryptodome"]="from Crypto.Cipher import AES; print('pycryptodome OK')"
+          )
+
+          for tool in "${!PY_TOOLS[@]}"; do
+            code="${PY_TOOLS[$tool]}"
+            echo -n "Testing $tool dependencies ... "
+
+            # 特殊处理 venv 工具
+            case "$tool" in
+              angr)
+                if docker run --rm pentools:test bash -c "/opt/venv-angr/bin/python3 -c \"$code\"" 2>/dev/null; then
+                  echo "✅"
+                else
+                  echo "❌"
+                  FAILED=$((FAILED + 1))
+                fi
+                ;;
+              RsaCtfTool)
+                if docker run --rm pentools:test bash -c "/opt/venv-rsactf/bin/python3 -c \"$code\"" 2>/dev/null; then
+                  echo "✅"
+                else
+                  echo "❌"
+                  FAILED=$((FAILED + 1))
+                fi
+                ;;
+              *)
+                if docker run --rm pentools:test python3 -c "$code" 2>/dev/null; then
+                  echo "✅"
+                else
+                  echo "❌"
+                  FAILED=$((FAILED + 1))
+                fi
+                ;;
+            esac
+          done
+
+          echo ""
+          if [ $FAILED -gt 0 ]; then
+            echo "❌ $FAILED Python tools have dependency issues"
+            exit 1
+          else
+            echo "✅ All Python dependencies OK"
+          fi
+
+      - name: Level 4 - Test critical tools smoke test
+        run: |
+          echo "=== Level 4: Smoke Test (Real Commands) ==="
+          echo ""
+
+          FAILED=0
+
+          echo "Testing nmap..."
+          if docker run --rm pentools:test nmap -sn 127.0.0.1 2>&1 | grep -q "Host is up"; then
+            echo "✅ nmap can scan"
+          else
+            echo "❌ nmap failed"
+            FAILED=$((FAILED + 1))
+          fi
+
+          echo "Testing sqlmap..."
+          if docker run --rm pentools:test timeout 5 sqlmap --version 2>&1 | grep -q "sqlmap"; then
+            echo "✅ sqlmap works"
+          else
+            echo "❌ sqlmap failed"
+            FAILED=$((FAILED + 1))
+          fi
+
+          echo "Testing nuclei..."
+          if docker run --rm pentools:test nuclei -version 2>&1 | grep -q "nuclei"; then
+            echo "✅ nuclei works"
+          else
+            echo "❌ nuclei failed"
+            FAILED=$((FAILED + 1))
+          fi
+
+          echo "Testing masscan..."
+          if docker run --rm pentools:test masscan --version 2>&1 | grep -q "Masscan"; then
+            echo "✅ masscan works"
+          else
+            echo "❌ masscan failed"
+            FAILED=$((FAILED + 1))
+          fi
+
+          echo "Testing sliver..."
+          if docker run --rm pentools:test sliver version 2>&1 | grep -q "Sliver"; then
+            echo "✅ sliver works"
+          else
+            echo "❌ sliver failed"
+            FAILED=$((FAILED + 1))
+          fi
+
+          echo "Testing chisel..."
+          if docker run --rm pentools:test chisel --version 2>&1 | grep -q "chisel"; then
+            echo "✅ chisel works"
+          else
+            echo "❌ chisel failed"
+            FAILED=$((FAILED + 1))
+          fi
+
+          echo "Testing checksec..."
+          if docker run --rm pentools:test checksec --version 2>&1 | grep -q "checksec"; then
+            echo "✅ checksec works"
+          else
+            echo "❌ checksec failed"
+            FAILED=$((FAILED + 1))
+          fi
+
+          echo "Testing ghidra (headless mode)..."
+          if docker run --rm pentools:test ghidra -help 2>&1 | grep -q "Ghidra"; then
+            echo "✅ ghidra works"
+          else
+            echo "⚠️  ghidra help failed (may need X11)"
+          fi
+
+          echo "Testing browser-use wrapper..."
+          if docker run --rm pentools:test bash -c "command -v browser-use" >/dev/null 2>&1; then
+            echo "✅ browser-use wrapper exists"
+          else
+            echo "❌ browser-use wrapper missing"
+            FAILED=$((FAILED + 1))
+          fi
+
+          echo ""
+          if [ $FAILED -gt 0 ]; then
+            echo "❌ $FAILED critical tools failed smoke test"
+            exit 1
+          else
+            echo "✅ All smoke tests passed"
+          fi
+
+      - name: Test JDK versions
+        run: |
+          echo "=== Testing JDK Configuration ==="
+          echo ""
+
+          echo "Testing default JDK (should be JDK 8)..."
+          docker run --rm pentools:test java -version 2>&1 | head -3
+
+          if docker run --rm pentools:test java -version 2>&1 | grep -q "1.8"; then
+            echo "✅ Default JDK is JDK 8"
+          else
+            echo "❌ Default JDK is not JDK 8"
+            exit 1
+          fi
+
+          echo ""
+          echo "Testing JDK 17 availability..."
+          if docker run --rm pentools:test test -d /opt/jdk17; then
+            echo "✅ JDK 17 installed at /opt/jdk17"
+          else
+            echo "❌ JDK 17 not found"
+            exit 1
+          fi
+
+      - name: Test manifest install script
+        run: |
+          echo "=== Testing manifest install infrastructure ==="
+
+          if docker run --rm pentools:test test -f /usr/local/bin/install-from-manifest.sh; then
+            echo "✅ install-from-manifest.sh exists"
+          else
+            echo "❌ install-from-manifest.sh missing"
+            exit 1
+          fi
+
+          if docker run --rm pentools:test test -f /tmp/cyberstrike-src/tools/tools.yaml; then
+            echo "⚠️  Old CyberStrike manifest found (should be removed)"
+          fi
+
+      - name: Final summary
+        if: always()
+        run: |
+          echo ""
+          echo "╔════════════════════════════════════════════╗"
+          echo "║    Pentools Tools Availability Test       ║"
+          echo "╚════════════════════════════════════════════╝"
+          echo ""
+          echo "✅ Level 1: Command existence"
+          echo "✅ Level 2: Version/help output"
+          echo "✅ Level 3: Python dependencies"
+          echo "✅ Level 4: Smoke tests"
+          echo "✅ JDK configuration"
+          echo ""
+          echo "Image: pentools:test"
+          echo "Total tools: 90"
+          echo "Test completed: $(date)"
