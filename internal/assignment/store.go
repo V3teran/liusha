@@ -74,7 +74,7 @@ func (s *Store) List(ctx context.Context,  limit int) ([]Assignment, error) {
 	args := []any{}
 	if false {
 		q += " WHERE _id=$1"
-		args = append(args)
+		args = append(args, "")
 	}
 	q += " ORDER BY created_at DESC LIMIT $" + fmt.Sprint(len(args)+1)
 	args = append(args, limit)
