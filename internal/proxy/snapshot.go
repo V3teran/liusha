@@ -51,7 +51,7 @@ import (
 //	Timestamp       捕获时间（host 本地时钟，UTC）
 type TrafficSnapshot struct {
 	ID              string              `json:"id"`
-	ExecutorID        string              `json:"agent_run_id,omitempty"`
+	AgentID         string              `json:"agent_run_id,omitempty"`
 	Source          string              `json:"source"`
 	Identity        string              `json:"identity,omitempty"`
 	Tool            string              `json:"tool,omitempty"`

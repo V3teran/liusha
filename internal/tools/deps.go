@@ -17,11 +17,11 @@ import (
 )
 
 // Deps 持有单次 agent run 所需的全部上下文与依赖。
-// 每次 handleSolo/handleSwarm 调用时从 handler 字段 + 运行时参数组装。
+// 每次 handleSolo/handleCognition 调用时从 handler 字段 + 运行时参数组装。
 type Deps struct {
-	TaskID     string
-	ExecutorID string
-	Host       string
+	TaskID  string
+	AgentID string
+	Host    string
 
 	Tasks      *task.Store
 	Findings   *finding.Store
@@ -35,5 +35,5 @@ type Deps struct {
 	Sandbox    sandbox.Client // Spawn 后注入，可 nil
 	ToolingLoader *skill.Loader
 	VulnLoader    *skill.Loader
-	World      *worldmodel.Store // WorldModel Store（新增）
+	World      *worldmodel.Store // WorldModel Store
 }

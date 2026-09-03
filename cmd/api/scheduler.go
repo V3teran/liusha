@@ -159,7 +159,7 @@ func (r *cronRunner) expandTrafficItem(ctx context.Context, assignmentID,  item 
 		return fmt.Errorf("create executor run: %w", err)
 	}
 	if _, _, err := r.enq.Enqueue(ctx, worker.RoleExecutor, worker.Payload{
-		ExecutorID:   hid,
+		AgentID:   hid,
 		TaskID:     tk.ID,
 		Input:      payloadInput,
 		Role:       worker.RoleExecutor,

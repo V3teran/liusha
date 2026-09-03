@@ -17,25 +17,22 @@ import (
 	"github.com/V3teran/liusha/internal/sandbox"
 )
 
-// outputDirRoot / workdirRoot 是 per-task 文件隔离的根目录。
+// liushaRoot 是 per-agent 文件隔离的根目录。
 //
-// v1.3：单 task 1 容器，所有 /exec 共享 /tmp/sandbox-output（同 task 内跨 exec 复用文件）。
-// v1.4 subtask swarm：planner / exploitation 共享同一容器（避免账号 cookie 顶掉），但planner / exploitation 并发跑命令会
-// 互相串扰——modtime 过滤无法分清"planner 刚写的 vs exploitation 刚写的"；wget -O ./x.html 类命令会互覆。
+// v1.5 统一目录架构（task + agent 两层隔离）：
+//   - 根目录：/liusha/<task_id>/<agent_id>/
+//   - workspace: /liusha/<task_id>/<agent_id>/workspace/  → 命令执行的 cwd
+//   - output:    /liusha/<task_id>/<agent_id>/output/     → 附件输出
+//   - profile:   /liusha/<task_id>/profile/               → 浏览器、工具配置（Task 共享）
 //
 // 隔离设计：
-//   - OUTPUT_DIR = /tmp/sandbox-output/<ExecutorID>/  → 附件按 task 切，collectAttachments 只扫本 task 子目录
-//   - cwd        = /workspace/<ExecutorID>/           → LLM 写相对路径自动落到 per-task workdir
-//   - 共享：home 目录（cookies / auth state）、二进制工具 — 这是planner / exploitation 共享容器的目的
+//   - Task 级：同一 Task 的 Agent 共享 profile（浏览器登录态、cookies）
+//   - Agent 级：每个 Agent 独立 workspace/output（避免并发文件冲突）
+//   - 支持 v1.4 subtask swarm：planner + exploitation 并发执行，文件互不串扰
 //
-// task 容器销毁时整个目录树自然消失，无残留泄露风险。
-// var（非 const）便于 server 包内单测用 t.TempDir() override：
-// 单元测试在 host 跑，/workspace 等容器路径主机不存在/无权限 → mkdir 500。
-// sandbox-server 单线程串行处理 /exec，无并发改 root 场景。
-var (
-	outputDirRoot = "/tmp/sandbox-output"
-	workdirRoot   = "/workspace"
-)
+// 容器销毁时整个目录树自然消失，无残留泄露风险。
+// var（非 const）便于 server 包内单测用 t.TempDir() override。
+var liushaRoot = "/liusha"
 
 // execWaitDelay 是 cmd.WaitDelay 的取值：进程退出 / ctx 取消起算，最多再等这么久就强制关
 // I/O pipe 并让 cmd.Wait() 返回，兜底「子进程已退出但孤儿后台子进程仍持有 stdout pipe」类悬挂
@@ -57,11 +54,19 @@ func (s *Server) handleExec(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "decode request: %v", err)
 		return
 	}
-	if req.ExecutorID == "" {
-		writeError(w, http.StatusBadRequest, "executor_id required (subtask swarm 按 executor 切目录隔离)")
+	if req.TaskID == "" {
+		writeError(w, http.StatusBadRequest, "task_id required")
 		return
 	}
-	if !isPathSafeExecutorID(req.ExecutorID) {
+	if req.AgentID == "" {
+		writeError(w, http.StatusBadRequest, "agent_id required")
+		return
+	}
+	if !isPathSafe(req.TaskID) {
+		writeError(w, http.StatusBadRequest, "task_id must be [A-Za-z0-9._-]{1,64}")
+		return
+	}
+	if !isPathSafe(req.AgentID) {
 		writeError(w, http.StatusBadRequest, "agent_id must be [A-Za-z0-9._-]{1,64}")
 		return
 	}
@@ -74,22 +79,26 @@ func (s *Server) handleExec(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// per-task 隔离：planner / exploitation 共享容器但文件互不串扰（同 task 内跨 exec 仍共享 outputDir）
-	outputDir := filepath.Join(outputDirRoot, req.ExecutorID)
-	workdir := filepath.Join(workdirRoot, req.ExecutorID)
-	if err := os.MkdirAll(outputDir, 0o777); err != nil {
-		writeError(w, http.StatusInternalServerError, "create output dir: %v", err)
-		return
+	// task + agent 两层隔离
+	taskRoot := filepath.Join(liushaRoot, req.TaskID)
+	agentRoot := filepath.Join(taskRoot, req.AgentID)
+	workspaceDir := filepath.Join(agentRoot, "workspace")
+	outputDir := filepath.Join(agentRoot, "output")
+	profileDir := filepath.Join(taskRoot, "profile") // Task 共享
+
+	// 创建所有必要目录
+	for _, dir := range []string{workspaceDir, outputDir, profileDir} {
+		if err := os.MkdirAll(dir, 0o777); err != nil {
+			writeError(w, http.StatusInternalServerError, "mkdir %s: %v", dir, err)
+			return
+		}
 	}
-	if err := os.MkdirAll(workdir, 0o777); err != nil {
-		writeError(w, http.StatusInternalServerError, "create workdir: %v", err)
-		return
-	}
+
 	// 记录命令开始时间——collectAttachments 用此过滤"本次 exec 新增/修改"的文件
-	// （per-task 隔离后仍需 modtime 过滤：同 task 多次 exec 旧文件不重复返）。
+	// （per-agent 隔离后仍需 modtime 过滤：同 agent 多次 exec 旧文件不重复返）。
 	// 减 1s 余量：很多 Linux 文件系统 mtime 是秒级粒度（写入瞬间的 mtime 被截断到整秒，
 	// 可能落在纳秒精度的 now() 之前），不留余量会把本次刚写的文件误判为历史而丢掉
-	// （macOS APFS 纳秒 mtime 不触发，故只在 Linux 复现）。代价仅是极偶发重复返同 task 1s 内旧文件，远轻于丢文件。
+	// （macOS APFS 纳秒 mtime 不触发，故只在 Linux 复现）。代价仅是极偶发重复返同 agent 1s 内旧文件，远轻于丢文件。
 	execStart := time.Now().Add(-time.Second)
 
 	// 命令超时控制——r.Context() 让客户端断开/取消能传到 sh 子进程
@@ -98,10 +107,15 @@ func (s *Server) handleExec(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 
 	cmd := exec.CommandContext(cmdCtx, "sh", "-c", req.Command)
-	cmd.Dir = workdir
+	cmd.Dir = workspaceDir
 	cmd.Env = append(os.Environ(),
-		"OUTPUT_DIR="+outputDir,
-		"HUNTER_ID="+req.ExecutorID, // browser-use wrapper（每 agent 独立 tab）用此区分
+		"LIUSHA_TASK_ID="+req.TaskID,
+		"LIUSHA_AGENT_ID="+req.AgentID,
+		"LIUSHA_WORKSPACE="+workspaceDir,
+		"LIUSHA_OUTPUT="+outputDir,
+		"LIUSHA_PROFILE="+profileDir,
+		"HOME="+profileDir,
+		"OUTPUT_DIR="+outputDir, // 向后兼容
 	)
 
 	// 让 sh 成为新进程组 leader；ctx 超时时 cmd.Cancel 杀整个进程组——
@@ -213,12 +227,12 @@ func collectAttachments(outputDir string, since time.Time) ([]sandbox.Attachment
 	return files, warnings
 }
 
-// isPathSafeExecutorID 校验 ExecutorID 是否仅含 path-safe 字符（[A-Za-z0-9._-]{1,64}）。
+// isPathSafe 校验 ID 是否仅含 path-safe 字符（[A-Za-z0-9._-]{1,64}）。
 //
-// 防 path traversal：req.ExecutorID 由 LLM 调用方注入 → server 端直接 filepath.Join
-// 拼路径，若不校验可被 `../../etc/passwd` 类输入逃逸到 /workspace 根之外。
-// 合法 agent_run id 是 uuid（36 字符含连字符），天然匹配本字符集。
-func isPathSafeExecutorID(s string) bool {
+// 防 path traversal：assignment_id / agent_id 由调用方注入 → server 端直接 filepath.Join
+// 拼路径，若不校验可被 `../../etc/passwd` 类输入逃逸到 /liusha 根之外。
+// 合法 UUID 是 36 字符含连字符，天然匹配本字符集。
+func isPathSafe(s string) bool {
 	if len(s) == 0 || len(s) > 64 {
 		return false
 	}

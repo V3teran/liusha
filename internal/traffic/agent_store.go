@@ -45,7 +45,7 @@ func (s *AgentStore) Append(ctx context.Context, f AgentTraffic) (int64, error) 
 			 request_headers, request_body, response_headers, response_body, duration_ms)
 		VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
 		RETURNING id`,
-		f.TaskID, nullIfEmpty(f.ExecutorID), nullIfEmpty(f.Identity), nullIfEmpty(f.Tool),
+		f.TaskID, nullIfEmpty(f.AgentID), nullIfEmpty(f.Identity), nullIfEmpty(f.Tool),
 		host, f.Method, f.URL, path, f.StatusCode,
 		normalizeHeaders(f.RequestHeaders), truncate(f.RequestBody, s.maxReqBody),
 		normalizeHeaders(f.ResponseHeaders), truncate(f.ResponseBody, s.maxRespBody), f.DurationMs,
@@ -116,7 +116,7 @@ func (s *AgentStore) ListByTaskFiltered(ctx context.Context, taskID string, f Ag
 	var out []AgentSummary
 	for rows.Next() {
 		var sum AgentSummary
-		if err := rows.Scan(&sum.ID, &sum.TaskID, &sum.ExecutorID, &sum.Identity, &sum.Tool,
+		if err := rows.Scan(&sum.ID, &sum.TaskID, &sum.AgentID, &sum.Identity, &sum.Tool,
 			&sum.Host, &sum.Method, &sum.URL, &sum.Path,
 			&sum.StatusCode, &sum.DurationMs, &sum.CreatedAt); err != nil {
 			return nil, fmt.Errorf("scan agent_traffic summary: %w", err)
@@ -133,7 +133,7 @@ type scanner interface {
 
 func scanAgent(r scanner, f *AgentTraffic) error {
 	var reqH, respH []byte
-	if err := r.Scan(&f.ID, &f.TaskID, &f.ExecutorID, &f.Identity, &f.Tool,
+	if err := r.Scan(&f.ID, &f.TaskID, &f.AgentID, &f.Identity, &f.Tool,
 		&f.Host, &f.Method, &f.URL, &f.Path,
 		&reqH, &f.RequestBody, &f.StatusCode, &respH, &f.ResponseBody, &f.DurationMs, &f.CreatedAt); err != nil {
 		return err

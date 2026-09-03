@@ -153,7 +153,7 @@ func (h handler) abortTask(ctx context.Context, executorID, reason string) error
 func (h handler) handle(ctx context.Context, p worker.Payload) (retErr error) {
 	taskStart := time.Now()
 	h.logger.Info().
-		Str("executor_id", p.ExecutorID).
+		Str("executor_id", p.AgentID).
 		Str("task_id", p.TaskID).
 		Str("role", string(p.Role)).
 		Msg("asynq task ▶ enter")
@@ -162,7 +162,7 @@ func (h handler) handle(ctx context.Context, p worker.Payload) (retErr error) {
 		if retErr != nil {
 			ev = h.logger.Warn().Err(retErr)
 		}
-		ev.Str("executor_id", p.ExecutorID).
+		ev.Str("executor_id", p.AgentID).
 			Str("task_id", p.TaskID).
 			Dur("duration", time.Since(taskStart)).
 			Msg("asynq task ◀ exit")
@@ -171,9 +171,9 @@ func (h handler) handle(ctx context.Context, p worker.Payload) (retErr error) {
 		h.plannerMgr.Stop(p.TaskID)
 	}()
 
-	if run, getErr := h.executors.GetByID(ctx, p.ExecutorID); getErr == nil && run.Status != agentrun.StatusPending {
+	if run, getErr := h.executors.GetByID(ctx, p.AgentID); getErr == nil && run.Status != agentrun.StatusPending {
 		h.logger.Warn().
-			Str("executor_id", p.ExecutorID).
+			Str("executor_id", p.AgentID).
 			Str("status", string(run.Status)).
 			Msg("asynq task 已被处理过，跳过重试（防 PG 僵尸 + 矛盾态）")
 		return asynq.SkipRetry
@@ -200,7 +200,7 @@ func (h handler) handle(ctx context.Context, p worker.Payload) (retErr error) {
 		}
 	}
 
-	if err := h.executors.SetRunning(ctx, p.ExecutorID); err != nil {
+	if err := h.executors.SetRunning(ctx, p.AgentID); err != nil {
 		return err
 	}
 
@@ -208,7 +208,7 @@ func (h handler) handle(ctx context.Context, p worker.Payload) (retErr error) {
 		Brief string `json:"brief"`
 	}
 	if err := json.Unmarshal(p.Input, &input); err != nil {
-		return h.failTask(ctx, p.ExecutorID, err)
+		return h.failTask(ctx, p.AgentID, err)
 	}
 
 	// 设置超时

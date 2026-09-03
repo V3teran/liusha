@@ -419,7 +419,7 @@ func (a *scanAdapter) expandItem(ctx context.Context, assignmentID, brief, conve
 	// parentRegistries 是空的，PreDoneCheck 永放行，旧 PG exploitation 留 status=running 僵尸态。
 	// MaxRetry(0)：跑挂就跑挂，让用户手动 abort + 重新触发，不重试。
 	if _, _, err := a.enq.Enqueue(ctx, worker.RoleExecutor, worker.Payload{
-		ExecutorID:       tid,
+		AgentID:       tid,
 		TaskID:         tk.ID,
 		ConversationID: conversationID, // 阶段B：会话发起时非空 → runner 发过程事件
 		     // 场景 code：runner 据此数据驱动派发引擎/操作员编排
@@ -472,7 +472,7 @@ func (a *scanAdapter) FollowUp(ctx context.Context, taskID, conversationID, brie
 		return "", fmt.Errorf("create executor run: %w", err)
 	}
 	if _, _, err := a.enq.Enqueue(ctx, worker.RoleExecutor, worker.Payload{
-		ExecutorID:       tid,
+		AgentID:       tid,
 		TaskID:         taskID,
 		ConversationID: conversationID,
 		

@@ -50,7 +50,8 @@ func (t *runCommandTool) Execute(ctx context.Context, args json.RawMessage) (reg
 	}
 
 	req := sandbox.ExecRequest{
-		ExecutorID:     t.deps.ExecutorID,
+		TaskID:         t.deps.TaskID,
+		AgentID:        t.deps.AgentID,
 		Command:        a.Command,
 		TimeoutSeconds: a.TimeoutSeconds,
 		Tag:            a.Tag,
@@ -140,7 +141,8 @@ func (t *browserUseTool) Execute(ctx context.Context, args json.RawMessage) (reg
 	command := strings.Join(cmdParts, " ")
 
 	req := sandbox.ExecRequest{
-		ExecutorID:     t.deps.ExecutorID,
+		TaskID:         t.deps.TaskID,
+		AgentID:        t.deps.AgentID,
 		Command:        command,
 		TimeoutSeconds: a.TimeoutSeconds,
 		Tag:            "browser_use",
