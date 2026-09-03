@@ -15,7 +15,7 @@ import (
 // 现行 active 路径用 dispatcher/actor 进程内编排，exploitation 不入 asynq，故入队 Payload 此字段恒空；
 // 字段保留向后兼容，入队调用方均不填。
 type Payload struct {
-	ExecutorID      string `json:"executor_id"`
+	AgentID        string `json:"agent_id"`
 	TaskID         string `json:"task_id"` // 所属 task.id
 	plannerID string `json:"planner_id,omitempty"`
 	// ConversationID 关联本任务所属会话（阶段B 会话发起时填）；asynq 自动入口为空——

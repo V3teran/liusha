@@ -27,7 +27,7 @@ from mitmproxy import http
 
 INGEST_URL = os.getenv("LIUSHA_INGEST_URL", "").strip()
 INGEST_TOKEN = os.getenv("LIUSHA_INGEST_TOKEN", "").strip()
-HUNTER_ID = os.getenv("LIUSHA_HUNTER_ID", "").strip()
+AGENT_ID = os.getenv("LIUSHA_AGENT_ID", "").strip()
 
 # 静态资源扩展名（小写，无点）——这些请求不入字典（CAPTURE_TYPES 思路的 CLI 版）。
 _STATIC_EXT = {
@@ -94,7 +94,7 @@ class CLICapture:
     def __init__(self) -> None:
         self._seen: set[tuple[str, str]] = set()
         self._http: httpx.Client | None = None
-        self._enabled = bool(INGEST_URL) and bool(HUNTER_ID)
+        self._enabled = bool(INGEST_URL) and bool(AGENT_ID)
 
     def _is_static(self, flow: http.HTTPFlow) -> bool:
         ext = urlsplit(flow.request.pretty_url).path.rsplit(".", 1)
@@ -135,7 +135,7 @@ class CLICapture:
         if resp.timestamp_end and req.timestamp_start:
             dur_ms = int(max(0.0, resp.timestamp_end - req.timestamp_start) * 1000)
         return {
-            "agent_id": HUNTER_ID,
+            "agent_id": AGENT_ID,
             "host": req.host or "",
             "host_port": f"{req.host}:{req.port}" if req.host else "",
             "method": req.method,

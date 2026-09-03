@@ -108,7 +108,7 @@ func (t *writeFindingTool) Execute(ctx context.Context, args json.RawMessage) (r
 		return registry.ToolResult{Error: "write_finding: severity 必填"}, nil
 	}
 
-	opID := t.deps.ExecutorID
+	opID := t.deps.AgentID
 	f := finding.VulnFinding{
 		TaskID:        t.deps.TaskID,
 		ExecutorID:    &opID,

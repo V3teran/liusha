@@ -96,7 +96,7 @@ func (t *writeHypothesisTool) Execute(ctx context.Context, args json.RawMessage)
 		Confidence: &confidence,
 		Priority:   5,
 		SourceType: worldmodel.SourceExecutor,
-		SourceID:   t.deps.ExecutorID,
+		SourceID:   t.deps.AgentID,
 		CreatedAt:  time.Now(),
 		UpdatedAt:  time.Now(),
 	}
@@ -199,7 +199,7 @@ func (t *writeEvidenceTool) Execute(ctx context.Context, args json.RawMessage) (
 		Content:    content,
 		Priority:   5,
 		SourceType: worldmodel.SourceExecutor,
-		SourceID:   t.deps.ExecutorID,
+		SourceID:   t.deps.AgentID,
 		CreatedAt:  time.Now(),
 		UpdatedAt:  time.Now(),
 	}

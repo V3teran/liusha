@@ -98,7 +98,7 @@ func (t *writeLeadTool) Execute(ctx context.Context, args json.RawMessage) (regi
 		Body:          a.Body,
 		Tags:          a.Tags,
 		SourceTaskID:  t.deps.TaskID,
-		SourceAgentID: t.deps.ExecutorID,
+		SourceAgentID: t.deps.AgentID,
 		CreatedAt:     time.Now(),
 		UpdatedAt:     time.Now(),
 	}

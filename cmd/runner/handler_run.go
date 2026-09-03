@@ -308,10 +308,10 @@ func (h handler) handleSolo(
 	brief string,
 ) error {
 	if brief == "" {
-		return h.failTask(ctx, p.ExecutorID, fmt.Errorf("solo 引擎缺 brief"))
+		return h.failTask(ctx, p.AgentID, fmt.Errorf("solo 引擎缺 brief"))
 	}
 
-	tid := p.ExecutorID
+	agentID := p.AgentID
 	taskID := p.TaskID
 	if err := h.tasks.Heartbeat(ctx, taskID); err != nil {
 		h.logger.Warn().Err(err).Str("task_id", taskID).Msg("task 入口心跳失败（不阻塞）")
@@ -325,13 +325,13 @@ func (h handler) handleSolo(
 
 	trafficList, err := h.proxyStore.ListByTask(ctx, taskID)
 	if err != nil {
-		return h.failTask(ctx, p.ExecutorID, fmt.Errorf("读 proxy_traffic 失败: %w", err))
+		return h.failTask(ctx, p.AgentID, fmt.Errorf("读 proxy_traffic 失败: %w", err))
 	}
 	rt, _ := h.settings.Runtime(ctx)
 	params := skill.BuilderParams{
 		TaskID:        taskID,
 		AssignmentID:  assignmentID,
-		ExecutorID:    tid,
+		ExecutorID:    agentID,
 		Host:          host,
 		Brief:         brief,
 		Traffic:       trafficList,
@@ -359,7 +359,7 @@ func (h handler) handleSolo(
 	// Sandbox 按 Assignment 粒度管理，多 Task 共享同一容器（引用计数）
 	sandboxClient, err := h.sandboxMgr.Acquire(ctx, assignmentID)
 	if err != nil {
-		return h.failTask(ctx, p.ExecutorID, fmt.Errorf("sandboxMgr.Acquire(%s): %w", assignmentID, err))
+		return h.failTask(ctx, p.AgentID, fmt.Errorf("sandboxMgr.Acquire(%s): %w", assignmentID, err))
 	}
 	// 任务结束时释放引用，引用计数归零后延迟清理容器
 	defer func() {
@@ -373,11 +373,11 @@ func (h handler) handleSolo(
 
 	d, reg, err := h.buildDispatcher(ctx, defaultComplexity, sysPrompt, sink)
 	if err != nil {
-		return h.failTask(ctx, p.ExecutorID, err)
+		return h.failTask(ctx, p.AgentID, err)
 	}
 	tools.RegisterAll(reg, tools.Deps{
 		TaskID:        taskID,
-		ExecutorID:    tid,
+		AgentID:       agentID,
 		Host:          host,
 		Tasks:         h.tasks,
 		Findings:      h.findings,
@@ -392,7 +392,7 @@ func (h handler) handleSolo(
 		ToolingLoader: h.toolingLoader,
 		VulnLoader:    h.vulnLoader,
 	})
-	reg.AddInterceptor(h.toolRecordInterceptor(tid, taskID))
+	reg.AddInterceptor(h.toolRecordInterceptor(agentID, taskID))
 
 
 	finalizeTask := func(complete bool, reason string) {
@@ -457,16 +457,16 @@ func (h handler) handleSolo(
 	if err != nil {
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			finalizeTask(false, "ctx "+err.Error())
-			return h.abortTask(ctx, p.ExecutorID, "ctx "+err.Error())
+			return h.abortTask(ctx, p.AgentID, "ctx "+err.Error())
 		}
 		finalizeTask(false, err.Error())
-		return h.failTask(ctx, p.ExecutorID, err)
+		return h.failTask(ctx, p.AgentID, err)
 	}
 
 	out, err := json.Marshal(buildRunResult("solo", execResult, report))
 	if err != nil {
 		finalizeTask(false, "marshal task result")
-		return h.failTask(ctx, p.ExecutorID, fmt.Errorf("marshal task result: %w", err))
+		return h.failTask(ctx, p.AgentID, fmt.Errorf("marshal task result: %w", err))
 	}
 
 	// 保存 assistant 的最终回复到 conversation
@@ -483,7 +483,7 @@ func (h handler) handleSolo(
 
 	finalizeTask(true, "")
 	h.distillCorpus(ctx, taskID, p.ConversationID, op.Code, host)
-	return h.executors.SetDone(ctx, p.ExecutorID, out)
+	return h.executors.SetDone(ctx, p.AgentID, out)
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -498,7 +498,7 @@ func (h handler) handleCognition(
 	brief string,
 ) error {
 	if brief == "" {
-		return h.failTask(ctx, p.ExecutorID, fmt.Errorf("任务缺少 brief"))
+		return h.failTask(ctx, p.AgentID, fmt.Errorf("任务缺少 brief"))
 	}
 
 	taskID := p.TaskID
@@ -515,7 +515,7 @@ func (h handler) handleCognition(
 	// Sandbox 按 Assignment 粒度管理
 	sandboxClient, err := h.sandboxMgr.Acquire(ctx, assignmentID)
 	if err != nil {
-		return h.failTask(ctx, p.ExecutorID, fmt.Errorf("sandboxMgr.Acquire(%s): %w", assignmentID, err))
+		return h.failTask(ctx, p.AgentID, fmt.Errorf("sandboxMgr.Acquire(%s): %w", assignmentID, err))
 	}
 	defer func() {
 		if err := h.sandboxMgr.Release(context.Background(), assignmentID); err != nil {
@@ -526,12 +526,12 @@ func (h handler) handleCognition(
 	// 获取Planner和Executor配置
 	planner, err := h.cfgStore.GetPlanner(ctx)
 	if err != nil {
-		return h.failTask(ctx, p.ExecutorID, fmt.Errorf("获取planner失败: %w", err))
+		return h.failTask(ctx, p.AgentID, fmt.Errorf("获取planner失败: %w", err))
 	}
 
 	executorAgent, err := h.cfgStore.GetExecutor(ctx)
 	if err != nil {
-		return h.failTask(ctx, p.ExecutorID, fmt.Errorf("获取executor失败: %w", err))
+		return h.failTask(ctx, p.AgentID, fmt.Errorf("获取executor失败: %w", err))
 	}
 
 	// 构建system prompt
@@ -551,11 +551,11 @@ func (h handler) handleCognition(
 
 	d, reg, err := h.buildDispatcher(ctx, defaultComplexity, sysPrompt, sink)
 	if err != nil {
-		return h.failTask(ctx, p.ExecutorID, err)
+		return h.failTask(ctx, p.AgentID, err)
 	}
 	tools.RegisterAll(reg, tools.Deps{
 		TaskID:        taskID,
-		ExecutorID:    p.ExecutorID,
+		AgentID:       p.AgentID,
 		Host:          virtualHost,
 		Tasks:         h.tasks,
 		Findings:      h.findings,
@@ -572,7 +572,7 @@ func (h handler) handleCognition(
 	})
 
 	// 添加工具调用记录拦截器
-	reg.AddInterceptor(h.toolRecordInterceptor(p.ExecutorID, taskID))
+	reg.AddInterceptor(h.toolRecordInterceptor(p.AgentID, taskID))
 	fmt.Printf("[HANDLER.handleCognition] Added toolRecordInterceptor, registry now has %d interceptors\n", len(reg.Interceptors()))
 
 	finalizeTask := func(complete bool, reason string) {
@@ -601,7 +601,7 @@ func (h handler) handleCognition(
 	orchPrompt := executorbuilder.BuildUserPrompt(ctx, h.buildPromptDeps(), skill.BuilderParams{
 		TaskID:        taskID,
 		AssignmentID:  assignmentID,
-		ExecutorID:    p.ExecutorID,
+		ExecutorID:    p.AgentID,
 		Host:          virtualHost,
 		Brief:         brief,
 		CliTools:      executorAgent.CliTools,
@@ -651,16 +651,16 @@ func (h handler) handleCognition(
 	if err != nil {
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			finalizeTask(false, "ctx "+err.Error())
-			return h.abortTask(ctx, p.ExecutorID, "ctx "+err.Error())
+			return h.abortTask(ctx, p.AgentID, "ctx "+err.Error())
 		}
 		finalizeTask(false, err.Error())
-		return h.failTask(ctx, p.ExecutorID, err)
+		return h.failTask(ctx, p.AgentID, err)
 	}
 
 	out, err := json.Marshal(buildRunResult("cognition", execResult, report))
 	if err != nil {
 		finalizeTask(false, "marshal task result")
-		return h.failTask(ctx, p.ExecutorID, fmt.Errorf("marshal task result: %w", err))
+		return h.failTask(ctx, p.AgentID, fmt.Errorf("marshal task result: %w", err))
 	}
 
 	// 保存 assistant 的最终回复到 conversation
@@ -677,7 +677,7 @@ func (h handler) handleCognition(
 
 	finalizeTask(true, "")
 	h.distillCorpus(ctx, taskID, p.ConversationID, "planner", virtualHost)
-	return h.executors.SetDone(ctx, p.ExecutorID, out)
+	return h.executors.SetDone(ctx, p.AgentID, out)
 }
 
 // ─────────────────────────────────────────────────────────────

@@ -363,17 +363,17 @@ func (t *Traffic) spawnPassiveTask(ctx context.Context, host string) {
 // handleInternalSnap 处理 agent sandbox 自产流量：反查 agent 得 task_id，落 agent_traffic，不 enqueue。
 //
 // source=internal 唯一来源：browser-svc.py 持 CDP 连接，把 chromium 的 Document/XHR/Fetch（含真实
-// 认证凭证位置）→ POST /internal/v1/flows/ingest → snap.Source="internal" + snap.ExecutorID。
+// 认证凭证位置）→ POST /internal/v1/flows/ingest → snap.Source="internal" + snap.AgentID。
 // 反查 agent 表得 task_id 写 agent_traffic。不 enqueue：agent 自己挖的流量回头触发分析会自激震荡。
 func (t *Traffic) handleInternalSnap(ctx context.Context, snap *proxy.TrafficSnapshot) {
-	if snap.ExecutorID == "" {
+	if snap.AgentID == "" {
 		t.logger.Warn().Str("host", snap.Host).Str("uri", snap.URI).
 			Msg("internal 流量缺 executor_id，丢弃（browser-svc.py session→executor 归属异常？）")
 		return
 	}
-	run, err := t.executors.GetByID(ctx, snap.ExecutorID)
+	run, err := t.executors.GetByID(ctx, snap.AgentID)
 	if err != nil {
-		t.logger.Warn().Err(err).Str("agent_id", snap.ExecutorID).
+		t.logger.Warn().Err(err).Str("agent_id", snap.AgentID).
 			Msg("internal 流量反查 executor 失败，丢弃（executor 已被清理 / 跨进程脏数据？）")
 		return
 	}
@@ -382,7 +382,7 @@ func (t *Traffic) handleInternalSnap(ctx context.Context, snap *proxy.TrafficSna
 	respH, _ := json.Marshal(snap.ResponseHeaders)
 	trafficID, err := t.agentStore.Append(ctx, traffic.AgentTraffic{
 		TaskID:          run.TaskID,
-		ExecutorID:        snap.ExecutorID,
+		AgentID:        snap.AgentID,
 		Identity:        snap.Identity,
 		Tool:            snap.Tool,
 		Host:            snap.Host,
@@ -401,7 +401,7 @@ func (t *Traffic) handleInternalSnap(ctx context.Context, snap *proxy.TrafficSna
 		return
 	}
 	t.logger.Info().
-		Str("task_id", run.TaskID).Str("agent_id", snap.ExecutorID).Int64("traffic_id", trafficID).
+		Str("task_id", run.TaskID).Str("agent_id", snap.AgentID).Int64("traffic_id", trafficID).
 		Str("method", snap.Method).Str("url", snap.URI).
 		Msg("internal 流量已入 agent_traffic（不触发 trafficAnalysis）")
 }
@@ -459,7 +459,7 @@ func (t *Traffic) enqueuePassive(ctx context.Context, taskID, convID, host strin
 		return fmt.Errorf("executors.Create: %w", err)
 	}
 	if _, _, err := t.enq.Enqueue(ctx, worker.RoleExecutor, worker.Payload{
-		ExecutorID:       hid,
+		AgentID:       hid,
 		TaskID:         taskID,
 		ConversationID: convID,
 		Input:          payloadInput,
