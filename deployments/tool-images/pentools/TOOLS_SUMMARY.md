@@ -5,12 +5,12 @@
 | 项目 | 数量 |
 |------|------|
 | **原有工具** | 78 个 |
-| **新增工具** | 11 个 |
-| **当前总计** | 89 个 |
+| **新增工具** | 12 个 |
+| **当前总计** | 90 个 |
 
 ---
 
-## ✅ 新增工具清单（11个）
+## ✅ 新增工具清单（12个）
 
 ### **1. 扫描/侦察（2个）**
 
@@ -100,6 +100,23 @@
 
 ---
 
+### **8. C2 框架（1个）**
+
+#### sliver
+- **分类**: exploitation
+- **功能**: 现代 C2 框架（Go 实现）
+- **特点**: 
+  - 多协议通信（HTTP/DNS/mTLS/WireGuard）
+  - 动态 payload 生成（躲避签名检测）
+  - 内存执行 + 进程注入
+  - 轻量级（~30MB）
+- **与 Metasploit 互补**: 
+  - Metasploit: 公开漏洞利用，特征明显
+  - Sliver: 红队持久化，隐蔽性强
+- **价值**: 新一代开源 C2 标准（SANS/MITRE ATT&CK 推荐）
+
+---
+
 ## ❌ 已排除的工具（功能重复）
 
 ### **扫描工具**
@@ -130,7 +147,7 @@
 
 ---
 
-## 🎯 工具分类统计（89个）
+## 🎯 工具分类统计（90个）
 
 | 分类 | 工具数 | 代表工具 |
 |------|--------|----------|
@@ -142,7 +159,7 @@
 | **deserialization** | 2 | ysomap, ysoserial |
 | **oob** | 1 | interactsh-client |
 | **auth** | 2 | hydra, jwt_tool |
-| **exploitation** | 5 | msfconsole, impacket-secretsdump, netexec, responder, evil-winrm |
+| **exploitation** | 6 | msfconsole, sliver, impacket-secretsdump, netexec, responder, evil-winrm |
 | **post-exploit** | 6 | bloodhound-python, certipy, ligolo-ng, chisel, linpeas, proxychains4 |
 | **cloud** | 5 | prowler, pacu, cloudsplaining, cloudfox, checkov |
 | **container** | 5 | trivy, kubectl, peirates, kube-bench, kube-hunter |
@@ -206,8 +223,9 @@
 
 | 项目 | liusha | CyberStrikeAI |
 |------|--------|--------------|
-| **工具总数** | 89 | 90 |
+| **工具总数** | 90 | 90 |
 | **重复工具** | 0（内部无冗余） | 未知 |
+| **C2 工具** | 2（Metasploit + Sliver） | 1（Metasploit） |
 | **质量** | 严格去重，互补性强 | 覆盖全面 |
 | **镜像架构** | 两层拆分（base + final） | 单层 |
 | **构建速度** | 常规变更 2 分钟 | 40 分钟 |
@@ -224,5 +242,5 @@
 ---
 
 **生成时间**: 2025-01-XX  
-**工具总数**: 89 个  
-**最后更新**: commit f22b1125
+**工具总数**: 90 个  
+**最后更新**: commit 551afb5b
