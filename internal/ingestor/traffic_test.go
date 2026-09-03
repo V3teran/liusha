@@ -16,17 +16,17 @@ func TestSubmitInternal_Backpressure(t *testing.T) {
 
 	// 填满
 	for i := 0; i < capacity; i++ {
-		if !tr.SubmitInternal(&proxy.TrafficSnapshot{ExecutorID: "h"}) {
+		if !tr.SubmitInternal(&proxy.TrafficSnapshot{AgentID: "h"}) {
 			t.Fatalf("第 %d 次入队应成功（队列未满）", i)
 		}
 	}
 	// 满了 → false（背压）
-	if tr.SubmitInternal(&proxy.TrafficSnapshot{ExecutorID: "h"}) {
+	if tr.SubmitInternal(&proxy.TrafficSnapshot{AgentID: "h"}) {
 		t.Fatal("队列已满时 SubmitInternal 应返回 false")
 	}
 	// 取走一个腾出空位 → 又能入
 	<-tr.internalCh
-	if !tr.SubmitInternal(&proxy.TrafficSnapshot{ExecutorID: "h"}) {
+	if !tr.SubmitInternal(&proxy.TrafficSnapshot{AgentID: "h"}) {
 		t.Fatal("腾出空位后 SubmitInternal 应返回 true")
 	}
 }

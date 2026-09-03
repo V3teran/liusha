@@ -36,7 +36,7 @@ func TestClient_Enqueue_RoutesQueue(t *testing.T) {
 	id, q, err := c.Enqueue(
 		context.Background(),
 		RoleExecutor,
-		Payload{ExecutorID: "task-1", TaskID: "task-1", Role: RoleExecutor},
+		Payload{AgentID: "task-1", TaskID: "task-1", Role: RoleExecutor},
 	)
 	if err != nil {
 		t.Fatalf("Enqueue err = %v", err)
@@ -55,7 +55,7 @@ func TestClient_Enqueue_DispatchQueue(t *testing.T) {
 	_, q, err := c.Enqueue(
 		context.Background(),
 		RoleDispatch,
-		Payload{ExecutorID: "task-op-1", TaskID: "task-1", Role: RoleDispatch},
+		Payload{AgentID: "task-op-1", TaskID: "task-1", Role: RoleDispatch},
 	)
 	if err != nil {
 		t.Fatalf("Enqueue err = %v", err)
@@ -65,18 +65,18 @@ func TestClient_Enqueue_DispatchQueue(t *testing.T) {
 	}
 }
 
-// 同 ExecutorID 第二次 Enqueue 必须报错（asynq 默认行为：ErrTaskIDConflict）。
+// 同 AgentID 第二次 Enqueue 必须报错（asynq 默认行为：ErrTaskIDConflict）。
 func TestClient_Enqueue_Idempotent(t *testing.T) {
 	c, _ := newTestClient(t)
 	ctx := context.Background()
-	p := Payload{ExecutorID: "dup-1", TaskID: "task-1", Role: RoleExecutor}
+	p := Payload{AgentID: "dup-1", TaskID: "task-1", Role: RoleExecutor}
 
 	if _, _, err := c.Enqueue(ctx, RoleExecutor, p); err != nil {
 		t.Fatalf("first enqueue err = %v", err)
 	}
 	_, _, err := c.Enqueue(ctx, RoleExecutor, p)
 	if err == nil {
-		t.Fatalf("expected error on duplicate ExecutorID, got nil")
+		t.Fatalf("expected error on duplicate AgentID, got nil")
 	}
 	if !errors.Is(err, asynq.ErrTaskIDConflict) {
 		t.Fatalf("expected ErrTaskIDConflict, got %v", err)
@@ -97,7 +97,7 @@ func TestMux_Register_AndAsynqMux(t *testing.T) {
 	}
 
 	// 直接调用 ServeMux.ProcessTask 验证路由 + 反序列化。
-	payloadBytes, err := json.Marshal(Payload{ExecutorID: "t1", Role: RoleExecutor})
+	payloadBytes, err := json.Marshal(Payload{AgentID: "t1", Role: RoleExecutor})
 	if err != nil {
 		t.Fatalf("marshal payload: %v", err)
 	}
@@ -115,7 +115,7 @@ func TestMux_UnknownRole_SkipsRetry(t *testing.T) {
 	m := NewMux()
 	mux := m.AsynqMux()
 
-	payloadBytes, _ := json.Marshal(Payload{ExecutorID: "t1", Role: RoleDispatch})
+	payloadBytes, _ := json.Marshal(Payload{AgentID: "t1", Role: RoleDispatch})
 	task := asynq.NewTask(TaskTypeRun, payloadBytes)
 
 	err := mux.ProcessTask(context.Background(), task)
@@ -161,7 +161,7 @@ func TestEndToEnd_EnqueueAndProcess(t *testing.T) {
 	go func() { _ = srv.Run(m.AsynqMux()) }()
 	t.Cleanup(srv.Shutdown)
 
-	want := Payload{ExecutorID: "e2e-1", TaskID: "task-e2e", Role: RoleExecutor}
+	want := Payload{AgentID: "e2e-1", TaskID: "task-e2e", Role: RoleExecutor}
 	if _, _, err := c.Enqueue(ctx, RoleExecutor, want); err != nil {
 		t.Fatalf("Enqueue err = %v", err)
 	}
@@ -175,7 +175,7 @@ func TestEndToEnd_EnqueueAndProcess(t *testing.T) {
 	mu.Lock()
 	got := received
 	mu.Unlock()
-	if got.ExecutorID != want.ExecutorID || got.Role != want.Role {
+	if got.AgentID != want.AgentID || got.Role != want.Role {
 		t.Fatalf("received payload = %+v, want %+v", got, want)
 	}
 }

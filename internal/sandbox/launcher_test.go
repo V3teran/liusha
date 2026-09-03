@@ -61,7 +61,8 @@ func TestDockerLauncher_SpawnExecDestroy(t *testing.T) {
 	})
 
 	res, err := client.Exec(ctx, ExecRequest{
-		ExecutorID:       runID,
+		TaskID:         "task-test",
+		AgentID:        runID,
 		Command:        "echo from-test && echo err-test >&2",
 		TimeoutSeconds: 5,
 		Tag:            "integration",
@@ -103,7 +104,8 @@ func TestDockerLauncher_OutputDirAttachment(t *testing.T) {
 	})
 
 	res, err := client.Exec(ctx, ExecRequest{
-		ExecutorID:       runID,
+		TaskID: "task-test",
+		AgentID:       runID,
 		Command:        `printf 'file-content\n' > "$OUTPUT_DIR/test.txt"`,
 		TimeoutSeconds: 5,
 		Tag:            "attach",
@@ -143,7 +145,8 @@ func TestDockerLauncher_Timeout(t *testing.T) {
 	})
 
 	res, err := client.Exec(ctx, ExecRequest{
-		ExecutorID:       runID,
+		TaskID: "task-test",
+		AgentID:       runID,
 		Command:        "sleep 10",
 		TimeoutSeconds: 1,
 		Tag:            "to",
@@ -188,7 +191,8 @@ func TestDockerLauncher_BackgroundOrphan_DoesNotHang(t *testing.T) {
 	// timeout 60s 远大于 sleep → 容器内 cmdCtx 不触发，纯靠镜像内 WaitDelay(10s) 兜底。
 	start := time.Now()
 	res, err := client.Exec(ctx, ExecRequest{
-		ExecutorID:       runID,
+		TaskID: "task-test",
+		AgentID:       runID,
 		Command:        "sleep 40 &",
 		TimeoutSeconds: 60,
 		Tag:            "bg-orphan",
