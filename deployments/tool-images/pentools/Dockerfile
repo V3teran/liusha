@@ -18,6 +18,7 @@
 #   - 重型/死 pin 的 Python 工具各自独立 venv：angr / volatility3 / RsaCtfTool（不污染系统 py）
 #   - PEP 668 在 Kali 开启，pip 需 --break-system-packages(env) + --ignore-installed
 #   - browser-use 跑独立 Python 3.12 venv（隔离 Kali rolling python）
+#   - 流量捕获：browser-svc.py 内置 CDP Network observer 抓浏览器流量（不依赖 mitmproxy）
 #   - multi-stage：Stage 0 编译 sandbox-server，Stage 1 运行镜像
 #   - linux/amd64-only（CI runner = ubuntu-24.04）；架构变体全硬编码，无 arm64 分支
 #
@@ -391,29 +392,16 @@ RUN pip install --quiet --ignore-installed \
         pwntools pycryptodome \
  && python3 -c 'import requests, httpx, aiohttp, bs4, lxml, urllib3, websockets, websocket, socks, dns, cryptography, jwt, yaml, xmltodict, paramiko, pymysql, pwn, Crypto; print("python libs OK")'
 
-# ── Layer 12: mitmproxy ───────────────────────────────────────────────────────
-COPY deployments/tool-images/pentools/mitm-capture.py /usr/local/bin/mitm-capture.py
-RUN pip install --quiet --ignore-installed mitmproxy \
- && timeout 8 mitmdump --listen-port 18999 -q >/dev/null 2>&1 || true \
- && test -f /root/.mitmproxy/mitmproxy-ca-cert.pem \
- && cp /root/.mitmproxy/mitmproxy-ca-cert.pem /usr/local/share/ca-certificates/mitmproxy-ca.crt \
- && update-ca-certificates \
- && chmod +x /usr/local/bin/mitm-capture.py \
- && echo "[Layer 12] mitmproxy + CA 就位"
-
-# ── Layer 13: entrypoint ──────────────────────────────────────────────────────
+# ── Layer 12: entrypoint（简化版：只启动 sandbox-server）──────────────────
+# browser-use 流量捕获由 browser-svc.py 内置 CDP Network observer 完成，不依赖 mitmproxy。
+# CLI 工具流量（sqlmap/nuclei 等）不再捕获——噪音过多，用户只需浏览器流量。
 RUN printf '%s\n' \
   '#!/bin/sh' \
-  'if [ -n "${LIUSHA_INGEST_URL:-}" ]; then' \
-  '  mitmdump -q --listen-host 127.0.0.1 --listen-port 8889 \' \
-  '    --set block_global=false --set connection_strategy=lazy \' \
-  '    -s /usr/local/bin/mitm-capture.py >/tmp/mitm.log 2>&1 &' \
-  'fi' \
   'exec /usr/local/bin/sandbox-server' \
   > /usr/local/bin/sandbox-entrypoint.sh \
  && chmod +x /usr/local/bin/sandbox-entrypoint.sh
 
-# ── Layer 14: sandbox-server 二进制（容器 PID 1）─────────────────────────────
+# ── Layer 13: sandbox-server 二进制（容器 PID 1）─────────────────────────────
 COPY --from=sandbox-builder /out/sandbox-server /usr/local/bin/sandbox-server
 RUN chmod +x /usr/local/bin/sandbox-server && test -x /usr/local/bin/sandbox-server
 
