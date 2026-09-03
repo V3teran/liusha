@@ -5,23 +5,20 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/V3teran/liusha/internal/sandbox"
 )
 
-// setupTestRoots 把 outputDirRoot / workdirRoot 临时换成 t.TempDir() 子目录，
-// 让 handleExec mkdir 不撞 host /workspace 权限。Cleanup 自动还原。
+// setupTestRoots 把 liushaRoot 临时换成 t.TempDir()，
+// 让 handleExec mkdir 不撞 host /liusha 权限。Cleanup 自动还原。
 func setupTestRoots(t *testing.T) {
 	t.Helper()
-	oldOut, oldWork := outputDirRoot, workdirRoot
-	tmp := t.TempDir()
-	outputDirRoot = filepath.Join(tmp, "output")
-	workdirRoot = filepath.Join(tmp, "workspace")
+	old := liushaRoot
+	liushaRoot = t.TempDir()
 	t.Cleanup(func() {
-		outputDirRoot, workdirRoot = oldOut, oldWork
+		liushaRoot = old
 	})
 }
 
@@ -44,7 +41,8 @@ func TestHandleExec_Timeout_KillsProcessGroup(t *testing.T) {
 	defer ts.Close()
 
 	body, err := json.Marshal(sandbox.ExecRequest{
-		ExecutorID:       "test-kill-pg",
+		TaskID:         "test-task",
+		AgentID:        "test-kill-pg",
 		Command:        "sleep 100 | tail",
 		TimeoutSeconds: 1,
 		Tag:            "kill-pg",
@@ -106,7 +104,8 @@ func TestHandleExec_BackgroundOrphan_DoesNotHangPastWaitDelay(t *testing.T) {
 	// `sleep 30 &`：sh 后台启子进程后立即退出，但 sleep 持有 stdout pipe 30s。
 	// timeout 60s 远大于 sleep → cmdCtx 不触发，纯靠 WaitDelay 兜底。
 	body, err := json.Marshal(sandbox.ExecRequest{
-		ExecutorID:       "test-bg-orphan",
+		TaskID:         "test-task",
+		AgentID:        "test-bg-orphan",
 		Command:        "sleep 30 &",
 		TimeoutSeconds: 60,
 		Tag:            "bg-orphan",
@@ -147,7 +146,8 @@ func TestHandleExec_Normal_Succeeds(t *testing.T) {
 	defer ts.Close()
 
 	body, err := json.Marshal(sandbox.ExecRequest{
-		ExecutorID:       "test-baseline",
+		TaskID:         "test-task",
+		AgentID:        "test-baseline",
 		Command:        "echo hello && echo err >&2",
 		TimeoutSeconds: 5,
 		Tag:            "baseline",
@@ -181,8 +181,8 @@ func TestHandleExec_Normal_Succeeds(t *testing.T) {
 	}
 }
 
-// TestHandleExec_ExecutorIDValidation 验证 ExecutorID 必填 + path-safe 字符集（防 path traversal）。
-func TestHandleExec_ExecutorIDValidation(t *testing.T) {
+// TestHandleExec_AgentIDValidation 验证 AgentID 必填 + path-safe 字符集（防 path traversal）。
+func TestHandleExec_AgentIDValidation(t *testing.T) {
 	setupTestRoots(t)
 	srv := New()
 	ts := httptest.NewServer(srv.mux)
@@ -202,7 +202,8 @@ func TestHandleExec_ExecutorIDValidation(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			body, _ := json.Marshal(sandbox.ExecRequest{
-				ExecutorID:       c.agentID,
+				TaskID:         "test-task",
+				AgentID:        c.agentID,
 				Command:        "echo x",
 				TimeoutSeconds: 5,
 				Tag:            "validate",
@@ -213,7 +214,7 @@ func TestHandleExec_ExecutorIDValidation(t *testing.T) {
 			}
 			resp.Body.Close()
 			if resp.StatusCode != http.StatusBadRequest {
-				t.Errorf("ExecutorID=%q expect 400 got %d", c.agentID, resp.StatusCode)
+				t.Errorf("AgentID=%q expect 400 got %d", c.agentID, resp.StatusCode)
 			}
 		})
 	}
@@ -229,10 +230,11 @@ func TestHandleExec_PerTaskIsolation(t *testing.T) {
 	ts := httptest.NewServer(srv.mux)
 	defer ts.Close()
 
-	post := func(t *testing.T, agentID, cmd string) sandbox.ExecResult {
+	post := func(t *testing.T, taskID, agentID, cmd string) sandbox.ExecResult {
 		t.Helper()
 		body, _ := json.Marshal(sandbox.ExecRequest{
-			ExecutorID:       agentID,
+			TaskID:         taskID,
+			AgentID:        agentID,
 			Command:        cmd,
 			TimeoutSeconds: 5,
 			Tag:            "isolation",
@@ -253,19 +255,19 @@ func TestHandleExec_PerTaskIsolation(t *testing.T) {
 	}
 
 	// task-a 写 a.txt
-	resA1 := post(t, "task-a", `printf 'A\n' > "$OUTPUT_DIR/a.txt"`)
+	resA1 := post(t, "test-task", "task-a", `printf 'A\n' > "$OUTPUT_DIR/a.txt"`)
 	if len(resA1.Files) != 1 || resA1.Files[0].Name != "a.txt" {
 		t.Fatalf("task-a 应只看到 a.txt，got %+v", resA1.Files)
 	}
 
 	// task-b 写 b.txt — 不可看到 task-a 的 a.txt
-	resB := post(t, "task-b", `printf 'B\n' > "$OUTPUT_DIR/b.txt"`)
+	resB := post(t, "test-task", "task-b", `printf 'B\n' > "$OUTPUT_DIR/b.txt"`)
 	if len(resB.Files) != 1 || resB.Files[0].Name != "b.txt" {
 		t.Fatalf("task-b 应只看到 b.txt（不应捞到 task-a 的 a.txt），got %+v", resB.Files)
 	}
 
 	// task-a 第 2 次 exec ls — 仍只看到自己 a.txt
-	resA2 := post(t, "task-a", `ls "$OUTPUT_DIR"`)
+	resA2 := post(t, "test-task", "task-a", `ls "$OUTPUT_DIR"`)
 	if !bytes.Contains([]byte(resA2.Stdout), []byte("a.txt")) {
 		t.Errorf("task-a 看不到自己的 a.txt，stdout=%q", resA2.Stdout)
 	}
@@ -274,11 +276,11 @@ func TestHandleExec_PerTaskIsolation(t *testing.T) {
 	}
 
 	// cwd 隔离：task-a 写 ./relative.txt，task-b 看不到
-	resA3 := post(t, "task-a", `printf 'A-cwd\n' > relative.txt && ls`)
+	resA3 := post(t, "test-task", "task-a", `printf 'A-cwd\n' > relative.txt && ls`)
 	if !bytes.Contains([]byte(resA3.Stdout), []byte("relative.txt")) {
 		t.Errorf("task-a cwd 写文件失败，stdout=%q", resA3.Stdout)
 	}
-	resB2 := post(t, "task-b", `ls`)
+	resB2 := post(t, "test-task", "task-b", `ls`)
 	if bytes.Contains([]byte(resB2.Stdout), []byte("relative.txt")) {
 		t.Errorf("task-b cwd 看到了 task-a 的 relative.txt，隔离失败，stdout=%q", resB2.Stdout)
 	}
