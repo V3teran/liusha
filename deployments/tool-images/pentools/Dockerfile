@@ -65,6 +65,7 @@ RUN apt-get update \
         golang maven \
         default-mysql-client \
         build-essential libssl-dev libffi-dev \
+        libgmp-dev libmpfr-dev libmpc-dev \
  && rm -rf /var/lib/apt/lists/* \
  && printf 'tries=5\nwaitretry=10\ntimeout=60\nretry-connrefused=on\n' >> /etc/wgetrc \
  && wget -q --tries=3 --waitretry=5 \
