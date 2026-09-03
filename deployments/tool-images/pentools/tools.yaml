@@ -260,6 +260,10 @@ tools:
     category: exploitation
     description: Metasploit 利用框架——公开漏洞 exploit + payload/handler + 后渗透模块，拿初始 shell 主力。`msfconsole -q`；`msfvenom` 生成 payload。apt metasploit-framework。
     install: { method: apt, pkg: metasploit-framework }
+  - name: sliver
+    category: exploitation
+    description: 现代 C2 框架（Go 实现）——多协议通信（HTTP/DNS/mTLS/WireGuard）+ 动态 payload 生成 + 内存执行 + 进程注入，新一代开源 C2 标准。与 Metasploit 互补（Metasploit 偏老旧特征明显，Sliver 隐蔽性强）。
+    install: { method: release, ref: BishopFox/sliver@v1.5.42 }
   - name: impacket-secretsdump
     category: exploitation
     description: Impacket 工具集入口（apt 装成 impacket-* 前缀命令）——secretsdump(dump 域凭证)/psexec/wmiexec(远程执行)/GetNPUsers(AS-REP roast) 等 SMB/AD 协议攻击瑞士军刀。此 name 是代表命令，同装 impacket-psexec/impacket-wmiexec 等。
