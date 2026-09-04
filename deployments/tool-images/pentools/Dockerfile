@@ -281,7 +281,7 @@ RUN set -eux \
  && chmod +x /usr/local/bin/kubectl && kubectl version --client 2>&1 | head -1 \
  # peirates（.tar.xz，子目录）
  && wget -q --tries=3 --waitretry=5 \
-        "https://github.com/inguardians/peirates/releases/download/v1.29a/peirates-linux-amd64.tar.xz" \
+        "https://github.com/inguardians/peirates/releases/download/v1.1.29a/peirates-linux-amd64.tar.xz" \
         -O /tmp/peirates.txz \
  && tar -xJf /tmp/peirates.txz -C /tmp \
  && mv /tmp/peirates-linux-amd64/peirates /usr/local/bin/peirates \

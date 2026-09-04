@@ -106,6 +106,8 @@ install_one() { # <name>
     git) # clone 到 /opt/<name>（包装脚本由 Dockerfile 负责，这里只 clone）
       ref=$(field_by_name "$name" ref); [ -n "$ref" ] || { bad "$name: method=git 缺 ref(url)"; return 1; }
       rm -rf "/opt/$name"; git clone --depth 1 "$ref" "/opt/$name" || { bad "$name: git clone $ref 失败"; return 1; } ;;
+    noop) # 由 Dockerfile 专属层安装，跳过
+      note "$name: method=noop → 跳过（Dockerfile 已装）" ;;
     "")
       bad "$name: 不在 PATH 且未声明 install.method（核对工具名 / 包名是否变化 / 补 install）"; return 1 ;;
     *)

@@ -106,24 +106,29 @@ tools:
     category: injection
     description: XSS 自动探测 + 利用（反射/存储/DOM）。Go 实现，业界 XSS 之于 sqlmap。
     # install 省略：Dockerfile 专属层（带版本名单文件归档，不适配通用 release 方法）。
+    install: { method: noop }
   - name: SSTImap
     category: injection
     description: 模板注入（SSTI）自动探测/利用——覆盖 Jinja2/Twig/Freemarker/Velocity 等引擎，探测到即尝试拿 RCE。
     # install 省略：Dockerfile 专属层（git clone + python wrapper）。
+    install: { method: noop }
   - name: SSRFmap
     category: injection
     description: SSRF 自动利用——内网端口扫描/元数据接口(169.254.169.254)/gopher 协议打内网服务，配合 interactsh 验带外。
     # install 省略：Dockerfile 专属层（git clone + python wrapper）。
+    install: { method: noop }
 
   # ===== deserialization（反序列化 payload 生成）=====
   - name: ysomap
     category: deserialization
     description: Java 反序列化利用框架（主力）——比 ysoserial 更强的 bypass/高版本绕过 + JNDI 联动 + 内存马注入，支持交互 cli（`ysomap cli`）与脚本模式。经典链先试 ysoserial，bypass/JNDI/高版本场景用 ysomap。用 JDK8 运行。
-    # install 省略：Dockerfile 专属层（git clone master + mvn package）。
+    # install noop：Dockerfile 专属层（git clone master + mvn package）已安装。
+    install: { method: noop }
   - name: ysoserial
     category: deserialization
     description: Java 反序列化 payload 生成器（经典链兜底）——CommonsCollections/Groovy/Spring 等经典 gadget chain + cmd → payload，最稳最全。用 JDK8 运行。
-    # install 省略：Dockerfile 专属层（jar 下载 + jdk8 java -jar wrapper）。
+    # install noop：Dockerfile 专属层（jar 下载 + jdk8 java -jar wrapper）已安装。
+    install: { method: noop }
   - name: phpggc
     category: deserialization
     description: PHP 反序列化 payload 生成器——Laravel/Symfony/Drupal/WordPress 框架向。
@@ -138,6 +143,7 @@ tools:
     category: auth
     description: JWT 攻击瑞士军刀——解码/伪造/None 算法/算法混淆/key confusion/弱 secret 暴破。
     # install 省略：Dockerfile 专属层（git clone + pip 依赖 + python wrapper）。
+    install: { method: noop }
   - name: mysql
     category: auth
     description: MySQL/MariaDB CLI 客户端——拿到 DB 凭证后直接连库验证/dump。Python 等价：import pymysql（已预装）。
@@ -182,6 +188,7 @@ tools:
     category: pwn
     description: 调试器（已挂 pwndbg 插件）——断点/内存/寄存器/堆观察，pwn 调 exploit 主场；`gdb ./bin`。
     # install 省略：Dockerfile 专属层（apt gdb + git pwndbg + gdbinit）。
+    install: { method: noop }
   - name: ROPgadget
     category: pwn
     description: ROP gadget 搜索——从二进制里找 ret/syscall gadget 拼 ROP 链（绕 NX/构造 rop）。PyPI ROPGadget，命令小写 ROPgadget。
@@ -194,6 +201,7 @@ tools:
     category: pwn
     description: 符号执行引擎——自动求解约束找触发路径/绕过校验（CTF re/pwn 自动化解题）。`angr <script.py>` 走独立 venv。
     # install 省略：Dockerfile 专属层（独立 venv + angr 包装命令）。
+    install: { method: noop }
   - name: afl-fuzz
     category: pwn
     description: 覆盖率引导模糊测试（AFL++）——插桩目标喂变异输入找崩溃点，二进制漏洞挖掘主力。apt 包名 afl++。
@@ -202,6 +210,7 @@ tools:
     category: pwn
     description: pwn 题一键初始化——自动下载/patch 对应 libc+ld、生成 exploit 模板骨架。
     # install 省略：Dockerfile 专属层（release 预编译裸二进制，不装 rust）。
+    install: { method: noop }
   - name: checksec
     category: pwn
     description: ELF 二进制保护检查——快速查看 NX/PIE/Canary/RELRO/ASLR 状态，判断漏洞利用难度。pwn 题第一步必跑，比 pwntools 的 checksec 输出更清晰。
@@ -228,6 +237,7 @@ tools:
     category: cloud
     description: 云攻击面枚举（AWS 向）——一把梭列出可利用资源/凭证/横移点，红队踩点提速。
     # install 省略：Dockerfile 专属层（release .zip 内含子目录，不适配通用 release 方法）。
+    install: { method: noop }
   - name: checkov
     category: cloud
     description: IaC 安全扫描——扫描 Terraform/CloudFormation/Kubernetes YAML/Dockerfile 的安全配置错误（1000+ 内置规则），DevSecOps 必备。支持 AWS/Azure/GCP/阿里云。
@@ -238,18 +248,22 @@ tools:
     category: container
     description: 容器/IaC 漏洞扫描——镜像/文件系统/仓库扫 CVE + 错配 + secret，容器安全事实标准。
     # install 省略：Dockerfile 专属层（release 资产名 Linux-64bit，不适配通用 release 方法）。
+    install: { method: noop }
   - name: kubectl
     category: container
     description: Kubernetes 官方 CLI——拿到 kubeconfig/serviceaccount token 后枚举/操作集群资源，横移基础。
     # install 省略：Dockerfile 专属层（官方 release-bin 裸二进制）。
+    install: { method: noop }
   - name: peirates
     category: container
     description: K8s 渗透框架——集群内枚举 secret/serviceaccount、pod 逃逸、节点横移的一体化利用工具。
     # install 省略：Dockerfile 专属层（release .tar.xz，不适配通用 release 方法）。
+    install: { method: noop }
   - name: kube-bench
     category: container
     description: K8s CIS 基线检查——判集群配置是否满足安全基线，找错配攻击面。
     # install 省略：Dockerfile 专属层（release 资产名带版本，不适配通用 release 方法）。
+    install: { method: noop }
   - name: kube-hunter
     category: container
     description: Kubernetes 渗透测试——主动探测 K8s 集群暴露的攻击面（API Server/etcd/kubelet/dashboard），枚举权限提升路径。与 kube-bench 互补（kube-bench 是合规检查，kube-hunter 是渗透测试）。
@@ -294,6 +308,7 @@ tools:
     category: post-exploit
     description: 隧道/内网代理（tun 接口，比 socks 稳）——拿到跳板后建反向隧道打穿内网网段。release 解包为 proxy 二进制。
     # install 省略：Dockerfile 专属层（release 二进制名 proxy，需重命名 ligolo-ng）。
+    install: { method: noop }
   - name: chisel
     category: post-exploit
     description: 快速 TCP/UDP 隧道（HTTP 传输）——Go 单文件，轻量级内网穿透，支持 SOCKS5 代理。与 ligolo-ng 互补（chisel 更轻量，ligolo-ng 更稳定）。
@@ -312,6 +327,7 @@ tools:
     category: crypto
     description: RSA 攻击一把梭——集成 Wiener/Fermat/共模/小 e/已知因子等数十种攻击，给公钥/密文自动试解。Python 数学库 sympy/pycryptodome/primefac/fpylll 已预装（`python3 -c` 现写攻击脚本）。
     # install 省略：Dockerfile 专属层（git clone + 独立 venv，PyPI 同名是抢注包）。
+    install: { method: noop }
 
   # ===== forensics（取证 — 内存/磁盘/流量/固件）=====
   - name: binwalk
@@ -322,6 +338,7 @@ tools:
     category: forensics
     description: 内存取证（Volatility3，命令 vol）——从内存 dump 提进程/网络连接/注入/凭证/文件，内存镜像题主力。
     # install 省略：Dockerfile 专属层（独立 venv + vol 包装命令）。
+    install: { method: noop }
   - name: exiftool
     category: forensics
     description: 文件元数据读写——读图片/文档 EXIF/元数据找隐藏线索（GPS/作者/注释），misc 题基本操作。
@@ -356,6 +373,7 @@ tools:
     category: stego
     description: 图片隐写全家桶——一次跑遍 LSB/颜色通道/元数据/多种隐写检测，隐写题无思路时全量扫。
     # install 省略：Dockerfile 专属层（pip install + stegoveritas_install_deps）。
+    install: { method: noop }
 
   # ===== cracking（哈希/密码破解）=====
   - name: john
@@ -384,6 +402,7 @@ tools:
     category: runtime
     description: Java 运行/编译（反序列化 gadget、JNDI、RCE payload、CTF Java 题）。双 JDK 可切换——默认 `java`/`javac`=JDK8（配合 ysomap/ysoserial）；现代 Spring Boot 3.x 用 `java17`/`javac17`。反序列化优先用 ysomap/ysoserial 生成。
     # install 省略：Dockerfile 专属层（Temurin JDK8 + JDK17 + update-alternatives + java8/java17 包装）。
+    install: { method: noop }
   - name: php
     category: runtime
     description: PHP 解释器（php 8.4）——写/跑 PHP payload、验证反序列化（配合 phpggc）、LFI 链、webshell、magic hash。`php x.php` 或 `php -r`。
@@ -406,6 +425,7 @@ tools:
     category: browser
     description: 无头 Chromium 浏览器自动化，typed `browser_use` 工具是首选入口。
     # install 省略：Dockerfile 专属 Python 3.12 venv 层。
+    install: { method: noop }
 
   # ===== utility（通用胶水：HTTP/JSON/脚本）=====
   - name: curl
