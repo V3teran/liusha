@@ -12,8 +12,7 @@ import (
 // /chat 建 conversation + 发 SSE 过程事件，前端能实时看到会话——e2e 走此入口使扫描
 // 在前端可观察（区别于纯后台无会话的 POST /scan）。taskID 即响应的 task_id，
 // brief 是用户自然语言任务简报，后端通过 msgclass 自动分类决定是否创建扫描任务。
-// ID 参数已废弃（老架构遗留），当前架构自动决定场景。
-func createChatScan(base, key, brief, ID string) (conversationID, taskID string, err error) {
+func createChatScan(base, key, brief string) (conversationID, taskID string, err error) {
 	body, _ := json.Marshal(map[string]string{"brief": brief})
 	req, _ := http.NewRequest(http.MethodPost, base+"/chat", bytes.NewReader(body))
 	req.Header.Set("X-API-Key", key)

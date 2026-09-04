@@ -248,9 +248,9 @@ func main() {
 	settingStore := settingstore.New(pool, cache)
 
 	// handler
-	// per-host 并发信号量（§4.3）。TTL = swarm 超时 + 10min 缓冲：防长 task 运行期计数键被
+	// per-host 并发信号量（§4.3）。TTL = agent 超时 + 10min 缓冲：防长 task 运行期计数键被
 	// TTL 误清导致 host 额度漂移；持有者崩溃时靠 TTL 到期兜底清零，不永久泄漏。
-	hostSemTTL := time.Duration(runnerCfg.SwarmAgentRunTimeoutSeconds)*time.Second + 10*time.Minute
+	hostSemTTL := time.Duration(runnerCfg.AgentRunTimeoutSeconds)*time.Second + 10*time.Minute
 	hostSem := ratelimit.NewHostSemaphore(rdb, cfg.Credential.RedisKeyPrefix, runnerCfg.PerHostConcurrency, hostSemTTL)
 
 	// Sandbox Manager：按 Assignment 粒度管理容器，多 Task 共享，带引用计数

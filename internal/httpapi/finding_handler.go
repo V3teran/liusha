@@ -62,7 +62,6 @@ func listFindingsHandler(api FindingsAPI) gin.HandlerFunc {
 			Host:       c.Query("host"),
 			Severity:   c.Query("severity"),
 			Status:     c.Query("status"),
-			ScenarioID: "",
 			Source:     c.Query("source"),
 			Limit:      size,
 			Offset:     (page - 1) * size,

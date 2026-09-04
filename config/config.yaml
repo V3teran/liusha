@@ -169,8 +169,7 @@ skills:
 
 # ---- cmd/runner 进程运行时参数 ----
 runner:
-  solo_agent_run_timeout_seconds: 3600     # solo 引擎单个 agent task 整体超时（asynq handler 入口 WithTimeout，60 分钟，> step_tool）
-  swarm_agent_run_timeout_seconds: 14400   # swarm 引擎整体超时（4 小时，对齐 sandbox max lifetime；站点扫描爬+测耗时长）
+  agent_run_timeout_seconds: 3600          # agent task 整体超时（asynq handler 入口 WithTimeout，60 分钟，> step_tool）
   step_llm_timeout_seconds: 300            # 单步 LLM Generate 看门狗（5 分钟）
   asynq_concurrency: 6                     # asynq 消费者并发数（同时跑的主 ReAct 数）
   asynq_shutdown_timeout_seconds: 30       # asynq.Shutdown 等 in-flight 主 ReAct 落地超时（超时后 asynq 强制中断）
@@ -208,7 +207,7 @@ sandbox:
 
 # ---- toolruntime Interceptor 参数 ----
 toolruntime:
-  step_tool_timeout_seconds: 1800       # 单步 tool Execute 上限（30 分钟）；run_command 用此值钳 LLM 自传的 timeout_seconds；其他工具（write_finding 等）受 Interceptor 层 WithTimeout 兜底。&lt; solo_agent_run_timeout_seconds=3600
+  step_tool_timeout_seconds: 1800       # 单步 tool Execute 上限（30 分钟）；run_command 用此值钳 LLM 自传的 timeout_seconds；其他工具（write_finding 等）受 Interceptor 层 WithTimeout 兜底。< agent_run_timeout_seconds=3600
 
 # ---- heuristic 关键词清单 ----
 # yaml 化便于按业务扩中文/小语种关键词，AllAuthError 运行时 lowercase 匹配

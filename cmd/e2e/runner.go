@@ -57,7 +57,7 @@ func runActiveProfiles(ctx context.Context, profs []activeProfile, apiBase, apiK
 		}
 
 		// 走会话入口（POST /chat）：建 conversation + 发 SSE 过程事件，前端可实时观察。
-		convID, taskID, err := createChatScan(apiBase, apiKey, ap.brief, activeScenarioCode)
+		convID, taskID, err := createChatScan(apiBase, apiKey, ap.brief)
 		if err != nil {
 			return fmt.Errorf("active profile %s: createChatScan: %w", ap.name, err)
 		}
@@ -141,12 +141,6 @@ func runActiveProfiles(ctx context.Context, profs []activeProfile, apiBase, apiK
 	}
 	return nil
 }
-
-// trafficScenarioCode 是流量驱动自动建 task 所属的场景 code（与 ingestor 侧一致）。
-const trafficScenarioCode = "api-pentest"
-
-// activeScenarioCode 是 active e2e 剧本（POST /chat）所选场景 code——全部剧本均为 Web 渗透。
-const activeScenarioCode = "web-pentest"
 
 // discoverPassiveTasks 列最近的流量复检 task，筛出 target_host ∈ hosts 且 created_at > baseline 的。
 // 聚合器为目标 host 新建的 task 即由此被 e2e 发现（同 host 多批 → 多 task 全收）。

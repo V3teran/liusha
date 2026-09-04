@@ -265,11 +265,10 @@ func (s *Store) ListByHost(ctx context.Context, host string, limit int) ([]VulnF
 	return out, rows.Err()
 }
 
-// LedgerRow 是全局漏洞台账的一行：finding 主体 + JOIN task/assignment 派生的 ScenarioID / Source。
+// LedgerRow 是全局漏洞台账的一行：finding 主体 + JOIN task/assignment 派生的 Source。
 // 漏洞页跨 task/host 全量展示用，区别于 per-task 的 VulnFinding 列表。
 type LedgerRow struct {
 	VulnFinding
-	ScenarioID string // 关联 task 的 _id
 	Source     string // 关联 assignment 的 source（manual 主动下发 / auto 被动代理）
 }
 
@@ -279,7 +278,6 @@ type LedgerFilter struct {
 	Host       string
 	Severity   string
 	Status     string
-	ScenarioID string
 	Source     string // manual / auto（下发来源）
 	Limit      int
 	Offset     int
@@ -303,9 +301,6 @@ func ledgerWhere(f LedgerFilter) (string, []any) {
 	}
 	if f.Status != "" {
 		add("f.status = $%d", f.Status)
-	}
-	if f.ScenarioID != "" {
-		add("t._id = $%d", f.ScenarioID)
 	}
 	if f.Source != "" {
 		add("a.source = $%d", f.Source)
@@ -465,7 +460,7 @@ func scanLedger(r scanner, out *LedgerRow) error {
 		&dependsOn,
 		&out.Status, &out.TriageNote, &triagedAt,
 		&out.CreatedAt, &out.Seq, &out.Repro,
-		&out.ScenarioID, &out.Source,
+		&out.Source,
 	); err != nil {
 		return err
 	}

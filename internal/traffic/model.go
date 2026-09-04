@@ -43,7 +43,6 @@ type ProxyTraffic struct {
 // ConsumerTask 是消费某条代理流量的 passive task 摘要（前端消费关系 chip 展示用）。
 type ConsumerTask struct {
 	TaskID     string
-	ScenarioID string
 	Host       string
 	Status     string
 }

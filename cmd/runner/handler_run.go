@@ -11,7 +11,6 @@ import (
 
 	"github.com/V3teran/liusha/internal/executor"
 	executorbuilder "github.com/V3teran/liusha/internal/builder/executor"
-	cfgagent "github.com/V3teran/liusha/internal/config/agent"
 	"github.com/V3teran/liusha/internal/conversation"
 	"github.com/V3teran/liusha/internal/dispatcher"
 	dispatcherprofile "github.com/V3teran/liusha/internal/dispatcher/profile"
@@ -152,21 +151,6 @@ func (h handler) buildPromptDeps() executorbuilder.Deps {
 	}
 }
 
-// composeSoloInstruction builds the full system prompt for a solo agent:
-// shared base + optional  instruction + executor body.
-func composeSoloInstruction(instruction string, op cfgagent.Agent) string {
-	var b strings.Builder
-	b.WriteString(executorbuilder.SystemPrompt())
-	if instruction != "" {
-		b.WriteString("\n\n")
-		b.WriteString(instruction)
-	}
-	if op.SystemPrompt != "" {
-		b.WriteString("\n\n")
-		b.WriteString(op.SystemPrompt)
-	}
-	return b.String()
-}
 
 // composeplannerInstruction builds the full system prompt for the planner agent.
 func composeplannerInstruction(body string) string {
@@ -178,23 +162,6 @@ func composeSubAgentInstruction(body string) string {
 	return executorbuilder.SystemPrompt() + "\n\n" + body
 }
 
-// swarmSystemPrompt combines planner + all sub-agent descriptions into a single
-// system prompt for the unified swarm run.
-func swarmSystemPrompt(orchBody, scenInstruction string, subAgents []cfgagent.Agent) string {
-	var b strings.Builder
-	b.WriteString(composeplannerInstruction(orchBody))
-	if scenInstruction != "" {
-		b.WriteString("\n\n")
-		b.WriteString(scenInstruction)
-	}
-	if len(subAgents) > 0 {
-		b.WriteString("\n\n## 可用专项代理\n")
-		for _, a := range subAgents {
-			b.WriteString(fmt.Sprintf("- **%s**: %s\n", a.Name, a.Description))
-		}
-	}
-	return b.String()
-}
 
 // ─────────────────────────────────────────────────────────────
 //  Dispatcher factory
@@ -295,196 +262,6 @@ func (h handler) inferComplexity(brief string) provider.Complexity {
 	return provider.ComplexityMedium
 }
 
-// ─────────────────────────────────────────────────────────────
-//  Solo handler
-// ─────────────────────────────────────────────────────────────
-
-// handleSolo runs a single-agent task via the dispatcher.
-func (h handler) handleSolo(
-	ctx context.Context,
-	p worker.Payload,
-	instruction string,
-	op cfgagent.Agent,
-	brief string,
-) error {
-	if brief == "" {
-		return h.failTask(ctx, p.AgentID, fmt.Errorf("solo 引擎缺 brief"))
-	}
-
-	agentID := p.AgentID
-	taskID := p.TaskID
-	if err := h.tasks.Heartbeat(ctx, taskID); err != nil {
-		h.logger.Warn().Err(err).Str("task_id", taskID).Msg("task 入口心跳失败（不阻塞）")
-	}
-
-	var assignmentID string
-	if tk, err := h.tasks.GetByID(ctx, taskID); err == nil {
-		assignmentID = tk.AssignmentID
-	}
-	host := h.onboard(ctx, assignmentID, taskID, brief)
-
-	trafficList, err := h.proxyStore.ListByTask(ctx, taskID)
-	if err != nil {
-		return h.failTask(ctx, p.AgentID, fmt.Errorf("读 proxy_traffic 失败: %w", err))
-	}
-	rt, _ := h.settings.Runtime(ctx)
-	params := skill.BuilderParams{
-		TaskID:        taskID,
-		AssignmentID:  assignmentID,
-		ExecutorID:    agentID,
-		Host:          host,
-		Brief:         brief,
-		Traffic:       trafficList,
-		Sandbox:       nil, // 沙箱容器在 Spawn 后通过工具注入
-		CliTools:      op.CliTools,
-		FindingsLimit: rt.FindingsLimitInPrompt,
-	}
-
-	sysPrompt := composeSoloInstruction(instruction, op)
-	userPrompt := executorbuilder.BuildUserPrompt(ctx, h.buildPromptDeps(), params)
-	if hist := h.conversationContext(ctx, p.ConversationID, op.Code, brief); hist != "" {
-		userPrompt = hist + "\n" + userPrompt
-	}
-
-	// event sink for conversation streaming
-	cleanup := func() {}
-	var sink scanagent.EventSink
-	if p.ConversationID != "" && h.conversations != nil && h.eventPublisher != nil {
-		es := newEventSink(h.conversations, h.eventPublisher, p.ConversationID, h.logger)
-		sink = es
-		cleanup = es.Close
-	}
-	defer cleanup()
-
-	// Sandbox 按 Assignment 粒度管理，多 Task 共享同一容器（引用计数）
-	sandboxClient, err := h.sandboxMgr.Acquire(ctx, assignmentID)
-	if err != nil {
-		return h.failTask(ctx, p.AgentID, fmt.Errorf("sandboxMgr.Acquire(%s): %w", assignmentID, err))
-	}
-	// 任务结束时释放引用，引用计数归零后延迟清理容器
-	defer func() {
-		if err := h.sandboxMgr.Release(context.Background(), assignmentID); err != nil {
-			h.logger.Warn().Err(err).Str("assignment_id", assignmentID).Msg("sandboxMgr.Release 失败")
-		}
-	}()
-
-	// 动态推断 complexity（而非固定 Medium）
-	defaultComplexity := h.inferComplexity(brief)
-
-	d, reg, err := h.buildDispatcher(ctx, defaultComplexity, sysPrompt, sink)
-	if err != nil {
-		return h.failTask(ctx, p.AgentID, err)
-	}
-	tools.RegisterAll(reg, tools.Deps{
-		TaskID:        taskID,
-		AgentID:       agentID,
-		Host:          host,
-		Tasks:         h.tasks,
-		Findings:      h.findings,
-		Corpus:        h.corpus,
-		Embedder:      h.embedder,
-		Reranker:      h.reranker,
-		Leads:         h.leads,
-		ProxyStore:    h.proxyStore,
-		AgentStore:    h.agentStore,
-		Creds:         h.creds,
-		Sandbox:       sandboxClient,
-		ToolingLoader: h.toolingLoader,
-		VulnLoader:    h.vulnLoader,
-	})
-	reg.AddInterceptor(h.toolRecordInterceptor(agentID, taskID))
-
-
-	finalizeTask := func(complete bool, reason string) {
-		fctx, fcancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer fcancel()
-		var ferr error
-		if complete {
-			ferr = h.tasks.Complete(fctx, taskID)
-		} else {
-			ferr = h.tasks.Abort(fctx, taskID, reason)
-		}
-		if ferr != nil {
-			h.logger.Warn().Err(ferr).Str("task_id", taskID).Bool("complete", complete).
-				Msg("task 终态写失败")
-		}
-	}
-
-	runCtx, cancel := context.WithCancel(ctx)
-	defer cancel()
-	go h.watchAbort(runCtx, cancel, taskID)
-
-	var execResult []executor.Execution
-	var agentErr error
-	runAgent := func(runCtx context.Context, m worldmodel.Node) error {
-		h.logger.Info().
-			Str("action_id", m.ID).
-			Str("kind", string(m.Kind)).
-			Str("location", "handler_run.go:Solo").
-			Msg("[RUN_AGENT] runAgent called")
-
-		// 执行 Move
-		action := nodeToExecutorAction(m, userPrompt)
-
-		h.logger.Info().
-			Str("action_id", action.ID).
-			Msg("[RUN_AGENT] calling d.Execute")
-
-		exec, err := d.Execute(runCtx, action)
-
-		h.logger.Info().
-			Str("action_id", action.ID).
-			Bool("success", err == nil).
-			Msg("[RUN_AGENT] d.Execute returned")
-
-		if err != nil {
-			agentErr = err
-			return err
-		}
-		execResult = []executor.Execution{exec}
-		return nil
-	}
-
-	h.logger.Info().
-		Str("task_id", taskID).
-		Str("closure_ptr", fmt.Sprintf("%p", runAgent)).
-		Msg("[HANDLER] Created runAgent closure for Solo mode, calling runCognition")
-
-	report, err := h.runCognition(runCtx, assignmentID, taskID, host, runAgent)
-	if err == nil {
-		err = agentErr
-	}
-	if err != nil {
-		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-			finalizeTask(false, "ctx "+err.Error())
-			return h.abortTask(ctx, p.AgentID, "ctx "+err.Error())
-		}
-		finalizeTask(false, err.Error())
-		return h.failTask(ctx, p.AgentID, err)
-	}
-
-	out, err := json.Marshal(buildRunResult("solo", execResult, report))
-	if err != nil {
-		finalizeTask(false, "marshal task result")
-		return h.failTask(ctx, p.AgentID, fmt.Errorf("marshal task result: %w", err))
-	}
-
-	// 保存 assistant 的最终回复到 conversation
-	if p.ConversationID != "" && h.conversations != nil {
-		var result map[string]any
-		if err := json.Unmarshal(out, &result); err == nil {
-			if finalText, ok := result["final_text"].(string); ok && finalText != "" {
-				if _, err := h.conversations.AppendMessage(ctx, p.ConversationID, conversation.RoleAssistant, conversation.KindMessage, finalText, nil); err != nil {
-					h.logger.Warn().Err(err).Str("conversation_id", p.ConversationID).Msg("保存 assistant 消息失败")
-				}
-			}
-		}
-	}
-
-	finalizeTask(true, "")
-	h.distillCorpus(ctx, taskID, p.ConversationID, op.Code, host)
-	return h.executors.SetDone(ctx, p.AgentID, out)
-}
 
 // ─────────────────────────────────────────────────────────────
 //  Cognition handler (新架构统一入口)
