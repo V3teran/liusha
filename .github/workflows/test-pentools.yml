@@ -46,8 +46,9 @@ jobs:
           file: deployments/tool-images/pentools/Dockerfile
           load: true
           tags: pentools:test
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          no-cache: true  # 强制完全重建，不使用任何缓存
+          # cache-from: type=gha  # 暂时禁用缓存
+          # cache-to: type=gha,mode=max
 
       - name: Level 1 - Test all tools command existence
         run: |
