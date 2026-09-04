@@ -72,8 +72,10 @@ API 渗透领域侧重正文
 }
 
 // stores 一次建齐两个配置 store（playbook 层已废）。
+func stores(t *testing.T) (*cfgagent.Store, *cfgscenario.Store) {
 	t.Helper()
 	pool := dbtest.NewPgPool(t)
+	return cfgagent.NewStore(pool), cfgscenario.NewStore(pool)
 }
 
 // TestImport_AgentsAndScenarios 覆盖新两 store 模型：操作员（含 cli_tools）+ 场景
@@ -111,6 +113,7 @@ func TestImport_AgentsAndScenarios(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetByCode web-pentest: %v", err)
 	}
+	if web.Engine != "swarm" {
 		t.Fatalf("web-pentest engine = %q, want swarm", web.Engine)
 	}
 	if web.SoloExecutorID != nil {
@@ -122,6 +125,7 @@ func TestImport_AgentsAndScenarios(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetByCode api-pentest: %v", err)
 	}
+	if apiScen.Engine != "solo" {
 		t.Fatalf("api-pentest engine = %q, want solo", apiScen.Engine)
 	}
 	if apiScen.SoloExecutorID == nil {
