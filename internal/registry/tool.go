@@ -19,11 +19,11 @@ type SignalKind string
 
 const (
 	SignalCmdOutput      SignalKind = "cmd_output"      // 权重 1.0
-	SignalHTTPTrace      SignalKind = "http_trace"       // 权重 0.9
-	SignalFileContent    SignalKind = "file_content"     // 权重 0.8
-	SignalCredentialDump SignalKind = "credential_dump"  // 权重 1.0
-	SignalNetworkScan    SignalKind = "network_scan"     // 权重 0.7
-	SignalScreenshot     SignalKind = "screenshot"       // 权重 0.3
+	SignalHTTPTrace      SignalKind = "http_trace"      // 权重 0.9
+	SignalFileContent    SignalKind = "file_content"    // 权重 0.8
+	SignalCredentialDump SignalKind = "credential_dump" // 权重 1.0
+	SignalNetworkScan    SignalKind = "network_scan"    // 权重 0.7
+	SignalScreenshot     SignalKind = "screenshot"      // 权重 0.3
 )
 
 // SignalWeight 返回 SignalKind 对应的可信权重。

@@ -6,12 +6,12 @@ import (
 
 // executionState 是执行协程和监察协程之间的共享状态。
 type executionState struct {
-	mu              sync.RWMutex
-	steps           []Step
-	totalTokens     int
-	goal            string
-	correctionChan  chan string
-	shouldStop      bool
+	mu               sync.RWMutex
+	steps            []Step
+	totalTokens      int
+	goal             string
+	correctionChan   chan string
+	shouldStop       bool
 	stoppedByMonitor bool
 }
 

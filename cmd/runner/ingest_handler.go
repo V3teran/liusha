@@ -37,7 +37,7 @@ import (
 // RequestBody/ResponseBody 是 []byte：JSON 里走 base64 字符串（Go encoding/json 约定，
 // python 端 base64.b64encode）。空字符串 → 空 []byte。
 type ingestRequest struct {
-	ExecutorID        string              `json:"executor_id"`
+	ExecutorID      string              `json:"executor_id"`
 	Identity        string              `json:"identity,omitempty"` // 身份名（browser 抓的填；CLI 空）
 	Tool            string              `json:"tool,omitempty"`     // 发起工具（browser='browser'；CLI=UA 解析）
 	Host            string              `json:"host"`
@@ -109,7 +109,7 @@ func newIngestHandler(sink internalSink, token string, logger zerolog.Logger) ht
 
 		snap := &proxy.TrafficSnapshot{
 			ID:              "cdp-" + req.ExecutorID + "-" + ts.Format("20060102T150405.000000000"),
-			AgentID:        req.ExecutorID,
+			AgentID:         req.ExecutorID,
 			Source:          "internal",
 			Identity:        req.Identity,
 			Tool:            req.Tool,

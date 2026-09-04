@@ -13,8 +13,8 @@ func routerResolver() fakeResolver {
 	primary := prov("primary", "primary-model", "K1")
 	return fakeResolver{
 		byRole: map[string]llmcfg.Provider{
-			"planner": primary,
-			"inspector":    prov("light", "light-model", "K2"),
+			"planner":   primary,
+			"inspector": prov("light", "light-model", "K2"),
 		},
 		def:    primary,
 		hasDef: true,

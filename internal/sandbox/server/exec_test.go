@@ -189,7 +189,7 @@ func TestHandleExec_AgentIDValidation(t *testing.T) {
 	defer ts.Close()
 
 	cases := []struct {
-		name     string
+		name    string
 		agentID string
 	}{
 		{"empty", ""},

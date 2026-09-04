@@ -18,7 +18,7 @@ type PooledManager struct {
 
 	mu      sync.RWMutex
 	pools   map[string]*sandboxPool // assignmentID -> pool
-	graceMs int                      // 引用计数归零后的保留时长（毫秒）
+	graceMs int                     // 引用计数归零后的保留时长（毫秒）
 }
 
 // sandboxPool 是单个 assignmentID 的容器池

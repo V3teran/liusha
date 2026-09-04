@@ -50,10 +50,10 @@ type AdjustGoalPayload struct {
 
 // InjectMovePayload 注入 Move 的参数
 type InjectMovePayload struct {
-	Kind     string          `json:"kind"`      // enumerate/probe/exploit/escalate/persist
-	Target   json.RawMessage `json:"target"`    // {domain, ref_kind, locator}
-	Reason   string          `json:"reason"`    // 注入原因（人工判断）
-	Priority int             `json:"priority"`  // 优先级
+	Kind     string          `json:"kind"`     // enumerate/probe/exploit/escalate/persist
+	Target   json.RawMessage `json:"target"`   // {domain, ref_kind, locator}
+	Reason   string          `json:"reason"`   // 注入原因（人工判断）
+	Priority int             `json:"priority"` // 优先级
 }
 
 // Store 管理 task_control_event 表

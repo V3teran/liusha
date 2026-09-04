@@ -10,9 +10,9 @@ import (
 
 	"github.com/rs/zerolog"
 
-	"github.com/V3teran/liusha/internal/executor"
 	"github.com/V3teran/liusha/internal/controlplane"
 	"github.com/V3teran/liusha/internal/eventbus"
+	"github.com/V3teran/liusha/internal/executor"
 	"github.com/V3teran/liusha/internal/provider"
 	"github.com/V3teran/liusha/internal/worldmodel"
 )
@@ -20,23 +20,23 @@ import (
 // Agent 是事件驱动的 Planner Agent，通过 LLM 推理产出 Action
 type Agent struct {
 	taskID       string
-	eventBus     *executor.PlannerEventBus  // Task 级事件总线（接收触发）
-	actionBus    *eventbus.Bus        // Action 级事件总线（发送控制）
+	eventBus     *executor.PlannerEventBus // Task 级事件总线（接收触发）
+	actionBus    *eventbus.Bus             // Action 级事件总线（发送控制）
 	world        *worldmodel.Store
 	controlPlane *controlplane.Store
 	router       *provider.Router
 	tools        *ToolRegistry
 	logger       zerolog.Logger
 
-	stopCh             chan struct{}
-	initialPlanDoneCh  chan struct{}  // 初始规划完成信号
+	stopCh            chan struct{}
+	initialPlanDoneCh chan struct{} // 初始规划完成信号
 }
 
 // Config 配置 Planner Agent
 type Config struct {
 	TaskID       string
 	EventBus     *executor.PlannerEventBus // Task 级事件总线
-	ActionBus    *eventbus.Bus       // Action 级事件总线
+	ActionBus    *eventbus.Bus             // Action 级事件总线
 	World        *worldmodel.Store
 	ControlPlane *controlplane.Store
 	Router       *provider.Router
@@ -51,16 +51,16 @@ func New(cfg Config) *Agent {
 	tools.Register(NewEvaluateProgressTool(cfg.World))
 
 	return &Agent{
-		taskID:             cfg.TaskID,
-		eventBus:           cfg.EventBus,
-		actionBus:          cfg.ActionBus,
-		world:              cfg.World,
-		controlPlane:       cfg.ControlPlane,
-		router:             cfg.Router,
-		tools:              tools,
-		logger:             cfg.Logger,
-		stopCh:             make(chan struct{}),
-		initialPlanDoneCh:  make(chan struct{}),
+		taskID:            cfg.TaskID,
+		eventBus:          cfg.EventBus,
+		actionBus:         cfg.ActionBus,
+		world:             cfg.World,
+		controlPlane:      cfg.ControlPlane,
+		router:            cfg.Router,
+		tools:             tools,
+		logger:            cfg.Logger,
+		stopCh:            make(chan struct{}),
+		initialPlanDoneCh: make(chan struct{}),
 	}
 }
 
@@ -340,9 +340,9 @@ func (a *Agent) replan(ctx context.Context, event executor.Event) error {
 			}
 
 			toolResults = append(toolResults, map[string]interface{}{
-				"type":       "tool_result",
+				"type":        "tool_result",
 				"tool_use_id": tc.ID,
-				"content":    result,
+				"content":     result,
 			})
 		}
 

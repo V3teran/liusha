@@ -15,13 +15,13 @@ import (
 // 现行 active 路径用 dispatcher/actor 进程内编排，exploitation 不入 asynq，故入队 Payload 此字段恒空；
 // 已删除废弃的 plannerID 和 ScenarioID 字段（v1.5 active 重构后不再使用）。
 type Payload struct {
-	AgentID        string `json:"agent_id"`
-	TaskID         string `json:"task_id"` // 所属 task.id
+	AgentID string `json:"agent_id"`
+	TaskID  string `json:"task_id"` // 所属 task.id
 	// ConversationID 关联本任务所属会话（阶段B 会话发起时填）；asynq 自动入口为空——
 	// 空则 runner 不发过程事件、不落 conversation message（纯后台扫描）。
-	ConversationID string `json:"conversation_id,omitempty"`
-	Role       Role            `json:"role"`
-	Input      json.RawMessage `json:"input,omitempty"`
+	ConversationID string          `json:"conversation_id,omitempty"`
+	Role           Role            `json:"role"`
+	Input          json.RawMessage `json:"input,omitempty"`
 }
 
 // RoleHandler 处理一个反序列化好的 Payload。

@@ -64,11 +64,11 @@ func (s *Store) UpdateProvider(ctx context.Context, p ProviderParams) (Provider,
 	if p.ContextWindow <= 0 {
 		return Provider{}, fmt.Errorf("update provider %q: context_window 必须 > 0", p.Key)
 	}
-	keyExpr := "$6"       // encrypted_api_key
-	last4Expr := "$7"     // api_key_last4（与密钥列成对：改则一起改，保留则一起 COALESCE）
+	keyExpr := "$6"   // encrypted_api_key
+	last4Expr := "$7" // api_key_last4（与密钥列成对：改则一起改，保留则一起 COALESCE）
 	if p.KeepExistingKey {
-		keyExpr = "COALESCE($6, encrypted_api_key)"   // $6=NULL 时保留原密文
-		last4Expr = "COALESCE($7, api_key_last4)"      // $7=NULL 时保留原尾号
+		keyExpr = "COALESCE($6, encrypted_api_key)" // $6=NULL 时保留原密文
+		last4Expr = "COALESCE($7, api_key_last4)"   // $7=NULL 时保留原尾号
 	}
 	row := s.pool.QueryRow(ctx, `
 		UPDATE llm_provider

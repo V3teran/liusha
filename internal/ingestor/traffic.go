@@ -64,7 +64,7 @@ type Traffic struct {
 	agg           *aggregator         // 按 host 攒批窗口（Redis）
 	proxyStore    *traffic.ProxyStore // 代理捕获流量落库 + 领取
 	agentStore    *traffic.AgentStore // agent 自产流量落库
-	executors    *agentrun.Store    // internal 流量反查 agent→task_id
+	executors     *agentrun.Store     // internal 流量反查 agent→task_id
 	conversations ConversationCreator // 建 passive task 会话流（nil 跳过）
 	enq           *worker.Client
 	logger        zerolog.Logger
@@ -80,7 +80,7 @@ type Deps struct {
 	Tasks         *task.Store
 	ProxyStore    *traffic.ProxyStore
 	AgentStore    *traffic.AgentStore
-	Agents       *agentrun.Store
+	Agents        *agentrun.Store
 	Conversations ConversationCreator
 	Enqueuer      *worker.Client
 	Logger        zerolog.Logger
@@ -114,7 +114,7 @@ func NewTraffic(ctx context.Context, deps Deps) (*Traffic, error) {
 		agg:           newAggregator(deps.Redis, prefix, deps.Cfg.AggregateBatchSize, window),
 		proxyStore:    deps.ProxyStore,
 		agentStore:    deps.AgentStore,
-		executors: deps.Agents,
+		executors:     deps.Agents,
 		conversations: deps.Conversations,
 		enq:           deps.Enqueuer,
 		logger:        deps.Logger,
@@ -312,9 +312,9 @@ func (t *Traffic) handleExternalSnap(ctx context.Context, snap *proxy.TrafficSna
 func (t *Traffic) spawnPassiveTask(ctx context.Context, host string) {
 	// 一切下发皆走 assignment（§3.1）：聚合器建 assignment(passive, auto, [host]) → 1 task（fan-in）。
 	asg, err := t.assignments.Create(ctx, assignment.NewParams{
-		Source:     assignment.SourceAuto,
-		Items:      []assignment.Item{{Host: host}},
-		Title:      host,
+		Source: assignment.SourceAuto,
+		Items:  []assignment.Item{{Host: host}},
+		Title:  host,
 	})
 	if err != nil {
 		t.logger.Warn().Err(err).Str("host", host).Msg("建 passive assignment 失败")
@@ -378,7 +378,7 @@ func (t *Traffic) handleInternalSnap(ctx context.Context, snap *proxy.TrafficSna
 	respH, _ := json.Marshal(snap.ResponseHeaders)
 	trafficID, err := t.agentStore.Append(ctx, traffic.AgentTraffic{
 		TaskID:          run.TaskID,
-		AgentID:        snap.AgentID,
+		AgentID:         snap.AgentID,
 		Identity:        snap.Identity,
 		Tool:            snap.Tool,
 		Host:            snap.Host,
@@ -455,7 +455,7 @@ func (t *Traffic) enqueuePassive(ctx context.Context, taskID, convID, host strin
 		return fmt.Errorf("executors.Create: %w", err)
 	}
 	if _, _, err := t.enq.Enqueue(ctx, worker.RoleExecutor, worker.Payload{
-		AgentID:       hid,
+		AgentID:        hid,
 		TaskID:         taskID,
 		ConversationID: convID,
 		Input:          payloadInput,

@@ -63,7 +63,7 @@ func (s *Store) GetByID(ctx context.Context, id string) (Assignment, error) {
 }
 
 // List 按 created_at DESC 列出最近的 assignment。ID 为空时不过滤。
-func (s *Store) List(ctx context.Context,  limit int) ([]Assignment, error) {
+func (s *Store) List(ctx context.Context, limit int) ([]Assignment, error) {
 	if limit <= 0 {
 		limit = defaultListLimit
 	}

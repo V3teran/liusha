@@ -17,7 +17,7 @@ func newPassiveTask(t *testing.T) (*pgxpool.Pool, string) {
 	t.Helper()
 	pool := dbtest.NewPgPool(t)
 	tk, err := task.NewStore(pool).Create(context.Background(), task.NewParams{
-		
+
 		AssignmentID: dbtest.SeedAssignment(t, pool, "api-pentest"),
 		Brief:        "test traffic ingest",
 		TargetHost:   "test.example.com",

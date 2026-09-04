@@ -83,10 +83,11 @@ func (s *SafeReleaser) WithContainer(
 
 // AcquireWithRecovery Acquire 容器并返回一个必须调用的 release 函数
 // 使用方式：
-//   client, release, err := s.AcquireWithRecovery(ctx, assignmentID)
-//   if err != nil { return err }
-//   defer release()
-//   // 使用 client...
+//
+//	client, release, err := s.AcquireWithRecovery(ctx, assignmentID)
+//	if err != nil { return err }
+//	defer release()
+//	// 使用 client...
 func (s *SafeReleaser) AcquireWithRecovery(
 	ctx context.Context,
 	assignmentID string,

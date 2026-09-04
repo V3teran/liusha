@@ -89,7 +89,7 @@ func repoPath(rel string) string {
 
 // SeedAssignment 插入一条最小 assignment 并返回其 id，供需要 task 外键归属的测试复用。
 // ID 传待建 task 所属场景 code，与 task 的 _id 保持一致即可。
-func SeedAssignment(t *testing.T, pool *pgxpool.Pool, ) string {
+func SeedAssignment(t *testing.T, pool *pgxpool.Pool) string {
 	t.Helper()
 	var id string
 	err := pool.QueryRow(context.Background(),

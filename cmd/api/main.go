@@ -182,7 +182,7 @@ func main() {
 	// llmKeyCipher 解密 provider 的加密密钥（migration 0103），构造 client 前才解密，不进缓存。
 	router := llm.NewRouterWithOptions(llm.NewFactory(llmStore, llmKeyCipher), llm.RetryOptionsFromConfig(cfg.LLM.Retry))
 	publisher := scanstream.NewPublisher(rdb)
-	adapter := &scanAdapter{assignments: assignmentStore, tasks: taskStore, executors:    executorStore, enq: enq, audit: auditStore, conversations: convStore, router: router, findings: findStore, publisher: publisher, maxRunTimeout: time.Duration(cfg.Runner.AgentRunTimeoutSeconds) * time.Second}
+	adapter := &scanAdapter{assignments: assignmentStore, tasks: taskStore, executors: executorStore, enq: enq, audit: auditStore, conversations: convStore, router: router, findings: findStore, publisher: publisher, maxRunTimeout: time.Duration(cfg.Runner.AgentRunTimeoutSeconds) * time.Second}
 
 	// provider 实连探测（前端「LLM 配置」页「测试连接」+ 模型下拉探测）：闭合 llmStore（取已存密钥走
 	// 多级缓存）+ llmKeyCipher（解密）+ 独立 ClientPool（不与 router 内部池耦合，探测是低频交互路径）。
@@ -197,7 +197,7 @@ func main() {
 		assignments: assignmentStore,
 		tasks:       taskStore,
 		proxyStore:  proxyTrafficStore,
-		executors:    executorStore,
+		executors:   executorStore,
 		enq:         enq,
 		scan:        adapter,
 		logger:      logger,
@@ -223,7 +223,7 @@ func main() {
 				tasks: taskStore,
 				audit: auditStore,
 			},
-			Findings:          findStore,  // 全局漏洞台账（active+passive 全量 + triage 处置）
+			Findings:          findStore, // 全局漏洞台账（active+passive 全量 + triage 处置）
 			Invocations:       invocationStore,
 			Scan:              adapter,
 			Chat:              adapter,                      // 阶段B：POST /chat 会话发起扫描
@@ -237,8 +237,8 @@ func main() {
 			KeyEncrypter:      llmKeyCipher,                 // POST/PUT /models/providers：加密前端直填的明文 API Key
 			ProviderTester:    providerTester,               // POST /models/providers/test|list-models：实连探测（不落库）
 			Settings:          settingStore,                 // GET/PUT /settings 系列：compaction/runtime/proxy_filter 三组业务旋钮
-			Traffic:           proxyTrafficStore,               // GET /traffic 系列：代理捕获流量只读浏览（流量模块）
-			TrafficConv:       convStore,                       // 流量详情消费关系 chip → task 反解会话 id 跳转
+			Traffic:           proxyTrafficStore,            // GET /traffic 系列：代理捕获流量只读浏览（流量模块）
+			TrafficConv:       convStore,                    // 流量详情消费关系 chip → task 反解会话 id 跳转
 			Conversations:     convStore,                    // 阶段B：会话列表 / 消息回看
 			EventStream:       eventStreamAdapter{rdb: rdb}, // 阶段B：SSE 订阅 redis 事件
 			UsageTasks:        convStore,                    // 会话用量：会话→task 解析
@@ -323,10 +323,10 @@ func (a taskAPIAdapter) List(ctx context.Context, limit int) ([]httpapi.TaskSumm
 		// 输入已统一（brief 主 + target_host 派生，见 D5）：始终输出两字段，不按场景分形状。
 		scopeJSON, _ := json.Marshal(map[string]string{"brief": t.Brief, "target_host": t.TargetHost})
 		s := httpapi.TaskSummary{
-			ID:           t.ID,
-			Scope:        string(scopeJSON),
-			Status:       string(t.Status),
-			
+			ID:     t.ID,
+			Scope:  string(scopeJSON),
+			Status: string(t.Status),
+
 			CreatedAt:    t.CreatedAt.Format(time.RFC3339),
 			ErrorMessage: t.ErrorMessage,
 		}
@@ -348,7 +348,7 @@ func (a taskAPIAdapter) List(ctx context.Context, limit int) ([]httpapi.TaskSumm
 type scanAdapter struct {
 	assignments   *assignment.Store
 	tasks         *task.Store
-	executors    *agentrun.Store
+	executors     *agentrun.Store
 	enq           *worker.Client
 	audit         *audit.Store        // 0047：create 写审计事件；nil 跳过
 	conversations *conversation.Store // 阶段B：StartChatScan 建会话；nil 时仅 CreateScan 可用
@@ -376,10 +376,10 @@ func (e eventStreamAdapter) Subscribe(ctx context.Context, conversationID string
 func (a *scanAdapter) createScan(ctx context.Context, brief, conversationID string) (string, string, error) {
 	// 一切下发皆走 assignment（§3.1）：单发 = 单元素 assignment(manual) → 1 task。
 	asg, err := a.assignments.Create(ctx, assignment.NewParams{
-		
-		Source:     assignment.SourceManual,
-		Items:      []assignment.Item{{Brief: brief}},
-		Title:      briefTitle(brief),
+
+		Source: assignment.SourceManual,
+		Items:  []assignment.Item{{Brief: brief}},
+		Title:  briefTitle(brief),
 	})
 	if err != nil {
 		return "", "", fmt.Errorf("create assignment: %w", err)
@@ -419,12 +419,12 @@ func (a *scanAdapter) expandItem(ctx context.Context, assignmentID, brief, conve
 	// parentRegistries 是空的，PreDoneCheck 永放行，旧 PG exploitation 留 status=running 僵尸态。
 	// MaxRetry(0)：跑挂就跑挂，让用户手动 abort + 重新触发，不重试。
 	if _, _, err := a.enq.Enqueue(ctx, worker.RoleExecutor, worker.Payload{
-		AgentID:       tid,
+		AgentID:        tid,
 		TaskID:         tk.ID,
 		ConversationID: conversationID, // 阶段B：会话发起时非空 → runner 发过程事件
-		     // 场景 code：runner 据此数据驱动派发引擎/操作员编排
-		Input:          payloadInput,
-		Role:           worker.RoleExecutor,
+		// 场景 code：runner 据此数据驱动派发引擎/操作员编排
+		Input: payloadInput,
+		Role:  worker.RoleExecutor,
 	}, asynq.MaxRetry(0), asynq.Timeout(a.maxRunTimeout)); err != nil {
 		return "", "", fmt.Errorf("enqueue: %w", err)
 	}
@@ -454,7 +454,6 @@ func (a *scanAdapter) expandItem(ctx context.Context, assignmentID, brief, conve
 // FollowUp 在已有 task 上发起一次续接 run（多轮动作）：重开 task + 建 agent run + 入队
 // （brief=追加消息）。复用 task 作用域黑板——新 run 经 BuildUserPrompt 看到先前 finding。
 // 入队 Payload 与 createScan 同构，仅 TaskID 复用传入 taskID、不新建 task。
-//
 func (a *scanAdapter) FollowUp(ctx context.Context, taskID, conversationID, brief string) (string, error) {
 	if err := a.tasks.Reopen(ctx, taskID); err != nil {
 		return "", fmt.Errorf("reopen task: %w", err)
@@ -472,12 +471,12 @@ func (a *scanAdapter) FollowUp(ctx context.Context, taskID, conversationID, brie
 		return "", fmt.Errorf("create executor run: %w", err)
 	}
 	if _, _, err := a.enq.Enqueue(ctx, worker.RoleExecutor, worker.Payload{
-		AgentID:       tid,
+		AgentID:        tid,
 		TaskID:         taskID,
 		ConversationID: conversationID,
-		
-		Input:          payloadInput,
-		Role:           worker.RoleExecutor,
+
+		Input: payloadInput,
+		Role:  worker.RoleExecutor,
 	}, asynq.MaxRetry(0), asynq.Timeout(a.maxRunTimeout)); err != nil {
 		return "", fmt.Errorf("enqueue followup: %w", err)
 	}
@@ -544,7 +543,7 @@ func (a *scanAdapter) HandleMessage(ctx context.Context, convID, content string)
 				return "", false, err
 			}
 			return "qa", false, nil
-	}
+		}
 	}
 	taskID, _, err := a.createScan(ctx, content, convID)
 	if err != nil {
@@ -554,18 +553,18 @@ func (a *scanAdapter) HandleMessage(ctx context.Context, convID, content string)
 		return "", false, fmt.Errorf("link task: %w", err)
 	}
 	go a.genTitle(convID, content)
-		tk, err := a.tasks.GetByID(ctx, conv.TaskID)
+	tk, err := a.tasks.GetByID(ctx, conv.TaskID)
 	if err != nil {
 		return "", false, err
 	}
 	if isAction {
-	if tk.Status == task.StatusActive {
-		return "action", true, nil // 忙：agent 在跑，本轮指导经 conversationContext 下次读到
-	}
-	// finding 累积在这次分析会话里（不新建 task）。追加消息作为新一轮 brief 下发。
-	if _, err := a.FollowUp(ctx, conv.TaskID, convID, content); err != nil {
-	}
-	return "action", false, nil
+		if tk.Status == task.StatusActive {
+			return "action", true, nil // 忙：agent 在跑，本轮指导经 conversationContext 下次读到
+		}
+		// finding 累积在这次分析会话里（不新建 task）。追加消息作为新一轮 brief 下发。
+		if _, err := a.FollowUp(ctx, conv.TaskID, convID, content); err != nil {
+		}
+		return "action", false, nil
 	}
 	// qa：就已有 finding/流量提问，各场景同一套问答
 	if err := qa.New(a).Answer(ctx, convID, conv.TaskID, content); err != nil {

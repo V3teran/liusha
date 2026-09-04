@@ -19,7 +19,7 @@ func (a *Agent) runWithMonitoring(ctx context.Context, actionID string, req Exec
 	// 共享状态
 	state := &executionState{
 		goal:           req.System + "\n" + req.Inbox[0].Content, // 简化：取第一条消息作为目标
-		correctionChan: make(chan string, 10), // 增加缓冲，避免阻塞
+		correctionChan: make(chan string, 10),                    // 增加缓冲，避免阻塞
 	}
 
 	// 结果通道

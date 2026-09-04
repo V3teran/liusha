@@ -7,14 +7,14 @@ import (
 
 // categoryOrder 是分类的渲染顺序（重要的在前）
 var categoryOrder = []Category{
-	CategoryFinding,       // 发现（最重要）
-	CategoryCredential,    // 凭证
-	CategoryTarget,        // 目标
+	CategoryFinding,        // 发现（最重要）
+	CategoryCredential,     // 凭证
+	CategoryTarget,         // 目标
 	CategoryInfrastructure, // 基础设施
-	CategoryBusiness,      // 业务逻辑
-	CategoryData,          // 数据特征
-	CategoryObstacle,      // 障碍
-	CategoryNote,          // 笔记（最不重要）
+	CategoryBusiness,       // 业务逻辑
+	CategoryData,           // 数据特征
+	CategoryObstacle,       // 障碍
+	CategoryNote,           // 笔记（最不重要）
 }
 
 // FormatSection 把 ReadRecent 的分组结果渲染成 prompt 用的 markdown 段。

@@ -269,18 +269,18 @@ func (s *Store) ListByHost(ctx context.Context, host string, limit int) ([]VulnF
 // 漏洞页跨 task/host 全量展示用，区别于 per-task 的 VulnFinding 列表。
 type LedgerRow struct {
 	VulnFinding
-	Source     string // 关联 assignment 的 source（manual 主动下发 / auto 被动代理）
+	Source string // 关联 assignment 的 source（manual 主动下发 / auto 被动代理）
 }
 
 // LedgerFilter 是台账查询的可选筛选（零值=不筛该维度）+ 分页。
 // Limit<=0 时 ListAll 不分页（历史行为，内部调用方/测试用）；handler 层始终传 >0。
 type LedgerFilter struct {
-	Host       string
-	Severity   string
-	Status     string
-	Source     string // manual / auto（下发来源）
-	Limit      int
-	Offset     int
+	Host     string
+	Severity string
+	Status   string
+	Source   string // manual / auto（下发来源）
+	Limit    int
+	Offset   int
 }
 
 // ledgerWhere 拼 LedgerFilter 的 WHERE 子句（ListAll / CountAll 共用，防筛选口径漂移）。

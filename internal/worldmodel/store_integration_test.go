@@ -17,6 +17,7 @@ import (
 //   - UpsertNode 幂等 + attrs 合并 + confidence 单向晋升
 //   - Lead→Finding 晋升链：RecordVerification → confirmed 节点 → enables 边
 //   - ListNodes/ListEdges 回读
+//
 // 需 LIUSHA_POSTGRES_DSN；未设则 skip。
 //
 //	LIUSHA_POSTGRES_DSN='postgres://liusha:liusha@localhost:5432/liusha?sslmode=disable' \

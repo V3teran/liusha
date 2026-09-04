@@ -24,10 +24,10 @@ import (
 	"github.com/V3teran/liusha/internal/cryptx"
 	"github.com/V3teran/liusha/internal/db"
 	"github.com/V3teran/liusha/internal/embedding"
-	"github.com/V3teran/liusha/internal/provider"
 	"github.com/V3teran/liusha/internal/envx"
 	"github.com/V3teran/liusha/internal/llmstore"
 	"github.com/V3teran/liusha/internal/logx"
+	"github.com/V3teran/liusha/internal/provider"
 )
 
 func main() {

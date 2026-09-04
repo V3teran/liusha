@@ -1,7 +1,8 @@
 // Package executor 提供执行层的所有组件。
 //
 // 每 Step：CountTokens → 压缩判断 → Provider.Complete → ExecuteParallel
-//   → checkpoint.Write → SSE 推送
+//
+//	→ checkpoint.Write → SSE 推送
 package executor
 
 import (
@@ -65,8 +66,8 @@ type Agent struct {
 
 	// 自我监察配置
 	monitorEnabled       bool
-	monitorStepInterval  int           // 每 N 步评估一次
-	monitorEvaluateSteps int           // 评估最近 N 步
+	monitorStepInterval  int               // 每 N 步评估一次
+	monitorEvaluateSteps int               // 评估最近 N 步
 	monitorProvider      provider.Provider // 用于监察的 LLM
 
 	// 事件总线（用于接收外部控制）
@@ -127,7 +128,7 @@ func NewAgent(
 		monitorEnabled:       true,
 		monitorStepInterval:  5,
 		monitorEvaluateSteps: 5,
-		monitorProvider:      p, // 默认用同一个 provider
+		monitorProvider:      p,   // 默认用同一个 provider
 		eventBus:             nil, // 默认无事件总线
 	}
 }

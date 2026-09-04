@@ -24,6 +24,7 @@ func (s stubReplayer) Replay(context.Context, json.RawMessage) (verifier.Result,
 // Verifier 承接 L3 的关键验证：用真 worldmodel.Store 跑晋升门，证明
 //   - 坐实 → wm_verification 落 confirmed + wm_node 晋升 confirmed + verified_by 回指闭环；
 //   - 证伪 → wm_verification 落 refuted 留档，wm_node 不新增。
+//
 // 需 LIUSHA_POSTGRES_DSN；未设则 skip。
 func TestVerifier_PromoteAgainstRealStore(t *testing.T) {
 	dsn := os.Getenv("LIUSHA_POSTGRES_DSN")

@@ -19,7 +19,7 @@ import (
 // 完整 output 仍在 LLM message history（llm_invocation.messages jsonb）里。
 type Invocation struct {
 	ID            int64
-	ExecutorID      string          // FK→agent.id
+	ExecutorID    string          // FK→agent.id
 	TaskID        string          // 所属 task.id
 	ToolName      string          // 'sqlmap' / 'curl' / 'write_finding' / ...
 	Args          json.RawMessage // 工具调用参数 jsonb

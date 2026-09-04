@@ -5,8 +5,8 @@
 package profile
 
 import (
-	"github.com/V3teran/liusha/internal/executor"
 	"github.com/V3teran/liusha/internal/dispatcher"
+	"github.com/V3teran/liusha/internal/executor"
 	"github.com/V3teran/liusha/internal/worldmodel"
 )
 

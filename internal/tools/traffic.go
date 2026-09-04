@@ -214,8 +214,10 @@ var replayTrafficSchema = json.RawMessage(`{
 
 type replayTrafficTool struct{ deps Deps }
 
-func (t *replayTrafficTool) Name() string      { return "replay_traffic" }
-func (t *replayTrafficTool) ShortDesc() string { return "重发历史 HTTP 流量并可字段级改写" }
+func (t *replayTrafficTool) Name() string { return "replay_traffic" }
+func (t *replayTrafficTool) ShortDesc() string {
+	return "重发历史 HTTP 流量并可字段级改写"
+}
 func (t *replayTrafficTool) Desc() string {
 	return "重发历史 HTTP 流量并可字段级改写，做越权/未授权/IDOR/fuzz，自动保留 session 上下文。"
 }
@@ -226,12 +228,12 @@ func (t *replayTrafficTool) Execute(ctx context.Context, args json.RawMessage) (
 		ID            int64  `json:"id"`
 		Source        string `json:"source"`
 		Modifications *struct {
-			URL        string                     `json:"url"`
-			Method     string                     `json:"method"`
-			Headers    map[string]*string         `json:"headers"`
-			Query      map[string]*string         `json:"query"`
-			Body       *string                    `json:"body"`
-			BodyFields map[string]*string         `json:"body_fields"`
+			URL        string             `json:"url"`
+			Method     string             `json:"method"`
+			Headers    map[string]*string `json:"headers"`
+			Query      map[string]*string `json:"query"`
+			Body       *string            `json:"body"`
+			BodyFields map[string]*string `json:"body_fields"`
 		} `json:"modifications"`
 	}
 	if err := json.Unmarshal(args, &a); err != nil {

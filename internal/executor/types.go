@@ -161,9 +161,9 @@ type Execution struct {
 
 // ExecutorReq 是 Actor.Run 的输入。
 type ExecutorReq struct {
-	System             string             // 不参与压缩：Profile.SystemPrompt + Landmark summaries
-	Inbox              []Message          // 参与压缩：初始指令
-	Hypotheses         []string           // Working Memory
+	System             string    // 不参与压缩：Profile.SystemPrompt + Landmark summaries
+	Inbox              []Message // 参与压缩：初始指令
+	Hypotheses         []string  // Working Memory
 	Budget             Budget
 	Settle             SettleConfig
 	PendingConstraints []registry.Constraint
@@ -227,8 +227,8 @@ type Campaign struct {
 }
 
 type Assignment struct {
-	ID      string
-	Targets []Target
+	ID       string
+	Targets  []Target
 	Campaign Campaign
 }
 

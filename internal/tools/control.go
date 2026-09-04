@@ -20,9 +20,11 @@ var doneSchema = json.RawMessage(`{
 
 type doneTool struct{}
 
-func (doneTool) Name() string            { return "done" }
-func (doneTool) ShortDesc() string       { return "终止当前任务收尾" }
-func (doneTool) Desc() string            { return "终止当前任务收尾，可带 reason/summary 供检查器与报告参考。" }
+func (doneTool) Name() string      { return "done" }
+func (doneTool) ShortDesc() string { return "终止当前任务收尾" }
+func (doneTool) Desc() string {
+	return "终止当前任务收尾，可带 reason/summary 供检查器与报告参考。"
+}
 func (doneTool) Schema() json.RawMessage { return doneSchema }
 
 func (doneTool) Execute(_ context.Context, args json.RawMessage) (registry.ToolResult, error) {
@@ -53,9 +55,11 @@ var markInsightSchema = json.RawMessage(`{
 
 type markInsightTool struct{}
 
-func (markInsightTool) Name() string            { return "mark_insight" }
-func (markInsightTool) ShortDesc() string       { return "标记关键节点" }
-func (markInsightTool) Desc() string            { return "在执行图上标记关键节点（判断/发现），帮观察者看懂调查思路，不进黑板。" }
+func (markInsightTool) Name() string      { return "mark_insight" }
+func (markInsightTool) ShortDesc() string { return "标记关键节点" }
+func (markInsightTool) Desc() string {
+	return "在执行图上标记关键节点（判断/发现），帮观察者看懂调查思路，不进黑板。"
+}
 func (markInsightTool) Schema() json.RawMessage { return markInsightSchema }
 
 func (markInsightTool) Execute(_ context.Context, args json.RawMessage) (registry.ToolResult, error) {

@@ -25,12 +25,12 @@ func NewMetricsExporter(mgr *RefCountManager, logger zerolog.Logger) *MetricsExp
 
 // Metrics 容器指标快照
 type Metrics struct {
-	Timestamp       time.Time              `json:"timestamp"`
-	TotalContainers int                    `json:"total_containers"`
-	ActiveCount     int                    `json:"active_count"`
-	IdleCount       int                    `json:"idle_count"`
-	OldestIdleAge   string                 `json:"oldest_idle_age"`
-	Containers      []ContainerMetric      `json:"containers,omitempty"`
+	Timestamp       time.Time         `json:"timestamp"`
+	TotalContainers int               `json:"total_containers"`
+	ActiveCount     int               `json:"active_count"`
+	IdleCount       int               `json:"idle_count"`
+	OldestIdleAge   string            `json:"oldest_idle_age"`
+	Containers      []ContainerMetric `json:"containers,omitempty"`
 }
 
 // ContainerMetric 单个容器的指标

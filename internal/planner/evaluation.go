@@ -12,26 +12,26 @@ import (
 
 // GlobalState 是全局状态快照。
 type GlobalState struct {
-	TaskID     string
-	Objective  string
-	Actions    []ActionState
-	Findings   []string
+	TaskID    string
+	Objective string
+	Actions   []ActionState
+	Findings  []string
 }
 
 // ActionState 是单个 action 的状态。
 type ActionState struct {
-	ID         string
-	Goal       string
-	State      string // open/running/done/aborted/...
-	Priority   int
-	DependsOn  []string
+	ID        string
+	Goal      string
+	State     string // open/running/done/aborted/...
+	Priority  int
+	DependsOn []string
 }
 
 // GlobalAssessment 是全局评估结果。
 type GlobalAssessment struct {
-	Strategy     string              // "continue" | "adjust" | "replanning"
-	Reasoning    string
-	NewActions   []NewAction         // 需要生成的新 action
+	Strategy       string // "continue" | "adjust" | "replanning"
+	Reasoning      string
+	NewActions     []NewAction       // 需要生成的新 action
 	ActionsToSteer map[string]string // actionID -> guidance
 	ActionsToKill  []string          // 需要终止的 action ID
 }

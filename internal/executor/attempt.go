@@ -12,13 +12,13 @@ import (
 // findingContent 是 finding 晋升成世界模型 discovery 节点时写入 Content 的漏洞元数据。
 // 回指 finding_id/seq 闭合「图节点 ↔ finding 记录」双向溯源。
 type findingContent struct {
-	Type      string `json:"type"`      // "vulnerability"
-	FindingID string `json:"finding_id"`
-	Seq       int64  `json:"seq,omitempty"`
-	Severity  string `json:"severity,omitempty"`
-	Summary   string `json:"summary"`
-	CWEID     string `json:"cwe_id,omitempty"`
-	OWASP     string `json:"owasp_category,omitempty"`
+	Type      string               `json:"type"` // "vulnerability"
+	FindingID string               `json:"finding_id"`
+	Seq       int64                `json:"seq,omitempty"`
+	Severity  string               `json:"severity,omitempty"`
+	Summary   string               `json:"summary"`
+	CWEID     string               `json:"cwe_id,omitempty"`
+	OWASP     string               `json:"owasp_category,omitempty"`
 	TargetRef worldmodel.TargetRef `json:"target_ref"`
 }
 
@@ -55,7 +55,7 @@ func AttemptFromFinding(taskID string, f finding.VulnFinding) (verifier.Attempt,
 	return verifier.Attempt{
 		TaskID:     taskID,
 		Kind:       worldmodel.KindFinding, // 漏洞是重要发现
-		Primitives: f.Repro,                  // 形状已是 ReplayRecipe，Verifier 侧 web.Replayer 解析
+		Primitives: f.Repro,                // 形状已是 ReplayRecipe，Verifier 侧 web.Replayer 解析
 		Content:    content,
 		Priority:   priority,
 	}, true, nil

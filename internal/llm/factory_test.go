@@ -64,8 +64,8 @@ func makeResolver() fakeResolver {
 	deepseek := prov("deepseek", "deepseek-chat", "DEEPSEEK_API_KEY")
 	return fakeResolver{
 		byRole: map[string]llmcfg.Provider{
-			"planner": deepseek,
-			"inspector":    prov("anthropic_haiku", "claude-haiku-4-5", "ANTHROPIC_API_KEY"),
+			"planner":   deepseek,
+			"inspector": prov("anthropic_haiku", "claude-haiku-4-5", "ANTHROPIC_API_KEY"),
 		},
 		def:    deepseek,
 		hasDef: true,

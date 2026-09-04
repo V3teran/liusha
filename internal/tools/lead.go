@@ -50,8 +50,8 @@ var writeLeadSchema = json.RawMessage(`{
 
 type writeLeadTool struct{ deps Deps }
 
-func (t *writeLeadTool) Name() string            { return "write_lead" }
-func (t *writeLeadTool) ShortDesc() string       { return "写一条跨 task 情报" }
+func (t *writeLeadTool) Name() string      { return "write_lead" }
+func (t *writeLeadTool) ShortDesc() string { return "写一条跨 task 情报" }
 func (t *writeLeadTool) Desc() string {
 	return "写一条情报到 assignment 级别的黑板（同一批测试的多个 task 共享，跨 agent 可见）。"
 }

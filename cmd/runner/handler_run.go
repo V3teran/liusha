@@ -9,11 +9,11 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/V3teran/liusha/internal/executor"
 	executorbuilder "github.com/V3teran/liusha/internal/builder/executor"
 	"github.com/V3teran/liusha/internal/conversation"
 	"github.com/V3teran/liusha/internal/dispatcher"
 	dispatcherprofile "github.com/V3teran/liusha/internal/dispatcher/profile"
+	"github.com/V3teran/liusha/internal/executor"
 	"github.com/V3teran/liusha/internal/provider"
 	"github.com/V3teran/liusha/internal/registry"
 	"github.com/V3teran/liusha/internal/scanagent"
@@ -48,7 +48,6 @@ func (h handler) toolRecordInterceptor(executorID, taskID string) registry.Inter
 		start := time.Now()
 		res, err := next(ctx, t, args)
 		durMs := int(time.Since(start).Milliseconds())
-
 
 		errMsg := ""
 		if res.Error != "" {
@@ -151,7 +150,6 @@ func (h handler) buildPromptDeps() executorbuilder.Deps {
 	}
 }
 
-
 // composeplannerInstruction builds the full system prompt for the planner agent.
 func composeplannerInstruction(body string) string {
 	return executorbuilder.SystemPrompt() + "\n\n" + body
@@ -161,7 +159,6 @@ func composeplannerInstruction(body string) string {
 func composeSubAgentInstruction(body string) string {
 	return executorbuilder.SystemPrompt() + "\n\n" + body
 }
-
 
 // ─────────────────────────────────────────────────────────────
 //  Dispatcher factory
@@ -261,7 +258,6 @@ func (h handler) inferComplexity(brief string) provider.Complexity {
 	// Moderate: 默认（漏洞测试）
 	return provider.ComplexityMedium
 }
-
 
 // ─────────────────────────────────────────────────────────────
 //  Cognition handler (新架构统一入口)

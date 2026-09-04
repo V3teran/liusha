@@ -36,7 +36,7 @@ type cronRunner struct {
 	assignments *assignment.Store
 	tasks       *task.Store
 	proxyStore  *traffic.ProxyStore
-	executors    *agentrun.Store
+	executors   *agentrun.Store
 	enq         *worker.Client
 	scan        *scanAdapter // 复用 expandItem（与单发/StartChatScan 同展开逻辑）
 	logger      zerolog.Logger
@@ -125,7 +125,7 @@ func (r *cronRunner) fireOne(ctx context.Context, sched cronschedule.CronSchedul
 // 定时器而非实时流量窗口（故用固定 passiveCronClaimLimit，不接聚合器配置）。
 //
 // brief 存 host（统一输入，见 D5）；引擎由 runner 按 ID 解析（此处不关心 solo/swarm）。
-func (r *cronRunner) expandTrafficItem(ctx context.Context, assignmentID,  item assignment.Item) error {
+func (r *cronRunner) expandTrafficItem(ctx context.Context, assignmentID, item assignment.Item) error {
 	host := item.Host
 	var err error
 	var tk task.Task
@@ -159,10 +159,10 @@ func (r *cronRunner) expandTrafficItem(ctx context.Context, assignmentID,  item 
 		return fmt.Errorf("create executor run: %w", err)
 	}
 	if _, _, err := r.enq.Enqueue(ctx, worker.RoleExecutor, worker.Payload{
-		AgentID:   hid,
-		TaskID:     tk.ID,
-		Input:      payloadInput,
-		Role:       worker.RoleExecutor,
+		AgentID: hid,
+		TaskID:  tk.ID,
+		Input:   payloadInput,
+		Role:    worker.RoleExecutor,
 	}); err != nil {
 		return fmt.Errorf("enqueue: %w", err)
 	}

@@ -73,11 +73,11 @@ const (
 type Relation string
 
 const (
-	RelGenerates  Relation = "GENERATES"  // action → hypothesis（生成）
-	RelConfirms   Relation = "CONFIRMS"   // evidence → finding（确认）
-	RelRefutes    Relation = "REFUTES"    // evidence → hypothesis（反驳）
-	RelEnables    Relation = "ENABLES"    // finding → action（使能）
-	RelDependsOn  Relation = "DEPENDS_ON" // action → action（依赖）
+	RelGenerates Relation = "GENERATES"  // action → hypothesis（生成）
+	RelConfirms  Relation = "CONFIRMS"   // evidence → finding（确认）
+	RelRefutes   Relation = "REFUTES"    // evidence → hypothesis（反驳）
+	RelEnables   Relation = "ENABLES"    // finding → action（使能）
+	RelDependsOn Relation = "DEPENDS_ON" // action → action（依赖）
 )
 
 // SourceType 是节点的来源类型
@@ -93,9 +93,9 @@ const (
 
 // Node 是世界模型的节点（5 种类型统一表）
 type Node struct {
-	ID      string   `json:"id"`
-	TaskID  string   `json:"task_id"`
-	Kind    NodeKind `json:"kind"`
+	ID      string          `json:"id"`
+	TaskID  string          `json:"task_id"`
+	Kind    NodeKind        `json:"kind"`
 	Content json.RawMessage `json:"content"`
 
 	// action 专用字段
@@ -108,11 +108,11 @@ type Node struct {
 	Confidence *Confidence `json:"confidence,omitempty"` // unverified/verified
 
 	// 通用字段
-	Priority   int        `json:"priority"`
-	Owner      string     `json:"owner,omitempty"`
-	SourceType SourceType `json:"source_type"`
-	SourceID   string     `json:"source_id"`
-	Tags       []string   `json:"tags,omitempty"`
+	Priority   int             `json:"priority"`
+	Owner      string          `json:"owner,omitempty"`
+	SourceType SourceType      `json:"source_type"`
+	SourceID   string          `json:"source_id"`
+	Tags       []string        `json:"tags,omitempty"`
 	Metadata   json.RawMessage `json:"metadata,omitempty"`
 
 	CreatedAt   time.Time  `json:"created_at"`
@@ -140,14 +140,14 @@ const (
 
 // Verification 是验证记录（审计链）
 type Verification struct {
-	ID         string            `json:"id"`
-	TaskID     string            `json:"task_id"`
-	NodeID     string            `json:"node_id"` // 被验证的 hypothesis 节点 ID
-	Primitives json.RawMessage   `json:"primitives"`
-	Outcome    VerifyOutcome     `json:"outcome"`
-	Evidence   json.RawMessage   `json:"evidence"`
-	DurationMs int64             `json:"duration_ms"`
-	CreatedAt  time.Time         `json:"created_at"`
+	ID         string          `json:"id"`
+	TaskID     string          `json:"task_id"`
+	NodeID     string          `json:"node_id"` // 被验证的 hypothesis 节点 ID
+	Primitives json.RawMessage `json:"primitives"`
+	Outcome    VerifyOutcome   `json:"outcome"`
+	Evidence   json.RawMessage `json:"evidence"`
+	DurationMs int64           `json:"duration_ms"`
+	CreatedAt  time.Time       `json:"created_at"`
 }
 
 // IsAction 判断节点是否是 action
@@ -201,4 +201,3 @@ type TargetRef struct {
 	RefKind string `json:"ref_kind"` // 引用类型（endpoint/file/instance/host）
 	Locator string `json:"locator"`  // 定位符（URL/文件路径/实例 ID/IP）
 }
-

@@ -17,7 +17,7 @@ func setup(t *testing.T) (*Store, string) {
 	pool := dbtest.NewPgPool(t)
 	ts := task.NewStore(pool)
 	tk, err := ts.Create(context.Background(), task.NewParams{
-		
+
 		AssignmentID: dbtest.SeedAssignment(t, pool, "api-pentest"),
 		TargetHost:   "test.example.com",
 	})
@@ -145,8 +145,8 @@ func TestStore_CreateWithParent(t *testing.T) {
 	}
 
 	childID, err := s.Create(ctx, NewParams{
-		TaskID:         taskID,
-		Role:           "traffic-analysis",
+		TaskID:    taskID,
+		Role:      "traffic-analysis",
 		plannerID: parentID,
 	})
 	if err != nil {

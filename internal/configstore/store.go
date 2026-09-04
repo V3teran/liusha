@@ -69,7 +69,7 @@ const (
 	keyExecutor = "configstore:executor:executor"
 )
 
-func keyExecutorID(id string) string       { return "configstore:executor:id:" + id }
+func keyExecutorID(id string) string           { return "configstore:executor:id:" + id }
 func keyExecutorComplexity(code string) string { return "configstore:executor:complexity:code:" + code }
 
 // keyAgentsList 是全量列表读的缓存键，按 onlyEnabled 分两键（有界）。
@@ -189,7 +189,6 @@ func (s *Store) CountExecutors(ctx context.Context, p cfgagent.ListParams) (int,
 // 每个写方法：写 DB → cachestore.Invalidate（本进程即时清 L1+L2 + 广播失效键给其它进程）。
 // 失效的键由写方直接列出（与 ReadThrough 的 fillKeys 对应），无 per-resource 语义 switch。
 
-
 // agentKeys 是一次操作员写/删要清的全部缓存键：其 id 键 + complexity 键（code 路，热路径路由用）
 // + 两个哨兵键（提/降 planner 或 enabled/kind 变动影响领域池）+ 两个全量列表键。
 // complexity 键随此一并失效——两个写入口（SaveExecutor/UpdateExecutorComplexity）都经此，保证移档即时生效。
@@ -200,7 +199,6 @@ func agentKeys(id, code string) []string {
 		keyAgentsList(true), keyAgentsList(false),
 	}
 }
-
 
 // UpdateExecutor 更新Agent配置（只能更新SystemPrompt、Skills和工具）。
 func (s *Store) UpdateExecutor(ctx context.Context, code string, p cfgagent.UpdateParams) (cfgagent.Agent, error) {
@@ -232,5 +230,3 @@ func (s *Store) DeleteExecutor(ctx context.Context, id, code string) error {
 	// 暂不支持删除，因为Planner和Executor是内置固定的
 	return fmt.Errorf("不支持删除内置Agent")
 }
-
-
