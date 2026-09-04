@@ -370,10 +370,33 @@ RUN git clone --depth 1 https://github.com/projectdiscovery/nuclei-templates.git
  && echo "nuclei-templates: $(ls /root/nuclei-templates | wc -l) dirs" \
  || echo "[warn] nuclei-templates clone 失败，运行时 nuclei -ut 再拉"
 
-# ── Layer 10: browser-use 专属 Python 3.12 venv ───────────────────────────────
+# ── Layer 10: uv + agent 现写脚本常用 Python 库 ──────────────────────────────
+# 安装 uv（供后续 Layer 11/12 的 py3.12 venv 使用）+ 基础 Python 库
+# 基础 HTTP/解析/协议库 + CTF 刚需（pycryptodome=crypto）
+# pwntools 因 unicorn 不支持 py3.14 改用独立 venv（见 Layer 11）
+RUN pip install --quiet --ignore-installed uv \
+ && pip install --quiet --ignore-installed \
+        requests httpx aiohttp beautifulsoup4 lxml urllib3 \
+        websockets websocket-client pysocks dnspython cryptography \
+        pyjwt pyyaml xmltodict paramiko pymysql \
+        pycryptodome \
+ && python3 -c 'import requests, httpx, aiohttp, bs4, lxml, urllib3, websockets, websocket, socks, dns, cryptography, jwt, yaml, xmltodict, paramiko, pymysql, Crypto; print("python libs OK")'
+
+# ── Layer 11: pwntools 独立 venv（py3.12，规避 unicorn 不支持 py3.14）─────
+# pwntools 依赖 unicorn（CPU 模拟器），unicorn 尚不支持 py3.14 的 C API 变更。
+# 用 uv 创建 py3.12 venv 装 pwntools，wrapper 跑 venv python（agent 写 pwn 脚本跑）。
+# uv 已在 Layer 10 安装，此处直接使用。
+RUN uv venv --python 3.12 /opt/venv-pwn \
+ && uv pip install --python /opt/venv-pwn/bin/python --quiet pwntools \
+ && /opt/venv-pwn/bin/python -c 'import pwn; print("pwntools OK")' \
+ && printf '#!/bin/sh\nexec /opt/venv-pwn/bin/python "$@"\n' > /usr/local/bin/pwn \
+ && chmod +x /usr/local/bin/pwn \
+ && command -v pwn
+
+# ── Layer 12: browser-use 专属 Python 3.12 venv ───────────────────────────────
 # 隔离 3.12 venv：规避 Kali rolling Python 升到 3.14 后 asyncio.get_event_loop()
 # 被移除导致 browser-use 静默失败（issue #4447）
-# uv 已在 Layer 11 安装，此处直接使用
+# uv 已在 Layer 10 安装，此处直接使用
 RUN uv venv --python 3.12 "$BROWSER_USE_VENV" \
  && uv pip install --python "$BROWSER_USE_VENV/bin/python" --quiet 'browser-use[cli]' playwright httpx \
  && "$BROWSER_USE_VENV/bin/playwright" install chromium \
@@ -385,29 +408,7 @@ RUN uv venv --python 3.12 "$BROWSER_USE_VENV" \
  && ln -sf "$PW_CHROMIUM" /usr/local/bin/chromium \
  && /usr/local/bin/chromium --version 2>&1 | head -1
 
-# ── Layer 11: agent 现写脚本常用 Python 库 ────────────────────────────────────
-# 基础 HTTP/解析/协议库 + CTF 刚需（pycryptodome=crypto）
-# pwntools 因 unicorn 不支持 py3.14 改用独立 venv（见 Layer 11b）
-RUN pip install --quiet --ignore-installed uv \
- && pip install --quiet --ignore-installed \
-        requests httpx aiohttp beautifulsoup4 lxml urllib3 \
-        websockets websocket-client pysocks dnspython cryptography \
-        pyjwt pyyaml xmltodict paramiko pymysql \
-        pycryptodome \
- && python3 -c 'import requests, httpx, aiohttp, bs4, lxml, urllib3, websockets, websocket, socks, dns, cryptography, jwt, yaml, xmltodict, paramiko, pymysql, Crypto; print("python libs OK")'
-
-# ── Layer 11b: pwntools 独立 venv（py3.12，规避 unicorn 不支持 py3.14）─────
-# pwntools 依赖 unicorn（CPU 模拟器），unicorn 尚不支持 py3.14 的 C API 变更。
-# 用 uv 创建 py3.12 venv 装 pwntools，wrapper 跑 venv python（agent 写 pwn 脚本跑）。
-# uv 已在 Layer 10 安装（pip install uv），此处直接使用。
-RUN uv venv --python 3.12 /opt/venv-pwn \
- && uv pip install --python /opt/venv-pwn/bin/python --quiet pwntools \
- && /opt/venv-pwn/bin/python -c 'import pwn; print("pwntools OK")' \
- && printf '#!/bin/sh\nexec /opt/venv-pwn/bin/python "$@"\n' > /usr/local/bin/pwn \
- && chmod +x /usr/local/bin/pwn \
- && command -v pwn
-
-# ── Layer 12: entrypoint（简化版：只启动 sandbox-server）──────────────────
+# ── Layer 13: entrypoint（简化版：只启动 sandbox-server）──────────────────
 # browser-use 流量捕获由 browser-svc.py 内置 CDP Network observer 完成，不依赖 mitmproxy。
 # CLI 工具流量（sqlmap/nuclei 等）不再捕获——噪音过多，用户只需浏览器流量。
 RUN printf '%s\n' \
@@ -416,7 +417,7 @@ RUN printf '%s\n' \
   > /usr/local/bin/sandbox-entrypoint.sh \
  && chmod +x /usr/local/bin/sandbox-entrypoint.sh
 
-# ── Layer 13: sandbox-server 二进制（容器 PID 1）─────────────────────────────
+# ── Layer 14: sandbox-server 二进制（容器 PID 1）─────────────────────────────
 COPY --from=sandbox-builder /out/sandbox-server /usr/local/bin/sandbox-server
 RUN chmod +x /usr/local/bin/sandbox-server && test -x /usr/local/bin/sandbox-server
 
