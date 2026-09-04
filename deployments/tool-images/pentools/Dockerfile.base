@@ -50,13 +50,13 @@ RUN set -eux \
 RUN set -eux \
  && J_ARCH=x64 \
  && wget -q --tries=3 --waitretry=5 \
-      "https://github.com/adoptium/temurin8-binaries/releases/download/jdk8u352-b08/OpenJDK8U-jdk_${J_ARCH}_linux_hotspot_8u352b08.tar.gz" \
+      "https://github.com/adoptium/temurin8-binaries/releases/download/jdk8u504-b01/OpenJDK8U-jdk_${J_ARCH}_linux_hotspot_8u504b01.tar.gz" \
       -O /tmp/jdk8.tar.gz \
  && mkdir -p /opt/jdk8 \
  && tar -xzf /tmp/jdk8.tar.gz -C /opt/jdk8 --strip-components=1 \
  && rm /tmp/jdk8.tar.gz \
  && wget -q --tries=3 --waitretry=5 \
-      "https://github.com/adoptium/temurin17-binaries/releases/download/jdk-17.0.19+10/OpenJDK17U-jdk_${J_ARCH}_linux_hotspot_17.0.19_10.tar.gz" \
+      "https://github.com/adoptium/temurin17-binaries/releases/download/jdk-17.0.20.1+1/OpenJDK17U-jdk_${J_ARCH}_linux_hotspot_17.0.20.1_1.tar.gz" \
       -O /tmp/jdk17.tar.gz \
  && mkdir -p /opt/jdk17 \
  && tar -xzf /tmp/jdk17.tar.gz -C /opt/jdk17 --strip-components=1 \
@@ -149,17 +149,15 @@ RUN set -eux \
 # katana, fscan, gau, interactsh-client, sliver
 RUN set -eux \
  && wget -q --tries=3 --waitretry=5 \
-      "https://github.com/projectdiscovery/katana/releases/download/v1.6.1/katana_1.6.1_linux_${TARGETARCH}.zip" \
+      "https://github.com/projectdiscovery/katana/releases/download/v1.7.0/katana_1.7.0_linux_${TARGETARCH}.zip" \
       -O /tmp/katana.zip \
  && unzip -oq /tmp/katana.zip katana -d /usr/local/bin/ \
  && chmod +x /usr/local/bin/katana \
  && rm /tmp/katana.zip \
  && wget -q --tries=3 --waitretry=5 \
-      "https://github.com/shadow1ng/fscan/releases/download/1.8.4/fscan_1.8.4_linux_${TARGETARCH}.zip" \
-      -O /tmp/fscan.zip \
- && unzip -oq /tmp/fscan.zip fscan -d /usr/local/bin/ \
+      "https://github.com/shadow1ng/fscan/releases/download/v2.2.1/fscan_2.2.1_linux_x64" \
+      -O /usr/local/bin/fscan \
  && chmod +x /usr/local/bin/fscan \
- && rm /tmp/fscan.zip \
  && wget -q --tries=3 --waitretry=5 \
       "https://github.com/lc/gau/releases/download/v2.2.4/gau_2.2.4_linux_${TARGETARCH}.tar.gz" \
       -O /tmp/gau.tar.gz \
@@ -173,7 +171,7 @@ RUN set -eux \
  && chmod +x /usr/local/bin/interactsh-client \
  && rm /tmp/interactsh.zip \
  && wget -q --tries=3 --waitretry=5 \
-      "https://github.com/BishopFox/sliver/releases/download/v1.6.0/sliver-server_linux_${TARGETARCH}" \
+      "https://github.com/BishopFox/sliver/releases/download/v1.7.7/sliver-server_linux_${TARGETARCH}" \
       -O /usr/local/bin/sliver \
  && chmod +x /usr/local/bin/sliver
 
@@ -183,7 +181,7 @@ RUN set -eux \
 # chisel, linpeas
 RUN set -eux \
  && wget -q --tries=3 --waitretry=5 \
-      "https://github.com/jpillora/chisel/releases/download/v1.9.1/chisel_1.9.1_linux_${TARGETARCH}.gz" \
+      "https://github.com/jpillora/chisel/releases/download/v1.12.0/chisel_1.12.0_linux_${TARGETARCH}.gz" \
       -O /tmp/chisel.gz \
  && gunzip /tmp/chisel.gz \
  && mv /tmp/chisel /usr/local/bin/chisel \
@@ -311,7 +309,7 @@ RUN set -eux \
 # ══════════════════════════════════════════════════════════════════════════════
 RUN set -eux \
  && wget -q --tries=3 --waitretry=5 \
-      "https://github.com/inguardians/peirates/releases/download/v1.1.19/peirates-linux-${TARGETARCH}.tar.xz" \
+      "https://github.com/inguardians/peirates/releases/download/v1.1.31/peirates-linux-${TARGETARCH}.tar.xz" \
       -O /tmp/peirates.tar.xz \
  && tar -xJf /tmp/peirates.tar.xz -C /usr/local/bin peirates \
  && chmod +x /usr/local/bin/peirates \
@@ -322,7 +320,7 @@ RUN set -eux \
 # ══════════════════════════════════════════════════════════════════════════════
 RUN set -eux \
  && wget -q --tries=3 --waitretry=5 \
-      "https://github.com/aquasecurity/kube-bench/releases/download/v0.9.1/kube-bench_0.9.1_linux_${TARGETARCH}.tar.gz" \
+      "https://github.com/aquasecurity/kube-bench/releases/download/v0.16.0/kube-bench_0.16.0_linux_${TARGETARCH}.tar.gz" \
       -O /tmp/kube-bench.tar.gz \
  && tar -xzf /tmp/kube-bench.tar.gz -C /usr/local/bin kube-bench \
  && chmod +x /usr/local/bin/kube-bench \
@@ -343,7 +341,7 @@ RUN set -eux \
 # ══════════════════════════════════════════════════════════════════════════════
 RUN set -eux \
  && wget -q --tries=3 --waitretry=5 \
-      "https://github.com/nicocha30/ligolo-ng/releases/download/v0.6.2/ligolo-ng_agent_0.6.2_linux_${TARGETARCH}.tar.gz" \
+      "https://github.com/nicocha30/ligolo-ng/releases/download/v0.9.1/ligolo-ng_agent_0.6.2_linux_${TARGETARCH}.tar.gz" \
       -O /tmp/ligolo.tar.gz \
  && tar -xzf /tmp/ligolo.tar.gz -C /usr/local/bin agent \
  && mv /usr/local/bin/agent /usr/local/bin/ligolo-ng \
@@ -355,7 +353,7 @@ RUN set -eux \
 # ══════════════════════════════════════════════════════════════════════════════
 RUN set -eux \
  && wget -q --tries=3 --waitretry=5 \
-      "https://github.com/io12/pwninit/releases/download/3.3.1/pwninit" \
+      "https://github.com/io12/pwninit/releases/download/3.3.3/pwninit" \
       -O /usr/local/bin/pwninit \
  && chmod +x /usr/local/bin/pwninit
 
@@ -364,7 +362,7 @@ RUN set -eux \
 # ══════════════════════════════════════════════════════════════════════════════
 RUN set -eux \
  && wget -q --tries=3 --waitretry=5 \
-      "https://github.com/BishopFox/cloudfox/releases/download/v1.14.2/cloudfox-linux-${TARGETARCH}" \
+      "https://github.com/BishopFox/cloudfox/releases/download/v2.0.5/cloudfox-linux-${TARGETARCH}" \
       -O /usr/local/bin/cloudfox \
  && chmod +x /usr/local/bin/cloudfox
 
@@ -373,7 +371,7 @@ RUN set -eux \
 # ══════════════════════════════════════════════════════════════════════════════
 RUN set -eux \
  && wget -q --tries=3 --waitretry=5 \
-      "https://github.com/aquasecurity/trivy/releases/download/v0.58.1/trivy_0.58.1_Linux-64bit.tar.gz" \
+      "https://github.com/aquasecurity/trivy/releases/download/v0.74.0/trivy_0.74.0_Linux-64bit.tar.gz" \
       -O /tmp/trivy.tar.gz \
  && tar -xzf /tmp/trivy.tar.gz -C /usr/local/bin trivy \
  && chmod +x /usr/local/bin/trivy \
