@@ -108,7 +108,7 @@ RUN set -eux \
       mv "$real" "${real}.real"; \
       printf '#!/bin/sh\nexec %s.real -duc "$@"\n' "$real" > "$real"; \
       chmod +x "$real"; \
-    done \
+    done
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Layer 5: pip 工具（2 个）
@@ -175,7 +175,7 @@ RUN set -eux \
  && wget -q --tries=3 --waitretry=5 \
       "https://github.com/BishopFox/sliver/releases/download/v1.6.0/sliver-server_linux_${TARGETARCH}" \
       -O /usr/local/bin/sliver \
- && chmod +x /usr/local/bin/sliver \
+ && chmod +x /usr/local/bin/sliver
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Layer 10: release-bin 工具（2 个）- GitHub release 单二进制
@@ -191,7 +191,7 @@ RUN set -eux \
  && wget -q --tries=3 --waitretry=5 \
       "https://github.com/carlospolop/PEASS-ng/releases/latest/download/linpeas.sh" \
       -O /usr/local/bin/linpeas \
- && chmod +x /usr/local/bin/linpeas \
+ && chmod +x /usr/local/bin/linpeas
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Layer 11: git 工具（1 个）
@@ -229,7 +229,7 @@ RUN set -eux \
  && git clone --depth 1 https://github.com/ticarpi/jwt_tool.git /opt/jwt_tool \
  && pip install --no-cache-dir --break-system-packages -r /opt/jwt_tool/requirements.txt \
  && printf '#!/bin/sh\nexec python3 /opt/jwt_tool/jwt_tool.py "$@"\n' > /usr/local/bin/jwt_tool \
- && chmod +x /usr/local/bin/jwt_tool \
+ && chmod +x /usr/local/bin/jwt_tool
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Layer 15: dalfox（XSS 扫描器）
@@ -242,7 +242,7 @@ RUN set -eux \
  && tar -xzf /tmp/dalfox.tar.gz -C /tmp \
  && mv /tmp/dalfox /usr/local/bin/dalfox \
  && chmod +x /usr/local/bin/dalfox \
- && rm -rf /tmp/dalfox* \
+ && rm -rf /tmp/dalfox*
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Layer 16: SSTImap（SSTI 模板注入）
@@ -251,7 +251,7 @@ RUN set -eux \
  && git clone --depth 1 https://github.com/vladko312/SSTImap.git /opt/SSTImap \
  && pip install --no-cache-dir --break-system-packages -r /opt/SSTImap/requirements.txt \
  && printf '#!/bin/sh\nexec python3 /opt/SSTImap/sstimap.py "$@"\n' > /usr/local/bin/SSTImap \
- && chmod +x /usr/local/bin/SSTImap \
+ && chmod +x /usr/local/bin/SSTImap
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Layer 17: SSRFmap（SSRF 利用）
@@ -260,7 +260,7 @@ RUN set -eux \
  && git clone --depth 1 https://github.com/swisskyrepo/SSRFmap.git /opt/SSRFmap \
  && pip install --no-cache-dir --break-system-packages -r /opt/SSRFmap/requirements.txt \
  && printf '#!/bin/sh\nexec python3 /opt/SSRFmap/ssrfmap.py "$@"\n' > /usr/local/bin/SSRFmap \
- && chmod +x /usr/local/bin/SSRFmap \
+ && chmod +x /usr/local/bin/SSRFmap
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Layer 18: RsaCtfTool（RSA 密码学攻击）
@@ -273,7 +273,7 @@ RUN set -eux \
  && pip install --no-cache-dir --break-system-packages gmpy2 \
  && pip install --no-cache-dir --break-system-packages -r /opt/RsaCtfTool/requirements.txt \
  && printf '#!/bin/sh\nexec python3 /opt/RsaCtfTool/RsaCtfTool.py "$@"\n' > /usr/local/bin/RsaCtfTool \
- && chmod +x /usr/local/bin/RsaCtfTool \
+ && chmod +x /usr/local/bin/RsaCtfTool
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Layer 19: angr（二进制符号执行）
@@ -282,7 +282,7 @@ RUN set -eux \
  && python3 -m venv /opt/angr-venv \
  && /opt/angr-venv/bin/pip install --no-cache-dir angr \
  && printf '#!/bin/sh\nexec /opt/angr-venv/bin/python "$@"\n' > /usr/local/bin/angr-python \
- && chmod +x /usr/local/bin/angr-python \
+ && chmod +x /usr/local/bin/angr-python
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Layer 20: browser-use（浏览器自动化）
@@ -291,14 +291,14 @@ RUN set -eux \
  && python3 -m venv /opt/browser-use-venv \
  && /opt/browser-use-venv/bin/pip install --no-cache-dir browser-use \
  && printf '#!/bin/sh\nexec /opt/browser-use-venv/bin/python -m browser_use "$@"\n' > /usr/local/bin/browser-use \
- && chmod +x /usr/local/bin/browser-use \
+ && chmod +x /usr/local/bin/browser-use
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Layer 21: stegoveritas（隐写分析）
 # ══════════════════════════════════════════════════════════════════════════════
 RUN set -eux \
  && pip install --no-cache-dir --break-system-packages stegoveritas \
- && stegoveritas_install_deps \
+ && stegoveritas_install_deps
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Layer 22: vol（Volatility 3 内存取证）
@@ -315,7 +315,7 @@ RUN set -eux \
       -O /tmp/peirates.tar.xz \
  && tar -xJf /tmp/peirates.tar.xz -C /usr/local/bin peirates \
  && chmod +x /usr/local/bin/peirates \
- && rm /tmp/peirates.tar.xz \
+ && rm /tmp/peirates.tar.xz
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Layer 24: kube-bench（K8s CIS 基准测试）
@@ -326,7 +326,7 @@ RUN set -eux \
       -O /tmp/kube-bench.tar.gz \
  && tar -xzf /tmp/kube-bench.tar.gz -C /usr/local/bin kube-bench \
  && chmod +x /usr/local/bin/kube-bench \
- && rm /tmp/kube-bench.tar.gz \
+ && rm /tmp/kube-bench.tar.gz
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Layer 25: kubectl
@@ -357,7 +357,7 @@ RUN set -eux \
  && wget -q --tries=3 --waitretry=5 \
       "https://github.com/io12/pwninit/releases/download/3.3.1/pwninit" \
       -O /usr/local/bin/pwninit \
- && chmod +x /usr/local/bin/pwninit \
+ && chmod +x /usr/local/bin/pwninit
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Layer 28: cloudfox（云安全枚举）
@@ -366,7 +366,7 @@ RUN set -eux \
  && wget -q --tries=3 --waitretry=5 \
       "https://github.com/BishopFox/cloudfox/releases/download/v1.14.2/cloudfox-linux-${TARGETARCH}" \
       -O /usr/local/bin/cloudfox \
- && chmod +x /usr/local/bin/cloudfox \
+ && chmod +x /usr/local/bin/cloudfox
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Layer 29: trivy（容器镜像扫描）
@@ -377,7 +377,7 @@ RUN set -eux \
       -O /tmp/trivy.tar.gz \
  && tar -xzf /tmp/trivy.tar.gz -C /usr/local/bin trivy \
  && chmod +x /usr/local/bin/trivy \
- && rm /tmp/trivy.tar.gz \
+ && rm /tmp/trivy.tar.gz
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Layer 30: gdb + pwndbg
