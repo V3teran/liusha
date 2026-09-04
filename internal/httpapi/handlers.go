@@ -144,11 +144,10 @@ type ScanAPI interface {
 //
 // Brief 必填——用户自然语言任务简报，含目标 URL/IP / 账号密码 / 测试方向等全部信息。
 // 后端不解析 brief（不抽 URL、不做 NL parser），整段透传给 agent LLM 自行识别。
-// ScenarioID 必填——场景 code，runner 据此数据驱动派发引擎与操作员编排。
 //
 // 例：
 //
-//	{"brief": "测试网站 http://111.229.193.40:34280/login.php，账号 admin/password，只测 XSS", "": "web-pentest"}
+//	{"brief": "测试网站 http://111.229.193.40:34280/login.php，账号 admin/password，只测 XSS"}
 //
 // 这种"一句话"形态便于将来接通微信 / 飞书 / 钉钉机器人——平台原文直接转发即可。
 type CreateScanRequest struct {
@@ -172,5 +171,15 @@ func scanHandler(api ScanAPI) gin.HandlerFunc {
 			c.JSON(400, gin.H{"error": "brief required"})
 			return
 		}
+
+		taskID, agentID, err := api.CreateScan(c.Request.Context(), brief)
+		if err != nil {
+			c.JSON(500, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(200, gin.H{
+			"task_id":  taskID,
+			"agent_id": agentID,
+		})
 	}
 }

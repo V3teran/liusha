@@ -181,7 +181,7 @@ func TestTrafficHandler(t *testing.T) {
 				StatusCode: 200, ContentType: "text/plain", HTTPVersion: "HTTP/1.1",
 				RequestRaw:  []byte("POST /login HTTP/1.1\r\nHost: a.com\r\n\r\nu=admin"),
 				ResponseRaw: []byte("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\nok"),
-				ConsumedBy:  []traffic.ConsumerTask{{TaskID: "t1", ScenarioID: "api-pentest", Host: "a.com", Status: "completed"}}},
+				ConsumedBy:  []traffic.ConsumerTask{{TaskID: "t1", Host: "a.com", Status: "completed"}}},
 		}}
 		srv := newTestServer(t, Deps{Traffic: fake})
 		defer srv.Close()
