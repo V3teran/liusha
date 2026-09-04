@@ -82,7 +82,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: ./deployments/tool-images/pentools/Dockerfile
+          file: ./deployments/tool-images/pentools/Dockerfile.final
           platforms: linux/amd64
           # PR 只构建验证（load 到本地），不推 GHCR；push/tag 才推。
           push: ${{ github.event_name != 'pull_request' }}

@@ -160,7 +160,7 @@ gh workflow run test-pentools.yml
 ### **本地运行**
 ```bash
 # 构建镜像
-docker build -f deployments/tool-images/pentools/Dockerfile \
+docker build -f deployments/tool-images/pentools/Dockerfile.final\
   -t pentools:test .
 
 # 运行测试（Level 1）
@@ -266,7 +266,7 @@ RUN git clone https://github.com/xxx/tool.git /opt/tool \
 ### **进入容器调试**
 ```bash
 # 构建镜像
-docker build -f deployments/tool-images/pentools/Dockerfile -t pentools:test .
+docker build -f deployments/tool-images/pentools/Dockerfile.final-t pentools:test .
 
 # 进入容器
 docker run --rm -it pentools:test bash

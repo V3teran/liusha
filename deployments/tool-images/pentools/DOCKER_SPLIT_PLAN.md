@@ -348,7 +348,7 @@ jobs:
 ### 1. 创建 Dockerfile.base
 ```bash
 # 复制 Layer 1-11（58-392 行）到新文件
-cp deployments/tool-images/pentools/Dockerfile deployments/tool-images/pentools/Dockerfile.base
+cp deployments/tool-images/pentools/Dockerfile.finaldeployments/tool-images/pentools/Dockerfile.base
 # 编辑 Dockerfile.base，只保留 Layer 1-11
 ```
 
@@ -365,7 +365,7 @@ docker build -f deployments/tool-images/pentools/Dockerfile.base \
   -t pentools-base:test .
 
 # 构建 final
-docker build -f deployments/tool-images/pentools/Dockerfile \
+docker build -f deployments/tool-images/pentools/Dockerfile.final\
   -t pentools:test .
 
 # 验证工具完整性

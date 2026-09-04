@@ -175,7 +175,7 @@ docker build -f deployments/tool-images/pentools/Dockerfile.base \
 
 ```bash
 # 使用原始 Dockerfile
-docker build -f deployments/tool-images/pentools/Dockerfile \
+docker build -f deployments/tool-images/pentools/Dockerfile.final\
   -t pentools:monolithic .
 ```
 
