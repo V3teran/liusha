@@ -138,7 +138,42 @@ docker run --rm -p 8080:8080 pentools:local
 
 **构建最终镜像**（每次都构建）：
 - 任何 `deployments/tool-images/pentools/**` 文件变更
+- `cmd/sandbox-server/**` 或 `internal/sandbox/**` 变更
 - 基础镜像构建完成后
+
+### CI 流程（build-pentools.yml）
+
+完整的 **build → test → push** 流程：
+
+```
+1. check-base-changed  # 检测是否需要重建 base
+   ↓
+2. build-base          # 构建 base 镜像（load 到本地）
+   ↓
+3. test-base           # 测试 base 镜像
+   ├─ L1: 命令存在性（90 工具，command -v）
+   ├─ L2: 版本输出验证（90 工具，--version）
+   └─ L3: 关键工具冒烟测试（6 工具，功能验证）
+   ↓
+4. push-base           # 测试通过后推送 base
+   ↓
+5. build-final         # 构建 final 镜像（load 到本地）
+   ↓
+6. test-final          # 测试 final 镜像
+   ├─ sandbox-server 启动验证
+   ├─ 健康检查端点验证
+   ├─ browser-use 脚本验证
+   └─ 工具继承验证（抽样 10 个）
+   ↓
+7. push-final          # 测试通过后推送 final
+```
+
+**关键特性**：
+- ✅ 测试失败自动阻断推送
+- ✅ 所有构建、测试在 CI runner 完成
+- ✅ 本地只需推送代码，CI 自动完成后续
+- ✅ 基础镜像和最终镜像独立测试
+- ✅ 90 个工具全量验证
 
 ### 手动触发
 

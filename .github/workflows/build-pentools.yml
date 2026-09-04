@@ -1,16 +1,17 @@
-name: Build Pentools Images
+name: Build and Test Pentools Images
 
 on:
   push:
     branches: [main]
     paths:
       - 'deployments/tool-images/pentools/**'
-      - 'scripts/build/install-from-manifest.sh'
+      - 'cmd/sandbox-server/**'
+      - 'internal/sandbox/**'
       - '.github/workflows/build-pentools.yml'
   workflow_dispatch:
     inputs:
       rebuild_base:
-        description: '是否强制重建基础镜像'
+        description: '强制重建基础镜像'
         required: false
         type: boolean
         default: false
@@ -21,7 +22,9 @@ env:
   FINAL_IMAGE: ghcr.io/${{ github.repository_owner }}/pentools
 
 jobs:
-  # 检查是否需要重建基础镜像
+  # ============================================================================
+  # Stage 1: 检查是否需要重建基础镜像
+  # ============================================================================
   check-base-changed:
     runs-on: ubuntu-24.04
     outputs:
@@ -34,46 +37,240 @@ jobs:
       - name: Check if base files changed
         id: check
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.rebuild_base }}" = "true" ]; then
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ github.event.inputs.rebuild_base }}" = "true" ]; then
             echo "手动触发重建基础镜像"
             echo "should_build=true" >> $GITHUB_OUTPUT
             exit 0
           fi
 
-          # 检查影响基础镜像的文件是否变更
-          CHANGED_FILES=$(git diff --name-only HEAD^ HEAD || echo "all")
-
-          if echo "$CHANGED_FILES" | grep -E "(tools.yaml|Dockerfile.base|install-from-manifest.sh)"; then
-            echo "基础镜像相关文件已变更"
+          # 检查 Dockerfile.base 或 tools.yaml 是否变更
+          if git diff --name-only HEAD^ HEAD | grep -E "Dockerfile\.base|tools\.yaml"; then
+            echo "基础镜像文件已变更，需要重建"
             echo "should_build=true" >> $GITHUB_OUTPUT
           else
-            echo "基础镜像无需重建"
+            echo "基础镜像文件未变更，跳过重建"
             echo "should_build=false" >> $GITHUB_OUTPUT
           fi
 
+  # ============================================================================
+  # Stage 2: 构建基础镜像（不推送）
+  # ============================================================================
   build-base:
     needs: check-base-changed
     if: needs.check-base-changed.outputs.should_build == 'true'
     runs-on: ubuntu-24.04
-    timeout-minutes: 150
+    timeout-minutes: 90
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build base image (load to local)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deployments/tool-images/pentools/Dockerfile.base
+          platforms: linux/amd64
+          load: true
+          tags: pentools-base:test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Save base image
+        run: |
+          docker save pentools-base:test | gzip > /tmp/pentools-base.tar.gz
+
+      - name: Upload base image artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pentools-base-image
+          path: /tmp/pentools-base.tar.gz
+          retention-days: 1
+
+  # ============================================================================
+  # Stage 3: 测试基础镜像（90 个工具全量验证）
+  # ============================================================================
+  test-base:
+    needs: build-base
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download base image artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: pentools-base-image
+          path: /tmp
+
+      - name: Load base image
+        run: |
+          docker load < /tmp/pentools-base.tar.gz
+          docker images
+
+      - name: Install yq
+        run: |
+          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+
+      - name: Test L1 - Command Existence (90 tools)
+        run: |
+          echo "=== Level 1: 命令存在性验证 ==="
+          echo ""
+
+          TOTAL=0
+          PASSED=0
+          FAILED=0
+          FAILED_TOOLS=""
+
+          # 读取 tools.yaml 中的所有工具
+          TOOLS=$(yq eval '.tools[].name' deployments/tool-images/pentools/tools.yaml)
+
+          for tool in $TOOLS; do
+            TOTAL=$((TOTAL + 1))
+
+            # 跳过运行时环境（不是独立工具）
+            case "$tool" in
+              python3|node|php|go|ruby|java|java8|java17|gcc|curl|jq|mysql)
+                echo "⏭️  $tool (runtime, skip)"
+                continue
+                ;;
+            esac
+
+            # 测试命令存在性
+            if docker run --rm pentools-base:test bash -c "command -v $tool" >/dev/null 2>&1; then
+              echo "✅ $tool"
+              PASSED=$((PASSED + 1))
+            else
+              echo "❌ $tool - NOT FOUND"
+              FAILED=$((FAILED + 1))
+              FAILED_TOOLS="$FAILED_TOOLS $tool"
+            fi
+          done
+
+          echo ""
+          echo "=== Level 1 Summary ==="
+          echo "Total:   $TOTAL"
+          echo "Passed:  $PASSED"
+          echo "Failed:  $FAILED"
+
+          if [ $FAILED -gt 0 ]; then
+            echo ""
+            echo "❌ Missing tools:$FAILED_TOOLS"
+            exit 1
+          fi
+
+      - name: Test L2 - Version Output (90 tools)
+        run: |
+          echo "=== Level 2: 版本输出验证 ==="
+          echo ""
+
+          TOTAL=0
+          PASSED=0
+          FAILED=0
+          FAILED_TOOLS=""
+
+          # 读取 tools.yaml 中的所有工具
+          TOOLS=$(yq eval '.tools[].name' deployments/tool-images/pentools/tools.yaml)
+
+          for tool in $TOOLS; do
+            TOTAL=$((TOTAL + 1))
+
+            # 跳过运行时环境
+            case "$tool" in
+              python3|node|php|go|ruby|java|java8|java17|gcc|curl|jq|mysql)
+                echo "⏭️  $tool (runtime, skip)"
+                continue
+                ;;
+            esac
+
+            # 测试版本输出（尝试 --version 或 --help）
+            if docker run --rm pentools-base:test bash -c "$tool --version 2>&1 | head -5" 2>/dev/null | grep -qE '.'; then
+              echo "✅ $tool --version"
+              PASSED=$((PASSED + 1))
+            elif docker run --rm pentools-base:test bash -c "$tool --help 2>&1 | head -5" 2>/dev/null | grep -qE '.'; then
+              echo "✅ $tool --help"
+              PASSED=$((PASSED + 1))
+            elif docker run --rm pentools-base:test bash -c "$tool -h 2>&1 | head -5" 2>/dev/null | grep -qE '.'; then
+              echo "✅ $tool -h"
+              PASSED=$((PASSED + 1))
+            else
+              echo "❌ $tool - NO VERSION OUTPUT"
+              FAILED=$((FAILED + 1))
+              FAILED_TOOLS="$FAILED_TOOLS $tool"
+            fi
+          done
+
+          echo ""
+          echo "=== Level 2 Summary ==="
+          echo "Total:   $TOTAL"
+          echo "Passed:  $PASSED"
+          echo "Failed:  $FAILED"
+
+          if [ $FAILED -gt 0 ]; then
+            echo ""
+            echo "❌ Tools with no output:$FAILED_TOOLS"
+            exit 1
+          fi
+
+      - name: Test L3 - Critical Tools Smoke Test
+        run: |
+          echo "=== Level 3: 关键工具冒烟测试 ==="
+          echo ""
+
+          # nmap: 扫描本地端口
+          echo "Testing nmap..."
+          docker run --rm pentools-base:test nmap -sV localhost -p 22 2>&1 | grep -q "Nmap scan report" || exit 1
+          echo "✅ nmap"
+
+          # sqlmap: 列出 tamper 脚本
+          echo "Testing sqlmap..."
+          docker run --rm pentools-base:test sqlmap --list-tampers 2>&1 | grep -q "tamper" || exit 1
+          echo "✅ sqlmap"
+
+          # nuclei: 列出模板
+          echo "Testing nuclei..."
+          docker run --rm pentools-base:test nuclei -tl 2>&1 | grep -q "Templates" || exit 1
+          echo "✅ nuclei"
+
+          # ysomap: 显示帮助
+          echo "Testing ysomap..."
+          docker run --rm pentools-base:test ysomap --help 2>&1 | grep -qE "ysomap|usage" || exit 1
+          echo "✅ ysomap"
+
+          # ysoserial: 列出 payload
+          echo "Testing ysoserial..."
+          docker run --rm pentools-base:test ysoserial --help 2>&1 | grep -qE "ysoserial|gadget" || exit 1
+          echo "✅ ysoserial"
+
+          # metasploit: 验证可执行
+          echo "Testing msfconsole..."
+          docker run --rm pentools-base:test msfconsole --version 2>&1 | grep -q "Framework" || exit 1
+          echo "✅ msfconsole"
+
+          echo ""
+          echo "✅✅✅ All critical tools smoke tests passed!"
+
+  # ============================================================================
+  # Stage 4: 推送基础镜像
+  # ============================================================================
+  push-base:
+    needs: test-base
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
     permissions:
       contents: read
       packages: write
 
     steps:
       - uses: actions/checkout@v4
-
-      - name: Free disk space
-        run: |
-          echo "=== Disk space before cleanup ==="
-          df -h
-          sudo rm -rf /usr/share/dotnet
-          sudo rm -rf /usr/local/lib/android
-          sudo rm -rf /opt/ghc
-          sudo rm -rf /opt/hostedtoolcache/CodeQL
-          sudo docker image prune --all --force
-          echo "=== Disk space after cleanup ==="
-          df -h
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -90,17 +287,176 @@ jobs:
         with:
           context: .
           file: deployments/tool-images/pentools/Dockerfile.base
+          platforms: linux/amd64
           push: true
           tags: |
             ${{ env.BASE_IMAGE }}:latest
             ${{ env.BASE_IMAGE }}:${{ github.sha }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            liusha.tools.count=90
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+  # ============================================================================
+  # Stage 5: 构建最终镜像（不推送）
+  # ============================================================================
   build-final:
-    needs: [check-base-changed, build-base]
-    # 如果 build-base 跳过或成功，都继续构建最终镜像
-    if: always() && (needs.build-base.result == 'success' || needs.build-base.result == 'skipped')
+    needs: [check-base-changed, push-base]
+    if: always() && (needs.push-base.result == 'success' || needs.check-base-changed.outputs.should_build == 'false')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Determine base image tag
+        id: base-tag
+        run: |
+          if [ "${{ needs.check-base-changed.outputs.should_build }}" = "true" ]; then
+            echo "使用新构建的 base 镜像: ${{ github.sha }}"
+            echo "tag=${{ github.sha }}" >> $GITHUB_OUTPUT
+          else
+            echo "使用现有的 base 镜像: latest"
+            echo "tag=latest" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Build final image (load to local)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deployments/tool-images/pentools/Dockerfile.final
+          platforms: linux/amd64
+          load: true
+          tags: pentools:test
+          build-args: |
+            BASE_IMAGE=${{ env.BASE_IMAGE }}:${{ steps.base-tag.outputs.tag }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Save final image
+        run: |
+          docker save pentools:test | gzip > /tmp/pentools-final.tar.gz
+
+      - name: Upload final image artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pentools-final-image
+          path: /tmp/pentools-final.tar.gz
+          retention-days: 1
+
+  # ============================================================================
+  # Stage 6: 测试最终镜像（sandbox-server + 工具继承）
+  # ============================================================================
+  test-final:
+    needs: build-final
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download final image artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: pentools-final-image
+          path: /tmp
+
+      - name: Load final image
+        run: |
+          docker load < /tmp/pentools-final.tar.gz
+          docker images
+
+      - name: Test sandbox-server startup
+        run: |
+          echo "=== 测试 sandbox-server 启动 ==="
+
+          # 启动容器（后台运行）
+          CONTAINER_ID=$(docker run -d -p 8080:8080 pentools:test)
+          echo "容器 ID: $CONTAINER_ID"
+
+          # 等待启动（最多 30 秒）
+          echo "等待 sandbox-server 启动..."
+          for i in {1..30}; do
+            if curl -sf http://localhost:8080/healthz > /dev/null 2>&1; then
+              echo "✅ sandbox-server 已启动"
+              break
+            fi
+            if [ $i -eq 30 ]; then
+              echo "❌ sandbox-server 启动超时"
+              docker logs $CONTAINER_ID
+              exit 1
+            fi
+            sleep 1
+          done
+
+          # 验证健康检查端点
+          echo "验证健康检查端点..."
+          RESPONSE=$(curl -s http://localhost:8080/healthz)
+          echo "响应: $RESPONSE"
+
+          if echo "$RESPONSE" | grep -qE "ok|healthy|running"; then
+            echo "✅ 健康检查通过"
+          else
+            echo "❌ 健康检查失败"
+            docker logs $CONTAINER_ID
+            exit 1
+          fi
+
+          # 停止容器
+          docker stop $CONTAINER_ID
+          docker rm $CONTAINER_ID
+
+      - name: Test browser-use script
+        run: |
+          echo "=== 测试 browser-use 脚本 ==="
+
+          if docker run --rm pentools:test browser-use --help 2>&1 | grep -qE "usage|help|browser"; then
+            echo "✅ browser-use 脚本可用"
+          else
+            echo "❌ browser-use 脚本失败"
+            exit 1
+          fi
+
+      - name: Test tools inheritance (sampling)
+        run: |
+          echo "=== 测试工具继承（抽样验证）==="
+
+          # 抽样测试 10 个关键工具
+          TOOLS="nmap sqlmap nuclei httpx ffuf hydra john hashcat metasploit ysomap"
+
+          for tool in $TOOLS; do
+            if docker run --rm pentools:test bash -c "command -v $tool" >/dev/null 2>&1; then
+              echo "✅ $tool"
+            else
+              echo "❌ $tool - NOT FOUND"
+              exit 1
+            fi
+          done
+
+          echo ""
+          echo "✅✅✅ 工具继承验证通过！"
+
+  # ============================================================================
+  # Stage 7: 推送最终镜像
+  # ============================================================================
+  push-final:
+    needs: test-final
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
@@ -125,9 +481,13 @@ jobs:
         with:
           context: .
           file: deployments/tool-images/pentools/Dockerfile.final
+          platforms: linux/amd64
           push: true
           tags: |
             ${{ env.FINAL_IMAGE }}:latest
             ${{ env.FINAL_IMAGE }}:${{ github.sha }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max

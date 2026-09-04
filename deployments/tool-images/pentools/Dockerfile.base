@@ -564,5 +564,15 @@ RUN set -eux \
  && command -v gdb && gdb --version | head -1 \
  && echo "✅✅✅ 所有工具安装完成并验证通过！✅✅✅"
 
+# ══════════════════════════════════════════════════════════════════════════════
+# 元数据：嵌入工具清单
+# ══════════════════════════════════════════════════════════════════════════════
+COPY deployments/tool-images/pentools/tools.yaml /tools.yaml
+
+LABEL org.opencontainers.image.source="https://github.com/V3teran/liusha"
+LABEL org.opencontainers.image.description="Pentools base image with 90 security tools"
+LABEL liusha.tools.count="90"
+LABEL liusha.tools.manifest="/tools.yaml"
+
 # 设置工作目录
 WORKDIR /opt/sandbox
