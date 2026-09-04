@@ -68,7 +68,7 @@ RUN set -eux \
     done \
  && printf '#!/bin/sh\nexec /opt/jdk8/bin/java "$@"\n' > /usr/local/bin/java8 \
  && printf '#!/bin/sh\nexec /opt/jdk17/bin/java "$@"\n' > /usr/local/bin/java17 \
- && chmod +x /usr/local/bin/java8 /usr/local/bin/java17 \
+ && chmod +x /usr/local/bin/java8 /usr/local/bin/java17
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Layer 3: apt 工具（48 个）
@@ -93,7 +93,7 @@ RUN set -eux \
       proxychains4 tshark responder \
       curl jq \
       ghidra \
- && rm -rf /var/lib/apt/lists/* \
+ && rm -rf /var/lib/apt/lists/*
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Layer 4: httpx 命名兼容 + PD 系工具 -duc wrapper
@@ -116,7 +116,7 @@ RUN set -eux \
 RUN set -eux \
  && pip install --no-cache-dir --break-system-packages --ignore-installed \
       semgrep \
-      ROPgadget \
+      ROPgadget
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Layer 6: pipx 工具（7 个）
@@ -129,19 +129,19 @@ RUN set -eux \
  && pipx install checkov \
  && pipx install kube-hunter \
  && pipx install bloodhound-python \
- && pipx install certipy-ad \
+ && pipx install certipy-ad
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Layer 7: npm 工具（1 个）
 # ══════════════════════════════════════════════════════════════════════════════
 RUN set -eux \
- && npm install -g @stoplight/spectral-cli \
+ && npm install -g @stoplight/spectral-cli
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Layer 8: gem 工具（4 个）
 # ══════════════════════════════════════════════════════════════════════════════
 RUN set -eux \
- && gem install one_gadget seccomp-tools evil-winrm zsteg \
+ && gem install one_gadget seccomp-tools evil-winrm zsteg
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Layer 9: release 工具（5 个）- GitHub release 压缩包
@@ -200,7 +200,7 @@ RUN set -eux \
 RUN set -eux \
  && git clone --depth 1 https://github.com/devanshbatham/ParamSpider.git /opt/paramspider \
  && printf '#!/bin/sh\ncd /opt/paramspider && python3 paramspider.py "$@"\n' > /usr/local/bin/paramspider \
- && chmod +x /usr/local/bin/paramspider \
+ && chmod +x /usr/local/bin/paramspider
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Layer 12: ysomap（Java 反序列化利用框架）
@@ -210,7 +210,7 @@ RUN set -eux \
  && cd /opt/ysomap \
  && mvn clean package -DskipTests \
  && printf '#!/bin/sh\nexec java -jar /opt/ysomap/target/ysomap.jar "$@"\n' > /usr/local/bin/ysomap \
- && chmod +x /usr/local/bin/ysomap \
+ && chmod +x /usr/local/bin/ysomap
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Layer 13: ysoserial（Java 反序列化经典 gadget）
@@ -220,7 +220,7 @@ RUN set -eux \
       "https://github.com/frohoff/ysoserial/releases/download/v0.0.6/ysoserial-all.jar" \
       -O /opt/ysoserial.jar \
  && printf '#!/bin/sh\nexec java -jar /opt/ysoserial.jar "$@"\n' > /usr/local/bin/ysoserial \
- && chmod +x /usr/local/bin/ysoserial \
+ && chmod +x /usr/local/bin/ysoserial
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Layer 14: jwt_tool（JWT 攻击）
@@ -304,7 +304,7 @@ RUN set -eux \
 # Layer 22: vol（Volatility 3 内存取证）
 # ══════════════════════════════════════════════════════════════════════════════
 RUN set -eux \
- && pip install --no-cache-dir --break-system-packages volatility3 \
+ && pip install --no-cache-dir --break-system-packages volatility3
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Layer 23: peirates（K8s 渗透）
@@ -336,7 +336,7 @@ RUN set -eux \
  && wget -q --tries=3 --waitretry=5 \
       "https://dl.k8s.io/release/$(wget -qO- https://dl.k8s.io/release/stable.txt)/bin/linux/${KUBECTL_ARCH}/kubectl" \
       -O /usr/local/bin/kubectl \
- && chmod +x /usr/local/bin/kubectl \
+ && chmod +x /usr/local/bin/kubectl
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Layer 26: ligolo-ng（隧道代理）
@@ -348,7 +348,7 @@ RUN set -eux \
  && tar -xzf /tmp/ligolo.tar.gz -C /usr/local/bin agent \
  && mv /usr/local/bin/agent /usr/local/bin/ligolo-ng \
  && chmod +x /usr/local/bin/ligolo-ng \
- && rm /tmp/ligolo.tar.gz \
+ && rm /tmp/ligolo.tar.gz
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Layer 27: pwninit（pwn 题模板生成）
@@ -385,13 +385,13 @@ RUN set -eux \
 RUN set -eux \
  && git clone --depth 1 https://github.com/pwndbg/pwndbg.git /opt/pwndbg \
  && cd /opt/pwndbg \
- && ./setup.sh \
+ && ./setup.sh
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Layer 31: nuclei 模板预拉
 # ══════════════════════════════════════════════════════════════════════════════
 RUN set -eux \
- && nuclei -ut \
+ && nuclei -ut
 
 # ══════════════════════════════════════════════════════════════════════════════
 # 元数据：嵌入工具清单
