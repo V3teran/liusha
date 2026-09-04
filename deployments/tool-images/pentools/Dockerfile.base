@@ -119,16 +119,15 @@ RUN set -eux \
       ROPgadget
 
 # ══════════════════════════════════════════════════════════════════════════════
-# Layer 6: pipx 工具（6 个，跳过 bloodhound-python）
+# Layer 6: pipx 工具（7 个）
 # ══════════════════════════════════════════════════════════════════════════════
 # 隔离 Python CLI 工具，避免依赖冲突
-# bloodhound-python 安装失败，暂时跳过
 RUN pipx install prowler
 RUN pipx install pacu
 RUN pipx install cloudsplaining
 RUN pipx install checkov
 RUN pipx install kube-hunter
-# RUN pipx install bloodhound-python  # 失败，跳过
+RUN pipx install bloodhound
 RUN pipx install certipy-ad
 
 # ══════════════════════════════════════════════════════════════════════════════
