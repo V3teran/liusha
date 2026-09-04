@@ -297,7 +297,7 @@ tools:
   - name: chisel
     category: post-exploit
     description: 快速 TCP/UDP 隧道（HTTP 传输）——Go 单文件，轻量级内网穿透，支持 SOCKS5 代理。与 ligolo-ng 互补（chisel 更轻量，ligolo-ng 更稳定）。
-    install: { method: release-bin, ref: jpillora/chisel@v1.10.1, asset: chisel_${VERSION}_linux_amd64.gz, bin: chisel }
+    install: { method: release-bin, ref: jpillora/chisel@v1.10.1, asset: "chisel_${VERSION}_linux_amd64.gz", bin: chisel }
   - name: linpeas
     category: post-exploit
     description: Linux 提权检查脚本——自动枚举 SUID/sudo 滥用 + 内核漏洞 + 敏感文件 + 定时任务 + 容器逃逸，后渗透提权第一步。
