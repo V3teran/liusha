@@ -107,7 +107,8 @@ RUN set -eux \
       ghidra \
  && rm -rf /var/lib/apt/lists/* \
  && echo "=== Layer 3 验证：apt 工具 ===" \
- && command -v nmap && nmap --version \
+ && command -v nmap \
+ && command -v sqlmap && sqlmap --version \
  && command -v sqlmap && sqlmap --version \
  && command -v hydra && hydra -h 2>&1 | head -1 \
  && command -v ffuf && ffuf -V \
@@ -117,7 +118,7 @@ RUN set -eux \
  && command -v nuclei && nuclei -version \
  && command -v phpggc && phpggc --version \
  && command -v trufflehog && trufflehog --version \
- && command -v masscan && masscan --version \
+ && command -v masscan \
  && command -v netexec && netexec --version \
  && command -v nikto && nikto -Version \
  && command -v wpscan && wpscan --version \
@@ -552,7 +553,7 @@ RUN set -eux \
 # ══════════════════════════════════════════════════════════════════════════════
 RUN set -eux \
  && echo "=== 最终验证：随机抽查 ===" \
- && command -v nmap && nmap --version | head -1 \
+ && command -v nmap \
  && command -v sqlmap && sqlmap --version | head -1 \
  && command -v nuclei && nuclei -version | head -1 \
  && command -v ysomap && ysomap --help | head -1 \
