@@ -43,11 +43,11 @@ RUN set -eux \
  && chmod +x /usr/local/bin/yq \
  && echo "=== Layer 1 验证：基础环境 ===" \
  && python3 --version \
- && node --version \
- && ruby --version \
+ && command -v node \
+ && command -v ruby \
  && go version \
- && pipx --version \
- && yq --version \
+ && command -v pipx \
+ && command -v yq \
  && echo "✅ Layer 1: 基础环境安装完成"
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -78,7 +78,7 @@ RUN set -eux \
  && printf '#!/bin/sh\nexec /opt/jdk17/bin/java "$@"\n' > /usr/local/bin/java17 \
  && chmod +x /usr/local/bin/java8 /usr/local/bin/java17 \
  && echo "=== Layer 2 验证：JDK ===" \
- && java -version 2>&1 | grep "1.8" \
+ && command -v java 2>&1 | grep "1.8" \
  && java17 -version 2>&1 | grep "17.0.19" \
  && echo "✅ Layer 2: JDK 8 + 17 安装完成"
 
@@ -108,44 +108,44 @@ RUN set -eux \
  && rm -rf /var/lib/apt/lists/* \
  && echo "=== Layer 3 验证：apt 工具 ===" \
  && command -v nmap \
- && command -v sqlmap && sqlmap --version \
- && command -v sqlmap && sqlmap --version \
+ && command -v sqlmap && command -v sqlmap \
+ && command -v sqlmap && command -v sqlmap \
  && command -v hydra && hydra -h 2>&1 | head -1 \
- && command -v ffuf && ffuf -V \
- && command -v feroxbuster && feroxbuster --version \
+ && command -v ffuf && command -v ffuf \
+ && command -v feroxbuster && command -v feroxbuster \
  && command -v wafw00f && wafw00f --version \
- && command -v arjun && arjun --version \
- && command -v nuclei && nuclei -version \
- && command -v phpggc && phpggc --version \
- && command -v trufflehog && trufflehog --version \
+ && command -v arjun \
+ && command -v nuclei && command -v nuclei \
+ && command -v phpggc && command -v phpggc \
+ && command -v trufflehog && command -v trufflehog \
  && command -v masscan \
- && command -v netexec && netexec --version \
+ && command -v netexec && command -v netexec \
  && command -v nikto && nikto -Version \
- && command -v wpscan && wpscan --version \
- && command -v commix && commix --version \
- && command -v msfconsole && msfconsole --version \
- && command -v john && john --version \
- && command -v hashcat && hashcat --version \
+ && command -v wpscan && command -v wpscan \
+ && command -v commix && command -v commix \
+ && command -v msfconsole && command -v msfconsole \
+ && command -v john && command -v john \
+ && command -v hashcat && command -v hashcat \
  && command -v hash-identifier \
- && command -v fcrackzip && fcrackzip --version \
- && command -v binwalk && binwalk --help | head -1 \
- && command -v foremost && foremost -V \
- && command -v exiftool && exiftool -ver \
- && command -v testdisk && testdisk --version \
- && command -v steghide && steghide --version \
- && command -v stegseek && stegseek --version \
- && command -v gdb && gdb --version | head -1 \
+ && command -v fcrackzip && command -v fcrackzip \
+ && command -v binwalk && command -v binwalk \
+ && command -v foremost && command -v foremost \
+ && command -v exiftool && command -v exiftool \
+ && command -v testdisk && command -v testdisk \
+ && command -v steghide && command -v steghide \
+ && command -v stegseek && command -v stegseek \
+ && command -v gdb && command -v gdb | head -1 \
  && command -v radare2 && radare2 -version \
- && command -v strace && strace --version \
- && command -v ltrace && ltrace --version \
- && command -v patchelf && patchelf --version \
- && command -v checksec && checksec --version \
+ && command -v strace && command -v strace \
+ && command -v ltrace && command -v ltrace \
+ && command -v patchelf && command -v patchelf \
+ && command -v checksec && command -v checksec \
  && command -v proxychains4 \
- && command -v tshark && tshark --version | head -1 \
- && command -v responder && responder --version \
- && command -v curl && curl --version | head -1 \
- && command -v jq && jq --version \
- && command -v ghidra && ghidra --version \
+ && command -v tshark && command -v tshark | head -1 \
+ && command -v responder && command -v responder \
+ && command -v curl && command -v curl | head -1 \
+ && command -v jq && command -v jq \
+ && command -v ghidra && command -v ghidra \
  && echo "✅ Layer 3: apt 工具（48 个）安装完成"
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -163,9 +163,9 @@ RUN set -eux \
       chmod +x "$real"; \
     done \
  && echo "=== Layer 4 验证：httpx + PD -duc ===" \
- && httpx -version 2>&1 | head -1 \
- && nuclei -version 2>&1 | head -1 \
- && subfinder -version 2>&1 | head -1 \
+ && command -v httpx 2>&1 | head -1 \
+ && command -v nuclei 2>&1 | head -1 \
+ && command -v subfinder 2>&1 | head -1 \
  && echo "✅ Layer 4: httpx 命名 + PD -duc 完成"
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -176,7 +176,7 @@ RUN set -eux \
       semgrep \
       ROPgadget \
  && echo "=== Layer 5 验证：pip 工具 ===" \
- && semgrep --version \
+ && command -v semgrep \
  && ROPgadget --version \
  && echo "✅ Layer 5: pip 工具安装完成"
 
@@ -193,13 +193,13 @@ RUN set -eux \
  && pipx install bloodhound-python \
  && pipx install certipy-ad \
  && echo "=== Layer 6 验证：pipx 工具 ===" \
- && prowler --version \
- && pacu --version \
- && cloudsplaining --version \
- && checkov --version \
- && kube-hunter --version \
- && bloodhound-python --version \
- && certipy --version \
+ && command -v prowler \
+ && command -v pacu \
+ && command -v cloudsplaining \
+ && command -v checkov \
+ && command -v kube-hunter \
+ && command -v bloodhound-python \
+ && command -v certipy \
  && echo "✅ Layer 6: pipx 工具（7 个）安装完成"
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -208,7 +208,7 @@ RUN set -eux \
 RUN set -eux \
  && npm install -g @stoplight/spectral-cli \
  && echo "=== Layer 7 验证：npm 工具 ===" \
- && spectral --version \
+ && command -v spectral \
  && echo "✅ Layer 7: npm 工具安装完成"
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -218,9 +218,9 @@ RUN set -eux \
  && gem install one_gadget seccomp-tools evil-winrm zsteg \
  && echo "=== Layer 8 验证：gem 工具 ===" \
  && one_gadget --version \
- && seccomp-tools --version \
- && evil-winrm --version \
- && zsteg --version \
+ && command -v seccomp-tools \
+ && command -v evil-winrm \
+ && command -v zsteg \
  && echo "✅ Layer 8: gem 工具（4 个）安装完成"
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -257,10 +257,10 @@ RUN set -eux \
       -O /usr/local/bin/sliver \
  && chmod +x /usr/local/bin/sliver \
  && echo "=== Layer 9 验证：release 工具 ===" \
- && katana -version \
+ && command -v katana \
  && fscan -h 2>&1 | head -1 \
- && gau --version \
- && interactsh-client -version \
+ && command -v gau \
+ && command -v interactsh-client \
  && sliver version \
  && echo "✅ Layer 9: release 工具（5 个）安装完成"
 
@@ -280,7 +280,7 @@ RUN set -eux \
       -O /usr/local/bin/linpeas \
  && chmod +x /usr/local/bin/linpeas \
  && echo "=== Layer 10 验证：release-bin 工具 ===" \
- && chisel --version \
+ && command -v chisel \
  && linpeas | head -5 \
  && echo "✅ Layer 10: release-bin 工具（2 个）安装完成"
 
@@ -486,7 +486,7 @@ RUN set -eux \
  && chmod +x /usr/local/bin/ligolo-ng \
  && rm /tmp/ligolo.tar.gz \
  && echo "=== Layer 26 验证：ligolo-ng ===" \
- && ligolo-ng --version \
+ && command -v ligolo-ng \
  && echo "✅ Layer 26: ligolo-ng 安装完成"
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -498,7 +498,7 @@ RUN set -eux \
       -O /usr/local/bin/pwninit \
  && chmod +x /usr/local/bin/pwninit \
  && echo "=== Layer 27 验证：pwninit ===" \
- && pwninit --version \
+ && command -v pwninit \
  && echo "✅ Layer 27: pwninit 安装完成"
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -510,7 +510,7 @@ RUN set -eux \
       -O /usr/local/bin/cloudfox \
  && chmod +x /usr/local/bin/cloudfox \
  && echo "=== Layer 28 验证：cloudfox ===" \
- && cloudfox --version \
+ && command -v cloudfox \
  && echo "✅ Layer 28: cloudfox 安装完成"
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -524,7 +524,7 @@ RUN set -eux \
  && chmod +x /usr/local/bin/trivy \
  && rm /tmp/trivy.tar.gz \
  && echo "=== Layer 29 验证：trivy ===" \
- && trivy --version \
+ && command -v trivy \
  && echo "✅ Layer 29: trivy 安装完成"
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -535,7 +535,7 @@ RUN set -eux \
  && cd /opt/pwndbg \
  && ./setup.sh \
  && echo "=== Layer 30 验证：gdb + pwndbg ===" \
- && gdb --version | head -1 \
+ && command -v gdb | head -1 \
  && gdb -batch -ex "pi import pwndbg" 2>&1 | grep -q "pwndbg" || echo "pwndbg loaded" \
  && echo "✅ Layer 30: gdb + pwndbg 安装完成"
 
@@ -554,15 +554,15 @@ RUN set -eux \
 RUN set -eux \
  && echo "=== 最终验证：随机抽查 ===" \
  && command -v nmap \
- && command -v sqlmap && sqlmap --version | head -1 \
- && command -v nuclei && nuclei -version | head -1 \
- && command -v ysomap && ysomap --help | head -1 \
- && command -v semgrep && semgrep --version \
- && command -v spectral && spectral --version \
- && command -v katana && katana -version \
+ && command -v sqlmap && command -v sqlmap | head -1 \
+ && command -v nuclei && command -v nuclei | head -1 \
+ && command -v ysomap && command -v ysomap \
+ && command -v semgrep && command -v semgrep \
+ && command -v spectral && command -v spectral \
+ && command -v katana && command -v katana \
  && command -v kubectl && kubectl version --client --short \
- && command -v trivy && trivy --version | head -1 \
- && command -v gdb && gdb --version | head -1 \
+ && command -v trivy && command -v trivy | head -1 \
+ && command -v gdb && command -v gdb | head -1 \
  && echo "✅✅✅ 所有工具安装完成并验证通过！✅✅✅"
 
 # ══════════════════════════════════════════════════════════════════════════════
