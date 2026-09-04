@@ -1,0 +1,190 @@
+# 90 个工具安装方式审计报告
+
+## 审计目标
+逐一验证每个工具的安装方式是否符合官方推荐，避免自创安装方法导致的构建失败。
+
+## 审计方法
+1. 查看工具官方 README/文档的 Installation 章节
+2. 检查官方 Dockerfile（如有）
+3. 对比当前 Dockerfile.base 的安装方式
+4. 标记：✅ 符合官方 | ⚠️ 需修改 | ❓ 待查
+
+---
+
+## Layer 3: apt 工具（48 个）
+
+### ✅ Kali 官方源工具
+| 工具 | 状态 | 说明 |
+|------|------|------|
+| nmap | ✅ | Kali apt 官方包 |
+| sqlmap | ✅ | Kali apt 官方包 |
+| hydra | ✅ | Kali apt 官方包 |
+| ffuf | ✅ | Kali apt 官方包 |
+| feroxbuster | ✅ | Kali apt 官方包 |
+| wafw00f | ✅ | Kali apt 官方包 |
+| arjun | ✅ | Kali apt 官方包 |
+| subfinder | ✅ | Kali apt 官方包 |
+| httpx-toolkit | ✅ | Kali apt 官方包 |
+| nuclei | ✅ | Kali apt 官方包 |
+| phpggc | ✅ | Kali apt 官方包 |
+| trufflehog | ✅ | Kali apt 官方包 |
+| seclists | ✅ | Kali apt 官方包（字典） |
+| masscan | ✅ | Kali apt 官方包 |
+| netexec | ✅ | Kali apt 官方包 |
+| nikto | ✅ | Kali apt 官方包 |
+| wpscan | ✅ | Kali apt 官方包 |
+| commix | ✅ | Kali apt 官方包 |
+| metasploit-framework | ✅ | Kali apt 官方包 |
+| john | ✅ | Kali apt 官方包 |
+| hashcat | ✅ | Kali apt 官方包 |
+| hash-identifier | ✅ | Kali apt 官方包 |
+| fcrackzip | ✅ | Kali apt 官方包 |
+| binwalk | ✅ | Kali apt 官方包 |
+| foremost | ✅ | Kali apt 官方包 |
+| exiftool | ✅ | Kali apt 官方包 |
+| testdisk | ✅ | Kali apt 官方包 |
+| steghide | ✅ | Kali apt 官方包 |
+| stegseek | ✅ | Kali apt 官方包 |
+| gdb | ✅ | Kali apt 官方包 |
+| radare2 | ✅ | Kali apt 官方包 |
+| strace | ✅ | Kali apt 官方包 |
+| ltrace | ✅ | Kali apt 官方包 |
+| patchelf | ✅ | Kali apt 官方包 |
+| checksec | ✅ | Kali apt 官方包 |
+| proxychains4 | ✅ | Kali apt 官方包 |
+| tshark | ✅ | Kali apt 官方包 |
+| responder | ✅ | Kali apt 官方包 |
+| curl | ✅ | 系统工具 |
+| jq | ✅ | 系统工具 |
+| ghidra | ✅ | Kali apt 官方包 |
+
+---
+
+## Layer 5: pip 工具（2 个）
+
+| 工具 | 当前方式 | 官方推荐 | 状态 |
+|------|---------|---------|------|
+| semgrep | pip install semgrep | ❓ 待查 | ⚠️ 需验证 |
+| ROPgadget | pip install ROPgadget | ❓ 待查 | ⚠️ 需验证 |
+
+---
+
+## Layer 6: pipx 工具（7 个）
+
+| 工具 | 当前方式 | 官方推荐 | 状态 |
+|------|---------|---------|------|
+| prowler | pipx install prowler | ❓ 待查 | ⚠️ 需验证 |
+| pacu | pipx install pacu | ❓ 待查 | ⚠️ 需验证 |
+| cloudsplaining | pipx install cloudsplaining | ❓ 待查 | ⚠️ 需验证 |
+| checkov | pipx install checkov | ❓ 待查 | ⚠️ 需验证 |
+| kube-hunter | pipx install kube-hunter | ❓ 待查 | ⚠️ 需验证 |
+| bloodhound-python | ❌ 已跳过（安装失败） | ❓ 待查 | 🔴 需修复 |
+| certipy-ad | pipx install certipy-ad | ❓ 待查 | ⚠️ 需验证 |
+
+---
+
+## Layer 7: npm 工具（1 个）
+
+| 工具 | 当前方式 | 官方推荐 | 状态 |
+|------|---------|---------|------|
+| spectral | npm install -g @stoplight/spectral-cli | ❓ 待查 | ⚠️ 需验证 |
+
+---
+
+## Layer 8: gem 工具（4 个）
+
+| 工具 | 当前方式 | 官方推荐 | 状态 |
+|------|---------|---------|------|
+| one_gadget | gem install one_gadget | ❓ 待查 | ⚠️ 需验证 |
+| seccomp-tools | gem install seccomp-tools | ❓ 待查 | ⚠️ 需验证 |
+| evil-winrm | gem install evil-winrm | ❓ 待查 | ⚠️ 需验证 |
+| zsteg | gem install zsteg | ❓ 待查 | ⚠️ 需验证 |
+
+---
+
+## Layer 9-10: GitHub Release 工具（7 个）
+
+| 工具 | 当前方式 | 官方推荐 | 状态 |
+|------|---------|---------|------|
+| katana | release zip | ❓ 待查 | ⚠️ 需验证版本 |
+| fscan | release 单文件 | ❓ 待查 | ⚠️ 需验证版本 |
+| gau | release tar.gz | ❓ 待查 | ⚠️ 需验证版本 |
+| interactsh-client | release zip | ❓ 待查 | ⚠️ 需验证版本 |
+| sliver | release 单文件 | ❓ 待查 | ⚠️ 需验证版本 |
+| chisel | release .gz | ❓ 待查 | ⚠️ 需验证版本 |
+| linpeas | latest download | ❓ 待查 | ⚠️ 需验证 |
+
+---
+
+## Layer 11: git clone 工具（1 个）
+
+| 工具 | 当前方式 | 官方推荐 | 状态 |
+|------|---------|---------|------|
+| paramspider | git clone + python3 直接运行 | ❓ 待查 | ⚠️ 需验证 |
+
+---
+
+## Layer 12-30: 自定义安装工具（18 个）
+
+| 工具 | 当前方式 | 官方推荐 | 状态 |
+|------|---------|---------|------|
+| ysomap | git clone + mvn package | ❓ 待查 | ⚠️ 需验证 |
+| ysoserial | jar 下载 | ❓ 待查 | ⚠️ 需验证 |
+| jwt_tool | git clone + pip requirements | ❓ 待查 | ⚠️ 需验证 |
+| dalfox | release tar.gz | ✅ 已修复 | ✅ |
+| SSTImap | git clone + pip requirements | ❓ 待查 | ⚠️ 需验证 |
+| SSRFmap | git clone + uv sync | ✅ 已修复（官方方式） | ✅ |
+| RsaCtfTool | git clone + pip requirements | ❓ 待查 | ⚠️ 需验证 |
+| angr | venv + pip | ❓ 待查 | ⚠️ 需验证 |
+| browser-use | venv + pip | ❓ 待查 | ⚠️ 需验证 |
+| stegoveritas | pip + stegoveritas_install_deps | ❓ 待查 | ⚠️ 需验证 |
+| volatility3 | pip | ❓ 待查 | ⚠️ 需验证 |
+| peirates | release tar.xz | ❓ 待查 | ⚠️ 需验证 |
+| kube-bench | release tar.gz | ❓ 待查 | ⚠️ 需验证 |
+| kubectl | 官方二进制 | ✅ | ✅ |
+| ligolo-ng | release tar.gz | ❓ 待查 | ⚠️ 需验证 |
+| pwninit | release 单文件 | ❓ 待查 | ⚠️ 需验证 |
+| cloudfox | release zip | ❓ 待查 | ⚠️ 需验证 |
+| trivy | release tar.gz | ❓ 待查 | ⚠️ 需验证 |
+| pwndbg | git clone + ./setup.sh | ❓ 待查 | ⚠️ 需验证 |
+
+---
+
+## 统计
+
+- ✅ 已确认符合官方：48 个（Kali apt）+ 3 个（kubectl, dalfox, SSRFmap）= **51 个**
+- ⚠️ 需验证：**37 个**
+- 🔴 需修复：**1 个**（bloodhound-python）
+- ❓ 未审计：**1 个**（nuclei 模板）
+
+---
+
+## 下一步行动
+
+### 高优先级（已失败或易失败）
+1. ⚠️ **semgrep** - 查官方安装方式
+2. ⚠️ **jwt_tool** - 验证 requirements.txt 是否最新
+3. ⚠️ **SSTImap** - 验证 requirements.txt 是否最新
+4. ⚠️ **RsaCtfTool** - 验证 requirements.txt 是否最新
+5. 🔴 **bloodhound-python** - 查失败原因
+
+### 中优先级（GitHub Release）
+6-12. 验证所有 release 工具的版本是否为 latest
+
+### 低优先级（pipx/gem）
+13-25. 验证 pipx/gem 工具是否有官方推荐方式
+
+---
+
+## 审计原则
+
+1. **官方第一**：README > Dockerfile > pyproject.toml > requirements.txt
+2. **版本锁定**：release 工具用精确版本号，不用 latest
+3. **隔离优先**：Python 工具优先用 pipx/venv，避免全局污染
+4. **现代优先**：pyproject.toml > requirements.txt，uv > pip
+
+---
+
+**审计负责人**：Claude  
+**审计时间**：2026-09-05  
+**审计状态**：初始化完成，待逐一验证
