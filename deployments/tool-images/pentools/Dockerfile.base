@@ -252,12 +252,20 @@ RUN set -eux \
  && chmod +x /usr/local/bin/SSTImap
 
 # ══════════════════════════════════════════════════════════════════════════════
+# Layer 16: 安装 uv（现代 Python 包管理器，SSRFmap 依赖）
+# ══════════════════════════════════════════════════════════════════════════════
+RUN set -eux \
+ && curl -LsSf https://astral.sh/uv/install.sh | sh \
+ && ln -s ~/.cargo/bin/uv /usr/local/bin/uv
+
+# ══════════════════════════════════════════════════════════════════════════════
 # Layer 17: SSRFmap（SSRF 利用）
 # ══════════════════════════════════════════════════════════════════════════════
 RUN set -eux \
  && git clone --depth 1 https://github.com/swisskyrepo/SSRFmap.git /opt/SSRFmap \
- && pip install --no-cache-dir --break-system-packages /opt/SSRFmap \
- && printf '#!/bin/sh\nexec python3 /opt/SSRFmap/ssrfmap.py "$@"\n' > /usr/local/bin/SSRFmap \
+ && cd /opt/SSRFmap \
+ && uv sync --frozen \
+ && printf '#!/bin/sh\ncd /opt/SSRFmap && exec uv run --no-sync python3 ssrfmap.py "$@"\n' > /usr/local/bin/SSRFmap \
  && chmod +x /usr/local/bin/SSRFmap
 
 # ══════════════════════════════════════════════════════════════════════════════
