@@ -256,7 +256,7 @@ RUN set -eux \
 # ══════════════════════════════════════════════════════════════════════════════
 RUN set -eux \
  && git clone --depth 1 https://github.com/swisskyrepo/SSRFmap.git /opt/SSRFmap \
- && pip install --no-cache-dir --break-system-packages -r /opt/SSRFmap/requirements.txt \
+ && pip install --no-cache-dir --break-system-packages /opt/SSRFmap \
  && printf '#!/bin/sh\nexec python3 /opt/SSRFmap/ssrfmap.py "$@"\n' > /usr/local/bin/SSRFmap \
  && chmod +x /usr/local/bin/SSRFmap
 
