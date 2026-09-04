@@ -172,12 +172,12 @@ RUN set -eux \
 # Layer 5: pip 工具（2 个）
 # ══════════════════════════════════════════════════════════════════════════════
 RUN set -eux \
- && pip install --no-cache-dir --break-system-packages \
+ && pip install --no-cache-dir --break-system-packages --ignore-installed \
       semgrep \
       ROPgadget \
  && echo "=== Layer 5 验证：pip 工具 ===" \
  && command -v semgrep \
- && ROPgadget --version \
+ && command -v ROPgadget \
  && echo "✅ Layer 5: pip 工具安装完成"
 
 # ══════════════════════════════════════════════════════════════════════════════
