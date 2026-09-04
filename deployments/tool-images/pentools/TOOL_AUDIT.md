@@ -64,7 +64,7 @@
 
 | 工具 | 当前方式 | 官方推荐 | 状态 |
 |------|---------|---------|------|
-| semgrep | pip install semgrep | ❓ 待查 | ⚠️ 需验证 |
+| semgrep | pip install semgrep | pip install semgrep | ✅ 已验证 |
 | ROPgadget | pip install ROPgadget | ❓ 待查 | ⚠️ 需验证 |
 
 ---
@@ -78,7 +78,7 @@
 | cloudsplaining | pipx install cloudsplaining | ❓ 待查 | ⚠️ 需验证 |
 | checkov | pipx install checkov | ❓ 待查 | ⚠️ 需验证 |
 | kube-hunter | pipx install kube-hunter | ❓ 待查 | ⚠️ 需验证 |
-| bloodhound-python | ❌ 已跳过（安装失败） | ❓ 待查 | 🔴 需修复 |
+| bloodhound | pipx install bloodhound | pipx install bloodhound | ✅ 已修复 |
 | certipy-ad | pipx install certipy-ad | ❓ 待查 | ⚠️ 需验证 |
 
 ---
@@ -130,11 +130,11 @@
 |------|---------|---------|------|
 | ysomap | git clone + mvn package | ❓ 待查 | ⚠️ 需验证 |
 | ysoserial | jar 下载 | ❓ 待查 | ⚠️ 需验证 |
-| jwt_tool | git clone + pip requirements | ❓ 待查 | ⚠️ 需验证 |
+| jwt_tool | git clone + pip requirements | git clone + pip requirements | ✅ 已验证 |
 | dalfox | release tar.gz | ✅ 已修复 | ✅ |
-| SSTImap | git clone + pip requirements | ❓ 待查 | ⚠️ 需验证 |
-| SSRFmap | git clone + uv sync | ✅ 已修复（官方方式） | ✅ |
-| RsaCtfTool | git clone + pip requirements | ❓ 待查 | ⚠️ 需验证 |
+| SSTImap | git clone + pip requirements | git clone + pip requirements | ✅ 已验证 |
+| SSRFmap | git clone + uv sync | git clone + uv sync | ✅ 已修复（官方方式） |
+| RsaCtfTool | git clone + pip install -e . | git clone + pip install -e . | ✅ 已修复（官方方式） |
 | angr | venv + pip | ❓ 待查 | ⚠️ 需验证 |
 | browser-use | venv + pip | ❓ 待查 | ⚠️ 需验证 |
 | stegoveritas | pip + stegoveritas_install_deps | ❓ 待查 | ⚠️ 需验证 |
@@ -152,27 +152,37 @@
 
 ## 统计
 
-- ✅ 已确认符合官方：48 个（Kali apt）+ 3 个（kubectl, dalfox, SSRFmap）= **51 个**
-- ⚠️ 需验证：**37 个**
-- 🔴 需修复：**1 个**（bloodhound-python）
+- ✅ 已确认符合官方：48 个（Kali apt）+ 7 个（kubectl, dalfox, SSRFmap, RsaCtfTool, semgrep, jwt_tool, SSTImap, bloodhound）= **55 个**
+- ⚠️ 需验证：**34 个**
+- 🔴 需修复：**0 个**
 - ❓ 未审计：**1 个**（nuclei 模板）
 
 ---
 
 ## 下一步行动
 
-### 高优先级（已失败或易失败）
-1. ⚠️ **semgrep** - 查官方安装方式
-2. ⚠️ **jwt_tool** - 验证 requirements.txt 是否最新
-3. ⚠️ **SSTImap** - 验证 requirements.txt 是否最新
-4. ⚠️ **RsaCtfTool** - 验证 requirements.txt 是否最新
-5. 🔴 **bloodhound-python** - 查失败原因
+### 高优先级（已修复）
+1. ✅ **semgrep** - 官方推荐 pip install
+2. ✅ **jwt_tool** - 官方推荐 git clone + pip requirements
+3. ✅ **SSTImap** - 官方推荐 git clone + pip requirements
+4. ✅ **RsaCtfTool** - 官方推荐 git clone + pip install -e .
+5. ✅ **bloodhound** - 官方推荐 pip/pipx install bloodhound（不是 bloodhound-python）
+6. ✅ **SSRFmap** - 官方推荐 git clone + uv sync
+7. ✅ **dalfox** - 已修复
 
 ### 中优先级（GitHub Release）
-6-12. 验证所有 release 工具的版本是否为 latest
+8-14. 验证所有 release 工具的版本是否为 latest
 
 ### 低优先级（pipx/gem）
-13-25. 验证 pipx/gem 工具是否有官方推荐方式
+15-34. 验证 pipx/gem 工具是否有官方推荐方式
+
+---
+
+## 已发现并修复的问题
+
+1. ✅ **SSRFmap** - 从 pip install requirements 改为 uv sync（官方迁移到 uv）
+2. ✅ **RsaCtfTool** - 从 pip install requirements 改为 pip install -e .（官方用 pyproject.toml）
+3. ✅ **bloodhound-python** - 包名错误，改为 bloodhound（防御性占位包陷阱）
 
 ---
 
