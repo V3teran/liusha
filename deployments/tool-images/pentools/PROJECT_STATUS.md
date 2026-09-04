@@ -60,9 +60,13 @@
 
 ### GitHub Actions 测试 ⏳
 
-- **状态**: 正在运行
+- **状态**: 正在运行（已修复 pwntools/unicorn 兼容性问题）
 - **URL**: https://github.com/V3teran/liusha/actions
 - **预计时间**: 40-50 分钟（首次构建无缓存）
+- **最新修复**: 2026-09-04
+  - pwntools 使用独立 py3.12 venv（规避 unicorn 不支持 py3.14）
+  - 添加 cmake/pkg-config 编译依赖
+  - Layer 11 提前安装 uv，Layer 10 复用
 
 **测试内容**:
 - ✓ Level 1: 90 个工具命令存在性测试
