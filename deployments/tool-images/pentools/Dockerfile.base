@@ -238,7 +238,7 @@ RUN set -eux \
       "https://github.com/hahwul/dalfox/releases/download/v3.2.2/dalfox-v3.2.2-linux-${DALFOX_ARCH}-musl.tar.gz" \
       -O /tmp/dalfox.tar.gz \
  && tar -xzf /tmp/dalfox.tar.gz -C /tmp \
- && mv /tmp/dalfox /usr/local/bin/dalfox \
+ && mv /tmp/dalfox-v3.2.2-linux-${DALFOX_ARCH}-musl/dalfox /usr/local/bin/dalfox \
  && chmod +x /usr/local/bin/dalfox \
  && rm -rf /tmp/dalfox*
 
