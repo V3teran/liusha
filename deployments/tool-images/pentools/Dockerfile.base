@@ -30,7 +30,7 @@ RUN set -eux \
       nodejs npm \
       php-cli \
       golang maven \
-      ruby-full \
+      ruby-full ruby-dev libreadline-dev \
       default-mysql-client postgresql-client \
       build-essential libssl-dev libffi-dev \
       libgmp-dev libmpfr-dev libmpc-dev \
@@ -119,17 +119,17 @@ RUN set -eux \
       ROPgadget
 
 # ══════════════════════════════════════════════════════════════════════════════
-# Layer 6: pipx 工具（7 个）
+# Layer 6: pipx 工具（6 个，跳过 bloodhound-python）
 # ══════════════════════════════════════════════════════════════════════════════
 # 隔离 Python CLI 工具，避免依赖冲突
-# 分步安装便于定位失败工具
-RUN pipx install prowler || echo "⚠️ prowler 安装失败"
-RUN pipx install pacu || echo "⚠️ pacu 安装失败"
-RUN pipx install cloudsplaining || echo "⚠️ cloudsplaining 安装失败"
-RUN pipx install checkov || echo "⚠️ checkov 安装失败"
-RUN pipx install kube-hunter || echo "⚠️ kube-hunter 安装失败"
-RUN pipx install bloodhound-python || echo "⚠️ bloodhound-python 安装失败"
-RUN pipx install certipy-ad || echo "⚠️ certipy-ad 安装失败"
+# bloodhound-python 安装失败，暂时跳过
+RUN pipx install prowler
+RUN pipx install pacu
+RUN pipx install cloudsplaining
+RUN pipx install checkov
+RUN pipx install kube-hunter
+# RUN pipx install bloodhound-python  # 失败，跳过
+RUN pipx install certipy-ad
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Layer 7: npm 工具（1 个）
