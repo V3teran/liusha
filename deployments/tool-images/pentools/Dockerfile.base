@@ -170,9 +170,8 @@ RUN set -eux \
  && unzip -oq /tmp/interactsh.zip interactsh-client -d /usr/local/bin/ \
  && chmod +x /usr/local/bin/interactsh-client \
  && rm /tmp/interactsh.zip \
- && SLIVER_ARCH=$([ "${TARGETARCH}" = "amd64" ] && echo "amd64" || echo "arm64") \
  && wget -q --tries=3 --waitretry=5 \
-      "https://github.com/BishopFox/sliver/releases/download/v1.7.7/sliver-server_linux-${SLIVER_ARCH}" \
+      "https://github.com/BishopFox/sliver/releases/download/v1.7.7/sliver-server_linux-amd64" \
       -O /usr/local/bin/sliver \
  && chmod +x /usr/local/bin/sliver
 
@@ -187,7 +186,7 @@ RUN set -eux \
  && gunzip /tmp/chisel.gz \
  && mv /tmp/chisel /usr/local/bin/chisel \
  && chmod +x /usr/local/bin/chisel \
- && wget -q --tries=3 --waitretry=5 \
+ && wget -q --tries=3 --waitretry=5 -L \
       "https://github.com/carlospolop/PEASS-ng/releases/latest/download/linpeas.sh" \
       -O /usr/local/bin/linpeas \
  && chmod +x /usr/local/bin/linpeas
@@ -236,7 +235,7 @@ RUN set -eux \
 RUN set -eux \
  && DALFOX_ARCH=x86_64 \
  && wget -q --tries=3 --waitretry=5 \
-      "https://github.com/hahwul/dalfox/releases/download/v3.1.2/dalfox-v3.1.2-linux-${DALFOX_ARCH}-musl.tar.gz" \
+      "https://github.com/hahwul/dalfox/releases/download/v3.2.2/dalfox-v3.2.2-linux-${DALFOX_ARCH}-musl.tar.gz" \
       -O /tmp/dalfox.tar.gz \
  && tar -xzf /tmp/dalfox.tar.gz -C /tmp \
  && mv /tmp/dalfox /usr/local/bin/dalfox \
@@ -332,8 +331,9 @@ RUN set -eux \
 # ══════════════════════════════════════════════════════════════════════════════
 RUN set -eux \
  && KUBECTL_ARCH=$([ "$TARGETARCH" = "amd64" ] && echo "amd64" || echo "arm64") \
+ && KUBECTL_VERSION=$(wget -qO- https://dl.k8s.io/release/stable.txt) \
  && wget -q --tries=3 --waitretry=5 \
-      "https://dl.k8s.io/release/$(wget -qO- https://dl.k8s.io/release/stable.txt)/bin/linux/${KUBECTL_ARCH}/kubectl" \
+      "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${KUBECTL_ARCH}/kubectl" \
       -O /usr/local/bin/kubectl \
  && chmod +x /usr/local/bin/kubectl
 
@@ -342,7 +342,7 @@ RUN set -eux \
 # ══════════════════════════════════════════════════════════════════════════════
 RUN set -eux \
  && wget -q --tries=3 --waitretry=5 \
-      "https://github.com/nicocha30/ligolo-ng/releases/download/v0.9.1/ligolo-ng_agent_0.6.2_linux_${TARGETARCH}.tar.gz" \
+      "https://github.com/nicocha30/ligolo-ng/releases/download/v0.9.1/ligolo-ng_agent_0.9.1_linux_${TARGETARCH}.tar.gz" \
       -O /tmp/ligolo.tar.gz \
  && tar -xzf /tmp/ligolo.tar.gz -C /usr/local/bin agent \
  && mv /usr/local/bin/agent /usr/local/bin/ligolo-ng \
@@ -363,9 +363,11 @@ RUN set -eux \
 # ══════════════════════════════════════════════════════════════════════════════
 RUN set -eux \
  && wget -q --tries=3 --waitretry=5 \
-      "https://github.com/BishopFox/cloudfox/releases/download/v2.0.5/cloudfox-linux-${TARGETARCH}" \
-      -O /usr/local/bin/cloudfox \
- && chmod +x /usr/local/bin/cloudfox
+      "https://github.com/BishopFox/cloudfox/releases/download/v2.0.5/cloudfox-linux-${TARGETARCH}.zip" \
+      -O /tmp/cloudfox.zip \
+ && unzip -oq /tmp/cloudfox.zip cloudfox -d /usr/local/bin/ \
+ && chmod +x /usr/local/bin/cloudfox \
+ && rm /tmp/cloudfox.zip
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Layer 29: trivy（容器镜像扫描）
