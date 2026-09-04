@@ -40,7 +40,7 @@ RUN set -eux \
  && wget -q --tries=3 --waitretry=5 \
       "https://github.com/mikefarah/yq/releases/latest/download/yq_linux_${TARGETARCH}" \
       -O /usr/local/bin/yq \
- && chmod +x /usr/local/bin/yq \
+ && chmod +x /usr/local/bin/yq
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Layer 2: 双 JDK（Temurin 8 + 17）
