@@ -59,12 +59,12 @@ func listFindingsHandler(api FindingsAPI) gin.HandlerFunc {
 		}
 
 		f := finding.LedgerFilter{
-			Host:       c.Query("host"),
-			Severity:   c.Query("severity"),
-			Status:     c.Query("status"),
-			Source:     c.Query("source"),
-			Limit:      size,
-			Offset:     (page - 1) * size,
+			Host:     c.Query("host"),
+			Severity: c.Query("severity"),
+			Status:   c.Query("status"),
+			Source:   c.Query("source"),
+			Limit:    size,
+			Offset:   (page - 1) * size,
 		}
 
 		rows, err := api.ListAll(c.Request.Context(), f)
@@ -169,7 +169,7 @@ func findingJSON(r finding.LedgerRow) gin.H {
 		"remediation":    r.Remediation,
 		"target":         json.RawMessage(rawOrEmpty(r.Target, "{}")),
 		"evidence":       json.RawMessage(rawOrEmpty(r.Evidence, "{}")),
-		"_id": "",
+		"_id":            "",
 		"source":         r.Source,
 		"status":         r.Status,
 		"triage_note":    r.TriageNote,

@@ -23,7 +23,7 @@ const (
 
 // 队列名（asynq Queue），priority 在消费端 Server.Config.Queues 配置。
 const (
-	QueueExecutor   = "executor"
+	QueueExecutor = "executor"
 	QueueDispatch = "dispatch"
 )
 

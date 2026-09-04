@@ -7,18 +7,18 @@ type Category string
 
 const (
 	// 信息类
-	CategoryTarget        Category = "target"        // 目标信息
-	CategoryCredential    Category = "credential"    // 凭证信息
+	CategoryTarget         Category = "target"         // 目标信息
+	CategoryCredential     Category = "credential"     // 凭证信息
 	CategoryInfrastructure Category = "infrastructure" // 基础设施
-	CategoryBusiness      Category = "business"      // 业务逻辑
-	CategoryData          Category = "data"          // 数据特征
+	CategoryBusiness       Category = "business"       // 业务逻辑
+	CategoryData           Category = "data"           // 数据特征
 
 	// 发现类
-	CategoryFinding       Category = "finding"       // 发现（漏洞/问题）
+	CategoryFinding Category = "finding" // 发现（漏洞/问题）
 
 	// 其他
-	CategoryObstacle      Category = "obstacle"      // 障碍
-	CategoryNote          Category = "note"          // 笔记
+	CategoryObstacle Category = "obstacle" // 障碍
+	CategoryNote     Category = "note"     // 笔记
 )
 
 // Priority 是优先级
@@ -42,26 +42,26 @@ const (
 
 // Entry 是一条情报记录
 type Entry struct {
-	ID           string     `json:"id"`
-	AssignmentID string     `json:"assignment_id"`
+	ID           string `json:"id"`
+	AssignmentID string `json:"assignment_id"`
 
 	// 三维分类
-	Category     Category   `json:"category"`
-	Priority     Priority   `json:"priority"`
-	Confidence   Confidence `json:"confidence"`
+	Category   Category   `json:"category"`
+	Priority   Priority   `json:"priority"`
+	Confidence Confidence `json:"confidence"`
 
 	// 内容
-	Summary      string     `json:"summary"`
-	Body         string     `json:"body,omitempty"`
-	Tags         []string   `json:"tags,omitempty"`
+	Summary string   `json:"summary"`
+	Body    string   `json:"body,omitempty"`
+	Tags    []string `json:"tags,omitempty"`
 
 	// 追溯
-	SourceTaskID  string    `json:"source_task_id"`
-	SourceAgentID string    `json:"source_agent_id,omitempty"`
+	SourceTaskID  string `json:"source_task_id"`
+	SourceAgentID string `json:"source_agent_id,omitempty"`
 
 	// 时间
-	CreatedAt    time.Time  `json:"created_at"`
-	UpdatedAt    time.Time  `json:"updated_at"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 // IsCritical 判断是否为关键优先级

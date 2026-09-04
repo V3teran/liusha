@@ -20,8 +20,8 @@ var readCredentialsSchema = json.RawMessage(`{
 
 type readCredentialsTool struct{ deps Deps }
 
-func (t *readCredentialsTool) Name() string            { return "read_credentials" }
-func (t *readCredentialsTool) ShortDesc() string       { return "读取本 host 预录入真实身份" }
+func (t *readCredentialsTool) Name() string      { return "read_credentials" }
+func (t *readCredentialsTool) ShortDesc() string { return "读取本 host 预录入真实身份" }
 func (t *readCredentialsTool) Desc() string {
 	return "读取本 host 预录入的真实身份（cookie/token/body 字段），可直接拼请求做重放/越权测试。"
 }
@@ -82,8 +82,8 @@ var writeCredentialSchema = json.RawMessage(`{
 
 type writeCredentialTool struct{ deps Deps }
 
-func (t *writeCredentialTool) Name() string            { return "write_credential" }
-func (t *writeCredentialTool) ShortDesc() string       { return "录入活凭证" }
+func (t *writeCredentialTool) Name() string      { return "write_credential" }
+func (t *writeCredentialTool) ShortDesc() string { return "录入活凭证" }
 func (t *writeCredentialTool) Desc() string {
 	return "把刚拿到的活凭证录入本 host 凭证池，供同 owner 下其他 executor 共享复用。"
 }

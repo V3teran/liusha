@@ -91,7 +91,7 @@ func TestRefCountManager_BasicFlow(t *testing.T) {
 // TestRefCountManager_StaleCleanup 测试超时清理
 func TestRefCountManager_StaleCleanup(t *testing.T) {
 	launcher := &mockLauncher{containers: make(map[string]*mockClient)}
-	poolMgr := NewPooledManager(launcher, zerolog.Nop(), 10000) // 10秒 grace period
+	poolMgr := NewPooledManager(launcher, zerolog.Nop(), 10000)                // 10秒 grace period
 	refMgr := NewRefCountManager(poolMgr, zerolog.Nop(), 100*time.Millisecond) // 100ms TTL
 	defer refMgr.Stop()
 

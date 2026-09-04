@@ -360,9 +360,9 @@ func (s *ProxyStore) ListByTask(ctx context.Context, taskID string) ([]ProxyTraf
 
 // MonitoredHost 是「监控中 host 列表」的一行（从 proxy_traffic 派生，见 spec §6.4）。
 type MonitoredHost struct {
-	Host       string
-	LastSeenAt string
-	TrafficCount  int
+	Host         string
+	LastSeenAt   string
+	TrafficCount int
 }
 
 // ListMonitoredHosts 派生「最近 N 秒内有流量」的 host（前端监控列表），不落标志表。

@@ -32,23 +32,23 @@ const (
 // Result 在终态前为空 jsonb '{}'。
 // plannerID 空表示独立/根任务；非空时指向 planner agent.id（旧 subtask swarm 数据）。
 type Run struct {
-	ID             string
-	TaskID         string // 所属 task.id
+	ID        string
+	TaskID    string // 所属 task.id
 	plannerID string
-	Role           string
-	Input          json.RawMessage
-	Result         json.RawMessage
-	Status         Status
-	CreatedAt      time.Time
-	UpdatedAt      time.Time
+	Role      string
+	Input     json.RawMessage
+	Result    json.RawMessage
+	Status    Status
+	CreatedAt time.Time
+	UpdatedAt time.Time
 }
 
 // NewParams 是 Store.Create 的入参。
 // plannerID 留空表示独立/根任务；填值时 INSERT 写入 planner_id 列。
 // TaskID 必填（NOT NULL 外键）。
 type NewParams struct {
-	TaskID         string
-	Role           string
-	Input          json.RawMessage
+	TaskID    string
+	Role      string
+	Input     json.RawMessage
 	plannerID string
 }

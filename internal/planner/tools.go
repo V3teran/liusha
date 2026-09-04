@@ -384,9 +384,9 @@ func (t *EvaluateProgressTool) Execute(ctx context.Context, input map[string]int
 	verifiedDiscoveries, _ := t.world.ListVerifiedFindings(ctx, taskID)
 
 	result := map[string]interface{}{
-		"open_moves_count":      len(openMoves),
-		"completed_moves_count": len(completedMoves),
-		"discoveries_count":     len(discoveries),
+		"open_moves_count":           len(openMoves),
+		"completed_moves_count":      len(completedMoves),
+		"discoveries_count":          len(discoveries),
 		"verified_discoveries_count": len(verifiedDiscoveries),
 	}
 

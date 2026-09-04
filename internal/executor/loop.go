@@ -57,7 +57,7 @@ func (l *Loop) Run(ctx context.Context, taskID string) (Report, error) {
 	}
 
 	consecutiveEmptyPolls := 0
-	maxEmptyPolls := 60  // 2 分钟无进展则退出（Planner 已完成初始规划）
+	maxEmptyPolls := 60 // 2 分钟无进展则退出（Planner 已完成初始规划）
 
 	for {
 		select {

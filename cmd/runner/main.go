@@ -24,8 +24,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/V3teran/liusha/internal/executor"
-	"github.com/V3teran/liusha/internal/domain"
 	agentstore "github.com/V3teran/liusha/internal/agentrun"
 	"github.com/V3teran/liusha/internal/assignment"
 	"github.com/V3teran/liusha/internal/cachestore"
@@ -38,9 +36,11 @@ import (
 	"github.com/V3teran/liusha/internal/credential"
 	"github.com/V3teran/liusha/internal/cryptx"
 	"github.com/V3teran/liusha/internal/db"
+	"github.com/V3teran/liusha/internal/domain"
 	"github.com/V3teran/liusha/internal/embedding"
 	"github.com/V3teran/liusha/internal/envx"
 	"github.com/V3teran/liusha/internal/eventbus"
+	"github.com/V3teran/liusha/internal/executor"
 	"github.com/V3teran/liusha/internal/finding"
 	"github.com/V3teran/liusha/internal/ingestor"
 	"github.com/V3teran/liusha/internal/lead"
@@ -275,7 +275,7 @@ func main() {
 	actionBus := eventbus.New()
 
 	h := handler{
-		executors: executorRuns,
+		executors:      executorRuns,
 		tasks:          taskStore,
 		findings:       finds,
 		corpus:         corpusStore,
@@ -290,12 +290,12 @@ func main() {
 		runnerCfg:      runnerCfg,
 		sandboxMgr:     sandboxMgr,
 		logger:         logger,
-		router:        provider.NewRouter(llmStore.AsRouterStore(), llmKeyCipher),
-		creds:         creds,
-		toolCalls:     toolCalls,
-		toolingLoader: toolingLoader,
-		vulnLoader:    vulnLoader,
-		toolsManifest: toolsManifest,
+		router:         provider.NewRouter(llmStore.AsRouterStore(), llmKeyCipher),
+		creds:          creds,
+		toolCalls:      toolCalls,
+		toolingLoader:  toolingLoader,
+		vulnLoader:     vulnLoader,
+		toolsManifest:  toolsManifest,
 		cfgStore:       cfgStore,
 		conversations:  convStore,
 		eventPublisher: eventPublisher,
@@ -316,7 +316,7 @@ func main() {
 		asynq.Config{
 			Concurrency: runnerCfg.AsynqConcurrency,
 			Queues: map[string]int{
-				worker.QueueExecutor:   runnerCfg.QueueAgentWeight,
+				worker.QueueExecutor: runnerCfg.QueueAgentWeight,
 				worker.QueueDispatch: runnerCfg.QueueDispatchWeight,
 			},
 		},
@@ -335,7 +335,7 @@ func main() {
 		Tasks:         taskStore,
 		ProxyStore:    proxyStore,
 		AgentStore:    agentStore,
-		Agents: executorRuns,
+		Agents:        executorRuns,
 		Conversations: convStore, // passive 聚合建 task 后建会话流
 		Enqueuer:      wc,
 		Logger:        logger,

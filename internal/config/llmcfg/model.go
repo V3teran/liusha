@@ -97,6 +97,7 @@ type Routing struct {
 //   - ComplexitySimple  ：快速响应，简单任务（如信息提取、格式化、简单验证）
 //   - ComplexityMedium  ：标准推理，常规任务（如漏洞检测、工具调用、常规分析）。**隐式默认档**——未显式归档的 role 落此。
 //   - ComplexityComplex ：深度推理，复杂决策（如战略规划、多步分析、多模态处理）
+//
 // complexity 名直接作为 llm_role_route.role 列的值持久化（DB schema 不区分「档」与「role」，共用一张表）。
 const (
 	ComplexitySimple  = "simple"
@@ -116,11 +117,11 @@ const RoleFallback = "__fallback__"
 //
 // 两类 key 混在此表：
 //   - agent（DB 有配置行，用户可在「智能体」页改 complexity，DB 优先于本表）：
-//       planner / exploitation：active 链路需 browser-use 截图 + 深度规划 → complex
-//       traffic-analysis      ：passive 流量逐批挖洞，标准推理 → medium
+//     planner / exploitation：active 链路需 browser-use 截图 + 深度规划 → complex
+//     traffic-analysis      ：passive 流量逐批挖洞，标准推理 → medium
 //   - 轻量路由 key（非 agent，无 DB 行、无 UI，仅借名路由到 simple 档）：
-//       inspector：意图分类 + attack-graph 摘要复用（cmd/api）
-//       compactor：ReAct 会话历史压缩（cmd/runner）
+//     inspector：意图分类 + attack-graph 摘要复用（cmd/api）
+//     compactor：ReAct 会话历史压缩（cmd/runner）
 var agentComplexityTable = map[string]string{
 	"planner":          ComplexityComplex,
 	"exploitation":     ComplexityComplex,

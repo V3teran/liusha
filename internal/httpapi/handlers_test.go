@@ -279,9 +279,9 @@ func TestTaskAbort_RequiresAuth(t *testing.T) {
 
 // fakeScan 是 ScanAPI 的内存实现：记录最近一次 CreateScan 入参，可注入 err。
 type fakeScan struct {
-	gotBrief               string
-	calls                  int
-	err                    error
+	gotBrief                 string
+	calls                    int
+	err                      error
 	retTaskID, retExecutorID string
 }
 
@@ -324,7 +324,7 @@ func TestScan_Created(t *testing.T) {
 		t.Fatalf("status=%d body=%s", resp.StatusCode, string(b))
 	}
 	var out struct {
-		TaskID   string `json:"task_id"`
+		TaskID     string `json:"task_id"`
 		ExecutorID string `json:"agent_id"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
@@ -367,7 +367,6 @@ func TestScan_MissingBrief(t *testing.T) {
 		srv.Close()
 	}
 }
-
 
 // TestScan_RequiresAuth：缺 X-API-Key → 401。
 func TestScan_RequiresAuth(t *testing.T) {

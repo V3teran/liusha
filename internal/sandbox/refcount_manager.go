@@ -13,11 +13,11 @@ type RefCountManager struct {
 	poolMgr *PooledManager
 	logger  zerolog.Logger
 
-	mu             sync.RWMutex
-	lastActivity   map[string]time.Time // assignmentID -> 最后活动时间
-	containerTTL   time.Duration        // 容器最大存活时间
-	cleanupTicker  *time.Ticker
-	stopCh         chan struct{}
+	mu            sync.RWMutex
+	lastActivity  map[string]time.Time // assignmentID -> 最后活动时间
+	containerTTL  time.Duration        // 容器最大存活时间
+	cleanupTicker *time.Ticker
+	stopCh        chan struct{}
 }
 
 // NewRefCountManager 创建增强版管理器

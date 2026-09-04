@@ -151,7 +151,7 @@ type ScanAPI interface {
 //
 // 这种"一句话"形态便于将来接通微信 / 飞书 / 钉钉机器人——平台原文直接转发即可。
 type CreateScanRequest struct {
-	Brief      string `json:"brief"`
+	Brief string `json:"brief"`
 }
 
 // scanHandler 处理 POST /scan：校验 brief + _id 非空 + 调 ScanAPI 起任务。

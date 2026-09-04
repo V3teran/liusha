@@ -29,7 +29,7 @@ type Config struct {
 	Session     SessionConfig             `mapstructure:"session"`
 	Credential  CredentialConfig          `mapstructure:"credential"`
 	Skills      SkillsConfig              `mapstructure:"skills"`
-	Agents     AgentsConfig             `mapstructure:"agents_dir"`
+	Agents      AgentsConfig              `mapstructure:"agents_dir"`
 	Runner      RunnerConfig              `mapstructure:"runner"`
 	Compaction  CompactionConfig          `mapstructure:"compaction"`
 	Sandbox     SandboxConfig             `mapstructure:"sandbox"`
@@ -217,7 +217,7 @@ type RunnerConfig struct {
 	TrafficMaxResponseBody      int    `mapstructure:"traffic_max_response_body"`
 
 	// asynq queue 优先级权重（数字越大优先级越高）
-	QueueAgentWeight   int `mapstructure:"queue_agent_weight"`
+	QueueAgentWeight    int `mapstructure:"queue_agent_weight"`
 	QueueDispatchWeight int `mapstructure:"queue_dispatch_weight"`
 
 	// per-host 并发上限（§4.3）：同 host 同时运行的 task 数 ≤ 此值，防同目标叠打触发 WAF 封 IP。

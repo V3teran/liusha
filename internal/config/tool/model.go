@@ -15,7 +15,7 @@ type Kind string
 
 const (
 	KindFunction Kind = "function" // 进程内原生函数工具
-	KindCLI      Kind = "cli"       // 外置沙箱 CLI 工具
+	KindCLI      Kind = "cli"      // 外置沙箱 CLI 工具
 )
 
 // Tool 是 tool 表行的 Go 表示。

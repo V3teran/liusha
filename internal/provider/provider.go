@@ -87,9 +87,9 @@ type Message struct {
 // ContentPart 是多模态消息的内容块。
 // Type ∈ {"text", "image"}。
 type ContentPart struct {
-	Type      string         `json:"type"`
-	Text      string         `json:"text,omitempty"`
-	ImageData *ImageContent  `json:"image,omitempty"`
+	Type      string        `json:"type"`
+	Text      string        `json:"text,omitempty"`
+	ImageData *ImageContent `json:"image,omitempty"`
 }
 
 // ImageContent 是 base64 内联图片（不引用外部 URL，避免沙箱网络依赖）。
@@ -151,10 +151,10 @@ const (
 // StreamEvent 是 Provider.Stream 通道上的一个事件。
 type StreamEvent struct {
 	Kind    StreamEventKind
-	Content string     // StreamThinking / StreamText 有效
-	Tool    *ToolCall  // StreamToolCall 有效
-	Usage   *Usage     // StreamDone 有效
-	Err     error      // StreamError 有效
+	Content string    // StreamThinking / StreamText 有效
+	Tool    *ToolCall // StreamToolCall 有效
+	Usage   *Usage    // StreamDone 有效
+	Err     error     // StreamError 有效
 }
 
 // ─────────────────────────────────────────────
@@ -179,7 +179,7 @@ func (e *HTTPError) Unwrap() error { return e.Inner }
 // 5xx 可重试，4xx / context cancel 不重试。
 // 架构规格：最多 3 次，指数退避 1s/2s/4s。
 type RetryConfig struct {
-	Max      int           // 默认 3
+	Max      int             // 默认 3
 	Backoffs []time.Duration // 长度须 ≥ Max；默认 [1s, 2s, 4s]
 }
 

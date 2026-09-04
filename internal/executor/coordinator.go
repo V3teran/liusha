@@ -4,10 +4,10 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/rs/zerolog"
 	"github.com/V3teran/liusha/internal/finding"
 	"github.com/V3teran/liusha/internal/verifier"
 	"github.com/V3teran/liusha/internal/worldmodel"
+	"github.com/rs/zerolog"
 )
 
 var _ ExecutorInterface = (*Coordinator)(nil)

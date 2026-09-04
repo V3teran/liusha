@@ -29,7 +29,7 @@ type Agent struct {
 	Kind          Kind
 	Name          string
 	Description   string
-	SystemPrompt  string   // 对应数据库的 body 列
+	SystemPrompt  string // 对应数据库的 body 列
 	FunctionTools []string
 	CliTools      []string
 	MaxIterations int

@@ -42,9 +42,9 @@ type ProxyTraffic struct {
 
 // ConsumerTask 是消费某条代理流量的 passive task 摘要（前端消费关系 chip 展示用）。
 type ConsumerTask struct {
-	TaskID     string
-	Host       string
-	Status     string
+	TaskID string
+	Host   string
+	Status string
 }
 
 // AgentTraffic 是 agent_traffic 表行——agent 自产流量，按 task 归属。

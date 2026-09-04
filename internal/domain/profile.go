@@ -56,7 +56,6 @@ func (r *Registry) Get(domain string) (Profile, bool) {
 	return p, ok
 }
 
-
 // Domains 返回已注册的全部域标识。
 func (r *Registry) Domains() []string {
 	out := make([]string, 0, len(r.byDomain))

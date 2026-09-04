@@ -10,8 +10,6 @@ import (
 	"github.com/hibiken/asynq"
 	"github.com/rs/zerolog"
 
-	"github.com/V3teran/liusha/internal/executor"
-	"github.com/V3teran/liusha/internal/domain"
 	"github.com/V3teran/liusha/internal/agentrun"
 	"github.com/V3teran/liusha/internal/config"
 	"github.com/V3teran/liusha/internal/config/settingstore"
@@ -20,8 +18,9 @@ import (
 	"github.com/V3teran/liusha/internal/conversation"
 	"github.com/V3teran/liusha/internal/corpus"
 	"github.com/V3teran/liusha/internal/credential"
+	"github.com/V3teran/liusha/internal/domain"
 	"github.com/V3teran/liusha/internal/eventbus"
-	"github.com/V3teran/liusha/internal/worldmodel"
+	"github.com/V3teran/liusha/internal/executor"
 	"github.com/V3teran/liusha/internal/finding"
 	"github.com/V3teran/liusha/internal/lead"
 	"github.com/V3teran/liusha/internal/llminvocation"
@@ -35,6 +34,7 @@ import (
 	"github.com/V3teran/liusha/internal/tools/manifest"
 	"github.com/V3teran/liusha/internal/traffic"
 	"github.com/V3teran/liusha/internal/worker"
+	"github.com/V3teran/liusha/internal/worldmodel"
 )
 
 // handler 持有所有跨任务共享依赖。
@@ -43,7 +43,7 @@ type handler struct {
 	tasks      *task.Store
 	findings   *finding.Store
 	corpus     *corpus.Store
-	embedder   corpus.Embedder      // Jina embed（可 nil，降级纯 sparse）
+	embedder   corpus.Embedder // Jina embed（可 nil，降级纯 sparse）
 	reranker   corpus.Reranker
 	leads      *lead.Store
 	proxyStore *traffic.ProxyStore
@@ -74,7 +74,7 @@ type handler struct {
 	world        *worldmodel.Store
 	checkpoint   executor.CheckpointStore
 	eventBus     *executor.PlannerEventBus // Task 级别事件总线（Planner 用）
-	actionBus    *eventbus.Bus           // Action 级别事件总线（Executor 用）
+	actionBus    *eventbus.Bus             // Action 级别事件总线（Executor 用）
 	plannerMgr   *plannerAgentManager
 	controlPlane *controlplane.Store
 }

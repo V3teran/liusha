@@ -22,6 +22,6 @@ type CallSink interface {
 // "exploitation" / "inspector"，便于按角色维度统计 token 用量和路由生效情况。
 type CallMeta struct {
 	ExecutorID *string
-	TaskID   *string // 所属 task.id
-	RouteKey string
+	TaskID     *string // 所属 task.id
+	RouteKey   string
 }

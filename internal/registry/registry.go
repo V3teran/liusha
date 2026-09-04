@@ -158,7 +158,8 @@ type Registry struct {
 
 // New 返回带默认 Interceptor 链的 Registry。
 // 链顺序（架构规格 §8）：
-//   PreExecute → Logging → EvidenceCapture → Timeout → ErrorMask → Tool.Execute
+//
+//	PreExecute → Logging → EvidenceCapture → Timeout → ErrorMask → Tool.Execute
 func New() *Registry {
 	return &Registry{
 		tools: make(map[string]Tool),
