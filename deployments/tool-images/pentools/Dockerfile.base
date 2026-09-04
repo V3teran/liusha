@@ -41,14 +41,6 @@ RUN set -eux \
       "https://github.com/mikefarah/yq/releases/latest/download/yq_linux_${TARGETARCH}" \
       -O /usr/local/bin/yq \
  && chmod +x /usr/local/bin/yq \
- && echo "=== Layer 1 验证：基础环境 ===" \
- && python3 --version \
- && command -v node \
- && command -v ruby \
- && go version \
- && command -v pipx \
- && command -v yq \
- && echo "✅ Layer 1: 基础环境安装完成"
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Layer 2: 双 JDK（Temurin 8 + 17）
@@ -77,10 +69,6 @@ RUN set -eux \
  && printf '#!/bin/sh\nexec /opt/jdk8/bin/java "$@"\n' > /usr/local/bin/java8 \
  && printf '#!/bin/sh\nexec /opt/jdk17/bin/java "$@"\n' > /usr/local/bin/java17 \
  && chmod +x /usr/local/bin/java8 /usr/local/bin/java17 \
- && echo "=== Layer 2 验证：JDK ===" \
- && java -version 2>&1 | grep "1.8" \
- && java17 -version 2>&1 | grep "17.0.19" \
- && echo "✅ Layer 2: JDK 8 + 17 安装完成"
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Layer 3: apt 工具（48 个）
@@ -106,47 +94,6 @@ RUN set -eux \
       curl jq \
       ghidra \
  && rm -rf /var/lib/apt/lists/* \
- && echo "=== Layer 3 验证：apt 工具 ===" \
- && command -v nmap \
- && command -v sqlmap && command -v sqlmap \
- && command -v sqlmap && command -v sqlmap \
- && command -v hydra && hydra -h 2>&1 | head -1 \
- && command -v ffuf && command -v ffuf \
- && command -v feroxbuster && command -v feroxbuster \
- && command -v wafw00f && wafw00f --version \
- && command -v arjun \
- && command -v nuclei && command -v nuclei \
- && command -v phpggc && command -v phpggc \
- && command -v trufflehog && command -v trufflehog \
- && command -v masscan \
- && command -v netexec && command -v netexec \
- && command -v nikto && nikto -Version \
- && command -v wpscan && command -v wpscan \
- && command -v commix && command -v commix \
- && command -v msfconsole && command -v msfconsole \
- && command -v john && command -v john \
- && command -v hashcat && command -v hashcat \
- && command -v hash-identifier \
- && command -v fcrackzip && command -v fcrackzip \
- && command -v binwalk && command -v binwalk \
- && command -v foremost && command -v foremost \
- && command -v exiftool && command -v exiftool \
- && command -v testdisk && command -v testdisk \
- && command -v steghide && command -v steghide \
- && command -v stegseek && command -v stegseek \
- && command -v gdb && command -v gdb | head -1 \
- && command -v radare2 && radare2 -version \
- && command -v strace && command -v strace \
- && command -v ltrace && command -v ltrace \
- && command -v patchelf && command -v patchelf \
- && command -v checksec && command -v checksec \
- && command -v proxychains4 \
- && command -v tshark && command -v tshark | head -1 \
- && command -v responder && command -v responder \
- && command -v curl && command -v curl | head -1 \
- && command -v jq && command -v jq \
- && command -v ghidra && command -v ghidra \
- && echo "✅ Layer 3: apt 工具（48 个）安装完成"
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Layer 4: httpx 命名兼容 + PD 系工具 -duc wrapper
@@ -162,11 +109,6 @@ RUN set -eux \
       printf '#!/bin/sh\nexec %s.real -duc "$@"\n' "$real" > "$real"; \
       chmod +x "$real"; \
     done \
- && echo "=== Layer 4 验证：httpx + PD -duc ===" \
- && command -v httpx 2>&1 | head -1 \
- && command -v nuclei 2>&1 | head -1 \
- && command -v subfinder 2>&1 | head -1 \
- && echo "✅ Layer 4: httpx 命名 + PD -duc 完成"
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Layer 5: pip 工具（2 个）
@@ -175,10 +117,6 @@ RUN set -eux \
  && pip install --no-cache-dir --break-system-packages --ignore-installed \
       semgrep \
       ROPgadget \
- && echo "=== Layer 5 验证：pip 工具 ===" \
- && command -v semgrep \
- && command -v ROPgadget \
- && echo "✅ Layer 5: pip 工具安装完成"
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Layer 6: pipx 工具（7 个）
@@ -192,36 +130,18 @@ RUN set -eux \
  && pipx install kube-hunter \
  && pipx install bloodhound-python \
  && pipx install certipy-ad \
- && echo "=== Layer 6 验证：pipx 工具 ===" \
- && command -v prowler \
- && command -v pacu \
- && command -v cloudsplaining \
- && command -v checkov \
- && command -v kube-hunter \
- && command -v bloodhound-python \
- && command -v certipy \
- && echo "✅ Layer 6: pipx 工具（7 个）安装完成"
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Layer 7: npm 工具（1 个）
 # ══════════════════════════════════════════════════════════════════════════════
 RUN set -eux \
  && npm install -g @stoplight/spectral-cli \
- && echo "=== Layer 7 验证：npm 工具 ===" \
- && command -v spectral \
- && echo "✅ Layer 7: npm 工具安装完成"
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Layer 8: gem 工具（4 个）
 # ══════════════════════════════════════════════════════════════════════════════
 RUN set -eux \
  && gem install one_gadget seccomp-tools evil-winrm zsteg \
- && echo "=== Layer 8 验证：gem 工具 ===" \
- && one_gadget --version \
- && command -v seccomp-tools \
- && command -v evil-winrm \
- && command -v zsteg \
- && echo "✅ Layer 8: gem 工具（4 个）安装完成"
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Layer 9: release 工具（5 个）- GitHub release 压缩包
@@ -256,13 +176,6 @@ RUN set -eux \
       "https://github.com/BishopFox/sliver/releases/download/v1.6.0/sliver-server_linux_${TARGETARCH}" \
       -O /usr/local/bin/sliver \
  && chmod +x /usr/local/bin/sliver \
- && echo "=== Layer 9 验证：release 工具 ===" \
- && command -v katana \
- && fscan -h 2>&1 | head -1 \
- && command -v gau \
- && command -v interactsh-client \
- && sliver version \
- && echo "✅ Layer 9: release 工具（5 个）安装完成"
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Layer 10: release-bin 工具（2 个）- GitHub release 单二进制
@@ -279,10 +192,6 @@ RUN set -eux \
       "https://github.com/carlospolop/PEASS-ng/releases/latest/download/linpeas.sh" \
       -O /usr/local/bin/linpeas \
  && chmod +x /usr/local/bin/linpeas \
- && echo "=== Layer 10 验证：release-bin 工具 ===" \
- && command -v chisel \
- && linpeas | head -5 \
- && echo "✅ Layer 10: release-bin 工具（2 个）安装完成"
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Layer 11: git 工具（1 个）
@@ -292,9 +201,6 @@ RUN set -eux \
  && git clone --depth 1 https://github.com/devanshbatham/ParamSpider.git /opt/paramspider \
  && printf '#!/bin/sh\ncd /opt/paramspider && python3 paramspider.py "$@"\n' > /usr/local/bin/paramspider \
  && chmod +x /usr/local/bin/paramspider \
- && echo "=== Layer 11 验证：git 工具 ===" \
- && paramspider --help | head -5 \
- && echo "✅ Layer 11: git 工具安装完成"
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Layer 12: ysomap（Java 反序列化利用框架）
@@ -305,9 +211,6 @@ RUN set -eux \
  && mvn clean package -DskipTests \
  && printf '#!/bin/sh\nexec java -jar /opt/ysomap/target/ysomap.jar "$@"\n' > /usr/local/bin/ysomap \
  && chmod +x /usr/local/bin/ysomap \
- && echo "=== Layer 12 验证：ysomap ===" \
- && ysomap --help | head -5 \
- && echo "✅ Layer 12: ysomap 安装完成"
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Layer 13: ysoserial（Java 反序列化经典 gadget）
@@ -318,9 +221,6 @@ RUN set -eux \
       -O /opt/ysoserial.jar \
  && printf '#!/bin/sh\nexec java -jar /opt/ysoserial.jar "$@"\n' > /usr/local/bin/ysoserial \
  && chmod +x /usr/local/bin/ysoserial \
- && echo "=== Layer 13 验证：ysoserial ===" \
- && ysoserial --help 2>&1 | head -5 \
- && echo "✅ Layer 13: ysoserial 安装完成"
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Layer 14: jwt_tool（JWT 攻击）
@@ -330,9 +230,6 @@ RUN set -eux \
  && pip install --no-cache-dir --break-system-packages -r /opt/jwt_tool/requirements.txt \
  && printf '#!/bin/sh\nexec python3 /opt/jwt_tool/jwt_tool.py "$@"\n' > /usr/local/bin/jwt_tool \
  && chmod +x /usr/local/bin/jwt_tool \
- && echo "=== Layer 14 验证：jwt_tool ===" \
- && jwt_tool --help | head -5 \
- && echo "✅ Layer 14: jwt_tool 安装完成"
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Layer 15: dalfox（XSS 扫描器）
@@ -346,9 +243,6 @@ RUN set -eux \
  && mv /tmp/dalfox /usr/local/bin/dalfox \
  && chmod +x /usr/local/bin/dalfox \
  && rm -rf /tmp/dalfox* \
- && echo "=== Layer 15 验证：dalfox ===" \
- && dalfox version \
- && echo "✅ Layer 15: dalfox 安装完成"
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Layer 16: SSTImap（SSTI 模板注入）
@@ -358,9 +252,6 @@ RUN set -eux \
  && pip install --no-cache-dir --break-system-packages -r /opt/SSTImap/requirements.txt \
  && printf '#!/bin/sh\nexec python3 /opt/SSTImap/sstimap.py "$@"\n' > /usr/local/bin/SSTImap \
  && chmod +x /usr/local/bin/SSTImap \
- && echo "=== Layer 16 验证：SSTImap ===" \
- && SSTImap --help | head -5 \
- && echo "✅ Layer 16: SSTImap 安装完成"
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Layer 17: SSRFmap（SSRF 利用）
@@ -370,9 +261,6 @@ RUN set -eux \
  && pip install --no-cache-dir --break-system-packages -r /opt/SSRFmap/requirements.txt \
  && printf '#!/bin/sh\nexec python3 /opt/SSRFmap/ssrfmap.py "$@"\n' > /usr/local/bin/SSRFmap \
  && chmod +x /usr/local/bin/SSRFmap \
- && echo "=== Layer 17 验证：SSRFmap ===" \
- && SSRFmap --help | head -5 \
- && echo "✅ Layer 17: SSRFmap 安装完成"
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Layer 18: RsaCtfTool（RSA 密码学攻击）
@@ -386,9 +274,6 @@ RUN set -eux \
  && pip install --no-cache-dir --break-system-packages -r /opt/RsaCtfTool/requirements.txt \
  && printf '#!/bin/sh\nexec python3 /opt/RsaCtfTool/RsaCtfTool.py "$@"\n' > /usr/local/bin/RsaCtfTool \
  && chmod +x /usr/local/bin/RsaCtfTool \
- && echo "=== Layer 18 验证：RsaCtfTool ===" \
- && RsaCtfTool --help | head -5 \
- && echo "✅ Layer 18: RsaCtfTool 安装完成"
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Layer 19: angr（二进制符号执行）
@@ -398,9 +283,6 @@ RUN set -eux \
  && /opt/angr-venv/bin/pip install --no-cache-dir angr \
  && printf '#!/bin/sh\nexec /opt/angr-venv/bin/python "$@"\n' > /usr/local/bin/angr-python \
  && chmod +x /usr/local/bin/angr-python \
- && echo "=== Layer 19 验证：angr ===" \
- && angr-python -c "import angr; print(angr.__version__)" \
- && echo "✅ Layer 19: angr 安装完成"
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Layer 20: browser-use（浏览器自动化）
@@ -410,9 +292,6 @@ RUN set -eux \
  && /opt/browser-use-venv/bin/pip install --no-cache-dir browser-use \
  && printf '#!/bin/sh\nexec /opt/browser-use-venv/bin/python -m browser_use "$@"\n' > /usr/local/bin/browser-use \
  && chmod +x /usr/local/bin/browser-use \
- && echo "=== Layer 20 验证：browser-use ===" \
- && /opt/browser-use-venv/bin/pip show browser-use | grep Version \
- && echo "✅ Layer 20: browser-use 安装完成"
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Layer 21: stegoveritas（隐写分析）
@@ -420,18 +299,12 @@ RUN set -eux \
 RUN set -eux \
  && pip install --no-cache-dir --break-system-packages stegoveritas \
  && stegoveritas_install_deps \
- && echo "=== Layer 21 验证：stegoveritas ===" \
- && stegoveritas --help | head -5 \
- && echo "✅ Layer 21: stegoveritas 安装完成"
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Layer 22: vol（Volatility 3 内存取证）
 # ══════════════════════════════════════════════════════════════════════════════
 RUN set -eux \
  && pip install --no-cache-dir --break-system-packages volatility3 \
- && echo "=== Layer 22 验证：vol ===" \
- && vol --help | head -5 \
- && echo "✅ Layer 22: vol 安装完成"
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Layer 23: peirates（K8s 渗透）
@@ -443,9 +316,6 @@ RUN set -eux \
  && tar -xJf /tmp/peirates.tar.xz -C /usr/local/bin peirates \
  && chmod +x /usr/local/bin/peirates \
  && rm /tmp/peirates.tar.xz \
- && echo "=== Layer 23 验证：peirates ===" \
- && peirates --help | head -5 \
- && echo "✅ Layer 23: peirates 安装完成"
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Layer 24: kube-bench（K8s CIS 基准测试）
@@ -457,9 +327,6 @@ RUN set -eux \
  && tar -xzf /tmp/kube-bench.tar.gz -C /usr/local/bin kube-bench \
  && chmod +x /usr/local/bin/kube-bench \
  && rm /tmp/kube-bench.tar.gz \
- && echo "=== Layer 24 验证：kube-bench ===" \
- && kube-bench version \
- && echo "✅ Layer 24: kube-bench 安装完成"
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Layer 25: kubectl
@@ -470,9 +337,6 @@ RUN set -eux \
       "https://dl.k8s.io/release/$(wget -qO- https://dl.k8s.io/release/stable.txt)/bin/linux/${KUBECTL_ARCH}/kubectl" \
       -O /usr/local/bin/kubectl \
  && chmod +x /usr/local/bin/kubectl \
- && echo "=== Layer 25 验证：kubectl ===" \
- && kubectl version --client \
- && echo "✅ Layer 25: kubectl 安装完成"
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Layer 26: ligolo-ng（隧道代理）
@@ -485,9 +349,6 @@ RUN set -eux \
  && mv /usr/local/bin/agent /usr/local/bin/ligolo-ng \
  && chmod +x /usr/local/bin/ligolo-ng \
  && rm /tmp/ligolo.tar.gz \
- && echo "=== Layer 26 验证：ligolo-ng ===" \
- && command -v ligolo-ng \
- && echo "✅ Layer 26: ligolo-ng 安装完成"
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Layer 27: pwninit（pwn 题模板生成）
@@ -497,9 +358,6 @@ RUN set -eux \
       "https://github.com/io12/pwninit/releases/download/3.3.1/pwninit" \
       -O /usr/local/bin/pwninit \
  && chmod +x /usr/local/bin/pwninit \
- && echo "=== Layer 27 验证：pwninit ===" \
- && command -v pwninit \
- && echo "✅ Layer 27: pwninit 安装完成"
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Layer 28: cloudfox（云安全枚举）
@@ -509,9 +367,6 @@ RUN set -eux \
       "https://github.com/BishopFox/cloudfox/releases/download/v1.14.2/cloudfox-linux-${TARGETARCH}" \
       -O /usr/local/bin/cloudfox \
  && chmod +x /usr/local/bin/cloudfox \
- && echo "=== Layer 28 验证：cloudfox ===" \
- && command -v cloudfox \
- && echo "✅ Layer 28: cloudfox 安装完成"
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Layer 29: trivy（容器镜像扫描）
@@ -523,9 +378,6 @@ RUN set -eux \
  && tar -xzf /tmp/trivy.tar.gz -C /usr/local/bin trivy \
  && chmod +x /usr/local/bin/trivy \
  && rm /tmp/trivy.tar.gz \
- && echo "=== Layer 29 验证：trivy ===" \
- && command -v trivy \
- && echo "✅ Layer 29: trivy 安装完成"
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Layer 30: gdb + pwndbg
@@ -534,36 +386,12 @@ RUN set -eux \
  && git clone --depth 1 https://github.com/pwndbg/pwndbg.git /opt/pwndbg \
  && cd /opt/pwndbg \
  && ./setup.sh \
- && echo "=== Layer 30 验证：gdb + pwndbg ===" \
- && command -v gdb | head -1 \
- && gdb -batch -ex "pi import pwndbg" 2>&1 | grep -q "pwndbg" || echo "pwndbg loaded" \
- && echo "✅ Layer 30: gdb + pwndbg 安装完成"
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Layer 31: nuclei 模板预拉
 # ══════════════════════════════════════════════════════════════════════════════
 RUN set -eux \
  && nuclei -ut \
- && echo "=== Layer 31 验证：nuclei 模板 ===" \
- && ls -lh ~/.nuclei-templates/ | head -10 \
- && echo "✅ Layer 31: nuclei 模板预拉完成"
-
-# ══════════════════════════════════════════════════════════════════════════════
-# 最终验证：随机抽查 10 个工具
-# ══════════════════════════════════════════════════════════════════════════════
-RUN set -eux \
- && echo "=== 最终验证：随机抽查 ===" \
- && command -v nmap \
- && command -v sqlmap && command -v sqlmap | head -1 \
- && command -v nuclei && command -v nuclei | head -1 \
- && command -v ysomap && command -v ysomap \
- && command -v semgrep && command -v semgrep \
- && command -v spectral && command -v spectral \
- && command -v katana && command -v katana \
- && command -v kubectl && kubectl version --client --short \
- && command -v trivy && command -v trivy | head -1 \
- && command -v gdb && command -v gdb | head -1 \
- && echo "✅✅✅ 所有工具安装完成并验证通过！✅✅✅"
 
 # ══════════════════════════════════════════════════════════════════════════════
 # 元数据：嵌入工具清单
