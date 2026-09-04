@@ -1,40 +1,20 @@
 # syntax=docker/dockerfile:1.7
-# liusha pentools 镜像：六域渗透沙箱 = 六能力域工具集 + browser-use + sandbox-server
-#   六域：web 漏洞挖掘 / 二进制漏洞挖掘 / 漏洞利用 / 多阶段渗透 / 云攻击 / CTF
+# pentools-base：安全工具基础镜像（不常变动）
 #
-# 设计要点：
-#   - base = kalilinux/kali-rolling，但【绝不装 kali-linux-headless 元包】
-#     （headless 会拉 ~160 个 GUI/驱动工具，镜像白膨胀 3-4GB）
-#     只 apt install 需要的工具——最大化利用 Kali 维护的安全工具仓（版本新、免下载）
-#   - Kali apt 直供的走 apt（含 ghidra/radare2/afl++/commix/feroxbuster/metasploit/
-#     netexec 走安装器 Layer 8；nmap/sqlmap 等 web 基线在 Layer 2）
-#   - Kali apt 没有的走官方推荐：katana/gau/interactsh(release)、semgrep(pip)、
-#     jwt_tool(git)、ysoserial(jar)、ysomap(git+mvn)、dalfox(release)、spectral(npm)，
-#     以及六域新增的 release/venv/git 专属层（trivy/kubectl/angr/volatility3/RsaCtfTool 等）
-#   - httpx 在 Kali 包名是 httpx-toolkit，包装成 /usr/local/bin/httpx 给 agent 用
-#   - 双 JDK（Temurin）：JDK8(8u352)默认 + JDK17(17.0.19) 现代目标；java8/java17 显式切换。
-#     ysomap/ysoserial 包装脚本硬编码 JDK8 运行。ghidra 走 apt（自带拉 JDK，不占这两个）。
-#   - runtime：Go/PHP/Node/gcc(apt) + Ruby(ruby-full，供 gem 系工具) + Python
-#   - 重型/死 pin 的 Python 工具各自独立 venv：angr / volatility3 / RsaCtfTool（不污染系统 py）
-#   - PEP 668 在 Kali 开启，pip 需 --break-system-packages(env) + --ignore-installed
-#   - browser-use 跑独立 Python 3.12 venv（隔离 Kali rolling python）
-#   - 流量捕获：browser-svc.py 内置 CDP Network observer 抓浏览器流量（不依赖 mitmproxy）
-#   - multi-stage：Stage 0 编译 sandbox-server，Stage 1 运行镜像
-#   - linux/amd64-only（CI runner = ubuntu-24.04）；架构变体全硬编码，无 arm64 分支
+# 包含内容：
+#   - Layer 1-6f: 所有安全工具（nmap/sqlmap/nuclei/metasploit/ghidra 等 90 个工具）
+#   - Layer 7: browser-use 薄客户端脚本（提前 COPY，供 manifest 安装器验证）
+#   - Layer 8: manifest 驱动安装器（验证所有工具真实可用）
+#   - Layer 9: nuclei 模板预拉
+#   - Layer 10-12: Python 环境（uv + 基础库 + pwntools venv + browser-use venv）
 #
-# 工具清单真相源：同目录 tools.yaml（agent 索引 + 构建期 install 双用）
+# 不包含：
+#   - sandbox-server 二进制（频繁变动）
+#   - entrypoint 脚本（可能调整）
+#
+# 构建时间：首次 ~40 分钟，后续完全缓存
+# 镜像大小：~5-6GB
 
-# ── Stage 0: 编译 sandbox-server ─────────────────────────────────────────────
-FROM golang:1.25-alpine AS sandbox-builder
-WORKDIR /src
-COPY go.mod go.sum ./
-COPY vendor ./vendor
-COPY cmd/sandbox-server cmd/sandbox-server
-COPY internal/sandbox internal/sandbox
-ENV CGO_ENABLED=0
-RUN go build -mod=vendor -o /out/sandbox-server ./cmd/sandbox-server
-
-# ── Stage 1: kali-rolling 运行镜像 ───────────────────────────────────────────
 FROM kalilinux/kali-rolling
 
 ENV DEBIAN_FRONTEND=noninteractive \
@@ -51,7 +31,6 @@ ENV DEBIAN_FRONTEND=noninteractive \
 # apt 重试（网络抖动不让整层 abort）
 RUN printf 'Acquire::Retries "5";\nAcquire::http::Timeout "120";\nAcquire::https::Timeout "120";\n' \
       > /etc/apt/apt.conf.d/80-retries
-
 # ── Layer 1: 基础依赖 ─────────────────────────────────────────────────────────
 # TARGETARCH 是 buildx 预定义平台参数，ARG 激活后转 ENV 才能在所有后续 RUN 层展开
 ARG TARGETARCH
@@ -281,7 +260,7 @@ RUN set -eux \
  && chmod +x /usr/local/bin/kubectl && kubectl version --client 2>&1 | head -1 \
  # peirates（.tar.xz，子目录）
  && wget -q --tries=3 --waitretry=5 \
-        "https://github.com/inguardians/peirates/releases/download/v1.1.29a/peirates-linux-amd64.tar.xz" \
+        "https://github.com/inguardians/peirates/releases/download/v1.29a/peirates-linux-amd64.tar.xz" \
         -O /tmp/peirates.txz \
  && tar -xJf /tmp/peirates.txz -C /tmp \
  && mv /tmp/peirates-linux-amd64/peirates /usr/local/bin/peirates \
@@ -408,19 +387,18 @@ RUN uv venv --python 3.12 "$BROWSER_USE_VENV" \
  && ln -sf "$PW_CHROMIUM" /usr/local/bin/chromium \
  && /usr/local/bin/chromium --version 2>&1 | head -1
 
-# ── Layer 13: entrypoint（简化版：只启动 sandbox-server）──────────────────
-# browser-use 流量捕获由 browser-svc.py 内置 CDP Network observer 完成，不依赖 mitmproxy。
-# CLI 工具流量（sqlmap/nuclei 等）不再捕获——噪音过多，用户只需浏览器流量。
-RUN printf '%s\n' \
-  '#!/bin/sh' \
-  'exec /usr/local/bin/sandbox-server' \
-  > /usr/local/bin/sandbox-entrypoint.sh \
- && chmod +x /usr/local/bin/sandbox-entrypoint.sh
 
-# ── Layer 14: sandbox-server 二进制（容器 PID 1）─────────────────────────────
-COPY --from=sandbox-builder /out/sandbox-server /usr/local/bin/sandbox-server
-RUN chmod +x /usr/local/bin/sandbox-server && test -x /usr/local/bin/sandbox-server
+# ── 基础镜像验证层 ────────────────────────────────────────────────────────────
+# 验证关键工具可用性，确保基础镜像完整
+RUN echo "=== pentools-base 构建完成 ===" \
+ && nmap --version | head -1 \
+ && sqlmap --version | head -1 \
+ && nuclei -version | head -1 \
+ && java -version 2>&1 | head -1 \
+ && python3 --version \
+ && uv --version \
+ && /opt/venv-pwn/bin/python -c 'import pwn; print("pwntools OK")' \
+ && browser-use-cli --version 2>&1 | head -1 \
+ && chromium --version 2>&1 | head -1
 
 WORKDIR /work
-EXPOSE 8080
-CMD ["/usr/local/bin/sandbox-entrypoint.sh"]

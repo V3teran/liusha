@@ -7,7 +7,7 @@
 #
 # 前置：liusha proxy 至少启动一次（首次会在 $HOME/.liusha/cacert.pem 生成 CA）。
 # 用法：./scripts/dev/sync-pentools-cert.sh
-# 之后：docker build -t liusha/pentools:latest -f deployments/tool-images/pentools/Dockerfile .
+# 之后：docker build -t liusha/pentools:latest -f deployments/tool-images/pentools/Dockerfile.final .
 
 set -euo pipefail
 cd "$(dirname "$0")/../.."
@@ -27,4 +27,4 @@ echo "✓ CA cert 已同步：$CA_SRC → $CA_DST"
 echo "  ($(wc -l < "$CA_DST") 行，$(wc -c < "$CA_DST") bytes)"
 echo ""
 echo "下一步 build pentools 镜像："
-echo "  docker build -t liusha/pentools:latest -f deployments/tool-images/pentools/Dockerfile ."
+echo "  docker build -t liusha/pentools:latest -f deployments/tool-images/pentools/Dockerfile.final ."

@@ -43,7 +43,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: deployments/tool-images/pentools/Dockerfile
+          file: deployments/tool-images/pentools/Dockerfile.final
           load: true
           tags: pentools:test
           no-cache: true  # 强制完全重建，不使用任何缓存
