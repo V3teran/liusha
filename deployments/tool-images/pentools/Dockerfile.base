@@ -78,7 +78,7 @@ RUN set -eux \
  && printf '#!/bin/sh\nexec /opt/jdk17/bin/java "$@"\n' > /usr/local/bin/java17 \
  && chmod +x /usr/local/bin/java8 /usr/local/bin/java17 \
  && echo "=== Layer 2 验证：JDK ===" \
- && command -v java 2>&1 | grep "1.8" \
+ && java -version 2>&1 | grep "1.8" \
  && java17 -version 2>&1 | grep "17.0.19" \
  && echo "✅ Layer 2: JDK 8 + 17 安装完成"
 
