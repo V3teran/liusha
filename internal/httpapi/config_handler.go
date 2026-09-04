@@ -203,7 +203,7 @@ func deleteExecutorHandler(api ConfigAPI) gin.HandlerFunc {
 		}
 		if err := api.DeleteExecutor(c.Request.Context(), h.ID, h.Code); err != nil {
 			if isForeignKeyViolation(err) {
-				c.JSON(409, gin.H{"error": "该操作员仍被场景引用（solo 场景执行操作员），请先解除引用再删除"})
+				c.JSON(409, gin.H{"error": "该操作员仍被其他配置引用，请先解除引用再删除"})
 				return
 			}
 			c.JSON(500, gin.H{"error": err.Error()})

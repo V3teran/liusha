@@ -17,7 +17,7 @@ func setup(t *testing.T) (*Store, string) {
 	pool := dbtest.NewPgPool(t)
 	ts := task.NewStore(pool)
 	tk, err := ts.Create(context.Background(), task.NewParams{
-		ScenarioID:   "api-pentest",
+		
 		AssignmentID: dbtest.SeedAssignment(t, pool, "api-pentest"),
 		TargetHost:   "test.example.com",
 	})

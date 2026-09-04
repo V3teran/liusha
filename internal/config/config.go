@@ -207,8 +207,7 @@ type AgentsConfig struct {
 
 // RunnerConfig 是 cmd/runner 进程的运行时参数。
 type RunnerConfig struct {
-	SoloAgentRunTimeoutSeconds  int    `mapstructure:"solo_agent_run_timeout_seconds"`  // solo 引擎单个 agent task 整体超时（asynq handler 入口 WithTimeout）
-	SwarmAgentRunTimeoutSeconds int    `mapstructure:"swarm_agent_run_timeout_seconds"` // swarm 引擎整体超时——站点扫描爬+测耗时长，独立配置（默认 4h，对齐 sandbox max lifetime）
+	AgentRunTimeoutSeconds      int    `mapstructure:"agent_run_timeout_seconds"` // agent task 整体超时（asynq handler 入口 WithTimeout）
 	StepLLMTimeoutSeconds       int    `mapstructure:"step_llm_timeout_seconds"`
 	AsynqConcurrency            int    `mapstructure:"asynq_concurrency"`
 	AsynqShutdownTimeoutSeconds int    `mapstructure:"asynq_shutdown_timeout_seconds"` // asynq.Shutdown 等 in-flight task 完成的超时
@@ -560,11 +559,8 @@ func applyAgentsDefaults(c AgentsConfig) AgentsConfig {
 }
 
 func applyRunnerDefaults(c RunnerConfig) RunnerConfig {
-	if c.SoloAgentRunTimeoutSeconds == 0 {
-		c.SoloAgentRunTimeoutSeconds = 3600 // 60 分钟（solo 引擎 agent_run 整体超时；> step_tool=1800，留 30min buffer 给 agent 主循环收尾）
-	}
-	if c.SwarmAgentRunTimeoutSeconds == 0 {
-		c.SwarmAgentRunTimeoutSeconds = 14400 // 4 小时（swarm 引擎 agent_run 整体超时；站点扫描爬+测耗时长；对齐 sandbox max lifetime 4h）
+	if c.AgentRunTimeoutSeconds == 0 {
+		c.AgentRunTimeoutSeconds = 3600 // 60 分钟（agent_run 整体超时；> step_tool=1800，留 30min buffer 给 agent 主循环收尾）
 	}
 	if c.StepLLMTimeoutSeconds == 0 {
 		c.StepLLMTimeoutSeconds = 300

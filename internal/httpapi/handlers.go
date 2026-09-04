@@ -35,7 +35,6 @@ type TaskSummary struct {
 	ID           string `json:"id"`
 	Scope        string `json:"scope"` // jsonb raw：{"brief":..., "target_host":...}
 	Status       string `json:"status"`
-	ScenarioID   string `json:""`        // 所属场景 code（引擎/操作员编排由其解析）
 	CreatedAt    string `json:"created_at"`         // RFC3339
 	EndedAt      string `json:"ended_at,omitempty"` // RFC3339（可空）
 	ErrorMessage string `json:"error_message,omitempty"`

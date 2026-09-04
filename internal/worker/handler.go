@@ -13,16 +13,13 @@ import (
 //
 // plannerID 标识 planner id（旧 subtask swarm 语义）；空表示独立任务/根任务。
 // 现行 active 路径用 dispatcher/actor 进程内编排，exploitation 不入 asynq，故入队 Payload 此字段恒空；
-// 已删除废弃的 plannerID 字段（v1.5 active 重构后不再使用）。
+// 已删除废弃的 plannerID 和 ScenarioID 字段（v1.5 active 重构后不再使用）。
 type Payload struct {
 	AgentID        string `json:"agent_id"`
 	TaskID         string `json:"task_id"` // 所属 task.id
 	// ConversationID 关联本任务所属会话（阶段B 会话发起时填）；asynq 自动入口为空——
 	// 空则 runner 不发过程事件、不落 conversation message（纯后台扫描）。
 	ConversationID string `json:"conversation_id,omitempty"`
-	// ScenarioID 是场景 code（web-pentest / api-pentest 等）；runner 据此从 configstore
-	// 解析 （含 engine + 操作员编排），注入主代理人设。必填。注意区别于 Role（worker 任务路由角色）。
-	ScenarioID string          `json:"_id,omitempty"`
 	Role       Role            `json:"role"`
 	Input      json.RawMessage `json:"input,omitempty"`
 }

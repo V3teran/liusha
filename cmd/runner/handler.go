@@ -212,7 +212,7 @@ func (h handler) handle(ctx context.Context, p worker.Payload) (retErr error) {
 	}
 
 	// 设置超时
-	timeout := h.runnerCfg.SwarmAgentRunTimeoutSeconds
+	timeout := h.runnerCfg.AgentRunTimeoutSeconds
 	if timeout > 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, time.Duration(timeout)*time.Second)

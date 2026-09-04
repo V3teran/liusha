@@ -72,7 +72,7 @@ func (s *ProxyStore) GetByID(ctx context.Context, id int64) (ProxyTraffic, error
 // listConsumers 查消费某条流量的全部 passive task（traffic_task JOIN task），供 chip 展示。
 func (s *ProxyStore) listConsumers(ctx context.Context, trafficID int64) ([]ConsumerTask, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT t.id::text, t._id, t.target_host, t.status
+		SELECT t.id::text, t.target_host, t.status
 		FROM traffic_task tt
 		JOIN task t ON t.id = tt.task_id
 		WHERE tt.traffic_id = $1
@@ -85,7 +85,7 @@ func (s *ProxyStore) listConsumers(ctx context.Context, trafficID int64) ([]Cons
 	var out []ConsumerTask
 	for rows.Next() {
 		var c ConsumerTask
-		if err := rows.Scan(&c.TaskID, &c.ScenarioID, &c.Host, &c.Status); err != nil {
+		if err := rows.Scan(&c.TaskID, &c.Host, &c.Status); err != nil {
 			return nil, err
 		}
 		out = append(out, c)
