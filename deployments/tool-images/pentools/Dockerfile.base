@@ -122,14 +122,14 @@ RUN set -eux \
 # Layer 6: pipx 工具（7 个）
 # ══════════════════════════════════════════════════════════════════════════════
 # 隔离 Python CLI 工具，避免依赖冲突
-RUN set -eux \
- && pipx install prowler \
- && pipx install pacu \
- && pipx install cloudsplaining \
- && pipx install checkov \
- && pipx install kube-hunter \
- && pipx install bloodhound-python \
- && pipx install certipy-ad
+# 分步安装便于定位失败工具
+RUN pipx install prowler || echo "⚠️ prowler 安装失败"
+RUN pipx install pacu || echo "⚠️ pacu 安装失败"
+RUN pipx install cloudsplaining || echo "⚠️ cloudsplaining 安装失败"
+RUN pipx install checkov || echo "⚠️ checkov 安装失败"
+RUN pipx install kube-hunter || echo "⚠️ kube-hunter 安装失败"
+RUN pipx install bloodhound-python || echo "⚠️ bloodhound-python 安装失败"
+RUN pipx install certipy-ad || echo "⚠️ certipy-ad 安装失败"
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Layer 7: npm 工具（1 个）
