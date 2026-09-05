@@ -111,12 +111,13 @@ RUN set -eux \
     done
 
 # ══════════════════════════════════════════════════════════════════════════════
-# Layer 5: pip 工具（2 个）
+# Layer 5: pip 工具（1 个）+ pipx 工具（1 个）
 # ══════════════════════════════════════════════════════════════════════════════
-RUN set -eux \
- && pip install --no-cache-dir --break-system-packages --ignore-installed \
-      semgrep \
-      ROPgadget
+# semgrep 改用 pipx 隔离（避免 urllib3 冲突）
+RUN pipx install semgrep
+
+# ROPgadget 保持全局安装（无冲突）
+RUN pip install --no-cache-dir --break-system-packages ROPgadget
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Layer 6: pipx 工具（7 个）
@@ -220,12 +221,13 @@ RUN set -eux \
  && chmod +x /usr/local/bin/ysoserial
 
 # ══════════════════════════════════════════════════════════════════════════════
-# Layer 14: jwt_tool（JWT 攻击）
+# Layer 14: jwt_tool（JWT 攻击）- venv 隔离
 # ══════════════════════════════════════════════════════════════════════════════
 RUN set -eux \
  && git clone --depth 1 https://github.com/ticarpi/jwt_tool.git /opt/jwt_tool \
- && pip install --no-cache-dir --break-system-packages -r /opt/jwt_tool/requirements.txt \
- && printf '#!/bin/sh\nexec python3 /opt/jwt_tool/jwt_tool.py "$@"\n' > /usr/local/bin/jwt_tool \
+ && python3 -m venv /opt/venvs/jwt_tool \
+ && /opt/venvs/jwt_tool/bin/pip install --no-cache-dir -r /opt/jwt_tool/requirements.txt \
+ && printf '#!/bin/sh\nexec /opt/venvs/jwt_tool/bin/python3 /opt/jwt_tool/jwt_tool.py "$@"\n' > /usr/local/bin/jwt_tool \
  && chmod +x /usr/local/bin/jwt_tool
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -242,12 +244,13 @@ RUN set -eux \
  && rm -rf /tmp/dalfox*
 
 # ══════════════════════════════════════════════════════════════════════════════
-# Layer 16: SSTImap（SSTI 模板注入）
+# Layer 16: SSTImap（SSTI 模板注入）- venv 隔离
 # ══════════════════════════════════════════════════════════════════════════════
 RUN set -eux \
  && git clone --depth 1 https://github.com/vladko312/SSTImap.git /opt/SSTImap \
- && pip install --no-cache-dir --break-system-packages -r /opt/SSTImap/requirements.txt \
- && printf '#!/bin/sh\nexec python3 /opt/SSTImap/sstimap.py "$@"\n' > /usr/local/bin/SSTImap \
+ && python3 -m venv /opt/venvs/SSTImap \
+ && /opt/venvs/SSTImap/bin/pip install --no-cache-dir -r /opt/SSTImap/requirements.txt \
+ && printf '#!/bin/sh\nexec /opt/venvs/SSTImap/bin/python3 /opt/SSTImap/sstimap.py "$@"\n' > /usr/local/bin/SSTImap \
  && chmod +x /usr/local/bin/SSTImap
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -268,13 +271,13 @@ RUN set -eux \
  && chmod +x /usr/local/bin/SSRFmap
 
 # ══════════════════════════════════════════════════════════════════════════════
-# Layer 18: RsaCtfTool（RSA 密码学攻击）
+# Layer 18: RsaCtfTool（RSA 密码学攻击）- venv 隔离
 # ══════════════════════════════════════════════════════════════════════════════
 RUN set -eux \
  && git clone --depth 1 https://github.com/RsaCtfTool/RsaCtfTool.git /opt/RsaCtfTool \
- && cd /opt/RsaCtfTool \
- && pip install --no-cache-dir --break-system-packages --ignore-installed -e . \
- && ln -sf /opt/RsaCtfTool/RsaCtfTool.py /usr/local/bin/RsaCtfTool \
+ && python3 -m venv /opt/venvs/RsaCtfTool \
+ && /opt/venvs/RsaCtfTool/bin/pip install --no-cache-dir -e /opt/RsaCtfTool \
+ && printf '#!/bin/sh\nexec /opt/venvs/RsaCtfTool/bin/python3 /opt/RsaCtfTool/RsaCtfTool.py "$@"\n' > /usr/local/bin/RsaCtfTool \
  && chmod +x /usr/local/bin/RsaCtfTool
 
 # ══════════════════════════════════════════════════════════════════════════════
