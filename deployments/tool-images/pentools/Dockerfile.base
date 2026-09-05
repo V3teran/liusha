@@ -302,7 +302,7 @@ RUN set -eux \
 # Layer 21: stegoveritas（隐写分析）
 # ══════════════════════════════════════════════════════════════════════════════
 RUN set -eux \
- && pip install --no-cache-dir --break-system-packages stegoveritas \
+ && pip install --no-cache-dir --break-system-packages --ignore-installed stegoveritas \
  && stegoveritas_install_deps
 
 # ══════════════════════════════════════════════════════════════════════════════
