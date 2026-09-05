@@ -104,15 +104,16 @@
 
 ## Layer 9-10: GitHub Release 工具（7 个）
 
-| 工具 | 当前方式 | 官方推荐 | 状态 |
+| 工具 | 当前版本 | 最新版本 | 状态 |
 |------|---------|---------|------|
-| katana | release zip | ❓ 待查 | ⚠️ 需验证版本 |
-| fscan | release 单文件 | ❓ 待查 | ⚠️ 需验证版本 |
-| gau | release tar.gz | ❓ 待查 | ⚠️ 需验证版本 |
-| interactsh-client | release zip | ❓ 待查 | ⚠️ 需验证版本 |
-| sliver | release 单文件 | ❓ 待查 | ⚠️ 需验证版本 |
-| chisel | release .gz | ❓ 待查 | ⚠️ 需验证版本 |
-| linpeas | latest download | ❓ 待查 | ⚠️ 需验证 |
+| katana | v1.7.0 | v1.7.0 | ✅ 最新 |
+| fscan | v2.2.1 | 未知 | ⚠️ 需验证 |
+| gau | v2.2.4 | 未知 | ⚠️ 需验证 |
+| interactsh-client | v1.3.1 | v1.3.1 | ✅ 最新 |
+| sliver | v1.7.7 | v1.7.7 | ✅ 最新 |
+| dalfox | v3.2.2 | v3.2.2 | ✅ 最新 |
+| chisel | v1.12.0 | 未知 | ⚠️ 需验证 |
+| linpeas | latest download | latest | ✅ 始终最新 |
 
 ---
 
@@ -152,8 +153,10 @@
 
 ## 统计
 
-- ✅ 已确认符合官方：48 个（Kali apt）+ 7 个（kubectl, dalfox, SSRFmap, RsaCtfTool, semgrep, jwt_tool, SSTImap, bloodhound）= **55 个**
-- ⚠️ 需验证：**34 个**
+- ✅ 已验证符合官方：48 个（Kali apt）+ 7 个（kubectl, dalfox, SSRFmap, RsaCtfTool, semgrep, jwt_tool, SSTImap, bloodhound）= **55 个**
+- ✅ 已验证版本最新：5 个（katana, sliver, interactsh, dalfox, linpeas）
+- ⚠️ 需验证版本：3 个（fscan, gau, chisel）
+- ⚠️ 需验证安装方式：**26 个**
 - 🔴 需修复：**0 个**
 - ❓ 未审计：**1 个**（nuclei 模板）
 
@@ -170,11 +173,17 @@
 6. ✅ **SSRFmap** - 官方推荐 git clone + uv sync
 7. ✅ **dalfox** - 已修复
 
-### 中优先级（GitHub Release）
-8-14. 验证所有 release 工具的版本是否为 latest
+### 中优先级（GitHub Release 版本验证）
+8. ✅ **katana** - v1.7.0 最新
+9. ✅ **sliver** - v1.7.7 最新
+10. ✅ **interactsh** - v1.3.1 最新
+11. ✅ **dalfox** - v3.2.2 最新
+12. ⚠️ **fscan** - v2.2.1 需确认
+13. ⚠️ **gau** - v2.2.4 需确认
+14. ⚠️ **chisel** - v1.12.0 需确认
 
 ### 低优先级（pipx/gem）
-15-34. 验证 pipx/gem 工具是否有官方推荐方式
+15-40. 验证 pipx/gem 工具是否有官方推荐方式
 
 ---
 
