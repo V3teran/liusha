@@ -255,7 +255,7 @@ RUN set -eux \
 # ══════════════════════════════════════════════════════════════════════════════
 RUN set -eux \
  && curl -LsSf https://astral.sh/uv/install.sh | sh \
- && ln -s ~/.cargo/bin/uv /usr/local/bin/uv
+ && ln -s /root/.local/bin/uv /usr/local/bin/uv
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Layer 17: SSRFmap（SSRF 利用）
