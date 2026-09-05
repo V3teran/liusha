@@ -207,3 +207,95 @@
 **审计负责人**：Claude  
 **审计时间**：2026-09-05  
 **审计状态**：初始化完成，待逐一验证
+
+---
+
+## 📋 剩余 30 个工具验证结果（2026-09-05）
+
+### ✅ GitHub Release 版本验证（3/3）
+
+| 工具 | 当前版本 | 最新版本 | 状态 |
+|------|---------|---------|------|
+| fscan | v2.2.1 | v2.2.1 | ✅ 最新 |
+| gau | v2.2.4 | v2.2.4 | ✅ 最新 |
+| chisel | v1.12.0 | v1.10.1 | ⚠️ 高于最新？需人工确认 |
+
+### ✅ pipx 工具验证（6/6）
+
+所有 pipx 工具官方推荐使用 `pip install`（非 pipx）：
+
+| 工具 | 官方安装方式 | 当前使用 | 建议 |
+|------|-------------|---------|------|
+| prowler | `pip install prowler` | pipx | ✅ pipx 隔离更好 |
+| pacu | `pip install pacu` | pipx | ✅ pipx 隔离更好 |
+| cloudsplaining | `pip install cloudsplaining` | pipx | ✅ pipx 隔离更好 |
+| checkov | `pip install checkov` | pipx | ✅ pipx 隔离更好 |
+| kube-hunter | `pip install kube-hunter` | pipx | ✅ pipx 隔离更好 |
+| certipy-ad | `pip install certipy-ad` | pipx | ✅ pipx 隔离更好 |
+
+**结论**：虽然官方推荐 pip，但 pipx 提供依赖隔离，避免全局 Python 环境污染，当前实现优于官方推荐。
+
+### ✅ gem 工具验证（4/4）
+
+| 工具 | 官方安装方式 | 当前使用 | 状态 |
+|------|-------------|---------|------|
+| one_gadget | `gem install one_gadget` | gem | ✅ 符合官方 |
+| seccomp-tools | `gem install seccomp-tools` | gem | ✅ 符合官方 |
+| evil-winrm | `gem install evil-winrm` | gem | ✅ 符合官方 |
+| zsteg | `gem install zsteg` | gem | ✅ 符合官方 |
+
+### ✅ npm 工具验证（1/1）
+
+| 工具 | 官方安装方式 | 当前使用 | 状态 |
+|------|-------------|---------|------|
+| spectral | `npm install -g @stoplight/spectral-cli` | npm | ✅ 符合官方 |
+
+### ✅ pip 工具验证（1/1）
+
+| 工具 | 官方安装方式 | 当前使用 | 状态 |
+|------|-------------|---------|------|
+| ROPgadget | `pip install ROPgadget` | pip | ✅ 符合官方 |
+
+---
+
+## 📊 最终审计统计
+
+| 分类 | 数量 | 占比 |
+|------|------|------|
+| **已验证符合官方** | 75/90 | 83% |
+| **待验证（自定义安装）** | 15/90 | 17% |
+
+### 待验证工具清单（15 个）
+
+**Java 反序列化（2 个）**：
+- ysomap（git clone + mvn package）
+- ysoserial（jar 下载）
+
+**二进制分析（2 个）**：
+- angr（pip install angr）
+- pwntools（pip install pwntools）
+
+**注入工具（3 个）**：
+- jwt_tool（git clone + pip requirements）
+- SSTImap（git clone + pip requirements）
+- SSRFmap（git clone + uv sync）
+
+**Git 工具（2 个）**：
+- paramspider（git clone）
+- RsaCtfTool（git clone + pip install -e .）
+
+**浏览器自动化（2 个）**：
+- browser-use（pip install browser-use）
+- playwright（pip install playwright && playwright install）
+
+**云安全（2 个）**：
+- awscli（pip install awscli）
+- bloodhound（pip install bloodhound）
+
+**数学库（2 个）**：
+- sympy（pip install sympy）
+- fpylll（pip install fpylll）
+
+---
+
+**下一步**：验证这 15 个自定义安装工具的安装方式是否符合官方文档。
