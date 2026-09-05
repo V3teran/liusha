@@ -273,7 +273,7 @@ RUN set -eux \
 RUN set -eux \
  && git clone --depth 1 https://github.com/RsaCtfTool/RsaCtfTool.git /opt/RsaCtfTool \
  && cd /opt/RsaCtfTool \
- && pip install --no-cache-dir --break-system-packages -e . \
+ && pip install --no-cache-dir --break-system-packages --ignore-installed -e . \
  && ln -sf /opt/RsaCtfTool/RsaCtfTool.py /usr/local/bin/RsaCtfTool \
  && chmod +x /usr/local/bin/RsaCtfTool
 
