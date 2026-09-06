@@ -257,6 +257,9 @@ jobs:
       packages: write
 
     steps:
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
       - name: Log in to GHCR
         uses: docker/login-action@v3
         with:
@@ -264,13 +267,13 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Pull and retag base image
+      - name: Retag base image (registry-side, no pull)
         run: |
-          docker pull ${{ env.BASE_IMAGE }}:test-${{ github.sha }}
-          docker tag ${{ env.BASE_IMAGE }}:test-${{ github.sha }} ${{ env.BASE_IMAGE }}:latest
-          docker tag ${{ env.BASE_IMAGE }}:test-${{ github.sha }} ${{ env.BASE_IMAGE }}:${{ github.sha }}
-          docker push ${{ env.BASE_IMAGE }}:latest
-          docker push ${{ env.BASE_IMAGE }}:${{ github.sha }}
+          # 使用 buildx imagetools 在 registry 层面操作，无需下载镜像
+          docker buildx imagetools create \
+            --tag ${{ env.BASE_IMAGE }}:latest \
+            --tag ${{ env.BASE_IMAGE }}:${{ github.sha }} \
+            ${{ env.BASE_IMAGE }}:test-${{ github.sha }}
 
   # ============================================================================
   # Stage 5: 构建最终镜像（不推送）
