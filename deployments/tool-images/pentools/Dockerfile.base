@@ -93,6 +93,7 @@ RUN set -eux \
       proxychains4 tshark responder \
       curl jq \
       ghidra \
+      afl++ \
  && rm -rf /var/lib/apt/lists/*
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -287,7 +288,8 @@ RUN set -eux \
  && python3 -m venv /opt/angr-venv \
  && /opt/angr-venv/bin/pip install --no-cache-dir angr \
  && printf '#!/bin/sh\nexec /opt/angr-venv/bin/python "$@"\n' > /usr/local/bin/angr-python \
- && chmod +x /usr/local/bin/angr-python
+ && chmod +x /usr/local/bin/angr-python \
+ && ln -s /usr/local/bin/angr-python /usr/local/bin/angr
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Layer 20: browser-use（浏览器自动化）
