@@ -372,7 +372,8 @@ RUN set -eux \
  && wget -q --tries=3 --waitretry=5 \
       "https://github.com/BishopFox/cloudfox/releases/download/v2.0.5/cloudfox-linux-${TARGETARCH}.zip" \
       -O /tmp/cloudfox.zip \
- && unzip -oq /tmp/cloudfox.zip cloudfox -d /usr/local/bin/ \
+ && unzip -oq /tmp/cloudfox.zip cloudfox/cloudfox -d /tmp/ \
+ && mv /tmp/cloudfox/cloudfox /usr/local/bin/cloudfox \
  && chmod +x /usr/local/bin/cloudfox \
  && rm /tmp/cloudfox.zip
 
