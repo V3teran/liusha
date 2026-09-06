@@ -6,11 +6,13 @@ package httpapi
 
 import (
 	"context"
+	"errors"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/jackc/pgx/v5"
 
 	"github.com/V3teran/liusha/internal/traffic"
 )
@@ -45,17 +47,7 @@ const (
 // 时间用 RFC3339（前端 Date.toISOString() 直出）；解析失败视为未传（不筛该端），不打 400——
 // 浏览筛选是查询辅助，坏参数应退化成不筛而非整页失败（对齐 parseInvocationFilter 口径）。
 func parseTrafficFilter(c *gin.Context) (traffic.ProxyListFilter, int, int) {
-	page := atoiOr(c.Query("page"), 1)
-	if page < 1 {
-		page = 1
-	}
-	size := atoiOr(c.Query("size"), defaultTrafficPageSize)
-	if size < 1 {
-		size = defaultTrafficPageSize
-	}
-	if size > maxTrafficPageSize {
-		size = maxTrafficPageSize
-	}
+	page, size := parsePagination(c.Query("page"), c.Query("size"), defaultTrafficPageSize, maxTrafficPageSize)
 	f := traffic.ProxyListFilter{
 		Host:        strings.TrimSpace(c.Query("host")),
 		Method:      strings.TrimSpace(c.Query("method")),
@@ -161,7 +153,7 @@ func trafficDetailHandler(api TrafficAPI, resolver TaskConvResolver) gin.Handler
 		}
 		v, err := api.GetByID(ctx, id)
 		if err != nil {
-			if strings.Contains(err.Error(), "no rows in result set") {
+			if errors.Is(err, pgx.ErrNoRows) {
 				c.JSON(404, gin.H{"error": "traffic not found", "id": id})
 				return
 			}

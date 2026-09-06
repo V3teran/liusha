@@ -7,7 +7,6 @@ package httpapi
 
 import (
 	"context"
-	"strconv"
 
 	"github.com/gin-gonic/gin"
 
@@ -41,17 +40,7 @@ func listToolsHandler(api ToolCatalogAPI) gin.HandlerFunc {
 		params := cfgtool.ListParams{Q: c.Query("q"), Kind: kind}
 		// page 显式传入才分页；缺省时 Limit 留 0 → store 返回全量（供选择器）。
 		if raw := c.Query("page"); raw != "" {
-			page := atoiOr(raw, 1)
-			if page < 1 {
-				page = 1
-			}
-			size := atoiOr(c.Query("size"), defaultToolPageSize)
-			if size < 1 {
-				size = defaultToolPageSize
-			}
-			if size > maxToolPageSize {
-				size = maxToolPageSize
-			}
+			page, size := parsePagination(raw, c.Query("size"), defaultToolPageSize, maxToolPageSize)
 			params.Limit = size
 			params.Offset = (page - 1) * size
 		}
@@ -196,16 +185,4 @@ func toolJSON(t cfgtool.Tool) gin.H {
 		"description": t.Description,
 		"sort_order":  t.SortOrder, "synced_at": t.SyncedAt,
 	}
-}
-
-// atoiOr 解析十进制整数，失败回退 def。
-func atoiOr(s string, def int) int {
-	if s == "" {
-		return def
-	}
-	n, err := strconv.Atoi(s)
-	if err != nil {
-		return def
-	}
-	return n
 }

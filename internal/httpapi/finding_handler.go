@@ -6,7 +6,6 @@ package httpapi
 import (
 	"context"
 	"encoding/json"
-	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -46,17 +45,7 @@ const (
 //	}] }
 func listFindingsHandler(api FindingsAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		page, _ := strconv.Atoi(c.Query("page"))
-		if page < 1 {
-			page = 1
-		}
-		size, _ := strconv.Atoi(c.Query("size"))
-		if size < 1 {
-			size = defaultFindingPageSize
-		}
-		if size > maxFindingPageSize {
-			size = maxFindingPageSize
-		}
+		page, size := parsePagination(c.Query("page"), c.Query("size"), defaultFindingPageSize, maxFindingPageSize)
 
 		f := finding.LedgerFilter{
 			Host:     c.Query("host"),
