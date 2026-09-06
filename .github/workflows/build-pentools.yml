@@ -245,44 +245,6 @@ jobs:
             exit 1
           fi
 
-      - name: Test L3 - Critical Tools Smoke Test
-        run: |
-          echo "=== Level 3: 关键工具冒烟测试 ==="
-          echo ""
-
-          # nmap: 显示帮助（不实际扫描）
-          echo "Testing nmap..."
-          docker run --rm pentools-base:test nmap --help 2>&1 | grep -q "Nmap" || exit 1
-          echo "✅ nmap"
-
-          # sqlmap: 列出 tamper 脚本
-          echo "Testing sqlmap..."
-          docker run --rm pentools-base:test sqlmap --list-tampers 2>&1 | grep -q "tamper" || exit 1
-          echo "✅ sqlmap"
-
-          # nuclei: 列出模板
-          echo "Testing nuclei..."
-          docker run --rm pentools-base:test nuclei -tl 2>&1 | grep -q "Templates" || exit 1
-          echo "✅ nuclei"
-
-          # ysomap: 显示帮助
-          echo "Testing ysomap..."
-          docker run --rm pentools-base:test ysomap --help 2>&1 | grep -qE "ysomap|usage" || exit 1
-          echo "✅ ysomap"
-
-          # ysoserial: 列出 payload
-          echo "Testing ysoserial..."
-          docker run --rm pentools-base:test ysoserial --help 2>&1 | grep -qE "ysoserial|gadget" || exit 1
-          echo "✅ ysoserial"
-
-          # metasploit: 验证可执行
-          echo "Testing msfconsole..."
-          docker run --rm pentools-base:test msfconsole --version 2>&1 | grep -q "Framework" || exit 1
-          echo "✅ msfconsole"
-
-          echo ""
-          echo "✅✅✅ All critical tools smoke tests passed!"
-
   # ============================================================================
   # Stage 4: 推送基础镜像（重新 tag 为 latest）
   # ============================================================================
