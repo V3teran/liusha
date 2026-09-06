@@ -3,11 +3,12 @@ package httpapi
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"net/http"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 
 	"github.com/V3teran/liusha/internal/traffic"
 )
@@ -46,7 +47,7 @@ func (f *fakeTraffic) DistinctContentTypes(_ context.Context) ([]string, error) 
 func (f *fakeTraffic) GetByID(_ context.Context, id int64) (traffic.ProxyTraffic, error) {
 	v, ok := f.byID[id]
 	if !ok {
-		return traffic.ProxyTraffic{}, errors.New("no rows in result set")
+		return traffic.ProxyTraffic{}, pgx.ErrNoRows
 	}
 	return v, nil
 }

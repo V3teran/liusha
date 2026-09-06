@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -105,7 +106,7 @@ func llmInvocationsHandler(api InvocationsAPI) gin.HandlerFunc {
 
 		invocations, err := api.ListByTask(c.Request.Context(), eid, f)
 		if err != nil {
-			if errors.Is(err, pgx.ErrNoRows) {
+			if errors.Is(err, pgx.ErrNoRows) || strings.Contains(err.Error(), "no rows") {
 				c.JSON(404, gin.H{"error": "task not found", "task_id": eid})
 				return
 			}
@@ -167,7 +168,7 @@ func llmInvocationDetailHandler(api InvocationsAPI) gin.HandlerFunc {
 		}
 		v, err := api.GetByID(c.Request.Context(), eid, id)
 		if err != nil {
-			if errors.Is(err, pgx.ErrNoRows) {
+			if errors.Is(err, pgx.ErrNoRows) || strings.Contains(err.Error(), "no rows") {
 				c.JSON(404, gin.H{"error": "invocation not found"})
 				return
 			}

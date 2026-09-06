@@ -153,7 +153,7 @@ func trafficDetailHandler(api TrafficAPI, resolver TaskConvResolver) gin.Handler
 		}
 		v, err := api.GetByID(ctx, id)
 		if err != nil {
-			if errors.Is(err, pgx.ErrNoRows) {
+			if errors.Is(err, pgx.ErrNoRows) || strings.Contains(err.Error(), "no rows") {
 				c.JSON(404, gin.H{"error": "traffic not found", "id": id})
 				return
 			}
