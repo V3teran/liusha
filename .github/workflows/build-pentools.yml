@@ -177,14 +177,6 @@ jobs:
           for tool in $TOOLS; do
             TOTAL=$((TOTAL + 1))
 
-            # 跳过运行时环境（不是独立工具）
-            case "$tool" in
-              python3|node|php|go|ruby|java|java8|java17|gcc|curl|jq|mysql)
-                echo "⏭️  $tool (runtime, skip)"
-                continue
-                ;;
-            esac
-
             # 测试命令存在性
             if docker run --rm pentools-base:test bash -c "command -v $tool" >/dev/null 2>&1; then
               echo "✅ $tool"
@@ -223,14 +215,6 @@ jobs:
 
           for tool in $TOOLS; do
             TOTAL=$((TOTAL + 1))
-
-            # 跳过运行时环境
-            case "$tool" in
-              python3|node|php|go|ruby|java|java8|java17|gcc|curl|jq|mysql)
-                echo "⏭️  $tool (runtime, skip)"
-                continue
-                ;;
-            esac
 
             # 测试版本输出（尝试 --version 或 --help）
             if docker run --rm pentools-base:test bash -c "$tool --version 2>&1 | head -5" 2>/dev/null | grep -qE '.'; then
