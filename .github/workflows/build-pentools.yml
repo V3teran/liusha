@@ -123,6 +123,26 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Free up disk space
+        run: |
+          echo "=== 清理前磁盘空间 ==="
+          df -h
+          echo ""
+          echo "=== 删除不需要的软件 ==="
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /opt/hostedtoolcache/CodeQL
+          sudo rm -rf /usr/local/share/boost
+          sudo rm -rf /usr/local/graalvm
+          sudo rm -rf /usr/local/.ghcup
+          sudo rm -rf /usr/share/swift
+          sudo docker image prune --all --force
+          sudo apt-get clean
+          echo ""
+          echo "=== 清理后磁盘空间 ==="
+          df -h
+
       - name: Log in to GHCR
         uses: docker/login-action@v3
         with:
@@ -368,6 +388,19 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Free up disk space
+        run: |
+          echo "=== 清理前磁盘空间 ==="
+          df -h
+          echo ""
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo docker image prune --all --force
+          sudo apt-get clean
+          echo ""
+          echo "=== 清理后磁盘空间 ==="
+          df -h
 
       - name: Log in to GHCR
         uses: docker/login-action@v3
