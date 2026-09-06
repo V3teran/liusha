@@ -7,9 +7,10 @@ package httpapi
 
 import (
 	"context"
-	"strings"
+	"errors"
 
 	"github.com/gin-gonic/gin"
+	"github.com/jackc/pgx/v5"
 
 	"github.com/V3teran/liusha/internal/llminvocation"
 	"github.com/V3teran/liusha/internal/toolinvocation"
@@ -59,7 +60,7 @@ func conversationUsageHandler(conv UsageTaskResolver, llm LLMUsageAggregator, to
 		ctx := c.Request.Context()
 		taskID, err := conv.ResolveTaskID(ctx, id)
 		if err != nil {
-			if strings.Contains(err.Error(), "no rows in result set") {
+			if errors.Is(err, pgx.ErrNoRows) {
 				c.JSON(404, gin.H{"error": "conversation not found", "conversation_id": id})
 				return
 			}

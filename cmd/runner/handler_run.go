@@ -346,7 +346,6 @@ func (h handler) handleCognition(
 
 	// 添加工具调用记录拦截器
 	reg.AddInterceptor(h.toolRecordInterceptor(p.AgentID, taskID))
-	fmt.Printf("[HANDLER.handleCognition] Added toolRecordInterceptor, registry now has %d interceptors\n", len(reg.Interceptors()))
 
 	finalizeTask := func(complete bool, reason string) {
 		fctx, fcancel := context.WithTimeout(context.Background(), 10*time.Second)

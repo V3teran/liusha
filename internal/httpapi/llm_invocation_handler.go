@@ -4,11 +4,12 @@ package httpapi
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/jackc/pgx/v5"
 
 	"github.com/V3teran/liusha/internal/llminvocation"
 )
@@ -104,7 +105,7 @@ func llmInvocationsHandler(api InvocationsAPI) gin.HandlerFunc {
 
 		invocations, err := api.ListByTask(c.Request.Context(), eid, f)
 		if err != nil {
-			if strings.Contains(err.Error(), "no rows in result set") {
+			if errors.Is(err, pgx.ErrNoRows) {
 				c.JSON(404, gin.H{"error": "task not found", "task_id": eid})
 				return
 			}
@@ -166,7 +167,7 @@ func llmInvocationDetailHandler(api InvocationsAPI) gin.HandlerFunc {
 		}
 		v, err := api.GetByID(c.Request.Context(), eid, id)
 		if err != nil {
-			if strings.Contains(err.Error(), "no rows in result set") {
+			if errors.Is(err, pgx.ErrNoRows) {
 				c.JSON(404, gin.H{"error": "invocation not found"})
 				return
 			}
@@ -256,14 +257,6 @@ func llmInvocationFacetsHandler(api InvocationsAPI) gin.HandlerFunc {
 		}
 		c.JSON(200, gin.H{"task_id": eid, "roles": roles, "models": models})
 	}
-}
-
-// rawOrEmpty 兜底空 []byte——避免前端拿到 null 而是合法 JSON 字面量。
-func rawOrEmpty(b []byte, empty string) []byte {
-	if len(b) == 0 {
-		return []byte(empty)
-	}
-	return b
 }
 
 // toolNamesOrEmpty 把 nil 切片归一成空数组——前端渲染工具徽章时不必判空。

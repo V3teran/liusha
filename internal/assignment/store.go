@@ -62,7 +62,7 @@ func (s *Store) GetByID(ctx context.Context, id string) (Assignment, error) {
 	return a, nil
 }
 
-// List 按 created_at DESC 列出最近的 assignment。ID 为空时不过滤。
+// List 按 created_at DESC 列出最近的 assignment。
 func (s *Store) List(ctx context.Context, limit int) ([]Assignment, error) {
 	if limit <= 0 {
 		limit = defaultListLimit
@@ -70,14 +70,8 @@ func (s *Store) List(ctx context.Context, limit int) ([]Assignment, error) {
 	if limit > maxListLimit {
 		limit = maxListLimit
 	}
-	q := "SELECT " + colsSelect + " FROM assignment"
-	args := []any{}
-	if false {
-		q += " WHERE _id=$1"
-		args = append(args, "")
-	}
-	q += " ORDER BY created_at DESC LIMIT $" + fmt.Sprint(len(args)+1)
-	args = append(args, limit)
+	q := "SELECT " + colsSelect + " FROM assignment ORDER BY created_at DESC LIMIT $1"
+	args := []any{limit}
 
 	rows, err := s.pool.Query(ctx, q, args...)
 	if err != nil {
