@@ -9,6 +9,9 @@
 # 构建时间：~2-3 分钟（base 镜像完全缓存）
 # 镜像大小：与 base 相同 + sandbox-server (~20MB)
 
+# 全局 ARG（在所有 FROM 之前声明，才能在多个 stage 中使用）
+ARG BASE_IMAGE=ghcr.io/v3teran/pentools-base:latest
+
 # ── Stage 0: 编译 sandbox-server ─────────────────────────────────────────────
 FROM golang:1.25-alpine AS sandbox-builder
 WORKDIR /src
@@ -20,7 +23,6 @@ ENV CGO_ENABLED=0
 RUN go build -mod=vendor -o /out/sandbox-server ./cmd/sandbox-server
 
 # ── Stage 1: 基于 base 镜像构建最终镜像 ──────────────────────────────────────
-ARG BASE_IMAGE=ghcr.io/v3teran/pentools-base:latest
 FROM ${BASE_IMAGE}
 
 # Layer 7: browser-use 薄客户端（覆盖 base 中的占位符）
