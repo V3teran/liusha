@@ -18,8 +18,8 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  BASE_IMAGE: ghcr.io/${{ github.repository_owner }}/pentools-base
-  FINAL_IMAGE: ghcr.io/${{ github.repository_owner }}/pentools
+  BASE_IMAGE: ghcr.io/v3teran/pentools-base
+  FINAL_IMAGE: ghcr.io/v3teran/pentools
 
 jobs:
   # ============================================================================
