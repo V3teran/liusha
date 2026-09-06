@@ -53,7 +53,7 @@ jobs:
           fi
 
   # ============================================================================
-  # Stage 2: 构建基础镜像（不推送）
+  # Stage 2: 构建并推送基础镜像（直接推送，不保存 artifact）
   # ============================================================================
   build-base:
     needs: check-base-changed
@@ -62,6 +62,7 @@ jobs:
     timeout-minutes: 90
     permissions:
       contents: read
+      packages: write
 
     steps:
       - uses: actions/checkout@v4
@@ -89,27 +90,24 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Build base image (load to local)
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push base image
         uses: docker/build-push-action@v6
         with:
           context: .
           file: deployments/tool-images/pentools/Dockerfile.base
           platforms: linux/amd64
-          load: true
-          tags: pentools-base:test
+          push: true
+          tags: |
+            ${{ env.BASE_IMAGE }}:test-${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-
-      - name: Save base image
-        run: |
-          docker save pentools-base:test | gzip > /tmp/pentools-base.tar.gz
-
-      - name: Upload base image artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: pentools-base-image
-          path: /tmp/pentools-base.tar.gz
-          retention-days: 1
 
   # ============================================================================
   # Stage 3: 测试基础镜像（90 个工具全量验证）
@@ -120,19 +118,22 @@ jobs:
     timeout-minutes: 30
     permissions:
       contents: read
+      packages: read
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Download base image artifact
-        uses: actions/download-artifact@v4
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
         with:
-          name: pentools-base-image
-          path: /tmp
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Load base image
+      - name: Pull base image
         run: |
-          docker load < /tmp/pentools-base.tar.gz
+          docker pull ${{ env.BASE_IMAGE }}:test-${{ github.sha }}
+          docker tag ${{ env.BASE_IMAGE }}:test-${{ github.sha }} pentools-base:test
           docker images
 
       - name: Install yq
@@ -279,7 +280,7 @@ jobs:
           echo "✅✅✅ All critical tools smoke tests passed!"
 
   # ============================================================================
-  # Stage 4: 推送基础镜像
+  # Stage 4: 推送基础镜像（重新 tag 为 latest）
   # ============================================================================
   push-base:
     needs: test-base
@@ -290,11 +291,6 @@ jobs:
       packages: write
 
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
       - name: Log in to GHCR
         uses: docker/login-action@v3
         with:
@@ -302,22 +298,13 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push base image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: deployments/tool-images/pentools/Dockerfile.base
-          platforms: linux/amd64
-          push: true
-          tags: |
-            ${{ env.BASE_IMAGE }}:latest
-            ${{ env.BASE_IMAGE }}:${{ github.sha }}
-          labels: |
-            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
-            org.opencontainers.image.revision=${{ github.sha }}
-            liusha.tools.count=90
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+      - name: Pull and retag base image
+        run: |
+          docker pull ${{ env.BASE_IMAGE }}:test-${{ github.sha }}
+          docker tag ${{ env.BASE_IMAGE }}:test-${{ github.sha }} ${{ env.BASE_IMAGE }}:latest
+          docker tag ${{ env.BASE_IMAGE }}:test-${{ github.sha }} ${{ env.BASE_IMAGE }}:${{ github.sha }}
+          docker push ${{ env.BASE_IMAGE }}:latest
+          docker push ${{ env.BASE_IMAGE }}:${{ github.sha }}
 
   # ============================================================================
   # Stage 5: 构建最终镜像（不推送）
@@ -329,6 +316,7 @@ jobs:
     timeout-minutes: 30
     permissions:
       contents: read
+      packages: read
 
     steps:
       - uses: actions/checkout@v4
@@ -354,29 +342,18 @@ jobs:
             echo "tag=latest" >> $GITHUB_OUTPUT
           fi
 
-      - name: Build final image (load to local)
+      - name: Build final image (push to test tag)
         uses: docker/build-push-action@v6
         with:
           context: .
           file: deployments/tool-images/pentools/Dockerfile.final
           platforms: linux/amd64
-          load: true
-          tags: pentools:test
+          push: true
+          tags: ${{ env.FINAL_IMAGE }}:test-${{ github.sha }}
           build-args: |
             BASE_IMAGE=${{ env.BASE_IMAGE }}:${{ steps.base-tag.outputs.tag }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-
-      - name: Save final image
-        run: |
-          docker save pentools:test | gzip > /tmp/pentools-final.tar.gz
-
-      - name: Upload final image artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: pentools-final-image
-          path: /tmp/pentools-final.tar.gz
-          retention-days: 1
 
   # ============================================================================
   # Stage 6: 测试最终镜像（sandbox-server + 工具继承）
@@ -387,19 +364,22 @@ jobs:
     timeout-minutes: 15
     permissions:
       contents: read
+      packages: read
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Download final image artifact
-        uses: actions/download-artifact@v4
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
         with:
-          name: pentools-final-image
-          path: /tmp
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Load final image
+      - name: Pull final image
         run: |
-          docker load < /tmp/pentools-final.tar.gz
+          docker pull ${{ env.FINAL_IMAGE }}:test-${{ github.sha }}
+          docker tag ${{ env.FINAL_IMAGE }}:test-${{ github.sha }} pentools:test
           docker images
 
       - name: Test sandbox-server startup
@@ -484,11 +464,6 @@ jobs:
       packages: write
 
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
       - name: Log in to GHCR
         uses: docker/login-action@v3
         with:
@@ -496,18 +471,10 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push final image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: deployments/tool-images/pentools/Dockerfile.final
-          platforms: linux/amd64
-          push: true
-          tags: |
-            ${{ env.FINAL_IMAGE }}:latest
-            ${{ env.FINAL_IMAGE }}:${{ github.sha }}
-          labels: |
-            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
-            org.opencontainers.image.revision=${{ github.sha }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+      - name: Pull and retag final image
+        run: |
+          docker pull ${{ env.FINAL_IMAGE }}:test-${{ github.sha }}
+          docker tag ${{ env.FINAL_IMAGE }}:test-${{ github.sha }} ${{ env.FINAL_IMAGE }}:latest
+          docker tag ${{ env.FINAL_IMAGE }}:test-${{ github.sha }} ${{ env.FINAL_IMAGE }}:${{ github.sha }}
+          docker push ${{ env.FINAL_IMAGE }}:latest
+          docker push ${{ env.FINAL_IMAGE }}:${{ github.sha }}
