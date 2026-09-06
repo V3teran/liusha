@@ -327,7 +327,7 @@ RUN set -eux \
 # ══════════════════════════════════════════════════════════════════════════════
 RUN set -eux \
  && wget -q --tries=3 --waitretry=5 \
-      "https://github.com/aquasecurity/kube-bench/releases/download/v1.8.0/kube-bench_1.8.0_linux_${TARGETARCH}.tar.gz" \
+      "https://github.com/aquasecurity/kube-bench/releases/download/v0.16.0/kube-bench_0.16.0_linux_${TARGETARCH}.tar.gz" \
       -O /tmp/kube-bench.tar.gz \
  && tar -xzf /tmp/kube-bench.tar.gz -C /usr/local/bin kube-bench \
  && chmod +x /usr/local/bin/kube-bench \
