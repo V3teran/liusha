@@ -7,12 +7,27 @@ ARG BASE_IMAGE=ghcr.io/v3teran/pentools-base:latest
 # ── Stage 0: 编译 sandbox-server ─────────────────────────────────────────────
 FROM golang:1.25-alpine AS sandbox-builder
 WORKDIR /src
+
+# 调试：列出 context 内容
+RUN echo "=== DEBUG: Listing /src before COPY ===" && ls -la
+
 COPY go.mod go.sum ./
+RUN echo "=== DEBUG: go.mod and go.sum copied ===" && ls -la
+
 COPY vendor ./vendor
+RUN echo "=== DEBUG: vendor copied ===" && ls -la vendor/ | head -10
+
 COPY cmd/sandbox-server cmd/sandbox-server
+RUN echo "=== DEBUG: cmd/sandbox-server copied ===" && ls -la cmd/
+
 COPY internal/sandbox internal/sandbox
+RUN echo "=== DEBUG: internal/sandbox copied ===" && ls -la internal/
+
 ENV CGO_ENABLED=0
-RUN go build -mod=vendor -o /out/sandbox-server ./cmd/sandbox-server
+RUN echo "=== DEBUG: Starting go build ===" \
+    && go build -mod=vendor -o /out/sandbox-server ./cmd/sandbox-server \
+    && echo "=== DEBUG: Build successful ===" \
+    && ls -lh /out/sandbox-server
 
 # ── Stage 1: 基于 base 镜像构建最终镜像 ──────────────────────────────────────
 # 在 stage 内部重新声明 ARG（multi-stage build 要求）
