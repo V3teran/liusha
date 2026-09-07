@@ -317,15 +317,38 @@ jobs:
           BASE_IMAGE_FULL="${{ env.BASE_IMAGE }}:${BASE_TAG}"
           echo "验证镜像: ${BASE_IMAGE_FULL}"
 
-          # 尝试拉取 manifest（不下载镜像本身）
-          if docker buildx imagetools inspect ${BASE_IMAGE_FULL} > /dev/null 2>&1; then
-            echo "✅ 镜像存在且可访问"
+          # 步骤 1: 检查 manifest
+          echo "=== 步骤 1: 检查镜像 manifest ==="
+          if docker buildx imagetools inspect ${BASE_IMAGE_FULL} > /tmp/inspect.log 2>&1; then
+            echo "✅ Manifest 存在"
+            cat /tmp/inspect.log
           else
-            echo "❌ 镜像不存在或无法访问"
-            echo "可能原因："
-            echo "1. 镜像还未推送到 GHCR"
-            echo "2. 镜像是私有的且当前 token 无权限"
-            echo "3. Tag 不存在"
+            echo "❌ Manifest 不存在"
+            cat /tmp/inspect.log
+            exit 1
+          fi
+
+          # 步骤 2: 尝试实际 pull 镜像（只拉取 manifest，不下载层）
+          echo ""
+          echo "=== 步骤 2: 尝试 pull 镜像 ==="
+          if docker pull ${BASE_IMAGE_FULL} --platform linux/amd64 > /tmp/pull.log 2>&1; then
+            echo "✅ 镜像 pull 成功"
+            docker images ${BASE_IMAGE_FULL}
+          else
+            echo "❌ 镜像 pull 失败"
+            cat /tmp/pull.log
+            exit 1
+          fi
+
+          # 步骤 3: 测试镜像能否启动
+          echo ""
+          echo "=== 步骤 3: 测试镜像可用性 ==="
+          if docker run --rm ${BASE_IMAGE_FULL} echo "Base image works" > /tmp/run.log 2>&1; then
+            echo "✅ 镜像可以正常运行"
+            cat /tmp/run.log
+          else
+            echo "❌ 镜像运行失败"
+            cat /tmp/run.log
             exit 1
           fi
 
