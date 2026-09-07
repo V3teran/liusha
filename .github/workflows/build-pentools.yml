@@ -314,15 +314,27 @@ jobs:
           df -h
 
           echo ""
-          echo "=== 删除不必要的工具和镜像 ==="
-          # 删除预装的大型工具
+          echo "=== 删除所有不必要的内容 ==="
+          # 删除预装的大型工具和库
           sudo rm -rf /usr/share/dotnet
           sudo rm -rf /usr/local/lib/android
           sudo rm -rf /opt/ghc
           sudo rm -rf /opt/hostedtoolcache/CodeQL
+          sudo rm -rf /usr/local/share/boost
+          sudo rm -rf /usr/local/graalvm
+          sudo rm -rf /usr/local/.ghcup
+          sudo rm -rf /usr/share/swift
 
-          # 清理 Docker 缓存和未使用的镜像
+          # 删除大型软件包缓存
+          sudo apt-get clean
+          sudo rm -rf /var/lib/apt/lists/*
+
+          # 删除 Docker 缓存
           docker system prune -af --volumes || true
+
+          # 删除临时文件
+          sudo rm -rf /tmp/*
+          sudo rm -rf /var/tmp/*
 
           echo ""
           echo "=== 磁盘空间 - 清理后 ==="
