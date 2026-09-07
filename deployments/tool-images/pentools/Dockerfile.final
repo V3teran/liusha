@@ -1,13 +1,5 @@
 # syntax=docker/dockerfile:1.7
-# pentools：liusha 沙箱镜像（基于 pentools-base）
-#
-# 基于 pentools-base 基础镜像，只添加：
-#   - sandbox-server 二进制（Stage 0 编译）
-#   - browser-use/browser-svc.py 薄客户端脚本
-#   - entrypoint 脚本
-#
-# 构建时间：~2-3 分钟（base 镜像完全缓存）
-# 镜像大小：与 base 相同 + sandbox-server (~20MB)
+# pentools：liusha 沙箱镜像（基于 pentools-base）- 简化测试版
 
 # 全局 ARG（在所有 FROM 之前声明，才能在多个 stage 中使用）
 ARG BASE_IMAGE=ghcr.io/v3teran/pentools-base:latest
@@ -27,17 +19,8 @@ RUN go build -mod=vendor -o /out/sandbox-server ./cmd/sandbox-server
 ARG BASE_IMAGE
 FROM ${BASE_IMAGE}
 
-# Layer 7: browser-use 薄客户端（覆盖 base 中的占位符）
-COPY deployments/tool-images/pentools/browser-use /usr/local/bin/browser-use
-COPY deployments/tool-images/pentools/browser-svc.py /usr/local/bin/browser-svc.py
-RUN chmod +x /usr/local/bin/browser-use /usr/local/bin/browser-svc.py
-
-# Layer 13: entrypoint
-RUN printf '%s\n' \
-  '#!/bin/sh' \
-  'exec /usr/local/bin/sandbox-server' \
-  > /usr/local/bin/sandbox-entrypoint.sh \
- && chmod +x /usr/local/bin/sandbox-entrypoint.sh
+# 测试：只添加一个简单文件，看能否成功
+RUN echo "pentools final image test" > /tmp/build-test.txt
 
 # Layer 14: sandbox-server 二进制
 COPY --from=sandbox-builder /out/sandbox-server /usr/local/bin/sandbox-server
@@ -45,4 +28,4 @@ RUN chmod +x /usr/local/bin/sandbox-server && test -x /usr/local/bin/sandbox-ser
 
 WORKDIR /work
 EXPOSE 8080
-CMD ["/usr/local/bin/sandbox-entrypoint.sh"]
+CMD ["/usr/local/bin/sandbox-server"]
