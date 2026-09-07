@@ -275,6 +275,38 @@ jobs:
             --tag ${{ env.BASE_IMAGE }}:${{ github.sha }} \
             ${{ env.BASE_IMAGE }}:test-${{ github.sha }}
 
+      - name: Verify pushed base image
+        run: |
+          echo "=== 验证刚推送的 latest tag ==="
+          BASE_IMAGE_LATEST="${{ env.BASE_IMAGE }}:latest"
+
+          # 等待 registry 同步
+          sleep 5
+
+          # 检查 manifest
+          if ! docker buildx imagetools inspect ${BASE_IMAGE_LATEST}; then
+            echo "❌ latest tag manifest 不存在"
+            exit 1
+          fi
+
+          # 尝试 pull
+          echo ""
+          echo "=== Pull 镜像 ==="
+          if ! docker pull ${BASE_IMAGE_LATEST} --platform linux/amd64; then
+            echo "❌ latest tag pull 失败"
+            exit 1
+          fi
+
+          # 测试运行
+          echo ""
+          echo "=== 测试镜像 ==="
+          if ! docker run --rm ${BASE_IMAGE_LATEST} echo "Base image OK"; then
+            echo "❌ latest tag 运行失败"
+            exit 1
+          fi
+
+          echo "✅ Base 镜像验证通过"
+
   # ============================================================================
   # Stage 5: 构建最终镜像（不推送）
   # ============================================================================
