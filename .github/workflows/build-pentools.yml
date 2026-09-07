@@ -322,9 +322,11 @@ jobs:
         id: base-tag
         run: |
           if [ "${{ needs.check-base-changed.outputs.should_build }}" = "true" ]; then
-            echo "使用新构建的 base 镜像: ${{ github.sha }}"
-            echo "tag=${{ github.sha }}" >> $GITHUB_OUTPUT
+            # Base 刚构建完成，使用 test-SHA tag（已完全同步）
+            echo "使用刚构建的 base 镜像: test-${{ github.sha }}"
+            echo "tag=test-${{ github.sha }}" >> $GITHUB_OUTPUT
           else
+            # Base 未改变，使用稳定的 latest tag
             echo "使用现有的 base 镜像: latest"
             echo "tag=latest" >> $GITHUB_OUTPUT
           fi
