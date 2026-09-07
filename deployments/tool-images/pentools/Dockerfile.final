@@ -23,6 +23,8 @@ ENV CGO_ENABLED=0
 RUN go build -mod=vendor -o /out/sandbox-server ./cmd/sandbox-server
 
 # ── Stage 1: 基于 base 镜像构建最终镜像 ──────────────────────────────────────
+# 在 stage 内部重新声明 ARG（multi-stage build 要求）
+ARG BASE_IMAGE
 FROM ${BASE_IMAGE}
 
 # Layer 7: browser-use 薄客户端（覆盖 base 中的占位符）
