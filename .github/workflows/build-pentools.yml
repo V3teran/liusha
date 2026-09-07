@@ -283,29 +283,15 @@ jobs:
           # 等待 registry 同步
           sleep 5
 
-          # 检查 manifest
+          # 检查 manifest（不 pull 镜像本身，8-10GB 太大）
+          echo "检查 manifest..."
           if ! docker buildx imagetools inspect ${BASE_IMAGE_LATEST}; then
             echo "❌ latest tag manifest 不存在"
             exit 1
           fi
 
-          # 尝试 pull
-          echo ""
-          echo "=== Pull 镜像 ==="
-          if ! docker pull ${BASE_IMAGE_LATEST} --platform linux/amd64; then
-            echo "❌ latest tag pull 失败"
-            exit 1
-          fi
-
-          # 测试运行
-          echo ""
-          echo "=== 测试镜像 ==="
-          if ! docker run --rm ${BASE_IMAGE_LATEST} echo "Base image OK"; then
-            echo "❌ latest tag 运行失败"
-            exit 1
-          fi
-
-          echo "✅ Base 镜像验证通过"
+          echo "✅ Base 镜像 manifest 验证通过"
+          echo "注意：未 pull 完整镜像（8-10GB），只验证了 manifest 存在"
 
   # ============================================================================
   # Stage 5: 构建最终镜像（不推送）
@@ -349,38 +335,14 @@ jobs:
           BASE_IMAGE_FULL="${{ env.BASE_IMAGE }}:${BASE_TAG}"
           echo "验证镜像: ${BASE_IMAGE_FULL}"
 
-          # 步骤 1: 检查 manifest
-          echo "=== 步骤 1: 检查镜像 manifest ==="
+          # 只检查 manifest（不 pull 8-10GB 的大镜像）
+          echo "检查 manifest..."
           if docker buildx imagetools inspect ${BASE_IMAGE_FULL} > /tmp/inspect.log 2>&1; then
             echo "✅ Manifest 存在"
             cat /tmp/inspect.log
           else
-            echo "❌ Manifest 不存在"
+            echo "❌ Manifest 不存在或无法访问"
             cat /tmp/inspect.log
-            exit 1
-          fi
-
-          # 步骤 2: 尝试实际 pull 镜像（只拉取 manifest，不下载层）
-          echo ""
-          echo "=== 步骤 2: 尝试 pull 镜像 ==="
-          if docker pull ${BASE_IMAGE_FULL} --platform linux/amd64 > /tmp/pull.log 2>&1; then
-            echo "✅ 镜像 pull 成功"
-            docker images ${BASE_IMAGE_FULL}
-          else
-            echo "❌ 镜像 pull 失败"
-            cat /tmp/pull.log
-            exit 1
-          fi
-
-          # 步骤 3: 测试镜像能否启动
-          echo ""
-          echo "=== 步骤 3: 测试镜像可用性 ==="
-          if docker run --rm ${BASE_IMAGE_FULL} echo "Base image works" > /tmp/run.log 2>&1; then
-            echo "✅ 镜像可以正常运行"
-            cat /tmp/run.log
-          else
-            echo "❌ 镜像运行失败"
-            cat /tmp/run.log
             exit 1
           fi
 
