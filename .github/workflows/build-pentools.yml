@@ -293,25 +293,263 @@ jobs:
           echo "✅ Base 镜像 manifest 验证通过"
           echo "注意：未 pull 完整镜像（8-10GB），只验证了 manifest 存在"
 
+  # ============================================================================
+  # Stage 5: 构建最终镜像（不推送）
+  # ============================================================================
+  build-final:
+    needs: [check-base-changed, push-base]
+    if: always() && (needs.push-base.result == 'success' || needs.check-base-changed.outputs.should_build == 'false')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Free up disk space
+        run: |
+          echo "=== 磁盘空间 - 清理前 ==="
+          df -h
+
+          echo ""
+          echo "=== 删除所有不必要的内容 ==="
+          # 删除预装的大型工具和库
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /opt/hostedtoolcache/CodeQL
+          sudo rm -rf /usr/local/share/boost
+          sudo rm -rf /usr/local/graalvm
+          sudo rm -rf /usr/local/.ghcup
+          sudo rm -rf /usr/share/swift
+
+          # 删除大型软件包缓存
+          sudo apt-get clean
+          sudo rm -rf /var/lib/apt/lists/*
+
+          # 删除 Docker 缓存
+          docker system prune -af --volumes || true
+
+          # 删除临时文件
+          sudo rm -rf /tmp/*
+          sudo rm -rf /var/tmp/*
+
+          echo ""
+          echo "=== 磁盘空间 - 清理后 ==="
+          df -h
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Determine base image tag
+        id: base-tag
+        run: |
+          if [ "${{ needs.check-base-changed.outputs.should_build }}" = "true" ]; then
+            # Base 刚构建完成，使用 test-SHA tag（已完全同步）
+            echo "使用刚构建的 base 镜像: test-${{ github.sha }}"
+            echo "tag=test-${{ github.sha }}" >> $GITHUB_OUTPUT
+          else
+            # Base 未改变，使用稳定的 latest tag
+            echo "使用现有的 base 镜像: latest"
+            echo "tag=latest" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Verify base image exists
+        run: |
+          BASE_TAG="${{ steps.base-tag.outputs.tag }}"
+          BASE_IMAGE_FULL="${{ env.BASE_IMAGE }}:${BASE_TAG}"
+          echo "验证镜像: ${BASE_IMAGE_FULL}"
+
+          # 只检查 manifest
+          echo "检查 manifest..."
+          if docker buildx imagetools inspect ${BASE_IMAGE_FULL} > /tmp/inspect.log 2>&1; then
+            echo "✅ Manifest 存在"
+            cat /tmp/inspect.log
+          else
+            echo "❌ Manifest 不存在或无法访问"
+            cat /tmp/inspect.log
+            exit 1
+          fi
+
+      - name: Pre-pull base image layers
+        run: |
+          BASE_TAG="${{ steps.base-tag.outputs.tag }}"
+          BASE_IMAGE_FULL="${{ env.BASE_IMAGE }}:${BASE_TAG}"
+
+          echo "=== 磁盘空间检查 ==="
+          df -h
+
+          echo ""
+          echo "=== 预拉取 base 镜像 ==="
+          # 使用 docker pull 预热，设置更长超时
+          timeout 600 docker pull ${BASE_IMAGE_FULL} --platform linux/amd64 || {
+            echo "警告：预拉取超时或失败，继续构建..."
+          }
+
+          echo ""
+          echo "=== 拉取后磁盘空间 ==="
+          df -h
+
+          echo ""
+          echo "=== Docker 镜像列表 ==="
+          docker images | head -10
+
+      - name: Build final image (push to test tag)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deployments/tool-images/pentools/Dockerfile.final
+          platforms: linux/amd64
+          push: true
+          tags: ${{ env.FINAL_IMAGE }}:test-${{ github.sha }}
+          build-args: |
+            BASE_IMAGE=${{ env.BASE_IMAGE }}:${{ steps.base-tag.outputs.tag }}
+          no-cache: true
+          provenance: false
+        timeout-minutes: 20
 
   # ============================================================================
-  # 注意：build-final、test-final、push-final 已移除
+  # Stage 6: 测试最终镜像（sandbox-server + 工具继承）
   # ============================================================================
-  # 
-  # Final 镜像构建方式：
-  # 
-  # 1. CI 自动构建并推送 base 镜像到 GHCR
-  # 2. 本地拉取 base 并构建 final（不推送）：
-  # 
-  #    docker pull ghcr.io/v3teran/pentools-base:latest
-  #    
-  #    docker buildx build --platform linux/amd64 \
-  #      --build-arg BASE_IMAGE=ghcr.io/v3teran/pentools-base:latest \
-  #      -t pentools:local \
-  #      -f deployments/tool-images/pentools/Dockerfile.final .
-  # 
-  # 3. 本地使用：
-  # 
-  #    docker run --rm pentools:local echo "Success"
-  # 
+  test-final:
+    needs: build-final
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Free up disk space
+        run: |
+          echo "=== 清理前磁盘空间 ==="
+          df -h
+          echo ""
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo docker image prune --all --force
+          sudo apt-get clean
+          echo ""
+          echo "=== 清理后磁盘空间 ==="
+          df -h
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pull final image
+        run: |
+          docker pull ${{ env.FINAL_IMAGE }}:test-${{ github.sha }}
+          docker tag ${{ env.FINAL_IMAGE }}:test-${{ github.sha }} pentools:test
+          docker images
+
+      - name: Test sandbox-server startup
+        run: |
+          echo "=== 测试 sandbox-server 启动 ==="
+
+          # 启动容器（后台运行）
+          CONTAINER_ID=$(docker run -d -p 8080:8080 pentools:test)
+          echo "容器 ID: $CONTAINER_ID"
+
+          # 等待启动（最多 30 秒）
+          echo "等待 sandbox-server 启动..."
+          for i in {1..30}; do
+            if curl -sf http://localhost:8080/healthz > /dev/null 2>&1; then
+              echo "✅ sandbox-server 已启动"
+              break
+            fi
+            if [ $i -eq 30 ]; then
+              echo "❌ sandbox-server 启动超时"
+              docker logs $CONTAINER_ID
+              exit 1
+            fi
+            sleep 1
+          done
+
+          # 验证健康检查端点
+          echo "验证健康检查端点..."
+          RESPONSE=$(curl -s http://localhost:8080/healthz)
+          echo "响应: $RESPONSE"
+
+          if echo "$RESPONSE" | grep -qE "ok|healthy|running"; then
+            echo "✅ 健康检查通过"
+          else
+            echo "❌ 健康检查失败"
+            docker logs $CONTAINER_ID
+            exit 1
+          fi
+
+          # 停止容器
+          docker stop $CONTAINER_ID
+          docker rm $CONTAINER_ID
+
+      - name: Test browser-use script
+        run: |
+          echo "=== 测试 browser-use 脚本 ==="
+
+          if docker run --rm pentools:test browser-use --help 2>&1 | grep -qE "usage|help|browser"; then
+            echo "✅ browser-use 脚本可用"
+          else
+            echo "❌ browser-use 脚本失败"
+            exit 1
+          fi
+
+      - name: Test tools inheritance (sampling)
+        run: |
+          echo "=== 测试工具继承（抽样验证）==="
+
+          # 抽样测试 10 个关键工具
+          TOOLS="nmap sqlmap nuclei httpx ffuf hydra john hashcat metasploit ysomap"
+
+          for tool in $TOOLS; do
+            if docker run --rm pentools:test bash -c "command -v $tool" >/dev/null 2>&1; then
+              echo "✅ $tool"
+            else
+              echo "❌ $tool - NOT FOUND"
+              exit 1
+            fi
+          done
+
+          echo ""
+          echo "✅✅✅ 工具继承验证通过！"
+
   # ============================================================================
+  # Stage 7: 推送最终镜像
+  # ============================================================================
+  push-final:
+    needs: test-final
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pull and retag final image
+        run: |
+          docker pull ${{ env.FINAL_IMAGE }}:test-${{ github.sha }}
+          docker tag ${{ env.FINAL_IMAGE }}:test-${{ github.sha }} ${{ env.FINAL_IMAGE }}:latest
+          docker tag ${{ env.FINAL_IMAGE }}:test-${{ github.sha }} ${{ env.FINAL_IMAGE }}:${{ github.sha }}
+          docker push ${{ env.FINAL_IMAGE }}:latest
+          docker push ${{ env.FINAL_IMAGE }}:${{ github.sha }}
