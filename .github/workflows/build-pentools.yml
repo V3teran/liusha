@@ -373,12 +373,23 @@ jobs:
           BASE_TAG="${{ steps.base-tag.outputs.tag }}"
           BASE_IMAGE_FULL="${{ env.BASE_IMAGE }}:${BASE_TAG}"
 
-          echo "=== 预拉取 base 镜像（确保层可用）==="
-          # 使用 docker pull 预热，即使失败也继续（build 时会重试）
-          timeout 300 docker pull ${BASE_IMAGE_FULL} --platform linux/amd64 || true
+          echo "=== 磁盘空间检查 ==="
+          df -h
 
           echo ""
-          echo "预拉取完成（或超时），继续构建..."
+          echo "=== 预拉取 base 镜像 ==="
+          # 使用 docker pull 预热，设置更长超时
+          timeout 600 docker pull ${BASE_IMAGE_FULL} --platform linux/amd64 || {
+            echo "警告：预拉取超时或失败，继续构建..."
+          }
+
+          echo ""
+          echo "=== 拉取后磁盘空间 ==="
+          df -h
+
+          echo ""
+          echo "=== Docker 镜像列表 ==="
+          docker images | head -10
 
       - name: Build final image (push to test tag)
         uses: docker/build-push-action@v6
@@ -391,7 +402,8 @@ jobs:
           build-args: |
             BASE_IMAGE=${{ env.BASE_IMAGE }}:${{ steps.base-tag.outputs.tag }}
           no-cache: true
-        timeout-minutes: 15
+          provenance: false
+        timeout-minutes: 20
 
   # ============================================================================
   # Stage 6: 测试最终镜像（sandbox-server + 工具继承）
