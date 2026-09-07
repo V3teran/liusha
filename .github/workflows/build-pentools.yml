@@ -337,7 +337,7 @@ jobs:
           BASE_IMAGE_FULL="${{ env.BASE_IMAGE }}:${BASE_TAG}"
           echo "验证镜像: ${BASE_IMAGE_FULL}"
 
-          # 只检查 manifest（不 pull 8-10GB 的大镜像）
+          # 只检查 manifest
           echo "检查 manifest..."
           if docker buildx imagetools inspect ${BASE_IMAGE_FULL} > /tmp/inspect.log 2>&1; then
             echo "✅ Manifest 存在"
@@ -348,10 +348,17 @@ jobs:
             exit 1
           fi
 
-          # 给 GHCR 更多时间完成后台同步（大镜像需要时间）
+      - name: Pre-pull base image layers
+        run: |
+          BASE_TAG="${{ steps.base-tag.outputs.tag }}"
+          BASE_IMAGE_FULL="${{ env.BASE_IMAGE }}:${BASE_TAG}"
+
+          echo "=== 预拉取 base 镜像（确保层可用）==="
+          # 使用 docker pull 预热，即使失败也继续（build 时会重试）
+          timeout 300 docker pull ${BASE_IMAGE_FULL} --platform linux/amd64 || true
+
           echo ""
-          echo "等待 GHCR 完成镜像层同步（30秒）..."
-          sleep 30
+          echo "预拉取完成（或超时），继续构建..."
 
       - name: Build final image (push to test tag)
         uses: docker/build-push-action@v6
