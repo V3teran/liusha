@@ -311,6 +311,24 @@ jobs:
             echo "tag=latest" >> $GITHUB_OUTPUT
           fi
 
+      - name: Verify base image exists
+        run: |
+          BASE_TAG="${{ steps.base-tag.outputs.tag }}"
+          BASE_IMAGE_FULL="${{ env.BASE_IMAGE }}:${BASE_TAG}"
+          echo "验证镜像: ${BASE_IMAGE_FULL}"
+
+          # 尝试拉取 manifest（不下载镜像本身）
+          if docker buildx imagetools inspect ${BASE_IMAGE_FULL} > /dev/null 2>&1; then
+            echo "✅ 镜像存在且可访问"
+          else
+            echo "❌ 镜像不存在或无法访问"
+            echo "可能原因："
+            echo "1. 镜像还未推送到 GHCR"
+            echo "2. 镜像是私有的且当前 token 无权限"
+            echo "3. Tag 不存在"
+            exit 1
+          fi
+
       - name: Build final image (push to test tag)
         uses: docker/build-push-action@v6
         with:
