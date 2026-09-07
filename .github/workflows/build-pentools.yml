@@ -308,6 +308,26 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Free up disk space
+        run: |
+          echo "=== 磁盘空间 - 清理前 ==="
+          df -h
+
+          echo ""
+          echo "=== 删除不必要的工具和镜像 ==="
+          # 删除预装的大型工具
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /opt/hostedtoolcache/CodeQL
+
+          # 清理 Docker 缓存和未使用的镜像
+          docker system prune -af --volumes || true
+
+          echo ""
+          echo "=== 磁盘空间 - 清理后 ==="
+          df -h
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
