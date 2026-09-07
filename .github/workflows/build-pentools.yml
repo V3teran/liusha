@@ -370,8 +370,7 @@ jobs:
           tags: ${{ env.FINAL_IMAGE }}:test-${{ github.sha }}
           build-args: |
             BASE_IMAGE=${{ env.BASE_IMAGE }}:${{ steps.base-tag.outputs.tag }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          no-cache: true
         timeout-minutes: 15
 
   # ============================================================================
