@@ -1,4 +1,4 @@
-// Package configstore 是 agent 配置的多级缓存读写层，构建在资源无关的
+// Package cache 是配置的多级缓存读写层，构建在资源无关的
 // cachestore 内核之上：内存 L1（本进程）→ redis L2（跨进程共享 + 失效总线）→ DB（事实源）。
 //
 // 为何分层（见 D7）：api 与 runner 是**多进程**。前端在 api 改配置后，runner 的本地
@@ -12,7 +12,7 @@
 // enabled_domain）。任一成员写即失效对应固定键。唯**分页/搜索列表**（ListExecutorsPaged
 // + Count）不缓存：其键含搜索词 × limit × offset，key 空间随查询无限
 // 增长，L1 无 TTL 会堆积孤儿键（内存泄漏），且配置管理页低频，缓存收益近零，故直穿 DB。
-package configstore
+package cache
 
 import (
 	"context"
@@ -229,4 +229,25 @@ func (s *Store) UpdateExecutorComplexity(ctx context.Context, id, complexity str
 func (s *Store) DeleteExecutor(ctx context.Context, id, code string) error {
 	// 暂不支持删除，因为Planner和Executor是内置固定的
 	return fmt.Errorf("不支持删除内置Agent")
+}
+
+
+// ── 通用 Agent 方法（支持 Planner/Executor/Evaluator）─────────────────
+
+// GetAgentByCode 按 code 读取任意 Agent（planner/executor/evaluator）
+// 直穿底层 store（不缓存），与 ExecutorByCode 保持一致
+func (s *Store) GetAgentByCode(ctx context.Context, code string) (cfgagent.Agent, error) {
+	return s.executors.GetByCode(ctx, code)
+}
+
+// UpdateAgent 更新任意 Agent 配置，失效缓存
+func (s *Store) UpdateAgent(ctx context.Context, id string, p cfgagent.UpdateParams) (cfgagent.Agent, error) {
+	h, err := s.executors.Update(ctx, id, p)
+	if err != nil {
+		return cfgagent.Agent{}, err
+	}
+	if err := s.cache.Invalidate(ctx, agentKeys(h.ID, h.Code)...); err != nil {
+		return h, err
+	}
+	return h, nil
 }

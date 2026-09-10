@@ -29,7 +29,7 @@ import (
 	"github.com/V3teran/liusha/internal/cachestore"
 	"github.com/V3teran/liusha/internal/config"
 	"github.com/V3teran/liusha/internal/config/setting"
-	"github.com/V3teran/liusha/internal/cache"
+	cfgcache "github.com/V3teran/liusha/internal/cache"
 	"github.com/V3teran/liusha/internal/controlplane"
 	"github.com/V3teran/liusha/internal/conversation"
 	"github.com/V3teran/liusha/internal/corpus"
@@ -227,7 +227,7 @@ func main() {
 
 	// 配置事实源（DB + 内存/redis 缓存）：运行期按需读 agent 装配引擎。
 	// 文件仅是首次导入的种子（seed 导入在别处），进程运行期一律走 DB/缓存（见 D6/D7）。
-	cfgStore := configstore.New(pool, cache)
+	cfgStore := cfgcache.New(pool, cache)
 
 	// LLM 配置事实源：provider.Router 运行期按 tier 解析 provider 部署即读它（多级缓存）。
 	// api 进程改「LLM 配置」模块后经 cachestore 广播失效，runner 下次 For(tier) 即读到最新部署。

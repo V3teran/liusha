@@ -13,7 +13,7 @@ import (
 	"github.com/V3teran/liusha/internal/agentrun"
 	"github.com/V3teran/liusha/internal/config"
 	"github.com/V3teran/liusha/internal/config/setting"
-	"github.com/V3teran/liusha/internal/cache"
+	cfgcache "github.com/V3teran/liusha/internal/cache"
 	"github.com/V3teran/liusha/internal/controlplane"
 	"github.com/V3teran/liusha/internal/conversation"
 	"github.com/V3teran/liusha/internal/corpus"
@@ -65,7 +65,7 @@ type handler struct {
 	vulnLoader    *skill.Loader
 	toolsManifest *manifest.Manifest
 
-	cfgStore *configstore.Store
+	cfgStore *cfgcache.Store
 
 	conversations  *conversation.Store
 	eventPublisher *scanstream.Publisher
