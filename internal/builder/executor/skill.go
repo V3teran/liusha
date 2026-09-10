@@ -17,7 +17,7 @@ import (
 	"github.com/V3teran/liusha/internal/credential"
 	"github.com/V3teran/liusha/internal/finding"
 	"github.com/V3teran/liusha/internal/insight"
-	"github.com/V3teran/liusha/internal/skill"
+	"github.com/V3teran/liusha/internal/skillstore"
 	"github.com/V3teran/liusha/internal/toolinvocation"
 	"github.com/V3teran/liusha/internal/tools/manifest"
 )

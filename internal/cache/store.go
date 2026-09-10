@@ -22,31 +22,31 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/V3teran/liusha/internal/agent"
 	"github.com/V3teran/liusha/internal/cachestore"
-	cfgagent "github.com/V3teran/liusha/internal/config/agent"
-	cfgskill "github.com/V3teran/liusha/internal/config/skill"
+	"github.com/V3teran/liusha/internal/skillstore"
 )
 
-// executorStore 是 configstore 依赖的 agent 底层能力（*cfgagent.Store 满足）。
+// executorStore 是 configstore 依赖的 agent 底层能力（*agent.Store 满足）。
 type executorStore interface {
-	GetByID(ctx context.Context, id string) (cfgagent.Agent, error)
-	GetByCode(ctx context.Context, code string) (cfgagent.Agent, error)
-	GetPlanner(ctx context.Context) (cfgagent.Agent, error)
-	GetExecutor(ctx context.Context) (cfgagent.Agent, error)
-	Update(ctx context.Context, code string, p cfgagent.UpdateParams) (cfgagent.Agent, error)
-	UpdateComplexity(ctx context.Context, id, complexity string) (cfgagent.Agent, error)
-	List(ctx context.Context, onlyEnabled bool) ([]cfgagent.Agent, error)
-	ListPaged(ctx context.Context, p cfgagent.ListParams) ([]cfgagent.Agent, error)
-	CountList(ctx context.Context, p cfgagent.ListParams) (int, error)
+	GetByID(ctx context.Context, id string) (agent.Agent, error)
+	GetByCode(ctx context.Context, code string) (agent.Agent, error)
+	GetPlanner(ctx context.Context) (agent.Agent, error)
+	GetExecutor(ctx context.Context) (agent.Agent, error)
+	Update(ctx context.Context, code string, p agent.UpdateParams) (agent.Agent, error)
+	UpdateComplexity(ctx context.Context, id, complexity string) (agent.Agent, error)
+	List(ctx context.Context, onlyEnabled bool) ([]agent.Agent, error)
+	ListPaged(ctx context.Context, p agent.ListParams) ([]agent.Agent, error)
+	CountList(ctx context.Context, p agent.ListParams) (int, error)
 	ComplexityByCode(ctx context.Context, code string) (complexity string, found bool, err error)
 }
 
-// skillStore 是 configstore 依赖的 skill 底层能力（*cfgskill.Store 满足）。
+// skillStore 是 configstore 依赖的 skill 底层能力（*skill.Store 满足）。
 type skillStore interface {
-	GetByID(ctx context.Context, id string) (cfgskill.Skill, error)
-	GetByCode(ctx context.Context, code string) (cfgskill.Skill, error)
-	List(ctx context.Context, p cfgskill.ListParams) ([]cfgskill.Skill, error)
-	Update(ctx context.Context, id string, p cfgskill.UpdateParams) (cfgskill.Skill, error)
+	GetByID(ctx context.Context, id string) (skill.Skill, error)
+	GetByCode(ctx context.Context, code string) (skill.Skill, error)
+	List(ctx context.Context, p skill.ListParams) ([]skill.Skill, error)
+	Update(ctx context.Context, id string, p skill.UpdateParams) (skill.Skill, error)
 }
 
 // Store 编排 agent 和 skill 的多级读写：底层 DB store + 共享 cachestore 内核。
@@ -60,8 +60,8 @@ type Store struct {
 // cache 由进程唯一构造并已 go cache.Subscribe(ctx)，可被多个资源仓储共享。
 func New(pool *pgxpool.Pool, cache *cachestore.Cache) *Store {
 	return newWithStores(
-		cfgagent.NewStore(pool),
-		cfgskill.NewStore(pool),
+		agent.NewStore(pool),
+		skill.NewStore(pool),
 		cache,
 	)
 }
@@ -106,10 +106,10 @@ func isNotFound(err error) bool { return err != nil && errors.Is(err, pgx.ErrNoR
 // ── 单条读（L1/L2 缓存）───────────────────────────────────────────────
 
 // ExecutorByID 按 uuid 读操作员（CRUD :id）。
-func (s *Store) ExecutorByID(ctx context.Context, id string) (cfgagent.Agent, error) {
+func (s *Store) ExecutorByID(ctx context.Context, id string) (agent.Agent, error) {
 	return cachestore.ReadThrough(ctx, s.cache, keyExecutorID(id),
-		func(h cfgagent.Agent) []string { return []string{keyExecutorID(h.ID)} },
-		func(ctx context.Context) (cfgagent.Agent, error) {
+		func(h agent.Agent) []string { return []string{keyExecutorID(h.ID)} },
+		func(ctx context.Context) (agent.Agent, error) {
 			return s.executors.GetByID(ctx, id)
 		})
 }
@@ -117,7 +117,7 @@ func (s *Store) ExecutorByID(ctx context.Context, id string) (cfgagent.Agent, er
 // ExecutorByCode 按 code 读操作员，直穿底层 store（不缓存）：agent 缓存只建 id 键，
 // SaveExecutor 也只失效 id+哨兵；若在此缓存 code 键，SaveExecutor 后会 stale。工具装配
 // 写路径按 code 取完整操作员再改数组回存，直读最新即可，无需缓存。
-func (s *Store) ExecutorByCode(ctx context.Context, code string) (cfgagent.Agent, error) {
+func (s *Store) ExecutorByCode(ctx context.Context, code string) (agent.Agent, error) {
 	return s.executors.GetByCode(ctx, code)
 }
 
@@ -148,23 +148,23 @@ func (s *Store) ComplexityByCode(ctx context.Context, code string) (complexity s
 }
 
 // EnabledDomainExecutors 返回全部 enabled 领域操作员（swarm 子代理池），缓存于哨兵键。
-func (s *Store) EnabledDomainExecutors(ctx context.Context) ([]cfgagent.Agent, error) {
+func (s *Store) EnabledDomainExecutors(ctx context.Context) ([]agent.Agent, error) {
 	return cachestore.ReadThrough(ctx, s.cache, keyExecutor,
-		func([]cfgagent.Agent) []string { return []string{keyExecutor} },
-		func(ctx context.Context) ([]cfgagent.Agent, error) {
+		func([]agent.Agent) []string { return []string{keyExecutor} },
+		func(ctx context.Context) ([]agent.Agent, error) {
 			executor, err := s.executors.GetExecutor(ctx)
 			if err != nil {
 				return nil, err
 			}
-			return []cfgagent.Agent{executor}, nil
+			return []agent.Agent{executor}, nil
 		})
 }
 
 // planner 取全局唯一编排操作员（kind='planner' AND enabled，见 D1），缓存于哨兵键。
-func (s *Store) Planner(ctx context.Context) (cfgagent.Agent, error) {
+func (s *Store) Planner(ctx context.Context) (agent.Agent, error) {
 	return cachestore.ReadThrough(ctx, s.cache, keyplanner,
-		func(cfgagent.Agent) []string { return []string{keyplanner} },
-		func(ctx context.Context) (cfgagent.Agent, error) {
+		func(agent.Agent) []string { return []string{keyplanner} },
+		func(ctx context.Context) (agent.Agent, error) {
 			return s.executors.GetPlanner(ctx)
 		})
 }
@@ -172,10 +172,10 @@ func (s *Store) Planner(ctx context.Context) (cfgagent.Agent, error) {
 // ── 全量列表读（L1/L2 缓存，按 onlyEnabled 分键）─────────────────────────
 
 // ListExecutors 全量列表读，走多级缓存（按 onlyEnabled 分键）。任一操作员写即失效两键。
-func (s *Store) ListExecutors(ctx context.Context, onlyEnabled bool) ([]cfgagent.Agent, error) {
+func (s *Store) ListExecutors(ctx context.Context, onlyEnabled bool) ([]agent.Agent, error) {
 	return cachestore.ReadThrough(ctx, s.cache, keyAgentsList(onlyEnabled),
-		func([]cfgagent.Agent) []string { return []string{keyAgentsList(onlyEnabled)} },
-		func(ctx context.Context) ([]cfgagent.Agent, error) {
+		func([]agent.Agent) []string { return []string{keyAgentsList(onlyEnabled)} },
+		func(ctx context.Context) ([]agent.Agent, error) {
 			return s.executors.List(ctx, onlyEnabled)
 		})
 }
@@ -186,12 +186,12 @@ func (s *Store) ListExecutors(ctx context.Context, onlyEnabled bool) ([]cfgagent
 // 配置管理页低频，缓存收益近零，故直穿 DB（与 liusha2 一致）。
 
 // ListExecutorsPaged 直穿底层 store：搜索 + 分页（配置管理页）。
-func (s *Store) ListExecutorsPaged(ctx context.Context, p cfgagent.ListParams) ([]cfgagent.Agent, error) {
+func (s *Store) ListExecutorsPaged(ctx context.Context, p agent.ListParams) ([]agent.Agent, error) {
 	return s.executors.ListPaged(ctx, p)
 }
 
 // CountExecutors 直穿底层 store：与 ListExecutorsPaged 同过滤的总数。
-func (s *Store) CountExecutors(ctx context.Context, p cfgagent.ListParams) (int, error) {
+func (s *Store) CountExecutors(ctx context.Context, p agent.ListParams) (int, error) {
 	return s.executors.CountList(ctx, p)
 }
 
@@ -212,10 +212,10 @@ func agentKeys(id, code string) []string {
 }
 
 // UpdateExecutor 更新Agent配置（只能更新SystemPrompt、Skills和工具）。
-func (s *Store) UpdateExecutor(ctx context.Context, code string, p cfgagent.UpdateParams) (cfgagent.Agent, error) {
+func (s *Store) UpdateExecutor(ctx context.Context, code string, p agent.UpdateParams) (agent.Agent, error) {
 	h, err := s.executors.Update(ctx, code, p)
 	if err != nil {
-		return cfgagent.Agent{}, err
+		return agent.Agent{}, err
 	}
 	if err := s.cache.Invalidate(ctx, agentKeys(h.ID, h.Code)...); err != nil {
 		return h, err
@@ -225,10 +225,10 @@ func (s *Store) UpdateExecutor(ctx context.Context, code string, p cfgagent.Upda
 
 // UpdateExecutorComplexity 只改单个 agent 的复杂度档位（分档页移档用），失效其缓存键——
 // runner 被动清 L1，下次 For(role) 经 ComplexityByCode 读到新档。不碰 agent 其余字段。
-func (s *Store) UpdateExecutorComplexity(ctx context.Context, id, complexity string) (cfgagent.Agent, error) {
+func (s *Store) UpdateExecutorComplexity(ctx context.Context, id, complexity string) (agent.Agent, error) {
 	h, err := s.executors.UpdateComplexity(ctx, id, complexity)
 	if err != nil {
-		return cfgagent.Agent{}, err
+		return agent.Agent{}, err
 	}
 	if err := s.cache.Invalidate(ctx, agentKeys(h.ID, h.Code)...); err != nil {
 		return h, err
@@ -247,15 +247,15 @@ func (s *Store) DeleteExecutor(ctx context.Context, id, code string) error {
 
 // GetAgentByCode 按 code 读取任意 Agent（planner/executor/evaluator）
 // 直穿底层 store（不缓存），与 ExecutorByCode 保持一致
-func (s *Store) GetAgentByCode(ctx context.Context, code string) (cfgagent.Agent, error) {
+func (s *Store) GetAgentByCode(ctx context.Context, code string) (agent.Agent, error) {
 	return s.executors.GetByCode(ctx, code)
 }
 
 // UpdateAgent 更新任意 Agent 配置，失效缓存
-func (s *Store) UpdateAgent(ctx context.Context, id string, p cfgagent.UpdateParams) (cfgagent.Agent, error) {
+func (s *Store) UpdateAgent(ctx context.Context, id string, p agent.UpdateParams) (agent.Agent, error) {
 	h, err := s.executors.Update(ctx, id, p)
 	if err != nil {
-		return cfgagent.Agent{}, err
+		return agent.Agent{}, err
 	}
 	if err := s.cache.Invalidate(ctx, agentKeys(h.ID, h.Code)...); err != nil {
 		return h, err
@@ -273,34 +273,34 @@ func skillKeys(id, code string) []string {
 }
 
 // SkillByID 按 uuid 读 Skill（L1/L2 缓存）
-func (s *Store) SkillByID(ctx context.Context, id string) (cfgskill.Skill, error) {
+func (s *Store) SkillByID(ctx context.Context, id string) (skill.Skill, error) {
 	return cachestore.ReadThrough(ctx, s.cache, keySkillID(id),
-		func(sk cfgskill.Skill) []string { return skillKeys(sk.ID, sk.Code) },
-		func(ctx context.Context) (cfgskill.Skill, error) {
+		func(sk skill.Skill) []string { return skillKeys(sk.ID, sk.Code) },
+		func(ctx context.Context) (skill.Skill, error) {
 			return s.skills.GetByID(ctx, id)
 		})
 }
 
 // SkillByCode 按 code 读 Skill（L1/L2 缓存）
-func (s *Store) SkillByCode(ctx context.Context, code string) (cfgskill.Skill, error) {
+func (s *Store) SkillByCode(ctx context.Context, code string) (skill.Skill, error) {
 	return cachestore.ReadThrough(ctx, s.cache, keySkillCode(code),
-		func(sk cfgskill.Skill) []string { return skillKeys(sk.ID, sk.Code) },
-		func(ctx context.Context) (cfgskill.Skill, error) {
+		func(sk skill.Skill) []string { return skillKeys(sk.ID, sk.Code) },
+		func(ctx context.Context) (skill.Skill, error) {
 			return s.skills.GetByCode(ctx, code)
 		})
 }
 
 // ListSkills 列出 Skill（直穿 DB，不缓存）
 // 原因：支持搜索和分页，key 空间无限，缓存收益低
-func (s *Store) ListSkills(ctx context.Context, p cfgskill.ListParams) ([]cfgskill.Skill, error) {
+func (s *Store) ListSkills(ctx context.Context, p skill.ListParams) ([]skill.Skill, error) {
 	return s.skills.List(ctx, p)
 }
 
 // UpdateSkill 更新 Skill，失效缓存
-func (s *Store) UpdateSkill(ctx context.Context, id string, p cfgskill.UpdateParams) (cfgskill.Skill, error) {
+func (s *Store) UpdateSkill(ctx context.Context, id string, p skill.UpdateParams) (skill.Skill, error) {
 	sk, err := s.skills.Update(ctx, id, p)
 	if err != nil {
-		return cfgskill.Skill{}, err
+		return skill.Skill{}, err
 	}
 	if err := s.cache.Invalidate(ctx, skillKeys(sk.ID, sk.Code)...); err != nil {
 		return sk, err

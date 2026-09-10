@@ -20,8 +20,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	"gopkg.in/yaml.v3"
 
-	cfgagent "github.com/V3teran/liusha/internal/config/agent"
-	cfgskill "github.com/V3teran/liusha/internal/config/skill"
+	agent "github.com/V3teran/liusha/internal/agent"
+	skill "github.com/V3teran/liusha/internal/skillstore"
 )
 
 // agentFront 是 agents/*.md frontmatter 的解析目标。
@@ -66,8 +66,8 @@ func splitFrontmatter(raw []byte) ([]byte, []byte, error) {
 func Import(
 	ctx context.Context,
 	dir string,
-	h *cfgagent.Store,
-	s *cfgskill.Store,
+	h *agent.Store,
+	s *skill.Store,
 ) error {
 	if err := importExecutors(ctx, filepath.Join(dir, "agents"), h); err != nil {
 		return fmt.Errorf("import executors: %w", err)
@@ -107,7 +107,7 @@ func walkFiles(dir, ext string) ([]string, error) {
 }
 
 // importExecutors 扫 dir/*.md，按 code(=frontmatter id) insert-only 建操作员。
-func importExecutors(ctx context.Context, dir string, h *cfgagent.Store) error {
+func importExecutors(ctx context.Context, dir string, h *agent.Store) error {
 	files, err := walkFiles(dir, ".md")
 	if err != nil {
 		return err
@@ -135,7 +135,7 @@ func importExecutors(ctx context.Context, dir string, h *cfgagent.Store) error {
 			return fmt.Errorf("查操作员 %q: %w", code, err)
 		}
 		systemPrompt := string(body)
-		if _, err := h.Update(ctx, code, cfgagent.UpdateParams{
+		if _, err := h.Update(ctx, code, agent.UpdateParams{
 			SystemPrompt:  &systemPrompt,
 			FunctionTools: &f.FunctionTools,
 			CliTools:      &f.CliTools,
@@ -160,7 +160,7 @@ type skillFront struct {
 
 // importSkills 扫 dir/**/*.md（递归），按 code(=相对路径去.md) insert-only 建 Skill。
 // 例如：skills/tooling/browser-use/SKILL.md → code="tooling/browser-use"
-func importSkills(ctx context.Context, dir string, s *cfgskill.Store) error {
+func importSkills(ctx context.Context, dir string, s *skill.Store) error {
 	files, err := walkFiles(dir, ".md")
 	if err != nil {
 		return err
@@ -206,7 +206,7 @@ func importSkills(ctx context.Context, dir string, s *cfgskill.Store) error {
 		}
 
 		// 创建 Skill
-		skill := cfgskill.Skill{
+		skill := skill.Skill{
 			Code:        code,
 			Category:    category,
 			Name:        f.Name,
