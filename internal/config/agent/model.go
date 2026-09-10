@@ -25,6 +25,7 @@ const (
 //   - SystemPrompt：Agent的System Prompt，定义其行为和能力（对应数据库的 body 列）
 //   - FunctionTools：LLM可直接调用的function calling工具
 //   - CliTools：外部命令行工具
+//   - Skills：Agent可访问的Skill code列表（如 ["tooling/browser-use", "vuln/dom-xss"]）
 type Agent struct {
 	ID            string
 	Code          string
@@ -34,6 +35,7 @@ type Agent struct {
 	SystemPrompt  string // 对应数据库的 body 列
 	FunctionTools []string
 	CliTools      []string
+	Skills        []string // Skill code 列表
 	MaxIterations int
 	Complexity    string
 	Enabled       bool
@@ -46,6 +48,7 @@ type UpdateParams struct {
 	SystemPrompt  *string
 	FunctionTools *[]string
 	CliTools      *[]string
+	Skills        *[]string // Skill code 列表
 	MaxIterations *int
 	Complexity    *string
 }
