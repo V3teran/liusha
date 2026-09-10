@@ -1,7 +1,7 @@
 ---
-name: dom-xss
-category: web
+name: DOM XSS 检测指南
 description: DOM 型 XSS —— payload 在客户端 JS 的 source→sink 链里执行，服务端响应里看不到。判定必须用浏览器实际执行确认，curl 看反射不算数。
+category: vuln
 ---
 
 # DOM 型 XSS（DOM-based XSS）

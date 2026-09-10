@@ -21,12 +21,14 @@ import (
 	"gopkg.in/yaml.v3"
 
 	cfgagent "github.com/V3teran/liusha/internal/config/agent"
+	cfgskill "github.com/V3teran/liusha/internal/config/skill"
 )
 
 // agentFront 是 agents/*.md frontmatter 的解析目标。
-// id 用作稳定引用键 code；kind∈{planner,domain}；body 取 markdown 正文。
+// id 用作稳定引用键 code；kind∈{planner,executor,evaluator}；body 取 markdown 正文。
 // function_tools 是内置函数工具（进程内原生函数 code 列表）。
 // cli_tools 是外置 CLI 工具集（tools.yaml 名字），严格白名单，空=不装配任何外部工具。
+// skills 是 Agent 可访问的 Skill code 列表（如 ["tooling/browser-use", "vuln/dom-xss"]）。
 type agentFront struct {
 	ID            string   `yaml:"id"`
 	Name          string   `yaml:"name"`
@@ -34,6 +36,7 @@ type agentFront struct {
 	Kind          string   `yaml:"kind"`
 	FunctionTools []string `yaml:"function_tools"`
 	CliTools      []string `yaml:"cli_tools"`
+	Skills        []string `yaml:"skills"`
 	MaxIterations int      `yaml:"max_iterations"`
 	Tier          string   `yaml:"tier"` // 能力档 heavy|vision|light（空 → store 落 DEFAULT 'heavy'）
 }
@@ -58,15 +61,19 @@ func splitFrontmatter(raw []byte) ([]byte, []byte, error) {
 	return r[:idx], bytes.TrimLeft(r[idx+len(closeMark):], "\n\r"), nil
 }
 
-// Import 把 dir 下的 agent 配置 insert-only 首填进 DB。
+// Import 把 dir 下的 agent 和 skill 配置 insert-only 首填进 DB。
 // 按 code 判存在→仅不存在才 Create；已存在跳过（绝不覆盖 DB 事实源）。
 func Import(
 	ctx context.Context,
 	dir string,
 	h *cfgagent.Store,
+	s *cfgskill.Store,
 ) error {
 	if err := importExecutors(ctx, filepath.Join(dir, "agents"), h); err != nil {
 		return fmt.Errorf("import executors: %w", err)
+	}
+	if err := importSkills(ctx, filepath.Join(dir, "skills"), s); err != nil {
+		return fmt.Errorf("import skills: %w", err)
 	}
 	return nil
 }
@@ -132,6 +139,7 @@ func importExecutors(ctx context.Context, dir string, h *cfgagent.Store) error {
 			SystemPrompt:  &systemPrompt,
 			FunctionTools: &f.FunctionTools,
 			CliTools:      &f.CliTools,
+			Skills:        &f.Skills,
 			MaxIterations: &f.MaxIterations,
 			Complexity:    strPtr(strings.TrimSpace(f.Tier)),
 		}); err != nil {
@@ -142,3 +150,74 @@ func importExecutors(ctx context.Context, dir string, h *cfgagent.Store) error {
 }
 
 func strPtr(s string) *string { return &s }
+
+// skillFront 是 skills/**/*.md (如 skills/tooling/browser-use/SKILL.md) frontmatter 的解析目标。
+type skillFront struct {
+	Name        string `yaml:"name"`
+	Description string `yaml:"description"`
+	Category    string `yaml:"category"` // tooling / vuln
+}
+
+// importSkills 扫 dir/**/*.md（递归），按 code(=相对路径去.md) insert-only 建 Skill。
+// 例如：skills/tooling/browser-use/SKILL.md → code="tooling/browser-use"
+func importSkills(ctx context.Context, dir string, s *cfgskill.Store) error {
+	files, err := walkFiles(dir, ".md")
+	if err != nil {
+		return err
+	}
+	for _, path := range files {
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			return fmt.Errorf("读取 %s: %w", path, err)
+		}
+		front, body, err := splitFrontmatter(raw)
+		if err != nil {
+			return fmt.Errorf("解析 %s: %w", path, err)
+		}
+		var f skillFront
+		if err := yaml.Unmarshal(front, &f); err != nil {
+			return fmt.Errorf("解析 %s frontmatter: %w", path, err)
+		}
+
+		// code = 相对 dir 的路径去掉 /SKILL.md 后缀
+		// 例如：skills/tooling/browser-use/SKILL.md → tooling/browser-use
+		rel, err := filepath.Rel(dir, path)
+		if err != nil {
+			return fmt.Errorf("计算相对路径 %s: %w", path, err)
+		}
+		code := strings.TrimSuffix(rel, "/SKILL.md")
+		code = strings.TrimSuffix(code, "\\SKILL.md") // Windows
+		code = filepath.ToSlash(code)                 // 统一使用 / 分隔符
+
+		// 推断 category（从 code 第一段提取，如 tooling/browser-use → tooling）
+		category := f.Category
+		if category == "" {
+			parts := strings.Split(code, "/")
+			if len(parts) > 0 {
+				category = parts[0]
+			}
+		}
+
+		// 检查是否已存在
+		if _, err := s.GetByCode(ctx, code); err == nil {
+			continue // 已存在→跳过（insert-only）
+		} else if !notFound(err) {
+			return fmt.Errorf("查 skill %q: %w", code, err)
+		}
+
+		// 创建 Skill
+		skill := cfgskill.Skill{
+			Code:        code,
+			Category:    category,
+			Name:        f.Name,
+			Description: f.Description,
+			Body:        string(body),
+			IsBuiltin:   true,
+			Enabled:     true,
+		}
+		if _, err := s.Create(ctx, skill); err != nil {
+			return fmt.Errorf("建 skill %q: %w", code, err)
+		}
+	}
+	return nil
+}
