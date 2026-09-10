@@ -16,7 +16,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/V3teran/liusha/internal/config/llmcfg"
+	"github.com/V3teran/liusha/internal/config/llm"
 )
 
 // Provider 类型常量；与 llm_provider.type 一致。

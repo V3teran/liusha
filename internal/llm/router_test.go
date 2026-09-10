@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/V3teran/liusha/internal/config/llmcfg"
+	"github.com/V3teran/liusha/internal/config/llm"
 )
 
 // routerResolver：planner→primary、inspector→light、__default__→primary、__fallback__→fb。

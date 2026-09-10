@@ -15,7 +15,7 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/V3teran/liusha/internal/config/llmcfg"
+	"github.com/V3teran/liusha/internal/config/llm"
 	anthropicsdk "github.com/anthropics/anthropic-sdk-go"
 	anthropicoption "github.com/anthropics/anthropic-sdk-go/option"
 	openaisdk "github.com/sashabaranov/go-openai"

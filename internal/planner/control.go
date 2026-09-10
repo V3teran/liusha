@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/V3teran/liusha/internal/eventbus"
-	"github.com/V3teran/liusha/internal/worldmodel"
+	"github.com/V3teran/liusha/internal/knowledgegraph"
 )
 
 // ActionMetadata 是 action 节点的 metadata 结构。
@@ -49,9 +49,9 @@ func (p *Agent) executeDecisions(ctx context.Context, taskID string, assessment 
 	}
 
 	// 2. Steer actions
-	for actionID, guidance := range assessment.ActionsToSteer {
-		if err := p.Steer(ctx, actionID, guidance); err != nil {
-			p.logger.Error().Err(err).Str("action_id", actionID).Msg("steer failed")
+	for _, guidance := range assessment.ActionsToSteer {
+		if err := p.Steer(ctx, guidance.ActionID, guidance.Directive); err != nil {
+			p.logger.Error().Err(err).Str("action_id", guidance.ActionID).Msg("steer failed")
 		}
 	}
 
@@ -104,7 +104,7 @@ func (p *Agent) Kill(ctx context.Context, actionID string, reason string) error 
 	}
 
 	// 5. 更新状态为 aborted
-	state := worldmodel.StateAborted
+	state := knowledgegraph.StateAborted
 	if err := p.world.UpdateActionState(ctx, actionID, state, nil); err != nil {
 		return fmt.Errorf("update action state: %w", err)
 	}
@@ -187,17 +187,17 @@ func (p *Agent) Steer(ctx context.Context, actionID string, guidance string) err
 func (p *Agent) CreateAction(ctx context.Context, taskID string, newAction NewAction) error {
 	p.logger.Info().
 		Str("goal", newAction.Goal).
-		Int("priority", newAction.Priority).
+		Str("priority", newAction.Priority).
 		Msg("creating new action")
 
 	// 创建 action 节点
-	state := worldmodel.StateOpen
-	node := worldmodel.Node{
+	state := knowledgegraph.StateOpen
+	node := knowledgegraph.Node{
 		TaskID:    taskID,
-		Kind:      worldmodel.KindAction,
+		Kind:      knowledgegraph.KindAction,
 		State:     &state,
 		Content:   json.RawMessage(fmt.Sprintf(`"%s"`, newAction.Goal)),
-		Priority:  newAction.Priority,
+		Priority:  knowledgegraph.Priority(newAction.Priority),
 		DependsOn: newAction.DependsOn,
 	}
 

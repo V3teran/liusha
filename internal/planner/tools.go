@@ -7,403 +7,333 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/rs/zerolog"
 
-	"github.com/V3teran/liusha/internal/provider"
-	"github.com/V3teran/liusha/internal/worldmodel"
+	"github.com/V3teran/liusha/internal/registry"
+	"github.com/V3teran/liusha/internal/knowledgegraph"
 )
-
-// Tool 是 Planner Agent 使用的工具接口
-type Tool interface {
-	Name() string
-	Description() string
-	Schema() provider.ToolSchema
-	Execute(ctx context.Context, input map[string]interface{}) (interface{}, error)
-}
-
-// ToolRegistry 管理工具注册
-type ToolRegistry struct {
-	tools map[string]Tool
-}
-
-// NewToolRegistry 创建工具注册表
-func NewToolRegistry() *ToolRegistry {
-	return &ToolRegistry{
-		tools: make(map[string]Tool),
-	}
-}
-
-// Register 注册工具
-func (r *ToolRegistry) Register(tool Tool) {
-	r.tools[tool.Name()] = tool
-}
-
-// Get 获取工具
-func (r *ToolRegistry) Get(name string) (Tool, bool) {
-	tool, ok := r.tools[name]
-	return tool, ok
-}
-
-// Schemas 返回所有工具的 schema
-func (r *ToolRegistry) Schemas() []provider.ToolSchema {
-	schemas := make([]provider.ToolSchema, 0, len(r.tools))
-	for _, tool := range r.tools {
-		schemas = append(schemas, tool.Schema())
-	}
-	return schemas
-}
-
-// ─────────────────────────────────────────────
-//  observe_state 工具
-// ─────────────────────────────────────────────
 
 // ObserveStateTool 观察世界模型状态
 type ObserveStateTool struct {
-	world *worldmodel.Store
+	world *knowledgegraph.Store
 }
 
-// NewObserveStateTool 创建工具
-func NewObserveStateTool(world *worldmodel.Store) *ObserveStateTool {
+func NewObserveStateTool(world *knowledgegraph.Store) *ObserveStateTool {
 	return &ObserveStateTool{world: world}
 }
 
 func (t *ObserveStateTool) Name() string { return "observe_state" }
 
-func (t *ObserveStateTool) Description() string {
-	return "观察当前世界模型状态（目标、Move、观察、发现）"
+func (t *ObserveStateTool) ShortDesc() string {
+	return "观察世界模型状态"
 }
 
-func (t *ObserveStateTool) Schema() provider.ToolSchema {
-	return provider.ToolSchema{
-		Name:        "observe_state",
-		Description: "观察当前世界模型状态",
-		Parameters: json.RawMessage(`{
-			"type": "object",
-			"properties": {
-				"include_completed_moves": {
-					"type": "boolean",
-					"description": "是否包含已完成的 Move（默认 false）"
-				}
+func (t *ObserveStateTool) Desc() string {
+	return "观察当前世界模型状态（目标、Action、观察、发现）"
+}
+
+func (t *ObserveStateTool) Schema() json.RawMessage {
+	return json.RawMessage(`{
+		"type": "object",
+		"properties": {
+			"include_completed": {
+				"type": "boolean",
+				"description": "是否包含已完成的 Action（默认 false）"
 			}
-		}`),
-	}
+		}
+	}`)
 }
 
-func (t *ObserveStateTool) Execute(ctx context.Context, input map[string]interface{}) (interface{}, error) {
-	// 从 context 获取 task_id（假设已注入）
+func (t *ObserveStateTool) Execute(ctx context.Context, argsJSON json.RawMessage) (registry.ToolResult, error) {
 	taskID, ok := ctx.Value("task_id").(string)
 	if !ok {
-		return nil, fmt.Errorf("task_id not in context")
+		return registry.ToolResult{Error: "task_id not in context"}, nil
 	}
 
-	includeCompleted := false
-	if v, ok := input["include_completed_moves"].(bool); ok {
-		includeCompleted = v
+	var input struct {
+		IncludeCompleted bool `json:"include_completed"`
+	}
+	if err := json.Unmarshal(argsJSON, &input); err != nil {
+		return registry.ToolResult{Error: fmt.Sprintf("parse args: %v", err)}, nil
 	}
 
-	result := make(map[string]interface{})
-
-	// 获取目标
-	objectives, err := t.world.ListNodesByKind(ctx, taskID, worldmodel.KindObjective)
+	// 查询目标
+	objectives, err := t.world.ListNodesByKind(ctx, taskID, knowledgegraph.KindObjective)
 	if err != nil {
-		return nil, fmt.Errorf("list objectives: %w", err)
+		return registry.ToolResult{Error: fmt.Sprintf("load objectives: %v", err)}, nil
 	}
-	result["objectives"] = objectives
 
-	// 获取 open Move
-	openMoves, err := t.world.ListOpenActions(ctx, taskID)
+	// 查询 Action
+	actions, err := t.world.ListNodesByKind(ctx, taskID, knowledgegraph.KindAction)
 	if err != nil {
-		return nil, fmt.Errorf("list open moves: %w", err)
+		return registry.ToolResult{Error: fmt.Sprintf("load actions: %v", err)}, nil
 	}
-	result["open_moves"] = openMoves
-	result["open_moves_count"] = len(openMoves)
 
-	// 可选：已完成的 Move
-	if includeCompleted {
-		completedMoves, err := t.world.ListCompletedActions(ctx, taskID)
-		if err != nil {
-			return nil, fmt.Errorf("list completed moves: %w", err)
+	// 过滤已完成的 Action
+	if !input.IncludeCompleted {
+		var filtered []knowledgegraph.Node
+		for _, action := range actions {
+			if action.State != nil && *action.State != knowledgegraph.StateDone {
+				filtered = append(filtered, action)
+			}
 		}
-		result["completed_moves"] = completedMoves
-		result["completed_moves_count"] = len(completedMoves)
+		actions = filtered
 	}
 
-	// 获取观察记录
-	observations, err := t.world.ListNodesByKind(ctx, taskID, worldmodel.KindHypothesis)
+	// 查询发现
+	findings, err := t.world.ListNodesByKind(ctx, taskID, knowledgegraph.KindResult)
 	if err != nil {
-		return nil, fmt.Errorf("list observations: %w", err)
+		return registry.ToolResult{Error: fmt.Sprintf("load findings: %v", err)}, nil
 	}
-	result["observations_count"] = len(observations)
 
-	// 获取重要发现
-	discoveries, err := t.world.ListFindings(ctx, taskID)
-	if err != nil {
-		return nil, fmt.Errorf("list discoveries: %w", err)
+	// 格式化输出
+	var output string
+	output += fmt.Sprintf("## 世界模型状态\n\n")
+
+	// 目标
+	output += fmt.Sprintf("### 目标 (%d)\n", len(objectives))
+	for _, obj := range objectives {
+		output += fmt.Sprintf("- %s\n", string(obj.Content))
 	}
-	result["discoveries"] = discoveries
-	result["discoveries_count"] = len(discoveries)
+	output += "\n"
 
-	// 获取已验证的发现
-	verifiedDiscoveries, err := t.world.ListVerifiedFindings(ctx, taskID)
-	if err != nil {
-		return nil, fmt.Errorf("list verified discoveries: %w", err)
+	// Action
+	output += fmt.Sprintf("### Action (%d)\n", len(actions))
+	stateCounts := make(map[knowledgegraph.State]int)
+	for _, action := range actions {
+		if action.State != nil {
+			stateCounts[*action.State]++
+		}
 	}
-	result["verified_discoveries_count"] = len(verifiedDiscoveries)
+	for state, count := range stateCounts {
+		output += fmt.Sprintf("- %s: %d\n", state, count)
+	}
+	output += "\n"
 
-	return result, nil
+	// 发现
+	output += fmt.Sprintf("### 发现 (%d)\n", len(findings))
+	for _, finding := range findings {
+		output += fmt.Sprintf("- %s\n", string(finding.Content))
+	}
+
+	return registry.ToolResult{Output: output}, nil
 }
 
-// ─────────────────────────────────────────────
-//  propose_moves 工具
-// ─────────────────────────────────────────────
-
-// ProposeMovesTool 生成新的 Move
-type ProposeMovesTool struct {
-	world *worldmodel.Store
+// ProposeActionsTool 生成新的 Action
+type ProposeActionsTool struct {
+	world  *knowledgegraph.Store
+	logger zerolog.Logger
 }
 
-// NewProposeMovesTool 创建工具
-func NewProposeMovesTool(world *worldmodel.Store) *ProposeMovesTool {
-	return &ProposeMovesTool{world: world}
+func NewProposeActionsTool(world *knowledgegraph.Store, logger zerolog.Logger) *ProposeActionsTool {
+	return &ProposeActionsTool{
+		world:  world,
+		logger: logger.With().Str("tool", "propose_actions").Logger(),
+	}
 }
 
-func (t *ProposeMovesTool) Name() string { return "propose_moves" }
+func (t *ProposeActionsTool) Name() string { return "propose_actions" }
 
-func (t *ProposeMovesTool) Description() string {
-	return "生成新的 Move（执行计划）"
+func (t *ProposeActionsTool) ShortDesc() string {
+	return "生成新的 Action"
 }
 
-func (t *ProposeMovesTool) Schema() provider.ToolSchema {
-	return provider.ToolSchema{
-		Name:        "propose_moves",
-		Description: "生成新的 Move",
-		Parameters: json.RawMessage(`{
-			"type": "object",
-			"properties": {
-				"moves": {
-					"type": "array",
-					"description": "要生成的 Move 列表",
-					"items": {
-						"type": "object",
-						"properties": {
-							"instruction": {
-								"type": "string",
-								"description": "自然语言描述要做什么（必填）"
-							},
-							"complexity": {
-								"type": "string",
-								"enum": ["trivial", "simple", "moderate", "complex", "extreme"],
-								"description": "执行复杂度（必填）"
-							},
-							"target_ref": {
-								"type": "object",
-								"description": "目标定位（可选）",
-								"properties": {
-									"domain": {"type": "string"},
-									"ref_kind": {"type": "string"},
-									"locator": {"type": "string"}
-								}
-							},
-							"priority": {
-								"type": "integer",
-								"description": "优先级 1-10（必填）",
-								"minimum": 1,
-								"maximum": 10
-							},
-							"depends_on": {
-								"type": "array",
-								"description": "依赖的其他 Move ID 列表（可选）",
-								"items": {"type": "string"}
-							},
-							"enable_by": {
-								"type": "string",
-								"description": "此 action 由哪个 finding 使能（可选，finding ID）"
-							}
+func (t *ProposeActionsTool) Desc() string {
+	return "生成新的 Action（执行动作）"
+}
+
+func (t *ProposeActionsTool) Schema() json.RawMessage {
+	return json.RawMessage(`{
+		"type": "object",
+		"properties": {
+			"actions": {
+				"type": "array",
+				"description": "Action 列表",
+				"items": {
+					"type": "object",
+					"properties": {
+						"instruction": {
+							"type": "string",
+							"description": "自然语言描述要做什么（必填）"
 						},
-						"required": ["instruction", "complexity", "priority"]
-					}
+						"complexity": {
+							"type": "string",
+							"enum": ["trivial", "simple", "moderate", "complex", "extreme"],
+							"description": "执行复杂度（必填）"
+						},
+						"priority": {
+							"type": "string",
+							"description": "优先级（必填）：critical=P0, high=P1, medium=P2, low=P3",
+								"enum": ["critical", "high", "medium", "low"],
+						},
+						"depends_on": {
+							"type": "array",
+							"description": "依赖的其他 Action ID 列表（可选）",
+							"items": {"type": "string"}
+						},
+						"roadmap_step": {
+							"type": "number",
+							"description": "关联的 RoadmapStep 编号（可选）"
+						}
+					},
+					"required": ["instruction", "complexity", "priority"]
 				}
-			},
-			"required": ["moves"]
-		}`),
-	}
+			}
+		},
+		"required": ["actions"]
+	}`)
 }
 
-func (t *ProposeMovesTool) Execute(ctx context.Context, input map[string]interface{}) (interface{}, error) {
+func (t *ProposeActionsTool) Execute(ctx context.Context, argsJSON json.RawMessage) (registry.ToolResult, error) {
 	taskID, ok := ctx.Value("task_id").(string)
 	if !ok {
-		return nil, fmt.Errorf("task_id not in context")
+		return registry.ToolResult{Error: "task_id not in context"}, nil
 	}
 
-	movesInput, ok := input["moves"].([]interface{})
-	if !ok {
-		return nil, fmt.Errorf("moves field missing or invalid")
+	var input struct {
+		Actions []struct {
+			Instruction  string    `json:"instruction"`
+			Complexity   string    `json:"complexity"`
+			Priority     string    `json:"priority"` // critical/high/medium/low
+			DependsOn    []string  `json:"depends_on"`
+			RoadmapStep  *float64  `json:"roadmap_step"`
+		} `json:"actions"`
 	}
 
-	created := make([]string, 0, len(movesInput))
-
-	for _, m := range movesInput {
-		moveMap, ok := m.(map[string]interface{})
-		if !ok {
-			continue
-		}
-
-		// 解析 Move 字段
-		instruction, _ := moveMap["instruction"].(string)
-		complexityStr, _ := moveMap["complexity"].(string)
-		priority, _ := moveMap["priority"].(float64)
-
-		if instruction == "" || complexityStr == "" {
-			continue
-		}
-
-		// 解析 complexity
-		complexity := worldmodel.Complexity(complexityStr)
-
-		// 解析 target_ref（可选）
-		var targetRef *worldmodel.TargetRef
-		if tr, ok := moveMap["target_ref"].(map[string]interface{}); ok {
-			domain, _ := tr["domain"].(string)
-			refKind, _ := tr["ref_kind"].(string)
-			locator, _ := tr["locator"].(string)
-			targetRef = &worldmodel.TargetRef{
-				Domain:  domain,
-				RefKind: refKind,
-				Locator: locator,
-			}
-		}
-
-		// 解析 depends_on（可选）
-		var dependsOn []string
-		if deps, ok := moveMap["depends_on"].([]interface{}); ok {
-			for _, d := range deps {
-				if depStr, ok := d.(string); ok {
-					dependsOn = append(dependsOn, depStr)
-				}
-			}
-		}
-
-		// 解析 enable_by（可选）
-		enableBy, _ := moveMap["enable_by"].(string)
-
-		// 构建 Content
-		content := map[string]interface{}{
-			"instruction": instruction,
-		}
-		if targetRef != nil {
-			content["target_ref"] = targetRef
-		}
-		contentJSON, _ := json.Marshal(content)
-
-		// 创建 Move 节点
-		state := worldmodel.StateOpen
-		moveID := uuid.New().String()
-		node := worldmodel.Node{
-			ID:         moveID,
-			TaskID:     taskID,
-			Kind:       worldmodel.KindAction,
-			Content:    contentJSON,
-			State:      &state,
-			Complexity: &complexity,
-			DependsOn:  dependsOn,
-			Priority:   int(priority),
-			SourceType: "planner",
-			SourceID:   "planner-agent",
-			CreatedAt:  time.Now(),
-			UpdatedAt:  time.Now(),
-		}
-
-		if _, err := t.world.CreateNode(ctx, node); err != nil {
-			return nil, fmt.Errorf("create move node: %w", err)
-		}
-
-		// 如果指定了 enable_by，创建 ENABLES 关系
-		if enableBy != "" {
-			edge := worldmodel.Edge{
-				TaskID:    taskID,
-				SrcID:     enableBy, // finding ID
-				Rel:       worldmodel.RelEnables,
-				DstID:     moveID, // action ID
-				CreatedAt: time.Now(),
-			}
-			if err := t.world.CreateEdge(ctx, edge); err != nil {
-				// 记录错误但不中断流程
-				// （可能是 finding 不存在，但 action 已创建）
-			}
-		}
-
-		created = append(created, moveID)
+	if err := json.Unmarshal(argsJSON, &input); err != nil {
+		return registry.ToolResult{Error: fmt.Sprintf("parse args: %v", err)}, nil
 	}
 
-	return map[string]interface{}{
-		"created_move_ids": created,
-		"count":            len(created),
-	}, nil
+	if len(input.Actions) == 0 {
+		return registry.ToolResult{Error: "actions cannot be empty"}, nil
+	}
+
+	var createdIDs []string
+
+	for _, a := range input.Actions {
+		if a.Instruction == "" {
+			return registry.ToolResult{Error: "instruction must be non-empty"}, nil
+		}
+
+		complexity := knowledgegraph.Complexity(a.Complexity)
+		priority := knowledgegraph.Priority(a.Priority)
+		state := knowledgegraph.StateOpen
+
+		content, _ := json.Marshal(map[string]interface{}{
+			"instruction": a.Instruction,
+		})
+
+		node := knowledgegraph.Node{
+			ID:          uuid.New().String(),
+			TaskID:      taskID,
+			Kind:        knowledgegraph.KindAction,
+			Content:     content,
+			State:       &state,
+			Complexity:  &complexity,
+			DependsOn:   a.DependsOn,
+			RoadmapStep: a.RoadmapStep,
+			Priority:    priority,
+			Owner:       "planner",
+			SourceType:  knowledgegraph.SourcePlanner,
+			CreatedAt:   time.Now(),
+			UpdatedAt:   time.Now(),
+		}
+
+		id, err := t.world.CreateNode(ctx, node)
+		if err != nil {
+			t.logger.Error().Err(err).Msg("failed to create action")
+			return registry.ToolResult{Error: fmt.Sprintf("create action: %v", err)}, nil
+		}
+
+		createdIDs = append(createdIDs, id)
+	}
+
+	t.logger.Info().
+		Str("task_id", taskID).
+		Int("actions_count", len(createdIDs)).
+		Msg("actions created")
+
+	output := fmt.Sprintf("✓ 已创建 %d 个 Action\nIDs: %v", len(createdIDs), createdIDs)
+	return registry.ToolResult{Output: output}, nil
 }
-
-// ─────────────────────────────────────────────
-//  evaluate_progress 工具
-// ─────────────────────────────────────────────
 
 // EvaluateProgressTool 评估任务进展
 type EvaluateProgressTool struct {
-	world *worldmodel.Store
+	world *knowledgegraph.Store
 }
 
-// NewEvaluateProgressTool 创建工具
-func NewEvaluateProgressTool(world *worldmodel.Store) *EvaluateProgressTool {
+func NewEvaluateProgressTool(world *knowledgegraph.Store) *EvaluateProgressTool {
 	return &EvaluateProgressTool{world: world}
 }
 
 func (t *EvaluateProgressTool) Name() string { return "evaluate_progress" }
 
-func (t *EvaluateProgressTool) Description() string {
-	return "评估任务进展，判断是否应该继续生成 Move"
+func (t *EvaluateProgressTool) ShortDesc() string {
+	return "评估任务进展"
 }
 
-func (t *EvaluateProgressTool) Schema() provider.ToolSchema {
-	return provider.ToolSchema{
-		Name:        "evaluate_progress",
-		Description: "评估任务进展",
-		Parameters: json.RawMessage(`{
-			"type": "object",
-			"properties": {}
-		}`),
-	}
+func (t *EvaluateProgressTool) Desc() string {
+	return "评估任务进展，判断是否应该继续生成 Action"
 }
 
-func (t *EvaluateProgressTool) Execute(ctx context.Context, input map[string]interface{}) (interface{}, error) {
+func (t *EvaluateProgressTool) Schema() json.RawMessage {
+	return json.RawMessage(`{"type": "object", "properties": {}}`)
+}
+
+func (t *EvaluateProgressTool) Execute(ctx context.Context, argsJSON json.RawMessage) (registry.ToolResult, error) {
 	taskID, ok := ctx.Value("task_id").(string)
 	if !ok {
-		return nil, fmt.Errorf("task_id not in context")
+		return registry.ToolResult{Error: "task_id not in context"}, nil
 	}
 
-	// 统计各种节点数量
-	openMoves, _ := t.world.ListOpenActions(ctx, taskID)
-	completedMoves, _ := t.world.ListCompletedActions(ctx, taskID)
-	discoveries, _ := t.world.ListFindings(ctx, taskID)
-	verifiedDiscoveries, _ := t.world.ListVerifiedFindings(ctx, taskID)
-
-	result := map[string]interface{}{
-		"open_moves_count":           len(openMoves),
-		"completed_moves_count":      len(completedMoves),
-		"discoveries_count":          len(discoveries),
-		"verified_discoveries_count": len(verifiedDiscoveries),
+	// 查询所有 Action
+	actions, err := t.world.ListNodesByKind(ctx, taskID, knowledgegraph.KindAction)
+	if err != nil {
+		return registry.ToolResult{Error: fmt.Sprintf("load actions: %v", err)}, nil
 	}
 
-	// 简单的进展评估
-	if len(openMoves) == 0 && len(completedMoves) == 0 {
-		result["status"] = "stalled"
-		result["recommendation"] = "需要生成初始 Move"
-	} else if len(openMoves) > 0 {
-		result["status"] = "in_progress"
-		result["recommendation"] = "等待 Move 执行完成"
-	} else if len(verifiedDiscoveries) > 0 {
-		result["status"] = "productive"
-		result["recommendation"] = "已有验证发现，可以继续深入探索"
+	// 统计状态
+	stateCounts := make(map[knowledgegraph.State]int)
+	for _, action := range actions {
+		if action.State != nil {
+			stateCounts[*action.State]++
+		}
+	}
+
+	// 查询发现
+	findings, err := t.world.ListNodesByKind(ctx, taskID, knowledgegraph.KindResult)
+	if err != nil {
+		return registry.ToolResult{Error: fmt.Sprintf("load findings: %v", err)}, nil
+	}
+
+	// 评估进展
+	totalActions := len(actions)
+	doneActions := stateCounts[knowledgegraph.StateDone]
+	openActions := stateCounts[knowledgegraph.StateOpen]
+	runningActions := stateCounts[knowledgegraph.StateRunning]
+
+	completionRate := 0.0
+	if totalActions > 0 {
+		completionRate = float64(doneActions) / float64(totalActions) * 100
+	}
+
+	var output string
+	output += fmt.Sprintf("## 任务进展\n\n")
+	output += fmt.Sprintf("- 总 Action 数: %d\n", totalActions)
+	output += fmt.Sprintf("- 已完成: %d\n", doneActions)
+	output += fmt.Sprintf("- 执行中: %d\n", runningActions)
+	output += fmt.Sprintf("- 待执行: %d\n", openActions)
+	output += fmt.Sprintf("- 完成率: %.1f%%\n\n", completionRate)
+	output += fmt.Sprintf("- 发现数: %d\n\n", len(findings))
+
+	// 判断
+	if openActions > 0 || runningActions > 0 {
+		output += "建议：还有待执行或执行中的 Action，暂时不需要生成新 Action。\n"
+	} else if completionRate >= 80 && len(findings) > 0 {
+		output += "建议：任务进展良好，已有足够发现，可以考虑结束。\n"
 	} else {
-		result["status"] = "exploring"
-		result["recommendation"] = "继续生成探索性 Move"
+		output += "建议：可以根据当前发现生成新 Action。\n"
 	}
 
-	return result, nil
+	return registry.ToolResult{Output: output}, nil
 }

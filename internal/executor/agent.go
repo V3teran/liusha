@@ -44,7 +44,7 @@ type SSEEmitter interface {
 
 // SSEEvent 是推给前端的一条事件。
 type SSEEvent struct {
-	Kind     string // "thinking" | "tool_start" | "tool_end" | "landmark" | "finding" | "action_done"
+	Kind     string // "thinking" | "tool_start" | "tool_end" | "landmark" | "result" | "action_done"
 	ActionID string
 	StepID   int
 	Data     any
@@ -62,7 +62,7 @@ type Agent struct {
 	checkpoint CheckpointStore
 	emitter    SSEEmitter // 可为 nil
 	logger     zerolog.Logger
-	worldmodel WorldModelReader // 用于读取 metadata
+	knowledgegraph KnowledgeGraphReader // 用于读取 metadata
 
 	// 自我监察配置
 	monitorEnabled       bool
@@ -74,8 +74,8 @@ type Agent struct {
 	eventBus EventBus
 }
 
-// WorldModelReader 是只读的 worldmodel 接口（用于解耦）。
-type WorldModelReader interface {
+// KnowledgeGraphReader 是只读的 worldmodel 接口（用于解耦）。
+type KnowledgeGraphReader interface {
 	GetNode(ctx context.Context, id string) (*WorldModelNode, error)
 }
 
@@ -113,7 +113,7 @@ func NewAgent(
 	cp CheckpointStore,
 	emitter SSEEmitter,
 	logger zerolog.Logger,
-	worldmodel WorldModelReader,
+	knowledgegraph KnowledgeGraphReader,
 ) *Agent {
 	return &Agent{
 		provider:   p,
@@ -122,7 +122,7 @@ func NewAgent(
 		checkpoint: cp,
 		emitter:    emitter,
 		logger:     logger,
-		worldmodel: worldmodel,
+		knowledgegraph: knowledgegraph,
 
 		// 默认启用监察，每 5 步评估一次，评估最近 5 步
 		monitorEnabled:       true,

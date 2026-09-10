@@ -15,7 +15,7 @@ package domain
 import (
 	"context"
 
-	"github.com/V3teran/liusha/internal/worldmodel"
+	"github.com/V3teran/liusha/internal/knowledgegraph"
 )
 
 // BriefInput 是用户下发的原始目标描述（自由文本 + 可选结构化线索）。
@@ -31,7 +31,7 @@ type Profile interface {
 	Domain() string
 
 	// Onboard 解析用户输入 → 多态目标（取代 briefHostRe）。
-	Onboard(ctx context.Context, in BriefInput) ([]worldmodel.TargetRef, error)
+	Onboard(ctx context.Context, in BriefInput) ([]knowledgegraph.TargetRef, error)
 }
 
 // Registry 是 Profile 的注册表。核心通过 domain 字符串查 Profile，
@@ -71,8 +71,8 @@ func (r *Registry) Domains() []string {
 // 只要有一个域认领到目标即成功。全域皆无目标才返回 (nil, false)。
 //
 // 顺序由 domains 决定（map 无序）——调用方若需稳定序应自行按 ref 排序。
-func (r *Registry) Onboard(ctx context.Context, in BriefInput) ([]worldmodel.TargetRef, bool) {
-	var all []worldmodel.TargetRef
+func (r *Registry) Onboard(ctx context.Context, in BriefInput) ([]knowledgegraph.TargetRef, bool) {
+	var all []knowledgegraph.TargetRef
 	for _, p := range r.byDomain {
 		refs, err := p.Onboard(ctx, in)
 		if err != nil {

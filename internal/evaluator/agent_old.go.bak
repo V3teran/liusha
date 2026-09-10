@@ -1,0 +1,442 @@
+// Package verifier 实现 VerifierAgent（LLM 自主验证）。
+//
+// VerifierAgent 负责验证 hypothesis（假设），职责：
+// 1. 读取 hypothesis 节点
+// 2. 使用 LLM ReAct 循环自主验证
+// 3. 判断结果：confirmed（坐实）/ refuted（证伪）
+// 4. confirmed 则创建 finding，refuted 则不创建
+//
+// 设计原则：
+// - LLM 自主验证：Verifier 用 LLM 决定验证策略和判断结果
+// - 工具驱动：提供专用验证工具（replay_traffic, check_response, conclude）
+// - 按需调用：不是持续运行的 Agent，而是按需调用的组件
+//
+// 架构参考：
+// - ReAct Pattern（推理 + 行动循环）
+// - Burp Suite Collaborator（自动化漏洞验证）
+package verifier
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/rs/zerolog"
+
+	"github.com/V3teran/liusha/internal/finding"
+	"github.com/V3teran/liusha/internal/provider"
+	"github.com/V3teran/liusha/internal/registry"
+	"github.com/V3teran/liusha/internal/traffic"
+	"github.com/V3teran/liusha/internal/worldmodel"
+)
+
+// Agent 是 VerifierAgent，使用 LLM 自主验证 hypothesis。
+type Agent struct {
+	world        *worldmodel.Store
+	traffic      *traffic.AgentStore
+	findingStore *finding.Store
+	provider     provider.Provider
+	registry     *registry.Registry // Verifier 专用工具
+	logger       zerolog.Logger
+}
+
+// Config 是 VerifierAgent 的配置。
+type Config struct {
+	World        *worldmodel.Store
+	Traffic      *traffic.AgentStore
+	FindingStore *finding.Store
+	Provider     provider.Provider
+	Logger       zerolog.Logger
+}
+
+// NewAgent 创建 VerifierAgent 实例。
+func NewAgent(cfg Config) *Agent {
+	a := &Agent{
+		world:        cfg.World,
+		traffic:      cfg.Traffic,
+		findingStore: cfg.FindingStore,
+		provider:     cfg.Provider,
+		logger:       cfg.Logger.With().Str("agent", "verifier").Logger(),
+	}
+
+	// 注册 Verifier 专用工具
+	a.registry = registry.New()
+	a.registerTools()
+
+	return a
+}
+
+// registerTools 注册 Verifier 专用工具。
+func (a *Agent) registerTools() {
+	// replay_traffic: 重放 HTTP 请求
+	a.registry.Register(&replayTrafficTool{
+		traffic: a.traffic,
+		logger:  a.logger,
+	})
+
+	// check_response: 检查响应内容
+	a.registry.Register(&checkResponseTool{})
+
+	// run_exploit: 运行 exploit 脚本（TODO）
+	// a.registry.Register(&runExploitTool{})
+
+	// conclude: 给出验证结论（必须调用）
+	a.registry.Register(&concludeTool{})
+}
+
+// Verify 验证一个 hypothesis。
+//
+// 流程：
+// 1. 读取 hypothesis 节点
+// 2. LLM ReAct 循环（最多 10 步）
+// 3. LLM 调用 conclude 工具给出结论
+// 4. confirmed: 创建 finding + 晋升到 WorldModel
+// 5. refuted: 更新 hypothesis 置信度，不创建 finding
+//
+// 返回：
+// - finding: 验证通过时返回创建的 finding
+// - error: 验证过程出错
+func (a *Agent) Verify(ctx context.Context, hypothesisID string) (*finding.VulnFinding, error) {
+	startTime := time.Now()
+	a.logger.Info().Str("hypothesis_id", hypothesisID).Msg("starting verification")
+
+	// 1. 读取 hypothesis
+	hyp, err := a.world.GetNode(ctx, hypothesisID)
+	if err != nil {
+		return nil, fmt.Errorf("get hypothesis node: %w", err)
+	}
+
+	// 解析 hypothesis 内容
+	var hypContent HypothesisContent
+	if err := json.Unmarshal(hyp.Content, &hypContent); err != nil {
+		return nil, fmt.Errorf("parse hypothesis content: %w", err)
+	}
+
+	// 2. 构建初始消息
+	messages := []provider.Message{
+		{
+			Role:    "system",
+			Content: a.buildSystemPrompt(),
+		},
+		{
+			Role:    "user",
+			Content: a.buildVerificationTask(hypContent),
+		},
+	}
+
+	// 3. LLM ReAct 循环（最多 10 步）
+	maxSteps := 10
+	var conclusion *Conclusion
+
+	for step := 0; step < maxSteps; step++ {
+		a.logger.Debug().
+			Str("hypothesis_id", hypothesisID).
+			Int("step", step+1).
+			Msg("verifier llm step")
+
+		// LLM 推理
+		resp, err := a.provider.Complete(ctx, provider.Request{
+			Messages:    messages,
+			Tools:       a.registry.Schemas(),
+			MaxTokens:   8000,
+			Temperature: 0.3,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("llm complete (step %d): %w", step+1, err)
+		}
+
+		// 记录 LLM 的思考
+		if resp.Content != "" {
+			a.logger.Info().
+				Str("hypothesis_id", hypothesisID).
+				Int("step", step+1).
+				Str("thought", resp.Content).
+				Msg("verifier thought")
+		}
+
+		// 检查是否有工具调用
+		if len(resp.ToolCalls) == 0 {
+			// LLM 停止但没有调用 conclude
+			return nil, fmt.Errorf("verifier stopped without conclusion at step %d", step+1)
+		}
+
+		// 执行工具调用
+		results := a.registry.ExecuteParallel(ctx, resp.ToolCalls)
+
+		// 检查是否调用了 conclude 工具
+		for i, tc := range resp.ToolCalls {
+			if tc.Name == "conclude" {
+				// 解析结论
+				var args ConcludeArgs
+				if err := json.Unmarshal([]byte(tc.Arguments), &args); err != nil {
+					return nil, fmt.Errorf("parse conclude args: %w", err)
+				}
+
+				conclusion = &Conclusion{
+					Outcome:   args.Outcome,
+					Reasoning: args.Reasoning,
+					Evidence:  json.RawMessage(tc.Arguments),
+					Duration:  time.Since(startTime).Milliseconds(),
+				}
+				break
+			}
+		}
+
+		if conclusion != nil {
+			break // 得到结论，退出循环
+		}
+
+		// 添加工具结果到上下文
+		messages = append(messages, provider.Message{
+			Role:      "assistant",
+			Content:   resp.Content,
+			ToolCalls: resp.ToolCalls,
+		})
+
+		for i, result := range results {
+			messages = append(messages, provider.Message{
+				Role:       "tool",
+				ToolCallID: resp.ToolCalls[i].ID,
+				Content:    result.Output,
+			})
+		}
+	}
+
+	if conclusion == nil {
+		return nil, fmt.Errorf("verifier did not reach conclusion after %d steps", maxSteps)
+	}
+
+	a.logger.Info().
+		Str("hypothesis_id", hypothesisID).
+		Str("outcome", conclusion.Outcome).
+		Int64("duration_ms", conclusion.Duration).
+		Msg("verification completed")
+
+	// 4. 记录验证结果到 wm_verification
+	verID, err := a.recordVerification(ctx, hyp, conclusion)
+	if err != nil {
+		return nil, fmt.Errorf("record verification: %w", err)
+	}
+
+	// 5. 基于结论处理
+	if conclusion.Outcome == "refuted" {
+		// 证伪：更新 hypothesis 置信度
+		refuted := worldmodel.ConfidenceRefuted
+		err := a.world.UpdateNode(ctx, hypothesisID, worldmodel.NodeUpdate{
+			Confidence: &refuted,
+		})
+		if err != nil {
+			a.logger.Error().Err(err).Msg("failed to update hypothesis confidence")
+		}
+
+		a.logger.Info().Str("hypothesis_id", hypothesisID).Msg("hypothesis refuted")
+		return nil, nil // 不创建 finding
+	}
+
+	// 6. 坐实：创建 finding
+	findingObj, err := a.createFinding(ctx, hyp, hypContent, conclusion)
+	if err != nil {
+		return nil, fmt.Errorf("create finding: %w", err)
+	}
+
+	// 7. 晋升到 WorldModel
+	findingNodeID := uuid.New().String()
+	verified := worldmodel.ConfidenceVerified
+
+	findingNode := worldmodel.Node{
+		ID:         findingNodeID,
+		TaskID:     hyp.TaskID,
+		Kind:       worldmodel.KindFinding,
+		Content:    json.RawMessage(fmt.Sprintf(`{"finding_id":"%s","type":"vulnerability"}`, findingObj.ID)),
+		Confidence: &verified,
+		SourceType: worldmodel.SourceVerifier,
+		SourceID:   verID,
+		CreatedAt:  time.Now(),
+		UpdatedAt:  time.Now(),
+	}
+
+	_, err = a.world.CreateNode(ctx, findingNode)
+	if err != nil {
+		return nil, fmt.Errorf("create finding node in worldmodel: %w", err)
+	}
+
+	// 8. 创建关系边：hypothesis CONFIRMS finding
+	err = a.world.CreateEdge(ctx, worldmodel.Edge{
+		TaskID:    hyp.TaskID,
+		SrcID:     hypothesisID,
+		Rel:       worldmodel.RelConfirms,
+		DstID:     findingNodeID,
+		CreatedAt: time.Now(),
+	})
+	if err != nil {
+		a.logger.Error().Err(err).Msg("failed to create hypothesis->finding edge")
+	}
+
+	a.logger.Info().
+		Str("finding_id", findingObj.ID).
+		Str("hypothesis_id", hypothesisID).
+		Msg("hypothesis confirmed, finding created")
+
+	return findingObj, nil
+}
+
+// buildSystemPrompt 构建 Verifier 的系统提示词。
+func (a *Agent) buildSystemPrompt() string {
+	return `你是 Verifier Agent，负责验证安全测试假设（hypothesis）。
+
+职责：
+1. 分析 hypothesis（假设）
+2. 设计验证策略
+3. 执行验证工具
+4. 判断结果：confirmed（坐实）/ refuted（证伪）
+
+可用工具：
+- replay_traffic: 重放 HTTP 请求（可修改参数）
+- check_response: 检查响应内容（状态码、body 匹配）
+- conclude: 给出验证结论（必须调用）
+
+验证原则：
+1. **充分验证**：不能仅基于初步观察就下结论，需要多次验证
+2. **可复现**：验证步骤要可重复执行
+3. **保守判断**：不确定时标记为 refuted，不要误报
+
+示例流程：
+Thought: "分析 hypothesis：可能存在 SQL 注入"
+Action: replay_traffic(traffic_id=123, modifications={"param": "id", "value": "1' OR '1'='1"})
+Observation: {status: 500, body: "SQL syntax error at line 1"}
+
+Thought: "响应包含 SQL 错误，但需要进一步确认这不是 WAF 拦截"
+Action: replay_traffic(traffic_id=123, modifications={"param": "id", "value": "1' AND '1'='2"})
+Observation: {status: 200, body: "No results"}
+
+Thought: "确认存在 SQL 注入，两次不同 payload 产生不同结果"
+Action: conclude(outcome="confirmed", reasoning="注入不同 SQL payload 产生不同响应，确认存在盲注")
+
+重要：
+- 验证结束后必须调用 conclude 工具
+- 不确定时选择 refuted（宁可漏报，不要误报）
+- 提供清晰的验证推理过程`
+}
+
+// buildVerificationTask 构建验证任务的用户提示词。
+func (a *Agent) buildVerificationTask(hyp HypothesisContent) string {
+	evidenceStr := "（无初步证据）"
+	if len(hyp.Evidence) > 0 {
+		evidenceStr = string(hyp.Evidence)
+	}
+
+	return fmt.Sprintf(`请验证以下假设：
+
+**假设陈述**：
+%s
+
+**提出理由**：
+%s
+
+**建议验证方案**：
+%s
+
+**初步证据**：
+%s
+
+请执行验证并给出结论。`, hyp.Statement, hyp.Reasoning, hyp.TestPlan, evidenceStr)
+}
+
+// recordVerification 记录验证结果到 wm_verification 表。
+func (a *Agent) recordVerification(ctx context.Context, hyp *worldmodel.Node, conclusion *Conclusion) (string, error) {
+	outcome := conclusion.Outcome
+	if outcome != "confirmed" && outcome != "refuted" {
+		outcome = "refuted" // 默认证伪
+	}
+
+	verification := worldmodel.Verification{
+		ID:         uuid.New().String(),
+		TaskID:     hyp.TaskID,
+		NodeID:     hyp.ID,
+		Primitives: conclusion.Evidence, // 验证步骤
+		Outcome:    outcome,
+		Evidence:   conclusion.Evidence,
+		DurationMs: conclusion.Duration,
+		CreatedAt:  time.Now(),
+	}
+
+	verID, err := a.world.RecordVerification(ctx, verification)
+	if err != nil {
+		return "", err
+	}
+
+	return verID, nil
+}
+
+// createFinding 创建 finding 记录。
+func (a *Agent) createFinding(ctx context.Context, hyp *worldmodel.Node, hypContent HypothesisContent, conclusion *Conclusion) (*finding.Finding, error) {
+	// 从 hypothesis 推导 severity
+	severity := deriveSeverity(hypContent.Statement)
+
+	f := &finding.Finding{
+		ID:        uuid.New().String(),
+		TaskID:    hyp.TaskID,
+		Title:     hypContent.Statement,
+		Severity:  severity,
+		Evidence:  string(conclusion.Evidence),
+		Verified:  true,
+		Source:    "verifier",
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+	}
+
+	err := a.findingStore.Create(ctx, f)
+	if err != nil {
+		return nil, err
+	}
+
+	return f, nil
+}
+
+// HypothesisContent 是 hypothesis 节点的内容结构。
+type HypothesisContent struct {
+	Statement  string          `json:"statement"`            // 假设陈述
+	Reasoning  string          `json:"reasoning"`            // 提出理由
+	TestPlan   string          `json:"test_plan,omitempty"`  // 验证计划
+	Confidence string          `json:"confidence,omitempty"` // 初始置信度
+	Evidence   json.RawMessage `json:"evidence,omitempty"`   // 初步证据
+}
+
+// Conclusion 是验证结论。
+type Conclusion struct {
+	Outcome   string          // "confirmed" | "refuted"
+	Reasoning string          // 验证推理
+	Evidence  json.RawMessage // 验证证据
+	Duration  int64           // 验证耗时（毫秒）
+}
+
+// ConcludeArgs 是 conclude 工具的参数。
+type ConcludeArgs struct {
+	Outcome   string `json:"outcome"`   // "confirmed" | "refuted"
+	Reasoning string `json:"reasoning"` // 验证推理
+}
+
+// deriveSeverity 从假设陈述推导严重性。
+func deriveSeverity(statement string) string {
+	// 简单的关键词匹配
+	lowercaseStmt := string([]byte(statement)) // 简化处理
+
+	if contains(lowercaseStmt, "remote code execution") || contains(lowercaseStmt, "rce") {
+		return "critical"
+	}
+	if contains(lowercaseStmt, "sql injection") || contains(lowercaseStmt, "sqli") {
+		return "high"
+	}
+	if contains(lowercaseStmt, "xss") || contains(lowercaseStmt, "cross-site scripting") {
+		return "medium"
+	}
+
+	return "medium" // 默认
+}
+
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(s) > len(substr))
+	// 简化实现，生产环境应使用 strings.Contains
+}

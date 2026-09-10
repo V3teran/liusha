@@ -22,7 +22,7 @@ import (
 	"github.com/V3teran/liusha/internal/toolinvocation"
 	"github.com/V3teran/liusha/internal/tools"
 	"github.com/V3teran/liusha/internal/worker"
-	"github.com/V3teran/liusha/internal/worldmodel"
+	"github.com/V3teran/liusha/internal/knowledgegraph"
 )
 
 // abortPollInterval is the task-status poll cadence for the abort watcher.
@@ -285,6 +285,37 @@ func (h handler) handleCognition(
 	}
 	virtualHost := h.onboard(ctx, assignmentID, taskID, brief)
 
+	// ========================================
+	// 新架构：使用 Orchestrator 模式
+	// ========================================
+	// 环境变量控制：USE_ORCHESTRATOR=true 启用新架构
+	// TODO: 稳定后移除旧架构，默认使用 Orchestrator
+	useOrchestrator := true // 默认启用新架构
+
+	if useOrchestrator {
+		h.logger.Info().
+			Str("task_id", taskID).
+			Msg("using orchestrator architecture (new)")
+
+		err := h.runWithOrchestrator(ctx, p.AgentID, taskID, virtualHost)
+		if err != nil {
+			return h.failTask(ctx, p.AgentID, err)
+		}
+
+		// 任务完成
+		if err := h.tasks.Complete(ctx, taskID); err != nil {
+			h.logger.Error().Err(err).Str("task_id", taskID).Msg("failed to mark task complete")
+		}
+		return nil
+	}
+
+	// ========================================
+	// 旧架构：保留用于回退
+	// ========================================
+	h.logger.Info().
+		Str("task_id", taskID).
+		Msg("using legacy architecture (fallback)")
+
 	// Sandbox 按 Assignment 粒度管理
 	sandboxClient, err := h.sandboxMgr.Acquire(ctx, assignmentID)
 	if err != nil {
@@ -383,7 +414,7 @@ func (h handler) handleCognition(
 		orchPrompt = hist + "\n" + orchPrompt
 	}
 
-	runAgent := func(runCtx context.Context, m worldmodel.Node) error {
+	runAgent := func(runCtx context.Context, m knowledgegraph.Node) error {
 		h.logger.Info().
 			Str("action_id", m.ID).
 			Str("kind", string(m.Kind)).
@@ -457,11 +488,11 @@ func (h handler) handleCognition(
 // ─────────────────────────────────────────────────────────────
 
 // Extracts complexity and instruction from the action node.
-func nodeToExecutorAction(node worldmodel.Node, userPrompt string) executor.Action {
+func nodeToExecutorAction(node knowledgegraph.Node, userPrompt string) executor.Action {
 	if !node.IsAction() {
 		// Fallback for non-action nodes
 		return executor.Action{
-			Complexity:  worldmodel.ComplexitySimple,
+			Complexity:  knowledgegraph.ComplexitySimple,
 			Instruction: userPrompt,
 		}
 	}
@@ -476,12 +507,12 @@ func nodeToExecutorAction(node worldmodel.Node, userPrompt string) executor.Acti
 	}
 
 	// 解析 target_ref（可选）
-	var targetRef worldmodel.TargetRef
+	var targetRef knowledgegraph.TargetRef
 	if tr, ok := content["target_ref"].(map[string]interface{}); ok {
 		domain, _ := tr["domain"].(string)
 		refKind, _ := tr["ref_kind"].(string)
 		locator, _ := tr["locator"].(string)
-		targetRef = worldmodel.TargetRef{
+		targetRef = knowledgegraph.TargetRef{
 			Domain:  domain,
 			RefKind: refKind,
 			Locator: locator,
@@ -489,9 +520,9 @@ func nodeToExecutorAction(node worldmodel.Node, userPrompt string) executor.Acti
 	}
 
 	// 使用节点的 complexity，如果为空则默认 simple
-	complexity := worldmodel.ComplexitySimple
+	complexity := knowledgegraph.ComplexitySimple
 	if node.Complexity != nil {
-		complexity = worldmodel.Complexity(*node.Complexity)
+		complexity = knowledgegraph.Complexity(*node.Complexity)
 	}
 
 	return executor.Action{

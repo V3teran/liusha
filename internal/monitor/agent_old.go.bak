@@ -1,0 +1,372 @@
+// Package monitor 实现独立的监察 Agent（MonitorAgent）。
+//
+// MonitorAgent 负责全局监察，职责：
+// 1. 定期评估任务全局进展（默认 6 分钟）
+// 2. 发现问题并输出决策事件
+// 3. 不负责规划新 Actions（由 Planner 负责）
+//
+// 设计原则：
+// - 单一职责：只做监察，不做规划
+// - 事件驱动：输出决策事件，不直接执行
+// - 独立运行：持续运行的 goroutine
+//
+// 架构参考：
+// - Kubernetes Controller Manager（监察并维护期望状态）
+// - Prometheus Alertmanager（监控并告警）
+package monitor
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"time"
+
+	"github.com/rs/zerolog"
+
+	"github.com/V3teran/liusha/internal/eventbus"
+	"github.com/V3teran/liusha/internal/provider"
+	"github.com/V3teran/liusha/internal/worldmodel"
+)
+
+// Agent 是独立的监察 Agent。
+type Agent struct {
+	taskID   string
+	world    *worldmodel.Store
+	eventBus *eventbus.Bus
+	provider provider.Provider
+	interval time.Duration
+	logger   zerolog.Logger
+}
+
+// Config 是 Monitor Agent 的配置。
+type Config struct {
+	TaskID   string
+	World    *worldmodel.Store
+	EventBus *eventbus.Bus
+	Provider provider.Provider
+	Interval time.Duration // 评估间隔，默认 6 分钟
+	Logger   zerolog.Logger
+}
+
+// New 创建 Monitor Agent 实例。
+func New(cfg Config) *Agent {
+	interval := cfg.Interval
+	if interval == 0 {
+		interval = 6 * time.Minute
+	}
+
+	return &Agent{
+		taskID:   cfg.TaskID,
+		world:    cfg.World,
+		eventBus: cfg.EventBus,
+		provider: cfg.Provider,
+		interval: interval,
+		logger:   cfg.Logger.With().Str("agent", "monitor").Str("task_id", cfg.TaskID).Logger(),
+	}
+}
+
+// Start 启动 Monitor Agent，持续运行定期评估。
+func (a *Agent) Start(ctx context.Context) error {
+	a.logger.Info().Dur("interval", a.interval).Msg("monitor agent starting")
+
+	ticker := time.NewTicker(a.interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			a.logger.Info().Msg("monitor agent stopped")
+			return ctx.Err()
+
+		case <-ticker.C:
+			if err := a.evaluate(ctx); err != nil {
+				a.logger.Error().Err(err).Msg("evaluation failed")
+				// 继续运行，不中断
+			}
+		}
+	}
+}
+
+// evaluate 执行一次全局评估。
+//
+// 流程：
+// 1. 读取全局状态
+// 2. LLM 评估
+// 3. 发布决策事件
+func (a *Agent) evaluate(ctx context.Context) error {
+	a.logger.Info().Msg("starting global evaluation")
+
+	// 1. 读取全局状态
+	state, err := a.getGlobalState(ctx)
+	if err != nil {
+		return fmt.Errorf("get global state: %w", err)
+	}
+
+	// 2. 构建评估 prompt
+	prompt := a.buildEvaluationPrompt(state)
+
+	// 3. LLM 评估
+	resp, err := a.provider.Complete(ctx, provider.Request{
+		Messages: []provider.Message{
+			{Role: "system", Content: a.buildSystemPrompt()},
+			{Role: "user", Content: prompt},
+		},
+		ResponseFormat: assessmentSchema,
+		MaxTokens:      4000,
+		Temperature:    0.3,
+	})
+	if err != nil {
+		return fmt.Errorf("llm evaluation: %w", err)
+	}
+
+	// 4. 解析评估结果
+	var assessment Assessment
+	if err := json.Unmarshal([]byte(resp.Content), &assessment); err != nil {
+		return fmt.Errorf("parse assessment: %w", err)
+	}
+
+	a.logger.Info().
+		Str("status", assessment.Status).
+		Int("decisions", len(assessment.Decisions)).
+		Msg("evaluation completed")
+
+	// 5. 发布决策事件
+	for _, decision := range assessment.Decisions {
+		a.publishDecision(decision)
+	}
+
+	return nil
+}
+
+// getGlobalState 获取任务的全局状态。
+func (a *Agent) getGlobalState(ctx context.Context) (*GlobalState, error) {
+	// 读取所有 Actions
+	allActions, err := a.world.ListAllActions(ctx, a.taskID)
+	if err != nil {
+		return nil, fmt.Errorf("list actions: %w", err)
+	}
+
+	// 读取所有 Findings
+	findings, err := a.world.ListFindings(ctx, a.taskID)
+	if err != nil {
+		return nil, fmt.Errorf("list findings: %w", err)
+	}
+
+	// 读取 Objective
+	objective, err := a.world.GetObjective(ctx, a.taskID)
+	if err != nil {
+		return nil, fmt.Errorf("get objective: %w", err)
+	}
+
+	return &GlobalState{
+		Objective: objective,
+		Actions:   allActions,
+		Findings:  findings,
+	}, nil
+}
+
+// buildSystemPrompt 构建 Monitor Agent 的系统提示词。
+func (a *Agent) buildSystemPrompt() string {
+	return `你是 Monitor Agent，负责全局监察安全测试任务。
+
+职责：
+1. 评估任务全局进展
+2. 发现问题并给出决策
+3. 不负责规划新 Actions（由 Planner 负责）
+
+评估维度：
+- **进展**：是否停滞？是否有进展？
+- **效率**：是否有重复工作？资源是否浪费？
+- **方向**：是否偏离目标？
+- **风险**：是否有失控的 Action？
+
+决策类型：
+- kill_action: 终止无效/失控的 Action
+- request_replan: 请求 Planner 重新规划
+- adjust_priority: 调整 Action 优先级（未实现）
+
+返回格式（JSON）：
+{
+  "status": "on_track" | "needs_attention" | "critical",
+  "reasoning": "评估推理过程（简明扼要）",
+  "decisions": [
+    {
+      "type": "kill_action",
+      "action_id": "action_123",
+      "reason": "重复扫描同一端点，浪费资源"
+    },
+    {
+      "type": "request_replan",
+      "reason": "当前策略无进展，需要调整方向"
+    }
+  ]
+}
+
+评估原则：
+1. **保守决策**：不确定时不要轻易 kill Action
+2. **聚焦问题**：只处理明确的问题，不做预测
+3. **尊重 Planner**：不替代 Planner 的规划职责
+4. **可解释**：每个决策必须有清晰的理由
+
+常见问题模式：
+- Action 运行超过 20 分钟无产出 → 可能停滞
+- 多个 Action 扫描同一目标 → 重复工作
+- 所有 Action 都失败 → 策略错误，需要 replan
+- Action 产生大量错误日志 → 可能失控
+
+输出 JSON 后停止，不要继续对话。`
+}
+
+// buildEvaluationPrompt 构建评估任务的用户提示词。
+func (a *Agent) buildEvaluationPrompt(state *GlobalState) string {
+	// 格式化 Actions 状态
+	actionsStatus := ""
+	for i, action := range state.Actions {
+		if i >= 10 {
+			actionsStatus += fmt.Sprintf("... 还有 %d 个 Actions\n", len(state.Actions)-10)
+			break
+		}
+
+		duration := ""
+		if action.State != nil && *action.State == worldmodel.StateRunning {
+			if action.StartedAt != nil {
+				duration = fmt.Sprintf(" (运行了 %.0f 分钟)", time.Since(*action.StartedAt).Minutes())
+			}
+		}
+
+		actionsStatus += fmt.Sprintf("- [%s] %s: %s%s\n",
+			action.ID[:8],
+			stateToString(action.State),
+			truncate(action.Instruction, 80),
+			duration,
+		)
+	}
+
+	// 格式化 Findings
+	findingsStatus := ""
+	if len(state.Findings) == 0 {
+		findingsStatus = "（暂无发现）"
+	} else {
+		for i, finding := range state.Findings {
+			if i >= 5 {
+				findingsStatus += fmt.Sprintf("... 还有 %d 个 findings\n", len(state.Findings)-5)
+				break
+			}
+			findingsStatus += fmt.Sprintf("- %s (严重性: %s)\n",
+				truncate(finding.Title, 60),
+				finding.Severity,
+			)
+		}
+	}
+
+	return fmt.Sprintf(`请评估当前安全测试任务的全局状态。
+
+**目标**：
+%s
+
+**Actions 状态**（共 %d 个）：
+%s
+
+**已发现漏洞**（共 %d 个）：
+%s
+
+请基于上述状态，评估任务进展并给出决策（如果有）。以 JSON 格式返回。`,
+		state.Objective.Goal,
+		len(state.Actions),
+		actionsStatus,
+		len(state.Findings),
+		findingsStatus,
+	)
+}
+
+// publishDecision 发布监察决策事件。
+func (a *Agent) publishDecision(decision Decision) {
+	eventType := "monitor." + decision.Type
+
+	a.eventBus.Publish(eventbus.Event{
+		Type: eventType,
+		Payload: map[string]interface{}{
+			"action_id": decision.ActionID,
+			"reason":    decision.Reason,
+			"source":    "monitor",
+		},
+	})
+
+	a.logger.Info().
+		Str("type", decision.Type).
+		Str("action_id", decision.ActionID).
+		Str("reason", decision.Reason).
+		Msg("decision published")
+}
+
+// GlobalState 是任务的全局状态快照。
+type GlobalState struct {
+	Objective worldmodel.ObjectiveNode
+	Actions   []worldmodel.Node
+	Findings  []worldmodel.Node
+}
+
+// Assessment 是 LLM 的评估结果。
+type Assessment struct {
+	Status    string     `json:"status"`    // "on_track" | "needs_attention" | "critical"
+	Reasoning string     `json:"reasoning"` // 评估推理过程
+	Decisions []Decision `json:"decisions"` // 决策列表
+}
+
+// Decision 是监察决策。
+type Decision struct {
+	Type     string `json:"type"`                // "kill_action" | "request_replan"
+	ActionID string `json:"action_id,omitempty"` // kill_action 需要
+	Reason   string `json:"reason"`              // 决策理由
+}
+
+// assessmentSchema 是评估结果的 JSON Schema。
+var assessmentSchema = json.RawMessage(`{
+  "type": "object",
+  "properties": {
+    "status": {
+      "type": "string",
+      "enum": ["on_track", "needs_attention", "critical"]
+    },
+    "reasoning": {
+      "type": "string",
+      "description": "评估推理过程，简明扼要"
+    },
+    "decisions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": ["kill_action", "request_replan"]
+          },
+          "action_id": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          }
+        },
+        "required": ["type", "reason"]
+      }
+    }
+  },
+  "required": ["status", "reasoning", "decisions"]
+}`)
+
+// 辅助函数
+
+func stateToString(state *worldmodel.State) string {
+	if state == nil {
+		return "unknown"
+	}
+	return string(*state)
+}
+
+func truncate(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen-3] + "..."
+}

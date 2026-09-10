@@ -8,12 +8,12 @@ import (
 	"github.com/V3teran/liusha/internal/corpus"
 	"github.com/V3teran/liusha/internal/credential"
 	"github.com/V3teran/liusha/internal/finding"
-	"github.com/V3teran/liusha/internal/lead"
+	"github.com/V3teran/liusha/internal/insight"
 	"github.com/V3teran/liusha/internal/sandbox"
 	"github.com/V3teran/liusha/internal/skill"
 	"github.com/V3teran/liusha/internal/task"
 	"github.com/V3teran/liusha/internal/traffic"
-	"github.com/V3teran/liusha/internal/worldmodel"
+	"github.com/V3teran/liusha/internal/knowledgegraph"
 )
 
 // Deps 持有单次 agent run 所需的全部上下文与依赖。
@@ -28,12 +28,12 @@ type Deps struct {
 	Corpus        *corpus.Store
 	Embedder      corpus.Embedder // 可 nil → 退化为纯 sparse 检索
 	Reranker      corpus.Reranker
-	Leads         *lead.Store
+	Leads         *insight.Store
 	ProxyStore    *traffic.ProxyStore
 	AgentStore    *traffic.AgentStore
 	Creds         credential.Provider
 	Sandbox       sandbox.Client // Spawn 后注入，可 nil
 	ToolingLoader *skill.Loader
 	VulnLoader    *skill.Loader
-	World         *worldmodel.Store // WorldModel Store
+	World         *knowledgegraph.Store // WorldModel Store
 }

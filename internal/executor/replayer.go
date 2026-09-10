@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/V3teran/liusha/internal/httpreplay"
-	"github.com/V3teran/liusha/internal/verifier"
+	"github.com/V3teran/liusha/internal/evaluator"
 )
 
 // TrafficSource 按 id 取已限定 scope 的源流量，投影成 httpreplay.Source。
@@ -17,7 +17,7 @@ type TrafficSource interface {
 	GetInScope(ctx context.Context, id int64) (httpreplay.Source, bool, error)
 }
 
-// ReplayRecipe 是 web 域的 L1 复现原语（verifier.Attempt.Primitives 的形状）。
+// ReplayRecipe 是 web 域的 L1 复现原语（evaluator.Attempt.Primitives 的形状）。
 // 机器可判的坐实配方：拿哪条源流量、怎么改写、拿什么断言判坐实。
 // Resolve 非空时，主 replay 前先发一个准备请求抽新鲜值注入——专治 replay 时
 // 无法从源流量复用的服务器现造值（opaque-id / nonce / 过期 token）。
@@ -42,7 +42,7 @@ func (a Assertion) empty() bool {
 		len(a.BodyAbsent) == 0 && len(a.HeaderContains) == 0
 }
 
-// Replayer 是 web 域的 verifier.Replayer：重发源流量的改写版，按断言判是否坐实。
+// Replayer 是 web 域的 evaluator.Replayer：重发源流量的改写版，按断言判是否坐实。
 type Replayer struct {
 	traffic TrafficSource
 }
@@ -67,46 +67,46 @@ type replayEvidence struct {
 
 const evidenceBodySnip = 2048 // 证据里响应体截断长度
 
-// Replay 实现 verifier.Replayer：解析 recipe → 取源流量 → httpreplay 重发 → 断言判坐实。
-func (r *Replayer) Replay(ctx context.Context, primitives json.RawMessage) (verifier.Result, error) {
+// Replay 实现 evaluator.Replayer：解析 recipe → 取源流量 → httpreplay 重发 → 断言判坐实。
+func (r *Replayer) Replay(ctx context.Context, primitives json.RawMessage) (evaluator.Result, error) {
 	if r.traffic == nil {
-		return verifier.Result{}, fmt.Errorf("web.Replayer: 无 TrafficSource，无法复现")
+		return evaluator.Result{}, fmt.Errorf("web.Replayer: 无 TrafficSource，无法复现")
 	}
 
 	var recipe ReplayRecipe
 	if err := json.Unmarshal(primitives, &recipe); err != nil {
-		return verifier.Result{}, fmt.Errorf("web.Replayer: 解析复现配方失败: %w", err)
+		return evaluator.Result{}, fmt.Errorf("web.Replayer: 解析复现配方失败: %w", err)
 	}
 	if recipe.TrafficID <= 0 {
-		return verifier.Result{}, fmt.Errorf("web.Replayer: traffic_id 必填且 > 0")
+		return evaluator.Result{}, fmt.Errorf("web.Replayer: traffic_id 必填且 > 0")
 	}
 	// 空断言不可坐实：机器无从判定即无法晋升（拒绝橡皮图章）。
 	if recipe.Assert.empty() {
-		return verifier.Result{}, fmt.Errorf("web.Replayer: assert 为空，无坐实谓词（至少给一条 status_code/body_contains/body_absent/header_contains）")
+		return evaluator.Result{}, fmt.Errorf("web.Replayer: assert 为空，无坐实谓词（至少给一条 status_code/body_contains/body_absent/header_contains）")
 	}
 
 	// 准备请求：抽服务器现造值注入主请求。抽值失败硬错误，绝不静默 pass（护栏2）。
 	if recipe.Resolve != nil {
 		name, val, err := r.runResolve(ctx, *recipe.Resolve)
 		if err != nil {
-			return verifier.Result{}, err
+			return evaluator.Result{}, err
 		}
 		recipe.Modifications = injectResolved(recipe.Modifications, name, val)
 	}
 
 	src, ok, err := r.traffic.GetInScope(ctx, recipe.TrafficID)
 	if err != nil {
-		return verifier.Result{}, fmt.Errorf("web.Replayer: 读源流量 %d 失败: %w", recipe.TrafficID, err)
+		return evaluator.Result{}, fmt.Errorf("web.Replayer: 读源流量 %d 失败: %w", recipe.TrafficID, err)
 	}
 	if !ok {
-		return verifier.Result{}, fmt.Errorf("web.Replayer: 源流量 %d 不存在或越界", recipe.TrafficID)
+		return evaluator.Result{}, fmt.Errorf("web.Replayer: 源流量 %d 不存在或越界", recipe.TrafficID)
 	}
 
 	start := time.Now()
 	res, err := httpreplay.Replay(ctx, src, recipe.Modifications)
 	dur := time.Since(start).Milliseconds()
 	if err != nil {
-		return verifier.Result{}, fmt.Errorf("web.Replayer: 重发失败: %w", err)
+		return evaluator.Result{}, fmt.Errorf("web.Replayer: 重发失败: %w", err)
 	}
 
 	passed, reasons := recipe.Assert.eval(res)
@@ -123,7 +123,7 @@ func (r *Replayer) Replay(ctx context.Context, primitives json.RawMessage) (veri
 	}
 	evJSON, _ := json.Marshal(ev)
 
-	return verifier.Result{Confirmed: passed, Evidence: evJSON, DurationMs: dur}, nil
+	return evaluator.Result{Confirmed: passed, Evaluation: evJSON, DurationMs: dur}, nil
 }
 
 // runResolve 发准备请求并抽新鲜值，返回 (占位名, 值)。任一步失败都硬错误。
@@ -199,5 +199,5 @@ func snippet(b []byte, n int) string {
 	return string(b[:n])
 }
 
-// 编译期断言：Replayer 满足 verifier.Replayer 接口。
-var _ verifier.Replayer = (*Replayer)(nil)
+// 编译期断言：Replayer 满足 evaluator.Replayer 接口。
+var _ evaluator.Replayer = (*Replayer)(nil)

@@ -6,26 +6,27 @@ package executor
 import (
 	"context"
 
-	"github.com/V3teran/liusha/internal/verifier"
-	"github.com/V3teran/liusha/internal/worldmodel"
+	"github.com/V3teran/liusha/internal/evaluator"
+	"github.com/V3teran/liusha/internal/knowledgegraph"
 )
 
 // ExecutorInterface 执行一个 Move，产出 Attempt 列表（domain-agnostic）
 type ExecutorInterface interface {
-	Execute(ctx context.Context, move worldmodel.Node) ([]verifier.Attempt, error)
+	Execute(ctx context.Context, move knowledgegraph.Node) ([]evaluator.Attempt, error)
 }
 
 // Promoter 验证 Attempt 并晋升到世界模型（domain-agnostic）
 type Promoter interface {
-	Promote(ctx context.Context, a verifier.Attempt) (*worldmodel.Node, error)
+	Promote(ctx context.Context, a evaluator.Attempt) (*knowledgegraph.Node, error)
 }
 
 // Report 是认知循环的执行报告
 type Report struct {
-	Steps    int    // 执行的 Move 数量
-	Promoted int    // 晋升的节点数量
-	Attempts int    // 产出的 Attempt 数量
-	StopWhy  string // 停止原因
+	Steps      int      // 执行的 Move 数量
+	Promoted   int      // 晋升的节点数量
+	Attempts   int      // 产出的 Attempt 数量
+	StopWhy    string   // 停止原因
+	Hypotheses []string // 待验证的假设 ID 列表
 }
 
 // 停止原因常量

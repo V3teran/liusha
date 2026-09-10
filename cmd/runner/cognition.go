@@ -8,7 +8,7 @@ import (
 	"github.com/V3teran/liusha/internal/httpreplay"
 	"github.com/V3teran/liusha/internal/planner"
 	"github.com/V3teran/liusha/internal/traffic"
-	"github.com/V3teran/liusha/internal/verifier"
+	"github.com/V3teran/liusha/internal/evaluator"
 )
 
 // agentTrafficScope scopes AgentStore reads to a single task.
@@ -54,7 +54,7 @@ func (h handler) runCognition(
 
 	coord := executor.NewCoordinator(taskID, host, h.findings, run, h.logger)
 	replaySource := &agentTrafficScope{store: h.agentStore, taskID: taskID}
-	promoter := verifier.New(h.world, executor.NewReplayer(replaySource))
+	promoter := evaluator.New(h.world, executor.NewReplayer(replaySource))
 
 	// 启动 PlannerAgent（异步规划器）
 	// PlannerAgent 内部会通过 h.router 获取 LLM
