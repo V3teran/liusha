@@ -17,7 +17,7 @@ BEGIN;
 DROP TABLE IF EXISTS lead CASCADE;
 
 -- 2. 创建新表
-CREATE TABLE lead (
+CREATE TABLE insight (
     id TEXT PRIMARY KEY DEFAULT gen_random_uuid(),
     assignment_id TEXT NOT NULL,
 
@@ -66,14 +66,14 @@ CREATE TABLE lead (
 );
 
 -- 3. 创建索引
-CREATE INDEX idx_lead_assignment_category ON lead(assignment_id, category);
-CREATE INDEX idx_lead_assignment_priority ON lead(assignment_id, priority, created_at DESC);
-CREATE INDEX idx_lead_assignment_confidence ON lead(assignment_id, confidence);
-CREATE INDEX idx_lead_assignment_created ON lead(assignment_id, created_at DESC);
-CREATE INDEX idx_lead_tags ON lead USING GIN(tags);
+CREATE INDEX insight(assignment_id, category);
+CREATE INDEX insight(assignment_id, priority, created_at DESC);
+CREATE INDEX insight(assignment_id, confidence);
+CREATE INDEX insight(assignment_id, created_at DESC);
+CREATE INDEX insight USING GIN(tags);
 
 -- 4. 添加注释
-COMMENT ON TABLE lead IS 'Assignment 级别情报黑板：跨 task 共享的轻量级观察记录';
+COMMENT ON TABLE insight IS 'Assignment 级别情报黑板：跨 task 共享的轻量级观察记录';
 COMMENT ON COLUMN lead.id IS '唯一标识';
 COMMENT ON COLUMN lead.assignment_id IS '所属 assignment（隔离边界）';
 COMMENT ON COLUMN lead.category IS '信息分类：target（目标）/credential（凭证）/infrastructure（基础设施）/business（业务逻辑）/data（数据）/finding（发现）/obstacle（障碍）/note（笔记）';

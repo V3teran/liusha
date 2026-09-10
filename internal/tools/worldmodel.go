@@ -9,12 +9,12 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/V3teran/liusha/internal/registry"
-	"github.com/V3teran/liusha/internal/worldmodel"
+	"github.com/V3teran/liusha/internal/knowledgegraph"
 )
 
-// ─── write_hypothesis ────────────────────────────────────────────────────────
+// ─── write_observation ────────────────────────────────────────────────────────
 
-var writeHypothesisSchema = json.RawMessage(`{
+var writeObservationSchema = json.RawMessage(`{
   "type": "object",
   "properties": {
     "statement": {
@@ -38,16 +38,16 @@ var writeHypothesisSchema = json.RawMessage(`{
   "required": ["statement", "reasoning"]
 }`)
 
-type writeHypothesisTool struct{ deps Deps }
+type writeObservationTool struct{ deps Deps }
 
-func (t *writeHypothesisTool) Name() string      { return "write_hypothesis" }
-func (t *writeHypothesisTool) ShortDesc() string { return "记录待验证的假设" }
-func (t *writeHypothesisTool) Desc() string {
+func (t *writeObservationTool) Name() string      { return "write_observation" }
+func (t *writeObservationTool) ShortDesc() string { return "记录待验证的假设" }
+func (t *writeObservationTool) Desc() string {
 	return "记录一个待验证的假设到世界模型。假设是基于观察和推理提出的，需要后续通过实验验证。"
 }
-func (t *writeHypothesisTool) Schema() json.RawMessage { return writeHypothesisSchema }
+func (t *writeObservationTool) Schema() json.RawMessage { return writeObservationSchema }
 
-func (t *writeHypothesisTool) Execute(ctx context.Context, args json.RawMessage) (registry.ToolResult, error) {
+func (t *writeObservationTool) Execute(ctx context.Context, args json.RawMessage) (registry.ToolResult, error) {
 	var input struct {
 		Statement  string `json:"statement"`
 		Reasoning  string `json:"reasoning"`
@@ -74,8 +74,8 @@ func (t *writeHypothesisTool) Execute(ctx context.Context, args json.RawMessage)
 		"test_plan": input.TestPlan,
 	})
 
-	// 映射到 worldmodel.Confidence
-	var confidence worldmodel.Confidence
+	// 映射到 knowledgegraph.Confidence
+	var confidence knowledgegraph.Confidence
 	switch input.Confidence {
 	case "low":
 		confidence = "low"
@@ -88,14 +88,14 @@ func (t *writeHypothesisTool) Execute(ctx context.Context, args json.RawMessage)
 	}
 
 	// 创建节点
-	node := worldmodel.Node{
+	node := knowledgegraph.Node{
 		ID:         uuid.New().String(),
 		TaskID:     t.deps.TaskID,
-		Kind:       worldmodel.KindHypothesis,
+		Kind:       knowledgegraph.KindObservation,
 		Content:    content,
 		Confidence: &confidence,
-		Priority:   5,
-		SourceType: worldmodel.SourceExecutor,
+		Priority:   knowledgegraph.PriorityMedium,
+		SourceType: knowledgegraph.SourceExecutor,
 		SourceID:   t.deps.AgentID,
 		CreatedAt:  time.Now(),
 		UpdatedAt:  time.Now(),
@@ -107,12 +107,12 @@ func (t *writeHypothesisTool) Execute(ctx context.Context, args json.RawMessage)
 		return registry.ToolResult{Error: fmt.Sprintf("创建节点失败: %v", err)}, nil
 	}
 
-	// 如果有当前 actionID，创建 action → hypothesis 关系（GENERATES）
+	// 如果有当前 actionID，创建 action → observation 关系（GENERATES）
 	if actionID := getContextActionID(ctx); actionID != "" {
-		edge := worldmodel.Edge{
+		edge := knowledgegraph.Edge{
 			TaskID:    t.deps.TaskID,
 			SrcID:     actionID,
-			Rel:       worldmodel.RelGenerates,
+			Rel:       knowledgegraph.RelGenerates,
 			DstID:     id,
 			CreatedAt: time.Now(),
 		}
@@ -120,7 +120,7 @@ func (t *writeHypothesisTool) Execute(ctx context.Context, args json.RawMessage)
 	}
 
 	return registry.ToolResult{
-		Output: fmt.Sprintf("Hypothesis 创建成功\nID: %s\n陈述: %s\n置信度: %s", id, input.Statement, input.Confidence),
+		Output: fmt.Sprintf("Observation 创建成功\nID: %s\n陈述: %s\n置信度: %s", id, input.Statement, input.Confidence),
 	}, nil
 }
 
@@ -129,7 +129,7 @@ func (t *writeHypothesisTool) Execute(ctx context.Context, args json.RawMessage)
 var writeEvidenceSchema = json.RawMessage(`{
   "type": "object",
   "properties": {
-    "hypothesis_id": {
+    "observation_id": {
       "type": "string",
       "description": "关联的假设 ID"
     },
@@ -151,7 +151,7 @@ var writeEvidenceSchema = json.RawMessage(`{
       "description": "如果 outcome=confirms，关联的 finding ID（可选）"
     }
   },
-  "required": ["hypothesis_id", "outcome", "description"]
+  "required": ["observation_id", "outcome", "description"]
 }`)
 
 type writeEvidenceTool struct{ deps Deps }
@@ -165,7 +165,7 @@ func (t *writeEvidenceTool) Schema() json.RawMessage { return writeEvidenceSchem
 
 func (t *writeEvidenceTool) Execute(ctx context.Context, args json.RawMessage) (registry.ToolResult, error) {
 	var input struct {
-		HypothesisID string                 `json:"hypothesis_id"`
+		ObservationID string                 `json:"observation_id"`
 		Outcome      string                 `json:"outcome"`
 		Description  string                 `json:"description"`
 		Data         map[string]interface{} `json:"data"`
@@ -175,8 +175,8 @@ func (t *writeEvidenceTool) Execute(ctx context.Context, args json.RawMessage) (
 		return registry.ToolResult{Error: "参数解析失败"}, nil
 	}
 
-	if input.HypothesisID == "" || input.Outcome == "" || input.Description == "" {
-		return registry.ToolResult{Error: "hypothesis_id, outcome, description 不能为空"}, nil
+	if input.ObservationID == "" || input.Outcome == "" || input.Description == "" {
+		return registry.ToolResult{Error: "observation_id, outcome, description 不能为空"}, nil
 	}
 
 	// 验证 outcome
@@ -192,13 +192,13 @@ func (t *writeEvidenceTool) Execute(ctx context.Context, args json.RawMessage) (
 	})
 
 	// 创建 evidence 节点
-	node := worldmodel.Node{
+	node := knowledgegraph.Node{
 		ID:         uuid.New().String(),
 		TaskID:     t.deps.TaskID,
-		Kind:       worldmodel.KindEvidence,
+		Kind:       knowledgegraph.KindEvaluation,
 		Content:    content,
-		Priority:   5,
-		SourceType: worldmodel.SourceExecutor,
+		Priority:   knowledgegraph.PriorityMedium,
+		SourceType: knowledgegraph.SourceExecutor,
 		SourceID:   t.deps.AgentID,
 		CreatedAt:  time.Now(),
 		UpdatedAt:  time.Now(),
@@ -210,55 +210,55 @@ func (t *writeEvidenceTool) Execute(ctx context.Context, args json.RawMessage) (
 	}
 
 	// 创建关系边
-	edges := []worldmodel.Edge{}
+	edges := []knowledgegraph.Edge{}
 
 	// 1. action → evidence (GENERATES)
 	if actionID := getContextActionID(ctx); actionID != "" {
-		edges = append(edges, worldmodel.Edge{
+		edges = append(edges, knowledgegraph.Edge{
 			TaskID:    t.deps.TaskID,
 			SrcID:     actionID,
-			Rel:       worldmodel.RelGenerates,
+			Rel:       knowledgegraph.RelGenerates,
 			DstID:     id,
 			CreatedAt: time.Now(),
 		})
 	}
 
-	// 2. evidence → hypothesis (CONFIRMS 或 REFUTES)
+	// 2. evidence → observation (CONFIRMS 或 REFUTES)
 	if input.Outcome == "confirms" {
-		edges = append(edges, worldmodel.Edge{
+		edges = append(edges, knowledgegraph.Edge{
 			TaskID:    t.deps.TaskID,
 			SrcID:     id,
-			Rel:       worldmodel.RelConfirms,
-			DstID:     input.HypothesisID,
+			Rel:       knowledgegraph.RelConfirms,
+			DstID:     input.ObservationID,
 			CreatedAt: time.Now(),
 		})
 
-		// 更新 hypothesis 的置信度为 verified
-		verified := worldmodel.Confidence("verified")
-		_ = t.deps.World.UpdateNodeConfidence(ctx, input.HypothesisID, verified)
+		// 更新 observation 的置信度为 verified
+		verified := knowledgegraph.Confidence("verified")
+		_ = t.deps.World.UpdateNodeConfidence(ctx, input.ObservationID, verified)
 
 		// 3. 如果有 finding_id，创建 evidence → finding (CONFIRMS)
 		if input.FindingID != "" {
-			edges = append(edges, worldmodel.Edge{
+			edges = append(edges, knowledgegraph.Edge{
 				TaskID:    t.deps.TaskID,
 				SrcID:     id,
-				Rel:       worldmodel.RelConfirms,
+				Rel:       knowledgegraph.RelConfirms,
 				DstID:     input.FindingID,
 				CreatedAt: time.Now(),
 			})
 		}
 	} else if input.Outcome == "refutes" {
-		edges = append(edges, worldmodel.Edge{
+		edges = append(edges, knowledgegraph.Edge{
 			TaskID:    t.deps.TaskID,
 			SrcID:     id,
-			Rel:       worldmodel.RelRefutes,
-			DstID:     input.HypothesisID,
+			Rel:       knowledgegraph.RelRefutes,
+			DstID:     input.ObservationID,
 			CreatedAt: time.Now(),
 		})
 
-		// 更新 hypothesis 的置信度为 low
-		low := worldmodel.Confidence("low")
-		_ = t.deps.World.UpdateNodeConfidence(ctx, input.HypothesisID, low)
+		// 更新 observation 的置信度为 low
+		low := knowledgegraph.Confidence("low")
+		_ = t.deps.World.UpdateNodeConfidence(ctx, input.ObservationID, low)
 	}
 
 	// 创建所有边
@@ -267,7 +267,7 @@ func (t *writeEvidenceTool) Execute(ctx context.Context, args json.RawMessage) (
 	}
 
 	return registry.ToolResult{
-		Output: fmt.Sprintf("Evidence 创建成功\nID: %s\nOutcome: %s\n关联 hypothesis: %s", id, input.Outcome, input.HypothesisID),
+		Output: fmt.Sprintf("Evidence 创建成功\nID: %s\nOutcome: %s\n关联 observation: %s", id, input.Outcome, input.ObservationID),
 	}, nil
 }
 

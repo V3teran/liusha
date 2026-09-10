@@ -18,7 +18,7 @@ type Validation struct {
 // certificate and intermediates / roots. If opts.DNSName is set, then it will
 // also check if the domain matches.
 //
-// Deprecated: Use verifier.Verify() instead.
+// Deprecated: Use evaluator.Verify() instead.
 func (c *Certificate) ValidateWithStupidDetail(opts VerifyOptions) (chains []CertificateChain, validation *Validation, err error) {
 
 	// Manually set the time, so that all verifies we do get the same time

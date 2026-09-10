@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/V3teran/liusha/internal/corpus"
-	"github.com/V3teran/liusha/internal/lead"
+	"github.com/V3teran/liusha/internal/insight"
 	"github.com/V3teran/liusha/internal/provider"
 )
 
@@ -84,7 +84,7 @@ func (h handler) gatherDistillMaterial(ctx context.Context, taskID, convID, tier
 
 	if host != "" && h.leads != nil {
 		if grouped, err := h.leads.ReadRecent(ctx, host); err == nil {
-			if section := lead.FormatSection(grouped); section != "" {
+			if section := insight.FormatSection(grouped); section != "" {
 				b.WriteString("\n")
 				b.WriteString(section)
 			}

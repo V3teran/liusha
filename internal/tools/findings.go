@@ -68,7 +68,7 @@ var writeFindingSchema = json.RawMessage(`{
   "properties": {
     "summary":        {"type": "string", "description": "漏洞描述：是什么 / 怎么验证 / 推理依据。"},
     "severity":       {"type": "string", "description": "critical / high / medium / low / info。"},
-    "evidence":       {"type": "object", "description": "漏洞证据（payload/复现步骤/响应摘要）。"},
+    "evaluation":       {"type": "object", "description": "评估证据（payload/复现步骤/响应摘要）。"},
     "target":         {"type": "object", "description": "目标位置（url/endpoint/param）。"},
     "cwe_id":         {"type": "string", "description": "如 CWE-89。"},
     "owasp_category": {"type": "string", "description": "如 A03:2021。"},
@@ -91,7 +91,7 @@ func (t *writeFindingTool) Execute(ctx context.Context, args json.RawMessage) (r
 	var a struct {
 		Summary       string          `json:"summary"`
 		Severity      string          `json:"severity"`
-		Evidence      json.RawMessage `json:"evidence"`
+		Evaluation json.RawMessage `json:"evaluation"`
 		Target        json.RawMessage `json:"target"`
 		CWEID         string          `json:"cwe_id"`
 		OWASPCategory string          `json:"owasp_category"`
@@ -115,7 +115,7 @@ func (t *writeFindingTool) Execute(ctx context.Context, args json.RawMessage) (r
 		Host:          t.deps.Host,
 		Severity:      a.Severity,
 		Summary:       a.Summary,
-		Evidence:      a.Evidence,
+		Evaluation:      a.Evaluation,
 		Target:        a.Target,
 		CWEID:         a.CWEID,
 		OWASPCategory: a.OWASPCategory,
@@ -145,7 +145,7 @@ var updateFindingSchema = json.RawMessage(`{
     "id":       {"type": "string", "description": "Finding ID。"},
     "summary":  {"type": "string", "description": "更新 summary（可选）。"},
     "severity": {"type": "string", "description": "更新 severity（可选）。"},
-    "evidence": {"type": "object", "description": "更新 evidence（可选）。"},
+    "evaluation": {"type": "object", "description": "更新 evaluation（可选）。"},
     "target":   {"type": "object", "description": "更新 target（可选）。"},
     "depends_on": {"type": "array", "items": {"type": "string"}}
   },
@@ -166,7 +166,7 @@ func (t *updateFindingTool) Execute(ctx context.Context, args json.RawMessage) (
 		ID        string          `json:"id"`
 		Summary   string          `json:"summary"`
 		Severity  string          `json:"severity"`
-		Evidence  json.RawMessage `json:"evidence"`
+		Evaluation json.RawMessage `json:"evaluation"`
 		Target    json.RawMessage `json:"target"`
 		DependsOn []string        `json:"depends_on"`
 	}
@@ -177,7 +177,7 @@ func (t *updateFindingTool) Execute(ctx context.Context, args json.RawMessage) (
 		return registry.ToolResult{Error: "update_finding: id 必填"}, nil
 	}
 
-	if err := t.deps.Findings.Update(ctx, a.ID, a.Summary, a.Severity, a.Target, a.Evidence, a.DependsOn); err != nil {
+	if err := t.deps.Findings.Update(ctx, a.ID, a.Summary, a.Severity, a.Target, a.Evaluation, a.DependsOn); err != nil {
 		return registry.ToolResult{Error: fmt.Sprintf("update_finding: %v", err)}, nil
 	}
 	return registry.ToolResult{Output: fmt.Sprintf("finding 已更新: id=%s", a.ID)}, nil

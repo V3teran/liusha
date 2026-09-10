@@ -18,9 +18,9 @@ CREATE TABLE IF NOT EXISTS lead (
     created_at timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE INDEX idx_lead_assignment_created ON lead(assignment_id, created_at DESC);
+CREATE INDEX insight(assignment_id, created_at DESC);
 
-COMMENT ON TABLE lead IS '情报黑板：assignment 级别的跨 task 情报共享';
+COMMENT ON TABLE insight IS '情报黑板：assignment 级别的跨 task 情报共享';
 COMMENT ON COLUMN lead.assignment_id IS '所属 assignment（隔离边界）';
 COMMENT ON COLUMN lead.kind IS 'clue=可疑点待验证 / observation=既成发现 / deadend=死路绕开';
 COMMENT ON COLUMN lead.detail IS '一句人话描述，位置/细节都在这里';

@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	"github.com/V3teran/liusha/internal/config"
-	"github.com/V3teran/liusha/internal/config/llmcfg"
+	"github.com/V3teran/liusha/internal/config/llm"
 )
 
 // llm.go：把 config.yaml 的 providers:/llm.* 静态配置 insert-only 首填进 llm_provider /

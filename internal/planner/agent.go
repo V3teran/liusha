@@ -10,22 +10,24 @@ import (
 
 	"github.com/rs/zerolog"
 
+	"github.com/V3teran/liusha/internal/agentcore"
 	"github.com/V3teran/liusha/internal/controlplane"
 	"github.com/V3teran/liusha/internal/eventbus"
 	"github.com/V3teran/liusha/internal/executor"
 	"github.com/V3teran/liusha/internal/provider"
-	"github.com/V3teran/liusha/internal/worldmodel"
+	"github.com/V3teran/liusha/internal/registry"
+	"github.com/V3teran/liusha/internal/knowledgegraph"
 )
 
 // Agent 是事件驱动的 Planner Agent，通过 LLM 推理产出 Action
 type Agent struct {
+	core         *agentcore.Agent          // 统一 Agent 框架（封装 LLM 循环）
 	taskID       string
 	eventBus     *executor.PlannerEventBus // Task 级事件总线（接收触发）
 	actionBus    *eventbus.Bus             // Action 级事件总线（发送控制）
-	world        *worldmodel.Store
+	world        *knowledgegraph.Store
 	controlPlane *controlplane.Store
 	router       *provider.Router
-	tools        *ToolRegistry
 	logger       zerolog.Logger
 
 	stopCh            chan struct{}
@@ -37,7 +39,7 @@ type Config struct {
 	TaskID       string
 	EventBus     *executor.PlannerEventBus // Task 级事件总线
 	ActionBus    *eventbus.Bus             // Action 级事件总线
-	World        *worldmodel.Store
+	World        *knowledgegraph.Store
 	ControlPlane *controlplane.Store
 	Router       *provider.Router
 	Logger       zerolog.Logger
@@ -45,36 +47,61 @@ type Config struct {
 
 // New 创建新的 Planner Agent
 func New(cfg Config) *Agent {
-	tools := NewToolRegistry()
-	tools.Register(NewObserveStateTool(cfg.World))
-	tools.Register(NewProposeMovesTool(cfg.World))
-	tools.Register(NewEvaluateProgressTool(cfg.World))
+	// 构建工具集
+	reg := registry.New()
 
-	return &Agent{
+	// Roadmap 工具（核心规划机制）
+	reg.Register(NewObserveRoadmapTool(cfg.World, cfg.Logger))
+	reg.Register(NewGenerateRoadmapTool(cfg.World, cfg.Logger))
+
+	// 世界模型观察工具（辅助）
+	reg.Register(NewObserveStateTool(cfg.World))
+
+	// 传统工具（兼容旧逻辑，后续可移除）
+	reg.Register(NewProposeActionsTool(cfg.World, cfg.Logger))
+	reg.Register(NewEvaluateProgressTool(cfg.World))
+
+	// 创建 Agent 实例
+	agent := &Agent{
 		taskID:            cfg.TaskID,
 		eventBus:          cfg.EventBus,
 		actionBus:         cfg.ActionBus,
 		world:             cfg.World,
 		controlPlane:      cfg.ControlPlane,
 		router:            cfg.Router,
-		tools:             tools,
 		logger:            cfg.Logger,
 		stopCh:            make(chan struct{}),
 		initialPlanDoneCh: make(chan struct{}),
 	}
+
+	// 创建统一 Agent 核心
+	core := agentcore.New(agentcore.Config{
+		Name:         "planner",
+		Provider:     nil, // 延迟设置（需要从 Router 获取）
+		Registry:     reg,
+		Logger:       cfg.Logger,
+		MaxRounds:    100,
+		MaxTokens:    8000,
+		SystemPrompt: agent.buildSystemPrompt(),
+	})
+
+	agent.core = core
+
+	return agent
 }
 
 // Start 启动 Planner Agent 的事件循环（阻塞运行）
+//
+// Planner 职责：纯规划
+// - 响应事件（ActionCompleted, FindingVerified 等）
+// - 调用 LLM 生成新的 Actions
+// - 不负责监察（由 Monitor Agent 负责）
 func (a *Agent) Start(ctx context.Context) error {
 	a.logger.Info().Str("task_id", a.taskID).Msg("Planner Agent started")
 
 	// 订阅事件
 	events := a.eventBus.Subscribe(a.taskID)
 	defer a.eventBus.Unsubscribe(a.taskID)
-
-	// 全局评估定时器（6 分钟）
-	evaluationTicker := time.NewTicker(6 * time.Minute)
-	defer evaluationTicker.Stop()
 
 	// 初始规划：关键路径，失败则中止任务
 	// 与后续 replan 不同：初始 planning 是任务的前置条件，必须成功
@@ -105,12 +132,6 @@ func (a *Agent) Start(ctx context.Context) error {
 
 			if err := a.replan(ctx, event); err != nil {
 				a.logger.Error().Err(err).Str("event_type", string(event.Type)).Msg("replan failed")
-			}
-
-		case <-evaluationTicker.C:
-			// 定期全局评估
-			if err := a.periodicEvaluation(ctx); err != nil {
-				a.logger.Error().Err(err).Msg("periodic evaluation failed")
 			}
 		}
 	}
@@ -224,37 +245,6 @@ func (a *Agent) WaitInitialPlanDone() <-chan struct{} {
 	return a.initialPlanDoneCh
 }
 
-// periodicEvaluation 执行定期全局评估（每 6 分钟）。
-func (a *Agent) periodicEvaluation(ctx context.Context) error {
-	a.logger.Info().Str("task_id", a.taskID).Msg("starting periodic evaluation")
-
-	// 1. 获取全局状态
-	state, err := a.getGlobalState(ctx, a.taskID)
-	if err != nil {
-		return fmt.Errorf("get global state: %w", err)
-	}
-
-	// 2. LLM 全局评估
-	assessment, err := a.evaluateGlobal(ctx, state)
-	if err != nil {
-		return fmt.Errorf("evaluate global: %w", err)
-	}
-
-	a.logger.Info().
-		Str("strategy", assessment.Strategy).
-		Int("kills", len(assessment.ActionsToKill)).
-		Int("steers", len(assessment.ActionsToSteer)).
-		Int("new_actions", len(assessment.NewActions)).
-		Msg("evaluation completed")
-
-	// 3. 执行决策（Kill/Steer/CreateAction）
-	if err := a.executeDecisions(ctx, a.taskID, assessment); err != nil {
-		return fmt.Errorf("execute decisions: %w", err)
-	}
-
-	return nil
-}
-
 // replan 执行重新规划（调用 LLM）
 func (a *Agent) replan(ctx context.Context, event executor.Event) error {
 	startTime := time.Now()
@@ -273,8 +263,8 @@ func (a *Agent) replan(ctx context.Context, event executor.Event) error {
 		{"role": "user", "content": userPrompt},
 	}
 
-	// 工具调用循环（最多 5 轮）
-	maxRounds := 5
+	// 工具调用循环（最多 100 轮）
+	maxRounds := 100
 	for round := 0; round < maxRounds; round++ {
 		// 调用 LLM
 		a.logger.Info().
@@ -361,47 +351,97 @@ func (a *Agent) replan(ctx context.Context, event executor.Event) error {
 
 // buildSystemPrompt 构建系统提示词
 func (a *Agent) buildSystemPrompt() string {
-	return `你是一个安全测试规划 Agent。你的职责是：
+	return `你是一个探索式任务规划 Agent。你的职责是：
 
-1. 观察世界模型：当前已知的目标、观察记录和重要发现
-2. 评估任务进展：判断目标是否达成、还有哪些未探索的方向
-3. 生成执行计划：决定下一步执行哪些 Move，以及它们的优先级和复杂度
+1. 生成和维护任务的 Roadmap（路线图）
+2. 根据执行结果动态调整 Roadmap
+3. 确保探索式任务稳步推进
+
+## 核心概念
+
+### Roadmap（路线图）
+- Roadmap 是任务的高层规划，由 10-15 个步骤组成
+- 每个步骤是一个可验证的里程碑（中粒度目标）
+- 步骤之间可以有依赖关系
+- Roadmap 是动态的，会根据执行结果更新
+
+### RoadmapStep（步骤）
+- objective: 步骤目标（自然语言描述）
+- step: 步骤编号（1.0, 2.0, ...，支持小数如 1.5）
+- depends_on: 依赖的步骤编号（高层依赖）
+- status: todo（待执行）/active（执行中）/complete（已完成）/skipped（已跳过）
+
+### Action（动作）
+- 从 RoadmapStep 派发的实际执行任务
+- 一个 Step 可以派发多个 Action（1:N 映射）
+- Action 有低层依赖（depends_on，限定在同一 Step 内）
 
 ## 可用工具
 
+### observe_roadmap
+观察当前任务的 Roadmap 状态
+
+### generate_roadmap
+生成或更新 Roadmap（完全替换式更新）
+
+参数：
+- steps: 完整的步骤列表（10-15 个步骤）
+  - step: 步骤编号（1.0, 2.0, ...）
+  - objective: 步骤目标（如"识别 Web 服务类型并测试常见漏洞"）
+  - depends_on: 依赖的步骤编号（可选）
+  - rationale: 为什么规划这一步（可选，用于调试）
+
 ### observe_state
-观察当前世界模型状态（目标、Move、观察、发现）
+观察当前世界模型状态（目标、Action、观察、发现）
 
-### propose_moves
-生成新的 Move。每个 Move 包含：
-- instruction: 自然语言描述要做什么（必填）
-- complexity: 执行复杂度（必填）
-  - trivial: 极简任务（<5 步，快速查询）
-  - simple: 简单任务（~10 步，信息收集）
-  - moderate: 中等任务（~30 步，漏洞测试）
-  - complex: 复杂任务（~50 步，漏洞利用）
-  - extreme: 极限任务（~100 步，深度分析）
-- target_ref: 目标定位（可选）
-  - domain: web/binary/cloud/network/lateral
-  - ref_kind: endpoint/file/host/port/service
-  - locator: URL/路径/IP
-- priority: 优先级 1-10（必填）
-- depends_on: 依赖的其他 Move ID 列表（可选）
-
-### evaluate_progress
-评估任务进展，判断是否应该继续生成 Move
+### propose_actions（兼容旧逻辑，优先使用 Roadmap）
+生成新的 Action
 
 ## 规划原则
 
-1. **渐进式探索**：从简单到复杂，先信息收集再漏洞利用
-2. **依赖关系**：某些 Move 依赖前置条件（例如：利用漏洞依赖已发现漏洞）
-3. **避免重复**：不要重复执行已完成的 Move
-4. **资源效率**：每次规划生成 1-5 个 Move，不要过多
-5. **优先级排序**：高价值目标优先（漏洞利用 > 漏洞测试 > 信息收集）
+1. **中粒度步骤**：每个步骤应该是可验证的里程碑，不要太粗（"信息收集"）也不要太细（"扫描 80 端口"）
+   - 好的例子："端口扫描和服务识别"、"测试 SQL 注入"、"测试 XSS"
+   - 不好的例子："信息收集"（太粗）、"curl http://target"（太细）
+
+2. **探索式规划**：
+   - 初始规划：生成粗略的 Roadmap（10-15 步）
+   - 动态调整：根据执行结果，插入、修改或跳过步骤
+   - 完全替换：每次更新时重新生成完整 Roadmap（简化 LLM 认知负担）
+
+3. **依赖管理**：
+   - 高层依赖：Step 2 依赖 Step 1（通过 RoadmapStep.depends_on）
+   - 低层依赖：Action 之间的依赖（通过 Action.depends_on，限定在同一 Step 内）
+
+4. **逐步推进**：
+   - 初始规划后，只派发第一个 Step 的 Action
+   - Step 完成后，被唤醒，派发下一个 Step
+   - 根据发现动态调整后续步骤
+
+5. **状态转换**：
+   - Step: todo → active（派发了第一个 Action）
+   - Step: active → complete（所有 Action 完成）
+   - Step: todo/active → skipped（决定跳过）
+
+## 工作流程
+
+### 初始规划（任务启动时）
+1. 使用 observe_state 观察任务目标
+2. 使用 generate_roadmap 生成初始 Roadmap（10-15 步）
+3. 使用 propose_actions 为第一个 Step 派发 Action
+
+### 动态调整（Step 完成后）
+1. 使用 observe_roadmap 查看当前 Roadmap
+2. 使用 observe_state 查看执行结果和新发现
+3. 根据结果调整 Roadmap：
+   - 插入新步骤（如发现新攻击面）
+   - 修改后续步骤（如改变目标）
+   - 跳过不需要的步骤（如目标已达成）
+4. 使用 generate_roadmap 保存更新后的 Roadmap
+5. 使用 propose_actions 为下一个可执行的 Step 派发 Action
 
 ## 输出格式
 
-使用工具调用输出，不要输出纯文本解释。`
+使用工具调用输出，不要输出纯文本解释。优先使用 Roadmap 机制。`
 
 }
 
@@ -411,7 +451,7 @@ func (a *Agent) buildUserPrompt(ctx context.Context, event executor.Event) (stri
 
 	switch event.Type {
 	case executor.EventTaskStarted:
-		prompt += "任务刚刚启动，请生成初始 Move。\n"
+		prompt += "任务刚刚启动，请生成初始 Action。\n"
 	case executor.EventActionCompleted:
 		// 修复：字段名应为 action_id，不是 move_id
 		actionID, ok := event.Payload["action_id"].(string)
@@ -432,7 +472,7 @@ func (a *Agent) buildUserPrompt(ctx context.Context, event executor.Event) (stri
 		}
 		prompt += fmt.Sprintf("人工指导：%s\n", guidance)
 	case executor.EventHeartbeat:
-		prompt += "定期检查：评估当前进展，必要时生成新 Move。\n"
+		prompt += "定期检查：评估当前进展，必要时生成新 Action。\n"
 	}
 
 	prompt += "\n请使用 observe_state 工具观察当前状态，然后决定下一步行动。"
@@ -486,7 +526,7 @@ func (a *Agent) invokeRouter(ctx context.Context, systemPrompt string, messages 
 	}
 
 	// 构建工具 schema
-	toolSchemas := a.tools.Schemas()
+	toolSchemas := a.core.Registry().Schemas()
 
 	// 调用 LLM
 	req := provider.Request{
@@ -535,13 +575,25 @@ func (a *Agent) extractToolCalls(response map[string]interface{}) []ToolCall {
 
 // executeTool 执行工具调用
 func (a *Agent) executeTool(ctx context.Context, tc ToolCall) (interface{}, error) {
-	tool, ok := a.tools.Get(tc.Name)
+	tool, ok := a.core.Registry().Get(tc.Name)
 	if !ok {
 		return nil, fmt.Errorf("unknown tool: %s", tc.Name)
 	}
 
+	// 将 map 转换为 json.RawMessage
+	argsJSON, err := json.Marshal(tc.Input)
+	if err != nil {
+		return nil, fmt.Errorf("marshal tool args: %w", err)
+	}
+
 	ctx = context.WithValue(ctx, "task_id", a.taskID)
-	return tool.Execute(ctx, tc.Input)
+	result, err := tool.Execute(ctx, argsJSON)
+	if err != nil {
+		return nil, err
+	}
+
+	// 返回 ToolResult.Output
+	return result.Output, nil
 }
 
 // convertResponse 将 provider.Response 转换为通用格式

@@ -28,8 +28,8 @@ import (
 	"github.com/V3teran/liusha/internal/assignment"
 	"github.com/V3teran/liusha/internal/cachestore"
 	"github.com/V3teran/liusha/internal/config"
-	"github.com/V3teran/liusha/internal/config/settingstore"
-	"github.com/V3teran/liusha/internal/configstore"
+	"github.com/V3teran/liusha/internal/config/setting"
+	"github.com/V3teran/liusha/internal/cache"
 	"github.com/V3teran/liusha/internal/controlplane"
 	"github.com/V3teran/liusha/internal/conversation"
 	"github.com/V3teran/liusha/internal/corpus"
@@ -43,7 +43,7 @@ import (
 	"github.com/V3teran/liusha/internal/executor"
 	"github.com/V3teran/liusha/internal/finding"
 	"github.com/V3teran/liusha/internal/ingestor"
-	"github.com/V3teran/liusha/internal/lead"
+	"github.com/V3teran/liusha/internal/insight"
 	"github.com/V3teran/liusha/internal/llminvocation"
 	"github.com/V3teran/liusha/internal/llmstore"
 	"github.com/V3teran/liusha/internal/logx"
@@ -57,7 +57,7 @@ import (
 	"github.com/V3teran/liusha/internal/tools/manifest"
 	"github.com/V3teran/liusha/internal/traffic"
 	"github.com/V3teran/liusha/internal/worker"
-	"github.com/V3teran/liusha/internal/worldmodel"
+	"github.com/V3teran/liusha/internal/knowledgegraph"
 
 	"github.com/hibiken/asynq"
 )
@@ -102,7 +102,7 @@ func main() {
 	eventPublisher := scanstream.NewPublisher(rdb) // 过程事件实时广播（阶段B redis 管道）
 	executorRuns := agentstore.NewStore(pool)
 	finds := finding.NewStore(pool)
-	worldStore := worldmodel.NewStore(pool) // L3 世界模型持久层（onboard 落 KindObjective 节点）
+	worldStore := knowledgegraph.NewStore(pool) // L3 世界模型持久层（onboard 落 KindObjective 节点）
 	toolCalls := toolinvocation.NewStore(pool)
 	calls := llminvocation.NewStoreWithConfig(pool, cfg.LLM.Invocation)
 	corpusStore := corpus.NewStore(pool) // 跨目标知识库（hybrid RAG）
@@ -111,7 +111,7 @@ func main() {
 	agentStore := traffic.NewAgentStore(pool) // agent 自产流量（active，按 task）
 	creds := credential.NewRedis(rdb, cfg.Credential.RedisKeyPrefix)
 	// 情报黑板：assignment 级别的长期情报共享，PostgreSQL 持久化，按 assignment_id 隔离
-	leads := lead.NewStore(pool)
+	leads := insight.NewStore(pool)
 
 	// Jina embedding + rerank client（corpus hybrid RAG 用）。密钥走 ENV JINA_API_KEY；
 	// 缺失时 jinaClient=nil，corpus 降级（search 退纯 sparse、write 不 embed）——不阻塞渗透主流程。
@@ -262,7 +262,7 @@ func main() {
 	eventBus := executor.NewPlannerEventBus(eventBusCtx)
 
 	// PlanStore：execution_plan 表的持久化层
-	// worldmodel.Store 在前面已初始化为 worldStore
+	// knowledgegraph.Store 在前面已初始化为 worldStore
 
 	// ControlPlane：task_control_event 表的持久化层（人工干预）
 	controlPlaneStore := controlplane.NewStore(pool)

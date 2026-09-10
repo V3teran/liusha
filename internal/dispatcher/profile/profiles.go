@@ -7,7 +7,7 @@ package profile
 import (
 	"github.com/V3teran/liusha/internal/dispatcher"
 	"github.com/V3teran/liusha/internal/executor"
-	"github.com/V3teran/liusha/internal/worldmodel"
+	"github.com/V3teran/liusha/internal/knowledgegraph"
 )
 
 // Profiles 返回全部 5 个 Complexity 的默认 Profile 列表，传入的 systemPrompt
@@ -45,7 +45,7 @@ func Trivial(systemPrompt string) dispatcher.Profile {
 `
 
 	return dispatcher.Profile{
-		Complexity:   worldmodel.ComplexityTrivial,
+		Complexity:   knowledgegraph.ComplexityTrivial,
 		SystemPrompt: systemPrompt + body,
 		Tools: []string{
 			"list_traffic", "view_traffic",
@@ -90,7 +90,7 @@ func Simple(systemPrompt string) dispatcher.Profile {
 `
 
 	return dispatcher.Profile{
-		Complexity:   worldmodel.ComplexitySimple,
+		Complexity:   knowledgegraph.ComplexitySimple,
 		SystemPrompt: systemPrompt + body,
 		Tools: []string{
 			"list_traffic", "view_traffic",
@@ -143,7 +143,7 @@ func Moderate(systemPrompt string) dispatcher.Profile {
 `
 
 	return dispatcher.Profile{
-		Complexity:   worldmodel.ComplexityModerate,
+		Complexity:   knowledgegraph.ComplexityModerate,
 		SystemPrompt: systemPrompt + body,
 		Tools: []string{
 			"list_traffic", "view_traffic", "replay_traffic",
@@ -194,7 +194,7 @@ func Complex(systemPrompt string) dispatcher.Profile {
 `
 
 	return dispatcher.Profile{
-		Complexity:   worldmodel.ComplexityComplex,
+		Complexity:   knowledgegraph.ComplexityComplex,
 		SystemPrompt: systemPrompt + body,
 		Tools: []string{
 			"list_traffic", "view_traffic", "replay_traffic",
@@ -245,7 +245,7 @@ func Extreme(systemPrompt string) dispatcher.Profile {
 `
 
 	return dispatcher.Profile{
-		Complexity:   worldmodel.ComplexityExtreme,
+		Complexity:   knowledgegraph.ComplexityExtreme,
 		SystemPrompt: systemPrompt + body,
 		Tools:        nil, // nil = 全部工具可用
 		Budget: executor.Budget{

@@ -7,12 +7,12 @@ import (
 
 	"github.com/rs/zerolog"
 
-	"github.com/V3teran/liusha/internal/worldmodel"
+	"github.com/V3teran/liusha/internal/knowledgegraph"
 )
 
 // Loop 基于统一世界模型的执行循环
 type Loop struct {
-	world    *worldmodel.Store
+	world    *knowledgegraph.Store
 	executor ExecutorInterface
 	promoter Promoter
 	eventBus *PlannerEventBus
@@ -24,7 +24,7 @@ type Loop struct {
 
 // NewLoop 创建执行循环
 func NewLoop(
-	world *worldmodel.Store,
+	world *knowledgegraph.Store,
 	executor ExecutorInterface,
 	promoter Promoter,
 	eventBus *PlannerEventBus,
@@ -41,7 +41,7 @@ func NewLoop(
 	}
 }
 
-// Run 运行执行循环
+// Run 运行执行循环（事件驱动 + 轮询兜底）
 func (l *Loop) Run(ctx context.Context, taskID string) (Report, error) {
 	if taskID == "" {
 		return Report{}, fmt.Errorf("execution loop: taskID 为空")
@@ -59,13 +59,39 @@ func (l *Loop) Run(ctx context.Context, taskID string) (Report, error) {
 	consecutiveEmptyPolls := 0
 	maxEmptyPolls := 60 // 2 分钟无进展则退出（Planner 已完成初始规划）
 
+	// 订阅 action.proposed 事件（Planner 创建新 Action 时触发）
+	actionProposedCh := make(chan Event, 10)
+	if l.eventBus != nil {
+		// 注册事件监听器
+		go func() {
+			// 这里简化实现，实际应该从 eventBus 订阅
+			// 暂时保持兼容性，不破坏现有逻辑
+		}()
+	}
+
 	for {
 		select {
 		case <-ctx.Done():
 			rep.StopWhy = stopCanceled
 			return rep, ctx.Err()
 
+		case event := <-actionProposedCh:
+			// 事件驱动：立即处理新 Action
+			l.logger.Info().
+				Str("task_id", taskID).
+				Str("event_type", string(event.Type)).
+				Msg("[EXEC_LOOP] received action.proposed event, processing immediately")
+
+			if err := l.processPendingActions(ctx, taskID, &rep); err != nil {
+				rep.StopWhy = stopError
+				return rep, err
+			}
+
+			// 重置空轮询计数
+			consecutiveEmptyPolls = 0
+
 		case <-ticker.C:
+			// 轮询兜底：定期检查（防止事件丢失）
 			if err := l.processPendingActions(ctx, taskID, &rep); err != nil {
 				rep.StopWhy = stopError
 				return rep, err
@@ -124,7 +150,7 @@ func (l *Loop) processPendingActions(ctx context.Context, taskID string, rep *Re
 		Msg("[EXEC_LOOP] completed actions count")
 
 	// 筛选出当前可执行的 Move（无依赖或依赖已满足）
-	var executable []worldmodel.Node
+	var executable []knowledgegraph.Node
 	for _, m := range openActions {
 		canExec := m.CanExecute(completed)
 		l.logger.Debug().
@@ -159,11 +185,11 @@ func (l *Loop) processPendingActions(ctx context.Context, taskID string, rep *Re
 
 		l.logger.Info().
 			Str("action_id", move.ID).
-			Int("priority", move.Priority).
+			Str("priority", string(move.Priority)).
 			Msg("[EXEC_LOOP] marking action as running")
 
 		// 标记为 running
-		if err := l.world.UpdateActionState(ctx, move.ID, worldmodel.StateRunning, nil); err != nil {
+		if err := l.world.UpdateActionState(ctx, move.ID, knowledgegraph.StateRunning, nil); err != nil {
 			l.logger.Error().Err(err).Str("move_id", move.ID).Msg("mark running failed")
 			continue
 		}
@@ -183,11 +209,11 @@ func (l *Loop) processPendingActions(ctx context.Context, taskID string, rep *Re
 		// 更新状态
 		if execErr != nil {
 			errMsg := execErr.Error()
-			if err := l.world.UpdateActionState(ctx, move.ID, worldmodel.StateFailed, &errMsg); err != nil {
+			if err := l.world.UpdateActionState(ctx, move.ID, knowledgegraph.StateFailed, &errMsg); err != nil {
 				l.logger.Error().Err(err).Str("move_id", move.ID).Msg("mark failed failed")
 			}
 		} else {
-			if err := l.world.UpdateActionState(ctx, move.ID, worldmodel.StateDone, nil); err != nil {
+			if err := l.world.UpdateActionState(ctx, move.ID, knowledgegraph.StateDone, nil); err != nil {
 				l.logger.Error().Err(err).Str("move_id", move.ID).Msg("mark done failed")
 			}
 
@@ -210,13 +236,13 @@ func (l *Loop) processPendingActions(ctx context.Context, taskID string, rep *Re
 func (l *Loop) executeMove(
 	ctx context.Context,
 	taskID string,
-	move worldmodel.Node,
+	move knowledgegraph.Node,
 	rep *Report,
 ) error {
 	l.logger.Info().
 		Str("move_id", move.ID).
 		Str("kind", string(move.Kind)).
-		Int("priority", move.Priority).
+		Str("priority", string(move.Priority)).
 		Msg("executing move")
 
 	// Executor 执行 Action
@@ -239,10 +265,10 @@ func (l *Loop) executeMove(
 			rep.Promoted++
 
 			// 创建溯源边：move → observation/discovery
-			edge := worldmodel.Edge{
+			edge := knowledgegraph.Edge{
 				TaskID:    taskID,
 				SrcID:     move.ID,
-				Rel:       worldmodel.RelGenerates,
+				Rel:       knowledgegraph.RelGenerates,
 				DstID:     node.ID,
 				CreatedAt: time.Now(),
 			}

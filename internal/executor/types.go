@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/V3teran/liusha/internal/registry"
-	"github.com/V3teran/liusha/internal/worldmodel"
+	"github.com/V3teran/liusha/internal/knowledgegraph"
 )
 
 // ─────────────────────────────────────────────
@@ -39,7 +39,7 @@ func (r TargetRef) Display() string {
 // Action 是 Planner 生成的单个执行意图单元。
 type Action struct {
 	ID          string
-	Complexity  worldmodel.Complexity
+	Complexity  knowledgegraph.Complexity
 	Target      TargetRef
 	Instruction string // 自然语言描述要做什么
 	Cues        []string
@@ -161,9 +161,9 @@ type Execution struct {
 
 // ExecutorReq 是 Actor.Run 的输入。
 type ExecutorReq struct {
-	System             string    // 不参与压缩：Profile.SystemPrompt + Landmark summaries
-	Inbox              []Message // 参与压缩：初始指令
-	Hypotheses         []string  // Working Memory
+	System             string             // 不参与压缩：Profile.SystemPrompt + Landmark summaries
+	Inbox              []Message          // 参与压缩：初始指令
+	Hypotheses         []string           // Working Memory
 	Budget             Budget
 	Settle             SettleConfig
 	PendingConstraints []registry.Constraint
@@ -219,16 +219,16 @@ type Target struct {
 
 // Campaign 是前端可配置的扫描策略。
 type Campaign struct {
-	EnabledComplexity []worldmodel.Complexity
-	BudgetOverrides   map[worldmodel.Complexity]Budget
+	EnabledComplexity []knowledgegraph.Complexity
+	BudgetOverrides   map[knowledgegraph.Complexity]Budget
 	GlobalConstraints []registry.Constraint
 	ScanBudget        ScanBudget
 	PostScanHook      func(taskID string)
 }
 
 type Assignment struct {
-	ID       string
-	Targets  []Target
+	ID      string
+	Targets []Target
 	Campaign Campaign
 }
 

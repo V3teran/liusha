@@ -1,0 +1,327 @@
+// Verifier 专用工具实现
+package verifier
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+
+	"github.com/rs/zerolog"
+
+	"github.com/V3teran/liusha/internal/httpreplay"
+	"github.com/V3teran/liusha/internal/registry"
+	"github.com/V3teran/liusha/internal/traffic"
+)
+
+// ─── replay_traffic 工具 ────────────────────────────────────────────────────
+
+type replayTrafficTool struct {
+	traffic *traffic.AgentStore
+	logger  zerolog.Logger
+}
+
+func (t *replayTrafficTool) Name() string { return "replay_traffic" }
+
+func (t *replayTrafficTool) ShortDesc() string {
+	return "重放 HTTP 请求，可修改参数"
+}
+
+func (t *replayTrafficTool) Desc() string {
+	return `重放一个 HTTP 请求，可以修改参数、headers、body 等。
+
+用途：
+- 验证漏洞：注入 payload，观察响应
+- 复现行为：重放请求，确认可复现
+
+参数：
+- traffic_id: 要重放的 HTTP 流量 ID
+- modifications: 要修改的内容（可选）
+  - params: URL 参数修改，如 {"id": "1' OR '1'='1"}
+  - headers: 请求头修改
+  - body: 请求体修改
+
+返回：
+- status: HTTP 状态码
+- headers: 响应头
+- body: 响应体（截断到 2000 字符）
+- error: 错误信息（如果有）`
+}
+
+func (t *replayTrafficTool) Schema() json.RawMessage {
+	return json.RawMessage(`{
+  "type": "object",
+  "properties": {
+    "traffic_id": {
+      "type": "integer",
+      "description": "要重放的 HTTP 流量 ID"
+    },
+    "modifications": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "type": "object",
+          "description": "URL 参数修改，如 {\"id\": \"1' OR '1'='1\"}"
+        },
+        "headers": {
+          "type": "object",
+          "description": "请求头修改"
+        },
+        "body": {
+          "type": "string",
+          "description": "请求体修改"
+        }
+      }
+    }
+  },
+  "required": ["traffic_id"]
+}`)
+}
+
+func (t *replayTrafficTool) Execute(ctx context.Context, args json.RawMessage) (registry.ToolResult, error) {
+	var input struct {
+		TrafficID     int64                  `json:"traffic_id"`
+		Modifications map[string]interface{} `json:"modifications"`
+	}
+
+	if err := json.Unmarshal(args, &input); err != nil {
+		return registry.ToolResult{}, fmt.Errorf("parse args: %w", err)
+	}
+
+	// 读取原始流量
+	flow, err := t.traffic.GetByID(ctx, input.TrafficID)
+	if err != nil {
+		return registry.ToolResult{
+			Output: fmt.Sprintf("Error: 无法读取 traffic_id=%d: %v", input.TrafficID, err),
+		}, nil
+	}
+
+	// 构建重放源
+	source := httpreplay.Source{
+		ID:      flow.ID,
+		Method:  flow.Method,
+		URL:     flow.URL,
+		Headers: flow.RequestHeaders,
+		Body:    flow.RequestBody,
+	}
+
+	// 应用修改
+	var mods httpreplay.Modifications
+	if input.Modifications != nil {
+		if params, ok := input.Modifications["params"].(map[string]interface{}); ok {
+			mods.Params = make(map[string]string)
+			for k, v := range params {
+				mods.Params[k] = fmt.Sprintf("%v", v)
+			}
+		}
+		if headers, ok := input.Modifications["headers"].(map[string]interface{}); ok {
+			mods.Headers = make(map[string]string)
+			for k, v := range headers {
+				mods.Headers[k] = fmt.Sprintf("%v", v)
+			}
+		}
+		if body, ok := input.Modifications["body"].(string); ok {
+			mods.Body = &body
+		}
+	}
+
+	// 执行重放
+	result, err := httpreplay.Replay(ctx, source, mods)
+	if err != nil {
+		return registry.ToolResult{
+			Output: fmt.Sprintf("Error: 重放失败: %v", err),
+		}, nil
+	}
+
+	// 截断 body
+	bodyStr := string(result.Body)
+	if len(bodyStr) > 2000 {
+		bodyStr = bodyStr[:2000] + "... (截断)"
+	}
+
+	output := fmt.Sprintf(`重放结果：
+- Status: %d
+- Body 长度: %d 字节
+- Body 预览:
+%s`,
+		result.StatusCode,
+		len(result.Body),
+		bodyStr,
+	)
+
+	return registry.ToolResult{Output: output}, nil
+}
+
+// ─── check_response 工具 ────────────────────────────────────────────────────
+
+type checkResponseTool struct{}
+
+func (t *checkResponseTool) Name() string { return "check_response" }
+
+func (t *checkResponseTool) ShortDesc() string {
+	return "检查响应内容是否匹配条件"
+}
+
+func (t *checkResponseTool) Desc() string {
+	return `检查 HTTP 响应是否满足指定条件。
+
+用途：
+- 验证漏洞特征：检查响应是否包含错误信息
+- 确认行为：检查状态码、响应内容
+
+参数：
+- status: 期望的状态码（可选）
+- contains: 响应体应包含的字符串（可选）
+- not_contains: 响应体不应包含的字符串（可选）
+- response_body: 要检查的响应体
+
+返回：
+- matched: true/false
+- reason: 匹配或不匹配的原因`
+}
+
+func (t *checkResponseTool) Schema() json.RawMessage {
+	return json.RawMessage(`{
+  "type": "object",
+  "properties": {
+    "status": {
+      "type": "integer",
+      "description": "期望的状态码"
+    },
+    "contains": {
+      "type": "string",
+      "description": "响应体应包含的字符串"
+    },
+    "not_contains": {
+      "type": "string",
+      "description": "响应体不应包含的字符串"
+    },
+    "response_body": {
+      "type": "string",
+      "description": "要检查的响应体"
+    }
+  },
+  "required": ["response_body"]
+}`)
+}
+
+func (t *checkResponseTool) Execute(ctx context.Context, args json.RawMessage) (registry.ToolResult, error) {
+	var input struct {
+		Status      *int   `json:"status"`
+		Contains    string `json:"contains"`
+		NotContains string `json:"not_contains"`
+		ResponseBody string `json:"response_body"`
+	}
+
+	if err := json.Unmarshal(args, &input); err != nil {
+		return registry.ToolResult{}, fmt.Errorf("parse args: %w", err)
+	}
+
+	reasons := []string{}
+
+	// 检查 contains
+	if input.Contains != "" {
+		if contains(input.ResponseBody, input.Contains) {
+			reasons = append(reasons, fmt.Sprintf("✓ 包含 '%s'", input.Contains))
+		} else {
+			return registry.ToolResult{
+				Output: fmt.Sprintf("不匹配：响应体不包含 '%s'", input.Contains),
+			}, nil
+		}
+	}
+
+	// 检查 not_contains
+	if input.NotContains != "" {
+		if !contains(input.ResponseBody, input.NotContains) {
+			reasons = append(reasons, fmt.Sprintf("✓ 不包含 '%s'", input.NotContains))
+		} else {
+			return registry.ToolResult{
+				Output: fmt.Sprintf("不匹配：响应体包含 '%s'（不应包含）", input.NotContains),
+			}, nil
+		}
+	}
+
+	if len(reasons) == 0 {
+		reasons = append(reasons, "所有条件满足")
+	}
+
+	output := "匹配成功：\n"
+	for _, r := range reasons {
+		output += "- " + r + "\n"
+	}
+
+	return registry.ToolResult{Output: output}, nil
+}
+
+// ─── conclude 工具 ──────────────────────────────────────────────────────────
+
+type concludeTool struct{}
+
+func (t *concludeTool) Name() string { return "conclude" }
+
+func (t *concludeTool) ShortDesc() string {
+	return "给出验证结论（必须调用）"
+}
+
+func (t *concludeTool) Desc() string {
+	return `给出验证的最终结论。
+
+参数：
+- outcome: "confirmed"（坐实）或 "refuted"（证伪）
+- reasoning: 验证推理过程，说明为什么得出这个结论
+
+重要：验证结束后必须调用此工具！`
+}
+
+func (t *concludeTool) Schema() json.RawMessage {
+	return json.RawMessage(`{
+  "type": "object",
+  "properties": {
+    "outcome": {
+      "type": "string",
+      "enum": ["confirmed", "refuted"],
+      "description": "验证结论：confirmed（坐实）或 refuted（证伪）"
+    },
+    "reasoning": {
+      "type": "string",
+      "description": "验证推理过程，说明为什么得出这个结论"
+    }
+  },
+  "required": ["outcome", "reasoning"]
+}`)
+}
+
+func (t *concludeTool) Execute(ctx context.Context, args json.RawMessage) (registry.ToolResult, error) {
+	var input struct {
+		Outcome   string `json:"outcome"`
+		Reasoning string `json:"reasoning"`
+	}
+
+	if err := json.Unmarshal(args, &input); err != nil {
+		return registry.ToolResult{}, fmt.Errorf("parse args: %w", err)
+	}
+
+	output := fmt.Sprintf(`验证结论：%s
+
+推理过程：
+%s
+
+验证完成。`, input.Outcome, input.Reasoning)
+
+	return registry.ToolResult{Output: output}, nil
+}
+
+// 辅助函数（简化版 strings.Contains）
+func contains(s, substr string) bool {
+	if len(substr) == 0 {
+		return true
+	}
+	if len(s) < len(substr) {
+		return false
+	}
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
+}

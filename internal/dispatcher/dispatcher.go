@@ -10,13 +10,13 @@ import (
 	"github.com/V3teran/liusha/internal/executor"
 	"github.com/V3teran/liusha/internal/provider"
 	"github.com/V3teran/liusha/internal/registry"
-	"github.com/V3teran/liusha/internal/worldmodel"
+	"github.com/V3teran/liusha/internal/knowledgegraph"
 	"github.com/rs/zerolog"
 )
 
 // Profile 是针对单个 Complexity 的 Executor 配置。
 type Profile struct {
-	Complexity   worldmodel.Complexity
+	Complexity   knowledgegraph.Complexity
 	SystemPrompt string
 	Tools        []string // 允许使用的工具名列表
 	Budget       executor.Budget
@@ -25,14 +25,14 @@ type Profile struct {
 
 // Dispatcher 是 Complexity-aware Executor 工厂。
 type Dispatcher struct {
-	profiles   map[worldmodel.Complexity]Profile
+	profiles   map[knowledgegraph.Complexity]Profile
 	provider   provider.Provider
 	registry   *registry.Registry
 	compactor  executor.Compactor
 	checkpoint executor.CheckpointStore
 	emitter    executor.SSEEmitter
 	logger     zerolog.Logger
-	worldmodel *worldmodel.Store
+	knowledgegraph *knowledgegraph.Store
 	eventBus   executor.EventBus
 }
 
@@ -44,18 +44,18 @@ func New(
 	cp executor.CheckpointStore,
 	emitter executor.SSEEmitter,
 	logger zerolog.Logger,
-	wm *worldmodel.Store,
+	wm *knowledgegraph.Store,
 	eventBus executor.EventBus,
 ) *Dispatcher {
 	return &Dispatcher{
-		profiles:   make(map[worldmodel.Complexity]Profile),
+		profiles:   make(map[knowledgegraph.Complexity]Profile),
 		provider:   p,
 		registry:   reg,
 		compactor:  compactor,
 		checkpoint: cp,
 		emitter:    emitter,
 		logger:     logger,
-		worldmodel: wm,
+		knowledgegraph: wm,
 		eventBus:   eventBus,
 	}
 }
@@ -76,7 +76,7 @@ func (d *Dispatcher) Execute(ctx context.Context, action executor.Action) (execu
 	subReg := d.buildSubRegistry(profile.Tools)
 
 	// 创建 worldmodel 适配器
-	wmReader := executor.NewWorldModelAdapter(d.worldmodel)
+	wmReader := executor.NewWorldModelAdapter(d.knowledgegraph)
 
 	a := executor.NewAgent(d.provider, subReg, d.compactor, d.checkpoint, d.emitter, d.logger, wmReader)
 
@@ -153,7 +153,6 @@ func (d *Dispatcher) buildExecutorReq(profile Profile, action executor.Action, h
 		Inbox: []executor.Message{
 			{Role: "user", Content: instruction},
 		},
-		Hypotheses:         hypotheses,
 		Budget:             profile.Budget,
 		Settle:             profile.Settle,
 		PendingConstraints: action.Constraints,

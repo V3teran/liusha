@@ -29,7 +29,7 @@ import (
 
 	"github.com/V3teran/liusha/internal/cachestore"
 	"github.com/V3teran/liusha/internal/config"
-	"github.com/V3teran/liusha/internal/config/settingstore"
+	"github.com/V3teran/liusha/internal/config/setting"
 	"github.com/V3teran/liusha/internal/db"
 	"github.com/V3teran/liusha/internal/envx"
 	"github.com/V3teran/liusha/internal/filter"

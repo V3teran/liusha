@@ -19,7 +19,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/V3teran/liusha/internal/config/llmcfg"
+	"github.com/V3teran/liusha/internal/config/llm"
 )
 
 // KeyEncrypter 加密前端直填的明文 API Key（*cryptx.Cipher 自动满足）。

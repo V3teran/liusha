@@ -15,7 +15,7 @@ import (
 //
 // Host 必填；Save 内空字符串校验防漏填。
 // SourceTrafficID 可空（不绑定具体流量时 nil）；指向 proxy_traffic / agent_traffic 任一。
-// Target / Evidence 为 nil 时 Save 自动落空对象 '{}'。
+// Target / Evaluation 为 nil 时 Save 自动落空对象 '{}'。
 type VulnFinding struct {
 	ID              string
 	TaskID          string // 所属 task.id
@@ -29,7 +29,7 @@ type VulnFinding struct {
 	// 工具层（write_finding）强制非空。
 	Summary  string
 	Target   json.RawMessage
-	Evidence json.RawMessage
+	Evaluation json.RawMessage
 	// Repro 是机器可验的复现配方（web={traffic_id,modifications,assert}），喂 L4 Verifier
 	// 复现门自动晋升成世界模型节点。形状 domain-specific，本层只作 jsonb 透传；nil=未产配方。
 	Repro json.RawMessage

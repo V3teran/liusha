@@ -50,7 +50,7 @@ func (s *Store) Save(ctx context.Context, f VulnFinding) (VulnFinding, error) {
 	if f.Severity == "" {
 		f.Severity = "medium"
 	}
-	for _, p := range []*json.RawMessage{&f.Target, &f.Evidence} {
+	for _, p := range []*json.RawMessage{&f.Target, &f.Evaluation} {
 		if *p == nil {
 			*p = json.RawMessage("{}")
 		}
@@ -81,7 +81,7 @@ func (s *Store) Save(ctx context.Context, f VulnFinding) (VulnFinding, error) {
 		RETURNING `+colsSelect,
 		f.TaskID,
 		f.ExecutorID, f.SourceTrafficID, f.Host, f.Severity,
-		f.Summary, f.Target, f.Evidence,
+		f.Summary, f.Target, f.Evaluation,
 		f.CWEID, f.OWASPCategory, f.Remediation, deps, f.Repro)
 
 	var saved VulnFinding
@@ -455,7 +455,7 @@ func scanLedger(r scanner, out *LedgerRow) error {
 	if err := r.Scan(
 		&out.ID, &out.TaskID,
 		&agentID, &sourceTrafficID, &out.Host, &out.Severity,
-		&out.Summary, &out.Target, &out.Evidence,
+		&out.Summary, &out.Target, &out.Evaluation,
 		&out.CWEID, &out.OWASPCategory, &out.FirstSeenAt, &out.Remediation,
 		&dependsOn,
 		&out.Status, &out.TriageNote, &triagedAt,
@@ -487,7 +487,7 @@ func scan(r scanner, f *VulnFinding) error {
 	if err := r.Scan(
 		&f.ID, &f.TaskID,
 		&agentID, &sourceTrafficID, &f.Host, &f.Severity,
-		&f.Summary, &f.Target, &f.Evidence,
+		&f.Summary, &f.Target, &f.Evaluation,
 		&f.CWEID, &f.OWASPCategory, &f.FirstSeenAt, &f.Remediation,
 		&dependsOn,
 		&f.Status, &f.TriageNote, &triagedAt,

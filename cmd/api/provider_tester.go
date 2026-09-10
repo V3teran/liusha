@@ -17,7 +17,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/V3teran/liusha/internal/config/llmcfg"
+	"github.com/V3teran/liusha/internal/config/llm"
 	"github.com/V3teran/liusha/internal/httpapi"
 	"github.com/V3teran/liusha/internal/llm"
 )

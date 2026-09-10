@@ -9,7 +9,7 @@ import (
 	"github.com/redis/go-redis/v9"
 
 	"github.com/V3teran/liusha/internal/cachestore"
-	"github.com/V3teran/liusha/internal/config/llmcfg"
+	"github.com/V3teran/liusha/internal/config/llm"
 )
 
 // fakeLLM 是带命中计数的 llmStore 假实现，用于断言列表读是否穿透到底层。

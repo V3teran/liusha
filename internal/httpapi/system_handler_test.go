@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/V3teran/liusha/internal/config/settingstore"
+	"github.com/V3teran/liusha/internal/config/setting"
 )
 
 // fakeSettings 是 SettingsAPI 的内存实现，记录写入以断言 handler 编排。

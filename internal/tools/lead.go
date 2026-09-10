@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/V3teran/liusha/internal/lead"
+	"github.com/V3teran/liusha/internal/insight"
 	"github.com/V3teran/liusha/internal/registry"
 )
 
@@ -15,7 +15,7 @@ var writeLeadSchema = json.RawMessage(`{
   "properties": {
     "category": {
       "type": "string",
-      "enum": ["target", "credential", "infrastructure", "business", "data", "finding", "obstacle", "note"],
+      "enum": ["target", "credential", "infrastructure", "business", "data", "result", "obstacle", "note"],
       "description": "信息分类：target（目标）/credential（凭证）/infrastructure（基础设施）/business（业务逻辑）/data（数据）/finding（发现）/obstacle（障碍）/note（笔记）"
     },
     "priority": {
@@ -90,10 +90,10 @@ func (t *writeLeadTool) Execute(ctx context.Context, args json.RawMessage) (regi
 		return registry.ToolResult{Error: fmt.Sprintf("write_lead: 查询 task 失败: %v", err)}, nil
 	}
 
-	entry := lead.Entry{
-		Category:      lead.Category(a.Category),
-		Priority:      lead.Priority(a.Priority),
-		Confidence:    lead.Confidence(a.Confidence),
+	entry := insight.Insight{
+		Category:      insight.Category(a.Category),
+		Priority:      insight.Priority(a.Priority),
+		Confidence:    insight.Confidence(a.Confidence),
 		Summary:       a.Summary,
 		Body:          a.Body,
 		Tags:          a.Tags,

@@ -5,8 +5,8 @@ import (
 	"fmt"
 
 	"github.com/V3teran/liusha/internal/finding"
-	"github.com/V3teran/liusha/internal/verifier"
-	"github.com/V3teran/liusha/internal/worldmodel"
+	"github.com/V3teran/liusha/internal/evaluator"
+	"github.com/V3teran/liusha/internal/knowledgegraph"
 	"github.com/rs/zerolog"
 )
 
@@ -20,7 +20,7 @@ type FindingLister interface {
 // AgentFunc 执行一次战术 agent（RunSolo 的注入点，cmd/runner 侧实现）。
 // 只返回 error——产出的漏洞由 agent 内 write_finding 落 finding.Store，Executor 事后收割。
 // 「怎么打」全权归 agent（LLM 战术自由），Executor 不干预。
-type AgentFunc func(ctx context.Context, move worldmodel.Node) error
+type AgentFunc func(ctx context.Context, move knowledgegraph.Node) error
 
 // Coordinator 是执行层的协调器：跑 move-scoped agent → 收割新 finding → 转 Attempt。
 type Coordinator struct {
@@ -37,7 +37,7 @@ func NewCoordinator(taskID, host string, findings FindingLister, run AgentFunc, 
 }
 
 // Execute 实现 ExecutorInterface：快照运行前 finding → 跑 agent → 差集收割新 finding → 转 Attempt
-func (c *Coordinator) Execute(ctx context.Context, action worldmodel.Node) ([]verifier.Attempt, error) {
+func (c *Coordinator) Execute(ctx context.Context, action knowledgegraph.Node) ([]evaluator.Attempt, error) {
 	if !action.IsAction() {
 		return nil, fmt.Errorf("Coordinator: 节点不是 Action: %s", action.ID)
 	}
@@ -91,7 +91,7 @@ func (c *Coordinator) Execute(ctx context.Context, action worldmodel.Node) ([]ve
 		Str("action_id", action.ID).
 		Msg("[COORDINATOR] After execution harvest")
 
-	var attempts []verifier.Attempt
+	var attempts []evaluator.Attempt
 	for _, f := range after {
 		if seen[f.ID] {
 			continue

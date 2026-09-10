@@ -56,7 +56,7 @@ func RegisterAll(reg *registry.Registry, deps Deps) {
 
 	// worldmodel
 	if deps.World != nil {
-		reg.Register(&writeHypothesisTool{deps: deps})
+		reg.Register(&writeObservationTool{deps: deps})
 		reg.Register(&writeEvidenceTool{deps: deps})
 	}
 }

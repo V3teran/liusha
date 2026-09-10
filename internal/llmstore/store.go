@@ -1,6 +1,6 @@
 // Package llmstore 是 LLM 配置（provider 部署 / 复杂度路由）的多级缓存读写层，
 // 构建在资源无关的 cachestore 内核之上：内存 L1（本进程）→ redis L2（跨进程共享 + 失效总线）
-// → DB（事实源，由 internal/config/llmcfg.Store 打）。
+// → DB（事实源，由 internal/config/llm.Store 打）。
 //
 // 为何分层：api 与 runner 是**多进程**。前端在 api 改模型配置后，runner 的
 // provider.Router 必须在下次 For(complexity) 时读到最新 provider/路由，
@@ -27,7 +27,7 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/V3teran/liusha/internal/cachestore"
-	"github.com/V3teran/liusha/internal/config/llmcfg"
+	"github.com/V3teran/liusha/internal/config/llm"
 )
 
 // llmStore 是 llmstore 依赖的底层持久化能力（*llmcfg.Store 自动满足）。

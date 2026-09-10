@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"github.com/V3teran/liusha/internal/finding"
-	"github.com/V3teran/liusha/internal/lead"
+	"github.com/V3teran/liusha/internal/insight"
 	"github.com/V3teran/liusha/internal/skill"
 	"github.com/V3teran/liusha/internal/tools/manifest"
 	"github.com/V3teran/liusha/internal/traffic"
@@ -149,7 +149,7 @@ type catalogEntry struct {
 // 未在本表内的 category（含空值）→ 落入末尾的"未分类"组，提醒维护者补 frontmatter。
 var toolingCategoryOrder = []categoryItem{
 	{"recon", "recon（侦察 — 资产/服务/技术栈/指纹发现）"},
-	{"finding", "discovery（内容/参数发现）"},
+	{"result", "discovery（内容/参数发现）"},
 	{"vulnscan", "vulnscan（自动化模板漏扫）"},
 	{"injection", "injection（注入类专项）"},
 	{"deserialization", "deserialization（反序列化 payload 生成）"},
@@ -378,9 +378,9 @@ func loadExistingFindings(ctx context.Context, store *finding.Store, taskID, hos
 	return b.String()
 }
 
-// loadLeadForPrompt 拉该 assignment 的情报黑板（读时按 kind 分组去重，见 lead.FormatSection）。
+// loadLeadForPrompt 拉该 assignment 的情报黑板（读时按 kind 分组去重，见 insight.FormatSection）。
 // store nil / assignmentID 空 / 读取失败 / 无情报 → 返回空串，不污染 prompt。
-func loadLeadForPrompt(ctx context.Context, store *lead.Store, assignmentID string) string {
+func loadLeadForPrompt(ctx context.Context, store *insight.Store, assignmentID string) string {
 	if store == nil || assignmentID == "" {
 		return ""
 	}
@@ -388,7 +388,7 @@ func loadLeadForPrompt(ctx context.Context, store *lead.Store, assignmentID stri
 	if err != nil {
 		return ""
 	}
-	return lead.FormatSection(grouped)
+	return insight.FormatSection(grouped)
 }
 
 func firstLine(s string, max int) string {

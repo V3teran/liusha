@@ -9,7 +9,7 @@ import (
 	"regexp"
 
 	"github.com/V3teran/liusha/internal/domain"
-	"github.com/V3teran/liusha/internal/worldmodel"
+	"github.com/V3teran/liusha/internal/knowledgegraph"
 )
 
 // hostRe 匹配 http(s):// 后到 / 或空白之前的 host（含端口）。
@@ -32,14 +32,14 @@ func (p *Profile) Domain() string { return "web" }
 //
 // Locator = host[:port]（非整条 URL）：目标粒度是"站点/scope"，endpoint 是后续爬取/
 // 流量发现的 asset。host key 与旧 target_host / 归档切分键逐字一致（保行为）。去重保序。
-func (p *Profile) Onboard(_ context.Context, in domain.BriefInput) ([]worldmodel.TargetRef, error) {
+func (p *Profile) Onboard(_ context.Context, in domain.BriefInput) ([]knowledgegraph.TargetRef, error) {
 	hosts := extractHosts(in.Brief)
 	if len(hosts) == 0 {
 		return nil, fmt.Errorf("executor.Onboard: brief 中未发现 http(s) 目标")
 	}
-	refs := make([]worldmodel.TargetRef, 0, len(hosts))
+	refs := make([]knowledgegraph.TargetRef, 0, len(hosts))
 	for _, h := range hosts {
-		refs = append(refs, worldmodel.TargetRef{
+		refs = append(refs, knowledgegraph.TargetRef{
 			Domain:  "web",
 			RefKind: "host",
 			Locator: h,

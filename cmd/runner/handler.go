@@ -12,8 +12,8 @@ import (
 
 	"github.com/V3teran/liusha/internal/agentrun"
 	"github.com/V3teran/liusha/internal/config"
-	"github.com/V3teran/liusha/internal/config/settingstore"
-	"github.com/V3teran/liusha/internal/configstore"
+	"github.com/V3teran/liusha/internal/config/setting"
+	"github.com/V3teran/liusha/internal/cache"
 	"github.com/V3teran/liusha/internal/controlplane"
 	"github.com/V3teran/liusha/internal/conversation"
 	"github.com/V3teran/liusha/internal/corpus"
@@ -22,7 +22,7 @@ import (
 	"github.com/V3teran/liusha/internal/eventbus"
 	"github.com/V3teran/liusha/internal/executor"
 	"github.com/V3teran/liusha/internal/finding"
-	"github.com/V3teran/liusha/internal/lead"
+	"github.com/V3teran/liusha/internal/insight"
 	"github.com/V3teran/liusha/internal/llminvocation"
 	"github.com/V3teran/liusha/internal/provider"
 	"github.com/V3teran/liusha/internal/ratelimit"
@@ -34,7 +34,7 @@ import (
 	"github.com/V3teran/liusha/internal/tools/manifest"
 	"github.com/V3teran/liusha/internal/traffic"
 	"github.com/V3teran/liusha/internal/worker"
-	"github.com/V3teran/liusha/internal/worldmodel"
+	"github.com/V3teran/liusha/internal/knowledgegraph"
 )
 
 // handler 持有所有跨任务共享依赖。
@@ -45,7 +45,7 @@ type handler struct {
 	corpus     *corpus.Store
 	embedder   corpus.Embedder // Jina embed（可 nil，降级纯 sparse）
 	reranker   corpus.Reranker
-	leads      *lead.Store
+	leads      *insight.Store
 	proxyStore *traffic.ProxyStore
 	agentStore *traffic.AgentStore
 	calls      *llminvocation.Store
@@ -71,7 +71,7 @@ type handler struct {
 	eventPublisher *scanstream.Publisher
 
 	profiles     *domain.Registry
-	world        *worldmodel.Store
+	world        *knowledgegraph.Store
 	checkpoint   executor.CheckpointStore
 	eventBus     *executor.PlannerEventBus // Task 级别事件总线（Planner 用）
 	actionBus    *eventbus.Bus             // Action 级别事件总线（Executor 用）
@@ -94,12 +94,12 @@ func (h handler) onboard(ctx context.Context, assignmentID, taskID, brief string
 			content, _ := json.Marshal(map[string]interface{}{
 				"target_ref": ref,
 			})
-			node := worldmodel.Node{
+			node := knowledgegraph.Node{
 				ID:         uuid.New().String(),
 				TaskID:     taskID,
-				Kind:       worldmodel.KindObjective,
+				Kind:       knowledgegraph.KindObjective,
 				Content:    content,
-				Priority:   5,
+				Priority:   knowledgegraph.PriorityMedium,
 				SourceType: "user",
 				SourceID:   "task_init",
 				CreatedAt:  time.Now(),
