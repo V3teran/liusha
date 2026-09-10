@@ -12,20 +12,20 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgconn"
 
-	cfgagent "github.com/V3teran/liusha/internal/config/agent"
+	agent "github.com/V3teran/liusha/internal/agent"
 )
 
 // ConfigAPI 是 executor CRUD handler 依赖的窄接口；*configstore.Store 自动满足。
 // 读经缓存、写经失效广播的语义全在 configstore 内，handler 只做 HTTP 编解码 + 应用层校验。
 type ConfigAPI interface {
 	// agent
-	ListExecutors(ctx context.Context, onlyEnabled bool) ([]cfgagent.Agent, error)
-	ListExecutorsPaged(ctx context.Context, p cfgagent.ListParams) ([]cfgagent.Agent, error)
-	CountExecutors(ctx context.Context, p cfgagent.ListParams) (int, error)
-	ExecutorByID(ctx context.Context, id string) (cfgagent.Agent, error)
-	ExecutorByCode(ctx context.Context, code string) (cfgagent.Agent, error)
-	UpdateExecutor(ctx context.Context, code string, p cfgagent.UpdateParams) (cfgagent.Agent, error)
-	UpdateExecutorComplexity(ctx context.Context, id, complexity string) (cfgagent.Agent, error)
+	ListExecutors(ctx context.Context, onlyEnabled bool) ([]agent.Agent, error)
+	ListExecutorsPaged(ctx context.Context, p agent.ListParams) ([]agent.Agent, error)
+	CountExecutors(ctx context.Context, p agent.ListParams) (int, error)
+	ExecutorByID(ctx context.Context, id string) (agent.Agent, error)
+	ExecutorByCode(ctx context.Context, code string) (agent.Agent, error)
+	UpdateExecutor(ctx context.Context, code string, p agent.UpdateParams) (agent.Agent, error)
+	UpdateExecutorComplexity(ctx context.Context, id, complexity string) (agent.Agent, error)
 	DeleteExecutor(ctx context.Context, id, code string) error
 }
 
@@ -85,7 +85,7 @@ func listExecutorsHandler(api ConfigAPI) gin.HandlerFunc {
 			return
 		}
 		// 分页：配置管理页搜索 + 翻页，附 total。
-		params := cfgagent.ListParams{Q: c.Query("q"), Limit: size, Offset: (page - 1) * size}
+		params := agent.ListParams{Q: c.Query("q"), Limit: size, Offset: (page - 1) * size}
 		total, err := api.CountExecutors(ctx, params)
 		if err != nil {
 			c.JSON(500, gin.H{"error": err.Error()})
@@ -144,12 +144,12 @@ func saveExecutorHandler(api ConfigAPI) gin.HandlerFunc {
 			c.JSON(400, gin.H{"error": "code 与 name 不能为空"})
 			return
 		}
-		kind := cfgagent.Kind(b.Kind)
-		if kind != cfgagent.KindPlanner && kind != cfgagent.KindExecutor {
+		kind := agent.Kind(b.Kind)
+		if kind != agent.KindPlanner && kind != agent.KindExecutor {
 			c.JSON(400, gin.H{"error": "非法 kind（应为 planner|executor）"})
 			return
 		}
-		h, err := api.UpdateExecutor(c.Request.Context(), b.Code, cfgagent.UpdateParams{
+		h, err := api.UpdateExecutor(c.Request.Context(), b.Code, agent.UpdateParams{
 			SystemPrompt:  &b.SystemPrompt,
 			FunctionTools: &b.FunctionTools,
 			CliTools:      &b.CliTools,
@@ -214,7 +214,7 @@ func deleteExecutorHandler(api ConfigAPI) gin.HandlerFunc {
 }
 
 // executorJSON 是 executor 响应的单一序列化点。function_tools/cli_tools 保证非 nil（前端按数组渲染）。
-func executorJSON(h cfgagent.Agent) gin.H {
+func executorJSON(h agent.Agent) gin.H {
 	fnTools := h.FunctionTools
 	if fnTools == nil {
 		fnTools = []string{}

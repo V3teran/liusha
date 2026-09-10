@@ -17,7 +17,7 @@ import (
 	"github.com/V3teran/liusha/internal/provider"
 	"github.com/V3teran/liusha/internal/registry"
 	"github.com/V3teran/liusha/internal/scanagent"
-	"github.com/V3teran/liusha/internal/skill"
+	"github.com/V3teran/liusha/internal/skillstore"
 	"github.com/V3teran/liusha/internal/task"
 	"github.com/V3teran/liusha/internal/toolinvocation"
 	"github.com/V3teran/liusha/internal/tools"

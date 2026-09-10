@@ -22,7 +22,7 @@ import (
 	"github.com/V3teran/liusha/internal/cachestore"
 	"github.com/V3teran/liusha/internal/chat"
 	"github.com/V3teran/liusha/internal/config"
-	cfgagent "github.com/V3teran/liusha/internal/config/agent"
+	agent "github.com/V3teran/liusha/internal/agent"
 	"github.com/V3teran/liusha/internal/config/llm"
 	"github.com/V3teran/liusha/internal/config/seed"
 	"github.com/V3teran/liusha/internal/config/setting"
@@ -116,7 +116,7 @@ func main() {
 
 	// LLM 配置多级缓存 Store（provider 部署 / 别名 / 角色路由）。既是「模型模块」CRUD 后端，
 	// 又是两个 LLM 工厂运行期 role→provider 解析的事实源（复用同一 cache 实例）。
-	cfgAgentStore := cfgagent.NewStore(pool)
+	cfgAgentStore := agent.NewStore(pool)
 	// tier 覆盖走 cfgStore（configstore，带多级缓存的 TierByCode），非裸 cfgAgentStore——
 	// SaveExecutor/UpdateExecutorTier 两写入口都经其失效 tier 键，agent 改档即时生效且不脏读。
 	llmStore := llmstore.New(pool, cache).WithComplexityOverride(llmstore.AgentComplexityOverride(cfgStore, logger))

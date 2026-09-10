@@ -10,7 +10,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	cfgagent "github.com/V3teran/liusha/internal/config/agent"
+	agent "github.com/V3teran/liusha/internal/agent"
 	cfgtool "github.com/V3teran/liusha/internal/config/tool"
 )
 
@@ -65,7 +65,7 @@ func listToolsHandler(api ToolCatalogAPI) gin.HandlerFunc {
 
 // toolArrayContains 判断某智能体是否已装配该工具：按工具 kind 选 function_tools / cli_tools 数组。
 // 是装配态判据的单一实现，读（involved）与写（增删）共用，避免两处逻辑漂移。
-func toolArrayContains(h cfgagent.Agent, kind cfgtool.Kind, name string) bool {
+func toolArrayContains(h agent.Agent, kind cfgtool.Kind, name string) bool {
 	arr := h.FunctionTools
 	if kind == cfgtool.KindCLI {
 		arr = h.CliTools
@@ -134,7 +134,7 @@ func assignToolHandler(tools ToolCatalogAPI, cfg ConfigAPI) gin.HandlerFunc {
 			return
 		}
 		fnTools, cliTools := applyAssignment(h, t.Kind, t.Name, b.Involved)
-		if _, err := cfg.UpdateExecutor(ctx, h.Code, cfgagent.UpdateParams{
+		if _, err := cfg.UpdateExecutor(ctx, h.Code, agent.UpdateParams{
 			SystemPrompt:  &h.SystemPrompt,
 			FunctionTools: &fnTools,
 			CliTools:      &cliTools,
@@ -148,7 +148,7 @@ func assignToolHandler(tools ToolCatalogAPI, cfg ConfigAPI) gin.HandlerFunc {
 
 // applyAssignment 返回该智能体装/卸某工具后的 (function_tools, cli_tools) 新数组（不改原切片）。
 // 按工具 kind 只动对应数组；involved=true 缺则追加，false 有则剔除，幂等。
-func applyAssignment(h cfgagent.Agent, kind cfgtool.Kind, name string, involved bool) (fn, cli []string) {
+func applyAssignment(h agent.Agent, kind cfgtool.Kind, name string, involved bool) (fn, cli []string) {
 	fn, cli = h.FunctionTools, h.CliTools
 	if kind == cfgtool.KindCLI {
 		cli = toggleName(cli, name, involved)

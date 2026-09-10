@@ -10,18 +10,18 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	cfgagent "github.com/V3teran/liusha/internal/config/agent"
+	agent "github.com/V3teran/liusha/internal/agent"
 )
 
 // AgentAPI 是通用 Agent CRUD 的接口（比 ConfigAPI 更窄，只要核心方法）
 type AgentAPI interface {
-	GetAgentByCode(ctx context.Context, code string) (cfgagent.Agent, error)
-	UpdateAgent(ctx context.Context, id string, p cfgagent.UpdateParams) (cfgagent.Agent, error)
+	GetAgentByCode(ctx context.Context, code string) (agent.Agent, error)
+	UpdateAgent(ctx context.Context, id string, p agent.UpdateParams) (agent.Agent, error)
 }
 
 // RegisterAgentRoutes 注册通用 Agent API 路由
 // 路由前缀：/api/agents
-func RegisterAgentRoutes(r *gin.RouterGroup, cache AgentAPI, store *cfgagent.Store) {
+func RegisterAgentRoutes(r *gin.RouterGroup, cache AgentAPI, store *agent.Store) {
 	agents := r.Group("/agents")
 	{
 		// GET /api/agents - 列出所有 Agent（Planner + Executor + Evaluator）
@@ -102,7 +102,7 @@ func updateAgentHandler(api AgentAPI) gin.HandlerFunc {
 		}
 
 		// 构造更新参数
-		updates := cfgagent.UpdateParams{
+		updates := agent.UpdateParams{
 			SystemPrompt:  body.SystemPrompt,
 			FunctionTools: body.FunctionTools,
 			CliTools:      body.CliTools,
@@ -122,7 +122,7 @@ func updateAgentHandler(api AgentAPI) gin.HandlerFunc {
 }
 
 // resetAgentHandler 重置 Agent 为默认配置（从种子文件重新加载）
-func resetAgentHandler(api AgentAPI, store *cfgagent.Store) gin.HandlerFunc {
+func resetAgentHandler(api AgentAPI, store *agent.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		code := c.Param("code")
 
@@ -151,7 +151,7 @@ func resetAgentHandler(api AgentAPI, store *cfgagent.Store) gin.HandlerFunc {
 		//     return
 		// }
 		//
-		// updates := cfgagent.UpdateParams{
+		// updates := agent.UpdateParams{
 		//     SystemPrompt:  &seedData.SystemPrompt,
 		//     FunctionTools: &seedData.FunctionTools,
 		//     CliTools:      &seedData.CliTools,
@@ -170,7 +170,7 @@ func resetAgentHandler(api AgentAPI, store *cfgagent.Store) gin.HandlerFunc {
 }
 
 // agentToJSON 将 Agent 转换为 JSON 格式
-func agentToJSON(a cfgagent.Agent) gin.H {
+func agentToJSON(a agent.Agent) gin.H {
 	return gin.H{
 		"id":              a.ID,
 		"code":            a.Code,

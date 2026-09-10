@@ -71,7 +71,7 @@ func (s *Store) WithComplexityOverride(fn ComplexityOverrideFunc) *Store {
 	return s
 }
 
-// complexityByCoder 是 AgentComplexityOverride 依赖的最小 agent store 能力（*cfgagent.Store 满足）。
+// complexityByCoder 是 AgentComplexityOverride 依赖的最小 agent store 能力（*agent.Store 满足）。
 type complexityByCoder interface {
 	ComplexityByCode(ctx context.Context, code string) (complexity string, found bool, err error)
 }
