@@ -1,4 +1,4 @@
-package configstore
+package cache
 
 import (
 	"context"

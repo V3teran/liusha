@@ -27,7 +27,7 @@ import (
 	"github.com/V3teran/liusha/internal/config/seed"
 	"github.com/V3teran/liusha/internal/config/setting"
 	cfgtool "github.com/V3teran/liusha/internal/config/tool"
-	"github.com/V3teran/liusha/internal/cache"
+	cfgcache "github.com/V3teran/liusha/internal/cache"
 	"github.com/V3teran/liusha/internal/controlplane"
 	"github.com/V3teran/liusha/internal/conversation"
 	"github.com/V3teran/liusha/internal/credential"
@@ -112,7 +112,7 @@ func main() {
 
 	// 配置多级缓存 Store（agent CRUD 后端）。写路径经 cachestore 广播失效，
 	// runner 进程被动失效其 L1。
-	cfgStore := configstore.New(pool, cache)
+	cfgStore := cfgcache.New(pool, cache)
 
 	// LLM 配置多级缓存 Store（provider 部署 / 别名 / 角色路由）。既是「模型模块」CRUD 后端，
 	// 又是两个 LLM 工厂运行期 role→provider 解析的事实源（复用同一 cache 实例）。
