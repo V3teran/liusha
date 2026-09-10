@@ -9,6 +9,9 @@ function_tools:
   - read_knowledge_graph
   - replay_for_verification
 cli_tools: []
+skills:
+  - evidence-verification
+  - claim-analysis
 max_iterations: 30
 tier: standard
 ---

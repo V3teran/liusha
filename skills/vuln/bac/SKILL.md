@@ -1,7 +1,7 @@
 ---
-name: bac
-category: web
+name: BAC 越权检测指南
 description: 访问控制失效（Broken Access Control）—— 未授权访问 / 水平越权 / 垂直越权。核心方法是多身份对比，两种执行模态：请求重放（换凭证值，看响应）/ 浏览器渲染（各身份各自登录，截图对比）。身份来源与 passive/active 模式无关。给挖掘方向与判定原则，不框定具体工具与步骤。
+category: vuln
 ---
 
 # 访问控制失效（BAC）
