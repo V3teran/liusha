@@ -24,6 +24,7 @@ import (
 
 	"github.com/V3teran/liusha/internal/cachestore"
 	cfgagent "github.com/V3teran/liusha/internal/config/agent"
+	cfgskill "github.com/V3teran/liusha/internal/config/skill"
 )
 
 // executorStore 是 configstore 依赖的 agent 底层能力（*cfgagent.Store 满足）。
@@ -40,9 +41,18 @@ type executorStore interface {
 	ComplexityByCode(ctx context.Context, code string) (complexity string, found bool, err error)
 }
 
-// Store 编排 agent 的多级读写：底层 DB store + 共享 cachestore 内核。
+// skillStore 是 configstore 依赖的 skill 底层能力（*cfgskill.Store 满足）。
+type skillStore interface {
+	GetByID(ctx context.Context, id string) (cfgskill.Skill, error)
+	GetByCode(ctx context.Context, code string) (cfgskill.Skill, error)
+	List(ctx context.Context, p cfgskill.ListParams) ([]cfgskill.Skill, error)
+	Update(ctx context.Context, id string, p cfgskill.UpdateParams) (cfgskill.Skill, error)
+}
+
+// Store 编排 agent 和 skill 的多级读写：底层 DB store + 共享 cachestore 内核。
 type Store struct {
 	executors executorStore
+	skills    skillStore
 	cache     *cachestore.Cache
 }
 
@@ -51,13 +61,14 @@ type Store struct {
 func New(pool *pgxpool.Pool, cache *cachestore.Cache) *Store {
 	return newWithStores(
 		cfgagent.NewStore(pool),
+		cfgskill.NewStore(pool),
 		cache,
 	)
 }
 
 // newWithStores 用已构造的底层 store 装配（测试注入 mock 用）。
-func newWithStores(hn executorStore, cache *cachestore.Cache) *Store {
-	return &Store{executors: hn, cache: cache}
+func newWithStores(hn executorStore, sk skillStore, cache *cachestore.Cache) *Store {
+	return &Store{executors: hn, skills: sk, cache: cache}
 }
 
 // ── 缓存键（L1/L2 同键，统一前缀 configstore:）───────────────────────────
@@ -250,4 +261,49 @@ func (s *Store) UpdateAgent(ctx context.Context, id string, p cfgagent.UpdatePar
 		return h, err
 	}
 	return h, nil
+}
+
+// ── Skill 缓存方法 ────────────────────────────────────────────────────
+
+func keySkillID(id string) string   { return "configstore:skill:id:" + id }
+func keySkillCode(code string) string { return "configstore:skill:code:" + code }
+
+func skillKeys(id, code string) []string {
+	return []string{keySkillID(id), keySkillCode(code)}
+}
+
+// SkillByID 按 uuid 读 Skill（L1/L2 缓存）
+func (s *Store) SkillByID(ctx context.Context, id string) (cfgskill.Skill, error) {
+	return cachestore.ReadThrough(ctx, s.cache, keySkillID(id),
+		func(sk cfgskill.Skill) []string { return skillKeys(sk.ID, sk.Code) },
+		func(ctx context.Context) (cfgskill.Skill, error) {
+			return s.skills.GetByID(ctx, id)
+		})
+}
+
+// SkillByCode 按 code 读 Skill（L1/L2 缓存）
+func (s *Store) SkillByCode(ctx context.Context, code string) (cfgskill.Skill, error) {
+	return cachestore.ReadThrough(ctx, s.cache, keySkillCode(code),
+		func(sk cfgskill.Skill) []string { return skillKeys(sk.ID, sk.Code) },
+		func(ctx context.Context) (cfgskill.Skill, error) {
+			return s.skills.GetByCode(ctx, code)
+		})
+}
+
+// ListSkills 列出 Skill（直穿 DB，不缓存）
+// 原因：支持搜索和分页，key 空间无限，缓存收益低
+func (s *Store) ListSkills(ctx context.Context, p cfgskill.ListParams) ([]cfgskill.Skill, error) {
+	return s.skills.List(ctx, p)
+}
+
+// UpdateSkill 更新 Skill，失效缓存
+func (s *Store) UpdateSkill(ctx context.Context, id string, p cfgskill.UpdateParams) (cfgskill.Skill, error) {
+	sk, err := s.skills.Update(ctx, id, p)
+	if err != nil {
+		return cfgskill.Skill{}, err
+	}
+	if err := s.cache.Invalidate(ctx, skillKeys(sk.ID, sk.Code)...); err != nil {
+		return sk, err
+	}
+	return sk, nil
 }

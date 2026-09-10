@@ -27,7 +27,7 @@ const defaultMaxIterations = 40
 const defaultComplexity = "medium"
 
 // colsSelect 是所有 SELECT / RETURNING 路径的统一列序，与 scan() 字段一一对应。
-const colsSelect = "id, code, kind, name, description, body, function_tools, cli_tools, max_iterations, complexity, enabled, created_at, updated_at"
+const colsSelect = "id, code, kind, name, description, body, function_tools, cli_tools, skills, max_iterations, complexity, enabled, created_at, updated_at"
 
 // validateKind 应用层校验 kind。
 func validateKind(k Kind) error {
@@ -77,6 +77,15 @@ func (s *Store) Update(ctx context.Context, code string, p UpdateParams) (Agent,
 		}
 		setParts = append(setParts, fmt.Sprintf("cli_tools=$%d", argIdx))
 		args = append(args, cliJSON)
+		argIdx++
+	}
+	if p.Skills != nil {
+		skillsJSON, err := marshalTools(*p.Skills)
+		if err != nil {
+			return Agent{}, fmt.Errorf("marshal skills: %w", err)
+		}
+		setParts = append(setParts, fmt.Sprintf("skills=$%d", argIdx))
+		args = append(args, skillsJSON)
 		argIdx++
 	}
 	if p.MaxIterations != nil {
@@ -319,9 +328,9 @@ type scanner interface {
 // scan 是 colsSelect 列序的统一反序列化点。
 func scan(r scanner, h *Agent) error {
 	var kind string
-	var fnTools, cliTools []byte
+	var fnTools, cliTools, skills []byte
 	if err := r.Scan(&h.ID, &h.Code, &kind, &h.Name, &h.Description, &h.SystemPrompt,
-		&fnTools, &cliTools, &h.MaxIterations, &h.Complexity, &h.Enabled,
+		&fnTools, &cliTools, &skills, &h.MaxIterations, &h.Complexity, &h.Enabled,
 		&h.CreatedAt, &h.UpdatedAt); err != nil {
 		return err
 	}
@@ -335,6 +344,11 @@ func scan(r scanner, h *Agent) error {
 	if len(cliTools) > 0 {
 		if err := json.Unmarshal(cliTools, &h.CliTools); err != nil {
 			return fmt.Errorf("unmarshal cli_tools: %w", err)
+		}
+	}
+	if len(skills) > 0 {
+		if err := json.Unmarshal(skills, &h.Skills); err != nil {
+			return fmt.Errorf("unmarshal skills: %w", err)
 		}
 	}
 	return nil
