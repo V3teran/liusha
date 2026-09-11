@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/V3teran/liusha/internal/provider"
+	"github.com/V3teran/liusha/internal/framework/llm"
 )
 
 // selfEvaluate 执行自我评估，判断是否跑偏。
@@ -19,8 +19,8 @@ func (a *Agent) selfEvaluate(ctx context.Context, goal string, recentSteps []Ste
 	prompt := buildSelfEvaluationPrompt(goal, recentSteps)
 
 	// 调用 LLM
-	resp, err := a.monitorProvider.Complete(ctx, provider.Request{
-		Messages: []provider.Message{
+	resp, err := a.monitorProvider.Complete(ctx, llm.Request{
+		Messages: []llm.Message{
 			{Role: "user", Content: prompt},
 		},
 		MaxTokens: 500,

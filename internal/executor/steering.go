@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/V3teran/liusha/internal/provider"
+	"github.com/V3teran/liusha/internal/framework/llm"
 )
 
 // ActionMetadata 是 action 节点的 metadata 结构（与 planner 保持一致）。
@@ -31,7 +31,7 @@ type KilledReason struct {
 }
 
 // applySteeringMessages 读取 worldmodel 中的 steering 消息并注入到对话历史。
-func (a *Agent) applySteeringMessages(ctx context.Context, actionID string, messages []provider.Message) []provider.Message {
+func (a *Agent) applySteeringMessages(ctx context.Context, actionID string, messages []llm.Message) []llm.Message {
 	// 如果没有 worldmodel 访问权限，跳过
 	if a.knowledgegraph == nil {
 		return messages
@@ -59,7 +59,7 @@ func (a *Agent) applySteeringMessages(ctx context.Context, actionID string, mess
 	appliedCount := 0
 	for _, msg := range metadata.SteeringMessages {
 		if !msg.Applied {
-			messages = append(messages, provider.Message{
+			messages = append(messages, llm.Message{
 				Role:    "user",
 				Content: fmt.Sprintf("[STEERING from %s at %s] %s", msg.Source, msg.Timestamp.Format("15:04:05"), msg.Guidance),
 			})

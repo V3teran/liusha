@@ -19,7 +19,7 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/V3teran/liusha/internal/finding"
-	"github.com/V3teran/liusha/internal/provider"
+	"github.com/V3teran/liusha/internal/framework/llm"
 	"github.com/V3teran/liusha/internal/registry"
 	"github.com/V3teran/liusha/internal/traffic"
 	"github.com/V3teran/liusha/internal/knowledgegraph"
@@ -30,7 +30,7 @@ type Agent struct {
 	world        *knowledgegraph.Store
 	traffic      *traffic.AgentStore
 	findingStore *finding.Store
-	provider     provider.Provider
+	provider     llm.Provider
 	registry     *registry.Registry // Evaluator 专用工具
 	logger       zerolog.Logger
 }
@@ -40,7 +40,7 @@ type Config struct {
 	World        *knowledgegraph.Store
 	Traffic      *traffic.AgentStore
 	FindingStore *finding.Store
-	Provider     provider.Provider
+	Provider     llm.Provider
 	Logger       zerolog.Logger
 }
 

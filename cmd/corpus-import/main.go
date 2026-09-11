@@ -27,7 +27,7 @@ import (
 	"github.com/V3teran/liusha/internal/envx"
 	"github.com/V3teran/liusha/internal/llmstore"
 	"github.com/V3teran/liusha/internal/logx"
-	"github.com/V3teran/liusha/internal/provider"
+	llm "github.com/V3teran/liusha/internal/framework/llm"
 )
 
 func main() {
@@ -69,7 +69,7 @@ func main() {
 	}
 
 	store := corpus.NewStore(pool)
-	tagger := provider.NewRouter(llmStore.AsRouterStore(), llmKeyCipher)
+	tagger := llm.NewRouter(llmStore.AsRouterStore(), llmKeyCipher)
 	var embedder *embedding.Client
 	if ec, err := embedding.NewClient(os.Getenv("JINA_API_KEY")); err != nil {
 		logger.Warn().Err(err).Msg("JINA_API_KEY 未配置：只落行不 embed（仍可 sparse 检索）")

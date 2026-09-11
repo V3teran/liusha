@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/V3teran/liusha/internal/conversation"
-	"github.com/V3teran/liusha/internal/provider"
+	"github.com/V3teran/liusha/internal/framework/llm"
 )
 
 const maxDialogFetch = 200
@@ -129,22 +129,22 @@ func (h handler) contextWindowFor(tier string) int {
 }
 
 func (h handler) distillOldDialog(ctx context.Context, msgs []conversation.Message) string {
-	p, err := h.router.For(ctx, provider.ComplexitySimple)
+	p, err := h.router.For(ctx, llm.ComplexitySimple)
 	if err != nil {
 		h.logger.Warn().Err(err).Msg("② 旧会话蒸馏：解析 inspector provider 失败（降级：直接拼接）")
 		return ""
 	}
 
-	msgs2 := make([]provider.Message, 0, len(msgs)+1)
+	msgs2 := make([]llm.Message, 0, len(msgs)+1)
 	for _, m := range msgs {
 		content := strings.TrimSpace(m.Content)
 		if m.Role == conversation.RoleAssistant {
-			msgs2 = append(msgs2, provider.Message{Role: provider.RoleAssistant, Content: content})
+			msgs2 = append(msgs2, llm.Message{Role: llm.RoleAssistant, Content: content})
 		} else {
-			msgs2 = append(msgs2, provider.Message{Role: provider.RoleUser, Content: dialogSpeaker(m.Role) + "：" + content})
+			msgs2 = append(msgs2, llm.Message{Role: llm.RoleUser, Content: dialogSpeaker(m.Role) + "：" + content})
 		}
 	}
-	msgs2 = append(msgs2, provider.Message{Role: provider.RoleUser, Content: dialogDistillInstruction})
+	msgs2 = append(msgs2, llm.Message{Role: llm.RoleUser, Content: dialogDistillInstruction})
 
 	compaction, _ := h.settings.Compaction(ctx)
 	timeout := compaction.CompactorTimeoutSeconds
@@ -154,7 +154,7 @@ func (h handler) distillOldDialog(ctx context.Context, msgs []conversation.Messa
 	dctx, cancel := context.WithTimeout(ctx, time.Duration(timeout)*time.Second)
 	defer cancel()
 
-	resp, err := p.Complete(dctx, provider.Request{
+	resp, err := p.Complete(dctx, llm.Request{
 		Messages:  msgs2,
 		MaxTokens: 512,
 	})

@@ -24,7 +24,7 @@ import (
 	"github.com/V3teran/liusha/internal/finding"
 	"github.com/V3teran/liusha/internal/insight"
 	"github.com/V3teran/liusha/internal/llminvocation"
-	"github.com/V3teran/liusha/internal/provider"
+	"github.com/V3teran/liusha/internal/framework/llm"
 	"github.com/V3teran/liusha/internal/ratelimit"
 	"github.com/V3teran/liusha/internal/sandbox"
 	"github.com/V3teran/liusha/internal/scanstream"
@@ -56,7 +56,7 @@ type handler struct {
 	logger     zerolog.Logger
 
 	// LLM 路由（tier → provider）
-	router *provider.Router
+	router *llm.Router
 
 	// 工具装配依赖（与 prompt 拼装共用）
 	creds         credential.Provider
