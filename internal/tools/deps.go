@@ -11,7 +11,7 @@ import (
 	"github.com/V3teran/liusha/internal/insight"
 	"github.com/V3teran/liusha/internal/knowledgegraph"
 	"github.com/V3teran/liusha/internal/sandbox"
-	skill "github.com/V3teran/liusha/internal/skillstore"
+	"github.com/V3teran/liusha/internal/skill"
 	"github.com/V3teran/liusha/internal/task"
 	"github.com/V3teran/liusha/internal/traffic"
 )

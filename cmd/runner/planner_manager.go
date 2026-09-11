@@ -84,7 +84,7 @@ func (m *plannerAgentManager) Stop(taskID string) {
 
 	// 取消上下文，停止 Agent
 	instance.cancel()
-	instance.agent.Stop()
+	instance.agent.Stop(context.Background())
 
 	// 清理记录
 	delete(m.agents, taskID)
@@ -99,7 +99,7 @@ func (m *plannerAgentManager) StopAll() {
 
 	for taskID, instance := range m.agents {
 		instance.cancel()
-		instance.agent.Stop()
+		instance.agent.Stop(context.Background())
 		m.logger.Info().Str("task_id", taskID).Msg("Planner Agent 已停止（批量清理）")
 	}
 

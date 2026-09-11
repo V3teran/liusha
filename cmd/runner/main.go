@@ -51,7 +51,7 @@ import (
 	"github.com/V3teran/liusha/internal/ratelimit"
 	"github.com/V3teran/liusha/internal/sandbox"
 	"github.com/V3teran/liusha/internal/scanstream"
-	"github.com/V3teran/liusha/internal/skillstore"
+	"github.com/V3teran/liusha/internal/skill"
 	"github.com/V3teran/liusha/internal/task"
 	"github.com/V3teran/liusha/internal/toolinvocation"
 	"github.com/V3teran/liusha/internal/tools/manifest"
@@ -290,7 +290,7 @@ func main() {
 		runnerCfg:      runnerCfg,
 		sandboxMgr:     sandboxMgr,
 		logger:         logger,
-		router:         provider.NewRouter(llmStore.AsRouterStore(), llmKeyCipher),
+		router:         llm.NewRouter(llmStore.AsRouterStore(), llmKeyCipher),
 		creds:          creds,
 		toolCalls:      toolCalls,
 		toolingLoader:  toolingLoader,
