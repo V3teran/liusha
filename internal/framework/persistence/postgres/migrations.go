@@ -56,6 +56,44 @@ CREATE TABLE IF NOT EXISTS framework_migrations (
 );
 `,
 	},
+	{
+		Version: 2,
+		Name:    "create_human_input_tables",
+		SQL: `
+-- 人工输入请求表
+CREATE TABLE IF NOT EXISTS framework_human_input_request (
+    id TEXT PRIMARY KEY,
+    task_id TEXT NOT NULL,
+    node_id TEXT NOT NULL,
+    prompt TEXT NOT NULL,
+    input_type TEXT NOT NULL,
+    choices JSONB,
+    default_value TEXT,
+    timeout_sec INT,
+    status TEXT NOT NULL,
+    metadata JSONB,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- 人工输入响应表
+CREATE TABLE IF NOT EXISTS framework_human_input_response (
+    request_id TEXT PRIMARY KEY REFERENCES framework_human_input_request(id),
+    task_id TEXT NOT NULL,
+    node_id TEXT NOT NULL,
+    value TEXT NOT NULL,
+    approved BOOLEAN,
+    submitter TEXT,
+    submitted_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- 索引
+CREATE INDEX IF NOT EXISTS idx_human_request_task_status
+    ON framework_human_input_request(task_id, status);
+
+CREATE INDEX IF NOT EXISTS idx_human_request_created
+    ON framework_human_input_request(created_at DESC);
+`,
+	},
 }
 
 // Migrate 执行数据库迁移。
