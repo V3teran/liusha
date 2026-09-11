@@ -46,7 +46,9 @@ type skillStore interface {
 	GetByID(ctx context.Context, id string) (skillstore.Skill, error)
 	GetByCode(ctx context.Context, code string) (skillstore.Skill, error)
 	List(ctx context.Context, p skillstore.ListParams) ([]skillstore.Skill, error)
+	Create(ctx context.Context, sk skillstore.Skill) (skillstore.Skill, error)
 	Update(ctx context.Context, id string, p skillstore.UpdateParams) (skillstore.Skill, error)
+	Delete(ctx context.Context, id string) error
 }
 
 // Store 编排 agent 和 skill 的多级读写：底层 DB store + 共享 cachestore 内核。
@@ -306,4 +308,24 @@ func (s *Store) UpdateSkill(ctx context.Context, id string, p skillstore.UpdateP
 		return sk, err
 	}
 	return sk, nil
+}
+
+// CreateSkill 创建 Skill（写穿，不缓存）
+func (s *Store) CreateSkill(ctx context.Context, sk skillstore.Skill) (skillstore.Skill, error) {
+	return s.skills.Create(ctx, sk)
+}
+
+// DeleteSkill 删除 Skill，失效缓存
+func (s *Store) DeleteSkill(ctx context.Context, id string) error {
+	// 先查询获取 code，用于失效缓存
+	sk, err := s.skills.GetByID(ctx, id)
+	if err != nil {
+		return err
+	}
+	if err := s.skills.Delete(ctx, id); err != nil {
+		return err
+	}
+	// 删除成功后失效缓存（best-effort，失败不影响删除结果）
+	_ = s.cache.Invalidate(ctx, skillKeys(sk.ID, sk.Code)...)
+	return nil
 }
