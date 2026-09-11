@@ -9,11 +9,11 @@ import (
 	"github.com/V3teran/liusha/internal/credential"
 	"github.com/V3teran/liusha/internal/finding"
 	"github.com/V3teran/liusha/internal/insight"
+	"github.com/V3teran/liusha/internal/knowledgegraph"
 	"github.com/V3teran/liusha/internal/sandbox"
-	"github.com/V3teran/liusha/internal/skillstore"
+	skill "github.com/V3teran/liusha/internal/skillstore"
 	"github.com/V3teran/liusha/internal/task"
 	"github.com/V3teran/liusha/internal/traffic"
-	"github.com/V3teran/liusha/internal/knowledgegraph"
 )
 
 // Deps 持有单次 agent run 所需的全部上下文与依赖。

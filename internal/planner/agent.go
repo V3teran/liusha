@@ -14,10 +14,14 @@ import (
 	"github.com/V3teran/liusha/internal/controlplane"
 	"github.com/V3teran/liusha/internal/eventbus"
 	"github.com/V3teran/liusha/internal/executor"
+	"github.com/V3teran/liusha/internal/framework/core"
 	"github.com/V3teran/liusha/internal/framework/llm"
 	"github.com/V3teran/liusha/internal/registry"
 	"github.com/V3teran/liusha/internal/knowledgegraph"
 )
+
+// 编译时检查接口实现
+var _ core.Agent = (*Agent)(nil)
 
 // Agent 是事件驱动的 Planner Agent，通过 LLM 推理产出 Action
 type Agent struct {
@@ -236,8 +240,11 @@ func isClientError(err error) bool {
 }
 
 // Stop 停止 Planner Agent
-func (a *Agent) Stop() {
+// Stop 实现 core.Agent 接口（优雅关闭）
+func (a *Agent) Stop(ctx context.Context) error {
+	a.logger.Info().Msg("stopping planner agent")
 	close(a.stopCh)
+	return nil
 }
 
 // WaitInitialPlanDone 等待初始规划完成
@@ -628,4 +635,40 @@ type ToolCall struct {
 	ID    string
 	Name  string
 	Input map[string]interface{}
+}
+
+// ============================================
+// 实现 framework/core.Agent 接口
+// ============================================
+
+// Name 实现 core.Agent 接口
+func (a *Agent) Name() string {
+	return "planner"
+}
+
+// Run 实现 core.Agent 接口（调用现有的 Start 方法）
+func (a *Agent) Run(ctx context.Context) error {
+	return a.Start(ctx)
+}
+
+
+// ExportState 实现 core.Recoverable 接口
+func (a *Agent) ExportState() (json.RawMessage, error) {
+	// 导出 Planner 的内部状态
+	state := map[string]interface{}{
+		"task_id": a.taskID,
+		// 可以添加更多需要持久化的状态
+	}
+	return json.Marshal(state)
+}
+
+// ImportState 实现 core.Recoverable 接口
+func (a *Agent) ImportState(data json.RawMessage) error {
+	// 导入状态（用于恢复）
+	var state map[string]interface{}
+	if err := json.Unmarshal(data, &state); err != nil {
+		return err
+	}
+	// 恢复状态逻辑
+	return nil
 }
