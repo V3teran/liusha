@@ -234,6 +234,7 @@ func main() {
 			Deleter:           adapter,                      // DELETE /conversations/:id 删会话+消息；关联扫描进行中拒删（409，先停后删）
 			Renamer:           convStore,                    // PATCH /conversations/:id 重命名标题（convStore.SetTitle 直接满足）
 			ConfigStore:       cfgStore,                     // agent 配置 CRUD（配置管理页 + 对话 ScenarioPicker）
+			SkillStore:        cfgSkillStore,                // skill 配置 CRUD（知识库管理页）
 			ToolCatalog:       cfgToolStore,                 // GET /tools、/tools/:name：工具目录检索/详情 + 智能体选工具
 			Models:            llmStore,                     // GET/POST/PUT/DELETE /models：provider 部署 CRUD + 角色路由面板
 			KeyEncrypter:      llmKeyCipher,                 // POST/PUT /models/providers：加密前端直填的明文 API Key
