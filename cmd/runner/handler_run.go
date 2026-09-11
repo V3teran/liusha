@@ -14,7 +14,7 @@ import (
 	"github.com/V3teran/liusha/internal/dispatcher"
 	dispatcherprofile "github.com/V3teran/liusha/internal/dispatcher/profile"
 	"github.com/V3teran/liusha/internal/executor"
-	"github.com/V3teran/liusha/internal/provider"
+	"github.com/V3teran/liusha/internal/framework/llm"
 	"github.com/V3teran/liusha/internal/registry"
 	"github.com/V3teran/liusha/internal/scanagent"
 	"github.com/V3teran/liusha/internal/skillstore"
@@ -113,7 +113,7 @@ func (h handler) toolRecordInterceptor(executorID, taskID string) registry.Inter
 
 type noopCompactor struct{}
 
-func (noopCompactor) Compact(_ context.Context, _ provider.Provider, msgs []provider.Message) ([]provider.Message, error) {
+func (noopCompactor) Compact(_ context.Context, _ llm.Provider, msgs []llm.Message) ([]llm.Message, error) {
 	return msgs, nil
 }
 
@@ -168,7 +168,7 @@ func composeSubAgentInstruction(body string) string {
 // The caller is responsible for registering tools into the returned registry.
 func (h handler) buildDispatcher(
 	ctx context.Context,
-	complexity provider.Complexity,
+	complexity llm.Complexity,
 	systemPrompt string,
 	sink scanagent.EventSink,
 ) (*dispatcher.Dispatcher, *registry.Registry, error) {
@@ -227,36 +227,36 @@ func (h handler) watchAbort(ctx context.Context, cancel context.CancelFunc, task
 // ─────────────────────────────────────────────────────────────
 
 // inferComplexity 根据 brief 内容推断初始 complexity
-func (h handler) inferComplexity(brief string) provider.Complexity {
+func (h handler) inferComplexity(brief string) llm.Complexity {
 	lower := strings.ToLower(brief)
 
 	// Trivial: 查询类（如果 provider 包没有定义，使用 Simple）
 	if strings.Contains(lower, "列举") || strings.Contains(lower, "查询") ||
 		strings.Contains(lower, "检查") || strings.Contains(lower, "读取") {
-		return provider.ComplexitySimple
+		return llm.ComplexitySimple
 	}
 
 	// Simple: 基础枚举
 	if strings.Contains(lower, "扫描") || strings.Contains(lower, "探测") ||
 		strings.Contains(lower, "枚举") || strings.Contains(lower, "发现") {
-		return provider.ComplexitySimple
+		return llm.ComplexitySimple
 	}
 
 	// Complex: 漏洞利用
 	if strings.Contains(lower, "利用") || strings.Contains(lower, "getshell") ||
 		strings.Contains(lower, "提权") || strings.Contains(lower, "执行") ||
 		strings.Contains(lower, "绕过") {
-		return provider.ComplexityComplex
+		return llm.ComplexityComplex
 	}
 
 	// Extreme: 复杂攻击链（使用 Complex 作为最高级）
 	if strings.Contains(lower, "横移") || strings.Contains(lower, "持久化") ||
 		strings.Contains(lower, "攻击链") || strings.Contains(lower, "域控") {
-		return provider.ComplexityComplex
+		return llm.ComplexityComplex
 	}
 
 	// Moderate: 默认（漏洞测试）
-	return provider.ComplexityMedium
+	return llm.ComplexityMedium
 }
 
 // ─────────────────────────────────────────────────────────────

@@ -7,7 +7,7 @@
 //   - simple  → 快速响应，简单任务（如信息提取、格式化）
 //   - medium  → 标准推理，常规任务（如漏洞检测、工具调用）
 //   - complex → 深度推理，复杂决策（如战略规划、多步分析）
-package provider
+package llm
 
 import (
 	"context"

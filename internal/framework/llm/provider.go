@@ -7,7 +7,7 @@
 //
 // 依赖方向：provider ← executor ← dispatcher ← cognition
 // provider 本身不引用项目内任何业务包。
-package provider
+package llm
 
 import (
 	"context"

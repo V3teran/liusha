@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/V3teran/liusha/internal/provider"
+	"github.com/V3teran/liusha/internal/framework/llm"
 )
 
 // ─────────────────────────────────────────────
@@ -213,12 +213,12 @@ func (r *Registry) Get(name string) (Tool, bool) {
 }
 
 // Schemas 返回所有已注册工具的 ToolSchema，供 Provider.Complete/Stream 传入。
-func (r *Registry) Schemas() []provider.ToolSchema {
+func (r *Registry) Schemas() []llm.ToolSchema {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	out := make([]provider.ToolSchema, 0, len(r.tools))
+	out := make([]llm.ToolSchema, 0, len(r.tools))
 	for _, t := range r.tools {
-		out = append(out, provider.ToolSchema{
+		out = append(out, llm.ToolSchema{
 			Name:        t.Name(),
 			Description: t.Desc(),
 			Parameters:  t.Schema(),
@@ -228,7 +228,7 @@ func (r *Registry) Schemas() []provider.ToolSchema {
 }
 
 // execute 通过 Interceptor 链执行单个工具调用。
-func (r *Registry) execute(ctx context.Context, call provider.ToolCall) ToolResult {
+func (r *Registry) execute(ctx context.Context, call llm.ToolCall) ToolResult {
 	t, ok := r.Get(call.Name)
 	if !ok {
 		return ToolResult{Error: fmt.Sprintf("tool %q not registered", call.Name)}
@@ -246,7 +246,7 @@ func (r *Registry) execute(ctx context.Context, call provider.ToolCall) ToolResu
 
 // ExecuteParallel 并发执行一批 tool_call，结果按原始顺序收集。
 // LLM 单次返回多个 tool_call 时使用。
-func (r *Registry) ExecuteParallel(ctx context.Context, calls []provider.ToolCall) []ToolResult {
+func (r *Registry) ExecuteParallel(ctx context.Context, calls []llm.ToolCall) []ToolResult {
 	if len(calls) == 0 {
 		return nil
 	}
@@ -254,7 +254,7 @@ func (r *Registry) ExecuteParallel(ctx context.Context, calls []provider.ToolCal
 	var wg sync.WaitGroup
 	for i, call := range calls {
 		wg.Add(1)
-		go func(idx int, c provider.ToolCall) {
+		go func(idx int, c llm.ToolCall) {
 			defer wg.Done()
 			results[idx] = r.execute(ctx, c)
 		}(i, call)

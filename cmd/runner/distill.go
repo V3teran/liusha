@@ -9,7 +9,7 @@ import (
 
 	"github.com/V3teran/liusha/internal/corpus"
 	"github.com/V3teran/liusha/internal/insight"
-	"github.com/V3teran/liusha/internal/provider"
+	"github.com/V3teran/liusha/internal/framework/llm"
 )
 
 const distillMaxEntries = 5
@@ -95,7 +95,7 @@ func (h handler) gatherDistillMaterial(ctx context.Context, taskID, convID, tier
 }
 
 func (h handler) runDistill(ctx context.Context, material string) []distilledEntry {
-	p, err := h.router.For(ctx, provider.ComplexitySimple)
+	p, err := h.router.For(ctx, llm.ComplexitySimple)
 	if err != nil {
 		h.logger.Warn().Err(err).Msg("蒸馏：解析 inspector provider 失败（跳过）")
 		return nil
@@ -109,10 +109,10 @@ func (h handler) runDistill(ctx context.Context, material string) []distilledEnt
 	dctx, cancel := context.WithTimeout(ctx, time.Duration(timeout)*time.Second)
 	defer cancel()
 
-	resp, err := p.Complete(dctx, provider.Request{
-		Messages: []provider.Message{
-			{Role: provider.RoleSystem, Content: distillInstruction},
-			{Role: provider.RoleUser, Content: material},
+	resp, err := p.Complete(dctx, llm.Request{
+		Messages: []llm.Message{
+			{Role: llm.RoleSystem, Content: distillInstruction},
+			{Role: llm.RoleUser, Content: material},
 		},
 		MaxTokens: 2048,
 	})

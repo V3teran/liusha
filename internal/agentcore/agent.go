@@ -17,7 +17,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/V3teran/liusha/internal/provider"
+	"github.com/V3teran/liusha/internal/framework/llm"
 	"github.com/V3teran/liusha/internal/registry"
 	"github.com/rs/zerolog"
 )
@@ -25,7 +25,7 @@ import (
 // Agent 是统一的 LLM Agent 基础框架
 type Agent struct {
 	name     string
-	provider provider.Provider
+	provider llm.Provider
 	registry *registry.Registry
 	logger   zerolog.Logger
 
@@ -39,13 +39,13 @@ type Agent struct {
 
 // Compactor 是上下文压缩接口
 type Compactor interface {
-	Compact(ctx context.Context, p provider.Provider, messages []provider.Message) ([]provider.Message, error)
+	Compact(ctx context.Context, p llm.Provider, messages []llm.Message) ([]llm.Message, error)
 }
 
 // Config 统一配置
 type Config struct {
 	Name           string              // Agent 名称（用于日志）
-	Provider       provider.Provider   // LLM Provider
+	Provider       llm.Provider   // LLM Provider
 	Registry       *registry.Registry  // 工具注册表
 	Logger         zerolog.Logger      // 日志器
 	MaxRounds      int                 // 最大轮数（默认 100）
@@ -108,9 +108,9 @@ func (a *Agent) RunToolLoop(
 	startTime := time.Now()
 
 	// 初始化消息历史
-	messages := []provider.Message{
-		{Role: provider.RoleUser, Content: a.systemPrompt},
-		{Role: provider.RoleUser, Content: userPrompt},
+	messages := []llm.Message{
+		{Role: llm.RoleUser, Content: a.systemPrompt},
+		{Role: llm.RoleUser, Content: userPrompt},
 	}
 
 	a.logger.Info().
@@ -123,7 +123,7 @@ func (a *Agent) RunToolLoop(
 	for round := 0; round < a.maxRounds; round++ {
 		// 1. 检查上下文是否需要压缩
 		if a.compactor != nil && a.provider != nil {
-			tokenCount, err := a.provider.CountTokens(ctx, provider.Request{Messages: messages})
+			tokenCount, err := a.provider.CountTokens(ctx, llm.Request{Messages: messages})
 			if err == nil && a.maxTokens > 0 {
 				ratio := float64(tokenCount) / float64(a.maxTokens)
 				if ratio > a.compactTrigger {
@@ -149,7 +149,7 @@ func (a *Agent) RunToolLoop(
 			Int("message_count", len(messages)).
 			Msg("calling LLM")
 
-		resp, err := a.provider.Complete(ctx, provider.Request{
+		resp, err := a.provider.Complete(ctx, llm.Request{
 			Messages:  messages,
 			Tools:     a.registry.Schemas(),
 			MaxTokens: a.maxTokens,
@@ -176,8 +176,8 @@ func (a *Agent) RunToolLoop(
 			Msg("LLM returned")
 
 		// 3. 将 LLM 响应加入历史
-		assistantMsg := provider.Message{
-			Role:      provider.RoleAssistant,
+		assistantMsg := llm.Message{
+			Role:      llm.RoleAssistant,
 			Content:   resp.Content,
 			ToolCalls: resp.ToolCalls,
 		}
@@ -216,8 +216,8 @@ func (a *Agent) RunToolLoop(
 				content = "ERROR: " + r.Error
 			}
 
-			messages = append(messages, provider.Message{
-				Role:       provider.RoleTool,
+			messages = append(messages, llm.Message{
+				Role:       llm.RoleTool,
 				ToolCallID: tc.ID,
 				Content:    content,
 			})
@@ -259,7 +259,7 @@ func (a *Agent) RunToolLoop(
 type Response struct {
 	Content     string             // 最终内容
 	Rounds      int                // 执行轮数
-	Messages    []provider.Message // 完整消息历史
+	Messages    []llm.Message // 完整消息历史
 	TotalTokens int                // 总 Token 消耗
 	Halt        HaltReason         // 停止原因
 }

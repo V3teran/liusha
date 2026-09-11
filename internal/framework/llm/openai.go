@@ -2,7 +2,7 @@
 //
 // 覆盖 OpenAI / DeepSeek / Qwen / Moonshot 等遵守 OpenAI 协议的 provider。
 // CountTokens 使用 tiktoken-go 本地计算，不发网络请求。
-package provider
+package llm
 
 import (
 	"context"

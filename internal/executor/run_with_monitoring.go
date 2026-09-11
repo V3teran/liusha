@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/V3teran/liusha/internal/provider"
+	"github.com/V3teran/liusha/internal/framework/llm"
 	"github.com/V3teran/liusha/internal/registry"
 )
 
@@ -142,7 +142,7 @@ func (a *Agent) executeLoop(ctx context.Context, actionID string, req ExecutorRe
 		select {
 		case correction := <-state.correctionChan:
 			// 注入纠偏消息
-			messages = append(messages, provider.Message{
+			messages = append(messages, llm.Message{
 				Role:    "user",
 				Content: "SELF-CORRECTION: " + correction,
 			})
@@ -151,7 +151,7 @@ func (a *Agent) executeLoop(ctx context.Context, actionID string, req ExecutorRe
 
 		// 1. 计算当前 token 数，必要时压缩
 		if a.compactor != nil && a.provider != nil {
-			tokenCount, err := a.provider.CountTokens(ctx, provider.Request{Messages: messages})
+			tokenCount, err := a.provider.CountTokens(ctx, llm.Request{Messages: messages})
 			if err == nil && req.Budget.MaxTokens > 0 {
 				ratio := float64(tokenCount) / float64(req.Budget.MaxTokens)
 				if ratio > req.Budget.CompactionTrigger {
@@ -171,7 +171,7 @@ func (a *Agent) executeLoop(ctx context.Context, actionID string, req ExecutorRe
 			Msg("[AGENT] Calling provider.Complete")
 
 		tools := a.reg.Schemas()
-		resp, err := a.provider.Complete(ctx, provider.Request{
+		resp, err := a.provider.Complete(ctx, llm.Request{
 			Messages:  messages,
 			Tools:     tools,
 			MaxTokens: req.Budget.MaxTokens,
@@ -217,7 +217,7 @@ func (a *Agent) executeLoop(ctx context.Context, actionID string, req ExecutorRe
 		}
 
 		// 将 assistant 回复加入历史
-		assistantMsg := provider.Message{Role: "assistant", Content: resp.Content}
+		assistantMsg := llm.Message{Role: "assistant", Content: resp.Content}
 		if len(resp.ToolCalls) > 0 {
 			assistantMsg.ToolCalls = resp.ToolCalls
 		}
@@ -261,7 +261,7 @@ func (a *Agent) executeLoop(ctx context.Context, actionID string, req ExecutorRe
 				if r.Error != "" {
 					content = "ERROR: " + r.Error
 				}
-				messages = append(messages, provider.Message{
+				messages = append(messages, llm.Message{
 					Role:       "tool",
 					ToolCallID: tc.ID,
 					Content:    content,

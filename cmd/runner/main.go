@@ -47,7 +47,7 @@ import (
 	"github.com/V3teran/liusha/internal/llminvocation"
 	"github.com/V3teran/liusha/internal/llmstore"
 	"github.com/V3teran/liusha/internal/logx"
-	"github.com/V3teran/liusha/internal/provider"
+	"github.com/V3teran/liusha/internal/framework/llm"
 	"github.com/V3teran/liusha/internal/ratelimit"
 	"github.com/V3teran/liusha/internal/sandbox"
 	"github.com/V3teran/liusha/internal/scanstream"
@@ -229,7 +229,7 @@ func main() {
 	// 文件仅是首次导入的种子（seed 导入在别处），进程运行期一律走 DB/缓存（见 D6/D7）。
 	cfgStore := cfgcache.New(pool, cache)
 
-	// LLM 配置事实源：provider.Router 运行期按 tier 解析 provider 部署即读它（多级缓存）。
+	// LLM 配置事实源：llm.Router 运行期按 tier 解析 provider 部署即读它（多级缓存）。
 	// api 进程改「LLM 配置」模块后经 cachestore 广播失效，runner 下次 For(tier) 即读到最新部署。
 	// agent.tier 覆盖 agent→tier 第一跳（0107）：agent 在「智能体」页改档后，api 经 cachestore
 	// 广播失效 tier 键，runner 被动清 L1，下次 For(tier) 即读到新档（TierByCode 走多级缓存）。

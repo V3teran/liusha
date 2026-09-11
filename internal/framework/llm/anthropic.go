@@ -2,7 +2,7 @@
 //
 // 用 anthropic-sdk-go 原生协议，不走 OpenAI 兼容层。
 // 支持 Complete / Stream / CountTokens 三个方法。
-package provider
+package llm
 
 import (
 	"context"

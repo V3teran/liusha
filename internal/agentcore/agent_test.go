@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/V3teran/liusha/internal/provider"
+	"github.com/V3teran/liusha/internal/framework/llm"
 	"github.com/V3teran/liusha/internal/registry"
 	"github.com/rs/zerolog"
 )
@@ -59,20 +59,20 @@ func TestNew(t *testing.T) {
 
 // MockProvider 是测试用的 Provider
 type MockProvider struct {
-	responses []provider.Response
+	responses []llm.Response
 	callCount int
 }
 
-func (m *MockProvider) Complete(ctx context.Context, req provider.Request) (provider.Response, error) {
+func (m *MockProvider) Complete(ctx context.Context, req llm.Request) (llm.Response, error) {
 	if m.callCount >= len(m.responses) {
-		return provider.Response{}, nil
+		return llm.Response{}, nil
 	}
 	resp := m.responses[m.callCount]
 	m.callCount++
 	return resp, nil
 }
 
-func (m *MockProvider) CountTokens(ctx context.Context, req provider.Request) (int, error) {
+func (m *MockProvider) CountTokens(ctx context.Context, req llm.Request) (int, error) {
 	return 100, nil
 }
 
@@ -82,7 +82,7 @@ func TestRunToolLoop_NoToolCalls(t *testing.T) {
 	reg := registry.New()
 
 	mockProvider := &MockProvider{
-		responses: []provider.Response{
+		responses: []llm.Response{
 			{
 				Content:   "完成任务",
 				ToolCalls: nil,
@@ -122,10 +122,10 @@ func TestRunToolLoop_MaxRounds(t *testing.T) {
 
 	// 模拟一直返回工具调用
 	mockProvider := &MockProvider{
-		responses: []provider.Response{
-			{ToolCalls: []provider.ToolCall{{ID: "1", Name: "test"}}},
-			{ToolCalls: []provider.ToolCall{{ID: "2", Name: "test"}}},
-			{ToolCalls: []provider.ToolCall{{ID: "3", Name: "test"}}},
+		responses: []llm.Response{
+			{ToolCalls: []llm.ToolCall{{ID: "1", Name: "test"}}},
+			{ToolCalls: []llm.ToolCall{{ID: "2", Name: "test"}}},
+			{ToolCalls: []llm.ToolCall{{ID: "3", Name: "test"}}},
 		},
 	}
 

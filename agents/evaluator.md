@@ -1,7 +1,7 @@
 ---
 id: evaluator
 kind: evaluator
-name: Evaluator Agent
+name: 评估者
 description: 评估和验证 Observation，产生 Result。负责区分"工具声称"和"实际确认"。
 function_tools:
   - write_evaluation

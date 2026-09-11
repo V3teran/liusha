@@ -11,14 +11,14 @@ import (
 	"errors"
 	"time"
 
-	"github.com/V3teran/liusha/internal/provider"
+	"github.com/V3teran/liusha/internal/framework/llm"
 	"github.com/V3teran/liusha/internal/registry"
 	"github.com/rs/zerolog"
 )
 
 // Compactor 压缩过长的上下文历史。
 type Compactor interface {
-	Compact(ctx context.Context, p provider.Provider, messages []provider.Message) ([]provider.Message, error)
+	Compact(ctx context.Context, p llm.Provider, messages []llm.Message) ([]llm.Message, error)
 }
 
 // CheckpointStore 持久化每步快照，用于崩溃恢复。
@@ -56,7 +56,7 @@ type SSEEvent struct {
 
 // Executor 是 ReAct 执行引擎。每个 Move 新建一个 Executor 实例。
 type Agent struct {
-	provider   provider.Provider
+	provider   llm.Provider
 	reg        *registry.Registry
 	compactor  Compactor
 	checkpoint CheckpointStore
@@ -68,7 +68,7 @@ type Agent struct {
 	monitorEnabled       bool
 	monitorStepInterval  int               // 每 N 步评估一次
 	monitorEvaluateSteps int               // 评估最近 N 步
-	monitorProvider      provider.Provider // 用于监察的 LLM
+	monitorProvider      llm.Provider // 用于监察的 LLM
 
 	// 事件总线（用于接收外部控制）
 	eventBus EventBus
@@ -107,7 +107,7 @@ type ControlEvent struct {
 
 // New 构造 Actor。emitter 和 worldmodel 可为 nil。
 func NewAgent(
-	p provider.Provider,
+	p llm.Provider,
 	reg *registry.Registry,
 	compactor Compactor,
 	cp CheckpointStore,
@@ -140,7 +140,7 @@ func (a *Agent) WithEventBus(bus EventBus) *Agent {
 }
 
 // WithMonitor 配置自我监察。
-func (a *Agent) WithMonitor(enabled bool, stepInterval int, evaluateSteps int, provider provider.Provider) *Agent {
+func (a *Agent) WithMonitor(enabled bool, stepInterval int, evaluateSteps int, provider llm.Provider) *Agent {
 	a.monitorEnabled = enabled
 	a.monitorStepInterval = stepInterval
 	a.monitorEvaluateSteps = evaluateSteps
@@ -206,7 +206,7 @@ func (a *Agent) runSingleThreaded(ctx context.Context, actionID string, req Exec
 	for stepIdx := startStep; stepIdx < req.Budget.MaxSteps; stepIdx++ {
 		// 1. 计算当前 token 数，必要时压缩
 		if a.compactor != nil && a.provider != nil {
-			tokenCount, err := a.provider.CountTokens(ctx, provider.Request{Messages: messages})
+			tokenCount, err := a.provider.CountTokens(ctx, llm.Request{Messages: messages})
 			if err == nil && req.Budget.MaxTokens > 0 {
 				ratio := float64(tokenCount) / float64(req.Budget.MaxTokens)
 				if ratio > req.Budget.CompactionTrigger {
@@ -220,9 +220,9 @@ func (a *Agent) runSingleThreaded(ctx context.Context, actionID string, req Exec
 
 		// SettleConfig：budget 接近上限时注入结算指令
 		if req.Budget.MaxTokens > 0 && req.Settle.Threshold > 0 {
-			tc, _ := a.provider.CountTokens(ctx, provider.Request{Messages: messages})
+			tc, _ := a.provider.CountTokens(ctx, llm.Request{Messages: messages})
 			if float64(tc)/float64(req.Budget.MaxTokens) > req.Settle.Threshold {
-				messages = append(messages, provider.Message{
+				messages = append(messages, llm.Message{
 					Role:    "user",
 					Content: req.Settle.Directive,
 				})
@@ -231,7 +231,7 @@ func (a *Agent) runSingleThreaded(ctx context.Context, actionID string, req Exec
 
 		// 2. 调用 Provider
 		tools := a.reg.Schemas()
-		resp, err := a.provider.Complete(ctx, provider.Request{
+		resp, err := a.provider.Complete(ctx, llm.Request{
 			Messages:  messages,
 			Tools:     tools,
 			MaxTokens: req.Budget.MaxTokens,
@@ -252,7 +252,7 @@ func (a *Agent) runSingleThreaded(ctx context.Context, actionID string, req Exec
 		}
 
 		// 将 assistant 回复加入历史
-		assistantMsg := provider.Message{Role: "assistant", Content: resp.Content}
+		assistantMsg := llm.Message{Role: "assistant", Content: resp.Content}
 		if len(resp.ToolCalls) > 0 {
 			assistantMsg.ToolCalls = resp.ToolCalls
 		}
@@ -275,7 +275,7 @@ func (a *Agent) runSingleThreaded(ctx context.Context, actionID string, req Exec
 				if r.Error != "" {
 					content = "ERROR: " + r.Error
 				}
-				messages = append(messages, provider.Message{
+				messages = append(messages, llm.Message{
 					Role:       "tool",
 					ToolCallID: tc.ID,
 					Content:    content,
@@ -318,13 +318,13 @@ func (a *Agent) runSingleThreaded(ctx context.Context, actionID string, req Exec
 //  辅助函数
 // ─────────────────────────────────────────────
 
-func buildInitialMessages(req ExecutorReq) []provider.Message {
-	msgs := make([]provider.Message, 0, 1+len(req.Inbox))
+func buildInitialMessages(req ExecutorReq) []llm.Message {
+	msgs := make([]llm.Message, 0, 1+len(req.Inbox))
 	if req.System != "" {
-		msgs = append(msgs, provider.Message{Role: "system", Content: req.System})
+		msgs = append(msgs, llm.Message{Role: "system", Content: req.System})
 	}
 	for _, m := range req.Inbox {
-		msgs = append(msgs, provider.Message{Role: provider.Role(m.Role), Content: m.Content})
+		msgs = append(msgs, llm.Message{Role: llm.Role(m.Role), Content: m.Content})
 	}
 	return msgs
 }

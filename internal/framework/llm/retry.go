@@ -1,7 +1,7 @@
 // Package provider — 重试装饰器。
 //
 // 架构规格：最多 3 次，指数退避 1s/2s/4s。5xx 可重试，4xx / cancel 不重试。
-package provider
+package llm
 
 import (
 	"context"

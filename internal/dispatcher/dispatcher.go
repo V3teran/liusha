@@ -8,7 +8,7 @@ import (
 	"fmt"
 
 	"github.com/V3teran/liusha/internal/executor"
-	"github.com/V3teran/liusha/internal/provider"
+	"github.com/V3teran/liusha/internal/framework/llm"
 	"github.com/V3teran/liusha/internal/registry"
 	"github.com/V3teran/liusha/internal/knowledgegraph"
 	"github.com/rs/zerolog"
@@ -26,7 +26,7 @@ type Profile struct {
 // Dispatcher 是 Complexity-aware Executor 工厂。
 type Dispatcher struct {
 	profiles   map[knowledgegraph.Complexity]Profile
-	provider   provider.Provider
+	provider   llm.Provider
 	registry   *registry.Registry
 	compactor  executor.Compactor
 	checkpoint executor.CheckpointStore
@@ -38,7 +38,7 @@ type Dispatcher struct {
 
 // New 构造 Dispatcher。
 func New(
-	p provider.Provider,
+	p llm.Provider,
 	reg *registry.Registry,
 	compactor executor.Compactor,
 	cp executor.CheckpointStore,

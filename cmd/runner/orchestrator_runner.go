@@ -10,7 +10,7 @@ import (
 	"github.com/V3teran/liusha/internal/monitor"
 	"github.com/V3teran/liusha/internal/orchestrator"
 	"github.com/V3teran/liusha/internal/planner"
-	"github.com/V3teran/liusha/internal/provider"
+	"github.com/V3teran/liusha/internal/framework/llm"
 	"github.com/V3teran/liusha/internal/registry"
 	"github.com/V3teran/liusha/internal/tools"
 	"github.com/V3teran/liusha/internal/evaluator"
@@ -49,11 +49,11 @@ func (h handler) runWithOrchestrator(ctx context.Context, agentID, taskID, virtu
 	}
 
 	// 获取 Provider
-	complexProvider, err := h.router.For(ctx, provider.ComplexityComplex)
+	complexProvider, err := h.router.For(ctx, llm.ComplexityComplex)
 	if err != nil {
 		return fmt.Errorf("failed to get complex provider: %w", err)
 	}
-	simpleProvider, err2 := h.router.For(ctx, provider.ComplexitySimple)
+	simpleProvider, err2 := h.router.For(ctx, llm.ComplexitySimple)
 	if err2 != nil {
 		return fmt.Errorf("failed to get simple provider: %w", err2)
 	}

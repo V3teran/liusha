@@ -1,6 +1,6 @@
 // instrument.go：LLM 调用埋点的共享类型（sink / 上下文标签）。
 //
-// LLM 调用计费装饰器入口，由 provider.Router 注入 UsageRecorder 完成（
+// LLM 调用计费装饰器入口，由 llm.Router 注入 UsageRecorder 完成（
 // 它在调用边界落库，逻辑等价）。此处只保留两条路径共用的抽象类型。
 package llm
 

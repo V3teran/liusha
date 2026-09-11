@@ -3,7 +3,7 @@
 // → DB（事实源，由 internal/config/llm.Store 打）。
 //
 // 为何分层：api 与 runner 是**多进程**。前端在 api 改模型配置后，runner 的
-// provider.Router 必须在下次 For(complexity) 时读到最新 provider/路由，
+// llm.Router 必须在下次 For(complexity) 时读到最新 provider/路由，
 // 否则仍按旧部署装配。故写路径写 DB 后经 cachestore 广播失效键，各进程共享的 Subscribe
 // goroutine 收到即清本地 L1 + L2，下次读回填最新值。
 //
@@ -258,10 +258,10 @@ func (s *Store) DeleteRoleRoute(ctx context.Context, role string) error {
 	return s.cache.Invalidate(ctx, routeKeys()...)
 }
 
-// RouterStoreAdapter 把 *Store 包装成 provider.RouterStore（方法名对齐接口）。
+// RouterStoreAdapter 把 *Store 包装成 llm.RouterStore（方法名对齐接口）。
 type RouterStoreAdapter struct{ s *Store }
 
-// AsRouterStore 返回满足 provider.RouterStore 的适配器。
+// AsRouterStore 返回满足 llm.RouterStore 的适配器。
 func (s *Store) AsRouterStore() *RouterStoreAdapter { return &RouterStoreAdapter{s} }
 
 func (a *RouterStoreAdapter) GetRouting(ctx context.Context) (llmcfg.Routing, error) {

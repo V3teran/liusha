@@ -14,7 +14,7 @@ import (
 	"github.com/V3teran/liusha/internal/controlplane"
 	"github.com/V3teran/liusha/internal/eventbus"
 	"github.com/V3teran/liusha/internal/executor"
-	"github.com/V3teran/liusha/internal/provider"
+	"github.com/V3teran/liusha/internal/framework/llm"
 	"github.com/V3teran/liusha/internal/registry"
 	"github.com/V3teran/liusha/internal/knowledgegraph"
 )
@@ -27,7 +27,7 @@ type Agent struct {
 	actionBus    *eventbus.Bus             // Action 级事件总线（发送控制）
 	world        *knowledgegraph.Store
 	controlPlane *controlplane.Store
-	router       *provider.Router
+	router       *llm.Router
 	logger       zerolog.Logger
 
 	stopCh            chan struct{}
@@ -41,7 +41,7 @@ type Config struct {
 	ActionBus    *eventbus.Bus             // Action 级事件总线
 	World        *knowledgegraph.Store
 	ControlPlane *controlplane.Store
-	Router       *provider.Router
+	Router       *llm.Router
 	Logger       zerolog.Logger
 }
 
@@ -482,25 +482,25 @@ func (a *Agent) buildUserPrompt(ctx context.Context, event executor.Event) (stri
 // invokeRouter 调用 LLM Router
 func (a *Agent) invokeRouter(ctx context.Context, systemPrompt string, messages []map[string]interface{}) (map[string]interface{}, error) {
 	// 获取 complex 模型（规划任务复杂度高）
-	llm, err := a.router.For(ctx, "complex")
+	p, err := a.router.For(ctx, "complex")
 	if err != nil {
 		return nil, fmt.Errorf("get complex model: %w", err)
 	}
 
 	// 转换消息格式
-	providerMessages := make([]provider.Message, 0, len(messages)+1)
-	providerMessages = append(providerMessages, provider.Message{
-		Role:    provider.RoleUser,
+	providerMessages := make([]llm.Message, 0, len(messages)+1)
+	providerMessages = append(providerMessages, llm.Message{
+		Role:    llm.RoleUser,
 		Content: systemPrompt,
 	})
 
 	for _, m := range messages {
 		roleStr := m["role"].(string)
-		var role provider.Role
+		var role llm.Role
 		if roleStr == "assistant" {
-			role = provider.RoleAssistant
+			role = llm.RoleAssistant
 		} else {
-			role = provider.RoleUser
+			role = llm.RoleUser
 		}
 
 		content := m["content"]
@@ -519,7 +519,7 @@ func (a *Agent) invokeRouter(ctx context.Context, systemPrompt string, messages 
 			contentStr = string(b)
 		}
 
-		providerMessages = append(providerMessages, provider.Message{
+		providerMessages = append(providerMessages, llm.Message{
 			Role:    role,
 			Content: contentStr,
 		})
@@ -529,13 +529,13 @@ func (a *Agent) invokeRouter(ctx context.Context, systemPrompt string, messages 
 	toolSchemas := a.core.Registry().Schemas()
 
 	// 调用 LLM
-	req := provider.Request{
+	req := llm.Request{
 		Messages:  providerMessages,
 		Tools:     toolSchemas,
 		MaxTokens: 8000,
 	}
 
-	resp, err := llm.Complete(ctx, req)
+	resp, err := p.Complete(ctx, req)
 	if err != nil {
 		return nil, fmt.Errorf("llm complete: %w", err)
 	}
@@ -596,8 +596,8 @@ func (a *Agent) executeTool(ctx context.Context, tc ToolCall) (interface{}, erro
 	return result.Output, nil
 }
 
-// convertResponse 将 provider.Response 转换为通用格式
-func (a *Agent) convertResponse(resp provider.Response) map[string]interface{} {
+// convertResponse 将 llm.Response 转换为通用格式
+func (a *Agent) convertResponse(resp llm.Response) map[string]interface{} {
 	result := map[string]interface{}{
 		"role": "assistant",
 	}

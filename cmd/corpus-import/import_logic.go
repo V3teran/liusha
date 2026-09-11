@@ -12,7 +12,7 @@ import (
 
 	"github.com/V3teran/liusha/internal/corpus"
 	"github.com/V3teran/liusha/internal/embedding"
-	"github.com/V3teran/liusha/internal/provider"
+	"github.com/V3teran/liusha/internal/framework/llm"
 )
 
 const tagInstruction = `你是渗透知识库标注器。给定一段知识正文，生成：
@@ -26,7 +26,7 @@ type tagResult struct {
 	Tags  []string `json:"tags"`
 }
 
-func importFile(ctx context.Context, logger zerolog.Logger, store *corpus.Store, router *provider.Router, embedder *embedding.Client, path string) (int, error) {
+func importFile(ctx context.Context, logger zerolog.Logger, store *corpus.Store, router *llm.Router, embedder *embedding.Client, path string) (int, error) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		return 0, fmt.Errorf("读文件: %w", err)
@@ -85,10 +85,10 @@ func splitMarkdown(md string) []string {
 	return chunks
 }
 
-func autoTag(ctx context.Context, logger zerolog.Logger, router *provider.Router, content string) tagResult {
+func autoTag(ctx context.Context, logger zerolog.Logger, router *llm.Router, content string) tagResult {
 	fallback := tagResult{Title: firstLine(content)}
 
-	p, err := router.For(ctx, provider.ComplexitySimple)
+	p, err := router.For(ctx, llm.ComplexitySimple)
 	if err != nil {
 		logger.Warn().Err(err).Msg("打标模型解析失败（降级：首行当 title）")
 		return fallback
@@ -96,10 +96,10 @@ func autoTag(ctx context.Context, logger zerolog.Logger, router *provider.Router
 	tctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
-	resp, err := p.Complete(tctx, provider.Request{
-		Messages: []provider.Message{
-			{Role: provider.RoleSystem, Content: tagInstruction},
-			{Role: provider.RoleUser, Content: content},
+	resp, err := p.Complete(tctx, llm.Request{
+		Messages: []llm.Message{
+			{Role: llm.RoleSystem, Content: tagInstruction},
+			{Role: llm.RoleUser, Content: content},
 		},
 		MaxTokens: 256,
 	})

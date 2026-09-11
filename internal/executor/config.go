@@ -5,7 +5,7 @@ import (
 
 	"github.com/V3teran/liusha/internal/controlplane"
 	"github.com/V3teran/liusha/internal/finding"
-	"github.com/V3teran/liusha/internal/provider"
+	llm "github.com/V3teran/liusha/internal/framework/llm"
 	"github.com/V3teran/liusha/internal/registry"
 	"github.com/V3teran/liusha/internal/traffic"
 	"github.com/V3teran/liusha/internal/knowledgegraph"
@@ -24,7 +24,7 @@ type Config struct {
 
 	// 服务
 	ControlPlane *controlplane.Store
-	Router       *provider.Router
+	Router       *llm.Router
 	Registry     *registry.Registry
 
 	// AgentFunc 用于创建 Coordinator

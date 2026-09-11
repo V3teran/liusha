@@ -12,7 +12,7 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/V3teran/liusha/internal/eventbus"
-	"github.com/V3teran/liusha/internal/provider"
+	"github.com/V3teran/liusha/internal/framework/llm"
 	"github.com/V3teran/liusha/internal/knowledgegraph"
 )
 
@@ -21,7 +21,7 @@ type Agent struct {
 	taskID   string
 	world    *knowledgegraph.Store
 	eventBus *eventbus.Bus
-	provider provider.Provider
+	provider llm.Provider
 	interval time.Duration
 	logger   zerolog.Logger
 }
@@ -31,7 +31,7 @@ type Config struct {
 	TaskID   string
 	World    *knowledgegraph.Store
 	EventBus *eventbus.Bus
-	Provider provider.Provider
+	Provider llm.Provider
 	Interval time.Duration // 评估间隔，默认 6 分钟
 	Logger   zerolog.Logger
 }
