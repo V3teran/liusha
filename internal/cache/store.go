@@ -41,12 +41,12 @@ type executorStore interface {
 	ComplexityByCode(ctx context.Context, code string) (complexity string, found bool, err error)
 }
 
-// skillStore 是 configstore 依赖的 skill 底层能力（*skill.Store 满足）。
+// skillStore 是 configstore 依赖的 skill 底层能力（*skillstore.Store 满足）。
 type skillStore interface {
-	GetByID(ctx context.Context, id string) (skill.Skill, error)
-	GetByCode(ctx context.Context, code string) (skill.Skill, error)
-	List(ctx context.Context, p skill.ListParams) ([]skill.Skill, error)
-	Update(ctx context.Context, id string, p skill.UpdateParams) (skill.Skill, error)
+	GetByID(ctx context.Context, id string) (skillstore.Skill, error)
+	GetByCode(ctx context.Context, code string) (skillstore.Skill, error)
+	List(ctx context.Context, p skillstore.ListParams) ([]skillstore.Skill, error)
+	Update(ctx context.Context, id string, p skillstore.UpdateParams) (skillstore.Skill, error)
 }
 
 // Store 编排 agent 和 skill 的多级读写：底层 DB store + 共享 cachestore 内核。
@@ -61,7 +61,7 @@ type Store struct {
 func New(pool *pgxpool.Pool, cache *cachestore.Cache) *Store {
 	return newWithStores(
 		agent.NewStore(pool),
-		skill.NewStore(pool),
+		skillstore.NewStore(pool),
 		cache,
 	)
 }
@@ -273,34 +273,34 @@ func skillKeys(id, code string) []string {
 }
 
 // SkillByID 按 uuid 读 Skill（L1/L2 缓存）
-func (s *Store) SkillByID(ctx context.Context, id string) (skill.Skill, error) {
+func (s *Store) SkillByID(ctx context.Context, id string) (skillstore.Skill, error) {
 	return cachestore.ReadThrough(ctx, s.cache, keySkillID(id),
-		func(sk skill.Skill) []string { return skillKeys(sk.ID, sk.Code) },
-		func(ctx context.Context) (skill.Skill, error) {
+		func(sk skillstore.Skill) []string { return skillKeys(sk.ID, sk.Code) },
+		func(ctx context.Context) (skillstore.Skill, error) {
 			return s.skills.GetByID(ctx, id)
 		})
 }
 
 // SkillByCode 按 code 读 Skill（L1/L2 缓存）
-func (s *Store) SkillByCode(ctx context.Context, code string) (skill.Skill, error) {
+func (s *Store) SkillByCode(ctx context.Context, code string) (skillstore.Skill, error) {
 	return cachestore.ReadThrough(ctx, s.cache, keySkillCode(code),
-		func(sk skill.Skill) []string { return skillKeys(sk.ID, sk.Code) },
-		func(ctx context.Context) (skill.Skill, error) {
+		func(sk skillstore.Skill) []string { return skillKeys(sk.ID, sk.Code) },
+		func(ctx context.Context) (skillstore.Skill, error) {
 			return s.skills.GetByCode(ctx, code)
 		})
 }
 
 // ListSkills 列出 Skill（直穿 DB，不缓存）
 // 原因：支持搜索和分页，key 空间无限，缓存收益低
-func (s *Store) ListSkills(ctx context.Context, p skill.ListParams) ([]skill.Skill, error) {
+func (s *Store) ListSkills(ctx context.Context, p skillstore.ListParams) ([]skillstore.Skill, error) {
 	return s.skills.List(ctx, p)
 }
 
 // UpdateSkill 更新 Skill，失效缓存
-func (s *Store) UpdateSkill(ctx context.Context, id string, p skill.UpdateParams) (skill.Skill, error) {
+func (s *Store) UpdateSkill(ctx context.Context, id string, p skillstore.UpdateParams) (skillstore.Skill, error) {
 	sk, err := s.skills.Update(ctx, id, p)
 	if err != nil {
-		return skill.Skill{}, err
+		return skillstore.Skill{}, err
 	}
 	if err := s.cache.Invalidate(ctx, skillKeys(sk.ID, sk.Code)...); err != nil {
 		return sk, err

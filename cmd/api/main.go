@@ -16,18 +16,18 @@ import (
 	"syscall"
 	"time"
 
+	agent "github.com/V3teran/liusha/internal/agent"
 	"github.com/V3teran/liusha/internal/agentrun"
 	"github.com/V3teran/liusha/internal/assignment"
 	"github.com/V3teran/liusha/internal/audit"
+	cfgcache "github.com/V3teran/liusha/internal/cache"
 	"github.com/V3teran/liusha/internal/cachestore"
 	"github.com/V3teran/liusha/internal/chat"
 	"github.com/V3teran/liusha/internal/config"
-	agent "github.com/V3teran/liusha/internal/agent"
 	"github.com/V3teran/liusha/internal/config/llm"
 	"github.com/V3teran/liusha/internal/config/seed"
 	"github.com/V3teran/liusha/internal/config/setting"
 	cfgtool "github.com/V3teran/liusha/internal/config/tool"
-	cfgcache "github.com/V3teran/liusha/internal/cache"
 	"github.com/V3teran/liusha/internal/controlplane"
 	"github.com/V3teran/liusha/internal/conversation"
 	"github.com/V3teran/liusha/internal/credential"
@@ -44,6 +44,7 @@ import (
 	"github.com/V3teran/liusha/internal/msgclass"
 	"github.com/V3teran/liusha/internal/qa"
 	"github.com/V3teran/liusha/internal/scanstream"
+	"github.com/V3teran/liusha/internal/skillstore"
 	"github.com/V3teran/liusha/internal/task"
 	"github.com/V3teran/liusha/internal/toolinvocation"
 	"github.com/V3teran/liusha/internal/tools/manifest"
@@ -117,6 +118,7 @@ func main() {
 	// LLM 配置多级缓存 Store（provider 部署 / 别名 / 角色路由）。既是「模型模块」CRUD 后端，
 	// 又是两个 LLM 工厂运行期 role→provider 解析的事实源（复用同一 cache 实例）。
 	cfgAgentStore := agent.NewStore(pool)
+	cfgSkillStore := skillstore.NewStore(pool)
 	// tier 覆盖走 cfgStore（configstore，带多级缓存的 TierByCode），非裸 cfgAgentStore——
 	// SaveExecutor/UpdateExecutorTier 两写入口都经其失效 tier 键，agent 改档即时生效且不脏读。
 	llmStore := llmstore.New(pool, cache).WithComplexityOverride(llmstore.AgentComplexityOverride(cfgStore, logger))
@@ -125,13 +127,13 @@ func main() {
 	// 又是 runner 现读 / proxy 热换过滤链的事实源（复用同一 cache 实例——写后失效广播即时可见）。
 	settingStore := settingstore.New(pool, cache)
 
-	// 种子首填（insert-only）：空库时从磁盘 s/agents 导入默认配置，
+	// 种子首填（insert-only）：空库时从磁盘 agents/ 和 skills/ 导入默认配置，
 	// 已存在的行按 code 整行跳过（DB 是事实源，不覆盖运维/前端改动）。
 	// 目录缺失时静默跳过（walkFiles 容忍不存在），非致命——失败仅告警不 fail-fast，
 	// 让 api 仍能起（配置可事后经 CRUD 补齐）。
 	seedDir := envx.OrDefault("LIUSHA_SEED_DIR", ".")
 	if err := seed.Import(ctx, seedDir,
-		cfgAgentStore); err != nil {
+		cfgAgentStore, cfgSkillStore); err != nil {
 		logger.Warn().Err(err).Str("dir", seedDir).Msg("配置种子导入失败（跳过，可经 CRUD 手动补齐）")
 	}
 
