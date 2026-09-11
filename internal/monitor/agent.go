@@ -6,15 +6,20 @@ package monitor
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
 	"github.com/rs/zerolog"
 
 	"github.com/V3teran/liusha/internal/eventbus"
+	"github.com/V3teran/liusha/internal/framework/core"
 	"github.com/V3teran/liusha/internal/framework/llm"
 	"github.com/V3teran/liusha/internal/knowledgegraph"
 )
+
+// 编译时检查接口实现
+var _ core.Agent = (*Agent)(nil)
 
 // Agent 是独立的监察 Agent。
 type Agent struct {
@@ -187,4 +192,42 @@ type Decision struct {
 	Type     string `json:"type"`                // "kill_action" | "request_replan"
 	ActionID string `json:"action_id,omitempty"` // kill_action 需要
 	Reason   string `json:"reason"`              // 决策理由
+}
+
+// ============================================
+// 实现 framework/core.Agent 接口
+// ============================================
+
+// Name 实现 core.Agent 接口
+func (a *Agent) Name() string {
+	return "monitor"
+}
+
+// Run 实现 core.Agent 接口（调用现有的 Start 方法）
+func (a *Agent) Run(ctx context.Context) error {
+	return a.Start(ctx)
+}
+
+// Stop 实现 core.Agent 接口
+func (a *Agent) Stop(ctx context.Context) error {
+	a.logger.Info().Msg("stopping monitor agent")
+	// Monitor 依赖 ctx.Done() 停止，无需额外操作
+	return nil
+}
+
+// ExportState 实现 core.Recoverable 接口
+func (a *Agent) ExportState() (json.RawMessage, error) {
+	state := map[string]interface{}{
+		"task_id": a.taskID,
+	}
+	return json.Marshal(state)
+}
+
+// ImportState 实现 core.Recoverable 接口
+func (a *Agent) ImportState(data json.RawMessage) error {
+	var state map[string]interface{}
+	if err := json.Unmarshal(data, &state); err != nil {
+		return err
+	}
+	return nil
 }

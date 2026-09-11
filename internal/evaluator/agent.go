@@ -19,11 +19,15 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/V3teran/liusha/internal/finding"
+	"github.com/V3teran/liusha/internal/framework/core"
 	"github.com/V3teran/liusha/internal/framework/llm"
+	"github.com/V3teran/liusha/internal/knowledgegraph"
 	"github.com/V3teran/liusha/internal/registry"
 	"github.com/V3teran/liusha/internal/traffic"
-	"github.com/V3teran/liusha/internal/knowledgegraph"
 )
+
+// 编译时检查接口实现
+var _ core.Agent = (*Agent)(nil)
 
 // Agent 是 EvaluatorAgent，使用 LLM 自主评估 observation。
 type Agent struct {
@@ -33,6 +37,7 @@ type Agent struct {
 	provider     llm.Provider
 	registry     *registry.Registry // Evaluator 专用工具
 	logger       zerolog.Logger
+	taskID       string // 添加 taskID 字段用于状态导出
 }
 
 // Config 是 EvaluatorAgent 的配置。
@@ -168,4 +173,44 @@ func deriveSeverity(statement string) string {
 	}
 
 	return "low"
+}
+
+// ============================================
+// 实现 framework/core.Agent 接口
+// ============================================
+
+// Name 实现 core.Agent 接口
+func (a *Agent) Name() string {
+	return "evaluator"
+}
+
+// Run 实现 core.Agent 接口
+// Evaluator 是按需调用的，不是持续运行的 Agent
+// Run 方法只需等待 ctx 取消
+func (a *Agent) Run(ctx context.Context) error {
+	<-ctx.Done()
+	return ctx.Err()
+}
+
+// Stop 实现 core.Agent 接口
+func (a *Agent) Stop(ctx context.Context) error {
+	a.logger.Info().Msg("stopping evaluator agent")
+	return nil
+}
+
+// ExportState 实现 core.Recoverable 接口
+func (a *Agent) ExportState() (json.RawMessage, error) {
+	state := map[string]interface{}{
+		"task_id": a.taskID,
+	}
+	return json.Marshal(state)
+}
+
+// ImportState 实现 core.Recoverable 接口
+func (a *Agent) ImportState(data json.RawMessage) error {
+	var state map[string]interface{}
+	if err := json.Unmarshal(data, &state); err != nil {
+		return err
+	}
+	return nil
 }

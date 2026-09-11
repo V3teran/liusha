@@ -3,10 +3,15 @@ package executor
 
 import (
 	"context"
+	"encoding/json"
 	"sync"
 
+	"github.com/V3teran/liusha/internal/framework/core"
 	"github.com/V3teran/liusha/internal/knowledgegraph"
 )
+
+// 编译时检查接口实现
+var _ core.Agent = (*Pool)(nil)
 
 // Pool 是 Executor 对象池，复用 Executor 实例以减少创建开销。
 //
@@ -114,4 +119,42 @@ func (p *Pool) Size() int {
 // Available 返回当前可用的 worker 数量。
 func (p *Pool) Available() int {
 	return len(p.workers)
+}
+
+// ============================================
+// 实现 framework/core.Agent 接口
+// ============================================
+
+// Name 实现 core.Agent 接口
+func (p *Pool) Name() string {
+	return "executor_pool"
+}
+
+// Run 实现 core.Agent 接口
+// Executor Pool 是按需调用的，不是持续运行的 Agent
+// Run 方法只需等待 ctx 取消
+func (p *Pool) Run(ctx context.Context) error {
+	<-ctx.Done()
+	return ctx.Err()
+}
+
+// Stop 实现 core.Agent 接口
+func (p *Pool) Stop(ctx context.Context) error {
+	p.Close()
+	return nil
+}
+
+// ExportState 实现 core.Recoverable 接口
+func (p *Pool) ExportState() (json.RawMessage, error) {
+	state := map[string]interface{}{
+		"size":      p.size,
+		"available": p.Available(),
+	}
+	return json.Marshal(state)
+}
+
+// ImportState 实现 core.Recoverable 接口
+func (p *Pool) ImportState(data json.RawMessage) error {
+	// Pool 的状态恢复不需要做什么
+	return nil
 }
