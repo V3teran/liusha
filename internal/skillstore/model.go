@@ -1,8 +1,8 @@
-// Package skill 实现 Skill 配置表的持久化层。
+// Package skillstore 实现 Skill 配置表的持久化层。
 //
 // Skill 是 Agent 可访问的知识库文档，包含工具使用手册、漏洞检测指南等。
 // 用户可在前端对 Skill 进行增删改查，Agent 通过 skills 字段关联可访问的 Skill 范围。
-package skill
+package skillstore
 
 import "time"
 
