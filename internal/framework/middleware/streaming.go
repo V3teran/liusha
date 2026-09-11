@@ -6,19 +6,6 @@ import (
 	"github.com/V3teran/liusha/internal/framework/core"
 )
 
-// StreamProcessor 是流式处理器。
-// 用于实时输出任务执行进度、LLM 生成内容等。
-type StreamProcessor interface {
-	// Stream 开始流式输出（返回事件通道）
-	Stream(ctx context.Context, taskID string) (<-chan StreamEvent, error)
-
-	// Send 发送流式事件
-	Send(ctx context.Context, event StreamEvent) error
-
-	// Close 关闭流
-	Close(taskID string) error
-}
-
 // StreamEvent 是流式事件。
 type StreamEvent struct {
 	// 事件类型
@@ -35,51 +22,6 @@ type StreamEvent struct {
 
 	// 是否最后一个事件
 	Final bool `json:"final"`
-}
-
-// StreamTransformer 是流式转换器。
-type StreamTransformer interface {
-	// Transform 转换事件
-	Transform(ctx context.Context, event StreamEvent) (StreamEvent, error)
-
-	// CanTransform 判断是否能转换此事件
-	CanTransform(event StreamEvent) bool
-}
-
-// StreamAggregator 是流式聚合器。
-// 将多个流合并为一个流。
-type StreamAggregator interface {
-	// Aggregate 聚合多个流
-	Aggregate(ctx context.Context, streams []<-chan StreamEvent) (<-chan StreamEvent, error)
-
-	// Merge 合并多个事件
-	Merge(events []StreamEvent) (StreamEvent, error)
-}
-
-// StreamBuffer 是流式缓冲器。
-// 缓存流式事件，防止消费者太慢导致阻塞。
-type StreamBuffer interface {
-	// Buffer 缓冲流
-	Buffer(ctx context.Context, stream <-chan StreamEvent, bufferSize int) (<-chan StreamEvent, error)
-
-	// Flush 刷新缓冲区
-	Flush(ctx context.Context) error
-}
-
-// StreamRateLimiter 是流式限流器。
-type StreamRateLimiter interface {
-	// Limit 限流（控制流速）
-	Limit(ctx context.Context, stream <-chan StreamEvent, ratePerSec int) (<-chan StreamEvent, error)
-}
-
-// StreamRecorder 是流式记录器。
-// 将流式事件持久化，支持回放。
-type StreamRecorder interface {
-	// Record 记录流
-	Record(ctx context.Context, taskID string, stream <-chan StreamEvent) error
-
-	// Replay 回放流
-	Replay(ctx context.Context, taskID string) (<-chan StreamEvent, error)
 }
 
 // LLMStreamEvent 是 LLM 流式输出事件。
