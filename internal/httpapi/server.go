@@ -85,6 +85,10 @@ type Deps struct {
 	// ControlPlane 为 nil 时任务控制路由（/tasks/:id/control）不注册。
 	// 由 cmd/api 注入 *controlplane.Store（人工干预接口）。
 	ControlPlane ControlPlaneAPI
+	// SkillStore 为 nil 时 Skill 配置路由（/skills 系列）不注册。
+	// 由 cmd/api 注入 *skillstore.Store（自动满足 SkillAPI 窄接口）。
+	// Skill 是 Agent 可访问的知识库文档（工具手册、漏洞检测指南等）。
+	SkillStore SkillAPI
 }
 
 // NewServer 组装 gin 路由：Recovery + 全局 X-API-Key 中间件 + 业务路由。
@@ -135,6 +139,15 @@ func NewServer(d Deps) http.Handler {
 		r.PUT("/executors/:id", saveExecutorHandler(d.ConfigStore))
 		r.PATCH("/executors/:id/tier", updateExecutorTierHandler(d.ConfigStore))
 		r.DELETE("/executors/:id", deleteExecutorHandler(d.ConfigStore))
+	}
+	if d.SkillStore != nil {
+		// Skill 配置 CRUD（前端知识库管理页）。
+		// Skill 是 Agent 可访问的知识库文档，包含工具使用手册、漏洞检测指南等。
+		r.GET("/skills", listSkillsHandler(d.SkillStore))
+		r.GET("/skills/:code", getSkillHandler(d.SkillStore))
+		r.POST("/skills", createSkillHandler(d.SkillStore))
+		r.PUT("/skills/:code", updateSkillHandler(d.SkillStore))
+		r.DELETE("/skills/:code", deleteSkillHandler(d.SkillStore))
 	}
 	if d.Traffic != nil {
 		// 代理捕获流量只读浏览（前端流量模块）：全局分页列表 + host 下拉 + 单条详情。
