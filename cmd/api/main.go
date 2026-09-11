@@ -118,7 +118,7 @@ func main() {
 	// LLM 配置多级缓存 Store（provider 部署 / 别名 / 角色路由）。既是「模型模块」CRUD 后端，
 	// 又是两个 LLM 工厂运行期 role→provider 解析的事实源（复用同一 cache 实例）。
 	cfgAgentStore := agent.NewStore(pool)
-	cfgSkillStore := skillstore.NewStore(pool)
+	cfgSkillStoreRaw := skillstore.NewStore(pool) // 种子加载用（裸 DB 写）
 	// tier 覆盖走 cfgStore（configstore，带多级缓存的 TierByCode），非裸 cfgAgentStore——
 	// SaveExecutor/UpdateExecutorTier 两写入口都经其失效 tier 键，agent 改档即时生效且不脏读。
 	llmStore := llmstore.New(pool, cache).WithComplexityOverride(llmstore.AgentComplexityOverride(cfgStore, logger))
@@ -133,7 +133,7 @@ func main() {
 	// 让 api 仍能起（配置可事后经 CRUD 补齐）。
 	seedDir := envx.OrDefault("LIUSHA_SEED_DIR", ".")
 	if err := seed.Import(ctx, seedDir,
-		cfgAgentStore, cfgSkillStore); err != nil {
+		cfgAgentStore, cfgSkillStoreRaw); err != nil {
 		logger.Warn().Err(err).Str("dir", seedDir).Msg("配置种子导入失败（跳过，可经 CRUD 手动补齐）")
 	}
 
@@ -234,7 +234,7 @@ func main() {
 			Deleter:           adapter,                      // DELETE /conversations/:id 删会话+消息；关联扫描进行中拒删（409，先停后删）
 			Renamer:           convStore,                    // PATCH /conversations/:id 重命名标题（convStore.SetTitle 直接满足）
 			ConfigStore:       cfgStore,                     // agent 配置 CRUD（配置管理页 + 对话 ScenarioPicker）
-			SkillStore:        cfgSkillStore,                // skill 配置 CRUD（知识库管理页）
+			SkillStore:        cfgStore,                     // skill 配置 CRUD（知识库管理页），走多级缓存
 			ToolCatalog:       cfgToolStore,                 // GET /tools、/tools/:name：工具目录检索/详情 + 智能体选工具
 			Models:            llmStore,                     // GET/POST/PUT/DELETE /models：provider 部署 CRUD + 角色路由面板
 			KeyEncrypter:      llmKeyCipher,                 // POST/PUT /models/providers：加密前端直填的明文 API Key
