@@ -1,0 +1,44 @@
+name: simple_security_scan
+description: |
+  简化版安全扫描工作流（PoC 验证）
+
+  工作流：
+  1. Planner：生成扫描计划（Actions）
+  2. Executor：执行 Actions，产出 Observations
+
+  这是 Phase 10C-PoC 的验证配置，证明可配置编排的可行性。
+
+agents:
+  # Planner Agent：负责规划
+  - name: planner
+    type: planner
+    config:
+      max_actions: 10
+      strategy: "sequential"
+
+  # Executor Agent：负责执行
+  - name: executor
+    type: executor
+    config:
+      pool_size: 5
+      timeout: 300
+
+workflow:
+  # Step 1：生成扫描计划
+  - name: generate_plan
+    agent: planner
+    input:
+      task_id: "{{ context.task_id }}"
+      objective: "{{ context.objective }}"
+      target: "{{ context.target }}"
+    output: plan
+    timeout: 60
+
+  # Step 2：执行扫描动作
+  - name: execute_scan
+    agent: executor
+    input:
+      actions: "{{ steps.generate_plan.output.actions }}"
+      task_id: "{{ context.task_id }}"
+    output: observations
+    timeout: 300
