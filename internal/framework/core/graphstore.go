@@ -42,6 +42,13 @@ type GraphStore interface {
 	// ListNodes 查询节点列表
 	ListNodes(ctx context.Context, query GraphNodeQuery) ([]*GraphNode, error)
 
+	// CompareAndSwapState 原子更新节点状态（使用乐观锁）
+	// 只有当前状态为 expectedState 时才更新为 newState
+	// 返回 (true, nil) 表示更新成功
+	// 返回 (false, nil) 表示状态不匹配（CAS 失败）
+	// 返回 (false, err) 表示发生错误
+	CompareAndSwapState(ctx context.Context, id string, expectedState, newState string) (bool, error)
+
 	// ========================================
 	// 边操作
 	// ========================================
@@ -89,6 +96,9 @@ type GraphNode struct {
 
 	// UpdatedAt 是更新时间
 	UpdatedAt time.Time `json:"updated_at"`
+
+	// Version 是乐观锁版本号（每次更新自增）
+	Version int64 `json:"version"`
 }
 
 // GraphEdge 是图边的通用表示。
@@ -122,6 +132,10 @@ type GraphNodeUpdate struct {
 
 	// Confidence 更新置信度（nil 表示不更新）
 	Confidence *float64 `json:"confidence,omitempty"`
+
+	// ExpectedVersion 是乐观锁的期望版本号（nil 表示不检查版本）
+	// 如果提供，则只有当前版本与 ExpectedVersion 匹配时才会更新
+	ExpectedVersion *int64 `json:"expected_version,omitempty"`
 }
 
 // GraphNodeQuery 是节点查询条件。
@@ -214,6 +228,9 @@ var (
 
 	// ErrGraphEdgeNotFound 边不存在
 	ErrGraphEdgeNotFound = errors.New("graph edge not found")
+
+	// ErrVersionMismatch 版本不匹配（乐观锁冲突）
+	ErrVersionMismatch = errors.New("version mismatch: optimistic lock conflict")
 
 	// ErrGraphInvalidQuery 查询条件无效
 	ErrGraphInvalidQuery = errors.New("invalid graph query")

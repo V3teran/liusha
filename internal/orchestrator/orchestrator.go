@@ -13,7 +13,6 @@ package orchestrator
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"sync"
 	"time"
@@ -23,11 +22,12 @@ import (
 	"github.com/V3teran/liusha/internal/eventbus"
 	"github.com/V3teran/liusha/internal/executor"
 	"github.com/V3teran/liusha/internal/finding"
+	"github.com/V3teran/liusha/internal/framework/core"
+	"github.com/V3teran/liusha/internal/knowledgegraph"
 	"github.com/V3teran/liusha/internal/monitor"
 	"github.com/V3teran/liusha/internal/planner"
 	"github.com/V3teran/liusha/internal/traffic"
 	"github.com/V3teran/liusha/internal/evaluator"
-	"github.com/V3teran/liusha/internal/knowledgegraph"
 )
 
 // Orchestrator 是任务编排器，协调所有 Agents 的执行。
@@ -303,18 +303,12 @@ func (o *Orchestrator) handleMonitorDecision(ctx context.Context, event eventbus
 //
 // 使用 CAS 确保只终止 running 状态的 Action
 func (o *Orchestrator) killAction(ctx context.Context, actionID, reason string) error {
-	// 构建 metadata
-	metadata := fmt.Sprintf(`{"killed_by":"monitor","reason":"%s","timestamp":"%s"}`,
-		reason,
-		time.Now().Format(time.RFC3339))
-
 	// 使用 CAS：只有 state=running 时才更新为 aborted
-	success, err := o.world.CompareAndSwapStateWithMetadata(
+	success, err := o.world.CompareAndSwapState(
 		ctx,
 		actionID,
 		knowledgegraph.StateRunning,
 		knowledgegraph.StateAborted,
-		json.RawMessage(metadata),
 	)
 
 	if err != nil {
@@ -326,6 +320,24 @@ func (o *Orchestrator) killAction(ctx context.Context, actionID, reason string) 
 			Str("action_id", actionID).
 			Msg("action is not in running state, cannot kill (CAS failed)")
 		return nil // 不是错误，只是状态不匹配
+	}
+
+	// CAS 成功后，更新 metadata 记录终止原因
+	metadata := map[string]interface{}{
+		"killed_by": "monitor",
+		"reason":    reason,
+		"timestamp": time.Now().Format(time.RFC3339),
+	}
+
+	err = o.world.UpdateNode(ctx, actionID, core.GraphNodeUpdate{
+		Metadata: metadata,
+	})
+	if err != nil {
+		o.logger.Error().
+			Err(err).
+			Str("action_id", actionID).
+			Msg("failed to update kill metadata (action already killed)")
+		// 不返回错误，因为状态已经正确更新
 	}
 
 	o.logger.Info().

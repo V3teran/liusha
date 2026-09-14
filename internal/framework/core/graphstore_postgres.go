@@ -96,23 +96,29 @@ func (s *PostgresGraphStore) CreateNode(ctx context.Context, node *GraphNode) er
 		INSERT INTO wm_node (
 			id, task_id, kind, content,
 			state, complexity, depends_on, blocked_reason, roadmap_step,
-			confidence,
+			confidence, version,
 			priority, owner, source_type, source_id,
 			tags, metadata,
 			created_at, updated_at
 		) VALUES (
 			$1, $2, $3, $4,
 			$5, $6, $7, $8, $9,
-			$10,
-			$11, $12, $13, $14,
-			$15, $16,
-			$17, $18
+			$10, $11,
+			$12, $13, $14, $15,
+			$16, $17,
+			$18, $19
 		)
 	`
 
 	now := time.Now()
 	if !node.CreatedAt.IsZero() {
 		now = node.CreatedAt
+	}
+
+	// Version 默认为 1（新节点）
+	version := node.Version
+	if version == 0 {
+		version = 1
 	}
 
 	_, err = s.pool.Exec(ctx, query,
@@ -126,6 +132,7 @@ func (s *PostgresGraphStore) CreateNode(ctx context.Context, node *GraphNode) er
 		blockedReason,
 		roadmapStep,
 		dbConfidence,
+		version,
 		priority,
 		owner,
 		sourceType,
@@ -151,7 +158,7 @@ func (s *PostgresGraphStore) GetNode(ctx context.Context, id string) (*GraphNode
 
 	query := `
 		SELECT
-			id, kind, content, state, confidence,
+			id, kind, content, state, confidence, version,
 			metadata, created_at, updated_at
 		FROM wm_node
 		WHERE id = $1
@@ -167,6 +174,7 @@ func (s *PostgresGraphStore) GetNode(ctx context.Context, id string) (*GraphNode
 		&node.Content,
 		&state,
 		&dbConfidence,
+		&node.Version,
 		&metadataJSON,
 		&node.CreatedAt,
 		&node.UpdatedAt,
@@ -253,19 +261,28 @@ func (s *PostgresGraphStore) UpdateNode(ctx context.Context, id string, update G
 		return errors.New("no fields to update")
 	}
 
-	// 始终更新 updated_at
+	// 始终更新 updated_at（由触发器自动更新，但这里保持兼容性）
 	setParts = append(setParts, fmt.Sprintf("updated_at = $%d", argIndex))
 	args = append(args, time.Now())
 	argIndex++
 
-	// 添加 WHERE 条件
+	// 构建 WHERE 条件：id + 可选的 version 检查
+	whereParts := []string{fmt.Sprintf("id = $%d", argIndex)}
 	args = append(args, id)
+	argIndex++
+
+	if update.ExpectedVersion != nil {
+		// 乐观锁：只有当前 version 匹配时才更新
+		whereParts = append(whereParts, fmt.Sprintf("version = $%d", argIndex))
+		args = append(args, *update.ExpectedVersion)
+		argIndex++
+	}
 
 	query := fmt.Sprintf(`
 		UPDATE wm_node
 		SET %s
-		WHERE id = $%d
-	`, strings.Join(setParts, ", "), argIndex)
+		WHERE %s
+	`, strings.Join(setParts, ", "), strings.Join(whereParts, " AND "))
 
 	result, err := s.pool.Exec(ctx, query, args...)
 	if err != nil {
@@ -273,6 +290,21 @@ func (s *PostgresGraphStore) UpdateNode(ctx context.Context, id string, update G
 	}
 
 	if result.RowsAffected() == 0 {
+		// 区分两种情况：节点不存在 vs 版本不匹配
+		if update.ExpectedVersion != nil {
+			// 检查节点是否存在
+			var exists bool
+			checkQuery := `SELECT EXISTS(SELECT 1 FROM wm_node WHERE id = $1)`
+			err := s.pool.QueryRow(ctx, checkQuery, id).Scan(&exists)
+			if err != nil {
+				return fmt.Errorf("check node existence: %w", err)
+			}
+			if !exists {
+				return ErrGraphNodeNotFound
+			}
+			// 节点存在但版本不匹配
+			return ErrVersionMismatch
+		}
 		return ErrGraphNodeNotFound
 	}
 
@@ -371,7 +403,7 @@ func (s *PostgresGraphStore) ListNodes(ctx context.Context, query GraphNodeQuery
 
 	sqlQuery := fmt.Sprintf(`
 		SELECT
-			id, kind, content, state, confidence,
+			id, kind, content, state, confidence, version,
 			metadata, created_at, updated_at
 		FROM wm_node
 		%s
@@ -397,6 +429,7 @@ func (s *PostgresGraphStore) ListNodes(ctx context.Context, query GraphNodeQuery
 			&node.Content,
 			&state,
 			&dbConfidence,
+			&node.Version,
 			&metadataJSON,
 			&node.CreatedAt,
 			&node.UpdatedAt,
@@ -437,6 +470,47 @@ func (s *PostgresGraphStore) ListNodes(ctx context.Context, query GraphNodeQuery
 	}
 
 	return nodes, nil
+}
+
+// CompareAndSwapState 原子更新节点状态（使用乐观锁）
+func (s *PostgresGraphStore) CompareAndSwapState(ctx context.Context, id string, expectedState, newState string) (bool, error) {
+	if id == "" {
+		return false, errors.New("node ID cannot be empty")
+	}
+	if expectedState == "" || newState == "" {
+		return false, errors.New("expectedState and newState cannot be empty")
+	}
+
+	// 先读取当前节点获取 version
+	node, err := s.GetNode(ctx, id)
+	if err != nil {
+		return false, err
+	}
+
+	// 检查状态是否匹配
+	if node.State != expectedState {
+		// 状态不匹配，CAS 失败
+		return false, nil
+	}
+
+	// 使用乐观锁更新状态
+	query := `
+		UPDATE wm_node
+		SET state = $1, updated_at = $2
+		WHERE id = $3 AND version = $4
+	`
+
+	result, err := s.pool.Exec(ctx, query, newState, time.Now(), id, node.Version)
+	if err != nil {
+		return false, fmt.Errorf("update state: %w", err)
+	}
+
+	// 如果没有更新任何行，说明 version 已经变化（被其他并发操作修改）
+	if result.RowsAffected() == 0 {
+		return false, nil
+	}
+
+	return true, nil
 }
 
 // CreateEdge 创建边（幂等）。
