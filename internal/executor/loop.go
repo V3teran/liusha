@@ -189,7 +189,7 @@ func (l *Loop) processPendingActions(ctx context.Context, taskID string, rep *Re
 			Msg("[EXEC_LOOP] marking action as running")
 
 		// 标记为 running
-		if err := l.world.UpdateActionState(ctx, move.ID, knowledgegraph.StateRunning, nil); err != nil {
+		if err := l.world.UpdateActionStateWithReason(ctx, move.ID, knowledgegraph.StateRunning, nil); err != nil {
 			l.logger.Error().Err(err).Str("move_id", move.ID).Msg("mark running failed")
 			continue
 		}
@@ -209,11 +209,11 @@ func (l *Loop) processPendingActions(ctx context.Context, taskID string, rep *Re
 		// 更新状态
 		if execErr != nil {
 			errMsg := execErr.Error()
-			if err := l.world.UpdateActionState(ctx, move.ID, knowledgegraph.StateFailed, &errMsg); err != nil {
+			if err := l.world.UpdateActionStateWithReason(ctx, move.ID, knowledgegraph.StateFailed, &errMsg); err != nil {
 				l.logger.Error().Err(err).Str("move_id", move.ID).Msg("mark failed failed")
 			}
 		} else {
-			if err := l.world.UpdateActionState(ctx, move.ID, knowledgegraph.StateDone, nil); err != nil {
+			if err := l.world.UpdateActionStateWithReason(ctx, move.ID, knowledgegraph.StateDone, nil); err != nil {
 				l.logger.Error().Err(err).Str("move_id", move.ID).Msg("mark done failed")
 			}
 

@@ -13,7 +13,7 @@ import (
 // TestGraphStoreInterface 验证 GraphStore 接口的基本功能
 func TestGraphStoreInterface(t *testing.T) {
 	ctx := context.Background()
-	store := NewMemoryGraphStore()
+	store := NewInMemoryGraphStore()
 
 	t.Run("CreateNode and GetNode", func(t *testing.T) {
 		// 创建节点
@@ -129,7 +129,7 @@ func TestGraphStoreInterface(t *testing.T) {
 // TestGraphStoreEdges 验证边操作
 func TestGraphStoreEdges(t *testing.T) {
 	ctx := context.Background()
-	store := NewMemoryGraphStore()
+	store := NewInMemoryGraphStore()
 
 	// 创建节点
 	nodes := []*GraphNode{
@@ -197,7 +197,7 @@ func TestGraphStoreEdges(t *testing.T) {
 // TestGraphStoreTraverse 验证图遍历
 func TestGraphStoreTraverse(t *testing.T) {
 	ctx := context.Background()
-	store := NewMemoryGraphStore()
+	store := NewInMemoryGraphStore()
 
 	// 创建图结构：
 	//   n1 -> n2 -> n4
@@ -292,7 +292,7 @@ func TestGraphStoreTraverse(t *testing.T) {
 // TestGraphStoreEdgeCases 验证边界情况
 func TestGraphStoreEdgeCases(t *testing.T) {
 	ctx := context.Background()
-	store := NewMemoryGraphStore()
+	store := NewInMemoryGraphStore()
 
 	t.Run("GetNode - not found", func(t *testing.T) {
 		_, err := store.GetNode(ctx, "nonexistent")
@@ -333,7 +333,7 @@ func TestGraphStoreEdgeCases(t *testing.T) {
 // TestGraphStoreTimestamps 验证时间戳自动设置
 func TestGraphStoreTimestamps(t *testing.T) {
 	ctx := context.Background()
-	store := NewMemoryGraphStore()
+	store := NewInMemoryGraphStore()
 
 	t.Run("Node timestamps", func(t *testing.T) {
 		node := &GraphNode{
@@ -367,7 +367,7 @@ func TestGraphStoreTimestamps(t *testing.T) {
 // BenchmarkGraphStore 性能基准测试
 func BenchmarkGraphStore(b *testing.B) {
 	ctx := context.Background()
-	store := NewMemoryGraphStore()
+	store := NewInMemoryGraphStore()
 
 	// 预创建一些节点
 	for i := 0; i < 1000; i++ {

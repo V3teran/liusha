@@ -54,6 +54,10 @@ type StateManager[T any] interface {
 	// Update 更新任务状态（乐观锁，失败返回 ErrVersionConflict）
 	Update(ctx context.Context, state *State[T]) error
 
+	// UpdateWith 使用 Reducer 更新状态（原子操作，自动处理并发冲突）
+	// 内部实现：读取旧状态 -> 应用 Reducer -> 乐观锁更新 -> 冲突时重试
+	UpdateWith(ctx context.Context, taskID string, newData T, reducer StateReducer[T]) error
+
 	// Delete 删除任务状态
 	Delete(ctx context.Context, taskID string) error
 

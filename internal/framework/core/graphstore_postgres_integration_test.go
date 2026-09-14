@@ -41,6 +41,7 @@ func TestPostgresGraphStore_Integration(t *testing.T) {
 			ID:      objectiveID,
 			Kind:    string(KindObjective),
 			Content: json.RawMessage(`{"description": "扫描目标系统"}`),
+			State:   string(ActionStateOpen),
 			Metadata: map[string]interface{}{
 				"task_id": taskID,
 			},

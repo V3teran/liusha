@@ -105,7 +105,7 @@ func (p *Agent) Kill(ctx context.Context, actionID string, reason string) error 
 
 	// 5. 更新状态为 aborted
 	state := knowledgegraph.StateAborted
-	if err := p.world.UpdateActionState(ctx, actionID, state, nil); err != nil {
+	if err := p.world.UpdateActionStateWithReason(ctx, actionID, state, nil); err != nil {
 		return fmt.Errorf("update action state: %w", err)
 	}
 

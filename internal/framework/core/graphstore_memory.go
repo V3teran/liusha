@@ -2,137 +2,165 @@ package core
 
 import (
 	"context"
+	"fmt"
 	"sync"
-	"time"
 )
 
-// MemoryGraphStore 是 GraphStore 的内存实现（用于测试和 PoC）
-type MemoryGraphStore struct {
-	nodes map[string]*GraphNode
-	edges map[string]*GraphEdge // key: "from:to:relation"
+// InMemoryGraphStore 内存实现的 GraphStore（用于测试）
+type InMemoryGraphStore struct {
 	mu    sync.RWMutex
+	nodes map[string]*GraphNode
+	edges []*GraphEdge
 }
 
-// NewMemoryGraphStore 创建内存图存储
-func NewMemoryGraphStore() *MemoryGraphStore {
-	return &MemoryGraphStore{
+// NewInMemoryGraphStore 创建内存 GraphStore
+func NewInMemoryGraphStore() GraphStore {
+	return &InMemoryGraphStore{
 		nodes: make(map[string]*GraphNode),
-		edges: make(map[string]*GraphEdge),
+		edges: make([]*GraphEdge, 0),
 	}
 }
 
 // CreateNode 创建节点
-func (m *MemoryGraphStore) CreateNode(ctx context.Context, node *GraphNode) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+func (s *InMemoryGraphStore) CreateNode(ctx context.Context, node *GraphNode) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
-	// 复制节点（避免外部修改）
-	nodeCopy := *node
-	if nodeCopy.CreatedAt.IsZero() {
-		nodeCopy.CreatedAt = time.Now()
+	if _, exists := s.nodes[node.ID]; exists {
+		return fmt.Errorf("node %s already exists", node.ID)
 	}
-	nodeCopy.UpdatedAt = time.Now()
 
-	m.nodes[node.ID] = &nodeCopy
+	// 深拷贝
+	nodeCopy := &GraphNode{
+		ID:       node.ID,
+		Kind:     node.Kind,
+		Content:  append([]byte(nil), node.Content...),
+		State:    node.State,
+		Metadata: make(map[string]interface{}),
+	}
+
+	for k, v := range node.Metadata {
+		nodeCopy.Metadata[k] = v
+	}
+
+	s.nodes[node.ID] = nodeCopy
 	return nil
 }
 
 // GetNode 获取节点
-func (m *MemoryGraphStore) GetNode(ctx context.Context, id string) (*GraphNode, error) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
+func (s *InMemoryGraphStore) GetNode(ctx context.Context, id string) (*GraphNode, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 
-	node, ok := m.nodes[id]
-	if !ok {
-		return nil, ErrGraphNodeNotFound
+	node, exists := s.nodes[id]
+	if !exists {
+		return nil, fmt.Errorf("node %s not found", id)
 	}
 
-	// 返回副本
-	nodeCopy := *node
-	return &nodeCopy, nil
+	// 深拷贝
+	nodeCopy := &GraphNode{
+		ID:       node.ID,
+		Kind:     node.Kind,
+		Content:  append([]byte(nil), node.Content...),
+		State:    node.State,
+		Metadata: make(map[string]interface{}),
+	}
+
+	for k, v := range node.Metadata {
+		nodeCopy.Metadata[k] = v
+	}
+
+	return nodeCopy, nil
 }
 
 // UpdateNode 更新节点
-func (m *MemoryGraphStore) UpdateNode(ctx context.Context, id string, update GraphNodeUpdate) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+func (s *InMemoryGraphStore) UpdateNode(ctx context.Context, id string, update GraphNodeUpdate) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
-	node, ok := m.nodes[id]
-	if !ok {
-		return ErrGraphNodeNotFound
+	node, exists := s.nodes[id]
+	if !exists {
+		return fmt.Errorf("node %s not found", id)
 	}
 
-	// 应用更新
 	if update.Content != nil {
-		node.Content = update.Content
+		node.Content = append([]byte(nil), update.Content...)
 	}
+
 	if update.State != "" {
 		node.State = update.State
 	}
+
 	if update.Confidence != nil {
 		node.Confidence = *update.Confidence
 	}
+
 	if update.Metadata != nil {
-		node.Metadata = update.Metadata
+		for k, v := range update.Metadata {
+			node.Metadata[k] = v
+		}
 	}
 
-	node.UpdatedAt = time.Now()
 	return nil
 }
 
 // DeleteNode 删除节点
-func (m *MemoryGraphStore) DeleteNode(ctx context.Context, id string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+func (s *InMemoryGraphStore) DeleteNode(ctx context.Context, id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
-	if _, ok := m.nodes[id]; !ok {
-		return ErrGraphNodeNotFound
+	if _, exists := s.nodes[id]; !exists {
+		return fmt.Errorf("node %s not found", id)
 	}
 
-	// 删除节点
-	delete(m.nodes, id)
+	delete(s.nodes, id)
 
-	// 删除相关的边
-	for key, edge := range m.edges {
-		if edge.From == id || edge.To == id {
-			delete(m.edges, key)
+	// 删除相关边
+	newEdges := make([]*GraphEdge, 0)
+	for _, edge := range s.edges {
+		if edge.From != id && edge.To != id {
+			newEdges = append(newEdges, edge)
 		}
 	}
+	s.edges = newEdges
 
 	return nil
 }
 
 // ListNodes 查询节点列表
-func (m *MemoryGraphStore) ListNodes(ctx context.Context, query GraphNodeQuery) ([]*GraphNode, error) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
+func (s *InMemoryGraphStore) ListNodes(ctx context.Context, query GraphNodeQuery) ([]*GraphNode, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 
-	var result []*GraphNode
+	result := make([]*GraphNode, 0)
 
-	for _, node := range m.nodes {
-		// 应用过滤条件
+	for _, node := range s.nodes {
+		// 过滤 Kind
 		if query.Kind != "" && node.Kind != query.Kind {
 			continue
 		}
 
+		// 过滤 State
 		if query.State != "" && node.State != query.State {
 			continue
 		}
 
-		if query.MinConfidence > 0 && node.Confidence < query.MinConfidence {
-			continue
-		}
-
-		// Filters（metadata 过滤）
+		// 过滤 Metadata
 		match := true
-		for key, value := range query.Filters {
-			if node.Metadata == nil {
-				match = false
-				break
-			}
-			if nodeValue, ok := node.Metadata[key]; !ok || nodeValue != value {
-				match = false
-				break
+		for k, v := range query.Filters {
+			// 支持 "metadata.xxx" 嵌套访问
+			if len(k) > 9 && k[:9] == "metadata." {
+				metaKey := k[9:]
+				if node.Metadata[metaKey] != v {
+					match = false
+					break
+				}
+			} else {
+				// 直接访问
+				if node.Metadata[k] != v {
+					match = false
+					break
+				}
 			}
 		}
 
@@ -140,253 +168,231 @@ func (m *MemoryGraphStore) ListNodes(ctx context.Context, query GraphNodeQuery) 
 			continue
 		}
 
-		// 添加到结果
-		nodeCopy := *node
-		result = append(result, &nodeCopy)
-	}
+		// 深拷贝
+		nodeCopy := &GraphNode{
+			ID:       node.ID,
+			Kind:     node.Kind,
+			Content:  append([]byte(nil), node.Content...),
+			State:    node.State,
+			Metadata: make(map[string]interface{}),
+		}
 
-	// 分页
-	if query.Offset > 0 && query.Offset < len(result) {
-		result = result[query.Offset:]
-	}
+		for k, v := range node.Metadata {
+			nodeCopy.Metadata[k] = v
+		}
 
-	if query.Limit > 0 && query.Limit < len(result) {
-		result = result[:query.Limit]
+		result = append(result, nodeCopy)
+
+		// 限制数量
+		if query.Limit > 0 && len(result) >= query.Limit {
+			break
+		}
 	}
 
 	return result, nil
 }
 
 // CreateEdge 创建边
-func (m *MemoryGraphStore) CreateEdge(ctx context.Context, edge *GraphEdge) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+func (s *InMemoryGraphStore) CreateEdge(ctx context.Context, edge *GraphEdge) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
 	// 检查节点是否存在
-	if _, ok := m.nodes[edge.From]; !ok {
-		return ErrGraphNodeNotFound
-	}
-	if _, ok := m.nodes[edge.To]; !ok {
-		return ErrGraphNodeNotFound
+	if _, exists := s.nodes[edge.From]; !exists {
+		return fmt.Errorf("from node %s not found", edge.From)
 	}
 
-	// 复制边
-	edgeCopy := *edge
-	if edgeCopy.CreatedAt.IsZero() {
-		edgeCopy.CreatedAt = time.Now()
+	if _, exists := s.nodes[edge.To]; !exists {
+		return fmt.Errorf("to node %s not found", edge.To)
 	}
 
-	key := edgeKey(edge.From, edge.To, edge.Relation)
-	m.edges[key] = &edgeCopy
+	// 深拷贝
+	edgeCopy := &GraphEdge{
+		From:     edge.From,
+		To:       edge.To,
+		Relation: edge.Relation,
+		Metadata: make(map[string]interface{}),
+	}
 
+	for k, v := range edge.Metadata {
+		edgeCopy.Metadata[k] = v
+	}
+
+	s.edges = append(s.edges, edgeCopy)
 	return nil
 }
 
 // ListEdges 查询边列表
-func (m *MemoryGraphStore) ListEdges(ctx context.Context, query GraphEdgeQuery) ([]*GraphEdge, error) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
+func (s *InMemoryGraphStore) ListEdges(ctx context.Context, query GraphEdgeQuery) ([]*GraphEdge, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 
-	var result []*GraphEdge
+	result := make([]*GraphEdge, 0)
 
-	for _, edge := range m.edges {
-		// 应用过滤条件
+	for _, edge := range s.edges {
+		// 过滤 From
 		if query.From != "" && edge.From != query.From {
 			continue
 		}
 
+		// 过滤 To
 		if query.To != "" && edge.To != query.To {
 			continue
 		}
 
+		// 过滤 Relation
 		if query.Relation != "" && edge.Relation != query.Relation {
 			continue
 		}
 
-		// 添加到结果
-		edgeCopy := *edge
-		result = append(result, &edgeCopy)
-	}
+		// 深拷贝
+		edgeCopy := &GraphEdge{
+			From:     edge.From,
+			To:       edge.To,
+			Relation: edge.Relation,
+			Metadata: make(map[string]interface{}),
+		}
 
-	// 分页
-	if query.Limit > 0 && query.Limit < len(result) {
-		result = result[:query.Limit]
+		for k, v := range edge.Metadata {
+			edgeCopy.Metadata[k] = v
+		}
+
+		result = append(result, edgeCopy)
+
+		// 限制数量
+		if query.Limit > 0 && len(result) >= query.Limit {
+			break
+		}
 	}
 
 	return result, nil
 }
 
 // DeleteEdge 删除边
-func (m *MemoryGraphStore) DeleteEdge(ctx context.Context, from, to, relation string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+func (s *InMemoryGraphStore) DeleteEdge(ctx context.Context, from, to, relation string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
-	key := edgeKey(from, to, relation)
-	if _, ok := m.edges[key]; !ok {
-		return ErrGraphEdgeNotFound
+	found := false
+	newEdges := make([]*GraphEdge, 0)
+
+	for _, edge := range s.edges {
+		if edge.From == from && edge.To == to && edge.Relation == relation {
+			found = true
+		} else {
+			newEdges = append(newEdges, edge)
+		}
 	}
 
-	delete(m.edges, key)
+	if !found {
+		return fmt.Errorf("edge not found")
+	}
+
+	s.edges = newEdges
 	return nil
 }
 
-// Traverse 图遍历
-func (m *MemoryGraphStore) Traverse(ctx context.Context, startID string, query GraphTraverseQuery) ([]*GraphNode, error) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
+// Traverse 遍历图
+func (s *InMemoryGraphStore) Traverse(ctx context.Context, startID string, query GraphTraverseQuery) ([]*GraphNode, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 
-	// 检查起始节点是否存在
-	startNode, ok := m.nodes[startID]
-	if !ok {
-		return nil, ErrGraphNodeNotFound
+	if _, exists := s.nodes[startID]; !exists {
+		return nil, fmt.Errorf("start node %s not found", startID)
 	}
 
 	visited := make(map[string]bool)
-	var result []*GraphNode
+	result := make([]*GraphNode, 0)
 
-	// BFS 遍历（默认）
-	if query.Strategy == GraphTraverseBFS || query.Strategy == "" {
-		queue := []*GraphNode{startNode}
-		depth := 0
-
-		for len(queue) > 0 {
-			// 先检查深度限制（在处理当前层之前）
-			if query.MaxDepth > 0 && depth > query.MaxDepth {
-				break
-			}
-
-			levelSize := len(queue)
-
-			for i := 0; i < levelSize; i++ {
-				current := queue[0]
-				queue = queue[1:]
-
-				if visited[current.ID] {
-					continue
-				}
-				visited[current.ID] = true
-
-				// 应用节点过滤
-				if query.NodeFilter == nil || m.matchNodeFilter(current, query.NodeFilter) {
-					nodeCopy := *current
-					result = append(result, &nodeCopy)
-				}
-
-				// 只在深度允许时获取邻居（下一层的深度是 depth+1）
-				if query.MaxDepth == 0 || depth < query.MaxDepth {
-					neighbors := m.getNeighbors(current.ID, query.Direction, query.Relations)
-					queue = append(queue, neighbors...)
-				}
-			}
-
-			depth++
+	var traverse func(nodeID string, depth int)
+	traverse = func(nodeID string, depth int) {
+		// 检查深度限制
+		if query.MaxDepth > 0 && depth > query.MaxDepth {
+			return
 		}
-	} else {
-		// DFS 遍历
-		m.dfsTraverse(startNode, query, visited, &result, 0)
-	}
 
-	return result, nil
-}
+		// 检查是否已访问
+		if visited[nodeID] {
+			return
+		}
 
-// getNeighbors 获取邻居节点
-func (m *MemoryGraphStore) getNeighbors(nodeID string, direction GraphTraverseDirection, relations []string) []*GraphNode {
-	var neighbors []*GraphNode
+		visited[nodeID] = true
+		node := s.nodes[nodeID]
 
-	for _, edge := range m.edges {
-		// 检查关系类型过滤
-		if len(relations) > 0 {
-			match := false
-			for _, rel := range relations {
-				if edge.Relation == rel {
-					match = true
-					break
+		// 过滤节点（如果有 NodeFilter）
+		if query.NodeFilter != nil {
+			if query.NodeFilter.Kind != "" && node.Kind != query.NodeFilter.Kind {
+				return
+			}
+			if query.NodeFilter.State != "" && node.State != query.NodeFilter.State {
+				return
+			}
+		}
+
+		// 深拷贝并添加到结果
+		nodeCopy := &GraphNode{
+			ID:       node.ID,
+			Kind:     node.Kind,
+			Content:  append([]byte(nil), node.Content...),
+			State:    node.State,
+			Metadata: make(map[string]interface{}),
+		}
+
+		for k, v := range node.Metadata {
+			nodeCopy.Metadata[k] = v
+		}
+
+		result = append(result, nodeCopy)
+
+		// 遍历子节点（根据方向）
+		for _, edge := range s.edges {
+			var nextNodeID string
+			matched := false
+
+			// 根据方向匹配边
+			switch query.Direction {
+			case GraphTraverseOut, "":
+				if edge.From == nodeID {
+					nextNodeID = edge.To
+					matched = true
+				}
+			case GraphTraverseIn:
+				if edge.To == nodeID {
+					nextNodeID = edge.From
+					matched = true
+				}
+			case GraphTraverseBoth:
+				if edge.From == nodeID {
+					nextNodeID = edge.To
+					matched = true
+				} else if edge.To == nodeID {
+					nextNodeID = edge.From
+					matched = true
 				}
 			}
-			if !match {
+
+			if !matched {
 				continue
 			}
-		}
 
-		// 根据方向获取邻居
-		var neighborID string
-		switch direction {
-		case GraphTraverseOut, "":
-			if edge.From == nodeID {
-				neighborID = edge.To
+			// 过滤边关系
+			if len(query.Relations) > 0 {
+				found := false
+				for _, rel := range query.Relations {
+					if edge.Relation == rel {
+						found = true
+						break
+					}
+				}
+				if !found {
+					continue
+				}
 			}
-		case GraphTraverseIn:
-			if edge.To == nodeID {
-				neighborID = edge.From
-			}
-		case GraphTraverseBoth:
-			if edge.From == nodeID {
-				neighborID = edge.To
-			} else if edge.To == nodeID {
-				neighborID = edge.From
-			}
-		}
 
-		if neighborID != "" {
-			if node, ok := m.nodes[neighborID]; ok {
-				neighbors = append(neighbors, node)
-			}
+			traverse(nextNodeID, depth+1)
 		}
 	}
 
-	return neighbors
-}
-
-// dfsTraverse DFS 遍历
-func (m *MemoryGraphStore) dfsTraverse(node *GraphNode, query GraphTraverseQuery, visited map[string]bool, result *[]*GraphNode, depth int) {
-	if visited[node.ID] {
-		return
-	}
-
-	if query.MaxDepth > 0 && depth >= query.MaxDepth {
-		return
-	}
-
-	visited[node.ID] = true
-
-	if query.NodeFilter == nil || m.matchNodeFilter(node, query.NodeFilter) {
-		nodeCopy := *node
-		*result = append(*result, &nodeCopy)
-	}
-
-	neighbors := m.getNeighbors(node.ID, query.Direction, query.Relations)
-	for _, neighbor := range neighbors {
-		m.dfsTraverse(neighbor, query, visited, result, depth+1)
-	}
-}
-
-// matchNodeFilter 检查节点是否匹配过滤条件
-func (m *MemoryGraphStore) matchNodeFilter(node *GraphNode, filter *GraphNodeQuery) bool {
-	if filter.Kind != "" && node.Kind != filter.Kind {
-		return false
-	}
-
-	if filter.State != "" && node.State != filter.State {
-		return false
-	}
-
-	if filter.MinConfidence > 0 && node.Confidence < filter.MinConfidence {
-		return false
-	}
-
-	for key, value := range filter.Filters {
-		if node.Metadata == nil {
-			return false
-		}
-		if nodeValue, ok := node.Metadata[key]; !ok || nodeValue != value {
-			return false
-		}
-	}
-
-	return true
-}
-
-// edgeKey 生成边的唯一键
-func edgeKey(from, to, relation string) string {
-	return from + ":" + to + ":" + relation
+	traverse(startID, 0)
+	return result, nil
 }

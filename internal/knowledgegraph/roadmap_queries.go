@@ -2,6 +2,7 @@ package knowledgegraph
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 )
 
@@ -31,15 +32,19 @@ func (s *Store) ListActionsByRoadmapStep(ctx context.Context, taskID string, ste
 	var nodes []Node
 	for rows.Next() {
 		var node Node
+		var owner sql.NullString
 		err := rows.Scan(
 			&node.ID, &node.TaskID, &node.Kind, &node.Content,
 			&node.State, &node.Complexity, &node.DependsOn, &node.BlockedReason, &node.RoadmapStep,
 			&node.Confidence,
-			&node.Priority, &node.Owner, &node.SourceType, &node.SourceID, &node.Tags, &node.Metadata,
+			&node.Priority, &owner, &node.SourceType, &node.SourceID, &node.Tags, &node.Metadata,
 			&node.CreatedAt, &node.UpdatedAt, &node.CompletedAt,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("scan action: %w", err)
+		}
+		if owner.Valid {
+			node.Owner = owner.String
 		}
 		nodes = append(nodes, node)
 	}
