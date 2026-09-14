@@ -818,3 +818,13 @@ func (s *AdapterStore) GetObjective(ctx context.Context, taskID string) (Objecti
 
 	return obj, nil
 }
+
+// CompareAndSwapState 原子更新节点状态（转发到 GraphStore）
+func (s *AdapterStore) CompareAndSwapState(ctx context.Context, id string, expectedState, newState State) (bool, error) {
+	return s.graphStore.CompareAndSwapState(ctx, id, string(expectedState), string(newState))
+}
+
+// UpdateNode 更新节点（转发到 GraphStore）
+func (s *AdapterStore) UpdateNode(ctx context.Context, id string, update core.GraphNodeUpdate) error {
+	return s.graphStore.UpdateNode(ctx, id, update)
+}

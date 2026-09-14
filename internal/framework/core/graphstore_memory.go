@@ -32,11 +32,20 @@ func (s *InMemoryGraphStore) CreateNode(ctx context.Context, node *GraphNode) er
 
 	// 深拷贝
 	nodeCopy := &GraphNode{
-		ID:       node.ID,
-		Kind:     node.Kind,
-		Content:  append([]byte(nil), node.Content...),
-		State:    node.State,
-		Metadata: make(map[string]interface{}),
+		ID:         node.ID,
+		Kind:       node.Kind,
+		Content:    append([]byte(nil), node.Content...),
+		State:      node.State,
+		Confidence: node.Confidence,
+		Version:    node.Version,
+		Metadata:   make(map[string]interface{}),
+		CreatedAt:  node.CreatedAt,
+		UpdatedAt:  node.UpdatedAt,
+	}
+
+	// Version 默认为 1
+	if nodeCopy.Version == 0 {
+		nodeCopy.Version = 1
 	}
 
 	for k, v := range node.Metadata {
@@ -54,16 +63,20 @@ func (s *InMemoryGraphStore) GetNode(ctx context.Context, id string) (*GraphNode
 
 	node, exists := s.nodes[id]
 	if !exists {
-		return nil, fmt.Errorf("node %s not found", id)
+		return nil, ErrGraphNodeNotFound
 	}
 
 	// 深拷贝
 	nodeCopy := &GraphNode{
-		ID:       node.ID,
-		Kind:     node.Kind,
-		Content:  append([]byte(nil), node.Content...),
-		State:    node.State,
-		Metadata: make(map[string]interface{}),
+		ID:         node.ID,
+		Kind:       node.Kind,
+		Content:    append([]byte(nil), node.Content...),
+		State:      node.State,
+		Confidence: node.Confidence,
+		Version:    node.Version,
+		Metadata:   make(map[string]interface{}),
+		CreatedAt:  node.CreatedAt,
+		UpdatedAt:  node.UpdatedAt,
 	}
 
 	for k, v := range node.Metadata {
@@ -80,7 +93,14 @@ func (s *InMemoryGraphStore) UpdateNode(ctx context.Context, id string, update G
 
 	node, exists := s.nodes[id]
 	if !exists {
-		return fmt.Errorf("node %s not found", id)
+		return ErrGraphNodeNotFound
+	}
+
+	// 乐观锁检查
+	if update.ExpectedVersion != nil {
+		if node.Version != *update.ExpectedVersion {
+			return ErrVersionMismatch
+		}
 	}
 
 	if update.Content != nil {
@@ -101,7 +121,33 @@ func (s *InMemoryGraphStore) UpdateNode(ctx context.Context, id string, update G
 		}
 	}
 
+	// 更新后递增 version
+	node.Version++
+
 	return nil
+}
+
+// CompareAndSwapState 原子更新节点状态（使用乐观锁）
+func (s *InMemoryGraphStore) CompareAndSwapState(ctx context.Context, id string, expectedState, newState string) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	node, exists := s.nodes[id]
+	if !exists {
+		return false, ErrGraphNodeNotFound
+	}
+
+	// 检查状态是否匹配
+	if node.State != expectedState {
+		// 状态不匹配，CAS 失败
+		return false, nil
+	}
+
+	// 状态匹配，更新状态并递增 version
+	node.State = newState
+	node.Version++
+
+	return true, nil
 }
 
 // DeleteNode 删除节点
