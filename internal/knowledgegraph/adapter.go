@@ -7,12 +7,14 @@ import (
 	"time"
 
 	"github.com/V3teran/liusha/internal/framework/core"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // AdapterStore 是知识图谱的 Framework 适配器
 // 使用 Framework 的 GraphStore 和标准类型
 type AdapterStore struct {
 	graphStore core.GraphStore
+	pool       *pgxpool.Pool // 用于 Roadmap 等直接 SQL 操作
 }
 
 // NewAdapterStore 创建知识图谱适配器
@@ -359,4 +361,460 @@ func (s *AdapterStore) GetActionsByState(ctx context.Context, state core.ActionS
 	}
 
 	return actions, nil
+}
+
+// ─────────────────────────────────────────────
+// 兼容旧 Store 接口的方法
+// ─────────────────────────────────────────────
+
+// CreateNode 创建节点（兼容旧接口）
+func (s *AdapterStore) CreateNode(ctx context.Context, node Node) (string, error) {
+	// 转换为 Framework GraphNode
+	graphNode := &core.GraphNode{
+		ID:      node.ID,
+		Kind:    string(node.Kind),
+		Content: node.Content,
+		Metadata: map[string]interface{}{
+			"task_id":     node.TaskID,
+			"source_type": string(node.SourceType),
+			"source_id":   node.SourceID,
+			"priority":    node.Priority,
+		},
+		CreatedAt: node.CreatedAt,
+		UpdatedAt: node.UpdatedAt,
+	}
+
+	// 添加可选字段
+	if node.Owner != "" {
+		graphNode.Metadata["owner"] = node.Owner
+	}
+	if len(node.Tags) > 0 {
+		graphNode.Metadata["tags"] = node.Tags
+	}
+	if len(node.Metadata) > 0 {
+		graphNode.Metadata["business_metadata"] = node.Metadata
+	}
+
+	// Action 专用字段
+	if node.State != nil {
+		graphNode.State = string(*node.State)
+	}
+	if node.Complexity != nil {
+		graphNode.Metadata["complexity"] = string(*node.Complexity)
+	}
+	if len(node.DependsOn) > 0 {
+		graphNode.Metadata["depends_on"] = node.DependsOn
+	}
+	if node.BlockedReason != nil {
+		graphNode.Metadata["blocked_reason"] = *node.BlockedReason
+	}
+	if node.RoadmapStep != nil {
+		graphNode.Metadata["roadmap_step"] = *node.RoadmapStep
+	}
+
+	// Confidence 字段
+	if node.Confidence != nil {
+		switch *node.Confidence {
+		case ConfidenceVerified:
+			graphNode.Confidence = 1.0
+		case ConfidenceUnverified:
+			graphNode.Confidence = 0.5
+		case ConfidenceRefuted:
+			graphNode.Confidence = 0.0
+		}
+	}
+
+	err := s.graphStore.CreateNode(ctx, graphNode)
+	if err != nil {
+		return "", err
+	}
+
+	return node.ID, nil
+}
+
+// GetNode 获取节点（兼容旧接口）
+func (s *AdapterStore) GetNode(ctx context.Context, id string) (*Node, error) {
+	graphNode, err := s.graphStore.GetNode(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+
+	return s.graphNodeToNode(graphNode)
+}
+
+// ListNodesByKind 列出指定 task 和 kind 的节点
+func (s *AdapterStore) ListNodesByKind(ctx context.Context, taskID string, kind NodeKind) ([]Node, error) {
+	query := core.GraphNodeQuery{
+		Kind: string(kind),
+		Filters: map[string]interface{}{
+			"metadata.task_id": taskID,
+		},
+		OrderBy: "created_at",
+	}
+
+	nodes, err := s.graphStore.ListNodes(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+
+	return s.convertGraphNodesToNodes(nodes), nil
+}
+
+// ListActionsByState 列出指定 task 和 state 的 action 节点
+func (s *AdapterStore) ListActionsByState(ctx context.Context, taskID string, state State) ([]Node, error) {
+	query := core.GraphNodeQuery{
+		Kind:  string(KindAction),
+		State: string(state),
+		Filters: map[string]interface{}{
+			"metadata.task_id": taskID,
+		},
+		OrderBy: "created_at",
+	}
+
+	nodes, err := s.graphStore.ListNodes(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+
+	return s.convertGraphNodesToNodes(nodes), nil
+}
+
+// ListOpenActions 列出所有 open 状态的 action
+func (s *AdapterStore) ListOpenActions(ctx context.Context, taskID string) ([]Node, error) {
+	return s.ListActionsByState(ctx, taskID, StateOpen)
+}
+
+// ListRunningActions 列出所有 running 状态的 action
+func (s *AdapterStore) ListRunningActions(ctx context.Context, taskID string) ([]Node, error) {
+	return s.ListActionsByState(ctx, taskID, StateRunning)
+}
+
+// ListCompletedActions 列出所有 done 状态的 action
+func (s *AdapterStore) ListCompletedActions(ctx context.Context, taskID string) ([]Node, error) {
+	return s.ListActionsByState(ctx, taskID, StateDone)
+}
+
+// ListAllActions 列出所有 action
+func (s *AdapterStore) ListAllActions(ctx context.Context, taskID string) ([]Node, error) {
+	return s.ListNodesByKind(ctx, taskID, KindAction)
+}
+
+// CreateEdge 创建边（兼容旧接口）
+func (s *AdapterStore) CreateEdge(ctx context.Context, edge Edge) error {
+	graphEdge := &core.GraphEdge{
+		From:      edge.SrcID,
+		To:        edge.DstID,
+		Relation:  string(edge.Rel),
+		Metadata:  make(map[string]interface{}),
+		CreatedAt: edge.CreatedAt,
+	}
+
+	if len(edge.Attrs) > 0 {
+		var attrs map[string]interface{}
+		if err := json.Unmarshal(edge.Attrs, &attrs); err == nil {
+			graphEdge.Metadata = attrs
+		}
+	}
+
+	return s.graphStore.CreateEdge(ctx, graphEdge)
+}
+
+// ListEdgesFrom 列出从指定节点出发的边
+func (s *AdapterStore) ListEdgesFrom(ctx context.Context, taskID, srcID string) ([]Edge, error) {
+	query := core.GraphEdgeQuery{
+		From: srcID,
+	}
+
+	edges, err := s.graphStore.ListEdges(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+
+	return s.convertGraphEdgesToEdges(edges, taskID), nil
+}
+
+// ListEdgesTo 列出指向指定节点的边
+func (s *AdapterStore) ListEdgesTo(ctx context.Context, taskID, dstID string) ([]Edge, error) {
+	query := core.GraphEdgeQuery{
+		To: dstID,
+	}
+
+	edges, err := s.graphStore.ListEdges(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+
+	return s.convertGraphEdgesToEdges(edges, taskID), nil
+}
+
+// ListEdgesByRelation 列出指定关系类型的边
+func (s *AdapterStore) ListEdgesByRelation(ctx context.Context, taskID string, rel Relation) ([]Edge, error) {
+	query := core.GraphEdgeQuery{
+		Relation: string(rel),
+	}
+
+	edges, err := s.graphStore.ListEdges(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+
+	return s.convertGraphEdgesToEdges(edges, taskID), nil
+}
+
+// DeleteNode 删除节点
+func (s *AdapterStore) DeleteNode(ctx context.Context, id string) error {
+	return s.graphStore.DeleteNode(ctx, id)
+}
+
+// UpdateNodeConfidence 更新节点置信度
+func (s *AdapterStore) UpdateNodeConfidence(ctx context.Context, id string, confidence Confidence) error {
+	var conf float64
+	switch confidence {
+	case ConfidenceVerified:
+		conf = 1.0
+	case ConfidenceUnverified:
+		conf = 0.5
+	case ConfidenceRefuted:
+		conf = 0.0
+	}
+
+	return s.graphStore.UpdateNode(ctx, id, core.GraphNodeUpdate{
+		Confidence: &conf,
+	})
+}
+
+// UpdateActionStateWithReason 更新 action 状态和阻塞原因
+func (s *AdapterStore) UpdateActionStateWithReason(ctx context.Context, id string, state State, blockedReason *string) error {
+	update := core.GraphNodeUpdate{
+		State: string(state),
+	}
+
+	if blockedReason != nil {
+		// 需要先获取当前 metadata，然后更新
+		node, err := s.graphStore.GetNode(ctx, id)
+		if err != nil {
+			return err
+		}
+
+		metadata := node.Metadata
+		if metadata == nil {
+			metadata = make(map[string]interface{})
+		}
+		metadata["blocked_reason"] = *blockedReason
+		update.Metadata = metadata
+	}
+
+	return s.graphStore.UpdateNode(ctx, id, update)
+}
+
+// ─────────────────────────────────────────────
+// 辅助方法
+// ─────────────────────────────────────────────
+
+// convertGraphNodesToNodes 转换 GraphNode 列表为 Node 列表
+func (s *AdapterStore) convertGraphNodesToNodes(graphNodes []*core.GraphNode) []Node {
+	nodes := make([]Node, 0, len(graphNodes))
+	for _, gn := range graphNodes {
+		node, err := s.graphNodeToNode(gn)
+		if err != nil {
+			continue
+		}
+		nodes = append(nodes, *node)
+	}
+	return nodes
+}
+
+// graphNodeToNode 转换单个 GraphNode 为 Node
+func (s *AdapterStore) graphNodeToNode(graphNode *core.GraphNode) (*Node, error) {
+	node := &Node{
+		ID:        graphNode.ID,
+		Kind:      NodeKind(graphNode.Kind),
+		Content:   graphNode.Content,
+		CreatedAt: graphNode.CreatedAt,
+		UpdatedAt: graphNode.UpdatedAt,
+	}
+
+	// 从 Metadata 恢复字段
+	if taskID, ok := graphNode.Metadata["task_id"].(string); ok {
+		node.TaskID = taskID
+	}
+	if sourceType, ok := graphNode.Metadata["source_type"].(string); ok {
+		node.SourceType = SourceType(sourceType)
+	}
+	if sourceID, ok := graphNode.Metadata["source_id"].(string); ok {
+		node.SourceID = sourceID
+	}
+	if owner, ok := graphNode.Metadata["owner"].(string); ok {
+		node.Owner = owner
+	}
+	if tags, ok := graphNode.Metadata["tags"].([]interface{}); ok {
+		strTags := make([]string, 0, len(tags))
+		for _, tag := range tags {
+			if str, ok := tag.(string); ok {
+				strTags = append(strTags, str)
+			}
+		}
+		node.Tags = strTags
+	}
+	if priority, ok := graphNode.Metadata["priority"].(string); ok {
+		node.Priority = Priority(priority)
+	}
+
+	// State
+	if graphNode.State != "" {
+		state := State(graphNode.State)
+		node.State = &state
+	}
+
+	// Complexity
+	if complexity, ok := graphNode.Metadata["complexity"].(string); ok {
+		c := Complexity(complexity)
+		node.Complexity = &c
+	}
+
+	// DependsOn
+	if dependsOn, ok := graphNode.Metadata["depends_on"].([]interface{}); ok {
+		deps := make([]string, 0, len(dependsOn))
+		for _, dep := range dependsOn {
+			if str, ok := dep.(string); ok {
+				deps = append(deps, str)
+			}
+		}
+		node.DependsOn = deps
+	}
+
+	// BlockedReason
+	if blockedReason, ok := graphNode.Metadata["blocked_reason"].(string); ok {
+		node.BlockedReason = &blockedReason
+	}
+
+	// RoadmapStep
+	if roadmapStep, ok := graphNode.Metadata["roadmap_step"].(float64); ok {
+		node.RoadmapStep = &roadmapStep
+	}
+
+	// Confidence
+	if graphNode.Confidence >= 0.8 {
+		conf := ConfidenceVerified
+		node.Confidence = &conf
+	} else if graphNode.Confidence > 0 {
+		conf := ConfidenceUnverified
+		node.Confidence = &conf
+	}
+
+	return node, nil
+}
+
+// convertGraphEdgesToEdges 转换 GraphEdge 列表为 Edge 列表
+func (s *AdapterStore) convertGraphEdgesToEdges(graphEdges []*core.GraphEdge, taskID string) []Edge {
+	edges := make([]Edge, 0, len(graphEdges))
+	for _, ge := range graphEdges {
+		edge := Edge{
+			TaskID:    taskID,
+			SrcID:     ge.From,
+			Rel:       Relation(ge.Relation),
+			DstID:     ge.To,
+			CreatedAt: ge.CreatedAt,
+		}
+
+		if len(ge.Metadata) > 0 {
+			if attrs, err := json.Marshal(ge.Metadata); err == nil {
+				edge.Attrs = attrs
+			}
+		}
+
+		edges = append(edges, edge)
+	}
+	return edges
+}
+
+// ListResults 列出所有 result 节点
+func (s *AdapterStore) ListResults(ctx context.Context, taskID string) ([]Node, error) {
+	return s.ListNodesByKind(ctx, taskID, KindResult)
+}
+
+// ListVerifiedResults 列出所有已验证的 result 节点
+func (s *AdapterStore) ListVerifiedResults(ctx context.Context, taskID string) ([]Node, error) {
+	query := core.GraphNodeQuery{
+		Kind:          string(KindResult),
+		MinConfidence: 0.8, // verified
+		Filters: map[string]interface{}{
+			"metadata.task_id": taskID,
+		},
+		OrderBy: "created_at",
+	}
+
+	nodes, err := s.graphStore.ListNodes(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+
+	return s.convertGraphNodesToNodes(nodes), nil
+}
+
+// ListHypotheses 列出所有 hypothesis 节点（旧类型，映射到 observation）
+func (s *AdapterStore) ListHypotheses(ctx context.Context, taskID string) ([]Node, error) {
+	return s.ListNodesByKind(ctx, taskID, KindObservation)
+}
+
+// ListUnverifiedHypotheses 列出所有未验证的 hypothesis 节点
+func (s *AdapterStore) ListUnverifiedHypotheses(ctx context.Context, taskID string) ([]Node, error) {
+	query := core.GraphNodeQuery{
+		Kind: string(KindObservation),
+		Filters: map[string]interface{}{
+			"metadata.task_id": taskID,
+		},
+		OrderBy: "created_at",
+	}
+
+	nodes, err := s.graphStore.ListNodes(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+
+	// 过滤未验证的
+	var unverified []Node
+	for _, node := range s.convertGraphNodesToNodes(nodes) {
+		if node.Confidence == nil || *node.Confidence == ConfidenceUnverified {
+			unverified = append(unverified, node)
+		}
+	}
+
+	return unverified, nil
+}
+
+// GetObjective 获取任务的 objective 节点
+func (s *AdapterStore) GetObjective(ctx context.Context, taskID string) (ObjectiveNode, error) {
+	query := core.GraphNodeQuery{
+		Kind: string(KindObjective),
+		Filters: map[string]interface{}{
+			"metadata.task_id": taskID,
+		},
+		Limit: 1,
+	}
+
+	nodes, err := s.graphStore.ListNodes(ctx, query)
+	if err != nil {
+		return ObjectiveNode{}, err
+	}
+
+	if len(nodes) == 0 {
+		return ObjectiveNode{}, fmt.Errorf("objective not found for task %s", taskID)
+	}
+
+	// 转换为 ObjectiveNode
+	var content struct {
+		Description string                 `json:"description"`
+		Context     map[string]interface{} `json:"context,omitempty"`
+	}
+	if err := json.Unmarshal(nodes[0].Content, &content); err != nil {
+		return ObjectiveNode{}, fmt.Errorf("unmarshal objective: %w", err)
+	}
+
+	obj := ObjectiveNode{
+		ID:   nodes[0].ID,
+		Goal: content.Description,
+	}
+
+	return obj, nil
 }

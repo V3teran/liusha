@@ -60,6 +60,7 @@ func TestPostgresGraphStore_CreateNode(t *testing.T) {
 				ID:      uuid.New().String(),
 				Kind:    string(KindObjective),
 				Content: json.RawMessage(`{"description": "测试目标"}`),
+				State:   string(ActionStateOpen),
 				Metadata: map[string]interface{}{
 					"task_id": taskID,
 				},
@@ -148,6 +149,7 @@ func TestPostgresGraphStore_GetNode(t *testing.T) {
 		ID:      nodeID,
 		Kind:    string(KindObjective),
 		Content: json.RawMessage(`{"description": "测试目标"}`),
+		State:   string(ActionStateOpen),
 		Metadata: map[string]interface{}{
 			"task_id": taskID,
 			"custom":  "value",
@@ -279,6 +281,7 @@ func TestPostgresGraphStore_DeleteNode(t *testing.T) {
 		ID:      nodeID,
 		Kind:    string(KindObjective),
 		Content: json.RawMessage(`{}`),
+		State:   string(ActionStateOpen),
 		Metadata: map[string]interface{}{
 			"task_id": taskID,
 		},
@@ -317,6 +320,7 @@ func TestPostgresGraphStore_ListNodes(t *testing.T) {
 			ID:      uuid.New().String(),
 			Kind:    string(KindObjective),
 			Content: json.RawMessage(`{"name": "obj1"}`),
+			State:   string(ActionStateDone),
 			Metadata: map[string]interface{}{
 				"task_id": taskID,
 			},

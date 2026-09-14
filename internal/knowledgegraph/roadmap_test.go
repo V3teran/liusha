@@ -4,7 +4,6 @@ import (
 	"context"
 	"testing"
 
-	"github.com/V3teran/liusha/internal/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -16,8 +15,9 @@ func TestRoadmapBasicOperations(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	cfg := config.MustLoad()
-	store := NewStore(cfg.DatabasePool)
+	pool := setupTestDB(t)
+	defer pool.Close()
+	store := NewStore(pool)
 
 	taskID := "test_roadmap_" + t.Name()
 
@@ -69,8 +69,9 @@ func TestRoadmapDynamicInsertion(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	cfg := config.MustLoad()
-	store := NewStore(cfg.DatabasePool)
+	pool := setupTestDB(t)
+	defer pool.Close()
+	store := NewStore(pool)
 
 	taskID := "test_roadmap_insert_" + t.Name()
 
@@ -109,8 +110,9 @@ func TestRoadmapSummary(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	cfg := config.MustLoad()
-	store := NewStore(cfg.DatabasePool)
+	pool := setupTestDB(t)
+	defer pool.Close()
+	store := NewStore(pool)
 
 	taskID := "test_roadmap_summary_" + t.Name()
 
@@ -142,8 +144,9 @@ func TestRoadmapActionAssociation(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	cfg := config.MustLoad()
-	store := NewStore(cfg.DatabasePool)
+	pool := setupTestDB(t)
+	defer pool.Close()
+	store := NewStore(pool)
 
 	taskID := "test_roadmap_action_" + t.Name()
 
@@ -195,9 +198,9 @@ func TestRoadmapActionAssociation(t *testing.T) {
 	doneState := StateDone
 	action1.State = &doneState
 	action2.State = &doneState
-	err = store.UpdateActionState(ctx, "action1", StateDone, nil)
+	err = store.UpdateActionStateWithReason(ctx, "action1", StateDone, nil)
 	require.NoError(t, err)
-	err = store.UpdateActionState(ctx, "action2", StateDone, nil)
+	err = store.UpdateActionStateWithReason(ctx, "action2", StateDone, nil)
 	require.NoError(t, err)
 
 	// 现在 Step 1.0 完成了

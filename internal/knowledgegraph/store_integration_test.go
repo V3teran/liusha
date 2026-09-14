@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/V3teran/liusha/internal/db"
-	"github.com/V3teran/liusha/internal/worldmodel"
+	// "github.com/V3teran/liusha/internal/worldmodel" // 已删除
 )
 
 // 用 dev DB 验证知识图谱运行时行为（不只是编译）：

@@ -121,14 +121,14 @@ func (s *Store) LoadRoadmap(ctx context.Context, taskID string) ([]RoadmapStep, 
 	for rows.Next() {
 		var step RoadmapStep
 		var contextJSON []byte
-		var dependsOn []float64
+		var dependsOnRaw interface{}
 		var rationale sql.NullString
 
 		err := rows.Scan(
 			&step.Step,
 			&step.Objective,
 			&step.Status,
-			pq.Array(&dependsOn),
+			&dependsOnRaw,
 			&contextJSON,
 			&rationale,
 			&step.CreatedAt,
@@ -139,7 +139,28 @@ func (s *Store) LoadRoadmap(ctx context.Context, taskID string) ([]RoadmapStep, 
 		}
 
 		step.TaskID = taskID
-		step.DependsOn = dependsOn
+
+		// 处理 depends_on 数组（可能为 NULL）
+		if dependsOnRaw != nil {
+			if arr, ok := dependsOnRaw.([]interface{}); ok {
+				step.DependsOn = make([]float64, len(arr))
+				for i, v := range arr {
+					switch val := v.(type) {
+					case float64:
+						step.DependsOn[i] = val
+					case float32:
+						step.DependsOn[i] = float64(val)
+					case int64:
+						step.DependsOn[i] = float64(val)
+					case int32:
+						step.DependsOn[i] = float64(val)
+					}
+				}
+			}
+		} else {
+			step.DependsOn = []float64{}
+		}
+
 		if rationale.Valid {
 			step.Rationale = rationale.String
 		}
@@ -263,14 +284,14 @@ func (s *Store) GetStepByNumber(ctx context.Context, taskID string, step float64
 
 	var st RoadmapStep
 	var contextJSON []byte
-	var dependsOn []float64
+	var dependsOnRaw interface{}
 	var rationale sql.NullString
 
 	err := s.pool.QueryRow(ctx, query, taskID, step).Scan(
 		&st.Step,
 		&st.Objective,
 		&st.Status,
-		pq.Array(&dependsOn),
+		&dependsOnRaw,
 		&contextJSON,
 		&rationale,
 		&st.CreatedAt,
@@ -284,7 +305,28 @@ func (s *Store) GetStepByNumber(ctx context.Context, taskID string, step float64
 	}
 
 	st.TaskID = taskID
-	st.DependsOn = dependsOn
+
+	// 处理 depends_on 数组
+	if dependsOnRaw != nil {
+		if arr, ok := dependsOnRaw.([]interface{}); ok {
+			st.DependsOn = make([]float64, len(arr))
+			for i, v := range arr {
+				switch val := v.(type) {
+				case float64:
+					st.DependsOn[i] = val
+				case float32:
+					st.DependsOn[i] = float64(val)
+				case int64:
+					st.DependsOn[i] = float64(val)
+				case int32:
+					st.DependsOn[i] = float64(val)
+				}
+			}
+		}
+	} else {
+		st.DependsOn = []float64{}
+	}
+
 	if rationale.Valid {
 		st.Rationale = rationale.String
 	}

@@ -109,3 +109,23 @@ type ErrHumanInputRejected struct {
 func (e ErrHumanInputRejected) Error() string {
 	return fmt.Sprintf("human input rejected for request %s: %s", e.RequestID, e.Reason)
 }
+
+// ErrInvalidConfig 表示配置无效。
+type ErrInvalidConfig struct {
+	Field  string
+	Reason string
+}
+
+func (e ErrInvalidConfig) Error() string {
+	return fmt.Sprintf("invalid config field %s: %s", e.Field, e.Reason)
+}
+
+// ErrNodeFailed 表示节点执行失败。
+type ErrNodeFailed struct {
+	NodeID string
+	Reason string
+}
+
+func (e ErrNodeFailed) Error() string {
+	return fmt.Sprintf("node %s failed: %s", e.NodeID, e.Reason)
+}

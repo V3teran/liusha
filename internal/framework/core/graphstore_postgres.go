@@ -68,11 +68,13 @@ func (s *PostgresGraphStore) CreateNode(ctx context.Context, node *GraphNode) er
 	var complexity *string
 	var dependsOn []string
 	var blockedReason *string
+	var roadmapStep *float64
 	if node.Kind == string(KindAction) {
 		c := s.extractString(node.Metadata, "complexity", "simple")
 		complexity = &c
 		dependsOn = s.extractStringArray(node.Metadata, "depends_on")
 		blockedReason = s.extractStringPtr(node.Metadata, "blocked_reason")
+		roadmapStep = s.extractFloat64Ptr(node.Metadata, "roadmap_step")
 	}
 
 	// Observation/Evaluation/Result 特定字段（表中的 confidence 字段）
@@ -93,18 +95,18 @@ func (s *PostgresGraphStore) CreateNode(ctx context.Context, node *GraphNode) er
 	query := `
 		INSERT INTO wm_node (
 			id, task_id, kind, content,
-			state, complexity, depends_on, blocked_reason,
+			state, complexity, depends_on, blocked_reason, roadmap_step,
 			confidence,
 			priority, owner, source_type, source_id,
 			tags, metadata,
 			created_at, updated_at
 		) VALUES (
 			$1, $2, $3, $4,
-			$5, $6, $7, $8,
-			$9,
-			$10, $11, $12, $13,
-			$14, $15,
-			$16, $17
+			$5, $6, $7, $8, $9,
+			$10,
+			$11, $12, $13, $14,
+			$15, $16,
+			$17, $18
 		)
 	`
 
@@ -122,6 +124,7 @@ func (s *PostgresGraphStore) CreateNode(ctx context.Context, node *GraphNode) er
 		complexity,
 		dependsOn,
 		blockedReason,
+		roadmapStep,
 		dbConfidence,
 		priority,
 		owner,
@@ -792,6 +795,24 @@ func (s *PostgresGraphStore) extractStringPtr(m map[string]interface{}, key stri
 	}
 	if v, ok := m[key].(string); ok {
 		return &v
+	}
+	return nil
+}
+
+func (s *PostgresGraphStore) extractFloat64Ptr(m map[string]interface{}, key string) *float64 {
+	if m == nil {
+		return nil
+	}
+	if v, ok := m[key].(float64); ok {
+		return &v
+	}
+	if v, ok := m[key].(float32); ok {
+		f := float64(v)
+		return &f
+	}
+	if v, ok := m[key].(int); ok {
+		f := float64(v)
+		return &f
 	}
 	return nil
 }

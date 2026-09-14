@@ -36,7 +36,7 @@ func TestTaskIsolation(t *testing.T) {
 		Content:    json.RawMessage(`{"instruction":"测试 taskA 的目标"}`),
 		State:      &stateOpen,
 		Complexity: &complexity,
-		Priority:   knowledgegraph.PriorityMedium,
+		Priority:   PriorityMedium,
 		CreatedAt:  time.Now(),
 		UpdatedAt:  time.Now(),
 	}
@@ -51,7 +51,7 @@ func TestTaskIsolation(t *testing.T) {
 		Content:    json.RawMessage(`{"instruction":"测试 taskB 的目标"}`),
 		State:      &stateOpen,
 		Complexity: &complexity,
-		Priority:   knowledgegraph.PriorityMedium,
+		Priority:   PriorityMedium,
 		CreatedAt:  time.Now(),
 		UpdatedAt:  time.Now(),
 	}
@@ -95,7 +95,7 @@ func TestCompleteDataFlow(t *testing.T) {
 		Content:    json.RawMessage(`{"instruction":"扫描目标端点"}`),
 		State:      &stateOpen,
 		Complexity: &complexity,
-		Priority:   knowledgegraph.PriorityHigh,
+		Priority:   PriorityHigh,
 		CreatedAt:  time.Now(),
 		UpdatedAt:  time.Now(),
 	}
@@ -103,7 +103,7 @@ func TestCompleteDataFlow(t *testing.T) {
 	require.NoError(t, err)
 
 	// 2. 执行 move → 产出 observation
-	err = store.UpdateActionState(ctx, move.ID, StateRunning, nil)
+	err = store.UpdateActionStateWithReason(ctx, move.ID, StateRunning, nil)
 	require.NoError(t, err)
 
 	confidence := ConfidenceUnverified
@@ -113,7 +113,7 @@ func TestCompleteDataFlow(t *testing.T) {
 		Kind:       KindObservation,
 		Content:    json.RawMessage(`{"detail":"发现目录 /admin"}`),
 		Confidence: &confidence,
-		Priority:   knowledgegraph.PriorityMedium,
+		Priority:   PriorityMedium,
 		SourceType: "executor",
 		SourceID:   "executor-1",
 		CreatedAt:  time.Now(),
@@ -140,7 +140,7 @@ func TestCompleteDataFlow(t *testing.T) {
 		Kind:       KindResult,
 		Content:    json.RawMessage(`{"type":"vulnerability","severity":"medium"}`),
 		Confidence: &verifiedConf,
-		Priority:   knowledgegraph.PriorityHigh,
+		Priority:   PriorityHigh,
 		SourceType: "verifier",
 		SourceID:   "verifier-1",
 		CreatedAt:  time.Now(),
@@ -160,7 +160,7 @@ func TestCompleteDataFlow(t *testing.T) {
 	require.NoError(t, err)
 
 	// 4. Move 完成
-	err = store.UpdateActionState(ctx, move.ID, StateDone, nil)
+	err = store.UpdateActionStateWithReason(ctx, move.ID, StateDone, nil)
 	require.NoError(t, err)
 
 	// 验证 verified discoveries
@@ -195,7 +195,7 @@ func TestMoveDependency(t *testing.T) {
 		Content:    json.RawMessage(`{"instruction":"第一步：扫描"}`),
 		State:      &stateOpen,
 		Complexity: &complexity,
-		Priority:   knowledgegraph.PriorityMedium,
+		Priority:   PriorityMedium,
 		CreatedAt:  time.Now(),
 		UpdatedAt:  time.Now(),
 	}
@@ -211,7 +211,7 @@ func TestMoveDependency(t *testing.T) {
 		State:      &stateOpen,
 		Complexity: &complexity,
 		DependsOn:  []string{"action-1"},
-		Priority:   knowledgegraph.PriorityMedium,
+		Priority:   PriorityMedium,
 		CreatedAt:  time.Now(),
 		UpdatedAt:  time.Now(),
 	}
@@ -224,7 +224,7 @@ func TestMoveDependency(t *testing.T) {
 	assert.Len(t, actions, 2)
 
 	// move-1 完成
-	err = store.UpdateActionState(ctx, "action-1", StateDone, nil)
+	err = store.UpdateActionStateWithReason(ctx, "action-1", StateDone, nil)
 	require.NoError(t, err)
 
 	// 再次查询，只有 move-2 (move-1 已 done)

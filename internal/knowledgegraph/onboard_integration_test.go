@@ -10,7 +10,7 @@ import (
 
 	"github.com/V3teran/liusha/internal/db"
 	"github.com/V3teran/liusha/internal/executor"
-	"github.com/V3teran/liusha/internal/worldmodel"
+	// "github.com/V3teran/liusha/internal/worldmodel" // 已删除
 )
 
 // A2 契约缝：Registry.Onboard(brief) → TargetRef → UpsertNode(KindObjective, task_id=assignmentID)。
