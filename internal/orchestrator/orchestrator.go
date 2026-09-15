@@ -40,6 +40,9 @@ type Orchestrator struct {
 	findings *finding.Store
 	eventBus *eventbus.Bus
 
+	// Agent 运行器（管理 Planner 和 Monitor 生命周期）
+	agentRunner *core.AgentRunner
+
 	// 持续运行的 Agents
 	planner *planner.Agent
 	monitor *monitor.Agent
@@ -80,7 +83,6 @@ func New(cfg Config) *Orchestrator {
 		world:    cfg.World,
 		traffic:  cfg.Traffic,
 		findings: cfg.Findings,
-		// creds:    cfg.Creds, // TODO: 暂时移除
 		eventBus: cfg.EventBus,
 		logger:   cfg.Logger.With().Str("component", "orchestrator").Str("task_id", cfg.TaskID).Logger(),
 	}
@@ -90,6 +92,21 @@ func New(cfg Config) *Orchestrator {
 
 	// 创建 Monitor Agent（独立监察，持续运行）
 	o.monitor = monitor.New(cfg.MonitorConfig)
+
+	// 创建 AgentRunner 管理 Planner 和 Monitor
+	o.agentRunner = core.NewAgentRunner(core.AgentRunnerConfig{
+		Logger:       cfg.Logger,
+		StartTimeout: 30 * time.Second,
+		StopTimeout:  10 * time.Second,
+	})
+
+	// 添加 Agents 到 Runner
+	if err := o.agentRunner.AddAgent(o.planner); err != nil {
+		cfg.Logger.Warn().Err(err).Msg("failed to add planner to runner")
+	}
+	if err := o.agentRunner.AddAgent(o.monitor); err != nil {
+		cfg.Logger.Warn().Err(err).Msg("failed to add monitor to runner")
+	}
 
 	// 创建 Executor Pool（按需调用）
 	poolSize := cfg.ExecutorPoolSize
@@ -109,7 +126,7 @@ func New(cfg Config) *Orchestrator {
 // Run 启动 Orchestrator，编排整个任务的执行。
 //
 // 执行流程：
-// 1. 启动 Planner 和 Monitor（持续运行）
+// 1. 启动 AgentRunner（自动管理 Planner 和 Monitor）
 // 2. 等待 Planner 初始规划完成
 // 3. 主循环：
 //    - 获取可执行的 Actions
@@ -120,26 +137,25 @@ func New(cfg Config) *Orchestrator {
 func (o *Orchestrator) Run(ctx context.Context) error {
 	o.logger.Info().Msg("orchestrator starting")
 
-	// 1. 启动持续运行的 Agents
+	// 1. 启动 AgentRunner（并发启动 Planner 和 Monitor）
 	var wg sync.WaitGroup
-
-	// 启动 Planner Agent
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		if err := o.planner.Start(ctx); err != nil && ctx.Err() == nil {
-			o.logger.Error().Err(err).Msg("planner agent stopped with error")
+		if err := o.agentRunner.Start(ctx); err != nil && ctx.Err() == nil {
+			o.logger.Error().Err(err).Msg("agent runner stopped with error")
+			// 收集错误
+			for _, agentErr := range o.agentRunner.GetErrors() {
+				o.logger.Error().
+					Str("agent", agentErr.AgentName).
+					Err(agentErr.Error).
+					Msg("agent error")
+			}
 		}
 	}()
 
-	// 启动 Monitor Agent
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		if err := o.monitor.Start(ctx); err != nil && ctx.Err() == nil {
-			o.logger.Error().Err(err).Msg("monitor agent stopped with error")
-		}
-	}()
+	// 等待 AgentRunner 真正启动
+	time.Sleep(100 * time.Millisecond)
 
 	// 2. 等待 Planner 初始规划完成
 	o.logger.Info().Msg("waiting for initial planning")
@@ -147,6 +163,9 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 	case <-o.planner.WaitInitialPlanDone():
 		o.logger.Info().Msg("initial planning completed, starting execution loop")
 	case <-ctx.Done():
+		o.logger.Info().Msg("context canceled during initial planning")
+		o.agentRunner.Stop(context.Background())
+		wg.Wait()
 		return ctx.Err()
 	}
 
@@ -166,7 +185,12 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 		select {
 		case <-ctx.Done():
 			o.logger.Info().Msg("orchestrator stopping (context canceled)")
-			// 等待 Agents 优雅退出
+			// 优雅停止 Agents
+			stopCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			if err := o.agentRunner.Stop(stopCtx); err != nil {
+				o.logger.Error().Err(err).Msg("failed to stop agents gracefully")
+			}
 			wg.Wait()
 			return ctx.Err()
 
@@ -174,7 +198,12 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 			// 4.1 检查是否完成
 			if o.isComplete(ctx) {
 				o.logger.Info().Msg("task completed")
-				// 等待 Agents 优雅退出
+				// 优雅停止 Agents
+				stopCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				defer cancel()
+				if err := o.agentRunner.Stop(stopCtx); err != nil {
+					o.logger.Error().Err(err).Msg("failed to stop agents gracefully")
+				}
 				wg.Wait()
 				return nil
 			}

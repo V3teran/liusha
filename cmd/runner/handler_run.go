@@ -13,6 +13,7 @@ import (
 	"github.com/V3teran/liusha/internal/conversation"
 	"github.com/V3teran/liusha/internal/dispatcher"
 	dispatcherprofile "github.com/V3teran/liusha/internal/dispatcher/profile"
+	"github.com/V3teran/liusha/internal/eventbus"
 	"github.com/V3teran/liusha/internal/executor"
 	"github.com/V3teran/liusha/internal/framework/llm"
 	"github.com/V3teran/liusha/internal/registry"
@@ -185,8 +186,8 @@ func (h handler) buildDispatcher(
 	}
 
 	// 使用 Action 级别的 EventBus（通过适配器）
-	actionEventBus := executor.NewEventBusAdapter(h.actionBus)
-	d := dispatcher.New(p, reg, noopCompactor{}, h.checkpoint, emitter, h.logger, h.world, actionEventBus)
+	actionEventBus := newEventBusAdapter(h.actionBus)
+	d := dispatcher.New(p, reg, h.checkpointer, emitter, h.logger, h.world, actionEventBus)
 
 	// 注册全部 5 个 Complexity Profile
 	for _, profile := range dispatcherprofile.Profiles(systemPrompt) {
@@ -552,4 +553,62 @@ func buildRunResult(engine string, execs []executor.Execution, report interface{
 		"final_text": finalText,
 		"cognition":  report,
 	}
+}
+
+// ─────────────────────────────────────────────────────────────
+//  EventBus 适配器
+// ─────────────────────────────────────────────────────────────
+
+// eventBusAdapter 将 eventbus.Bus 适配为 executor.EventBus 接口
+type eventBusAdapter struct {
+	bus *eventbus.Bus
+}
+
+func newEventBusAdapter(bus *eventbus.Bus) *eventBusAdapter {
+	return &eventBusAdapter{bus: bus}
+}
+
+func (a *eventBusAdapter) Subscribe(ctx context.Context, actionID string) executor.EventSubscription {
+	// eventbus.Bus.Subscribe 返回 *eventbus.Subscription
+	sub := a.bus.Subscribe(ctx, actionID)
+	return &eventSubscriptionAdapter{sub: sub}
+}
+
+func (a *eventBusAdapter) Publish(event executor.ControlEvent) {
+	// 转换 executor.ControlEvent 到 eventbus.Event
+	a.bus.Publish(eventbus.Event{
+		Type:      eventbus.EventType(event.Type),
+		ActionID:  event.ActionID,
+		Payload:   event.Payload,
+		Timestamp: event.Timestamp,
+	})
+}
+
+// eventSubscriptionAdapter 实现 executor.EventSubscription
+type eventSubscriptionAdapter struct {
+	sub *eventbus.Subscription
+}
+
+func (s *eventSubscriptionAdapter) Events() <-chan executor.ControlEvent {
+	// 从 eventbus.Subscription 获取事件 channel
+	eventbusCh := s.sub.Events()
+
+	// 创建转换 channel
+	out := make(chan executor.ControlEvent, 10)
+	go func() {
+		defer close(out)
+		for e := range eventbusCh {
+			out <- executor.ControlEvent{
+				Type:      string(e.Type),
+				ActionID:  e.ActionID,
+				Payload:   e.Payload,
+				Timestamp: e.Timestamp,
+			}
+		}
+	}()
+	return out
+}
+
+func (s *eventSubscriptionAdapter) Unsubscribe() {
+	s.sub.Unsubscribe()
 }

@@ -48,6 +48,7 @@ import (
 	"github.com/V3teran/liusha/internal/llmstore"
 	"github.com/V3teran/liusha/internal/logx"
 	"github.com/V3teran/liusha/internal/framework/llm"
+	"github.com/V3teran/liusha/internal/framework/persistence/postgres"
 	"github.com/V3teran/liusha/internal/ratelimit"
 	"github.com/V3teran/liusha/internal/sandbox"
 	"github.com/V3teran/liusha/internal/scanstream"
@@ -105,6 +106,7 @@ func main() {
 	worldStore := knowledgegraph.NewStore(pool) // L3 世界模型持久层（onboard 落 KindObjective 节点）
 	toolCalls := toolinvocation.NewStore(pool)
 	calls := llminvocation.NewStoreWithConfig(pool, cfg.LLM.Invocation)
+	checkpointer := postgres.NewCheckpointer(pool) // Checkpoint 框架层持久化（PostgreSQL 后端）
 	corpusStore := corpus.NewStore(pool) // 跨目标知识库（hybrid RAG）
 	defer func() { _ = calls.Close() }()
 	proxyStore := traffic.NewProxyStore(pool) // 代理捕获流量（passive，按 host）
@@ -301,7 +303,7 @@ func main() {
 		eventPublisher: eventPublisher,
 		profiles:       profiles,
 		world:          worldStore,
-		checkpoint:     executor.NewPGCheckpointStore(pool),
+		checkpointer:   checkpointer,
 		eventBus:       eventBus,
 		actionBus:      actionBus,
 		plannerMgr:     plannerMgr,

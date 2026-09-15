@@ -33,12 +33,12 @@ type KilledReason struct {
 // applySteeringMessages 读取 worldmodel 中的 steering 消息并注入到对话历史。
 func (a *Agent) applySteeringMessages(ctx context.Context, actionID string, messages []llm.Message) []llm.Message {
 	// 如果没有 worldmodel 访问权限，跳过
-	if a.knowledgegraph == nil {
+	if a.world == nil {
 		return messages
 	}
 
 	// 读取 action 节点
-	node, err := a.knowledgegraph.GetNode(ctx, actionID)
+	node, err := a.world.GetNode(ctx, actionID)
 	if err != nil {
 		a.logger.Warn().Err(err).Str("action_id", actionID).Msg("failed to read steering messages from worldmodel")
 		return messages

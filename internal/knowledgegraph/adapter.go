@@ -828,3 +828,35 @@ func (s *AdapterStore) CompareAndSwapState(ctx context.Context, id string, expec
 func (s *AdapterStore) UpdateNode(ctx context.Context, id string, update core.GraphNodeUpdate) error {
 	return s.graphStore.UpdateNode(ctx, id, update)
 }
+
+// RecordVerification 记录验证结果
+func (s *AdapterStore) RecordVerification(ctx context.Context, v Verification) (string, error) {
+	if v.ID == "" {
+		return "", fmt.Errorf("verification ID is required")
+	}
+
+	// 创建验证节点（作为审计链）
+	content, err := json.Marshal(v)
+	if err != nil {
+		return "", fmt.Errorf("marshal verification: %w", err)
+	}
+
+	node := &core.GraphNode{
+		ID:      v.ID,
+		Kind:    "verification",
+		Content: content,
+		Metadata: map[string]interface{}{
+			"task_id":     v.TaskID,
+			"node_id":     v.NodeID,
+			"outcome":     v.Outcome,
+			"duration_ms": v.DurationMs,
+		},
+		CreatedAt: v.CreatedAt,
+	}
+
+	if err := s.graphStore.CreateNode(ctx, node); err != nil {
+		return "", fmt.Errorf("create verification node: %w", err)
+	}
+
+	return v.ID, nil
+}
