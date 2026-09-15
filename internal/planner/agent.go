@@ -10,22 +10,27 @@ import (
 
 	"github.com/rs/zerolog"
 
-	"github.com/V3teran/liusha/internal/agentcore"
 	"github.com/V3teran/liusha/internal/controlplane"
 	"github.com/V3teran/liusha/internal/eventbus"
 	"github.com/V3teran/liusha/internal/executor"
 	"github.com/V3teran/liusha/internal/framework/core"
 	"github.com/V3teran/liusha/internal/framework/llm"
-	"github.com/V3teran/liusha/internal/registry"
+	"github.com/V3teran/liusha/internal/framework/runtime"
 	"github.com/V3teran/liusha/internal/knowledgegraph"
+	"github.com/V3teran/liusha/internal/tooladapter"
 )
 
 // 编译时检查接口实现
 var _ core.Agent = (*Agent)(nil)
 
-// Agent 是事件驱动的 Planner Agent，通过 LLM 推理产出 Action
+// Agent 是事件驱动的 Planner Agent，通过统一的 ReActRuntime 产出 Action
+//
+// Phase 1 架构：
+// - 完全使用 ReActRuntime（移除旧 agentcore）
+// - 集成 Checkpoint 系统支持长期运行
+// - MessageModifier 链（预留接口）
 type Agent struct {
-	core         *agentcore.Agent          // 统一 Agent 框架（封装 LLM 循环）
+	reactRuntime runtime.ReActRuntime      // ReAct 运行时（唯一引擎）
 	taskID       string
 	eventBus     *executor.PlannerEventBus // Task 级事件总线（接收触发）
 	actionBus    *eventbus.Bus             // Action 级事件总线（发送控制）
@@ -33,6 +38,10 @@ type Agent struct {
 	controlPlane *controlplane.Store
 	router       *llm.Router
 	logger       zerolog.Logger
+
+	// Checkpoint 系统
+	checkpointer     core.Checkpointer
+	checkpointPolicy runtime.CheckpointPolicy
 
 	stopCh            chan struct{}
 	initialPlanDoneCh chan struct{} // 初始规划完成信号
@@ -47,51 +56,54 @@ type Config struct {
 	ControlPlane *controlplane.Store
 	Router       *llm.Router
 	Logger       zerolog.Logger
+
+	// Checkpoint 配置（可选）
+	Checkpointer     core.Checkpointer        // nil 表示禁用 checkpoint
+	CheckpointPolicy runtime.CheckpointPolicy // nil 使用默认策略
 }
 
 // New 创建新的 Planner Agent
 func New(cfg Config) *Agent {
-	// 构建工具集
-	reg := registry.New()
+	// 创建 ReAct 运行时
+	reactRuntime := runtime.NewReActRuntime()
 
-	// Roadmap 工具（核心规划机制）
-	reg.Register(NewObserveRoadmapTool(cfg.World, cfg.Logger))
-	reg.Register(NewGenerateRoadmapTool(cfg.World, cfg.Logger))
+	// 创建工具并用适配器包装
+	legacyTools := []tooladapter.LegacyTool{
+		NewObserveRoadmapTool(cfg.World, cfg.Logger),
+		NewGenerateRoadmapTool(cfg.World, cfg.Logger),
+		NewObserveStateTool(cfg.World),
+		NewProposeActionsTool(cfg.World, cfg.Logger),
+		NewEvaluateProgressTool(cfg.World),
+	}
 
-	// 世界模型观察工具（辅助）
-	reg.Register(NewObserveStateTool(cfg.World))
+	// 注册到 ReActRuntime
+	for _, tool := range legacyTools {
+		adapted := tooladapter.NewAdapter(tool)
+		if err := reactRuntime.RegisterTool(adapted); err != nil {
+			cfg.Logger.Warn().Err(err).Str("tool", tool.Name()).Msg("注册工具失败")
+		}
+	}
 
-	// 传统工具（兼容旧逻辑，后续可移除）
-	reg.Register(NewProposeActionsTool(cfg.World, cfg.Logger))
-	reg.Register(NewEvaluateProgressTool(cfg.World))
+	// 默认 Checkpoint 策略：每 5 次迭代保存
+	checkpointPolicy := cfg.CheckpointPolicy
+	if checkpointPolicy == nil && cfg.Checkpointer != nil {
+		checkpointPolicy = runtime.NewIterationCheckpointPolicy(5)
+	}
 
-	// 创建 Agent 实例
-	agent := &Agent{
+	return &Agent{
 		taskID:            cfg.TaskID,
+		reactRuntime:      reactRuntime,
 		eventBus:          cfg.EventBus,
 		actionBus:         cfg.ActionBus,
 		world:             cfg.World,
 		controlPlane:      cfg.ControlPlane,
 		router:            cfg.Router,
 		logger:            cfg.Logger,
+		checkpointer:      cfg.Checkpointer,
+		checkpointPolicy:  checkpointPolicy,
 		stopCh:            make(chan struct{}),
 		initialPlanDoneCh: make(chan struct{}),
 	}
-
-	// 创建统一 Agent 核心
-	core := agentcore.New(agentcore.Config{
-		Name:         "planner",
-		Provider:     nil, // 延迟设置（需要从 Router 获取）
-		Registry:     reg,
-		Logger:       cfg.Logger,
-		MaxRounds:    100,
-		MaxTokens:    8000,
-		SystemPrompt: agent.buildSystemPrompt(),
-	})
-
-	agent.core = core
-
-	return agent
 }
 
 // Start 启动 Planner Agent 的事件循环（阻塞运行）
@@ -101,7 +113,7 @@ func New(cfg Config) *Agent {
 // - 调用 LLM 生成新的 Actions
 // - 不负责监察（由 Monitor Agent 负责）
 func (a *Agent) Start(ctx context.Context) error {
-	a.logger.Info().Str("task_id", a.taskID).Msg("Planner Agent started")
+	a.logger.Info().Str("task_id", a.taskID).Msg("Planner Agent 启动")
 
 	// 订阅事件
 	events := a.eventBus.Subscribe(a.taskID)
@@ -112,7 +124,7 @@ func (a *Agent) Start(ctx context.Context) error {
 	if err := a.performInitialPlanning(ctx); err != nil {
 		// 通知失败（Executor 会看到 channel 关闭但没有成功标记）
 		close(a.initialPlanDoneCh)
-		return fmt.Errorf("initial planning failed, aborting task: %w", err)
+		return fmt.Errorf("初始规划失败，任务中止: %w", err)
 	}
 
 	// 通知初始规划成功
@@ -121,21 +133,21 @@ func (a *Agent) Start(ctx context.Context) error {
 	for {
 		select {
 		case <-ctx.Done():
-			a.logger.Info().Str("task_id", a.taskID).Msg("Planner Agent stopped (context canceled)")
+			a.logger.Info().Str("task_id", a.taskID).Msg("Planner Agent 停止（context 取消）")
 			return ctx.Err()
 
 		case <-a.stopCh:
-			a.logger.Info().Str("task_id", a.taskID).Msg("Planner Agent stopped")
+			a.logger.Info().Str("task_id", a.taskID).Msg("Planner Agent 停止")
 			return nil
 
 		case event := <-events:
 			a.logger.Debug().
 				Str("task_id", a.taskID).
 				Str("event_type", string(event.Type)).
-				Msg("received event")
+				Msg("收到事件")
 
 			if err := a.replan(ctx, event); err != nil {
-				a.logger.Error().Err(err).Str("event_type", string(event.Type)).Msg("replan failed")
+				a.logger.Error().Err(err).Str("event_type", string(event.Type)).Msg("重规划失败")
 			}
 		}
 	}
@@ -164,7 +176,7 @@ func (a *Agent) performInitialPlanning(ctx context.Context) error {
 			Int("attempt", attempt).
 			Int("max_attempts", maxAttempts).
 			Str("task_id", a.taskID).
-			Msg("attempting initial planning")
+			Msg("尝试初始规划")
 
 		err := a.replan(ctx, event)
 
@@ -172,7 +184,7 @@ func (a *Agent) performInitialPlanning(ctx context.Context) error {
 			a.logger.Info().
 				Int("attempt", attempt).
 				Str("task_id", a.taskID).
-				Msg("initial planning succeeded")
+				Msg("初始规划成功")
 			return nil
 		}
 
@@ -182,15 +194,15 @@ func (a *Agent) performInitialPlanning(ctx context.Context) error {
 			Err(err).
 			Int("attempt", attempt).
 			Str("task_id", a.taskID).
-			Msg("initial planning attempt failed")
+			Msg("初始规划尝试失败")
 
 		// 检查是否是明确的客户端错误（不应重试）
 		if isClientError(err) {
 			a.logger.Error().
 				Err(err).
 				Str("task_id", a.taskID).
-				Msg("initial planning failed with client error (non-retriable)")
-			return fmt.Errorf("initial planning failed with client error: %w", err)
+				Msg("初始规划失败（客户端错误，不可重试）")
+			return fmt.Errorf("初始规划失败（客户端错误）: %w", err)
 		}
 
 		// 还有重试机会
@@ -200,18 +212,18 @@ func (a *Agent) performInitialPlanning(ctx context.Context) error {
 			a.logger.Info().
 				Dur("delay", delay).
 				Str("task_id", a.taskID).
-				Msg("retrying initial planning after backoff")
+				Msg("指数退避后重试初始规划")
 
 			select {
 			case <-time.After(delay):
 				// 继续下一次尝试
 			case <-ctx.Done():
-				return fmt.Errorf("context canceled during retry backoff: %w", ctx.Err())
+				return fmt.Errorf("重试退避期间 context 取消: %w", ctx.Err())
 			}
 		}
 	}
 
-	return fmt.Errorf("initial planning failed after %d attempts: %w", maxAttempts, lastErr)
+	return fmt.Errorf("初始规划失败（%d 次尝试后）: %w", maxAttempts, lastErr)
 }
 
 // isClientError 判断是否是客户端错误（不应重试的错误）
@@ -242,7 +254,7 @@ func isClientError(err error) bool {
 // Stop 停止 Planner Agent
 // Stop 实现 core.Agent 接口（优雅关闭）
 func (a *Agent) Stop(ctx context.Context) error {
-	a.logger.Info().Msg("stopping planner agent")
+	a.logger.Info().Msg("停止 planner agent")
 	close(a.stopCh)
 	return nil
 }
@@ -252,107 +264,76 @@ func (a *Agent) WaitInitialPlanDone() <-chan struct{} {
 	return a.initialPlanDoneCh
 }
 
-// replan 执行重新规划（调用 LLM）
+// replan 执行重新规划（使用 ReActRuntime）
+//
+// Phase 1 架构决策：
+// 1. Checkpoint 恢复：从保存点继续迭代（避免重复计算）
+// 2. MessageModifier 错误：fail-fast + 可配置重试（预留）
+// 3. Checkpoint 存储：PG + Redis 双层（预留，当前使用内存）
 func (a *Agent) replan(ctx context.Context, event executor.Event) error {
 	startTime := time.Now()
 
-	// 构建系统提示词
-	systemPrompt := a.buildSystemPrompt()
+	// 将 task_id 注入 context（工具需要）
+	ctx = context.WithValue(ctx, "task_id", a.taskID)
 
 	// 构建用户提示词（包含当前状态和事件）
 	userPrompt, err := a.buildUserPrompt(ctx, event)
 	if err != nil {
-		return fmt.Errorf("build user prompt: %w", err)
+		return fmt.Errorf("构建用户提示词: %w", err)
 	}
 
-	// 初始消息
-	messages := []map[string]interface{}{
-		{"role": "user", "content": userPrompt},
+	// 获取 LLM 提供者
+	provider, err := a.router.For(ctx, llm.ComplexityComplex)
+	if err != nil {
+		return fmt.Errorf("获取 LLM 提供者: %w", err)
 	}
 
-	// 工具调用循环（最多 100 轮）
-	maxRounds := 100
-	for round := 0; round < maxRounds; round++ {
-		// 调用 LLM
-		a.logger.Info().
-			Str("task_id", a.taskID).
-			Int("round", round+1).
-			Int("max_rounds", maxRounds).
-			Msg("[PLANNER] Calling LLM")
+	// 配置 ReAct 运行时
+	config := &runtime.ReActConfig{
+		Objective:            userPrompt,
+		SystemPrompt:         a.buildSystemPrompt(),
+		LLMProvider:          provider,
+		ModelID:              "deepseek-chat",
+		MaxIterations:        100,
+		Temperature:          0.7,
+		MaxTokens:            8000,
+		Tools:                a.reactRuntime.GetTools(),
+		MessageModifierChain: runtime.NewPlannerModifierChain(),
 
-		response, err := a.invokeRouter(ctx, systemPrompt, messages)
-		if err != nil {
-			return fmt.Errorf("invoke LLM (round %d): %w", round+1, err)
-		}
+		// Checkpoint 集成（从保存点继续）
+		Checkpointer:     a.checkpointer,
+		CheckpointPolicy: a.checkpointPolicy,
+		TaskID:           a.taskID,
+		// RestoreFromCheckpoint: 由上层调用方指定（首次为空，恢复时传入）
 
-		a.logger.Info().
-			Str("task_id", a.taskID).
-			Int("round", round+1).
-			Msg("[PLANNER] LLM returned")
-
-		// 将 LLM 响应加入消息历史
-		messages = append(messages, response)
-
-		// 提取工具调用
-		toolCalls := a.extractToolCalls(response)
-
-		a.logger.Info().
-			Str("task_id", a.taskID).
-			Int("round", round+1).
-			Int("tool_calls_count", len(toolCalls)).
-			Msg("[PLANNER] Extracted tool calls")
-
-		if len(toolCalls) == 0 {
-			// 无工具调用，LLM 完成规划
+		OnIteration: func(iteration int, status runtime.IterationStatus) {
 			a.logger.Info().
 				Str("task_id", a.taskID).
-				Int("rounds", round+1).
-				Dur("duration", time.Since(startTime)).
-				Msg("planning completed")
-			return nil
-		}
-
-		// 执行工具调用
-		a.logger.Info().
-			Str("task_id", a.taskID).
-			Int("round", round+1).
-			Int("tool_calls_count", len(toolCalls)).
-			Msg("[PLANNER] Executing tools")
-
-		toolResults := make([]map[string]interface{}, 0, len(toolCalls))
-		for i, tc := range toolCalls {
-			a.logger.Info().
-				Str("task_id", a.taskID).
-				Int("round", round+1).
-				Int("tool_index", i).
-				Str("tool_name", tc.Name).
-				Msg("[PLANNER] Executing tool")
-
-			result, err := a.executeTool(ctx, tc)
-			if err != nil {
-				a.logger.Error().Err(err).Str("tool", tc.Name).Msg("tool execution failed")
-				result = map[string]interface{}{
-					"error": err.Error(),
-				}
-			}
-
-			toolResults = append(toolResults, map[string]interface{}{
-				"type":        "tool_result",
-				"tool_use_id": tc.ID,
-				"content":     result,
-			})
-		}
-
-		// 将工具结果加入消息历史
-		messages = append(messages, map[string]interface{}{
-			"role":    "user",
-			"content": toolResults,
-		})
+				Int("iteration", iteration).
+				Str("status", string(status)).
+				Msg("[PLANNER] ReAct 迭代")
+		},
 	}
 
-	a.logger.Warn().
+	// 运行 ReAct 循环
+	result, err := a.reactRuntime.Run(ctx, config)
+	if err != nil {
+		return fmt.Errorf("ReAct 运行时执行: %w", err)
+	}
+
+	// 记录执行结果
+	a.logger.Info().
 		Str("task_id", a.taskID).
-		Msg("planning reached max rounds without completion")
+		Int("iterations", result.Iterations).
+		Str("status", string(result.Status)).
+		Dur("duration", time.Since(startTime)).
+		Msg("规划完成")
+
+	// 检查执行状态
+	if result.Status == runtime.ReActStatusError {
+		return fmt.Errorf("ReAct 执行失败: %w", result.Error)
+	}
+
 	return nil
 }
 
@@ -460,22 +441,21 @@ func (a *Agent) buildUserPrompt(ctx context.Context, event executor.Event) (stri
 	case executor.EventTaskStarted:
 		prompt += "任务刚刚启动，请生成初始 Action。\n"
 	case executor.EventActionCompleted:
-		// 修复：字段名应为 action_id，不是 move_id
 		actionID, ok := event.Payload["action_id"].(string)
 		if !ok || actionID == "" {
-			return "", fmt.Errorf("EventActionCompleted missing action_id in payload")
+			return "", fmt.Errorf("EventActionCompleted 缺少 action_id")
 		}
 		prompt += fmt.Sprintf("Action %s 已完成，请根据新状态重新规划。\n", actionID)
 	case executor.EventVerificationPassed:
 		nodeID, ok := event.Payload["node_id"].(string)
 		if !ok || nodeID == "" {
-			return "", fmt.Errorf("EventVerificationPassed missing node_id in payload")
+			return "", fmt.Errorf("EventVerificationPassed 缺少 node_id")
 		}
 		prompt += fmt.Sprintf("节点 %s 验证通过，请根据新发现调整计划。\n", nodeID)
 	case executor.EventManualGuidance:
 		guidance, ok := event.Payload["guidance"].(string)
 		if !ok {
-			return "", fmt.Errorf("EventManualGuidance missing guidance in payload")
+			return "", fmt.Errorf("EventManualGuidance 缺少 guidance")
 		}
 		prompt += fmt.Sprintf("人工指导：%s\n", guidance)
 	case executor.EventHeartbeat:
@@ -484,157 +464,6 @@ func (a *Agent) buildUserPrompt(ctx context.Context, event executor.Event) (stri
 
 	prompt += "\n请使用 observe_state 工具观察当前状态，然后决定下一步行动。"
 	return prompt, nil
-}
-
-// invokeRouter 调用 LLM Router
-func (a *Agent) invokeRouter(ctx context.Context, systemPrompt string, messages []map[string]interface{}) (map[string]interface{}, error) {
-	// 获取 complex 模型（规划任务复杂度高）
-	p, err := a.router.For(ctx, "complex")
-	if err != nil {
-		return nil, fmt.Errorf("get complex model: %w", err)
-	}
-
-	// 转换消息格式
-	providerMessages := make([]llm.Message, 0, len(messages)+1)
-	providerMessages = append(providerMessages, llm.Message{
-		Role:    llm.RoleUser,
-		Content: systemPrompt,
-	})
-
-	for _, m := range messages {
-		roleStr := m["role"].(string)
-		var role llm.Role
-		if roleStr == "assistant" {
-			role = llm.RoleAssistant
-		} else {
-			role = llm.RoleUser
-		}
-
-		content := m["content"]
-
-		// 处理不同类型的 content
-		var contentStr string
-		switch v := content.(type) {
-		case string:
-			contentStr = v
-		case []interface{}:
-			// 工具结果列表
-			b, _ := json.Marshal(v)
-			contentStr = string(b)
-		default:
-			b, _ := json.Marshal(v)
-			contentStr = string(b)
-		}
-
-		providerMessages = append(providerMessages, llm.Message{
-			Role:    role,
-			Content: contentStr,
-		})
-	}
-
-	// 构建工具 schema
-	toolSchemas := a.core.Registry().Schemas()
-
-	// 调用 LLM
-	req := llm.Request{
-		Messages:  providerMessages,
-		Tools:     toolSchemas,
-		MaxTokens: 8000,
-	}
-
-	resp, err := p.Complete(ctx, req)
-	if err != nil {
-		return nil, fmt.Errorf("llm complete: %w", err)
-	}
-
-	// 转换响应
-	return a.convertResponse(resp), nil
-}
-
-// extractToolCalls 从响应中提取工具调用
-func (a *Agent) extractToolCalls(response map[string]interface{}) []ToolCall {
-	content, ok := response["content"]
-	if !ok {
-		return nil
-	}
-
-	switch v := content.(type) {
-	case []interface{}:
-		var calls []ToolCall
-		for _, item := range v {
-			m, ok := item.(map[string]interface{})
-			if !ok {
-				continue
-			}
-			if m["type"] == "tool_use" {
-				calls = append(calls, ToolCall{
-					ID:    m["id"].(string),
-					Name:  m["name"].(string),
-					Input: m["input"].(map[string]interface{}),
-				})
-			}
-		}
-		return calls
-	default:
-		return nil
-	}
-}
-
-// executeTool 执行工具调用
-func (a *Agent) executeTool(ctx context.Context, tc ToolCall) (interface{}, error) {
-	tool, ok := a.core.Registry().Get(tc.Name)
-	if !ok {
-		return nil, fmt.Errorf("unknown tool: %s", tc.Name)
-	}
-
-	// 将 map 转换为 json.RawMessage
-	argsJSON, err := json.Marshal(tc.Input)
-	if err != nil {
-		return nil, fmt.Errorf("marshal tool args: %w", err)
-	}
-
-	ctx = context.WithValue(ctx, "task_id", a.taskID)
-	result, err := tool.Execute(ctx, argsJSON)
-	if err != nil {
-		return nil, err
-	}
-
-	// 返回 ToolResult.Output
-	return result.Output, nil
-}
-
-// convertResponse 将 llm.Response 转换为通用格式
-func (a *Agent) convertResponse(resp llm.Response) map[string]interface{} {
-	result := map[string]interface{}{
-		"role": "assistant",
-	}
-
-	if len(resp.ToolCalls) > 0 {
-		var content []interface{}
-		for _, tc := range resp.ToolCalls {
-			var input map[string]interface{}
-			_ = json.Unmarshal(tc.Arguments, &input)
-
-			content = append(content, map[string]interface{}{
-				"type":  "tool_use",
-				"id":    tc.ID,
-				"name":  tc.Name,
-				"input": input,
-			})
-		}
-		result["content"] = content
-	} else {
-		result["content"] = resp.Content
-	}
-
-	return result
-}
-
-// ToolCall 是工具调用
-type ToolCall struct {
-	ID    string
-	Name  string
-	Input map[string]interface{}
 }
 
 // ============================================
@@ -650,7 +479,6 @@ func (a *Agent) Name() string {
 func (a *Agent) Run(ctx context.Context) error {
 	return a.Start(ctx)
 }
-
 
 // ExportState 实现 core.Recoverable 接口
 func (a *Agent) ExportState() (json.RawMessage, error) {

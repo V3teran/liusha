@@ -5,10 +5,12 @@
 package executor
 
 import (
+	"context"
+	"encoding/json"
 	"time"
 
-	"github.com/V3teran/liusha/internal/registry"
 	"github.com/V3teran/liusha/internal/knowledgegraph"
+	"github.com/V3teran/liusha/internal/registry"
 )
 
 // ─────────────────────────────────────────────
@@ -248,4 +250,52 @@ type Directive struct {
 	Kind       DirectiveKind
 	Content    string
 	Constraint *registry.Constraint
+}
+
+// ─────────────────────────────────────────────
+//  EventBus 相关类型（从 agent_old.go.bak 迁移）
+// ─────────────────────────────────────────────
+
+// EventBus 是事件总线接口（用于解耦）。
+type EventBus interface {
+	Subscribe(ctx context.Context, actionID string) EventSubscription
+	Publish(event ControlEvent)
+}
+
+// EventSubscription 是订阅句柄接口。
+type EventSubscription interface {
+	Events() <-chan ControlEvent
+	Unsubscribe()
+}
+
+// ControlEvent 是事件载体。
+type ControlEvent struct {
+	Type      string
+	ActionID  string
+	Payload   map[string]interface{}
+	Timestamp time.Time
+}
+
+// SSEEmitter 向前端推送流式事件。
+type SSEEmitter interface {
+	Emit(event SSEEvent)
+}
+
+// SSEEvent 是推给前端的一条事件。
+type SSEEvent struct {
+	Kind     string // "thinking" | "tool_start" | "tool_end" | "landmark" | "result" | "action_done"
+	ActionID string
+	StepID   int
+	Data     any
+}
+
+// KnowledgeGraphReader 是只读的 worldmodel 接口（用于解耦）。
+type KnowledgeGraphReader interface {
+	GetNode(ctx context.Context, id string) (*WorldModelNode, error)
+}
+
+// WorldModelNode 是 worldmodel 节点的简化表示。
+type WorldModelNode struct {
+	ID       string
+	Metadata json.RawMessage
 }

@@ -29,16 +29,18 @@ func NewDefaultApprovalPolicy(requiredTypes []string, defaultApprovers []string)
 }
 
 // RequiresApproval 判断节点是否需要人工审批。
-func (p *DefaultHumanApprovalPolicy) RequiresApproval(ctx context.Context, node core.Node) bool {
+func (p *DefaultHumanApprovalPolicy) RequiresApproval(ctx context.Context, node *core.GraphNode) bool {
 	// 检查节点类型
-	if p.requiredTypes[node.Type] {
+	if p.requiredTypes[node.Kind] {
 		return true
 	}
 
-	// 检查节点标签
-	if node.Metadata.Labels != nil {
-		if requiresApproval, ok := node.Metadata.Labels["requires_approval"]; ok {
-			return requiresApproval == "true"
+	// 检查节点元数据
+	if node.Metadata != nil {
+		if requiresApproval, ok := node.Metadata["requires_approval"]; ok {
+			if str, ok := requiresApproval.(string); ok {
+				return str == "true"
+			}
 		}
 	}
 
@@ -46,12 +48,13 @@ func (p *DefaultHumanApprovalPolicy) RequiresApproval(ctx context.Context, node 
 }
 
 // Approvers 获取审批人列表。
-func (p *DefaultHumanApprovalPolicy) Approvers(ctx context.Context, node core.Node) ([]string, error) {
+func (p *DefaultHumanApprovalPolicy) Approvers(ctx context.Context, node *core.GraphNode) ([]string, error) {
 	// 优先使用节点指定的审批人
-	if node.Metadata.Labels != nil {
-		if approvers, ok := node.Metadata.Labels["approvers"]; ok {
-			// 假设格式为 "user1,user2,user3"
-			return []string{approvers}, nil
+	if node.Metadata != nil {
+		if approvers, ok := node.Metadata["approvers"]; ok {
+			if str, ok := approvers.(string); ok {
+				return []string{str}, nil
+			}
 		}
 	}
 
@@ -79,7 +82,7 @@ func NewTimeBasedApprovalPolicy(workHourStart, workHourEnd int, approvers []stri
 }
 
 // RequiresApproval 判断是否需要审批（工作时间外需要）。
-func (p *TimeBasedApprovalPolicy) RequiresApproval(ctx context.Context, node core.Node) bool {
+func (p *TimeBasedApprovalPolicy) RequiresApproval(ctx context.Context, node *core.GraphNode) bool {
 	// 获取当前时间
 	// hour := time.Now().Hour()
 
@@ -88,10 +91,12 @@ func (p *TimeBasedApprovalPolicy) RequiresApproval(ctx context.Context, node cor
 	// 	return true
 	// }
 
-	// 简化：始终检查节点标签
-	if node.Metadata.Labels != nil {
-		if requiresApproval, ok := node.Metadata.Labels["requires_approval"]; ok {
-			return requiresApproval == "true"
+	// 简化：始终检查节点元数据
+	if node.Metadata != nil {
+		if requiresApproval, ok := node.Metadata["requires_approval"]; ok {
+			if str, ok := requiresApproval.(string); ok {
+				return str == "true"
+			}
 		}
 	}
 
@@ -99,7 +104,7 @@ func (p *TimeBasedApprovalPolicy) RequiresApproval(ctx context.Context, node cor
 }
 
 // Approvers 获取审批人列表。
-func (p *TimeBasedApprovalPolicy) Approvers(ctx context.Context, node core.Node) ([]string, error) {
+func (p *TimeBasedApprovalPolicy) Approvers(ctx context.Context, node *core.GraphNode) ([]string, error) {
 	return p.approvers, nil
 }
 

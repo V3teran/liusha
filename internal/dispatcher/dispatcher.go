@@ -8,7 +8,9 @@ import (
 	"fmt"
 
 	"github.com/V3teran/liusha/internal/executor"
+	"github.com/V3teran/liusha/internal/framework/core"
 	"github.com/V3teran/liusha/internal/framework/llm"
+	"github.com/V3teran/liusha/internal/framework/runtime"
 	"github.com/V3teran/liusha/internal/registry"
 	"github.com/V3teran/liusha/internal/knowledgegraph"
 	"github.com/rs/zerolog"
@@ -25,38 +27,35 @@ type Profile struct {
 
 // Dispatcher 是 Complexity-aware Executor 工厂。
 type Dispatcher struct {
-	profiles   map[knowledgegraph.Complexity]Profile
-	provider   llm.Provider
-	registry   *registry.Registry
-	compactor  executor.Compactor
-	checkpoint executor.CheckpointStore
-	emitter    executor.SSEEmitter
-	logger     zerolog.Logger
+	profiles       map[knowledgegraph.Complexity]Profile
+	provider       llm.Provider
+	registry       *registry.Registry
+	checkpointer   core.Checkpointer
+	emitter        executor.SSEEmitter
+	logger         zerolog.Logger
 	knowledgegraph *knowledgegraph.Store
-	eventBus   executor.EventBus
+	eventBus       executor.EventBus
 }
 
 // New 构造 Dispatcher。
 func New(
 	p llm.Provider,
 	reg *registry.Registry,
-	compactor executor.Compactor,
-	cp executor.CheckpointStore,
+	checkpointer core.Checkpointer,
 	emitter executor.SSEEmitter,
 	logger zerolog.Logger,
 	wm *knowledgegraph.Store,
 	eventBus executor.EventBus,
 ) *Dispatcher {
 	return &Dispatcher{
-		profiles:   make(map[knowledgegraph.Complexity]Profile),
-		provider:   p,
-		registry:   reg,
-		compactor:  compactor,
-		checkpoint: cp,
-		emitter:    emitter,
-		logger:     logger,
+		profiles:       make(map[knowledgegraph.Complexity]Profile),
+		provider:       p,
+		registry:       reg,
+		checkpointer:   checkpointer,
+		emitter:        emitter,
+		logger:         logger,
 		knowledgegraph: wm,
-		eventBus:   eventBus,
+		eventBus:       eventBus,
 	}
 }
 
@@ -72,13 +71,11 @@ func (d *Dispatcher) Execute(ctx context.Context, action executor.Action) (execu
 		return executor.Execution{}, fmt.Errorf("dispatcher: no profile for complexity %q", action.Complexity)
 	}
 
-	// 构造工具受限的 sub-registry
-	subReg := d.buildSubRegistry(profile.Tools)
-
 	// 创建 worldmodel 适配器
 	wmReader := executor.NewWorldModelAdapter(d.knowledgegraph)
 
-	a := executor.NewAgent(d.provider, subReg, d.compactor, d.checkpoint, d.emitter, d.logger, wmReader)
+	// 创建 Agent
+	a := executor.NewAgent(d.provider, d.emitter, d.logger, wmReader, d.checkpointer, runtime.NewIterationCheckpointPolicy(3))
 
 	// 配置 eventBus（启用 Planner → Executor 通信）
 	if d.eventBus != nil {
@@ -96,41 +93,6 @@ func (d *Dispatcher) Execute(ctx context.Context, action executor.Action) (execu
 		Result:     result,
 		Hypotheses: nil,
 	}, nil
-}
-
-func (d *Dispatcher) buildSubRegistry(allowedTools []string) *registry.Registry {
-	if len(allowedTools) == 0 {
-		d.logger.Info().Msg("[DISPATCHER] Using full registry (no tool restrictions)")
-		return d.registry
-	}
-
-	d.logger.Info().
-		Int("allowed_tools_count", len(allowedTools)).
-		Strs("allowed_tools", allowedTools).
-		Msg("[DISPATCHER] Building sub-registry with tool restrictions")
-
-	sub := registry.New()
-	// 复制允许的工具
-	for _, name := range allowedTools {
-		if t, ok := d.registry.Get(name); ok {
-			sub.Register(t)
-		}
-	}
-
-	// 重要：复制所有拦截器（包括 toolRecordInterceptor）
-	interceptors := d.registry.Interceptors()
-	d.logger.Info().
-		Int("interceptor_count", len(interceptors)).
-		Msg("[DISPATCHER] Copying interceptors to sub-registry")
-
-	for i, interceptor := range interceptors {
-		sub.AddInterceptor(interceptor)
-		d.logger.Debug().
-			Int("interceptor_index", i).
-			Msg("[DISPATCHER] Added interceptor to sub-registry")
-	}
-
-	return sub
 }
 
 func (d *Dispatcher) buildExecutorReq(profile Profile, action executor.Action, hypotheses []string) executor.ExecutorReq {

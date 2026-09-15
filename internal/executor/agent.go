@@ -1,358 +1,224 @@
 // Package executor 提供执行层的所有组件。
 //
-// 每 Step：CountTokens → 压缩判断 → Provider.Complete → ExecuteParallel
-//
-//	→ checkpoint.Write → SSE 推送
+// 使用 ReActRuntime 替换手写 ReAct 循环
 package executor
 
 import (
 	"context"
-	"encoding/json"
-	"errors"
+	"fmt"
 	"time"
 
-	"github.com/V3teran/liusha/internal/framework/llm"
-	"github.com/V3teran/liusha/internal/registry"
 	"github.com/rs/zerolog"
+
+	"github.com/V3teran/liusha/internal/framework/core"
+	"github.com/V3teran/liusha/internal/framework/llm"
+	"github.com/V3teran/liusha/internal/framework/runtime"
 )
 
-// Compactor 压缩过长的上下文历史。
-type Compactor interface {
-	Compact(ctx context.Context, p llm.Provider, messages []llm.Message) ([]llm.Message, error)
-}
-
-// CheckpointStore 持久化每步快照，用于崩溃恢复。
-type CheckpointStore interface {
-	Write(ctx context.Context, cp Checkpoint) error
-	Last(ctx context.Context, taskID, actionID string) (*Checkpoint, error)
-}
-
-// Checkpoint 是单步快照。
-type Checkpoint struct {
-	TaskID     string
-	ActionID   string
-	StepIdx    int
-	Thought    string
-	Hypotheses []string
-	CreatedAt  time.Time
-}
-
-// SSEEmitter 向前端推送流式事件。
-type SSEEmitter interface {
-	Emit(event SSEEvent)
-}
-
-// SSEEvent 是推给前端的一条事件。
-type SSEEvent struct {
-	Kind     string // "thinking" | "tool_start" | "tool_end" | "landmark" | "result" | "action_done"
-	ActionID string
-	StepID   int
-	Data     any
-}
-
-// ─────────────────────────────────────────────
-//  Actor
-// ─────────────────────────────────────────────
-
-// Executor 是 ReAct 执行引擎。每个 Move 新建一个 Executor 实例。
+// Agent 是 ReAct 执行引擎（使用 ReActRuntime）
 type Agent struct {
-	provider   llm.Provider
-	reg        *registry.Registry
-	compactor  Compactor
-	checkpoint CheckpointStore
-	emitter    SSEEmitter // 可为 nil
-	logger     zerolog.Logger
-	knowledgegraph KnowledgeGraphReader // 用于读取 metadata
-
-	// 自我监察配置
-	monitorEnabled       bool
-	monitorStepInterval  int               // 每 N 步评估一次
-	monitorEvaluateSteps int               // 评估最近 N 步
-	monitorProvider      llm.Provider // 用于监察的 LLM
-
-	// 事件总线（用于接收外部控制）
-	eventBus EventBus
+	provider         llm.Provider
+	reactRuntime     runtime.ReActRuntime
+	emitter          SSEEmitter // 可为 nil
+	logger           zerolog.Logger
+	world            KnowledgeGraphReader // 用于读取 metadata
+	eventBus         EventBus             // 用于接收外部控制事件
+	checkpointer     core.Checkpointer    // 框架级统一 Checkpoint 接口
+	checkpointPolicy runtime.CheckpointPolicy
 }
 
-// KnowledgeGraphReader 是只读的 worldmodel 接口（用于解耦）。
-type KnowledgeGraphReader interface {
-	GetNode(ctx context.Context, id string) (*WorldModelNode, error)
-}
-
-// WorldModelNode 是 worldmodel 节点的简化表示。
-type WorldModelNode struct {
-	ID       string
-	Metadata json.RawMessage
-}
-
-// EventBus 是事件总线接口（用于解耦）。
-type EventBus interface {
-	Subscribe(ctx context.Context, actionID string) EventSubscription
-	Publish(event ControlEvent)
-}
-
-// EventSubscription 是订阅句柄接口。
-type EventSubscription interface {
-	Events() <-chan ControlEvent
-	Unsubscribe()
-}
-
-// Event 是事件载体。
-type ControlEvent struct {
-	Type      string
-	ActionID  string
-	Payload   map[string]interface{}
-	Timestamp time.Time
-}
-
-// New 构造 Actor。emitter 和 worldmodel 可为 nil。
+// NewAgent 构造 Executor Agent
 func NewAgent(
 	p llm.Provider,
-	reg *registry.Registry,
-	compactor Compactor,
-	cp CheckpointStore,
 	emitter SSEEmitter,
 	logger zerolog.Logger,
-	knowledgegraph KnowledgeGraphReader,
+	world KnowledgeGraphReader,
+	checkpointer core.Checkpointer,
+	checkpointPolicy runtime.CheckpointPolicy,
 ) *Agent {
-	return &Agent{
-		provider:   p,
-		reg:        reg,
-		compactor:  compactor,
-		checkpoint: cp,
-		emitter:    emitter,
-		logger:     logger,
-		knowledgegraph: knowledgegraph,
+	// 创建 ReAct 运行时
+	reactRuntime := runtime.NewReActRuntime()
 
-		// 默认启用监察，每 5 步评估一次，评估最近 5 步
-		monitorEnabled:       true,
-		monitorStepInterval:  5,
-		monitorEvaluateSteps: 5,
-		monitorProvider:      p,   // 默认用同一个 provider
-		eventBus:             nil, // 默认无事件总线
+	// 注意：工具注册由外部完成
+	// 这里只创建空的 runtime，工具由 Coordinator 注册
+
+	// 默认 Checkpoint 策略：每 3 次迭代保存
+	policy := checkpointPolicy
+	if policy == nil && checkpointer != nil {
+		policy = runtime.NewIterationCheckpointPolicy(3)
+	}
+
+	return &Agent{
+		provider:         p,
+		reactRuntime:     reactRuntime,
+		emitter:          emitter,
+		logger:           logger,
+		world:            world,
+		eventBus:         nil, // 默认无事件总线
+		checkpointer:     checkpointer,
+		checkpointPolicy: policy,
 	}
 }
 
-// WithEventBus 配置事件总线。
+// RegisterTools 注册工具（供外部调用）
+func (a *Agent) RegisterTools(tools []core.Tool) error {
+	for _, tool := range tools {
+		if err := a.reactRuntime.RegisterTool(tool); err != nil {
+			return fmt.Errorf("register tool %s: %w", tool.Name(), err)
+		}
+	}
+	return nil
+}
+
+// WithEventBus 配置事件总线
 func (a *Agent) WithEventBus(bus EventBus) *Agent {
 	a.eventBus = bus
 	return a
 }
 
-// WithMonitor 配置自我监察。
-func (a *Agent) WithMonitor(enabled bool, stepInterval int, evaluateSteps int, provider llm.Provider) *Agent {
-	a.monitorEnabled = enabled
-	a.monitorStepInterval = stepInterval
-	a.monitorEvaluateSteps = evaluateSteps
-	if provider != nil {
-		a.monitorProvider = provider
-	}
-	return a
-}
-
-// Run 执行 ReAct 循环，直到 done/budget/error/cancel。
-// 如果启用监察，将启动两个协程：执行协程和监察协程。
+// Run 执行 ReAct 循环（使用 ReActRuntime）
 func (a *Agent) Run(ctx context.Context, actionID string, req ExecutorReq) (ExecutorResult, error) {
 	a.logger.Info().
 		Str("action_id", actionID).
 		Int("max_steps", req.Budget.MaxSteps).
 		Int("max_tokens", req.Budget.MaxTokens).
-		Bool("monitor_enabled", a.monitorEnabled).
-		Msg("[AGENT] Run called")
+		Msg("[EXECUTOR] Run called with ReActRuntime")
 
+	// 验证 Budget
 	if req.Budget.MaxSteps <= 0 {
 		a.logger.Warn().
 			Str("action_id", actionID).
-			Int("original_max_steps", req.Budget.MaxSteps).
-			Msg("[AGENT] MaxSteps <= 0, using default budget")
+			Msg("[EXECUTOR] MaxSteps <= 0, using default budget")
 		req.Budget = DefaultBudget()
 	}
-	if req.Budget.CompactionTrigger <= 0 {
-		req.Budget.CompactionTrigger = 0.70
+
+	// 构建 objective（从 req.Inbox 构建）
+	objective := a.buildObjective(req)
+
+	// 构建系统提示
+	systemPrompt := req.System
+	if systemPrompt == "" {
+		systemPrompt = "你是一个渗透测试执行 Agent，负责执行具体的渗透测试任务。"
 	}
 
-	// 如果未启用监察，使用原有单协程逻辑
-	if !a.monitorEnabled {
-		a.logger.Info().Str("action_id", actionID).Msg("[AGENT] Using single-threaded mode")
-		return a.runSingleThreaded(ctx, actionID, req)
-	}
+	// 配置 ReAct 运行
+	config := &runtime.ReActConfig{
+		Objective:            objective,
+		SystemPrompt:         systemPrompt,
+		LLMProvider:          a.provider,
+		ModelID:              "deepseek-chat",
+		MaxIterations:        req.Budget.MaxSteps,
+		Temperature:          0.7,
+		MaxTokens:            req.Budget.MaxTokens,
+		Tools:                a.reactRuntime.GetTools(),
+		MessageModifierChain: runtime.NewExecutorModifierChain(),
 
-	// 双协程模式
-	a.logger.Info().Str("action_id", actionID).Msg("[AGENT] Using monitoring mode")
-	return a.runWithMonitoring(ctx, actionID, req)
-}
+		// Checkpoint 集成
+		Checkpointer:     a.checkpointer,
+		CheckpointPolicy: a.checkpointPolicy,
+		TaskID:           actionID,
 
-// runSingleThreaded 是原有的单协程执行逻辑（未启用监察时使用）。
-func (a *Agent) runSingleThreaded(ctx context.Context, actionID string, req ExecutorReq) (ExecutorResult, error) {
-	// 从 checkpoint 恢复起点
-	startStep := 0
-	if a.checkpoint != nil {
-		if cp, err := a.checkpoint.Last(ctx, extractTaskID(ctx), actionID); err == nil && cp != nil {
-			startStep = cp.StepIdx + 1
-		}
-	}
+		OnIteration: func(iteration int, status runtime.IterationStatus) {
+			a.logger.Info().
+				Str("action_id", actionID).
+				Int("iteration", iteration).
+				Str("status", string(status)).
+				Msg("[EXECUTOR] ReAct 迭代")
 
-	// 构建初始消息列表
-	messages := buildInitialMessages(req)
-
-	var steps []Step
-	totalTokens := 0
-
-	// 激活 Constraint 检查
-	if len(req.PendingConstraints) > 0 {
-		ctx = registry.WithConstraints(ctx, req.PendingConstraints)
-	}
-
-	for stepIdx := startStep; stepIdx < req.Budget.MaxSteps; stepIdx++ {
-		// 1. 计算当前 token 数，必要时压缩
-		if a.compactor != nil && a.provider != nil {
-			tokenCount, err := a.provider.CountTokens(ctx, llm.Request{Messages: messages})
-			if err == nil && req.Budget.MaxTokens > 0 {
-				ratio := float64(tokenCount) / float64(req.Budget.MaxTokens)
-				if ratio > req.Budget.CompactionTrigger {
-					compacted, cerr := a.compactor.Compact(ctx, a.provider, messages)
-					if cerr == nil {
-						messages = compacted
-					}
-				}
-			}
-		}
-
-		// SettleConfig：budget 接近上限时注入结算指令
-		if req.Budget.MaxTokens > 0 && req.Settle.Threshold > 0 {
-			tc, _ := a.provider.CountTokens(ctx, llm.Request{Messages: messages})
-			if float64(tc)/float64(req.Budget.MaxTokens) > req.Settle.Threshold {
-				messages = append(messages, llm.Message{
-					Role:    "user",
-					Content: req.Settle.Directive,
-				})
-			}
-		}
-
-		// 2. 调用 Provider
-		tools := a.reg.Schemas()
-		resp, err := a.provider.Complete(ctx, llm.Request{
-			Messages:  messages,
-			Tools:     tools,
-			MaxTokens: req.Budget.MaxTokens,
-		})
-		if err != nil {
-			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-				return ExecutorResult{Steps: steps, Halt: HaltCancelled, TokensUsed: totalTokens}, nil
-			}
-			return ExecutorResult{Steps: steps, Halt: HaltError, TokensUsed: totalTokens}, err
-		}
-		totalTokens += resp.Usage.InTokens + resp.Usage.OutTokens
-
-		// 3. 解析响应，构建 Step
-		step := Step{Index: stepIdx, Thought: resp.Content}
-
-		if a.emitter != nil && resp.Content != "" {
-			a.emitter.Emit(SSEEvent{Kind: "thinking", ActionID: actionID, StepID: stepIdx, Data: resp.Content})
-		}
-
-		// 将 assistant 回复加入历史
-		assistantMsg := llm.Message{Role: "assistant", Content: resp.Content}
-		if len(resp.ToolCalls) > 0 {
-			assistantMsg.ToolCalls = resp.ToolCalls
-		}
-		messages = append(messages, assistantMsg)
-
-		// 4. 执行工具调用
-		if len(resp.ToolCalls) > 0 {
+			// SSE 推送
 			if a.emitter != nil {
-				for _, tc := range resp.ToolCalls {
-					a.emitter.Emit(SSEEvent{Kind: "tool_start", ActionID: actionID, StepID: stepIdx, Data: tc.Name})
-				}
-			}
-
-			results := a.reg.ExecuteParallel(ctx, resp.ToolCalls)
-
-			// 把工具结果追加为 tool messages
-			for i, tc := range resp.ToolCalls {
-				r := results[i]
-				content := r.Output
-				if r.Error != "" {
-					content = "ERROR: " + r.Error
-				}
-				messages = append(messages, llm.Message{
-					Role:       "tool",
-					ToolCallID: tc.ID,
-					Content:    content,
+				a.emitter.Emit(SSEEvent{
+					Kind:     "thinking",
+					ActionID: actionID,
+					StepID:   iteration,
+					Data:     map[string]interface{}{"status": status},
 				})
-
-				if a.emitter != nil {
-					a.emitter.Emit(SSEEvent{Kind: "tool_end", ActionID: actionID, StepID: stepIdx, Data: r})
-				}
 			}
-
-			// 检查 done 工具
-			for _, tc := range resp.ToolCalls {
-				if tc.Name == "done" {
-					step.Thought += "\n[concluded]"
-					steps = append(steps, step)
-					saveCheckpoint(ctx, a.checkpoint, actionID, stepIdx, step)
-					return ExecutorResult{Steps: steps, Conclusion: resp.Content, Halt: HaltDone, TokensUsed: totalTokens}, nil
-				}
-			}
-		}
-
-		steps = append(steps, step)
-		saveCheckpoint(ctx, a.checkpoint, actionID, stepIdx, step)
-
-		// done 判断（无工具调用 + FinishReason=stop）
-		if len(resp.ToolCalls) == 0 && resp.FinishReason == "stop" {
-			return ExecutorResult{Steps: steps, Conclusion: resp.Content, Halt: HaltDone, TokensUsed: totalTokens}, nil
-		}
-
-		// budget 检查
-		if req.Budget.MaxTokens > 0 && totalTokens >= req.Budget.MaxTokens {
-			return ExecutorResult{Steps: steps, Halt: HaltBudget, TokensUsed: totalTokens}, nil
-		}
+		},
 	}
 
-	return ExecutorResult{Steps: steps, Halt: HaltBudget, TokensUsed: totalTokens}, nil
-}
-
-// ─────────────────────────────────────────────
-//  辅助函数
-// ─────────────────────────────────────────────
-
-func buildInitialMessages(req ExecutorReq) []llm.Message {
-	msgs := make([]llm.Message, 0, 1+len(req.Inbox))
-	if req.System != "" {
-		msgs = append(msgs, llm.Message{Role: "system", Content: req.System})
+	// 运行 ReAct 循环
+	startTime := time.Now()
+	result, err := a.reactRuntime.Run(ctx, config)
+	if err != nil {
+		a.logger.Error().Err(err).Str("action_id", actionID).Msg("[EXECUTOR] ReAct runtime failed")
+		return ExecutorResult{
+			Steps:      []Step{},
+			Halt:       HaltError,
+			TokensUsed: 0,
+		}, err
 	}
-	for _, m := range req.Inbox {
-		msgs = append(msgs, llm.Message{Role: llm.Role(m.Role), Content: m.Content})
+
+	a.logger.Info().
+		Str("action_id", actionID).
+		Str("status", string(result.Status)).
+		Int("iterations", result.Iterations).
+		Int64("duration_ms", time.Since(startTime).Milliseconds()).
+		Msg("[EXECUTOR] ReAct execution completed")
+
+	// 转换结果
+	execResult := a.convertResult(result)
+
+	// SSE 推送完成事件
+	if a.emitter != nil {
+		a.emitter.Emit(SSEEvent{
+			Kind:     "action_done",
+			ActionID: actionID,
+			Data:     execResult,
+		})
 	}
-	return msgs
+
+	return execResult, nil
 }
 
-type taskIDKey struct{}
-
-// WithTaskID 向 ctx 注入 taskID，供 checkpoint 使用。
-func WithTaskID(ctx context.Context, taskID string) context.Context {
-	return context.WithValue(ctx, taskIDKey{}, taskID)
-}
-
-func extractTaskID(ctx context.Context) string {
-	if v, ok := ctx.Value(taskIDKey{}).(string); ok {
-		return v
+// buildObjective 从请求构建 objective
+func (a *Agent) buildObjective(req ExecutorReq) string {
+	if len(req.Inbox) == 0 {
+		return "请执行分配给你的任务。"
 	}
-	return ""
+
+	// 将 Inbox 消息组合为 objective
+	var objective string
+	for _, msg := range req.Inbox {
+		objective += fmt.Sprintf("[%s]: %s\n", msg.Role, msg.Content)
+	}
+	return objective
 }
 
-func saveCheckpoint(ctx context.Context, store CheckpointStore, actionID string, stepIdx int, step Step) {
-	if store == nil {
-		return
+// convertResult 将 ReActResult 转换为 ExecutorResult
+func (a *Agent) convertResult(result *runtime.ReActResult) ExecutorResult {
+	// 构建 Steps
+	steps := make([]Step, 0, result.Iterations)
+	for i := 0; i < result.Iterations; i++ {
+		steps = append(steps, Step{
+			Index:   i,
+			Thought: fmt.Sprintf("Iteration %d", i+1),
+		})
 	}
-	_ = store.Write(ctx, Checkpoint{
-		TaskID:     extractTaskID(ctx),
-		ActionID:   actionID,
-		StepIdx:    stepIdx,
-		Thought:    step.Thought,
-		Hypotheses: step.Hypotheses,
-		CreatedAt:  time.Now(),
-	})
+
+	// 确定 Halt 原因
+	var halt HaltReason
+	switch result.Status {
+	case runtime.ReActStatusSuccess:
+		halt = HaltDone
+	case runtime.ReActStatusMaxIterations:
+		halt = HaltBudget
+	case runtime.ReActStatusCancelled:
+		halt = HaltCancelled
+	case runtime.ReActStatusError:
+		halt = HaltError
+	default:
+		halt = HaltError
+	}
+
+	return ExecutorResult{
+		Steps:      steps,
+		Conclusion: result.FinalAnswer,
+		Halt:       halt,
+		TokensUsed: 0, // TODO: 从 result 提取 token 使用量
+	}
 }
+
+// ============================================
+// 类型定义在 types.go 中
+// ============================================

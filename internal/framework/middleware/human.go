@@ -126,10 +126,10 @@ type HumanInputFilter struct {
 // HumanApprovalPolicy 是审批策略。
 type HumanApprovalPolicy interface {
 	// RequiresApproval 判断节点是否需要人工审批
-	RequiresApproval(ctx context.Context, node core.Node) bool
+	RequiresApproval(ctx context.Context, node *core.GraphNode) bool
 
 	// Approvers 获取审批人列表
-	Approvers(ctx context.Context, node core.Node) ([]string, error)
+	Approvers(ctx context.Context, node *core.GraphNode) ([]string, error)
 }
 
 // AutoApprovalRule 是自动审批规则。

@@ -1,7 +1,6 @@
-// Package monitor 实现独立的监察 Agent（MonitorAgent）- 简化版
+// Package monitor 实现独立的监察 Agent（MonitorAgent）
 //
-// 注意：这是一个能编译通过的简化版本。
-// 完整功能需要进一步完善。
+// 使用 ReActRuntime 进行 LLM 评估
 package monitor
 
 import (
@@ -15,6 +14,7 @@ import (
 	"github.com/V3teran/liusha/internal/eventbus"
 	"github.com/V3teran/liusha/internal/framework/core"
 	"github.com/V3teran/liusha/internal/framework/llm"
+	"github.com/V3teran/liusha/internal/framework/runtime"
 	"github.com/V3teran/liusha/internal/knowledgegraph"
 )
 
@@ -23,12 +23,17 @@ var _ core.Agent = (*Agent)(nil)
 
 // Agent 是独立的监察 Agent。
 type Agent struct {
-	taskID   string
-	world    *knowledgegraph.Store
-	eventBus *eventbus.Bus
-	provider llm.Provider
-	interval time.Duration
-	logger   zerolog.Logger
+	taskID       string
+	world        *knowledgegraph.Store
+	eventBus     *eventbus.Bus
+	provider     llm.Provider
+	reactRuntime runtime.ReActRuntime
+	interval     time.Duration
+	logger       zerolog.Logger
+
+	// Checkpoint 系统
+	checkpointer     core.Checkpointer
+	checkpointPolicy runtime.CheckpointPolicy
 }
 
 // Config 是 Monitor Agent 的配置。
@@ -37,8 +42,13 @@ type Config struct {
 	World    *knowledgegraph.Store
 	EventBus *eventbus.Bus
 	Provider llm.Provider
-	Interval time.Duration // 评估间隔，默认 6 分钟
+	Router   *llm.Router        // 用于获取合适的 Provider
+	Interval time.Duration      // 评估间隔，默认 6 分钟
 	Logger   zerolog.Logger
+
+	// Checkpoint 配置（可选）
+	Checkpointer     core.Checkpointer        // nil 表示禁用 checkpoint
+	CheckpointPolicy runtime.CheckpointPolicy // nil 使用默认策略
 }
 
 // New 创建 Monitor Agent 实例。
@@ -48,13 +58,36 @@ func New(cfg Config) *Agent {
 		interval = 6 * time.Minute
 	}
 
+	// 创建 ReAct 运行时
+	reactRuntime := runtime.NewReActRuntime()
+
+	// 注册监察工具
+	tools := []core.Tool{
+		NewGetGlobalStateTool(cfg.World, cfg.TaskID),
+		NewPublishDecisionTool(cfg.EventBus),
+	}
+	for _, tool := range tools {
+		if err := reactRuntime.RegisterTool(tool); err != nil {
+			cfg.Logger.Warn().Err(err).Str("tool", tool.Name()).Msg("注册工具失败")
+		}
+	}
+
+	// 默认 Checkpoint 策略：每 3 次迭代保存（Monitor 迭代少）
+	checkpointPolicy := cfg.CheckpointPolicy
+	if checkpointPolicy == nil && cfg.Checkpointer != nil {
+		checkpointPolicy = runtime.NewIterationCheckpointPolicy(3)
+	}
+
 	return &Agent{
-		taskID:   cfg.TaskID,
-		world:    cfg.World,
-		eventBus: cfg.EventBus,
-		provider: cfg.Provider,
-		interval: interval,
-		logger:   cfg.Logger.With().Str("agent", "monitor").Str("task_id", cfg.TaskID).Logger(),
+		taskID:           cfg.TaskID,
+		world:            cfg.World,
+		eventBus:         cfg.EventBus,
+		provider:         cfg.Provider,
+		reactRuntime:     reactRuntime,
+		interval:         interval,
+		logger:           cfg.Logger.With().Str("agent", "monitor").Str("task_id", cfg.TaskID).Logger(),
+		checkpointer:     cfg.Checkpointer,
+		checkpointPolicy: checkpointPolicy,
 	}
 }
 
@@ -80,118 +113,98 @@ func (a *Agent) Start(ctx context.Context) error {
 	}
 }
 
-// evaluate 执行一次全局评估（简化版）
+// evaluate 执行一次全局评估（使用 ReActRuntime）
 func (a *Agent) evaluate(ctx context.Context) error {
-	a.logger.Info().Msg("starting global evaluation (simplified)")
+	a.logger.Info().Msg("starting global evaluation with ReActRuntime")
 
-	// 1. 读取全局状态
-	state, err := a.getGlobalState(ctx)
-	if err != nil {
-		return fmt.Errorf("get global state: %w", err)
+	// 构建评估目标
+	objective := a.buildEvaluationObjective()
+
+	// 构建系统提示
+	systemPrompt := a.buildSystemPrompt()
+
+	// 配置 ReAct 运行
+	config := &runtime.ReActConfig{
+		Objective:            objective,
+		SystemPrompt:         systemPrompt,
+		LLMProvider:          a.provider,
+		ModelID:              "deepseek-chat", // TODO: 从配置读取
+		MaxIterations:        10,              // 监察不需要太多轮
+		Temperature:          0.3,             // 较低温度，确保稳定性
+		MaxTokens:            4000,
+		Tools:                a.reactRuntime.GetTools(),
+		MessageModifierChain: runtime.NewMonitorModifierChain(),
+
+		// Checkpoint 集成
+		Checkpointer:     a.checkpointer,
+		CheckpointPolicy: a.checkpointPolicy,
+		TaskID:           a.taskID,
+
+		OnIteration: func(iteration int, status runtime.IterationStatus) {
+			a.logger.Info().
+				Str("task_id", a.taskID).
+				Int("iteration", iteration).
+				Str("status", string(status)).
+				Msg("[MONITOR] ReAct 迭代")
+		},
 	}
 
-	// 2. 简化评估：检查是否有停滞的 Actions
-	decisions := a.simpleEvaluation(state)
+	// 运行 ReAct 循环
+	result, err := a.reactRuntime.Run(ctx, config)
+	if err != nil {
+		return fmt.Errorf("ReAct runtime execution: %w", err)
+	}
 
 	a.logger.Info().
-		Int("decisions", len(decisions)).
-		Msg("evaluation completed (simplified)")
-
-	// 3. 发布决策事件
-	for _, decision := range decisions {
-		a.publishDecision(decision)
-	}
+		Str("status", string(result.Status)).
+		Int("iterations", result.Iterations).
+		Msg("evaluation completed")
 
 	return nil
 }
 
-// getGlobalState 获取任务的全局状态。
-func (a *Agent) getGlobalState(ctx context.Context) (*GlobalState, error) {
-	// 读取所有 Actions
-	allActions, err := a.world.ListAllActions(ctx, a.taskID)
-	if err != nil {
-		return nil, fmt.Errorf("list actions: %w", err)
-	}
+// buildEvaluationObjective 构建评估目标
+func (a *Agent) buildEvaluationObjective() string {
+	return fmt.Sprintf(`你是任务 %s 的监察 Agent。
 
-	// 读取所有 Findings
-	findings, err := a.world.ListResults(ctx, a.taskID)
-	if err != nil {
-		return nil, fmt.Errorf("list findings: %w", err)
-	}
+你的职责：
+1. 检查任务的全局状态
+2. 识别停滞、低效或异常的 Actions
+3. 做出监察决策（kill_action 或 request_replan）
 
-	// 读取 Objective
-	objective, err := a.world.GetObjective(ctx, a.taskID)
-	if err != nil {
-		return nil, fmt.Errorf("get objective: %w", err)
-	}
+请使用以下工具：
+- get_global_state：获取任务的全局状态
+- publish_decision：发布监察决策
 
-	return &GlobalState{
-		Objective: objective,
-		Actions:   allActions,
-		Findings:  findings,
-	}, nil
+评估标准：
+- Action 运行超过 20 分钟未完成 → 考虑 kill
+- 大量 failed Actions → 考虑 replan
+- 缺乏进展 → 考虑 replan
+
+请开始评估。`, a.taskID)
 }
 
-// simpleEvaluation 简化的评估逻辑（不使用 LLM）
-//
-// TODO: 完整实现 LLM 评估
-func (a *Agent) simpleEvaluation(state *GlobalState) []Decision {
-	var decisions []Decision
+// buildSystemPrompt 构建系统提示
+func (a *Agent) buildSystemPrompt() string {
+	return `你是一个监察 Agent，负责全局任务健康检查。
 
-	// 检查是否有停滞的 running Actions（运行超过 20 分钟）
-	now := time.Now()
-	for _, action := range state.Actions {
-		if action.State == nil {
-			continue
-		}
+你的决策原则：
+1. 保守决策：不确定时不要轻易 kill action
+2. 数据驱动：基于具体指标做决策
+3. 明确理由：每个决策都要有清晰的理由
 
-		if *action.State == knowledgegraph.StateRunning {
-			// 检查运行时长（使用 CreatedAt，CreatedAt 是 time.Time 非指针）
-			if now.Sub(action.CreatedAt) > 20*time.Minute {
-				decisions = append(decisions, Decision{
-					Type:     "kill_action",
-					ActionID: action.ID,
-					Reason:   "Action running for more than 20 minutes without completion",
-				})
-			}
-		}
-	}
+决策类型：
+- kill_action: 停止一个运行过久或明显失败的 Action
+- request_replan: 请求 Planner 重新规划
 
-	return decisions
+决策格式示例：
+{
+  "type": "kill_action",
+  "action_id": "act_123",
+  "reason": "Action 已运行 25 分钟，超过 20 分钟阈值，且无进展"
 }
 
-// publishDecision 发布监察决策事件。
-func (a *Agent) publishDecision(decision Decision) {
-	eventType := eventbus.EventType("monitor." + decision.Type)
-
-	a.eventBus.Publish(eventbus.Event{
-		Type: eventType,
-		Payload: map[string]interface{}{
-			"action_id": decision.ActionID,
-			"reason":    decision.Reason,
-			"source":    "monitor",
-		},
-	})
-
-	a.logger.Info().
-		Str("type", decision.Type).
-		Str("action_id", decision.ActionID).
-		Str("reason", decision.Reason).
-		Msg("decision published")
-}
-
-// GlobalState 是任务的全局状态快照。
-type GlobalState struct {
-	Objective knowledgegraph.ObjectiveNode
-	Actions   []knowledgegraph.Node
-	Findings  []knowledgegraph.Node
-}
-
-// Decision 是监察决策。
-type Decision struct {
-	Type     string `json:"type"`                // "kill_action" | "request_replan"
-	ActionID string `json:"action_id,omitempty"` // kill_action 需要
-	Reason   string `json:"reason"`              // 决策理由
+请先获取全局状态，分析后做出决策。`
 }
 
 // ============================================
@@ -230,4 +243,22 @@ func (a *Agent) ImportState(data json.RawMessage) error {
 		return err
 	}
 	return nil
+}
+
+// ============================================
+// 辅助类型（保留用于工具内部）
+// ============================================
+
+// GlobalState 是任务的全局状态快照。
+type GlobalState struct {
+	Objective knowledgegraph.ObjectiveNode `json:"objective"`
+	Actions   []knowledgegraph.Node        `json:"actions"`
+	Findings  []knowledgegraph.Node        `json:"findings"`
+}
+
+// Decision 是监察决策。
+type Decision struct {
+	Type     string `json:"type"`                // "kill_action" | "request_replan"
+	ActionID string `json:"action_id,omitempty"` // kill_action 需要
+	Reason   string `json:"reason"`              // 决策理由
 }

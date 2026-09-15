@@ -24,6 +24,7 @@ import (
 	"github.com/V3teran/liusha/internal/finding"
 	"github.com/V3teran/liusha/internal/insight"
 	"github.com/V3teran/liusha/internal/llminvocation"
+	"github.com/V3teran/liusha/internal/framework/core"
 	"github.com/V3teran/liusha/internal/framework/llm"
 	"github.com/V3teran/liusha/internal/ratelimit"
 	"github.com/V3teran/liusha/internal/sandbox"
@@ -72,7 +73,7 @@ type handler struct {
 
 	profiles     *domain.Registry
 	world        *knowledgegraph.Store
-	checkpoint   executor.CheckpointStore
+	checkpointer core.Checkpointer
 	eventBus     *executor.PlannerEventBus // Task 级别事件总线（Planner 用）
 	actionBus    *eventbus.Bus             // Action 级别事件总线（Executor 用）
 	plannerMgr   *plannerAgentManager
