@@ -19,10 +19,9 @@ import (
 
 	"github.com/rs/zerolog"
 
-	"github.com/V3teran/liusha/internal/eventbus"
+	"github.com/V3teran/liusha/internal/framework/core"
 	"github.com/V3teran/liusha/internal/executor"
 	"github.com/V3teran/liusha/internal/finding"
-	"github.com/V3teran/liusha/internal/framework/core"
 	"github.com/V3teran/liusha/internal/knowledgegraph"
 	"github.com/V3teran/liusha/internal/monitor"
 	"github.com/V3teran/liusha/internal/planner"
@@ -38,7 +37,7 @@ type Orchestrator struct {
 	world    *knowledgegraph.Store
 	traffic  *traffic.AgentStore
 	findings *finding.Store
-	eventBus *eventbus.Bus
+	eventBus *core.Bus
 
 	// Agent 运行器（管理 Planner 和 Monitor 生命周期）
 	agentRunner *core.AgentRunner
@@ -51,6 +50,9 @@ type Orchestrator struct {
 	executorPool *executor.Pool
 	evaluator   *evaluator.Agent
 
+	// 性能监控
+	metrics *MetricsCollector
+
 	logger zerolog.Logger
 }
 
@@ -62,7 +64,7 @@ type Config struct {
 	World    *knowledgegraph.Store
 	Traffic  *traffic.AgentStore
 	Findings *finding.Store
-	EventBus *eventbus.Bus
+	EventBus *core.Bus
 
 	// Agents 的依赖
 	PlannerConfig  planner.Config
@@ -84,6 +86,7 @@ func New(cfg Config) *Orchestrator {
 		traffic:  cfg.Traffic,
 		findings: cfg.Findings,
 		eventBus: cfg.EventBus,
+		metrics:  NewMetricsCollector(cfg.Logger),
 		logger:   cfg.Logger.With().Str("component", "orchestrator").Str("task_id", cfg.TaskID).Logger(),
 	}
 
@@ -273,7 +276,7 @@ func (o *Orchestrator) processMonitorEvents(ctx context.Context) {
 }
 
 // handleMonitorDecision 处理 Monitor 的决策事件
-func (o *Orchestrator) handleMonitorDecision(ctx context.Context, event eventbus.Event) {
+func (o *Orchestrator) handleMonitorDecision(ctx context.Context, event core.Event) {
 	switch event.Type {
 	case "monitor.kill_action":
 		// 终止 Action
@@ -315,7 +318,7 @@ func (o *Orchestrator) handleMonitorDecision(ctx context.Context, event eventbus
 			Msg("monitor requested replan")
 
 		// 发布事件给 Planner
-		o.eventBus.Publish(eventbus.Event{
+		o.eventBus.Publish(core.Event{
 			Type: "orchestrator.replan_requested",
 			Payload: map[string]interface{}{
 				"reason": reason,
@@ -405,25 +408,24 @@ func (o *Orchestrator) executeActions(ctx context.Context, actions []knowledgegr
 // canExecuteParallel 检查 Actions 是否可以并行执行。
 //
 // 判断标准：Actions 之间无交叉依赖关系。
+// 算法复杂度：O(n)，n 为 actions 数量。
 func (o *Orchestrator) canExecuteParallel(actions []knowledgegraph.Node) bool {
-	for i, a1 := range actions {
-		for j, a2 := range actions {
-			if i == j {
-				continue
-			}
+	if len(actions) <= 1 {
+		return true
+	}
 
-			// 检查 a1 是否依赖 a2
-			for _, depID := range a1.DependsOn {
-				if depID == a2.ID {
-					return false
-				}
-			}
+	// 构建当前批次的 action ID 集合
+	actionIDs := make(map[string]bool, len(actions))
+	for _, action := range actions {
+		actionIDs[action.ID] = true
+	}
 
-			// 检查 a2 是否依赖 a1
-			for _, depID := range a2.DependsOn {
-				if depID == a1.ID {
-					return false
-				}
+	// 检查是否存在内部依赖（某个 action 依赖批次内的另一个 action）
+	for _, action := range actions {
+		for _, depID := range action.DependsOn {
+			if actionIDs[depID] {
+				// 发现内部依赖，不能并行
+				return false
 			}
 		}
 	}
@@ -577,7 +579,7 @@ func (o *Orchestrator) verifyHypotheses(ctx context.Context, reports []*executor
 
 			if finding != nil {
 				// 验证通过，发布事件
-				o.eventBus.Publish(eventbus.Event{
+				o.eventBus.Publish(core.Event{
 					Type: "finding.verified",
 					Payload: map[string]interface{}{
 						"finding_id":    finding.ID,
@@ -607,6 +609,12 @@ func (o *Orchestrator) verifyHypotheses(ctx context.Context, reports []*executor
 // 1. state = "open"
 // 2. 所有依赖的 Actions 已完成
 func (o *Orchestrator) getExecutableActions(ctx context.Context) ([]knowledgegraph.Node, error) {
+	startTime := time.Now()
+	defer func() {
+		duration := time.Since(startTime).Milliseconds()
+		o.metrics.RecordDependencyResolutionTime(ctx, o.taskID, duration)
+	}()
+
 	// 读取所有 open actions
 	allActions, err := o.world.ListOpenActions(ctx, o.taskID)
 	if err != nil {
@@ -616,6 +624,9 @@ func (o *Orchestrator) getExecutableActions(ctx context.Context) ([]knowledgegra
 	if len(allActions) == 0 {
 		return nil, nil
 	}
+
+	// 监控 action 规模
+	o.metrics.CheckActionScale(ctx, o.taskID, len(allActions))
 
 	// 获取已完成的 action IDs
 	completed, err := o.getCompletedActionIDs(ctx)
