@@ -87,7 +87,7 @@ func (h *HumanInteractionManagerImpl) RequestInput(ctx context.Context, req Huma
 			"input_type": req.InputType,
 			"prompt":     req.Prompt,
 		})
-		h.eventBus.Publish(ctx, event)
+		h.eventBus.Publish(event)
 	}
 
 	// 通知订阅者
@@ -195,7 +195,7 @@ func (h *HumanInteractionManagerImpl) SubmitInput(ctx context.Context, resp Huma
 			"approved":   resp.Approved,
 			"submitter":  resp.Submitter,
 		})
-		h.eventBus.Publish(ctx, event)
+		h.eventBus.Publish(event)
 	}
 
 	return nil

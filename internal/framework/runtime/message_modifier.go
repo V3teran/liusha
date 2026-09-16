@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"time"
+
+	"github.com/V3teran/liusha/internal/framework/llm"
 )
 
 // MessageModifier 是 LLM 消息预处理单元。
@@ -11,7 +13,7 @@ import (
 type MessageModifier interface {
 	// Modify 转换消息列表，返回修改后的消息。
 	// 如果返回 error，行为由 MessageModifierChain 的 ErrorStrategy 决定。
-	Modify(ctx context.Context, messages []*Message) ([]*Message, error)
+	Modify(ctx context.Context, messages []llm.Message) ([]llm.Message, error)
 }
 
 // MessageModifierChain 管理多个修改器的执行链。
@@ -95,16 +97,16 @@ func NewMessageModifierChain(
 }
 
 // Apply 执行修改器链，返回最终的消息列表。
-func (c *MessageModifierChain) Apply(ctx context.Context, messages []*Message) ([]*Message, error) {
+func (c *MessageModifierChain) Apply(ctx context.Context, messages []llm.Message) ([]llm.Message, error) {
 	// 设置整体超时
 	ctx, cancel := context.WithTimeout(ctx, time.Duration(c.timeoutSec)*time.Second)
 	defer cancel()
 
-	current := make([]*Message, len(messages))
+	current := make([]llm.Message, len(messages))
 	copy(current, messages)
 
 	for _, modifier := range c.modifiers {
-		var result []*Message
+		var result []llm.Message
 		var lastErr error
 
 		// 重试循环
@@ -251,17 +253,17 @@ func NewRollingWindowModifier(windowSize int) *RollingWindowModifier {
 	return &RollingWindowModifier{windowSize: windowSize}
 }
 
-func (m *RollingWindowModifier) Modify(ctx context.Context, messages []*Message) ([]*Message, error) {
+func (m *RollingWindowModifier) Modify(ctx context.Context, messages []llm.Message) ([]llm.Message, error) {
 	if len(messages) <= m.windowSize+1 {
 		return messages, nil
 	}
 
 	// 分离系统消息和其他消息
-	var systemMessages []*Message
-	var otherMessages []*Message
+	var systemMessages []llm.Message
+	var otherMessages []llm.Message
 
 	for _, msg := range messages {
-		if msg.Role == MessageRoleSystem {
+		if msg.Role == llm.RoleSystem {
 			systemMessages = append(systemMessages, msg)
 		} else {
 			otherMessages = append(otherMessages, msg)
@@ -287,17 +289,17 @@ func NewTruncateModifier(keepLast int) *TruncateModifier {
 	return &TruncateModifier{keepLast: keepLast}
 }
 
-func (m *TruncateModifier) Modify(ctx context.Context, messages []*Message) ([]*Message, error) {
+func (m *TruncateModifier) Modify(ctx context.Context, messages []llm.Message) ([]llm.Message, error) {
 	if len(messages) <= m.keepLast {
 		return messages, nil
 	}
 
 	// 提取系统消息
-	var systemMessages []*Message
-	var otherMessages []*Message
+	var systemMessages []llm.Message
+	var otherMessages []llm.Message
 
 	for _, msg := range messages {
-		if msg.Role == MessageRoleSystem {
+		if msg.Role == llm.RoleSystem {
 			systemMessages = append(systemMessages, msg)
 		} else {
 			otherMessages = append(otherMessages, msg)
@@ -323,7 +325,7 @@ func NewInjectionModifier(injections map[string]string) *InjectionModifier {
 	return &InjectionModifier{injections: injections}
 }
 
-func (m *InjectionModifier) Modify(ctx context.Context, messages []*Message) ([]*Message, error) {
+func (m *InjectionModifier) Modify(ctx context.Context, messages []llm.Message) ([]llm.Message, error) {
 	// 简单实现：在系统消息后追加一条注入消息
 	if len(m.injections) == 0 {
 		return messages, nil
@@ -336,12 +338,12 @@ func (m *InjectionModifier) Modify(ctx context.Context, messages []*Message) ([]
 	}
 
 	// 创建新消息副本
-	result := make([]*Message, len(messages)+1)
+	result := make([]llm.Message, len(messages)+1)
 	copy(result, messages)
 
 	// 在末尾插入注入消息
-	result[len(result)-1] = &Message{
-		Role:    MessageRoleSystem,
+	result[len(result)-1] = llm.Message{
+		Role:    llm.RoleSystem,
 		Content: injectionContent,
 	}
 
@@ -360,7 +362,7 @@ func NewValidateModifier(maxContentLength int) *ValidateModifier {
 	return &ValidateModifier{maxContentLength: maxContentLength}
 }
 
-func (m *ValidateModifier) Modify(ctx context.Context, messages []*Message) ([]*Message, error) {
+func (m *ValidateModifier) Modify(ctx context.Context, messages []llm.Message) ([]llm.Message, error) {
 	for i, msg := range messages {
 		if len(msg.Content) > m.maxContentLength {
 			return nil, fmt.Errorf("message %d exceeds max length: %d > %d", i, len(msg.Content), m.maxContentLength)

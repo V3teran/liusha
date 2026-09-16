@@ -19,14 +19,14 @@ type DefaultReActRuntime struct {
 	tools map[string]core.Tool
 
 	// 消息历史（跨多次 Run 保留）
-	messageHistory []*Message
+	messageHistory []llm.Message
 }
 
 // NewReActRuntime 创建 ReAct 运行时
 func NewReActRuntime() ReActRuntime {
 	return &DefaultReActRuntime{
 		tools:          make(map[string]core.Tool),
-		messageHistory: make([]*Message, 0),
+		messageHistory: make([]llm.Message, 0),
 	}
 }
 
@@ -73,11 +73,11 @@ func (r *DefaultReActRuntime) GetTools() []core.Tool {
 }
 
 // GetMessageHistory 获取消息历史
-func (r *DefaultReActRuntime) GetMessageHistory() []*Message {
+func (r *DefaultReActRuntime) GetMessageHistory() []llm.Message {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	history := make([]*Message, len(r.messageHistory))
+	history := make([]llm.Message, len(r.messageHistory))
 	copy(history, r.messageHistory)
 	return history
 }
@@ -87,7 +87,7 @@ func (r *DefaultReActRuntime) ClearHistory() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	r.messageHistory = make([]*Message, 0)
+	r.messageHistory = make([]llm.Message, 0)
 }
 
 // Run 运行 ReAct 循环
@@ -99,7 +99,7 @@ func (r *DefaultReActRuntime) Run(ctx context.Context, config *ReActConfig) (*Re
 
 	// 初始化结果
 	result := &ReActResult{
-		MessageHistory: make([]*Message, 0),
+		MessageHistory: make([]llm.Message, 0),
 		Trace:          make([]*IterationTrace, 0),
 		Status:         ReActStatusSuccess,
 		CheckpointIDs:  make([]core.CheckpointID, 0),
@@ -117,7 +117,7 @@ func (r *DefaultReActRuntime) Run(ctx context.Context, config *ReActConfig) (*Re
 
 		// 反序列化状态
 		var state struct {
-			MessageHistory []*Message         `json:"message_history"`
+			MessageHistory []llm.Message      `json:"message_history"`
 			Trace          []*IterationTrace  `json:"trace"`
 			Iteration      int                `json:"iteration"`
 		}
@@ -145,11 +145,11 @@ func (r *DefaultReActRuntime) Run(ctx context.Context, config *ReActConfig) (*Re
 
 		// 添加系统提示
 		if config.SystemPrompt != "" {
-			result.AddSystemMessage(config.SystemPrompt, time.Now().UnixMilli())
+			result.AddSystemMessage(config.SystemPrompt)
 		}
 
 		// 添加用户目标
-		result.AddUserMessage(config.Objective, time.Now().UnixMilli())
+		result.AddUserMessage(config.Objective)
 	}
 
 	// 注册临时工具
@@ -257,7 +257,7 @@ func (r *DefaultReActRuntime) runIteration(
 		trace.EndTime = time.Now().UnixMilli()
 
 		// 添加助手消息
-		result.AddAssistantMessage(response.Content, nil, time.Now().UnixMilli())
+		result.AddAssistantMessage(response.Content, nil)
 		return trace, true, nil
 	}
 
@@ -268,12 +268,12 @@ func (r *DefaultReActRuntime) runIteration(
 		trace.EndTime = time.Now().UnixMilli()
 
 		// 添加助手消息
-		result.AddAssistantMessage(response.Content, nil, time.Now().UnixMilli())
+		result.AddAssistantMessage(response.Content, nil)
 		return trace, true, nil
 	}
 
 	// 添加助手消息（包含工具调用）
-	result.AddAssistantMessage(response.Content, response.ToolCalls, time.Now().UnixMilli())
+	result.AddAssistantMessage(response.Content, response.ToolCalls)
 
 	// 3. 执行工具调用（Observation）
 	for _, toolCall := range response.ToolCalls {
@@ -303,7 +303,7 @@ func (r *DefaultReActRuntime) runIteration(
 		}
 
 		// 添加工具结果消息
-		result.AddToolMessage(toolCall.ID, toolCall.Name, observation, time.Now().UnixMilli())
+		result.AddToolMessage(toolCall.ID, observation)
 	}
 
 	trace.Status = IterationStatusComplete
@@ -316,7 +316,7 @@ func (r *DefaultReActRuntime) runIteration(
 func (r *DefaultReActRuntime) callLLM(
 	ctx context.Context,
 	config *ReActConfig,
-	messageHistory []*Message,
+	messageHistory []llm.Message,
 ) (*llmResponse, error) {
 	// 应用消息预处理链（如果配置了）
 	processedMessages := messageHistory
@@ -328,8 +328,8 @@ func (r *DefaultReActRuntime) callLLM(
 		}
 	}
 
-	// 转换消息历史为 LLM 请求格式
-	llmMessages := r.convertMessagesToLLMFormat(processedMessages)
+	// 消息已经是 llm.Message 格式，直接使用
+	llmMessages := processedMessages
 
 	// 构建 LLM 请求
 	request := llm.Request{
@@ -355,40 +355,7 @@ func (r *DefaultReActRuntime) callLLM(
 // llmResponse 是 LLM 响应的内部表示
 type llmResponse struct {
 	Content   string
-	ToolCalls []*ToolCall
-}
-
-// convertMessagesToLLMFormat 转换消息为 LLM 格式
-func (r *DefaultReActRuntime) convertMessagesToLLMFormat(messages []*Message) []llm.Message {
-	llmMessages := make([]llm.Message, 0, len(messages))
-
-	for _, msg := range messages {
-		llmMsg := llm.Message{
-			Role:    llm.Role(msg.Role),
-			Content: msg.Content,
-		}
-
-		// 转换工具调用
-		if len(msg.ToolCalls) > 0 {
-			llmMsg.ToolCalls = make([]llm.ToolCall, len(msg.ToolCalls))
-			for i, tc := range msg.ToolCalls {
-				llmMsg.ToolCalls[i] = llm.ToolCall{
-					ID:        tc.ID,
-					Name:      tc.Name,
-					Arguments: tc.Arguments,
-				}
-			}
-		}
-
-		// 工具消息的特殊处理
-		if msg.Role == MessageRoleTool {
-			llmMsg.ToolCallID = msg.ToolCallID
-		}
-
-		llmMessages = append(llmMessages, llmMsg)
-	}
-
-	return llmMessages
+	ToolCalls []llm.ToolCall
 }
 
 // convertToolsToLLMFormat 转换工具为 LLM 格式
@@ -412,23 +379,14 @@ func (r *DefaultReActRuntime) convertToolsToLLMFormat() []llm.ToolSchema {
 func (r *DefaultReActRuntime) parseLLMResponse(response llm.Response) (*llmResponse, error) {
 	result := &llmResponse{
 		Content:   response.Content,
-		ToolCalls: make([]*ToolCall, 0),
-	}
-
-	// 解析工具调用
-	for _, tc := range response.ToolCalls {
-		result.ToolCalls = append(result.ToolCalls, &ToolCall{
-			ID:        tc.ID,
-			Name:      tc.Name,
-			Arguments: tc.Arguments,
-		})
+		ToolCalls: response.ToolCalls,
 	}
 
 	return result, nil
 }
 
 // executeTool 执行工具
-func (r *DefaultReActRuntime) executeTool(ctx context.Context, toolCall *ToolCall) (string, error) {
+func (r *DefaultReActRuntime) executeTool(ctx context.Context, toolCall llm.ToolCall) (string, error) {
 	r.mu.RLock()
 	tool, exists := r.tools[toolCall.Name]
 	r.mu.RUnlock()

@@ -5,12 +5,11 @@ import (
 	"sync"
 
 	"github.com/V3teran/liusha/internal/framework/core"
-	"github.com/V3teran/liusha/internal/framework/orchestrator"
 )
 
 // AgentBuilder 是 Agent 构建器函数类型
 // 接收配置，返回 Agent 实例
-type AgentBuilder func(config orchestrator.AgentConfig) (core.Agent, error)
+type AgentBuilder func(config core.AgentConfig) (core.Agent, error)
 
 // Registry 是 Agent 注册表
 // 业务层通过它注册 Agent 实现，Framework 通过它创建 Agent
@@ -57,7 +56,7 @@ func (r *Registry) MustRegister(agentType string, builder AgentBuilder) {
 }
 
 // CreateAgent 根据配置创建 Agent
-func (r *Registry) CreateAgent(config orchestrator.AgentConfig) (core.Agent, error) {
+func (r *Registry) CreateAgent(config core.AgentConfig) (core.Agent, error) {
 	r.mu.RLock()
 	builder, exists := r.builders[config.Type]
 	r.mu.RUnlock()
@@ -121,7 +120,7 @@ func MustRegister(agentType string, builder AgentBuilder) {
 }
 
 // CreateAgent 从全局注册表创建 Agent
-func CreateAgent(config orchestrator.AgentConfig) (core.Agent, error) {
+func CreateAgent(config core.AgentConfig) (core.Agent, error) {
 	return globalRegistry.CreateAgent(config)
 }
 

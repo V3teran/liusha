@@ -34,6 +34,9 @@ type StatefulAgent[T any] interface {
 
 // AgentConfig 是 Agent 的通用配置。
 type AgentConfig struct {
+	// Agent 类型标识（planner/executor/monitor/evaluator）
+	Type string `json:"type"`
+
 	// Agent 名称
 	Name string `json:"name"`
 

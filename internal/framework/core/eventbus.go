@@ -1,14 +1,15 @@
-// Package eventbus 提供轻量级的进程内事件发布订阅机制。
+// EventBus 提供轻量级的进程内事件发布订阅机制。
 //
 // 设计原则：
 // 1. 类型安全：每个事件有明确的类型
 // 2. 异步通知：发布者不阻塞
 // 3. 生命周期管理：支持订阅者取消订阅
 // 4. 容量保护：防止内存泄漏
-package eventbus
+package core
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"time"
 )
@@ -23,14 +24,66 @@ const (
 	EventActionSteered EventType = "action.steered"
 	// ActionCompleted 表示 action 完成。
 	EventActionCompleted EventType = "action.completed"
+	// EventHumanInputRequired 表示需要人工输入。
+	EventHumanInputRequired EventType = "human.input.required"
+	// EventHumanInputReceived 表示收到人工输入。
+	EventHumanInputReceived EventType = "human.input.received"
 )
 
 // Event 是事件载体。
 type Event struct {
-	Type      EventType
-	ActionID  string
-	Payload   map[string]interface{}
-	Timestamp time.Time
+	ID        string                 // 事件唯一标识
+	Type      EventType              // 事件类型
+	ActionID  string                 // 关联的 action ID
+	Payload   map[string]interface{} // 事件载荷
+	Timestamp time.Time              // 事件时间戳
+}
+
+// NewEvent 创建事件。
+func NewEvent(typ EventType, actionID string, source string, payload map[string]interface{}) Event {
+	return Event{
+		ID:        generateEventID(),
+		Type:      typ,
+		ActionID:  actionID,
+		Payload:   payload,
+		Timestamp: time.Now(),
+	}
+}
+
+func generateEventID() string {
+	// 简单实现：时间戳 + 随机数
+	return fmt.Sprintf("evt_%d_%d", time.Now().UnixNano(), time.Now().Nanosecond()%10000)
+}
+
+// EventFilter 是事件过滤器函数。
+type EventFilter func(Event) bool
+
+// EventPublisher 定义事件发布能力。
+type EventPublisher interface {
+	Publish(event Event)
+}
+
+// EventSubscriber 定义事件订阅能力。
+type EventSubscriber interface {
+	Subscribe(ctx context.Context, actionID string) *Subscription
+}
+
+// EventBus 是事件总线接口，组合发布和订阅能力。
+type EventBus interface {
+	EventPublisher
+	EventSubscriber
+}
+
+// EventStore 定义事件持久化接口。
+type EventStore interface {
+	// Save 保存事件
+	Save(ctx context.Context, event Event) error
+
+	// Load 加载事件（按 actionID 查询）
+	Load(ctx context.Context, actionID string) ([]Event, error)
+
+	// LoadByType 按类型加载事件
+	LoadByType(ctx context.Context, typ EventType) ([]Event, error)
 }
 
 // Subscription 是订阅句柄。
@@ -52,12 +105,16 @@ func (s *Subscription) Unsubscribe() {
 	}
 }
 
-// Bus 是事件总线。
+// Bus 是事件总线实现。
+// 实现 EventBus 接口。
 type Bus struct {
 	mu          sync.RWMutex
 	subscribers map[string]*subscriber
 	nextID      int
 }
+
+// 确保 Bus 实现 EventBus 接口
+var _ EventBus = (*Bus)(nil)
 
 type subscriber struct {
 	id       string

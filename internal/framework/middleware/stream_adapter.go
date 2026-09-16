@@ -148,29 +148,22 @@ func NewStreamEventBus(eventBus core.EventBus) *StreamEventBusImpl {
 }
 
 // Publish 发布事件到底层 EventBus。
-func (b *StreamEventBusImpl) Publish(ctx context.Context, event core.Event) error {
-	if b.eventBus == nil {
-		return nil
+func (b *StreamEventBusImpl) Publish(event core.Event) {
+	if b.eventBus != nil {
+		b.eventBus.Publish(event)
 	}
-	return b.eventBus.Publish(ctx, event)
 }
 
-// PublishBatch 批量发布事件。
-func (b *StreamEventBusImpl) PublishBatch(ctx context.Context, events []core.Event) error {
-	if b.eventBus == nil {
-		return nil
-	}
-	return b.eventBus.PublishBatch(ctx, events)
-}
-
-// Subscribe 订阅事件从底层 EventBus。
-func (b *StreamEventBusImpl) Subscribe(ctx context.Context, filter core.EventFilter) (<-chan core.Event, error) {
+// Subscribe 订阅事件（适配 EventBus 为流式接口）。
+func (b *StreamEventBusImpl) Subscribe(ctx context.Context, actionID string) (<-chan core.Event, error) {
 	if b.eventBus == nil {
 		ch := make(chan core.Event)
 		close(ch)
 		return ch, nil
 	}
-	return b.eventBus.Subscribe(ctx, filter)
+
+	sub := b.eventBus.Subscribe(ctx, actionID)
+	return sub.Events(), nil
 }
 
 // Stream 创建或获取指定任务的流式通道。
@@ -212,8 +205,8 @@ func (b *StreamEventBusImpl) ConvertToStream(event core.Event) StreamEvent {
 	// 简单转换：将 core.Event 包装为 StreamEvent
 	return StreamEvent{
 		Type:     string(event.Type),
-		TaskID:   event.TaskID,
-		Data:     event.Data,
+		TaskID:   event.ActionID,  // ActionID 映射为 TaskID
+		Data:     event.Payload,
 		Sequence: 0,
 		Final:    false,
 	}
@@ -221,11 +214,15 @@ func (b *StreamEventBusImpl) ConvertToStream(event core.Event) StreamEvent {
 
 // ConvertToEvent 将 StreamEvent 转换为 core.Event（保留兼容性）。
 func (b *StreamEventBusImpl) ConvertToEvent(streamEvent StreamEvent) core.Event {
-	data, _ := streamEvent.Data.([]byte)
+	payload, ok := streamEvent.Data.(map[string]interface{})
+	if !ok {
+		payload = map[string]interface{}{"data": streamEvent.Data}
+	}
 	return core.Event{
-		Type:   core.EventType(streamEvent.Type),
-		TaskID: streamEvent.TaskID,
-		Data:   data,
+		ID:        "",  // 将由 NewEvent 生成
+		Type:      core.EventType(streamEvent.Type),
+		ActionID:  streamEvent.TaskID,
+		Payload:   payload,
 	}
 }
 

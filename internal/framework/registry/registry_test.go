@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"github.com/V3teran/liusha/internal/framework/core"
-	"github.com/V3teran/liusha/internal/framework/orchestrator"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -25,7 +24,7 @@ func (m *mockAgent) ImportState(data json.RawMessage) error     { return nil }
 
 // mockBuilder 创建 Mock Agent
 func mockBuilder(agentType string) AgentBuilder {
-	return func(config orchestrator.AgentConfig) (core.Agent, error) {
+	return func(config core.AgentConfig) (core.Agent, error) {
 		return &mockAgent{
 			name: config.Name,
 			typ:  agentType,
@@ -83,7 +82,7 @@ func TestRegistry_CreateAgent(t *testing.T) {
 	r.MustRegister("planner", mockBuilder("planner"))
 
 	t.Run("create registered agent", func(t *testing.T) {
-		config := orchestrator.AgentConfig{
+		config := core.AgentConfig{
 			Name: "test-planner",
 			Type: "planner",
 		}
@@ -95,7 +94,7 @@ func TestRegistry_CreateAgent(t *testing.T) {
 	})
 
 	t.Run("create unregistered agent", func(t *testing.T) {
-		config := orchestrator.AgentConfig{
+		config := core.AgentConfig{
 			Name: "test-unknown",
 			Type: "unknown",
 		}
@@ -154,7 +153,7 @@ func TestGlobalRegistry(t *testing.T) {
 	})
 
 	t.Run("create from global", func(t *testing.T) {
-		config := orchestrator.AgentConfig{
+		config := core.AgentConfig{
 			Name: "global-planner",
 			Type: "planner",
 		}
@@ -197,18 +196,18 @@ func TestRegistry_IntegrationWithOrchestrator(t *testing.T) {
 	r := NewRegistry()
 
 	// 注册业务 Agents
-	r.MustRegister("planner", func(config orchestrator.AgentConfig) (core.Agent, error) {
+	r.MustRegister("planner", func(config core.AgentConfig) (core.Agent, error) {
 		return &mockAgent{name: config.Name, typ: "planner"}, nil
 	})
 
-	r.MustRegister("executor", func(config orchestrator.AgentConfig) (core.Agent, error) {
+	r.MustRegister("executor", func(config core.AgentConfig) (core.Agent, error) {
 		return &mockAgent{name: config.Name, typ: "executor"}, nil
 	})
 
 	// 创建工作流配置
 	workflowConfig := &orchestrator.WorkflowConfig{
 		Name: "test_workflow",
-		Agents: []orchestrator.AgentConfig{
+		Agents: []core.AgentConfig{
 			{Name: "planner1", Type: "planner"},
 			{Name: "executor1", Type: "executor"},
 		},

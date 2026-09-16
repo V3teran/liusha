@@ -5,7 +5,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/V3teran/liusha/internal/eventbus"
+	"github.com/V3teran/liusha/internal/framework/core"
 	"github.com/V3teran/liusha/internal/executor"
 	"github.com/V3teran/liusha/internal/monitor"
 	"github.com/V3teran/liusha/internal/orchestrator"
@@ -34,7 +34,7 @@ func (h handler) runWithOrchestrator(ctx context.Context, agentID, taskID, virtu
 		Msg("starting task with orchestrator (new architecture)")
 
 	// 创建事件总线
-	actionBus := eventbus.New()
+	actionBus := core.New()
 	plannerEventBus := executor.NewPlannerEventBus(ctx)
 
 	// 构建 Planner 配置

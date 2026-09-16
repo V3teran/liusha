@@ -223,8 +223,8 @@ func toOpenAIMessages(msgs []Message) ([]openai.ChatCompletionMessage, error) {
 			Name:       m.Name,
 			ToolCallID: m.ToolCallID,
 		}
-		if len(m.Parts) > 0 {
-			parts, err := toOpenAIParts(m.Parts)
+		if len(m.ContentParts) > 0 {
+			parts, err := toOpenAIParts(m.ContentParts)
 			if err != nil {
 				return nil, err
 			}
@@ -260,10 +260,10 @@ func toOpenAIParts(parts []ContentPart) ([]openai.ChatMessagePart, error) {
 				Text: p.Text,
 			})
 		case "image":
-			if p.ImageData == nil {
+			if p.ImageURL == nil {
 				return nil, errors.New("provider/openai: image part missing data")
 			}
-			url := fmt.Sprintf("data:%s;base64,%s", p.ImageData.MediaType, p.ImageData.Base64Data)
+			url := fmt.Sprintf("data:%s;base64,%s", p.ImageURL.MediaType, p.ImageURL.Base64Data)
 			out = append(out, openai.ChatMessagePart{
 				Type: openai.ChatMessagePartTypeImageURL,
 				ImageURL: &openai.ChatMessageImageURL{

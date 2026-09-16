@@ -19,12 +19,11 @@ import (
 	"github.com/V3teran/liusha/internal/corpus"
 	"github.com/V3teran/liusha/internal/credential"
 	"github.com/V3teran/liusha/internal/domain"
-	"github.com/V3teran/liusha/internal/eventbus"
+	"github.com/V3teran/liusha/internal/framework/core"
 	"github.com/V3teran/liusha/internal/executor"
 	"github.com/V3teran/liusha/internal/finding"
 	"github.com/V3teran/liusha/internal/insight"
 	"github.com/V3teran/liusha/internal/llminvocation"
-	"github.com/V3teran/liusha/internal/framework/core"
 	"github.com/V3teran/liusha/internal/framework/llm"
 	"github.com/V3teran/liusha/internal/ratelimit"
 	"github.com/V3teran/liusha/internal/sandbox"
@@ -75,7 +74,7 @@ type handler struct {
 	world        *knowledgegraph.Store
 	checkpointer core.Checkpointer
 	eventBus     *executor.PlannerEventBus // Task 级别事件总线（Planner 用）
-	actionBus    *eventbus.Bus             // Action 级别事件总线（Executor 用）
+	actionBus    *core.Bus             // Action 级别事件总线（Executor 用）
 	plannerMgr   *plannerAgentManager
 	controlPlane *controlplane.Store
 }

@@ -3,21 +3,23 @@ package runtime
 import (
 	"context"
 	"testing"
+
+	"github.com/V3teran/liusha/internal/framework/llm"
 )
 
 func TestRollingWindowModifier(t *testing.T) {
 	modifier := NewRollingWindowModifier(3)
 
-	messages := []*Message{
-		{Role: MessageRoleSystem, Content: "系统提示1"},
-		{Role: MessageRoleSystem, Content: "系统提示2"},
-		{Role: MessageRoleUser, Content: "用户消息1"},
-		{Role: MessageRoleAssistant, Content: "助手消息1"},
-		{Role: MessageRoleUser, Content: "用户消息2"},
-		{Role: MessageRoleAssistant, Content: "助手消息2"},
-		{Role: MessageRoleUser, Content: "用户消息3"},
-		{Role: MessageRoleAssistant, Content: "助手消息3"},
-		{Role: MessageRoleUser, Content: "用户消息4"},
+	messages := []llm.Message{
+		{Role: llm.RoleSystem, Content: "系统提示1"},
+		{Role: llm.RoleSystem, Content: "系统提示2"},
+		{Role: llm.RoleUser, Content: "用户消息1"},
+		{Role: llm.RoleAssistant, Content: "助手消息1"},
+		{Role: llm.RoleUser, Content: "用户消息2"},
+		{Role: llm.RoleAssistant, Content: "助手消息2"},
+		{Role: llm.RoleUser, Content: "用户消息3"},
+		{Role: llm.RoleAssistant, Content: "助手消息3"},
+		{Role: llm.RoleUser, Content: "用户消息4"},
 	}
 
 	result, err := modifier.Modify(context.Background(), messages)
@@ -33,7 +35,7 @@ func TestRollingWindowModifier(t *testing.T) {
 	// 验证系统消息都在
 	systemCount := 0
 	for _, msg := range result {
-		if msg.Role == MessageRoleSystem {
+		if msg.Role == llm.RoleSystem {
 			systemCount++
 		}
 	}
@@ -50,13 +52,13 @@ func TestRollingWindowModifier(t *testing.T) {
 func TestTruncateModifier(t *testing.T) {
 	modifier := NewTruncateModifier(3)
 
-	messages := []*Message{
-		{Role: MessageRoleSystem, Content: "系统提示"},
-		{Role: MessageRoleUser, Content: "用户消息1"},
-		{Role: MessageRoleAssistant, Content: "助手消息1"},
-		{Role: MessageRoleUser, Content: "用户消息2"},
-		{Role: MessageRoleAssistant, Content: "助手消息2"},
-		{Role: MessageRoleUser, Content: "用户消息3"},
+	messages := []llm.Message{
+		{Role: llm.RoleSystem, Content: "系统提示"},
+		{Role: llm.RoleUser, Content: "用户消息1"},
+		{Role: llm.RoleAssistant, Content: "助手消息1"},
+		{Role: llm.RoleUser, Content: "用户消息2"},
+		{Role: llm.RoleAssistant, Content: "助手消息2"},
+		{Role: llm.RoleUser, Content: "用户消息3"},
 	}
 
 	result, err := modifier.Modify(context.Background(), messages)
@@ -70,7 +72,7 @@ func TestTruncateModifier(t *testing.T) {
 	}
 
 	// 第一条应该是系统消息
-	if result[0].Role != MessageRoleSystem {
+	if result[0].Role != llm.RoleSystem {
 		t.Errorf("expected first message to be system, got %s", result[0].Role)
 	}
 }
@@ -79,9 +81,9 @@ func TestValidateModifier(t *testing.T) {
 	modifier := NewValidateModifier(100)
 
 	t.Run("Valid messages", func(t *testing.T) {
-		messages := []*Message{
-			{Role: MessageRoleUser, Content: "短消息"},
-			{Role: MessageRoleAssistant, Content: "回复"},
+		messages := []llm.Message{
+			{Role: llm.RoleUser, Content: "短消息"},
+			{Role: llm.RoleAssistant, Content: "回复"},
 		}
 
 		_, err := modifier.Modify(context.Background(), messages)
@@ -96,8 +98,8 @@ func TestValidateModifier(t *testing.T) {
 			longContent[i] = 'a'
 		}
 
-		messages := []*Message{
-			{Role: MessageRoleUser, Content: string(longContent)},
+		messages := []llm.Message{
+			{Role: llm.RoleUser, Content: string(longContent)},
 		}
 
 		_, err := modifier.Modify(context.Background(), messages)
@@ -107,7 +109,7 @@ func TestValidateModifier(t *testing.T) {
 	})
 
 	t.Run("Empty role", func(t *testing.T) {
-		messages := []*Message{
+		messages := []llm.Message{
 			{Role: "", Content: "无角色"},
 		}
 
@@ -119,13 +121,13 @@ func TestValidateModifier(t *testing.T) {
 }
 
 func TestMessageModifierChain(t *testing.T) {
-	messages := []*Message{
-		{Role: MessageRoleSystem, Content: "系统提示"},
-		{Role: MessageRoleUser, Content: "用户消息1"},
-		{Role: MessageRoleAssistant, Content: "助手消息1"},
-		{Role: MessageRoleUser, Content: "用户消息2"},
-		{Role: MessageRoleAssistant, Content: "助手消息2"},
-		{Role: MessageRoleUser, Content: "用户消息3"},
+	messages := []llm.Message{
+		{Role: llm.RoleSystem, Content: "系统提示"},
+		{Role: llm.RoleUser, Content: "用户消息1"},
+		{Role: llm.RoleAssistant, Content: "助手消息1"},
+		{Role: llm.RoleUser, Content: "用户消息2"},
+		{Role: llm.RoleAssistant, Content: "助手消息2"},
+		{Role: llm.RoleUser, Content: "用户消息3"},
 	}
 
 	t.Run("FailFast strategy", func(t *testing.T) {
@@ -177,12 +179,12 @@ func TestMessageModifierChain(t *testing.T) {
 }
 
 func TestPredefinedModifierChains(t *testing.T) {
-	messages := []*Message{
-		{Role: MessageRoleSystem, Content: "系统提示"},
+	messages := []llm.Message{
+		{Role: llm.RoleSystem, Content: "系统提示"},
 	}
 	for i := 0; i < 50; i++ {
-		messages = append(messages, &Message{
-			Role:    MessageRoleUser,
+		messages = append(messages, llm.Message{
+			Role:    llm.RoleUser,
 			Content: "用户消息",
 		})
 	}
@@ -243,6 +245,6 @@ func TestPredefinedModifierChains(t *testing.T) {
 // mockFailingModifier 总是失败的修改器（用于测试）
 type mockFailingModifier struct{}
 
-func (m *mockFailingModifier) Modify(ctx context.Context, messages []*Message) ([]*Message, error) {
+func (m *mockFailingModifier) Modify(ctx context.Context, messages []llm.Message) ([]llm.Message, error) {
 	return nil, context.Canceled
 }
