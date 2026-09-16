@@ -11,9 +11,8 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/V3teran/liusha/internal/controlplane"
-	"github.com/V3teran/liusha/internal/eventbus"
-	"github.com/V3teran/liusha/internal/executor"
 	"github.com/V3teran/liusha/internal/framework/core"
+	"github.com/V3teran/liusha/internal/executor"
 	"github.com/V3teran/liusha/internal/framework/llm"
 	"github.com/V3teran/liusha/internal/framework/runtime"
 	"github.com/V3teran/liusha/internal/knowledgegraph"
@@ -33,7 +32,7 @@ type Agent struct {
 	reactRuntime runtime.ReActRuntime      // ReAct 运行时（唯一引擎）
 	taskID       string
 	eventBus     *executor.PlannerEventBus // Task 级事件总线（接收触发）
-	actionBus    *eventbus.Bus             // Action 级事件总线（发送控制）
+	actionBus    *core.Bus             // Action 级事件总线（发送控制）
 	world        *knowledgegraph.Store
 	controlPlane *controlplane.Store
 	router       *llm.Router
@@ -51,7 +50,7 @@ type Agent struct {
 type Config struct {
 	TaskID       string
 	EventBus     *executor.PlannerEventBus // Task 级事件总线
-	ActionBus    *eventbus.Bus             // Action 级事件总线
+	ActionBus    *core.Bus             // Action 级事件总线
 	World        *knowledgegraph.Store
 	ControlPlane *controlplane.Store
 	Router       *llm.Router

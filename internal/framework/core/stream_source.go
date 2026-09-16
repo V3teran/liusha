@@ -11,14 +11,14 @@ import (
 // 用于从 Agent 执行过程中产生事件流
 type EventSource struct {
 	mu          sync.RWMutex
-	subscribers map[string]*subscriber
+	subscribers map[string]*streamSubscriber
 	config      *StreamConfig
 	eventQueue  chan *StreamEvent
 	closed      bool
 }
 
-// subscriber 订阅者
-type subscriber struct {
+// streamSubscriber 订阅者
+type streamSubscriber struct {
 	id      string
 	channel chan *StreamEvent
 	filter  StreamEventFilter
@@ -34,7 +34,7 @@ func NewEventSource(config *StreamConfig) *EventSource {
 	}
 
 	source := &EventSource{
-		subscribers: make(map[string]*subscriber),
+		subscribers: make(map[string]*streamSubscriber),
 		config:      config,
 		eventQueue:  make(chan *StreamEvent, config.BufferSize),
 		closed:      false,
@@ -67,7 +67,7 @@ func (s *EventSource) SubscribeWithFilter(ctx context.Context, filter StreamEven
 	channel := make(chan *StreamEvent, s.config.BufferSize)
 
 	// 注册订阅者
-	s.subscribers[subscriberID] = &subscriber{
+	s.subscribers[subscriberID] = &streamSubscriber{
 		id:      subscriberID,
 		channel: channel,
 		filter:  filter,
@@ -146,7 +146,7 @@ func (s *EventSource) Close() error {
 	}
 
 	// 清空订阅者
-	s.subscribers = make(map[string]*subscriber)
+	s.subscribers = make(map[string]*streamSubscriber)
 
 	return nil
 }
@@ -162,7 +162,7 @@ func (s *EventSource) SubscriberCount() int {
 func (s *EventSource) dispatchEvents() {
 	for event := range s.eventQueue {
 		s.mu.RLock()
-		subscribers := make([]*subscriber, 0, len(s.subscribers))
+		subscribers := make([]*streamSubscriber, 0, len(s.subscribers))
 		for _, sub := range s.subscribers {
 			subscribers = append(subscribers, sub)
 		}

@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/V3teran/liusha/internal/eventbus"
+	"github.com/V3teran/liusha/internal/framework/core"
 	"github.com/V3teran/liusha/internal/knowledgegraph"
 )
 
@@ -111,8 +111,8 @@ func (p *Agent) Kill(ctx context.Context, actionID string, reason string) error 
 
 	// 6. 发布到 actionBus（Action 级事件总线）
 	if p.actionBus != nil {
-		p.actionBus.Publish(eventbus.Event{
-			Type:      eventbus.EventActionKilled,
+		p.actionBus.Publish(core.Event{
+			Type:      core.EventActionKilled,
 			ActionID:  actionID,
 			Timestamp: time.Now(),
 			Payload: map[string]interface{}{
@@ -168,8 +168,8 @@ func (p *Agent) Steer(ctx context.Context, actionID string, guidance string) err
 
 	// 5. 发布到 actionBus（Action 级事件总线）
 	if p.actionBus != nil {
-		p.actionBus.Publish(eventbus.Event{
-			Type:      eventbus.EventActionSteered,
+		p.actionBus.Publish(core.Event{
+			Type:      core.EventActionSteered,
 			ActionID:  actionID,
 			Timestamp: time.Now(),
 			Payload: map[string]interface{}{

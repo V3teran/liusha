@@ -234,8 +234,8 @@ func toAnthropicMessages(msgs []Message) (
 		case RoleSystem:
 			sysBlocks = append(sysBlocks, anthropic.TextBlockParam{Text: m.Content})
 		case RoleUser:
-			if len(m.Parts) > 0 {
-				blocks, perr := toAnthropicUserParts(m.Parts)
+			if len(m.ContentParts) > 0 {
+				blocks, perr := toAnthropicUserParts(m.ContentParts)
 				if perr != nil {
 					return nil, nil, perr
 				}
@@ -259,8 +259,8 @@ func toAnthropicMessages(msgs []Message) (
 				out = append(out, anthropic.NewAssistantMessage(blocks...))
 			}
 		case RoleTool:
-			if len(m.Parts) > 0 {
-				toolBlocks, perr := toAnthropicToolResultParts(m.Parts)
+			if len(m.ContentParts) > 0 {
+				toolBlocks, perr := toAnthropicToolResultParts(m.ContentParts)
 				if perr != nil {
 					return nil, nil, perr
 				}
@@ -287,10 +287,10 @@ func toAnthropicUserParts(parts []ContentPart) ([]anthropic.ContentBlockParamUni
 		case "text":
 			out = append(out, anthropic.NewTextBlock(p.Text))
 		case "image":
-			if p.ImageData == nil {
+			if p.ImageURL == nil {
 				return nil, errors.New("provider/anthropic: image part missing data")
 			}
-			out = append(out, anthropic.NewImageBlockBase64(p.ImageData.MediaType, p.ImageData.Base64Data))
+			out = append(out, anthropic.NewImageBlockBase64(p.ImageURL.MediaType, p.ImageURL.Base64Data))
 		default:
 			return nil, fmt.Errorf("provider/anthropic: unknown content part type %q", p.Type)
 		}
@@ -307,15 +307,15 @@ func toAnthropicToolResultParts(parts []ContentPart) ([]anthropic.ToolResultBloc
 				OfText: &anthropic.TextBlockParam{Text: p.Text},
 			})
 		case "image":
-			if p.ImageData == nil {
+			if p.ImageURL == nil {
 				return nil, errors.New("provider/anthropic: image part missing data")
 			}
 			out = append(out, anthropic.ToolResultBlockParamContentUnion{
 				OfImage: &anthropic.ImageBlockParam{
 					Source: anthropic.ImageBlockParamSourceUnion{
 						OfBase64: &anthropic.Base64ImageSourceParam{
-							Data:      p.ImageData.Base64Data,
-							MediaType: anthropic.Base64ImageSourceMediaType(p.ImageData.MediaType),
+							Data:      p.ImageURL.Base64Data,
+							MediaType: anthropic.Base64ImageSourceMediaType(p.ImageURL.MediaType),
 						},
 					},
 				},

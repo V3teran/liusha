@@ -11,8 +11,9 @@ package llm
 
 import (
 	"context"
-	"encoding/json"
 	"time"
+
+	corellm "github.com/V3teran/liusha/internal/llm"
 )
 
 // Provider 是 LLM 调用的统一抽象。实现者负责协议差异屏蔽。
@@ -44,89 +45,50 @@ type Provider interface {
 
 // Request 是一次 LLM 调用的完整输入。
 type Request struct {
-	Messages  []Message    // 会话历史，含 system/user/assistant/tool
-	Tools     []ToolSchema // 可调用工具声明；空表示纯文本对话
-	MaxTokens int          // 0 = provider 默认值
+	Messages  []corellm.Message    // 会话历史，含 system/user/assistant/tool
+	Tools     []corellm.ToolSchema // 可调用工具声明；空表示纯文本对话
+	MaxTokens int                  // 0 = provider 默认值
 }
 
 // Response 是非流式调用的完整输出。
 type Response struct {
-	Content      string     // 文本内容（ToolCalls 非空时可能为空）
-	ToolCalls    []ToolCall // 工具调用请求列表
-	Usage        Usage
+	Content      string              // 文本内容（ToolCalls 非空时可能为空）
+	ToolCalls    []corellm.ToolCall  // 工具调用请求列表
+	Usage        corellm.Usage
 	FinishReason string // "stop" | "tool_use" | "max_tokens" | "error"
 }
 
 // ─────────────────────────────────────────────
-//  消息类型
+//  类型别名（统一到 internal/llm）
 // ─────────────────────────────────────────────
 
-// Role 是消息角色。
-type Role string
+// Message 是会话消息（别名到 internal/llm）。
+type Message = corellm.Message
+
+// Role 是消息角色（别名到 internal/llm）。
+type Role = corellm.Role
 
 const (
-	RoleSystem    Role = "system"
-	RoleUser      Role = "user"
-	RoleAssistant Role = "assistant"
-	RoleTool      Role = "tool"
+	RoleSystem    = corellm.RoleSystem
+	RoleUser      = corellm.RoleUser
+	RoleAssistant = corellm.RoleAssistant
+	RoleTool      = corellm.RoleTool
 )
 
-// Message 是一条会话消息。
-//
-// 纯文本走 Content；多模态走 Parts（两者互斥）。
-// ToolCallID 与 RoleTool 搭配，标识这条消息对应哪个工具调用结果。
-type Message struct {
-	Role       Role          `json:"role"`
-	Content    string        `json:"content,omitempty"`
-	Parts      []ContentPart `json:"parts,omitempty"`
-	Name       string        `json:"name,omitempty"`
-	ToolCallID string        `json:"tool_call_id,omitempty"`
-	ToolCalls  []ToolCall    `json:"tool_calls,omitempty"`
-}
+// ContentPart 是多模态消息的内容块（别名到 internal/llm）。
+type ContentPart = corellm.ContentPart
 
-// ContentPart 是多模态消息的内容块。
-// Type ∈ {"text", "image"}。
-type ContentPart struct {
-	Type      string        `json:"type"`
-	Text      string        `json:"text,omitempty"`
-	ImageData *ImageContent `json:"image,omitempty"`
-}
+// ImageContent 是 base64 内联图片（别名到 internal/llm）。
+type ImageContent = corellm.ImageContent
 
-// ImageContent 是 base64 内联图片（不引用外部 URL，避免沙箱网络依赖）。
-type ImageContent struct {
-	MediaType  string `json:"media_type"` // "image/png" | "image/jpeg" | "image/webp"
-	Base64Data string `json:"data"`
-}
+// ToolCall 是模型请求执行的工具调用（别名到 internal/llm）。
+type ToolCall = corellm.ToolCall
 
-// ToolCall 是模型请求执行的工具调用。
-type ToolCall struct {
-	ID        string          `json:"id"`
-	Name      string          `json:"name"`
-	Arguments json.RawMessage `json:"arguments"` // JSON 对象
-}
+// ToolSchema 描述一个工具的名称、说明和参数 JSON Schema（别名到 internal/llm）。
+type ToolSchema = corellm.ToolSchema
 
-// ToolSchema 描述一个工具的名称、说明和参数 JSON Schema。
-type ToolSchema struct {
-	Name        string          `json:"name"`
-	Description string          `json:"description"`
-	Parameters  json.RawMessage `json:"parameters"` // JSON Schema object
-}
-
-// Usage 是一次调用的 token 计量。
-type Usage struct {
-	InTokens     int
-	OutTokens    int
-	CachedTokens int
-}
-
-// Add 返回累加结果（值方法，不修改 receiver）。
-func (u Usage) Add(o Usage) Usage {
-	return Usage{
-		InTokens:     u.InTokens + o.InTokens,
-		OutTokens:    u.OutTokens + o.OutTokens,
-		CachedTokens: u.CachedTokens + o.CachedTokens,
-	}
-}
+// Usage 是一次调用的 token 计量（别名到 internal/llm）。
+type Usage = corellm.Usage
 
 // ─────────────────────────────────────────────
 //  流式事件

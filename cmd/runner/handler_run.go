@@ -13,7 +13,7 @@ import (
 	"github.com/V3teran/liusha/internal/conversation"
 	"github.com/V3teran/liusha/internal/dispatcher"
 	dispatcherprofile "github.com/V3teran/liusha/internal/dispatcher/profile"
-	"github.com/V3teran/liusha/internal/eventbus"
+	"github.com/V3teran/liusha/internal/framework/core"
 	"github.com/V3teran/liusha/internal/executor"
 	"github.com/V3teran/liusha/internal/framework/llm"
 	"github.com/V3teran/liusha/internal/registry"
@@ -287,35 +287,23 @@ func (h handler) handleCognition(
 	virtualHost := h.onboard(ctx, assignmentID, taskID, brief)
 
 	// ========================================
-	// 新架构：使用 Orchestrator 模式
+	// 新架构：使用 Graph 编排模式
 	// ========================================
-	// 环境变量控制：USE_ORCHESTRATOR=true 启用新架构
-	// TODO: 稳定后移除旧架构，默认使用 Orchestrator
-	useOrchestrator := true // 默认启用新架构
-
-	if useOrchestrator {
-		h.logger.Info().
-			Str("task_id", taskID).
-			Msg("using orchestrator architecture (new)")
-
-		err := h.runWithOrchestrator(ctx, p.AgentID, taskID, virtualHost)
-		if err != nil {
-			return h.failTask(ctx, p.AgentID, err)
-		}
-
-		// 任务完成
-		if err := h.tasks.Complete(ctx, taskID); err != nil {
-			h.logger.Error().Err(err).Str("task_id", taskID).Msg("failed to mark task complete")
-		}
-		return nil
-	}
-
-	// ========================================
-	// 旧架构：保留用于回退
-	// ========================================
+	// 直接替换 Orchestrator，使用 Graph 进行任务编排
 	h.logger.Info().
 		Str("task_id", taskID).
-		Msg("using legacy architecture (fallback)")
+		Msg("using graph orchestration architecture")
+
+	err := h.runWithGraph(ctx, p.AgentID, taskID, virtualHost)
+	if err != nil {
+		return h.failTask(ctx, p.AgentID, err)
+	}
+
+	// 任务完成
+	if err := h.tasks.Complete(ctx, taskID); err != nil {
+		h.logger.Error().Err(err).Str("task_id", taskID).Msg("failed to mark task complete")
+	}
+	return nil
 
 	// Sandbox 按 Assignment 粒度管理
 	sandboxClient, err := h.sandboxMgr.Acquire(ctx, assignmentID)
@@ -559,25 +547,25 @@ func buildRunResult(engine string, execs []executor.Execution, report interface{
 //  EventBus 适配器
 // ─────────────────────────────────────────────────────────────
 
-// eventBusAdapter 将 eventbus.Bus 适配为 executor.EventBus 接口
+// eventBusAdapter 将 core.Bus 适配为 executor.EventBus 接口
 type eventBusAdapter struct {
-	bus *eventbus.Bus
+	bus *core.Bus
 }
 
-func newEventBusAdapter(bus *eventbus.Bus) *eventBusAdapter {
+func newEventBusAdapter(bus *core.Bus) *eventBusAdapter {
 	return &eventBusAdapter{bus: bus}
 }
 
 func (a *eventBusAdapter) Subscribe(ctx context.Context, actionID string) executor.EventSubscription {
-	// eventbus.Bus.Subscribe 返回 *eventbus.Subscription
+	// core.Bus.Subscribe 返回 *core.Subscription
 	sub := a.bus.Subscribe(ctx, actionID)
 	return &eventSubscriptionAdapter{sub: sub}
 }
 
 func (a *eventBusAdapter) Publish(event executor.ControlEvent) {
-	// 转换 executor.ControlEvent 到 eventbus.Event
-	a.bus.Publish(eventbus.Event{
-		Type:      eventbus.EventType(event.Type),
+	// 转换 executor.ControlEvent 到 core.Event
+	a.bus.Publish(core.Event{
+		Type:      core.EventType(event.Type),
 		ActionID:  event.ActionID,
 		Payload:   event.Payload,
 		Timestamp: event.Timestamp,
@@ -586,11 +574,11 @@ func (a *eventBusAdapter) Publish(event executor.ControlEvent) {
 
 // eventSubscriptionAdapter 实现 executor.EventSubscription
 type eventSubscriptionAdapter struct {
-	sub *eventbus.Subscription
+	sub *core.Subscription
 }
 
 func (s *eventSubscriptionAdapter) Events() <-chan executor.ControlEvent {
-	// 从 eventbus.Subscription 获取事件 channel
+	// 从 core.Subscription 获取事件 channel
 	eventbusCh := s.sub.Events()
 
 	// 创建转换 channel

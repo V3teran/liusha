@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/V3teran/liusha/internal/eventbus"
 	"github.com/V3teran/liusha/internal/framework/core"
 	"github.com/V3teran/liusha/internal/knowledgegraph"
 )
@@ -87,10 +86,10 @@ func (t *GetGlobalStateTool) Execute(ctx context.Context, input core.ToolInput) 
 // ============================================
 
 type PublishDecisionTool struct {
-	eventBus *eventbus.Bus
+	eventBus *core.Bus
 }
 
-func NewPublishDecisionTool(eventBus *eventbus.Bus) *PublishDecisionTool {
+func NewPublishDecisionTool(eventBus *core.Bus) *PublishDecisionTool {
 	return &PublishDecisionTool{
 		eventBus: eventBus,
 	}
@@ -147,8 +146,8 @@ func (t *PublishDecisionTool) Execute(ctx context.Context, input core.ToolInput)
 	}
 
 	// 发布事件
-	eventType := eventbus.EventType("monitor." + decision.Type)
-	t.eventBus.Publish(eventbus.Event{
+	eventType := core.EventType("monitor." + decision.Type)
+	t.eventBus.Publish(core.Event{
 		Type: eventType,
 		Payload: map[string]interface{}{
 			"action_id": decision.ActionID,

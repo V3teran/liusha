@@ -59,8 +59,8 @@ func NewTextMessage(id string, role llm.Role, content string) *Message {
 // NewMultimodalMessage 创建多模态消息。
 func NewMultimodalMessage(id string, role llm.Role, parts []llm.ContentPart) *Message {
 	return NewMessage(id, llm.Message{
-		Role:  role,
-		Parts: parts,
+		Role:         role,
+		ContentParts: parts,
 	})
 }
 
@@ -74,10 +74,10 @@ func (m *Message) TokenCount() int {
 	count := len(m.Content) / 4
 
 	// 多模态内容估算
-	for _, part := range m.Parts {
+	for _, part := range m.ContentParts {
 		if part.Type == "text" {
 			count += len(part.Text) / 4
-		} else if part.Type == "image" {
+		} else if part.Type == "image_url" {
 			// 图片固定估算 85 tokens（参考 Claude 视觉 token 消耗）
 			count += 85
 		}

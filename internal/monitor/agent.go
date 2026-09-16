@@ -11,7 +11,6 @@ import (
 
 	"github.com/rs/zerolog"
 
-	"github.com/V3teran/liusha/internal/eventbus"
 	"github.com/V3teran/liusha/internal/framework/core"
 	"github.com/V3teran/liusha/internal/framework/llm"
 	"github.com/V3teran/liusha/internal/framework/runtime"
@@ -25,7 +24,7 @@ var _ core.Agent = (*Agent)(nil)
 type Agent struct {
 	taskID       string
 	world        *knowledgegraph.Store
-	eventBus     *eventbus.Bus
+	eventBus     *core.Bus
 	provider     llm.Provider
 	reactRuntime runtime.ReActRuntime
 	interval     time.Duration
@@ -40,7 +39,7 @@ type Agent struct {
 type Config struct {
 	TaskID   string
 	World    *knowledgegraph.Store
-	EventBus *eventbus.Bus
+	EventBus *core.Bus
 	Provider llm.Provider
 	Router   *llm.Router        // 用于获取合适的 Provider
 	Interval time.Duration      // 评估间隔，默认 6 分钟

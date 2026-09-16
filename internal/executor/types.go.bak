@@ -163,12 +163,18 @@ type Execution struct {
 
 // ExecutorReq 是 Actor.Run 的输入。
 type ExecutorReq struct {
-	System             string   // 不参与压缩：Profile.SystemPrompt + Landmark summaries
-	Inbox              []string // 参与压缩：初始指令（纯文本消息）
-	Hypotheses         []string // Working Memory
+	System             string             // 不参与压缩：Profile.SystemPrompt + Landmark summaries
+	Inbox              []Message          // 参与压缩：初始指令
+	Hypotheses         []string           // Working Memory
 	Budget             Budget
 	Settle             SettleConfig
 	PendingConstraints []registry.Constraint
+}
+
+// Message 是 Executor 内部会话消息（薄包装，转发给 Provider）。
+type Message struct {
+	Role    string
+	Content string
 }
 
 // ExecutorResult 是 Actor.Run 的输出。

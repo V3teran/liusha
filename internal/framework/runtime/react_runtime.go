@@ -2,7 +2,6 @@ package runtime
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 
 	"github.com/V3teran/liusha/internal/framework/core"
@@ -36,7 +35,7 @@ type ReActRuntime interface {
 	GetTools() []core.Tool
 
 	// GetMessageHistory 获取消息历史
-	GetMessageHistory() []*Message
+	GetMessageHistory() []llm.Message
 
 	// ClearHistory 清空消息历史
 	ClearHistory()
@@ -60,7 +59,7 @@ type ReActConfig struct {
 	MaxIterations int
 
 	// 初始消息历史（可选，用于多轮对话）
-	InitialHistory []*Message
+	InitialHistory []llm.Message
 
 	// 工具列表（自动转换为函数调用）
 	Tools []core.Tool
@@ -100,7 +99,7 @@ type ReActResult struct {
 	FinalAnswer string
 
 	// 消息历史
-	MessageHistory []*Message
+	MessageHistory []llm.Message
 
 	// 迭代次数
 	Iterations int
@@ -140,53 +139,10 @@ const (
 	ReActStatusCancelled ReActStatus = "cancelled"
 )
 
-// Message 是消息历史中的单条消息
-type Message struct {
-	// 角色：system/user/assistant/tool
-	Role MessageRole
-
-	// 文本内容
-	Content string
-
-	// 工具调用（仅 assistant 消息）
-	ToolCalls []*ToolCall
-
-	// 工具调用 ID（仅 tool 消息）
-	ToolCallID string
-
-	// 工具名称（仅 tool 消息）
-	ToolName string
-
-	// 时间戳（Unix 毫秒）
-	Timestamp int64
-}
-
-// MessageRole 消息角色
-type MessageRole string
-
-const (
-	MessageRoleSystem    MessageRole = "system"
-	MessageRoleUser      MessageRole = "user"
-	MessageRoleAssistant MessageRole = "assistant"
-	MessageRoleTool      MessageRole = "tool"
-)
-
-// ToolCall 是工具调用请求
-type ToolCall struct {
-	// 工具调用 ID（用于关联结果）
-	ID string
-
-	// 工具名称
-	Name string
-
-	// 工具参数（JSON）
-	Arguments json.RawMessage
-}
-
 // Action 是单次工具调用的行动
 type Action struct {
 	// 工具调用信息
-	ToolCall *ToolCall
+	ToolCall llm.ToolCall
 
 	// 思考过程（LLM 的推理）
 	Thought string
@@ -262,49 +218,44 @@ func (c *ReActConfig) Validate() error {
 }
 
 // AddSystemMessage 添加系统消息
-func (r *ReActResult) AddSystemMessage(content string, timestamp int64) {
-	r.MessageHistory = append(r.MessageHistory, &Message{
-		Role:      MessageRoleSystem,
-		Content:   content,
-		Timestamp: timestamp,
+func (r *ReActResult) AddSystemMessage(content string) {
+	r.MessageHistory = append(r.MessageHistory, llm.Message{
+		Role:    llm.RoleSystem,
+		Content: content,
 	})
 }
 
 // AddUserMessage 添加用户消息
-func (r *ReActResult) AddUserMessage(content string, timestamp int64) {
-	r.MessageHistory = append(r.MessageHistory, &Message{
-		Role:      MessageRoleUser,
-		Content:   content,
-		Timestamp: timestamp,
+func (r *ReActResult) AddUserMessage(content string) {
+	r.MessageHistory = append(r.MessageHistory, llm.Message{
+		Role:    llm.RoleUser,
+		Content: content,
 	})
 }
 
 // AddAssistantMessage 添加助手消息
-func (r *ReActResult) AddAssistantMessage(content string, toolCalls []*ToolCall, timestamp int64) {
-	r.MessageHistory = append(r.MessageHistory, &Message{
-		Role:      MessageRoleAssistant,
+func (r *ReActResult) AddAssistantMessage(content string, toolCalls []llm.ToolCall) {
+	r.MessageHistory = append(r.MessageHistory, llm.Message{
+		Role:      llm.RoleAssistant,
 		Content:   content,
 		ToolCalls: toolCalls,
-		Timestamp: timestamp,
 	})
 }
 
 // AddToolMessage 添加工具消息
-func (r *ReActResult) AddToolMessage(toolCallID, toolName, content string, timestamp int64) {
-	r.MessageHistory = append(r.MessageHistory, &Message{
-		Role:       MessageRoleTool,
+func (r *ReActResult) AddToolMessage(toolCallID, content string) {
+	r.MessageHistory = append(r.MessageHistory, llm.Message{
+		Role:       llm.RoleTool,
 		Content:    content,
 		ToolCallID: toolCallID,
-		ToolName:   toolName,
-		Timestamp:  timestamp,
 	})
 }
 
 // GetLastAssistantMessage 获取最后一条助手消息
-func (r *ReActResult) GetLastAssistantMessage() *Message {
+func (r *ReActResult) GetLastAssistantMessage() *llm.Message {
 	for i := len(r.MessageHistory) - 1; i >= 0; i-- {
-		if r.MessageHistory[i].Role == MessageRoleAssistant {
-			return r.MessageHistory[i]
+		if r.MessageHistory[i].Role == llm.RoleAssistant {
+			return &r.MessageHistory[i]
 		}
 	}
 	return nil
@@ -321,7 +272,7 @@ func (r *ReActResult) HasToolCalls() bool {
 func (r *ReActResult) ExtractFinalAnswer() string {
 	for i := len(r.MessageHistory) - 1; i >= 0; i-- {
 		msg := r.MessageHistory[i]
-		if msg.Role == MessageRoleAssistant && len(msg.ToolCalls) == 0 && msg.Content != "" {
+		if msg.Role == llm.RoleAssistant && len(msg.ToolCalls) == 0 && msg.Content != "" {
 			return msg.Content
 		}
 	}

@@ -111,10 +111,8 @@ func (d *Dispatcher) buildExecutorReq(profile Profile, action executor.Action, h
 	}
 
 	return executor.ExecutorReq{
-		System: system,
-		Inbox: []executor.Message{
-			{Role: "user", Content: instruction},
-		},
+		System:             system,
+		Inbox:              []string{instruction},
 		Budget:             profile.Budget,
 		Settle:             profile.Settle,
 		PendingConstraints: action.Constraints,

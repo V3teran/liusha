@@ -39,7 +39,7 @@ import (
 	"github.com/V3teran/liusha/internal/domain"
 	"github.com/V3teran/liusha/internal/embedding"
 	"github.com/V3teran/liusha/internal/envx"
-	"github.com/V3teran/liusha/internal/eventbus"
+	"github.com/V3teran/liusha/internal/framework/core"
 	"github.com/V3teran/liusha/internal/executor"
 	"github.com/V3teran/liusha/internal/finding"
 	"github.com/V3teran/liusha/internal/ingestor"
@@ -274,7 +274,7 @@ func main() {
 	defer plannerMgr.StopAll()
 
 	// Action 级别事件总线（Executor 监听 Planner 的 Kill/Steer 事件）
-	actionBus := eventbus.New()
+	actionBus := core.New()
 
 	h := handler{
 		executors:      executorRuns,

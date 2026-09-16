@@ -47,7 +47,7 @@ func TestNewTextMessage(t *testing.T) {
 func TestNewMultimodalMessage(t *testing.T) {
 	parts := []llm.ContentPart{
 		{Type: "text", Text: "描述图片"},
-		{Type: "image", ImageData: &llm.ImageContent{MediaType: "image/png", Base64Data: "base64data"}},
+		{Type: "image_url", ImageURL: &llm.ImageContent{MediaType: "image/png", Base64Data: "base64data"}},
 	}
 
 	msg := NewMultimodalMessage("msg-3", llm.RoleUser, parts)
@@ -55,14 +55,14 @@ func TestNewMultimodalMessage(t *testing.T) {
 	if msg.ID != "msg-3" {
 		t.Errorf("ID = %q, want %q", msg.ID, "msg-3")
 	}
-	if len(msg.Parts) != 2 {
-		t.Errorf("len(Parts) = %d, want 2", len(msg.Parts))
+	if len(msg.ContentParts) != 2 {
+		t.Errorf("len(ContentParts) = %d, want 2", len(msg.ContentParts))
 	}
-	if msg.Parts[0].Type != "text" {
-		t.Errorf("Parts[0].Type = %q, want %q", msg.Parts[0].Type, "text")
+	if msg.ContentParts[0].Type != "text" {
+		t.Errorf("ContentParts[0].Type = %q, want %q", msg.ContentParts[0].Type, "text")
 	}
-	if msg.Parts[1].Type != "image" {
-		t.Errorf("Parts[1].Type = %q, want %q", msg.Parts[1].Type, "image")
+	if msg.ContentParts[1].Type != "image_url" {
+		t.Errorf("ContentParts[1].Type = %q, want %q", msg.ContentParts[1].Type, "image_url")
 	}
 }
 
@@ -102,9 +102,9 @@ func TestMessageTokenCountUnified(t *testing.T) {
 			name: "多模态估算",
 			msg: &Message{
 				Message: llm.Message{
-					Parts: []llm.ContentPart{
-						{Type: "text", Text: "12345678"}, // 8 字符 ≈ 2 tokens
-						{Type: "image"},                   // 固定 85 tokens
+					ContentParts: []llm.ContentPart{
+						{Type: "text", Text: "12345678"},  // 8 字符 ≈ 2 tokens
+						{Type: "image_url"},               // 固定 85 tokens
 					},
 				},
 			},

@@ -6,6 +6,7 @@ package executor
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -178,11 +179,7 @@ func (a *Agent) buildObjective(req ExecutorReq) string {
 	}
 
 	// 将 Inbox 消息组合为 objective
-	var objective string
-	for _, msg := range req.Inbox {
-		objective += fmt.Sprintf("[%s]: %s\n", msg.Role, msg.Content)
-	}
-	return objective
+	return strings.Join(req.Inbox, "\n")
 }
 
 // convertResult 将 ReActResult 转换为 ExecutorResult
