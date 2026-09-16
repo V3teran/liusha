@@ -6,8 +6,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/V3teran/liusha/internal/framework/core"
+	"github.com/V3teran/liusha/internal/evaluator"
 	"github.com/V3teran/liusha/internal/executor"
+	"github.com/V3teran/liusha/internal/framework/core"
 	"github.com/V3teran/liusha/internal/framework/llm"
 	"github.com/V3teran/liusha/internal/knowledgegraph"
 	"github.com/V3teran/liusha/internal/monitor"
@@ -39,6 +40,10 @@ func (h handler) runWithGraph(ctx context.Context, agentID, taskID, virtualHost 
 	if err != nil {
 		return fmt.Errorf("failed to get complex provider: %w", err)
 	}
+	simpleProvider, err := h.router.For(ctx, llm.ComplexitySimple)
+	if err != nil {
+		return fmt.Errorf("failed to get simple provider: %w", err)
+	}
 
 	// 创建 Planner Agent
 	plannerAgent := planner.New(planner.Config{
@@ -59,6 +64,15 @@ func (h handler) runWithGraph(ctx context.Context, agentID, taskID, virtualHost 
 		Provider: complexProvider,
 		Interval: 0, // 使用默认 6 分钟
 		Logger:   h.logger,
+	})
+
+	// 创建 Evaluator Agent（按需调用，用于验证 Hypotheses）
+	evaluatorAgent := evaluator.NewAgent(evaluator.Config{
+		World:        h.world,
+		Traffic:      h.agentStore,
+		FindingStore: h.findings,
+		Provider:     simpleProvider, // 使用 simple 模型做验证
+		Logger:       h.logger,
 	})
 
 	// 创建 Executor Pool
@@ -237,8 +251,8 @@ func (h handler) runWithGraph(ctx context.Context, agentID, taskID, virtualHost 
 			}
 		}
 
-		// 验证 Hypotheses（如果需要）
-		h.verifyHypothesesWithGraph(ctx, reports)
+		// 验证 Hypotheses（使用 Evaluator）
+		h.verifyHypothesesWithGraph(ctx, reports, evaluatorAgent, actionBus)
 
 		state.Set("has_work", true)
 		state.Set("reports", reports)
@@ -498,17 +512,83 @@ func (h handler) executeSequential(
 	return reports
 }
 
-// verifyHypothesesWithGraph 验证 Hypotheses（简化实现）
-func (h handler) verifyHypothesesWithGraph(ctx context.Context, reports []*executor.Report) {
-	// TODO: 实现 Hypothesis 验证逻辑
-	// 当前简化：跳过验证
+// verifyHypothesesWithGraph 验证 Hypotheses（使用 Evaluator Agent）
+func (h handler) verifyHypothesesWithGraph(
+	ctx context.Context,
+	reports []*executor.Report,
+	evaluatorAgent *evaluator.Agent,
+	eventBus *core.Bus,
+) {
 	if len(reports) == 0 {
 		return
 	}
 
-	h.logger.Debug().
-		Int("report_count", len(reports)).
-		Msg("Hypothesis 验证（当前跳过）")
+	// 1. 收集所有 Hypotheses
+	var hypotheses []string
+	for _, report := range reports {
+		if report.Hypotheses != nil {
+			hypotheses = append(hypotheses, report.Hypotheses...)
+		}
+	}
+
+	if len(hypotheses) == 0 {
+		h.logger.Debug().Msg("没有需要验证的 Hypotheses")
+		return
+	}
+
+	h.logger.Info().
+		Int("count", len(hypotheses)).
+		Msg("开始并行验证 Hypotheses")
+
+	// 2. 并行验证每个 Hypothesis
+	var wg sync.WaitGroup
+	for _, hypID := range hypotheses {
+		wg.Add(1)
+		go func(observationID string) {
+			defer wg.Done()
+
+			h.logger.Info().
+				Str("observation_id", observationID).
+				Msg("验证 Hypothesis")
+
+			// 调用 Evaluator.Verify()（使用 LLM ReAct 循环）
+			finding, err := evaluatorAgent.Verify(ctx, observationID)
+			if err != nil {
+				h.logger.Error().
+					Err(err).
+					Str("observation_id", observationID).
+					Msg("Hypothesis 验证失败")
+				return
+			}
+
+			if finding != nil {
+				// 验证通过，发布事件
+				eventBus.Publish(core.Event{
+					Type: "finding.verified",
+					Payload: map[string]interface{}{
+						"finding_id":     finding.ID,
+						"observation_id": observationID,
+					},
+				})
+
+				h.logger.Info().
+					Str("finding_id", finding.ID).
+					Str("observation_id", observationID).
+					Msg("Hypothesis 验证通过，已创建 Finding")
+			} else {
+				h.logger.Debug().
+					Str("observation_id", observationID).
+					Msg("Hypothesis 验证未通过")
+			}
+		}(hypID)
+	}
+
+	// 3. 等待所有验证完成
+	wg.Wait()
+
+	h.logger.Info().
+		Int("total", len(hypotheses)).
+		Msg("Hypotheses 验证完成")
 }
 
 // getCompletedActionIDs 获取已完成的 Action IDs 集合
