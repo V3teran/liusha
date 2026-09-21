@@ -13,3 +13,11 @@ func NewStore(pool *pgxpool.Pool) *Store {
 	store.pool = pool
 	return store
 }
+
+// NewMemoryStore 创建内存版知识图谱 Store（用于测试）
+func NewMemoryStore() *Store {
+	graphStore := core.NewInMemoryGraphStore()
+	store := NewAdapterStore(graphStore)
+	// 内存版不需要 pool
+	return store
+}

@@ -50,6 +50,12 @@ const (
 
 	// StreamEventTypeHeartbeat 心跳事件（保持连接）
 	StreamEventTypeHeartbeat StreamEventType = "heartbeat"
+
+	// StreamEventTypeNodeStart 节点开始执行事件
+	StreamEventTypeNodeStart StreamEventType = "node_start"
+
+	// StreamEventTypeNodeEnd 节点执行完成事件
+	StreamEventTypeNodeEnd StreamEventType = "node_end"
 )
 
 // StreamAdapter 流式输出适配器接口

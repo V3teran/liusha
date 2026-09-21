@@ -83,6 +83,54 @@ func (s *StateManager[T]) Update(ctx context.Context, state *core.State[T]) erro
 	return nil
 }
 
+// UpdateWith 使用 Reducer 更新状态（原子操作，自动处理并发冲突）
+func (s *StateManager[T]) UpdateWith(ctx context.Context, taskID string, newData T, reducer core.StateReducer[T]) error {
+	const maxRetries = 10
+
+	for i := 0; i < maxRetries; i++ {
+		// 1. 读取当前状态
+		s.mu.RLock()
+		currentState, exists := s.states[taskID]
+		if !exists {
+			s.mu.RUnlock()
+			return core.ErrTaskNotFound{TaskID: taskID}
+		}
+		oldData := currentState.Data
+		oldVersion := currentState.Version
+		s.mu.RUnlock()
+
+		// 2. 应用 Reducer（合并新旧数据）
+		mergedData, err := reducer.Reduce(oldData, newData)
+		if err != nil {
+			return err
+		}
+
+		// 3. 乐观锁更新
+		s.mu.Lock()
+		latestState, exists := s.states[taskID]
+		if !exists {
+			s.mu.Unlock()
+			return core.ErrTaskNotFound{TaskID: taskID}
+		}
+
+		// 检查版本是否冲突
+		if latestState.Version != oldVersion {
+			s.mu.Unlock()
+			// 版本冲突，重试
+			continue
+		}
+
+		// 更新状态
+		latestState.Data = mergedData
+		latestState.Version++
+		s.mu.Unlock()
+
+		return nil
+	}
+
+	return core.ErrVersionConflict{TaskID: taskID}
+}
+
 // Delete 删除任务状态。
 func (s *StateManager[T]) Delete(ctx context.Context, taskID string) error {
 	s.mu.Lock()

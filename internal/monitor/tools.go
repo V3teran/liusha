@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/V3teran/liusha/internal/bus"
 	"github.com/V3teran/liusha/internal/framework/core"
 	"github.com/V3teran/liusha/internal/knowledgegraph"
 )
@@ -86,12 +87,14 @@ func (t *GetGlobalStateTool) Execute(ctx context.Context, input core.ToolInput) 
 // ============================================
 
 type PublishDecisionTool struct {
-	eventBus *core.Bus
+	eventBus bus.Bus
+	taskID   string
 }
 
-func NewPublishDecisionTool(eventBus *core.Bus) *PublishDecisionTool {
+func NewPublishDecisionTool(eventBus bus.Bus, taskID string) *PublishDecisionTool {
 	return &PublishDecisionTool{
 		eventBus: eventBus,
+		taskID:   taskID,
 	}
 }
 
@@ -146,16 +149,20 @@ func (t *PublishDecisionTool) Execute(ctx context.Context, input core.ToolInput)
 	}
 
 	// 发布事件
-	eventType := core.EventType("monitor." + decision.Type)
-	t.eventBus.Publish(core.Event{
-		Type: eventType,
-		Payload: map[string]interface{}{
-			"action_id": decision.ActionID,
-			"reason":    decision.Reason,
-			"source":    "monitor",
-			"timestamp": time.Now().Unix(),
-		},
-	})
+	if decision.Type == "kill_action" {
+		t.eventBus.PublishActionKilled(t.taskID, decision.ActionID, decision.Reason)
+	} else {
+		// request_replan - 使用通用 Publish
+		t.eventBus.Publish(bus.Event{
+			Type:   bus.EventType("monitor.request_replan"),
+			TaskID: t.taskID,
+			Payload: map[string]interface{}{
+				"reason":    decision.Reason,
+				"source":    "monitor",
+				"timestamp": time.Now().Unix(),
+			},
+		})
+	}
 
 	// 构建结果
 	result := map[string]interface{}{

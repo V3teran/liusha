@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+
+	"github.com/V3teran/liusha/internal/framework/core"
 )
 
 // ListActionsByRoadmapStep 列出某个 RoadmapStep 派发的所有 Action
@@ -23,7 +25,7 @@ func (s *Store) ListActionsByRoadmapStep(ctx context.Context, taskID string, ste
 		ORDER BY created_at ASC
 	`
 
-	rows, err := s.pool.Query(ctx, query, taskID, KindAction, step)
+	rows, err := s.pool.Query(ctx, query, taskID, core.KindAction, step)
 	if err != nil {
 		return nil, fmt.Errorf("list actions by roadmap step: %w", err)
 	}
@@ -90,7 +92,7 @@ func (s *Store) CountActionsByRoadmapStep(ctx context.Context, taskID string, st
 		GROUP BY state
 	`
 
-	rows, err := s.pool.Query(ctx, query, taskID, KindAction, step)
+	rows, err := s.pool.Query(ctx, query, taskID, core.KindAction, step)
 	if err != nil {
 		return nil, fmt.Errorf("count actions by roadmap step: %w", err)
 	}

@@ -3,27 +3,21 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"strings"
 	"sync/atomic"
 	"time"
 
+	"github.com/V3teran/liusha/internal/bus"
 	executorbuilder "github.com/V3teran/liusha/internal/builder/executor"
-	"github.com/V3teran/liusha/internal/conversation"
-	"github.com/V3teran/liusha/internal/dispatcher"
-	dispatcherprofile "github.com/V3teran/liusha/internal/dispatcher/profile"
-	"github.com/V3teran/liusha/internal/framework/core"
 	"github.com/V3teran/liusha/internal/executor"
 	"github.com/V3teran/liusha/internal/framework/llm"
+	"github.com/V3teran/liusha/internal/knowledgegraph"
 	"github.com/V3teran/liusha/internal/registry"
 	"github.com/V3teran/liusha/internal/scanagent"
-	"github.com/V3teran/liusha/internal/skill"
 	"github.com/V3teran/liusha/internal/task"
 	"github.com/V3teran/liusha/internal/toolinvocation"
-	"github.com/V3teran/liusha/internal/tools"
 	"github.com/V3teran/liusha/internal/worker"
-	"github.com/V3teran/liusha/internal/knowledgegraph"
 )
 
 // abortPollInterval is the task-status poll cadence for the abort watcher.
@@ -167,41 +161,6 @@ func composeSubAgentInstruction(body string) string {
 
 // buildDispatcher constructs a Dispatcher for a single run.
 // The caller is responsible for registering tools into the returned registry.
-func (h handler) buildDispatcher(
-	ctx context.Context,
-	complexity llm.Complexity,
-	systemPrompt string,
-	sink scanagent.EventSink,
-) (*dispatcher.Dispatcher, *registry.Registry, error) {
-	p, err := h.router.For(ctx, complexity)
-	if err != nil {
-		return nil, nil, fmt.Errorf("buildDispatcher: resolve provider complexity=%s: %w", complexity, err)
-	}
-
-	reg := registry.New()
-
-	var emitter executor.SSEEmitter
-	if sink != nil {
-		emitter = &sseEmitterAdapter{sink: sink}
-	}
-
-	// 使用 Action 级别的 EventBus（通过适配器）
-	actionEventBus := newEventBusAdapter(h.actionBus)
-	d := dispatcher.New(p, reg, h.checkpointer, emitter, h.logger, h.world, actionEventBus)
-
-	// 注册全部 5 个 Complexity Profile
-	for _, profile := range dispatcherprofile.Profiles(systemPrompt) {
-		d.RegisterProfile(profile)
-	}
-
-	return d, reg, nil
-}
-
-// ─────────────────────────────────────────────────────────────
-//  Abort watchers
-// ─────────────────────────────────────────────────────────────
-
-// watchAbort polls task status; cancels ctx when the task leaves active.
 func (h handler) watchAbort(ctx context.Context, cancel context.CancelFunc, taskID string) {
 	ticker := time.NewTicker(abortPollInterval)
 	defer ticker.Stop()
@@ -286,27 +245,8 @@ func (h handler) handleCognition(
 	}
 	virtualHost := h.onboard(ctx, assignmentID, taskID, brief)
 
-	// ========================================
-	// 新架构：使用 Graph 编排模式
-	// ========================================
-	// 直接替换 Orchestrator，使用 Graph 进行任务编排
-	h.logger.Info().
-		Str("task_id", taskID).
-		Msg("using graph orchestration architecture")
-
-	err := h.runWithGraph(ctx, p.AgentID, taskID, virtualHost)
-	if err != nil {
-		return h.failTask(ctx, p.AgentID, err)
-	}
-
-	// 任务完成
-	if err := h.tasks.Complete(ctx, taskID); err != nil {
-		h.logger.Error().Err(err).Str("task_id", taskID).Msg("failed to mark task complete")
-	}
-	return nil
-
 	// Sandbox 按 Assignment 粒度管理
-	sandboxClient, err := h.sandboxMgr.Acquire(ctx, assignmentID)
+	_, err := h.sandboxMgr.Acquire(ctx, assignmentID)
 	if err != nil {
 		return h.failTask(ctx, p.AgentID, fmt.Errorf("sandboxMgr.Acquire(%s): %w", assignmentID, err))
 	}
@@ -316,160 +256,24 @@ func (h handler) handleCognition(
 		}
 	}()
 
-	// 获取Planner和Executor配置
-	planner, err := h.cfgStore.GetPlanner(ctx)
-	if err != nil {
-		return h.failTask(ctx, p.AgentID, fmt.Errorf("获取planner失败: %w", err))
-	}
-
-	executorAgent, err := h.cfgStore.GetExecutor(ctx)
-	if err != nil {
-		return h.failTask(ctx, p.AgentID, fmt.Errorf("获取executor失败: %w", err))
-	}
-
-	// 构建system prompt
-	sysPrompt := composeplannerInstruction(planner.SystemPrompt)
-
-	// 动态推断 complexity
-	defaultComplexity := h.inferComplexity(brief)
-
-	cleanup := func() {}
-	var sink scanagent.EventSink
-	if p.ConversationID != "" && h.conversations != nil && h.eventPublisher != nil {
-		es := newEventSink(h.conversations, h.eventPublisher, p.ConversationID, h.logger)
-		sink = es
-		cleanup = es.Close
-	}
-	defer cleanup()
-
-	d, reg, err := h.buildDispatcher(ctx, defaultComplexity, sysPrompt, sink)
+	// 执行四Agent认知循环
+	report, err := h.runCognition(ctx, assignmentID, taskID, virtualHost)
 	if err != nil {
 		return h.failTask(ctx, p.AgentID, err)
-	}
-	tools.RegisterAll(reg, tools.Deps{
-		TaskID:        taskID,
-		AgentID:       p.AgentID,
-		Host:          virtualHost,
-		Tasks:         h.tasks,
-		Findings:      h.findings,
-		Corpus:        h.corpus,
-		Embedder:      h.embedder,
-		Reranker:      h.reranker,
-		Leads:         h.leads,
-		ProxyStore:    h.proxyStore,
-		AgentStore:    h.agentStore,
-		Creds:         h.creds,
-		Sandbox:       sandboxClient,
-		ToolingLoader: h.toolingLoader,
-		VulnLoader:    h.vulnLoader,
-	})
-
-	// 添加工具调用记录拦截器
-	reg.AddInterceptor(h.toolRecordInterceptor(p.AgentID, taskID))
-
-	finalizeTask := func(complete bool, reason string) {
-		fctx, fcancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer fcancel()
-		var ferr error
-		if complete {
-			ferr = h.tasks.Complete(fctx, taskID)
-		} else {
-			ferr = h.tasks.Abort(fctx, taskID, reason)
-		}
-		if ferr != nil {
-			h.logger.Warn().Err(ferr).Str("task_id", taskID).Bool("complete", complete).
-				Msg("task 终态写失败")
-		}
-	}
-
-	runCtx, cancel := context.WithCancel(ctx)
-	defer cancel()
-	go h.watchAbort(runCtx, cancel, taskID)
-
-	var execResult []executor.Execution
-	var agentErr error
-
-	rt, _ := h.settings.Runtime(ctx)
-	orchPrompt := executorbuilder.BuildUserPrompt(ctx, h.buildPromptDeps(), skill.BuilderParams{
-		TaskID:        taskID,
-		AssignmentID:  assignmentID,
-		ExecutorID:    p.AgentID,
-		Host:          virtualHost,
-		Brief:         brief,
-		CliTools:      executorAgent.CliTools,
-		FindingsLimit: rt.FindingsLimitInPrompt,
-	})
-	if hist := h.conversationContext(ctx, p.ConversationID, "planner", brief); hist != "" {
-		orchPrompt = hist + "\n" + orchPrompt
-	}
-
-	runAgent := func(runCtx context.Context, m knowledgegraph.Node) error {
-		h.logger.Info().
-			Str("action_id", m.ID).
-			Str("kind", string(m.Kind)).
-			Str("location", "handler_run.go:Cognition").
-			Msg("[RUN_AGENT_2] runAgent called (cognition mode)")
-
-		action := nodeToExecutorAction(m, orchPrompt)
-
-		h.logger.Info().
-			Str("action_id", action.ID).
-			Msg("[RUN_AGENT_2] calling d.Execute")
-
-		exec, err := d.Execute(runCtx, action)
-
-		h.logger.Info().
-			Str("action_id", action.ID).
-			Bool("success", err == nil).
-			Msg("[RUN_AGENT_2] d.Execute returned")
-
-		if err != nil {
-			agentErr = err
-			return err
-		}
-		execResult = []executor.Execution{exec}
-		return nil
 	}
 
 	h.logger.Info().
 		Str("task_id", taskID).
-		Str("closure_ptr", fmt.Sprintf("%p", runAgent)).
-		Msg("[HANDLER] Created runAgent closure for Cognition mode, calling runCognition")
+		Int("steps", report.Steps).
+		Int("promoted", report.Promoted).
+		Str("stop_why", report.StopWhy).
+		Msg("认知循环完成")
 
-	report, err := h.runCognition(runCtx, assignmentID, taskID, virtualHost, runAgent)
-	if err == nil {
-		err = agentErr
+	// 任务完成
+	if err := h.tasks.Complete(ctx, taskID); err != nil {
+		h.logger.Error().Err(err).Str("task_id", taskID).Msg("failed to mark task complete")
 	}
-	if err != nil {
-		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-			finalizeTask(false, "ctx "+err.Error())
-			return h.abortTask(ctx, p.AgentID, "ctx "+err.Error())
-		}
-		finalizeTask(false, err.Error())
-		return h.failTask(ctx, p.AgentID, err)
-	}
-
-	out, err := json.Marshal(buildRunResult("cognition", execResult, report))
-	if err != nil {
-		finalizeTask(false, "marshal task result")
-		return h.failTask(ctx, p.AgentID, fmt.Errorf("marshal task result: %w", err))
-	}
-
-	// 保存 assistant 的最终回复到 conversation
-	if p.ConversationID != "" && h.conversations != nil {
-		var result map[string]any
-		if err := json.Unmarshal(out, &result); err == nil {
-			if finalText, ok := result["final_text"].(string); ok && finalText != "" {
-				if _, err := h.conversations.AppendMessage(ctx, p.ConversationID, conversation.RoleAssistant, conversation.KindMessage, finalText, nil); err != nil {
-					h.logger.Warn().Err(err).Str("conversation_id", p.ConversationID).Msg("保存 assistant 消息失败")
-				}
-			}
-		}
-	}
-
-	finalizeTask(true, "")
-	h.distillCorpus(ctx, taskID, p.ConversationID, "planner", virtualHost)
-	return h.executors.SetDone(ctx, p.AgentID, out)
+	return nil
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -547,25 +351,25 @@ func buildRunResult(engine string, execs []executor.Execution, report interface{
 //  EventBus 适配器
 // ─────────────────────────────────────────────────────────────
 
-// eventBusAdapter 将 core.Bus 适配为 executor.EventBus 接口
+// eventBusAdapter 将 bus.Bus 适配为 executor.EventBus 接口
 type eventBusAdapter struct {
-	bus *core.Bus
+	bus bus.Bus
 }
 
-func newEventBusAdapter(bus *core.Bus) *eventBusAdapter {
-	return &eventBusAdapter{bus: bus}
+func newEventBusAdapter(b bus.Bus) *eventBusAdapter {
+	return &eventBusAdapter{bus: b}
 }
 
 func (a *eventBusAdapter) Subscribe(ctx context.Context, actionID string) executor.EventSubscription {
-	// core.Bus.Subscribe 返回 *core.Subscription
-	sub := a.bus.Subscribe(ctx, actionID)
+	// bus.Bus.SubscribeAction 返回 *bus.Subscription
+	sub := a.bus.SubscribeAction(ctx, actionID)
 	return &eventSubscriptionAdapter{sub: sub}
 }
 
 func (a *eventBusAdapter) Publish(event executor.ControlEvent) {
-	// 转换 executor.ControlEvent 到 core.Event
-	a.bus.Publish(core.Event{
-		Type:      core.EventType(event.Type),
+	// 转换 executor.ControlEvent 到 bus.Event
+	a.bus.Publish(bus.Event{
+		Type:      bus.EventType(event.Type),
 		ActionID:  event.ActionID,
 		Payload:   event.Payload,
 		Timestamp: event.Timestamp,
@@ -574,11 +378,11 @@ func (a *eventBusAdapter) Publish(event executor.ControlEvent) {
 
 // eventSubscriptionAdapter 实现 executor.EventSubscription
 type eventSubscriptionAdapter struct {
-	sub *core.Subscription
+	sub *bus.Subscription
 }
 
 func (s *eventSubscriptionAdapter) Events() <-chan executor.ControlEvent {
-	// 从 core.Subscription 获取事件 channel
+	// 从 bus.Subscription 获取事件 channel
 	eventbusCh := s.sub.Events()
 
 	// 创建转换 channel

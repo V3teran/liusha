@@ -220,7 +220,7 @@ func (t *CreateFindingTool) Execute(ctx context.Context, input core.ToolInput) (
 	findingNode := knowledgegraph.Node{
 		ID:         findingNodeID,
 		TaskID:     args.TaskID,
-		Kind:       knowledgegraph.KindResult,
+		Kind:       core.KindResult,
 		Content:    json.RawMessage(fmt.Sprintf(`{"finding_id":"%s","type":"vulnerability"}`, saved.ID)),
 		Confidence: &verified,
 		SourceType: knowledgegraph.SourceEvaluator,
@@ -231,7 +231,7 @@ func (t *CreateFindingTool) Execute(ctx context.Context, input core.ToolInput) (
 
 	_, err = t.world.CreateNode(ctx, findingNode)
 	if err != nil {
-		return core.ToolOutput{Error: fmt.Sprintf("create node in worldmodel: %v", err)}, nil
+		return core.ToolOutput{Error: fmt.Sprintf("create node in knowledge graph: %v", err)}, nil
 	}
 
 	// 3. 返回结果

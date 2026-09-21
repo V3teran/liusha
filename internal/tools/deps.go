@@ -35,5 +35,5 @@ type Deps struct {
 	Sandbox       sandbox.Client // Spawn 后注入，可 nil
 	ToolingLoader *skill.Loader
 	VulnLoader    *skill.Loader
-	World         *knowledgegraph.Store // WorldModel Store
+	World         *knowledgegraph.Store // Knowledge Graph Store
 }

@@ -19,8 +19,8 @@ import (
 	"github.com/V3teran/liusha/internal/corpus"
 	"github.com/V3teran/liusha/internal/credential"
 	"github.com/V3teran/liusha/internal/domain"
+	"github.com/V3teran/liusha/internal/bus"
 	"github.com/V3teran/liusha/internal/framework/core"
-	"github.com/V3teran/liusha/internal/executor"
 	"github.com/V3teran/liusha/internal/finding"
 	"github.com/V3teran/liusha/internal/insight"
 	"github.com/V3teran/liusha/internal/llminvocation"
@@ -73,9 +73,7 @@ type handler struct {
 	profiles     *domain.Registry
 	world        *knowledgegraph.Store
 	checkpointer core.Checkpointer
-	eventBus     *executor.PlannerEventBus // Task 级别事件总线（Planner 用）
-	actionBus    *core.Bus             // Action 级别事件总线（Executor 用）
-	plannerMgr   *plannerAgentManager
+	eventBus     bus.Bus // 统一事件总线
 	controlPlane *controlplane.Store
 }
 
@@ -92,12 +90,13 @@ func (h handler) onboard(ctx context.Context, assignmentID, taskID, brief string
 	if h.world != nil && taskID != "" {
 		for _, ref := range refs {
 			content, _ := json.Marshal(map[string]interface{}{
-				"target_ref": ref,
+				"target_ref":  ref,
+				"description": brief, // 添加 description 供 Planner 读取
 			})
 			node := knowledgegraph.Node{
 				ID:         uuid.New().String(),
 				TaskID:     taskID,
-				Kind:       knowledgegraph.KindObjective,
+				Kind:       core.KindObjective,
 				Content:    content,
 				Priority:   knowledgegraph.PriorityMedium,
 				SourceType: "user",
@@ -166,9 +165,6 @@ func (h handler) handle(ctx context.Context, p worker.Payload) (retErr error) {
 			Str("task_id", p.TaskID).
 			Dur("duration", time.Since(taskStart)).
 			Msg("asynq task ◀ exit")
-
-		// Task 结束时停止 Planner Agent
-		h.plannerMgr.Stop(p.TaskID)
 	}()
 
 	if run, getErr := h.executors.GetByID(ctx, p.AgentID); getErr == nil && run.Status != agentrun.StatusPending {
@@ -177,11 +173,6 @@ func (h handler) handle(ctx context.Context, p worker.Payload) (retErr error) {
 			Str("status", string(run.Status)).
 			Msg("asynq task 已被处理过，跳过重试（防 PG 僵尸 + 矛盾态）")
 		return asynq.SkipRetry
-	}
-
-	// 启动 Planner Agent（异步，事件驱动）
-	if err := h.plannerMgr.Start(ctx, h, p.TaskID); err != nil {
-		h.logger.Error().Err(err).Str("task_id", p.TaskID).Msg("启动 Planner Agent 失败（不阻塞任务）")
 	}
 
 	if h.hostSem != nil {
@@ -219,6 +210,6 @@ func (h handler) handle(ctx context.Context, p worker.Payload) (retErr error) {
 		defer cancel()
 	}
 
-	// 新架构：统一走Planner + Executor
+	// 四Agent认知架构
 	return h.handleCognition(ctx, p, input.Brief)
 }

@@ -224,6 +224,10 @@ type RunnerConfig struct {
 	// ≤ 0 视为不限制。默认 2（渗透场景保守值）。仅对有 target_host 的 task 生效（active planner
 	// host 空时放行——真正打 host 的是其 spawn 的子任务）。
 	PerHostConcurrency int `mapstructure:"per_host_concurrency"`
+
+	// MaxStepsPerTask 是单个 task 的最大执行步数（Action 完成次数）。
+	// 达到此上限时任务自动终止，防止无限循环。≤ 0 视为无限制。默认 1000。
+	MaxStepsPerTask int `mapstructure:"max_steps_per_task"`
 }
 
 // CompactionConfig 会话历史压缩参数。
@@ -591,6 +595,9 @@ func applyRunnerDefaults(c RunnerConfig) RunnerConfig {
 	}
 	if c.PerHostConcurrency == 0 {
 		c.PerHostConcurrency = 2 // 默认同 host 并发 ≤ 2；显式设 -1 可关限速
+	}
+	if c.MaxStepsPerTask == 0 {
+		c.MaxStepsPerTask = 1000 // 默认单任务最多执行 1000 步；显式设 -1 可无限制
 	}
 	return c
 }

@@ -11,6 +11,7 @@ import (
 
 	"github.com/rs/zerolog"
 
+	"github.com/V3teran/liusha/internal/bus"
 	"github.com/V3teran/liusha/internal/framework/core"
 	"github.com/V3teran/liusha/internal/framework/llm"
 	"github.com/V3teran/liusha/internal/framework/runtime"
@@ -24,7 +25,7 @@ var _ core.Agent = (*Agent)(nil)
 type Agent struct {
 	taskID       string
 	world        *knowledgegraph.Store
-	eventBus     *core.Bus
+	eventBus     bus.Bus
 	provider     llm.Provider
 	reactRuntime runtime.ReActRuntime
 	interval     time.Duration
@@ -39,7 +40,7 @@ type Agent struct {
 type Config struct {
 	TaskID   string
 	World    *knowledgegraph.Store
-	EventBus *core.Bus
+	EventBus bus.Bus
 	Provider llm.Provider
 	Router   *llm.Router        // 用于获取合适的 Provider
 	Interval time.Duration      // 评估间隔，默认 6 分钟
@@ -63,7 +64,7 @@ func New(cfg Config) *Agent {
 	// 注册监察工具
 	tools := []core.Tool{
 		NewGetGlobalStateTool(cfg.World, cfg.TaskID),
-		NewPublishDecisionTool(cfg.EventBus),
+		NewPublishDecisionTool(cfg.EventBus, cfg.TaskID),
 	}
 	for _, tool := range tools {
 		if err := reactRuntime.RegisterTool(tool); err != nil {

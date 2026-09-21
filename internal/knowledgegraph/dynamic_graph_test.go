@@ -29,8 +29,8 @@ func TestDynamicActionGeneration(t *testing.T) {
 	}
 
 	// T1: 执行 A1 并完成
-	updateActionState(t, ctx, store, a1ID, knowledgegraph.StateRunning)
-	updateActionState(t, ctx, store, a1ID, knowledgegraph.StateDone)
+	updateActionState(t, ctx, store, a1ID, string(knowledgegraph.StateRunning))
+	updateActionState(t, ctx, store, a1ID, string(knowledgegraph.StateDone))
 
 	// T2: Planner 基于 A1 的观察结果动态生成新 Action A3（依赖 A1）
 	a3ID := createTestAction(t, ctx, store, taskID, "A3", []string{a1ID})
@@ -61,10 +61,10 @@ func TestDynamicActionGeneration(t *testing.T) {
 	}
 
 	// T5: 执行并完成 A2 和 A3
-	updateActionState(t, ctx, store, a2ID, knowledgegraph.StateRunning)
-	updateActionState(t, ctx, store, a2ID, knowledgegraph.StateDone)
-	updateActionState(t, ctx, store, a3ID, knowledgegraph.StateRunning)
-	updateActionState(t, ctx, store, a3ID, knowledgegraph.StateDone)
+	updateActionState(t, ctx, store, a2ID, string(knowledgegraph.StateRunning))
+	updateActionState(t, ctx, store, a2ID, string(knowledgegraph.StateDone))
+	updateActionState(t, ctx, store, a3ID, string(knowledgegraph.StateRunning))
+	updateActionState(t, ctx, store, a3ID, string(knowledgegraph.StateDone))
 
 	// 验证 A4 依赖现在已满足
 	completed[a2ID] = true
@@ -91,8 +91,8 @@ func TestConcurrentActionClaim(t *testing.T) {
 
 	// 实例 1：尝试抢占
 	go func() {
-		success, err := store.CompareAndSwapState(ctx, actionID,
-			knowledgegraph.StateOpen, knowledgegraph.StateRunning)
+		success, err := store.CompareAndSwapState(ctx, taskID, actionID,
+			string(knowledgegraph.StateOpen), string(knowledgegraph.StateRunning))
 		if err != nil {
 			t.Errorf("实例1 CAS 失败: %v", err)
 			ch <- false
@@ -105,8 +105,8 @@ func TestConcurrentActionClaim(t *testing.T) {
 	go func() {
 		// 确保实例 1 先执行
 		time.Sleep(10 * time.Millisecond)
-		success, err := store.CompareAndSwapState(ctx, actionID,
-			knowledgegraph.StateOpen, knowledgegraph.StateRunning)
+		success, err := store.CompareAndSwapState(ctx, taskID, actionID,
+			string(knowledgegraph.StateOpen), string(knowledgegraph.StateRunning))
 		if err != nil {
 			t.Errorf("实例2 CAS 失败: %v", err)
 			ch <- false
@@ -170,8 +170,8 @@ func TestDynamicDependencyResolution(t *testing.T) {
 	}
 
 	// 完成 A1
-	updateActionState(t, ctx, store, a1ID, knowledgegraph.StateRunning)
-	updateActionState(t, ctx, store, a1ID, knowledgegraph.StateDone)
+	updateActionState(t, ctx, store, a1ID, string(knowledgegraph.StateRunning))
+	updateActionState(t, ctx, store, a1ID, string(knowledgegraph.StateDone))
 	completed[a1ID] = true
 
 	// 验证 A2 现在可执行（依赖已满足）
@@ -189,14 +189,14 @@ func setupTestStore(t *testing.T) *knowledgegraph.Store {
 	return nil
 }
 
-func createTestAction(t *testing.T, ctx context.Context, store *knowledgegraph.Store, taskID, name string, dependsOn []string) string {
+func createTestAction(t *testing.T, ctx context.Context, store *knowledgegraph.AdapterStore, taskID, name string, dependsOn []string) string {
 	actionID := uuid.New().String()
 	state := knowledgegraph.StateOpen
 
 	node := knowledgegraph.Node{
 		ID:        actionID,
 		TaskID:    taskID,
-		Kind:      knowledgegraph.KindAction,
+		Kind:      core.KindAction,
 		State:     &state,
 		DependsOn: dependsOn,
 		CreatedAt: time.Now(),
@@ -213,7 +213,7 @@ func listOpenActions(t *testing.T, ctx context.Context, store *knowledgegraph.St
 	return nil
 }
 
-func updateActionState(t *testing.T, ctx context.Context, store *knowledgegraph.Store, actionID string, newState knowledgegraph.State) {
+func updateActionState(t *testing.T, ctx context.Context, store *knowledgegraph.AdapterStore, actionID string, newState string) {
 	// TODO: 调用 store.CompareAndSwapState 或 store.UpdateNode
 }
 

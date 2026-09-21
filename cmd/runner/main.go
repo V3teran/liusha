@@ -39,7 +39,7 @@ import (
 	"github.com/V3teran/liusha/internal/domain"
 	"github.com/V3teran/liusha/internal/embedding"
 	"github.com/V3teran/liusha/internal/envx"
-	"github.com/V3teran/liusha/internal/framework/core"
+	"github.com/V3teran/liusha/internal/bus"
 	"github.com/V3teran/liusha/internal/executor"
 	"github.com/V3teran/liusha/internal/finding"
 	"github.com/V3teran/liusha/internal/ingestor"
@@ -258,23 +258,14 @@ func main() {
 	// Sandbox Manager：按 Assignment 粒度管理容器，多 Task 共享，带引用计数
 	sandboxMgr := sandbox.NewPooledManager(launcher, logger, 30000) // 30 秒 grace period
 
-	// EventBus：事件驱动的 Planner Agent 基础设施（进程单例，跨 Task 共享）
-	eventBusCtx, eventBusCancel := context.WithCancel(context.Background())
-	defer eventBusCancel()
-	eventBus := executor.NewPlannerEventBus(eventBusCtx)
+	// EventBus：统一事件总线（进程单例，跨 Task 共享）
+	eventBus := bus.New(ctx)
 
 	// PlanStore：execution_plan 表的持久化层
 	// knowledgegraph.Store 在前面已初始化为 worldStore
 
 	// ControlPlane：task_control_event 表的持久化层（人工干预）
 	controlPlaneStore := controlplane.NewStore(pool)
-
-	// PlannerAgentManager：管理所有 Planner Agent 的生命周期
-	plannerMgr := newPlannerAgentManager(logger)
-	defer plannerMgr.StopAll()
-
-	// Action 级别事件总线（Executor 监听 Planner 的 Kill/Steer 事件）
-	actionBus := core.New()
 
 	h := handler{
 		executors:      executorRuns,
@@ -305,8 +296,6 @@ func main() {
 		world:          worldStore,
 		checkpointer:   checkpointer,
 		eventBus:       eventBus,
-		actionBus:      actionBus,
-		plannerMgr:     plannerMgr,
 		controlPlane:   controlPlaneStore,
 	}
 

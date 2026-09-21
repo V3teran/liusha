@@ -473,8 +473,8 @@ func (s *PostgresGraphStore) ListNodes(ctx context.Context, query GraphNodeQuery
 }
 
 // CompareAndSwapState 原子更新节点状态（使用乐观锁）
-func (s *PostgresGraphStore) CompareAndSwapState(ctx context.Context, id string, expectedState, newState string) (bool, error) {
-	if id == "" {
+func (s *PostgresGraphStore) CompareAndSwapState(ctx context.Context, taskID, nodeID string, expectedState, newState string) (bool, error) {
+	if nodeID == "" {
 		return false, errors.New("node ID cannot be empty")
 	}
 	if expectedState == "" || newState == "" {
@@ -482,9 +482,18 @@ func (s *PostgresGraphStore) CompareAndSwapState(ctx context.Context, id string,
 	}
 
 	// 先读取当前节点获取 version
-	node, err := s.GetNode(ctx, id)
+	node, err := s.GetNode(ctx, nodeID)
 	if err != nil {
 		return false, err
+	}
+
+	// 检查 taskID（如果提供）
+	if taskID != "" {
+		if node.Metadata != nil {
+			if tid, ok := node.Metadata["task_id"].(string); ok && tid != taskID {
+				return false, nil // 不属于该任务
+			}
+		}
 	}
 
 	// 检查状态是否匹配
@@ -500,7 +509,7 @@ func (s *PostgresGraphStore) CompareAndSwapState(ctx context.Context, id string,
 		WHERE id = $3 AND version = $4
 	`
 
-	result, err := s.pool.Exec(ctx, query, newState, time.Now(), id, node.Version)
+	result, err := s.pool.Exec(ctx, query, newState, time.Now(), nodeID, node.Version)
 	if err != nil {
 		return false, fmt.Errorf("update state: %w", err)
 	}
