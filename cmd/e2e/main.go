@@ -90,8 +90,9 @@ func main() {
 	apiBase := envx.OrDefault("LIUSHA_API_BASE", "http://localhost:8090")
 	apiKey := envx.OrDefault("LIUSHA_API_KEY", "changeme-dev-key")
 	pgDSN := envx.OrDefault("LIUSHA_POSTGRES_DSN", "postgres://liusha:liusha@localhost:5432/liusha?sslmode=disable")
-	proxyURL := envx.OrDefault("LIUSHA_PROXY_ADDR", "http://localhost:8888")
-	vulnBase := envx.OrDefault("LIUSHA_VULNAPP_BASE", "http://111.229.193.40:38001")
+	// Phase 2: 暂时不需要这些变量（passive 模式专用）
+	// proxyURL := envx.OrDefault("LIUSHA_PROXY_ADDR", "http://localhost:8888")
+	// vulnBase := envx.OrDefault("LIUSHA_VULNAPP_BASE", "http://111.229.193.40:38001")
 
 	// args 用前缀区分两种模式: "active:full" → active；其他 → passive。
 	passiveSel, activeSel, err := selectProfiles(os.Args[1:])
@@ -110,6 +111,13 @@ func main() {
 	defer pool.Close()
 
 	// ---- Passive 流水线 ----
+	// Phase 2: 暂时注释掉 passive 模式（以后恢复）
+	if len(passiveSel) > 0 {
+		logger.Fatal().Msg("passive 模式暂未实现知识图谱轮询，请使用 active 模式（active:xss 或 active:full）")
+	}
+
+	/*
+	// Phase 2: 原 passive 代码（等实现知识图谱轮询后恢复）
 	if len(passiveSel) > 0 {
 		proxyHostPort, err := extractHostPort(proxyURL)
 		if err != nil {
@@ -136,6 +144,7 @@ func main() {
 		}
 		fmt.Printf("✓ e2e passive PASS profile=[%s]\n", strings.Join(names, ","))
 	}
+	*/
 
 	// ---- Active 流水线 ----
 	if len(activeSel) > 0 {
