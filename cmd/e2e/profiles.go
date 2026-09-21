@@ -15,14 +15,19 @@ type credentialEntry struct {
 
 // profile 描述一个 passive 模式 e2e 验收剧本（BAC / SQLi）：sample 文件 + 身份集 + 验收门槛。
 //
-// 验收门槛极简——minFindings 是 LLM 能力回归底线：本 profile dispatch 后只要本
-// owner 至少多出 minFindings 条 finding 就算 PASS。LLM 输出本就有抖动，
-// "挖出 1 条 vs 3 条"不是稳定指标；唯一要捕捉的退化场景是"原本能挖出现在
-// 完全挖不到"，minFindings=1 就够覆盖。severity 等级分布不再参与判定。
+// Phase 2 重构：验收标准从 minFindings 改为 AcceptanceCriteria（验证完整认知循环）。
+// 旧标准盲区：只看 finding 数量，LLM 可能"猜"对但没有推理链。
+// 新标准优势：验证 objective → action → observation → evaluation → result 完整流程。
 type profile struct {
 	name           string
 	defaultSamples string
-	minFindings    int
+
+	// Phase 2: 新验收标准（优先使用）
+	acceptance AcceptanceCriteria
+
+	// Phase 1: 旧验收标准（向后兼容，逐步迁移）
+	minFindings int
+
 	// credsForHost 接收样本所属 host 返回该 host 的身份列表（profile 自决定身份组）。
 	credsForHost func(host string) []credentialEntry
 }
@@ -33,9 +38,29 @@ type profile struct {
 // 语言（含目标 URL/凭据/测试方向）整段 POST /chat 喂给 agent LLM，由
 // LLM 自行识别 + 自主扫描。
 type activeProfile struct {
-	name        string
-	brief       string
+	name  string
+	brief string
+
+	// Phase 2: 新验收标准（优先使用）
+	acceptance AcceptanceCriteria
+
+	// Phase 1: 旧验收标准（向后兼容，逐步迁移）
 	minFindings int
+}
+
+// useNewAcceptance 判断是否使用新验收标准
+func (p profile) useNewAcceptance() bool {
+	// 如果 acceptance 有任何非零值，说明已配置新标准
+	return p.acceptance.MinObjectives > 0 ||
+		   p.acceptance.MinActions > 0 ||
+		   p.acceptance.MinResults > 0
+}
+
+// useNewAcceptance 判断是否使用新验收标准
+func (ap activeProfile) useNewAcceptance() bool {
+	return ap.acceptance.MinObjectives > 0 ||
+		   ap.acceptance.MinActions > 0 ||
+		   ap.acceptance.MinResults > 0
 }
 
 // activeProfiles 是 active 模式 e2e 验收剧本集，args 用前缀 active:<name> 选择。
@@ -52,10 +77,22 @@ var activeProfiles = map[string]activeProfile{
 	},
 	// active:xss 极简 brief：不剧透 endpoint 路径，不剧透 DOM XSS 需 browser，
 	// 完全由 LLM 自主 recon + 自决工具（curl vs page_*）。压测真自主能力。
+	// active:xss XSS 漏洞专项：登录 → 设 security=low → 扫 XSS（reflected/stored/DOM）。
+	// minFindings=3 取业务指标（DVWA XSS 模块至少有 3 处漏洞：stored/reflected/DOM-based）。
+	//
+	// Phase 2 新标准：验证完整认知循环
+	// - MinObjectives=1: "扫描 XSS 漏洞"这个目标
+	// - MinActions=5: 至少执行 5 个动作（登录、设cookie、扫描表单、测试注入点、验证漏洞）
+	// - MinResults=3: 至少发现 3 个确认的 XSS 漏洞
 	"xss": {
-		name:        "xss",
-		brief:       "测试网站 http://111.229.193.40:34280/login.php，账号 admin/password。**登录后立刻设 cookie `security=low`**（DVWA 默认 impossible 是修复版本，挖不到洞）。专注挖 XSS 漏洞。",
-		minFindings: 3,
+		name:  "xss",
+		brief: "测试网站 http://111.229.193.40:34280/login.php，账号 admin/password。**登录后立刻设 cookie `security=low`**（DVWA 默认 impossible 是修复版本，挖不到洞）。专注挖 XSS 漏洞。",
+		acceptance: AcceptanceCriteria{
+			MinObjectives: 1,
+			MinActions:    5,
+			MinResults:    3,
+		},
+		minFindings: 3, // 向后兼容（旧标准）
 	},
 	// active:privesc 垂直越权：给两组凭据（admin / 普通用户 gordonb），压测 LLM 用低权
 	// 身份访问 admin-only 资源的越权判定。单一漏洞类型，minFindings=1 取回归底线（能挖到即可）。
