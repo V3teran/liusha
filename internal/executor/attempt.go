@@ -4,8 +4,9 @@ import (
 	"encoding/json"
 	"strings"
 
-	"github.com/V3teran/liusha/internal/finding"
 	"github.com/V3teran/liusha/internal/evaluator"
+	"github.com/V3teran/liusha/internal/finding"
+	"github.com/V3teran/liusha/internal/framework/core"
 	"github.com/V3teran/liusha/internal/knowledgegraph"
 )
 
@@ -54,7 +55,7 @@ func AttemptFromFinding(taskID string, f finding.VulnFinding) (evaluator.Attempt
 
 	return evaluator.Attempt{
 		TaskID:     taskID,
-		Kind:       knowledgegraph.KindResult, // 漏洞是重要发现
+		Kind:       core.KindResult, // 漏洞是重要发现
 		Primitives: f.Repro,                // 形状已是 ReplayRecipe，Verifier 侧 web.Replayer 解析
 		Content:    content,
 		Priority:   priority,

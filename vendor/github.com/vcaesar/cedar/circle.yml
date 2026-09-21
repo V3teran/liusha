@@ -1,0 +1,22 @@
+version: 2.1
+
+orbs:
+  codecov: codecov/codecov@6
+
+jobs:
+  build:
+    docker:
+      - image: golang:1.27
+    steps:
+      - checkout
+      - run: go mod download
+      - run: go vet ./...
+      - run: go build -v ./...
+      - run: go test -v -race -covermode=atomic -coverprofile=coverage.out ./...
+      - codecov/upload:
+          files: coverage.out
+
+workflows:
+  build:
+    jobs:
+      - build

@@ -32,7 +32,7 @@ type KilledReason struct {
 }
 
 // executeDecisions 根据评估结果执行决策。
-func (p *Agent) executeDecisions(ctx context.Context, taskID string, assessment GlobalAssessment) error {
+func (p *PlannerAgent) executeDecisions(ctx context.Context, taskID string, assessment GlobalAssessment) error {
 	p.logger.Info().
 		Str("strategy", assessment.Strategy).
 		Int("new_actions", len(assessment.NewActions)).
@@ -66,7 +66,7 @@ func (p *Agent) executeDecisions(ctx context.Context, taskID string, assessment 
 }
 
 // Kill 终止指定的 action，并记录原因。
-func (p *Agent) Kill(ctx context.Context, actionID string, reason string) error {
+func (p *PlannerAgent) Kill(ctx context.Context, actionID string, reason string) error {
 	p.logger.Warn().
 		Str("action_id", actionID).
 		Str("reason", reason).
@@ -109,25 +109,17 @@ func (p *Agent) Kill(ctx context.Context, actionID string, reason string) error 
 		return fmt.Errorf("update action state: %w", err)
 	}
 
-	// 6. 发布到 actionBus（Action 级事件总线）
-	if p.actionBus != nil {
-		p.actionBus.Publish(core.Event{
-			Type:      core.EventActionKilled,
-			ActionID:  actionID,
-			Timestamp: time.Now(),
-			Payload: map[string]interface{}{
-				"reason": reason,
-				"source": "planner",
-			},
-		})
-		p.logger.Info().Str("action_id", actionID).Msg("published action.killed to actionBus")
+	// 6. 发布到事件总线
+	if p.eventBus != nil {
+		p.eventBus.PublishActionKilled(p.taskID, actionID, reason)
+		p.logger.Info().Str("action_id", actionID).Msg("published action.killed event")
 	}
 
 	return nil
 }
 
 // Steer 纠偏指定的 action。
-func (p *Agent) Steer(ctx context.Context, actionID string, guidance string) error {
+func (p *PlannerAgent) Steer(ctx context.Context, actionID string, guidance string) error {
 	p.logger.Info().
 		Str("action_id", actionID).
 		Str("guidance", guidance).
@@ -166,25 +158,17 @@ func (p *Agent) Steer(ctx context.Context, actionID string, guidance string) err
 		return fmt.Errorf("update metadata: %w", err)
 	}
 
-	// 5. 发布到 actionBus（Action 级事件总线）
-	if p.actionBus != nil {
-		p.actionBus.Publish(core.Event{
-			Type:      core.EventActionSteered,
-			ActionID:  actionID,
-			Timestamp: time.Now(),
-			Payload: map[string]interface{}{
-				"guidance": guidance,
-				"source":   "planner",
-			},
-		})
-		p.logger.Info().Str("action_id", actionID).Msg("published action.steered to actionBus")
+	// 5. 发布到事件总线
+	if p.eventBus != nil {
+		p.eventBus.PublishActionSteered(p.taskID, actionID, guidance)
+		p.logger.Info().Str("action_id", actionID).Msg("published action.steered event")
 	}
 
 	return nil
 }
 
 // CreateAction 创建新的 action。
-func (p *Agent) CreateAction(ctx context.Context, taskID string, newAction NewAction) error {
+func (p *PlannerAgent) CreateAction(ctx context.Context, taskID string, newAction NewAction) error {
 	p.logger.Info().
 		Str("goal", newAction.Goal).
 		Str("priority", newAction.Priority).
@@ -194,7 +178,7 @@ func (p *Agent) CreateAction(ctx context.Context, taskID string, newAction NewAc
 	state := knowledgegraph.StateOpen
 	node := knowledgegraph.Node{
 		TaskID:    taskID,
-		Kind:      knowledgegraph.KindAction,
+		Kind:      core.KindAction,
 		State:     &state,
 		Content:   json.RawMessage(fmt.Sprintf(`"%s"`, newAction.Goal)),
 		Priority:  knowledgegraph.Priority(newAction.Priority),

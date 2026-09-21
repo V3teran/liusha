@@ -1,4 +1,4 @@
-// Package verifier 实现 L4 认知引擎的晋升门（Evaluator）。
+// Package verifier 实现认知循环的晋升门（Evaluator）。
 //
 // 更新（2026-08-26）：适配统一世界模型
 //
@@ -24,6 +24,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/V3teran/liusha/internal/framework/core"
 	"github.com/V3teran/liusha/internal/knowledgegraph"
 )
 
@@ -32,6 +33,12 @@ import (
 type worldWriter interface {
 	RecordVerification(ctx context.Context, v knowledgegraph.Verification) (string, error)
 	CreateNode(ctx context.Context, n knowledgegraph.Node) (string, error)
+}
+
+// findingWriter 是 Evaluator 依赖的 finding 写入子集：验证通过后才能写入 finding 表。
+// *finding.Store 自动满足本接口。
+type findingWriter interface {
+	Save(ctx context.Context, f interface{}) (interface{}, error)
 }
 
 // Replayer 是 domain-specific 复现执行器。Evaluator 把"复现"委托给它，自身不碰域细节。
@@ -51,21 +58,26 @@ type Result struct {
 type Attempt struct {
 	TaskID     string              // = assignment_id，图归属（一次交战一个图）
 	NodeID     string              // 溯源到的源节点 ID（可空）
-	Kind       knowledgegraph.NodeKind // 坐实后的节点类型（observation/discovery）
+	Kind       core.NodeKind // 坐实后的节点类型（observation/discovery）
 	Primitives json.RawMessage     // 要回放的 L1 原语序列
 	Content    json.RawMessage     // 坐实后写入节点的载荷（severity/taxonomy/evidence…）
 	Priority   string              // 优先级（critical/high/medium/low）
 }
 
 // Evaluator 是 Lead→图节点的晋升门。
-type Evaluator struct {
+type PromotionEvaluator struct {
 	world    worldWriter
 	replayer Replayer
+	findings findingWriter // 验证通过后写入 finding 表
 }
 
 // New 构造 Evaluator。replayer 为 nil 时 Promote 会报错（无复现能力即无晋升）。
-func New(world worldWriter, replayer Replayer) *Evaluator {
-	return &Evaluator{world: world, replayer: replayer}
+func New(world worldWriter, replayer Replayer, findings findingWriter) *PromotionEvaluator {
+	return &PromotionEvaluator{
+		world:    world,
+		replayer: replayer,
+		findings: findings,
+	}
 }
 
 // Promote 把一条 Lead 过复现门晋升成世界模型节点。
@@ -76,7 +88,7 @@ func New(world worldWriter, replayer Replayer) *Evaluator {
 //   - (nil, err)   门本身出错（复现执行/落库失败）。
 //
 // 库不 log，错误上抛由 caller 记录（与 knowledgegraph.Store 一致）。
-func (v *Evaluator) Promote(ctx context.Context, a Attempt) (*knowledgegraph.Node, error) {
+func (v *PromotionEvaluator) Promote(ctx context.Context, a Attempt) (*knowledgegraph.Node, error) {
 	if a.TaskID == "" {
 		return nil, fmt.Errorf("verifier: Attempt.TaskID 必填")
 	}
@@ -139,5 +151,66 @@ func (v *Evaluator) Promote(ctx context.Context, a Attempt) (*knowledgegraph.Nod
 		return nil, fmt.Errorf("verifier: 晋升节点失败: %w", err)
 	}
 
+	// 验证通过，写入 finding 表（未验证的不进 finding 表）
+	if v.findings != nil {
+		if err := v.writeFinding(ctx, node, a, res); err != nil {
+			// finding 写入失败不阻塞晋升（节点已进图），仅记录警告
+			// TODO: 可考虑加 logger 记录
+			_ = err
+		}
+	}
+
 	return &node, nil
+}
+
+// writeFinding 将验证通过的节点写入 finding 表
+
+// writeFinding 将验证通过的节点写入 finding 表
+func (v *PromotionEvaluator) writeFinding(ctx context.Context, node knowledgegraph.Node, attempt Attempt, res Result) error {
+	// 只有 Result 类节点（包含漏洞）才写入 finding 表
+	if node.Kind != core.KindResult {
+		return nil
+	}
+
+	// 解析 node.Content 提取漏洞信息
+	var content map[string]interface{}
+	if err := json.Unmarshal(node.Content, &content); err != nil {
+		return fmt.Errorf("解析节点内容失败: %w", err)
+	}
+
+	summary, _ := content["summary"].(string)
+	if summary == "" {
+		summary = fmt.Sprintf("Verified vulnerability (node %s)", node.ID)
+	}
+
+	severity, _ := content["severity"].(string)
+	if severity == "" {
+		severity = "medium" // 默认中危
+	}
+
+	host, _ := content["host"].(string)
+	if host == "" {
+		host = "unknown" // 降级处理
+	}
+
+	// 构造 finding（使用 map 避免循环依赖 finding 包）
+	findingData := map[string]interface{}{
+		"task_id":  node.TaskID,
+		"host":     host,
+		"summary":  summary,
+		"severity": severity,
+		"evaluation": map[string]interface{}{
+			"node_id":         node.ID,
+			"verification_id": node.SourceID,
+			"confirmed":       res.Confirmed,
+			"evaluation":      res.Evaluation,
+			"duration_ms":     res.DurationMs,
+		},
+		"target": content["target"],
+		"repro":  attempt.Primitives, // 复现配方
+	}
+
+	// 写入 finding 表（通过 interface{} 避免循环依赖）
+	_, err := v.findings.Save(ctx, findingData)
+	return err
 }

@@ -14,7 +14,7 @@ import (
 // 使用 Framework 的 GraphStore 和标准类型
 type AdapterStore struct {
 	graphStore core.GraphStore
-	pool       *pgxpool.Pool // 用于 Roadmap 等直接 SQL 操作
+	pool       *pgxpool.Pool // 用于 Roadmap 等直接 SQL 操作（仅在 NewStore 中设置）
 }
 
 // NewAdapterStore 创建知识图谱适配器
@@ -22,6 +22,11 @@ func NewAdapterStore(graphStore core.GraphStore) *AdapterStore {
 	return &AdapterStore{
 		graphStore: graphStore,
 	}
+}
+
+// GraphStore 返回底层的 GraphStore（用于测试）
+func (s *AdapterStore) GraphStore() core.GraphStore {
+	return s.graphStore
 }
 
 // Objective 是业务层的目标数据结构
@@ -160,7 +165,7 @@ func (s *AdapterStore) RecordObservation(ctx context.Context, obs Observation) e
 		ID:         obs.ID,
 		Kind:       string(core.KindObservation),
 		Content:    content,
-		Confidence: float64(obs.Confidence),
+		Confidence: confidenceToFloat(obs.Confidence),
 		Metadata: map[string]interface{}{
 			"action_id": obs.ActionID,
 			"type":      obs.Type,
@@ -178,7 +183,7 @@ func (s *AdapterStore) RecordObservation(ctx context.Context, obs Observation) e
 			To:       obs.ID,
 			Relation: string(core.RelationGenerates),
 			Metadata: map[string]interface{}{
-				"confidence": float64(obs.Confidence),
+				"confidence": confidenceToFloat(obs.Confidence),
 			},
 		}
 		_ = s.graphStore.CreateEdge(ctx, edge)
@@ -249,7 +254,7 @@ func (s *AdapterStore) ConfirmResult(ctx context.Context, result Result) error {
 		ID:         result.ID,
 		Kind:       string(core.KindResult),
 		Content:    content,
-		Confidence: float64(result.Confidence),
+		Confidence: confidenceToFloat(result.Confidence),
 		Metadata: map[string]interface{}{
 			"evaluation_id": result.EvaluationID,
 			"type":          result.Type,
@@ -267,7 +272,7 @@ func (s *AdapterStore) ConfirmResult(ctx context.Context, result Result) error {
 			To:       result.ID,
 			Relation: string(core.RelationConfirms),
 			Metadata: map[string]interface{}{
-				"confidence": float64(result.Confidence),
+				"confidence": confidenceToFloat(result.Confidence),
 			},
 		}
 		_ = s.graphStore.CreateEdge(ctx, edge)
@@ -337,6 +342,12 @@ func (s *AdapterStore) UpdateActionState(ctx context.Context, actionID string, s
 	return s.graphStore.UpdateNode(ctx, actionID, core.GraphNodeUpdate{
 		State: string(state),
 	})
+}
+
+// CompareAndSwapState 原子性地更新节点状态（仅在 expectedState 匹配时）
+// 实现 core.GraphStore 接口
+func (s *AdapterStore) CompareAndSwapState(ctx context.Context, taskID, nodeID string, expectedState, newState string) (bool, error) {
+	return s.graphStore.CompareAndSwapState(ctx, taskID, nodeID, expectedState, newState)
 }
 
 // GetActionsByState 根据状态获取动作
@@ -443,7 +454,7 @@ func (s *AdapterStore) GetNode(ctx context.Context, id string) (*Node, error) {
 }
 
 // ListNodesByKind 列出指定 task 和 kind 的节点
-func (s *AdapterStore) ListNodesByKind(ctx context.Context, taskID string, kind NodeKind) ([]Node, error) {
+func (s *AdapterStore) ListNodesByKind(ctx context.Context, taskID string, kind core.NodeKind) ([]Node, error) {
 	query := core.GraphNodeQuery{
 		Kind: string(kind),
 		Filters: map[string]interface{}{
@@ -463,7 +474,7 @@ func (s *AdapterStore) ListNodesByKind(ctx context.Context, taskID string, kind 
 // ListActionsByState 列出指定 task 和 state 的 action 节点
 func (s *AdapterStore) ListActionsByState(ctx context.Context, taskID string, state State) ([]Node, error) {
 	query := core.GraphNodeQuery{
-		Kind:  string(KindAction),
+		Kind:  string(core.KindAction),
 		State: string(state),
 		Filters: map[string]interface{}{
 			"metadata.task_id": taskID,
@@ -496,11 +507,16 @@ func (s *AdapterStore) ListCompletedActions(ctx context.Context, taskID string) 
 
 // ListAllActions 列出所有 action
 func (s *AdapterStore) ListAllActions(ctx context.Context, taskID string) ([]Node, error) {
-	return s.ListNodesByKind(ctx, taskID, KindAction)
+	return s.ListNodesByKind(ctx, taskID, core.KindAction)
 }
 
-// CreateEdge 创建边（兼容旧接口）
-func (s *AdapterStore) CreateEdge(ctx context.Context, edge Edge) error {
+// CreateEdge 创建边（实现 core.GraphStore 接口）
+func (s *AdapterStore) CreateEdge(ctx context.Context, edge *core.GraphEdge) error {
+	return s.graphStore.CreateEdge(ctx, edge)
+}
+
+// CreateBusinessEdge 创建边（业务层接口，使用业务层 Edge 类型）
+func (s *AdapterStore) CreateBusinessEdge(ctx context.Context, edge Edge) error {
 	graphEdge := &core.GraphEdge{
 		From:      edge.SrcID,
 		To:        edge.DstID,
@@ -590,21 +606,42 @@ func (s *AdapterStore) UpdateActionStateWithReason(ctx context.Context, id strin
 	}
 
 	if blockedReason != nil {
-		// 需要先获取当前 metadata，然后更新
-		node, err := s.graphStore.GetNode(ctx, id)
-		if err != nil {
-			return err
+		update.Metadata = map[string]interface{}{
+			"blocked_reason": *blockedReason,
 		}
-
-		metadata := node.Metadata
-		if metadata == nil {
-			metadata = make(map[string]interface{})
-		}
-		metadata["blocked_reason"] = *blockedReason
-		update.Metadata = metadata
 	}
 
 	return s.graphStore.UpdateNode(ctx, id, update)
+}
+
+// CompareAndSwapActionState 原子性地比较并交换 action 状态（CAS操作）
+// 只有当前状态等于 expectedState 时才更新为 newState
+// 返回 (true, nil) 表示更新成功
+// 返回 (false, nil) 表示状态不匹配，未更新（被其他goroutine抢占）
+func (s *AdapterStore) CompareAndSwapActionState(ctx context.Context, taskID, actionID string, expectedState, newState State, blockedReason *string) (bool, error) {
+	// 先尝试 CAS（转换为 string）
+	ok, err := s.graphStore.CompareAndSwapState(ctx, taskID, actionID, string(expectedState), string(newState))
+	if err != nil {
+		return false, err
+	}
+	if !ok {
+		return false, nil // CAS 失败，状态不匹配
+	}
+
+	// CAS 成功，更新 blocked_reason（如果有）
+	if blockedReason != nil {
+		update := core.GraphNodeUpdate{
+			Metadata: map[string]interface{}{
+				"blocked_reason": *blockedReason,
+			},
+		}
+		if err := s.graphStore.UpdateNode(ctx, actionID, update); err != nil {
+			// 元数据更新失败不影响状态已经更新的事实
+			return true, nil
+		}
+	}
+
+	return true, nil
 }
 
 // ─────────────────────────────────────────────
@@ -628,7 +665,7 @@ func (s *AdapterStore) convertGraphNodesToNodes(graphNodes []*core.GraphNode) []
 func (s *AdapterStore) graphNodeToNode(graphNode *core.GraphNode) (*Node, error) {
 	node := &Node{
 		ID:        graphNode.ID,
-		Kind:      NodeKind(graphNode.Kind),
+		Kind:      core.NodeKind(graphNode.Kind),
 		Content:   graphNode.Content,
 		CreatedAt: graphNode.CreatedAt,
 		UpdatedAt: graphNode.UpdatedAt,
@@ -730,13 +767,13 @@ func (s *AdapterStore) convertGraphEdgesToEdges(graphEdges []*core.GraphEdge, ta
 
 // ListResults 列出所有 result 节点
 func (s *AdapterStore) ListResults(ctx context.Context, taskID string) ([]Node, error) {
-	return s.ListNodesByKind(ctx, taskID, KindResult)
+	return s.ListNodesByKind(ctx, taskID, core.KindResult)
 }
 
 // ListVerifiedResults 列出所有已验证的 result 节点
 func (s *AdapterStore) ListVerifiedResults(ctx context.Context, taskID string) ([]Node, error) {
 	query := core.GraphNodeQuery{
-		Kind:          string(KindResult),
+		Kind:          string(core.KindResult),
 		MinConfidence: 0.8, // verified
 		Filters: map[string]interface{}{
 			"metadata.task_id": taskID,
@@ -752,15 +789,15 @@ func (s *AdapterStore) ListVerifiedResults(ctx context.Context, taskID string) (
 	return s.convertGraphNodesToNodes(nodes), nil
 }
 
-// ListHypotheses 列出所有 hypothesis 节点（旧类型，映射到 observation）
-func (s *AdapterStore) ListHypotheses(ctx context.Context, taskID string) ([]Node, error) {
-	return s.ListNodesByKind(ctx, taskID, KindObservation)
+// ListObservations 列出所有 observation 节点
+func (s *AdapterStore) ListObservations(ctx context.Context, taskID string) ([]Node, error) {
+	return s.ListNodesByKind(ctx, taskID, core.KindObservation)
 }
 
-// ListUnverifiedHypotheses 列出所有未验证的 hypothesis 节点
-func (s *AdapterStore) ListUnverifiedHypotheses(ctx context.Context, taskID string) ([]Node, error) {
+// ListUnverifiedObservations 列出所有未验证的 observation 节点
+func (s *AdapterStore) ListUnverifiedObservations(ctx context.Context, taskID string) ([]Node, error) {
 	query := core.GraphNodeQuery{
-		Kind: string(KindObservation),
+		Kind: string(core.KindObservation),
 		Filters: map[string]interface{}{
 			"metadata.task_id": taskID,
 		},
@@ -786,7 +823,7 @@ func (s *AdapterStore) ListUnverifiedHypotheses(ctx context.Context, taskID stri
 // GetObjective 获取任务的 objective 节点
 func (s *AdapterStore) GetObjective(ctx context.Context, taskID string) (ObjectiveNode, error) {
 	query := core.GraphNodeQuery{
-		Kind: string(KindObjective),
+		Kind: string(core.KindObjective),
 		Filters: map[string]interface{}{
 			"metadata.task_id": taskID,
 		},
@@ -817,11 +854,6 @@ func (s *AdapterStore) GetObjective(ctx context.Context, taskID string) (Objecti
 	}
 
 	return obj, nil
-}
-
-// CompareAndSwapState 原子更新节点状态（转发到 GraphStore）
-func (s *AdapterStore) CompareAndSwapState(ctx context.Context, id string, expectedState, newState State) (bool, error) {
-	return s.graphStore.CompareAndSwapState(ctx, id, string(expectedState), string(newState))
 }
 
 // UpdateNode 更新节点（转发到 GraphStore）
@@ -859,4 +891,126 @@ func (s *AdapterStore) RecordVerification(ctx context.Context, v Verification) (
 	}
 
 	return v.ID, nil
+}
+
+// ListEdges 查询边列表（转发到 GraphStore）
+func (s *AdapterStore) ListEdges(ctx context.Context, query core.GraphEdgeQuery) ([]*core.GraphEdge, error) {
+	return s.graphStore.ListEdges(ctx, query)
+}
+
+// DeleteEdge 删除边（转发到 GraphStore）
+func (s *AdapterStore) DeleteEdge(ctx context.Context, from, to, relation string) error {
+	return s.graphStore.DeleteEdge(ctx, from, to, relation)
+}
+
+// confidenceToFloat 将 ObservationConfidence 转换为 float64
+func confidenceToFloat(c core.ObservationConfidence) float64 {
+	switch c {
+	case core.ConfidenceVerified:
+		return 0.9
+	case core.ConfidenceUnverified:
+		return 0.5
+	case core.ConfidenceRefuted:
+		return 0.1
+	default:
+		return 0.0
+	}
+}
+
+// ─────────────────────────────────────────────
+// HTTP API 专用方法（Phase 1: 知识图谱 API）
+// ─────────────────────────────────────────────
+
+// ListNodesForAPI 按 task_id 和可选 kind 查询节点（HTTP API 专用）
+func (s *AdapterStore) ListNodesForAPI(ctx context.Context, taskID string, kind string) ([]Node, error) {
+	query := core.GraphNodeQuery{
+		Filters: map[string]interface{}{
+			"metadata.task_id": taskID,
+		},
+		OrderBy: "created_at",
+	}
+
+	// 可选的 kind 过滤
+	if kind != "" {
+		query.Kind = kind
+	}
+
+	nodes, err := s.graphStore.ListNodes(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("list nodes: %w", err)
+	}
+
+	return s.convertGraphNodesToNodes(nodes), nil
+}
+
+// ListEdgesForAPI 按 task_id 查询边（HTTP API 专用）
+func (s *AdapterStore) ListEdgesForAPI(ctx context.Context, taskID string) ([]Edge, error) {
+	// GraphEdgeQuery 没有 Filters 字段，需要先查所有边再过滤
+	// 或者通过查询所有节点的边来实现
+	query := core.GraphEdgeQuery{
+		// 空查询返回所有边
+		Limit: 10000, // 设置一个较大的上限
+	}
+
+	graphEdges, err := s.graphStore.ListEdges(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("list edges: %w", err)
+	}
+
+	// 过滤出属于指定 task 的边（通过节点关联）
+	// 先获取该 task 的所有节点 ID
+	nodes, err := s.ListNodesForAPI(ctx, taskID, "")
+	if err != nil {
+		return nil, fmt.Errorf("list nodes for filtering: %w", err)
+	}
+
+	nodeIDs := make(map[string]bool)
+	for _, node := range nodes {
+		nodeIDs[node.ID] = true
+	}
+
+	// 只保留源节点或目标节点属于该 task 的边
+	filteredEdges := make([]*core.GraphEdge, 0)
+	for _, edge := range graphEdges {
+		if nodeIDs[edge.From] || nodeIDs[edge.To] {
+			filteredEdges = append(filteredEdges, edge)
+		}
+	}
+
+	return s.convertGraphEdgesToEdges(filteredEdges, taskID), nil
+}
+
+// GetStatsForAPI 返回节点类型统计（e2e 轮询专用）
+func (s *AdapterStore) GetStatsForAPI(ctx context.Context, taskID string) (map[string]int, error) {
+	// 查询所有节点
+	nodes, err := s.ListNodesForAPI(ctx, taskID, "")
+	if err != nil {
+		return nil, err
+	}
+
+	// 按类型统计
+	stats := map[string]int{
+		"objectives":   0,
+		"actions":      0,
+		"observations": 0,
+		"evaluations":  0,
+		"results":      0,
+	}
+
+	for _, node := range nodes {
+		switch node.Kind {
+		case core.KindObjective:
+			stats["objectives"]++
+		case core.KindAction:
+			stats["actions"]++
+		case core.KindObservation:
+			stats["observations"]++
+		case core.KindEvaluation:
+			stats["evaluations"]++
+		case core.KindResult:
+			stats["results"]++
+		}
+	}
+
+	return stats, nil
 }

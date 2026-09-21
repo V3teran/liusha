@@ -6,6 +6,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/V3teran/liusha/internal/framework/core"
 	"github.com/V3teran/liusha/internal/knowledgegraph"
 )
 
@@ -38,11 +39,21 @@ func (f fakeReplayer) Replay(context.Context, json.RawMessage) (Result, error) {
 	return f.res, f.err
 }
 
+// fakeFindingWriter 模拟 finding 存储
+type fakeFindingWriter struct {
+	findings []interface{}
+}
+
+func (f *fakeFindingWriter) Save(ctx context.Context, finding interface{}) (interface{}, error) {
+	f.findings = append(f.findings, finding)
+	return finding, nil
+}
+
 func baseAttempt() Attempt {
 	return Attempt{
 		TaskID:     "asg-1",
 		NodeID:     "node-source",
-		Kind:       knowledgegraph.KindResult,
+		Kind:       core.KindResult,
 		Primitives: json.RawMessage(`[{"op":"http_request"}]`),
 		Content:    json.RawMessage(`{"severity":"high","type":"vulnerability"}`),
 		Priority:   "high",
@@ -52,7 +63,8 @@ func baseAttempt() Attempt {
 // 复现坐实：落 confirmed verification + 晋升 verified 节点。
 func TestPromote_Confirmed(t *testing.T) {
 	w := &fakeWorld{verID: "ver-99"}
-	v := New(w, fakeReplayer{res: Result{Confirmed: true, Evaluation: json.RawMessage(`{"poc":"x"}`), DurationMs: 42}})
+	fw := &fakeFindingWriter{}
+	v := New(w, fakeReplayer{res: Result{Confirmed: true, Evaluation: json.RawMessage(`{"poc":"x"}`), DurationMs: 42}}, fw)
 
 	node, err := v.Promote(context.Background(), baseAttempt())
 	if err != nil {
@@ -78,7 +90,8 @@ func TestPromote_Confirmed(t *testing.T) {
 // 复现证伪：落 refuted verification 留档，但不进图。铁律——图只存坐实态。
 func TestPromote_Refuted(t *testing.T) {
 	w := &fakeWorld{verID: "ver-1"}
-	v := New(w, fakeReplayer{res: Result{Confirmed: false, Evaluation: json.RawMessage(`{"reason":"no repro"}`)}})
+	fw := &fakeFindingWriter{}
+	v := New(w, fakeReplayer{res: Result{Confirmed: false, Evaluation: json.RawMessage(`{"reason":"no repro"}`)}}, fw)
 
 	node, err := v.Promote(context.Background(), baseAttempt())
 	if err != nil {
@@ -98,7 +111,8 @@ func TestPromote_Refuted(t *testing.T) {
 // 复现执行失败：门报错，且不落任何 verification/节点（避免脏证据链）。
 func TestPromote_ReplayError(t *testing.T) {
 	w := &fakeWorld{}
-	v := New(w, fakeReplayer{err: errors.New("boom")})
+	fw := &fakeFindingWriter{}
+	v := New(w, fakeReplayer{err: errors.New("boom")}, fw)
 
 	if _, err := v.Promote(context.Background(), baseAttempt()); err == nil {
 		t.Fatal("复现失败应报错")
@@ -109,7 +123,8 @@ func TestPromote_ReplayError(t *testing.T) {
 
 // 无 Replayer：无复现能力即无晋升——直接报错，不放行。
 func TestPromote_NoReplayer(t *testing.T) {
-	v := New(&fakeWorld{}, nil)
+	fw := &fakeFindingWriter{}
+	v := New(&fakeWorld{}, nil, fw)
 	if _, err := v.Promote(context.Background(), baseAttempt()); err == nil {
 		t.Fatal("无 Replayer 应报错")
 	}
@@ -117,7 +132,8 @@ func TestPromote_NoReplayer(t *testing.T) {
 
 // 必填校验：TaskID / Kind 缺失即拒。
 func TestPromote_Validation(t *testing.T) {
-	v := New(&fakeWorld{}, fakeReplayer{res: Result{Confirmed: true}})
+	fw := &fakeFindingWriter{}
+	v := New(&fakeWorld{}, fakeReplayer{res: Result{Confirmed: true}}, fw)
 
 	noScan := baseAttempt()
 	noScan.TaskID = ""

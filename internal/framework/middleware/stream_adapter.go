@@ -1,10 +1,10 @@
 package middleware
 
 import (
+	"github.com/V3teran/liusha/internal/bus"
 	"context"
 	"sync"
 
-	"github.com/V3teran/liusha/internal/framework/core"
 	"github.com/V3teran/liusha/internal/framework/llm"
 )
 
@@ -134,35 +134,35 @@ func (a *StreamAdapter) ConvertLogEvent(log LogEvent) StreamEvent {
 
 // StreamEventBusImpl 是流式事件总线的实现。
 type StreamEventBusImpl struct {
-	eventBus core.EventBus
+	eventBus bus.Bus
 	adapters sync.Map // taskID -> *StreamAdapter
 	channels sync.Map // taskID -> chan StreamEvent
 	mu       sync.RWMutex
 }
 
 // NewStreamEventBus 创建流式事件总线。
-func NewStreamEventBus(eventBus core.EventBus) *StreamEventBusImpl {
+func NewStreamEventBus(eventBus bus.Bus) *StreamEventBusImpl {
 	return &StreamEventBusImpl{
 		eventBus: eventBus,
 	}
 }
 
 // Publish 发布事件到底层 EventBus。
-func (b *StreamEventBusImpl) Publish(event core.Event) {
+func (b *StreamEventBusImpl) Publish(event bus.Event) {
 	if b.eventBus != nil {
 		b.eventBus.Publish(event)
 	}
 }
 
 // Subscribe 订阅事件（适配 EventBus 为流式接口）。
-func (b *StreamEventBusImpl) Subscribe(ctx context.Context, actionID string) (<-chan core.Event, error) {
+func (b *StreamEventBusImpl) Subscribe(ctx context.Context, actionID string) (<-chan bus.Event, error) {
 	if b.eventBus == nil {
-		ch := make(chan core.Event)
+		ch := make(chan bus.Event)
 		close(ch)
 		return ch, nil
 	}
 
-	sub := b.eventBus.Subscribe(ctx, actionID)
+	sub := b.eventBus.SubscribeAction(ctx, actionID)
 	return sub.Events(), nil
 }
 
@@ -200,9 +200,9 @@ func (b *StreamEventBusImpl) Send(ctx context.Context, event StreamEvent) error 
 	}
 }
 
-// ConvertToStream 将 core.Event 转换为 StreamEvent（保留兼容性）。
-func (b *StreamEventBusImpl) ConvertToStream(event core.Event) StreamEvent {
-	// 简单转换：将 core.Event 包装为 StreamEvent
+// ConvertToStream 将 bus.Event 转换为 StreamEvent（保留兼容性）。
+func (b *StreamEventBusImpl) ConvertToStream(event bus.Event) StreamEvent {
+	// 简单转换：将 bus.Event 包装为 StreamEvent
 	return StreamEvent{
 		Type:     string(event.Type),
 		TaskID:   event.ActionID,  // ActionID 映射为 TaskID
@@ -212,15 +212,15 @@ func (b *StreamEventBusImpl) ConvertToStream(event core.Event) StreamEvent {
 	}
 }
 
-// ConvertToEvent 将 StreamEvent 转换为 core.Event（保留兼容性）。
-func (b *StreamEventBusImpl) ConvertToEvent(streamEvent StreamEvent) core.Event {
+// ConvertToEvent 将 StreamEvent 转换为 bus.Event（保留兼容性）。
+func (b *StreamEventBusImpl) ConvertToEvent(streamEvent StreamEvent) bus.Event {
 	payload, ok := streamEvent.Data.(map[string]interface{})
 	if !ok {
 		payload = map[string]interface{}{"data": streamEvent.Data}
 	}
-	return core.Event{
+	return bus.Event{
 		ID:        "",  // 将由 NewEvent 生成
-		Type:      core.EventType(streamEvent.Type),
+		Type:      bus.EventType(streamEvent.Type),
 		ActionID:  streamEvent.TaskID,
 		Payload:   payload,
 	}

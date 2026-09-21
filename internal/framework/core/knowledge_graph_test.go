@@ -86,20 +86,12 @@ func TestActionState(t *testing.T) {
 func TestObservationConfidence(t *testing.T) {
 	t.Run("verified confidence", func(t *testing.T) {
 		assert.True(t, ConfidenceVerified.IsVerified())
-		assert.True(t, ConfidenceVerified.IsHighConfidence())
-
-		assert.False(t, ConfidenceHigh.IsVerified())
-		assert.True(t, ConfidenceHigh.IsHighConfidence())
-
-		assert.False(t, ConfidenceMedium.IsHighConfidence())
+		assert.False(t, ConfidenceUnverified.IsVerified())
 	})
 
-	t.Run("confidence levels", func(t *testing.T) {
-		assert.Equal(t, 0.0, float64(ConfidenceUnknown))
-		assert.Equal(t, 0.3, float64(ConfidenceLow))
-		assert.Equal(t, 0.6, float64(ConfidenceMedium))
-		assert.Equal(t, 0.9, float64(ConfidenceHigh))
-		assert.Equal(t, 1.0, float64(ConfidenceVerified))
+	t.Run("confidence values", func(t *testing.T) {
+		assert.Equal(t, "unverified", string(ConfidenceUnverified))
+		assert.Equal(t, "verified", string(ConfidenceVerified))
 	})
 }
 
@@ -159,9 +151,9 @@ func TestKnowledgeGraphSemantics(t *testing.T) {
 	})
 
 	t.Run("PDDL alignment", func(t *testing.T) {
-		// 验证对齐 PDDL 标准：Goal → Action → State
+		// 验证对齐 PDDL 标准：Objective → Action → State
 
-		// Objective = Goal
+		// Objective = Planning Problem
 		assert.Equal(t, "objective", KindObjective.String())
 
 		// Action = Action

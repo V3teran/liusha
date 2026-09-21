@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"github.com/V3teran/liusha/internal/bus"
 	"context"
 	"fmt"
 	"sync"
@@ -15,7 +16,7 @@ import (
 type HumanInteractionManagerImpl struct {
 	store     HumanInputStore
 	validator HumanInputValidator
-	eventBus  core.EventBus
+	eventBus  bus.Bus
 	logger    zerolog.Logger
 
 	// 等待队列（requestID -> 响应通道）
@@ -31,7 +32,7 @@ type HumanInteractionManagerImpl struct {
 func NewHumanInteractionManager(
 	store HumanInputStore,
 	validator HumanInputValidator,
-	eventBus core.EventBus,
+	eventBus bus.Bus,
 	logger zerolog.Logger,
 ) *HumanInteractionManagerImpl {
 	return &HumanInteractionManagerImpl{
@@ -81,7 +82,7 @@ func (h *HumanInteractionManagerImpl) RequestInput(ctx context.Context, req Huma
 
 	// 发布事件
 	if h.eventBus != nil {
-		event := core.NewEvent(core.EventHumanInputRequired, req.TaskID, "human", map[string]any{
+		event := bus.NewEvent(bus.EventHumanInputRequired, req.TaskID, "human", map[string]any{
 			"request_id": req.ID,
 			"node_id":    req.NodeID,
 			"input_type": req.InputType,
@@ -189,7 +190,7 @@ func (h *HumanInteractionManagerImpl) SubmitInput(ctx context.Context, resp Huma
 
 	// 发布事件
 	if h.eventBus != nil {
-		event := core.NewEvent(core.EventHumanInputReceived, resp.TaskID, "human", map[string]any{
+		event := bus.NewEvent(bus.EventHumanInputReceived, resp.TaskID, "human", map[string]any{
 			"request_id": resp.RequestID,
 			"node_id":    resp.NodeID,
 			"approved":   resp.Approved,

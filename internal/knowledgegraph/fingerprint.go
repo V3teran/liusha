@@ -4,6 +4,8 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+
+	"github.com/V3teran/liusha/internal/framework/core"
 )
 
 // ComputeActionFingerprint 计算 Action 内容的指纹（SHA256）
@@ -62,7 +64,7 @@ func ComputeActionFingerprint(content json.RawMessage) string {
 //
 // 便捷方法，直接从 Node 提取 Content 并计算指纹
 func ComputeActionFingerprintFromNode(node Node) string {
-	if node.Kind != KindAction {
+	if node.Kind != core.KindAction {
 		return ""
 	}
 	return ComputeActionFingerprint(node.Content)

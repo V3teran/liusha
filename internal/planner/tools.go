@@ -9,8 +9,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 
-	"github.com/V3teran/liusha/internal/registry"
+	"github.com/V3teran/liusha/internal/framework/core"
 	"github.com/V3teran/liusha/internal/knowledgegraph"
+	"github.com/V3teran/liusha/internal/registry"
 )
 
 // ObserveStateTool 观察世界模型状态
@@ -58,13 +59,13 @@ func (t *ObserveStateTool) Execute(ctx context.Context, argsJSON json.RawMessage
 	}
 
 	// 查询目标
-	objectives, err := t.world.ListNodesByKind(ctx, taskID, knowledgegraph.KindObjective)
+	objectives, err := t.world.ListNodesByKind(ctx, taskID, core.KindObjective)
 	if err != nil {
 		return registry.ToolResult{Error: fmt.Sprintf("load objectives: %v", err)}, nil
 	}
 
 	// 查询 Action
-	actions, err := t.world.ListNodesByKind(ctx, taskID, knowledgegraph.KindAction)
+	actions, err := t.world.ListNodesByKind(ctx, taskID, core.KindAction)
 	if err != nil {
 		return registry.ToolResult{Error: fmt.Sprintf("load actions: %v", err)}, nil
 	}
@@ -81,7 +82,7 @@ func (t *ObserveStateTool) Execute(ctx context.Context, argsJSON json.RawMessage
 	}
 
 	// 查询发现
-	findings, err := t.world.ListNodesByKind(ctx, taskID, knowledgegraph.KindResult)
+	findings, err := t.world.ListNodesByKind(ctx, taskID, core.KindResult)
 	if err != nil {
 		return registry.ToolResult{Error: fmt.Sprintf("load findings: %v", err)}, nil
 	}
@@ -226,7 +227,7 @@ func (t *ProposeActionsTool) Execute(ctx context.Context, argsJSON json.RawMessa
 		node := knowledgegraph.Node{
 			ID:          uuid.New().String(),
 			TaskID:      taskID,
-			Kind:        knowledgegraph.KindAction,
+			Kind:        core.KindAction,
 			Content:     content,
 			State:       &state,
 			Complexity:  &complexity,
@@ -287,7 +288,7 @@ func (t *EvaluateProgressTool) Execute(ctx context.Context, argsJSON json.RawMes
 	}
 
 	// 查询所有 Action
-	actions, err := t.world.ListNodesByKind(ctx, taskID, knowledgegraph.KindAction)
+	actions, err := t.world.ListNodesByKind(ctx, taskID, core.KindAction)
 	if err != nil {
 		return registry.ToolResult{Error: fmt.Sprintf("load actions: %v", err)}, nil
 	}
@@ -301,7 +302,7 @@ func (t *EvaluateProgressTool) Execute(ctx context.Context, argsJSON json.RawMes
 	}
 
 	// 查询发现
-	findings, err := t.world.ListNodesByKind(ctx, taskID, knowledgegraph.KindResult)
+	findings, err := t.world.ListNodesByKind(ctx, taskID, core.KindResult)
 	if err != nil {
 		return registry.ToolResult{Error: fmt.Sprintf("load findings: %v", err)}, nil
 	}

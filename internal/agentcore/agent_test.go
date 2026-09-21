@@ -76,6 +76,22 @@ func (m *MockProvider) CountTokens(ctx context.Context, req llm.Request) (int, e
 	return 100, nil
 }
 
+func (m *MockProvider) ModelID() string {
+	return "mock-model"
+}
+
+func (m *MockProvider) ProviderID() string {
+	return "mock-provider"
+}
+
+func (m *MockProvider) Stream(ctx context.Context, req llm.Request) (<-chan llm.StreamEvent, <-chan error) {
+	chunks := make(chan llm.StreamEvent)
+	errs := make(chan error)
+	close(chunks)
+	close(errs)
+	return chunks, errs
+}
+
 // TestRunToolLoop_NoToolCalls 测试无工具调用场景
 func TestRunToolLoop_NoToolCalls(t *testing.T) {
 	logger := zerolog.Nop()

@@ -128,13 +128,23 @@ func (s *InMemoryGraphStore) UpdateNode(ctx context.Context, id string, update G
 }
 
 // CompareAndSwapState 原子更新节点状态（使用乐观锁）
-func (s *InMemoryGraphStore) CompareAndSwapState(ctx context.Context, id string, expectedState, newState string) (bool, error) {
+func (s *InMemoryGraphStore) CompareAndSwapState(ctx context.Context, taskID, nodeID string, expectedState, newState string) (bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	node, exists := s.nodes[id]
+	node, exists := s.nodes[nodeID]
 	if !exists {
 		return false, ErrGraphNodeNotFound
+	}
+
+	// 检查 taskID（如果提供）
+	if taskID != "" {
+		// 从 metadata 中获取 task_id
+		if node.Metadata != nil {
+			if tid, ok := node.Metadata["task_id"].(string); ok && tid != taskID {
+				return false, nil // 不属于该任务
+			}
+		}
 	}
 
 	// 检查状态是否匹配

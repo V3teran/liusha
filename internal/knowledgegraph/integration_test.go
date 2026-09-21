@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/V3teran/liusha/internal/framework/core"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -32,7 +33,7 @@ func TestTaskIsolation(t *testing.T) {
 	moveA := Node{
 		ID:         "action-a",
 		TaskID:     taskA,
-		Kind:       KindAction,
+		Kind:       core.KindAction,
 		Content:    json.RawMessage(`{"instruction":"测试 taskA 的目标"}`),
 		State:      &stateOpen,
 		Complexity: &complexity,
@@ -47,7 +48,7 @@ func TestTaskIsolation(t *testing.T) {
 	moveB := Node{
 		ID:         "action-b",
 		TaskID:     taskB,
-		Kind:       KindAction,
+		Kind:       core.KindAction,
 		Content:    json.RawMessage(`{"instruction":"测试 taskB 的目标"}`),
 		State:      &stateOpen,
 		Complexity: &complexity,
@@ -91,7 +92,7 @@ func TestCompleteDataFlow(t *testing.T) {
 	move := Node{
 		ID:         "action-1",
 		TaskID:     taskID,
-		Kind:       KindAction,
+		Kind:       core.KindAction,
 		Content:    json.RawMessage(`{"instruction":"扫描目标端点"}`),
 		State:      &stateOpen,
 		Complexity: &complexity,
@@ -110,7 +111,7 @@ func TestCompleteDataFlow(t *testing.T) {
 	observation := Node{
 		ID:         "obs-1",
 		TaskID:     taskID,
-		Kind:       KindObservation,
+		Kind:       core.KindObservation,
 		Content:    json.RawMessage(`{"detail":"发现目录 /admin"}`),
 		Confidence: &confidence,
 		Priority:   PriorityMedium,
@@ -123,7 +124,7 @@ func TestCompleteDataFlow(t *testing.T) {
 	require.NoError(t, err)
 
 	// 创建边：move produces observation
-	err = store.CreateEdge(ctx, Edge{
+	err = store.CreateBusinessEdge(ctx, Edge{
 		SrcID:     move.ID,
 		DstID:     observation.ID,
 		Rel:       RelGenerates,
@@ -137,7 +138,7 @@ func TestCompleteDataFlow(t *testing.T) {
 	discovery := Node{
 		ID:         "disc-1",
 		TaskID:     taskID,
-		Kind:       KindResult,
+		Kind:       core.KindResult,
 		Content:    json.RawMessage(`{"type":"vulnerability","severity":"medium"}`),
 		Confidence: &verifiedConf,
 		Priority:   PriorityHigh,
@@ -150,7 +151,7 @@ func TestCompleteDataFlow(t *testing.T) {
 	require.NoError(t, err)
 
 	// 创建边：observation supports discovery
-	err = store.CreateEdge(ctx, Edge{
+	err = store.CreateBusinessEdge(ctx, Edge{
 		SrcID:     observation.ID,
 		DstID:     discovery.ID,
 		Rel:       RelConfirms,
@@ -191,7 +192,7 @@ func TestMoveDependency(t *testing.T) {
 	move1 := Node{
 		ID:         "action-1",
 		TaskID:     taskID,
-		Kind:       KindAction,
+		Kind:       core.KindAction,
 		Content:    json.RawMessage(`{"instruction":"第一步：扫描"}`),
 		State:      &stateOpen,
 		Complexity: &complexity,
@@ -206,7 +207,7 @@ func TestMoveDependency(t *testing.T) {
 	move2 := Node{
 		ID:         "action-2",
 		TaskID:     taskID,
-		Kind:       KindAction,
+		Kind:       core.KindAction,
 		Content:    json.RawMessage(`{"instruction":"第二步：利用"}`),
 		State:      &stateOpen,
 		Complexity: &complexity,

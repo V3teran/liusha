@@ -21,12 +21,12 @@ func TestGraphRunner_WithEvaluator(t *testing.T) {
 
 	// 模拟状态
 	var (
-		mu                sync.Mutex
-		plannerRuns       int
-		executorRuns      int
-		evaluatorRuns     int
-		hypothesesCreated []string
-		findingsCreated   []string
+		mu                 sync.Mutex
+		plannerRuns        int
+		executorRuns       int
+		evaluatorRuns      int
+		observationsCreated []string
+		findingsCreated    []string
 	)
 
 	// 构建 Graph
@@ -67,30 +67,30 @@ func TestGraphRunner_WithEvaluator(t *testing.T) {
 
 		executorRuns++
 
-		// 模拟 Executor 产出 Hypotheses
+		// 模拟 Executor 产出 Observations
 		for i, action := range actions {
-			hypID := action + "-hypothesis-" + string(rune('0'+i))
-			hypothesesCreated = append(hypothesesCreated, hypID)
+			obsID := action + "-observation-" + string(rune('0'+i))
+			observationsCreated = append(observationsCreated, obsID)
 		}
 
-		state.Set("hypotheses", hypothesesCreated)
+		state.Set("observations", observationsCreated)
 		return state, nil
 	})
 
-	// 节点 4: evaluator（验证 Hypotheses）
+	// 节点 4: evaluator（验证 Observations）
 	graph.AddNode("evaluator", func(ctx context.Context, state core.GraphState) (core.GraphState, error) {
 		mu.Lock()
-		hypothesesRaw, _ := state.Get("hypotheses")
-		hypotheses, ok := hypothesesRaw.([]string)
+		observationsRaw, _ := state.Get("observations")
+		observations, ok := observationsRaw.([]string)
 		mu.Unlock()
 
-		if !ok || len(hypotheses) == 0 {
+		if !ok || len(observations) == 0 {
 			return state, nil
 		}
 
-		// 并行验证 Hypotheses
+		// 并行验证 Observations
 		var wg sync.WaitGroup
-		for _, hypID := range hypotheses {
+		for _, obsID := range observations {
 			wg.Add(1)
 			go func(observationID string) {
 				defer wg.Done()
@@ -107,7 +107,7 @@ func TestGraphRunner_WithEvaluator(t *testing.T) {
 					findingsCreated = append(findingsCreated, findingID)
 					mu.Unlock()
 				}
-			}(hypID)
+			}(obsID)
 		}
 
 		wg.Wait()
@@ -159,19 +159,19 @@ func TestGraphRunner_WithEvaluator(t *testing.T) {
 
 	assert.Equal(t, 1, plannerRuns, "Planner 应该运行 1 次")
 	assert.Equal(t, 1, executorRuns, "Executor 应该运行 1 次")
-	assert.Equal(t, 2, evaluatorRuns, "Evaluator 应该运行 2 次（验证 2 个 Hypotheses）")
-	assert.Equal(t, 2, len(hypothesesCreated), "应该创建 2 个 Hypotheses")
+	assert.Equal(t, 2, evaluatorRuns, "Evaluator 应该运行 2 次（验证 2 个 Observations）")
+	assert.Equal(t, 2, len(observationsCreated), "应该创建 2 个 Observations")
 	assert.Greater(t, len(findingsCreated), 0, "应该创建至少 1 个 Finding")
 
 	t.Logf("✅ Graph 包含 Evaluator 验证通过")
 	t.Logf("   - Planner 运行: %d 次", plannerRuns)
 	t.Logf("   - Executor 运行: %d 次", executorRuns)
 	t.Logf("   - Evaluator 运行: %d 次", evaluatorRuns)
-	t.Logf("   - Hypotheses 创建: %d 个", len(hypothesesCreated))
+	t.Logf("   - Observations 创建: %d 个", len(observationsCreated))
 	t.Logf("   - Findings 创建: %d 个", len(findingsCreated))
 }
 
-// TestGraphRunner_EvaluatorParallelVerification 验证 Evaluator 并行验证多个 Hypotheses
+// TestGraphRunner_EvaluatorParallelVerification 验证 Evaluator 并行验证多个 Observations
 func TestGraphRunner_EvaluatorParallelVerification(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
@@ -188,24 +188,24 @@ func TestGraphRunner_EvaluatorParallelVerification(t *testing.T) {
 	}
 	graph := core.NewGraph("start", config)
 
-	// 模拟多个 Hypotheses
-	hypotheses := []string{"hyp-1", "hyp-2", "hyp-3", "hyp-4", "hyp-5"}
+	// 模拟多个 Observations
+	observations := []string{"obs-1", "obs-2", "obs-3", "obs-4", "obs-5"}
 
 	graph.AddNode("start", func(ctx context.Context, state core.GraphState) (core.GraphState, error) {
-		state.Set("hypotheses", hypotheses)
+		state.Set("observations", observations)
 		return state, nil
 	})
 
 	graph.AddNode("verify", func(ctx context.Context, state core.GraphState) (core.GraphState, error) {
-		hypothesesRaw, _ := state.Get("hypotheses")
-		hyps, ok := hypothesesRaw.([]string)
+		observationsRaw, _ := state.Get("observations")
+		obs, ok := observationsRaw.([]string)
 		if !ok {
 			return state, nil
 		}
 
 		// 并行验证
 		var wg sync.WaitGroup
-		for _, hypID := range hyps {
+		for _, obsID := range obs {
 			wg.Add(1)
 			go func(id string) {
 				defer wg.Done()
@@ -217,7 +217,7 @@ func TestGraphRunner_EvaluatorParallelVerification(t *testing.T) {
 
 				// 模拟验证耗时
 				time.Sleep(10 * time.Millisecond)
-			}(hypID)
+			}(obsID)
 		}
 
 		wg.Wait()
@@ -238,7 +238,7 @@ func TestGraphRunner_EvaluatorParallelVerification(t *testing.T) {
 
 	// 验证结果
 	verifiedCountFinal, _ := finalState.GetInt("verified_count")
-	assert.Equal(t, 5, verifiedCountFinal, "应该验证 5 个 Hypotheses")
+	assert.Equal(t, 5, verifiedCountFinal, "应该验证 5 个 Observations")
 
 	// 验证并行执行（时间戳应该接近）
 	times := make([]time.Time, 0, len(verifyTimes))
@@ -259,7 +259,7 @@ func TestGraphRunner_EvaluatorParallelVerification(t *testing.T) {
 		}
 
 		// 并行执行时，时间差应该小于 5ms
-		assert.Less(t, maxDiff, 5*time.Millisecond, "Hypotheses 应该并行验证")
+		assert.Less(t, maxDiff, 5*time.Millisecond, "Observations 应该并行验证")
 		t.Logf("✅ 并行验证时间差: %v", maxDiff)
 	}
 
@@ -321,8 +321,8 @@ func TestGraphRunner_FullPipeline(t *testing.T) {
 		pipelineLog = append(pipelineLog, "executor")
 		mu.Unlock()
 
-		// 产出 Hypotheses
-		state.Set("hypotheses", []string{"hyp-1", "hyp-2"})
+		// 产出 Observations
+		state.Set("observations", []string{"obs-1", "obs-2"})
 
 		actionsExecuted, _ := state.GetInt("actions_executed")
 		state.Set("actions_executed", actionsExecuted+1)
@@ -331,9 +331,9 @@ func TestGraphRunner_FullPipeline(t *testing.T) {
 	})
 
 	graph.AddNode("evaluator", func(ctx context.Context, state core.GraphState) (core.GraphState, error) {
-		hypothesesRaw, _ := state.Get("hypotheses")
-		hypotheses, ok := hypothesesRaw.([]string)
-		if !ok || len(hypotheses) == 0 {
+		observationsRaw, _ := state.Get("observations")
+		observations, ok := observationsRaw.([]string)
+		if !ok || len(observations) == 0 {
 			return state, nil
 		}
 

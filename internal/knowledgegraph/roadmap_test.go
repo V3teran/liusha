@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/V3teran/liusha/internal/framework/core"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -164,7 +165,7 @@ func TestRoadmapActionAssociation(t *testing.T) {
 	action1 := Node{
 		ID:          "action1",
 		TaskID:      taskID,
-		Kind:        KindAction,
+		Kind:        core.KindAction,
 		Content:     []byte(`{"instruction": "测试 UNION 注入"}`),
 		State:       &state,
 		RoadmapStep: &step,
@@ -173,7 +174,7 @@ func TestRoadmapActionAssociation(t *testing.T) {
 	action2 := Node{
 		ID:          "action2",
 		TaskID:      taskID,
-		Kind:        KindAction,
+		Kind:        core.KindAction,
 		Content:     []byte(`{"instruction": "测试布尔盲注"}`),
 		State:       &state,
 		RoadmapStep: &step,

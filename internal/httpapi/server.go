@@ -89,6 +89,10 @@ type Deps struct {
 	// 由 cmd/api 注入 *skillstore.Store（自动满足 SkillAPI 窄接口）。
 	// Skill 是 Agent 可访问的知识库文档（工具手册、漏洞检测指南等）。
 	SkillStore SkillAPI
+	// KnowledgeGraph 为 nil 时知识图谱 API 路由（/tasks/:id/graph|nodes|stats）不注册。
+	// Phase 1: 知识图谱 API（e2e 测试迁移专用）。
+	// 由 cmd/api 注入 *knowledgegraph.AdapterStore（自动满足 KnowledgeGraphAPI 窄接口）。
+	KnowledgeGraph KnowledgeGraphAPI
 }
 
 // NewServer 组装 gin 路由：Recovery + 全局 X-API-Key 中间件 + 业务路由。
@@ -148,6 +152,15 @@ func NewServer(d Deps) http.Handler {
 		r.POST("/skills", createSkillHandler(d.SkillStore))
 		r.PUT("/skills/:code", updateSkillHandler(d.SkillStore))
 		r.DELETE("/skills/:code", deleteSkillHandler(d.SkillStore))
+	}
+	if d.KnowledgeGraph != nil {
+		// Phase 1: 知识图谱 API（e2e 测试迁移专用）
+		// GET /api/v1/tasks/{taskId}/stats - 快速统计（e2e 轮询）
+		// GET /api/v1/tasks/{taskId}/nodes?kind=objective - 按类型筛选节点
+		// GET /api/v1/tasks/{taskId}/graph - 完整图谱（nodes + edges）
+		r.GET("/api/v1/tasks/:taskId/stats", getTaskStats(d.KnowledgeGraph))
+		r.GET("/api/v1/tasks/:taskId/nodes", getTaskNodes(d.KnowledgeGraph))
+		r.GET("/api/v1/tasks/:taskId/graph", getTaskGraph(d.KnowledgeGraph))
 	}
 	if d.Traffic != nil {
 		// 代理捕获流量只读浏览（前端流量模块）：全局分页列表 + host 下拉 + 单条详情。

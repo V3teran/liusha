@@ -7,16 +7,19 @@ import (
 )
 
 // Store 是统一的持久化接口。
-// 封装 StateManager、Checkpointer、EventStore。
+// 封装 GraphStore、EventStore、StateManager、Checkpointer 四大组件。
 type Store interface {
+	// GraphStore 返回知识图谱存储
+	GraphStore() GraphStore
+
+	// EventStore 返回事件流存储
+	EventStore() EventStore
+
 	// StateManager 返回状态管理器
 	StateManager() core.StateManager[any]
 
 	// Checkpointer 返回检查点管理器
 	Checkpointer() core.Checkpointer
-
-	// EventStore 返回事件存储
-	EventStore() core.EventStore
 
 	// Close 关闭存储连接
 	Close() error

@@ -36,18 +36,17 @@ type GraphStore interface {
 	// UpdateNode 更新节点（部分更新）
 	UpdateNode(ctx context.Context, id string, update GraphNodeUpdate) error
 
+	// CompareAndSwapState 原子性地比较并交换节点状态（CAS操作）
+	// 只有当前状态等于 expectedState 时才更新为 newState
+	// 返回 (true, nil) 表示更新成功
+	// 返回 (false, nil) 表示状态不匹配，未更新
+	CompareAndSwapState(ctx context.Context, taskID, nodeID string, expectedState, newState string) (bool, error)
+
 	// DeleteNode 删除节点（及其所有边）
 	DeleteNode(ctx context.Context, id string) error
 
 	// ListNodes 查询节点列表
 	ListNodes(ctx context.Context, query GraphNodeQuery) ([]*GraphNode, error)
-
-	// CompareAndSwapState 原子更新节点状态（使用乐观锁）
-	// 只有当前状态为 expectedState 时才更新为 newState
-	// 返回 (true, nil) 表示更新成功
-	// 返回 (false, nil) 表示状态不匹配（CAS 失败）
-	// 返回 (false, err) 表示发生错误
-	CompareAndSwapState(ctx context.Context, id string, expectedState, newState string) (bool, error)
 
 	// ========================================
 	// 边操作

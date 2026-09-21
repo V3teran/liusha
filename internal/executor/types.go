@@ -16,7 +16,7 @@ import (
 // ─────────────────────────────────────────────
 //  Action（执行意图单元）
 // ─────────────────────────────────────────────
-// Complexity 已迁移至 worldmodel 包
+// Complexity 已迁移至 knowledgegraph 包
 
 // TargetRef 唯一标识一个目标节点，域无关三元组。
 type TargetRef struct {
@@ -133,11 +133,11 @@ type ScanBudgetRemaining struct {
 
 // Step 是 Executor 的一次 ReAct 步。
 type Step struct {
-	Index       int
-	Thought     string // LLM 文本部分（tool call 之前的推理）
-	ToolCalls   []ToolCall
-	ToolResults []ToolResult
-	Hypotheses  []string
+	Index        int
+	Thought      string // LLM 文本部分（tool call 之前的推理）
+	ToolCalls    []ToolCall
+	ToolResults  []ToolResult
+	Observations []string
 }
 
 // ToolCall 是工具调用记录。
@@ -156,16 +156,16 @@ type ToolResult struct {
 
 // Execution 是 Dispatcher 对单个 Action 的一次完整执行包装。
 type Execution struct {
-	Index      int
-	Result     ExecutorResult
-	Hypotheses []string // 本次 Execution 结束时的 Working Memory
+	Index        int
+	Result       ExecutorResult
+	Observations []string // 本次 Execution 结束时的 Working Memory
 }
 
 // ExecutorReq 是 Actor.Run 的输入。
 type ExecutorReq struct {
 	System             string   // 不参与压缩：Profile.SystemPrompt + Landmark summaries
 	Inbox              []string // 参与压缩：初始指令（纯文本消息）
-	Hypotheses         []string // Working Memory
+	Observations       []string // Working Memory
 	Budget             Budget
 	Settle             SettleConfig
 	PendingConstraints []registry.Constraint
@@ -199,7 +199,7 @@ type SelfAssessment struct {
 type PlannerState struct {
 	HumanCues     []string          `json:"human_cues"`
 	StrategyNotes string            `json:"strategy_notes"`
-	Hypotheses    []string          `json:"hypotheses"`
+	Observations  []string          `json:"observations"`
 	Extensions    map[string]string `json:"extensions"` // 仅允许：domain_notes, priority_override
 }
 
@@ -283,13 +283,13 @@ type SSEEvent struct {
 	Data     any
 }
 
-// KnowledgeGraphReader 是只读的 worldmodel 接口（用于解耦）。
+// KnowledgeGraphReader 是只读的知识图谱接口（用于解耦）。
 type KnowledgeGraphReader interface {
-	GetNode(ctx context.Context, id string) (*WorldModelNode, error)
+	GetNode(ctx context.Context, id string) (*KnowledgeGraphNode, error)
 }
 
-// WorldModelNode 是 worldmodel 节点的简化表示。
-type WorldModelNode struct {
+// KnowledgeGraphNode 是知识图谱节点的简化表示。
+type KnowledgeGraphNode struct {
 	ID       string
 	Metadata json.RawMessage
 }

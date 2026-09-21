@@ -4,8 +4,8 @@ package core
 //
 // 设计原则：
 // 1. 对齐 ReAct 模式（Thought → Action → Observation）
-// 2. 对齐 PDDL 标准（Goal → Action → State）
-// 3. 通用认知循环：目标 → 行动 → 观察 → 评估 → 结果
+// 2. 对齐 PDDL 标准（Objective → Action → State）
+// 3. 通用认知循环：Objective → Action → Observation → Evaluation → Result
 //
 // 这些类型不是业务特定的，而是所有 AI Agent 的通用认知模式
 
@@ -99,23 +99,34 @@ const (
 )
 
 // ObservationConfidence 是观察的置信度
-type ObservationConfidence float64
+type ObservationConfidence string
 
 const (
-	// ConfidenceUnknown 未知
-	ConfidenceUnknown ObservationConfidence = 0.0
-
-	// ConfidenceLow 低置信度
-	ConfidenceLow ObservationConfidence = 0.3
-
-	// ConfidenceMedium 中等置信度
-	ConfidenceMedium ObservationConfidence = 0.6
-
-	// ConfidenceHigh 高置信度
-	ConfidenceHigh ObservationConfidence = 0.9
+	// ConfidenceUnverified 未验证
+	ConfidenceUnverified ObservationConfidence = "unverified"
 
 	// ConfidenceVerified 已验证
-	ConfidenceVerified ObservationConfidence = 1.0
+	ConfidenceVerified ObservationConfidence = "verified"
+
+	// ConfidenceRefuted 已证伪
+	ConfidenceRefuted ObservationConfidence = "refuted"
+)
+
+// Priority 是节点的优先级
+type Priority string
+
+const (
+	// PriorityCritical 关键（P0）
+	PriorityCritical Priority = "critical"
+
+	// PriorityHigh 高（P1）
+	PriorityHigh Priority = "high"
+
+	// PriorityMedium 中（P2）
+	PriorityMedium Priority = "medium"
+
+	// PriorityLow 低（P3）
+	PriorityLow Priority = "low"
 )
 
 // EvaluationOutcome 是评估的结论
@@ -175,12 +186,12 @@ func (s ActionState) IsActive() bool {
 
 // IsVerified 判断观察是否已验证
 func (c ObservationConfidence) IsVerified() bool {
-	return c >= ConfidenceVerified
+	return c == ConfidenceVerified
 }
 
-// IsHighConfidence 判断观察是否高置信度
-func (c ObservationConfidence) IsHighConfidence() bool {
-	return c >= ConfidenceHigh
+// IsRefuted 判断观察是否已证伪
+func (c ObservationConfidence) IsRefuted() bool {
+	return c == ConfidenceRefuted
 }
 
 // IsPositive 判断评估结论是否为正面

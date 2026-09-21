@@ -80,7 +80,7 @@ func TestOnboard_LandsTargetNodes(t *testing.T) {
 		if n.Ref.Domain != "web" || n.Ref.RefKind != "host" {
 			t.Errorf("节点 ref 域/种类错: %+v", n.Ref)
 		}
-		// Objective 节点不使用 Confidence 字段（Confidence 只适用于 Observation/Discovery）
+		// Objective 节点不使用 Confidence 字段（Confidence 只适用于 Observation/Evaluation/Result）
 		if n.Confidence != nil {
 			t.Errorf("objective 节点不应有 confidence 字段, got %v", *n.Confidence)
 		}

@@ -44,6 +44,11 @@ export LIUSHA_PROXY_ADDR="${LIUSHA_PROXY_ADDR:-http://localhost:8888}"
 export LIUSHA_VULNAPP_BASE="${LIUSHA_VULNAPP_BASE:-http://111.229.193.40:38001}"
 export LIUSHA_POSTGRES_DSN="${LIUSHA_POSTGRES_DSN:-postgres://liusha:liusha@localhost:5432/liusha?sslmode=disable}"
 
+# LLM Provider API Keys（从 .env.local 继承，显式 export 给子进程）
+export GLM_API_KEY="${GLM_API_KEY}"
+export LIUSHA_LLM_FALLBACK="${LIUSHA_LLM_FALLBACK:-glm}"
+export LIUSHA_LLM_KEY_SECRET="${LIUSHA_LLM_KEY_SECRET}"
+
 echo "===== 1/6 跑 migrate（确保 schema 跟得上代码改动）====="
 # migrate 必须在 TRUNCATE 之前——否则代码里新增的表（如 finding_relation）尚未创建，
 # TRUNCATE 是原子的会整体失败，旧数据残留 → session 复用、finding 累积、e2e 不可信。

@@ -1,9 +1,9 @@
 package middleware
 
 import (
+	"github.com/V3teran/liusha/internal/bus"
 	"context"
 
-	"github.com/V3teran/liusha/internal/framework/core"
 )
 
 // StreamEvent 是流式事件。
@@ -118,16 +118,16 @@ type WebSocketTransport interface {
 // 整合 EventBus 和 StreamProcessor。
 type StreamEventBus interface {
 	// 事件发布订阅
-	core.EventPublisher
-	core.EventSubscriber
+	bus.EventPublisher
+	bus.EventSubscriber
 
 	// 流式处理
 	Stream(ctx context.Context, taskID string) (<-chan StreamEvent, error)
 	Send(ctx context.Context, event StreamEvent) error
 
 	// 转换函数
-	ConvertToStream(event core.Event) StreamEvent
-	ConvertToEvent(streamEvent StreamEvent) core.Event
+	ConvertToStream(event bus.Event) StreamEvent
+	ConvertToEvent(streamEvent StreamEvent) bus.Event
 
 	// 关闭总线
 	Close() error

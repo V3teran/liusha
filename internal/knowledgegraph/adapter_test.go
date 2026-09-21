@@ -13,8 +13,7 @@ import (
 
 func TestAdapterStore_CognitiveLoop(t *testing.T) {
 	// 使用 Framework 的内存 GraphStore
-	graphStore := core.NewMemoryGraphStore()
-	store := NewAdapterStore(graphStore)
+	store := NewMemoryStore()
 
 	ctx := context.Background()
 
@@ -32,7 +31,7 @@ func TestAdapterStore_CognitiveLoop(t *testing.T) {
 		require.NoError(t, err)
 
 		// 验证节点已创建
-		node, err := graphStore.GetNode(ctx, obj.ID)
+		node, err := store.GraphStore().GetNode(ctx, obj.ID)
 		require.NoError(t, err)
 		assert.Equal(t, string(core.KindObjective), node.Kind)
 	})
@@ -53,7 +52,7 @@ func TestAdapterStore_CognitiveLoop(t *testing.T) {
 		require.NoError(t, err)
 
 		// 验证节点和边
-		node, err := graphStore.GetNode(ctx, action1.ID)
+		node, err := store.GraphStore().GetNode(ctx, action1.ID)
 		require.NoError(t, err)
 		assert.Equal(t, string(core.KindAction), node.Kind)
 		assert.Equal(t, string(core.ActionStateOpen), node.State)
@@ -65,7 +64,7 @@ func TestAdapterStore_CognitiveLoop(t *testing.T) {
 			ActionID:   "action-1",
 			Type:       "open_ports",
 			Data:       map[string]interface{}{"ports": []int{80, 443}},
-			Confidence: core.ConfidenceHigh,
+			Confidence: core.ConfidenceVerified,
 			CreatedAt:  time.Now(),
 		}
 
@@ -73,10 +72,10 @@ func TestAdapterStore_CognitiveLoop(t *testing.T) {
 		require.NoError(t, err)
 
 		// 验证节点
-		node, err := graphStore.GetNode(ctx, obs.ID)
+		node, err := store.GraphStore().GetNode(ctx, obs.ID)
 		require.NoError(t, err)
 		assert.Equal(t, string(core.KindObservation), node.Kind)
-		assert.Equal(t, float64(core.ConfidenceHigh), node.Confidence)
+		assert.Equal(t, confidenceToFloat(core.ConfidenceVerified), node.Confidence)
 	})
 
 	t.Run("Step 4: Add Evaluation", func(t *testing.T) {
@@ -93,7 +92,7 @@ func TestAdapterStore_CognitiveLoop(t *testing.T) {
 		require.NoError(t, err)
 
 		// 验证节点
-		node, err := graphStore.GetNode(ctx, eval.ID)
+		node, err := store.GraphStore().GetNode(ctx, eval.ID)
 		require.NoError(t, err)
 		assert.Equal(t, string(core.KindEvaluation), node.Kind)
 	})
@@ -112,16 +111,16 @@ func TestAdapterStore_CognitiveLoop(t *testing.T) {
 		require.NoError(t, err)
 
 		// 验证节点
-		node, err := graphStore.GetNode(ctx, result.ID)
+		node, err := store.GraphStore().GetNode(ctx, result.ID)
 		require.NoError(t, err)
 		assert.Equal(t, string(core.KindResult), node.Kind)
-		assert.Equal(t, float64(core.ConfidenceVerified), node.Confidence)
+		assert.Equal(t, confidenceToFloat(core.ConfidenceVerified), node.Confidence)
 	})
 }
 
 func TestAdapterStore_ActionManagement(t *testing.T) {
-	graphStore := core.NewMemoryGraphStore()
-	store := NewAdapterStore(graphStore)
+	store := NewMemoryStore()
+	// store created above
 	ctx := context.Background()
 
 	// 创建多个不同状态的动作
@@ -175,15 +174,15 @@ func TestAdapterStore_ActionManagement(t *testing.T) {
 		require.NoError(t, err)
 
 		// 验证状态已更新
-		node, err := graphStore.GetNode(ctx, "action-open-1")
+		node, err := store.GraphStore().GetNode(ctx, "action-open-1")
 		require.NoError(t, err)
 		assert.Equal(t, string(core.ActionStateRunning), node.State)
 	})
 }
 
 func TestAdapterStore_ObservationQueries(t *testing.T) {
-	graphStore := core.NewMemoryGraphStore()
-	store := NewAdapterStore(graphStore)
+	store := NewMemoryStore()
+	// store created above
 	ctx := context.Background()
 
 	actionID := "action-test"
@@ -203,19 +202,19 @@ func TestAdapterStore_ObservationQueries(t *testing.T) {
 			ID:         "obs-1",
 			ActionID:   actionID,
 			Type:       "port",
-			Confidence: core.ConfidenceHigh,
+			Confidence: core.ConfidenceVerified,
 		},
 		{
 			ID:         "obs-2",
 			ActionID:   actionID,
 			Type:       "service",
-			Confidence: core.ConfidenceMedium,
+			Confidence: core.ConfidenceUnverified,
 		},
 		{
 			ID:         "obs-3",
 			ActionID:   "other-action",
 			Type:       "vuln",
-			Confidence: core.ConfidenceHigh,
+			Confidence: core.ConfidenceVerified,
 		},
 	}
 
@@ -232,8 +231,8 @@ func TestAdapterStore_ObservationQueries(t *testing.T) {
 }
 
 func TestAdapterStore_EvaluationOutcomes(t *testing.T) {
-	graphStore := core.NewMemoryGraphStore()
-	store := NewAdapterStore(graphStore)
+	store := NewMemoryStore()
+	// store created above
 	ctx := context.Background()
 
 	// 创建观察
@@ -241,7 +240,7 @@ func TestAdapterStore_EvaluationOutcomes(t *testing.T) {
 		ID:         "obs-test",
 		ActionID:   "action-test",
 		Type:       "finding",
-		Confidence: core.ConfidenceHigh,
+		Confidence: core.ConfidenceVerified,
 	}
 	require.NoError(t, store.RecordObservation(ctx, obs))
 
@@ -258,7 +257,7 @@ func TestAdapterStore_EvaluationOutcomes(t *testing.T) {
 		require.NoError(t, err)
 
 		// 验证关系
-		edges, err := graphStore.ListEdges(ctx, core.GraphEdgeQuery{
+		edges, err := store.GraphStore().ListEdges(ctx, core.GraphEdgeQuery{
 			From: eval.ID,
 		})
 		require.NoError(t, err)
@@ -279,7 +278,7 @@ func TestAdapterStore_EvaluationOutcomes(t *testing.T) {
 		require.NoError(t, err)
 
 		// 验证关系
-		edges, err := graphStore.ListEdges(ctx, core.GraphEdgeQuery{
+		edges, err := store.GraphStore().ListEdges(ctx, core.GraphEdgeQuery{
 			From: eval.ID,
 		})
 		require.NoError(t, err)
@@ -300,7 +299,7 @@ func TestAdapterStore_EvaluationOutcomes(t *testing.T) {
 		require.NoError(t, err)
 
 		// 验证没有创建关系
-		edges, err := graphStore.ListEdges(ctx, core.GraphEdgeQuery{
+		edges, err := store.GraphStore().ListEdges(ctx, core.GraphEdgeQuery{
 			From: eval.ID,
 		})
 		require.NoError(t, err)
@@ -309,8 +308,8 @@ func TestAdapterStore_EvaluationOutcomes(t *testing.T) {
 }
 
 func TestAdapterStore_DependencyGraph(t *testing.T) {
-	graphStore := core.NewMemoryGraphStore()
-	store := NewAdapterStore(graphStore)
+	store := NewMemoryStore()
+	// store created above
 	ctx := context.Background()
 
 	// 创建依赖链：action1 → action2 → action3
@@ -344,7 +343,7 @@ func TestAdapterStore_DependencyGraph(t *testing.T) {
 
 	t.Run("Verify Dependency Edges", func(t *testing.T) {
 		// 验证 action2 → action1 依赖边
-		edges, err := graphStore.ListEdges(ctx, core.GraphEdgeQuery{
+		edges, err := store.GraphStore().ListEdges(ctx, core.GraphEdgeQuery{
 			From:     "action-2",
 			Relation: string(core.RelationDependsOn),
 		})
@@ -353,7 +352,7 @@ func TestAdapterStore_DependencyGraph(t *testing.T) {
 		assert.Equal(t, "action-1", edges[0].To)
 
 		// 验证 action3 → action2 依赖边
-		edges, err = graphStore.ListEdges(ctx, core.GraphEdgeQuery{
+		edges, err = store.GraphStore().ListEdges(ctx, core.GraphEdgeQuery{
 			From:     "action-3",
 			Relation: string(core.RelationDependsOn),
 		})

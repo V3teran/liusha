@@ -24,30 +24,22 @@ package knowledgegraph
 import (
 	"encoding/json"
 	"time"
+
+	"github.com/V3teran/liusha/internal/framework/core"
 )
 
-// NodeKind 是认知节点的类型（5 种）
-type NodeKind string
+// State 是 action 的执行状态（类型别名，指向 core.ActionState）
+type State = core.ActionState
 
+// 状态常量别名（向后兼容）
 const (
-	KindObjective   NodeKind = "objective"   // 任务目标（用户设定）
-	KindAction      NodeKind = "action"      // 执行动作（planner 生成）
-	KindObservation NodeKind = "observation" // 观察结果（executor 产出）
-	KindEvaluation  NodeKind = "evaluation"  // 评估结论（evaluator 产出）
-	KindResult      NodeKind = "result"      // 最终结果（confirmed）
-)
-
-// State 是 action 的执行状态
-type State string
-
-const (
-	StateOpen      State = "open"      // 待执行
-	StateBlocked   State = "blocked"   // 被阻塞（依赖未满足）
-	StateRunning   State = "running"   // 执行中
-	StateDone      State = "done"      // 已完成
-	StateFailed    State = "failed"    // 执行失败
-	StateExhausted State = "exhausted" // 已耗尽（尝试次数用完）
-	StateAborted   State = "aborted"   // 被中止
+	StateOpen      = core.ActionStateOpen
+	StateBlocked   = core.ActionStateBlocked
+	StateRunning   = core.ActionStateRunning
+	StateDone      = core.ActionStateDone
+	StateFailed    = core.ActionStateFailed
+	StateExhausted = core.ActionStateExhausted
+	StateAborted   = core.ActionStateAborted
 )
 
 // Complexity 是 action 的复杂度（对标 PDDL 的 cost）
@@ -61,23 +53,25 @@ const (
 	ComplexityExtreme  Complexity = "extreme"  // 极端（最难）
 )
 
-// Confidence 是 observation/result 的置信度
-type Confidence string
+// Confidence 是 observation/result 的置信度（类型别名，指向 core.ObservationConfidence）
+type Confidence = core.ObservationConfidence
 
+// 置信度常量别名（向后兼容）
 const (
-	ConfidenceUnverified Confidence = "unverified" // 未验证
-	ConfidenceVerified   Confidence = "verified"   // 已验证
-	ConfidenceRefuted    Confidence = "refuted"    // 已证伪
+	ConfidenceUnverified = core.ConfidenceUnverified
+	ConfidenceVerified   = core.ConfidenceVerified
+	ConfidenceRefuted    = core.ConfidenceRefuted
 )
 
-// Priority 是节点的优先级（通用，对标 P0/P1/P2/P3）
-type Priority string
+// Priority 是节点的优先级（类型别名，指向 core.Priority）
+type Priority = core.Priority
 
+// 优先级常量别名（向后兼容）
 const (
-	PriorityCritical Priority = "critical" // 关键（P0）
-	PriorityHigh     Priority = "high"     // 高（P1）
-	PriorityMedium   Priority = "medium"   // 中（P2）
-	PriorityLow      Priority = "low"      // 低（P3）
+	PriorityCritical = core.PriorityCritical
+	PriorityHigh     = core.PriorityHigh
+	PriorityMedium   = core.PriorityMedium
+	PriorityLow      = core.PriorityLow
 )
 
 // Relation 是边的关系类型（5 种，全大写）
@@ -106,7 +100,7 @@ const (
 type Node struct {
 	ID      string          `json:"id"`
 	TaskID  string          `json:"task_id"`
-	Kind    NodeKind        `json:"kind"`
+	Kind    core.NodeKind   `json:"kind"`
 	Content json.RawMessage `json:"content"`
 
 	// action 专用字段
@@ -164,22 +158,22 @@ type Verification struct {
 
 // IsAction 判断节点是否是 action
 func (n *Node) IsAction() bool {
-	return n.Kind == KindAction
+	return n.Kind == core.KindAction
 }
 
 // IsObservation 判断节点是否是 observation
 func (n *Node) IsObservation() bool {
-	return n.Kind == KindObservation
+	return n.Kind == core.KindObservation
 }
 
 // IsResult 判断节点是否是 result
 func (n *Node) IsResult() bool {
-	return n.Kind == KindResult
+	return n.Kind == core.KindResult
 }
 
 // IsEvaluation 判断节点是否是 evaluation
 func (n *Node) IsEvaluation() bool {
-	return n.Kind == KindEvaluation
+	return n.Kind == core.KindEvaluation
 }
 
 // CanExecute 判断 action 是否可执行（无阻塞依赖）

@@ -18,7 +18,8 @@ func RegisterAll(reg *registry.Registry, deps Deps) {
 	// findings
 	if deps.Findings != nil {
 		reg.Register(&readFindingsTool{deps: deps})
-		reg.Register(&writeFindingTool{deps: deps})
+		// write_finding 移到 Evaluator 专用（验证后才能写入 finding 表）
+		// reg.Register(&writeFindingTool{deps: deps})
 		reg.Register(&updateFindingTool{deps: deps})
 	}
 
@@ -54,7 +55,7 @@ func RegisterAll(reg *registry.Registry, deps Deps) {
 		reg.Register(&readVulnSkillTool{deps: deps})
 	}
 
-	// worldmodel
+	// knowledge graph
 	if deps.World != nil {
 		reg.Register(&writeObservationTool{deps: deps})
 		reg.Register(&writeEvidenceTool{deps: deps})

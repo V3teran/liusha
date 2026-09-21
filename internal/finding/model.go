@@ -30,7 +30,7 @@ type VulnFinding struct {
 	Summary  string
 	Target   json.RawMessage
 	Evaluation json.RawMessage
-	// Repro 是机器可验的复现配方（web={traffic_id,modifications,assert}），喂 L4 Verifier
+	// Repro 是机器可验的复现配方（web={traffic_id,modifications,assert}），喂 Verifier
 	// 复现门自动晋升成世界模型节点。形状 domain-specific，本层只作 jsonb 透传；nil=未产配方。
 	Repro json.RawMessage
 	// 元数据字段（0045 加入）

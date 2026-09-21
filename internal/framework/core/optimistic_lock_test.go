@@ -223,7 +223,7 @@ func TestCompareAndSwapState_Concurrent(t *testing.T) {
 		go func(id int) {
 			defer wg.Done()
 
-			success, err := store.CompareAndSwapState(ctx, "test-node-4", "open", "running")
+			success, err := store.CompareAndSwapState(ctx, "test-task", "test-node-4", "open", "running")
 			if err != nil {
 				t.Errorf("goroutine %d: CAS 失败: %v", id, err)
 				return
@@ -279,7 +279,7 @@ func TestCompareAndSwapState_StateMismatch(t *testing.T) {
 	}
 
 	// 尝试 CAS：期望 open → completed（但实际是 running）
-	success, err := store.CompareAndSwapState(ctx, "test-node-5", "open", "completed")
+	success, err := store.CompareAndSwapState(ctx, "test-task", "test-node-5", "open", "completed")
 	if err != nil {
 		t.Fatalf("CAS 失败: %v", err)
 	}
