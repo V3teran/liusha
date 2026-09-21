@@ -30,6 +30,7 @@ func pollTaskWithGraphStats(
 
 	var lastStats GraphStats
 	noProgressCount := 0
+	startTime := time.Now()
 
 	for {
 		select {
@@ -37,19 +38,21 @@ func pollTaskWithGraphStats(
 			return ctx.Err()
 		case <-ticker.C:
 			if time.Now().After(deadline) {
-				return fmt.Errorf("轮询超时: %s (最终统计: %+v)",
-					criteria.DiagnosticMessage(lastStats), lastStats)
+				return fmt.Errorf("轮询超时: 未在 %v 内完成 (最后统计: %+v)",
+					pollDeadline(), lastStats)
 			}
 
-			// 调用新 API 获取统计
+			// 查询知识图谱统计
 			stats, err := client.GetTaskStats(ctx, taskID)
 			if err != nil {
 				logger.Warn().Err(err).Msg("获取任务统计失败，继续轮询")
 				continue
 			}
 
-			// 检查是否卡住
-			if IsStuck(stats) {
+			// 检查是否卡住（但给任务启动足够的时间）
+			// 前 2 分钟不检查"卡住"，因为 LLM 调用可能需要时间
+			elapsed := time.Since(startTime)
+			if elapsed > 2*time.Minute && IsStuck(stats) {
 				return fmt.Errorf("任务卡住: %s (统计: %+v)",
 					StuckReason(stats), stats)
 			}
@@ -57,10 +60,10 @@ func pollTaskWithGraphStats(
 			// 检查是否有进展
 			if stats == lastStats {
 				noProgressCount++
-				if noProgressCount >= 4 { // 1 分钟无进展
+				if noProgressCount >= 8 { // 2 分钟无进展
 					logger.Warn().
 						Interface("stats", stats).
-						Msg("任务无进展超过 1 分钟")
+						Msg("任务无进展超过 2 分钟")
 				}
 			} else {
 				noProgressCount = 0
