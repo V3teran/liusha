@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/V3teran/liusha/internal/logx"
+	"github.com/rs/zerolog"
 )
 
 // pollTaskWithGraphStats 使用新的知识图谱 API 轮询任务完成
@@ -15,7 +15,7 @@ func pollTaskWithGraphStats(
 	client *KnowledgeGraphClient,
 	taskID string,
 	criteria AcceptanceCriteria,
-	logger *logx.Logger,
+	logger *zerolog.Logger,
 ) error {
 	deadline := time.Now().Add(pollDeadline())
 	ticker := time.NewTicker(15 * time.Second)

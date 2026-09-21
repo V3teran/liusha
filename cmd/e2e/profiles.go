@@ -65,20 +65,29 @@ func (ap activeProfile) useNewAcceptance() bool {
 
 // activeProfiles 是 active 模式 e2e 验收剧本集，args 用前缀 active:<name> 选择。
 //
-// 当前只内置 1 个 demo (xss)——用户实际用 active 模式时，按需追加新 profile 即可。
-// 开放性 brief——只给入口 + 凭证，不剧透漏洞类型 / 独立漏洞页面。
-// 压测 LLM 自主 recon 能力 + swarm spawn 决策（多攻击面应触发 spawn_exploitation）。
-// minFindings=8 防 LLM 拿少量 finding 就 done，逼它走完 spawn 路径。
+// Phase 2 精简：只保留 2 个最核心的 active profiles
+// - xss: 单一漏洞类型专项扫描（已更新新标准）
+// - full: 综合开放性扫描（需要更新新标准）
 var activeProfiles = map[string]activeProfile{
+	// active:full 综合扫描：开放性 brief，不剧透漏洞类型/路径。
+	// 压测 LLM 自主 recon 能力 + swarm spawn 决策（多攻击面应触发 spawn_exploitation）。
+	//
+	// Phase 2 新标准：验证完整认知循环
+	// - MinObjectives=2: 可能有多个攻击面目标（登录、XSS、SQLi、文件上传等）
+	// - MinActions=10: 综合扫描需要更多探索动作（recon + 多种攻击）
+	// - MinResults=5: 期望发现多个漏洞（minFindings=8 的降级版，留余量）
 	"full": {
-		name:        "full",
-		brief:       "测试网站 http://111.229.193.40:34280/login.php，账号 admin/password。挖出尽可能多的漏洞，无类型限制。",
-		minFindings: 8,
+		name:  "full",
+		brief: "测试网站 http://111.229.193.40:34280/login.php，账号 admin/password。挖出尽可能多的漏洞，无类型限制。",
+		acceptance: AcceptanceCriteria{
+			MinObjectives: 2,
+			MinActions:    10,
+			MinResults:    5,
+		},
+		minFindings: 8, // 向后兼容（旧标准）
 	},
-	// active:xss 极简 brief：不剧透 endpoint 路径，不剧透 DOM XSS 需 browser，
-	// 完全由 LLM 自主 recon + 自决工具（curl vs page_*）。压测真自主能力。
+
 	// active:xss XSS 漏洞专项：登录 → 设 security=low → 扫 XSS（reflected/stored/DOM）。
-	// minFindings=3 取业务指标（DVWA XSS 模块至少有 3 处漏洞：stored/reflected/DOM-based）。
 	//
 	// Phase 2 新标准：验证完整认知循环
 	// - MinObjectives=1: "扫描 XSS 漏洞"这个目标
@@ -94,222 +103,95 @@ var activeProfiles = map[string]activeProfile{
 		},
 		minFindings: 3, // 向后兼容（旧标准）
 	},
-	// active:privesc 垂直越权：给两组凭据（admin / 普通用户 gordonb），压测 LLM 用低权
-	// 身份访问 admin-only 资源的越权判定。单一漏洞类型，minFindings=1 取回归底线（能挖到即可）。
-	"privesc": {
-		name:        "privesc",
-		brief:       "测试网站 http://111.229.193.40:34280/login.php，管理员是admin/password，普通用户是gordonb/abc123。**登录后立刻设 cookie `security=low`**（DVWA 默认 impossible 是修复版本，挖不到洞）。只挖掘垂直越权漏洞。",
-		minFindings: 1,
-	},
-	// active:bac 全 BAC：三种形态（未授权 / 垂直 / 水平）全覆盖，比 privesc 宽。给两组凭据
-	// （admin / gordonb）压测多身份重放对比 + anonymous 探测。minFindings=1 取回归底线（能挖到即可）。
-	"bac": {
-		name:        "bac",
-		brief:       "测试网站 http://111.229.193.40:34280/login.php，管理员是admin/password，普通用户是gordonb/abc123。**登录后立刻设 cookie `security=low`**（DVWA 默认 impossible 是修复版本，挖不到洞）。只挖掘未授权访问、垂直越权、水平越权漏洞。",
-		minFindings: 1,
-	},
-	// active:adhoc 一次性扫描——brief 留空，runner.go 强制从 LIUSHA_E2E_BRIEF 环境变量读取
-	// （避免把含密码的 brief 写进 git）。minFindings 可被 LIUSHA_E2E_MIN_FINDINGS 覆盖（默认 1）。
-	"adhoc": {
-		name:        "adhoc",
-		brief:       "",
-		minFindings: 1,
-	},
 }
 
+// profiles 是 passive 模式 e2e 验收剧本集，args 用逗号分隔选择（如 "bac,sqli"）。
+//
+// Phase 2 精简：暂时注释掉所有 passive profiles（以后需要时恢复）
+// passive 模式涉及代理、流量发送、聚合器等复杂逻辑，需要单独实现知识图谱轮询
 var profiles = map[string]profile{
-	"bac": {
-		name:           "bac",
-		defaultSamples: "examples/sample_bac_raw.json",
-		minFindings:    1,
-		credsForHost: func(_ string) []credentialEntry {
-			return []credentialEntry{
-				{Name: "admin", Role: "admin", Credentials: []map[string]string{
-					{"type": "headers", "key": "Cookie", "value": "session=admin_sess_a1b2c3"},
-				}},
-				{Name: "test", Role: "user", Credentials: []map[string]string{
-					{"type": "headers", "key": "Cookie", "value": "session=test_sess_d4e5f6"},
-				}},
-				{Name: "m233241", Role: "user", Credentials: []map[string]string{
-					{"type": "headers", "key": "Cookie", "value": "session=m233241_sess_g7h8i9"},
-				}},
-			}
-		},
-	},
-	"sqli": {
-		name:           "sqli",
-		defaultSamples: "examples/sample_sqli_raw.json",
-		minFindings:    1,
-		// DVWA 远程靶场（111.229.193.40:34280）：仅 admin 身份。
-		// PHPSESSID + security=low 双 cookie 拼成一行；旧 gordonb 身份的 cookie 在新靶机上无效，
-		// 需要时让用户在远程 DVWA 重新登录拿 cookie 再补回来。
-		credsForHost: func(_ string) []credentialEntry {
-			return []credentialEntry{
-				{Name: "admin", Role: "admin", Credentials: []map[string]string{
-					{"type": "headers", "key": "Cookie", "value": "PHPSESSID=668a0c0d068f02c275791bb82ce24ec6; security=low"},
-				}},
-			}
-		},
-	},
-	"xss": {
-		name:           "xss",
-		defaultSamples: "examples/sample_xss_raw.json",
-		minFindings:    1,
-		// 同 DVWA 远程靶场，admin 同凭证；3 条样本覆盖 reflected (xss_r) / stored (xss_s) / DOM (xss_d) 三种场景。
-		credsForHost: func(_ string) []credentialEntry {
-			return []credentialEntry{
-				{Name: "admin", Role: "admin", Credentials: []map[string]string{
-					{"type": "headers", "key": "Cookie", "value": "PHPSESSID=668a0c0d068f02c275791bb82ce24ec6; security=low"},
-				}},
-			}
-		},
-	},
-	"brute": {
-		name:           "brute",
-		defaultSamples: "examples/sample_brute_raw.json",
-		minFindings:    1,
-		// 同 DVWA 远程靶场。/vulnerabilities/brute/ 是登录表单类暴力破解漏洞。
-		credsForHost: func(_ string) []credentialEntry {
-			return []credentialEntry{
-				{Name: "admin", Role: "admin", Credentials: []map[string]string{
-					{"type": "headers", "key": "Cookie", "value": "PHPSESSID=668a0c0d068f02c275791bb82ce24ec6; security=low"},
-				}},
-			}
-		},
-	},
-	"lfi": {
-		name:           "lfi",
-		defaultSamples: "examples/sample_lfi_raw.json",
-		minFindings:    1,
-		// 同 DVWA 远程靶场。/vulnerabilities/fi/?page= 是文件包含 / 路径遍历 / 任意文件读取漏洞（OWASP CWE-22）。
-		credsForHost: func(_ string) []credentialEntry {
-			return []credentialEntry{
-				{Name: "admin", Role: "admin", Credentials: []map[string]string{
-					{"type": "headers", "key": "Cookie", "value": "PHPSESSID=668a0c0d068f02c275791bb82ce24ec6; security=low"},
-				}},
-			}
-		},
-	},
-	"upload": {
-		name:           "upload",
-		defaultSamples: "examples/sample_upload_raw.json",
-		minFindings:    1,
-		// 同 DVWA 远程靶场。/vulnerabilities/upload/ 是 Unrestricted File Upload（OWASP CWE-434）。
-		credsForHost: func(_ string) []credentialEntry {
-			return []credentialEntry{
-				{Name: "admin", Role: "admin", Credentials: []map[string]string{
-					{"type": "headers", "key": "Cookie", "value": "PHPSESSID=668a0c0d068f02c275791bb82ce24ec6; security=low"},
-				}},
-			}
-		},
-	},
-	"csrf": {
-		name:           "csrf",
-		defaultSamples: "examples/sample_csrf_raw.json",
-		minFindings:    1,
-		// 同 DVWA 远程靶场。/vulnerabilities/csrf/ 是 CSRF（OWASP CWE-352）：
-		// 关键特征是 sample 流量本身用 GET 改密码，缺少 anti-CSRF token——主漏洞证据
-		// 已写在流量入口里。
-		credsForHost: func(_ string) []credentialEntry {
-			return []credentialEntry{
-				{Name: "admin", Role: "admin", Credentials: []map[string]string{
-					{"type": "headers", "key": "Cookie", "value": "PHPSESSID=668a0c0d068f02c275791bb82ce24ec6; security=low"},
-				}},
-			}
-		},
-	},
-	"api": {
-		name:           "api",
-		defaultSamples: "examples/sample_api_raw.json",
-		minFindings:    1,
-		// 同 DVWA 远程靶场。/vulnerabilities/api/ 是 API 类漏洞入口（具体漏洞类型由 agent
-		// agent 探测：可能是 IDOR / 信息泄露 / 弱认证 / 注入等）。Referer 来自 cryptography
-		// 页面意味着这是从其他漏洞链路跳过来的 API 端点。
-		credsForHost: func(_ string) []credentialEntry {
-			return []credentialEntry{
-				{Name: "admin", Role: "admin", Credentials: []map[string]string{
-					{"type": "headers", "key": "Cookie", "value": "PHPSESSID=668a0c0d068f02c275791bb82ce24ec6; security=low"},
-				}},
-			}
-		},
-	},
-	"cryptography": {
-		name:           "cryptography",
-		defaultSamples: "examples/sample_cryptography_raw.json",
-		minFindings:    1,
-		// 同 DVWA 远程靶场。/vulnerabilities/cryptography/ 是密码学相关漏洞类（OWASP CWE-310/327）：
-		// 弱加密算法 / 硬编码密钥 / 弱随机数 / IV 复用 / 弱哈希等。具体漏洞由 agent agent
-		// 通过 read_vuln_skill + 读源码 / 多请求差分等手段判定。
-		credsForHost: func(_ string) []credentialEntry {
-			return []credentialEntry{
-				{Name: "admin", Role: "admin", Credentials: []map[string]string{
-					{"type": "headers", "key": "Cookie", "value": "PHPSESSID=668a0c0d068f02c275791bb82ce24ec6; security=low"},
-				}},
-			}
-		},
-	},
-	"redirect": {
-		name:           "redirect",
-		defaultSamples: "examples/sample_redirect_raw.json",
-		minFindings:    1,
-		// 同 DVWA 远程靶场。/vulnerabilities/open_redirect/ 是开放重定向（OWASP CWE-601）：
-		// URL 参数控制跳转目标但未做域白名单校验，可被钓鱼利用。agent agent 通过构造
-		// redirect=<外部域> 参数 + 看 Location header 是否原样返回判定。
-		credsForHost: func(_ string) []credentialEntry {
-			return []credentialEntry{
-				{Name: "admin", Role: "admin", Credentials: []map[string]string{
-					{"type": "headers", "key": "Cookie", "value": "PHPSESSID=668a0c0d068f02c275791bb82ce24ec6; security=low"},
-				}},
-			}
-		},
-	},
-	"authbypass": {
-		name:           "authbypass",
-		defaultSamples: "examples/sample_authbypass_raw.json",
-		minFindings:    1,
-		// 同 DVWA 远程靶场。/vulnerabilities/authbypass/ 是认证绕过类（OWASP CWE-287/863）：
-		// 鉴权逻辑缺陷可直接越过登录访问受保护资源。agent agent 通过 anonymous /
-		// 修改 cookie / Header 篡改等多手法判定。
-		credsForHost: func(_ string) []credentialEntry {
-			return []credentialEntry{
-				{Name: "admin", Role: "admin", Credentials: []map[string]string{
-					{"type": "headers", "key": "Cookie", "value": "PHPSESSID=668a0c0d068f02c275791bb82ce24ec6; security=low"},
-				}},
-			}
-		},
-	},
-	"csp": {
-		name:           "csp",
-		defaultSamples: "examples/sample_csp_raw.json",
-		minFindings:    1,
-		// 同 DVWA 远程靶场。/vulnerabilities/csp/ 是 Content-Security-Policy 配置问题
-		// （OWASP CWE-1021）：过宽 CSP（含 unsafe-inline / unsafe-eval / 通配符 source）
-		// 削弱 XSS 防护。agent agent 通过读 Content-Security-Policy 响应头判定。
-		credsForHost: func(_ string) []credentialEntry {
-			return []credentialEntry{
-				{Name: "admin", Role: "admin", Credentials: []map[string]string{
-					{"type": "headers", "key": "Cookie", "value": "PHPSESSID=668a0c0d068f02c275791bb82ce24ec6; security=low"},
-				}},
-			}
-		},
-	},
-	"exec": {
-		name:           "exec",
-		defaultSamples: "examples/sample_exec_raw.json",
-		minFindings:    1,
-		// 同 DVWA 远程靶场。/vulnerabilities/exec/ 是命令注入（OWASP CWE-77/78）：
-		// 用户输入未经 escape 拼到 shell 命令。agent agent 通过 ;ls / `id` / |whoami
-		// 等 payload + 看 stdout 回显判定。
-		credsForHost: func(_ string) []credentialEntry {
-			return []credentialEntry{
-				{Name: "admin", Role: "admin", Credentials: []map[string]string{
-					{"type": "headers", "key": "Cookie", "value": "PHPSESSID=668a0c0d068f02c275791bb82ce24ec6; security=low"},
-				}},
-			}
-		},
-	},
+	// TODO: Phase 2.1 - 实现 passive 模式的知识图谱轮询后恢复
+	// "sqli": {
+	// 	name:           "sqli",
+	// 	defaultSamples: "examples/sample_sqli_raw.json",
+	// 	acceptance: AcceptanceCriteria{
+	// 		MinObjectives: 1,
+	// 		MinActions:    3,
+	// 		MinResults:    1,
+	// 	},
+	// 	minFindings: 1,
+	// 	credsForHost: func(_ string) []credentialEntry {
+	// 		return []credentialEntry{
+	// 			{Name: "admin", Role: "admin", Credentials: []map[string]string{
+	// 				{"type": "headers", "key": "Cookie", "value": "PHPSESSID=sqli_admin_sess_xyz"},
+	// 			}},
+	// 		}
+	// 	},
+	// },
 }
 
+// resolveActiveProfile 解析 active:<name> 形式的 arg，返回对应 profile。
+// 不存在时报错列出可选项。
+func resolveActiveProfile(arg string) (activeProfile, error) {
+	name := strings.TrimPrefix(arg, "active:")
+	if p, ok := activeProfiles[name]; ok {
+		return p, nil
+	}
+	available := make([]string, 0, len(activeProfiles))
+	for k := range activeProfiles {
+		available = append(available, k)
+	}
+	sort.Strings(available)
+	return activeProfile{}, fmt.Errorf("未知 active profile %q，可选：%v", name, available)
+}
+
+// resolvePassiveProfiles 解析逗号分隔的 profile names（如 "bac,sqli"）。
+// 空字符串 → 全部 profile；"none" → 空列表；否则按名字选择。
+func resolvePassiveProfiles(arg string) ([]profile, error) {
+	arg = strings.TrimSpace(arg)
+	if arg == "" {
+		// 默认：全部 passive profiles
+		all := make([]profile, 0, len(profiles))
+		for _, p := range profiles {
+			all = append(all, p)
+		}
+		sort.Slice(all, func(i, j int) bool { return all[i].name < all[j].name })
+		return all, nil
+	}
+	if arg == "none" {
+		return nil, nil
+	}
+
+	names := strings.Split(arg, ",")
+	selected := make([]profile, 0, len(names))
+	for _, name := range names {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		p, ok := profiles[name]
+		if !ok {
+			available := make([]string, 0, len(profiles))
+			for k := range profiles {
+				available = append(available, k)
+			}
+			sort.Strings(available)
+			return nil, fmt.Errorf("未知 passive profile %q，可选：%v", name, available)
+		}
+		selected = append(selected, p)
+	}
+	return selected, nil
+}
+
+// selectProfiles 解析 CLI args 拆成 (passive, active) 两组。
+//
+// args 前缀语义：
+//   - "active:<name>"            → 选 activeProfiles[name]
+//   - "passive:<name>[,<name>…]" → 逗号分隔多选 profiles（如 passive:upload,lfi）
+//   - 裸名                       → 选 profiles[name]（passive，空格分隔多选，向后兼容）
+//
+// 空 args = 跑全部 passive profile（active 必须显式 `active:xxx` 选，避免无意中
+// 触发耗资源的真实站点扫描）。未知 profile 立即报错，避免静默忽略。
 func selectProfiles(args []string) ([]profile, []activeProfile, error) {
 	if len(args) == 0 {
 		all := make([]profile, 0, len(profiles))
@@ -363,22 +245,20 @@ func selectProfiles(args []string) ([]profile, []activeProfile, error) {
 					known = append(known, k)
 				}
 				sort.Strings(known)
-				return nil, nil, fmt.Errorf("未知 active profile %q（可选: active:%s）", a, strings.Join(known, " | active:"))
+				return nil, nil, fmt.Errorf("未知 active profile %q（可选: %s）", key, strings.Join(known, ", "))
 			}
-			if _, dup := seenActive[key]; dup {
-				continue
+			if _, dup := seenActive[key]; !dup {
+				seenActive[key] = struct{}{}
+				active = append(active, ap)
 			}
-			seenActive[key] = struct{}{}
-			active = append(active, ap)
 		case strings.HasPrefix(raw, "passive:"):
-			// passive:<name>[,<name>...] 显式前缀，逗号分隔多选（如 passive:upload,lfi）。
-			for _, name := range strings.Split(strings.TrimPrefix(raw, "passive:"), ",") {
-				if err := addPassive(name); err != nil {
+			names := strings.TrimPrefix(raw, "passive:")
+			for _, n := range strings.Split(names, ",") {
+				if err := addPassive(n); err != nil {
 					return nil, nil, err
 				}
 			}
 		default:
-			// 裸名 = passive（向后兼容，空格分隔多选）。
 			if err := addPassive(raw); err != nil {
 				return nil, nil, err
 			}
