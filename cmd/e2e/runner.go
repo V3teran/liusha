@@ -28,7 +28,7 @@ import (
 //
 // Phase 2: 只使用知识图谱 API 轮询（验证完整认知循环）
 func runActiveProfiles(ctx context.Context, profs []activeProfile, apiBase, apiKey string, pool *pgxpool.Pool, logger zerolog.Logger) error {
-	kgClient := NewKnowledgeGraphClient(apiBase, apiKey)
+	kgClient := NewKnowledgeGraphClient(pool)
 
 	for _, ap := range profs {
 		// 走会话入口（POST /chat）
@@ -45,7 +45,7 @@ func runActiveProfiles(ctx context.Context, profs []activeProfile, apiBase, apiK
 			Int("min_results", ap.acceptance.MinResults).
 			Msg("active chat scan dispatched")
 
-		// 使用知识图谱 API 轮询
+		// 使用知识图谱轮询（直接查询数据库）
 		if err := pollTaskWithGraphStats(ctx, kgClient, taskID, ap.acceptance, &logger); err != nil {
 			return fmt.Errorf("active profile %s: %w", ap.name, err)
 		}

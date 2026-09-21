@@ -2,56 +2,65 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
-	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// KnowledgeGraphClient 是知识图谱 API 的 HTTP 客户端
+// KnowledgeGraphClient 通过数据库直接查询知识图谱统计
 type KnowledgeGraphClient struct {
-	baseURL string
-	apiKey  string
-	client  *http.Client
+	pool *pgxpool.Pool
 }
 
 // NewKnowledgeGraphClient 创建客户端
-func NewKnowledgeGraphClient(baseURL, apiKey string) *KnowledgeGraphClient {
+func NewKnowledgeGraphClient(pool *pgxpool.Pool) *KnowledgeGraphClient {
 	return &KnowledgeGraphClient{
-		baseURL: baseURL,
-		apiKey:  apiKey,
-		client: &http.Client{
-			Timeout: 30 * time.Second,
-		},
+		pool: pool,
 	}
 }
 
-// GetTaskStats 获取任务的节点类型统计
+// GetTaskStats 查询任务的知识图谱节点统计
+// 直接查询 wm_node 表（working memory = 知识图谱）
 func (c *KnowledgeGraphClient) GetTaskStats(ctx context.Context, taskID string) (GraphStats, error) {
-	url := fmt.Sprintf("%s/api/v1/tasks/%s/stats", c.baseURL, taskID)
+	query := `
+		SELECT
+			kind,
+			COUNT(*) as count
+		FROM wm_node
+		WHERE task_id = $1
+		GROUP BY kind
+	`
 
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	rows, err := c.pool.Query(ctx, query, taskID)
 	if err != nil {
-		return GraphStats{}, fmt.Errorf("create request: %w", err)
+		return GraphStats{}, fmt.Errorf("query wm_node: %w", err)
+	}
+	defer rows.Close()
+
+	stats := GraphStats{}
+	for rows.Next() {
+		var kind string
+		var count int
+		if err := rows.Scan(&kind, &count); err != nil {
+			return GraphStats{}, fmt.Errorf("scan row: %w", err)
+		}
+
+		switch kind {
+		case "objective":
+			stats.Objectives = count
+		case "action":
+			stats.Actions = count
+		case "observation":
+			stats.Observations = count
+		case "evaluation":
+			stats.Evaluations = count
+		case "finding":
+			stats.Results = count
+		}
 	}
 
-	req.Header.Set("X-API-Key", c.apiKey)
-
-	resp, err := c.client.Do(req)
-	if err != nil {
-		return GraphStats{}, fmt.Errorf("do request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return GraphStats{}, fmt.Errorf("unexpected status %d: %s", resp.StatusCode, string(body))
-	}
-
-	var stats GraphStats
-	if err := json.NewDecoder(resp.Body).Decode(&stats); err != nil {
-		return GraphStats{}, fmt.Errorf("decode response: %w", err)
+	if err := rows.Err(); err != nil {
+		return GraphStats{}, fmt.Errorf("rows error: %w", err)
 	}
 
 	return stats, nil
