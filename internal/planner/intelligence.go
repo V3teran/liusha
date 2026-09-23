@@ -60,6 +60,7 @@ type PlanningResponse struct {
 // Plan 基于当前知识图谱状态生成新的 Action
 func (i *Intelligence) Plan(ctx context.Context, world *knowledgegraph.Store, taskID string) ([]knowledgegraph.Node, error) {
 	i.logger.Info().Str("task_id", taskID).Msg("开始智能规划")
+	fmt.Printf("[PLANNER-DEBUG] Intelligence.Plan ENTRY - taskID=%s\n", taskID)
 
 	// 1. 收集规划上下文
 	planCtx, err := i.gatherContext(ctx, world, taskID)
@@ -69,9 +70,11 @@ func (i *Intelligence) Plan(ctx context.Context, world *knowledgegraph.Store, ta
 
 	// 2. 构建 LLM prompt
 	prompt := i.buildPlanningPrompt(planCtx)
+	fmt.Printf("[PLANNER-DEBUG] Built prompt, length=%d\n", len(prompt))
 
 	// 3. 调用 LLM 进行推理
 	response, err := i.callLLM(ctx, prompt)
+	fmt.Printf("[PLANNER-DEBUG] callLLM returned, err=%v\n", err)
 	if err != nil {
 		return nil, fmt.Errorf("LLM 推理失败: %w", err)
 	}
@@ -371,6 +374,8 @@ func (i *Intelligence) convertProposalsToNodes(taskID string, proposals []Action
 			Priority:   priority,
 			Complexity: &complexity,
 			DependsOn:  proposal.DependsOn,
+			SourceType: knowledgegraph.SourcePlanner,
+			SourceID:   "planner",
 			CreatedAt:  time.Now(),
 		}
 

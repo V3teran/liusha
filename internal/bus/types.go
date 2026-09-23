@@ -27,6 +27,12 @@ const (
 	// Attempt 级别事件
 	EventAttemptGenerated EventType = "attempt.generated"
 
+	// Observation 级别事件
+	EventObservationCreated EventType = "observation.created"
+
+	// Result 级别事件
+	EventResultCreated EventType = "result.created"
+
 	// Finding 级别事件
 	EventFindingDiscovered EventType = "finding.discovered"
 

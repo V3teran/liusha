@@ -209,6 +209,18 @@ func (t *ProposeActionsTool) Execute(ctx context.Context, argsJSON json.RawMessa
 		return registry.ToolResult{Error: "actions cannot be empty"}, nil
 	}
 
+	// 获取当前 Objective（用于关联 Actions）
+	objectives, err := t.world.ListNodesByKind(ctx, taskID, core.KindObjective)
+	if err != nil {
+		return registry.ToolResult{Error: fmt.Sprintf("load objectives: %v", err)}, nil
+	}
+
+	// 使用第一个 Objective（简化逻辑，未来可以支持指定）
+	var primaryObjectiveID string
+	if len(objectives) > 0 {
+		primaryObjectiveID = objectives[0].ID
+	}
+
 	var createdIDs []string
 
 	for _, a := range input.Actions {
@@ -236,6 +248,7 @@ func (t *ProposeActionsTool) Execute(ctx context.Context, argsJSON json.RawMessa
 			Priority:    priority,
 			Owner:       "planner",
 			SourceType:  knowledgegraph.SourcePlanner,
+			SourceID:    "planner-tool",
 			CreatedAt:   time.Now(),
 			UpdatedAt:   time.Now(),
 		}
@@ -244,6 +257,20 @@ func (t *ProposeActionsTool) Execute(ctx context.Context, argsJSON json.RawMessa
 		if err != nil {
 			t.logger.Error().Err(err).Msg("failed to create action")
 			return registry.ToolResult{Error: fmt.Sprintf("create action: %v", err)}, nil
+		}
+
+		// 创建 Objective → Action 边（如果有 Objective）
+		if primaryObjectiveID != "" {
+			err = t.world.CreateEdge(ctx, &core.GraphEdge{
+				From:      primaryObjectiveID,
+				To:        id,
+				Relation:  string(core.RelationGenerates),
+				CreatedAt: time.Now(),
+			})
+			if err != nil {
+				t.logger.Error().Err(err).Msg("failed to create Objective → Action edge")
+				// 不返回错误，节点已创建
+			}
 		}
 
 		createdIDs = append(createdIDs, id)

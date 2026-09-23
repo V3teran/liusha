@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -134,6 +135,16 @@ func (a *PlannerAgent) handleEvent(ctx context.Context, event bus.Event) error {
 
 // planActions 根据当前知识图谱生成新的 Action
 func (a *PlannerAgent) planActions(ctx context.Context) error {
+	a.logger.Debug().
+		Str("task_id", a.taskID).
+		Str("caller", "planActions").
+		Msg("▶ planActions 入口")
+
+	defer a.logger.Debug().
+		Str("task_id", a.taskID).
+		Str("caller", "planActions").
+		Msg("◀ planActions 出口")
+
 	a.logger.Debug().Str("task_id", a.taskID).Msg("开始规划 Action")
 
 	// 检查是否已有可执行的 Action（而不是仅检查 open actions）
@@ -186,10 +197,29 @@ func (a *PlannerAgent) planActions(ctx context.Context) error {
 	}
 
 	// 调用 Planner 生成新的 Action（传入 taskID）
+	a.logger.Info().Msg("即将调用 a.planner.Plan()")
 	actions, err := a.planner.Plan(ctx, a.world, a.taskID)
+
+	// EMERGENCY DEBUG: 强制写入文件
+	debugFile := fmt.Sprintf("/tmp/planner-received-%s.txt", a.taskID)
+	debugMsg := fmt.Sprintf("收到返回: err=%v, actions_len=%d\n", err, len(actions))
+	_ = os.WriteFile(debugFile, []byte(debugMsg), 0644)
+
+	a.logger.Info().
+		Bool("has_error", err != nil).
+		Int("actions_len", len(actions)).
+		Msg("a.planner.Plan() 返回")
+
 	if err != nil {
+		a.logger.Error().
+			Err(err).
+			Msg("Plan() 调用失败")
 		return fmt.Errorf("plan: %w", err)
 	}
+
+	a.logger.Info().
+		Int("action_count", len(actions)).
+		Msg("Planner.Plan 返回")
 
 	if len(actions) == 0 {
 		a.logger.Info().Msg("Planner 未生成新 Action（可能已完成）")
@@ -197,7 +227,27 @@ func (a *PlannerAgent) planActions(ctx context.Context) error {
 	}
 
 	// 将新 Action 写入知识图谱
-	for _, action := range actions {
+	a.logger.Info().
+		Int("action_count", len(actions)).
+		Msg("准备写入 Actions 到知识图谱")
+
+	// 获取当前 Objective（用于关联 Actions）
+	objectives, err := a.world.ListNodesByKind(ctx, a.taskID, core.KindObjective)
+	if err != nil {
+		a.logger.Error().Err(err).Msg("获取 Objectives 失败")
+	}
+
+	var primaryObjectiveID string
+	if len(objectives) > 0 {
+		primaryObjectiveID = objectives[0].ID
+	}
+
+	for i, action := range actions {
+		a.logger.Info().
+			Int("index", i).
+			Str("action_id", action.ID).
+			Msg("准备创建 Action")
+
 		// action 已经是完整的 Node，直接写入
 		if _, err := a.world.CreateNode(ctx, action); err != nil {
 			a.logger.Error().
@@ -205,6 +255,19 @@ func (a *PlannerAgent) planActions(ctx context.Context) error {
 				Str("action_id", action.ID).
 				Msg("写入 Action 失败")
 			continue
+		}
+
+		// 创建 Objective → Action 边
+		if primaryObjectiveID != "" {
+			if err := a.world.CreateEdge(ctx, &core.GraphEdge{
+				From:      primaryObjectiveID,
+				To:        action.ID,
+				Relation:  string(core.RelationGenerates),
+				CreatedAt: time.Now(),
+			}); err != nil {
+				a.logger.Error().Err(err).Msg("创建 Objective → Action 边失败")
+				// 不返回错误，节点已创建
+			}
 		}
 
 		a.logger.Info().

@@ -13,6 +13,7 @@ const ToolsPage = lazy(() => import('@/pages/ToolsPage').then((m) => ({ default:
 const TrafficPage = lazy(() => import('@/pages/TrafficPage').then((m) => ({ default: m.TrafficPage })))
 const ModelPage = lazy(() => import('@/pages/ModelPage').then((m) => ({ default: m.ModelPage })))
 const SystemConfig = lazy(() => import('@/pages/SystemConfig').then((m) => ({ default: m.SystemConfig })))
+const KnowledgeGraphPage = lazy(() => import('@/pages/KnowledgeGraphPage').then((m) => ({ default: m.KnowledgeGraphPage })))
 
 function Loading() {
   return <div className="flex h-full items-center justify-center text-sm text-muted">加载中…</div>
@@ -44,6 +45,7 @@ export const router = createBrowserRouter([
       { path: 'findings', element: withSuspense(<FindingsPage />) },
       { path: 'traffic', element: withSuspense(<TrafficPage />) },
       { path: 'llm-audit', element: withSuspense(<LlmAuditPage />) },
+      { path: 'knowledge-graph', element: withSuspense(<KnowledgeGraphPage />) },
       {
         // 配置管理：场景/智能体（后端 agent）两资源各自独立页，侧栏平铺入口。
         path: 'config',

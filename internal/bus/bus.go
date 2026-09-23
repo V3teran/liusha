@@ -35,6 +35,12 @@ type Bus interface {
 	// 便捷方法 - Attempt 级别
 	PublishAttemptGenerated(taskID, actionID string, attempt interface{})
 
+	// 便捷方法 - Observation 级别
+	PublishObservationCreated(taskID, observationID string)
+
+	// 便捷方法 - Result 级别
+	PublishResultCreated(taskID, resultID string)
+
 	// 便捷方法 - Finding 级别
 	PublishFindingDiscovered(taskID, findingID string)
 
@@ -71,9 +77,10 @@ type MemoryBus struct {
 	ctx context.Context
 
 	// Task 级别订阅
-	taskChannels   map[string]chan Event
-	taskRegister   chan string
-	taskUnregister chan string
+	taskChannels     map[string]chan Event
+	taskRegister     chan string
+	taskUnregister   chan string
+	taskRegisterDone chan string // 通知通道创建完成
 
 	// Action 级别订阅
 	actionMu          sync.RWMutex
@@ -95,12 +102,13 @@ type subscriber struct {
 // New 创建内存事件总线
 func New(ctx context.Context) *MemoryBus {
 	bus := &MemoryBus{
-		ctx:               ctx,
-		taskChannels:      make(map[string]chan Event),
-		taskRegister:      make(chan string, 10),
-		taskUnregister:    make(chan string, 10),
+		ctx:              ctx,
+		taskChannels:     make(map[string]chan Event),
+		taskRegister:     make(chan string, 10),
+		taskUnregister:   make(chan string, 10),
+		taskRegisterDone: make(chan string, 10),
 		actionSubscribers: make(map[string]*subscriber),
-		publish:           make(chan Event, 100),
+		publish:          make(chan Event, 100),
 	}
 	go bus.run()
 	return bus
@@ -128,6 +136,7 @@ func (b *MemoryBus) run() {
 			if _, exists := b.taskChannels[taskID]; !exists {
 				b.taskChannels[taskID] = make(chan Event, 50)
 			}
+			b.taskRegisterDone <- taskID // 发送完成信号
 
 		case taskID := <-b.taskUnregister:
 			if ch, exists := b.taskChannels[taskID]; exists {
@@ -177,8 +186,7 @@ func (b *MemoryBus) run() {
 // SubscribeTask 订阅指定 TaskID 的事件
 func (b *MemoryBus) SubscribeTask(taskID string) <-chan Event {
 	b.taskRegister <- taskID
-	// 等待通道创建
-	time.Sleep(10 * time.Millisecond)
+	<-b.taskRegisterDone // 等待通道创建完成
 	return b.taskChannels[taskID]
 }
 
@@ -318,6 +326,26 @@ func (b *MemoryBus) PublishAttemptGenerated(taskID, actionID string, attempt int
 		Payload: map[string]interface{}{
 			"action_id": actionID,
 			"attempt":   attempt,
+		},
+	})
+}
+
+func (b *MemoryBus) PublishObservationCreated(taskID, observationID string) {
+	b.Publish(Event{
+		Type:   EventObservationCreated,
+		TaskID: taskID,
+		Payload: map[string]interface{}{
+			"observation_id": observationID,
+		},
+	})
+}
+
+func (b *MemoryBus) PublishResultCreated(taskID, resultID string) {
+	b.Publish(Event{
+		Type:   EventResultCreated,
+		TaskID: taskID,
+		Payload: map[string]interface{}{
+			"result_id": resultID,
 		},
 	})
 }
