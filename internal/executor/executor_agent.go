@@ -9,9 +9,11 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 
 	"github.com/V3teran/liusha/internal/bus"
+	"github.com/V3teran/liusha/internal/evaluator"
 	"github.com/V3teran/liusha/internal/framework/core"
 	"github.com/V3teran/liusha/internal/framework/runtime"
 	"github.com/V3teran/liusha/internal/knowledgegraph"
@@ -307,6 +309,12 @@ func (a *ExecutorAgent) executeAction(
 	report.Steps++
 	report.Attempts += len(attempts)
 
+	// 创建 Observation 节点（新增逻辑）
+	if err := a.createObservation(ctx, action, attempts, execErr); err != nil {
+		a.logger.Error().Err(err).Str("action_id", action.ID).Msg("创建 Observation 失败")
+		// 不返回错误，继续执行流程
+	}
+
 	// 先发布所有 AttemptsGenerated 事件（通知 EvaluatorAgent）
 	for _, attempt := range attempts {
 		a.eventBus.PublishAttemptGenerated(a.taskID, action.ID, attempt)
@@ -321,6 +329,108 @@ func (a *ExecutorAgent) executeAction(
 		Msg("Action 执行完成")
 
 	return nil
+}
+
+// createObservation 创建 Observation 节点记录执行结果
+func (a *ExecutorAgent) createObservation(
+	ctx context.Context,
+	action knowledgegraph.Node,
+	attempts []evaluator.Attempt,
+	execErr error,
+) error {
+	// 构建 Observation 内容
+	content := map[string]interface{}{
+		"action_id":      action.ID,
+		"action_type":    extractActionType(action.Content),
+		"execution_time": time.Now().Format(time.RFC3339),
+		"success":        execErr == nil,
+		"attempts_count": len(attempts),
+	}
+
+	if execErr != nil {
+		content["error"] = execErr.Error()
+		content["status"] = "failed"
+	} else {
+		content["status"] = "completed"
+	}
+
+	// 如果有 attempts，记录摘要信息
+	if len(attempts) > 0 {
+		findingSummaries := make([]string, 0, len(attempts))
+		for _, att := range attempts {
+			// 从 Attempt.Content 中提取摘要
+			var attContent map[string]interface{}
+			if err := json.Unmarshal(att.Content, &attContent); err == nil {
+				if summary, ok := attContent["summary"].(string); ok {
+					findingSummaries = append(findingSummaries, summary)
+				}
+			}
+		}
+		content["findings"] = findingSummaries
+	}
+
+	contentJSON, err := json.Marshal(content)
+	if err != nil {
+		return fmt.Errorf("marshal observation content: %w", err)
+	}
+
+	// 创建 Observation 节点
+	unverified := knowledgegraph.ConfidenceUnverified
+	observationID := uuid.New().String()
+
+	observation := knowledgegraph.Node{
+		ID:         observationID,
+		TaskID:     a.taskID,
+		Kind:       core.KindObservation,
+		Content:    contentJSON,
+		Confidence: &unverified,
+		Priority:   action.Priority,
+		SourceType: knowledgegraph.SourceExecutor,
+		SourceID:   action.ID,
+		CreatedAt:  time.Now(),
+		UpdatedAt:  time.Now(),
+	}
+
+	_, err = a.world.CreateNode(ctx, observation)
+	if err != nil {
+		return fmt.Errorf("create observation node: %w", err)
+	}
+
+	// 创建边：Action → Observation
+	err = a.world.CreateEdge(ctx, &core.GraphEdge{
+		From:      action.ID,
+		To:        observationID,
+		Relation:  string(core.RelationGenerates),
+		CreatedAt: time.Now(),
+	})
+	if err != nil {
+		a.logger.Error().Err(err).Msg("创建 Action → Observation 边失败")
+		// 不返回错误，节点已创建
+	}
+
+	a.logger.Info().
+		Str("observation_id", observationID).
+		Str("action_id", action.ID).
+		Bool("success", execErr == nil).
+		Int("attempts", len(attempts)).
+		Msg("Observation 节点已创建")
+
+	// 发布 ObservationCreated 事件（供 Evaluator 消费）
+	a.eventBus.PublishObservationCreated(a.taskID, observationID)
+
+	return nil
+}
+
+// extractActionType 从 Action.Content 中提取类型
+func extractActionType(content json.RawMessage) string {
+	var data map[string]interface{}
+	if err := json.Unmarshal(content, &data); err != nil {
+		return "unknown"
+	}
+	if t, ok := data["type"].(string); ok {
+		return t
+	}
+	return "unknown"
 }
 
 // getCompletedActionIDs 获取已完成的 Action ID 集合

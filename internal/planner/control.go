@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/V3teran/liusha/internal/framework/core"
 	"github.com/V3teran/liusha/internal/knowledgegraph"
 )
@@ -177,12 +179,17 @@ func (p *PlannerAgent) CreateAction(ctx context.Context, taskID string, newActio
 	// 创建 action 节点
 	state := knowledgegraph.StateOpen
 	node := knowledgegraph.Node{
-		TaskID:    taskID,
-		Kind:      core.KindAction,
-		State:     &state,
-		Content:   json.RawMessage(fmt.Sprintf(`"%s"`, newAction.Goal)),
-		Priority:  knowledgegraph.Priority(newAction.Priority),
-		DependsOn: newAction.DependsOn,
+		ID:         uuid.New().String(),
+		TaskID:     taskID,
+		Kind:       core.KindAction,
+		State:      &state,
+		Content:    json.RawMessage(fmt.Sprintf(`"%s"`, newAction.Goal)),
+		Priority:   knowledgegraph.Priority(newAction.Priority),
+		DependsOn:  newAction.DependsOn,
+		SourceType: knowledgegraph.SourcePlanner,
+		SourceID:   "control-plane",
+		CreatedAt:  time.Now(),
+		UpdatedAt:  time.Now(),
 	}
 
 	_, err := p.world.CreateNode(ctx, node)

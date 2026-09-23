@@ -47,10 +47,10 @@ redis:
 # 全路径统一智谱 GLM（provider key: glm），fallback 亦指向同一 provider。
 llm:
   tiers:
-    simple:  glm   # 快速响应，简单任务（信息提取、格式化）
-    medium:  glm   # 标准推理，常规任务（漏洞检测、工具调用）- 默认档位
-    complex: glm   # 深度推理，复杂决策（战略规划、多步分析、多模态）
-  fallback: glm   # 主 provider 重试耗尽后的全局备胎
+    simple:  mimo   # 快速响应，简单任务（信息提取、格式化）
+    medium:  mimo   # 标准推理，常规任务（漏洞检测、工具调用）- 默认档位
+    complex: mimo   # 深度推理，复杂决策（战略规划、多步分析、多模态）
+  fallback: mimo   # 主 provider 重试耗尽后的全局备胎
 
   # spec §8.5 错误码退避表（429/529/5xx/网络超时）
   retry:
@@ -87,7 +87,7 @@ providers:
   # —— 智谱 GLM（国产大模型，支持工具调用）
   glm:
     type: openai_compat
-    base_url: https://open.bigmodel.cn/api/paas/v4
+    base_url: https://open.bigmodel.cn/api/coding/paas/v4
     default_model: glm-5.3-flash
     api_key_env: GLM_API_KEY
     max_tokens: 8192

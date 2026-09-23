@@ -113,6 +113,7 @@ func (h handler) runCognition(
 	evaluatorAgent := evaluator.NewEvaluatorAgent(evaluator.EvaluatorAgentConfig{
 		TaskID:    taskID,
 		Evaluator: promoter,
+		World:     h.world,
 		EventBus:  h.eventBus,
 		Logger:    h.logger.With().Str("component", "evaluator_agent").Logger(),
 	})
@@ -154,7 +155,7 @@ func (h handler) runCognition(
 		IdleRoundsThreshold: 3,
 		CheckInterval:       5 * time.Second,
 		GracePeriod:         30 * time.Second,
-		MinExecutionDuration: 10 * time.Second,
+		MinExecutionDuration: 90 * time.Second, // 增加到 90 秒，给 LLM 调用足够的响应时间
 	})
 
 	// 8. 启动四个 Agent（异步）

@@ -82,7 +82,9 @@ func NewCompletionDetector(cfg Config) *CompletionDetector {
 		cfg.GracePeriod = 30 * time.Second
 	}
 	if cfg.MinExecutionDuration == 0 {
-		cfg.MinExecutionDuration = 10 * time.Second
+		// 增加到 90 秒，给 LLM 调用足够的响应时间
+		// GLM/MiMo 等国产模型的首次推理可能需要 30-60 秒
+		cfg.MinExecutionDuration = 90 * time.Second
 	}
 
 	return &CompletionDetector{
@@ -244,14 +246,31 @@ func (d *CompletionDetector) checkCompletion() (Result, bool) {
 	}
 
 	// 检查最小执行时长（防止任务刚启动就误判完成）
+	// 但如果从未执行过任何 action，则忽略时长检查（避免在 Planner 首次生成 action 前误判）
 	runDuration := time.Since(d.startTime)
+	hasExecutedActions := d.totalSteps.Load() > 0
+
+	if !hasExecutedActions {
+		d.logger.Info().
+			Dur("duration", runDuration).
+			Msg("尚未执行任何 action，继续等待 Planner 生成首批 action")
+		return Result{}, false
+	}
+
 	if runDuration < d.minExecutionDuration {
-		d.logger.Debug().
+		d.logger.Info().
 			Dur("duration", runDuration).
 			Dur("min_duration", d.minExecutionDuration).
 			Msg("运行时长不足，继续等待")
 		return Result{}, false
 	}
+
+	// 记录：所有条件都满足，即将判定为完成
+	d.logger.Info().
+		Dur("duration", runDuration).
+		Dur("min_duration", d.minExecutionDuration).
+		Int64("idle_rounds", idleRounds).
+		Msg("运行时长已满足，准备判定任务完成")
 
 	// 所有条件满足，任务自然完成
 	d.logger.Info().
