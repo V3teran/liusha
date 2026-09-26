@@ -74,11 +74,11 @@ describe('TrafficDetailPane', () => {
   it('有消费任务时渲染 chip，有 conv_id 则可跳会话', () => {
     renderPane({
       detail: makeDetail({
-        consumed_by: [{ task_id: 't1', scenario_id: 'api-pentest', host: 'api.example.com', status: 'running', conv_id: 'c9' }],
+        consumed_by: [{ task_id: 't1', host: 'api.example.com', status: 'running', conv_id: 'c9' }],
       }),
     })
     expect(screen.getByText('消费任务')).toBeTruthy()
-    expect(screen.getByText('api-pentest')).toBeTruthy()
+    expect(screen.getByText('api.example.com')).toBeTruthy()
     const link = screen.getByRole('link')
     expect(link.getAttribute('href')).toContain('/conversations/auto?conv=c9')
   })

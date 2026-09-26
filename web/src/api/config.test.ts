@@ -1,7 +1,7 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
-import { saveScenario, saveAgent, deleteAgent, listTools, listToolCandidates, getTool, assignTool } from './config'
+import { saveAgent, deleteAgent, listTools, listToolCandidates, getTool, assignTool } from './config'
 import { setApiKey } from './client'
-import type { ScenarioConfig, AgentConfig } from './types'
+import type { AgentConfig } from './types'
 
 // 用假 fetch 断言 config.ts 打的 URL/method/body 与后端契约一致。
 function mockFetch(status: number, json: unknown) {
@@ -14,52 +14,10 @@ function mockFetch(status: number, json: unknown) {
   return fn
 }
 
-const SC: ScenarioConfig = {
-  id: '',
-  code: 'web_app',
-  name: 'Web',
-  description: '',
-  instruction: 'I',
-  engine: 'swarm',
-  solo_agent_id: '',
-  enabled: true,
-}
-
 describe('config API 客户端', () => {
   beforeEach(() => {
     setApiKey('k')
     vi.unstubAllGlobals()
-  })
-
-  it('saveScenario 无 id 时 POST，全字段进 body', async () => {
-    const fn = mockFetch(200, { scenario: { ...SC, id: 's-new' } })
-    await saveScenario(SC)
-    const [url, init] = fn.mock.calls[0]
-    expect(url).toBe('/api/scenarios')
-    expect(init.method).toBe('POST')
-    expect(JSON.parse(init.body)).toEqual({
-      code: 'web_app',
-      name: 'Web',
-      description: '',
-      instruction: 'I',
-      engine: 'swarm',
-      solo_agent_id: '',
-      enabled: true,
-    })
-  })
-
-  it('saveScenario solo 引擎透传 solo_agent_id', async () => {
-    const fn = mockFetch(200, { scenario: { id: 's2' } })
-    await saveScenario({ ...SC, engine: 'solo', solo_agent_id: 'h-recon' })
-    expect(JSON.parse(fn.mock.calls[0][1].body).solo_agent_id).toBe('h-recon')
-  })
-
-  it('saveScenario 有 id 时 PUT /scenarios/:id', async () => {
-    const fn = mockFetch(200, { scenario: { ...SC, id: 's1' } })
-    await saveScenario({ ...SC, id: 's1' })
-    const [url, init] = fn.mock.calls[0]
-    expect(url).toBe('/api/scenarios/s1')
-    expect(init.method).toBe('PUT')
   })
 
   it('saveAgent 传 kind/tools/cli_tools/max_iterations', async () => {

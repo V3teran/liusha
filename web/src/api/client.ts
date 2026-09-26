@@ -228,8 +228,7 @@ export async function authStream(convID: string): Promise<void> {
  * @returns conversation_id 和 scan_id（闲聊/qa 意图不下发 task 时 scan_id 为空）
  */
 export async function startChat(
-  brief: string,
-  _scenarioID: string
+  brief: string
 ): Promise<{ conversation_id: string; scan_id: string }> {
   const res = await fetch('/api/chat', {
     method: 'POST',
