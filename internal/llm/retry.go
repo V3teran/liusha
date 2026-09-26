@@ -3,79 +3,29 @@
 // 设计要点：
 //   - 装饰器外层嵌套：Router → Retry → Instrument → Provider；
 //     Retry 不感知 Instrument，可独立 unit-test。
-//   - 错误识别优先 *HTTPError 显式类型；不可解析时回退启发式（err.Error() 含状态码字符串）。
+//   - 错误分类与退避 schedule 是框架能力（fwllm.Classify / fwllm.SleepCtx），
+//     本文件只做 Generator 形状的包装与 fallback 编排（业务策略）。
 //   - fallback 已由 Router 一次性构造好（不再套 retry，避免双重重试 / 自循环）。
-//   - backoff 用 ctx.Done 取消，避免 ctx 已 done 仍 sleep。
 package llm
 
 import (
 	"context"
-	"errors"
-	"fmt"
-	"io"
-	"net"
-	"strings"
 	"time"
 
+	fwllm "github.com/V3teran/liusha/internal/framework/llm"
 	"github.com/V3teran/liusha/internal/config"
 )
 
-// HTTPError 是上游 HTTP 错误的统一表示。
-// provider 适配层可在拿到非 2xx 时构造此错误（推荐 Inner 包裹原 error 便于排查）。
-type HTTPError struct {
-	Code  int
-	Inner error
-}
-
-// Error 满足 error 接口。
-func (e *HTTPError) Error() string {
-	if e.Inner != nil {
-		return fmt.Sprintf("http %d: %v", e.Code, e.Inner)
-	}
-	return fmt.Sprintf("http %d", e.Code)
-}
-
-// Unwrap 让 errors.Is/As 能穿透。
-func (e *HTTPError) Unwrap() error { return e.Inner }
-
-// RetryOptions 控制 4 类错误的重试次数和 backoff schedule（spec §8.5）。
-//
-// 默认值：
-//   - 429 重试 3 次，1s/4s/16s 指数退避，耗尽切 fallback
-//   - 529 重试 1 次（立即），耗尽切 fallback
-//   - 5xx (500/502/503/504) 重试 2 次 1s/4s，不切 fallback
-//   - 网络超时 / connection reset 重试 2 次 1s/3s，不切 fallback
-//   - 其他 4xx (400/401/403/404) 不重试直接抛
-type RetryOptions struct {
-	MaxRetries429 int
-	MaxRetries529 int
-	MaxRetries5xx int
-	MaxRetriesNet int
-
-	Backoff429 []time.Duration // 长度需 ≥ MaxRetries429
-	Backoff5xx []time.Duration // 长度需 ≥ MaxRetries5xx
-	BackoffNet []time.Duration // 长度需 ≥ MaxRetriesNet
-	Backoff529 time.Duration   // 单值（529 只重试 1 次）
-}
+// RetryOptions 是 spec §8.5 退避表配置（别名到框架层）。
+type RetryOptions = fwllm.RetryOptions
 
 // DefaultRetryOptions 返回 spec §8.5 的官方退避表。
-func DefaultRetryOptions() RetryOptions {
-	return RetryOptions{
-		MaxRetries429: 3,
-		MaxRetries529: 1,
-		MaxRetries5xx: 2,
-		MaxRetriesNet: 2,
-		Backoff429:    []time.Duration{1 * time.Second, 4 * time.Second, 16 * time.Second},
-		Backoff5xx:    []time.Duration{1 * time.Second, 4 * time.Second},
-		BackoffNet:    []time.Duration{1 * time.Second, 3 * time.Second},
-		Backoff529:    0, // 立即重试
-	}
-}
+var DefaultRetryOptions = fwllm.DefaultRetryOptions
 
 // RetryOptionsFromConfig 把 yaml 配置（秒数列表 + 毫秒）翻译成 RetryOptions。
 // 任一字段为 0 由 ApplyDefaults 兜底，调用方可放心透传。
 func RetryOptionsFromConfig(c config.RetryConfig) RetryOptions {
-	return RetryOptions{
+	return fwllm.RetryOptions{
 		MaxRetries429: c.Max429,
 		MaxRetries529: c.Max529,
 		MaxRetries5xx: c.Max5xx,
@@ -87,93 +37,19 @@ func RetryOptionsFromConfig(c config.RetryConfig) RetryOptions {
 	}
 }
 
-// errorClass 是 4 类可重试错误的判别结果。
-type errorClass int
-
-const (
-	classOther errorClass = iota // 不重试（含其他 4xx / 业务错误）
-	class429
-	class529
-	class5xx
-	classNet
-)
-
-// classify 按优先级解析 error：
-//  1. *HTTPError 显式类型直接读 Code
-//  2. net.Error.Timeout()
-//  3. err.Error() 包含 "connection reset" / "i/o timeout" 等网络词
-//  4. err.Error() 字符串启发式包含 "429" / "529" / "500" 等
-//
-// 不能识别的一律 classOther（不重试）。
-func classify(err error) errorClass {
-	if err == nil {
-		return classOther
-	}
-	// 1. 显式 HTTPError
-	var he *HTTPError
-	if errors.As(err, &he) {
-		return classifyCode(he.Code)
-	}
-	// 2. 网络超时
-	var ne net.Error
-	if errors.As(err, &ne) && ne.Timeout() {
-		return classNet
-	}
-	// 3. EOF 错误（连接意外关闭）
-	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
-		return classNet
-	}
-	// 4. connection reset / refused / i/o timeout / eof (字符串兜底)
-	msg := err.Error()
-	low := strings.ToLower(msg)
-	if strings.Contains(low, "connection reset") ||
-		strings.Contains(low, "connection refused") ||
-		strings.Contains(low, "connection closed") ||
-		strings.Contains(low, "i/o timeout") ||
-		strings.Contains(low, "eof") {
-		return classNet
-	}
-	// 5. 启发式：err.Error() 含状态码（不优雅但部分 provider 不在 error 结构里暴露 code）
-	if strings.Contains(msg, "429") {
-		return class429
-	}
-	if strings.Contains(msg, "529") {
-		return class529
-	}
-	for _, code := range []string{"500", "502", "503", "504"} {
-		if strings.Contains(msg, code) {
-			return class5xx
-		}
-	}
-	return classOther
-}
-
-// classifyCode 按 HTTP 状态码分类。
-func classifyCode(code int) errorClass {
-	switch code {
-	case 429:
-		return class429
-	case 529:
-		return class529
-	case 500, 502, 503, 504:
-		return class5xx
-	}
-	return classOther // 含 400/401/403/404 等其他 4xx
-}
-
 // retryGen 是 retry 装饰器的 Generator 实现。
 // 不与 Router 耦合：fallback 在构造时一次性传入。
 type retryGen struct {
 	primary  Generator
 	fallback Generator // 可空；空表示耗尽即抛错
-	opts     RetryOptions
+	opts     fwllm.RetryOptions
 }
 
 // WithRetry 返回一个用 RetryOptions 包裹 primary 的 Generator。
 // fallback 可为 nil；若非 nil，按 spec §8.5 在 429/529 耗尽时切换调用一次。
 //
 // 注意：fallback 由调用方（Router）保证未再套 retry，避免双重重试。
-func WithRetry(primary Generator, fallback Generator, opts RetryOptions) Generator {
+func WithRetry(primary Generator, fallback Generator, opts fwllm.RetryOptions) Generator {
 	return &retryGen{primary: primary, fallback: fallback, opts: opts}
 }
 
@@ -192,17 +68,16 @@ func (r *retryGen) Generate(ctx context.Context, msgs []Message, tools []ToolSch
 	if err == nil {
 		return res, nil
 	}
-	cls := classify(err)
-	switch cls {
-	case classOther:
+	switch fwllm.Classify(err) {
+	case fwllm.ClassOther:
 		return Result{}, err
-	case class429:
+	case fwllm.Class429:
 		return r.retryLoop(ctx, msgs, tools, err, r.opts.MaxRetries429, r.opts.Backoff429, true)
-	case class529:
+	case fwllm.Class529:
 		return r.retry529(ctx, msgs, tools, err)
-	case class5xx:
+	case fwllm.Class5xx:
 		return r.retryLoop(ctx, msgs, tools, err, r.opts.MaxRetries5xx, r.opts.Backoff5xx, false)
-	case classNet:
+	case fwllm.ClassNet:
 		return r.retryLoop(ctx, msgs, tools, err, r.opts.MaxRetriesNet, r.opts.BackoffNet, false)
 	}
 	return Result{}, err
@@ -224,7 +99,7 @@ func (r *retryGen) retryLoop(
 		if attempt < len(schedule) {
 			d = schedule[attempt]
 		}
-		if err := sleepCtx(ctx, d); err != nil {
+		if err := fwllm.SleepCtx(ctx, d); err != nil {
 			return Result{}, err
 		}
 		res, err := r.primary.Generate(ctx, msgs, tools)
@@ -242,7 +117,7 @@ func (r *retryGen) retryLoop(
 // retry529：529 立即重试 N 次，耗尽切 fallback。
 func (r *retryGen) retry529(ctx context.Context, msgs []Message, tools []ToolSchema, lastErr error) (Result, error) {
 	for attempt := 0; attempt < r.opts.MaxRetries529; attempt++ {
-		if err := sleepCtx(ctx, r.opts.Backoff529); err != nil {
+		if err := fwllm.SleepCtx(ctx, r.opts.Backoff529); err != nil {
 			return Result{}, err
 		}
 		res, err := r.primary.Generate(ctx, msgs, tools)
@@ -255,22 +130,4 @@ func (r *retryGen) retry529(ctx context.Context, msgs []Message, tools []ToolSch
 		return r.fallback.Generate(ctx, msgs, tools)
 	}
 	return Result{}, lastErr
-}
-
-// sleepCtx 是支持 ctx 取消的 sleep。d <= 0 时直接返回 nil（仅检查 ctx）。
-func sleepCtx(ctx context.Context, d time.Duration) error {
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	if d <= 0 {
-		return nil
-	}
-	t := time.NewTimer(d)
-	defer t.Stop()
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-t.C:
-		return nil
-	}
 }

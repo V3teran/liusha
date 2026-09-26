@@ -11,14 +11,10 @@ package llm
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"sync"
 
 	"github.com/V3teran/liusha/internal/config/llm"
-	anthropicsdk "github.com/anthropics/anthropic-sdk-go"
-	anthropicoption "github.com/anthropics/anthropic-sdk-go/option"
-	openaisdk "github.com/sashabaranov/go-openai"
 )
 
 // Complexity 是 LLM 复杂度分级标识。
@@ -41,17 +37,34 @@ type KeyDecrypter interface {
 	Decrypt(sealed []byte) (string, error)
 }
 
+// RouterFallbackFactory 在 primary 重试耗尽后构造兜底 Provider（可空）。
+// 由调用方从配置的全局备胎（保留 role __fallback__）装配。
+type RouterFallbackFactory func(ctx context.Context) (Provider, error)
+
 // Router 按 Complexity 路由 Provider，内部缓存已构造实例（线程安全）。
 type Router struct {
 	store     RouterStore
 	decrypter KeyDecrypter
+	pool      *ClientPool
+	fallback  RouterFallbackFactory
 	mu        sync.Mutex
 	cached    map[Complexity]Provider
 }
 
 // NewRouter 构造 Router。
 func NewRouter(store RouterStore, dec KeyDecrypter) *Router {
-	return &Router{store: store, decrypter: dec, cached: make(map[Complexity]Provider)}
+	return NewRouterWithFallback(store, dec, nil)
+}
+
+// NewRouterWithFallback 构造带可选兜底的 Router。
+func NewRouterWithFallback(store RouterStore, dec KeyDecrypter, fallback RouterFallbackFactory) *Router {
+	return &Router{
+		store:     store,
+		decrypter: dec,
+		pool:      NewClientPool(),
+		fallback:  fallback,
+		cached:    make(map[Complexity]Provider),
+	}
 }
 
 // For 返回指定 Complexity 的 Provider（首次构造后缓存）。
@@ -109,33 +122,43 @@ func (r *Router) build(ctx context.Context, complexity Complexity) (Provider, er
 		return nil, fmt.Errorf("provider/router: resolve api key for %q: %w", providerKey, err)
 	}
 
-	model := provCfg.DefaultModel
-
-	var p Provider
-	switch provCfg.Type {
-	case llmcfg.ProviderTypeAnthropic:
-		opts := []anthropicoption.RequestOption{anthropicoption.WithAPIKey(apiKey)}
-		if provCfg.BaseURL != "" {
-			opts = append(opts, anthropicoption.WithBaseURL(provCfg.BaseURL))
-		}
-		client := anthropicsdk.NewClient(opts...)
-		p, err = NewAnthropic(&client, model, provCfg.MaxTokens)
-	case llmcfg.ProviderTypeOpenAICompat:
-		ocfg := openaisdk.DefaultConfig(apiKey)
-		if provCfg.BaseURL != "" {
-			ocfg.BaseURL = provCfg.BaseURL
-		}
-		client := openaisdk.NewClientWithConfig(ocfg)
-		p, err = NewOpenAI(client, model)
-	default:
-		return nil, fmt.Errorf("provider/router: unknown provider type %q", provCfg.Type)
-	}
+	g, err := BuildGeneratorWithKey(ctx, provCfg, r.pool, apiKey)
 	if err != nil {
-		return nil, fmt.Errorf("provider/router: build provider %q: %w", provCfg.Type, err)
-	}
-	if p == nil {
-		return nil, errors.New("provider/router: built nil provider")
+		return nil, err
 	}
 
-	return WithRetry(p, DefaultRetryConfig()), nil
+	// fallback（可选）：由 store 提供（保留 role __fallback__），primary 耗尽时兜底。
+	var fallback Provider
+	if r.fallback != nil {
+		if fb, fbErr := r.fallback(ctx); fbErr == nil && fb != nil {
+			fallback = fb
+		}
+	}
+
+	return WithFallback(NewProvider(g), fallback, DefaultRetryOptions()), nil
+}
+
+// BuildGeneratorWithKey 用 ClientPool 共享 HTTP client 构造 Generator（按 provider 类型分派）。
+// 导出供业务策略层（internal/llm Factory）与 router 共用同一构造路径。
+func BuildGeneratorWithKey(ctx context.Context, p llmcfg.Provider, pool *ClientPool, apiKey string) (Generator, error) {
+	switch p.Type {
+	case llmcfg.ProviderTypeAnthropic:
+		cli, err := pool.GetOrCreateAnthropic(p.BaseURL, apiKey)
+		if err != nil {
+			return nil, fmt.Errorf("provider %q: %w", p.Key, err)
+		}
+		return NewAnthropic(ctx, p.Key, AnthropicConfig{
+			BaseURL: p.BaseURL, Model: p.DefaultModel, APIKey: apiKey, MaxTokens: p.MaxTokens,
+		}, cli)
+	case llmcfg.ProviderTypeOpenAICompat, "":
+		cli, err := pool.GetOrCreateOpenAI(p.BaseURL, apiKey)
+		if err != nil {
+			return nil, fmt.Errorf("provider %q: %w", p.Key, err)
+		}
+		return NewOpenAICompat(ctx, p.Key, OpenAICompatConfig{
+			BaseURL: p.BaseURL, Model: p.DefaultModel, APIKey: apiKey, MaxTokens: p.MaxTokens,
+			SupportsVision: p.SupportsVision,
+		}, cli)
+	}
+	return nil, fmt.Errorf("provider %q 类型 %q 未知（支持: openai_compat / anthropic）", p.Key, p.Type)
 }

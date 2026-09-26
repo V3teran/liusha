@@ -16,6 +16,7 @@ import (
 	"context"
 	"fmt"
 
+	fwllm "github.com/V3teran/liusha/internal/framework/llm"
 	"github.com/V3teran/liusha/internal/config/llm"
 )
 
@@ -56,7 +57,7 @@ func NewFactory(resolver Resolver, dec llmcfg.KeyDecrypter) *Factory {
 
 // NewFactoryWithBuilder 用自定义 builder 构造，便于测试。
 func NewFactoryWithBuilder(resolver Resolver, builder Builder) *Factory {
-	return &Factory{resolver: resolver, pool: NewClientPool(), builder: builder}
+	return &Factory{resolver: resolver, pool: fwllm.NewClientPool(), builder: builder}
 }
 
 // For 按 role 解析 provider 部署并返回 Generator（每次新建无状态实例）。
@@ -127,7 +128,7 @@ func BuildProviderWithKey(ctx context.Context, p llmcfg.Provider, pool *ClientPo
 		if err != nil {
 			return nil, fmt.Errorf("provider %q: %w", p.Key, err)
 		}
-		return NewOpenAICompat(ctx, p.Key, OpenAICompatConfig{
+		return fwllm.NewOpenAICompat(ctx, p.Key, fwllm.OpenAICompatConfig{
 			BaseURL: p.BaseURL, Model: p.DefaultModel, APIKey: apiKey, MaxTokens: p.MaxTokens,
 			SupportsVision: p.SupportsVision,
 		}, cli)
@@ -136,7 +137,7 @@ func BuildProviderWithKey(ctx context.Context, p llmcfg.Provider, pool *ClientPo
 		if err != nil {
 			return nil, fmt.Errorf("provider %q: %w", p.Key, err)
 		}
-		return NewAnthropic(ctx, p.Key, AnthropicConfig{
+		return fwllm.NewAnthropic(ctx, p.Key, fwllm.AnthropicConfig{
 			BaseURL: p.BaseURL, Model: p.DefaultModel, APIKey: apiKey, MaxTokens: p.MaxTokens,
 		}, cli)
 	}

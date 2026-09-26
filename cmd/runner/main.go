@@ -283,7 +283,7 @@ func main() {
 		runnerCfg:      runnerCfg,
 		sandboxMgr:     sandboxMgr,
 		logger:         logger,
-		router:         llm.NewRouter(llmStore.AsRouterStore(), llmKeyCipher),
+		router:         llm.NewRouterWithFallback(llmStore.AsRouterStore(), llmKeyCipher, newFallbackProviderFactory(llmStore, llmKeyCipher)),
 		creds:          creds,
 		toolCalls:      toolCalls,
 		toolingLoader:  toolingLoader,
