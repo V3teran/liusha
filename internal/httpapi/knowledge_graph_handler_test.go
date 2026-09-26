@@ -46,7 +46,6 @@ func TestGetTaskStats(t *testing.T) {
 			"objectives":   2,
 			"actions":      5,
 			"observations": 5,
-			"evaluations":  3,
 			"results":      2,
 		},
 	}
@@ -79,9 +78,6 @@ func TestGetTaskStats(t *testing.T) {
 	}
 	if resp.Observations != 5 {
 		t.Errorf("expected 5 observations, got %d", resp.Observations)
-	}
-	if resp.Evaluations != 3 {
-		t.Errorf("expected 3 evaluations, got %d", resp.Evaluations)
 	}
 	if resp.Results != 2 {
 		t.Errorf("expected 2 results, got %d", resp.Results)

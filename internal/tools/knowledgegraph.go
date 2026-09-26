@@ -187,16 +187,17 @@ func (t *writeEvidenceTool) Execute(ctx context.Context, args json.RawMessage) (
 
 	// 构造 content
 	content, _ := json.Marshal(map[string]interface{}{
+		"type":        "evidence",
+		"statement":   input.Description,
 		"outcome":     input.Outcome,
-		"description": input.Description,
 		"data":        input.Data,
 	})
 
-	// 创建 evidence 节点
+	// 创建 evidence 节点（evidence 是一类 observation，evaluation 节点已废弃）
 	node := explorationgraph.Node{
 		ID:         uuid.New().String(),
 		TaskID:     t.deps.TaskID,
-		Kind:       core.KindEvaluation,
+		Kind:       core.KindObservation,
 		Content:    content,
 		Priority:   explorationgraph.PriorityMedium,
 		SourceType: explorationgraph.SourceExecutor,
