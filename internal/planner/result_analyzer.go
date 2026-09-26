@@ -29,8 +29,27 @@ func (i *Intelligence) AnalyzeResults(ctx context.Context, world *explorationgra
 	}
 	currentObjective := objectives[len(objectives)-1]
 
-	// 2. 构建分析 prompt
-	prompt := i.buildAnalysisPrompt(currentObjective, results)
+	// 1.5. 统计当前 Objective 下的 Actions 数量（用于多样性判断）
+	allActions, err := world.ListNodesByKind(ctx, taskID, core.KindAction)
+	if err != nil {
+		return nil, fmt.Errorf("无法获取 Actions: %w", err)
+	}
+
+	// 统计属于当前 Objective 的 Actions
+	actionCount := 0
+	for _, action := range allActions {
+		// 简化判断：统计所有 Actions（因为目前只有一个 Objective）
+		// 未来如果有多个 Objectives，需要通过边关系判断
+		actionCount++
+	}
+
+	i.logger.Info().
+		Int("total_actions", actionCount).
+		Str("current_objective_id", currentObjective.ID).
+		Msg("当前探索状态统计")
+
+	// 2. 构建分析 prompt（传入 actionCount 作为上下文）
+	prompt := i.buildAnalysisPrompt(currentObjective, results, actionCount)
 
 	// 3. 调用 LLM
 	response, err := i.callAnalysisLLM(ctx, prompt)
@@ -97,10 +116,20 @@ func (i *Intelligence) AnalyzeResults(ctx context.Context, world *explorationgra
 }
 
 // buildAnalysisPrompt 构建 Result 分析 prompt
-func (i *Intelligence) buildAnalysisPrompt(currentObjective explorationgraph.Node, results []explorationgraph.Node) string {
+func (i *Intelligence) buildAnalysisPrompt(currentObjective explorationgraph.Node, results []explorationgraph.Node, actionCount int) string {
 	var sb strings.Builder
 
-	sb.WriteString("你是探索分析专家，需要分析当前的探索结果并决定下一步行动。\n\n")
+	sb.WriteString("你是探索系统的分析专家。你的职责：分析探索结果，判断当前方向是否穷尽，决定是继续深挖还是切换方向。\n\n")
+
+	sb.WriteString("⚠️ **核心原则：保持探索路线多样性，避免单一方向过载**\n\n")
+	sb.WriteString(fmt.Sprintf("**当前探索状态**：当前 Objective 下已有 **%d 个 Actions**。\n", actionCount))
+	if actionCount > 50 {
+		sb.WriteString("⚠️ **警告：Actions 数量过多（>50）**，当前方向很可能已穷尽或陷入无效循环。**强烈建议生成 new_objectives（切换到新方向）**。\n\n")
+	} else if actionCount > 20 {
+		sb.WriteString("⚠️ **注意：Actions 数量较多（>20）**，如果目标仍未达成，**倾向于生成 new_objectives（切换到新方向）**。\n\n")
+	} else {
+		sb.WriteString("当前方向探索适中，可根据 Results 内容决定是继续深挖还是切换方向。\n\n")
+	}
 
 	// 当前 Objective
 	sb.WriteString("## 当前 Objective\n\n")
@@ -123,61 +152,83 @@ func (i *Intelligence) buildAnalysisPrompt(currentObjective explorationgraph.Nod
 	}
 
 	// 分析指导
-	sb.WriteString("## 分析任务\n\n")
-	sb.WriteString("根据这些 Results，你需要判断：\n\n")
+	sb.WriteString("## 决策流程\n\n")
 
 	sb.WriteString("### 1. 当前 Objective 是否已完成？\n")
-	sb.WriteString("- 检查 Objective 的目标是否已达成\n")
-	sb.WriteString("- 这些 Results 是否提供了足够的证据？\n")
-	sb.WriteString("- 如果是 → 设置 completed=true，提供 evidence_ids\n\n")
+	sb.WriteString("- 目标已真正达成（发现目标漏洞 / 获得目标成果）\n")
+	sb.WriteString("- Results 提供了充分证据\n")
+	sb.WriteString("- 如果是 → 设置 `completed=true`，提供 `evidence_ids`\n\n")
 
-	sb.WriteString("### 2. 是否发现了新的探索方向？\n")
-	sb.WriteString("- 新方向指：不同的攻击面/入口点/资产\n")
-	sb.WriteString("- **不是**当前 Objective 范围内的延续\n")
-	sb.WriteString("- 例子：发现了新的目录、新的认证机制、不同类型的漏洞\n")
-	sb.WriteString("- 如果是 → 生成 new_objectives\n\n")
+	sb.WriteString("### 2. 当前方向是否已穷尽？（关键判断）\n")
+	sb.WriteString("判断标准：\n")
+	sb.WriteString("- **已尝试所有明显探索点**：该入口/路径/节点的常见方法已全部尝试\n")
+	sb.WriteString("- **出现重复失败模式**：多次尝试同类方法均失败，无新思路\n")
+	sb.WriteString("- **遇到硬性阻塞**：权限限制、资源不可达等无法绕过的障碍\n")
+	sb.WriteString("- **Results 暗示方向错误**：反馈表明该路径不可行\n\n")
 
-	sb.WriteString("### 3. 是否在当前方向发现了新测试点？\n")
-	sb.WriteString("- **仍在**当前 Objective 的范围内\n")
-	sb.WriteString("- 只是发现了新的可测试点/参数/payload\n")
-	sb.WriteString("- 例子：发现了新参数、需要测试不同 payload\n")
-	sb.WriteString("- 如果是 → 生成 new_actions\n\n")
+	sb.WriteString("**如果当前方向已穷尽** → 优先生成 `new_objectives`（切换到本质不同的新方向）\n\n")
+
+	sb.WriteString("### 3. 新方向 vs 当前方向延续（决策分支）\n\n")
+
+	sb.WriteString("#### 生成 new_objectives（新方向）的条件：\n")
+	sb.WriteString("- 当前方向已穷尽（见第 2 步）\n")
+	sb.WriteString("- **或** 当前 Objective 下的 Actions 已经很多（>20 个），但目标未达成\n")
+	sb.WriteString("- Results 暗示存在**本质不同**的探索面：\n")
+	sb.WriteString("  - 不同入口点（如发现新路径、新接口、新功能模块）\n")
+	sb.WriteString("  - 不同探索链（如从一种方法切换到另一种完全不同的方法）\n")
+	sb.WriteString("  - 不同资源类型（如从一类资源切换到另一类资源）\n\n")
+
+	sb.WriteString("new_objectives 示例：\n")
+	sb.WriteString("- ❌ 错误：\"继续探索当前路径\"（这是延续，不是新方向）\n")
+	sb.WriteString("- ✅ 正确：\"探索备用路径的可访问性\"（不同入口点）\n")
+	sb.WriteString("- ✅ 正确：\"测试其他功能模块的可用性\"（不同探索链）\n\n")
+
+	sb.WriteString("#### 生成 new_actions（当前方向延续）的条件：\n")
+	sb.WriteString("- 当前方向**未穷尽**\n")
+	sb.WriteString("- Results 揭示了**当前范围内**的新探索点：\n")
+	sb.WriteString("  - 新参数/字段需要探索\n")
+	sb.WriteString("  - 需要尝试新方法变种\n")
+	sb.WriteString("  - 发现可利用的细节\n\n")
+
+	sb.WriteString("new_actions 示例：\n")
+	sb.WriteString("- ✅ 正确：\"探索发现的新参数的可能值\"\n")
+	sb.WriteString("- ✅ 正确：\"在特定字段尝试其他输入方法\"\n\n")
+
+	sb.WriteString("### 4. 什么都不生成也是正常的\n")
+	sb.WriteString("- 当前方向已穷尽，但暂时找不到新方向 → 空数组\n")
+	sb.WriteString("- Results 不包含可操作信息 → 空数组\n\n")
 
 	// 响应格式
 	sb.WriteString("## 响应格式\n\n")
 	sb.WriteString("```json\n")
 	sb.WriteString("{\n")
 	sb.WriteString("  \"completed\": false,\n")
-	sb.WriteString("  \"evidence_ids\": [\"result_id_1\"],  // completed=true 时必填\n")
-	sb.WriteString("  \"reasoning\": \"你的判断理由\",\n")
-	sb.WriteString("  \"new_objectives\": [  // 如果发现新方向\n")
+	sb.WriteString("  \"evidence_ids\": [],\n")
+	sb.WriteString("  \"reasoning\": \"详细说明你的判断逻辑：当前方向是否穷尽？为什么选择新方向/延续？\",\n")
+	sb.WriteString("  \"new_objectives\": [\n")
 	sb.WriteString("    {\n")
-	sb.WriteString("      \"description\": \"新探索方向的描述\",\n")
-	sb.WriteString("      \"priority\": \"high/medium/low\",\n")
+	sb.WriteString("      \"description\": \"本质不同的新方向（不同入口/攻击链/资产）\",\n")
+	sb.WriteString("      \"priority\": \"high\",\n")
 	sb.WriteString("      \"triggered_by\": [\"result_id_1\"],\n")
-	sb.WriteString("      \"reasoning\": \"为什么需要这个方向\"\n")
+	sb.WriteString("      \"reasoning\": \"为什么需要切换到这个新方向\"\n")
 	sb.WriteString("    }\n")
 	sb.WriteString("  ],\n")
-	sb.WriteString("  \"new_actions\": [  // 如果是当前方向延续\n")
+	sb.WriteString("  \"new_actions\": [\n")
 	sb.WriteString("    {\n")
-	sb.WriteString("      \"instruction\": \"具体的测试指令\",\n")
-	sb.WriteString("      \"priority\": \"high/medium/low\",\n")
+	sb.WriteString("      \"instruction\": \"当前范围内的新测试点\",\n")
+	sb.WriteString("      \"priority\": \"medium\",\n")
 	sb.WriteString("      \"triggered_by\": [\"result_id_1\"],\n")
-	sb.WriteString("      \"reasoning\": \"为什么需要这个动作\"\n")
+	sb.WriteString("      \"reasoning\": \"为什么这个测试点还值得尝试\"\n")
 	sb.WriteString("    }\n")
 	sb.WriteString("  ]\n")
 	sb.WriteString("}\n")
 	sb.WriteString("```\n\n")
 
-	sb.WriteString("**重要**：\n")
-	sb.WriteString("- completed=true 时，必须提供 evidence_ids\n")
-	sb.WriteString("- new_objectives 用于新方向，new_actions 用于当前方向延续\n")
-	sb.WriteString("- 二者可以同时存在，但要区分清楚\n\n")
-
-	sb.WriteString("**响应格式要求**：\n")
-	sb.WriteString("请直接返回 JSON 对象，不要使用 Markdown 代码块标记（```json 或 ```）。\n")
-	sb.WriteString("直接输出纯 JSON，如：\n")
-	sb.WriteString("{\"completed\":false,\"reasoning\":\"...\",\"new_objectives\":[...]}\n")
+	sb.WriteString("**关键提示**：\n")
+	sb.WriteString("- 当前方向 Actions 很多但未成功时，**大概率应该切换方向（生成 new_objectives）**\n")
+	sb.WriteString("- new_objectives 和 new_actions 的区别：前者是「本质不同的方向」，后者是「当前方向的深挖」\n")
+	sb.WriteString("- 两者可以同时存在：当前方向还能挖一点，但同时发现了新方向\n")
+	sb.WriteString("- 直接返回纯 JSON，不要用 Markdown 代码块标记\n")
 
 	return sb.String()
 }
