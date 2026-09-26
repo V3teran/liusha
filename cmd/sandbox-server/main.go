@@ -21,11 +21,11 @@ package main
 
 import (
 	"context"
-	"log"
 	"os"
 	"os/signal"
 	"syscall"
 
+	"github.com/V3teran/liusha/internal/logx"
 	"github.com/V3teran/liusha/internal/sandbox/server"
 )
 
@@ -39,9 +39,10 @@ func main() {
 	defer stop()
 
 	srv := server.New()
-	log.Printf("[sandbox-server] listening on %s", addr)
+	logger := logx.New("sandbox-server")
+	logger.Info().Str("addr", addr).Msg("listening")
 	if err := srv.ListenAndServe(ctx, addr); err != nil {
-		log.Fatalf("[sandbox-server] %v", err)
+		logger.Fatal().Err(err).Msg("listen failed")
 	}
-	log.Printf("[sandbox-server] shutdown clean")
+	logger.Info().Msg("shutdown clean")
 }

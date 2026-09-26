@@ -53,7 +53,6 @@ type ReActConfig struct {
 	LLMProvider llm.Provider
 
 	// 模型 ID
-	ModelID string
 
 	// 最大迭代次数（防止无限循环）
 	MaxIterations int
@@ -200,10 +199,6 @@ func (c *ReActConfig) Validate() error {
 
 	if c.LLMProvider == nil {
 		return fmt.Errorf("LLM 提供者不能为空")
-	}
-
-	if c.ModelID == "" {
-		return fmt.Errorf("模型 ID 不能为空")
 	}
 
 	if c.MaxIterations <= 0 {

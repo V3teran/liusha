@@ -331,8 +331,9 @@ func (s *AdapterStore) graphNodeToNode(graphNode *core.GraphNode) (*Node, error)
 		node.Complexity = &c
 	}
 
-	// DependsOn
-	if dependsOn, ok := graphNode.Metadata["depends_on"].([]interface{}); ok {
+	// DependsOn（内存后端存 []string，JSON 往返后是 []interface{}，两者都接受）
+	switch dependsOn := graphNode.Metadata["depends_on"].(type) {
+	case []interface{}:
 		deps := make([]string, 0, len(dependsOn))
 		for _, dep := range dependsOn {
 			if str, ok := dep.(string); ok {
@@ -340,6 +341,8 @@ func (s *AdapterStore) graphNodeToNode(graphNode *core.GraphNode) (*Node, error)
 			}
 		}
 		node.DependsOn = deps
+	case []string:
+		node.DependsOn = dependsOn
 	}
 
 	// BlockedReason

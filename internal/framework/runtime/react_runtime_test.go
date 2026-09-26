@@ -90,7 +90,6 @@ func TestReActRuntime_SimpleQuestion(t *testing.T) {
 	config := DefaultReActConfig()
 	config.Objective = "计算 2 + 2"
 	config.LLMProvider = mockProvider
-	config.ModelID = "test-model"
 
 	result, err := runtime.Run(context.Background(), config)
 	require.NoError(t, err)
@@ -154,7 +153,6 @@ func TestReActRuntime_ToolCalling(t *testing.T) {
 	config := DefaultReActConfig()
 	config.Objective = "计算 2+2"
 	config.LLMProvider = mockProvider
-	config.ModelID = "test-model"
 
 	result, err := runtime.Run(context.Background(), config)
 	require.NoError(t, err)
@@ -205,7 +203,6 @@ func TestReActRuntime_MaxIterations(t *testing.T) {
 	config := DefaultReActConfig()
 	config.Objective = "无解问题"
 	config.LLMProvider = mockProvider
-	config.ModelID = "test-model"
 	config.MaxIterations = 3
 
 	result, err := runtime.Run(context.Background(), config)
@@ -232,7 +229,6 @@ func TestReActRuntime_EarlyStopCondition(t *testing.T) {
 	config := DefaultReActConfig()
 	config.Objective = "终极问题的答案"
 	config.LLMProvider = mockProvider
-	config.ModelID = "test-model"
 	config.EarlyStopCondition = func(thought string) bool {
 		// 包含"最终答案"时提前终止
 		return len(thought) > 0 && thought[:4] == "最终答案"
@@ -261,7 +257,6 @@ func TestReActRuntime_MessageHistory(t *testing.T) {
 
 	config := DefaultReActConfig()
 	config.LLMProvider = mockProvider
-	config.ModelID = "test-model"
 
 	// 第一轮对话
 	config.Objective = "问题1"
@@ -318,7 +313,6 @@ func TestReActRuntime_ContextCancellation(t *testing.T) {
 	config := DefaultReActConfig()
 	config.Objective = "测试取消"
 	config.LLMProvider = mockProvider
-	config.ModelID = "test-model"
 
 	// 创建可取消的上下文
 	ctx, cancel := context.WithCancel(context.Background())
@@ -376,7 +370,6 @@ func TestReActRuntime_Callbacks(t *testing.T) {
 	config := DefaultReActConfig()
 	config.Objective = "测试回调"
 	config.LLMProvider = mockProvider
-	config.ModelID = "test-model"
 	config.OnThought = func(thought string) {
 		thoughts = append(thoughts, thought)
 	}

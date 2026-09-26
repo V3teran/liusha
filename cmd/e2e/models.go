@@ -10,19 +10,11 @@ type GraphStats struct {
 	Results      int `json:"results"`
 }
 
-// Path 是必须存在的推理路径（用于验收标准）
-type Path struct {
-	From string // 源节点类型: "objective"
-	Via  string // 关系类型: "GENERATES"
-	To   string // 目标节点类型: "action"
-}
-
 // AcceptanceCriteria 是新的验收标准（替代旧的 minFindings）
 type AcceptanceCriteria struct {
-	MinObjectives int    // 至少产生多少个目标
-	MinActions    int    // 至少执行多少个动作
-	MinResults    int    // 至少验证多少个结果
-	MustHavePaths []Path // 必须存在的路径（可选）
+	MinObjectives int // 至少产生多少个目标
+	MinActions    int // 至少执行多少个动作
+	MinResults    int // 至少验证多少个结果
 }
 
 // IsMetBy 检查统计数据是否满足验收标准
@@ -36,8 +28,6 @@ func (ac AcceptanceCriteria) IsMetBy(stats GraphStats) bool {
 	if stats.Results < ac.MinResults {
 		return false
 	}
-
-	// TODO: 验证 MustHavePaths（需要查询边，Phase 2.2 实现）
 
 	return true
 }

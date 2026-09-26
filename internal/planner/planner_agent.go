@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
 	"time"
 
 	"github.com/google/uuid"
@@ -208,11 +207,6 @@ func (a *PlannerAgent) planActions(ctx context.Context) error {
 	// 调用 Planner 生成新的 Action（传入 taskID）
 	a.logger.Info().Msg("即将调用 a.planner.Plan()")
 	actions, err := a.planner.Plan(ctx, a.world, a.taskID)
-
-	// EMERGENCY DEBUG: 强制写入文件
-	debugFile := fmt.Sprintf("/tmp/planner-received-%s.txt", a.taskID)
-	debugMsg := fmt.Sprintf("收到返回: err=%v, actions_len=%d\n", err, len(actions))
-	_ = os.WriteFile(debugFile, []byte(debugMsg), 0644)
 
 	a.logger.Info().
 		Bool("has_error", err != nil).

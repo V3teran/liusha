@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"sync"
 	"time"
+
+	"github.com/V3teran/liusha/internal/logx"
 )
 
 // Bus 统一事件总线接口
@@ -93,6 +95,8 @@ func New(ctx context.Context) *MemoryBus {
 
 // run 运行事件总线的主循环
 func (b *MemoryBus) run() {
+	// 事件总线是全平台骨干：panic 后记录并退出，避免进程级崩溃掩盖根因。
+	defer logx.Recover("bus", "事件总线主循环 panic")
 	for {
 		select {
 		case <-b.ctx.Done():

@@ -43,7 +43,15 @@ func newEventSink(convs *conversation.Store, pub *scanstream.Publisher, convID s
 func (s *eventSink) run() {
 	defer close(s.done)
 	for ev := range s.ch {
-		s.writeFn(ev)
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					s.logger.Error().Interface("panic", r).
+						Str("tool_name", ev.ToolName).Msg("事件持久化 panic 已捕获")
+				}
+			}()
+			s.writeFn(ev)
+		}()
 	}
 }
 
