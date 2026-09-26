@@ -79,7 +79,7 @@ func (s *PostgresGraphStore) CreateNode(ctx context.Context, node *GraphNode) er
 
 	// Observation/Evaluation/Result 特定字段（表中的 confidence 字段）
 	var dbConfidence *string
-	if node.Kind == string(KindObservation) || node.Kind == string(KindEvaluation) || node.Kind == string(KindResult) {
+	if node.Kind == string(KindObservation) || node.Kind == string(KindResult) {
 		conf := "unverified"
 		if node.Confidence >= 0.8 {
 			conf = "verified"

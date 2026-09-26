@@ -28,11 +28,6 @@ const (
 	// 来源：Executor Agent
 	KindObservation NodeKind = "observation"
 
-	// KindEvaluation 表示评估结论节点（已废弃，保留用于兼容性）
-	// 对应：结果验证、质量评分、可信度判断
-	// 来源：Evaluator Agent
-	KindEvaluation NodeKind = "evaluation"
-
 	// KindResult 表示最终结果节点
 	// 对应：已确认的发现、完成的任务、产出物
 	// 来源：Evaluation 提升或直接确认
@@ -230,7 +225,6 @@ func ValidNodeKinds() []NodeKind {
 		KindObjective,
 		KindAction,
 		KindObservation,
-		KindEvaluation,
 		KindResult,
 	}
 }

@@ -1,8 +1,8 @@
 package middleware
 
 import (
-	"github.com/V3teran/liusha/internal/bus"
 	"context"
+	"github.com/V3teran/liusha/internal/bus"
 	"time"
 
 	"github.com/V3teran/liusha/internal/framework/core"

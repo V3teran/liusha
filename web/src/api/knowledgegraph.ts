@@ -7,7 +7,7 @@ import { get } from './client'
 export interface GraphNode {
   id: string
   task_id: string
-  kind: 'objective' | 'action' | 'observation' | 'evaluation' | 'result'
+  kind: 'objective' | 'action' | 'observation' | 'result'
   content: unknown
   state?: string
   confidence?: string
@@ -36,7 +36,6 @@ export interface TaskStats {
   objectives: number
   actions: number
   observations: number
-  evaluations: number
   results: number
 }
 

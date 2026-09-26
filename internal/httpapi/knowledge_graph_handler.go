@@ -26,7 +26,6 @@ type GraphStats struct {
 	Objectives   int `json:"objectives"`
 	Actions      int `json:"actions"`
 	Observations int `json:"observations"`
-	Evaluations  int `json:"evaluations"`
 	Results      int `json:"results"`
 }
 
@@ -62,7 +61,6 @@ func getTaskStats(api ExplorationGraphAPI) gin.HandlerFunc {
 			Objectives:   statsMap["objectives"],
 			Actions:      statsMap["actions"],
 			Observations: statsMap["observations"],
-			Evaluations:  statsMap["evaluations"],
 			Results:      statsMap["results"],
 		}
 

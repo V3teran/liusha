@@ -52,8 +52,6 @@ func (c *ExplorationGraphClient) GetTaskStats(ctx context.Context, taskID string
 			stats.Actions = count
 		case "observation":
 			stats.Observations = count
-		case "evaluation":
-			stats.Evaluations = count
 		case "result":
 			stats.Results = count
 		}

@@ -31,7 +31,6 @@ const NODE_COLORS = {
   objective: '#3b82f6',
   action: '#8b5cf6',
   observation: '#10b981',
-  evaluation: '#f59e0b',
   result: '#ef4444',
 }
 

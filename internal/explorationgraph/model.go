@@ -171,11 +171,6 @@ func (n *Node) IsResult() bool {
 	return n.Kind == core.KindResult
 }
 
-// IsEvaluation 判断节点是否是 evaluation
-func (n *Node) IsEvaluation() bool {
-	return n.Kind == core.KindEvaluation
-}
-
 // CanExecute 判断 action 是否可执行（无阻塞依赖）
 func (n *Node) CanExecute(completed map[string]bool) bool {
 	if !n.IsAction() {

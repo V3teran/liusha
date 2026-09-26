@@ -7,7 +7,6 @@ type GraphStats struct {
 	Objectives   int `json:"objectives"`
 	Actions      int `json:"actions"`
 	Observations int `json:"observations"`
-	Evaluations  int `json:"evaluations"`
 	Results      int `json:"results"`
 }
 
@@ -71,11 +70,6 @@ func IsStuck(stats GraphStats) bool {
 		return true
 	}
 
-	// 如果有很多 observation 但没有 evaluation，说明 Evaluator 卡住了
-	if stats.Observations > 5 && stats.Evaluations == 0 {
-		return true
-	}
-
 	return false
 }
 
@@ -83,10 +77,6 @@ func IsStuck(stats GraphStats) bool {
 func StuckReason(stats GraphStats) string {
 	if stats.Objectives > 0 && stats.Actions == 0 {
 		return fmt.Sprintf("Planner 已生成 %d 个目标，但 Executor 未执行任何动作", stats.Objectives)
-	}
-
-	if stats.Observations > 5 && stats.Evaluations == 0 {
-		return fmt.Sprintf("Executor 已产生 %d 个观察，但 Evaluator 未评估", stats.Observations)
 	}
 
 	return ""

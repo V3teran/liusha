@@ -199,6 +199,11 @@ func (s *AdapterStore) CreateBusinessEdge(ctx context.Context, edge Edge) error 
 	return s.graphStore.CreateEdge(ctx, graphEdge)
 }
 
+// UpdateNodeContent 更新节点内容（控制平面 adjust_goal 等操作使用）。
+func (s *AdapterStore) UpdateNodeContent(ctx context.Context, id string, content json.RawMessage) error {
+	return s.graphStore.UpdateNode(ctx, id, core.GraphNodeUpdate{Content: content})
+}
+
 // UpdateNodeConfidence 更新节点置信度
 func (s *AdapterStore) UpdateNodeConfidence(ctx context.Context, id string, confidence Confidence) error {
 	var conf float64
@@ -537,7 +542,6 @@ func (s *AdapterStore) GetStatsForAPI(ctx context.Context, taskID string) (map[s
 		"objectives":   0,
 		"actions":      0,
 		"observations": 0,
-		"evaluations":  0,
 		"results":      0,
 	}
 
@@ -549,8 +553,6 @@ func (s *AdapterStore) GetStatsForAPI(ctx context.Context, taskID string) (map[s
 			stats["actions"]++
 		case core.KindObservation:
 			stats["observations"]++
-		case core.KindEvaluation:
-			stats["evaluations"]++
 		case core.KindResult:
 			stats["results"]++
 		}

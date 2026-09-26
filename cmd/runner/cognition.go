@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/V3teran/liusha/internal/cognition"
@@ -150,33 +151,42 @@ func (h handler) runCognition(
 		CheckInterval: 5 * time.Second,
 	})
 
-	// 8. 启动四个 Agent（异步）
-	agentCtx, cancelAgents := context.WithCancel(ctx)
-	defer cancelAgents()
+	// 8. 启动四个 Agent（异步；启停封装成闭包供控制平面 pause/resume 复用）
+	var agentWg sync.WaitGroup
+	var agentCtx context.Context
+	var cancelAgents context.CancelFunc
 
-	go func() {
-		if err := plannerAgent.Start(agentCtx); err != nil && agentCtx.Err() == nil {
-			h.logger.Error().Err(err).Str("task_id", taskID).Msg("planner agent 异常退出")
+	runAgent := func(name string, start func(context.Context) error) {
+		defer agentWg.Done()
+		if err := start(agentCtx); err != nil && agentCtx.Err() == nil {
+			h.logger.Error().Err(err).Str("task_id", taskID).Msg(name + " agent 异常退出")
 		}
-	}()
+	}
 
-	go func() {
-		if err := executorAgent.Start(agentCtx); err != nil && agentCtx.Err() == nil {
-			h.logger.Error().Err(err).Str("task_id", taskID).Msg("executor agent 异常退出")
-		}
-	}()
+	agents := &controlAgentLifecycle{
+		agents: &agentWg,
+		start: func() {
+			agentWg.Add(1)
+			agentCtx, cancelAgents = context.WithCancel(ctx)
+			go runAgent("planner", plannerAgent.Start)
+			go runAgent("executor", executorAgent.Start)
+			go runAgent("evaluator", evaluatorAgent.Start)
+			go runAgent("monitor", monitorAgent.Start)
+		},
+		stop: func() {
+			cancelAgents()
+			agentWg.Wait()
+		},
+	}
 
-	go func() {
-		if err := evaluatorAgent.Start(agentCtx); err != nil && agentCtx.Err() == nil {
-			h.logger.Error().Err(err).Str("task_id", taskID).Msg("evaluator agent 异常退出")
-		}
-	}()
+	agents.start()
+	defer agents.stop()
 
-	go func() {
-		if err := monitorAgent.Start(agentCtx); err != nil && agentCtx.Err() == nil {
-			h.logger.Error().Err(err).Str("task_id", taskID).Msg("monitor agent 异常退出")
-		}
-	}()
+	// 8.5 控制平面消费者：轮询 task_control_event（pause/resume/terminate/adjust_goal/inject）
+	if h.controlPlane != nil {
+		stopConsumer := startControlConsumer(ctx, taskID, h.controlPlane, h.world, detector, agents, h.logger)
+		defer stopConsumer()
+	}
 
 	h.logger.Info().Str("task_id", taskID).Msg("四个 Agent 已启动，等待任务完成")
 
@@ -184,8 +194,7 @@ func (h handler) runCognition(
 	result := detector.Start(ctx)
 
 	// 10. 优雅停止所有 Agent
-	cancelAgents()
-	time.Sleep(2 * time.Second)
+	agents.stop()
 
 	h.logger.Info().
 		Str("task_id", taskID).
