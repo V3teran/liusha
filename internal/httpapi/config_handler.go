@@ -37,7 +37,11 @@ const (
 
 // parsePaging 解析 page/size：page 缺省/非法 = 0（表示不分页，返回全量，供 picker/selector 复用）。
 // page>=1 时分页；size 缺省 defaultConfigPageSize，clamp 到 [1,maxConfigPageSize]。
-// 返回 (page, size, paged)：paged=false 时调用方走全量分支。
+// parsePaging 解析 page/size，语义与 parsePagination 同为 **1 基**：
+//   - 无 page 参数或 page < 1 → paged=false（调用方走全量分支；前端多选器依赖此契约）
+//   - 有 page → 分页（offset = (page-1)*size），响应附 total
+//
+// 与 parsePagination 的差异是"支持全量模式"，不是页码基制。
 func parsePaging(c *gin.Context) (page, size int, paged bool) {
 	pageStr := c.Query("page")
 	if pageStr == "" {

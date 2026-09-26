@@ -258,7 +258,7 @@ func TestReActRuntime_CheckpointPolicy(t *testing.T) {
 				Objective:        "测试任务",
 				SystemPrompt:     "你是测试助手",
 				LLMProvider:      testMockProvider,
-						MaxIterations:    3,
+				MaxIterations:    3,
 				Temperature:      0.7,
 				MaxTokens:        1000,
 				TaskID:           "test-task-" + tt.name,

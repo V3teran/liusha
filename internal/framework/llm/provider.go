@@ -66,8 +66,8 @@ const (
 // StreamEvent 是流式调用的事件。
 type StreamEvent struct {
 	Kind    StreamEventKind
-	Content string     // StreamText 有效
-	Tool    *ToolCall  // StreamToolCall 有效
-	Usage   *Usage     // StreamDone 有效
-	Err     error      // StreamError 有效
+	Content string    // StreamText 有效
+	Tool    *ToolCall // StreamToolCall 有效
+	Usage   *Usage    // StreamDone 有效
+	Err     error     // StreamError 有效
 }

@@ -194,11 +194,11 @@ func (m *StreamManager) GetStats(taskID string) (StreamStats, error) {
 	defer handle.mu.RUnlock()
 
 	return StreamStats{
-		TaskID:            taskID,
-		Subscribers:       len(handle.subscribers),
-		EventsPublished:   handle.sequence.Load(),
-		Closed:            handle.closed.Load(),
-		BufferSize:        m.defaultBufferSize,
+		TaskID:          taskID,
+		Subscribers:     len(handle.subscribers),
+		EventsPublished: handle.sequence.Load(),
+		Closed:          handle.closed.Load(),
+		BufferSize:      m.defaultBufferSize,
 	}, nil
 }
 

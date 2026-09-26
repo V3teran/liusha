@@ -277,4 +277,3 @@ func (m *MockVectorRetriever) Retrieve(ctx context.Context, query string, topK i
 func (m *MockVectorRetriever) RetrieveWithScore(ctx context.Context, query string, topK int) ([]rag.Document, error) {
 	return m.Retrieve(ctx, query, topK)
 }
-
