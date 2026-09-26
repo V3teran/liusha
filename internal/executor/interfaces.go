@@ -7,17 +7,17 @@ import (
 	"context"
 
 	"github.com/V3teran/liusha/internal/evaluator"
-	"github.com/V3teran/liusha/internal/knowledgegraph"
+	"github.com/V3teran/liusha/internal/explorationgraph"
 )
 
 // ExecutorInterface 执行一个 Move，产出 Attempt 列表（domain-agnostic）
 type ExecutorInterface interface {
-	Execute(ctx context.Context, move knowledgegraph.Node) ([]evaluator.Attempt, error)
+	Execute(ctx context.Context, move explorationgraph.Node) ([]evaluator.Attempt, error)
 }
 
 // Promoter 验证 Attempt 并晋升到世界模型（domain-agnostic）
 type Promoter interface {
-	Promote(ctx context.Context, a evaluator.Attempt) (*knowledgegraph.Node, error)
+	Promote(ctx context.Context, a evaluator.Attempt) (*explorationgraph.Node, error)
 }
 
 // Report 是认知循环的执行报告

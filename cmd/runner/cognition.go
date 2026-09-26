@@ -145,17 +145,14 @@ func (h handler) runCognition(
 		Checkpointer: h.checkpointer,
 	})
 
-	// 7. 创建完成检测器
+	// 7. 创建完成检测器（持续探索模式）
 	detector := cognition.NewCompletionDetector(cognition.Config{
-		TaskID:              taskID,
-		World:               h.world,
-		Bus:                 h.eventBus,
-		Logger:              h.logger,
-		MaxSteps:            h.runnerCfg.MaxStepsPerTask,
-		IdleRoundsThreshold: 3,
-		CheckInterval:       5 * time.Second,
-		GracePeriod:         30 * time.Second,
-		MinExecutionDuration: 90 * time.Second, // 增加到 90 秒，给 LLM 调用足够的响应时间
+		TaskID:        taskID,
+		World:         h.world,
+		Bus:           h.eventBus,
+		Logger:        h.logger,
+		MaxSteps:      h.runnerCfg.MaxStepsPerTask, // 0 表示无限制
+		CheckInterval: 5 * time.Second,
 	})
 
 	// 8. 启动四个 Agent（异步）

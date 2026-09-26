@@ -6,7 +6,7 @@ import { DEFAULT_PAGE_SIZE, PAGE_SIZE_OPTIONS } from '@/lib/pageSize'
 // 漏洞台账筛选态迁移进 URL search params（对齐流量模块 useTrafficFilters 的模式）：
 // 刷新、前进/后退、把链接发给同事复核，筛选条件与翻页位置都能还原。
 //
-// 参数名：host / severity / status / source / scenario_id / page / size。
+// 参数名：host / severity / status / source / page / size。
 export interface FindingUrlState {
   filters: FindingFilters
   page: number // 1-based
@@ -21,7 +21,6 @@ const EMPTY_FILTERS: FindingFilters = {
   severity: '',
   status: '',
   source: '',
-  scenario_id: '',
 }
 
 function numOr(raw: string | null, fallback: number): number {
@@ -43,7 +42,6 @@ export function useFindingFilters(): FindingUrlState {
       severity: searchParams.get('severity') ?? '',
       status: searchParams.get('status') ?? '',
       source: searchParams.get('source') ?? '',
-      scenario_id: searchParams.get('scenario_id') ?? '',
     }),
     [searchParams],
   )
@@ -56,7 +54,6 @@ export function useFindingFilters(): FindingUrlState {
       setOrDel('severity', next.severity)
       setOrDel('status', next.status)
       setOrDel('source', next.source)
-      setOrDel('scenario_id', next.scenario_id)
       p.delete('page') // 筛选变化回到第一页
       return p
     })

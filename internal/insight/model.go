@@ -3,7 +3,7 @@ package insight
 import (
 	"time"
 
-	"github.com/V3teran/liusha/internal/knowledgegraph"
+	"github.com/V3teran/liusha/internal/explorationgraph"
 )
 
 // Category 是洞察的信息分类
@@ -25,15 +25,15 @@ const (
 	CategoryNote     Category = "note"     // 笔记
 )
 
-// Priority 类型使用 knowledgegraph.Priority（统一定义）
-type Priority = knowledgegraph.Priority
+// Priority 类型使用 explorationgraph.Priority（统一定义）
+type Priority = explorationgraph.Priority
 
 // Priority 常量（重新导出以保持兼容性）
 const (
-	PriorityCritical = knowledgegraph.PriorityCritical
-	PriorityHigh     = knowledgegraph.PriorityHigh
-	PriorityMedium   = knowledgegraph.PriorityMedium
-	PriorityLow      = knowledgegraph.PriorityLow
+	PriorityCritical = explorationgraph.PriorityCritical
+	PriorityHigh     = explorationgraph.PriorityHigh
+	PriorityMedium   = explorationgraph.PriorityMedium
+	PriorityLow      = explorationgraph.PriorityLow
 )
 
 // Confidence 是置信度

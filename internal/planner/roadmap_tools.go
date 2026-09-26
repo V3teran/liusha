@@ -8,16 +8,16 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/V3teran/liusha/internal/registry"
-	"github.com/V3teran/liusha/internal/knowledgegraph"
+	"github.com/V3teran/liusha/internal/explorationgraph"
 )
 
 // GenerateRoadmapTool 生成或更新 Roadmap
 type GenerateRoadmapTool struct {
-	world  *knowledgegraph.Store
+	world  *explorationgraph.Store
 	logger zerolog.Logger
 }
 
-func NewGenerateRoadmapTool(world *knowledgegraph.Store, logger zerolog.Logger) *GenerateRoadmapTool {
+func NewGenerateRoadmapTool(world *explorationgraph.Store, logger zerolog.Logger) *GenerateRoadmapTool {
 	return &GenerateRoadmapTool{
 		world:  world,
 		logger: logger.With().Str("tool", "generate_roadmap").Logger(),
@@ -93,17 +93,17 @@ func (t *GenerateRoadmapTool) Execute(ctx context.Context, argsJSON json.RawMess
 		return registry.ToolResult{Error: "steps cannot be empty"}, nil
 	}
 
-	var steps []knowledgegraph.RoadmapStep
+	var steps []explorationgraph.RoadmapStep
 	for _, s := range input.Steps {
 		if s.Objective == "" {
 			return registry.ToolResult{Error: "step.objective must be non-empty"}, nil
 		}
 
-		step := knowledgegraph.RoadmapStep{
+		step := explorationgraph.RoadmapStep{
 			TaskID:    taskID,
 			Step:      s.Step,
 			Objective: s.Objective,
-			Status:    knowledgegraph.StepTodo,
+			Status:    explorationgraph.StepTodo,
 			DependsOn: s.DependsOn,
 			Context:   make(map[string]interface{}),
 			Rationale: s.Rationale,
@@ -111,7 +111,7 @@ func (t *GenerateRoadmapTool) Execute(ctx context.Context, argsJSON json.RawMess
 		steps = append(steps, step)
 	}
 
-	knowledgegraph.SortStepsByNumber(steps)
+	explorationgraph.SortStepsByNumber(steps)
 
 	err := t.world.SaveRoadmap(ctx, taskID, steps)
 	if err != nil {
@@ -131,11 +131,11 @@ func (t *GenerateRoadmapTool) Execute(ctx context.Context, argsJSON json.RawMess
 
 // ObserveRoadmapTool 观察当前的 Roadmap
 type ObserveRoadmapTool struct {
-	world  *knowledgegraph.Store
+	world  *explorationgraph.Store
 	logger zerolog.Logger
 }
 
-func NewObserveRoadmapTool(world *knowledgegraph.Store, logger zerolog.Logger) *ObserveRoadmapTool {
+func NewObserveRoadmapTool(world *explorationgraph.Store, logger zerolog.Logger) *ObserveRoadmapTool {
 	return &ObserveRoadmapTool{
 		world:  world,
 		logger: logger.With().Str("tool", "observe_roadmap").Logger(),
@@ -184,11 +184,11 @@ func (t *ObserveRoadmapTool) Execute(ctx context.Context, argsJSON json.RawMessa
 
 	output += "## 步骤详情\n\n"
 	for _, step := range steps {
-		statusIcon := map[knowledgegraph.RoadmapStepStatus]string{
-			knowledgegraph.StepTodo:     "⏸",
-			knowledgegraph.StepActive:   "⏳",
-			knowledgegraph.StepComplete: "✓",
-			knowledgegraph.StepSkipped:  "⊗",
+		statusIcon := map[explorationgraph.RoadmapStepStatus]string{
+			explorationgraph.StepTodo:     "⏸",
+			explorationgraph.StepActive:   "⏳",
+			explorationgraph.StepComplete: "✓",
+			explorationgraph.StepSkipped:  "⊗",
 		}[step.Status]
 
 		output += fmt.Sprintf("%s %.1f: %s (%s)\n", statusIcon, step.Step, step.Objective, step.Status)

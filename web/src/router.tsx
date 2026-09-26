@@ -7,7 +7,6 @@ import { PlaceholderPage } from '@/pages/PlaceholderPage'
 const ConversationsPage = lazy(() => import('@/pages/ConversationsPage').then((m) => ({ default: m.ConversationsPage })))
 const FindingsPage = lazy(() => import('@/pages/FindingsPage').then((m) => ({ default: m.FindingsPage })))
 const LlmAuditPage = lazy(() => import('@/pages/LlmAuditPage').then((m) => ({ default: m.LlmAuditPage })))
-const ScenarioAdmin = lazy(() => import('@/pages/ScenarioAdmin').then((m) => ({ default: m.ScenarioAdmin })))
 const AgentAdmin = lazy(() => import('@/pages/AgentAdmin').then((m) => ({ default: m.AgentAdmin })))
 const ToolsPage = lazy(() => import('@/pages/ToolsPage').then((m) => ({ default: m.ToolsPage })))
 const TrafficPage = lazy(() => import('@/pages/TrafficPage').then((m) => ({ default: m.TrafficPage })))
@@ -47,11 +46,10 @@ export const router = createBrowserRouter([
       { path: 'llm-audit', element: withSuspense(<LlmAuditPage />) },
       { path: 'knowledge-graph', element: withSuspense(<KnowledgeGraphPage />) },
       {
-        // 配置管理：场景/智能体（后端 agent）两资源各自独立页，侧栏平铺入口。
+        // 配置管理：智能体（后端 agent）独立页，侧栏平铺入口。
         path: 'config',
         children: [
-          { index: true, element: <Navigate to="/config/scenarios" replace /> },
-          { path: 'scenarios', element: withSuspense(<ScenarioAdmin />) },
+          { index: true, element: <Navigate to="/config/agents" replace /> },
           { path: 'agents', element: withSuspense(<AgentAdmin />) },
           { path: 'tools', element: withSuspense(<ToolsPage />) },
           { path: 'models', element: withSuspense(<ModelPage />) },

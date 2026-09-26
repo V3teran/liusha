@@ -15,7 +15,7 @@ import (
 	"github.com/V3teran/liusha/internal/framework/core"
 	"github.com/V3teran/liusha/internal/framework/llm"
 	"github.com/V3teran/liusha/internal/framework/runtime"
-	"github.com/V3teran/liusha/internal/knowledgegraph"
+	"github.com/V3teran/liusha/internal/explorationgraph"
 )
 
 // 编译时检查接口实现
@@ -24,7 +24,7 @@ var _ core.Agent = (*Agent)(nil)
 // Agent 是独立的监察 Agent。
 type Agent struct {
 	taskID       string
-	world        *knowledgegraph.Store
+	world        *explorationgraph.Store
 	eventBus     bus.Bus
 	provider     llm.Provider
 	reactRuntime runtime.ReActRuntime
@@ -39,7 +39,7 @@ type Agent struct {
 // Config 是 Monitor Agent 的配置。
 type Config struct {
 	TaskID   string
-	World    *knowledgegraph.Store
+	World    *explorationgraph.Store
 	EventBus bus.Bus
 	Provider llm.Provider
 	Router   *llm.Router        // 用于获取合适的 Provider
@@ -251,9 +251,9 @@ func (a *Agent) ImportState(data json.RawMessage) error {
 
 // GlobalState 是任务的全局状态快照。
 type GlobalState struct {
-	Objective knowledgegraph.ObjectiveNode `json:"objective"`
-	Actions   []knowledgegraph.Node        `json:"actions"`
-	Findings  []knowledgegraph.Node        `json:"findings"`
+	Objective explorationgraph.ObjectiveNode `json:"objective"`
+	Actions   []explorationgraph.Node        `json:"actions"`
+	Findings  []explorationgraph.Node        `json:"findings"`
 }
 
 // Decision 是监察决策。

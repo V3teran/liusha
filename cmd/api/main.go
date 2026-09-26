@@ -38,7 +38,7 @@ import (
 	"github.com/V3teran/liusha/internal/finding"
 	"github.com/V3teran/liusha/internal/framework/core"
 	"github.com/V3teran/liusha/internal/httpapi"
-	"github.com/V3teran/liusha/internal/knowledgegraph"
+	"github.com/V3teran/liusha/internal/explorationgraph"
 	"github.com/V3teran/liusha/internal/llm"
 	"github.com/V3teran/liusha/internal/llminvocation"
 	"github.com/V3teran/liusha/internal/llmstore"
@@ -185,7 +185,7 @@ func main() {
 
 	// Phase 1: 知识图谱 API（e2e 测试迁移专用）
 	graphStore := core.NewPostgresGraphStore(pool)
-	kgAdapter := knowledgegraph.NewAdapterStore(graphStore)
+	kgAdapter := explorationgraph.NewAdapterStore(graphStore)
 
 	// 多轮问答/意图分类依赖：light provider 路由 + 问答读 finding + SSE publish。
 	// llmKeyCipher 解密 provider 的加密密钥（migration 0103），构造 client 前才解密，不进缓存。
@@ -255,7 +255,7 @@ func main() {
 			UsageLLM:          invocationStore,              // 会话用量：LLM token/耗时合计
 			UsageTools:        toolStore,                    // 会话用量：工具耗时合计
 			ControlPlane:      controlPlaneStore,            // 任务控制平面（人工干预）
-			KnowledgeGraph:    kgAdapter,                    // Phase 1: 知识图谱 API（e2e 测试迁移）
+			ExplorationGraph:    kgAdapter,                    // Phase 1: 知识图谱 API（e2e 测试迁移）
 			EnableDevAutofill: envx.OrDefault("LIUSHA_DEV_AUTOFILL", "") != "",
 		}),
 		ReadTimeout:  time.Duration(cfg.API.ReadTimeoutSeconds) * time.Second,

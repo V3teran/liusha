@@ -52,7 +52,6 @@ export interface Conversation {
   TaskID: string // 关联扫描 task.id（= owner id）——执行图/攻击面按此匹配会话拿思维链
   // Status 已退役删除（后端不再返回）——运行态用 RunStatus。
   RunStatus?: string // 派生的真实运行态（active/completed/aborted；纯聊天空）——列表显示用此
-  ScenarioID?: string // 派生的场景 code（关联 task 的 scenario_id；纯聊天空）——按场景分流列表
   FindingCount?: number // 本会话关联 task 已挖到的漏洞数——流量分析 feed 卡「host · N findings」摘要
   Source?: string // 派生的下发来源（manual 主动下发 / auto 被动代理；纯聊天归 manual）——双 tab 分流
   CreatedAt: string
@@ -79,33 +78,12 @@ export interface ConversationUsage {
 }
 
 /* ============================================================
-   配置管理（scenario / agent 两资源 CRUD）
-   小写键（Go gin.H DTO：scenarioJSON/agentJSON 单点序列化）。
-   ScenarioConfig 是场景的唯一形态：GET /scenarios 单一口径返回全量全字段，
-   对话 ScenarioPicker 与配置管理页共用（停用场景由 enabled 区分：picker 置灰、页内可编辑）。
+   配置管理（agent 资源 CRUD）
+   小写键（Go gin.H DTO：agentJSON 单点序列化）。
    ============================================================ */
 
-// scenario 引擎：
-//   - solo ：单一智能体独立执行，由 solo_agent_id 单点指定
-//   - swarm：planner + 全部 enabled executor 池，运行时动态调度（无需枚举）
-export type ScenarioEngine = 'solo' | 'swarm'
 // 智能体种类：planner（规划型，读图产出 Move）/ executor（执行型，执行 Move 产出 Attempt）
 export type AgentKind = 'planner' | 'executor'
-
-// ScenarioConfig 是场景全字段形态（GET /scenarios 列表与 /scenarios/:id 单条）。
-// solo_agent_id：solo 引擎唯一执行智能体 id；swarm 场景为空串（后端 null 序列化）。
-export interface ScenarioConfig {
-  id: string
-  code: string
-  name: string
-  description: string
-  instruction: string
-  engine: ScenarioEngine
-  solo_agent_id: string
-  enabled: boolean
-  created_at?: string
-  updated_at?: string
-}
 
 // AgentConfig 是智能体全字段形态。function_tools/cli_tools 后端保证非 nil。
 //   - function_tools：内置函数工具集（进程内原生函数 code 列表）
@@ -272,7 +250,6 @@ export interface OwnerSummary {
   id: string
   scope: string
   status: string
-  scenario_id: string // 所属场景 code
   created_at: string
   ended_at?: string
   error_message?: string
@@ -299,7 +276,6 @@ export interface FindingRow {
   target?: FindingTarget
   // evidence 是 LLM 自由 jsonb（PoC/复现命令/观察等，41 种 key），前端通用 KV 渲染。
   evidence?: Record<string, unknown>
-  scenario_id?: string // 所属场景 code（JOIN task 派生）
   source: string // manual 主动下发 / auto 被动代理（JOIN assignment 派生）
   status: string // open/confirmed/fixed/false_positive/accepted
   triage_note?: string
@@ -312,7 +288,6 @@ export interface FindingFilters {
   severity?: string
   status?: string
   source?: string
-  scenario_id?: string // 按来源场景（对话所属场景 code）分流——与会话列表同一分流维度
   page?: number // 1-based
   size?: number
 }
@@ -415,7 +390,7 @@ export interface TrafficSummary {
 // TrafficConsumer 是消费本条流量的 passive task（M:N），附解析出的会话 id 供 chip 跳转。
 export interface TrafficConsumer {
   task_id: string
-  scenario_id: string
+  
   host: string
   status: string
   conv_id: string // 绑定会话；空表示暂不可跳

@@ -6,16 +6,16 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/V3teran/liusha/internal/knowledgegraph"
+	"github.com/V3teran/liusha/internal/explorationgraph"
 )
 
-// KnowledgeGraphAPI 是知识图谱查询的窄接口（由 *knowledgegraph.AdapterStore 实现）
-type KnowledgeGraphAPI interface {
+// ExplorationGraphAPI 是知识图谱查询的窄接口（由 *explorationgraph.AdapterStore 实现）
+type ExplorationGraphAPI interface {
 	// ListNodesForAPI 按 task_id 和可选 kind 查询节点
-	ListNodesForAPI(ctx context.Context, taskID string, kind string) ([]knowledgegraph.Node, error)
+	ListNodesForAPI(ctx context.Context, taskID string, kind string) ([]explorationgraph.Node, error)
 
 	// ListEdgesForAPI 按 task_id 查询边
-	ListEdgesForAPI(ctx context.Context, taskID string) ([]knowledgegraph.Edge, error)
+	ListEdgesForAPI(ctx context.Context, taskID string) ([]explorationgraph.Edge, error)
 
 	// GetStatsForAPI 返回节点类型统计（e2e 轮询专用）
 	GetStatsForAPI(ctx context.Context, taskID string) (map[string]int, error)
@@ -32,18 +32,18 @@ type GraphStats struct {
 
 // GraphResponse 是完整图谱响应
 type GraphResponse struct {
-	Nodes []knowledgegraph.Node `json:"nodes"`
-	Edges []knowledgegraph.Edge `json:"edges"`
+	Nodes []explorationgraph.Node `json:"nodes"`
+	Edges []explorationgraph.Edge `json:"edges"`
 }
 
 // NodesResponse 是按类型筛选节点响应
 type NodesResponse struct {
-	Nodes []knowledgegraph.Node `json:"nodes"`
+	Nodes []explorationgraph.Node `json:"nodes"`
 }
 
 // getTaskStats 处理 GET /api/v1/tasks/{taskId}/stats
 // 返回节点类型统计（e2e 轮询专用）
-func getTaskStats(api KnowledgeGraphAPI) gin.HandlerFunc {
+func getTaskStats(api ExplorationGraphAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		taskID := c.Param("taskId")
 		if taskID == "" {
@@ -72,7 +72,7 @@ func getTaskStats(api KnowledgeGraphAPI) gin.HandlerFunc {
 
 // getTaskNodes 处理 GET /api/v1/tasks/{taskId}/nodes?kind=objective
 // 按类型筛选节点
-func getTaskNodes(api KnowledgeGraphAPI) gin.HandlerFunc {
+func getTaskNodes(api ExplorationGraphAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		taskID := c.Param("taskId")
 		if taskID == "" {
@@ -95,7 +95,7 @@ func getTaskNodes(api KnowledgeGraphAPI) gin.HandlerFunc {
 
 // getTaskGraph 处理 GET /api/v1/tasks/{taskId}/graph
 // 返回完整知识图谱（nodes + edges）
-func getTaskGraph(api KnowledgeGraphAPI) gin.HandlerFunc {
+func getTaskGraph(api ExplorationGraphAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		taskID := c.Param("taskId")
 		if taskID == "" {

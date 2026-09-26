@@ -240,7 +240,7 @@ func TestLLMInvocationsHandler(t *testing.T) {
 		defer srv.Close()
 
 		req, _ := http.NewRequest("GET",
-			srv.URL+"/llm/invocations/t1?role=planner&model=mimo-v2.5&only_err=1"+
+			srv.URL+"/llm/invocations/t1?role=planner&model=glm-5.3-flash&only_err=1"+
 				"&start=2026-07-20T00:00:00Z&end=2026-07-21T00:00:00Z", nil)
 		req.Header.Set("X-API-Key", "k")
 		resp, err := http.DefaultClient.Do(req)
@@ -250,7 +250,7 @@ func TestLLMInvocationsHandler(t *testing.T) {
 		defer resp.Body.Close()
 
 		f := fake.gotFilter
-		if f.Role != "planner" || f.Model != "mimo-v2.5" || !f.OnlyErr {
+		if f.Role != "planner" || f.Model != "glm-5.3-flash" || !f.OnlyErr {
 			t.Errorf("role/model/only_err 解析错: %+v", f)
 		}
 		if f.Start == nil || f.Start.UTC().Format(time.RFC3339) != "2026-07-20T00:00:00Z" {
@@ -367,7 +367,7 @@ func TestLLMInvocationStatHandler(t *testing.T) {
 		defer srv.Close()
 
 		req, _ := http.NewRequest("GET",
-			srv.URL+"/llm/invocations/t1/stat?role=exploitation&model=mimo-v2.5&only_err=1", nil)
+			srv.URL+"/llm/invocations/t1/stat?role=exploitation&model=glm-5.3-flash&only_err=1", nil)
 		req.Header.Set("X-API-Key", "k")
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
@@ -376,7 +376,7 @@ func TestLLMInvocationStatHandler(t *testing.T) {
 		defer resp.Body.Close()
 
 		f := fake.gotAggF
-		if f.Role != "exploitation" || f.Model != "mimo-v2.5" || !f.OnlyErr {
+		if f.Role != "exploitation" || f.Model != "glm-5.3-flash" || !f.OnlyErr {
 			t.Errorf("统计未收到筛选条件: %+v", f)
 		}
 		if f.Limit != 0 || f.Offset != 0 {
@@ -389,7 +389,7 @@ func TestLLMInvocationFacetsHandler(t *testing.T) {
 	t.Run("200 返回 role/model 候选", func(t *testing.T) {
 		fake := &fakeInvocations{facets: llminvocation.Facets{
 			Roles:  []string{"exploitation", "planner"},
-			Models: []string{"mimo-v2.5"},
+			Models: []string{"glm-5.3-flash"},
 		}}
 		srv := newTestServer(t, Deps{Invocations: fake})
 		defer srv.Close()
@@ -412,7 +412,7 @@ func TestLLMInvocationFacetsHandler(t *testing.T) {
 		if len(body.Roles) != 2 || body.Roles[0] != "exploitation" {
 			t.Errorf("roles 不符: %+v", body.Roles)
 		}
-		if len(body.Models) != 1 || body.Models[0] != "mimo-v2.5" {
+		if len(body.Models) != 1 || body.Models[0] != "glm-5.3-flash" {
 			t.Errorf("models 不符: %+v", body.Models)
 		}
 	})

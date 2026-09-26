@@ -11,7 +11,7 @@ import (
 
 	"github.com/V3teran/liusha/internal/db"
 	"github.com/V3teran/liusha/internal/evaluator"
-	"github.com/V3teran/liusha/internal/knowledgegraph"
+	"github.com/V3teran/liusha/internal/explorationgraph"
 )
 
 // stubReplayer 按预设结论回应复现——集成测试只评估"门 + 真 store"咬合，不测真实复现。
@@ -21,7 +21,7 @@ func (s stubReplayer) Replay(context.Context, json.RawMessage) (evaluator.Result
 	return s.res, nil
 }
 
-// Evaluator 承接 L3 的关键评估：用真 knowledgegraph.Store 跑晋升门，证明
+// Evaluator 承接 L3 的关键评估：用真 explorationgraph.Store 跑晋升门，证明
 //   - 坐实 → wm_verification 落 confirmed + wm_node 晋升 confirmed + verified_by 回指闭环；
 //   - 证伪 → wm_verification 落 refuted 留档，wm_node 不新增。
 //
@@ -39,7 +39,7 @@ func TestEvaluator_PromoteAgainstRealStore(t *testing.T) {
 		t.Fatalf("连库: %v", err)
 	}
 	defer pool.Close()
-	store := knowledgegraph.NewStore(pool)
+	store := explorationgraph.NewStore(pool)
 
 	const taskID = "verifier-itest"
 	defer func() {
@@ -51,8 +51,8 @@ func TestEvaluator_PromoteAgainstRealStore(t *testing.T) {
 		return evaluator.Attempt{
 			TaskID:     taskID,
 			LeadID:     "lead-" + loc,
-			Kind:       knowledgegraph.KindResult,
-			Target:     knowledgegraph.TargetRef{Domain: "web", RefKind: "host", Locator: loc},
+			Kind:       explorationgraph.KindResult,
+			Target:     explorationgraph.TargetRef{Domain: "web", RefKind: "host", Locator: loc},
 			Primitives: json.RawMessage(`[{"op":"http_request"}]`),
 			Attrs:      json.RawMessage(`{"severity":"high","taxonomy":["owasp:A03"]}`),
 		}
@@ -66,7 +66,7 @@ func TestEvaluator_PromoteAgainstRealStore(t *testing.T) {
 	if err != nil {
 		t.Fatalf("坐实 Promote: %v", err)
 	}
-	if node == nil || node.Confidence != knowledgegraph.ConfConfirmed {
+	if node == nil || node.Confidence != explorationgraph.ConfConfirmed {
 		t.Fatalf("应晋升 confirmed 节点, got %+v", node)
 	}
 	if node.VerifiedBy == nil || *node.VerifiedBy == "" {

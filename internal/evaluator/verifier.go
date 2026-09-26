@@ -25,14 +25,14 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/V3teran/liusha/internal/framework/core"
-	"github.com/V3teran/liusha/internal/knowledgegraph"
+	"github.com/V3teran/liusha/internal/explorationgraph"
 )
 
 // worldWriter 是 Evaluator 依赖的世界模型写入子集：收窄依赖 + 便于测试替身。
-// *knowledgegraph.Store 自动满足本接口。
+// *explorationgraph.Store 自动满足本接口。
 type worldWriter interface {
-	RecordVerification(ctx context.Context, v knowledgegraph.Verification) (string, error)
-	CreateNode(ctx context.Context, n knowledgegraph.Node) (string, error)
+	RecordVerification(ctx context.Context, v explorationgraph.Verification) (string, error)
+	CreateNode(ctx context.Context, n explorationgraph.Node) (string, error)
 }
 
 // findingWriter 是 Evaluator 依赖的 finding 写入子集：验证通过后才能写入 finding 表。
@@ -87,8 +87,8 @@ func New(world worldWriter, replayer Replayer, findings findingWriter) *Promotio
 //   - (nil, nil)   复现证伪，未进图（证据已留 wm_verification 供审计）——非错误；
 //   - (nil, err)   门本身出错（复现执行/落库失败）。
 //
-// 库不 log，错误上抛由 caller 记录（与 knowledgegraph.Store 一致）。
-func (v *PromotionEvaluator) Promote(ctx context.Context, a Attempt) (*knowledgegraph.Node, error) {
+// 库不 log，错误上抛由 caller 记录（与 explorationgraph.Store 一致）。
+func (v *PromotionEvaluator) Promote(ctx context.Context, a Attempt) (*explorationgraph.Node, error) {
 	if a.TaskID == "" {
 		return nil, fmt.Errorf("verifier: Attempt.TaskID 必填")
 	}
@@ -108,11 +108,11 @@ func (v *PromotionEvaluator) Promote(ctx context.Context, a Attempt) (*knowledge
 	nodeID := uuid.New().String()
 
 	// 证据链：无论坐实与否都落 wm_verification（refuted 也留档供审计/复盘）。
-	outcome := knowledgegraph.OutcomeRefuted
+	outcome := explorationgraph.OutcomeRefuted
 	if res.Confirmed {
-		outcome = knowledgegraph.OutcomeConfirmed
+		outcome = explorationgraph.OutcomeConfirmed
 	}
-	verID, err := v.world.RecordVerification(ctx, knowledgegraph.Verification{
+	verID, err := v.world.RecordVerification(ctx, explorationgraph.Verification{
 		ID:         uuid.New().String(),
 		TaskID:     a.TaskID,
 		NodeID:     nodeID, // 预先分配，即使证伪也记录（审计需要）
@@ -132,15 +132,15 @@ func (v *PromotionEvaluator) Promote(ctx context.Context, a Attempt) (*knowledge
 	}
 
 	// 坐实：晋升成 verified 节点
-	verified := knowledgegraph.ConfidenceVerified
-	node := knowledgegraph.Node{
+	verified := explorationgraph.ConfidenceVerified
+	node := explorationgraph.Node{
 		ID:         nodeID,
 		TaskID:     a.TaskID,
 		Kind:       a.Kind,
 		Content:    a.Content,
 		Confidence: &verified,
-		Priority:   knowledgegraph.Priority(a.Priority),
-		SourceType: knowledgegraph.SourceEvaluator,
+		Priority:   explorationgraph.Priority(a.Priority),
+		SourceType: explorationgraph.SourceEvaluator,
 		SourceID:   verID,
 		CreatedAt:  time.Now(),
 		UpdatedAt:  time.Now(),
@@ -166,7 +166,7 @@ func (v *PromotionEvaluator) Promote(ctx context.Context, a Attempt) (*knowledge
 // writeFinding 将验证通过的节点写入 finding 表
 
 // writeFinding 将验证通过的节点写入 finding 表
-func (v *PromotionEvaluator) writeFinding(ctx context.Context, node knowledgegraph.Node, attempt Attempt, res Result) error {
+func (v *PromotionEvaluator) writeFinding(ctx context.Context, node explorationgraph.Node, attempt Attempt, res Result) error {
 	// 只有 Result 类节点（包含漏洞）才写入 finding 表
 	if node.Kind != core.KindResult {
 		return nil

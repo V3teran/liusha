@@ -9,7 +9,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/V3teran/liusha/internal/framework/core"
-	"github.com/V3teran/liusha/internal/knowledgegraph"
+	"github.com/V3teran/liusha/internal/explorationgraph"
 )
 
 // ActionMetadata 是 action 节点的 metadata 结构。
@@ -106,7 +106,7 @@ func (p *PlannerAgent) Kill(ctx context.Context, actionID string, reason string)
 	}
 
 	// 5. 更新状态为 aborted
-	state := knowledgegraph.StateAborted
+	state := explorationgraph.StateAborted
 	if err := p.world.UpdateActionStateWithReason(ctx, actionID, state, nil); err != nil {
 		return fmt.Errorf("update action state: %w", err)
 	}
@@ -177,16 +177,16 @@ func (p *PlannerAgent) CreateAction(ctx context.Context, taskID string, newActio
 		Msg("creating new action")
 
 	// 创建 action 节点
-	state := knowledgegraph.StateOpen
-	node := knowledgegraph.Node{
+	state := explorationgraph.StateOpen
+	node := explorationgraph.Node{
 		ID:         uuid.New().String(),
 		TaskID:     taskID,
 		Kind:       core.KindAction,
 		State:      &state,
 		Content:    json.RawMessage(fmt.Sprintf(`"%s"`, newAction.Goal)),
-		Priority:   knowledgegraph.Priority(newAction.Priority),
+		Priority:   explorationgraph.Priority(newAction.Priority),
 		DependsOn:  newAction.DependsOn,
-		SourceType: knowledgegraph.SourcePlanner,
+		SourceType: explorationgraph.SourcePlanner,
 		SourceID:   "control-plane",
 		CreatedAt:  time.Now(),
 		UpdatedAt:  time.Now(),

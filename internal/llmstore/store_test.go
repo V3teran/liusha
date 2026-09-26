@@ -58,7 +58,7 @@ func newLLMTestStore(t *testing.T, f *fakeLLM) *Store {
 // TestListProviders_CachedAndInvalidated 验证：ListProviders 走缓存（二读不打底层），provider 写后失效。
 func TestListProviders_CachedAndInvalidated(t *testing.T) {
 	ctx := context.Background()
-	f := &fakeLLM{providers: []llmcfg.Provider{{Key: "mimo", Enabled: true}}}
+	f := &fakeLLM{providers: []llmcfg.Provider{{Key: "glm", Enabled: true}}}
 	s := newLLMTestStore(t, f)
 
 	if _, err := s.ListProviders(ctx, false); err != nil {
@@ -74,7 +74,7 @@ func TestListProviders_CachedAndInvalidated(t *testing.T) {
 		t.Fatal("首读后 providers 列表键应回填 L1")
 	}
 	// SaveProvider → providerKeys 含两个列表键，应失效。
-	if _, err := s.SaveProvider(ctx, llmcfg.ProviderParams{Key: "mimo"}); err != nil {
+	if _, err := s.SaveProvider(ctx, llmcfg.ProviderParams{Key: "glm"}); err != nil {
 		t.Fatalf("save provider: %v", err)
 	}
 	if s.cache.L1Has(keyProvidersList(false)) {
@@ -91,7 +91,7 @@ func TestListProviders_CachedAndInvalidated(t *testing.T) {
 // TestListProviders_EnabledFlagSeparateKeys 验证：onlyEnabled 分两键，互不串味。
 func TestListProviders_EnabledFlagSeparateKeys(t *testing.T) {
 	ctx := context.Background()
-	f := &fakeLLM{providers: []llmcfg.Provider{{Key: "mimo", Enabled: true}}}
+	f := &fakeLLM{providers: []llmcfg.Provider{{Key: "glm", Enabled: true}}}
 	s := newLLMTestStore(t, f)
 
 	if _, err := s.ListProviders(ctx, false); err != nil {
@@ -112,7 +112,7 @@ func TestListProviders_EnabledFlagSeparateKeys(t *testing.T) {
 // TestListRoleRoutes_CachedAndInvalidated 验证：ListRoleRoutes 走缓存，路由写后失效（含路由快照哨兵）。
 func TestListRoleRoutes_CachedAndInvalidated(t *testing.T) {
 	ctx := context.Background()
-	f := &fakeLLM{routes: []llmcfg.RoleRoute{{Role: llmcfg.ComplexityMedium, ProviderKey: "mimo"}}}
+	f := &fakeLLM{routes: []llmcfg.RoleRoute{{Role: llmcfg.ComplexityMedium, ProviderKey: "glm"}}}
 	s := newLLMTestStore(t, f)
 
 	if _, err := s.ListRoleRoutes(ctx); err != nil {
@@ -125,7 +125,7 @@ func TestListRoleRoutes_CachedAndInvalidated(t *testing.T) {
 		t.Fatalf("期望路由列表只打底层 1 次（二读命中缓存），实际 %d", got)
 	}
 	// UpsertRoleRoute → routeKeys 含列表键 + 路由快照哨兵，均应失效。
-	if _, err := s.UpsertRoleRoute(ctx, llmcfg.ComplexityComplex, "mimo"); err != nil {
+	if _, err := s.UpsertRoleRoute(ctx, llmcfg.ComplexityComplex, "glm"); err != nil {
 		t.Fatalf("upsert route: %v", err)
 	}
 	if s.cache.L1Has(keyRoleRoutesList) {
@@ -142,7 +142,7 @@ func TestListRoleRoutes_CachedAndInvalidated(t *testing.T) {
 // TestDeleteRoleRoute_InvalidatesRoutingSnapshot 验证：删路由也失效路由快照哨兵（两跳解析读的是它）。
 func TestDeleteRoleRoute_InvalidatesRoutingSnapshot(t *testing.T) {
 	ctx := context.Background()
-	f := &fakeLLM{routes: []llmcfg.RoleRoute{{Role: llmcfg.ComplexityMedium, ProviderKey: "mimo"}}}
+	f := &fakeLLM{routes: []llmcfg.RoleRoute{{Role: llmcfg.ComplexityMedium, ProviderKey: "glm"}}}
 	s := newLLMTestStore(t, f)
 
 	if _, err := s.Routing(ctx); err != nil { // 暖起路由快照哨兵

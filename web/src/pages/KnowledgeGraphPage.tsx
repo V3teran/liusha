@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
-import { ReactFlow, type Node, type Edge, Background, Controls, MiniMap, useNodesState, useEdgesState } from '@xyflow/react'
+import { ReactFlow, type Node, type Edge, Background, Controls, MiniMap, useNodesState, useEdgesState, MarkerType } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
+import dagre from '@dagrejs/dagre'
 
 interface GraphNode {
   id: string
@@ -42,40 +43,68 @@ const STATE_COLORS = {
   aborted: '#9ca3af',
 }
 
+// Dagre layout for hierarchical graph
+const getLayoutedElements = (nodes: Node[], edges: Edge[], direction = 'LR') => {
+  const dagreGraph = new dagre.graphlib.Graph()
+  dagreGraph.setDefaultEdgeLabel(() => ({}))
+  dagreGraph.setGraph({ rankdir: direction, nodesep: 100, ranksep: 150 })
+
+  nodes.forEach((node) => {
+    dagreGraph.setNode(node.id, { width: 250, height: 100 })
+  })
+
+  edges.forEach((edge) => {
+    dagreGraph.setEdge(edge.source, edge.target)
+  })
+
+  dagre.layout(dagreGraph)
+
+  const layoutedNodes = nodes.map((node) => {
+    const nodeWithPosition = dagreGraph.node(node.id)
+    return {
+      ...node,
+      position: {
+        x: nodeWithPosition.x - 125,
+        y: nodeWithPosition.y - 50,
+      },
+    }
+  })
+
+  return { nodes: layoutedNodes, edges }
+}
+
 export function KnowledgeGraphPage() {
-  const [tasks, setTasks] = useState<Array<{ task_id: string; node_count: number }>>([])
-  const [selectedTask, setSelectedTask] = useState<string>('')
+  const [taskId, setTaskId] = useState<string>('')
   const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string>('')
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([])
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([])
 
   useEffect(() => {
-    loadTasks()
+    // 从 URL 参数获取 task_id
+    const params = new URLSearchParams(window.location.search)
+    const taskIdFromUrl = params.get('task_id')
+    if (taskIdFromUrl) {
+      setTaskId(taskIdFromUrl)
+    }
   }, [])
 
   useEffect(() => {
-    if (selectedTask) {
-      loadGraph(selectedTask)
+    if (taskId) {
+      loadGraph(taskId)
     }
-  }, [selectedTask])
-
-  const loadTasks = async () => {
-    try {
-      const resp = await fetch('http://localhost:8001/api/v1/debug/tasks-with-nodes')
-      const data = await resp.json()
-      if (data.tasks && data.tasks.length > 0) {
-        setTasks(data.tasks)
-        setSelectedTask(data.tasks[0].task_id)
-      }
-    } catch (err) {
-      console.error('加载任务列表失败:', err)
-    }
-  }
+  }, [taskId])
 
   const loadGraph = async (taskId: string) => {
     setLoading(true)
+    setError('')
     try {
-      const resp = await fetch(`http://localhost:8001/api/v1/tasks/${taskId}/graph`)
+      const resp = await fetch(`/api/v1/tasks/${taskId}/graph`, {
+        headers: { 'X-API-Key': localStorage.getItem('liusha_api_key') || '' }
+      })
+      if (!resp.ok) {
+        throw new Error(`HTTP ${resp.status}`)
+      }
       const data: GraphResponse = await resp.json()
 
       const flowNodes: Node[] = data.nodes.map((n, idx) => {
@@ -114,17 +143,28 @@ export function KnowledgeGraphPage() {
         source: e.from_id,
         target: e.to_id,
         label: e.rel_type,
-        type: 'smoothstep',
-        animated: true,
-        style: { stroke: '#94a3b8', strokeWidth: 2 },
-        labelStyle: { fill: '#64748b', fontSize: 10 },
-        labelBgStyle: { fill: '#0f172a', fillOpacity: 0.8 },
+        type: 'default',
+        animated: false,
+        markerEnd: {
+          type: MarkerType.ArrowClosed,
+          width: 24,
+          height: 24,
+          color: '#60a5fa',
+        },
+        style: {
+          stroke: '#60a5fa',
+          strokeWidth: 2.5,
+        },
+        labelStyle: { fill: '#e2e8f0', fontSize: 11, fontWeight: 500 },
+        labelBgStyle: { fill: '#1e293b', fillOpacity: 0.95, rx: 4, ry: 4 },
       }))
 
-      setNodes(flowNodes)
-      setEdges(flowEdges)
+      const { nodes: layoutedNodes, edges: layoutedEdges } = getLayoutedElements(flowNodes, flowEdges, 'LR')
+      setNodes(layoutedNodes)
+      setEdges(layoutedEdges)
     } catch (err) {
       console.error('加载图谱失败:', err)
+      setError(err instanceof Error ? err.message : '加载失败')
     } finally {
       setLoading(false)
     }
@@ -133,20 +173,23 @@ export function KnowledgeGraphPage() {
   return (
     <div className="flex h-full flex-col bg-background">
       <header className="flex h-14 shrink-0 items-center justify-between border-b border-border px-6">
-        <h1 className="text-lg font-semibold">知识图谱</h1>
+        <h1 className="text-lg font-semibold">探索图</h1>
         <div className="flex items-center gap-4">
-          <select
-            value={selectedTask}
-            onChange={(e) => setSelectedTask(e.target.value)}
-            className="rounded-md border border-border bg-surface px-3 py-1.5 text-sm"
+          <input
+            type="text"
+            value={taskId}
+            onChange={(e) => setTaskId(e.target.value)}
+            placeholder="输入任务 ID"
+            className="rounded-md border border-border bg-surface px-3 py-1.5 text-sm w-80"
             disabled={loading}
+          />
+          <button
+            onClick={() => loadGraph(taskId)}
+            disabled={loading || !taskId}
+            className="rounded-md bg-blue-600 px-4 py-1.5 text-sm text-white hover:bg-blue-700 disabled:opacity-50"
           >
-            {tasks.map((t) => (
-              <option key={t.task_id} value={t.task_id}>
-                {t.task_id.slice(0, 8)}... ({t.node_count} 节点)
-              </option>
-            ))}
-          </select>
+            加载
+          </button>
         </div>
       </header>
 
@@ -154,6 +197,18 @@ export function KnowledgeGraphPage() {
         {loading ? (
           <div className="flex h-full items-center justify-center text-muted">
             加载中...
+          </div>
+        ) : error ? (
+          <div className="flex h-full items-center justify-center flex-col gap-4">
+            <div className="text-red-400">{error}</div>
+            <div className="text-sm text-muted">请检查任务 ID 是否正确，或在对话列表中选择一个任务</div>
+          </div>
+        ) : nodes.length === 0 ? (
+          <div className="flex h-full items-center justify-center text-muted">
+            <div className="text-center">
+              <div className="mb-2">暂无数据</div>
+              <div className="text-sm">请输入任务 ID 或通过 URL 参数 ?task_id=xxx 访问</div>
+            </div>
           </div>
         ) : (
           <ReactFlow

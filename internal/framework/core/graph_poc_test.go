@@ -209,8 +209,8 @@ func (g *simpleGraph) nextNode(ctx context.Context, from string, state State) (s
 
 func TestGraph_ExpressLiushaWorkflow(t *testing.T) {
 	t.Run("基础 Planner-Executor 循环", func(t *testing.T) {
-		// 模拟 KnowledgeGraph
-		kg := &mockKnowledgeGraph{
+		// 模拟 ExplorationGraph
+		kg := &mockExplorationGraph{
 			actions: make([]mockAction, 0),
 		}
 
@@ -299,7 +299,7 @@ func TestGraph_ExpressLiushaWorkflow(t *testing.T) {
 	})
 
 	t.Run("复杂场景：带依赖的 Actions", func(t *testing.T) {
-		kg := &mockKnowledgeGraph{actions: make([]mockAction, 0)}
+		kg := &mockExplorationGraph{actions: make([]mockAction, 0)}
 		graph := NewGraph("planner")
 
 		// Planner：生成有依赖关系的 Actions
@@ -764,16 +764,16 @@ type mockAction struct {
 	Completed   bool
 }
 
-type mockKnowledgeGraph struct {
+type mockExplorationGraph struct {
 	actions []mockAction
 	mu      sync.Mutex
 }
 
-func (kg *mockKnowledgeGraph) CreateAction(id string) {
+func (kg *mockExplorationGraph) CreateAction(id string) {
 	kg.CreateActionWithDeps(id, nil)
 }
 
-func (kg *mockKnowledgeGraph) CreateActionWithDeps(id string, deps []string) {
+func (kg *mockExplorationGraph) CreateActionWithDeps(id string, deps []string) {
 	kg.mu.Lock()
 	defer kg.mu.Unlock()
 	kg.actions = append(kg.actions, mockAction{
@@ -783,7 +783,7 @@ func (kg *mockKnowledgeGraph) CreateActionWithDeps(id string, deps []string) {
 	})
 }
 
-func (kg *mockKnowledgeGraph) GetOpenActions() []mockAction {
+func (kg *mockExplorationGraph) GetOpenActions() []mockAction {
 	kg.mu.Lock()
 	defer kg.mu.Unlock()
 	var open []mockAction
@@ -795,11 +795,11 @@ func (kg *mockKnowledgeGraph) GetOpenActions() []mockAction {
 	return open
 }
 
-func (kg *mockKnowledgeGraph) GetOpenCount() int {
+func (kg *mockExplorationGraph) GetOpenCount() int {
 	return len(kg.GetOpenActions())
 }
 
-func (kg *mockKnowledgeGraph) MarkCompleted(id string) {
+func (kg *mockExplorationGraph) MarkCompleted(id string) {
 	kg.mu.Lock()
 	defer kg.mu.Unlock()
 	for i := range kg.actions {
@@ -810,7 +810,7 @@ func (kg *mockKnowledgeGraph) MarkCompleted(id string) {
 	}
 }
 
-func (kg *mockKnowledgeGraph) GetCompletedCount() int {
+func (kg *mockExplorationGraph) GetCompletedCount() int {
 	kg.mu.Lock()
 	defer kg.mu.Unlock()
 	count := 0
@@ -822,7 +822,7 @@ func (kg *mockKnowledgeGraph) GetCompletedCount() int {
 	return count
 }
 
-func (kg *mockKnowledgeGraph) GetNextExecutableAction() *mockAction {
+func (kg *mockExplorationGraph) GetNextExecutableAction() *mockAction {
 	kg.mu.Lock()
 	defer kg.mu.Unlock()
 

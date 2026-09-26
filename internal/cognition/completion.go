@@ -9,38 +9,34 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/V3teran/liusha/internal/bus"
-	"github.com/V3teran/liusha/internal/knowledgegraph"
+	"github.com/V3teran/liusha/internal/explorationgraph"
 )
 
 // CompletionDetector 检测任务完成状态
 //
 // 完成条件（任一触发）：
-// 1. 所有 Action 执行完毕 + Planner 连续 N 轮未生成新 Action
-// 2. 达到最大步数
-// 3. 达到超时时间
-// 4. 收到人工中止信号
+// 1. 达到最大步数（可选，默认无限制）
+// 2. 收到人工中止信号
+//
+// 注意：取消了"空闲轮数自动停止"机制，改为持续探索模式
+// 任务会持续运行直到用户手动停止或达到资源限制
 type CompletionDetector struct {
 	taskID string
-	world  *knowledgegraph.Store
+	world  *explorationgraph.Store
 	bus    bus.Bus
 	logger zerolog.Logger
 
 	// 配置
-	maxSteps              int           // 最大步数（0=无限制）
-	idleRoundsThreshold   int           // Planner 空闲轮数阈值（连续 N 轮未生成 Action 则认为完成）
-	checkInterval         time.Duration // 检查间隔
-	gracePeriod           time.Duration // 优雅等待期（最后一个 Action 完成后的缓冲时间）
-	minExecutionDuration  time.Duration // 最小执行时长（防止误判提前完成）
+	maxSteps     int           // 最大步数（0=无限制）
+	checkInterval time.Duration // 检查间隔
 
 	// 运行时状态
-	totalSteps      atomic.Int64
-	promotedCount   atomic.Int64
-	attemptCount    atomic.Int64
-	idleRounds      atomic.Int64  // 连续空闲轮数
-	lastActionTime  atomic.Int64  // 最后一次 Action 完成的时间戳（UnixMilli）
-	startTime       time.Time
-	manualAbort     atomic.Bool
-	abortReason     atomic.Value  // string
+	totalSteps    atomic.Int64
+	promotedCount atomic.Int64
+	attemptCount  atomic.Int64
+	startTime     time.Time
+	manualAbort   atomic.Bool
+	abortReason   atomic.Value // string
 
 	completionCh chan Result
 }
@@ -56,49 +52,33 @@ type Result struct {
 
 // Config 配置 CompletionDetector
 type Config struct {
-	TaskID                string
-	World                 *knowledgegraph.Store
-	Bus                   bus.Bus
-	Logger                zerolog.Logger
-	MaxSteps              int           // 默认 1000
-	IdleRoundsThreshold   int           // 默认 3
-	CheckInterval         time.Duration // 默认 5s
-	GracePeriod           time.Duration // 默认 30s
-	MinExecutionDuration  time.Duration // 默认 10s
+	TaskID        string
+	World         *explorationgraph.Store
+	Bus           bus.Bus
+	Logger        zerolog.Logger
+	MaxSteps      int           // 默认 0（无限制）
+	CheckInterval time.Duration // 默认 5s
 }
 
 // NewCompletionDetector 创建完成检测器
 func NewCompletionDetector(cfg Config) *CompletionDetector {
-	if cfg.MaxSteps <= 0 {
-		cfg.MaxSteps = 1000
-	}
-	if cfg.IdleRoundsThreshold <= 0 {
-		cfg.IdleRoundsThreshold = 3
+	// 默认无限制步数，改为持续探索模式
+	if cfg.MaxSteps < 0 {
+		cfg.MaxSteps = 0
 	}
 	if cfg.CheckInterval == 0 {
 		cfg.CheckInterval = 5 * time.Second
 	}
-	if cfg.GracePeriod == 0 {
-		cfg.GracePeriod = 30 * time.Second
-	}
-	if cfg.MinExecutionDuration == 0 {
-		// 增加到 90 秒，给 LLM 调用足够的响应时间
-		// GLM/MiMo 等国产模型的首次推理可能需要 30-60 秒
-		cfg.MinExecutionDuration = 90 * time.Second
-	}
 
 	return &CompletionDetector{
-		taskID:                cfg.TaskID,
-		world:                 cfg.World,
-		bus:                   cfg.Bus,
-		logger:                cfg.Logger.With().Str("component", "completion_detector").Logger(),
-		maxSteps:              cfg.MaxSteps,
-		idleRoundsThreshold:   cfg.IdleRoundsThreshold,
-		checkInterval:         cfg.CheckInterval,
-		gracePeriod:           cfg.GracePeriod,
-		minExecutionDuration:  cfg.MinExecutionDuration,
-		startTime:             time.Now(),
-		completionCh:          make(chan Result, 1),
+		taskID:        cfg.TaskID,
+		world:         cfg.World,
+		bus:           cfg.Bus,
+		logger:        cfg.Logger.With().Str("component", "completion_detector").Logger(),
+		maxSteps:      cfg.MaxSteps,
+		checkInterval: cfg.CheckInterval,
+		startTime:     time.Now(),
+		completionCh:  make(chan Result, 1),
 	}
 }
 
@@ -107,8 +87,7 @@ func (d *CompletionDetector) Start(ctx context.Context) Result {
 	d.logger.Info().
 		Str("task_id", d.taskID).
 		Int("max_steps", d.maxSteps).
-		Int("idle_threshold", d.idleRoundsThreshold).
-		Msg("完成检测器启动")
+		Msg("完成检测器启动（持续探索模式）")
 
 	// 订阅事件
 	events := d.bus.SubscribeTask(d.taskID)
@@ -149,7 +128,6 @@ func (d *CompletionDetector) handleEvent(event bus.Event) {
 	switch event.Type {
 	case bus.EventActionCompleted:
 		d.totalSteps.Add(1)
-		d.lastActionTime.Store(time.Now().UnixMilli())
 		d.logger.Debug().
 			Int64("total_steps", d.totalSteps.Load()).
 			Msg("Action 完成")
@@ -162,11 +140,6 @@ func (d *CompletionDetector) handleEvent(event bus.Event) {
 		d.logger.Debug().
 			Int64("promoted", d.promotedCount.Load()).
 			Msg("结果晋升")
-
-	case bus.EventActionProposed:
-		// Planner 生成了新 Action，重置空闲计数
-		d.idleRounds.Store(0)
-		d.logger.Debug().Msg("Planner 生成新 Action，重置空闲计数")
 
 	case bus.EventManualGuidance:
 		// 人工干预，可能是中止信号
@@ -189,96 +162,21 @@ func (d *CompletionDetector) checkCompletion() (Result, bool) {
 		return d.makeResult(reason), true
 	}
 
-	// 2. 达到最大步数
-	steps := d.totalSteps.Load()
-	if d.maxSteps > 0 && steps >= int64(d.maxSteps) {
-		d.logger.Info().
-			Int64("steps", steps).
-			Int("max_steps", d.maxSteps).
-			Msg("达到最大步数")
-		return d.makeResult("max_steps_reached"), true
-	}
-
-	// 3. 检查是否已稳定（需同时满足）：
-	//    a. 无 open 状态的 Action
-	//    b. Planner 连续 N 轮空闲
-	//    c. 最后一个 Action 完成后已过优雅等待期
-	//    d. 运行时长超过最小执行时长
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
-
-	openActions, err := d.world.ListOpenActions(ctx, d.taskID)
-	if err != nil {
-		d.logger.Warn().Err(err).Msg("检查 open actions 失败")
-		return Result{}, false
-	}
-
-	hasOpenActions := len(openActions) > 0
-
-	// 如果还有 open Action，任务未完成
-	if hasOpenActions {
-		return Result{}, false
-	}
-
-	// 无 open Action，检查 Planner 是否空闲
-	idleRounds := d.idleRounds.Load()
-	d.idleRounds.Add(1) // 本轮检查计为一次空闲
-
-	if idleRounds < int64(d.idleRoundsThreshold) {
-		d.logger.Debug().
-			Int64("idle_rounds", idleRounds).
-			Int("threshold", d.idleRoundsThreshold).
-			Msg("Planner 空闲轮数不足，继续等待")
-		return Result{}, false
-	}
-
-	// 检查优雅等待期
-	lastActionMillis := d.lastActionTime.Load()
-	if lastActionMillis > 0 {
-		elapsed := time.Since(time.UnixMilli(lastActionMillis))
-		if elapsed < d.gracePeriod {
-			d.logger.Debug().
-				Dur("elapsed", elapsed).
-				Dur("grace_period", d.gracePeriod).
-				Msg("优雅等待期未满，继续等待")
-			return Result{}, false
+	// 2. 达到最大步数（如果设置了）
+	if d.maxSteps > 0 {
+		steps := d.totalSteps.Load()
+		if steps >= int64(d.maxSteps) {
+			d.logger.Info().
+				Int64("steps", steps).
+				Int("max_steps", d.maxSteps).
+				Msg("达到最大步数")
+			return d.makeResult("max_steps_reached"), true
 		}
 	}
 
-	// 检查最小执行时长（防止任务刚启动就误判完成）
-	// 但如果从未执行过任何 action，则忽略时长检查（避免在 Planner 首次生成 action 前误判）
-	runDuration := time.Since(d.startTime)
-	hasExecutedActions := d.totalSteps.Load() > 0
-
-	if !hasExecutedActions {
-		d.logger.Info().
-			Dur("duration", runDuration).
-			Msg("尚未执行任何 action，继续等待 Planner 生成首批 action")
-		return Result{}, false
-	}
-
-	if runDuration < d.minExecutionDuration {
-		d.logger.Info().
-			Dur("duration", runDuration).
-			Dur("min_duration", d.minExecutionDuration).
-			Msg("运行时长不足，继续等待")
-		return Result{}, false
-	}
-
-	// 记录：所有条件都满足，即将判定为完成
-	d.logger.Info().
-		Dur("duration", runDuration).
-		Dur("min_duration", d.minExecutionDuration).
-		Int64("idle_rounds", idleRounds).
-		Msg("运行时长已满足，准备判定任务完成")
-
-	// 所有条件满足，任务自然完成
-	d.logger.Info().
-		Int64("steps", steps).
-		Int64("idle_rounds", idleRounds).
-		Dur("duration", runDuration).
-		Msg("任务自然完成（无更多工作）")
-	return d.makeResult("natural_completion"), true
+	// 持续探索模式：不再基于空闲轮数或优雅等待期自动停止
+	// 任务会一直运行，直到用户手动停止或达到资源限制
+	return Result{}, false
 }
 
 // makeResult 构造最终报告

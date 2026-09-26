@@ -12,7 +12,7 @@ import (
 
 	"github.com/V3teran/liusha/internal/bus"
 	"github.com/V3teran/liusha/internal/framework/core"
-	"github.com/V3teran/liusha/internal/knowledgegraph"
+	"github.com/V3teran/liusha/internal/explorationgraph"
 )
 
 // TestFourAgentIntegration 测试四Agent完整协作流程
@@ -25,7 +25,7 @@ func TestFourAgentIntegration(t *testing.T) {
 	taskID := uuid.New().String()
 
 	// 1. 创建内存存储和事件总线
-	store := knowledgegraph.NewMemoryStore()
+	store := explorationgraph.NewMemoryStore()
 	eventBus := bus.New(ctx)
 
 	t.Logf("✓ 创建存储和事件总线")
@@ -36,12 +36,12 @@ func TestFourAgentIntegration(t *testing.T) {
 		"target_ref":  "http://example.com",
 	})
 
-	objective := knowledgegraph.Node{
+	objective := explorationgraph.Node{
 		ID:         uuid.New().String(),
 		TaskID:     taskID,
 		Kind:       core.KindObjective,
 		Content:    objectiveContent,
-		Priority:   knowledgegraph.PriorityHigh,
+		Priority:   explorationgraph.PriorityHigh,
 		SourceType: "test",
 		SourceID:   "integration_test",
 		CreatedAt:  time.Now(),
@@ -71,14 +71,14 @@ func TestFourAgentIntegration(t *testing.T) {
 		"complexity":  "simple",
 	})
 
-	stateOpen := knowledgegraph.StateOpen
-	action := knowledgegraph.Node{
+	stateOpen := explorationgraph.StateOpen
+	action := explorationgraph.Node{
 		ID:         uuid.New().String(),
 		TaskID:     taskID,
 		Kind:       core.KindAction,
 		Content:    actionContent,
 		State:      &stateOpen,
-		Priority:   knowledgegraph.PriorityHigh,
+		Priority:   explorationgraph.PriorityHigh,
 		DependsOn:  []string{}, // 无依赖
 		SourceType: "planner",
 		SourceID:   "intelligence",
@@ -104,7 +104,7 @@ func TestFourAgentIntegration(t *testing.T) {
 	t.Logf("✓ 依赖检查通过: CanExecute = true")
 
 	// 7. 模拟 Executor 更新状态为 running
-	err = store.UpdateActionStateWithReason(ctx, action.ID, knowledgegraph.StateRunning, nil)
+	err = store.UpdateActionStateWithReason(ctx, action.ID, explorationgraph.StateRunning, nil)
 	require.NoError(t, err)
 	t.Logf("✓ Executor 更新状态: open → running")
 
@@ -112,11 +112,11 @@ func TestFourAgentIntegration(t *testing.T) {
 	updatedAction, err := store.GetNode(ctx, action.ID)
 	require.NoError(t, err)
 	require.NotNil(t, updatedAction.State)
-	assert.Equal(t, knowledgegraph.StateRunning, *updatedAction.State)
+	assert.Equal(t, explorationgraph.StateRunning, *updatedAction.State)
 	t.Logf("✓ 状态验证成功: running")
 
 	// 9. 模拟 Executor 更新状态为 done
-	err = store.UpdateActionStateWithReason(ctx, action.ID, knowledgegraph.StateDone, nil)
+	err = store.UpdateActionStateWithReason(ctx, action.ID, explorationgraph.StateDone, nil)
 	require.NoError(t, err)
 	t.Logf("✓ Executor 更新状态: running → done")
 
@@ -140,12 +140,12 @@ func TestFourAgentIntegration(t *testing.T) {
 		"title":      "SQL 注入漏洞",
 	})
 
-	result := knowledgegraph.Node{
+	result := explorationgraph.Node{
 		ID:         uuid.New().String(),
 		TaskID:     taskID,
 		Kind:       core.KindResult,
 		Content:    resultContent,
-		Priority:   knowledgegraph.PriorityHigh,
+		Priority:   explorationgraph.PriorityHigh,
 		SourceType: "evaluator",
 		SourceID:   "promoter",
 		CreatedAt:  time.Now(),
@@ -183,8 +183,8 @@ func TestFourAgentIntegration(t *testing.T) {
 			"instruction": "深度扫描",
 		})
 
-		stateOpen2 := knowledgegraph.StateOpen
-		action2 := knowledgegraph.Node{
+		stateOpen2 := explorationgraph.StateOpen
+		action2 := explorationgraph.Node{
 			ID:         uuid.New().String(),
 			TaskID:     taskID,
 			Kind:       core.KindAction,

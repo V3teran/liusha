@@ -58,7 +58,7 @@ import (
 	"github.com/V3teran/liusha/internal/tools/manifest"
 	"github.com/V3teran/liusha/internal/traffic"
 	"github.com/V3teran/liusha/internal/worker"
-	"github.com/V3teran/liusha/internal/knowledgegraph"
+	"github.com/V3teran/liusha/internal/explorationgraph"
 
 	"github.com/hibiken/asynq"
 )
@@ -103,7 +103,7 @@ func main() {
 	eventPublisher := scanstream.NewPublisher(rdb) // 过程事件实时广播（阶段B redis 管道）
 	executorRuns := agentstore.NewStore(pool)
 	finds := finding.NewStore(pool)
-	worldStore := knowledgegraph.NewStore(pool) // L3 世界模型持久层（onboard 落 KindObjective 节点）
+	worldStore := explorationgraph.NewStore(pool) // L3 世界模型持久层（onboard 落 KindObjective 节点）
 	toolCalls := toolinvocation.NewStore(pool)
 	calls := llminvocation.NewStoreWithConfig(pool, cfg.LLM.Invocation)
 	checkpointer := postgres.NewCheckpointer(pool) // Checkpoint 框架层持久化（PostgreSQL 后端）
@@ -262,7 +262,7 @@ func main() {
 	eventBus := bus.New(ctx)
 
 	// PlanStore：execution_plan 表的持久化层
-	// knowledgegraph.Store 在前面已初始化为 worldStore
+	// explorationgraph.Store 在前面已初始化为 worldStore
 
 	// ControlPlane：task_control_event 表的持久化层（人工干预）
 	controlPlaneStore := controlplane.NewStore(pool)

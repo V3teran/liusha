@@ -128,8 +128,8 @@ func TestActionComplexity(t *testing.T) {
 	})
 }
 
-// TestKnowledgeGraphSemantics 验证知识图谱语义的正确性
-func TestKnowledgeGraphSemantics(t *testing.T) {
+// TestExplorationGraphSemantics 验证知识图谱语义的正确性
+func TestExplorationGraphSemantics(t *testing.T) {
 	t.Run("ReAct cycle alignment", func(t *testing.T) {
 		// 验证对齐 ReAct 模式：Thought → Action → Observation
 

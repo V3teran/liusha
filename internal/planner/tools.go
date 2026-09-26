@@ -10,16 +10,16 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/V3teran/liusha/internal/framework/core"
-	"github.com/V3teran/liusha/internal/knowledgegraph"
+	"github.com/V3teran/liusha/internal/explorationgraph"
 	"github.com/V3teran/liusha/internal/registry"
 )
 
 // ObserveStateTool 观察世界模型状态
 type ObserveStateTool struct {
-	world *knowledgegraph.Store
+	world *explorationgraph.Store
 }
 
-func NewObserveStateTool(world *knowledgegraph.Store) *ObserveStateTool {
+func NewObserveStateTool(world *explorationgraph.Store) *ObserveStateTool {
 	return &ObserveStateTool{world: world}
 }
 
@@ -72,9 +72,9 @@ func (t *ObserveStateTool) Execute(ctx context.Context, argsJSON json.RawMessage
 
 	// 过滤已完成的 Action
 	if !input.IncludeCompleted {
-		var filtered []knowledgegraph.Node
+		var filtered []explorationgraph.Node
 		for _, action := range actions {
-			if action.State != nil && *action.State != knowledgegraph.StateDone {
+			if action.State != nil && *action.State != explorationgraph.StateDone {
 				filtered = append(filtered, action)
 			}
 		}
@@ -100,7 +100,7 @@ func (t *ObserveStateTool) Execute(ctx context.Context, argsJSON json.RawMessage
 
 	// Action
 	output += fmt.Sprintf("### Action (%d)\n", len(actions))
-	stateCounts := make(map[knowledgegraph.State]int)
+	stateCounts := make(map[explorationgraph.State]int)
 	for _, action := range actions {
 		if action.State != nil {
 			stateCounts[*action.State]++
@@ -122,11 +122,11 @@ func (t *ObserveStateTool) Execute(ctx context.Context, argsJSON json.RawMessage
 
 // ProposeActionsTool 生成新的 Action
 type ProposeActionsTool struct {
-	world  *knowledgegraph.Store
+	world  *explorationgraph.Store
 	logger zerolog.Logger
 }
 
-func NewProposeActionsTool(world *knowledgegraph.Store, logger zerolog.Logger) *ProposeActionsTool {
+func NewProposeActionsTool(world *explorationgraph.Store, logger zerolog.Logger) *ProposeActionsTool {
 	return &ProposeActionsTool{
 		world:  world,
 		logger: logger.With().Str("tool", "propose_actions").Logger(),
@@ -228,15 +228,15 @@ func (t *ProposeActionsTool) Execute(ctx context.Context, argsJSON json.RawMessa
 			return registry.ToolResult{Error: "instruction must be non-empty"}, nil
 		}
 
-		complexity := knowledgegraph.Complexity(a.Complexity)
-		priority := knowledgegraph.Priority(a.Priority)
-		state := knowledgegraph.StateOpen
+		complexity := explorationgraph.Complexity(a.Complexity)
+		priority := explorationgraph.Priority(a.Priority)
+		state := explorationgraph.StateOpen
 
 		content, _ := json.Marshal(map[string]interface{}{
 			"instruction": a.Instruction,
 		})
 
-		node := knowledgegraph.Node{
+		node := explorationgraph.Node{
 			ID:          uuid.New().String(),
 			TaskID:      taskID,
 			Kind:        core.KindAction,
@@ -247,7 +247,7 @@ func (t *ProposeActionsTool) Execute(ctx context.Context, argsJSON json.RawMessa
 			RoadmapStep: a.RoadmapStep,
 			Priority:    priority,
 			Owner:       "planner",
-			SourceType:  knowledgegraph.SourcePlanner,
+			SourceType:  explorationgraph.SourcePlanner,
 			SourceID:    "planner-tool",
 			CreatedAt:   time.Now(),
 			UpdatedAt:   time.Now(),
@@ -287,10 +287,10 @@ func (t *ProposeActionsTool) Execute(ctx context.Context, argsJSON json.RawMessa
 
 // EvaluateProgressTool 评估任务进展
 type EvaluateProgressTool struct {
-	world *knowledgegraph.Store
+	world *explorationgraph.Store
 }
 
-func NewEvaluateProgressTool(world *knowledgegraph.Store) *EvaluateProgressTool {
+func NewEvaluateProgressTool(world *explorationgraph.Store) *EvaluateProgressTool {
 	return &EvaluateProgressTool{world: world}
 }
 
@@ -321,7 +321,7 @@ func (t *EvaluateProgressTool) Execute(ctx context.Context, argsJSON json.RawMes
 	}
 
 	// 统计状态
-	stateCounts := make(map[knowledgegraph.State]int)
+	stateCounts := make(map[explorationgraph.State]int)
 	for _, action := range actions {
 		if action.State != nil {
 			stateCounts[*action.State]++
@@ -336,9 +336,9 @@ func (t *EvaluateProgressTool) Execute(ctx context.Context, argsJSON json.RawMes
 
 	// 评估进展
 	totalActions := len(actions)
-	doneActions := stateCounts[knowledgegraph.StateDone]
-	openActions := stateCounts[knowledgegraph.StateOpen]
-	runningActions := stateCounts[knowledgegraph.StateRunning]
+	doneActions := stateCounts[explorationgraph.StateDone]
+	openActions := stateCounts[explorationgraph.StateOpen]
+	runningActions := stateCounts[explorationgraph.StateRunning]
 
 	completionRate := 0.0
 	if totalActions > 0 {

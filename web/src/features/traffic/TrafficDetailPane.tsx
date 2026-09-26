@@ -9,13 +9,11 @@ interface TrafficDetailPaneProps {
   onClose: () => void // 关闭详情，列表恢复占满全高
 }
 
-// 消费本条流量的 passive task chip：场景 + host + 状态色点；有 conv_id 则整块可点跳会话。
+// 消费本条流量的 passive task chip：host + 状态色点；有 conv_id 则整块可点跳会话。
 function ConsumerChip({ c }: { c: TrafficConsumer }) {
   const inner = (
     <>
       <span className="h-1.5 w-1.5 flex-shrink-0 rounded-full" style={{ background: 'var(--accent)' }} aria-hidden="true" />
-      <span className="font-medium text-text">{c.scenario_id || '—'}</span>
-      <span className="text-muted">·</span>
       <span className="truncate text-muted">{c.host}</span>
       {c.status && <span className="text-muted opacity-70">({c.status})</span>}
     </>

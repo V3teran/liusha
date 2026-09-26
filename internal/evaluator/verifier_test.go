@@ -7,22 +7,22 @@ import (
 	"testing"
 
 	"github.com/V3teran/liusha/internal/framework/core"
-	"github.com/V3teran/liusha/internal/knowledgegraph"
+	"github.com/V3teran/liusha/internal/explorationgraph"
 )
 
 // fakeWorld 记录 Evaluator 对世界模型的写入，供断言"门的副作用"。
 type fakeWorld struct {
-	verifications []knowledgegraph.Verification
-	nodes         []knowledgegraph.Node
+	verifications []explorationgraph.Verification
+	nodes         []explorationgraph.Node
 	verID         string
 }
 
-func (f *fakeWorld) RecordVerification(_ context.Context, v knowledgegraph.Verification) (string, error) {
+func (f *fakeWorld) RecordVerification(_ context.Context, v explorationgraph.Verification) (string, error) {
 	f.verifications = append(f.verifications, v)
 	return f.verID, nil
 }
 
-func (f *fakeWorld) CreateNode(_ context.Context, n knowledgegraph.Node) (string, error) {
+func (f *fakeWorld) CreateNode(_ context.Context, n explorationgraph.Node) (string, error) {
 	nodeID := "node-" + string(n.Kind)
 	n.ID = nodeID
 	f.nodes = append(f.nodes, n)
@@ -73,13 +73,13 @@ func TestPromote_Confirmed(t *testing.T) {
 	if node == nil {
 		t.Fatal("坐实应返回晋升后的节点")
 	}
-	if node.Confidence == nil || *node.Confidence != knowledgegraph.ConfidenceVerified {
+	if node.Confidence == nil || *node.Confidence != explorationgraph.ConfidenceVerified {
 		t.Errorf("节点应 verified, got %v", node.Confidence)
 	}
 	if node.SourceID != "ver-99" {
 		t.Errorf("SourceID 应回指 ver-99, got %s", node.SourceID)
 	}
-	if len(w.verifications) != 1 || w.verifications[0].Outcome != knowledgegraph.OutcomeConfirmed {
+	if len(w.verifications) != 1 || w.verifications[0].Outcome != explorationgraph.OutcomeConfirmed {
 		t.Errorf("应落 1 条 confirmed verification, got %+v", w.verifications)
 	}
 	if len(w.nodes) != 1 {
@@ -100,7 +100,7 @@ func TestPromote_Refuted(t *testing.T) {
 	if node != nil {
 		t.Errorf("证伪不应进图, got node %+v", node)
 	}
-	if len(w.verifications) != 1 || w.verifications[0].Outcome != knowledgegraph.OutcomeRefuted {
+	if len(w.verifications) != 1 || w.verifications[0].Outcome != explorationgraph.OutcomeRefuted {
 		t.Errorf("应留 1 条 refuted verification 供审计, got %+v", w.verifications)
 	}
 	if len(w.nodes) != 0 {

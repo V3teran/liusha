@@ -100,9 +100,9 @@ func (r *cronRunner) fireOne(ctx context.Context, sched cronschedule.CronSchedul
 		switch {
 		case len(item.TrafficIDs) > 0:
 			// 显式流量集：下发时点名的 proxy_traffic id 集合（M:N 精确复检），host 从流量派生。
-			expandErr = r.expandTrafficItem(ctx, item, item)
+			expandErr = r.expandTrafficItem(ctx, asg.ID, item)
 		case item.Host != "":
-			expandErr = r.expandTrafficItem(ctx, item, item)
+			expandErr = r.expandTrafficItem(ctx, asg.ID, item)
 		default:
 			_, _, expandErr = r.scan.expandItem(ctx, asg.ID, item.Brief, "")
 		}
@@ -125,10 +125,12 @@ func (r *cronRunner) fireOne(ctx context.Context, sched cronschedule.CronSchedul
 // 定时器而非实时流量窗口（故用固定 passiveCronClaimLimit，不接聚合器配置）。
 //
 // brief 存 host（统一输入，见 D5）；引擎由 runner 按 ID 解析（此处不关心 solo/swarm）。
-func (r *cronRunner) expandTrafficItem(ctx context.Context, assignmentID, item assignment.Item) error {
+func (r *cronRunner) expandTrafficItem(ctx context.Context, assignmentID string, item assignment.Item) error {
 	host := item.Host
-	var err error
-	var tk task.Task
+	tk, err := r.tasks.Create(ctx, task.NewParams{
+		AssignmentID: assignmentID,
+		Brief:        host,
+	})
 	if err != nil {
 		return fmt.Errorf("create task: %w", err)
 	}

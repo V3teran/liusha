@@ -47,10 +47,10 @@ redis:
 # 全路径统一智谱 GLM（provider key: glm），fallback 亦指向同一 provider。
 llm:
   tiers:
-    simple:  mimo   # 快速响应，简单任务（信息提取、格式化）
-    medium:  mimo   # 标准推理，常规任务（漏洞检测、工具调用）- 默认档位
-    complex: mimo   # 深度推理，复杂决策（战略规划、多步分析、多模态）
-  fallback: mimo   # 主 provider 重试耗尽后的全局备胎
+    simple:  glm   # 快速响应，简单任务（信息提取、格式化）
+    medium:  glm   # 标准推理，常规任务（漏洞检测、工具调用）- 默认档位
+    complex: glm   # 深度推理，复杂决策（战略规划、多步分析、多模态）
+  fallback: glm   # 主 provider 重试耗尽后的全局备胎
 
   # spec §8.5 错误码退避表（429/529/5xx/网络超时）
   retry:
@@ -72,18 +72,6 @@ llm:
 
 # 仅供空库首次种子导入（insert-only，见上方 llm: 段说明）；DB 是事实源，改模型走前端「LLM 配置」页。
 providers:
-  # —— 小米 MiMo（Token Plan 固定订阅，OpenAI 兼容协议，token-plan-cn.xiaomimimo.com）★当前唯一激活 provider（见 .env.local）
-  # 同 XIAOMI_API_KEY（tp- 开头）；mimo-v2.5 支持 vision + tool calls。
-  mimo:
-    type: openai_compat
-    base_url: https://token-plan-cn.xiaomimimo.com/v1
-    default_model: mimo-v2.5
-    api_key_env: XIAOMI_API_KEY
-    max_tokens: 16384                         # 单次输出 cap（mimo-v2.5 最大输出 128K，按需可上调至 131072）
-    supports_tools: true
-    supports_vision: true
-    context_window: 1048576                   # 小米官方 1M 上下文
-
   # —— 智谱 GLM（国产大模型，支持工具调用）
   glm:
     type: openai_compat

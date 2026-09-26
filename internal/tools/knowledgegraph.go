@@ -9,7 +9,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/V3teran/liusha/internal/framework/core"
-	"github.com/V3teran/liusha/internal/knowledgegraph"
+	"github.com/V3teran/liusha/internal/explorationgraph"
 	"github.com/V3teran/liusha/internal/registry"
 )
 
@@ -75,8 +75,8 @@ func (t *writeObservationTool) Execute(ctx context.Context, args json.RawMessage
 		"test_plan": input.TestPlan,
 	})
 
-	// 映射到 knowledgegraph.Confidence
-	var confidence knowledgegraph.Confidence
+	// 映射到 explorationgraph.Confidence
+	var confidence explorationgraph.Confidence
 	switch input.Confidence {
 	case "low":
 		confidence = "low"
@@ -89,14 +89,14 @@ func (t *writeObservationTool) Execute(ctx context.Context, args json.RawMessage
 	}
 
 	// 创建节点
-	node := knowledgegraph.Node{
+	node := explorationgraph.Node{
 		ID:         uuid.New().String(),
 		TaskID:     t.deps.TaskID,
 		Kind:       core.KindObservation,
 		Content:    content,
 		Confidence: &confidence,
-		Priority:   knowledgegraph.PriorityMedium,
-		SourceType: knowledgegraph.SourceExecutor,
+		Priority:   explorationgraph.PriorityMedium,
+		SourceType: explorationgraph.SourceExecutor,
 		SourceID:   t.deps.AgentID,
 		CreatedAt:  time.Now(),
 		UpdatedAt:  time.Now(),
@@ -110,10 +110,10 @@ func (t *writeObservationTool) Execute(ctx context.Context, args json.RawMessage
 
 	// 如果有当前 actionID，创建 action → observation 关系（GENERATES）
 	if actionID := getContextActionID(ctx); actionID != "" {
-		edge := knowledgegraph.Edge{
+		edge := explorationgraph.Edge{
 			TaskID:    t.deps.TaskID,
 			SrcID:     actionID,
-			Rel:       knowledgegraph.RelGenerates,
+			Rel:       explorationgraph.RelGenerates,
 			DstID:     id,
 			CreatedAt: time.Now(),
 		}
@@ -193,13 +193,13 @@ func (t *writeEvidenceTool) Execute(ctx context.Context, args json.RawMessage) (
 	})
 
 	// 创建 evidence 节点
-	node := knowledgegraph.Node{
+	node := explorationgraph.Node{
 		ID:         uuid.New().String(),
 		TaskID:     t.deps.TaskID,
 		Kind:       core.KindEvaluation,
 		Content:    content,
-		Priority:   knowledgegraph.PriorityMedium,
-		SourceType: knowledgegraph.SourceExecutor,
+		Priority:   explorationgraph.PriorityMedium,
+		SourceType: explorationgraph.SourceExecutor,
 		SourceID:   t.deps.AgentID,
 		CreatedAt:  time.Now(),
 		UpdatedAt:  time.Now(),
@@ -211,14 +211,14 @@ func (t *writeEvidenceTool) Execute(ctx context.Context, args json.RawMessage) (
 	}
 
 	// 创建关系边
-	edges := []knowledgegraph.Edge{}
+	edges := []explorationgraph.Edge{}
 
 	// 1. action → evidence (GENERATES)
 	if actionID := getContextActionID(ctx); actionID != "" {
-		edges = append(edges, knowledgegraph.Edge{
+		edges = append(edges, explorationgraph.Edge{
 			TaskID:    t.deps.TaskID,
 			SrcID:     actionID,
-			Rel:       knowledgegraph.RelGenerates,
+			Rel:       explorationgraph.RelGenerates,
 			DstID:     id,
 			CreatedAt: time.Now(),
 		})
@@ -226,39 +226,39 @@ func (t *writeEvidenceTool) Execute(ctx context.Context, args json.RawMessage) (
 
 	// 2. evidence → observation (CONFIRMS 或 REFUTES)
 	if input.Outcome == "confirms" {
-		edges = append(edges, knowledgegraph.Edge{
+		edges = append(edges, explorationgraph.Edge{
 			TaskID:    t.deps.TaskID,
 			SrcID:     id,
-			Rel:       knowledgegraph.RelConfirms,
+			Rel:       explorationgraph.RelConfirms,
 			DstID:     input.ObservationID,
 			CreatedAt: time.Now(),
 		})
 
 		// 更新 observation 的置信度为 verified
-		verified := knowledgegraph.Confidence("verified")
+		verified := explorationgraph.Confidence("verified")
 		_ = t.deps.World.UpdateNodeConfidence(ctx, input.ObservationID, verified)
 
 		// 3. 如果有 finding_id，创建 evidence → finding (CONFIRMS)
 		if input.FindingID != "" {
-			edges = append(edges, knowledgegraph.Edge{
+			edges = append(edges, explorationgraph.Edge{
 				TaskID:    t.deps.TaskID,
 				SrcID:     id,
-				Rel:       knowledgegraph.RelConfirms,
+				Rel:       explorationgraph.RelConfirms,
 				DstID:     input.FindingID,
 				CreatedAt: time.Now(),
 			})
 		}
 	} else if input.Outcome == "refutes" {
-		edges = append(edges, knowledgegraph.Edge{
+		edges = append(edges, explorationgraph.Edge{
 			TaskID:    t.deps.TaskID,
 			SrcID:     id,
-			Rel:       knowledgegraph.RelRefutes,
+			Rel:       explorationgraph.RelRefutes,
 			DstID:     input.ObservationID,
 			CreatedAt: time.Now(),
 		})
 
 		// 更新 observation 的置信度为 low
-		low := knowledgegraph.Confidence("low")
+		low := explorationgraph.Confidence("low")
 		_ = t.deps.World.UpdateNodeConfidence(ctx, input.ObservationID, low)
 	}
 

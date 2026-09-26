@@ -6,7 +6,7 @@ import (
 
 	"github.com/V3teran/liusha/internal/evaluator"
 	"github.com/V3teran/liusha/internal/finding"
-	"github.com/V3teran/liusha/internal/knowledgegraph"
+	"github.com/V3teran/liusha/internal/explorationgraph"
 	"github.com/rs/zerolog"
 )
 
@@ -38,7 +38,7 @@ func NewCoordinatorWithEngine(taskID, host string, findings FindingLister, engin
 }
 
 // Execute 实现 ExecutorInterface
-func (c *Coordinator) Execute(ctx context.Context, action knowledgegraph.Node) ([]evaluator.Attempt, error) {
+func (c *Coordinator) Execute(ctx context.Context, action explorationgraph.Node) ([]evaluator.Attempt, error) {
 	if !action.IsAction() {
 		return nil, fmt.Errorf("Coordinator: 节点不是 Action: %s", action.ID)
 	}

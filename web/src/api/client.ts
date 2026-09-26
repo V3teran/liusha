@@ -9,7 +9,6 @@ import type {
   Conversation,
   ConversationUsage,
   Message,
-  ScenarioConfig,
   AgentConfig,
   OwnerSummary,
   LLMInvocationsResponse,
@@ -126,33 +125,8 @@ export async function del<T>(path: string): Promise<T> {
 }
 
 /**
- * 获取全部场景（启用 + 停用，全字段）。GET /scenarios 单一口径，
- * ScenarioPicker（停用置灰不可选）与配置管理页共用，value 用 scenario.code。
- */
-export async function listScenarios(): Promise<ScenarioConfig[]> {
-  return (await get<{ scenarios: ScenarioConfig[] }>('/scenarios')).scenarios
-}
-
-/**
- * 分页 + 搜索获取场景（配置管理页用）。带 page 参数 → 后端走分页分支返回 total；
- * 不带 page 的 listScenarios 仍是全量（ScenarioPicker / solo 选择器共用）。
- * @param page 1-based 页码
- * @param size 每页条数
- * @param q 关键词（code/name/description 模糊匹配），空则不过滤
- */
-export async function listScenariosPaged(
-  page: number,
-  size: number,
-  q = '',
-): Promise<{ scenarios: ScenarioConfig[]; total: number }> {
-  const params = new URLSearchParams({ page: String(page), size: String(size) })
-  if (q) params.set('q', q)
-  return get<{ scenarios: ScenarioConfig[]; total: number }>(`/scenarios?${params}`)
-}
-
-/**
- * 分页 + 搜索获取智能体（配置管理页用）。语义同 listScenariosPaged。
- * 不带 page 的 listAgentConfigs 仍是全量（场景 solo 选择器候选共用）。
+ * 分页 + 搜索获取智能体（配置管理页用）。
+ * 不带 page 的 listAgentConfigs 仍是全量。
  */
 export async function listAgentsPaged(
   page: number,
@@ -251,12 +225,11 @@ export async function authStream(convID: string): Promise<void> {
  * 发起会话扫描
  * 成功后后端 Set-Cookie liusha_stream（SSE 鉴权用）
  * @param brief 扫描目标描述
- * @param scenarioID 场景 code（ScenarioPicker 选定，后端 action 时用于建 task）
  * @returns conversation_id 和 scan_id（闲聊/qa 意图不下发 task 时 scan_id 为空）
  */
 export async function startChat(
   brief: string,
-  scenarioID: string
+  _scenarioID: string
 ): Promise<{ conversation_id: string; scan_id: string }> {
   const res = await fetch('/api/chat', {
     method: 'POST',
@@ -264,7 +237,7 @@ export async function startChat(
       'X-API-Key': getApiKey(),
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ brief, scenario_id: scenarioID }),
+    body: JSON.stringify({ brief, scenario_id: '' }),
   })
   if (!res.ok) throw new Error(`POST /chat → ${res.status}`)
   return res.json()
@@ -275,13 +248,13 @@ export async function startChat(
  * 扫描进行中（409）时抛带 busy 标记的错，前端提示停止后再发。
  * @param convID 会话 ID
  * @param content 消息内容
- * @param scenarioID 场景 code（纯聊天会话升级为扫描时用于建 task；已绑 task 的会话忽略之）
+ * @param _scenarioID 已废弃，保留参数签名兼容性
  * @returns intent 和可选的 scan_id
  */
 export async function followUp(
   convID: string,
   content: string,
-  scenarioID = ''
+  _scenarioID = ''
 ): Promise<{ intent: string; scan_id?: string }> {
   const res = await fetch(`/api/conversations/${convID}/messages`, {
     method: 'POST',
@@ -289,7 +262,7 @@ export async function followUp(
       'X-API-Key': getApiKey(),
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ content, scenario_id: scenarioID }),
+    body: JSON.stringify({ content, scenario_id: '' }),
   })
   if (res.status === 409) {
     const err = new Error('扫描进行中') as Error & { busy?: boolean }
@@ -387,11 +360,6 @@ export async function listFindings(filters: FindingFilters = {}): Promise<Findin
 /** 拉取筛选下拉候选（服务端 distinct 的 host，恒为全表全集，不受当前筛选/分页影响）。 */
 export async function listFindingHosts(): Promise<string[]> {
   return (await get<{ hosts: string[] }>('/findings/hosts')).hosts
-}
-
-/** 拉取筛选下拉候选（服务端 distinct 的 scenario_id，恒为全表全集）。 */
-export async function listFindingScenarios(): Promise<string[]> {
-  return (await get<{ scenarios: string[] }>('/findings/scenarios')).scenarios
 }
 
 /**

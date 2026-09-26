@@ -89,10 +89,10 @@ type Deps struct {
 	// 由 cmd/api 注入 *skillstore.Store（自动满足 SkillAPI 窄接口）。
 	// Skill 是 Agent 可访问的知识库文档（工具手册、漏洞检测指南等）。
 	SkillStore SkillAPI
-	// KnowledgeGraph 为 nil 时知识图谱 API 路由（/tasks/:id/graph|nodes|stats）不注册。
+	// ExplorationGraph 为 nil 时知识图谱 API 路由（/tasks/:id/graph|nodes|stats）不注册。
 	// Phase 1: 知识图谱 API（e2e 测试迁移专用）。
-	// 由 cmd/api 注入 *knowledgegraph.AdapterStore（自动满足 KnowledgeGraphAPI 窄接口）。
-	KnowledgeGraph KnowledgeGraphAPI
+	// 由 cmd/api 注入 *explorationgraph.AdapterStore（自动满足 ExplorationGraphAPI 窄接口）。
+	ExplorationGraph ExplorationGraphAPI
 }
 
 // NewServer 组装 gin 路由：Recovery + 全局 X-API-Key 中间件 + 业务路由。
@@ -101,6 +101,22 @@ func NewServer(d Deps) http.Handler {
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
 	r.Use(gin.Recovery())
+
+	// CORS middleware for development
+	r.Use(func(c *gin.Context) {
+		c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
+		c.Writer.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
+		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, X-API-Key")
+		c.Writer.Header().Set("Access-Control-Max-Age", "86400")
+
+		if c.Request.Method == "OPTIONS" {
+			c.AbortWithStatus(204)
+			return
+		}
+
+		c.Next()
+	})
+
 	r.Use(RequireAPIKey(d.APIKey, d.StreamCookieSecret))
 
 	r.GET("/healthz", func(c *gin.Context) { c.JSON(200, gin.H{"ok": true}) })
@@ -153,14 +169,14 @@ func NewServer(d Deps) http.Handler {
 		r.PUT("/skills/:code", updateSkillHandler(d.SkillStore))
 		r.DELETE("/skills/:code", deleteSkillHandler(d.SkillStore))
 	}
-	if d.KnowledgeGraph != nil {
+	if d.ExplorationGraph != nil {
 		// Phase 1: 知识图谱 API（e2e 测试迁移专用）
 		// GET /api/v1/tasks/{taskId}/stats - 快速统计（e2e 轮询）
 		// GET /api/v1/tasks/{taskId}/nodes?kind=objective - 按类型筛选节点
 		// GET /api/v1/tasks/{taskId}/graph - 完整图谱（nodes + edges）
-		r.GET("/api/v1/tasks/:taskId/stats", getTaskStats(d.KnowledgeGraph))
-		r.GET("/api/v1/tasks/:taskId/nodes", getTaskNodes(d.KnowledgeGraph))
-		r.GET("/api/v1/tasks/:taskId/graph", getTaskGraph(d.KnowledgeGraph))
+		r.GET("/api/v1/tasks/:taskId/stats", getTaskStats(d.ExplorationGraph))
+		r.GET("/api/v1/tasks/:taskId/nodes", getTaskNodes(d.ExplorationGraph))
+		r.GET("/api/v1/tasks/:taskId/graph", getTaskGraph(d.ExplorationGraph))
 	}
 	if d.Traffic != nil {
 		// 代理捕获流量只读浏览（前端流量模块）：全局分页列表 + host 下拉 + 单条详情。

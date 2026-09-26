@@ -2,7 +2,6 @@ import { useState } from 'react'
 import { Send, Square } from 'lucide-react'
 import { followUp, startChat } from '@/api/client'
 import { useConversationStore } from '@/stores/conversation'
-import { ScenarioPicker } from './ScenarioPicker'
 
 interface ComposerProps {
   convId?: string
@@ -12,11 +11,8 @@ interface ComposerProps {
   onStop: () => void
 }
 
-// 发起器：选场景 + 写 brief。
+// 发起器：写 brief 发送。
 // 有 convId 走追加（followUp），否则新建会话（startChat）并向上抛新会话 ID。
-//
-// scenario_id 始终随消息带上（picker 常驻，默认选第一个）：新建会话时供后端 action 意图建 task；
-// 追加消息时供「纯聊天会话升级为 action」用当前场景建 task（已绑 task 的会话后端忽略此参数）。
 //
 // 首次消息不再必然下发扫描——后端先过意图闸（intent.Classify）：action 才建 task，qa/闲聊只回答。
 // 追加发送不由前端按 scanning 一刀切拦截——passive 会话的 task 往往长期 active（持续收流量），
@@ -26,7 +22,6 @@ interface ComposerProps {
 export function Composer({ convId, scanning, onStarted, onAppended, onStop }: ComposerProps) {
   const lastSeq = useConversationStore((s) => s.lastSeq)
   const [brief, setBrief] = useState('')
-  const [scenarioCode, setScenarioCode] = useState('')
   const [busyMsg, setBusyMsg] = useState('')
   const [sending, setSending] = useState(false)
 
@@ -38,12 +33,12 @@ export function Composer({ convId, scanning, onStarted, onAppended, onStop }: Co
       if (convId) {
         // followUp 前快照 seq——user 消息 seq 必 > 此（发送后才新增）；后续 SSE 推高 lastSeq 不影响此快照值。
         const beforeSeq = lastSeq
-        const r = await followUp(convId, brief, scenarioCode)
+        const r = await followUp(convId, brief, '')
         setBrief('')
         setBusyMsg(r.intent === 'qa' ? '正在回答…' : '已触发扫描')
         onAppended(beforeSeq)
       } else {
-        const { conversation_id } = await startChat(brief, scenarioCode)
+        const { conversation_id } = await startChat(brief, '')
         setBrief('')
         onStarted(conversation_id)
       }
@@ -71,7 +66,6 @@ export function Composer({ convId, scanning, onStarted, onAppended, onStop }: Co
   return (
     <div className="flex flex-shrink-0 flex-col gap-2.5 border-t border-border bg-surface px-4 py-3.5">
       <div className="flex items-center gap-3">
-        <ScenarioPicker value={scenarioCode} onChange={setScenarioCode} />
         <span className="ml-auto text-[11px] text-faint">Enter 发送 · Shift+Enter 换行</span>
       </div>
       <div className="rounded-lg border border-border bg-background transition-colors focus-within:border-accent">

@@ -9,14 +9,14 @@ import (
 	"encoding/json"
 	"time"
 
-	"github.com/V3teran/liusha/internal/knowledgegraph"
+	"github.com/V3teran/liusha/internal/explorationgraph"
 	"github.com/V3teran/liusha/internal/registry"
 )
 
 // ─────────────────────────────────────────────
 //  Action（执行意图单元）
 // ─────────────────────────────────────────────
-// Complexity 已迁移至 knowledgegraph 包
+// Complexity 已迁移至 explorationgraph 包
 
 // TargetRef 唯一标识一个目标节点，域无关三元组。
 type TargetRef struct {
@@ -41,7 +41,7 @@ func (r TargetRef) Display() string {
 // Action 是 Planner 生成的单个执行意图单元。
 type Action struct {
 	ID          string
-	Complexity  knowledgegraph.Complexity
+	Complexity  explorationgraph.Complexity
 	Target      TargetRef
 	Instruction string // 自然语言描述要做什么
 	Cues        []string
@@ -215,8 +215,8 @@ type Target struct {
 
 // Campaign 是前端可配置的扫描策略。
 type Campaign struct {
-	EnabledComplexity []knowledgegraph.Complexity
-	BudgetOverrides   map[knowledgegraph.Complexity]Budget
+	EnabledComplexity []explorationgraph.Complexity
+	BudgetOverrides   map[explorationgraph.Complexity]Budget
 	GlobalConstraints []registry.Constraint
 	ScanBudget        ScanBudget
 	PostScanHook      func(taskID string)
@@ -283,13 +283,13 @@ type SSEEvent struct {
 	Data     any
 }
 
-// KnowledgeGraphReader 是只读的知识图谱接口（用于解耦）。
-type KnowledgeGraphReader interface {
-	GetNode(ctx context.Context, id string) (*KnowledgeGraphNode, error)
+// ExplorationGraphReader 是只读的知识图谱接口（用于解耦）。
+type ExplorationGraphReader interface {
+	GetNode(ctx context.Context, id string) (*ExplorationGraphNode, error)
 }
 
-// KnowledgeGraphNode 是知识图谱节点的简化表示。
-type KnowledgeGraphNode struct {
+// ExplorationGraphNode 是知识图谱节点的简化表示。
+type ExplorationGraphNode struct {
 	ID       string
 	Metadata json.RawMessage
 }
