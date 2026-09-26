@@ -12,6 +12,7 @@ package llm
 
 import (
 	"context"
+	"io"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -92,7 +93,7 @@ func (g *openAICompatGen) Generate(ctx context.Context, msgs []Message, tools []
 
 	resp, err := g.client.CreateChatCompletion(ctx, req)
 	if err != nil {
-		return Result{}, fmt.Errorf("openai-compat generate: %w", err)
+		return Result{}, fmt.Errorf("openai-compat generate: %w", wrapOpenAICompatErr(err))
 	}
 	if len(resp.Choices) == 0 {
 		return Result{}, fmt.Errorf("openai-compat generate: 0 choices returned")
@@ -341,4 +342,171 @@ func fromOpenAIResponse(resp openai.ChatCompletionResponse, provider, model stri
 		})
 	}
 	return res
+}
+
+// ─── StreamChat / CountTokens（Provider 桥接用可选能力） ───────────────────────
+
+// StreamChat 流式生成：事件含 text 增量、聚合后的 tool_call、done（带 usage 估算）。
+// maxTokens ≤ 0 时走构造时的配置默认。支持 ctx 取消（事件通道随当前事件后关闭）。
+func (g *openAICompatGen) StreamChat(ctx context.Context, msgs []Message, tools []ToolSchema, maxTokens int) (<-chan StreamEvent, error) {
+	openaiMsgs, err := toOpenAIMessages(msgs, g.supportsVision)
+	if err != nil {
+		return nil, fmt.Errorf("convert messages: %w", err)
+	}
+	openaiTools, err := toOpenAITools(tools)
+	if err != nil {
+		return nil, fmt.Errorf("convert tools: %w", err)
+	}
+
+	creq := openai.ChatCompletionRequest{
+		Model:    g.model,
+		Messages: openaiMsgs,
+		Stream:   true,
+	}
+	if len(openaiTools) > 0 {
+		creq.Tools = openaiTools
+	}
+	mt := g.maxTokens
+	if maxTokens > 0 {
+		mt = maxTokens
+	}
+	if mt > 0 {
+		creq.MaxTokens = mt
+	}
+
+	stream, err := g.client.CreateChatCompletionStream(ctx, creq)
+	if err != nil {
+		return nil, wrapOpenAICompatErr(err)
+	}
+
+	ch := make(chan StreamEvent, 32)
+	go func() {
+		defer close(ch)
+		defer stream.Close()
+
+		partial := map[int]*ToolCall{}
+
+		emit := func(e StreamEvent) bool {
+			select {
+			case ch <- e:
+				return true
+			case <-ctx.Done():
+				return false
+			}
+		}
+
+		for {
+			chunk, err := stream.Recv()
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			if err != nil {
+				emit(StreamEvent{Kind: StreamError, Err: wrapOpenAICompatErr(err)})
+				return
+			}
+			if len(chunk.Choices) == 0 {
+				continue
+			}
+			delta := chunk.Choices[0].Delta
+
+			if delta.Content != "" {
+				if !emit(StreamEvent{Kind: StreamText, Content: delta.Content}) {
+					return
+				}
+			}
+
+			for _, tc := range delta.ToolCalls {
+				if tc.Index == nil {
+					continue
+				}
+				i := *tc.Index
+				if _, ok := partial[i]; !ok {
+					partial[i] = &ToolCall{ID: tc.ID, Name: tc.Function.Name, Arguments: []byte("")}
+				} else {
+					if tc.ID != "" {
+						partial[i].ID = tc.ID
+					}
+					if tc.Function.Name != "" {
+						partial[i].Name = tc.Function.Name
+					}
+				}
+				partial[i].Arguments = append(partial[i].Arguments, []byte(tc.Function.Arguments)...)
+			}
+
+			if chunk.Choices[0].FinishReason == openai.FinishReasonToolCalls ||
+				chunk.Choices[0].FinishReason == openai.FinishReasonStop {
+				for i := 0; i < len(partial); i++ {
+					tc, ok := partial[i]
+					if !ok {
+						continue
+					}
+					if len(tc.Arguments) == 0 {
+						tc.Arguments = []byte("{}")
+					}
+					if !emit(StreamEvent{Kind: StreamToolCall, Tool: tc}) {
+						return
+					}
+				}
+				break
+			}
+		}
+
+		// OpenAI 流式 chunk 不返回 usage，发空 Usage
+		u := Usage{}
+		emit(StreamEvent{Kind: StreamDone, Usage: &u})
+	}()
+
+	return ch, nil
+}
+
+// CountTokens 本地估算输入 token 数（OpenAI 协议无专用计数端点）。
+// 每 message 约 4 token overhead，文本按字符数估算；精度足够触发压缩决策。
+func (g *openAICompatGen) CountTokens(_ context.Context, msgs []Message, tools []ToolSchema) (int, error) {
+	total := 3
+	for _, m := range msgs {
+		total += 4
+		total += estimateTokens(m.Content)
+		for _, tc := range m.ToolCalls {
+			total += 4
+			total += estimateTokens(tc.Name)
+			total += estimateTokens(string(tc.Arguments))
+		}
+		total += estimateTokens(m.ToolCallID)
+	}
+	for _, t := range tools {
+		total += 10
+		total += estimateTokens(t.Name)
+		total += estimateTokens(t.Description)
+		total += estimateTokens(string(t.Parameters))
+	}
+	return total, nil
+}
+
+// estimateTokens 粗估文本 token 数：英文约 1 token/4 字符，中文约 1 token/字。
+func estimateTokens(s string) int {
+	if s == "" {
+		return 0
+	}
+	runes := []rune(s)
+	ascii, cjk := 0, 0
+	for _, r := range runes {
+		if r > 0x2E7F {
+			cjk++
+		} else {
+			ascii++
+		}
+	}
+	return ascii/4 + cjk
+}
+
+// wrapOpenAICompatErr 把 SDK 的 *openai.APIError 归一成 *HTTPError（供重试分类读状态码）。
+func wrapOpenAICompatErr(err error) error {
+	if err == nil {
+		return nil
+	}
+	var apiErr *openai.APIError
+	if errors.As(err, &apiErr) {
+		return &HTTPError{Code: apiErr.HTTPStatusCode, Inner: err}
+	}
+	return err
 }

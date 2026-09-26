@@ -10,9 +10,12 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/V3teran/liusha/internal/cognition"
+	"github.com/V3teran/liusha/internal/config/llm"
 	"github.com/V3teran/liusha/internal/controlplane"
 	"github.com/V3teran/liusha/internal/explorationgraph"
 	"github.com/V3teran/liusha/internal/framework/core"
+	fwllm "github.com/V3teran/liusha/internal/framework/llm"
+	"github.com/V3teran/liusha/internal/llmstore"
 	"github.com/V3teran/liusha/internal/logx"
 )
 
@@ -227,3 +230,25 @@ func mustJSON(v interface{}) json.RawMessage {
 type errInvalidPayload string
 
 func (e errInvalidPayload) Error() string { return string(e) }
+
+// newFallbackProviderFactory 构造 runner 侧的全局备胎 Provider 工厂：
+// primary 重试耗尽（429/529）后由框架 retry 切到保留 role __fallback__ 的部署。
+// 备胎用独立 ClientPool（与 primary 池解耦，避免互持连接放大故障面），
+// 且工厂自身不套 retry（框架约定：fallback 不再二次退避）。
+func newFallbackProviderFactory(store *llmstore.Store, cipher llmcfg.KeyDecrypter) fwllm.RouterFallbackFactory {
+	return func(ctx context.Context) (fwllm.Provider, error) {
+		p, err := store.ProviderForFallback(ctx)
+		if err != nil {
+			return nil, err
+		}
+		key, err := llmcfg.ResolveAPIKey(p, cipher)
+		if err != nil {
+			return nil, err
+		}
+		g, err := fwllm.BuildGeneratorWithKey(ctx, p, fwllm.NewClientPool(), key)
+		if err != nil {
+			return nil, err
+		}
+		return fwllm.NewProvider(g), nil
+	}
+}

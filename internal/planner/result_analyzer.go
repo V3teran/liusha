@@ -37,7 +37,7 @@ func (i *Intelligence) AnalyzeResults(ctx context.Context, world *explorationgra
 
 	// 统计属于当前 Objective 的 Actions
 	actionCount := 0
-	for _, action := range allActions {
+	for range allActions {
 		// 简化判断：统计所有 Actions（因为目前只有一个 Objective）
 		// 未来如果有多个 Objectives，需要通过边关系判断
 		actionCount++
