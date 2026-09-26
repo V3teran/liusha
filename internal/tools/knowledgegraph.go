@@ -187,10 +187,10 @@ func (t *writeEvidenceTool) Execute(ctx context.Context, args json.RawMessage) (
 
 	// 构造 content
 	content, _ := json.Marshal(map[string]interface{}{
-		"type":        "evidence",
-		"statement":   input.Description,
-		"outcome":     input.Outcome,
-		"data":        input.Data,
+		"type":      "evidence",
+		"statement": input.Description,
+		"outcome":   input.Outcome,
+		"data":      input.Data,
 	})
 
 	// 创建 evidence 节点（evidence 是一类 observation，evaluation 节点已废弃）

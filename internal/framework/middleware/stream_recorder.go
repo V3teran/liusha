@@ -212,9 +212,9 @@ func (r *StreamRecorder) GetStats(taskID string) (RecordingStats, error) {
 	}
 
 	stats := RecordingStats{
-		TaskID:      taskID,
-		EventCount:  len(events),
-		EventTypes:  make(map[string]int),
+		TaskID:     taskID,
+		EventCount: len(events),
+		EventTypes: make(map[string]int),
 	}
 
 	if len(events) > 0 {

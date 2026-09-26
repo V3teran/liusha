@@ -12,8 +12,8 @@ import (
 	"context"
 	"time"
 
-	fwllm "github.com/V3teran/liusha/internal/framework/llm"
 	"github.com/V3teran/liusha/internal/config"
+	fwllm "github.com/V3teran/liusha/internal/framework/llm"
 )
 
 // RetryOptions 是 spec §8.5 退避表配置（别名到框架层）。

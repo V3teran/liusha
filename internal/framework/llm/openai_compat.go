@@ -12,10 +12,10 @@ package llm
 
 import (
 	"context"
-	"io"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 
 	openai "github.com/sashabaranov/go-openai"

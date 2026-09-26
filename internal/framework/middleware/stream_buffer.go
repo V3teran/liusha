@@ -8,7 +8,7 @@ import (
 
 // StreamBuffer 是流式缓冲器。
 type StreamBuffer struct {
-	bufferSize int
+	bufferSize    int
 	flushInterval time.Duration
 }
 
