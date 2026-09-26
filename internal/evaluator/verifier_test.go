@@ -6,8 +6,9 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/V3teran/liusha/internal/framework/core"
 	"github.com/V3teran/liusha/internal/explorationgraph"
+	"github.com/V3teran/liusha/internal/finding"
+	"github.com/V3teran/liusha/internal/framework/core"
 )
 
 // fakeWorld 记录 Evaluator 对世界模型的写入，供断言"门的副作用"。
@@ -41,12 +42,12 @@ func (f fakeReplayer) Replay(context.Context, json.RawMessage) (Result, error) {
 
 // fakeFindingWriter 模拟 finding 存储
 type fakeFindingWriter struct {
-	findings []interface{}
+	findings []finding.VulnFinding
 }
 
-func (f *fakeFindingWriter) Save(ctx context.Context, finding interface{}) (interface{}, error) {
-	f.findings = append(f.findings, finding)
-	return finding, nil
+func (f *fakeFindingWriter) Save(ctx context.Context, v finding.VulnFinding) (finding.VulnFinding, error) {
+	f.findings = append(f.findings, v)
+	return v, nil
 }
 
 func baseAttempt() Attempt {

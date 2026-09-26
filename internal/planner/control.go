@@ -8,8 +8,8 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/V3teran/liusha/internal/framework/core"
 	"github.com/V3teran/liusha/internal/explorationgraph"
+	"github.com/V3teran/liusha/internal/framework/core"
 )
 
 // ActionMetadata 是 action 节点的 metadata 结构。
@@ -111,12 +111,6 @@ func (p *PlannerAgent) Kill(ctx context.Context, actionID string, reason string)
 		return fmt.Errorf("update action state: %w", err)
 	}
 
-	// 6. 发布到事件总线
-	if p.eventBus != nil {
-		p.eventBus.PublishActionKilled(p.taskID, actionID, reason)
-		p.logger.Info().Str("action_id", actionID).Msg("published action.killed event")
-	}
-
 	return nil
 }
 
@@ -158,12 +152,6 @@ func (p *PlannerAgent) Steer(ctx context.Context, actionID string, guidance stri
 
 	if err := p.world.UpdateNodeMetadata(ctx, actionID, metadataBytes); err != nil {
 		return fmt.Errorf("update metadata: %w", err)
-	}
-
-	// 5. 发布到事件总线
-	if p.eventBus != nil {
-		p.eventBus.PublishActionSteered(p.taskID, actionID, guidance)
-		p.logger.Info().Str("action_id", actionID).Msg("published action.steered event")
 	}
 
 	return nil

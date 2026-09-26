@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"github.com/V3teran/liusha/internal/corpus"
-	"github.com/V3teran/liusha/internal/insight"
 	"github.com/V3teran/liusha/internal/framework/llm"
+	"github.com/V3teran/liusha/internal/insight"
 )
 
 const distillMaxEntries = 5

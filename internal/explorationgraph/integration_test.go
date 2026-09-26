@@ -1,3 +1,5 @@
+//go:build integration
+
 package explorationgraph
 
 import (
@@ -6,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/V3teran/liusha/internal/dbtest"
 	"github.com/V3teran/liusha/internal/framework/core"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/assert"
@@ -142,7 +145,7 @@ func TestCompleteDataFlow(t *testing.T) {
 		Content:    json.RawMessage(`{"type":"vulnerability","severity":"medium"}`),
 		Confidence: &verifiedConf,
 		Priority:   PriorityHigh,
-		SourceType: "verifier",
+		SourceType: SourceEvaluator,
 		SourceID:   "verifier-1",
 		CreatedAt:  time.Now(),
 		UpdatedAt:  time.Now(),
@@ -165,7 +168,7 @@ func TestCompleteDataFlow(t *testing.T) {
 	require.NoError(t, err)
 
 	// 验证 verified discoveries
-	discoveries, err := store.ListVerifiedResults(ctx, taskID)
+	discoveries, err := store.ListResults(ctx, taskID)
 	require.NoError(t, err)
 	assert.Len(t, discoveries, 1)
 	assert.Equal(t, "disc-1", discoveries[0].ID)
@@ -235,15 +238,13 @@ func TestMoveDependency(t *testing.T) {
 	assert.Equal(t, "action-2", actions[0].ID)
 }
 
-// setupTestDB 设置测试数据库连接
+// setupTestDB 启动一次性 Postgres 容器（含全部迁移），并清理图谱表保证测试隔离。
 func setupTestDB(t *testing.T) *pgxpool.Pool {
-	dsn := "postgres://liusha:liusha@localhost:5432/liusha_test?sslmode=disable"
-
-	pool, err := pgxpool.New(context.Background(), dsn)
-	require.NoError(t, err, "连接测试数据库失败，请确保 PostgreSQL 运行在 localhost:5432，数据库名为 liusha_test")
+	t.Helper()
+	pool := dbtest.NewPgPool(t)
 
 	// 清理测试数据（按依赖顺序）
-	_, err = pool.Exec(context.Background(), "TRUNCATE TABLE wm_edge CASCADE")
+	_, err := pool.Exec(context.Background(), "TRUNCATE TABLE wm_edge CASCADE")
 	require.NoError(t, err)
 	_, err = pool.Exec(context.Background(), "TRUNCATE TABLE wm_node CASCADE")
 	require.NoError(t, err)

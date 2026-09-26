@@ -2,13 +2,13 @@ package planner
 
 // GlobalAssessment 是全局评估结果
 type GlobalAssessment struct {
-	Status          string
-	Progress        string
-	Strategy        string
-	Reasoning       string
-	NewActions      []NewAction
-	ActionsToSteer  []ActionSteer
-	ActionsToKill   []string
+	Status         string
+	Progress       string
+	Strategy       string
+	Reasoning      string
+	NewActions     []NewAction
+	ActionsToSteer []ActionSteer
+	ActionsToKill  []string
 }
 
 // NewAction 是新建的 Action

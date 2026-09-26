@@ -11,8 +11,6 @@ import (
 	"github.com/V3teran/liusha/internal/dbtest"
 )
 
-const testScenario = "web-pentest-killchain"
-
 // TestStore_CreateThenGetByID 验证：建定时模板后可按 ID 读回，next_run_at 已按 cron_expr 算出。
 func TestStore_CreateThenGetByID(t *testing.T) {
 	pool := dbtest.NewPgPool(t)
@@ -20,10 +18,9 @@ func TestStore_CreateThenGetByID(t *testing.T) {
 	ctx := context.Background()
 
 	c, err := s.Create(ctx, NewParams{
-		ScenarioID: testScenario,
-		CronExpr:   "0 4 * * *",
-		Items:      []assignment.Item{{Brief: "夜间复扫 http://target.com"}},
-		Title:      "夜间复扫",
+		CronExpr: "0 4 * * *",
+		Items:    []assignment.Item{{Brief: "夜间复扫 http://target.com"}},
+		Title:    "夜间复扫",
 	})
 	if err != nil {
 		t.Fatalf("create: %v", err)
@@ -42,7 +39,7 @@ func TestStore_CreateThenGetByID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get by id: %v", err)
 	}
-	if got.ScenarioID != testScenario || got.CronExpr != "0 4 * * *" || got.Title != "夜间复扫" {
+	if got.CronExpr != "0 4 * * *" || got.Title != "夜间复扫" {
 		t.Fatalf("字段不匹配: %+v", got)
 	}
 }
@@ -53,10 +50,10 @@ func TestStore_Create_RejectsMissingScenarioOrInvalidCron(t *testing.T) {
 	s := NewStore(pool)
 	ctx := context.Background()
 
-	if _, err := s.Create(ctx, NewParams{ScenarioID: "", CronExpr: "* * * * *"}); err == nil {
-		t.Fatal("缺 scenario_id 应报错")
+	if _, err := s.Create(ctx, NewParams{}); err == nil {
+		t.Fatal("缺 cron_expr 应报错")
 	}
-	if _, err := s.Create(ctx, NewParams{ScenarioID: testScenario, CronExpr: "not-a-cron"}); err == nil {
+	if _, err := s.Create(ctx, NewParams{CronExpr: "not-a-cron", Items: []assignment.Item{{Brief: "b"}}}); err == nil {
 		t.Fatal("非法 cron_expr 应报错")
 	}
 }
@@ -67,7 +64,7 @@ func TestStore_SetEnabled(t *testing.T) {
 	s := NewStore(pool)
 	ctx := context.Background()
 
-	c, err := s.Create(ctx, NewParams{ScenarioID: testScenario, CronExpr: "* * * * *"})
+	c, err := s.Create(ctx, NewParams{CronExpr: "* * * * *", Items: []assignment.Item{{Brief: "b"}}})
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
@@ -95,7 +92,7 @@ func TestStore_ListDue(t *testing.T) {
 	now := time.Now()
 
 	// 到点且启用：应出现
-	due, err := s.Create(ctx, NewParams{ScenarioID: testScenario, CronExpr: "* * * * *"})
+	due, err := s.Create(ctx, NewParams{CronExpr: "* * * * *", Items: []assignment.Item{{Brief: "b"}}})
 	if err != nil {
 		t.Fatalf("create due: %v", err)
 	}
@@ -104,7 +101,7 @@ func TestStore_ListDue(t *testing.T) {
 	}
 
 	// 未到点：不应出现
-	notDue, err := s.Create(ctx, NewParams{ScenarioID: testScenario, CronExpr: "* * * * *"})
+	notDue, err := s.Create(ctx, NewParams{CronExpr: "* * * * *", Items: []assignment.Item{{Brief: "b"}}})
 	if err != nil {
 		t.Fatalf("create not due: %v", err)
 	}
@@ -113,7 +110,7 @@ func TestStore_ListDue(t *testing.T) {
 	}
 
 	// 到点但已停用：不应出现
-	disabled, err := s.Create(ctx, NewParams{ScenarioID: testScenario, CronExpr: "* * * * *"})
+	disabled, err := s.Create(ctx, NewParams{CronExpr: "* * * * *", Items: []assignment.Item{{Brief: "b"}}})
 	if err != nil {
 		t.Fatalf("create disabled: %v", err)
 	}
@@ -136,7 +133,7 @@ func TestStore_MarkFired(t *testing.T) {
 	s := NewStore(pool)
 	ctx := context.Background()
 
-	c, err := s.Create(ctx, NewParams{ScenarioID: testScenario, CronExpr: "0 4 * * *"})
+	c, err := s.Create(ctx, NewParams{CronExpr: "0 4 * * *", Items: []assignment.Item{{Brief: "b"}}})
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
@@ -158,34 +155,24 @@ func TestStore_MarkFired(t *testing.T) {
 	}
 }
 
-// TestStore_List_FiltersByScenario 验证 List 按 scenario_id 过滤。
-func TestStore_List_FiltersByScenario(t *testing.T) {
+// TestStore_List 验证 List 返回已创建的定时模板。
+func TestStore_List(t *testing.T) {
 	pool := dbtest.NewPgPool(t)
 	s := NewStore(pool)
 	ctx := context.Background()
 
-	if _, err := s.Create(ctx, NewParams{ScenarioID: testScenario, CronExpr: "* * * * *", Title: "a1"}); err != nil {
-		t.Fatalf("create scenario a: %v", err)
+	if _, err := s.Create(ctx, NewParams{CronExpr: "* * * * *", Items: []assignment.Item{{Brief: "a"}}, Title: "a1"}); err != nil {
+		t.Fatalf("create a: %v", err)
 	}
-	if _, err := s.Create(ctx, NewParams{ScenarioID: "traffic-analysis", CronExpr: "* * * * *", Title: "p1"}); err != nil {
-		t.Fatalf("create scenario b: %v", err)
-	}
-
-	filtered, err := s.List(ctx, testScenario, 0)
-	if err != nil {
-		t.Fatalf("list by scenario: %v", err)
-	}
-	for _, c := range filtered {
-		if c.ScenarioID != testScenario {
-			t.Fatalf("List(%q) 混入了 %s", testScenario, c.ScenarioID)
-		}
+	if _, err := s.Create(ctx, NewParams{CronExpr: "0 4 * * *", Items: []assignment.Item{{Brief: "b"}}, Title: "b1"}); err != nil {
+		t.Fatalf("create b: %v", err)
 	}
 
-	all, err := s.List(ctx, "", 0)
+	all, err := s.List(ctx, 0)
 	if err != nil {
-		t.Fatalf("list all: %v", err)
+		t.Fatalf("list: %v", err)
 	}
 	if len(all) < 2 {
-		t.Fatalf("List(\"\") 应至少含 2 条，got %d", len(all))
+		t.Fatalf("List 应至少含 2 条，got %d", len(all))
 	}
 }

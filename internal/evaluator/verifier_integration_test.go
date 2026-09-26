@@ -5,13 +5,12 @@ package evaluator_test
 import (
 	"context"
 	"encoding/json"
-	"os"
 	"testing"
-	"time"
 
-	"github.com/V3teran/liusha/internal/db"
+	"github.com/V3teran/liusha/internal/dbtest"
 	"github.com/V3teran/liusha/internal/evaluator"
 	"github.com/V3teran/liusha/internal/explorationgraph"
+	"github.com/V3teran/liusha/internal/framework/core"
 )
 
 // stubReplayer 按预设结论回应复现——集成测试只评估"门 + 真 store"咬合，不测真实复现。
@@ -21,24 +20,12 @@ func (s stubReplayer) Replay(context.Context, json.RawMessage) (evaluator.Result
 	return s.res, nil
 }
 
-// Evaluator 承接 L3 的关键评估：用真 explorationgraph.Store 跑晋升门，证明
-//   - 坐实 → wm_verification 落 confirmed + wm_node 晋升 confirmed + verified_by 回指闭环；
+// TestEvaluator_PromoteAgainstRealStore 用真 explorationgraph.Store 跑晋升门，证明：
+//   - 坐实 → wm_verification 落 confirmed + Result 节点晋升（confidence=verified，SourceID 回指 verification）；
 //   - 证伪 → wm_verification 落 refuted 留档，wm_node 不新增。
-//
-// 需 LIUSHA_POSTGRES_DSN；未设则 skip。
 func TestEvaluator_PromoteAgainstRealStore(t *testing.T) {
-	dsn := os.Getenv("LIUSHA_POSTGRES_DSN")
-	if dsn == "" {
-		t.Skip("LIUSHA_POSTGRES_DSN 未设，跳过 verifier 集成测试")
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	pool, err := db.NewPgPool(ctx, dsn, 5, 1, 5, 0)
-	if err != nil {
-		t.Fatalf("连库: %v", err)
-	}
-	defer pool.Close()
+	ctx := context.Background()
+	pool := dbtest.NewPgPool(t)
 	store := explorationgraph.NewStore(pool)
 
 	const taskID = "verifier-itest"
@@ -50,33 +37,33 @@ func TestEvaluator_PromoteAgainstRealStore(t *testing.T) {
 	mkAttempt := func(loc string) evaluator.Attempt {
 		return evaluator.Attempt{
 			TaskID:     taskID,
-			LeadID:     "lead-" + loc,
-			Kind:       explorationgraph.KindResult,
-			Target:     explorationgraph.TargetRef{Domain: "web", RefKind: "host", Locator: loc},
+			NodeID:     "lead-" + loc,
+			Kind:       core.KindResult,
 			Primitives: json.RawMessage(`[{"op":"http_request"}]`),
-			Attrs:      json.RawMessage(`{"severity":"high","taxonomy":["owasp:A03"]}`),
+			Content:    json.RawMessage(`{"severity":"high","host":"` + loc + `","summary":"SQLi at ` + loc + `"}`),
+			Priority:   "high",
 		}
 	}
 
-	// 坐实：应晋升 confirmed 节点，verified_by 指向真实 wm_verification.id。
+	// 坐实：应晋升 verified 节点，SourceID 指向真实 wm_verification.id。
 	confirmed := evaluator.New(store, stubReplayer{res: evaluator.Result{
-		Confirmed: true, Evidence: json.RawMessage(`{"poc":"' OR 1=1--"}`), DurationMs: 88,
-	}})
+		Confirmed: true, Evaluation: json.RawMessage(`{"poc":"' OR 1=1--"}`), DurationMs: 88,
+	}}, nil)
 	node, err := confirmed.Promote(ctx, mkAttempt("t.local"))
 	if err != nil {
 		t.Fatalf("坐实 Promote: %v", err)
 	}
-	if node == nil || node.Confidence != explorationgraph.ConfConfirmed {
-		t.Fatalf("应晋升 confirmed 节点, got %+v", node)
+	if node == nil || node.Confidence == nil || *node.Confidence != explorationgraph.ConfidenceVerified {
+		t.Fatalf("应晋升 verified 节点, got %+v", node)
 	}
-	if node.VerifiedBy == nil || *node.VerifiedBy == "" {
-		t.Fatal("VerifiedBy 应指向真实 verification id")
+	if node.SourceID == "" {
+		t.Fatal("SourceID 应指向真实 verification id")
 	}
 
 	// 证伪：不进图，但 wm_verification 留 refuted 档。
 	refuted := evaluator.New(store, stubReplayer{res: evaluator.Result{
-		Confirmed: false, Evidence: json.RawMessage(`{"reason":"no repro"}`),
-	}})
+		Confirmed: false, Evaluation: json.RawMessage(`{"reason":"no repro"}`),
+	}}, nil)
 	rNode, err := refuted.Promote(ctx, mkAttempt("safe.local"))
 	if err != nil {
 		t.Fatalf("证伪 Promote 不应报错: %v", err)
@@ -86,15 +73,12 @@ func TestEvaluator_PromoteAgainstRealStore(t *testing.T) {
 	}
 
 	// 回读：图里只有 1 个坐实节点（证伪的没进）；verification 有 2 条（含 refuted 留档）。
-	nodes, err := store.ListNodes(ctx, taskID)
+	nodes, err := store.ListNodesByKind(ctx, taskID, core.KindResult)
 	if err != nil {
-		t.Fatalf("ListNodes: %v", err)
+		t.Fatalf("ListNodesByKind: %v", err)
 	}
 	if len(nodes) != 1 {
 		t.Fatalf("图应只有 1 个坐实节点, got %d", len(nodes))
-	}
-	if nodes[0].Ref.Locator != "t.local" {
-		t.Errorf("坐实的应是 t.local, got %s", nodes[0].Ref.Locator)
 	}
 
 	var verCount int

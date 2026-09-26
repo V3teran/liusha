@@ -11,19 +11,19 @@ import (
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 
+	"github.com/V3teran/liusha/internal/explorationgraph"
 	"github.com/V3teran/liusha/internal/framework/core"
 	"github.com/V3teran/liusha/internal/framework/llm"
-	"github.com/V3teran/liusha/internal/explorationgraph"
 )
 
 // Intelligence 是基于 LLM 的智能规划器
 type Intelligence struct {
-	router llm.Router
+	router *llm.Router
 	logger zerolog.Logger
 }
 
 // NewIntelligence 创建智能规划器
-func NewIntelligence(router llm.Router, logger zerolog.Logger) *Intelligence {
+func NewIntelligence(router *llm.Router, logger zerolog.Logger) *Intelligence {
 	return &Intelligence{
 		router: router,
 		logger: logger.With().Str("component", "planner_intelligence").Logger(),
@@ -32,22 +32,22 @@ func NewIntelligence(router llm.Router, logger zerolog.Logger) *Intelligence {
 
 // PlanningContext 规划上下文
 type PlanningContext struct {
-	Objective       string                    // 任务目标
-	CompletedActions []explorationgraph.Node    // 已完成的 Action
-	PendingActions   []explorationgraph.Node    // 待执行的 Action
-	Results          []explorationgraph.Node    // 已确认的结果
-	FailedActions    []explorationgraph.Node    // 失败的 Action
+	Objective        string                  // 任务目标
+	CompletedActions []explorationgraph.Node // 已完成的 Action
+	PendingActions   []explorationgraph.Node // 待执行的 Action
+	Results          []explorationgraph.Node // 已确认的结果
+	FailedActions    []explorationgraph.Node // 失败的 Action
 }
 
 // ActionProposal LLM 返回的 Action 提案
 type ActionProposal struct {
-	Type        string                 `json:"type"`         // Action 类型
-	Instruction string                 `json:"instruction"`  // 执行指令
-	Complexity  string                 `json:"complexity"`   // 复杂度: simple/moderate/complex
-	Priority    string                 `json:"priority"`     // 优先级: critical/high/medium/low
-	Reason      string                 `json:"reason"`       // 规划理由
-	DependsOn   []string               `json:"depends_on"`   // 依赖的 Action ID
-	Metadata    map[string]interface{} `json:"metadata"`     // 额外元数据
+	Type        string                 `json:"type"`        // Action 类型
+	Instruction string                 `json:"instruction"` // 执行指令
+	Complexity  string                 `json:"complexity"`  // 复杂度: simple/moderate/complex
+	Priority    string                 `json:"priority"`    // 优先级: critical/high/medium/low
+	Reason      string                 `json:"reason"`      // 规划理由
+	DependsOn   []string               `json:"depends_on"`  // 依赖的 Action ID
+	Metadata    map[string]interface{} `json:"metadata"`    // 额外元数据
 }
 
 // PlanningResponse LLM 响应
@@ -60,7 +60,6 @@ type PlanningResponse struct {
 // Plan 基于当前知识图谱状态生成新的 Action
 func (i *Intelligence) Plan(ctx context.Context, world *explorationgraph.Store, taskID string) ([]explorationgraph.Node, error) {
 	i.logger.Info().Str("task_id", taskID).Msg("开始智能规划")
-	fmt.Printf("[PLANNER-DEBUG] Intelligence.Plan ENTRY - taskID=%s\n", taskID)
 
 	// 1. 收集规划上下文
 	planCtx, err := i.gatherContext(ctx, world, taskID)
@@ -70,11 +69,9 @@ func (i *Intelligence) Plan(ctx context.Context, world *explorationgraph.Store, 
 
 	// 2. 构建 LLM prompt
 	prompt := i.buildPlanningPrompt(planCtx)
-	fmt.Printf("[PLANNER-DEBUG] Built prompt, length=%d\n", len(prompt))
 
 	// 3. 调用 LLM 进行推理
 	response, err := i.callLLM(ctx, prompt)
-	fmt.Printf("[PLANNER-DEBUG] callLLM returned, err=%v\n", err)
 	if err != nil {
 		return nil, fmt.Errorf("LLM 推理失败: %w", err)
 	}

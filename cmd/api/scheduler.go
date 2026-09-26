@@ -124,12 +124,13 @@ func (r *cronRunner) fireOne(ctx context.Context, sched cronschedule.CronSchedul
 // 未消费的 proxy_traffic + enqueue——与 ingestor.spawnPassiveTask 同语义，区别仅在触发源是
 // 定时器而非实时流量窗口（故用固定 passiveCronClaimLimit，不接聚合器配置）。
 //
-// brief 存 host（统一输入，见 D5）；引擎由 runner 按 ID 解析（此处不关心 solo/swarm）。
+// host 显式已知，创建时即写入 target_host（无需等 runner 从 brief 回填）。
 func (r *cronRunner) expandTrafficItem(ctx context.Context, assignmentID string, item assignment.Item) error {
 	host := item.Host
 	tk, err := r.tasks.Create(ctx, task.NewParams{
 		AssignmentID: assignmentID,
 		Brief:        host,
+		TargetHost:   host,
 	})
 	if err != nil {
 		return fmt.Errorf("create task: %w", err)

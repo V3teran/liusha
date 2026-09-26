@@ -8,8 +8,8 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/V3teran/liusha/internal/framework/core"
 	"github.com/V3teran/liusha/internal/explorationgraph"
+	"github.com/V3teran/liusha/internal/framework/core"
 	"github.com/V3teran/liusha/internal/registry"
 )
 
@@ -167,10 +167,10 @@ func (t *writeEvidenceTool) Schema() json.RawMessage { return writeEvidenceSchem
 func (t *writeEvidenceTool) Execute(ctx context.Context, args json.RawMessage) (registry.ToolResult, error) {
 	var input struct {
 		ObservationID string                 `json:"observation_id"`
-		Outcome      string                 `json:"outcome"`
-		Description  string                 `json:"description"`
-		Data         map[string]interface{} `json:"data"`
-		FindingID    string                 `json:"finding_id"`
+		Outcome       string                 `json:"outcome"`
+		Description   string                 `json:"description"`
+		Data          map[string]interface{} `json:"data"`
+		FindingID     string                 `json:"finding_id"`
 	}
 	if err := json.Unmarshal(args, &input); err != nil {
 		return registry.ToolResult{Error: "参数解析失败"}, nil

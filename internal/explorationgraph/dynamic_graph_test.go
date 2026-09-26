@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/V3teran/liusha/internal/framework/core"
 	"github.com/V3teran/liusha/internal/explorationgraph"
+	"github.com/V3teran/liusha/internal/framework/core"
 	"github.com/google/uuid"
 )
 
@@ -91,8 +91,8 @@ func TestConcurrentActionClaim(t *testing.T) {
 
 	// 实例 1：尝试抢占
 	go func() {
-		success, err := store.CompareAndSwapState(ctx, taskID, actionID,
-			string(explorationgraph.StateOpen), string(explorationgraph.StateRunning))
+		success, err := store.CompareAndSwapActionState(ctx, taskID, actionID,
+			explorationgraph.StateOpen, explorationgraph.StateRunning, nil)
 		if err != nil {
 			t.Errorf("实例1 CAS 失败: %v", err)
 			ch <- false
@@ -105,8 +105,8 @@ func TestConcurrentActionClaim(t *testing.T) {
 	go func() {
 		// 确保实例 1 先执行
 		time.Sleep(10 * time.Millisecond)
-		success, err := store.CompareAndSwapState(ctx, taskID, actionID,
-			string(explorationgraph.StateOpen), string(explorationgraph.StateRunning))
+		success, err := store.CompareAndSwapActionState(ctx, taskID, actionID,
+			explorationgraph.StateOpen, explorationgraph.StateRunning, nil)
 		if err != nil {
 			t.Errorf("实例2 CAS 失败: %v", err)
 			ch <- false

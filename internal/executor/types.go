@@ -223,8 +223,8 @@ type Campaign struct {
 }
 
 type Assignment struct {
-	ID      string
-	Targets []Target
+	ID       string
+	Targets  []Target
 	Campaign Campaign
 }
 
@@ -247,29 +247,6 @@ type Directive struct {
 }
 
 // ─────────────────────────────────────────────
-//  EventBus 相关类型（从 agent_old.go.bak 迁移）
-// ─────────────────────────────────────────────
-
-// EventBus 是事件总线接口（用于解耦）。
-type EventBus interface {
-	Subscribe(ctx context.Context, actionID string) EventSubscription
-	Publish(event ControlEvent)
-}
-
-// EventSubscription 是订阅句柄接口。
-type EventSubscription interface {
-	Events() <-chan ControlEvent
-	Unsubscribe()
-}
-
-// ControlEvent 是事件载体。
-type ControlEvent struct {
-	Type      string
-	ActionID  string
-	Payload   map[string]interface{}
-	Timestamp time.Time
-}
-
 // SSEEmitter 向前端推送流式事件。
 type SSEEmitter interface {
 	Emit(event SSEEvent)

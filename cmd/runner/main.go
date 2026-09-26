@@ -26,10 +26,11 @@ import (
 
 	agentstore "github.com/V3teran/liusha/internal/agentrun"
 	"github.com/V3teran/liusha/internal/assignment"
+	"github.com/V3teran/liusha/internal/bus"
+	cfgcache "github.com/V3teran/liusha/internal/cache"
 	"github.com/V3teran/liusha/internal/cachestore"
 	"github.com/V3teran/liusha/internal/config"
 	"github.com/V3teran/liusha/internal/config/setting"
-	cfgcache "github.com/V3teran/liusha/internal/cache"
 	"github.com/V3teran/liusha/internal/controlplane"
 	"github.com/V3teran/liusha/internal/conversation"
 	"github.com/V3teran/liusha/internal/corpus"
@@ -39,16 +40,16 @@ import (
 	"github.com/V3teran/liusha/internal/domain"
 	"github.com/V3teran/liusha/internal/embedding"
 	"github.com/V3teran/liusha/internal/envx"
-	"github.com/V3teran/liusha/internal/bus"
 	"github.com/V3teran/liusha/internal/executor"
+	"github.com/V3teran/liusha/internal/explorationgraph"
 	"github.com/V3teran/liusha/internal/finding"
+	"github.com/V3teran/liusha/internal/framework/llm"
+	"github.com/V3teran/liusha/internal/framework/persistence/postgres"
 	"github.com/V3teran/liusha/internal/ingestor"
 	"github.com/V3teran/liusha/internal/insight"
 	"github.com/V3teran/liusha/internal/llminvocation"
 	"github.com/V3teran/liusha/internal/llmstore"
 	"github.com/V3teran/liusha/internal/logx"
-	"github.com/V3teran/liusha/internal/framework/llm"
-	"github.com/V3teran/liusha/internal/framework/persistence/postgres"
 	"github.com/V3teran/liusha/internal/ratelimit"
 	"github.com/V3teran/liusha/internal/sandbox"
 	"github.com/V3teran/liusha/internal/scanstream"
@@ -58,7 +59,6 @@ import (
 	"github.com/V3teran/liusha/internal/tools/manifest"
 	"github.com/V3teran/liusha/internal/traffic"
 	"github.com/V3teran/liusha/internal/worker"
-	"github.com/V3teran/liusha/internal/explorationgraph"
 
 	"github.com/hibiken/asynq"
 )
@@ -107,7 +107,7 @@ func main() {
 	toolCalls := toolinvocation.NewStore(pool)
 	calls := llminvocation.NewStoreWithConfig(pool, cfg.LLM.Invocation)
 	checkpointer := postgres.NewCheckpointer(pool) // Checkpoint 框架层持久化（PostgreSQL 后端）
-	corpusStore := corpus.NewStore(pool) // 跨目标知识库（hybrid RAG）
+	corpusStore := corpus.NewStore(pool)           // 跨目标知识库（hybrid RAG）
 	defer func() { _ = calls.Close() }()
 	proxyStore := traffic.NewProxyStore(pool) // 代理捕获流量（passive，按 host）
 	agentStore := traffic.NewAgentStore(pool) // agent 自产流量（active，按 task）

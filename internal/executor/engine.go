@@ -9,24 +9,24 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/V3teran/liusha/internal/evaluator"
+	"github.com/V3teran/liusha/internal/explorationgraph"
 	"github.com/V3teran/liusha/internal/framework/core"
 	"github.com/V3teran/liusha/internal/framework/llm"
 	"github.com/V3teran/liusha/internal/framework/runtime"
-	"github.com/V3teran/liusha/internal/explorationgraph"
 )
 
 // Engine 是基于 LLM + ReAct 的执行引擎
 type Engine struct {
-	router       llm.Router
+	router       *llm.Router
 	findings     FindingLister
-	registry     *Registry  // 使用 executor 包的 Registry
+	registry     *Registry // 使用 executor 包的 Registry
 	checkpointer core.Checkpointer
 	logger       zerolog.Logger
 }
 
 // EngineConfig 配置
 type EngineConfig struct {
-	Router       llm.Router
+	Router       *llm.Router
 	Findings     FindingLister
 	Registry     *Registry
 	Checkpointer core.Checkpointer
@@ -266,4 +266,3 @@ func (e *Engine) getMaxIterations(complexity string) int {
 		return 10
 	}
 }
-

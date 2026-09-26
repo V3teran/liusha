@@ -24,354 +24,14 @@ func NewAdapterStore(graphStore core.GraphStore) *AdapterStore {
 	}
 }
 
-// GraphStore 返回底层的 GraphStore（用于测试）
-func (s *AdapterStore) GraphStore() core.GraphStore {
-	return s.graphStore
-}
-
-// Objective 是业务层的目标数据结构
-type Objective struct {
-	ID          string
-	TaskID      string
-	Description string
-	CreatedAt   time.Time
-}
-
-// Action 是业务层的动作数据结构
-type Action struct {
-	ID          string
-	ObjectiveID string
-	Type        string
-	Target      string
-	Parameters  map[string]interface{}
-	State       core.ActionState
-	Complexity  core.ActionComplexity
-	DependsOn   []string
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
-}
-
-// Observation 是业务层的观察数据结构
-type Observation struct {
-	ID         string
-	ActionID   string
-	Type       string
-	Data       map[string]interface{}
-	Confidence core.ObservationConfidence
-	CreatedAt  time.Time
-}
-
-// Evaluation 是业务层的评估数据结构
-type Evaluation struct {
-	ID             string
-	ObservationID  string
-	Outcome        core.EvaluationOutcome
-	Reasoning      string
-	Confidence     float64
-	CreatedAt      time.Time
-}
-
 // Result 是业务层的结果数据结构
 type Result struct {
-	ID            string
-	EvaluationID  string
-	Type          string
-	Data          map[string]interface{}
-	Confidence    core.ObservationConfidence
-	CreatedAt     time.Time
-}
-
-// CreateObjective 创建目标节点
-func (s *AdapterStore) CreateObjective(ctx context.Context, obj Objective) error {
-	content, err := json.Marshal(obj)
-	if err != nil {
-		return fmt.Errorf("marshal objective: %w", err)
-	}
-
-	node := &core.GraphNode{
-		ID:      obj.ID,
-		Kind:    string(core.KindObjective),
-		Content: content,
-		State:   string(core.ActionStateOpen),
-		Metadata: map[string]interface{}{
-			"task_id":     obj.TaskID,
-			"description": obj.Description,
-		},
-	}
-
-	return s.graphStore.CreateNode(ctx, node)
-}
-
-// CreateAction 创建动作节点
-func (s *AdapterStore) CreateAction(ctx context.Context, action Action) error {
-	content, err := json.Marshal(action)
-	if err != nil {
-		return fmt.Errorf("marshal action: %w", err)
-	}
-
-	node := &core.GraphNode{
-		ID:         action.ID,
-		Kind:       string(core.KindAction),
-		Content:    content,
-		State:      string(action.State),
-		Confidence: 0.0, // Actions don't have confidence
-		Metadata: map[string]interface{}{
-			"objective_id": action.ObjectiveID,
-			"type":         action.Type,
-			"target":       action.Target,
-			"complexity":   int(action.Complexity),
-			"depends_on":   action.DependsOn,
-		},
-	}
-
-	if err := s.graphStore.CreateNode(ctx, node); err != nil {
-		return err
-	}
-
-	// 创建 objective → action 的隐含关系
-	if action.ObjectiveID != "" {
-		edge := &core.GraphEdge{
-			From:     action.ObjectiveID,
-			To:       action.ID,
-			Relation: string(core.RelationEnables),
-			Metadata: map[string]interface{}{
-				"type": "objective_to_action",
-			},
-		}
-		_ = s.graphStore.CreateEdge(ctx, edge) // 忽略错误（可能已存在）
-	}
-
-	// 创建动作依赖关系
-	for _, depID := range action.DependsOn {
-		edge := &core.GraphEdge{
-			From:     action.ID,
-			To:       depID,
-			Relation: string(core.RelationDependsOn),
-		}
-		_ = s.graphStore.CreateEdge(ctx, edge)
-	}
-
-	return nil
-}
-
-// RecordObservation 记录观察结果
-func (s *AdapterStore) RecordObservation(ctx context.Context, obs Observation) error {
-	content, err := json.Marshal(obs)
-	if err != nil {
-		return fmt.Errorf("marshal observation: %w", err)
-	}
-
-	node := &core.GraphNode{
-		ID:         obs.ID,
-		Kind:       string(core.KindObservation),
-		Content:    content,
-		Confidence: confidenceToFloat(obs.Confidence),
-		Metadata: map[string]interface{}{
-			"action_id": obs.ActionID,
-			"type":      obs.Type,
-		},
-	}
-
-	if err := s.graphStore.CreateNode(ctx, node); err != nil {
-		return err
-	}
-
-	// 创建 action → observation 关系
-	if obs.ActionID != "" {
-		edge := &core.GraphEdge{
-			From:     obs.ActionID,
-			To:       obs.ID,
-			Relation: string(core.RelationGenerates),
-			Metadata: map[string]interface{}{
-				"confidence": confidenceToFloat(obs.Confidence),
-			},
-		}
-		_ = s.graphStore.CreateEdge(ctx, edge)
-	}
-
-	return nil
-}
-
-// AddEvaluation 添加评估结论
-func (s *AdapterStore) AddEvaluation(ctx context.Context, eval Evaluation) error {
-	content, err := json.Marshal(eval)
-	if err != nil {
-		return fmt.Errorf("marshal evaluation: %w", err)
-	}
-
-	node := &core.GraphNode{
-		ID:         eval.ID,
-		Kind:       string(core.KindEvaluation),
-		Content:    content,
-		State:      string(eval.Outcome),
-		Confidence: eval.Confidence,
-		Metadata: map[string]interface{}{
-			"observation_id": eval.ObservationID,
-			"outcome":        string(eval.Outcome),
-			"reasoning":      eval.Reasoning,
-		},
-	}
-
-	if err := s.graphStore.CreateNode(ctx, node); err != nil {
-		return err
-	}
-
-	// 根据评估结论创建不同的关系
-	if eval.ObservationID != "" {
-		var relation core.RelationKind
-		if eval.Outcome.IsPositive() {
-			relation = core.RelationConfirms
-		} else if eval.Outcome.IsNegative() {
-			relation = core.RelationRefutes
-		} else {
-			// uncertain 不创建关系
-			return nil
-		}
-
-		edge := &core.GraphEdge{
-			From:     eval.ID,
-			To:       eval.ObservationID,
-			Relation: string(relation),
-			Metadata: map[string]interface{}{
-				"outcome":    string(eval.Outcome),
-				"confidence": eval.Confidence,
-			},
-		}
-		_ = s.graphStore.CreateEdge(ctx, edge)
-	}
-
-	return nil
-}
-
-// ConfirmResult 确认最终结果
-func (s *AdapterStore) ConfirmResult(ctx context.Context, result Result) error {
-	content, err := json.Marshal(result)
-	if err != nil {
-		return fmt.Errorf("marshal result: %w", err)
-	}
-
-	node := &core.GraphNode{
-		ID:         result.ID,
-		Kind:       string(core.KindResult),
-		Content:    content,
-		Confidence: confidenceToFloat(result.Confidence),
-		Metadata: map[string]interface{}{
-			"evaluation_id": result.EvaluationID,
-			"type":          result.Type,
-		},
-	}
-
-	if err := s.graphStore.CreateNode(ctx, node); err != nil {
-		return err
-	}
-
-	// 创建 evaluation → result 关系
-	if result.EvaluationID != "" {
-		edge := &core.GraphEdge{
-			From:     result.EvaluationID,
-			To:       result.ID,
-			Relation: string(core.RelationConfirms),
-			Metadata: map[string]interface{}{
-				"confidence": confidenceToFloat(result.Confidence),
-			},
-		}
-		_ = s.graphStore.CreateEdge(ctx, edge)
-	}
-
-	return nil
-}
-
-// GetOpenActions 获取所有待执行的动作
-func (s *AdapterStore) GetOpenActions(ctx context.Context, objectiveID string) ([]*Action, error) {
-	query := core.GraphNodeQuery{
-		Kind:  string(core.KindAction),
-		State: string(core.ActionStateOpen),
-	}
-
-	if objectiveID != "" {
-		query.Filters = map[string]interface{}{
-			"objective_id": objectiveID,
-		}
-	}
-
-	nodes, err := s.graphStore.ListNodes(ctx, query)
-	if err != nil {
-		return nil, err
-	}
-
-	actions := make([]*Action, 0, len(nodes))
-	for _, node := range nodes {
-		var action Action
-		if err := json.Unmarshal(node.Content, &action); err != nil {
-			continue
-		}
-		actions = append(actions, &action)
-	}
-
-	return actions, nil
-}
-
-// GetObservations 获取动作的观察结果
-func (s *AdapterStore) GetObservations(ctx context.Context, actionID string) ([]*Observation, error) {
-	query := core.GraphNodeQuery{
-		Kind: string(core.KindObservation),
-		Filters: map[string]interface{}{
-			"action_id": actionID,
-		},
-	}
-
-	nodes, err := s.graphStore.ListNodes(ctx, query)
-	if err != nil {
-		return nil, err
-	}
-
-	observations := make([]*Observation, 0, len(nodes))
-	for _, node := range nodes {
-		var obs Observation
-		if err := json.Unmarshal(node.Content, &obs); err != nil {
-			continue
-		}
-		observations = append(observations, &obs)
-	}
-
-	return observations, nil
-}
-
-// UpdateActionState 更新动作状态
-func (s *AdapterStore) UpdateActionState(ctx context.Context, actionID string, state core.ActionState) error {
-	return s.graphStore.UpdateNode(ctx, actionID, core.GraphNodeUpdate{
-		State: string(state),
-	})
-}
-
-// CompareAndSwapState 原子性地更新节点状态（仅在 expectedState 匹配时）
-// 实现 core.GraphStore 接口
-func (s *AdapterStore) CompareAndSwapState(ctx context.Context, taskID, nodeID string, expectedState, newState string) (bool, error) {
-	return s.graphStore.CompareAndSwapState(ctx, taskID, nodeID, expectedState, newState)
-}
-
-// GetActionsByState 根据状态获取动作
-func (s *AdapterStore) GetActionsByState(ctx context.Context, state core.ActionState) ([]*Action, error) {
-	query := core.GraphNodeQuery{
-		Kind:  string(core.KindAction),
-		State: string(state),
-	}
-
-	nodes, err := s.graphStore.ListNodes(ctx, query)
-	if err != nil {
-		return nil, err
-	}
-
-	actions := make([]*Action, 0, len(nodes))
-	for _, node := range nodes {
-		var action Action
-		if err := json.Unmarshal(node.Content, &action); err != nil {
-			continue
-		}
-		actions = append(actions, &action)
-	}
-
-	return actions, nil
+	ID           string
+	EvaluationID string
+	Type         string
+	Data         map[string]interface{}
+	Confidence   core.ObservationConfidence
+	CreatedAt    time.Time
 }
 
 // ─────────────────────────────────────────────
@@ -381,16 +41,25 @@ func (s *AdapterStore) GetActionsByState(ctx context.Context, state core.ActionS
 // CreateNode 创建节点（兼容旧接口）
 func (s *AdapterStore) CreateNode(ctx context.Context, node Node) (string, error) {
 	// 转换为 Framework GraphNode
+	metadata := map[string]interface{}{
+		"task_id": node.TaskID,
+	}
+	// 空值不写入 metadata：让 GraphStore 落回默认值（source_type=system 等）。
+	if node.SourceType != "" {
+		metadata["source_type"] = string(node.SourceType)
+	}
+	if node.SourceID != "" {
+		metadata["source_id"] = node.SourceID
+	}
+	if node.Priority != "" {
+		metadata["priority"] = node.Priority
+	}
+
 	graphNode := &core.GraphNode{
-		ID:      node.ID,
-		Kind:    string(node.Kind),
-		Content: node.Content,
-		Metadata: map[string]interface{}{
-			"task_id":     node.TaskID,
-			"source_type": string(node.SourceType),
-			"source_id":   node.SourceID,
-			"priority":    node.Priority,
-		},
+		ID:        node.ID,
+		Kind:      string(node.Kind),
+		Content:   node.Content,
+		Metadata:  metadata,
 		CreatedAt: node.CreatedAt,
 		UpdatedAt: node.UpdatedAt,
 	}
@@ -495,11 +164,6 @@ func (s *AdapterStore) ListOpenActions(ctx context.Context, taskID string) ([]No
 	return s.ListActionsByState(ctx, taskID, StateOpen)
 }
 
-// ListRunningActions 列出所有 running 状态的 action
-func (s *AdapterStore) ListRunningActions(ctx context.Context, taskID string) ([]Node, error) {
-	return s.ListActionsByState(ctx, taskID, StateRunning)
-}
-
 // ListCompletedActions 列出所有 done 状态的 action
 func (s *AdapterStore) ListCompletedActions(ctx context.Context, taskID string) ([]Node, error) {
 	return s.ListActionsByState(ctx, taskID, StateDone)
@@ -533,53 +197,6 @@ func (s *AdapterStore) CreateBusinessEdge(ctx context.Context, edge Edge) error 
 	}
 
 	return s.graphStore.CreateEdge(ctx, graphEdge)
-}
-
-// ListEdgesFrom 列出从指定节点出发的边
-func (s *AdapterStore) ListEdgesFrom(ctx context.Context, taskID, srcID string) ([]Edge, error) {
-	query := core.GraphEdgeQuery{
-		From: srcID,
-	}
-
-	edges, err := s.graphStore.ListEdges(ctx, query)
-	if err != nil {
-		return nil, err
-	}
-
-	return s.convertGraphEdgesToEdges(edges, taskID), nil
-}
-
-// ListEdgesTo 列出指向指定节点的边
-func (s *AdapterStore) ListEdgesTo(ctx context.Context, taskID, dstID string) ([]Edge, error) {
-	query := core.GraphEdgeQuery{
-		To: dstID,
-	}
-
-	edges, err := s.graphStore.ListEdges(ctx, query)
-	if err != nil {
-		return nil, err
-	}
-
-	return s.convertGraphEdgesToEdges(edges, taskID), nil
-}
-
-// ListEdgesByRelation 列出指定关系类型的边
-func (s *AdapterStore) ListEdgesByRelation(ctx context.Context, taskID string, rel Relation) ([]Edge, error) {
-	query := core.GraphEdgeQuery{
-		Relation: string(rel),
-	}
-
-	edges, err := s.graphStore.ListEdges(ctx, query)
-	if err != nil {
-		return nil, err
-	}
-
-	return s.convertGraphEdgesToEdges(edges, taskID), nil
-}
-
-// DeleteNode 删除节点
-func (s *AdapterStore) DeleteNode(ctx context.Context, id string) error {
-	return s.graphStore.DeleteNode(ctx, id)
 }
 
 // UpdateNodeConfidence 更新节点置信度
@@ -770,56 +387,6 @@ func (s *AdapterStore) ListResults(ctx context.Context, taskID string) ([]Node, 
 	return s.ListNodesByKind(ctx, taskID, core.KindResult)
 }
 
-// ListVerifiedResults 列出所有已验证的 result 节点
-func (s *AdapterStore) ListVerifiedResults(ctx context.Context, taskID string) ([]Node, error) {
-	query := core.GraphNodeQuery{
-		Kind:          string(core.KindResult),
-		MinConfidence: 0.8, // verified
-		Filters: map[string]interface{}{
-			"metadata.task_id": taskID,
-		},
-		OrderBy: "created_at",
-	}
-
-	nodes, err := s.graphStore.ListNodes(ctx, query)
-	if err != nil {
-		return nil, err
-	}
-
-	return s.convertGraphNodesToNodes(nodes), nil
-}
-
-// ListObservations 列出所有 observation 节点
-func (s *AdapterStore) ListObservations(ctx context.Context, taskID string) ([]Node, error) {
-	return s.ListNodesByKind(ctx, taskID, core.KindObservation)
-}
-
-// ListUnverifiedObservations 列出所有未验证的 observation 节点
-func (s *AdapterStore) ListUnverifiedObservations(ctx context.Context, taskID string) ([]Node, error) {
-	query := core.GraphNodeQuery{
-		Kind: string(core.KindObservation),
-		Filters: map[string]interface{}{
-			"metadata.task_id": taskID,
-		},
-		OrderBy: "created_at",
-	}
-
-	nodes, err := s.graphStore.ListNodes(ctx, query)
-	if err != nil {
-		return nil, err
-	}
-
-	// 过滤未验证的
-	var unverified []Node
-	for _, node := range s.convertGraphNodesToNodes(nodes) {
-		if node.Confidence == nil || *node.Confidence == ConfidenceUnverified {
-			unverified = append(unverified, node)
-		}
-	}
-
-	return unverified, nil
-}
-
 // GetObjective 获取任务的 objective 节点
 func (s *AdapterStore) GetObjective(ctx context.Context, taskID string) (ObjectiveNode, error) {
 	query := core.GraphNodeQuery{
@@ -856,51 +423,28 @@ func (s *AdapterStore) GetObjective(ctx context.Context, taskID string) (Objecti
 	return obj, nil
 }
 
-// UpdateNode 更新节点（转发到 GraphStore）
-func (s *AdapterStore) UpdateNode(ctx context.Context, id string, update core.GraphNodeUpdate) error {
-	return s.graphStore.UpdateNode(ctx, id, update)
-}
-
-// RecordVerification 记录验证结果
+// RecordVerification 将一次复现验证落 wm_verification 审计链。
+// 坐实与证伪都落档（证伪不进图但证据留档供审计/复盘）。
 func (s *AdapterStore) RecordVerification(ctx context.Context, v Verification) (string, error) {
+	if s.pool == nil {
+		return "", fmt.Errorf("RecordVerification requires a pool-backed store")
+	}
 	if v.ID == "" {
 		return "", fmt.Errorf("verification ID is required")
 	}
+	if v.TaskID == "" || v.NodeID == "" {
+		return "", fmt.Errorf("verification task_id/node_id is required")
+	}
 
-	// 创建验证节点（作为审计链）
-	content, err := json.Marshal(v)
+	_, err := s.pool.Exec(ctx, `
+		INSERT INTO wm_verification (id, task_id, node_id, primitives, outcome, evidence, duration_ms, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+		v.ID, v.TaskID, v.NodeID, v.Primitives, string(v.Outcome), v.Evaluation, v.DurationMs, v.CreatedAt)
 	if err != nil {
-		return "", fmt.Errorf("marshal verification: %w", err)
-	}
-
-	node := &core.GraphNode{
-		ID:      v.ID,
-		Kind:    "verification",
-		Content: content,
-		Metadata: map[string]interface{}{
-			"task_id":     v.TaskID,
-			"node_id":     v.NodeID,
-			"outcome":     v.Outcome,
-			"duration_ms": v.DurationMs,
-		},
-		CreatedAt: v.CreatedAt,
-	}
-
-	if err := s.graphStore.CreateNode(ctx, node); err != nil {
-		return "", fmt.Errorf("create verification node: %w", err)
+		return "", fmt.Errorf("insert verification: %w", err)
 	}
 
 	return v.ID, nil
-}
-
-// ListEdges 查询边列表（转发到 GraphStore）
-func (s *AdapterStore) ListEdges(ctx context.Context, query core.GraphEdgeQuery) ([]*core.GraphEdge, error) {
-	return s.graphStore.ListEdges(ctx, query)
-}
-
-// DeleteEdge 删除边（转发到 GraphStore）
-func (s *AdapterStore) DeleteEdge(ctx context.Context, from, to, relation string) error {
-	return s.graphStore.DeleteEdge(ctx, from, to, relation)
 }
 
 // confidenceToFloat 将 ObservationConfidence 转换为 float64

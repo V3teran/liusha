@@ -244,7 +244,6 @@ func (s *Store) DeleteExecutor(ctx context.Context, id, code string) error {
 	return fmt.Errorf("不支持删除内置Agent")
 }
 
-
 // ── 通用 Agent 方法（支持 Planner/Executor/Evaluator）─────────────────
 
 // GetAgentByCode 按 code 读取任意 Agent（planner/executor/evaluator）
@@ -267,7 +266,7 @@ func (s *Store) UpdateAgent(ctx context.Context, id string, p agent.UpdateParams
 
 // ── Skill 缓存方法 ────────────────────────────────────────────────────
 
-func keySkillID(id string) string   { return "configstore:skill:id:" + id }
+func keySkillID(id string) string     { return "configstore:skill:id:" + id }
 func keySkillCode(code string) string { return "configstore:skill:code:" + code }
 
 func skillKeys(id, code string) []string {

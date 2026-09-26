@@ -159,11 +159,11 @@ type DefaultTaskScheduler struct {
 type scheduledTaskState struct {
 	task           *ScheduledTask
 	status         TaskStatus
-	executionCount int           // 已执行次数
-	timer          *time.Timer   // 下次执行的定时器
+	executionCount int                // 已执行次数
+	timer          *time.Timer        // 下次执行的定时器
 	cancel         context.CancelFunc // 取消当前执行
-	paused         bool          // 是否暂停
-	lastExecution  time.Time     // 上次执行时间
+	paused         bool               // 是否暂停
+	lastExecution  time.Time          // 上次执行时间
 }
 
 // NewTaskScheduler 创建任务调度器

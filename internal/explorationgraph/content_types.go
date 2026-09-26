@@ -18,8 +18,8 @@ type ActionContent struct {
 
 // ObservationContent 是 Observation 节点的内容结构。
 type ObservationContent struct {
-	Statement string `json:"statement"` // 假设陈述
-	Evaluation  string `json:"evaluation"`  // 支撑证据
+	Statement  string `json:"statement"`  // 假设陈述
+	Evaluation string `json:"evaluation"` // 支撑证据
 }
 
 // ResultContent 是 Result 节点的内容结构。
@@ -27,7 +27,7 @@ type ResultContent struct {
 	Title       string    `json:"title"`       // 发现标题
 	Description string    `json:"description"` // 详细描述
 	Severity    string    `json:"severity"`    // 严重程度
-	Evaluation    []string  `json:"evaluation"`    // 证据列表
+	Evaluation  []string  `json:"evaluation"`  // 证据列表
 	DetectedAt  time.Time `json:"detected_at"` // 发现时间
 }
 

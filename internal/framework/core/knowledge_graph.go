@@ -63,16 +63,12 @@ const (
 	// 语义：动作依赖另一个动作完成
 	RelationDependsOn RelationKind = "depends_on"
 
-	// RelationContributes 表示贡献关系（observation → objective）
-	// 语义：观察对目标达成有贡献
-	RelationContributes RelationKind = "contributes"
+	// RelationBelongsTo 表示归属关系（action → objective）
+	// 语义：动作服务于目标
+	RelationBelongsTo RelationKind = "belongs_to"
 
-	// RelationInvalidates 表示失效关系（observation → action）
-	// 语义：观察使动作失效或不再需要
-	RelationInvalidates RelationKind = "invalidates"
-
-	// RelationTriggers 表示触发关系（result → objective）
-	// 语义：结果触发新的探索目标
+	// RelationTriggers 表示触发关系（result → objective/action）
+	// 语义：结果触发新的目标或下一轮动作
 	RelationTriggers RelationKind = "triggers"
 )
 
@@ -247,8 +243,7 @@ func ValidRelationKinds() []RelationKind {
 		RelationRefutes,
 		RelationEnables,
 		RelationDependsOn,
-		RelationContributes,
-		RelationInvalidates,
+		RelationBelongsTo,
 		RelationTriggers,
 	}
 }

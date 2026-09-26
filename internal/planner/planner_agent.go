@@ -12,8 +12,8 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/V3teran/liusha/internal/bus"
-	"github.com/V3teran/liusha/internal/framework/core"
 	"github.com/V3teran/liusha/internal/explorationgraph"
+	"github.com/V3teran/liusha/internal/framework/core"
 )
 
 // PlannerAgent 是异步规划 Agent
@@ -121,11 +121,6 @@ func (a *PlannerAgent) handleEvent(ctx context.Context, event bus.Event) error {
 		a.logger.Info().
 			Str("task_id", a.taskID).
 			Msg("收到 VerificationRefuted 事件，触发调整规划")
-		return a.planActions(ctx)
-
-	case bus.EventTaskStarted:
-		// 任务启动
-		a.logger.Info().Str("task_id", a.taskID).Msg("收到 TaskStarted 事件")
 		return a.planActions(ctx)
 
 	default:

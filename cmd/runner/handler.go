@@ -11,20 +11,21 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/V3teran/liusha/internal/agentrun"
+	"github.com/V3teran/liusha/internal/bus"
+	cfgcache "github.com/V3teran/liusha/internal/cache"
 	"github.com/V3teran/liusha/internal/config"
 	"github.com/V3teran/liusha/internal/config/setting"
-	cfgcache "github.com/V3teran/liusha/internal/cache"
 	"github.com/V3teran/liusha/internal/controlplane"
 	"github.com/V3teran/liusha/internal/conversation"
 	"github.com/V3teran/liusha/internal/corpus"
 	"github.com/V3teran/liusha/internal/credential"
 	"github.com/V3teran/liusha/internal/domain"
-	"github.com/V3teran/liusha/internal/bus"
-	"github.com/V3teran/liusha/internal/framework/core"
+	"github.com/V3teran/liusha/internal/explorationgraph"
 	"github.com/V3teran/liusha/internal/finding"
+	"github.com/V3teran/liusha/internal/framework/core"
+	"github.com/V3teran/liusha/internal/framework/llm"
 	"github.com/V3teran/liusha/internal/insight"
 	"github.com/V3teran/liusha/internal/llminvocation"
-	"github.com/V3teran/liusha/internal/framework/llm"
 	"github.com/V3teran/liusha/internal/ratelimit"
 	"github.com/V3teran/liusha/internal/sandbox"
 	"github.com/V3teran/liusha/internal/scanstream"
@@ -34,7 +35,6 @@ import (
 	"github.com/V3teran/liusha/internal/tools/manifest"
 	"github.com/V3teran/liusha/internal/traffic"
 	"github.com/V3teran/liusha/internal/worker"
-	"github.com/V3teran/liusha/internal/explorationgraph"
 )
 
 // handler 持有所有跨任务共享依赖。

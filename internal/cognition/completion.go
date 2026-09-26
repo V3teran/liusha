@@ -27,7 +27,7 @@ type CompletionDetector struct {
 	logger zerolog.Logger
 
 	// 配置
-	maxSteps     int           // 最大步数（0=无限制）
+	maxSteps      int           // 最大步数（0=无限制）
 	checkInterval time.Duration // 检查间隔
 
 	// 运行时状态
@@ -43,11 +43,11 @@ type CompletionDetector struct {
 
 // Result 是任务完成的最终报告
 type Result struct {
-	Steps     int    // 总执行步数
-	Promoted  int    // 晋升的结果数量
-	Attempts  int    // 总尝试次数
-	StopWhy   string // 停止原因
-	Duration  time.Duration
+	Steps    int    // 总执行步数
+	Promoted int    // 晋升的结果数量
+	Attempts int    // 总尝试次数
+	StopWhy  string // 停止原因
+	Duration time.Duration
 }
 
 // Config 配置 CompletionDetector
@@ -140,14 +140,6 @@ func (d *CompletionDetector) handleEvent(event bus.Event) {
 		d.logger.Debug().
 			Int64("promoted", d.promotedCount.Load()).
 			Msg("结果晋升")
-
-	case bus.EventManualGuidance:
-		// 人工干预，可能是中止信号
-		if reason, ok := event.Payload["abort_reason"].(string); ok && reason != "" {
-			d.manualAbort.Store(true)
-			d.abortReason.Store(reason)
-			d.logger.Info().Str("reason", reason).Msg("收到人工中止信号")
-		}
 	}
 }
 

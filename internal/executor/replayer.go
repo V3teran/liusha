@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/V3teran/liusha/internal/httpreplay"
 	"github.com/V3teran/liusha/internal/evaluator"
+	"github.com/V3teran/liusha/internal/httpreplay"
 )
 
 // TrafficSource 按 id 取已限定 scope 的源流量，投影成 httpreplay.Source。

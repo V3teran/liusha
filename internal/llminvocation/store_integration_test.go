@@ -19,8 +19,8 @@ func setup(t *testing.T) (*Store, string) {
 	pool := dbtest.NewPgPool(t)
 	ts := task.NewStore(pool)
 	tk, err := ts.Create(context.Background(), task.NewParams{
-
-		AssignmentID: dbtest.SeedAssignment(t, pool, "api-pentest"),
+		AssignmentID: dbtest.SeedAssignment(t, pool),
+		Brief:        "test brief",
 		TargetHost:   "test.example.com",
 	})
 	if err != nil {
@@ -128,7 +128,7 @@ func TestStore_ListByTask_Pagination(t *testing.T) {
 		t.Errorf("第一页顺序错: in_tokens=%d,%d", page1[0].InTokens, page1[1].InTokens)
 	}
 
-	page2, err := s.ListByTask(ctx, taskID, ListFilter{AfterID: page1[len(page1)-1].ID, Limit: 2})
+	page2, err := s.ListByTask(ctx, taskID, ListFilter{Offset: 2, Limit: 2})
 	if err != nil {
 		t.Fatalf("list page2: %v", err)
 	}
@@ -292,17 +292,13 @@ func TestStore_AggregateByTask_Filtered(t *testing.T) {
 		t.Errorf("按 role 筛选后合计错: %+v（期望 calls=2 in=600 out=60）", agg)
 	}
 
-	// AfterID 只属于列表翻页；统计是整个筛选结果集的合计，与翻到第几页无关。
-	rows, err := s.ListByTask(ctx, taskID, ListFilter{})
-	if err != nil || len(rows) == 0 {
-		t.Fatalf("list: rows=%d err=%v", len(rows), err)
-	}
-	withCursor, err := s.AggregateByTask(ctx, taskID, ListFilter{AfterID: rows[len(rows)-1].ID})
+	// 分页（Offset/Limit）只属于列表；统计是整个筛选结果集的合计，与翻页无关。
+	withPaging, err := s.AggregateByTask(ctx, taskID, ListFilter{Offset: 1, Limit: 1})
 	if err != nil {
-		t.Fatalf("aggregate with cursor: %v", err)
+		t.Fatalf("aggregate with paging: %v", err)
 	}
-	if withCursor.Calls != 3 {
-		t.Errorf("统计不该受 AfterID 影响，got calls=%d，期望 3", withCursor.Calls)
+	if withPaging.Calls != 3 {
+		t.Errorf("统计不该受分页影响，got calls=%d，期望 3", withPaging.Calls)
 	}
 }
 

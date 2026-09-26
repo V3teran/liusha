@@ -52,8 +52,8 @@ type Request struct {
 
 // Response 是非流式调用的完整输出。
 type Response struct {
-	Content      string              // 文本内容（ToolCalls 非空时可能为空）
-	ToolCalls    []corellm.ToolCall  // 工具调用请求列表
+	Content      string             // 文本内容（ToolCalls 非空时可能为空）
+	ToolCalls    []corellm.ToolCall // 工具调用请求列表
 	Usage        corellm.Usage
 	FinishReason string // "stop" | "tool_use" | "max_tokens" | "error"
 }

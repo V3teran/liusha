@@ -172,18 +172,18 @@ func resetAgentHandler(api AgentAPI, store *agent.Store) gin.HandlerFunc {
 // agentToJSON 将 Agent 转换为 JSON 格式
 func agentToJSON(a agent.Agent) gin.H {
 	return gin.H{
-		"id":              a.ID,
-		"code":            a.Code,
-		"kind":            string(a.Kind),
-		"name":            a.Name,
-		"description":     a.Description,
-		"system_prompt":   a.SystemPrompt,
-		"function_tools":  a.FunctionTools,
-		"cli_tools":       a.CliTools,
-		"max_iterations":  a.MaxIterations,
-		"complexity":      a.Complexity,
-		"enabled":         a.Enabled,
-		"created_at":      a.CreatedAt,
-		"updated_at":      a.UpdatedAt,
+		"id":             a.ID,
+		"code":           a.Code,
+		"kind":           string(a.Kind),
+		"name":           a.Name,
+		"description":    a.Description,
+		"system_prompt":  a.SystemPrompt,
+		"function_tools": a.FunctionTools,
+		"cli_tools":      a.CliTools,
+		"max_iterations": a.MaxIterations,
+		"complexity":     a.Complexity,
+		"enabled":        a.Enabled,
+		"created_at":     a.CreatedAt,
+		"updated_at":     a.UpdatedAt,
 	}
 }

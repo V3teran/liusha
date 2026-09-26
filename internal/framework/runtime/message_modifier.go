@@ -18,11 +18,11 @@ type MessageModifier interface {
 
 // MessageModifierChain 管理多个修改器的执行链。
 type MessageModifierChain struct {
-	modifiers      []MessageModifier
-	errorStrategy  ErrorStrategy
-	retryConfig    RetryConfig
-	timeoutSec     int
-	logger         interface{} // 可选日志器
+	modifiers     []MessageModifier
+	errorStrategy ErrorStrategy
+	retryConfig   RetryConfig
+	timeoutSec    int
+	logger        interface{} // 可选日志器
 }
 
 // ErrorStrategy 定义修改器链的错误处理策略。

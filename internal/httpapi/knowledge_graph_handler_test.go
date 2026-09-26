@@ -7,8 +7,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/V3teran/liusha/internal/framework/core"
 	"github.com/V3teran/liusha/internal/explorationgraph"
+	"github.com/V3teran/liusha/internal/framework/core"
 )
 
 // mockExplorationGraphAPI 是 ExplorationGraphAPI 的测试 mock
@@ -52,7 +52,7 @@ func TestGetTaskStats(t *testing.T) {
 	}
 
 	server := NewServer(Deps{
-		APIKey:         "test-key",
+		APIKey:           "test-key",
 		ExplorationGraph: mock,
 	})
 
@@ -98,7 +98,7 @@ func TestGetTaskNodes(t *testing.T) {
 	}
 
 	server := NewServer(Deps{
-		APIKey:         "test-key",
+		APIKey:           "test-key",
 		ExplorationGraph: mock,
 	})
 
@@ -154,7 +154,7 @@ func TestGetTaskGraph(t *testing.T) {
 	}
 
 	server := NewServer(Deps{
-		APIKey:         "test-key",
+		APIKey:           "test-key",
 		ExplorationGraph: mock,
 	})
 

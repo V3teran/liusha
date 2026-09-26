@@ -157,7 +157,7 @@ func findingJSON(r finding.LedgerRow) gin.H {
 		"owasp_category": r.OWASPCategory,
 		"remediation":    r.Remediation,
 		"target":         json.RawMessage(rawOrEmpty(r.Target, "{}")),
-		"evaluation":       json.RawMessage(rawOrEmpty(r.Evaluation, "{}")),
+		"evaluation":     json.RawMessage(rawOrEmpty(r.Evaluation, "{}")),
 		"_id":            "",
 		"source":         r.Source,
 		"status":         r.Status,

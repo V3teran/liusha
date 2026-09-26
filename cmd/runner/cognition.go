@@ -2,14 +2,12 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"time"
 
 	"github.com/V3teran/liusha/internal/cognition"
 	"github.com/V3teran/liusha/internal/evaluator"
 	"github.com/V3teran/liusha/internal/executor"
-	"github.com/V3teran/liusha/internal/finding"
 	"github.com/V3teran/liusha/internal/httpreplay"
 	"github.com/V3teran/liusha/internal/monitor"
 	"github.com/V3teran/liusha/internal/planner"
@@ -82,7 +80,7 @@ func (h handler) runCognition(
 
 	// 3. 创建 Executor Engine
 	engine := executor.NewEngine(executor.EngineConfig{
-		Router:       *h.router,
+		Router:       h.router,
 		Findings:     h.findings,
 		Registry:     execRegistry,
 		Checkpointer: h.checkpointer,
@@ -106,20 +104,17 @@ func (h handler) runCognition(
 	replaySource := &agentTrafficScope{store: h.agentStore, taskID: taskID}
 	replayer := executor.NewReplayer(replaySource)
 
-	// 适配 finding.Store 为 evaluator.findingWriter
-	findingAdapter := &findingStoreAdapter{store: h.findings}
-	promoter := evaluator.New(h.world, replayer, findingAdapter)
+	promoter := evaluator.New(h.world, replayer, h.findings)
 
 	evaluatorAgent := evaluator.NewEvaluatorAgent(evaluator.EvaluatorAgentConfig{
 		TaskID:    taskID,
 		Evaluator: promoter,
-		World:     h.world,
 		EventBus:  h.eventBus,
 		Logger:    h.logger.With().Str("component", "evaluator_agent").Logger(),
 	})
 
 	// 5. 创建 PlannerAgent
-	intelligence := planner.NewIntelligence(*h.router, h.logger)
+	intelligence := planner.NewIntelligence(h.router, h.logger)
 
 	plannerAgent := planner.NewPlannerAgent(planner.PlannerAgentConfig{
 		TaskID:   taskID,
@@ -206,50 +201,4 @@ func (h handler) runCognition(
 		Attempts: result.Attempts,
 		StopWhy:  result.StopWhy,
 	}, nil
-}
-
-// findingStoreAdapter 将 finding.Store 适配为 evaluator.findingWriter
-type findingStoreAdapter struct {
-	store *finding.Store
-}
-
-func (a *findingStoreAdapter) Save(ctx context.Context, f interface{}) (interface{}, error) {
-	// 将 map 转换为 VulnFinding
-	data, ok := f.(map[string]interface{})
-	if !ok {
-		return nil, fmt.Errorf("findingStoreAdapter: expected map[string]interface, got %T", f)
-	}
-
-	taskID, _ := data["task_id"].(string)
-	host, _ := data["host"].(string)
-	summary, _ := data["summary"].(string)
-	severity, _ := data["severity"].(string)
-
-	// Marshal evaluation 和 target 为 json.RawMessage
-	var evaluation, target, repro json.RawMessage
-	if evalData, ok := data["evaluation"].(map[string]interface{}); ok {
-		evaluation, _ = json.Marshal(evalData)
-	}
-	if targetData, ok := data["target"].(map[string]interface{}); ok {
-		target, _ = json.Marshal(targetData)
-	}
-	if reproData, ok := data["repro"].(json.RawMessage); ok {
-		repro = reproData
-	}
-
-	vulnFinding := finding.VulnFinding{
-		TaskID:     taskID,
-		Host:       host,
-		Summary:    summary,
-		Severity:   severity,
-		Evaluation: evaluation,
-		Target:     target,
-		Repro:      repro,
-	}
-
-	result, err := a.store.Save(ctx, vulnFinding)
-	if err != nil {
-		return nil, err
-	}
-	return result, nil
 }

@@ -23,9 +23,11 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/rs/zerolog"
 
-	"github.com/V3teran/liusha/internal/framework/core"
 	"github.com/V3teran/liusha/internal/explorationgraph"
+	"github.com/V3teran/liusha/internal/finding"
+	"github.com/V3teran/liusha/internal/framework/core"
 )
 
 // worldWriter 是 Evaluator 依赖的世界模型写入子集：收窄依赖 + 便于测试替身。
@@ -38,7 +40,7 @@ type worldWriter interface {
 // findingWriter 是 Evaluator 依赖的 finding 写入子集：验证通过后才能写入 finding 表。
 // *finding.Store 自动满足本接口。
 type findingWriter interface {
-	Save(ctx context.Context, f interface{}) (interface{}, error)
+	Save(ctx context.Context, f finding.VulnFinding) (finding.VulnFinding, error)
 }
 
 // Replayer 是 domain-specific 复现执行器。Evaluator 把"复现"委托给它，自身不碰域细节。
@@ -56,19 +58,20 @@ type Result struct {
 
 // Attempt 是一次晋升尝试的输入：要复现什么、坐实后落成哪种节点、落在哪。
 type Attempt struct {
-	TaskID     string              // = assignment_id，图归属（一次交战一个图）
-	NodeID     string              // 溯源到的源节点 ID（可空）
-	Kind       core.NodeKind // 坐实后的节点类型（observation/discovery）
-	Primitives json.RawMessage     // 要回放的 L1 原语序列
-	Content    json.RawMessage     // 坐实后写入节点的载荷（severity/taxonomy/evidence…）
-	Priority   string              // 优先级（critical/high/medium/low）
+	TaskID     string          // = assignment_id，图归属（一次交战一个图）
+	NodeID     string          // 溯源到的源节点 ID（可空）
+	Kind       core.NodeKind   // 坐实后的节点类型（observation/discovery）
+	Primitives json.RawMessage // 要回放的 L1 原语序列
+	Content    json.RawMessage // 坐实后写入节点的载荷（severity/taxonomy/evidence…）
+	Priority   string          // 优先级（critical/high/medium/low）
 }
 
 // Evaluator 是 Lead→图节点的晋升门。
 type PromotionEvaluator struct {
 	world    worldWriter
 	replayer Replayer
-	findings findingWriter // 验证通过后写入 finding 表
+	findings findingWriter   // 验证通过后写入 finding 表
+	logger   *zerolog.Logger // 可选：finding 写入失败等非致命错误经此告警
 }
 
 // New 构造 Evaluator。replayer 为 nil 时 Promote 会报错（无复现能力即无晋升）。
@@ -78,6 +81,12 @@ func New(world worldWriter, replayer Replayer, findings findingWriter) *Promotio
 		replayer: replayer,
 		findings: findings,
 	}
+}
+
+// WithLogger 注入可选日志器：finding 写入失败等非致命错误经此告警。
+func (v *PromotionEvaluator) WithLogger(l zerolog.Logger) *PromotionEvaluator {
+	v.logger = &l
+	return v
 }
 
 // Promote 把一条 Lead 过复现门晋升成世界模型节点。
@@ -118,7 +127,7 @@ func (v *PromotionEvaluator) Promote(ctx context.Context, a Attempt) (*explorati
 		NodeID:     nodeID, // 预先分配，即使证伪也记录（审计需要）
 		Primitives: a.Primitives,
 		Outcome:    outcome,
-		Evaluation:   res.Evaluation,
+		Evaluation: res.Evaluation,
 		DurationMs: res.DurationMs,
 		CreatedAt:  time.Now(),
 	})
@@ -154,18 +163,17 @@ func (v *PromotionEvaluator) Promote(ctx context.Context, a Attempt) (*explorati
 	// 验证通过，写入 finding 表（未验证的不进 finding 表）
 	if v.findings != nil {
 		if err := v.writeFinding(ctx, node, a, res); err != nil {
-			// finding 写入失败不阻塞晋升（节点已进图），仅记录警告
-			// TODO: 可考虑加 logger 记录
-			_ = err
+			// finding 写入失败不阻塞晋升（节点已进图），但不能静默吞掉
+			if v.logger != nil {
+				v.logger.Warn().Err(err).Str("node_id", node.ID).Msg("finding 写入失败（节点已晋升，不影响图状态）")
+			}
 		}
 	}
 
 	return &node, nil
 }
 
-// writeFinding 将验证通过的节点写入 finding 表
-
-// writeFinding 将验证通过的节点写入 finding 表
+// writeFinding 将验证通过的节点写入 finding 表（仅 Result 类节点）。
 func (v *PromotionEvaluator) writeFinding(ctx context.Context, node explorationgraph.Node, attempt Attempt, res Result) error {
 	// 只有 Result 类节点（包含漏洞）才写入 finding 表
 	if node.Kind != core.KindResult {
@@ -173,44 +181,47 @@ func (v *PromotionEvaluator) writeFinding(ctx context.Context, node explorationg
 	}
 
 	// 解析 node.Content 提取漏洞信息
-	var content map[string]interface{}
+	var content struct {
+		Summary  string          `json:"summary"`
+		Severity string          `json:"severity"`
+		Host     string          `json:"host"`
+		Target   json.RawMessage `json:"target"`
+	}
 	if err := json.Unmarshal(node.Content, &content); err != nil {
 		return fmt.Errorf("解析节点内容失败: %w", err)
 	}
 
-	summary, _ := content["summary"].(string)
-	if summary == "" {
-		summary = fmt.Sprintf("Verified vulnerability (node %s)", node.ID)
+	if content.Summary == "" {
+		content.Summary = fmt.Sprintf("Verified vulnerability (node %s)", node.ID)
+	}
+	if content.Severity == "" {
+		content.Severity = "medium" // 默认中危
+	}
+	if content.Host == "" {
+		content.Host = "unknown" // 降级处理
 	}
 
-	severity, _ := content["severity"].(string)
-	if severity == "" {
-		severity = "medium" // 默认中危
+	evaluation, err := json.Marshal(map[string]interface{}{
+		"node_id":         node.ID,
+		"verification_id": node.SourceID,
+		"confirmed":       res.Confirmed,
+		"evaluation":      res.Evaluation,
+		"duration_ms":     res.DurationMs,
+	})
+	if err != nil {
+		return fmt.Errorf("marshal evaluation: %w", err)
 	}
 
-	host, _ := content["host"].(string)
-	if host == "" {
-		host = "unknown" // 降级处理
+	f := finding.VulnFinding{
+		TaskID:     node.TaskID,
+		Host:       content.Host,
+		Summary:    content.Summary,
+		Severity:   content.Severity,
+		Evaluation: evaluation,
+		Target:     content.Target,
+		Repro:      attempt.Primitives, // 复现配方
 	}
 
-	// 构造 finding（使用 map 避免循环依赖 finding 包）
-	findingData := map[string]interface{}{
-		"task_id":  node.TaskID,
-		"host":     host,
-		"summary":  summary,
-		"severity": severity,
-		"evaluation": map[string]interface{}{
-			"node_id":         node.ID,
-			"verification_id": node.SourceID,
-			"confirmed":       res.Confirmed,
-			"evaluation":      res.Evaluation,
-			"duration_ms":     res.DurationMs,
-		},
-		"target": content["target"],
-		"repro":  attempt.Primitives, // 复现配方
-	}
-
-	// 写入 finding 表（通过 interface{} 避免循环依赖）
-	_, err := v.findings.Save(ctx, findingData)
+	_, err = v.findings.Save(ctx, f)
 	return err
 }
