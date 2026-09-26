@@ -42,7 +42,7 @@ CREATE TABLE insight (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
 
     -- 约束
-    CONSTRAINT ck_lead_category CHECK (
+    CONSTRAINT ck_insight_category CHECK (
         category IN (
             'target',        -- 目标信息
             'credential',    -- 凭证信息
@@ -54,37 +54,37 @@ CREATE TABLE insight (
             'note'           -- 笔记
         )
     ),
-    CONSTRAINT ck_lead_priority CHECK (
+    CONSTRAINT ck_insight_priority CHECK (
         priority IN ('critical', 'high', 'medium', 'low')
     ),
-    CONSTRAINT ck_lead_confidence CHECK (
+    CONSTRAINT ck_insight_confidence CHECK (
         confidence IN ('possible', 'probable', 'confirmed')
     ),
-    CONSTRAINT ck_lead_summary_not_empty CHECK (
+    CONSTRAINT ck_insight_summary_not_empty CHECK (
         length(trim(summary)) > 0
     )
 );
 
 -- 3. 创建索引
-CREATE INDEX insight(assignment_id, category);
-CREATE INDEX insight(assignment_id, priority, created_at DESC);
-CREATE INDEX insight(assignment_id, confidence);
-CREATE INDEX insight(assignment_id, created_at DESC);
-CREATE INDEX insight USING GIN(tags);
+CREATE INDEX insight_assignment_category_idx ON insight (assignment_id, category);
+CREATE INDEX insight_assignment_priority_idx ON insight (assignment_id, priority, created_at DESC);
+CREATE INDEX insight_assignment_confidence_idx ON insight (assignment_id, confidence);
+CREATE INDEX insight_assignment_created_idx ON insight (assignment_id, created_at DESC);
+CREATE INDEX insight_tags_idx ON insight USING GIN(tags);
 
 -- 4. 添加注释
 COMMENT ON TABLE insight IS 'Assignment 级别情报黑板：跨 task 共享的轻量级观察记录';
-COMMENT ON COLUMN lead.id IS '唯一标识';
-COMMENT ON COLUMN lead.assignment_id IS '所属 assignment（隔离边界）';
-COMMENT ON COLUMN lead.category IS '信息分类：target（目标）/credential（凭证）/infrastructure（基础设施）/business（业务逻辑）/data（数据）/finding（发现）/obstacle（障碍）/note（笔记）';
-COMMENT ON COLUMN lead.priority IS '优先级：critical（关键，P0）/high（高，P1）/medium（中，P2）/low（低，P3）';
-COMMENT ON COLUMN lead.confidence IS '置信度：possible（可能）/probable（很可能）/confirmed（已确认）';
-COMMENT ON COLUMN lead.summary IS '一句话摘要（必填，200 字符以内）';
-COMMENT ON COLUMN lead.body IS '详细内容（可选，markdown 格式）';
-COMMENT ON COLUMN lead.tags IS '自由标签（可选）';
-COMMENT ON COLUMN lead.source_task_id IS '产出该情报的 task.id（溯源）';
-COMMENT ON COLUMN lead.source_agent_id IS '产出该情报的 agent（可选，溯源）';
-COMMENT ON COLUMN lead.created_at IS '创建时间';
-COMMENT ON COLUMN lead.updated_at IS '更新时间';
+COMMENT ON COLUMN insight.id IS '唯一标识';
+COMMENT ON COLUMN insight.assignment_id IS '所属 assignment（隔离边界）';
+COMMENT ON COLUMN insight.category IS '信息分类：target（目标）/credential（凭证）/infrastructure（基础设施）/business（业务逻辑）/data（数据）/finding（发现）/obstacle（障碍）/note（笔记）';
+COMMENT ON COLUMN insight.priority IS '优先级：critical（关键，P0）/high（高，P1）/medium（中，P2）/low（低，P3）';
+COMMENT ON COLUMN insight.confidence IS '置信度：possible（可能）/probable（很可能）/confirmed（已确认）';
+COMMENT ON COLUMN insight.summary IS '一句话摘要（必填，200 字符以内）';
+COMMENT ON COLUMN insight.body IS '详细内容（可选，markdown 格式）';
+COMMENT ON COLUMN insight.tags IS '自由标签（可选）';
+COMMENT ON COLUMN insight.source_task_id IS '产出该情报的 task.id（溯源）';
+COMMENT ON COLUMN insight.source_agent_id IS '产出该情报的 agent（可选，溯源）';
+COMMENT ON COLUMN insight.created_at IS '创建时间';
+COMMENT ON COLUMN insight.updated_at IS '更新时间';
 
 COMMIT;
