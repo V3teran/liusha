@@ -61,6 +61,9 @@ import (
 	"github.com/V3teran/liusha/internal/worker"
 
 	"github.com/hibiken/asynq"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/redis/go-redis/v9"
+	"github.com/rs/zerolog"
 )
 
 const (
@@ -70,6 +73,37 @@ const (
 	// scanReaperStaleBuffer：判死阈值在「最长合法工具+LLM 间隔」之上再加的安全缓冲（时钟偏移 / 调度抖动）。
 	scanReaperStaleBuffer = 2 * time.Minute
 )
+
+// runnerStores 聚合全部持久层句柄（pg pool + redis 的派生物）。
+type runnerStores struct {
+	tasks         *task.Store
+	assignments   *assignment.Store
+	conversations *conversation.Store
+	executors     *agentstore.Store
+	findings      *finding.Store
+	world         *explorationgraph.Store
+	toolCalls     *toolinvocation.Store
+	proxyStore    *traffic.ProxyStore
+	agentStore    *traffic.AgentStore
+	leads         *insight.Store
+	corpus        *corpus.Store
+	checkpointer  *postgres.Checkpointer // 框架层 Checkpoint 持久化（PostgreSQL 后端）
+	calls         *llminvocation.Store
+}
+
+// runnerSkills 聚合 Progressive Disclosure 资源（均可为 nil → 自动 fallback 不注入）。
+type runnerSkills struct {
+	toolingLoader *skill.Loader      // 外部 CLI 工具手册（Tier1 索引 / Tier2 正文）
+	vulnLoader    *skill.Loader      // 漏洞类型挖掘指南
+	toolsManifest *manifest.Manifest // tools.yaml：与 Dockerfile 装的 binary 严格对应
+}
+
+// runnerLLM 聚合 LLM 配置栈（事实源 + 解密器）。
+type runnerLLM struct {
+	cfgStore  *cfgcache.Store
+	llmStore  *llmstore.Store
+	keyCipher *cryptx.Cipher
+}
 
 func main() {
 	logger := logx.New("runner")
@@ -81,59 +115,174 @@ func main() {
 	}
 	runnerCfg := cfg.Runner
 
+	pool := newPgPool(ctx, cfg, logger)
+	defer pool.Close()
+
+	rdb := newRedisClient(ctx, cfg, logger)
+	defer rdb.Close()
+
+	stores := newRunnerStores(pool, cfg)
+	defer func() { _ = stores.calls.Close() }()
+
+	embedder, reranker := newCorpusEmbedder(logger)
+
+	// Asynq Client
+	wc := worker.NewClient(asynq.RedisClientOpt{Addr: redisAddrFromEnv()})
+	defer wc.Close()
+
+	skills := newRunnerSkills(cfg, logger)
+	profiles := newDomainRegistry(logger)
+	launcher := newSandboxLauncher(ctx, cfg, runnerCfg, logger)
+	sandboxMgr := sandbox.NewPooledManager(launcher, logger, 30000) // 30 秒 grace period
+
+	// 共享多级缓存内核（L1 内存 + L2 redis + 跨进程失效总线）：一条 Subscribe 循环
+	// 覆盖全部配置资源。Subscribe 阻塞运行（内部 for-select 直到 ctx 取消），必须后台起——
+	// 同步调用会把 main goroutine 卡死在订阅循环，后续 reaper / healthz 永不启动。
+	cache := cachestore.New(rdb, 0)
+	go func() {
+		if err := cache.Subscribe(ctx); err != nil && !errors.Is(err, context.Canceled) {
+			logger.Error().Err(err).Msg("cachestore 失效订阅退出——配置跨进程失效不可用")
+		}
+	}()
+
+	llmStack := newLLMStack(pool, cache, cfg, logger)
+
+	// EventBus：统一事件总线（进程单例，跨 Task 共享）
+	eventBus := bus.New(ctx)
+
+	hostSem := newHostSemaphore(rdb, runnerCfg, cfg)
+	controlPlaneStore := controlplane.NewStore(pool)
+
+	h := handler{
+		executors:      stores.executors,
+		tasks:          stores.tasks,
+		findings:       stores.findings,
+		corpus:         stores.corpus,
+		embedder:       embedder,
+		reranker:       reranker,
+		leads:          stores.leads,
+		proxyStore:     stores.proxyStore,
+		agentStore:     stores.agentStore,
+		calls:          stores.calls,
+		hostSem:        hostSem,
+		settings:       settingstore.New(pool, cache),
+		runnerCfg:      runnerCfg,
+		sandboxMgr:     sandboxMgr,
+		logger:         logger,
+		router:         llm.NewRouterWithFallback(llmStack.llmStore.AsRouterStore(), llmStack.keyCipher, newFallbackProviderFactory(llmStack.llmStore, llmStack.keyCipher)),
+		creds:          credential.NewRedis(rdb, cfg.Credential.RedisKeyPrefix),
+		toolCalls:      stores.toolCalls,
+		toolingLoader:  skills.toolingLoader,
+		vulnLoader:     skills.vulnLoader,
+		toolsManifest:  skills.toolsManifest,
+		cfgStore:       llmStack.cfgStore,
+		conversations:  stores.conversations,
+		eventPublisher: scanstream.NewPublisher(rdb),
+		profiles:       profiles,
+		world:          stores.world,
+		checkpointer:   stores.checkpointer,
+		eventBus:       eventBus,
+		controlPlane:   controlPlaneStore,
+	}
+
+	mux := worker.NewMux()
+	mux.Register(worker.RoleExecutor, h.handle)
+
+	srv := asynq.NewServer(
+		asynq.RedisClientOpt{Addr: redisAddrFromEnv()},
+		asynq.Config{
+			Concurrency: runnerCfg.AsynqConcurrency,
+			Queues: map[string]int{
+				worker.QueueExecutor: runnerCfg.QueueAgentWeight,
+				worker.QueueDispatch: runnerCfg.QueueDispatchWeight,
+			},
+		},
+	)
+
+	// Ingestor goroutine：消费 Redis Stream → 启发式 → 入 main 队列。
+	trafficCtx, trafficCancel := context.WithCancel(context.Background())
+	defer trafficCancel()
+
+	trafficIngestor := startTrafficIngestor(trafficCtx, rdb, cfg, wc, stores, logger)
+	hs := newHealthGateway(cfg, runnerCfg, trafficIngestor, logger)
+	go runHealthGateway(hs, logger)
+
+	startTaskReaper(trafficCtx, stores.tasks, cfg, logger)
+
+	go func() {
+		logger.Info().Msg("asynq server starting")
+		if err := srv.Run(mux.AsynqMux()); err != nil {
+			logger.Fatal().Err(err).Msg("asynq run")
+		}
+	}()
+
+	awaitShutdownSignal(logger)
+	runShutdownSequence(logger, runnerCfg, sandboxMgr, srv, hs, trafficCancel)
+}
+
+// ─────────────────────────────────────────────
+//  子系统装配
+// ─────────────────────────────────────────────
+
+// newPgPool 连接 PostgreSQL（DSN 走 ENV）。
+func newPgPool(ctx context.Context, cfg config.Config, logger zerolog.Logger) *pgxpool.Pool {
 	pool, err := db.NewPgPool(ctx, os.Getenv("LIUSHA_POSTGRES_DSN"),
 		cfg.Postgres.MaxConns, cfg.Postgres.MinConns,
 		cfg.Postgres.ConnectTimeoutSeconds, cfg.Postgres.MaxConnLifetimeSeconds)
 	if err != nil {
 		logger.Fatal().Err(err).Msg("pg")
 	}
-	defer pool.Close()
+	return pool
+}
 
-	redisAddr := os.Getenv("LIUSHA_REDIS_ADDR")
-	rdb, err := db.NewRedis(ctx, redisAddr, cfg.Redis)
+// newRedisClient 连接 Redis。
+func newRedisClient(ctx context.Context, cfg config.Config, logger zerolog.Logger) *redis.Client {
+	rdb, err := db.NewRedis(ctx, os.Getenv("LIUSHA_REDIS_ADDR"), cfg.Redis)
 	if err != nil {
 		logger.Fatal().Err(err).Msg("redis")
 	}
-	defer rdb.Close()
+	return rdb
+}
 
-	// Stores
-	taskStore := task.NewStore(pool)               // 统一 task store（合并 active_scan + passive_session）
-	assignmentStore := assignment.NewStore(pool)   // 聚合建 passive assignment（一切 task 皆属某 assignment）
-	convStore := conversation.NewStore(pool)       // 会话/消息 store（阶段B 过程事件落库）
-	eventPublisher := scanstream.NewPublisher(rdb) // 过程事件实时广播（阶段B redis 管道）
-	executorRuns := agentstore.NewStore(pool)
-	finds := finding.NewStore(pool)
-	worldStore := explorationgraph.NewStore(pool) // L3 世界模型持久层（onboard 落 KindObjective 节点）
-	toolCalls := toolinvocation.NewStore(pool)
-	calls := llminvocation.NewStoreWithConfig(pool, cfg.LLM.Invocation)
-	checkpointer := postgres.NewCheckpointer(pool) // Checkpoint 框架层持久化（PostgreSQL 后端）
-	corpusStore := corpus.NewStore(pool)           // 跨目标知识库（hybrid RAG）
-	defer func() { _ = calls.Close() }()
-	proxyStore := traffic.NewProxyStore(pool) // 代理捕获流量（passive，按 host）
-	agentStore := traffic.NewAgentStore(pool) // agent 自产流量（active，按 task）
-	creds := credential.NewRedis(rdb, cfg.Credential.RedisKeyPrefix)
-	// 情报黑板：assignment 级别的长期情报共享，PostgreSQL 持久化，按 assignment_id 隔离
-	leads := insight.NewStore(pool)
-
-	// Jina embedding + rerank client（corpus hybrid RAG 用）。密钥走 ENV JINA_API_KEY；
-	// 缺失时 jinaClient=nil，corpus 降级（search 退纯 sparse、write 不 embed）——不阻塞渗透主流程。
-	var embedder corpus.Embedder
-	var reranker corpus.Reranker
-	if jc, err := embedding.NewClient(os.Getenv("JINA_API_KEY")); err != nil {
-		logger.Warn().Err(err).Msg("JINA_API_KEY 未配置，corpus 降级为纯 sparse 检索（不影响主流程）")
-	} else {
-		embedder = jc
-		reranker = jc
+// newRunnerStores 构造全部持久层句柄。
+func newRunnerStores(pool *pgxpool.Pool, cfg config.Config) *runnerStores {
+	return &runnerStores{
+		tasks:         task.NewStore(pool),
+		assignments:   assignment.NewStore(pool),
+		conversations: conversation.NewStore(pool),
+		executors:     agentstore.NewStore(pool),
+		findings:      finding.NewStore(pool),
+		world:         explorationgraph.NewStore(pool), // L3 世界模型持久层（onboard 落 KindObjective 节点）
+		toolCalls:     toolinvocation.NewStore(pool),
+		proxyStore:    traffic.NewProxyStore(pool), // 代理捕获流量（passive，按 host）
+		agentStore:    traffic.NewAgentStore(pool), // agent 自产流量（active，按 task）
+		leads:         insight.NewStore(pool),      // 情报黑板：assignment 级别共享，按 assignment_id 隔离
+		corpus:        corpus.NewStore(pool),       // 跨目标知识库（hybrid RAG）
+		checkpointer:  postgres.NewCheckpointer(pool),
+		calls:         llminvocation.NewStoreWithConfig(pool, cfg.LLM.Invocation),
 	}
+}
 
+// newCorpusEmbedder 构造 Jina embedding + rerank client（corpus hybrid RAG 用）。
+// 密钥走 ENV JINA_API_KEY；缺失时返回 nil，corpus 降级（search 退纯 sparse、write 不
+// embed）——不阻塞渗透主流程。
+func newCorpusEmbedder(logger zerolog.Logger) (corpus.Embedder, corpus.Reranker) {
+	jc, err := embedding.NewClient(os.Getenv("JINA_API_KEY"))
+	if err != nil {
+		logger.Warn().Err(err).Msg("JINA_API_KEY 未配置，corpus 降级为纯 sparse 检索（不影响主流程）")
+		return nil, nil
+	}
+	return jc, jc
+}
+
+// newRunnerSkills 构造 Progressive Disclosure 资源。
+func newRunnerSkills(cfg config.Config, logger zerolog.Logger) *runnerSkills {
 	// executor system prompt 已编译期 embed（internal/builder/executor/system_prompt.md），
-	// 不再需要运行时 skill loader 加载——下面的 vuln/tooling loader 服务 Progressive Disclosure。
+	// 不再需要运行时 skill loader 加载——vuln/tooling loader 服务 Progressive Disclosure。
 
-	// Tooling loader（Progressive Disclosure）：root=skills/tooling，
-	// 每个子目录一份 SKILL.md = 一个外部 CLI 工具的完整手册。
-	// agent buildUserPrompt 用 List() 拼"工具索引"段（Tier 1）；
-	// LLM 调 read_tooling_skill(name) 拿完整 body（Tier 2）。
-	// 目录不存在或扫描失败 → 置 nil，agent 自动 fallback 不注入索引段、不注册工具。
+	// Tooling loader：root=skills/tooling，每个子目录一份 SKILL.md = 一个外部 CLI 工具的完整手册。
+	// agent buildUserPrompt 用 List() 拼"工具索引"段（Tier 1）；LLM 调 read_tooling_skill(name)
+	// 拿完整 body（Tier 2）。目录不存在或扫描失败 → 置 nil，agent 自动 fallback。
 	toolingLoader := skill.NewLoader(filepath.Join(cfg.Skills.Root, "tooling"))
 	if _, err := toolingLoader.Index(); err != nil {
 		logger.Warn().Err(err).Str("root", filepath.Join(cfg.Skills.Root, "tooling")).
@@ -150,7 +299,6 @@ func main() {
 	// Tools manifest（tools.yaml）：与 Dockerfile 装的 binary 严格对应——
 	// agent 用它渲染 SystemPrompt 的 tooling_catalog 段（Tier 1 索引）。
 	// 与 SKILL.md frontmatter 解耦：删 SKILL ≠ 工具消失。
-	// 路径可通过 LIUSHA_TOOLS_MANIFEST_PATH env override，缺省 deployments/tool-images/pentools/tools.yaml。
 	toolsManifestPath := envx.OrDefault("LIUSHA_TOOLS_MANIFEST_PATH", "deployments/tool-images/pentools/tools.yaml")
 	toolsManifest, err := manifest.Load(toolsManifestPath)
 	if err != nil {
@@ -158,17 +306,7 @@ func main() {
 	}
 	logger.Info().Strs("tools", toolsManifest.Names()).Int("count", len(toolsManifest.Tools)).Str("path", toolsManifestPath).Msg("tools manifest loaded")
 
-	// L2 域适配注册表：注册各域 Profile（目标接入/工具镜像/finding schema）。
-	// 加新域 = New 一个 Profile 并 Register，此处外无核心改动（架构试金石）。
-	profiles := domain.NewRegistry()
-	profiles.Register(executor.New())
-	logger.Info().Strs("domains", profiles.Domains()).Msg("domain profiles registered")
-
-	// Vuln loader（Progressive Disclosure）：root=skills/vuln，
-	// 每个子目录一份 SKILL.md = 一种漏洞类型的挖掘指南。
-	// agent buildUserPrompt 用 List() 拼"漏洞挖掘指南索引"段（Tier 1）；
-	// LLM 按 user_prompt 注入的"漏洞类型索引"判完方向后调 read_vuln_skill(name) 拿完整 body（Tier 2）。
-	// 目录不存在或扫描失败 → 置 nil，agent 自动 fallback 不注入索引段、不注册工具。
+	// Vuln loader：root=skills/vuln，每个子目录一份 SKILL.md = 一种漏洞类型的挖掘指南。
 	vulnLoader := skill.NewLoader(filepath.Join(cfg.Skills.Root, "vuln"))
 	if _, err := vulnLoader.Index(); err != nil {
 		logger.Warn().Err(err).Str("root", filepath.Join(cfg.Skills.Root, "vuln")).
@@ -182,27 +320,34 @@ func main() {
 		logger.Info().Strs("vuln_skills", vulnNames).Msg("vuln skill index loaded")
 	}
 
-	// Asynq Client
-	wc := worker.NewClient(asynq.RedisClientOpt{Addr: redisAddr})
-	defer wc.Close()
+	return &runnerSkills{toolingLoader: toolingLoader, vulnLoader: vulnLoader, toolsManifest: toolsManifest}
+}
 
-	// LLM Router：yaml retry 配置接线（兜底 spec §8.5 退避表）
-	// 容器化沙箱启动器（管理 sandbox 容器生命周期：per agent run 一个容器）。
-	// 启动时一次性清理上次进程崩前残留的孤儿容器——max lifetime 4h + Destroy 失败兜底。
-	//
-	// active 容器内抓流量 → agent_traffic（source=internal）：
-	//   - 浏览器：browser-svc.py 内建 CDP Network observer 抓 chromium 真实流量
-	//   - CLI：容器内本地 mitmproxy + mitm-capture.py，工具经 HTTP_PROXY 走它
-	// 两者都经 LIUSHA_INGEST_URL POST 到 runner 自己的 ingest endpoint（见下方 hsMux 注册）。
-	// 凭证共享走 redis credentials key（read/write_credential）。
+// newDomainRegistry 注册 L2 域适配 Profile。
+// 加新域 = New 一个 Profile 并 Register，此处外无核心改动（架构试金石）。
+func newDomainRegistry(logger zerolog.Logger) *domain.Registry {
+	profiles := domain.NewRegistry()
+	profiles.Register(executor.New())
+	logger.Info().Strs("domains", profiles.Domains()).Msg("domain profiles registered")
+	return profiles
+}
+
+// newSandboxLauncher 构造容器化沙箱启动器并清理上次崩溃残留的孤儿容器。
+//
+// active 容器内抓流量 → agent_traffic（source=internal）：
+//   - 浏览器：browser-svc.py 内建 CDP Network observer 抓 chromium 真实流量
+//   - CLI：容器内本地 mitmproxy + mitm-capture.py，工具经 HTTP_PROXY 走它
+//
+// 两者都经 LIUSHA_INGEST_URL POST 到 runner 自己的 ingest endpoint。
+func newSandboxLauncher(ctx context.Context, cfg config.Config, runnerCfg config.RunnerConfig, logger zerolog.Logger) *sandbox.DockerLauncher {
 	launcher := sandbox.NewDockerLauncher(cfg.Sandbox.DefaultImage)
 	// 注入视口尺寸到 launcher → docker run -e → 容器内 wrapper 透传 chromium。
 	launcher.ViewportWidth = cfg.Sandbox.ViewportWidth
 	launcher.ViewportHeight = cfg.Sandbox.ViewportHeight
+
 	// 拼 ingest URL/token 注入 launcher → docker run -e。runner 跑在 host，容器经
 	// host.docker.internal 回连 runner 自己的 healthz 端口（cfg.Runner.HealthzAddr，默认 :9090）。
 	// token 与本进程 ingest handler 共享同一值（ENV LIUSHA_INGEST_TOKEN 覆盖 yaml）。
-	// 解析失败则不注入 → 沙箱读不到 LIUSHA_INGEST_URL → capture 不启用。
 	// 解析失败则不注入 → browser-svc.py/mitm-capture.py 读不到 LIUSHA_INGEST_URL，capture 不启用。
 	if _, port, splitErr := net.SplitHostPort(runnerCfg.HealthzAddr); splitErr != nil {
 		logger.Warn().Err(splitErr).Str("healthz_addr", runnerCfg.HealthzAddr).
@@ -211,22 +356,15 @@ func main() {
 		launcher.IngestURL = "http://host.docker.internal:" + port + "/internal/v1/flows/ingest"
 		launcher.IngestToken = envx.OrDefault("LIUSHA_INGEST_TOKEN", cfg.Proxy.IngestToken)
 	}
+
 	if err := launcher.CleanupOrphans(ctx); err != nil {
 		logger.Warn().Err(err).Msg("CleanupOrphans 失败（非致命，max lifetime 兜底）")
 	}
+	return launcher
+}
 
-	// executorDeps 已拆平到 handler 各字段，无需独立 Deps 结构体。
-
-	// 共享多级缓存内核（L1 内存 + L2 redis + 跨进程失效总线）：一条 Subscribe 循环
-	// 覆盖全部配置资源。Subscribe 阻塞运行（内部 for-select 直到 ctx 取消），必须后台起——
-	// 同步调用会把 main goroutine 卡死在订阅循环，后续 reaper / healthz 永不启动。
-	cache := cachestore.New(rdb, 0)
-	go func() {
-		if err := cache.Subscribe(ctx); err != nil && !errors.Is(err, context.Canceled) {
-			logger.Error().Err(err).Msg("cachestore 失效订阅退出——配置跨进程失效不可用")
-		}
-	}()
-
+// newLLMStack 构造 LLM 配置事实源栈。
+func newLLMStack(pool *pgxpool.Pool, cache *cachestore.Cache, cfg config.Config, logger zerolog.Logger) *runnerLLM {
 	// 配置事实源（DB + 内存/redis 缓存）：运行期按需读 agent 装配引擎。
 	// 文件仅是首次导入的种子（seed 导入在别处），进程运行期一律走 DB/缓存（见 D6/D7）。
 	cfgStore := cfgcache.New(pool, cache)
@@ -240,94 +378,35 @@ func main() {
 
 	// LLM provider API Key 加密密钥（migration 0103）：同 cmd/api 的 fail-fast 校验——
 	// runner 是解密密钥、真正拿明文打 LLM 请求的一端，缺密钥直接拒启动。
-	llmKeyCipher, err := cryptx.NewFromEnv("LIUSHA_LLM_KEY_SECRET")
+	keyCipher, err := cryptx.NewFromEnv("LIUSHA_LLM_KEY_SECRET")
 	if err != nil {
 		logger.Fatal().Err(err).Msg("LIUSHA_LLM_KEY_SECRET 未配置或不合法——provider 密钥解密需要它（fail-fast）")
 	}
 
-	// 业务旋钮事实源（react/runtime/proxy_filter 分组 KV）：handler 运行期现读 react/runtime，
-	// api 进程改「系统配置」后经 cachestore 广播失效，runner 下次读即拿到最新旋钮（真热改）。
-	settingStore := settingstore.New(pool, cache)
+	return &runnerLLM{cfgStore: cfgStore, llmStore: llmStore, keyCipher: keyCipher}
+}
 
-	// handler
-	// per-host 并发信号量（§4.3）。TTL = agent 超时 + 10min 缓冲：防长 task 运行期计数键被
-	// TTL 误清导致 host 额度漂移；持有者崩溃时靠 TTL 到期兜底清零，不永久泄漏。
+// newHostSemaphore 构造 per-host 并发信号量（§4.3）。
+// TTL = agent 超时 + 10min 缓冲：防长 task 运行期计数键被 TTL 误清导致 host 额度漂移；
+// 持有者崩溃时靠 TTL 到期兜底清零，不永久泄漏。
+func newHostSemaphore(rdb *redis.Client, runnerCfg config.RunnerConfig, cfg config.Config) *ratelimit.HostSemaphore {
 	hostSemTTL := time.Duration(runnerCfg.AgentRunTimeoutSeconds)*time.Second + 10*time.Minute
-	hostSem := ratelimit.NewHostSemaphore(rdb, cfg.Credential.RedisKeyPrefix, runnerCfg.PerHostConcurrency, hostSemTTL)
+	return ratelimit.NewHostSemaphore(rdb, cfg.Credential.RedisKeyPrefix, runnerCfg.PerHostConcurrency, hostSemTTL)
+}
 
-	// Sandbox Manager：按 Assignment 粒度管理容器，多 Task 共享，带引用计数
-	sandboxMgr := sandbox.NewPooledManager(launcher, logger, 30000) // 30 秒 grace period
-
-	// EventBus：统一事件总线（进程单例，跨 Task 共享）
-	eventBus := bus.New(ctx)
-
-	// PlanStore：execution_plan 表的持久化层
-	// explorationgraph.Store 在前面已初始化为 worldStore
-
-	// ControlPlane：task_control_event 表的持久化层（人工干预）
-	controlPlaneStore := controlplane.NewStore(pool)
-
-	h := handler{
-		executors:      executorRuns,
-		tasks:          taskStore,
-		findings:       finds,
-		corpus:         corpusStore,
-		embedder:       embedder,
-		reranker:       reranker,
-		leads:          leads,
-		proxyStore:     proxyStore,
-		agentStore:     agentStore,
-		calls:          calls,
-		hostSem:        hostSem,
-		settings:       settingStore,
-		runnerCfg:      runnerCfg,
-		sandboxMgr:     sandboxMgr,
-		logger:         logger,
-		router:         llm.NewRouterWithFallback(llmStore.AsRouterStore(), llmKeyCipher, newFallbackProviderFactory(llmStore, llmKeyCipher)),
-		creds:          creds,
-		toolCalls:      toolCalls,
-		toolingLoader:  toolingLoader,
-		vulnLoader:     vulnLoader,
-		toolsManifest:  toolsManifest,
-		cfgStore:       cfgStore,
-		conversations:  convStore,
-		eventPublisher: eventPublisher,
-		profiles:       profiles,
-		world:          worldStore,
-		checkpointer:   checkpointer,
-		eventBus:       eventBus,
-		controlPlane:   controlPlaneStore,
-	}
-
-	mux := worker.NewMux()
-	mux.Register(worker.RoleExecutor, h.handle)
-
-	srv := asynq.NewServer(
-		asynq.RedisClientOpt{Addr: redisAddr},
-		asynq.Config{
-			Concurrency: runnerCfg.AsynqConcurrency,
-			Queues: map[string]int{
-				worker.QueueExecutor: runnerCfg.QueueAgentWeight,
-				worker.QueueDispatch: runnerCfg.QueueDispatchWeight,
-			},
-		},
-	)
-
-	// Ingestor goroutine：消费 Redis Stream → 启发式 → 入 main 队列。
-	trafficCtx, trafficCancel := context.WithCancel(context.Background())
-	defer trafficCancel()
-
-	trafficIngestor, err := ingestor.NewTraffic(trafficCtx, ingestor.Deps{
+// startTrafficIngestor 启动流量摄取消费循环。
+func startTrafficIngestor(ctx context.Context, rdb *redis.Client, cfg config.Config, wc *worker.Client, stores *runnerStores, logger zerolog.Logger) *ingestor.Traffic {
+	trafficIngestor, err := ingestor.NewTraffic(ctx, ingestor.Deps{
 		Redis:         rdb,
 		Cfg:           cfg.Ingestor,
 		Stream:        cfg.Proxy.StreamName,
 		Tenant:        cfg.Credential.RedisKeyPrefix,
-		Assignments:   assignmentStore,
-		Tasks:         taskStore,
-		ProxyStore:    proxyStore,
-		AgentStore:    agentStore,
-		Agents:        executorRuns,
-		Conversations: convStore, // passive 聚合建 task 后建会话流
+		Assignments:   stores.assignments,
+		Tasks:         stores.tasks,
+		ProxyStore:    stores.proxyStore,
+		AgentStore:    stores.agentStore,
+		Agents:        stores.executors,
+		Conversations: stores.conversations, // passive 聚合建 task 后建会话流
 		Enqueuer:      wc,
 		Logger:        logger,
 	})
@@ -335,22 +414,21 @@ func main() {
 		logger.Fatal().Err(err).Msg("new ingestor.traffic")
 	}
 	go func() {
-		if err := trafficIngestor.Run(trafficCtx); err != nil && !errors.Is(err, context.Canceled) {
+		if err := trafficIngestor.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
 			logger.Error().Err(err).Msg("ingestor.traffic exited")
 		}
 	}()
+	return trafficIngestor
+}
 
-	// task reaper goroutine（B2 进度探活）：task.heartbeat_at 由 agent 每次工具调用驱动续命
-	// （见 toolRecordInterceptor 心跳逻辑）+ handler 入口重置一次。runner 进程崩溃或扫描卡死后心跳停摆，
-	// reaper 据此把超时孤儿判为 aborted——否则前端永远显示「进行中」。
-	//
-	// task 是有界运行，跑完即终态，无常驻监控会话概念，无 TTL 轮换。reaper 统一判活：
-	// swarm run 内可能跑长工具（sqlmap/nmap）+ 慢 LLM，staleAfter 较长；solo 单批分析轻量，
-	// 用同一 staleAfter 亦安全（偏保守不冤杀）。
-	//
-	// staleAfter 必须 > 单 run 内两次工具调用之间的最长合法间隔，否则冤杀正在干活的扫描：
-	// 最长间隔 ≈ 一次长工具执行(step_tool_timeout) + 决定下一步的 LLM 生成(step_llm_timeout) +
-	// 可能的上下文压缩 LLM(step_llm_timeout) + 缓冲。据此动态推导，不写死。
+// startTaskReaper 启动 task 心跳探活循环（B2 进度探活）：task.heartbeat_at 由 agent 每次工具
+// 调用驱动续命（见 toolRecordInterceptor 心跳逻辑）+ handler 入口重置一次。runner 进程崩溃或
+// 扫描卡死后心跳停摆，reaper 据此把超时孤儿判为 aborted——否则前端永远显示「进行中」。
+//
+// staleAfter 必须 > 单 run 内两次工具调用之间的最长合法间隔，否则冤杀正在干活的扫描：
+// 最长间隔 ≈ 一次长工具执行(step_tool_timeout) + 决定下一步的 LLM 生成(step_llm_timeout) +
+// 可能的上下文压缩 LLM(step_llm_timeout) + 缓冲。据此动态推导，不写死。
+func startTaskReaper(ctx context.Context, taskStore *task.Store, cfg config.Config, logger zerolog.Logger) {
 	go func() {
 		staleAfter := time.Duration(cfg.Toolruntime.StepToolTimeoutSeconds+2*cfg.Runner.StepLLMTimeoutSeconds)*time.Second + scanReaperStaleBuffer
 		logger.Info().Dur("stale_after", staleAfter).Dur("interval", scanReaperInterval).Msg("task reaper started")
@@ -358,10 +436,10 @@ func main() {
 		defer ticker.Stop()
 		for {
 			select {
-			case <-trafficCtx.Done():
+			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				if n, err := taskStore.ReapStale(trafficCtx, staleAfter); err != nil {
+				if n, err := taskStore.ReapStale(ctx, staleAfter); err != nil {
 					logger.Warn().Err(err).Msg("task reap stale failed")
 				} else if n > 0 {
 					logger.Warn().Int("aborted", n).Dur("stale_after", staleAfter).
@@ -370,42 +448,47 @@ func main() {
 			}
 		}
 	}()
+}
 
-	// healthz HTTP + active 抓流量 ingest 端点（从 cmd/proxy 迁来）。
-	// 沙箱内 CLI(本地 mitmproxy)/浏览器(CDP) 抓的流量 POST 到这里 → trafficIngestor.SubmitInternal
-	// 直接入进程内队列 → drain goroutine 落 agent_traffic。同进程直送，不再绕 redis（internal 自环冗余）。
+// newHealthGateway 构造 healthz HTTP + active 抓流量 ingest 端点（从 cmd/proxy 迁来）。
+// 沙箱内 CLI(本地 mitmproxy)/浏览器(CDP) 抓的流量 POST 到这里 → trafficIngestor.SubmitInternal
+// 直接入进程内队列 → drain goroutine 落 agent_traffic。同进程直送，不再绕 redis（internal 自环冗余）。
+func newHealthGateway(cfg config.Config, runnerCfg config.RunnerConfig, trafficIngestor *ingestor.Traffic, logger zerolog.Logger) *http.Server {
 	hsMux := http.NewServeMux()
 	hsMux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`{"ok":true}`))
 	})
 	hsMux.HandleFunc("/internal/v1/flows/ingest",
 		newIngestHandler(trafficIngestor, envx.OrDefault("LIUSHA_INGEST_TOKEN", cfg.Proxy.IngestToken), logger))
-	hs := &http.Server{
+	return &http.Server{
 		Addr:              runnerCfg.HealthzAddr,
 		Handler:           hsMux,
 		ReadHeaderTimeout: time.Duration(cfg.API.ReadHeaderTimeoutSeconds) * time.Second,
 	}
+}
 
-	go func() {
-		logger.Info().Str("addr", hs.Addr).Msg("runner healthz listening")
-		if err := hs.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			logger.Error().Err(err).Msg("healthz serve")
-		}
-	}()
+// runHealthGateway 阻塞服务 healthz（供 goroutine 启动）。
+func runHealthGateway(hs *http.Server, logger zerolog.Logger) {
+	logger.Info().Str("addr", hs.Addr).Msg("runner healthz listening")
+	if err := hs.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		logger.Error().Err(err).Msg("healthz serve")
+	}
+}
 
-	go func() {
-		logger.Info().Msg("asynq server starting")
-		if err := srv.Run(mux.AsynqMux()); err != nil {
-			logger.Fatal().Err(err).Msg("asynq run")
-		}
-	}()
+// redisAddrFromEnv 读取 Redis 地址（main 与 asynq server 共用）。
+func redisAddrFromEnv() string { return os.Getenv("LIUSHA_REDIS_ADDR") }
 
+// awaitShutdownSignal 阻塞等待 SIGINT/SIGTERM。
+func awaitShutdownSignal(logger zerolog.Logger) os.Signal {
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
 	sig := <-stop
 	logger.Info().Str("signal", sig.String()).Msg("runner shutting down")
+	return sig
+}
 
-	// 清理所有活跃 Sandbox 容器
+// runShutdownSequence 优雅关停：沙箱容器 → ingestor → asynq（带超时）→ healthz。
+func runShutdownSequence(logger zerolog.Logger, runnerCfg config.RunnerConfig, sandboxMgr *sandbox.PooledManager, srv *asynq.Server, hs *http.Server, trafficCancel context.CancelFunc) {
 	if err := sandboxMgr.DestroyAll(context.Background()); err != nil {
 		logger.Warn().Err(err).Msg("sandboxMgr.DestroyAll 失败（best-effort）")
 	}
@@ -430,9 +513,3 @@ func main() {
 	}
 	logger.Info().Msg("runner stopped")
 }
-
-// handler struct + failTask/abortTask/handle 入口 已抽到 handler.go。
-// handlePassive 在 handler_passive.go；handleActive 在 handler_active.go。
-//
-// brief → host 抽取已迁至 L2 域注册表（handler.onboardHost → executor.Registry.Onboard）：
-// host 抽取归各域 Profile，核心不再持有 briefHostRe 正则。
