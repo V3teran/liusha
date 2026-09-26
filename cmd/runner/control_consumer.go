@@ -13,6 +13,7 @@ import (
 	"github.com/V3teran/liusha/internal/controlplane"
 	"github.com/V3teran/liusha/internal/explorationgraph"
 	"github.com/V3teran/liusha/internal/framework/core"
+	"github.com/V3teran/liusha/internal/logx"
 )
 
 // controlPollInterval 是控制平面事件的轮询周期。
@@ -43,7 +44,7 @@ func startControlConsumer(
 	logger = logger.With().Str("component", "control_consumer").Str("task_id", taskID).Logger()
 	done := make(chan struct{})
 
-	go func() {
+	logx.Go(logger, "control-consumer", func() {
 		defer close(done)
 		ticker := time.NewTicker(controlPollInterval)
 		defer ticker.Stop()
@@ -75,7 +76,7 @@ func startControlConsumer(
 				}
 			}
 		}
-	}()
+	})
 
 	return func() { <-done }
 }

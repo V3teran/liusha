@@ -39,17 +39,6 @@ type Event struct {
 	Timestamp time.Time              `json:"timestamp"` // 事件时间戳
 }
 
-// NewEvent 创建事件
-func NewEvent(typ EventType, actionID string, source string, payload map[string]interface{}) Event {
-	return Event{
-		ID:        generateEventID(),
-		Type:      typ,
-		ActionID:  actionID,
-		Payload:   payload,
-		Timestamp: time.Now(),
-	}
-}
-
 // EventPublisher 定义事件发布能力
 type EventPublisher interface {
 	Publish(event Event)

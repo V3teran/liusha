@@ -128,8 +128,7 @@ func (a *Agent) evaluate(ctx context.Context) error {
 		Objective:            objective,
 		SystemPrompt:         systemPrompt,
 		LLMProvider:          a.provider,
-		ModelID:              "deepseek-chat", // TODO: 从配置读取
-		MaxIterations:        10,              // 监察不需要太多轮
+		MaxIterations:        10, // 监察不需要太多轮
 		Temperature:          0.3,             // 较低温度，确保稳定性
 		MaxTokens:            4000,
 		Tools:                a.reactRuntime.GetTools(),

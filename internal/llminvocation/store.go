@@ -129,6 +129,14 @@ func (s *Store) Flush(ctx context.Context) error {
 	}
 }
 
+// recoverPanic 捕获批写循环 panic：审计是旁路，不应因单条脏数据拖垮进程。
+// 循环体本身由 flush 驱动，panic 后仅记录日志并退出当前循环（Close 兜底）。
+func (s *Store) recoverPanic() {
+	if r := recover(); r != nil {
+		s.log.Error().Interface("panic", r).Msg("llm_invocation 批写循环 panic")
+	}
+}
+
 // Close 停止 worker 并 flush 剩余 buffer。幂等。
 func (s *Store) Close() error {
 	select {
@@ -143,6 +151,7 @@ func (s *Store) Close() error {
 
 // run 是后台 worker：累积 batch 满 / 定时 flush；收到 closed 信号则 drain 后退出。
 func (s *Store) run() {
+	defer s.recoverPanic()
 	defer s.wg.Done()
 	ticker := time.NewTicker(s.flushInterval)
 	defer ticker.Stop()

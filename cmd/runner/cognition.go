@@ -10,6 +10,7 @@ import (
 	"github.com/V3teran/liusha/internal/evaluator"
 	"github.com/V3teran/liusha/internal/executor"
 	"github.com/V3teran/liusha/internal/httpreplay"
+	"github.com/V3teran/liusha/internal/logx"
 	"github.com/V3teran/liusha/internal/monitor"
 	"github.com/V3teran/liusha/internal/planner"
 	"github.com/V3teran/liusha/internal/registry"
@@ -162,16 +163,20 @@ func (h handler) runCognition(
 			h.logger.Error().Err(err).Str("task_id", taskID).Msg(name + " agent 异常退出")
 		}
 	}
+	goAgent := func(name string, start func(context.Context) error) {
+		agentWg.Add(1)
+		logx.Go(h.logger, name+"-agent", func() { runAgent(name, start) })
+	}
 
 	agents := &controlAgentLifecycle{
 		agents: &agentWg,
 		start: func() {
 			agentWg.Add(1)
 			agentCtx, cancelAgents = context.WithCancel(ctx)
-			go runAgent("planner", plannerAgent.Start)
-			go runAgent("executor", executorAgent.Start)
-			go runAgent("evaluator", evaluatorAgent.Start)
-			go runAgent("monitor", monitorAgent.Start)
+			goAgent("planner", plannerAgent.Start)
+			goAgent("executor", executorAgent.Start)
+			goAgent("evaluator", evaluatorAgent.Start)
+			goAgent("monitor", monitorAgent.Start)
 		},
 		stop: func() {
 			cancelAgents()

@@ -62,36 +62,20 @@ func (p *DefaultHumanApprovalPolicy) Approvers(ctx context.Context, node *core.G
 	return p.defaultApprovers, nil
 }
 
-// TimeBasedApprovalPolicy 基于时间的审批策略（如工作时间外需要审批）。
-type TimeBasedApprovalPolicy struct {
-	// 工作时间（小时，0-23）
-	workHourStart int
-	workHourEnd   int
-
+// MetadataApprovalPolicy 基于节点元数据的审批策略：
+// metadata 中 requires_approval == "true" 时需要人工审批。
+type MetadataApprovalPolicy struct {
 	// 默认审批人
 	approvers []string
 }
 
-// NewTimeBasedApprovalPolicy 创建基于时间的审批策略。
-func NewTimeBasedApprovalPolicy(workHourStart, workHourEnd int, approvers []string) *TimeBasedApprovalPolicy {
-	return &TimeBasedApprovalPolicy{
-		workHourStart: workHourStart,
-		workHourEnd:   workHourEnd,
-		approvers:     approvers,
-	}
+// NewMetadataApprovalPolicy 创建基于元数据的审批策略。
+func NewMetadataApprovalPolicy(approvers []string) *MetadataApprovalPolicy {
+	return &MetadataApprovalPolicy{approvers: approvers}
 }
 
-// RequiresApproval 判断是否需要审批（工作时间外需要）。
-func (p *TimeBasedApprovalPolicy) RequiresApproval(ctx context.Context, node *core.GraphNode) bool {
-	// 获取当前时间
-	// hour := time.Now().Hour()
-
-	// 工作时间外需要审批
-	// if hour < p.workHourStart || hour >= p.workHourEnd {
-	// 	return true
-	// }
-
-	// 简化：始终检查节点元数据
+// RequiresApproval 判断是否需要审批。
+func (p *MetadataApprovalPolicy) RequiresApproval(ctx context.Context, node *core.GraphNode) bool {
 	if node.Metadata != nil {
 		if requiresApproval, ok := node.Metadata["requires_approval"]; ok {
 			if str, ok := requiresApproval.(string); ok {
@@ -104,7 +88,7 @@ func (p *TimeBasedApprovalPolicy) RequiresApproval(ctx context.Context, node *co
 }
 
 // Approvers 获取审批人列表。
-func (p *TimeBasedApprovalPolicy) Approvers(ctx context.Context, node *core.GraphNode) ([]string, error) {
+func (p *MetadataApprovalPolicy) Approvers(ctx context.Context, node *core.GraphNode) ([]string, error) {
 	return p.approvers, nil
 }
 

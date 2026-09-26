@@ -2,7 +2,7 @@ package middleware
 
 import (
 	"context"
-	"github.com/V3teran/liusha/internal/bus"
+	"fmt"
 	"time"
 
 	"github.com/V3teran/liusha/internal/framework/core"
@@ -151,7 +151,7 @@ type HumanInputNotifier interface {
 // NewHumanInputRequest 创建人工输入请求（便捷函数）。
 func NewHumanInputRequest(taskID, nodeID, prompt, inputType string) HumanInputRequest {
 	return HumanInputRequest{
-		ID:         bus.NewEvent(bus.EventHumanInputRequired, taskID, "human", nil).ID,
+		ID:         fmt.Sprintf("req_%d", time.Now().UnixNano()),
 		TaskID:     taskID,
 		NodeID:     nodeID,
 		Prompt:     prompt,

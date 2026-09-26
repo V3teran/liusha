@@ -93,7 +93,6 @@ func (e *Engine) Execute(ctx context.Context, action explorationgraph.Node, task
 		Objective:     objective,
 		SystemPrompt:  systemPrompt,
 		LLMProvider:   provider,
-		ModelID:       e.selectModelID(actionData.Complexity),
 		MaxIterations: e.getMaxIterations(actionData.Complexity),
 		Temperature:   0.7,
 		MaxTokens:     4000,
@@ -235,21 +234,6 @@ func (e *Engine) mapComplexityToTier(complexity string) llm.Complexity {
 		return llm.ComplexityComplex
 	default:
 		return llm.ComplexityMedium
-	}
-}
-
-// selectModelID 选择模型 ID
-func (e *Engine) selectModelID(complexity string) string {
-	// 这里应该从配置读取，暂时硬编码
-	switch complexity {
-	case "simple":
-		return "deepseek-chat"
-	case "moderate":
-		return "deepseek-chat"
-	case "complex":
-		return "deepseek-reasoner"
-	default:
-		return "deepseek-chat"
 	}
 }
 

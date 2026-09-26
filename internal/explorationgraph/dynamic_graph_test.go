@@ -2,6 +2,7 @@ package explorationgraph_test
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -183,10 +184,8 @@ func TestDynamicDependencyResolution(t *testing.T) {
 // === 辅助函数 ===
 
 func setupTestStore(t *testing.T) *explorationgraph.Store {
-	// TODO: 实际实现应该使用 PostgreSQL 测试容器或内存实现
-	// 当前只是框架，待 core.GraphStore 接口稳定后实现
-	t.Skip("需要 GraphStore 测试实现")
-	return nil
+	t.Helper()
+	return explorationgraph.NewMemoryStore()
 }
 
 func createTestAction(t *testing.T, ctx context.Context, store *explorationgraph.AdapterStore, taskID, name string, dependsOn []string) string {
@@ -203,27 +202,46 @@ func createTestAction(t *testing.T, ctx context.Context, store *explorationgraph
 		UpdatedAt: time.Now(),
 	}
 
-	// TODO: 调用 store.CreateNode
-	_ = node
+	if _, err := store.CreateNode(ctx, node); err != nil {
+		t.Fatalf("创建 action %s: %v", actionID, err)
+	}
 	return actionID
 }
 
 func listOpenActions(t *testing.T, ctx context.Context, store *explorationgraph.Store, taskID string) []explorationgraph.Node {
-	// TODO: 调用 store.ListOpenActions
-	return nil
+	t.Helper()
+	nodes, err := store.ListOpenActions(ctx, taskID)
+	if err != nil {
+		t.Fatalf("ListOpenActions: %v", err)
+	}
+	return nodes
 }
 
-func updateActionState(t *testing.T, ctx context.Context, store *explorationgraph.AdapterStore, actionID string, newState string) {
-	// TODO: 调用 store.CompareAndSwapState 或 store.UpdateNode
+func updateActionState(t *testing.T, ctx context.Context, store *explorationgraph.Store, actionID string, newState string) {
+	t.Helper()
+	if err := store.UpdateActionStateWithReason(ctx, actionID, explorationgraph.State(newState), nil); err != nil {
+		t.Fatalf("更新 action %s 状态: %v", actionID, err)
+	}
 }
 
 func getActionByID(t *testing.T, ctx context.Context, store *explorationgraph.Store, actionID string) explorationgraph.Node {
-	// TODO: 调用 store.GetNode
-	return explorationgraph.Node{}
+	t.Helper()
+	node, err := store.GetNode(ctx, actionID)
+	if err != nil {
+		t.Fatalf("GetNode %s: %v", actionID, err)
+	}
+	return *node
 }
 
 func updateActionDependencies(t *testing.T, ctx context.Context, store *explorationgraph.Store, actionID string, dependsOn []string) {
-	// TODO: 调用 store.UpdateNode 修改 DependsOn 字段
+	t.Helper()
+	meta, err := json.Marshal(map[string]interface{}{"depends_on": dependsOn})
+	if err != nil {
+		t.Fatalf("marshal depends_on: %v", err)
+	}
+	if err := store.UpdateNodeMetadata(ctx, actionID, meta); err != nil {
+		t.Fatalf("更新依赖: %v", err)
+	}
 }
 
 func isDependencySatisfied(action explorationgraph.Node, completed map[string]bool) bool {

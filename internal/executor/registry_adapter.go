@@ -3,6 +3,7 @@ package executor
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 
 	"github.com/V3teran/liusha/internal/framework/core"
 	"github.com/V3teran/liusha/internal/registry"
@@ -65,7 +66,11 @@ func (t *toolAdapter) Execute(ctx context.Context, input core.ToolInput) (core.T
 	}
 
 	// 转换为 core.ToolOutput
-	outputJSON, _ := json.Marshal(result.Output)
+	outputJSON, err := json.Marshal(result.Output)
+	if err != nil {
+		// 工具输出不可序列化时带上错误信息，避免 LLM 收到静默空结果
+		outputJSON, _ = json.Marshal(map[string]string{"error": fmt.Sprintf("marshal output: %v", err)})
+	}
 	return core.ToolOutput{
 		Result: outputJSON,
 		Error:  result.Error,

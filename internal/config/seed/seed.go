@@ -221,3 +221,42 @@ func importSkills(ctx context.Context, dir string, s *skill.Store) error {
 	}
 	return nil
 }
+
+// ResetAgentError 是 reset 语义的专用错误：种子文件缺失或格式非法。
+type ResetAgentError struct{ Msg string }
+
+func (e *ResetAgentError) Error() string { return e.Msg }
+
+// ResetAgent 把 agents/<code>.md 种子重新覆盖写入 DB（reset 语义，与 Import 的
+// insert-only 相反：显式以种子为准覆盖现有行）。返回更新后的 Agent。
+func ResetAgent(ctx context.Context, dir, code string, h *agent.Store) (agent.Agent, error) {
+	path := filepath.Join(dir, "agents", code+".md")
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return agent.Agent{}, &ResetAgentError{Msg: fmt.Sprintf("agent %q 无种子文件 %s", code, path)}
+		}
+		return agent.Agent{}, fmt.Errorf("读取种子: %w", err)
+	}
+	front, body, err := splitFrontmatter(raw)
+	if err != nil {
+		return agent.Agent{}, &ResetAgentError{Msg: fmt.Sprintf("解析 %s: %v", path, err)}
+	}
+	var f agentFront
+	if err := yaml.Unmarshal(front, &f); err != nil {
+		return agent.Agent{}, &ResetAgentError{Msg: fmt.Sprintf("解析 frontmatter: %v", err)}
+	}
+	systemPrompt := string(body)
+	updated, err := h.Update(ctx, code, agent.UpdateParams{
+		SystemPrompt:  &systemPrompt,
+		FunctionTools: &f.FunctionTools,
+		CliTools:      &f.CliTools,
+		Skills:        &f.Skills,
+		MaxIterations: &f.MaxIterations,
+		Complexity:    strPtr(strings.TrimSpace(f.Tier)),
+	})
+	if err != nil {
+		return agent.Agent{}, fmt.Errorf("写回 agent %q: %w", code, err)
+	}
+	return updated, nil
+}

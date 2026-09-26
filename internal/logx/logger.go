@@ -275,3 +275,30 @@ func intEnv(key string, def int) int {
 	}
 	return n
 }
+
+// Recover 返回 defer 用的 recover 处理：panic 转错误日志。
+func Recover(service, msg string) {
+	if r := recover(); r != nil {
+		logger := New(service)
+		logger.Error().
+			Interface("panic", r).
+			Msg(msg)
+	}
+}
+
+// Go 以带 recover 的独立 goroutine 启动 fn：panic 转错误日志，避免单个后台
+// 协程 panic 拖垮整个进程（runner 是长驻服务，agent 循环/持久化循环/事件
+// 总线等均经此启动）。
+func Go(logger zerolog.Logger, name string, fn func()) {
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				logger.Error().
+					Interface("panic", r).
+					Str("goroutine", name).
+					Msg("后台协程 panic 已捕获")
+			}
+		}()
+		fn()
+	}()
+}

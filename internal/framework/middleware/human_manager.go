@@ -1,15 +1,15 @@
 package middleware
 
 import (
-	"github.com/V3teran/liusha/internal/bus"
 	"context"
 	"fmt"
+	"github.com/V3teran/liusha/internal/bus"
 	"sync"
 	"time"
 
+	"github.com/V3teran/liusha/internal/framework/core"
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
-	"github.com/V3teran/liusha/internal/framework/core"
 )
 
 // HumanInteractionManagerImpl 是人机交互管理器的实现。
@@ -82,12 +82,16 @@ func (h *HumanInteractionManagerImpl) RequestInput(ctx context.Context, req Huma
 
 	// 发布事件
 	if h.eventBus != nil {
-		event := bus.NewEvent(bus.EventHumanInputRequired, req.TaskID, "human", map[string]any{
-			"request_id": req.ID,
-			"node_id":    req.NodeID,
-			"input_type": req.InputType,
-			"prompt":     req.Prompt,
-		})
+		event := bus.Event{
+			Type:   bus.EventHumanInputRequired,
+			TaskID: req.TaskID,
+			Payload: map[string]any{
+				"request_id": req.ID,
+				"node_id":    req.NodeID,
+				"input_type": req.InputType,
+				"prompt":     req.Prompt,
+			},
+		}
 		h.eventBus.Publish(event)
 	}
 
@@ -190,12 +194,16 @@ func (h *HumanInteractionManagerImpl) SubmitInput(ctx context.Context, resp Huma
 
 	// 发布事件
 	if h.eventBus != nil {
-		event := bus.NewEvent(bus.EventHumanInputReceived, resp.TaskID, "human", map[string]any{
-			"request_id": resp.RequestID,
-			"node_id":    resp.NodeID,
-			"approved":   resp.Approved,
-			"submitter":  resp.Submitter,
-		})
+		event := bus.Event{
+			Type:   bus.EventHumanInputReceived,
+			TaskID: resp.TaskID,
+			Payload: map[string]any{
+				"request_id": resp.RequestID,
+				"node_id":    resp.NodeID,
+				"approved":   resp.Approved,
+				"submitter":  resp.Submitter,
+			},
+		}
 		h.eventBus.Publish(event)
 	}
 
