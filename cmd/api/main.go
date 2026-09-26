@@ -35,10 +35,10 @@ import (
 	"github.com/V3teran/liusha/internal/cryptx"
 	"github.com/V3teran/liusha/internal/db"
 	"github.com/V3teran/liusha/internal/envx"
+	"github.com/V3teran/liusha/internal/explorationgraph"
 	"github.com/V3teran/liusha/internal/finding"
 	"github.com/V3teran/liusha/internal/framework/core"
 	"github.com/V3teran/liusha/internal/httpapi"
-	"github.com/V3teran/liusha/internal/explorationgraph"
 	"github.com/V3teran/liusha/internal/llm"
 	"github.com/V3teran/liusha/internal/llminvocation"
 	"github.com/V3teran/liusha/internal/llmstore"
@@ -255,7 +255,7 @@ func main() {
 			UsageLLM:          invocationStore,              // 会话用量：LLM token/耗时合计
 			UsageTools:        toolStore,                    // 会话用量：工具耗时合计
 			ControlPlane:      controlPlaneStore,            // 任务控制平面（人工干预）
-			ExplorationGraph:    kgAdapter,                    // Phase 1: 知识图谱 API（e2e 测试迁移）
+			ExplorationGraph:  kgAdapter,                    // Phase 1: 知识图谱 API（e2e 测试迁移）
 			EnableDevAutofill: envx.OrDefault("LIUSHA_DEV_AUTOFILL", "") != "",
 		}),
 		ReadTimeout:  time.Duration(cfg.API.ReadTimeoutSeconds) * time.Second,

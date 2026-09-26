@@ -78,11 +78,11 @@ const (
 type Relation string
 
 const (
-	RelGenerates Relation = "GENERATES"  // action → observation（生成）
-	RelConfirms  Relation = "CONFIRMS"   // evaluation → result（确认）
-	RelRefutes   Relation = "REFUTES"    // evaluation → observation（反驳）
-	RelEnables   Relation = "ENABLES"    // result → action（使能）
-	RelDependsOn Relation = "DEPENDS_ON" // action → action（依赖）
+	RelGenerates Relation = "generates"  // action → observation（生成）
+	RelConfirms  Relation = "confirms"   // evaluation → result（确认）
+	RelRefutes   Relation = "refutes"    // evaluation → observation（反驳）
+	RelEnables   Relation = "enables"    // result → action（使能）
+	RelDependsOn Relation = "depends_on" // action → action（依赖）
 )
 
 // SourceType 是节点的来源类型
@@ -151,7 +151,7 @@ type Verification struct {
 	NodeID     string          `json:"node_id"` // 被验证的 observation 节点 ID
 	Primitives json.RawMessage `json:"primitives"`
 	Outcome    VerifyOutcome   `json:"outcome"`
-	Evaluation   json.RawMessage `json:"evaluation"`
+	Evaluation json.RawMessage `json:"evaluation"`
 	DurationMs int64           `json:"duration_ms"`
 	CreatedAt  time.Time       `json:"created_at"`
 }

@@ -69,7 +69,7 @@ func TestFireDue_ActiveSchedule_ExpandsTaskAndAgent(t *testing.T) {
 
 	items := []assignment.Item{{Brief: "夜间复扫 http://target.com"}}
 	sched, err := r.schedules.Create(ctx, cronschedule.NewParams{
-		ScenarioID: "web-pentest", CronExpr: "* * * * *", Items: items, Title: "nightly",
+		CronExpr: "* * * * *", Items: items, Title: "nightly",
 	})
 	if err != nil {
 		t.Fatalf("create schedule: %v", err)
@@ -89,7 +89,7 @@ func TestFireDue_ActiveSchedule_ExpandsTaskAndAgent(t *testing.T) {
 		t.Fatalf("触发后 next_run_at 应推进到未来，got %v", got.NextRunAt)
 	}
 
-	tasks, err := r.tasks.List(ctx, "web-pentest", 10)
+	tasks, err := r.tasks.List(ctx, 10)
 	if err != nil {
 		t.Fatalf("list tasks: %v", err)
 	}
@@ -135,7 +135,7 @@ func TestFireDue_PassiveSchedule_ClaimsUnconsumedTraffic(t *testing.T) {
 
 	items := []assignment.Item{{Host: host}}
 	sched, err := r.schedules.Create(ctx, cronschedule.NewParams{
-		ScenarioID: "api-pentest", CronExpr: "* * * * *", Items: items, Title: "recheck-" + host,
+		CronExpr: "* * * * *", Items: items, Title: "recheck-" + host,
 	})
 	if err != nil {
 		t.Fatalf("create schedule: %v", err)
@@ -144,7 +144,7 @@ func TestFireDue_PassiveSchedule_ClaimsUnconsumedTraffic(t *testing.T) {
 
 	r.fireDue(ctx)
 
-	tasks, err := r.tasks.List(ctx, "api-pentest", 10)
+	tasks, err := r.tasks.List(ctx, 10)
 	if err != nil {
 		t.Fatalf("list tasks: %v", err)
 	}
@@ -175,7 +175,7 @@ func TestFireDue_PassiveSchedule_NoTraffic_AbortsWithoutError(t *testing.T) {
 
 	items := []assignment.Item{{Host: "never-captured.com"}}
 	sched, err := r.schedules.Create(ctx, cronschedule.NewParams{
-		ScenarioID: "api-pentest", CronExpr: "* * * * *", Items: items,
+		CronExpr: "* * * * *", Items: items,
 	})
 	if err != nil {
 		t.Fatalf("create schedule: %v", err)
@@ -186,7 +186,7 @@ func TestFireDue_PassiveSchedule_NoTraffic_AbortsWithoutError(t *testing.T) {
 		t.Fatalf("无流量不应算 fireOne 失败: %v", err)
 	}
 
-	tasks, err := r.tasks.List(ctx, "api-pentest", 10)
+	tasks, err := r.tasks.List(ctx, 10)
 	if err != nil {
 		t.Fatalf("list tasks: %v", err)
 	}
@@ -211,7 +211,7 @@ func TestFireDue_DisabledSchedule_NotFired(t *testing.T) {
 
 	items := []assignment.Item{{Brief: "should not fire"}}
 	sched, err := r.schedules.Create(ctx, cronschedule.NewParams{
-		ScenarioID: "web-pentest", CronExpr: "* * * * *", Items: items,
+		CronExpr: "* * * * *", Items: items,
 	})
 	if err != nil {
 		t.Fatalf("create schedule: %v", err)
@@ -223,7 +223,7 @@ func TestFireDue_DisabledSchedule_NotFired(t *testing.T) {
 
 	r.fireDue(ctx)
 
-	tasks, err := r.tasks.List(ctx, "web-pentest", 10)
+	tasks, err := r.tasks.List(ctx, 10)
 	if err != nil {
 		t.Fatalf("list tasks: %v", err)
 	}

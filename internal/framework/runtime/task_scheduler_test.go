@@ -150,9 +150,9 @@ func TestTaskScheduler_DelayedStart(t *testing.T) {
 	startTime := time.Now()
 
 	task := &ScheduledTask{
-		Name:     "delayed-task",
-		Type:     ScheduleTypeOnce,
-		Delay:    200 * time.Millisecond, // 延迟 200ms
+		Name:  "delayed-task",
+		Type:  ScheduleTypeOnce,
+		Delay: 200 * time.Millisecond, // 延迟 200ms
 		Func: func(ctx context.Context) error {
 			atomic.AddInt32(&executeCount, 1)
 			return nil
@@ -228,8 +228,8 @@ func TestTaskScheduler_Retry(t *testing.T) {
 	task := &ScheduledTask{
 		Name:          "retry-task",
 		Type:          ScheduleTypeOnce,
-		MaxRetries:    3,                       // 最多重试 3 次
-		RetryInterval: 50 * time.Millisecond,  // 重试间隔 50ms
+		MaxRetries:    3,                     // 最多重试 3 次
+		RetryInterval: 50 * time.Millisecond, // 重试间隔 50ms
 		Func: func(ctx context.Context) error {
 			count := atomic.AddInt32(&attemptCount, 1)
 			if count < 3 {
@@ -363,10 +363,10 @@ func TestTaskScheduler_ListTasks(t *testing.T) {
 	}
 
 	task2 := &ScheduledTask{
-		Name: "task2",
-		Type: ScheduleTypeInterval,
+		Name:     "task2",
+		Type:     ScheduleTypeInterval,
 		Interval: 1 * time.Second,
-		Func: func(ctx context.Context) error { return nil },
+		Func:     func(ctx context.Context) error { return nil },
 	}
 
 	_, err = scheduler.Schedule(task1)

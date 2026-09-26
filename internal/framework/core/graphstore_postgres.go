@@ -559,7 +559,7 @@ func (s *PostgresGraphStore) CreateEdge(ctx context.Context, edge *GraphEdge) er
 	_, err = s.pool.Exec(ctx, query,
 		taskID,
 		edge.From,
-		strings.ToUpper(edge.Relation), // 表中关系类型是大写
+		edge.Relation,
 		edge.To,
 		attrsJSON,
 		now,
@@ -592,7 +592,7 @@ func (s *PostgresGraphStore) ListEdges(ctx context.Context, query GraphEdgeQuery
 
 	if query.Relation != "" {
 		whereParts = append(whereParts, fmt.Sprintf("rel = $%d", argIndex))
-		args = append(args, strings.ToUpper(query.Relation))
+		args = append(args, query.Relation)
 		argIndex++
 	}
 
@@ -645,9 +645,6 @@ func (s *PostgresGraphStore) ListEdges(ctx context.Context, query GraphEdgeQuery
 			}
 		}
 
-		// 关系类型转回小写
-		edge.Relation = strings.ToLower(edge.Relation)
-
 		edges = append(edges, &edge)
 	}
 
@@ -669,7 +666,7 @@ func (s *PostgresGraphStore) DeleteEdge(ctx context.Context, from, to, relation 
 		WHERE src_id = $1 AND dst_id = $2 AND rel = $3
 	`
 
-	result, err := s.pool.Exec(ctx, query, from, to, strings.ToUpper(relation))
+	result, err := s.pool.Exec(ctx, query, from, to, relation)
 	if err != nil {
 		return fmt.Errorf("delete edge: %w", err)
 	}
@@ -764,13 +761,9 @@ func (s *PostgresGraphStore) getNeighbors(ctx context.Context, nodeID string, di
 	// 构建关系过滤条件
 	relFilter := ""
 	if len(relations) > 0 {
-		upperRelations := make([]string, len(relations))
-		for i, r := range relations {
-			upperRelations[i] = strings.ToUpper(r)
-		}
-		relPlaceholders := make([]string, len(upperRelations))
+		relPlaceholders := make([]string, len(relations))
 		argOffset := 2 // 从 $2 开始
-		for i := range upperRelations {
+		for i := range relations {
 			relPlaceholders[i] = fmt.Sprintf("$%d", argOffset+i)
 		}
 		relFilter = fmt.Sprintf(" AND rel IN (%s)", strings.Join(relPlaceholders, ","))
@@ -796,16 +789,12 @@ func (s *PostgresGraphStore) getNeighbors(ctx context.Context, nodeID string, di
 
 	// 添加关系过滤参数
 	if len(relations) > 0 {
-		upperRelations := make([]string, len(relations))
-		for i, r := range relations {
-			upperRelations[i] = strings.ToUpper(r)
-		}
-		for _, rel := range upperRelations {
+		for _, rel := range relations {
 			args = append(args, rel)
 		}
 		// 对于 GraphTraverseBoth，需要再添加一次参数
 		if direction == GraphTraverseBoth {
-			for _, rel := range upperRelations {
+			for _, rel := range relations {
 				args = append(args, rel)
 			}
 		}

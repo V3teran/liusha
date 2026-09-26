@@ -91,7 +91,7 @@ func (t *writeFindingTool) Execute(ctx context.Context, args json.RawMessage) (r
 	var a struct {
 		Summary       string          `json:"summary"`
 		Severity      string          `json:"severity"`
-		Evaluation json.RawMessage `json:"evaluation"`
+		Evaluation    json.RawMessage `json:"evaluation"`
 		Target        json.RawMessage `json:"target"`
 		CWEID         string          `json:"cwe_id"`
 		OWASPCategory string          `json:"owasp_category"`
@@ -115,7 +115,7 @@ func (t *writeFindingTool) Execute(ctx context.Context, args json.RawMessage) (r
 		Host:          t.deps.Host,
 		Severity:      a.Severity,
 		Summary:       a.Summary,
-		Evaluation:      a.Evaluation,
+		Evaluation:    a.Evaluation,
 		Target:        a.Target,
 		CWEID:         a.CWEID,
 		OWASPCategory: a.OWASPCategory,
@@ -163,12 +163,12 @@ func (t *updateFindingTool) Schema() json.RawMessage { return updateFindingSchem
 
 func (t *updateFindingTool) Execute(ctx context.Context, args json.RawMessage) (registry.ToolResult, error) {
 	var a struct {
-		ID        string          `json:"id"`
-		Summary   string          `json:"summary"`
-		Severity  string          `json:"severity"`
+		ID         string          `json:"id"`
+		Summary    string          `json:"summary"`
+		Severity   string          `json:"severity"`
 		Evaluation json.RawMessage `json:"evaluation"`
-		Target    json.RawMessage `json:"target"`
-		DependsOn []string        `json:"depends_on"`
+		Target     json.RawMessage `json:"target"`
+		DependsOn  []string        `json:"depends_on"`
 	}
 	if err := json.Unmarshal(args, &a); err != nil {
 		return registry.ToolResult{Error: "update_finding: 解析参数失败: " + err.Error()}, nil

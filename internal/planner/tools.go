@@ -9,8 +9,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 
-	"github.com/V3teran/liusha/internal/framework/core"
 	"github.com/V3teran/liusha/internal/explorationgraph"
+	"github.com/V3teran/liusha/internal/framework/core"
 	"github.com/V3teran/liusha/internal/registry"
 )
 
@@ -193,11 +193,11 @@ func (t *ProposeActionsTool) Execute(ctx context.Context, argsJSON json.RawMessa
 
 	var input struct {
 		Actions []struct {
-			Instruction  string    `json:"instruction"`
-			Complexity   string    `json:"complexity"`
-			Priority     string    `json:"priority"` // critical/high/medium/low
-			DependsOn    []string  `json:"depends_on"`
-			RoadmapStep  *float64  `json:"roadmap_step"`
+			Instruction string   `json:"instruction"`
+			Complexity  string   `json:"complexity"`
+			Priority    string   `json:"priority"` // critical/high/medium/low
+			DependsOn   []string `json:"depends_on"`
+			RoadmapStep *float64 `json:"roadmap_step"`
 		} `json:"actions"`
 	}
 

@@ -27,8 +27,8 @@ type VulnFinding struct {
 	Severity string
 	// Summary 是漏洞描述的核心载体：自由文本写发现是什么 / 怎么验证 / 推理依据。
 	// 工具层（write_finding）强制非空。
-	Summary  string
-	Target   json.RawMessage
+	Summary    string
+	Target     json.RawMessage
 	Evaluation json.RawMessage
 	// Repro 是机器可验的复现配方（web={traffic_id,modifications,assert}），喂 Verifier
 	// 复现门自动晋升成世界模型节点。形状 domain-specific，本层只作 jsonb 透传；nil=未产配方。

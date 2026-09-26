@@ -7,6 +7,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pgvector/pgvector-go"
+	"github.com/rs/zerolog"
 )
 
 // PostgresVectorStore Postgres+pgvector 向量存储
@@ -14,6 +15,7 @@ type PostgresVectorStore struct {
 	pool      *pgxpool.Pool
 	tableName string
 	dimension int
+	logger    *zerolog.Logger // 可选：非致命错误（如索引创建失败）经此告警
 }
 
 // PostgresVectorStoreConfig Postgres 向量存储配置
@@ -26,6 +28,9 @@ type PostgresVectorStoreConfig struct {
 
 	// 向量维度
 	Dimension int
+
+	// Logger 可选日志器（nil 时非致命错误静默）
+	Logger *zerolog.Logger
 }
 
 // NewPostgresVectorStore 创建 Postgres 向量存储
@@ -44,6 +49,7 @@ func NewPostgresVectorStore(ctx context.Context, config PostgresVectorStoreConfi
 		pool:      pool,
 		tableName: config.TableName,
 		dimension: config.Dimension,
+		logger:    config.Logger,
 	}
 
 	// 初始化表结构
@@ -88,9 +94,10 @@ func (s *PostgresVectorStore) initSchema(ctx context.Context) error {
 
 	_, err = s.pool.Exec(ctx, createIndexSQL)
 	if err != nil {
-		// 索引创建失败不致命，记录警告
-		// 可以通过 callback 通知
-		_ = err
+		// 索引创建失败不致命（降级为顺序扫描），但不能静默吞掉
+		if s.logger != nil {
+			s.logger.Warn().Err(err).Str("table", s.tableName).Msg("向量索引创建失败（降级为顺序扫描）")
+		}
 	}
 
 	return nil

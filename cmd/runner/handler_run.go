@@ -8,11 +8,10 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/V3teran/liusha/internal/bus"
 	executorbuilder "github.com/V3teran/liusha/internal/builder/executor"
 	"github.com/V3teran/liusha/internal/executor"
-	"github.com/V3teran/liusha/internal/framework/llm"
 	"github.com/V3teran/liusha/internal/explorationgraph"
+	"github.com/V3teran/liusha/internal/framework/llm"
 	"github.com/V3teran/liusha/internal/registry"
 	"github.com/V3teran/liusha/internal/scanagent"
 	"github.com/V3teran/liusha/internal/task"
@@ -345,62 +344,4 @@ func buildRunResult(engine string, execs []executor.Execution, report interface{
 		"final_text": finalText,
 		"cognition":  report,
 	}
-}
-
-// ─────────────────────────────────────────────────────────────
-//  EventBus 适配器
-// ─────────────────────────────────────────────────────────────
-
-// eventBusAdapter 将 bus.Bus 适配为 executor.EventBus 接口
-type eventBusAdapter struct {
-	bus bus.Bus
-}
-
-func newEventBusAdapter(b bus.Bus) *eventBusAdapter {
-	return &eventBusAdapter{bus: b}
-}
-
-func (a *eventBusAdapter) Subscribe(ctx context.Context, actionID string) executor.EventSubscription {
-	// bus.Bus.SubscribeAction 返回 *bus.Subscription
-	sub := a.bus.SubscribeAction(ctx, actionID)
-	return &eventSubscriptionAdapter{sub: sub}
-}
-
-func (a *eventBusAdapter) Publish(event executor.ControlEvent) {
-	// 转换 executor.ControlEvent 到 bus.Event
-	a.bus.Publish(bus.Event{
-		Type:      bus.EventType(event.Type),
-		ActionID:  event.ActionID,
-		Payload:   event.Payload,
-		Timestamp: event.Timestamp,
-	})
-}
-
-// eventSubscriptionAdapter 实现 executor.EventSubscription
-type eventSubscriptionAdapter struct {
-	sub *bus.Subscription
-}
-
-func (s *eventSubscriptionAdapter) Events() <-chan executor.ControlEvent {
-	// 从 bus.Subscription 获取事件 channel
-	eventbusCh := s.sub.Events()
-
-	// 创建转换 channel
-	out := make(chan executor.ControlEvent, 10)
-	go func() {
-		defer close(out)
-		for e := range eventbusCh {
-			out <- executor.ControlEvent{
-				Type:      string(e.Type),
-				ActionID:  e.ActionID,
-				Payload:   e.Payload,
-				Timestamp: e.Timestamp,
-			}
-		}
-	}()
-	return out
-}
-
-func (s *eventSubscriptionAdapter) Unsubscribe() {
-	s.sub.Unsubscribe()
 }

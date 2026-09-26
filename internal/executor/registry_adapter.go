@@ -3,7 +3,7 @@ package executor
 import (
 	"context"
 	"encoding/json"
-	
+
 	"github.com/V3teran/liusha/internal/framework/core"
 	"github.com/V3teran/liusha/internal/registry"
 )
@@ -22,7 +22,7 @@ func NewRegistry(inner *registry.Registry) *Registry {
 func (r *Registry) Tools() []core.Tool {
 	schemas := r.inner.Schemas()
 	tools := make([]core.Tool, 0, len(schemas))
-	
+
 	for _, schema := range schemas {
 		if tool, ok := r.inner.Get(schema.Name); ok {
 			tools = append(tools, &toolAdapter{
@@ -30,7 +30,7 @@ func (r *Registry) Tools() []core.Tool {
 			})
 		}
 	}
-	
+
 	return tools
 }
 
@@ -63,7 +63,7 @@ func (t *toolAdapter) Execute(ctx context.Context, input core.ToolInput) (core.T
 			Error: err.Error(),
 		}, nil
 	}
-	
+
 	// 转换为 core.ToolOutput
 	outputJSON, _ := json.Marshal(result.Output)
 	return core.ToolOutput{

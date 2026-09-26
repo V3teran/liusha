@@ -5,8 +5,8 @@ import (
 	"fmt"
 
 	"github.com/V3teran/liusha/internal/evaluator"
-	"github.com/V3teran/liusha/internal/finding"
 	"github.com/V3teran/liusha/internal/explorationgraph"
+	"github.com/V3teran/liusha/internal/finding"
 	"github.com/rs/zerolog"
 )
 

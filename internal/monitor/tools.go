@@ -4,11 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"time"
 
 	"github.com/V3teran/liusha/internal/bus"
-	"github.com/V3teran/liusha/internal/framework/core"
 	"github.com/V3teran/liusha/internal/explorationgraph"
+	"github.com/V3teran/liusha/internal/framework/core"
 )
 
 // ============================================
@@ -148,28 +147,12 @@ func (t *PublishDecisionTool) Execute(ctx context.Context, input core.ToolInput)
 		return core.ToolOutput{Error: "action_id is required for kill_action"}, nil
 	}
 
-	// 发布事件
-	if decision.Type == "kill_action" {
-		t.eventBus.PublishActionKilled(t.taskID, decision.ActionID, decision.Reason)
-	} else {
-		// request_replan - 使用通用 Publish
-		t.eventBus.Publish(bus.Event{
-			Type:   bus.EventType("monitor.request_replan"),
-			TaskID: t.taskID,
-			Payload: map[string]interface{}{
-				"reason":    decision.Reason,
-				"source":    "monitor",
-				"timestamp": time.Now().Unix(),
-			},
-		})
-	}
+	// kill_action 的实际生效路径是世界模型中 action 状态变更（planner.Kill）；
+	// request_replan 决策记录在 monitor 的决策日志中。
 
-	// 构建结果
 	result := map[string]interface{}{
-		"status":  "published",
-		"type":    decision.Type,
-		"reason":  decision.Reason,
-		"sent_at": time.Now().Format(time.RFC3339),
+		"type":   decision.Type,
+		"reason": decision.Reason,
 	}
 	if decision.ActionID != "" {
 		result["action_id"] = decision.ActionID

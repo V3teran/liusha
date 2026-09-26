@@ -14,9 +14,9 @@ import (
 
 	"github.com/V3teran/liusha/internal/bus"
 	"github.com/V3teran/liusha/internal/evaluator"
+	"github.com/V3teran/liusha/internal/explorationgraph"
 	"github.com/V3teran/liusha/internal/framework/core"
 	"github.com/V3teran/liusha/internal/framework/runtime"
-	"github.com/V3teran/liusha/internal/explorationgraph"
 )
 
 // 编译时检查接口实现
@@ -52,7 +52,7 @@ type ExecutorAgentConfig struct {
 	Executor     ExecutorInterface
 	EventBus     bus.Bus
 	Logger       zerolog.Logger
-	MaxSteps     int // 最大执行步数（0 表示无限制）
+	MaxSteps     int         // 最大执行步数（0 表示无限制）
 	CompletionCh chan Report // 可选：任务完成时写入 Report
 
 	// Checkpoint 配置（可选）
@@ -173,15 +173,6 @@ func (a *ExecutorAgent) handleEvent(ctx context.Context, event bus.Event, report
 			Str("task_id", a.taskID).
 			Msg("收到 ActionProposed 事件，处理可执行 Action")
 		return a.processAvailableActions(ctx, report)
-
-	case bus.EventTaskStarted:
-		// 任务启动事件（由外部触发）
-		a.logger.Info().Str("task_id", a.taskID).Msg("收到 TaskStarted 事件")
-		return a.processAvailableActions(ctx, report)
-
-	case bus.EventManualGuidance:
-		// 人工干预（暂时忽略，由 Planner 处理）
-		return nil
 
 	default:
 		a.logger.Debug().
@@ -414,9 +405,6 @@ func (a *ExecutorAgent) createObservation(
 		Bool("success", execErr == nil).
 		Int("attempts", len(attempts)).
 		Msg("Observation 节点已创建")
-
-	// 发布 ObservationCreated 事件（供 Evaluator 消费）
-	a.eventBus.PublishObservationCreated(a.taskID, observationID)
 
 	return nil
 }

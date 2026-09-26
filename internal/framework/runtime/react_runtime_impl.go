@@ -117,9 +117,9 @@ func (r *DefaultReActRuntime) Run(ctx context.Context, config *ReActConfig) (*Re
 
 		// 反序列化状态
 		var state struct {
-			MessageHistory []llm.Message      `json:"message_history"`
-			Trace          []*IterationTrace  `json:"trace"`
-			Iteration      int                `json:"iteration"`
+			MessageHistory []llm.Message     `json:"message_history"`
+			Trace          []*IterationTrace `json:"trace"`
+			Iteration      int               `json:"iteration"`
 		}
 		if err := json.Unmarshal(checkpoint.StateSnapshot, &state); err != nil {
 			return nil, fmt.Errorf("deserialize checkpoint state failed: %w", err)
@@ -228,10 +228,10 @@ func (r *DefaultReActRuntime) runIteration(
 	iteration int,
 ) (*IterationTrace, bool, error) {
 	trace := &IterationTrace{
-		Iteration: iteration,
-		StartTime: time.Now().UnixMilli(),
-		Status:    IterationStatusRunning,
-		Actions:   make([]*Action, 0),
+		Iteration:    iteration,
+		StartTime:    time.Now().UnixMilli(),
+		Status:       IterationStatusRunning,
+		Actions:      make([]*Action, 0),
 		Observations: make([]string, 0),
 	}
 

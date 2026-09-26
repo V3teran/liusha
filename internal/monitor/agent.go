@@ -12,10 +12,10 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/V3teran/liusha/internal/bus"
+	"github.com/V3teran/liusha/internal/explorationgraph"
 	"github.com/V3teran/liusha/internal/framework/core"
 	"github.com/V3teran/liusha/internal/framework/llm"
 	"github.com/V3teran/liusha/internal/framework/runtime"
-	"github.com/V3teran/liusha/internal/explorationgraph"
 )
 
 // 编译时检查接口实现
@@ -42,8 +42,8 @@ type Config struct {
 	World    *explorationgraph.Store
 	EventBus bus.Bus
 	Provider llm.Provider
-	Router   *llm.Router        // 用于获取合适的 Provider
-	Interval time.Duration      // 评估间隔，默认 6 分钟
+	Router   *llm.Router   // 用于获取合适的 Provider
+	Interval time.Duration // 评估间隔，默认 6 分钟
 	Logger   zerolog.Logger
 
 	// Checkpoint 配置（可选）

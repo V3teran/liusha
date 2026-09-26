@@ -18,7 +18,8 @@ func setup(t *testing.T) (*Store, string) {
 	ts := task.NewStore(pool)
 	tk, err := ts.Create(context.Background(), task.NewParams{
 
-		AssignmentID: dbtest.SeedAssignment(t, pool, "api-pentest"),
+		AssignmentID: dbtest.SeedAssignment(t, pool),
+		Brief:        "test agent run",
 		TargetHost:   "test.example.com",
 	})
 	if err != nil {

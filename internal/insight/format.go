@@ -7,7 +7,7 @@ import (
 
 // categoryOrder 是分类的渲染顺序（重要的在前）
 var categoryOrder = []Category{
-	CategoryResult,        // 发现（最重要）
+	CategoryResult,         // 发现（最重要）
 	CategoryCredential,     // 凭证
 	CategoryTarget,         // 目标
 	CategoryInfrastructure, // 基础设施

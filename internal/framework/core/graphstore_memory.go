@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 )
 
 // InMemoryGraphStore 内存实现的 GraphStore（用于测试）
@@ -21,16 +22,8 @@ func NewInMemoryGraphStore() GraphStore {
 	}
 }
 
-// CreateNode 创建节点
-func (s *InMemoryGraphStore) CreateNode(ctx context.Context, node *GraphNode) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if _, exists := s.nodes[node.ID]; exists {
-		return fmt.Errorf("node %s already exists", node.ID)
-	}
-
-	// 深拷贝
+// copyGraphNode 深拷贝节点（含全部字段），避免调用方与 store 内部状态共享引用。
+func copyGraphNode(node *GraphNode) *GraphNode {
 	nodeCopy := &GraphNode{
 		ID:         node.ID,
 		Kind:       node.Kind,
@@ -43,9 +36,35 @@ func (s *InMemoryGraphStore) CreateNode(ctx context.Context, node *GraphNode) er
 		UpdatedAt:  node.UpdatedAt,
 	}
 
+	for k, v := range node.Metadata {
+		nodeCopy.Metadata[k] = v
+	}
+	return nodeCopy
+}
+
+// CreateNode 创建节点
+func (s *InMemoryGraphStore) CreateNode(ctx context.Context, node *GraphNode) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if _, exists := s.nodes[node.ID]; exists {
+		return fmt.Errorf("node %s already exists", node.ID)
+	}
+
+	nodeCopy := copyGraphNode(node)
+
 	// Version 默认为 1
 	if nodeCopy.Version == 0 {
 		nodeCopy.Version = 1
+	}
+
+	// 时间戳由 store 维护：未显式指定时取当前时间
+	now := time.Now()
+	if nodeCopy.CreatedAt.IsZero() {
+		nodeCopy.CreatedAt = now
+	}
+	if nodeCopy.UpdatedAt.IsZero() {
+		nodeCopy.UpdatedAt = now
 	}
 
 	for k, v := range node.Metadata {
@@ -66,24 +85,7 @@ func (s *InMemoryGraphStore) GetNode(ctx context.Context, id string) (*GraphNode
 		return nil, ErrGraphNodeNotFound
 	}
 
-	// 深拷贝
-	nodeCopy := &GraphNode{
-		ID:         node.ID,
-		Kind:       node.Kind,
-		Content:    append([]byte(nil), node.Content...),
-		State:      node.State,
-		Confidence: node.Confidence,
-		Version:    node.Version,
-		Metadata:   make(map[string]interface{}),
-		CreatedAt:  node.CreatedAt,
-		UpdatedAt:  node.UpdatedAt,
-	}
-
-	for k, v := range node.Metadata {
-		nodeCopy.Metadata[k] = v
-	}
-
-	return nodeCopy, nil
+	return copyGraphNode(node), nil
 }
 
 // UpdateNode 更新节点
@@ -121,8 +123,9 @@ func (s *InMemoryGraphStore) UpdateNode(ctx context.Context, id string, update G
 		}
 	}
 
-	// 更新后递增 version
+	// 更新后递增 version，并刷新 UpdatedAt
 	node.Version++
+	node.UpdatedAt = time.Now()
 
 	return nil
 }
@@ -166,7 +169,7 @@ func (s *InMemoryGraphStore) DeleteNode(ctx context.Context, id string) error {
 	defer s.mu.Unlock()
 
 	if _, exists := s.nodes[id]; !exists {
-		return fmt.Errorf("node %s not found", id)
+		return fmt.Errorf("%w: %s", ErrGraphNodeNotFound, id)
 	}
 
 	delete(s.nodes, id)
@@ -201,6 +204,11 @@ func (s *InMemoryGraphStore) ListNodes(ctx context.Context, query GraphNodeQuery
 			continue
 		}
 
+		// 过滤最小置信度（0 表示不过滤）
+		if query.MinConfidence > 0 && node.Confidence < query.MinConfidence {
+			continue
+		}
+
 		// 过滤 Metadata
 		match := true
 		for k, v := range query.Filters {
@@ -224,20 +232,7 @@ func (s *InMemoryGraphStore) ListNodes(ctx context.Context, query GraphNodeQuery
 			continue
 		}
 
-		// 深拷贝
-		nodeCopy := &GraphNode{
-			ID:       node.ID,
-			Kind:     node.Kind,
-			Content:  append([]byte(nil), node.Content...),
-			State:    node.State,
-			Metadata: make(map[string]interface{}),
-		}
-
-		for k, v := range node.Metadata {
-			nodeCopy.Metadata[k] = v
-		}
-
-		result = append(result, nodeCopy)
+		result = append(result, copyGraphNode(node))
 
 		// 限制数量
 		if query.Limit > 0 && len(result) >= query.Limit {
@@ -255,11 +250,11 @@ func (s *InMemoryGraphStore) CreateEdge(ctx context.Context, edge *GraphEdge) er
 
 	// 检查节点是否存在
 	if _, exists := s.nodes[edge.From]; !exists {
-		return fmt.Errorf("from node %s not found", edge.From)
+		return fmt.Errorf("%w: from node %s", ErrGraphNodeNotFound, edge.From)
 	}
 
 	if _, exists := s.nodes[edge.To]; !exists {
-		return fmt.Errorf("to node %s not found", edge.To)
+		return fmt.Errorf("%w: to node %s", ErrGraphNodeNotFound, edge.To)
 	}
 
 	// 深拷贝
@@ -341,7 +336,7 @@ func (s *InMemoryGraphStore) DeleteEdge(ctx context.Context, from, to, relation 
 	}
 
 	if !found {
-		return fmt.Errorf("edge not found")
+		return fmt.Errorf("%w", ErrGraphEdgeNotFound)
 	}
 
 	s.edges = newEdges
@@ -354,11 +349,25 @@ func (s *InMemoryGraphStore) Traverse(ctx context.Context, startID string, query
 	defer s.mu.RUnlock()
 
 	if _, exists := s.nodes[startID]; !exists {
-		return nil, fmt.Errorf("start node %s not found", startID)
+		return nil, fmt.Errorf("%w: start node %s", ErrGraphNodeNotFound, startID)
 	}
 
 	visited := make(map[string]bool)
 	result := make([]*GraphNode, 0)
+
+	// nodeMatches 判断节点是否满足 NodeFilter（不阻断遍历，仅决定是否进入结果集）
+	nodeMatches := func(node *GraphNode) bool {
+		if query.NodeFilter == nil {
+			return true
+		}
+		if query.NodeFilter.Kind != "" && node.Kind != query.NodeFilter.Kind {
+			return false
+		}
+		if query.NodeFilter.State != "" && node.State != query.NodeFilter.State {
+			return false
+		}
+		return true
+	}
 
 	var traverse func(nodeID string, depth int)
 	traverse = func(nodeID string, depth int) {
@@ -375,30 +384,11 @@ func (s *InMemoryGraphStore) Traverse(ctx context.Context, startID string, query
 		visited[nodeID] = true
 		node := s.nodes[nodeID]
 
-		// 过滤节点（如果有 NodeFilter）
-		if query.NodeFilter != nil {
-			if query.NodeFilter.Kind != "" && node.Kind != query.NodeFilter.Kind {
-				return
-			}
-			if query.NodeFilter.State != "" && node.State != query.NodeFilter.State {
-				return
-			}
+		// NodeFilter 只过滤结果集；子节点遍历不受影响，
+		// 否则起点不匹配时会整棵子树被剪掉。
+		if nodeMatches(node) {
+			result = append(result, copyGraphNode(node))
 		}
-
-		// 深拷贝并添加到结果
-		nodeCopy := &GraphNode{
-			ID:       node.ID,
-			Kind:     node.Kind,
-			Content:  append([]byte(nil), node.Content...),
-			State:    node.State,
-			Metadata: make(map[string]interface{}),
-		}
-
-		for k, v := range node.Metadata {
-			nodeCopy.Metadata[k] = v
-		}
-
-		result = append(result, nodeCopy)
 
 		// 遍历子节点（根据方向）
 		for _, edge := range s.edges {

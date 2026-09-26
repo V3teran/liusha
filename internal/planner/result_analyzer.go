@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/V3teran/liusha/internal/explorationgraph"
 	"github.com/V3teran/liusha/internal/framework/core"
 	"github.com/V3teran/liusha/internal/framework/llm"
-	"github.com/V3teran/liusha/internal/explorationgraph"
 )
 
 // AnalyzeResults 分析 Result 节点，决定下一步行动
@@ -40,11 +40,11 @@ func (i *Intelligence) AnalyzeResults(ctx context.Context, world *explorationgra
 
 	// 4. 转换响应为 ResultAnalysis
 	analysis := &ResultAnalysis{
-		Completed:     response.Completed,
-		Evidence:      response.EvidenceIDs,
-		NewObjectives: make([]NewObjective, 0),
-		ContinuationActions:    make([]ContinuationAction, 0),
-		Reasoning:     response.Reasoning,
+		Completed:           response.Completed,
+		Evidence:            response.EvidenceIDs,
+		NewObjectives:       make([]NewObjective, 0),
+		ContinuationActions: make([]ContinuationAction, 0),
+		Reasoning:           response.Reasoning,
 	}
 
 	// 转换 NewObjectives
@@ -184,11 +184,11 @@ func (i *Intelligence) buildAnalysisPrompt(currentObjective explorationgraph.Nod
 
 // AnalysisResponse 是 LLM 的分析响应
 type AnalysisResponse struct {
-	Completed     bool                     `json:"completed"`
-	EvidenceIDs   []string                 `json:"evidence_ids"`
-	Reasoning     string                   `json:"reasoning"`
-	NewObjectives []AnalysisObjective      `json:"new_objectives"`
-	ContinuationActions    []AnalysisAction         `json:"new_actions"`
+	Completed           bool                `json:"completed"`
+	EvidenceIDs         []string            `json:"evidence_ids"`
+	Reasoning           string              `json:"reasoning"`
+	NewObjectives       []AnalysisObjective `json:"new_objectives"`
+	ContinuationActions []AnalysisAction    `json:"new_actions"`
 }
 
 type AnalysisObjective struct {

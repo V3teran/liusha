@@ -7,8 +7,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/V3teran/liusha/internal/framework/core"
+	"github.com/google/uuid"
 )
 
 // Checkpointer 是内存版检查点管理器（用于开发和测试）。

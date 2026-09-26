@@ -79,9 +79,9 @@ func TestNewParams_Validate(t *testing.T) {
 
 func TestTask_IsActive(t *testing.T) {
 	tests := []struct {
-		name   string
-		task   Task
-		want   bool
+		name string
+		task Task
+		want bool
 	}{
 		{
 			name: "active 状态",

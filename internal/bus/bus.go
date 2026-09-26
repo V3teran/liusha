@@ -22,35 +22,12 @@ type Bus interface {
 	// 发布事件
 	Publish(event Event)
 
-	// 便捷方法 - Task 级别
-	PublishTaskStarted(taskID string)
-	PublishHeartbeat(taskID string)
-
-	// 便捷方法 - Action 级别
+	// 便捷方法
 	PublishActionProposed(taskID, actionID string)
 	PublishActionCompleted(taskID, actionID string)
-	PublishActionKilled(taskID, actionID, reason string)
-	PublishActionSteered(taskID, actionID, guidance string)
-
-	// 便捷方法 - Attempt 级别
 	PublishAttemptGenerated(taskID, actionID string, attempt interface{})
-
-	// 便捷方法 - Observation 级别
-	PublishObservationCreated(taskID, observationID string)
-
-	// 便捷方法 - Result 级别
-	PublishResultCreated(taskID, resultID string)
-
-	// 便捷方法 - Finding 级别
-	PublishFindingDiscovered(taskID, findingID string)
-
-	// 便捷方法 - Verification 级别
 	PublishVerificationPassed(taskID, nodeID string)
-	PublishVerificationFailed(taskID, actionID string, err error)
 	PublishVerificationRefuted(taskID, actionID string)
-
-	// 便捷方法 - 人工干预
-	PublishManualGuidance(taskID, guidance string)
 }
 
 // Subscription Action 级别订阅句柄
@@ -102,13 +79,13 @@ type subscriber struct {
 // New 创建内存事件总线
 func New(ctx context.Context) *MemoryBus {
 	bus := &MemoryBus{
-		ctx:              ctx,
-		taskChannels:     make(map[string]chan Event),
-		taskRegister:     make(chan string, 10),
-		taskUnregister:   make(chan string, 10),
-		taskRegisterDone: make(chan string, 10),
+		ctx:               ctx,
+		taskChannels:      make(map[string]chan Event),
+		taskRegister:      make(chan string, 10),
+		taskUnregister:    make(chan string, 10),
+		taskRegisterDone:  make(chan string, 10),
 		actionSubscribers: make(map[string]*subscriber),
-		publish:          make(chan Event, 100),
+		publish:           make(chan Event, 100),
 	}
 	go bus.run()
 	return bus
@@ -160,7 +137,7 @@ func (b *MemoryBus) run() {
 					select {
 					case ch <- event:
 					default:
-						// 通道满，丢弃旧事件（背压处理）
+						// 通道满，丢弃（背压处理）
 					}
 				}
 			}
@@ -258,20 +235,6 @@ func (b *MemoryBus) Publish(event Event) {
 // 便捷方法实现
 // ============================================
 
-func (b *MemoryBus) PublishTaskStarted(taskID string) {
-	b.Publish(Event{
-		Type:   EventTaskStarted,
-		TaskID: taskID,
-	})
-}
-
-func (b *MemoryBus) PublishHeartbeat(taskID string) {
-	b.Publish(Event{
-		Type:   EventHeartbeat,
-		TaskID: taskID,
-	})
-}
-
 func (b *MemoryBus) PublishActionProposed(taskID, actionID string) {
 	b.Publish(Event{
 		Type:     EventActionProposed,
@@ -294,30 +257,6 @@ func (b *MemoryBus) PublishActionCompleted(taskID, actionID string) {
 	})
 }
 
-func (b *MemoryBus) PublishActionKilled(taskID, actionID, reason string) {
-	b.Publish(Event{
-		Type:     EventActionKilled,
-		TaskID:   taskID,
-		ActionID: actionID,
-		Payload: map[string]interface{}{
-			"action_id": actionID,
-			"reason":    reason,
-		},
-	})
-}
-
-func (b *MemoryBus) PublishActionSteered(taskID, actionID, guidance string) {
-	b.Publish(Event{
-		Type:     EventActionSteered,
-		TaskID:   taskID,
-		ActionID: actionID,
-		Payload: map[string]interface{}{
-			"action_id": actionID,
-			"guidance":  guidance,
-		},
-	})
-}
-
 func (b *MemoryBus) PublishAttemptGenerated(taskID, actionID string, attempt interface{}) {
 	b.Publish(Event{
 		Type:     EventAttemptGenerated,
@@ -326,36 +265,6 @@ func (b *MemoryBus) PublishAttemptGenerated(taskID, actionID string, attempt int
 		Payload: map[string]interface{}{
 			"action_id": actionID,
 			"attempt":   attempt,
-		},
-	})
-}
-
-func (b *MemoryBus) PublishObservationCreated(taskID, observationID string) {
-	b.Publish(Event{
-		Type:   EventObservationCreated,
-		TaskID: taskID,
-		Payload: map[string]interface{}{
-			"observation_id": observationID,
-		},
-	})
-}
-
-func (b *MemoryBus) PublishResultCreated(taskID, resultID string) {
-	b.Publish(Event{
-		Type:   EventResultCreated,
-		TaskID: taskID,
-		Payload: map[string]interface{}{
-			"result_id": resultID,
-		},
-	})
-}
-
-func (b *MemoryBus) PublishFindingDiscovered(taskID, findingID string) {
-	b.Publish(Event{
-		Type:   EventFindingDiscovered,
-		TaskID: taskID,
-		Payload: map[string]interface{}{
-			"finding_id": findingID,
 		},
 	})
 }
@@ -370,18 +279,6 @@ func (b *MemoryBus) PublishVerificationPassed(taskID, nodeID string) {
 	})
 }
 
-func (b *MemoryBus) PublishVerificationFailed(taskID, actionID string, err error) {
-	b.Publish(Event{
-		Type:     EventVerificationFailed,
-		TaskID:   taskID,
-		ActionID: actionID,
-		Payload: map[string]interface{}{
-			"action_id": actionID,
-			"error":     err.Error(),
-		},
-	})
-}
-
 func (b *MemoryBus) PublishVerificationRefuted(taskID, actionID string) {
 	b.Publish(Event{
 		Type:     EventVerificationRefuted,
@@ -389,16 +286,6 @@ func (b *MemoryBus) PublishVerificationRefuted(taskID, actionID string) {
 		ActionID: actionID,
 		Payload: map[string]interface{}{
 			"action_id": actionID,
-		},
-	})
-}
-
-func (b *MemoryBus) PublishManualGuidance(taskID, guidance string) {
-	b.Publish(Event{
-		Type:   EventManualGuidance,
-		TaskID: taskID,
-		Payload: map[string]interface{}{
-			"guidance": guidance,
 		},
 	})
 }

@@ -27,7 +27,7 @@ const defaultMaxIterations = 40
 const defaultComplexity = "medium"
 
 // colsSelect 是所有 SELECT / RETURNING 路径的统一列序，与 scan() 字段一一对应。
-const colsSelect = "id, code, kind, name, description, body, function_tools, cli_tools, skills, max_iterations, complexity, enabled, created_at, updated_at"
+const colsSelect = "id, code, kind, name, description, system_prompt, function_tools, cli_tools, skills, max_iterations, complexity, enabled, created_at, updated_at"
 
 // validateKind 应用层校验 kind。
 func validateKind(k Kind) error {
@@ -57,7 +57,7 @@ func (s *Store) Update(ctx context.Context, code string, p UpdateParams) (Agent,
 	argIdx := 2
 
 	if p.SystemPrompt != nil {
-		setParts = append(setParts, fmt.Sprintf("body=$%d", argIdx))
+		setParts = append(setParts, fmt.Sprintf("system_prompt=$%d", argIdx))
 		args = append(args, *p.SystemPrompt)
 		argIdx++
 	}

@@ -102,6 +102,10 @@ func (m *LoggingMiddleware) OnError(ctx context.Context, tool core.Tool, err err
 	return nil
 }
 
+// timeoutCancelKey 用于在 ctx 中携带 TimeoutMiddleware 创建的 cancel，
+// 供 After/OnError 路径释放，避免定时器泄漏。
+type timeoutCancelKey struct{}
+
 // TimeoutMiddleware 超时控制中间件。
 type TimeoutMiddleware struct {
 	timeout time.Duration
@@ -114,18 +118,26 @@ func NewTimeoutMiddleware(timeout time.Duration) *TimeoutMiddleware {
 
 // Before 实现 ToolMiddleware 接口。
 func (m *TimeoutMiddleware) Before(ctx context.Context, tool core.Tool, input core.ToolInput) (context.Context, core.ToolInput, error) {
-	// 设置超时
-	ctx, _ = context.WithTimeout(ctx, m.timeout)
-	return ctx, input, nil
+	ctx, cancel := context.WithTimeout(ctx, m.timeout)
+	return context.WithValue(ctx, timeoutCancelKey{}, cancel), input, nil
+}
+
+// cancelTimeout 释放 Before 挂在 ctx 上的 cancel（幂等，可安全多次调用）。
+func cancelTimeout(ctx context.Context) {
+	if cancel, ok := ctx.Value(timeoutCancelKey{}).(context.CancelFunc); ok {
+		cancel()
+	}
 }
 
 // After 实现 ToolMiddleware 接口。
 func (m *TimeoutMiddleware) After(ctx context.Context, tool core.Tool, output core.ToolOutput) (core.ToolOutput, error) {
+	cancelTimeout(ctx)
 	return output, nil
 }
 
 // OnError 实现 ToolMiddleware 接口。
 func (m *TimeoutMiddleware) OnError(ctx context.Context, tool core.Tool, err error) error {
+	cancelTimeout(ctx)
 	return nil
 }
 

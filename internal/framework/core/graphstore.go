@@ -234,4 +234,3 @@ var (
 	// ErrGraphInvalidQuery 查询条件无效
 	ErrGraphInvalidQuery = errors.New("invalid graph query")
 )
-

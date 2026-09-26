@@ -25,9 +25,9 @@ import (
 	"github.com/V3teran/liusha/internal/db"
 	"github.com/V3teran/liusha/internal/embedding"
 	"github.com/V3teran/liusha/internal/envx"
+	llm "github.com/V3teran/liusha/internal/framework/llm"
 	"github.com/V3teran/liusha/internal/llmstore"
 	"github.com/V3teran/liusha/internal/logx"
-	llm "github.com/V3teran/liusha/internal/framework/llm"
 )
 
 func main() {
