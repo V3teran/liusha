@@ -61,3 +61,17 @@ deployments/tool-images/pentools/liusha-ca.crt
 # Python 字节码缓存（browser-svc.py 等运行时生成）
 __pycache__/
 *.pyc
+
+# 本地运行日志（go run 的 stdout/stderr 重定向产物）
+/asynq.log
+/runner.log
+/e2e-test.log
+
+# 历史备份/一次性产物不入库
+*.bak
+*.backup
+*.old
+
+# go build 游离二进制（补充）
+/liusha-runner
+/corpus-import
