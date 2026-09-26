@@ -7,21 +7,21 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// KnowledgeGraphClient 通过数据库直接查询知识图谱统计
-type KnowledgeGraphClient struct {
+// ExplorationGraphClient 通过数据库直接查询知识图谱统计
+type ExplorationGraphClient struct {
 	pool *pgxpool.Pool
 }
 
-// NewKnowledgeGraphClient 创建客户端
-func NewKnowledgeGraphClient(pool *pgxpool.Pool) *KnowledgeGraphClient {
-	return &KnowledgeGraphClient{
+// NewExplorationGraphClient 创建客户端
+func NewExplorationGraphClient(pool *pgxpool.Pool) *ExplorationGraphClient {
+	return &ExplorationGraphClient{
 		pool: pool,
 	}
 }
 
 // GetTaskStats 查询任务的知识图谱节点统计
 // 直接查询 wm_node 表（working memory = 知识图谱）
-func (c *KnowledgeGraphClient) GetTaskStats(ctx context.Context, taskID string) (GraphStats, error) {
+func (c *ExplorationGraphClient) GetTaskStats(ctx context.Context, taskID string) (GraphStats, error) {
 	query := `
 		SELECT
 			kind,
@@ -54,7 +54,7 @@ func (c *KnowledgeGraphClient) GetTaskStats(ctx context.Context, taskID string) 
 			stats.Observations = count
 		case "evaluation":
 			stats.Evaluations = count
-		case "finding":
+		case "result":
 			stats.Results = count
 		}
 	}

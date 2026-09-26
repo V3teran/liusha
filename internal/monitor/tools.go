@@ -8,7 +8,7 @@ import (
 
 	"github.com/V3teran/liusha/internal/bus"
 	"github.com/V3teran/liusha/internal/framework/core"
-	"github.com/V3teran/liusha/internal/knowledgegraph"
+	"github.com/V3teran/liusha/internal/explorationgraph"
 )
 
 // ============================================
@@ -16,11 +16,11 @@ import (
 // ============================================
 
 type GetGlobalStateTool struct {
-	world  *knowledgegraph.Store
+	world  *explorationgraph.Store
 	taskID string
 }
 
-func NewGetGlobalStateTool(world *knowledgegraph.Store, taskID string) *GetGlobalStateTool {
+func NewGetGlobalStateTool(world *explorationgraph.Store, taskID string) *GetGlobalStateTool {
 	return &GetGlobalStateTool{
 		world:  world,
 		taskID: taskID,

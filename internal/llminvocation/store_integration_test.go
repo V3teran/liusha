@@ -230,8 +230,8 @@ func seedFiltered(t *testing.T, s *Store, taskID string) {
 	t.Helper()
 	ctx := context.Background()
 	rows := []Invocation{
-		{Role: "planner", Model: "mimo-v2.5", InTokens: 100, OutTokens: 10},
-		{Role: "exploitation", Model: "mimo-v2.5", InTokens: 200, OutTokens: 20},
+		{Role: "planner", Model: "glm-5.3-flash", InTokens: 100, OutTokens: 10},
+		{Role: "exploitation", Model: "glm-5.3-flash", InTokens: 200, OutTokens: 20},
 		{Role: "exploitation", Model: "deepseek-chat", InTokens: 400, OutTokens: 40, Error: "429 rate limited"},
 	}
 	for i := range rows {
@@ -259,9 +259,9 @@ func TestStore_ListByTask_Filters(t *testing.T) {
 	}{
 		{"不筛=全量", ListFilter{}, 3},
 		{"按 role", ListFilter{Role: "exploitation"}, 2},
-		{"按 model", ListFilter{Model: "mimo-v2.5"}, 2},
+		{"按 model", ListFilter{Model: "glm-5.3-flash"}, 2},
 		{"仅错误", ListFilter{OnlyErr: true}, 1},
-		{"role+model 交集", ListFilter{Role: "exploitation", Model: "mimo-v2.5"}, 1},
+		{"role+model 交集", ListFilter{Role: "exploitation", Model: "glm-5.3-flash"}, 1},
 		{"无匹配", ListFilter{Role: "nobody"}, 0},
 	}
 	for _, c := range cases {
@@ -319,7 +319,7 @@ func TestStore_FacetsByTask(t *testing.T) {
 	if len(f.Roles) != 2 || f.Roles[0] != "exploitation" || f.Roles[1] != "planner" {
 		t.Errorf("roles 应去重且有序: %+v", f.Roles)
 	}
-	if len(f.Models) != 2 || f.Models[0] != "deepseek-chat" || f.Models[1] != "mimo-v2.5" {
+	if len(f.Models) != 2 || f.Models[0] != "deepseek-chat" || f.Models[1] != "glm-5.3-flash" {
 		t.Errorf("models 应去重且有序: %+v", f.Models)
 	}
 }

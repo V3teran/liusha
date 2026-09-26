@@ -12,7 +12,7 @@ import (
 
 	"github.com/V3teran/liusha/internal/bus"
 	"github.com/V3teran/liusha/internal/framework/core"
-	"github.com/V3teran/liusha/internal/knowledgegraph"
+	"github.com/V3teran/liusha/internal/explorationgraph"
 )
 
 // 编译时检查接口实现
@@ -47,7 +47,7 @@ type EvaluatorAgentConfig struct {
 
 // nodeReader 定义读取节点的接口
 type nodeReader interface {
-	GetNode(ctx context.Context, nodeID string) (*knowledgegraph.Node, error)
+	GetNode(ctx context.Context, nodeID string) (*explorationgraph.Node, error)
 	CreateEdge(ctx context.Context, edge *core.GraphEdge) error
 }
 
@@ -251,7 +251,7 @@ func (a *EvaluatorAgent) evaluateObservation(ctx context.Context, observationID 
 // createResultFromObservation 从 Observation 创建 Result 节点
 func (a *EvaluatorAgent) createResultFromObservation(
 	ctx context.Context,
-	observation *knowledgegraph.Node,
+	observation *explorationgraph.Node,
 	obsContent struct {
 		Success       bool     `json:"success"`
 		Status        string   `json:"status"`
@@ -289,17 +289,17 @@ func (a *EvaluatorAgent) createResultFromObservation(
 	}
 
 	// 创建 Result 节点
-	verified := knowledgegraph.ConfidenceVerified
+	verified := explorationgraph.ConfidenceVerified
 	resultID := uuid.New().String()
 
-	result := knowledgegraph.Node{
+	result := explorationgraph.Node{
 		ID:         resultID,
 		TaskID:     observation.TaskID,
 		Kind:       core.KindResult,
 		Content:    resultContentJSON,
 		Confidence: &verified,
 		Priority:   observation.Priority,
-		SourceType: knowledgegraph.SourceType("verifier"), // 使用数据库约束允许的值
+		SourceType: explorationgraph.SourceType("verifier"), // 使用数据库约束允许的值
 		SourceID:   observation.ID,
 		Metadata: json.RawMessage(fmt.Sprintf(`{
 			"observation_id": "%s",

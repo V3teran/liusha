@@ -12,7 +12,7 @@ import (
 	executorbuilder "github.com/V3teran/liusha/internal/builder/executor"
 	"github.com/V3teran/liusha/internal/executor"
 	"github.com/V3teran/liusha/internal/framework/llm"
-	"github.com/V3teran/liusha/internal/knowledgegraph"
+	"github.com/V3teran/liusha/internal/explorationgraph"
 	"github.com/V3teran/liusha/internal/registry"
 	"github.com/V3teran/liusha/internal/scanagent"
 	"github.com/V3teran/liusha/internal/task"
@@ -281,11 +281,11 @@ func (h handler) handleCognition(
 // ─────────────────────────────────────────────────────────────
 
 // Extracts complexity and instruction from the action node.
-func nodeToExecutorAction(node knowledgegraph.Node, userPrompt string) executor.Action {
+func nodeToExecutorAction(node explorationgraph.Node, userPrompt string) executor.Action {
 	if !node.IsAction() {
 		// Fallback for non-action nodes
 		return executor.Action{
-			Complexity:  knowledgegraph.ComplexitySimple,
+			Complexity:  explorationgraph.ComplexitySimple,
 			Instruction: userPrompt,
 		}
 	}
@@ -300,12 +300,12 @@ func nodeToExecutorAction(node knowledgegraph.Node, userPrompt string) executor.
 	}
 
 	// 解析 target_ref（可选）
-	var targetRef knowledgegraph.TargetRef
+	var targetRef explorationgraph.TargetRef
 	if tr, ok := content["target_ref"].(map[string]interface{}); ok {
 		domain, _ := tr["domain"].(string)
 		refKind, _ := tr["ref_kind"].(string)
 		locator, _ := tr["locator"].(string)
-		targetRef = knowledgegraph.TargetRef{
+		targetRef = explorationgraph.TargetRef{
 			Domain:  domain,
 			RefKind: refKind,
 			Locator: locator,
@@ -313,9 +313,9 @@ func nodeToExecutorAction(node knowledgegraph.Node, userPrompt string) executor.
 	}
 
 	// 使用节点的 complexity，如果为空则默认 simple
-	complexity := knowledgegraph.ComplexitySimple
+	complexity := explorationgraph.ComplexitySimple
 	if node.Complexity != nil {
-		complexity = knowledgegraph.Complexity(*node.Complexity)
+		complexity = explorationgraph.Complexity(*node.Complexity)
 	}
 
 	return executor.Action{

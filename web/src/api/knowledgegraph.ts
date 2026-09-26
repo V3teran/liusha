@@ -1,5 +1,5 @@
 /**
- * 知识图谱 API 客户端
+ * 探索图 API 客户端
  */
 
 import { get } from './client'
@@ -41,7 +41,7 @@ export interface TaskStats {
 }
 
 /**
- * 获取任务的完整知识图谱（节点 + 边）
+ * 获取任务的完整探索图（节点 + 边）
  */
 export async function getTaskGraph(taskId: string): Promise<TaskGraph> {
   return get<TaskGraph>(`/api/v1/tasks/${taskId}/graph`)

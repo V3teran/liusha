@@ -1,6 +1,6 @@
 //go:build integration
 
-package knowledgegraph_test
+package explorationgraph_test
 
 import (
 	"context"

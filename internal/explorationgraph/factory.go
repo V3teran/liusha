@@ -1,4 +1,4 @@
-package knowledgegraph
+package explorationgraph
 
 import (
 	"github.com/V3teran/liusha/internal/framework/core"

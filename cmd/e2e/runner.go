@@ -28,7 +28,7 @@ import (
 //
 // Phase 2: 只使用知识图谱 API 轮询（验证完整认知循环）
 func runActiveProfiles(ctx context.Context, profs []activeProfile, apiBase, apiKey string, pool *pgxpool.Pool, logger zerolog.Logger) error {
-	kgClient := NewKnowledgeGraphClient(pool)
+	kgClient := NewExplorationGraphClient(pool)
 
 	for _, ap := range profs {
 		// 走会话入口（POST /chat）

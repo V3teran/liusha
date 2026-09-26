@@ -13,7 +13,7 @@ import (
 
 	"github.com/V3teran/liusha/internal/framework/core"
 	"github.com/V3teran/liusha/internal/framework/llm"
-	"github.com/V3teran/liusha/internal/knowledgegraph"
+	"github.com/V3teran/liusha/internal/explorationgraph"
 )
 
 // Intelligence 是基于 LLM 的智能规划器
@@ -33,10 +33,10 @@ func NewIntelligence(router llm.Router, logger zerolog.Logger) *Intelligence {
 // PlanningContext 规划上下文
 type PlanningContext struct {
 	Objective       string                    // 任务目标
-	CompletedActions []knowledgegraph.Node    // 已完成的 Action
-	PendingActions   []knowledgegraph.Node    // 待执行的 Action
-	Results          []knowledgegraph.Node    // 已确认的结果
-	FailedActions    []knowledgegraph.Node    // 失败的 Action
+	CompletedActions []explorationgraph.Node    // 已完成的 Action
+	PendingActions   []explorationgraph.Node    // 待执行的 Action
+	Results          []explorationgraph.Node    // 已确认的结果
+	FailedActions    []explorationgraph.Node    // 失败的 Action
 }
 
 // ActionProposal LLM 返回的 Action 提案
@@ -58,7 +58,7 @@ type PlanningResponse struct {
 }
 
 // Plan 基于当前知识图谱状态生成新的 Action
-func (i *Intelligence) Plan(ctx context.Context, world *knowledgegraph.Store, taskID string) ([]knowledgegraph.Node, error) {
+func (i *Intelligence) Plan(ctx context.Context, world *explorationgraph.Store, taskID string) ([]explorationgraph.Node, error) {
 	i.logger.Info().Str("task_id", taskID).Msg("开始智能规划")
 	fmt.Printf("[PLANNER-DEBUG] Intelligence.Plan ENTRY - taskID=%s\n", taskID)
 
@@ -85,7 +85,7 @@ func (i *Intelligence) Plan(ctx context.Context, world *knowledgegraph.Store, ta
 			Str("task_id", taskID).
 			Str("reasoning", response.Reasoning).
 			Msg("LLM 判断任务应该停止")
-		return []knowledgegraph.Node{}, nil
+		return []explorationgraph.Node{}, nil
 	}
 
 	// 5. 转换 LLM 提案为知识图谱节点
@@ -100,7 +100,7 @@ func (i *Intelligence) Plan(ctx context.Context, world *knowledgegraph.Store, ta
 }
 
 // gatherContext 收集规划所需的上下文信息
-func (i *Intelligence) gatherContext(ctx context.Context, world *knowledgegraph.Store, taskID string) (*PlanningContext, error) {
+func (i *Intelligence) gatherContext(ctx context.Context, world *explorationgraph.Store, taskID string) (*PlanningContext, error) {
 	planCtx := &PlanningContext{}
 
 	// 获取 Objective
@@ -129,11 +129,11 @@ func (i *Intelligence) gatherContext(ctx context.Context, world *knowledgegraph.
 			continue
 		}
 		switch *action.State {
-		case knowledgegraph.StateDone:
+		case explorationgraph.StateDone:
 			planCtx.CompletedActions = append(planCtx.CompletedActions, action)
-		case knowledgegraph.StateOpen, knowledgegraph.StateRunning:
+		case explorationgraph.StateOpen, explorationgraph.StateRunning:
 			planCtx.PendingActions = append(planCtx.PendingActions, action)
-		case knowledgegraph.StateFailed:
+		case explorationgraph.StateFailed:
 			planCtx.FailedActions = append(planCtx.FailedActions, action)
 		}
 	}
@@ -152,7 +152,28 @@ func (i *Intelligence) gatherContext(ctx context.Context, world *knowledgegraph.
 func (i *Intelligence) buildPlanningPrompt(ctx *PlanningContext) string {
 	var sb strings.Builder
 
-	sb.WriteString("你是一个渗透测试规划专家。根据当前任务状态，决定下一步应该执行的操作。\n\n")
+	sb.WriteString("你是一个探索规划专家。根据当前任务状态，决定下一步应该执行的操作。\n\n")
+
+	sb.WriteString("## 核心原则：智能探索模式\n")
+	sb.WriteString("- 你需要**主动判断**当前探索方向是否已充分\n")
+	sb.WriteString("- 根据探索内容的实质判断，而非机械计数\n")
+	sb.WriteString("- 不要在同一方向无限探索，也不要过早放弃\n\n")
+
+	sb.WriteString("## 何时停止当前方向（should_continue=false）\n\n")
+	sb.WriteString("**判断标准**（根据实际情况灵活判断）：\n\n")
+	sb.WriteString("1. **内容维度**（最重要）\n")
+	sb.WriteString("   - 当前方向的主要探索点已基本覆盖\n")
+	sb.WriteString("   - 近期 Actions 出现重复或相似模式\n")
+	sb.WriteString("   - 新 Actions 的边际收益明显递减\n")
+	sb.WriteString("   - 已有发现足以支撑新的探索方向\n\n")
+
+	sb.WriteString("2. **深度参考**（仅供参考，不是硬性要求）\n")
+	sb.WriteString("   - 简单方向：5-10 个动作\n")
+	sb.WriteString("   - 常规方向：10-20 个动作\n")
+	sb.WriteString("   - 复杂方向：20-30+ 动作\n\n")
+
+	sb.WriteString("**重要**：主动判断是否应该停止，不要等到无事可做！\n")
+	sb.WriteString("停止后，系统会自动从 Results 中提取新的探索方向。\n\n")
 
 	// 任务目标
 	sb.WriteString("## 任务目标\n")
@@ -162,6 +183,16 @@ func (i *Intelligence) buildPlanningPrompt(ctx *PlanningContext) string {
 		sb.WriteString("（未指定明确目标）")
 	}
 	sb.WriteString("\n\n")
+
+	// 当前探索统计
+	sb.WriteString("## 当前探索统计\n")
+	sb.WriteString(fmt.Sprintf("- 已完成 Actions: %d\n", len(ctx.CompletedActions)))
+	sb.WriteString(fmt.Sprintf("- 进行中 Actions: %d\n", len(ctx.PendingActions)))
+	sb.WriteString(fmt.Sprintf("- 已确认 Results: %d\n", len(ctx.Results)))
+	if len(ctx.CompletedActions) >= 20 {
+		sb.WriteString("- ⚠️ 提示：当前方向已探索较深，建议评估是否应该切换方向\n")
+	}
+	sb.WriteString("\n")
 
 	// 已完成的工作
 	sb.WriteString("## 已完成的工作\n")
@@ -200,8 +231,7 @@ func (i *Intelligence) buildPlanningPrompt(ctx *PlanningContext) string {
 			}
 			json.Unmarshal(action.Content, &a)
 			reason := "未知原因"
-			if action.State != nil && *action.State == knowledgegraph.StateFailed {
-				// 从 Content 中提取失败原因（如果有）
+			if action.State != nil && *action.State == explorationgraph.StateFailed {
 				var fullAction struct {
 					Instruction string `json:"instruction"`
 					Reason      string `json:"reason"`
@@ -220,40 +250,42 @@ func (i *Intelligence) buildPlanningPrompt(ctx *PlanningContext) string {
 		sb.WriteString("## 已确认的发现\n")
 		for _, result := range ctx.Results {
 			var r struct {
-				Title string `json:"title"`
+				Summary string `json:"summary"`
 			}
 			json.Unmarshal(result.Content, &r)
-			sb.WriteString(fmt.Sprintf("- %s\n", r.Title))
+			sb.WriteString(fmt.Sprintf("- %s\n", r.Summary))
 		}
 		sb.WriteString("\n")
 	}
 
 	// 规划要求
 	sb.WriteString("## 规划要求\n\n")
-	sb.WriteString("请基于以上信息，判断是否应该继续执行，并提出下一步的操作。\n\n")
-	sb.WriteString("**判断标准**：\n")
-	sb.WriteString("- 如果任务目标已经达成，should_continue=false\n")
-	sb.WriteString("- 如果所有可能的途径都已尝试且失败，should_continue=false\n")
-	sb.WriteString("- 如果还有明显的下一步操作，should_continue=true\n\n")
+	sb.WriteString("请基于以上信息，提出下一步的探索操作。\n\n")
+
+	sb.WriteString("**继续探索的判断标准**：\n")
+	sb.WriteString("- 从已有发现中寻找新的探索线索\n")
+	sb.WriteString("- 对成功的操作进行深入探索\n")
+	sb.WriteString("- 对失败的操作尝试替代方案\n")
+	sb.WriteString("- 横向扩展到相关领域\n")
+	sb.WriteString("- 只有在确实无法继续时才设置 should_continue=false\n\n")
 
 	sb.WriteString("**Action 类型参考**：\n")
-	sb.WriteString("- reconnaissance: 信息收集（端口扫描、目录枚举等）\n")
-	sb.WriteString("- vulnerability_scan: 漏洞扫描\n")
-	sb.WriteString("- exploitation: 漏洞利用\n")
-	sb.WriteString("- privilege_escalation: 权限提升\n")
-	sb.WriteString("- lateral_movement: 横向移动\n")
-	sb.WriteString("- data_exfiltration: 数据获取\n\n")
+	sb.WriteString("- reconnaissance: 信息收集\n")
+	sb.WriteString("- analysis: 分析研究\n")
+	sb.WriteString("- verification: 验证测试\n")
+	sb.WriteString("- exploration: 深度探索\n")
+	sb.WriteString("- expansion: 横向扩展\n\n")
 
 	sb.WriteString("**复杂度级别**：\n")
-	sb.WriteString("- simple: 简单操作（<5分钟）\n")
-	sb.WriteString("- moderate: 中等复杂度（5-15分钟）\n")
-	sb.WriteString("- complex: 复杂操作（>15分钟）\n\n")
+	sb.WriteString("- simple: 简单操作（快速执行）\n")
+	sb.WriteString("- moderate: 中等复杂度（常规操作）\n")
+	sb.WriteString("- complex: 复杂操作（深度分析）\n\n")
 
 	sb.WriteString("**优先级**：\n")
-	sb.WriteString("- critical: 阻塞后续所有工作\n")
-	sb.WriteString("- high: 重要但可并行\n")
+	sb.WriteString("- critical: 阻塞后续工作\n")
+	sb.WriteString("- high: 重要且紧急\n")
 	sb.WriteString("- medium: 常规优先级\n")
-	sb.WriteString("- low: 可选优化\n\n")
+	sb.WriteString("- low: 可选补充\n\n")
 
 	sb.WriteString("请以 JSON 格式返回你的规划：\n")
 	sb.WriteString("```json\n")
@@ -324,31 +356,31 @@ func (i *Intelligence) callLLM(ctx context.Context, prompt string) (*PlanningRes
 }
 
 // convertProposalsToNodes 将 LLM 提案转换为知识图谱节点
-func (i *Intelligence) convertProposalsToNodes(taskID string, proposals []ActionProposal) []knowledgegraph.Node {
-	var nodes []knowledgegraph.Node
+func (i *Intelligence) convertProposalsToNodes(taskID string, proposals []ActionProposal) []explorationgraph.Node {
+	var nodes []explorationgraph.Node
 
 	for _, proposal := range proposals {
 		// 生成节点 ID
 		actionID := uuid.New().String()
 
 		// 转换复杂度
-		complexity := knowledgegraph.ComplexitySimple
+		complexity := explorationgraph.ComplexitySimple
 		switch proposal.Complexity {
 		case "moderate":
-			complexity = knowledgegraph.ComplexityModerate
+			complexity = explorationgraph.ComplexityModerate
 		case "complex":
-			complexity = knowledgegraph.ComplexityComplex
+			complexity = explorationgraph.ComplexityComplex
 		}
 
 		// 转换优先级
-		priority := knowledgegraph.PriorityMedium
+		priority := explorationgraph.PriorityMedium
 		switch proposal.Priority {
 		case "critical":
-			priority = knowledgegraph.PriorityCritical
+			priority = explorationgraph.PriorityCritical
 		case "high":
-			priority = knowledgegraph.PriorityHigh
+			priority = explorationgraph.PriorityHigh
 		case "low":
-			priority = knowledgegraph.PriorityLow
+			priority = explorationgraph.PriorityLow
 		}
 
 		// 构建 Action 内容
@@ -364,8 +396,8 @@ func (i *Intelligence) convertProposalsToNodes(taskID string, proposals []Action
 
 		contentBytes, _ := json.Marshal(actionContent)
 
-		openState := knowledgegraph.StateOpen
-		node := knowledgegraph.Node{
+		openState := explorationgraph.StateOpen
+		node := explorationgraph.Node{
 			ID:         actionID,
 			TaskID:     taskID,
 			Kind:       core.KindAction,
@@ -374,7 +406,7 @@ func (i *Intelligence) convertProposalsToNodes(taskID string, proposals []Action
 			Priority:   priority,
 			Complexity: &complexity,
 			DependsOn:  proposal.DependsOn,
-			SourceType: knowledgegraph.SourcePlanner,
+			SourceType: explorationgraph.SourcePlanner,
 			SourceID:   "planner",
 			CreatedAt:  time.Now(),
 		}
@@ -389,4 +421,169 @@ func (i *Intelligence) convertProposalsToNodes(taskID string, proposals []Action
 	}
 
 	return nodes
+}
+
+// ExtractObjectivesFromResults 从 Result 节点中提取新的探索目标
+func (i *Intelligence) ExtractObjectivesFromResults(ctx context.Context, world *explorationgraph.Store, taskID string, results []explorationgraph.Node) ([]NewObjective, error) {
+	i.logger.Info().
+		Str("task_id", taskID).
+		Int("result_count", len(results)).
+		Msg("开始从 Result 提取探索目标")
+
+	if len(results) == 0 {
+		return []NewObjective{}, nil
+	}
+
+	// 1. 构建提取 prompt
+	prompt := i.buildObjectiveExtractionPrompt(results)
+
+	// 2. 调用 LLM
+	response, err := i.callObjectiveExtractionLLM(ctx, prompt)
+	if err != nil {
+		return nil, fmt.Errorf("LLM 推理失败: %w", err)
+	}
+
+	// 3. 如果没有提取到新目标
+	if len(response.Objectives) == 0 {
+		i.logger.Info().Msg("LLM 未提取到新探索目标")
+		return []NewObjective{}, nil
+	}
+
+	// 4. 转换为 NewObjective
+	objectives := make([]NewObjective, 0, len(response.Objectives))
+	for _, obj := range response.Objectives {
+		priority := core.PriorityMedium
+		switch obj.Priority {
+		case "critical":
+			priority = core.PriorityCritical
+		case "high":
+			priority = core.PriorityHigh
+		case "low":
+			priority = core.PriorityLow
+		}
+
+		objectives = append(objectives, NewObjective{
+			Description: obj.Description,
+			Priority:    priority,
+			TriggeredBy: obj.TriggeredBy,
+			Reasoning:   obj.Reasoning,
+		})
+
+		i.logger.Debug().
+			Str("description", obj.Description).
+			Str("priority", string(priority)).
+			Int("triggered_by_count", len(obj.TriggeredBy)).
+			Msg("提取到探索目标")
+	}
+
+	i.logger.Info().
+		Int("objective_count", len(objectives)).
+		Msg("成功提取探索目标")
+
+	return objectives, nil
+}
+
+// buildObjectiveExtractionPrompt 构建目标提取 prompt
+func (i *Intelligence) buildObjectiveExtractionPrompt(results []explorationgraph.Node) string {
+	var sb strings.Builder
+
+	sb.WriteString("你是一个探索规划专家。根据已有的探索结果，提取新的探索目标。\n\n")
+
+	sb.WriteString("## 核心原则\n")
+	sb.WriteString("- 这是一个持续探索的任务，永远假设还有未知领域需要探索\n")
+	sb.WriteString("- 从每个结果中寻找新的线索、新的方向、新的可能性\n")
+	sb.WriteString("- 深度优先：对已有发现进行深入探索\n")
+	sb.WriteString("- 广度扩展：从已知点扩展到相关领域\n\n")
+
+	sb.WriteString("## 已有探索结果\n")
+	for i, result := range results {
+		var content map[string]interface{}
+		json.Unmarshal(result.Content, &content)
+
+		sb.WriteString(fmt.Sprintf("%d. [Result ID: %s]\n", i+1, result.ID))
+		if summary, ok := content["summary"].(string); ok {
+			sb.WriteString(fmt.Sprintf("   摘要: %s\n", summary))
+		}
+		if status, ok := content["status"].(string); ok {
+			sb.WriteString(fmt.Sprintf("   状态: %s\n", status))
+		}
+		sb.WriteString("\n")
+	}
+
+	sb.WriteString("## 你的任务\n")
+	sb.WriteString("分析上述结果，提取新的探索目标。每个目标应该：\n")
+	sb.WriteString("1. 基于某个或多个结果中的线索\n")
+	sb.WriteString("2. 有明确的探索方向和理由\n")
+	sb.WriteString("3. 有合理的优先级\n\n")
+
+	sb.WriteString("## 输出格式\n")
+	sb.WriteString("请以 JSON 格式输出（必须是有效的 JSON）：\n")
+	sb.WriteString("```json\n")
+	sb.WriteString("{\n")
+	sb.WriteString("  \"objectives\": [\n")
+	sb.WriteString("    {\n")
+	sb.WriteString("      \"description\": \"探索目标的描述\",\n")
+	sb.WriteString("      \"priority\": \"critical/high/medium/low\",\n")
+	sb.WriteString("      \"reasoning\": \"为什么需要这个目标\",\n")
+	sb.WriteString("      \"triggered_by\": [\"result_id_1\", \"result_id_2\"]\n")
+	sb.WriteString("    }\n")
+	sb.WriteString("  ]\n")
+	sb.WriteString("}\n")
+	sb.WriteString("```\n")
+
+	return sb.String()
+}
+
+// ObjectiveExtractionResponse LLM 返回的目标提取结果
+type ObjectiveExtractionResponse struct {
+	Objectives []struct {
+		Description string   `json:"description"`
+		Priority    string   `json:"priority"`
+		Reasoning   string   `json:"reasoning"`
+		TriggeredBy []string `json:"triggered_by"`
+	} `json:"objectives"`
+}
+
+// callObjectiveExtractionLLM 调用 LLM 提取目标
+func (i *Intelligence) callObjectiveExtractionLLM(ctx context.Context, prompt string) (*ObjectiveExtractionResponse, error) {
+	provider, err := i.router.For(ctx, "medium")
+	if err != nil {
+		return nil, fmt.Errorf("获取 LLM provider 失败: %w", err)
+	}
+
+	messages := []llm.Message{
+		{
+			Role:    llm.RoleUser,
+			Content: prompt,
+		},
+	}
+
+	resp, err := provider.Complete(ctx, llm.Request{
+		Messages:  messages,
+		MaxTokens: 2000,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("LLM complete 失败: %w", err)
+	}
+
+	text := resp.Content
+	i.logger.Debug().Str("raw_response", text).Msg("LLM 原始响应")
+
+	// 提取 JSON（去除 markdown 代码块）
+	start := strings.Index(text, "```json")
+	if start != -1 {
+		start += 7
+		end := strings.Index(text[start:], "```")
+		if end != -1 {
+			text = text[start : start+end]
+		}
+	}
+
+	// 解析 JSON
+	var response ObjectiveExtractionResponse
+	if err := json.Unmarshal([]byte(text), &response); err != nil {
+		return nil, fmt.Errorf("解析 LLM 响应失败: %w, 原始响应: %s", err, text)
+	}
+
+	return &response, nil
 }

@@ -8,11 +8,12 @@ import (
 	"os"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 
 	"github.com/V3teran/liusha/internal/bus"
 	"github.com/V3teran/liusha/internal/framework/core"
-	"github.com/V3teran/liusha/internal/knowledgegraph"
+	"github.com/V3teran/liusha/internal/explorationgraph"
 )
 
 // PlannerAgent 是异步规划 Agent
@@ -23,7 +24,7 @@ import (
 // - 发布 EventActionProposed 事件
 type PlannerAgent struct {
 	taskID       string
-	world        *knowledgegraph.Store
+	world        *explorationgraph.Store
 	planner      Planner
 	eventBus     bus.Bus
 	logger       zerolog.Logger
@@ -35,7 +36,7 @@ type PlannerAgent struct {
 // PlannerAgentConfig 配置
 type PlannerAgentConfig struct {
 	TaskID       string
-	World        *knowledgegraph.Store
+	World        *explorationgraph.Store
 	Planner      Planner
 	EventBus     bus.Bus
 	Logger       zerolog.Logger
@@ -147,7 +148,20 @@ func (a *PlannerAgent) planActions(ctx context.Context) error {
 
 	a.logger.Debug().Str("task_id", a.taskID).Msg("开始规划 Action")
 
-	// 检查是否已有可执行的 Action（而不是仅检查 open actions）
+	// 1. 先检查是否有 Results 需要分析
+	results, err := a.world.ListNodesByKind(ctx, a.taskID, core.KindResult)
+	if err == nil && len(results) > 0 {
+		a.logger.Info().
+			Int("result_count", len(results)).
+			Msg("检测到 Results，先进行分析")
+
+		if err := a.analyzeAndProcessResults(ctx); err != nil {
+			a.logger.Error().Err(err).Msg("分析 Results 失败")
+			// 不返回错误，继续生成 Actions
+		}
+	}
+
+	// 2. 检查是否已有可执行的 Action（而不是仅检查 open actions）
 	openActions, err := a.world.ListOpenActions(ctx, a.taskID)
 	if err != nil {
 		return fmt.Errorf("list open actions: %w", err)
@@ -160,9 +174,9 @@ func (a *PlannerAgent) planActions(ctx context.Context) error {
 	}
 
 	// 过滤出已完成的 action
-	var completedActions []knowledgegraph.Node
+	var completedActions []explorationgraph.Node
 	for _, node := range completedNodes {
-		if node.State != nil && *node.State == knowledgegraph.StateDone {
+		if node.State != nil && *node.State == explorationgraph.StateDone {
 			completedActions = append(completedActions, node)
 		}
 	}
@@ -174,7 +188,7 @@ func (a *PlannerAgent) planActions(ctx context.Context) error {
 	}
 
 	// 检查是否有可执行的 action（依赖已满足）
-	var executableActions []knowledgegraph.Node
+	var executableActions []explorationgraph.Node
 	for _, action := range openActions {
 		if action.CanExecute(completed) {
 			executableActions = append(executableActions, action)
@@ -222,7 +236,7 @@ func (a *PlannerAgent) planActions(ctx context.Context) error {
 		Msg("Planner.Plan 返回")
 
 	if len(actions) == 0 {
-		a.logger.Info().Msg("Planner 未生成新 Action（可能已完成）")
+		a.logger.Info().Msg("Planner 未生成新 Action")
 		return nil
 	}
 
@@ -310,7 +324,242 @@ func (a *PlannerAgent) ImportState(data json.RawMessage) error {
 	return nil
 }
 
+// analyzeAndProcessResults 分析 Results 并处理
+func (a *PlannerAgent) analyzeAndProcessResults(ctx context.Context) error {
+	a.logger.Info().Msg("开始分析 Results")
+
+	// 1. 获取所有 Result 节点
+	results, err := a.world.ListNodesByKind(ctx, a.taskID, core.KindResult)
+	if err != nil {
+		return fmt.Errorf("list results: %w", err)
+	}
+
+	if len(results) == 0 {
+		a.logger.Info().Msg("没有 Result 节点，无法分析")
+		return nil
+	}
+
+	// 2. 调用 Planner 分析 Results
+	analysis, err := a.planner.AnalyzeResults(ctx, a.world, a.taskID, results)
+	if err != nil {
+		return fmt.Errorf("analyze results: %w", err)
+	}
+
+	a.logger.Info().
+		Bool("completed", analysis.Completed).
+		Int("new_objectives", len(analysis.NewObjectives)).
+		Int("continuation_actions", len(analysis.ContinuationActions)).
+		Str("reasoning", analysis.Reasoning).
+		Msg("Result 分析完成")
+
+	// 3. 处理分析结果
+
+	// 情况 A：当前 Objective 已完成
+	if analysis.Completed {
+		a.logger.Info().
+			Int("evidence_count", len(analysis.Evidence)).
+			Msg("当前 Objective 已完成")
+
+		// 如果有新 Objectives，创建它们
+		if len(analysis.NewObjectives) > 0 {
+			return a.createNewObjectives(ctx, analysis.NewObjectives)
+		}
+
+		a.logger.Info().Msg("当前 Objective 完成，但没有新方向")
+		return nil
+	}
+
+	// 情况 B：生成 ContinuationActions（在当前 Objective 下继续）
+	if len(analysis.ContinuationActions) > 0 {
+		a.logger.Info().Msg("在当前 Objective 下生成新 Actions")
+		return a.createContinuationActions(ctx, analysis.ContinuationActions)
+	}
+
+	// 情况 C：生成新 Objectives（新方向）
+	if len(analysis.NewObjectives) > 0 {
+		a.logger.Info().Msg("发现新探索方向，生成新 Objectives")
+		return a.createNewObjectives(ctx, analysis.NewObjectives)
+	}
+
+	// 情况 D：什么都不做
+	a.logger.Info().Msg("分析完成，无需生成新节点")
+	return nil
+}
+
+// createNewObjectives 创建新的 Objective 节点
+func (a *PlannerAgent) createNewObjectives(ctx context.Context, objectives []NewObjective) error {
+	for _, obj := range objectives {
+		objID := uuid.New().String()
+
+		content := map[string]interface{}{
+			"description": obj.Description,
+			"reasoning":   obj.Reasoning,
+		}
+		contentJSON, err := json.Marshal(content)
+		if err != nil {
+			a.logger.Error().Err(err).Msg("序列化 Objective 内容失败")
+			continue
+		}
+
+		node := explorationgraph.Node{
+			ID:         objID,
+			TaskID:     a.taskID,
+			Kind:       core.KindObjective,
+			Content:    contentJSON,
+			Priority:   obj.Priority,
+			SourceType: explorationgraph.SourcePlanner,
+			SourceID:   "result-analyzer",
+			CreatedAt:  time.Now(),
+			UpdatedAt:  time.Now(),
+		}
+
+		if _, err := a.world.CreateNode(ctx, node); err != nil {
+			a.logger.Error().
+				Err(err).
+				Str("objective_id", objID).
+				Msg("创建 Objective 节点失败")
+			continue
+		}
+
+		// 创建 Result → Objective 的 TRIGGERS 边
+		for _, resultID := range obj.TriggeredBy {
+			if err := a.world.CreateEdge(ctx, &core.GraphEdge{
+				From:      resultID,
+				To:        objID,
+				Relation:  string(core.RelationTriggers),
+				CreatedAt: time.Now(),
+			}); err != nil {
+				a.logger.Error().
+					Err(err).
+					Str("result_id", resultID).
+					Str("objective_id", objID).
+					Msg("创建 Result → Objective 边失败")
+			}
+		}
+
+		a.logger.Info().
+			Str("objective_id", objID).
+			Str("description", obj.Description).
+			Msg("新 Objective 已创建")
+	}
+
+	return nil
+}
+
+// createContinuationActions 创建新的 Action 节点（在当前 Objective 下）
+func (a *PlannerAgent) createContinuationActions(ctx context.Context, actions []ContinuationAction) error {
+	// 获取当前 Objective
+	objectives, err := a.world.ListNodesByKind(ctx, a.taskID, core.KindObjective)
+	if err != nil || len(objectives) == 0 {
+		return fmt.Errorf("无法获取当前 Objective")
+	}
+
+	currentObjective := objectives[len(objectives)-1] // 最新的 Objective
+
+	for _, action := range actions {
+		actionID := uuid.New().String()
+
+		content := map[string]interface{}{
+			"instruction": action.Instruction,
+			"reasoning":   action.Reasoning,
+		}
+		contentJSON, err := json.Marshal(content)
+		if err != nil {
+			a.logger.Error().Err(err).Msg("序列化 Action 内容失败")
+			continue
+		}
+
+		openState := explorationgraph.StateOpen
+		node := explorationgraph.Node{
+			ID:         actionID,
+			TaskID:     a.taskID,
+			Kind:       core.KindAction,
+			Content:    contentJSON,
+			Priority:   action.Priority,
+			State:      &openState,
+			SourceType: explorationgraph.SourcePlanner,
+			SourceID:   "result-analyzer",
+			CreatedAt:  time.Now(),
+			UpdatedAt:  time.Now(),
+		}
+
+		if _, err := a.world.CreateNode(ctx, node); err != nil {
+			a.logger.Error().
+				Err(err).
+				Str("action_id", actionID).
+				Msg("创建 Action 节点失败")
+			continue
+		}
+
+		// 创建 Objective → Action 的 GENERATES 边
+		if err := a.world.CreateEdge(ctx, &core.GraphEdge{
+			From:      currentObjective.ID,
+			To:        actionID,
+			Relation:  string(core.RelationGenerates),
+			CreatedAt: time.Now(),
+		}); err != nil {
+			a.logger.Error().
+				Err(err).
+				Str("objective_id", currentObjective.ID).
+				Str("action_id", actionID).
+				Msg("创建 Objective → Action 边失败")
+		}
+
+		// 创建 Result → Action 的 TRIGGERS 边
+		for _, resultID := range action.TriggeredBy {
+			if err := a.world.CreateEdge(ctx, &core.GraphEdge{
+				From:      resultID,
+				To:        actionID,
+				Relation:  string(core.RelationTriggers),
+				CreatedAt: time.Now(),
+			}); err != nil {
+				a.logger.Error().
+					Err(err).
+					Str("result_id", resultID).
+					Str("action_id", actionID).
+					Msg("创建 Result → Action 边失败")
+			}
+		}
+
+		a.logger.Info().
+			Str("action_id", actionID).
+			Str("instruction", action.Instruction).
+			Msg("新 Action 已创建")
+
+		// 发布 ActionProposed 事件
+		a.eventBus.PublishActionProposed(a.taskID, actionID)
+	}
+
+	return nil
+}
+
 // Planner 规划接口（由 planner.New 提供）
 type Planner interface {
-	Plan(ctx context.Context, world *knowledgegraph.Store, taskID string) ([]knowledgegraph.Node, error)
+	Plan(ctx context.Context, world *explorationgraph.Store, taskID string) ([]explorationgraph.Node, error)
+	AnalyzeResults(ctx context.Context, world *explorationgraph.Store, taskID string, results []explorationgraph.Node) (*ResultAnalysis, error)
+}
+
+// ResultAnalysis 是对 Results 的分析结果
+type ResultAnalysis struct {
+	Completed           bool                 // 当前 Objective 是否已完成
+	Evidence            []string             // 支撑完成判断的证据（Result IDs）
+	NewObjectives       []NewObjective       // 发现的新探索方向
+	ContinuationActions []ContinuationAction // 当前方向的延续
+	Reasoning           string               // 判断理由
+}
+
+// NewObjective 表示从 Result 中提取的新探索目标
+type NewObjective struct {
+	Description string        // 目标描述
+	Priority    core.Priority // 优先级
+	TriggeredBy []string      // 触发此目标的 Result ID 列表
+	Reasoning   string        // 为什么需要这个目标
+}
+
+// ContinuationAction 表示在当前 Objective 下继续探索的新动作
+type ContinuationAction struct {
+	Instruction string        // 动作指令
+	Priority    core.Priority // 优先级
+	TriggeredBy []string      // 触发此动作的 Result ID 列表
+	Reasoning   string        // 为什么需要这个动作
 }

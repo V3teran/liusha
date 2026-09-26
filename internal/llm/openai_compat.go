@@ -121,7 +121,7 @@ func toOpenAIMessages(in []Message, supportsVision bool) ([]openai.ChatCompletio
 
 	// pendingImages 累积 tool 结果里的图片块，待 flush 成一条 user message。
 	// 为什么图不能留在 tool message：OpenAI 协议规定 tool role 的 content 必须是 string，
-	// 不接受 image multipart（严格实现如小米 MiMo 报 400 Param Incorrect；doubao/glm 宽容才没暴露）。
+	// 不接受 image multipart（严格实现如 GLM 等报 400 Param Incorrect；部分宽容实现才没暴露）。
 	// 全 provider 通用做法是把图放 user role（user 图文混合是唯一无争议都支持的形态）。
 	var pendingImages []openai.ChatMessagePart
 	flushImages := func() {

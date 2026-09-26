@@ -12,7 +12,7 @@ import { compactNumber } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { FindingDrawer } from '@/features/finding/FindingDrawer'
 import { useFindingFilters } from '@/features/finding/useFindingFilters'
-import { useFindingHosts, useFindingList, useFindingScenarios } from '@/features/finding/useFindingQueries'
+import { useFindingHosts, useFindingList } from '@/features/finding/useFindingQueries'
 import { useQueryClient } from '@tanstack/react-query'
 
 function sevVar(sev: string): string {
@@ -38,7 +38,6 @@ export function FindingsPage() {
   const queryClient = useQueryClient()
 
   const hostsQuery = useFindingHosts()
-  const scenariosQuery = useFindingScenarios()
   const listQuery = useFindingList(filters, page, size)
 
   const rows = useMemo(() => listQuery.data?.findings ?? [], [listQuery.data])
@@ -87,7 +86,7 @@ export function FindingsPage() {
     }
   }
 
-  const hasFilter = !!(filters.host || filters.severity || filters.status || filters.source || filters.scenario_id)
+  const hasFilter = !!(filters.host || filters.severity || filters.status || filters.source)
 
   // 列定义单点声明列宽——不再是列头/数据行各自一份 grid-cols 字符串手动保持同步。
   const columns = useMemo(
@@ -263,19 +262,6 @@ export function FindingsPage() {
                   className="flex-1 bg-transparent text-[13.5px] text-text outline-none placeholder:text-muted"
                 />
               </div>
-              <select
-                value={filters.scenario_id}
-                onChange={(e) => setFilters({ ...filters, scenario_id: e.target.value })}
-                className="w-[150px] rounded-md border border-border bg-surface px-2 py-1.5 text-sm text-text outline-none focus:border-accent"
-                title="按来源对话所属场景筛选"
-              >
-                <option value="">全部场景</option>
-                {(scenariosQuery.data ?? []).map((s) => (
-                  <option key={s} value={s}>
-                    {s}
-                  </option>
-                ))}
-              </select>
               <select
                 value={filters.source}
                 onChange={(e) => setFilters({ ...filters, source: e.target.value })}

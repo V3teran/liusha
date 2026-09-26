@@ -12,7 +12,7 @@ import (
 
 	"github.com/V3teran/liusha/internal/bus"
 	"github.com/V3teran/liusha/internal/framework/core"
-	"github.com/V3teran/liusha/internal/knowledgegraph"
+	"github.com/V3teran/liusha/internal/explorationgraph"
 )
 
 // TestE2ELogic 测试端到端逻辑（不依赖数据库）
@@ -28,12 +28,12 @@ func TestE2ELogic(t *testing.T) {
 		})
 		require.NoError(t, err)
 
-		objective := knowledgegraph.Node{
+		objective := explorationgraph.Node{
 			ID:         uuid.New().String(),
 			TaskID:     taskID,
 			Kind:       core.KindObjective,
 			Content:    objectiveContent,
-			Priority:   knowledgegraph.PriorityHigh,
+			Priority:   explorationgraph.PriorityHigh,
 			SourceType: "test",
 			CreatedAt:  time.Now(),
 		}
@@ -54,8 +54,8 @@ func TestE2ELogic(t *testing.T) {
 	})
 
 	t.Run("Action状态转换", func(t *testing.T) {
-		stateOpen := knowledgegraph.StateOpen
-		action := knowledgegraph.Node{
+		stateOpen := explorationgraph.StateOpen
+		action := explorationgraph.Node{
 			ID:        uuid.New().String(),
 			TaskID:    taskID,
 			Kind:      core.KindAction,
@@ -64,18 +64,18 @@ func TestE2ELogic(t *testing.T) {
 		}
 
 		// 验证初始状态
-		assert.Equal(t, knowledgegraph.StateOpen, *action.State)
+		assert.Equal(t, explorationgraph.StateOpen, *action.State)
 		t.Logf("✓ Action 初始状态: open")
 
 		// 模拟状态转换
-		stateRunning := knowledgegraph.StateRunning
+		stateRunning := explorationgraph.StateRunning
 		action.State = &stateRunning
-		assert.Equal(t, knowledgegraph.StateRunning, *action.State)
+		assert.Equal(t, explorationgraph.StateRunning, *action.State)
 		t.Logf("✓ Action 状态转换: open → running")
 
-		stateDone := knowledgegraph.StateDone
+		stateDone := explorationgraph.StateDone
 		action.State = &stateDone
-		assert.Equal(t, knowledgegraph.StateDone, *action.State)
+		assert.Equal(t, explorationgraph.StateDone, *action.State)
 		t.Logf("✓ Action 状态转换: running → done")
 	})
 
@@ -84,8 +84,8 @@ func TestE2ELogic(t *testing.T) {
 		actionBID := uuid.New().String()
 
 		// Action A: 无依赖
-		stateOpen := knowledgegraph.StateOpen
-		actionA := knowledgegraph.Node{
+		stateOpen := explorationgraph.StateOpen
+		actionA := explorationgraph.Node{
 			ID:        actionAID,
 			Kind:      core.KindAction,
 			State:     &stateOpen,
@@ -93,7 +93,7 @@ func TestE2ELogic(t *testing.T) {
 		}
 
 		// Action B: 依赖 A
-		actionB := knowledgegraph.Node{
+		actionB := explorationgraph.Node{
 			ID:        actionBID,
 			Kind:      core.KindAction,
 			State:     &stateOpen,
@@ -203,16 +203,16 @@ func TestE2ELogic(t *testing.T) {
 
 // TestActionIsAction 验证 IsAction 方法
 func TestActionIsAction(t *testing.T) {
-	stateOpen := knowledgegraph.StateOpen
+	stateOpen := explorationgraph.StateOpen
 
 	tests := []struct {
 		name     string
-		node     knowledgegraph.Node
+		node     explorationgraph.Node
 		expected bool
 	}{
 		{
 			name: "Action节点",
-			node: knowledgegraph.Node{
+			node: explorationgraph.Node{
 				Kind:  core.KindAction,
 				State: &stateOpen,
 			},
@@ -220,14 +220,14 @@ func TestActionIsAction(t *testing.T) {
 		},
 		{
 			name: "Objective节点",
-			node: knowledgegraph.Node{
+			node: explorationgraph.Node{
 				Kind: core.KindObjective,
 			},
 			expected: false,
 		},
 		{
 			name: "Result节点",
-			node: knowledgegraph.Node{
+			node: explorationgraph.Node{
 				Kind: core.KindResult,
 			},
 			expected: false,

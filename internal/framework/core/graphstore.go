@@ -16,7 +16,7 @@ import (
 // 设计原则：
 // - 只包含通用图操作（节点、边、查询）
 // - 不包含业务特定逻辑（如 Action/Roadmap/Verification）
-// - 业务逻辑由上层（knowledgegraph）组合实现
+// - 业务逻辑由上层（explorationgraph）组合实现
 //
 // 适用场景：
 // - PostgreSQL + JSON（当前实现）

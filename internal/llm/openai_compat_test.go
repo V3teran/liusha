@@ -74,7 +74,7 @@ func TestToOpenAIMessages_StripsImagesGracefully(t *testing.T) {
 }
 
 // vision provider 下，tool 结果含图：OpenAI 协议禁止 tool role 带 image multipart
-// （小米 MiMo 等严格实现报 400 Param Incorrect）→ tool message 仅留文本，图拆到紧随的 user message。
+// （GLM 等严格实现报 400 Param Incorrect）→ tool message 仅留文本，图拆到紧随的 user message。
 func TestToOpenAIMessages_VisionToolImage_SplitToUserMsg(t *testing.T) {
 	msgs := []Message{
 		{Role: RoleTool, ToolCallID: "call_1", Name: "browser_use", ContentParts: []ContentPart{

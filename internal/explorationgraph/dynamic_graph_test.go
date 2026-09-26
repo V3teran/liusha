@@ -1,4 +1,4 @@
-package knowledgegraph_test
+package explorationgraph_test
 
 import (
 	"context"
@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/V3teran/liusha/internal/framework/core"
-	"github.com/V3teran/liusha/internal/knowledgegraph"
+	"github.com/V3teran/liusha/internal/explorationgraph"
 	"github.com/google/uuid"
 )
 
@@ -29,8 +29,8 @@ func TestDynamicActionGeneration(t *testing.T) {
 	}
 
 	// T1: 执行 A1 并完成
-	updateActionState(t, ctx, store, a1ID, string(knowledgegraph.StateRunning))
-	updateActionState(t, ctx, store, a1ID, string(knowledgegraph.StateDone))
+	updateActionState(t, ctx, store, a1ID, string(explorationgraph.StateRunning))
+	updateActionState(t, ctx, store, a1ID, string(explorationgraph.StateDone))
 
 	// T2: Planner 基于 A1 的观察结果动态生成新 Action A3（依赖 A1）
 	a3ID := createTestAction(t, ctx, store, taskID, "A3", []string{a1ID})
@@ -61,10 +61,10 @@ func TestDynamicActionGeneration(t *testing.T) {
 	}
 
 	// T5: 执行并完成 A2 和 A3
-	updateActionState(t, ctx, store, a2ID, string(knowledgegraph.StateRunning))
-	updateActionState(t, ctx, store, a2ID, string(knowledgegraph.StateDone))
-	updateActionState(t, ctx, store, a3ID, string(knowledgegraph.StateRunning))
-	updateActionState(t, ctx, store, a3ID, string(knowledgegraph.StateDone))
+	updateActionState(t, ctx, store, a2ID, string(explorationgraph.StateRunning))
+	updateActionState(t, ctx, store, a2ID, string(explorationgraph.StateDone))
+	updateActionState(t, ctx, store, a3ID, string(explorationgraph.StateRunning))
+	updateActionState(t, ctx, store, a3ID, string(explorationgraph.StateDone))
 
 	// 验证 A4 依赖现在已满足
 	completed[a2ID] = true
@@ -92,7 +92,7 @@ func TestConcurrentActionClaim(t *testing.T) {
 	// 实例 1：尝试抢占
 	go func() {
 		success, err := store.CompareAndSwapState(ctx, taskID, actionID,
-			string(knowledgegraph.StateOpen), string(knowledgegraph.StateRunning))
+			string(explorationgraph.StateOpen), string(explorationgraph.StateRunning))
 		if err != nil {
 			t.Errorf("实例1 CAS 失败: %v", err)
 			ch <- false
@@ -106,7 +106,7 @@ func TestConcurrentActionClaim(t *testing.T) {
 		// 确保实例 1 先执行
 		time.Sleep(10 * time.Millisecond)
 		success, err := store.CompareAndSwapState(ctx, taskID, actionID,
-			string(knowledgegraph.StateOpen), string(knowledgegraph.StateRunning))
+			string(explorationgraph.StateOpen), string(explorationgraph.StateRunning))
 		if err != nil {
 			t.Errorf("实例2 CAS 失败: %v", err)
 			ch <- false
@@ -170,8 +170,8 @@ func TestDynamicDependencyResolution(t *testing.T) {
 	}
 
 	// 完成 A1
-	updateActionState(t, ctx, store, a1ID, string(knowledgegraph.StateRunning))
-	updateActionState(t, ctx, store, a1ID, string(knowledgegraph.StateDone))
+	updateActionState(t, ctx, store, a1ID, string(explorationgraph.StateRunning))
+	updateActionState(t, ctx, store, a1ID, string(explorationgraph.StateDone))
 	completed[a1ID] = true
 
 	// 验证 A2 现在可执行（依赖已满足）
@@ -182,18 +182,18 @@ func TestDynamicDependencyResolution(t *testing.T) {
 
 // === 辅助函数 ===
 
-func setupTestStore(t *testing.T) *knowledgegraph.Store {
+func setupTestStore(t *testing.T) *explorationgraph.Store {
 	// TODO: 实际实现应该使用 PostgreSQL 测试容器或内存实现
 	// 当前只是框架，待 core.GraphStore 接口稳定后实现
 	t.Skip("需要 GraphStore 测试实现")
 	return nil
 }
 
-func createTestAction(t *testing.T, ctx context.Context, store *knowledgegraph.AdapterStore, taskID, name string, dependsOn []string) string {
+func createTestAction(t *testing.T, ctx context.Context, store *explorationgraph.AdapterStore, taskID, name string, dependsOn []string) string {
 	actionID := uuid.New().String()
-	state := knowledgegraph.StateOpen
+	state := explorationgraph.StateOpen
 
-	node := knowledgegraph.Node{
+	node := explorationgraph.Node{
 		ID:        actionID,
 		TaskID:    taskID,
 		Kind:      core.KindAction,
@@ -208,25 +208,25 @@ func createTestAction(t *testing.T, ctx context.Context, store *knowledgegraph.A
 	return actionID
 }
 
-func listOpenActions(t *testing.T, ctx context.Context, store *knowledgegraph.Store, taskID string) []knowledgegraph.Node {
+func listOpenActions(t *testing.T, ctx context.Context, store *explorationgraph.Store, taskID string) []explorationgraph.Node {
 	// TODO: 调用 store.ListOpenActions
 	return nil
 }
 
-func updateActionState(t *testing.T, ctx context.Context, store *knowledgegraph.AdapterStore, actionID string, newState string) {
+func updateActionState(t *testing.T, ctx context.Context, store *explorationgraph.AdapterStore, actionID string, newState string) {
 	// TODO: 调用 store.CompareAndSwapState 或 store.UpdateNode
 }
 
-func getActionByID(t *testing.T, ctx context.Context, store *knowledgegraph.Store, actionID string) knowledgegraph.Node {
+func getActionByID(t *testing.T, ctx context.Context, store *explorationgraph.Store, actionID string) explorationgraph.Node {
 	// TODO: 调用 store.GetNode
-	return knowledgegraph.Node{}
+	return explorationgraph.Node{}
 }
 
-func updateActionDependencies(t *testing.T, ctx context.Context, store *knowledgegraph.Store, actionID string, dependsOn []string) {
+func updateActionDependencies(t *testing.T, ctx context.Context, store *explorationgraph.Store, actionID string, dependsOn []string) {
 	// TODO: 调用 store.UpdateNode 修改 DependsOn 字段
 }
 
-func isDependencySatisfied(action knowledgegraph.Node, completed map[string]bool) bool {
+func isDependencySatisfied(action explorationgraph.Node, completed map[string]bool) bool {
 	if len(action.DependsOn) == 0 {
 		return true
 	}

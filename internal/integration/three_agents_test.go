@@ -12,7 +12,7 @@ import (
 	"github.com/V3teran/liusha/internal/bus"
 	"github.com/V3teran/liusha/internal/executor"
 	"github.com/V3teran/liusha/internal/framework/core"
-	"github.com/V3teran/liusha/internal/knowledgegraph"
+	"github.com/V3teran/liusha/internal/explorationgraph"
 	"github.com/V3teran/liusha/internal/planner"
 	"github.com/stretchr/testify/require"
 )
@@ -26,12 +26,12 @@ func TestThreeAgents_Basic(t *testing.T) {
 	logger := zerolog.New(zerolog.NewTestWriter(t)).With().Timestamp().Logger()
 	eventBus := bus.New(ctx)
 	graphStore := core.NewInMemoryGraphStore()
-	world := knowledgegraph.NewAdapterStore(graphStore)
+	world := explorationgraph.NewAdapterStore(graphStore)
 
 	taskID := "test-task-1"
 
 	// 创建初始 Objective 节点
-	objective := knowledgegraph.Node{
+	objective := explorationgraph.Node{
 		ID:      "objective-1",
 		TaskID:  taskID,
 		Kind:    core.KindObjective,
@@ -111,18 +111,18 @@ func TestThreeAgents_Basic(t *testing.T) {
 // mockPlanner 是测试用的 Planner
 type mockPlanner struct{}
 
-func (m *mockPlanner) Plan(ctx context.Context, world *knowledgegraph.Store, taskID string) ([]knowledgegraph.Node, error) {
+func (m *mockPlanner) Plan(ctx context.Context, world *explorationgraph.Store, taskID string) ([]explorationgraph.Node, error) {
 	// 简单返回一个 Action
-	openState := knowledgegraph.StateOpen
+	openState := explorationgraph.StateOpen
 	actionContent := []byte(`{"description": "测试 Action"}`)
-	return []knowledgegraph.Node{
+	return []explorationgraph.Node{
 		{
 			ID:       "action-1",
 			TaskID:   taskID,
 			Kind:     core.KindAction,
 			Content:  actionContent,
 			State:    &openState,
-			Priority: knowledgegraph.PriorityHigh,
+			Priority: explorationgraph.PriorityHigh,
 		},
 	}, nil
 }
@@ -130,7 +130,7 @@ func (m *mockPlanner) Plan(ctx context.Context, world *knowledgegraph.Store, tas
 // mockExecutor 是测试用的 Executor
 type mockExecutor struct{}
 
-func (m *mockExecutor) Execute(ctx context.Context, action knowledgegraph.Node) ([]evaluator.Attempt, error) {
+func (m *mockExecutor) Execute(ctx context.Context, action explorationgraph.Node) ([]evaluator.Attempt, error) {
 	// 简单返回一个 Attempt
 	return []evaluator.Attempt{
 		{
@@ -139,7 +139,7 @@ func (m *mockExecutor) Execute(ctx context.Context, action knowledgegraph.Node) 
 			Kind:       core.KindObservation,
 			Primitives: []byte(`[]`),
 			Content:    []byte(`{"result": "测试执行结果"}`),
-			Priority:   string(knowledgegraph.PriorityMedium),
+			Priority:   string(explorationgraph.PriorityMedium),
 		},
 	}, nil
 }

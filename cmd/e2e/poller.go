@@ -12,7 +12,7 @@ import (
 // 替代旧的 pollTaskCompletion（基于 finding 表）
 func pollTaskWithGraphStats(
 	ctx context.Context,
-	client *KnowledgeGraphClient,
+	client *ExplorationGraphClient,
 	taskID string,
 	criteria AcceptanceCriteria,
 	logger *zerolog.Logger,

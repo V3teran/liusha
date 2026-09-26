@@ -9,7 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/V3teran/liusha/internal/finding"
 	"github.com/V3teran/liusha/internal/framework/core"
-	"github.com/V3teran/liusha/internal/knowledgegraph"
+	"github.com/V3teran/liusha/internal/explorationgraph"
 	"github.com/V3teran/liusha/internal/traffic"
 )
 
@@ -18,10 +18,10 @@ import (
 // ============================================
 
 type GetObservationTool struct {
-	world *knowledgegraph.Store
+	world *explorationgraph.Store
 }
 
-func NewGetObservationTool(world *knowledgegraph.Store) *GetObservationTool {
+func NewGetObservationTool(world *explorationgraph.Store) *GetObservationTool {
 	return &GetObservationTool{world: world}
 }
 
@@ -134,10 +134,10 @@ func (t *GetTrafficTool) Execute(ctx context.Context, input core.ToolInput) (cor
 
 type CreateFindingTool struct {
 	findingStore *finding.Store
-	world        *knowledgegraph.Store
+	world        *explorationgraph.Store
 }
 
-func NewCreateFindingTool(findingStore *finding.Store, world *knowledgegraph.Store) *CreateFindingTool {
+func NewCreateFindingTool(findingStore *finding.Store, world *explorationgraph.Store) *CreateFindingTool {
 	return &CreateFindingTool{
 		findingStore: findingStore,
 		world:        world,
@@ -215,15 +215,15 @@ func (t *CreateFindingTool) Execute(ctx context.Context, input core.ToolInput) (
 
 	// 2. 晋升到 WorldModel
 	findingNodeID := uuid.New().String()
-	verified := knowledgegraph.ConfidenceVerified
+	verified := explorationgraph.ConfidenceVerified
 
-	findingNode := knowledgegraph.Node{
+	findingNode := explorationgraph.Node{
 		ID:         findingNodeID,
 		TaskID:     args.TaskID,
 		Kind:       core.KindResult,
 		Content:    json.RawMessage(fmt.Sprintf(`{"finding_id":"%s","type":"vulnerability"}`, saved.ID)),
 		Confidence: &verified,
-		SourceType: knowledgegraph.SourceEvaluator,
+		SourceType: explorationgraph.SourceEvaluator,
 		SourceID:   args.ObservationID,
 		CreatedAt:  time.Now(),
 		UpdatedAt:  time.Now(),

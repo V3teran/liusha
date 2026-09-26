@@ -7,7 +7,7 @@ import (
 	"sync"
 
 	"github.com/V3teran/liusha/internal/framework/core"
-	"github.com/V3teran/liusha/internal/knowledgegraph"
+	"github.com/V3teran/liusha/internal/explorationgraph"
 )
 
 // 编译时检查接口实现
@@ -64,7 +64,7 @@ func NewPool(size int, factory func() *Coordinator) *Pool {
 // 3. 归还 worker 到 pool
 //
 // 并发安全：多个 goroutine 可同时调用。
-func (p *Pool) Execute(ctx context.Context, action knowledgegraph.Node) *Report {
+func (p *Pool) Execute(ctx context.Context, action explorationgraph.Node) *Report {
 	select {
 	case <-p.closed:
 		return &Report{

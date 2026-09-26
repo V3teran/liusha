@@ -19,8 +19,8 @@ function renderShell(initialPath: string) {
         <Route path="/findings" element={<AppShell />}>
           <Route index element={<div>child-findings</div>} />
         </Route>
-        <Route path="/attack-graph" element={<AppShell />}>
-          <Route index element={<div>child-attack-graph</div>} />
+        <Route path="/knowledge-graph" element={<AppShell />}>
+          <Route index element={<div>child-knowledge-graph</div>} />
         </Route>
       </Routes>
     </MemoryRouter>,
@@ -34,10 +34,9 @@ describe('AppShell', () => {
 
     expect(screen.getByText('对话')).toBeTruthy()
     expect(screen.getByText('漏洞')).toBeTruthy()
-    expect(screen.getByText('攻击图')).toBeTruthy()
+    expect(screen.getByText('探索图')).toBeTruthy()
     expect(screen.getByText('LLM 审计')).toBeTruthy()
     expect(screen.getByText('凭证库')).toBeTruthy()
-    expect(screen.getByText('场景')).toBeTruthy()
     expect(screen.getByText('智能体')).toBeTruthy()
     expect(screen.getByText('设置')).toBeTruthy()
   })

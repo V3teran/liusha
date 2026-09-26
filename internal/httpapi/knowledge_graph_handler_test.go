@@ -8,22 +8,22 @@ import (
 	"testing"
 
 	"github.com/V3teran/liusha/internal/framework/core"
-	"github.com/V3teran/liusha/internal/knowledgegraph"
+	"github.com/V3teran/liusha/internal/explorationgraph"
 )
 
-// mockKnowledgeGraphAPI 是 KnowledgeGraphAPI 的测试 mock
-type mockKnowledgeGraphAPI struct {
-	nodes []knowledgegraph.Node
-	edges []knowledgegraph.Edge
+// mockExplorationGraphAPI 是 ExplorationGraphAPI 的测试 mock
+type mockExplorationGraphAPI struct {
+	nodes []explorationgraph.Node
+	edges []explorationgraph.Edge
 	stats map[string]int
 }
 
-func (m *mockKnowledgeGraphAPI) ListNodesForAPI(ctx context.Context, taskID string, kind string) ([]knowledgegraph.Node, error) {
+func (m *mockExplorationGraphAPI) ListNodesForAPI(ctx context.Context, taskID string, kind string) ([]explorationgraph.Node, error) {
 	if kind == "" {
 		return m.nodes, nil
 	}
 	// 按类型过滤
-	filtered := make([]knowledgegraph.Node, 0)
+	filtered := make([]explorationgraph.Node, 0)
 	for _, node := range m.nodes {
 		if string(node.Kind) == kind {
 			filtered = append(filtered, node)
@@ -32,16 +32,16 @@ func (m *mockKnowledgeGraphAPI) ListNodesForAPI(ctx context.Context, taskID stri
 	return filtered, nil
 }
 
-func (m *mockKnowledgeGraphAPI) ListEdgesForAPI(ctx context.Context, taskID string) ([]knowledgegraph.Edge, error) {
+func (m *mockExplorationGraphAPI) ListEdgesForAPI(ctx context.Context, taskID string) ([]explorationgraph.Edge, error) {
 	return m.edges, nil
 }
 
-func (m *mockKnowledgeGraphAPI) GetStatsForAPI(ctx context.Context, taskID string) (map[string]int, error) {
+func (m *mockExplorationGraphAPI) GetStatsForAPI(ctx context.Context, taskID string) (map[string]int, error) {
 	return m.stats, nil
 }
 
 func TestGetTaskStats(t *testing.T) {
-	mock := &mockKnowledgeGraphAPI{
+	mock := &mockExplorationGraphAPI{
 		stats: map[string]int{
 			"objectives":   2,
 			"actions":      5,
@@ -53,7 +53,7 @@ func TestGetTaskStats(t *testing.T) {
 
 	server := NewServer(Deps{
 		APIKey:         "test-key",
-		KnowledgeGraph: mock,
+		ExplorationGraph: mock,
 	})
 
 	req := httptest.NewRequest("GET", "/api/v1/tasks/task-123/stats", nil)
@@ -89,8 +89,8 @@ func TestGetTaskStats(t *testing.T) {
 }
 
 func TestGetTaskNodes(t *testing.T) {
-	mock := &mockKnowledgeGraphAPI{
-		nodes: []knowledgegraph.Node{
+	mock := &mockExplorationGraphAPI{
+		nodes: []explorationgraph.Node{
 			{ID: "n1", Kind: core.KindObjective},
 			{ID: "n2", Kind: core.KindAction},
 			{ID: "n3", Kind: core.KindAction},
@@ -99,7 +99,7 @@ func TestGetTaskNodes(t *testing.T) {
 
 	server := NewServer(Deps{
 		APIKey:         "test-key",
-		KnowledgeGraph: mock,
+		ExplorationGraph: mock,
 	})
 
 	// 测试不带过滤
@@ -143,19 +143,19 @@ func TestGetTaskNodes(t *testing.T) {
 }
 
 func TestGetTaskGraph(t *testing.T) {
-	mock := &mockKnowledgeGraphAPI{
-		nodes: []knowledgegraph.Node{
+	mock := &mockExplorationGraphAPI{
+		nodes: []explorationgraph.Node{
 			{ID: "n1", Kind: core.KindObjective},
 			{ID: "n2", Kind: core.KindAction},
 		},
-		edges: []knowledgegraph.Edge{
-			{SrcID: "n1", DstID: "n2", Rel: knowledgegraph.RelGenerates},
+		edges: []explorationgraph.Edge{
+			{SrcID: "n1", DstID: "n2", Rel: explorationgraph.RelGenerates},
 		},
 	}
 
 	server := NewServer(Deps{
 		APIKey:         "test-key",
-		KnowledgeGraph: mock,
+		ExplorationGraph: mock,
 	})
 
 	req := httptest.NewRequest("GET", "/api/v1/tasks/task-123/graph", nil)

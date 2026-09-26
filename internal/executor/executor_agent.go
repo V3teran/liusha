@@ -16,7 +16,7 @@ import (
 	"github.com/V3teran/liusha/internal/evaluator"
 	"github.com/V3teran/liusha/internal/framework/core"
 	"github.com/V3teran/liusha/internal/framework/runtime"
-	"github.com/V3teran/liusha/internal/knowledgegraph"
+	"github.com/V3teran/liusha/internal/explorationgraph"
 )
 
 // 编译时检查接口实现
@@ -30,7 +30,7 @@ var _ core.Agent = (*ExecutorAgent)(nil)
 // - 发布 ActionCompleted 事件
 // - 完全异步，不阻塞任何调用方
 type ExecutorAgent struct {
-	world        *knowledgegraph.Store
+	world        *explorationgraph.Store
 	executor     ExecutorInterface
 	eventBus     bus.Bus
 	logger       zerolog.Logger
@@ -48,7 +48,7 @@ type ExecutorAgent struct {
 // ExecutorAgentConfig 配置 ExecutorAgent
 type ExecutorAgentConfig struct {
 	TaskID       string
-	World        *knowledgegraph.Store
+	World        *explorationgraph.Store
 	Executor     ExecutorInterface
 	EventBus     bus.Bus
 	Logger       zerolog.Logger
@@ -211,7 +211,7 @@ func (a *ExecutorAgent) processAvailableActions(ctx context.Context, report *Rep
 	}
 
 	// 筛选可执行的 Action（依赖已满足）
-	var executable []knowledgegraph.Node
+	var executable []explorationgraph.Node
 	for _, action := range openActions {
 		if action.CanExecute(completed) {
 			executable = append(executable, action)
@@ -250,7 +250,7 @@ func (a *ExecutorAgent) processAvailableActions(ctx context.Context, report *Rep
 // executeAction 执行单个 Action
 func (a *ExecutorAgent) executeAction(
 	ctx context.Context,
-	action knowledgegraph.Node,
+	action explorationgraph.Node,
 	report *Report,
 ) error {
 	a.logger.Info().
@@ -263,8 +263,8 @@ func (a *ExecutorAgent) executeAction(
 		ctx,
 		action.TaskID,
 		action.ID,
-		knowledgegraph.StateOpen,
-		knowledgegraph.StateRunning,
+		explorationgraph.StateOpen,
+		explorationgraph.StateRunning,
 		nil,
 	)
 	if err != nil {
@@ -287,7 +287,7 @@ func (a *ExecutorAgent) executeAction(
 		if err := a.world.UpdateActionStateWithReason(
 			ctx,
 			action.ID,
-			knowledgegraph.StateFailed,
+			explorationgraph.StateFailed,
 			&errMsg,
 		); err != nil {
 			a.logger.Error().Err(err).Str("action_id", action.ID).Msg("标记失败状态失败")
@@ -299,7 +299,7 @@ func (a *ExecutorAgent) executeAction(
 	if err := a.world.UpdateActionStateWithReason(
 		ctx,
 		action.ID,
-		knowledgegraph.StateDone,
+		explorationgraph.StateDone,
 		nil,
 	); err != nil {
 		a.logger.Error().Err(err).Str("action_id", action.ID).Msg("标记完成状态失败")
@@ -334,7 +334,7 @@ func (a *ExecutorAgent) executeAction(
 // createObservation 创建 Observation 节点记录执行结果
 func (a *ExecutorAgent) createObservation(
 	ctx context.Context,
-	action knowledgegraph.Node,
+	action explorationgraph.Node,
 	attempts []evaluator.Attempt,
 	execErr error,
 ) error {
@@ -375,17 +375,17 @@ func (a *ExecutorAgent) createObservation(
 	}
 
 	// 创建 Observation 节点
-	unverified := knowledgegraph.ConfidenceUnverified
+	unverified := explorationgraph.ConfidenceUnverified
 	observationID := uuid.New().String()
 
-	observation := knowledgegraph.Node{
+	observation := explorationgraph.Node{
 		ID:         observationID,
 		TaskID:     a.taskID,
 		Kind:       core.KindObservation,
 		Content:    contentJSON,
 		Confidence: &unverified,
 		Priority:   action.Priority,
-		SourceType: knowledgegraph.SourceExecutor,
+		SourceType: explorationgraph.SourceExecutor,
 		SourceID:   action.ID,
 		CreatedAt:  time.Now(),
 		UpdatedAt:  time.Now(),

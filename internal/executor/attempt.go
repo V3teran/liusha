@@ -7,7 +7,7 @@ import (
 	"github.com/V3teran/liusha/internal/evaluator"
 	"github.com/V3teran/liusha/internal/finding"
 	"github.com/V3teran/liusha/internal/framework/core"
-	"github.com/V3teran/liusha/internal/knowledgegraph"
+	"github.com/V3teran/liusha/internal/explorationgraph"
 )
 
 // findingContent 是 finding 晋升成世界模型 discovery 节点时写入 Content 的漏洞元数据。
@@ -20,7 +20,7 @@ type findingContent struct {
 	Summary   string               `json:"summary"`
 	CWEID     string               `json:"cwe_id,omitempty"`
 	OWASP     string               `json:"owasp_category,omitempty"`
-	TargetRef knowledgegraph.TargetRef `json:"target_ref"`
+	TargetRef explorationgraph.TargetRef `json:"target_ref"`
 }
 
 // AttemptFromFinding 把一条 web finding 翻译成 evaluator.Attempt（提议权兑现：报告 → 待裁决晋升）。
@@ -64,12 +64,12 @@ func AttemptFromFinding(taskID string, f finding.VulnFinding) (evaluator.Attempt
 
 // endpointRef 从 finding 派生 web endpoint 的多态目标 ref（locator = host+path）。
 // path 从 finding.Target.{path} 取；缺则退化为纯 host（站点粒度）。
-func endpointRef(f finding.VulnFinding) knowledgegraph.TargetRef {
+func endpointRef(f finding.VulnFinding) explorationgraph.TargetRef {
 	locator := f.Host
 	if p := targetPath(f.Target); p != "" {
 		locator = strings.TrimRight(f.Host, "/") + ensureLeadingSlash(p)
 	}
-	return knowledgegraph.TargetRef{Domain: "web", RefKind: "endpoint", Locator: locator}
+	return explorationgraph.TargetRef{Domain: "web", RefKind: "endpoint", Locator: locator}
 }
 
 // targetPath 从 finding.Target（自由 object，惯例含 path）抽 path；解析失败/无 path 返空。

@@ -1,5 +1,5 @@
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
-import { listFindingHosts, listFindingScenarios, listFindings } from '@/api/client'
+import { listFindingHosts, listFindings } from '@/api/client'
 import type { FindingFilters } from '@/api/types'
 
 // 漏洞台账数据层：统一走 React Query（对齐流量模块 useTrafficQueries 的模式）。
@@ -8,7 +8,6 @@ import type { FindingFilters } from '@/api/types'
 
 const findingKeys = {
   hosts: ['findings', 'hosts'] as const,
-  scenarios: ['findings', 'scenarios'] as const,
   list: (filters: FindingFilters, page: number, size: number) => ['findings', 'list', filters, page, size] as const,
 }
 
@@ -17,14 +16,6 @@ export function useFindingHosts() {
   return useQuery({
     queryKey: findingKeys.hosts,
     queryFn: () => listFindingHosts(),
-  })
-}
-
-/** 场景下拉候选：全表 distinct scenario_id。 */
-export function useFindingScenarios() {
-  return useQuery({
-    queryKey: findingKeys.scenarios,
-    queryFn: () => listFindingScenarios(),
   })
 }
 

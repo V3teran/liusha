@@ -1,15 +1,15 @@
 package core
 
-// KnowledgeGraph 标准定义
+// ExplorationGraph 标准定义
 //
 // 设计原则：
 // 1. 对齐 ReAct 模式（Thought → Action → Observation）
 // 2. 对齐 PDDL 标准（Objective → Action → State）
-// 3. 通用认知循环：Objective → Action → Observation → Evaluation → Result
+// 3. 通用认知循环：Objective → Action → Observation → Result
 //
 // 这些类型不是业务特定的，而是所有 AI Agent 的通用认知模式
 
-// NodeKind 是知识图谱节点的标准类型
+// NodeKind 是探索图节点的标准类型
 type NodeKind string
 
 const (
@@ -28,7 +28,7 @@ const (
 	// 来源：Executor Agent
 	KindObservation NodeKind = "observation"
 
-	// KindEvaluation 表示评估结论节点
+	// KindEvaluation 表示评估结论节点（已废弃，保留用于兼容性）
 	// 对应：结果验证、质量评分、可信度判断
 	// 来源：Evaluator Agent
 	KindEvaluation NodeKind = "evaluation"
@@ -39,7 +39,7 @@ const (
 	KindResult NodeKind = "result"
 )
 
-// RelationKind 是知识图谱关系的标准类型
+// RelationKind 是探索图关系的标准类型
 type RelationKind string
 
 const (
@@ -70,6 +70,10 @@ const (
 	// RelationInvalidates 表示失效关系（observation → action）
 	// 语义：观察使动作失效或不再需要
 	RelationInvalidates RelationKind = "invalidates"
+
+	// RelationTriggers 表示触发关系（result → objective）
+	// 语义：结果触发新的探索目标
+	RelationTriggers RelationKind = "triggers"
 )
 
 // ActionState 是动作的执行状态
@@ -245,6 +249,7 @@ func ValidRelationKinds() []RelationKind {
 		RelationDependsOn,
 		RelationContributes,
 		RelationInvalidates,
+		RelationTriggers,
 	}
 }
 

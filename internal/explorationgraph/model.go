@@ -1,4 +1,4 @@
-// Package knowledgegraph 实现统一的知识图谱（认知图）。
+// Package explorationgraph 实现统一的知识图谱（认知图）。
 //
 // 设计决策（2026-08-28 重构 + 2026-09-XX ReAct 对齐）：
 // 1. 5 种节点类型：objective/action/observation/evaluation/result
@@ -19,7 +19,7 @@
 // - REFUTES: evaluation → observation（评估反驳观察）
 // - ENABLES: result → action（结果使能新动作）
 // - DEPENDS_ON: action → action（动作依赖动作）
-package knowledgegraph
+package explorationgraph
 
 import (
 	"encoding/json"

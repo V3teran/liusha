@@ -7,19 +7,19 @@ import (
 	"time"
 
 	"github.com/V3teran/liusha/internal/framework/persistence"
-	"github.com/V3teran/liusha/internal/knowledgegraph"
+	"github.com/V3teran/liusha/internal/explorationgraph"
 )
 
 // GraphStore 是内存实现的知识图谱存储
 type GraphStore struct {
-	nodes         map[string]*knowledgegraph.Node // nodeID -> Node
-	edges         map[string]*knowledgegraph.Edge // edgeKey -> Edge
-	verifications map[string]*knowledgegraph.Verification // verificationID -> Verification
+	nodes         map[string]*explorationgraph.Node // nodeID -> Node
+	edges         map[string]*explorationgraph.Edge // edgeKey -> Edge
+	verifications map[string]*explorationgraph.Verification // verificationID -> Verification
 
 	// 索引：加速查询
-	nodesByTask   map[string]map[string]*knowledgegraph.Node // taskID -> nodeID -> Node
-	edgesByTask   map[string]map[string]*knowledgegraph.Edge // taskID -> edgeKey -> Edge
-	verifyByTask  map[string]map[string]*knowledgegraph.Verification // taskID -> verificationID -> Verification
+	nodesByTask   map[string]map[string]*explorationgraph.Node // taskID -> nodeID -> Node
+	edgesByTask   map[string]map[string]*explorationgraph.Edge // taskID -> edgeKey -> Edge
+	verifyByTask  map[string]map[string]*explorationgraph.Verification // taskID -> verificationID -> Verification
 
 	mu sync.RWMutex
 }
@@ -27,18 +27,18 @@ type GraphStore struct {
 // NewGraphStore 创建内存图存储
 func NewGraphStore() *GraphStore {
 	return &GraphStore{
-		nodes:         make(map[string]*knowledgegraph.Node),
-		edges:         make(map[string]*knowledgegraph.Edge),
-		verifications: make(map[string]*knowledgegraph.Verification),
-		nodesByTask:   make(map[string]map[string]*knowledgegraph.Node),
-		edgesByTask:   make(map[string]map[string]*knowledgegraph.Edge),
-		verifyByTask:  make(map[string]map[string]*knowledgegraph.Verification),
+		nodes:         make(map[string]*explorationgraph.Node),
+		edges:         make(map[string]*explorationgraph.Edge),
+		verifications: make(map[string]*explorationgraph.Verification),
+		nodesByTask:   make(map[string]map[string]*explorationgraph.Node),
+		edgesByTask:   make(map[string]map[string]*explorationgraph.Edge),
+		verifyByTask:  make(map[string]map[string]*explorationgraph.Verification),
 	}
 }
 
 // ========== Node 操作 ==========
 
-func (s *GraphStore) CreateNode(ctx context.Context, node knowledgegraph.Node) (string, error) {
+func (s *GraphStore) CreateNode(ctx context.Context, node explorationgraph.Node) (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -68,14 +68,14 @@ func (s *GraphStore) CreateNode(ctx context.Context, node knowledgegraph.Node) (
 
 	// 更新索引
 	if s.nodesByTask[node.TaskID] == nil {
-		s.nodesByTask[node.TaskID] = make(map[string]*knowledgegraph.Node)
+		s.nodesByTask[node.TaskID] = make(map[string]*explorationgraph.Node)
 	}
 	s.nodesByTask[node.TaskID][node.ID] = &nodeCopy
 
 	return node.ID, nil
 }
 
-func (s *GraphStore) GetNode(ctx context.Context, taskID, nodeID string) (*knowledgegraph.Node, error) {
+func (s *GraphStore) GetNode(ctx context.Context, taskID, nodeID string) (*explorationgraph.Node, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -91,7 +91,7 @@ func (s *GraphStore) GetNode(ctx context.Context, taskID, nodeID string) (*knowl
 	return &nodeCopy, nil
 }
 
-func (s *GraphStore) UpdateNode(ctx context.Context, node knowledgegraph.Node) error {
+func (s *GraphStore) UpdateNode(ctx context.Context, node explorationgraph.Node) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -139,7 +139,7 @@ func (s *GraphStore) CompareAndSwapState(ctx context.Context, taskID, nodeID str
 	}
 
 	// 更新状态
-	newStateTyped := knowledgegraph.State(newState)
+	newStateTyped := explorationgraph.State(newState)
 	node.State = &newStateTyped
 	node.UpdatedAt = time.Now()
 
@@ -164,7 +164,7 @@ func (s *GraphStore) DeleteNode(ctx context.Context, taskID, nodeID string) erro
 	return nil
 }
 
-func (s *GraphStore) ListNodes(ctx context.Context, filter persistence.NodeFilter) ([]knowledgegraph.Node, error) {
+func (s *GraphStore) ListNodes(ctx context.Context, filter persistence.NodeFilter) ([]explorationgraph.Node, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -174,11 +174,11 @@ func (s *GraphStore) ListNodes(ctx context.Context, filter persistence.NodeFilte
 
 	taskNodes, exists := s.nodesByTask[filter.TaskID]
 	if !exists {
-		return []knowledgegraph.Node{}, nil
+		return []explorationgraph.Node{}, nil
 	}
 
 	// 过滤节点
-	var result []knowledgegraph.Node
+	var result []explorationgraph.Node
 	for _, node := range taskNodes {
 		if s.matchNodeFilter(node, filter) {
 			result = append(result, *node)
@@ -188,7 +188,7 @@ func (s *GraphStore) ListNodes(ctx context.Context, filter persistence.NodeFilte
 	// 分页
 	if filter.Offset > 0 {
 		if filter.Offset >= len(result) {
-			return []knowledgegraph.Node{}, nil
+			return []explorationgraph.Node{}, nil
 		}
 		result = result[filter.Offset:]
 	}
@@ -200,7 +200,7 @@ func (s *GraphStore) ListNodes(ctx context.Context, filter persistence.NodeFilte
 }
 
 // matchNodeFilter 检查节点是否匹配过滤器
-func (s *GraphStore) matchNodeFilter(node *knowledgegraph.Node, filter persistence.NodeFilter) bool {
+func (s *GraphStore) matchNodeFilter(node *explorationgraph.Node, filter persistence.NodeFilter) bool {
 	if filter.Kind != nil && string(node.Kind) != *filter.Kind {
 		return false
 	}
@@ -235,7 +235,7 @@ func (s *GraphStore) matchNodeFilter(node *knowledgegraph.Node, filter persisten
 
 // ========== Edge 操作 ==========
 
-func (s *GraphStore) CreateEdge(ctx context.Context, edge knowledgegraph.Edge) error {
+func (s *GraphStore) CreateEdge(ctx context.Context, edge explorationgraph.Edge) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -256,14 +256,14 @@ func (s *GraphStore) CreateEdge(ctx context.Context, edge knowledgegraph.Edge) e
 	s.edges[key] = &edgeCopy
 
 	if s.edgesByTask[edge.TaskID] == nil {
-		s.edgesByTask[edge.TaskID] = make(map[string]*knowledgegraph.Edge)
+		s.edgesByTask[edge.TaskID] = make(map[string]*explorationgraph.Edge)
 	}
 	s.edgesByTask[edge.TaskID][key] = &edgeCopy
 
 	return nil
 }
 
-func (s *GraphStore) GetEdge(ctx context.Context, taskID, srcID string, rel knowledgegraph.Relation, dstID string) (*knowledgegraph.Edge, error) {
+func (s *GraphStore) GetEdge(ctx context.Context, taskID, srcID string, rel explorationgraph.Relation, dstID string) (*explorationgraph.Edge, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -277,7 +277,7 @@ func (s *GraphStore) GetEdge(ctx context.Context, taskID, srcID string, rel know
 	return &edgeCopy, nil
 }
 
-func (s *GraphStore) DeleteEdge(ctx context.Context, taskID, srcID string, rel knowledgegraph.Relation, dstID string) error {
+func (s *GraphStore) DeleteEdge(ctx context.Context, taskID, srcID string, rel explorationgraph.Relation, dstID string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -292,7 +292,7 @@ func (s *GraphStore) DeleteEdge(ctx context.Context, taskID, srcID string, rel k
 	return nil
 }
 
-func (s *GraphStore) ListEdges(ctx context.Context, filter persistence.EdgeFilter) ([]knowledgegraph.Edge, error) {
+func (s *GraphStore) ListEdges(ctx context.Context, filter persistence.EdgeFilter) ([]explorationgraph.Edge, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -302,10 +302,10 @@ func (s *GraphStore) ListEdges(ctx context.Context, filter persistence.EdgeFilte
 
 	taskEdges, exists := s.edgesByTask[filter.TaskID]
 	if !exists {
-		return []knowledgegraph.Edge{}, nil
+		return []explorationgraph.Edge{}, nil
 	}
 
-	var result []knowledgegraph.Edge
+	var result []explorationgraph.Edge
 	for _, edge := range taskEdges {
 		if s.matchEdgeFilter(edge, filter) {
 			result = append(result, *edge)
@@ -315,7 +315,7 @@ func (s *GraphStore) ListEdges(ctx context.Context, filter persistence.EdgeFilte
 	// 分页
 	if filter.Offset > 0 {
 		if filter.Offset >= len(result) {
-			return []knowledgegraph.Edge{}, nil
+			return []explorationgraph.Edge{}, nil
 		}
 		result = result[filter.Offset:]
 	}
@@ -326,7 +326,7 @@ func (s *GraphStore) ListEdges(ctx context.Context, filter persistence.EdgeFilte
 	return result, nil
 }
 
-func (s *GraphStore) matchEdgeFilter(edge *knowledgegraph.Edge, filter persistence.EdgeFilter) bool {
+func (s *GraphStore) matchEdgeFilter(edge *explorationgraph.Edge, filter persistence.EdgeFilter) bool {
 	if filter.SrcID != nil && edge.SrcID != *filter.SrcID {
 		return false
 	}
@@ -339,13 +339,13 @@ func (s *GraphStore) matchEdgeFilter(edge *knowledgegraph.Edge, filter persisten
 	return true
 }
 
-func (s *GraphStore) edgeKey(taskID, srcID string, rel knowledgegraph.Relation, dstID string) string {
+func (s *GraphStore) edgeKey(taskID, srcID string, rel explorationgraph.Relation, dstID string) string {
 	return fmt.Sprintf("%s:%s:%s:%s", taskID, srcID, rel, dstID)
 }
 
 // ========== Verification 操作 ==========
 
-func (s *GraphStore) RecordVerification(ctx context.Context, v knowledgegraph.Verification) (string, error) {
+func (s *GraphStore) RecordVerification(ctx context.Context, v explorationgraph.Verification) (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -361,14 +361,14 @@ func (s *GraphStore) RecordVerification(ctx context.Context, v knowledgegraph.Ve
 	s.verifications[v.ID] = &vCopy
 
 	if s.verifyByTask[v.TaskID] == nil {
-		s.verifyByTask[v.TaskID] = make(map[string]*knowledgegraph.Verification)
+		s.verifyByTask[v.TaskID] = make(map[string]*explorationgraph.Verification)
 	}
 	s.verifyByTask[v.TaskID][v.ID] = &vCopy
 
 	return v.ID, nil
 }
 
-func (s *GraphStore) GetVerification(ctx context.Context, taskID, verificationID string) (*knowledgegraph.Verification, error) {
+func (s *GraphStore) GetVerification(ctx context.Context, taskID, verificationID string) (*explorationgraph.Verification, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -384,16 +384,16 @@ func (s *GraphStore) GetVerification(ctx context.Context, taskID, verificationID
 	return &vCopy, nil
 }
 
-func (s *GraphStore) ListVerifications(ctx context.Context, taskID string) ([]knowledgegraph.Verification, error) {
+func (s *GraphStore) ListVerifications(ctx context.Context, taskID string) ([]explorationgraph.Verification, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
 	taskVerifications, exists := s.verifyByTask[taskID]
 	if !exists {
-		return []knowledgegraph.Verification{}, nil
+		return []explorationgraph.Verification{}, nil
 	}
 
-	result := make([]knowledgegraph.Verification, 0, len(taskVerifications))
+	result := make([]explorationgraph.Verification, 0, len(taskVerifications))
 	for _, v := range taskVerifications {
 		result = append(result, *v)
 	}
@@ -414,8 +414,8 @@ func (s *GraphStore) GetSubgraph(ctx context.Context, taskID, startNodeID string
 		depth  int
 	}{{startNodeID, 0}}
 
-	var nodes []knowledgegraph.Node
-	var edges []knowledgegraph.Edge
+	var nodes []explorationgraph.Node
+	var edges []explorationgraph.Edge
 
 	for len(queue) > 0 {
 		current := queue[0]
@@ -451,16 +451,16 @@ func (s *GraphStore) GetSubgraph(ctx context.Context, taskID, startNodeID string
 	}, nil
 }
 
-func (s *GraphStore) GetActionsByState(ctx context.Context, taskID string, state knowledgegraph.State) ([]knowledgegraph.Node, error) {
+func (s *GraphStore) GetActionsByState(ctx context.Context, taskID string, state explorationgraph.State) ([]explorationgraph.Node, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
 	taskNodes, exists := s.nodesByTask[taskID]
 	if !exists {
-		return []knowledgegraph.Node{}, nil
+		return []explorationgraph.Node{}, nil
 	}
 
-	var result []knowledgegraph.Node
+	var result []explorationgraph.Node
 	for _, node := range taskNodes {
 		if node.IsAction() && node.State != nil && *node.State == state {
 			result = append(result, *node)
@@ -470,7 +470,7 @@ func (s *GraphStore) GetActionsByState(ctx context.Context, taskID string, state
 	return result, nil
 }
 
-func (s *GraphStore) GetDependencyChain(ctx context.Context, taskID, actionID string) ([]knowledgegraph.Node, error) {
+func (s *GraphStore) GetDependencyChain(ctx context.Context, taskID, actionID string) ([]explorationgraph.Node, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -481,7 +481,7 @@ func (s *GraphStore) GetDependencyChain(ctx context.Context, taskID, actionID st
 
 	// 递归获取所有依赖
 	visited := make(map[string]bool)
-	var result []knowledgegraph.Node
+	var result []explorationgraph.Node
 
 	var collectDeps func(nodeID string)
 	collectDeps = func(nodeID string) {

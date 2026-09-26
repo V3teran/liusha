@@ -47,7 +47,7 @@ export function OwnerPicker({ value, onChange }: OwnerPickerProps) {
         </option>
         {tasks.map((s) => (
           <option key={s.id} value={s.id}>
-            {s.scenario_id || '?'} · {s.id.slice(0, 8)} · {s.status}
+            {s.id.slice(0, 8)} · {s.status}
           </option>
         ))}
       </select>

@@ -34,7 +34,7 @@ import (
 	"github.com/V3teran/liusha/internal/tools/manifest"
 	"github.com/V3teran/liusha/internal/traffic"
 	"github.com/V3teran/liusha/internal/worker"
-	"github.com/V3teran/liusha/internal/knowledgegraph"
+	"github.com/V3teran/liusha/internal/explorationgraph"
 )
 
 // handler 持有所有跨任务共享依赖。
@@ -71,7 +71,7 @@ type handler struct {
 	eventPublisher *scanstream.Publisher
 
 	profiles     *domain.Registry
-	world        *knowledgegraph.Store
+	world        *explorationgraph.Store
 	checkpointer core.Checkpointer
 	eventBus     bus.Bus // 统一事件总线
 	controlPlane *controlplane.Store
@@ -93,12 +93,12 @@ func (h handler) onboard(ctx context.Context, assignmentID, taskID, brief string
 				"target_ref":  ref,
 				"description": brief, // 添加 description 供 Planner 读取
 			})
-			node := knowledgegraph.Node{
+			node := explorationgraph.Node{
 				ID:         uuid.New().String(),
 				TaskID:     taskID,
 				Kind:       core.KindObjective,
 				Content:    content,
-				Priority:   knowledgegraph.PriorityMedium,
+				Priority:   explorationgraph.PriorityMedium,
 				SourceType: "user",
 				SourceID:   "task_init",
 				CreatedAt:  time.Now(),

@@ -4,30 +4,30 @@ import (
 	"context"
 	"encoding/json"
 
-	"github.com/V3teran/liusha/internal/knowledgegraph"
+	"github.com/V3teran/liusha/internal/explorationgraph"
 )
 
-// knowledgeGraphAdapter 将 knowledgegraph.Store 适配为 Actor.KnowledgeGraphReader 接口。
+// knowledgeGraphAdapter 将 explorationgraph.Store 适配为 Actor.ExplorationGraphReader 接口。
 type knowledgeGraphAdapter struct {
-	store *knowledgegraph.Store
+	store *explorationgraph.Store
 }
 
-// NewKnowledgeGraphAdapter 创建适配器。
-func NewKnowledgeGraphAdapter(store *knowledgegraph.Store) KnowledgeGraphReader {
+// NewExplorationGraphAdapter 创建适配器。
+func NewExplorationGraphAdapter(store *explorationgraph.Store) ExplorationGraphReader {
 	if store == nil {
 		return nil
 	}
 	return &knowledgeGraphAdapter{store: store}
 }
 
-// GetNode 实现 KnowledgeGraphReader 接口。
-func (w *knowledgeGraphAdapter) GetNode(ctx context.Context, id string) (*KnowledgeGraphNode, error) {
+// GetNode 实现 ExplorationGraphReader 接口。
+func (w *knowledgeGraphAdapter) GetNode(ctx context.Context, id string) (*ExplorationGraphNode, error) {
 	node, err := w.store.GetNode(ctx, id)
 	if err != nil {
 		return nil, err
 	}
 
-	return &KnowledgeGraphNode{
+	return &ExplorationGraphNode{
 		ID:       node.ID,
 		Metadata: json.RawMessage(node.Metadata),
 	}, nil

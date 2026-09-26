@@ -12,7 +12,7 @@ import (
 	"github.com/V3teran/liusha/internal/framework/core"
 	"github.com/V3teran/liusha/internal/framework/llm"
 	"github.com/V3teran/liusha/internal/framework/runtime"
-	"github.com/V3teran/liusha/internal/knowledgegraph"
+	"github.com/V3teran/liusha/internal/explorationgraph"
 )
 
 // Engine 是基于 LLM + ReAct 的执行引擎
@@ -45,7 +45,7 @@ func NewEngine(cfg EngineConfig) *Engine {
 }
 
 // Execute 执行一个 Action，返回生成的 Attempt 列表
-func (e *Engine) Execute(ctx context.Context, action knowledgegraph.Node, taskID, host string) ([]evaluator.Attempt, error) {
+func (e *Engine) Execute(ctx context.Context, action explorationgraph.Node, taskID, host string) ([]evaluator.Attempt, error) {
 	e.logger.Info().
 		Str("action_id", action.ID).
 		Str("task_id", taskID).
