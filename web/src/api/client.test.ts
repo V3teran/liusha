@@ -1,10 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import {
-  getApiKey, setApiKey, listScenarios, listConversations, listMessages, startChat, followUp, abortScan,
+  getApiKey, setApiKey, listConversations, listMessages, startChat, followUp, abortScan,
   listTasks, startActiveScan, abortTask, listLLMInvocations,
   getLLMInvocationStat, getLLMInvocationFacets,
   listCredentials, saveCredentialsBatch, deleteCredentials,
   deleteConversation, renameConversation, authStream, bootstrapApiKey,
+  listFindings, listFindingHosts, updateFindingTriage,
 } from './client'
 
 describe('API 客户端', () => {
@@ -32,23 +33,6 @@ describe('API 客户端', () => {
   })
 
   describe('HTTP 请求', () => {
-    it('listScenarios 添加 X-API-Key header 并拆出 scenarios', async () => {
-      setApiKey('my-key')
-      const mockFetch = vi.fn().mockResolvedValue({
-        ok: true,
-        json: vi.fn().mockResolvedValue({ scenarios: [{ id: 'u1', code: 'web_app', name: 'Web 应用', description: 'desc' }] }),
-      })
-      ;(global as any).fetch = mockFetch
-
-      const scenarios = await listScenarios()
-
-      expect(mockFetch).toHaveBeenCalledWith('/api/scenarios', {
-        headers: { 'X-API-Key': 'my-key' },
-      })
-      expect(scenarios).toHaveLength(1)
-      expect(scenarios[0].code).toBe('web_app')
-    })
-
     it('listConversations 返回会话列表 + hasMore，且带 limit/offset query', async () => {
       const mockFetch = vi.fn().mockResolvedValue({
         ok: true,
@@ -117,7 +101,7 @@ describe('API 客户端', () => {
       })
       ;(global as any).fetch = mockFetch
 
-      const result = await startChat('scan target', 'web_app')
+      const result = await startChat('scan target')
 
       expect(result.conversation_id).toBe('conv-123')
       expect(result.scan_id).toBe('scan-456')
@@ -127,7 +111,7 @@ describe('API 客户端', () => {
           'X-API-Key': 'my-key',
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ brief: 'scan target', scenario_id: 'web_app' }),
+        body: JSON.stringify({ brief: 'scan target', scenario_id: '' }),
       })
     })
 
@@ -135,7 +119,7 @@ describe('API 客户端', () => {
       const mockFetch = vi.fn().mockResolvedValue({ ok: false, status: 401 })
       ;(global as any).fetch = mockFetch
 
-      await expect(listScenarios()).rejects.toThrow('GET /scenarios → 401')
+      await expect(listConversations()).rejects.toThrow('GET /conversations?limit=30&offset=0 → 401')
     })
   })
 
@@ -472,16 +456,6 @@ describe('API 客户端', () => {
       expect(mockFetch).toHaveBeenCalledWith('/api/findings/hosts', { headers: { 'X-API-Key': '' } })
     })
 
-    it('listFindingScenarios 拆出 scenarios 数组', async () => {
-      const mockFetch = vi.fn().mockResolvedValue({ ok: true, json: vi.fn().mockResolvedValue({ scenarios: ['api-pentest'] }) })
-      ;(global as any).fetch = mockFetch
-
-      const scenarios = await listFindingScenarios()
-
-      expect(scenarios).toEqual(['api-pentest'])
-      expect(mockFetch).toHaveBeenCalledWith('/api/findings/scenarios', { headers: { 'X-API-Key': '' } })
-    })
-
     it('updateFindingTriage PATCH 状态/严重度/备注，返回更新后的行', async () => {
       const mockFetch = vi.fn().mockResolvedValue({
         ok: true,
@@ -498,9 +472,5 @@ describe('API 客户端', () => {
       )
     })
   })
-
-
-  describe('LLM 审计详情', () => {
-    })
-  })
-})
+}
+)

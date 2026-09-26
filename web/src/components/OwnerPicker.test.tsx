@@ -16,7 +16,6 @@ function makeTask(overrides: Partial<OwnerSummary> = {}): OwnerSummary {
     id: 'owner-aaaaaaaa-1111',
     scope: '{}',
     status: 'running',
-    scenario_id: 'web-pentest-killchain',
     created_at: '2026-01-01T00:00:00Z',
     ...overrides,
   }
@@ -60,14 +59,14 @@ describe('OwnerPicker', () => {
     expect(onChange).not.toHaveBeenCalled()
   })
 
-  it('选项标签展示场景 code', async () => {
-    const tasks = [makeTask({ id: 'aaaaaaaa-1111', scenario_id: 'api-pentest' })]
+  it('选项标签展示对话 id 前缀与状态', async () => {
+    const tasks = [makeTask({ id: 'aaaaaaaa-1111', status: 'running' })]
     mockedListTasks.mockResolvedValue(tasks)
     const onChange = vi.fn()
 
     render(<OwnerPicker value="" onChange={onChange} />)
 
-    expect(await screen.findByText(/api-pentest/)).toBeTruthy()
+    expect(await screen.findByText(/aaaaaaaa · running/)).toBeTruthy()
   })
 
   it('点击刷新按钮重新拉取列表', async () => {

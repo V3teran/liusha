@@ -38,7 +38,7 @@ export function Composer({ convId, scanning, onStarted, onAppended, onStop }: Co
         setBusyMsg(r.intent === 'qa' ? '正在回答…' : '已触发扫描')
         onAppended(beforeSeq)
       } else {
-        const { conversation_id } = await startChat(brief, '')
+        const { conversation_id } = await startChat(brief)
         setBrief('')
         onStarted(conversation_id)
       }
