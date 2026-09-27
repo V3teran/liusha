@@ -8,7 +8,7 @@ import (
 	"github.com/rs/zerolog"
 )
 
-// pollTaskWithGraphStats 使用新的知识图谱 API 轮询任务完成
+// pollTaskWithGraphStats 使用新的探索图 API 轮询任务完成
 // 替代旧的 pollTaskCompletion（基于 finding 表）
 func pollTaskWithGraphStats(
 	ctx context.Context,
@@ -26,7 +26,7 @@ func pollTaskWithGraphStats(
 		Int("min_objectives", criteria.MinObjectives).
 		Int("min_actions", criteria.MinActions).
 		Int("min_results", criteria.MinResults).
-		Msg("开始轮询任务（知识图谱模式）")
+		Msg("开始轮询任务（探索图模式）")
 
 	var lastStats GraphStats
 	noProgressCount := 0
@@ -42,7 +42,7 @@ func pollTaskWithGraphStats(
 					pollDeadline(), lastStats)
 			}
 
-			// 查询知识图谱统计
+			// 查询探索图统计
 			stats, err := client.GetTaskStats(ctx, taskID)
 			if err != nil {
 				logger.Warn().Err(err).Msg("获取任务统计失败，继续轮询")

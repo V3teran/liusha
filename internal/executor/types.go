@@ -260,12 +260,12 @@ type SSEEvent struct {
 	Data     any
 }
 
-// ExplorationGraphReader 是只读的知识图谱接口（用于解耦）。
+// ExplorationGraphReader 是只读的探索图接口（用于解耦）。
 type ExplorationGraphReader interface {
 	GetNode(ctx context.Context, id string) (*ExplorationGraphNode, error)
 }
 
-// ExplorationGraphNode 是知识图谱节点的简化表示。
+// ExplorationGraphNode 是探索图节点的简化表示。
 type ExplorationGraphNode struct {
 	ID       string
 	Metadata json.RawMessage

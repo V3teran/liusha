@@ -8,7 +8,7 @@ import (
 	"github.com/rs/zerolog"
 )
 
-// runActiveProfiles 顺序跑被选的 active profile：调 POST /chat → 轮询知识图谱。
+// runActiveProfiles 顺序跑被选的 active profile：调 POST /chat → 轮询探索图。
 func runActiveProfiles(ctx context.Context, profs []activeProfile, apiBase, apiKey string, pool *pgxpool.Pool, logger zerolog.Logger) error {
 	kgClient := NewExplorationGraphClient(pool)
 
@@ -27,7 +27,7 @@ func runActiveProfiles(ctx context.Context, profs []activeProfile, apiBase, apiK
 			Int("min_results", ap.acceptance.MinResults).
 			Msg("active chat scan dispatched")
 
-		// 使用知识图谱轮询（直接查询数据库）
+		// 使用探索图轮询（直接查询数据库）
 		if err := pollTaskWithGraphStats(ctx, kgClient, taskID, ap.acceptance, &logger); err != nil {
 			return fmt.Errorf("active profile %s: %w", ap.name, err)
 		}

@@ -1,4 +1,4 @@
-// Package planner 提供规划层（PlannerAgent），负责根据知识图谱节点生成可执行的 Action
+// Package planner 提供规划层（PlannerAgent），负责根据探索图节点生成可执行的 Action
 package planner
 
 import (
@@ -19,7 +19,7 @@ import (
 //
 // 职责：
 // - 监听 EventVerificationPassed/Refuted 事件
-// - 根据知识图谱生成新的 Action
+// - 根据探索图生成新的 Action
 // - 发布 EventActionProposed 事件
 type PlannerAgent struct {
 	taskID       string
@@ -128,7 +128,7 @@ func (a *PlannerAgent) handleEvent(ctx context.Context, event bus.Event) error {
 	}
 }
 
-// planActions 根据当前知识图谱生成新的 Action
+// planActions 根据当前探索图生成新的 Action
 func (a *PlannerAgent) planActions(ctx context.Context) error {
 	a.logger.Debug().
 		Str("task_id", a.taskID).
@@ -229,10 +229,10 @@ func (a *PlannerAgent) planActions(ctx context.Context) error {
 		return nil
 	}
 
-	// 将新 Action 写入知识图谱
+	// 将新 Action 写入探索图
 	a.logger.Info().
 		Int("action_count", len(actions)).
-		Msg("准备写入 Actions 到知识图谱")
+		Msg("准备写入 Actions 到探索图")
 
 	// 获取当前 Objective（用于关联 Actions）
 	objectives, err := a.world.ListNodesByKind(ctx, a.taskID, core.KindObjective)

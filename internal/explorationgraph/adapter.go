@@ -10,14 +10,14 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// AdapterStore 是知识图谱的 Framework 适配器
+// AdapterStore 是探索图的 Framework 适配器
 // 使用 Framework 的 GraphStore 和标准类型
 type AdapterStore struct {
 	graphStore core.GraphStore
 	pool       *pgxpool.Pool // 用于 Roadmap 等直接 SQL 操作（仅在 NewStore 中设置）
 }
 
-// NewAdapterStore 创建知识图谱适配器
+// NewAdapterStore 创建探索图适配器
 func NewAdapterStore(graphStore core.GraphStore) *AdapterStore {
 	return &AdapterStore{
 		graphStore: graphStore,
@@ -470,7 +470,7 @@ func confidenceToFloat(c core.ObservationConfidence) float64 {
 }
 
 // ─────────────────────────────────────────────
-// HTTP API 专用方法（Phase 1: 知识图谱 API）
+// HTTP API 专用方法（Phase 1: 探索图 API）
 // ─────────────────────────────────────────────
 
 // ListNodesForAPI 按 task_id 和可选 kind 查询节点（HTTP API 专用）

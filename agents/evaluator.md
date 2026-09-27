@@ -6,7 +6,7 @@ description: 评估和验证 Observation，产生 Result。负责区分"工具�
 function_tools:
   - write_evaluation
   - write_result
-  - read_knowledge_graph
+  - read_exploration_graph
   - replay_for_verification
 cli_tools: []
 skills:
@@ -32,7 +32,7 @@ tier: standard
 
 ## 工作流程
 
-1. 读取待评估的 Observation（从 KnowledgeGraph）
+1. 读取待评估的 Observation（从 ExplorationGraph）
 2. 分析实际输出（不是工具声称的）
 3. 如需要，执行额外验证
 4. 产生 Evaluation（CONFIRMS 或 REFUTES）
