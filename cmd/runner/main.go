@@ -133,7 +133,19 @@ func main() {
 	skills := newRunnerSkills(cfg, logger)
 	profiles := newDomainRegistry(logger)
 	launcher := newSandboxLauncher(ctx, cfg, runnerCfg, logger)
-	sandboxMgr := sandbox.NewPooledManager(launcher, logger, 30000) // 30 秒 grace period
+
+	// Sandbox 管理器：热池模式（空闲 30 分钟后自动回收）
+	sandboxMgr := sandbox.NewWarmPoolManager(launcher, logger, sandbox.WarmPoolConfig{
+		IdleTimeout:       30 * time.Minute,
+		HealthCheckPeriod: 30 * time.Second,
+		ShutdownTimeout:   30 * time.Second,
+	})
+
+	// 启动时预创建 sandbox 容器（可选，不调用也能正常工作）
+	if err := sandboxMgr.EnsureRunning(ctx); err != nil {
+		logger.Fatal().Err(err).Msg("failed to start warm pool sandbox")
+	}
+	logger.Info().Msg("warm pool sandbox started successfully")
 
 	// 共享多级缓存内核（L1 内存 + L2 redis + 跨进程失效总线）：一条 Subscribe 循环
 	// 覆盖全部配置资源。Subscribe 阻塞运行（内部 for-select 直到 ctx 取消），必须后台起——
@@ -186,7 +198,17 @@ func main() {
 	}
 
 	mux := worker.NewMux()
-	mux.Register(worker.RoleExecutor, h.handle)
+
+	// 默认使用纯热池 handler（无数据库依赖，极简高效）
+	// 设置 USE_LEGACY_HANDLER=true 可切换回旧的完整 handler
+	if os.Getenv("USE_LEGACY_HANDLER") != "true" {
+		warmHandler := newWarmPoolHandler(sandboxMgr, logger)
+		mux.Register(worker.RoleExecutor, warmHandler.handle)
+		logger.Info().Msg("using pure warm pool handler (default)")
+	} else {
+		mux.Register(worker.RoleExecutor, h.handle)
+		logger.Warn().Msg("using legacy handler (requires database)")
+	}
 
 	srv := asynq.NewServer(
 		asynq.RedisClientOpt{Addr: redisAddrFromEnv()},
@@ -488,9 +510,12 @@ func awaitShutdownSignal(logger zerolog.Logger) os.Signal {
 }
 
 // runShutdownSequence 优雅关停：沙箱容器 → ingestor → asynq（带超时）→ healthz。
-func runShutdownSequence(logger zerolog.Logger, runnerCfg config.RunnerConfig, sandboxMgr *sandbox.PooledManager, srv *asynq.Server, hs *http.Server, trafficCancel context.CancelFunc) {
-	if err := sandboxMgr.DestroyAll(context.Background()); err != nil {
-		logger.Warn().Err(err).Msg("sandboxMgr.DestroyAll 失败（best-effort）")
+func runShutdownSequence(logger zerolog.Logger, runnerCfg config.RunnerConfig, sandboxMgr sandbox.Manager, srv *asynq.Server, hs *http.Server, trafficCancel context.CancelFunc) {
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	if err := sandboxMgr.Shutdown(shutdownCtx); err != nil {
+		logger.Warn().Err(err).Msg("sandboxMgr.Shutdown 失败（best-effort）")
 	}
 
 	trafficCancel()
@@ -506,9 +531,9 @@ func runShutdownSequence(logger zerolog.Logger, runnerCfg config.RunnerConfig, s
 		logger.Warn().Int("timeout_seconds", runnerCfg.AsynqShutdownTimeoutSeconds).
 			Msg("asynq shutdown timeout — in-flight tasks may be aborted")
 	}
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), time.Duration(runnerCfg.ShutdownTimeoutSeconds)*time.Second)
-	defer cancel()
-	if err := hs.Shutdown(shutdownCtx); err != nil {
+	hsCtx, hsCancel := context.WithTimeout(context.Background(), time.Duration(runnerCfg.ShutdownTimeoutSeconds)*time.Second)
+	defer hsCancel()
+	if err := hs.Shutdown(hsCtx); err != nil {
 		logger.Error().Err(err).Msg("healthz shutdown")
 	}
 	logger.Info().Msg("runner stopped")

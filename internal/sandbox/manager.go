@@ -2,109 +2,172 @@ package sandbox
 
 import (
 	"context"
-	"fmt"
-	"sync"
+	"time"
 )
 
-// Manager 管理 per-Assignment Sandbox 生命周期，支持多 Task 共享同一容器。
-//
-// 核心语义：一个 Assignment 一个 Sandbox 容器，同一 Assignment 的多个 Task 复用。
-// GetOrSpawn 幂等创建，Destroy 显式销毁，DestroyAll 清理所有（进程退出时）。
-type Manager struct {
-	launcher Launcher
-	mu       sync.RWMutex
-	active   map[string]Client // assignmentID -> Client
+// Manager 是 Sandbox 生命周期管理的统一接口。
+// 不同的实现策略（单例、简单池、Per-User 池、全局调度器）都实现此接口，
+// 使得切换策略时无需修改调用方代码。
+type Manager interface {
+	// Acquire 获取一个可用的 Sandbox。
+	// req 包含任务 ID、用户 ID 等上下文信息。
+	Acquire(ctx context.Context, req AcquireRequest) (*Sandbox, error)
+
+	// Release 释放 Sandbox。
+	// 不同实现的行为：
+	//   - SingletonManager: 空操作（不销毁容器）
+	//   - PoolManager: 放回池中复用
+	//   - GlobalScheduler: 根据调度策略决定是否回收
+	Release(ctx context.Context, sb *Sandbox) error
+
+	// Healthz 健康检查。
+	// 返回 nil 表示管理器及其管理的 Sandbox 都健康。
+	Healthz(ctx context.Context) error
+
+	// Metrics 返回当前监控指标。
+	Metrics() ManagerMetrics
+
+	// Shutdown 优雅关闭，清理所有资源。
+	Shutdown(ctx context.Context) error
 }
 
-// NewManager 构造 Manager。
-func NewManager(launcher Launcher) *Manager {
-	return &Manager{
-		launcher: launcher,
-		active:   make(map[string]Client),
-	}
+// AcquireRequest 是获取 Sandbox 的请求参数。
+type AcquireRequest struct {
+	TaskID     string // 任务 ID（必填）
+	UserID     string // 用户 ID（可选，Per-User 池时使用）
+	Priority   int    // 优先级（可选，全局调度器时使用，0=normal）
+	Timeout    time.Duration // 获取超时（可选，0=使用默认值）
+	WorkDir    string // 工作目录（可选，为空则自动生成 /work/{taskID}）
 }
 
-// GetOrSpawn 获取或创建指定 Assignment 的 Sandbox。
-//
-// 首次调用创建容器（容器名 = liusha-sandbox-{assignmentID}），后续调用返回缓存 Client。
-// 并发安全：多个 Task 同时请求同一 Assignment 只创建一次容器。
-func (m *Manager) GetOrSpawn(ctx context.Context, assignmentID string) (Client, error) {
-	if assignmentID == "" {
-		return nil, fmt.Errorf("sandbox.Manager: assignmentID 为空")
-	}
-
-	// 快路径：已存在直接返回
-	m.mu.RLock()
-	if client, ok := m.active[assignmentID]; ok {
-		m.mu.RUnlock()
-		return client, nil
-	}
-	m.mu.RUnlock()
-
-	// 慢路径：加写锁创建（double-check 防并发重复创建）
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	if client, ok := m.active[assignmentID]; ok {
-		return client, nil
-	}
-
-	client, err := m.launcher.Spawn(ctx, assignmentID)
-	if err != nil {
-		return nil, fmt.Errorf("sandbox.Manager: Spawn(%s) 失败: %w", assignmentID, err)
-	}
-
-	m.active[assignmentID] = client
-	return client, nil
+// Sandbox 是对容器客户端的封装，增加任务隔离能力。
+type Sandbox struct {
+	Client    Client // 底层容器客户端
+	ID        string // 容器 ID
+	TaskID    string // 当前关联的任务 ID
+	WorkDir   string // 任务工作目录
+	CreatedAt time.Time
 }
 
-// Destroy 销毁指定 Assignment 的 Sandbox 容器。
-//
-// 从缓存删除并调用 launcher.Destroy。幂等：重复调用不报错。
-// 用于手动清理或 Assignment 明确完成时。
-func (m *Manager) Destroy(ctx context.Context, assignmentID string) error {
-	if assignmentID == "" {
-		return fmt.Errorf("sandbox.Manager: assignmentID 为空")
+// ManagerMetrics 是 Sandbox 管理器的监控指标。
+type ManagerMetrics struct {
+	// 基础指标（所有实现都支持）
+	TotalSandboxes   int     // 总容器数
+	HealthyCount     int     // 健康容器数
+	AcquireLatencyMs float64 // 平均获取延迟（毫秒）
+	AcquireTotal     int64   // 累计获取次数
+	AcquireErrors    int64   // 累计获取失败次数
+
+	// 高级指标（池化实现支持）
+	WarmPoolSize     int     // 预热池大小
+	BusyPoolSize     int     // 使用中容器数
+	IdlePoolSize     int     // 空闲容器数
+	QueueLength      int     // 等待队列长度
+	UtilizationRatio float64 // 利用率（busy / total）
+
+	// 生命周期指标
+	CreatedTotal   int64 // 累计创建容器数
+	DestroyedTotal int64 // 累计销毁容器数
+	ResetTotal     int64 // 累计重置次数
+}
+
+// PrepareWorkDir 准备任务工作目录。
+// 注意：实际的工作目录由 sandbox-server 管理（/liusha/<task_id>/<agent_id>/workspace/）。
+// 这里不需要创建任何目录，sandbox-server 会自动创建。
+func (sb *Sandbox) PrepareWorkDir(ctx context.Context) error {
+	// 设置工作目录标识（用于日志）
+	if sb.WorkDir == "" {
+		sb.WorkDir = "/liusha/" + sb.TaskID
 	}
 
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	if _, ok := m.active[assignmentID]; !ok {
-		return nil // 已不存在，幂等成功
-	}
-
-	delete(m.active, assignmentID)
-
-	if err := m.launcher.Destroy(ctx, assignmentID); err != nil {
-		return fmt.Errorf("sandbox.Manager: Destroy(%s) 失败: %w", assignmentID, err)
-	}
+	// 不需要实际创建目录，sandbox-server 会在 exec 时自动创建
+	// /liusha/<task_id>/<agent_id>/workspace/ 和 output/
 
 	return nil
 }
 
-// DestroyAll 清理所有活跃 Sandbox 容器。
-//
-// 进程退出时调用，best-effort 清理所有缓存容器。单个失败不阻塞后续。
-// 返回第一个遇到的错误（如有），但会继续尝试清理所有容器。
-func (m *Manager) DestroyAll(ctx context.Context) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	var firstErr error
-	for assignmentID := range m.active {
-		if err := m.launcher.Destroy(ctx, assignmentID); err != nil && firstErr == nil {
-			firstErr = fmt.Errorf("sandbox.Manager: DestroyAll 失败于 %s: %w", assignmentID, err)
-		}
-		delete(m.active, assignmentID)
+// CleanupWorkDir 清理任务工作目录。
+// 注意：清理整个 Task 级别的目录（包括所有 Agent 的子目录）。
+func (sb *Sandbox) CleanupWorkDir(ctx context.Context) error {
+	if sb.WorkDir == "" {
+		return nil
 	}
 
-	return firstErr
+	// 删除整个 Task 目录（/liusha/<task_id>/）
+	_, err := sb.Client.Exec(ctx, ExecRequest{
+		TaskID:         sb.TaskID,
+		AgentID:        "cleanup",
+		Command:        "rm -rf " + sb.WorkDir,
+		TimeoutSeconds: 30,
+	})
+	return err
 }
 
-// Count 返回当前活跃 Sandbox 数量（调试/监控用）。
-func (m *Manager) Count() int {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return len(m.active)
+// SoftReset 软重置 Sandbox（清理任务目录，不销毁容器）。
+func (sb *Sandbox) SoftReset(ctx context.Context) error {
+	// 1. 清理任务目录（整个 /liusha/<task_id>/）
+	if err := sb.CleanupWorkDir(ctx); err != nil {
+		return err
+	}
+
+	// 2. Kill 残留进程（增强版：先 TERM，等待 2 秒，再 KILL）
+	// 杀掉所有非 init/sandbox-server 的进程
+	cleanupScript := `
+		# 获取 sandbox-server 的 PID（保护它不被杀）
+		SERVER_PID=$(pgrep -f sandbox-server | head -1)
+
+		# 杀掉其他所有进程（排除 PID 1, sandbox-server, 以及当前 bash）
+		for pid in $(ps aux | awk 'NR>1 {print $2}'); do
+			if [ "$pid" != "1" ] && [ "$pid" != "$SERVER_PID" ] && [ "$pid" != "$$" ]; then
+				kill -TERM "$pid" 2>/dev/null || true
+			fi
+		done
+
+		# 等待进程优雅退出
+		sleep 2
+
+		# 强制杀掉仍然存活的进程
+		for pid in $(ps aux | awk 'NR>1 {print $2}'); do
+			if [ "$pid" != "1" ] && [ "$pid" != "$SERVER_PID" ] && [ "$pid" != "$$" ]; then
+				kill -KILL "$pid" 2>/dev/null || true
+			fi
+		done
+	`
+	_, _ = sb.Client.Exec(ctx, ExecRequest{
+		TaskID:         "reset",
+		AgentID:        "cleanup",
+		Command:        cleanupScript,
+		TimeoutSeconds: 10,
+	})
+
+	// 3. 清理临时文件（保留重要的系统目录）
+	// 只清理用户可能创建的临时文件，不影响系统文件
+	_, _ = sb.Client.Exec(ctx, ExecRequest{
+		TaskID:         "reset",
+		AgentID:        "cleanup",
+		Command:        "find /tmp -mindepth 1 -maxdepth 1 ! -name '.X*' ! -name '.ICE-unix' -exec rm -rf {} + 2>/dev/null || true",
+		TimeoutSeconds: 10,
+	})
+
+	// 4. 清理共享内存（防止内存泄漏）
+	_, _ = sb.Client.Exec(ctx, ExecRequest{
+		TaskID:         "reset",
+		AgentID:        "cleanup",
+		Command:        "rm -rf /dev/shm/* 2>/dev/null || true",
+		TimeoutSeconds: 5,
+	})
+
+	// 5. 清理可能的僵尸进程
+	_, _ = sb.Client.Exec(ctx, ExecRequest{
+		TaskID:         "reset",
+		AgentID:        "cleanup",
+		Command:        "ps aux | awk '$8==\"Z\" {print $2}' | xargs -r kill -9 2>/dev/null || true",
+		TimeoutSeconds: 5,
+	})
+
+	// 6. 重置状态
+	sb.TaskID = ""
+	sb.WorkDir = ""
+
+	return nil
 }
