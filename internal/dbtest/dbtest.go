@@ -24,7 +24,7 @@ import (
 // 容器和连接池都通过 t.Cleanup 自动回收。
 func NewPgPool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 180*time.Second)
 	t.Cleanup(cancel)
 
 	c, err := tcpostgres.Run(ctx, "pgvector/pgvector:pg17",
