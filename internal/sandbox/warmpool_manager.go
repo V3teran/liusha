@@ -226,12 +226,15 @@ func (m *WarmPoolManager) Healthz(ctx context.Context) error {
 }
 
 // Metrics 返回监控指标。
+// 健康探测在锁外执行：exec 最多阻塞 5s，持锁探测会卡住 Acquire/Release。
 func (m *WarmPoolManager) Metrics() ManagerMetrics {
 	m.mu.RLock()
-	defer m.mu.RUnlock()
-
 	total := m.acquireTotal.Load()
 	latency := m.acquireLatency.Load()
+	sandbox := m.sandbox
+	inUse := m.inUse
+	m.mu.RUnlock()
+
 	avgLatencyMs := float64(0)
 	if total > 0 {
 		avgLatencyMs = float64(latency) / float64(total) / 1000.0 // 微秒 → 毫秒
@@ -239,17 +242,19 @@ func (m *WarmPoolManager) Metrics() ManagerMetrics {
 
 	healthyCount := 0
 	totalSandboxes := 0
-	if m.sandbox != nil {
+	if sandbox != nil {
 		totalSandboxes = 1
-		if err := m.checkHealth(context.Background(), m.sandbox); err == nil {
+		hctx, hcancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer hcancel()
+		if err := m.checkHealth(hctx, sandbox); err == nil {
 			healthyCount = 1
 		}
 	}
 
 	busyCount := 0
 	idleCount := 0
-	if m.sandbox != nil {
-		if m.inUse {
+	if sandbox != nil {
+		if inUse {
 			busyCount = 1
 		} else {
 			idleCount = 1
@@ -392,7 +397,9 @@ func (m *WarmPoolManager) destroySandboxLocked() {
 		return
 	}
 
-	if err := m.launcher.Destroy(context.Background(), m.sandbox.ID); err != nil {
+	destroyCtx, destroyCancel := context.WithTimeout(context.Background(), m.shutdownTimeout)
+	defer destroyCancel()
+	if err := m.launcher.Destroy(destroyCtx, m.sandbox.ID); err != nil {
 		m.logger.Error().
 			Err(err).
 			Str("container_id", m.sandbox.ID).
@@ -417,11 +424,4 @@ func (m *WarmPoolManager) checkHealth(ctx context.Context, sb *Sandbox) error {
 		TimeoutSeconds: 5,
 	})
 	return err
-}
-
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
 }

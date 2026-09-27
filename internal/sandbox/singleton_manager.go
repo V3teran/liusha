@@ -21,8 +21,8 @@ type SingletonManager struct {
 	sandbox *Sandbox // 单例容器
 
 	// 监控指标
-	acquireTotal  atomic.Int64
-	acquireErrors atomic.Int64
+	acquireTotal   atomic.Int64
+	acquireErrors  atomic.Int64
 	acquireLatency atomic.Int64 // 累计延迟（微秒）
 
 	// 配置

@@ -33,11 +33,11 @@ type Manager interface {
 
 // AcquireRequest 是获取 Sandbox 的请求参数。
 type AcquireRequest struct {
-	TaskID     string // 任务 ID（必填）
-	UserID     string // 用户 ID（可选，Per-User 池时使用）
-	Priority   int    // 优先级（可选，全局调度器时使用，0=normal）
-	Timeout    time.Duration // 获取超时（可选，0=使用默认值）
-	WorkDir    string // 工作目录（可选，为空则自动生成 /work/{taskID}）
+	TaskID   string        // 任务 ID（必填）
+	UserID   string        // 用户 ID（可选，Per-User 池时使用）
+	Priority int           // 优先级（可选，全局调度器时使用，0=normal）
+	Timeout  time.Duration // 获取超时（可选，0=使用默认值）
+	WorkDir  string        // 工作目录（可选，为空则自动生成 /work/{taskID}）
 }
 
 // Sandbox 是对容器客户端的封装，增加任务隔离能力。
