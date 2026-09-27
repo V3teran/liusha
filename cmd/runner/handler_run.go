@@ -8,6 +8,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/V3teran/liusha/internal/sandbox"
+
 	executorbuilder "github.com/V3teran/liusha/internal/builder/executor"
 	"github.com/V3teran/liusha/internal/executor"
 	"github.com/V3teran/liusha/internal/explorationgraph"
@@ -244,16 +246,24 @@ func (h handler) handleCognition(
 	}
 	virtualHost := h.onboard(ctx, assignmentID, taskID, brief)
 
-	// Sandbox 按 Assignment 粒度管理
-	_, err := h.sandboxMgr.Acquire(ctx, assignmentID)
+	// 获取 Sandbox（单例模式：所有任务共享一个容器，通过工作目录隔离）
+	sb, err := h.sandboxMgr.Acquire(ctx, sandbox.AcquireRequest{
+		TaskID: taskID,
+	})
 	if err != nil {
-		return h.failTask(ctx, p.AgentID, fmt.Errorf("sandboxMgr.Acquire(%s): %w", assignmentID, err))
+		return h.failTask(ctx, p.AgentID, fmt.Errorf("sandboxMgr.Acquire(task=%s): %w", taskID, err))
 	}
 	defer func() {
-		if err := h.sandboxMgr.Release(context.Background(), assignmentID); err != nil {
-			h.logger.Warn().Err(err).Str("assignment_id", assignmentID).Msg("sandboxMgr.Release 失败")
+		if err := h.sandboxMgr.Release(context.Background(), sb); err != nil {
+			h.logger.Warn().Err(err).Str("task_id", taskID).Msg("sandboxMgr.Release 失败")
 		}
 	}()
+
+	h.logger.Info().
+		Str("task_id", taskID).
+		Str("sandbox_id", sb.ID).
+		Str("work_dir", sb.WorkDir).
+		Msg("sandbox acquired for task")
 
 	// 执行四Agent认知循环
 	report, err := h.runCognition(ctx, assignmentID, taskID, virtualHost)

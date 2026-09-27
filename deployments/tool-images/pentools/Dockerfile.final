@@ -19,6 +19,7 @@ COPY go.mod go.sum ./
 COPY vendor ./vendor
 COPY cmd/sandbox-server cmd/sandbox-server
 COPY internal/sandbox internal/sandbox
+COPY internal/logx internal/logx
 ENV CGO_ENABLED=0
 RUN go build -mod=vendor -o /out/sandbox-server ./cmd/sandbox-server
 

@@ -52,7 +52,7 @@ type handler struct {
 	hostSem    *ratelimit.HostSemaphore
 	settings   *settingstore.Store
 	runnerCfg  config.RunnerConfig
-	sandboxMgr *sandbox.PooledManager
+	sandboxMgr sandbox.Manager // 改为接口类型（支持 SingletonManager 和未来的其他实现）
 	logger     zerolog.Logger
 
 	// LLM 路由（tier → provider）
