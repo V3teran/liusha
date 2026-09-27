@@ -1,4 +1,4 @@
-// Package explorationgraph 实现统一的知识图谱（认知图）。
+// Package explorationgraph 实现统一的探索图。
 //
 // 设计决策（2026-08-28 重构 + 2026-09-XX ReAct 对齐）：
 // 1. 5 种节点类型：objective/action/observation/evaluation/result
@@ -96,7 +96,7 @@ const (
 	SourceSystem    SourceType = "system"    // 系统创建
 )
 
-// Node 是知识图谱的节点（5 种类型统一表）
+// Node 是探索图的节点（5 种类型统一表）
 type Node struct {
 	ID      string          `json:"id"`
 	TaskID  string          `json:"task_id"`
@@ -126,7 +126,7 @@ type Node struct {
 	CompletedAt *time.Time `json:"completed_at,omitempty"`
 }
 
-// Edge 是知识图谱的关系边（5 种关系）
+// Edge 是探索图的关系边（5 种关系）
 type Edge struct {
 	TaskID    string          `json:"task_id"`
 	SrcID     string          `json:"src_id"`

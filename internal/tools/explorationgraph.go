@@ -44,7 +44,7 @@ type writeObservationTool struct{ deps Deps }
 func (t *writeObservationTool) Name() string      { return "write_observation" }
 func (t *writeObservationTool) ShortDesc() string { return "记录待验证的假设" }
 func (t *writeObservationTool) Desc() string {
-	return "记录一个待验证的假设到世界模型。假设是基于观察和推理提出的，需要后续通过实验验证。"
+	return "记录一个待验证的假设到探索图。假设是基于观察和推理提出的，需要后续通过实验验证。"
 }
 func (t *writeObservationTool) Schema() json.RawMessage { return writeObservationSchema }
 
@@ -102,7 +102,7 @@ func (t *writeObservationTool) Execute(ctx context.Context, args json.RawMessage
 		UpdatedAt:  time.Now(),
 	}
 
-	// 写入知识图谱
+	// 写入探索图
 	id, err := t.deps.World.CreateNode(ctx, node)
 	if err != nil {
 		return registry.ToolResult{Error: fmt.Sprintf("创建节点失败: %v", err)}, nil

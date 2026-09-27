@@ -9,7 +9,7 @@ import (
 // activeProfile 描述一个 active 模式 e2e 验收剧本：自然语言任务简报 + 验收门槛。
 //
 // brief 自然语言（含目标 URL/凭据/测试方向）整段 POST /chat 喂给 agent LLM，
-// 由 LLM 自行识别 + 自主扫描；验收以知识图谱为断言（objective → action → result）。
+// 由 LLM 自行识别 + 自主扫描；验收以探索图为断言（objective → action → result）。
 type activeProfile struct {
 	name  string
 	brief string

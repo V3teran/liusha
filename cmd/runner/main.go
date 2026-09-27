@@ -274,7 +274,7 @@ func newRunnerStores(pool *pgxpool.Pool, cfg config.Config) *runnerStores {
 		conversations: conversation.NewStore(pool),
 		executors:     agentstore.NewStore(pool),
 		findings:      finding.NewStore(pool),
-		world:         explorationgraph.NewStore(pool), // L3 世界模型持久层（onboard 落 KindObjective 节点）
+		world:         explorationgraph.NewStore(pool), // L3 探索图持久层（onboard 落 KindObjective 节点）
 		toolCalls:     toolinvocation.NewStore(pool),
 		proxyStore:    traffic.NewProxyStore(pool), // 代理捕获流量（passive，按 host）
 		agentStore:    traffic.NewAgentStore(pool), // agent 自产流量（active，按 task）

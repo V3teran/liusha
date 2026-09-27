@@ -183,9 +183,9 @@ func main() {
 	convStore := conversation.NewStore(pool)   // 阶段B：会话/消息
 	toolStore := toolinvocation.NewStore(pool) // 会话用量合计：工具耗时来源
 
-	// Phase 1: 知识图谱 API（e2e 测试迁移专用）
+	// Phase 1: 探索图 API（e2e 测试迁移专用）
 	graphStore := core.NewPostgresGraphStore(pool)
-	kgAdapter := explorationgraph.NewAdapterStore(graphStore)
+	explorationGraphAdapter := explorationgraph.NewAdapterStore(graphStore)
 
 	// 多轮问答/意图分类依赖：light provider 路由 + 问答读 finding + SSE publish。
 	// llmKeyCipher 解密 provider 的加密密钥（migration 0103），构造 client 前才解密，不进缓存。
@@ -255,7 +255,7 @@ func main() {
 			UsageLLM:          invocationStore,              // 会话用量：LLM token/耗时合计
 			UsageTools:        toolStore,                    // 会话用量：工具耗时合计
 			ControlPlane:      controlPlaneStore,            // 任务控制平面（人工干预）
-			ExplorationGraph:  kgAdapter,                    // Phase 1: 知识图谱 API（e2e 测试迁移）
+			ExplorationGraph:  explorationGraphAdapter,      // Phase 1: 探索图 API（e2e 测试迁移）
 			EnableDevAutofill: envx.OrDefault("LIUSHA_DEV_AUTOFILL", "") != "",
 		}),
 		ReadTimeout:  time.Duration(cfg.API.ReadTimeoutSeconds) * time.Second,

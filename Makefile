@@ -73,9 +73,13 @@ test-unit:
 test-integration:
 	go test -race -tags=integration ./...
 
-lint:
+lint: lint-terminology
 	go vet ./...
-	gofmt -l . | tee /dev/stderr | (! read)
+	gofmt -l . | grep -v vendor | tee /dev/stderr | (! read)
+
+# 术语契约门禁（docs/glossary.md 的机器可执行形态）：旧架构命名残留即失败
+lint-terminology:
+	scripts/lint-terminology.sh
 
 vet:
 	go vet ./...

@@ -57,7 +57,7 @@ type PlanningResponse struct {
 	Actions        []ActionProposal `json:"actions"`         // 新提议的 Action
 }
 
-// Plan 基于当前知识图谱状态生成新的 Action
+// Plan 基于当前探索图状态生成新的 Action
 func (i *Intelligence) Plan(ctx context.Context, world *explorationgraph.Store, taskID string) ([]explorationgraph.Node, error) {
 	i.logger.Info().Str("task_id", taskID).Msg("开始智能规划")
 
@@ -85,7 +85,7 @@ func (i *Intelligence) Plan(ctx context.Context, world *explorationgraph.Store, 
 		return []explorationgraph.Node{}, nil
 	}
 
-	// 5. 转换 LLM 提案为知识图谱节点
+	// 5. 转换 LLM 提案为探索图节点
 	nodes := i.convertProposalsToNodes(taskID, response.Actions)
 
 	i.logger.Info().
@@ -352,7 +352,7 @@ func (i *Intelligence) callLLM(ctx context.Context, prompt string) (*PlanningRes
 	return &response, nil
 }
 
-// convertProposalsToNodes 将 LLM 提案转换为知识图谱节点
+// convertProposalsToNodes 将 LLM 提案转换为探索图节点
 func (i *Intelligence) convertProposalsToNodes(taskID string, proposals []ActionProposal) []explorationgraph.Node {
 	var nodes []explorationgraph.Node
 

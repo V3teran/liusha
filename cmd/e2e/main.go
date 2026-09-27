@@ -7,7 +7,7 @@
 //
 // Active 流程（按选中顺序串行跑）：
 //  1. POST /chat body={"brief":"<自然语言任务简报>"} → 拿 (conversation_id, task_id)
-//  2. 按 task_id 轮询知识图谱 → 满足 AcceptanceCriteria（objective/action/result 节点数）为 PASS
+//  2. 按 task_id 轮询探索图 → 满足 AcceptanceCriteria（objective/action/result 节点数）为 PASS
 //
 // 想加新漏洞类型：activeProfiles map 加一行（带 brief 自然语言描述）。
 package main

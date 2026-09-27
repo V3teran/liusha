@@ -72,7 +72,7 @@ const getLayoutedElements = (nodes: Node[], edges: Edge[], direction = 'LR') => 
   return { nodes: layoutedNodes, edges }
 }
 
-export function KnowledgeGraphPage() {
+export function ExplorationGraphPage() {
   const [taskId, setTaskId] = useState<string>('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string>('')

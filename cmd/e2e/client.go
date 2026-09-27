@@ -7,7 +7,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// ExplorationGraphClient 通过数据库直接查询知识图谱统计
+// ExplorationGraphClient 通过数据库直接查询探索图统计
 type ExplorationGraphClient struct {
 	pool *pgxpool.Pool
 }
@@ -19,8 +19,8 @@ func NewExplorationGraphClient(pool *pgxpool.Pool) *ExplorationGraphClient {
 	}
 }
 
-// GetTaskStats 查询任务的知识图谱节点统计
-// 直接查询 wm_node 表（working memory = 知识图谱）
+// GetTaskStats 查询任务的探索图节点统计
+// 直接查询 wm_node 表（working memory = 探索图）
 func (c *ExplorationGraphClient) GetTaskStats(ctx context.Context, taskID string) (GraphStats, error) {
 	query := `
 		SELECT

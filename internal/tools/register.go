@@ -55,7 +55,7 @@ func RegisterAll(reg *registry.Registry, deps Deps) {
 		reg.Register(&readVulnSkillTool{deps: deps})
 	}
 
-	// knowledge graph
+	// exploration graph
 	if deps.World != nil {
 		reg.Register(&writeObservationTool{deps: deps})
 		reg.Register(&writeEvidenceTool{deps: deps})

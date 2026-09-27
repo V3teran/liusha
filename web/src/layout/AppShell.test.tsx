@@ -19,8 +19,8 @@ function renderShell(initialPath: string) {
         <Route path="/findings" element={<AppShell />}>
           <Route index element={<div>child-findings</div>} />
         </Route>
-        <Route path="/knowledge-graph" element={<AppShell />}>
-          <Route index element={<div>child-knowledge-graph</div>} />
+        <Route path="/exploration-graph" element={<AppShell />}>
+          <Route index element={<div>child-exploration-graph</div>} />
         </Route>
       </Routes>
     </MemoryRouter>,

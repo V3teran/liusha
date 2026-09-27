@@ -5,7 +5,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// NewStore 创建知识图谱 Store（使用 Framework GraphStore）
+// NewStore 创建探索图 Store（使用 Framework GraphStore）
 func NewStore(pool *pgxpool.Pool) *Store {
 	graphStore := core.NewPostgresGraphStore(pool)
 	store := NewAdapterStore(graphStore)
@@ -14,7 +14,7 @@ func NewStore(pool *pgxpool.Pool) *Store {
 	return store
 }
 
-// NewMemoryStore 创建内存版知识图谱 Store（用于测试）
+// NewMemoryStore 创建内存版探索图 Store（用于测试）
 func NewMemoryStore() *Store {
 	graphStore := core.NewInMemoryGraphStore()
 	store := NewAdapterStore(graphStore)

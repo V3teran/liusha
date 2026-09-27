@@ -7,8 +7,8 @@ import (
 	"github.com/V3teran/liusha/internal/explorationgraph"
 )
 
-// knowledgeGraphAdapter 将 explorationgraph.Store 适配为 Actor.ExplorationGraphReader 接口。
-type knowledgeGraphAdapter struct {
+// explorationGraphAdapter 将 explorationgraph.Store 适配为 Actor.ExplorationGraphReader 接口。
+type explorationGraphAdapter struct {
 	store *explorationgraph.Store
 }
 
@@ -17,11 +17,11 @@ func NewExplorationGraphAdapter(store *explorationgraph.Store) ExplorationGraphR
 	if store == nil {
 		return nil
 	}
-	return &knowledgeGraphAdapter{store: store}
+	return &explorationGraphAdapter{store: store}
 }
 
 // GetNode 实现 ExplorationGraphReader 接口。
-func (w *knowledgeGraphAdapter) GetNode(ctx context.Context, id string) (*ExplorationGraphNode, error) {
+func (w *explorationGraphAdapter) GetNode(ctx context.Context, id string) (*ExplorationGraphNode, error) {
 	node, err := w.store.GetNode(ctx, id)
 	if err != nil {
 		return nil, err

@@ -41,7 +41,7 @@
 
   /* 执行图 5 类语义节点色：task(任务/结构)=紫 / hypothesis(判断·想)=天蓝 /
      probe(探测·做)=翠绿 / signal(信号·得)=青 / 死路探测=石板灰。finding(漏洞)用 severity 色。
-     攻击图（L3 世界模型）5 类节点：target(交战根)=紫 / asset(攻击面)=翠绿 /
+     攻击图（L3 探索图）5 类节点：target(交战根)=紫 / asset(攻击面)=翠绿 /
      credential(凭据)=天蓝 / access(立足点,多阶段核心)=琥珀；finding 用 severity 威胁色。
      3 类边：enables(攻击链,最重要)=金 / derives(认知因果)=青 / on(归属)走中性 border 色。 */
   --graph-target: oklch(68% 0.15 290);

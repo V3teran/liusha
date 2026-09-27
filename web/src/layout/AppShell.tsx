@@ -31,7 +31,7 @@ const NAV_ITEMS: NavItem[] = [
   { to: '/conversations/manual', label: '对话', icon: MessageSquare, match: '/conversations' },
   { to: '/findings', label: '漏洞', icon: Bug },
   { to: '/traffic', label: '流量', icon: Activity },
-  { to: '/knowledge-graph', label: '探索图', icon: GitBranch },
+  { to: '/exploration-graph', label: '探索图', icon: GitBranch },
   { to: '/llm-audit', label: 'LLM 审计', icon: Cpu },
   { to: '/credentials', label: '凭证库', icon: KeyRound },
   { to: '/config/agents', label: '智能体', icon: Bot },

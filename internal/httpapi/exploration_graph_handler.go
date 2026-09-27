@@ -9,7 +9,7 @@ import (
 	"github.com/V3teran/liusha/internal/explorationgraph"
 )
 
-// ExplorationGraphAPI 是知识图谱查询的窄接口（由 *explorationgraph.AdapterStore 实现）
+// ExplorationGraphAPI 是探索图查询的窄接口（由 *explorationgraph.AdapterStore 实现）
 type ExplorationGraphAPI interface {
 	// ListNodesForAPI 按 task_id 和可选 kind 查询节点
 	ListNodesForAPI(ctx context.Context, taskID string, kind string) ([]explorationgraph.Node, error)
@@ -92,7 +92,7 @@ func getTaskNodes(api ExplorationGraphAPI) gin.HandlerFunc {
 }
 
 // getTaskGraph 处理 GET /api/v1/tasks/{taskId}/graph
-// 返回完整知识图谱（nodes + edges）
+// 返回完整探索图（nodes + edges）
 func getTaskGraph(api ExplorationGraphAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		taskID := c.Param("taskId")

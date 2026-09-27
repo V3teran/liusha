@@ -10,7 +10,7 @@ import (
 	"github.com/V3teran/liusha/internal/framework/core"
 )
 
-// findingContent 是 finding 晋升成世界模型 discovery 节点时写入 Content 的漏洞元数据。
+// findingContent 是 finding 晋升成探索图 discovery 节点时写入 Content 的漏洞元数据。
 // 回指 finding_id/seq 闭合「图节点 ↔ finding 记录」双向溯源。
 type findingContent struct {
 	Type      string                     `json:"type"` // "vulnerability"
@@ -27,7 +27,7 @@ type findingContent struct {
 //
 // 返回 (attempt, true, nil) 表示可晋升；(_, false, nil) 表示该 finding 无复现配方，
 // 不进复现门（只留人读记录，铁律：图只存能坐实的态）。taskID 承接跨轴映射——
-// finding 挂 task 轴，世界模型图挂 scan(assignment) 轴，由调用方传入图归属。
+// finding 挂 task 轴，探索图图挂 scan(assignment) 轴，由调用方传入图归属。
 func AttemptFromFinding(taskID string, f finding.VulnFinding) (evaluator.Attempt, bool, error) {
 	// 无复现配方即不可晋升：Verifier 无从复现，跳过（不是错误——多数存量 finding 如此）。
 	if len(f.Repro) == 0 || string(f.Repro) == "{}" {

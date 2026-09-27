@@ -1,6 +1,6 @@
 // Package executor 定义执行层的核心接口。
 //
-// 更新（2026-08-26）：适配统一世界模型（Move 合并到 Node）
+// 更新（2026-08-26）：适配统一探索图（Move 合并到 Node）
 package executor
 
 import (
@@ -15,7 +15,7 @@ type ExecutorInterface interface {
 	Execute(ctx context.Context, move explorationgraph.Node) ([]evaluator.Attempt, error)
 }
 
-// Promoter 验证 Attempt 并晋升到世界模型（domain-agnostic）
+// Promoter 验证 Attempt 并晋升到探索图（domain-agnostic）
 type Promoter interface {
 	Promote(ctx context.Context, a evaluator.Attempt) (*explorationgraph.Node, error)
 }

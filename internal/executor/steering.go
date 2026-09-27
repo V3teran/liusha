@@ -30,9 +30,9 @@ type KilledReason struct {
 	Reason    string    `json:"reason"`
 }
 
-// applySteeringMessages 读取知识图谱中的 steering 消息并注入到对话历史。
+// applySteeringMessages 读取探索图中的 steering 消息并注入到对话历史。
 func (a *ExecutorAgent) applySteeringMessages(ctx context.Context, actionID string, messages []llm.Message) []llm.Message {
-	// 如果没有知识图谱访问权限，跳过
+	// 如果没有探索图访问权限，跳过
 	if a.world == nil {
 		return messages
 	}
@@ -40,7 +40,7 @@ func (a *ExecutorAgent) applySteeringMessages(ctx context.Context, actionID stri
 	// 读取 action 节点
 	node, err := a.world.GetNode(ctx, actionID)
 	if err != nil {
-		a.logger.Warn().Err(err).Str("action_id", actionID).Msg("failed to read steering messages from knowledge graph")
+		a.logger.Warn().Err(err).Str("action_id", actionID).Msg("failed to read steering messages from exploration graph")
 		return messages
 	}
 
@@ -71,7 +71,7 @@ func (a *ExecutorAgent) applySteeringMessages(ctx context.Context, actionID stri
 		a.logger.Info().
 			Str("action_id", actionID).
 			Int("count", appliedCount).
-			Msg("applied steering messages from knowledge graph")
+			Msg("applied steering messages from exploration graph")
 	}
 
 	return messages

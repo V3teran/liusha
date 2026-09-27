@@ -14,7 +14,7 @@ import (
 	"github.com/V3teran/liusha/internal/registry"
 )
 
-// ObserveStateTool 观察世界模型状态
+// ObserveStateTool 观察探索图状态
 type ObserveStateTool struct {
 	world *explorationgraph.Store
 }
@@ -26,11 +26,11 @@ func NewObserveStateTool(world *explorationgraph.Store) *ObserveStateTool {
 func (t *ObserveStateTool) Name() string { return "observe_state" }
 
 func (t *ObserveStateTool) ShortDesc() string {
-	return "观察世界模型状态"
+	return "观察探索图状态"
 }
 
 func (t *ObserveStateTool) Desc() string {
-	return "观察当前世界模型状态（目标、Action、观察、发现）"
+	return "观察当前探索图状态（目标、Action、观察、发现）"
 }
 
 func (t *ObserveStateTool) Schema() json.RawMessage {
@@ -89,7 +89,7 @@ func (t *ObserveStateTool) Execute(ctx context.Context, argsJSON json.RawMessage
 
 	// 格式化输出
 	var output string
-	output += fmt.Sprintf("## 世界模型状态\n\n")
+	output += fmt.Sprintf("## 探索图状态\n\n")
 
 	// 目标
 	output += fmt.Sprintf("### 目标 (%d)\n", len(objectives))

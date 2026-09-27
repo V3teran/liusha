@@ -15,7 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestTaskIsolation 测试 task 级别的知识图谱隔离
+// TestTaskIsolation 测试 task 级别的探索图隔离
 func TestTaskIsolation(t *testing.T) {
 	if testing.Short() {
 		t.Skip("跳过集成测试")

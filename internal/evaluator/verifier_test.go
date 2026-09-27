@@ -11,7 +11,7 @@ import (
 	"github.com/V3teran/liusha/internal/framework/core"
 )
 
-// fakeWorld 记录 Evaluator 对世界模型的写入，供断言"门的副作用"。
+// fakeWorld 记录 Evaluator 对探索图的写入，供断言"门的副作用"。
 type fakeWorld struct {
 	verifications []explorationgraph.Verification
 	nodes         []explorationgraph.Node

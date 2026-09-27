@@ -147,7 +147,7 @@ func (t *PublishDecisionTool) Execute(ctx context.Context, input core.ToolInput)
 		return core.ToolOutput{Error: "action_id is required for kill_action"}, nil
 	}
 
-	// kill_action 的实际生效路径是世界模型中 action 状态变更（planner.Kill）；
+	// kill_action 的实际生效路径是探索图中 action 状态变更（planner.Kill）；
 	// request_replan 决策记录在 monitor 的决策日志中。
 
 	result := map[string]interface{}{
