@@ -74,7 +74,7 @@ func (s *Store) SaveRoadmap(ctx context.Context, taskID string, steps []RoadmapS
 	defer tx.Rollback(ctx)
 
 	// 删除旧的 Roadmap
-	_, err = tx.Exec(ctx, `DELETE FROM wm_roadmap_step WHERE task_id = $1`, taskID)
+	_, err = tx.Exec(ctx, `DELETE FROM exploration_roadmap_step WHERE task_id = $1`, taskID)
 	if err != nil {
 		return fmt.Errorf("delete old roadmap: %w", err)
 	}
@@ -84,7 +84,7 @@ func (s *Store) SaveRoadmap(ctx context.Context, taskID string, steps []RoadmapS
 		contextJSON, _ := json.Marshal(step.Context)
 
 		_, err = tx.Exec(ctx, `
-			INSERT INTO wm_roadmap_step (
+			INSERT INTO exploration_roadmap_step (
 				task_id, step, objective, status, depends_on, context, rationale, created_at, updated_at
 			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		`, taskID, step.Step, step.Objective, step.Status, pq.Array(step.DependsOn),
@@ -106,7 +106,7 @@ func (s *Store) SaveRoadmap(ctx context.Context, taskID string, steps []RoadmapS
 func (s *Store) LoadRoadmap(ctx context.Context, taskID string) ([]RoadmapStep, error) {
 	query := `
 		SELECT step, objective, status, depends_on, context, rationale, created_at, updated_at
-		FROM wm_roadmap_step
+		FROM exploration_roadmap_step
 		WHERE task_id = $1
 		ORDER BY step ASC
 	`
@@ -184,7 +184,7 @@ func (s *Store) LoadRoadmap(ctx context.Context, taskID string) ([]RoadmapStep, 
 // - Planner 决定跳过：任意状态 → skipped
 func (s *Store) UpdateStepStatus(ctx context.Context, taskID string, step float64, status RoadmapStepStatus) error {
 	query := `
-		UPDATE wm_roadmap_step
+		UPDATE exploration_roadmap_step
 		SET status = $3, updated_at = $4
 		WHERE task_id = $1 AND step = $2
 	`
@@ -210,7 +210,7 @@ func (s *Store) UpdateStepContext(ctx context.Context, taskID string, step float
 	contextJSON, _ := json.Marshal(context)
 
 	query := `
-		UPDATE wm_roadmap_step
+		UPDATE exploration_roadmap_step
 		SET context = $3, updated_at = $4
 		WHERE task_id = $1 AND step = $2
 	`
@@ -278,7 +278,7 @@ func (s *Store) GetNextExecutableStep(ctx context.Context, taskID string) (*Road
 func (s *Store) GetStepByNumber(ctx context.Context, taskID string, step float64) (*RoadmapStep, error) {
 	query := `
 		SELECT step, objective, status, depends_on, context, rationale, created_at, updated_at
-		FROM wm_roadmap_step
+		FROM exploration_roadmap_step
 		WHERE task_id = $1 AND step = $2
 	`
 
@@ -341,7 +341,7 @@ func (s *Store) GetStepByNumber(ctx context.Context, taskID string, step float64
 // HasRoadmap 检查任务是否有 Roadmap
 func (s *Store) HasRoadmap(ctx context.Context, taskID string) (bool, error) {
 	var count int
-	err := s.pool.QueryRow(ctx, `SELECT COUNT(*) FROM wm_roadmap_step WHERE task_id = $1`, taskID).Scan(&count)
+	err := s.pool.QueryRow(ctx, `SELECT COUNT(*) FROM exploration_roadmap_step WHERE task_id = $1`, taskID).Scan(&count)
 	if err != nil {
 		return false, fmt.Errorf("count roadmap steps: %w", err)
 	}
@@ -356,7 +356,7 @@ func (s *Store) HasRoadmap(ctx context.Context, taskID string) (bool, error) {
 func (s *Store) GetActiveSteps(ctx context.Context, taskID string) ([]RoadmapStep, error) {
 	query := `
 		SELECT step, objective, status, depends_on, context, rationale, created_at, updated_at
-		FROM wm_roadmap_step
+		FROM exploration_roadmap_step
 		WHERE task_id = $1 AND status = $2
 		ORDER BY step ASC
 	`
@@ -415,7 +415,7 @@ func (s *Store) GetActiveSteps(ctx context.Context, taskID string) ([]RoadmapSte
 func (s *Store) CountStepsByStatus(ctx context.Context, taskID string) (map[RoadmapStepStatus]int, error) {
 	query := `
 		SELECT status, COUNT(*)
-		FROM wm_roadmap_step
+		FROM exploration_roadmap_step
 		WHERE task_id = $1
 		GROUP BY status
 	`
@@ -450,7 +450,7 @@ func (s *Store) CountStepsByStatus(ctx context.Context, taskID string) (map[Road
 // - 否则返回 max(step) + 1.0
 func (s *Store) FindNextStepNumber(ctx context.Context, taskID string) (float64, error) {
 	var maxStep sql.NullFloat64
-	err := s.pool.QueryRow(ctx, `SELECT MAX(step) FROM wm_roadmap_step WHERE task_id = $1`, taskID).Scan(&maxStep)
+	err := s.pool.QueryRow(ctx, `SELECT MAX(step) FROM exploration_roadmap_step WHERE task_id = $1`, taskID).Scan(&maxStep)
 	if err != nil {
 		return 0, fmt.Errorf("find max step: %w", err)
 	}
@@ -475,7 +475,7 @@ func (s *Store) InsertStepBetween(ctx context.Context, taskID string, before, af
 	contextJSON, _ := json.Marshal(map[string]interface{}{})
 
 	_, err := s.pool.Exec(ctx, `
-		INSERT INTO wm_roadmap_step (
+		INSERT INTO exploration_roadmap_step (
 			task_id, step, objective, status, depends_on, context, created_at, updated_at
 		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 	`, taskID, newStep, objective, StepTodo, pq.Array([]float64{}), contextJSON, time.Now(), time.Now())

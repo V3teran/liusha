@@ -244,9 +244,9 @@ func setupTestDB(t *testing.T) *pgxpool.Pool {
 	pool := dbtest.NewPgPool(t)
 
 	// 清理测试数据（按依赖顺序）
-	_, err := pool.Exec(context.Background(), "TRUNCATE TABLE wm_edge CASCADE")
+	_, err := pool.Exec(context.Background(), "TRUNCATE TABLE exploration_edge CASCADE")
 	require.NoError(t, err)
-	_, err = pool.Exec(context.Background(), "TRUNCATE TABLE wm_node CASCADE")
+	_, err = pool.Exec(context.Background(), "TRUNCATE TABLE exploration_node CASCADE")
 	require.NoError(t, err)
 
 	return pool

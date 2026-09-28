@@ -20,20 +20,20 @@ func NewExplorationGraphClient(pool *pgxpool.Pool) *ExplorationGraphClient {
 }
 
 // GetTaskStats 查询任务的探索图节点统计
-// 直接查询 wm_node 表（working memory = 探索图）
+// 直接查询 exploration_node 表（working memory = 探索图）
 func (c *ExplorationGraphClient) GetTaskStats(ctx context.Context, taskID string) (GraphStats, error) {
 	query := `
 		SELECT
 			kind,
 			COUNT(*) as count
-		FROM wm_node
+		FROM exploration_node
 		WHERE task_id = $1
 		GROUP BY kind
 	`
 
 	rows, err := c.pool.Query(ctx, query, taskID)
 	if err != nil {
-		return GraphStats{}, fmt.Errorf("query wm_node: %w", err)
+		return GraphStats{}, fmt.Errorf("query exploration_node: %w", err)
 	}
 	defer rows.Close()
 

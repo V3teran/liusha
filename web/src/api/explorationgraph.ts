@@ -43,14 +43,14 @@ export interface TaskStats {
  * 获取任务的完整探索图（节点 + 边）
  */
 export async function getTaskGraph(taskId: string): Promise<TaskGraph> {
-  return get<TaskGraph>(`/api/v1/tasks/${taskId}/graph`)
+  return get<TaskGraph>(`/api/v1/tasks/${taskId}/exploration/graph`)
 }
 
 /**
  * 获取任务的节点统计
  */
 export async function getTaskStats(taskId: string): Promise<TaskStats> {
-  return get<TaskStats>(`/api/v1/tasks/${taskId}/stats`)
+  return get<TaskStats>(`/api/v1/tasks/${taskId}/exploration/stats`)
 }
 
 /**
@@ -58,5 +58,5 @@ export async function getTaskStats(taskId: string): Promise<TaskStats> {
  */
 export async function getTaskNodes(taskId: string, kind?: string): Promise<GraphNode[]> {
   const query = kind ? `?kind=${kind}` : ''
-  return (await get<{ nodes: GraphNode[] }>(`/api/v1/tasks/${taskId}/nodes${query}`)).nodes
+  return (await get<{ nodes: GraphNode[] }>(`/api/v1/tasks/${taskId}/exploration/nodes${query}`)).nodes
 }

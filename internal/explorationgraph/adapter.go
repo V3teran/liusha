@@ -431,7 +431,7 @@ func (s *AdapterStore) GetObjective(ctx context.Context, taskID string) (Objecti
 	return obj, nil
 }
 
-// RecordVerification 将一次复现验证落 wm_verification 审计链。
+// RecordVerification 将一次复现验证落 exploration_verification 审计链。
 // 坐实与证伪都落档（证伪不进图但证据留档供审计/复盘）。
 func (s *AdapterStore) RecordVerification(ctx context.Context, v Verification) (string, error) {
 	if s.pool == nil {
@@ -445,7 +445,7 @@ func (s *AdapterStore) RecordVerification(ctx context.Context, v Verification) (
 	}
 
 	_, err := s.pool.Exec(ctx, `
-		INSERT INTO wm_verification (id, task_id, node_id, primitives, outcome, evidence, duration_ms, created_at)
+		INSERT INTO exploration_verification (id, task_id, node_id, primitives, outcome, evidence, duration_ms, created_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
 		v.ID, v.TaskID, v.NodeID, v.Primitives, string(v.Outcome), v.Evaluation, v.DurationMs, v.CreatedAt)
 	if err != nil {

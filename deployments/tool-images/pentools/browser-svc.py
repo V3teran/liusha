@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""每身份常驻 Page 路由服务：持有 1 个 BrowserSession，按 HUNTER_ID 把命令路由到各自 tab。
+"""每身份常驻 Page 路由服务：持有 1 个 BrowserSession，按 AGENT_ID 把命令路由到各自 tab。
 
 替代 browser-use-cli 的全局焦点 daemon —— CLI 的 handle() 只认一个全局 active tab，强制每次
 `switch N` + flock 串行化同身份所有 agent。本服务改用 browse-use 的 actor.Page 层按 target_id
-直接寻址：同身份多 agent（每 HUNTER_ID 一个 tab）并发读写不串台、热路径零锁（PoC 实测 5 轮并发
+直接寻址：同身份多 agent（每 AGENT_ID 一个 tab）并发读写不串台、热路径零锁（PoC 实测 5 轮并发
 eval 0 串台、cdp_client 并发 send 安全）。唯一的 asyncio.Lock 只守 tab 创建。
 
 复用 browse-use（0 行重造）：
@@ -169,7 +169,7 @@ class Service:
     def require_tab(self, agent_id: str):
         if agent_id not in self.tabs:
             raise RuntimeError(
-                f"身份={IDENTITY} HUNTER_ID={agent_id} 还没 open 过 URL；先 browser_use open <URL>"
+                f"身份={IDENTITY} AGENT_ID={agent_id} 还没 open 过 URL；先 browser_use open <URL>"
             )
 
     async def element_by_index(self, agent_id: str, page: Page, idx: int):

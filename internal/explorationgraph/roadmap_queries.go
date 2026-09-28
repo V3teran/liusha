@@ -20,7 +20,7 @@ func (s *Store) ListActionsByRoadmapStep(ctx context.Context, taskID string, ste
 		       confidence,
 		       priority, owner, source_type, source_id, tags, metadata,
 		       created_at, updated_at, completed_at
-		FROM wm_node
+		FROM exploration_node
 		WHERE task_id = $1 AND kind = $2 AND roadmap_step = $3
 		ORDER BY created_at ASC
 	`
@@ -87,7 +87,7 @@ func (s *Store) IsRoadmapStepComplete(ctx context.Context, taskID string, step f
 func (s *Store) CountActionsByRoadmapStep(ctx context.Context, taskID string, step float64) (map[State]int, error) {
 	query := `
 		SELECT state, COUNT(*)
-		FROM wm_node
+		FROM exploration_node
 		WHERE task_id = $1 AND kind = $2 AND roadmap_step = $3
 		GROUP BY state
 	`

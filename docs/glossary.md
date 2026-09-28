@@ -23,7 +23,7 @@ CI 与本地 `make lint` 均会执行；新增术语变更必须先改本表再�
 | 世界模型 / WorldModel / worldmodel | 探索图 / ExplorationGraph | 旧包名 worldmodel 已删；概念上探索图即世界状态的唯一事实源 |
 | scenario / 场景 / ScenarioPicker | Assignment / 测试任务单 | scenario 概念于迁移 0126 全面删除；/findings/s 死端点与 DistinctScenarios 死方法随之移除 |
 | swarm / solo（引擎模式） | 统一认知循环（四智能体） | 引擎模式选择已删；agent_run.planner_id 列保留作父子任务链数据 |
-| 猎手 / hunter（作为代码标识符） | Agent / 智能体 | 猎手为 hunter 中文残留；env 契约 LIUSHA_HUNTER_ID 例外（见保留区） |
+| 猎手 / hunter（作为代码标识符） | Agent / 智能体 | 猎手为 hunter 中文残留；env 契约 LIUSHA_AGENT_ID 例外（见保留区） |
 | planned_move / Move（作为代码标识符） | Action | 0121 已并入探索图；控制命令字面量 inject_move 例外（见保留区） |
 | agent_task / executor_run / react_run | agent_run | 运行记录表历次改名终名 |
 
@@ -34,7 +34,7 @@ CI 与本地 `make lint` 均会执行；新增术语变更必须先改本表再�
 
 | 标识符 | 边界 | 说明 |
 |---|---|---|
-| `LIUSHA_HUNTER_ID` 环境变量 | runner ↔ 沙箱容器镜像 | launcher 注入、pentools 镜像内脚本消费；改名需重建镜像 |
+| `LIUSHA_AGENT_ID` 环境变量 | runner ↔ 沙箱容器镜像 | launcher 注入、pentools 镜像内脚本消费；改名需重建镜像 |
 | `inject_move` 控制命令 | HTTP API（control plane） | 前端 `types.ts` 与后端 `controlplane.Command` 共享的字面量 |
 | `wm_node` / `wm_edge` / `wm_verification` / `wm_roadmap_step` 表与列 | PostgreSQL schema | 改名需数据迁移，且历史迁移文件不可编辑 |
 | HTTP 路径 `/tasks/:id/graph` `/nodes` `/stats` | HTTP API | e2e 与前端共用；"graph" 为中性词，无歧义 |
