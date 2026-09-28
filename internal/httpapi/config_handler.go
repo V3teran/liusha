@@ -74,7 +74,7 @@ func listExecutorsHandler(api ConfigAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		ctx := c.Request.Context()
 		page, size, paged := parsePaging(c)
-		// 无 page 参数：全量（含 planner/domain 两类），保 solo_agent 选择器一次拉全。
+		// 无 page 参数：全量（含全部 kind），保前端多选器一次拉全。
 		if !paged {
 			rows, err := api.ListExecutors(ctx, false)
 			if err != nil {
@@ -196,7 +196,7 @@ func updateExecutorTierHandler(api ConfigAPI) gin.HandlerFunc {
 }
 
 // deleteExecutorHandler 处理 DELETE /executors/:id。
-// 被 .solo_executor_id 引用时撞 DB ON DELETE RESTRICT（FK 23503）→ 409 中文提示。
+// 被其他表外键引用时撞 DB ON DELETE RESTRICT（FK 23503）→ 409 中文提示。
 func deleteExecutorHandler(api ConfigAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id := c.Param("id")

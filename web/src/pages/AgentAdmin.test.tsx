@@ -37,7 +37,7 @@ function h(o: Partial<AgentConfig> = {}): AgentConfig {
     id: 'h1',
     code: 'recon',
     kind: 'executor',
-    name: '侦察猎手',
+    name: '侦察智能体',
     description: '',
     body: 'charter',
     function_tools: ['read_findings'],
@@ -61,16 +61,16 @@ describe('AgentAdmin', () => {
     vi.spyOn(window, 'confirm').mockReturnValue(true)
   })
 
-  it('挂载加载猎手列表', async () => {
+  it('挂载加载智能体列表', async () => {
     mList.mockResolvedValue(paged([h()]))
     render(<AgentAdmin />)
-    expect(await screen.findByText('侦察猎手')).toBeTruthy()
+    expect(await screen.findByText('侦察智能体')).toBeTruthy()
   })
 
   it('内部工具集从目录读取候选并回填选中态', async () => {
     mList.mockResolvedValue(paged([h()])) // function_tools=['read_findings']
     render(<AgentAdmin />)
-    await userEvent.click(await screen.findByText('侦察猎手'))
+    await userEvent.click(await screen.findByText('侦察智能体'))
     await screen.findByText('编辑智能体')
     await userEvent.click(screen.getByRole('tab', { name: '工具集' }))
     // 两个函数工具候选都渲染为可勾选标签；已选项 aria-pressed=true。
@@ -84,7 +84,7 @@ describe('AgentAdmin', () => {
     mList.mockResolvedValue(paged([h()])) // 初值 function_tools=['read_findings']
     mSave.mockResolvedValue(h())
     render(<AgentAdmin />)
-    await userEvent.click(await screen.findByText('侦察猎手'))
+    await userEvent.click(await screen.findByText('侦察智能体'))
     await screen.findByText('编辑智能体')
     await userEvent.click(screen.getByRole('tab', { name: '工具集' }))
     await userEvent.click(await screen.findByText('write_finding'))
@@ -93,8 +93,8 @@ describe('AgentAdmin', () => {
     expect(mSave.mock.calls[0][0].function_tools).toEqual(['read_findings', 'write_finding'])
   })
 
-  it('编排猎手显示编排徽章', async () => {
-    mList.mockResolvedValue(paged([h({ kind: 'planner', name: '编排猎手' })]))
+  it('编排智能体显示编排徽章', async () => {
+    mList.mockResolvedValue(paged([h({ kind: 'planner', name: '编排智能体' })]))
     render(<AgentAdmin />)
     expect(await screen.findByText('编排')).toBeTruthy()
   })
@@ -103,7 +103,7 @@ describe('AgentAdmin', () => {
     mList.mockResolvedValue(paged([h()]))
     mDelete.mockResolvedValue(undefined)
     render(<AgentAdmin />)
-    await userEvent.click(await screen.findByText('侦察猎手'))
+    await userEvent.click(await screen.findByText('侦察智能体'))
     await userEvent.click(await screen.findByText('删除'))
     await waitFor(() => expect(mDelete).toHaveBeenCalledWith('h1'))
   })
@@ -113,8 +113,8 @@ describe('AgentAdmin', () => {
     mListCandidates.mockRejectedValue(new Error('500'))
     render(<AgentAdmin />)
     // 主体列表仍渲染，不进整页错误态。
-    expect(await screen.findByText('侦察猎手')).toBeTruthy()
-    await userEvent.click(screen.getByText('侦察猎手'))
+    expect(await screen.findByText('侦察智能体')).toBeTruthy()
+    await userEvent.click(screen.getByText('侦察智能体'))
     await screen.findByText('编辑智能体')
     // 候选降级为空：白名单区显示空态占位而非工具按钮。
     expect(screen.queryByText('nmap')).toBeNull()
@@ -124,7 +124,7 @@ describe('AgentAdmin', () => {
     mList.mockResolvedValue(paged([h()])) // 初值 cli_tools=[]
     mSave.mockResolvedValue(h())
     render(<AgentAdmin />)
-    await userEvent.click(await screen.findByText('侦察猎手'))
+    await userEvent.click(await screen.findByText('侦察智能体'))
     await screen.findByText('编辑智能体')
     await userEvent.click(screen.getByRole('tab', { name: '工具集' }))
     // 候选来自 listToolCandidates('cli')，点 nmap 加入白名单。

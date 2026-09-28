@@ -18,7 +18,6 @@ type FindingsAPI interface {
 	ListAll(ctx context.Context, f finding.LedgerFilter) ([]finding.LedgerRow, error)
 	CountAll(ctx context.Context, f finding.LedgerFilter) (int, error)
 	DistinctHosts(ctx context.Context) ([]string, error)
-	DistinctScenarios(ctx context.Context) ([]string, error)
 	UpdateTriage(ctx context.Context, id, status, severity, note string) (finding.VulnFinding, error)
 }
 
@@ -87,21 +86,6 @@ func findingHostsHandler(api FindingsAPI) gin.HandlerFunc {
 			hosts = []string{}
 		}
 		c.JSON(200, gin.H{"hosts": hosts})
-	}
-}
-
-// findingScenariosHandler 处理 GET /findings/s：全表 distinct _id，供筛选下拉。
-func findingScenariosHandler(api FindingsAPI) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		s, err := api.DistinctScenarios(c.Request.Context())
-		if err != nil {
-			c.JSON(500, gin.H{"error": err.Error()})
-			return
-		}
-		if s == nil {
-			s = []string{}
-		}
-		c.JSON(200, gin.H{"s": s})
 	}
 }
 

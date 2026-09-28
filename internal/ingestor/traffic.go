@@ -444,7 +444,7 @@ func passiveBrief(host string, trafficList []traffic.ProxyTraffic) string {
 
 func (t *Traffic) enqueuePassive(ctx context.Context, taskID, convID, host string) error {
 	// payload 只带一段 brief 文本（见 D5）：流量驱动无用户手打 brief，用 host 作 brief——
-	// runner handler 据 _id 走 solo 派发，从 brief 抽 host 回填。
+	// runner handler 据此走派发，从 brief 抽 host 回填。
 	payloadInput, _ := json.Marshal(map[string]any{"brief": host})
 	hid, err := t.executors.Create(ctx, agentrun.NewParams{
 		TaskID: taskID,

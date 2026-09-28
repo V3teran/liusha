@@ -368,9 +368,9 @@ type scanAdapter struct {
 	findings  *finding.Store        // 问答读 task 黑板 finding
 	publisher *scanstream.Publisher // 问答回答 publish SSE
 
-	// run 整体超时上限（取最长引擎 = runner.SwarmAgentRunTimeoutSeconds）。入队时设为 asynq.Timeout，
+	// run 整体超时上限。入队时设为 asynq.Timeout，
 	// 否则 asynq 默认 30min 任务 deadline 会架空 runner handler 里 4h 的 WithTimeout——
-	// run 跑到 30min 就被 ctx cancel（实测 swarm 扫描 30min 整 abort、planner 没机会收尾）。
+	// run 跑到 30min 就被 ctx cancel（实测 30min 整 abort、planner 没机会收尾）。
 	maxRunTimeout time.Duration
 }
 

@@ -27,7 +27,8 @@ EXCLUDES=(
   ':!web/dist/**' ':!**/node_modules/**'
 )
 
-# 禁用术语 → 现行术语（与 docs/glossary.md 同步）
+# 禁用术语 → 现行术语（与 docs/glossary.md 同步）。
+# 注意：lead（情报线索）/ lesson（历史沿革注释）/ engagement（英文领域用语）为允许术语，不进禁用表。
 FORBIDDEN=(
   '知识图谱'
   '认知图'
