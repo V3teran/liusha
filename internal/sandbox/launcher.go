@@ -92,7 +92,7 @@ func NewDockerLauncher(image string) *DockerLauncher {
 //
 // agentID：仅作 docker 容器名（per-agent 隔离）。注意 planner + exploitation 共享同一容器，
 // 所以容器级不注入 agent 身份 env——身份由 browser-svc.py 按 session→agent 逐请求归属
-// （sandbox-server /exec 每命令带 HUNTER_ID env → wrapper 经 unix socket 转发 → daemon 建 tab 时登记）。
+// （sandbox-server /exec 每命令带 AGENT_ID env → wrapper 经 unix socket 转发 → daemon 建 tab 时登记）。
 // 容器级只注入 LIUSHA_INGEST_URL/TOKEN（常量），供 browser-svc.py CDP capture push 流量。
 // 凭证共享仍走 redis credentials key（read/write_credential）。
 //
@@ -154,7 +154,7 @@ func (l *DockerLauncher) Spawn(ctx context.Context, agentID string) (Client, err
 			"-e", "ALL_PROXY="+proxyURL,
 			"-e", "NO_PROXY="+noProxy,
 			"-e", "no_proxy="+noProxy,
-			"-e", "LIUSHA_HUNTER_ID="+agentID,
+			"-e", "LIUSHA_AGENT_ID="+agentID,
 		)
 	}
 	args = append(args, l.Image)

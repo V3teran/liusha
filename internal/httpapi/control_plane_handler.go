@@ -47,7 +47,7 @@ func handleCreateControlEvent(cp ControlPlaneAPI) gin.HandlerFunc {
 		command := controlplane.Command(req.Command)
 		switch command {
 		case controlplane.CommandAdjustGoal,
-			controlplane.CommandInjectMove,
+			controlplane.CommandInjectAction,
 			controlplane.CommandPause,
 			controlplane.CommandResume,
 			controlplane.CommandTerminate:
@@ -147,8 +147,8 @@ func validateControlPayload(command controlplane.Command, payload json.RawMessag
 			return gin.Error{Err: nil, Type: gin.ErrorTypeBind, Meta: "new_goal required"}
 		}
 
-	case controlplane.CommandInjectMove:
-		var p controlplane.InjectMovePayload
+	case controlplane.CommandInjectAction:
+		var p controlplane.InjectActionPayload
 		if err := json.Unmarshal(payload, &p); err != nil {
 			return err
 		}

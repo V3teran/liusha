@@ -21,7 +21,7 @@ SCAN_ARGS=(
 # 排除路径（契约保留区 / 工具自身 / 第三方产物）
 EXCLUDES=(
   ':!db/migrations/**'      # 历史迁移不可编辑
-  ':!deployments/**'        # 容器镜像契约（LIUSHA_HUNTER_ID 等）
+  ':!deployments/**'        # 容器镜像契约（LIUSHA_AGENT_ID 等）
   ':!docs/glossary.md'      # 契约本身必须引用废弃名
   ':!scripts/lint-terminology.sh'
   ':!web/dist/**' ':!**/node_modules/**'

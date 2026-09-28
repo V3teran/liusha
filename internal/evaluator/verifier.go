@@ -10,7 +10,7 @@
 //	    → Replayer 执行复现 → Result{confirmed, evidence}
 //	    → RecordVerification(confirmed/refuted)  // 证据链，无论成败都落
 //	    → confirmed: CreateNode(confidence=verified) 进图
-//	    └ refuted:   不进图（证据仍留 wm_verification 供审计）
+//	    └ refuted:   不进图（证据仍留 exploration_verification 供审计）
 //
 // domain-agnostic：复现怎么做归各域（web=replay_traffic、binary=gdb、cloud=API 调用），
 // Evaluator 只认 Replayer 接口，不认域——保证加新域时晋升门零改动。
@@ -93,7 +93,7 @@ func (v *PromotionEvaluator) WithLogger(l zerolog.Logger) *PromotionEvaluator {
 //
 // 返回值语义：
 //   - (node, nil)  复现坐实，已晋升成 verified 节点；
-//   - (nil, nil)   复现证伪，未进图（证据已留 wm_verification 供审计）——非错误；
+//   - (nil, nil)   复现证伪，未进图（证据已留 exploration_verification 供审计）——非错误；
 //   - (nil, err)   门本身出错（复现执行/落库失败）。
 //
 // 库不 log，错误上抛由 caller 记录（与 explorationgraph.Store 一致）。
@@ -116,7 +116,7 @@ func (v *PromotionEvaluator) Promote(ctx context.Context, a Attempt) (*explorati
 	// 生成节点 ID（预先分配）
 	nodeID := uuid.New().String()
 
-	// 证据链：无论坐实与否都落 wm_verification（refuted 也留档供审计/复盘）。
+	// 证据链：无论坐实与否都落 exploration_verification（refuted 也留档供审计/复盘）。
 	outcome := explorationgraph.OutcomeRefuted
 	if res.Confirmed {
 		outcome = explorationgraph.OutcomeConfirmed

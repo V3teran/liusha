@@ -477,7 +477,7 @@ export interface ProxyFilterSettings {
 // ControlCommand 控制平面命令类型
 export type ControlCommand =
   | 'adjust_goal'
-  | 'inject_move'
+  | 'inject_action'
   | 'pause'
   | 'resume'
   | 'terminate'
@@ -487,8 +487,8 @@ export interface AdjustGoalPayload {
   new_goal: string
 }
 
-// InjectMovePayload 注入 Move 命令的 payload
-export interface InjectMovePayload {
+// InjectActionPayload 注入 Move 命令的 payload
+export interface InjectActionPayload {
   kind: string // MoveKind: enumerate/probe/exploit/escalate/persist
   target: Record<string, unknown> // 目标定位符
   reason?: string
@@ -500,7 +500,7 @@ export interface ControlEvent {
   id: string
   task_id: string
   command: ControlCommand
-  payload?: AdjustGoalPayload | InjectMovePayload | Record<string, unknown>
+  payload?: AdjustGoalPayload | InjectActionPayload | Record<string, unknown>
   created_at: string
   processed_at?: string
 }

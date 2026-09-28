@@ -55,7 +55,7 @@ func TestGetTaskStats(t *testing.T) {
 		ExplorationGraph: mock,
 	})
 
-	req := httptest.NewRequest("GET", "/api/v1/tasks/task-123/stats", nil)
+	req := httptest.NewRequest("GET", "/api/v1/tasks/task-123/exploration/stats", nil)
 	req.Header.Set("X-API-Key", "test-key")
 	w := httptest.NewRecorder()
 
@@ -99,7 +99,7 @@ func TestGetTaskNodes(t *testing.T) {
 	})
 
 	// 测试不带过滤
-	req := httptest.NewRequest("GET", "/api/v1/tasks/task-123/nodes", nil)
+	req := httptest.NewRequest("GET", "/api/v1/tasks/task-123/exploration/nodes", nil)
 	req.Header.Set("X-API-Key", "test-key")
 	w := httptest.NewRecorder()
 
@@ -119,7 +119,7 @@ func TestGetTaskNodes(t *testing.T) {
 	}
 
 	// 测试带 kind 过滤
-	req = httptest.NewRequest("GET", "/api/v1/tasks/task-123/nodes?kind=action", nil)
+	req = httptest.NewRequest("GET", "/api/v1/tasks/task-123/exploration/nodes?kind=action", nil)
 	req.Header.Set("X-API-Key", "test-key")
 	w = httptest.NewRecorder()
 
@@ -154,7 +154,7 @@ func TestGetTaskGraph(t *testing.T) {
 		ExplorationGraph: mock,
 	})
 
-	req := httptest.NewRequest("GET", "/api/v1/tasks/task-123/graph", nil)
+	req := httptest.NewRequest("GET", "/api/v1/tasks/task-123/exploration/graph", nil)
 	req.Header.Set("X-API-Key", "test-key")
 	w := httptest.NewRecorder()
 

@@ -21,8 +21,8 @@ func (s stubReplayer) Replay(context.Context, json.RawMessage) (evaluator.Result
 }
 
 // TestEvaluator_PromoteAgainstRealStore 用真 explorationgraph.Store 跑晋升门，证明：
-//   - 坐实 → wm_verification 落 confirmed + Result 节点晋升（confidence=verified，SourceID 回指 verification）；
-//   - 证伪 → wm_verification 落 refuted 留档，wm_node 不新增。
+//   - 坐实 → exploration_verification 落 confirmed + Result 节点晋升（confidence=verified，SourceID 回指 verification）；
+//   - 证伪 → exploration_verification 落 refuted 留档，exploration_node 不新增。
 func TestEvaluator_PromoteAgainstRealStore(t *testing.T) {
 	ctx := context.Background()
 	pool := dbtest.NewPgPool(t)
@@ -30,8 +30,8 @@ func TestEvaluator_PromoteAgainstRealStore(t *testing.T) {
 
 	const taskID = "verifier-itest"
 	defer func() {
-		_, _ = pool.Exec(ctx, `DELETE FROM wm_node WHERE task_id=$1`, taskID)
-		_, _ = pool.Exec(ctx, `DELETE FROM wm_verification WHERE task_id=$1`, taskID)
+		_, _ = pool.Exec(ctx, `DELETE FROM exploration_node WHERE task_id=$1`, taskID)
+		_, _ = pool.Exec(ctx, `DELETE FROM exploration_verification WHERE task_id=$1`, taskID)
 	}()
 
 	mkAttempt := func(loc string) evaluator.Attempt {
@@ -45,7 +45,7 @@ func TestEvaluator_PromoteAgainstRealStore(t *testing.T) {
 		}
 	}
 
-	// 坐实：应晋升 verified 节点，SourceID 指向真实 wm_verification.id。
+	// 坐实：应晋升 verified 节点，SourceID 指向真实 exploration_verification.id。
 	confirmed := evaluator.New(store, stubReplayer{res: evaluator.Result{
 		Confirmed: true, Evaluation: json.RawMessage(`{"poc":"' OR 1=1--"}`), DurationMs: 88,
 	}}, nil)
@@ -60,7 +60,7 @@ func TestEvaluator_PromoteAgainstRealStore(t *testing.T) {
 		t.Fatal("SourceID 应指向真实 verification id")
 	}
 
-	// 证伪：不进图，但 wm_verification 留 refuted 档。
+	// 证伪：不进图，但 exploration_verification 留 refuted 档。
 	refuted := evaluator.New(store, stubReplayer{res: evaluator.Result{
 		Confirmed: false, Evaluation: json.RawMessage(`{"reason":"no repro"}`),
 	}}, nil)
@@ -83,7 +83,7 @@ func TestEvaluator_PromoteAgainstRealStore(t *testing.T) {
 
 	var verCount int
 	if err := pool.QueryRow(ctx,
-		`SELECT count(*) FROM wm_verification WHERE task_id=$1`, taskID).Scan(&verCount); err != nil {
+		`SELECT count(*) FROM exploration_verification WHERE task_id=$1`, taskID).Scan(&verCount); err != nil {
 		t.Fatalf("查 verification 数: %v", err)
 	}
 	if verCount != 2 {

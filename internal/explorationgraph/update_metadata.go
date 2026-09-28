@@ -17,7 +17,7 @@ func (s *Store) UpdateNodeMetadata(ctx context.Context, id string, metadata json
 	}
 
 	query := `
-		UPDATE wm_node
+		UPDATE exploration_node
 		SET metadata = COALESCE(metadata, '{}'::jsonb) || $2::jsonb,
 		    updated_at = now()
 		WHERE id = $1

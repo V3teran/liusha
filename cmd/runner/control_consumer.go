@@ -121,8 +121,8 @@ func handleControlEvent(
 		}
 		return adjustObjective(ctx, taskID, world, p.NewGoal, logger)
 
-	case controlplane.CommandInjectMove:
-		var p controlplane.InjectMovePayload
+	case controlplane.CommandInjectAction:
+		var p controlplane.InjectActionPayload
 		if err := json.Unmarshal(ev.Payload, &p); err != nil {
 			return err
 		}
@@ -180,7 +180,7 @@ func adjustObjective(ctx context.Context, taskID string, world *explorationgraph
 // injectAction 把人工注入的意图落成 open 的 action 节点——
 // planner 轮询发现后纳入规划（或直接由 executor 认领执行）。
 // 注入节点标记 SourceUser/SourceID=control-plane，审计可溯源。
-func injectAction(ctx context.Context, taskID string, world *explorationgraph.Store, p controlplane.InjectMovePayload, logger zerolog.Logger) error {
+func injectAction(ctx context.Context, taskID string, world *explorationgraph.Store, p controlplane.InjectActionPayload, logger zerolog.Logger) error {
 	node := explorationgraph.Node{
 		ID:     uuid.New().String(),
 		TaskID: taskID,

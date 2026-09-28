@@ -15,11 +15,11 @@ import (
 type Command string
 
 const (
-	CommandAdjustGoal Command = "adjust_goal" // 调整任务目标
-	CommandInjectMove Command = "inject_move" // 注入新的 Move
-	CommandPause      Command = "pause"       // 暂停任务
-	CommandResume     Command = "resume"      // 恢复任务
-	CommandTerminate  Command = "terminate"   // 终止任务
+	CommandAdjustGoal   Command = "adjust_goal"   // 调整任务目标
+	CommandInjectAction Command = "inject_action" // 注入新的 Action
+	CommandPause        Command = "pause"         // 暂停任务
+	CommandResume       Command = "resume"        // 恢复任务
+	CommandTerminate    Command = "terminate"     // 终止任务
 )
 
 // Status 定义事件处理状态
@@ -48,8 +48,8 @@ type AdjustGoalPayload struct {
 	NewGoal string `json:"new_goal"`
 }
 
-// InjectMovePayload 注入 Move 的参数
-type InjectMovePayload struct {
+// InjectActionPayload 注入 Action 的参数
+type InjectActionPayload struct {
 	Kind     string          `json:"kind"`     // enumerate/probe/exploit/escalate/persist
 	Target   json.RawMessage `json:"target"`   // {domain, ref_kind, locator}
 	Reason   string          `json:"reason"`   // 注入原因（人工判断）

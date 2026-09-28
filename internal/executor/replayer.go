@@ -52,7 +52,7 @@ func NewReplayer(traffic TrafficSource) *Replayer {
 	return &Replayer{traffic: traffic}
 }
 
-// replayEvidence 是落进 wm_verification 的复现证据（req/resp + 断言判定明细）。
+// replayEvidence 是落进 exploration_verification 的复现证据（req/resp + 断言判定明细）。
 type replayEvidence struct {
 	TrafficID     int64             `json:"traffic_id"`
 	Method        string            `json:"method"`

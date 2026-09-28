@@ -171,12 +171,12 @@ func NewServer(d Deps) http.Handler {
 	}
 	if d.ExplorationGraph != nil {
 		// Phase 1: 探索图 API（e2e 测试迁移专用）
-		// GET /api/v1/tasks/{taskId}/stats - 快速统计（e2e 轮询）
-		// GET /api/v1/tasks/{taskId}/nodes?kind=objective - 按类型筛选节点
+		// GET /api/v1/tasks/{taskId}/exploration/stats - 探索图快速统计（e2e 轮询）
+		// GET /api/v1/tasks/{taskId}/exploration/nodes?kind=objective - 按类型筛选节点
 		// GET /api/v1/tasks/{taskId}/graph - 完整图谱（nodes + edges）
-		r.GET("/api/v1/tasks/:taskId/stats", getTaskStats(d.ExplorationGraph))
-		r.GET("/api/v1/tasks/:taskId/nodes", getTaskNodes(d.ExplorationGraph))
-		r.GET("/api/v1/tasks/:taskId/graph", getTaskGraph(d.ExplorationGraph))
+		r.GET("/api/v1/tasks/:taskId/exploration/stats", getTaskStats(d.ExplorationGraph))
+		r.GET("/api/v1/tasks/:taskId/exploration/nodes", getTaskNodes(d.ExplorationGraph))
+		r.GET("/api/v1/tasks/:taskId/exploration/graph", getTaskGraph(d.ExplorationGraph))
 	}
 	if d.Traffic != nil {
 		// 代理捕获流量只读浏览（前端流量模块）：全局分页列表 + host 下拉 + 单条详情。

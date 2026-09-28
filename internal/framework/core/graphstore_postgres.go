@@ -15,20 +15,20 @@ import (
 // PostgresGraphStore 是基于 PostgreSQL 的 GraphStore 实现。
 //
 // 表结构映射：
-// - GraphNode → wm_node 表
-// - GraphEdge → wm_edge 表
+// - GraphNode → exploration_node 表
+// - GraphEdge → exploration_edge 表
 //
 // 字段映射：
-// - GraphNode.ID → wm_node.id
-// - GraphNode.Kind → wm_node.kind
-// - GraphNode.Content → wm_node.content (JSONB)
-// - GraphNode.Metadata → wm_node.metadata (JSONB)
-// - GraphNode.State → wm_node.state
+// - GraphNode.ID → exploration_node.id
+// - GraphNode.Kind → exploration_node.kind
+// - GraphNode.Content → exploration_node.content (JSONB)
+// - GraphNode.Metadata → exploration_node.metadata (JSONB)
+// - GraphNode.State → exploration_node.state
 // - GraphNode.Confidence → 存储在 metadata["_confidence"] 中（因为表中 confidence 是 TEXT 类型）
-// - GraphNode.CreatedAt → wm_node.created_at
-// - GraphNode.UpdatedAt → wm_node.updated_at
+// - GraphNode.CreatedAt → exploration_node.created_at
+// - GraphNode.UpdatedAt → exploration_node.updated_at
 //
-// 注意：wm_node 表有一些业务特定的 NOT NULL 字段（task_id, source_type, source_id），
+// 注意：exploration_node 表有一些业务特定的 NOT NULL 字段（task_id, source_type, source_id），
 // 这些字段通过 Metadata 传递，或使用合理的默认值。
 type PostgresGraphStore struct {
 	pool *pgxpool.Pool
@@ -93,7 +93,7 @@ func (s *PostgresGraphStore) CreateNode(ctx context.Context, node *GraphNode) er
 	}
 
 	query := `
-		INSERT INTO wm_node (
+		INSERT INTO exploration_node (
 			id, task_id, kind, content,
 			state, complexity, depends_on, blocked_reason, roadmap_step,
 			confidence, version,
@@ -160,7 +160,7 @@ func (s *PostgresGraphStore) GetNode(ctx context.Context, id string) (*GraphNode
 		SELECT
 			id, kind, content, state, confidence, version,
 			metadata, created_at, updated_at
-		FROM wm_node
+		FROM exploration_node
 		WHERE id = $1
 	`
 
@@ -279,7 +279,7 @@ func (s *PostgresGraphStore) UpdateNode(ctx context.Context, id string, update G
 	}
 
 	query := fmt.Sprintf(`
-		UPDATE wm_node
+		UPDATE exploration_node
 		SET %s
 		WHERE %s
 	`, strings.Join(setParts, ", "), strings.Join(whereParts, " AND "))
@@ -294,7 +294,7 @@ func (s *PostgresGraphStore) UpdateNode(ctx context.Context, id string, update G
 		if update.ExpectedVersion != nil {
 			// 检查节点是否存在
 			var exists bool
-			checkQuery := `SELECT EXISTS(SELECT 1 FROM wm_node WHERE id = $1)`
+			checkQuery := `SELECT EXISTS(SELECT 1 FROM exploration_node WHERE id = $1)`
 			err := s.pool.QueryRow(ctx, checkQuery, id).Scan(&exists)
 			if err != nil {
 				return fmt.Errorf("check node existence: %w", err)
@@ -318,7 +318,7 @@ func (s *PostgresGraphStore) DeleteNode(ctx context.Context, id string) error {
 	}
 
 	// 删除节点（CASCADE 会自动删除相关的边）
-	query := `DELETE FROM wm_node WHERE id = $1`
+	query := `DELETE FROM exploration_node WHERE id = $1`
 
 	result, err := s.pool.Exec(ctx, query, id)
 	if err != nil {
@@ -405,7 +405,7 @@ func (s *PostgresGraphStore) ListNodes(ctx context.Context, query GraphNodeQuery
 		SELECT
 			id, kind, content, state, confidence, version,
 			metadata, created_at, updated_at
-		FROM wm_node
+		FROM exploration_node
 		%s
 		ORDER BY %s
 		%s %s
@@ -504,7 +504,7 @@ func (s *PostgresGraphStore) CompareAndSwapState(ctx context.Context, taskID, no
 
 	// 使用乐观锁更新状态
 	query := `
-		UPDATE wm_node
+		UPDATE exploration_node
 		SET state = $1, updated_at = $2
 		WHERE id = $3 AND version = $4
 	`
@@ -546,7 +546,7 @@ func (s *PostgresGraphStore) CreateEdge(ctx context.Context, edge *GraphEdge) er
 	}
 
 	query := `
-		INSERT INTO wm_edge (task_id, src_id, rel, dst_id, attrs, created_at)
+		INSERT INTO exploration_edge (task_id, src_id, rel, dst_id, attrs, created_at)
 		VALUES ($1, $2, $3, $4, $5, $6)
 		ON CONFLICT (task_id, src_id, rel, dst_id) DO NOTHING
 	`
@@ -610,7 +610,7 @@ func (s *PostgresGraphStore) ListEdges(ctx context.Context, query GraphEdgeQuery
 
 	sqlQuery := fmt.Sprintf(`
 		SELECT src_id, dst_id, rel, attrs, created_at
-		FROM wm_edge
+		FROM exploration_edge
 		%s
 		ORDER BY created_at DESC
 		%s
@@ -662,7 +662,7 @@ func (s *PostgresGraphStore) DeleteEdge(ctx context.Context, from, to, relation 
 	}
 
 	query := `
-		DELETE FROM wm_edge
+		DELETE FROM exploration_edge
 		WHERE src_id = $1 AND dst_id = $2 AND rel = $3
 	`
 
@@ -771,16 +771,16 @@ func (s *PostgresGraphStore) getNeighbors(ctx context.Context, nodeID string, di
 
 	switch direction {
 	case GraphTraverseOut:
-		query = fmt.Sprintf(`SELECT dst_id FROM wm_edge WHERE src_id = $1%s`, relFilter)
+		query = fmt.Sprintf(`SELECT dst_id FROM exploration_edge WHERE src_id = $1%s`, relFilter)
 		args = []interface{}{nodeID}
 	case GraphTraverseIn:
-		query = fmt.Sprintf(`SELECT src_id FROM wm_edge WHERE dst_id = $1%s`, relFilter)
+		query = fmt.Sprintf(`SELECT src_id FROM exploration_edge WHERE dst_id = $1%s`, relFilter)
 		args = []interface{}{nodeID}
 	case GraphTraverseBoth:
 		query = fmt.Sprintf(`
-			SELECT dst_id FROM wm_edge WHERE src_id = $1%s
+			SELECT dst_id FROM exploration_edge WHERE src_id = $1%s
 			UNION
-			SELECT src_id FROM wm_edge WHERE dst_id = $2%s
+			SELECT src_id FROM exploration_edge WHERE dst_id = $2%s
 		`, relFilter, relFilter)
 		args = []interface{}{nodeID, nodeID}
 	default:
@@ -839,7 +839,7 @@ func (s *PostgresGraphStore) matchNodeFilter(node *GraphNode, filter GraphNodeQu
 // getNodeTaskID 获取节点的 task_id。
 func (s *PostgresGraphStore) getNodeTaskID(ctx context.Context, nodeID string) (string, error) {
 	var taskID string
-	err := s.pool.QueryRow(ctx, `SELECT task_id FROM wm_node WHERE id = $1`, nodeID).Scan(&taskID)
+	err := s.pool.QueryRow(ctx, `SELECT task_id FROM exploration_node WHERE id = $1`, nodeID).Scan(&taskID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return "", ErrGraphNodeNotFound
