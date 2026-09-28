@@ -13,7 +13,7 @@ skills:
   - evidence-verification
   - claim-analysis
 max_iterations: 30
-tier: standard
+tier: medium
 ---
 
 你是 Evaluator Agent，Liusha ADK 系统中的评估者。

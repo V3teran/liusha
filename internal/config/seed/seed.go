@@ -69,7 +69,7 @@ func Import(
 	h *agent.Store,
 	s *skill.Store,
 ) error {
-	if err := importExecutors(ctx, filepath.Join(dir, "agents"), h); err != nil {
+	if _, err := importExecutors(ctx, filepath.Join(dir, "agents"), h, false); err != nil {
 		return fmt.Errorf("import executors: %w", err)
 	}
 	if err := importSkills(ctx, filepath.Join(dir, "skills"), s); err != nil {
@@ -107,44 +107,60 @@ func walkFiles(dir, ext string) ([]string, error) {
 }
 
 // importExecutors 扫 dir/*.md，按 code(=frontmatter id) insert-only 建操作员。
-func importExecutors(ctx context.Context, dir string, h *agent.Store) error {
+func importExecutors(ctx context.Context, dir string, h *agent.Store, force bool) ([]string, error) {
 	files, err := walkFiles(dir, ".md")
 	if err != nil {
-		return err
+		return nil, err
 	}
+	updated := make([]string, 0)
 	for _, path := range files {
 		raw, err := os.ReadFile(path)
 		if err != nil {
-			return fmt.Errorf("读取 %s: %w", path, err)
+			return nil, fmt.Errorf("读取 %s: %w", path, err)
 		}
 		front, body, err := splitFrontmatter(raw)
 		if err != nil {
-			return fmt.Errorf("解析 %s: %w", path, err)
+			return nil, fmt.Errorf("解析 %s: %w", path, err)
 		}
 		var f agentFront
 		if err := yaml.Unmarshal(front, &f); err != nil {
-			return fmt.Errorf("解析 %s frontmatter: %w", path, err)
+			return nil, fmt.Errorf("解析 %s frontmatter: %w", path, err)
 		}
 		code := strings.TrimSpace(f.ID)
 		if code == "" {
-			return fmt.Errorf("%s: 缺 id", path)
+			return nil, fmt.Errorf("%s: 缺 id", path)
 		}
-		if _, err := h.GetByCode(ctx, code); err == nil {
-			continue // 已存在→跳过（insert-only）
-		} else if !notFound(err) {
-			return fmt.Errorf("查操作员 %q: %w", code, err)
+		if _, err := h.GetByCode(ctx, code); err == nil && !force {
+			continue // 已存在→跳过（insert-only，DB 是事实源）
+		} else if err != nil && !notFound(err) {
+			return nil, fmt.Errorf("查操作员 %q: %w", code, err)
 		}
 		systemPrompt := string(body)
-		if _, err := h.Update(ctx, code, agent.UpdateParams{
-			SystemPrompt:  &systemPrompt,
+		if _, err := h.Upsert(ctx, code, f.Kind, f.Name, f.Description, systemPrompt, agent.UpdateParams{
 			FunctionTools: &f.FunctionTools,
 			CliTools:      &f.CliTools,
 			Skills:        &f.Skills,
 			MaxIterations: &f.MaxIterations,
 			Complexity:    strPtr(strings.TrimSpace(f.Tier)),
 		}); err != nil {
-			return fmt.Errorf("建操作员 %q: %w", code, err)
+			return nil, fmt.Errorf("写操作员 %q: %w", code, err)
 		}
+		updated = append(updated, code)
+	}
+	return updated, nil
+}
+
+// ImportAgentsForce 把 agents/*.md 强制覆盖写入 DB（reset 语义）：
+// 不跳过已存在行，prompt/工具/档位一律以种子为准。
+// 返回实际写入的 agent code 列表。常规启动路径仍走 Import（insert-only）。
+func ImportAgentsForce(ctx context.Context, dir string, h *agent.Store) ([]string, error) {
+	return importExecutors(ctx, filepath.Join(dir, "agents"), h, true)
+}
+
+// ImportSkills 补齐 skills（insert-only，不覆盖已存在项）。供 reseed 工具复用。
+func ImportSkills(ctx context.Context, dir string, s *skill.Store) error {
+	if err := importSkills(ctx, filepath.Join(dir, "skills"), s); err != nil {
+		return fmt.Errorf("import skills: %w", err)
 	}
 	return nil
 }

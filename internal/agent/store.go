@@ -32,10 +32,10 @@ const colsSelect = "id, code, kind, name, description, system_prompt, function_t
 // validateKind 应用层校验 kind。
 func validateKind(k Kind) error {
 	switch k {
-	case KindPlanner, KindExecutor:
+	case KindPlanner, KindExecutor, KindEvaluator, KindMonitor:
 		return nil
 	default:
-		return fmt.Errorf("非法 kind %q（应为 planner|executor）", k)
+		return fmt.Errorf("非法 kind %q（应为 planner|executor|evaluator|monitor）", k)
 	}
 }
 
@@ -293,6 +293,36 @@ func (s *Store) GetPlanner(ctx context.Context) (Agent, error) {
 	return a, nil
 }
 
+// GetEvaluator 获取唯一的Evaluator。
+func (s *Store) GetEvaluator(ctx context.Context) (Agent, error) {
+	row := s.pool.QueryRow(ctx, `
+		SELECT `+colsSelect+`
+		FROM agent
+		WHERE kind='evaluator' AND enabled=true
+		LIMIT 1
+	`)
+	var a Agent
+	if err := scan(row, &a); err != nil {
+		return Agent{}, fmt.Errorf("获取evaluator: %w", err)
+	}
+	return a, nil
+}
+
+// GetMonitor 获取唯一的Monitor。
+func (s *Store) GetMonitor(ctx context.Context) (Agent, error) {
+	row := s.pool.QueryRow(ctx, `
+		SELECT `+colsSelect+`
+		FROM agent
+		WHERE kind='monitor' AND enabled=true
+		LIMIT 1
+	`)
+	var a Agent
+	if err := scan(row, &a); err != nil {
+		return Agent{}, fmt.Errorf("获取monitor: %w", err)
+	}
+	return a, nil
+}
+
 // GetExecutor 获取唯一的Executor。
 func (s *Store) GetExecutor(ctx context.Context) (Agent, error) {
 	row := s.pool.QueryRow(ctx, `
@@ -352,4 +382,73 @@ func scan(r scanner, h *Agent) error {
 		}
 	}
 	return nil
+}
+
+// Upsert 按 code 插入或覆盖（种子导入 / reset 语义专用；常规 CRUD 走 Update）。
+//
+// ON CONFLICT 分支不触碰 kind 与 enabled：kind 是 runner 装配的结构字段
+// （受 DB CHECK 约束），enabled 是运维开关，种子不应反转两者的既有值。
+func (s *Store) Upsert(ctx context.Context, code, kind, name, description, systemPrompt string, p UpdateParams) (Agent, error) {
+	if code == "" {
+		return Agent{}, fmt.Errorf("upsert agent: code 必填")
+	}
+	if err := validateKind(Kind(kind)); err != nil {
+		return Agent{}, err
+	}
+	if systemPrompt == "" {
+		return Agent{}, fmt.Errorf("upsert agent %q: system_prompt 必填", code)
+	}
+	complexity := "medium"
+	if p.Complexity != nil && *p.Complexity != "" {
+		if err := validateComplexity(*p.Complexity); err != nil {
+			return Agent{}, err
+		}
+		complexity = *p.Complexity
+	}
+
+	var fnTools, cliTools, skills []byte
+	var err error
+	if p.FunctionTools != nil {
+		if fnTools, err = marshalTools(*p.FunctionTools); err != nil {
+			return Agent{}, fmt.Errorf("marshal function_tools: %w", err)
+		}
+	}
+	if p.CliTools != nil {
+		if cliTools, err = marshalTools(*p.CliTools); err != nil {
+			return Agent{}, fmt.Errorf("marshal cli_tools: %w", err)
+		}
+	}
+	if p.Skills != nil {
+		if skills, err = marshalTools(*p.Skills); err != nil {
+			return Agent{}, fmt.Errorf("marshal skills: %w", err)
+		}
+	}
+	maxIter := 30
+	if p.MaxIterations != nil {
+		maxIter = *p.MaxIterations
+	}
+
+	query := `
+		INSERT INTO agent (code, kind, name, description, system_prompt,
+			function_tools, cli_tools, skills, max_iterations, complexity, enabled)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, true)
+		ON CONFLICT (code) DO UPDATE SET
+			name = EXCLUDED.name,
+			description = EXCLUDED.description,
+			system_prompt = EXCLUDED.system_prompt,
+			function_tools = EXCLUDED.function_tools,
+			cli_tools = EXCLUDED.cli_tools,
+			skills = EXCLUDED.skills,
+			max_iterations = EXCLUDED.max_iterations,
+			complexity = EXCLUDED.complexity,
+			updated_at = now()
+		RETURNING ` + colsSelect
+
+	row := s.pool.QueryRow(ctx, query, code, kind, name, description, systemPrompt,
+		fnTools, cliTools, skills, maxIter, complexity)
+	var a Agent
+	if err := scan(row, &a); err != nil {
+		return Agent{}, fmt.Errorf("upsert agent %q: %w", code, err)
+	}
+	return a, nil
 }

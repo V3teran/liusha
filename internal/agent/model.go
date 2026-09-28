@@ -17,6 +17,7 @@ const (
 	KindPlanner   Kind = "planner"   // 规划者
 	KindExecutor  Kind = "executor"  // 执行者
 	KindEvaluator Kind = "evaluator" // 评估者
+	KindMonitor   Kind = "monitor"   // 监察者
 )
 
 // Agent 是 agent 配置表的 Go 表示。
