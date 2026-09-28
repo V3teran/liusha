@@ -69,49 +69,5 @@ type Checkpointer interface {
 	Prune(ctx context.Context, taskID string, keepCount int) error
 }
 
-// CheckpointStrategy 是检查点保存策略。
-type CheckpointStrategy interface {
-	// ShouldSave 判断当前是否应该保存检查点
-	ShouldSave(ctx context.Context, phase string, elapsed time.Duration) bool
-}
-
-// IntervalCheckpointStrategy 按时间间隔保存。
-type IntervalCheckpointStrategy struct {
-	Interval time.Duration
-	lastSave time.Time
-}
-
-func (s *IntervalCheckpointStrategy) ShouldSave(ctx context.Context, phase string, elapsed time.Duration) bool {
-	if time.Since(s.lastSave) >= s.Interval {
-		s.lastSave = time.Now()
-		return true
-	}
-	return false
-}
-
-// PhaseCheckpointStrategy 每个阶段结束后保存。
-type PhaseCheckpointStrategy struct {
-	phases map[string]bool
-}
-
-func NewPhaseCheckpointStrategy(phases []string) *PhaseCheckpointStrategy {
-	m := make(map[string]bool)
-	for _, p := range phases {
-		m[p] = true
-	}
-	return &PhaseCheckpointStrategy{phases: m}
-}
-
-func (s *PhaseCheckpointStrategy) ShouldSave(ctx context.Context, phase string, elapsed time.Duration) bool {
-	return s.phases[phase]
-}
-
-// Recoverable 是支持状态恢复的组件接口。
-// 所有需要 checkpoint 的组件必须实现此接口。
-type Recoverable interface {
-	// ExportState 导出组件内部状态（用于 checkpoint）
-	ExportState() (json.RawMessage, error)
-
-	// ImportState 导入状态（用于恢复）
-	ImportState(data json.RawMessage) error
-}
+// 注意：检查点保存策略由 runtime.CheckpointPolicy 实现
+// Agent 层的状态恢复通过探索图（Source of Truth）而非内存快照

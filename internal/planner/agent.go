@@ -64,9 +64,9 @@ func NewPlannerAgent(cfg PlannerAgentConfig) *PlannerAgent {
 	}
 }
 
-// Start 启动 PlannerAgent（异步运行）
-// 监听事件并生成新的 Action
-func (a *PlannerAgent) Start(ctx context.Context) error {
+// Run 实现 core.Agent 接口
+// 启动 PlannerAgent 主循环，监听事件并生成新的 Action
+func (a *PlannerAgent) Run(ctx context.Context) error {
 	a.logger.Info().Str("task_id", a.taskID).Msg("PlannerAgent 启动")
 
 	// 订阅事件
@@ -108,6 +108,17 @@ func (a *PlannerAgent) Start(ctx context.Context) error {
 			}
 		}
 	}
+}
+
+// Stop 实现 core.Agent 接口（优雅关闭）
+func (a *PlannerAgent) Stop(ctx context.Context) error {
+	close(a.stopCh)
+	return nil
+}
+
+// Name 实现 core.Agent 接口
+func (a *PlannerAgent) Name() string {
+	return "planner"
 }
 
 // handleEvent 处理事件
@@ -300,34 +311,6 @@ func (a *PlannerAgent) planActions(ctx context.Context) error {
 		a.eventBus.PublishActionProposed(a.taskID, action.ID)
 	}
 
-	return nil
-}
-
-// Name 实现 core.Agent 接口
-func (a *PlannerAgent) Name() string {
-	return "planner"
-}
-
-// Run 实现 core.Agent 接口（调用 Start）
-func (a *PlannerAgent) Run(ctx context.Context) error {
-	return a.Start(ctx)
-}
-
-// Stop 实现 core.Agent 接口（优雅关闭）
-func (a *PlannerAgent) Stop(ctx context.Context) error {
-	close(a.stopCh)
-	return nil
-}
-
-// ExportState 实现 core.Recoverable 接口
-func (a *PlannerAgent) ExportState() (json.RawMessage, error) {
-	// PlannerAgent 是无状态的，返回空对象
-	return json.Marshal(map[string]interface{}{})
-}
-
-// ImportState 实现 core.Recoverable 接口
-func (a *PlannerAgent) ImportState(data json.RawMessage) error {
-	// PlannerAgent 是无状态的，不需要恢复
 	return nil
 }
 

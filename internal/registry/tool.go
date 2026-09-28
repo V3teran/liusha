@@ -102,4 +102,59 @@ type Tool interface {
 	// 工具内部错误应以 ToolResult.Error 字符串返回，不返回 Go error，
 	// 除非是 context.Canceled / context.DeadlineExceeded（这两种中断 ReAct 循环）。
 	Execute(ctx context.Context, args json.RawMessage) (ToolResult, error)
+	// Timeout 返回工具的执行超时时间（0 表示使用全局默认值）。
+	Timeout() time.Duration
+	// ConcurrencySafe 声明工具是否可与其他工具并发执行。
+	ConcurrencySafe() bool
+}
+
+// ─────────────────────────────────────────────
+//  BaseTool（提供默认实现）
+// ─────────────────────────────────────────────
+
+// BaseTool 为 Tool 接口提供默认实现，工具可嵌入此类型减少样板代码。
+type BaseTool struct {
+	timeout         time.Duration
+	concurrencySafe bool
+}
+
+// Timeout 返回工具超时时间（0 = 使用全局默认 120 秒）。
+func (b BaseTool) Timeout() time.Duration {
+	return b.timeout
+}
+
+// ConcurrencySafe 返回工具是否并发安全（默认 false）。
+func (b BaseTool) ConcurrencySafe() bool {
+	return b.concurrencySafe
+}
+
+// WithTimeout 设置超时时间（构造器辅助方法）。
+func (b *BaseTool) WithTimeout(d time.Duration) *BaseTool {
+	b.timeout = d
+	return b
+}
+
+// WithConcurrencySafe 设置并发安全标识（构造器辅助方法）。
+func (b *BaseTool) WithConcurrencySafe(safe bool) *BaseTool {
+	b.concurrencySafe = safe
+	return b
+}
+
+// SetTimeout 设置超时时间（setter 方法）。
+func (b *BaseTool) SetTimeout(d time.Duration) {
+	b.timeout = d
+}
+
+// SetConcurrencySafe 设置并发安全标识（setter 方法）。
+func (b *BaseTool) SetConcurrencySafe(safe bool) {
+	b.concurrencySafe = safe
+}
+
+
+// NewBaseTool 创建 BaseTool（带默认配置）。
+func NewBaseTool() BaseTool {
+	return BaseTool{
+		timeout:         0,     // 使用全局默认
+		concurrencySafe: false, // 默认不并发安全
+	}
 }

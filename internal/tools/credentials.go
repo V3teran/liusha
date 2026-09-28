@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/V3teran/liusha/internal/credential"
 	"github.com/V3teran/liusha/internal/registry"
@@ -18,7 +19,17 @@ var readCredentialsSchema = json.RawMessage(`{
   }
 }`)
 
-type readCredentialsTool struct{ deps Deps }
+type readCredentialsTool struct {
+	registry.BaseTool
+	deps Deps
+}
+
+func newReadCredentialsTool(deps Deps, timeout time.Duration, safe bool) *readCredentialsTool {
+	t := &readCredentialsTool{deps: deps}
+	t.SetTimeout(timeout)
+	t.SetConcurrencySafe(safe)
+	return t
+}
 
 func (t *readCredentialsTool) Name() string      { return "read_credentials" }
 func (t *readCredentialsTool) ShortDesc() string { return "读取本 host 预录入真实身份" }
@@ -80,7 +91,17 @@ var writeCredentialSchema = json.RawMessage(`{
   "required": ["host", "name", "credentials"]
 }`)
 
-type writeCredentialTool struct{ deps Deps }
+type writeCredentialTool struct {
+	registry.BaseTool
+	deps Deps
+}
+
+func newWriteCredentialTool(deps Deps, timeout time.Duration, safe bool) *writeCredentialTool {
+	t := &writeCredentialTool{deps: deps}
+	t.SetTimeout(timeout)
+	t.SetConcurrencySafe(safe)
+	return t
+}
 
 func (t *writeCredentialTool) Name() string      { return "write_credential" }
 func (t *writeCredentialTool) ShortDesc() string { return "录入活凭证" }

@@ -80,14 +80,14 @@ func NewExecutorAgent(cfg ExecutorAgentConfig) *ExecutorAgent {
 	}
 }
 
-// Start 启动 ExecutorAgent 的事件循环（阻塞运行）
+// Run 实现 core.Agent 接口
 //
 // 职责：
 // - 监听事件总线上的 Action 状态变化
 // - 执行可调度的 Action
 // - 处理依赖关系（只执行依赖已满足的 Action）
 // - 发布 ActionCompleted 事件
-func (a *ExecutorAgent) Start(ctx context.Context) error {
+func (a *ExecutorAgent) Run(ctx context.Context) error {
 	a.logger.Info().Str("task_id", a.taskID).Msg("ExecutorAgent 启动")
 
 	// 订阅事件
@@ -471,34 +471,9 @@ func (a *ExecutorAgent) Name() string {
 	return "executor"
 }
 
-// Run 实现 core.Agent 接口（调用 Start）
-func (a *ExecutorAgent) Run(ctx context.Context) error {
-	return a.Start(ctx)
-}
-
 // Stop 实现 core.Agent 接口
 func (a *ExecutorAgent) Stop(ctx context.Context) error {
 	a.logger.Info().Msg("停止 executor agent")
 	close(a.stopCh)
-	return nil
-}
-
-// ExportState 实现 core.Recoverable 接口
-func (a *ExecutorAgent) ExportState() (json.RawMessage, error) {
-	state := map[string]interface{}{
-		"task_id": a.taskID,
-	}
-	return json.Marshal(state)
-}
-
-// ImportState 实现 core.Recoverable 接口
-func (a *ExecutorAgent) ImportState(data json.RawMessage) error {
-	var state map[string]interface{}
-	if err := json.Unmarshal(data, &state); err != nil {
-		return err
-	}
-	if taskID, ok := state["task_id"].(string); ok {
-		a.taskID = taskID
-	}
 	return nil
 }

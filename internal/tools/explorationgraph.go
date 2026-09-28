@@ -39,7 +39,17 @@ var writeObservationSchema = json.RawMessage(`{
   "required": ["statement", "reasoning"]
 }`)
 
-type writeObservationTool struct{ deps Deps }
+type writeObservationTool struct {
+	registry.BaseTool
+	deps Deps
+}
+
+func newWriteObservationTool(deps Deps, timeout time.Duration, safe bool) *writeObservationTool {
+	t := &writeObservationTool{deps: deps}
+	t.SetTimeout(timeout)
+	t.SetConcurrencySafe(safe)
+	return t
+}
 
 func (t *writeObservationTool) Name() string      { return "write_observation" }
 func (t *writeObservationTool) ShortDesc() string { return "记录待验证的假设" }
@@ -155,7 +165,17 @@ var writeEvidenceSchema = json.RawMessage(`{
   "required": ["observation_id", "outcome", "description"]
 }`)
 
-type writeEvidenceTool struct{ deps Deps }
+type writeEvidenceTool struct {
+	registry.BaseTool
+	deps Deps
+}
+
+func newWriteEvidenceTool(deps Deps, timeout time.Duration, safe bool) *writeEvidenceTool {
+	t := &writeEvidenceTool{deps: deps}
+	t.SetTimeout(timeout)
+	t.SetConcurrencySafe(safe)
+	return t
+}
 
 func (t *writeEvidenceTool) Name() string      { return "write_evidence" }
 func (t *writeEvidenceTool) ShortDesc() string { return "记录验证证据" }

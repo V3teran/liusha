@@ -9,8 +9,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/V3teran/liusha/internal/framework/core"
 	"github.com/V3teran/liusha/internal/framework/llm"
+	"github.com/V3teran/liusha/internal/registry"
 )
 
 // mockLLMProvider 是测试用的 LLM 提供者
@@ -44,34 +44,49 @@ func (m *mockLLMProvider) ProviderID() string {
 	return "test-provider"
 }
 
-// mockTool 是测试用的工具
+// mockTool 是测试用的工具（实现 registry.Tool 接口）
 type mockTool struct {
 	name        string
 	description string
 	handler     func(args json.RawMessage) (any, error)
+	timeout     time.Duration
+	concSafe    bool
 }
 
 func (t *mockTool) Name() string {
 	return t.name
 }
 
-func (t *mockTool) Description() string {
+func (t *mockTool) ShortDesc() string {
 	return t.description
 }
 
-func (t *mockTool) Schema() core.ToolSchema {
-	return core.ToolSchema{
-		InputSchema: json.RawMessage(`{"type": "object", "properties": {}}`),
-	}
+func (t *mockTool) Desc() string {
+	return t.description
 }
 
-func (t *mockTool) Execute(ctx context.Context, input core.ToolInput) (core.ToolOutput, error) {
-	result, err := t.handler(input.Arguments)
+func (t *mockTool) Schema() json.RawMessage {
+	return json.RawMessage(`{"type": "object", "properties": {}}`)
+}
+
+func (t *mockTool) Execute(ctx context.Context, args json.RawMessage) (registry.ToolResult, error) {
+	result, err := t.handler(args)
 	if err != nil {
-		return core.ToolOutput{Error: err.Error()}, err
+		return registry.ToolResult{Error: err.Error()}, nil
 	}
 	resultJSON, _ := json.Marshal(result)
-	return core.ToolOutput{Result: resultJSON}, nil
+	return registry.ToolResult{Output: string(resultJSON)}, nil
+}
+
+func (t *mockTool) Timeout() time.Duration {
+	if t.timeout == 0 {
+		return 30 * time.Second
+	}
+	return t.timeout
+}
+
+func (t *mockTool) ConcurrencySafe() bool {
+	return t.concSafe
 }
 
 // TestReActRuntime_SimpleQuestion 测试简单问答（无工具调用）

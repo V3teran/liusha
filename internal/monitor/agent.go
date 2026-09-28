@@ -5,7 +5,6 @@ package monitor
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"time"
 
@@ -16,6 +15,7 @@ import (
 	"github.com/V3teran/liusha/internal/framework/core"
 	"github.com/V3teran/liusha/internal/framework/llm"
 	"github.com/V3teran/liusha/internal/framework/runtime"
+	"github.com/V3teran/liusha/internal/registry"
 )
 
 // 编译时检查接口实现
@@ -60,12 +60,12 @@ func New(cfg Config) *Agent {
 	// 创建 ReAct 运行时
 	reactRuntime := runtime.NewReActRuntime()
 
-	// 注册监察工具
-	tools := []core.Tool{
+	// 注册监察工具（直接使用 registry.Tool）
+	registryTools := []registry.Tool{
 		NewGetGlobalStateTool(cfg.World, cfg.TaskID),
 		NewPublishDecisionTool(cfg.World, cfg.TaskID),
 	}
-	for _, tool := range tools {
+	for _, tool := range registryTools {
 		if err := reactRuntime.RegisterTool(tool); err != nil {
 			cfg.Logger.Warn().Err(err).Str("tool", tool.Name()).Msg("注册工具失败")
 		}
@@ -84,14 +84,16 @@ func New(cfg Config) *Agent {
 		provider:         cfg.Provider,
 		reactRuntime:     reactRuntime,
 		interval:         interval,
-		logger:           cfg.Logger.With().Str("agent", "monitor").Str("task_id", cfg.TaskID).Logger(),
+		logger:           cfg.Logger,
 		checkpointer:     cfg.Checkpointer,
 		checkpointPolicy: checkpointPolicy,
 	}
 }
 
-// Start 启动 Monitor Agent，持续运行定期评估。
-func (a *Agent) Start(ctx context.Context) error {
+// Name 返回 Agent 的名称。
+
+// Run 实现 core.Agent 接口
+func (a *Agent) Run(ctx context.Context) error {
 	a.logger.Info().Dur("interval", a.interval).Msg("monitor agent starting")
 
 	ticker := time.NewTicker(a.interval)
@@ -130,7 +132,6 @@ func (a *Agent) evaluate(ctx context.Context) error {
 		MaxIterations:        10,  // 监察不需要太多轮
 		Temperature:          0.3, // 较低温度，确保稳定性
 		MaxTokens:            4000,
-		Tools:                a.reactRuntime.GetTools(),
 		MessageModifierChain: runtime.NewMonitorModifierChain(),
 
 		// Checkpoint 集成
@@ -214,32 +215,10 @@ func (a *Agent) Name() string {
 	return "monitor"
 }
 
-// Run 实现 core.Agent 接口（调用现有的 Start 方法）
-func (a *Agent) Run(ctx context.Context) error {
-	return a.Start(ctx)
-}
-
 // Stop 实现 core.Agent 接口
 func (a *Agent) Stop(ctx context.Context) error {
 	a.logger.Info().Msg("stopping monitor agent")
 	// Monitor 依赖 ctx.Done() 停止，无需额外操作
-	return nil
-}
-
-// ExportState 实现 core.Recoverable 接口
-func (a *Agent) ExportState() (json.RawMessage, error) {
-	state := map[string]interface{}{
-		"task_id": a.taskID,
-	}
-	return json.Marshal(state)
-}
-
-// ImportState 实现 core.Recoverable 接口
-func (a *Agent) ImportState(data json.RawMessage) error {
-	var state map[string]interface{}
-	if err := json.Unmarshal(data, &state); err != nil {
-		return err
-	}
 	return nil
 }
 

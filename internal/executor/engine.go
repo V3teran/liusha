@@ -85,8 +85,13 @@ func (e *Engine) Execute(ctx context.Context, action explorationgraph.Node, task
 		return nil, fmt.Errorf("获取 LLM provider 失败: %w", err)
 	}
 
-	// 5. 获取工具列表
-	tools := e.registry.Tools()
+	// 5. 创建 ReAct Runtime 并注册工具
+	reactRuntime := runtime.NewReActRuntime()
+	for _, tool := range e.registry.List() {
+		if err := reactRuntime.RegisterTool(tool); err != nil {
+			return nil, fmt.Errorf("注册工具 %s 失败: %w", tool.Name(), err)
+		}
+	}
 
 	// 6. 配置 ReAct 执行
 	reactConfig := &runtime.ReActConfig{
@@ -96,7 +101,6 @@ func (e *Engine) Execute(ctx context.Context, action explorationgraph.Node, task
 		MaxIterations: e.getMaxIterations(actionData.Complexity),
 		Temperature:   0.7,
 		MaxTokens:     4000,
-		Tools:         tools,
 
 		// Checkpoint 集成（Action 级别不需要）
 		Checkpointer:     nil,
@@ -113,7 +117,6 @@ func (e *Engine) Execute(ctx context.Context, action explorationgraph.Node, task
 	}
 
 	// 7. 执行 ReAct 循环
-	reactRuntime := runtime.NewReActRuntime()
 	result, err := reactRuntime.Run(ctx, reactConfig)
 	if err != nil {
 		return nil, fmt.Errorf("ReAct 执行失败: %w", err)

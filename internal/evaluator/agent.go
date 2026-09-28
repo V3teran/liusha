@@ -3,7 +3,6 @@ package evaluator
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"time"
 
@@ -56,8 +55,8 @@ func NewEvaluatorAgent(cfg EvaluatorAgentConfig) *EvaluatorAgent {
 	}
 }
 
-// Start 启动 EvaluatorAgent（异步运行）
-func (a *EvaluatorAgent) Start(ctx context.Context) error {
+// Run 实现 core.Agent 接口
+func (a *EvaluatorAgent) Run(ctx context.Context) error {
 	if a.evaluator == nil {
 		return fmt.Errorf("evaluator: PromotionEvaluator is required")
 	}
@@ -167,11 +166,6 @@ func (a *EvaluatorAgent) Name() string {
 	return "evaluator"
 }
 
-// Run 实现 core.Agent 接口（调用 Start）
-func (a *EvaluatorAgent) Run(ctx context.Context) error {
-	return a.Start(ctx)
-}
-
 // Stop 实现 core.Agent 接口
 func (a *EvaluatorAgent) Stop(ctx context.Context) error {
 	a.logger.Info().Msg("停止 evaluator agent")
@@ -179,22 +173,3 @@ func (a *EvaluatorAgent) Stop(ctx context.Context) error {
 	return nil
 }
 
-// ExportState 实现 core.Recoverable 接口
-func (a *EvaluatorAgent) ExportState() (json.RawMessage, error) {
-	state := map[string]interface{}{
-		"task_id": a.taskID,
-	}
-	return json.Marshal(state)
-}
-
-// ImportState 实现 core.Recoverable 接口
-func (a *EvaluatorAgent) ImportState(data json.RawMessage) error {
-	var state map[string]interface{}
-	if err := json.Unmarshal(data, &state); err != nil {
-		return err
-	}
-	if taskID, ok := state["task_id"].(string); ok {
-		a.taskID = taskID
-	}
-	return nil
-}

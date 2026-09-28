@@ -173,10 +173,10 @@ func (h handler) runCognition(
 	agents := &controlAgentLifecycle{
 		start: func() {
 			agentCtx, cancelAgents = context.WithCancel(ctx)
-			goAgent("planner", plannerAgent.Start)
-			goAgent("executor", executorAgent.Start)
-			goAgent("evaluator", evaluatorAgent.Start)
-			goAgent("monitor", monitorAgent.Start)
+			goAgent("planner", plannerAgent.Run)
+			goAgent("executor", executorAgent.Run)
+			goAgent("evaluator", evaluatorAgent.Run)
+			goAgent("monitor", monitorAgent.Run)
 		},
 		stop: func() {
 			cancelAgents()

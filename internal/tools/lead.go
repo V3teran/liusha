@@ -48,7 +48,17 @@ var writeLeadSchema = json.RawMessage(`{
   "required": ["category", "summary"]
 }`)
 
-type writeLeadTool struct{ deps Deps }
+type writeLeadTool struct {
+	registry.BaseTool
+	deps Deps
+}
+
+func newWriteLeadTool(deps Deps, timeout time.Duration, safe bool) *writeLeadTool {
+	t := &writeLeadTool{deps: deps}
+	t.SetTimeout(timeout)
+	t.SetConcurrencySafe(safe)
+	return t
+}
 
 func (t *writeLeadTool) Name() string      { return "write_lead" }
 func (t *writeLeadTool) ShortDesc() string { return "写一条跨 task 情报" }

@@ -30,7 +30,17 @@ var listTrafficSchema = json.RawMessage(`{
   }
 }`)
 
-type listTrafficTool struct{ deps Deps }
+type listTrafficTool struct {
+	registry.BaseTool
+	deps Deps
+}
+
+func newListTrafficTool(deps Deps, timeout time.Duration, safe bool) *listTrafficTool {
+	t := &listTrafficTool{deps: deps}
+	t.SetTimeout(timeout)
+	t.SetConcurrencySafe(safe)
+	return t
+}
 
 func (t *listTrafficTool) Name() string      { return "list_traffic" }
 func (t *listTrafficTool) ShortDesc() string { return "列出本次扫描历史 HTTP 流量摘要" }
@@ -132,7 +142,17 @@ var viewTrafficSchema = json.RawMessage(`{
   "required": ["id"]
 }`)
 
-type viewTrafficTool struct{ deps Deps }
+type viewTrafficTool struct {
+	registry.BaseTool
+	deps Deps
+}
+
+func newViewTrafficTool(deps Deps, timeout time.Duration, safe bool) *viewTrafficTool {
+	t := &viewTrafficTool{deps: deps}
+	t.SetTimeout(timeout)
+	t.SetConcurrencySafe(safe)
+	return t
+}
 
 func (t *viewTrafficTool) Name() string      { return "view_traffic" }
 func (t *viewTrafficTool) ShortDesc() string { return "查看单条历史流量完整内容" }
@@ -212,7 +232,17 @@ var replayTrafficSchema = json.RawMessage(`{
   "required": ["id"]
 }`)
 
-type replayTrafficTool struct{ deps Deps }
+type replayTrafficTool struct {
+	registry.BaseTool
+	deps Deps
+}
+
+func newReplayTrafficTool(deps Deps, timeout time.Duration, safe bool) *replayTrafficTool {
+	t := &replayTrafficTool{deps: deps}
+	t.SetTimeout(timeout)
+	t.SetConcurrencySafe(safe)
+	return t
+}
 
 func (t *replayTrafficTool) Name() string { return "replay_traffic" }
 func (t *replayTrafficTool) ShortDesc() string {

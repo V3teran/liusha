@@ -6,6 +6,7 @@ import (
 
 	"github.com/V3teran/liusha/internal/framework/core"
 	"github.com/V3teran/liusha/internal/framework/llm"
+	"github.com/V3teran/liusha/internal/registry"
 )
 
 // ReActRuntime 是 ReAct (Reasoning + Acting) 循环的运行时。
@@ -26,13 +27,13 @@ type ReActRuntime interface {
 	Run(ctx context.Context, config *ReActConfig) (*ReActResult, error)
 
 	// RegisterTool 注册工具
-	RegisterTool(tool core.Tool) error
+	RegisterTool(tool registry.Tool) error
 
 	// UnregisterTool 注销工具
 	UnregisterTool(name string) error
 
 	// GetTools 获取所有已注册工具
-	GetTools() []core.Tool
+	GetTools() []registry.Tool
 
 	// GetMessageHistory 获取消息历史
 	GetMessageHistory() []llm.Message
@@ -52,16 +53,11 @@ type ReActConfig struct {
 	// LLM 提供者
 	LLMProvider llm.Provider
 
-	// 模型 ID
-
 	// 最大迭代次数（防止无限循环）
 	MaxIterations int
 
 	// 初始消息历史（可选，用于多轮对话）
 	InitialHistory []llm.Message
-
-	// 工具列表（自动转换为函数调用）
-	Tools []core.Tool
 
 	// 提前终止条件（返回 true 时停止循环）
 	EarlyStopCondition func(thought string) bool
