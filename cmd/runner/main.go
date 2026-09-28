@@ -199,15 +199,16 @@ func main() {
 
 	mux := worker.NewMux()
 
-	// 默认使用纯热池 handler（无数据库依赖，极简高效）
-	// 设置 USE_LEGACY_HANDLER=true 可切换回旧的完整 handler
-	if os.Getenv("USE_LEGACY_HANDLER") != "true" {
+	// 默认走完整认知链 handler（四智能体 + 探索图 + 复现晋升门 + 任务状态回写）。
+	// SANDBOX_SMOKE=true 切换为热池沙箱冒烟 handler（echo 桩，仅验证容器连通，
+	// 不写 DB、不跑认知循环——排查容器问题时用）。
+	if os.Getenv("SANDBOX_SMOKE") == "true" {
 		warmHandler := newWarmPoolHandler(sandboxMgr, logger)
 		mux.Register(worker.RoleExecutor, warmHandler.handle)
-		logger.Info().Msg("using pure warm pool handler (default)")
+		logger.Warn().Msg("using sandbox smoke handler (echo stub, no cognition, no DB writes)")
 	} else {
 		mux.Register(worker.RoleExecutor, h.handle)
-		logger.Warn().Msg("using legacy handler (requires database)")
+		logger.Info().Msg("using cognition handler (default)")
 	}
 
 	srv := asynq.NewServer(

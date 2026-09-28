@@ -35,13 +35,8 @@ func (i *Intelligence) AnalyzeResults(ctx context.Context, world *explorationgra
 		return nil, fmt.Errorf("无法获取 Actions: %w", err)
 	}
 
-	// 统计属于当前 Objective 的 Actions
-	actionCount := 0
-	for range allActions {
-		// 简化判断：统计所有 Actions（因为目前只有一个 Objective）
-		// 未来如果有多个 Objectives，需要通过边关系判断
-		actionCount++
-	}
+	// 简化判断：统计所有 Actions（当前单 Objective；多 Objective 后需按边关系过滤）
+	actionCount := len(allActions)
 
 	i.logger.Info().
 		Int("total_actions", actionCount).
@@ -283,24 +278,7 @@ func (i *Intelligence) callAnalysisLLM(ctx context.Context, prompt string) (*Ana
 	content = strings.TrimSpace(content)
 
 	// 如果包含 Markdown 代码块标记，提取其中的 JSON
-	if strings.Contains(content, "```") {
-		lines := strings.Split(content, "\n")
-		var jsonLines []string
-		inBlock := false
-		for _, line := range lines {
-			trimmed := strings.TrimSpace(line)
-			if strings.HasPrefix(trimmed, "```") {
-				inBlock = !inBlock
-				continue
-			}
-			if inBlock || (!strings.HasPrefix(content, "```") && !inBlock) {
-				jsonLines = append(jsonLines, line)
-			}
-		}
-		if len(jsonLines) > 0 {
-			content = strings.Join(jsonLines, "\n")
-		}
-	}
+	content = StripCodeFences(content)
 
 	// 解析 JSON
 	var analysis AnalysisResponse
@@ -314,4 +292,26 @@ func (i *Intelligence) callAnalysisLLM(ctx context.Context, prompt string) (*Ana
 	}
 
 	return &analysis, nil
+}
+
+// StripCodeFences 剥离 LLM 回复里的 markdown code fence（``` / ```json），
+// 返回可直接 json.Unmarshal 的正文。intelligence.go 的 JSON 提取共用本实现。
+func StripCodeFences(content string) string {
+	if !strings.Contains(content, "```") {
+		return content
+	}
+	lines := strings.Split(content, "\n")
+	jsonLines := make([]string, 0, len(lines))
+	inBlock := false
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "```") {
+			inBlock = !inBlock
+			continue
+		}
+		if inBlock || !strings.HasPrefix(strings.TrimSpace(content), "```") {
+			jsonLines = append(jsonLines, line)
+		}
+	}
+	return strings.Join(jsonLines, "\n")
 }

@@ -91,8 +91,8 @@ func (a *ExecutorAgent) Start(ctx context.Context) error {
 	a.logger.Info().Str("task_id", a.taskID).Msg("ExecutorAgent 启动")
 
 	// 订阅事件
-	events := a.eventBus.SubscribeTask(a.taskID)
-	defer a.eventBus.UnsubscribeTask(a.taskID)
+	sub := a.eventBus.SubscribeTask(a.taskID)
+	defer sub.Cancel()
 
 	// 执行状态
 	var report Report
@@ -119,7 +119,7 @@ func (a *ExecutorAgent) Start(ctx context.Context) error {
 			a.notifyCompletion(report)
 			return nil
 
-		case event := <-events:
+		case event := <-sub.Events():
 			a.logger.Debug().
 				Str("task_id", a.taskID).
 				Str("event_type", string(event.Type)).

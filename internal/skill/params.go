@@ -16,7 +16,7 @@ import (
 //     由 LLM 自识别；Host 由 handler.onboardHost（L2 域注册表 Onboard）从 brief 抽真实 host，抽不到回退 task_id。
 //     findings/lessons 按 (task/host) 切分。
 //
-// runner 路径用此结构传给 executor.BuildUserPrompt 拼 user prompt。
+// 认知循环的任务上下文参数（executor 引擎拼装 objective 用）。
 type BuilderParams struct {
 	TaskID       string // 所属 task.id（也用作 finding/lesson 归属）
 	AssignmentID string // 所属 assignment.id（用于查询情报黑板）

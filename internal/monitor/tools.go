@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/V3teran/liusha/internal/bus"
 	"github.com/V3teran/liusha/internal/explorationgraph"
 	"github.com/V3teran/liusha/internal/framework/core"
 )
@@ -86,14 +85,17 @@ func (t *GetGlobalStateTool) Execute(ctx context.Context, input core.ToolInput) 
 // ============================================
 
 type PublishDecisionTool struct {
-	eventBus bus.Bus
-	taskID   string
+	world  *explorationgraph.Store
+	taskID string
 }
 
-func NewPublishDecisionTool(eventBus bus.Bus, taskID string) *PublishDecisionTool {
+// NewPublishDecisionTool 构造决策工具。kill_action 的生效路径是探索图
+// 状态变更：action 置 aborted 后 executor 不再认领（CanExecute 只认 open）；
+// request_replan 无需显式事件——planner 以 10s 轮询兜底重规划。
+func NewPublishDecisionTool(world *explorationgraph.Store, taskID string) *PublishDecisionTool {
 	return &PublishDecisionTool{
-		eventBus: eventBus,
-		taskID:   taskID,
+		world:  world,
+		taskID: taskID,
 	}
 }
 

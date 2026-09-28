@@ -57,8 +57,10 @@ func (h handler) runCognition(
 		return executor.Report{}, fmt.Errorf("world and eventBus are required")
 	}
 
-	// 1. 创建 Registry 并注册工具
+	// 1. 创建 Registry 并注册工具；挂工具遥测 + 任务心跳 interceptor——
+	// 每次工具调用落 tool_invocation 并节流续命 task.heartbeat_at（reaper 判活依据）。
 	reg := registry.New()
+	reg.AddInterceptor(h.toolRecordInterceptor(assignmentID, taskID))
 	tools.RegisterAll(reg, tools.Deps{
 		TaskID:        taskID,
 		AgentID:       assignmentID,
@@ -169,9 +171,7 @@ func (h handler) runCognition(
 	}
 
 	agents := &controlAgentLifecycle{
-		agents: &agentWg,
 		start: func() {
-			agentWg.Add(1)
 			agentCtx, cancelAgents = context.WithCancel(ctx)
 			goAgent("planner", plannerAgent.Start)
 			goAgent("executor", executorAgent.Start)

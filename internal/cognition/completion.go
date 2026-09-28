@@ -91,8 +91,8 @@ func (d *CompletionDetector) Start(ctx context.Context) Result {
 		Msg("完成检测器启动（持续探索模式）")
 
 	// 订阅事件
-	events := d.bus.SubscribeTask(d.taskID)
-	defer d.bus.UnsubscribeTask(d.taskID)
+	sub := d.bus.SubscribeTask(d.taskID)
+	defer sub.Cancel()
 
 	// 定期检查
 	ticker := time.NewTicker(d.checkInterval)
@@ -107,7 +107,7 @@ func (d *CompletionDetector) Start(ctx context.Context) Result {
 			// 其他 goroutine 触发完成
 			return result
 
-		case event := <-events:
+		case event := <-sub.Events():
 			d.handleEvent(event)
 
 			// 每次事件后检查是否完成
@@ -206,6 +206,17 @@ func (d *CompletionDetector) Pause() {
 func (d *CompletionDetector) Resume() {
 	d.paused.Store(false)
 	d.logger.Info().Msg("任务已恢复（控制平面）")
+}
+
+// CheckNow 同步执行一次完成判定（供测试与控制平面查询；主循环仍走 Start）。
+func (d *CompletionDetector) CheckNow() (Result, bool) {
+	return d.checkCompletion()
+}
+
+// FeedEvent 直接喂事件给检测器（绕过 bus 订阅，供测试与控制平面注入；
+// 生产路径由 Start 的订阅循环调用，两者共用 handleEvent）。
+func (d *CompletionDetector) FeedEvent(event bus.Event) {
+	d.handleEvent(event)
 }
 
 // GetStats 获取当前统计（非阻塞）

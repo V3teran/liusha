@@ -144,7 +144,7 @@ func (m *SingletonManager) Acquire(ctx context.Context, req AcquireRequest) (*Sa
 	}
 
 	if sb.WorkDir == "" {
-		sb.WorkDir = "/work/" + req.TaskID
+		sb.WorkDir = "/liusha/" + req.TaskID
 	}
 
 	if err := sb.PrepareWorkDir(ctx); err != nil {
@@ -201,20 +201,25 @@ func (m *SingletonManager) Healthz(ctx context.Context) error {
 }
 
 // Metrics 返回监控指标。
+// Metrics 返回监控指标。健康探测在锁外执行（exec 最多阻塞数秒，
+// 持锁探测会卡住 Acquire/Release），并带超时上界。
 func (m *SingletonManager) Metrics() ManagerMetrics {
 	m.mu.RLock()
-	defer m.mu.RUnlock()
-
 	total := m.acquireTotal.Load()
 	latency := m.acquireLatency.Load()
+	sandbox := m.sandbox
+	m.mu.RUnlock()
+
 	avgLatencyMs := float64(0)
 	if total > 0 {
 		avgLatencyMs = float64(latency) / float64(total) / 1000.0 // 微秒 → 毫秒
 	}
 
 	healthyCount := 0
-	if m.sandbox != nil {
-		if err := m.checkHealth(context.Background(), m.sandbox); err == nil {
+	if sandbox != nil {
+		hctx, hcancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer hcancel()
+		if err := m.checkHealth(hctx, sandbox); err == nil {
 			healthyCount = 1
 		}
 	}
