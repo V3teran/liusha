@@ -21,6 +21,11 @@ CI 与本地 `make lint` 均会执行；新增术语变更必须先改本表再�
 | 知识图谱 / KnowledgeGraph / knowledge graph / knowledgegraph | 探索图 / ExplorationGraph | 2026-09 命名统一；web 路由同步为 /exploration-graph |
 | 认知图 | 探索图 | 同一概念的第三种叫法，废弃 |
 | 世界模型 / WorldModel / worldmodel | 探索图 / ExplorationGraph | 旧包名 worldmodel 已删；概念上探索图即世界状态的唯一事实源 |
+| scenario / 场景 / ScenarioPicker | Assignment / 测试任务单 | scenario 概念于迁移 0126 全面删除；/findings/s 死端点与 DistinctScenarios 死方法随之移除 |
+| swarm / solo（引擎模式） | 统一认知循环（四智能体） | 引擎模式选择已删；agent_run.planner_id 列保留作父子任务链数据 |
+| 猎手 / hunter（作为代码标识符） | Agent / 智能体 | 猎手为 hunter 中文残留；env 契约 LIUSHA_HUNTER_ID 例外（见保留区） |
+| planned_move / Move（作为代码标识符） | Action | 0121 已并入探索图；控制命令字面量 inject_move 例外（见保留区） |
+| agent_task / executor_run / react_run | agent_run | 运行记录表历次改名终名 |
 
 ## 契约保留区（wire contract，禁止顺手改名）
 

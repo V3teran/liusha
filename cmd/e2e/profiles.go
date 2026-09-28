@@ -24,7 +24,7 @@ type activeProfile struct {
 // - full: 综合开放性扫描
 var activeProfiles = map[string]activeProfile{
 	// active:full 综合扫描：开放性 brief，不剧透漏洞类型/路径。
-	// 压测 LLM 自主 recon 能力 + swarm spawn 决策（多攻击面应触发 spawn_exploitation）。
+	// 压测 LLM 自主 recon 能力 + 多攻击面 spawn 决策（多攻击面应触发 spawn_exploitation）。
 	//
 	// - MinObjectives=2: 可能有多个攻击面目标（登录、XSS、SQLi、文件上传等）
 	// - MinActions=10: 综合扫描需要更多探索动作（recon + 多种攻击）

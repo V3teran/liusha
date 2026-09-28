@@ -41,8 +41,6 @@ type ChatAPI interface {
 	StartChatScan(ctx context.Context, brief string) (conversationID, taskID string, err error)
 }
 
-// 可选场景列表由 GET /s（configstore）提供，前端 ScenarioPicker 消费。
-
 // ConversationsAPI 是会话/消息读取窄接口（*conversation.Store 自动满足）。
 type ConversationsAPI interface {
 	ListConversations(ctx context.Context, limit, offset int, source string) ([]conversation.Conversation, bool, error)
@@ -142,7 +140,6 @@ type FollowUpAPI interface {
 }
 
 // FollowUpRequest 是 POST /conversations/:id/messages 请求体。
-// _id 可选：纯聊天会话升级为扫描时用（前端 ScenarioPicker 随 Composer 带上）。
 type FollowUpRequest struct {
 	Content string `json:"content"`
 }

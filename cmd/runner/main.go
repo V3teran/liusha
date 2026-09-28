@@ -5,9 +5,8 @@
 //	  2. 启 asynq.Server：消费 agent:react 队列，每个 task 跑 1 个 agent agent
 //	  3. healthz HTTP；graceful shutdown
 //
-// **部署约束：runner 当前是单实例**。subtask swarm 用 in-process parentRegistries
-// (sync.Map) 持有planner的 Registry + exploitation goroutine——planner一旦被 asynq 路由到本进程，
-// 它派的所有exploitation也只在本进程内跑（共享 ctx 树 + sandbox 容器 + WaitAll 清理）。
+// **部署约束：runner 当前是单实例**。planner 派生的子任务（in-process parentRegistries
+// (sync.Map) + exploitation goroutine）只在本进程内跑（共享 ctx 树 + sandbox 容器 + WaitAll 清理）。
 // 多实例部署需先实现 Registry 跨进程协同（如 Redis-backed Registry）才能解锁。
 // active planner在 enqueue 时已设 asynq.MaxRetry(0)，crash 后不重试——配合本约束
 // 避免"planner 在 A 实例 crash → asynq retry 给 B → B 看不到 A 内存的 exploitation Registry"僵尸场景。

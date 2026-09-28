@@ -42,9 +42,9 @@ describe('config API 客户端', () => {
     expect(body.max_iterations).toBe(12)
   })
 
-  it('deleteAgent 遇 409 抛后端中文 error', async () => {
-    mockFetch(409, { error: '该智能体仍被场景引用（solo 场景执行猎手），请先解除引用再删除' })
-    await expect(deleteAgent('h-1')).rejects.toThrow('该智能体仍被场景引用')
+  it('deleteAgent 遇 409 抛后端中文错误', async () => {
+    mockFetch(409, { error: '该智能体仍被其他配置引用，请先解除引用再删除' })
+    await expect(deleteAgent('h-1')).rejects.toThrow('该智能体仍被其他配置引用')
   })
 
   it('listTools 分页透传 page/size/q/kind 到 query', async () => {

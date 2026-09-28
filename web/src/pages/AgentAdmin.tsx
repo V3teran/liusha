@@ -15,7 +15,7 @@ const fetchAgents = async (page: number, size: number, q: string) => {
   return { items: res.agents, total: res.total }
 }
 
-// 新建猎手空白初值。kind 默认 executor（领域智能体）。
+// 新建智能体空白初值。kind 默认 executor（领域智能体）。
 function blankAgent(): AgentConfig {
   return {
     id: '',

@@ -365,25 +365,6 @@ func (s *Store) DistinctHosts(ctx context.Context) ([]string, error) {
 	return out, rows.Err()
 }
 
-// DistinctScenarios 返回台账全量 distinct _id（JOIN task；供筛选下拉）。
-func (s *Store) DistinctScenarios(ctx context.Context) ([]string, error) {
-	rows, err := s.pool.Query(ctx,
-		`SELECT DISTINCT t._id FROM finding f JOIN task t ON t.id = f.task_id ORDER BY t._id`)
-	if err != nil {
-		return nil, fmt.Errorf("distinct finding s: %w", err)
-	}
-	defer rows.Close()
-	var out []string
-	for rows.Next() {
-		var sc string
-		if err := rows.Scan(&sc); err != nil {
-			return nil, fmt.Errorf("scan _id: %w", err)
-		}
-		out = append(out, sc)
-	}
-	return out, rows.Err()
-}
-
 // CountAll 返回同筛选口径下的全局总行数（分页 total；忽略 Limit/Offset）。
 func (s *Store) CountAll(ctx context.Context, f LedgerFilter) (int, error) {
 	where, args := ledgerWhere(f)

@@ -30,7 +30,7 @@ const (
 
 // Run 是 agent 表行的 Go 表示——每次 agent ReAct 运行的状态快照。
 // Result 在终态前为空 jsonb '{}'。
-// plannerID 空表示独立/根任务；非空时指向 planner agent.id（旧 subtask swarm 数据）。
+// plannerID 空表示独立/根任务；非空时指向 planner agent.id（父子子任务链）。
 type Run struct {
 	ID        string
 	TaskID    string // 所属 task.id

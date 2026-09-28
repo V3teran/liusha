@@ -200,7 +200,7 @@ func (s *Store) List(ctx context.Context, onlyEnabled bool) ([]Agent, error) {
 	return out, rows.Err()
 }
 
-// ListParams 是分页/搜索列表的入参（配置管理页用；swarm 池仍走 ListEnabledDomain 全量）。
+// ListParams 是分页/搜索列表的入参（配置管理页用；运行时装配仍走 ListEnabledDomain 全量）。
 //   - Q     ：按 code/name/description 模糊匹配（空 = 不过滤）
 //   - Limit ：<=0 表示不分页（全量）
 //   - Offset：分页偏移
@@ -258,7 +258,7 @@ func (s *Store) CountList(ctx context.Context, p ListParams) (int, error) {
 }
 
 // ListEnabledDomain 按 code 升序列出全部 enabled 的领域操作员（kind='domain'）。
-// 这是 swarm 引擎的子代理池来源：LLM 运行时在此池内动态 handoff（见 D2）。
+// 这是运行时子代理池来源：LLM 运行时在此池内动态 handoff（见 D2）。
 func (s *Store) ListEnabledDomain(ctx context.Context) ([]Agent, error) {
 	rows, err := s.pool.Query(ctx,
 		"SELECT "+colsSelect+" FROM agent WHERE kind='domain' AND enabled=true ORDER BY code ASC")

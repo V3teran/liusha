@@ -17,7 +17,7 @@ import (
 )
 
 // Deps 持有单次 agent run 所需的全部上下文与依赖。
-// 每次 handleSolo/handleCognition 调用时从 handler 字段 + 运行时参数组装。
+// 每次 handleCognition 调用时从 handler 字段 + 运行时参数组装。
 type Deps struct {
 	TaskID  string
 	AgentID string
