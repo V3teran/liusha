@@ -45,7 +45,10 @@ func (c *Checkpointer) Save(ctx context.Context, checkpoint core.Checkpoint) (co
 	// 转换 ComponentStates 为 JSON
 	var componentStates []byte
 	if checkpoint.ComponentStates != nil {
-		componentStates, _ = json.Marshal(checkpoint.ComponentStates)
+		componentStates, err = json.Marshal(checkpoint.ComponentStates)
+		if err != nil {
+			return "", fmt.Errorf("checkpoint: marshal component_states: %w", err)
+		}
 	} else {
 		componentStates = []byte("{}")
 	}
@@ -53,7 +56,10 @@ func (c *Checkpointer) Save(ctx context.Context, checkpoint core.Checkpoint) (co
 	// 转换 Labels 为 JSON
 	var labels []byte
 	if checkpoint.Labels != nil {
-		labels, _ = json.Marshal(checkpoint.Labels)
+		labels, err = json.Marshal(checkpoint.Labels)
+		if err != nil {
+			return "", fmt.Errorf("checkpoint: marshal labels: %w", err)
+		}
 	} else {
 		labels = []byte("{}")
 	}
@@ -108,13 +114,17 @@ func (c *Checkpointer) Load(ctx context.Context, id core.CheckpointID) (*core.Ch
 	// 解析 ComponentStates
 	if len(componentStatesJSON) > 0 {
 		cp.ComponentStates = make(map[string]json.RawMessage)
-		_ = json.Unmarshal(componentStatesJSON, &cp.ComponentStates)
+		if err := json.Unmarshal(componentStatesJSON, &cp.ComponentStates); err != nil {
+			return nil, fmt.Errorf("checkpoint: unmarshal component_states: %w", err)
+		}
 	}
 
 	// 解析 Labels
 	if len(labelsJSON) > 0 {
 		cp.Labels = make(map[string]string)
-		_ = json.Unmarshal(labelsJSON, &cp.Labels)
+		if err := json.Unmarshal(labelsJSON, &cp.Labels); err != nil {
+			return nil, fmt.Errorf("checkpoint: unmarshal labels: %w", err)
+		}
 	}
 
 	return &cp, nil
@@ -152,7 +162,9 @@ func (c *Checkpointer) List(ctx context.Context, taskID string, limit int) ([]co
 		// 解析 Labels
 		if len(labelsJSON) > 0 {
 			meta.Labels = make(map[string]string)
-			_ = json.Unmarshal(labelsJSON, &meta.Labels)
+			if err := json.Unmarshal(labelsJSON, &meta.Labels); err != nil {
+				return nil, fmt.Errorf("checkpoint: list unmarshal labels: %w", err)
+			}
 		}
 
 		metas = append(metas, meta)
@@ -186,13 +198,17 @@ func (c *Checkpointer) Latest(ctx context.Context, taskID string) (*core.Checkpo
 	// 解析 ComponentStates
 	if len(componentStatesJSON) > 0 {
 		cp.ComponentStates = make(map[string]json.RawMessage)
-		_ = json.Unmarshal(componentStatesJSON, &cp.ComponentStates)
+		if err := json.Unmarshal(componentStatesJSON, &cp.ComponentStates); err != nil {
+			return nil, fmt.Errorf("checkpoint: latest unmarshal component_states: %w", err)
+		}
 	}
 
 	// 解析 Labels
 	if len(labelsJSON) > 0 {
 		cp.Labels = make(map[string]string)
-		_ = json.Unmarshal(labelsJSON, &cp.Labels)
+		if err := json.Unmarshal(labelsJSON, &cp.Labels); err != nil {
+			return nil, fmt.Errorf("checkpoint: latest unmarshal labels: %w", err)
+		}
 	}
 
 	return &cp, nil

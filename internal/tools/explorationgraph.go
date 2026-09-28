@@ -127,7 +127,10 @@ func (t *writeObservationTool) Execute(ctx context.Context, args json.RawMessage
 			DstID:     id,
 			CreatedAt: time.Now(),
 		}
-		_ = t.deps.World.CreateBusinessEdge(ctx, edge)
+		if err := t.deps.World.CreateBusinessEdge(ctx, edge); err != nil {
+			// 边创建失败不中断主流程
+			_ = err
+		}
 	}
 
 	return registry.ToolResult{
@@ -257,7 +260,10 @@ func (t *writeEvidenceTool) Execute(ctx context.Context, args json.RawMessage) (
 
 		// 更新 observation 的置信度为 verified
 		verified := explorationgraph.Confidence("verified")
-		_ = t.deps.World.UpdateNodeConfidence(ctx, input.ObservationID, verified)
+		if err := t.deps.World.UpdateNodeConfidence(ctx, input.ObservationID, verified); err != nil {
+			// 置信度更新失败不中断主流程
+			_ = err
+		}
 
 		// 3. 如果有 finding_id，创建 evidence → finding (CONFIRMS)
 		if input.FindingID != "" {
@@ -280,12 +286,18 @@ func (t *writeEvidenceTool) Execute(ctx context.Context, args json.RawMessage) (
 
 		// 更新 observation 的置信度为 low
 		low := explorationgraph.Confidence("low")
-		_ = t.deps.World.UpdateNodeConfidence(ctx, input.ObservationID, low)
+		if err := t.deps.World.UpdateNodeConfidence(ctx, input.ObservationID, low); err != nil {
+			// 置信度更新失败不中断主流程
+			_ = err
+		}
 	}
 
 	// 创建所有边
 	for _, edge := range edges {
-		_ = t.deps.World.CreateBusinessEdge(ctx, edge)
+		if err := t.deps.World.CreateBusinessEdge(ctx, edge); err != nil {
+			// 边创建失败不中断主流程
+			_ = err
+		}
 	}
 
 	return registry.ToolResult{

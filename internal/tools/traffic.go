@@ -59,7 +59,9 @@ func (t *listTrafficTool) Execute(ctx context.Context, args json.RawMessage) (re
 		Tool       string `json:"tool"`
 		Limit      int    `json:"limit"`
 	}
-	_ = json.Unmarshal(args, &a)
+	if err := json.Unmarshal(args, &a); err != nil {
+		return registry.ToolResult{Error: fmt.Sprintf("read_traffic: invalid args: %v", err)}, nil
+	}
 	if a.Limit <= 0 {
 		a.Limit = 20
 	}

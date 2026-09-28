@@ -54,7 +54,7 @@ func NewPostgresVectorStore(ctx context.Context, config PostgresVectorStoreConfi
 
 	// 初始化表结构
 	if err := store.initSchema(ctx); err != nil {
-		pool.Close()
+		pool.Close() // 关闭失败的连接池
 		return nil, fmt.Errorf("failed to init schema: %w", err)
 	}
 

@@ -42,7 +42,9 @@ func (t *readCredentialsTool) Execute(ctx context.Context, args json.RawMessage)
 	var a struct {
 		Host string `json:"host"`
 	}
-	_ = json.Unmarshal(args, &a)
+	if err := json.Unmarshal(args, &a); err != nil {
+		return registry.ToolResult{Error: fmt.Sprintf("read_credentials: invalid args: %v", err)}, nil
+	}
 	host := a.Host
 	if host == "" {
 		host = t.deps.Host
@@ -55,7 +57,10 @@ func (t *readCredentialsTool) Execute(ctx context.Context, args json.RawMessage)
 	if len(identities) == 0 {
 		return registry.ToolResult{Output: "[]"}, nil
 	}
-	b, _ := json.MarshalIndent(identities, "", "  ")
+	b, err := json.MarshalIndent(identities, "", "  ")
+	if err != nil {
+		return registry.ToolResult{Error: fmt.Sprintf("read_credentials: marshal failed: %v", err)}, nil
+	}
 	return registry.ToolResult{
 		Output: string(b),
 		Signal: &registry.Signal{
