@@ -9,6 +9,7 @@ import (
 
 	"github.com/V3teran/liusha/internal/framework/core"
 	"github.com/V3teran/liusha/internal/framework/llm"
+	"github.com/V3teran/liusha/internal/registry"
 )
 
 // DefaultReActRuntime 是 ReActRuntime 的默认实现
@@ -16,7 +17,7 @@ type DefaultReActRuntime struct {
 	mu sync.RWMutex
 
 	// 工具注册表
-	tools map[string]core.Tool
+	tools map[string]registry.Tool
 
 	// 消息历史（跨多次 Run 保留）
 	messageHistory []llm.Message
@@ -25,13 +26,13 @@ type DefaultReActRuntime struct {
 // NewReActRuntime 创建 ReAct 运行时
 func NewReActRuntime() ReActRuntime {
 	return &DefaultReActRuntime{
-		tools:          make(map[string]core.Tool),
+		tools:          make(map[string]registry.Tool),
 		messageHistory: make([]llm.Message, 0),
 	}
 }
 
 // RegisterTool 注册工具
-func (r *DefaultReActRuntime) RegisterTool(tool core.Tool) error {
+func (r *DefaultReActRuntime) RegisterTool(tool registry.Tool) error {
 	if tool == nil {
 		return fmt.Errorf("工具不能为 nil")
 	}
@@ -61,11 +62,11 @@ func (r *DefaultReActRuntime) UnregisterTool(name string) error {
 }
 
 // GetTools 获取所有工具
-func (r *DefaultReActRuntime) GetTools() []core.Tool {
+func (r *DefaultReActRuntime) GetTools() []registry.Tool {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	tools := make([]core.Tool, 0, len(r.tools))
+	tools := make([]registry.Tool, 0, len(r.tools))
 	for _, tool := range r.tools {
 		tools = append(tools, tool)
 	}
@@ -150,16 +151,6 @@ func (r *DefaultReActRuntime) Run(ctx context.Context, config *ReActConfig) (*Re
 
 		// 添加用户目标
 		result.AddUserMessage(config.Objective)
-	}
-
-	// 注册临时工具
-	for _, tool := range config.Tools {
-		if err := r.RegisterTool(tool); err != nil {
-			// 工具已存在，跳过
-			continue
-		}
-		// 运行结束后注销
-		defer r.UnregisterTool(tool.Name())
 	}
 
 	// ReAct 循环（从 startIteration 开始）
@@ -367,8 +358,8 @@ func (r *DefaultReActRuntime) convertToolsToLLMFormat() []llm.ToolSchema {
 	for _, tool := range r.tools {
 		tools = append(tools, llm.ToolSchema{
 			Name:        tool.Name(),
-			Description: tool.Description(),
-			Parameters:  tool.Schema().InputSchema,
+			Description: tool.Desc(),
+			Parameters:  tool.Schema(),
 		})
 	}
 
@@ -395,28 +386,47 @@ func (r *DefaultReActRuntime) executeTool(ctx context.Context, toolCall llm.Tool
 		return "", fmt.Errorf("工具 %s 未注册", toolCall.Name)
 	}
 
-	// 构建工具输入
-	input := core.ToolInput{
-		Arguments: toolCall.Arguments,
+	// 获取工具超时时间
+	timeout := tool.Timeout()
+	if timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, timeout)
+		defer cancel()
 	}
 
-	// 执行工具
-	output, err := tool.Execute(ctx, input)
-	if err != nil {
+	// 异步执行工具 + 超时保护
+	resultCh := make(chan registry.ToolResult, 1)
+	errCh := make(chan error, 1)
+
+	go func() {
+		result, err := tool.Execute(ctx, toolCall.Arguments)
+		if err != nil {
+			errCh <- err
+			return
+		}
+		resultCh <- result
+	}()
+
+	// 等待结果或超时
+	var result registry.ToolResult
+	var err error
+
+	select {
+	case result = <-resultCh:
+		// 成功获取结果
+	case err = <-errCh:
 		return "", err
+	case <-ctx.Done():
+		return "", fmt.Errorf("工具 %s 执行超时（%s）", toolCall.Name, timeout)
 	}
 
-	if output.Error != "" {
-		return output.Error, nil
+	// 如果工具返回错误
+	if result.Error != "" {
+		return result.Error, nil
 	}
 
-	// 转换结果为字符串
-	resultBytes, err := json.Marshal(output.Result)
-	if err != nil {
-		return "", fmt.Errorf("序列化工具结果失败: %w", err)
-	}
-
-	return string(resultBytes), nil
+	// 返回工具输出（Output 字段已经是字符串）
+	return result.Output, nil
 }
 
 // saveCheckpoint 保存当前执行状态到检查点

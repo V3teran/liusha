@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/V3teran/liusha/internal/finding"
 	"github.com/V3teran/liusha/internal/registry"
@@ -19,7 +20,17 @@ var readFindingsSchema = json.RawMessage(`{
   }
 }`)
 
-type readFindingsTool struct{ deps Deps }
+type readFindingsTool struct {
+	registry.BaseTool
+	deps Deps
+}
+
+func newReadFindingsTool(deps Deps, timeout time.Duration, safe bool) *readFindingsTool {
+	t := &readFindingsTool{deps: deps}
+	t.SetTimeout(timeout)
+	t.SetConcurrencySafe(safe)
+	return t
+}
 
 func (t *readFindingsTool) Name() string      { return "read_findings" }
 func (t *readFindingsTool) ShortDesc() string { return "列出本次扫描已有 finding" }
@@ -78,7 +89,17 @@ var writeFindingSchema = json.RawMessage(`{
   "required": ["summary", "severity"]
 }`)
 
-type writeFindingTool struct{ deps Deps }
+type writeFindingTool struct {
+	registry.BaseTool
+	deps Deps
+}
+
+func newWriteFindingTool(deps Deps, timeout time.Duration, safe bool) *writeFindingTool {
+	t := &writeFindingTool{deps: deps}
+	t.SetTimeout(timeout)
+	t.SetConcurrencySafe(safe)
+	return t
+}
 
 func (t *writeFindingTool) Name() string      { return "write_finding" }
 func (t *writeFindingTool) ShortDesc() string { return "写一条新漏洞 finding" }
@@ -152,7 +173,17 @@ var updateFindingSchema = json.RawMessage(`{
   "required": ["id"]
 }`)
 
-type updateFindingTool struct{ deps Deps }
+type updateFindingTool struct {
+	registry.BaseTool
+	deps Deps
+}
+
+func newUpdateFindingTool(deps Deps, timeout time.Duration, safe bool) *updateFindingTool {
+	t := &updateFindingTool{deps: deps}
+	t.SetTimeout(timeout)
+	t.SetConcurrencySafe(safe)
+	return t
+}
 
 func (t *updateFindingTool) Name() string      { return "update_finding" }
 func (t *updateFindingTool) ShortDesc() string { return "更新已有 finding" }

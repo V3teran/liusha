@@ -1,78 +1,35 @@
 package executor
 
 import (
-	"context"
-	"encoding/json"
-	"fmt"
-
-	"github.com/V3teran/liusha/internal/framework/core"
 	"github.com/V3teran/liusha/internal/registry"
 )
 
-// Registry 是 executor 包的工具注册表适配器
+// Registry 是 executor 包对 registry.Registry 的薄封装
+// 用于在 Engine 中统一管理工具注册
 type Registry struct {
 	inner *registry.Registry
 }
 
-// NewRegistry 创建 Registry 适配器
+// NewRegistry 创建工具注册表
 func NewRegistry(inner *registry.Registry) *Registry {
 	return &Registry{inner: inner}
 }
 
-// Tools 返回所有注册的工具（作为 core.Tool 接口）
-func (r *Registry) Tools() []core.Tool {
+// List 返回所有已注册的工具
+func (r *Registry) List() []registry.Tool {
 	schemas := r.inner.Schemas()
-	tools := make([]core.Tool, 0, len(schemas))
-
+	tools := make([]registry.Tool, 0, len(schemas))
 	for _, schema := range schemas {
 		if tool, ok := r.inner.Get(schema.Name); ok {
-			tools = append(tools, &toolAdapter{
-				inner: tool,
-			})
+			tools = append(tools, tool)
 		}
 	}
-
 	return tools
 }
 
-// toolAdapter 将 registry.Tool 适配为 core.Tool
-type toolAdapter struct {
-	inner registry.Tool
+// Register 注册工具
+func (r *Registry) Register(tool registry.Tool) {
+	r.inner.Register(tool)
 }
 
-func (t *toolAdapter) Name() string {
-	return t.inner.Name()
-}
 
-func (t *toolAdapter) Description() string {
-	return t.inner.Desc()
-}
-
-func (t *toolAdapter) Schema() core.ToolSchema {
-	innerSchema := t.inner.Schema()
-	schemaJSON, _ := json.Marshal(innerSchema)
-	return core.ToolSchema{
-		InputSchema: schemaJSON,
-	}
-}
-
-func (t *toolAdapter) Execute(ctx context.Context, input core.ToolInput) (core.ToolOutput, error) {
-	// 调用 registry.Tool 的 Execute
-	result, err := t.inner.Execute(ctx, input.Arguments)
-	if err != nil {
-		return core.ToolOutput{
-			Error: err.Error(),
-		}, nil
-	}
-
-	// 转换为 core.ToolOutput
-	outputJSON, err := json.Marshal(result.Output)
-	if err != nil {
-		// 工具输出不可序列化时带上错误信息，避免 LLM 收到静默空结果
-		outputJSON, _ = json.Marshal(map[string]string{"error": fmt.Sprintf("marshal output: %v", err)})
-	}
-	return core.ToolOutput{
-		Result: outputJSON,
-		Error:  result.Error,
-	}, nil
-}

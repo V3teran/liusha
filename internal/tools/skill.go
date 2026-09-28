@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/V3teran/liusha/internal/registry"
 )
@@ -18,7 +19,17 @@ var readToolingSkillSchema = json.RawMessage(`{
   "required": ["tool_name"]
 }`)
 
-type readToolingSkillTool struct{ deps Deps }
+type readToolingSkillTool struct {
+	registry.BaseTool
+	deps Deps
+}
+
+func newReadToolingSkillTool(deps Deps, timeout time.Duration, safe bool) *readToolingSkillTool {
+	t := &readToolingSkillTool{deps: deps}
+	t.SetTimeout(timeout)
+	t.SetConcurrencySafe(safe)
+	return t
+}
 
 func (t *readToolingSkillTool) Name() string      { return "read_tooling_skill" }
 func (t *readToolingSkillTool) ShortDesc() string { return "拉取外部 CLI 工具使用手册" }
@@ -55,7 +66,17 @@ var readVulnSkillSchema = json.RawMessage(`{
   "required": ["vuln_type"]
 }`)
 
-type readVulnSkillTool struct{ deps Deps }
+type readVulnSkillTool struct {
+	registry.BaseTool
+	deps Deps
+}
+
+func newReadVulnSkillTool(deps Deps, timeout time.Duration, safe bool) *readVulnSkillTool {
+	t := &readVulnSkillTool{deps: deps}
+	t.SetTimeout(timeout)
+	t.SetConcurrencySafe(safe)
+	return t
+}
 
 func (t *readVulnSkillTool) Name() string      { return "read_vuln_skill" }
 func (t *readVulnSkillTool) ShortDesc() string { return "拉取漏洞挖掘指南" }

@@ -4,9 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/V3teran/liusha/internal/explorationgraph"
-	"github.com/V3teran/liusha/internal/framework/core"
+	"github.com/V3teran/liusha/internal/registry"
 )
 
 // ============================================
@@ -14,54 +15,58 @@ import (
 // ============================================
 
 type GetGlobalStateTool struct {
+	registry.BaseTool
 	world  *explorationgraph.Store
 	taskID string
 }
 
 func NewGetGlobalStateTool(world *explorationgraph.Store, taskID string) *GetGlobalStateTool {
-	return &GetGlobalStateTool{
+	t := &GetGlobalStateTool{
 		world:  world,
 		taskID: taskID,
 	}
+	t.SetTimeout(30 * time.Second)
+	t.SetConcurrencySafe(true)
+	return t
 }
 
 func (t *GetGlobalStateTool) Name() string {
 	return "get_global_state"
 }
 
-func (t *GetGlobalStateTool) Description() string {
+func (t *GetGlobalStateTool) ShortDesc() string {
+	return "获取任务全局状态"
+}
+
+func (t *GetGlobalStateTool) Desc() string {
 	return "获取任务的全局状态，包括 Objective、所有 Actions 和 Findings"
 }
 
-func (t *GetGlobalStateTool) Schema() core.ToolSchema {
-	inputSchema := json.RawMessage(`{
+func (t *GetGlobalStateTool) Schema() json.RawMessage {
+	return json.RawMessage(`{
 		"type": "object",
 		"properties": {},
 		"required": []
 	}`)
-
-	return core.ToolSchema{
-		InputSchema: inputSchema,
-	}
 }
 
-func (t *GetGlobalStateTool) Execute(ctx context.Context, input core.ToolInput) (core.ToolOutput, error) {
+func (t *GetGlobalStateTool) Execute(ctx context.Context, args json.RawMessage) (registry.ToolResult, error) {
 	// 读取所有 Actions
 	allActions, err := t.world.ListAllActions(ctx, t.taskID)
 	if err != nil {
-		return core.ToolOutput{Error: fmt.Sprintf("list actions: %v", err)}, nil
+		return registry.ToolResult{Error: fmt.Sprintf("list actions: %v", err)}, nil
 	}
 
 	// 读取所有 Findings
 	findings, err := t.world.ListResults(ctx, t.taskID)
 	if err != nil {
-		return core.ToolOutput{Error: fmt.Sprintf("list findings: %v", err)}, nil
+		return registry.ToolResult{Error: fmt.Sprintf("list findings: %v", err)}, nil
 	}
 
 	// 读取 Objective
 	objective, err := t.world.GetObjective(ctx, t.taskID)
 	if err != nil {
-		return core.ToolOutput{Error: fmt.Sprintf("get objective: %v", err)}, nil
+		return registry.ToolResult{Error: fmt.Sprintf("get objective: %v", err)}, nil
 	}
 
 	// 构建状态快照
@@ -74,10 +79,10 @@ func (t *GetGlobalStateTool) Execute(ctx context.Context, input core.ToolInput) 
 	// 序列化为 JSON
 	stateJSON, err := json.Marshal(state)
 	if err != nil {
-		return core.ToolOutput{Error: fmt.Sprintf("marshal state: %v", err)}, nil
+		return registry.ToolResult{Error: fmt.Sprintf("marshal state: %v", err)}, nil
 	}
 
-	return core.ToolOutput{Result: stateJSON}, nil
+	return registry.ToolResult{Output: string(stateJSON)}, nil
 }
 
 // ============================================
@@ -85,6 +90,7 @@ func (t *GetGlobalStateTool) Execute(ctx context.Context, input core.ToolInput) 
 // ============================================
 
 type PublishDecisionTool struct {
+	registry.BaseTool
 	world  *explorationgraph.Store
 	taskID string
 }
@@ -93,22 +99,29 @@ type PublishDecisionTool struct {
 // 状态变更：action 置 aborted 后 executor 不再认领（CanExecute 只认 open）；
 // request_replan 无需显式事件——planner 以 10s 轮询兜底重规划。
 func NewPublishDecisionTool(world *explorationgraph.Store, taskID string) *PublishDecisionTool {
-	return &PublishDecisionTool{
+	t := &PublishDecisionTool{
 		world:  world,
 		taskID: taskID,
 	}
+	t.SetTimeout(10 * time.Second)
+	t.SetConcurrencySafe(false) // 决策操作不能并发
+	return t
 }
 
 func (t *PublishDecisionTool) Name() string {
 	return "publish_decision"
 }
 
-func (t *PublishDecisionTool) Description() string {
+func (t *PublishDecisionTool) ShortDesc() string {
+	return "发布监察决策"
+}
+
+func (t *PublishDecisionTool) Desc() string {
 	return "发布监察决策事件（kill_action 或 request_replan）"
 }
 
-func (t *PublishDecisionTool) Schema() core.ToolSchema {
-	inputSchema := json.RawMessage(`{
+func (t *PublishDecisionTool) Schema() json.RawMessage {
+	return json.RawMessage(`{
 		"type": "object",
 		"properties": {
 			"type": {
@@ -127,26 +140,22 @@ func (t *PublishDecisionTool) Schema() core.ToolSchema {
 		},
 		"required": ["type", "reason"]
 	}`)
-
-	return core.ToolSchema{
-		InputSchema: inputSchema,
-	}
 }
 
-func (t *PublishDecisionTool) Execute(ctx context.Context, input core.ToolInput) (core.ToolOutput, error) {
+func (t *PublishDecisionTool) Execute(ctx context.Context, args json.RawMessage) (registry.ToolResult, error) {
 	// 解析参数
 	var decision Decision
-	if err := json.Unmarshal(input.Arguments, &decision); err != nil {
-		return core.ToolOutput{Error: fmt.Sprintf("invalid arguments: %v", err)}, nil
+	if err := json.Unmarshal(args, &decision); err != nil {
+		return registry.ToolResult{Error: fmt.Sprintf("invalid arguments: %v", err)}, nil
 	}
 
 	// 验证参数
 	if decision.Type != "kill_action" && decision.Type != "request_replan" {
-		return core.ToolOutput{Error: "type must be kill_action or request_replan"}, nil
+		return registry.ToolResult{Error: "type must be kill_action or request_replan"}, nil
 	}
 
 	if decision.Type == "kill_action" && decision.ActionID == "" {
-		return core.ToolOutput{Error: "action_id is required for kill_action"}, nil
+		return registry.ToolResult{Error: "action_id is required for kill_action"}, nil
 	}
 
 	// kill_action 的实际生效路径是探索图中 action 状态变更（planner.Kill）；
@@ -161,5 +170,5 @@ func (t *PublishDecisionTool) Execute(ctx context.Context, input core.ToolInput)
 	}
 
 	resultJSON, _ := json.Marshal(result)
-	return core.ToolOutput{Result: resultJSON}, nil
+	return registry.ToolResult{Output: string(resultJSON)}, nil
 }

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/V3teran/liusha/internal/corpus"
 	"github.com/V3teran/liusha/internal/registry"
@@ -22,7 +23,17 @@ var searchCorpusSchema = json.RawMessage(`{
   "required": ["query"]
 }`)
 
-type searchCorpusTool struct{ deps Deps }
+type searchCorpusTool struct {
+	registry.BaseTool
+	deps Deps
+}
+
+func newSearchCorpusTool(deps Deps, timeout time.Duration, safe bool) *searchCorpusTool {
+	t := &searchCorpusTool{deps: deps}
+	t.SetTimeout(timeout)
+	t.SetConcurrencySafe(safe)
+	return t
+}
 
 func (t *searchCorpusTool) Name() string      { return "search_corpus" }
 func (t *searchCorpusTool) ShortDesc() string { return "检索跨目标长期知识库" }
@@ -84,7 +95,17 @@ var writeCorpusSchema = json.RawMessage(`{
   "required": ["title", "content"]
 }`)
 
-type writeCorpusTool struct{ deps Deps }
+type writeCorpusTool struct {
+	registry.BaseTool
+	deps Deps
+}
+
+func newWriteCorpusTool(deps Deps, timeout time.Duration, safe bool) *writeCorpusTool {
+	t := &writeCorpusTool{deps: deps}
+	t.SetTimeout(timeout)
+	t.SetConcurrencySafe(safe)
+	return t
+}
 
 func (t *writeCorpusTool) Name() string      { return "write_corpus" }
 func (t *writeCorpusTool) ShortDesc() string { return "向知识库沉淀可复用知识" }

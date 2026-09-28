@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"time"
 
 	"github.com/V3teran/liusha/internal/registry"
 )
@@ -18,7 +19,16 @@ var doneSchema = json.RawMessage(`{
   "required": ["reason"]
 }`)
 
-type doneTool struct{}
+type doneTool struct {
+	registry.BaseTool
+}
+
+func newDoneTool() *doneTool {
+	t := &doneTool{}
+	t.SetTimeout(5 * time.Second)
+	t.SetConcurrencySafe(true)
+	return t
+}
 
 func (doneTool) Name() string      { return "done" }
 func (doneTool) ShortDesc() string { return "终止当前任务收尾" }
@@ -53,7 +63,16 @@ var markInsightSchema = json.RawMessage(`{
   "required": ["label"]
 }`)
 
-type markInsightTool struct{}
+type markInsightTool struct {
+	registry.BaseTool
+}
+
+func newMarkInsightTool() *markInsightTool {
+	t := &markInsightTool{}
+	t.SetTimeout(5 * time.Second)
+	t.SetConcurrencySafe(true)
+	return t
+}
 
 func (markInsightTool) Name() string      { return "mark_insight" }
 func (markInsightTool) ShortDesc() string { return "标记关键节点" }

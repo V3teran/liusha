@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/V3teran/liusha/internal/registry"
 	"github.com/V3teran/liusha/internal/sandbox"
@@ -24,7 +25,17 @@ var runCommandSchema = json.RawMessage(`{
   "required": ["command"]
 }`)
 
-type runCommandTool struct{ deps Deps }
+type runCommandTool struct {
+	registry.BaseTool
+	deps Deps
+}
+
+func newRunCommandTool(deps Deps, timeout time.Duration, safe bool) *runCommandTool {
+	t := &runCommandTool{deps: deps}
+	t.SetTimeout(timeout)
+	t.SetConcurrencySafe(safe)
+	return t
+}
 
 func (t *runCommandTool) Name() string      { return "run_command" }
 func (t *runCommandTool) ShortDesc() string { return "在沙箱内执行 shell 命令" }
@@ -101,7 +112,17 @@ var browserUseSchema = json.RawMessage(`{
   "required": ["instruction"]
 }`)
 
-type browserUseTool struct{ deps Deps }
+type browserUseTool struct {
+	registry.BaseTool
+	deps Deps
+}
+
+func newBrowserUseTool(deps Deps, timeout time.Duration, safe bool) *browserUseTool {
+	t := &browserUseTool{deps: deps}
+	t.SetTimeout(timeout)
+	t.SetConcurrencySafe(safe)
+	return t
+}
 
 func (t *browserUseTool) Name() string      { return "browser_use" }
 func (t *browserUseTool) ShortDesc() string { return "用真实浏览器操作目标页面" }
