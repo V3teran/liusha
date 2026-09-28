@@ -4,19 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
 	"sync/atomic"
 	"time"
 
 	"github.com/V3teran/liusha/internal/sandbox"
 
-	executorbuilder "github.com/V3teran/liusha/internal/builder/executor"
-	"github.com/V3teran/liusha/internal/executor"
-	"github.com/V3teran/liusha/internal/explorationgraph"
-	"github.com/V3teran/liusha/internal/framework/llm"
 	"github.com/V3teran/liusha/internal/registry"
-	"github.com/V3teran/liusha/internal/scanagent"
-	"github.com/V3teran/liusha/internal/task"
 	"github.com/V3teran/liusha/internal/toolinvocation"
 	"github.com/V3teran/liusha/internal/worker"
 )
@@ -104,123 +97,6 @@ func (h handler) toolRecordInterceptor(executorID, taskID string) registry.Inter
 }
 
 // ─────────────────────────────────────────────────────────────
-//  No-op executor infrastructure stubs
-// ─────────────────────────────────────────────────────────────
-
-type noopCompactor struct{}
-
-func (noopCompactor) Compact(_ context.Context, _ llm.Provider, msgs []llm.Message) ([]llm.Message, error) {
-	return msgs, nil
-}
-
-// ─────────────────────────────────────────────────────────────
-//  SSE emitter bridging executor.SSEEvent → scanagent.ScanEvent
-// ─────────────────────────────────────────────────────────────
-
-type sseEmitterAdapter struct{ sink scanagent.EventSink }
-
-func (a *sseEmitterAdapter) Emit(ev executor.SSEEvent) {
-	if a.sink == nil {
-		return
-	}
-	a.sink.OnScanEvent(context.Background(), scanagent.ScanEvent{
-		Kind: scanagent.ScanEventKind(ev.Kind),
-		Text: fmt.Sprintf("action=%s step=%d", ev.ActionID, ev.StepID),
-	})
-}
-
-// ─────────────────────────────────────────────────────────────
-//  Prompt helpers
-// ─────────────────────────────────────────────────────────────
-
-// buildPromptDeps reconstructs an executorbuilder.Deps from the flat handler fields.
-func (h handler) buildPromptDeps() executorbuilder.Deps {
-	return executorbuilder.Deps{
-		Findings:        h.findings,
-		Credentials:     h.creds,
-		Lead:            h.leads,
-		ToolInvocations: h.toolCalls,
-		ToolingLoader:   h.toolingLoader,
-		ToolsManifest:   h.toolsManifest,
-		VulnLoader:      h.vulnLoader,
-	}
-}
-
-// composeplannerInstruction builds the full system prompt for the planner agent.
-func composeplannerInstruction(body string) string {
-	return executorbuilder.SystemPrompt() + "\n\n" + body
-}
-
-// composeSubAgentInstruction builds the full system prompt for a sub-agent.
-func composeSubAgentInstruction(body string) string {
-	return executorbuilder.SystemPrompt() + "\n\n" + body
-}
-
-// ─────────────────────────────────────────────────────────────
-//  Dispatcher factory
-// ─────────────────────────────────────────────────────────────
-
-// buildDispatcher constructs a Dispatcher for a single run.
-// The caller is responsible for registering tools into the returned registry.
-func (h handler) watchAbort(ctx context.Context, cancel context.CancelFunc, taskID string) {
-	ticker := time.NewTicker(abortPollInterval)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			tk, err := h.tasks.GetByID(ctx, taskID)
-			if err != nil {
-				continue
-			}
-			if tk.Status != task.StatusActive {
-				h.logger.Info().Str("task_id", taskID).Msg("task 中止，cancel executor run")
-				cancel()
-				return
-			}
-		}
-	}
-}
-
-// ─────────────────────────────────────────────────────────────
-//  Complexity 推断
-// ─────────────────────────────────────────────────────────────
-
-// inferComplexity 根据 brief 内容推断初始 complexity
-func (h handler) inferComplexity(brief string) llm.Complexity {
-	lower := strings.ToLower(brief)
-
-	// Trivial: 查询类（如果 provider 包没有定义，使用 Simple）
-	if strings.Contains(lower, "列举") || strings.Contains(lower, "查询") ||
-		strings.Contains(lower, "检查") || strings.Contains(lower, "读取") {
-		return llm.ComplexitySimple
-	}
-
-	// Simple: 基础枚举
-	if strings.Contains(lower, "扫描") || strings.Contains(lower, "探测") ||
-		strings.Contains(lower, "枚举") || strings.Contains(lower, "发现") {
-		return llm.ComplexitySimple
-	}
-
-	// Complex: 漏洞利用
-	if strings.Contains(lower, "利用") || strings.Contains(lower, "getshell") ||
-		strings.Contains(lower, "提权") || strings.Contains(lower, "执行") ||
-		strings.Contains(lower, "绕过") {
-		return llm.ComplexityComplex
-	}
-
-	// Extreme: 复杂攻击链（使用 Complex 作为最高级）
-	if strings.Contains(lower, "横移") || strings.Contains(lower, "持久化") ||
-		strings.Contains(lower, "攻击链") || strings.Contains(lower, "域控") {
-		return llm.ComplexityComplex
-	}
-
-	// Moderate: 默认（漏洞测试）
-	return llm.ComplexityMedium
-}
-
-// ─────────────────────────────────────────────────────────────
 //  Cognition handler (新架构统一入口)
 // ─────────────────────────────────────────────────────────────
 
@@ -283,75 +159,4 @@ func (h handler) handleCognition(
 		h.logger.Error().Err(err).Str("task_id", taskID).Msg("failed to mark task complete")
 	}
 	return nil
-}
-
-// ─────────────────────────────────────────────────────────────
-//  Helper functions
-// ─────────────────────────────────────────────────────────────
-
-// Extracts complexity and instruction from the action node.
-func nodeToExecutorAction(node explorationgraph.Node, userPrompt string) executor.Action {
-	if !node.IsAction() {
-		// Fallback for non-action nodes
-		return executor.Action{
-			Complexity:  explorationgraph.ComplexitySimple,
-			Instruction: userPrompt,
-		}
-	}
-
-	// 解析 content
-	var content map[string]interface{}
-	_ = json.Unmarshal(node.Content, &content)
-
-	instruction, _ := content["instruction"].(string)
-	if instruction == "" {
-		instruction = userPrompt
-	}
-
-	// 解析 target_ref（可选）
-	var targetRef explorationgraph.TargetRef
-	if tr, ok := content["target_ref"].(map[string]interface{}); ok {
-		domain, _ := tr["domain"].(string)
-		refKind, _ := tr["ref_kind"].(string)
-		locator, _ := tr["locator"].(string)
-		targetRef = explorationgraph.TargetRef{
-			Domain:  domain,
-			RefKind: refKind,
-			Locator: locator,
-		}
-	}
-
-	// 使用节点的 complexity，如果为空则默认 simple
-	complexity := explorationgraph.ComplexitySimple
-	if node.Complexity != nil {
-		complexity = explorationgraph.Complexity(*node.Complexity)
-	}
-
-	return executor.Action{
-		Complexity: complexity,
-		Target: executor.TargetRef{
-			Domain:  targetRef.Domain,
-			RefKind: targetRef.RefKind,
-			Locator: targetRef.Locator,
-		},
-		Instruction: instruction,
-	}
-}
-
-// buildRunResult marshals executor executions + cognition report into the task output envelope.
-func buildRunResult(engine string, execs []executor.Execution, report interface{}) map[string]any {
-	toolCalls := []string{}
-	finalText := ""
-	for _, ex := range execs {
-		for _, s := range ex.Result.Steps {
-			_ = s
-		}
-		finalText = ex.Result.Conclusion
-	}
-	return map[string]any{
-		"engine":     engine,
-		"tool_calls": toolCalls,
-		"final_text": finalText,
-		"cognition":  report,
-	}
 }

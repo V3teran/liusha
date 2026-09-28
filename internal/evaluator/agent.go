@@ -65,8 +65,8 @@ func (a *EvaluatorAgent) Start(ctx context.Context) error {
 	a.logger.Info().Str("task_id", a.taskID).Msg("EvaluatorAgent 启动")
 
 	// 订阅事件
-	eventCh := a.eventBus.SubscribeTask(a.taskID)
-	defer a.eventBus.UnsubscribeTask(a.taskID)
+	sub := a.eventBus.SubscribeTask(a.taskID)
+	defer sub.Cancel()
 
 	// 并发控制（信号量）
 	sem := make(chan struct{}, a.maxConcurrent)
@@ -81,7 +81,7 @@ func (a *EvaluatorAgent) Start(ctx context.Context) error {
 			a.logger.Info().Str("task_id", a.taskID).Msg("EvaluatorAgent 停止")
 			return nil
 
-		case event := <-eventCh:
+		case event := <-sub.Events():
 			if event.Type == bus.EventAttemptGenerated {
 				actionID, ok := event.Payload["action_id"].(string)
 				if !ok {

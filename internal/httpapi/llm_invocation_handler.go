@@ -66,11 +66,8 @@ func parseInvocationFilter(c *gin.Context, page, size int) llminvocation.ListFil
 // parseInvocationPaging 解析 page/size query 参数：page 缺省/非法 = 1；size 缺省
 // defaultInvocationPageSize，超 maxInvocationPageSize 收敛到上限。
 func parseInvocationPaging(c *gin.Context) (page, size int) {
-	page, _ = strconv.Atoi(c.Query("page"))
-	if page < 1 {
-		page = 1
-	}
-	size, _ = strconv.Atoi(c.Query("size"))
+	page = atoiOr(c.Query("page"), 1)
+	size = atoiOr(c.Query("size"), 0)
 	if size <= 0 || size > maxInvocationPageSize {
 		size = defaultInvocationPageSize
 	}

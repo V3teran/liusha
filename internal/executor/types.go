@@ -246,20 +246,6 @@ type Directive struct {
 	Constraint *registry.Constraint
 }
 
-// ─────────────────────────────────────────────
-// SSEEmitter 向前端推送流式事件。
-type SSEEmitter interface {
-	Emit(event SSEEvent)
-}
-
-// SSEEvent 是推给前端的一条事件。
-type SSEEvent struct {
-	Kind     string // "thinking" | "tool_start" | "tool_end" | "landmark" | "result" | "action_done"
-	ActionID string
-	StepID   int
-	Data     any
-}
-
 // ExplorationGraphReader 是只读的探索图接口（用于解耦）。
 type ExplorationGraphReader interface {
 	GetNode(ctx context.Context, id string) (*ExplorationGraphNode, error)

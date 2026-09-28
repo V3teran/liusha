@@ -1,10 +1,15 @@
-// Package bus 提供统一的事件总线实现
+// Package bus 提供统一的事件总线实现。
+//
+// 语义：Task 级事件按**广播**分发——同一 task 的每个订阅者（planner/executor/
+// evaluator/monitor/完成检测器）各自持有独立 channel，收到全部事件拷贝；
+// 任一订阅者的消费速度不影响其他订阅者（通道满即丢弃，背压不级联）。
 package bus
 
 import (
 	"context"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/V3teran/liusha/internal/logx"
@@ -12,10 +17,10 @@ import (
 
 // Bus 统一事件总线接口
 type Bus interface {
-	// Task 级别订阅（返回只读通道）
-	SubscribeTask(taskID string) <-chan Event
+	// Task 级别订阅（广播语义，返回独立订阅句柄）
+	SubscribeTask(taskID string) *TaskSubscription
 
-	// Task 级别取消订阅
+	// Task 级别整体注销：关闭该 task 全部剩余订阅（任务收尾用）
 	UnsubscribeTask(taskID string)
 
 	// Action 级别订阅（返回 Subscription 对象）
@@ -30,6 +35,24 @@ type Bus interface {
 	PublishAttemptGenerated(taskID, actionID string, attempt interface{})
 	PublishVerificationPassed(taskID, nodeID string)
 	PublishVerificationRefuted(taskID, actionID string)
+}
+
+// TaskSubscription 是 Task 级订阅句柄：持有独立的广播 channel。
+type TaskSubscription struct {
+	id     uint64
+	taskID string
+	events chan Event
+	cancel func()
+}
+
+// Events 返回该订阅者的事件通道
+func (s *TaskSubscription) Events() <-chan Event { return s.events }
+
+// Cancel 注销本订阅（幂等；不影响同 task 其他订阅者）
+func (s *TaskSubscription) Cancel() {
+	if s.cancel != nil {
+		s.cancel()
+	}
 }
 
 // Subscription Action 级别订阅句柄
@@ -51,17 +74,25 @@ func (s *Subscription) Unsubscribe() {
 	}
 }
 
-// MemoryBus 内存实现的事件总线
+// taskSubOp 是 run() 内订阅表的操作请求（订阅表只在 run() 单 goroutine 变更，无竞争）。
+type taskSubOp struct {
+	sub      *TaskSubscription // register 时携带
+	teardown bool              // true = 注销该 task 全部订阅
+	cancelID uint64            // cancel 单个订阅
+	taskID   string
+	done     chan struct{} // 操作完成信号
+}
+
+// MemoryBus 内存实现的事件总线。
 type MemoryBus struct {
 	ctx context.Context
 
-	// Task 级别订阅
-	taskChannels     map[string]chan Event
-	taskRegister     chan string
-	taskUnregister   chan string
-	taskRegisterDone chan string // 通知通道创建完成
+	// Task 级订阅表（广播）：taskID → subscriberID → channel
+	taskSubs    map[string]map[uint64]chan Event
+	nextTaskSub atomic.Uint64
+	taskOps     chan taskSubOp
 
-	// Action 级别订阅
+	// Action 级订阅
 	actionMu          sync.RWMutex
 	actionSubscribers map[string]*subscriber
 	nextSubID         int
@@ -82,10 +113,8 @@ type subscriber struct {
 func New(ctx context.Context) *MemoryBus {
 	bus := &MemoryBus{
 		ctx:               ctx,
-		taskChannels:      make(map[string]chan Event),
-		taskRegister:      make(chan string, 10),
-		taskUnregister:    make(chan string, 10),
-		taskRegisterDone:  make(chan string, 10),
+		taskSubs:          make(map[string]map[uint64]chan Event),
+		taskOps:           make(chan taskSubOp, 32),
 		actionSubscribers: make(map[string]*subscriber),
 		publish:           make(chan Event, 100),
 	}
@@ -93,18 +122,17 @@ func New(ctx context.Context) *MemoryBus {
 	return bus
 }
 
-// run 运行事件总线的主循环
+// run 运行事件总线的主循环：订阅表的唯一变更点。
 func (b *MemoryBus) run() {
-	// 事件总线是全平台骨干：panic 后记录并退出，避免进程级崩溃掩盖根因。
 	defer logx.Recover("bus", "事件总线主循环 panic")
 	for {
 		select {
 		case <-b.ctx.Done():
-			// 关闭所有 Task 通道
-			for _, ch := range b.taskChannels {
-				close(ch)
+			for _, subs := range b.taskSubs {
+				for _, ch := range subs {
+					close(ch)
+				}
 			}
-			// 关闭所有 Action 订阅
 			b.actionMu.Lock()
 			for _, sub := range b.actionSubscribers {
 				sub.cancel()
@@ -113,40 +141,28 @@ func (b *MemoryBus) run() {
 			b.actionMu.Unlock()
 			return
 
-		case taskID := <-b.taskRegister:
-			if _, exists := b.taskChannels[taskID]; !exists {
-				b.taskChannels[taskID] = make(chan Event, 50)
-			}
-			b.taskRegisterDone <- taskID // 发送完成信号
-
-		case taskID := <-b.taskUnregister:
-			if ch, exists := b.taskChannels[taskID]; exists {
-				close(ch)
-				delete(b.taskChannels, taskID)
-			}
+		case op := <-b.taskOps:
+			b.handleTaskOp(op)
 
 		case event := <-b.publish:
-			// 设置时间戳
 			if event.Timestamp.IsZero() {
 				event.Timestamp = time.Now()
 			}
-			// 生成事件 ID（如果没有）
 			if event.ID == "" {
 				event.ID = generateEventID()
 			}
 
-			// Task 级别分发
+			// Task 级广播：每个订阅者一份拷贝，满即丢弃（背压不级联）
 			if event.TaskID != "" {
-				if ch, exists := b.taskChannels[event.TaskID]; exists {
+				for _, ch := range b.taskSubs[event.TaskID] {
 					select {
 					case ch <- event:
 					default:
-						// 通道满，丢弃（背压处理）
 					}
 				}
 			}
 
-			// Action 级别分发
+			// Action 级分发
 			if event.ActionID != "" {
 				b.actionMu.RLock()
 				for _, sub := range b.actionSubscribers {
@@ -154,7 +170,6 @@ func (b *MemoryBus) run() {
 						select {
 						case sub.events <- event:
 						default:
-							// 通道满，丢弃
 						}
 					}
 				}
@@ -164,16 +179,77 @@ func (b *MemoryBus) run() {
 	}
 }
 
-// SubscribeTask 订阅指定 TaskID 的事件
-func (b *MemoryBus) SubscribeTask(taskID string) <-chan Event {
-	b.taskRegister <- taskID
-	<-b.taskRegisterDone // 等待通道创建完成
-	return b.taskChannels[taskID]
+// handleTaskOp 在 run() 内执行订阅表操作。
+func (b *MemoryBus) handleTaskOp(op taskSubOp) {
+	switch {
+	case op.sub != nil: // register
+		subs, ok := b.taskSubs[op.taskID]
+		if !ok {
+			subs = make(map[uint64]chan Event)
+			b.taskSubs[op.taskID] = subs
+		}
+		subs[op.sub.id] = op.sub.events
+		op.sub.cancel = func() {
+			cancelOp := taskSubOp{cancelID: op.sub.id, taskID: op.taskID, done: make(chan struct{})}
+			select {
+			case b.taskOps <- cancelOp:
+			case <-b.ctx.Done():
+			}
+		}
+		if op.done != nil {
+			close(op.done)
+		}
+	case op.teardown: // 注销该 task 全部订阅
+		for id, ch := range b.taskSubs[op.taskID] {
+			close(ch)
+			delete(b.taskSubs[op.taskID], id)
+		}
+		delete(b.taskSubs, op.taskID)
+		if op.done != nil {
+			close(op.done)
+		}
+	default: // cancel 单个订阅
+		if subs, ok := b.taskSubs[op.taskID]; ok {
+			if ch, ok := subs[op.cancelID]; ok {
+				close(ch)
+				delete(subs, op.cancelID)
+			}
+			if len(subs) == 0 {
+				delete(b.taskSubs, op.taskID)
+			}
+		}
+		if op.done != nil {
+			close(op.done)
+		}
+	}
 }
 
-// UnsubscribeTask 取消订阅
+// SubscribeTask 订阅指定 task 的全部事件（广播：独立 channel，收全量拷贝）。
+// 注册同步完成：返回后立即开始接收事件。
+func (b *MemoryBus) SubscribeTask(taskID string) *TaskSubscription {
+	sub := &TaskSubscription{
+		id:     b.nextTaskSub.Add(1),
+		taskID: taskID,
+		events: make(chan Event, 50),
+	}
+	op := taskSubOp{sub: sub, taskID: taskID, done: make(chan struct{})}
+	select {
+	case b.taskOps <- op:
+		<-op.done
+	case <-b.ctx.Done():
+	}
+	return sub
+}
+
+// UnsubscribeTask 注销该 task 的全部订阅（任务收尾用；
+// 单个订阅者退出应调 TaskSubscription.Cancel，不影响同伴）。
 func (b *MemoryBus) UnsubscribeTask(taskID string) {
-	b.taskUnregister <- taskID
+	op := taskSubOp{teardown: true, taskID: taskID, done: make(chan struct{})}
+	select {
+	case b.taskOps <- op:
+		<-op.done
+	case <-b.ctx.Done():
+	}
 }
 
 // SubscribeAction 订阅指定 ActionID 的事件
@@ -181,11 +257,9 @@ func (b *MemoryBus) SubscribeAction(ctx context.Context, actionID string) *Subsc
 	b.actionMu.Lock()
 	defer b.actionMu.Unlock()
 
-	// 生成唯一 ID
 	b.nextSubID++
 	id := fmt.Sprintf("%s:%d", actionID, b.nextSubID)
 
-	// 创建订阅者
 	subCtx, cancel := context.WithCancel(ctx)
 	sub := &subscriber{
 		id:       id,
@@ -196,8 +270,6 @@ func (b *MemoryBus) SubscribeAction(ctx context.Context, actionID string) *Subsc
 	}
 
 	b.actionSubscribers[id] = sub
-
-	// 启动清理协程
 	go b.cleanupActionSubscriber(sub)
 
 	return &Subscription{

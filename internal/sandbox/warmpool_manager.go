@@ -21,7 +21,7 @@ type WarmPoolManager struct {
 	sandbox   *Sandbox  // 当前容器（可能为空）
 	lastUsed  time.Time // 最后使用时间（Release 时更新）
 	createdAt time.Time // 创建时间
-	inUse     bool      // 是否正在使用中
+	active    int       // 并发持有计数（asynq 并发任务共享同一容器）
 
 	// 监控指标
 	acquireTotal   atomic.Int64
@@ -147,10 +147,9 @@ func (m *WarmPoolManager) Acquire(ctx context.Context, req AcquireRequest) (*San
 		}
 	}
 
-	// 标记为使用中
-	m.inUse = true
+	m.active++
 
-	// 准备任务工作目录
+	// 准备任务工作目录（默认对齐 sandbox-server 约定 /liusha/<taskID>）
 	sb := &Sandbox{
 		Client:    m.sandbox.Client,
 		ID:        m.sandbox.ID,
@@ -159,13 +158,9 @@ func (m *WarmPoolManager) Acquire(ctx context.Context, req AcquireRequest) (*San
 		CreatedAt: m.sandbox.CreatedAt,
 	}
 
-	if sb.WorkDir == "" {
-		sb.WorkDir = "/work/" + req.TaskID
-	}
-
 	if err := sb.PrepareWorkDir(ctx); err != nil {
 		m.acquireErrors.Add(1)
-		m.inUse = false
+		m.active--
 		m.logger.Error().
 			Err(err).
 			Str("task_id", req.TaskID).
@@ -183,26 +178,24 @@ func (m *WarmPoolManager) Acquire(ctx context.Context, req AcquireRequest) (*San
 	return sb, nil
 }
 
-// Release 释放 Sandbox。
-// 清理任务工作目录，将容器标记为空闲（开始计算空闲超时）。
+// Release 释放 Sandbox：SoftReset（清任务目录 + 杀残留进程，防跨任务数据泄漏）
+// 后递减持有计数；计数归零才开始计算空闲超时。
 func (m *WarmPoolManager) Release(ctx context.Context, sb *Sandbox) error {
 	if sb == nil {
 		return nil
 	}
 
-	// 清理任务工作目录
-	if err := sb.CleanupWorkDir(ctx); err != nil {
+	if err := sb.SoftReset(ctx); err != nil {
 		m.logger.Warn().
 			Err(err).
 			Str("task_id", sb.TaskID).
-			Str("work_dir", sb.WorkDir).
-			Msg("failed to cleanup work dir")
-		// 不返回错误，允许继续
+			Msg("soft reset 失败（跨任务残留风险，best-effort 继续）")
 	}
 
-	// 更新空闲时间（从此刻开始计算空闲）
 	m.mu.Lock()
-	m.inUse = false
+	if m.active > 0 {
+		m.active--
+	}
 	m.lastUsed = time.Now()
 	m.mu.Unlock()
 
@@ -232,7 +225,7 @@ func (m *WarmPoolManager) Metrics() ManagerMetrics {
 	total := m.acquireTotal.Load()
 	latency := m.acquireLatency.Load()
 	sandbox := m.sandbox
-	inUse := m.inUse
+	active := m.active
 	m.mu.RUnlock()
 
 	avgLatencyMs := float64(0)
@@ -251,14 +244,10 @@ func (m *WarmPoolManager) Metrics() ManagerMetrics {
 		}
 	}
 
-	busyCount := 0
+	busyCount := active
 	idleCount := 0
-	if sandbox != nil {
-		if inUse {
-			busyCount = 1
-		} else {
-			idleCount = 1
-		}
+	if sandbox != nil && active == 0 {
+		idleCount = 1
 	}
 
 	return ManagerMetrics{
@@ -337,8 +326,8 @@ func (m *WarmPoolManager) performMaintenance() {
 		return
 	}
 
-	// 检查 1: 空闲超时回收（只在空闲时检查）
-	if !m.inUse {
+	// 检查 1: 空闲超时回收（只在无持有者时检查）
+	if m.active == 0 {
 		idleDuration := time.Since(m.lastUsed)
 		if idleDuration > m.idleTimeout {
 			m.logger.Info().
@@ -359,9 +348,9 @@ func (m *WarmPoolManager) performMaintenance() {
 			Err(err).
 			Str("container_id", m.sandbox.ID).
 			Msg("sandbox unhealthy, will recreate on next acquire")
-		// 不健康但正在使用中：不立即销毁，等 Release 后再处理
+		// 不健康但仍有持有者：不立即销毁，等 Release 后再处理
 		// 不健康且空闲：立即销毁
-		if !m.inUse {
+		if m.active == 0 {
 			m.destroySandboxLocked()
 		}
 	}

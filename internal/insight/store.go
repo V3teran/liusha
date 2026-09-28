@@ -67,16 +67,15 @@ func (s *Store) Append(ctx context.Context, assignmentID string, insight Insight
 	return nil
 }
 
-// List 返回指定 assignment 的所有洞察，按创建时间倒序。
-func (s *Store) List(ctx context.Context, assignmentID string, limit int) ([]Insight, error) {
-	if assignmentID == "" {
-		return nil, fmt.Errorf("insight.Store.List: assignmentID 必填")
-	}
+// list 是 List/ListByPriority/ListByCategory 的公共实现（where 已含占位符，args 与之对应）。
+func (s *Store) list(ctx context.Context, label, where string, args []any, orderBy string, limit int) ([]Insight, error) {
 	if limit <= 0 {
 		limit = 100
 	}
-
-	query := `
+	if orderBy == "" {
+		orderBy = "created_at DESC"
+	}
+	query := fmt.Sprintf(`
 		SELECT
 			id, assignment_id,
 			category, priority, confidence,
@@ -84,14 +83,15 @@ func (s *Store) List(ctx context.Context, assignmentID string, limit int) ([]Ins
 			source_task_id, source_agent_id,
 			created_at, updated_at
 		FROM insight
-		WHERE assignment_id = $1
-		ORDER BY created_at DESC
-		LIMIT $2
-	`
+		WHERE %s
+		ORDER BY %s
+		LIMIT $%d
+	`, where, orderBy, len(args)+1)
+	args = append(args, limit)
 
-	rows, err := s.pool.Query(ctx, query, assignmentID, limit)
+	rows, err := s.pool.Query(ctx, query, args...)
 	if err != nil {
-		return nil, fmt.Errorf("insight.Store.List: %w", err)
+		return nil, fmt.Errorf("insight.Store.%s: %w", label, err)
 	}
 	defer rows.Close()
 
@@ -106,16 +106,24 @@ func (s *Store) List(ctx context.Context, assignmentID string, limit int) ([]Ins
 			&i.CreatedAt, &i.UpdatedAt,
 		)
 		if err != nil {
-			return nil, fmt.Errorf("insight.Store.List: scan: %w", err)
+			return nil, fmt.Errorf("insight.Store.%s: scan: %w", label, err)
 		}
 		insights = append(insights, i)
 	}
 
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("insight.Store.List: rows: %w", err)
+		return nil, fmt.Errorf("insight.Store.%s: rows: %w", label, err)
 	}
 
 	return insights, nil
+}
+
+// List 返回指定 assignment 的全部洞察（最新在前）。
+func (s *Store) List(ctx context.Context, assignmentID string, limit int) ([]Insight, error) {
+	if assignmentID == "" {
+		return nil, fmt.Errorf("insight.Store.List: assignmentID 必填")
+	}
+	return s.list(ctx, "List", "assignment_id = $1", []any{assignmentID}, "", limit)
 }
 
 // ListByPriority 返回指定 assignment 和优先级的洞察。
@@ -123,50 +131,7 @@ func (s *Store) ListByPriority(ctx context.Context, assignmentID string, priorit
 	if assignmentID == "" {
 		return nil, fmt.Errorf("insight.Store.ListByPriority: assignmentID 必填")
 	}
-	if limit <= 0 {
-		limit = 100
-	}
-
-	query := `
-		SELECT
-			id, assignment_id,
-			category, priority, confidence,
-			summary, body, tags,
-			source_task_id, source_agent_id,
-			created_at, updated_at
-		FROM insight
-		WHERE assignment_id = $1 AND priority = $2
-		ORDER BY created_at DESC
-		LIMIT $3
-	`
-
-	rows, err := s.pool.Query(ctx, query, assignmentID, priority, limit)
-	if err != nil {
-		return nil, fmt.Errorf("insight.Store.ListByPriority: %w", err)
-	}
-	defer rows.Close()
-
-	var insights []Insight
-	for rows.Next() {
-		var i Insight
-		err := rows.Scan(
-			&i.ID, &i.AssignmentID,
-			&i.Category, &i.Priority, &i.Confidence,
-			&i.Summary, &i.Body, &i.Tags,
-			&i.SourceTaskID, &i.SourceAgentID,
-			&i.CreatedAt, &i.UpdatedAt,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("insight.Store.ListByPriority: scan: %w", err)
-		}
-		insights = append(insights, i)
-	}
-
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("insight.Store.ListByPriority: rows: %w", err)
-	}
-
-	return insights, nil
+	return s.list(ctx, "ListByPriority", "assignment_id = $1 AND priority = $2", []any{assignmentID, priority}, "created_at DESC", limit)
 }
 
 // ListByCategory 返回指定 assignment 和分类的洞察。
@@ -174,50 +139,7 @@ func (s *Store) ListByCategory(ctx context.Context, assignmentID string, categor
 	if assignmentID == "" {
 		return nil, fmt.Errorf("insight.Store.ListByCategory: assignmentID 必填")
 	}
-	if limit <= 0 {
-		limit = 100
-	}
-
-	query := `
-		SELECT
-			id, assignment_id,
-			category, priority, confidence,
-			summary, body, tags,
-			source_task_id, source_agent_id,
-			created_at, updated_at
-		FROM insight
-		WHERE assignment_id = $1 AND category = $2
-		ORDER BY created_at DESC
-		LIMIT $3
-	`
-
-	rows, err := s.pool.Query(ctx, query, assignmentID, category, limit)
-	if err != nil {
-		return nil, fmt.Errorf("insight.Store.ListByCategory: %w", err)
-	}
-	defer rows.Close()
-
-	var insights []Insight
-	for rows.Next() {
-		var i Insight
-		err := rows.Scan(
-			&i.ID, &i.AssignmentID,
-			&i.Category, &i.Priority, &i.Confidence,
-			&i.Summary, &i.Body, &i.Tags,
-			&i.SourceTaskID, &i.SourceAgentID,
-			&i.CreatedAt, &i.UpdatedAt,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("insight.Store.ListByCategory: scan: %w", err)
-		}
-		insights = append(insights, i)
-	}
-
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("insight.Store.ListByCategory: rows: %w", err)
-	}
-
-	return insights, nil
+	return s.list(ctx, "ListByCategory", "assignment_id = $1 AND category = $2", []any{assignmentID, category}, "created_at DESC", limit)
 }
 
 // ReadRecent 返回指定 assignment 的近期洞察，按优先级分组。

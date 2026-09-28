@@ -29,6 +29,10 @@ type PlannerAgent struct {
 	logger       zerolog.Logger
 	pollInterval time.Duration // 轮询间隔（作为兜底）
 
+	// analyzedResultIDs 是 AnalyzeResults 的水位：已分析过的 Result 节点不再
+	// 重复送 LLM（否则任务后半程每轮轮询都全量重分析，烧 token 且灌重复结论）。
+	analyzedResultIDs map[string]bool
+
 	stopCh chan struct{}
 }
 
@@ -49,13 +53,14 @@ func NewPlannerAgent(cfg PlannerAgentConfig) *PlannerAgent {
 	}
 
 	return &PlannerAgent{
-		taskID:       cfg.TaskID,
-		world:        cfg.World,
-		planner:      cfg.Planner,
-		eventBus:     cfg.EventBus,
-		logger:       cfg.Logger.With().Str("agent", "planner").Logger(),
-		pollInterval: cfg.PollInterval,
-		stopCh:       make(chan struct{}),
+		taskID:            cfg.TaskID,
+		world:             cfg.World,
+		planner:           cfg.Planner,
+		eventBus:          cfg.EventBus,
+		logger:            cfg.Logger.With().Str("agent", "planner").Logger(),
+		pollInterval:      cfg.PollInterval,
+		analyzedResultIDs: make(map[string]bool),
+		stopCh:            make(chan struct{}),
 	}
 }
 
@@ -65,8 +70,8 @@ func (a *PlannerAgent) Start(ctx context.Context) error {
 	a.logger.Info().Str("task_id", a.taskID).Msg("PlannerAgent 启动")
 
 	// 订阅事件
-	events := a.eventBus.SubscribeTask(a.taskID)
-	defer a.eventBus.UnsubscribeTask(a.taskID)
+	sub := a.eventBus.SubscribeTask(a.taskID)
+	defer sub.Cancel()
 
 	// 定期检查（兜底机制）
 	ticker := time.NewTicker(a.pollInterval)
@@ -87,7 +92,7 @@ func (a *PlannerAgent) Start(ctx context.Context) error {
 			a.logger.Info().Str("task_id", a.taskID).Msg("PlannerAgent 停止")
 			return nil
 
-		case event := <-events:
+		case event := <-sub.Events():
 			// 处理验证结果事件
 			if err := a.handleEvent(ctx, event); err != nil {
 				a.logger.Error().
@@ -142,16 +147,29 @@ func (a *PlannerAgent) planActions(ctx context.Context) error {
 
 	a.logger.Debug().Str("task_id", a.taskID).Msg("开始规划 Action")
 
-	// 1. 先检查是否有 Results 需要分析
+	// 1. 只分析新出现的 Results（水位过滤，避免重复 LLM 调用）
 	results, err := a.world.ListNodesByKind(ctx, a.taskID, core.KindResult)
 	if err == nil && len(results) > 0 {
-		a.logger.Info().
-			Int("result_count", len(results)).
-			Msg("检测到 Results，先进行分析")
+		fresh := make([]explorationgraph.Node, 0, len(results))
+		for _, r := range results {
+			if !a.analyzedResultIDs[r.ID] {
+				fresh = append(fresh, r)
+			}
+		}
+		if len(fresh) > 0 {
+			a.logger.Info().
+				Int("fresh_count", len(fresh)).
+				Int("total_count", len(results)).
+				Msg("检测到新 Results，先进行分析")
 
-		if err := a.analyzeAndProcessResults(ctx); err != nil {
-			a.logger.Error().Err(err).Msg("分析 Results 失败")
-			// 不返回错误，继续生成 Actions
+			if err := a.analyzeAndProcessResults(ctx, fresh); err != nil {
+				a.logger.Error().Err(err).Msg("分析 Results 失败")
+				// 不返回错误，继续生成 Actions
+			} else {
+				for _, r := range fresh {
+					a.analyzedResultIDs[r.ID] = true
+				}
+			}
 		}
 	}
 
@@ -313,18 +331,11 @@ func (a *PlannerAgent) ImportState(data json.RawMessage) error {
 	return nil
 }
 
-// analyzeAndProcessResults 分析 Results 并处理
-func (a *PlannerAgent) analyzeAndProcessResults(ctx context.Context) error {
-	a.logger.Info().Msg("开始分析 Results")
-
-	// 1. 获取所有 Result 节点
-	results, err := a.world.ListNodesByKind(ctx, a.taskID, core.KindResult)
-	if err != nil {
-		return fmt.Errorf("list results: %w", err)
-	}
+// analyzeAndProcessResults 分析增量 Results 并处理（水位由调用方维护）。
+func (a *PlannerAgent) analyzeAndProcessResults(ctx context.Context, results []explorationgraph.Node) error {
+	a.logger.Info().Int("result_count", len(results)).Msg("开始分析 Results")
 
 	if len(results) == 0 {
-		a.logger.Info().Msg("没有 Result 节点，无法分析")
 		return nil
 	}
 
@@ -443,7 +454,7 @@ func (a *PlannerAgent) createContinuationActions(ctx context.Context, actions []
 		return fmt.Errorf("无法获取当前 Objective")
 	}
 
-	currentObjective := objectives[len(objectives)-1] // 最新的 Objective
+	currentObjective := objectives[0] // 主 Objective（创建序第一个，与 primaryObjectiveID 判定一致）
 
 	for _, action := range actions {
 		actionID := uuid.New().String()
