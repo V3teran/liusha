@@ -44,7 +44,9 @@ func (t *readFindingsTool) Execute(ctx context.Context, args json.RawMessage) (r
 		Host  string `json:"host"`
 		Limit int    `json:"limit"`
 	}
-	_ = json.Unmarshal(args, &a)
+	if err := json.Unmarshal(args, &a); err != nil {
+		return registry.ToolResult{Error: fmt.Sprintf("read_findings: invalid args: %v", err)}, nil
+	}
 	if a.Host == "" {
 		a.Host = t.deps.Host
 	}

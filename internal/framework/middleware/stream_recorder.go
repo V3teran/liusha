@@ -259,7 +259,7 @@ func NewLiveRecorder(filePath string) (*LiveRecorder, error) {
 
 	// 写入 JSON 数组开头
 	if _, err := file.WriteString("[\n"); err != nil {
-		file.Close()
+		_ = file.Close() // 忽略 Close 错误，因为写入已失败
 		return nil, err
 	}
 
