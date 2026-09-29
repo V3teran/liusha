@@ -89,7 +89,7 @@ func (t *ObserveStateTool) Execute(ctx context.Context, argsJSON json.RawMessage
 
 	// 格式化输出
 	var output string
-	output += fmt.Sprintf("## 探索图状态\n\n")
+	output += "## 探索图状态\n\n"
 
 	// 目标
 	output += fmt.Sprintf("### 目标 (%d)\n", len(objectives))
@@ -346,7 +346,7 @@ func (t *EvaluateProgressTool) Execute(ctx context.Context, argsJSON json.RawMes
 	}
 
 	var output string
-	output += fmt.Sprintf("## 任务进展\n\n")
+	output += "## 任务进展\n\n"
 	output += fmt.Sprintf("- 总 Action 数: %d\n", totalActions)
 	output += fmt.Sprintf("- 已完成: %d\n", doneActions)
 	output += fmt.Sprintf("- 执行中: %d\n", runningActions)

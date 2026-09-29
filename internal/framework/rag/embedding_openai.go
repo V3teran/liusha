@@ -20,9 +20,10 @@ func NewOpenAIEmbedding(apiKey string, model string) *OpenAIEmbedding {
 
 	// 根据模型确定维度
 	dimension := 1536 // text-embedding-ada-002 默认维度
-	if model == "text-embedding-3-small" {
+	switch model {
+	case "text-embedding-3-small":
 		dimension = 1536
-	} else if model == "text-embedding-3-large" {
+	case "text-embedding-3-large":
 		dimension = 3072
 	}
 

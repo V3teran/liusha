@@ -64,9 +64,7 @@ func specFromBody(b probeBody) (ProviderProbeSpec, string) {
 	if b.APIKey == "" && b.Key == "" {
 		return ProviderProbeSpec{}, "缺少密钥来源：请填入 api_key，或提供已存 provider 的 key"
 	}
-	return ProviderProbeSpec{
-		Key: b.Key, Type: b.Type, BaseURL: b.BaseURL, DefaultModel: b.DefaultModel, APIKey: b.APIKey,
-	}, ""
+	return ProviderProbeSpec(b), ""
 }
 
 // testProviderHandler 处理 POST /models/providers/test。

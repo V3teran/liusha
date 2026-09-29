@@ -249,7 +249,8 @@ func (t *writeEvidenceTool) Execute(ctx context.Context, args json.RawMessage) (
 	}
 
 	// 2. evidence → observation (CONFIRMS 或 REFUTES)
-	if input.Outcome == "confirms" {
+	switch input.Outcome {
+	case "confirms":
 		edges = append(edges, explorationgraph.Edge{
 			TaskID:    t.deps.TaskID,
 			SrcID:     id,
@@ -275,7 +276,7 @@ func (t *writeEvidenceTool) Execute(ctx context.Context, args json.RawMessage) (
 				CreatedAt: time.Now(),
 			})
 		}
-	} else if input.Outcome == "refutes" {
+	case "refutes":
 		edges = append(edges, explorationgraph.Edge{
 			TaskID:    t.deps.TaskID,
 			SrcID:     id,
