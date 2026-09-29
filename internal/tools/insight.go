@@ -48,26 +48,26 @@ var writeLeadSchema = json.RawMessage(`{
   "required": ["category", "summary"]
 }`)
 
-type writeLeadTool struct {
+type writeInsightTool struct {
 	registry.BaseTool
 	deps Deps
 }
 
-func newWriteLeadTool(deps Deps, timeout time.Duration, safe bool) *writeLeadTool {
-	t := &writeLeadTool{deps: deps}
+func newWriteInsightTool(deps Deps, timeout time.Duration, safe bool) *writeInsightTool {
+	t := &writeInsightTool{deps: deps}
 	t.SetTimeout(timeout)
 	t.SetConcurrencySafe(safe)
 	return t
 }
 
-func (t *writeLeadTool) Name() string      { return "write_lead" }
-func (t *writeLeadTool) ShortDesc() string { return "写一条跨 task 情报" }
-func (t *writeLeadTool) Desc() string {
+func (t *writeInsightTool) Name() string      { return "write_insight" }
+func (t *writeInsightTool) ShortDesc() string { return "写一条跨 task 情报" }
+func (t *writeInsightTool) Desc() string {
 	return "写一条情报到 assignment 级别的黑板（同一批测试的多个 task 共享，跨 agent 可见）。"
 }
-func (t *writeLeadTool) Schema() json.RawMessage { return writeLeadSchema }
+func (t *writeInsightTool) Schema() json.RawMessage { return writeLeadSchema }
 
-func (t *writeLeadTool) Execute(ctx context.Context, args json.RawMessage) (registry.ToolResult, error) {
+func (t *writeInsightTool) Execute(ctx context.Context, args json.RawMessage) (registry.ToolResult, error) {
 	var a struct {
 		Category   string   `json:"category"`
 		Priority   string   `json:"priority"`
@@ -77,13 +77,13 @@ func (t *writeLeadTool) Execute(ctx context.Context, args json.RawMessage) (regi
 		Tags       []string `json:"tags"`
 	}
 	if err := json.Unmarshal(args, &a); err != nil {
-		return registry.ToolResult{Error: "write_lead: 解析参数失败: " + err.Error()}, nil
+		return registry.ToolResult{Error: "write_insight: 解析参数失败: " + err.Error()}, nil
 	}
 	if a.Summary == "" {
-		return registry.ToolResult{Error: "write_lead: summary 必填"}, nil
+		return registry.ToolResult{Error: "write_insight: summary 必填"}, nil
 	}
 	if a.Category == "" {
-		return registry.ToolResult{Error: "write_lead: category 必填"}, nil
+		return registry.ToolResult{Error: "write_insight: category 必填"}, nil
 	}
 
 	// 默认值
@@ -97,7 +97,7 @@ func (t *writeLeadTool) Execute(ctx context.Context, args json.RawMessage) (regi
 	// 查询当前 task 所属的 assignment_id
 	task, err := t.deps.Tasks.GetByID(ctx, t.deps.TaskID)
 	if err != nil {
-		return registry.ToolResult{Error: fmt.Sprintf("write_lead: 查询 task 失败: %v", err)}, nil
+		return registry.ToolResult{Error: fmt.Sprintf("write_insight: 查询 task 失败: %v", err)}, nil
 	}
 
 	entry := insight.Insight{
@@ -113,8 +113,8 @@ func (t *writeLeadTool) Execute(ctx context.Context, args json.RawMessage) (regi
 		UpdatedAt:     time.Now(),
 	}
 
-	if err := t.deps.Leads.Append(ctx, task.AssignmentID, entry); err != nil {
-		return registry.ToolResult{Error: fmt.Sprintf("write_lead: %v", err)}, nil
+	if err := t.deps.Insights.Append(ctx, task.AssignmentID, entry); err != nil {
+		return registry.ToolResult{Error: fmt.Sprintf("write_insight: %v", err)}, nil
 	}
 
 	return registry.ToolResult{

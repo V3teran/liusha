@@ -4,11 +4,11 @@
 //
 // 2026-08-26 适配统一探索图。
 //
-// 探索图铁律：图里只存坐实/假定的结果态；Lead/Observation 是在途假设（Redis 黑板），
+// 探索图铁律：图里只存坐实/假定的结果态；Observation 是在途假设（Redis 黑板），
 // 只有过复现才能晋升成图节点。Evaluator 就是这道 **不可绕过的状态转换门** 的执法者——
 // 它不取代 LLM 判断，而是给"晋升成坐实态"这个动作强制加一道复现关卡：
 //
-//	Lead(在途假设) → Promote(attempt)
+//	Observation(在途假设) → Promote(attempt)
 //	    → Replayer 执行复现 → Result{confirmed, evidence}
 //	    → RecordVerification(confirmed/refuted)  // 证据链，无论成败都落
 //	    → confirmed: CreateNode(confidence=verified) 进图
@@ -69,7 +69,7 @@ type Attempt struct {
 	Priority   string          // 优先级（critical/high/medium/low）
 }
 
-// PromotionEvaluator 是 Lead→图节点的晋升门。
+// PromotionEvaluator 是 Observation→图节点的晋升门。
 type PromotionEvaluator struct {
 	graph    graphWriter
 	replayer Replayer
@@ -92,7 +92,7 @@ func (v *PromotionEvaluator) WithLogger(l zerolog.Logger) *PromotionEvaluator {
 	return v
 }
 
-// Promote 把一条 Lead 过复现门晋升成探索图节点。
+// Promote 把一条 Observation 过复现门晋升成探索图节点。
 //
 // 返回值语义：
 //   - (node, nil)  复现坐实，已晋升成 verified 节点；

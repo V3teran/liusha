@@ -84,7 +84,7 @@ type runnerStores struct {
 	toolCalls     *toolinvocation.Store
 	proxyStore    *traffic.ProxyStore
 	agentStore    *traffic.AgentStore
-	leads         *insight.Store
+	insights         *insight.Store
 	corpus        *corpus.Store
 	checkpointer  *postgres.Checkpointer // 框架层 Checkpoint 持久化（PostgreSQL 后端）
 	calls         *llminvocation.Store
@@ -171,7 +171,7 @@ func main() {
 		corpus:         stores.corpus,
 		embedder:       embedder,
 		reranker:       reranker,
-		leads:          stores.leads,
+		insights:          stores.insights,
 		proxyStore:     stores.proxyStore,
 		agentStore:     stores.agentStore,
 		calls:          stores.calls,
@@ -278,7 +278,7 @@ func newRunnerStores(pool *pgxpool.Pool, cfg config.Config) *runnerStores {
 		toolCalls:     toolinvocation.NewStore(pool),
 		proxyStore:    traffic.NewProxyStore(pool), // 代理捕获流量（passive，按 host）
 		agentStore:    traffic.NewAgentStore(pool), // agent 自产流量（active，按 task）
-		leads:         insight.NewStore(pool),      // 情报黑板：assignment 级别共享，按 assignment_id 隔离
+		insights:         insight.NewStore(pool),      // 情报黑板：assignment 级别共享，按 assignment_id 隔离
 		corpus:        corpus.NewStore(pool),       // 跨目标知识库（hybrid RAG）
 		checkpointer:  postgres.NewCheckpointer(pool),
 		calls:         llminvocation.NewStoreWithConfig(pool, cfg.LLM.Invocation),
