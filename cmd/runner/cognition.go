@@ -53,8 +53,8 @@ func (h handler) runCognition(
 		Str("task_id", taskID).
 		Msg("[RUN_COGNITION] 启动四Agent架构")
 
-	if h.world == nil || taskID == "" || h.eventBus == nil {
-		return executor.Report{}, fmt.Errorf("world and eventBus are required")
+	if h.graph == nil || taskID == "" || h.eventBus == nil {
+		return executor.Report{}, fmt.Errorf("graph and eventBus are required")
 	}
 
 	// 1. 创建 Registry 并注册工具；挂工具遥测 + 任务心跳 interceptor——
@@ -97,7 +97,7 @@ func (h handler) runCognition(
 	// 3. 创建 ExecutorAgent
 	executorAgent := executor.NewAgent(executor.AgentConfig{
 		TaskID:       taskID,
-		World:        h.world,
+		Graph:        h.graph,
 		Executor:     coord,
 		EventBus:     h.eventBus,
 		Logger:       h.logger.With().Str("component", "executor_agent").Logger(),
@@ -108,7 +108,7 @@ func (h handler) runCognition(
 	replaySource := &agentTrafficScope{store: h.agentStore, taskID: taskID}
 	replayer := executor.NewReplayer(replaySource)
 
-	promoter := evaluator.New(h.world, replayer, h.findings)
+	promoter := evaluator.New(h.graph, replayer, h.findings)
 
 	evaluatorAgent := evaluator.NewAgent(evaluator.AgentConfig{
 		TaskID:    taskID,
@@ -122,7 +122,7 @@ func (h handler) runCognition(
 
 	plannerAgent := planner.NewAgent(planner.AgentConfig{
 		TaskID:   taskID,
-		World:    h.world,
+		Graph:    h.graph,
 		Planner:  intelligence,
 		EventBus: h.eventBus,
 		Logger:   h.logger.With().Str("component", "planner_agent").Logger(),
@@ -136,7 +136,7 @@ func (h handler) runCognition(
 
 	monitorAgent := monitor.New(monitor.Config{
 		TaskID:       taskID,
-		World:        h.world,
+		Graph:        h.graph,
 		EventBus:     h.eventBus,
 		Provider:     provider,
 		Interval:     6 * time.Minute,
@@ -147,7 +147,7 @@ func (h handler) runCognition(
 	// 7. 创建完成检测器（持续探索模式）
 	detector := cognition.NewCompletionDetector(cognition.Config{
 		TaskID:        taskID,
-		World:         h.world,
+		Graph:         h.graph,
 		Bus:           h.eventBus,
 		Logger:        h.logger,
 		MaxSteps:      h.runnerCfg.MaxStepsPerTask, // 0 表示无限制
@@ -189,7 +189,7 @@ func (h handler) runCognition(
 
 	// 8.5 控制平面消费者：轮询 task_control_event（pause/resume/terminate/adjust_goal/inject）
 	if h.controlPlane != nil {
-		stopConsumer := startControlConsumer(ctx, taskID, h.controlPlane, h.world, detector, agents, h.logger)
+		stopConsumer := startControlConsumer(ctx, taskID, h.controlPlane, h.graph, detector, agents, h.logger)
 		defer stopConsumer()
 	}
 

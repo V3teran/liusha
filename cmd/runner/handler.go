@@ -71,7 +71,7 @@ type handler struct {
 	eventPublisher *scanstream.Publisher
 
 	profiles     *domain.Registry
-	world        *explorationgraph.Store
+	graph        *explorationgraph.Store
 	checkpointer core.Checkpointer
 	eventBus     bus.Bus // 统一事件总线
 	controlPlane *controlplane.Store
@@ -87,7 +87,7 @@ func (h handler) onboard(ctx context.Context, _, taskID, brief string) string {
 		return taskID
 	}
 
-	if h.world != nil && taskID != "" {
+	if h.graph != nil && taskID != "" {
 		for _, ref := range refs {
 			content, _ := json.Marshal(map[string]interface{}{
 				"target_ref":  ref,
@@ -104,7 +104,7 @@ func (h handler) onboard(ctx context.Context, _, taskID, brief string) string {
 				CreatedAt:  time.Now(),
 				UpdatedAt:  time.Now(),
 			}
-			if _, err := h.world.CreateNode(ctx, node); err != nil {
+			if _, err := h.graph.CreateNode(ctx, node); err != nil {
 				h.logger.Warn().Err(err).Str("task_id", taskID).
 					Str("locator", ref.Locator).Msg("创建 objective 节点失败（不阻塞扫描）")
 			}

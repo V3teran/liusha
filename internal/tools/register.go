@@ -59,7 +59,7 @@ func RegisterAll(reg *registry.Registry, deps Deps) {
 	}
 
 	// exploration graph（写入观察和证据，快速且安全）
-	if deps.World != nil {
+	if deps.Graph != nil {
 		reg.Register(newWriteObservationTool(deps, constants.ToolTimeoutMedium, true))
 		reg.Register(newWriteEvidenceTool(deps, constants.ToolTimeoutMedium, true))
 	}

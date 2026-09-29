@@ -80,7 +80,7 @@ type runnerStores struct {
 	conversations *conversation.Store
 	executors     *agentstore.Store
 	findings      *finding.Store
-	world         *explorationgraph.Store
+	graph         *explorationgraph.Store
 	toolCalls     *toolinvocation.Store
 	proxyStore    *traffic.ProxyStore
 	agentStore    *traffic.AgentStore
@@ -190,7 +190,7 @@ func main() {
 		conversations:  stores.conversations,
 		eventPublisher: scanstream.NewPublisher(rdb),
 		profiles:       profiles,
-		world:          stores.world,
+		graph:          stores.graph,
 		checkpointer:   stores.checkpointer,
 		eventBus:       eventBus,
 		controlPlane:   controlPlaneStore,
@@ -274,7 +274,7 @@ func newRunnerStores(pool *pgxpool.Pool, cfg config.Config) *runnerStores {
 		conversations: conversation.NewStore(pool),
 		executors:     agentstore.NewStore(pool),
 		findings:      finding.NewStore(pool),
-		world:         explorationgraph.NewStore(pool), // L3 探索图持久层（onboard 落 KindObjective 节点）
+		graph:         explorationgraph.NewStore(pool), // L3 探索图持久层（onboard 落 KindObjective 节点）
 		toolCalls:     toolinvocation.NewStore(pool),
 		proxyStore:    traffic.NewProxyStore(pool), // 代理捕获流量（passive，按 host）
 		agentStore:    traffic.NewAgentStore(pool), // agent 自产流量（active，按 task）

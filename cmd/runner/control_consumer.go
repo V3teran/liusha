@@ -36,7 +36,7 @@ func startControlConsumer(
 	ctx context.Context,
 	taskID string,
 	store *controlplane.Store,
-	world *explorationgraph.Store,
+	graph *explorationgraph.Store,
 	detector *cognition.CompletionDetector,
 	agents *controlAgentLifecycle,
 	logger zerolog.Logger,
@@ -63,7 +63,7 @@ func startControlConsumer(
 			}
 
 			for _, ev := range events {
-				if err := handleControlEvent(ctx, taskID, world, detector, agents, ev, logger); err != nil {
+				if err := handleControlEvent(ctx, taskID, graph, detector, agents, ev, logger); err != nil {
 					logger.Error().Err(err).Str("event_id", ev.ID.String()).
 						Str("command", string(ev.Command)).Msg("控制事件处理失败")
 					if markErr := store.MarkFailed(ctx, ev.ID, err.Error()); markErr != nil {
@@ -85,7 +85,7 @@ func startControlConsumer(
 func handleControlEvent(
 	ctx context.Context,
 	taskID string,
-	world *explorationgraph.Store,
+	graph *explorationgraph.Store,
 	detector *cognition.CompletionDetector,
 	agents *controlAgentLifecycle,
 	ev controlplane.ControlEvent,
@@ -117,7 +117,7 @@ func handleControlEvent(
 		if p.NewGoal == "" {
 			return errInvalidPayload("new_goal 不能为空")
 		}
-		return adjustObjective(ctx, taskID, world, p.NewGoal, logger)
+		return adjustObjective(ctx, taskID, graph, p.NewGoal, logger)
 
 	case controlplane.CommandInjectAction:
 		var p controlplane.InjectActionPayload
@@ -127,7 +127,7 @@ func handleControlEvent(
 		if p.Reason == "" {
 			return errInvalidPayload("reason 不能为空（人工注入的意图）")
 		}
-		return injectAction(ctx, taskID, world, p, logger)
+		return injectAction(ctx, taskID, graph, p, logger)
 
 	default:
 		return errInvalidPayload("未知命令: " + string(ev.Command))
@@ -136,8 +136,8 @@ func handleControlEvent(
 
 // adjustObjective 改写 objective 节点的 description——planner 每轮规划从
 // 探索图读取目标，下一轮即按新目标行动。无 objective 节点时创建。
-func adjustObjective(ctx context.Context, taskID string, world *explorationgraph.Store, newGoal string, logger zerolog.Logger) error {
-	objectives, err := world.ListNodesByKind(ctx, taskID, core.KindObjective)
+func adjustObjective(ctx context.Context, taskID string, graph *explorationgraph.Store, newGoal string, logger zerolog.Logger) error {
+	objectives, err := graph.ListNodesByKind(ctx, taskID, core.KindObjective)
 	if err != nil {
 		return err
 	}
@@ -153,7 +153,7 @@ func adjustObjective(ctx context.Context, taskID string, world *explorationgraph
 			CreatedAt:  time.Now(),
 			UpdatedAt:  time.Now(),
 		}
-		if _, err := world.CreateNode(ctx, node); err != nil {
+		if _, err := graph.CreateNode(ctx, node); err != nil {
 			return err
 		}
 		logger.Info().Str("goal", newGoal).Msg("无既有目标，已创建新 objective 节点")
@@ -168,7 +168,7 @@ func adjustObjective(ctx context.Context, taskID string, world *explorationgraph
 	}
 	content["description"] = newGoal
 
-	if err := world.UpdateNodeContent(ctx, obj.ID, mustJSON(content)); err != nil {
+	if err := graph.UpdateNodeContent(ctx, obj.ID, mustJSON(content)); err != nil {
 		return err
 	}
 	logger.Info().Str("node_id", obj.ID).Str("goal", newGoal).Msg("目标已调整")
@@ -178,7 +178,7 @@ func adjustObjective(ctx context.Context, taskID string, world *explorationgraph
 // injectAction 把人工注入的意图落成 open 的 action 节点——
 // planner 轮询发现后纳入规划（或直接由 executor 认领执行）。
 // 注入节点标记 SourceUser/SourceID=control-plane，审计可溯源。
-func injectAction(ctx context.Context, taskID string, world *explorationgraph.Store, p controlplane.InjectActionPayload, logger zerolog.Logger) error {
+func injectAction(ctx context.Context, taskID string, graph *explorationgraph.Store, p controlplane.InjectActionPayload, logger zerolog.Logger) error {
 	node := explorationgraph.Node{
 		ID:     uuid.New().String(),
 		TaskID: taskID,
@@ -196,7 +196,7 @@ func injectAction(ctx context.Context, taskID string, world *explorationgraph.St
 		UpdatedAt:  time.Now(),
 	}
 
-	if _, err := world.CreateNode(ctx, node); err != nil {
+	if _, err := graph.CreateNode(ctx, node); err != nil {
 		return err
 	}
 	logger.Info().Str("kind", p.Kind).Str("reason", p.Reason).Msg("已注入 action")

@@ -16,12 +16,12 @@ import (
 
 // ObserveStateTool 观察探索图状态
 type ObserveStateTool struct {
-	world *explorationgraph.Store
+	graph *explorationgraph.Store
 }
 
 // NewObserveStateTool 构造探索图状态观察工具（planner 专属）。
-func NewObserveStateTool(world *explorationgraph.Store) *ObserveStateTool {
-	return &ObserveStateTool{world: world}
+func NewObserveStateTool(graph *explorationgraph.Store) *ObserveStateTool {
+	return &ObserveStateTool{graph: graph}
 }
 
 // Name 实现工具接口。
@@ -65,13 +65,13 @@ func (t *ObserveStateTool) Execute(ctx context.Context, argsJSON json.RawMessage
 	}
 
 	// 查询目标
-	objectives, err := t.world.ListNodesByKind(ctx, taskID, core.KindObjective)
+	objectives, err := t.graph.ListNodesByKind(ctx, taskID, core.KindObjective)
 	if err != nil {
 		return registry.ToolResult{Error: fmt.Sprintf("load objectives: %v", err)}, nil
 	}
 
 	// 查询 Action
-	actions, err := t.world.ListNodesByKind(ctx, taskID, core.KindAction)
+	actions, err := t.graph.ListNodesByKind(ctx, taskID, core.KindAction)
 	if err != nil {
 		return registry.ToolResult{Error: fmt.Sprintf("load actions: %v", err)}, nil
 	}
@@ -88,7 +88,7 @@ func (t *ObserveStateTool) Execute(ctx context.Context, argsJSON json.RawMessage
 	}
 
 	// 查询发现
-	findings, err := t.world.ListNodesByKind(ctx, taskID, core.KindResult)
+	findings, err := t.graph.ListNodesByKind(ctx, taskID, core.KindResult)
 	if err != nil {
 		return registry.ToolResult{Error: fmt.Sprintf("load findings: %v", err)}, nil
 	}
@@ -128,14 +128,14 @@ func (t *ObserveStateTool) Execute(ctx context.Context, argsJSON json.RawMessage
 
 // ProposeActionsTool 生成新的 Action
 type ProposeActionsTool struct {
-	world  *explorationgraph.Store
+	graph  *explorationgraph.Store
 	logger zerolog.Logger
 }
 
 // NewProposeActionsTool 构造动作提议工具（planner 专属）。
-func NewProposeActionsTool(world *explorationgraph.Store, logger zerolog.Logger) *ProposeActionsTool {
+func NewProposeActionsTool(graph *explorationgraph.Store, logger zerolog.Logger) *ProposeActionsTool {
 	return &ProposeActionsTool{
-		world:  world,
+		graph:  graph,
 		logger: logger.With().Str("tool", "propose_actions").Logger(),
 	}
 }
@@ -222,7 +222,7 @@ func (t *ProposeActionsTool) Execute(ctx context.Context, argsJSON json.RawMessa
 	}
 
 	// 获取当前 Objective（用于关联 Actions）
-	objectives, err := t.world.ListNodesByKind(ctx, taskID, core.KindObjective)
+	objectives, err := t.graph.ListNodesByKind(ctx, taskID, core.KindObjective)
 	if err != nil {
 		return registry.ToolResult{Error: fmt.Sprintf("load objectives: %v", err)}, nil
 	}
@@ -265,7 +265,7 @@ func (t *ProposeActionsTool) Execute(ctx context.Context, argsJSON json.RawMessa
 			UpdatedAt:   time.Now(),
 		}
 
-		id, err := t.world.CreateNode(ctx, node)
+		id, err := t.graph.CreateNode(ctx, node)
 		if err != nil {
 			t.logger.Error().Err(err).Msg("failed to create action")
 			return registry.ToolResult{Error: fmt.Sprintf("create action: %v", err)}, nil
@@ -273,7 +273,7 @@ func (t *ProposeActionsTool) Execute(ctx context.Context, argsJSON json.RawMessa
 
 		// 创建 Objective → Action 边（如果有 Objective）
 		if primaryObjectiveID != "" {
-			err = t.world.CreateEdge(ctx, &core.GraphEdge{
+			err = t.graph.CreateEdge(ctx, &core.GraphEdge{
 				From:      primaryObjectiveID,
 				To:        id,
 				Relation:  string(core.RelationGenerates),
@@ -299,12 +299,12 @@ func (t *ProposeActionsTool) Execute(ctx context.Context, argsJSON json.RawMessa
 
 // EvaluateProgressTool 评估任务进展
 type EvaluateProgressTool struct {
-	world *explorationgraph.Store
+	graph *explorationgraph.Store
 }
 
 // NewEvaluateProgressTool 构造进展评估工具（planner 专属）。
-func NewEvaluateProgressTool(world *explorationgraph.Store) *EvaluateProgressTool {
-	return &EvaluateProgressTool{world: world}
+func NewEvaluateProgressTool(graph *explorationgraph.Store) *EvaluateProgressTool {
+	return &EvaluateProgressTool{graph: graph}
 }
 
 // Name 实现工具接口。
@@ -337,7 +337,7 @@ func (t *EvaluateProgressTool) Execute(ctx context.Context, _ json.RawMessage) (
 	}
 
 	// 查询所有 Action
-	actions, err := t.world.ListNodesByKind(ctx, taskID, core.KindAction)
+	actions, err := t.graph.ListNodesByKind(ctx, taskID, core.KindAction)
 	if err != nil {
 		return registry.ToolResult{Error: fmt.Sprintf("load actions: %v", err)}, nil
 	}
@@ -351,7 +351,7 @@ func (t *EvaluateProgressTool) Execute(ctx context.Context, _ json.RawMessage) (
 	}
 
 	// 查询发现
-	findings, err := t.world.ListNodesByKind(ctx, taskID, core.KindResult)
+	findings, err := t.graph.ListNodesByKind(ctx, taskID, core.KindResult)
 	if err != nil {
 		return registry.ToolResult{Error: fmt.Sprintf("load findings: %v", err)}, nil
 	}

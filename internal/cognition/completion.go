@@ -22,7 +22,7 @@ import (
 // 任务会持续运行直到用户手动停止或达到资源限制
 type CompletionDetector struct {
 	taskID string
-	world  *explorationgraph.Store
+	graph  *explorationgraph.Store
 	bus    bus.Bus
 	logger zerolog.Logger
 
@@ -54,7 +54,7 @@ type Result struct {
 // Config 配置 CompletionDetector
 type Config struct {
 	TaskID        string
-	World         *explorationgraph.Store
+	Graph         *explorationgraph.Store
 	Bus           bus.Bus
 	Logger        zerolog.Logger
 	MaxSteps      int           // 默认 0（无限制）
@@ -73,7 +73,7 @@ func NewCompletionDetector(cfg Config) *CompletionDetector {
 
 	return &CompletionDetector{
 		taskID:        cfg.TaskID,
-		world:         cfg.World,
+		graph:         cfg.Graph,
 		bus:           cfg.Bus,
 		logger:        cfg.Logger.With().Str("component", "completion_detector").Logger(),
 		maxSteps:      cfg.MaxSteps,

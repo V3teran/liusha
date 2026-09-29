@@ -23,7 +23,7 @@ import (
 // - 发布 EventActionProposed 事件
 type Agent struct {
 	taskID       string
-	world        *explorationgraph.Store
+	graph        *explorationgraph.Store
 	planner      Planner
 	eventBus     bus.Bus
 	logger       zerolog.Logger
@@ -39,7 +39,7 @@ type Agent struct {
 // AgentConfig 配置
 type AgentConfig struct {
 	TaskID       string
-	World        *explorationgraph.Store
+	Graph        *explorationgraph.Store
 	Planner      Planner
 	EventBus     bus.Bus
 	Logger       zerolog.Logger
@@ -54,7 +54,7 @@ func NewAgent(cfg AgentConfig) *Agent {
 
 	return &Agent{
 		taskID:            cfg.TaskID,
-		world:             cfg.World,
+		graph:             cfg.Graph,
 		planner:           cfg.Planner,
 		eventBus:          cfg.EventBus,
 		logger:            cfg.Logger.With().Str("agent", "planner").Logger(),
@@ -159,7 +159,7 @@ func (a *Agent) planActions(ctx context.Context) error {
 	a.logger.Debug().Str("task_id", a.taskID).Msg("开始规划 Action")
 
 	// 1. 只分析新出现的 Results（水位过滤，避免重复 LLM 调用）
-	results, err := a.world.ListNodesByKind(ctx, a.taskID, core.KindResult)
+	results, err := a.graph.ListNodesByKind(ctx, a.taskID, core.KindResult)
 	if err == nil && len(results) > 0 {
 		fresh := make([]explorationgraph.Node, 0, len(results))
 		for _, r := range results {
@@ -185,13 +185,13 @@ func (a *Agent) planActions(ctx context.Context) error {
 	}
 
 	// 2. 检查是否已有可执行的 Action（而不是仅检查 open actions）
-	openActions, err := a.world.ListOpenActions(ctx, a.taskID)
+	openActions, err := a.graph.ListOpenActions(ctx, a.taskID)
 	if err != nil {
 		return fmt.Errorf("list open actions: %w", err)
 	}
 
 	// 获取已完成的 action（用于依赖检查）
-	completedNodes, err := a.world.ListNodesByKind(ctx, a.taskID, core.KindAction)
+	completedNodes, err := a.graph.ListNodesByKind(ctx, a.taskID, core.KindAction)
 	if err != nil {
 		return fmt.Errorf("list actions: %w", err)
 	}
@@ -235,7 +235,7 @@ func (a *Agent) planActions(ctx context.Context) error {
 
 	// 调用 Planner 生成新的 Action（传入 taskID）
 	a.logger.Info().Msg("即将调用 a.planner.Plan()")
-	actions, err := a.planner.Plan(ctx, a.world, a.taskID)
+	actions, err := a.planner.Plan(ctx, a.graph, a.taskID)
 
 	a.logger.Info().
 		Bool("has_error", err != nil).
@@ -264,7 +264,7 @@ func (a *Agent) planActions(ctx context.Context) error {
 		Msg("准备写入 Actions 到探索图")
 
 	// 获取当前 Objective（用于关联 Actions）
-	objectives, err := a.world.ListNodesByKind(ctx, a.taskID, core.KindObjective)
+	objectives, err := a.graph.ListNodesByKind(ctx, a.taskID, core.KindObjective)
 	if err != nil {
 		a.logger.Error().Err(err).Msg("获取 Objectives 失败")
 	}
@@ -281,7 +281,7 @@ func (a *Agent) planActions(ctx context.Context) error {
 			Msg("准备创建 Action")
 
 		// action 已经是完整的 Node，直接写入
-		if _, err := a.world.CreateNode(ctx, action); err != nil {
+		if _, err := a.graph.CreateNode(ctx, action); err != nil {
 			a.logger.Error().
 				Err(err).
 				Str("action_id", action.ID).
@@ -291,7 +291,7 @@ func (a *Agent) planActions(ctx context.Context) error {
 
 		// 创建 Objective → Action 边
 		if primaryObjectiveID != "" {
-			if err := a.world.CreateEdge(ctx, &core.GraphEdge{
+			if err := a.graph.CreateEdge(ctx, &core.GraphEdge{
 				From:      primaryObjectiveID,
 				To:        action.ID,
 				Relation:  string(core.RelationGenerates),
@@ -323,7 +323,7 @@ func (a *Agent) analyzeAndProcessResults(ctx context.Context, results []explorat
 	}
 
 	// 2. 调用 Planner 分析 Results
-	analysis, err := a.planner.AnalyzeResults(ctx, a.world, a.taskID, results)
+	analysis, err := a.planner.AnalyzeResults(ctx, a.graph, a.taskID, results)
 	if err != nil {
 		return fmt.Errorf("analyze results: %w", err)
 	}
@@ -396,7 +396,7 @@ func (a *Agent) createNewObjectives(ctx context.Context, objectives []NewObjecti
 			UpdatedAt:  time.Now(),
 		}
 
-		if _, err := a.world.CreateNode(ctx, node); err != nil {
+		if _, err := a.graph.CreateNode(ctx, node); err != nil {
 			a.logger.Error().
 				Err(err).
 				Str("objective_id", objID).
@@ -406,7 +406,7 @@ func (a *Agent) createNewObjectives(ctx context.Context, objectives []NewObjecti
 
 		// 创建 Result → Objective 的 TRIGGERS 边
 		for _, resultID := range obj.TriggeredBy {
-			if err := a.world.CreateEdge(ctx, &core.GraphEdge{
+			if err := a.graph.CreateEdge(ctx, &core.GraphEdge{
 				From:      resultID,
 				To:        objID,
 				Relation:  string(core.RelationTriggers),
@@ -432,7 +432,7 @@ func (a *Agent) createNewObjectives(ctx context.Context, objectives []NewObjecti
 // createContinuationActions 创建新的 Action 节点（在当前 Objective 下）
 func (a *Agent) createContinuationActions(ctx context.Context, actions []ContinuationAction) error {
 	// 获取当前 Objective
-	objectives, err := a.world.ListNodesByKind(ctx, a.taskID, core.KindObjective)
+	objectives, err := a.graph.ListNodesByKind(ctx, a.taskID, core.KindObjective)
 	if err != nil || len(objectives) == 0 {
 		return fmt.Errorf("无法获取当前 Objective")
 	}
@@ -466,7 +466,7 @@ func (a *Agent) createContinuationActions(ctx context.Context, actions []Continu
 			UpdatedAt:  time.Now(),
 		}
 
-		if _, err := a.world.CreateNode(ctx, node); err != nil {
+		if _, err := a.graph.CreateNode(ctx, node); err != nil {
 			a.logger.Error().
 				Err(err).
 				Str("action_id", actionID).
@@ -475,7 +475,7 @@ func (a *Agent) createContinuationActions(ctx context.Context, actions []Continu
 		}
 
 		// 创建 Objective → Action 的 GENERATES 边
-		if err := a.world.CreateEdge(ctx, &core.GraphEdge{
+		if err := a.graph.CreateEdge(ctx, &core.GraphEdge{
 			From:      currentObjective.ID,
 			To:        actionID,
 			Relation:  string(core.RelationGenerates),
@@ -490,7 +490,7 @@ func (a *Agent) createContinuationActions(ctx context.Context, actions []Continu
 
 		// 创建 Result → Action 的 TRIGGERS 边
 		for _, resultID := range action.TriggeredBy {
-			if err := a.world.CreateEdge(ctx, &core.GraphEdge{
+			if err := a.graph.CreateEdge(ctx, &core.GraphEdge{
 				From:      resultID,
 				To:        actionID,
 				Relation:  string(core.RelationTriggers),
@@ -518,8 +518,8 @@ func (a *Agent) createContinuationActions(ctx context.Context, actions []Continu
 
 // Planner 规划接口（由 planner.New 提供）
 type Planner interface {
-	Plan(ctx context.Context, world *explorationgraph.Store, taskID string) ([]explorationgraph.Node, error)
-	AnalyzeResults(ctx context.Context, world *explorationgraph.Store, taskID string, results []explorationgraph.Node) (*ResultAnalysis, error)
+	Plan(ctx context.Context, graph *explorationgraph.Store, taskID string) ([]explorationgraph.Node, error)
+	AnalyzeResults(ctx context.Context, graph *explorationgraph.Store, taskID string, results []explorationgraph.Node) (*ResultAnalysis, error)
 }
 
 // ResultAnalysis 是对 Results 的分析结果
