@@ -11,7 +11,6 @@ vi.mock('@/api/client', () => ({
   abortScan: vi.fn(),
   startChat: vi.fn(),
   followUp: vi.fn(),
-  listScenarios: vi.fn(),
 }))
 
 vi.mock('@/hooks/useEventStream', () => ({
