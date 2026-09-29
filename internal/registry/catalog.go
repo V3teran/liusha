@@ -8,7 +8,7 @@ const (
 	CatFindings    FunctionToolCategory = "findings"
 	CatCredentials FunctionToolCategory = "credentials"
 	CatCorpus      FunctionToolCategory = "corpus"
-	CatInsight      FunctionToolCategory = "insight"
+	CatInsight     FunctionToolCategory = "insight"
 	CatTraffic     FunctionToolCategory = "traffic"
 	CatSandbox     FunctionToolCategory = "sandbox"
 	CatSkill       FunctionToolCategory = "skill"

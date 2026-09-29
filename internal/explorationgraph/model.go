@@ -207,7 +207,7 @@ type TargetRef struct {
 	Locator string `json:"locator"`  // 定位符（URL/文件路径/实例 ID/IP）
 }
 
-// ObjectiveNode 是任务目标节点的简化表示（用于 Monitor/Orchestrator）
+// ObjectiveNode 是任务目标节点的简化表示（供 Monitor 等读取）
 type ObjectiveNode struct {
 	ID   string
 	Goal string
