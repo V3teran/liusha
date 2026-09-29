@@ -37,7 +37,7 @@ describe('API 客户端', () => {
       const mockFetch = vi.fn().mockResolvedValue({
         ok: true,
         json: vi.fn().mockResolvedValue({
-          conversations: [{ ID: 'c1', Title: 'scan1', TaskID: 's1', ScenarioID: 'web_app', Source: 'manual', Status: 'running', CreatedAt: '2026-06-10T00:00:00Z', UpdatedAt: '2026-06-10T00:00:00Z' }],
+          conversations: [{ ID: 'c1', Title: 'scan1', TaskID: 's1', Source: 'manual', Status: 'running', CreatedAt: '2026-06-10T00:00:00Z', UpdatedAt: '2026-06-10T00:00:00Z' }],
           has_more: true,
         }),
       })
@@ -111,7 +111,7 @@ describe('API 客户端', () => {
           'X-API-Key': 'my-key',
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ brief: 'scan target', scenario_id: '' }),
+        body: JSON.stringify({ brief: 'scan target' }),
       })
     })
 
@@ -171,7 +171,7 @@ describe('API 客户端', () => {
       ;(global as any).fetch = vi.fn().mockResolvedValue({
         ok: true,
         json: vi.fn().mockResolvedValue({
-          tasks: [{ id: 'o1', scope: '{"any":true}', status: 'running', scenario_id: 'web-pentest-killchain', created_at: '2026-06-11T00:00:00Z' }],
+          tasks: [{ id: 'o1', scope: '{"any":true}', status: 'running', created_at: '2026-06-11T00:00:00Z' }],
         }),
       })
 

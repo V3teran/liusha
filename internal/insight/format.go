@@ -22,7 +22,7 @@ var categoryOrder = []Category{
 // grouped 全空（无任何洞察）时返回空串，不污染 prompt。
 //
 // 供两处复用：顶层 agent（planner/passive）经 BuildUserPrompt 注入只读段；
-// 子代理（recon/exploitation）经 BuildDeepSwarm 拼进 system prompt 的固定段。
+// 子代理（recon/exploitation）经 deep-agent 装配拼进 system prompt 的固定段。
 func FormatSection(grouped map[Priority]map[Category][]Insight) string {
 	// 统计总数
 	total := 0

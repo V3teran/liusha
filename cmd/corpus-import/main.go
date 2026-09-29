@@ -6,7 +6,7 @@
 //
 // 用法：
 //
-//	go run ./cmd/corpus-import path/to/knowledge.md [more.md ...]
+//	go run ./cmd/corpus-import path/to/expertise.md [more.md ...]
 //
 // 环境变量（复用 runner 同源）：
 //   - LIUSHA_POSTGRES_DSN：PG 连接串

@@ -2,7 +2,7 @@
 //
 // CLI 用法：
 //
-//	go run ./cmd/e2e active:full   # 综合开放性扫描（压测 LLM 自主 recon + swarm）
+//	go run ./cmd/e2e active:full   # 综合开放性扫描（压测 LLM 自主 recon + 多攻击面扩展）
 //	go run ./cmd/e2e active:xss    # XSS 专项扫描
 //
 // Active 流程（按选中顺序串行跑）：

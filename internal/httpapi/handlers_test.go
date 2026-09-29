@@ -341,7 +341,7 @@ func TestScan_Created(t *testing.T) {
 	}
 }
 
-// TestScan_MissingBrief：brief 缺失或全空白 → 400（scenario_id 合法）。
+// TestScan_MissingBrief：brief 缺失或全空白 → 400。
 func TestScan_MissingBrief(t *testing.T) {
 	cases := []string{"", "   "}
 	for _, b := range cases {

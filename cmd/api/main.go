@@ -240,7 +240,7 @@ func main() {
 			Abort:             adapter,                      // 多轮：POST /conversations/:id/abort 停止会话关联扫描
 			Deleter:           adapter,                      // DELETE /conversations/:id 删会话+消息；关联扫描进行中拒删（409，先停后删）
 			Renamer:           convStore,                    // PATCH /conversations/:id 重命名标题（convStore.SetTitle 直接满足）
-			ConfigStore:       cfgStore,                     // agent 配置 CRUD（配置管理页 + 对话 ScenarioPicker）
+			ConfigStore:       cfgStore,                     // agent 配置 CRUD（配置管理页）
 			SkillStore:        cfgStore,                     // skill 配置 CRUD（知识库管理页），走多级缓存
 			ToolCatalog:       cfgToolStore,                 // GET /tools、/tools/:name：工具目录检索/详情 + 智能体选工具
 			Models:            llmStore,                     // GET/POST/PUT/DELETE /models：provider 部署 CRUD + 角色路由面板
