@@ -117,7 +117,7 @@ func (i *Intelligence) buildAnalysisPrompt(currentObjective explorationgraph.Nod
 	sb.WriteString("你是探索系统的分析专家。你的职责：分析探索结果，判断当前方向是否穷尽，决定是继续深挖还是切换方向。\n\n")
 
 	sb.WriteString("⚠️ **核心原则：保持探索路线多样性，避免单一方向过载**\n\n")
-	sb.WriteString(fmt.Sprintf("**当前探索状态**：当前 Objective 下已有 **%d 个 Actions**。\n", actionCount))
+	fmt.Fprintf(&sb, "**当前探索状态**：当前 Objective 下已有 **%d 个 Actions**。\n", actionCount)
 	if actionCount > 50 {
 		sb.WriteString("⚠️ **警告：Actions 数量过多（>50）**，当前方向很可能已穷尽或陷入无效循环。**强烈建议生成 new_objectives（切换到新方向）**。\n\n")
 	} else if actionCount > 20 {
@@ -129,19 +129,23 @@ func (i *Intelligence) buildAnalysisPrompt(currentObjective explorationgraph.Nod
 	// 当前 Objective
 	sb.WriteString("## 当前 Objective\n\n")
 	var objContent map[string]interface{}
-	json.Unmarshal(currentObjective.Content, &objContent)
-	if desc, ok := objContent["description"].(string); ok {
-		sb.WriteString(fmt.Sprintf("目标：%s\n\n", desc))
+	if err := json.Unmarshal(currentObjective.Content, &objContent); err != nil {
+		fmt.Fprintf(&sb, "(目标解析失败: %v)\n\n", err)
+	} else if desc, ok := objContent["description"].(string); ok {
+		fmt.Fprintf(&sb, "目标：%s\n\n", desc)
 	}
 
 	// Results
 	sb.WriteString("## 已有的 Results\n\n")
 	for i, result := range results {
 		var content map[string]interface{}
-		json.Unmarshal(result.Content, &content)
-		sb.WriteString(fmt.Sprintf("%d. Result ID: %s\n", i+1, result.ID))
+		if err := json.Unmarshal(result.Content, &content); err != nil {
+			fmt.Fprintf(&sb, "%d. Result ID: %s (解析失败: %v)\n", i+1, result.ID, err)
+			continue
+		}
+		fmt.Fprintf(&sb, "%d. Result ID: %s\n", i+1, result.ID)
 		if summary, ok := content["summary"].(string); ok {
-			sb.WriteString(fmt.Sprintf("   内容：%s\n", summary))
+			fmt.Fprintf(&sb, "   内容：%s\n", summary)
 		}
 		sb.WriteString("\n")
 	}

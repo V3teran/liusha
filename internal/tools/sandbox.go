@@ -83,9 +83,9 @@ func (t *runCommandTool) Execute(ctx context.Context, args json.RawMessage) (reg
 		sb.WriteString(res.Stderr)
 	}
 	if res.TimedOut {
-		sb.WriteString(fmt.Sprintf("\n[超时: %ds]", a.TimeoutSeconds))
+		fmt.Fprintf(&sb, "\n[超时: %ds]", a.TimeoutSeconds)
 	}
-	sb.WriteString(fmt.Sprintf("\n[exit_code: %d]", res.ExitCode))
+	fmt.Fprintf(&sb, "\n[exit_code: %d]", res.ExitCode)
 
 	output := sb.String()
 	return registry.ToolResult{
@@ -184,9 +184,9 @@ func (t *browserUseTool) Execute(ctx context.Context, args json.RawMessage) (reg
 		sb.WriteString(res.Stderr)
 	}
 	if res.TimedOut {
-		sb.WriteString(fmt.Sprintf("\n[超时: %ds]", a.TimeoutSeconds))
+		fmt.Fprintf(&sb, "\n[超时: %ds]", a.TimeoutSeconds)
 	}
-	sb.WriteString(fmt.Sprintf("\n[exit_code: %d]", res.ExitCode))
+	fmt.Fprintf(&sb, "\n[exit_code: %d]", res.ExitCode)
 
 	output := sb.String()
 	return registry.ToolResult{

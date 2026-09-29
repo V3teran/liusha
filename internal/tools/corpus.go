@@ -78,7 +78,7 @@ func (t *searchCorpusTool) Execute(ctx context.Context, args json.RawMessage) (r
 
 	var sb strings.Builder
 	for i, e := range entries {
-		sb.WriteString(fmt.Sprintf("## [%d] %s\n%s\n\n", i+1, e.Title, e.Content))
+		fmt.Fprintf(&sb, "## [%d] %s\n%s\n\n", i+1, e.Title, e.Content)
 	}
 	return registry.ToolResult{Output: sb.String()}, nil
 }

@@ -183,9 +183,9 @@ func (i *Intelligence) buildPlanningPrompt(ctx *PlanningContext) string {
 
 	// 当前探索统计
 	sb.WriteString("## 当前探索统计\n")
-	sb.WriteString(fmt.Sprintf("- 已完成 Actions: %d\n", len(ctx.CompletedActions)))
-	sb.WriteString(fmt.Sprintf("- 进行中 Actions: %d\n", len(ctx.PendingActions)))
-	sb.WriteString(fmt.Sprintf("- 已确认 Results: %d\n", len(ctx.Results)))
+	fmt.Fprintf(&sb, "- 已完成 Actions: %d\n", len(ctx.CompletedActions))
+	fmt.Fprintf(&sb, "- 进行中 Actions: %d\n", len(ctx.PendingActions))
+	fmt.Fprintf(&sb, "- 已确认 Results: %d\n", len(ctx.Results))
 	if len(ctx.CompletedActions) >= 20 {
 		sb.WriteString("- ⚠️ 提示：当前方向已探索较深，建议评估是否应该切换方向\n")
 	}
@@ -198,8 +198,11 @@ func (i *Intelligence) buildPlanningPrompt(ctx *PlanningContext) string {
 			var a struct {
 				Instruction string `json:"instruction"`
 			}
-			json.Unmarshal(action.Content, &a)
-			sb.WriteString(fmt.Sprintf("- [完成] %s\n", a.Instruction))
+			if err := json.Unmarshal(action.Content, &a); err != nil {
+				fmt.Fprintf(&sb, "- [完成] (解析失败: %v)\n", err)
+				continue
+			}
+			fmt.Fprintf(&sb, "- [完成] %s\n", a.Instruction)
 		}
 	} else {
 		sb.WriteString("（尚未完成任何操作）\n")
@@ -213,8 +216,11 @@ func (i *Intelligence) buildPlanningPrompt(ctx *PlanningContext) string {
 			var a struct {
 				Instruction string `json:"instruction"`
 			}
-			json.Unmarshal(action.Content, &a)
-			sb.WriteString(fmt.Sprintf("- [进行中] %s\n", a.Instruction))
+			if err := json.Unmarshal(action.Content, &a); err != nil {
+				fmt.Fprintf(&sb, "- [进行中] (解析失败: %v)\n", err)
+				continue
+			}
+			fmt.Fprintf(&sb, "- [进行中] %s\n", a.Instruction)
 		}
 		sb.WriteString("\n")
 	}
@@ -226,7 +232,10 @@ func (i *Intelligence) buildPlanningPrompt(ctx *PlanningContext) string {
 			var a struct {
 				Instruction string `json:"instruction"`
 			}
-			json.Unmarshal(action.Content, &a)
+			if err := json.Unmarshal(action.Content, &a); err != nil {
+				fmt.Fprintf(&sb, "- [失败] (解析失败: %v)\n", err)
+				continue
+			}
 			reason := "未知原因"
 			if action.State != nil && *action.State == explorationgraph.StateFailed {
 				var fullAction struct {
@@ -237,7 +246,7 @@ func (i *Intelligence) buildPlanningPrompt(ctx *PlanningContext) string {
 					reason = fullAction.Reason
 				}
 			}
-			sb.WriteString(fmt.Sprintf("- [失败] %s（原因：%s）\n", a.Instruction, reason))
+			fmt.Fprintf(&sb, "- [失败] %s（原因：%s）\n", a.Instruction, reason)
 		}
 		sb.WriteString("\n")
 	}
@@ -249,8 +258,11 @@ func (i *Intelligence) buildPlanningPrompt(ctx *PlanningContext) string {
 			var r struct {
 				Summary string `json:"summary"`
 			}
-			json.Unmarshal(result.Content, &r)
-			sb.WriteString(fmt.Sprintf("- %s\n", r.Summary))
+			if err := json.Unmarshal(result.Content, &r); err != nil {
+				fmt.Fprintf(&sb, "- (解析失败: %v)\n", err)
+				continue
+			}
+			fmt.Fprintf(&sb, "- %s\n", r.Summary)
 		}
 		sb.WriteString("\n")
 	}
@@ -495,14 +507,17 @@ func (i *Intelligence) buildObjectiveExtractionPrompt(results []explorationgraph
 	sb.WriteString("## 已有探索结果\n")
 	for i, result := range results {
 		var content map[string]interface{}
-		json.Unmarshal(result.Content, &content)
+		if err := json.Unmarshal(result.Content, &content); err != nil {
+			fmt.Fprintf(&sb, "%d. [Result ID: %s] (解析失败: %v)\n\n", i+1, result.ID, err)
+			continue
+		}
 
-		sb.WriteString(fmt.Sprintf("%d. [Result ID: %s]\n", i+1, result.ID))
+		fmt.Fprintf(&sb, "%d. [Result ID: %s]\n", i+1, result.ID)
 		if summary, ok := content["summary"].(string); ok {
-			sb.WriteString(fmt.Sprintf("   摘要: %s\n", summary))
+			fmt.Fprintf(&sb, "   摘要: %s\n", summary)
 		}
 		if status, ok := content["status"].(string); ok {
-			sb.WriteString(fmt.Sprintf("   状态: %s\n", status))
+			fmt.Fprintf(&sb, "   状态: %s\n", status)
 		}
 		sb.WriteString("\n")
 	}
