@@ -78,7 +78,7 @@ func TestDynamicActionGeneration(t *testing.T) {
 
 // TestConcurrentActionClaim 验证 CAS 并发抢占
 //
-// 场景：多个 Orchestrator 实例并发抢占同一个 Action
+// 场景：多个 runner 实例并发抢占同一个 Action
 func TestConcurrentActionClaim(t *testing.T) {
 	ctx := context.Background()
 	store := setupTestStore(t)
@@ -87,7 +87,7 @@ func TestConcurrentActionClaim(t *testing.T) {
 	// 创建一个 open action
 	actionID := createTestAction(ctx, t, store, taskID, "A1", nil)
 
-	// 模拟两个 Orchestrator 实例并发抢占
+	// 模拟两个 runner 实例并发抢占
 	ch := make(chan bool, 2)
 
 	// 实例 1：尝试抢占

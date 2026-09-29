@@ -30,9 +30,3 @@ type ResultContent struct {
 	Evaluation  []string  `json:"evaluation"`  // 证据列表
 	DetectedAt  time.Time `json:"detected_at"` // 发现时间
 }
-
-// LeadContent 是 Lead 节点的内容结构。
-type LeadContent struct {
-	Description string `json:"description"` // 线索描述
-	Source      string `json:"source"`      // 来源
-}

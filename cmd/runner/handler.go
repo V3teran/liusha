@@ -45,7 +45,7 @@ type handler struct {
 	corpus     *corpus.Store
 	embedder   corpus.Embedder // Jina embed（可 nil，降级纯 sparse）
 	reranker   corpus.Reranker
-	insights      *insight.Store
+	insights   *insight.Store
 	proxyStore *traffic.ProxyStore
 	agentStore *traffic.AgentStore
 	calls      *llminvocation.Store
