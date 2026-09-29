@@ -264,10 +264,12 @@ type RouterStoreAdapter struct{ s *Store }
 // AsRouterStore 返回满足 llm.RouterStore 的适配器。
 func (s *Store) AsRouterStore() *RouterStoreAdapter { return &RouterStoreAdapter{s} }
 
+// GetRouting 实现 llm.RouterStore：读 role→tier 路由配置。
 func (a *RouterStoreAdapter) GetRouting(ctx context.Context) (llmcfg.Routing, error) {
 	return a.s.Routing(ctx)
 }
 
+// GetProvider 实现 llm.RouterStore：按 provider key 读部署行。
 func (a *RouterStoreAdapter) GetProvider(ctx context.Context, key string) (llmcfg.Provider, error) {
 	return a.s.ProviderByKey(ctx, key)
 }

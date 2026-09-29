@@ -1,3 +1,4 @@
+// Package memory 是 framework Checkpointer 的内存实现（测试/本地开发）。
 package memory
 
 import (
@@ -27,7 +28,7 @@ func NewCheckpointer() *Checkpointer {
 }
 
 // Save 保存检查点。
-func (c *Checkpointer) Save(ctx context.Context, checkpoint core.Checkpoint) (core.CheckpointID, error) {
+func (c *Checkpointer) Save(_ context.Context, checkpoint core.Checkpoint) (core.CheckpointID, error) {
 	// 生成 ID
 	id := core.CheckpointID(uuid.New().String())
 	checkpoint.ID = id
@@ -53,7 +54,7 @@ func (c *Checkpointer) Save(ctx context.Context, checkpoint core.Checkpoint) (co
 }
 
 // Load 加载检查点。
-func (c *Checkpointer) Load(ctx context.Context, id core.CheckpointID) (*core.Checkpoint, error) {
+func (c *Checkpointer) Load(_ context.Context, id core.CheckpointID) (*core.Checkpoint, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -68,7 +69,7 @@ func (c *Checkpointer) Load(ctx context.Context, id core.CheckpointID) (*core.Ch
 }
 
 // List 列出任务的所有检查点（按时间倒序）。
-func (c *Checkpointer) List(ctx context.Context, taskID string, limit int) ([]core.CheckpointMeta, error) {
+func (c *Checkpointer) List(_ context.Context, taskID string, limit int) ([]core.CheckpointMeta, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -110,7 +111,7 @@ func (c *Checkpointer) List(ctx context.Context, taskID string, limit int) ([]co
 }
 
 // Delete 删除检查点。
-func (c *Checkpointer) Delete(ctx context.Context, id core.CheckpointID) error {
+func (c *Checkpointer) Delete(_ context.Context, id core.CheckpointID) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 

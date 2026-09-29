@@ -191,7 +191,7 @@ type mockClient struct {
 	destroyed    bool
 }
 
-func (m *mockClient) Exec(_ context.Context, req ExecRequest) (ExecResult, error) {
+func (m *mockClient) Exec(_ context.Context, _ ExecRequest) (ExecResult, error) {
 	return ExecResult{}, nil
 }
 

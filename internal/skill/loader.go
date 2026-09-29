@@ -48,7 +48,7 @@ func (l *Loader) Index() ([]string, error) {
 		}
 		name := filepath.ToSlash(rel)
 
-		raw, err := os.ReadFile(path)
+		raw, err := os.ReadFile(path) // #nosec G304,G122 // 种子目录为进程配置，Walk 回调内读取为设计使然
 		if err != nil {
 			return fmt.Errorf("读取 %s: %w", path, err)
 		}
@@ -80,7 +80,7 @@ func (l *Loader) Load(name string) (*Card, error) {
 	}
 
 	full := filepath.Join(l.root, name, "SKILL.md")
-	raw, err := os.ReadFile(full)
+	raw, err := os.ReadFile(full) // #nosec G304 // 路径来自进程配置/种子目录，非用户输入
 	if err != nil {
 		return nil, fmt.Errorf("读取 %s: %w", full, err)
 	}

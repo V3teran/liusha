@@ -156,7 +156,8 @@ func (s *Store) EnabledDomainExecutors(ctx context.Context) ([]agent.Agent, erro
 		})
 }
 
-// planner 取全局唯一编排操作员（kind='planner' AND enabled，见 D1），缓存于哨兵键。
+// Planner 取全局唯一编排操作员（kind='planner' AND enabled，见 D1），缓存于哨兵键。
+// Planner 返回缓存的 planner 配置（哨兵键）。
 func (s *Store) Planner(ctx context.Context) (agent.Agent, error) {
 	return cachestore.ReadThrough(ctx, s.cache, keyplanner,
 		func(agent.Agent) []string { return []string{keyplanner} },
@@ -233,7 +234,7 @@ func (s *Store) UpdateExecutorComplexity(ctx context.Context, id, complexity str
 }
 
 // DeleteExecutor 按 code 删执行器，失效相关缓存键。
-func (s *Store) DeleteExecutor(ctx context.Context, id, code string) error {
+func (s *Store) DeleteExecutor(_ context.Context, _, _ string) error {
 	// 暂不支持删除，因为Planner和Executor是内置固定的
 	return fmt.Errorf("不支持删除内置Agent")
 }

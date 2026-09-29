@@ -12,10 +12,10 @@ func writeSkill(t *testing.T, name, body string) string {
 	t.Helper()
 	root := t.TempDir()
 	dir := filepath.Join(root, name)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o750); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(body), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(body), 0o600); err != nil {
 		t.Fatalf("write SKILL.md: %v", err)
 	}
 	return root

@@ -1,6 +1,8 @@
-// Package verifier 实现认知循环的晋升门（Evaluator）。
+// Package evaluator 实现本包职责；细节见文件级注释。
+
+// verifier.go 实现认知循环的复现晋升门（Promotion Evaluator）。
 //
-// 更新（2026-08-26）：适配统一探索图
+// 2026-08-26 适配统一探索图。
 //
 // 探索图铁律：图里只存坐实/假定的结果态；Lead/Observation 是在途假设（Redis 黑板），
 // 只有过复现才能晋升成图节点。Evaluator 就是这道 **不可绕过的状态转换门** 的执法者——
@@ -14,6 +16,7 @@
 //
 // domain-agnostic：复现怎么做归各域（web=replay_traffic、binary=gdb、cloud=API 调用），
 // Evaluator 只认 Replayer 接口，不认域——保证加新域时晋升门零改动。
+
 package evaluator
 
 import (
@@ -66,7 +69,7 @@ type Attempt struct {
 	Priority   string          // 优先级（critical/high/medium/low）
 }
 
-// Evaluator 是 Lead→图节点的晋升门。
+// PromotionEvaluator 是 Lead→图节点的晋升门。
 type PromotionEvaluator struct {
 	world    worldWriter
 	replayer Replayer

@@ -1,3 +1,4 @@
+// Package core 的 Agent 抽象：四智能体统一生命周期契约（Name/Run/Stop/Recoverable）。
 package core
 
 import "context"

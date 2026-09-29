@@ -1,6 +1,7 @@
 // Package httpapi: 全局漏洞台账 handler（漏洞页）。
 //
 // 本组端点跨 task/host/ 全量拉取，支持 triage 处置流转。
+
 package httpapi
 
 import (

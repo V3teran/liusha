@@ -70,7 +70,7 @@ func TestVulnapp_OrderHorizontalEsc(t *testing.T) {
 	r := newRouter(testLogger())
 
 	req := httptest.NewRequest(http.MethodGet, "/api/bac/order/9", nil)
-	req.AddCookie(&http.Cookie{Name: "session", Value: "test_sess_d4e5f6"})
+	req.AddCookie(&http.Cookie{Name: "session", Value: "test_sess_d4e5f6"}) // #nosec G124 // 测试请求，非真实 Set-Cookie
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -92,7 +92,7 @@ func TestVulnapp_AdminUsers_VerticalEsc(t *testing.T) {
 	r := newRouter(testLogger())
 
 	req := httptest.NewRequest(http.MethodGet, "/api/bac/admin/users", nil)
-	req.AddCookie(&http.Cookie{Name: "session", Value: "test_sess_d4e5f6"})
+	req.AddCookie(&http.Cookie{Name: "session", Value: "test_sess_d4e5f6"}) // #nosec G124 // 测试请求，非真实 Set-Cookie
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -129,7 +129,7 @@ func TestVulnapp_Profile(t *testing.T) {
 	r := newRouter(testLogger())
 
 	req := httptest.NewRequest(http.MethodGet, "/api/bac/profile", nil)
-	req.AddCookie(&http.Cookie{Name: "session", Value: "admin_sess_a1b2c3"})
+	req.AddCookie(&http.Cookie{Name: "session", Value: "admin_sess_a1b2c3"}) // #nosec G124 // 测试请求
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -150,7 +150,7 @@ func TestVulnapp_OrderNotFound(t *testing.T) {
 	r := newRouter(testLogger())
 
 	req := httptest.NewRequest(http.MethodGet, "/api/bac/order/999", nil)
-	req.AddCookie(&http.Cookie{Name: "session", Value: "test_sess_d4e5f6"})
+	req.AddCookie(&http.Cookie{Name: "session", Value: "test_sess_d4e5f6"}) // #nosec G124 // 测试请求，非真实 Set-Cookie
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 

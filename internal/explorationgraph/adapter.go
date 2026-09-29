@@ -455,7 +455,6 @@ func (s *AdapterStore) RecordVerification(ctx context.Context, v Verification) (
 	return v.ID, nil
 }
 
-
 // ─────────────────────────────────────────────
 // HTTP API 专用方法（Phase 1: 探索图 API）
 // ─────────────────────────────────────────────

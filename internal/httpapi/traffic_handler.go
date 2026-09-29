@@ -2,6 +2,7 @@
 //
 // proxy_traffic 是「先于 task、按 host 归属」的真实用户流量——被分析的输入。此处提供
 // 跨全部 host 的全局分页浏览 + 单条详情（含 body），不涉及写入/消费（那是 ingestor / passive 链路的职责）。
+
 package httpapi
 
 import (

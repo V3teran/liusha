@@ -81,7 +81,7 @@ type handler struct {
 //  1. 落 L3 探索图 KindObjective 节点（目标）；
 //  2. 回填 task.target_host 派生列；
 //  3. 返回 host key 供调用方下传。
-func (h handler) onboard(ctx context.Context, assignmentID, taskID, brief string) string {
+func (h handler) onboard(ctx context.Context, _, taskID, brief string) string {
 	refs, ok := h.profiles.Onboard(ctx, domain.BriefInput{Brief: brief})
 	if !ok || len(refs) == 0 || refs[0].Locator == "" {
 		return taskID
@@ -135,17 +135,6 @@ func (h handler) failTask(ctx context.Context, executorID string, err error) err
 			Msg("SetError 失败（task 留在 running，原始错误已透传给 caller）")
 	}
 	return err
-}
-
-func (h handler) abortTask(ctx context.Context, executorID, reason string) error {
-	writeCtx, cancel := terminalCtx(ctx)
-	defer cancel()
-	if setErr := h.executors.SetAborted(writeCtx, executorID); setErr != nil {
-		h.logger.Warn().Err(setErr).Str("executor_id", executorID).Str("reason", reason).
-			Msg("SetAborted 失败（task 留在 running）")
-	}
-	h.logger.Info().Str("executor_id", executorID).Str("reason", reason).Msg("task aborted")
-	return nil
 }
 
 // handle 是单个 agent task 的处理入口。

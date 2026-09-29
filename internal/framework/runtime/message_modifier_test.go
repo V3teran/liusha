@@ -245,6 +245,6 @@ func TestPredefinedModifierChains(t *testing.T) {
 // mockFailingModifier 总是失败的修改器（用于测试）
 type mockFailingModifier struct{}
 
-func (m *mockFailingModifier) Modify(_ context.Context, messages []llm.Message) ([]llm.Message, error) {
+func (m *mockFailingModifier) Modify(_ context.Context, _ []llm.Message) ([]llm.Message, error) {
 	return nil, context.Canceled
 }

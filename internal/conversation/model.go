@@ -17,6 +17,7 @@ import (
 // Role 是消息的发言角色（对齐 LLM 消息角色）。
 type Role string
 
+// 会话消息角色。
 const (
 	RoleUser      Role = "user"
 	RoleAssistant Role = "assistant"

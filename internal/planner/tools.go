@@ -19,20 +19,25 @@ type ObserveStateTool struct {
 	world *explorationgraph.Store
 }
 
+// NewObserveStateTool 构造探索图状态观察工具（planner 专属）。
 func NewObserveStateTool(world *explorationgraph.Store) *ObserveStateTool {
 	return &ObserveStateTool{world: world}
 }
 
+// Name 实现工具接口。
 func (t *ObserveStateTool) Name() string { return "observe_state" }
 
+// ShortDesc 实现工具接口。
 func (t *ObserveStateTool) ShortDesc() string {
 	return "观察探索图状态"
 }
 
+// Desc 实现工具接口。
 func (t *ObserveStateTool) Desc() string {
 	return "观察当前探索图状态（目标、Action、观察、发现）"
 }
 
+// Schema 实现工具接口。
 func (t *ObserveStateTool) Schema() json.RawMessage {
 	return json.RawMessage(`{
 		"type": "object",
@@ -45,6 +50,7 @@ func (t *ObserveStateTool) Schema() json.RawMessage {
 	}`)
 }
 
+// Execute 实现工具接口：汇总探索图当前状态。
 func (t *ObserveStateTool) Execute(ctx context.Context, argsJSON json.RawMessage) (registry.ToolResult, error) {
 	taskID, ok := ctx.Value("task_id").(string)
 	if !ok {
@@ -126,6 +132,7 @@ type ProposeActionsTool struct {
 	logger zerolog.Logger
 }
 
+// NewProposeActionsTool 构造动作提议工具（planner 专属）。
 func NewProposeActionsTool(world *explorationgraph.Store, logger zerolog.Logger) *ProposeActionsTool {
 	return &ProposeActionsTool{
 		world:  world,
@@ -133,16 +140,20 @@ func NewProposeActionsTool(world *explorationgraph.Store, logger zerolog.Logger)
 	}
 }
 
+// Name 实现工具接口。
 func (t *ProposeActionsTool) Name() string { return "propose_actions" }
 
+// ShortDesc 实现工具接口。
 func (t *ProposeActionsTool) ShortDesc() string {
 	return "生成新的 Action"
 }
 
+// Desc 实现工具接口。
 func (t *ProposeActionsTool) Desc() string {
 	return "生成新的 Action（执行动作）"
 }
 
+// Schema 实现工具接口。
 func (t *ProposeActionsTool) Schema() json.RawMessage {
 	return json.RawMessage(`{
 		"type": "object",
@@ -185,6 +196,7 @@ func (t *ProposeActionsTool) Schema() json.RawMessage {
 	}`)
 }
 
+// Execute 实现工具接口：把 LLM 提案写入探索图。
 func (t *ProposeActionsTool) Execute(ctx context.Context, argsJSON json.RawMessage) (registry.ToolResult, error) {
 	taskID, ok := ctx.Value("task_id").(string)
 	if !ok {
@@ -290,25 +302,35 @@ type EvaluateProgressTool struct {
 	world *explorationgraph.Store
 }
 
+// NewEvaluateProgressTool 构造进展评估工具（planner 专属）。
 func NewEvaluateProgressTool(world *explorationgraph.Store) *EvaluateProgressTool {
 	return &EvaluateProgressTool{world: world}
 }
 
+// Name 实现工具接口。
 func (t *EvaluateProgressTool) Name() string { return "evaluate_progress" }
 
+// ShortDesc 实现 EvaluateProgressTool 的接口方法。
 func (t *EvaluateProgressTool) ShortDesc() string {
 	return "评估任务进展"
 }
 
+// Desc 实现 EvaluateProgressTool 的接口方法。
+
+// Desc 实现工具接口。
 func (t *EvaluateProgressTool) Desc() string {
 	return "评估任务进展，判断是否应该继续生成 Action"
+	// Schema 实现 EvaluateProgressTool 的接口方法。
 }
 
+// Schema 实现工具接口。
 func (t *EvaluateProgressTool) Schema() json.RawMessage {
+	// Execute 实现 EvaluateProgressTool 的接口方法。
 	return json.RawMessage(`{"type": "object", "properties": {}}`)
 }
 
-func (t *EvaluateProgressTool) Execute(ctx context.Context, argsJSON json.RawMessage) (registry.ToolResult, error) {
+// Execute 实现工具接口：汇总当前进展。
+func (t *EvaluateProgressTool) Execute(ctx context.Context, _ json.RawMessage) (registry.ToolResult, error) {
 	taskID, ok := ctx.Value("task_id").(string)
 	if !ok {
 		return registry.ToolResult{Error: "task_id not in context"}, nil
@@ -355,11 +377,12 @@ func (t *EvaluateProgressTool) Execute(ctx context.Context, argsJSON json.RawMes
 	output += fmt.Sprintf("- 发现数: %d\n\n", len(findings))
 
 	// 判断
-	if openActions > 0 || runningActions > 0 {
+	switch {
+	case openActions > 0 || runningActions > 0:
 		output += "建议：还有待执行或执行中的 Action，暂时不需要生成新 Action。\n"
-	} else if completionRate >= 80 && len(findings) > 0 {
+	case completionRate >= 80 && len(findings) > 0:
 		output += "建议：任务进展良好，已有足够发现，可以考虑结束。\n"
-	} else {
+	default:
 		output += "建议：可以根据当前发现生成新 Action。\n"
 	}
 

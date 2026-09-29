@@ -32,7 +32,7 @@ type Manifest struct {
 // Load 从 yaml 文件加载 Manifest；返回 error 时调用方应 fail-fast——
 // 工具清单缺失会让 LLM 看不到沙箱有什么工具，agent 无法 ReAct 决策。
 func Load(path string) (*Manifest, error) {
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) // #nosec G304 // 路径来自进程配置/种子目录，非用户输入
 	if err != nil {
 		return nil, fmt.Errorf("读取 tools manifest %q: %w", path, err)
 	}

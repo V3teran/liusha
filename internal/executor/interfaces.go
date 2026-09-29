@@ -10,8 +10,8 @@ import (
 	"github.com/V3teran/liusha/internal/explorationgraph"
 )
 
-// ExecutorInterface 执行一个 Move，产出 Attempt 列表（domain-agnostic）
-type ExecutorInterface interface {
+// Interface 执行一个 Move，产出 Attempt 列表（domain-agnostic）
+type Interface interface {
 	Execute(ctx context.Context, move explorationgraph.Node) ([]evaluator.Attempt, error)
 }
 

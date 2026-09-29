@@ -20,57 +20,57 @@ func TestDynamicActionGeneration(t *testing.T) {
 	taskID := uuid.New().String()
 
 	// T0: 初始规划生成 A1, A2（并行任务）
-	a1ID := createTestAction(t, ctx, store, taskID, "A1", nil)
-	a2ID := createTestAction(t, ctx, store, taskID, "A2", nil)
+	a1ID := createTestAction(ctx, t, store, taskID, "A1", nil)
+	a2ID := createTestAction(ctx, t, store, taskID, "A2", nil)
 
 	// 验证初始状态：两个 action 都是 open
-	actions := listOpenActions(t, ctx, store, taskID)
+	actions := listOpenActions(ctx, t, store, taskID)
 	if len(actions) != 2 {
 		t.Fatalf("期望 2 个 open actions，实际 %d", len(actions))
 	}
 
 	// T1: 执行 A1 并完成
-	updateActionState(t, ctx, store, a1ID, string(explorationgraph.StateRunning))
-	updateActionState(t, ctx, store, a1ID, string(explorationgraph.StateDone))
+	updateActionState(ctx, t, store, a1ID, string(explorationgraph.StateRunning))
+	updateActionState(ctx, t, store, a1ID, string(explorationgraph.StateDone))
 
 	// T2: Planner 基于 A1 的观察结果动态生成新 Action A3（依赖 A1）
-	a3ID := createTestAction(t, ctx, store, taskID, "A3", []string{a1ID})
+	a3ID := createTestAction(ctx, t, store, taskID, "A3", []string{a1ID})
 
 	// T3: 验证动态图状态
 	// - A1 已完成
 	// - A2 仍然 open（未执行）
 	// - A3 新加入，依赖 A1（已满足）
-	actions = listOpenActions(t, ctx, store, taskID)
+	actions = listOpenActions(ctx, t, store, taskID)
 	if len(actions) != 2 {
 		t.Fatalf("期望 2 个 open actions (A2, A3)，实际 %d", len(actions))
 	}
 
 	// 验证 A3 依赖已满足
 	completed := map[string]bool{a1ID: true}
-	a3 := getActionByID(t, ctx, store, a3ID)
+	a3 := getActionByID(ctx, t, store, a3ID)
 	if !isDependencySatisfied(a3, completed) {
 		t.Error("A3 的依赖应该已满足（A1 已完成）")
 	}
 
 	// T4: 继续动态生成 A4（依赖 A2 和 A3）
-	a4ID := createTestAction(t, ctx, store, taskID, "A4", []string{a2ID, a3ID})
+	a4ID := createTestAction(ctx, t, store, taskID, "A4", []string{a2ID, a3ID})
 
 	// 验证 A4 依赖未满足（A2 和 A3 都未完成）
-	a4 := getActionByID(t, ctx, store, a4ID)
+	a4 := getActionByID(ctx, t, store, a4ID)
 	if isDependencySatisfied(a4, completed) {
 		t.Error("A4 的依赖不应该满足（A2、A3 未完成）")
 	}
 
 	// T5: 执行并完成 A2 和 A3
-	updateActionState(t, ctx, store, a2ID, string(explorationgraph.StateRunning))
-	updateActionState(t, ctx, store, a2ID, string(explorationgraph.StateDone))
-	updateActionState(t, ctx, store, a3ID, string(explorationgraph.StateRunning))
-	updateActionState(t, ctx, store, a3ID, string(explorationgraph.StateDone))
+	updateActionState(ctx, t, store, a2ID, string(explorationgraph.StateRunning))
+	updateActionState(ctx, t, store, a2ID, string(explorationgraph.StateDone))
+	updateActionState(ctx, t, store, a3ID, string(explorationgraph.StateRunning))
+	updateActionState(ctx, t, store, a3ID, string(explorationgraph.StateDone))
 
 	// 验证 A4 依赖现在已满足
 	completed[a2ID] = true
 	completed[a3ID] = true
-	a4 = getActionByID(t, ctx, store, a4ID)
+	a4 = getActionByID(ctx, t, store, a4ID)
 	if !isDependencySatisfied(a4, completed) {
 		t.Error("A4 的依赖应该已满足（A2、A3 已完成）")
 	}
@@ -85,7 +85,7 @@ func TestConcurrentActionClaim(t *testing.T) {
 	taskID := uuid.New().String()
 
 	// 创建一个 open action
-	actionID := createTestAction(t, ctx, store, taskID, "A1", nil)
+	actionID := createTestAction(ctx, t, store, taskID, "A1", nil)
 
 	// 模拟两个 Orchestrator 实例并发抢占
 	ch := make(chan bool, 2)
@@ -147,23 +147,23 @@ func TestDynamicDependencyResolution(t *testing.T) {
 	taskID := uuid.New().String()
 
 	// 创建独立的 action A1（无依赖）
-	a1ID := createTestAction(t, ctx, store, taskID, "A1", nil)
+	a1ID := createTestAction(ctx, t, store, taskID, "A1", nil)
 
 	// 创建 action A2（初始无依赖）
-	a2ID := createTestAction(t, ctx, store, taskID, "A2", nil)
+	a2ID := createTestAction(ctx, t, store, taskID, "A2", nil)
 
 	// 验证 A2 初始可执行
 	completed := map[string]bool{}
-	a2 := getActionByID(t, ctx, store, a2ID)
+	a2 := getActionByID(ctx, t, store, a2ID)
 	if !isDependencySatisfied(a2, completed) {
 		t.Error("A2 初始应该可执行（无依赖）")
 	}
 
 	// 动态修改：A2 现在依赖 A1
-	updateActionDependencies(t, ctx, store, a2ID, []string{a1ID})
+	updateActionDependencies(ctx, t, store, a2ID, []string{a1ID})
 
 	// 重新读取 A2
-	a2 = getActionByID(t, ctx, store, a2ID)
+	a2 = getActionByID(ctx, t, store, a2ID)
 
 	// 验证 A2 现在不可执行（A1 未完成）
 	if isDependencySatisfied(a2, completed) {
@@ -171,8 +171,8 @@ func TestDynamicDependencyResolution(t *testing.T) {
 	}
 
 	// 完成 A1
-	updateActionState(t, ctx, store, a1ID, string(explorationgraph.StateRunning))
-	updateActionState(t, ctx, store, a1ID, string(explorationgraph.StateDone))
+	updateActionState(ctx, t, store, a1ID, string(explorationgraph.StateRunning))
+	updateActionState(ctx, t, store, a1ID, string(explorationgraph.StateDone))
 	completed[a1ID] = true
 
 	// 验证 A2 现在可执行（依赖已满足）
@@ -188,7 +188,7 @@ func setupTestStore(t *testing.T) *explorationgraph.Store {
 	return explorationgraph.NewMemoryStore()
 }
 
-func createTestAction(t *testing.T, ctx context.Context, store *explorationgraph.AdapterStore, taskID, name string, dependsOn []string) string {
+func createTestAction(ctx context.Context, t *testing.T, store *explorationgraph.AdapterStore, taskID, _ string, dependsOn []string) string {
 	actionID := uuid.New().String()
 	state := explorationgraph.StateOpen
 
@@ -208,7 +208,7 @@ func createTestAction(t *testing.T, ctx context.Context, store *explorationgraph
 	return actionID
 }
 
-func listOpenActions(t *testing.T, ctx context.Context, store *explorationgraph.Store, taskID string) []explorationgraph.Node {
+func listOpenActions(ctx context.Context, t *testing.T, store *explorationgraph.Store, taskID string) []explorationgraph.Node {
 	t.Helper()
 	nodes, err := store.ListOpenActions(ctx, taskID)
 	if err != nil {
@@ -217,14 +217,14 @@ func listOpenActions(t *testing.T, ctx context.Context, store *explorationgraph.
 	return nodes
 }
 
-func updateActionState(t *testing.T, ctx context.Context, store *explorationgraph.Store, actionID string, newState string) {
+func updateActionState(ctx context.Context, t *testing.T, store *explorationgraph.Store, actionID string, newState string) {
 	t.Helper()
 	if err := store.UpdateActionStateWithReason(ctx, actionID, explorationgraph.State(newState), nil); err != nil {
 		t.Fatalf("更新 action %s 状态: %v", actionID, err)
 	}
 }
 
-func getActionByID(t *testing.T, ctx context.Context, store *explorationgraph.Store, actionID string) explorationgraph.Node {
+func getActionByID(ctx context.Context, t *testing.T, store *explorationgraph.Store, actionID string) explorationgraph.Node {
 	t.Helper()
 	node, err := store.GetNode(ctx, actionID)
 	if err != nil {
@@ -233,7 +233,7 @@ func getActionByID(t *testing.T, ctx context.Context, store *explorationgraph.St
 	return *node
 }
 
-func updateActionDependencies(t *testing.T, ctx context.Context, store *explorationgraph.Store, actionID string, dependsOn []string) {
+func updateActionDependencies(ctx context.Context, t *testing.T, store *explorationgraph.Store, actionID string, dependsOn []string) {
 	t.Helper()
 	meta, err := json.Marshal(map[string]interface{}{"depends_on": dependsOn})
 	if err != nil {

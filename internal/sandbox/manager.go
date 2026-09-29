@@ -74,7 +74,7 @@ type ManagerMetrics struct {
 // PrepareWorkDir 准备任务工作目录。
 // 注意：实际的工作目录由 sandbox-server 管理（/liusha/<task_id>/<agent_id>/workspace/）。
 // 这里不需要创建任何目录，sandbox-server 会自动创建。
-func (sb *Sandbox) PrepareWorkDir(ctx context.Context) error {
+func (sb *Sandbox) PrepareWorkDir(_ context.Context) error {
 	// 设置工作目录标识（用于日志）
 	if sb.WorkDir == "" {
 		sb.WorkDir = "/liusha/" + sb.TaskID

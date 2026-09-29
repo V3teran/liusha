@@ -1,8 +1,11 @@
+// Package db 封装 PostgreSQL / Redis 连接构造：统一 DSN 解析、连接池参数与
+// 生产部署约定（pgvector 类型注册等），供全部需要持久层的入口复用。
 package db
 
 import (
 	"context"
 	"fmt"
+	"math"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -24,10 +27,14 @@ func NewPgPool(ctx context.Context, dsn string, maxConns, minConns, connectTimeo
 		return nil, fmt.Errorf("parse pg dsn: %w", err)
 	}
 	if maxConns > 0 {
-		cfg.MaxConns = int32(maxConns)
+		if maxConns > 0 && maxConns <= math.MaxInt32 {
+			cfg.MaxConns = int32(maxConns)
+		}
 	}
 	if minConns >= 0 {
-		cfg.MinConns = int32(minConns)
+		if minConns >= 0 && minConns <= math.MaxInt32 {
+			cfg.MinConns = int32(minConns)
+		}
 	}
 	if connectTimeoutSec > 0 {
 		cfg.ConnConfig.ConnectTimeout = time.Duration(connectTimeoutSec) * time.Second

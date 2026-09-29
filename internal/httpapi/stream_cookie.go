@@ -1,7 +1,10 @@
+// Package httpapi 实现本包职责；细节见文件级注释。
+
 // stream_cookie.go：SSE stream 端点的短时效签名 cookie。
 //
 // EventSource 不能带自定义 header，故 POST /chat 下发此 cookie，stream 端点据此鉴权。
 // token = {convID}.{expUnix}.{hexHMAC}，绑 convID（泄露只影响单会话）+ 过期时间。
+
 package httpapi
 
 import (

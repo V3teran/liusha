@@ -12,19 +12,23 @@ import (
 // EventType 定义事件类型
 type EventType string
 
+// EventActionCompleted 等枚举定义。
 const (
-	// Action 级别事件
+	// EventActionProposed 是 planner 提议新动作。
+	// EventActionCompleted 是 executor 完成一个动作。
 	EventActionProposed  EventType = "action.proposed"
-	EventActionCompleted EventType = "action.completed"
+	EventActionCompleted EventType = "action.completed" // planner run 自然跑完时也发
 
-	// Attempt 级别事件
+	// EventAttemptGenerated 是 executor 产出漏洞候选 Attempt（evaluator 复现门消费）。
 	EventAttemptGenerated EventType = "attempt.generated"
 
-	// Verification 级别事件
+	// EventVerificationPassed 是复现坐实；EventVerificationRefuted 是复现证伪。
+	// 均为 planner 重规划的触发依据。
 	EventVerificationPassed  EventType = "verification.passed"
 	EventVerificationRefuted EventType = "verification.refuted"
 
-	// 人工干预事件（human-in-the-loop middleware 消费）
+	// EventHumanInputRequired / EventHumanInputReceived 是 human-in-the-loop
+	// middleware 的审批请求 / 回执事件。
 	EventHumanInputRequired EventType = "human.input.required"
 	EventHumanInputReceived EventType = "human.input.received"
 )

@@ -17,10 +17,17 @@ import (
 // SignalKind 是证据的来源类型，决定可信权重。
 type SignalKind string
 
+// SignalFileContent 等枚举定义。
 const (
-	SignalCmdOutput      SignalKind = "cmd_output"      // 权重 1.0
-	SignalHTTPTrace      SignalKind = "http_trace"      // 权重 0.9
-	SignalFileContent    SignalKind = "file_content"    // 权重 0.8
+	// SignalCmdOutput 等枚举证据来源类别，权重供 evidence 判定打分。
+	SignalCmdOutput SignalKind = "cmd_output" // 权重 1.0
+	// SignalHTTPTrace 等：证据来源类别枚举（注释为 evidence 打分权重）。
+	// SignalCmdOutput 命令输出；SignalHTTPTrace HTTP 轨迹；SignalFileContent 文件内容； // #nosec G101 // 枚举字面量，非凭证
+	// SignalCredentialDump 凭证导出；SignalNetworkScan 网络扫描；SignalScreenshot 截图。 // #nosec G101 // 枚举字面量，非凭证
+	// 行尾数字为 evidence 打分权重。
+	SignalHTTPTrace   SignalKind = "http_trace"   // 权重 0.9
+	SignalFileContent SignalKind = "file_content" // 权重 0.8
+	// #nosec G101 — credential_dump 是信号类别枚举值，非凭证。
 	SignalCredentialDump SignalKind = "credential_dump" // 权重 1.0
 	SignalNetworkScan    SignalKind = "network_scan"    // 权重 0.7
 	SignalScreenshot     SignalKind = "screenshot"      // 权重 0.3
@@ -35,7 +42,7 @@ func SignalWeight(k SignalKind) float64 {
 		return 0.9
 	case SignalFileContent:
 		return 0.8
-	case SignalCredentialDump:
+	case SignalCredentialDump: // #nosec G101 // 枚举字面量，非凭证
 		return 1.0
 	case SignalNetworkScan:
 		return 0.7
@@ -63,8 +70,13 @@ type Signal struct {
 // ConstraintKind 是约束类型。
 type ConstraintKind string
 
+// ConstraintMaxSeverity 等枚举定义。
 const (
-	ConstraintPassiveOnly   ConstraintKind = "passive_only"
+	// ConstraintPassiveOnly 表示该工具仅限 passive 会话使用。
+	ConstraintPassiveOnly ConstraintKind = "passive_only"
+	// ConstraintNoDestructive / ConstraintPassiveOnly 是工具使用约束枚举。
+	// ConstraintNoDestructive 禁止破坏性操作；ConstraintPassiveOnly 仅限被动会话；
+	// ConstraintMaxSeverity 限制最高严重度。
 	ConstraintNoDestructive ConstraintKind = "no_destructive"
 	ConstraintMaxSeverity   ConstraintKind = "max_severity"
 	ConstraintRateLimit     ConstraintKind = "rate_limit_rps"
@@ -149,7 +161,6 @@ func (b *BaseTool) SetTimeout(d time.Duration) {
 func (b *BaseTool) SetConcurrencySafe(safe bool) {
 	b.concurrencySafe = safe
 }
-
 
 // NewBaseTool 创建 BaseTool（带默认配置）。
 func NewBaseTool() BaseTool {

@@ -1,4 +1,4 @@
-// Package executor 定义 L2 域适配层的 Domain Profile 接口。
+// Package domain 定义 L2 域适配层的 Domain Profile 接口。
 //
 // 一个 Profile 负责一个域（web/binary/cloud/lateral）的目标接入：把用户 brief 解析成
 // 该域的多态目标（TargetRef）。核心对 Profile 只认接口、零硬编——加新域 = 实现一个

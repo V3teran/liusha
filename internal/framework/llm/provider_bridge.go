@@ -1,8 +1,9 @@
-// provider_bridge.go：把 Generator 适配成 Provider 的桥。
+// Package llm 的 Generator→Provider 桥。
 //
 // 归一后本包只有一套协议适配器（openai_compat / anthropic，实现 Generator），
 // Provider 契约由本桥承载：Complete 直转 Generate；Stream/CountTokens 走
 // 可选能力接口——适配器实现了就支持，未实现返回明确错误而非静默降级。
+// Package llm 的 Generator→Provider 桥：Complete 直转 Generate，Stream/CountTokens 走可选能力接口。
 package llm
 
 import (

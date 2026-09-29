@@ -65,8 +65,9 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) error {
 	go s.runLifetimeGuard(ctx)
 
 	srv := &http.Server{
-		Addr:    addr,
-		Handler: s.mux,
+		Addr:              addr,
+		Handler:           s.mux,
+		ReadHeaderTimeout: 10 * time.Second,
 	}
 
 	serveErr := make(chan error, 1)
@@ -104,15 +105,16 @@ func (s *Server) runLifetimeGuard(ctx context.Context) {
 			return
 		case <-ticker.C:
 			if time.Since(s.startTime) > maxLifetimeFallback {
+				ticker.Stop()
 				fmt.Fprintf(os.Stderr, "[sandbox-server] max lifetime %v exceeded, exiting\n", maxLifetimeFallback)
-				os.Exit(1)
+				os.Exit(1) //nolint:gocritic // 孤儿容器场景：立即退出即回收，graceful shutdown 无意义
 			}
 		}
 	}
 }
 
 // handleHealthz 返回 200 + {"status":"ok"}，无副作用。
-func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleHealthz(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte(`{"status":"ok"}`))

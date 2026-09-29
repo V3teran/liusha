@@ -53,7 +53,7 @@ func TestHTTPClient_Exec_Success(t *testing.T) {
 
 // TestHTTPClient_Exec_ErrorStatus：非 200 响应包装为 err。
 func TestHTTPClient_Exec_ErrorStatus(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		http.Error(w, "bad command", http.StatusBadRequest)
 	}))
 	defer server.Close()
@@ -73,7 +73,7 @@ func TestHTTPClient_Exec_ErrorStatus(t *testing.T) {
 // handler 用 select + timeout 双兜底——单纯 <-r.Context().Done() 可能因为
 // server 端检测 client 断开有延迟而 hang，影响 httptest.Server.Close()。
 func TestHTTPClient_Exec_ContextCanceled(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
 		select {
 		case <-r.Context().Done():
 		case <-time.After(2 * time.Second):

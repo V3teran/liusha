@@ -1,4 +1,4 @@
-// sanitizer.go — passive proxy 的 raw-bytes URI 改写 forwarder。
+// Package proxy 的 passive 入口 raw-bytes URI 改写 forwarder。
 //
 // v34+：删除 agent (internal) sanitizer 全部路径 — chromium 流量改走 CDP capture →
 // ingest endpoint；CLI 工具直连不入字典。本文件只剩 passive 入口的 URI patch。

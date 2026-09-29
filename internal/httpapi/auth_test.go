@@ -19,7 +19,7 @@ func TestRequireAPIKey_StreamCookieBypass(t *testing.T) {
 	// 合法 cookie（无 header）→ 放行
 	tok := signStreamToken(secret, "conv-1", time.Now().Add(time.Minute))
 	req := httptest.NewRequest("GET", "/conversations/conv-1/stream", nil)
-	req.AddCookie(&http.Cookie{Name: streamCookieName, Value: tok})
+	req.AddCookie(&http.Cookie{Name: streamCookieName, Value: tok}) // #nosec G124 // 测试请求，非真实 Set-Cookie
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 	if w.Code != 200 {
@@ -28,7 +28,7 @@ func TestRequireAPIKey_StreamCookieBypass(t *testing.T) {
 
 	// 错 convID 的 cookie + 无 header → 401
 	req2 := httptest.NewRequest("GET", "/conversations/conv-2/stream", nil)
-	req2.AddCookie(&http.Cookie{Name: streamCookieName, Value: tok}) // tok 绑 conv-1
+	req2.AddCookie(&http.Cookie{Name: streamCookieName, Value: tok}) // #nosec G124 // 测试请求，非真实 Set-Cookie；tok 绑 conv-1
 	w2 := httptest.NewRecorder()
 	r.ServeHTTP(w2, req2)
 	if w2.Code != 401 {

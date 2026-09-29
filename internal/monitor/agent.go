@@ -217,7 +217,7 @@ func (a *Agent) Name() string {
 }
 
 // Stop 实现 core.Agent 接口
-func (a *Agent) Stop(ctx context.Context) error {
+func (a *Agent) Stop(_ context.Context) error {
 	a.logger.Info().Msg("stopping monitor agent")
 	// Monitor 依赖 ctx.Done() 停止，无需额外操作
 	return nil

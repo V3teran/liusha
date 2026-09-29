@@ -17,7 +17,7 @@ import (
 	"github.com/V3teran/liusha/internal/logx"
 )
 
-// ErrConversationScanActive：会话关联的 active_scan 仍在跑，拒绝删除（先停后删）。
+// ErrConversationScanActive ErrConversationScanActive。
 // 业界做法（GitHub Actions / 云控制台）：活跃作业不许删，只能先 Cancel。否则删了会话 = 扫描脱缰
 // 后台跑、UI 再停不掉、还在烧 token 的孤儿。Deleter 实现据此返回，handler 映射为 409。
 var ErrConversationScanActive = errors.New("会话关联扫描进行中，请先停止再删除")

@@ -20,6 +20,7 @@ import (
 // Status 是 agent.status 的取值。
 type Status string
 
+// agent_run 状态机：pending → running → done/aborted/error。
 const (
 	StatusPending Status = "pending"
 	StatusRunning Status = "running"

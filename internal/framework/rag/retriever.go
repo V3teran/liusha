@@ -24,7 +24,7 @@ func NewMemoryVectorStore() *MemoryVectorStore {
 }
 
 // Add 添加文档及其向量
-func (s *MemoryVectorStore) Add(ctx context.Context, documents []Document, vectors [][]float64) error {
+func (s *MemoryVectorStore) Add(_ context.Context, documents []Document, vectors [][]float64) error {
 	if len(documents) != len(vectors) {
 		return fmt.Errorf("文档数量 (%d) 与向量数量 (%d) 不匹配", len(documents), len(vectors))
 	}
@@ -39,7 +39,7 @@ func (s *MemoryVectorStore) Add(ctx context.Context, documents []Document, vecto
 }
 
 // Search 向量相似度搜索
-func (s *MemoryVectorStore) Search(ctx context.Context, queryVector []float64, topK int) ([]Document, error) {
+func (s *MemoryVectorStore) Search(_ context.Context, queryVector []float64, topK int) ([]Document, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -83,7 +83,7 @@ func (s *MemoryVectorStore) Search(ctx context.Context, queryVector []float64, t
 }
 
 // Delete 删除文档
-func (s *MemoryVectorStore) Delete(ctx context.Context, ids []string) error {
+func (s *MemoryVectorStore) Delete(_ context.Context, ids []string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -110,7 +110,7 @@ func (s *MemoryVectorStore) Delete(ctx context.Context, ids []string) error {
 }
 
 // Clear 清空存储
-func (s *MemoryVectorStore) Clear(ctx context.Context) error {
+func (s *MemoryVectorStore) Clear(_ context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -178,7 +178,7 @@ func NewMockEmbedding(dimension int) *MockEmbedding {
 }
 
 // EmbedText 将文本转换为向量（简单哈希）
-func (e *MockEmbedding) EmbedText(ctx context.Context, text string) ([]float64, error) {
+func (e *MockEmbedding) EmbedText(_ context.Context, text string) ([]float64, error) {
 	vector := make([]float64, e.dimension)
 
 	// 简单的字符哈希方法

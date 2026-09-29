@@ -28,10 +28,10 @@ type MessageModifierChain struct {
 type ErrorStrategy string
 
 const (
-	// ErrorStrategyFailFast：第一个修改器失败立即返回错误。
+	// ErrorStrategyFailFast ：第一个修改器失败立即返回错误。
 	ErrorStrategyFailFast ErrorStrategy = "fail_fast"
 
-	// ErrorStrategySkip：失败的修改器被跳过，继续下一个。
+	// ErrorStrategySkip ：失败的修改器被跳过，继续下一个。
 	ErrorStrategySkip ErrorStrategy = "skip"
 )
 
@@ -245,6 +245,7 @@ type RollingWindowModifier struct {
 	windowSize int
 }
 
+// NewRollingWindowModifier 见实现。
 func NewRollingWindowModifier(windowSize int) *RollingWindowModifier {
 	if windowSize <= 0 {
 		windowSize = 20
@@ -252,6 +253,7 @@ func NewRollingWindowModifier(windowSize int) *RollingWindowModifier {
 	return &RollingWindowModifier{windowSize: windowSize}
 }
 
+// Modify 实现 RollingWindowModifier 的接口方法。
 func (m *RollingWindowModifier) Modify(_ context.Context, messages []llm.Message) ([]llm.Message, error) {
 	if len(messages) <= m.windowSize+1 {
 		return messages, nil
@@ -274,8 +276,10 @@ func (m *RollingWindowModifier) Modify(_ context.Context, messages []llm.Message
 		otherMessages = otherMessages[len(otherMessages)-m.windowSize:]
 	}
 
-	// 系统消息 + 窗口内消息
-	result := append(systemMessages, otherMessages...)
+	// 系统消息 + 窗口内消息（显式新切片，避免 append 复用 systemMessages 底层数组）
+	result := make([]llm.Message, 0, len(systemMessages)+len(otherMessages))
+	result = append(result, systemMessages...)
+	result = append(result, otherMessages...)
 	return result, nil
 }
 
@@ -284,10 +288,16 @@ type TruncateModifier struct {
 	keepLast int
 }
 
+// NewTruncateModifier 见实现。
+
+// NewTruncateModifier 构造截断修饰器（超长历史截断）。
 func NewTruncateModifier(keepLast int) *TruncateModifier {
 	return &TruncateModifier{keepLast: keepLast}
 }
 
+// Modify 实现 TruncateModifier 的接口方法。
+
+// Modify 实现修饰器接口。
 func (m *TruncateModifier) Modify(_ context.Context, messages []llm.Message) ([]llm.Message, error) {
 	if len(messages) <= m.keepLast {
 		return messages, nil
@@ -310,7 +320,9 @@ func (m *TruncateModifier) Modify(_ context.Context, messages []llm.Message) ([]
 		otherMessages = otherMessages[len(otherMessages)-m.keepLast:]
 	}
 
-	result := append(systemMessages, otherMessages...)
+	result := make([]llm.Message, 0, len(systemMessages)+len(otherMessages))
+	result = append(result, systemMessages...)
+	result = append(result, otherMessages...)
 	return result, nil
 }
 
@@ -318,12 +330,16 @@ func (m *TruncateModifier) Modify(_ context.Context, messages []llm.Message) ([]
 // 示例：注入当前时间、任务上下文、用户身份等。
 type InjectionModifier struct {
 	injections map[string]string
+	// NewInjectionModifier 见实现。
 }
 
+// NewInjectionModifier 构造注入修饰器（前插系统指令）。
 func NewInjectionModifier(injections map[string]string) *InjectionModifier {
 	return &InjectionModifier{injections: injections}
+	// Modify 实现 InjectionModifier 的接口方法。
 }
 
+// Modify 实现修饰器接口。
 func (m *InjectionModifier) Modify(_ context.Context, messages []llm.Message) ([]llm.Message, error) {
 	// 简单实现：在系统消息后追加一条注入消息
 	if len(m.injections) == 0 {
@@ -351,16 +367,20 @@ func (m *InjectionModifier) Modify(_ context.Context, messages []llm.Message) ([
 
 // ValidateModifier 验证消息合法性（例如长度、格式等）。
 type ValidateModifier struct {
+	// NewValidateModifier 见实现。
 	maxContentLength int
 }
 
+// NewValidateModifier 构造校验修饰器。
 func NewValidateModifier(maxContentLength int) *ValidateModifier {
 	if maxContentLength <= 0 {
 		maxContentLength = 100000 // 默认 100k 字符
 	}
+	// Modify 实现 ValidateModifier 的接口方法。
 	return &ValidateModifier{maxContentLength: maxContentLength}
 }
 
+// Modify 实现修饰器接口。
 func (m *ValidateModifier) Modify(_ context.Context, messages []llm.Message) ([]llm.Message, error) {
 	for i, msg := range messages {
 		if len(msg.Content) > m.maxContentLength {

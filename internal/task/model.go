@@ -17,6 +17,8 @@ import "time"
 // Status 表示 task 的生命周期状态。archived 不再使用（旧 passive_session 遗留，已废弃）。
 type Status string
 
+// Task 状态机：active（进行中）→ completed（planner run 自然跑完）
+// 或 aborted（用户主动停 / ctx 取消 / 错误 / 心跳超时）。
 const (
 	StatusActive    Status = "active"
 	StatusCompleted Status = "completed" // planner run 自然跑完的终态

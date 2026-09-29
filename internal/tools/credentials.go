@@ -136,7 +136,7 @@ func (t *writeCredentialTool) Execute(ctx context.Context, args json.RawMessage)
 	creds := make([]credential.Credential, 0, len(a.Credentials))
 	for _, c := range a.Credentials {
 		creds = append(creds, credential.Credential{
-			Type:  credential.CredentialType(c.Type),
+			Type:  credential.Type(c.Type),
 			Key:   c.Key,
 			Value: c.Value,
 		})

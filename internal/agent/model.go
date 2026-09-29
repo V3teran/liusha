@@ -13,6 +13,7 @@ import "time"
 // Kind 是 agent.kind 的取值。
 type Kind string
 
+// Kind 取值：四智能体角色（planner/executor/evaluator/monitor）。
 const (
 	KindPlanner   Kind = "planner"   // 规划者
 	KindExecutor  Kind = "executor"  // 执行者

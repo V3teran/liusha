@@ -38,6 +38,6 @@ const (
 
 	ActionTaskAbort        = "task.abort"
 	ActionTaskCreate       = "task.create"
-	ActionCredentialSet    = "credential.set"
-	ActionCredentialDelete = "credential.delete"
+	ActionCredentialSet    = "credential.set"    // #nosec G101 // 枚举字面量，非凭证
+	ActionCredentialDelete = "credential.delete" // #nosec G101 // 枚举字面量，非凭证
 )

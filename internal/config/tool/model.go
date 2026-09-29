@@ -13,6 +13,7 @@ import "time"
 // Kind 是 tool.kind 的取值（与 DB CHECK 双保险）。
 type Kind string
 
+// 工具种类：function（进程内原生函数）/ cli（沙箱内命令行）。
 const (
 	KindFunction Kind = "function" // 进程内原生函数工具
 	KindCLI      Kind = "cli"      // 外置沙箱 CLI 工具

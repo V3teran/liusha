@@ -54,7 +54,7 @@ func main() {
 	if err != nil {
 		logger.Fatal().Err(err).Msg("redis")
 	}
-	defer rdb.Close()
+	defer func() { _ = rdb.Close() }()
 
 	// PG 连接：过滤规则（proxy_filter 组）事实源在 system_setting，proxy 需读 DB + 订阅失效热换规则。
 	pool, err := db.NewPgPool(ctx, os.Getenv("LIUSHA_POSTGRES_DSN"),

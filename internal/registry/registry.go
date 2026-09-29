@@ -87,6 +87,7 @@ func WithToolTimeout(ctx context.Context, d time.Duration) context.Context {
 	return context.WithValue(ctx, ctxKeyTimeout, d)
 }
 
+// TimeoutInterceptor 用 ctx 超时包装工具执行（超时上限取 LLM 传入或默认值）。
 func TimeoutInterceptor(ctx context.Context, tool Tool, args []byte, next ExecuteFunc) (ToolResult, error) {
 	d := defaultToolTimeout
 	if v, ok := ctx.Value(ctxKeyTimeout).(time.Duration); ok && v > 0 {

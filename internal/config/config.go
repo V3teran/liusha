@@ -200,7 +200,7 @@ type SkillsConfig struct {
 	Root string `mapstructure:"root"`
 }
 
-// ExecutorsConfig 是 executor 角色 markdown 外部目录（agents/*.md，planner + 杀伤链子代理）。
+// AgentsConfig 是 executor 角色 markdown 外部目录配置（agents/*.md，planner + 子代理）。
 type AgentsConfig struct {
 	Root string `mapstructure:"root"`
 }

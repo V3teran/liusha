@@ -53,6 +53,7 @@ func NewMethodFilter(methods []string) *MethodFilter {
 	return &MethodFilter{excludeMethods: m}
 }
 
+// ShouldProcess 判定请求方法是否通过（大小写不敏感）。
 func (f *MethodFilter) ShouldProcess(req *http.Request, _ *http.Response) (bool, string) {
 	if _, hit := f.excludeMethods[strings.ToUpper(req.Method)]; hit {
 		return false, "excluded method: " + req.Method
@@ -74,6 +75,7 @@ func NewProtocolFilter(protocols []string) *ProtocolFilter {
 	return &ProtocolFilter{excludeProtocols: m}
 }
 
+// ShouldProcess 判定请求协议（http/https）是否通过。
 func (f *ProtocolFilter) ShouldProcess(req *http.Request, resp *http.Response) (bool, string) {
 	upgrade := strings.ToLower(req.Header.Get("Upgrade"))
 	if upgrade != "" {
@@ -99,6 +101,7 @@ type HostFilter struct {
 	excludePatterns []string
 }
 
+// NewHostFilter 构造 host 过滤器（精确/后缀匹配，黑名单优先于白名单）。
 func NewHostFilter(includeHosts, excludeHosts []string) *HostFilter {
 	return &HostFilter{
 		includePatterns: includeHosts,
@@ -106,6 +109,7 @@ func NewHostFilter(includeHosts, excludeHosts []string) *HostFilter {
 	}
 }
 
+// ShouldProcess 判定 host 是否通过（命中黑名单拒绝；白名单非空时须命中）。
 func (f *HostFilter) ShouldProcess(req *http.Request, _ *http.Response) (bool, string) {
 	host := req.Host
 	if host == "" && req.URL != nil {
@@ -149,10 +153,12 @@ type SuffixFilter struct {
 	excludeSuffixes []string
 }
 
+// NewSuffixFilter 构造静态资源后缀过滤器（命中即丢弃，如 .js/.css/.png）。
 func NewSuffixFilter(excludeSuffixes []string) *SuffixFilter {
 	return &SuffixFilter{excludeSuffixes: excludeSuffixes}
 }
 
+// ShouldProcess 判定 URL 路径后缀是否为需过滤的静态资源。
 func (f *SuffixFilter) ShouldProcess(req *http.Request, _ *http.Response) (bool, string) {
 	path := ""
 	if req.URL != nil {
@@ -172,10 +178,12 @@ type ContentTypeFilter struct {
 	excludeTypes []string
 }
 
+// NewContentTypeFilter 构造响应 Content-Type 过滤器（如只保留 JSON/HTML）。
 func NewContentTypeFilter(excludeTypes []string) *ContentTypeFilter {
 	return &ContentTypeFilter{excludeTypes: excludeTypes}
 }
 
+// ShouldProcess 判定响应 Content-Type 是否通过。
 func (f *ContentTypeFilter) ShouldProcess(_ *http.Request, resp *http.Response) (bool, string) {
 	if resp == nil {
 		return true, ""
@@ -221,6 +229,7 @@ func NewStatusCodeFilter(excludeCodes []int) *StatusCodeFilter {
 	return &StatusCodeFilter{excludeCodes: m}
 }
 
+// ShouldProcess 判定响应状态码是否通过（黑名单命中即丢）。
 func (f *StatusCodeFilter) ShouldProcess(_ *http.Request, resp *http.Response) (bool, string) {
 	if len(f.excludeCodes) == 0 || resp == nil {
 		return true, ""
@@ -237,6 +246,7 @@ type SizeFilter struct {
 	maxResponseBodySize int
 }
 
+// NewSizeFilter 构造 body 大小过滤器（超上限丢弃，防大响应撑爆存储）。
 func NewSizeFilter(maxRequestBodySize, maxResponseBodySize int) *SizeFilter {
 	return &SizeFilter{
 		maxRequestBodySize:  maxRequestBodySize,
@@ -244,6 +254,7 @@ func NewSizeFilter(maxRequestBodySize, maxResponseBodySize int) *SizeFilter {
 	}
 }
 
+// ShouldProcess 判定响应 body 是否超尺寸上限。
 func (f *SizeFilter) ShouldProcess(req *http.Request, resp *http.Response) (bool, string) {
 	if f.maxRequestBodySize > 0 && req.ContentLength > 0 && int(req.ContentLength) > f.maxRequestBodySize {
 		return false, fmt.Sprintf("request body too large: %d > %d", req.ContentLength, f.maxRequestBodySize)

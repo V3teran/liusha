@@ -3,6 +3,7 @@ package registry
 // FunctionToolCategory 是内置函数工具的功能域分类（展示分组用）。
 type FunctionToolCategory string
 
+// 工具目录分类（AgentAdmin 装配页分组展示用）。
 const (
 	CatFindings    FunctionToolCategory = "findings"
 	CatCredentials FunctionToolCategory = "credentials"

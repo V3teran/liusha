@@ -14,9 +14,7 @@ import (
 	"github.com/V3teran/liusha/internal/worker"
 )
 
-// abortPollInterval is the task-status poll cadence for the abort watcher.
-const abortPollInterval = 5 * time.Second
-
+// const
 // heartbeatThrottleMs: minimum gap between consecutive heartbeat writes.
 const heartbeatThrottleMs = 10_000
 

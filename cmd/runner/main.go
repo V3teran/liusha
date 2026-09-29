@@ -118,7 +118,7 @@ func main() {
 	defer pool.Close()
 
 	rdb := newRedisClient(ctx, cfg, logger)
-	defer rdb.Close()
+	defer func() { _ = rdb.Close() }()
 
 	stores := newRunnerStores(pool, cfg)
 	defer func() { _ = stores.calls.Close() }()
@@ -127,7 +127,7 @@ func main() {
 
 	// Asynq Client
 	wc := worker.NewClient(asynq.RedisClientOpt{Addr: redisAddrFromEnv()})
-	defer wc.Close()
+	defer func() { _ = wc.Close() }()
 
 	skills := newRunnerSkills(cfg, logger)
 	profiles := newDomainRegistry(logger)
@@ -156,7 +156,7 @@ func main() {
 		}
 	}()
 
-	llmStack := newLLMStack(pool, cache, cfg, logger)
+	llmStack := newLLMStack(pool, cache, logger)
 
 	// EventBus：统一事件总线（进程单例，跨 Task 共享）
 	eventBus := bus.New(ctx)
@@ -386,7 +386,7 @@ func newSandboxLauncher(ctx context.Context, cfg config.Config, runnerCfg config
 }
 
 // newLLMStack 构造 LLM 配置事实源栈。
-func newLLMStack(pool *pgxpool.Pool, cache *cachestore.Cache, cfg config.Config, logger zerolog.Logger) *runnerLLM {
+func newLLMStack(pool *pgxpool.Pool, cache *cachestore.Cache, logger zerolog.Logger) *runnerLLM {
 	// 配置事实源（DB + 内存/redis 缓存）：运行期按需读 agent 装配引擎。
 	// 文件仅是首次导入的种子（seed 导入在别处），进程运行期一律走 DB/缓存（见 D6/D7）。
 	cfgStore := cfgcache.New(pool, cache)

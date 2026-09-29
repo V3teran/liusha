@@ -221,7 +221,7 @@ func buildWriter(cfg config) io.Writer {
 		}
 	}
 	if cfg.toFile {
-		if err := os.MkdirAll(cfg.dir, 0o755); err == nil {
+		if err := os.MkdirAll(cfg.dir, 0o750); err == nil {
 			path := filepath.Join(cfg.dir, cfg.processName+".log")
 			ws = append(ws, sharedFileWriter(path, cfg))
 		} else {

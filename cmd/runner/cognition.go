@@ -95,7 +95,7 @@ func (h handler) runCognition(
 	coord := executor.NewCoordinatorWithEngine(taskID, host, h.findings, engine, h.logger)
 
 	// 3. 创建 ExecutorAgent
-	executorAgent := executor.NewExecutorAgent(executor.ExecutorAgentConfig{
+	executorAgent := executor.NewAgent(executor.AgentConfig{
 		TaskID:       taskID,
 		World:        h.world,
 		Executor:     coord,
@@ -110,7 +110,7 @@ func (h handler) runCognition(
 
 	promoter := evaluator.New(h.world, replayer, h.findings)
 
-	evaluatorAgent := evaluator.NewEvaluatorAgent(evaluator.EvaluatorAgentConfig{
+	evaluatorAgent := evaluator.NewAgent(evaluator.AgentConfig{
 		TaskID:    taskID,
 		Evaluator: promoter,
 		EventBus:  h.eventBus,
@@ -120,7 +120,7 @@ func (h handler) runCognition(
 	// 5. 创建 PlannerAgent
 	intelligence := planner.NewIntelligence(h.router, h.logger)
 
-	plannerAgent := planner.NewPlannerAgent(planner.PlannerAgentConfig{
+	plannerAgent := planner.NewAgent(planner.AgentConfig{
 		TaskID:   taskID,
 		World:    h.world,
 		Planner:  intelligence,
@@ -172,7 +172,7 @@ func (h handler) runCognition(
 
 	agents := &controlAgentLifecycle{
 		start: func() {
-			agentCtx, cancelAgents = context.WithCancel(ctx)
+			agentCtx, cancelAgents = context.WithCancel(ctx) //nolint:gosec // cancelAgents 由 stop() 闭包保证调用
 			goAgent("planner", plannerAgent.Run)
 			goAgent("executor", executorAgent.Run)
 			goAgent("evaluator", evaluatorAgent.Run)

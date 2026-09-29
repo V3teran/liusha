@@ -31,5 +31,3 @@ func (r *Registry) List() []registry.Tool {
 func (r *Registry) Register(tool registry.Tool) {
 	r.inner.Register(tool)
 }
-
-

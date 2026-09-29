@@ -12,23 +12,24 @@ package credential
 // 被自动注入到 GetIdentitiesByHost 返回值。
 const AnonymousName = "anonymous"
 
-// CredentialType 描述凭证注入位置，与 HTTP 请求结构对齐。
-type CredentialType string
+// Type 描述凭证注入位置，与 HTTP 请求结构对齐。
+// Type 是凭证条目的类型标识。
+type Type string
 
 const (
 	// TypeHeaders 表示凭证写入请求头（最常见，例如 Cookie / Authorization）。
-	TypeHeaders CredentialType = "headers"
+	TypeHeaders Type = "headers"
 	// TypeQuery 表示凭证拼到 URL query 参数。
-	TypeQuery CredentialType = "query"
+	TypeQuery Type = "query"
 	// TypeBody 表示凭证写入请求体（form / JSON 字段）。
-	TypeBody CredentialType = "body"
+	TypeBody Type = "body"
 )
 
 // Credential 是单条凭证条目；同一 Identity 可携带多条（如 Cookie + CSRF token）。
 type Credential struct {
-	Type  CredentialType `json:"type"`
-	Key   string         `json:"key"`
-	Value string         `json:"value"`
+	Type  Type   `json:"type"`
+	Key   string `json:"key"`
+	Value string `json:"value"`
 }
 
 // Identity 表示一个具名身份及其完整凭证集合。

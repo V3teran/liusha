@@ -66,7 +66,6 @@ func main() {
 	if err != nil {
 		logger.Fatal().Err(err).Msg("pg")
 	}
-	defer pool.Close()
 
 	// ---- Active 流水线 ----
 	if len(activeSel) > 0 {

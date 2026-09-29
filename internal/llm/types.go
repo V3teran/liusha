@@ -1,4 +1,4 @@
-// Package llm：业务侧 LLM 策略层（role 路由 / fallback 编排 / 审计 instrumentation）。
+// Package llm 是业务侧 LLM 策略层（role 路由 / fallback 编排 / 审计 instrumentation）。
 //
 // 类型事实源在 framework/llm（框架层自包含）；本包全部类型是框架类型的别名，
 // 仅为业务侧调用方保留稳定的包内引用。
@@ -8,7 +8,9 @@ import (
 	"github.com/V3teran/liusha/internal/framework/llm"
 )
 
-// 类型别名：事实源在 framework/llm。
+// ClientPool/Role/Message 等均为 framework/llm 事实源的别名。
+//
+//nolint:revive // 别名块共享一条说明，为每个别名重复 doc 无信息量。
 type (
 	ClientPool   = llm.ClientPool
 	Role         = llm.Role
@@ -23,6 +25,7 @@ type (
 	HTTPError    = llm.HTTPError
 )
 
+// RoleSystem 等枚举定义。
 const (
 	RoleSystem    = llm.RoleSystem
 	RoleUser      = llm.RoleUser

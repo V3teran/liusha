@@ -24,4 +24,3 @@ type KilledReason struct {
 	Source    string    `json:"source"` // "planner" | "actor"
 	Reason    string    `json:"reason"`
 }
-

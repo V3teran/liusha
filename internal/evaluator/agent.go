@@ -1,4 +1,4 @@
-// Package evaluator 提供验证层（EvaluatorAgent），负责验证 Observation 并决定是否晋升为 Evaluation/Result 节点
+// Package evaluator 提供验证层（Agent），负责验证 Observation 并决定是否晋升为 Evaluation/Result 节点
 package evaluator
 
 import (
@@ -13,15 +13,15 @@ import (
 )
 
 // 编译时检查接口实现
-var _ core.Agent = (*EvaluatorAgent)(nil)
+var _ core.Agent = (*Agent)(nil)
 
-// EvaluatorAgent 是异步验证 Agent
+// Agent 是异步验证 Agent
 //
 // 职责：
 // - 监听 EventAttemptGenerated 事件（executor 产出的漏洞候选 Attempt）
 // - 经 PromotionEvaluator 复现门验证后晋升（对应铁律：图里只存坐实态）
 // - 发布 EventVerificationPassed/Refuted 事件
-type EvaluatorAgent struct {
+type Agent struct {
 	taskID        string
 	evaluator     *PromotionEvaluator // 使用具体类型
 	eventBus      bus.Bus
@@ -30,8 +30,8 @@ type EvaluatorAgent struct {
 	stopCh        chan struct{}
 }
 
-// EvaluatorAgentConfig 配置
-type EvaluatorAgentConfig struct {
+// AgentConfig 配置
+type AgentConfig struct {
 	TaskID        string
 	Evaluator     *PromotionEvaluator
 	EventBus      bus.Bus
@@ -39,13 +39,13 @@ type EvaluatorAgentConfig struct {
 	MaxConcurrent int
 }
 
-// NewEvaluatorAgent 创建 EvaluatorAgent
-func NewEvaluatorAgent(cfg EvaluatorAgentConfig) *EvaluatorAgent {
+// NewAgent NewEvaluatorAgent 创建 Agent。
+func NewAgent(cfg AgentConfig) *Agent {
 	if cfg.MaxConcurrent <= 0 {
 		cfg.MaxConcurrent = 1
 	}
 
-	return &EvaluatorAgent{
+	return &Agent{
 		taskID:        cfg.TaskID,
 		evaluator:     cfg.Evaluator,
 		eventBus:      cfg.EventBus,
@@ -56,12 +56,12 @@ func NewEvaluatorAgent(cfg EvaluatorAgentConfig) *EvaluatorAgent {
 }
 
 // Run 实现 core.Agent 接口
-func (a *EvaluatorAgent) Run(ctx context.Context) error {
+func (a *Agent) Run(ctx context.Context) error {
 	if a.evaluator == nil {
 		return fmt.Errorf("evaluator: PromotionEvaluator is required")
 	}
 
-	a.logger.Info().Str("task_id", a.taskID).Msg("EvaluatorAgent 启动")
+	a.logger.Info().Str("task_id", a.taskID).Msg("Agent 启动")
 
 	// 订阅事件
 	sub := a.eventBus.SubscribeTask(a.taskID)
@@ -73,11 +73,11 @@ func (a *EvaluatorAgent) Run(ctx context.Context) error {
 	for {
 		select {
 		case <-ctx.Done():
-			a.logger.Info().Str("task_id", a.taskID).Msg("EvaluatorAgent 停止（context done）")
+			a.logger.Info().Str("task_id", a.taskID).Msg("Agent 停止（context done）")
 			return ctx.Err()
 
 		case <-a.stopCh:
-			a.logger.Info().Str("task_id", a.taskID).Msg("EvaluatorAgent 停止")
+			a.logger.Info().Str("task_id", a.taskID).Msg("Agent 停止")
 			return nil
 
 		case event := <-sub.Events():
@@ -123,7 +123,7 @@ func (a *EvaluatorAgent) Run(ctx context.Context) error {
 }
 
 // verifyAttempt 验证单个 Attempt
-func (a *EvaluatorAgent) verifyAttempt(ctx context.Context, actionID string, attempt Attempt) error {
+func (a *Agent) verifyAttempt(ctx context.Context, actionID string, attempt Attempt) error {
 	startTime := time.Now()
 
 	// 调用 PromotionEvaluator 验证
@@ -162,14 +162,13 @@ func (a *EvaluatorAgent) verifyAttempt(ctx context.Context, actionID string, att
 // ============================================
 
 // Name 实现 core.Agent 接口
-func (a *EvaluatorAgent) Name() string {
+func (a *Agent) Name() string {
 	return "evaluator"
 }
 
 // Stop 实现 core.Agent 接口
-func (a *EvaluatorAgent) Stop(ctx context.Context) error {
+func (a *Agent) Stop(_ context.Context) error {
 	a.logger.Info().Msg("停止 evaluator agent")
 	close(a.stopCh)
 	return nil
 }
-

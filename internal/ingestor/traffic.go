@@ -200,7 +200,8 @@ func (t *Traffic) sweepOnce(ctx context.Context) {
 func (t *Traffic) Run(ctx context.Context) error {
 	t.logger.Info().Str("stream", t.stream).Str("group", t.group).Msg("ingestor.traffic 已启动")
 	go t.drainInternal(ctx)
-	go t.sweepLoop(ctx) // 超时补偿：定时扫活跃 host 窗口，兜住静默 host 的尾批
+	go t.sweepLoop(ctx) //nolint:gosec // 长生命周期 ctx（随 Run 取消），非 request-scoped
+	// 超时补偿：定时扫活跃 host 窗口，兜住静默 host 的尾批
 	for {
 		select {
 		case <-ctx.Done():

@@ -171,7 +171,9 @@ type IterationTrace struct {
 // IterationStatus 迭代状态
 type IterationStatus string
 
+// IterationStatusComplete 等枚举定义。
 const (
+	// IterationStatusRunning 等枚举定义。
 	IterationStatusRunning  IterationStatus = "running"
 	IterationStatusComplete IterationStatus = "complete"
 	IterationStatusFailed   IterationStatus = "failed"

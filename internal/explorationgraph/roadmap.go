@@ -19,6 +19,7 @@ import (
 // - 状态转换由 Planner 和 Executor 协同管理
 type RoadmapStepStatus string
 
+// Roadmap 步骤状态机。
 const (
 	StepTodo     RoadmapStepStatus = "todo"     // 待执行（Planner 已规划但未派发 Action）
 	StepActive   RoadmapStepStatus = "active"   // 执行中（已派发 Action，正在执行）

@@ -158,13 +158,13 @@ func (l *DockerLauncher) Spawn(ctx context.Context, agentID string) (Client, err
 		)
 	}
 	args = append(args, l.Image)
-	runOut, err := exec.CommandContext(ctx, bin, args...).CombinedOutput()
+	runOut, err := exec.CommandContext(ctx, bin, args...).CombinedOutput() // #nosec G204 // docker CLI 固定二进制，参数为内部生成的容器名
 	if err != nil {
 		return nil, fmt.Errorf("docker run %s: %w: %s", name, err, strings.TrimSpace(string(runOut)))
 	}
 
 	// 拿 host 端口：docker port <name> 8080 输出形如 "127.0.0.1:54321"（可能两行 IPv4 + IPv6）。
-	portOut, err := exec.CommandContext(ctx, bin, "port", name, containerSandboxPort).Output()
+	portOut, err := exec.CommandContext(ctx, bin, "port", name, containerSandboxPort).Output() // #nosec G204 // docker CLI 固定二进制，参数为内部生成的容器名
 	if err != nil {
 		_ = l.Destroy(context.Background(), agentID)
 		return nil, fmt.Errorf("docker port %s: %w", name, err)
@@ -218,9 +218,9 @@ func (l *DockerLauncher) Destroy(ctx context.Context, agentID string) error {
 	bin := l.dockerBin()
 
 	// docker stop 失败不致命（容器可能已死），继续走 rm -f
-	_ = exec.CommandContext(ctx, bin, "stop", name).Run()
+	_ = exec.CommandContext(ctx, bin, "stop", name).Run() // #nosec G204 // docker CLI 固定二进制，参数为内部生成的容器名
 
-	rmOut, err := exec.CommandContext(ctx, bin, "rm", "-f", name).CombinedOutput()
+	rmOut, err := exec.CommandContext(ctx, bin, "rm", "-f", name).CombinedOutput() // #nosec G204 // docker CLI 固定二进制，参数为内部生成的容器名
 	if err != nil {
 		return fmt.Errorf("docker rm -f %s: %w: %s", name, err, strings.TrimSpace(string(rmOut)))
 	}
@@ -233,7 +233,7 @@ func (l *DockerLauncher) Destroy(ctx context.Context, agentID string) error {
 // 不是后台 sweeper——只在进程启动时跑一次，正常 Destroy + max lifetime 兜底已经覆盖大部分场景。
 func (l *DockerLauncher) CleanupOrphans(ctx context.Context) error {
 	bin := l.dockerBin()
-	out, err := exec.CommandContext(ctx, bin, "ps", "-a",
+	out, err := exec.CommandContext(ctx, bin, "ps", "-a", // #nosec G204 // docker CLI 固定二进制，参数为内部生成的容器名
 		"--filter=name="+containerNamePrefix,
 		"--format={{.Names}}",
 	).Output()
@@ -246,7 +246,7 @@ func (l *DockerLauncher) CleanupOrphans(ctx context.Context) error {
 	}
 
 	args := append([]string{"rm", "-f"}, names...)
-	rmOut, err := exec.CommandContext(ctx, bin, args...).CombinedOutput()
+	rmOut, err := exec.CommandContext(ctx, bin, args...).CombinedOutput() // #nosec G204 // docker CLI 固定二进制，参数为内部生成的容器名
 	if err != nil {
 		return fmt.Errorf("docker rm -f orphans: %w: %s", err, strings.TrimSpace(string(rmOut)))
 	}

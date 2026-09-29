@@ -55,21 +55,6 @@ var activeProfiles = map[string]activeProfile{
 	},
 }
 
-// resolveActiveProfile 解析 active:<name> 形式的 arg，返回对应 profile。
-// 不存在时报错列出可选项。
-func resolveActiveProfile(arg string) (activeProfile, error) {
-	name := strings.TrimPrefix(arg, "active:")
-	if p, ok := activeProfiles[name]; ok {
-		return p, nil
-	}
-	available := make([]string, 0, len(activeProfiles))
-	for k := range activeProfiles {
-		available = append(available, k)
-	}
-	sort.Strings(available)
-	return activeProfile{}, fmt.Errorf("未知 active profile %q，可选：%v", name, available)
-}
-
 // selectProfiles 解析 CLI args，选出 active profiles。
 //
 // args 前缀语义："active:<name>" → 选 activeProfiles[name]。
