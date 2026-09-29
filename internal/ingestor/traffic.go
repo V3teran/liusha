@@ -75,7 +75,7 @@ type Deps struct {
 	Redis         *redis.Client
 	Cfg           config.IngestorConfig
 	Stream        string
-	Tenant        string // Redis key 前缀（聚合窗口 + 锁）
+	KeyPrefix     string // Redis key 前缀（聚合窗口 + 锁）
 	Assignments   *assignment.Store
 	Tasks         *task.Store
 	ProxyStore    *traffic.ProxyStore
@@ -95,7 +95,7 @@ func NewTraffic(ctx context.Context, deps Deps) (*Traffic, error) {
 	if strings.TrimSpace(deps.Stream) == "" {
 		return nil, errors.New("ingestor.NewTraffic: stream 必填（应来自 cfg.Proxy.StreamName）")
 	}
-	prefix := deps.Tenant
+	prefix := deps.KeyPrefix
 	if prefix == "" {
 		prefix = "liusha"
 	}

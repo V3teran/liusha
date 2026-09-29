@@ -422,7 +422,7 @@ func startTrafficIngestor(ctx context.Context, rdb *redis.Client, cfg config.Con
 		Redis:         rdb,
 		Cfg:           cfg.Ingestor,
 		Stream:        cfg.Proxy.StreamName,
-		Tenant:        cfg.Credential.RedisKeyPrefix,
+		KeyPrefix:     cfg.Credential.RedisKeyPrefix,
 		Assignments:   stores.assignments,
 		Tasks:         stores.tasks,
 		ProxyStore:    stores.proxyStore,

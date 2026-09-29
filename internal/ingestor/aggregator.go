@@ -20,7 +20,7 @@ import (
 //      流量则永不触发。故用后台 sweepExpired（独立时钟，见 traffic.sweepLoop）遍历活跃 host
 //      集，对已超 window 的窗口主动建 task——兜住"打一批就停"的尾批（e2e 场景 + 生产静默 host）。
 //
-// 键（tenant 前缀由 caller 拼）：
+// 键（key 前缀由 caller 拼）：
 //   {p}:agg:count:{host}   int   本窗口累计条数（INCR）
 //   {p}:agg:first:{host}   int64 本窗口首条 unix ms（SET NX，判超时用）
 //   {p}:agg:lock:{host}    lock  建 task 抢占锁（SET NX EX，防并发重复建）
