@@ -33,9 +33,9 @@ import (
 	"github.com/V3teran/liusha/internal/framework/core"
 )
 
-// worldWriter 是 Evaluator 依赖的探索图写入子集：收窄依赖 + 便于测试替身。
+// graphWriter 是 Evaluator 依赖的探索图写入子集：收窄依赖 + 便于测试替身。
 // *explorationgraph.Store 自动满足本接口。
-type worldWriter interface {
+type graphWriter interface {
 	RecordVerification(ctx context.Context, v explorationgraph.Verification) (string, error)
 	CreateNode(ctx context.Context, n explorationgraph.Node) (string, error)
 }
@@ -71,16 +71,16 @@ type Attempt struct {
 
 // PromotionEvaluator 是 Lead→图节点的晋升门。
 type PromotionEvaluator struct {
-	world    worldWriter
+	graph    graphWriter
 	replayer Replayer
 	findings findingWriter   // 验证通过后写入 finding 表
 	logger   *zerolog.Logger // 可选：finding 写入失败等非致命错误经此告警
 }
 
 // New 构造 Evaluator。replayer 为 nil 时 Promote 会报错（无复现能力即无晋升）。
-func New(world worldWriter, replayer Replayer, findings findingWriter) *PromotionEvaluator {
+func New(graph graphWriter, replayer Replayer, findings findingWriter) *PromotionEvaluator {
 	return &PromotionEvaluator{
-		world:    world,
+		graph:    graph,
 		replayer: replayer,
 		findings: findings,
 	}
@@ -124,7 +124,7 @@ func (v *PromotionEvaluator) Promote(ctx context.Context, a Attempt) (*explorati
 	if res.Confirmed {
 		outcome = explorationgraph.OutcomeConfirmed
 	}
-	verID, err := v.world.RecordVerification(ctx, explorationgraph.Verification{
+	verID, err := v.graph.RecordVerification(ctx, explorationgraph.Verification{
 		ID:         uuid.New().String(),
 		TaskID:     a.TaskID,
 		NodeID:     nodeID, // 预先分配，即使证伪也记录（审计需要）
@@ -158,7 +158,7 @@ func (v *PromotionEvaluator) Promote(ctx context.Context, a Attempt) (*explorati
 		UpdatedAt:  time.Now(),
 	}
 
-	_, err = v.world.CreateNode(ctx, node)
+	_, err = v.graph.CreateNode(ctx, node)
 	if err != nil {
 		return nil, fmt.Errorf("verifier: 晋升节点失败: %w", err)
 	}

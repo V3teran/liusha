@@ -25,7 +25,7 @@ var _ core.Agent = (*Agent)(nil)
 // Agent 是独立的监察 Agent。
 type Agent struct {
 	taskID       string
-	world        *explorationgraph.Store
+	graph        *explorationgraph.Store
 	eventBus     bus.Bus
 	provider     llm.Provider
 	reactRuntime runtime.ReActRuntime
@@ -40,7 +40,7 @@ type Agent struct {
 // Config 是 Monitor Agent 的配置。
 type Config struct {
 	TaskID   string
-	World    *explorationgraph.Store
+	Graph    *explorationgraph.Store
 	EventBus bus.Bus
 	Provider llm.Provider
 	Interval time.Duration // 评估间隔，默认 6 分钟
@@ -63,8 +63,8 @@ func New(cfg Config) *Agent {
 
 	// 注册监察工具（直接使用 registry.Tool）
 	registryTools := []registry.Tool{
-		NewGetGlobalStateTool(cfg.World, cfg.TaskID),
-		NewPublishDecisionTool(cfg.World, cfg.TaskID),
+		NewGetGlobalStateTool(cfg.Graph, cfg.TaskID),
+		NewPublishDecisionTool(cfg.Graph, cfg.TaskID),
 	}
 	for _, tool := range registryTools {
 		if err := reactRuntime.RegisterTool(tool); err != nil {
@@ -80,7 +80,7 @@ func New(cfg Config) *Agent {
 
 	return &Agent{
 		taskID:           cfg.TaskID,
-		world:            cfg.World,
+		graph:            cfg.Graph,
 		eventBus:         cfg.EventBus,
 		provider:         cfg.Provider,
 		reactRuntime:     reactRuntime,

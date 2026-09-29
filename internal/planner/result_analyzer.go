@@ -12,7 +12,7 @@ import (
 )
 
 // AnalyzeResults 分析 Result 节点，决定下一步行动
-func (i *Intelligence) AnalyzeResults(ctx context.Context, world *explorationgraph.Store, taskID string, results []explorationgraph.Node) (*ResultAnalysis, error) {
+func (i *Intelligence) AnalyzeResults(ctx context.Context, graph *explorationgraph.Store, taskID string, results []explorationgraph.Node) (*ResultAnalysis, error) {
 	i.logger.Info().
 		Str("task_id", taskID).
 		Int("result_count", len(results)).
@@ -23,14 +23,14 @@ func (i *Intelligence) AnalyzeResults(ctx context.Context, world *explorationgra
 	}
 
 	// 1. 获取当前 Objective
-	objectives, err := world.ListNodesByKind(ctx, taskID, core.KindObjective)
+	objectives, err := graph.ListNodesByKind(ctx, taskID, core.KindObjective)
 	if err != nil || len(objectives) == 0 {
 		return nil, fmt.Errorf("无法获取当前 Objective")
 	}
 	currentObjective := objectives[len(objectives)-1]
 
 	// 1.5. 统计当前 Objective 下的 Actions 数量（用于多样性判断）
-	allActions, err := world.ListNodesByKind(ctx, taskID, core.KindAction)
+	allActions, err := graph.ListNodesByKind(ctx, taskID, core.KindAction)
 	if err != nil {
 		return nil, fmt.Errorf("无法获取 Actions: %w", err)
 	}

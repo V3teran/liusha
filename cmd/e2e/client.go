@@ -20,7 +20,7 @@ func NewExplorationGraphClient(pool *pgxpool.Pool) *ExplorationGraphClient {
 }
 
 // GetTaskStats 查询任务的探索图节点统计
-// 直接查询 exploration_node 表（working memory = 探索图）
+// 直接查询 exploration_node 表（探索图）
 func (c *ExplorationGraphClient) GetTaskStats(ctx context.Context, taskID string) (GraphStats, error) {
 	query := `
 		SELECT

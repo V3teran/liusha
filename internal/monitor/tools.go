@@ -17,14 +17,14 @@ import (
 // GetGlobalStateTool 把探索图全局态势（objectives/actions/results 摘要）喂给 LLM。
 type GetGlobalStateTool struct {
 	registry.BaseTool
-	world  *explorationgraph.Store
+	graph  *explorationgraph.Store
 	taskID string
 }
 
 // NewGetGlobalStateTool 构造全局态势工具。
-func NewGetGlobalStateTool(world *explorationgraph.Store, taskID string) *GetGlobalStateTool {
+func NewGetGlobalStateTool(graph *explorationgraph.Store, taskID string) *GetGlobalStateTool {
 	t := &GetGlobalStateTool{
-		world:  world,
+		graph:  graph,
 		taskID: taskID,
 	}
 	t.SetTimeout(constants.ToolTimeoutLong)
@@ -59,19 +59,19 @@ func (t *GetGlobalStateTool) Schema() json.RawMessage {
 // Execute 实现工具接口：读探索图汇总全局态势。
 func (t *GetGlobalStateTool) Execute(ctx context.Context, _ json.RawMessage) (registry.ToolResult, error) {
 	// 读取所有 Actions
-	allActions, err := t.world.ListAllActions(ctx, t.taskID)
+	allActions, err := t.graph.ListAllActions(ctx, t.taskID)
 	if err != nil {
 		return registry.ToolResult{Error: fmt.Sprintf("list actions: %v", err)}, nil
 	}
 
 	// 读取所有 Findings
-	findings, err := t.world.ListResults(ctx, t.taskID)
+	findings, err := t.graph.ListResults(ctx, t.taskID)
 	if err != nil {
 		return registry.ToolResult{Error: fmt.Sprintf("list findings: %v", err)}, nil
 	}
 
 	// 读取 Objective
-	objective, err := t.world.GetObjective(ctx, t.taskID)
+	objective, err := t.graph.GetObjective(ctx, t.taskID)
 	if err != nil {
 		return registry.ToolResult{Error: fmt.Sprintf("get objective: %v", err)}, nil
 	}
@@ -99,16 +99,16 @@ func (t *GetGlobalStateTool) Execute(ctx context.Context, _ json.RawMessage) (re
 // PublishDecisionTool 是 monitor 的决策出口（kill_action 落探索图状态变更）。
 type PublishDecisionTool struct {
 	registry.BaseTool
-	world  *explorationgraph.Store
+	graph  *explorationgraph.Store
 	taskID string
 }
 
 // NewPublishDecisionTool 构造决策发布工具。kill_action 的生效路径是探索图
 // 状态变更：action 置 aborted 后 executor 不再认领（CanExecute 只认 open）；
 // request_replan 无需显式事件——planner 以 10s 轮询兜底重规划。
-func NewPublishDecisionTool(world *explorationgraph.Store, taskID string) *PublishDecisionTool {
+func NewPublishDecisionTool(graph *explorationgraph.Store, taskID string) *PublishDecisionTool {
 	t := &PublishDecisionTool{
-		world:  world,
+		graph:  graph,
 		taskID: taskID,
 	}
 	t.SetTimeout(constants.ToolTimeoutMedium)
@@ -174,9 +174,9 @@ func (t *PublishDecisionTool) Execute(ctx context.Context, args json.RawMessage)
 
 	// kill_action 直接落探索图状态：aborted 后 executor 不再认领（CanExecute 只认 open）。
 	// request_replan 由 planner 的 10s 轮询兜底重规划吸收，无需显式事件。
-	if decision.Type == "kill_action" && t.world != nil {
+	if decision.Type == "kill_action" && t.graph != nil {
 		reason := decision.Reason
-		if err := t.world.UpdateActionStateWithReason(ctx, decision.ActionID, explorationgraph.StateAborted, &reason); err != nil {
+		if err := t.graph.UpdateActionStateWithReason(ctx, decision.ActionID, explorationgraph.StateAborted, &reason); err != nil {
 			return registry.ToolResult{Error: fmt.Sprintf("kill_action 状态变更失败: %v", err)}, nil
 		}
 	}

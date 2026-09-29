@@ -58,11 +58,11 @@ type PlanningResponse struct {
 }
 
 // Plan 基于当前探索图状态生成新的 Action
-func (i *Intelligence) Plan(ctx context.Context, world *explorationgraph.Store, taskID string) ([]explorationgraph.Node, error) {
+func (i *Intelligence) Plan(ctx context.Context, graph *explorationgraph.Store, taskID string) ([]explorationgraph.Node, error) {
 	i.logger.Info().Str("task_id", taskID).Msg("开始智能规划")
 
 	// 1. 收集规划上下文
-	planCtx, err := i.gatherContext(ctx, world, taskID)
+	planCtx, err := i.gatherContext(ctx, graph, taskID)
 	if err != nil {
 		return nil, fmt.Errorf("收集规划上下文失败: %w", err)
 	}
@@ -97,11 +97,11 @@ func (i *Intelligence) Plan(ctx context.Context, world *explorationgraph.Store, 
 }
 
 // gatherContext 收集规划所需的上下文信息
-func (i *Intelligence) gatherContext(ctx context.Context, world *explorationgraph.Store, taskID string) (*PlanningContext, error) {
+func (i *Intelligence) gatherContext(ctx context.Context, graph *explorationgraph.Store, taskID string) (*PlanningContext, error) {
 	planCtx := &PlanningContext{}
 
 	// 获取 Objective
-	objectives, err := world.ListNodesByKind(ctx, taskID, core.KindObjective)
+	objectives, err := graph.ListNodesByKind(ctx, taskID, core.KindObjective)
 	if err != nil {
 		return nil, fmt.Errorf("获取 Objective 失败: %w", err)
 	}
@@ -115,7 +115,7 @@ func (i *Intelligence) gatherContext(ctx context.Context, world *explorationgrap
 	}
 
 	// 获取所有 Action
-	allActions, err := world.ListNodesByKind(ctx, taskID, core.KindAction)
+	allActions, err := graph.ListNodesByKind(ctx, taskID, core.KindAction)
 	if err != nil {
 		return nil, fmt.Errorf("获取 Action 失败: %w", err)
 	}
@@ -136,7 +136,7 @@ func (i *Intelligence) gatherContext(ctx context.Context, world *explorationgrap
 	}
 
 	// 获取已确认的结果
-	results, err := world.ListNodesByKind(ctx, taskID, core.KindResult)
+	results, err := graph.ListNodesByKind(ctx, taskID, core.KindResult)
 	if err != nil {
 		return nil, fmt.Errorf("获取 Result 失败: %w", err)
 	}

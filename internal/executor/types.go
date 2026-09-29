@@ -165,14 +165,14 @@ type ToolResult struct {
 type Execution struct {
 	Index        int
 	Result       Result
-	Observations []string // 本次 Execution 结束时的 Working Memory
+	Observations []string // 本次 Execution 结束时的探索观察
 }
 
 // Req 是 Actor.Run 的输入。
 type Req struct {
 	System             string   // 不参与压缩：Profile.SystemPrompt + Landmark summaries
 	Inbox              []string // 参与压缩：初始指令（纯文本消息）
-	Observations       []string // Working Memory
+	Observations       []string // 探索观察
 	Budget             Budget
 	Settle             SettleConfig
 	PendingConstraints []registry.Constraint

@@ -113,7 +113,7 @@ func (t *writeObservationTool) Execute(ctx context.Context, args json.RawMessage
 	}
 
 	// 写入探索图
-	id, err := t.deps.World.CreateNode(ctx, node)
+	id, err := t.deps.Graph.CreateNode(ctx, node)
 	if err != nil {
 		return registry.ToolResult{Error: fmt.Sprintf("创建节点失败: %v", err)}, nil
 	}
@@ -127,7 +127,7 @@ func (t *writeObservationTool) Execute(ctx context.Context, args json.RawMessage
 			DstID:     id,
 			CreatedAt: time.Now(),
 		}
-		if err := t.deps.World.CreateBusinessEdge(ctx, edge); err != nil {
+		if err := t.deps.Graph.CreateBusinessEdge(ctx, edge); err != nil {
 			// 边创建失败不中断主流程
 			_ = err
 		}
@@ -229,7 +229,7 @@ func (t *writeEvidenceTool) Execute(ctx context.Context, args json.RawMessage) (
 		UpdatedAt:  time.Now(),
 	}
 
-	id, err := t.deps.World.CreateNode(ctx, node)
+	id, err := t.deps.Graph.CreateNode(ctx, node)
 	if err != nil {
 		return registry.ToolResult{Error: fmt.Sprintf("创建节点失败: %v", err)}, nil
 	}
@@ -261,7 +261,7 @@ func (t *writeEvidenceTool) Execute(ctx context.Context, args json.RawMessage) (
 
 		// 更新 observation 的置信度为 verified
 		verified := explorationgraph.Confidence("verified")
-		if err := t.deps.World.UpdateNodeConfidence(ctx, input.ObservationID, verified); err != nil {
+		if err := t.deps.Graph.UpdateNodeConfidence(ctx, input.ObservationID, verified); err != nil {
 			// 置信度更新失败不中断主流程
 			_ = err
 		}
@@ -287,7 +287,7 @@ func (t *writeEvidenceTool) Execute(ctx context.Context, args json.RawMessage) (
 
 		// 更新 observation 的置信度为 low
 		low := explorationgraph.Confidence("low")
-		if err := t.deps.World.UpdateNodeConfidence(ctx, input.ObservationID, low); err != nil {
+		if err := t.deps.Graph.UpdateNodeConfidence(ctx, input.ObservationID, low); err != nil {
 			// 置信度更新失败不中断主流程
 			_ = err
 		}
@@ -295,7 +295,7 @@ func (t *writeEvidenceTool) Execute(ctx context.Context, args json.RawMessage) (
 
 	// 创建所有边
 	for _, edge := range edges {
-		if err := t.deps.World.CreateBusinessEdge(ctx, edge); err != nil {
+		if err := t.deps.Graph.CreateBusinessEdge(ctx, edge); err != nil {
 			// 边创建失败不中断主流程
 			_ = err
 		}

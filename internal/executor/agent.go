@@ -31,7 +31,7 @@ var _ core.Agent = (*Agent)(nil)
 // - 发布 ActionCompleted 事件
 // - 完全异步，不阻塞任何调用方
 type Agent struct {
-	world        *explorationgraph.Store
+	graph        *explorationgraph.Store
 	executor     Interface
 	eventBus     bus.Bus
 	logger       zerolog.Logger
@@ -49,7 +49,7 @@ type Agent struct {
 // AgentConfig 配置 Agent
 type AgentConfig struct {
 	TaskID       string
-	World        *explorationgraph.Store
+	Graph        *explorationgraph.Store
 	Executor     Interface
 	EventBus     bus.Bus
 	Logger       zerolog.Logger
@@ -68,7 +68,7 @@ func NewAgent(cfg AgentConfig) *Agent {
 	}
 
 	return &Agent{
-		world:            cfg.World,
+		graph:            cfg.Graph,
 		executor:         cfg.Executor,
 		eventBus:         cfg.EventBus,
 		logger:           cfg.Logger.With().Str("agent", "executor").Logger(),
@@ -186,7 +186,7 @@ func (a *Agent) handleEvent(ctx context.Context, event bus.Event, report *Report
 // processAvailableActions 处理所有可执行的 Action
 func (a *Agent) processAvailableActions(ctx context.Context, report *Report) error {
 	// 获取所有 open 状态的 Action
-	openActions, err := a.world.ListOpenActions(ctx, a.taskID)
+	openActions, err := a.graph.ListOpenActions(ctx, a.taskID)
 	if err != nil {
 		return fmt.Errorf("list open actions: %w", err)
 	}
@@ -251,7 +251,7 @@ func (a *Agent) executeAction(
 		Msg("开始执行 Action")
 
 	// 使用 CAS 标记为 running（防止并发执行同一 action）
-	ok, err := a.world.CompareAndSwapActionState(
+	ok, err := a.graph.CompareAndSwapActionState(
 		ctx,
 		action.TaskID,
 		action.ID,
@@ -276,7 +276,7 @@ func (a *Agent) executeAction(
 	// 更新状态
 	if execErr != nil {
 		errMsg := execErr.Error()
-		if err := a.world.UpdateActionStateWithReason(
+		if err := a.graph.UpdateActionStateWithReason(
 			ctx,
 			action.ID,
 			explorationgraph.StateFailed,
@@ -288,7 +288,7 @@ func (a *Agent) executeAction(
 	}
 
 	// 标记为 done
-	if err := a.world.UpdateActionStateWithReason(
+	if err := a.graph.UpdateActionStateWithReason(
 		ctx,
 		action.ID,
 		explorationgraph.StateDone,
@@ -383,13 +383,13 @@ func (a *Agent) createObservation(
 		UpdatedAt:  time.Now(),
 	}
 
-	_, err = a.world.CreateNode(ctx, observation)
+	_, err = a.graph.CreateNode(ctx, observation)
 	if err != nil {
 		return fmt.Errorf("create observation node: %w", err)
 	}
 
 	// 创建边：Action → Observation
-	err = a.world.CreateEdge(ctx, &core.GraphEdge{
+	err = a.graph.CreateEdge(ctx, &core.GraphEdge{
 		From:      action.ID,
 		To:        observationID,
 		Relation:  string(core.RelationGenerates),
@@ -424,7 +424,7 @@ func extractActionType(content json.RawMessage) string {
 
 // getCompletedActionIDs 获取已完成的 Action ID 集合
 func (a *Agent) getCompletedActionIDs(ctx context.Context) (map[string]bool, error) {
-	completed, err := a.world.ListCompletedActions(ctx, a.taskID)
+	completed, err := a.graph.ListCompletedActions(ctx, a.taskID)
 	if err != nil {
 		return nil, err
 	}

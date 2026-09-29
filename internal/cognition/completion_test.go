@@ -23,7 +23,7 @@ func newDetector(t *testing.T, maxSteps int) (*CompletionDetector, bus.Bus) {
 	eb := bus.New(ctx)
 	d := NewCompletionDetector(Config{
 		TaskID:        "t1",
-		World:         explorationgraph.NewMemoryStore(),
+		Graph:         explorationgraph.NewMemoryStore(),
 		Bus:           eb,
 		Logger:        zerolog.Nop(),
 		MaxSteps:      maxSteps,

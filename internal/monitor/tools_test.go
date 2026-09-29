@@ -16,12 +16,12 @@ import (
 // GetGlobalStateTool 汇总探索图态势；PublishDecisionTool 的 kill_action
 // 直接把 action 置 aborted（executor 认领前检查 state，即真实生效路径）。
 
-func newWorldWithActions(t *testing.T) *explorationgraph.Store {
+func newGraphWithActions(t *testing.T) *explorationgraph.Store {
 	t.Helper()
-	world := explorationgraph.NewMemoryStore()
+	graph := explorationgraph.NewMemoryStore()
 	ctx := context.Background()
 
-	obj, err := world.CreateNode(ctx, explorationgraph.Node{
+	obj, err := graph.CreateNode(ctx, explorationgraph.Node{
 		ID: "obj-1", TaskID: "t1", Kind: core.KindObjective,
 		Content: []byte(`{"description":"测试目标"}`),
 	})
@@ -36,7 +36,7 @@ func newWorldWithActions(t *testing.T) *explorationgraph.Store {
 			st = done
 			content = []byte(`{"instruction":"done thing"}`)
 		}
-		if _, err := world.CreateNode(ctx, explorationgraph.Node{
+		if _, err := graph.CreateNode(ctx, explorationgraph.Node{
 			ID: id, TaskID: "t1", Kind: core.KindAction,
 			Content: content, State: &st,
 		}); err != nil {
@@ -44,14 +44,14 @@ func newWorldWithActions(t *testing.T) *explorationgraph.Store {
 		}
 	}
 	_ = obj
-	return world
+	return graph
 }
 
 func TestGetGlobalStateTool_SumsExplorationState(t *testing.T) {
-	world := newWorldWithActions(t)
+	graph := newGraphWithActions(t)
 	ctx := context.Background()
 
-	tool := NewGetGlobalStateTool(world, "t1")
+	tool := NewGetGlobalStateTool(graph, "t1")
 	out, err := tool.Execute(ctx, []byte(`{}`))
 	require.NoError(t, err)
 	require.Empty(t, out.Error)
@@ -67,9 +67,9 @@ func TestGetGlobalStateTool_SumsExplorationState(t *testing.T) {
 }
 
 func TestPublishDecisionTool_KillAction_AppliesStateChange(t *testing.T) {
-	world := newWorldWithActions(t)
+	graph := newGraphWithActions(t)
 	ctx := context.Background()
-	tool := NewPublishDecisionTool(world, "t1")
+	tool := NewPublishDecisionTool(graph, "t1")
 
 	out, err := tool.Execute(ctx, []byte(
 		`{"type":"kill_action","action_id":"a-open","reason":"监察发现无效循环"}`))
@@ -77,16 +77,16 @@ func TestPublishDecisionTool_KillAction_AppliesStateChange(t *testing.T) {
 	require.Empty(t, out.Error)
 
 	// kill 的生效路径是探索图状态变更：aborted 后 executor 不再认领
-	node, err := world.GetNode(ctx, "a-open")
+	node, err := graph.GetNode(ctx, "a-open")
 	require.NoError(t, err)
 	require.NotNil(t, node.State)
 	assert.Equal(t, "aborted", string(*node.State))
 }
 
 func TestPublishDecisionTool_RequestReplan(t *testing.T) {
-	world := newWorldWithActions(t)
+	graph := newGraphWithActions(t)
 	ctx := context.Background()
-	tool := NewPublishDecisionTool(world, "t1")
+	tool := NewPublishDecisionTool(graph, "t1")
 
 	out, err := tool.Execute(ctx, json.RawMessage(`{"type":"request_replan","reason":"当前方向停滞"}`))
 	require.NoError(t, err)
@@ -94,9 +94,9 @@ func TestPublishDecisionTool_RequestReplan(t *testing.T) {
 }
 
 func TestPublishDecisionTool_Validation(t *testing.T) {
-	world := newWorldWithActions(t)
+	graph := newGraphWithActions(t)
 	ctx := context.Background()
-	tool := NewPublishDecisionTool(world, "t1")
+	tool := NewPublishDecisionTool(graph, "t1")
 
 	cases := []struct {
 		name, args, wantErr string
