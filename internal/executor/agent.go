@@ -1,6 +1,6 @@
-// Package executor 提供执行层的 ExecutorAgent
+// Package executor 提供执行层的 Agent
 //
-// ExecutorAgent 是持续运行的异步执行器，通过事件驱动响应 Action，生成 Observation
+// Agent 是持续运行的异步执行器，通过事件驱动响应 Action，生成 Observation
 package executor
 
 import (
@@ -21,18 +21,18 @@ import (
 )
 
 // 编译时检查接口实现
-var _ core.Agent = (*ExecutorAgent)(nil)
+var _ core.Agent = (*Agent)(nil)
 
-// ExecutorAgent 是事件驱动的执行器 Agent
+// Agent 是事件驱动的执行器 Agent
 //
 // 职责：
 // - 订阅 ActionProposed 事件（由 PlannerAgent 发布）
 // - 执行 Action 并生成 Observation（通过 Attempt）
 // - 发布 ActionCompleted 事件
 // - 完全异步，不阻塞任何调用方
-type ExecutorAgent struct {
+type Agent struct {
 	world        *explorationgraph.Store
-	executor     ExecutorInterface
+	executor     Interface
 	eventBus     bus.Bus
 	logger       zerolog.Logger
 	taskID       string
@@ -46,11 +46,11 @@ type ExecutorAgent struct {
 	stopCh chan struct{}
 }
 
-// ExecutorAgentConfig 配置 ExecutorAgent
-type ExecutorAgentConfig struct {
+// AgentConfig 配置 Agent
+type AgentConfig struct {
 	TaskID       string
 	World        *explorationgraph.Store
-	Executor     ExecutorInterface
+	Executor     Interface
 	EventBus     bus.Bus
 	Logger       zerolog.Logger
 	MaxSteps     int         // 最大执行步数（0 表示无限制）
@@ -61,13 +61,13 @@ type ExecutorAgentConfig struct {
 	CheckpointPolicy runtime.CheckpointPolicy
 }
 
-// NewExecutorAgent 创建 ExecutorAgent
-func NewExecutorAgent(cfg ExecutorAgentConfig) *ExecutorAgent {
+// NewAgent 创建 Agent
+func NewAgent(cfg AgentConfig) *Agent {
 	if cfg.MaxSteps == 0 {
 		cfg.MaxSteps = 1000 // 默认最大步数
 	}
 
-	return &ExecutorAgent{
+	return &Agent{
 		world:            cfg.World,
 		executor:         cfg.Executor,
 		eventBus:         cfg.EventBus,
@@ -88,8 +88,8 @@ func NewExecutorAgent(cfg ExecutorAgentConfig) *ExecutorAgent {
 // - 执行可调度的 Action
 // - 处理依赖关系（只执行依赖已满足的 Action）
 // - 发布 ActionCompleted 事件
-func (a *ExecutorAgent) Run(ctx context.Context) error {
-	a.logger.Info().Str("task_id", a.taskID).Msg("ExecutorAgent 启动")
+func (a *Agent) Run(ctx context.Context) error {
+	a.logger.Info().Str("task_id", a.taskID).Msg("Agent 启动")
 
 	// 订阅事件
 	sub := a.eventBus.SubscribeTask(a.taskID)
@@ -110,13 +110,13 @@ func (a *ExecutorAgent) Run(ctx context.Context) error {
 	for {
 		select {
 		case <-ctx.Done():
-			a.logger.Info().Str("task_id", a.taskID).Msg("ExecutorAgent 停止（context 取消）")
+			a.logger.Info().Str("task_id", a.taskID).Msg("Agent 停止（context 取消）")
 			report.StopWhy = stopCanceled
 			a.notifyCompletion(report)
 			return ctx.Err()
 
 		case <-a.stopCh:
-			a.logger.Info().Str("task_id", a.taskID).Msg("ExecutorAgent 停止")
+			a.logger.Info().Str("task_id", a.taskID).Msg("Agent 停止")
 			a.notifyCompletion(report)
 			return nil
 
@@ -140,7 +140,7 @@ func (a *ExecutorAgent) Run(ctx context.Context) error {
 					Str("task_id", a.taskID).
 					Str("stop_why", report.StopWhy).
 					Int("steps", report.Steps).
-					Msg("ExecutorAgent 达到停止条件")
+					Msg("Agent 达到停止条件")
 				a.notifyCompletion(report)
 				return nil
 			}
@@ -157,7 +157,7 @@ func (a *ExecutorAgent) Run(ctx context.Context) error {
 					Str("task_id", a.taskID).
 					Str("stop_why", report.StopWhy).
 					Int("steps", report.Steps).
-					Msg("ExecutorAgent 达到停止条件（定期检查）")
+					Msg("Agent 达到停止条件（定期检查）")
 				a.notifyCompletion(report)
 				return nil
 			}
@@ -166,7 +166,7 @@ func (a *ExecutorAgent) Run(ctx context.Context) error {
 }
 
 // handleEvent 处理事件
-func (a *ExecutorAgent) handleEvent(ctx context.Context, event bus.Event, report *Report) error {
+func (a *Agent) handleEvent(ctx context.Context, event bus.Event, report *Report) error {
 	switch event.Type {
 	case bus.EventActionProposed:
 		// Planner 提议了新 Action，立即处理
@@ -184,7 +184,7 @@ func (a *ExecutorAgent) handleEvent(ctx context.Context, event bus.Event, report
 }
 
 // processAvailableActions 处理所有可执行的 Action
-func (a *ExecutorAgent) processAvailableActions(ctx context.Context, report *Report) error {
+func (a *Agent) processAvailableActions(ctx context.Context, report *Report) error {
 	// 获取所有 open 状态的 Action
 	openActions, err := a.world.ListOpenActions(ctx, a.taskID)
 	if err != nil {
@@ -240,7 +240,7 @@ func (a *ExecutorAgent) processAvailableActions(ctx context.Context, report *Rep
 }
 
 // executeAction 执行单个 Action
-func (a *ExecutorAgent) executeAction(
+func (a *Agent) executeAction(
 	ctx context.Context,
 	action explorationgraph.Node,
 	report *Report,
@@ -270,7 +270,7 @@ func (a *ExecutorAgent) executeAction(
 		return nil
 	}
 
-	// 执行 Action（调用 ExecutorInterface）
+	// 执行 Action（调用 Interface）
 	attempts, execErr := a.executor.Execute(ctx, action)
 
 	// 更新状态
@@ -324,7 +324,7 @@ func (a *ExecutorAgent) executeAction(
 }
 
 // createObservation 创建 Observation 节点记录执行结果
-func (a *ExecutorAgent) createObservation(
+func (a *Agent) createObservation(
 	ctx context.Context,
 	action explorationgraph.Node,
 	attempts []evaluator.Attempt,
@@ -423,7 +423,7 @@ func extractActionType(content json.RawMessage) string {
 }
 
 // getCompletedActionIDs 获取已完成的 Action ID 集合
-func (a *ExecutorAgent) getCompletedActionIDs(ctx context.Context) (map[string]bool, error) {
+func (a *Agent) getCompletedActionIDs(ctx context.Context) (map[string]bool, error) {
 	completed, err := a.world.ListCompletedActions(ctx, a.taskID)
 	if err != nil {
 		return nil, err
@@ -437,7 +437,7 @@ func (a *ExecutorAgent) getCompletedActionIDs(ctx context.Context) (map[string]b
 }
 
 // shouldStop 判断是否应停止
-func (a *ExecutorAgent) shouldStop(report *Report) bool {
+func (a *Agent) shouldStop(report *Report) bool {
 	// 达到最大步数
 	if a.maxSteps > 0 && report.Steps >= a.maxSteps {
 		report.StopWhy = stopMaxSteps
@@ -452,7 +452,7 @@ func (a *ExecutorAgent) shouldStop(report *Report) bool {
 }
 
 // notifyCompletion 通知任务完成
-func (a *ExecutorAgent) notifyCompletion(report Report) {
+func (a *Agent) notifyCompletion(report Report) {
 	if a.completionCh != nil {
 		select {
 		case a.completionCh <- report:
@@ -468,12 +468,12 @@ func (a *ExecutorAgent) notifyCompletion(report Report) {
 // ============================================
 
 // Name 实现 core.Agent 接口
-func (a *ExecutorAgent) Name() string {
+func (a *Agent) Name() string {
 	return "executor"
 }
 
 // Stop 实现 core.Agent 接口
-func (a *ExecutorAgent) Stop(ctx context.Context) error {
+func (a *Agent) Stop(_ context.Context) error {
 	a.logger.Info().Msg("停止 executor agent")
 	close(a.stopCh)
 	return nil

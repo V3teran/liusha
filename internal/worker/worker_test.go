@@ -86,7 +86,7 @@ func TestClient_Enqueue_Idempotent(t *testing.T) {
 func TestMux_Register_AndAsynqMux(t *testing.T) {
 	m := NewMux()
 	called := false
-	m.Register(RoleExecutor, func(ctx context.Context, p Payload) error {
+	m.Register(RoleExecutor, func(_ context.Context, _ Payload) error {
 		called = true
 		return nil
 	})
@@ -183,8 +183,8 @@ func TestEndToEnd_EnqueueAndProcess(t *testing.T) {
 // 静默 asynq 内部日志，避免污染测试输出。
 type discardLogger struct{}
 
-func (discardLogger) Debug(args ...interface{}) {}
-func (discardLogger) Info(args ...interface{})  {}
-func (discardLogger) Warn(args ...interface{})  {}
-func (discardLogger) Error(args ...interface{}) {}
-func (discardLogger) Fatal(args ...interface{}) {}
+func (discardLogger) Debug(_ ...interface{}) {}
+func (discardLogger) Info(_ ...interface{})  {}
+func (discardLogger) Warn(_ ...interface{})  {}
+func (discardLogger) Error(_ ...interface{}) {}
+func (discardLogger) Fatal(_ ...interface{}) {}

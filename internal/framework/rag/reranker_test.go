@@ -12,14 +12,14 @@ import (
 // MockCrossEncoder 模拟交叉编码器
 type MockCrossEncoder struct{}
 
-func (m *MockCrossEncoder) Score(ctx context.Context, query string, document string) (float64, error) {
+func (m *MockCrossEncoder) Score(_ context.Context, _ string, _ string) (float64, error) {
 	// 简单模拟：根据文档长度和查询匹配度返回分数
 	score := 0.5
 	// 这里可以实现更复杂的逻辑
 	return score, nil
 }
 
-func (m *MockCrossEncoder) BatchScore(ctx context.Context, query string, documents []string) ([]float64, error) {
+func (m *MockCrossEncoder) BatchScore(_ context.Context, query string, documents []string) ([]float64, error) {
 	scores := make([]float64, len(documents))
 	for i := range documents {
 		// 模拟：包含查询词的文档得分更高

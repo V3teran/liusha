@@ -1,4 +1,4 @@
-// Package llm：框架层 LLM 抽象——Provider 契约 + 类型事实源 + 协议适配器。
+// Package llm 是框架层 LLM 抽象——Provider 契约 + 类型事实源 + 协议适配器。
 //
 // 分层（Ports & Adapters）：
 //   - 本包定义 Provider 契约（Complete/Stream/CountTokens）与全部线类型
@@ -55,7 +55,10 @@ type Response struct {
 // StreamEventKind 是流式事件的类型。
 type StreamEventKind string
 
+// StreamThinking 等枚举定义。
 const (
+	// StreamText ：StreamText 流式文本增量；StreamThinking 思考增量（anthropic）；
+	// StreamToolCall 聚合后的完整调用；StreamDone 正常收尾（带 Usage）；StreamError 异常收尾。
 	StreamText     StreamEventKind = "text"
 	StreamThinking StreamEventKind = "thinking" // anthropic 扩展思考增量
 	StreamToolCall StreamEventKind = "tool_call"

@@ -3,6 +3,7 @@
 // 数据源是 tool 表（启动期由代码事实源 reconcile 同步），非直读 tools.yaml/注册表。
 // 列表支持 kind/q 过滤 + page/size 分页；详情附全量智能体及各自是否已装配该工具（involved）。
 // 装配态的读与写都在后端（单一权威）：读处理器算 involved，写端点改智能体工具集回存。
+
 package httpapi
 
 import (

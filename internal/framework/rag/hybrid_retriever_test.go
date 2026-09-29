@@ -241,7 +241,7 @@ type MockVectorRetriever struct {
 	customOrder []string
 }
 
-func (m *MockVectorRetriever) Retrieve(ctx context.Context, query string, topK int) ([]rag.Document, error) {
+func (m *MockVectorRetriever) Retrieve(_ context.Context, _ string, topK int) ([]rag.Document, error) {
 	if m.customOrder != nil {
 		// 按自定义顺序返回
 		results := []rag.Document{}

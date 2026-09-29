@@ -78,7 +78,7 @@ func (m *StreamManager) Stream(ctx context.Context, taskID string) (<-chan Strea
 }
 
 // Send 发送流式事件。
-func (m *StreamManager) Send(ctx context.Context, event StreamEvent) error {
+func (m *StreamManager) Send(_ context.Context, event StreamEvent) error {
 	m.mu.RLock()
 	handle, exists := m.streams[event.TaskID]
 	m.mu.RUnlock()
@@ -208,8 +208,8 @@ func (m *StreamManager) SetDefaultBufferSize(size int) {
 }
 
 // SetMaxSubscribers 设置最大订阅数。
-func (m *StreamManager) SetMaxSubscribers(max int) {
-	m.maxSubscribers = max
+func (m *StreamManager) SetMaxSubscribers(limit int) {
+	m.maxSubscribers = limit
 }
 
 // StreamStats 是流的统计信息。

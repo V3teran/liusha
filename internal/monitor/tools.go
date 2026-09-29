@@ -14,12 +14,14 @@ import (
 // GetGlobalStateTool - 获取任务全局状态
 // ============================================
 
+// GetGlobalStateTool 把探索图全局态势（objectives/actions/results 摘要）喂给 LLM。
 type GetGlobalStateTool struct {
 	registry.BaseTool
 	world  *explorationgraph.Store
 	taskID string
 }
 
+// NewGetGlobalStateTool 构造全局态势工具。
 func NewGetGlobalStateTool(world *explorationgraph.Store, taskID string) *GetGlobalStateTool {
 	t := &GetGlobalStateTool{
 		world:  world,
@@ -30,18 +32,22 @@ func NewGetGlobalStateTool(world *explorationgraph.Store, taskID string) *GetGlo
 	return t
 }
 
+// Name 实现工具接口。
 func (t *GetGlobalStateTool) Name() string {
 	return "get_global_state"
 }
 
+// ShortDesc 实现工具接口。
 func (t *GetGlobalStateTool) ShortDesc() string {
 	return "获取任务全局状态"
 }
 
+// Desc 实现工具接口。
 func (t *GetGlobalStateTool) Desc() string {
 	return "获取任务的全局状态，包括 Objective、所有 Actions 和 Findings"
 }
 
+// Schema 实现工具接口。
 func (t *GetGlobalStateTool) Schema() json.RawMessage {
 	return json.RawMessage(`{
 		"type": "object",
@@ -50,7 +56,9 @@ func (t *GetGlobalStateTool) Schema() json.RawMessage {
 	}`)
 }
 
-func (t *GetGlobalStateTool) Execute(ctx context.Context, args json.RawMessage) (registry.ToolResult, error) {
+// Execute 实现工具接口：读探索图汇总全局态势。
+// Execute 实现工具接口：读探索图汇总全局态势。
+func (t *GetGlobalStateTool) Execute(ctx context.Context, _ json.RawMessage) (registry.ToolResult, error) {
 	// 读取所有 Actions
 	allActions, err := t.world.ListAllActions(ctx, t.taskID)
 	if err != nil {
@@ -89,6 +97,7 @@ func (t *GetGlobalStateTool) Execute(ctx context.Context, args json.RawMessage) 
 // PublishDecisionTool - 发布监察决策
 // ============================================
 
+// PublishDecisionTool 是 monitor 的决策出口（kill_action 落探索图状态变更）。
 type PublishDecisionTool struct {
 	registry.BaseTool
 	world  *explorationgraph.Store
@@ -98,6 +107,7 @@ type PublishDecisionTool struct {
 // NewPublishDecisionTool 构造决策工具。kill_action 的生效路径是探索图
 // 状态变更：action 置 aborted 后 executor 不再认领（CanExecute 只认 open）；
 // request_replan 无需显式事件——planner 以 10s 轮询兜底重规划。
+// NewPublishDecisionTool 构造决策发布工具。
 func NewPublishDecisionTool(world *explorationgraph.Store, taskID string) *PublishDecisionTool {
 	t := &PublishDecisionTool{
 		world:  world,
@@ -108,18 +118,22 @@ func NewPublishDecisionTool(world *explorationgraph.Store, taskID string) *Publi
 	return t
 }
 
+// Name 实现工具接口。
 func (t *PublishDecisionTool) Name() string {
 	return "publish_decision"
 }
 
+// ShortDesc 实现工具接口。
 func (t *PublishDecisionTool) ShortDesc() string {
 	return "发布监察决策"
 }
 
+// Desc 实现工具接口。
 func (t *PublishDecisionTool) Desc() string {
 	return "发布监察决策事件（kill_action 或 request_replan）"
 }
 
+// Schema 实现工具接口。
 func (t *PublishDecisionTool) Schema() json.RawMessage {
 	return json.RawMessage(`{
 		"type": "object",
@@ -142,7 +156,9 @@ func (t *PublishDecisionTool) Schema() json.RawMessage {
 	}`)
 }
 
-func (t *PublishDecisionTool) Execute(ctx context.Context, args json.RawMessage) (registry.ToolResult, error) {
+// Execute 实现工具接口：kill_action 落探索图状态变更。
+// Execute 实现工具接口：kill_action 落探索图状态变更。
+func (t *PublishDecisionTool) Execute(_ context.Context, args json.RawMessage) (registry.ToolResult, error) {
 	// 解析参数
 	var decision Decision
 	if err := json.Unmarshal(args, &decision); err != nil {

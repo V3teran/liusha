@@ -7,6 +7,7 @@
 // 密钥来源双路径：请求体带 api_key（新建/更换密钥的明文，优先）→ 直接用；否则据 key 取已存
 // provider——经 ProviderTester 适配器走 llmstore 多级缓存（内存 L1 / redis L2 / DB）读并解密，
 // 不新开直连 DB 的读路径（与运行期 For(role) 同一套缓存事实源）。
+
 package httpapi
 
 import (

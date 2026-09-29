@@ -11,10 +11,12 @@ type IterationCheckpointPolicy struct {
 	Interval int // 每 N 次迭代保存
 }
 
+// NewIterationCheckpointPolicy 按迭代间隔保存。
 func NewIterationCheckpointPolicy(interval int) *IterationCheckpointPolicy {
 	return &IterationCheckpointPolicy{Interval: interval}
 }
 
+// ShouldSave 实现策略接口：每 N 次迭代保存一次。
 func (p *IterationCheckpointPolicy) ShouldSave(iteration int, _ *IterationTrace) bool {
 	if p.Interval <= 0 {
 		return false
@@ -29,6 +31,7 @@ type StateCheckpointPolicy struct {
 	OnTool    bool // 工具调用后保存
 }
 
+// NewStateCheckpointPolicy 在指定节点保存。
 func NewStateCheckpointPolicy(onSuccess, onError, onTool bool) *StateCheckpointPolicy {
 	return &StateCheckpointPolicy{
 		OnSuccess: onSuccess,
@@ -37,6 +40,7 @@ func NewStateCheckpointPolicy(onSuccess, onError, onTool bool) *StateCheckpointP
 	}
 }
 
+// ShouldSave 实现策略接口：命中节点名才保存。
 func (p *StateCheckpointPolicy) ShouldSave(_ int, trace *IterationTrace) bool {
 	if p.OnSuccess && trace.Status == IterationStatusComplete {
 		return true
@@ -53,21 +57,25 @@ func (p *StateCheckpointPolicy) ShouldSave(_ int, trace *IterationTrace) bool {
 // AlwaysCheckpointPolicy 每次迭代都保存（调试用）
 type AlwaysCheckpointPolicy struct{}
 
+// NewAlwaysCheckpointPolicy 每步都保存。
 func NewAlwaysCheckpointPolicy() *AlwaysCheckpointPolicy {
 	return &AlwaysCheckpointPolicy{}
 }
 
-func (p *AlwaysCheckpointPolicy) ShouldSave(_ int, trace *IterationTrace) bool {
+// ShouldSave 实现策略接口：恒真。
+func (p *AlwaysCheckpointPolicy) ShouldSave(_ int, _ *IterationTrace) bool {
 	return true
 }
 
 // NeverCheckpointPolicy 从不保存（禁用检查点）
 type NeverCheckpointPolicy struct{}
 
+// NewNeverCheckpointPolicy 从不保存（显式禁用）。
 func NewNeverCheckpointPolicy() *NeverCheckpointPolicy {
 	return &NeverCheckpointPolicy{}
 }
 
-func (p *NeverCheckpointPolicy) ShouldSave(_ int, trace *IterationTrace) bool {
+// ShouldSave 实现策略接口：恒假。
+func (p *NeverCheckpointPolicy) ShouldSave(_ int, _ *IterationTrace) bool {
 	return false
 }

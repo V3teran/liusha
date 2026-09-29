@@ -122,7 +122,7 @@ func (r *StreamRecorder) ReplayWithTiming(ctx context.Context, taskID string) (<
 }
 
 // Save 保存录制到文件。
-func (r *StreamRecorder) Save(ctx context.Context, taskID string) error {
+func (r *StreamRecorder) Save(_ context.Context, taskID string) error {
 	r.mu.RLock()
 	events, exists := r.records[taskID]
 	r.mu.RUnlock()
@@ -139,7 +139,7 @@ func (r *StreamRecorder) Save(ctx context.Context, taskID string) error {
 
 	// 写入文件
 	filePath := fmt.Sprintf("%s/%s.json", r.filePath, taskID)
-	if err := os.WriteFile(filePath, data, 0644); err != nil {
+	if err := os.WriteFile(filePath, data, 0600); err != nil {
 		return fmt.Errorf("write file: %w", err)
 	}
 
@@ -147,11 +147,11 @@ func (r *StreamRecorder) Save(ctx context.Context, taskID string) error {
 }
 
 // Load 从文件加载录制。
-func (r *StreamRecorder) Load(ctx context.Context, taskID string) error {
+func (r *StreamRecorder) Load(_ context.Context, taskID string) error {
 	filePath := fmt.Sprintf("%s/%s.json", r.filePath, taskID)
 
 	// 读取文件
-	data, err := os.ReadFile(filePath)
+	data, err := os.ReadFile(filePath) // #nosec G304 // 路径来自进程配置/种子目录，非用户输入
 	if err != nil {
 		return fmt.Errorf("read file: %w", err)
 	}
@@ -252,7 +252,7 @@ type LiveRecorder struct {
 
 // NewLiveRecorder 创建实时录制器。
 func NewLiveRecorder(filePath string) (*LiveRecorder, error) {
-	file, err := os.Create(filePath)
+	file, err := os.Create(filePath) // #nosec G304 // 路径来自内部记录目录
 	if err != nil {
 		return nil, fmt.Errorf("create file: %w", err)
 	}

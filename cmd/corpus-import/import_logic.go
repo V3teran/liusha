@@ -27,7 +27,7 @@ type tagResult struct {
 }
 
 func importFile(ctx context.Context, logger zerolog.Logger, store *corpus.Store, router *llm.Router, embedder *embedding.Client, path string) (int, error) {
-	raw, err := os.ReadFile(path)
+	raw, err := os.ReadFile(path) // #nosec G304,G703 // 路径来自 CLI 参数（离线导入工具），非用户输入
 	if err != nil {
 		return 0, fmt.Errorf("读文件: %w", err)
 	}

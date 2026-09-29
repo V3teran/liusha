@@ -49,7 +49,7 @@ func (l *TextLoader) WithMetadata(key string, value any) *TextLoader {
 }
 
 // Load 加载文档
-func (l *TextLoader) Load(ctx context.Context) ([]Document, error) {
+func (l *TextLoader) Load(_ context.Context) ([]Document, error) {
 	data, err := os.ReadFile(l.filePath)
 	if err != nil {
 		return nil, fmt.Errorf("读取文件失败: %w", err)
@@ -94,7 +94,7 @@ func (l *ReaderLoader) WithMetadata(key string, value any) *ReaderLoader {
 }
 
 // Load 加载文档
-func (l *ReaderLoader) Load(ctx context.Context) ([]Document, error) {
+func (l *ReaderLoader) Load(_ context.Context) ([]Document, error) {
 	data, err := io.ReadAll(l.reader)
 	if err != nil {
 		return nil, fmt.Errorf("读取数据失败: %w", err)

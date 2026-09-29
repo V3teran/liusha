@@ -114,7 +114,7 @@ func importExecutors(ctx context.Context, dir string, h *agent.Store, force bool
 	}
 	updated := make([]string, 0)
 	for _, path := range files {
-		raw, err := os.ReadFile(path)
+		raw, err := os.ReadFile(path) // #nosec G304 // 路径来自进程配置/种子目录，非用户输入
 		if err != nil {
 			return nil, fmt.Errorf("读取 %s: %w", path, err)
 		}
@@ -182,7 +182,7 @@ func importSkills(ctx context.Context, dir string, s *skill.Store) error {
 		return err
 	}
 	for _, path := range files {
-		raw, err := os.ReadFile(path)
+		raw, err := os.ReadFile(path) // #nosec G304 // 路径来自进程配置/种子目录，非用户输入
 		if err != nil {
 			return fmt.Errorf("读取 %s: %w", path, err)
 		}
@@ -247,7 +247,7 @@ func (e *ResetAgentError) Error() string { return e.Msg }
 // insert-only 相反：显式以种子为准覆盖现有行）。返回更新后的 Agent。
 func ResetAgent(ctx context.Context, dir, code string, h *agent.Store) (agent.Agent, error) {
 	path := filepath.Join(dir, "agents", code+".md")
-	raw, err := os.ReadFile(path)
+	raw, err := os.ReadFile(path) // #nosec G304 // 路径来自进程配置/种子目录，非用户输入
 	if err != nil {
 		if os.IsNotExist(err) {
 			return agent.Agent{}, &ResetAgentError{Msg: fmt.Sprintf("agent %q 无种子文件 %s", code, path)}

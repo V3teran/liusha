@@ -88,7 +88,7 @@ func (m *PooledManager) Acquire(ctx context.Context, assignmentID string) (Clien
 }
 
 // Release 释放 Sandbox 引用，引用计数归零后启动延迟清理
-func (m *PooledManager) Release(ctx context.Context, assignmentID string) error {
+func (m *PooledManager) Release(_ context.Context, assignmentID string) error {
 	if assignmentID == "" {
 		return fmt.Errorf("pooled sandbox: assignmentID 为空")
 	}

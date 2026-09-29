@@ -1,6 +1,7 @@
 // Package web 是第一个 Domain Profile 实现（L2）：把自由文本 brief 里的 http(s) 目标
 // 解析成 web 域的 TargetRef。它证明架构试金石——加一个域只需实现接口 + 注册，核心零改动。
 // 二进制/云/lateral 域后续按同样方式各出一个包。
+
 package executor
 
 import (
@@ -25,6 +26,7 @@ func New() *Profile {
 	return &Profile{}
 }
 
+// Domain 实现 Profile 的接口方法。
 func (p *Profile) Domain() string { return "web" }
 
 // Onboard 把自由文本 brief 解析成 web 目标。取代 cmd/runner/main.go 的 briefHostRe——

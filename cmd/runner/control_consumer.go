@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -27,7 +26,6 @@ const controlPollInterval = 5 * time.Second
 // pause 必须 stop（等待全部退出）后再返回，避免与 bus 的 task 级共享通道
 // 关闭时序竞争；resume 重新 Start（各 agent Start 自带重新订阅）。
 type controlAgentLifecycle struct {
-	mu    sync.Mutex
 	stop  func() // cancel agentCtx + WaitGroup 等待全部退出
 	start func()
 }

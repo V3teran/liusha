@@ -1,3 +1,6 @@
+// Package framework 实现本包职责。
+
+// Package runtime 实现本包职责。
 package runtime
 
 import (
@@ -236,7 +239,7 @@ func (b *DefaultMessageBroker) GetAgent(agentID string) (AgentMessaging, bool) {
 }
 
 // Shutdown 关闭代理
-func (b *DefaultMessageBroker) Shutdown(ctx context.Context) error {
+func (b *DefaultMessageBroker) Shutdown(_ context.Context) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 

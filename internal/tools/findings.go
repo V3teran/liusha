@@ -75,7 +75,6 @@ func (t *readFindingsTool) Execute(ctx context.Context, args json.RawMessage) (r
 
 // ─── write_finding ───────────────────────────────────────────────────────────
 
-
 // ─── update_finding ──────────────────────────────────────────────────────────
 
 var updateFindingSchema = json.RawMessage(`{

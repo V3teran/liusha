@@ -88,7 +88,7 @@ func (s *Server) handleExec(w http.ResponseWriter, r *http.Request) {
 
 	// 创建所有必要目录
 	for _, dir := range []string{workspaceDir, outputDir, profileDir} {
-		if err := os.MkdirAll(dir, 0o777); err != nil {
+		if err := os.MkdirAll(dir, 0o750); err != nil {
 			writeError(w, http.StatusInternalServerError, "mkdir %s: %v", dir, err)
 			return
 		}
@@ -106,7 +106,7 @@ func (s *Server) handleExec(w http.ResponseWriter, r *http.Request) {
 	cmdCtx, cancel := context.WithTimeout(r.Context(), timeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(cmdCtx, "sh", "-c", req.Command)
+	cmd := exec.CommandContext(cmdCtx, "sh", "-c", req.Command) // #nosec G204 // 沙箱本职：执行用户提交的容器内命令
 	cmd.Dir = workspaceDir
 	cmd.Env = append(os.Environ(),
 		"LIUSHA_TASK_ID="+req.TaskID,
@@ -213,7 +213,7 @@ func collectAttachments(outputDir string, since time.Time) ([]sandbox.Attachment
 			warnings = append(warnings, fmt.Sprintf("file '%s' skipped (would exceed total limit %dKB)", e.Name(), maxTotalSize/1024))
 			continue
 		}
-		data, err := os.ReadFile(filepath.Join(outputDir, e.Name()))
+		data, err := os.ReadFile(filepath.Join(outputDir, e.Name())) // #nosec G304 // 路径来自进程配置/种子目录，非用户输入
 		if err != nil {
 			warnings = append(warnings, fmt.Sprintf("read '%s': %v", e.Name(), err))
 			continue

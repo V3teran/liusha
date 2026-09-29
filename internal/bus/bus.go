@@ -312,6 +312,7 @@ func (b *MemoryBus) Publish(event Event) {
 // 便捷方法实现
 // ============================================
 
+// PublishActionProposed 发布 action 提议事件（planner 消费触发认领）。
 func (b *MemoryBus) PublishActionProposed(taskID, actionID string) {
 	b.Publish(Event{
 		Type:     EventActionProposed,
@@ -323,6 +324,7 @@ func (b *MemoryBus) PublishActionProposed(taskID, actionID string) {
 	})
 }
 
+// PublishActionCompleted 发布 action 完成事件（detector 计步 / planner 重规划）。
 func (b *MemoryBus) PublishActionCompleted(taskID, actionID string) {
 	b.Publish(Event{
 		Type:     EventActionCompleted,
@@ -334,6 +336,7 @@ func (b *MemoryBus) PublishActionCompleted(taskID, actionID string) {
 	})
 }
 
+// PublishAttemptGenerated 发布漏洞候选事件（evaluator 复现门消费）。
 func (b *MemoryBus) PublishAttemptGenerated(taskID, actionID string, attempt interface{}) {
 	b.Publish(Event{
 		Type:     EventAttemptGenerated,
@@ -346,6 +349,7 @@ func (b *MemoryBus) PublishAttemptGenerated(taskID, actionID string, attempt int
 	})
 }
 
+// PublishVerificationPassed 发布复现坐实事件（planner 重规划依据）。
 func (b *MemoryBus) PublishVerificationPassed(taskID, nodeID string) {
 	b.Publish(Event{
 		Type:   EventVerificationPassed,
@@ -356,6 +360,7 @@ func (b *MemoryBus) PublishVerificationPassed(taskID, nodeID string) {
 	})
 }
 
+// PublishVerificationRefuted 发布复现证伪事件（planner 调整方向依据）。
 func (b *MemoryBus) PublishVerificationRefuted(taskID, actionID string) {
 	b.Publish(Event{
 		Type:     EventVerificationRefuted,

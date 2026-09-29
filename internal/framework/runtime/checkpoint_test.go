@@ -19,7 +19,7 @@ type testMockProvider struct {
 	NumCalls  int
 }
 
-func (p *testMockProvider) Complete(_ context.Context, req llm.Request) (llm.Response, error) {
+func (p *testMockProvider) Complete(_ context.Context, _ llm.Request) (llm.Response, error) {
 	p.NumCalls++
 	resp := llm.Response{
 		Content:   p.Responses[p.Index%len(p.Responses)],
@@ -41,7 +41,7 @@ func (p *testMockProvider) Complete(_ context.Context, req llm.Request) (llm.Res
 	return resp, nil
 }
 
-func (p *testMockProvider) Stream(_ context.Context, req llm.Request) (<-chan llm.StreamEvent, error) {
+func (p *testMockProvider) Stream(_ context.Context, _ llm.Request) (<-chan llm.StreamEvent, error) {
 	ch := make(chan llm.StreamEvent, 1)
 	go func() {
 		defer close(ch)
@@ -57,7 +57,7 @@ func (p *testMockProvider) Stream(_ context.Context, req llm.Request) (<-chan ll
 	return ch, nil
 }
 
-func (p *testMockProvider) CountTokens(_ context.Context, req llm.Request) (int, error) {
+func (p *testMockProvider) CountTokens(_ context.Context, _ llm.Request) (int, error) {
 	return 100, nil
 }
 

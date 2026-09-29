@@ -1,3 +1,4 @@
+// Package rag 的 OpenAI 兼容 embedding 客户端。
 package rag
 
 import (

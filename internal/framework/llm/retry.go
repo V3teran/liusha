@@ -1,4 +1,4 @@
-// retry.go：Provider 装饰器，按错误码退避表自动重试 + 可选 fallback。
+// Package llm 的重试装饰器：按错误码退避表自动重试 + 可选 fallback。
 //
 // 退避表（spec §8.5）与错误分类是框架能力，定义在本包；
 // fallback 链的编排是业务策略，由调用方（Router / internal/llm）装配。
@@ -43,7 +43,9 @@ func DefaultRetryOptions() RetryOptions {
 // ErrorClass 是 4 类可重试错误的判别结果。
 type ErrorClass int
 
+// Class429 等枚举定义。
 const (
+	// ClassOther 等枚举判别结果：决定走哪条退避策略。
 	ClassOther ErrorClass = iota // 不重试（含其他 4xx / 业务错误）
 	Class429
 	Class529

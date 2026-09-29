@@ -433,7 +433,7 @@ func (i *Intelligence) convertProposalsToNodes(taskID string, proposals []Action
 }
 
 // ExtractObjectivesFromResults 从 Result 节点中提取新的探索目标
-func (i *Intelligence) ExtractObjectivesFromResults(ctx context.Context, world *explorationgraph.Store, taskID string, results []explorationgraph.Node) ([]NewObjective, error) {
+func (i *Intelligence) ExtractObjectivesFromResults(ctx context.Context, _ *explorationgraph.Store, taskID string, results []explorationgraph.Node) ([]NewObjective, error) {
 	i.logger.Info().
 		Str("task_id", taskID).
 		Int("result_count", len(results)).

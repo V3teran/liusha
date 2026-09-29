@@ -370,8 +370,7 @@ func (g *anthropicGen) StreamChat(ctx context.Context, msgs []Message, tools []T
 					toolArgs[ev.Index] = append(toolArgs[ev.Index], []byte(d.PartialJSON)...)
 				}
 			case anthropic.ContentBlockStartEvent:
-				switch ev.ContentBlock.AsAny().(type) {
-				case anthropic.ToolUseBlock:
+				if _, ok := ev.ContentBlock.AsAny().(anthropic.ToolUseBlock); ok {
 					toolArgs[ev.Index] = []byte{}
 				}
 			case anthropic.ContentBlockStopEvent:

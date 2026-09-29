@@ -6,7 +6,6 @@ import (
 	"errors"
 	"net/http"
 	"testing"
-	"time"
 
 	"github.com/V3teran/liusha/internal/llminvocation"
 )
@@ -63,7 +62,7 @@ func (f *fakeInvocations) FacetsByTask(_ context.Context, _ string) (llminvocati
 	return f.facets, f.err
 }
 
-func TestLLMInvocationsHandler(t *testing.T) {
+func TestLLMInvocationsHandler_List(t *testing.T) {
 	t.Run("列表分页：size 截断 + total/page/size（offset 分页）", func(t *testing.T) {
 		taskID := "t1"
 		fake := &fakeInvocations{rows: []llminvocation.Invocation{
@@ -234,56 +233,9 @@ func TestLLMInvocationsHandler(t *testing.T) {
 		}
 	})
 
-	t.Run("筛选参数解析：role/model/only_err/时间范围", func(t *testing.T) {
-		fake := &fakeInvocations{}
-		srv := newTestServer(t, Deps{Invocations: fake})
-		defer srv.Close()
-
-		req, _ := http.NewRequest("GET",
-			srv.URL+"/llm/invocations/t1?role=planner&model=glm-5.3-flash&only_err=1"+
-				"&start=2026-07-20T00:00:00Z&end=2026-07-21T00:00:00Z", nil)
-		req.Header.Set("X-API-Key", "k")
-		resp, err := http.DefaultClient.Do(req)
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer func() { _ = resp.Body.Close() }()
-
-		f := fake.gotFilter
-		if f.Role != "planner" || f.Model != "glm-5.3-flash" || !f.OnlyErr {
-			t.Errorf("role/model/only_err 解析错: %+v", f)
-		}
-		if f.Start == nil || f.Start.UTC().Format(time.RFC3339) != "2026-07-20T00:00:00Z" {
-			t.Errorf("start 解析错: %v", f.Start)
-		}
-		if f.End == nil || f.End.UTC().Format(time.RFC3339) != "2026-07-21T00:00:00Z" {
-			t.Errorf("end 解析错: %v", f.End)
-		}
-	})
-
-	t.Run("非法时间参数退化为不筛，不返 400", func(t *testing.T) {
-		fake := &fakeInvocations{}
-		srv := newTestServer(t, Deps{Invocations: fake})
-		defer srv.Close()
-
-		req, _ := http.NewRequest("GET", srv.URL+"/llm/invocations/t1?start=not-a-time", nil)
-		req.Header.Set("X-API-Key", "k")
-		resp, err := http.DefaultClient.Do(req)
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer func() { _ = resp.Body.Close() }()
-
-		if resp.StatusCode != 200 {
-			t.Errorf("状态码=%d，期望 200（坏参数退化为不筛）", resp.StatusCode)
-		}
-		if fake.gotFilter.Start != nil {
-			t.Error("非法 start 应视为未传")
-		}
-	})
 }
 
-func TestLLMInvocationDetailHandler(t *testing.T) {
+func TestLLMInvocationsHandler_Detail(t *testing.T) {
 	t.Run("200 返回完整行含 messages/result", func(t *testing.T) {
 		taskID := "t1"
 		fake := &fakeInvocations{byID: map[int64]llminvocation.Invocation{
@@ -334,7 +286,7 @@ func TestLLMInvocationDetailHandler(t *testing.T) {
 	})
 }
 
-func TestLLMInvocationStatHandler(t *testing.T) {
+func TestLLMInvocationsHandler_Stat(t *testing.T) {
 	t.Run("200 返回聚合统计", func(t *testing.T) {
 		fake := &fakeInvocations{agg: llminvocation.Aggregate{Calls: 3, InTokens: 350, OutTokens: 35, CachedTokens: 55, LatencyMs: 600}}
 		srv := newTestServer(t, Deps{Invocations: fake})

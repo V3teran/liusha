@@ -1,3 +1,4 @@
+// Package main 把 skills/agents 种子离线灌入指定 DB（调试用，常规路径走 api 启动时自动导入）。
 package main
 
 import (
@@ -18,14 +19,14 @@ func main() {
 	// 连接数据库
 	dbURL := os.Getenv("DATABASE_URL")
 	if dbURL == "" {
-		dbURL = "postgresql://postgres:postgres@localhost:5432/liusha?sslmode=disable"
+		dbURL = "postgresql://postgres:postgres@localhost:5432/liusha?sslmode=disable" // #nosec G101 // 本地 dev 默认值，可被 LIUSHA_POSTGRES_DSN 覆盖
 	}
 
 	pool, err := db.NewPgPool(ctx, dbURL, 10, 2, 10, 300)
 	if err != nil {
+		pool.Close()
 		log.Fatalf("连接数据库失败: %v", err)
 	}
-	defer pool.Close()
 
 	// 创建 store
 	agentStore := agent.NewStore(pool)
@@ -34,7 +35,9 @@ func main() {
 	// 执行种子加载
 	fmt.Println("开始加载种子...")
 	if err := seed.Import(ctx, ".", agentStore, skillStore); err != nil {
-		log.Fatalf("种子加载失败: %v", err)
+		fmt.Fprintf(os.Stderr, "种子加载失败: %v\n", err)
+		pool.Close()
+		os.Exit(1)
 	}
 
 	// 验证 Agent

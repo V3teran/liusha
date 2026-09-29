@@ -9,17 +9,21 @@ import (
 // Category 是洞察的信息分类
 type Category string
 
+// CategoryCredential 等枚举定义。
 const (
+	// CategoryTarget 是目标信息；CategoryCredential 是凭证信息。
 	// 信息类
 	CategoryTarget         Category = "target"         // 目标信息
-	CategoryCredential     Category = "credential"     // 凭证信息
+	CategoryCredential     Category = "credential"     // CategoryCredential 凭证信息
 	CategoryInfrastructure Category = "infrastructure" // 基础设施
 	CategoryBusiness       Category = "business"       // 业务逻辑
 	CategoryData           Category = "data"           // 数据特征
 
+	// CategoryResult 是最终确认结果。
 	// 发现类
 	CategoryResult Category = "result" // 结果（最终确认）
 
+	// CategoryObstacle 是障碍；CategoryNote 是笔记。
 	// 其他
 	CategoryObstacle Category = "obstacle" // 障碍
 	CategoryNote     Category = "note"     // 笔记
@@ -39,10 +43,12 @@ const (
 // Confidence 是置信度
 type Confidence string
 
+// ConfidenceProbable 等枚举定义。
 const (
-	ConfidenceConfirmed Confidence = "confirmed" // 已确认
-	ConfidenceProbable  Confidence = "probable"  // 很可能
-	ConfidencePossible  Confidence = "possible"  // 可能
+	// ConfidenceConfirmed 已确认；ConfidenceProbable 很可能；ConfidencePossible 可能。
+	ConfidenceConfirmed Confidence = "confirmed"
+	ConfidenceProbable  Confidence = "probable" // ConfidenceProbable 很可能
+	ConfidencePossible  Confidence = "possible" // 可能
 )
 
 // Insight 是一条洞察记录

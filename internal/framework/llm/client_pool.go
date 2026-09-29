@@ -9,7 +9,7 @@ import (
 	openai "github.com/sashabaranov/go-openai"
 )
 
-// ClientPool 单例化底层 HTTP client（OpenAI compat / Anthropic），
+// ClientPool 按 (baseURL, key) 单例化底层 HTTP client（OpenAI compat / Anthropic），
 // 让 Generator 跨 task 共享 http 连接池，修复 v1 Factory 缓存 Generator
 // 导致跨 task tools 错乱的并发 bug。
 type ClientPool struct {

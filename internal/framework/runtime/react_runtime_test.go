@@ -19,7 +19,7 @@ type mockLLMProvider struct {
 	callIndex int
 }
 
-func (m *mockLLMProvider) Complete(_ context.Context, req llm.Request) (llm.Response, error) {
+func (m *mockLLMProvider) Complete(_ context.Context, _ llm.Request) (llm.Response, error) {
 	if m.callIndex >= len(m.responses) {
 		return m.responses[len(m.responses)-1], nil
 	}
@@ -28,11 +28,11 @@ func (m *mockLLMProvider) Complete(_ context.Context, req llm.Request) (llm.Resp
 	return resp, nil
 }
 
-func (m *mockLLMProvider) Stream(ctx context.Context, req llm.Request) (<-chan llm.StreamEvent, error) {
+func (m *mockLLMProvider) Stream(_ context.Context, _ llm.Request) (<-chan llm.StreamEvent, error) {
 	return nil, nil
 }
 
-func (m *mockLLMProvider) CountTokens(ctx context.Context, req llm.Request) (int, error) {
+func (m *mockLLMProvider) CountTokens(_ context.Context, _ llm.Request) (int, error) {
 	return 0, nil
 }
 
@@ -69,7 +69,7 @@ func (t *mockTool) Schema() json.RawMessage {
 	return json.RawMessage(`{"type": "object", "properties": {}}`)
 }
 
-func (t *mockTool) Execute(ctx context.Context, args json.RawMessage) (registry.ToolResult, error) {
+func (t *mockTool) Execute(_ context.Context, args json.RawMessage) (registry.ToolResult, error) {
 	result, err := t.handler(args)
 	if err != nil {
 		return registry.ToolResult{Error: err.Error()}, nil

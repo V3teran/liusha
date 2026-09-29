@@ -45,7 +45,7 @@ type fakeFindingWriter struct {
 	findings []finding.VulnFinding
 }
 
-func (f *fakeFindingWriter) Save(ctx context.Context, v finding.VulnFinding) (finding.VulnFinding, error) {
+func (f *fakeFindingWriter) Save(_ context.Context, v finding.VulnFinding) (finding.VulnFinding, error) {
 	f.findings = append(f.findings, v)
 	return v, nil
 }

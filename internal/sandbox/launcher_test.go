@@ -27,7 +27,7 @@ func skipIfNoDocker(t *testing.T) {
 // 不主动 docker pull——CI 环境镜像应提前 build，避免测试时长不可控。
 func skipIfNoImage(t *testing.T, image string) {
 	t.Helper()
-	out, err := exec.Command("docker", "images", "-q", image).Output()
+	out, err := exec.Command("docker", "images", "-q", image).Output() // #nosec G204 // 测试环境 docker 只读查询
 	if err != nil || strings.TrimSpace(string(out)) == "" {
 		t.Skipf("image %s not present locally, skipping (build it first)", image)
 	}
@@ -235,7 +235,7 @@ func TestDockerLauncher_CleanupOrphans(t *testing.T) {
 	}
 
 	// 验证容器已经被清掉
-	out, _ := exec.Command("docker", "ps", "-a", "--filter=name="+name, "--format={{.Names}}").Output()
+	out, _ := exec.Command("docker", "ps", "-a", "--filter=name="+name, "--format={{.Names}}").Output() // #nosec G204 // 测试环境 docker 只读查询
 	if remaining := strings.TrimSpace(string(out)); remaining != "" {
 		t.Errorf("orphan still present: %s", remaining)
 	}

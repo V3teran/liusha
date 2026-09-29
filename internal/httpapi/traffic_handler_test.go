@@ -52,7 +52,7 @@ func (f *fakeTraffic) GetByID(_ context.Context, id int64) (traffic.ProxyTraffic
 	return v, nil
 }
 
-func TestTrafficHandler(t *testing.T) {
+func TestTrafficHandler_List(t *testing.T) {
 	t.Run("列表：筛选+分页透传，返回 items/total", func(t *testing.T) {
 		fake := &fakeTraffic{
 			rows: []traffic.ProxySummary{
@@ -111,6 +111,26 @@ func TestTrafficHandler(t *testing.T) {
 		}
 	})
 
+	t.Run("size 超上限收敛", func(t *testing.T) {
+		fake := &fakeTraffic{}
+		srv := newTestServer(t, Deps{Traffic: fake})
+		defer srv.Close()
+
+		req, _ := http.NewRequest("GET", srv.URL+"/traffic?size=99999", nil)
+		req.Header.Set("X-API-Key", "k")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = resp.Body.Close() }()
+		if fake.gotFilter.Limit != maxTrafficPageSize {
+			t.Errorf("超上限应收敛到 %d，got %d", maxTrafficPageSize, fake.gotFilter.Limit)
+		}
+	})
+
+}
+
+func TestTrafficHandler_Lookups(t *testing.T) {
 	t.Run("content-types 下拉：nil 归一为 []", func(t *testing.T) {
 		fake := &fakeTraffic{contentTypes: nil}
 		srv := newTestServer(t, Deps{Traffic: fake})
@@ -132,23 +152,6 @@ func TestTrafficHandler(t *testing.T) {
 		}
 		if body.ContentTypes == nil {
 			t.Error("content_types nil 应归一为空数组")
-		}
-	})
-
-	t.Run("size 超上限收敛", func(t *testing.T) {
-		fake := &fakeTraffic{}
-		srv := newTestServer(t, Deps{Traffic: fake})
-		defer srv.Close()
-
-		req, _ := http.NewRequest("GET", srv.URL+"/traffic?size=99999", nil)
-		req.Header.Set("X-API-Key", "k")
-		resp, err := http.DefaultClient.Do(req)
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer func() { _ = resp.Body.Close() }()
-		if fake.gotFilter.Limit != maxTrafficPageSize {
-			t.Errorf("超上限应收敛到 %d，got %d", maxTrafficPageSize, fake.gotFilter.Limit)
 		}
 	})
 
@@ -176,6 +179,9 @@ func TestTrafficHandler(t *testing.T) {
 		}
 	})
 
+}
+
+func TestTrafficHandler_Detail(t *testing.T) {
 	t.Run("详情：命中返回 body，未命中 404", func(t *testing.T) {
 		fake := &fakeTraffic{byID: map[int64]traffic.ProxyTraffic{
 			5: {ID: 5, Host: "a.com", Method: "POST", URL: "https://a.com/login", Path: "/login",

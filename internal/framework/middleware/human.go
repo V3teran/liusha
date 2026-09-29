@@ -1,3 +1,5 @@
+// Package middleware 提供 ReAct 执行链的中间件：人工审批（human-in-the-loop）、
+// 流式聚合与工具执行装饰。
 package middleware
 
 import (

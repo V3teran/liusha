@@ -1,4 +1,4 @@
-// router.go：基于 Factory 的多 provider 路由层 + retry/fallback 装配。
+// Package llm 的多 provider 路由层（基于 Factory）+ retry/fallback 装配。
 //
 // 设计要点：
 //   - Router 只装饰 Factory.For，不重新解析路由：Factory 已实现 routes/role 解析。

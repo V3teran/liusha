@@ -50,7 +50,7 @@ func TestNew_FileWriteAndFields(t *testing.T) {
 
 	// 文件名取自 LIUSHA_LOG_PROCESS（不再是 service 名）。
 	path := filepath.Join(dir, "proc-A.log")
-	raw, err := os.ReadFile(path)
+	raw, err := os.ReadFile(path) // #nosec G304 // 路径来自进程配置/种子目录，非用户输入
 	if err != nil {
 		t.Fatalf("read log file: %v", err)
 	}
@@ -91,7 +91,7 @@ func TestNew_ErrorFieldAttached(t *testing.T) {
 	l := New("svcErr")
 	l.Error().Err(errors.New("boom")).Msg("oops")
 
-	raw, err := os.ReadFile(filepath.Join(dir, "proc-err.log"))
+	raw, err := os.ReadFile(filepath.Join(dir, "proc-err.log")) // #nosec G304 // 路径来自进程配置/种子目录，非用户输入
 	if err != nil {
 		t.Fatalf("read log file: %v", err)
 	}
@@ -171,7 +171,7 @@ func TestE2E_ProcessAggregation(t *testing.T) {
 	}
 
 	// 文件中应有 N 行，按 service 字段索引
-	raw, err := os.ReadFile(filepath.Join(dir, "runner-proc.log"))
+	raw, err := os.ReadFile(filepath.Join(dir, "runner-proc.log")) // #nosec G304 // 路径来自进程配置/种子目录，非用户输入
 	if err != nil {
 		t.Fatalf("read aggregated log: %v", err)
 	}

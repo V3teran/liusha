@@ -227,7 +227,7 @@ func (h *HumanInteractionManagerImpl) ListPending(ctx context.Context, taskID st
 }
 
 // Cancel 取消请求。
-func (h *HumanInteractionManagerImpl) Cancel(ctx context.Context, requestID string) error {
+func (h *HumanInteractionManagerImpl) Cancel(_ context.Context, requestID string) error {
 	h.logger.Info().Str("request_id", requestID).Msg("canceling human input request")
 
 	// 取消等待

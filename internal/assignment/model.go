@@ -16,6 +16,7 @@ import "time"
 // Source 标记谁发的：manual 人工（api 下发）/ auto 聚合器（流量自动攒批）。
 type Source string
 
+// assignment 来源：manual（对话下发）/ auto（被动聚合）/ cron（定时模板）。
 const (
 	SourceManual Source = "manual"
 	SourceAuto   Source = "auto"
@@ -24,8 +25,10 @@ const (
 // Status 是 assignment 的派生整体状态（不落存储，由子 task 聚合算出）。
 type Status string
 
+// StatusRunning 等枚举定义。
 const (
-	StatusEmpty   Status = "empty"   // 无子 task（异常/刚建未展开）
+	// StatusEmpty 等枚举定义。
+	StatusEmpty   Status = "empty"   // StatusEmpty 无子 task（异常/刚建未展开）
 	StatusRunning Status = "running" // 有子 task 处于 active
 	StatusDone    Status = "done"    // 全部子 task 终态且至少一个 completed
 	StatusAborted Status = "aborted" // 全部子 task 终态且无 completed（全 aborted）

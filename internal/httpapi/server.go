@@ -121,6 +121,13 @@ func NewServer(d Deps) http.Handler {
 
 	r.GET("/healthz", func(c *gin.Context) { c.JSON(200, gin.H{"ok": true}) })
 
+	registerRouteGroups(r, d)
+	return r
+}
+
+// registerRouteGroups 按依赖可选性注册各路由组：
+// 每个 nil 依赖对应的能力域整组跳过（增量部署/最小暴露面）。
+func registerRouteGroups(r *gin.Engine, d Deps) {
 	if d.Credentials != nil {
 		r.POST("/credential/batch", batchSaveHandler(d.Credentials))
 		r.GET("/credential", listCredentialHandler(d.Credentials))
@@ -269,5 +276,4 @@ func NewServer(d Deps) http.Handler {
 			c.JSON(200, gin.H{"api_key": key})
 		})
 	}
-	return r
 }

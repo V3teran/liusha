@@ -17,7 +17,7 @@ import (
 
 type fakeChat struct{}
 
-func (fakeChat) StartChatScan(_ context.Context, brief string) (string, string, error) {
+func (fakeChat) StartChatScan(_ context.Context, _ string) (string, string, error) {
 	return "conv-abc", "scan-xyz", nil
 }
 

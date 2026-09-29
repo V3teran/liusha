@@ -10,19 +10,19 @@ import "context"
 type ScanEventKind string
 
 const (
-	// ScanEventToolCall：agent 发起一次工具调用（执行前发）。
+	// ScanEventToolCall 是 agent 发起一次工具调用（执行前发）。
 	ScanEventToolCall ScanEventKind = "tool_call"
-	// ScanEventToolResult：工具返回结果（执行后发）。
+	// ScanEventToolResult 是工具返回结果（执行后发）。
 	ScanEventToolResult ScanEventKind = "tool_result"
-	// ScanEventReasoning：每轮 LLM 调用后产出的推理文字（思路/分析/计划/决策）。
+	// ScanEventReasoning 是每轮 LLM 调用后产出的推理文字（思路/分析/计划/决策）。
 	ScanEventReasoning ScanEventKind = "reasoning"
-	// ScanEventReasoningDelta：流式推理增量片段，仅 publish redis 不落库。
+	// ScanEventReasoningDelta 是流式推理增量片段，仅 publish redis 不落库。
 	ScanEventReasoningDelta ScanEventKind = "reasoning_delta"
-	// ScanEventSpawn：planner 派子代理（active swarm 场景）。
+	// ScanEventSpawn 是 planner 派子代理事件。
 	ScanEventSpawn ScanEventKind = "spawn"
-	// ScanEventCompaction：上下文压缩发生，Text 为蒸馏摘要。
+	// ScanEventCompaction 表示上下文压缩发生，Text 为蒸馏摘要。
 	ScanEventCompaction ScanEventKind = "compaction"
-	// ScanEventInsight：agent 主动标记关键判断/发现。
+	// ScanEventInsight 是 agent 主动标记关键判断/发现。
 	ScanEventInsight ScanEventKind = "insight"
 )
 

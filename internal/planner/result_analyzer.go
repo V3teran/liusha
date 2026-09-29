@@ -118,11 +118,12 @@ func (i *Intelligence) buildAnalysisPrompt(currentObjective explorationgraph.Nod
 
 	sb.WriteString("⚠️ **核心原则：保持探索路线多样性，避免单一方向过载**\n\n")
 	fmt.Fprintf(&sb, "**当前探索状态**：当前 Objective 下已有 **%d 个 Actions**。\n", actionCount)
-	if actionCount > 50 {
+	switch {
+	case actionCount > 50:
 		sb.WriteString("⚠️ **警告：Actions 数量过多（>50）**，当前方向很可能已穷尽或陷入无效循环。**强烈建议生成 new_objectives（切换到新方向）**。\n\n")
-	} else if actionCount > 20 {
+	case actionCount > 20:
 		sb.WriteString("⚠️ **注意：Actions 数量较多（>20）**，如果目标仍未达成，**倾向于生成 new_objectives（切换到新方向）**。\n\n")
-	} else {
+	default:
 		sb.WriteString("当前方向探索适中，可根据 Results 内容决定是继续深挖还是切换方向。\n\n")
 	}
 
@@ -241,6 +242,7 @@ type AnalysisResponse struct {
 	ContinuationActions []AnalysisAction    `json:"new_actions"`
 }
 
+// AnalysisObjective 是 AnalyzeResults 提议的新目标。
 type AnalysisObjective struct {
 	Description string   `json:"description"`
 	Priority    string   `json:"priority"`
@@ -248,6 +250,7 @@ type AnalysisObjective struct {
 	Reasoning   string   `json:"reasoning"`
 }
 
+// AnalysisAction 是 AnalyzeResults 提议的新动作。
 type AnalysisAction struct {
 	Instruction string   `json:"instruction"`
 	Priority    string   `json:"priority"`

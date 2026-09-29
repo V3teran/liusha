@@ -35,6 +35,7 @@ const (
 	fallbackCertSubdir = ".liusha"
 )
 
+// SnapshotPublisher 抽象快照发布行为，便于单元测试不依赖 Redis（生产实现 XADD）。
 // Server 把 proxify SDK 当作进程内 MITM 代理，OnResponseCallback 触发 filter→snapshot→publisher（XADD）。
 //
 // 设计要点（业界最佳实践 - Stream-based）：
@@ -42,7 +43,7 @@ const (
 //   - body 在回调中读完必须重建，否则下游客户端拿不到响应。
 //   - 过滤通过后立即 XADD 到 Redis Stream；切窗 / 持久化 / 入队由消费者负责（解耦 + 无状态 proxy）。
 //
-// SnapshotPublisher 抽象 publish 行为，便于单元测试不依赖 Redis。
+// SnapshotPublisher 抽象快照发布行为，便于单元测试不依赖 Redis。
 // 生产实现：proxy.Publisher（XADD 到 Redis Stream）。
 type SnapshotPublisher interface {
 	Publish(ctx context.Context, snap *TrafficSnapshot) error
@@ -56,6 +57,7 @@ type filterState struct {
 	maxResponseBodySize int
 }
 
+// Server 是进程内 MITM 代理：过滤链 + 快照发布 + 双端口监听。
 type Server struct {
 	proxy       *proxify.Proxy
 	filterState atomic.Pointer[filterState] // proxy_filter 组热改：cmd/proxy 订阅失效后 SwapFilter 原子换入
@@ -97,7 +99,7 @@ func NewServer(deps ServerDeps) (*Server, error) {
 	if err != nil {
 		return nil, fmt.Errorf("解析证书目录失败: %w", err)
 	}
-	if err := os.MkdirAll(certDir, 0o755); err != nil {
+	if err := os.MkdirAll(certDir, 0o750); err != nil {
 		return nil, fmt.Errorf("创建证书目录 %s 失败: %w", certDir, err)
 	}
 	// 首次启动会自动生成 CA；已存在则就地加载
@@ -150,7 +152,7 @@ func NewServer(deps ServerDeps) (*Server, error) {
 //  1. 走 TrafficFilter；不通过即丢弃（return nil 不影响转发）。
 //  2. 读取 req/resp body 并重建（必须，否则代理会断），构造 TrafficSnapshot。
 //  3. XADD 到 Redis Stream（FlowStream）；publish 失败仅 warn 不阻断转发。
-func (s *Server) onResponse(resp *http.Response, ctx *martian.Context) error {
+func (s *Server) onResponse(resp *http.Response, _ *martian.Context) error {
 	if resp == nil || resp.Request == nil {
 		return nil
 	}

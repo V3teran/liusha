@@ -1,3 +1,4 @@
+// Package insight 的格式化辅助：把情报渲染为 prompt 段落。
 package insight
 
 import (

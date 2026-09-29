@@ -18,7 +18,7 @@ type mockExplorationGraphAPI struct {
 	stats map[string]int
 }
 
-func (m *mockExplorationGraphAPI) ListNodesForAPI(ctx context.Context, taskID string, kind string) ([]explorationgraph.Node, error) {
+func (m *mockExplorationGraphAPI) ListNodesForAPI(_ context.Context, _ string, kind string) ([]explorationgraph.Node, error) {
 	if kind == "" {
 		return m.nodes, nil
 	}
@@ -32,11 +32,11 @@ func (m *mockExplorationGraphAPI) ListNodesForAPI(ctx context.Context, taskID st
 	return filtered, nil
 }
 
-func (m *mockExplorationGraphAPI) ListEdgesForAPI(ctx context.Context, taskID string) ([]explorationgraph.Edge, error) {
+func (m *mockExplorationGraphAPI) ListEdgesForAPI(_ context.Context, _ string) ([]explorationgraph.Edge, error) {
 	return m.edges, nil
 }
 
-func (m *mockExplorationGraphAPI) GetStatsForAPI(ctx context.Context, taskID string) (map[string]int, error) {
+func (m *mockExplorationGraphAPI) GetStatsForAPI(_ context.Context, _ string) (map[string]int, error) {
 	return m.stats, nil
 }
 

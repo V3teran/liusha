@@ -43,7 +43,7 @@ func copyGraphNode(node *GraphNode) *GraphNode {
 }
 
 // CreateNode 创建节点
-func (s *InMemoryGraphStore) CreateNode(ctx context.Context, node *GraphNode) error {
+func (s *InMemoryGraphStore) CreateNode(_ context.Context, node *GraphNode) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -76,7 +76,7 @@ func (s *InMemoryGraphStore) CreateNode(ctx context.Context, node *GraphNode) er
 }
 
 // GetNode 获取节点
-func (s *InMemoryGraphStore) GetNode(ctx context.Context, id string) (*GraphNode, error) {
+func (s *InMemoryGraphStore) GetNode(_ context.Context, id string) (*GraphNode, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -89,7 +89,7 @@ func (s *InMemoryGraphStore) GetNode(ctx context.Context, id string) (*GraphNode
 }
 
 // UpdateNode 更新节点
-func (s *InMemoryGraphStore) UpdateNode(ctx context.Context, id string, update GraphNodeUpdate) error {
+func (s *InMemoryGraphStore) UpdateNode(_ context.Context, id string, update GraphNodeUpdate) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -131,7 +131,7 @@ func (s *InMemoryGraphStore) UpdateNode(ctx context.Context, id string, update G
 }
 
 // CompareAndSwapState 原子更新节点状态（使用乐观锁）
-func (s *InMemoryGraphStore) CompareAndSwapState(ctx context.Context, taskID, nodeID string, expectedState, newState string) (bool, error) {
+func (s *InMemoryGraphStore) CompareAndSwapState(_ context.Context, taskID, nodeID string, expectedState, newState string) (bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -164,7 +164,7 @@ func (s *InMemoryGraphStore) CompareAndSwapState(ctx context.Context, taskID, no
 }
 
 // DeleteNode 删除节点
-func (s *InMemoryGraphStore) DeleteNode(ctx context.Context, id string) error {
+func (s *InMemoryGraphStore) DeleteNode(_ context.Context, id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -187,7 +187,7 @@ func (s *InMemoryGraphStore) DeleteNode(ctx context.Context, id string) error {
 }
 
 // ListNodes 查询节点列表
-func (s *InMemoryGraphStore) ListNodes(ctx context.Context, query GraphNodeQuery) ([]*GraphNode, error) {
+func (s *InMemoryGraphStore) ListNodes(_ context.Context, query GraphNodeQuery) ([]*GraphNode, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -219,12 +219,10 @@ func (s *InMemoryGraphStore) ListNodes(ctx context.Context, query GraphNodeQuery
 					match = false
 					break
 				}
-			} else {
+			} else if node.Metadata[k] != v {
 				// 直接访问
-				if node.Metadata[k] != v {
-					match = false
-					break
-				}
+				match = false
+				break
 			}
 		}
 
@@ -244,7 +242,7 @@ func (s *InMemoryGraphStore) ListNodes(ctx context.Context, query GraphNodeQuery
 }
 
 // CreateEdge 创建边
-func (s *InMemoryGraphStore) CreateEdge(ctx context.Context, edge *GraphEdge) error {
+func (s *InMemoryGraphStore) CreateEdge(_ context.Context, edge *GraphEdge) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -274,7 +272,7 @@ func (s *InMemoryGraphStore) CreateEdge(ctx context.Context, edge *GraphEdge) er
 }
 
 // ListEdges 查询边列表
-func (s *InMemoryGraphStore) ListEdges(ctx context.Context, query GraphEdgeQuery) ([]*GraphEdge, error) {
+func (s *InMemoryGraphStore) ListEdges(_ context.Context, query GraphEdgeQuery) ([]*GraphEdge, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -320,7 +318,7 @@ func (s *InMemoryGraphStore) ListEdges(ctx context.Context, query GraphEdgeQuery
 }
 
 // DeleteEdge 删除边
-func (s *InMemoryGraphStore) DeleteEdge(ctx context.Context, from, to, relation string) error {
+func (s *InMemoryGraphStore) DeleteEdge(_ context.Context, from, to, relation string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -344,7 +342,7 @@ func (s *InMemoryGraphStore) DeleteEdge(ctx context.Context, from, to, relation 
 }
 
 // Traverse 遍历图
-func (s *InMemoryGraphStore) Traverse(ctx context.Context, startID string, query GraphTraverseQuery) ([]*GraphNode, error) {
+func (s *InMemoryGraphStore) Traverse(_ context.Context, startID string, query GraphTraverseQuery) ([]*GraphNode, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 

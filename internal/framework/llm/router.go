@@ -1,4 +1,4 @@
-// Package provider 实现 LLM 复杂度路由。
+// Package llm 实现 LLM 复杂度路由。
 //
 // 按业务复杂度（simple / medium / complex）查询配置，
 // 构造对应 Provider 并套上 retry 装饰器。
@@ -20,7 +20,9 @@ import (
 // Complexity 是 LLM 复杂度分级标识。
 type Complexity string
 
+// ComplexityMedium 等枚举定义。
 const (
+	// ComplexitySimple 等枚举复杂度档位：Runner 按 action 复杂度选档，配置决定各档命中的 provider。
 	ComplexitySimple  Complexity = "simple"  // 快速响应：信息提取、格式化、简单验证
 	ComplexityMedium  Complexity = "medium"  // 标准推理：漏洞检测、工具调用、常规分析
 	ComplexityComplex Complexity = "complex" // 深度推理：战略规划、多步决策、复杂综合

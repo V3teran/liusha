@@ -29,7 +29,7 @@ func NewDefaultApprovalPolicy(requiredTypes []string, defaultApprovers []string)
 }
 
 // RequiresApproval 判断节点是否需要人工审批。
-func (p *DefaultHumanApprovalPolicy) RequiresApproval(ctx context.Context, node *core.GraphNode) bool {
+func (p *DefaultHumanApprovalPolicy) RequiresApproval(_ context.Context, node *core.GraphNode) bool {
 	// 检查节点类型
 	if p.requiredTypes[node.Kind] {
 		return true
@@ -48,7 +48,7 @@ func (p *DefaultHumanApprovalPolicy) RequiresApproval(ctx context.Context, node 
 }
 
 // Approvers 获取审批人列表。
-func (p *DefaultHumanApprovalPolicy) Approvers(ctx context.Context, node *core.GraphNode) ([]string, error) {
+func (p *DefaultHumanApprovalPolicy) Approvers(_ context.Context, node *core.GraphNode) ([]string, error) {
 	// 优先使用节点指定的审批人
 	if node.Metadata != nil {
 		if approvers, ok := node.Metadata["approvers"]; ok {
@@ -75,7 +75,7 @@ func NewMetadataApprovalPolicy(approvers []string) *MetadataApprovalPolicy {
 }
 
 // RequiresApproval 判断是否需要审批。
-func (p *MetadataApprovalPolicy) RequiresApproval(ctx context.Context, node *core.GraphNode) bool {
+func (p *MetadataApprovalPolicy) RequiresApproval(_ context.Context, node *core.GraphNode) bool {
 	if node.Metadata != nil {
 		if requiresApproval, ok := node.Metadata["requires_approval"]; ok {
 			if str, ok := requiresApproval.(string); ok {
@@ -88,7 +88,7 @@ func (p *MetadataApprovalPolicy) RequiresApproval(ctx context.Context, node *cor
 }
 
 // Approvers 获取审批人列表。
-func (p *MetadataApprovalPolicy) Approvers(ctx context.Context, node *core.GraphNode) ([]string, error) {
+func (p *MetadataApprovalPolicy) Approvers(_ context.Context, _ *core.GraphNode) ([]string, error) {
 	return p.approvers, nil
 }
 
@@ -96,12 +96,12 @@ func (p *MetadataApprovalPolicy) Approvers(ctx context.Context, node *core.Graph
 type AlwaysApproveRule struct{}
 
 // ShouldAutoApprove 判断是否自动审批。
-func (r *AlwaysApproveRule) ShouldAutoApprove(ctx context.Context, req HumanInputRequest) bool {
+func (r *AlwaysApproveRule) ShouldAutoApprove(_ context.Context, _ HumanInputRequest) bool {
 	return true
 }
 
 // AutoApprove 执行自动审批。
-func (r *AlwaysApproveRule) AutoApprove(ctx context.Context, req HumanInputRequest) (*HumanInputResponse, error) {
+func (r *AlwaysApproveRule) AutoApprove(_ context.Context, req HumanInputRequest) (*HumanInputResponse, error) {
 	return &HumanInputResponse{
 		RequestID: req.ID,
 		TaskID:    req.TaskID,
@@ -126,7 +126,7 @@ func NewConditionalApprovalRule(condition func(HumanInputRequest) bool) *Conditi
 }
 
 // ShouldAutoApprove 判断是否自动审批。
-func (r *ConditionalApprovalRule) ShouldAutoApprove(ctx context.Context, req HumanInputRequest) bool {
+func (r *ConditionalApprovalRule) ShouldAutoApprove(_ context.Context, req HumanInputRequest) bool {
 	if r.condition == nil {
 		return false
 	}
@@ -134,7 +134,7 @@ func (r *ConditionalApprovalRule) ShouldAutoApprove(ctx context.Context, req Hum
 }
 
 // AutoApprove 执行自动审批。
-func (r *ConditionalApprovalRule) AutoApprove(ctx context.Context, req HumanInputRequest) (*HumanInputResponse, error) {
+func (r *ConditionalApprovalRule) AutoApprove(_ context.Context, req HumanInputRequest) (*HumanInputResponse, error) {
 	return &HumanInputResponse{
 		RequestID: req.ID,
 		TaskID:    req.TaskID,

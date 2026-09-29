@@ -10,12 +10,12 @@ const defaultMaxBody = 32 * 1024
 
 // truncate 把超出 max 的 byte 切片截到 max；max<=0 表示禁用截断。
 // 返回前 max 字节的副本，避免持有 caller 大切片的底层数组。
-func truncate(b []byte, max int) []byte {
-	if max <= 0 || len(b) <= max {
+func truncate(b []byte, limit int) []byte {
+	if limit <= 0 || len(b) <= limit {
 		return b
 	}
-	out := make([]byte, max)
-	copy(out, b[:max])
+	out := make([]byte, limit)
+	copy(out, b[:limit])
 	return out
 }
 

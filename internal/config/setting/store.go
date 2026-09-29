@@ -112,9 +112,13 @@ func (s *Store) SaveProxyFilter(ctx context.Context, v ProxyFilterSettings) erro
 func (s *Store) GetCompactionRaw(ctx context.Context) (CompactionSettings, error) {
 	return s.db.GetCompaction(ctx)
 }
+
+// GetRuntimeRaw 返回 runtime 分组的原始 KV（handler 直读渲染）。
 func (s *Store) GetRuntimeRaw(ctx context.Context) (RuntimeSettings, error) {
 	return s.db.GetRuntime(ctx)
 }
+
+// GetProxyFilterRaw 返回 proxy_filter 分组的原始 KV。
 func (s *Store) GetProxyFilterRaw(ctx context.Context) (ProxyFilterSettings, error) {
 	return s.db.GetProxyFilter(ctx)
 }

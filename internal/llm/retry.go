@@ -1,4 +1,4 @@
-// retry.go：Generator 装饰器，按 spec §8.5 错误码退避表自动重试 + 切 fallback。
+// Package llm 的 Generator 重试装饰器：按 spec §8.5 错误码退避表自动重试 + 切 fallback。
 //
 // 设计要点：
 //   - 装饰器外层嵌套：Router → Retry → Instrument → Provider；

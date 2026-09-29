@@ -14,7 +14,7 @@ func NewDefaultValidator() *DefaultHumanInputValidator {
 }
 
 // Validate 验证人工输入。
-func (v *DefaultHumanInputValidator) Validate(ctx context.Context, req HumanInputRequest, resp HumanInputResponse) error {
+func (v *DefaultHumanInputValidator) Validate(_ context.Context, req HumanInputRequest, resp HumanInputResponse) error {
 	// 验证 RequestID 匹配
 	if resp.RequestID != req.ID {
 		return fmt.Errorf("request_id mismatch: expected %s, got %s", req.ID, resp.RequestID)
@@ -46,7 +46,7 @@ func (v *DefaultHumanInputValidator) Validate(ctx context.Context, req HumanInpu
 }
 
 // validateText 验证文本输入。
-func (v *DefaultHumanInputValidator) validateText(req HumanInputRequest, resp HumanInputResponse) error {
+func (v *DefaultHumanInputValidator) validateText(_ HumanInputRequest, resp HumanInputResponse) error {
 	if resp.Value == "" {
 		return fmt.Errorf("text value is required")
 	}
@@ -77,7 +77,7 @@ func (v *DefaultHumanInputValidator) validateChoice(req HumanInputRequest, resp 
 }
 
 // validateApproval 验证审批输入。
-func (v *DefaultHumanInputValidator) validateApproval(req HumanInputRequest, resp HumanInputResponse) error {
+func (v *DefaultHumanInputValidator) validateApproval(_ HumanInputRequest, resp HumanInputResponse) error {
 	// 审批类型必须有 Approved 字段
 	if resp.Value == "" {
 		return fmt.Errorf("approval value is required")
@@ -92,7 +92,7 @@ func (v *DefaultHumanInputValidator) validateApproval(req HumanInputRequest, res
 }
 
 // validateFile 验证文件输入。
-func (v *DefaultHumanInputValidator) validateFile(req HumanInputRequest, resp HumanInputResponse) error {
+func (v *DefaultHumanInputValidator) validateFile(_ HumanInputRequest, resp HumanInputResponse) error {
 	if resp.Value == "" {
 		return fmt.Errorf("file path is required")
 	}

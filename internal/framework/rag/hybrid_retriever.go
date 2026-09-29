@@ -36,8 +36,8 @@ func NewHybridRetriever(vectorRetriever Retriever, keywordRetriever KeywordRetri
 		weights.Vector = 0.5
 		weights.Keyword = 0.5
 	} else {
-		weights.Vector = weights.Vector / total
-		weights.Keyword = weights.Keyword / total
+		weights.Vector /= total
+		weights.Keyword /= total
 	}
 
 	return &HybridRetriever{
@@ -201,7 +201,7 @@ func NewBM25Retriever() *BM25Retriever {
 }
 
 // Index 索引文档
-func (r *BM25Retriever) Index(ctx context.Context, documents []Document) error {
+func (r *BM25Retriever) Index(_ context.Context, documents []Document) error {
 	r.documents = documents
 	r.index.numDocs = len(documents)
 
@@ -252,7 +252,7 @@ func (r *BM25Retriever) Index(ctx context.Context, documents []Document) error {
 }
 
 // Search 关键词搜索
-func (r *BM25Retriever) Search(ctx context.Context, query string, topK int) ([]Document, error) {
+func (r *BM25Retriever) Search(_ context.Context, query string, topK int) ([]Document, error) {
 	if r.index.numDocs == 0 {
 		return []Document{}, nil
 	}
@@ -381,11 +381,9 @@ func tokenizeSimple(text string) []string {
 	for _, r := range text {
 		if unicode.IsLetter(r) || unicode.IsDigit(r) {
 			current.WriteRune(r)
-		} else {
-			if current.Len() > 0 {
-				tokens = append(tokens, current.String())
-				current.Reset()
-			}
+		} else if current.Len() > 0 {
+			tokens = append(tokens, current.String())
+			current.Reset()
 		}
 	}
 

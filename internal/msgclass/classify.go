@@ -11,6 +11,7 @@ import (
 // MessageKind 是消息类别。
 type MessageKind string
 
+// 意图分类结果：action（扫描意图）/ chat（纯聊天）。
 const (
 	KindAction MessageKind = "action" // 触发/继续扫描
 	KindQA     MessageKind = "qa"     // 就已有结果提问

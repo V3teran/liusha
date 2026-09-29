@@ -53,6 +53,7 @@ type Action struct {
 // ActionStatus 是 Action 的执行状态。
 type ActionStatus string
 
+// ActionStatus 聚合状态：Run 级别视图（in_flight/done/abandoned/stalled）。
 const (
 	ActionStatusInFlight  ActionStatus = "in_flight"
 	ActionStatusDone      ActionStatus = "done"
@@ -72,9 +73,12 @@ type ActionRecord struct {
 //  Executor 核心类型
 // ─────────────────────────────────────────────
 
+// HaltReason 是 ReAct 停机原因（done/budget/watchdog 等）。
 type HaltReason string
 
+// HaltBudget 等枚举定义。
 const (
+	// HaltDone 等枚举定义。
 	HaltDone       HaltReason = "done"
 	HaltBudget     HaltReason = "budget"
 	HaltWatchdog   HaltReason = "watchdog"
@@ -91,6 +95,7 @@ type Budget struct {
 	CompactionTrigger float64 // 默认 0.70，触发上下文压缩
 }
 
+// DefaultBudget 返回默认 token/步数预算。
 func DefaultBudget() Budget {
 	return Budget{
 		MaxSteps:          50,
@@ -114,6 +119,7 @@ type ScanBudget struct {
 	MaxConcurrentActions int // 并发 Action 上限，默认 3
 }
 
+// DefaultScanBudget 返回扫描场景的默认预算。
 func DefaultScanBudget() ScanBudget {
 	return ScanBudget{
 		MaxActions:           100,
@@ -122,6 +128,7 @@ func DefaultScanBudget() ScanBudget {
 	}
 }
 
+// ScanBudgetRemaining 是扫描预算的剩余量视图。
 type ScanBudgetRemaining struct {
 	RemainingActions int
 	RemainingTime    time.Duration
@@ -157,12 +164,12 @@ type ToolResult struct {
 // Execution 是 Dispatcher 对单个 Action 的一次完整执行包装。
 type Execution struct {
 	Index        int
-	Result       ExecutorResult
+	Result       Result
 	Observations []string // 本次 Execution 结束时的 Working Memory
 }
 
-// ExecutorReq 是 Actor.Run 的输入。
-type ExecutorReq struct {
+// Req 是 Actor.Run 的输入。
+type Req struct {
 	System             string   // 不参与压缩：Profile.SystemPrompt + Landmark summaries
 	Inbox              []string // 参与压缩：初始指令（纯文本消息）
 	Observations       []string // Working Memory
@@ -171,8 +178,8 @@ type ExecutorReq struct {
 	PendingConstraints []registry.Constraint
 }
 
-// ExecutorResult 是 Actor.Run 的输出。
-type ExecutorResult struct {
+// Result 是 Actor.Run 的输出。
+type Result struct {
 	Steps      []Step
 	Conclusion string
 	Halt       HaltReason
@@ -207,6 +214,7 @@ type PlannerState struct {
 //  Campaign / Assignment
 // ─────────────────────────────────────────────
 
+// Target 是扫描目标描述。
 type Target struct {
 	ID    string
 	Host  string
@@ -222,6 +230,7 @@ type Campaign struct {
 	PostScanHook      func(taskID string)
 }
 
+// Assignment 是一次测试委派的执行视图。
 type Assignment struct {
 	ID       string
 	Targets  []Target
@@ -232,14 +241,18 @@ type Assignment struct {
 //  Directive（人工干预）
 // ─────────────────────────────────────────────
 
+// DirectiveKind 是指令类别。
 type DirectiveKind string
 
+// DirectiveConstraint 等枚举定义。
 const (
+	// DirectiveGuidance 等枚举定义。
 	DirectiveGuidance   DirectiveKind = "guidance"
 	DirectiveConstraint DirectiveKind = "constraint"
 	DirectiveHalt       DirectiveKind = "halt"
 )
 
+// Directive 是一条运行时指令。
 type Directive struct {
 	Kind       DirectiveKind
 	Content    string

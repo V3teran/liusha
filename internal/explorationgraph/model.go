@@ -45,6 +45,7 @@ const (
 // Complexity 是 action 的复杂度（对标 PDDL 的 cost）
 type Complexity string
 
+// 复杂度分档：决定 ReAct 迭代上限与模型档位。
 const (
 	ComplexityTrivial  Complexity = "trivial"  // 平凡（最简单）
 	ComplexitySimple   Complexity = "simple"   // 简单
@@ -77,6 +78,7 @@ const (
 // Relation 是边的关系类型（5 种，全大写）
 type Relation string
 
+// 探索图关系：动作产出观察、评估确认/反驳、结果使能后续动作等。
 const (
 	RelGenerates Relation = "generates"  // action → observation（生成）
 	RelConfirms  Relation = "confirms"   // evaluation → result（确认）
@@ -88,6 +90,7 @@ const (
 // SourceType 是节点的来源类型
 type SourceType string
 
+// 节点来源：谁创建的（审计溯源）。
 const (
 	SourceUser      SourceType = "user"      // 用户创建
 	SourcePlanner   SourceType = "planner"   // planner agent 创建
@@ -139,6 +142,7 @@ type Edge struct {
 // VerifyOutcome 是验证结果
 type VerifyOutcome string
 
+// 复现验证结论。
 const (
 	OutcomeConfirmed VerifyOutcome = "confirmed" // 确认
 	OutcomeRefuted   VerifyOutcome = "refuted"   // 反驳

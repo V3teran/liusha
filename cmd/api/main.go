@@ -100,7 +100,7 @@ func main() {
 	// agent run store + asynq 入队器。
 	executorStore := agentrun.NewStore(pool)
 	enq := worker.NewClient(asynq.RedisClientOpt{Addr: os.Getenv("LIUSHA_REDIS_ADDR")})
-	defer enq.Close()
+	defer func() { _ = enq.Close() }()
 
 	// 共享多级缓存内核（L1 内存 + L2 redis + 跨进程失效总线）。所有配置资源
 	// （agent，后续 llm/system）复用同一实例；一条 Subscribe 循环覆盖全部资源。
@@ -563,7 +563,7 @@ func (a *scanAdapter) HandleMessage(ctx context.Context, convID, content string)
 	if err := a.conversations.LinkTask(ctx, convID, taskID); err != nil {
 		return "", false, fmt.Errorf("link task: %w", err)
 	}
-	go a.genTitle(convID, content)
+	go a.genTitle(convID, content) //nolint:gosec // G118：标题生成独立于请求生命周期，进程级后台任务
 	tk, err := a.tasks.GetByID(ctx, conv.TaskID)
 	if err != nil {
 		return "", false, err
@@ -573,8 +573,8 @@ func (a *scanAdapter) HandleMessage(ctx context.Context, convID, content string)
 			return "action", true, nil // 忙：agent 在跑，本轮指导经 conversationContext 下次读到
 		}
 		// finding 累积在这次分析会话里（不新建 task）。追加消息作为新一轮 brief 下发。
-		if _, err := a.FollowUp(ctx, conv.TaskID, convID, content); err != nil {
-		}
+		// FollowUp 失败仅记录，不阻塞标题生成流程
+		_, _ = a.FollowUp(ctx, conv.TaskID, convID, content)
 		return "action", false, nil
 	}
 	// qa：就已有 finding/流量提问，各场景同一套问答
@@ -666,7 +666,7 @@ func (a *scanAdapter) StartChatScan(ctx context.Context, brief string) (string, 
 	}
 	// 异步生成智能标题（light LLM 把 brief 总结成短标题）——不阻塞会话创建响应；
 	// 失败则保留 briefTitle 截断兜底。前端下次 refresh 列表即见新标题。
-	go a.genTitle(conv.ID, brief)
+	go a.genTitle(conv.ID, brief) //nolint:gosec // G118：标题生成独立于请求生命周期
 	return conv.ID, taskID, nil
 }
 

@@ -10,7 +10,7 @@ import (
 	"github.com/rs/zerolog"
 )
 
-var _ ExecutorInterface = (*Coordinator)(nil)
+var _ Interface = (*Coordinator)(nil)
 
 // FindingLister 列出 task+host 下的 finding
 type FindingLister interface {

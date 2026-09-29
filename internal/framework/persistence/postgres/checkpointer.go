@@ -1,3 +1,5 @@
+// Package postgres 是 framework Checkpointer 的 PostgreSQL 实现：
+// 检查点按 TaskID 持久化（Latest/Save/Load），供 actor 断点恢复。
 package postgres
 
 import (

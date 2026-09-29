@@ -12,6 +12,7 @@
 // EncryptedAPIKey 才交给 llmstore 落库——本包是唯一见到明文的 Go 层（仅在这次请求处理
 // 期间持有，不落任何字段/日志）。请求体 api_key 留空 = 不改动已存密钥（编辑时的默认行为）。
 // 响应用 key_present 提示「是否已设置」，绝不回显明文或密文。
+
 package httpapi
 
 import (

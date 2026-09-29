@@ -14,6 +14,7 @@ import (
 // Command 定义控制命令类型
 type Command string
 
+// 控制平面命令：人工干预动作。
 const (
 	CommandAdjustGoal   Command = "adjust_goal"   // 调整任务目标
 	CommandInjectAction Command = "inject_action" // 注入新的 Action
@@ -25,6 +26,7 @@ const (
 // Status 定义事件处理状态
 type Status string
 
+// 控制事件处理状态机。
 const (
 	StatusPending   Status = "pending"   // 待处理
 	StatusProcessed Status = "processed" // 已处理

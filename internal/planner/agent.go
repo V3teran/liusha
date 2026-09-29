@@ -1,4 +1,4 @@
-// Package planner 提供规划层（PlannerAgent），负责根据探索图节点生成可执行的 Action
+// Package planner 提供规划层（Agent），负责根据探索图节点生成可执行的 Action
 package planner
 
 import (
@@ -15,13 +15,13 @@ import (
 	"github.com/V3teran/liusha/internal/framework/core"
 )
 
-// PlannerAgent 是异步规划 Agent
+// Agent 是异步规划 Agent
 //
 // 职责：
 // - 监听 EventVerificationPassed/Refuted 事件
 // - 根据探索图生成新的 Action
 // - 发布 EventActionProposed 事件
-type PlannerAgent struct {
+type Agent struct {
 	taskID       string
 	world        *explorationgraph.Store
 	planner      Planner
@@ -36,8 +36,8 @@ type PlannerAgent struct {
 	stopCh chan struct{}
 }
 
-// PlannerAgentConfig 配置
-type PlannerAgentConfig struct {
+// AgentConfig 配置
+type AgentConfig struct {
 	TaskID       string
 	World        *explorationgraph.Store
 	Planner      Planner
@@ -46,13 +46,13 @@ type PlannerAgentConfig struct {
 	PollInterval time.Duration // 默认 10s
 }
 
-// NewPlannerAgent 创建 PlannerAgent
-func NewPlannerAgent(cfg PlannerAgentConfig) *PlannerAgent {
+// NewAgent NewPlannerAgent 创建 Agent。
+func NewAgent(cfg AgentConfig) *Agent {
 	if cfg.PollInterval == 0 {
 		cfg.PollInterval = 10 * time.Second
 	}
 
-	return &PlannerAgent{
+	return &Agent{
 		taskID:            cfg.TaskID,
 		world:             cfg.World,
 		planner:           cfg.Planner,
@@ -65,9 +65,9 @@ func NewPlannerAgent(cfg PlannerAgentConfig) *PlannerAgent {
 }
 
 // Run 实现 core.Agent 接口
-// 启动 PlannerAgent 主循环，监听事件并生成新的 Action
-func (a *PlannerAgent) Run(ctx context.Context) error {
-	a.logger.Info().Str("task_id", a.taskID).Msg("PlannerAgent 启动")
+// 启动 Agent 主循环，监听事件并生成新的 Action
+func (a *Agent) Run(ctx context.Context) error {
+	a.logger.Info().Str("task_id", a.taskID).Msg("Agent 启动")
 
 	// 订阅事件
 	sub := a.eventBus.SubscribeTask(a.taskID)
@@ -85,11 +85,11 @@ func (a *PlannerAgent) Run(ctx context.Context) error {
 	for {
 		select {
 		case <-ctx.Done():
-			a.logger.Info().Str("task_id", a.taskID).Msg("PlannerAgent 停止（context done）")
+			a.logger.Info().Str("task_id", a.taskID).Msg("Agent 停止（context done）")
 			return ctx.Err()
 
 		case <-a.stopCh:
-			a.logger.Info().Str("task_id", a.taskID).Msg("PlannerAgent 停止")
+			a.logger.Info().Str("task_id", a.taskID).Msg("Agent 停止")
 			return nil
 
 		case event := <-sub.Events():
@@ -111,18 +111,18 @@ func (a *PlannerAgent) Run(ctx context.Context) error {
 }
 
 // Stop 实现 core.Agent 接口（优雅关闭）
-func (a *PlannerAgent) Stop(ctx context.Context) error {
+func (a *Agent) Stop(_ context.Context) error {
 	close(a.stopCh)
 	return nil
 }
 
 // Name 实现 core.Agent 接口
-func (a *PlannerAgent) Name() string {
+func (a *Agent) Name() string {
 	return "planner"
 }
 
 // handleEvent 处理事件
-func (a *PlannerAgent) handleEvent(ctx context.Context, event bus.Event) error {
+func (a *Agent) handleEvent(ctx context.Context, event bus.Event) error {
 	switch event.Type {
 	case bus.EventVerificationPassed:
 		// 验证通过，可能需要新的规划
@@ -145,7 +145,7 @@ func (a *PlannerAgent) handleEvent(ctx context.Context, event bus.Event) error {
 }
 
 // planActions 根据当前探索图生成新的 Action
-func (a *PlannerAgent) planActions(ctx context.Context) error {
+func (a *Agent) planActions(ctx context.Context) error {
 	a.logger.Debug().
 		Str("task_id", a.taskID).
 		Str("caller", "planActions").
@@ -315,7 +315,7 @@ func (a *PlannerAgent) planActions(ctx context.Context) error {
 }
 
 // analyzeAndProcessResults 分析增量 Results 并处理（水位由调用方维护）。
-func (a *PlannerAgent) analyzeAndProcessResults(ctx context.Context, results []explorationgraph.Node) error {
+func (a *Agent) analyzeAndProcessResults(ctx context.Context, results []explorationgraph.Node) error {
 	a.logger.Info().Int("result_count", len(results)).Msg("开始分析 Results")
 
 	if len(results) == 0 {
@@ -370,7 +370,7 @@ func (a *PlannerAgent) analyzeAndProcessResults(ctx context.Context, results []e
 }
 
 // createNewObjectives 创建新的 Objective 节点
-func (a *PlannerAgent) createNewObjectives(ctx context.Context, objectives []NewObjective) error {
+func (a *Agent) createNewObjectives(ctx context.Context, objectives []NewObjective) error {
 	for _, obj := range objectives {
 		objID := uuid.New().String()
 
@@ -430,7 +430,7 @@ func (a *PlannerAgent) createNewObjectives(ctx context.Context, objectives []New
 }
 
 // createContinuationActions 创建新的 Action 节点（在当前 Objective 下）
-func (a *PlannerAgent) createContinuationActions(ctx context.Context, actions []ContinuationAction) error {
+func (a *Agent) createContinuationActions(ctx context.Context, actions []ContinuationAction) error {
 	// 获取当前 Objective
 	objectives, err := a.world.ListNodesByKind(ctx, a.taskID, core.KindObjective)
 	if err != nil || len(objectives) == 0 {

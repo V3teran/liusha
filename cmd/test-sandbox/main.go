@@ -1,3 +1,4 @@
+// Package main 是热池沙箱连通性诊断 CLI：spawn → exec → release 全链路冒烟。
 package main
 
 import (

@@ -2,6 +2,10 @@
 //
 // internal/llm 里的同名类型全部是本文件的别名——业务层（role 路由 / 审计 /
 // fallback 编排）在框架能力之上做策略装配。
+// Package llm 是框架层 LLM 抽象：Provider 契约 + 类型事实源 + 协议适配器。
+//
+// internal/llm 是业务策略层（role 路由 / fallback 编排 / 审计），类型别名到本包。
+
 package llm
 
 import (
@@ -18,7 +22,9 @@ var ErrVisionUnsupported = errors.New("llm: provider 不支持 vision，含图 m
 // Role 是消息角色。
 type Role string
 
+// RoleUser 等枚举定义。
 const (
+	// RoleSystem 等枚举消息角色（OpenAI/Anthropic 协议通用四态）。
 	RoleSystem    Role = "system"
 	RoleUser      Role = "user"
 	RoleAssistant Role = "assistant"

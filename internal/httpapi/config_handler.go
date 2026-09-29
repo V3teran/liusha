@@ -1,4 +1,4 @@
-// Package httpapi: executor 配置 CRUD handler（前端配置管理页）。
+// Package httpapi 是 executor 配置 CRUD handler（前端配置管理页）。
 //
 // 写路径一律走 configstore（自动落 DB + redis 广播失效），绝不直穿底层 store——
 // 否则 api 进程改配置后 runner 进程的本地 L1 不失效，会用旧配置装配（见 D7）。

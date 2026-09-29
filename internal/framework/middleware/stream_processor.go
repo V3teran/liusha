@@ -110,7 +110,7 @@ func (p *StreamProcessor) ProcessStream(ctx context.Context, input <-chan Stream
 func CompressTransformer() StreamTransformer {
 	var lastEvent *StreamEvent
 
-	return func(ctx context.Context, event StreamEvent) (StreamEvent, error) {
+	return func(_ context.Context, event StreamEvent) (StreamEvent, error) {
 		// 简化版：仅合并连续的 LLM 流式输出
 		if event.Type == "llm.stream" && lastEvent != nil && lastEvent.Type == "llm.stream" {
 			// 合并 Delta
@@ -129,15 +129,15 @@ func CompressTransformer() StreamTransformer {
 
 // EnrichTransformer 丰富事件（添加额外信息）。
 func EnrichTransformer(enricher func(StreamEvent) StreamEvent) StreamTransformer {
-	return func(ctx context.Context, event StreamEvent) (StreamEvent, error) {
+	return func(_ context.Context, event StreamEvent) (StreamEvent, error) {
 		return enricher(event), nil
 	}
 }
 
 // ThrottleTransformer 限流转换器（跳过过于频繁的事件）。
-func ThrottleTransformer(maxEventsPerSec int) StreamTransformer {
+func ThrottleTransformer(_ int) StreamTransformer {
 	// 简化实现：实际需要使用 rate limiter
-	return func(ctx context.Context, event StreamEvent) (StreamEvent, error) {
+	return func(_ context.Context, event StreamEvent) (StreamEvent, error) {
 		return event, nil
 	}
 }
@@ -175,7 +175,7 @@ func PriorityFilter(minPriority int) StreamFilter {
 func SamplingFilter(rate int) StreamFilter {
 	count := 0
 
-	return func(event StreamEvent) bool {
+	return func(_ StreamEvent) bool {
 		count++
 		return count%rate == 0
 	}
