@@ -16,10 +16,8 @@ package cache
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/V3teran/liusha/internal/agent"
@@ -100,10 +98,6 @@ func boolKey(b bool) string {
 }
 
 // ── 小工具 ────────────────────────────────────────────────────────────
-
-// isNotFound 判定底层 store 的「不存在」——三个 store 的 GetByCode 均用 %w 包 pgx.ErrNoRows，
-// upsert 路径据此在 Update 落空时回退 Create。
-func isNotFound(err error) bool { return err != nil && errors.Is(err, pgx.ErrNoRows) }
 
 // ── 单条读（L1/L2 缓存）───────────────────────────────────────────────
 

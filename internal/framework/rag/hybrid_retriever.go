@@ -339,7 +339,7 @@ var (
 // initSegmenter 初始化分词器（单例）
 func initSegmenter() {
 	segmenterOnce.Do(func() {
-		segmenter.LoadDict() // 加载默认词典
+		_ = segmenter.LoadDict() // 忽略加载词典错误，使用默认配置
 	})
 }
 

@@ -22,7 +22,6 @@ type MessageModifierChain struct {
 	errorStrategy ErrorStrategy
 	retryConfig   RetryConfig
 	timeoutSec    int
-	logger        interface{} // 可选日志器
 }
 
 // ErrorStrategy 定义修改器链的错误处理策略。
@@ -69,7 +68,7 @@ func DefaultRetryConfig() RetryConfig {
 }
 
 // isValidationError 判断是否为数据验证错误（不应重试）。
-func isValidationError(err error) bool {
+func isValidationError(_ error) bool {
 	// 可扩展：检查特定错误类型或消息前缀
 	// 示例：strings.Contains(err.Error(), "validation") || strings.Contains(err.Error(), "invalid")
 	return false
@@ -253,7 +252,7 @@ func NewRollingWindowModifier(windowSize int) *RollingWindowModifier {
 	return &RollingWindowModifier{windowSize: windowSize}
 }
 
-func (m *RollingWindowModifier) Modify(ctx context.Context, messages []llm.Message) ([]llm.Message, error) {
+func (m *RollingWindowModifier) Modify(_ context.Context, messages []llm.Message) ([]llm.Message, error) {
 	if len(messages) <= m.windowSize+1 {
 		return messages, nil
 	}
@@ -289,7 +288,7 @@ func NewTruncateModifier(keepLast int) *TruncateModifier {
 	return &TruncateModifier{keepLast: keepLast}
 }
 
-func (m *TruncateModifier) Modify(ctx context.Context, messages []llm.Message) ([]llm.Message, error) {
+func (m *TruncateModifier) Modify(_ context.Context, messages []llm.Message) ([]llm.Message, error) {
 	if len(messages) <= m.keepLast {
 		return messages, nil
 	}
@@ -325,7 +324,7 @@ func NewInjectionModifier(injections map[string]string) *InjectionModifier {
 	return &InjectionModifier{injections: injections}
 }
 
-func (m *InjectionModifier) Modify(ctx context.Context, messages []llm.Message) ([]llm.Message, error) {
+func (m *InjectionModifier) Modify(_ context.Context, messages []llm.Message) ([]llm.Message, error) {
 	// 简单实现：在系统消息后追加一条注入消息
 	if len(m.injections) == 0 {
 		return messages, nil
@@ -362,7 +361,7 @@ func NewValidateModifier(maxContentLength int) *ValidateModifier {
 	return &ValidateModifier{maxContentLength: maxContentLength}
 }
 
-func (m *ValidateModifier) Modify(ctx context.Context, messages []llm.Message) ([]llm.Message, error) {
+func (m *ValidateModifier) Modify(_ context.Context, messages []llm.Message) ([]llm.Message, error) {
 	for i, msg := range messages {
 		if len(msg.Content) > m.maxContentLength {
 			return nil, fmt.Errorf("message %d exceeds max length: %d > %d", i, len(msg.Content), m.maxContentLength)

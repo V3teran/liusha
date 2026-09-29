@@ -455,19 +455,6 @@ func (s *AdapterStore) RecordVerification(ctx context.Context, v Verification) (
 	return v.ID, nil
 }
 
-// confidenceToFloat 将 ObservationConfidence 转换为 float64
-func confidenceToFloat(c core.ObservationConfidence) float64 {
-	switch c {
-	case core.ConfidenceVerified:
-		return 0.9
-	case core.ConfidenceUnverified:
-		return 0.5
-	case core.ConfidenceRefuted:
-		return 0.1
-	default:
-		return 0.0
-	}
-}
 
 // ─────────────────────────────────────────────
 // HTTP API 专用方法（Phase 1: 探索图 API）

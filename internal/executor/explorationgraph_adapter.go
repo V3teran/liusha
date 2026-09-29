@@ -2,7 +2,6 @@ package executor
 
 import (
 	"context"
-	"encoding/json"
 
 	"github.com/V3teran/liusha/internal/explorationgraph"
 )
@@ -29,6 +28,6 @@ func (w *explorationGraphAdapter) GetNode(ctx context.Context, id string) (*Expl
 
 	return &ExplorationGraphNode{
 		ID:       node.ID,
-		Metadata: json.RawMessage(node.Metadata),
+		Metadata: node.Metadata,
 	}, nil
 }

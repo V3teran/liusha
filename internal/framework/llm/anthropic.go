@@ -56,14 +56,14 @@ func NewAnthropic(_ context.Context, providerKey string, c AnthropicConfig, clie
 	}
 	return &anthropicGen{
 		client:    *client,
-		model:     anthropic.Model(c.Model),
+		model:     c.Model,
 		maxTokens: int64(maxTokens),
 		provider:  providerKey,
 	}, nil
 }
 
 func (g *anthropicGen) Provider() string { return g.provider }
-func (g *anthropicGen) Model() string    { return string(g.model) }
+func (g *anthropicGen) Model() string    { return g.model }
 
 // Generate 发起一次 messages 调用；tools 每次动态传入。
 func (g *anthropicGen) Generate(ctx context.Context, msgs []Message, tools []ToolSchema) (Result, error) {
@@ -92,7 +92,7 @@ func (g *anthropicGen) Generate(ctx context.Context, msgs []Message, tools []Too
 	if err != nil {
 		return Result{}, fmt.Errorf("anthropic generate: %w", wrapAnthropicErr(err))
 	}
-	return fromAnthropicResponse(resp, g.provider, string(g.model)), nil
+	return fromAnthropicResponse(resp, g.provider, g.model), nil
 }
 
 // toAnthropicMessages 把内部 Message 转成 Anthropic 原生类型。
@@ -131,7 +131,7 @@ func toAnthropicMessages(in []Message) ([]anthropic.TextBlockParam, []anthropic.
 				blocks = append(blocks, anthropic.NewTextBlock(m.Content))
 			}
 			for _, tc := range m.ToolCalls {
-				input := json.RawMessage(tc.Arguments)
+				input := tc.Arguments
 				if len(input) == 0 {
 					input = json.RawMessage("{}")
 				}
@@ -331,7 +331,9 @@ func (g *anthropicGen) StreamChat(ctx context.Context, msgs []Message, tools []T
 	ch := make(chan StreamEvent, 32)
 	go func() {
 		defer close(ch)
-		defer stream.Close()
+		defer func() {
+			_ = stream.Close() // 忽略 Close 错误
+		}()
 
 		var acc anthropic.Message
 		toolArgs := map[int64][]byte{}

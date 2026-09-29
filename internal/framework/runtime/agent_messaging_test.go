@@ -49,11 +49,11 @@ func TestAgentMessaging_PointToPoint(t *testing.T) {
 	// 注册两个 Agent
 	sender, err := broker.Register("sender", 10)
 	require.NoError(t, err)
-	defer sender.Close()
+	defer func() { _ = sender.Close() }()
 
 	receiver, err := broker.Register("receiver", 10)
 	require.NoError(t, err)
-	defer receiver.Close()
+	defer func() { _ = receiver.Close() }()
 
 	// 发送消息
 	payload := map[string]string{"action": "ping"}
@@ -82,11 +82,11 @@ func TestAgentMessaging_RequestResponse(t *testing.T) {
 	// 注册两个 Agent
 	client, err := broker.Register("client", 10)
 	require.NoError(t, err)
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	server, err := broker.Register("server", 10)
 	require.NoError(t, err)
-	defer server.Close()
+	defer func() { _ = server.Close() }()
 
 	// 服务端处理请求
 	go func() {
@@ -127,15 +127,15 @@ func TestAgentMessaging_Broadcast(t *testing.T) {
 	// 注册 3 个 Agent
 	broadcaster, err := broker.Register("broadcaster", 10)
 	require.NoError(t, err)
-	defer broadcaster.Close()
+	defer func() { _ = broadcaster.Close() }()
 
 	listener1, err := broker.Register("listener1", 10)
 	require.NoError(t, err)
-	defer listener1.Close()
+	defer func() { _ = listener1.Close() }()
 
 	listener2, err := broker.Register("listener2", 10)
 	require.NoError(t, err)
-	defer listener2.Close()
+	defer func() { _ = listener2.Close() }()
 
 	// 广播消息
 	payload := map[string]string{"event": "system_shutdown"}
@@ -181,17 +181,17 @@ func TestAgentMessaging_Subscribe(t *testing.T) {
 	// 注册两个 Agent
 	publisher, err := broker.Register("publisher", 10)
 	require.NoError(t, err)
-	defer publisher.Close()
+	defer func() { _ = publisher.Close() }()
 
 	subscriber, err := broker.Register("subscriber", 10)
 	require.NoError(t, err)
-	defer subscriber.Close()
+	defer func() { _ = subscriber.Close() }()
 
 	// 订阅事件
 	var receivedEvents []string
 	var mu sync.Mutex
 
-	handler := func(ctx context.Context, msg *AgentMessage) error {
+	handler := func(_ context.Context, msg *AgentMessage) error {
 		var payload map[string]string
 		_ = json.Unmarshal(msg.Payload, &payload)
 
@@ -242,11 +242,11 @@ func TestAgentMessaging_Timeout(t *testing.T) {
 	// 注册两个 Agent
 	client, err := broker.Register("client", 10)
 	require.NoError(t, err)
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	server, err := broker.Register("server", 10)
 	require.NoError(t, err)
-	defer server.Close()
+	defer func() { _ = server.Close() }()
 
 	// 服务端不响应（故意不处理请求）
 
@@ -272,7 +272,7 @@ func TestAgentMessaging_OfflineAgent(t *testing.T) {
 	// 向离线 Agent 发送消息应失败
 	sender, err := broker.Register("sender", 10)
 	require.NoError(t, err)
-	defer sender.Close()
+	defer func() { _ = sender.Close() }()
 
 	err = sender.Send(ctx, "agent1", MessageTypeEvent, map[string]string{"test": "data"})
 	assert.Error(t, err)
@@ -292,11 +292,11 @@ func TestAgentMessaging_FullQueue(t *testing.T) {
 	// 注册 Agent，队列大小为 1
 	sender, err := broker.Register("sender", 10)
 	require.NoError(t, err)
-	defer sender.Close()
+	defer func() { _ = sender.Close() }()
 
 	receiver, err := broker.Register("receiver", 1) // 只能缓冲 1 条消息
 	require.NoError(t, err)
-	defer receiver.Close()
+	defer func() { _ = receiver.Close() }()
 
 	// 发送第一条消息（应成功）
 	err = sender.Send(ctx, "receiver", MessageTypeEvent, map[string]string{"msg": "1"})
@@ -322,7 +322,7 @@ func TestAgentMessaging_ContextCancellation(t *testing.T) {
 
 	receiver, err := broker.Register("receiver", 10)
 	require.NoError(t, err)
-	defer receiver.Close()
+	defer func() { _ = receiver.Close() }()
 
 	// 创建可取消的上下文
 	ctx, cancel := context.WithCancel(context.Background())
@@ -376,11 +376,11 @@ func TestAgentMessaging_ConcurrentSend(t *testing.T) {
 
 	sender, err := broker.Register("sender", 10)
 	require.NoError(t, err)
-	defer sender.Close()
+	defer func() { _ = sender.Close() }()
 
 	receiver, err := broker.Register("receiver", 100) // 大队列
 	require.NoError(t, err)
-	defer receiver.Close()
+	defer func() { _ = receiver.Close() }()
 
 	// 并发发送 100 条消息
 	const numMessages = 100
@@ -418,11 +418,11 @@ func TestAgentMessaging_MultipleRequestResponse(t *testing.T) {
 
 	client, err := broker.Register("client", 100)
 	require.NoError(t, err)
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	server, err := broker.Register("server", 100)
 	require.NoError(t, err)
-	defer server.Close()
+	defer func() { _ = server.Close() }()
 
 	// 服务端处理请求
 	go func() {

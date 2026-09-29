@@ -80,7 +80,7 @@ func TestLLMInvocationsHandler(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 
 		var body struct {
 			Total int `json:"total"`
@@ -124,7 +124,7 @@ func TestLLMInvocationsHandler(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 
 		if fake.gotFilter.Limit != defaultInvocationPageSize {
 			t.Errorf("超上限应收敛到默认值 %d，got %d", defaultInvocationPageSize, fake.gotFilter.Limit)
@@ -147,7 +147,7 @@ func TestLLMInvocationsHandler(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 
 		var body struct {
 			Items []struct {
@@ -179,7 +179,7 @@ func TestLLMInvocationsHandler(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 
 		var raw map[string]any
 		if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
@@ -209,7 +209,7 @@ func TestLLMInvocationsHandler(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 
 		var body struct {
 			Items []struct {
@@ -247,7 +247,7 @@ func TestLLMInvocationsHandler(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 
 		f := fake.gotFilter
 		if f.Role != "planner" || f.Model != "glm-5.3-flash" || !f.OnlyErr {
@@ -272,7 +272,7 @@ func TestLLMInvocationsHandler(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 
 		if resp.StatusCode != 200 {
 			t.Errorf("状态码=%d，期望 200（坏参数退化为不筛）", resp.StatusCode)
@@ -298,7 +298,7 @@ func TestLLMInvocationDetailHandler(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 
 		if resp.StatusCode != 200 {
 			t.Fatalf("状态码=%d，期望 200", resp.StatusCode)
@@ -326,7 +326,7 @@ func TestLLMInvocationDetailHandler(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 
 		if resp.StatusCode != 404 {
 			t.Errorf("状态码=%d，期望 404", resp.StatusCode)
@@ -346,7 +346,7 @@ func TestLLMInvocationStatHandler(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 
 		var body struct {
 			Calls    int   `json:"calls"`
@@ -373,7 +373,7 @@ func TestLLMInvocationStatHandler(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 
 		f := fake.gotAggF
 		if f.Role != "exploitation" || f.Model != "glm-5.3-flash" || !f.OnlyErr {
@@ -400,7 +400,7 @@ func TestLLMInvocationFacetsHandler(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 
 		var body struct {
 			Roles  []string `json:"roles"`
@@ -429,7 +429,7 @@ func TestLLMInvocationFacetsHandler(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 
 		var raw map[string]any
 		if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {

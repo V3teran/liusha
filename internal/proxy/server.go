@@ -298,11 +298,11 @@ func decompressIfEncoded(body []byte, encoding string) ([]byte, error) {
 		if err != nil {
 			return body, fmt.Errorf("gzip.NewReader: %w", err)
 		}
-		defer gz.Close()
+		defer func() { _ = gz.Close() }()
 		reader = gz
 	case "deflate":
 		fr := flate.NewReader(bytes.NewReader(body))
-		defer fr.Close()
+		defer func() { _ = fr.Close() }()
 		reader = fr
 	default:
 		// br / zstd 等暂不支持——保留原始字节，下游若含二进制需自处理。
@@ -325,7 +325,7 @@ func readAndRebuildBody(bodyPtr *io.ReadCloser, maxSize int) ([]byte, error) {
 		return nil, nil
 	}
 	src := *bodyPtr
-	defer src.Close()
+	defer func() { _ = src.Close() }()
 
 	var reader io.Reader = src
 	if maxSize > 0 {

@@ -124,7 +124,7 @@ func Replay(ctx context.Context, src Source, mods Mods) (Result, error) {
 	if err != nil {
 		return Result{}, fmt.Errorf("replay 请求失败: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, respLimit))
 	respHeaders := map[string]string{}

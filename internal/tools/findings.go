@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/V3teran/liusha/internal/finding"
 	"github.com/V3teran/liusha/internal/registry"
 )
 
@@ -76,89 +75,6 @@ func (t *readFindingsTool) Execute(ctx context.Context, args json.RawMessage) (r
 
 // ─── write_finding ───────────────────────────────────────────────────────────
 
-var writeFindingSchema = json.RawMessage(`{
-  "type": "object",
-  "properties": {
-    "summary":        {"type": "string", "description": "漏洞描述：是什么 / 怎么验证 / 推理依据。"},
-    "severity":       {"type": "string", "description": "critical / high / medium / low / info。"},
-    "evaluation":       {"type": "object", "description": "评估证据（payload/复现步骤/响应摘要）。"},
-    "target":         {"type": "object", "description": "目标位置（url/endpoint/param）。"},
-    "cwe_id":         {"type": "string", "description": "如 CWE-89。"},
-    "owasp_category": {"type": "string", "description": "如 A03:2021。"},
-    "remediation":    {"type": "string", "description": "修复建议。"},
-    "depends_on":     {"type": "array", "items": {"type": "string"}, "description": "组合漏洞依赖的 finding ID。"}
-  },
-  "required": ["summary", "severity"]
-}`)
-
-type writeFindingTool struct {
-	registry.BaseTool
-	deps Deps
-}
-
-func newWriteFindingTool(deps Deps, timeout time.Duration, safe bool) *writeFindingTool {
-	t := &writeFindingTool{deps: deps}
-	t.SetTimeout(timeout)
-	t.SetConcurrencySafe(safe)
-	return t
-}
-
-func (t *writeFindingTool) Name() string      { return "write_finding" }
-func (t *writeFindingTool) ShortDesc() string { return "写一条新漏洞 finding" }
-func (t *writeFindingTool) Desc() string {
-	return "写一条新漏洞 finding：summary 短标题 + evidence 详情/复现/payload + severity。"
-}
-func (t *writeFindingTool) Schema() json.RawMessage { return writeFindingSchema }
-
-func (t *writeFindingTool) Execute(ctx context.Context, args json.RawMessage) (registry.ToolResult, error) {
-	var a struct {
-		Summary       string          `json:"summary"`
-		Severity      string          `json:"severity"`
-		Evaluation    json.RawMessage `json:"evaluation"`
-		Target        json.RawMessage `json:"target"`
-		CWEID         string          `json:"cwe_id"`
-		OWASPCategory string          `json:"owasp_category"`
-		Remediation   string          `json:"remediation"`
-		DependsOn     []string        `json:"depends_on"`
-	}
-	if err := json.Unmarshal(args, &a); err != nil {
-		return registry.ToolResult{Error: "write_finding: 解析参数失败: " + err.Error()}, nil
-	}
-	if a.Summary == "" {
-		return registry.ToolResult{Error: "write_finding: summary 必填"}, nil
-	}
-	if a.Severity == "" {
-		return registry.ToolResult{Error: "write_finding: severity 必填"}, nil
-	}
-
-	opID := t.deps.AgentID
-	f := finding.VulnFinding{
-		TaskID:        t.deps.TaskID,
-		ExecutorID:    &opID,
-		Host:          t.deps.Host,
-		Severity:      a.Severity,
-		Summary:       a.Summary,
-		Evaluation:    a.Evaluation,
-		Target:        a.Target,
-		CWEID:         a.CWEID,
-		OWASPCategory: a.OWASPCategory,
-		Remediation:   a.Remediation,
-		DependsOn:     a.DependsOn,
-	}
-
-	saved, err := t.deps.Findings.Save(ctx, f)
-	if err != nil {
-		return registry.ToolResult{Error: fmt.Sprintf("write_finding: %v", err)}, nil
-	}
-	return registry.ToolResult{
-		Output: fmt.Sprintf("finding 已写入: id=%s severity=%s", saved.ID, saved.Severity),
-		Signal: &registry.Signal{
-			Kind:     registry.SignalCmdOutput,
-			ToolName: "write_finding",
-			Content:  fmt.Sprintf("[%s] %s (id=%s)", saved.Severity, saved.Summary, saved.ID),
-		},
-	}, nil
-}
 
 // ─── update_finding ──────────────────────────────────────────────────────────
 

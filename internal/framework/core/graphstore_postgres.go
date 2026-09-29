@@ -275,7 +275,7 @@ func (s *PostgresGraphStore) UpdateNode(ctx context.Context, id string, update G
 		// 乐观锁：只有当前 version 匹配时才更新
 		whereParts = append(whereParts, fmt.Sprintf("version = $%d", argIndex))
 		args = append(args, *update.ExpectedVersion)
-		argIndex++
+		// argIndex++ 是最后一个参数，无需递增
 	}
 
 	query := fmt.Sprintf(`
@@ -398,7 +398,7 @@ func (s *PostgresGraphStore) ListNodes(ctx context.Context, query GraphNodeQuery
 	if query.Offset > 0 {
 		offsetClause = fmt.Sprintf("OFFSET $%d", argIndex)
 		args = append(args, query.Offset)
-		argIndex++
+		// argIndex++ 是最后一个参数，无需递增
 	}
 
 	sqlQuery := fmt.Sprintf(`
@@ -605,7 +605,7 @@ func (s *PostgresGraphStore) ListEdges(ctx context.Context, query GraphEdgeQuery
 	if query.Limit > 0 {
 		limitClause = fmt.Sprintf("LIMIT $%d", argIndex)
 		args = append(args, query.Limit)
-		argIndex++
+		// argIndex++ 是最后一个参数，无需递增
 	}
 
 	sqlQuery := fmt.Sprintf(`

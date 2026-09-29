@@ -312,7 +312,7 @@ func streamHandler(convs ConversationsAPI, stream EventStream) gin.HandlerFunc {
 
 		// 先订阅，避免补历史与订阅之间漏事件。
 		sub := stream.Subscribe(ctx, convID)
-		defer sub.Close()
+		defer func() { _ = sub.Close() }()
 		sseLog.Debug().Str("conv", convID).Msg("SSE: 已订阅 redis channel")
 
 		// 补历史（after_seq / Last-Event-ID 之后）。
@@ -349,7 +349,8 @@ func streamHandler(convs ConversationsAPI, stream EventStream) gin.HandlerFunc {
 				var probe struct {
 					Delta bool `json:"delta"`
 				}
-				if json.Unmarshal(payload, &probe); probe.Delta {
+				_ = json.Unmarshal(payload, &probe)
+				if probe.Delta {
 					writeSSEEvent(c.Writer, "delta", payload)
 					flusher.Flush()
 					deltas++
@@ -386,13 +387,13 @@ func writeSSEMessage(w http.ResponseWriter, seq int64, m conversation.Message) {
 
 // writeSSERaw 写一帧 SSE：id: {seq}\ndata: {json}\n\n。
 func writeSSERaw(w http.ResponseWriter, seq int64, payload []byte) {
-	fmt.Fprintf(w, "id: %d\ndata: %s\n\n", seq, payload)
+	_, _ = fmt.Fprintf(w, "id: %d\ndata: %s\n\n", seq, payload)
 }
 
 // writeSSEEvent 写一帧命名 SSE：event: {name}\ndata: {json}\n\n（无 id，不参与 Last-Event-ID 续传）。
 // 用于流式推理增量等瞬时帧——前端按事件名单独监听，不混入默认 message 流的 seq 去重。
 func writeSSEEvent(w http.ResponseWriter, name string, payload []byte) {
-	fmt.Fprintf(w, "event: %s\ndata: %s\n\n", name, payload)
+	_, _ = fmt.Fprintf(w, "event: %s\ndata: %s\n\n", name, payload)
 }
 
 func parseLimit(c *gin.Context, def int) int {

@@ -171,7 +171,7 @@ func (b *DefaultMessageBroker) Register(agentID string, bufferSize int) (AgentMe
 	}
 
 	if _, exists := b.agents[agentID]; exists {
-		return nil, fmt.Errorf("Agent %s 已注册", agentID)
+		return nil, fmt.Errorf("agent %s 已注册", agentID)
 	}
 
 	if bufferSize <= 0 {
@@ -204,7 +204,7 @@ func (b *DefaultMessageBroker) Unregister(agentID string) error {
 
 	mailbox, exists := b.agents[agentID]
 	if !exists {
-		return fmt.Errorf("Agent %s 未注册", agentID)
+		return fmt.Errorf("agent %s 未注册", agentID)
 	}
 
 	mailbox.cancel() // 停止后台处理器

@@ -56,7 +56,7 @@ func TestHandleExec_Timeout_KillsProcessGroup(t *testing.T) {
 	if err != nil {
 		t.Fatalf("POST /exec: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	elapsed := time.Since(start)
 
 	if resp.StatusCode != http.StatusOK {
@@ -119,7 +119,7 @@ func TestHandleExec_BackgroundOrphan_DoesNotHangPastWaitDelay(t *testing.T) {
 	if err != nil {
 		t.Fatalf("POST /exec: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	elapsed := time.Since(start)
 
 	if resp.StatusCode != http.StatusOK {
@@ -160,7 +160,7 @@ func TestHandleExec_Normal_Succeeds(t *testing.T) {
 	if err != nil {
 		t.Fatalf("POST /exec: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	var res sandbox.ExecResult
 	if err := json.NewDecoder(resp.Body).Decode(&res); err != nil {
@@ -212,7 +212,7 @@ func TestHandleExec_AgentIDValidation(t *testing.T) {
 			if err != nil {
 				t.Fatalf("POST: %v", err)
 			}
-			resp.Body.Close()
+			_ = resp.Body.Close()
 			if resp.StatusCode != http.StatusBadRequest {
 				t.Errorf("AgentID=%q expect 400 got %d", c.agentID, resp.StatusCode)
 			}
@@ -243,7 +243,7 @@ func TestHandleExec_PerTaskIsolation(t *testing.T) {
 		if err != nil {
 			t.Fatalf("POST: %v", err)
 		}
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 		if resp.StatusCode != http.StatusOK {
 			t.Fatalf("status %d, want 200", resp.StatusCode)
 		}

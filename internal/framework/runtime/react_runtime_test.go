@@ -19,7 +19,7 @@ type mockLLMProvider struct {
 	callIndex int
 }
 
-func (m *mockLLMProvider) Complete(ctx context.Context, req llm.Request) (llm.Response, error) {
+func (m *mockLLMProvider) Complete(_ context.Context, req llm.Request) (llm.Response, error) {
 	if m.callIndex >= len(m.responses) {
 		return m.responses[len(m.responses)-1], nil
 	}
@@ -129,7 +129,7 @@ func TestReActRuntime_ToolCalling(t *testing.T) {
 			var params struct {
 				Expression string `json:"expression"`
 			}
-			json.Unmarshal(args, &params)
+			_ = json.Unmarshal(args, &params)
 
 			// 简单计算
 			if params.Expression == "2+2" {
@@ -209,11 +209,11 @@ func TestReActRuntime_MaxIterations(t *testing.T) {
 	thinkTool := &mockTool{
 		name:        "think",
 		description: "思考",
-		handler: func(args json.RawMessage) (any, error) {
+		handler: func(_ json.RawMessage) (any, error) {
 			return "thinking...", nil
 		},
 	}
-	runtime.RegisterTool(thinkTool)
+	_ = runtime.RegisterTool(thinkTool)
 
 	config := DefaultReActConfig()
 	config.Objective = "无解问题"
@@ -318,12 +318,12 @@ func TestReActRuntime_ContextCancellation(t *testing.T) {
 	slowTool := &mockTool{
 		name:        "slow_tool",
 		description: "慢工具",
-		handler: func(args json.RawMessage) (any, error) {
+		handler: func(_ json.RawMessage) (any, error) {
 			time.Sleep(1 * time.Second)
 			return "done", nil
 		},
 	}
-	runtime.RegisterTool(slowTool)
+	_ = runtime.RegisterTool(slowTool)
 
 	config := DefaultReActConfig()
 	config.Objective = "测试取消"
@@ -370,11 +370,11 @@ func TestReActRuntime_Callbacks(t *testing.T) {
 	testTool := &mockTool{
 		name:        "test_tool",
 		description: "测试工具",
-		handler: func(args json.RawMessage) (any, error) {
+		handler: func(_ json.RawMessage) (any, error) {
 			return "tool_result", nil
 		},
 	}
-	runtime.RegisterTool(testTool)
+	_ = runtime.RegisterTool(testTool)
 
 	// 记录回调
 	var thoughts []string
@@ -394,7 +394,7 @@ func TestReActRuntime_Callbacks(t *testing.T) {
 	config.OnObservation = func(observation string) {
 		observations = append(observations, observation)
 	}
-	config.OnIteration = func(iteration int, status IterationStatus) {
+	config.OnIteration = func(iteration int, _ IterationStatus) {
 		iterations = append(iterations, iteration)
 	}
 
