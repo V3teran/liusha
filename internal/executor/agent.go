@@ -13,6 +13,7 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/V3teran/liusha/internal/bus"
+	"github.com/V3teran/liusha/internal/constants"
 	"github.com/V3teran/liusha/internal/evaluator"
 	"github.com/V3teran/liusha/internal/explorationgraph"
 	"github.com/V3teran/liusha/internal/framework/core"
@@ -103,7 +104,7 @@ func (a *ExecutorAgent) Run(ctx context.Context) error {
 	}
 
 	// 事件循环
-	ticker := time.NewTicker(5 * time.Second) // 定期兜底检查
+	ticker := time.NewTicker(constants.ToolTimeoutQuick) // 定期兜底检查
 	defer ticker.Stop()
 
 	for {

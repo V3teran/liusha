@@ -20,12 +20,6 @@ type Store struct {
 // NewStore 用 pgxpool 构造 Store。
 func NewStore(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
 
-// defaultMaxIterations 是 MaxIterations 留空时的回退值（与 D1 DDL DEFAULT 40 对齐）。
-const defaultMaxIterations = 40
-
-// defaultComplexity 是 Complexity 留空时的回退值（与 DDL DEFAULT 'medium' 对齐）。
-const defaultComplexity = "medium"
-
 // colsSelect 是所有 SELECT / RETURNING 路径的统一列序，与 scan() 字段一一对应。
 const colsSelect = "id, code, kind, name, description, system_prompt, function_tools, cli_tools, skills, max_iterations, complexity, enabled, created_at, updated_at"
 
@@ -99,7 +93,7 @@ func (s *Store) Update(ctx context.Context, code string, p UpdateParams) (Agent,
 		}
 		setParts = append(setParts, fmt.Sprintf("complexity=$%d", argIdx))
 		args = append(args, *p.Complexity)
-		argIdx++
+		// argIdx++ 是最后一个参数，无需递增
 	}
 
 	if len(setParts) == 0 {

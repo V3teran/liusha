@@ -52,7 +52,7 @@ func (s *Store) List(ctx context.Context, p ListParams) ([]Skill, error) {
 	if p.Search != "" {
 		whereParts = append(whereParts, fmt.Sprintf("(name ILIKE $%d OR description ILIKE $%d)", argIdx, argIdx))
 		args = append(args, "%"+p.Search+"%")
-		argIdx++
+		// argIdx++ 是最后一个参数，无需递增
 	}
 
 	where := ""

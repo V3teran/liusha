@@ -168,20 +168,20 @@ type mockLauncher struct {
 	containers map[string]*mockClient
 }
 
-func (m *mockLauncher) Spawn(ctx context.Context, assignmentID string) (Client, error) {
+func (m *mockLauncher) Spawn(_ context.Context, assignmentID string) (Client, error) {
 	client := &mockClient{assignmentID: assignmentID}
 	m.containers[assignmentID] = client
 	return client, nil
 }
 
-func (m *mockLauncher) Destroy(ctx context.Context, assignmentID string) error {
+func (m *mockLauncher) Destroy(_ context.Context, assignmentID string) error {
 	if client, ok := m.containers[assignmentID]; ok {
 		client.destroyed = true
 	}
 	return nil
 }
 
-func (m *mockLauncher) CleanupOrphans(ctx context.Context) error {
+func (m *mockLauncher) CleanupOrphans(_ context.Context) error {
 	return nil
 }
 
@@ -191,7 +191,7 @@ type mockClient struct {
 	destroyed    bool
 }
 
-func (m *mockClient) Exec(ctx context.Context, req ExecRequest) (ExecResult, error) {
+func (m *mockClient) Exec(_ context.Context, req ExecRequest) (ExecResult, error) {
 	return ExecResult{}, nil
 }
 

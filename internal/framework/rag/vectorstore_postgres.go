@@ -124,7 +124,7 @@ func (s *PostgresVectorStore) Add(ctx context.Context, documents []Document, vec
 
 	// 执行批量插入
 	br := s.pool.SendBatch(ctx, batch)
-	defer br.Close()
+	defer func() { _ = br.Close() }()
 
 	for i := 0; i < len(documents); i++ {
 		_, err := br.Exec()

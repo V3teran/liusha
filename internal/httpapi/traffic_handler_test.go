@@ -69,7 +69,7 @@ func TestTrafficHandler(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 
 		var body struct {
 			Total int `json:"total"`
@@ -122,7 +122,7 @@ func TestTrafficHandler(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 
 		var body struct {
 			ContentTypes []string `json:"content_types"`
@@ -146,7 +146,7 @@ func TestTrafficHandler(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 		if fake.gotFilter.Limit != maxTrafficPageSize {
 			t.Errorf("超上限应收敛到 %d，got %d", maxTrafficPageSize, fake.gotFilter.Limit)
 		}
@@ -163,7 +163,7 @@ func TestTrafficHandler(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 
 		var body struct {
 			Hosts []string `json:"hosts"`
@@ -207,7 +207,7 @@ func TestTrafficHandler(t *testing.T) {
 		if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
 			t.Fatal(err)
 		}
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		if body.ID != 5 || !strings.Contains(body.RequestRaw, "u=admin") || !strings.Contains(body.ResponseRaw, "ok") {
 			t.Errorf("详情 raw 报文不符: %+v", body)
 		}
@@ -222,7 +222,7 @@ func TestTrafficHandler(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		defer resp2.Body.Close()
+		defer func() { _ = resp2.Body.Close() }()
 		if resp2.StatusCode != 404 {
 			t.Errorf("未命中应 404，got %d", resp2.StatusCode)
 		}

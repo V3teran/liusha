@@ -71,7 +71,9 @@ func (s *Store) SaveRoadmap(ctx context.Context, taskID string, steps []RoadmapS
 	if err != nil {
 		return fmt.Errorf("begin transaction: %w", err)
 	}
-	defer tx.Rollback(ctx)
+	defer func() {
+		_ = tx.Rollback(ctx) // 忽略 Rollback 错误
+	}()
 
 	// 删除旧的 Roadmap
 	_, err = tx.Exec(ctx, `DELETE FROM exploration_roadmap_step WHERE task_id = $1`, taskID)

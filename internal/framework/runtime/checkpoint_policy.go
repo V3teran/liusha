@@ -15,7 +15,7 @@ func NewIterationCheckpointPolicy(interval int) *IterationCheckpointPolicy {
 	return &IterationCheckpointPolicy{Interval: interval}
 }
 
-func (p *IterationCheckpointPolicy) ShouldSave(iteration int, trace *IterationTrace) bool {
+func (p *IterationCheckpointPolicy) ShouldSave(iteration int, _ *IterationTrace) bool {
 	if p.Interval <= 0 {
 		return false
 	}
@@ -37,7 +37,7 @@ func NewStateCheckpointPolicy(onSuccess, onError, onTool bool) *StateCheckpointP
 	}
 }
 
-func (p *StateCheckpointPolicy) ShouldSave(iteration int, trace *IterationTrace) bool {
+func (p *StateCheckpointPolicy) ShouldSave(_ int, trace *IterationTrace) bool {
 	if p.OnSuccess && trace.Status == IterationStatusComplete {
 		return true
 	}
@@ -57,7 +57,7 @@ func NewAlwaysCheckpointPolicy() *AlwaysCheckpointPolicy {
 	return &AlwaysCheckpointPolicy{}
 }
 
-func (p *AlwaysCheckpointPolicy) ShouldSave(iteration int, trace *IterationTrace) bool {
+func (p *AlwaysCheckpointPolicy) ShouldSave(_ int, trace *IterationTrace) bool {
 	return true
 }
 
@@ -68,6 +68,6 @@ func NewNeverCheckpointPolicy() *NeverCheckpointPolicy {
 	return &NeverCheckpointPolicy{}
 }
 
-func (p *NeverCheckpointPolicy) ShouldSave(iteration int, trace *IterationTrace) bool {
+func (p *NeverCheckpointPolicy) ShouldSave(_ int, trace *IterationTrace) bool {
 	return false
 }

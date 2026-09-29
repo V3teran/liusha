@@ -372,7 +372,7 @@ func proxyToSource(rec traffic.ProxyTraffic) (httpreplay.Source, error) {
 			Headers: json.RawMessage("{}"),
 		}, nil
 	}
-	defer req.Body.Close()
+	defer func() { _ = req.Body.Close() }()
 
 	hdrs := make(map[string]string, len(req.Header))
 	for k, vs := range req.Header {
@@ -383,7 +383,7 @@ func proxyToSource(rec traffic.ProxyTraffic) (httpreplay.Source, error) {
 	var body []byte
 	if req.Body != nil {
 		buf := new(bytes.Buffer)
-		buf.ReadFrom(req.Body)
+		_, _ = buf.ReadFrom(req.Body)
 		body = buf.Bytes()
 	}
 

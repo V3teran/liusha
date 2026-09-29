@@ -122,7 +122,7 @@ func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {
 func writeError(w http.ResponseWriter, code int, format string, args ...any) {
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.WriteHeader(code)
-	fmt.Fprintf(w, format, args...)
+	_, _ = fmt.Fprintf(w, format, args...)
 }
 
 // writeJSON 写 JSON 响应。

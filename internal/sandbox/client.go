@@ -62,7 +62,7 @@ func (c *httpClient) Exec(ctx context.Context, req ExecRequest) (ExecResult, err
 	if err != nil {
 		return ExecResult{}, fmt.Errorf("send request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(resp.Body)

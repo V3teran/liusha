@@ -11,6 +11,7 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/V3teran/liusha/internal/bus"
+	"github.com/V3teran/liusha/internal/constants"
 	"github.com/V3teran/liusha/internal/explorationgraph"
 	"github.com/V3teran/liusha/internal/framework/core"
 	"github.com/V3teran/liusha/internal/framework/llm"
@@ -54,7 +55,7 @@ type Config struct {
 func New(cfg Config) *Agent {
 	interval := cfg.Interval
 	if interval == 0 {
-		interval = 6 * time.Minute
+		interval = constants.MonitorInterval
 	}
 
 	// 创建 ReAct 运行时

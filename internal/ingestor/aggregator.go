@@ -86,11 +86,14 @@ func (a *aggregator) observe(ctx context.Context, host string) (hostWindow, erro
 // claimAndReset 尝试抢锁并清窗口：抢到锁（本实例负责建 task）返回 true 并清零计数/首条键；
 // 抢不到（别的实例先占）返回 false。锁 TTL 短（建 task 是快操作），到期自动释放防死锁。
 func (a *aggregator) claimAndReset(ctx context.Context, host string) (bool, error) {
-	ok, err := a.rdb.SetNX(ctx, a.lockKey(host), "1", 10*time.Second).Result()
+	ok, err := a.rdb.SetArgs(ctx, a.lockKey(host), "1", redis.SetArgs{
+		Mode: "NX",
+		TTL:  10 * time.Second,
+	}).Result()
 	if err != nil {
 		return false, fmt.Errorf("agg lock %s: %w", host, err)
 	}
-	if !ok {
+	if ok != "OK" {
 		return false, nil
 	}
 	// 抢到锁：清窗口计数 + 首条键 + 从活跃集移除，让后续流量开新窗口。

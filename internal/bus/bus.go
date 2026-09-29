@@ -12,6 +12,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/V3teran/liusha/internal/constants"
 	"github.com/V3teran/liusha/internal/logx"
 )
 
@@ -114,9 +115,9 @@ func New(ctx context.Context) *MemoryBus {
 	bus := &MemoryBus{
 		ctx:               ctx,
 		taskSubs:          make(map[string]map[uint64]chan Event),
-		taskOps:           make(chan taskSubOp, 32),
+		taskOps:           make(chan taskSubOp, constants.ChannelBufferLarge),
 		actionSubscribers: make(map[string]*subscriber),
-		publish:           make(chan Event, 100),
+		publish:           make(chan Event, constants.ChannelBufferVeryLarge),
 	}
 	go bus.run()
 	return bus
@@ -230,7 +231,7 @@ func (b *MemoryBus) SubscribeTask(taskID string) *TaskSubscription {
 	sub := &TaskSubscription{
 		id:     b.nextTaskSub.Add(1),
 		taskID: taskID,
-		events: make(chan Event, 50),
+		events: make(chan Event, constants.ChannelBufferLarge),
 	}
 	op := taskSubOp{sub: sub, taskID: taskID, done: make(chan struct{})}
 	select {
@@ -264,7 +265,7 @@ func (b *MemoryBus) SubscribeAction(ctx context.Context, actionID string) *Subsc
 	sub := &subscriber{
 		id:       id,
 		actionID: actionID,
-		events:   make(chan Event, 10),
+		events:   make(chan Event, constants.ChannelBufferMedium),
 		ctx:      subCtx,
 		cancel:   cancel,
 	}

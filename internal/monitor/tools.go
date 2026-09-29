@@ -4,8 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"time"
 
+	"github.com/V3teran/liusha/internal/constants"
 	"github.com/V3teran/liusha/internal/explorationgraph"
 	"github.com/V3teran/liusha/internal/registry"
 )
@@ -25,7 +25,7 @@ func NewGetGlobalStateTool(world *explorationgraph.Store, taskID string) *GetGlo
 		world:  world,
 		taskID: taskID,
 	}
-	t.SetTimeout(30 * time.Second)
+	t.SetTimeout(constants.ToolTimeoutLong)
 	t.SetConcurrencySafe(true)
 	return t
 }
@@ -103,7 +103,7 @@ func NewPublishDecisionTool(world *explorationgraph.Store, taskID string) *Publi
 		world:  world,
 		taskID: taskID,
 	}
-	t.SetTimeout(10 * time.Second)
+	t.SetTimeout(constants.ToolTimeoutMedium)
 	t.SetConcurrencySafe(false) // 决策操作不能并发
 	return t
 }

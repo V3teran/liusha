@@ -382,7 +382,9 @@ func (g *openAICompatGen) StreamChat(ctx context.Context, msgs []Message, tools 
 	ch := make(chan StreamEvent, 32)
 	go func() {
 		defer close(ch)
-		defer stream.Close()
+		defer func() {
+			_ = stream.Close() // Close 可能返回错误，忽略
+		}()
 
 		partial := map[int]*ToolCall{}
 
@@ -487,9 +489,8 @@ func estimateTokens(s string) int {
 	if s == "" {
 		return 0
 	}
-	runes := []rune(s)
 	ascii, cjk := 0, 0
-	for _, r := range runes {
+	for _, r := range s {
 		if r > 0x2E7F {
 			cjk++
 		} else {
