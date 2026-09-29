@@ -1,0 +1,56 @@
+# golangci-lint configuration
+# https://golangci-lint.run/usage/configuration/
+
+version: 2
+
+run:
+  timeout: 5m
+  skip-dirs:
+    - vendor
+    - web
+
+linters:
+  enable:
+    # 默认启用的
+    - errcheck
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    # 额外启用的
+    - misspell
+    - gocritic
+    - revive
+    - unconvert
+    - gocyclo
+    - gosec
+
+linters-settings:
+  gocyclo:
+    min-complexity: 20
+
+  gocritic:
+    enabled-tags:
+      - diagnostic
+      - performance
+
+  revive:
+    rules:
+      - name: var-naming
+        disabled: true
+      - name: exported
+        disabled: true
+
+  gosec:
+    excludes:
+      - G104
+      - G304
+
+issues:
+  max-issues-per-linter: 50
+  max-same-issues: 10
+  exclude-rules:
+    - path: _test\.go
+      linters:
+        - gosec
+        - gocritic
