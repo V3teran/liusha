@@ -57,7 +57,6 @@ func (t *GetGlobalStateTool) Schema() json.RawMessage {
 }
 
 // Execute 实现工具接口：读探索图汇总全局态势。
-// Execute 实现工具接口：读探索图汇总全局态势。
 func (t *GetGlobalStateTool) Execute(ctx context.Context, _ json.RawMessage) (registry.ToolResult, error) {
 	// 读取所有 Actions
 	allActions, err := t.world.ListAllActions(ctx, t.taskID)
@@ -104,10 +103,9 @@ type PublishDecisionTool struct {
 	taskID string
 }
 
-// NewPublishDecisionTool 构造决策工具。kill_action 的生效路径是探索图
+// NewPublishDecisionTool 构造决策发布工具。kill_action 的生效路径是探索图
 // 状态变更：action 置 aborted 后 executor 不再认领（CanExecute 只认 open）；
 // request_replan 无需显式事件——planner 以 10s 轮询兜底重规划。
-// NewPublishDecisionTool 构造决策发布工具。
 func NewPublishDecisionTool(world *explorationgraph.Store, taskID string) *PublishDecisionTool {
 	t := &PublishDecisionTool{
 		world:  world,
@@ -158,7 +156,7 @@ func (t *PublishDecisionTool) Schema() json.RawMessage {
 
 // Execute 实现工具接口：kill_action 落探索图状态变更。
 // Execute 实现工具接口：kill_action 落探索图状态变更。
-func (t *PublishDecisionTool) Execute(_ context.Context, args json.RawMessage) (registry.ToolResult, error) {
+func (t *PublishDecisionTool) Execute(ctx context.Context, args json.RawMessage) (registry.ToolResult, error) {
 	// 解析参数
 	var decision Decision
 	if err := json.Unmarshal(args, &decision); err != nil {
@@ -174,17 +172,23 @@ func (t *PublishDecisionTool) Execute(_ context.Context, args json.RawMessage) (
 		return registry.ToolResult{Error: "action_id is required for kill_action"}, nil
 	}
 
-	// kill_action 的实际生效路径是探索图中 action 状态变更（planner.Kill）；
-	// request_replan 决策记录在 monitor 的决策日志中。
+	// kill_action 直接落探索图状态：aborted 后 executor 不再认领（CanExecute 只认 open）。
+	// request_replan 由 planner 的 10s 轮询兜底重规划吸收，无需显式事件。
+	if decision.Type == "kill_action" && t.world != nil {
+		reason := decision.Reason
+		if err := t.world.UpdateActionStateWithReason(ctx, decision.ActionID, explorationgraph.StateAborted, &reason); err != nil {
+			return registry.ToolResult{Error: fmt.Sprintf("kill_action 状态变更失败: %v", err)}, nil
+		}
+	}
 
 	result := map[string]interface{}{
-		"type":   decision.Type,
-		"reason": decision.Reason,
+		"type":    decision.Type,
+		"reason":  decision.Reason,
+		"applied": decision.Type == "kill_action",
 	}
 	if decision.ActionID != "" {
 		result["action_id"] = decision.ActionID
 	}
-
 	resultJSON, _ := json.Marshal(result)
 	return registry.ToolResult{Output: string(resultJSON)}, nil
 }
