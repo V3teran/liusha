@@ -11,9 +11,8 @@ import (
 //
 // Input 是该 task 的入参（已序列化的 JSON），由 handler 自行解释。
 //
-// plannerID 标识 planner id（旧 subtask swarm 语义）；空表示独立任务/根任务。
+// plannerID 标识 planner id（父子子任务链）；空表示独立任务/根任务。
 // 现行 active 路径用 dispatcher/actor 进程内编排，exploitation 不入 asynq，故入队 Payload 此字段恒空；
-// 已删除废弃的 plannerID 和 ScenarioID 字段（v1.5 active 重构后不再使用）。
 type Payload struct {
 	AgentID string `json:"agent_id"`
 	TaskID  string `json:"task_id"` // 所属 task.id

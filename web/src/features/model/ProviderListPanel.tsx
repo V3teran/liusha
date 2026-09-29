@@ -16,7 +16,7 @@ interface ProviderListPanelProps {
 
 // 左列表面板：搜索 + 新建 + provider 行集合，量小（部署通常几个到十几个）故本地过滤，
 // 不接服务端分页——对齐 AssignmentView/ConversationList 这类小数据量列表的做法，
-// 而非套用 Scenario/Agent 那套面向大量条目的服务端翻页 ConfigListShell。
+// 面向少量条目的前端全量渲染，而非服务端翻页的 ConfigListShell。
 export function ProviderListPanel({
   providers,
   loading,

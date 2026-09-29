@@ -40,8 +40,6 @@ describe('ConversationDetail', () => {
     useConversationStore.getState().reset()
     vi.mocked(apiClient.listMessages).mockResolvedValue([])
     vi.mocked(apiClient.getConversationUsage).mockResolvedValue(mkUsage())
-    // Composer 常驻 ScenarioPicker，会调用 listScenarios。
-    vi.mocked(apiClient.listScenarios).mockResolvedValue([])
   })
   afterEach(() => {
     vi.clearAllMocks()

@@ -28,7 +28,7 @@ import (
 // 隔离设计：
 //   - Task 级：同一 Task 的 Agent 共享 profile（浏览器登录态、cookies）
 //   - Agent 级：每个 Agent 独立 workspace/output（避免并发文件冲突）
-//   - 支持 v1.4 subtask swarm：planner + exploitation 并发执行，文件互不串扰
+//   - 支持 planner + exploitation 并发执行，文件互不串扰
 //
 // 容器销毁时整个目录树自然消失，无残留泄露风险。
 // var（非 const）便于 server 包内单测用 t.TempDir() override。

@@ -74,7 +74,7 @@ func newWithStores(hn executorStore, sk skillStore, cache *cachestore.Cache) *St
 // ── 缓存键（L1/L2 同键，统一前缀 configstore:）───────────────────────────
 
 // keyplanner / keyExecutor 是两个哨兵键（无参），分别缓存全局唯一的 Planner 和 Executor
-// 与 swarm 的 enabled 领域池。任一 agent 存/删即失效二者（见 SaveExecutor/DeleteExecutor）。
+// 与 enabled 领域池。任一 agent 存/删即失效二者（见 SaveExecutor/DeleteExecutor）。
 const (
 	keyplanner  = "configstore:executor:planner"
 	keyExecutor = "configstore:executor:executor"
@@ -143,7 +143,7 @@ func (s *Store) ComplexityByCode(ctx context.Context, code string) (complexity s
 	return res.Complexity, res.Found, nil
 }
 
-// EnabledDomainExecutors 返回全部 enabled 领域操作员（swarm 子代理池），缓存于哨兵键。
+// EnabledDomainExecutors 返回全部 enabled 领域操作员（运行时子代理池），缓存于哨兵键。
 func (s *Store) EnabledDomainExecutors(ctx context.Context) ([]agent.Agent, error) {
 	return cachestore.ReadThrough(ctx, s.cache, keyExecutor,
 		func([]agent.Agent) []string { return []string{keyExecutor} },

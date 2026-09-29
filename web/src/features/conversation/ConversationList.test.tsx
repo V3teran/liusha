@@ -19,7 +19,7 @@ function mkConv(over: Partial<Conversation>): Conversation {
     Title: '我要扫描 example.com',
     TaskID: '',
     TaskID: '',
-    ScenarioID: 'web_app',
+    
     Source: 'manual',
     RunStatus: 'completed',
     FindingCount: 0,

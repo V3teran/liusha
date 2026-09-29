@@ -44,8 +44,8 @@ func TestStore_CreateThenGetByID(t *testing.T) {
 	}
 }
 
-// TestStore_Create_RejectsMissingScenarioOrInvalidCron 验证：缺 scenario_id / 非法 cron_expr 建不出模板。
-func TestStore_Create_RejectsMissingScenarioOrInvalidCron(t *testing.T) {
+// TestStore_Create_RejectsMissingBriefOrInvalidCron 验证：缺 brief / 非法 cron_expr 建不出模板。
+func TestStore_Create_RejectsMissingBriefOrInvalidCron(t *testing.T) {
 	pool := dbtest.NewPgPool(t)
 	s := NewStore(pool)
 	ctx := context.Background()

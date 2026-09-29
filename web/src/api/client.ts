@@ -236,7 +236,7 @@ export async function startChat(
       'X-API-Key': getApiKey(),
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ brief, scenario_id: '' }),
+    body: JSON.stringify({ brief }),
   })
   if (!res.ok) throw new Error(`POST /chat → ${res.status}`)
   return res.json()
@@ -247,13 +247,11 @@ export async function startChat(
  * 扫描进行中（409）时抛带 busy 标记的错，前端提示停止后再发。
  * @param convID 会话 ID
  * @param content 消息内容
- * @param _scenarioID 已废弃，保留参数签名兼容性
  * @returns intent 和可选的 scan_id
  */
 export async function followUp(
   convID: string,
   content: string,
-  _scenarioID = ''
 ): Promise<{ intent: string; scan_id?: string }> {
   const res = await fetch(`/api/conversations/${convID}/messages`, {
     method: 'POST',
@@ -261,7 +259,7 @@ export async function followUp(
       'X-API-Key': getApiKey(),
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ content, scenario_id: '' }),
+    body: JSON.stringify({ content }),
   })
   if (res.status === 409) {
     const err = new Error('扫描进行中') as Error & { busy?: boolean }
@@ -344,7 +342,7 @@ export async function startActiveScan(
    ============================================================ */
 
 /**
- * 分页拉取全局漏洞台账。可选按 host/severity/status/source/scenario_id 筛选；
+ * 分页拉取全局漏洞台账。可选按 host/severity/status/source 筛选；
  * page/size 缺省时后端落 1 / 50。修复历史缺陷：旧漏洞页走 /sitemap 仅覆盖部分场景，其余漏洞不可见。
  */
 export async function listFindings(filters: FindingFilters = {}): Promise<FindingListResponse> {
