@@ -186,7 +186,6 @@ type SessionConfig struct {
 	// agent user prompt 拼装时的上限（避免 prompt 膨胀）。
 	// FindingsLimitInPrompt：该 host 已有 finding 段的 DB 读上限安全闸（取够高，正常扫描全量注入；
 	// 不在此 top-N 截断，prompt 超长由 ① summarization 统一压缩，agent 仍可 read_findings 取全）。
-	// （原 lessons_limit_in_prompt 已删：跨目标知识改 corpus PULL 检索，不再 PUSH 注入。）
 	FindingsLimitInPrompt int `mapstructure:"findings_limit_in_prompt"`
 }
 
@@ -236,7 +235,7 @@ type CompactionConfig struct {
 	// 触发：每步 Generate 前算 total tokens，超 TriggerRatio×provider.ContextWindow 启动压缩。
 	// 设计原则：永保 system + 首 user，trailing 反向累加保最近 TrailingBudgetRatio×ctx_window，
 	// 候选集一次性送 light_provider 蒸馏成 1 条；失败 head-truncate 兜底。
-	// 与 notes/lesson/finding 分层记忆协同——蒸馏 prompt 引导省略"已 write_* 上提"内容。
+	// 蒸馏 prompt 引导省略"已 write_* 上提"的内容，避免重复。
 	HistoryCompact HistoryCompactConfig `mapstructure:"history_compact"`
 }
 

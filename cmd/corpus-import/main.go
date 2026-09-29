@@ -1,4 +1,4 @@
-// Package main 是 corpus 专家知识离线导入 CLI（见 lesson→corpus 设计 §5.3）。
+// Package main 是 corpus 专家知识离线导入 CLI。
 //
 // 把专家经验 / 历史报告 markdown 批量导入 corpus（source=expert），与 agent 的 write_corpus
 // 工具分开（不同来源、不同信任级）。流程：读 markdown → 按 ## 段切条 → LLM 自动打标 title/tags

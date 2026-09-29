@@ -1,7 +1,6 @@
 // Package corpus 是跨目标长期知识库（hybrid RAG）的 Go 模型与持久化层。
 //
-// 见 spec 2026-07-12-lesson-to-corpus-rag.md。取代旧 lesson 的 global 半：
-//   - 无 host 列——corpus 是跨目标可复用知识（host 归 lead）。
+//   - 无 host 列——corpus 是跨目标可复用知识，host 归探索图节点。
 //   - hybrid 检索：dense（pgvector HNSW cosine）+ sparse（pg_trgm）两路召回 → Jina rerank → top-k。
 //   - 来源二分：agent（自学/收尾蒸馏）| expert（外部 markdown 导入）。
 package corpus
