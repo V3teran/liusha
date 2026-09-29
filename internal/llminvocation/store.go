@@ -12,6 +12,7 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/V3teran/liusha/internal/config"
+	"github.com/V3teran/liusha/internal/constants"
 	"github.com/V3teran/liusha/internal/logx"
 )
 
@@ -43,8 +44,8 @@ type Store struct {
 const (
 	fallbackBufferSize    = 1024
 	fallbackBatchSize     = 100
-	fallbackFlushInterval = 1 * time.Second
-	fallbackInsertTimeout = 5 * time.Second
+	fallbackFlushInterval = constants.LogFlushInterval
+	fallbackInsertTimeout = constants.DBQueryTimeout
 )
 
 // NewStoreWithConfig 用 yaml 配置构造 Store 并启动后台 batch worker；任一字段为 0 时回退到 fallback 常量。
