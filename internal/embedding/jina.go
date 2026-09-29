@@ -1,6 +1,6 @@
 // Package embedding 封装 Jina 的 embedding + rerank HTTP client，供 corpus 的 hybrid RAG 用。
 //
-// 见 spec 2026-07-12-lesson-to-corpus-rag.md §6。密钥走 ENV JINA_API_KEY，绝不入 config/git。
+// 密钥走 ENV JINA_API_KEY，绝不入 config/git。
 // 密钥缺失时构造返回 ErrNoAPIKey，调用方据此降级（corpus 写入只落行不 embed、检索退纯 sparse）——
 // 渗透主流程不该被知识库可用性阻塞。
 package embedding

@@ -14,11 +14,11 @@ import (
 //     agent user prompt 拼完整 raw 流量（请求 + 响应）；Host = 流量真实 host。
 //   - active: 会话/API 入口填 Brief（用户自然语言整段），目标 URL/host/凭据/范围全塞 brief
 //     由 LLM 自识别；Host 由 handler.onboardHost（L2 域注册表 Onboard）从 brief 抽真实 host，抽不到回退 task_id。
-//     findings/lessons 按 (task/host) 切分。
+//     findings 按 (task/host) 切分。
 //
 // 认知循环的任务上下文参数（executor 引擎拼装 objective 用）。
 type BuilderParams struct {
-	TaskID       string // 所属 task.id（也用作 finding/lesson 归属）
+	TaskID       string // 所属 task.id（也用作 finding 归属）
 	AssignmentID string // 所属 assignment.id（用于查询情报黑板）
 	ExecutorID   string
 	Host         string
