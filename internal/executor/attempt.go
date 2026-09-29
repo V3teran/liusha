@@ -67,7 +67,7 @@ func AttemptFromFinding(taskID string, f finding.VulnFinding) (evaluator.Attempt
 func endpointRef(f finding.VulnFinding) explorationgraph.TargetRef {
 	locator := f.Host
 	if p := targetPath(f.Target); p != "" {
-		locator = strings.TrimRight(f.Host, "/") + ensureLeadingSlash(p)
+		locator = strings.TrimRight(f.Host, "/") + ensureObservationingSlash(p)
 	}
 	return explorationgraph.TargetRef{Domain: "web", RefKind: "endpoint", Locator: locator}
 }
@@ -86,7 +86,7 @@ func targetPath(target json.RawMessage) string {
 	return t.Path
 }
 
-func ensureLeadingSlash(p string) string {
+func ensureObservationingSlash(p string) string {
 	if strings.HasPrefix(p, "/") {
 		return p
 	}

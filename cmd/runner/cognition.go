@@ -70,7 +70,7 @@ func (h handler) runCognition(
 		Corpus:        h.corpus,
 		Embedder:      h.embedder,
 		Reranker:      h.reranker,
-		Leads:         h.leads,
+		Insights:         h.insights,
 		ProxyStore:    h.proxyStore,
 		AgentStore:    h.agentStore,
 		Creds:         h.creds,

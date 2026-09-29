@@ -28,7 +28,7 @@ type Deps struct {
 	Corpus        *corpus.Store
 	Embedder      corpus.Embedder // 可 nil → 退化为纯 sparse 检索
 	Reranker      corpus.Reranker
-	Leads         *insight.Store
+	Insights      *insight.Store
 	ProxyStore    *traffic.ProxyStore
 	AgentStore    *traffic.AgentStore
 	Creds         credential.Provider

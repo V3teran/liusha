@@ -8,7 +8,7 @@ const (
 	CatFindings    FunctionToolCategory = "findings"
 	CatCredentials FunctionToolCategory = "credentials"
 	CatCorpus      FunctionToolCategory = "corpus"
-	CatLead        FunctionToolCategory = "lead"
+	CatInsight      FunctionToolCategory = "insight"
 	CatTraffic     FunctionToolCategory = "traffic"
 	CatSandbox     FunctionToolCategory = "sandbox"
 	CatSkill       FunctionToolCategory = "skill"
@@ -32,7 +32,7 @@ var FunctionToolCatalog = []FunctionToolMeta{
 	{"update_finding", CatFindings, "更新已有 finding（保留首次发现时间，仅覆盖所传字段），用于补强 PoC/payload/severity。"},
 	{"search_corpus", CatCorpus, "检索跨目标长期知识库：沉淀的可复用打法、专家经验、历史教训。"},
 	{"write_corpus", CatCorpus, "向跨目标长期知识库沉淀一条可复用知识（有质量门槛，防噪音）。"},
-	{"write_lead", CatLead, "写一条跨 agent 情报到情报黑板（按 host 共享给子代理/跨 run，不进交付报告）。"},
+	{"write_insight", CatInsight, "写一条跨 agent 情报到情报黑板（按 host 共享给子代理/跨 run，不进交付报告）。"},
 	{"done", CatControl, "终止当前任务收尾，可带 reason/summary 供检查器与报告参考。"},
 	{"mark_insight", CatControl, "在执行图上标记关键节点（判断/发现），帮观察者看懂调查思路，不进黑板。"},
 	{"replay_traffic", CatTraffic, "重发历史 HTTP 流量并可字段级改写，做越权/未授权/IDOR/fuzz，自动保留 session 上下文。"},

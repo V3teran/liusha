@@ -32,9 +32,9 @@ func RegisterAll(reg *registry.Registry, deps Deps) {
 		reg.Register(newWriteCorpusTool(deps, constants.ToolTimeoutQuick, true))
 	}
 
-	// lead（快速写入，并发安全）
-	if deps.Leads != nil {
-		reg.Register(newWriteLeadTool(deps, constants.ToolTimeoutQuick, true))
+	// insight 写入（快速，并发安全）
+	if deps.Insights != nil {
+		reg.Register(newWriteInsightTool(deps, constants.ToolTimeoutQuick, true))
 	}
 
 	// traffic（读取可能较慢，replay 更慢且不安全）
