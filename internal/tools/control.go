@@ -3,8 +3,8 @@ package tools
 import (
 	"context"
 	"encoding/json"
-	"time"
 
+	"github.com/V3teran/liusha/internal/constants"
 	"github.com/V3teran/liusha/internal/registry"
 )
 
@@ -25,7 +25,7 @@ type doneTool struct {
 
 func newDoneTool() *doneTool {
 	t := &doneTool{}
-	t.SetTimeout(5 * time.Second)
+	t.SetTimeout(constants.ToolTimeoutQuick)
 	t.SetConcurrencySafe(true)
 	return t
 }
@@ -69,7 +69,7 @@ type markInsightTool struct {
 
 func newMarkInsightTool() *markInsightTool {
 	t := &markInsightTool{}
-	t.SetTimeout(5 * time.Second)
+	t.SetTimeout(constants.ToolTimeoutQuick)
 	t.SetConcurrencySafe(true)
 	return t
 }
