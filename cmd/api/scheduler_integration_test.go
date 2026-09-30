@@ -32,13 +32,13 @@ func newTestCronRunner(t *testing.T) (*cronRunner, *pgxpool.Pool) {
 
 	assignments := assignment.NewStore(pool)
 	tasks := task.NewStore(pool)
-	executorRuns := agentrun.NewStore(pool)
+	agentRuns := agentrun.NewStore(pool)
 	r := &cronRunner{
 		schedules:   cronschedule.NewStore(pool),
 		assignments: assignments,
 		tasks:       tasks,
 		proxyStore:  traffic.NewProxyStore(pool),
-		executors:   executorRuns,
+		executors:   agentRuns,
 		enq:         enq,
 		scan: &scanAdapter{
 			assignments:   assignments,
