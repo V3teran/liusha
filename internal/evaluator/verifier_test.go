@@ -11,19 +11,19 @@ import (
 	"github.com/V3teran/liusha/internal/framework/core"
 )
 
-// fakeWorld 记录 Evaluator 对探索图的写入，供断言"门的副作用"。
-type fakeWorld struct {
+// fakeGraphStore 记录 Evaluator 对探索图的写入，供断言"门的副作用"。
+type fakeGraphStore struct {
 	verifications []explorationgraph.Verification
 	nodes         []explorationgraph.Node
 	verID         string
 }
 
-func (f *fakeWorld) RecordVerification(_ context.Context, v explorationgraph.Verification) (string, error) {
+func (f *fakeGraphStore) RecordVerification(_ context.Context, v explorationgraph.Verification) (string, error) {
 	f.verifications = append(f.verifications, v)
 	return f.verID, nil
 }
 
-func (f *fakeWorld) CreateNode(_ context.Context, n explorationgraph.Node) (string, error) {
+func (f *fakeGraphStore) CreateNode(_ context.Context, n explorationgraph.Node) (string, error) {
 	nodeID := "node-" + string(n.Kind)
 	n.ID = nodeID
 	f.nodes = append(f.nodes, n)
@@ -63,7 +63,7 @@ func baseAttempt() Attempt {
 
 // 复现坐实：落 confirmed verification + 晋升 verified 节点。
 func TestPromote_Confirmed(t *testing.T) {
-	w := &fakeWorld{verID: "ver-99"}
+	w := &fakeGraphStore{verID: "ver-99"}
 	fw := &fakeFindingWriter{}
 	v := New(w, fakeReplayer{res: Result{Confirmed: true, Evaluation: json.RawMessage(`{"poc":"x"}`), DurationMs: 42}}, fw)
 
@@ -90,7 +90,7 @@ func TestPromote_Confirmed(t *testing.T) {
 
 // 复现证伪：落 refuted verification 留档，但不进图。铁律——图只存坐实态。
 func TestPromote_Refuted(t *testing.T) {
-	w := &fakeWorld{verID: "ver-1"}
+	w := &fakeGraphStore{verID: "ver-1"}
 	fw := &fakeFindingWriter{}
 	v := New(w, fakeReplayer{res: Result{Confirmed: false, Evaluation: json.RawMessage(`{"reason":"no repro"}`)}}, fw)
 
@@ -111,7 +111,7 @@ func TestPromote_Refuted(t *testing.T) {
 
 // 复现执行失败：门报错，且不落任何 verification/节点（避免脏证据链）。
 func TestPromote_ReplayError(t *testing.T) {
-	w := &fakeWorld{}
+	w := &fakeGraphStore{}
 	fw := &fakeFindingWriter{}
 	v := New(w, fakeReplayer{err: errors.New("boom")}, fw)
 
@@ -125,7 +125,7 @@ func TestPromote_ReplayError(t *testing.T) {
 // 无 Replayer：无复现能力即无晋升——直接报错，不放行。
 func TestPromote_NoReplayer(t *testing.T) {
 	fw := &fakeFindingWriter{}
-	v := New(&fakeWorld{}, nil, fw)
+	v := New(&fakeGraphStore{}, nil, fw)
 	if _, err := v.Promote(context.Background(), baseAttempt()); err == nil {
 		t.Fatal("无 Replayer 应报错")
 	}
@@ -134,7 +134,7 @@ func TestPromote_NoReplayer(t *testing.T) {
 // 必填校验：TaskID / Kind 缺失即拒。
 func TestPromote_Validation(t *testing.T) {
 	fw := &fakeFindingWriter{}
-	v := New(&fakeWorld{}, fakeReplayer{res: Result{Confirmed: true}}, fw)
+	v := New(&fakeGraphStore{}, fakeReplayer{res: Result{Confirmed: true}}, fw)
 
 	noScan := baseAttempt()
 	noScan.TaskID = ""
