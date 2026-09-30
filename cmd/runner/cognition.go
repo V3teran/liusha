@@ -43,7 +43,7 @@ func (s *agentTrafficScope) GetInScope(ctx context.Context, id int64) (httprepla
 	}, true, nil
 }
 
-// runCognition drives a single engagement through the L4 cognition loop:
+// runCognition drives a single assignment through the L4 cognition loop:
 // four independent agents (Planner, Executor, Evaluator, Monitor) coordinate via bus.Bus.
 func (h handler) runCognition(
 	ctx context.Context,
