@@ -9,12 +9,12 @@ import "context"
 
 // ProviderSpec 是构造一个 Generator 所需的全部连接参数（密钥已解析）。
 type ProviderSpec struct {
-	Key      string // provider 标识（日志/审计用）
-	Type     string // 协议类型：openai_compat | anthropic
-	BaseURL  string
-	Model    string
-	APIKey   string // 明文密钥（业务侧解析后传入；框架不落盘不记录）
-	MaxTokens int
+	Key            string // provider 标识（日志/审计用）
+	Type           string // 协议类型：openai_compat | anthropic
+	BaseURL        string
+	Model          string
+	APIKey         string // 明文密钥（业务侧解析后传入；框架不落盘不记录）
+	MaxTokens      int
 	SupportsVision bool
 }
 

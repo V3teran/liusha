@@ -146,12 +146,12 @@ func (a *Agent) evaluate(ctx context.Context) error {
 
 	// 配置 ReAct 运行
 	config := &runtime.ReActConfig{
-		Objective:            objective,
-		SystemPrompt:         systemPrompt,
-		LLMProvider:          a.provider,
-		MaxIterations:        10,  // 监察不需要太多轮
-		Temperature:          0.3, // 较低温度，确保稳定性
-		MaxTokens:            4000,
+		Objective:     objective,
+		SystemPrompt:  systemPrompt,
+		LLMProvider:   a.provider,
+		MaxIterations: 10,  // 监察不需要太多轮
+		Temperature:   0.3, // 较低温度，确保稳定性
+		MaxTokens:     4000,
 		// Monitor 窗口最小（原框架 Monitor 预设口径 10）——业务预设已按分层下沉到业务侧。
 		MessageModifierChain: runtime.NewDefaultModifierChain(10),
 
