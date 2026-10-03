@@ -358,23 +358,44 @@ func (a *Agent) harvestObservationProposals(ctx context.Context, since time.Time
 			Statement string `json:"statement"`
 			Severity  string `json:"severity"`
 			Repro     *struct {
+				// 新格式（自包含）
+				Request json.RawMessage `json:"request"`
+				Assert  json.RawMessage `json:"assert"`
+				// 旧格式（引用模式，已废弃）
 				TrafficID     int64           `json:"traffic_id"`
 				Modifications json.RawMessage `json:"modifications"`
-				Assert        json.RawMessage `json:"assert"`
 			} `json:"repro"`
 		}
 		if err := json.Unmarshal(n.Content, &content); err != nil || content.Repro == nil {
 			continue
 		}
-		if content.Repro.TrafficID <= 0 || len(content.Repro.Assert) == 0 {
+
+		// 必须有 assert 条件
+		if len(content.Repro.Assert) == 0 {
 			continue
 		}
 
-		recipe, err := json.Marshal(map[string]json.RawMessage{
-			"traffic_id":    json.RawMessage(fmt.Sprintf("%d", content.Repro.TrafficID)),
-			"modifications": content.Repro.Modifications,
-			"assert":        content.Repro.Assert,
-		})
+		var recipe []byte
+		var err error
+
+		// 优先使用新格式（自包含的 request）
+		if len(content.Repro.Request) > 0 {
+			recipe, err = json.Marshal(map[string]json.RawMessage{
+				"request": content.Repro.Request,
+				"assert":  content.Repro.Assert,
+			})
+		} else if content.Repro.TrafficID > 0 {
+			// 降级：仍支持旧格式（向后兼容）
+			recipe, err = json.Marshal(map[string]json.RawMessage{
+				"traffic_id":    json.RawMessage(fmt.Sprintf("%d", content.Repro.TrafficID)),
+				"modifications": content.Repro.Modifications,
+				"assert":        content.Repro.Assert,
+			})
+		} else {
+			// 既没有 request 也没有 traffic_id，跳过
+			continue
+		}
+
 		if err != nil {
 			continue
 		}
