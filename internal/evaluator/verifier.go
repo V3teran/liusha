@@ -23,6 +23,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"time"
 
 	"github.com/google/uuid"
@@ -52,11 +53,10 @@ type Replayer interface {
 	Replay(ctx context.Context, primitives json.RawMessage) (Result, error)
 }
 
-// Result 是一次复现执行的结论。
+// Result 是一次复现采集的客观证据（机器不判定坐实——语义裁决权全在 LLMJudge）。
 type Result struct {
-	Confirmed  bool            // 复现是否坐实（决定能否进图）
-	Evaluation json.RawMessage // 复现证据（req/resp、崩溃现场、API 响应…）
-	DurationMs int64           // 复现耗时
+	Evaluation json.RawMessage // 基线/攻击双对照证据 + executor 声明预期的核验明细（参考）
+	DurationMs int64           // 攻击重放耗时
 }
 
 // Attempt 是一次晋升尝试的输入：要复现什么、坐实后落成哪种节点、落在哪。
@@ -69,12 +69,22 @@ type Attempt struct {
 	Priority   string          // 优先级（critical/high/medium/low）
 }
 
+// Verdict 是 LLM 裁决的三态结论。
+const (
+	VerdictConfirmed = "confirmed"
+	VerdictRefuted   = "refuted"
+)
+
 // PromotionEvaluator 是 Observation→图节点的晋升门。
 type PromotionEvaluator struct {
 	graph    graphWriter
 	replayer Replayer
 	findings findingWriter   // 验证通过后写入 finding 表
+	judge    LLMJudge        // 可选：LLM 语义裁决（生产必配；nil=纯机器断言，供测试/降级）
 	logger   *zerolog.Logger // 可选：finding 写入失败等非致命错误经此告警
+	// agentRunID 归属的 agent_run.id（finding.agent_task_id NOT NULL）；
+	// 洞察链上 executor 侧 run 由装配方注入，空则写库会失败并告警。
+	agentRunID *string
 }
 
 // New 构造 Evaluator。replayer 为 nil 时 Promote 会报错（无复现能力即无晋升）。
@@ -84,6 +94,21 @@ func New(graph graphWriter, replayer Replayer, findings findingWriter) *Promotio
 		replayer: replayer,
 		findings: findings,
 	}
+}
+
+// WithAgentRunID 注入归属 agent_run.id（finding 表 NOT NULL 外键）。链式。
+func (v *PromotionEvaluator) WithAgentRunID(runID string) *PromotionEvaluator {
+	if runID != "" {
+		v.agentRunID = &runID
+	}
+	return v
+}
+
+// WithJudge 注入 LLM 裁决器（链式）。裁决语义：机器重放采集证据，LLM 终裁坐实/证伪；
+// LLM 调用失败时回退机器断言判定（可用性优先——LLM 抖动不卡死晋升链）。
+func (v *PromotionEvaluator) WithJudge(j LLMJudge) *PromotionEvaluator {
+	v.judge = j
+	return v
 }
 
 // WithLogger 注入可选日志器：finding 写入失败等非致命错误经此告警。
@@ -116,12 +141,33 @@ func (v *PromotionEvaluator) Promote(ctx context.Context, a Attempt) (*explorati
 		return nil, fmt.Errorf("verifier: 复现执行失败: %w", err)
 	}
 
+	// 裁决：LLM 是唯一判定权持有者（机器只采证不判定）。judge 未装配/调用失败 = 本次
+	// 未裁决，返回错误——绝不回退机器断言（谓词判不了漏洞语义，回退即橡皮图章）。
+	if v.judge == nil {
+		return nil, fmt.Errorf("verifier: 无 LLM 裁决器，无法晋升（机器不持判定权）")
+	}
+	var hyp string
+	var c struct {
+		Statement string `json:"statement"`
+	}
+	if json.Unmarshal(a.Content, &c) == nil {
+		hyp = c.Statement
+	}
+	replay := func(rctx context.Context) (Result, error) { // 绑定本 Attempt 配方的重放闭包
+		return v.replayer.Replay(rctx, a.Primitives)
+	}
+	verdict, _, jErr := v.judge.Judge(ctx, hyp, a.Primitives, res.Evaluation, replay)
+	if jErr != nil {
+		return nil, fmt.Errorf("verifier: LLM 裁决失败（本次未裁决，不回退机器）: %w", jErr)
+	}
+	confirmed := verdict == VerdictConfirmed // 唯一坐实来源
+
 	// 生成节点 ID（预先分配）
 	nodeID := uuid.New().String()
 
 	// 证据链：无论坐实与否都落 exploration_verification（refuted 也留档供审计/复盘）。
 	outcome := explorationgraph.OutcomeRefuted
-	if res.Confirmed {
+	if confirmed {
 		outcome = explorationgraph.OutcomeConfirmed
 	}
 	verID, err := v.graph.RecordVerification(ctx, explorationgraph.Verification{
@@ -139,7 +185,7 @@ func (v *PromotionEvaluator) Promote(ctx context.Context, a Attempt) (*explorati
 	}
 
 	// 证伪：不进图。铁律——图只存坐实态。
-	if !res.Confirmed {
+	if !confirmed {
 		return nil, nil
 	}
 
@@ -200,14 +246,25 @@ func (v *PromotionEvaluator) writeFinding(ctx context.Context, node explorationg
 	if content.Severity == "" {
 		content.Severity = "medium" // 默认中危
 	}
-	if content.Host == "" {
-		content.Host = "unknown" // 降级处理
+	hostFromEvidence := func(ev json.RawMessage) string {
+		var e struct {
+			URL string `json:"url"`
+		}
+		if json.Unmarshal(ev, &e) == nil && e.URL != "" {
+			if u, pErr := url.Parse(e.URL); pErr == nil && u.Host != "" {
+				return u.Host
+			}
+		}
+		return "unknown"
+	}
+
+	if content.Host == "" || content.Host == "unknown" {
+		content.Host = hostFromEvidence(res.Evaluation) // 从复现证据的 URL 抽真实 host
 	}
 
 	evaluation, err := json.Marshal(map[string]interface{}{
 		"node_id":         node.ID,
 		"verification_id": node.SourceID,
-		"confirmed":       res.Confirmed,
 		"evaluation":      res.Evaluation,
 		"duration_ms":     res.DurationMs,
 	})
@@ -217,6 +274,7 @@ func (v *PromotionEvaluator) writeFinding(ctx context.Context, node explorationg
 
 	f := finding.VulnFinding{
 		TaskID:     node.TaskID,
+		AgentRunID: v.agentRunID,
 		Host:       content.Host,
 		Summary:    content.Summary,
 		Severity:   content.Severity,

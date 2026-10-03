@@ -2,20 +2,27 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sync"
 	"time"
 
+	"github.com/V3teran/liusha/internal/agent"
 	"github.com/V3teran/liusha/internal/cognition"
 	"github.com/V3teran/liusha/internal/evaluator"
 	"github.com/V3teran/liusha/internal/executor"
+	"github.com/V3teran/liusha/internal/explorationgraph"
+	"github.com/V3teran/liusha/internal/framework/core"
 	"github.com/V3teran/liusha/internal/httpreplay"
 	"github.com/V3teran/liusha/internal/logx"
 	"github.com/V3teran/liusha/internal/monitor"
 	"github.com/V3teran/liusha/internal/planner"
 	"github.com/V3teran/liusha/internal/registry"
+	"github.com/V3teran/liusha/internal/sandbox"
 	"github.com/V3teran/liusha/internal/tools"
+	"github.com/V3teran/liusha/internal/tools/manifest"
 	"github.com/V3teran/liusha/internal/traffic"
+	"github.com/google/uuid"
 )
 
 // agentTrafficScope scopes AgentStore reads to a single task.
@@ -45,25 +52,116 @@ func (s *agentTrafficScope) GetInScope(ctx context.Context, id int64) (httprepla
 
 // runCognition drives a single assignment through the L4 cognition loop:
 // four independent agents (Planner, Executor, Evaluator, Monitor) coordinate via bus.Bus.
+// sb 是本任务独占的沙箱客户端；nil 表示无沙箱（run_command/browser_use 不注册）。
 func (h handler) runCognition(
 	ctx context.Context,
-	assignmentID, taskID, host string,
+	assignmentID, taskID, host, brief string,
+	sb sandbox.Client,
 ) (executor.Report, error) {
 	h.logger.Info().
 		Str("task_id", taskID).
+		Str("brief", brief).
 		Msg("[RUN_COGNITION] 启动四Agent架构")
 
 	if h.graph == nil || taskID == "" || h.eventBus == nil {
 		return executor.Report{}, fmt.Errorf("graph and eventBus are required")
 	}
 
+	// ========== 创建初始 Objective 节点（幂等：onboard 已建则跳过，防双根） ==========
+	if brief != "" {
+		if existing, listErr := h.graph.ListNodesByKind(ctx, taskID, core.KindObjective); listErr == nil && len(existing) > 0 {
+			h.logger.Info().
+				Str("task_id", taskID).
+				Int("existing_objectives", len(existing)).
+				Msg("根 Objective 已存在（onboard 创建），跳过重复创建")
+		} else {
+			rootID := uuid.New().String()
+			contentJSON, _ := json.Marshal(map[string]string{"brief": brief})
+
+			// 根据数据库约束，objective 类型节点必须有非空 state
+			initialState := explorationgraph.StateOpen
+
+			objectiveNode := explorationgraph.Node{
+				ID:         rootID,
+				TaskID:     taskID,
+				Kind:       core.KindObjective,
+				Content:    contentJSON,
+				State:      &initialState, // 必须设置 state
+				Priority:   explorationgraph.PriorityHigh,
+				SourceType: explorationgraph.SourceUser,
+				SourceID:   "task_init",
+			}
+
+			createdID, err := h.graph.CreateNode(ctx, objectiveNode)
+			if err != nil {
+				return executor.Report{}, fmt.Errorf("failed to create root objective: %w", err)
+			}
+			h.logger.Info().
+				Str("task_id", taskID).
+				Str("root_id", createdID).
+				Str("brief", brief).
+				Msg("✅ 已创建根 Objective 节点")
+		}
+	} else {
+		h.logger.Warn().
+			Str("task_id", taskID).
+			Msg("⚠️  任务 brief 为空，跳过创建根 Objective")
+	}
+	// ========================================================
+
+	// ========== 加载四 Agent 配置（function_tools/cli_tools 白名单的事实源） ==========
+	getCfg := func(code string) agent.Agent {
+		cfg, err := h.agentCfgStore.GetByCode(ctx, code)
+		if err != nil {
+			h.logger.Warn().Err(err).Str("code", code).Msg("⚠️  加载 agent 配置失败，使用空配置")
+			return agent.Agent{Code: code}
+		}
+		return cfg
+	}
+	executorCfg := getCfg("executor")
+	plannerCfg := getCfg("planner")
+	evaluatorCfg := getCfg("evaluator")
+	monitorCfg := getCfg("monitor")
+
+	h.logger.Info().
+		Strs("cli_tools", executorCfg.CliTools).
+		Int("cli_tools_count", len(executorCfg.CliTools)).
+		Msg("✅ Executor Agent 配置已加载")
+
+	// ========== 新增：根据白名单过滤工具清单 ==========
+	var filteredManifest *manifest.Manifest
+	if h.toolsManifest != nil && len(executorCfg.CliTools) > 0 {
+		// ✅ 只保留白名单中的工具
+		filteredManifest = h.toolsManifest.FilterByNames(executorCfg.CliTools)
+
+		h.logger.Info().
+			Int("total_in_yaml", len(h.toolsManifest.Tools)).
+			Int("whitelisted", len(executorCfg.CliTools)).
+			Int("filtered_result", len(filteredManifest.Tools)).
+			Strs("tool_names", filteredManifest.Names()).
+			Msg("✅ CLI 工具已过滤（白名单机制）")
+	} else {
+		filteredManifest = &manifest.Manifest{Tools: []manifest.Tool{}}
+		h.logger.Warn().Msg("⚠️  未配置 cli_tools 或 tools.yaml 未加载，外部工具不可用")
+	}
+	// ========================================================
+
 	// 1. 创建 Registry 并注册工具；挂工具遥测 + 任务心跳 interceptor——
 	// 每次工具调用落 tool_invocation 并节流续命 task.heartbeat_at（reaper 判活依据）。
+	// ExecutorID 口径：tool_invocation.agent_task_id 外键指向 agent_run.id，
+	// 取本 task 的 run 行（api expandItem 建的那条）；查不到留空 → NULL。
+	agentRunID := ""
+	if runs, rErr := h.executors.ListByTask(ctx, taskID, 1); rErr == nil && len(runs) > 0 {
+		agentRunID = runs[0].ID
+	} else if rErr != nil {
+		h.logger.Warn().Err(rErr).Str("task_id", taskID).Msg("查询 agent_run 失败，tool_invocation 将不关联 run")
+	}
+
 	reg := registry.New()
-	reg.AddInterceptor(h.toolRecordInterceptor(assignmentID, taskID))
+	reg.AddInterceptor(h.toolRecordInterceptor(agentRunID, taskID))
 	tools.RegisterAll(reg, tools.Deps{
 		TaskID:        taskID,
-		AgentID:       assignmentID,
+		AgentID:       agentRunID,
 		Host:          host,
 		Tasks:         h.tasks,
 		Findings:      h.findings,
@@ -74,21 +172,51 @@ func (h handler) runCognition(
 		ProxyStore:    h.proxyStore,
 		AgentStore:    h.agentStore,
 		Creds:         h.creds,
-		Sandbox:       nil, // Sandbox 由 sandboxMgr 管理
+		Sandbox:       sb,      // run_command/browser_use 依赖；nil 时这两个工具不注册
+		Graph:         h.graph, // write_observation/write_evidence 依赖——晋升提议权的载体
 		ToolingLoader: h.toolingLoader,
 		VulnLoader:    h.vulnLoader,
 	})
 
-	// 2. 包装为 executor.Registry
+	// 2. evaluator 裁决官的跨包工具：按其 function_tools 白名单从 BuildTools 取
+	// （run_command/list_traffic/view_traffic 等来自 tools 包；replay_for_verification 在 judge 本地）
+	var evaluatorCLImanifest *manifest.Manifest
+	if h.toolsManifest != nil && len(evaluatorCfg.CliTools) > 0 {
+		evaluatorCLImanifest = h.toolsManifest.FilterByNames(evaluatorCfg.CliTools)
+	}
+	judge := evaluator.NewRouterJudge(h.router, h.logger).
+		WithFunctionTools(evaluatorCfg.FunctionTools).
+		WithCLIManifest(evaluatorCLImanifest).
+		WithExtraTools(tools.BuildTools(tools.Deps{
+			TaskID:        taskID,
+			AgentID:       agentRunID,
+			Host:          host,
+			Tasks:         h.tasks,
+			Findings:      h.findings,
+			Corpus:        h.corpus,
+			Embedder:      h.embedder,
+			Reranker:      h.reranker,
+			Insights:      h.insights,
+			ProxyStore:    h.proxyStore,
+			AgentStore:    h.agentStore,
+			Creds:         h.creds,
+			Sandbox:       sb, // evaluator 的 CLI 复核通道（run_command）
+			ToolingLoader: h.toolingLoader,
+			VulnLoader:    h.vulnLoader,
+		}, evaluatorCfg.FunctionTools))
+
+	// 3. 包装为 executor.Registry
 	execRegistry := executor.NewRegistry(reg)
 
 	// 3. 创建 Executor Engine
 	engine := executor.NewEngine(executor.EngineConfig{
-		Router:       h.router,
-		Findings:     h.findings,
-		Registry:     execRegistry,
-		Checkpointer: h.checkpointer,
-		Logger:       h.logger,
+		Router:        h.router,
+		Findings:      h.findings,
+		Registry:      execRegistry,
+		FunctionTools: executorCfg.FunctionTools, // function_tools 白名单（nil=全量）
+		ToolsManifest: filteredManifest,          // CLI 工具清单（白名单过滤后）
+		Checkpointer:  h.checkpointer,
+		Logger:        h.logger,
 	})
 
 	// 4. 创建 Coordinator（使用 Engine）
@@ -108,7 +236,10 @@ func (h handler) runCognition(
 	replaySource := &agentTrafficScope{store: h.agentStore, taskID: taskID}
 	replayer := executor.NewReplayer(replaySource)
 
-	promoter := evaluator.New(h.graph, replayer, h.findings)
+	promoter := evaluator.New(h.graph, replayer, h.findings).
+		WithJudge(judge). // ReAct 裁决官：replay_for_verification + CLI 复核工具
+		WithLogger(h.logger).
+		WithAgentRunID(agentRunID)
 
 	evaluatorAgent := evaluator.NewAgent(evaluator.AgentConfig{
 		TaskID:    taskID,
@@ -121,11 +252,12 @@ func (h handler) runCognition(
 	intelligence := planner.NewIntelligence(h.router, h.logger)
 
 	plannerAgent := planner.NewAgent(planner.AgentConfig{
-		TaskID:   taskID,
-		Graph:    h.graph,
-		Planner:  intelligence,
-		EventBus: h.eventBus,
-		Logger:   h.logger.With().Str("component", "planner_agent").Logger(),
+		TaskID:        taskID,
+		Graph:         h.graph,
+		Planner:       intelligence,
+		EventBus:      h.eventBus,
+		Logger:        h.logger.With().Str("component", "planner_agent").Logger(),
+		FunctionTools: plannerCfg.FunctionTools,
 	})
 
 	// 6. 创建 MonitorAgent
@@ -135,13 +267,14 @@ func (h handler) runCognition(
 	}
 
 	monitorAgent := monitor.New(monitor.Config{
-		TaskID:       taskID,
-		Graph:        h.graph,
-		EventBus:     h.eventBus,
-		Provider:     provider,
-		Interval:     6 * time.Minute,
-		Logger:       h.logger.With().Str("component", "monitor_agent").Logger(),
-		Checkpointer: h.checkpointer,
+		TaskID:        taskID,
+		FunctionTools: monitorCfg.FunctionTools,
+		Graph:         h.graph,
+		EventBus:      h.eventBus,
+		Provider:      provider,
+		Interval:      6 * time.Minute,
+		Logger:        h.logger.With().Str("component", "monitor_agent").Logger(),
+		Checkpointer:  h.checkpointer,
 	})
 
 	// 7. 创建完成检测器（持续探索模式）

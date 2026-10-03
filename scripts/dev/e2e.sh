@@ -80,7 +80,7 @@ echo "===== 2/6 清空 db / redis ====="
 # solo 由 scenario.solo_agent_id 单点指定。故这里清运行时表 agent_run（旧脚本误清 config 表 agent，是 swarm 派发失败根因）。
 # task 放最后——CASCADE 会连带清 agent_run/finding/... 的 task_id 引用行，但显式全列更清晰。
 if ! docker exec "$PG_CONTAINER" psql -U liusha -d liusha -c \
-    "TRUNCATE TABLE finding, corpus, llm_invocation, tool_invocation, audit_log, agent_run, proxy_traffic, agent_traffic, conversation, task, assignment, cron_schedule CASCADE;"; then
+    "TRUNCATE TABLE finding, corpus, llm_invocation, tool_invocation, audit_log, agent_run, proxy_traffic, agent_traffic, conversation, task, assignment, cron_schedule, checkpoints, exploration_node, exploration_edge, exploration_verification, exploration_roadmap_step RESTART IDENTITY CASCADE;"; then
   echo "  ✗ postgres TRUNCATE 失败 — 看上面 psql 错误（常见原因：容器不在 / schema 不一致 / migrate 未跑）"
   exit 1
 fi

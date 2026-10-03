@@ -3,7 +3,6 @@ package middleware
 import (
 	"context"
 	"fmt"
-	"github.com/V3teran/liusha/internal/bus"
 	"sync"
 	"time"
 
@@ -12,11 +11,20 @@ import (
 	"github.com/rs/zerolog"
 )
 
+// HumanEventPublisher 是人机交互事件的发布口——框架不依赖业务事件总线，
+// 业务侧用适配器把本接口接到自己的 bus（如 internal/bus.MemoryBus）。
+type HumanEventPublisher interface {
+	// PublishHumanInputRequired 人工输入请求产生时发布。
+	PublishHumanInputRequired(taskID, requestID, nodeID, inputType, prompt string)
+	// PublishHumanInputReceived 人工输入提交时发布。
+	PublishHumanInputReceived(taskID, requestID, nodeID string, approved bool, submitter string)
+}
+
 // HumanInteractionManagerImpl 是人机交互管理器的实现。
 type HumanInteractionManagerImpl struct {
 	store     HumanInputStore
 	validator HumanInputValidator
-	eventBus  bus.Bus
+	publisher HumanEventPublisher
 	logger    zerolog.Logger
 
 	// 等待队列（requestID -> 响应通道）
@@ -32,13 +40,13 @@ type HumanInteractionManagerImpl struct {
 func NewHumanInteractionManager(
 	store HumanInputStore,
 	validator HumanInputValidator,
-	eventBus bus.Bus,
+	publisher HumanEventPublisher,
 	logger zerolog.Logger,
 ) *HumanInteractionManagerImpl {
 	return &HumanInteractionManagerImpl{
 		store:       store,
 		validator:   validator,
-		eventBus:    eventBus,
+		publisher:   publisher,
 		logger:      logger.With().Str("component", "human_interaction").Logger(),
 		waiters:     make(map[string]chan *HumanInputResponse),
 		cancelFn:    make(map[string]context.CancelFunc),
@@ -80,19 +88,9 @@ func (h *HumanInteractionManagerImpl) RequestInput(ctx context.Context, req Huma
 		close(respCh)
 	}()
 
-	// 发布事件
-	if h.eventBus != nil {
-		event := bus.Event{
-			Type:   bus.EventHumanInputRequired,
-			TaskID: req.TaskID,
-			Payload: map[string]any{
-				"request_id": req.ID,
-				"node_id":    req.NodeID,
-				"input_type": req.InputType,
-				"prompt":     req.Prompt,
-			},
-		}
-		h.eventBus.Publish(event)
+	// 发布事件（经业务适配器；未接总线时静默跳过）
+	if h.publisher != nil {
+		h.publisher.PublishHumanInputRequired(req.TaskID, req.ID, req.NodeID, req.InputType, req.Prompt)
 	}
 
 	// 通知订阅者
@@ -192,19 +190,8 @@ func (h *HumanInteractionManagerImpl) SubmitInput(ctx context.Context, resp Huma
 		}
 	}
 
-	// 发布事件
-	if h.eventBus != nil {
-		event := bus.Event{
-			Type:   bus.EventHumanInputReceived,
-			TaskID: resp.TaskID,
-			Payload: map[string]any{
-				"request_id": resp.RequestID,
-				"node_id":    resp.NodeID,
-				"approved":   resp.Approved,
-				"submitter":  resp.Submitter,
-			},
-		}
-		h.eventBus.Publish(event)
+	if h.publisher != nil {
+		h.publisher.PublishHumanInputReceived(resp.TaskID, resp.RequestID, resp.NodeID, resp.Approved, resp.Submitter)
 	}
 
 	return nil

@@ -28,6 +28,7 @@ import (
 
 	"github.com/V3teran/liusha/internal/cachestore"
 	"github.com/V3teran/liusha/internal/config/llm"
+	fwllm "github.com/V3teran/liusha/internal/framework/llm"
 )
 
 // llmStore 是 llmstore 依赖的底层持久化能力（*llmcfg.Store 自动满足）。
@@ -258,18 +259,39 @@ func (s *Store) DeleteRoleRoute(ctx context.Context, role string) error {
 	return s.cache.Invalidate(ctx, routeKeys()...)
 }
 
-// RouterStoreAdapter 把 *Store 包装成 llm.RouterStore（方法名对齐接口）。
-type RouterStoreAdapter struct{ s *Store }
-
-// AsRouterStore 返回满足 llm.RouterStore 的适配器。
-func (s *Store) AsRouterStore() *RouterStoreAdapter { return &RouterStoreAdapter{s} }
-
-// GetRouting 实现 llm.RouterStore：读 role→tier 路由配置。
-func (a *RouterStoreAdapter) GetRouting(ctx context.Context) (llmcfg.Routing, error) {
-	return a.s.Routing(ctx)
+// RouterStoreAdapter 把 *Store 包装成 framework llm.RouterStore。
+// key 解析（EncryptedAPIKey/ENV 回退）在此完成——框架只收已解析的 ProviderSpec。
+type RouterStoreAdapter struct {
+	s      *Store
+	cipher llmcfg.KeyDecrypter
 }
 
-// GetProvider 实现 llm.RouterStore：按 provider key 读部署行。
-func (a *RouterStoreAdapter) GetProvider(ctx context.Context, key string) (llmcfg.Provider, error) {
-	return a.s.ProviderByKey(ctx, key)
+// AsRouterStore 返回满足 llm.RouterStore 的适配器（cipher 用于密钥解密）。
+func (s *Store) AsRouterStore(cipher llmcfg.KeyDecrypter) *RouterStoreAdapter {
+	return &RouterStoreAdapter{s: s, cipher: cipher}
+}
+
+// GetRouting 实现 llm.RouterStore：读 role→tier 路由配置。
+func (a *RouterStoreAdapter) GetRouting(ctx context.Context) (fwllm.RoutingSpec, error) {
+	r, err := a.s.Routing(ctx)
+	if err != nil {
+		return fwllm.RoutingSpec{}, err
+	}
+	return fwllm.RoutingSpec{Roles: r.Roles}, nil
+}
+
+// GetProviderSpec 实现 llm.RouterStore：按 provider key 读部署行 → 解析密钥 → 框架 spec。
+func (a *RouterStoreAdapter) GetProviderSpec(ctx context.Context, key string) (fwllm.ProviderSpec, error) {
+	p, err := a.s.ProviderByKey(ctx, key)
+	if err != nil {
+		return fwllm.ProviderSpec{}, err
+	}
+	apiKey, err := llmcfg.ResolveAPIKey(p, a.cipher)
+	if err != nil {
+		return fwllm.ProviderSpec{}, err
+	}
+	return fwllm.ProviderSpec{
+		Key: p.Key, Type: p.Type, BaseURL: p.BaseURL, Model: p.DefaultModel,
+		APIKey: apiKey, MaxTokens: p.MaxTokens, SupportsVision: p.SupportsVision,
+	}, nil
 }

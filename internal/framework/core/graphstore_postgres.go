@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
@@ -31,12 +32,32 @@ import (
 // 注意：exploration_node 表有一些业务特定的 NOT NULL 字段（task_id, source_type, source_id），
 // 这些字段通过 Metadata 传递，或使用合理的默认值。
 type PostgresGraphStore struct {
-	pool *pgxpool.Pool
+	pool      *pgxpool.Pool
+	nodeTable string // 节点表名（默认 exploration_node；可经 NewPostgresGraphStoreWithTables 配置）
+	edgeTable string // 边表名（默认 exploration_edge）
 }
 
-// NewPostgresGraphStore 创建新的 PostgreSQL GraphStore。
+// 默认表名（liusha 探索图业务的 schema）。
+const (
+	defaultNodeTable = "exploration_node"
+	defaultEdgeTable = "exploration_edge"
+)
+
+// NewPostgresGraphStore 创建新的 PostgreSQL GraphStore（默认探索图表名）。
 func NewPostgresGraphStore(pool *pgxpool.Pool) *PostgresGraphStore {
-	return &PostgresGraphStore{pool: pool}
+	return &PostgresGraphStore{pool: pool, nodeTable: defaultNodeTable, edgeTable: defaultEdgeTable}
+}
+
+// identRe 合法 SQL 标识符白名单（表名不能参数化，拼 SQL 前校验防注入）。
+var identRe = regexp.MustCompile(`^[a-z_][a-z0-9_]*$`)
+
+// NewPostgresGraphStoreWithTables 用自定义表名创建 GraphStore——通用图存储内核
+// 不再钉死在单一业务 schema 上（其他领域可复用同一内核 + 各自的表）。
+func NewPostgresGraphStoreWithTables(pool *pgxpool.Pool, nodeTable, edgeTable string) (*PostgresGraphStore, error) {
+	if !identRe.MatchString(nodeTable) || !identRe.MatchString(edgeTable) {
+		return nil, fmt.Errorf("graphstore: 非法表名 %q/%q（仅 [a-z_][a-z0-9_]*）", nodeTable, edgeTable)
+	}
+	return &PostgresGraphStore{pool: pool, nodeTable: nodeTable, edgeTable: edgeTable}, nil
 }
 
 // CreateNode 创建新节点。
@@ -93,7 +114,7 @@ func (s *PostgresGraphStore) CreateNode(ctx context.Context, node *GraphNode) er
 	}
 
 	query := `
-		INSERT INTO exploration_node (
+		INSERT INTO ` + s.nodeTable + ` (
 			id, task_id, kind, content,
 			state, complexity, depends_on, blocked_reason, roadmap_step,
 			confidence, version,
@@ -160,7 +181,7 @@ func (s *PostgresGraphStore) GetNode(ctx context.Context, id string) (*GraphNode
 		SELECT
 			id, kind, content, state, confidence, version,
 			metadata, created_at, updated_at
-		FROM exploration_node
+		FROM ` + s.nodeTable + `
 		WHERE id = $1
 	`
 
@@ -279,7 +300,7 @@ func (s *PostgresGraphStore) UpdateNode(ctx context.Context, id string, update G
 	}
 
 	query := fmt.Sprintf(`
-		UPDATE exploration_node
+		UPDATE `+s.nodeTable+`
 		SET %s
 		WHERE %s
 	`, strings.Join(setParts, ", "), strings.Join(whereParts, " AND "))
@@ -294,7 +315,7 @@ func (s *PostgresGraphStore) UpdateNode(ctx context.Context, id string, update G
 		if update.ExpectedVersion != nil {
 			// 检查节点是否存在
 			var exists bool
-			checkQuery := `SELECT EXISTS(SELECT 1 FROM exploration_node WHERE id = $1)`
+			checkQuery := "SELECT EXISTS(SELECT 1 FROM " + s.nodeTable + " WHERE id = $1)"
 			err := s.pool.QueryRow(ctx, checkQuery, id).Scan(&exists)
 			if err != nil {
 				return fmt.Errorf("check node existence: %w", err)
@@ -318,7 +339,7 @@ func (s *PostgresGraphStore) DeleteNode(ctx context.Context, id string) error {
 	}
 
 	// 删除节点（CASCADE 会自动删除相关的边）
-	query := `DELETE FROM exploration_node WHERE id = $1`
+	query := "DELETE FROM " + s.nodeTable + " WHERE id = $1"
 
 	result, err := s.pool.Exec(ctx, query, id)
 	if err != nil {
@@ -405,7 +426,7 @@ func (s *PostgresGraphStore) ListNodes(ctx context.Context, query GraphNodeQuery
 		SELECT
 			id, kind, content, state, confidence, version,
 			metadata, created_at, updated_at
-		FROM exploration_node
+		FROM `+s.nodeTable+`
 		%s
 		ORDER BY %s
 		%s %s
@@ -504,7 +525,7 @@ func (s *PostgresGraphStore) CompareAndSwapState(ctx context.Context, taskID, no
 
 	// 使用乐观锁更新状态
 	query := `
-		UPDATE exploration_node
+		UPDATE ` + s.nodeTable + `
 		SET state = $1, updated_at = $2
 		WHERE id = $3 AND version = $4
 	`
@@ -546,7 +567,7 @@ func (s *PostgresGraphStore) CreateEdge(ctx context.Context, edge *GraphEdge) er
 	}
 
 	query := `
-		INSERT INTO exploration_edge (task_id, src_id, rel, dst_id, attrs, created_at)
+		INSERT INTO ` + s.edgeTable + ` (task_id, src_id, rel, dst_id, attrs, created_at)
 		VALUES ($1, $2, $3, $4, $5, $6)
 		ON CONFLICT (task_id, src_id, rel, dst_id) DO NOTHING
 	`
@@ -610,7 +631,7 @@ func (s *PostgresGraphStore) ListEdges(ctx context.Context, query GraphEdgeQuery
 
 	sqlQuery := fmt.Sprintf(`
 		SELECT src_id, dst_id, rel, attrs, created_at
-		FROM exploration_edge
+		FROM `+s.edgeTable+`
 		%s
 		ORDER BY created_at DESC
 		%s
@@ -662,7 +683,7 @@ func (s *PostgresGraphStore) DeleteEdge(ctx context.Context, from, to, relation 
 	}
 
 	query := `
-		DELETE FROM exploration_edge
+		DELETE FROM ` + s.edgeTable + `
 		WHERE src_id = $1 AND dst_id = $2 AND rel = $3
 	`
 
@@ -771,16 +792,16 @@ func (s *PostgresGraphStore) getNeighbors(ctx context.Context, nodeID string, di
 
 	switch direction {
 	case GraphTraverseOut:
-		query = fmt.Sprintf(`SELECT dst_id FROM exploration_edge WHERE src_id = $1%s`, relFilter)
+		query = fmt.Sprintf("SELECT dst_id FROM "+s.edgeTable+" WHERE src_id = $1%s", relFilter)
 		args = []interface{}{nodeID}
 	case GraphTraverseIn:
-		query = fmt.Sprintf(`SELECT src_id FROM exploration_edge WHERE dst_id = $1%s`, relFilter)
+		query = fmt.Sprintf("SELECT src_id FROM "+s.edgeTable+" WHERE dst_id = $1%s", relFilter)
 		args = []interface{}{nodeID}
 	case GraphTraverseBoth:
 		query = fmt.Sprintf(`
-			SELECT dst_id FROM exploration_edge WHERE src_id = $1%s
+			SELECT dst_id FROM `+s.edgeTable+` WHERE src_id = $1%s
 			UNION
-			SELECT src_id FROM exploration_edge WHERE dst_id = $2%s
+			SELECT src_id FROM `+s.edgeTable+` WHERE dst_id = $2%s
 		`, relFilter, relFilter)
 		args = []interface{}{nodeID, nodeID}
 	default:
@@ -839,7 +860,7 @@ func (s *PostgresGraphStore) matchNodeFilter(node *GraphNode, filter GraphNodeQu
 // getNodeTaskID 获取节点的 task_id。
 func (s *PostgresGraphStore) getNodeTaskID(ctx context.Context, nodeID string) (string, error) {
 	var taskID string
-	err := s.pool.QueryRow(ctx, `SELECT task_id FROM exploration_node WHERE id = $1`, nodeID).Scan(&taskID)
+	err := s.pool.QueryRow(ctx, "SELECT task_id FROM "+s.nodeTable+" WHERE id = $1", nodeID).Scan(&taskID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return "", ErrGraphNodeNotFound

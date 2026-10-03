@@ -17,6 +17,12 @@ type TrafficSource interface {
 	GetInScope(ctx context.Context, id int64) (httpreplay.Source, bool, error)
 }
 
+// modsIsEmpty 判断复现配方是否带任何改写（payload 注入点）。
+func modsIsEmpty(m httpreplay.Mods) bool {
+	return m.URL == "" && m.Method == "" && m.Headers == nil &&
+		m.Query == nil && m.Body == nil && m.BodyFields == nil
+}
+
 // ReplayRecipe 是 web 域的 L1 复现原语（evaluator.Attempt.Primitives 的形状）。
 // 机器可判的坐实配方：拿哪条源流量、怎么改写、拿什么断言判坐实。
 // Resolve 非空时，主 replay 前先发一个准备请求抽新鲜值注入——专治 replay 时
@@ -35,11 +41,12 @@ type Assertion struct {
 	BodyContains   []string          `json:"body_contains,omitempty"`   // 响应体须含全部子串（越权拿到数据、SQL 报错、XSS 回显）
 	BodyAbsent     []string          `json:"body_absent,omitempty"`     // 响应体须不含任一子串（未跳登录页=认证绕过坐实）
 	HeaderContains map[string]string `json:"header_contains,omitempty"` // 响应头 key→子串
+	MinDurationMs  *int              `json:"min_duration_ms,omitempty"` // 响应耗时至少 N ms——时间盲注入的合法证据类型
 }
 
 func (a Assertion) empty() bool {
 	return a.StatusCode == nil && len(a.BodyContains) == 0 &&
-		len(a.BodyAbsent) == 0 && len(a.HeaderContains) == 0
+		len(a.BodyAbsent) == 0 && len(a.HeaderContains) == 0 && a.MinDurationMs == nil
 }
 
 // Replayer 是 web 域的 evaluator.Replayer：重发源流量的改写版，按断言判是否坐实。
@@ -52,17 +59,22 @@ func NewReplayer(traffic TrafficSource) *Replayer {
 	return &Replayer{traffic: traffic}
 }
 
-// replayEvidence 是落进 exploration_verification 的复现证据（req/resp + 断言判定明细）。
+// replayEvidence 是落进 exploration_verification 的复现证据（基线/攻击双对照 + 断言明细）。
 type replayEvidence struct {
-	TrafficID     int64             `json:"traffic_id"`
-	Method        string            `json:"method"`
-	URL           string            `json:"url"`
-	StatusCode    int               `json:"status_code"`
-	RespHeaders   map[string]string `json:"response_headers"`
-	RespBodyLen   int               `json:"response_body_len"`
-	RespBodySnip  string            `json:"response_body_snippet"`
-	AssertPassed  bool              `json:"assert_passed"`
-	AssertReasons []string          `json:"assert_reasons"` // 每条谓词的判定（通过/失败原因）
+	TrafficID int64  `json:"traffic_id"`
+	Method    string `json:"method"`
+	URL       string `json:"url"`
+	// 基线（原样重放）与攻击（payload 改写）的双对照——裁决官据此看差分。
+	BaselineStatus  int               `json:"baseline_status_code"`
+	BaselineDurMs   int64             `json:"baseline_duration_ms"`
+	BaselineBodyLen int               `json:"baseline_body_len"`
+	AttackStatus    int               `json:"attack_status_code"`
+	AttackDurMs     int64             `json:"attack_duration_ms"`
+	RespHeaders     map[string]string `json:"response_headers"`
+	RespBodyLen     int               `json:"response_body_len"`
+	RespBodySnip    string            `json:"response_body_snippet"`
+	AssertPassed    bool              `json:"assert_passed"`
+	AssertReasons   []string          `json:"assert_reasons"` // 每条谓词的判定（通过/失败原因）
 }
 
 const evidenceBodySnip = 2048 // 证据里响应体截断长度
@@ -102,6 +114,22 @@ func (r *Replayer) Replay(ctx context.Context, primitives json.RawMessage) (eval
 		return evaluator.Result{}, fmt.Errorf("web.Replayer: 源流量 %d 不存在或越界", recipe.TrafficID)
 	}
 
+	// 差分复现铁律（业界基线对照法）：mods 为空的原样重放，断言命中只能是页面常态
+	// ——逻辑上不可区分"因为漏洞"与"本来就这样"，一律拒绝。坐实的唯一形态：
+	// modifications 注入 payload（或改写参数/头）构造攻击请求，断言其响应偏离基线。
+	if modsIsEmpty(recipe.Modifications) {
+		return evaluator.Result{}, fmt.Errorf("web.Replayer: 拒绝原样重放坐实——modifications 为空（请在 modifications 注入 payload 或改写字段构造差分；时间盲注入断言用 min_duration_ms）")
+	}
+
+	// 基线：原样重放源流量（继承 cookie/会话），作为"正常行为"对照进证据链。
+	baseStart := time.Now()
+	baseline, baseErr := httpreplay.Replay(ctx, src, httpreplay.Mods{})
+	baseDur := time.Since(baseStart).Milliseconds()
+	if baseErr != nil {
+		return evaluator.Result{}, fmt.Errorf("web.Replayer: 基线重放失败: %w", baseErr)
+	}
+
+	// 攻击：按配方改写（payload 注入点）重放。
 	start := time.Now()
 	res, err := httpreplay.Replay(ctx, src, recipe.Modifications)
 	dur := time.Since(start).Milliseconds()
@@ -109,21 +137,32 @@ func (r *Replayer) Replay(ctx context.Context, primitives json.RawMessage) (eval
 		return evaluator.Result{}, fmt.Errorf("web.Replayer: 重发失败: %w", err)
 	}
 
-	passed, reasons := recipe.Assert.eval(res)
+	// 断言在基线上先跑一遍：基线也全命中 = 断言无鉴别力（正常响应即满足），拒绝坐实。
+	if basePassed, _ := recipe.Assert.eval(baseline, baseDur); basePassed {
+		return evaluator.Result{}, fmt.Errorf("web.Replayer: 无鉴别力断言——基线（原样重放）同样满足全部谓词，命中不构成漏洞证据（断言应捕捉攻击响应独有特征：报错回显/数据泄露/延迟）")
+	}
+
+	// assert 命中明细：executor 声明预期的核验（参考信息——机器不产出坐实结论，
+	// 语义判定权在 LLM 裁决官；断言全命中也仅说明"声称的特征出现了"）。
+	assertPassed, assertReasons := recipe.Assert.eval(res, dur)
 	ev := replayEvidence{
-		TrafficID:     recipe.TrafficID,
-		Method:        res.Method,
-		URL:           res.URL,
-		StatusCode:    res.StatusCode,
-		RespHeaders:   res.ResponseHeaders,
-		RespBodyLen:   len(res.ResponseBody),
-		RespBodySnip:  snippet(res.ResponseBody, evidenceBodySnip),
-		AssertPassed:  passed,
-		AssertReasons: reasons,
+		TrafficID:       recipe.TrafficID,
+		Method:          res.Method,
+		URL:             res.URL,
+		BaselineStatus:  baseline.StatusCode,
+		BaselineDurMs:   baseDur,
+		BaselineBodyLen: len(baseline.ResponseBody),
+		AttackStatus:    res.StatusCode,
+		AttackDurMs:     dur,
+		RespHeaders:     res.ResponseHeaders,
+		RespBodyLen:     len(res.ResponseBody),
+		RespBodySnip:    snippet(res.ResponseBody, evidenceBodySnip),
+		AssertPassed:    assertPassed,
+		AssertReasons:   assertReasons,
 	}
 	evJSON, _ := json.Marshal(ev)
 
-	return evaluator.Result{Confirmed: passed, Evaluation: evJSON, DurationMs: dur}, nil
+	return evaluator.Result{Evaluation: evJSON, DurationMs: dur}, nil
 }
 
 // runResolve 发准备请求并抽新鲜值，返回 (占位名, 值)。任一步失败都硬错误。
@@ -150,7 +189,7 @@ func (r *Replayer) runResolve(ctx context.Context, step ResolveStep) (string, st
 }
 
 // eval 按断言逐条判定重发结果；全部通过才坐实。返回每条谓词的判定明细供证据链。
-func (a Assertion) eval(res httpreplay.Result) (bool, []string) {
+func (a Assertion) eval(res httpreplay.Result, durationMs int64) (bool, []string) {
 	var reasons []string
 	passed := true
 
@@ -187,6 +226,14 @@ func (a Assertion) eval(res httpreplay.Result) (bool, []string) {
 		} else {
 			passed = false
 			reasons = append(reasons, fmt.Sprintf("header[%s]=%q 缺 %q ✗", k, got, want))
+		}
+	}
+	if a.MinDurationMs != nil {
+		if int(durationMs) >= *a.MinDurationMs {
+			reasons = append(reasons, fmt.Sprintf("耗时 %dms ≥ %dms ✓（时间盲证据）", durationMs, *a.MinDurationMs))
+		} else {
+			passed = false
+			reasons = append(reasons, fmt.Sprintf("耗时 %dms < %dms ✗（未触发延迟）", durationMs, *a.MinDurationMs))
 		}
 	}
 	return passed, reasons

@@ -17,24 +17,22 @@ type Store struct {
 func NewStore(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
 
 // colsSelect 是所有 SELECT 路径的统一列序，与 scanRun() 的字段顺序一一对应。
-// planner_id 用 COALESCE 把 NULL 折成空串 → Go 层 Run.plannerID = ""（独立任务）。
 const colsSelect = `id, ` +
 	`task_id::text AS task_id, ` +
-	`COALESCE(planner_id::text, '') AS planner_id, ` +
 	`role, input, result, status, created_at, updated_at`
 
 // Create 插入一行 pending agent 运行，返回新 id。Input 为 nil 时落空对象。
-// plannerID 空串用 NULLIF 转 PG NULL。TaskID 必填（NOT NULL 外键）。
+// TaskID 必填（NOT NULL 外键）。
 func (s *Store) Create(ctx context.Context, p NewParams) (string, error) {
 	if p.Input == nil {
 		p.Input = json.RawMessage("{}")
 	}
 	var id string
 	err := s.pool.QueryRow(ctx, `
-		INSERT INTO agent_run (task_id, planner_id, role, input)
-		VALUES ($1::uuid, NULLIF($2, '')::uuid, $3, $4)
+		INSERT INTO agent_run (task_id, role, input)
+		VALUES ($1::uuid, $2, $3)
 		RETURNING id`,
-		p.TaskID, p.plannerID, p.Role,
+		p.TaskID, p.Role,
 		[]byte(p.Input),
 	).Scan(&id)
 	if err != nil {
@@ -148,7 +146,7 @@ func scanRun(r scanner, t *Run) error {
 	if err := r.Scan(
 		&t.ID,
 		&t.TaskID,
-		&t.plannerID, &t.Role,
+		&t.Role,
 		&input, &result, &t.Status, &t.CreatedAt, &t.UpdatedAt,
 	); err != nil {
 		return err

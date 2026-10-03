@@ -23,6 +23,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/V3teran/liusha/internal/agent"
 	agentstore "github.com/V3teran/liusha/internal/agentrun"
 	"github.com/V3teran/liusha/internal/assignment"
 	"github.com/V3teran/liusha/internal/bus"
@@ -164,6 +165,12 @@ func main() {
 	hostSem := newHostSemaphore(rdb, runnerCfg, cfg)
 	controlPlaneStore := controlplane.NewStore(pool)
 
+	router := llm.NewRouterWithFallback(llmStack.llmStore.AsRouterStore(llmStack.keyCipher), newFallbackProviderFactory(llmStack.llmStore, llmStack.keyCipher))
+	// LLM 调用埋点：所有 For() 出的 Provider 都带 llm_invocation 审计（含失败）。
+	router.SetProviderWrapper(func(p llm.Provider) llm.Provider {
+		return llm.InstrumentProvider(p, usageSink{store: stores.calls})
+	})
+
 	h := handler{
 		executors:      stores.executors,
 		tasks:          stores.tasks,
@@ -180,7 +187,7 @@ func main() {
 		runnerCfg:      runnerCfg,
 		sandboxMgr:     sandboxMgr,
 		logger:         logger,
-		router:         llm.NewRouterWithFallback(llmStack.llmStore.AsRouterStore(), llmStack.keyCipher, newFallbackProviderFactory(llmStack.llmStore, llmStack.keyCipher)),
+		router:         router,
 		creds:          credential.NewRedis(rdb, cfg.Credential.RedisKeyPrefix),
 		toolCalls:      stores.toolCalls,
 		toolingLoader:  skills.toolingLoader,
@@ -194,6 +201,7 @@ func main() {
 		checkpointer:   stores.checkpointer,
 		eventBus:       eventBus,
 		controlPlane:   controlPlaneStore,
+		agentCfgStore:  agent.NewStore(pool), // 新增：Agent 配置存储
 	}
 
 	mux := worker.NewMux()

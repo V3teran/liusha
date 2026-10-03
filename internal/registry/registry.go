@@ -3,6 +3,7 @@ package registry
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -243,6 +244,34 @@ func (r *Registry) execute(ctx context.Context, call llm.ToolCall) ToolResult {
 		return ToolResult{Error: err.Error()}
 	}
 	return res
+}
+
+// WrapTool 返回一个 Execute 走完整 Interceptor 链的装饰工具。
+//
+// 背景：ReAct runtime 直调 tool.Execute（不经 Registry.execute），拦截器链
+// （PreExecute/Logging/EvidenceCapture/Timeout/ErrorMask + AddInterceptor 注入的
+// 遥测/心跳）会被整体绕过。调用方在把工具装进 runtime 前先用本方法包一层，
+// 即可让框架外的执行路径也走统一链。
+func (r *Registry) WrapTool(t Tool) Tool {
+	return &wrappedTool{inner: t, reg: r}
+}
+
+type wrappedTool struct {
+	inner Tool
+	reg   *Registry
+}
+
+func (w *wrappedTool) Name() string                      { return w.inner.Name() }
+func (w *wrappedTool) ShortDesc() string                 { return w.inner.ShortDesc() }
+func (w *wrappedTool) Desc() string                      { return w.inner.Desc() }
+func (w *wrappedTool) Schema() json.RawMessage           { return w.inner.Schema() }
+func (w *wrappedTool) Timeout() time.Duration            { return w.inner.Timeout() }
+func (w *wrappedTool) ConcurrencySafe() bool             { return w.inner.ConcurrencySafe() }
+func (w *wrappedTool) Execute(ctx context.Context, args json.RawMessage) (ToolResult, error) {
+	final := ExecuteFunc(func(_ context.Context, tool Tool, a []byte) (ToolResult, error) {
+		return tool.Execute(ctx, a)
+	})
+	return chain(w.reg.interceptors, final)(ctx, w.inner, args)
 }
 
 // ExecuteParallel 并发执行一批 tool_call，结果按原始顺序收集。

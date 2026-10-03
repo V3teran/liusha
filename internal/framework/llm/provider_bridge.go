@@ -31,7 +31,13 @@ type generatorProvider struct {
 }
 
 func (p *generatorProvider) Complete(ctx context.Context, req Request) (Response, error) {
-	res, err := p.g.Generate(ctx, req.Messages, req.Tools)
+	var res Result
+	var err error
+	if og, ok := p.g.(OptionsGenerator); ok {
+		res, err = og.GenerateWithOpts(ctx, req.Messages, req.Tools, GenOpts{Temperature: req.Temperature})
+	} else {
+		res, err = p.g.Generate(ctx, req.Messages, req.Tools)
+	}
 	if err != nil {
 		return Response{}, err
 	}

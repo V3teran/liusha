@@ -69,7 +69,7 @@ func main() {
 	}
 
 	store := corpus.NewStore(pool)
-	tagger := llm.NewRouter(llmStore.AsRouterStore(), llmKeyCipher)
+	tagger := llm.NewRouter(llmStore.AsRouterStore(llmKeyCipher))
 	var embedder *embedding.Client
 	if ec, err := embedding.NewClient(os.Getenv("JINA_API_KEY")); err != nil {
 		logger.Warn().Err(err).Msg("JINA_API_KEY 未配置：只落行不 embed（仍可 sparse 检索）")

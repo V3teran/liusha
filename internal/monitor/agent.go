@@ -46,6 +46,8 @@ type Config struct {
 	Interval time.Duration // 评估间隔，默认 6 分钟
 	Logger   zerolog.Logger
 
+	FunctionTools []string // function_tools 白名单（agent 配置；nil=全量，空=空集）
+
 	// Checkpoint 配置（可选）
 	Checkpointer     core.Checkpointer        // nil 表示禁用 checkpoint
 	CheckpointPolicy runtime.CheckpointPolicy // nil 使用默认策略
@@ -61,10 +63,24 @@ func New(cfg Config) *Agent {
 	// 创建 ReAct 运行时
 	reactRuntime := runtime.NewReActRuntime()
 
-	// 注册监察工具（直接使用 registry.Tool）
-	registryTools := []registry.Tool{
-		NewGetGlobalStateTool(cfg.Graph, cfg.TaskID),
-		NewPublishDecisionTool(cfg.Graph, cfg.TaskID),
+	// 注册监察工具（function_tools 白名单过滤；nil=全量，空=空集）
+	allow := func(name string) bool {
+		if cfg.FunctionTools == nil {
+			return true
+		}
+		for _, n := range cfg.FunctionTools {
+			if n == name {
+				return true
+			}
+		}
+		return false
+	}
+	var registryTools []registry.Tool
+	if allow("get_global_state") {
+		registryTools = append(registryTools, NewGetGlobalStateTool(cfg.Graph, cfg.TaskID))
+	}
+	if allow("publish_decision") {
+		registryTools = append(registryTools, NewPublishDecisionTool(cfg.Graph, cfg.TaskID))
 	}
 	for _, tool := range registryTools {
 		if err := reactRuntime.RegisterTool(tool); err != nil {
@@ -95,6 +111,9 @@ func New(cfg Config) *Agent {
 
 // Run 实现 core.Agent 接口
 func (a *Agent) Run(ctx context.Context) error {
+	// LLM 审计维度：监察调用归 task、角色 monitor。
+	ctx = llm.WithCallMeta(ctx, llm.CallMeta{TaskID: a.taskID, Role: "monitor"})
+
 	a.logger.Info().Dur("interval", a.interval).Msg("monitor agent starting")
 
 	ticker := time.NewTicker(a.interval)
@@ -133,7 +152,8 @@ func (a *Agent) evaluate(ctx context.Context) error {
 		MaxIterations:        10,  // 监察不需要太多轮
 		Temperature:          0.3, // 较低温度，确保稳定性
 		MaxTokens:            4000,
-		MessageModifierChain: runtime.NewMonitorModifierChain(),
+		// Monitor 窗口最小（原框架 Monitor 预设口径 10）——业务预设已按分层下沉到业务侧。
+		MessageModifierChain: runtime.NewDefaultModifierChain(10),
 
 		// Checkpoint 集成
 		Checkpointer:     a.checkpointer,

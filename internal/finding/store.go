@@ -32,7 +32,7 @@ func NewStore(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
 // 0059 加 depends_on uuid[]（组合漏洞依赖：c.depends_on = [a.id, b.id]）。
 // 0081 加 status / triage_note / triaged_at（triage 处置态）。
 const colsSelect = "id, task_id::text AS task_id, " +
-	"agent_id, source_traffic_id, host, severity, summary, target, evidence, " +
+	"agent_run_id, source_traffic_id, host, severity, summary, target, evidence, " +
 	"COALESCE(cwe_id, ''), COALESCE(owasp_category, ''), first_seen_at, COALESCE(remediation, ''), " +
 	"depends_on::text[], status, COALESCE(triage_note, ''), triaged_at, created_at, seq, repro"
 
@@ -73,14 +73,14 @@ func (s *Store) Save(ctx context.Context, f VulnFinding) (VulnFinding, error) {
 	}
 	row := tx.QueryRow(ctx, `
 		INSERT INTO finding
-			(task_id, agent_id, source_traffic_id, host, severity, summary, target, evidence,
+			(task_id, agent_run_id, source_traffic_id, host, severity, summary, target, evidence,
 			 cwe_id, owasp_category, remediation, depends_on, repro)
 		VALUES ($1::uuid, $2,$3,$4,$5,$6,$7,$8, NULLIF($9,''), NULLIF($10,''), NULLIF($11,''), $12::uuid[], $13)
 		ON CONFLICT (task_id, dedup_key) DO UPDATE
 		SET first_seen_at = LEAST(finding.first_seen_at, EXCLUDED.first_seen_at)
 		RETURNING `+colsSelect,
 		f.TaskID,
-		f.ExecutorID, f.SourceTrafficID, f.Host, f.Severity,
+		f.AgentRunID, f.SourceTrafficID, f.Host, f.Severity,
 		f.Summary, f.Target, f.Evaluation,
 		f.CWEID, f.OWASPCategory, f.Remediation, deps, f.Repro)
 
@@ -94,8 +94,8 @@ func (s *Store) Save(ctx context.Context, f VulnFinding) (VulnFinding, error) {
 	}
 
 	// dup 命中：DB 层把后续重复写无声合并到已有行；saved 是 existing 行内容。
-	// agent_run_id 不会被覆盖（DO UPDATE 只动 first_seen_at），所以 saved.ExecutorID 反映首次写入者。
-	dedupHit := f.ExecutorID != nil && saved.ExecutorID != nil && *f.ExecutorID != *saved.ExecutorID
+	// agent_run_id 不会被覆盖（DO UPDATE 只动 first_seen_at），所以 saved.AgentRunID 反映首次写入者。
+	dedupHit := f.AgentRunID != nil && saved.AgentRunID != nil && *f.AgentRunID != *saved.AgentRunID
 	ev := findingLog.Info()
 	if dedupHit {
 		ev = ev.Bool("dedup_hit", true)
@@ -423,7 +423,7 @@ func validStatus(s string) bool {
 // 按 ", " 切分会劈碎；且 JOIN task 后 id/status/created_at 列名歧义，必须 f. 限定。
 // 与 colsSelect 手工对齐；scanLedger 列序 = 本常量 + 末尾 _id, source。
 const ledgerCols = "f.id, f.task_id::text AS task_id, " +
-	"f.agent_id, f.source_traffic_id, f.host, f.severity, f.summary, f.target, f.evidence, " +
+	"f.agent_run_id, f.source_traffic_id, f.host, f.severity, f.summary, f.target, f.evidence, " +
 	"COALESCE(f.cwe_id, ''), COALESCE(f.owasp_category, ''), f.first_seen_at, COALESCE(f.remediation, ''), " +
 	"f.depends_on::text[], f.status, COALESCE(f.triage_note, ''), f.triaged_at, f.created_at, f.seq, f.repro"
 
@@ -445,7 +445,7 @@ func scanLedger(r scanner, out *LedgerRow) error {
 	); err != nil {
 		return err
 	}
-	out.ExecutorID = agentID
+	out.AgentRunID = agentID
 	out.SourceTrafficID = sourceTrafficID
 	out.DependsOn = dependsOn
 	out.TriagedAt = triagedAt
@@ -458,7 +458,7 @@ type scanner interface {
 }
 
 // scan 是 colsSelect 列序的统一反序列化点。
-// agentID / sourceTrafficID 用指针接住 NULL；ExecutorID 是 *string 保留 nil，SourceTrafficID 是 *int64 同。
+// agentID / sourceTrafficID 用指针接住 NULL；AgentRunID 是 *string 保留 nil，SourceTrafficID 是 *int64 同。
 // DependsOn 是 uuid[]，扫到 []string（pgx v5 默认 codec）。
 func scan(r scanner, f *VulnFinding) error {
 	var agentID *string
@@ -476,7 +476,7 @@ func scan(r scanner, f *VulnFinding) error {
 	); err != nil {
 		return err
 	}
-	f.ExecutorID = agentID
+	f.AgentRunID = agentID
 	f.SourceTrafficID = sourceTrafficID
 	f.DependsOn = dependsOn
 	f.TriagedAt = triagedAt

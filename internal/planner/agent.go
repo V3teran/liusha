@@ -13,6 +13,7 @@ import (
 	"github.com/V3teran/liusha/internal/bus"
 	"github.com/V3teran/liusha/internal/explorationgraph"
 	"github.com/V3teran/liusha/internal/framework/core"
+	"github.com/V3teran/liusha/internal/framework/llm"
 )
 
 // Agent 是异步规划 Agent
@@ -24,10 +25,11 @@ import (
 type Agent struct {
 	taskID       string
 	graph        *explorationgraph.Store
-	planner      Planner
-	eventBus     bus.Bus
-	logger       zerolog.Logger
-	pollInterval time.Duration // 轮询间隔（作为兜底）
+	planner       Planner
+	eventBus      bus.Bus
+	logger        zerolog.Logger
+	functionTools []string      // function_tools 白名单
+	pollInterval  time.Duration // 轮询间隔（作为兜底）
 
 	// analyzedResultIDs 是 AnalyzeResults 的水位：已分析过的 Result 节点不再
 	// 重复送 LLM（否则任务后半程每轮轮询都全量重分析，烧 token 且灌重复结论）。
@@ -38,12 +40,13 @@ type Agent struct {
 
 // AgentConfig 配置
 type AgentConfig struct {
-	TaskID       string
-	Graph        *explorationgraph.Store
-	Planner      Planner
-	EventBus     bus.Bus
-	Logger       zerolog.Logger
-	PollInterval time.Duration // 默认 10s
+	TaskID        string
+	Graph         *explorationgraph.Store
+	Planner       Planner
+	EventBus      bus.Bus
+	Logger        zerolog.Logger
+	PollInterval  time.Duration // 默认 10s
+	FunctionTools []string      // function_tools 白名单（agent 配置；nil=全量，空=空集）
 }
 
 // NewAgent NewPlannerAgent 创建 Agent。
@@ -58,6 +61,7 @@ func NewAgent(cfg AgentConfig) *Agent {
 		planner:           cfg.Planner,
 		eventBus:          cfg.EventBus,
 		logger:            cfg.Logger.With().Str("agent", "planner").Logger(),
+		functionTools:     cfg.FunctionTools,
 		pollInterval:      cfg.PollInterval,
 		analyzedResultIDs: make(map[string]bool),
 		stopCh:            make(chan struct{}),
@@ -67,6 +71,9 @@ func NewAgent(cfg AgentConfig) *Agent {
 // Run 实现 core.Agent 接口
 // 启动 Agent 主循环，监听事件并生成新的 Action
 func (a *Agent) Run(ctx context.Context) error {
+	// LLM 审计维度：规划调用归 task、角色 planner。
+	ctx = llm.WithCallMeta(ctx, llm.CallMeta{TaskID: a.taskID, Role: "planner"})
+
 	a.logger.Info().Str("task_id", a.taskID).Msg("Agent 启动")
 
 	// 订阅事件
@@ -235,7 +242,7 @@ func (a *Agent) planActions(ctx context.Context) error {
 
 	// 调用 Planner 生成新的 Action（传入 taskID）
 	a.logger.Info().Msg("即将调用 a.planner.Plan()")
-	actions, err := a.planner.Plan(ctx, a.graph, a.taskID)
+	actions, err := a.planner.Plan(ctx, a.graph, a.taskID, a.functionTools)
 
 	a.logger.Info().
 		Bool("has_error", err != nil).
@@ -518,7 +525,7 @@ func (a *Agent) createContinuationActions(ctx context.Context, actions []Continu
 
 // Planner 规划接口（由 planner.New 提供）
 type Planner interface {
-	Plan(ctx context.Context, graph *explorationgraph.Store, taskID string) ([]explorationgraph.Node, error)
+	Plan(ctx context.Context, graph *explorationgraph.Store, taskID string, functionTools []string) ([]explorationgraph.Node, error)
 	AnalyzeResults(ctx context.Context, graph *explorationgraph.Store, taskID string, results []explorationgraph.Node) (*ResultAnalysis, error)
 }
 

@@ -202,6 +202,11 @@ func (a *Agent) processAvailableActions(ctx context.Context, report *Report) err
 		return fmt.Errorf("get completed actions: %w", err)
 	}
 
+	a.logger.Debug().
+		Int("completed_count", len(completed)).
+		Str("task_id", a.taskID).
+		Msg("已完成的 Action 数量")
+
 	// 筛选可执行的 Action（依赖已满足）
 	var executable []explorationgraph.Node
 	for _, action := range openActions {
@@ -270,6 +275,9 @@ func (a *Agent) executeAction(
 		return nil
 	}
 
+	// 执行窗口起点：收割本 Action 期间 executor 新写的「带复现配方的观察提议」。
+	windowStart := time.Now()
+
 	// 执行 Action（调用 Interface）
 	attempts, execErr := a.executor.Execute(ctx, action)
 
@@ -307,6 +315,11 @@ func (a *Agent) executeAction(
 		// 不返回错误，继续执行流程
 	}
 
+	// 收割观察提议（新架构晋升链的入口）：write_observation(repro=...) 的在途假设
+	// 转成 Attempt 交复现门——finding 只能由 evaluator 写，而没有本收割时 Attempt
+	// 只源自 finding，首条 finding 无人生产，晋升链死锁。
+	attempts = append(attempts, a.harvestObservationProposals(ctx, windowStart)...)
+
 	// 先发布所有 AttemptsGenerated 事件（通知 EvaluatorAgent）
 	for _, attempt := range attempts {
 		a.eventBus.PublishAttemptGenerated(a.taskID, action.ID, attempt)
@@ -321,6 +334,79 @@ func (a *Agent) executeAction(
 		Msg("Action 执行完成")
 
 	return nil
+}
+
+// harvestObservationProposals 把执行窗口内新建的、带复现配方的观察转成 Attempt。
+//
+// 新架构口径：晋升提议权在 executor（write_observation 带 repro），裁决权在 evaluator
+// （复现门）。无配方（缺 repro / traffic_id 非法 / 空断言）的观察不收割——
+// 无米之炊不可复现，橡皮图章不可坐实（与 Replayer 的空断言拒绝一致）。
+func (a *Agent) harvestObservationProposals(ctx context.Context, since time.Time) []evaluator.Attempt {
+	nodes, err := a.graph.ListNodesByKind(ctx, a.taskID, core.KindObservation)
+	if err != nil {
+		a.logger.Warn().Err(err).Str("task_id", a.taskID).Msg("收割观察提议失败")
+		return nil
+	}
+
+	var attempts []evaluator.Attempt
+	for _, n := range nodes {
+		if n.CreatedAt.Before(since) {
+			continue
+		}
+
+		var content struct {
+			Statement string `json:"statement"`
+			Severity  string `json:"severity"`
+			Repro     *struct {
+				TrafficID     int64           `json:"traffic_id"`
+				Modifications json.RawMessage `json:"modifications"`
+				Assert        json.RawMessage `json:"assert"`
+			} `json:"repro"`
+		}
+		if err := json.Unmarshal(n.Content, &content); err != nil || content.Repro == nil {
+			continue
+		}
+		if content.Repro.TrafficID <= 0 || len(content.Repro.Assert) == 0 {
+			continue
+		}
+
+		recipe, err := json.Marshal(map[string]json.RawMessage{
+			"traffic_id":    json.RawMessage(fmt.Sprintf("%d", content.Repro.TrafficID)),
+			"modifications": content.Repro.Modifications,
+			"assert":        content.Repro.Assert,
+		})
+		if err != nil {
+			continue
+		}
+
+		severity := content.Severity
+		if severity == "" {
+			severity = "medium"
+		}
+		attContent, err := json.Marshal(map[string]string{
+			"summary":  content.Statement,
+			"severity": severity,
+			"host":     "unknown",
+		})
+		if err != nil {
+			continue
+		}
+
+		attempts = append(attempts, evaluator.Attempt{
+			TaskID:     a.taskID,
+			NodeID:     n.ID,
+			Kind:       core.KindResult,
+			Primitives: recipe,
+			Content:    attContent,
+			Priority:   "medium",
+		})
+	}
+
+	if len(attempts) > 0 {
+		a.logger.Info().Str("task_id", a.taskID).Int("proposals", len(attempts)).
+			Msg("收割到带复现配方的观察提议")
+	}
+	return attempts
 }
 
 // createObservation 创建 Observation 节点记录执行结果

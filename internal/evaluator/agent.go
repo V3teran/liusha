@@ -10,6 +10,7 @@ import (
 
 	"github.com/V3teran/liusha/internal/bus"
 	"github.com/V3teran/liusha/internal/framework/core"
+	"github.com/V3teran/liusha/internal/framework/llm"
 )
 
 // 编译时检查接口实现
@@ -60,6 +61,9 @@ func (a *Agent) Run(ctx context.Context) error {
 	if a.evaluator == nil {
 		return fmt.Errorf("evaluator: PromotionEvaluator is required")
 	}
+
+	// LLM 审计维度：裁决调用归 task、角色 evaluator。
+	ctx = llm.WithCallMeta(ctx, llm.CallMeta{TaskID: a.taskID, Role: "evaluator"})
 
 	a.logger.Info().Str("task_id", a.taskID).Msg("Agent 启动")
 

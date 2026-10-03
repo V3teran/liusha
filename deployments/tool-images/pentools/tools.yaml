@@ -6,7 +6,7 @@
 #
 # 字段说明：
 #   - name: 工具命令名（必须是真实可调用命令，库如 sympy/fpylll 归进 python3 描述）
-#   - category: 能力轴（领域中立），取值与 internal/builder/executor/user_prompt.go 的 toolingCategoryOrder 一致
+#   - category: 能力轴（领域中立），渲染顺序由 internal/executor/engine.go 的 toolingCategoryOrder 决定
 #   - description: 工具用途说明，供 agent 理解何时使用
 #
 # 工具装配：agent 的 cli_tools 字段严格白名单（从本清单选择）。

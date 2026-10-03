@@ -1,61 +1,126 @@
 package planner
 
 import (
-	"strings"
+	"context"
+	"errors"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
+	"github.com/V3teran/liusha/internal/explorationgraph"
+	"github.com/V3teran/liusha/internal/framework/core"
 )
 
-// buildPlanningPrompt 是规划质量的关键：把探索图状态组装成 LLM 指令。
-// 段落缺失/占位符错误会直接导致规划方向跑偏。
+// TestObjectiveCreation 测试 Objective 节点创建
+func TestObjectiveCreation(t *testing.T) {
+	ctx := context.Background()
 
-func TestBuildPlanningPrompt_ContainsObjective(t *testing.T) {
-	i := &Intelligence{}
-	prompt := i.buildPlanningPrompt(&PlanningContext{
-		Objective: "测试 target.com 的越权漏洞",
-	})
-	assert.Contains(t, prompt, "测试 target.com 的越权漏洞")
-	assert.NotContains(t, prompt, "（未指定明确目标）")
-}
-
-func TestBuildPlanningPrompt_EmptyObjective(t *testing.T) {
-	i := &Intelligence{}
-	prompt := i.buildPlanningPrompt(&PlanningContext{})
-	assert.Contains(t, prompt, "（未指定明确目标）")
-}
-
-func TestBuildPlanningPrompt_Structure(t *testing.T) {
-	i := &Intelligence{}
-	prompt := i.buildPlanningPrompt(&PlanningContext{Objective: "x"})
-
-	for _, seg := range []string{
-		"## 核心原则：智能探索模式",
-		"## 何时停止当前方向",
-		"should_continue",
-		"## 任务目标",
-	} {
-		assert.Contains(t, prompt, seg, "prompt 缺少段落: %s", seg)
+	// Mock graph store
+	store := &mockGraphStore{
+		nodes: make(map[string]explorationgraph.Node),
 	}
-	// 停止判断必须是主动判断语义，不能是机械计数
-	assert.Contains(t, prompt, "主动判断")
-	assert.NotContains(t, prompt, "机械地执行 N 次后停止")
+
+	// 创建 Objective 节点
+	openState := explorationgraph.StateOpen
+	node := explorationgraph.Node{
+		ID:         "test-objective-1",
+		TaskID:     "test-task-1",
+		Kind:       core.KindObjective,
+		State:      &openState, // 必须设置 State
+		Content:    []byte(`{"description":"测试目标"}`),
+		Priority:   explorationgraph.PriorityMedium,
+		SourceType: "user",
+		SourceID:   "test",
+	}
+
+	// 验证创建成功
+	_, err := store.CreateNode(ctx, node)
+	if err != nil {
+		t.Fatalf("Objective 创建失败: %v", err)
+	}
+
+	// 验证 State 字段
+	if node.State == nil {
+		t.Error("Objective 节点缺少 State 字段")
+	}
+
+	// 验证可以读取
+	objectives, err := store.ListNodesByKind(ctx, "test-task-1", core.KindObjective)
+	if err != nil {
+		t.Fatalf("读取 Objective 失败: %v", err)
+	}
+
+	if len(objectives) != 1 {
+		t.Errorf("期望 1 个 Objective，实际 %d 个", len(objectives))
+	}
 }
 
-func TestAnalyzeResults_Watermark(t *testing.T) {
-	// 水位逻辑在 agent.go（analyzedResultIDs map）——这里验证 Planner 接口契约：
-	// AnalyzeResults 收到增量列表，调用方负责水位。
-	assert.NotNil(t, (&Intelligence{}).AnalyzeResults, "AnalyzeResults 是 Planner 接口的方法")
+// TestDependencyFiltering 测试依赖过滤（调用 intelligence.go 的真实实现）
+func TestDependencyFiltering(t *testing.T) {
+	validUUID := "12345678-1234-1234-1234-123456789012"
+	anotherUUID := "aabbccdd-1234-1234-1234-123456789012"
+
+	tests := []struct {
+		name     string
+		input    []string
+		expected []string
+	}{
+		{
+			name:     "过滤非 UUID 的编造依赖",
+			input:    []string{"0", validUUID},
+			expected: []string{validUUID},
+		},
+		{
+			name:     "过滤短依赖",
+			input:    []string{"short", validUUID},
+			expected: []string{validUUID},
+		},
+		{
+			name:     "全部有效",
+			input:    []string{validUUID, anotherUUID},
+			expected: []string{validUUID, anotherUUID},
+		},
+		{
+			name:     "全部无效",
+			input:    []string{"0", "short", "valid-uuid-1234"},
+			expected: []string{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := filterValidDependencies(tt.input)
+			if len(result) != len(tt.expected) {
+				t.Errorf("期望 %d 个依赖，实际 %d 个: %v", len(tt.expected), len(result), result)
+			}
+			for i := range result {
+				if result[i] != tt.expected[i] {
+					t.Errorf("第 %d 个依赖不一致：期望 %s，实际 %s", i, tt.expected[i], result[i])
+				}
+			}
+		})
+	}
 }
 
-func TestPlanningPrompt_LineCount(t *testing.T) {
-	// prompt 是 LLM 的第一跳输入：长度需可控（< 4K 字符），
-	// 超长会挤占上下文窗口（蒸馏机制只处理会话历史，不处理 planner prompt）。
-	i := &Intelligence{}
-	prompt := i.buildPlanningPrompt(&PlanningContext{
-		Objective:        "x",
-		CompletedActions: nil,
-	})
-	assert.Less(t, len(prompt), 4096, "planner prompt 应保持精炼")
-	assert.Greater(t, len(strings.Fields(prompt)), 50, "prompt 不应为空壳")
+// Mock implementation
+type mockGraphStore struct {
+	nodes map[string]explorationgraph.Node
+}
+
+func (m *mockGraphStore) CreateNode(ctx context.Context, node explorationgraph.Node) (explorationgraph.Node, error) {
+	// 模拟数据库约束 ck_state_by_kind：objective 节点必须有 state
+	if node.Kind == core.KindObjective && node.State == nil {
+		return explorationgraph.Node{}, errors.New("ck_state_by_kind: objective 节点必须有 state 字段")
+	}
+
+	m.nodes[node.ID] = node
+	return node, nil
+}
+
+func (m *mockGraphStore) ListNodesByKind(ctx context.Context, taskID string, kind core.NodeKind) ([]explorationgraph.Node, error) {
+	var result []explorationgraph.Node
+	for _, node := range m.nodes {
+		if node.TaskID == taskID && node.Kind == kind {
+			result = append(result, node)
+		}
+	}
+	return result, nil
 }

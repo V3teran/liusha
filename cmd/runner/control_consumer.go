@@ -242,7 +242,10 @@ func newFallbackProviderFactory(store *llmstore.Store, cipher llmcfg.KeyDecrypte
 		if err != nil {
 			return nil, err
 		}
-		g, err := fwllm.BuildGeneratorWithKey(ctx, p, fwllm.NewClientPool(), key)
+		g, err := fwllm.BuildGeneratorWithKey(ctx, fwllm.ProviderSpec{
+			Key: p.Key, Type: p.Type, BaseURL: p.BaseURL, Model: p.DefaultModel,
+			APIKey: key, MaxTokens: p.MaxTokens, SupportsVision: p.SupportsVision,
+		}, fwllm.NewClientPool())
 		if err != nil {
 			return nil, err
 		}

@@ -3,8 +3,12 @@ id: planner
 kind: planner
 name: 规划者
 description: 负责全局规划和任务分解
-function_tools: []
+function_tools:
+  - observe_state
+  - evaluate_progress
+  - search_corpus
 cli_tools: []
+
 max_iterations: 100
 tier: medium
 ---
