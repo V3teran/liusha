@@ -20,6 +20,7 @@ import (
 var listTrafficSchema = json.RawMessage(`{
   "type": "object",
   "properties": {
+    "source":      {"type": "string", "enum": ["agent", "proxy"], "description": "流量来源过滤（可选）：agent=主动扫描流量，proxy=被动代理抓包。"},
     "method":      {"type": "string", "description": "过滤 HTTP 方法（可选）。"},
     "path_prefix": {"type": "string", "description": "路径前缀过滤（可选），支持 * 通配。"},
     "status_min":  {"type": "integer", "description": "响应状态码下界（可选）。"},
@@ -51,6 +52,7 @@ func (t *listTrafficTool) Schema() json.RawMessage { return listTrafficSchema }
 
 func (t *listTrafficTool) Execute(ctx context.Context, args json.RawMessage) (registry.ToolResult, error) {
 	var a struct {
+		Source     string `json:"source"`
 		Method     string `json:"method"`
 		PathPrefix string `json:"path_prefix"`
 		StatusMin  int    `json:"status_min"`
@@ -80,8 +82,8 @@ func (t *listTrafficTool) Execute(ctx context.Context, args json.RawMessage) (re
 
 	var rows []row
 
-	// agent traffic
-	if t.deps.AgentStore != nil {
+	// agent traffic (只在 source="" 或 source="agent" 时查询)
+	if t.deps.AgentStore != nil && (a.Source == "" || a.Source == "agent") {
 		f := traffic.AgentListFilter{
 			Method:    strings.ToUpper(a.Method),
 			Path:      a.PathPrefix,
@@ -104,8 +106,8 @@ func (t *listTrafficTool) Execute(ctx context.Context, args json.RawMessage) (re
 		}
 	}
 
-	// proxy traffic
-	if t.deps.ProxyStore != nil {
+	// proxy traffic (只在 source="" 或 source="proxy" 时查询)
+	if t.deps.ProxyStore != nil && (a.Source == "" || a.Source == "proxy") {
 		pf := traffic.ProxyListFilter{
 			Method:    strings.ToUpper(a.Method),
 			Path:      a.PathPrefix,
