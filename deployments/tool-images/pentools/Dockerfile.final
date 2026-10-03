@@ -41,9 +41,7 @@ RUN printf '%s\n' \
   > /usr/local/bin/uvx \
  && chmod +x /usr/local/bin/uvx
 
-# Layer 12.5: 预装 playwright chromium——browser_use 首次启动即用，免运行时 114MB 下载
-# （离线/弱网沙箱下 browser_use 会因下载失败全挂）。装失败不阻断镜像构建（浏览器非必需能力）。
-RUN /usr/local/bin/uvx playwright install chromium || echo "WARN: chromium 预装失败，运行时将按需下载"
+# chromium 预装在 base Layer 20（工具底座）；本层只做业务装配（uvx wrapper + sandbox-server）。
 
 # Layer 13: entrypoint（抓流架构只保留 browser-svc.py 的 CDP capture——CLI 流量不进表）
 RUN printf '%s\n' \
