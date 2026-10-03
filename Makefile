@@ -63,7 +63,7 @@ build-vulnapp:
 # 分层构建：base（Kali + 90 工具安装）由 CI 构建推送 ghcr.io/v3teran/pentools-base，
 # 本地只构建 final（ARG BASE_IMAGE 默认取 base:latest）。改 Dockerfile.base/tools.yaml 走 CI。
 build-pentools:
-	docker build --platform linux/amd64 -t ghcr.io/v3teran/liusha-pentools:latest -t liusha/pentools:latest \
+	docker build --platform linux/amd64 -t ghcr.io/v3teran/liusha-pentools:latest \
 		-f deployments/tool-images/pentools/Dockerfile.final .
 
 test: test-unit test-integration
