@@ -6,8 +6,6 @@ description: 评估和验证 Observation，产生 Result。负责区分"工具�
 function_tools:
   - replay_for_verification
   - run_command
-  - list_traffic
-  - view_traffic
   - replay_traffic
 cli_tools:
   - ROPgadget

