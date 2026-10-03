@@ -223,9 +223,9 @@ func (t *replayTool) Execute(ctx context.Context, _ json.RawMessage) (registry.T
 		ev = json.RawMessage("{}")
 	}
 	out, _ := json.Marshal(map[string]interface{}{
-		"note":              "assert_check 是 executor 声明预期的核验明细（参考，非结论）；坐实与否由你裁决",
-		"evidence":          ev,
-		"duration_ms":       res.DurationMs,
+		"note":        "assert_check 是 executor 声明预期的核验明细（参考，非结论）；坐实与否由你裁决",
+		"evidence":    ev,
+		"duration_ms": res.DurationMs,
 	})
 	return registry.ToolResult{Output: string(out)}, nil
 }

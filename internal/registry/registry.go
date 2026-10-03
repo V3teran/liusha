@@ -261,12 +261,12 @@ type wrappedTool struct {
 	reg   *Registry
 }
 
-func (w *wrappedTool) Name() string                      { return w.inner.Name() }
-func (w *wrappedTool) ShortDesc() string                 { return w.inner.ShortDesc() }
-func (w *wrappedTool) Desc() string                      { return w.inner.Desc() }
-func (w *wrappedTool) Schema() json.RawMessage           { return w.inner.Schema() }
-func (w *wrappedTool) Timeout() time.Duration            { return w.inner.Timeout() }
-func (w *wrappedTool) ConcurrencySafe() bool             { return w.inner.ConcurrencySafe() }
+func (w *wrappedTool) Name() string            { return w.inner.Name() }
+func (w *wrappedTool) ShortDesc() string       { return w.inner.ShortDesc() }
+func (w *wrappedTool) Desc() string            { return w.inner.Desc() }
+func (w *wrappedTool) Schema() json.RawMessage { return w.inner.Schema() }
+func (w *wrappedTool) Timeout() time.Duration  { return w.inner.Timeout() }
+func (w *wrappedTool) ConcurrencySafe() bool   { return w.inner.ConcurrencySafe() }
 func (w *wrappedTool) Execute(ctx context.Context, args json.RawMessage) (ToolResult, error) {
 	final := ExecuteFunc(func(_ context.Context, tool Tool, a []byte) (ToolResult, error) {
 		return tool.Execute(ctx, a)

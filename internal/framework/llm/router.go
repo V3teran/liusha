@@ -32,9 +32,9 @@ type RouterFallbackFactory func(ctx context.Context) (Provider, error)
 
 // Router 按 Complexity 路由 Provider，内部缓存已构造实例（线程安全）。
 type Router struct {
-	store     RouterStore
-	pool      *ClientPool
-	fallback  RouterFallbackFactory
+	store    RouterStore
+	pool     *ClientPool
+	fallback RouterFallbackFactory
 	// providerWrapper 可选装饰钩子：build() 产出 Provider 后包一层（埋点/限流等）。
 	// 在首次 For() 之前设置；并发不安全。
 	providerWrapper func(Provider) Provider

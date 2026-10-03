@@ -19,7 +19,7 @@ import (
 type VulnFinding struct {
 	ID              string
 	TaskID          string // 所属 task.id
-	AgentRunID          *string
+	AgentRunID      *string
 	SourceTrafficID *int64
 	Host            string
 	// Severity 自由文本（建议 critical/high/medium/low/info 保持配色一致；

@@ -103,11 +103,11 @@ func (i *Intelligence) Plan(ctx context.Context, graph *explorationgraph.Store, 
 
 	// 3. 跑 ReAct：SystemPrompt 定角色与输出契约，Objective 带状态摘要
 	result, err := react.Run(ctx, &runtime.ReActConfig{
-		Objective:     prompt,
-		SystemPrompt:  i.buildPlannerSystemPrompt(),
-		LLMProvider:   provider,
-		MaxIterations: 6, // 规划是短决策循环：观察→(深挖)→出规划
-		MaxTokens:     4000,
+		Objective:            prompt,
+		SystemPrompt:         i.buildPlannerSystemPrompt(),
+		LLMProvider:          provider,
+		MaxIterations:        6, // 规划是短决策循环：观察→(深挖)→出规划
+		MaxTokens:            4000,
 		MessageModifierChain: runtime.NewDefaultModifierChain(20),
 	})
 	if err != nil {

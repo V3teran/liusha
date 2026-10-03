@@ -23,8 +23,8 @@ import (
 type Engine struct {
 	router        *llm.Router
 	findings      FindingLister
-	registry      *Registry // 使用 executor 包的 Registry
-	functionTools []string       // function_tools 白名单（nil=全量）
+	registry      *Registry     // 使用 executor 包的 Registry
+	functionTools []string      // function_tools 白名单（nil=全量）
 	toolsManifest ToolsManifest // 过滤后的 CLI 工具清单
 	checkpointer  core.Checkpointer
 	logger        zerolog.Logger
@@ -35,7 +35,7 @@ type EngineConfig struct {
 	Router        *llm.Router
 	Findings      FindingLister
 	Registry      *Registry
-	FunctionTools []string       // function_tools 白名单（agent 配置；nil=全量，空=空集）
+	FunctionTools []string      // function_tools 白名单（agent 配置；nil=全量，空=空集）
 	ToolsManifest ToolsManifest // 过滤后的 CLI 工具清单
 	Checkpointer  core.Checkpointer
 	Logger        zerolog.Logger

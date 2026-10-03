@@ -51,8 +51,10 @@ func newHTTPRequestTool(deps Deps, timeout time.Duration, safe bool) *httpReques
 	return t
 }
 
-func (t *httpRequestTool) Name() string      { return "http_request" }
-func (t *httpRequestTool) ShortDesc() string { return "发 HTTP 请求（自动抓流入复现弹药库）" }
+func (t *httpRequestTool) Name() string { return "http_request" }
+func (t *httpRequestTool) ShortDesc() string {
+	return "发 HTTP 请求（自动抓流入复现弹药库）"
+}
 func (t *httpRequestTool) Desc() string {
 	return "发送 HTTP 请求并返回响应。请求自动落 agent_traffic 并返回 traffic_id——" +
 		"后续 write_observation 用它构造复现配方（repro.traffic_id + assert），evaluator 据此重放坐实。"

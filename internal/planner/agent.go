@@ -23,8 +23,8 @@ import (
 // - 根据探索图生成新的 Action
 // - 发布 EventActionProposed 事件
 type Agent struct {
-	taskID       string
-	graph        *explorationgraph.Store
+	taskID        string
+	graph         *explorationgraph.Store
 	planner       Planner
 	eventBus      bus.Bus
 	logger        zerolog.Logger
