@@ -322,14 +322,16 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build final image (sandbox-server + browser-use + uvx wrapper)
+      - name: Build and push final image (sandbox-server + browser-use + uvx wrapper)
         run: |
+          # push test tag——下游 imagetools create 是 registry 侧操作，源 manifest 必须先在 registry
           docker build \
             --platform linux/amd64 \
             --build-arg BASE_IMAGE=${{ env.BASE_IMAGE }}:latest \
             -f deployments/tool-images/pentools/Dockerfile.final \
             -t ${{ env.FINAL_IMAGE }}:test-${{ github.sha }} \
-            .
+            . \
+          && docker push ${{ env.FINAL_IMAGE }}:test-${{ github.sha }}
 
       - name: Smoke test final image
         run: |
