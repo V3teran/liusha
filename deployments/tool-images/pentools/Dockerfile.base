@@ -293,12 +293,18 @@ RUN set -eux \
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Layer 20: browser-use（浏览器自动化）
-# ══════════════════════════════════════════════════════════════════════════════
+#
+# chromium 预装：browser_use 启动浏览器经 `uvx playwright install chromium` 拉取
+# （~114MB + 系统依赖）。预装进 base——离线/弱网沙箱下运行时下载会直接挂掉浏览器栈。
+# uvx 真实语义 = `uv tool run`（uv 按 argv[0] 分发）。失败不阻断构建（运行时仍可按需下载）。
 RUN set -eux \
  && python3 -m venv /opt/browser-use-venv \
  && /opt/browser-use-venv/bin/pip install --no-cache-dir browser-use \
  && printf '#!/bin/sh\nexec /opt/browser-use-venv/bin/python -m browser_use "$@"\n' > /usr/local/bin/browser-use \
- && chmod +x /usr/local/bin/browser-use
+ && chmod +x /usr/local/bin/browser-use \
+ && printf '#!/bin/sh\nexec /usr/local/bin/uv tool run "$@"\n' > /usr/local/bin/uvx \
+ && chmod +x /usr/local/bin/uvx \
+ && uvx playwright install chromium --with-deps
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Layer 21: stegoveritas（隐写分析）
