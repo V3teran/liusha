@@ -338,7 +338,8 @@ jobs:
             bash -c '
               set -e
               echo "=== uvx wrapper ==="
-              uvx --version >/dev/null && echo "uvx OK"
+              # uv tool run 不支持 --version——校验 wrapper 存在且转发语义正确（离线安全）
+              command -v uvx >/dev/null && grep -q "uv tool run" /usr/local/bin/uvx && echo "uvx OK"
               echo "=== chromium（base 预装）==="
               ls ~/.cache/ms-playwright/chromium*-*/chrome-linux/chrome >/dev/null 2>&1 || ls ~/.cache/ms-playwright/chromium*/**/chrome >/dev/null 2>&1 && echo "chromium OK"
               echo "=== sandbox-server ==="
