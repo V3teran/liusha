@@ -111,6 +111,33 @@ func (t *writeObservationTool) Execute(ctx context.Context, args json.RawMessage
 		return registry.ToolResult{Error: "statement 不能为空"}, nil
 	}
 
+	// 验证 repro 格式（强制使用新的自包含格式）
+	if len(input.Repro) > 0 {
+		var reproCheck struct {
+			Request       map[string]interface{} `json:"request"`
+			TrafficID     *int64                 `json:"traffic_id"`
+			Modifications map[string]interface{} `json:"modifications"`
+		}
+		if err := json.Unmarshal(input.Repro, &reproCheck); err == nil {
+			// 检查是否使用了旧格式
+			if reproCheck.TrafficID != nil || len(reproCheck.Modifications) > 0 {
+				return registry.ToolResult{
+					Error: "repro 格式已更新。请使用新格式：repro.request (包含完整的 method/url/headers/body)。\n" +
+						"示例：{\"request\": {\"method\": \"GET\", \"url\": \"http://target.com/...\", \"headers\": {}, \"body\": \"\"}, \"assert\": {...}}\n" +
+						"旧的 traffic_id + modifications 模式不再支持。请参考文档中的完整示例。",
+				}, nil
+			}
+			// 检查是否提供了新格式的 request
+			if len(reproCheck.Request) == 0 {
+				return registry.ToolResult{
+					Error: "repro 必须包含 request 字段（完整的 HTTP 请求）。\n" +
+						"request 必须包含：method, url, headers, body。\n" +
+						"示例：{\"method\": \"GET\", \"url\": \"http://target.com/api?id=1\", \"headers\": {}, \"body\": \"\"}",
+				}, nil
+			}
+		}
+	}
+
 	// 默认置信度
 	if input.Confidence == "" {
 		input.Confidence = "low"
