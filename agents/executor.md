@@ -4,20 +4,117 @@ kind: executor
 name: 执行者
 description: 负责执行具体的渗透测试任务
 function_tools:
+  - done
+  - mark_insight
+  - read_credentials
+  - write_credential
+  - read_findings
+  - update_finding
+  - search_corpus
+  - write_corpus
+  - write_insight
+  - list_traffic
+  - view_traffic
+  - replay_traffic
   - http_request
-  - parse_html
-  - execute_js
-  - extract_data
+  - run_command
+  - browser_use
+  - read_tooling_skill
+  - read_vuln_skill
+  - write_observation
+  - write_evidence
 cli_tools:
+  - ROPgadget
+  - RsaCtfTool
+  - SSRFmap
+  - SSTImap
+  - afl-fuzz
+  - angr
+  - arjun
+  - binwalk
+  - bloodhound-python
+  - browser-use
+  - certipy
+  - checkov
+  - checksec
+  - chisel
+  - cloudfox
+  - cloudsplaining
+  - commix
   - curl
-  - sqlmap
+  - dalfox
+  - evil-winrm
+  - exiftool
+  - fcrackzip
+  - feroxbuster
+  - ffuf
+  - foremost
+  - fscan
+  - gau
+  - gcc
+  - gdb
+  - ghidra
+  - go
+  - hash-identifier
+  - hashcat
+  - httpx
+  - hydra
+  - impacket-secretsdump
+  - interactsh-client
+  - java
+  - john
+  - jq
+  - jwt_tool
+  - katana
+  - kube-bench
+  - kube-hunter
+  - kubectl
+  - ligolo-ng
+  - linpeas
+  - masscan
+  - msfconsole
+  - mysql
+  - netexec
   - nikto
   - nmap
-  - gobuster
-  - ffuf
-skills:
-  - tooling/browser-use
-  - vuln/dom-xss
+  - node
+  - nuclei
+  - one_gadget
+  - pacu
+  - paramspider
+  - patchelf
+  - peirates
+  - php
+  - phpggc
+  - prowler
+  - proxychains4
+  - pwninit
+  - python3
+  - radare2
+  - responder
+  - ruby
+  - seccomp-tools
+  - semgrep
+  - sliver
+  - spectral
+  - sqlmap
+  - steghide
+  - stegoveritas
+  - stegseek
+  - strace
+  - subfinder
+  - testdisk
+  - trivy
+  - trufflehog
+  - trufflehog
+  - tshark
+  - vol
+  - wafw00f
+  - wpscan
+  - ysomap
+  - ysoserial
+  - zsteg
+
 max_iterations: 40
 tier: medium
 ---

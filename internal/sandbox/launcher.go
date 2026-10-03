@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -44,10 +45,6 @@ const (
 
 	// 容器内 sandbox-server 监听端口（与 cmd/sandbox-server/main.go 一致）。
 	containerSandboxPort = "8080"
-
-	// 容器内 mitmproxy 监听端口（CLI 工具 HTTP_PROXY 指向它，捕获流量入字典）。
-	// 与 entrypoint 拉起 mitmdump 的 --listen-port 一致。
-	containerMitmPort = "8889"
 )
 
 // DockerLauncher 是 Launcher 的 docker CLI 实现。
@@ -70,8 +67,7 @@ type DockerLauncher struct {
 
 	// IngestURL 是 active 容器内抓流量 → /internal/v1/flows/ingest endpoint 的完整 URL。
 	//
-	// 两条抓取前端都 push 到本 URL：浏览器 browser-svc.py 内建 CDP Network observer；
-	// CLI 工具经容器内本地 mitmproxy（mitm-capture.py）。下游 → cmd/runner ingest_handler 构造
+	// 抓流架构：仅 browser-svc.py 的 CDP Network observer——浏览器流量 push 到本 URL
 	// TrafficSnapshot{Source:"internal"} → publisher.Publish → ingestor.handleInternalSnap。
 	//
 	// 典型值：http://host.docker.internal:9090/internal/v1/flows/ingest（cmd/runner healthz 端口）。
@@ -81,6 +77,10 @@ type DockerLauncher struct {
 	// IngestToken 是上面 URL 的 Bearer token。
 	// 空 = 不带 Authorization header（dev 模式 cmd/proxy 端也不强制）；prod 应非空。
 	IngestToken string
+
+	// detectOnce/hasCaptureProxy 缓存 per-process 的镜像探测结果（见 containerHasCaptureProxy）。
+	detectOnce      sync.Once
+	hasCaptureProxy bool
 }
 
 // NewDockerLauncher 构造 launcher。Image 必填，DockerBin 空走默认。
@@ -139,23 +139,6 @@ func (l *DockerLauncher) Spawn(ctx context.Context, agentID string) (Client, err
 		if l.IngestToken != "" {
 			args = append(args, "-e", "LIUSHA_INGEST_TOKEN="+l.IngestToken)
 		}
-		// CLI 流量捕获入字典：CLI 工具经容器内 mitmproxy（标准代理 env，工具自动尊重）→
-		// mitm-capture.py addon → POST ingest。agent_id 走 env（容器 per-run，owner 级归属足够，
-		// 与 browser-svc.py 的 per-request 归属互补：浏览器 CDP / CLI 走 mitmproxy）。
-		// NO_PROXY 排除 ingest(host.docker.internal) + loopback，避免 addon 自身 POST 与
-		// sandbox-server 被代理（死循环 / 自拦截）。
-		proxyURL := "http://127.0.0.1:" + containerMitmPort
-		noProxy := "host.docker.internal,127.0.0.1,localhost"
-		args = append(args,
-			"-e", "HTTP_PROXY="+proxyURL,
-			"-e", "HTTPS_PROXY="+proxyURL,
-			"-e", "http_proxy="+proxyURL,
-			"-e", "https_proxy="+proxyURL,
-			"-e", "ALL_PROXY="+proxyURL,
-			"-e", "NO_PROXY="+noProxy,
-			"-e", "no_proxy="+noProxy,
-			"-e", "LIUSHA_AGENT_ID="+agentID,
-		)
 	}
 	args = append(args, l.Image)
 	runOut, err := exec.CommandContext(ctx, bin, args...).CombinedOutput() // #nosec G204 // docker CLI 固定二进制，参数为内部生成的容器名

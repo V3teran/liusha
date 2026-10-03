@@ -26,16 +26,18 @@ var activeProfiles = map[string]activeProfile{
 	// active:full 综合扫描：开放性 brief，不剧透漏洞类型/路径。
 	// 压测 LLM 自主 recon 能力 + 多攻击面 spawn 决策。
 	//
-	// - MinObjectives=2: 可能有多个攻击面目标（登录、XSS、SQLi、文件上传等）
+	// - MinObjectives=1: 单根 objective（onboard 幂等去重后每任务 1 个根目标；
+	//   次级目标由 Result 派生——0 result 时 1 即诚实上限，阈值 2 是双根 bug 时代的失真标定）
 	// - MinActions=10: 综合扫描需要更多探索动作（recon + 多种攻击）
-	// - MinResults=5: 期望发现多个漏洞
+	// - MinResults=3: 2026-10-02 按实测重标（LLM 裁决晋升链全通后单轮实产 4 result；
+	//   5 是晋升链断裂时代的拍脑袋值——refute 率高是质量闸门正常工作，不该用高阈值逼迫放水）
 	"full": {
 		name:  "full",
 		brief: "测试网站 http://111.229.193.40:34280/login.php，账号 admin/password。挖出尽可能多的漏洞，无类型限制。",
 		acceptance: AcceptanceCriteria{
-			MinObjectives: 2,
+			MinObjectives: 1,
 			MinActions:    10,
-			MinResults:    5,
+			MinResults:    3,
 		},
 	},
 

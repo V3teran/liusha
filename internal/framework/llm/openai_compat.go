@@ -71,6 +71,11 @@ func (g *openAICompatGen) Model() string    { return g.model }
 
 // Generate 发起一次 chat completion；tools 每次动态传入。
 func (g *openAICompatGen) Generate(ctx context.Context, msgs []Message, tools []ToolSchema) (Result, error) {
+	return g.GenerateWithOpts(ctx, msgs, tools, GenOpts{})
+}
+
+// GenerateWithOpts 实现 OptionsGenerator：按调用透传采样温度等可选参数。
+func (g *openAICompatGen) GenerateWithOpts(ctx context.Context, msgs []Message, tools []ToolSchema, opts GenOpts) (Result, error) {
 	openaiMsgs, err := toOpenAIMessages(msgs, g.supportsVision)
 	if err != nil {
 		return Result{}, fmt.Errorf("convert messages: %w", err)
@@ -89,6 +94,9 @@ func (g *openAICompatGen) Generate(ctx context.Context, msgs []Message, tools []
 	}
 	if len(openaiTools) > 0 {
 		req.Tools = openaiTools
+	}
+	if opts.Temperature != nil {
+		req.Temperature = float32(*opts.Temperature)
 	}
 
 	resp, err := g.client.CreateChatCompletion(ctx, req)

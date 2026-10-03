@@ -13,8 +13,6 @@ import (
 	"context"
 	"fmt"
 	"sync"
-
-	"github.com/V3teran/liusha/internal/config/llm"
 )
 
 // Complexity 是 LLM 复杂度分级标识。
@@ -28,17 +26,6 @@ const (
 	ComplexityComplex Complexity = "complex" // 深度推理：战略规划、多步决策、复杂综合
 )
 
-// RouterStore 是 Router 依赖的 llmcfg 查询子集。
-type RouterStore interface {
-	GetRouting(ctx context.Context) (llmcfg.Routing, error)
-	GetProvider(ctx context.Context, key string) (llmcfg.Provider, error)
-}
-
-// KeyDecrypter 解密 EncryptedAPIKey，由调用方注入（通常是 *cryptx.Cipher）。
-type KeyDecrypter interface {
-	Decrypt(sealed []byte) (string, error)
-}
-
 // RouterFallbackFactory 在 primary 重试耗尽后构造兜底 Provider（可空）。
 // 由调用方从配置的全局备胎（保留 role __fallback__）装配。
 type RouterFallbackFactory func(ctx context.Context) (Provider, error)
@@ -46,26 +33,27 @@ type RouterFallbackFactory func(ctx context.Context) (Provider, error)
 // Router 按 Complexity 路由 Provider，内部缓存已构造实例（线程安全）。
 type Router struct {
 	store     RouterStore
-	decrypter KeyDecrypter
 	pool      *ClientPool
 	fallback  RouterFallbackFactory
-	mu        sync.Mutex
-	cached    map[Complexity]Provider
+	// providerWrapper 可选装饰钩子：build() 产出 Provider 后包一层（埋点/限流等）。
+	// 在首次 For() 之前设置；并发不安全。
+	providerWrapper func(Provider) Provider
+	mu              sync.Mutex
+	cached          map[Complexity]Provider
 }
 
 // NewRouter 构造 Router。
-func NewRouter(store RouterStore, dec KeyDecrypter) *Router {
-	return NewRouterWithFallback(store, dec, nil)
+func NewRouter(store RouterStore) *Router {
+	return NewRouterWithFallback(store, nil)
 }
 
 // NewRouterWithFallback 构造带可选兜底的 Router。
-func NewRouterWithFallback(store RouterStore, dec KeyDecrypter, fallback RouterFallbackFactory) *Router {
+func NewRouterWithFallback(store RouterStore, fallback RouterFallbackFactory) *Router {
 	return &Router{
-		store:     store,
-		decrypter: dec,
-		pool:      NewClientPool(),
-		fallback:  fallback,
-		cached:    make(map[Complexity]Provider),
+		store:    store,
+		pool:     NewClientPool(),
+		fallback: fallback,
+		cached:   make(map[Complexity]Provider),
 	}
 }
 
@@ -114,17 +102,12 @@ func (r *Router) build(ctx context.Context, complexity Complexity) (Provider, er
 		return nil, fmt.Errorf("provider/router: no provider configured for complexity %q", complexity)
 	}
 
-	provCfg, err := r.store.GetProvider(ctx, providerKey)
+	spec, err := r.store.GetProviderSpec(ctx, providerKey)
 	if err != nil {
 		return nil, fmt.Errorf("provider/router: load provider %q: %w", providerKey, err)
 	}
 
-	apiKey, err := llmcfg.ResolveAPIKey(provCfg, r.decrypter)
-	if err != nil {
-		return nil, fmt.Errorf("provider/router: resolve api key for %q: %w", providerKey, err)
-	}
-
-	g, err := BuildGeneratorWithKey(ctx, provCfg, r.pool, apiKey)
+	g, err := BuildGeneratorWithKey(ctx, spec, r.pool)
 	if err != nil {
 		return nil, err
 	}
@@ -137,28 +120,41 @@ func (r *Router) build(ctx context.Context, complexity Complexity) (Provider, er
 		}
 	}
 
-	return WithFallback(NewProvider(g), fallback, DefaultRetryOptions()), nil
+	prov := WithFallback(NewProvider(g), fallback, DefaultRetryOptions())
+	if r.providerWrapper != nil {
+		prov = r.providerWrapper(prov)
+	}
+	return prov, nil
+}
+
+// SetProviderWrapper 注入 Provider 装饰钩子（埋点/限流等），在首次 For() 之前调用。
+// 包裹点在 retry/fallback 之外——记录"调用方视角"的调用。
+func (r *Router) SetProviderWrapper(fn func(Provider) Provider) {
+	r.mu.Lock()
+	r.providerWrapper = fn
+	r.cached = make(map[Complexity]Provider) // 换钩子后作废旧缓存
+	r.mu.Unlock()
 }
 
 // BuildGeneratorWithKey 用 ClientPool 共享 HTTP client 构造 Generator（按 provider 类型分派）。
-// 导出供业务策略层（internal/llm Factory）与 router 共用同一构造路径。
-func BuildGeneratorWithKey(ctx context.Context, p llmcfg.Provider, pool *ClientPool, apiKey string) (Generator, error) {
+// spec.APIKey 必须是已解析的明文密钥（解析归业务侧）。导出供业务策略层与 router 共用。
+func BuildGeneratorWithKey(ctx context.Context, p ProviderSpec, pool *ClientPool) (Generator, error) {
 	switch p.Type {
-	case llmcfg.ProviderTypeAnthropic:
-		cli, err := pool.GetOrCreateAnthropic(p.BaseURL, apiKey)
+	case ProviderTypeAnthropic:
+		cli, err := pool.GetOrCreateAnthropic(p.BaseURL, p.APIKey)
 		if err != nil {
 			return nil, fmt.Errorf("provider %q: %w", p.Key, err)
 		}
 		return NewAnthropic(ctx, p.Key, AnthropicConfig{
-			BaseURL: p.BaseURL, Model: p.DefaultModel, APIKey: apiKey, MaxTokens: p.MaxTokens,
+			BaseURL: p.BaseURL, Model: p.Model, APIKey: p.APIKey, MaxTokens: p.MaxTokens,
 		}, cli)
-	case llmcfg.ProviderTypeOpenAICompat, "":
-		cli, err := pool.GetOrCreateOpenAI(p.BaseURL, apiKey)
+	case ProviderTypeOpenAICompat, "":
+		cli, err := pool.GetOrCreateOpenAI(p.BaseURL, p.APIKey)
 		if err != nil {
 			return nil, fmt.Errorf("provider %q: %w", p.Key, err)
 		}
 		return NewOpenAICompat(ctx, p.Key, OpenAICompatConfig{
-			BaseURL: p.BaseURL, Model: p.DefaultModel, APIKey: apiKey, MaxTokens: p.MaxTokens,
+			BaseURL: p.BaseURL, Model: p.Model, APIKey: p.APIKey, MaxTokens: p.MaxTokens,
 			SupportsVision: p.SupportsVision,
 		}, cli)
 	}

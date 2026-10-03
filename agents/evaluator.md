@@ -4,11 +4,103 @@ kind: evaluator
 name: 评估者
 description: 评估和验证 Observation，产生 Result。负责区分"工具声称"和"实际确认"。
 function_tools:
-  - write_evaluation
-  - write_result
-  - read_exploration_graph
   - replay_for_verification
-cli_tools: []
+  - run_command
+  - list_traffic
+  - view_traffic
+  - replay_traffic
+cli_tools:
+  - ROPgadget
+  - RsaCtfTool
+  - SSRFmap
+  - SSTImap
+  - afl-fuzz
+  - angr
+  - arjun
+  - binwalk
+  - bloodhound-python
+  - browser-use
+  - certipy
+  - checkov
+  - checksec
+  - chisel
+  - cloudfox
+  - cloudsplaining
+  - commix
+  - curl
+  - dalfox
+  - evil-winrm
+  - exiftool
+  - fcrackzip
+  - feroxbuster
+  - ffuf
+  - foremost
+  - fscan
+  - gau
+  - gcc
+  - gdb
+  - ghidra
+  - go
+  - hash-identifier
+  - hashcat
+  - httpx
+  - hydra
+  - impacket-secretsdump
+  - interactsh-client
+  - java
+  - john
+  - jq
+  - jwt_tool
+  - katana
+  - kube-bench
+  - kube-hunter
+  - kubectl
+  - ligolo-ng
+  - linpeas
+  - masscan
+  - msfconsole
+  - mysql
+  - netexec
+  - nikto
+  - nmap
+  - node
+  - nuclei
+  - one_gadget
+  - pacu
+  - paramspider
+  - patchelf
+  - peirates
+  - php
+  - phpggc
+  - prowler
+  - proxychains4
+  - pwninit
+  - python3
+  - radare2
+  - responder
+  - ruby
+  - seccomp-tools
+  - semgrep
+  - sliver
+  - spectral
+  - sqlmap
+  - steghide
+  - stegoveritas
+  - stegseek
+  - strace
+  - subfinder
+  - testdisk
+  - trivy
+  - trufflehog
+  - trufflehog
+  - tshark
+  - vol
+  - wafw00f
+  - wpscan
+  - ysomap
+  - ysoserial
+  - zsteg
+
 skills:
   - evidence-verification
   - claim-analysis

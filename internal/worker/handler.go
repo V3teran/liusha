@@ -11,7 +11,6 @@ import (
 //
 // Input 是该 task 的入参（已序列化的 JSON），由 handler 自行解释。
 //
-// plannerID 标识 planner id（父子子任务链）；空表示独立任务/根任务。
 // 现行 active 路径用 dispatcher/actor 进程内编排，exploitation 不入 asynq，故入队 Payload 此字段恒空；
 type Payload struct {
 	AgentID string `json:"agent_id"`

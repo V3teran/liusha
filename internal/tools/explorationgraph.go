@@ -34,6 +34,42 @@ var writeObservationSchema = json.RawMessage(`{
       "type": "string",
       "enum": ["low", "medium", "high"],
       "description": "假设的初始置信度，默认 low"
+    },
+    "severity": {
+      "type": "string",
+      "enum": ["critical", "high", "medium", "low"],
+      "description": "若坐实，漏洞严重度（可选，默认 medium）"
+    },
+    "repro": {
+      "type": "object",
+      "description": "差分复现配方（漏洞假设必填）。铁律：modifications 必须注入 payload/改写构造攻击请求（原样重放会被拒绝——命中只能证明页面正常）；断言必须捕捉攻击响应独有特征（报错回显/泄露数据/延迟），禁止页面常态断言（status_code=200+登录页标题类）。traffic_id 引用良性原始流量，时间盲注入断言用 min_duration_ms。",
+      "properties": {
+        "traffic_id": {"type": "integer", "description": "要重放的源流量 ID（http_request 的返回值或 list_traffic 查到的 id）"},
+        "modifications": {
+          "type": "object",
+          "description": "必填。payload 注入点（只写要改的字段，其余继承原请求）",
+          "properties": {
+            "body_fields": {"type": "object", "description": "表单字段改写：{\"id\": \"1' UNION SELECT 1,2,3--\"}", "additionalProperties": {"type": "string"}},
+            "body":       {"type": "string", "description": "整体请求体替换"},
+            "query":      {"type": "object", "description": "查询参数改写：{\"q\": \"payload\"}", "additionalProperties": {"type": "string"}},
+            "headers":    {"type": "object", "description": "请求头改写：{\"Cookie\": \"...\"}", "additionalProperties": {"type": "string"}},
+            "method":     {"type": "string"},
+            "url":        {"type": "string"}
+          }
+        },
+        "assert": {
+          "type": "object",
+          "description": "坐实断言：全部满足才算复现成功，至少一条",
+          "properties": {
+            "status_code":     {"type": "integer", "description": "期望响应码"},
+            "body_contains":   {"type": "array", "items": {"type": "string"}, "description": "响应体须含全部子串"},
+            "body_absent":     {"type": "array", "items": {"type": "string"}, "description": "响应体须不含任一子串"},
+            "header_contains": {"type": "object", "description": "响应头 key→子串"},
+            "min_duration_ms": {"type": "integer", "description": "响应耗时至少 N 毫秒——时间盲注入证据（SLEEP(5) 给 4000）"}
+          }
+        }
+      },
+      "required": ["traffic_id", "modifications", "assert"]
     }
   },
   "required": ["statement", "reasoning"]
@@ -60,10 +96,12 @@ func (t *writeObservationTool) Schema() json.RawMessage { return writeObservatio
 
 func (t *writeObservationTool) Execute(ctx context.Context, args json.RawMessage) (registry.ToolResult, error) {
 	var input struct {
-		Statement  string `json:"statement"`
-		Reasoning  string `json:"reasoning"`
-		TestPlan   string `json:"test_plan"`
-		Confidence string `json:"confidence"`
+		Statement  string          `json:"statement"`
+		Reasoning  string          `json:"reasoning"`
+		TestPlan   string          `json:"test_plan"`
+		Confidence string          `json:"confidence"`
+		Severity   string          `json:"severity"`
+		Repro      json.RawMessage `json:"repro"`
 	}
 	if err := json.Unmarshal(args, &input); err != nil {
 		return registry.ToolResult{Error: "参数解析失败"}, nil
@@ -78,12 +116,19 @@ func (t *writeObservationTool) Execute(ctx context.Context, args json.RawMessage
 		input.Confidence = "low"
 	}
 
-	// 构造 content
-	content, _ := json.Marshal(map[string]interface{}{
+	// 构造 content（repro/severity 透传——executor agent 收割后交复现门裁决）
+	contentMap := map[string]interface{}{
 		"statement": input.Statement,
 		"reasoning": input.Reasoning,
 		"test_plan": input.TestPlan,
-	})
+	}
+	if input.Severity != "" {
+		contentMap["severity"] = input.Severity
+	}
+	if len(input.Repro) > 0 {
+		contentMap["repro"] = input.Repro
+	}
+	content, _ := json.Marshal(contentMap)
 
 	// 映射到 explorationgraph.Confidence
 	var confidence explorationgraph.Confidence
@@ -306,9 +351,18 @@ func (t *writeEvidenceTool) Execute(ctx context.Context, args json.RawMessage) (
 	}, nil
 }
 
+// actionCtxKey 与 getContextActionID 共用同一 context 键（string key，历史口径）。
+const actionCtxKey = "current_action_id"
+
+// WithActionContext 把当前执行的 Action ID 挂进 ctx——engine 在把 ctx 交给 ReAct
+// runtime 前调用，write_observation/write_evidence 据此建 action→节点 的归属边。
+func WithActionContext(ctx context.Context, actionID string) context.Context {
+	return context.WithValue(ctx, actionCtxKey, actionID) //nolint:staticcheck // 历史键口径，getter 同源
+}
+
 // getContextActionID 从 context 中获取当前 actionID（如果有）
 func getContextActionID(ctx context.Context) string {
-	if actionID, ok := ctx.Value("current_action_id").(string); ok {
+	if actionID, ok := ctx.Value(actionCtxKey).(string); ok {
 		return actionID
 	}
 	return ""

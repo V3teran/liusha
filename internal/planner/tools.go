@@ -6,9 +6,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/google/uuid"
-	"github.com/rs/zerolog"
-
 	"github.com/V3teran/liusha/internal/explorationgraph"
 	"github.com/V3teran/liusha/internal/framework/core"
 	"github.com/V3teran/liusha/internal/registry"
@@ -16,12 +13,15 @@ import (
 
 // ObserveStateTool 观察探索图状态
 type ObserveStateTool struct {
+	registry.BaseTool
 	graph *explorationgraph.Store
 }
 
-// NewObserveStateTool 构造探索图状态观察工具（planner 专属）。
+// NewObserveStateTool 构造探索图状态观察工具（planner 专属）。只读、并发安全。
 func NewObserveStateTool(graph *explorationgraph.Store) *ObserveStateTool {
-	return &ObserveStateTool{graph: graph}
+	t := &ObserveStateTool{graph: graph}
+	t.WithTimeout(30 * time.Second).WithConcurrencySafe(true)
+	return t
 }
 
 // Name 实现工具接口。
@@ -126,185 +126,18 @@ func (t *ObserveStateTool) Execute(ctx context.Context, argsJSON json.RawMessage
 	return registry.ToolResult{Output: output}, nil
 }
 
-// ProposeActionsTool 生成新的 Action
-type ProposeActionsTool struct {
-	graph  *explorationgraph.Store
-	logger zerolog.Logger
-}
-
-// NewProposeActionsTool 构造动作提议工具（planner 专属）。
-func NewProposeActionsTool(graph *explorationgraph.Store, logger zerolog.Logger) *ProposeActionsTool {
-	return &ProposeActionsTool{
-		graph:  graph,
-		logger: logger.With().Str("tool", "propose_actions").Logger(),
-	}
-}
-
-// Name 实现工具接口。
-func (t *ProposeActionsTool) Name() string { return "propose_actions" }
-
-// ShortDesc 实现工具接口。
-func (t *ProposeActionsTool) ShortDesc() string {
-	return "生成新的 Action"
-}
-
-// Desc 实现工具接口。
-func (t *ProposeActionsTool) Desc() string {
-	return "生成新的 Action（执行动作）"
-}
-
-// Schema 实现工具接口。
-func (t *ProposeActionsTool) Schema() json.RawMessage {
-	return json.RawMessage(`{
-		"type": "object",
-		"properties": {
-			"actions": {
-				"type": "array",
-				"description": "Action 列表",
-				"items": {
-					"type": "object",
-					"properties": {
-						"instruction": {
-							"type": "string",
-							"description": "自然语言描述要做什么（必填）"
-						},
-						"complexity": {
-							"type": "string",
-							"enum": ["trivial", "simple", "moderate", "complex", "extreme"],
-							"description": "执行复杂度（必填）"
-						},
-						"priority": {
-							"type": "string",
-							"description": "优先级（必填）：critical=P0, high=P1, medium=P2, low=P3",
-								"enum": ["critical", "high", "medium", "low"],
-						},
-						"depends_on": {
-							"type": "array",
-							"description": "依赖的其他 Action ID 列表（可选）",
-							"items": {"type": "string"}
-						},
-						"roadmap_step": {
-							"type": "number",
-							"description": "关联的 RoadmapStep 编号（可选）"
-						}
-					},
-					"required": ["instruction", "complexity", "priority"]
-				}
-			}
-		},
-		"required": ["actions"]
-	}`)
-}
-
-// Execute 实现工具接口：把 LLM 提案写入探索图。
-func (t *ProposeActionsTool) Execute(ctx context.Context, argsJSON json.RawMessage) (registry.ToolResult, error) {
-	taskID, ok := ctx.Value("task_id").(string)
-	if !ok {
-		return registry.ToolResult{Error: "task_id not in context"}, nil
-	}
-
-	var input struct {
-		Actions []struct {
-			Instruction string   `json:"instruction"`
-			Complexity  string   `json:"complexity"`
-			Priority    string   `json:"priority"` // critical/high/medium/low
-			DependsOn   []string `json:"depends_on"`
-			RoadmapStep *float64 `json:"roadmap_step"`
-		} `json:"actions"`
-	}
-
-	if err := json.Unmarshal(argsJSON, &input); err != nil {
-		return registry.ToolResult{Error: fmt.Sprintf("parse args: %v", err)}, nil
-	}
-
-	if len(input.Actions) == 0 {
-		return registry.ToolResult{Error: "actions cannot be empty"}, nil
-	}
-
-	// 获取当前 Objective（用于关联 Actions）
-	objectives, err := t.graph.ListNodesByKind(ctx, taskID, core.KindObjective)
-	if err != nil {
-		return registry.ToolResult{Error: fmt.Sprintf("load objectives: %v", err)}, nil
-	}
-
-	// 使用第一个 Objective（简化逻辑，未来可以支持指定）
-	var primaryObjectiveID string
-	if len(objectives) > 0 {
-		primaryObjectiveID = objectives[0].ID
-	}
-
-	var createdIDs []string
-
-	for _, a := range input.Actions {
-		if a.Instruction == "" {
-			return registry.ToolResult{Error: "instruction must be non-empty"}, nil
-		}
-
-		complexity := explorationgraph.Complexity(a.Complexity)
-		priority := explorationgraph.Priority(a.Priority)
-		state := explorationgraph.StateOpen
-
-		content, _ := json.Marshal(map[string]interface{}{
-			"instruction": a.Instruction,
-		})
-
-		node := explorationgraph.Node{
-			ID:          uuid.New().String(),
-			TaskID:      taskID,
-			Kind:        core.KindAction,
-			Content:     content,
-			State:       &state,
-			Complexity:  &complexity,
-			DependsOn:   a.DependsOn,
-			RoadmapStep: a.RoadmapStep,
-			Priority:    priority,
-			Owner:       "planner",
-			SourceType:  explorationgraph.SourcePlanner,
-			SourceID:    "planner-tool",
-			CreatedAt:   time.Now(),
-			UpdatedAt:   time.Now(),
-		}
-
-		id, err := t.graph.CreateNode(ctx, node)
-		if err != nil {
-			t.logger.Error().Err(err).Msg("failed to create action")
-			return registry.ToolResult{Error: fmt.Sprintf("create action: %v", err)}, nil
-		}
-
-		// 创建 Objective → Action 边（如果有 Objective）
-		if primaryObjectiveID != "" {
-			err = t.graph.CreateEdge(ctx, &core.GraphEdge{
-				From:      primaryObjectiveID,
-				To:        id,
-				Relation:  string(core.RelationGenerates),
-				CreatedAt: time.Now(),
-			})
-			if err != nil {
-				t.logger.Error().Err(err).Msg("failed to create Objective → Action edge")
-				// 不返回错误，节点已创建
-			}
-		}
-
-		createdIDs = append(createdIDs, id)
-	}
-
-	t.logger.Info().
-		Str("task_id", taskID).
-		Int("actions_count", len(createdIDs)).
-		Msg("actions created")
-
-	output := fmt.Sprintf("✓ 已创建 %d 个 Action\nIDs: %v", len(createdIDs), createdIDs)
-	return registry.ToolResult{Output: output}, nil
-}
-
 // EvaluateProgressTool 评估任务进展
 type EvaluateProgressTool struct {
+	registry.BaseTool
+
 	graph *explorationgraph.Store
 }
 
 // NewEvaluateProgressTool 构造进展评估工具（planner 专属）。
 func NewEvaluateProgressTool(graph *explorationgraph.Store) *EvaluateProgressTool {
-	return &EvaluateProgressTool{graph: graph}
+	t := &EvaluateProgressTool{graph: graph}
+	t.WithTimeout(30 * time.Second).WithConcurrencySafe(true)
+	return t
 }
 
 // Name 实现工具接口。

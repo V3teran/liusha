@@ -112,6 +112,17 @@ type Generator interface {
 	Model() string
 }
 
+// GenOpts 是单次生成的可选参数（零值 = provider 默认）。
+type GenOpts struct {
+	Temperature *float64 // 采样温度；nil = 默认
+}
+
+// OptionsGenerator 是按调用传可选参数的能力接口（与 StreamChatGenerator 同一模式）。
+// 适配器实现它后，Provider 桥接层会把 Request.Temperature 透传到协议请求。
+type OptionsGenerator interface {
+	GenerateWithOpts(ctx context.Context, messages []Message, tools []ToolSchema, opts GenOpts) (Result, error)
+}
+
 // HTTPError 是上游 HTTP 错误的统一表示。
 // provider 适配层可在拿到非 2xx 时构造此错误（推荐 Inner 包裹原 error 便于排查）。
 type HTTPError struct {

@@ -3,8 +3,11 @@ id: monitor
 kind: monitor
 name: 监察者
 description: 周期性评估全局探索态势，发现停滞与偏差，发出干预决策。
-function_tools: []
+function_tools:
+  - get_global_state
+  - publish_decision
 cli_tools: []
+
 max_iterations: 10
 tier: medium
 ---

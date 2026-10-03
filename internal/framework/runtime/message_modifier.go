@@ -180,62 +180,6 @@ func NewDefaultModifierChain(windowSize int) *MessageModifierChain {
 	)
 }
 
-// NewPlannerModifierChain 创建 Planner 专用的修改器链
-// Planner 需要保留更多上下文以进行长期规划
-func NewPlannerModifierChain() *MessageModifierChain {
-	return NewMessageModifierChain(
-		[]MessageModifier{
-			NewValidateModifier(100000),
-			NewRollingWindowModifier(30), // Planner 保留更多历史
-		},
-		ErrorStrategyFailFast,
-		DefaultRetryConfig(),
-		30,
-	)
-}
-
-// NewExecutorModifierChain 创建 Executor 专用的修改器链
-// Executor 需要快速响应，保持较小的上下文窗口
-func NewExecutorModifierChain() *MessageModifierChain {
-	return NewMessageModifierChain(
-		[]MessageModifier{
-			NewValidateModifier(100000),
-			NewRollingWindowModifier(15), // Executor 窗口较小
-		},
-		ErrorStrategyFailFast,
-		DefaultRetryConfig(),
-		30,
-	)
-}
-
-// NewEvaluatorModifierChain 创建 Evaluator 专用的修改器链
-// Evaluator 需要看到完整的验证上下文
-func NewEvaluatorModifierChain() *MessageModifierChain {
-	return NewMessageModifierChain(
-		[]MessageModifier{
-			NewValidateModifier(100000),
-			NewRollingWindowModifier(25), // Evaluator 保留较多上下文
-		},
-		ErrorStrategyFailFast,
-		DefaultRetryConfig(),
-		30,
-	)
-}
-
-// NewMonitorModifierChain 创建 Monitor 专用的修改器链
-// Monitor 需要简洁的上下文以快速评估
-func NewMonitorModifierChain() *MessageModifierChain {
-	return NewMessageModifierChain(
-		[]MessageModifier{
-			NewValidateModifier(100000),
-			NewRollingWindowModifier(10), // Monitor 窗口最小
-		},
-		ErrorStrategyFailFast,
-		DefaultRetryConfig(),
-		30,
-	)
-}
-
 // ─────────────────────────────────────────────
 // 内置修改器实现
 // ─────────────────────────────────────────────

@@ -1,10 +1,10 @@
-.PHONY: up down logs migrate migrate-down run-api run-runner run-web build-api build-nginx build-proxy build-runner build-vulnapp build-pentools web-install web-build web-test test test-unit test-integration lint fmt tidy vet e2e e2e-bac e2e-sqli e2e-active
+.PHONY: up down logs migrate migrate-down run-api run-runner run-web build-api build-nginx build-proxy build-runner build-vulnapp build-pentools web-install web-build web-test test test-unit test-integration lint fmt tidy vet e2e e2e-active e2e-full
 
 COMPOSE = docker compose -f deployments/docker-compose.yml
 MIGRATE_DSN ?= postgres://liusha:liusha@localhost:5432/liusha?sslmode=disable
 # migrate 走 go run 拉取 golang-migrate；默认全局 GOPROXY（goproxy.io）偶发 EOF，
 # 这里用可覆盖的镜像 fallback 链兜底：官方 → 国内镜像 → direct。可 `make migrate MIGRATE_GOPROXY=...` 覆盖。
-MIGRATE_GOPROXY ?= https://proxy.golang.org,https://goproxy.cn,direct
+MIGRATE_GOPROXY ?= https://goproxy.cn,direct
 MIGRATE = GOPROXY='$(MIGRATE_GOPROXY)' go run -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@v4.19.1
 
 up:
@@ -59,11 +59,12 @@ build-runner:
 build-vulnapp:
 	docker build -f cmd/vulnapp/Dockerfile -t liusha/vulnapp .
 
-# sandbox 镜像（all-in-one：sandbox-server PID 1 + browser-use + pentest 工具集）。
-# multi-stage build：stage 0 编译 sandbox-server Go 二进制；stage 1 装 chrome/python/工具/拷贝二进制。
-# 体积 ~1.5GB；首次 build ~10-20 分钟（拉 ubuntu/golang base + apt + pip + wget releases）。
+# sandbox final 镜像（sandbox-server PID 1 + browser-use + 工具清单元数据）。
+# 分层构建：base（Kali + 90 工具安装）由 CI 构建推送 ghcr.io/v3teran/pentools-base，
+# 本地只构建 final（ARG BASE_IMAGE 默认取 base:latest）。改 Dockerfile.base/tools.yaml 走 CI。
 build-pentools:
-	docker build -t ghcr.io/v3teran/liusha-pentools:latest -t liusha/pentools:latest -f deployments/tool-images/pentools/Dockerfile .
+	docker build --platform linux/amd64 -t ghcr.io/v3teran/liusha-pentools:latest -t liusha/pentools:latest \
+		-f deployments/tool-images/pentools/Dockerfile.final .
 
 test: test-unit test-integration
 
@@ -94,20 +95,14 @@ fmt:
 tidy:
 	go mod tidy
 
-# e2e 通用触发器（args 用前缀区分 passive/active 两种模式）：
-#   make e2e              # 不带参 = 跑全部 passive profile
-#   make e2e-bac          # 仅 passive bac
-#   make e2e-sqli         # 仅 passive sqli
-#   make e2e-active       # 仅 active:xss（自然语言 brief 喂 agent LLM）
-#   go run ./cmd/e2e bac sqli active:xss   # 混合（直接调 binary）
-e2e:
-	go run ./cmd/e2e
-
-e2e-bac:
-	go run ./cmd/e2e bac
-
-e2e-sqli:
-	go run ./cmd/e2e sqli
+# e2e 触发器（passive profile 已随认知循环重构移除，cmd/e2e 仅支持 active:<name>）：
+#   make e2e-active       # active:xss（自然语言 brief 喂 agent LLM）
+#   make e2e-full         # active:full（全类型漏洞挖掘，验收 1 目标/10 动作/5 结果）
+#   ./scripts/dev/e2e.sh active:full   # 全套（清库→重启→触发→轮询）
+e2e: e2e-active
 
 e2e-active:
 	go run ./cmd/e2e active:xss
+
+e2e-full:
+	go run ./cmd/e2e active:full

@@ -14,6 +14,7 @@ import (
 	"github.com/V3teran/liusha/internal/explorationgraph"
 	"github.com/V3teran/liusha/internal/framework/core"
 	"github.com/V3teran/liusha/internal/framework/llm"
+	"github.com/V3teran/liusha/internal/framework/runtime"
 )
 
 // Intelligence 是基于 LLM 的智能规划器
@@ -57,26 +58,69 @@ type PlanningResponse struct {
 	Actions        []ActionProposal `json:"actions"`         // 新提议的 Action
 }
 
-// Plan 基于当前探索图状态生成新的 Action
-func (i *Intelligence) Plan(ctx context.Context, graph *explorationgraph.Store, taskID string) ([]explorationgraph.Node, error) {
+// Plan 基于当前探索图状态生成新的 Action——ReAct 形态：
+// LLM 经 observe_state/evaluate_progress 工具自主观察探索图，思考后输出规划 JSON。
+// 落图仍由 agent.go 单点执行（转换 + 依赖过滤 + 事件发布），ReAct 只负责决策。
+func (i *Intelligence) Plan(ctx context.Context, graph *explorationgraph.Store, taskID string, functionTools []string) ([]explorationgraph.Node, error) {
 	i.logger.Info().Str("task_id", taskID).Msg("开始智能规划")
 
-	// 1. 收集规划上下文
+	// 1. 收集规划上下文（作为首条输入的紧凑摘要；细节靠工具按需深挖）
 	planCtx, err := i.gatherContext(ctx, graph, taskID)
 	if err != nil {
 		return nil, fmt.Errorf("收集规划上下文失败: %w", err)
 	}
-
-	// 2. 构建 LLM prompt
 	prompt := i.buildPlanningPrompt(planCtx)
 
-	// 3. 调用 LLM 进行推理
-	response, err := i.callLLM(ctx, prompt)
+	// 2. 组装 ReAct 规划器：observe_state / evaluate_progress 只读图工具
+	provider, err := i.router.For(ctx, llm.ComplexityMedium)
 	if err != nil {
-		return nil, fmt.Errorf("LLM 推理失败: %w", err)
+		return nil, fmt.Errorf("获取 LLM provider 失败: %w", err)
 	}
 
-	// 4. 如果 LLM 判断不应该继续，返回空
+	// function_tools 白名单过滤（nil=全量，空=空集——严格白名单，与 cli_tools 语义一致）
+	allow := func(name string) bool {
+		if functionTools == nil {
+			return true
+		}
+		for _, n := range functionTools {
+			if n == name {
+				return true
+			}
+		}
+		return false
+	}
+
+	react := runtime.NewReActRuntime()
+	if allow("observe_state") {
+		_ = react.RegisterTool(NewObserveStateTool(graph))
+	}
+	if allow("evaluate_progress") {
+		_ = react.RegisterTool(NewEvaluateProgressTool(graph))
+	}
+
+	// 图工具经 ctx 取 task_id（与 executor 的 action ctx 同一机制）
+	ctx = context.WithValue(ctx, "task_id", taskID) //nolint:staticcheck // 工具侧同键读取
+
+	// 3. 跑 ReAct：SystemPrompt 定角色与输出契约，Objective 带状态摘要
+	result, err := react.Run(ctx, &runtime.ReActConfig{
+		Objective:     prompt,
+		SystemPrompt:  i.buildPlannerSystemPrompt(),
+		LLMProvider:   provider,
+		MaxIterations: 6, // 规划是短决策循环：观察→(深挖)→出规划
+		MaxTokens:     4000,
+		MessageModifierChain: runtime.NewDefaultModifierChain(20),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("ReAct 规划失败: %w", err)
+	}
+
+	// 4. 解析最终答案为 PlanningResponse
+	response, err := i.parsePlanningResponse(result.FinalAnswer)
+	if err != nil {
+		return nil, fmt.Errorf("解析规划输出失败: %w", err)
+	}
+
+	// 5. 如果 LLM 判断不应该继续，返回空
 	if !response.ShouldContinue {
 		i.logger.Info().
 			Str("task_id", taskID).
@@ -85,7 +129,7 @@ func (i *Intelligence) Plan(ctx context.Context, graph *explorationgraph.Store, 
 		return []explorationgraph.Node{}, nil
 	}
 
-	// 5. 转换 LLM 提案为探索图节点
+	// 6. 转换 LLM 提案为探索图节点
 	nodes := i.convertProposalsToNodes(taskID, response.Actions)
 
 	i.logger.Info().
@@ -202,7 +246,7 @@ func (i *Intelligence) buildPlanningPrompt(ctx *PlanningContext) string {
 				fmt.Fprintf(&sb, "- [完成] (解析失败: %v)\n", err)
 				continue
 			}
-			fmt.Fprintf(&sb, "- [完成] %s\n", a.Instruction)
+			fmt.Fprintf(&sb, "- [完成] [ID: %s] %s\n", action.ID, a.Instruction)
 		}
 	} else {
 		sb.WriteString("（尚未完成任何操作）\n")
@@ -220,7 +264,7 @@ func (i *Intelligence) buildPlanningPrompt(ctx *PlanningContext) string {
 				fmt.Fprintf(&sb, "- [进行中] (解析失败: %v)\n", err)
 				continue
 			}
-			fmt.Fprintf(&sb, "- [进行中] %s\n", a.Instruction)
+			fmt.Fprintf(&sb, "- [进行中] [ID: %s] %s\n", action.ID, a.Instruction)
 		}
 		sb.WriteString("\n")
 	}
@@ -246,7 +290,7 @@ func (i *Intelligence) buildPlanningPrompt(ctx *PlanningContext) string {
 					reason = fullAction.Reason
 				}
 			}
-			fmt.Fprintf(&sb, "- [失败] %s（原因：%s）\n", a.Instruction, reason)
+			fmt.Fprintf(&sb, "- [失败] [ID: %s] %s（原因：%s）\n", action.ID, a.Instruction, reason)
 		}
 		sb.WriteString("\n")
 	}
@@ -308,7 +352,7 @@ func (i *Intelligence) buildPlanningPrompt(ctx *PlanningContext) string {
 	sb.WriteString("      \"complexity\": \"simple/moderate/complex\",\n")
 	sb.WriteString("      \"priority\": \"critical/high/medium/low\",\n")
 	sb.WriteString("      \"reason\": \"为什么需要这个操作\",\n")
-	sb.WriteString("      \"depends_on\": [\"依赖的action_id列表\"],\n")
+	sb.WriteString("      \"depends_on\": [\"可引用上面列出的 Action ID，格式如 '0aa429b8-1803-42b1-afcb-4300304857d6'\"],\n")
 	sb.WriteString("      \"metadata\": {}\n")
 	sb.WriteString("    }\n")
 	sb.WriteString("  ]\n")
@@ -319,30 +363,24 @@ func (i *Intelligence) buildPlanningPrompt(ctx *PlanningContext) string {
 }
 
 // callLLM 调用 LLM 进行推理
-func (i *Intelligence) callLLM(ctx context.Context, prompt string) (*PlanningResponse, error) {
-	provider, err := i.router.For(ctx, "medium")
-	if err != nil {
-		return nil, fmt.Errorf("获取 LLM provider 失败: %w", err)
-	}
+// buildPlannerSystemPrompt 规划 agent 的系统提示（ReAct 形态）。
+func (i *Intelligence) buildPlannerSystemPrompt() string {
+	return `你是渗透测试的探索规划专家。通过 observe_state / evaluate_progress 工具了解探索图现状，然后规划下一批 Action。
 
-	messages := []llm.Message{
-		{
-			Role:    llm.RoleUser,
-			Content: prompt,
-		},
-	}
+**工作方式**：
+1. 先调 evaluate_progress 看全局进展；信息不足再调 observe_state 深挖
+2. 基于观察决定：继续探索（提出 Action）或停止（should_continue=false）
+3. 规划完成后停止调用工具，**只输出一个 JSON 对象**（不要包裹 markdown）：
+{"should_continue": true, "reasoning": "决策理由", "actions": [{"type": "reconnaissance|vulnerability_scan|exploitation|analysis|expansion", "instruction": "具体做什么", "complexity": "simple|moderate|complex", "priority": "critical|high|medium|low", "reason": "为什么", "depends_on": ["依赖的 Action ID"], "metadata": {}}]}
 
-	// 调用 LLM
-	resp, err := provider.Complete(ctx, llm.Request{
-		Messages:  messages,
-		MaxTokens: 4000,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("LLM 调用失败: %w", err)
-	}
+**规划原则**：优先复现已见线索；一次 1-5 个 Action；depends_on 只引用已知 ID；已失败方向换路。`
+}
 
-	// 解析响应
-	content := resp.Content
+// parsePlanningResponse 从 ReAct 最终答案解析规划 JSON。
+func (i *Intelligence) parsePlanningResponse(content string) (*PlanningResponse, error) {
+	if content == "" {
+		return nil, fmt.Errorf("规划输出为空")
+	}
 
 	// 提取 JSON（可能被 ```json ``` 包裹）
 	jsonStart := strings.Index(content, "{")
@@ -362,6 +400,18 @@ func (i *Intelligence) callLLM(ctx context.Context, prompt string) (*PlanningRes
 	}
 
 	return &response, nil
+}
+
+// filterValidDependencies 过滤依赖 ID 中的非法值——LLM 可能编造非 UUID 的依赖
+// （如 "0"），坏依赖会把 Action 永久卡在 blocked，必须在这里拦截。
+func filterValidDependencies(deps []string) []string {
+	valid := make([]string, 0, len(deps))
+	for _, depID := range deps {
+		if _, err := uuid.Parse(depID); err == nil {
+			valid = append(valid, depID)
+		}
+	}
+	return valid
 }
 
 // convertProposalsToNodes 将 LLM 提案转换为探索图节点
@@ -392,6 +442,19 @@ func (i *Intelligence) convertProposalsToNodes(taskID string, proposals []Action
 			priority = explorationgraph.PriorityLow
 		}
 
+		// 过滤无效的依赖 ID（如 "0" 或非 UUID 格式）——坏依赖会把 Action 永久卡 blocked
+		validDependsOn := filterValidDependencies(proposal.DependsOn)
+		if len(validDependsOn) < len(proposal.DependsOn) {
+			for _, depID := range proposal.DependsOn {
+				if _, err := uuid.Parse(depID); err != nil {
+					i.logger.Warn().
+						Str("invalid_dep_id", depID).
+						Str("action_id", actionID).
+						Msg("过滤掉无效的依赖 ID")
+				}
+			}
+		}
+
 		// 构建 Action 内容
 		actionContent := map[string]interface{}{
 			"type":        proposal.Type,
@@ -399,7 +462,7 @@ func (i *Intelligence) convertProposalsToNodes(taskID string, proposals []Action
 			"complexity":  complexity,
 			"priority":    priority,
 			"reason":      proposal.Reason,
-			"depends_on":  proposal.DependsOn,
+			"depends_on":  validDependsOn,
 			"metadata":    proposal.Metadata,
 		}
 
@@ -414,7 +477,7 @@ func (i *Intelligence) convertProposalsToNodes(taskID string, proposals []Action
 			State:      &openState,
 			Priority:   priority,
 			Complexity: &complexity,
-			DependsOn:  proposal.DependsOn,
+			DependsOn:  validDependsOn,
 			SourceType: explorationgraph.SourcePlanner,
 			SourceID:   "planner",
 			CreatedAt:  time.Now(),

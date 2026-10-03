@@ -6,8 +6,7 @@
 //   - agent 表 = 每次 agent ReAct 运行的记录（planner 或 exploitation），挂 task_id
 //   - role 列 = trafficAnalysis / planner / exploitation
 //
-// planner_id 列（任务树关系）：
-//   - planner / 独立任务：planner_id = NULL
+// （planner_id 等树关系列已于 0153 审计清理：认知循环为平级四 agent，无父子 run 树）
 //   - dispatcher 编排路径下 exploitation 是进程内临时 Actor，不单独建 executor 行，
 //     故 planner_id 多为 NULL。该列保留供前端按树渲染。
 package agentrun
@@ -31,11 +30,9 @@ const (
 
 // Run 是 agent 表行的 Go 表示——每次 agent ReAct 运行的状态快照。
 // Result 在终态前为空 jsonb '{}'。
-// plannerID 空表示独立/根任务；非空时指向 planner agent.id（父子子任务链）。
 type Run struct {
 	ID        string
 	TaskID    string // 所属 task.id
-	plannerID string
 	Role      string
 	Input     json.RawMessage
 	Result    json.RawMessage
@@ -45,11 +42,9 @@ type Run struct {
 }
 
 // NewParams 是 Store.Create 的入参。
-// plannerID 留空表示独立/根任务；填值时 INSERT 写入 planner_id 列。
 // TaskID 必填（NOT NULL 外键）。
 type NewParams struct {
-	TaskID    string
-	Role      string
-	Input     json.RawMessage
-	plannerID string
+	TaskID string
+	Role   string
+	Input  json.RawMessage
 }

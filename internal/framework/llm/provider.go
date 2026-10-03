@@ -42,6 +42,9 @@ type Request struct {
 	Messages  []Message    // 会话历史，含 system/user/assistant/tool
 	Tools     []ToolSchema // 可调用工具声明；空表示纯文本对话
 	MaxTokens int          // 0 = provider 默认值
+	// Temperature 采样温度（0-1）；nil = provider 默认。指针区分「未设置」与 0
+	// （0 = 贪心解码是有效语义，不能当默认吞掉）。
+	Temperature *float64
 }
 
 // Response 是非流式调用的完整输出。

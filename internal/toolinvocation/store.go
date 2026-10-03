@@ -21,8 +21,8 @@ func NewStore(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
 
 // Append 单条插入。args 为 nil 时落空 jsonb；output 超 previewMax 自动截断 preview。
 func (s *Store) Append(ctx context.Context, v Invocation) (int64, error) {
-	if v.ExecutorID == "" {
-		return 0, fmt.Errorf("tool_invocation: ExecutorID 必填")
+	if v.AgentRunID == "" {
+		return 0, fmt.Errorf("tool_invocation: AgentRunID 必填")
 	}
 	if v.TaskID == "" {
 		return 0, fmt.Errorf("tool_invocation: TaskID 必填")
@@ -43,11 +43,11 @@ func (s *Store) Append(ctx context.Context, v Invocation) (int64, error) {
 	var id int64
 	err := s.pool.QueryRow(ctx, `
 		INSERT INTO tool_invocation
-			(agent_id, task_id, tool_name, args,
+			(agent_run_id, task_id, tool_name, args,
 			 output_size, output_preview, duration_ms, error_message, done)
 		VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7, $8, $9)
 		RETURNING id`,
-		v.ExecutorID, v.TaskID, v.ToolName, args,
+		v.AgentRunID, v.TaskID, v.ToolName, args,
 		v.OutputSize, preview, v.DurationMs, errMsg, v.Done,
 	).Scan(&id)
 	if err != nil {

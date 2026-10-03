@@ -49,7 +49,7 @@ func (h handler) toolRecordInterceptor(executorID, taskID string) registry.Inter
 				preview = preview[:512]
 			}
 			invID, appendErr := h.toolCalls.Append(ctx, toolinvocation.Invocation{
-				ExecutorID:    executorID,
+				AgentRunID:    executorID,
 				TaskID:        taskID,
 				ToolName:      t.Name(),
 				Args:          json.RawMessage(args),
@@ -140,7 +140,7 @@ func (h handler) handleCognition(
 		Msg("sandbox acquired for task")
 
 	// 执行四Agent认知循环
-	report, err := h.runCognition(ctx, assignmentID, taskID, virtualHost)
+	report, err := h.runCognition(ctx, assignmentID, taskID, virtualHost, brief, sb.Client)
 	if err != nil {
 		return h.failTask(ctx, p.AgentID, err)
 	}

@@ -189,57 +189,27 @@ func TestPredefinedModifierChains(t *testing.T) {
 		})
 	}
 
-	t.Run("PlannerModifierChain", func(t *testing.T) {
-		chain := NewPlannerModifierChain()
-		result, err := chain.Apply(context.Background(), messages)
-		if err != nil {
-			t.Fatalf("Apply failed: %v", err)
-		}
-
-		// Planner 保留30条 + 系统消息
-		if len(result) != 31 {
-			t.Errorf("expected 31 messages, got %d", len(result))
-		}
-	})
-
-	t.Run("ExecutorModifierChain", func(t *testing.T) {
-		chain := NewExecutorModifierChain()
-		result, err := chain.Apply(context.Background(), messages)
-		if err != nil {
-			t.Fatalf("Apply failed: %v", err)
-		}
-
-		// Executor 保留15条 + 系统消息
-		if len(result) != 16 {
-			t.Errorf("expected 16 messages, got %d", len(result))
+	t.Run("DefaultModifierChain 各窗口档位", func(t *testing.T) {
+		for _, tc := range []struct {
+			window int
+			want   int
+		}{
+			{window: 30, want: 31},
+			{window: 15, want: 16},
+			{window: 25, want: 26},
+			{window: 10, want: 11},
+		} {
+			chain := NewDefaultModifierChain(tc.window)
+			result, err := chain.Apply(context.Background(), messages)
+			if err != nil {
+				t.Fatalf("Apply failed: %v", err)
+			}
+			if len(result) != tc.want {
+				t.Errorf("window=%d: expected %d messages, got %d", tc.window, tc.want, len(result))
+			}
 		}
 	})
 
-	t.Run("EvaluatorModifierChain", func(t *testing.T) {
-		chain := NewEvaluatorModifierChain()
-		result, err := chain.Apply(context.Background(), messages)
-		if err != nil {
-			t.Fatalf("Apply failed: %v", err)
-		}
-
-		// Evaluator 保留25条 + 系统消息
-		if len(result) != 26 {
-			t.Errorf("expected 26 messages, got %d", len(result))
-		}
-	})
-
-	t.Run("MonitorModifierChain", func(t *testing.T) {
-		chain := NewMonitorModifierChain()
-		result, err := chain.Apply(context.Background(), messages)
-		if err != nil {
-			t.Fatalf("Apply failed: %v", err)
-		}
-
-		// Monitor 保留10条 + 系统消息
-		if len(result) != 11 {
-			t.Errorf("expected 11 messages, got %d", len(result))
-		}
-	})
 }
 
 // mockFailingModifier 总是失败的修改器（用于测试）
