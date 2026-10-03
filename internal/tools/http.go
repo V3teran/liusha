@@ -143,13 +143,24 @@ func (t *httpRequestTool) Execute(ctx context.Context, args json.RawMessage) (re
 	if len(snippet) > httpRespBodySnippet {
 		snippet = snippet[:httpRespBodySnippet]
 	}
+
+	// 返回完整的 request/response 信息，供 write_observation 构造自包含的 repro
 	out, _ := json.Marshal(map[string]interface{}{
-		"traffic_id":   trafficID,
-		"status_code":  resp.StatusCode,
-		"duration_ms":  durMs,
-		"content_type": resp.Header.Get("Content-Type"),
-		"body":         string(snippet),
-		"truncated":    len(respBody) > len(snippet),
+		"traffic_id": trafficID,
+		"request": map[string]interface{}{
+			"method":  a.Method,
+			"url":     a.URL,
+			"headers": a.Headers,
+			"body":    a.Body,
+		},
+		"response": map[string]interface{}{
+			"status_code":  resp.StatusCode,
+			"headers":      flattenHeaders(resp.Header),
+			"body":         string(snippet),
+			"truncated":    len(respBody) > len(snippet),
+			"duration_ms":  durMs,
+			"content_type": resp.Header.Get("Content-Type"),
+		},
 	})
 	return registry.ToolResult{Output: string(out)}, nil
 }
