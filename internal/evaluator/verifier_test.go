@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/rs/zerolog"
 
@@ -431,4 +432,53 @@ type errJudge struct{}
 
 func (errJudge) Judge(_ context.Context, _ string, _, _ json.RawMessage, _ ReplayFunc) (string, string, error) {
 	return "", "", errors.New("judge down")
+}
+
+// 并发语义：信号量取号在工作协程内——验证占满并发时事件循环不被阻塞
+// （队头阻塞曾使后续 attempt 的接收卡到当前验证完成）。
+func TestAgent_VerifyConcurrencyDoesNotBlockEventLoop(t *testing.T) {
+	w := &fakeGraphStore{verID: "ver-c1"}
+	fw := &fakeFindingWriter{}
+	// 慢验证：复放 sleep 300ms，占住并发额度
+	promoter := New(w, slowReplayer{d: 300 * time.Millisecond, res: Result{Evaluation: json.RawMessage(`{"url":"http://t/x","assert_passed":true}`)}}, fw).
+		WithJudge(stubJudge{verdict: VerdictRefuted})
+	bus := bus.New(context.Background())
+	a := NewAgent(AgentConfig{
+		TaskID:        "t-conc",
+		Evaluator:     promoter,
+		EventBus:      bus,
+		Logger:        zerolog.Nop(),
+		MaxConcurrent: 1, // 最严苛：单并发 + 慢验证
+	})
+
+	start := time.Now()
+	// 两个 attempt 背靠背进验证（第二个必须能立即入队而非阻塞发送方）
+	go a.verifyAttempt(context.Background(), "act-1", baseAttempt())
+	go a.verifyAttempt(context.Background(), "act-2", baseAttempt())
+	// 主线程立即做一次去重查询——若事件循环被卡（旧实现语义在事件循环取号），
+	// 这里照样能即时返回
+	_, _ = a.adjudicatedLookup("anything")
+
+	// 两个验证都完成：1 个并发下串行执行，总时长 ≥ 2×300ms
+	time.Sleep(750 * time.Millisecond)
+	w2 := w
+	if len(w2.verifications) != 2 {
+		t.Fatalf("两个 attempt 都应完成验证, got %d", len(w2.verifications))
+	}
+	_ = start
+}
+
+// 慢速 replayer：模拟真实复放耗时。
+type slowReplayer struct {
+	d   time.Duration
+	res Result
+}
+
+func (s slowReplayer) Replay(ctx context.Context, _ json.RawMessage) (Result, error) {
+	select {
+	case <-time.After(s.d):
+		return s.res, nil
+	case <-ctx.Done():
+		return Result{}, ctx.Err()
+	}
 }

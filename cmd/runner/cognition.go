@@ -204,6 +204,7 @@ func (h handler) runCognition(
 		EventBus:     h.eventBus,
 		Logger:       h.logger.With().Str("component", "executor_agent").Logger(),
 		Checkpointer: h.checkpointer,
+		MaxParallel:  2, // 无依赖 action 并发执行（可并行性由 planner 的 depends_on DAG 决定）
 	})
 
 	// 4. 创建 EvaluatorAgent：Replayer 零依赖（复现配方自包含完整 HTTP 请求，
@@ -220,6 +221,8 @@ func (h handler) runCognition(
 		Evaluator: promoter,
 		EventBus:  h.eventBus,
 		Logger:    h.logger.With().Str("component", "evaluator_agent").Logger(),
+		// 验证并发：每个验证 = 机器复放 + 一轮 judge ReAct（LLM 账单随并发线性放大）
+		MaxConcurrent: 3,
 	})
 
 	// 5. 创建 PlannerAgent

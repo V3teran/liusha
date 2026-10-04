@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -38,7 +39,11 @@ type Agent struct {
 	logger       zerolog.Logger
 	taskID       string
 	maxSteps     int
+	maxParallel  int         // 并发执行的 action 上限（DAG 依赖仍由 CanExecute 保证；1=串行）
 	completionCh chan Report // 任务完成通知通道
+
+	// reportMu 保护共享 Report（并行执行 action 时计数并发递增）
+	reportMu sync.Mutex
 
 	// Checkpoint 系统
 	checkpointer     core.Checkpointer
@@ -55,6 +60,7 @@ type AgentConfig struct {
 	EventBus     bus.Bus
 	Logger       zerolog.Logger
 	MaxSteps     int         // 最大执行步数（0 表示无限制）
+	MaxParallel  int         // 并发执行 action 上限（0/1=串行；DAG 依赖仍由 CanExecute 保证）
 	CompletionCh chan Report // 可选：任务完成时写入 Report
 
 	// Checkpoint 配置（可选）
@@ -67,6 +73,9 @@ func NewAgent(cfg AgentConfig) *Agent {
 	if cfg.MaxSteps == 0 {
 		cfg.MaxSteps = 1000 // 默认最大步数
 	}
+	if cfg.MaxParallel <= 0 {
+		cfg.MaxParallel = 1 // 默认串行（保守）；>1 时无依赖的 action 并发执行
+	}
 
 	return &Agent{
 		graph:            cfg.Graph,
@@ -75,6 +84,7 @@ func NewAgent(cfg AgentConfig) *Agent {
 		logger:           cfg.Logger.With().Str("agent", "executor").Logger(),
 		taskID:           cfg.TaskID,
 		maxSteps:         cfg.MaxSteps,
+		maxParallel:      cfg.MaxParallel,
 		completionCh:     cfg.CompletionCh,
 		checkpointer:     cfg.Checkpointer,
 		checkpointPolicy: cfg.CheckpointPolicy,
@@ -227,22 +237,41 @@ func (a *Agent) processAvailableActions(ctx context.Context, report *Report) err
 		return nil
 	}
 
-	// 执行所有可执行的 Action（TODO: 支持并行）
+	// 并发执行可执行 Action：并发度 a.maxParallel（配置；1=串行）。
+	// 可并行性由 DAG 决定（CanExecute 已保证依赖满足），并发度由配置决定——
+	// 不由 LLM 运行时决定（业界调度惯例：依赖图 × 静态并发上限）。
+	sem := make(chan struct{}, a.maxParallel)
+	var wg sync.WaitGroup
+	var firstErr error
+	var errMu sync.Mutex
+
 	for _, action := range executable {
 		if err := ctx.Err(); err != nil {
-			return err
+			break
 		}
+		wg.Add(1)
+		go func(act explorationgraph.Node) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
 
-		if err := a.executeAction(ctx, action, report); err != nil {
-			a.logger.Error().
-				Err(err).
-				Str("action_id", action.ID).
-				Msg("执行 Action 失败")
-			// 继续执行其他 Action（不因单个失败而中止）
-		}
+			if err := a.executeAction(ctx, act, report); err != nil {
+				a.logger.Error().
+					Err(err).
+					Str("action_id", act.ID).
+					Msg("执行 Action 失败")
+				// 单个失败不中止其他 Action；记录首个错误供上层感知
+				errMu.Lock()
+				if firstErr == nil {
+					firstErr = err
+				}
+				errMu.Unlock()
+			}
+		}(action)
 	}
+	wg.Wait()
 
-	return nil
+	return firstErr
 }
 
 // executeAction 执行单个 Action
@@ -276,9 +305,6 @@ func (a *Agent) executeAction(
 		return nil
 	}
 
-	// 执行窗口起点：收割本 Action 期间 executor 新写的「带复现配方的观察提议」。
-	windowStart := time.Now()
-
 	// 执行 Action（调用 Interface）
 	attempts, execErr := a.executor.Execute(ctx, action)
 
@@ -306,9 +332,11 @@ func (a *Agent) executeAction(
 		a.logger.Error().Err(err).Str("action_id", action.ID).Msg("标记完成状态失败")
 	}
 
-	// 更新 report
+	// 更新 report（并行执行下并发递增，加锁）
+	a.reportMu.Lock()
 	report.Steps++
 	report.Attempts += len(attempts)
+	a.reportMu.Unlock()
 
 	// 创建 Observation 节点（新增逻辑）
 	if err := a.createObservation(ctx, action, attempts, execErr); err != nil {
@@ -319,7 +347,7 @@ func (a *Agent) executeAction(
 	// 收割观察提议（新架构晋升链的入口）：write_observation(repro=...) 的在途假设
 	// 转成 Attempt 交复现门——finding 只能由 evaluator 写，而没有本收割时 Attempt
 	// 只源自 finding，首条 finding 无人生产，晋升链死锁。
-	attempts = append(attempts, a.harvestObservationProposals(ctx, windowStart)...)
+	attempts = append(attempts, a.harvestObservationProposals(ctx, action.ID)...)
 
 	// 先发布所有 AttemptsGenerated 事件（通知 EvaluatorAgent）
 	for _, attempt := range attempts {
@@ -337,22 +365,35 @@ func (a *Agent) executeAction(
 	return nil
 }
 
-// harvestObservationProposals 把执行窗口内新建的、带复现配方的观察转成 Attempt。
+// harvestObservationProposals 把指定 action 产出的、带复现配方的观察转成 Attempt。
 //
-// 新架构口径：晋升提议权在 executor（write_observation 带 repro），裁决权在 evaluator
-// （复现门）。收割层**只认域信封、不解析域内形状**——归一化委托 tools.NormalizeReproEnvelope
-// （与 write_observation 写入时同一份逻辑），Primitives = 信封整体透传，复现门按 domain 分发。
+// 归属判定按 action→observation 的 generates 边精确认领（write_observation 落边），
+// 不再按时间窗全表扫——并行执行时窗口重叠会导致同一假设被双收割/双验证/双 finding。
+// 收割层只认域信封、不解析域内形状（归一化委托 tools.NormalizeReproEnvelope），
+// Primitives = 信封整体透传，复现门按 domain 分发。
 // 无配方的观察不收割——无米之炊不可复现，橡皮图章不可坐实。
-func (a *Agent) harvestObservationProposals(ctx context.Context, since time.Time) []evaluator.Attempt {
+func (a *Agent) harvestObservationProposals(ctx context.Context, actionID string) []evaluator.Attempt {
 	nodes, err := a.graph.ListNodesByKind(ctx, a.taskID, core.KindObservation)
 	if err != nil {
 		a.logger.Warn().Err(err).Str("task_id", a.taskID).Msg("收割观察提议失败")
 		return nil
 	}
+	// 本 action 的产出集合（generates 边）：仅收割精确归属的观察
+	owned := make(map[string]bool)
+	if edges, eErr := a.graph.ListEdgesForAPI(ctx, a.taskID); eErr == nil {
+		for _, e := range edges {
+			if e.SrcID == actionID && e.Rel == explorationgraph.RelGenerates {
+				owned[e.DstID] = true
+			}
+		}
+	} else {
+		a.logger.Warn().Err(eErr).Str("action_id", actionID).Msg("读边失败，本轮收割跳过（下轮兜底）")
+		return nil
+	}
 
 	var attempts []evaluator.Attempt
 	for _, n := range nodes {
-		if n.CreatedAt.Before(since) {
+		if !owned[n.ID] {
 			continue
 		}
 
