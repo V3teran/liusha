@@ -282,16 +282,31 @@ func (t *browserUseTool) Execute(ctx context.Context, args json.RawMessage) (reg
 		command = fmt.Sprintf("IDENTITY=%q %s", a.Identity, command)
 	}
 
-	req := sandbox.ExecRequest{
-		TaskID:         t.deps.TaskID,
-		AgentID:        t.deps.AgentID,
-		Command:        command,
-		TimeoutSeconds: a.TimeoutSeconds,
-		Tag:            "browser_use",
+	execOnce := func(cmd string) (sandbox.ExecResult, error) {
+		return t.deps.Sandbox.Exec(ctx, sandbox.ExecRequest{
+			TaskID:         t.deps.TaskID,
+			AgentID:        t.deps.AgentID,
+			Command:        cmd,
+			TimeoutSeconds: a.TimeoutSeconds,
+			Tag:            "browser_use",
+		})
 	}
-	res, err := t.deps.Sandbox.Exec(ctx, req)
+	res, err := execOnce(command)
 	if err != nil {
 		return registry.ToolResult{Error: fmt.Sprintf("browser_use: 沙箱执行失败: %v", err)}, nil
+	}
+
+	// 自愈：browser-use 常驻 daemon 跨长任务可能进入退化态（watchdog 超时类内部
+	// 错误）——CLI 自带 reset 子命令重建会话。检测到退化签名时 reset 一次并重试
+	// 原命令；再失败则原样返回两层输出（诊断上下文保留）。
+	if browserDegraded(res) {
+		reset, _ := execOnce("browser-use reset")
+		retry, rErr := execOnce(command)
+		if rErr == nil {
+			res = retry
+		}
+		res.Stdout = fmt.Sprintf("[自愈] 检测到 browser daemon 退化态，已 reset 并重试一次\n--- reset 输出 ---\n%s\n--- 重试输出 ---\n%s", reset.Stdout, res.Stdout)
+		res.Stderr = ""
 	}
 
 	var sb strings.Builder
@@ -324,6 +339,14 @@ func (t *browserUseTool) Execute(ctx context.Context, args json.RawMessage) (reg
 			Detail:   output,
 		},
 	}, nil
+}
+
+// browserDegraded 识别 browser-use 库的退化态错误签名（watchdog 内部超时等），
+// 与站点/操作无关——任何命令在退化 daemon 上都会产出该签名。
+func browserDegraded(res sandbox.ExecResult) bool {
+	return strings.Contains(res.Stdout, "watchdog") ||
+		strings.Contains(res.Stderr, "watchdog") ||
+		strings.Contains(res.Stdout, "Event handler browser_use.browser")
 }
 
 // truncateOutput 截断命令输出以适配 Signal.Content 上限。
