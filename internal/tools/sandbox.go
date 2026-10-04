@@ -104,6 +104,13 @@ func (t *runCommandTool) Execute(ctx context.Context, args json.RawMessage) (reg
 
 // browserUseSchema 与沙箱内 browser-use CLI 的原子子命令一一对应（open/state/click/...）。
 // 驱动方式：open 打开页面 → state 取带元素编号的 DOM → click/input 按编号操作 → state 复查。
+//
+// 【设计备忘·登录态导出（缓做）】浏览器登录态导出进 credential store 时，
+// 凭证形态与数量均不定：cookie → headers 位置的 Cookie 头；localStorage/sessionStorage
+// token → 其真实使用位置（如 Authorization 头 → headers 位置）；URL 签名参数 → query
+// 位置——必须按 store 的 headers/query/body 三位置完整导出，不能只导 cookie。
+// 实施需给沙箱镜像 browser-use CLI 加导出子命令并重建镜像；先验证 http_request
+// 凭证自动注入（用户预录入路径）能否独立打通登录链路，再决定是否上马。
 var browserUseSchema = json.RawMessage(`{
   "type": "object",
   "properties": {

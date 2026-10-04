@@ -253,7 +253,9 @@ func (e *Engine) buildSystemPrompt(actionType, complexity string, registered []r
 3. write_observation 附域信封 repro（HTTP 漏洞用 web 域）：
    repro = {"domain": "web", "recipe": {"request": {攻击请求完整拷贝（method/url/headers/body 四字段齐全，url 含 http://）}}, "assert": {...}}
    - 可选加 "recipe.baseline": {正常参数请求}——机器先放基线再放攻击做差分，断言在基线也命中会被拒坐实
-   - request 从 http_request 返回的 request 字段拷贝改造，不引用 traffic_id
+   - 来源不限 http_request：HTTP 发现的漏洞从 http_request 返回的 request 拷贝改造；
+     浏览器发现的（DOM XSS 等）/非 HTTP 场景（命令、多步操作）走 generic 域 steps——
+     复现链只认自包含配方，不依赖任何工具或流量库
 4. 非 HTTP 场景（命令序列/多步操作/域渗透）用 generic 域：
    repro = {"domain": "generic", "recipe": {"steps": "1. ... 2. ...（每步写清命令/工具与观察点）"}, "assert": {"description": "执行后观察到 X 即坐实"}}
    ——评估官将按 steps 自主执行验证

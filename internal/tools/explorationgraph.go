@@ -56,7 +56,7 @@ var writeObservationSchema = json.RawMessage(`{
     },
     "repro": {
       "type": "object",
-      "description": "自包含复现配方（漏洞假设必填）——域信封 {domain, recipe, assert}。web 域：recipe.request 是你实测过、能触发漏洞特征的完整攻击请求（从 http_request 返回的 request 拷贝改造注入 payload），assert 断言攻击响应独有特征（报错回显/泄露数据/延迟），可选 recipe.baseline 良性对照供机器差分；时间盲用 min_duration_ms。generic 域（非 HTTP：命令序列/多步操作/域渗透）：recipe.steps 自由文本写清执行步骤，assert.description 写坐实判据——评估官将据此自主执行验证。",
+      "description": "自包含复现配方（漏洞假设必填）——域信封 {domain, recipe, assert}，不依赖任何工具或流量库。web 域（HTTP 发现的漏洞）：recipe.request 是实测过、能触发漏洞特征的完整攻击请求（从 http_request 返回的 request 拷贝改造注入 payload），assert 断言攻击响应独有特征（报错回显/泄露数据/延迟），可选 recipe.baseline 良性对照供机器差分；时间盲用 min_duration_ms。generic 域（浏览器发现的漏洞如 DOM XSS、非 HTTP 场景如命令/多步操作/域渗透）：recipe.steps 自由文本写清执行步骤与判定观察点，assert.description 写坐实判据——评估官据此自主执行验证。",
       "properties": {
         "domain": {"type": "string", "enum": ["web", "generic"], "description": "复现域，默认 web"},
         "recipe": {
