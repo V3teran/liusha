@@ -10,16 +10,17 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// AdapterStore 是探索图的 Framework 适配器
+// Store 是探索图的 Framework 适配器
 // 使用 Framework 的 GraphStore 和标准类型
-type AdapterStore struct {
+type Store struct {
 	graphStore core.GraphStore
 	pool       *pgxpool.Pool // 用于 Roadmap 等直接 SQL 操作（仅在 NewStore 中设置）
 }
 
-// NewAdapterStore 创建探索图适配器
-func NewAdapterStore(graphStore core.GraphStore) *AdapterStore {
-	return &AdapterStore{
+// newStore 用 Framework GraphStore 组装 Store。公共入口是 factory.go 的
+// NewStore(pool)/NewMemoryStore()——本构造器仅包内组装用。
+func newStore(graphStore core.GraphStore) *Store {
+	return &Store{
 		graphStore: graphStore,
 	}
 }
@@ -39,7 +40,7 @@ type Result struct {
 // ─────────────────────────────────────────────
 
 // CreateNode 创建节点（兼容旧接口）
-func (s *AdapterStore) CreateNode(ctx context.Context, node Node) (string, error) {
+func (s *Store) CreateNode(ctx context.Context, node Node) (string, error) {
 	// 转换为 Framework GraphNode
 	metadata := map[string]interface{}{
 		"task_id": node.TaskID,
@@ -113,7 +114,7 @@ func (s *AdapterStore) CreateNode(ctx context.Context, node Node) (string, error
 }
 
 // GetNode 获取节点（兼容旧接口）
-func (s *AdapterStore) GetNode(ctx context.Context, id string) (*Node, error) {
+func (s *Store) GetNode(ctx context.Context, id string) (*Node, error) {
 	graphNode, err := s.graphStore.GetNode(ctx, id)
 	if err != nil {
 		return nil, err
@@ -123,7 +124,7 @@ func (s *AdapterStore) GetNode(ctx context.Context, id string) (*Node, error) {
 }
 
 // ListNodesByKind 列出指定 task 和 kind 的节点
-func (s *AdapterStore) ListNodesByKind(ctx context.Context, taskID string, kind core.NodeKind) ([]Node, error) {
+func (s *Store) ListNodesByKind(ctx context.Context, taskID string, kind core.NodeKind) ([]Node, error) {
 	query := core.GraphNodeQuery{
 		Kind: string(kind),
 		Filters: map[string]interface{}{
@@ -141,7 +142,7 @@ func (s *AdapterStore) ListNodesByKind(ctx context.Context, taskID string, kind 
 }
 
 // ListActionsByState 列出指定 task 和 state 的 action 节点
-func (s *AdapterStore) ListActionsByState(ctx context.Context, taskID string, state State) ([]Node, error) {
+func (s *Store) ListActionsByState(ctx context.Context, taskID string, state State) ([]Node, error) {
 	query := core.GraphNodeQuery{
 		Kind:  string(core.KindAction),
 		State: string(state),
@@ -160,27 +161,27 @@ func (s *AdapterStore) ListActionsByState(ctx context.Context, taskID string, st
 }
 
 // ListOpenActions 列出所有 open 状态的 action
-func (s *AdapterStore) ListOpenActions(ctx context.Context, taskID string) ([]Node, error) {
+func (s *Store) ListOpenActions(ctx context.Context, taskID string) ([]Node, error) {
 	return s.ListActionsByState(ctx, taskID, StateOpen)
 }
 
 // ListCompletedActions 列出所有 done 状态的 action
-func (s *AdapterStore) ListCompletedActions(ctx context.Context, taskID string) ([]Node, error) {
+func (s *Store) ListCompletedActions(ctx context.Context, taskID string) ([]Node, error) {
 	return s.ListActionsByState(ctx, taskID, StateDone)
 }
 
 // ListAllActions 列出所有 action
-func (s *AdapterStore) ListAllActions(ctx context.Context, taskID string) ([]Node, error) {
+func (s *Store) ListAllActions(ctx context.Context, taskID string) ([]Node, error) {
 	return s.ListNodesByKind(ctx, taskID, core.KindAction)
 }
 
 // CreateEdge 创建边（实现 core.GraphStore 接口）
-func (s *AdapterStore) CreateEdge(ctx context.Context, edge *core.GraphEdge) error {
+func (s *Store) CreateEdge(ctx context.Context, edge *core.GraphEdge) error {
 	return s.graphStore.CreateEdge(ctx, edge)
 }
 
 // CreateBusinessEdge 创建边（业务层接口，使用业务层 Edge 类型）
-func (s *AdapterStore) CreateBusinessEdge(ctx context.Context, edge Edge) error {
+func (s *Store) CreateBusinessEdge(ctx context.Context, edge Edge) error {
 	graphEdge := &core.GraphEdge{
 		From:      edge.SrcID,
 		To:        edge.DstID,
@@ -200,12 +201,12 @@ func (s *AdapterStore) CreateBusinessEdge(ctx context.Context, edge Edge) error 
 }
 
 // UpdateNodeContent 更新节点内容（控制平面 adjust_goal 等操作使用）。
-func (s *AdapterStore) UpdateNodeContent(ctx context.Context, id string, content json.RawMessage) error {
+func (s *Store) UpdateNodeContent(ctx context.Context, id string, content json.RawMessage) error {
 	return s.graphStore.UpdateNode(ctx, id, core.GraphNodeUpdate{Content: content})
 }
 
 // UpdateNodeConfidence 更新节点置信度
-func (s *AdapterStore) UpdateNodeConfidence(ctx context.Context, id string, confidence Confidence) error {
+func (s *Store) UpdateNodeConfidence(ctx context.Context, id string, confidence Confidence) error {
 	var conf float64
 	switch confidence {
 	case ConfidenceVerified:
@@ -222,7 +223,7 @@ func (s *AdapterStore) UpdateNodeConfidence(ctx context.Context, id string, conf
 }
 
 // UpdateActionStateWithReason 更新 action 状态和阻塞原因
-func (s *AdapterStore) UpdateActionStateWithReason(ctx context.Context, id string, state State, blockedReason *string) error {
+func (s *Store) UpdateActionStateWithReason(ctx context.Context, id string, state State, blockedReason *string) error {
 	update := core.GraphNodeUpdate{
 		State: string(state),
 	}
@@ -240,7 +241,7 @@ func (s *AdapterStore) UpdateActionStateWithReason(ctx context.Context, id strin
 // 只有当前状态等于 expectedState 时才更新为 newState
 // 返回 (true, nil) 表示更新成功
 // 返回 (false, nil) 表示状态不匹配，未更新（被其他goroutine抢占）
-func (s *AdapterStore) CompareAndSwapActionState(ctx context.Context, taskID, actionID string, expectedState, newState State, blockedReason *string) (bool, error) {
+func (s *Store) CompareAndSwapActionState(ctx context.Context, taskID, actionID string, expectedState, newState State, blockedReason *string) (bool, error) {
 	// 先尝试 CAS（转换为 string）
 	ok, err := s.graphStore.CompareAndSwapState(ctx, taskID, actionID, string(expectedState), string(newState))
 	if err != nil {
@@ -271,7 +272,7 @@ func (s *AdapterStore) CompareAndSwapActionState(ctx context.Context, taskID, ac
 // ─────────────────────────────────────────────
 
 // convertGraphNodesToNodes 转换 GraphNode 列表为 Node 列表
-func (s *AdapterStore) convertGraphNodesToNodes(graphNodes []*core.GraphNode) []Node {
+func (s *Store) convertGraphNodesToNodes(graphNodes []*core.GraphNode) []Node {
 	nodes := make([]Node, 0, len(graphNodes))
 	for _, gn := range graphNodes {
 		node, err := s.graphNodeToNode(gn)
@@ -284,7 +285,7 @@ func (s *AdapterStore) convertGraphNodesToNodes(graphNodes []*core.GraphNode) []
 }
 
 // graphNodeToNode 转换单个 GraphNode 为 Node
-func (s *AdapterStore) graphNodeToNode(graphNode *core.GraphNode) (*Node, error) {
+func (s *Store) graphNodeToNode(graphNode *core.GraphNode) (*Node, error) {
 	node := &Node{
 		ID:        graphNode.ID,
 		Kind:      core.NodeKind(graphNode.Kind),
@@ -368,7 +369,7 @@ func (s *AdapterStore) graphNodeToNode(graphNode *core.GraphNode) (*Node, error)
 }
 
 // convertGraphEdgesToEdges 转换 GraphEdge 列表为 Edge 列表
-func (s *AdapterStore) convertGraphEdgesToEdges(graphEdges []*core.GraphEdge, taskID string) []Edge {
+func (s *Store) convertGraphEdgesToEdges(graphEdges []*core.GraphEdge, taskID string) []Edge {
 	edges := make([]Edge, 0, len(graphEdges))
 	for _, ge := range graphEdges {
 		edge := Edge{
@@ -391,12 +392,12 @@ func (s *AdapterStore) convertGraphEdgesToEdges(graphEdges []*core.GraphEdge, ta
 }
 
 // ListResults 列出所有 result 节点
-func (s *AdapterStore) ListResults(ctx context.Context, taskID string) ([]Node, error) {
+func (s *Store) ListResults(ctx context.Context, taskID string) ([]Node, error) {
 	return s.ListNodesByKind(ctx, taskID, core.KindResult)
 }
 
 // GetObjective 获取任务的 objective 节点
-func (s *AdapterStore) GetObjective(ctx context.Context, taskID string) (ObjectiveNode, error) {
+func (s *Store) GetObjective(ctx context.Context, taskID string) (ObjectiveNode, error) {
 	query := core.GraphNodeQuery{
 		Kind: string(core.KindObjective),
 		Filters: map[string]interface{}{
@@ -433,7 +434,7 @@ func (s *AdapterStore) GetObjective(ctx context.Context, taskID string) (Objecti
 
 // RecordVerification 将一次复现验证落 exploration_verification 审计链。
 // 坐实与证伪都落档（证伪不进图但证据留档供审计/复盘）。
-func (s *AdapterStore) RecordVerification(ctx context.Context, v Verification) (string, error) {
+func (s *Store) RecordVerification(ctx context.Context, v Verification) (string, error) {
 	if s.pool == nil {
 		return "", fmt.Errorf("RecordVerification requires a pool-backed store")
 	}
@@ -460,7 +461,7 @@ func (s *AdapterStore) RecordVerification(ctx context.Context, v Verification) (
 // ─────────────────────────────────────────────
 
 // ListNodesForAPI 按 task_id 和可选 kind 查询节点（HTTP API 专用）
-func (s *AdapterStore) ListNodesForAPI(ctx context.Context, taskID string, kind string) ([]Node, error) {
+func (s *Store) ListNodesForAPI(ctx context.Context, taskID string, kind string) ([]Node, error) {
 	query := core.GraphNodeQuery{
 		Filters: map[string]interface{}{
 			"metadata.task_id": taskID,
@@ -482,7 +483,7 @@ func (s *AdapterStore) ListNodesForAPI(ctx context.Context, taskID string, kind 
 }
 
 // ListEdgesForAPI 按 task_id 查询边（HTTP API 专用）
-func (s *AdapterStore) ListEdgesForAPI(ctx context.Context, taskID string) ([]Edge, error) {
+func (s *Store) ListEdgesForAPI(ctx context.Context, taskID string) ([]Edge, error) {
 	// GraphEdgeQuery 没有 Filters 字段，需要先查所有边再过滤
 	// 或者通过查询所有节点的边来实现
 	query := core.GraphEdgeQuery{
@@ -519,7 +520,7 @@ func (s *AdapterStore) ListEdgesForAPI(ctx context.Context, taskID string) ([]Ed
 }
 
 // GetStatsForAPI 返回节点类型统计（e2e 轮询专用）
-func (s *AdapterStore) GetStatsForAPI(ctx context.Context, taskID string) (map[string]int, error) {
+func (s *Store) GetStatsForAPI(ctx context.Context, taskID string) (map[string]int, error) {
 	// 查询所有节点
 	nodes, err := s.ListNodesForAPI(ctx, taskID, "")
 	if err != nil {

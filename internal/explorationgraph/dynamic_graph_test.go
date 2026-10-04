@@ -188,7 +188,7 @@ func setupTestStore(t *testing.T) *explorationgraph.Store {
 	return explorationgraph.NewMemoryStore()
 }
 
-func createTestAction(ctx context.Context, t *testing.T, store *explorationgraph.AdapterStore, taskID, _ string, dependsOn []string) string {
+func createTestAction(ctx context.Context, t *testing.T, store *explorationgraph.Store, taskID, _ string, dependsOn []string) string {
 	actionID := uuid.New().String()
 	state := explorationgraph.StateOpen
 
