@@ -1,24 +1,26 @@
 // Package explorationgraph 实现统一的探索图。
 //
-// 设计决策（2026-08-28 重构 + 2026-09-XX ReAct 对齐）：
-// 1. 5 种节点类型：objective/action/observation/evaluation/result
-// 2. 5 种关系类型：GENERATES/CONFIRMS/REFUTES/ENABLES/DEPENDS_ON
-// 3. 对标 ReAct 模式：目标 → 动作 → 观察 → 评估 → 结果
-// 4. 对标 PDDL 标准：action 是 AI Planning 标准术语
+// 设计决策（2026-08-28 重构 + 2026-10-04 复现门对齐）：
+//  1. 4 种节点类型在生产流转：objective/action/observation/result
+//     （evaluation 已废弃——executor 侧证据归入 observation，坐实裁决归 exploration_verification）
+//  2. 写权限不变式：planner 写 objective/action；executor 写 observation（假设/执行记录/证据）；
+//     evaluator 只写 result——observation(假设) 经复现门晋升为 result 的唯一状态转换在 evaluator
+//  3. 对标 ReAct 模式：目标 → 动作 → 观察 → 结果（观察经复现门坐实为结果）
+//  4. 对标 PDDL 标准：action 是 AI Planning 标准术语
 //
 // 节点边界：
-// - objective: 用户设定的任务目标
+// - objective: 用户设定的任务目标（根目标 + result 派生的次级目标）
 // - action: planner 生成的执行动作（有 state/complexity/depends_on）
-// - observation: executor 产出的观察结果（有 confidence）
-// - evaluation: evaluator 产出的评估结论（有 outcome）
-// - result: 确认的最终结果（有 confidence=verified）
+// - observation: executor 产出的观察（假设带 repro / 执行记录 / 证据 content.type=evidence）
+// - result: 坐实的最终结果（有 confidence=verified，仅复现门产出）
 //
 // 关系边界：
-// - GENERATES: action → observation（动作生成观察）
-// - CONFIRMS: evaluation → result（评估确认结果）
-// - REFUTES: evaluation → observation（评估反驳观察）
-// - ENABLES: result → action（结果使能新动作）
+// - GENERATES: action → observation（动作生成观察/假设/证据）
+// - CONFIRMS: evidence → observation（executor 侧证据确认假设）
+// - REFUTES: evidence → observation（executor 侧证据反驳假设）
+// - TRIGGERS: result → objective/action（planner：结果触发新目标/后续动作）
 // - DEPENDS_ON: action → action（动作依赖动作）
+// - ENABLES / BELONGS_TO: 预留语义，当前无生产者
 package explorationgraph
 
 import (

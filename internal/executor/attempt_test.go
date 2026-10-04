@@ -85,6 +85,26 @@ func TestAttemptFromFinding_PathWithoutSlash(t *testing.T) {
 	assert.Equal(t, "target.com/admin/panel", content.TargetRef.Locator, "path 缺前导斜杠时自动补")
 }
 
+func TestAttemptFromFinding_VerifiedFindingDoesNotLoop(t *testing.T) {
+	// evaluator 坐实后写的 finding（evaluation 带 verification_id）不得回流晋升门——
+	// 否则 executor 快照收割 → 再验证 → 再写 finding，无限复验循环。
+	f := finding.VulnFinding{
+		ID: "f-verified", TaskID: "task-1", Host: "h", Severity: "high", Summary: "s",
+		Repro:      json.RawMessage(`{"request":{"method":"GET","url":"http://h/api?id=1'","headers":{},"body":""},"assert":{"body_contains":["x"]}}`),
+		Evaluation: json.RawMessage(`{"node_id":"n1","verification_id":"ver-1","duration_ms":42}`),
+	}
+	_, ok, err := AttemptFromFinding("task-1", f)
+	require.NoError(t, err)
+	assert.False(t, ok, "已验证 finding 应跳过（防复验循环）")
+
+	// 外部来源（无 verification_id）仍可进晋升门
+	f.ID = "f-external"
+	f.Evaluation = json.RawMessage(`{"note":"manual"}`)
+	_, ok, err = AttemptFromFinding("task-1", f)
+	require.NoError(t, err)
+	assert.True(t, ok, "外部 finding 带配方仍应晋升")
+}
+
 func TestSeverityToPriority(t *testing.T) {
 	cases := map[string]string{
 		"critical": "critical",

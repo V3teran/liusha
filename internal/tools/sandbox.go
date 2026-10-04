@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -101,15 +102,32 @@ func (t *runCommandTool) Execute(ctx context.Context, args json.RawMessage) (reg
 
 // ─── browser_use ─────────────────────────────────────────────────────────────
 
+// browserUseSchema 与沙箱内 browser-use CLI 的原子子命令一一对应（open/state/click/...）。
+// 驱动方式：open 打开页面 → state 取带元素编号的 DOM → click/input 按编号操作 → state 复查。
 var browserUseSchema = json.RawMessage(`{
   "type": "object",
   "properties": {
-    "instruction": {"type": "string", "description": "用自然语言描述要浏览器完成的操作（如：打开登录页、输入用户名密码、点击提交）。"},
-    "url":         {"type": "string", "description": "起始 URL（可选）。"},
-    "identity":    {"type": "string", "description": "账号名（如 admin），不填则使用当前登录态。"},
-    "timeout_seconds": {"type": "integer", "description": "最大超时秒数，默认 120。"}
+    "action": {
+      "type": "string",
+      "enum": ["open", "state", "click", "input", "type", "select", "hover", "dblclick", "rightclick", "scroll", "back", "keys", "wait", "eval", "get", "screenshot"],
+      "description": "原子操作。典型循环：open 打开 → state 取带编号的 DOM 快照 → click/input 按编号交互 → state 复查"
+    },
+    "url":         {"type": "string", "description": "action=open 时的目标 URL"},
+    "index":       {"type": "integer", "description": "元素编号（来自 state 输出），click/input/select/hover/dblclick/rightclick 用"},
+    "x":           {"type": "integer", "description": "click 的像素坐标（可选，替代 index）"},
+    "y":           {"type": "integer", "description": "click 的像素坐标（可选，替代 index）"},
+    "text":        {"type": "string", "description": "input/type 的文本、wait 的 selector/text 条件值"},
+    "by":          {"type": "string", "enum": ["selector", "text"], "description": "wait 的条件类型（默认 text）"},
+    "timeout_ms":  {"type": "integer", "description": "wait 的超时毫秒（默认 5000）"},
+    "keys":        {"type": "string", "description": "action=keys 时按的键（如 Enter、Tab）"},
+    "direction":   {"type": "string", "enum": ["up", "down", "left", "right"], "description": "scroll 方向（默认 down）"},
+    "amount":      {"type": "integer", "description": "scroll 像素量（默认 500）"},
+    "js":          {"type": "string", "description": "action=eval 时执行的 JS 表达式"},
+    "get":         {"type": "string", "enum": ["html", "title"], "description": "action=get 取页面内容"},
+    "identity":    {"type": "string", "description": "账号身份（独立 cookie jar/chromium），不填用默认"},
+    "instruction": {"type": "string", "description": "已废弃：CLI 不支持自然语言 task——改用 action 原子操作组合"}
   },
-  "required": ["instruction"]
+  "required": ["action"]
 }`)
 
 type browserUseTool struct {
@@ -124,42 +142,145 @@ func newBrowserUseTool(deps Deps, timeout time.Duration, safe bool) *browserUseT
 	return t
 }
 
-func (t *browserUseTool) Name() string      { return "browser_use" }
-func (t *browserUseTool) ShortDesc() string { return "用真实浏览器操作目标页面" }
+func (t *browserUseTool) Name() string { return "browser_use" }
+func (t *browserUseTool) ShortDesc() string {
+	return "用真实浏览器操作目标页面（原子操作）"
+}
 func (t *browserUseTool) Desc() string {
-	return "用真实 chromium 浏览器操作目标页面（登录/点击/读 DOM/跑 JS），复用登录态。"
+	return "用真实 chromium 浏览器操作目标页面。open 打开 URL → state 取带元素编号的 DOM 快照 → " +
+		"click/input 按编号交互 → state 复查。可 eval JS、get html/title、wait 条件。复用 identity 登录态。"
 }
 func (t *browserUseTool) Schema() json.RawMessage { return browserUseSchema }
 
+// shellJoin 把子命令参数逐个 shell 引号包裹后拼接（防注入/防空格断词）。
+func shellJoin(parts ...string) string {
+	quoted := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if p == "" {
+			continue
+		}
+		quoted = append(quoted, fmt.Sprintf("%q", p))
+	}
+	return strings.Join(quoted, " ")
+}
+
 func (t *browserUseTool) Execute(ctx context.Context, args json.RawMessage) (registry.ToolResult, error) {
 	var a struct {
-		Instruction    string `json:"instruction"`
-		URL            string `json:"url"`
-		Identity       string `json:"identity"`
-		TimeoutSeconds int    `json:"timeout_seconds"`
+		Action      string `json:"action"`
+		URL         string `json:"url"`
+		Index       *int   `json:"index"`
+		X           *int   `json:"x"`
+		Y           *int   `json:"y"`
+		Text        string `json:"text"`
+		By          string `json:"by"`
+		TimeoutMs   int    `json:"timeout_ms"`
+		Keys        string `json:"keys"`
+		Direction   string `json:"direction"`
+		Amount      *int   `json:"amount"`
+		JS          string `json:"js"`
+		Get         string `json:"get"`
+		Identity    string `json:"identity"`
+		Instruction string `json:"instruction"`
+
+		TimeoutSeconds int `json:"timeout_seconds"`
 	}
 	if err := json.Unmarshal(args, &a); err != nil {
 		return registry.ToolResult{Error: "browser_use: 解析参数失败: " + err.Error()}, nil
 	}
-	if a.Instruction == "" {
-		return registry.ToolResult{Error: "browser_use: instruction 必填"}, nil
+	if a.Action == "" {
+		return registry.ToolResult{Error: "browser_use: action 必填（open/state/click/input/type/select/hover/dblclick/rightclick/scroll/back/keys/wait/eval/get/screenshot）。" +
+			"浏览器驱动循环：open URL → state（带编号 DOM）→ click/input 编号 → state 复查"}, nil
 	}
 	if a.TimeoutSeconds <= 0 {
 		a.TimeoutSeconds = defaultCommandTimeout
 	}
+	itoa := func(p *int) string {
+		if p == nil {
+			return ""
+		}
+		return strconv.Itoa(*p)
+	}
 
-	// 构造 browser-use 命令，通过沙箱 CLI 执行
-	// browser-use 接受自然语言 task，通过 --identity 指定账号
-	var cmdParts []string
-	cmdParts = append(cmdParts, "browser-use")
-	if a.URL != "" {
-		cmdParts = append(cmdParts, fmt.Sprintf("--url %q", a.URL))
+	// 按子命令拼接参数（与 browser-svc.py 的 argv 约定一一对应）
+	var argParts string
+	switch a.Action {
+	case "open":
+		if a.URL == "" {
+			return registry.ToolResult{Error: "browser_use: open 需要 url"}, nil
+		}
+		argParts = shellJoin(a.URL)
+	case "state", "back", "screenshot":
+		// 无参数
+	case "click":
+		if a.X != nil && a.Y != nil {
+			argParts = shellJoin(strconv.Itoa(*a.X), strconv.Itoa(*a.Y))
+		} else if a.Index != nil {
+			argParts = shellJoin(strconv.Itoa(*a.Index))
+		} else {
+			return registry.ToolResult{Error: "browser_use: click 需要 index（或 x+y 坐标）"}, nil
+		}
+	case "input", "select":
+		if a.Index == nil || a.Text == "" {
+			return registry.ToolResult{Error: "browser_use: " + a.Action + " 需要 index 和 text"}, nil
+		}
+		argParts = shellJoin(strconv.Itoa(*a.Index), a.Text)
+	case "type":
+		if a.Text == "" {
+			return registry.ToolResult{Error: "browser_use: type 需要 text"}, nil
+		}
+		argParts = shellJoin(a.Text)
+	case "hover", "dblclick", "rightclick":
+		if a.Index == nil {
+			return registry.ToolResult{Error: "browser_use: " + a.Action + " 需要 index"}, nil
+		}
+		argParts = shellJoin(strconv.Itoa(*a.Index))
+	case "scroll":
+		dir := a.Direction
+		if dir == "" {
+			dir = "down"
+		}
+		argParts = shellJoin(dir, itoa(a.Amount))
+	case "keys":
+		if a.Keys == "" {
+			return registry.ToolResult{Error: "browser_use: keys 需要 keys（如 Enter）"}, nil
+		}
+		argParts = shellJoin(a.Keys)
+	case "wait":
+		if a.Text == "" {
+			return registry.ToolResult{Error: "browser_use: wait 需要 text（selector 或 text 条件值）"}, nil
+		}
+		by := a.By
+		if by == "" {
+			by = "text"
+		}
+		tm := a.TimeoutMs
+		if tm <= 0 {
+			tm = 5000
+		}
+		argParts = shellJoin(by, a.Text, "--timeout-ms", strconv.Itoa(tm))
+	case "eval":
+		if a.JS == "" {
+			return registry.ToolResult{Error: "browser_use: eval 需要 js 表达式"}, nil
+		}
+		argParts = shellJoin(a.JS)
+	case "get":
+		g := a.Get
+		if g == "" {
+			g = "html"
+		}
+		argParts = shellJoin(g)
+	default:
+		return registry.ToolResult{Error: "browser_use: 未知 action " + a.Action}, nil
+	}
+
+	// 身份经环境变量注入（IDENTITY=身份 → 独立 cookie jar/chromium）
+	command := "browser-use " + a.Action
+	if argParts != "" {
+		command += " " + argParts
 	}
 	if a.Identity != "" {
-		cmdParts = append(cmdParts, fmt.Sprintf("--identity %q", a.Identity))
+		command = fmt.Sprintf("IDENTITY=%q %s", a.Identity, command)
 	}
-	cmdParts = append(cmdParts, fmt.Sprintf("--task %q", a.Instruction))
-	command := strings.Join(cmdParts, " ")
 
 	req := sandbox.ExecRequest{
 		TaskID:         t.deps.TaskID,

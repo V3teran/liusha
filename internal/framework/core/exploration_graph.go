@@ -42,16 +42,16 @@ const (
 	// 语义：动作生成观察结果
 	RelationGenerates RelationKind = "generates"
 
-	// RelationConfirms 表示确认关系（evaluation → result）
-	// 语义：评估确认结果为真
+	// RelationConfirms 表示确认关系（evidence → observation）
+	// 语义：executor 侧证据（write_evidence，content.type=evidence 的 observation）确认假设
 	RelationConfirms RelationKind = "confirms"
 
-	// RelationRefutes 表示反驳关系（evaluation → observation）
-	// 语义：评估否定观察结果
+	// RelationRefutes 表示反驳关系（evidence → observation）
+	// 语义：executor 侧证据反驳假设
 	RelationRefutes RelationKind = "refutes"
 
 	// RelationEnables 表示使能关系（result → action）
-	// 语义：结果使得新动作可执行
+	// 语义：结果使能新动作。预留——当前无生产者（planner 派生用 triggers）
 	RelationEnables RelationKind = "enables"
 
 	// RelationDependsOn 表示依赖关系（action → action）
@@ -59,7 +59,7 @@ const (
 	RelationDependsOn RelationKind = "depends_on"
 
 	// RelationBelongsTo 表示归属关系（action → objective）
-	// 语义：动作服务于目标
+	// 语义：动作服务于目标。预留——当前无生产者
 	RelationBelongsTo RelationKind = "belongs_to"
 
 	// RelationTriggers 表示触发关系（result → objective/action）

@@ -2,20 +2,22 @@
 
 // verifier.go 实现认知循环的复现晋升门（Promotion Evaluator）。
 //
-// 2026-08-26 适配统一探索图。
+// 探索图写权限不变式（4 种节点、谁写什么）：
+//   - planner 写 objective / action
+//   - executor 写 observation（假设 / 执行记录 / executor 侧证据）
+//   - evaluator 只写 result——本文件就是 observation(假设) → result(坐实) 的唯一状态转换门
 //
-// 探索图铁律：图里只存坐实/假定的结果态；Observation 是在途假设（Redis 黑板），
-// 只有过复现才能晋升成图节点。Evaluator 就是这道 **不可绕过的状态转换门** 的执法者——
-// 它不取代 LLM 判断，而是给"晋升成坐实态"这个动作强制加一道复现关卡：
+//	Observation(在途假设，图节点，confidence=unverified)
+//	    → Promote(attempt)
+//	    → 域 Replayer 复放采证（primitives 对本包是不透明 blob，形状归各域）
+//	    → LLMJudge 终裁（机器采证，LLM 持判定权）
+//	    → RecordVerification(confirmed/refuted)  // 审计链：replays[] 含预跑+裁决官每次复放
+//	    → confirmed: CreateNode(confidence=verified) 进图 + 写 finding 表
+//	    └ refuted:   不进图（证据留 exploration_verification 供审计）
 //
-//	Observation(在途假设) → Promote(attempt)
-//	    → Replayer 执行复现 → Result{confirmed, evidence}
-//	    → RecordVerification(confirmed/refuted)  // 证据链，无论成败都落
-//	    → confirmed: CreateNode(confidence=verified) 进图
-//	    └ refuted:   不进图（证据仍留 exploration_verification 供审计）
-//
-// domain-agnostic：复现怎么做归各域（web=replay_traffic、binary=gdb、cloud=API 调用），
-// Evaluator 只认 Replayer 接口，不认域——保证加新域时晋升门零改动。
+// domain-agnostic：配方怎么执行归各域（web=HTTP 重放、generic=裁决官自主执行、
+// 未来 binary/cloud/lateral=各自 Replayer），Evaluator 只认 Replayer 接口——加新域
+// 晋升门零改动。
 
 package evaluator
 
@@ -36,6 +38,9 @@ import (
 
 // graphWriter 是 Evaluator 依赖的探索图写入子集：收窄依赖 + 便于测试替身。
 // *explorationgraph.Store 自动满足本接口。
+//
+// 图的写权限不变式：planner 写 objective/action，executor 写 observation，
+// evaluator **只写 result**（晋升）。复放证据不走图——落 exploration_verification 审计链。
 type graphWriter interface {
 	RecordVerification(ctx context.Context, v explorationgraph.Verification) (string, error)
 	CreateNode(ctx context.Context, n explorationgraph.Node) (string, error)
@@ -117,6 +122,14 @@ func (v *PromotionEvaluator) WithLogger(l zerolog.Logger) *PromotionEvaluator {
 	return v
 }
 
+// replayRecord 是裁决链上一次机器重放的审计记录（预跑 + 裁决官自主复放都落）。
+type replayRecord struct {
+	Phase      string          `json:"phase"` // prerun（预跑）/ judge（裁决官自主复放）
+	Evidence   json.RawMessage `json:"evidence"`
+	DurationMs int64           `json:"duration_ms"`
+	Error      string          `json:"error,omitempty"` // 重放失败也留档（审计需要）
+}
+
 // Promote 把一条 Observation 过复现门晋升成探索图节点。
 //
 // 返回值语义：
@@ -136,7 +149,22 @@ func (v *PromotionEvaluator) Promote(ctx context.Context, a Attempt) (*explorati
 		return nil, fmt.Errorf("verifier: 无 Replayer，无法复现晋升")
 	}
 
-	res, err := v.replayer.Replay(ctx, a.Primitives)
+	// 重放闭包：预跑与裁决官每次 replay_for_verification 都经此——完整证据链在此记录，
+	// 裁决官复放的中间观察不再只活在 judge 的 ReAct 上下文里。
+	var replays []replayRecord
+	replay := func(rctx context.Context, phase string) (Result, error) {
+		res, err := v.replayer.Replay(rctx, a.Primitives)
+		rec := replayRecord{Phase: phase, DurationMs: res.DurationMs}
+		if err != nil {
+			rec.Error = err.Error()
+		} else {
+			rec.Evidence = res.Evaluation
+		}
+		replays = append(replays, rec)
+		return res, err
+	}
+
+	res, err := replay(ctx, "prerun")
 	if err != nil {
 		return nil, fmt.Errorf("verifier: 复现执行失败: %w", err)
 	}
@@ -153,19 +181,28 @@ func (v *PromotionEvaluator) Promote(ctx context.Context, a Attempt) (*explorati
 	if json.Unmarshal(a.Content, &c) == nil {
 		hyp = c.Statement
 	}
-	replay := func(rctx context.Context) (Result, error) { // 绑定本 Attempt 配方的重放闭包
-		return v.replayer.Replay(rctx, a.Primitives)
-	}
-	verdict, _, jErr := v.judge.Judge(ctx, hyp, a.Primitives, res.Evaluation, replay)
+	verdict, reasoning, jErr := v.judge.Judge(ctx, hyp, a.Primitives, res.Evaluation,
+		func(rctx context.Context) (Result, error) { return replay(rctx, "judge") })
 	if jErr != nil {
 		return nil, fmt.Errorf("verifier: LLM 裁决失败（本次未裁决，不回退机器）: %w", jErr)
 	}
 	confirmed := verdict == VerdictConfirmed // 唯一坐实来源
 
-	// 生成节点 ID（预先分配）
-	nodeID := uuid.New().String()
+	// 证据聚合：最后一次成功重放的证据为主体，附裁决理由与完整重放链（含失败记录）。
+	// generic 域无机器重放通道，裁决官的执行轨迹与结论就以 reasoning + replays[] 为审计面。
+	final := res
+	for _, rec := range replays {
+		if rec.Error == "" && len(rec.Evidence) > 0 {
+			final = Result{Evaluation: rec.Evidence, DurationMs: rec.DurationMs}
+		}
+	}
+	evaluation := withReplayLog(final.Evaluation, verdict, reasoning, replays)
 
 	// 证据链：无论坐实与否都落 exploration_verification（refuted 也留档供审计/复盘）。
+	// 这是复放证据的唯一归宿——evaluator 不往图写观察节点（图的写权限不变式）。
+	// nodeID 预先分配：坐实时它成为晋升 result 节点的 ID（verification.node_id 回指），
+	// 证伪时它是未落图的占位（审计仍可定位本次裁决对象）。
+	nodeID := uuid.New().String()
 	outcome := explorationgraph.OutcomeRefuted
 	if confirmed {
 		outcome = explorationgraph.OutcomeConfirmed
@@ -173,11 +210,11 @@ func (v *PromotionEvaluator) Promote(ctx context.Context, a Attempt) (*explorati
 	verID, err := v.graph.RecordVerification(ctx, explorationgraph.Verification{
 		ID:         uuid.New().String(),
 		TaskID:     a.TaskID,
-		NodeID:     nodeID, // 预先分配，即使证伪也记录（审计需要）
+		NodeID:     nodeID, // 预分配，即使证伪也记录（审计需要）
 		Primitives: a.Primitives,
 		Outcome:    outcome,
-		Evaluation: res.Evaluation,
-		DurationMs: res.DurationMs,
+		Evaluation: evaluation,
+		DurationMs: final.DurationMs,
 		CreatedAt:  time.Now(),
 	})
 	if err != nil {
@@ -189,7 +226,7 @@ func (v *PromotionEvaluator) Promote(ctx context.Context, a Attempt) (*explorati
 		return nil, nil
 	}
 
-	// 坐实：晋升成 verified 节点
+	// 坐实：晋升成 verified 节点（evaluator 对图的唯一写权限）
 	verified := explorationgraph.ConfidenceVerified
 	node := explorationgraph.Node{
 		ID:         nodeID,
@@ -211,7 +248,7 @@ func (v *PromotionEvaluator) Promote(ctx context.Context, a Attempt) (*explorati
 
 	// 验证通过，写入 finding 表（未验证的不进 finding 表）
 	if v.findings != nil {
-		if err := v.writeFinding(ctx, node, a, res); err != nil {
+		if err := v.writeFinding(ctx, node, a, final); err != nil {
 			// finding 写入失败不阻塞晋升（节点已进图），但不能静默吞掉
 			if v.logger != nil {
 				v.logger.Warn().Err(err).Str("node_id", node.ID).Msg("finding 写入失败（节点已晋升，不影响图状态）")
@@ -220,6 +257,28 @@ func (v *PromotionEvaluator) Promote(ctx context.Context, a Attempt) (*explorati
 	}
 
 	return &node, nil
+}
+
+// withReplayLog 把最终证据、裁决理由与完整重放链（预跑 + 裁决官复放，含失败）聚合成一份审计 JSON。
+// 保留原证据顶层字段（url/method 等）不套壳——下游（finding host 抽取等）依赖其形状。
+func withReplayLog(evaluation json.RawMessage, verdict, reasoning string, replays []replayRecord) json.RawMessage {
+	merged := map[string]interface{}{}
+	if len(evaluation) > 0 {
+		if err := json.Unmarshal(evaluation, &merged); err != nil {
+			return evaluation // 解析失败退回原证据，绝不让审计聚合毁掉本体
+		}
+	}
+	merged["verdict"] = verdict
+	if reasoning != "" {
+		merged["reasoning"] = reasoning
+	}
+	merged["replay_count"] = len(replays)
+	merged["replays"] = replays
+	out, err := json.Marshal(merged)
+	if err != nil {
+		return evaluation
+	}
+	return out
 }
 
 // writeFinding 将验证通过的节点写入 finding 表（仅 Result 类节点）。

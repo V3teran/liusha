@@ -12,6 +12,7 @@ import (
 )
 
 // fakeGraphStore 记录 Evaluator 对探索图的写入，供断言"门的副作用"。
+// 写权限不变式：evaluator 只应写 result 节点（observation/action/objective 均为越权）。
 type fakeGraphStore struct {
 	verifications []explorationgraph.Verification
 	nodes         []explorationgraph.Node
@@ -228,6 +229,89 @@ type stubJudge struct {
 
 func (s stubJudge) Judge(_ context.Context, _ string, _, _ json.RawMessage, _ ReplayFunc) (string, string, error) {
 	return s.verdict, s.reasoning, nil
+}
+
+// replayJudge 裁决前自主复放 N 次（模拟 RouterJudge 的 replay_for_verification 调用）。
+type replayJudge struct {
+	verdict string
+	replay  ReplayFunc
+	times   int
+}
+
+func (s *replayJudge) Judge(_ context.Context, _ string, _, _ json.RawMessage, replay ReplayFunc) (string, string, error) {
+	s.replay = replay
+	for i := 0; i < s.times; i++ {
+		_, _ = replay(context.Background())
+	}
+	return s.verdict, "自主复放后裁决", nil
+}
+
+// 裁决官复放的审计落 verification.evidence.replays（预跑 + 每次裁决复放），
+// 且 evaluator 不越权写观察节点——confirmed 只写 1 个 result 节点。
+func TestPromote_JudgeReplaysAuditedNotGraphWritten(t *testing.T) {
+	w := &fakeGraphStore{verID: "ver-r1"}
+	fw := &fakeFindingWriter{}
+	j := &replayJudge{verdict: VerdictConfirmed, times: 2}
+	v := New(w, fakeReplayer{res: Result{Evaluation: json.RawMessage(`{"url":"http://t/x","assert_passed":true}`), DurationMs: 10}}, fw).
+		WithJudge(j)
+
+	node, err := v.Promote(context.Background(), baseAttempt())
+	if err != nil {
+		t.Fatalf("Promote 出错: %v", err)
+	}
+	if node == nil {
+		t.Fatal("confirmed 应晋升")
+	}
+
+	// 图写入不变式：只有 1 个 result 节点，无观察/证据节点（evaluator 只写 result）
+	if len(w.nodes) != 1 || w.nodes[0].Kind != core.KindResult {
+		t.Fatalf("evaluator 应只写 1 个 result 节点, got %+v", w.nodes)
+	}
+
+	// 审计链：1 预跑 + 2 裁决复放 = 3 条记录，且裁决理由入档
+	var ev struct {
+		Verdict     string `json:"verdict"`
+		Reasoning   string `json:"reasoning"`
+		ReplayCount int    `json:"replay_count"`
+		Replays     []struct {
+			Phase string `json:"phase"`
+		} `json:"replays"`
+	}
+	if err := json.Unmarshal(w.verifications[0].Evaluation, &ev); err != nil {
+		t.Fatalf("证据应可解析: %v", err)
+	}
+	if ev.ReplayCount != 3 || len(ev.Replays) != 3 {
+		t.Fatalf("应含 3 次重放记录（预跑+2 裁决复放）, got %d", ev.ReplayCount)
+	}
+	if ev.Replays[0].Phase != "prerun" || ev.Replays[1].Phase != "judge" || ev.Replays[2].Phase != "judge" {
+		t.Fatalf("重放阶段应按 prerun/judge 记录, got %+v", ev.Replays)
+	}
+	if ev.Verdict != VerdictConfirmed || ev.Reasoning != "自主复放后裁决" {
+		t.Fatalf("裁决结论与理由应入档, got %+v", ev)
+	}
+}
+
+// 证伪：不写任何节点（铁律——图只存坐实态），审计链仍完整。
+func TestPromote_RefutedWritesNoNodes(t *testing.T) {
+	w := &fakeGraphStore{verID: "ver-r2"}
+	fw := &fakeFindingWriter{}
+	j := &replayJudge{verdict: VerdictRefuted, times: 1}
+	v := New(w, fakeReplayer{res: Result{Evaluation: json.RawMessage(`{"url":"http://t/x"}`)}}, fw).
+		WithJudge(j)
+
+	node, err := v.Promote(context.Background(), baseAttempt())
+	if err != nil {
+		t.Fatalf("Promote 出错: %v", err)
+	}
+	if node != nil {
+		t.Fatal("refuted 不应晋升")
+	}
+	if len(w.nodes) != 0 {
+		t.Fatalf("证伪不应写任何节点, got %d", len(w.nodes))
+	}
+	if len(w.verifications) != 1 || w.verifications[0].Outcome != explorationgraph.OutcomeRefuted {
+		t.Fatalf("证伪应留 verification 审计, got %+v", w.verifications)
+	}
 }
 
 type errJudge struct{}

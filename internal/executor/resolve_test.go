@@ -126,32 +126,25 @@ func TestExtractor_Guardrails(t *testing.T) {
 }
 
 func TestInjectResolved(t *testing.T) {
-	strPtr := func(s string) *string { return &s }
-	mods := httpreplay.Mods{
-		URL:        "/api/orders/{{oid}}",
-		Method:     "POST",
-		Headers:    map[string]*string{"X-Token": strPtr("{{tok}}"), "Keep": strPtr("keep-me")},
-		Query:      map[string]*string{"page": strPtr("1")},
-		BodyFields: map[string]*string{"csrf": strPtr("{{tok}}"), "nil-field": nil},
-		Body:       strPtr(`{"oid":"{{oid}}"}`),
+	req := SelfContainedRequest{
+		URL:     "/api/orders/{{oid}}",
+		Method:  "POST",
+		Headers: map[string]string{"X-Token": "{{tok}}", "Keep": "keep-me"},
+		Body:    `{"oid":"{{oid}}"}`,
 	}
 	// 语义：每次调用只注入一个占位符（多轮链式注入，每轮抽一个新鲜值）。
-	out := injectResolved(mods, "tok", "42")
+	out := injectResolved(req, "tok", "42")
 
 	assert.Equal(t, "/api/orders/{{oid}}", out.URL, "未匹配占位符保持原样")
-	assert.Equal(t, "42", *out.Headers["X-Token"])
-	assert.Equal(t, "keep-me", *out.Headers["Keep"], "无占位符的值不被改动")
-	assert.Equal(t, "1", *out.Query["page"])
-	assert.Equal(t, "42", *out.BodyFields["csrf"])
-	require.Nil(t, out.BodyFields["nil-field"], "nil 值字段保持 nil")
+	assert.Equal(t, "42", out.Headers["X-Token"])
+	assert.Equal(t, "keep-me", out.Headers["Keep"], "无占位符的值不被改动")
 	require.NotNil(t, out.Body)
-	assert.Equal(t, `{"oid":"{{oid}}"}`, *out.Body, "未匹配占位符保持原样")
+	assert.Equal(t, `{"oid":"{{oid}}"}`, out.Body, "未匹配占位符保持原样")
 	assert.Equal(t, "POST", out.Method)
 
 	// 二轮注入 oid
 	out = injectResolved(out, "oid", "42")
 	assert.Equal(t, "/api/orders/42", out.URL)
-	assert.Equal(t, "42", *out.BodyFields["csrf"])
 	require.NotNil(t, out.Body)
-	assert.Equal(t, `{"oid":"42"}`, *out.Body)
+	assert.Equal(t, `{"oid":"42"}`, out.Body)
 }

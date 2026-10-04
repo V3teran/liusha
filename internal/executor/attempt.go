@@ -34,6 +34,13 @@ func AttemptFromFinding(taskID string, f finding.VulnFinding) (evaluator.Attempt
 		return evaluator.Attempt{}, false, nil
 	}
 
+	// 已坐实的 finding（evaluator 写入，evaluation 带 verification_id）不回晋升门：
+	// 否则 executor 的 before/after 快照会把它当新 finding 收割 → 再验证 → 再写 finding，
+	// 形成无限复验循环。复现门的产物只进图，不回流。
+	if findingAlreadyVerified(f.Evaluation) {
+		return evaluator.Attempt{}, false, nil
+	}
+
 	targetRef := endpointRef(f)
 
 	content, err := json.Marshal(findingContent{
@@ -60,6 +67,21 @@ func AttemptFromFinding(taskID string, f finding.VulnFinding) (evaluator.Attempt
 		Content:    content,
 		Priority:   priority,
 	}, true, nil
+}
+
+// findingAlreadyVerified 判断 finding 是否复现门的产物（evaluator 坐实后写入，
+// evaluation 携带 verification_id 回指审计链）。
+func findingAlreadyVerified(evaluation json.RawMessage) bool {
+	if len(evaluation) == 0 {
+		return false
+	}
+	var e struct {
+		VerificationID string `json:"verification_id"`
+	}
+	if err := json.Unmarshal(evaluation, &e); err != nil {
+		return false
+	}
+	return e.VerificationID != ""
 }
 
 // endpointRef 从 finding 派生 web endpoint 的多态目标 ref（locator = host+path）。
