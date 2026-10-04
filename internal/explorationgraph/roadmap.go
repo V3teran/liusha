@@ -529,4 +529,3 @@ func (s *Store) GetRoadmapSummary(ctx context.Context, taskID string) (*RoadmapS
 		CompletionRate: completionRate,
 	}, nil
 }
-

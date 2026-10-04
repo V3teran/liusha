@@ -91,7 +91,7 @@ type Deps struct {
 	SkillStore SkillAPI
 	// ExplorationGraph 为 nil 时探索图 API 路由（/tasks/:id/graph|nodes|stats）不注册。
 	// Phase 1: 探索图 API（e2e 测试迁移专用）。
-	// 由 cmd/api 注入 *explorationgraph.AdapterStore（自动满足 ExplorationGraphAPI 窄接口）。
+	// 由 cmd/api 注入 *explorationgraph.Store（自动满足 ExplorationGraphAPI 窄接口）。
 	ExplorationGraph ExplorationGraphAPI
 }
 

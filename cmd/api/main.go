@@ -37,7 +37,6 @@ import (
 	"github.com/V3teran/liusha/internal/envx"
 	"github.com/V3teran/liusha/internal/explorationgraph"
 	"github.com/V3teran/liusha/internal/finding"
-	"github.com/V3teran/liusha/internal/framework/core"
 	"github.com/V3teran/liusha/internal/httpapi"
 	"github.com/V3teran/liusha/internal/llm"
 	"github.com/V3teran/liusha/internal/llminvocation"
@@ -184,8 +183,7 @@ func main() {
 	toolStore := toolinvocation.NewStore(pool) // 会话用量合计：工具耗时来源
 
 	// Phase 1: 探索图 API（e2e 测试迁移专用）
-	graphStore := core.NewPostgresGraphStore(pool)
-	explorationGraphAdapter := explorationgraph.NewAdapterStore(graphStore)
+	explorationGraphAdapter := explorationgraph.NewStore(pool)
 
 	// 多轮问答/意图分类依赖：light provider 路由 + 问答读 finding + SSE publish。
 	// llmKeyCipher 解密 provider 的加密密钥（migration 0103），构造 client 前才解密，不进缓存。

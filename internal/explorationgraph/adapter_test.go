@@ -26,8 +26,8 @@ func mkActionNode(id, taskID string, state State, deps []string) Node {
 	}
 }
 
-// TestAdapterStore_CreateNode 验证生产主路径 CreateNode：action 落地带状态。
-func TestAdapterStore_CreateNode(t *testing.T) {
+// TestStore_CreateNode 验证生产主路径 CreateNode：action 落地带状态。
+func TestStore_CreateNode(t *testing.T) {
 	store := NewMemoryStore()
 	ctx := context.Background()
 
@@ -49,8 +49,8 @@ func TestAdapterStore_CreateNode(t *testing.T) {
 	assert.Equal(t, core.ActionStateOpen, *node.State)
 }
 
-// TestAdapterStore_ActionStateManagement 验证状态机：列表、带理由状态迁移、CAS。
-func TestAdapterStore_ActionStateManagement(t *testing.T) {
+// TestStore_ActionStateManagement 验证状态机：列表、带理由状态迁移、CAS。
+func TestStore_ActionStateManagement(t *testing.T) {
 	store := NewMemoryStore()
 	ctx := context.Background()
 
@@ -87,8 +87,8 @@ func TestAdapterStore_ActionStateManagement(t *testing.T) {
 	})
 }
 
-// TestAdapterStore_RecordVerification_MemoryStoreRejects 验证内存 store 无 pool 时审计链落档明确报错。
-func TestAdapterStore_RecordVerification_MemoryStoreRejects(t *testing.T) {
+// TestStore_RecordVerification_MemoryStoreRejects 验证内存 store 无 pool 时审计链落档明确报错。
+func TestStore_RecordVerification_MemoryStoreRejects(t *testing.T) {
 	store := NewMemoryStore()
 
 	_, err := store.RecordVerification(context.Background(), Verification{

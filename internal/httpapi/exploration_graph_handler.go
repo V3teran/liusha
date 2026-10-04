@@ -9,7 +9,7 @@ import (
 	"github.com/V3teran/liusha/internal/explorationgraph"
 )
 
-// ExplorationGraphAPI 是探索图查询的窄接口（由 *explorationgraph.AdapterStore 实现）
+// ExplorationGraphAPI 是探索图查询的窄接口（由 *explorationgraph.Store 实现）
 type ExplorationGraphAPI interface {
 	// ListNodesForAPI 按 task_id 和可选 kind 查询节点
 	ListNodesForAPI(ctx context.Context, taskID string, kind string) ([]explorationgraph.Node, error)
