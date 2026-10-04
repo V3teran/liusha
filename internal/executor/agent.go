@@ -367,7 +367,7 @@ func (a *Agent) harvestObservationProposals(ctx context.Context, since time.Time
 
 		// 信封归一化（兼容历史形状；分域校验在此把关）。失败仅告警跳过——
 		// write_observation 写入时已校验过，此处失败只可能是存量脏数据。
-		envelope, nErr := tools.NormalizeReproEnvelope(content.Repro)
+		envelope, _, nErr := tools.NormalizeReproEnvelope(content.Repro)
 		if nErr != nil {
 			a.logger.Warn().
 				Err(nErr).Str("task_id", a.taskID).Str("node_id", n.ID).
