@@ -280,17 +280,17 @@ func (t *browserUseTool) Execute(ctx context.Context, args json.RawMessage) (reg
 		return registry.ToolResult{Error: "browser_use: 未知 action " + a.Action}, nil
 	}
 
-	// 身份/动作经环境变量注入：IDENTITY=身份（独立 cookie jar/chromium）；
-	// AGENT_ID=当前 action（同身份内按动作隔离 tab——browser-svc 的 tab 寻址键）。
-	// 并行执行 action 时无 AGENT_ID 会共抢同一 tab（元素编号互踩）；engine 已把
-	// actionID 挂入 ctx（write_observation 同源），此处接上即天然隔离。
+	// 身份/动作经环境变量注入：
+	//   IDENTITY = "{taskID}-{身份名}"——browser-svc 以 IDENTITY 为 cookie jar 边界
+	//   （一个身份一个独立 chromium）。task 前缀实现跨任务隔离（共享容器下 A/B
+	//   任务互不串登录态）；身份名区分同任务内多账号（admin/guest 双开对照）。
+	//   AGENT_ID = 当前 action（同身份内按动作隔离 tab）——engine 已把 actionID
+	//   挂入 ctx（write_observation 同源）。
 	command := "browser-use " + a.Action
 	if argParts != "" {
 		command += " " + argParts
 	}
-	if a.Identity != "" {
-		command = fmt.Sprintf("IDENTITY=%q %s", a.Identity, command)
-	}
+	command = fmt.Sprintf("IDENTITY=%q %s", browserIdentity(t.deps.TaskID, a.Identity), command)
 	if actionID := getContextActionID(ctx); actionID != "" {
 		command = fmt.Sprintf("AGENT_ID=%q %s", actionID, command)
 	}
@@ -382,6 +382,38 @@ func orDash(s string) string {
 		return "(无输出)"
 	}
 	return s
+}
+
+// browserIdentity 拼接浏览器身份隔离键：{taskID}-{身份名}。
+// 身份名清洗为 [a-zA-Z0-9_-]（它将进入 unix socket 文件名 /tmp/browser-svc-{IDENTITY}.sock，
+// 非法字符会被文件系统拒绝）。taskID 为 UUID 天然安全。
+func browserIdentity(taskID, identity string) string {
+	if identity == "" {
+		identity = "default"
+	}
+	var b strings.Builder
+	for _, r := range identity {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '-', r == '_':
+			b.WriteRune(r)
+		default:
+			b.WriteRune('-')
+		}
+	}
+	if taskID == "" {
+		return b.String()
+	}
+	return taskID + "-" + b.String()
+}
+
+// BrowserCleanupScript 生成本任务浏览器身份的清理脚本（任务结束时经沙箱 exec）：
+// 逐个优雅 reset 本 taskID 前缀的所有身份 daemon（reset 会连带关闭其 chromium）。
+// 只匹配本任务前缀，并发任务的其他身份不受影响。
+func BrowserCleanupScript(taskID string) string {
+	if taskID == "" {
+		return ""
+	}
+	return fmt.Sprintf(`sh -c 'for s in /tmp/browser-svc-%s-*.sock; do [ -e "$s" ] || continue; i="${s#/tmp/browser-svc-}"; i="${i%%.sock}"; IDENTITY="$i" browser-use reset; done'`, taskID)
 }
 
 // browserDegraded 识别 browser-use 库的退化态错误签名（watchdog 内部超时等），

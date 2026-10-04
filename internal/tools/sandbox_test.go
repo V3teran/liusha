@@ -151,3 +151,40 @@ func TestBrowserUse_AgentIDTabIsolation(t *testing.T) {
 		t.Fatalf("无 action 上下文不应带 AGENT_ID, got %s", fake2.commands[0])
 	}
 }
+
+// P2：浏览器身份 task 域化——IDENTITY 必为 "{taskID}-{身份名}"（跨任务/跨身份
+// 双隔离的 cookie jar 边界），身份名非法字符清洗（要进 socket 文件名）。
+func TestBrowserUse_TaskScopedIdentity(t *testing.T) {
+	fake := &fakeSandboxClient{responses: []sandbox.ExecResult{{Stdout: "ok"}}}
+	tool := newBrowserUseTool(Deps{Sandbox: fake, TaskID: "t-42"}, 5*time.Second, false)
+	_, _ = tool.Execute(context.Background(), json.RawMessage(`{"action":"state"}`))
+	if !strings.Contains(fake.commands[0], `IDENTITY="t-42-default"`) {
+		t.Fatalf("默认身份应为 {taskID}-default, got %s", fake.commands[0])
+	}
+
+	fake2 := &fakeSandboxClient{responses: []sandbox.ExecResult{{Stdout: "ok"}}}
+	tool2 := newBrowserUseTool(Deps{Sandbox: fake2, TaskID: "t-42"}, 5*time.Second, false)
+	_, _ = tool2.Execute(context.Background(), json.RawMessage(`{"action":"state","identity":"admin/foo 户"}`))
+	if !strings.Contains(fake2.commands[0], `IDENTITY="t-42-admin-foo--"`) {
+		t.Fatalf("身份名非法字符应清洗为 -, got %s", fake2.commands[0])
+	}
+
+	// 无 taskID（如 judge 复核侧）：裸身份名，不带任务前缀
+	fake3 := &fakeSandboxClient{responses: []sandbox.ExecResult{{Stdout: "ok"}}}
+	tool3 := newBrowserUseTool(Deps{Sandbox: fake3}, 5*time.Second, false)
+	_, _ = tool3.Execute(context.Background(), json.RawMessage(`{"action":"state","identity":"admin"}`))
+	if !strings.Contains(fake3.commands[0], `IDENTITY="admin"`) {
+		t.Fatalf("无 taskID 应为裸身份名, got %s", fake3.commands[0])
+	}
+}
+
+// P3：清理脚本只匹配本任务前缀的身份 socket。
+func TestBrowserCleanupScript(t *testing.T) {
+	script := BrowserCleanupScript("t-42")
+	if !strings.Contains(script, "/tmp/browser-svc-t-42-*.sock") {
+		t.Fatalf("清理脚本应按任务前缀匹配, got %s", script)
+	}
+	if BrowserCleanupScript("") != "" {
+		t.Fatal("空 taskID 应返回空脚本（不清理）")
+	}
+}

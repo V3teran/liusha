@@ -63,9 +63,23 @@ type httpRequestTool struct {
 	lastWritten map[string]string // host → 上次写入 store 的 Cookie 头（防抖）
 }
 
-// SessionIdentityName 是自动会话身份的保留名——其 Cookie 凭证由本工具自动
-// 管理（合并保留该身份下其他凭证）；用户/LLM 手工录入请用其他名字。
-const SessionIdentityName = "session"
+// 会话身份的 task 域化命名：自动会话身份存为 "task:{taskID}:session"——
+// 共享容器/共享凭证库下，跨 task 的会话互染（A 任务登录态注入 B 任务、
+// 并发同 host 互相覆盖）由此切断。用户/LLM 手工录入的身份不带 task: 前缀，
+// 属 host 级共享（预录入语义），所有 task 可见可注入。
+const (
+	sessionIdentityPrefix = "task:"   // 自动身份保留前缀
+	SessionIdentityName   = "session" // 身份名（与前缀拼接成完整 field）
+)
+
+// sessionIdentityName 返回本 task 的自动会话身份名（taskID 空时退化为全局名，
+// 供无任务上下文的调用方如 judge 复核侧使用）。
+func sessionIdentityName(taskID string) string {
+	if taskID == "" {
+		return SessionIdentityName
+	}
+	return sessionIdentityPrefix + taskID + ":" + SessionIdentityName
+}
 
 func newHTTPRequestTool(deps Deps, timeout time.Duration, safe bool) *httpRequestTool {
 	t := &httpRequestTool{deps: deps, jar: map[string]string{}, lastWritten: map[string]string{}}
@@ -136,6 +150,20 @@ func (t *httpRequestTool) applyStoredCredentials(ctx context.Context, a *httpReq
 	ids, err := t.deps.Creds.GetIdentitiesByHost(ctx, host)
 	if err != nil || len(ids) == 0 {
 		return nil // 库异常/空：不阻塞请求，会话头走 jar 兜底
+	}
+	// task 域过滤：只注入本 task 的自动会话身份 + host 级共享身份（无 task: 前缀）。
+	// 其他 task 的会话身份（task:别的任务:session）对本人不可见——共享库下的隔离边界。
+	mine := sessionIdentityName(t.deps.TaskID)
+	filtered := ids[:0]
+	for _, id := range ids {
+		if strings.HasPrefix(id.Name, sessionIdentityPrefix) && id.Name != mine {
+			continue
+		}
+		filtered = append(filtered, id)
+	}
+	ids = filtered
+	if len(ids) == 0 {
+		return nil
 	}
 	sort.Slice(ids, func(i, j int) bool { return ids[i].Name < ids[j].Name })
 
@@ -226,6 +254,7 @@ func (t *httpRequestTool) syncSessionToStore(ctx context.Context, host string) {
 	if t.deps.Creds == nil || host == "" {
 		return
 	}
+	mine := sessionIdentityName(t.deps.TaskID)
 	ch := t.cookieHeader(host)
 
 	t.mu.Lock()
@@ -235,17 +264,17 @@ func (t *httpRequestTool) syncSessionToStore(ctx context.Context, host string) {
 		return // 防抖：值未变
 	}
 
-	// 合并语义：保留 session 身份下非 Cookie 的其他凭证（凭证数量不定）
+	// 合并语义：保留本 task 会话身份下非 Cookie 的其他凭证（凭证数量不定）
 	var session credential.Identity
 	if ids, err := t.deps.Creds.GetIdentitiesByHost(ctx, host); err == nil {
 		for _, id := range ids {
-			if id.Name == SessionIdentityName {
+			if id.Name == mine {
 				session = id
 				break
 			}
 		}
 	}
-	session.Name = SessionIdentityName
+	session.Name = mine
 	if session.Role == "" {
 		session.Role = SessionIdentityName
 	}
