@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
+	"time"
 
 	"github.com/V3teran/liusha/internal/constants"
 	"github.com/V3teran/liusha/internal/explorationgraph"
@@ -76,11 +78,12 @@ func (t *GetGlobalStateTool) Execute(ctx context.Context, _ json.RawMessage) (re
 		return registry.ToolResult{Error: fmt.Sprintf("get objective: %v", err)}, nil
 	}
 
-	// 构建状态快照
+	// 构建状态快照（running 动作的时长视图是 monitor kill 判断的决策变量）
 	state := GlobalState{
-		Objective: objective,
-		Actions:   allActions,
-		Findings:  findings,
+		Objective:      objective,
+		Actions:        allActions,
+		Findings:       findings,
+		RunningActions: runningActionViews(allActions, time.Now()),
 	}
 
 	// 序列化为 JSON
@@ -90,6 +93,31 @@ func (t *GetGlobalStateTool) Execute(ctx context.Context, _ json.RawMessage) (re
 	}
 
 	return registry.ToolResult{Output: string(stateJSON)}, nil
+}
+
+// runningActionViews 从动作列表抽取 running 态的监察视图。
+// 时长基准取 UpdatedAt（最近一次状态迁移时刻：open→running 时刷新）。
+func runningActionViews(actions []explorationgraph.Node, now time.Time) []RunningActionView {
+	var views []RunningActionView
+	for _, a := range actions {
+		if a.State == nil || *a.State != explorationgraph.StateRunning {
+			continue
+		}
+		var c struct {
+			Instruction string `json:"instruction"`
+		}
+		_ = json.Unmarshal(a.Content, &c)
+		mins := now.Sub(a.UpdatedAt).Minutes()
+		if mins < 0 {
+			mins = 0
+		}
+		views = append(views, RunningActionView{
+			ID:             a.ID,
+			Instruction:    c.Instruction,
+			RunningMinutes: math.Round(mins*10) / 10,
+		})
+	}
+	return views
 }
 
 // ============================================

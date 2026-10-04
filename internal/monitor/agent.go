@@ -197,7 +197,7 @@ func (a *Agent) buildEvaluationObjective() string {
 - publish_decision：发布监察决策
 
 评估标准：
-- Action 运行超过 20 分钟未完成 → 考虑 kill
+- get_global_state 的 running_actions[].running_minutes 给出每个执行中动作的已运行分钟数——超过 20 分钟的应果断 kill_action（不 kill 会占死执行通道）
 - 大量 failed Actions → 考虑 replan
 - 缺乏进展 → 考虑 replan
 
@@ -252,6 +252,19 @@ type GlobalState struct {
 	Objective explorationgraph.ObjectiveNode `json:"objective"`
 	Actions   []explorationgraph.Node        `json:"actions"`
 	Findings  []explorationgraph.Node        `json:"findings"`
+
+	// RunningActions 是 running 态动作的已运行时长视图——monitor 的 kill 阈值
+	// 判断依据（e2e 实测：只给原始 created_at/updated_at 时间戳时，LLM 无从
+	// 计算"已运行多少分钟"，20 分钟 kill 职责形同虚设）。决策变量必须显式喂给
+	// 决策者，不能指望它做时间戳算术。
+	RunningActions []RunningActionView `json:"running_actions"`
+}
+
+// RunningActionView 是 running 动作的监察视图。
+type RunningActionView struct {
+	ID             string  `json:"id"`
+	Instruction    string  `json:"instruction"`
+	RunningMinutes float64 `json:"running_minutes"`
 }
 
 // Decision 是监察决策。

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -110,5 +111,43 @@ func TestPublishDecisionTool_Validation(t *testing.T) {
 			require.NoError(t, err)
 			assert.Contains(t, out.Error, c.wantErr)
 		})
+	}
+}
+
+// running_actions 时长视图是 monitor kill 决策的变量源（此前只给原始时间戳，
+// LLM 无从计算时长，20 分钟 kill 职责空转——e2e 实测 action 跑 30+ 分钟无人杀）。
+func TestRunningActionViews(t *testing.T) {
+	now := time.Now()
+	running := explorationgraph.StateRunning
+	done := explorationgraph.StateDone
+	mk := func(id string, st explorationgraph.State, ageMin float64) explorationgraph.Node {
+		return explorationgraph.Node{
+			ID: id, Kind: core.KindAction, State: &st,
+			Content:   json.RawMessage(`{"instruction":"做某事"}`),
+			UpdatedAt: now.Add(-time.Duration(ageMin * float64(time.Minute))),
+		}
+	}
+	actions := []explorationgraph.Node{
+		mk("a-running-30m", running, 30),
+		mk("b-running-2m", running, 2),
+		mk("c-done", done, 99),      // 非 running 不进视图
+		mk("d-future", running, -5), // 时钟偏移防御：负时长归零
+	}
+
+	views := runningActionViews(actions, now)
+	if len(views) != 3 {
+		t.Fatalf("应只含 3 个 running 动作, got %d", len(views))
+	}
+	if views[0].ID != "a-running-30m" || views[0].RunningMinutes < 29.9 || views[0].RunningMinutes > 30.1 {
+		t.Fatalf("30 分钟动作时长应正确计算, got %+v", views[0])
+	}
+	if views[1].RunningMinutes < 1.9 || views[1].RunningMinutes > 2.1 {
+		t.Fatalf("2 分钟动作时长应正确计算, got %+v", views[1])
+	}
+	if views[2].RunningMinutes != 0 {
+		t.Fatalf("时钟偏移应归零, got %+v", views[2])
+	}
+	if views[0].Instruction != "做某事" {
+		t.Fatalf("视图应携带 instruction 供决策上下文, got %+v", views[0])
 	}
 }
