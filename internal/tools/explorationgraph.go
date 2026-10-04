@@ -219,7 +219,9 @@ func (t *writeObservationTool) Execute(ctx context.Context, args json.RawMessage
 		return registry.ToolResult{Error: fmt.Sprintf("创建节点失败: %v", err)}, nil
 	}
 
-	// 如果有当前 actionID，创建 action → observation 关系（GENERATES）
+	// 如果有当前 actionID，创建 action → observation 关系（GENERATES）。
+	// 边失败不中断节点创建（节点是主体），但要在输出中可见——静默吞掉会丢溯源。
+	warnings := ""
 	if actionID := getContextActionID(ctx); actionID != "" {
 		edge := explorationgraph.Edge{
 			TaskID:    t.deps.TaskID,
@@ -229,13 +231,12 @@ func (t *writeObservationTool) Execute(ctx context.Context, args json.RawMessage
 			CreatedAt: time.Now(),
 		}
 		if err := t.deps.Graph.CreateBusinessEdge(ctx, edge); err != nil {
-			// 边创建失败不中断主流程
-			_ = err
+			warnings += fmt.Sprintf("\n⚠️ 归属边创建失败（action=%s）: %v", actionID, err)
 		}
 	}
 
 	return registry.ToolResult{
-		Output: fmt.Sprintf("Observation 创建成功\nID: %s\n陈述: %s\n置信度: %s%s", id, input.Statement, input.Confidence, normalizeNote),
+		Output: fmt.Sprintf("Observation 创建成功\nID: %s\n陈述: %s\n置信度: %s%s%s", id, input.Statement, input.Confidence, normalizeNote, warnings),
 	}, nil
 }
 
@@ -557,6 +558,8 @@ func (t *writeEvidenceTool) Execute(ctx context.Context, args json.RawMessage) (
 
 	// 创建关系边
 	edges := []explorationgraph.Edge{}
+	// 边/置信度更新的非致命失败收集（主流程继续，输出可见）
+	var eWarnings []string
 
 	// 1. action → evidence (GENERATES)
 	if actionID := getContextActionID(ctx); actionID != "" {
@@ -580,11 +583,10 @@ func (t *writeEvidenceTool) Execute(ctx context.Context, args json.RawMessage) (
 			CreatedAt: time.Now(),
 		})
 
-		// 更新 observation 的置信度为 verified
+		// 更新 observation 的置信度为 verified（失败不中断，但记入告警）
 		verified := explorationgraph.Confidence("verified")
 		if err := t.deps.Graph.UpdateNodeConfidence(ctx, input.ObservationID, verified); err != nil {
-			// 置信度更新失败不中断主流程
-			_ = err
+			eWarnings = append(eWarnings, fmt.Sprintf("置信度更新失败: %v", err))
 		}
 
 		// 3. 如果有 finding_id，创建 evidence → finding (CONFIRMS)
@@ -606,24 +608,26 @@ func (t *writeEvidenceTool) Execute(ctx context.Context, args json.RawMessage) (
 			CreatedAt: time.Now(),
 		})
 
-		// 更新 observation 的置信度为 low
+		// 更新 observation 的置信度为 low（失败不中断，但记入告警）
 		low := explorationgraph.Confidence("low")
 		if err := t.deps.Graph.UpdateNodeConfidence(ctx, input.ObservationID, low); err != nil {
-			// 置信度更新失败不中断主流程
-			_ = err
+			eWarnings = append(eWarnings, fmt.Sprintf("置信度更新失败: %v", err))
 		}
 	}
 
-	// 创建所有边
+	// 创建所有边（失败不中断，但记入告警——证据链断档必须可见）
 	for _, edge := range edges {
 		if err := t.deps.Graph.CreateBusinessEdge(ctx, edge); err != nil {
-			// 边创建失败不中断主流程
-			_ = err
+			eWarnings = append(eWarnings, fmt.Sprintf("边 %s→%s 创建失败: %v", edge.SrcID, edge.DstID, err))
 		}
+	}
+	warningNote := ""
+	if len(eWarnings) > 0 {
+		warningNote = "\n⚠️ " + strings.Join(eWarnings, "\n⚠️ ")
 	}
 
 	return registry.ToolResult{
-		Output: fmt.Sprintf("Evidence 创建成功\nID: %s\nOutcome: %s\n关联 observation: %s", id, input.Outcome, input.ObservationID),
+		Output: fmt.Sprintf("Evidence 创建成功\nID: %s\nOutcome: %s\n关联 observation: %s%s", id, input.Outcome, input.ObservationID, warningNote),
 	}, nil
 }
 
