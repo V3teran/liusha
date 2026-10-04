@@ -1,6 +1,7 @@
 package executor
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"regexp"
@@ -9,13 +10,29 @@ import (
 	"github.com/V3teran/liusha/internal/httpreplay"
 )
 
-// ResolveStep 是主 replay 前的单个准备请求：重发一条源流量，从其响应抽一个新鲜值。
-// 专治 replay 时无法从源流量复用的服务器现造值（opaque-id / nonce / 过期 token）。
+// ResolveStep 是主 replay 前的单个准备请求：发一个自包含请求，从其响应抽一个新鲜值。
+// 专治 replay 时无法复用的服务器现造值（opaque-id / nonce / 过期 token）。
 // 刻意无 Assert 字段——准备请求是取值不是判漏，对其响应下断言即越界（护栏1）。
 type ResolveStep struct {
-	TrafficID     int64           `json:"traffic_id"`
-	Modifications httpreplay.Mods `json:"modifications,omitempty"`
-	Extract       Extractor       `json:"extract"`
+	Request SelfContainedRequest `json:"request"`
+	Extract Extractor            `json:"extract"`
+}
+
+// runResolve 发准备请求并抽新鲜值，返回 (占位名, 值)。任一步失败都硬错误。
+func runResolve(ctx context.Context, step ResolveStep) (string, string, error) {
+	src, err := step.Request.toSource()
+	if err != nil {
+		return "", "", fmt.Errorf("web.Replayer: resolve.request 非法——%w", err)
+	}
+	res, err := httpreplay.Replay(ctx, src, httpreplay.Mods{})
+	if err != nil {
+		return "", "", fmt.Errorf("web.Replayer: 准备请求重发失败: %w", err)
+	}
+	val, err := step.Extract.extract(res)
+	if err != nil {
+		return "", "", fmt.Errorf("web.Replayer: %w", err)
+	}
+	return step.Extract.Name, val, nil
 }
 
 // Extractor 从准备请求响应里抽一个值，命名后供主请求 modifications 以 {{name}} 引用。
@@ -135,32 +152,19 @@ func cookieValue(setCookie, name string) (string, bool) {
 	return "", false
 }
 
-// injectResolved 把 mods 里所有 {{name}} 占位替换为抽出的新鲜值。
-// 遍历 Query/Headers/BodyFields/Body/URL 的字符串值做整串替换。
-func injectResolved(mods httpreplay.Mods, name, val string) httpreplay.Mods {
+// injectResolved 把自包含请求里所有 {{name}} 占位替换为抽出的新鲜值。
+// 遍历 URL / Headers 值 / Body 的字符串做整串替换。
+func injectResolved(req SelfContainedRequest, name, val string) SelfContainedRequest {
 	ph := "{{" + name + "}}"
 	repl := func(s string) string { return strings.ReplaceAll(s, ph, val) }
-	replPtr := func(p *string) *string {
-		if p == nil {
-			return nil
+	req.URL = repl(req.URL)
+	req.Body = repl(req.Body)
+	if req.Headers != nil {
+		headers := make(map[string]string, len(req.Headers))
+		for k, v := range req.Headers {
+			headers[k] = repl(v)
 		}
-		s := repl(*p)
-		return &s
+		req.Headers = headers
 	}
-	replMap := func(m map[string]*string) map[string]*string {
-		if m == nil {
-			return nil
-		}
-		out := make(map[string]*string, len(m))
-		for k, v := range m {
-			out[k] = replPtr(v)
-		}
-		return out
-	}
-	mods.URL = repl(mods.URL)
-	mods.Query = replMap(mods.Query)
-	mods.Headers = replMap(mods.Headers)
-	mods.BodyFields = replMap(mods.BodyFields)
-	mods.Body = replPtr(mods.Body)
-	return mods
+	return req
 }

@@ -18,6 +18,7 @@ import (
 	"github.com/V3teran/liusha/internal/explorationgraph"
 	"github.com/V3teran/liusha/internal/framework/core"
 	"github.com/V3teran/liusha/internal/framework/runtime"
+	"github.com/V3teran/liusha/internal/tools"
 )
 
 // 编译时检查接口实现
@@ -339,8 +340,9 @@ func (a *Agent) executeAction(
 // harvestObservationProposals 把执行窗口内新建的、带复现配方的观察转成 Attempt。
 //
 // 新架构口径：晋升提议权在 executor（write_observation 带 repro），裁决权在 evaluator
-// （复现门）。无配方（缺 repro / traffic_id 非法 / 空断言）的观察不收割——
-// 无米之炊不可复现，橡皮图章不可坐实（与 Replayer 的空断言拒绝一致）。
+// （复现门）。收割层**只认域信封、不解析域内形状**——归一化委托 tools.NormalizeReproEnvelope
+// （与 write_observation 写入时同一份逻辑），Primitives = 信封整体透传，复现门按 domain 分发。
+// 无配方的观察不收割——无米之炊不可复现，橡皮图章不可坐实。
 func (a *Agent) harvestObservationProposals(ctx context.Context, since time.Time) []evaluator.Attempt {
 	nodes, err := a.graph.ListNodesByKind(ctx, a.taskID, core.KindObservation)
 	if err != nil {
@@ -355,48 +357,21 @@ func (a *Agent) harvestObservationProposals(ctx context.Context, since time.Time
 		}
 
 		var content struct {
-			Statement string `json:"statement"`
-			Severity  string `json:"severity"`
-			Repro     *struct {
-				// 新格式（自包含）
-				Request json.RawMessage `json:"request"`
-				Assert  json.RawMessage `json:"assert"`
-				// 旧格式（引用模式，已废弃）
-				TrafficID     int64           `json:"traffic_id"`
-				Modifications json.RawMessage `json:"modifications"`
-			} `json:"repro"`
+			Statement string          `json:"statement"`
+			Severity  string          `json:"severity"`
+			Repro     json.RawMessage `json:"repro"`
 		}
-		if err := json.Unmarshal(n.Content, &content); err != nil || content.Repro == nil {
+		if err := json.Unmarshal(n.Content, &content); err != nil || len(content.Repro) == 0 {
 			continue
 		}
 
-		// 必须有 assert 条件
-		if len(content.Repro.Assert) == 0 {
-			continue
-		}
-
-		var recipe []byte
-		var err error
-
-		// 优先使用新格式（自包含的 request）
-		if len(content.Repro.Request) > 0 {
-			recipe, err = json.Marshal(map[string]json.RawMessage{
-				"request": content.Repro.Request,
-				"assert":  content.Repro.Assert,
-			})
-		} else if content.Repro.TrafficID > 0 {
-			// 降级：仍支持旧格式（向后兼容）
-			recipe, err = json.Marshal(map[string]json.RawMessage{
-				"traffic_id":    json.RawMessage(fmt.Sprintf("%d", content.Repro.TrafficID)),
-				"modifications": content.Repro.Modifications,
-				"assert":        content.Repro.Assert,
-			})
-		} else {
-			// 既没有 request 也没有 traffic_id，跳过
-			continue
-		}
-
-		if err != nil {
+		// 信封归一化（兼容历史形状；分域校验在此把关）。失败仅告警跳过——
+		// write_observation 写入时已校验过，此处失败只可能是存量脏数据。
+		envelope, nErr := tools.NormalizeReproEnvelope(content.Repro)
+		if nErr != nil {
+			a.logger.Warn().
+				Err(nErr).Str("task_id", a.taskID).Str("node_id", n.ID).
+				Msg("跳过无法归一化的 repro")
 			continue
 		}
 
@@ -417,7 +392,7 @@ func (a *Agent) harvestObservationProposals(ctx context.Context, since time.Time
 			TaskID:     a.taskID,
 			NodeID:     n.ID,
 			Kind:       core.KindResult,
-			Primitives: recipe,
+			Primitives: envelope,
 			Content:    attContent,
 			Priority:   "medium",
 		})

@@ -141,24 +141,26 @@ tier: medium
 
 当发现潜在漏洞时，使用 `write_observation` 记录假设，供评估者验证。
 
-**核心原则**：repro 必须是**自包含的完整验证配方**，包含 Evaluator 重放验证所需的全部信息。
+**核心原则**：repro 必须是**自包含的域信封复现配方**，包含 Evaluator 复现验证所需的全部信息。信封结构对域无关（domain + recipe + assert），recipe/assert 的形状归各域。
 
-## repro 结构
+## repro 域信封结构
 
 ```json
 {
   "statement": "漏洞描述",
   "repro": {
-    "request": {           // 必需：完整的 HTTP 请求
-      "method": "GET",
-      "url": "http://...",
-      "headers": {...},
-      "body": ""
+    "domain": "web",
+    "recipe": {           // web 域：完整的 HTTP 攻击请求
+      "request": {
+        "method": "GET",
+        "url": "http://...",
+        "headers": {...},
+        "body": ""
+      }
     },
-    "assert": {            // 必需：验证条件
+    "assert": {            // web 域：结构化断言
       "status_code": 200,
       "body_contains": [...],
-      "body_not_contains": [...],
       "min_duration_ms": 5000
     }
   }
@@ -166,8 +168,28 @@ tier: medium
 ```
 
 **必需字段**：
-- `repro.request`: 完整的 HTTP 请求（method, url, headers, body）
-- `repro.assert`: 验证漏洞存在的断言条件
+- `repro.domain`: 复现域（"web" / "generic"）
+- `repro.recipe`: 域配方（web = 完整 HTTP 请求；generic = steps 自由文本）
+- `repro.assert`: 坐实判据（web = 结构化断言；generic = description 自然语言判据）
+
+**可选字段（web 域推荐）**：
+- `repro.recipe.baseline`: 良性对照请求（正常参数版，结构与 request 相同）。提供后机器复现时会先放基线再放攻击做差分——若断言在基线上也命中（页面常态），直接拒绝坐实。
+
+**generic 域（非 HTTP 场景）**：
+```json
+{
+  "repro": {
+    "domain": "generic",
+    "recipe": {
+      "steps": "1. 登录后台 2. 在 X 功能执行 Y 命令 3. 观察 Z 输出"
+    },
+    "assert": {
+      "description": "第 3 步观察到 Z 且正常路径无法出现，即坐实"
+    }
+  }
+}
+```
+评估官将按 steps 自主执行验证（无机器重放通道）。
 
 ## 正确的工作流程
 

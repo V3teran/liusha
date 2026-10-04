@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -14,6 +15,19 @@ import (
 )
 
 // ─── write_observation ────────────────────────────────────────────────────────
+
+// requestObjectSchema 是自包含 HTTP 请求的 JSON Schema 片段（repro.request/baseline 共用）。
+const requestObjectSchema = `{
+      "type": "object",
+      "description": "完整的自包含 HTTP 请求（完整 URL 含 http(s)://，payload 注入在 url/body 里）",
+      "properties": {
+        "method":  {"type": "string", "enum": ["GET","POST","PUT","DELETE","PATCH","HEAD","OPTIONS"]},
+        "url":     {"type": "string", "description": "完整 URL（含 http:// 或 https://，如 http://host/api?id=payload）"},
+        "headers": {"type": "object", "additionalProperties": {"type": "string"}, "description": "请求头（含 Content-Type/Cookie 等，可传 {}）"},
+        "body":    {"type": "string", "description": "请求体（GET 通常为空字符串）"}
+      },
+      "required": ["method", "url", "headers", "body"]
+    }`
 
 var writeObservationSchema = json.RawMessage(`{
   "type": "object",
@@ -42,34 +56,64 @@ var writeObservationSchema = json.RawMessage(`{
     },
     "repro": {
       "type": "object",
-      "description": "差分复现配方（漏洞假设必填）。铁律：modifications 必须注入 payload/改写构造攻击请求（原样重放会被拒绝——命中只能证明页面正常）；断言必须捕捉攻击响应独有特征（报错回显/泄露数据/延迟），禁止页面常态断言（status_code=200+登录页标题类）。traffic_id 引用良性原始流量，时间盲注入断言用 min_duration_ms。",
+      "description": "自包含复现配方（漏洞假设必填）——域信封 {domain, recipe, assert}。web 域：recipe.request 是你实测过、能触发漏洞特征的完整攻击请求（从 http_request 返回的 request 拷贝改造注入 payload），assert 断言攻击响应独有特征（报错回显/泄露数据/延迟），可选 recipe.baseline 良性对照供机器差分；时间盲用 min_duration_ms。generic 域（非 HTTP：命令序列/多步操作/域渗透）：recipe.steps 自由文本写清执行步骤，assert.description 写坐实判据——评估官将据此自主执行验证。",
       "properties": {
-        "traffic_id": {"type": "integer", "description": "要重放的源流量 ID（http_request 的返回值或 list_traffic 查到的 id）"},
-        "modifications": {
-          "type": "object",
-          "description": "必填。payload 注入点（只写要改的字段，其余继承原请求）",
-          "properties": {
-            "body_fields": {"type": "object", "description": "表单字段改写：{\"id\": \"1' UNION SELECT 1,2,3--\"}", "additionalProperties": {"type": "string"}},
-            "body":       {"type": "string", "description": "整体请求体替换"},
-            "query":      {"type": "object", "description": "查询参数改写：{\"q\": \"payload\"}", "additionalProperties": {"type": "string"}},
-            "headers":    {"type": "object", "description": "请求头改写：{\"Cookie\": \"...\"}", "additionalProperties": {"type": "string"}},
-            "method":     {"type": "string"},
-            "url":        {"type": "string"}
-          }
+        "domain": {"type": "string", "enum": ["web", "generic"], "description": "复现域，默认 web"},
+        "recipe": {
+          "oneOf": [
+            {
+              "type": "object",
+              "description": "web 域配方",
+              "properties": {
+                "request": ` + requestObjectSchema + `,
+                "baseline": {
+                  "type": "object",
+                  "description": "可选：良性对照请求（正常参数版）。提供后机器先放基线再放攻击，断言在基线也命中即拒绝坐实（差分铁律）",
+                  "properties": {
+                    "method":  {"type": "string", "enum": ["GET","POST","PUT","DELETE","PATCH","HEAD","OPTIONS"]},
+                    "url":     {"type": "string", "description": "完整 URL（正常参数）"},
+                    "headers": {"type": "object", "additionalProperties": {"type": "string"}},
+                    "body":    {"type": "string"}
+                  }
+                }
+              },
+              "required": ["request"]
+            },
+            {
+              "type": "object",
+              "description": "generic 域配方（非 HTTP 场景）",
+              "properties": {
+                "steps": {"type": "string", "description": "自由文本执行步骤（命令/工具序列与判定观察点，评估官据此自主执行取证）"}
+              },
+              "required": ["steps"]
+            }
+          ]
         },
         "assert": {
-          "type": "object",
-          "description": "坐实断言：全部满足才算复现成功，至少一条",
-          "properties": {
-            "status_code":     {"type": "integer", "description": "期望响应码"},
-            "body_contains":   {"type": "array", "items": {"type": "string"}, "description": "响应体须含全部子串"},
-            "body_absent":     {"type": "array", "items": {"type": "string"}, "description": "响应体须不含任一子串"},
-            "header_contains": {"type": "object", "description": "响应头 key→子串"},
-            "min_duration_ms": {"type": "integer", "description": "响应耗时至少 N 毫秒——时间盲注入证据（SLEEP(5) 给 4000）"}
-          }
+          "oneOf": [
+            {
+              "type": "object",
+              "description": "web 域断言：全部满足才算复现成功，至少一条；禁止页面常态断言（status_code:200+登录页标题类）",
+              "properties": {
+                "status_code":       {"type": "integer", "description": "期望响应码"},
+                "body_contains":     {"type": "array", "items": {"type": "string"}, "description": "响应体须含全部子串"},
+                "body_not_contains": {"type": "array", "items": {"type": "string"}, "description": "响应体须不含任一子串"},
+                "header_contains":   {"type": "object", "description": "响应头 key→子串"},
+                "min_duration_ms":   {"type": "integer", "description": "响应耗时至少 N 毫秒——时间盲注入证据（SLEEP(5) 给 4000）"}
+              }
+            },
+            {
+              "type": "object",
+              "description": "generic 域判据",
+              "properties": {
+                "description": {"type": "string", "description": "坐实判据的自然语言描述：执行 steps 后观察到什么才算坐实"}
+              },
+              "required": ["description"]
+            }
+          ]
         }
       },
-      "required": ["traffic_id", "modifications", "assert"]
+      "required": ["recipe", "assert"]
     }
   },
   "required": ["statement", "reasoning"]
@@ -111,31 +155,14 @@ func (t *writeObservationTool) Execute(ctx context.Context, args json.RawMessage
 		return registry.ToolResult{Error: "statement 不能为空"}, nil
 	}
 
-	// 验证 repro 格式（强制使用新的自包含格式）
+	// repro 归一化：分域校验 + 统一成域信封 {domain, recipe, assert} 后存储——
+	// 收割层/复现门 thereafter 只认信封，不再感知任何域内形状。
 	if len(input.Repro) > 0 {
-		var reproCheck struct {
-			Request       map[string]interface{} `json:"request"`
-			TrafficID     *int64                 `json:"traffic_id"`
-			Modifications map[string]interface{} `json:"modifications"`
+		normalized, nErr := NormalizeReproEnvelope(input.Repro)
+		if nErr != nil {
+			return registry.ToolResult{Error: nErr.Error()}, nil
 		}
-		if err := json.Unmarshal(input.Repro, &reproCheck); err == nil {
-			// 检查是否使用了旧格式
-			if reproCheck.TrafficID != nil || len(reproCheck.Modifications) > 0 {
-				return registry.ToolResult{
-					Error: "repro 格式已更新。请使用新格式：repro.request (包含完整的 method/url/headers/body)。\n" +
-						"示例：{\"request\": {\"method\": \"GET\", \"url\": \"http://target.com/...\", \"headers\": {}, \"body\": \"\"}, \"assert\": {...}}\n" +
-						"旧的 traffic_id + modifications 模式不再支持。请参考文档中的完整示例。",
-				}, nil
-			}
-			// 检查是否提供了新格式的 request
-			if len(reproCheck.Request) == 0 {
-				return registry.ToolResult{
-					Error: "repro 必须包含 request 字段（完整的 HTTP 请求）。\n" +
-						"request 必须包含：method, url, headers, body。\n" +
-						"示例：{\"method\": \"GET\", \"url\": \"http://target.com/api?id=1\", \"headers\": {}, \"body\": \"\"}",
-				}, nil
-			}
-		}
+		input.Repro = normalized
 	}
 
 	// 默认置信度
@@ -208,6 +235,157 @@ func (t *writeObservationTool) Execute(ctx context.Context, args json.RawMessage
 	return registry.ToolResult{
 		Output: fmt.Sprintf("Observation 创建成功\nID: %s\n陈述: %s\n置信度: %s", id, input.Statement, input.Confidence),
 	}, nil
+}
+
+// NormalizeReproEnvelope 把 LLM 提交的 repro 归一化成域信封 {domain, recipe, assert} 并做分域校验。
+// 兼容历史形状：顶层 request/baseline/assert（无 domain）自动包装成 web 域信封。
+// 归一化后存储——收割层与复现门只认信封，不感知任何域内形状。
+func NormalizeReproEnvelope(repro json.RawMessage) (json.RawMessage, error) {
+	var flex struct {
+		Domain        string          `json:"domain"`
+		Recipe        json.RawMessage `json:"recipe"`
+		Request       json.RawMessage `json:"request"`  // 历史 web 形状
+		Baseline      json.RawMessage `json:"baseline"` // 历史 web 形状
+		Assert        json.RawMessage `json:"assert"`
+		TrafficID     *int64          `json:"traffic_id"`    // 旧引用格式（已废弃）
+		Modifications json.RawMessage `json:"modifications"` // 旧引用格式（已废弃）
+		Steps         string          `json:"steps"`         // 历史 generic 形状
+	}
+	if err := json.Unmarshal(repro, &flex); err != nil {
+		return nil, fmt.Errorf("repro 解析失败: %v", err)
+	}
+	if flex.TrafficID != nil || len(flex.Modifications) > 0 {
+		return nil, fmt.Errorf("❌ 旧格式 repro（traffic_id + modifications）已废弃。\n\n" +
+			"✅ 请提供域信封：\n" +
+			"{\"domain\": \"web\", \"recipe\": {\"request\": {\"method\",\"url\",\"headers\",\"body\"}}, \"assert\": {...}}\n" +
+			"或 generic 域：{\"domain\": \"generic\", \"recipe\": {\"steps\": \"...\"}, \"assert\": {\"description\": \"...\"}}")
+	}
+
+	// 无信封的历史形状：顶层 request（web）或 steps（generic）→ 包装成信封。
+	domain := flex.Domain
+	if domain == "" {
+		switch {
+		case len(flex.Request) > 0:
+			domain = "web"
+		case flex.Steps != "":
+			domain = "generic"
+		}
+	}
+
+	var recipe, assert json.RawMessage
+	switch domain {
+	case "web":
+		if len(flex.Recipe) > 0 {
+			recipe = flex.Recipe
+		} else if len(flex.Request) > 0 {
+			// 历史形状包装：request/baseline 提进 recipe。
+			wrapped := map[string]json.RawMessage{"request": flex.Request}
+			if len(flex.Baseline) > 0 {
+				wrapped["baseline"] = flex.Baseline
+			}
+			b, err := json.Marshal(wrapped)
+			if err != nil {
+				return nil, fmt.Errorf("repro 归一化失败: %v", err)
+			}
+			recipe = b
+		} else {
+			return nil, fmt.Errorf("❌ web 域 repro 缺少 recipe.request。\n\n" +
+				"✅ 正确格式：{\"domain\": \"web\", \"recipe\": {\"request\": {\"method\": \"GET\", \"url\": \"http://host/api?id=payload\", \"headers\": {}, \"body\": \"\"}}, \"assert\": {\"body_contains\": [...]}}")
+		}
+		assert = flex.Assert
+		if len(assert) == 0 {
+			return nil, fmt.Errorf("❌ repro 缺少 assert 字段。\n\n" +
+				"✅ web 域可用字段: status_code, body_contains, body_not_contains, header_contains, min_duration_ms")
+		}
+		if err := validateWebRequestRecipe(recipe); err != nil {
+			return nil, err
+		}
+	case "generic":
+		if len(flex.Recipe) > 0 {
+			recipe = flex.Recipe
+		} else if flex.Steps != "" {
+			b, err := json.Marshal(map[string]string{"steps": flex.Steps})
+			if err != nil {
+				return nil, fmt.Errorf("repro 归一化失败: %v", err)
+			}
+			recipe = b
+		}
+		if len(recipe) == 0 {
+			return nil, fmt.Errorf("❌ generic 域 repro 缺少 recipe.steps。\n\n" +
+				"✅ 正确格式：{\"domain\": \"generic\", \"recipe\": {\"steps\": \"1. 登录后台 2. 执行 ... 3. 观察 ...\"}, \"assert\": {\"description\": \"看到 X 即坐实\"}}")
+		}
+		var rc struct {
+			Steps string `json:"steps"`
+		}
+		if err := json.Unmarshal(recipe, &rc); err == nil && strings.TrimSpace(rc.Steps) == "" {
+			return nil, fmt.Errorf("❌ generic 域 recipe.steps 不能为空——评估官据此自主执行，无步骤即无可复现")
+		}
+		assert = flex.Assert
+		if len(assert) == 0 {
+			return nil, fmt.Errorf("❌ repro 缺少 assert 字段。\n\n" +
+				"✅ generic 域判据：{\"description\": \"执行 steps 后观察到什么才算坐实\"}")
+		}
+		var ac struct {
+			Description string `json:"description"`
+		}
+		if err := json.Unmarshal(assert, &ac); err != nil || strings.TrimSpace(ac.Description) == "" {
+			return nil, fmt.Errorf("❌ generic 域 assert.description 不能为空——判据缺失即橡皮图章。\n\n" +
+				"✅ 正确格式：{\"description\": \"执行 steps 后观察到 X 且正常路径无法出现，即坐实\"}")
+		}
+	case "":
+		return nil, fmt.Errorf("❌ repro 缺少 domain 信封。\n\n" +
+			"✅ web 域：{\"domain\": \"web\", \"recipe\": {\"request\": {\"method\",\"url\",\"headers\",\"body\"}}, \"assert\": {...}}\n" +
+			"✅ generic 域（非 HTTP）：{\"domain\": \"generic\", \"recipe\": {\"steps\": \"...\"}, \"assert\": {\"description\": \"...\"}}")
+	default:
+		return nil, fmt.Errorf("❌ 未知复现域 %q（已支持: web, generic）", domain)
+	}
+
+	out, err := json.Marshal(map[string]json.RawMessage{
+		"domain": json.RawMessage(`"` + domain + `"`),
+		"recipe": recipe,
+		"assert": assert,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("repro 归一化失败: %v", err)
+	}
+	return out, nil
+}
+
+// validateWebRequestRecipe 校验 web 域 recipe：request 四字段齐全 + URL 绝对。
+func validateWebRequestRecipe(recipe json.RawMessage) error {
+	var rc struct {
+		Request struct {
+			Method  string                 `json:"method"`
+			URL     string                 `json:"url"`
+			Headers map[string]interface{} `json:"headers"`
+			Body    *string                `json:"body"` // 指针区分未提供与空串
+		} `json:"request"`
+	}
+	if err := json.Unmarshal(recipe, &rc); err != nil {
+		return fmt.Errorf("❌ web 域 recipe 解析失败: %v", err)
+	}
+	req := rc.Request
+	var missing []string
+	if req.Method == "" {
+		missing = append(missing, "method")
+	}
+	if req.URL == "" {
+		missing = append(missing, "url")
+	}
+	if req.Headers == nil {
+		missing = append(missing, "headers")
+	}
+	if req.Body == nil {
+		missing = append(missing, "body")
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf("❌ recipe.request 缺少必需字段: %v\n\n"+
+			"✅ request 必须四字段齐全（headers 可 {}、body 可 \"\"），url 须含 http:// 或 https://", missing)
+	}
+	if !strings.HasPrefix(req.URL, "http://") && !strings.HasPrefix(req.URL, "https://") {
+		return fmt.Errorf("❌ url 必须是完整 URL（包含 http:// 或 https://），当前 %q", req.URL)
+	}
+	return nil
 }
 
 // ─── write_evidence ──────────────────────────────────────────────────────────

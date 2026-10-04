@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"strings"
 	"time"
 
@@ -11,31 +12,58 @@ import (
 	"github.com/V3teran/liusha/internal/httpreplay"
 )
 
-// TrafficSource 按 id 取已限定 scope 的源流量，投影成 httpreplay.Source。
-// 收窄依赖：验证层只认 TrafficSource 叶子契约，不依赖任何具体 store 实现。不存在/越界返回 (_, false, nil)。
-type TrafficSource interface {
-	GetInScope(ctx context.Context, id int64) (httpreplay.Source, bool, error)
+// SelfContainedRequest 是自包含的完整 HTTP 请求（repro.request 的形状）。
+// 配方不引用 traffic_id——工具自发的流量（http_request 等）直接以完整请求
+// 形态进配方，可移植（可导出为 curl）、无外部状态依赖。
+type SelfContainedRequest struct {
+	Method  string            `json:"method"`
+	URL     string            `json:"url"`
+	Headers map[string]string `json:"headers"`
+	Body    string            `json:"body"`
 }
 
-// modsIsEmpty 判断复现配方是否带任何改写（payload 注入点）。
-func modsIsEmpty(m httpreplay.Mods) bool {
-	return m.URL == "" && m.Method == "" && m.Headers == nil &&
-		m.Query == nil && m.Body == nil && m.BodyFields == nil
+// toSource 把自包含请求投影成 httpreplay.Source（headers key 统一小写）。
+func (r SelfContainedRequest) toSource() (httpreplay.Source, error) {
+	method := strings.ToUpper(strings.TrimSpace(r.Method))
+	if method == "" {
+		method = "GET"
+	}
+	if !strings.HasPrefix(r.URL, "http://") && !strings.HasPrefix(r.URL, "https://") {
+		return httpreplay.Source{}, fmt.Errorf("url 必须是完整 URL（含 http:// 或 https://），当前 %q", r.URL)
+	}
+	if _, err := url.Parse(r.URL); err != nil {
+		return httpreplay.Source{}, fmt.Errorf("url 解析失败: %w", err)
+	}
+	headers := make(map[string]string, len(r.Headers))
+	for k, v := range r.Headers {
+		headers[strings.ToLower(k)] = v
+	}
+	hdrJSON, err := json.Marshal(headers)
+	if err != nil {
+		return httpreplay.Source{}, fmt.Errorf("marshal headers: %w", err)
+	}
+	return httpreplay.Source{
+		Method:  method,
+		URL:     r.URL,
+		Headers: hdrJSON,
+		Body:    []byte(r.Body),
+	}, nil
 }
 
 // ReplayRecipe 是 web 域的 L1 复现原语（evaluator.Attempt.Primitives 的形状）。
-// 机器可判的坐实配方：拿哪条源流量、怎么改写、拿什么断言判坐实。
-// Resolve 非空时，主 replay 前先发一个准备请求抽新鲜值注入——专治 replay 时
-// 无法从源流量复用的服务器现造值（opaque-id / nonce / 过期 token）。
+// 机器可判的坐实配方：完整攻击请求 + 断言，可选良性基线做差分对照。
+// Resolve 非空时，主请求前先发一个准备请求抽新鲜值注入——专治 replay 时无法
+// 复用的服务器现造值（opaque-id / nonce / 过期 token）。
 type ReplayRecipe struct {
-	Resolve       *ResolveStep    `json:"resolve,omitempty"`
-	TrafficID     int64           `json:"traffic_id"`
-	Modifications httpreplay.Mods `json:"modifications"`
-	Assert        Assertion       `json:"assert"`
+	Resolve  *ResolveStep          `json:"resolve,omitempty"`
+	Request  SelfContainedRequest  `json:"request"`
+	Baseline *SelfContainedRequest `json:"baseline,omitempty"`
+	Assert   Assertion             `json:"assert"`
 }
 
 // Assertion 是坐实断言：全部满足才算复现坐实。至少要有一条谓词，
 // 否则是橡皮图章（空断言"确认"一切）——拒绝坐实。
+// body_not_contains 与 body_absent 同义（前者是 prompt 侧口径）。
 type Assertion struct {
 	StatusCode     *int              `json:"status_code,omitempty"`     // 响应码须等于此值
 	BodyContains   []string          `json:"body_contains,omitempty"`   // 响应体须含全部子串（越权拿到数据、SQL 报错、XSS 回显）
@@ -44,30 +72,63 @@ type Assertion struct {
 	MinDurationMs  *int              `json:"min_duration_ms,omitempty"` // 响应耗时至少 N ms——时间盲注入的合法证据类型
 }
 
+// UnmarshalJSON 接受 body_not_contains 作为 body_absent 的规范别名（prompt 教的是前者）。
+func (a *Assertion) UnmarshalJSON(b []byte) error {
+	var raw struct {
+		StatusCode      *int              `json:"status_code,omitempty"`
+		BodyContains    []string          `json:"body_contains,omitempty"`
+		BodyAbsent      []string          `json:"body_absent,omitempty"`
+		BodyNotContains []string          `json:"body_not_contains,omitempty"`
+		HeaderContains  map[string]string `json:"header_contains,omitempty"`
+		MinDurationMs   *int              `json:"min_duration_ms,omitempty"`
+	}
+	if err := json.Unmarshal(b, &raw); err != nil {
+		return err
+	}
+	a.StatusCode = raw.StatusCode
+	a.BodyContains = raw.BodyContains
+	a.BodyAbsent = append(append([]string{}, raw.BodyAbsent...), raw.BodyNotContains...)
+	a.HeaderContains = raw.HeaderContains
+	a.MinDurationMs = raw.MinDurationMs
+	return nil
+}
+
 func (a Assertion) empty() bool {
 	return a.StatusCode == nil && len(a.BodyContains) == 0 &&
 		len(a.BodyAbsent) == 0 && len(a.HeaderContains) == 0 && a.MinDurationMs == nil
 }
 
-// Replayer 是 web 域的 evaluator.Replayer：重发源流量的改写版，按断言判是否坐实。
-type Replayer struct {
-	traffic TrafficSource
+// ReproEnvelope 是复现配方的域信封：evaluator/图/收割层只认信封，不解析 recipe 内部
+// （形状归各域——加新域晋升门零改动）。write_observation 写入时归一化成此结构。
+type ReproEnvelope struct {
+	Domain string          `json:"domain"` // web / generic /（未来 binary/cloud/lateral…）
+	Recipe json.RawMessage `json:"recipe"` // 域自定义：web={request,baseline?}；generic={steps}
+	Assert json.RawMessage `json:"assert"` // 域自定义坐实判据
 }
 
-// NewReplayer 构造 web Replayer。traffic 为 nil 时 Replay 会报错。
-func NewReplayer(traffic TrafficSource) *Replayer {
-	return &Replayer{traffic: traffic}
-}
+// 已支持的域。generic 无机器重放通道——由裁决官经 run_command 按 recipe 自主执行取证。
+const (
+	DomainWeb     = "web"
+	DomainGeneric = "generic"
+)
+
+// Replayer 是 web+generic 双域的 evaluator.Replayer：按信封 domain 分发。
+// 不依赖任何流量存储——配方自包含（工具自发流量同样可复现）。
+type Replayer struct{}
+
+// NewReplayer 构造域分发 Replayer（零依赖：配方自包含）。
+func NewReplayer() *Replayer { return &Replayer{} }
 
 // replayEvidence 是落进 exploration_verification 的复现证据（基线/攻击双对照 + 断言明细）。
 type replayEvidence struct {
-	TrafficID int64  `json:"traffic_id"`
-	Method    string `json:"method"`
-	URL       string `json:"url"`
-	// 基线（原样重放）与攻击（payload 改写）的双对照——裁决官据此看差分。
-	BaselineStatus  int               `json:"baseline_status_code"`
-	BaselineDurMs   int64             `json:"baseline_duration_ms"`
-	BaselineBodyLen int               `json:"baseline_body_len"`
+	Method string `json:"method"`
+	URL    string `json:"url"`
+	// 基线（配方提供 baseline 时的良性对照）与攻击（配方 request 原样重发）的双对照——
+	// 裁决官据此看差分。
+	HasBaseline     bool              `json:"has_baseline"`
+	BaselineStatus  int               `json:"baseline_status_code,omitempty"`
+	BaselineDurMs   int64             `json:"baseline_duration_ms,omitempty"`
+	BaselineBodyLen int               `json:"baseline_body_len,omitempty"`
 	AttackStatus    int               `json:"attack_status_code"`
 	AttackDurMs     int64             `json:"attack_duration_ms"`
 	RespHeaders     map[string]string `json:"response_headers"`
@@ -79,113 +140,175 @@ type replayEvidence struct {
 
 const evidenceBodySnip = 2048 // 证据里响应体截断长度
 
-// Replay 实现 evaluator.Replayer：解析 recipe → 取源流量 → httpreplay 重发 → 断言判坐实。
+// Replay 实现 evaluator.Replayer：按域信封分发。
+// web=机器确定性重放采证；generic=配方回显（裁决官自主执行）；无信封=legacy web 嗅探。
 func (r *Replayer) Replay(ctx context.Context, primitives json.RawMessage) (evaluator.Result, error) {
-	if r.traffic == nil {
-		return evaluator.Result{}, fmt.Errorf("web.Replayer: 无 TrafficSource，无法复现")
+	var env ReproEnvelope
+	if err := json.Unmarshal(primitives, &env); err != nil {
+		return evaluator.Result{}, fmt.Errorf("Replayer: 解析域信封失败: %w", err)
 	}
+	switch env.Domain {
+	case DomainWeb:
+		return replayWebEnvelope(ctx, env)
+	case DomainGeneric:
+		return replayGeneric(env)
+	case "":
+		return replayLegacyWeb(ctx, primitives)
+	default:
+		return evaluator.Result{}, fmt.Errorf("Replayer: 未知域 %q（已支持: %s, %s）", env.Domain, DomainWeb, DomainGeneric)
+	}
+}
 
+// replayWebEnvelope 信封化 web 配方：recipe={request,baseline?} + 独立 assert。
+func replayWebEnvelope(ctx context.Context, env ReproEnvelope) (evaluator.Result, error) {
+	if len(env.Recipe) == 0 {
+		return evaluator.Result{}, fmt.Errorf("web.Replayer: recipe 为空（需 {\"request\": {...}, \"baseline\": {...}?}）")
+	}
+	var core struct {
+		Request  SelfContainedRequest  `json:"request"`
+		Baseline *SelfContainedRequest `json:"baseline"`
+	}
+	if err := json.Unmarshal(env.Recipe, &core); err != nil {
+		return evaluator.Result{}, fmt.Errorf("web.Replayer: 解析 recipe 失败: %w", err)
+	}
+	var assert Assertion
+	if len(env.Assert) == 0 {
+		return evaluator.Result{}, fmt.Errorf("web.Replayer: assert 为空，无坐实谓词（至少给一条 status_code/body_contains/body_not_contains/header_contains/min_duration_ms）")
+	}
+	if err := json.Unmarshal(env.Assert, &assert); err != nil {
+		return evaluator.Result{}, fmt.Errorf("web.Replayer: 解析 assert 失败: %w", err)
+	}
+	return replayWeb(ctx, ReplayRecipe{Request: core.Request, Baseline: core.Baseline, Assert: assert})
+}
+
+// replayLegacyWeb 历史格式兼容（顶层 request/assert、无信封）：按 web 配方处理。
+// 仅服务存量数据；write_observation 写入时已归一化成信封。
+func replayLegacyWeb(ctx context.Context, primitives json.RawMessage) (evaluator.Result, error) {
+	var probe struct {
+		TrafficID     *int64          `json:"traffic_id"`
+		Modifications json.RawMessage `json:"modifications"`
+		Request       json.RawMessage `json:"request"`
+	}
+	if json.Unmarshal(primitives, &probe) == nil {
+		if probe.TrafficID != nil || len(probe.Modifications) > 0 {
+			return evaluator.Result{}, fmt.Errorf("web.Replayer: 旧格式配方（traffic_id/modifications）已废弃——请提供域信封 {\"domain\":\"web\",\"recipe\":{\"request\":...},\"assert\":{...}}")
+		}
+		if len(probe.Request) == 0 {
+			return evaluator.Result{}, fmt.Errorf("Replayer: 缺少 domain 信封（{\"domain\": \"web\"|\"generic\", \"recipe\": ..., \"assert\": ...}）")
+		}
+	}
 	var recipe ReplayRecipe
 	if err := json.Unmarshal(primitives, &recipe); err != nil {
 		return evaluator.Result{}, fmt.Errorf("web.Replayer: 解析复现配方失败: %w", err)
 	}
-	if recipe.TrafficID <= 0 {
-		return evaluator.Result{}, fmt.Errorf("web.Replayer: traffic_id 必填且 > 0")
+	return replayWeb(ctx, recipe)
+}
+
+// replayGeneric 无机器重放通道：配方原样回显给裁决官（其经 run_command 按 recipe 步骤
+// 自主执行取证，轨迹以裁决 reasoning + 本证据为审计面）。不执行任何动作。
+func replayGeneric(env ReproEnvelope) (evaluator.Result, error) {
+	if len(env.Recipe) == 0 {
+		return evaluator.Result{}, fmt.Errorf("generic.Replayer: recipe 为空——裁决官无从执行")
 	}
+	out, err := json.Marshal(map[string]interface{}{
+		"domain": DomainGeneric,
+		"recipe": env.Recipe,
+		"assert": orEmptyRaw(env.Assert),
+		"note":   "本域无机器重放通道：请用 run_command 按 recipe 的步骤自主执行取证，基于你亲见的命令输出裁决（不必调 replay_for_verification）",
+	})
+	if err != nil {
+		return evaluator.Result{}, fmt.Errorf("generic.Replayer: 序列化证据失败: %w", err)
+	}
+	return evaluator.Result{Evaluation: out}, nil
+}
+
+func orEmptyRaw(b json.RawMessage) json.RawMessage {
+	if len(b) == 0 {
+		return json.RawMessage("{}")
+	}
+	return b
+}
+
+// replayWeb web 域机器复放：断言校验 → resolve 注入 → baseline 差分护栏 → 攻击重发 → 采证。
+func replayWeb(ctx context.Context, recipe ReplayRecipe) (evaluator.Result, error) {
 	// 空断言不可坐实：机器无从判定即无法晋升（拒绝橡皮图章）。
 	if recipe.Assert.empty() {
-		return evaluator.Result{}, fmt.Errorf("web.Replayer: assert 为空，无坐实谓词（至少给一条 status_code/body_contains/body_absent/header_contains）")
+		return evaluator.Result{}, fmt.Errorf("web.Replayer: assert 为空，无坐实谓词（至少给一条 status_code/body_contains/body_not_contains/header_contains/min_duration_ms）")
+	}
+	attackSrc, err := recipe.Request.toSource()
+	if err != nil {
+		return evaluator.Result{}, fmt.Errorf("web.Replayer: request 非法——%w", err)
 	}
 
 	// 准备请求：抽服务器现造值注入主请求。抽值失败硬错误，绝不静默 pass（护栏2）。
 	if recipe.Resolve != nil {
-		name, val, err := r.runResolve(ctx, *recipe.Resolve)
-		if err != nil {
-			return evaluator.Result{}, err
+		name, val, rErr := runResolve(ctx, *recipe.Resolve)
+		if rErr != nil {
+			return evaluator.Result{}, rErr
 		}
-		recipe.Modifications = injectResolved(recipe.Modifications, name, val)
+		injected := injectResolved(recipe.Request, name, val)
+		attackSrc, err = injected.toSource()
+		if err != nil {
+			return evaluator.Result{}, fmt.Errorf("web.Replayer: resolve 注入后 request 非法——%w", err)
+		}
 	}
 
-	src, ok, err := r.traffic.GetInScope(ctx, recipe.TrafficID)
-	if err != nil {
-		return evaluator.Result{}, fmt.Errorf("web.Replayer: 读源流量 %d 失败: %w", recipe.TrafficID, err)
-	}
-	if !ok {
-		return evaluator.Result{}, fmt.Errorf("web.Replayer: 源流量 %d 不存在或越界", recipe.TrafficID)
+	// 差分复现铁律（业界基线对照法）：配方提供 baseline 时先放良性基线，
+	// 断言在基线上也全命中 = 断言无鉴别力（正常响应即满足），拒绝坐实。
+	// 坐实的唯一形态：攻击响应呈现基线没有的特征（报错回显/泄露数据/延迟）。
+	var baseline *httpreplay.Result
+	var baseDur int64
+	if recipe.Baseline != nil {
+		baseSrc, bErr := recipe.Baseline.toSource()
+		if bErr != nil {
+			return evaluator.Result{}, fmt.Errorf("web.Replayer: baseline 非法——%w", bErr)
+		}
+		baseStart := time.Now()
+		bres, bErr := httpreplay.Replay(ctx, baseSrc, httpreplay.Mods{})
+		baseDur = time.Since(baseStart).Milliseconds()
+		if bErr != nil {
+			return evaluator.Result{}, fmt.Errorf("web.Replayer: 基线重放失败: %w", bErr)
+		}
+		baseline = &bres
+		if basePassed, _ := recipe.Assert.eval(bres, baseDur); basePassed {
+			return evaluator.Result{}, fmt.Errorf("web.Replayer: 无鉴别力断言——基线（良性请求）同样满足全部谓词，命中不构成漏洞证据（断言应捕捉攻击响应独有特征：报错回显/数据泄露/延迟）")
+		}
 	}
 
-	// 差分复现铁律（业界基线对照法）：mods 为空的原样重放，断言命中只能是页面常态
-	// ——逻辑上不可区分"因为漏洞"与"本来就这样"，一律拒绝。坐实的唯一形态：
-	// modifications 注入 payload（或改写参数/头）构造攻击请求，断言其响应偏离基线。
-	if modsIsEmpty(recipe.Modifications) {
-		return evaluator.Result{}, fmt.Errorf("web.Replayer: 拒绝原样重放坐实——modifications 为空（请在 modifications 注入 payload 或改写字段构造差分；时间盲注入断言用 min_duration_ms）")
-	}
-
-	// 基线：原样重放源流量（继承 cookie/会话），作为"正常行为"对照进证据链。
-	baseStart := time.Now()
-	baseline, baseErr := httpreplay.Replay(ctx, src, httpreplay.Mods{})
-	baseDur := time.Since(baseStart).Milliseconds()
-	if baseErr != nil {
-		return evaluator.Result{}, fmt.Errorf("web.Replayer: 基线重放失败: %w", baseErr)
-	}
-
-	// 攻击：按配方改写（payload 注入点）重放。
+	// 攻击：配方 request 原样重发。
 	start := time.Now()
-	res, err := httpreplay.Replay(ctx, src, recipe.Modifications)
+	res, err := httpreplay.Replay(ctx, attackSrc, httpreplay.Mods{})
 	dur := time.Since(start).Milliseconds()
 	if err != nil {
 		return evaluator.Result{}, fmt.Errorf("web.Replayer: 重发失败: %w", err)
-	}
-
-	// 断言在基线上先跑一遍：基线也全命中 = 断言无鉴别力（正常响应即满足），拒绝坐实。
-	if basePassed, _ := recipe.Assert.eval(baseline, baseDur); basePassed {
-		return evaluator.Result{}, fmt.Errorf("web.Replayer: 无鉴别力断言——基线（原样重放）同样满足全部谓词，命中不构成漏洞证据（断言应捕捉攻击响应独有特征：报错回显/数据泄露/延迟）")
 	}
 
 	// assert 命中明细：executor 声明预期的核验（参考信息——机器不产出坐实结论，
 	// 语义判定权在 LLM 裁决官；断言全命中也仅说明"声称的特征出现了"）。
 	assertPassed, assertReasons := recipe.Assert.eval(res, dur)
 	ev := replayEvidence{
-		TrafficID:       recipe.TrafficID,
-		Method:          res.Method,
-		URL:             res.URL,
-		BaselineStatus:  baseline.StatusCode,
-		BaselineDurMs:   baseDur,
-		BaselineBodyLen: len(baseline.ResponseBody),
-		AttackStatus:    res.StatusCode,
-		AttackDurMs:     dur,
-		RespHeaders:     res.ResponseHeaders,
-		RespBodyLen:     len(res.ResponseBody),
-		RespBodySnip:    snippet(res.ResponseBody, evidenceBodySnip),
-		AssertPassed:    assertPassed,
-		AssertReasons:   assertReasons,
+		Method:        res.Method,
+		URL:           res.URL,
+		HasBaseline:   baseline != nil,
+		AttackStatus:  res.StatusCode,
+		AttackDurMs:   dur,
+		RespHeaders:   res.ResponseHeaders,
+		RespBodyLen:   len(res.ResponseBody),
+		RespBodySnip:  snippet(res.ResponseBody, evidenceBodySnip),
+		AssertPassed:  assertPassed,
+		AssertReasons: assertReasons,
 	}
-	evJSON, _ := json.Marshal(ev)
+	if baseline != nil {
+		ev.BaselineStatus = baseline.StatusCode
+		ev.BaselineDurMs = baseDur
+		ev.BaselineBodyLen = len(baseline.ResponseBody)
+	}
+	evJSON, mErr := json.Marshal(ev)
+	if mErr != nil {
+		return evaluator.Result{}, fmt.Errorf("web.Replayer: 序列化证据失败: %w", mErr)
+	}
 
 	return evaluator.Result{Evaluation: evJSON, DurationMs: dur}, nil
-}
-
-// runResolve 发准备请求并抽新鲜值，返回 (占位名, 值)。任一步失败都硬错误。
-func (r *Replayer) runResolve(ctx context.Context, step ResolveStep) (string, string, error) {
-	if step.TrafficID <= 0 {
-		return "", "", fmt.Errorf("web.Replayer: resolve.traffic_id 必填且 > 0")
-	}
-	src, ok, err := r.traffic.GetInScope(ctx, step.TrafficID)
-	if err != nil {
-		return "", "", fmt.Errorf("web.Replayer: 读准备流量 %d 失败: %w", step.TrafficID, err)
-	}
-	if !ok {
-		return "", "", fmt.Errorf("web.Replayer: 准备流量 %d 不存在或越界", step.TrafficID)
-	}
-	res, err := httpreplay.Replay(ctx, src, step.Modifications)
-	if err != nil {
-		return "", "", fmt.Errorf("web.Replayer: 准备请求重发失败: %w", err)
-	}
-	val, err := step.Extract.extract(res)
-	if err != nil {
-		return "", "", fmt.Errorf("web.Replayer: %w", err)
-	}
-	return step.Extract.Name, val, nil
 }
 
 // eval 按断言逐条判定重发结果；全部通过才坐实。返回每条谓词的判定明细供证据链。

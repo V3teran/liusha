@@ -79,8 +79,12 @@ echo "===== 2/6 清空 db / redis ====="
 # 0089：playbook 层整体删除（playbook/playbook_agent 表已 drop）——swarm 池=全部 enabled 领域猎手，
 # solo 由 scenario.solo_agent_id 单点指定。故这里清运行时表 agent_run（旧脚本误清 config 表 agent，是 swarm 派发失败根因）。
 # task 放最后——CASCADE 会连带清 agent_run/finding/... 的 task_id 引用行，但显式全列更清晰。
+# 运行时表补遗（曾遗漏导致跨 run 残留）：insight（洞察，447 行跨 run 累积实锤）、
+# task_control_event（控制事件，无 FK 不随 task CASCADE，pending pause/adjust_goal 陈旧行
+# 会永久堆积）、traffic_task（流量认领映射）。config 表（agent/skill/tool/llm_*/system_setting）
+# 是 seed insert-only 语义，绝不能 truncate。
 if ! docker exec "$PG_CONTAINER" psql -U liusha -d liusha -c \
-    "TRUNCATE TABLE finding, corpus, llm_invocation, tool_invocation, audit_log, agent_run, proxy_traffic, agent_traffic, conversation, task, assignment, cron_schedule, checkpoints, exploration_node, exploration_edge, exploration_verification, exploration_roadmap_step RESTART IDENTITY CASCADE;"; then
+    "TRUNCATE TABLE finding, corpus, insight, task_control_event, traffic_task, llm_invocation, tool_invocation, audit_log, agent_run, proxy_traffic, agent_traffic, conversation, task, assignment, cron_schedule, checkpoints, exploration_node, exploration_edge, exploration_verification, exploration_roadmap_step RESTART IDENTITY CASCADE;"; then
   echo "  ✗ postgres TRUNCATE 失败 — 看上面 psql 错误（常见原因：容器不在 / schema 不一致 / migrate 未跑）"
   exit 1
 fi

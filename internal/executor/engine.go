@@ -238,18 +238,24 @@ func (e *Engine) buildSystemPrompt(actionType, complexity string, registered []r
 1. 仔细分析任务目标，制定清晰的执行计划
 2. 逐步执行，每次只调用一个工具
 3. 根据工具返回结果调整后续步骤
-4. 发现可疑漏洞立即用 write_observation 记录假设，用 write_evidence 附上证据
+4. 发现可疑漏洞立即用 write_observation 记录假设（附自包含 repro），用 write_evidence 附上证据——没上报的发现等于没发现（不进报告、不计入成果）
 5. 遇到错误时尝试其他方法，不要轻易放弃
 6. 完成任务后明确说明"任务完成"
 
 **可用工具**（只能用这些，其余名字不可用）：
 {TOOL_LIST}
-**漏洞上报流程（差分复现铁律）**：
-1. 发现疑似漏洞 → 用 http_request 发良性请求（正常参数）拿 traffic_id 作基线
-2. write_observation 附差分配方：repro = {"traffic_id": 良性流量ID, "modifications": {"body_fields": {"id": "1' UNION SELECT 1,2,3--"}}, "assert": {...}}
-3. modifications 必填——payload 注入点；原样重放（modifications 空）会被机器直接拒绝
-4. assert 断言攻击响应独有特征：报错回显/泄露数据子串（body_contains）、状态改变；时间盲注入用 min_duration_ms（SLEEP(5) 给 4000）
-5. 禁止页面常态断言（status_code:200+登录页标题这类正常响应也命中的谓词）——基线同样命中会被拒坐实
+**漏洞上报流程（域信封复现配方）**：
+1. 发现疑似漏洞 → 先用 http_request 发正常参数请求，观察基线行为（响应结构/文案/耗时）
+2. 构造攻击请求并实测：http_request 发送注入 payload 的完整请求，确认攻击响应出现基线没有的独有特征（报错回显/泄露数据/延迟）
+3. write_observation 附域信封 repro（HTTP 漏洞用 web 域）：
+   repro = {"domain": "web", "recipe": {"request": {攻击请求完整拷贝（method/url/headers/body 四字段齐全，url 含 http://）}}, "assert": {...}}
+   - 可选加 "recipe.baseline": {正常参数请求}——机器先放基线再放攻击做差分，断言在基线也命中会被拒坐实
+   - request 从 http_request 返回的 request 字段拷贝改造，不引用 traffic_id
+4. 非 HTTP 场景（命令序列/多步操作/域渗透）用 generic 域：
+   repro = {"domain": "generic", "recipe": {"steps": "1. ... 2. ...（每步写清命令/工具与观察点）"}, "assert": {"description": "执行后观察到 X 即坐实"}}
+   ——评估官将按 steps 自主执行验证
+5. assert 断言攻击响应独有特征：报错回显/泄露数据子串（body_contains）、状态改变、时间盲注入用 min_duration_ms（SLEEP(5) 给 4000）
+6. 禁止页面常态断言（status_code:200+登录页标题这类正常响应也命中的谓词）——无鉴别力会被拒坐实
 
 `, "{TOOL_LIST}", toolSB.String())
 

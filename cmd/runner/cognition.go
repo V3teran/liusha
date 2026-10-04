@@ -13,7 +13,6 @@ import (
 	"github.com/V3teran/liusha/internal/executor"
 	"github.com/V3teran/liusha/internal/explorationgraph"
 	"github.com/V3teran/liusha/internal/framework/core"
-	"github.com/V3teran/liusha/internal/httpreplay"
 	"github.com/V3teran/liusha/internal/logx"
 	"github.com/V3teran/liusha/internal/monitor"
 	"github.com/V3teran/liusha/internal/planner"
@@ -21,34 +20,8 @@ import (
 	"github.com/V3teran/liusha/internal/sandbox"
 	"github.com/V3teran/liusha/internal/tools"
 	"github.com/V3teran/liusha/internal/tools/manifest"
-	"github.com/V3teran/liusha/internal/traffic"
 	"github.com/google/uuid"
 )
-
-// agentTrafficScope scopes AgentStore reads to a single task.
-// Satisfies executor.TrafficSource: returns (Source, ok, err) where ok=false
-// when the record does not belong to the task.
-type agentTrafficScope struct {
-	store  *traffic.AgentStore
-	taskID string
-}
-
-func (s *agentTrafficScope) GetInScope(ctx context.Context, id int64) (httpreplay.Source, bool, error) {
-	f, err := s.store.GetByID(ctx, id)
-	if err != nil {
-		return httpreplay.Source{}, false, err
-	}
-	if f.TaskID != s.taskID {
-		return httpreplay.Source{}, false, nil
-	}
-	return httpreplay.Source{
-		ID:      f.ID,
-		Method:  f.Method,
-		URL:     f.URL,
-		Headers: f.RequestHeaders,
-		Body:    f.RequestBody,
-	}, true, nil
-}
 
 // runCognition drives a single assignment through the L4 cognition loop:
 // four independent agents (Planner, Executor, Evaluator, Monitor) coordinate via bus.Bus.
@@ -232,9 +205,9 @@ func (h handler) runCognition(
 		Checkpointer: h.checkpointer,
 	})
 
-	// 4. 创建 EvaluatorAgent
-	replaySource := &agentTrafficScope{store: h.agentStore, taskID: taskID}
-	replayer := executor.NewReplayer(replaySource)
+	// 4. 创建 EvaluatorAgent：Replayer 零依赖（复现配方自包含完整 HTTP 请求，
+	// 不从 traffic 表取流量——工具自发流量同样可复现）。
+	replayer := executor.NewReplayer()
 
 	promoter := evaluator.New(h.graph, replayer, h.findings).
 		WithJudge(judge). // ReAct 裁决官：replay_for_verification + CLI 复核工具

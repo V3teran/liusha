@@ -33,7 +33,7 @@ type RouterJudge struct {
 	router        *llm.Router
 	logger        zerolog.Logger
 	functionTools []string           // function_tools 白名单（nil=全量；空=空集）
-	extraTools    []registry.Tool    // 装配层注入的额外工具（run_command/list/view_traffic——跨包工具由 cognition 构造）
+	extraTools    []registry.Tool    // 装配层注入的额外工具（run_command 等白名单工具——跨包工具由 cognition 构造）
 	cliManifest   *manifest.Manifest // CLI 工具目录（cli_tools 过滤后；渲染进 SystemPrompt 供 run_command 调用）
 }
 
@@ -111,7 +111,7 @@ func (j *RouterJudge) Judge(
 	return parseVerdict(result.FinalAnswer)
 }
 
-// buildObjective 组装裁决输入（假设 + 配方 + 预跑对照摘要）。
+// buildObjective 组装裁决输入（假设 + 自包含配方 + 预跑对照摘要）。
 func (j *RouterJudge) buildObjective(hypothesis string, recipe, initialEvidence json.RawMessage) string {
 	var sb strings.Builder
 	sb.WriteString("裁决以下漏洞假设是否坐实。\n\n## 假设\n")
@@ -120,11 +120,13 @@ func (j *RouterJudge) buildObjective(hypothesis string, recipe, initialEvidence 
 	} else {
 		sb.WriteString("（陈述缺失，从配方与证据推断）")
 	}
-	sb.WriteString("\n\n## 复现配方\n")
+	sb.WriteString("\n\n## 复现配方（自包含完整 HTTP 请求）\n")
 	sb.WriteString(stringOrEmpty(recipe))
-	sb.WriteString("\n\n## 配方预跑证据（机器采集的基线/攻击对照，参考——须自主二次验证）\n")
+	sb.WriteString("\n\n## 配方预跑证据（机器采集，参考——须自主二次验证）\n")
 	sb.WriteString(stringOrEmpty(initialEvidence))
-	sb.WriteString("\n\n先用 replay_for_verification 复核，再自主设计差分实验（view_traffic + replay_traffic 原样/带 payload 各放一次），基于你亲见的差分裁决。")
+	sb.WriteString("\n\n先用 replay_for_verification 复核机器证据；证据含 baseline_* 字段时对比基线/攻击差分（一致即无差分）；")
+	sb.WriteString("证据标注 domain=generic（无机器重放通道）时改用 run_command 按 recipe 步骤自主执行取证；")
+	sb.WriteString("需要独立取证时用 run_command（如 curl 重放配方 request、用正常参数做对照）。基于你亲见的证据裁决。")
 	return sb.String()
 }
 
@@ -142,19 +144,19 @@ func (j *RouterJudge) systemPrompt() string {
 
 const judgeSystemPrompt = `你是渗透测试结果的质量裁决官（Agent-as-a-Judge：你有工具，自主设计验证实验）。
 
-**工作方式（自主差分实验）**：
-1. 先调 replay_for_verification 取得配方预跑证据（输入里附基线/攻击对照摘要）
-2. 不轻信预跑结论——自己二次判断：
-   a. view_traffic 查看源流量原始请求（参数/会话上下文）
-   b. replay_traffic 原样重放该流量 = 你自己的基线
-   c. replay_traffic 带 modifications（注入/改写 payload）= 你的攻击请求
-   d. 对比基线 vs 攻击差分：状态码/响应体/耗时（时间盲看耗时差）
-3. 核验因果关联（硬规则）：坐实的必要条件是攻击响应偏离基线、且偏离由你的 payload 导致——
-   - 基线与攻击一致 → refuted（无差分即无证据）
-   - 特征在正常页面也出现（200、登录页标题、静态文案）→ refuted（断言无鉴别力）
+**工作方式（自主复核）**：
+1. 先调 replay_for_verification 重放复现配方（域信封：domain + recipe + assert），取得机器证据（断言明细 + 响应快照）
+2. 证据标注 domain=generic 时无机器重放——用 run_command 按 recipe 的步骤自主执行，基于命令输出裁决
+3. 不轻信断言命中——自己二次判断：
+   a. 证据含 baseline_* 字段时对比基线 vs 攻击（attack_*）：一致 → refuted（无差分即无证据）
+   b. 断言特征是否页面常态？（200、登录页标题、静态文案）→ 无鉴别力即 refuted
+   c. 时间盲证据看 attack_duration_ms 是否真实显著延迟
+   d. 需要独立取证时用 run_command（curl 重放配方 request、正常参数对照实验）
+4. 核验因果关联（硬规则）：坐实的必要条件是攻击响应出现正常请求没有的特征、且由配方 payload 导致——
+   - 特征在正常响应也出现 → refuted（断言无鉴别力）
    - 攻击响应出现基线没有的报错回显/泄露数据/显著延迟 → 可 confirmed
-4. 证据不足以判断时给 refuted（宁可保守）
-5. 裁决后停止调用工具，**只输出一个 JSON 对象**：
+5. 证据不足以判断时给 refuted（宁可保守）
+6. 裁决后停止调用工具，**只输出一个 JSON 对象**：
 {"verdict": "confirmed|refuted", "confidence": 0.0-1.0, "reasoning": "一句话裁决理由（引用你亲见的差分）"}`
 
 // parseVerdict 从 FinalAnswer 提取裁决 JSON。

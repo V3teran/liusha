@@ -53,11 +53,11 @@ func newHTTPRequestTool(deps Deps, timeout time.Duration, safe bool) *httpReques
 
 func (t *httpRequestTool) Name() string { return "http_request" }
 func (t *httpRequestTool) ShortDesc() string {
-	return "发 HTTP 请求（自动抓流入复现弹药库）"
+	return "发 HTTP 请求并返回完整 request/response"
 }
 func (t *httpRequestTool) Desc() string {
-	return "发送 HTTP 请求并返回响应。请求自动落 agent_traffic 并返回 traffic_id——" +
-		"后续 write_observation 用它构造复现配方（repro.traffic_id + assert），evaluator 据此重放坐实。"
+	return "发送 HTTP 请求并返回完整的 request（method/url/headers/body）与 response——" +
+		"write_observation 据此构造自包含复现配方（repro.request 完整拷贝本请求的 request 并注入 payload）。"
 }
 func (t *httpRequestTool) Schema() json.RawMessage { return httpRequestSchema }
 
@@ -144,13 +144,15 @@ func (t *httpRequestTool) Execute(ctx context.Context, args json.RawMessage) (re
 		snippet = snippet[:httpRespBodySnippet]
 	}
 
-	// 返回完整的 request/response 信息，供 write_observation 构造自包含的 repro
+	// 返回完整的 request/response 信息，供 write_observation 构造自包含的 repro。
+	// request.headers 回显实际发送的最终 headers（含自动补的 Content-Type 等）——
+	// LLM 拷贝此对象构造 repro.request 才能忠实重放（输入 headers 可能缺 CT 导致假证伪）。
 	out, _ := json.Marshal(map[string]interface{}{
 		"traffic_id": trafficID,
 		"request": map[string]interface{}{
 			"method":  a.Method,
 			"url":     a.URL,
-			"headers": a.Headers,
+			"headers": flattenHeaders(req.Header),
 			"body":    a.Body,
 		},
 		"response": map[string]interface{}{
