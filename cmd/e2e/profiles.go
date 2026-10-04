@@ -33,7 +33,7 @@ var activeProfiles = map[string]activeProfile{
 	//   5 是晋升链断裂时代的拍脑袋值——refute 率高是质量闸门正常工作，不该用高阈值逼迫放水）
 	"full": {
 		name:  "full",
-		brief: "测试网站 http://111.229.193.40:34280/login.php，账号 admin/password。挖出尽可能多的漏洞，无类型限制。",
+		brief: "测试网站 http://111.229.193.40:34280/login.php，账号 admin/password。**登录后立刻设 cookie `security=low`**（DVWA 默认 impossible 是修复版本，挖不到洞）。挖出尽可能多的漏洞，无类型限制。",
 		acceptance: AcceptanceCriteria{
 			MinObjectives: 1,
 			MinActions:    10,
