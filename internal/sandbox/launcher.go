@@ -76,7 +76,6 @@ type DockerLauncher struct {
 	// IngestToken 是上面 URL 的 Bearer token。
 	// 空 = 不带 Authorization header（dev 模式 cmd/proxy 端也不强制）；prod 应非空。
 	IngestToken string
-
 }
 
 // NewDockerLauncher 构造 launcher。Image 必填，DockerBin 空走默认。
