@@ -280,13 +280,19 @@ func (t *browserUseTool) Execute(ctx context.Context, args json.RawMessage) (reg
 		return registry.ToolResult{Error: "browser_use: 未知 action " + a.Action}, nil
 	}
 
-	// 身份经环境变量注入（IDENTITY=身份 → 独立 cookie jar/chromium）
+	// 身份/动作经环境变量注入：IDENTITY=身份（独立 cookie jar/chromium）；
+	// AGENT_ID=当前 action（同身份内按动作隔离 tab——browser-svc 的 tab 寻址键）。
+	// 并行执行 action 时无 AGENT_ID 会共抢同一 tab（元素编号互踩）；engine 已把
+	// actionID 挂入 ctx（write_observation 同源），此处接上即天然隔离。
 	command := "browser-use " + a.Action
 	if argParts != "" {
 		command += " " + argParts
 	}
 	if a.Identity != "" {
 		command = fmt.Sprintf("IDENTITY=%q %s", a.Identity, command)
+	}
+	if actionID := getContextActionID(ctx); actionID != "" {
+		command = fmt.Sprintf("AGENT_ID=%q %s", actionID, command)
 	}
 
 	execOnce := func(cmd string) (sandbox.ExecResult, error) {

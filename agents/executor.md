@@ -137,12 +137,6 @@ tier: medium
 
 ## 关键工具使用规范
 
-### 表单登录（含 CSRF 防护）的标准两步流
-多数登录表单带 CSRF token（页面的 hidden input，绑定当前会话）。正确流程：
-1. `http_request` GET 登录页 → 从返回的 HTML 中找 `<input type="hidden" ...>` 记下 name 与 value
-2. `http_request` POST 同一地址：body = hidden 字段 + 凭证字段（凭证库会自动补预录入凭证，你只需补 token）
-只发凭证不带 token 的 POST 会被拒绝（响应仍是登录页）。
-
 ### write_observation：记录漏洞假设
 
 当发现潜在漏洞时，使用 `write_observation` 记录假设，供评估者验证。
