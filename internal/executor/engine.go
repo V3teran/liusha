@@ -26,6 +26,7 @@ type Engine struct {
 	registry      *Registry     // 使用 executor 包的 Registry
 	functionTools []string      // function_tools 白名单（nil=全量）
 	toolsManifest ToolsManifest // 过滤后的 CLI 工具清单
+	brief         string        // 任务简报原文（用户指定的入口 URL 等，逐字渲染进 system prompt——防转录漂移）
 	checkpointer  core.Checkpointer
 	logger        zerolog.Logger
 }
@@ -37,6 +38,7 @@ type EngineConfig struct {
 	Registry      *Registry
 	FunctionTools []string      // function_tools 白名单（agent 配置；nil=全量，空=空集）
 	ToolsManifest ToolsManifest // 过滤后的 CLI 工具清单
+	Brief         string        // 任务简报原文（可选；渲染进 system prompt 作入口锚定）
 	Checkpointer  core.Checkpointer
 	Logger        zerolog.Logger
 }
@@ -49,6 +51,7 @@ func NewEngine(cfg EngineConfig) *Engine {
 		registry:      cfg.Registry,
 		functionTools: cfg.FunctionTools,
 		toolsManifest: cfg.ToolsManifest,
+		brief:         cfg.Brief,
 		checkpointer:  cfg.Checkpointer,
 		logger:        cfg.Logger.With().Str("component", "executor_engine").Logger(),
 	}
@@ -379,6 +382,13 @@ func (e *Engine) buildSystemPrompt(actionType, complexity string, registered []r
 		basePrompt += "\n**时间预期**：此任务预计在 15 分钟内完成。\n"
 	case "complex":
 		basePrompt += "\n**时间预期**：此任务可能需要较长时间，请耐心执行。\n"
+	}
+
+	// 任务简报原文（逐字）——用户指定的目标/入口 URL/凭据的唯一权威事实源。
+	// 曾因 brief 只在 planner 侧、executor 凭记忆转录入口 URL（/login.php→/login）
+	// 打在 404 上浪费整轮；逐字附录比任何摘要/解析都可靠。
+	if e.brief != "" {
+		basePrompt += "\n**任务简报（用户原文，目标/入口 URL/凭据以此为准）**：\n" + e.brief + "\n"
 	}
 
 	return basePrompt
