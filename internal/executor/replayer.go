@@ -229,15 +229,56 @@ func orEmptyRaw(b json.RawMessage) json.RawMessage {
 	return b
 }
 
-// replayWeb web 域机器复放：断言校验 → resolve 注入 → baseline 差分护栏 → 攻击重发 → 采证。
+// minBodyContainsLen 是 body_contains 子串的最小鉴别长度：过短的子串（如 "1"/"2"/"3"）
+// 几乎必然命中任意页面——断言无鉴别力，坐实即假阳性。
+const minBodyContainsLen = 4
+
+// commonSuccessCodes 是页面常态状态码：无 baseline 时仅凭它们不构成漏洞证据
+// （有 baseline 时由运行时差分护栏判定，不在此拦）。
+var commonSuccessCodes = map[int]bool{200: true, 301: true, 302: true, 304: true}
+
+// assertDiscriminative 闸门鉴别力守卫（假阳性第一道机器防线）：
+//   - body_contains 每个子串须 ≥ minBodyContainsLen 个字符（修剪后按字节计）；
+//   - 自指断言拒绝：子串是请求 URL/host/path 的组成部分（请求登录页断言含 "login.php"
+//     ——正常响应必命中，坐实即假阳性，e2e 实测）；
+//   - 无 baseline 时，断言须含至少一个强谓词（body_contains/header_contains/min_duration_ms）
+//     或非常态状态码——裸 {status_code:200} 这类页面常态断言直接拒绝。
+func assertDiscriminative(a Assertion, attackSrc httpreplay.Source, hasBaseline bool) error {
+	for _, want := range a.BodyContains {
+		if len(strings.TrimSpace(want)) < minBodyContainsLen {
+			return fmt.Errorf("无鉴别力断言——body_contains 子串 %q 短于 %d 字符（几乎必命中任意页面）。断言应捕捉攻击响应独有特征：报错回显/泄露数据的完整子串（如 SQL 错误片段、dump 出的字段值）", want, minBodyContainsLen)
+		}
+		// 自指检测：断言特征已内嵌在请求里（URL/path/host）——正常响应也必然包含它。
+		if strings.Contains(strings.ToLower(attackSrc.URL), strings.ToLower(strings.TrimSpace(want))) {
+			return fmt.Errorf("无鉴别力断言——body_contains 子串 %q 就是请求 URL 的组成部分（自指：正常响应也必命中）。断言应捕捉攻击响应独有特征，而不是页面本来就有的内容", want)
+		}
+	}
+	if hasBaseline {
+		return nil // 有良性对照：鉴别力由运行时基线差分护栏判定
+	}
+	strong := len(a.BodyContains) > 0 || len(a.HeaderContains) > 0 || a.MinDurationMs != nil
+	if !strong && a.StatusCode != nil && !commonSuccessCodes[*a.StatusCode] {
+		strong = true // 非常态状态码（401/403/500…）本身可为信号
+	}
+	if !strong {
+		return fmt.Errorf("无鉴别力断言——无 baseline 时至少需要一个强谓词（body_contains/header_contains/min_duration_ms，或非 200/301/302/304 的 status_code）。页面常态断言（裸 status_code=200 类）命中不构成漏洞证据；建议附 baseline 良性对照")
+	}
+	return nil
+}
+
+// replayWeb web 域机器复放：结构校验 → 鉴别力守卫 → resolve 注入 → baseline 差分护栏 → 攻击重发 → 采证。
 func replayWeb(ctx context.Context, recipe ReplayRecipe) (evaluator.Result, error) {
 	// 空断言不可坐实：机器无从判定即无法晋升（拒绝橡皮图章）。
 	if recipe.Assert.empty() {
 		return evaluator.Result{}, fmt.Errorf("web.Replayer: assert 为空，无坐实谓词（至少给一条 status_code/body_contains/body_not_contains/header_contains/min_duration_ms）")
 	}
+	// 结构先行（request 形状），语义随后（断言鉴别力）——错误信息指向首个真问题。
 	attackSrc, err := recipe.Request.toSource()
 	if err != nil {
 		return evaluator.Result{}, fmt.Errorf("web.Replayer: request 非法——%w", err)
+	}
+	if dErr := assertDiscriminative(recipe.Assert, attackSrc, recipe.Baseline != nil); dErr != nil {
+		return evaluator.Result{}, fmt.Errorf("web.Replayer: %w", dErr)
 	}
 
 	// 准备请求：抽服务器现造值注入主请求。抽值失败硬错误，绝不静默 pass（护栏2）。

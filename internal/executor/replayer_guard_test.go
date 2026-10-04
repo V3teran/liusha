@@ -39,12 +39,13 @@ func TestReplay_RejectsRelativeURL(t *testing.T) {
 // body_not_contains 别名（prompt 侧口径）与 body_absent 等价。
 func TestReplay_AcceptsBodyNotContainsAlias(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"user":"alice"}`))
 	}))
 	defer srv.Close()
 
 	r := NewReplayer()
-	recipe := `{"request":{"method":"GET","url":"` + srv.URL + `","headers":{},"body":""},"assert":{"body_not_contains":["login required"]}}`
+	recipe := `{"request":{"method":"GET","url":"` + srv.URL + `","headers":{},"body":""},"assert":{"body_not_contains":["login required"],"header_contains":{"content-type":"application/json"}}}`
 	res, err := r.Replay(context.Background(), json.RawMessage(recipe))
 	if err != nil {
 		t.Fatalf("别名断言应可用: %v", err)
@@ -54,6 +55,64 @@ func TestReplay_AcceptsBodyNotContainsAlias(t *testing.T) {
 	}
 	if err := json.Unmarshal(res.Evaluation, &ev); err != nil || !ev.AssertPassed {
 		t.Fatalf("body_not_contains 应按 body_absent 语义判定: ev=%s err=%v", res.Evaluation, err)
+	}
+}
+
+// 闸门鉴别力守卫：短子串（["1","2","3"] 型假阳性）与裸常规状态码（无 baseline）必须被拒。
+func TestReplay_RejectsNonDiscriminativeAssert(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("1 2 3 everything"))
+	}))
+	defer srv.Close()
+
+	r := NewReplayer()
+	shortSub := `{"request":{"method":"GET","url":"` + srv.URL + `","headers":{},"body":""},"assert":{"body_contains":["1","2","3"]}}`
+	if _, err := r.Replay(context.Background(), json.RawMessage(shortSub)); err == nil ||
+		!strings.Contains(err.Error(), "无鉴别力") {
+		t.Fatalf("短子串断言应被拒（曾合规范进 finding 的假阳性形态）: err=%v", err)
+	}
+
+	bare200 := `{"request":{"method":"GET","url":"` + srv.URL + `","headers":{},"body":""},"assert":{"status_code":200}}`
+	if _, err := r.Replay(context.Background(), json.RawMessage(bare200)); err == nil ||
+		!strings.Contains(err.Error(), "无鉴别力") {
+		t.Fatalf("裸 200（无 baseline）应被拒: err=%v", err)
+	}
+
+	// 有 baseline：常规状态码放行，鉴别力交运行时差分护栏
+	withBase := `{"request":{"method":"GET","url":"` + srv.URL + `","headers":{},"body":""},"baseline":{"method":"GET","url":"` + srv.URL + `?id=1","headers":{},"body":""},"assert":{"status_code":200}}`
+	if _, err := r.Replay(context.Background(), json.RawMessage(withBase)); err == nil {
+		// 基线同样命中 → 差分护栏应拒（无鉴别力）；两种错误都合法
+	} else if !strings.Contains(err.Error(), "无鉴别力") {
+		t.Fatalf("有 baseline 时应交差分护栏裁决: err=%v", err)
+	}
+
+	// 非常态状态码单独可为信号：门放行（断言未命中是证据的一部分，裁决官据此 refuted）
+	teapot := `{"request":{"method":"GET","url":"` + srv.URL + `","headers":{},"body":""},"assert":{"status_code":500}}`
+	if res, err := r.Replay(context.Background(), json.RawMessage(teapot)); err != nil ||
+		strings.Contains(string(res.Evaluation), "无鉴别力") {
+		t.Fatalf("非常态状态码应放行（未命中仅是证据）: err=%v", err)
+	}
+}
+
+// 自指断言（e2e 实测假阳性）：请求登录页却断言响应含 "login.php"——URL 自身组成部分，
+// 正常响应必命中。曾经 judge 放行进 finding。
+func TestReplay_RejectsSelfReferentialAssert(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("login page for " + r.URL.Path))
+	}))
+	defer srv.Close()
+
+	r := NewReplayer()
+	selfRef := `{"request":{"method":"GET","url":"` + srv.URL + `/login.php","headers":{},"body":""},"assert":{"body_contains":["login.php"]}}`
+	if _, err := r.Replay(context.Background(), json.RawMessage(selfRef)); err == nil ||
+		!strings.Contains(err.Error(), "自指") {
+		t.Fatalf("自指断言应被拒: err=%v", err)
+	}
+
+	// 同页面断言与漏洞相关的非自指特征 → 放行（门不越权判语义）
+	valid := `{"request":{"method":"GET","url":"` + srv.URL + `/login.php","headers":{},"body":""},"assert":{"body_contains":["XSS-reflected-payload-echo"]}}`
+	if _, err := r.Replay(context.Background(), json.RawMessage(valid)); err != nil {
+		t.Fatalf("非自指断言应放行: %v", err)
 	}
 }
 
