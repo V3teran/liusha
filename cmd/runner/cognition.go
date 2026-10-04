@@ -297,6 +297,23 @@ func (h handler) runCognition(
 	agents.start()
 	defer agents.stop()
 
+	// 任务结束浏览器清理（P3）：本任务身份前缀的 daemon/chromium 逐个优雅
+	// reset——共享容器下立即释放内存（不等容器空闲回收），且只动本任务的身份
+	// （并发任务的其他身份不受影响）。best-effort，失败仅告警。
+	defer func() {
+		if script := tools.BrowserCleanupScript(taskID); script != "" && sb != nil {
+			cctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			if res, err := sb.Exec(cctx, sandbox.ExecRequest{
+				TaskID: taskID, AgentID: "cleanup", Command: script, TimeoutSeconds: 30,
+			}); err != nil {
+				h.logger.Warn().Err(err).Str("task_id", taskID).Msg("浏览器清理执行失败（best-effort）")
+			} else {
+				h.logger.Info().Str("task_id", taskID).Int("exit_code", res.ExitCode).Msg("任务结束浏览器身份已清理")
+			}
+		}
+	}()
+
 	// 8.5 控制平面消费者：轮询 task_control_event（pause/resume/terminate/adjust_goal/inject）
 	if h.controlPlane != nil {
 		stopConsumer := startControlConsumer(ctx, taskID, h.controlPlane, h.graph, detector, agents, h.logger)

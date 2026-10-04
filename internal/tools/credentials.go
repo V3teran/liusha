@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/V3teran/liusha/internal/credential"
@@ -54,6 +55,17 @@ func (t *readCredentialsTool) Execute(ctx context.Context, args json.RawMessage)
 	if err != nil {
 		return registry.ToolResult{Error: fmt.Sprintf("read_credentials: %v", err)}, nil
 	}
+	// task 域过滤：本 task 的自动会话身份 + host 级共享身份（无 task: 前缀）。
+	// 其他 task 的会话身份不回显——共享凭证库下的跨任务隔离（读取通道）。
+	mine := sessionIdentityName(t.deps.TaskID)
+	filtered := identities[:0]
+	for _, id := range identities {
+		if strings.HasPrefix(id.Name, sessionIdentityPrefix) && id.Name != mine {
+			continue
+		}
+		filtered = append(filtered, id)
+	}
+	identities = filtered
 	if len(identities) == 0 {
 		return registry.ToolResult{Output: "[]"}, nil
 	}

@@ -320,19 +320,19 @@ func TestHTTPTool_SetCookieSyncsToStore(t *testing.T) {
 	}))
 	defer srv.Close()
 	host := strings.TrimPrefix(srv.URL, "http://")
-	creds.byHost[host] = []credential.Identity{{Name: SessionIdentityName, Credentials: []credential.Credential{
+	creds.byHost[host] = []credential.Identity{{Name: sessionIdentityName("t-1"), Credentials: []credential.Credential{
 		{Type: credential.TypeHeaders, Key: "X-Extra", Value: "keep-me"},
 	}}}
 
-	tool := newHTTPRequestTool(Deps{Creds: creds}, 5*time.Second, false)
+	tool := newHTTPRequestTool(Deps{Creds: creds, TaskID: "t-1"}, 5*time.Second, false)
 	runHTTPTool(t, tool, `{"url":"`+srv.URL+`/login"}`) // Set-Cookie → 入库
 
 	if len(creds.saves) != 1 || creds.saveTTLs[0] != 0 {
 		t.Fatalf("应写一次且 ttl=0（host 级 EXPIRE 会误杀同 host 身份）, saves=%d ttl=%v", len(creds.saves), creds.saveTTLs)
 	}
 	saved := creds.saves[0]
-	if saved.Name != SessionIdentityName {
-		t.Fatalf("应写入保留身份 session, got %q", saved.Name)
+	if saved.Name != sessionIdentityName("t-1") {
+		t.Fatalf("应写入本 task 会话身份 task:t-1:session, got %q", saved.Name)
 	}
 	var cookieVal, extra string
 	for _, c := range saved.Credentials {
@@ -371,5 +371,53 @@ func TestHTTPTool_SetCookieSyncsToStore(t *testing.T) {
 	}
 	if hasCookie || !hasExtra {
 		t.Fatalf("全过期应清 Cookie 项并保留其他凭证, cookie=%v extra=%v", hasCookie, hasExtra)
+	}
+}
+
+// 跨任务会话隔离（共享凭证库下）：task A 的会话身份对 task B 不可注入。
+func TestHTTPTool_CrossTaskSessionIsolation(t *testing.T) {
+	creds := newFakeCreds()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("plain"))
+	}))
+	defer srv.Close()
+	host := strings.TrimPrefix(srv.URL, "http://")
+
+	// task A 登录拿到会话
+	srvA := srv // 同 host 模拟：直接给 A 写入会话身份
+	creds.byHost[host] = []credential.Identity{{Name: sessionIdentityName("task-A"), Credentials: []credential.Credential{
+		{Type: credential.TypeHeaders, Key: "Cookie", Value: "session=A-value"},
+	}}}
+	_ = srvA
+
+	// task A 的工具：注入自己的会话 ✓
+	toolA := newHTTPRequestTool(Deps{Creds: creds, TaskID: "task-A"}, 5*time.Second, false)
+	out := runHTTPTool(t, toolA, `{"url":"`+srv.URL+`/x","headers":{}}`)
+	reqObj := out["request"].(map[string]interface{})
+	hdrs, _ := reqObj["headers"].(map[string]interface{})
+	if hdrs["cookie"] != "session=A-value" {
+		t.Fatalf("task A 应注入自己的会话, got %v", hdrs["cookie"])
+	}
+
+	// task B 的工具：A 的会话不可见（不注入）
+	toolB := newHTTPRequestTool(Deps{Creds: creds, TaskID: "task-B"}, 5*time.Second, false)
+	out = runHTTPTool(t, toolB, `{"url":"`+srv.URL+`/x","headers":{}}`)
+	reqObj = out["request"].(map[string]interface{})
+	hdrs, _ = reqObj["headers"].(map[string]interface{})
+	if hdrs["cookie"] == "session=A-value" {
+		t.Fatal("task B 不应注入 task A 的会话（跨任务隔离失效）")
+	}
+
+	// host 级共享身份（无 task: 前缀，用户预录入）：两个 task 都注入
+	creds.byHost[host] = append(creds.byHost[host], credential.Identity{
+		Name: "admin", Credentials: []credential.Credential{
+			{Type: credential.TypeHeaders, Key: "X-Shared", Value: "yes"},
+		}})
+	for _, tool := range []*httpRequestTool{toolA, toolB} {
+		out := runHTTPTool(t, tool, `{"url":"`+srv.URL+`/x","headers":{}}`)
+		hdrs, _ := out["request"].(map[string]interface{})["headers"].(map[string]interface{})
+		if hdrs["x-shared"] != "yes" {
+			t.Fatal("host 级共享身份应对所有 task 注入")
+		}
 	}
 }
