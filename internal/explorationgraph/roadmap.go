@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"sort"
 	"time"
 
 	"github.com/lib/pq"
@@ -531,9 +530,3 @@ func (s *Store) GetRoadmapSummary(ctx context.Context, taskID string) (*RoadmapS
 	}, nil
 }
 
-// SortStepsByNumber 按步骤编号排序（辅助函数）
-func SortStepsByNumber(steps []RoadmapStep) {
-	sort.Slice(steps, func(i, j int) bool {
-		return steps[i].Step < steps[j].Step
-	})
-}
