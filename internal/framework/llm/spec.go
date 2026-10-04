@@ -1,3 +1,5 @@
+// Package llm 实现 LLM 抽象层：Router 分档路由、Provider 适配、重试与降级。
+// 框架层自包含，不 import 业务配置包。
 // spec.go — Router 的配置契约（框架层自包含，不 import 业务配置包）。
 //
 // 解耦口径：框架只认「已解析」的连接参数（ProviderSpec.APIKey 为明文密钥）；

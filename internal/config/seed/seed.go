@@ -237,4 +237,3 @@ func importSkills(ctx context.Context, dir string, s *skill.Store) error {
 	}
 	return nil
 }
-

@@ -1,3 +1,5 @@
+// Package runtime 实现 Agent 运行时：ReAct (Reasoning + Acting) 循环、
+// 消息压缩链（MessageModifierChain）与检查点策略。
 package runtime
 
 import (
