@@ -1,6 +1,6 @@
-// judge.go — LLM 语义裁决器（ReAct 形态）。
+// Package evaluator 实现验证层：复现晋升门 + LLM 语义裁决器（ReAct 形态）。
 //
-// 分工铁律：复现门裁决官经 replay_for_verification 工具自主重放取证、
+// judge.go 职责：分工铁律——复现门裁决官经 replay_for_verification 工具自主重放取证、
 // 按需多次验证，最终输出结构化裁决。断言命中 ≠ 漏洞成立（子串可能来自页面
 // 自身文案），语义终裁交给 LLM——这是晋升门的最后一道闸。
 package evaluator

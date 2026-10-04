@@ -35,11 +35,11 @@ func newDetector(t *testing.T, maxSteps int) (*CompletionDetector, bus.Bus) {
 func TestCompletionDetector_StatsCounting(t *testing.T) {
 	d, _ := newDetector(t, 0)
 
-	d.FeedEvent(bus.Event{Type: bus.EventActionCompleted, TaskID: "t1", ActionID: "a1"})
-	d.FeedEvent(bus.Event{Type: bus.EventActionCompleted, TaskID: "t1", ActionID: "a2"})
-	d.FeedEvent(bus.Event{Type: bus.EventVerificationPassed, TaskID: "t1"})
+	d.feedEvent(bus.Event{Type: bus.EventActionCompleted, TaskID: "t1", ActionID: "a1"})
+	d.feedEvent(bus.Event{Type: bus.EventActionCompleted, TaskID: "t1", ActionID: "a2"})
+	d.feedEvent(bus.Event{Type: bus.EventVerificationPassed, TaskID: "t1"})
 
-	got := d.GetStats()
+	got := d.stats()
 	assert.Equal(t, 2, got.Steps, "两个 ActionCompleted 应计 2 步")
 	assert.Equal(t, 1, got.Promoted, "一个 VerificationPassed 应计 1 晋升")
 }
@@ -48,7 +48,7 @@ func TestCompletionDetector_AbortWins(t *testing.T) {
 	d, _ := newDetector(t, 0)
 
 	d.Abort("control-plane: terminate")
-	res, done := d.CheckNow()
+	res, done := d.checkNow()
 	require.True(t, done, "人工中止应立即判定完成")
 	assert.Equal(t, "control-plane: terminate", res.StopWhy)
 }
@@ -56,13 +56,13 @@ func TestCompletionDetector_AbortWins(t *testing.T) {
 func TestCompletionDetector_MaxSteps(t *testing.T) {
 	d, _ := newDetector(t, 3)
 
-	d.FeedEvent(bus.Event{Type: bus.EventActionCompleted, TaskID: "t1", ActionID: "a1"})
-	d.FeedEvent(bus.Event{Type: bus.EventActionCompleted, TaskID: "t1", ActionID: "a2"})
-	_, done := d.CheckNow()
+	d.feedEvent(bus.Event{Type: bus.EventActionCompleted, TaskID: "t1", ActionID: "a1"})
+	d.feedEvent(bus.Event{Type: bus.EventActionCompleted, TaskID: "t1", ActionID: "a2"})
+	_, done := d.checkNow()
 	assert.False(t, done, "2/3 步不应完成")
 
-	d.FeedEvent(bus.Event{Type: bus.EventActionCompleted, TaskID: "t1", ActionID: "a3"})
-	res, done := d.CheckNow()
+	d.feedEvent(bus.Event{Type: bus.EventActionCompleted, TaskID: "t1", ActionID: "a3"})
+	res, done := d.checkNow()
 	require.True(t, done, "3/3 步应触发完成")
 	assert.Equal(t, "max_steps_reached", res.StopWhy)
 }
@@ -70,19 +70,19 @@ func TestCompletionDetector_MaxSteps(t *testing.T) {
 func TestCompletionDetector_PauseFreezesAutoCompletion(t *testing.T) {
 	d, _ := newDetector(t, 1)
 
-	d.FeedEvent(bus.Event{Type: bus.EventActionCompleted, TaskID: "t1", ActionID: "a1"})
-	_, done := d.CheckNow()
+	d.feedEvent(bus.Event{Type: bus.EventActionCompleted, TaskID: "t1", ActionID: "a1"})
+	_, done := d.checkNow()
 	assert.True(t, done, "未暂停时应触发步数完成")
 
 	d2, _ := newDetector(t, 1)
-	d2.FeedEvent(bus.Event{Type: bus.EventActionCompleted, TaskID: "t1", ActionID: "a1"})
+	d2.feedEvent(bus.Event{Type: bus.EventActionCompleted, TaskID: "t1", ActionID: "a1"})
 	d2.Pause()
-	_, done = d2.CheckNow()
+	_, done = d2.checkNow()
 	assert.False(t, done, "暂停期间自动完成判定必须冻结")
 
 	// terminate 仍然可以越过暂停
 	d2.Abort("terminate")
-	_, done = d2.CheckNow()
+	_, done = d2.checkNow()
 	assert.True(t, done, "人工中止应越过暂停生效")
 
 	d2.Resume()

@@ -8,7 +8,6 @@ import (
 	"os"
 	"os/exec"
 	"strings"
-	"sync"
 	"time"
 )
 
@@ -78,9 +77,6 @@ type DockerLauncher struct {
 	// 空 = 不带 Authorization header（dev 模式 cmd/proxy 端也不强制）；prod 应非空。
 	IngestToken string
 
-	// detectOnce/hasCaptureProxy 缓存 per-process 的镜像探测结果（见 containerHasCaptureProxy）。
-	detectOnce      sync.Once
-	hasCaptureProxy bool
 }
 
 // NewDockerLauncher 构造 launcher。Image 必填，DockerBin 空走默认。

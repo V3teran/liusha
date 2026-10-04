@@ -188,6 +188,21 @@ func (d *CompletionDetector) makeResult(stopWhy string) Result {
 	}
 }
 
+// checkNow 同步执行一次完成判定（同包测试的确定性驱动入口；生产走 Start 循环）。
+func (d *CompletionDetector) checkNow() (Result, bool) {
+	return d.checkCompletion()
+}
+
+// feedEvent 直接喂事件给检测器（同包测试绕过 bus 订阅注入；与 Start 共用 handleEvent）。
+func (d *CompletionDetector) feedEvent(event bus.Event) {
+	d.handleEvent(event)
+}
+
+// stats 获取当前统计快照（非阻塞，同包测试断言用）。
+func (d *CompletionDetector) stats() Result {
+	return d.makeResult("in_progress")
+}
+
 // Abort 手动中止任务
 func (d *CompletionDetector) Abort(reason string) {
 	d.manualAbort.Store(true)
@@ -206,20 +221,4 @@ func (d *CompletionDetector) Pause() {
 func (d *CompletionDetector) Resume() {
 	d.paused.Store(false)
 	d.logger.Info().Msg("任务已恢复（控制平面）")
-}
-
-// CheckNow 同步执行一次完成判定（供测试与控制平面查询；主循环仍走 Start）。
-func (d *CompletionDetector) CheckNow() (Result, bool) {
-	return d.checkCompletion()
-}
-
-// FeedEvent 直接喂事件给检测器（绕过 bus 订阅，供测试与控制平面注入；
-// 生产路径由 Start 的订阅循环调用，两者共用 handleEvent）。
-func (d *CompletionDetector) FeedEvent(event bus.Event) {
-	d.handleEvent(event)
-}
-
-// GetStats 获取当前统计（非阻塞）
-func (d *CompletionDetector) GetStats() Result {
-	return d.makeResult("in_progress")
 }
