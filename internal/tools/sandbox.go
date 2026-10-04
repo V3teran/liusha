@@ -296,17 +296,40 @@ func (t *browserUseTool) Execute(ctx context.Context, args json.RawMessage) (reg
 		return registry.ToolResult{Error: fmt.Sprintf("browser_use: 沙箱执行失败: %v", err)}, nil
 	}
 
-	// 自愈：browser-use 常驻 daemon 跨长任务可能进入退化态（watchdog 超时类内部
-	// 错误）——CLI 自带 reset 子命令重建会话。检测到退化签名时 reset 一次并重试
-	// 原命令；再失败则原样返回两层输出（诊断上下文保留）。
+	// 分级自愈：browser-use 常驻 daemon 跨长任务可能进入退化态（watchdog 超时类
+	// 内部错误，站点无关）。两级恢复逐级升级，任一级恢复即返回：
+	//   L1 reset——重建会话/tab 状态（轻量，不杀 daemon）
+	//   L2 杀 daemon 冷启动——wrapper 下次调用自动重建（丢失该身份登录态；
+	//       退化态下本就不可用，无可失）。冷启含 chromium 启动最长 ~60s。
+	// 两级都失败则原样返回全部诊断输出。
 	if browserDegraded(res) {
-		reset, _ := execOnce("browser-use reset")
-		retry, rErr := execOnce(command)
-		if rErr == nil {
-			res = retry
+		var log strings.Builder
+		log.WriteString("[自愈] 检测到 browser daemon 退化态\n")
+		recovered := false
+		for _, heal := range []struct {
+			name string
+			cmd  string
+		}{
+			{"L1 reset", "browser-use reset"},
+			{"L2 杀 daemon 冷启动", "pkill -f browser-svc.py || true"},
+		} {
+			h, _ := execOnce(heal.cmd)
+			fmt.Fprintf(&log, "--- %s ---\n%s\n", heal.name, orDash(h.Stdout))
+			retry, rErr := execOnce(command)
+			if rErr == nil && !browserDegraded(retry) {
+				res = retry
+				recovered = true
+				break
+			}
+			fmt.Fprintf(&log, "--- %s 后重试仍退化 ---\n", heal.name)
 		}
-		res.Stdout = fmt.Sprintf("[自愈] 检测到 browser daemon 退化态，已 reset 并重试一次\n--- reset 输出 ---\n%s\n--- 重试输出 ---\n%s", reset.Stdout, res.Stdout)
-		res.Stderr = ""
+		if recovered {
+			fmt.Fprintf(&log, "--- 已恢复，重试输出 ---\n%s\n", res.Stdout)
+			res.Stdout = log.String() + res.Stdout
+			res.Stderr = ""
+		} else {
+			res.Stdout = log.String() + res.Stdout
+		}
 	}
 
 	var sb strings.Builder
@@ -339,6 +362,13 @@ func (t *browserUseTool) Execute(ctx context.Context, args json.RawMessage) (reg
 			Detail:   output,
 		},
 	}, nil
+}
+
+func orDash(s string) string {
+	if strings.TrimSpace(s) == "" {
+		return "(无输出)"
+	}
+	return s
 }
 
 // browserDegraded 识别 browser-use 库的退化态错误签名（watchdog 内部超时等），

@@ -63,36 +63,64 @@ func TestBrowserUse_NoHintOnSuccess(t *testing.T) {
 }
 
 // 退化态自愈：watchdog 签名 → 自动 reset 一次并重试原命令，成功则返回重试结果。
-func TestBrowserUse_WatchdogSelfHeal(t *testing.T) {
+
+// L1 自愈：退化 → reset → 重试成功。
+func TestBrowserUse_WatchdogSelfHealL1(t *testing.T) {
 	fake := &fakeSandboxClient{responses: []sandbox.ExecResult{
 		{Stdout: "Error: Event handler browser_use.browser.watchdog_base.BrowserSession timed out after 30.0s", ExitCode: 1}, // 原命令退化
-		{Stdout: "ok"}, // reset
+		{Stdout: "ok"}, // L1 reset
 		{Stdout: "url: http://target/\n[exit_code: 0]"}, // 重试成功
 	}}
 	out := runBrowserTool(t, fake, `{"action":"open","url":"http://target/"}`)
 	if !strings.Contains(out, "url: http://target/") {
-		t.Fatalf("自愈后应返回重试成功结果, got:\n%s", out)
+		t.Fatalf("L1 自愈后应返回重试成功结果, got:\n%s", out)
 	}
-	if !strings.Contains(out, "[自愈]") || !strings.Contains(out, "--- reset 输出 ---") {
-		t.Fatal("自愈过程应留痕（reset 输出可见，供审计）")
+	if !strings.Contains(out, "L1 reset") {
+		t.Fatal("自愈过程应留痕（L1 输出可见，供审计）")
+	}
+	if strings.Contains(out, "L2") {
+		t.Fatal("L1 恢复后不应继续 L2")
 	}
 	if fake.calls != 3 {
 		t.Fatalf("应为 原命令+reset+重试 共 3 次调用, got %d", fake.calls)
 	}
 }
 
-// 重试仍退化：原样返回（不无限自愈），保留诊断上下文。
-func TestBrowserUse_WatchdogSelfHealStillDegraded(t *testing.T) {
+// L2 自愈：reset 救不回（daemon wedged）→ 杀 daemon 冷启动 → 重试成功。
+func TestBrowserUse_WatchdogSelfHealL2(t *testing.T) {
 	fake := &fakeSandboxClient{responses: []sandbox.ExecResult{
-		{Stdout: "Error: ...watchdog_base... timed out", ExitCode: 1},
-		{Stdout: "ok"},
-		{Stdout: "Error: ...watchdog_base... timed out", ExitCode: 1}, // 重试仍坏
+		{Stdout: "Error: Event handler browser_use.browser.watchdog_base timed out", ExitCode: 1}, // 原命令退化
+		{Stdout: "ok"}, // L1 reset
+		{Stdout: "Error: ...watchdog_base timed out", ExitCode: 1}, // L1 后仍退化
+		{Stdout: ""}, // L2 pkill
+		{Stdout: "url: http://target/\n[exit_code: 0]"}, // L2 后重试成功
+	}}
+	out := runBrowserTool(t, fake, `{"action":"open","url":"http://target/"}`)
+	if !strings.Contains(out, "url: http://target/") {
+		t.Fatalf("L2 自愈后应返回重试成功结果, got:\n%s", out)
+	}
+	if !strings.Contains(out, "L2 杀 daemon 冷启动") {
+		t.Fatal("L2 升级应留痕")
+	}
+	if fake.calls != 5 {
+		t.Fatalf("应为 原命令+L1两步+L2两步 共 5 次调用, got %d", fake.calls)
+	}
+}
+
+// 两级都失败：不无限自愈，保留完整诊断。
+func TestBrowserUse_WatchdogSelfHealExhausted(t *testing.T) {
+	fake := &fakeSandboxClient{responses: []sandbox.ExecResult{
+		{Stdout: "Error: ...watchdog_base... timed out", ExitCode: 1}, // 原命令
+		{Stdout: "ok"}, // L1 reset
+		{Stdout: "Error: ...watchdog_base... timed out", ExitCode: 1}, // L1 后
+		{Stdout: ""}, // L2 pkill
+		{Stdout: "Error: ...watchdog_base... timed out", ExitCode: 1}, // L2 后仍坏
 	}}
 	out := runBrowserTool(t, fake, `{"action":"state"}`)
 	if !strings.Contains(out, "watchdog_base") {
-		t.Fatalf("重试仍退化应保留原始诊断, got:\n%s", out)
+		t.Fatalf("耗尽后应保留原始诊断, got:\n%s", out)
 	}
-	if fake.calls != 3 {
-		t.Fatalf("只自愈一次（防循环）, got %d calls", fake.calls)
+	if fake.calls != 5 {
+		t.Fatalf("只到 L2（防循环）, got %d calls", fake.calls)
 	}
 }
