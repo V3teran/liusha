@@ -40,10 +40,12 @@ import (
 // *explorationgraph.Store 自动满足本接口。
 //
 // 图的写权限不变式：planner 写 objective/action，executor 写 observation，
-// evaluator **只写 result**（晋升）。复放证据不走图——落 exploration_verification 审计链。
+// evaluator 只**新建** result（晋升）；对既有假设节点仅做 metadata 审判标记
+// （verification_outcome），不新建节点。复放证据不走图——落 exploration_verification 审计链。
 type graphWriter interface {
 	RecordVerification(ctx context.Context, v explorationgraph.Verification) (string, error)
 	CreateNode(ctx context.Context, n explorationgraph.Node) (string, error)
+	UpdateNodeMetadata(ctx context.Context, id string, metadata json.RawMessage) error
 }
 
 // findingWriter 是 Evaluator 依赖的 finding 写入子集：验证通过后才能写入 finding 表。
@@ -181,6 +183,16 @@ func (v *PromotionEvaluator) Promote(ctx context.Context, a Attempt) (*explorati
 	if json.Unmarshal(a.Content, &c) == nil {
 		hyp = c.Statement
 	}
+
+	// 机器护栏：executor 声明的断言全部未命中 = 配方声称的特征根本没出现，不存在任何
+	// 支持坐实的机器证据。此时直接 refuted、不进 judge（e2e 实测：judge 在
+	// assert_passed=false 且 404 的证据下仍输出 confirmed——LLM 会违背裁决语义，
+	// 机器兜底）。这是机器证伪而非机器坐实：LLM 只拥有 confirmed 的判定权，
+	// refuted 是保守缺省，不违反判定权分层。
+	if !assertPassedInEvidence(res.Evaluation) {
+		return v.refuteEarly(ctx, a, hyp, res, replays)
+	}
+
 	verdict, reasoning, jErr := v.judge.Judge(ctx, hyp, a.Primitives, res.Evaluation,
 		func(rctx context.Context) (Result, error) { return replay(rctx, "judge") })
 	if jErr != nil {
@@ -219,6 +231,25 @@ func (v *PromotionEvaluator) Promote(ctx context.Context, a Attempt) (*explorati
 	})
 	if err != nil {
 		return nil, fmt.Errorf("verifier: 记录 verification 失败: %w", err)
+	}
+
+	// 审判标记：在假设节点上回写 verification_outcome——图可回答"这个假设试过没有、
+	// 结果如何"（防死假设复活循环：planner/executor 读图可见已裁决）。仅 metadata
+	// 浅合并，不新建节点（写权限不变式保持）。失败不阻塞裁决（标记是增强非门）。
+	if a.NodeID != "" {
+		mark := map[string]interface{}{
+			"verification_id":      verID,
+			"verification_outcome": outcome,
+			"verification_at":      time.Now().Format(time.RFC3339),
+		}
+		if confirmed {
+			mark["promoted_node"] = nodeID
+		}
+		if b, mErr := json.Marshal(mark); mErr == nil {
+			if uErr := v.graph.UpdateNodeMetadata(ctx, a.NodeID, b); uErr != nil && v.logger != nil {
+				v.logger.Warn().Err(uErr).Str("node_id", a.NodeID).Msg("假设节点审判标记写入失败（不影响裁决）")
+			}
+		}
 	}
 
 	// 证伪：不进图。铁律——图只存坐实态。
@@ -261,6 +292,61 @@ func (v *PromotionEvaluator) Promote(ctx context.Context, a Attempt) (*explorati
 
 // withReplayLog 把最终证据、裁决理由与完整重放链（预跑 + 裁决官复放，含失败）聚合成一份审计 JSON。
 // 保留原证据顶层字段（url/method 等）不套壳——下游（finding host 抽取等）依赖其形状。
+// assertPassedInEvidence 从机器证据中读 executor 断言的命中情况。
+// 证据无 assert_passed 字段（如 generic 域回显）返回 true——不阻断 judge 受理。
+func assertPassedInEvidence(evidence json.RawMessage) bool {
+	if len(evidence) == 0 {
+		return true
+	}
+	var e struct {
+		AssertPassed *bool `json:"assert_passed"`
+	}
+	if json.Unmarshal(evidence, &e) != nil || e.AssertPassed == nil {
+		return true
+	}
+	return *e.AssertPassed
+}
+
+// refuteEarly 断言未命中时的机器证伪路径：落 verification 审计（不打扰 judge）、
+// 给假设节点打 refuted 标记、发布 refuted 事件语义（node=nil）。
+func (v *PromotionEvaluator) refuteEarly(
+	ctx context.Context,
+	a Attempt, hyp string, res Result, replays []replayRecord,
+) (*explorationgraph.Node, error) {
+	const verdict = VerdictRefuted
+	const reasoning = "机器护栏：复现断言全部未命中（配方声称的特征未出现），无支持坐实的证据，不经裁决官直接证伪"
+	evaluation := withReplayLog(res.Evaluation, verdict, reasoning, replays)
+
+	verID, err := v.graph.RecordVerification(ctx, explorationgraph.Verification{
+		ID:         uuid.New().String(),
+		TaskID:     a.TaskID,
+		NodeID:     uuid.New().String(),
+		Primitives: a.Primitives,
+		Outcome:    explorationgraph.OutcomeRefuted,
+		Evaluation: evaluation,
+		DurationMs: res.DurationMs,
+		CreatedAt:  time.Now(),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("verifier: 记录 verification 失败: %w", err)
+	}
+	_ = verID
+	_ = hyp
+
+	if a.NodeID != "" {
+		mark, _ := json.Marshal(map[string]interface{}{
+			"verification_id":      verID,
+			"verification_outcome": explorationgraph.OutcomeRefuted,
+			"verification_at":      time.Now().Format(time.RFC3339),
+			"refuted_by":           "machine_guard",
+		})
+		if uErr := v.graph.UpdateNodeMetadata(ctx, a.NodeID, mark); uErr != nil && v.logger != nil {
+			v.logger.Warn().Err(uErr).Str("node_id", a.NodeID).Msg("假设节点 refuted 标记写入失败")
+		}
+	}
+	return nil, nil
+}
+
 func withReplayLog(evaluation json.RawMessage, verdict, reasoning string, replays []replayRecord) json.RawMessage {
 	merged := map[string]interface{}{}
 	if len(evaluation) > 0 {

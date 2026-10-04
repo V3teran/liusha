@@ -2,13 +2,19 @@
 package evaluator
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/rs/zerolog"
 
 	"github.com/V3teran/liusha/internal/bus"
+	"github.com/V3teran/liusha/internal/explorationgraph"
 	"github.com/V3teran/liusha/internal/framework/core"
 	"github.com/V3teran/liusha/internal/framework/llm"
 )
@@ -29,6 +35,15 @@ type Agent struct {
 	logger        zerolog.Logger
 	maxConcurrent int
 	stopCh        chan struct{}
+
+	// adjudicated 是配方哈希 → 已裁决结论的进程内去重表：LLM 会反复重提同一
+	// （或实质相同的）假设，每条都进复现门 = judge ReAct 成本翻倍 + confirmed
+	// 时重复写 finding。同一配方只裁一次；进程重启即清零（跨 run 去重靠图上的
+	// verification_outcome 标记让规划侧不再重提）。
+	adjudicatedMu sync.Mutex
+	adjudicated   map[string]string
+
+	dedupEnabled bool
 }
 
 // AgentConfig 配置
@@ -53,6 +68,9 @@ func NewAgent(cfg AgentConfig) *Agent {
 		logger:        cfg.Logger.With().Str("agent", "evaluator").Logger(),
 		maxConcurrent: cfg.MaxConcurrent,
 		stopCh:        make(chan struct{}),
+
+		adjudicated:  map[string]string{},
+		dedupEnabled: true,
 	}
 }
 
@@ -130,11 +148,25 @@ func (a *Agent) Run(ctx context.Context) error {
 func (a *Agent) verifyAttempt(ctx context.Context, actionID string, attempt Attempt) error {
 	startTime := time.Now()
 
+	// 去重：同一配方（字节级相同）已裁决过则跳过——不再烧 judge、不再重复写 finding。
+	hash := primitivesHash(attempt.Primitives)
+	if prev, seen := a.adjudicatedLookup(hash); seen {
+		a.logger.Info().
+			Str("action_id", actionID).
+			Str("node_id", attempt.NodeID).
+			Str("previous_outcome", prev).
+			Msg("跳过已裁决配方（去重）")
+		return nil
+	}
+
 	// 调用 PromotionEvaluator 验证
 	node, err := a.evaluator.Promote(ctx, attempt)
 	if err != nil {
 		return fmt.Errorf("promote: %w", err)
 	}
+
+	// 裁决完成（坐实或证伪）才入去重表；门出错允许重试。
+	a.adjudicatedStore(hash, string(explorationgraphOutcome(node)))
 
 	// node == nil 表示验证证伪
 	if node == nil {
@@ -159,6 +191,37 @@ func (a *Agent) verifyAttempt(ctx context.Context, actionID string, attempt Atte
 	a.eventBus.PublishVerificationPassed(a.taskID, node.ID)
 
 	return nil
+}
+
+func (a *Agent) adjudicatedLookup(hash string) (string, bool) {
+	a.adjudicatedMu.Lock()
+	defer a.adjudicatedMu.Unlock()
+	if !a.dedupEnabled {
+		return "", false
+	}
+	out, ok := a.adjudicated[hash]
+	return out, ok
+}
+
+func (a *Agent) adjudicatedStore(hash, outcome string) {
+	a.adjudicatedMu.Lock()
+	defer a.adjudicatedMu.Unlock()
+	a.adjudicated[hash] = outcome
+}
+
+// primitivesHash 对配方做字节级哈希（同一配方重提 = 同哈希；格式微差视为不同，
+// 由图上的 verification_outcome 标记兜底防复活）。
+func primitivesHash(p json.RawMessage) string {
+	sum := sha256.Sum256(bytes.TrimSpace(p))
+	return hex.EncodeToString(sum[:])
+}
+
+// explorationgraphOutcome 从晋升结果导出裁决结论（nil = refuted）。
+func explorationgraphOutcome(node *explorationgraph.Node) explorationgraph.VerifyOutcome {
+	if node == nil {
+		return explorationgraph.OutcomeRefuted
+	}
+	return explorationgraph.OutcomeConfirmed
 }
 
 // ============================================
