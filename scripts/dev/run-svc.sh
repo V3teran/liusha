@@ -147,5 +147,11 @@ for f in logs/vulnapp.log logs/proxy.log logs/api.log logs/runner.log; do
   done
 done
 
-# tail -F 四个日志（go-stack panic 等会落到 *.stderr，需要时再单独看）
-tail -F logs/vulnapp.log logs/proxy.log logs/api.log logs/runner.log
+# 交互 TTY：tail -F 四个日志（Ctrl-C 触发上方 cleanup 优雅关停）。
+# 非交互（nohup/CI，如 e2e.sh 拉起）：tail 会把脚本钉死成僵尸包装进程，
+# 且多轮累积的 tail 向同一 stdout 文件灌重复流——直接退出，服务已后台运行。
+if [ -t 1 ]; then
+  tail -F logs/vulnapp.log logs/proxy.log logs/api.log logs/runner.log
+else
+  echo "✓ 非交互模式：4 服务已后台运行，脚本退出（日志见 logs/*.log）"
+fi

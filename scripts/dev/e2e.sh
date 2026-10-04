@@ -125,6 +125,11 @@ done
 # -9 强杀所有 runner exe + go run 父进程兜底。
 pkill -9 -f 'exe/runner' 2>/dev/null || true
 pkill -9 -f 'go run.*cmd/runner' 2>/dev/null || true
+# run-svc.sh 包装进程残留回收：其结尾 tail -F 会让脚本在端口清理后仍存活，
+# 跨轮累积（其 cleanup trap 会按 PID 清理各自子进程，先 SIGTERM 再 -9）
+pkill -f 'dev/run-svc.sh' 2>/dev/null || true
+sleep 1
+pkill -9 -f 'dev/run-svc.sh' 2>/dev/null || true
 sleep 1
 echo "  ✓ 旧 service 已关停（端口 8001/8888/8090/9090 释放 + runner 进程兜底 pkill）"
 
