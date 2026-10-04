@@ -188,6 +188,7 @@ func (h handler) runCognition(
 		Registry:      execRegistry,
 		FunctionTools: executorCfg.FunctionTools, // function_tools 白名单（nil=全量）
 		ToolsManifest: filteredManifest,          // CLI 工具清单（白名单过滤后）
+		Brief:         brief,                     // 任务简报逐字进 executor system prompt（入口锚定）
 		Checkpointer:  h.checkpointer,
 		Logger:        h.logger,
 	})
