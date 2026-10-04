@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/V3teran/liusha/internal/registry"
@@ -39,16 +41,68 @@ const (
 	httpRespBodySnippet = 4096 // 回给 LLM 的响应体截断
 )
 
+// httpRequestTool 自带 per-task cookie jar：登录类流程（CSRF token 绑定会话、
+// Set-Cookie 会话标识）在无状态请求下永远失败——会话连续性是 HTTP 测试工具的
+// 标配能力（Burp 会话处理 / nuclei raw+cookie 同类语义）。工具实例随 task 构建，
+// jar 生命周期 = task 生命周期；host:port 粒度隔离。
 type httpRequestTool struct {
 	registry.BaseTool
 	deps Deps
+
+	mu  sync.Mutex
+	jar map[string]string // "host|name" → value
 }
 
 func newHTTPRequestTool(deps Deps, timeout time.Duration, safe bool) *httpRequestTool {
-	t := &httpRequestTool{deps: deps}
+	t := &httpRequestTool{deps: deps, jar: map[string]string{}}
 	t.SetTimeout(timeout)
 	t.SetConcurrencySafe(safe)
 	return t
+}
+
+// cookieHeader 组装指定 host 的会话 cookie（name=value; ...），无则空串。
+func (t *httpRequestTool) cookieHeader(host string) string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	var pairs []string
+	for k, v := range t.jar {
+		if strings.HasPrefix(k, host+"|") {
+			pairs = append(pairs, strings.TrimPrefix(k, host+"|")+"="+v)
+		}
+	}
+	sort.Strings(pairs)
+	return strings.Join(pairs, "; ")
+}
+
+// storeCookies 落存响应 Set-Cookie（含 Max-Age<1 的删除语义：值清空即移除）。
+func (t *httpRequestTool) storeCookies(host string, cookies []*http.Cookie) {
+	if len(cookies) == 0 {
+		return
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	for _, c := range cookies {
+		key := host + "|" + c.Name
+		if c.MaxAge < 0 {
+			delete(t.jar, key)
+			continue
+		}
+		t.jar[key] = c.Value
+	}
+}
+
+// sessionCookieNames 返回 host 当前会话 cookie 名列表（输出可见性）。
+func (t *httpRequestTool) sessionCookieNames(host string) []string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	var names []string
+	for k := range t.jar {
+		if strings.HasPrefix(k, host+"|") {
+			names = append(names, strings.TrimPrefix(k, host+"|"))
+		}
+	}
+	sort.Strings(names)
+	return names
 }
 
 func (t *httpRequestTool) Name() string { return "http_request" }
@@ -92,6 +146,14 @@ func (t *httpRequestTool) Execute(ctx context.Context, args json.RawMessage) (re
 	for k, v := range a.Headers {
 		req.Header.Set(k, v)
 	}
+	// 会话连续性：未显式携带 Cookie 时自动附加本 task 的会话 jar（显式头优先）。
+	sentFromJar := false
+	if req.Header.Get("Cookie") == "" {
+		if ch := t.cookieHeader(req.URL.Host); ch != "" {
+			req.Header.Set("Cookie", ch)
+			sentFromJar = true
+		}
+	}
 	if a.Body != "" && req.Header.Get("Content-Type") == "" {
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	}
@@ -111,6 +173,9 @@ func (t *httpRequestTool) Execute(ctx context.Context, args json.RawMessage) (re
 		return registry.ToolResult{Error: "http_request: 请求失败: " + err.Error()}, nil
 	}
 	defer func() { _ = resp.Body.Close() }()
+
+	// 响应 Set-Cookie 入 jar（登录响应的会话标识对后续请求自动生效）。
+	t.storeCookies(req.URL.Host, resp.Cookies())
 
 	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20)) // 上限 1MiB
 
@@ -145,10 +210,14 @@ func (t *httpRequestTool) Execute(ctx context.Context, args json.RawMessage) (re
 	}
 
 	// 返回完整的 request/response 信息，供 write_observation 构造自包含的 repro。
-	// request.headers 回显实际发送的最终 headers（含自动补的 Content-Type 等）——
-	// LLM 拷贝此对象构造 repro.request 才能忠实重放（输入 headers 可能缺 CT 导致假证伪）。
+	// request.headers 回显实际发送的最终 headers（含自动补的 Content-Type 与会话
+	// Cookie）——LLM 拷贝此对象构造 repro.request 才能忠实重放。
 	out, _ := json.Marshal(map[string]interface{}{
 		"traffic_id": trafficID,
+		"session": map[string]interface{}{
+			"cookies":           t.sessionCookieNames(req.URL.Host),
+			"attached_from_jar": sentFromJar,
+		},
 		"request": map[string]interface{}{
 			"method":  a.Method,
 			"url":     a.URL,

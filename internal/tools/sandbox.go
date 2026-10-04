@@ -310,6 +310,11 @@ func (t *browserUseTool) Execute(ctx context.Context, args json.RawMessage) (reg
 	fmt.Fprintf(&sb, "\n[exit_code: %d]", res.ExitCode)
 
 	output := sb.String()
+	// 元素编号失效是浏览器驱动的常态错误（页面跳转/刷新后编号作废）——错误必须
+	// 可行动：提示先 state 重建编号映射再操作，否则 LLM 会盲目重试同编号。
+	if strings.Contains(output, "not found - page may have changed") {
+		output += "\n提示: 元素编号基于最近一次 state 快照，页面变化后即失效。请先执行 {\"action\":\"state\"} 获取最新带编号 DOM，再按新编号重试。"
+	}
 	return registry.ToolResult{
 		Output: output,
 		Signal: &registry.Signal{
