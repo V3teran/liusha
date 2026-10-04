@@ -14,9 +14,11 @@ import (
 type fakeSandboxClient struct {
 	responses []sandbox.ExecResult
 	calls     int
+	commands  []string // 记录每次执行的命令（env 前缀断言用）
 }
 
-func (f *fakeSandboxClient) Exec(_ context.Context, _ sandbox.ExecRequest) (sandbox.ExecResult, error) {
+func (f *fakeSandboxClient) Exec(_ context.Context, req sandbox.ExecRequest) (sandbox.ExecResult, error) {
+	f.commands = append(f.commands, req.Command)
 	if f.calls < len(f.responses) {
 		r := f.responses[f.calls]
 		f.calls++
@@ -122,5 +124,30 @@ func TestBrowserUse_WatchdogSelfHealExhausted(t *testing.T) {
 	}
 	if fake.calls != 5 {
 		t.Fatalf("只到 L2（防循环）, got %d calls", fake.calls)
+	}
+}
+
+// AGENT_ID 按 action 隔离 tab：并行执行 action 时（engine 已把 actionID 挂入
+// ctx），browser_use 命令必须带 AGENT_ID 前缀，否则多个 action 共抢同一 tab。
+func TestBrowserUse_AgentIDTabIsolation(t *testing.T) {
+	fake := &fakeSandboxClient{responses: []sandbox.ExecResult{
+		{Stdout: "url: http://t/\n[exit_code: 0]"},
+	}}
+	tool := newBrowserUseTool(Deps{Sandbox: fake}, 5*time.Second, false)
+	ctx := WithActionContext(context.Background(), "act-123")
+	res, err := tool.Execute(ctx, json.RawMessage(`{"action":"open","url":"http://t/"}`))
+	if err != nil || res.Error != "" {
+		t.Fatalf("执行失败: %v %s", err, res.Error)
+	}
+	if len(fake.commands) != 1 || !strings.Contains(fake.commands[0], `AGENT_ID="act-123"`) {
+		t.Fatalf("命令应带 AGENT_ID 前缀, got %v", fake.commands)
+	}
+
+	// 无 action 上下文（如 judge 复核侧）：不带 AGENT_ID（CLI 默认 default tab）
+	fake2 := &fakeSandboxClient{responses: []sandbox.ExecResult{{Stdout: "ok"}}}
+	tool2 := newBrowserUseTool(Deps{Sandbox: fake2}, 5*time.Second, false)
+	_, _ = tool2.Execute(context.Background(), json.RawMessage(`{"action":"state"}`))
+	if strings.Contains(fake2.commands[0], "AGENT_ID") {
+		t.Fatalf("无 action 上下文不应带 AGENT_ID, got %s", fake2.commands[0])
 	}
 }

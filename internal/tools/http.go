@@ -301,9 +301,7 @@ func (t *httpRequestTool) Desc() string {
 	return "发送 HTTP 请求并返回完整的 request（method/url/headers/body）与 response——" +
 		"write_observation 据此构造自包含复现配方（HTTP 发现的漏洞从本工具返回的 request 拷贝改造；" +
 		"浏览器/非 HTTP 发现走 generic steps）。凭证库中该 host 的已录入凭证（headers/query/body 位置，" +
-		"数量与位置不定）自动注入，显式传入的键优先；响应 Set-Cookie 自动入库（identity=session）。" +
-		"带 CSRF 防护的表单登录两步走：先 GET 表单页，从 HTML hidden input 提取 token 字段（记下其 name），" +
-		"再连同凭证一起 POST——只发凭证不带 token 会被拒绝。"
+		"数量与位置不定）自动注入，显式传入的键优先；响应 Set-Cookie 自动入库（identity=session)。"
 }
 func (t *httpRequestTool) Schema() json.RawMessage { return httpRequestSchema }
 
