@@ -6,16 +6,20 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/rs/zerolog"
+
+	"github.com/V3teran/liusha/internal/bus"
 	"github.com/V3teran/liusha/internal/explorationgraph"
 	"github.com/V3teran/liusha/internal/finding"
 	"github.com/V3teran/liusha/internal/framework/core"
 )
 
 // fakeGraphStore 记录 Evaluator 对探索图的写入，供断言"门的副作用"。
-// 写权限不变式：evaluator 只应写 result 节点（observation/action/objective 均为越权）。
+// 写权限不变式：evaluator 只应新建 result 节点；对假设节点仅 metadata 审判标记。
 type fakeGraphStore struct {
 	verifications []explorationgraph.Verification
 	nodes         []explorationgraph.Node
+	metadata      map[string]json.RawMessage // nodeID → 最近一次 metadata 补丁
 	verID         string
 }
 
@@ -29,6 +33,14 @@ func (f *fakeGraphStore) CreateNode(_ context.Context, n explorationgraph.Node) 
 	n.ID = nodeID
 	f.nodes = append(f.nodes, n)
 	return nodeID, nil
+}
+
+func (f *fakeGraphStore) UpdateNodeMetadata(_ context.Context, id string, metadata json.RawMessage) error {
+	if f.metadata == nil {
+		f.metadata = map[string]json.RawMessage{}
+	}
+	f.metadata[id] = metadata
+	return nil
 }
 
 // fakeReplayer 按预设结论回应复现。
@@ -222,6 +234,62 @@ func TestPromote_NoJudgeNoPromotion(t *testing.T) {
 	}
 }
 
+// 机器护栏：executor 断言全部未命中（assert_passed=false）= 无支持坐实的证据，
+// 直接机器证伪——不进 judge（judge 曾在 404+未命中证据下仍 confirmed，e2e 实测）。
+func TestPromote_MachineGuardRefutesWhenAssertFails(t *testing.T) {
+	w := &fakeGraphStore{verID: "ver-mg1"}
+	fw := &fakeFindingWriter{}
+	judgeCalled := false
+	j := judgeFunc(func(context.Context, string, json.RawMessage, json.RawMessage, ReplayFunc) (string, string, error) {
+		judgeCalled = true
+		return VerdictConfirmed, "不该被调到", nil
+	})
+	failed := Result{Evaluation: json.RawMessage(`{"url":"http://t/x","assert_passed":false,"assert_reasons":["body 缺 \"<script>\" ✗"],"attack_status_code":404}`)}
+	v := New(w, fakeReplayer{res: failed}, fw).WithJudge(j)
+
+	node, err := v.Promote(context.Background(), baseAttempt())
+	if err != nil {
+		t.Fatalf("机器证伪不应报错: %v", err)
+	}
+	if node != nil || judgeCalled {
+		t.Fatalf("断言未命中应机器证伪且不进 judge: node=%v judgeCalled=%v", node, judgeCalled)
+	}
+	if len(w.verifications) != 1 || w.verifications[0].Outcome != explorationgraph.OutcomeRefuted {
+		t.Fatalf("应留 refuted 审计, got %+v", w.verifications)
+	}
+	var mark struct {
+		RefutedBy string `json:"refuted_by"`
+	}
+	if raw, ok := w.metadata["node-source"]; !ok || json.Unmarshal(raw, &mark) != nil || mark.RefutedBy != "machine_guard" {
+		t.Fatalf("假设节点应带 machine_guard 标记, got %+v", w.metadata)
+	}
+}
+
+// 机器护栏不误伤：assert_passed=true 的证据照常进 judge；无 assert_passed 字段
+// （generic 域回显）不阻断。
+func TestPromote_MachineGuardPassesThrough(t *testing.T) {
+	w := &fakeGraphStore{verID: "ver-mg2"}
+	fw := &fakeFindingWriter{}
+
+	passed := New(w, fakeReplayer{res: Result{Evaluation: json.RawMessage(`{"assert_passed":true}`)}}, fw).
+		WithJudge(stubJudge{verdict: VerdictConfirmed})
+	if node, err := passed.Promote(context.Background(), baseAttempt()); err != nil || node == nil {
+		t.Fatalf("断言命中应正常进 judge 并晋升: node=%v err=%v", node, err)
+	}
+
+	noField := New(&fakeGraphStore{verID: "ver-mg3"}, fakeReplayer{res: Result{Evaluation: json.RawMessage(`{"domain":"generic"}`)}}, fw).
+		WithJudge(stubJudge{verdict: VerdictRefuted})
+	if node, err := noField.Promote(context.Background(), baseAttempt()); err != nil || node != nil {
+		t.Fatalf("generic 证据不应被护栏拦截: node=%v err=%v", node, err)
+	}
+}
+
+type judgeFunc func(context.Context, string, json.RawMessage, json.RawMessage, ReplayFunc) (string, string, error)
+
+func (f judgeFunc) Judge(ctx context.Context, hyp string, recipe, ev json.RawMessage, replay ReplayFunc) (string, string, error) {
+	return f(ctx, hyp, recipe, ev, replay)
+}
+
 type stubJudge struct {
 	verdict   string
 	reasoning string
@@ -229,6 +297,43 @@ type stubJudge struct {
 
 func (s stubJudge) Judge(_ context.Context, _ string, _, _ json.RawMessage, _ ReplayFunc) (string, string, error) {
 	return s.verdict, s.reasoning, nil
+}
+
+// 同一配方（字节级相同）只裁一次：第二次进门的 Attempt 直接跳过——
+// 不再烧 judge、不再重复写 finding。
+func TestAgent_VerifyAttemptDeduplicatesSameRecipe(t *testing.T) {
+	w := &fakeGraphStore{verID: "ver-d1"}
+	fw := &fakeFindingWriter{}
+	promoter := New(w, fakeReplayer{res: Result{Evaluation: json.RawMessage(`{"url":"http://t/x","assert_passed":true}`)}}, fw).
+		WithJudge(stubJudge{verdict: VerdictConfirmed})
+	a := NewAgent(AgentConfig{
+		TaskID:    "t-dedup",
+		Evaluator: promoter,
+		EventBus:  bus.New(context.Background()),
+		Logger:    zerolog.Nop(),
+	})
+
+	att := baseAttempt()
+	if err := a.verifyAttempt(context.Background(), "act-1", att); err != nil {
+		t.Fatalf("首次验证应成功: %v", err)
+	}
+	if err := a.verifyAttempt(context.Background(), "act-2", att); err != nil {
+		t.Fatalf("重复配方应跳过而非报错: %v", err)
+	}
+	if len(w.verifications) != 1 || len(w.nodes) != 1 || len(fw.findings) != 1 {
+		t.Fatalf("同配方二次进门应被去重: ver=%d nodes=%d findings=%d",
+			len(w.verifications), len(w.nodes), len(fw.findings))
+	}
+
+	// 不同配方不受影响
+	other := baseAttempt()
+	other.Primitives = json.RawMessage(`{"domain":"web","recipe":{"request":{"method":"GET","url":"http://t/y","headers":{},"body":""}},"assert":{"body_contains":["leaked-secret"]}}`)
+	if err := a.verifyAttempt(context.Background(), "act-3", other); err != nil {
+		t.Fatalf("新配方应正常验证: %v", err)
+	}
+	if len(w.verifications) != 2 {
+		t.Fatalf("新配方应有新验证, got %d", len(w.verifications))
+	}
 }
 
 // replayJudge 裁决前自主复放 N 次（模拟 RouterJudge 的 replay_for_verification 调用）。
@@ -291,7 +396,8 @@ func TestPromote_JudgeReplaysAuditedNotGraphWritten(t *testing.T) {
 	}
 }
 
-// 证伪：不写任何节点（铁律——图只存坐实态），审计链仍完整。
+// 证伪：不写任何节点（铁律——图只存坐实态），审计链仍完整，
+// 且假设节点被回写 refuted 审判标记（图可回答"试过没有"——防死假设复活）。
 func TestPromote_RefutedWritesNoNodes(t *testing.T) {
 	w := &fakeGraphStore{verID: "ver-r2"}
 	fw := &fakeFindingWriter{}
@@ -311,6 +417,13 @@ func TestPromote_RefutedWritesNoNodes(t *testing.T) {
 	}
 	if len(w.verifications) != 1 || w.verifications[0].Outcome != explorationgraph.OutcomeRefuted {
 		t.Fatalf("证伪应留 verification 审计, got %+v", w.verifications)
+	}
+	var mark struct {
+		Outcome string `json:"verification_outcome"`
+	}
+	if raw, ok := w.metadata["node-source"]; !ok ||
+		json.Unmarshal(raw, &mark) != nil || mark.Outcome != VerdictRefuted {
+		t.Fatalf("假设节点应被回写 refuted 标记, got %+v", w.metadata)
 	}
 }
 

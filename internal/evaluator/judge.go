@@ -80,7 +80,7 @@ func (j *RouterJudge) Judge(
 	recipe, initialEvidence json.RawMessage,
 	replay ReplayFunc,
 ) (string, string, error) {
-	provider, err := j.router.For(ctx, llm.ComplexityMedium)
+	provider, err := j.router.For(ctx, llm.ComplexityComplex)
 	if err != nil {
 		return "", "", fmt.Errorf("judge: 获取 provider: %w", err)
 	}
