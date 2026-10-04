@@ -87,7 +87,7 @@ func TestDependencyFiltering(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := filterValidDependencies(tt.input)
+			result := filterValidDependencies(tt.input, nil)
 			if len(result) != len(tt.expected) {
 				t.Errorf("期望 %d 个依赖，实际 %d 个: %v", len(tt.expected), len(result), result)
 			}
@@ -97,6 +97,19 @@ func TestDependencyFiltering(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// 幻影依赖（e2e 实测死锁根因）：格式合法的 UUID 但图中不存在——LLM 照抄 prompt
+// 示例所致。存在性校验必须把它滤掉，否则 Action 永久 blocked、全图死锁。
+func TestDependencyFiltering_PhantomIDs(t *testing.T) {
+	realID := "11111111-2222-3333-4444-555555555555"
+	phantom := "0aa429b8-1803-42b1-afcb-4300304857d6" // 曾是 prompt 示例 UUID
+
+	existing := map[string]bool{realID: true}
+	got := filterValidDependencies([]string{phantom, realID}, existing)
+	if len(got) != 1 || got[0] != realID {
+		t.Fatalf("幻影依赖应被滤掉，仅留图中存在的 ID: got %v", got)
 	}
 }
 

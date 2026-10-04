@@ -33,11 +33,12 @@ func NewIntelligence(router *llm.Router, logger zerolog.Logger) *Intelligence {
 
 // PlanningContext 规划上下文
 type PlanningContext struct {
-	Objective        string                  // 任务目标
-	CompletedActions []explorationgraph.Node // 已完成的 Action
-	PendingActions   []explorationgraph.Node // 待执行的 Action
-	Results          []explorationgraph.Node // 已确认的结果
-	FailedActions    []explorationgraph.Node // 失败的 Action
+	Objective         string                  // 任务目标
+	CompletedActions  []explorationgraph.Node // 已完成的 Action
+	PendingActions    []explorationgraph.Node // 待执行的 Action
+	Results           []explorationgraph.Node // 已确认的结果
+	FailedActions     []explorationgraph.Node // 失败的 Action
+	RefutedHypotheses []string                // 已被复现门证伪的假设陈述（防止复读）
 }
 
 // ActionProposal LLM 返回的 Action 提案
@@ -130,7 +131,7 @@ func (i *Intelligence) Plan(ctx context.Context, graph *explorationgraph.Store, 
 	}
 
 	// 6. 转换 LLM 提案为探索图节点
-	nodes := i.convertProposalsToNodes(taskID, response.Actions)
+	nodes := i.convertProposalsToNodes(ctx, graph, taskID, response.Actions)
 
 	i.logger.Info().
 		Str("task_id", taskID).
@@ -185,6 +186,30 @@ func (i *Intelligence) gatherContext(ctx context.Context, graph *explorationgrap
 		return nil, fmt.Errorf("获取 Result 失败: %w", err)
 	}
 	planCtx.Results = results
+
+	// 获取已被复现门证伪的假设（evaluator 的 verification_outcome 标记）——
+	// 规划器对"哪条路已试死"的权威事实源，防同方向反复重提（复读机）。
+	refutedObservations, err := graph.ListNodesByKind(ctx, taskID, core.KindObservation)
+	if err != nil {
+		return nil, fmt.Errorf("获取 Observation 失败: %w", err)
+	}
+	for _, obs := range refutedObservations {
+		if obs.Metadata == nil {
+			continue
+		}
+		var m struct {
+			VerificationOutcome string `json:"verification_outcome"`
+		}
+		if json.Unmarshal(obs.Metadata, &m) != nil || m.VerificationOutcome != "refuted" {
+			continue
+		}
+		var c struct {
+			Statement string `json:"statement"`
+		}
+		if json.Unmarshal(obs.Content, &c) == nil && c.Statement != "" {
+			planCtx.RefutedHypotheses = append(planCtx.RefutedHypotheses, c.Statement)
+		}
+	}
 
 	return planCtx, nil
 }
@@ -311,6 +336,15 @@ func (i *Intelligence) buildPlanningPrompt(ctx *PlanningContext) string {
 		sb.WriteString("\n")
 	}
 
+	// 已被复现门证伪的假设——硬约束：不要再为这些方向生成同质动作。
+	if len(ctx.RefutedHypotheses) > 0 {
+		sb.WriteString("## 已被证伪的假设（复现门裁决，禁止原样重提）\n")
+		for _, h := range ctx.RefutedHypotheses {
+			fmt.Fprintf(&sb, "- %s\n", h)
+		}
+		sb.WriteString("\n**注意**：以上假设均经真实复现验证被否定。除非你有实质不同的新证据或新方法，否则不要再生成同方向的攻击动作。\n\n")
+	}
+
 	// 规划要求
 	sb.WriteString("## 规划要求\n\n")
 	sb.WriteString("请基于以上信息，提出下一步的探索操作。\n\n")
@@ -352,7 +386,7 @@ func (i *Intelligence) buildPlanningPrompt(ctx *PlanningContext) string {
 	sb.WriteString("      \"complexity\": \"simple/moderate/complex\",\n")
 	sb.WriteString("      \"priority\": \"critical/high/medium/low\",\n")
 	sb.WriteString("      \"reason\": \"为什么需要这个操作\",\n")
-	sb.WriteString("      \"depends_on\": [\"可引用上面列出的 Action ID，格式如 '0aa429b8-1803-42b1-afcb-4300304857d6'\"],\n")
+	sb.WriteString("      \"depends_on\": [\"可引用上面列出的真实 Action ID；列表里没有可依赖的就填 []，绝不要编造或照抄示例\"],\n")
 	sb.WriteString("      \"metadata\": {}\n")
 	sb.WriteString("    }\n")
 	sb.WriteString("  ]\n")
@@ -371,7 +405,7 @@ func (i *Intelligence) buildPlannerSystemPrompt() string {
 1. 先调 evaluate_progress 看全局进展；信息不足再调 observe_state 深挖
 2. 基于观察决定：继续探索（提出 Action）或停止（should_continue=false）
 3. 规划完成后停止调用工具，**只输出一个 JSON 对象**（不要包裹 markdown）：
-{"should_continue": true, "reasoning": "决策理由", "actions": [{"type": "reconnaissance|vulnerability_scan|exploitation|analysis|expansion", "instruction": "具体做什么", "complexity": "simple|moderate|complex", "priority": "critical|high|medium|low", "reason": "为什么", "depends_on": ["依赖的 Action ID"], "metadata": {}}]}
+{"should_continue": true, "reasoning": "决策理由", "actions": [{"type": "reconnaissance|vulnerability_scan|exploitation|analysis|expansion", "instruction": "具体做什么", "complexity": "simple|moderate|complex", "priority": "critical|high|medium|low", "reason": "为什么", "depends_on": [], "metadata": {}}]}
 
 **规划原则**：优先复现已见线索；一次 1-5 个 Action；depends_on 只引用已知 ID；已失败方向换路。`
 }
@@ -403,19 +437,24 @@ func (i *Intelligence) parsePlanningResponse(content string) (*PlanningResponse,
 }
 
 // filterValidDependencies 过滤依赖 ID 中的非法值——LLM 可能编造非 UUID 的依赖
-// （如 "0"），坏依赖会把 Action 永久卡在 blocked，必须在这里拦截。
-func filterValidDependencies(deps []string) []string {
+// （如 "0"），或照抄 prompt 里的示例 UUID（格式合法但图中不存在）；两者都会把
+// Action 永久卡在 blocked。existingIDs 为图中已知 action ID 集（nil 跳过存在性校验）。
+func filterValidDependencies(deps []string, existingIDs map[string]bool) []string {
 	valid := make([]string, 0, len(deps))
 	for _, depID := range deps {
-		if _, err := uuid.Parse(depID); err == nil {
-			valid = append(valid, depID)
+		if _, err := uuid.Parse(depID); err != nil {
+			continue
 		}
+		if existingIDs != nil && !existingIDs[depID] {
+			continue
+		}
+		valid = append(valid, depID)
 	}
 	return valid
 }
 
 // convertProposalsToNodes 将 LLM 提案转换为探索图节点
-func (i *Intelligence) convertProposalsToNodes(taskID string, proposals []ActionProposal) []explorationgraph.Node {
+func (i *Intelligence) convertProposalsToNodes(ctx context.Context, graph *explorationgraph.Store, taskID string, proposals []ActionProposal) []explorationgraph.Node {
 	var nodes []explorationgraph.Node
 
 	for _, proposal := range proposals {
@@ -442,15 +481,25 @@ func (i *Intelligence) convertProposalsToNodes(taskID string, proposals []Action
 			priority = explorationgraph.PriorityLow
 		}
 
-		// 过滤无效的依赖 ID（如 "0" 或非 UUID 格式）——坏依赖会把 Action 永久卡 blocked
-		validDependsOn := filterValidDependencies(proposal.DependsOn)
+		// 过滤无效的依赖 ID——坏依赖（格式非法、或图里不存在的"幻影 ID"，如 LLM
+		// 照抄 prompt 里的示例 UUID）会把 Action 永久卡 blocked，进而死锁全图。
+		existing, exErr := graph.ListNodesByKind(ctx, taskID, core.KindAction)
+		if exErr != nil {
+			existing = nil // 查不到就不做存在性过滤，退回纯格式校验
+		}
+		existingIDs := make(map[string]bool, len(existing))
+		for _, a := range existing {
+			existingIDs[a.ID] = true
+		}
+		validDependsOn := filterValidDependencies(proposal.DependsOn, existingIDs)
 		if len(validDependsOn) < len(proposal.DependsOn) {
 			for _, depID := range proposal.DependsOn {
-				if _, err := uuid.Parse(depID); err != nil {
-					i.logger.Warn().
-						Str("invalid_dep_id", depID).
-						Str("action_id", actionID).
-						Msg("过滤掉无效的依赖 ID")
+				if _, pErr := uuid.Parse(depID); pErr != nil {
+					i.logger.Warn().Str("invalid_dep_id", depID).Str("action_id", actionID).
+						Msg("过滤掉无效的依赖 ID（格式非法）")
+				} else if !existingIDs[depID] {
+					i.logger.Warn().Str("phantom_dep_id", depID).Str("action_id", actionID).
+						Msg("过滤掉幻影依赖 ID（图中不存在——多为 LLM 照抄 prompt 示例）")
 				}
 			}
 		}
