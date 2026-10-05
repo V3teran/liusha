@@ -101,7 +101,7 @@ func TestBrowserUse_WatchdogSelfHealL2(t *testing.T) {
 	if !strings.Contains(out, "url: http://target/") {
 		t.Fatalf("L2 自愈后应返回重试成功结果, got:\n%s", out)
 	}
-	if !strings.Contains(out, "L2 杀 daemon 冷启动") {
+	if !strings.Contains(out, "L2 杀 daemon+chromium 冷启动") {
 		t.Fatal("L2 升级应留痕")
 	}
 	if fake.calls != 5 {

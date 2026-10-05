@@ -147,7 +147,22 @@ func (m *WarmPoolManager) Acquire(ctx context.Context, req AcquireRequest) (*San
 		}
 	}
 
+	// 借出前卫生（idle 复用路径）：上一个 runner 若被强杀（pkill），其
+	// Release→SoftReset 与浏览器清理钩子被跳过，daemon/chromium 跨轮累积
+	// （实测：2GB 容器内 17 个 chromium 进程把内存吃满 → 新任务 chromium
+	// 冷启 30s 超时，两级自愈也救不了资源耗尽）。仅当本 borrow 前 active==0
+	//（容器空闲）才清——并发在跑的任务身份不受影响。
+	wasIdle := m.active == 0
 	m.active++
+	if wasIdle {
+		if err := m.sandbox.SoftReset(ctx); err != nil {
+			m.logger.Warn().Err(err).Str("container_id", m.sandbox.ID).
+				Msg("借出前 SoftReset 失败（best-effort，残留风险留给自愈）")
+		} else {
+			m.logger.Info().Str("container_id", m.sandbox.ID).
+				Msg("空闲容器借出前已清理（浏览器/进程/临时文件残留）")
+		}
+	}
 
 	// 准备任务工作目录（默认对齐 sandbox-server 约定 /liusha/<taskID>）
 	sb := &Sandbox{
