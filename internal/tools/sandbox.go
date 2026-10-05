@@ -324,7 +324,9 @@ func (t *browserUseTool) Execute(ctx context.Context, args json.RawMessage) (reg
 			cmd  string
 		}{
 			{"L1 reset", "browser-use reset"},
-			{"L2 杀 daemon 冷启动", "pkill -f browser-svc.py || true"},
+			// 杀 daemon 后 chromium 会被 reparent 给 PID1 而非退出（实测孤儿继续吃内存），
+			// L2 必须连 chromium 一起收，冷启动才是真正的干净环境
+			{"L2 杀 daemon+chromium 冷启动", "pkill -f browser-svc.py; pkill -f chromium; true"},
 		} {
 			h, _ := execOnce(heal.cmd)
 			fmt.Fprintf(&log, "--- %s ---\n%s\n", heal.name, orDash(h.Stdout))
