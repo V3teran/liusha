@@ -3,11 +3,9 @@ package agent
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"strings"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -133,21 +131,6 @@ func (s *Store) UpdateComplexity(ctx context.Context, id, complexity string) (Ag
 		return Agent{}, fmt.Errorf("update agent complexity %s: %w", id, err)
 	}
 	return h, nil
-}
-
-// ComplexityByCode 只取某 agent 的复杂度档位（LLM 路由第一跳 role→complexity 的 DB 覆盖用，见 llmstore.ComplexityOverrideFunc）。
-// found=false 表示无该 code 的 agent 行（非 agent 的路由 key），
-// 调用方据此回落代码内置复杂度映射。非「不存在」的真实错误照常返回。
-func (s *Store) ComplexityByCode(ctx context.Context, code string) (complexity string, found bool, err error) {
-	row := s.pool.QueryRow(ctx, "SELECT complexity FROM agent WHERE code=$1", code)
-	switch err := row.Scan(&complexity); {
-	case err == nil:
-		return complexity, true, nil
-	case errors.Is(err, pgx.ErrNoRows):
-		return "", false, nil
-	default:
-		return "", false, fmt.Errorf("get agent complexity %q: %w", code, err)
-	}
 }
 
 // GetByCode 按稳定引用名读取（代码与种子的主要访问路径——四角色即四个固定 code）。

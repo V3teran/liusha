@@ -21,8 +21,9 @@ import (
 type Intelligence struct {
 	router  *llm.Router
 	logger  zerolog.Logger
-	charter string // 角色章程（agent.system_prompt，运维经前端可调；空=不渲染）
-	maxIt   int    // ReAct 迭代上限（agent.max_iterations；0=不设限，基线 6 生效）
+	charter string         // 角色章程（agent.system_prompt，运维经前端可调；空=不渲染）
+	tier    llm.Complexity // LLM 档位（agent.complexity，文档 tier 种子 → 三级缓存读）
+	maxIt   int            // ReAct 迭代上限（agent.max_iterations；0=不设限，基线 6 生效）
 }
 
 // NewIntelligence 创建智能规划器
@@ -43,6 +44,13 @@ func (i *Intelligence) WithSystemPrompt(charter string) *Intelligence {
 // 上限语义：只能收紧不能放宽。
 func (i *Intelligence) WithMaxIterations(n int) *Intelligence {
 	i.maxIt = n
+	return i
+}
+
+// WithComplexity 注入 LLM 档位（agent.complexity，文档 tier 种子经三级缓存读；
+// 空回退 medium）。
+func (i *Intelligence) WithComplexity(tier string) *Intelligence {
+	i.tier = llm.TierOf(tier)
 	return i
 }
 
@@ -88,7 +96,7 @@ func (i *Intelligence) Plan(ctx context.Context, graph *explorationgraph.Store, 
 	prompt := i.buildPlanningPrompt(planCtx)
 
 	// 2. 组装 ReAct 规划器：observe_state / evaluate_progress 只读图工具
-	provider, err := i.router.For(ctx, llm.ComplexityMedium)
+	provider, err := i.router.For(ctx, i.tier)
 	if err != nil {
 		return nil, fmt.Errorf("获取 LLM provider 失败: %w", err)
 	}
@@ -692,7 +700,7 @@ type ObjectiveExtractionResponse struct {
 
 // callObjectiveExtractionLLM 调用 LLM 提取目标
 func (i *Intelligence) callObjectiveExtractionLLM(ctx context.Context, prompt string) (*ObjectiveExtractionResponse, error) {
-	provider, err := i.router.For(ctx, "medium")
+	provider, err := i.router.For(ctx, i.tier)
 	if err != nil {
 		return nil, fmt.Errorf("获取 LLM provider 失败: %w", err)
 	}

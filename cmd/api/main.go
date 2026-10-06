@@ -120,9 +120,9 @@ func main() {
 	// 又是两个 LLM 工厂运行期 role→provider 解析的事实源（复用同一 cache 实例）。
 	cfgAgentStore := agent.NewStore(pool)
 	cfgSkillStoreRaw := skillstore.NewStore(pool) // 种子加载用（裸 DB 写）
-	// tier 覆盖走 cfgStore（configstore，带多级缓存的 TierByCode），非裸 cfgAgentStore——
-	// SaveExecutor/UpdateExecutorTier 两写入口都经其失效 tier 键，agent 改档即时生效且不脏读。
-	llmStore := llmstore.New(pool, cache).WithComplexityOverride(llmstore.AgentComplexityOverride(cfgStore, logger))
+	// agent.complexity 的消费在 runner cognition（AgentByCode 三级缓存直读直传 router.For），
+	// 不经 llmstore role 路由，故此处无需 complexity override 装配。
+	llmStore := llmstore.New(pool, cache)
 
 	// 系统业务旋钮 Store（compaction/runtime/proxy_filter 三组）。既是「系统配置」CRUD 后端，
 	// 又是 runner 现读 / proxy 热换过滤链的事实源（复用同一 cache 实例——写后失效广播即时可见）。

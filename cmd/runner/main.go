@@ -371,8 +371,7 @@ func newLLMStack(pool *pgxpool.Pool, cache *cachestore.Cache, logger zerolog.Log
 	// api 进程改「LLM 配置」模块后经 cachestore 广播失效，runner 下次 For(tier) 即读到最新部署。
 	// agent.tier 覆盖 agent→tier 第一跳（0107）：agent 在「智能体」页改档后，api 经 cachestore
 	// 广播失效 tier 键，runner 被动清 L1，下次 For(tier) 即读到新档（TierByCode 走多级缓存）。
-	llmStore := llmstore.New(pool, cache).
-		WithComplexityOverride(llmstore.AgentComplexityOverride(cfgStore, logger))
+	llmStore := llmstore.New(pool, cache)
 
 	// LLM provider API Key 加密密钥（migration 0103）：同 cmd/api 的 fail-fast 校验——
 	// runner 是解密密钥、真正拿明文打 LLM 请求的一端，缺密钥直接拒启动。
