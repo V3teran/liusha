@@ -16,6 +16,7 @@ import (
 	"github.com/V3teran/liusha/internal/framework/llm"
 	"github.com/V3teran/liusha/internal/framework/runtime"
 	"github.com/V3teran/liusha/internal/registry"
+	"github.com/V3teran/liusha/internal/skill"
 	"github.com/V3teran/liusha/internal/tools"
 )
 
@@ -26,6 +27,9 @@ type Engine struct {
 	registry      *Registry     // 使用 executor 包的 Registry
 	functionTools []string      // function_tools 白名单（nil=全量）
 	toolsManifest ToolsManifest // 过滤后的 CLI 工具清单
+	skills        []*skill.Card // Tier 1 skill 索引（agent.skills 声明，正文按需 read_skill)
+	charter       string        // 角色章程（agent.system_prompt，运维经前端可调；空=不渲染）
+	maxIt         int           // ReAct 迭代上限（agent.max_iterations；0=不设限，复杂度基线生效）
 	brief         string        // 任务简报原文（用户指定的入口 URL 等，逐字渲染进 system prompt——防转录漂移）
 	checkpointer  core.Checkpointer
 	logger        zerolog.Logger
@@ -38,6 +42,9 @@ type EngineConfig struct {
 	Registry      *Registry
 	FunctionTools []string      // function_tools 白名单（agent 配置；nil=全量，空=空集）
 	ToolsManifest ToolsManifest // 过滤后的 CLI 工具清单
+	Skills        []*skill.Card // agent.skills 声明的 skill 索引（Tier 1；渐进式加载的目录层）
+	SystemPrompt  string        // 角色章程（agent.system_prompt 正文；渲染进 prompt 开头，空=跳过）
+	MaxIterations int           // ReAct 迭代上限（agent.max_iterations；0=不设限）
 	Brief         string        // 任务简报原文（可选；渲染进 system prompt 作入口锚定）
 	Checkpointer  core.Checkpointer
 	Logger        zerolog.Logger
@@ -51,6 +58,9 @@ func NewEngine(cfg EngineConfig) *Engine {
 		registry:      cfg.Registry,
 		functionTools: cfg.FunctionTools,
 		toolsManifest: cfg.ToolsManifest,
+		skills:        cfg.Skills,
+		charter:       cfg.SystemPrompt,
+		maxIt:         cfg.MaxIterations,
 		brief:         cfg.Brief,
 		checkpointer:  cfg.Checkpointer,
 		logger:        cfg.Logger.With().Str("component", "executor_engine").Logger(),
@@ -226,7 +236,14 @@ func filterToolsByName(tools []registry.Tool, names []string) []registry.Tool {
 	return out
 }
 
-// buildSystemPrompt 根据 Action 类型构建系统提示词；工具清单段按 registered 渲染
+// buildSystemPrompt 组装 executor system prompt：
+//
+//	角色章程（agent.system_prompt——DB 事实源，种子 = agents/executor.md 正文，前端可调）
+//	+ 动态装配段（工具清单 / CLI 目录 / skill 索引 / actionType 指导 / 时间预期 / 任务简报）
+//
+// 章程是机制契约（write_observation/域信封 repro/assert 规则）的唯一载体：
+// 改契约 = 改 agents/executor.md + make reseed，代码不内置第二份静态模板。
+// DB 正文为空（新建 agent 未填）时单句兜底，防完全空 prompt 失能。
 func (e *Engine) buildSystemPrompt(actionType, complexity string, registered []registry.Tool) string {
 	var toolSB strings.Builder
 	for _, t := range registered {
@@ -235,34 +252,16 @@ func (e *Engine) buildSystemPrompt(actionType, complexity string, registered []r
 	if toolSB.Len() == 0 {
 		toolSB.WriteString("（无可用工具——function_tools 白名单为空）\n")
 	}
-	basePrompt := strings.ReplaceAll(`你是一个专业的渗透测试执行专家。你的任务是执行指定的操作，并使用可用的工具完成目标。
 
-**执行原则**：
-1. 仔细分析任务目标，制定清晰的执行计划
-2. 逐步执行，每次只调用一个工具
-3. 根据工具返回结果调整后续步骤
-4. 发现可疑漏洞立即用 write_observation 记录假设（附自包含 repro），用 write_evidence 附上证据——没上报的发现等于没发现（不进报告、不计入成果）
-5. 遇到错误时尝试其他方法，不要轻易放弃
-6. 完成任务后明确说明"任务完成"
-
-**可用工具**（只能用这些，其余名字不可用）：
-{TOOL_LIST}
-**漏洞上报流程（域信封复现配方）**：
-1. 发现疑似漏洞 → 先用 http_request 发正常参数请求，观察基线行为（响应结构/文案/耗时）
-2. 构造攻击请求并实测：http_request 发送注入 payload 的完整请求，确认攻击响应出现基线没有的独有特征（报错回显/泄露数据/延迟）
-3. write_observation 附域信封 repro（HTTP 漏洞用 web 域）：
-   repro = {"domain": "web", "recipe": {"request": {攻击请求完整拷贝（method/url/headers/body 四字段齐全，url 含 http://）}}, "assert": {...}}
-   - 可选加 "recipe.baseline": {正常参数请求}——机器先放基线再放攻击做差分，断言在基线也命中会被拒坐实
-   - 来源不限 http_request：HTTP 发现的漏洞从 http_request 返回的 request 拷贝改造；
-     浏览器发现的（DOM XSS 等）/非 HTTP 场景（命令、多步操作）走 generic 域 steps——
-     复现链只认自包含配方，不依赖任何工具或流量库
-4. 非 HTTP 场景（命令序列/多步操作/域渗透）用 generic 域：
-   repro = {"domain": "generic", "recipe": {"steps": "1. ... 2. ...（每步写清命令/工具与观察点）"}, "assert": {"description": "执行后观察到 X 即坐实"}}
-   ——评估官将按 steps 自主执行验证
-5. assert 断言攻击响应独有特征：报错回显/泄露数据子串（body_contains）、状态改变、时间盲注入用 min_duration_ms（SLEEP(5) 给 4000）
-6. 禁止页面常态断言（status_code:200+登录页标题这类正常响应也命中的谓词）——无鉴别力会被拒坐实
-
-`, "{TOOL_LIST}", toolSB.String())
+	var promptSB strings.Builder
+	if c := strings.TrimSpace(e.charter); c != "" {
+		promptSB.WriteString(c)
+	} else {
+		promptSB.WriteString("你是渗透测试执行专家：执行分配的动作，发现可疑漏洞立即用 write_observation 报告（附自包含 repro 配方，格式见工具 schema）。")
+	}
+	promptSB.WriteString("\n\n**可用工具**（只能用这些，其余名字不可用）：\n")
+	promptSB.WriteString(toolSB.String())
+	basePrompt := promptSB.String()
 
 	// ========== 添加过滤后的 CLI 工具清单 ==========
 	if e.toolsManifest != nil && len(e.toolsManifest.Tools) > 0 {
@@ -337,14 +336,23 @@ func (e *Engine) buildSystemPrompt(actionType, complexity string, registered []r
 2. 端口扫描: run_command({"command": "nmap -sV -p80,443,8080 target.com"})
 3. 目录爆破: run_command({"command": "feroxbuster -u http://target/ -w /usr/share/wordlists/dirb/common.txt"})
 
-**重要提示**：
-- 必须实际调用工具执行测试，不要只做理论分析
-- 每次工具调用后仔细分析结果
-- 发现可疑漏洞先用 write_observation 记录假设、write_evidence 附上证据，等待 Evaluator 验证坐实
-
+**重要提示**：必须实际调用工具执行测试，不要只做理论分析；每次调用后仔细分析结果再决定下一步。
 `
 	} else {
 		e.logger.Warn().Msg("⚠️  没有可用的 CLI 工具（cli_tools 未配置或为空）")
+	}
+	// ========================================================
+
+	// ========== Tier 1 skill 索引（渐进式加载：索引常驻 prompt，正文按需 read_skill）==========
+	// 仅在 read_skill 实际注册进 ReAct（function_tools 白名单放行）且本 agent 声明了
+	// skills 时渲染——工具不在场还宣传手册入口，LLM 会徒劳调用。
+	for _, t := range registered {
+		if t.Name() == "read_skill" {
+			if idx := skill.RenderIndex(e.skills); idx != "" {
+				basePrompt += "\n" + idx
+			}
+			break
+		}
 	}
 	// ========================================================
 
@@ -364,7 +372,7 @@ func (e *Engine) buildSystemPrompt(actionType, complexity string, registered []r
 - 使用 nuclei、sqlmap 等专用扫描工具
 - 针对已知服务版本搜索 CVE
 - 测试常见漏洞类型（SQL注入、XSS、SSRF等）
-- 发现可疑漏洞立即用 write_observation 记录假设并附 write_evidence 证据
+- 发现可疑漏洞立即用 write_observation 记录假设（附 repro 配方）
 `
 	case "exploitation":
 		basePrompt += `
@@ -410,16 +418,21 @@ func (e *Engine) mapComplexityToTier(complexity string) llm.Complexity {
 	}
 }
 
-// getMaxIterations 获取最大迭代次数
+// getMaxIterations 获取最大迭代次数：复杂度基线（simple=5/moderate=10/complex=20）
+// 与 agent.max_iterations 上限取小——agent 配置只能收紧不能放宽（防误配烧 token），
+// 0=不设限（复杂度基线生效）。
 func (e *Engine) getMaxIterations(complexity string) int {
+	base := 10
 	switch complexity {
 	case "simple":
-		return 5
+		base = 5
 	case "moderate":
-		return 10
+		base = 10
 	case "complex":
-		return 20
-	default:
-		return 10
+		base = 20
 	}
+	if e.maxIt > 0 && base > e.maxIt {
+		return e.maxIt
+	}
+	return base
 }
