@@ -19,8 +19,10 @@ import (
 
 // Intelligence 是基于 LLM 的智能规划器
 type Intelligence struct {
-	router *llm.Router
-	logger zerolog.Logger
+	router  *llm.Router
+	logger  zerolog.Logger
+	charter string // 角色章程（agent.system_prompt，运维经前端可调；空=不渲染）
+	maxIt   int    // ReAct 迭代上限（agent.max_iterations；0=不设限，基线 6 生效）
 }
 
 // NewIntelligence 创建智能规划器
@@ -29,6 +31,19 @@ func NewIntelligence(router *llm.Router, logger zerolog.Logger) *Intelligence {
 		router: router,
 		logger: logger.With().Str("component", "planner_intelligence").Logger(),
 	}
+}
+
+// WithSystemPrompt 注入角色章程（agent.system_prompt 正文，前端可编辑）。
+func (i *Intelligence) WithSystemPrompt(charter string) *Intelligence {
+	i.charter = charter
+	return i
+}
+
+// WithMaxIterations 注入 ReAct 迭代上限（agent.max_iterations；0=不设限）。
+// 上限语义：只能收紧不能放宽。
+func (i *Intelligence) WithMaxIterations(n int) *Intelligence {
+	i.maxIt = n
+	return i
 }
 
 // PlanningContext 规划上下文
@@ -107,7 +122,7 @@ func (i *Intelligence) Plan(ctx context.Context, graph *explorationgraph.Store, 
 		Objective:            prompt,
 		SystemPrompt:         i.buildPlannerSystemPrompt(),
 		LLMProvider:          provider,
-		MaxIterations:        6, // 规划是短决策循环：观察→(深挖)→出规划
+		MaxIterations:        i.capIterations(6), // 规划是短决策循环：观察→(深挖)→出规划
 		MaxTokens:            4000,
 		MessageModifierChain: runtime.NewDefaultModifierChain(20),
 	})
@@ -397,17 +412,24 @@ func (i *Intelligence) buildPlanningPrompt(ctx *PlanningContext) string {
 }
 
 // callLLM 调用 LLM 进行推理
-// buildPlannerSystemPrompt 规划 agent 的系统提示（ReAct 形态）。
+// buildPlannerSystemPrompt 组装规划 system prompt：
+// 角色章程（agent.system_prompt——DB 事实源，种子 = agents/planner.md 正文，前端可调）
+// + 空正文单句兜底。输出 JSON 契约由章程承载，改契约 = 改 agents/planner.md + make reseed。
 func (i *Intelligence) buildPlannerSystemPrompt() string {
-	return `你是渗透测试的探索规划专家。通过 observe_state / evaluate_progress 工具了解探索图现状，然后规划下一批 Action。
+	if c := strings.TrimSpace(i.charter); c != "" {
+		return c
+	}
+	return "你是渗透测试的探索规划专家：基于上下文摘要规划下一批 Action" +
+		"（1-5 个，depends_on 只引用已知 ID），输出 JSON：" +
+		`{"should_continue": true, "reasoning": "...", "actions": [{"type": "...", "instruction": "...", "complexity": "...", "priority": "...", "reason": "...", "depends_on": [], "metadata": {}}]}`
+}
 
-**工作方式**：
-1. 先调 evaluate_progress 看全局进展；信息不足再调 observe_state 深挖
-2. 基于观察决定：继续探索（提出 Action）或停止（should_continue=false）
-3. 规划完成后停止调用工具，**只输出一个 JSON 对象**（不要包裹 markdown）：
-{"should_continue": true, "reasoning": "决策理由", "actions": [{"type": "reconnaissance|vulnerability_scan|exploitation|analysis|expansion", "instruction": "具体做什么", "complexity": "simple|moderate|complex", "priority": "critical|high|medium|low", "reason": "为什么", "depends_on": [], "metadata": {}}]}
-
-**规划原则**：优先复现已见线索；一次 1-5 个 Action；depends_on 只引用已知 ID；已失败方向换路。`
+// capIterations 基线与 agent.max_iterations 上限取小（0=不设限）。
+func (i *Intelligence) capIterations(base int) int {
+	if i.maxIt > 0 && base > i.maxIt {
+		return i.maxIt
+	}
+	return base
 }
 
 // parsePlanningResponse 从 ReAct 最终答案解析规划 JSON。

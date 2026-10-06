@@ -128,9 +128,10 @@ type agentBody struct {
 	Kind          string   `json:"kind"`
 	Name          string   `json:"name"`
 	Description   string   `json:"description"`
-	SystemPrompt  string   `json:"system_prompt"` // 改为SystemPrompt
+	SystemPrompt  string   `json:"system_prompt"`
 	FunctionTools []string `json:"function_tools"`
 	CliTools      []string `json:"cli_tools"`
+	Skills        []string `json:"skills"` // 可访问 skill 裸名白名单（渐进式加载声明）
 	MaxIterations int      `json:"max_iterations"`
 	Complexity    string   `json:"complexity"`
 	Enabled       bool     `json:"enabled"`
@@ -149,14 +150,18 @@ func saveExecutorHandler(api ConfigAPI) gin.HandlerFunc {
 			return
 		}
 		kind := agent.Kind(b.Kind)
-		if kind != agent.KindPlanner && kind != agent.KindExecutor {
-			c.JSON(400, gin.H{"error": "非法 kind（应为 planner|executor）"})
+		switch kind {
+		case agent.KindPlanner, agent.KindExecutor, agent.KindEvaluator, agent.KindMonitor:
+			// 四角色都可经配置页编辑（DB CHECK 同四值，双保险）
+		default:
+			c.JSON(400, gin.H{"error": "非法 kind（应为 planner|executor|evaluator|monitor）"})
 			return
 		}
 		h, err := api.UpdateExecutor(c.Request.Context(), b.Code, agent.UpdateParams{
 			SystemPrompt:  &b.SystemPrompt,
 			FunctionTools: &b.FunctionTools,
 			CliTools:      &b.CliTools,
+			Skills:        &b.Skills,
 			MaxIterations: &b.MaxIterations,
 			Complexity:    &b.Complexity,
 		})
@@ -227,9 +232,14 @@ func executorJSON(h agent.Agent) gin.H {
 	if cliTools == nil {
 		cliTools = []string{}
 	}
+	skills := h.Skills
+	if skills == nil {
+		skills = []string{}
+	}
 	return gin.H{
 		"id": h.ID, "code": h.Code, "kind": string(h.Kind), "name": h.Name,
-		"description": h.Description, "system_prompt": h.SystemPrompt, "function_tools": fnTools, "cli_tools": cliTools,
+		"description": h.Description, "system_prompt": h.SystemPrompt,
+		"function_tools": fnTools, "cli_tools": cliTools, "skills": skills,
 		"max_iterations": h.MaxIterations, "complexity": h.Complexity, "enabled": h.Enabled,
 		"created_at": h.CreatedAt, "updated_at": h.UpdatedAt,
 	}

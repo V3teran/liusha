@@ -17,6 +17,7 @@ import (
 	"github.com/V3teran/liusha/internal/framework/llm"
 	"github.com/V3teran/liusha/internal/framework/runtime"
 	"github.com/V3teran/liusha/internal/registry"
+	"github.com/V3teran/liusha/internal/skill"
 	"github.com/V3teran/liusha/internal/tools/manifest"
 )
 
@@ -35,6 +36,9 @@ type RouterJudge struct {
 	functionTools []string           // function_tools 白名单（nil=全量；空=空集）
 	extraTools    []registry.Tool    // 装配层注入的额外工具（run_command 等白名单工具——跨包工具由 cognition 构造）
 	cliManifest   *manifest.Manifest // CLI 工具目录（cli_tools 过滤后；渲染进 SystemPrompt 供 run_command 调用）
+	skills        []*skill.Card      // Tier 1 skill 索引（agent.skills 声明；与 executor 同口径渲染）
+	charter       string             // 角色章程（agent.system_prompt，运维可调；空=不渲染）
+	maxIt         int                // ReAct 迭代上限（agent.max_iterations；0=不设限）
 }
 
 // NewRouterJudge 构造 ReAct 裁决官。
@@ -55,10 +59,38 @@ func (j *RouterJudge) WithCLIManifest(m *manifest.Manifest) *RouterJudge {
 	return j
 }
 
+// WithSkills 注入 Tier 1 skill 索引（agent.skills 声明的 frontmatter）。裁决官与
+// executor 共用同一渲染（skill.RenderIndex）——两侧对"有哪些手册可读"认知一致。
+func (j *RouterJudge) WithSkills(cards []*skill.Card) *RouterJudge {
+	j.skills = cards
+	return j
+}
+
+// WithSystemPrompt 注入角色章程（agent.system_prompt 正文，前端可编辑）。
+func (j *RouterJudge) WithSystemPrompt(charter string) *RouterJudge {
+	j.charter = charter
+	return j
+}
+
+// WithMaxIterations 注入 ReAct 迭代上限（agent.max_iterations；0=不设限，
+// 默认基线 8 生效）。上限语义：只能收紧不能放宽。
+func (j *RouterJudge) WithMaxIterations(n int) *RouterJudge {
+	j.maxIt = n
+	return j
+}
+
 // WithExtraTools 注入跨包工具实例（装配层按白名单经 tools.BuildTools 构造）。
 func (j *RouterJudge) WithExtraTools(ts []registry.Tool) *RouterJudge {
 	j.extraTools = append(j.extraTools, ts...)
 	return j
+}
+
+// capIterations 基线 8 与 agent.max_iterations 上限取小（0=不设限）。
+func (j *RouterJudge) capIterations(base int) int {
+	if j.maxIt > 0 && base > j.maxIt {
+		return j.maxIt
+	}
+	return base
 }
 
 func (j *RouterJudge) allows(name string) bool {
@@ -101,7 +133,7 @@ func (j *RouterJudge) Judge(
 		Objective:            j.buildObjective(hypothesis, recipe, initialEvidence),
 		SystemPrompt:         j.systemPrompt(),
 		LLMProvider:          provider,
-		MaxIterations:        8, // 自主差分实验需要轮次：复核预跑 + 基线/攻击各放 + 对比裁决
+		MaxIterations:        j.capIterations(8), // 自主差分实验需要轮次：复核预跑 + 基线/攻击各放 + 对比裁决
 		MaxTokens:            1500,
 		MessageModifierChain: runtime.NewDefaultModifierChain(10),
 	})
@@ -130,34 +162,36 @@ func (j *RouterJudge) buildObjective(hypothesis string, recipe, initialEvidence 
 	return sb.String()
 }
 
-// systemPrompt 基础裁决指令 + CLI 目录（有 CLI 白名单时渲染，供独立复核经 run_command 调用）。
+// systemPrompt 组装裁决官 system prompt：
+//
+//	角色章程（agent.system_prompt——DB 事实源，种子 = agents/evaluator.md 正文，前端可调）
+//	+ skill 索引（有声明且 read_skill 在白名单时渲染）
+//	+ CLI 目录（有 CLI 白名单时渲染，供独立复核经 run_command 调用）
+//
+// 机制契约（replay 工作方式、裁决 JSON 格式、因果硬规则）由章程承载——
+// 改契约 = 改 agents/evaluator.md + make reseed；正文为空时单句兜底防失能。
 func (j *RouterJudge) systemPrompt() string {
-	s := judgeSystemPrompt
-	if j.cliManifest != nil && len(j.cliManifest.Tools) > 0 {
-		s += "\n**沙箱 CLI 工具**（经 run_command 调用，独立复核取证可用）:\n"
-		for _, t := range j.cliManifest.Tools {
-			s += "- " + t.Name + ": " + t.Description + "\n"
+	var sb strings.Builder
+	if c := strings.TrimSpace(j.charter); c != "" {
+		sb.WriteString(c)
+	} else {
+		sb.WriteString("你是渗透测试结果的质量裁决官：先用 replay_for_verification 复核机器证据（domain=generic 时改用 run_command 自主取证），对比基线/攻击差分后自主裁决，宁可保守。裁决后只输出一个 JSON：{\"verdict\": \"confirmed|refuted\", \"confidence\": 0.0-1.0, \"reasoning\": \"...\"}")
+	}
+	// Tier 1 与 executor 同口径：read_skill 在白名单里才宣传（宣传=事实）。
+	if len(j.skills) > 0 && j.allows("read_skill") {
+		if idx := skill.RenderIndex(j.skills); idx != "" {
+			sb.WriteString("\n")
+			sb.WriteString(idx)
 		}
 	}
-	return s
+	if j.cliManifest != nil && len(j.cliManifest.Tools) > 0 {
+		sb.WriteString("\n**沙箱 CLI 工具**（经 run_command 调用，独立复核取证可用）:\n")
+		for _, t := range j.cliManifest.Tools {
+			sb.WriteString("- " + t.Name + ": " + t.Description + "\n")
+		}
+	}
+	return sb.String()
 }
-
-const judgeSystemPrompt = `你是渗透测试结果的质量裁决官（Agent-as-a-Judge：你有工具，自主设计验证实验）。
-
-**工作方式（自主复核）**：
-1. 先调 replay_for_verification 重放复现配方（域信封：domain + recipe + assert），取得机器证据（断言明细 + 响应快照）
-2. 证据标注 domain=generic 时无机器重放——用 run_command 按 recipe 的步骤自主执行，基于命令输出裁决
-3. 不轻信断言命中——自己二次判断：
-   a. 证据含 baseline_* 字段时对比基线 vs 攻击（attack_*）：一致 → refuted（无差分即无证据）
-   b. 断言特征是否页面常态？（200、登录页标题、静态文案）→ 无鉴别力即 refuted
-   c. 时间盲证据看 attack_duration_ms 是否真实显著延迟
-   d. 需要独立取证时用 run_command（curl 重放配方 request、正常参数对照实验）
-4. 核验因果关联（硬规则）：坐实的必要条件是攻击响应出现正常请求没有的特征、且由配方 payload 导致——
-   - 特征在正常响应也出现 → refuted（断言无鉴别力）
-   - 攻击响应出现基线没有的报错回显/泄露数据/显著延迟 → 可 confirmed
-5. 证据不足以判断时给 refuted（宁可保守）
-6. 裁决后停止调用工具，**只输出一个 JSON 对象**：
-{"verdict": "confirmed|refuted", "confidence": 0.0-1.0, "reasoning": "一句话裁决理由（引用你亲见的差分）"}`
 
 // parseVerdict 从 FinalAnswer 提取裁决 JSON。
 func parseVerdict(content string) (string, string, error) {

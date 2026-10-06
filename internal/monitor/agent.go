@@ -6,6 +6,7 @@ package monitor
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -32,6 +33,9 @@ type Agent struct {
 	interval     time.Duration
 	logger       zerolog.Logger
 
+	systemPrompt string // 角色章程（agent.system_prompt；空=不渲染）
+	maxIt        int    // ReAct 迭代上限（0=不设限）
+
 	// Checkpoint 系统
 	checkpointer     core.Checkpointer
 	checkpointPolicy runtime.CheckpointPolicy
@@ -47,6 +51,9 @@ type Config struct {
 	Logger   zerolog.Logger
 
 	FunctionTools []string // function_tools 白名单（agent 配置；nil=全量，空=空集）
+
+	SystemPrompt  string // 角色章程（agent.system_prompt，运维经前端可调；空=不渲染）
+	MaxIterations int    // ReAct 迭代上限（agent.max_iterations；0=不设限，基线 10 生效）
 
 	// Checkpoint 配置（可选）
 	Checkpointer     core.Checkpointer        // nil 表示禁用 checkpoint
@@ -102,6 +109,8 @@ func New(cfg Config) *Agent {
 		reactRuntime:     reactRuntime,
 		interval:         interval,
 		logger:           cfg.Logger,
+		systemPrompt:     cfg.SystemPrompt,
+		maxIt:            cfg.MaxIterations,
 		checkpointer:     cfg.Checkpointer,
 		checkpointPolicy: checkpointPolicy,
 	}
@@ -149,8 +158,8 @@ func (a *Agent) evaluate(ctx context.Context) error {
 		Objective:     objective,
 		SystemPrompt:  systemPrompt,
 		LLMProvider:   a.provider,
-		MaxIterations: 10,  // 监察不需要太多轮
-		Temperature:   0.3, // 较低温度，确保稳定性
+		MaxIterations: capIterations(10, a.maxIt), // 监察不需要太多轮；agent.max_iterations 只能更紧
+		Temperature:   0.3,                        // 较低温度，确保稳定性
 		MaxTokens:     4000,
 		// Monitor 窗口最小（原框架 Monitor 预设口径 10）——业务预设已按分层下沉到业务侧。
 		MessageModifierChain: runtime.NewDefaultModifierChain(10),
@@ -204,27 +213,24 @@ func (a *Agent) buildEvaluationObjective() string {
 请开始评估。`, a.taskID)
 }
 
-// buildSystemPrompt 构建系统提示
+// buildSystemPrompt 组装监察 system prompt：
+// 角色章程（agent.system_prompt——DB 事实源，种子 = agents/monitor.md 正文，前端可调）
+// + 空正文单句兜底。机制契约（kill_action/request_replan 决策 schema）由章程承载，
+// 改契约 = 改 agents/monitor.md + make reseed。
 func (a *Agent) buildSystemPrompt() string {
-	return `你是一个监察 Agent，负责全局任务健康检查。
-
-你的决策原则：
-1. 保守决策：不确定时不要轻易 kill action
-2. 数据驱动：基于具体指标做决策
-3. 明确理由：每个决策都要有清晰的理由
-
-决策类型：
-- kill_action: 停止一个运行过久或明显失败的 Action
-- request_replan: 请求 Planner 重新规划
-
-决策格式示例：
-{
-  "type": "kill_action",
-  "action_id": "act_123",
-  "reason": "Action 已运行 25 分钟，超过 20 分钟阈值，且无进展"
+	if c := strings.TrimSpace(a.systemPrompt); c != "" {
+		return c
+	}
+	return "你是监察 Agent：调 get_global_state 获取全局状态，分析指标后经 publish_decision 发布决策" +
+		"（type=kill_action 需带 action_id；type=request_replan 请求重规划）。保守决策，数据驱动。"
 }
 
-请先获取全局状态，分析后做出决策。`
+// capIterations 基线与 agent.max_iterations 上限取小（0=不设限）。
+func capIterations(base, max int) int {
+	if max > 0 && base > max {
+		return max
+	}
+	return base
 }
 
 // ============================================
