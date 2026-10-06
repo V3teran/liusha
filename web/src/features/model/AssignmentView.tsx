@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { AlertTriangle, Check, Loader2 } from 'lucide-react'
 import { listProviders, getRouting, saveRoleRoute, deleteRoleRoute } from '@/api/models'
-import { listAgentConfigs, saveAgentTier } from '@/api/config'
+import { listAgentConfigs, saveAgentComplexity } from '@/api/config'
 import type { ProviderConfig, RoleRouteConfig, AgentConfig } from '@/api/types'
 import { TIERS, RESERVED_TIERS, tierMeta, type TierMeta } from './roles'
 
@@ -11,8 +11,8 @@ type RowState = 'idle' | 'saving' | 'saved' | 'error'
 
 // 能力分档视图：agent → tier → provider 两跳。本视图同时读写两处：
 //   1. tier → provider：行内 select 直选部署（saveRoleRoute/deleteRoleRoute）。
-//   2. agent → tier：每档一个 agent 多选框，勾选即把智能体归入本档（saveAgentTier 移档）。
-//      与「智能体」页的能力档下拉读写同一份 agent.tier 数据，只是展示维度不同（按档聚合 vs 单体编辑）。
+//   2. agent → 档：每档一个 agent 多选框，勾选即把智能体归入本档（saveAgentComplexity 移档）。
+//      与「智能体」页的复杂度下拉读写同一份 agent.complexity 数据，只是展示维度不同（按档聚合 vs 单体编辑）。
 // inspector/compactor 等内建路由键不在 agent 表、无法改档，仅在所属档只读展示。
 export function AssignmentView() {
   const [providers, setProviders] = useState<ProviderConfig[]>([])
@@ -34,7 +34,7 @@ export function AssignmentView() {
         setProviders(provs)
         setRouteMap(new Map(routing.routes.map((r: RoleRouteConfig) => [r.role, r.provider_key])))
         setAgents(hs)
-        setTierBy(new Map(hs.map((h) => [h.id, h.tier || 'heavy'])))
+        setTierBy(new Map(hs.map((h) => [h.id, h.complexity || 'medium'])))
       })
       .catch((e) => setError(e instanceof Error ? e.message : '加载失败'))
       .finally(() => setLoading(false))
@@ -75,7 +75,7 @@ export function AssignmentView() {
     setTierBy((m) => new Map(m).set(agentId, tier))
     setMoving((s) => new Set(s).add(agentId))
     try {
-      await saveAgentTier(agentId, tier)
+      await saveAgentComplexity(agentId, tier)
     } catch (e) {
       setTierBy(prev)
       window.alert(e instanceof Error ? e.message : '移档失败')
@@ -289,7 +289,7 @@ function TierRow({
   )
 }
 
-// 单档的 agent 归属多选区：每个 agent 一个复选框，勾选即移入本档（saveAgentTier）。
+// 单档的 agent 归属多选区：每个 agent 一个复选框，勾选即移入本档（saveAgentComplexity）。
 // 单值归属——不属于本档的 agent 复选框空勾，勾上即从原档移出。builtinKeys 只读 chip。
 function AgentPicker({
   tier,
@@ -310,7 +310,7 @@ function AgentPicker({
     <div className="flex flex-wrap items-center gap-1.5 rounded-md bg-surface-2/40 px-3 py-2">
       <span className="mr-1 text-[11px] text-faint">智能体</span>
       {agents.map((h) => {
-        const inTier = (tierBy.get(h.id) ?? 'heavy') === tier
+        const inTier = (tierBy.get(h.id) ?? 'medium') === tier
         const busy = moving.has(h.id)
         return (
           <label

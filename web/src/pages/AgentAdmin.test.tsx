@@ -3,7 +3,7 @@ import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { AgentAdmin } from './AgentAdmin'
 import { listAgentsPaged } from '@/api/client'
-import { saveAgent, deleteAgent, listToolCandidates } from '@/api/config'
+import { saveAgent, deleteAgent, listToolCandidates, listSkillCandidates } from '@/api/config'
 import type { AgentConfig, Tool, ToolKind } from '@/api/types'
 
 vi.mock('@/api/client', () => ({
@@ -14,12 +14,14 @@ vi.mock('@/api/config', () => ({
   saveAgent: vi.fn(),
   deleteAgent: vi.fn(),
   listToolCandidates: vi.fn(),
+  listSkillCandidates: vi.fn(),
 }))
 
 const mList = listAgentsPaged as unknown as ReturnType<typeof vi.fn>
 const mSave = saveAgent as unknown as ReturnType<typeof vi.fn>
 const mDelete = deleteAgent as unknown as ReturnType<typeof vi.fn>
 const mListCandidates = listToolCandidates as unknown as ReturnType<typeof vi.fn>
+const mListSkills = listSkillCandidates as unknown as ReturnType<typeof vi.fn>
 
 // listAgentsPaged 返回 {agents,total} 信封。
 const paged = (rows: AgentConfig[]) => ({ agents: rows, total: rows.length })
@@ -39,10 +41,12 @@ function h(o: Partial<AgentConfig> = {}): AgentConfig {
     kind: 'executor',
     name: '侦察智能体',
     description: '',
-    body: 'charter',
+    system_prompt: 'charter',
     function_tools: ['read_findings'],
     cli_tools: [],
+    skills: [],
     max_iterations: 20,
+    complexity: 'medium',
     enabled: true,
     ...o,
   }
@@ -57,6 +61,8 @@ describe('AgentAdmin', () => {
     mListCandidates.mockImplementation((kind: ToolKind) =>
       Promise.resolve(kind === 'function' ? FUNCTION_TOOLS : CLI_TOOLS),
     )
+    mListSkills.mockReset()
+    mListSkills.mockResolvedValue([])
     vi.spyOn(window, 'alert').mockImplementation(() => {})
     vi.spyOn(window, 'confirm').mockReturnValue(true)
   })
@@ -93,10 +99,10 @@ describe('AgentAdmin', () => {
     expect(mSave.mock.calls[0][0].function_tools).toEqual(['read_findings', 'write_finding'])
   })
 
-  it('编排智能体显示编排徽章', async () => {
-    mList.mockResolvedValue(paged([h({ kind: 'planner', name: '编排智能体' })]))
+  it('规划者显示规划徽章', async () => {
+    mList.mockResolvedValue(paged([h({ kind: 'planner', name: '规划者' })]))
     render(<AgentAdmin />)
-    expect(await screen.findByText('编排')).toBeTruthy()
+    expect(await screen.findByText('规划')).toBeTruthy()
   })
 
   it('删除走确认后调 deleteAgent', async () => {

@@ -1,4 +1,4 @@
-import { ROLE_FALLBACK, TIER_HEAVY, TIER_VISION, TIER_LIGHT } from '@/api/types'
+import { ROLE_FALLBACK, COMPLEXITY_SIMPLE, COMPLEXITY_MEDIUM, COMPLEXITY_COMPLEX } from '@/api/types'
 
 // 能力分档元信息：给三档配中文标签 + 职责说明，供「能力分档」页可读渲染。
 // 归入本档的 agent agent 不再写死——由 AssignmentView 从 agent.tier 真实数据动态分组，
@@ -13,23 +13,24 @@ export interface TierMeta {
   reserved?: boolean // 保留槽（__fallback__）：非能力档，语义特殊，单列一组
 }
 
-// 三个能力档（与后端 llmcfg TierHeavy/TierVision/TierLight 对齐）。
+// 三个复杂度档（与后端 llmcfg ComplexitySimple/Medium/Complex 对齐；
+// 档名即 llm_role_route.role 路由键）。
 export const TIERS: TierMeta[] = [
   {
-    tier: TIER_HEAVY,
-    label: '重推理',
-    desc: '强文本推理档，编排决策与流量逐批挖洞；未显式归档的 agent 也落此档（隐式默认）',
+    tier: COMPLEXITY_COMPLEX,
+    label: '深度推理',
+    desc: '规划、裁决等长链路推理；强模型承接',
     builtinKeys: [],
   },
   {
-    tier: TIER_VISION,
-    label: '多模态',
-    desc: '需读图的 active 链路：browser-use 截图驱动的编排与利用',
+    tier: COMPLEXITY_MEDIUM,
+    label: '标准推理',
+    desc: '常规漏洞检测与工具调用；未显式归档的 agent 也落此档（隐式默认）',
     builtinKeys: [],
   },
   {
-    tier: TIER_LIGHT,
-    label: '轻任务',
+    tier: COMPLEXITY_SIMPLE,
+    label: '轻量快答',
     desc: '意图分类、摘要与会话历史压缩等旁路轻量调用，轻模型即可省钱',
     builtinKeys: ['inspector', 'compactor'],
   },
