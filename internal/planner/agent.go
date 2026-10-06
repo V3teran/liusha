@@ -68,7 +68,7 @@ func NewAgent(cfg AgentConfig) *Agent {
 	}
 }
 
-// Run 实现 core.Agent 接口
+// Run 启动规划主循环（ctx 取消即停止）。
 // 启动 Agent 主循环，监听事件并生成新的 Action
 func (a *Agent) Run(ctx context.Context) error {
 	// LLM 审计维度：规划调用归 task、角色 planner。
@@ -115,17 +115,6 @@ func (a *Agent) Run(ctx context.Context) error {
 			}
 		}
 	}
-}
-
-// Stop 实现 core.Agent 接口（优雅关闭）
-func (a *Agent) Stop(_ context.Context) error {
-	close(a.stopCh)
-	return nil
-}
-
-// Name 实现 core.Agent 接口
-func (a *Agent) Name() string {
-	return "planner"
 }
 
 // handleEvent 处理事件
@@ -281,6 +270,7 @@ func (a *Agent) planActions(ctx context.Context) error {
 		primaryObjectiveID = objectives[0].ID
 	}
 
+	failed := 0
 	for i, action := range actions {
 		a.logger.Info().
 			Int("index", i).
@@ -289,6 +279,7 @@ func (a *Agent) planActions(ctx context.Context) error {
 
 		// action 已经是完整的 Node，直接写入
 		if _, err := a.graph.CreateNode(ctx, action); err != nil {
+			failed++
 			a.logger.Error().
 				Err(err).
 				Str("action_id", action.ID).
@@ -318,6 +309,9 @@ func (a *Agent) planActions(ctx context.Context) error {
 		a.eventBus.PublishActionProposed(a.taskID, action.ID)
 	}
 
+	if failed > 0 {
+		return fmt.Errorf("写入 Action 失败 %d/%d 条（详见日志）", failed, len(actions))
+	}
 	return nil
 }
 
@@ -440,8 +434,11 @@ func (a *Agent) createNewObjectives(ctx context.Context, objectives []NewObjecti
 func (a *Agent) createContinuationActions(ctx context.Context, actions []ContinuationAction) error {
 	// 获取当前 Objective
 	objectives, err := a.graph.ListNodesByKind(ctx, a.taskID, core.KindObjective)
-	if err != nil || len(objectives) == 0 {
-		return fmt.Errorf("无法获取当前 Objective")
+	if err != nil {
+		return fmt.Errorf("获取当前 Objective 失败: %w", err)
+	}
+	if len(objectives) == 0 {
+		return fmt.Errorf("当前无 Objective 节点")
 	}
 
 	currentObjective := objectives[0] // 主 Objective（创建序第一个，与 primaryObjectiveID 判定一致）

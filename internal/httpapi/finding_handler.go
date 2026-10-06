@@ -7,6 +7,7 @@ package httpapi
 import (
 	"context"
 	"encoding/json"
+	"net/http"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -58,12 +59,12 @@ func listFindingsHandler(api FindingsAPI) gin.HandlerFunc {
 
 		rows, err := api.ListAll(c.Request.Context(), f)
 		if err != nil {
-			c.JSON(500, gin.H{"error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
 		total, err := api.CountAll(c.Request.Context(), f)
 		if err != nil {
-			c.JSON(500, gin.H{"error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
 
@@ -71,7 +72,7 @@ func listFindingsHandler(api FindingsAPI) gin.HandlerFunc {
 		for _, r := range rows {
 			out = append(out, findingJSON(r))
 		}
-		c.JSON(200, gin.H{"total": total, "page": page, "size": size, "findings": out})
+		c.JSON(http.StatusOK, gin.H{"total": total, "page": page, "size": size, "findings": out})
 	}
 }
 
@@ -80,13 +81,13 @@ func findingHostsHandler(api FindingsAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		hosts, err := api.DistinctHosts(c.Request.Context())
 		if err != nil {
-			c.JSON(500, gin.H{"error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
 		if hosts == nil {
 			hosts = []string{}
 		}
-		c.JSON(200, gin.H{"hosts": hosts})
+		c.JSON(http.StatusOK, gin.H{"hosts": hosts})
 	}
 }
 
@@ -98,7 +99,7 @@ func updateFindingStatusHandler(api FindingsAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id := c.Param("id")
 		if id == "" {
-			c.JSON(400, gin.H{"error": "id required"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "id required"})
 			return
 		}
 		var body struct {
@@ -107,7 +108,7 @@ func updateFindingStatusHandler(api FindingsAPI) gin.HandlerFunc {
 			Note     string `json:"note"`
 		}
 		if err := c.ShouldBindJSON(&body); err != nil {
-			c.JSON(400, gin.H{"error": "invalid body: " + err.Error()})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid body: " + err.Error()})
 			return
 		}
 		updated, err := api.UpdateTriage(c.Request.Context(), id, body.Status, body.Severity, body.Note)
@@ -115,17 +116,17 @@ func updateFindingStatusHandler(api FindingsAPI) gin.HandlerFunc {
 			msg := err.Error()
 			switch {
 			case strings.Contains(msg, "not found"):
-				c.JSON(404, gin.H{"error": msg, "id": id})
+				c.JSON(http.StatusNotFound, gin.H{"error": msg, "id": id})
 			case strings.Contains(msg, "非法 status"):
-				c.JSON(400, gin.H{"error": msg})
+				c.JSON(http.StatusBadRequest, gin.H{"error": msg})
 			default:
-				c.JSON(500, gin.H{"error": msg})
+				c.JSON(http.StatusInternalServerError, gin.H{"error": msg})
 			}
 			return
 		}
 		// 回传更新后的行（含后端权威 triaged_at + 覆盖后的 severity）——前端据此覆盖乐观值，消除时钟偏差。
 		// UpdateTriage 返回 VulnFinding（无 _id），补零值即可（前端改处置不依赖 _id）。
-		c.JSON(200, gin.H{"ok": true, "finding": findingJSON(finding.LedgerRow{VulnFinding: updated})})
+		c.JSON(http.StatusOK, gin.H{"ok": true, "finding": findingJSON(finding.LedgerRow{VulnFinding: updated})})
 	}
 }
 

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -22,12 +23,69 @@ import (
 // 与完成检测器的检查节奏（5s）对齐：人工干预的生效延迟上限 ≈ 一个周期。
 const controlPollInterval = 5 * time.Second
 
-// controlAgentLifecycle 抽象四 agent 的启停，供 pause/resume 使用。
-// pause 必须 stop（等待全部退出）后再返回，避免与 bus 的 task 级共享通道
-// 关闭时序竞争；resume 重新 Start（各 agent Start 自带重新订阅）。
-type controlAgentLifecycle struct {
-	stop  func() // cancel agentCtx + WaitGroup 等待全部退出
-	start func()
+// agentLifecycle 抽象四 agent 的启停，供 pause/resume 与主流程复用。
+// pause 必须 Stop（等待全部退出）后再返回，避免与 bus 的 task 级共享通道
+// 关闭时序竞争；Resume 重新 Start（各 agent Run 自带重新订阅）。
+// 控制平面消费者与主流程会并发调用 Start/Stop：互斥锁串行化，
+// WaitGroup 的 Add/Wait 全部收在持锁区间内，规避 Add-after-Wait 误用。
+type agentLifecycle struct {
+	mu      sync.Mutex
+	parent  context.Context
+	logger  zerolog.Logger
+	taskID  string
+	agents  []agentSpec
+	wg      sync.WaitGroup
+	cancel  context.CancelFunc
+	running bool
+}
+
+// agentSpec 是单个受管 agent 的启动入口。
+type agentSpec struct {
+	name  string
+	start func(ctx context.Context) error
+}
+
+// newAgentLifecycle 构造生命周期管理器，管理给定的 agent 集。
+func newAgentLifecycle(parent context.Context, logger zerolog.Logger, taskID string, agents []agentSpec) *agentLifecycle {
+	return &agentLifecycle{parent: parent, logger: logger, taskID: taskID, agents: agents}
+}
+
+// Start 幂等启动全部 agent（已在运行时为 no-op）。
+func (l *agentLifecycle) Start() {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.running {
+		return
+	}
+	agentCtx, cancel := context.WithCancel(l.parent)
+	l.cancel = cancel
+	l.running = true
+	for _, ag := range l.agents {
+		l.runAgent(agentCtx, ag)
+	}
+}
+
+// runAgent 在 lifecycle 的 WaitGroup 下启动单个 agent goroutine（仅 Start 内调用）。
+func (l *agentLifecycle) runAgent(agentCtx context.Context, ag agentSpec) {
+	l.wg.Add(1)
+	logx.Go(l.logger, ag.name+"-agent", func() {
+		defer l.wg.Done()
+		if err := ag.start(agentCtx); err != nil && agentCtx.Err() == nil {
+			l.logger.Error().Err(err).Str("task_id", l.taskID).Msg(ag.name + " agent 异常退出")
+		}
+	})
+}
+
+// Stop 幂等停止：cancel 后等待全部 agent 退出。
+func (l *agentLifecycle) Stop() {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if !l.running {
+		return
+	}
+	l.cancel()
+	l.wg.Wait()
+	l.running = false
 }
 
 // startControlConsumer 轮询消费控制平面事件，返回停止函数。
@@ -38,7 +96,7 @@ func startControlConsumer(
 	store *controlplane.Store,
 	graph *explorationgraph.Store,
 	detector *cognition.CompletionDetector,
-	agents *controlAgentLifecycle,
+	agents *agentLifecycle,
 	logger zerolog.Logger,
 ) (stop func()) {
 	logger = logger.With().Str("component", "control_consumer").Str("task_id", taskID).Logger()
@@ -87,7 +145,7 @@ func handleControlEvent(
 	taskID string,
 	graph *explorationgraph.Store,
 	detector *cognition.CompletionDetector,
-	agents *controlAgentLifecycle,
+	agents *agentLifecycle,
 	ev controlplane.ControlEvent,
 	logger zerolog.Logger,
 ) error {
@@ -99,14 +157,14 @@ func handleControlEvent(
 
 	case controlplane.CommandPause:
 		logger.Info().Msg("收到 pause，停止 agents 并冻结完成判定")
-		agents.stop()
+		agents.Stop()
 		detector.Pause()
 		return nil
 
 	case controlplane.CommandResume:
 		logger.Info().Msg("收到 resume，恢复完成判定并重启 agents")
 		detector.Resume()
-		agents.start()
+		agents.Start()
 		return nil
 
 	case controlplane.CommandAdjustGoal:

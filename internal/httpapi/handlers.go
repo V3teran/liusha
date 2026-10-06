@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -52,14 +53,14 @@ func batchSaveHandler(api CredentialsAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req BatchSaveRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
-			c.JSON(400, gin.H{"error": err.Error()})
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
 		if err := api.BatchSave(c.Request.Context(), req.Credentials, req.TTLSeconds); err != nil {
-			c.JSON(500, gin.H{"error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-		c.JSON(200, gin.H{"ok": true})
+		c.JSON(http.StatusOK, gin.H{"ok": true})
 	}
 }
 
@@ -68,15 +69,15 @@ func listCredentialHandler(api CredentialsAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		host := c.Query("host")
 		if host == "" {
-			c.JSON(400, gin.H{"error": "host required"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "host required"})
 			return
 		}
 		ids, err := api.GetIdentitiesByHost(c.Request.Context(), host)
 		if err != nil {
-			c.JSON(500, gin.H{"error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-		c.JSON(200, gin.H{"identities": ids})
+		c.JSON(http.StatusOK, gin.H{"identities": ids})
 	}
 }
 
@@ -85,14 +86,14 @@ func deleteCredentialHandler(api CredentialsAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		host := c.Query("host")
 		if host == "" {
-			c.JSON(400, gin.H{"error": "host required"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "host required"})
 			return
 		}
 		if err := api.Delete(c.Request.Context(), host); err != nil {
-			c.JSON(500, gin.H{"error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-		c.JSON(200, gin.H{"ok": true})
+		c.JSON(http.StatusOK, gin.H{"ok": true})
 	}
 }
 
@@ -108,10 +109,10 @@ func listTasksHandler(api TaskAPI) gin.HandlerFunc {
 		}
 		list, err := api.List(c.Request.Context(), limit)
 		if err != nil {
-			c.JSON(500, gin.H{"error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-		c.JSON(200, gin.H{"tasks": list})
+		c.JSON(http.StatusOK, gin.H{"tasks": list})
 	}
 }
 
@@ -122,14 +123,14 @@ func abortTaskHandler(api TaskAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id := c.Param("id")
 		if id == "" {
-			c.JSON(400, gin.H{"error": "id required"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "id required"})
 			return
 		}
 		if err := api.Abort(c.Request.Context(), id); err != nil {
-			c.JSON(500, gin.H{"error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-		c.JSON(200, gin.H{"ok": true})
+		c.JSON(http.StatusOK, gin.H{"ok": true})
 	}
 }
 
@@ -163,21 +164,21 @@ func scanHandler(api ScanAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req CreateScanRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
-			c.JSON(400, gin.H{"error": err.Error()})
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
 		brief := strings.TrimSpace(req.Brief)
 		if brief == "" {
-			c.JSON(400, gin.H{"error": "brief required"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "brief required"})
 			return
 		}
 
 		taskID, agentID, err := api.CreateScan(c.Request.Context(), brief)
 		if err != nil {
-			c.JSON(500, gin.H{"error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-		c.JSON(200, gin.H{
+		c.JSON(http.StatusOK, gin.H{
 			"task_id":  taskID,
 			"agent_id": agentID,
 		})

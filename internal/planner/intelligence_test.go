@@ -118,7 +118,7 @@ type mockGraphStore struct {
 	nodes map[string]explorationgraph.Node
 }
 
-func (m *mockGraphStore) CreateNode(ctx context.Context, node explorationgraph.Node) (explorationgraph.Node, error) {
+func (m *mockGraphStore) CreateNode(_ context.Context, node explorationgraph.Node) (explorationgraph.Node, error) {
 	// 模拟数据库约束 ck_state_by_kind：objective 节点必须有 state
 	if node.Kind == core.KindObjective && node.State == nil {
 		return explorationgraph.Node{}, errors.New("ck_state_by_kind: objective 节点必须有 state 字段")
@@ -128,7 +128,7 @@ func (m *mockGraphStore) CreateNode(ctx context.Context, node explorationgraph.N
 	return node, nil
 }
 
-func (m *mockGraphStore) ListNodesByKind(ctx context.Context, taskID string, kind core.NodeKind) ([]explorationgraph.Node, error) {
+func (m *mockGraphStore) ListNodesByKind(_ context.Context, taskID string, kind core.NodeKind) ([]explorationgraph.Node, error) {
 	var result []explorationgraph.Node
 	for _, node := range m.nodes {
 		if node.TaskID == taskID && node.Kind == kind {

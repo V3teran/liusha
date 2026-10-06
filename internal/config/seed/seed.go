@@ -187,11 +187,6 @@ func ImportAgentsForce(ctx context.Context, dir string, h *agent.Store) ([]strin
 	return importExecutors(ctx, filepath.Join(dir, "agents"), h, true)
 }
 
-// ImportSkills insert-only 补齐 skills（不覆盖已存在项，含死行清理）。供 reseed 工具复用。
-func ImportSkills(ctx context.Context, dir string, s *skill.Store) (SkillsSeed, error) {
-	return importSkills(ctx, filepath.Join(dir, "skills"), s, false)
-}
-
 // ImportSkillsForce 把 skills/**/*.md 以强制覆盖语义写入内置行（reset 语义）：
 // code 冲突覆盖 name/description/body/category 并复位 enabled。用户自建
 // （is_builtin=false）不动。与 ImportAgentsForce 配对，仅供 reseed。

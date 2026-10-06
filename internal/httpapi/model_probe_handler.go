@@ -12,6 +12,7 @@ package httpapi
 
 import (
 	"context"
+	"net/http"
 
 	"github.com/gin-gonic/gin"
 
@@ -74,28 +75,28 @@ func testProviderHandler(t ProviderTester) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var b probeBody
 		if err := c.ShouldBindJSON(&b); err != nil {
-			c.JSON(400, gin.H{"error": "请求体非法: " + err.Error()})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "请求体非法: " + err.Error()})
 			return
 		}
 		if b.Type != "" && b.Type != llmcfg.ProviderTypeOpenAICompat && b.Type != llmcfg.ProviderTypeAnthropic {
-			c.JSON(400, gin.H{"error": "非法 type（应为 openai_compat|anthropic）"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "非法 type（应为 openai_compat|anthropic）"})
 			return
 		}
 		if b.DefaultModel == "" {
-			c.JSON(400, gin.H{"error": "default_model 不能为空（测试连接需指定 model）"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "default_model 不能为空（测试连接需指定 model）"})
 			return
 		}
 		spec, msg := specFromBody(b)
 		if msg != "" {
-			c.JSON(400, gin.H{"error": msg})
+			c.JSON(http.StatusBadRequest, gin.H{"error": msg})
 			return
 		}
 		res, err := t.TestProvider(c.Request.Context(), spec)
 		if err != nil {
-			c.JSON(400, gin.H{"error": err.Error()})
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
-		c.JSON(200, gin.H{
+		c.JSON(http.StatusOK, gin.H{
 			"ok": res.OK, "latency_ms": res.LatencyMS, "model": res.Model, "err_msg": res.ErrMsg,
 		})
 	}
@@ -107,22 +108,22 @@ func listProviderModelsHandler(t ProviderTester) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var b probeBody
 		if err := c.ShouldBindJSON(&b); err != nil {
-			c.JSON(400, gin.H{"error": "请求体非法: " + err.Error()})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "请求体非法: " + err.Error()})
 			return
 		}
 		spec, msg := specFromBody(b)
 		if msg != "" {
-			c.JSON(400, gin.H{"error": msg})
+			c.JSON(http.StatusBadRequest, gin.H{"error": msg})
 			return
 		}
 		models, err := t.ListModels(c.Request.Context(), spec)
 		if err != nil {
-			c.JSON(400, gin.H{"error": err.Error()})
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
 		if models == nil {
 			models = []string{}
 		}
-		c.JSON(200, gin.H{"models": models})
+		c.JSON(http.StatusOK, gin.H{"models": models})
 	}
 }

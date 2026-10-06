@@ -9,7 +9,7 @@ package httpapi
 import (
 	"context"
 	"errors"
-	"strings"
+	"net/http"
 
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5"
@@ -56,44 +56,44 @@ func conversationUsageHandler(conv UsageTaskResolver, llm LLMUsageAggregator, to
 	return func(c *gin.Context) {
 		id := c.Param("id")
 		if id == "" {
-			c.JSON(400, gin.H{"error": "id required"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "id required"})
 			return
 		}
 		ctx := c.Request.Context()
 		taskID, err := conv.ResolveTaskID(ctx, id)
 		if err != nil {
-			if errors.Is(err, pgx.ErrNoRows) || strings.Contains(err.Error(), "no rows") {
-				c.JSON(404, gin.H{"error": "conversation not found", "conversation_id": id})
+			if errors.Is(err, pgx.ErrNoRows) {
+				c.JSON(http.StatusNotFound, gin.H{"error": "conversation not found", "conversation_id": id})
 				return
 			}
-			c.JSON(500, gin.H{"error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
 
 		// 运行态（权威）：关联 task 是否仍 active。前端据此显示"工作中"。
 		running, err := conv.IsRunActive(ctx, id)
 		if err != nil {
-			c.JSON(500, gin.H{"error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
 		// 真实三态（active/completed/aborted）：顶部状态栏据此区分「已完成 vs 已中止」，
 		// 不再用二元 running（它把 aborted 错显示成已完成）。
 		runStatus, err := conv.RunStatus(ctx, id)
 		if err != nil {
-			c.JSON(500, gin.H{"error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
 
 		// 墙钟时长：发起→完成的真实流逝时间（"我等了多久"），跑中用 now-created。
 		wallclockMs, err := conv.WallclockMs(ctx, id)
 		if err != nil {
-			c.JSON(500, gin.H{"error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
 
 		// 纯聊天（无关联 task）→ 零用量。
 		if taskID == "" {
-			c.JSON(200, zeroUsage(id, "", running, runStatus))
+			c.JSON(http.StatusOK, zeroUsage(id, "", running, runStatus))
 			return
 		}
 
@@ -101,16 +101,16 @@ func conversationUsageHandler(conv UsageTaskResolver, llm LLMUsageAggregator, to
 		_ = llm.Flush(ctx)
 		la, err := llm.AggregateByTask(ctx, taskID, llminvocation.ListFilter{}) // 会话总览：不筛，全量合计
 		if err != nil {
-			c.JSON(500, gin.H{"error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
 		ta, err := tool.AggregateByTask(ctx, taskID)
 		if err != nil {
-			c.JSON(500, gin.H{"error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
 
-		c.JSON(200, gin.H{
+		c.JSON(http.StatusOK, gin.H{
 			"conversation_id": id,
 			"task_id":         taskID,
 			"tokens": gin.H{

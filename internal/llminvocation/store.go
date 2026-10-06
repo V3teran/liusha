@@ -211,7 +211,7 @@ func (s *Store) copyFromBatch(ctx context.Context, batch []Invocation) error {
 	rows := make([][]any, len(batch))
 	for i, c := range batch {
 		rows[i] = []any{
-			c.ExecutorID, c.TaskID,
+			c.AgentRunID, c.TaskID,
 			c.Provider, c.Model,
 			c.InTokens, c.OutTokens, c.CachedTokens,
 			c.LatencyMs, c.TTFTMs, c.IsStream,
@@ -333,9 +333,9 @@ func (s *Store) ListByTask(ctx context.Context, taskID string, f ListFilter) ([]
 	var out []Invocation
 	for rows.Next() {
 		var v Invocation
-		var agentRunID, tid *string
+		var tid *string
 		if err := rows.Scan(
-			&v.ID, &v.RequestID, &agentRunID, &tid,
+			&v.ID, &v.RequestID, &v.AgentRunID, &tid,
 			&v.Provider, &v.Model,
 			&v.InTokens, &v.OutTokens, &v.CachedTokens,
 			&v.LatencyMs, &v.TTFTMs, &v.IsStream,
@@ -345,7 +345,6 @@ func (s *Store) ListByTask(ctx context.Context, taskID string, f ListFilter) ([]
 		); err != nil {
 			return nil, fmt.Errorf("scan llm_invocation: %w", err)
 		}
-		v.ExecutorID = agentRunID
 		v.TaskID = tid
 		out = append(out, v)
 	}
@@ -359,7 +358,7 @@ func (s *Store) ListByTask(ctx context.Context, taskID string, f ListFilter) ([]
 // 用 taskID+id 联合定位（而非裸 id）：防止跨 task 猜 id 越权读取审计原文。
 func (s *Store) GetByID(ctx context.Context, taskID string, id int64) (Invocation, error) {
 	var v Invocation
-	var agentRunID, tid *string
+	var tid *string
 	err := s.pool.QueryRow(ctx, `
 		SELECT id, request_id, agent_run_id, task_id::text,
 		       provider, model,
@@ -369,7 +368,7 @@ func (s *Store) GetByID(ctx context.Context, taskID string, id int64) (Invocatio
 		       messages, result, created_at
 		FROM llm_invocation
 		WHERE id=$1 AND task_id=$2::uuid`, id, taskID).Scan(
-		&v.ID, &v.RequestID, &agentRunID, &tid,
+		&v.ID, &v.RequestID, &v.AgentRunID, &tid,
 		&v.Provider, &v.Model,
 		&v.InTokens, &v.OutTokens, &v.CachedTokens,
 		&v.LatencyMs, &v.TTFTMs, &v.IsStream,
@@ -379,7 +378,6 @@ func (s *Store) GetByID(ctx context.Context, taskID string, id int64) (Invocatio
 	if err != nil {
 		return Invocation{}, fmt.Errorf("get llm_invocation %d: %w", id, err)
 	}
-	v.ExecutorID = agentRunID
 	v.TaskID = tid
 	return v, nil
 }

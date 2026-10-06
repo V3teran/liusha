@@ -115,20 +115,7 @@ func ensureObservationingSlash(p string) string {
 	return "/" + p
 }
 
-// severityToPriority 将 severity 映射到优先级（1-10）
+// severityToPriority 将 severity 映射到优先级（统一走 explorationgraph 归一）。
 func severityToPriority(severity string) string {
-	switch strings.ToLower(severity) {
-	case "critical":
-		return "critical"
-	case "high":
-		return "high"
-	case "medium":
-		return "medium"
-	case "low":
-		return "low"
-	case "info":
-		return "low"
-	default:
-		return "medium"
-	}
+	return string(explorationgraph.PriorityFromSeverity(severity))
 }

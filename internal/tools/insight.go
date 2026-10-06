@@ -91,11 +91,12 @@ func (t *readInsightsTool) Execute(ctx context.Context, args json.RawMessage) (r
 	var insights []insight.Insight
 	var err error
 
-	if a.Category != "" {
+	switch {
+	case a.Category != "":
 		insights, err = t.deps.Insights.ListByCategory(ctx, t.deps.TaskID, insight.Category(a.Category), a.Limit*2)
-	} else if a.Priority != "" {
+	case a.Priority != "":
 		insights, err = t.deps.Insights.ListByPriority(ctx, t.deps.TaskID, insight.Priority(a.Priority), a.Limit*2)
-	} else {
+	default:
 		insights, err = t.deps.Insights.List(ctx, t.deps.TaskID, a.Limit*2)
 	}
 
@@ -123,14 +124,14 @@ func (t *readInsightsTool) Execute(ctx context.Context, args json.RawMessage) (r
 
 	// 格式化输出
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("找到 %d 条洞察：\n\n", len(filtered)))
+	fmt.Fprintf(&sb, "找到 %d 条洞察：\n\n", len(filtered))
 	for i, ins := range filtered {
-		sb.WriteString(fmt.Sprintf("【%d】%s [%s | %s | %s]\n", i+1, ins.Summary, ins.Category, ins.Priority, ins.Confidence))
+		fmt.Fprintf(&sb, "【%d】%s [%s | %s | %s]\n", i+1, ins.Summary, ins.Category, ins.Priority, ins.Confidence)
 		if ins.Body != "" {
-			sb.WriteString(fmt.Sprintf("    %s\n", ins.Body))
+			fmt.Fprintf(&sb, "    %s\n", ins.Body)
 		}
 		if len(ins.Tags) > 0 {
-			sb.WriteString(fmt.Sprintf("    标签: %s\n", strings.Join(ins.Tags, ", ")))
+			fmt.Fprintf(&sb, "    标签: %s\n", strings.Join(ins.Tags, ", "))
 		}
 		sb.WriteString("\n")
 	}

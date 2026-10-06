@@ -7,10 +7,10 @@ import (
 	"github.com/V3teran/liusha/internal/skillstore"
 )
 
-// SkillSource 是 StoreReader 依赖的最小后端能力（*cache.Store 满足——
+// Source 是 StoreReader 依赖的最小后端能力（*cache.Store 满足——
 // EnabledSkills / SkillByCode 均为 L1 内存 → L2 redis → DB 的多级缓存读，
 // 前端写经失效总线广播，本进程 L1 被动清，下次读即最新）。
-type SkillSource interface {
+type Source interface {
 	EnabledSkills(ctx context.Context) ([]skillstore.Skill, error)
 	SkillByCode(ctx context.Context, code string) (skillstore.Skill, error)
 }
@@ -24,11 +24,11 @@ type SkillSource interface {
 // 文件（skills/*.md）自此只是种子：api 启动 insert-only 导入 + 清死行，
 // 前端对 skill 的修改以 DB 为准，无需重启 runner 即生效。
 type StoreReader struct {
-	src SkillSource
+	src Source
 }
 
 // NewStoreReader 构造 DB 后端 Reader。
-func NewStoreReader(src SkillSource) *StoreReader { return &StoreReader{src: src} }
+func NewStoreReader(src Source) *StoreReader { return &StoreReader{src: src} }
 
 // skillToCard DB 行 → 渐进式加载卡。Key=code（=目录名，裸名寻址口径）。
 func skillToCard(sk skillstore.Skill) *Card {

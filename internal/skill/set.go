@@ -13,7 +13,7 @@ import (
 //	Metas(ctx) 拉本视图可见的 frontmatter 列表（Tier 1 索引，不读正文）
 //	Load(ctx)  懒加载单个 skill 完整正文（Tier 2，后端缓存命中时 0 文件 IO / 0 DB 查询）
 //
-// ctx 贯穿：DB 后端的每次读写都要带超时/取消。运行时事实源是 DB（cfgcache
+// ctx 贯穿：DB 后端的每次读写都要带超时/取消。运行时事实源是 DB（cfgstore
 // 多级缓存），文件 Set 只服务种子导入与测试。
 type Reader interface {
 	Metas(ctx context.Context) ([]*Card, error)
@@ -178,9 +178,9 @@ func RenderIndex(cards []*Card) string {
 			key = c.Name
 		}
 		if c.Name != "" && c.Name != key {
-			sb.WriteString(fmt.Sprintf("- %s（%s）: %s\n", key, c.Name, c.Description))
+			fmt.Fprintf(&sb, "- %s（%s）: %s\n", key, c.Name, c.Description)
 		} else {
-			sb.WriteString(fmt.Sprintf("- %s: %s\n", key, c.Description))
+			fmt.Fprintf(&sb, "- %s: %s\n", key, c.Description)
 		}
 	}
 	return sb.String()

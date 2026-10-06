@@ -210,24 +210,3 @@ func (t *viewTrafficTool) Execute(ctx context.Context, args json.RawMessage) (re
 }
 
 // ─── replay_traffic ──────────────────────────────────────────────────────────
-
-var replayTrafficSchema = json.RawMessage(`{
-  "type": "object",
-  "properties": {
-    "id":     {"type": "integer", "description": "流量记录 ID（来自 list_traffic）。"},
-    "source": {"type": "string", "enum": ["agent", "proxy"], "description": "流量来源，不填自动探测。"},
-    "modifications": {
-      "type": "object",
-      "description": "字段级改写（未指定字段全部继承原请求）。",
-      "properties": {
-        "url":         {"type": "string"},
-        "method":      {"type": "string"},
-        "headers":     {"type": "object", "additionalProperties": {"type": ["string", "null"]}},
-        "query":       {"type": "object", "additionalProperties": {"type": ["string", "null"]}},
-        "body":        {"type": "string"},
-        "body_fields": {"type": "object", "additionalProperties": {"type": ["string", "null"]}}
-      }
-    }
-  },
-  "required": ["id"]
-}`)

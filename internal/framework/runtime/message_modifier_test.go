@@ -49,34 +49,6 @@ func TestRollingWindowModifier(t *testing.T) {
 	}
 }
 
-func TestTruncateModifier(t *testing.T) {
-	modifier := NewTruncateModifier(3)
-
-	messages := []llm.Message{
-		{Role: llm.RoleSystem, Content: "系统提示"},
-		{Role: llm.RoleUser, Content: "用户消息1"},
-		{Role: llm.RoleAssistant, Content: "助手消息1"},
-		{Role: llm.RoleUser, Content: "用户消息2"},
-		{Role: llm.RoleAssistant, Content: "助手消息2"},
-		{Role: llm.RoleUser, Content: "用户消息3"},
-	}
-
-	result, err := modifier.Modify(context.Background(), messages)
-	if err != nil {
-		t.Fatalf("Modify failed: %v", err)
-	}
-
-	// 应该保留：系统消息 + 最近3条
-	if len(result) != 4 {
-		t.Errorf("expected 4 messages, got %d", len(result))
-	}
-
-	// 第一条应该是系统消息
-	if result[0].Role != llm.RoleSystem {
-		t.Errorf("expected first message to be system, got %s", result[0].Role)
-	}
-}
-
 func TestValidateModifier(t *testing.T) {
 	modifier := NewValidateModifier(100)
 
@@ -134,7 +106,7 @@ func TestMessageModifierChain(t *testing.T) {
 		chain := NewMessageModifierChain(
 			[]MessageModifier{
 				NewValidateModifier(100),
-				NewTruncateModifier(2),
+				NewRollingWindowModifier(2),
 			},
 			ErrorStrategyFailFast,
 			RetryConfig{MaxAttempts: 0},
@@ -146,7 +118,7 @@ func TestMessageModifierChain(t *testing.T) {
 			t.Fatalf("Apply failed: %v", err)
 		}
 
-		// 验证截断生效
+		// 验证窗口截断生效
 		if len(result) != 3 { // 系统消息 + 2条
 			t.Errorf("expected 3 messages, got %d", len(result))
 		}
@@ -159,7 +131,7 @@ func TestMessageModifierChain(t *testing.T) {
 		chain := NewMessageModifierChain(
 			[]MessageModifier{
 				failingModifier,
-				NewTruncateModifier(2), // 这个应该继续执行
+				NewRollingWindowModifier(2), // 这个应该继续执行
 			},
 			ErrorStrategySkip,
 			RetryConfig{MaxAttempts: 0},

@@ -60,7 +60,7 @@ func (t *readSkillTool) Execute(ctx context.Context, args json.RawMessage) (regi
 	if err != nil {
 		// 附上本视图可见的候选名，帮 LLM 一次纠偏（白名单外的名字在这里被拦下）。
 		var sb strings.Builder
-		sb.WriteString(fmt.Sprintf("read_skill: %v", err))
+		fmt.Fprintf(&sb, "read_skill: %v", err)
 		if metas, mErr := t.skills.Metas(ctx); mErr == nil && len(metas) > 0 {
 			sb.WriteString("；可用: ")
 			for i, m := range metas {

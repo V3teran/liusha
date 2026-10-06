@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"sync"
 	"time"
 
 	"github.com/V3teran/liusha/internal/agent"
@@ -14,7 +13,6 @@ import (
 	"github.com/V3teran/liusha/internal/explorationgraph"
 	"github.com/V3teran/liusha/internal/framework/core"
 	"github.com/V3teran/liusha/internal/framework/llm"
-	"github.com/V3teran/liusha/internal/logx"
 	"github.com/V3teran/liusha/internal/monitor"
 	"github.com/V3teran/liusha/internal/planner"
 	"github.com/V3teran/liusha/internal/registry"
@@ -31,7 +29,7 @@ import (
 // sb 是本任务独占的沙箱客户端；nil 表示无沙箱（run_command/drive_browser 不注册）。
 func (h handler) runCognition(
 	ctx context.Context,
-	assignmentID, taskID, host, brief string,
+	taskID, host, brief string,
 	sb sandbox.Client,
 ) (executor.Report, error) {
 	h.logger.Info().
@@ -133,7 +131,7 @@ func (h handler) runCognition(
 
 	// 1. 创建 Registry 并注册工具；挂工具遥测 + 任务心跳 interceptor——
 	// 每次工具调用落 tool_invocation 并节流续命 task.heartbeat_at（reaper 判活依据）。
-	// ExecutorID 口径：tool_invocation.agent_task_id 外键指向 agent_run.id，
+	// AgentRunID 口径：tool_invocation.agent_run_id 外键指向 agent_run.id，
 	// 取本 task 的 run 行（api expandItem 建的那条）；查不到留空 → NULL。
 	agentRunID := ""
 	if runs, rErr := h.executors.ListByTask(ctx, taskID, 1); rErr == nil && len(runs) > 0 {
@@ -144,23 +142,27 @@ func (h handler) runCognition(
 
 	reg := registry.New()
 	reg.AddInterceptor(h.toolRecordInterceptor(agentRunID, taskID))
-	tools.RegisterAll(reg, tools.Deps{
-		TaskID:     taskID,
-		AgentID:    agentRunID,
-		Host:       host,
-		Tasks:      h.tasks,
-		Findings:   h.findings,
-		Corpus:     h.corpus,
-		Embedder:   h.embedder,
-		Reranker:   h.reranker,
-		Insights:   h.insights,
-		ProxyStore: h.proxyStore,
-		AgentStore: h.agentStore,
-		Creds:      h.creds,
-		Sandbox:    sb,                // run_command/drive_browser 依赖；nil 时这两个工具不注册
-		Graph:      h.graph,           // write_observation/write_evidence 依赖——晋升提议权的载体
-		Skills:     executorSkillView, // read_skill 依赖；声明为空时不注册
-	})
+	// 跨包工具依赖（executor 注册与 evaluator BuildTools 共用同一份，避免字面量漂移）
+	toolDeps := func(skillsView skill.Reader) tools.Deps {
+		return tools.Deps{
+			TaskID:     taskID,
+			AgentID:    agentRunID,
+			Host:       host,
+			Tasks:      h.tasks,
+			Findings:   h.findings,
+			Corpus:     h.corpus,
+			Embedder:   h.embedder,
+			Reranker:   h.reranker,
+			Insights:   h.insights,
+			ProxyStore: h.proxyStore,
+			AgentStore: h.agentStore,
+			Creds:      h.creds,
+			Sandbox:    sb,         // run_command/drive_browser 依赖；nil 时这两个工具不注册
+			Graph:      h.graph,    // write_observation/write_evidence 依赖——晋升提议权的载体
+			Skills:     skillsView, // read_skill 依赖；声明为空时不注册
+		}
+	}
+	tools.RegisterAll(reg, toolDeps(executorSkillView))
 
 	// 2. evaluator 裁决官的跨包工具：按其 function_tools 白名单从 BuildTools 取
 	// （run_command/list_traffic/view_traffic 等来自 tools 包；replay_for_verification 在 judge 本地）
@@ -175,22 +177,7 @@ func (h handler) runCognition(
 		WithSystemPrompt(evaluatorCfg.SystemPrompt).
 		WithComplexity(evaluatorCfg.Complexity).
 		WithMaxIterations(evaluatorCfg.MaxIterations).
-		WithExtraTools(tools.BuildTools(tools.Deps{
-			TaskID:     taskID,
-			AgentID:    agentRunID,
-			Host:       host,
-			Tasks:      h.tasks,
-			Findings:   h.findings,
-			Corpus:     h.corpus,
-			Embedder:   h.embedder,
-			Reranker:   h.reranker,
-			Insights:   h.insights,
-			ProxyStore: h.proxyStore,
-			AgentStore: h.agentStore,
-			Creds:      h.creds,
-			Sandbox:    sb,                 // evaluator 的 CLI 复核通道（run_command）
-			Skills:     evaluatorSkillView, // read_skill 依赖；声明为空时不注册
-		}, evaluatorCfg.FunctionTools))
+		WithExtraTools(tools.BuildTools(toolDeps(evaluatorSkillView), evaluatorCfg.FunctionTools))
 
 	// 3. 包装为 executor Registry
 	execRegistry := executor.NewRegistry(reg)
@@ -287,38 +274,16 @@ func (h handler) runCognition(
 		CheckInterval: 5 * time.Second,
 	})
 
-	// 8. 启动四个 Agent（异步；启停封装成闭包供控制平面 pause/resume 复用）
-	var agentWg sync.WaitGroup
-	var agentCtx context.Context
-	var cancelAgents context.CancelFunc
+	// 8. 启动四个 Agent（异步；启停封装成 agentLifecycle 供控制平面 pause/resume 复用）
+	lifecycle := newAgentLifecycle(ctx, h.logger, taskID, []agentSpec{
+		{name: "planner", start: plannerAgent.Run},
+		{name: "executor", start: executorAgent.Run},
+		{name: "evaluator", start: evaluatorAgent.Run},
+		{name: "monitor", start: monitorAgent.Run},
+	})
 
-	runAgent := func(name string, start func(context.Context) error) {
-		defer agentWg.Done()
-		if err := start(agentCtx); err != nil && agentCtx.Err() == nil {
-			h.logger.Error().Err(err).Str("task_id", taskID).Msg(name + " agent 异常退出")
-		}
-	}
-	goAgent := func(name string, start func(context.Context) error) {
-		agentWg.Add(1)
-		logx.Go(h.logger, name+"-agent", func() { runAgent(name, start) })
-	}
-
-	agents := &controlAgentLifecycle{
-		start: func() {
-			agentCtx, cancelAgents = context.WithCancel(ctx) //nolint:gosec // cancelAgents 由 stop() 闭包保证调用
-			goAgent("planner", plannerAgent.Run)
-			goAgent("executor", executorAgent.Run)
-			goAgent("evaluator", evaluatorAgent.Run)
-			goAgent("monitor", monitorAgent.Run)
-		},
-		stop: func() {
-			cancelAgents()
-			agentWg.Wait()
-		},
-	}
-
-	agents.start()
-	defer agents.stop()
+	lifecycle.Start()
+	defer lifecycle.Stop()
 
 	// 任务结束浏览器清理（P3）：本任务身份前缀的 daemon/chromium 逐个优雅
 	// reset——共享容器下立即释放内存（不等容器空闲回收），且只动本任务的身份
@@ -339,17 +304,15 @@ func (h handler) runCognition(
 
 	// 8.5 控制平面消费者：轮询 task_control_event（pause/resume/terminate/adjust_goal/inject）
 	if h.controlPlane != nil {
-		stopConsumer := startControlConsumer(ctx, taskID, h.controlPlane, h.graph, detector, agents, h.logger)
+		stopConsumer := startControlConsumer(ctx, taskID, h.controlPlane, h.graph, detector, lifecycle, h.logger)
 		defer stopConsumer()
 	}
 
 	h.logger.Info().Str("task_id", taskID).Msg("四个 Agent 已启动，等待任务完成")
 
-	// 9. 阻塞等待完成检测
+	// 9. 阻塞等待完成检测，随后停止所有 Agent（浏览器清理 defer 依赖 agents 已停）
 	result := detector.Start(ctx)
-
-	// 10. 优雅停止所有 Agent
-	agents.stop()
+	lifecycle.Stop()
 
 	h.logger.Info().
 		Str("task_id", taskID).

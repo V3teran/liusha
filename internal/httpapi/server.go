@@ -86,9 +86,9 @@ type Deps struct {
 	// 由 cmd/api 注入 *controlplane.Store（人工干预接口）。
 	ControlPlane ControlPlaneAPI
 	// SkillStore 为 nil 时 Skill 配置路由（/skills 系列）不注册。
-	// 由 cmd/api 注入 *cache.Store（cfgcache：L1/L2/DB 多级缓存 + 写失效广播，
+	// 由 cmd/api 注入 *cache.Store（cfgstore：L1/L2/DB 多级缓存 + 写失效广播，
 	// 自动满足 SkillAPI 窄接口）。Skill 是 Agent 可访问的知识库文档
-	//（工具手册、漏洞检测指南等）；运行时 runner 经同一 cfgcache 读（read_skill）。
+	// （工具手册、漏洞检测指南等）；运行时 runner 经同一 cfgstore 读（read_skill）。
 	SkillStore SkillAPI
 	// ExplorationGraph 为 nil 时探索图 API 路由（/tasks/:id/graph|nodes|stats）不注册。
 	// Phase 1: 探索图 API（e2e 测试迁移专用）。
@@ -120,7 +120,7 @@ func NewServer(d Deps) http.Handler {
 
 	r.Use(RequireAPIKey(d.APIKey, d.StreamCookieSecret))
 
-	r.GET("/healthz", func(c *gin.Context) { c.JSON(200, gin.H{"ok": true}) })
+	r.GET("/healthz", func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"ok": true}) })
 
 	registerRouteGroups(r, d)
 	return r
@@ -166,7 +166,6 @@ func registerRouteGroups(r *gin.Engine, d Deps) {
 		r.POST("/executors", saveExecutorHandler(d.ConfigStore))
 		r.PUT("/executors/:id", saveExecutorHandler(d.ConfigStore))
 		r.PATCH("/executors/:id/complexity", updateExecutorComplexityHandler(d.ConfigStore))
-		r.DELETE("/executors/:id", deleteExecutorHandler(d.ConfigStore))
 	}
 	if d.SkillStore != nil {
 		// Skill 配置 CRUD（前端知识库管理页）。
@@ -274,7 +273,7 @@ func registerRouteGroups(r *gin.Engine, d Deps) {
 		key := d.APIKey
 		r.GET("/dev-config.json", func(c *gin.Context) {
 			c.Header("Cache-Control", "no-store")
-			c.JSON(200, gin.H{"api_key": key})
+			c.JSON(http.StatusOK, gin.H{"api_key": key})
 		})
 	}
 }

@@ -29,10 +29,6 @@ func BuildTools(deps Deps, names []string) []registry.Tool {
 	}
 
 	// findings（快速读写，并发安全）
-	if deps.Findings != nil {
-		// write_finding 移到 Evaluator 专用（验证后才能写入 finding 表）
-		// reg.Register(&writeFindingTool{deps: deps})
-	}
 
 	// corpus（搜索可能慢，写入快）
 	if deps.Corpus != nil {

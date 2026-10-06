@@ -50,12 +50,6 @@ func (r *Registry) Register(p Profile) {
 	r.byDomain[p.Domain()] = p
 }
 
-// Get 按域标识取 Profile；未注册返回 (nil, false)。
-func (r *Registry) Get(domain string) (Profile, bool) {
-	p, ok := r.byDomain[domain]
-	return p, ok
-}
-
 // Domains 返回已注册的全部域标识。
 func (r *Registry) Domains() []string {
 	out := make([]string, 0, len(r.byDomain))

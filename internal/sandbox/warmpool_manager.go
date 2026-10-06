@@ -151,7 +151,7 @@ func (m *WarmPoolManager) Acquire(ctx context.Context, req AcquireRequest) (*San
 	// Release→SoftReset 与浏览器清理钩子被跳过，daemon/chromium 跨轮累积
 	// （实测：2GB 容器内 17 个 chromium 进程把内存吃满 → 新任务 chromium
 	// 冷启 30s 超时，两级自愈也救不了资源耗尽）。仅当本 borrow 前 active==0
-	//（容器空闲）才清——并发在跑的任务身份不受影响。
+	// （容器空闲）才清——并发在跑的任务身份不受影响。
 	wasIdle := m.active == 0
 	m.active++
 	if wasIdle {
@@ -333,35 +333,43 @@ func (m *WarmPoolManager) maintenanceLoop() {
 }
 
 // performMaintenance 执行维护任务。
+// 健康探测在锁外执行（同 Metrics 口径）：exec 最多阻塞 10s，持锁探测会卡住
+// Acquire/Release。探测结果回写前先校验容器指针身份——快照期间容器被并发
+// 重建（Acquire 发现不健康换新）则以新容器为准，本轮不动。
 func (m *WarmPoolManager) performMaintenance() {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+	m.mu.RLock()
+	sb := m.sandbox
+	active := m.active
+	lastUsed := m.lastUsed
+	m.mu.RUnlock()
 
-	if m.sandbox == nil {
+	if sb == nil {
 		return
 	}
 
 	// 检查 1: 空闲超时回收（只在无持有者时检查）
-	if m.active == 0 {
-		idleDuration := time.Since(m.lastUsed)
-		if idleDuration > m.idleTimeout {
-			m.logger.Info().
-				Dur("idle_duration", idleDuration).
-				Str("container_id", m.sandbox.ID).
-				Msg("sandbox idle timeout, destroying")
-			m.destroySandboxLocked()
+	if active == 0 {
+		if idle := time.Since(lastUsed); idle > m.idleTimeout {
+			m.reapIfCurrent(sb, idle, "sandbox idle timeout, destroying")
 			return
 		}
 	}
 
-	// 检查 2: 健康检查（无论是否使用中都检查）
+	// 检查 2: 健康探测（锁外）
 	ctx, cancel := context.WithTimeout(m.ctx, 10*time.Second)
 	defer cancel()
 
-	if err := m.checkHealth(ctx, m.sandbox); err != nil {
+	err := m.checkHealth(ctx, sb)
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.sandbox != sb { // 快照期间已被并发替换/销毁，以新容器为准
+		return
+	}
+	if err != nil {
 		m.logger.Warn().
 			Err(err).
-			Str("container_id", m.sandbox.ID).
+			Str("container_id", sb.ID).
 			Msg("sandbox unhealthy, will recreate on next acquire")
 		// 不健康但仍有持有者：不立即销毁，等 Release 后再处理
 		// 不健康且空闲：立即销毁
@@ -369,6 +377,21 @@ func (m *WarmPoolManager) performMaintenance() {
 			m.destroySandboxLocked()
 		}
 	}
+}
+
+// reapIfCurrent 空闲超时回收：仅当 m.sandbox 仍是快照容器时销毁（需持写锁，
+// 销毁是慢 IO，但仅发生在空闲容器上，Acquire 随后看到 nil 会自行重建）。
+func (m *WarmPoolManager) reapIfCurrent(sb *Sandbox, idle time.Duration, msg string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.sandbox != sb || m.active != 0 {
+		return
+	}
+	m.logger.Info().
+		Dur("idle_duration", idle).
+		Str("container_id", sb.ID).
+		Msg(msg)
+	m.destroySandboxLocked()
 }
 
 // createSandboxLocked 创建容器（需持有锁）。

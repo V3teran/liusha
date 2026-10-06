@@ -89,9 +89,6 @@ func (s *Store) CreateNode(ctx context.Context, node Node) (string, error) {
 	if node.BlockedReason != nil {
 		graphNode.Metadata["blocked_reason"] = *node.BlockedReason
 	}
-	if node.RoadmapStep != nil {
-		graphNode.Metadata["roadmap_step"] = *node.RoadmapStep
-	}
 
 	// Confidence 字段
 	if node.Confidence != nil {
@@ -203,23 +200,6 @@ func (s *Store) CreateBusinessEdge(ctx context.Context, edge Edge) error {
 // UpdateNodeContent 更新节点内容（控制平面 adjust_goal 等操作使用）。
 func (s *Store) UpdateNodeContent(ctx context.Context, id string, content json.RawMessage) error {
 	return s.graphStore.UpdateNode(ctx, id, core.GraphNodeUpdate{Content: content})
-}
-
-// UpdateNodeConfidence 更新节点置信度
-func (s *Store) UpdateNodeConfidence(ctx context.Context, id string, confidence Confidence) error {
-	var conf float64
-	switch confidence {
-	case ConfidenceVerified:
-		conf = 1.0
-	case ConfidenceUnverified:
-		conf = 0.5
-	case ConfidenceRefuted:
-		conf = 0.0
-	}
-
-	return s.graphStore.UpdateNode(ctx, id, core.GraphNodeUpdate{
-		Confidence: &conf,
-	})
 }
 
 // UpdateActionStateWithReason 更新 action 状态和阻塞原因
@@ -349,11 +329,6 @@ func (s *Store) graphNodeToNode(graphNode *core.GraphNode) (*Node, error) {
 	// BlockedReason
 	if blockedReason, ok := graphNode.Metadata["blocked_reason"].(string); ok {
 		node.BlockedReason = &blockedReason
-	}
-
-	// RoadmapStep
-	if roadmapStep, ok := graphNode.Metadata["roadmap_step"].(float64); ok {
-		node.RoadmapStep = &roadmapStep
 	}
 
 	// Confidence

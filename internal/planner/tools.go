@@ -11,6 +11,22 @@ import (
 	"github.com/V3teran/liusha/internal/registry"
 )
 
+// plannerCtxKey 是 planner 包内 context 值的类型化键（SA1029：禁止裸 string 键）。
+type plannerCtxKey string
+
+const ctxKeyTaskID plannerCtxKey = "task_id"
+
+// WithTaskID 向 ctx 注入 task_id（observe_state/evaluate_progress 经它取归属）。
+func WithTaskID(ctx context.Context, taskID string) context.Context {
+	return context.WithValue(ctx, ctxKeyTaskID, taskID)
+}
+
+// taskIDFromContext 取注入的 task_id；未注入返回空串。
+func taskIDFromContext(ctx context.Context) string {
+	v, _ := ctx.Value(ctxKeyTaskID).(string)
+	return v
+}
+
 // ObserveStateTool 观察探索图状态
 type ObserveStateTool struct {
 	registry.BaseTool
@@ -52,8 +68,8 @@ func (t *ObserveStateTool) Schema() json.RawMessage {
 
 // Execute 实现工具接口：汇总探索图当前状态。
 func (t *ObserveStateTool) Execute(ctx context.Context, argsJSON json.RawMessage) (registry.ToolResult, error) {
-	taskID, ok := ctx.Value("task_id").(string)
-	if !ok {
+	taskID := taskIDFromContext(ctx)
+	if taskID == "" {
 		return registry.ToolResult{Error: "task_id not in context"}, nil
 	}
 
@@ -143,29 +159,25 @@ func NewEvaluateProgressTool(graph *explorationgraph.Store) *EvaluateProgressToo
 // Name 实现工具接口。
 func (t *EvaluateProgressTool) Name() string { return "evaluate_progress" }
 
-// ShortDesc 实现 EvaluateProgressTool 的接口方法。
+// ShortDesc 实现工具接口。
 func (t *EvaluateProgressTool) ShortDesc() string {
 	return "评估任务进展"
 }
 
-// Desc 实现 EvaluateProgressTool 的接口方法。
-
 // Desc 实现工具接口。
 func (t *EvaluateProgressTool) Desc() string {
 	return "评估任务进展，判断是否应该继续生成 Action"
-	// Schema 实现 EvaluateProgressTool 的接口方法。
 }
 
 // Schema 实现工具接口。
 func (t *EvaluateProgressTool) Schema() json.RawMessage {
-	// Execute 实现 EvaluateProgressTool 的接口方法。
 	return json.RawMessage(`{"type": "object", "properties": {}}`)
 }
 
 // Execute 实现工具接口：汇总当前进展。
 func (t *EvaluateProgressTool) Execute(ctx context.Context, _ json.RawMessage) (registry.ToolResult, error) {
-	taskID, ok := ctx.Value("task_id").(string)
-	if !ok {
+	taskID := taskIDFromContext(ctx)
+	if taskID == "" {
 		return registry.ToolResult{Error: "task_id not in context"}, nil
 	}
 

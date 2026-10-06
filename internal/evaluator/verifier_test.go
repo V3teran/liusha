@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -18,18 +19,30 @@ import (
 // fakeGraphStore 记录 Evaluator 对探索图的写入，供断言"门的副作用"。
 // 写权限不变式：evaluator 只应新建 result 节点；对假设节点仅 metadata 审判标记。
 type fakeGraphStore struct {
+	mu            sync.Mutex // 并发验证 goroutine 共享本 fake，写入需互斥
 	verifications []explorationgraph.Verification
 	nodes         []explorationgraph.Node
 	metadata      map[string]json.RawMessage // nodeID → 最近一次 metadata 补丁
 	verID         string
 }
 
+// VerificationCount 返回已记录的验证条数（并发安全读）。
+func (f *fakeGraphStore) VerificationCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.verifications)
+}
+
 func (f *fakeGraphStore) RecordVerification(_ context.Context, v explorationgraph.Verification) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.verifications = append(f.verifications, v)
 	return f.verID, nil
 }
 
 func (f *fakeGraphStore) CreateNode(_ context.Context, n explorationgraph.Node) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	nodeID := "node-" + string(n.Kind)
 	n.ID = nodeID
 	f.nodes = append(f.nodes, n)
@@ -37,6 +50,8 @@ func (f *fakeGraphStore) CreateNode(_ context.Context, n explorationgraph.Node) 
 }
 
 func (f *fakeGraphStore) UpdateNodeMetadata(_ context.Context, id string, metadata json.RawMessage) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	if f.metadata == nil {
 		f.metadata = map[string]json.RawMessage{}
 	}
@@ -453,17 +468,19 @@ func TestAgent_VerifyConcurrencyDoesNotBlockEventLoop(t *testing.T) {
 
 	start := time.Now()
 	// 两个 attempt 背靠背进验证（第二个必须能立即入队而非阻塞发送方）
-	go a.verifyAttempt(context.Background(), "act-1", baseAttempt())
-	go a.verifyAttempt(context.Background(), "act-2", baseAttempt())
+	go func() { _ = a.verifyAttempt(context.Background(), "act-1", baseAttempt()) }()
+	go func() { _ = a.verifyAttempt(context.Background(), "act-2", baseAttempt()) }()
 	// 主线程立即做一次去重查询——若事件循环被卡（旧实现语义在事件循环取号），
 	// 这里照样能即时返回
 	_, _ = a.adjudicatedLookup("anything")
 
-	// 两个验证都完成：1 个并发下串行执行，总时长 ≥ 2×300ms
-	time.Sleep(750 * time.Millisecond)
-	w2 := w
-	if len(w2.verifications) != 2 {
-		t.Fatalf("两个 attempt 都应完成验证, got %d", len(w2.verifications))
+	// 轮询等待两个验证都完成（直接调用 verifyAttempt 不经 Run 的信号量，二者并行）
+	deadline := time.Now().Add(3 * time.Second)
+	for w.VerificationCount() < 2 {
+		if time.Now().After(deadline) {
+			t.Fatalf("两个 attempt 都应完成验证, got %d", w.VerificationCount())
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 	_ = start
 }

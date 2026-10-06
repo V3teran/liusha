@@ -28,6 +28,8 @@ import (
 	"time"
 
 	"github.com/V3teran/liusha/internal/framework/core"
+
+	"strings"
 )
 
 // State 是 action 的执行状态（类型别名，指向 core.ActionState）
@@ -111,9 +113,8 @@ type Node struct {
 	// action 专用字段
 	State         *State      `json:"state,omitempty"`          // open/running/done/...
 	Complexity    *Complexity `json:"complexity,omitempty"`     // trivial/simple/moderate/...
-	DependsOn     []string    `json:"depends_on,omitempty"`     // 依赖的其他 action ID（低层依赖，限定作用域：同一 RoadmapStep 内）
+	DependsOn     []string    `json:"depends_on,omitempty"`     // 依赖的其他 action ID（低层依赖，限定作用域：同一目标方向内）
 	BlockedReason *string     `json:"blocked_reason,omitempty"` // 阻塞原因
-	RoadmapStep   *float64    `json:"roadmap_step,omitempty"`   // 关联的 RoadmapStep 编号（如果此 Action 由 Roadmap 派发）
 
 	// observation/result 专用字段
 	Confidence *Confidence `json:"confidence,omitempty"` // unverified/verified
@@ -213,4 +214,49 @@ type TargetRef struct {
 type ObjectiveNode struct {
 	ID   string
 	Goal string
+}
+
+// NormalizePriority 把 LLM 输出的优先级词归一到 Priority（未知值归 medium）。
+// planner 提案、result 分析、控制平面注入共用本判定。
+func NormalizePriority(s string) Priority {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "critical":
+		return PriorityCritical
+	case "high":
+		return PriorityHigh
+	case "low":
+		return PriorityLow
+	default:
+		return PriorityMedium
+	}
+}
+
+// PriorityFromSeverity 把漏洞 severity 映射到优先级（info 归 low，未知归 medium）。
+func PriorityFromSeverity(severity string) Priority {
+	switch strings.ToLower(strings.TrimSpace(severity)) {
+	case "critical":
+		return PriorityCritical
+	case "high":
+		return PriorityHigh
+	case "low", "info":
+		return PriorityLow
+	default:
+		return PriorityMedium
+	}
+}
+
+// NormalizeComplexity 把 LLM 输出的复杂度词归一到 Complexity（未知值归 simple）。
+func NormalizeComplexity(s string) Complexity {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "moderate":
+		return ComplexityModerate
+	case "complex":
+		return ComplexityComplex
+	case "trivial":
+		return ComplexityTrivial
+	case "extreme":
+		return ComplexityExtreme
+	default:
+		return ComplexitySimple
+	}
 }

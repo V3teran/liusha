@@ -27,10 +27,10 @@ const heartbeatThrottleMs = 10_000
 func (h handler) toolRecordInterceptor(executorID, taskID string) registry.Interceptor {
 	lastBeatMs := new(atomic.Int64)
 	return func(ctx context.Context, t registry.Tool, args []byte, next registry.ExecuteFunc) (registry.ToolResult, error) {
-		h.logger.Info().
+		h.logger.Debug().
 			Str("task_id", taskID).
 			Str("tool_name", t.Name()).
-			Msg("[INTERCEPTOR] Tool call intercepted")
+			Msg("tool call intercepted")
 
 		start := time.Now()
 		res, err := next(ctx, t, args)
@@ -62,19 +62,19 @@ func (h handler) toolRecordInterceptor(executorID, taskID string) registry.Inter
 				h.logger.Error().Err(appendErr).
 					Str("task_id", taskID).
 					Str("tool_name", t.Name()).
-					Msg("[INTERCEPTOR] Failed to record tool invocation")
+					Msg("failed to record tool invocation")
 			} else {
-				h.logger.Info().
+				h.logger.Debug().
 					Str("task_id", taskID).
 					Str("tool_name", t.Name()).
 					Int64("invocation_id", invID).
-					Msg("[INTERCEPTOR] Tool invocation recorded successfully")
+					Msg("tool invocation recorded")
 			}
 		} else {
 			h.logger.Warn().
 				Str("task_id", taskID).
 				Str("tool_name", t.Name()).
-				Msg("[INTERCEPTOR] h.toolCalls is nil, cannot record invocation")
+				Msg("h.toolCalls is nil, cannot record invocation")
 		}
 		// throttled heartbeat
 		if taskID != "" {
@@ -140,7 +140,7 @@ func (h handler) handleCognition(
 		Msg("sandbox acquired for task")
 
 	// 执行四Agent认知循环
-	report, err := h.runCognition(ctx, assignmentID, taskID, virtualHost, brief, sb.Client)
+	report, err := h.runCognition(ctx, taskID, virtualHost, brief, sb.Client)
 	if err != nil {
 		return h.failTask(ctx, p.AgentID, err)
 	}

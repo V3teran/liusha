@@ -33,26 +33,6 @@ const (
 	SignalScreenshot     SignalKind = "screenshot"      // 权重 0.3
 )
 
-// SignalWeight 返回 SignalKind 对应的可信权重。
-func SignalWeight(k SignalKind) float64 {
-	switch k {
-	case SignalCmdOutput:
-		return 1.0
-	case SignalHTTPTrace:
-		return 0.9
-	case SignalFileContent:
-		return 0.8
-	case SignalCredentialDump: // #nosec G101 // 枚举字面量，非凭证
-		return 1.0
-	case SignalNetworkScan:
-		return 0.7
-	case SignalScreenshot:
-		return 0.3
-	default:
-		return 0.5
-	}
-}
-
 // Signal 是工具执行产生的一条证据。
 type Signal struct {
 	Kind       SignalKind
@@ -61,31 +41,6 @@ type Signal struct {
 	Detail     string // 完整内容，按需拉取
 	Truncated  bool
 	CapturedAt time.Time
-}
-
-// ─────────────────────────────────────────────
-//  Constraint（结构化约束）
-// ─────────────────────────────────────────────
-
-// ConstraintKind 是约束类型。
-type ConstraintKind string
-
-// ConstraintMaxSeverity 等枚举定义。
-const (
-	// ConstraintPassiveOnly 表示该工具仅限 passive 会话使用。
-	ConstraintPassiveOnly ConstraintKind = "passive_only"
-	// ConstraintNoDestructive / ConstraintPassiveOnly 是工具使用约束枚举。
-	// ConstraintNoDestructive 禁止破坏性操作；ConstraintPassiveOnly 仅限被动会话；
-	// ConstraintMaxSeverity 限制最高严重度。
-	ConstraintNoDestructive ConstraintKind = "no_destructive"
-	ConstraintMaxSeverity   ConstraintKind = "max_severity"
-	ConstraintRateLimit     ConstraintKind = "rate_limit_rps"
-)
-
-// Constraint 是结构化执行约束，不靠 LLM 自我遵守。
-type Constraint struct {
-	Kind  ConstraintKind
-	Value string // 约束参数，如 "medium"、"10"
 }
 
 // ─────────────────────────────────────────────
@@ -162,10 +117,17 @@ func (b *BaseTool) SetConcurrencySafe(safe bool) {
 	b.concurrencySafe = safe
 }
 
-// NewBaseTool 创建 BaseTool（带默认配置）。
-func NewBaseTool() BaseTool {
-	return BaseTool{
-		timeout:         0,     // 使用全局默认
-		concurrencySafe: false, // 默认不并发安全
+// Allows 报告 name 是否在白名单内。白名单语义全项目统一：
+// nil = 全量放行；非 nil（含空切片）= 严格白名单，不在名单即拒绝。
+// function_tools/cli_tools/skills 四处 agent 装配共用本判定，避免各写一份闭包。
+func Allows(allowlist []string, name string) bool {
+	if allowlist == nil {
+		return true
 	}
+	for _, n := range allowlist {
+		if n == name {
+			return true
+		}
+	}
+	return false
 }

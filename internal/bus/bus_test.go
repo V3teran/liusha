@@ -45,7 +45,7 @@ func TestSubscribeTask_Isolation(t *testing.T) {
 	}
 }
 
-func TestUnsubscribeTask_StopsDelivery(t *testing.T) {
+func TestSubscriptionCancel_StopsDelivery(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	b := New(ctx)
@@ -63,27 +63,6 @@ func TestUnsubscribeTask_StopsDelivery(t *testing.T) {
 	case <-time.After(200 * time.Millisecond):
 		// 未收到即通过（通道可能被关闭也可能静默）
 	}
-}
-
-func TestSubscribeAction_RoutesByActionID(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	b := New(ctx)
-	actx, acancel := context.WithCancel(ctx)
-	defer acancel()
-
-	sub := b.SubscribeAction(actx, "act-9")
-	b.Publish(Event{Type: EventActionProposed, TaskID: "t1", ActionID: "act-9"})
-
-	select {
-	case ev := <-sub.Events():
-		if ev.ActionID != "act-9" {
-			t.Fatalf("action 路由错误: %+v", ev)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("action 订阅者超时")
-	}
-	sub.Unsubscribe()
 }
 
 func TestPublish_DoesNotBlockWhenNoSubscriber(t *testing.T) {

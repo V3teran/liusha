@@ -133,7 +133,7 @@ func TestRegistry_TimeoutInterceptor(t *testing.T) {
 	slow.sleep = 300 * time.Millisecond
 	r.Register(slow)
 
-	// 链的 TimeoutInterceptor 从 ctx 读超时（WithToolTimeout 注入），非 tool.Timeout()。
+	// 链的 TimeoutInterceptor 取工具声明的 Timeout（未声明用默认 120s）。
 	// deadline 触发时 ErrorMask 刻意上抛 Go error（中断 ReAct）而非转 res.Error。
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()

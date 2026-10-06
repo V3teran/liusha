@@ -25,10 +25,10 @@ import (
 	agentstore "github.com/V3teran/liusha/internal/agentrun"
 	"github.com/V3teran/liusha/internal/assignment"
 	"github.com/V3teran/liusha/internal/bus"
-	cfgcache "github.com/V3teran/liusha/internal/cache"
 	"github.com/V3teran/liusha/internal/cachestore"
 	"github.com/V3teran/liusha/internal/config"
 	"github.com/V3teran/liusha/internal/config/setting"
+	cfgstore "github.com/V3teran/liusha/internal/configstore"
 	"github.com/V3teran/liusha/internal/controlplane"
 	"github.com/V3teran/liusha/internal/conversation"
 	"github.com/V3teran/liusha/internal/corpus"
@@ -90,7 +90,7 @@ type runnerStores struct {
 }
 
 // runnerSkills 聚合 Progressive Disclosure 资源。
-// skill 不在此列：运行时 skill 事实源是 DB（经 cfgcache 三级缓存读，见 handler.skills），
+// skill 不在此列：运行时 skill 事实源是 DB（经 cfgstore 三级缓存读，见 handler.skills），
 // 文件目录只作 api 启动期种子。
 type runnerSkills struct {
 	toolsManifest *manifest.Manifest // tools.yaml：与 Dockerfile 装的 binary 严格对应
@@ -98,7 +98,7 @@ type runnerSkills struct {
 
 // runnerLLM 聚合 LLM 配置栈（事实源 + 解密器）。
 type runnerLLM struct {
-	cfgStore  *cfgcache.Store
+	cfgStore  *cfgstore.Store
 	llmStore  *llmstore.Store
 	keyCipher *cryptx.Cipher
 }
@@ -188,7 +188,7 @@ func main() {
 		router:     router,
 		creds:      credential.NewRedis(rdb, cfg.Credential.RedisKeyPrefix),
 		toolCalls:  stores.toolCalls,
-		// skill 渐进式加载后端 = DB 事实源（经 cfgcache 的 L1/L2/DB 三级缓存；
+		// skill 渐进式加载后端 = DB 事实源（经 cfgstore 的 L1/L2/DB 三级缓存；
 		// 前端改 skill → 失效总线广播 → 本进程 L1 清 → 下次读即新值，无需重启）。
 		skills:         skill.NewStoreReader(llmStack.cfgStore),
 		toolsManifest:  skills.toolsManifest,
@@ -306,7 +306,7 @@ func newCorpusEmbedder(logger zerolog.Logger) (corpus.Embedder, corpus.Reranker)
 // newRunnerSkills 构造 Progressive Disclosure 资源。
 //
 // skill 不在此装配：运行时 skill 事实源 = DB（skill 表），经 handler.skills 的
-// StoreReader（cfgcache 三级缓存）读；skills/ 文件目录只作 api 启动期种子。
+// StoreReader（cfgstore 三级缓存）读；skills/ 文件目录只作 api 启动期种子。
 func newRunnerSkills(logger zerolog.Logger) *runnerSkills {
 	// Tools manifest（tools.yaml）：与 Dockerfile 装的 binary 严格对应——
 	// agent 用它渲染 SystemPrompt 的 tooling_catalog 段（Tier 1 索引）。
@@ -365,7 +365,7 @@ func newSandboxLauncher(ctx context.Context, cfg config.Config, runnerCfg config
 func newLLMStack(pool *pgxpool.Pool, cache *cachestore.Cache, logger zerolog.Logger) *runnerLLM {
 	// 配置事实源（DB + 内存/redis 缓存）：运行期按需读 agent 装配引擎。
 	// 文件仅是首次导入的种子（seed 导入在别处），进程运行期一律走 DB/缓存（见 D6/D7）。
-	cfgStore := cfgcache.New(pool, cache)
+	cfgStore := cfgstore.New(pool, cache)
 
 	// LLM 配置事实源：llm.Router 运行期按 tier 解析 provider 部署即读它（多级缓存）。
 	// api 进程改「LLM 配置」模块后经 cachestore 广播失效，runner 下次 For(tier) 即读到最新部署。

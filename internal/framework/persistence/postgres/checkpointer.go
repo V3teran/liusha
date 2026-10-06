@@ -5,10 +5,12 @@ package postgres
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/V3teran/liusha/internal/framework/core"
@@ -107,8 +109,8 @@ func (c *Checkpointer) Load(ctx context.Context, id core.CheckpointID) (*core.Ch
 
 	err := row.Scan(&cp.ID, &cp.TaskID, &cp.StateSnapshot, &cp.Phase, &componentStatesJSON, &labelsJSON, &cp.SizeBytes, &cp.CreatedAt)
 	if err != nil {
-		if isNoRows(err) {
-			return nil, nil
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, fmt.Errorf("checkpoint: load (id=%s): %w", id, core.ErrCheckpointNotFound{CheckpointID: id})
 		}
 		return nil, fmt.Errorf("checkpoint: load (id=%s): %w", id, err)
 	}
@@ -191,8 +193,8 @@ func (c *Checkpointer) Latest(ctx context.Context, taskID string) (*core.Checkpo
 
 	err := row.Scan(&cp.ID, &cp.TaskID, &cp.StateSnapshot, &cp.Phase, &componentStatesJSON, &labelsJSON, &cp.SizeBytes, &cp.CreatedAt)
 	if err != nil {
-		if isNoRows(err) {
-			return nil, nil
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, fmt.Errorf("checkpoint: latest (task=%s): %w", taskID, core.ErrCheckpointNotFound{CheckpointID: ""})
 		}
 		return nil, fmt.Errorf("checkpoint: latest (task=%s): %w", taskID, err)
 	}
@@ -249,8 +251,4 @@ func (c *Checkpointer) Prune(ctx context.Context, taskID string, keepCount int) 
 	}
 
 	return nil
-}
-
-func isNoRows(err error) bool {
-	return err != nil && err.Error() == "no rows in result set"
 }

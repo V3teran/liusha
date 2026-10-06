@@ -10,6 +10,14 @@ run:
     - web
 
 linters:
+  exclusions:
+    rules:
+      # 测试文件里的不安全 fixture 是刻意的（靶机测试服务需要不安全 Cookie/反射输出）
+      - path: _test\.go
+        linters:
+          - gosec
+          - gocritic
+
   enable:
     # 默认启用的
     - errcheck
@@ -49,8 +57,3 @@ linters-settings:
 issues:
   max-issues-per-linter: 50
   max-same-issues: 10
-  exclude-rules:
-    - path: _test\.go
-      linters:
-        - gosec
-        - gocritic

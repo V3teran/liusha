@@ -20,7 +20,6 @@ import (
 	"github.com/V3teran/liusha/internal/agentrun"
 	"github.com/V3teran/liusha/internal/assignment"
 	"github.com/V3teran/liusha/internal/audit"
-	cfgcache "github.com/V3teran/liusha/internal/cache"
 	"github.com/V3teran/liusha/internal/cachestore"
 	"github.com/V3teran/liusha/internal/chat"
 	"github.com/V3teran/liusha/internal/config"
@@ -28,6 +27,7 @@ import (
 	"github.com/V3teran/liusha/internal/config/seed"
 	"github.com/V3teran/liusha/internal/config/setting"
 	cfgtool "github.com/V3teran/liusha/internal/config/tool"
+	cfgstore "github.com/V3teran/liusha/internal/configstore"
 	"github.com/V3teran/liusha/internal/controlplane"
 	"github.com/V3teran/liusha/internal/conversation"
 	"github.com/V3teran/liusha/internal/credential"
@@ -114,7 +114,7 @@ func main() {
 
 	// 配置多级缓存 Store（agent CRUD 后端）。写路径经 cachestore 广播失效，
 	// runner 进程被动失效其 L1。
-	cfgStore := cfgcache.New(pool, cache)
+	cfgStore := cfgstore.New(pool, cache)
 
 	// LLM 配置多级缓存 Store（provider 部署 / 别名 / 角色路由）。既是「模型模块」CRUD 后端，
 	// 又是两个 LLM 工厂运行期 role→provider 解析的事实源（复用同一 cache 实例）。
@@ -430,27 +430,9 @@ func (a *scanAdapter) expandItem(ctx context.Context, assignmentID, brief, conve
 		return "", "", fmt.Errorf("create task: %w", err)
 	}
 
-	tid, err := a.executors.Create(ctx, agentrun.NewParams{
-		TaskID: tk.ID,
-		Role:   "planner",
-		Input:  payloadInput,
-	})
+	tid, err := a.enqueuePlannerRun(ctx, tk.ID, conversationID, payloadInput)
 	if err != nil {
-		return "", "", fmt.Errorf("create executor run: %w", err)
-	}
-
-	// planner 跑 ~4h，asynq 默认 retry 25 次 → 4 天死循环；且 retry 接管时新 runner 进程
-	// parentRegistries 是空的，PreDoneCheck 永放行，旧 PG exploitation 留 status=running 僵尸态。
-	// MaxRetry(0)：跑挂就跑挂，让用户手动 abort + 重新触发，不重试。
-	if _, _, err := a.enq.Enqueue(ctx, worker.RoleExecutor, worker.Payload{
-		AgentID:        tid,
-		TaskID:         tk.ID,
-		ConversationID: conversationID, // 阶段B：会话发起时非空 → runner 发过程事件
-		// 场景 code：runner 据此数据驱动派发引擎/操作员编排
-		Input: payloadInput,
-		Role:  worker.RoleExecutor,
-	}, asynq.MaxRetry(0), asynq.Timeout(a.maxRunTimeout)); err != nil {
-		return "", "", fmt.Errorf("enqueue: %w", err)
+		return "", "", err
 	}
 
 	// 0047：task 创建成功 → 审计事件。metadata 记 brief 前 200 字便于事后查（完整 brief 在 task.brief 列）。
@@ -486,6 +468,16 @@ func (a *scanAdapter) FollowUp(ctx context.Context, taskID, conversationID, brie
 	if err != nil {
 		return "", fmt.Errorf("marshal payload: %w", err)
 	}
+	return a.enqueuePlannerRun(ctx, taskID, conversationID, payloadInput)
+}
+
+// enqueuePlannerRun 建 planner agent run 并入队——expandItem（首跑）与 FollowUp（续跑）
+// 共用同一份入队语义。
+//
+// planner 跑 ~4h，asynq 默认 retry 25 次 → 4 天死循环；且 retry 接管时新 runner 进程
+// parentRegistries 是空的，PreDoneCheck 永放行，旧 PG exploitation 留 status=running 僵尸态。
+// MaxRetry(0)：跑挂就跑挂，让用户手动 abort + 重新触发，不重试。
+func (a *scanAdapter) enqueuePlannerRun(ctx context.Context, taskID, conversationID string, payloadInput []byte) (string, error) {
 	tid, err := a.executors.Create(ctx, agentrun.NewParams{
 		TaskID: taskID,
 		Role:   "planner",
@@ -497,12 +489,12 @@ func (a *scanAdapter) FollowUp(ctx context.Context, taskID, conversationID, brie
 	if _, _, err := a.enq.Enqueue(ctx, worker.RoleExecutor, worker.Payload{
 		AgentID:        tid,
 		TaskID:         taskID,
-		ConversationID: conversationID,
-
+		ConversationID: conversationID, // 阶段B：会话发起时非空 → runner 发过程事件
+		// 场景 code：runner 据此数据驱动派发引擎/操作员编排
 		Input: payloadInput,
 		Role:  worker.RoleExecutor,
 	}, asynq.MaxRetry(0), asynq.Timeout(a.maxRunTimeout)); err != nil {
-		return "", fmt.Errorf("enqueue followup: %w", err)
+		return "", fmt.Errorf("enqueue: %w", err)
 	}
 	return tid, nil
 }
@@ -561,6 +553,7 @@ func (a *scanAdapter) HandleMessage(ctx context.Context, convID, content string)
 	isAction := msgclass.Classify(ctx, g, content) == msgclass.KindAction
 
 	// 纯聊天会话（无 task）：升级为 action 时用当前场景建 task；否则通用助手回答。
+	// 升级路径：createScan 已把 brief 作为首个 run 的 payload 入队，无需再 FollowUp。
 	if conv.TaskID == "" {
 		if !isAction {
 			if err := chat.New(a).Answer(ctx, convID, content); err != nil {
@@ -568,15 +561,18 @@ func (a *scanAdapter) HandleMessage(ctx context.Context, convID, content string)
 			}
 			return "qa", false, nil
 		}
+		taskID, _, err := a.createScan(ctx, content, convID)
+		if err != nil {
+			return "", false, err
+		}
+		if err := a.conversations.LinkTask(ctx, convID, taskID); err != nil {
+			return "", false, fmt.Errorf("link task: %w", err)
+		}
+		go a.genTitle(convID, content) //nolint:gosec // G118：标题生成独立于请求生命周期，进程级后台任务
+		return "action", false, nil
 	}
-	taskID, _, err := a.createScan(ctx, content, convID)
-	if err != nil {
-		return "", false, err
-	}
-	if err := a.conversations.LinkTask(ctx, convID, taskID); err != nil {
-		return "", false, fmt.Errorf("link task: %w", err)
-	}
-	go a.genTitle(convID, content) //nolint:gosec // G118：标题生成独立于请求生命周期，进程级后台任务
+
+	// 已绑 task 的会话：action → 续接同一 task（finding 累积，不新建）；qa → 就已有 finding 提问。
 	tk, err := a.tasks.GetByID(ctx, conv.TaskID)
 	if err != nil {
 		return "", false, err
@@ -585,8 +581,7 @@ func (a *scanAdapter) HandleMessage(ctx context.Context, convID, content string)
 		if tk.Status == task.StatusActive {
 			return "action", true, nil // 忙：agent 在跑，本轮指导经 conversationContext 下次读到
 		}
-		// finding 累积在这次分析会话里（不新建 task）。追加消息作为新一轮 brief 下发。
-		// FollowUp 失败仅记录，不阻塞标题生成流程
+		// FollowUp 失败仅记录，不阻塞应答流程
 		_, _ = a.FollowUp(ctx, conv.TaskID, convID, content)
 		return "action", false, nil
 	}

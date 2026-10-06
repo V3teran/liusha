@@ -149,6 +149,7 @@ func followUpHandler(api FollowUpAPI) gin.HandlerFunc {
 		convID := c.Param("id")
 		var req FollowUpRequest
 		if err := c.ShouldBindJSON(&req); err != nil || req.Content == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "content required"})
 			return
 		}
 		intent, busy, err := api.HandleMessage(c.Request.Context(), convID, req.Content)

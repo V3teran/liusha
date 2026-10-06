@@ -7,8 +7,6 @@ package bus
 
 import (
 	"context"
-	"fmt"
-	"sync"
 	"sync/atomic"
 	"time"
 
@@ -20,12 +18,6 @@ import (
 type Bus interface {
 	// Task 级别订阅（广播语义，返回独立订阅句柄）
 	SubscribeTask(taskID string) *TaskSubscription
-
-	// Task 级别整体注销：关闭该 task 全部剩余订阅（任务收尾用）
-	UnsubscribeTask(taskID string)
-
-	// Action 级别订阅（返回 Subscription 对象）
-	SubscribeAction(ctx context.Context, actionID string) *Subscription
 
 	// 发布事件
 	Publish(event Event)
@@ -56,29 +48,9 @@ func (s *TaskSubscription) Cancel() {
 	}
 }
 
-// Subscription Action 级别订阅句柄
-type Subscription struct {
-	id     string
-	events chan Event
-	cancel func()
-}
-
-// Events 返回事件通道
-func (s *Subscription) Events() <-chan Event {
-	return s.events
-}
-
-// Unsubscribe 取消订阅
-func (s *Subscription) Unsubscribe() {
-	if s.cancel != nil {
-		s.cancel()
-	}
-}
-
 // taskSubOp 是 run() 内订阅表的操作请求（订阅表只在 run() 单 goroutine 变更，无竞争）。
 type taskSubOp struct {
 	sub      *TaskSubscription // register 时携带
-	teardown bool              // true = 注销该 task 全部订阅
 	cancelID uint64            // cancel 单个订阅
 	taskID   string
 	done     chan struct{} // 操作完成信号
@@ -93,39 +65,27 @@ type MemoryBus struct {
 	nextTaskSub atomic.Uint64
 	taskOps     chan taskSubOp
 
-	// Action 级订阅
-	actionMu          sync.RWMutex
-	actionSubscribers map[string]*subscriber
-	nextSubID         int
-
 	// 发布通道
 	publish chan Event
-}
-
-type subscriber struct {
-	id       string
-	actionID string
-	events   chan Event
-	ctx      context.Context
-	cancel   context.CancelFunc
 }
 
 // New 创建内存事件总线
 func New(ctx context.Context) *MemoryBus {
 	bus := &MemoryBus{
-		ctx:               ctx,
-		taskSubs:          make(map[string]map[uint64]chan Event),
-		taskOps:           make(chan taskSubOp, constants.ChannelBufferLarge),
-		actionSubscribers: make(map[string]*subscriber),
-		publish:           make(chan Event, constants.ChannelBufferVeryLarge),
+		ctx:      ctx,
+		taskSubs: make(map[string]map[uint64]chan Event),
+		taskOps:  make(chan taskSubOp, constants.ChannelBufferLarge),
+		publish:  make(chan Event, constants.ChannelBufferVeryLarge),
 	}
 	go bus.run()
 	return bus
 }
 
 // run 运行事件总线的主循环：订阅表的唯一变更点。
+// 单轮分发 panic 被就地恢复（记日志后继续），避免一条坏事件永久失能总线——
+// bus ctx 通常是 context.Background（进程级），循环一旦退出 Publish/Subscribe
+// 会永久阻塞，四个 agent 随之死锁。
 func (b *MemoryBus) run() {
-	defer logx.Recover("bus", "事件总线主循环 panic")
 	for {
 		select {
 		case <-b.ctx.Done():
@@ -134,47 +94,40 @@ func (b *MemoryBus) run() {
 					close(ch)
 				}
 			}
-			b.actionMu.Lock()
-			for _, sub := range b.actionSubscribers {
-				sub.cancel()
-				close(sub.events)
-			}
-			b.actionMu.Unlock()
 			return
 
 		case op := <-b.taskOps:
-			b.handleTaskOp(op)
+			b.safeHandleTaskOp(op)
 
 		case event := <-b.publish:
-			if event.Timestamp.IsZero() {
-				event.Timestamp = time.Now()
-			}
-			if event.ID == "" {
-				event.ID = generateEventID()
-			}
+			b.safeDispatch(event)
+		}
+	}
+}
 
-			// Task 级广播：每个订阅者一份拷贝，满即丢弃（背压不级联）
-			if event.TaskID != "" {
-				for _, ch := range b.taskSubs[event.TaskID] {
-					select {
-					case ch <- event:
-					default:
-					}
-				}
-			}
+// safeHandleTaskOp 单次订阅表操作的 panic 隔离。
+func (b *MemoryBus) safeHandleTaskOp(op taskSubOp) {
+	defer logx.Recover("bus", "订阅表操作 panic")
+	b.handleTaskOp(op)
+}
 
-			// Action 级分发
-			if event.ActionID != "" {
-				b.actionMu.RLock()
-				for _, sub := range b.actionSubscribers {
-					if sub.actionID == event.ActionID {
-						select {
-						case sub.events <- event:
-						default:
-						}
-					}
-				}
-				b.actionMu.RUnlock()
+// safeDispatch 单次事件分发的 panic 隔离。
+func (b *MemoryBus) safeDispatch(event Event) {
+	defer logx.Recover("bus", "事件分发 panic")
+
+	if event.Timestamp.IsZero() {
+		event.Timestamp = time.Now()
+	}
+	if event.ID == "" {
+		event.ID = generateEventID()
+	}
+
+	// Task 级广播：每个订阅者一份拷贝，满即丢弃（背压不级联）
+	if event.TaskID != "" {
+		for _, ch := range b.taskSubs[event.TaskID] {
+			select {
+			case ch <- event:
+			default:
 			}
 		}
 	}
@@ -182,8 +135,7 @@ func (b *MemoryBus) run() {
 
 // handleTaskOp 在 run() 内执行订阅表操作。
 func (b *MemoryBus) handleTaskOp(op taskSubOp) {
-	switch {
-	case op.sub != nil: // register
+	if op.sub != nil { // register
 		subs, ok := b.taskSubs[op.taskID]
 		if !ok {
 			subs = make(map[uint64]chan Event)
@@ -200,28 +152,20 @@ func (b *MemoryBus) handleTaskOp(op taskSubOp) {
 		if op.done != nil {
 			close(op.done)
 		}
-	case op.teardown: // 注销该 task 全部订阅
-		for id, ch := range b.taskSubs[op.taskID] {
+		return
+	}
+	// cancel 单个订阅
+	if subs, ok := b.taskSubs[op.taskID]; ok {
+		if ch, ok := subs[op.cancelID]; ok {
 			close(ch)
-			delete(b.taskSubs[op.taskID], id)
+			delete(subs, op.cancelID)
 		}
-		delete(b.taskSubs, op.taskID)
-		if op.done != nil {
-			close(op.done)
+		if len(subs) == 0 {
+			delete(b.taskSubs, op.taskID)
 		}
-	default: // cancel 单个订阅
-		if subs, ok := b.taskSubs[op.taskID]; ok {
-			if ch, ok := subs[op.cancelID]; ok {
-				close(ch)
-				delete(subs, op.cancelID)
-			}
-			if len(subs) == 0 {
-				delete(b.taskSubs, op.taskID)
-			}
-		}
-		if op.done != nil {
-			close(op.done)
-		}
+	}
+	if op.done != nil {
+		close(op.done)
 	}
 }
 
@@ -240,64 +184,6 @@ func (b *MemoryBus) SubscribeTask(taskID string) *TaskSubscription {
 	case <-b.ctx.Done():
 	}
 	return sub
-}
-
-// UnsubscribeTask 注销该 task 的全部订阅（任务收尾用；
-// 单个订阅者退出应调 TaskSubscription.Cancel，不影响同伴）。
-func (b *MemoryBus) UnsubscribeTask(taskID string) {
-	op := taskSubOp{teardown: true, taskID: taskID, done: make(chan struct{})}
-	select {
-	case b.taskOps <- op:
-		<-op.done
-	case <-b.ctx.Done():
-	}
-}
-
-// SubscribeAction 订阅指定 ActionID 的事件
-func (b *MemoryBus) SubscribeAction(ctx context.Context, actionID string) *Subscription {
-	b.actionMu.Lock()
-	defer b.actionMu.Unlock()
-
-	b.nextSubID++
-	id := fmt.Sprintf("%s:%d", actionID, b.nextSubID)
-
-	subCtx, cancel := context.WithCancel(ctx)
-	sub := &subscriber{
-		id:       id,
-		actionID: actionID,
-		events:   make(chan Event, constants.ChannelBufferMedium),
-		ctx:      subCtx,
-		cancel:   cancel,
-	}
-
-	b.actionSubscribers[id] = sub
-	go b.cleanupActionSubscriber(sub)
-
-	return &Subscription{
-		id:     id,
-		events: sub.events,
-		cancel: func() {
-			b.unsubscribeAction(id)
-		},
-	}
-}
-
-// unsubscribeAction 取消 Action 级别订阅
-func (b *MemoryBus) unsubscribeAction(id string) {
-	b.actionMu.Lock()
-	defer b.actionMu.Unlock()
-
-	if sub, ok := b.actionSubscribers[id]; ok {
-		sub.cancel()
-		close(sub.events)
-		delete(b.actionSubscribers, id)
-	}
-}
-
-// cleanupActionSubscriber 清理已取消的订阅
-func (b *MemoryBus) cleanupActionSubscriber(sub *subscriber) {
-	<-sub.ctx.Done()
-	b.unsubscribeAction(sub.id)
 }
 
 // Publish 发布事件
