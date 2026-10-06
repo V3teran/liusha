@@ -11,7 +11,7 @@ const minimalYAML = `
 api: {read_timeout_seconds: 15, write_timeout_seconds: 30}
 postgres: {max_conns: 20, min_conns: 2}
 llm:
-  tiers:
+  complexity_routes:
     simple: deepseek
     medium: deepseek
     complex: anthropic
@@ -35,7 +35,7 @@ func writeConfig(t *testing.T, body string) string {
 	return p
 }
 
-func TestLoad_MissingHeavyTierKey(t *testing.T) {
+func TestLoad_MissingMediumComplexityKey(t *testing.T) {
 	t.Setenv("DEEPSEEK_API_KEY", "")
 	t.Setenv("ANTHROPIC_API_KEY", "k-anth")
 	if _, err := Load(writeConfig(t, minimalYAML)); err == nil {
@@ -50,7 +50,7 @@ func TestLoad_OK(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.LLM.Tiers["medium"] != "deepseek" || cfg.Providers["deepseek"].DefaultModel != "deepseek-chat" {
+	if cfg.LLM.ComplexityRoutes["medium"] != "deepseek" || cfg.Providers["deepseek"].DefaultModel != "deepseek-chat" {
 		t.Fatalf("unexpected: %+v", cfg)
 	}
 }

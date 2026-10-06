@@ -119,8 +119,8 @@ func (s *Store) Routing(ctx context.Context) (llmcfg.Routing, error) {
 
 // ── 运行期解析（热路径：两个 LLM 工厂共用，取代旧的双份 resolveProviderKey/lookupLLMField switch）──
 
-// ProviderForRole 把 agent-role 两跳解析到 provider 部署：role → tier → provider key → 部署行。
-// 路由快照 + provider 行均走多级缓存。tier 未配置则回退 heavy 档（见 Routing.ProviderKeyForRole）。
+// ProviderForRole 把 role 解析到 provider 部署：role → 档（代码映射）→ provider key → 部署行。
+// 路由快照 + provider 行均走多级缓存。role 未配置则无解析（返回 UnresolvedError，不静默兜底）。
 // 解析不出 provider key（heavy 档亦缺失）时返回明确错误，绝不静默兜底到任意 provider。
 func (s *Store) ProviderForRole(ctx context.Context, role string) (llmcfg.Provider, error) {
 	routing, err := s.Routing(ctx)
@@ -232,7 +232,7 @@ func (s *Store) AsRouterStore(cipher llmcfg.KeyDecrypter) *RouterStoreAdapter {
 	return &RouterStoreAdapter{s: s, cipher: cipher}
 }
 
-// GetRouting 实现 llm.RouterStore：读 role→tier 路由配置。
+// GetRouting 实现 llm.RouterStore：读 role→档 路由配置。
 func (a *RouterStoreAdapter) GetRouting(ctx context.Context) (fwllm.RoutingSpec, error) {
 	r, err := a.s.Routing(ctx)
 	if err != nil {

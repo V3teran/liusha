@@ -136,7 +136,7 @@ describe('AssignmentView', () => {
     expect(sel.value).toBe('deepseek')
   })
 
-  it('改选 provider 调 saveRoleRoute(tier, providerKey)', async () => {
+  it('改选 provider 调 saveRoleRoute(group, providerKey)', async () => {
     mGetRouting.mockResolvedValue(routing())
     mSaveRole.mockResolvedValue({ role: 'complex', provider_key: 'qwen' })
     render(<AssignmentView />)
@@ -178,10 +178,10 @@ describe('AssignmentView', () => {
   })
 
   it('DB 里的自定义档也列出（不丢数据）', async () => {
-    mGetRouting.mockResolvedValue(routing({ routes: [{ role: 'my-custom-tier', provider_key: 'deepseek' }] }))
+    mGetRouting.mockResolvedValue(routing({ routes: [{ role: 'my-custom-group', provider_key: 'deepseek' }] }))
     render(<AssignmentView />)
-    // 自定义档 label 回退为原样 tier，故 label span 与 code 同字面 → 两处命中。
-    expect((await screen.findAllByText('my-custom-tier')).length).toBeGreaterThan(0)
+    // 自定义档 label 回退为原样 group，故 label span 与 code 同字面 → 两处命中。
+    expect((await screen.findAllByText('my-custom-group')).length).toBeGreaterThan(0)
   })
 
   it('加载失败显示错误', async () => {

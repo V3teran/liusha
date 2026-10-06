@@ -186,12 +186,12 @@ export interface ProviderConfig {
   updated_at?: string
 }
 
-// RoleRouteConfig 是「能力档/保留槽 → provider」的一行绑定（0105 能力分档）。
-// role 列存能力档名（heavy/vision/light）或保留槽 __fallback__；agent → 档 的绑定固定在后端代码
-// （llmcfg.AgentTier），前端只配 档 → provider。解析链：agent → tier → provider（两跳）。
-//   heavy   重推理纯文本（隐式默认档，未显式归档的 agent 落此）
-//   vision  多模态（browser-use 截图链路）
-//   light   轻任务省钱（督查 / 压缩）
+// RoleRouteConfig 是「复杂度档/保留槽 → provider」的一行绑定。
+// role 列存复杂度档名（simple/medium/complex）或保留槽 __fallback__；agent → 档 的绑定在
+// agent.complexity（前端「智能体」页可改），路由解析链：agent.complexity → 档 → provider。
+//   complex 深度推理（规划、裁决等长链路；默认档为 medium，未显式归档的 agent 落 medium）
+//   medium  标准推理（漏洞检测、工具调用）——隐式默认档
+//   simple  轻量快答（督查 / 压缩）
 //   __fallback__ 主 provider 重试耗尽后的备份 provider
 export interface RoleRouteConfig {
   role: string
@@ -205,7 +205,7 @@ export interface RoutingResponse {
   routes: RoleRouteConfig[]
 }
 
-// 三个能力档 + 唯一保留槽的字面常量（与后端 llmcfg.TierHeavy/TierVision/TierLight/RoleFallback 对齐）。
+// 三个复杂度档 + 唯一保留槽的字面常量（与后端 llmcfg.ComplexitySimple/Medium/Complex/RoleFallback 对齐）。
 // 复杂度档（与后端 llmcfg ComplexitySimple/Medium/Complex 对齐）：
 // 同时是 llm_role_route.role 的路由键——「能力分档」页按它分组建 provider。
 export const COMPLEXITY_SIMPLE = 'simple'

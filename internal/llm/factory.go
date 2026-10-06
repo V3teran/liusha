@@ -5,8 +5,8 @@
 //   - 路由不再读静态 cfg：role→provider 的解析由 Resolver（*llmstore.Store）在**运行期**
 //     经多级缓存完成，前端改「模型」模块即时生效（取代旧的 cfg.LLM.Agents + lookupLLMField switch）。
 //
-// 路由规则（全在 Resolver 内，见 internal/llmstore；0105 引入 tier 中间层后为两跳）：
-//   - role → AgentTier(role) 归档（heavy/vision/light，固定在代码）→ 该档命中的 provider key；
+// 路由规则（全在 Resolver 内，见 internal/llmstore）：
+//   - role → AgentComplexity(role) 归档（simple/medium/complex，代码映射兜底）→ 该档命中的 provider key；
 //     档未绑定则回落隐式默认档 heavy
 //   - provider key → llm_provider 部署行
 //   - 解析不出（档及 heavy 均未绑定）→ Resolver 返回 *llmstore.UnresolvedError，For 透传

@@ -164,9 +164,9 @@ func saveExecutorHandler(api ConfigAPI) gin.HandlerFunc {
 	}
 }
 
-// updateExecutorTierHandler 处理 PATCH /executors/:id/tier：只改能力档单字段（分档页移档用）。
+// updateExecutorComplexityHandler 处理 PATCH /executors/:id/complexity：只改 LLM 档位单字段（分档页移档用）。
 // 不碰 agent 其余字段——避免整体 upsert 覆盖别处刚改的 body/工具。
-func updateExecutorTierHandler(api ConfigAPI) gin.HandlerFunc {
+func updateExecutorComplexityHandler(api ConfigAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id := c.Param("id")
 		var b struct {

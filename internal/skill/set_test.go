@@ -89,7 +89,7 @@ func TestSet_Index_DuplicateBareName(t *testing.T) {
 	}
 }
 
-// TestView_Whitelist：Tier1 只见声明项（声明序），Tier2 白名单外拒绝。
+// TestView_Whitelist：Tier 1 只见声明项（声明序），Tier 2 白名单外拒绝。
 func TestView_Whitelist(t *testing.T) {
 	ctx := context.Background()
 	s := newTestSet(t)

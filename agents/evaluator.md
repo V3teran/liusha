@@ -106,7 +106,7 @@ skills:
   - browser-use
   - dom-xss
 max_iterations: 30
-tier: complex
+complexity: complex
 ---
 
 # 角色定位

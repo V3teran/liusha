@@ -19,11 +19,11 @@ import (
 
 // Intelligence 是基于 LLM 的智能规划器
 type Intelligence struct {
-	router  *llm.Router
-	logger  zerolog.Logger
-	charter string         // 角色章程（agent.system_prompt，运维经前端可调；空=不渲染）
-	tier    llm.Complexity // LLM 档位（agent.complexity，文档 tier 种子 → 三级缓存读）
-	maxIt   int            // ReAct 迭代上限（agent.max_iterations；0=不设限，基线 6 生效）
+	router     *llm.Router
+	logger     zerolog.Logger
+	charter    string         // 角色章程（agent.system_prompt，运维经前端可调；空=不渲染）
+	complexity llm.Complexity // LLM 档位（agent.complexity，文档 complexity 种子 → 三级缓存读）
+	maxIt      int            // ReAct 迭代上限（agent.max_iterations；0=不设限，基线 6 生效）
 }
 
 // NewIntelligence 创建智能规划器
@@ -47,10 +47,10 @@ func (i *Intelligence) WithMaxIterations(n int) *Intelligence {
 	return i
 }
 
-// WithComplexity 注入 LLM 档位（agent.complexity，文档 tier 种子经三级缓存读；
+// WithComplexity 注入 LLM 档位（agent.complexity，文档 complexity 种子经三级缓存读；
 // 空回退 medium）。
-func (i *Intelligence) WithComplexity(tier string) *Intelligence {
-	i.tier = llm.TierOf(tier)
+func (i *Intelligence) WithComplexity(complexity string) *Intelligence {
+	i.complexity = llm.ParseComplexity(complexity)
 	return i
 }
 
@@ -96,7 +96,7 @@ func (i *Intelligence) Plan(ctx context.Context, graph *explorationgraph.Store, 
 	prompt := i.buildPlanningPrompt(planCtx)
 
 	// 2. 组装 ReAct 规划器：observe_state / evaluate_progress 只读图工具
-	provider, err := i.router.For(ctx, i.tier)
+	provider, err := i.router.For(ctx, i.complexity)
 	if err != nil {
 		return nil, fmt.Errorf("获取 LLM provider 失败: %w", err)
 	}
@@ -700,7 +700,7 @@ type ObjectiveExtractionResponse struct {
 
 // callObjectiveExtractionLLM 调用 LLM 提取目标
 func (i *Intelligence) callObjectiveExtractionLLM(ctx context.Context, prompt string) (*ObjectiveExtractionResponse, error) {
-	provider, err := i.router.For(ctx, i.tier)
+	provider, err := i.router.For(ctx, i.complexity)
 	if err != nil {
 		return nil, fmt.Errorf("获取 LLM provider 失败: %w", err)
 	}

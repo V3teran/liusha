@@ -37,16 +37,15 @@ redis:
 # 事实源已迁 DB（前端「模型 / 能力分档」页 CRUD，见 migration 0097/0099/0103/0105），本段仅供空库
 # 首次种子导入（insert-only，见 internal/config/seed/llm.go），DB 已有数据后不再生效。
 #
-# 分档模型（0105 起）：agent → tier → provider 两跳。
-#   · agent → tier 的绑定固定在代码里（internal/config/llmcfg AgentTier），运行期不可改：
-#       planner / exploitation → vision（需 browser-use 截图，多模态）
-#       traffic-analysis            → heavy （流量逐批挖洞，重推理纯文本）
-#       inspector / compactor       → light （旁路督查 / 历史压缩，轻任务省钱）
-#     未显式归档的 agent 一律落 heavy（隐式默认档）。
-#   · tier → provider 的绑定落 DB（前端「能力分档」页可配），此处仅首次种子。
+# 复杂度路由：agent → complexity 档 → provider。
+#   · agent → 档 的绑定在 agent.complexity（前端「智能体」页可改，DB 事实源经三级缓存读）：
+#       executor/evaluator/planner/monitor 各自声明（文档 complexity 字段种子入库）
+#       未显式归档的 agent 一律落 medium（隐式默认档）
+#       inspector / compactor        → simple（旁路督查 / 历史压缩，轻任务省钱，代码映射）
+#   · 档 → provider 的绑定落 DB（前端「能力分档」页可配），此处仅首次种子。
 # 全路径统一智谱 GLM（provider key: glm），fallback 亦指向同一 provider。
 llm:
-  tiers:
+  complexity_routes:
     simple:  glm   # 快速响应，简单任务（信息提取、格式化）
     medium:  glm   # 标准推理，常规任务（漏洞检测、工具调用）- 默认档位
     complex: glm   # 深度推理，复杂决策（战略规划、多步分析、多模态）

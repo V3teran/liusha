@@ -48,7 +48,7 @@ export async function saveAgent(h: AgentConfig): Promise<AgentConfig> {
  * 不整体 upsert——避免用列表快照覆盖别处刚改的配置。返回回读的完整 executor。
  */
 export async function saveAgentComplexity(id: string, complexity: string): Promise<AgentConfig> {
-  const res = await patch<{ agent: AgentConfig }>(`/executors/${id}/tier`, { complexity })
+  const res = await patch<{ agent: AgentConfig }>(`/executors/${id}/complexity`, { complexity })
   return res.agent
 }
 
