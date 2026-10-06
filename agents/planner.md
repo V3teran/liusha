@@ -9,7 +9,7 @@ function_tools:
 cli_tools: []
 skills: []
 max_iterations: 100
-tier: complex
+complexity: complex
 ---
 
 # 角色定位

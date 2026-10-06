@@ -9,7 +9,7 @@ function_tools:
 cli_tools: []
 skills: []
 max_iterations: 10
-tier: medium
+complexity: medium
 ---
 
 # 角色定位

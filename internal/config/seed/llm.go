@@ -15,10 +15,10 @@ import (
 // provider 按 key、role_route 按 role 判存在，已存在一律跳过，
 // 绝不覆盖前端「模型」模块或运维在 DB 里的改动。
 //
-// 路由种子（0105 分档：agent → tier → provider 两跳，agent→tier 固定在代码 llmcfg.AgentTier）：
-//   - llm.tiers.{heavy,vision,light} → 各档路由行（role 列存 tier 名）
+// 路由种子（agent → complexity 档 → provider；agent 档位在 agent.complexity，前端可改）：
+//   - llm.complexity_routes.{simple,medium,complex} → 各档路由行（role 列存档名）
 //   - llm.fallback                   → 保留 role __fallback__（retry 耗尽备胎）
-// 种子只写这 3 档 + 1 备胎，不再 per-agent 摊平（agent→tier 由代码定，无需入库）。
+// 种子只写这 3 档 + 1 备胎，不再 per-agent 摊平（agent 档位在 agent.complexity，无需入库）。
 //
 // 安全：provider.api_key_env 只搬**环境变量名**，密钥值不经手（本就不在 yaml 里）。
 
@@ -71,9 +71,9 @@ func importProviders(ctx context.Context, cfg config.Config, s *llmcfg.Store) er
 	return nil
 }
 
-// importRoleRoutes 按 role insert-only 建路由行：3 个能力档（heavy/vision/light）+ 保留 role __fallback__。
-// role 列存 tier 名（heavy/vision/light）或 __fallback__；agent→tier 的绑定固定在代码，不入库。
-// 目标 provider 不存在（对应 tier 槽位空或 provider 未建）时跳过该行——避免撞 FK RESTRICT。
+// importRoleRoutes 按 role insert-only 建路由行：3 个复杂度档（simple/medium/complex）+ 保留 role __fallback__。
+// role 列存档名（simple/medium/complex）或 __fallback__；agent 档位在 agent.complexity，不入路由表。
+// 目标 provider 不存在（对应档槽位空或 provider 未建）时跳过该行——避免撞 FK RESTRICT。
 func importRoleRoutes(ctx context.Context, cfg config.Config, s *llmcfg.Store) error {
 	existing, err := s.ListRoleRoutes(ctx)
 	if err != nil {
@@ -86,9 +86,9 @@ func importRoleRoutes(ctx context.Context, cfg config.Config, s *llmcfg.Store) e
 
 	// 三档 + 备胎，key 直接是 complexity 名 / 保留 role，value 是 provider key（无 field-name 间接层）。
 	merged := map[string]string{
-		llmcfg.ComplexitySimple:  cfg.LLM.Tiers[llmcfg.ComplexitySimple],
-		llmcfg.ComplexityMedium:  cfg.LLM.Tiers[llmcfg.ComplexityMedium],
-		llmcfg.ComplexityComplex: cfg.LLM.Tiers[llmcfg.ComplexityComplex],
+		llmcfg.ComplexitySimple:  cfg.LLM.ComplexityRoutes[llmcfg.ComplexitySimple],
+		llmcfg.ComplexityMedium:  cfg.LLM.ComplexityRoutes[llmcfg.ComplexityMedium],
+		llmcfg.ComplexityComplex: cfg.LLM.ComplexityRoutes[llmcfg.ComplexityComplex],
 		llmcfg.RoleFallback:      cfg.LLM.Fallback,
 	}
 

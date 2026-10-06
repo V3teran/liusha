@@ -79,7 +79,7 @@ type ProviderParams struct {
 }
 
 // RoleRoute 是「档/保留槽 → provider key」的一行绑定（heavy→qwen、__fallback__→… 等）。
-// Role 列存 tier 名（heavy/vision/light）或保留 role（__fallback__）；两者同表同解析。
+// Role 列存复杂度档名（simple/medium/complex）或保留 role（__fallback__）；两者同表同解析。
 type RoleRoute struct {
 	Role        string
 	ProviderKey string
@@ -88,9 +88,9 @@ type RoleRoute struct {
 }
 
 // Routing 是路由全景快照：全部「档/保留槽 → provider key」映射（三档 + __fallback__）。
-// 运行期解析（agent-role → tier → provider key）一次性读齐，避免多次 DB 往返。
+// 运行期解析（role → 档 → provider key）一次性读齐，避免多次 DB 往返。
 type Routing struct {
-	Roles map[string]string // tier(heavy/vision/light) / 保留 role(__fallback__) → provider key
+	Roles map[string]string // 档(simple/medium/complex) / 保留 role(__fallback__) → provider key
 }
 
 // 复杂度分档（complexity）：agent-role 按推理复杂度需求归入三档，路由的实际单元是档而非 agent。

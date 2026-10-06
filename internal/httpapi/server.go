@@ -165,7 +165,7 @@ func registerRouteGroups(r *gin.Engine, d Deps) {
 		r.GET("/executors/:id", getExecutorHandler(d.ConfigStore))
 		r.POST("/executors", saveExecutorHandler(d.ConfigStore))
 		r.PUT("/executors/:id", saveExecutorHandler(d.ConfigStore))
-		r.PATCH("/executors/:id/tier", updateExecutorTierHandler(d.ConfigStore))
+		r.PATCH("/executors/:id/complexity", updateExecutorComplexityHandler(d.ConfigStore))
 		r.DELETE("/executors/:id", deleteExecutorHandler(d.ConfigStore))
 	}
 	if d.SkillStore != nil {

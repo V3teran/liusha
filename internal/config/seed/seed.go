@@ -39,7 +39,7 @@ type agentFront struct {
 	CliTools      []string `yaml:"cli_tools"`
 	Skills        []string `yaml:"skills"`
 	MaxIterations int      `yaml:"max_iterations"`
-	Tier          string   `yaml:"tier"` // 复杂度档 simple|medium|complex（列名 complexity，历史改名残留）
+	Complexity    string   `yaml:"complexity"` // LLM 档位 simple|medium|complex
 }
 
 var (
@@ -171,7 +171,7 @@ func importExecutors(ctx context.Context, dir string, h *agent.Store, force bool
 			CliTools:      &f.CliTools,
 			Skills:        &f.Skills,
 			MaxIterations: &f.MaxIterations,
-			Complexity:    strPtr(strings.TrimSpace(f.Tier)),
+			Complexity:    strPtr(strings.TrimSpace(f.Complexity)),
 		}); err != nil {
 			return nil, fmt.Errorf("写操作员 %q: %w", code, err)
 		}

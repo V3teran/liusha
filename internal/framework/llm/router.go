@@ -20,18 +20,18 @@ type Complexity string
 
 // ComplexityMedium 等枚举定义。
 const (
-	// ComplexitySimple 等枚举复杂度档位：按 agent.complexity（文档 tier 种子）选档，配置决定各档命中的 provider。
+	// ComplexitySimple 等枚举复杂度档位：按 agent.complexity（文档 complexity 种子）选档，配置决定各档命中的 provider。
 	ComplexitySimple  Complexity = "simple"  // 快速响应：信息提取、格式化、简单验证
 	ComplexityMedium  Complexity = "medium"  // 标准推理：漏洞检测、工具调用、常规分析
 	ComplexityComplex Complexity = "complex" // 深度推理：战略规划、多步决策、复杂综合
 )
 
-// TierOf 把 agent.complexity（文档 tier 种子经三级缓存读）收敛成合法档位；
+// ParseComplexity 把 agent.complexity（文档 complexity 种子经三级缓存读）收敛成合法档位；
 // 缺失/非法值回退 medium——全仓唯一兜底点，调用方不得再各自硬编码档位。
-func TierOf(tier string) Complexity {
-	switch Complexity(tier) {
+func ParseComplexity(complexity string) Complexity {
+	switch Complexity(complexity) {
 	case ComplexitySimple, ComplexityComplex:
-		return Complexity(tier)
+		return Complexity(complexity)
 	default:
 		return ComplexityMedium
 	}

@@ -3,14 +3,14 @@ import { AlertTriangle, Check, Loader2 } from 'lucide-react'
 import { listProviders, getRouting, saveRoleRoute, deleteRoleRoute } from '@/api/models'
 import { listAgentConfigs, saveAgentComplexity } from '@/api/config'
 import type { ProviderConfig, RoleRouteConfig, AgentConfig } from '@/api/types'
-import { TIERS, RESERVED_TIERS, tierMeta, type TierMeta } from './roles'
+import { COMPLEXITY_GROUPS, RESERVED_GROUPS, groupMeta, type ComplexityGroupMeta } from './roles'
 
 // 每档的即时保存态：路由写入是单字段（provider_key），无需抽屉——行内 select 改完即存，
 // 保存/成功/失败短暂回显在行尾。saving 期间禁用该行 select 防抖动。
 type RowState = 'idle' | 'saving' | 'saved' | 'error'
 
-// 能力分档视图：agent → tier → provider 两跳。本视图同时读写两处：
-//   1. tier → provider：行内 select 直选部署（saveRoleRoute/deleteRoleRoute）。
+// 能力分档视图：agent → complexity → provider 两跳。本视图同时读写两处：
+//   1. complexity → provider：行内 select 直选部署（saveRoleRoute/deleteRoleRoute）。
 //   2. agent → 档：每档一个 agent 多选框，勾选即把智能体归入本档（saveAgentComplexity 移档）。
 //      与「智能体」页的复杂度下拉读写同一份 agent.complexity 数据，只是展示维度不同（按档聚合 vs 单体编辑）。
 // inspector/compactor 等内建路由键不在 agent 表、无法改档，仅在所属档只读展示。
@@ -18,8 +18,8 @@ export function AssignmentView() {
   const [providers, setProviders] = useState<ProviderConfig[]>([])
   const [routeMap, setRouteMap] = useState<Map<string, string>>(new Map())
   const [agents, setAgents] = useState<AgentConfig[]>([])
-  // agentId → tier 的当前归属（乐观移档只改这张表，行渲染由它派生）。
-  const [tierBy, setTierBy] = useState<Map<string, string>>(new Map())
+  // agentId → 档的当前归属（乐观移档只改这张表，行渲染由它派生）。
+  const [complexityBy, setComplexityBy] = useState<Map<string, string>>(new Map())
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [rowState, setRowState] = useState<Map<string, RowState>>(new Map())
@@ -34,7 +34,7 @@ export function AssignmentView() {
         setProviders(provs)
         setRouteMap(new Map(routing.routes.map((r: RoleRouteConfig) => [r.role, r.provider_key])))
         setAgents(hs)
-        setTierBy(new Map(hs.map((h) => [h.id, h.complexity || 'medium'])))
+        setComplexityBy(new Map(hs.map((h) => [h.id, h.complexity || 'medium'])))
       })
       .catch((e) => setError(e instanceof Error ? e.message : '加载失败'))
       .finally(() => setLoading(false))
@@ -42,42 +42,42 @@ export function AssignmentView() {
 
   useEffect(() => reload(), [reload])
 
-  const setRow = (tier: string, s: RowState) => setRowState((m) => new Map(m).set(tier, s))
+  const setRow = (group: string, s: RowState) => setRowState((m) => new Map(m).set(group, s))
 
-  // 选空 → 删除该档路由（重推理档回落即无解析，其余档回落 heavy）；选具体 provider → upsert。
+  // 选空 → 删除该档路由（该档回落无解析，其余档不受影响）；选具体 provider → upsert。
   // 乐观更新：先落 routeMap（select 立即反映新值），失败再回滚到快照并弹错。
-  const onPick = async (tier: string, providerKey: string) => {
+  const onPick = async (group: string, providerKey: string) => {
     const prev = routeMap
-    setRow(tier, 'saving')
+    setRow(group, 'saving')
     setRouteMap((m) => {
       const next = new Map(m)
-      if (providerKey === '') next.delete(tier)
-      else next.set(tier, providerKey)
+      if (providerKey === '') next.delete(group)
+      else next.set(group, providerKey)
       return next
     })
     try {
-      if (providerKey === '') await deleteRoleRoute(tier)
-      else await saveRoleRoute(tier, providerKey)
-      setRow(tier, 'saved')
-      window.setTimeout(() => setRow(tier, 'idle'), 1600)
+      if (providerKey === '') await deleteRoleRoute(group)
+      else await saveRoleRoute(group, providerKey)
+      setRow(group, 'saved')
+      window.setTimeout(() => setRow(group, 'idle'), 1600)
     } catch (e) {
       setRouteMap(prev)
-      setRow(tier, 'error')
+      setRow(group, 'error')
       window.alert(e instanceof Error ? e.message : '保存失败')
     }
   }
 
-  // 移档：勾选把 agent 归入目标档（离开原档）。乐观改 tierBy，失败回滚并弹错。
-  // 单值归属——勾选即隐式移出原档，无需显式取消（原档复选框由 tierBy 派生自动落空）。
-  const onMove = async (agentId: string, tier: string) => {
-    if (tierBy.get(agentId) === tier) return // 已在本档，无操作
-    const prev = tierBy
-    setTierBy((m) => new Map(m).set(agentId, tier))
+  // 移档：勾选把 agent 归入目标档（离开原档）。乐观改 complexityBy，失败回滚并弹错。
+  // 单值归属——勾选即隐式移出原档，无需显式取消（原档复选框由 complexityBy 派生自动落空）。
+  const onMove = async (agentId: string, group: string) => {
+    if (complexityBy.get(agentId) === group) return // 已在本档，无操作
+    const prev = complexityBy
+    setComplexityBy((m) => new Map(m).set(agentId, group))
     setMoving((s) => new Set(s).add(agentId))
     try {
-      await saveAgentComplexity(agentId, tier)
+      await saveAgentComplexity(agentId, group)
     } catch (e) {
-      setTierBy(prev)
+      setComplexityBy(prev)
       window.alert(e instanceof Error ? e.message : '移档失败')
     } finally {
       setMoving((s) => {
@@ -89,10 +89,10 @@ export function AssignmentView() {
   }
 
   // 已知档之外、DB 里还存在的自定义档也要列出（不丢数据，如历史遗留行）。
-  const knownSet = new Set([...TIERS, ...RESERVED_TIERS].map((m) => m.tier))
-  const extraTiers: TierMeta[] = [...routeMap.keys()]
-    .filter((t) => !knownSet.has(t))
-    .map(tierMeta)
+  const knownSet = new Set([...COMPLEXITY_GROUPS, ...RESERVED_GROUPS].map((m) => m.key))
+  const extraGroups: ComplexityGroupMeta[] = [...routeMap.keys()]
+    .filter((g) => !knownSet.has(g))
+    .map(groupMeta)
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -104,30 +104,30 @@ export function AssignmentView() {
             <div className="py-16 text-center font-mono text-[13.5px] text-sev-critical">⚠ {error}</div>
           ) : (
             <>
-              <TierGroup
+              <ComplexityGroup
                 title="能力档"
                 hint="每档绑定一个部署，并勾选归入本档的智能体；重推理为隐式默认档，未显式归档的落此"
-                tiers={[...TIERS, ...extraTiers]}
+                groups={[...COMPLEXITY_GROUPS, ...extraGroups]}
                 providers={providers}
                 routeMap={routeMap}
                 rowState={rowState}
                 onPick={onPick}
                 agents={agents}
-                tierBy={tierBy}
+                complexityBy={complexityBy}
                 moving={moving}
                 onMove={onMove}
                 allowUnset
               />
-              <TierGroup
+              <ComplexityGroup
                 title="兜底槽"
                 hint="任一档主 provider 重试耗尽后切换的兜底部署 provider"
-                tiers={RESERVED_TIERS}
+                groups={RESERVED_GROUPS}
                 providers={providers}
                 routeMap={routeMap}
                 rowState={rowState}
                 onPick={onPick}
                 agents={agents}
-                tierBy={tierBy}
+                complexityBy={complexityBy}
                 moving={moving}
                 onMove={onMove}
               />
@@ -141,31 +141,31 @@ export function AssignmentView() {
 
 // 一组分档分区卡：标题 + 说明 + 若干行。对齐「部署」视图的卡面语汇——
 // 平面描边卡（rounded-lg + border，无 glow），tac-prompt font-mono 标题，与 provider 面板同构。
-function TierGroup({
+function ComplexityGroup({
   title,
   hint,
-  tiers,
+  groups,
   providers,
   routeMap,
   rowState,
   onPick,
   agents,
-  tierBy,
+  complexityBy,
   moving,
   onMove,
   allowUnset = false,
 }: {
   title: string
   hint: string
-  tiers: TierMeta[]
+  groups: ComplexityGroupMeta[]
   providers: ProviderConfig[]
   routeMap: Map<string, string>
   rowState: Map<string, RowState>
-  onPick: (tier: string, providerKey: string) => void
+  onPick: (group: string, providerKey: string) => void
   agents: AgentConfig[]
-  tierBy: Map<string, string>
+  complexityBy: Map<string, string>
   moving: Set<string>
-  onMove: (agentId: string, tier: string) => void
+  onMove: (agentId: string, group: string) => void
   allowUnset?: boolean
 }) {
   const provState = new Map(providers.map((p) => [p.key, p.enabled] as const))
@@ -177,17 +177,17 @@ function TierGroup({
         <p className="mt-0.5 text-[12px] text-muted">{hint}</p>
       </div>
       <div className="flex flex-col divide-y divide-border">
-        {tiers.map((m) => (
-          <TierRow
-            key={m.tier}
+        {groups.map((m) => (
+          <ComplexityRow
+            key={m.key}
             meta={m}
-            value={routeMap.get(m.tier) ?? ''}
+            value={routeMap.get(m.key) ?? ''}
             providers={providers}
             provState={provState}
-            state={rowState.get(m.tier) ?? 'idle'}
+            state={rowState.get(m.key) ?? 'idle'}
             onPick={onPick}
             agents={agents}
-            tierBy={tierBy}
+            complexityBy={complexityBy}
             moving={moving}
             onMove={onMove}
             allowUnset={allowUnset}
@@ -200,7 +200,7 @@ function TierGroup({
 
 // 单档行：左侧档位标签 + 职责说明 + provider 选择器；下方一行 agent 复选框（勾选即移入本档）。
 // 兜底槽（reserved）无 agent 归属语义，不渲染多选区。
-function TierRow({
+function ComplexityRow({
   meta,
   value,
   providers,
@@ -208,21 +208,21 @@ function TierRow({
   state,
   onPick,
   agents,
-  tierBy,
+  complexityBy,
   moving,
   onMove,
   allowUnset,
 }: {
-  meta: TierMeta
+  meta: ComplexityGroupMeta
   value: string
   providers: ProviderConfig[]
   provState: Map<string, boolean>
   state: RowState
-  onPick: (tier: string, providerKey: string) => void
+  onPick: (group: string, providerKey: string) => void
   agents: AgentConfig[]
-  tierBy: Map<string, string>
+  complexityBy: Map<string, string>
   moving: Set<string>
-  onMove: (agentId: string, tier: string) => void
+  onMove: (agentId: string, group: string) => void
   allowUnset: boolean
 }) {
   const enabled = value ? provState.get(value) : undefined
@@ -236,7 +236,7 @@ function TierRow({
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-[13.5px] font-medium text-text">{meta.label}</span>
             <code className="rounded bg-surface-2 px-1.5 py-0.5 font-mono text-[11px] text-faint">
-              {meta.tier}
+              {meta.key}
             </code>
             {missing && (
               <span className="flex items-center gap-1 text-[11.5px] text-sev-critical">
@@ -261,9 +261,9 @@ function TierRow({
             className="w-48 rounded-lg border border-border bg-surface-2 px-2.5 py-1.5 text-[13px] text-text outline-none transition-colors focus:border-accent disabled:opacity-60"
             value={value}
             disabled={state === 'saving'}
-            onChange={(e) => onPick(meta.tier, e.target.value)}
+            onChange={(e) => onPick(meta.key, e.target.value)}
           >
-            {allowUnset && <option value="">（未配置 · 回落重推理档）</option>}
+            {allowUnset && <option value="">（未配置 · 回落标准推理档）</option>}
             {!allowUnset && value === '' && <option value="">（未绑定）</option>}
             {providers.map((p) => (
               <option key={p.key} value={p.key}>
@@ -277,10 +277,10 @@ function TierRow({
 
       {!meta.reserved && (
         <AgentPicker
-          tier={meta.tier}
+          group={meta.key}
           builtinKeys={meta.builtinKeys}
           agents={agents}
-          tierBy={tierBy}
+          complexityBy={complexityBy}
           moving={moving}
           onMove={onMove}
         />
@@ -292,40 +292,40 @@ function TierRow({
 // 单档的 agent 归属多选区：每个 agent 一个复选框，勾选即移入本档（saveAgentComplexity）。
 // 单值归属——不属于本档的 agent 复选框空勾，勾上即从原档移出。builtinKeys 只读 chip。
 function AgentPicker({
-  tier,
+  group,
   builtinKeys,
   agents,
-  tierBy,
+  complexityBy,
   moving,
   onMove,
 }: {
-  tier: string
+  group: string
   builtinKeys: string[]
   agents: AgentConfig[]
-  tierBy: Map<string, string>
+  complexityBy: Map<string, string>
   moving: Set<string>
-  onMove: (agentId: string, tier: string) => void
+  onMove: (agentId: string, group: string) => void
 }) {
   return (
     <div className="flex flex-wrap items-center gap-1.5 rounded-md bg-surface-2/40 px-3 py-2">
       <span className="mr-1 text-[11px] text-faint">智能体</span>
       {agents.map((h) => {
-        const inTier = (tierBy.get(h.id) ?? 'medium') === tier
+        const inGroup = (complexityBy.get(h.id) ?? 'medium') === group
         const busy = moving.has(h.id)
         return (
           <label
             key={h.id}
             className={`flex cursor-pointer items-center gap-1.5 rounded px-1.5 py-0.5 text-[12px] transition-colors ${
-              inTier ? 'bg-accent/15 text-accent' : 'text-muted hover:bg-surface-2'
+              inGroup ? 'bg-accent/15 text-accent' : 'text-muted hover:bg-surface-2'
             } ${busy ? 'opacity-50' : ''}`}
           >
             <input
               type="checkbox"
               className="h-3 w-3 accent-accent"
-              checked={inTier}
-              disabled={busy || inTier}
-              onChange={() => onMove(h.id, tier)}
-              aria-label={`${h.name} 归入 ${tier}`}
+              checked={inGroup}
+              disabled={busy || inGroup}
+              onChange={() => onMove(h.id, group)}
+              aria-label={`${h.name} 归入 ${group}`}
             />
             {h.name}
           </label>

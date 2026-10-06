@@ -3,8 +3,8 @@
 // 设计原则：
 //   - 所有可调参数统一收敛到本文件，避免散落各包的硬编码常量
 //   - 每个 sub-struct 字段缺省值由 ApplyDefaults() 兜底，避免 yaml 缺字段时进程拒启动
-//   - 仅 LLM provider key（tiers.heavy 等）做强制 validate（密钥读取必须有 provider 信息）
-//   - ENV 覆盖前缀 LIUSHA_，二级用 _ 分隔（如 LIUSHA_LLM_FALLBACK）；注意 llm.tiers 是 map，
+//   - 仅 LLM provider key（complexity_routes.medium 等）做强制 validate（密钥读取必须有 provider 信息）
+//   - ENV 覆盖前缀 LIUSHA_，二级用 _ 分隔（如 LIUSHA_LLM_FALLBACK）；注意 llm.complexity_routes 是 map，
 //     AutomaticEnv 不覆盖单个 map key，改档位 provider 走 yaml 或前端「能力分档」页
 package config
 
@@ -66,15 +66,14 @@ type RedisConfig struct {
 	WriteTimeoutSeconds int `mapstructure:"write_timeout_seconds"`
 }
 
-// LLMConfig 是 LLM 能力分档路由 + retry 参数 + llm_invocation 异步 batch 写入参数。
+// LLMConfig 是 LLM 复杂度路由 + retry 参数 + llm_invocation 异步 batch 写入参数。
 //
-// 能力分档（tier）取代旧的 default/light/vision 四槽 + per-agent 摊平路由：
-// agent → tier 的绑定固定在代码里（见 llmcfg.AgentTier，运行期不可改）；
-// tier → provider 的绑定落 DB（前端「能力分档」页可配），此处 yaml 仅首次 insert-only 种子。
-// 三档：complex（深度推理）/ medium（标准推理）/ simple（快速响应）。
+// 复杂度三档（complex 深度推理 / medium 标准推理 / simple 快速响应）：
+// agent → 档的绑定在 agent.complexity（前端「智能体」页可改，DB 事实源经三级缓存读）；
+// 档 → provider 的绑定落 DB（前端「能力分档」页可配），此处 yaml 仅首次 insert-only 种子。
 type LLMConfig struct {
-	Tiers    map[string]string `mapstructure:"tiers"`    // tier(heavy/vision/light) → provider key
-	Fallback string            `mapstructure:"fallback"` // 主 provider 重试耗尽后的全局备胎 provider key
+	ComplexityRoutes map[string]string `mapstructure:"complexity_routes"` // 档(simple/medium/complex) → provider key
+	Fallback         string            `mapstructure:"fallback"`          // 主 provider 重试耗尽后的全局备胎 provider key
 
 	Retry      RetryConfig      `mapstructure:"retry"`
 	Invocation InvocationConfig `mapstructure:"invocation"`
@@ -671,8 +670,8 @@ func validate(c Config) error {
 //
 // 事实源是 DB（前端「模型/能力分档」模块 CRUD 改 llm_provider/llm_role_route），yaml 仅首次
 // insert-only 种子（见 seed.ImportLLM）。故 providers 留空 = 完全依赖 DB，此时跳过全部校验，
-// 不再强制 tiers.heavy——否则空 yaml + 满 DB 的正常部署会被误判 fail-fast。
-// providers 一旦非空则按老规矩校验（heavy 档必填 + 各档 api_key_env 在 ENV 非空），保证种子可用。
+// 不再强制 complexity_routes.medium——否则空 yaml + 满 DB 的正常部署会被误判 fail-fast。
+// providers 一旦非空则按老规矩校验（medium 档必填 + 各档 api_key_env 在 ENV 非空），保证种子可用。
 func validateLLMKeys(c Config) error {
 	if len(c.Providers) == 0 {
 		return nil
@@ -691,16 +690,16 @@ func validateLLMKeys(c Config) error {
 		return nil
 	}
 	// medium 是隐式默认档（agent 未显式归档即落 medium），故种子必须配它。
-	medium := c.LLM.Tiers["medium"]
+	medium := c.LLM.ComplexityRoutes["medium"]
 	if medium == "" {
-		return fmt.Errorf("llm.tiers.medium required")
+		return fmt.Errorf("llm.complexity_routes.medium required")
 	}
-	if err := check(medium, "tiers.medium"); err != nil {
+	if err := check(medium, "complexity_routes.medium"); err != nil {
 		return err
 	}
 	for _, pair := range []struct{ name, role string }{
-		{c.LLM.Tiers["simple"], "tiers.simple"},
-		{c.LLM.Tiers["complex"], "tiers.complex"},
+		{c.LLM.ComplexityRoutes["simple"], "complexity_routes.simple"},
+		{c.LLM.ComplexityRoutes["complex"], "complexity_routes.complex"},
 		{c.LLM.Fallback, "fallback"},
 	} {
 		if pair.name != "" {

@@ -38,7 +38,7 @@ type RouterJudge struct {
 	cliManifest   *manifest.Manifest // CLI 工具目录（cli_tools 过滤后；渲染进 SystemPrompt 供 run_command 调用）
 	skills        []*skill.Card      // Tier 1 skill 索引（agent.skills 声明；与 executor 同口径渲染）
 	charter       string             // 角色章程（agent.system_prompt，运维可调；空=不渲染）
-	tier          llm.Complexity     // LLM 档位（agent.complexity，文档 tier 种子 → 三级缓存读）
+	complexity    llm.Complexity     // LLM 档位（agent.complexity，文档 complexity 种子 → 三级缓存读）
 	maxIt         int                // ReAct 迭代上限（agent.max_iterations；0=不设限）
 }
 
@@ -80,10 +80,10 @@ func (j *RouterJudge) WithMaxIterations(n int) *RouterJudge {
 	return j
 }
 
-// WithComplexity 注入 LLM 档位（agent.complexity，文档 tier 种子经三级缓存读；
+// WithComplexity 注入 LLM 档位（agent.complexity，文档 complexity 种子经三级缓存读；
 // 空回退 medium）。
-func (j *RouterJudge) WithComplexity(tier string) *RouterJudge {
-	j.tier = llm.TierOf(tier)
+func (j *RouterJudge) WithComplexity(complexity string) *RouterJudge {
+	j.complexity = llm.ParseComplexity(complexity)
 	return j
 }
 
@@ -120,7 +120,7 @@ func (j *RouterJudge) Judge(
 	recipe, initialEvidence json.RawMessage,
 	replay ReplayFunc,
 ) (string, string, error) {
-	provider, err := j.router.For(ctx, j.tier)
+	provider, err := j.router.For(ctx, j.complexity)
 	if err != nil {
 		return "", "", fmt.Errorf("judge: 获取 provider: %w", err)
 	}

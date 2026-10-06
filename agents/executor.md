@@ -111,7 +111,7 @@ skills:
   - browser-use
   - dom-xss
 max_iterations: 50
-tier: medium
+complexity: medium
 ---
 
 # 角色定位

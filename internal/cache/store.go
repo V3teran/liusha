@@ -7,7 +7,7 @@
 //
 // 本包只贡献 agent 专有的缓存键与读写方法，缓存机制（L1/L2/总线）全在 cachestore。
 //
-// 缓存粒度：单条读 + **key 空间固定**的读均走 L1/L2 缓存——单条读（id/code/tier）、
+// 缓存粒度：单条读 + **key 空间固定**的读均走 L1/L2 缓存——单条读（id/code）、
 // 全量列表读（ListExecutors 按 onlyEnabled 分 2 键）、两个哨兵（planner/
 // enabled_domain）。任一成员写即失效对应固定键。唯**分页/搜索列表**（ListExecutorsPaged
 // + Count）不缓存：其键含搜索词 × limit × offset，key 空间随查询无限
