@@ -23,17 +23,16 @@ type Deps struct {
 	AgentID string
 	Host    string
 
-	Tasks         *task.Store
-	Findings      *finding.Store
-	Corpus        *corpus.Store
-	Embedder      corpus.Embedder // 可 nil → 退化为纯 sparse 检索
-	Reranker      corpus.Reranker
-	Insights      *insight.Store
-	ProxyStore    *traffic.ProxyStore
-	AgentStore    *traffic.AgentStore
-	Creds         credential.Provider
-	Sandbox       sandbox.Client // Spawn 后注入，可 nil
-	ToolingLoader *skill.Loader
-	VulnLoader    *skill.Loader
-	Graph         *explorationgraph.Store // 探索图 Store
+	Tasks      *task.Store
+	Findings   *finding.Store
+	Corpus     *corpus.Store
+	Embedder   corpus.Embedder // 可 nil → 退化为纯 sparse 检索
+	Reranker   corpus.Reranker
+	Insights   *insight.Store
+	ProxyStore *traffic.ProxyStore
+	AgentStore *traffic.AgentStore
+	Creds      credential.Provider
+	Sandbox    sandbox.Client          // Spawn 后注入，可 nil
+	Skills     skill.Reader            // skill 渐进式加载（按 agent.skills 建的白名单视图；nil 不注册 read_skill）
+	Graph      *explorationgraph.Store // 探索图 Store
 }

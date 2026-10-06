@@ -27,7 +27,8 @@ const (
 //   - SystemPrompt：Agent的System Prompt，定义其行为和能力（对应数据库的 body 列）
 //   - FunctionTools：LLM可直接调用的function calling工具
 //   - CliTools：外部命令行工具
-//   - Skills：Agent可访问的Skill code列表（如 ["tooling/browser-use", "vuln/dom-xss"]）
+//   - Skills：Agent可访问的skill裸名列表（如 ["bac", "browser-use", "dom-xss"]，
+//     = skills/<分类>/<名字> 的目录名），渐进式加载白名单（Tier1 索引 / Tier2 read_skill）
 type Agent struct {
 	ID            string
 	Code          string

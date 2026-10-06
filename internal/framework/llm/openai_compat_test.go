@@ -77,7 +77,7 @@ func TestToOpenAIMessages_StripsImagesGracefully(t *testing.T) {
 // （GLM 等严格实现报 400 Param Incorrect）→ tool message 仅留文本，图拆到紧随的 user message。
 func TestToOpenAIMessages_VisionToolImage_SplitToUserMsg(t *testing.T) {
 	msgs := []Message{
-		{Role: RoleTool, ToolCallID: "call_1", Name: "browser_use", ContentParts: []ContentPart{
+		{Role: RoleTool, ToolCallID: "call_1", Name: "drive_browser", ContentParts: []ContentPart{
 			{Type: "text", Text: "url=http://x"},
 			{Type: "image_url", ImageURL: &ImageContent{MediaType: "image/png", Base64Data: "iVBOR"}},
 		}},
@@ -124,8 +124,8 @@ func TestToOpenAIMessages_VisionToolImage_SplitToUserMsg(t *testing.T) {
 func TestToOpenAIMessages_ParallelToolImages_NoInterleave(t *testing.T) {
 	msgs := []Message{
 		{Role: RoleAssistant, Content: "并行调两个工具", ToolCalls: []ToolCall{
-			{ID: "c1", Name: "browser_use", Arguments: []byte("{}")},
-			{ID: "c2", Name: "browser_use", Arguments: []byte("{}")},
+			{ID: "c1", Name: "drive_browser", Arguments: []byte("{}")},
+			{ID: "c2", Name: "drive_browser", Arguments: []byte("{}")},
 		}},
 		{Role: RoleTool, ToolCallID: "c1", ContentParts: []ContentPart{
 			{Type: "text", Text: "r1"},

@@ -13,6 +13,12 @@ type Card struct {
 	Name        string `yaml:"name"`
 	Description string `yaml:"description"`
 
+	// Key 是 skill 的寻址名（= SKILL.md 所在目录名，如 dom-xss / browser-use），
+	// 由 Loader 回填，非 frontmatter 字段。agent.skills 声明与 read_skill(name)
+	// 都用 Key；frontmatter name 只是给人看的显示名，禁止用于寻址——两者混用
+	// 会让 LLM 拿显示名去读 skill 而必败。
+	Key string `yaml:"-"`
+
 	// Category 是 tooling 工具的领域归属（如 recon / discovery / vulnscan /
 	// injection / deserialization / auth / sast / utility），只对 tooling 类有意义；vuln 类
 	// SKILL 也留空（用 frontmatter category 字段做分组只对 tooling 有意义）。

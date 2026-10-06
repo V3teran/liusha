@@ -44,6 +44,7 @@ type skillStore interface {
 	GetByID(ctx context.Context, id string) (skillstore.Skill, error)
 	GetByCode(ctx context.Context, code string) (skillstore.Skill, error)
 	List(ctx context.Context, p skillstore.ListParams) ([]skillstore.Skill, error)
+	ListEnabled(ctx context.Context) ([]skillstore.Skill, error)
 	Create(ctx context.Context, sk skillstore.Skill) (skillstore.Skill, error)
 	Update(ctx context.Context, id string, p skillstore.UpdateParams) (skillstore.Skill, error)
 	Delete(ctx context.Context, id string) error
@@ -81,6 +82,7 @@ const (
 )
 
 func keyExecutorID(id string) string           { return "configstore:executor:id:" + id }
+func keyExecutorCode(code string) string       { return "configstore:executor:code:" + code }
 func keyExecutorComplexity(code string) string { return "configstore:executor:complexity:code:" + code }
 
 // keyAgentsList 是全量列表读的缓存键，按 onlyEnabled 分两键（有界）。
@@ -110,11 +112,25 @@ func (s *Store) ExecutorByID(ctx context.Context, id string) (agent.Agent, error
 		})
 }
 
-// ExecutorByCode 按 code 读操作员，直穿底层 store（不缓存）：agent 缓存只建 id 键，
-// SaveExecutor 也只失效 id+哨兵；若在此缓存 code 键，SaveExecutor 后会 stale。工具装配
-// 写路径按 code 取完整操作员再改数组回存，直读最新即可，无需缓存。
+// ExecutorByCode 按 code 读操作员（走 code 键多级缓存，见 AgentByCode）。
 func (s *Store) ExecutorByCode(ctx context.Context, code string) (agent.Agent, error) {
-	return s.executors.GetByCode(ctx, code)
+	return s.AgentByCode(ctx, code)
+}
+
+// AgentByCode 按 code 读任意 agent（planner/executor/evaluator/monitor），走
+// keyExecutorCode 的 L1/L2/DB 多级缓存。回填 code+id 双键（载荷同型 agent.Agent；
+// complexity 键载荷是 complexityResult，不可混填——见 decode 的类型约束）。
+// 一致性：所有 agent 写路径（UpdateExecutor/UpdateAgent/UpdateExecutorComplexity）
+// 经 agentKeys 失效 code 键，前端改配置 → 总线广播 → runner 清 L1 → 下次读到新值。
+// runner 的认知循环每任务经此读四 agent 配置（热路径，L1 命中为主）。
+func (s *Store) AgentByCode(ctx context.Context, code string) (agent.Agent, error) {
+	return cachestore.ReadThrough(ctx, s.cache, keyExecutorCode(code),
+		func(h agent.Agent) []string {
+			return []string{keyExecutorCode(h.Code), keyExecutorID(h.ID)}
+		},
+		func(ctx context.Context) (agent.Agent, error) {
+			return s.executors.GetByCode(ctx, code)
+		})
 }
 
 // complexityResult 是 ComplexityByCode 的缓存载体：连 found=false（非 agent 的路由 key）
@@ -197,12 +213,14 @@ func (s *Store) CountExecutors(ctx context.Context, p agent.ListParams) (int, er
 // 每个写方法：写 DB → cachestore.Invalidate（本进程即时清 L1+L2 + 广播失效键给其它进程）。
 // 失效的键由写方直接列出（与 ReadThrough 的 fillKeys 对应），无 per-resource 语义 switch。
 
-// agentKeys 是一次操作员写/删要清的全部缓存键：其 id 键 + complexity 键（code 路，热路径路由用）
-// + 两个哨兵键（提/降 planner 或 enabled/kind 变动影响领域池）+ 两个全量列表键。
-// complexity 键随此一并失效——两个写入口（SaveExecutor/UpdateExecutorComplexity）都经此，保证移档即时生效。
+// agentKeys 是一次操作员写/删要清的全部缓存键：id 键 + code 键 + complexity 键
+// （code 路，热路径路由用）+ 两个哨兵键（提/降 planner 或 enabled/kind 变动影响领域池）
+// + 两个全量列表键。失效集是各 ReadThrough 回填键的超集（decode 失败即硬错，
+// 回填键载荷类型必须一致；失效键不受此限）。
+// complexity/code 键随此一并失效——全部写入口都经此，保证移档/改配即时生效。
 func agentKeys(id, code string) []string {
 	return []string{
-		keyExecutorID(id), keyExecutorComplexity(code),
+		keyExecutorID(id), keyExecutorCode(code), keyExecutorComplexity(code),
 		keyplanner, keyExecutor,
 		keyAgentsList(true), keyAgentsList(false),
 	}
@@ -239,12 +257,11 @@ func (s *Store) DeleteExecutor(_ context.Context, _, _ string) error {
 	return fmt.Errorf("不支持删除内置Agent")
 }
 
-// ── 通用 Agent 方法（支持 Planner/Executor/Evaluator）─────────────────
+// ── 通用 Agent 方法（支持 Planner/Executor/Evaluator/Monitor）─────────
 
-// GetAgentByCode 按 code 读取任意 Agent（planner/executor/evaluator）
-// 直穿底层 store（不缓存），与 ExecutorByCode 保持一致
+// GetAgentByCode 按 code 读取任意 Agent（走 code 键多级缓存，见 AgentByCode）。
 func (s *Store) GetAgentByCode(ctx context.Context, code string) (agent.Agent, error) {
-	return s.executors.GetByCode(ctx, code)
+	return s.AgentByCode(ctx, code)
 }
 
 // UpdateAgent 更新任意 Agent 配置，失效缓存
@@ -264,25 +281,47 @@ func (s *Store) UpdateAgent(ctx context.Context, id string, p agent.UpdateParams
 func keySkillID(id string) string     { return "configstore:skill:id:" + id }
 func keySkillCode(code string) string { return "configstore:skill:code:" + code }
 
-func skillKeys(id, code string) []string {
+// keySkillsEnabledList 是「全部启用 skill」哨兵键（key 空间有界：仅此一键）。
+// runner 的 Tier 1 技能索引按它读；任何 skill 增/改/删都失效它。
+const keySkillsEnabledList = "configstore:skills:list:enabled"
+
+// skillFillKeys 是单条 skill 读的回填键（载荷类型 skillstore.Skill，code/id 双键交叉回填）。
+func skillFillKeys(id, code string) []string {
 	return []string{keySkillID(id), keySkillCode(code)}
+}
+
+// skillKeys 是一次 skill 写要失效的键集：回填键超集 + 启用列表哨兵键
+// （列表载荷是 []skillstore.Skill，不可被单条读回填——类型不同会 decode 硬错）。
+func skillKeys(id, code string) []string {
+	return []string{keySkillID(id), keySkillCode(code), keySkillsEnabledList}
 }
 
 // SkillByID 按 uuid 读 Skill（L1/L2 缓存）
 func (s *Store) SkillByID(ctx context.Context, id string) (skillstore.Skill, error) {
 	return cachestore.ReadThrough(ctx, s.cache, keySkillID(id),
-		func(sk skillstore.Skill) []string { return skillKeys(sk.ID, sk.Code) },
+		func(sk skillstore.Skill) []string { return skillFillKeys(sk.ID, sk.Code) },
 		func(ctx context.Context) (skillstore.Skill, error) {
 			return s.skills.GetByID(ctx, id)
 		})
 }
 
-// SkillByCode 按 code 读 Skill（L1/L2 缓存）
+// SkillByCode 按 code 读 Skill（L1/L2 缓存）——read_skill 工具（Tier 2）的后端。
 func (s *Store) SkillByCode(ctx context.Context, code string) (skillstore.Skill, error) {
 	return cachestore.ReadThrough(ctx, s.cache, keySkillCode(code),
-		func(sk skillstore.Skill) []string { return skillKeys(sk.ID, sk.Code) },
+		func(sk skillstore.Skill) []string { return skillFillKeys(sk.ID, sk.Code) },
 		func(ctx context.Context) (skillstore.Skill, error) {
 			return s.skills.GetByCode(ctx, code)
+		})
+}
+
+// EnabledSkills 返回全部启用的 skill（无分页截断——skill 总量本身有界），
+// 缓存于哨兵键。runner 每任务构建 Tier 1 技能索引的数据源；前端改 skill
+// （正文/启停）经 UpdateSkill/CreateSkill/DeleteSkill 失效此键并广播，runner 下次即新。
+func (s *Store) EnabledSkills(ctx context.Context) ([]skillstore.Skill, error) {
+	return cachestore.ReadThrough(ctx, s.cache, keySkillsEnabledList,
+		func([]skillstore.Skill) []string { return []string{keySkillsEnabledList} },
+		func(ctx context.Context) ([]skillstore.Skill, error) {
+			return s.skills.ListEnabled(ctx)
 		})
 }
 
@@ -292,7 +331,7 @@ func (s *Store) ListSkills(ctx context.Context, p skillstore.ListParams) ([]skil
 	return s.skills.List(ctx, p)
 }
 
-// UpdateSkill 更新 Skill，失效缓存
+// UpdateSkill 更新 Skill，失效缓存（单条键 + 启用列表键）
 func (s *Store) UpdateSkill(ctx context.Context, id string, p skillstore.UpdateParams) (skillstore.Skill, error) {
 	sk, err := s.skills.Update(ctx, id, p)
 	if err != nil {
@@ -304,9 +343,15 @@ func (s *Store) UpdateSkill(ctx context.Context, id string, p skillstore.UpdateP
 	return sk, nil
 }
 
-// CreateSkill 创建 Skill（写穿，不缓存）
+// CreateSkill 创建 Skill（写穿 DB 后失效启用列表键——新 skill 会出现在列表里；
+// 其 code/id 键尚无旧缓存，无需失效）
 func (s *Store) CreateSkill(ctx context.Context, sk skillstore.Skill) (skillstore.Skill, error) {
-	return s.skills.Create(ctx, sk)
+	created, err := s.skills.Create(ctx, sk)
+	if err != nil {
+		return skillstore.Skill{}, err
+	}
+	_ = s.cache.Invalidate(ctx, keySkillsEnabledList) // best-effort：失败由 10min L2 TTL 兜底
+	return created, nil
 }
 
 // DeleteSkill 删除 Skill，失效缓存
@@ -322,4 +367,38 @@ func (s *Store) DeleteSkill(ctx context.Context, id string) error {
 	// 删除成功后失效缓存（best-effort，失败不影响删除结果）
 	_ = s.cache.Invalidate(ctx, skillKeys(sk.ID, sk.Code)...)
 	return nil
+}
+
+// InvalidateSkills 供绕过本 Store 的写路径（api 启动期种子 import、reseed 工具）
+// 事后统一失效：启用列表键 + 受影响 code 的单条键。ids 无从得知（行已删/未建），
+// code 键失效已足够——id 键只服务前端 :id 路由，种子路径不触碰。
+func (s *Store) InvalidateSkills(ctx context.Context, codes ...string) error {
+	keys := make([]string, 0, len(codes)+1)
+	keys = append(keys, keySkillsEnabledList)
+	for _, c := range codes {
+		if c != "" {
+			keys = append(keys, keySkillCode(c))
+		}
+	}
+	return s.cache.Invalidate(ctx, keys...)
+}
+
+// InvalidateAgents 供 reseed 强制覆盖 agents 后按 code 失效全部相关键
+// （经 DB 回读拿 id，重建 agentKeys 全集）。低频工具路径，直读可接受。
+func (s *Store) InvalidateAgents(ctx context.Context, codes ...string) error {
+	var keys []string
+	for _, code := range codes {
+		if code == "" {
+			continue
+		}
+		h, err := s.executors.GetByCode(ctx, code)
+		if err != nil {
+			continue // 行不存在：无旧缓存可失效，跳过
+		}
+		keys = append(keys, agentKeys(h.ID, h.Code)...)
+	}
+	if len(keys) == 0 {
+		return nil
+	}
+	return s.cache.Invalidate(ctx, keys...)
 }

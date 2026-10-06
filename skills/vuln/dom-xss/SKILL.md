@@ -22,12 +22,12 @@ payload 全程在**客户端 JS** 里流动：从 **source**（攻击者可控�
 1. **DOM XSS 的执行发生在浏览器 JS 运行时**，curl 不跑 JS——它最多证明"参数出现在响应文本里"，证明不了"sink 真的执行了脚本"。
 2. **很多 DOM XSS 的 payload（`#` 片段 / 纯前端路由）根本不进服务端**，curl 拿到的响应里**连反射都没有**，却仍然可利用。
 
-所以本类型 finding 的**唯一有效证据 = 浏览器里 payload 真实执行**。用 `browser_use` 走：
+所以本类型 finding 的**唯一有效证据 = 浏览器里 payload 真实执行**。用 `drive_browser` 走：
 
-1. `browser_use open` 打开带 payload 的 PoC URL（payload 放进对应 source 位置：`#...` / `?param=...`）
+1. `drive_browser open` 打开带 payload 的 PoC URL（payload 放进对应 source 位置：`#...` / `?param=...`）
 2. **用 sentinel 验证执行**（不要依赖 alert 弹窗——headless 下 alert 会被自动 dismiss、阻塞、且不可断言）：
    - payload 用可被读回的副作用，如 `<img src=x onerror="window.__xss=1">` 或 `<svg onload="window.__xss=1">`
-   - 再 `browser_use eval "window.__xss"` → 返回 `1` = sink 执行了脚本 = **确认命中**
+   - 再 `drive_browser eval "window.__xss"` → 返回 `1` = sink 执行了脚本 = **确认命中**
    - 或 payload 注入一个可检测 DOM 节点（`document.title='XSSPWN'` / 插入特定 id 节点），用 `eval` / `source` 读回比对
 3. 命中后立刻 `write_finding`（evidence 带上 eval 返回 sentinel 的输出 / 触发后的截图）
 
@@ -35,7 +35,7 @@ payload 全程在**客户端 JS** 里流动：从 **source**（攻击者可控�
 
 ## 挖掘方向（思路，不是步骤）
 
-- **先定位 source→sink 链**：`browser_use source` 拿渲染后 HTML / 内联脚本，或 `eval` 读 JS，找把 `location.*` / `referrer` 喂进 `innerHTML` / `document.write` / `eval` 的代码
+- **先定位 source→sink 链**：`drive_browser source` 拿渲染后 HTML / 内联脚本，或 `eval` 读 JS，找把 `location.*` / `referrer` 喂进 `innerHTML` / `document.write` / `eval` 的代码
 - **DVWA「XSS (DOM)」类**：典型 `?default=<lang>` 被 JS 拼进 `document.write`/option——payload 走 query，但仍要浏览器执行确认（注意 source 位置，别用错参数名）
 - **框架/SPA 路由**：hash 路由、`dangerouslySetInnerHTML`、`v-html`、模板里的 `{{{ }}}` 都是高危 sink
 - **postMessage / window.name**：跨源消息未校验 origin 又进 sink → DOM XSS

@@ -1,6 +1,6 @@
 ---
 name: Browser Use 浏览器自动化
-description: 无头 Chromium 浏览器自动化，typed `browser_use` 工具是首选入口。
+description: 无头 Chromium 浏览器自动化，typed `drive_browser` 工具是首选入口。
 category: tooling
 ---
 
@@ -12,11 +12,11 @@ category: tooling
 
 - **identity = 身份（cookie jar）**：同一身份下所有 reconnaissance/exploitation **共用一个浏览器**，登录态/cookies 共享。
 - **tab = agent**：服务按 agent（`AGENT_ID`）路由到各自的 tab，截图/浏览历史/并发互不干扰——首个开页的 agent 落在初始 tab，其余 agent 各自自动新开一个 tab（无全局 active tab、无串行等待）。
-- **多身份**：越权/BAC 要多账号对比时，给 `browser_use` 传不同 `identity`（= 凭证 name，如 `admin`/`lowpriv`）→ 各开一个**独立浏览器**（独立 cookie jar，按需多起 chromium）。缺省走共享的 `default` 身份，无需传。
+- **多身份**：越权/BAC 要多账号对比时，给 `drive_browser` 传不同 `identity`（= 凭证 name，如 `admin`/`lowpriv`）→ 各开一个**独立浏览器**（独立 cookie jar，按需多起 chromium）。缺省走共享的 `default` 身份，无需传。
 
 ## 入口选择
 
-**优先用 typed `browser_use` 工具**（单工具 + action 枚举），而不是 `run_command "browser-use ..."`。
+**优先用 typed `drive_browser` 工具**（单工具 + action 枚举），而不是 `run_command "browser-use ..."`。
 原因：typed JSON 比 raw shell 命令字符串错率低，且状态变化 action wrapper 自动附截图喂回 vision LLM。
 
 仅以下场景才走 `run_command` 通道（typed 工具未覆盖的低频子命令）：
@@ -24,7 +24,7 @@ category: tooling
 
 ## action 补充（schema 没说清的差异）
 
-完整 action 列表 + 字段说明见 `browser_use` tool schema。本节只记 schema 不便说的实战要点：
+完整 action 列表 + 字段说明见 `drive_browser` tool schema。本节只记 schema 不便说的实战要点：
 
 - **open**：chromium 首次 cold start ~20-30s，**第 1 个命令 `timeout_seconds` 至少 60**；后续同身份会话复用 15s 够
 - **state 先于 click**：LLM 直接给 click x/y 偏差通常 ±50 像素，足以错过按钮。**先 state 拿 numbered DOM → 再 click index=N**，比 vision 猜稳得多
@@ -46,7 +46,7 @@ category: tooling
 
 chromium 的 cookie jar 按 `--session`（=identity）持久共享，与 curl **独立**。浏览器登录走**登录页输账号密码**这一条路；redis 凭证通道（`read_credentials`/`write_credential`）只服务 curl/sqlmap 无状态链路 + 同步过程中**新拿到**的凭证（详见反模式）。
 
-- **同一身份只登一次**：同 identity 下所有 reconnaissance/exploitation 共用一个浏览器。**任一 agent 在登录页登录过后，整个身份的 jar 就有态**——后续同身份 agent 直接 `browser_use open` 受保护页即带登录态，无需各自重登。
+- **同一身份只登一次**：同 identity 下所有 reconnaissance/exploitation 共用一个浏览器。**任一 agent 在登录页登录过后，整个身份的 jar 就有态**——后续同身份 agent 直接 `drive_browser open` 受保护页即带登录态，无需各自重登。
 - **没人登过 → 自己在登录页登录**：`state` 拿表单 numbered DOM → `input` 填账密 → `click` 提交。这对浏览器是**正确路径**，不是重复劳动。
 - **多账号对比（越权/BAC）**：brief 给几组账号就传几个不同 `identity` 各开一个独立浏览器，每个各自登录，cookie jar 互不污染。
 - **browser → curl / 其它 agent**：浏览器登录后若 curl 链路也要用同一身份，`cookies get` 导出或 `write_credential` 录入 redis 让 curl 工具 `read_credentials` 取用（这是 browser→redis 的同步方向，不是反过来注入）。
@@ -58,7 +58,7 @@ chromium 的 cookie jar 按 `--session`（=identity）持久共享，与 curl **
 
 ## 何时用 / 何时不用
 
-**适合 browser_use 的场景**：
+**适合 drive_browser 的场景**：
 - 必须 JS 执行才看到的页面（SPA / React / Vue）
 - 复杂登录链（OAuth redirect / SAML / 多步表单）
 - DOM-based XSS 验证（payload 在 DOM 中执行 vs 仅 reflect）

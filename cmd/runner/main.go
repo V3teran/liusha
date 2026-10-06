@@ -19,11 +19,9 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"syscall"
 	"time"
 
-	"github.com/V3teran/liusha/internal/agent"
 	agentstore "github.com/V3teran/liusha/internal/agentrun"
 	"github.com/V3teran/liusha/internal/assignment"
 	"github.com/V3teran/liusha/internal/bus"
@@ -91,10 +89,10 @@ type runnerStores struct {
 	calls         *llminvocation.Store
 }
 
-// runnerSkills 聚合 Progressive Disclosure 资源（均可为 nil → 自动 fallback 不注入）。
+// runnerSkills 聚合 Progressive Disclosure 资源。
+// skill 不在此列：运行时 skill 事实源是 DB（经 cfgcache 三级缓存读，见 handler.skills），
+// 文件目录只作 api 启动期种子。
 type runnerSkills struct {
-	toolingLoader *skill.Loader      // 外部 CLI 工具手册（Tier1 索引 / Tier2 正文）
-	vulnLoader    *skill.Loader      // 漏洞类型挖掘指南
 	toolsManifest *manifest.Manifest // tools.yaml：与 Dockerfile 装的 binary 严格对应
 }
 
@@ -130,7 +128,7 @@ func main() {
 	wc := worker.NewClient(asynq.RedisClientOpt{Addr: redisAddrFromEnv()})
 	defer func() { _ = wc.Close() }()
 
-	skills := newRunnerSkills(cfg, logger)
+	skills := newRunnerSkills(logger)
 	profiles := newDomainRegistry(logger)
 	launcher := newSandboxLauncher(ctx, cfg, runnerCfg, logger)
 
@@ -172,26 +170,27 @@ func main() {
 	})
 
 	h := handler{
-		executors:      stores.executors,
-		tasks:          stores.tasks,
-		findings:       stores.findings,
-		corpus:         stores.corpus,
-		embedder:       embedder,
-		reranker:       reranker,
-		insights:       stores.insights,
-		proxyStore:     stores.proxyStore,
-		agentStore:     stores.agentStore,
-		calls:          stores.calls,
-		hostSem:        hostSem,
-		settings:       settingstore.New(pool, cache),
-		runnerCfg:      runnerCfg,
-		sandboxMgr:     sandboxMgr,
-		logger:         logger,
-		router:         router,
-		creds:          credential.NewRedis(rdb, cfg.Credential.RedisKeyPrefix),
-		toolCalls:      stores.toolCalls,
-		toolingLoader:  skills.toolingLoader,
-		vulnLoader:     skills.vulnLoader,
+		executors:  stores.executors,
+		tasks:      stores.tasks,
+		findings:   stores.findings,
+		corpus:     stores.corpus,
+		embedder:   embedder,
+		reranker:   reranker,
+		insights:   stores.insights,
+		proxyStore: stores.proxyStore,
+		agentStore: stores.agentStore,
+		calls:      stores.calls,
+		hostSem:    hostSem,
+		settings:   settingstore.New(pool, cache),
+		runnerCfg:  runnerCfg,
+		sandboxMgr: sandboxMgr,
+		logger:     logger,
+		router:     router,
+		creds:      credential.NewRedis(rdb, cfg.Credential.RedisKeyPrefix),
+		toolCalls:  stores.toolCalls,
+		// skill 渐进式加载后端 = DB 事实源（经 cfgcache 的 L1/L2/DB 三级缓存；
+		// 前端改 skill → 失效总线广播 → 本进程 L1 清 → 下次读即新值，无需重启）。
+		skills:         skill.NewStoreReader(llmStack.cfgStore),
 		toolsManifest:  skills.toolsManifest,
 		cfgStore:       llmStack.cfgStore,
 		conversations:  stores.conversations,
@@ -201,7 +200,6 @@ func main() {
 		checkpointer:   stores.checkpointer,
 		eventBus:       eventBus,
 		controlPlane:   controlPlaneStore,
-		agentCfgStore:  agent.NewStore(pool), // 新增：Agent 配置存储
 	}
 
 	mux := worker.NewMux()
@@ -306,26 +304,10 @@ func newCorpusEmbedder(logger zerolog.Logger) (corpus.Embedder, corpus.Reranker)
 }
 
 // newRunnerSkills 构造 Progressive Disclosure 资源。
-func newRunnerSkills(cfg config.Config, logger zerolog.Logger) *runnerSkills {
-	// executor system prompt 已编译期 embed（internal/builder/executor/system_prompt.md），
-	// 不再需要运行时 skill loader 加载——vuln/tooling loader 服务 Progressive Disclosure。
-
-	// Tooling loader：root=skills/tooling，每个子目录一份 SKILL.md = 一个外部 CLI 工具的完整手册。
-	// agent buildUserPrompt 用 List() 拼"工具索引"段（Tier 1）；LLM 调 read_tooling_skill(name)
-	// 拿完整 body（Tier 2）。目录不存在或扫描失败 → 置 nil，agent 自动 fallback。
-	toolingLoader := skill.NewLoader(filepath.Join(cfg.Skills.Root, "tooling"))
-	if _, err := toolingLoader.Index(); err != nil {
-		logger.Warn().Err(err).Str("root", filepath.Join(cfg.Skills.Root, "tooling")).
-			Msg("tooling skill index 失败（read_tooling_skill 与工具索引段将不可用）")
-		toolingLoader = nil
-	} else {
-		toolingNames := make([]string, 0)
-		for _, c := range toolingLoader.List() {
-			toolingNames = append(toolingNames, c.Name)
-		}
-		logger.Info().Strs("tooling_skills", toolingNames).Msg("tooling skill index loaded")
-	}
-
+//
+// skill 不在此装配：运行时 skill 事实源 = DB（skill 表），经 handler.skills 的
+// StoreReader（cfgcache 三级缓存）读；skills/ 文件目录只作 api 启动期种子。
+func newRunnerSkills(logger zerolog.Logger) *runnerSkills {
 	// Tools manifest（tools.yaml）：与 Dockerfile 装的 binary 严格对应——
 	// agent 用它渲染 SystemPrompt 的 tooling_catalog 段（Tier 1 索引）。
 	// 与 SKILL.md frontmatter 解耦：删 SKILL ≠ 工具消失。
@@ -336,21 +318,7 @@ func newRunnerSkills(cfg config.Config, logger zerolog.Logger) *runnerSkills {
 	}
 	logger.Info().Strs("tools", toolsManifest.Names()).Int("count", len(toolsManifest.Tools)).Str("path", toolsManifestPath).Msg("tools manifest loaded")
 
-	// Vuln loader：root=skills/vuln，每个子目录一份 SKILL.md = 一种漏洞类型的挖掘指南。
-	vulnLoader := skill.NewLoader(filepath.Join(cfg.Skills.Root, "vuln"))
-	if _, err := vulnLoader.Index(); err != nil {
-		logger.Warn().Err(err).Str("root", filepath.Join(cfg.Skills.Root, "vuln")).
-			Msg("vuln skill index 失败（read_vuln_skill 与漏洞挖掘指南索引段将不可用）")
-		vulnLoader = nil
-	} else {
-		vulnNames := make([]string, 0)
-		for _, c := range vulnLoader.List() {
-			vulnNames = append(vulnNames, c.Name)
-		}
-		logger.Info().Strs("vuln_skills", vulnNames).Msg("vuln skill index loaded")
-	}
-
-	return &runnerSkills{toolingLoader: toolingLoader, vulnLoader: vulnLoader, toolsManifest: toolsManifest}
+	return &runnerSkills{toolsManifest: toolsManifest}
 }
 
 // newDomainRegistry 注册 L2 域适配 Profile。

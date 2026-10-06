@@ -129,13 +129,28 @@ func main() {
 	settingStore := settingstore.New(pool, cache)
 
 	// 种子首填（insert-only）：空库时从磁盘 agents/ 和 skills/ 导入默认配置，
-	// 已存在的行按 code 整行跳过（DB 是事实源，不覆盖运维/前端改动）。
+	// 已存在的行按 code 整行跳过（DB 是事实源，不覆盖运维/前端改动）；
+	// 同时清理文件里已删除的内置 skill 死行（目录改名/删除残留）。
 	// 目录缺失时静默跳过（walkFiles 容忍不存在），非致命——失败仅告警不 fail-fast，
 	// 让 api 仍能起（配置可事后经 CRUD 补齐）。
 	seedDir := envx.OrDefault("LIUSHA_SEED_DIR", ".")
-	if err := seed.Import(ctx, seedDir,
-		cfgAgentStore, cfgSkillStoreRaw); err != nil {
+	seedRes, err := seed.Import(ctx, seedDir, cfgAgentStore, cfgSkillStoreRaw)
+	if err != nil {
 		logger.Warn().Err(err).Str("dir", seedDir).Msg("配置种子导入失败（跳过，可经 CRUD 手动补齐）")
+	} else if len(seedRes.Agents) > 0 || len(seedRes.Skills.Touched()) > 0 {
+		// 种子写动了 DB（新行/死行清理）→ 失效多级缓存并广播（本进程缓存虽冷，
+		// 但 runner/其他 api 实例的 L1/L2 可能已有旧值）。
+		if invErr := cfgStore.InvalidateSkills(ctx, seedRes.Skills.Touched()...); invErr != nil {
+			logger.Warn().Err(invErr).Msg("种子写入后 skill 缓存失效失败（10min L2 TTL 兜底）")
+		}
+		if invErr := cfgStore.InvalidateAgents(ctx, seedRes.Agents...); invErr != nil {
+			logger.Warn().Err(invErr).Msg("种子写入后 agent 缓存失效失败（10min L2 TTL 兜底）")
+		}
+		logger.Info().
+			Strs("agents_seeded", seedRes.Agents).
+			Strs("skills_inserted", seedRes.Skills.Inserted).
+			Strs("skills_pruned", seedRes.Skills.Pruned).
+			Msg("配置种子首填完成")
 	}
 
 	// LLM 配置种子（insert-only）：把 config.yaml 的 providers:/llm.* 首填进

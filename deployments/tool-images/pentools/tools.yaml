@@ -330,7 +330,7 @@ tools:
   # ===== browser（无头浏览器自动化）=====
   - name: browser-use
     category: browser
-    description: 无头 Chromium 浏览器自动化，typed `browser_use` 工具是首选入口。
+    description: 无头 Chromium 浏览器自动化，typed `drive_browser` 工具是首选入口。
     # install 省略：Dockerfile 专属 Python 3.12 venv 层。
 
   # ===== utility（通用胶水：HTTP/JSON/脚本）=====

@@ -131,10 +131,12 @@ func newWriteObservationTool(deps Deps, timeout time.Duration, safe bool) *write
 	return t
 }
 
-func (t *writeObservationTool) Name() string      { return "write_observation" }
-func (t *writeObservationTool) ShortDesc() string { return "记录待验证的假设" }
+func (t *writeObservationTool) Name() string { return "write_observation" }
+func (t *writeObservationTool) ShortDesc() string {
+	return "⚠️【必须】报告发现的漏洞假设（附复现配方repro），未报告=无效发现"
+}
 func (t *writeObservationTool) Desc() string {
-	return "记录一个待验证的假设到探索图。假设是基于观察和推理提出的，需要后续通过实验验证。"
+	return "记录一个待验证的漏洞假设到探索图。必须包含自包含的复现配方（repro字段），evaluator会据此自主验证。未通过此工具报告的发现不会进入最终报告。"
 }
 func (t *writeObservationTool) Schema() json.RawMessage { return writeObservationSchema }
 
@@ -461,175 +463,6 @@ func teachWebAssertDiscriminative(recipe, assert json.RawMessage) error {
 }
 
 // ─── write_evidence ──────────────────────────────────────────────────────────
-
-var writeEvidenceSchema = json.RawMessage(`{
-  "type": "object",
-  "properties": {
-    "observation_id": {
-      "type": "string",
-      "description": "关联的假设 ID"
-    },
-    "outcome": {
-      "type": "string",
-      "enum": ["confirms", "refutes", "inconclusive"],
-      "description": "验证结果：confirms（确认）、refutes（反驳）、inconclusive（不确定）"
-    },
-    "description": {
-      "type": "string",
-      "description": "证据描述（实验过程、观察结果）"
-    },
-    "data": {
-      "type": "object",
-      "description": "原始数据（payload、响应、日志等）"
-    },
-    "finding_id": {
-      "type": "string",
-      "description": "如果 outcome=confirms，关联的 finding ID（可选）"
-    }
-  },
-  "required": ["observation_id", "outcome", "description"]
-}`)
-
-type writeEvidenceTool struct {
-	registry.BaseTool
-	deps Deps
-}
-
-func newWriteEvidenceTool(deps Deps, timeout time.Duration, safe bool) *writeEvidenceTool {
-	t := &writeEvidenceTool{deps: deps}
-	t.SetTimeout(timeout)
-	t.SetConcurrencySafe(safe)
-	return t
-}
-
-func (t *writeEvidenceTool) Name() string      { return "write_evidence" }
-func (t *writeEvidenceTool) ShortDesc() string { return "记录验证证据" }
-func (t *writeEvidenceTool) Desc() string {
-	return "记录验证假设的证据。证据可以确认（confirms）或反驳（refutes）假设，或者结果不确定（inconclusive）。"
-}
-func (t *writeEvidenceTool) Schema() json.RawMessage { return writeEvidenceSchema }
-
-func (t *writeEvidenceTool) Execute(ctx context.Context, args json.RawMessage) (registry.ToolResult, error) {
-	var input struct {
-		ObservationID string                 `json:"observation_id"`
-		Outcome       string                 `json:"outcome"`
-		Description   string                 `json:"description"`
-		Data          map[string]interface{} `json:"data"`
-		FindingID     string                 `json:"finding_id"`
-	}
-	if err := json.Unmarshal(args, &input); err != nil {
-		return registry.ToolResult{Error: "参数解析失败"}, nil
-	}
-
-	if input.ObservationID == "" || input.Outcome == "" || input.Description == "" {
-		return registry.ToolResult{Error: "observation_id, outcome, description 不能为空"}, nil
-	}
-
-	// 验证 outcome
-	if input.Outcome != "confirms" && input.Outcome != "refutes" && input.Outcome != "inconclusive" {
-		return registry.ToolResult{Error: "outcome 必须是 confirms/refutes/inconclusive"}, nil
-	}
-
-	// 构造 content
-	content, _ := json.Marshal(map[string]interface{}{
-		"type":      "evidence",
-		"statement": input.Description,
-		"outcome":   input.Outcome,
-		"data":      input.Data,
-	})
-
-	// 创建 evidence 节点（evidence 是一类 observation，evaluation 节点已废弃）
-	node := explorationgraph.Node{
-		ID:         uuid.New().String(),
-		TaskID:     t.deps.TaskID,
-		Kind:       core.KindObservation,
-		Content:    content,
-		Priority:   explorationgraph.PriorityMedium,
-		SourceType: explorationgraph.SourceExecutor,
-		SourceID:   t.deps.AgentID,
-		CreatedAt:  time.Now(),
-		UpdatedAt:  time.Now(),
-	}
-
-	id, err := t.deps.Graph.CreateNode(ctx, node)
-	if err != nil {
-		return registry.ToolResult{Error: fmt.Sprintf("创建节点失败: %v", err)}, nil
-	}
-
-	// 创建关系边
-	edges := []explorationgraph.Edge{}
-	// 边/置信度更新的非致命失败收集（主流程继续，输出可见）
-	var eWarnings []string
-
-	// 1. action → evidence (GENERATES)
-	if actionID := getContextActionID(ctx); actionID != "" {
-		edges = append(edges, explorationgraph.Edge{
-			TaskID:    t.deps.TaskID,
-			SrcID:     actionID,
-			Rel:       explorationgraph.RelGenerates,
-			DstID:     id,
-			CreatedAt: time.Now(),
-		})
-	}
-
-	// 2. evidence → observation (CONFIRMS 或 REFUTES)
-	switch input.Outcome {
-	case "confirms":
-		edges = append(edges, explorationgraph.Edge{
-			TaskID:    t.deps.TaskID,
-			SrcID:     id,
-			Rel:       explorationgraph.RelConfirms,
-			DstID:     input.ObservationID,
-			CreatedAt: time.Now(),
-		})
-
-		// 更新 observation 的置信度为 verified（失败不中断，但记入告警）
-		verified := explorationgraph.Confidence("verified")
-		if err := t.deps.Graph.UpdateNodeConfidence(ctx, input.ObservationID, verified); err != nil {
-			eWarnings = append(eWarnings, fmt.Sprintf("置信度更新失败: %v", err))
-		}
-
-		// 3. 如果有 finding_id，创建 evidence → finding (CONFIRMS)
-		if input.FindingID != "" {
-			edges = append(edges, explorationgraph.Edge{
-				TaskID:    t.deps.TaskID,
-				SrcID:     id,
-				Rel:       explorationgraph.RelConfirms,
-				DstID:     input.FindingID,
-				CreatedAt: time.Now(),
-			})
-		}
-	case "refutes":
-		edges = append(edges, explorationgraph.Edge{
-			TaskID:    t.deps.TaskID,
-			SrcID:     id,
-			Rel:       explorationgraph.RelRefutes,
-			DstID:     input.ObservationID,
-			CreatedAt: time.Now(),
-		})
-
-		// 更新 observation 的置信度为 low（失败不中断，但记入告警）
-		low := explorationgraph.Confidence("low")
-		if err := t.deps.Graph.UpdateNodeConfidence(ctx, input.ObservationID, low); err != nil {
-			eWarnings = append(eWarnings, fmt.Sprintf("置信度更新失败: %v", err))
-		}
-	}
-
-	// 创建所有边（失败不中断，但记入告警——证据链断档必须可见）
-	for _, edge := range edges {
-		if err := t.deps.Graph.CreateBusinessEdge(ctx, edge); err != nil {
-			eWarnings = append(eWarnings, fmt.Sprintf("边 %s→%s 创建失败: %v", edge.SrcID, edge.DstID, err))
-		}
-	}
-	warningNote := ""
-	if len(eWarnings) > 0 {
-		warningNote = "\n⚠️ " + strings.Join(eWarnings, "\n⚠️ ")
-	}
-
-	return registry.ToolResult{
-		Output: fmt.Sprintf("Evidence 创建成功\nID: %s\nOutcome: %s\n关联 observation: %s%s", id, input.Outcome, input.ObservationID, warningNote),
-	}, nil
-}
 
 // actionCtxKey 与 getContextActionID 共用同一 context 键（string key，历史口径）。
 const actionCtxKey = "current_action_id"

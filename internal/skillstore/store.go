@@ -153,6 +153,71 @@ func (s *Store) Delete(ctx context.Context, id string) error {
 	return nil
 }
 
+// ListEnabled 返回全部启用 skill（无分页/无 limit——List 的 limit 缺省 50 会
+// 静默截断，运行时 Tier 1 索引不能容忍截断；skill 总量本身有界，全量返回可接受）。
+func (s *Store) ListEnabled(ctx context.Context) ([]Skill, error) {
+	rows, err := s.pool.Query(ctx,
+		"SELECT "+colsSelect+" FROM skill WHERE enabled=true ORDER BY category, code")
+	if err != nil {
+		return nil, fmt.Errorf("list enabled skills: %w", err)
+	}
+	defer rows.Close()
+
+	var out []Skill
+	for rows.Next() {
+		sk, err := s.scanOne(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, sk)
+	}
+	return out, rows.Err()
+}
+
+// PruneBuiltinNotIn 删除 keepCodes 之外的内置 skill 行，返回被删 code 列表。
+// 供种子导入清理死行：skill 目录改名/删除后（如 drive-browser → browser-use），
+// DB 残留的旧内置行经此回收。用户自建（is_builtin=false）永不被此触碰。
+func (s *Store) PruneBuiltinNotIn(ctx context.Context, keepCodes []string) ([]string, error) {
+	rows, err := s.pool.Query(ctx,
+		"DELETE FROM skill WHERE is_builtin=true AND NOT (code = ANY($1)) RETURNING code",
+		keepCodes)
+	if err != nil {
+		return nil, fmt.Errorf("prune builtin skills: %w", err)
+	}
+	defer rows.Close()
+
+	var pruned []string
+	for rows.Next() {
+		var code string
+		if err := rows.Scan(&code); err != nil {
+			return nil, fmt.Errorf("scan pruned code: %w", err)
+		}
+		pruned = append(pruned, code)
+	}
+	return pruned, rows.Err()
+}
+
+// UpsertBuiltin 按强制覆盖语义写入内置 skill（reseed 重置通道）：code 冲突时
+// 覆盖 category/name/description/body 并复位 enabled=true；不冲突则插入。
+// 常规运行路径不走此（前端对内置 skill 的修改要跨重启保留，见 seed insert-only 语义）。
+func (s *Store) UpsertBuiltin(ctx context.Context, sk Skill) (Skill, error) {
+	q := `
+		INSERT INTO skill (code, category, name, description, body, is_builtin, enabled)
+		VALUES ($1, $2, $3, $4, $5, true, true)
+		ON CONFLICT (code) DO UPDATE SET
+			category    = EXCLUDED.category,
+			name        = EXCLUDED.name,
+			description = EXCLUDED.description,
+			body        = EXCLUDED.body,
+			is_builtin  = true,
+			enabled     = true,
+			updated_at  = now()
+		RETURNING ` + colsSelect
+
+	return s.scanOne(s.pool.QueryRow(ctx, q,
+		sk.Code, sk.Category, sk.Name, sk.Description, sk.Body))
+}
+
 // scanOne 扫描单行。
 func (s *Store) scanOne(row pgx.Row) (Skill, error) {
 	var sk Skill

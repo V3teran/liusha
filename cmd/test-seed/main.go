@@ -34,11 +34,14 @@ func main() {
 
 	// 执行种子加载
 	fmt.Println("开始加载种子...")
-	if err := seed.Import(ctx, ".", agentStore, skillStore); err != nil {
+	res, err := seed.Import(ctx, ".", agentStore, skillStore)
+	if err != nil {
 		fmt.Fprintf(os.Stderr, "种子加载失败: %v\n", err)
 		pool.Close()
 		os.Exit(1)
 	}
+	fmt.Printf("种子写入: agents=%v skills插入=%v skills清理=%v\n",
+		res.Agents, res.Skills.Inserted, res.Skills.Pruned)
 
 	// 验证 Agent
 	fmt.Println("\n=== 验证 Agent ===")

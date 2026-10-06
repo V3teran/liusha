@@ -52,7 +52,7 @@ type AgentTraffic struct {
 	ID              int64
 	TaskID          string
 	AgentID         string // 哪个 agent 发的（可空）
-	Identity        string // 身份戳（browser_use identity / 登录账号；CLI 为空）
+	Identity        string // 身份戳（drive_browser identity / 登录账号；CLI 为空）
 	Tool            string // 工具戳（browser / curl / sqlmap…；external 为空）
 	Host            string
 	Method          string

@@ -18,14 +18,16 @@ import (
 	"github.com/V3teran/liusha/internal/planner"
 	"github.com/V3teran/liusha/internal/registry"
 	"github.com/V3teran/liusha/internal/sandbox"
+	"github.com/V3teran/liusha/internal/skill"
 	"github.com/V3teran/liusha/internal/tools"
 	"github.com/V3teran/liusha/internal/tools/manifest"
 	"github.com/google/uuid"
+	"github.com/rs/zerolog"
 )
 
 // runCognition drives a single assignment through the L4 cognition loop:
 // four independent agents (Planner, Executor, Evaluator, Monitor) coordinate via bus.Bus.
-// sb 是本任务独占的沙箱客户端；nil 表示无沙箱（run_command/browser_use 不注册）。
+// sb 是本任务独占的沙箱客户端；nil 表示无沙箱（run_command/drive_browser 不注册）。
 func (h handler) runCognition(
 	ctx context.Context,
 	assignmentID, taskID, host, brief string,
@@ -82,9 +84,11 @@ func (h handler) runCognition(
 	}
 	// ========================================================
 
-	// ========== 加载四 Agent 配置（function_tools/cli_tools 白名单的事实源） ==========
+	// ========== 加载四 Agent 配置（function_tools/cli_tools/skills 白名单的事实源） ==========
+	// 经 cfgStore.AgentByCode 走 L1 内存 → L2 redis → DB 三级缓存；前端改配置
+	// → UpdateAgent 失效广播 → 本进程 L1 清 → 本任务即读新值。
 	getCfg := func(code string) agent.Agent {
-		cfg, err := h.agentCfgStore.GetByCode(ctx, code)
+		cfg, err := h.cfgStore.AgentByCode(ctx, code)
 		if err != nil {
 			h.logger.Warn().Err(err).Str("code", code).Msg("⚠️  加载 agent 配置失败，使用空配置")
 			return agent.Agent{Code: code}
@@ -99,7 +103,14 @@ func (h handler) runCognition(
 	h.logger.Info().
 		Strs("cli_tools", executorCfg.CliTools).
 		Int("cli_tools_count", len(executorCfg.CliTools)).
+		Strs("skills", executorCfg.Skills).
 		Msg("✅ Executor Agent 配置已加载")
+
+	// skill 渐进式加载视图：按各 agent 的 skills 声明从 DB 全集切白名单——
+	// Tier 1（frontmatter 索引进 system prompt）与 Tier 2（read_skill 正文）
+	// 共用同一视图，声明什么暴露什么（nil=未装配，DB 声明为空同样不装配）。
+	executorSkillView := skillView(h.skills, executorCfg.Skills)
+	evaluatorSkillView := skillView(h.skills, evaluatorCfg.Skills)
 
 	// ========== 新增：根据白名单过滤工具清单 ==========
 	var filteredManifest *manifest.Manifest
@@ -133,22 +144,21 @@ func (h handler) runCognition(
 	reg := registry.New()
 	reg.AddInterceptor(h.toolRecordInterceptor(agentRunID, taskID))
 	tools.RegisterAll(reg, tools.Deps{
-		TaskID:        taskID,
-		AgentID:       agentRunID,
-		Host:          host,
-		Tasks:         h.tasks,
-		Findings:      h.findings,
-		Corpus:        h.corpus,
-		Embedder:      h.embedder,
-		Reranker:      h.reranker,
-		Insights:      h.insights,
-		ProxyStore:    h.proxyStore,
-		AgentStore:    h.agentStore,
-		Creds:         h.creds,
-		Sandbox:       sb,      // run_command/browser_use 依赖；nil 时这两个工具不注册
-		Graph:         h.graph, // write_observation/write_evidence 依赖——晋升提议权的载体
-		ToolingLoader: h.toolingLoader,
-		VulnLoader:    h.vulnLoader,
+		TaskID:     taskID,
+		AgentID:    agentRunID,
+		Host:       host,
+		Tasks:      h.tasks,
+		Findings:   h.findings,
+		Corpus:     h.corpus,
+		Embedder:   h.embedder,
+		Reranker:   h.reranker,
+		Insights:   h.insights,
+		ProxyStore: h.proxyStore,
+		AgentStore: h.agentStore,
+		Creds:      h.creds,
+		Sandbox:    sb,                // run_command/drive_browser 依赖；nil 时这两个工具不注册
+		Graph:      h.graph,           // write_observation/write_evidence 依赖——晋升提议权的载体
+		Skills:     executorSkillView, // read_skill 依赖；声明为空时不注册
 	})
 
 	// 2. evaluator 裁决官的跨包工具：按其 function_tools 白名单从 BuildTools 取
@@ -160,25 +170,27 @@ func (h handler) runCognition(
 	judge := evaluator.NewRouterJudge(h.router, h.logger).
 		WithFunctionTools(evaluatorCfg.FunctionTools).
 		WithCLIManifest(evaluatorCLImanifest).
+		WithSkills(skillCards(ctx, evaluatorSkillView, h.logger, "evaluator")).
+		WithSystemPrompt(evaluatorCfg.SystemPrompt).
+		WithMaxIterations(evaluatorCfg.MaxIterations).
 		WithExtraTools(tools.BuildTools(tools.Deps{
-			TaskID:        taskID,
-			AgentID:       agentRunID,
-			Host:          host,
-			Tasks:         h.tasks,
-			Findings:      h.findings,
-			Corpus:        h.corpus,
-			Embedder:      h.embedder,
-			Reranker:      h.reranker,
-			Insights:      h.insights,
-			ProxyStore:    h.proxyStore,
-			AgentStore:    h.agentStore,
-			Creds:         h.creds,
-			Sandbox:       sb, // evaluator 的 CLI 复核通道（run_command）
-			ToolingLoader: h.toolingLoader,
-			VulnLoader:    h.vulnLoader,
+			TaskID:     taskID,
+			AgentID:    agentRunID,
+			Host:       host,
+			Tasks:      h.tasks,
+			Findings:   h.findings,
+			Corpus:     h.corpus,
+			Embedder:   h.embedder,
+			Reranker:   h.reranker,
+			Insights:   h.insights,
+			ProxyStore: h.proxyStore,
+			AgentStore: h.agentStore,
+			Creds:      h.creds,
+			Sandbox:    sb,                 // evaluator 的 CLI 复核通道（run_command）
+			Skills:     evaluatorSkillView, // read_skill 依赖；声明为空时不注册
 		}, evaluatorCfg.FunctionTools))
 
-	// 3. 包装为 executor.Registry
+	// 3. 包装为 executor Registry
 	execRegistry := executor.NewRegistry(reg)
 
 	// 3. 创建 Executor Engine
@@ -186,9 +198,12 @@ func (h handler) runCognition(
 		Router:        h.router,
 		Findings:      h.findings,
 		Registry:      execRegistry,
-		FunctionTools: executorCfg.FunctionTools, // function_tools 白名单（nil=全量）
-		ToolsManifest: filteredManifest,          // CLI 工具清单（白名单过滤后）
-		Brief:         brief,                     // 任务简报逐字进 executor system prompt（入口锚定）
+		FunctionTools: executorCfg.FunctionTools,                                // function_tools 白名单（nil=全量）
+		ToolsManifest: filteredManifest,                                         // CLI 工具清单（白名单过滤后）
+		Skills:        skillCards(ctx, executorSkillView, h.logger, "executor"), // Tier 1 skill 索引（正文按需 read_skill）
+		SystemPrompt:  executorCfg.SystemPrompt,                                 // 角色章程（agent.system_prompt，前端可调）
+		MaxIterations: executorCfg.MaxIterations,                                // ReAct 迭代上限（0=复杂度基线生效）
+		Brief:         brief,                                                    // 任务简报逐字进 executor system prompt（入口锚定）
 		Checkpointer:  h.checkpointer,
 		Logger:        h.logger,
 	})
@@ -226,7 +241,9 @@ func (h handler) runCognition(
 	})
 
 	// 5. 创建 PlannerAgent
-	intelligence := planner.NewIntelligence(h.router, h.logger)
+	intelligence := planner.NewIntelligence(h.router, h.logger).
+		WithSystemPrompt(plannerCfg.SystemPrompt).
+		WithMaxIterations(plannerCfg.MaxIterations)
 
 	plannerAgent := planner.NewAgent(planner.AgentConfig{
 		TaskID:        taskID,
@@ -246,6 +263,8 @@ func (h handler) runCognition(
 	monitorAgent := monitor.New(monitor.Config{
 		TaskID:        taskID,
 		FunctionTools: monitorCfg.FunctionTools,
+		SystemPrompt:  monitorCfg.SystemPrompt,
+		MaxIterations: monitorCfg.MaxIterations,
 		Graph:         h.graph,
 		EventBus:      h.eventBus,
 		Provider:      provider,
@@ -342,4 +361,30 @@ func (h handler) runCognition(
 		Attempts: result.Attempts,
 		StopWhy:  result.StopWhy,
 	}, nil
+}
+
+// skillView 按 agent.skills 声明从 DB 全集建白名单视图（渐进式加载两层共用）。
+// 后端未装配或声明为空 → 返回 nil 接口（read_skill 不注册、Tier 1 不渲染）——
+// 语义与 function_tools/cli_tools 白名单一致：声明什么装配什么。
+func skillView(src skill.Reader, declared []string) skill.Reader {
+	if src == nil || len(declared) == 0 {
+		return nil
+	}
+	return skill.Allow(src, declared)
+}
+
+// skillCards 取视图的 Tier 1 索引（frontmatter 列表，经多级缓存读），
+// 供 engine/judge 渲染进 system prompt。读失败告警并降级为空索引
+// （任务不因此中断，但 LLM 将没有技能目录——配置链路需检查）。
+func skillCards(ctx context.Context, r skill.Reader, logger zerolog.Logger, agentCode string) []*skill.Card {
+	if r == nil {
+		return nil
+	}
+	cards, err := r.Metas(ctx)
+	if err != nil {
+		logger.Warn().Err(err).Str("agent", agentCode).
+			Msg("skill 索引读取失败，本任务技能目录为空（read_skill 单条读可能仍可用）")
+		return nil
+	}
+	return cards
 }
