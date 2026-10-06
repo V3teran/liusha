@@ -1,4 +1,4 @@
-# syntax=docker/dockerfile:1
+#（无 syntax= 指令：仅用基础语法，内置 BuildKit 前端足够，构建免连 Docker Hub）
 # liusha 前置 nginx 镜像：多阶段——Stage 0 用 node+pnpm 构建前端，Stage 1 nginx 托管 dist。
 # build context = 仓库根（compose 里 context: ..），故 COPY 路径以 web/ 开头。
 

@@ -1,4 +1,4 @@
-# syntax=docker/dockerfile:1
+#（无 syntax= 指令：仅用基础语法，内置 BuildKit 前端足够，构建免连 Docker Hub）
 # liusha api 镜像：go vendor 构建 + alpine runtime。
 FROM golang:1.25-alpine AS build
 WORKDIR /src
