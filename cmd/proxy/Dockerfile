@@ -1,4 +1,4 @@
-# syntax=docker/dockerfile:1
+#（无 syntax= 指令：仅用基础语法，内置 BuildKit 前端足够，构建免连 Docker Hub）
 # liusha proxy 镜像：go vendor 构建 + alpine runtime + 8888 mitm（纯 MITM，无 healthz HTTP）。
 FROM golang:1.25-alpine AS build
 WORKDIR /src
