@@ -278,9 +278,9 @@ func (t *writeInsightTool) Execute(ctx context.Context, args json.RawMessage) (r
 	}
 
 	entry := insight.Insight{
-		Category:         insight.Category(a.Category),
-		Priority:         insight.Priority(a.Priority),
-		Confidence:       insight.Confidence(a.Confidence),
+		Category:         normalizeCategory(a.Category),
+		Priority:         normalizePriority(a.Priority),
+		Confidence:       normalizeConfidence(a.Confidence),
 		Summary:          a.Summary,
 		Body:             a.Body,
 		Tags:             a.Tags,
@@ -297,4 +297,34 @@ func (t *writeInsightTool) Execute(ctx context.Context, args json.RawMessage) (r
 	return registry.ToolResult{
 		Output: fmt.Sprintf("情报已写入黑板: [%s/%s/%s] %s", a.Category, a.Priority, a.Confidence, a.Summary),
 	}, nil
+}
+
+// normalizeCategory/normalizePriority/normalizeConfidence 把 LLM 自由输出归一到
+// insight 表 CHECK 约束的枚举集——越界值直接撞 DB 约束只会把报错抛回 LLM。
+func normalizeCategory(s string) insight.Category {
+	switch insight.Category(s) {
+	case insight.CategoryTarget, insight.CategoryCredential, insight.CategoryInfrastructure,
+		insight.CategoryBusiness, insight.CategoryData, insight.CategoryObstacle:
+		return insight.Category(s)
+	default:
+		return insight.CategoryNote
+	}
+}
+
+func normalizePriority(s string) insight.Priority {
+	switch insight.Priority(s) {
+	case insight.PriorityCritical, insight.PriorityHigh, insight.PriorityMedium, insight.PriorityLow:
+		return insight.Priority(s)
+	default:
+		return insight.PriorityMedium
+	}
+}
+
+func normalizeConfidence(s string) insight.Confidence {
+	switch insight.Confidence(s) {
+	case insight.ConfidencePossible, insight.ConfidenceProbable, insight.ConfidenceConfirmed:
+		return insight.Confidence(s)
+	default:
+		return insight.ConfidencePossible
+	}
 }

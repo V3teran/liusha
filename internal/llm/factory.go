@@ -70,7 +70,7 @@ func (f *Factory) For(ctx context.Context, role string) (Generator, error) {
 	}
 	g, err := f.builder(ctx, p, f.pool)
 	if err != nil {
-		return nil, fmt.Errorf("llm.For(%q): build provider %q: %w", role, p.Key, err)
+		return nil, fmt.Errorf("llm.For(%q): build provider %q: %w", role, p.Code, err)
 	}
 	return g, nil
 }
@@ -84,7 +84,7 @@ func (f *Factory) forFallback(ctx context.Context) (Generator, error) {
 	}
 	g, err := f.builder(ctx, p, f.pool)
 	if err != nil {
-		return nil, fmt.Errorf("llm.forFallback: build provider %q: %w", p.Key, err)
+		return nil, fmt.Errorf("llm.forFallback: build provider %q: %w", p.Code, err)
 	}
 	return g, nil
 }
@@ -126,20 +126,20 @@ func BuildProviderWithKey(ctx context.Context, p llmcfg.Provider, pool *ClientPo
 		// 默认（type 为空）按 OpenAI 兼容协议。
 		cli, err := pool.GetOrCreateOpenAI(p.BaseURL, apiKey)
 		if err != nil {
-			return nil, fmt.Errorf("provider %q: %w", p.Key, err)
+			return nil, fmt.Errorf("provider %q: %w", p.Code, err)
 		}
-		return fwllm.NewOpenAICompat(ctx, p.Key, fwllm.OpenAICompatConfig{
+		return fwllm.NewOpenAICompat(ctx, p.Code, fwllm.OpenAICompatConfig{
 			BaseURL: p.BaseURL, Model: p.DefaultModel, APIKey: apiKey, MaxTokens: p.MaxTokens,
 			SupportsVision: p.SupportsVision,
 		}, cli)
 	case ProviderTypeAnthropic:
 		cli, err := pool.GetOrCreateAnthropic(p.BaseURL, apiKey)
 		if err != nil {
-			return nil, fmt.Errorf("provider %q: %w", p.Key, err)
+			return nil, fmt.Errorf("provider %q: %w", p.Code, err)
 		}
-		return fwllm.NewAnthropic(ctx, p.Key, fwllm.AnthropicConfig{
+		return fwllm.NewAnthropic(ctx, p.Code, fwllm.AnthropicConfig{
 			BaseURL: p.BaseURL, Model: p.DefaultModel, APIKey: apiKey, MaxTokens: p.MaxTokens,
 		}, cli)
 	}
-	return nil, fmt.Errorf("provider %q 类型 %q 未知（支持: openai_compat / anthropic）", p.Key, p.Type)
+	return nil, fmt.Errorf("provider %q 类型 %q 未知（支持: openai_compat / anthropic）", p.Code, p.Type)
 }

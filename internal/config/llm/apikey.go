@@ -19,11 +19,11 @@ type KeyDecrypter interface {
 func ResolveAPIKey(p Provider, dec KeyDecrypter) (string, error) {
 	if len(p.EncryptedAPIKey) > 0 {
 		if dec == nil {
-			return "", fmt.Errorf("provider %q: 已加密存储密钥但未配置解密器", p.Key)
+			return "", fmt.Errorf("provider %q: 已加密存储密钥但未配置解密器", p.Code)
 		}
 		key, err := dec.Decrypt(p.EncryptedAPIKey)
 		if err != nil {
-			return "", fmt.Errorf("provider %q: 解密密钥失败: %w", p.Key, err)
+			return "", fmt.Errorf("provider %q: 解密密钥失败: %w", p.Code, err)
 		}
 		return key, nil
 	}
@@ -31,7 +31,7 @@ func ResolveAPIKey(p Provider, dec KeyDecrypter) (string, error) {
 		if key := os.Getenv(p.APIKeyEnv); key != "" {
 			return key, nil
 		}
-		return "", fmt.Errorf("env %s 为空（provider=%s）", p.APIKeyEnv, p.Key)
+		return "", fmt.Errorf("env %s 为空（provider=%s）", p.APIKeyEnv, p.Code)
 	}
-	return "", fmt.Errorf("provider %q 未配置密钥（既无加密密钥也无 api_key_env）", p.Key)
+	return "", fmt.Errorf("provider %q 未配置密钥（既无加密密钥也无 api_key_env）", p.Code)
 }

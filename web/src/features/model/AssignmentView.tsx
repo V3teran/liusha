@@ -5,7 +5,7 @@ import { listAgentConfigs, saveAgentComplexity } from '@/api/config'
 import type { ProviderConfig, RoleRouteConfig, AgentConfig } from '@/api/types'
 import { COMPLEXITY_GROUPS, RESERVED_GROUPS, groupMeta, type ComplexityGroupMeta } from './roles'
 
-// 每档的即时保存态：路由写入是单字段（provider_key），无需抽屉——行内 select 改完即存，
+// 每档的即时保存态：路由写入是单字段（provider_code），无需抽屉——行内 select 改完即存，
 // 保存/成功/失败短暂回显在行尾。saving 期间禁用该行 select 防抖动。
 type RowState = 'idle' | 'saving' | 'saved' | 'error'
 
@@ -32,7 +32,7 @@ export function AssignmentView() {
     Promise.all([listProviders(), getRouting(), listAgentConfigs()])
       .then(([provs, routing, hs]) => {
         setProviders(provs)
-        setRouteMap(new Map(routing.routes.map((r: RoleRouteConfig) => [r.role, r.provider_key])))
+        setRouteMap(new Map(routing.routes.map((r: RoleRouteConfig) => [r.role, r.provider_code])))
         setAgents(hs)
         setComplexityBy(new Map(hs.map((h) => [h.id, h.complexity || 'medium'])))
       })
@@ -168,7 +168,7 @@ function ComplexityGroup({
   onMove: (agentId: string, group: string) => void
   allowUnset?: boolean
 }) {
-  const provState = new Map(providers.map((p) => [p.key, p.enabled] as const))
+  const provState = new Map(providers.map((p) => [p.code, p.enabled] as const))
 
   return (
     <section aria-label={title} className="overflow-hidden rounded-lg border border-border bg-surface">
@@ -266,8 +266,8 @@ function ComplexityRow({
             {allowUnset && <option value="">（未配置 · 回落标准推理档）</option>}
             {!allowUnset && value === '' && <option value="">（未绑定）</option>}
             {providers.map((p) => (
-              <option key={p.key} value={p.key}>
-                {p.key}
+              <option key={p.code} value={p.code}>
+                {p.code}
                 {p.enabled ? '' : '（已停用）'}
               </option>
             ))}

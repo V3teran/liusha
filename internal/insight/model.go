@@ -21,12 +21,7 @@ const (
 	CategoryBusiness       Category = "business"       // 业务逻辑
 	CategoryData           Category = "data"           // 数据特征
 
-	// CategoryResult 是最终确认结果。
-	// 发现类
-	CategoryResult Category = "result" // 结果（最终确认）
-
 	// CategoryObstacle 是障碍；CategoryNote 是笔记。
-	// 其他
 	CategoryObstacle Category = "obstacle" // 障碍
 	CategoryNote     Category = "note"     // 笔记
 )

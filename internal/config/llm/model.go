@@ -31,7 +31,7 @@ const (
 // API Key 双路径（migration 0103）：EncryptedAPIKey 非空时是当前事实源（前端直填 → 后端
 // AES-256-GCM 加密落库）；为空时回退 APIKeyEnv 指向的环境变量（旧数据兼容，见 ResolveAPIKey）。
 type Provider struct {
-	Key             string
+	Code            string // 稳定引用标识（角色路由 FK 指向；列名 code）
 	Type            string
 	BaseURL         string
 	DefaultModel    string
@@ -61,7 +61,7 @@ func (p Provider) HasStoredKey() bool {
 // 这里只收密文字节。KeepExistingKey=true 时 Update 不改动 encrypted_api_key 列（前端编辑
 // 表单不重新填密钥即保留原值，符合「已设置」不回显明文的交互）。
 type ProviderParams struct {
-	Key             string
+	Code            string // 稳定引用标识（角色路由 FK 指向；列名 code）
 	Type            string
 	BaseURL         string
 	DefaultModel    string
@@ -78,19 +78,19 @@ type ProviderParams struct {
 	Enabled         bool
 }
 
-// RoleRoute 是「档/保留槽 → provider key」的一行绑定（heavy→qwen、__fallback__→… 等）。
+// RoleRoute 是「档/保留槽 → provider code」的一行绑定（heavy→qwen、__fallback__→… 等）。
 // Role 列存复杂度档名（simple/medium/complex）或保留 role（__fallback__）；两者同表同解析。
 type RoleRoute struct {
-	Role        string
-	ProviderKey string
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
+	Role         string
+	ProviderCode string
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
 }
 
-// Routing 是路由全景快照：全部「档/保留槽 → provider key」映射（三档 + __fallback__）。
-// 运行期解析（role → 档 → provider key）一次性读齐，避免多次 DB 往返。
+// Routing 是路由全景快照：全部「档/保留槽 → provider code」映射（三档 + __fallback__）。
+// 运行期解析（role → 档 → provider code）一次性读齐，避免多次 DB 往返。
 type Routing struct {
-	Roles map[string]string // 档(simple/medium/complex) / 保留 role(__fallback__) → provider key
+	Roles map[string]string // 档(simple/medium/complex) / 保留 role(__fallback__) → provider code
 }
 
 // 复杂度分档（complexity）：agent-role 按推理复杂度需求归入三档，路由的实际单元是档而非 agent。
@@ -138,24 +138,24 @@ func AgentComplexity(role string) string {
 	return ComplexityMedium
 }
 
-// ProviderKeyForRole 把 agent-role 两跳解析到 provider key：role → complexity → provider。
+// ProviderCodeForRole 把 agent-role 两跳解析到 provider code：role → complexity → provider。
 // complexity 未在 DB 配置（该档无绑定）时进一步回落 ComplexityMedium 档；medium 亦缺失 → 空
 // （调用方据此报错，不静默兜底到任意 provider）。
-func (r Routing) ProviderKeyForRole(role string) string {
-	return r.ProviderKeyForComplexity(AgentComplexity(role))
+func (r Routing) ProviderCodeForRole(role string) string {
+	return r.ProviderCodeForComplexity(AgentComplexity(role))
 }
 
-// ProviderKeyForComplexity 完成第二跳 complexity → provider key（供调用方已自行确定 complexity 时用，
+// ProviderCodeForComplexity 完成第二跳 complexity → provider code（供调用方已自行确定 complexity 时用，
 // 如 agent.complexity 覆盖了代码内置 AgentComplexity 的场景）。complexity 未配置回落 ComplexityMedium；
 // medium 亦缺失 → 空（调用方据此报错，不静默兜底）。
-func (r Routing) ProviderKeyForComplexity(complexity string) string {
+func (r Routing) ProviderCodeForComplexity(complexity string) string {
 	if key, ok := r.Roles[complexity]; ok && key != "" {
 		return key
 	}
 	return r.Roles[ComplexityMedium]
 }
 
-// FallbackProviderKey 返回全局备胎 provider key（保留 role RoleFallback）；未配置返回空。
-func (r Routing) FallbackProviderKey() string {
+// FallbackProviderCode 返回全局备胎 provider code（保留 role RoleFallback）；未配置返回空。
+func (r Routing) FallbackProviderCode() string {
 	return r.Roles[RoleFallback]
 }

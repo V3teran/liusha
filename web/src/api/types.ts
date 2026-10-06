@@ -156,7 +156,7 @@ export interface ToolDetail {
 /* ============================================================
    模型模块（GET/POST/PUT/DELETE /models）
    三资源对应后端 llm_provider / llm_alias / llm_role_route（事实源在 DB）。
-   解析链：role → 别名（alias）→ provider 部署 key。
+   解析链：role → 别名（alias）→ provider 部署 code。
    小写键（Go gin.H DTO：providerJSON/aliasJSON/roleRouteJSON 单点序列化）。
    安全铁律：密钥值前端仅在保存时明文提交一次（走 HTTPS），后端 AES-256-GCM 加密落库，
    任何 GET 响应都不回传密钥值；key_present 仅提示该 provider 是否已有可用密钥来源。
@@ -290,8 +290,9 @@ export interface FindingRow {
   owasp_category?: string
   remediation?: string
   target?: FindingTarget
-  // evidence 是 LLM 自由 jsonb（PoC/复现命令/观察等，41 种 key），前端通用 KV 渲染。
-  evidence?: Record<string, unknown>
+  // evaluation 是复现门裁决评估 jsonb（verdict/reasoning/replay 日志/assert 明细，
+  // 含 verification_id 回指），前端通用 KV 渲染。
+  evaluation?: Record<string, unknown>
   source: string // manual 主动下发 / auto 被动代理（JOIN assignment 派生）
   status: string // open/confirmed/fixed/false_positive/accepted
   triage_note?: string

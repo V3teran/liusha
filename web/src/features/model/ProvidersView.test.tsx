@@ -20,7 +20,7 @@ const mDelete = deleteProvider as unknown as ReturnType<typeof vi.fn>
 
 function prov(o: Partial<ProviderConfig> = {}): ProviderConfig {
   return {
-    key: 'deepseek',
+    code: 'deepseek',
     type: 'openai_compat',
     base_url: 'https://api.deepseek.com',
     default_model: 'deepseek-chat',
@@ -47,7 +47,7 @@ describe('ProvidersView', () => {
   })
 
   it('挂载拉取全量部署，左列表渲染，右侧显示未选中占位', async () => {
-    mList.mockResolvedValue([prov(), prov({ key: 'qwen', default_model: 'qwen-plus' })])
+    mList.mockResolvedValue([prov(), prov({ code: 'qwen', default_model: 'qwen-plus' })])
     render(<ProvidersView />)
     expect(await screen.findByText('deepseek')).toBeTruthy()
     expect(await screen.findByText('qwen')).toBeTruthy()
@@ -64,7 +64,7 @@ describe('ProvidersView', () => {
   })
 
   it('搜索框按标识键/模型名本地过滤左列表', async () => {
-    mList.mockResolvedValue([prov(), prov({ key: 'qwen', default_model: 'qwen-plus' })])
+    mList.mockResolvedValue([prov(), prov({ code: 'qwen', default_model: 'qwen-plus' })])
     render(<ProvidersView />)
     await screen.findByText('qwen')
     await userEvent.type(screen.getByLabelText('搜索 provider'), 'qwen')

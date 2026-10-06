@@ -25,9 +25,9 @@ const mDeleteRole = deleteRoleRoute as unknown as ReturnType<typeof vi.fn>
 const mListAgents = listAgentConfigs as unknown as ReturnType<typeof vi.fn>
 const mSaveTier = saveAgentComplexity as unknown as ReturnType<typeof vi.fn>
 
-function prov(key: string, enabled = true): ProviderConfig {
+function prov(code: string, enabled = true): ProviderConfig {
   return {
-    key,
+    code,
     type: 'openai_compat',
     base_url: 'https://x',
     default_model: 'm',
@@ -60,7 +60,7 @@ function agent(id: string, name: string, complexity: string): AgentConfig {
 
 // 路由按复杂度档（complexity）键存：complex/medium/simple/__fallback__。
 const routing = (o: Partial<RoutingResponse> = {}): RoutingResponse => ({
-  routes: [{ role: 'medium', provider_key: 'deepseek' }],
+  routes: [{ role: 'medium', provider_code: 'deepseek' }],
   ...o,
 })
 
@@ -136,9 +136,9 @@ describe('AssignmentView', () => {
     expect(sel.value).toBe('deepseek')
   })
 
-  it('改选 provider 调 saveRoleRoute(group, providerKey)', async () => {
+  it('改选 provider 调 saveRoleRoute(group, providerCode)', async () => {
     mGetRouting.mockResolvedValue(routing())
-    mSaveRole.mockResolvedValue({ role: 'complex', provider_key: 'qwen' })
+    mSaveRole.mockResolvedValue({ role: 'complex', provider_code: 'qwen' })
     render(<AssignmentView />)
     const sel = await screen.findByLabelText('深度推理 绑定部署')
     await userEvent.selectOptions(sel, 'qwen')
@@ -155,7 +155,7 @@ describe('AssignmentView', () => {
   })
 
   it('指派指向缺失部署时告警「部署缺失」', async () => {
-    mGetRouting.mockResolvedValue(routing({ routes: [{ role: 'complex', provider_key: 'ghost' }] }))
+    mGetRouting.mockResolvedValue(routing({ routes: [{ role: 'complex', provider_code: 'ghost' }] }))
     render(<AssignmentView />)
     expect(await screen.findByText('部署缺失')).toBeTruthy()
   })
@@ -178,7 +178,7 @@ describe('AssignmentView', () => {
   })
 
   it('DB 里的自定义档也列出（不丢数据）', async () => {
-    mGetRouting.mockResolvedValue(routing({ routes: [{ role: 'my-custom-group', provider_key: 'deepseek' }] }))
+    mGetRouting.mockResolvedValue(routing({ routes: [{ role: 'my-custom-group', provider_code: 'deepseek' }] }))
     render(<AssignmentView />)
     // 自定义档 label 回退为原样 group，故 label span 与 code 同字面 → 两处命中。
     expect((await screen.findAllByText('my-custom-group')).length).toBeGreaterThan(0)

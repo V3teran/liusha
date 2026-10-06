@@ -11,7 +11,7 @@ import "context"
 
 // ProviderSpec 是构造一个 Generator 所需的全部连接参数（密钥已解析）。
 type ProviderSpec struct {
-	Key            string // provider 标识（日志/审计用）
+	Code           string // provider 标识（日志/审计用；列名 llm_provider.code）
 	Type           string // 协议类型：openai_compat | anthropic
 	BaseURL        string
 	Model          string

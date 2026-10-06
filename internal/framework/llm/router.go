@@ -154,20 +154,20 @@ func BuildGeneratorWithKey(ctx context.Context, p ProviderSpec, pool *ClientPool
 	case ProviderTypeAnthropic:
 		cli, err := pool.GetOrCreateAnthropic(p.BaseURL, p.APIKey)
 		if err != nil {
-			return nil, fmt.Errorf("provider %q: %w", p.Key, err)
+			return nil, fmt.Errorf("provider %q: %w", p.Code, err)
 		}
-		return NewAnthropic(ctx, p.Key, AnthropicConfig{
+		return NewAnthropic(ctx, p.Code, AnthropicConfig{
 			BaseURL: p.BaseURL, Model: p.Model, APIKey: p.APIKey, MaxTokens: p.MaxTokens,
 		}, cli)
 	case ProviderTypeOpenAICompat, "":
 		cli, err := pool.GetOrCreateOpenAI(p.BaseURL, p.APIKey)
 		if err != nil {
-			return nil, fmt.Errorf("provider %q: %w", p.Key, err)
+			return nil, fmt.Errorf("provider %q: %w", p.Code, err)
 		}
-		return NewOpenAICompat(ctx, p.Key, OpenAICompatConfig{
+		return NewOpenAICompat(ctx, p.Code, OpenAICompatConfig{
 			BaseURL: p.BaseURL, Model: p.Model, APIKey: p.APIKey, MaxTokens: p.MaxTokens,
 			SupportsVision: p.SupportsVision,
 		}, cli)
 	}
-	return nil, fmt.Errorf("provider %q 类型 %q 未知（支持: openai_compat / anthropic）", p.Key, p.Type)
+	return nil, fmt.Errorf("provider %q 类型 %q 未知（支持: openai_compat / anthropic）", p.Code, p.Type)
 }

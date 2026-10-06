@@ -33,7 +33,7 @@ func NewStore(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
 // 0059 加 depends_on uuid[]（组合漏洞依赖：c.depends_on = [a.id, b.id]）。
 // 0081 加 status / triage_note / triaged_at（triage 处置态）。
 const colsSelect = "id, task_id::text AS task_id, " +
-	"agent_run_id, source_traffic_id, host, severity, summary, target, evidence, " +
+	"agent_run_id, source_traffic_id, host, severity, summary, target, evaluation, " +
 	"COALESCE(cwe_id, ''), COALESCE(owasp_category, ''), first_seen_at, COALESCE(remediation, ''), " +
 	"depends_on::text[], status, COALESCE(triage_note, ''), triaged_at, created_at, seq, repro"
 
@@ -74,7 +74,7 @@ func (s *Store) Save(ctx context.Context, f VulnFinding) (VulnFinding, error) {
 	}
 	row := tx.QueryRow(ctx, `
 		INSERT INTO finding
-			(task_id, agent_run_id, source_traffic_id, host, severity, summary, target, evidence,
+			(task_id, agent_run_id, source_traffic_id, host, severity, summary, target, evaluation,
 			 cwe_id, owasp_category, remediation, depends_on, repro)
 		VALUES ($1::uuid, $2,$3,$4,$5,$6,$7,$8, NULLIF($9,''), NULLIF($10,''), NULLIF($11,''), $12::uuid[], $13)
 		ON CONFLICT (task_id, dedup_key) DO UPDATE
@@ -211,7 +211,7 @@ func ledgerWhere(f LedgerFilter) (string, []any) {
 // 各自有各自的 triage 处置态，互不影响。台账平铺全部，不折叠。
 func (s *Store) ListAll(ctx context.Context, f LedgerFilter) ([]LedgerRow, error) {
 	where, args := ledgerWhere(f)
-	q := `SELECT ` + ledgerCols + `, t._id, a.source
+	q := `SELECT ` + ledgerCols + `, a.source
 		FROM finding f
 		JOIN task t ON t.id = f.task_id
 		JOIN assignment a ON a.id = t.assignment_id` +
@@ -313,7 +313,7 @@ func validStatus(s string) bool {
 // 按 ", " 切分会劈碎；且 JOIN task 后 id/status/created_at 列名歧义，必须 f. 限定。
 // 与 colsSelect 手工对齐；scanLedger 列序 = 本常量 + 末尾 _id, source。
 const ledgerCols = "f.id, f.task_id::text AS task_id, " +
-	"f.agent_run_id, f.source_traffic_id, f.host, f.severity, f.summary, f.target, f.evidence, " +
+	"f.agent_run_id, f.source_traffic_id, f.host, f.severity, f.summary, f.target, f.evaluation, " +
 	"COALESCE(f.cwe_id, ''), COALESCE(f.owasp_category, ''), f.first_seen_at, COALESCE(f.remediation, ''), " +
 	"f.depends_on::text[], f.status, COALESCE(f.triage_note, ''), f.triaged_at, f.created_at, f.seq, f.repro"
 
