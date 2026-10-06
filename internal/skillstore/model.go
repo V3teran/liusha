@@ -9,8 +9,8 @@ import "time"
 // Skill 是 skill 配置表的 Go 表示。
 type Skill struct {
 	ID          string    `json:"id"`
-	Code        string    `json:"code"`      // 裸名寻址键（= 种子目录名，如 browser-use / dom-xss）
-	Category    string    `json:"category"`  // tooling / vuln
+	Code        string    `json:"code"`     // 裸名寻址键（= 种子目录名，如 browser-use / dom-xss）
+	Category    string    `json:"category"` // tooling / vuln
 	Name        string    `json:"name"`
 	Description string    `json:"description"`
 	Body        string    `json:"body"` // Markdown 正文

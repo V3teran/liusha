@@ -46,7 +46,6 @@ function agent(id: string, name: string, complexity: string): AgentConfig {
   return {
     id,
     code: id,
-    kind: 'executor',
     name,
     description: '',
     system_prompt: '',

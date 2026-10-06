@@ -12,7 +12,7 @@ import (
 )
 
 // Store 封装 agent 配置表的持久化操作。
-// Agent表只包含2个固定的内置Agent（Planner和Executor）。
+// agent 表只含四个内置角色（planner/executor/evaluator/monitor，以 code 寻址）。
 type Store struct {
 	pool *pgxpool.Pool
 }
@@ -21,17 +21,7 @@ type Store struct {
 func NewStore(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
 
 // colsSelect 是所有 SELECT / RETURNING 路径的统一列序，与 scan() 字段一一对应。
-const colsSelect = "id, code, kind, name, description, system_prompt, function_tools, cli_tools, skills, max_iterations, complexity, enabled, created_at, updated_at"
-
-// validateKind 应用层校验 kind。
-func validateKind(k Kind) error {
-	switch k {
-	case KindPlanner, KindExecutor, KindEvaluator, KindMonitor:
-		return nil
-	default:
-		return fmt.Errorf("非法 kind %q（应为 planner|executor|evaluator|monitor）", k)
-	}
-}
+const colsSelect = "id, code, name, description, system_prompt, function_tools, cli_tools, skills, max_iterations, complexity, enabled, created_at, updated_at"
 
 // validateComplexity 应用层校验 complexity（与 DB CHECK 双保险）；空串合法（Create/Update 落 defaultComplexity）。
 func validateComplexity(c string) error {
@@ -44,7 +34,7 @@ func validateComplexity(c string) error {
 }
 
 // Update 更新Agent配置（只允许更新SystemPrompt、Skills和工具）。
-// 不允许修改code、kind、name、description（这些是固定的）。
+// 不允许修改code、name、description（这些是固定的）。
 func (s *Store) Update(ctx context.Context, code string, p UpdateParams) (Agent, error) {
 	setParts := []string{}
 	args := []any{code}
@@ -120,7 +110,7 @@ func (s *Store) GetByID(ctx context.Context, id string) (Agent, error) {
 	row := s.pool.QueryRow(ctx, "SELECT "+colsSelect+" FROM agent WHERE id=$1", id)
 	var h Agent
 	if err := scan(row, &h); err != nil {
-		return Agent{}, fmt.Errorf("get executor %s: %w", id, err)
+		return Agent{}, fmt.Errorf("get agent %s: %w", id, err)
 	}
 	return h, nil
 }
@@ -140,7 +130,7 @@ func (s *Store) UpdateComplexity(ctx context.Context, id, complexity string) (Ag
 		id, complexity)
 	var h Agent
 	if err := scan(row, &h); err != nil {
-		return Agent{}, fmt.Errorf("update executor complexity %s: %w", id, err)
+		return Agent{}, fmt.Errorf("update agent complexity %s: %w", id, err)
 	}
 	return h, nil
 }
@@ -160,12 +150,12 @@ func (s *Store) ComplexityByCode(ctx context.Context, code string) (complexity s
 	}
 }
 
-// GetByCode 按稳定引用名读取（代码与种子的主要访问路径）。
+// GetByCode 按稳定引用名读取（代码与种子的主要访问路径——四角色即四个固定 code）。
 func (s *Store) GetByCode(ctx context.Context, code string) (Agent, error) {
 	row := s.pool.QueryRow(ctx, "SELECT "+colsSelect+" FROM agent WHERE code=$1", code)
 	var h Agent
 	if err := scan(row, &h); err != nil {
-		return Agent{}, fmt.Errorf("get executor %q: %w", code, err)
+		return Agent{}, fmt.Errorf("get agent %q: %w", code, err)
 	}
 	return h, nil
 }
@@ -179,7 +169,7 @@ func (s *Store) List(ctx context.Context, onlyEnabled bool) ([]Agent, error) {
 	q += " ORDER BY code ASC"
 	rows, err := s.pool.Query(ctx, q)
 	if err != nil {
-		return nil, fmt.Errorf("list executors: %w", err)
+		return nil, fmt.Errorf("list agents: %w", err)
 	}
 	defer rows.Close()
 
@@ -187,14 +177,14 @@ func (s *Store) List(ctx context.Context, onlyEnabled bool) ([]Agent, error) {
 	for rows.Next() {
 		var h Agent
 		if err := scan(rows, &h); err != nil {
-			return nil, fmt.Errorf("scan executor: %w", err)
+			return nil, fmt.Errorf("scan agent: %w", err)
 		}
 		out = append(out, h)
 	}
 	return out, rows.Err()
 }
 
-// ListParams 是分页/搜索列表的入参（配置管理页用；运行时装配仍走 ListEnabledDomain 全量）。
+// ListParams 是分页/搜索列表的入参（配置管理页用；运行时装配按固定 code 直读）。
 //   - Q     ：按 code/name/description 模糊匹配（空 = 不过滤）
 //   - Limit ：<=0 表示不分页（全量）
 //   - Offset：分页偏移
@@ -226,7 +216,7 @@ func (s *Store) ListPaged(ctx context.Context, p ListParams) ([]Agent, error) {
 	}
 	rows, err := s.pool.Query(ctx, q, args...)
 	if err != nil {
-		return nil, fmt.Errorf("list executors paged: %w", err)
+		return nil, fmt.Errorf("list agents paged: %w", err)
 	}
 	defer rows.Close()
 
@@ -234,7 +224,7 @@ func (s *Store) ListPaged(ctx context.Context, p ListParams) ([]Agent, error) {
 	for rows.Next() {
 		var h Agent
 		if err := scan(rows, &h); err != nil {
-			return nil, fmt.Errorf("scan executor: %w", err)
+			return nil, fmt.Errorf("scan agent: %w", err)
 		}
 		out = append(out, h)
 	}
@@ -246,90 +236,9 @@ func (s *Store) CountList(ctx context.Context, p ListParams) (int, error) {
 	where, args := buildFilter(p)
 	var n int
 	if err := s.pool.QueryRow(ctx, "SELECT COUNT(*) FROM agent"+where, args...).Scan(&n); err != nil {
-		return 0, fmt.Errorf("count executors: %w", err)
+		return 0, fmt.Errorf("count agents: %w", err)
 	}
 	return n, nil
-}
-
-// ListEnabledDomain 按 code 升序列出全部 enabled 的领域操作员（kind='domain'）。
-// 这是运行时子代理池来源：LLM 运行时在此池内动态 handoff（见 D2）。
-func (s *Store) ListEnabledDomain(ctx context.Context) ([]Agent, error) {
-	rows, err := s.pool.Query(ctx,
-		"SELECT "+colsSelect+" FROM agent WHERE kind='domain' AND enabled=true ORDER BY code ASC")
-	if err != nil {
-		return nil, fmt.Errorf("list enabled domain executors: %w", err)
-	}
-	defer rows.Close()
-
-	var out []Agent
-	for rows.Next() {
-		var h Agent
-		if err := scan(rows, &h); err != nil {
-			return nil, fmt.Errorf("scan domain executor: %w", err)
-		}
-		out = append(out, h)
-	}
-	return out, rows.Err()
-}
-
-// GetPlanner 获取唯一的Planner。
-func (s *Store) GetPlanner(ctx context.Context) (Agent, error) {
-	row := s.pool.QueryRow(ctx, `
-		SELECT `+colsSelect+`
-		FROM agent
-		WHERE kind='planner' AND enabled=true
-		LIMIT 1
-	`)
-	var a Agent
-	if err := scan(row, &a); err != nil {
-		return Agent{}, fmt.Errorf("获取planner: %w", err)
-	}
-	return a, nil
-}
-
-// GetEvaluator 获取唯一的Evaluator。
-func (s *Store) GetEvaluator(ctx context.Context) (Agent, error) {
-	row := s.pool.QueryRow(ctx, `
-		SELECT `+colsSelect+`
-		FROM agent
-		WHERE kind='evaluator' AND enabled=true
-		LIMIT 1
-	`)
-	var a Agent
-	if err := scan(row, &a); err != nil {
-		return Agent{}, fmt.Errorf("获取evaluator: %w", err)
-	}
-	return a, nil
-}
-
-// GetMonitor 获取唯一的Monitor。
-func (s *Store) GetMonitor(ctx context.Context) (Agent, error) {
-	row := s.pool.QueryRow(ctx, `
-		SELECT `+colsSelect+`
-		FROM agent
-		WHERE kind='monitor' AND enabled=true
-		LIMIT 1
-	`)
-	var a Agent
-	if err := scan(row, &a); err != nil {
-		return Agent{}, fmt.Errorf("获取monitor: %w", err)
-	}
-	return a, nil
-}
-
-// GetExecutor 获取唯一的Executor。
-func (s *Store) GetExecutor(ctx context.Context) (Agent, error) {
-	row := s.pool.QueryRow(ctx, `
-		SELECT `+colsSelect+`
-		FROM agent
-		WHERE kind='executor' AND enabled=true
-		LIMIT 1
-	`)
-	var a Agent
-	if err := scan(row, &a); err != nil {
-		return Agent{}, fmt.Errorf("获取executor: %w", err)
-	}
-	return a, nil
 }
 
 // marshalTools 把 []string 序列化为 jsonb；nil 落空数组。
@@ -351,14 +260,12 @@ type scanner interface {
 
 // scan 是 colsSelect 列序的统一反序列化点。
 func scan(r scanner, h *Agent) error {
-	var kind string
 	var fnTools, cliTools, skills []byte
-	if err := r.Scan(&h.ID, &h.Code, &kind, &h.Name, &h.Description, &h.SystemPrompt,
+	if err := r.Scan(&h.ID, &h.Code, &h.Name, &h.Description, &h.SystemPrompt,
 		&fnTools, &cliTools, &skills, &h.MaxIterations, &h.Complexity, &h.Enabled,
 		&h.CreatedAt, &h.UpdatedAt); err != nil {
 		return err
 	}
-	h.Kind = Kind(kind)
 
 	if len(fnTools) > 0 {
 		if err := json.Unmarshal(fnTools, &h.FunctionTools); err != nil {
@@ -380,14 +287,10 @@ func scan(r scanner, h *Agent) error {
 
 // Upsert 按 code 插入或覆盖（种子导入 / reset 语义专用；常规 CRUD 走 Update）。
 //
-// ON CONFLICT 分支不触碰 kind 与 enabled：kind 是 runner 装配的结构字段
-// （受 DB CHECK 约束），enabled 是运维开关，种子不应反转两者的既有值。
-func (s *Store) Upsert(ctx context.Context, code, kind, name, description, systemPrompt string, p UpdateParams) (Agent, error) {
+// ON CONFLICT 分支不触碰 enabled：enabled 是运维开关，种子不应反转既有值。
+func (s *Store) Upsert(ctx context.Context, code, name, description, systemPrompt string, p UpdateParams) (Agent, error) {
 	if code == "" {
 		return Agent{}, fmt.Errorf("upsert agent: code 必填")
-	}
-	if err := validateKind(Kind(kind)); err != nil {
-		return Agent{}, err
 	}
 	if systemPrompt == "" {
 		return Agent{}, fmt.Errorf("upsert agent %q: system_prompt 必填", code)
@@ -423,9 +326,9 @@ func (s *Store) Upsert(ctx context.Context, code, kind, name, description, syste
 	}
 
 	query := `
-		INSERT INTO agent (code, kind, name, description, system_prompt,
+		INSERT INTO agent (code, name, description, system_prompt,
 			function_tools, cli_tools, skills, max_iterations, complexity, enabled)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, true)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, true)
 		ON CONFLICT (code) DO UPDATE SET
 			name = EXCLUDED.name,
 			description = EXCLUDED.description,
@@ -438,7 +341,7 @@ func (s *Store) Upsert(ctx context.Context, code, kind, name, description, syste
 			updated_at = now()
 		RETURNING ` + colsSelect
 
-	row := s.pool.QueryRow(ctx, query, code, kind, name, description, systemPrompt,
+	row := s.pool.QueryRow(ctx, query, code, name, description, systemPrompt,
 		fnTools, cliTools, skills, maxIter, complexity)
 	var a Agent
 	if err := scan(row, &a); err != nil {

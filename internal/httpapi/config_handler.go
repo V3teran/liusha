@@ -121,11 +121,10 @@ func getExecutorHandler(api ConfigAPI) gin.HandlerFunc {
 	}
 }
 
-// agentBody 是 POST/PUT executor 的请求体。kind 应用层白名单校验。
+// agentBody 是 POST/PUT executor 的请求体。
 // FunctionTools=内置函数工具；CliTools=外置 CLI 工具集（tools.yaml 名字），严格白名单，空=不装配任何外部工具。
 type agentBody struct {
 	Code          string   `json:"code"`
-	Kind          string   `json:"kind"`
 	Name          string   `json:"name"`
 	Description   string   `json:"description"`
 	SystemPrompt  string   `json:"system_prompt"`
@@ -147,14 +146,6 @@ func saveExecutorHandler(api ConfigAPI) gin.HandlerFunc {
 		}
 		if b.Code == "" || b.Name == "" {
 			c.JSON(400, gin.H{"error": "code 与 name 不能为空"})
-			return
-		}
-		kind := agent.Kind(b.Kind)
-		switch kind {
-		case agent.KindPlanner, agent.KindExecutor, agent.KindEvaluator, agent.KindMonitor:
-			// 四角色都可经配置页编辑（DB CHECK 同四值，双保险）
-		default:
-			c.JSON(400, gin.H{"error": "非法 kind（应为 planner|executor|evaluator|monitor）"})
 			return
 		}
 		h, err := api.UpdateExecutor(c.Request.Context(), b.Code, agent.UpdateParams{
@@ -237,7 +228,7 @@ func executorJSON(h agent.Agent) gin.H {
 		skills = []string{}
 	}
 	return gin.H{
-		"id": h.ID, "code": h.Code, "kind": string(h.Kind), "name": h.Name,
+		"id": h.ID, "code": h.Code, "name": h.Name,
 		"description": h.Description, "system_prompt": h.SystemPrompt,
 		"function_tools": fnTools, "cli_tools": cliTools, "skills": skills,
 		"max_iterations": h.MaxIterations, "complexity": h.Complexity, "enabled": h.Enabled,

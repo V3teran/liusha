@@ -20,12 +20,11 @@ describe('config API 客户端', () => {
     vi.unstubAllGlobals()
   })
 
-  it('saveAgent 传 kind/tools/cli_tools/max_iterations', async () => {
+  it('saveAgent 传 tools/skills/complexity 契约字段', async () => {
     const fn = mockFetch(200, { agent: { id: 'h1' } })
     const h: AgentConfig = {
       id: '',
       code: 'executor',
-      kind: 'executor',
       name: '执行者',
       description: '',
       system_prompt: 'SP',
@@ -38,7 +37,8 @@ describe('config API 客户端', () => {
     } as AgentConfig
     await saveAgent(h)
     const body = JSON.parse(fn.mock.calls[0][1].body)
-    // 键名与后端 agentBody 契约严格一致（system_prompt/complexity/skills）。
+    // 键名与后端 agentBody 契约严格一致（system_prompt/complexity/skills；kind 已删除）。
+    expect(body.kind).toBeUndefined()
     expect(body.system_prompt).toBe('SP')
     expect(body.complexity).toBe('medium')
     expect(body.skills).toEqual(['dom-xss', 'bac'])

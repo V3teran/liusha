@@ -54,7 +54,7 @@ describe('Composer', () => {
     await userEvent.click(sendBtn)
 
     await waitFor(() => {
-      expect(followUp).toHaveBeenCalledWith('c1', '继续扫', '')
+      expect(followUp).toHaveBeenCalledWith('c1', '继续扫')
       expect(onAppended).toHaveBeenCalledWith(7)
     })
   })
@@ -128,7 +128,7 @@ describe('Composer', () => {
     await userEvent.click(screen.getByRole('button', { name: '追加' }))
 
     await waitFor(() => {
-      expect(followUp).toHaveBeenCalledWith('c1', '这批流量里有没有可疑的', '')
+      expect(followUp).toHaveBeenCalledWith('c1', '这批流量里有没有可疑的')
     })
   })
 
