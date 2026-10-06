@@ -13,6 +13,7 @@ import (
 	"github.com/V3teran/liusha/internal/executor"
 	"github.com/V3teran/liusha/internal/explorationgraph"
 	"github.com/V3teran/liusha/internal/framework/core"
+	"github.com/V3teran/liusha/internal/framework/llm"
 	"github.com/V3teran/liusha/internal/logx"
 	"github.com/V3teran/liusha/internal/monitor"
 	"github.com/V3teran/liusha/internal/planner"
@@ -172,6 +173,7 @@ func (h handler) runCognition(
 		WithCLIManifest(evaluatorCLImanifest).
 		WithSkills(skillCards(ctx, evaluatorSkillView, h.logger, "evaluator")).
 		WithSystemPrompt(evaluatorCfg.SystemPrompt).
+		WithComplexity(evaluatorCfg.Complexity).
 		WithMaxIterations(evaluatorCfg.MaxIterations).
 		WithExtraTools(tools.BuildTools(tools.Deps{
 			TaskID:     taskID,
@@ -202,6 +204,7 @@ func (h handler) runCognition(
 		ToolsManifest: filteredManifest,                                         // CLI 工具清单（白名单过滤后）
 		Skills:        skillCards(ctx, executorSkillView, h.logger, "executor"), // Tier 1 skill 索引（正文按需 read_skill）
 		SystemPrompt:  executorCfg.SystemPrompt,                                 // 角色章程（agent.system_prompt，前端可调）
+		Tier:          executorCfg.Complexity,                                   // LLM 档位（agent.complexity，文档 tier 种子）
 		MaxIterations: executorCfg.MaxIterations,                                // ReAct 迭代上限（0=复杂度基线生效）
 		Brief:         brief,                                                    // 任务简报逐字进 executor system prompt（入口锚定）
 		Checkpointer:  h.checkpointer,
@@ -243,6 +246,7 @@ func (h handler) runCognition(
 	// 5. 创建 PlannerAgent
 	intelligence := planner.NewIntelligence(h.router, h.logger).
 		WithSystemPrompt(plannerCfg.SystemPrompt).
+		WithComplexity(plannerCfg.Complexity).
 		WithMaxIterations(plannerCfg.MaxIterations)
 
 	plannerAgent := planner.NewAgent(planner.AgentConfig{
@@ -254,8 +258,8 @@ func (h handler) runCognition(
 		FunctionTools: plannerCfg.FunctionTools,
 	})
 
-	// 6. 创建 MonitorAgent
-	provider, err := h.router.For(ctx, "medium")
+	// 6. 创建 MonitorAgent（LLM 档位 = agent.complexity，文档 tier 种子经三级缓存读）
+	provider, err := h.router.For(ctx, llm.TierOf(monitorCfg.Complexity))
 	if err != nil {
 		return executor.Report{}, fmt.Errorf("failed to get provider for monitor: %w", err)
 	}

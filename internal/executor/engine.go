@@ -24,13 +24,14 @@ import (
 type Engine struct {
 	router        *llm.Router
 	findings      FindingLister
-	registry      *Registry     // 使用 executor 包的 Registry
-	functionTools []string      // function_tools 白名单（nil=全量）
-	toolsManifest ToolsManifest // 过滤后的 CLI 工具清单
-	skills        []*skill.Card // Tier 1 skill 索引（agent.skills 声明，正文按需 read_skill)
-	charter       string        // 角色章程（agent.system_prompt，运维经前端可调；空=不渲染）
-	maxIt         int           // ReAct 迭代上限（agent.max_iterations；0=不设限，复杂度基线生效）
-	brief         string        // 任务简报原文（用户指定的入口 URL 等，逐字渲染进 system prompt——防转录漂移）
+	registry      *Registry      // 使用 executor 包的 Registry
+	functionTools []string       // function_tools 白名单（nil=全量）
+	toolsManifest ToolsManifest  // 过滤后的 CLI 工具清单
+	skills        []*skill.Card  // Tier 1 skill 索引（agent.skills 声明，正文按需 read_skill)
+	charter       string         // 角色章程（agent.system_prompt，运维经前端可调；空=不渲染）
+	tier          llm.Complexity // LLM 档位（agent.complexity，文档 tier 种子 → 三级缓存读；唯一来源）
+	maxIt         int            // ReAct 迭代上限（agent.max_iterations；0=不设限，复杂度基线生效）
+	brief         string         // 任务简报原文（用户指定的入口 URL 等，逐字渲染进 system prompt——防转录漂移）
 	checkpointer  core.Checkpointer
 	logger        zerolog.Logger
 }
@@ -44,6 +45,7 @@ type EngineConfig struct {
 	ToolsManifest ToolsManifest // 过滤后的 CLI 工具清单
 	Skills        []*skill.Card // agent.skills 声明的 skill 索引（Tier 1；渐进式加载的目录层）
 	SystemPrompt  string        // 角色章程（agent.system_prompt 正文；渲染进 prompt 开头，空=跳过）
+	Tier          string        // LLM 档位（agent.complexity，simple|medium|complex；空回退 medium）
 	MaxIterations int           // ReAct 迭代上限（agent.max_iterations；0=不设限）
 	Brief         string        // 任务简报原文（可选；渲染进 system prompt 作入口锚定）
 	Checkpointer  core.Checkpointer
@@ -60,6 +62,7 @@ func NewEngine(cfg EngineConfig) *Engine {
 		toolsManifest: cfg.ToolsManifest,
 		skills:        cfg.Skills,
 		charter:       cfg.SystemPrompt,
+		tier:          llm.TierOf(cfg.Tier),
 		maxIt:         cfg.MaxIterations,
 		brief:         cfg.Brief,
 		checkpointer:  cfg.Checkpointer,
@@ -108,7 +111,8 @@ func (e *Engine) Execute(ctx context.Context, action explorationgraph.Node, task
 	systemPrompt := e.buildSystemPrompt(actionData.Type, actionData.Complexity, reactTools)
 
 	// 4. 获取 LLM Provider（Router 已完成 Generator→Provider 桥接与 retry/fallback 装配）
-	provider, err := e.router.For(ctx, e.mapComplexityToTier(actionData.Complexity))
+	// LLM 档位 = agent.complexity（文档 tier 种子，经三级缓存读）；动作复杂度只驱动迭代预算。
+	provider, err := e.router.For(ctx, e.tier)
 	if err != nil {
 		return nil, fmt.Errorf("获取 LLM provider 失败: %w", err)
 	}
@@ -402,20 +406,6 @@ func (e *Engine) buildSystemPrompt(actionType, complexity string, registered []r
 	}
 
 	return basePrompt
-}
-
-// mapComplexityToTier 将复杂度映射到 LLM 层级
-func (e *Engine) mapComplexityToTier(complexity string) llm.Complexity {
-	switch complexity {
-	case "simple":
-		return llm.ComplexitySimple
-	case "moderate":
-		return llm.ComplexityMedium
-	case "complex":
-		return llm.ComplexityComplex
-	default:
-		return llm.ComplexityMedium
-	}
 }
 
 // getMaxIterations 获取最大迭代次数：复杂度基线（simple=5/moderate=10/complex=20）

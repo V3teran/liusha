@@ -7,7 +7,7 @@
 // 否则仍按旧部署装配。故写路径写 DB 后经 cachestore 广播失效键，各进程共享的 Subscribe
 // goroutine 收到即清本地 L1 + L2，下次读回填最新值。
 //
-// 路由模型：agent-role → complexity → provider 两跳（complexity 中间层，见 llmcfg.AgentComplexity）。
+// 路由模型：role → (代码档位映射) → provider（agent.complexity 的消费在 cognition 直读直传，不经此处）。
 // 两跳解析全在 llmcfg.Routing.ProviderKeyForRole 内完成，本层只管缓存路由快照 + provider 行。
 //
 // 缓存粒度（key 空间固定的读全走 L1/L2 缓存）：
@@ -24,7 +24,6 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/rs/zerolog"
 
 	"github.com/V3teran/liusha/internal/cachestore"
 	"github.com/V3teran/liusha/internal/config/llm"
@@ -46,48 +45,16 @@ type llmStore interface {
 	GetRouting(ctx context.Context) (llmcfg.Routing, error)
 }
 
-// ComplexityOverrideFunc 按 role 查 DB 里 agent 自定义的复杂度档位（agent.complexity）。
-// 返回 (complexity, true) 表示该 role 是有 DB 配置行的 agent 且显式设置了复杂度，覆盖代码内置映射；
-// 返回 ("", false) 表示无覆盖（非 agent 的路由 key，或查询失败降级），
-// 此时解析回落 llmcfg.AgentComplexity 代码兜底表。查询失败应吞错返 false，不阻塞热路径。
-type ComplexityOverrideFunc func(ctx context.Context, role string) (complexity string, ok bool)
-
 // Store 编排 LLM 配置的多级读写：底层 DB store + 共享 cachestore 内核。
 type Store struct {
-	db                 llmStore
-	cache              *cachestore.Cache
-	complexityOverride ComplexityOverrideFunc // 可选：DB agent → 复杂度覆盖（nil = 纯走代码映射）
+	db    llmStore
+	cache *cachestore.Cache
 }
 
 // New 用 pgxpool + 共享 cachestore 构造 Store（生产装配用）。
 // cache 由进程唯一构造并已 go cache.Subscribe(ctx)，与 configstore 等复用同一实例。
 func New(pool *pgxpool.Pool, cache *cachestore.Cache) *Store {
 	return newWithStore(llmcfg.NewStore(pool), cache)
-}
-
-// WithComplexityOverride 注入 agent → 复杂度覆盖回调（agent.complexity 现读），返回自身便于链式装配。
-// api/runner 装配时传入查 agent.complexity 的闭包；不注入则退化为纯代码映射路由。
-func (s *Store) WithComplexityOverride(fn ComplexityOverrideFunc) *Store {
-	s.complexityOverride = fn
-	return s
-}
-
-// complexityByCoder 是 AgentComplexityOverride 依赖的最小 agent store 能力（*agent.Store 满足）。
-type complexityByCoder interface {
-	ComplexityByCode(ctx context.Context, code string) (complexity string, found bool, err error)
-}
-
-// AgentComplexityOverride 把 agent store 适配成 ComplexityOverrideFunc（api/runner 共用，避免各写一份）。
-// 查询失败吞错返 (,,false)——热路径不因复杂度覆盖读失败而炸，降级到代码映射兜底。
-func AgentComplexityOverride(store complexityByCoder, log zerolog.Logger) ComplexityOverrideFunc {
-	return func(ctx context.Context, role string) (string, bool) {
-		complexity, found, err := store.ComplexityByCode(ctx, role)
-		if err != nil {
-			log.Warn().Err(err).Str("role", role).Msg("查 agent 复杂度失败（降级：走代码映射兜底）")
-			return "", false
-		}
-		return complexity, found
-	}
 }
 
 // newWithStore 用已构造的底层 store 装配（测试注入 mock 用）。
@@ -160,16 +127,10 @@ func (s *Store) ProviderForRole(ctx context.Context, role string) (llmcfg.Provid
 	if err != nil {
 		return llmcfg.Provider{}, err
 	}
-	// 第一跳 role → complexity：优先 DB agent 自定义档（agent.complexity），否则落代码映射兜底。
-	var key string
-	if s.complexityOverride != nil {
-		if complexity, ok := s.complexityOverride(ctx, role); ok {
-			key = routing.ProviderKeyForComplexity(complexity)
-		}
-	}
-	if key == "" {
-		key = routing.ProviderKeyForRole(role)
-	}
+	// role → provider：经 llmcfg.AgentComplexity 代码映射收敛到档位（inspector/compactor 等旁路
+	// role 落轻档）。agent.complexity 不在此查——认知循环四 agent 的档位由 cognition 经
+	// cfgcache 直读直传 router.For，不走本 role 路由。
+	key := routing.ProviderKeyForRole(role)
 	if key == "" {
 		return llmcfg.Provider{}, &UnresolvedError{Role: role}
 	}

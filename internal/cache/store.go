@@ -34,7 +34,6 @@ type executorStore interface {
 	List(ctx context.Context, onlyEnabled bool) ([]agent.Agent, error)
 	ListPaged(ctx context.Context, p agent.ListParams) ([]agent.Agent, error)
 	CountList(ctx context.Context, p agent.ListParams) (int, error)
-	ComplexityByCode(ctx context.Context, code string) (complexity string, found bool, err error)
 }
 
 // skillStore 是 configstore 依赖的 skill 底层能力（*skillstore.Store 满足）。
@@ -72,9 +71,8 @@ func newWithStores(hn executorStore, sk skillStore, cache *cachestore.Cache) *St
 
 // ── 缓存键（L1/L2 同键，统一前缀 configstore:）───────────────────────────
 
-func keyExecutorID(id string) string           { return "configstore:executor:id:" + id }
-func keyExecutorCode(code string) string       { return "configstore:executor:code:" + code }
-func keyExecutorComplexity(code string) string { return "configstore:executor:complexity:code:" + code }
+func keyExecutorID(id string) string     { return "configstore:executor:id:" + id }
+func keyExecutorCode(code string) string { return "configstore:executor:code:" + code }
 
 // keyAgentsList 是全量列表读的缓存键，按 onlyEnabled 分两键（有界）。
 // 任一 agent 写即失效其资源的两个 list 键（enabled 变动会跨 true/false 两表）。
@@ -124,32 +122,6 @@ func (s *Store) AgentByCode(ctx context.Context, code string) (agent.Agent, erro
 		})
 }
 
-// complexityResult 是 ComplexityByCode 的缓存载体：连 found=false（非 agent 的路由 key）
-// 也缓存，省掉这类 key 每次 agent-run 的重复 DB miss。
-type complexityResult struct {
-	Complexity string `json:"complexity"`
-	Found      bool   `json:"found"`
-}
-
-// ComplexityByCode 读某 agent 的复杂度档位（LLM 路由第一跳 role→complexity 的 DB 覆盖，热路径：每次
-// For(role) 解析都查）。走多级缓存于 complexity 键——两个写入口（UpdateExecutorComplexity 整字段改档、
-// SaveExecutor 整体保存）都经 agentKeys 失效此键，故移档/保存后 runner 下次即读新档，无脏读。
-func (s *Store) ComplexityByCode(ctx context.Context, code string) (complexity string, found bool, err error) {
-	res, err := cachestore.ReadThrough(ctx, s.cache, keyExecutorComplexity(code),
-		func(complexityResult) []string { return []string{keyExecutorComplexity(code)} },
-		func(ctx context.Context) (complexityResult, error) {
-			c, ok, err := s.executors.ComplexityByCode(ctx, code)
-			if err != nil {
-				return complexityResult{}, err
-			}
-			return complexityResult{Complexity: c, Found: ok}, nil
-		})
-	if err != nil {
-		return "", false, err
-	}
-	return res.Complexity, res.Found, nil
-}
-
 // ── 全量列表读（L1/L2 缓存，按 onlyEnabled 分键）─────────────────────────
 
 // ListExecutors 全量列表读，走多级缓存（按 onlyEnabled 分键）。任一操作员写即失效两键。
@@ -181,13 +153,12 @@ func (s *Store) CountExecutors(ctx context.Context, p agent.ListParams) (int, er
 // 每个写方法：写 DB → cachestore.Invalidate（本进程即时清 L1+L2 + 广播失效键给其它进程）。
 // 失效的键由写方直接列出（与 ReadThrough 的 fillKeys 对应），无 per-resource 语义 switch。
 
-// agentKeys 是一次操作员写/删要清的全部缓存键：id 键 + code 键 + complexity 键
-// （code 路，热路径路由用）+ 两个全量列表键。失效集是各 ReadThrough 回填键的超集
+// agentKeys 是一次操作员写/删要清的全部缓存键：id 键 + code 键 + 两个全量列表键。失效集是各 ReadThrough 回填键的超集
 // （decode 失败即硬错，回填键载荷类型必须一致；失效键不受此限）。
 // complexity/code 键随此一并失效——全部写入口都经此，保证移档/改配即时生效。
 func agentKeys(id, code string) []string {
 	return []string{
-		keyExecutorID(id), keyExecutorCode(code), keyExecutorComplexity(code),
+		keyExecutorID(id), keyExecutorCode(code),
 		keyAgentsList(true), keyAgentsList(false),
 	}
 }
