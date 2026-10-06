@@ -75,8 +75,8 @@ type Insight struct {
 	Tags    []string `json:"tags,omitempty"`
 
 	// 追溯
-	SourceTaskID  string `json:"source_task_id"`
-	SourceAgentID string `json:"source_agent_id,omitempty"`
+	SourceTaskID     string `json:"source_task_id"`
+	SourceAgentRunID string `json:"source_agent_run_id,omitempty"` // 产出该情报的认知轮次 agent_run.id
 
 	// 时间
 	CreatedAt time.Time `json:"created_at"`

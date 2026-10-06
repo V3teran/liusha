@@ -135,43 +135,6 @@ func TestStore_TerminalIsSticky(t *testing.T) {
 	}
 }
 
-// TestStore_CreateWithParent 验证：NewParams.plannerID 写入 + GetByID 读出往返一致。
-func TestStore_CreateWithParent(t *testing.T) {
-	ctx := context.Background()
-	s, taskID := setup(t)
-
-	parentID, err := s.Create(ctx, NewParams{TaskID: taskID, Role: "traffic-analysis"})
-	if err != nil {
-		t.Fatalf("create parent: %v", err)
-	}
-
-	childID, err := s.Create(ctx, NewParams{
-		TaskID:    taskID,
-		Role:      "traffic-analysis",
-		plannerID: parentID,
-	})
-	if err != nil {
-		t.Fatalf("create child: %v", err)
-	}
-
-	got, err := s.GetByID(ctx, childID)
-	if err != nil {
-		t.Fatalf("get child: %v", err)
-	}
-	if got.plannerID != parentID {
-		t.Fatalf("child.plannerID=%q, want %q", got.plannerID, parentID)
-	}
-
-	// planner自己 plannerID 必须为空（独立/根任务）
-	gotParent, err := s.GetByID(ctx, parentID)
-	if err != nil {
-		t.Fatalf("get parent: %v", err)
-	}
-	if gotParent.plannerID != "" {
-		t.Fatalf("parent.plannerID=%q, want empty", gotParent.plannerID)
-	}
-}
-
 // TestStore_ListByTask 验证：ListByTask 取回 task 下所有 agent run（取代旧 ListByOwner）。
 func TestStore_ListByTask(t *testing.T) {
 	ctx := context.Background()

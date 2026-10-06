@@ -134,7 +134,7 @@ func (h handler) runCognition(
 	// AgentRunID 口径：tool_invocation.agent_run_id 外键指向 agent_run.id，
 	// 取本 task 的 run 行（api expandItem 建的那条）；查不到留空 → NULL。
 	agentRunID := ""
-	if runs, rErr := h.executors.ListByTask(ctx, taskID, 1); rErr == nil && len(runs) > 0 {
+	if runs, rErr := h.agentRuns.ListByTask(ctx, taskID, 1); rErr == nil && len(runs) > 0 {
 		agentRunID = runs[0].ID
 	} else if rErr != nil {
 		h.logger.Warn().Err(rErr).Str("task_id", taskID).Msg("查询 agent_run 失败，tool_invocation 将不关联 run")
@@ -146,7 +146,7 @@ func (h handler) runCognition(
 	toolDeps := func(skillsView skill.Reader) tools.Deps {
 		return tools.Deps{
 			TaskID:     taskID,
-			AgentID:    agentRunID,
+			AgentRunID: agentRunID,
 			Host:       host,
 			Tasks:      h.tasks,
 			Findings:   h.findings,

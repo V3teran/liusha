@@ -190,17 +190,17 @@ describe('API 客户端', () => {
       expect(mockFetch).toHaveBeenCalledWith('/api/tasks?limit=20', { headers: { 'X-API-Key': '' } })
     })
 
-    it('startActiveScan POST brief 返回 owner_id/agent_id', async () => {
+    it('startActiveScan POST brief 返回 owner_id/agent_run_id', async () => {
       setApiKey('k')
       const mockFetch = vi.fn().mockResolvedValue({
         ok: true,
-        json: vi.fn().mockResolvedValue({ owner_id: 'o9', agent_id: 'h9' }),
+        json: vi.fn().mockResolvedValue({ owner_id: 'o9', agent_run_id: 'h9' }),
       })
       ;(global as any).fetch = mockFetch
 
       const result = await startActiveScan('测试 http://t/login admin/pass 只测 XSS')
 
-      expect(result).toEqual({ owner_id: 'o9', agent_id: 'h9' })
+      expect(result).toEqual({ owner_id: 'o9', agent_run_id: 'h9' })
       expect(mockFetch).toHaveBeenCalledWith('/api/scan/active', expect.objectContaining({
         method: 'POST',
         body: JSON.stringify({ brief: '测试 http://t/login admin/pass 只测 XSS' }),

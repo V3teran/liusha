@@ -36,7 +36,7 @@ function makeSummary(overrides: Partial<LLMInvocationSummary> = {}): LLMInvocati
   return {
     id: 1,
     request_id: 'req-1',
-    agent_id: null,
+    agent_run_id: null,
     task_id: 'owner-1',
     provider: 'openai',
     model: 'gpt-5',

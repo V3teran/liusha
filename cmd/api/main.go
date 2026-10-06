@@ -97,7 +97,7 @@ func main() {
 	controlPlaneStore := controlplane.NewStore(pool) // 任务控制平面（人工干预）
 
 	// agent run store + asynq 入队器。
-	executorStore := agentrun.NewStore(pool)
+	agentRunStore := agentrun.NewStore(pool)
 	enq := worker.NewClient(asynq.RedisClientOpt{Addr: os.Getenv("LIUSHA_REDIS_ADDR")})
 	defer func() { _ = enq.Close() }()
 
@@ -204,7 +204,7 @@ func main() {
 	// llmKeyCipher 解密 provider 的加密密钥（migration 0103），构造 client 前才解密，不进缓存。
 	router := llm.NewRouterWithOptions(llm.NewFactory(llmStore, llmKeyCipher), llm.RetryOptionsFromConfig(cfg.LLM.Retry))
 	publisher := scanstream.NewPublisher(rdb)
-	adapter := &scanAdapter{assignments: assignmentStore, tasks: taskStore, executors: executorStore, enq: enq, audit: auditStore, conversations: convStore, router: router, findings: findStore, publisher: publisher, maxRunTimeout: time.Duration(cfg.Runner.AgentRunTimeoutSeconds) * time.Second}
+	adapter := &scanAdapter{assignments: assignmentStore, tasks: taskStore, agentRuns: agentRunStore, enq: enq, audit: auditStore, conversations: convStore, router: router, findings: findStore, publisher: publisher, maxRunTimeout: time.Duration(cfg.Runner.AgentRunTimeoutSeconds) * time.Second}
 
 	// provider 实连探测（前端「LLM 配置」页「测试连接」+ 模型下拉探测）：闭合 llmStore（取已存密钥走
 	// 多级缓存）+ llmKeyCipher（解密）+ 独立 ClientPool（不与 router 内部池耦合，探测是低频交互路径）。
@@ -219,7 +219,7 @@ func main() {
 		assignments: assignmentStore,
 		tasks:       taskStore,
 		proxyStore:  proxyTrafficStore,
-		executors:   executorStore,
+		agentRuns:   agentRunStore,
 		enq:         enq,
 		scan:        adapter,
 		logger:      logger,
@@ -372,7 +372,7 @@ func (a taskAPIAdapter) List(ctx context.Context, limit int) ([]httpapi.TaskSumm
 type scanAdapter struct {
 	assignments   *assignment.Store
 	tasks         *task.Store
-	executors     *agentrun.Store
+	agentRuns     *agentrun.Store
 	enq           *worker.Client
 	audit         *audit.Store        // 0047：create 写审计事件；nil 跳过
 	conversations *conversation.Store // 阶段B：StartChatScan 建会话；nil 时仅 CreateScan 可用
@@ -441,7 +441,7 @@ func (a *scanAdapter) expandItem(ctx context.Context, assignmentID, brief, conve
 		if len(briefPreview) > 200 {
 			briefPreview = briefPreview[:200]
 		}
-		meta, _ := json.Marshal(map[string]string{"brief_preview": briefPreview, "agent_id": tid})
+		meta, _ := json.Marshal(map[string]string{"brief_preview": briefPreview, "agent_run_id": tid})
 		if _, err := a.audit.Append(ctx, audit.Event{
 			Actor:      audit.ActorAPIUser,
 			Action:     audit.ActionTaskCreate,
@@ -478,16 +478,16 @@ func (a *scanAdapter) FollowUp(ctx context.Context, taskID, conversationID, brie
 // parentRegistries 是空的，PreDoneCheck 永放行，旧 PG exploitation 留 status=running 僵尸态。
 // MaxRetry(0)：跑挂就跑挂，让用户手动 abort + 重新触发，不重试。
 func (a *scanAdapter) enqueuePlannerRun(ctx context.Context, taskID, conversationID string, payloadInput []byte) (string, error) {
-	tid, err := a.executors.Create(ctx, agentrun.NewParams{
+	tid, err := a.agentRuns.Create(ctx, agentrun.NewParams{
 		TaskID: taskID,
 		Role:   "planner",
 		Input:  payloadInput,
 	})
 	if err != nil {
-		return "", fmt.Errorf("create executor run: %w", err)
+		return "", fmt.Errorf("create agent run: %w", err)
 	}
 	if _, _, err := a.enq.Enqueue(ctx, worker.RoleExecutor, worker.Payload{
-		AgentID:        tid,
+		AgentRunID:     tid,
 		TaskID:         taskID,
 		ConversationID: conversationID, // 阶段B：会话发起时非空 → runner 发过程事件
 		// 场景 code：runner 据此数据驱动派发引擎/操作员编排

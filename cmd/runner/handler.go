@@ -39,7 +39,7 @@ import (
 
 // handler 持有所有跨任务共享依赖。
 type handler struct {
-	executors  *agentrun.Store
+	agentRuns  *agentrun.Store
 	tasks      *task.Store
 	findings   *finding.Store
 	corpus     *corpus.Store
@@ -164,11 +164,11 @@ func terminalCtx(ctx context.Context) (context.Context, context.CancelFunc) {
 	return context.WithTimeout(context.WithoutCancel(ctx), terminalWriteTimeout)
 }
 
-func (h handler) failTask(ctx context.Context, executorID string, err error) error {
+func (h handler) failTask(ctx context.Context, agentRunID string, err error) error {
 	writeCtx, cancel := terminalCtx(ctx)
 	defer cancel()
-	if setErr := h.executors.SetError(writeCtx, executorID, err.Error()); setErr != nil {
-		h.logger.Warn().Err(setErr).Str("executor_id", executorID).
+	if setErr := h.agentRuns.SetError(writeCtx, agentRunID, err.Error()); setErr != nil {
+		h.logger.Warn().Err(setErr).Str("agent_run_id", agentRunID).
 			Msg("SetError 失败（task 留在 running，原始错误已透传给 caller）")
 	}
 	return err
@@ -178,7 +178,7 @@ func (h handler) failTask(ctx context.Context, executorID string, err error) err
 func (h handler) handle(ctx context.Context, p worker.Payload) (retErr error) {
 	taskStart := time.Now()
 	h.logger.Info().
-		Str("executor_id", p.AgentID).
+		Str("agent_run_id", p.AgentRunID).
 		Str("task_id", p.TaskID).
 		Str("role", string(p.Role)).
 		Msg("asynq task ▶ enter")
@@ -187,15 +187,15 @@ func (h handler) handle(ctx context.Context, p worker.Payload) (retErr error) {
 		if retErr != nil {
 			ev = h.logger.Warn().Err(retErr)
 		}
-		ev.Str("executor_id", p.AgentID).
+		ev.Str("agent_run_id", p.AgentRunID).
 			Str("task_id", p.TaskID).
 			Dur("duration", time.Since(taskStart)).
 			Msg("asynq task ◀ exit")
 	}()
 
-	if run, getErr := h.executors.GetByID(ctx, p.AgentID); getErr == nil && run.Status != agentrun.StatusPending {
+	if run, getErr := h.agentRuns.GetByID(ctx, p.AgentRunID); getErr == nil && run.Status != agentrun.StatusPending {
 		h.logger.Warn().
-			Str("executor_id", p.AgentID).
+			Str("agent_run_id", p.AgentRunID).
 			Str("status", string(run.Status)).
 			Msg("asynq task 已被处理过，跳过重试（防 PG 僵尸 + 矛盾态）")
 		return asynq.SkipRetry
@@ -217,7 +217,7 @@ func (h handler) handle(ctx context.Context, p worker.Payload) (retErr error) {
 		}
 	}
 
-	if err := h.executors.SetRunning(ctx, p.AgentID); err != nil {
+	if err := h.agentRuns.SetRunning(ctx, p.AgentRunID); err != nil {
 		return err
 	}
 
@@ -225,7 +225,7 @@ func (h handler) handle(ctx context.Context, p worker.Payload) (retErr error) {
 		Brief string `json:"brief"`
 	}
 	if err := json.Unmarshal(p.Input, &input); err != nil {
-		return h.failTask(ctx, p.AgentID, err)
+		return h.failTask(ctx, p.AgentRunID, err)
 	}
 
 	// 设置超时

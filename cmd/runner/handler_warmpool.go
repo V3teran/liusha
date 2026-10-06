@@ -25,7 +25,7 @@ func newWarmPoolHandler(sandboxMgr sandbox.Manager, logger zerolog.Logger) *warm
 
 func (h *warmPoolHandler) handle(ctx context.Context, p worker.Payload) error {
 	h.logger.Info().
-		Str("agent_id", p.AgentID).
+		Str("agent_run_id", p.AgentRunID).
 		Str("task_id", p.TaskID).
 		Msg("🚀 warm pool handler: task started")
 
@@ -70,7 +70,7 @@ func (h *warmPoolHandler) handle(ctx context.Context, p worker.Payload) error {
 	// 4. 执行命令
 	result, err := sb.Client.Exec(ctx, sandbox.ExecRequest{
 		TaskID:         p.TaskID,
-		AgentID:        p.AgentID,
+		AgentID:        p.AgentRunID,
 		Command:        command,
 		TimeoutSeconds: 30,
 	})

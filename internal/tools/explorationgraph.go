@@ -210,7 +210,7 @@ func (t *writeObservationTool) Execute(ctx context.Context, args json.RawMessage
 		Confidence: &confidence,
 		Priority:   explorationgraph.PriorityMedium,
 		SourceType: explorationgraph.SourceExecutor,
-		SourceID:   t.deps.AgentID,
+		SourceID:   t.deps.AgentRunID,
 		CreatedAt:  time.Now(),
 		UpdatedAt:  time.Now(),
 	}

@@ -36,7 +36,7 @@ type cronRunner struct {
 	assignments *assignment.Store
 	tasks       *task.Store
 	proxyStore  *traffic.ProxyStore
-	executors   *agentrun.Store
+	agentRuns   *agentrun.Store
 	enq         *worker.Client
 	scan        *scanAdapter // 复用 expandItem（与单发/StartChatScan 同展开逻辑）
 	logger      zerolog.Logger
@@ -153,7 +153,7 @@ func (r *cronRunner) expandTrafficItem(ctx context.Context, assignmentID string,
 	}
 
 	payloadInput, _ := json.Marshal(map[string]string{"brief": host})
-	hid, err := r.executors.Create(ctx, agentrun.NewParams{
+	hid, err := r.agentRuns.Create(ctx, agentrun.NewParams{
 		TaskID: tk.ID,
 		Role:   "planner",
 		Input:  payloadInput,
@@ -162,10 +162,10 @@ func (r *cronRunner) expandTrafficItem(ctx context.Context, assignmentID string,
 		return fmt.Errorf("create executor run: %w", err)
 	}
 	if _, _, err := r.enq.Enqueue(ctx, worker.RoleExecutor, worker.Payload{
-		AgentID: hid,
-		TaskID:  tk.ID,
-		Input:   payloadInput,
-		Role:    worker.RoleExecutor,
+		AgentRunID: hid,
+		TaskID:     tk.ID,
+		Input:      payloadInput,
+		Role:       worker.RoleExecutor,
 	}); err != nil {
 		return fmt.Errorf("enqueue: %w", err)
 	}

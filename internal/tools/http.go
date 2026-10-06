@@ -451,7 +451,7 @@ func (t *httpRequestTool) Execute(ctx context.Context, args json.RawMessage) (re
 		respHeaders, _ := json.Marshal(flattenHeaders(resp.Header))
 		id, appendErr := t.deps.AgentStore.Append(ctx, traffic.AgentTraffic{
 			TaskID:          t.deps.TaskID,
-			AgentID:         t.deps.AgentID,
+			AgentRunID:      t.deps.AgentRunID,
 			Tool:            "http_request",
 			Method:          a.Method,
 			URL:             a.URL,

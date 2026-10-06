@@ -42,7 +42,7 @@ func (s *Store) Append(ctx context.Context, assignmentID string, insight Insight
 		INSERT INTO insight (
 			assignment_id, category, priority, confidence,
 			summary, body, tags,
-			source_task_id, source_agent_id,
+			source_task_id, source_agent_run_id,
 			created_at, updated_at
 		)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
@@ -56,7 +56,7 @@ func (s *Store) Append(ctx context.Context, assignmentID string, insight Insight
 		insight.Body,
 		insight.Tags,
 		insight.SourceTaskID,
-		insight.SourceAgentID,
+		insight.SourceAgentRunID,
 		insight.CreatedAt,
 		insight.UpdatedAt,
 	)
@@ -80,7 +80,7 @@ func (s *Store) list(ctx context.Context, label, where string, args []any, order
 			id, assignment_id,
 			category, priority, confidence,
 			summary, body, tags,
-			source_task_id, source_agent_id,
+			source_task_id, source_agent_run_id,
 			created_at, updated_at
 		FROM insight
 		WHERE %s
@@ -102,7 +102,7 @@ func (s *Store) list(ctx context.Context, label, where string, args []any, order
 			&i.ID, &i.AssignmentID,
 			&i.Category, &i.Priority, &i.Confidence,
 			&i.Summary, &i.Body, &i.Tags,
-			&i.SourceTaskID, &i.SourceAgentID,
+			&i.SourceTaskID, &i.SourceAgentRunID,
 			&i.CreatedAt, &i.UpdatedAt,
 		)
 		if err != nil {

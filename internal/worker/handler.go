@@ -13,8 +13,8 @@ import (
 //
 // 现行 active 路径用 dispatcher/actor 进程内编排，exploitation 不入 asynq，故入队 Payload 此字段恒空；
 type Payload struct {
-	AgentID string `json:"agent_id"`
-	TaskID  string `json:"task_id"` // 所属 task.id
+	AgentRunID string `json:"agent_run_id"` // 所属 agent_run.id（幂等键，见 client.go）
+	TaskID     string `json:"task_id"`      // 所属 task.id
 	// ConversationID 关联本任务所属会话（阶段B 会话发起时填）；asynq 自动入口为空——
 	// 空则 runner 不发过程事件、不落 conversation message（纯后台扫描）。
 	ConversationID string          `json:"conversation_id,omitempty"`
