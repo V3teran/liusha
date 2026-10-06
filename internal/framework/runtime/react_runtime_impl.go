@@ -25,7 +25,7 @@ type DefaultReActRuntime struct {
 }
 
 // NewReActRuntime 创建 ReAct 运行时
-func NewReActRuntime() ReActRuntime {
+func NewReActRuntime() *DefaultReActRuntime {
 	return &DefaultReActRuntime{
 		tools:          make(map[string]registry.Tool),
 		messageHistory: make([]llm.Message, 0),
@@ -47,31 +47,6 @@ func (r *DefaultReActRuntime) RegisterTool(tool registry.Tool) error {
 
 	r.tools[tool.Name()] = tool
 	return nil
-}
-
-// UnregisterTool 注销工具
-func (r *DefaultReActRuntime) UnregisterTool(name string) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	if _, exists := r.tools[name]; !exists {
-		return fmt.Errorf("工具 %s 不存在", name)
-	}
-
-	delete(r.tools, name)
-	return nil
-}
-
-// GetTools 获取所有工具
-func (r *DefaultReActRuntime) GetTools() []registry.Tool {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-
-	tools := make([]registry.Tool, 0, len(r.tools))
-	for _, tool := range r.tools {
-		tools = append(tools, tool)
-	}
-	return tools
 }
 
 // GetMessageHistory 获取消息历史
@@ -115,6 +90,9 @@ func (r *DefaultReActRuntime) Run(ctx context.Context, config *ReActConfig) (*Re
 		checkpoint, err := config.Checkpointer.Load(ctx, config.RestoreFromCheckpoint)
 		if err != nil {
 			return nil, fmt.Errorf("load checkpoint failed: %w", err)
+		}
+		if checkpoint == nil { // 自定义 Checkpointer 未按契约返回 ErrCheckpointNotFound 时的防御
+			return nil, fmt.Errorf("load checkpoint failed: checkpoint %s not found", config.RestoreFromCheckpoint)
 		}
 
 		// 反序列化状态
@@ -176,11 +154,13 @@ func (r *DefaultReActRuntime) Run(ctx context.Context, config *ReActConfig) (*Re
 		if config.Checkpointer != nil && config.CheckpointPolicy != nil {
 			if config.CheckpointPolicy.ShouldSave(iteration, trace) {
 				cpID, err := r.saveCheckpoint(ctx, config, result, iteration)
-				if err == nil {
+				if err != nil {
+					// 保存失败不中断执行；错误暴露在结果上供调用方审计
+					result.LastCheckpointError = err
+				} else {
 					result.CheckpointID = cpID
 					result.CheckpointIDs = append(result.CheckpointIDs, cpID)
 				}
-				// 保存失败不中断执行，只记录日志
 			}
 		}
 

@@ -17,6 +17,7 @@ package httpapi
 
 import (
 	"context"
+	"net/http"
 
 	"github.com/gin-gonic/gin"
 
@@ -49,14 +50,14 @@ func listProvidersHandler(api ModelAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		rows, err := api.ListProviders(c.Request.Context(), false)
 		if err != nil {
-			c.JSON(500, gin.H{"error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
 		out := make([]gin.H, 0, len(rows))
 		for _, p := range rows {
 			out = append(out, providerJSON(p))
 		}
-		c.JSON(200, gin.H{"providers": out})
+		c.JSON(http.StatusOK, gin.H{"providers": out})
 	}
 }
 
@@ -65,10 +66,10 @@ func getProviderHandler(api ModelAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		p, err := api.ProviderByKey(c.Request.Context(), c.Param("key"))
 		if err != nil {
-			c.JSON(404, gin.H{"error": err.Error(), "key": c.Param("key")})
+			c.JSON(http.StatusNotFound, gin.H{"error": err.Error(), "key": c.Param("key")})
 			return
 		}
-		c.JSON(200, gin.H{"provider": providerJSON(p)})
+		c.JSON(http.StatusOK, gin.H{"provider": providerJSON(p)})
 	}
 }
 
@@ -96,28 +97,28 @@ func saveProviderHandler(api ModelAPI, enc KeyEncrypter) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var b providerBody
 		if err := c.ShouldBindJSON(&b); err != nil {
-			c.JSON(400, gin.H{"error": "请求体非法: " + err.Error()})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "请求体非法: " + err.Error()})
 			return
 		}
 		if b.Key == "" {
-			c.JSON(400, gin.H{"error": "key 不能为空"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "key 不能为空"})
 			return
 		}
 		if b.Type != llmcfg.ProviderTypeOpenAICompat && b.Type != llmcfg.ProviderTypeAnthropic {
-			c.JSON(400, gin.H{"error": "非法 type（应为 openai_compat|anthropic）"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "非法 type（应为 openai_compat|anthropic）"})
 			return
 		}
 		if b.BaseURL == "" || b.DefaultModel == "" {
-			c.JSON(400, gin.H{"error": "base_url / default_model 不能为空"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "base_url / default_model 不能为空"})
 			return
 		}
 		isNew := c.Request.Method == "POST"
 		if isNew && b.APIKey == "" {
-			c.JSON(400, gin.H{"error": "api_key 不能为空（新建 provider 必须提供密钥）"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "api_key 不能为空（新建 provider 必须提供密钥）"})
 			return
 		}
 		if b.ContextWindow <= 0 {
-			c.JSON(400, gin.H{"error": "context_window 必须 > 0（model 总上下文窗口 tokens）"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "context_window 必须 > 0（model 总上下文窗口 tokens）"})
 			return
 		}
 		params := llmcfg.ProviderParams{
@@ -131,7 +132,7 @@ func saveProviderHandler(api ModelAPI, enc KeyEncrypter) gin.HandlerFunc {
 		} else {
 			sealed, err := enc.Encrypt(b.APIKey)
 			if err != nil {
-				c.JSON(500, gin.H{"error": "加密密钥失败: " + err.Error()})
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "加密密钥失败: " + err.Error()})
 				return
 			}
 			params.EncryptedAPIKey = sealed
@@ -139,10 +140,10 @@ func saveProviderHandler(api ModelAPI, enc KeyEncrypter) gin.HandlerFunc {
 		}
 		p, err := api.SaveProvider(c.Request.Context(), params)
 		if err != nil {
-			c.JSON(500, gin.H{"error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-		c.JSON(200, gin.H{"provider": providerJSON(p)})
+		c.JSON(http.StatusOK, gin.H{"provider": providerJSON(p)})
 	}
 }
 
@@ -153,13 +154,13 @@ func deleteProviderHandler(api ModelAPI) gin.HandlerFunc {
 		key := c.Param("key")
 		if err := api.DeleteProvider(c.Request.Context(), key); err != nil {
 			if isForeignKeyViolation(err) {
-				c.JSON(409, gin.H{"error": "该 provider 仍被角色路由引用，请先改绑角色再删除"})
+				c.JSON(http.StatusConflict, gin.H{"error": "该 provider 仍被角色路由引用，请先改绑角色再删除"})
 				return
 			}
-			c.JSON(500, gin.H{"error": err.Error(), "key": key})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error(), "key": key})
 			return
 		}
-		c.JSON(200, gin.H{"ok": true})
+		c.JSON(http.StatusOK, gin.H{"ok": true})
 	}
 }
 
@@ -193,14 +194,14 @@ func listRoutingHandler(api ModelAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		routes, err := api.ListRoleRoutes(c.Request.Context())
 		if err != nil {
-			c.JSON(500, gin.H{"error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
 		outRoutes := make([]gin.H, 0, len(routes))
 		for _, r := range routes {
 			outRoutes = append(outRoutes, roleRouteJSON(r))
 		}
-		c.JSON(200, gin.H{"routes": outRoutes})
+		c.JSON(http.StatusOK, gin.H{"routes": outRoutes})
 	}
 }
 
@@ -215,28 +216,28 @@ func saveRoleRouteHandler(api ModelAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		role := c.Param("role")
 		if role == "" {
-			c.JSON(400, gin.H{"error": "role 不能为空"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "role 不能为空"})
 			return
 		}
 		var b roleRouteBody
 		if err := c.ShouldBindJSON(&b); err != nil {
-			c.JSON(400, gin.H{"error": "请求体非法: " + err.Error()})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "请求体非法: " + err.Error()})
 			return
 		}
 		if b.ProviderKey == "" {
-			c.JSON(400, gin.H{"error": "provider_key 不能为空"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "provider_key 不能为空"})
 			return
 		}
 		rr, err := api.UpsertRoleRoute(c.Request.Context(), role, b.ProviderKey)
 		if err != nil {
 			if isForeignKeyViolation(err) {
-				c.JSON(409, gin.H{"error": "provider_key 不存在，请先创建对应 provider"})
+				c.JSON(http.StatusConflict, gin.H{"error": "provider_key 不存在，请先创建对应 provider"})
 				return
 			}
-			c.JSON(500, gin.H{"error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-		c.JSON(200, gin.H{"route": roleRouteJSON(rr)})
+		c.JSON(http.StatusOK, gin.H{"route": roleRouteJSON(rr)})
 	}
 }
 
@@ -245,10 +246,10 @@ func deleteRoleRouteHandler(api ModelAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		role := c.Param("role")
 		if err := api.DeleteRoleRoute(c.Request.Context(), role); err != nil {
-			c.JSON(500, gin.H{"error": err.Error(), "role": role})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error(), "role": role})
 			return
 		}
-		c.JSON(200, gin.H{"ok": true})
+		c.JSON(http.StatusOK, gin.H{"ok": true})
 	}
 }
 

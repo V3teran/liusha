@@ -24,9 +24,9 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/V3teran/liusha/internal/agent"
-	cfgcache "github.com/V3teran/liusha/internal/cache"
 	"github.com/V3teran/liusha/internal/cachestore"
 	"github.com/V3teran/liusha/internal/config/seed"
+	cfgstore "github.com/V3teran/liusha/internal/configstore"
 	"github.com/V3teran/liusha/internal/db"
 	"github.com/V3teran/liusha/internal/envx"
 	"github.com/V3teran/liusha/internal/logx"
@@ -81,7 +81,7 @@ func invalidateCache(ctx context.Context, logger zerolog.Logger, pool *pgxpool.P
 	rdb := redis.NewClient(&redis.Options{Addr: redisAddr})
 	defer func() { _ = rdb.Close() }()
 
-	cfgStore := cfgcache.New(pool, cachestore.New(rdb, 0))
+	cfgStore := cfgstore.New(pool, cachestore.New(rdb, 0))
 	if err := cfgStore.InvalidateAgents(ctx, agentCodes...); err != nil {
 		logger.Warn().Err(err).Msg("agent 缓存失效广播失败（L2 TTL 兜底）")
 	}

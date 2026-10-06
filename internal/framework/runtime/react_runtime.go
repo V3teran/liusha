@@ -30,18 +30,6 @@ type ReActRuntime interface {
 
 	// RegisterTool 注册工具
 	RegisterTool(tool registry.Tool) error
-
-	// UnregisterTool 注销工具
-	UnregisterTool(name string) error
-
-	// GetTools 获取所有已注册工具
-	GetTools() []registry.Tool
-
-	// GetMessageHistory 获取消息历史
-	GetMessageHistory() []llm.Message
-
-	// ClearHistory 清空消息历史
-	ClearHistory()
 }
 
 // ReActConfig 是 ReAct 运行时的配置
@@ -113,6 +101,9 @@ type ReActResult struct {
 	// Checkpoint 追踪
 	CheckpointID  core.CheckpointID   // 最后保存的检查点 ID
 	CheckpointIDs []core.CheckpointID // 所有已保存的检查点 ID
+	// LastCheckpointError 是最近一次检查点保存失败的原因（nil=全部成功）。
+	// 检查点为 best-effort：失败不中断 ReAct，但不无声丢弃。
+	LastCheckpointError error
 
 	// 恢复信息
 	RestoredFromCheckpoint core.CheckpointID // 从哪个检查点恢复（空表示新执行）

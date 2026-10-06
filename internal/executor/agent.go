@@ -22,9 +22,6 @@ import (
 	"github.com/V3teran/liusha/internal/tools"
 )
 
-// 编译时检查接口实现
-var _ core.Agent = (*Agent)(nil)
-
 // Agent 是事件驱动的执行器 Agent
 //
 // 职责：
@@ -48,8 +45,6 @@ type Agent struct {
 	// Checkpoint 系统
 	checkpointer     core.Checkpointer
 	checkpointPolicy runtime.CheckpointPolicy
-
-	stopCh chan struct{}
 }
 
 // AgentConfig 配置 Agent
@@ -88,11 +83,10 @@ func NewAgent(cfg AgentConfig) *Agent {
 		completionCh:     cfg.CompletionCh,
 		checkpointer:     cfg.Checkpointer,
 		checkpointPolicy: cfg.CheckpointPolicy,
-		stopCh:           make(chan struct{}),
 	}
 }
 
-// Run 实现 core.Agent 接口
+// Run 启动事件循环（ctx 取消即停止）。
 //
 // 职责：
 // - 监听事件总线上的 Action 状态变化
@@ -125,11 +119,6 @@ func (a *Agent) Run(ctx context.Context) error {
 			report.StopWhy = stopCanceled
 			a.notifyCompletion(report)
 			return ctx.Err()
-
-		case <-a.stopCh:
-			a.logger.Info().Str("task_id", a.taskID).Msg("Agent 停止")
-			a.notifyCompletion(report)
-			return nil
 
 		case event := <-sub.Events():
 			a.logger.Debug().
@@ -584,20 +573,4 @@ func (a *Agent) notifyCompletion(report Report) {
 			a.logger.Warn().Msg("任务完成报告发送失败（channel 已满）")
 		}
 	}
-}
-
-// ============================================
-// 实现 framework/core.Agent 接口
-// ============================================
-
-// Name 实现 core.Agent 接口
-func (a *Agent) Name() string {
-	return "executor"
-}
-
-// Stop 实现 core.Agent 接口
-func (a *Agent) Stop(_ context.Context) error {
-	a.logger.Info().Msg("停止 executor agent")
-	close(a.stopCh)
-	return nil
 }

@@ -22,17 +22,14 @@ type Promoter interface {
 
 // Report 是认知循环的执行报告
 type Report struct {
-	Steps        int      // 执行的 Move 数量
-	Promoted     int      // 晋升的节点数量
-	Attempts     int      // 产出的 Attempt 数量
-	StopWhy      string   // 停止原因
-	Observations []string // 待验证的观察结果 ID 列表
+	Steps    int    // 执行的 Move 数量
+	Promoted int    // 晋升的节点数量
+	Attempts int    // 产出的 Attempt 数量
+	StopWhy  string // 停止原因
 }
 
 // 停止原因常量
 const (
-	stopMaxSteps   = "达到最大步数"
-	stopNoProgress = "连续无进展"
-	stopCanceled   = "任务取消"
-	stopError      = "执行错误"
+	stopMaxSteps = "达到最大步数"
+	stopCanceled = "任务取消"
 )

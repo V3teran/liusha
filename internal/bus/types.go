@@ -4,9 +4,9 @@
 package bus
 
 import (
-	"context"
-	"fmt"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 // EventType 定义事件类型
@@ -26,11 +26,6 @@ const (
 	// 均为 planner 重规划的触发依据。
 	EventVerificationPassed  EventType = "verification.passed"
 	EventVerificationRefuted EventType = "verification.refuted"
-
-	// EventHumanInputRequired / EventHumanInputReceived 是 human-in-the-loop
-	// middleware 的审批请求 / 回执事件。
-	EventHumanInputRequired EventType = "human.input.required"
-	EventHumanInputReceived EventType = "human.input.received"
 )
 
 // Event 统一事件结构
@@ -43,17 +38,7 @@ type Event struct {
 	Timestamp time.Time              `json:"timestamp"` // 事件时间戳
 }
 
-// EventPublisher 定义事件发布能力
-type EventPublisher interface {
-	Publish(event Event)
-}
-
-// EventSubscriber 定义 Action 级别事件订阅能力
-type EventSubscriber interface {
-	SubscribeAction(ctx context.Context, actionID string) *Subscription
-}
-
-// generateEventID 生成事件 ID
+// generateEventID 生成事件 ID（uuid，保证全局唯一）
 func generateEventID() string {
-	return fmt.Sprintf("evt_%d_%d", time.Now().UnixNano(), time.Now().Nanosecond()%10000)
+	return "evt_" + uuid.NewString()
 }

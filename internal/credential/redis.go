@@ -8,7 +8,12 @@ import (
 	"time"
 
 	"github.com/redis/go-redis/v9"
+
+	"github.com/V3teran/liusha/internal/logx"
 )
+
+// credLog 是本包共享 logger（与 finding 等存储包同一模式）。
+var credLog = logx.New("credential")
 
 // fallbackHashKeyPrefix 在 caller 传入空 keyPrefix 时使用——保持与历史一致的
 // "credentials:<host>" 数据布局，避免老 redis 数据 key 漂移。
@@ -96,8 +101,9 @@ func (r *RedisProvider) GetIdentitiesByHost(ctx context.Context, host string) ([
 	}
 	for _, payload := range res {
 		var id Identity
-		// 反序列化失败容错跳过：脏数据不应阻塞业务。
+		// 反序列化失败容错跳过：脏数据不应阻塞业务，但要留痕（静默丢弃会掩盖写入端损坏）。
 		if err := json.Unmarshal([]byte(payload), &id); err != nil {
+			credLog.Warn().Err(err).Str("host", host).Msg("credential 反序列化失败，跳过脏数据")
 			continue
 		}
 		out = append(out, id)

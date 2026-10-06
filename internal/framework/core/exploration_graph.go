@@ -189,78 +189,12 @@ func (c ObservationConfidence) IsRefuted() bool {
 	return c == ConfidenceRefuted
 }
 
-// IsPositive 判断评估结论是否为正面
-func (o EvaluationOutcome) IsPositive() bool {
-	return o == OutcomeConfirmed || o == OutcomePartial
-}
-
-// IsNegative 判断评估结论是否为负面
-func (o EvaluationOutcome) IsNegative() bool {
-	return o == OutcomeRefuted
-}
-
 // String 返回节点类型的字符串表示
 func (k NodeKind) String() string {
 	return string(k)
 }
 
-// String 返回关系类型的字符串表示
-func (r RelationKind) String() string {
-	return string(r)
-}
-
 // String 返回动作状态的字符串表示
 func (s ActionState) String() string {
 	return string(s)
-}
-
-// String 返回评估结论的字符串表示
-func (o EvaluationOutcome) String() string {
-	return string(o)
-}
-
-// ValidNodeKinds 返回所有有效的节点类型
-func ValidNodeKinds() []NodeKind {
-	return []NodeKind{
-		KindObjective,
-		KindAction,
-		KindObservation,
-		KindResult,
-	}
-}
-
-// ValidRelationKinds 返回所有有效的关系类型
-func ValidRelationKinds() []RelationKind {
-	return []RelationKind{
-		RelationGenerates,
-		RelationConfirms,
-		RelationRefutes,
-		RelationEnables,
-		RelationDependsOn,
-		RelationBelongsTo,
-		RelationTriggers,
-	}
-}
-
-// ValidActionStates 返回所有有效的动作状态
-func ValidActionStates() []ActionState {
-	return []ActionState{
-		ActionStateOpen,
-		ActionStateBlocked,
-		ActionStateRunning,
-		ActionStateDone,
-		ActionStateFailed,
-		ActionStateExhausted,
-		ActionStateAborted,
-	}
-}
-
-// ValidEvaluationOutcomes 返回所有有效的评估结论
-func ValidEvaluationOutcomes() []EvaluationOutcome {
-	return []EvaluationOutcome{
-		OutcomeConfirmed,
-		OutcomeRefuted,
-		OutcomeUncertain,
-		OutcomePartial,
-	}
 }

@@ -3,6 +3,7 @@ package finding
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -109,90 +110,6 @@ func (s *Store) Save(ctx context.Context, f VulnFinding) (VulnFinding, error) {
 	return saved, nil
 }
 
-// Update 部分更新一条 finding 的可变字段（summary / severity / target / evidence）。
-//
-// 设计意图：read_findings 看到等价但更有价值（更详细 PoC / 更精准描述 / 更高 severity）
-// 时，update_finding 工具调本方法覆盖；created_at 保持首次发现时间不变。
-//
-// 字段语义：传空字符串 / nil 表示**不更新该字段**（zero-value 跳过，保留原值）。
-// summary 强制非空（finding lean schema 核心字段）。
-//
-// id 必填；finding 不存在返错。
-//
-// dependsOn（组合漏洞依赖 finding id 数组）：len>0 才更新，nil/空切片不动——支持「事后补依赖」。
-// 这是收尾复盘漏洞组合链的关键路径：首次 write_finding 各个击破时漏洞往往未察觉组合，
-// 后期复盘识别出「a + b = c」时用 update_finding 给 c 补 depends_on=[a,b]。
-// （write_finding 重写无法补——dedup ON CONFLICT 只更 first_seen_at，故补依赖必走本方法。）
-func (s *Store) Update(ctx context.Context, id, summary, severity string, target, evidence json.RawMessage, dependsOn []string) error {
-	if id == "" {
-		return fmt.Errorf("finding.Update: id 必填")
-	}
-
-	// 动态拼 SET 子句，传入空值的字段不动
-	sets := make([]string, 0, 5)
-	args := make([]any, 0, 6)
-	argIdx := 1
-
-	if summary != "" {
-		sets = append(sets, fmt.Sprintf("summary = $%d", argIdx))
-		args = append(args, summary)
-		argIdx++
-	}
-	if severity != "" {
-		sets = append(sets, fmt.Sprintf("severity = $%d", argIdx))
-		args = append(args, severity)
-		argIdx++
-	}
-	if len(target) > 0 {
-		sets = append(sets, fmt.Sprintf("target = $%d", argIdx))
-		args = append(args, target)
-		argIdx++
-	}
-	if len(evidence) > 0 {
-		sets = append(sets, fmt.Sprintf("evidence = $%d", argIdx))
-		args = append(args, evidence)
-		argIdx++
-	}
-	if len(dependsOn) > 0 {
-		// 补组合漏洞依赖：uuid[] 强转（同 Save）；len>0 才更新，避免误清空已有依赖。
-		sets = append(sets, fmt.Sprintf("depends_on = $%d::uuid[]", argIdx))
-		args = append(args, dependsOn)
-		argIdx++
-	}
-
-	if len(sets) == 0 {
-		return fmt.Errorf("finding.Update: 至少提供一个可更新字段（summary/severity/target/evidence/depends_on）")
-	}
-
-	args = append(args, id)
-	q := fmt.Sprintf(`UPDATE finding SET %s WHERE id = $%d`, strings.Join(sets, ", "), argIdx)
-
-	tag, err := s.pool.Exec(ctx, q, args...)
-	if err != nil {
-		return fmt.Errorf("update finding %s: %w", id, err)
-	}
-	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("update finding %s: not found", id)
-	}
-
-	findingLog.Info().
-		Str("finding_id", id).
-		Int("fields_updated", len(sets)).
-		Msg("finding updated ✓")
-	return nil
-}
-
-// GetByID 按主键读取 finding。
-func (s *Store) GetByID(ctx context.Context, id string) (VulnFinding, error) {
-	row := s.pool.QueryRow(ctx,
-		"SELECT "+colsSelect+" FROM finding WHERE id=$1", id)
-	var f VulnFinding
-	if err := scan(row, &f); err != nil {
-		return VulnFinding{}, fmt.Errorf("get finding %s: %w", id, err)
-	}
-	return f, nil
-}
-
 // ListByTask 列出 task 下所有 finding（按 created_at desc）。
 func (s *Store) ListByTask(ctx context.Context, taskID string) ([]VulnFinding, error) {
 	rows, err := s.pool.Query(ctx,
@@ -224,33 +141,6 @@ func (s *Store) ListByTaskAndHost(ctx context.Context, taskID, host string, limi
 	rows, err := s.pool.Query(ctx, q, args...)
 	if err != nil {
 		return nil, fmt.Errorf("list findings by task+host: %w", err)
-	}
-	defer rows.Close()
-
-	var out []VulnFinding
-	for rows.Next() {
-		var f VulnFinding
-		if err := scan(rows, &f); err != nil {
-			return nil, fmt.Errorf("scan finding: %w", err)
-		}
-		out = append(out, f)
-	}
-	return out, rows.Err()
-}
-
-// ListByHost 跨 task 列出某 host 的所有 finding（按 created_at desc，见 spec §8.1）。
-// 用于 host 漏洞全景：passive「这个 host 所有漏洞」、active 复盘「目标历史漏洞」。
-// finding 表本有 host 列 + 索引，纯 SQL，不受 task 作用域约束。
-func (s *Store) ListByHost(ctx context.Context, host string, limit int) ([]VulnFinding, error) {
-	q := `SELECT ` + colsSelect + ` FROM finding WHERE host=$1 ORDER BY created_at DESC`
-	args := []any{host}
-	if limit > 0 {
-		q += ` LIMIT $2`
-		args = append(args, limit)
-	}
-	rows, err := s.pool.Query(ctx, q, args...)
-	if err != nil {
-		return nil, fmt.Errorf("list findings by host: %w", err)
 	}
 	defer rows.Close()
 
@@ -400,7 +290,7 @@ func (s *Store) UpdateTriage(ctx context.Context, id, status, severity, note str
 		status, severity, note, id)
 	var updated VulnFinding
 	if err := scan(row, &updated); err != nil {
-		if err == pgx.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return VulnFinding{}, fmt.Errorf("update finding triage %s: not found", id)
 		}
 		return VulnFinding{}, fmt.Errorf("update finding triage %s: %w", id, err)

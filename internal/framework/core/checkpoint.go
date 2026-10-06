@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"time"
 )
 
@@ -53,7 +54,7 @@ type Checkpointer interface {
 	// Save 保存检查点，返回生成的 ID
 	Save(ctx context.Context, checkpoint Checkpoint) (CheckpointID, error)
 
-	// Load 加载指定检查点
+	// Load 加载指定检查点。未命中返回包装 core.ErrCheckpointNotFound 的错误（非 nil,nil）。
 	Load(ctx context.Context, id CheckpointID) (*Checkpoint, error)
 
 	// List 列出任务的所有检查点（按时间倒序）
@@ -62,7 +63,7 @@ type Checkpointer interface {
 	// Delete 删除检查点
 	Delete(ctx context.Context, id CheckpointID) error
 
-	// Latest 获取任务的最新检查点
+	// Latest 获取任务的最新检查点。未命中返回包装 core.ErrCheckpointNotFound 的错误。
 	Latest(ctx context.Context, taskID string) (*Checkpoint, error)
 
 	// Prune 清理过期检查点（保留最近 N 个）
@@ -71,3 +72,12 @@ type Checkpointer interface {
 
 // 注意：检查点保存策略由 runtime.CheckpointPolicy 实现
 // Agent 层的状态恢复通过探索图（Source of Truth）而非内存快照
+
+// ErrCheckpointNotFound 表示检查点不存在。
+type ErrCheckpointNotFound struct {
+	CheckpointID CheckpointID
+}
+
+func (e ErrCheckpointNotFound) Error() string {
+	return fmt.Sprintf("checkpoint not found: %s", e.CheckpointID)
+}

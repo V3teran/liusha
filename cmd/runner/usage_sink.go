@@ -17,7 +17,7 @@ func (s usageSink) RecordUsage(ctx context.Context, r llm.UsageRecord) {
 		id := r.TaskID
 		taskID = &id
 	}
-	// ExecutorID 是 agent_run.id 外键（SET NULL）——认知路径无 per-agent run 行，留空；
+	// AgentRunID 是 agent_run.id 外键（SET NULL）——认知路径无 per-agent run 行，留空；
 	// 角色维度落 Role 列。
 	_, _ = s.store.Append(ctx, llminvocation.Invocation{
 		TaskID:       taskID,

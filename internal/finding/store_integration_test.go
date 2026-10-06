@@ -62,16 +62,6 @@ func TestFinding_SaveDedupUpdateList(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, saved.ID, again.ID, "同 dedup_key 应返回 existing 行")
 
-	// Update：覆盖 summary/severity；first_seen 保留
-	newTarget := json.RawMessage(`{"path":"/api/users"}`)
-	require.NoError(t, store.Update(ctx, saved.ID, "SQL 注入（已补 PoC）", "high", newTarget, nil, nil))
-	updated, err := store.GetByID(ctx, saved.ID)
-	require.NoError(t, err)
-	assert.Equal(t, "high", updated.Severity)
-	assert.Equal(t, "SQL 注入（已补 PoC）", updated.Summary)
-	assert.JSONEq(t, `{"path":"/api/users"}`, string(updated.Target))
-	assert.Equal(t, saved.FirstSeenAt.Unix(), updated.FirstSeenAt.Unix(), "first_seen_at 不变")
-
 	// ListByTaskAndHost：按 host 过滤；limit=0 表示不限
 	_, err = store.Save(ctx, finding.VulnFinding{TaskID: taskID, Host: "other.local", Summary: "另一台主机的漏洞"})
 	require.NoError(t, err)

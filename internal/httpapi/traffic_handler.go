@@ -8,6 +8,7 @@ package httpapi
 import (
 	"context"
 	"errors"
+	"net/http"
 	"strconv"
 	"strings"
 	"time"
@@ -85,12 +86,12 @@ func listTrafficHandler(api TrafficAPI) gin.HandlerFunc {
 
 		rows, err := api.ListPagedGlobal(ctx, f)
 		if err != nil {
-			c.JSON(500, gin.H{"error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
 		total, err := api.CountGlobal(ctx, f)
 		if err != nil {
-			c.JSON(500, gin.H{"error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
 
@@ -108,7 +109,7 @@ func listTrafficHandler(api TrafficAPI) gin.HandlerFunc {
 				"captured_at":  v.CapturedAt,
 			})
 		}
-		c.JSON(200, gin.H{"items": items, "total": total, "page": page, "size": size})
+		c.JSON(http.StatusOK, gin.H{"items": items, "total": total, "page": page, "size": size})
 	}
 }
 
@@ -117,13 +118,13 @@ func trafficHostsHandler(api TrafficAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		hosts, err := api.DistinctHosts(c.Request.Context())
 		if err != nil {
-			c.JSON(500, gin.H{"error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
 		if hosts == nil {
 			hosts = []string{}
 		}
-		c.JSON(200, gin.H{"hosts": hosts})
+		c.JSON(http.StatusOK, gin.H{"hosts": hosts})
 	}
 }
 
@@ -132,13 +133,13 @@ func trafficContentTypesHandler(api TrafficAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		cts, err := api.DistinctContentTypes(c.Request.Context())
 		if err != nil {
-			c.JSON(500, gin.H{"error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
 		if cts == nil {
 			cts = []string{}
 		}
-		c.JSON(200, gin.H{"content_types": cts})
+		c.JSON(http.StatusOK, gin.H{"content_types": cts})
 	}
 }
 
@@ -149,16 +150,16 @@ func trafficDetailHandler(api TrafficAPI, resolver TaskConvResolver) gin.Handler
 		ctx := c.Request.Context()
 		id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 		if err != nil || id <= 0 {
-			c.JSON(400, gin.H{"error": "id required"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "id required"})
 			return
 		}
 		v, err := api.GetByID(ctx, id)
 		if err != nil {
-			if errors.Is(err, pgx.ErrNoRows) || strings.Contains(err.Error(), "no rows") {
-				c.JSON(404, gin.H{"error": "traffic not found", "id": id})
+			if errors.Is(err, pgx.ErrNoRows) {
+				c.JSON(http.StatusNotFound, gin.H{"error": "traffic not found", "id": id})
 				return
 			}
-			c.JSON(500, gin.H{"error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
 
@@ -179,7 +180,7 @@ func trafficDetailHandler(api TrafficAPI, resolver TaskConvResolver) gin.Handler
 			})
 		}
 
-		c.JSON(200, gin.H{
+		c.JSON(http.StatusOK, gin.H{
 			"id":           v.ID,
 			"host":         v.Host,
 			"method":       v.Method,

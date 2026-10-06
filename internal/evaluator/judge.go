@@ -101,18 +101,6 @@ func (j *RouterJudge) capIterations(base int) int {
 	return base
 }
 
-func (j *RouterJudge) allows(name string) bool {
-	if j.functionTools == nil {
-		return true
-	}
-	for _, n := range j.functionTools {
-		if n == name {
-			return true
-		}
-	}
-	return false
-}
-
 // Judge 实现 LLMJudge：ReAct 循环内 LLM 自主调重放工具采证，FinalAnswer 为裁决 JSON。
 func (j *RouterJudge) Judge(
 	ctx context.Context,
@@ -126,12 +114,16 @@ func (j *RouterJudge) Judge(
 	}
 
 	react := runtime.NewReActRuntime()
-	if replay != nil && j.allows("replay_for_verification") {
-		_ = react.RegisterTool(newReplayTool(replay))
+	if replay != nil && registry.Allows(j.functionTools, "replay_for_verification") {
+		if err := react.RegisterTool(newReplayTool(replay)); err != nil {
+			return "", "", fmt.Errorf("judge: 注册 replay_for_verification 失败: %w", err)
+		}
 	}
 	for _, t := range j.extraTools {
-		if j.allows(t.Name()) {
-			_ = react.RegisterTool(t)
+		if registry.Allows(j.functionTools, t.Name()) {
+			if err := react.RegisterTool(t); err != nil {
+				return "", "", fmt.Errorf("judge: 注册工具 %s 失败: %w", t.Name(), err)
+			}
 		}
 	}
 
@@ -186,7 +178,7 @@ func (j *RouterJudge) systemPrompt() string {
 		sb.WriteString("你是渗透测试结果的质量裁决官：先用 replay_for_verification 复核机器证据（domain=generic 时改用 run_command 自主取证），对比基线/攻击差分后自主裁决，宁可保守。裁决后只输出一个 JSON：{\"verdict\": \"confirmed|refuted\", \"confidence\": 0.0-1.0, \"reasoning\": \"...\"}")
 	}
 	// Tier 1 与 executor 同口径：read_skill 在白名单里才宣传（宣传=事实）。
-	if len(j.skills) > 0 && j.allows("read_skill") {
+	if len(j.skills) > 0 && registry.Allows(j.functionTools, "read_skill") {
 		if idx := skill.RenderIndex(j.skills); idx != "" {
 			sb.WriteString("\n")
 			sb.WriteString(idx)
@@ -206,18 +198,13 @@ func parseVerdict(content string) (string, string, error) {
 	if content == "" {
 		return "", "", fmt.Errorf("judge: 裁决输出为空")
 	}
-	s := strings.Index(content, "{")
-	e := strings.LastIndex(content, "}")
-	if s == -1 || e <= s {
-		return "", "", fmt.Errorf("judge: 输出无 JSON: %.200s", content)
-	}
 	var v struct {
 		Verdict    string  `json:"verdict"`
 		Confidence float64 `json:"confidence"`
 		Reasoning  string  `json:"reasoning"`
 	}
-	if err := json.Unmarshal([]byte(content[s:e+1]), &v); err != nil {
-		return "", "", fmt.Errorf("judge: 解析裁决失败: %w", err)
+	if err := json.Unmarshal([]byte(llm.ExtractJSON(content)), &v); err != nil {
+		return "", "", fmt.Errorf("judge: 解析裁决失败: %w (输出: %.200s)", err, content)
 	}
 	switch v.Verdict {
 	case VerdictConfirmed, VerdictRefuted:

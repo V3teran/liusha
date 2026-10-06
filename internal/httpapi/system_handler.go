@@ -13,6 +13,7 @@ package httpapi
 
 import (
 	"context"
+	"net/http"
 
 	"github.com/gin-gonic/gin"
 
@@ -37,10 +38,10 @@ func getCompactionSettingsHandler(api SettingsAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		v, err := api.Compaction(c.Request.Context())
 		if err != nil {
-			c.JSON(500, gin.H{"error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-		c.JSON(200, gin.H{"compaction": v})
+		c.JSON(http.StatusOK, gin.H{"compaction": v})
 	}
 }
 
@@ -49,27 +50,27 @@ func putCompactionSettingsHandler(api SettingsAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var b settingstore.CompactionSettings
 		if err := c.ShouldBindJSON(&b); err != nil {
-			c.JSON(400, gin.H{"error": "请求体非法: " + err.Error()})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "请求体非法: " + err.Error()})
 			return
 		}
 		// 比例是窗口占比，须落在 (0,1]；蒸馏超时须为正秒数。快速失败给清晰中文提示。
 		if b.TriggerRatio <= 0 || b.TriggerRatio > 1 {
-			c.JSON(400, gin.H{"error": "trigger_ratio 必须在 (0, 1] 区间（触发压缩的窗口占比）"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "trigger_ratio 必须在 (0, 1] 区间（触发压缩的窗口占比）"})
 			return
 		}
 		if b.TrailingBudgetRatio <= 0 || b.TrailingBudgetRatio > 1 {
-			c.JSON(400, gin.H{"error": "trailing_budget_ratio 必须在 (0, 1] 区间（会话历史占窗口比例）"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "trailing_budget_ratio 必须在 (0, 1] 区间（会话历史占窗口比例）"})
 			return
 		}
 		if b.CompactorTimeoutSeconds <= 0 {
-			c.JSON(400, gin.H{"error": "compactor_timeout_seconds 必须 > 0（旧会话蒸馏单次 LLM 超时秒数）"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "compactor_timeout_seconds 必须 > 0（旧会话蒸馏单次 LLM 超时秒数）"})
 			return
 		}
 		if err := api.SaveCompaction(c.Request.Context(), b); err != nil {
-			c.JSON(500, gin.H{"error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-		c.JSON(200, gin.H{"compaction": b})
+		c.JSON(http.StatusOK, gin.H{"compaction": b})
 	}
 }
 
@@ -80,10 +81,10 @@ func getRuntimeSettingsHandler(api SettingsAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		v, err := api.Runtime(c.Request.Context())
 		if err != nil {
-			c.JSON(500, gin.H{"error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-		c.JSON(200, gin.H{"runtime": v})
+		c.JSON(http.StatusOK, gin.H{"runtime": v})
 	}
 }
 
@@ -92,26 +93,26 @@ func putRuntimeSettingsHandler(api SettingsAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var b settingstore.RuntimeSettings
 		if err := c.ShouldBindJSON(&b); err != nil {
-			c.JSON(400, gin.H{"error": "请求体非法: " + err.Error()})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "请求体非法: " + err.Error()})
 			return
 		}
 		if b.StepToolTimeoutSeconds <= 0 {
-			c.JSON(400, gin.H{"error": "step_tool_timeout_seconds 必须 > 0（单步工具执行兜底超时秒数）"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "step_tool_timeout_seconds 必须 > 0（单步工具执行兜底超时秒数）"})
 			return
 		}
 		if b.RunTailBytes <= 0 {
-			c.JSON(400, gin.H{"error": "run_tail_bytes 必须 > 0（stdout/stderr 截尾字节数）"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "run_tail_bytes 必须 > 0（stdout/stderr 截尾字节数）"})
 			return
 		}
 		if b.FindingsLimitInPrompt <= 0 {
-			c.JSON(400, gin.H{"error": "findings_limit_in_prompt 必须 > 0（prompt 注入 finding 的 DB 读上限）"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "findings_limit_in_prompt 必须 > 0（prompt 注入 finding 的 DB 读上限）"})
 			return
 		}
 		if err := api.SaveRuntime(c.Request.Context(), b); err != nil {
-			c.JSON(500, gin.H{"error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-		c.JSON(200, gin.H{"runtime": b})
+		c.JSON(http.StatusOK, gin.H{"runtime": b})
 	}
 }
 
@@ -122,10 +123,10 @@ func getProxyFilterSettingsHandler(api SettingsAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		v, err := api.ProxyFilter(c.Request.Context())
 		if err != nil {
-			c.JSON(500, gin.H{"error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-		c.JSON(200, gin.H{"proxy_filter": v})
+		c.JSON(http.StatusOK, gin.H{"proxy_filter": v})
 	}
 }
 
@@ -135,22 +136,22 @@ func putProxyFilterSettingsHandler(api SettingsAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var b settingstore.ProxyFilterSettings
 		if err := c.ShouldBindJSON(&b); err != nil {
-			c.JSON(400, gin.H{"error": "请求体非法: " + err.Error()})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "请求体非法: " + err.Error()})
 			return
 		}
 		// body 上限须为正（LimitReader 语义：0 会截成空 body，几乎必是误填）。
 		if b.MaxRequestBodySize <= 0 {
-			c.JSON(400, gin.H{"error": "max_request_body_size 必须 > 0（请求体切片上限字节）"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "max_request_body_size 必须 > 0（请求体切片上限字节）"})
 			return
 		}
 		if b.MaxResponseBodySize <= 0 {
-			c.JSON(400, gin.H{"error": "max_response_body_size 必须 > 0（响应体切片上限字节）"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "max_response_body_size 必须 > 0（响应体切片上限字节）"})
 			return
 		}
 		if err := api.SaveProxyFilter(c.Request.Context(), b); err != nil {
-			c.JSON(500, gin.H{"error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-		c.JSON(200, gin.H{"proxy_filter": b})
+		c.JSON(http.StatusOK, gin.H{"proxy_filter": b})
 	}
 }

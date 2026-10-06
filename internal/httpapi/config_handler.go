@@ -8,6 +8,7 @@ package httpapi
 import (
 	"context"
 	"errors"
+	"net/http"
 
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -23,10 +24,9 @@ type ConfigAPI interface {
 	ListExecutorsPaged(ctx context.Context, p agent.ListParams) ([]agent.Agent, error)
 	CountExecutors(ctx context.Context, p agent.ListParams) (int, error)
 	ExecutorByID(ctx context.Context, id string) (agent.Agent, error)
-	ExecutorByCode(ctx context.Context, code string) (agent.Agent, error)
+	AgentByCode(ctx context.Context, code string) (agent.Agent, error)
 	UpdateExecutor(ctx context.Context, code string, p agent.UpdateParams) (agent.Agent, error)
 	UpdateExecutorComplexity(ctx context.Context, id, complexity string) (agent.Agent, error)
-	DeleteExecutor(ctx context.Context, id, code string) error
 }
 
 // configPageSize 约束 executor 分页 size 上限，防超大扫描。
@@ -78,33 +78,33 @@ func listExecutorsHandler(api ConfigAPI) gin.HandlerFunc {
 		if !paged {
 			rows, err := api.ListExecutors(ctx, false)
 			if err != nil {
-				c.JSON(500, gin.H{"error": err.Error()})
+				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 				return
 			}
 			out := make([]gin.H, 0, len(rows))
 			for _, r := range rows {
 				out = append(out, executorJSON(r))
 			}
-			c.JSON(200, gin.H{"executors": out})
+			c.JSON(http.StatusOK, gin.H{"executors": out})
 			return
 		}
 		// 分页：配置管理页搜索 + 翻页，附 total。
 		params := agent.ListParams{Q: c.Query("q"), Limit: size, Offset: (page - 1) * size}
 		total, err := api.CountExecutors(ctx, params)
 		if err != nil {
-			c.JSON(500, gin.H{"error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
 		rows, err := api.ListExecutorsPaged(ctx, params)
 		if err != nil {
-			c.JSON(500, gin.H{"error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
 		out := make([]gin.H, 0, len(rows))
 		for _, r := range rows {
 			out = append(out, executorJSON(r))
 		}
-		c.JSON(200, gin.H{"executors": out, "total": total})
+		c.JSON(http.StatusOK, gin.H{"executors": out, "total": total})
 	}
 }
 
@@ -114,10 +114,10 @@ func getExecutorHandler(api ConfigAPI) gin.HandlerFunc {
 		id := c.Param("id")
 		h, err := api.ExecutorByID(c.Request.Context(), id)
 		if err != nil {
-			c.JSON(404, gin.H{"error": err.Error(), "id": id})
+			c.JSON(http.StatusNotFound, gin.H{"error": err.Error(), "id": id})
 			return
 		}
-		c.JSON(200, gin.H{"executor": executorJSON(h)})
+		c.JSON(http.StatusOK, gin.H{"executor": executorJSON(h)})
 	}
 }
 
@@ -141,11 +141,11 @@ func saveExecutorHandler(api ConfigAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var b agentBody
 		if err := c.ShouldBindJSON(&b); err != nil {
-			c.JSON(400, gin.H{"error": "请求体非法: " + err.Error()})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "请求体非法: " + err.Error()})
 			return
 		}
 		if b.Code == "" || b.Name == "" {
-			c.JSON(400, gin.H{"error": "code 与 name 不能为空"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "code 与 name 不能为空"})
 			return
 		}
 		h, err := api.UpdateExecutor(c.Request.Context(), b.Code, agent.UpdateParams{
@@ -157,10 +157,10 @@ func saveExecutorHandler(api ConfigAPI) gin.HandlerFunc {
 			Complexity:    &b.Complexity,
 		})
 		if err != nil {
-			c.JSON(500, gin.H{"error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-		c.JSON(200, gin.H{"executor": executorJSON(h)})
+		c.JSON(http.StatusOK, gin.H{"executor": executorJSON(h)})
 	}
 }
 
@@ -173,43 +173,21 @@ func updateExecutorComplexityHandler(api ConfigAPI) gin.HandlerFunc {
 			Complexity string `json:"complexity"`
 		}
 		if err := c.ShouldBindJSON(&b); err != nil {
-			c.JSON(400, gin.H{"error": "请求体非法: " + err.Error()})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "请求体非法: " + err.Error()})
 			return
 		}
 		switch b.Complexity {
 		case "simple", "medium", "complex":
 		default:
-			c.JSON(400, gin.H{"error": "非法 complexity（应为 simple|medium|complex）"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "非法 complexity（应为 simple|medium|complex）"})
 			return
 		}
 		h, err := api.UpdateExecutorComplexity(c.Request.Context(), id, b.Complexity)
 		if err != nil {
-			c.JSON(500, gin.H{"error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-		c.JSON(200, gin.H{"executor": executorJSON(h)})
-	}
-}
-
-// deleteExecutorHandler 处理 DELETE /executors/:id。
-// 被其他表外键引用时撞 DB ON DELETE RESTRICT（FK 23503）→ 409 中文提示。
-func deleteExecutorHandler(api ConfigAPI) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		id := c.Param("id")
-		h, err := api.ExecutorByID(c.Request.Context(), id)
-		if err != nil {
-			c.JSON(404, gin.H{"error": err.Error(), "id": id})
-			return
-		}
-		if err := api.DeleteExecutor(c.Request.Context(), h.ID, h.Code); err != nil {
-			if isForeignKeyViolation(err) {
-				c.JSON(409, gin.H{"error": "该操作员仍被其他配置引用，请先解除引用再删除"})
-				return
-			}
-			c.JSON(500, gin.H{"error": err.Error()})
-			return
-		}
-		c.JSON(200, gin.H{"ok": true})
+		c.JSON(http.StatusOK, gin.H{"executor": executorJSON(h)})
 	}
 }
 

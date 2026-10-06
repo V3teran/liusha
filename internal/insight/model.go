@@ -1,3 +1,5 @@
+// Package insight 提供运行期洞察（Insight）的领域模型与持久化：
+// agent 执行过程中沉淀的经验记录，按 assignment 归档、按优先级/类别检索。
 package insight
 
 import (

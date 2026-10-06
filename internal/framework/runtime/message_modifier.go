@@ -60,18 +60,9 @@ func DefaultRetryConfig() RetryConfig {
 		InitialBackoff: 100 * time.Millisecond,
 		MaxBackoff:     2 * time.Second,
 		ShouldRetry: func(err error) bool {
-			// 简单启发式：重试任何非 ValidationError 的错误
-			// 实际可根据错误类型更细致判断
-			return err != nil && !isValidationError(err)
+			return err != nil
 		},
 	}
-}
-
-// isValidationError 判断是否为数据验证错误（不应重试）。
-func isValidationError(_ error) bool {
-	// 可扩展：检查特定错误类型或消息前缀
-	// 示例：strings.Contains(err.Error(), "validation") || strings.Contains(err.Error(), "invalid")
-	return false
 }
 
 // NewMessageModifierChain 创建修改器链。
@@ -224,88 +215,6 @@ func (m *RollingWindowModifier) Modify(_ context.Context, messages []llm.Message
 	result := make([]llm.Message, 0, len(systemMessages)+len(otherMessages))
 	result = append(result, systemMessages...)
 	result = append(result, otherMessages...)
-	return result, nil
-}
-
-// TruncateModifier 截断消息历史：保留系统消息 + 最近 N 条。
-type TruncateModifier struct {
-	keepLast int
-}
-
-// NewTruncateModifier 见实现。
-
-// NewTruncateModifier 构造截断修饰器（超长历史截断）。
-func NewTruncateModifier(keepLast int) *TruncateModifier {
-	return &TruncateModifier{keepLast: keepLast}
-}
-
-// Modify 实现 TruncateModifier 的接口方法。
-
-// Modify 实现修饰器接口。
-func (m *TruncateModifier) Modify(_ context.Context, messages []llm.Message) ([]llm.Message, error) {
-	if len(messages) <= m.keepLast {
-		return messages, nil
-	}
-
-	// 提取系统消息
-	var systemMessages []llm.Message
-	var otherMessages []llm.Message
-
-	for _, msg := range messages {
-		if msg.Role == llm.RoleSystem {
-			systemMessages = append(systemMessages, msg)
-		} else {
-			otherMessages = append(otherMessages, msg)
-		}
-	}
-
-	// 保留最近 N 条非系统消息
-	if len(otherMessages) > m.keepLast {
-		otherMessages = otherMessages[len(otherMessages)-m.keepLast:]
-	}
-
-	result := make([]llm.Message, 0, len(systemMessages)+len(otherMessages))
-	result = append(result, systemMessages...)
-	result = append(result, otherMessages...)
-	return result, nil
-}
-
-// InjectionModifier 注入额外的字段或元数据到消息。
-// 示例：注入当前时间、任务上下文、用户身份等。
-type InjectionModifier struct {
-	injections map[string]string
-	// NewInjectionModifier 见实现。
-}
-
-// NewInjectionModifier 构造注入修饰器（前插系统指令）。
-func NewInjectionModifier(injections map[string]string) *InjectionModifier {
-	return &InjectionModifier{injections: injections}
-	// Modify 实现 InjectionModifier 的接口方法。
-}
-
-// Modify 实现修饰器接口。
-func (m *InjectionModifier) Modify(_ context.Context, messages []llm.Message) ([]llm.Message, error) {
-	// 简单实现：在系统消息后追加一条注入消息
-	if len(m.injections) == 0 {
-		return messages, nil
-	}
-
-	// 构建注入内容
-	injectionContent := "Context information:\n"
-	for k, v := range m.injections {
-		injectionContent += fmt.Sprintf("- %s: %s\n", k, v)
-	}
-
-	// 创建新消息副本
-	result := make([]llm.Message, len(messages)+1)
-	copy(result, messages)
-
-	// 在末尾插入注入消息
-	result[len(result)-1] = llm.Message{
-		Role:    llm.RoleSystem,
-		Content: injectionContent,
-	}
-
 	return result, nil
 }
 

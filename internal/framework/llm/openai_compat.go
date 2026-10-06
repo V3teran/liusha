@@ -111,14 +111,6 @@ func (g *openAICompatGen) GenerateWithOpts(ctx context.Context, msgs []Message, 
 	return fromOpenAIResponse(resp, g.provider, g.model), nil
 }
 
-// min 辅助函数
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
-
 // toOpenAIMessages 把内部 Message 转成 sashabaranov ChatCompletionMessage。
 //
 // Role 直接映射（system/user/assistant/tool）；assistant 的 tool_calls 与

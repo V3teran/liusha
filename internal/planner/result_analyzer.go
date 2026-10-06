@@ -22,12 +22,15 @@ func (i *Intelligence) AnalyzeResults(ctx context.Context, graph *explorationgra
 		return &ResultAnalysis{}, nil
 	}
 
-	// 1. 获取当前 Objective
+	// 1. 获取当前 Objective（同 planner/agent 口径：列表首个为当前根目标）
 	objectives, err := graph.ListNodesByKind(ctx, taskID, core.KindObjective)
-	if err != nil || len(objectives) == 0 {
-		return nil, fmt.Errorf("无法获取当前 Objective")
+	if err != nil {
+		return nil, fmt.Errorf("获取当前 Objective 失败: %w", err)
 	}
-	currentObjective := objectives[len(objectives)-1]
+	if len(objectives) == 0 {
+		return nil, fmt.Errorf("当前无 Objective 节点")
+	}
+	currentObjective := objectives[0]
 
 	// 1.5. 统计当前 Objective 下的 Actions 数量（用于多样性判断）
 	allActions, err := graph.ListNodesByKind(ctx, taskID, core.KindAction)
@@ -63,19 +66,9 @@ func (i *Intelligence) AnalyzeResults(ctx context.Context, graph *explorationgra
 
 	// 转换 NewObjectives
 	for _, obj := range response.NewObjectives {
-		priority := core.PriorityMedium
-		switch obj.Priority {
-		case "critical":
-			priority = core.PriorityCritical
-		case "high":
-			priority = core.PriorityHigh
-		case "low":
-			priority = core.PriorityLow
-		}
-
 		analysis.NewObjectives = append(analysis.NewObjectives, NewObjective{
 			Description: obj.Description,
-			Priority:    priority,
+			Priority:    explorationgraph.NormalizePriority(obj.Priority),
 			TriggeredBy: obj.TriggeredBy,
 			Reasoning:   obj.Reasoning,
 		})
@@ -83,19 +76,9 @@ func (i *Intelligence) AnalyzeResults(ctx context.Context, graph *explorationgra
 
 	// 转换 ContinuationActions
 	for _, action := range response.ContinuationActions {
-		priority := core.PriorityMedium
-		switch action.Priority {
-		case "critical":
-			priority = core.PriorityCritical
-		case "high":
-			priority = core.PriorityHigh
-		case "low":
-			priority = core.PriorityLow
-		}
-
 		analysis.ContinuationActions = append(analysis.ContinuationActions, ContinuationAction{
 			Instruction: action.Instruction,
-			Priority:    priority,
+			Priority:    explorationgraph.NormalizePriority(action.Priority),
 			TriggeredBy: action.TriggeredBy,
 			Reasoning:   action.Reasoning,
 		})
@@ -260,7 +243,7 @@ type AnalysisAction struct {
 
 // callAnalysisLLM 调用 LLM 进行分析
 func (i *Intelligence) callAnalysisLLM(ctx context.Context, prompt string) (*AnalysisResponse, error) {
-	provider, err := i.router.For(ctx, "medium")
+	provider, err := i.router.For(ctx, i.complexity)
 	if err != nil {
 		return nil, fmt.Errorf("获取 LLM provider 失败: %w", err)
 	}
@@ -280,45 +263,17 @@ func (i *Intelligence) callAnalysisLLM(ctx context.Context, prompt string) (*Ana
 		return nil, err
 	}
 
-	// 清理响应内容（移除 Markdown 代码块）
-	content := resp.Content
-	content = strings.TrimSpace(content)
+	// 截取 JSON 正文（剥掉 markdown 围栏与前后闲聊）
+	content := llm.ExtractJSON(resp.Content)
 
-	// 如果包含 Markdown 代码块标记，提取其中的 JSON
-	content = StripCodeFences(content)
-
-	// 解析 JSON
 	var analysis AnalysisResponse
 	if err := json.Unmarshal([]byte(content), &analysis); err != nil {
 		i.logger.Error().
 			Err(err).
 			Str("raw_response", resp.Content).
-			Str("cleaned_content", content).
 			Msg("解析 LLM 响应失败")
 		return nil, fmt.Errorf("解析 JSON 失败: %w", err)
 	}
 
 	return &analysis, nil
-}
-
-// StripCodeFences 剥离 LLM 回复里的 markdown code fence（``` / ```json），
-// 返回可直接 json.Unmarshal 的正文。intelligence.go 的 JSON 提取共用本实现。
-func StripCodeFences(content string) string {
-	if !strings.Contains(content, "```") {
-		return content
-	}
-	lines := strings.Split(content, "\n")
-	jsonLines := make([]string, 0, len(lines))
-	inBlock := false
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmed, "```") {
-			inBlock = !inBlock
-			continue
-		}
-		if inBlock || !strings.HasPrefix(strings.TrimSpace(content), "```") {
-			jsonLines = append(jsonLines, line)
-		}
-	}
-	return strings.Join(jsonLines, "\n")
 }

@@ -18,6 +18,7 @@ import (
 	"github.com/V3teran/liusha/internal/registry"
 	"github.com/V3teran/liusha/internal/skill"
 	"github.com/V3teran/liusha/internal/tools"
+	"github.com/V3teran/liusha/internal/tools/manifest"
 )
 
 // Engine 是基于 LLM + ReAct 的执行引擎
@@ -107,7 +108,14 @@ func (e *Engine) Execute(ctx context.Context, action explorationgraph.Node, task
 		host)
 
 	// function_tools 白名单先过滤（prompt 与 ReAct 注册共用同一结果，宣传=事实）
-	reactTools := filterToolsByName(e.registry.WrappedTools(), e.functionTools)
+	// function_tools 白名单过滤（nil=全量，空=空集——严格白名单，与 cli_tools 语义一致）。
+	// prompt 工具清单与 ReAct 注册共用同一结果。
+	var reactTools []registry.Tool
+	for _, t := range e.registry.WrappedTools() {
+		if registry.Allows(e.functionTools, t.Name()) {
+			reactTools = append(reactTools, t)
+		}
+	}
 	systemPrompt := e.buildSystemPrompt(actionData.Type, actionData.Complexity, reactTools)
 
 	// 4. 获取 LLM Provider（Router 已完成 Generator→Provider 桥接与 retry/fallback 装配）
@@ -159,10 +167,8 @@ func (e *Engine) Execute(ctx context.Context, action explorationgraph.Node, task
 		// 消息历史无限增长会顶爆上下文窗口，滚动压缩保最近 N 条（executor 窗口 15）。
 		MessageModifierChain: runtime.NewDefaultModifierChain(15),
 
-		// Checkpoint 集成（Action 级别不需要）
-		Checkpointer:     nil,
-		CheckpointPolicy: runtime.NewNeverCheckpointPolicy(),
-		TaskID:           taskID,
+		// Checkpoint 集成（Action 级别不需要：nil+nil 即禁用，见 ReActConfig 契约）
+		TaskID: taskID,
 
 		OnIteration: func(iteration int, status runtime.IterationStatus) {
 			e.logger.Debug().
@@ -221,25 +227,6 @@ func (e *Engine) Execute(ctx context.Context, action explorationgraph.Node, task
 	return attempts, nil
 }
 
-// filterToolsByName 按 function_tools 白名单过滤（nil=全量，空=空集——严格白名单，
-// 与 cli_tools 语义一致）。prompt 工具清单与 ReAct 注册共用同一结果。
-func filterToolsByName(tools []registry.Tool, names []string) []registry.Tool {
-	if names == nil {
-		return tools
-	}
-	allow := make(map[string]struct{}, len(names))
-	for _, n := range names {
-		allow[n] = struct{}{}
-	}
-	out := make([]registry.Tool, 0, len(names))
-	for _, t := range tools {
-		if _, ok := allow[t.Name()]; ok {
-			out = append(out, t)
-		}
-	}
-	return out
-}
-
 // buildSystemPrompt 组装 executor system prompt：
 //
 //	角色章程（agent.system_prompt——DB 事实源，种子 = agents/executor.md 正文，前端可调）
@@ -271,68 +258,8 @@ func (e *Engine) buildSystemPrompt(actionType, complexity string, registered []r
 	if e.toolsManifest != nil && len(e.toolsManifest.Tools) > 0 {
 		basePrompt += "**沙箱预装工具清单**（通过 run_command 调用）:\n"
 
-		// 按能力轴分组；顺序与 deployments/tool-images/pentools/tools.yaml 的分区一致
-		// （PTES 流水线序：侦察 → 发现 → 漏扫 → 注入 → … → 运行时 → 浏览器 → 通用）。
-		categoryMap := e.toolsManifest.ByCategory()
-
-		catNames := map[string]string{
-			"recon":           "侦察（资产/服务/技术栈发现）",
-			"discovery":       "内容/参数发现",
-			"vulnscan":        "自动化模板漏扫",
-			"injection":       "注入类专项",
-			"deserialization": "反序列化 payload 生成",
-			"auth":            "认证/凭证攻击",
-			"oob":             "带外回调检测",
-			"sast":            "源码静态分析",
-			"reverse":         "二进制静态逆向",
-			"pwn":             "二进制动态利用",
-			"cloud":           "云平台攻击",
-			"container":       "容器/K8s 攻击",
-			"exploitation":    "利用框架/拿初始 shell",
-			"post-exploit":    "后渗透（横向/隧道/提权）",
-			"crypto":          "密码学攻击",
-			"forensics":       "取证",
-			"stego":           "隐写术",
-			"cracking":        "哈希/密码破解",
-			"runtime":         "语言运行时（现场编译/执行）",
-			"browser":         "无头浏览器自动化",
-			"utility":         "通用胶水（HTTP/JSON/脚本）",
-		}
-
-		categoryOrder := []string{
-			"recon", "discovery", "vulnscan", "injection", "deserialization", "auth",
-			"oob", "sast", "reverse", "pwn", "cloud", "container",
-			"exploitation", "post-exploit", "crypto", "forensics", "stego",
-			"cracking", "runtime", "browser", "utility",
-		}
-
-		// 渲染：先按权威顺序，再兜底渲染清单里新出现、上表未收录的类别（防漏渲染）。
-		renderCat := func(cat string) {
-			tools, ok := categoryMap[cat]
-			if !ok || len(tools) == 0 {
-				return
-			}
-			catName := catNames[cat]
-			if catName == "" {
-				catName = cat
-			}
-			basePrompt += fmt.Sprintf("\n**%s**:\n", catName)
-			for _, tool := range tools {
-				basePrompt += fmt.Sprintf("- %s: %s\n", tool.Name, tool.Description)
-			}
-		}
-		for _, cat := range categoryOrder {
-			renderCat(cat)
-			delete(categoryMap, cat)
-		}
-		remaining := make([]string, 0, len(categoryMap))
-		for cat := range categoryMap {
-			remaining = append(remaining, cat)
-		}
-		sort.Strings(remaining)
-		for _, cat := range remaining {
-			renderCat(cat)
-		}
+		// 按能力轴分组渲染（cliToolCategoryOrder 权威序 + 未收录类别兜底）
+		basePrompt += renderCLICatalog(e.toolsManifest.ByCategory())
 
 		basePrompt += `
 **使用示例**：
@@ -425,4 +352,84 @@ func (e *Engine) getMaxIterations(complexity string) int {
 		return e.maxIt
 	}
 	return base
+}
+
+// cliToolCategoryNames 是 tools.yaml 类别 code 的中文名（prompt 渲染用；纯展示文案，非凭证）。
+var cliToolCategoryNames = map[string]string{ // #nosec G101 // 类别展示名映射，非凭证
+	"recon":           "侦察（资产/服务/技术栈发现）",
+	"discovery":       "内容/参数发现",
+	"vulnscan":        "自动化模板漏扫",
+	"injection":       "注入类专项",
+	"deserialization": "反序列化 payload 生成",
+	"auth":            "认证/凭证攻击",
+	"oob":             "带外回调检测",
+	"sast":            "源码静态分析",
+	"reverse":         "二进制静态逆向",
+	"pwn":             "二进制动态利用",
+	"cloud":           "云平台攻击",
+	"container":       "容器/K8s 攻击",
+	"exploitation":    "利用框架/拿初始 shell",
+	"post-exploit":    "后渗透（横向/隧道/提权）",
+	"crypto":          "密码学攻击",
+	"forensics":       "取证",
+	"stego":           "隐写术",
+	"cracking":        "哈希/密码破解",
+	"runtime":         "语言运行时（现场编译/执行）",
+	"browser":         "无头浏览器自动化",
+	"utility":         "通用胶水（HTTP/JSON/脚本）",
+}
+
+// cliToolCategoryOrder 是类别渲染的权威顺序，与
+// deployments/tool-images/pentools/tools.yaml 的分区一致
+// （PTES 流水线序：侦察 → 发现 → 漏扫 → 注入 → … → 运行时 → 浏览器 → 通用）。
+var cliToolCategoryOrder = []string{
+	"recon", "discovery", "vulnscan", "injection", "deserialization", "auth",
+	"oob", "sast", "reverse", "pwn", "cloud", "container",
+	"exploitation", "post-exploit", "crypto", "forensics", "stego",
+	"cracking", "runtime", "browser", "utility",
+}
+
+// renderCLICatalog 把过滤后的 CLI 工具清单按类别渲染进 prompt：
+// 先按权威顺序，再兜底渲染清单里新出现、上表未收录的类别（防漏渲染）。
+func renderCLICatalog(categoryMap map[string][]manifest.Tool) string {
+	var b strings.Builder
+	b.WriteString("**沙箱预装工具清单**（通过 run_command 调用）:\n")
+	render := func(cat string) {
+		tools, ok := categoryMap[cat]
+		if !ok || len(tools) == 0 {
+			return
+		}
+		name := cliToolCategoryNames[cat]
+		if name == "" {
+			name = cat
+		}
+		fmt.Fprintf(&b, "\n**%s**:\n", name)
+		for _, tool := range tools {
+			fmt.Fprintf(&b, "- %s: %s\n", tool.Name, tool.Description)
+		}
+	}
+	seen := make(map[string]bool, len(categoryMap))
+	for _, cat := range cliToolCategoryOrder {
+		render(cat)
+		seen[cat] = true
+	}
+	remaining := make([]string, 0, len(categoryMap))
+	for cat := range categoryMap {
+		if !seen[cat] {
+			remaining = append(remaining, cat)
+		}
+	}
+	sort.Strings(remaining)
+	for _, cat := range remaining {
+		render(cat)
+	}
+	b.WriteString(`
+**使用示例**：
+1. SQL 注入: run_command({"command": "sqlmap -u 'http://target/?id=1' --batch --dbs"})
+2. 端口扫描: run_command({"command": "nmap -sV -p80,443,8080 target.com"})
+3. 目录爆破: run_command({"command": "feroxbuster -u http://target/ -w /usr/share/wordlists/dirb/common.txt"})
+
+**重要提示**：必须实际调用工具执行测试，不要只做理论分析；每次调用后仔细分析结果再决定下一步。
+`)
+	return b.String()
 }

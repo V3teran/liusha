@@ -218,7 +218,7 @@ func (s *Store) UpsertBuiltin(ctx context.Context, sk Skill) (Skill, error) {
 		sk.Code, sk.Category, sk.Name, sk.Description, sk.Body))
 }
 
-// scanOne 扫描单行。
+// scanOne 扫描单行（ErrNoRows 原样上抛，与 agent/finding 口径一致由调用方 %w 包装）。
 func (s *Store) scanOne(row pgx.Row) (Skill, error) {
 	var sk Skill
 	err := row.Scan(

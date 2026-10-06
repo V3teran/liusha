@@ -3,11 +3,12 @@ package httpapi
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"net/http"
 	"testing"
 
 	"github.com/V3teran/liusha/internal/llminvocation"
+
+	"github.com/jackc/pgx/v5"
 )
 
 // fakeInvocations 是 InvocationsAPI 的内存实现，用于路由级单测。
@@ -48,7 +49,7 @@ func (f *fakeInvocations) CountByTask(_ context.Context, _ string, _ llminvocati
 func (f *fakeInvocations) GetByID(_ context.Context, taskID string, id int64) (llminvocation.Invocation, error) {
 	v, ok := f.byID[id]
 	if !ok || (v.TaskID != nil && *v.TaskID != taskID) {
-		return llminvocation.Invocation{}, errors.New("no rows in result set")
+		return llminvocation.Invocation{}, pgx.ErrNoRows
 	}
 	return v, nil
 }

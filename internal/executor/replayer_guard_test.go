@@ -80,9 +80,8 @@ func TestReplay_RejectsNonDiscriminativeAssert(t *testing.T) {
 
 	// 有 baseline：常规状态码放行，鉴别力交运行时差分护栏
 	withBase := `{"request":{"method":"GET","url":"` + srv.URL + `","headers":{},"body":""},"baseline":{"method":"GET","url":"` + srv.URL + `?id=1","headers":{},"body":""},"assert":{"status_code":200}}`
-	if _, err := r.Replay(context.Background(), json.RawMessage(withBase)); err == nil {
-		// 基线同样命中 → 差分护栏应拒（无鉴别力）；两种错误都合法
-	} else if !strings.Contains(err.Error(), "无鉴别力") {
+	if _, err := r.Replay(context.Background(), json.RawMessage(withBase)); err != nil &&
+		!strings.Contains(err.Error(), "无鉴别力") {
 		t.Fatalf("有 baseline 时应交差分护栏裁决: err=%v", err)
 	}
 

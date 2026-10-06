@@ -15,6 +15,7 @@ import (
 	"github.com/V3teran/liusha/internal/framework/core"
 	"github.com/V3teran/liusha/internal/framework/llm"
 	"github.com/V3teran/liusha/internal/framework/runtime"
+	"github.com/V3teran/liusha/internal/registry"
 )
 
 // Intelligence 是基于 LLM 的智能规划器
@@ -102,28 +103,20 @@ func (i *Intelligence) Plan(ctx context.Context, graph *explorationgraph.Store, 
 	}
 
 	// function_tools 白名单过滤（nil=全量，空=空集——严格白名单，与 cli_tools 语义一致）
-	allow := func(name string) bool {
-		if functionTools == nil {
-			return true
-		}
-		for _, n := range functionTools {
-			if n == name {
-				return true
-			}
-		}
-		return false
-	}
-
 	react := runtime.NewReActRuntime()
-	if allow("observe_state") {
-		_ = react.RegisterTool(NewObserveStateTool(graph))
+	if registry.Allows(functionTools, "observe_state") {
+		if err := react.RegisterTool(NewObserveStateTool(graph)); err != nil {
+			return nil, fmt.Errorf("注册 observe_state 失败: %w", err)
+		}
 	}
-	if allow("evaluate_progress") {
-		_ = react.RegisterTool(NewEvaluateProgressTool(graph))
+	if registry.Allows(functionTools, "evaluate_progress") {
+		if err := react.RegisterTool(NewEvaluateProgressTool(graph)); err != nil {
+			return nil, fmt.Errorf("注册 evaluate_progress 失败: %w", err)
+		}
 	}
 
-	// 图工具经 ctx 取 task_id（与 executor 的 action ctx 同一机制）
-	ctx = context.WithValue(ctx, "task_id", taskID) //nolint:staticcheck // 工具侧同键读取
+	// 图工具经 ctx 取 task_id（类型化 key；工具侧用 TaskIDFromContext 读取）
+	ctx = WithTaskID(ctx, taskID)
 
 	// 3. 跑 ReAct：SystemPrompt 定角色与输出契约，Objective 带状态摘要
 	result, err := react.Run(ctx, &runtime.ReActConfig{
@@ -419,7 +412,6 @@ func (i *Intelligence) buildPlanningPrompt(ctx *PlanningContext) string {
 	return sb.String()
 }
 
-// callLLM 调用 LLM 进行推理
 // buildPlannerSystemPrompt 组装规划 system prompt：
 // 角色章程（agent.system_prompt——DB 事实源，种子 = agents/planner.md 正文，前端可调）
 // + 空正文单句兜底。输出 JSON 契约由章程承载，改契约 = 改 agents/planner.md + make reseed。
@@ -446,13 +438,10 @@ func (i *Intelligence) parsePlanningResponse(content string) (*PlanningResponse,
 		return nil, fmt.Errorf("规划输出为空")
 	}
 
-	// 提取 JSON（可能被 ```json ``` 包裹）
-	jsonStart := strings.Index(content, "{")
-	jsonEnd := strings.LastIndex(content, "}")
-	if jsonStart == -1 || jsonEnd == -1 {
+	jsonContent := llm.ExtractJSON(content)
+	if jsonContent == "" {
 		return nil, fmt.Errorf("LLM 响应不包含有效 JSON")
 	}
-	jsonContent := content[jsonStart : jsonEnd+1]
 
 	var response PlanningResponse
 	if err := json.Unmarshal([]byte(jsonContent), &response); err != nil {
@@ -485,42 +474,28 @@ func filterValidDependencies(deps []string, existingIDs map[string]bool) []strin
 
 // convertProposalsToNodes 将 LLM 提案转换为探索图节点
 func (i *Intelligence) convertProposalsToNodes(ctx context.Context, graph *explorationgraph.Store, taskID string, proposals []ActionProposal) []explorationgraph.Node {
-	var nodes []explorationgraph.Node
+	// 过滤无效的依赖 ID——坏依赖（格式非法、或图里不存在的"幻影 ID"，如 LLM
+	// 照抄 prompt 里的示例 UUID）会把 Action 永久卡 blocked，进而死锁全图。
+	// 已知 action 集整批查一次（查不到就不做存在性过滤，退回纯格式校验）。
+	existing, exErr := graph.ListNodesByKind(ctx, taskID, core.KindAction)
+	if exErr != nil {
+		i.logger.Warn().Err(exErr).Str("task_id", taskID).
+			Msg("查询已有 Action 失败，本轮跳过依赖存在性过滤（仅格式校验）")
+		existing = nil
+	}
+	existingIDs := make(map[string]bool, len(existing))
+	for _, a := range existing {
+		existingIDs[a.ID] = true
+	}
 
+	var nodes []explorationgraph.Node
 	for _, proposal := range proposals {
 		// 生成节点 ID
 		actionID := uuid.New().String()
 
-		// 转换复杂度
-		complexity := explorationgraph.ComplexitySimple
-		switch proposal.Complexity {
-		case "moderate":
-			complexity = explorationgraph.ComplexityModerate
-		case "complex":
-			complexity = explorationgraph.ComplexityComplex
-		}
+		complexity := explorationgraph.NormalizeComplexity(proposal.Complexity)
+		priority := explorationgraph.NormalizePriority(proposal.Priority)
 
-		// 转换优先级
-		priority := explorationgraph.PriorityMedium
-		switch proposal.Priority {
-		case "critical":
-			priority = explorationgraph.PriorityCritical
-		case "high":
-			priority = explorationgraph.PriorityHigh
-		case "low":
-			priority = explorationgraph.PriorityLow
-		}
-
-		// 过滤无效的依赖 ID——坏依赖（格式非法、或图里不存在的"幻影 ID"，如 LLM
-		// 照抄 prompt 里的示例 UUID）会把 Action 永久卡 blocked，进而死锁全图。
-		existing, exErr := graph.ListNodesByKind(ctx, taskID, core.KindAction)
-		if exErr != nil {
-			existing = nil // 查不到就不做存在性过滤，退回纯格式校验
-		}
-		existingIDs := make(map[string]bool, len(existing))
-		for _, a := range existing {
-			existingIDs[a.ID] = true
-		}
 		validDependsOn := filterValidDependencies(proposal.DependsOn, existingIDs)
 		if len(validDependsOn) < len(proposal.DependsOn) {
 			for _, depID := range proposal.DependsOn {
@@ -572,172 +547,4 @@ func (i *Intelligence) convertProposalsToNodes(ctx context.Context, graph *explo
 	}
 
 	return nodes
-}
-
-// ExtractObjectivesFromResults 从 Result 节点中提取新的探索目标
-func (i *Intelligence) ExtractObjectivesFromResults(ctx context.Context, _ *explorationgraph.Store, taskID string, results []explorationgraph.Node) ([]NewObjective, error) {
-	i.logger.Info().
-		Str("task_id", taskID).
-		Int("result_count", len(results)).
-		Msg("开始从 Result 提取探索目标")
-
-	if len(results) == 0 {
-		return []NewObjective{}, nil
-	}
-
-	// 1. 构建提取 prompt
-	prompt := i.buildObjectiveExtractionPrompt(results)
-
-	// 2. 调用 LLM
-	response, err := i.callObjectiveExtractionLLM(ctx, prompt)
-	if err != nil {
-		return nil, fmt.Errorf("LLM 推理失败: %w", err)
-	}
-
-	// 3. 如果没有提取到新目标
-	if len(response.Objectives) == 0 {
-		i.logger.Info().Msg("LLM 未提取到新探索目标")
-		return []NewObjective{}, nil
-	}
-
-	// 4. 转换为 NewObjective
-	objectives := make([]NewObjective, 0, len(response.Objectives))
-	for _, obj := range response.Objectives {
-		priority := core.PriorityMedium
-		switch obj.Priority {
-		case "critical":
-			priority = core.PriorityCritical
-		case "high":
-			priority = core.PriorityHigh
-		case "low":
-			priority = core.PriorityLow
-		}
-
-		objectives = append(objectives, NewObjective{
-			Description: obj.Description,
-			Priority:    priority,
-			TriggeredBy: obj.TriggeredBy,
-			Reasoning:   obj.Reasoning,
-		})
-
-		i.logger.Debug().
-			Str("description", obj.Description).
-			Str("priority", string(priority)).
-			Int("triggered_by_count", len(obj.TriggeredBy)).
-			Msg("提取到探索目标")
-	}
-
-	i.logger.Info().
-		Int("objective_count", len(objectives)).
-		Msg("成功提取探索目标")
-
-	return objectives, nil
-}
-
-// buildObjectiveExtractionPrompt 构建目标提取 prompt
-func (i *Intelligence) buildObjectiveExtractionPrompt(results []explorationgraph.Node) string {
-	var sb strings.Builder
-
-	sb.WriteString("你是一个探索规划专家。根据已有的探索结果，提取新的探索目标。\n\n")
-
-	sb.WriteString("## 核心原则\n")
-	sb.WriteString("- 这是一个持续探索的任务，永远假设还有未知领域需要探索\n")
-	sb.WriteString("- 从每个结果中寻找新的线索、新的方向、新的可能性\n")
-	sb.WriteString("- 深度优先：对已有发现进行深入探索\n")
-	sb.WriteString("- 广度扩展：从已知点扩展到相关领域\n\n")
-
-	sb.WriteString("## 已有探索结果\n")
-	for i, result := range results {
-		var content map[string]interface{}
-		if err := json.Unmarshal(result.Content, &content); err != nil {
-			fmt.Fprintf(&sb, "%d. [Result ID: %s] (解析失败: %v)\n\n", i+1, result.ID, err)
-			continue
-		}
-
-		fmt.Fprintf(&sb, "%d. [Result ID: %s]\n", i+1, result.ID)
-		if summary, ok := content["summary"].(string); ok {
-			fmt.Fprintf(&sb, "   摘要: %s\n", summary)
-		}
-		if status, ok := content["status"].(string); ok {
-			fmt.Fprintf(&sb, "   状态: %s\n", status)
-		}
-		sb.WriteString("\n")
-	}
-
-	sb.WriteString("## 你的任务\n")
-	sb.WriteString("分析上述结果，提取新的探索目标。每个目标应该：\n")
-	sb.WriteString("1. 基于某个或多个结果中的线索\n")
-	sb.WriteString("2. 有明确的探索方向和理由\n")
-	sb.WriteString("3. 有合理的优先级\n\n")
-
-	sb.WriteString("## 输出格式\n")
-	sb.WriteString("请以 JSON 格式输出（必须是有效的 JSON）：\n")
-	sb.WriteString("```json\n")
-	sb.WriteString("{\n")
-	sb.WriteString("  \"objectives\": [\n")
-	sb.WriteString("    {\n")
-	sb.WriteString("      \"description\": \"探索目标的描述\",\n")
-	sb.WriteString("      \"priority\": \"critical/high/medium/low\",\n")
-	sb.WriteString("      \"reasoning\": \"为什么需要这个目标\",\n")
-	sb.WriteString("      \"triggered_by\": [\"result_id_1\", \"result_id_2\"]\n")
-	sb.WriteString("    }\n")
-	sb.WriteString("  ]\n")
-	sb.WriteString("}\n")
-	sb.WriteString("```\n")
-
-	return sb.String()
-}
-
-// ObjectiveExtractionResponse LLM 返回的目标提取结果
-type ObjectiveExtractionResponse struct {
-	Objectives []struct {
-		Description string   `json:"description"`
-		Priority    string   `json:"priority"`
-		Reasoning   string   `json:"reasoning"`
-		TriggeredBy []string `json:"triggered_by"`
-	} `json:"objectives"`
-}
-
-// callObjectiveExtractionLLM 调用 LLM 提取目标
-func (i *Intelligence) callObjectiveExtractionLLM(ctx context.Context, prompt string) (*ObjectiveExtractionResponse, error) {
-	provider, err := i.router.For(ctx, i.complexity)
-	if err != nil {
-		return nil, fmt.Errorf("获取 LLM provider 失败: %w", err)
-	}
-
-	messages := []llm.Message{
-		{
-			Role:    llm.RoleUser,
-			Content: prompt,
-		},
-	}
-
-	resp, err := provider.Complete(ctx, llm.Request{
-		Messages:  messages,
-		MaxTokens: 2000,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("LLM complete 失败: %w", err)
-	}
-
-	text := resp.Content
-	i.logger.Debug().Str("raw_response", text).Msg("LLM 原始响应")
-
-	// 提取 JSON（去除 markdown 代码块）
-	start := strings.Index(text, "```json")
-	if start != -1 {
-		start += 7
-		end := strings.Index(text[start:], "```")
-		if end != -1 {
-			text = text[start : start+end]
-		}
-	}
-
-	// 解析 JSON
-	var response ObjectiveExtractionResponse
-	if err := json.Unmarshal([]byte(text), &response); err != nil {
-		return nil, fmt.Errorf("解析 LLM 响应失败: %w, 原始响应: %s", err, text)
-	}
-
-	return &response, nil
 }

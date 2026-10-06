@@ -161,103 +161,138 @@ func (t *httpRequestTool) applyStoredCredentials(ctx context.Context, a *httpReq
 		return nil // 库异常/空：不阻塞请求，会话头走 jar 兜底
 	}
 
-	// task 域过滤：只注入本 task 的自动会话身份 + host 级共享身份（无 task: 前缀）。
-	// 其他 task 的会话身份（task:别的任务:session）对本人不可见——共享库下的隔离边界。
-	mine := sessionIdentityName(t.deps.TaskID)
+	ids = selectApplicableIdentities(ids, t.deps.TaskID, a.Identity)
+	if len(ids) == 0 {
+		return nil
+	}
+	sort.Slice(ids, func(i, j int) bool { return ids[i].Name < ids[j].Name })
+
+	appliedKeys := map[string]bool{} // "pos|key" 已注入（跨身份去重）
+	var applied []appliedCredential
+	for _, id := range ids {
+		for _, c := range id.Credentials {
+			if ac, ok := t.applyOneCredential(a, id.Name, c, appliedKeys); ok {
+				applied = append(applied, ac)
+			}
+		}
+	}
+	return applied
+}
+
+// selectApplicableIdentities 做两层过滤：task 域隔离（只保留本 task 的自动会话身份 +
+// host 级共享身份，其他 task 的会话身份不可见——共享库下的隔离边界）与显式身份挑选。
+func selectApplicableIdentities(ids []credential.Identity, taskID string, identity *string) []credential.Identity {
+	mine := sessionIdentityName(taskID)
 	filtered := ids[:0]
 	for _, id := range ids {
 		if strings.HasPrefix(id.Name, sessionIdentityPrefix) && id.Name != mine {
 			continue
 		}
 		// 如果指定了 identity，只保留该身份
-		if a.Identity != nil && id.Name != *a.Identity {
+		if identity != nil && id.Name != *identity {
 			continue
 		}
 		filtered = append(filtered, id)
 	}
-	ids = filtered
-	if len(ids) == 0 {
-		return nil
-	}
-	sort.Slice(ids, func(i, j int) bool { return ids[i].Name < ids[j].Name })
+	return filtered
+}
 
-	var applied []appliedCredential
-	hasExplicit := func(key string) bool {
-		for k := range a.Headers {
-			if strings.EqualFold(k, key) {
-				return true
-			}
-		}
-		return false
+// applyOneCredential 按凭证类型（headers/query/body）注入一条凭证；
+// 已注入过（跨身份去重）或类型不适用时返回 ok=false。
+func (t *httpRequestTool) applyOneCredential(a *httpRequestArgs, identityName string, c credential.Credential, appliedKeys map[string]bool) (appliedCredential, bool) {
+	switch c.Type {
+	case credential.TypeHeaders:
+		return t.applyHeaderCredential(a, identityName, c, appliedKeys)
+	case credential.TypeQuery:
+		return t.applyQueryCredential(a, identityName, c, appliedKeys)
+	case credential.TypeBody:
+		return t.applyBodyCredential(a, identityName, c, appliedKeys)
+	default:
+		return appliedCredential{}, false
 	}
-	appliedKeys := map[string]bool{} // "pos|key" 已注入（跨身份去重）
+}
 
-	for _, id := range ids {
-		for _, c := range id.Credentials {
-			switch c.Type {
-			case credential.TypeHeaders:
-				if hasExplicit(c.Key) || appliedKeys["h|"+strings.ToLower(c.Key)] {
-					continue
-				}
-				if a.Headers == nil {
-					a.Headers = map[string]string{}
-				}
-				a.Headers[c.Key] = c.Value
-				appliedKeys["h|"+strings.ToLower(c.Key)] = true
-				applied = append(applied, appliedCredential{Identity: id.Name, Position: "headers", Key: c.Key})
-			case credential.TypeQuery:
-				if appliedKeys["q|"+c.Key] {
-					continue
-				}
-				u, pErr := url.Parse(a.URL)
-				if pErr != nil {
-					continue
-				}
-				q := u.Query()
-				if _, exists := q[c.Key]; exists {
-					appliedKeys["q|"+c.Key] = true // URL 里已有（含显式）视为覆盖
-					continue
-				}
-				q.Set(c.Key, c.Value)
-				u.RawQuery = q.Encode()
-				a.URL = u.String()
-				appliedKeys["q|"+c.Key] = true
-				applied = append(applied, appliedCredential{Identity: id.Name, Position: "query", Key: c.Key})
-			case credential.TypeBody:
-				if appliedKeys["b|"+c.Key] {
-					continue
-				}
-				// 仅 form-urlencoded 体可安全注入；显式 JSON 等类型不动（防破坏结构）。
-				ct := ""
-				for k, v := range a.Headers {
-					if strings.EqualFold(k, "Content-Type") {
-						ct = v
-					}
-				}
-				if ct != "" && !strings.Contains(strings.ToLower(ct), "urlencoded") {
-					continue
-				}
-				vals, pErr := url.ParseQuery(a.Body)
-				if pErr != nil {
-					continue // 非 form 形态，跳过
-				}
-				if _, exists := vals[c.Key]; exists {
-					appliedKeys["b|"+c.Key] = true
-					continue
-				}
-				vals.Set(c.Key, c.Value)
-				a.Body = vals.Encode()
-				if ct == "" && a.Headers != nil {
-					a.Headers["Content-Type"] = "application/x-www-form-urlencoded"
-				} else if a.Headers == nil {
-					a.Headers = map[string]string{"Content-Type": "application/x-www-form-urlencoded"}
-				}
-				appliedKeys["b|"+c.Key] = true
-				applied = append(applied, appliedCredential{Identity: id.Name, Position: "body", Key: c.Key})
-			}
+// hasExplicitHeader 报告请求是否已显式携带同名头（大小写不敏感）。
+func hasExplicitHeader(headers map[string]string, key string) bool {
+	for k := range headers {
+		if strings.EqualFold(k, key) {
+			return true
 		}
 	}
-	return applied
+	return false
+}
+
+// contentTypeOf 取请求头的 Content-Type 值（大小写不敏感；无则空串）。
+func contentTypeOf(headers map[string]string) string {
+	for k, v := range headers {
+		if strings.EqualFold(k, "Content-Type") {
+			return v
+		}
+	}
+	return ""
+}
+
+// applyHeaderCredential 注入 header 类凭证（显式同名头优先，不覆盖）。
+func (t *httpRequestTool) applyHeaderCredential(a *httpRequestArgs, identityName string, c credential.Credential, appliedKeys map[string]bool) (appliedCredential, bool) {
+	if hasExplicitHeader(a.Headers, c.Key) || appliedKeys["h|"+strings.ToLower(c.Key)] {
+		return appliedCredential{}, false
+	}
+	if a.Headers == nil {
+		a.Headers = map[string]string{}
+	}
+	a.Headers[c.Key] = c.Value
+	appliedKeys["h|"+strings.ToLower(c.Key)] = true
+	return appliedCredential{Identity: identityName, Position: "headers", Key: c.Key}, true
+}
+
+// applyQueryCredential 注入 query 类凭证（URL 已有同名参数则视为覆盖，不重复注入）。
+func (t *httpRequestTool) applyQueryCredential(a *httpRequestArgs, identityName string, c credential.Credential, appliedKeys map[string]bool) (appliedCredential, bool) {
+	if appliedKeys["q|"+c.Key] {
+		return appliedCredential{}, false
+	}
+	u, pErr := url.Parse(a.URL)
+	if pErr != nil {
+		return appliedCredential{}, false
+	}
+	q := u.Query()
+	if _, exists := q[c.Key]; exists {
+		appliedKeys["q|"+c.Key] = true
+		return appliedCredential{}, false
+	}
+	q.Set(c.Key, c.Value)
+	u.RawQuery = q.Encode()
+	a.URL = u.String()
+	appliedKeys["q|"+c.Key] = true
+	return appliedCredential{Identity: identityName, Position: "query", Key: c.Key}, true
+}
+
+// applyBodyCredential 注入 body 类凭证（仅 form-urlencoded 体可安全注入；
+// 显式 JSON 等类型不动，防破坏结构）。
+func (t *httpRequestTool) applyBodyCredential(a *httpRequestArgs, identityName string, c credential.Credential, appliedKeys map[string]bool) (appliedCredential, bool) {
+	if appliedKeys["b|"+c.Key] {
+		return appliedCredential{}, false
+	}
+	ct := contentTypeOf(a.Headers)
+	if ct != "" && !strings.Contains(strings.ToLower(ct), "urlencoded") {
+		return appliedCredential{}, false
+	}
+	vals, pErr := url.ParseQuery(a.Body)
+	if pErr != nil {
+		return appliedCredential{}, false // 非 form 形态，跳过
+	}
+	if _, exists := vals[c.Key]; exists {
+		appliedKeys["b|"+c.Key] = true
+		return appliedCredential{}, false
+	}
+	vals.Set(c.Key, c.Value)
+	a.Body = vals.Encode()
+	if ct == "" && a.Headers != nil {
+		a.Headers["Content-Type"] = "application/x-www-form-urlencoded"
+	} else if a.Headers == nil {
+		a.Headers = map[string]string{"Content-Type": "application/x-www-form-urlencoded"}
+	}
+	appliedKeys["b|"+c.Key] = true
+	return appliedCredential{Identity: identityName, Position: "body", Key: c.Key}, true
 }
 
 // syncSessionToStore 把当前会话 Cookie 头合并写入凭证库保留身份 "session"（③B：
@@ -294,7 +329,7 @@ func (t *httpRequestTool) syncSessionToStore(ctx context.Context, host string) {
 	}
 	kept := session.Credentials[:0:0]
 	for _, c := range session.Credentials {
-		if !(c.Type == credential.TypeHeaders && c.Key == "Cookie") {
+		if c.Type != credential.TypeHeaders || c.Key != "Cookie" {
 			kept = append(kept, c)
 		}
 	}

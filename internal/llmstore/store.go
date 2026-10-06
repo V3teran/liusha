@@ -129,7 +129,7 @@ func (s *Store) ProviderForRole(ctx context.Context, role string) (llmcfg.Provid
 	}
 	// role → provider：经 llmcfg.AgentComplexity 代码映射收敛到档位（inspector/compactor 等旁路
 	// role 落轻档）。agent.complexity 不在此查——认知循环四 agent 的档位由 cognition 经
-	// cfgcache 直读直传 router.For，不走本 role 路由。
+	// cfgstore 直读直传 router.For，不走本 role 路由。
 	key := routing.ProviderKeyForRole(role)
 	if key == "" {
 		return llmcfg.Provider{}, &UnresolvedError{Role: role}

@@ -9,7 +9,7 @@ import (
 	"github.com/V3teran/liusha/internal/skillstore"
 )
 
-// fakeSource 是 SkillSource 的可编程桩：预置 skill 集，可注入错误。
+// fakeSource 是 Source 的可编程桩：预置 skill 集，可注入错误。
 type fakeSource struct {
 	skills []skillstore.Skill
 	err    error

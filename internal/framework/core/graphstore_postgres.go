@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"regexp"
 	"strings"
 	"time"
 
@@ -33,7 +32,7 @@ import (
 // 这些字段通过 Metadata 传递，或使用合理的默认值。
 type PostgresGraphStore struct {
 	pool      *pgxpool.Pool
-	nodeTable string // 节点表名（默认 exploration_node；可经 NewPostgresGraphStoreWithTables 配置）
+	nodeTable string // 节点表名（默认 exploration_node）
 	edgeTable string // 边表名（默认 exploration_edge）
 }
 
@@ -46,18 +45,6 @@ const (
 // NewPostgresGraphStore 创建新的 PostgreSQL GraphStore（默认探索图表名）。
 func NewPostgresGraphStore(pool *pgxpool.Pool) *PostgresGraphStore {
 	return &PostgresGraphStore{pool: pool, nodeTable: defaultNodeTable, edgeTable: defaultEdgeTable}
-}
-
-// identRe 合法 SQL 标识符白名单（表名不能参数化，拼 SQL 前校验防注入）。
-var identRe = regexp.MustCompile(`^[a-z_][a-z0-9_]*$`)
-
-// NewPostgresGraphStoreWithTables 用自定义表名创建 GraphStore——通用图存储内核
-// 不再钉死在单一业务 schema 上（其他领域可复用同一内核 + 各自的表）。
-func NewPostgresGraphStoreWithTables(pool *pgxpool.Pool, nodeTable, edgeTable string) (*PostgresGraphStore, error) {
-	if !identRe.MatchString(nodeTable) || !identRe.MatchString(edgeTable) {
-		return nil, fmt.Errorf("graphstore: 非法表名 %q/%q（仅 [a-z_][a-z0-9_]*）", nodeTable, edgeTable)
-	}
-	return &PostgresGraphStore{pool: pool, nodeTable: nodeTable, edgeTable: edgeTable}, nil
 }
 
 // CreateNode 创建新节点。

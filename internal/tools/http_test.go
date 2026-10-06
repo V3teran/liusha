@@ -203,7 +203,7 @@ func (f *fakeCredsProvider) GetIdentitiesByHost(_ context.Context, host string) 
 	defer f.mu.Unlock()
 	return f.byHost[host], f.getErr
 }
-func (f *fakeCredsProvider) List(ctx context.Context, host string) (map[string][]credential.Identity, error) {
+func (f *fakeCredsProvider) List(_ context.Context, _ string) (map[string][]credential.Identity, error) {
 	return nil, nil
 }
 func (f *fakeCredsProvider) Delete(_ context.Context, _ string) error { return nil }

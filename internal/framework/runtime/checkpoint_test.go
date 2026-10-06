@@ -231,14 +231,9 @@ func TestReActRuntime_CheckpointPolicy(t *testing.T) {
 			expectedSaveCount: 1, // 3次迭代，每2次保存 = 第2次保存
 		},
 		{
-			name:              "AlwaysPolicy",
-			policy:            NewAlwaysCheckpointPolicy(),
-			expectedSaveCount: 3, // 每次迭代都保存
-		},
-		{
-			name:              "NeverPolicy",
-			policy:            NewNeverCheckpointPolicy(),
-			expectedSaveCount: 0, // 从不保存
+			name:              "NilPolicy_Disabled",
+			policy:            nil,
+			expectedSaveCount: 0, // nil 策略 = 不保存（禁用检查点）
 		},
 	}
 

@@ -174,26 +174,29 @@ func shellJoin(parts ...string) string {
 	return strings.Join(quoted, " ")
 }
 
-func (t *driveBrowserTool) Execute(ctx context.Context, args json.RawMessage) (registry.ToolResult, error) {
-	var a struct {
-		Action      string `json:"action"`
-		URL         string `json:"url"`
-		Index       *int   `json:"index"`
-		X           *int   `json:"x"`
-		Y           *int   `json:"y"`
-		Text        string `json:"text"`
-		By          string `json:"by"`
-		TimeoutMs   int    `json:"timeout_ms"`
-		Keys        string `json:"keys"`
-		Direction   string `json:"direction"`
-		Amount      *int   `json:"amount"`
-		JS          string `json:"js"`
-		Get         string `json:"get"`
-		Identity    string `json:"identity"`
-		Instruction string `json:"instruction"`
+// browserCmdArgs 是 drive_browser 的参数（字段与 browser-svc.py 子命令约定对应）。
+type browserCmdArgs struct {
+	Action      string `json:"action"`
+	URL         string `json:"url"`
+	Index       *int   `json:"index"`
+	X           *int   `json:"x"`
+	Y           *int   `json:"y"`
+	Text        string `json:"text"`
+	By          string `json:"by"`
+	TimeoutMs   int    `json:"timeout_ms"`
+	Keys        string `json:"keys"`
+	Direction   string `json:"direction"`
+	Amount      *int   `json:"amount"`
+	JS          string `json:"js"`
+	Get         string `json:"get"`
+	Identity    string `json:"identity"`
+	Instruction string `json:"instruction"`
 
-		TimeoutSeconds int `json:"timeout_seconds"`
-	}
+	TimeoutSeconds int `json:"timeout_seconds"`
+}
+
+func (t *driveBrowserTool) Execute(ctx context.Context, args json.RawMessage) (registry.ToolResult, error) {
+	var a browserCmdArgs
 	if err := json.Unmarshal(args, &a); err != nil {
 		return registry.ToolResult{Error: "drive_browser: 解析参数失败: " + err.Error()}, nil
 	}
@@ -204,83 +207,11 @@ func (t *driveBrowserTool) Execute(ctx context.Context, args json.RawMessage) (r
 	if a.TimeoutSeconds <= 0 {
 		a.TimeoutSeconds = defaultCommandTimeout
 	}
-	itoa := func(p *int) string {
-		if p == nil {
-			return ""
-		}
-		return strconv.Itoa(*p)
-	}
 
-	// 按子命令拼接参数（与 browser-svc.py 的 argv 约定一一对应）
-	var argParts string
-	switch a.Action {
-	case "open":
-		if a.URL == "" {
-			return registry.ToolResult{Error: "drive_browser: open 需要 url"}, nil
-		}
-		argParts = shellJoin(a.URL)
-	case "state", "back", "screenshot":
-		// 无参数
-	case "click":
-		if a.X != nil && a.Y != nil {
-			argParts = shellJoin(strconv.Itoa(*a.X), strconv.Itoa(*a.Y))
-		} else if a.Index != nil {
-			argParts = shellJoin(strconv.Itoa(*a.Index))
-		} else {
-			return registry.ToolResult{Error: "drive_browser: click 需要 index（或 x+y 坐标）"}, nil
-		}
-	case "input", "select":
-		if a.Index == nil || a.Text == "" {
-			return registry.ToolResult{Error: "drive_browser: " + a.Action + " 需要 index 和 text"}, nil
-		}
-		argParts = shellJoin(strconv.Itoa(*a.Index), a.Text)
-	case "type":
-		if a.Text == "" {
-			return registry.ToolResult{Error: "drive_browser: type 需要 text"}, nil
-		}
-		argParts = shellJoin(a.Text)
-	case "hover", "dblclick", "rightclick":
-		if a.Index == nil {
-			return registry.ToolResult{Error: "drive_browser: " + a.Action + " 需要 index"}, nil
-		}
-		argParts = shellJoin(strconv.Itoa(*a.Index))
-	case "scroll":
-		dir := a.Direction
-		if dir == "" {
-			dir = "down"
-		}
-		argParts = shellJoin(dir, itoa(a.Amount))
-	case "keys":
-		if a.Keys == "" {
-			return registry.ToolResult{Error: "drive_browser: keys 需要 keys（如 Enter）"}, nil
-		}
-		argParts = shellJoin(a.Keys)
-	case "wait":
-		if a.Text == "" {
-			return registry.ToolResult{Error: "drive_browser: wait 需要 text（selector 或 text 条件值）"}, nil
-		}
-		by := a.By
-		if by == "" {
-			by = "text"
-		}
-		tm := a.TimeoutMs
-		if tm <= 0 {
-			tm = 5000
-		}
-		argParts = shellJoin(by, a.Text, "--timeout-ms", strconv.Itoa(tm))
-	case "eval":
-		if a.JS == "" {
-			return registry.ToolResult{Error: "drive_browser: eval 需要 js 表达式"}, nil
-		}
-		argParts = shellJoin(a.JS)
-	case "get":
-		g := a.Get
-		if g == "" {
-			g = "html"
-		}
-		argParts = shellJoin(g)
-	default:
-		return registry.ToolResult{Error: "drive_browser: 未知 action " + a.Action}, nil
+	// 按子命令拼接参数（与 browser-svc.py 的 argv 约定一一对应；参数缺失即拒绝）
+	argParts, errMsg := a.buildArgParts()
+	if errMsg != "" {
+		return registry.ToolResult{Error: errMsg}, nil
 	}
 
 	// 身份/动作经环境变量注入：
@@ -380,6 +311,87 @@ func (t *driveBrowserTool) Execute(ctx context.Context, args json.RawMessage) (r
 			Detail:   output,
 		},
 	}, nil
+}
+
+// buildArgParts 按子命令拼接 argv 参数段；参数缺失返回 errMsg（非空即拒绝执行）。
+func (a *browserCmdArgs) buildArgParts() (string, string) {
+	itoa := func(p *int) string {
+		if p == nil {
+			return ""
+		}
+		return strconv.Itoa(*p)
+	}
+	switch a.Action {
+	case "open":
+		if a.URL == "" {
+			return "", "drive_browser: open 需要 url"
+		}
+		return shellJoin(a.URL), ""
+	case "state", "back", "screenshot":
+		// 无参数
+	case "click":
+		switch {
+		case a.X != nil && a.Y != nil:
+			return shellJoin(strconv.Itoa(*a.X), strconv.Itoa(*a.Y)), ""
+		case a.Index != nil:
+			return shellJoin(strconv.Itoa(*a.Index)), ""
+		default:
+			return "", "drive_browser: click 需要 index（或 x+y 坐标）"
+		}
+	case "input", "select":
+		if a.Index == nil || a.Text == "" {
+			return "", "drive_browser: " + a.Action + " 需要 index 和 text"
+		}
+		return shellJoin(strconv.Itoa(*a.Index), a.Text), ""
+	case "type":
+		if a.Text == "" {
+			return "", "drive_browser: type 需要 text"
+		}
+		return shellJoin(a.Text), ""
+	case "hover", "dblclick", "rightclick":
+		if a.Index == nil {
+			return "", "drive_browser: " + a.Action + " 需要 index"
+		}
+		return shellJoin(strconv.Itoa(*a.Index)), ""
+	case "scroll":
+		dir := a.Direction
+		if dir == "" {
+			dir = "down"
+		}
+		return shellJoin(dir, itoa(a.Amount)), ""
+	case "keys":
+		if a.Keys == "" {
+			return "", "drive_browser: keys 需要 keys（如 Enter）"
+		}
+		return shellJoin(a.Keys), ""
+	case "wait":
+		if a.Text == "" {
+			return "", "drive_browser: wait 需要 text（selector 或 text 条件值）"
+		}
+		by := a.By
+		if by == "" {
+			by = "text"
+		}
+		tm := a.TimeoutMs
+		if tm <= 0 {
+			tm = 5000
+		}
+		return shellJoin(by, a.Text, "--timeout-ms", strconv.Itoa(tm)), ""
+	case "eval":
+		if a.JS == "" {
+			return "", "drive_browser: eval 需要 js 表达式"
+		}
+		return shellJoin(a.JS), ""
+	case "get":
+		g := a.Get
+		if g == "" {
+			g = "html"
+		}
+		return shellJoin(g), ""
+	default:
+		return "", "drive_browser: 未知 action " + a.Action
+	}
+	return "", ""
 }
 
 func orDash(s string) string {

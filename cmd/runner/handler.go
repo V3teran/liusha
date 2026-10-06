@@ -12,9 +12,9 @@ import (
 
 	"github.com/V3teran/liusha/internal/agentrun"
 	"github.com/V3teran/liusha/internal/bus"
-	cfgcache "github.com/V3teran/liusha/internal/cache"
 	"github.com/V3teran/liusha/internal/config"
 	"github.com/V3teran/liusha/internal/config/setting"
+	cfgstore "github.com/V3teran/liusha/internal/configstore"
 	"github.com/V3teran/liusha/internal/controlplane"
 	"github.com/V3teran/liusha/internal/conversation"
 	"github.com/V3teran/liusha/internal/corpus"
@@ -61,10 +61,10 @@ type handler struct {
 	// 工具装配依赖（与 prompt 拼装共用）
 	creds         credential.Provider
 	toolCalls     *toolinvocation.Store
-	skills        *skill.StoreReader // skill 渐进式加载后端（DB 事实源 + cfgcache 三级缓存）；cognition 按 agent.skills 声明建白名单视图
+	skills        *skill.StoreReader // skill 渐进式加载后端（DB 事实源 + cfgstore 三级缓存）；cognition 按 agent.skills 声明建白名单视图
 	toolsManifest *manifest.Manifest
 
-	cfgStore *cfgcache.Store
+	cfgStore *cfgstore.Store
 
 	conversations  *conversation.Store
 	eventPublisher *scanstream.Publisher
@@ -133,13 +133,12 @@ func (h handler) onboard(ctx context.Context, _, taskID, brief string) string {
 				h.logger.Error().Err(err).Str("task_id", taskID).
 					Str("locator", ref.Locator).Msg("❌ 创建 objective 节点失败 - 任务将无法正常执行")
 				return taskID // 返回原 taskID，但已记录严重错误
-			} else {
-				h.logger.Info().
-					Str("task_id", taskID).
-					Str("objective_id", node.ID).
-					Str("locator", ref.Locator).
-					Msg("✅ Objective 节点创建成功")
 			}
+			h.logger.Info().
+				Str("task_id", taskID).
+				Str("objective_id", node.ID).
+				Str("locator", ref.Locator).
+				Msg("✅ Objective 节点创建成功")
 		}
 	} else {
 		h.logger.Warn().

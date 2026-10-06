@@ -8,6 +8,7 @@ package httpapi
 
 import (
 	"context"
+	"net/http"
 
 	"github.com/gin-gonic/gin"
 
@@ -35,7 +36,7 @@ func listToolsHandler(api ToolCatalogAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		kind := cfgtool.Kind(c.Query("kind"))
 		if kind != "" && kind != cfgtool.KindFunction && kind != cfgtool.KindCLI {
-			c.JSON(400, gin.H{"error": "非法 kind（应为 function|cli 或留空）"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "非法 kind（应为 function|cli 或留空）"})
 			return
 		}
 		params := cfgtool.ListParams{Q: c.Query("q"), Kind: kind}
@@ -48,19 +49,19 @@ func listToolsHandler(api ToolCatalogAPI) gin.HandlerFunc {
 		ctx := c.Request.Context()
 		total, err := api.Count(ctx, params)
 		if err != nil {
-			c.JSON(500, gin.H{"error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
 		rows, err := api.List(ctx, params)
 		if err != nil {
-			c.JSON(500, gin.H{"error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
 		out := make([]gin.H, 0, len(rows))
 		for _, t := range rows {
 			out = append(out, toolJSON(t))
 		}
-		c.JSON(200, gin.H{"tools": out, "total": total})
+		c.JSON(http.StatusOK, gin.H{"tools": out, "total": total})
 	}
 }
 
@@ -87,12 +88,12 @@ func getToolHandler(tools ToolCatalogAPI, cfg ConfigAPI) gin.HandlerFunc {
 		ctx := c.Request.Context()
 		t, err := tools.Get(ctx, name)
 		if err != nil {
-			c.JSON(404, gin.H{"error": err.Error(), "name": name})
+			c.JSON(http.StatusNotFound, gin.H{"error": err.Error(), "name": name})
 			return
 		}
 		executors, err := cfg.ListExecutors(ctx, false)
 		if err != nil {
-			c.JSON(500, gin.H{"error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
 		agents := make([]gin.H, 0, len(executors))
@@ -102,7 +103,7 @@ func getToolHandler(tools ToolCatalogAPI, cfg ConfigAPI) gin.HandlerFunc {
 				"involved": toolArrayContains(h, t.Kind, t.Name),
 			})
 		}
-		c.JSON(200, gin.H{"tool": toolJSON(t), "agents": agents})
+		c.JSON(http.StatusOK, gin.H{"tool": toolJSON(t), "agents": agents})
 	}
 }
 
@@ -120,18 +121,18 @@ func assignToolHandler(tools ToolCatalogAPI, cfg ConfigAPI) gin.HandlerFunc {
 		code := c.Param("code")
 		var b assignBody
 		if err := c.ShouldBindJSON(&b); err != nil {
-			c.JSON(400, gin.H{"error": "请求体非法: " + err.Error()})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "请求体非法: " + err.Error()})
 			return
 		}
 		ctx := c.Request.Context()
 		t, err := tools.Get(ctx, name)
 		if err != nil {
-			c.JSON(404, gin.H{"error": err.Error(), "name": name})
+			c.JSON(http.StatusNotFound, gin.H{"error": err.Error(), "name": name})
 			return
 		}
-		h, err := cfg.ExecutorByCode(ctx, code)
+		h, err := cfg.AgentByCode(ctx, code)
 		if err != nil {
-			c.JSON(404, gin.H{"error": err.Error(), "code": code})
+			c.JSON(http.StatusNotFound, gin.H{"error": err.Error(), "code": code})
 			return
 		}
 		fnTools, cliTools := applyAssignment(h, t.Kind, t.Name, b.Involved)
@@ -140,10 +141,10 @@ func assignToolHandler(tools ToolCatalogAPI, cfg ConfigAPI) gin.HandlerFunc {
 			FunctionTools: &fnTools,
 			CliTools:      &cliTools,
 		}); err != nil {
-			c.JSON(500, gin.H{"error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-		c.JSON(200, gin.H{"code": h.Code, "involved": b.Involved})
+		c.JSON(http.StatusOK, gin.H{"code": h.Code, "involved": b.Involved})
 	}
 }
 

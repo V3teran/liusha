@@ -6,8 +6,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -95,7 +95,7 @@ func llmInvocationsHandler(api InvocationsAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		eid := c.Param("task_id")
 		if eid == "" {
-			c.JSON(400, gin.H{"error": "task_id required"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "task_id required"})
 			return
 		}
 		page, size := parseInvocationPaging(c)
@@ -104,16 +104,16 @@ func llmInvocationsHandler(api InvocationsAPI) gin.HandlerFunc {
 
 		invocations, err := api.ListByTask(c.Request.Context(), eid, f)
 		if err != nil {
-			if errors.Is(err, pgx.ErrNoRows) || strings.Contains(err.Error(), "no rows") {
-				c.JSON(404, gin.H{"error": "task not found", "task_id": eid})
+			if errors.Is(err, pgx.ErrNoRows) {
+				c.JSON(http.StatusNotFound, gin.H{"error": "task not found", "task_id": eid})
 				return
 			}
-			c.JSON(500, gin.H{"error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
 		total, err := api.CountByTask(c.Request.Context(), eid, f)
 		if err != nil {
-			c.JSON(500, gin.H{"error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
 
@@ -122,7 +122,7 @@ func llmInvocationsHandler(api InvocationsAPI) gin.HandlerFunc {
 			items = append(items, gin.H{
 				"id":            v.ID,
 				"request_id":    v.RequestID,
-				"agent_id":      v.ExecutorID,
+				"agent_id":      v.AgentRunID,
 				"task_id":       v.TaskID,
 				"provider":      v.Provider,
 				"model":         v.Model,
@@ -142,7 +142,7 @@ func llmInvocationsHandler(api InvocationsAPI) gin.HandlerFunc {
 			})
 		}
 
-		c.JSON(200, gin.H{
+		c.JSON(http.StatusOK, gin.H{
 			"task_id": eid,
 			"total":   total,
 			"page":    page,
@@ -161,22 +161,22 @@ func llmInvocationDetailHandler(api InvocationsAPI) gin.HandlerFunc {
 		eid := c.Param("task_id")
 		id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 		if eid == "" || err != nil {
-			c.JSON(400, gin.H{"error": "task_id/id required"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "task_id/id required"})
 			return
 		}
 		v, err := api.GetByID(c.Request.Context(), eid, id)
 		if err != nil {
-			if errors.Is(err, pgx.ErrNoRows) || strings.Contains(err.Error(), "no rows") {
-				c.JSON(404, gin.H{"error": "invocation not found"})
+			if errors.Is(err, pgx.ErrNoRows) {
+				c.JSON(http.StatusNotFound, gin.H{"error": "invocation not found"})
 				return
 			}
-			c.JSON(500, gin.H{"error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-		c.JSON(200, gin.H{
+		c.JSON(http.StatusOK, gin.H{
 			"id":            v.ID,
 			"request_id":    v.RequestID,
-			"agent_id":      v.ExecutorID,
+			"agent_id":      v.AgentRunID,
 			"task_id":       v.TaskID,
 			"provider":      v.Provider,
 			"model":         v.Model,
@@ -208,17 +208,17 @@ func llmInvocationStatHandler(api InvocationsAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		eid := c.Param("task_id")
 		if eid == "" {
-			c.JSON(400, gin.H{"error": "task_id required"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "task_id required"})
 			return
 		}
 		_ = api.Flush(c.Request.Context())
 		// 统计吃与列表同一套筛选，但不分页（page/size=0 → parseInvocationFilter 不设 Limit/Offset）。
 		a, err := api.AggregateByTask(c.Request.Context(), eid, parseInvocationFilter(c, 1, 0))
 		if err != nil {
-			c.JSON(500, gin.H{"error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-		c.JSON(200, gin.H{
+		c.JSON(http.StatusOK, gin.H{
 			"task_id":       eid,
 			"calls":         a.Calls,
 			"in_tokens":     a.InTokens,
@@ -237,13 +237,13 @@ func llmInvocationFacetsHandler(api InvocationsAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		eid := c.Param("task_id")
 		if eid == "" {
-			c.JSON(400, gin.H{"error": "task_id required"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "task_id required"})
 			return
 		}
 		_ = api.Flush(c.Request.Context())
 		f, err := api.FacetsByTask(c.Request.Context(), eid)
 		if err != nil {
-			c.JSON(500, gin.H{"error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
 		// nil slice 会序列化成 null；统一成 []，前端不必判空。
@@ -254,7 +254,7 @@ func llmInvocationFacetsHandler(api InvocationsAPI) gin.HandlerFunc {
 		if models == nil {
 			models = []string{}
 		}
-		c.JSON(200, gin.H{"task_id": eid, "roles": roles, "models": models})
+		c.JSON(http.StatusOK, gin.H{"task_id": eid, "roles": roles, "models": models})
 	}
 }
 

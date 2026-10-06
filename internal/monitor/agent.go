@@ -20,9 +20,6 @@ import (
 	"github.com/V3teran/liusha/internal/registry"
 )
 
-// 编译时检查接口实现
-var _ core.Agent = (*Agent)(nil)
-
 // Agent 是独立的监察 Agent。
 type Agent struct {
 	taskID       string
@@ -71,22 +68,11 @@ func New(cfg Config) *Agent {
 	reactRuntime := runtime.NewReActRuntime()
 
 	// 注册监察工具（function_tools 白名单过滤；nil=全量，空=空集）
-	allow := func(name string) bool {
-		if cfg.FunctionTools == nil {
-			return true
-		}
-		for _, n := range cfg.FunctionTools {
-			if n == name {
-				return true
-			}
-		}
-		return false
-	}
 	var registryTools []registry.Tool
-	if allow("get_global_state") {
+	if registry.Allows(cfg.FunctionTools, "get_global_state") {
 		registryTools = append(registryTools, NewGetGlobalStateTool(cfg.Graph, cfg.TaskID))
 	}
-	if allow("publish_decision") {
+	if registry.Allows(cfg.FunctionTools, "publish_decision") {
 		registryTools = append(registryTools, NewPublishDecisionTool(cfg.Graph, cfg.TaskID))
 	}
 	for _, tool := range registryTools {
@@ -118,7 +104,7 @@ func New(cfg Config) *Agent {
 
 // Name 返回 Agent 的名称。
 
-// Run 实现 core.Agent 接口
+// Run 周期评估主循环（ctx 取消即停止）。
 func (a *Agent) Run(ctx context.Context) error {
 	// LLM 审计维度：监察调用归 task、角色 monitor。
 	ctx = llm.WithCallMeta(ctx, llm.CallMeta{TaskID: a.taskID, Role: "monitor"})
@@ -226,27 +212,11 @@ func (a *Agent) buildSystemPrompt() string {
 }
 
 // capIterations 基线与 agent.max_iterations 上限取小（0=不设限）。
-func capIterations(base, max int) int {
-	if max > 0 && base > max {
-		return max
+func capIterations(base, upper int) int {
+	if upper > 0 && base > upper {
+		return upper
 	}
 	return base
-}
-
-// ============================================
-// 实现 framework/core.Agent 接口
-// ============================================
-
-// Name 实现 core.Agent 接口
-func (a *Agent) Name() string {
-	return "monitor"
-}
-
-// Stop 实现 core.Agent 接口
-func (a *Agent) Stop(_ context.Context) error {
-	a.logger.Info().Msg("stopping monitor agent")
-	// Monitor 依赖 ctx.Done() 停止，无需额外操作
-	return nil
 }
 
 // ============================================
