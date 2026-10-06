@@ -12,15 +12,20 @@ import (
 type usageSink struct{ store *llminvocation.Store }
 
 func (s usageSink) RecordUsage(ctx context.Context, r llm.UsageRecord) {
-	var taskID *string
+	var taskID, agentRunID *string
 	if r.TaskID != "" {
 		id := r.TaskID
 		taskID = &id
 	}
-	// AgentRunID 是 agent_run.id 外键（SET NULL）——认知路径无 per-agent run 行，留空；
+	if r.AgentRunID != "" {
+		id := r.AgentRunID
+		agentRunID = &id
+	}
+	// AgentRunID 是 agent_run.id 外键（SET NULL）——由 CallMeta 经 ctx 注入本轮 run 行；
 	// 角色维度落 Role 列。
 	_, _ = s.store.Append(ctx, llminvocation.Invocation{
 		TaskID:       taskID,
+		AgentRunID:   agentRunID,
 		Provider:     r.Provider,
 		Model:        r.Model,
 		InTokens:     r.InTokens,

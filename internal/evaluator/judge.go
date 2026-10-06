@@ -127,7 +127,8 @@ func (j *RouterJudge) Judge(
 		}
 	}
 
-	ctx = llm.WithCallMeta(ctx, llm.CallMeta{Role: "evaluator"})
+	// 审计标签（task/role/agent_run_id）由 evaluator agent 在 ctx 注入，此处继承不覆盖——
+	// 覆盖会丢 TaskID（ judge 落库行 task_id 曾恒 NULL）。
 
 	result, err := react.Run(ctx, &runtime.ReActConfig{
 		Objective:            j.buildObjective(hypothesis, recipe, initialEvidence),

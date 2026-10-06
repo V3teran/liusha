@@ -29,6 +29,7 @@ type UsageRecord struct {
 	Err          string
 	Role         string // 调用者角色（planner/executor/monitor/chat 等），空 = 未分类
 	TaskID       string // 归属任务，空 = 任务外调用
+	AgentRunID   string // 归属认知轮次的 agent_run.id，空 = 未接通（历史行恒空）
 	Messages     []byte // jsonb：输入消息数组（审计回放用）
 	Result       []byte // jsonb：完整响应（非流式才有）
 }
@@ -38,10 +39,11 @@ type UsageSink interface {
 	RecordUsage(ctx context.Context, r UsageRecord)
 }
 
-// CallMeta 是调用方通过 ctx 携带的审计标签（task 归属 + 角色维度）。
+// CallMeta 是调用方通过 ctx 携带的审计标签（task 归属 + 轮次归属 + 角色维度）。
 type CallMeta struct {
-	TaskID string
-	Role   string
+	TaskID     string
+	AgentRunID string // 本轮认知循环的 agent_run.id（llm_invocation.agent_run_id 外键取值）
+	Role       string
 }
 
 type ctxKeyCallMeta struct{}
@@ -153,10 +155,11 @@ func (p *instrumentedProvider) ProviderID() string { return p.inner.ProviderID()
 
 func (p *instrumentedProvider) baseRecord(meta CallMeta, isStream bool) UsageRecord {
 	return UsageRecord{
-		Provider: p.inner.ProviderID(),
-		Model:    p.inner.ModelID(),
-		IsStream: isStream,
-		Role:     meta.Role,
-		TaskID:   meta.TaskID,
+		Provider:   p.inner.ProviderID(),
+		Model:      p.inner.ModelID(),
+		IsStream:   isStream,
+		Role:       meta.Role,
+		TaskID:     meta.TaskID,
+		AgentRunID: meta.AgentRunID,
 	}
 }

@@ -24,6 +24,7 @@ import (
 // - 发布 EventActionProposed 事件
 type Agent struct {
 	taskID        string
+	agentRunID    string // 本轮认知循环的 agent_run.id（LLM 审计归属）
 	graph         *explorationgraph.Store
 	planner       Planner
 	eventBus      bus.Bus
@@ -41,6 +42,7 @@ type Agent struct {
 // AgentConfig 配置
 type AgentConfig struct {
 	TaskID        string
+	AgentRunID    string // 本轮认知循环的 agent_run.id（LLM 审计归属）
 	Graph         *explorationgraph.Store
 	Planner       Planner
 	EventBus      bus.Bus
@@ -57,6 +59,7 @@ func NewAgent(cfg AgentConfig) *Agent {
 
 	return &Agent{
 		taskID:            cfg.TaskID,
+		agentRunID:        cfg.AgentRunID,
 		graph:             cfg.Graph,
 		planner:           cfg.Planner,
 		eventBus:          cfg.EventBus,
@@ -71,8 +74,8 @@ func NewAgent(cfg AgentConfig) *Agent {
 // Run 启动规划主循环（ctx 取消即停止）。
 // 启动 Agent 主循环，监听事件并生成新的 Action
 func (a *Agent) Run(ctx context.Context) error {
-	// LLM 审计维度：规划调用归 task、角色 planner。
-	ctx = llm.WithCallMeta(ctx, llm.CallMeta{TaskID: a.taskID, Role: "planner"})
+	// LLM 审计维度：规划调用归 task/本轮 run、角色 planner。
+	ctx = llm.WithCallMeta(ctx, llm.CallMeta{TaskID: a.taskID, AgentRunID: a.agentRunID, Role: "planner"})
 
 	a.logger.Info().Str("task_id", a.taskID).Msg("Agent 启动")
 

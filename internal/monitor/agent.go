@@ -23,6 +23,7 @@ import (
 // Agent 是独立的监察 Agent。
 type Agent struct {
 	taskID       string
+	agentRunID   string // 本轮认知循环的 agent_run.id（LLM 审计归属）
 	graph        *explorationgraph.Store
 	eventBus     bus.Bus
 	provider     llm.Provider
@@ -40,12 +41,13 @@ type Agent struct {
 
 // Config 是 Monitor Agent 的配置。
 type Config struct {
-	TaskID   string
-	Graph    *explorationgraph.Store
-	EventBus bus.Bus
-	Provider llm.Provider
-	Interval time.Duration // 评估间隔，默认 6 分钟
-	Logger   zerolog.Logger
+	TaskID     string
+	AgentRunID string // 本轮认知循环的 agent_run.id（LLM 审计归属）
+	Graph      *explorationgraph.Store
+	EventBus   bus.Bus
+	Provider   llm.Provider
+	Interval   time.Duration // 评估间隔，默认 6 分钟
+	Logger     zerolog.Logger
 
 	FunctionTools []string // function_tools 白名单（agent 配置；nil=全量，空=空集）
 
@@ -89,6 +91,7 @@ func New(cfg Config) *Agent {
 
 	return &Agent{
 		taskID:           cfg.TaskID,
+		agentRunID:       cfg.AgentRunID,
 		graph:            cfg.Graph,
 		eventBus:         cfg.EventBus,
 		provider:         cfg.Provider,
@@ -106,8 +109,8 @@ func New(cfg Config) *Agent {
 
 // Run 周期评估主循环（ctx 取消即停止）。
 func (a *Agent) Run(ctx context.Context) error {
-	// LLM 审计维度：监察调用归 task、角色 monitor。
-	ctx = llm.WithCallMeta(ctx, llm.CallMeta{TaskID: a.taskID, Role: "monitor"})
+	// LLM 审计维度：监察调用归 task/本轮 run、角色 monitor。
+	ctx = llm.WithCallMeta(ctx, llm.CallMeta{TaskID: a.taskID, AgentRunID: a.agentRunID, Role: "monitor"})
 
 	a.logger.Info().Dur("interval", a.interval).Msg("monitor agent starting")
 
