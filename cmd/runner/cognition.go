@@ -186,6 +186,7 @@ func (h handler) runCognition(
 	engine := executor.NewEngine(executor.EngineConfig{
 		Router:        h.router,
 		Findings:      h.findings,
+		AgentRunID:    agentRunID, // LLM 审计归属本轮 run
 		Registry:      execRegistry,
 		FunctionTools: executorCfg.FunctionTools,                                // function_tools 白名单（nil=全量）
 		ToolsManifest: filteredManifest,                                         // CLI 工具清单（白名单过滤后）
@@ -222,10 +223,11 @@ func (h handler) runCognition(
 		WithAgentRunID(agentRunID)
 
 	evaluatorAgent := evaluator.NewAgent(evaluator.AgentConfig{
-		TaskID:    taskID,
-		Evaluator: promoter,
-		EventBus:  h.eventBus,
-		Logger:    h.logger.With().Str("component", "evaluator_agent").Logger(),
+		TaskID:     taskID,
+		AgentRunID: agentRunID,
+		Evaluator:  promoter,
+		EventBus:   h.eventBus,
+		Logger:     h.logger.With().Str("component", "evaluator_agent").Logger(),
 		// 验证并发：每个验证 = 机器复放 + 一轮 judge ReAct（LLM 账单随并发线性放大）
 		MaxConcurrent: 3,
 	})
@@ -238,6 +240,7 @@ func (h handler) runCognition(
 
 	plannerAgent := planner.NewAgent(planner.AgentConfig{
 		TaskID:        taskID,
+		AgentRunID:    agentRunID,
 		Graph:         h.graph,
 		Planner:       intelligence,
 		EventBus:      h.eventBus,
@@ -253,6 +256,7 @@ func (h handler) runCognition(
 
 	monitorAgent := monitor.New(monitor.Config{
 		TaskID:        taskID,
+		AgentRunID:    agentRunID,
 		FunctionTools: monitorCfg.FunctionTools,
 		SystemPrompt:  monitorCfg.SystemPrompt,
 		MaxIterations: monitorCfg.MaxIterations,

@@ -26,6 +26,7 @@ import (
 // - 发布 EventVerificationPassed/Refuted 事件
 type Agent struct {
 	taskID        string
+	agentRunID    string              // 本轮认知循环的 agent_run.id（LLM 审计归属）
 	evaluator     *PromotionEvaluator // 使用具体类型
 	eventBus      bus.Bus
 	logger        zerolog.Logger
@@ -46,6 +47,7 @@ type Agent struct {
 // AgentConfig 配置
 type AgentConfig struct {
 	TaskID        string
+	AgentRunID    string // 本轮认知循环的 agent_run.id（LLM 审计归属）
 	Evaluator     *PromotionEvaluator
 	EventBus      bus.Bus
 	Logger        zerolog.Logger
@@ -60,6 +62,7 @@ func NewAgent(cfg AgentConfig) *Agent {
 
 	return &Agent{
 		taskID:        cfg.TaskID,
+		agentRunID:    cfg.AgentRunID,
 		evaluator:     cfg.Evaluator,
 		eventBus:      cfg.EventBus,
 		logger:        cfg.Logger.With().Str("agent", "evaluator").Logger(),
@@ -75,8 +78,8 @@ func (a *Agent) Run(ctx context.Context) error {
 		return fmt.Errorf("evaluator: PromotionEvaluator is required")
 	}
 
-	// LLM 审计维度：裁决调用归 task、角色 evaluator。
-	ctx = llm.WithCallMeta(ctx, llm.CallMeta{TaskID: a.taskID, Role: "evaluator"})
+	// LLM 审计维度：裁决调用归 task/本轮 run、角色 evaluator。
+	ctx = llm.WithCallMeta(ctx, llm.CallMeta{TaskID: a.taskID, AgentRunID: a.agentRunID, Role: "evaluator"})
 
 	a.logger.Info().Str("task_id", a.taskID).Msg("Agent 启动")
 

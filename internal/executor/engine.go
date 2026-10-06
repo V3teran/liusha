@@ -33,6 +33,7 @@ type Engine struct {
 	complexity    llm.Complexity // LLM 档位（agent.complexity，文档 complexity 种子 → 三级缓存读；唯一来源）
 	maxIt         int            // ReAct 迭代上限（agent.max_iterations；0=不设限，复杂度基线生效）
 	brief         string         // 任务简报原文（用户指定的入口 URL 等，逐字渲染进 system prompt——防转录漂移）
+	agentRunID    string         // 本轮认知循环的 agent_run.id（LLM 审计归属）
 	checkpointer  core.Checkpointer
 	logger        zerolog.Logger
 }
@@ -49,6 +50,7 @@ type EngineConfig struct {
 	Complexity    string        // LLM 档位（agent.complexity，simple|medium|complex；空回退 medium）
 	MaxIterations int           // ReAct 迭代上限（agent.max_iterations；0=不设限）
 	Brief         string        // 任务简报原文（可选；渲染进 system prompt 作入口锚定）
+	AgentRunID    string        // 本轮认知循环的 agent_run.id（LLM 审计归属；空 = 审计行不挂 run）
 	Checkpointer  core.Checkpointer
 	Logger        zerolog.Logger
 }
@@ -66,6 +68,7 @@ func NewEngine(cfg EngineConfig) *Engine {
 		complexity:    llm.ParseComplexity(cfg.Complexity),
 		maxIt:         cfg.MaxIterations,
 		brief:         cfg.Brief,
+		agentRunID:    cfg.AgentRunID,
 		checkpointer:  cfg.Checkpointer,
 		logger:        cfg.Logger.With().Str("component", "executor_engine").Logger(),
 	}
@@ -73,8 +76,8 @@ func NewEngine(cfg EngineConfig) *Engine {
 
 // Execute 执行一个 Action，返回生成的 Attempt 列表
 func (e *Engine) Execute(ctx context.Context, action explorationgraph.Node, taskID, host string) ([]evaluator.Attempt, error) {
-	// LLM 审计维度：本 Engine 的全部 LLM 调用归 task、角色 executor。
-	ctx = llm.WithCallMeta(ctx, llm.CallMeta{TaskID: taskID, Role: "executor"})
+	// LLM 审计维度：本 Engine 的全部 LLM 调用归 task/本轮 run、角色 executor。
+	ctx = llm.WithCallMeta(ctx, llm.CallMeta{TaskID: taskID, AgentRunID: e.agentRunID, Role: "executor"})
 
 	e.logger.Info().
 		Str("action_id", action.ID).
