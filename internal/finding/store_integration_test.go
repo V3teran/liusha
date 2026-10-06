@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -77,4 +78,60 @@ func TestFinding_SaveDedupUpdateList(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "confirmed", trianed.Status)
 	assert.Equal(t, "critical", trianed.Severity)
+}
+
+// TestListAll_CountAll 回归：全局台账 SQL 曾引用幽灵列 t._id（0157 审计发现），
+// GET /findings 因此 100% 运行时报错且无测试覆盖——本测试锁死列表/计数/过滤路径。
+func TestListAll_CountAll(t *testing.T) {
+	ctx := context.Background()
+	pool := dbtest.NewPgPool(t)
+	store := finding.NewStore(pool)
+	assignmentID := dbtest.SeedAssignment(t, pool)
+
+	taskID := seedTask(t, pool, assignmentID)
+	for _, tc := range []struct{ host, summary, severity string }{
+		{"ledger.local", "SQL 注入", "critical"},
+		{"ledger.local", "XSS", "low"},
+		{"other.local", "SSRF", "medium"},
+	} {
+		_, err := store.Save(ctx, finding.VulnFinding{
+			TaskID: taskID, Host: tc.host, Summary: tc.summary, Severity: tc.severity,
+		})
+		require.NoError(t, err)
+	}
+
+	rows, err := store.ListAll(ctx, finding.LedgerFilter{})
+	require.NoError(t, err)
+	assert.Len(t, rows, 3)
+	for _, r := range rows {
+		assert.Equal(t, "manual", r.Source, "台账行应带 assignment.source")
+	}
+
+	n, err := store.CountAll(ctx, finding.LedgerFilter{})
+	require.NoError(t, err)
+	assert.Equal(t, 3, n)
+
+	byHost, err := store.ListAll(ctx, finding.LedgerFilter{Host: "other.local"})
+	require.NoError(t, err)
+	assert.Len(t, byHost, 1)
+	assert.Equal(t, "SSRF", byHost[0].Summary)
+
+	bySeverity, err := store.CountAll(ctx, finding.LedgerFilter{Severity: "critical"})
+	require.NoError(t, err)
+	assert.Equal(t, 1, bySeverity)
+
+	hosts, err := store.DistinctHosts(ctx)
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []string{"ledger.local", "other.local"}, hosts)
+}
+
+// seedTask 建最小 task 行返回 id（台账 JOIN task/assignment 用）。
+func seedTask(t *testing.T, pool *pgxpool.Pool, assignmentID string) string {
+	t.Helper()
+	var id string
+	err := pool.QueryRow(context.Background(),
+		`INSERT INTO task (assignment_id, brief) VALUES ($1, 'test') RETURNING id`,
+		assignmentID).Scan(&id)
+	require.NoError(t, err)
+	return id
 }

@@ -31,7 +31,7 @@ export function ProviderListPanel({
     const q = query.trim().toLowerCase()
     if (!q) return providers
     return providers.filter(
-      (p) => p.key.toLowerCase().includes(q) || p.default_model.toLowerCase().includes(q),
+      (p) => p.code.toLowerCase().includes(q) || p.default_model.toLowerCase().includes(q),
     )
   }, [providers, query])
 
@@ -79,13 +79,13 @@ export function ProviderListPanel({
           </li>
         ) : (
           filtered.map((p) => (
-            <li key={p.key}>
+            <li key={p.code}>
               <button
                 type="button"
                 onClick={() => onSelect(p)}
                 className={cn(
                   'flex w-full flex-col gap-1 rounded-lg px-3 py-2.5 text-left transition-colors hover:bg-surface-2',
-                  p.key === selectedKey && 'bg-surface-2 shadow-[inset_2px_0_0_var(--accent)]',
+                  p.code === selectedKey && 'bg-surface-2 shadow-[inset_2px_0_0_var(--accent)]',
                   !p.enabled && 'opacity-55',
                 )}
               >
@@ -98,7 +98,7 @@ export function ProviderListPanel({
                         className="h-1.5 w-1.5 flex-shrink-0 rounded-full bg-sev-high"
                       />
                     )}
-                    <span className="min-w-0 truncate text-[13.5px] font-medium text-text">{p.key}</span>
+                    <span className="min-w-0 truncate text-[13.5px] font-medium text-text">{p.code}</span>
                   </span>
                   <Badge variant="outline" className="flex-shrink-0">
                     {TYPE_LABEL[p.type]}

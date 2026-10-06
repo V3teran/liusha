@@ -286,7 +286,9 @@ func (s *Store) Upsert(ctx context.Context, code, name, description, systemPromp
 		complexity = *p.Complexity
 	}
 
-	var fnTools, cliTools, skills []byte
+	// nil 白名单归一为 '[]'：function_tools/cli_tools/skills 列 NOT NULL，
+	// nil 直插会撞 23502（Round 9 schema 冒烟发现）。
+	var fnTools, cliTools, skills = []byte("[]"), []byte("[]"), []byte("[]")
 	var err error
 	if p.FunctionTools != nil {
 		if fnTools, err = marshalTools(*p.FunctionTools); err != nil {

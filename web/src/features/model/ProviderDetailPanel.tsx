@@ -25,7 +25,7 @@ type TestState =
 // 右侧常驻详情面板：左列表点选/新建后原地渲染，不弹模态——同屏对照列表与表单。
 // 单页分组表单（连接/能力）替代原二级 Radix Tabs：字段量不大，一屏滚动比点 tab 找字段更快。
 // 底部工具条：测试连接（发最小 chat 验证 base_url+key+model）+ 删除 + 保存。
-// 父组件按 key={isNew ? 'new' : draft.key} 挂载本组件，切换选中项时整体重挂载，测试态自然重置。
+// 父组件按 key={isNew ? 'new' : draft.code} 挂载本组件，切换选中项时整体重挂载，测试态自然重置。
 export function ProviderDetailPanel({
   draft,
   isNew,
@@ -41,7 +41,7 @@ export function ProviderDetailPanel({
     setTest({ kind: 'testing' })
     try {
       const res = await testProvider({
-        key: draft.key || undefined,
+        code: draft.code || undefined,
         type: draft.type,
         base_url: draft.base_url,
         default_model: draft.default_model,
@@ -69,7 +69,7 @@ export function ProviderDetailPanel({
       <header className="flex items-center justify-between gap-4 border-b border-border px-6 py-4">
         <div className="min-w-0">
           <h2 className="tac-prompt truncate font-mono text-[15px] font-semibold text-text">
-            {isNew ? '接入 provider' : draft.key}
+            {isNew ? '接入 provider' : draft.code}
           </h2>
           <p className="mt-0.5 truncate text-[12.5px] text-muted">
             {isNew ? '新增一个 provider 部署' : `${TYPE_LABEL[draft.type]} · ${draft.default_model}`}

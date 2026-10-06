@@ -26,10 +26,10 @@ func routerResolver() fakeResolver {
 // builderFromMap：用预置 Generator map 构造 Builder（按 provider key 分发）。
 func builderFromMap(gens map[string]Generator) Builder {
 	return func(_ context.Context, p llmcfg.Provider, _ *ClientPool) (Generator, error) {
-		if g, ok := gens[p.Key]; ok {
+		if g, ok := gens[p.Code]; ok {
 			return g, nil
 		}
-		return &testGen{tag: p.Key, model: p.Key + "-model"}, nil
+		return &testGen{tag: p.Code, model: p.Code + "-model"}, nil
 	}
 }
 

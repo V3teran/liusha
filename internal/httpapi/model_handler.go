@@ -34,9 +34,9 @@ type KeyEncrypter interface {
 type ModelAPI interface {
 	// provider 部署
 	ListProviders(ctx context.Context, onlyEnabled bool) ([]llmcfg.Provider, error)
-	ProviderByKey(ctx context.Context, key string) (llmcfg.Provider, error)
+	ProviderByCode(ctx context.Context, code string) (llmcfg.Provider, error)
 	SaveProvider(ctx context.Context, p llmcfg.ProviderParams) (llmcfg.Provider, error)
-	DeleteProvider(ctx context.Context, key string) error
+	DeleteProvider(ctx context.Context, code string) error
 	// 角色路由（role → provider 直连）
 	ListRoleRoutes(ctx context.Context) ([]llmcfg.RoleRoute, error)
 	UpsertRoleRoute(ctx context.Context, role, providerKey string) (llmcfg.RoleRoute, error)
@@ -61,12 +61,12 @@ func listProvidersHandler(api ModelAPI) gin.HandlerFunc {
 	}
 }
 
-// getProviderHandler 处理 GET /models/providers/:key（单条读走 ProviderByKey 多级缓存）。
+// getProviderHandler 处理 GET /models/providers/:code（单条读走 ProviderByCode 多级缓存）。
 func getProviderHandler(api ModelAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		p, err := api.ProviderByKey(c.Request.Context(), c.Param("key"))
+		p, err := api.ProviderByCode(c.Request.Context(), c.Param("code"))
 		if err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": err.Error(), "key": c.Param("key")})
+			c.JSON(http.StatusNotFound, gin.H{"error": err.Error(), "code": c.Param("code")})
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"provider": providerJSON(p)})
@@ -77,7 +77,7 @@ func getProviderHandler(api ModelAPI) gin.HandlerFunc {
 // api_key 是前端直填的明文，仅本次请求内存活，handler 加密后即弃（见 saveProviderHandler）；
 // 编辑时留空 = 不改动已存密钥。
 type providerBody struct {
-	Key            string `json:"key"`
+	Code           string `json:"code"`
 	Type           string `json:"type"`
 	BaseURL        string `json:"base_url"`
 	DefaultModel   string `json:"default_model"`
@@ -91,7 +91,7 @@ type providerBody struct {
 	Enabled        bool   `json:"enabled"`
 }
 
-// saveProviderHandler 处理 POST /models/providers 与 PUT /models/providers/:key（均走 upsert-by-key）。
+// saveProviderHandler 处理 POST /models/providers 与 PUT /models/providers/:code（均走 upsert-by-key）。
 // enc 加密请求体里的明文 api_key；新建（POST）必须带 key，编辑（PUT）留空则 KeepExistingKey。
 func saveProviderHandler(api ModelAPI, enc KeyEncrypter) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -100,7 +100,7 @@ func saveProviderHandler(api ModelAPI, enc KeyEncrypter) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "请求体非法: " + err.Error()})
 			return
 		}
-		if b.Key == "" {
+		if b.Code == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "key 不能为空"})
 			return
 		}
@@ -122,7 +122,7 @@ func saveProviderHandler(api ModelAPI, enc KeyEncrypter) gin.HandlerFunc {
 			return
 		}
 		params := llmcfg.ProviderParams{
-			Key: b.Key, Type: b.Type, BaseURL: b.BaseURL, DefaultModel: b.DefaultModel,
+			Code: b.Code, Type: b.Type, BaseURL: b.BaseURL, DefaultModel: b.DefaultModel,
 			MaxTokens: b.MaxTokens, SupportsTools: b.SupportsTools,
 			SupportsVision: b.SupportsVision, ContextWindow: b.ContextWindow,
 			Description: b.Description, SortOrder: b.SortOrder, Enabled: b.Enabled,
@@ -147,17 +147,17 @@ func saveProviderHandler(api ModelAPI, enc KeyEncrypter) gin.HandlerFunc {
 	}
 }
 
-// deleteProviderHandler 处理 DELETE /models/providers/:key。
+// deleteProviderHandler 处理 DELETE /models/providers/:code。
 // 被角色路由 FK 引用（ON DELETE RESTRICT）时撞约束（23503）→ 409 中文提示。
 func deleteProviderHandler(api ModelAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		key := c.Param("key")
-		if err := api.DeleteProvider(c.Request.Context(), key); err != nil {
+		code := c.Param("code")
+		if err := api.DeleteProvider(c.Request.Context(), code); err != nil {
 			if isForeignKeyViolation(err) {
 				c.JSON(http.StatusConflict, gin.H{"error": "该 provider 仍被角色路由引用，请先改绑角色再删除"})
 				return
 			}
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error(), "key": key})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error(), "code": code})
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"ok": true})
@@ -169,7 +169,7 @@ func deleteProviderHandler(api ModelAPI) gin.HandlerFunc {
 // key_last4：明文末 4 位（脱敏辨识锚点，非密钥值）；旧行或仅 ENV 回退时为空串。
 func providerJSON(p llmcfg.Provider) gin.H {
 	return gin.H{
-		"key": p.Key, "type": p.Type, "base_url": p.BaseURL, "default_model": p.DefaultModel,
+		"code": p.Code, "type": p.Type, "base_url": p.BaseURL, "default_model": p.DefaultModel,
 		"key_present": p.HasStoredKey(), "key_last4": p.APIKeyLast4,
 		"max_tokens": p.MaxTokens, "supports_tools": p.SupportsTools,
 		"supports_vision": p.SupportsVision, "context_window": p.ContextWindow,
@@ -207,11 +207,11 @@ func listRoutingHandler(api ModelAPI) gin.HandlerFunc {
 
 // roleRouteBody 是 PUT /models/routes/:role 的请求体（role 从路径取）。
 type roleRouteBody struct {
-	ProviderKey string `json:"provider_key"`
+	ProviderCode string `json:"provider_code"`
 }
 
 // saveRoleRouteHandler 处理 PUT /models/routes/:role（upsert 角色 → provider 直连映射）。
-// provider_key 不存在时撞 FK（23503）→ 409。
+// provider_code 不存在时撞 FK（23503）→ 409。
 func saveRoleRouteHandler(api ModelAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		role := c.Param("role")
@@ -224,14 +224,14 @@ func saveRoleRouteHandler(api ModelAPI) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "请求体非法: " + err.Error()})
 			return
 		}
-		if b.ProviderKey == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "provider_key 不能为空"})
+		if b.ProviderCode == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "provider_code 不能为空"})
 			return
 		}
-		rr, err := api.UpsertRoleRoute(c.Request.Context(), role, b.ProviderKey)
+		rr, err := api.UpsertRoleRoute(c.Request.Context(), role, b.ProviderCode)
 		if err != nil {
 			if isForeignKeyViolation(err) {
-				c.JSON(http.StatusConflict, gin.H{"error": "provider_key 不存在，请先创建对应 provider"})
+				c.JSON(http.StatusConflict, gin.H{"error": "provider_code 不存在，请先创建对应 provider"})
 				return
 			}
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -256,7 +256,7 @@ func deleteRoleRouteHandler(api ModelAPI) gin.HandlerFunc {
 // roleRouteJSON 是角色路由响应的单一序列化点。
 func roleRouteJSON(r llmcfg.RoleRoute) gin.H {
 	return gin.H{
-		"role": r.Role, "provider_key": r.ProviderKey,
+		"role": r.Role, "provider_code": r.ProviderCode,
 		"created_at": r.CreatedAt, "updated_at": r.UpdatedAt,
 	}
 }

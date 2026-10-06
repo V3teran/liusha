@@ -8,7 +8,7 @@
 // goroutine 收到即清本地 L1 + L2，下次读回填最新值。
 //
 // 路由模型：role → (代码档位映射) → provider（agent.complexity 的消费在 cognition 直读直传，不经此处）。
-// 两跳解析全在 llmcfg.Routing.ProviderKeyForRole 内完成，本层只管缓存路由快照 + provider 行。
+// 两跳解析全在 llmcfg.Routing.ProviderCodeForRole 内完成，本层只管缓存路由快照 + provider 行。
 //
 // 缓存粒度（key 空间固定的读全走 L1/L2 缓存）：
 //   - 单条 provider 读（热路径：每次 For(role) 解析后按 key 取部署）。
@@ -68,7 +68,7 @@ func newWithStore(db llmStore, cache *cachestore.Cache) *Store {
 // 任一角色路由写即失效它（见 UpsertRoleRoute/DeleteRoleRoute）。
 const keyRouting = "llmstore:routing"
 
-func keyProvider(key string) string { return "llmstore:provider:key:" + key }
+func keyProvider(code string) string { return "llmstore:provider:code:" + code }
 
 // keyProvidersList 是全量 provider 列表读的缓存键，按 onlyEnabled 分两键（有界）。
 // 任一 provider 写即失效两键（enabled 变动跨 true/false）。
@@ -99,16 +99,16 @@ func isNotFound(err error) bool { return err != nil && errors.Is(err, pgx.ErrNoR
 
 // ── 单条 provider 读（L1/L2 缓存，热路径）───────────────────────────────
 
-// ProviderByKey 按 key 读 provider 部署（For(role) 解析出 key 后取连接参数 + 能力标志）。
-func (s *Store) ProviderByKey(ctx context.Context, key string) (llmcfg.Provider, error) {
+// ProviderByCode 按 code 读 provider 部署（For(role) 解析出 code 后取连接参数 + 能力标志）。
+func (s *Store) ProviderByCode(ctx context.Context, key string) (llmcfg.Provider, error) {
 	return cachestore.ReadThrough(ctx, s.cache, keyProvider(key),
-		func(p llmcfg.Provider) []string { return []string{keyProvider(p.Key)} },
+		func(p llmcfg.Provider) []string { return []string{keyProvider(p.Code)} },
 		func(ctx context.Context) (llmcfg.Provider, error) {
 			return s.db.GetProvider(ctx, key)
 		})
 }
 
-// Routing 读路由全景快照（role → provider key 的解析全靠它）。缓存于哨兵键。
+// Routing 读路由全景快照（role → provider code 的解析全靠它）。缓存于哨兵键。
 func (s *Store) Routing(ctx context.Context) (llmcfg.Routing, error) {
 	return cachestore.ReadThrough(ctx, s.cache, keyRouting,
 		func(llmcfg.Routing) []string { return []string{keyRouting} },
@@ -119,9 +119,9 @@ func (s *Store) Routing(ctx context.Context) (llmcfg.Routing, error) {
 
 // ── 运行期解析（热路径：两个 LLM 工厂共用，取代旧的双份 resolveProviderKey/lookupLLMField switch）──
 
-// ProviderForRole 把 role 解析到 provider 部署：role → 档（代码映射）→ provider key → 部署行。
+// ProviderForRole 把 role 解析到 provider 部署：role → 档（代码映射）→ provider code → 部署行。
 // 路由快照 + provider 行均走多级缓存。role 未配置则无解析（返回 UnresolvedError，不静默兜底）。
-// 解析不出 provider key（heavy 档亦缺失）时返回明确错误，绝不静默兜底到任意 provider。
+// 解析不出 provider code（heavy 档亦缺失）时返回明确错误，绝不静默兜底到任意 provider。
 func (s *Store) ProviderForRole(ctx context.Context, role string) (llmcfg.Provider, error) {
 	routing, err := s.Routing(ctx)
 	if err != nil {
@@ -130,11 +130,11 @@ func (s *Store) ProviderForRole(ctx context.Context, role string) (llmcfg.Provid
 	// role → provider：经 llmcfg.AgentComplexity 代码映射收敛到档位（inspector/compactor 等旁路
 	// role 落轻档）。agent.complexity 不在此查——认知循环四 agent 的档位由 cognition 经
 	// cfgstore 直读直传 router.For，不走本 role 路由。
-	key := routing.ProviderKeyForRole(role)
+	key := routing.ProviderCodeForRole(role)
 	if key == "" {
 		return llmcfg.Provider{}, &UnresolvedError{Role: role}
 	}
-	return s.ProviderByKey(ctx, key)
+	return s.ProviderByCode(ctx, key)
 }
 
 // ProviderForFallback 解析全局备胎 provider 部署（Router 取 __fallback__ 装配兜底用）。
@@ -144,11 +144,11 @@ func (s *Store) ProviderForFallback(ctx context.Context) (llmcfg.Provider, error
 	if err != nil {
 		return llmcfg.Provider{}, err
 	}
-	key := routing.FallbackProviderKey()
+	key := routing.FallbackProviderCode()
 	if key == "" {
 		return llmcfg.Provider{}, &UnresolvedError{Fallback: true}
 	}
-	return s.ProviderByKey(ctx, key)
+	return s.ProviderByCode(ctx, key)
 }
 
 // ── 全量列表读（L1/L2 缓存，key 空间固定）───────────────────────────────
@@ -185,7 +185,7 @@ func (s *Store) SaveProvider(ctx context.Context, p llmcfg.ProviderParams) (llmc
 	if err != nil {
 		return llmcfg.Provider{}, err
 	}
-	if err := s.cache.Invalidate(ctx, providerKeys(pr.Key)...); err != nil {
+	if err := s.cache.Invalidate(ctx, providerKeys(pr.Code)...); err != nil {
 		return pr, err
 	}
 	return pr, nil
@@ -200,7 +200,7 @@ func (s *Store) DeleteProvider(ctx context.Context, key string) error {
 	return s.cache.Invalidate(ctx, providerKeys(key)...)
 }
 
-// UpsertRoleRoute upsert 一个角色 → provider key 直连映射，失效路由快照 + 路由列表键。
+// UpsertRoleRoute upsert 一个角色 → provider code 直连映射，失效路由快照 + 路由列表键。
 func (s *Store) UpsertRoleRoute(ctx context.Context, role, providerKey string) (llmcfg.RoleRoute, error) {
 	rr, err := s.db.UpsertRoleRoute(ctx, role, providerKey)
 	if err != nil {
@@ -241,9 +241,9 @@ func (a *RouterStoreAdapter) GetRouting(ctx context.Context) (fwllm.RoutingSpec,
 	return fwllm.RoutingSpec{Roles: r.Roles}, nil
 }
 
-// GetProviderSpec 实现 llm.RouterStore：按 provider key 读部署行 → 解析密钥 → 框架 spec。
+// GetProviderSpec 实现 llm.RouterStore：按 provider code 读部署行 → 解析密钥 → 框架 spec。
 func (a *RouterStoreAdapter) GetProviderSpec(ctx context.Context, key string) (fwllm.ProviderSpec, error) {
-	p, err := a.s.ProviderByKey(ctx, key)
+	p, err := a.s.ProviderByCode(ctx, key)
 	if err != nil {
 		return fwllm.ProviderSpec{}, err
 	}
@@ -252,7 +252,7 @@ func (a *RouterStoreAdapter) GetProviderSpec(ctx context.Context, key string) (f
 		return fwllm.ProviderSpec{}, err
 	}
 	return fwllm.ProviderSpec{
-		Key: p.Key, Type: p.Type, BaseURL: p.BaseURL, Model: p.DefaultModel,
+		Code: p.Code, Type: p.Type, BaseURL: p.BaseURL, Model: p.DefaultModel,
 		APIKey: apiKey, MaxTokens: p.MaxTokens, SupportsVision: p.SupportsVision,
 	}, nil
 }

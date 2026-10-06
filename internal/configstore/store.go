@@ -107,7 +107,6 @@ func (s *Store) ExecutorByCode(ctx context.Context, code string) (agent.Agent, e
 
 // AgentByCode 按 code 读任意 agent（planner/executor/evaluator/monitor），走
 // keyExecutorCode 的 L1/L2/DB 多级缓存。回填 code+id 双键（载荷同型 agent.Agent；
-// complexity 键载荷是 complexityResult，不可混填——见 decode 的类型约束）。
 // 一致性：所有 agent 写路径（UpdateExecutor/UpdateAgent/UpdateExecutorComplexity）
 // 经 agentKeys 失效 code 键，前端改配置 → 总线广播 → runner 清 L1 → 下次读到新值。
 // runner 的认知循环每任务经此读四 agent 配置（热路径，L1 命中为主）。

@@ -22,7 +22,7 @@ import (
 // ProviderProbeSpec 是测试连接 / 模型探测的入参规格。
 // APIKey 非空 → 用它（前端直填明文，新建或更换密钥场景）；为空 → 据 Key 取已存 provider 的密钥。
 type ProviderProbeSpec struct {
-	Key          string // 已存 provider key；APIKey 为空时据此走多级缓存取已存密钥并解密
+	Code         string // 已存 provider code；APIKey 为空时据此走多级缓存取已存密钥并解密
 	Type         string
 	BaseURL      string
 	DefaultModel string
@@ -49,22 +49,22 @@ type ProviderTester interface {
 }
 
 // probeBody 是 test / list-models 的公共请求体。
-// key：编辑已存 provider 时传，据此取已存密钥（不必重填）；api_key：新建/更换密钥时传明文。
+// code：编辑已存 provider 时传，据此取已存密钥（不必重填）；api_key：新建/更换密钥时传明文。
 type probeBody struct {
-	Key          string `json:"key"`
+	Code         string `json:"code"`
 	Type         string `json:"type"`
 	BaseURL      string `json:"base_url"`
 	DefaultModel string `json:"default_model"`
 	APIKey       string `json:"api_key"`
 }
 
-// specFromBody 组装 ProviderProbeSpec；校验「至少能定位一把钥」（明文或已存 key 二选一）。
+// specFromBody 组装 ProviderProbeSpec；校验「至少能定位一把钥」（明文或已存 provider code 二选一）。
 func specFromBody(b probeBody) (ProviderProbeSpec, string) {
 	if b.BaseURL == "" {
 		return ProviderProbeSpec{}, "base_url 不能为空"
 	}
-	if b.APIKey == "" && b.Key == "" {
-		return ProviderProbeSpec{}, "缺少密钥来源：请填入 api_key，或提供已存 provider 的 key"
+	if b.APIKey == "" && b.Code == "" {
+		return ProviderProbeSpec{}, "缺少密钥来源：请填入 api_key，或提供已存 provider 的 code"
 	}
 	return ProviderProbeSpec(b), ""
 }

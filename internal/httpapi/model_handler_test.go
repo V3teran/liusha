@@ -44,12 +44,12 @@ func (f *fakeModel) ListProviders(_ context.Context, onlyEnabled bool) ([]llmcfg
 	}
 	return out, nil
 }
-func (f *fakeModel) ProviderByKey(_ context.Context, key string) (llmcfg.Provider, error) {
+func (f *fakeModel) ProviderByCode(_ context.Context, key string) (llmcfg.Provider, error) {
 	if f.getErr != nil {
 		return llmcfg.Provider{}, f.getErr
 	}
 	for _, p := range f.providers {
-		if p.Key == key {
+		if p.Code == key {
 			return p, nil
 		}
 	}
@@ -58,7 +58,7 @@ func (f *fakeModel) ProviderByKey(_ context.Context, key string) (llmcfg.Provide
 func (f *fakeModel) SaveProvider(_ context.Context, p llmcfg.ProviderParams) (llmcfg.Provider, error) {
 	f.savedProvider = &p
 	return llmcfg.Provider{
-		Key: p.Key, Type: p.Type, BaseURL: p.BaseURL, DefaultModel: p.DefaultModel,
+		Code: p.Code, Type: p.Type, BaseURL: p.BaseURL, DefaultModel: p.DefaultModel,
 		EncryptedAPIKey: p.EncryptedAPIKey, MaxTokens: p.MaxTokens, SupportsTools: p.SupportsTools,
 		SupportsVision: p.SupportsVision, ContextWindow: p.ContextWindow,
 		Description: p.Description, SortOrder: p.SortOrder, Enabled: p.Enabled,
@@ -74,11 +74,11 @@ func (f *fakeModel) DeleteProvider(_ context.Context, key string) error {
 func (f *fakeModel) ListRoleRoutes(_ context.Context) ([]llmcfg.RoleRoute, error) {
 	return f.routes, nil
 }
-func (f *fakeModel) UpsertRoleRoute(_ context.Context, role, providerKey string) (llmcfg.RoleRoute, error) {
+func (f *fakeModel) UpsertRoleRoute(_ context.Context, role, providerCode string) (llmcfg.RoleRoute, error) {
 	if f.fkOn["upsert_route"] {
 		return llmcfg.RoleRoute{}, fkErr()
 	}
-	rr := llmcfg.RoleRoute{Role: role, ProviderKey: providerKey}
+	rr := llmcfg.RoleRoute{Role: role, ProviderCode: providerCode}
 	f.savedRoute = &rr
 	return rr, nil
 }
@@ -98,8 +98,8 @@ func (fakeEncrypter) Encrypt(plaintext string) ([]byte, error) {
 // 每条附 key_present（是否已有可用密钥来源）但绝不含密钥值本身（明文或密文）。
 func TestListProviders_ReturnsAllWithKeyPresent(t *testing.T) {
 	fm := &fakeModel{providers: []llmcfg.Provider{
-		{Key: "deepseek", Type: "openai_compat", BaseURL: "https://api.deepseek.com", DefaultModel: "deepseek-chat", EncryptedAPIKey: []byte("sealed:x"), ContextWindow: 64000, Enabled: true},
-		{Key: "qwen", Type: "openai_compat", BaseURL: "https://x", DefaultModel: "qwen-max", ContextWindow: 32000, Enabled: false},
+		{Code: "deepseek", Type: "openai_compat", BaseURL: "https://api.deepseek.com", DefaultModel: "deepseek-chat", EncryptedAPIKey: []byte("sealed:x"), ContextWindow: 64000, Enabled: true},
+		{Code: "qwen", Type: "openai_compat", BaseURL: "https://x", DefaultModel: "qwen-max", ContextWindow: 32000, Enabled: false},
 	}}
 	srv := newTestServer(t, Deps{Models: fm})
 	defer srv.Close()
@@ -113,7 +113,7 @@ func TestListProviders_ReturnsAllWithKeyPresent(t *testing.T) {
 		t.Fatalf("应返回全量含 disabled，got %d", len(arr))
 	}
 	first, _ := arr[0].(map[string]any)
-	for _, k := range []string{"key", "type", "base_url", "default_model", "key_present", "context_window", "enabled"} {
+	for _, k := range []string{"code", "type", "base_url", "default_model", "key_present", "context_window", "enabled"} {
 		if _, ok := first[k]; !ok {
 			t.Fatalf("缺字段 %q: %v", k, first)
 		}
@@ -144,10 +144,10 @@ func TestSaveProvider_ValidationRejects(t *testing.T) {
 		body map[string]any
 	}{
 		{"缺 key", map[string]any{"type": "openai_compat", "base_url": "u", "default_model": "m", "api_key": "k", "context_window": 1}},
-		{"type 非法", map[string]any{"key": "k", "type": "foo", "base_url": "u", "default_model": "m", "api_key": "k", "context_window": 1}},
-		{"缺 base_url", map[string]any{"key": "k", "type": "openai_compat", "default_model": "m", "api_key": "k", "context_window": 1}},
-		{"新建缺 api_key", map[string]any{"key": "k", "type": "openai_compat", "base_url": "u", "default_model": "m", "context_window": 1}},
-		{"context_window<=0", map[string]any{"key": "k", "type": "openai_compat", "base_url": "u", "default_model": "m", "api_key": "k", "context_window": 0}},
+		{"type 非法", map[string]any{"code": "k", "type": "foo", "base_url": "u", "default_model": "m", "api_key": "k", "context_window": 1}},
+		{"缺 base_url", map[string]any{"code": "k", "type": "openai_compat", "default_model": "m", "api_key": "k", "context_window": 1}},
+		{"新建缺 api_key", map[string]any{"code": "k", "type": "openai_compat", "base_url": "u", "default_model": "m", "context_window": 1}},
+		{"context_window<=0", map[string]any{"code": "k", "type": "openai_compat", "base_url": "u", "default_model": "m", "api_key": "k", "context_window": 0}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -169,7 +169,7 @@ func TestSaveProvider_WiresParams(t *testing.T) {
 	defer srv.Close()
 
 	code, _ := doJSON(t, "POST", srv.URL+"/models/providers", map[string]any{
-		"key": "anthropic", "type": "anthropic", "base_url": "https://api.anthropic.com",
+		"code": "anthropic", "type": "anthropic", "base_url": "https://api.anthropic.com",
 		"default_model": "claude", "api_key": "sk-real-secret", "context_window": 200000,
 		"supports_vision": true, "enabled": true,
 	})
@@ -179,7 +179,7 @@ func TestSaveProvider_WiresParams(t *testing.T) {
 	if fm.savedProvider == nil {
 		t.Fatal("SaveProvider 未被调用")
 	}
-	if fm.savedProvider.Key != "anthropic" || !fm.savedProvider.SupportsVision {
+	if fm.savedProvider.Code != "anthropic" || !fm.savedProvider.SupportsVision {
 		t.Fatalf("参数未透传: %+v", fm.savedProvider)
 	}
 	if string(fm.savedProvider.EncryptedAPIKey) != "sealed:sk-real-secret" {
@@ -194,7 +194,7 @@ func TestSaveProvider_EditWithoutAPIKeyKeepsExisting(t *testing.T) {
 	defer srv.Close()
 
 	code, _ := doJSON(t, "PUT", srv.URL+"/models/providers/deepseek", map[string]any{
-		"key": "deepseek", "type": "openai_compat", "base_url": "https://api.deepseek.com",
+		"code": "deepseek", "type": "openai_compat", "base_url": "https://api.deepseek.com",
 		"default_model": "deepseek-chat", "context_window": 64000, "enabled": true,
 	})
 	if code != 200 {
@@ -206,13 +206,13 @@ func TestSaveProvider_EditWithoutAPIKeyKeepsExisting(t *testing.T) {
 }
 
 // TestSaveProvider_NoEncrypterMeansRouteNotRegistered：缺 KeyEncrypter 时写路径不注册（404），
-// fail-closed——不能让前端明文 API Key 落到一个不会加密的路径。
+// fail-closed——不能让前端明文 API Code 落到一个不会加密的路径。
 func TestSaveProvider_NoEncrypterMeansRouteNotRegistered(t *testing.T) {
 	srv := newTestServer(t, Deps{Models: &fakeModel{}}) // 无 KeyEncrypter
 	defer srv.Close()
 
 	code, _ := doJSON(t, "POST", srv.URL+"/models/providers", map[string]any{
-		"key": "x", "type": "openai_compat", "base_url": "u", "default_model": "m", "api_key": "k", "context_window": 1,
+		"code": "x", "type": "openai_compat", "base_url": "u", "default_model": "m", "api_key": "k", "context_window": 1,
 	})
 	if code != 404 {
 		t.Fatalf("缺加密器时写路径应不注册（404），got %d", code)
@@ -238,8 +238,8 @@ func TestDeleteProvider_RestrictConflict(t *testing.T) {
 func TestListRouting_ReturnsRoutes(t *testing.T) {
 	fm := &fakeModel{
 		routes: []llmcfg.RoleRoute{
-			{Role: "vision", ProviderKey: "deepseek"},
-			{Role: "heavy", ProviderKey: "deepseek"},
+			{Role: "vision", ProviderCode: "deepseek"},
+			{Role: "heavy", ProviderCode: "deepseek"},
 		},
 	}
 	srv := newTestServer(t, Deps{Models: fm})
@@ -257,29 +257,29 @@ func TestListRouting_ReturnsRoutes(t *testing.T) {
 	}
 }
 
-// TestSaveRoleRoute_FKConflict：provider_key 不存在撞 FK → 409。
+// TestSaveRoleRoute_FKConflict：provider_code 不存在撞 FK → 409。
 func TestSaveRoleRoute_FKConflict(t *testing.T) {
 	fm := &fakeModel{fkOn: map[string]bool{"upsert_route": true}}
 	srv := newTestServer(t, Deps{Models: fm})
 	defer srv.Close()
 
-	code, _ := doJSON(t, "PUT", srv.URL+"/models/routes/planner", map[string]any{"provider_key": "ghost"})
+	code, _ := doJSON(t, "PUT", srv.URL+"/models/routes/planner", map[string]any{"provider_code": "ghost"})
 	if code != 409 {
 		t.Fatalf("want 409, got %d", code)
 	}
 }
 
-// TestSaveRoleRoute_Wires：合法 PUT → UpsertRoleRoute 收到 role(路径)+provider_key(体)。
+// TestSaveRoleRoute_Wires：合法 PUT → UpsertRoleRoute 收到 role(路径)+provider_code(体)。
 func TestSaveRoleRoute_Wires(t *testing.T) {
 	fm := &fakeModel{}
 	srv := newTestServer(t, Deps{Models: fm})
 	defer srv.Close()
 
-	code, _ := doJSON(t, "PUT", srv.URL+"/models/routes/planner", map[string]any{"provider_key": "deepseek"})
+	code, _ := doJSON(t, "PUT", srv.URL+"/models/routes/planner", map[string]any{"provider_code": "deepseek"})
 	if code != 200 {
 		t.Fatalf("status=%d", code)
 	}
-	if fm.savedRoute == nil || fm.savedRoute.Role != "planner" || fm.savedRoute.ProviderKey != "deepseek" {
+	if fm.savedRoute == nil || fm.savedRoute.Role != "planner" || fm.savedRoute.ProviderCode != "deepseek" {
 		t.Fatalf("路由未透传: %+v", fm.savedRoute)
 	}
 }

@@ -18,7 +18,7 @@ interface FindingDrawerProps {
 
 const SEVERITY_OPTIONS = ['critical', 'high', 'medium', 'low', 'info']
 
-// evidence key → 人类可读中文标签（常见 key 映射，未知 key 原样）。
+// evaluation key → 人类可读中文标签（常见 key 映射，未知 key 原样）。
 const EV_LABELS: Record<string, string> = {
   repro_cmd: '复现命令',
   repro_cmd_time: '复现命令（时间盲注）',
@@ -42,7 +42,7 @@ const EV_LABELS: Record<string, string> = {
   affected_users: '受影响用户',
 }
 
-// evidence 展示优先级：先复现（命令/步骤/payload），再观察，再结论/影响，其余未列举 key 排最后。
+// evaluation 展示优先级：先复现（命令/步骤/payload），再观察，再结论/影响，其余未列举 key 排最后。
 // 原实现按 Object.entries 原始插入顺序渲染——顺序跟数据库/LLM 写入顺序走，不同 finding 间
 // 展示顺序不一致，用户体验上"信息类别"跳来跳去。改成固定语义顺序后，任意 finding 都遵循
 // 同一套"先怎么复现、再看到了什么、最后结论是什么"的阅读节奏。
@@ -75,11 +75,11 @@ interface EvItem {
   kind: 'code' | 'text' | 'json'
 }
 
-// evidence 分类渲染：命令类 key（含 cmd/命令）用代码块 + 复制；对象/数组 JSON 折行；其余纯文本。
-function buildEvidenceItems(evidence?: Record<string, unknown>): EvItem[] {
-  if (!evidence) return []
+// evaluation 分类渲染：命令类 key（含 cmd/命令）用代码块 + 复制；对象/数组 JSON 折行；其余纯文本。
+function buildEvaluationItems(evaluation?: Record<string, unknown>): EvItem[] {
+  if (!evaluation) return []
   const items: EvItem[] = []
-  for (const [k, raw] of Object.entries(evidence)) {
+  for (const [k, raw] of Object.entries(evaluation)) {
     if (raw == null || raw === '') continue
     let kind: EvItem['kind'] = 'text'
     let value: string
@@ -100,7 +100,7 @@ function buildEvidenceItems(evidence?: Record<string, unknown>): EvItem[] {
   return items.sort((a, b) => rank(a.key) - rank(b.key))
 }
 
-// 漏洞详情抽屉：点台账某行→右侧滑出，展示完整 evidence(PoC/复现命令/观察)、修复建议、
+// 漏洞详情抽屉：点台账某行→右侧滑出，展示完整 evaluation（裁决/重放日志/assert 明细）、修复建议、
 // CWE/OWASP、聚合扫描次数，并支持 triage（状态 + 备注，两者解耦可单独存）。
 export function FindingDrawer({ open, finding, onOpenChange, onSave }: FindingDrawerProps) {
   const [editStatus, setEditStatus] = useState('open')
@@ -122,7 +122,7 @@ export function FindingDrawer({ open, finding, onOpenChange, onSave }: FindingDr
   const sevColorVar = severityColor[(finding?.severity ?? 'info').toLowerCase()] ?? '#6e7681'
   const sevLabelText = severityLabel[(finding?.severity ?? '').toLowerCase()] || finding?.severity || ''
   const statusMeta = findingStatusMeta(editStatus)
-  const evidenceItems = buildEvidenceItems(finding?.evidence)
+  const evidenceItems = buildEvaluationItems(finding?.evaluation)
   // 定位行（方法 + host + path）：渗透测试场景下最常需要复制去粘贴到 curl/Burp 复现的目标 URL。
   const targetLine = finding ? [finding.target?.method, finding.host, finding.target?.path].filter(Boolean).join(' ') : ''
 

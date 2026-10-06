@@ -103,9 +103,9 @@ describe('FindingDrawer', () => {
     expect(saveBtn).not.toBeDisabled()
   })
 
-  it('evidence: cmd/curl/repro 类 key 渲染为代码块并带复制按钮', () => {
+  it('evaluation: cmd/curl/repro 类 key 渲染为代码块并带复制按钮', () => {
     const finding = makeFinding({
-      evidence: {
+      evaluation: {
         repro_cmd: 'curl -X POST http://x',
         observation: '响应异常',
       },
@@ -122,9 +122,9 @@ describe('FindingDrawer', () => {
     expect(screen.getByText('响应异常')).toBeTruthy()
   })
 
-  it('evidence: 对象/数组值渲染为 JSON 折行，同样带复制按钮', () => {
+  it('evaluation: 对象/数组值渲染为 JSON 折行，同样带复制按钮', () => {
     const finding = makeFinding({
-      evidence: {
+      evaluation: {
         vulnerable_endpoints: ['/a', '/b'],
       },
     })
@@ -136,15 +136,15 @@ describe('FindingDrawer', () => {
     expect(screen.getByText('复制')).toBeTruthy()
   })
 
-  it('evidence 为空/未提供时不渲染证据区块', () => {
-    const finding = makeFinding({ evidence: undefined })
+  it('evaluation 为空/未提供时不渲染证据区块', () => {
+    const finding = makeFinding({ evaluation: undefined })
     render(<FindingDrawer open finding={finding} onOpenChange={vi.fn()} onSave={vi.fn()} />)
     expect(screen.queryByText(/证据/)).toBeNull()
   })
 
   it('evidence 中 null/空字符串值被跳过', () => {
     const finding = makeFinding({
-      evidence: { payload: '', analysis: null as unknown as string },
+      evaluation: { payload: '', analysis: null as unknown as string },
     })
     render(<FindingDrawer open finding={finding} onOpenChange={vi.fn()} onSave={vi.fn()} />)
     expect(screen.queryByText(/证据/)).toBeNull()
@@ -154,7 +154,7 @@ describe('FindingDrawer', () => {
     // 注意：userEvent.setup() 会用自己的 clipboard 覆盖 navigator.clipboard，
     // 这里用 fireEvent 保留 beforeEach 里注入的 mock。
     const writeText = navigator.clipboard.writeText
-    const finding = makeFinding({ evidence: { payload: "' OR 1=1" } })
+    const finding = makeFinding({ evaluation: { payload: "' OR 1=1" } })
     render(<FindingDrawer open finding={finding} onOpenChange={vi.fn()} onSave={vi.fn()} />)
 
     const copyBtn = screen.getByText('复制')

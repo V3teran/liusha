@@ -58,10 +58,10 @@ export function ProvidersView() {
   }
 
   const onDelete = async () => {
-    if (!draft || isNew || !window.confirm(`确认删除 provider「${draft.key}」？`)) return
+    if (!draft || isNew || !window.confirm(`确认删除 provider「${draft.code}」？`)) return
     setSaving(true)
     try {
-      await deleteProvider(draft.key)
+      await deleteProvider(draft.code)
       setDraft(null)
       reload()
     } catch (e) {
@@ -77,13 +77,13 @@ export function ProvidersView() {
         providers={providers}
         loading={loading}
         error={error}
-        selectedKey={isNew ? '__new__' : draft?.key ?? ''}
+        selectedKey={isNew ? '__new__' : draft?.code ?? ''}
         onSelect={openEdit}
         onNew={openNew}
       />
       {draft ? (
         <ProviderDetailPanel
-          key={isNew ? '__new__' : draft.key}
+          key={isNew ? '__new__' : draft.code}
           draft={draft}
           isNew={isNew}
           saving={saving}

@@ -18,9 +18,9 @@ func newFakeBuilder() (Builder, *int64) {
 	b := func(_ context.Context, p llmcfg.Provider, _ *ClientPool) (Generator, error) {
 		atomic.AddInt64(&count, 1)
 		return &testGen{
-			provider: p.Key,
+			provider: p.Code,
 			model:    p.DefaultModel,
-			res:      Result{Provider: p.Key, Model: p.DefaultModel},
+			res:      Result{Provider: p.Code, Model: p.DefaultModel},
 		}, nil
 	}
 	return b, &count
@@ -28,7 +28,7 @@ func newFakeBuilder() (Builder, *int64) {
 
 // prov 构造一个最小 provider 部署行（测试用）。
 func prov(key, model, env string) llmcfg.Provider {
-	return llmcfg.Provider{Key: key, DefaultModel: model, APIKeyEnv: env} // #nosec G101 // 测试 provider 表，env 名非密钥
+	return llmcfg.Provider{Code: key, DefaultModel: model, APIKeyEnv: env} // #nosec G101 // 测试 provider 表，env 名非密钥
 }
 
 // fakeResolver 把 role 映射到 provider 部署（测试注入，替代真实 llmstore 的多级缓存解析）。
@@ -174,22 +174,22 @@ func TestFactory_For_ConcurrentSafe(t *testing.T) {
 // TestBuildProvider_KnownProvidersBuildOK：表驱动校验 5 个 provider 部署都能构造
 func TestBuildProvider_KnownProvidersBuildOK(t *testing.T) {
 	providers := []llmcfg.Provider{
-		{Key: "deepseek", BaseURL: "https://api.deepseek.com", DefaultModel: "deepseek-chat", APIKeyEnv: "DEEPSEEK_API_KEY", MaxTokens: 4096, SupportsVision: false},                                    // #nosec G101 // 枚举字面量，非凭证
-		{Key: "anthropic", Type: ProviderTypeAnthropic, BaseURL: "https://api.anthropic.com", DefaultModel: "claude-sonnet-4-6", APIKeyEnv: "ANTHROPIC_API_KEY", MaxTokens: 8192, SupportsVision: true}, // #nosec G101 // 测试 provider 表，env 名非密钥
-		{Key: "openai", BaseURL: "https://api.openai.com/v1", DefaultModel: "gpt-4o", APIKeyEnv: "OPENAI_API_KEY", MaxTokens: 4096, SupportsVision: true},                                               // #nosec G101 // 枚举字面量，非凭证
-		{Key: "moonshot", BaseURL: "https://api.moonshot.cn/v1", DefaultModel: "kimi-k2-0905-preview", APIKeyEnv: "MOONSHOT_API_KEY", MaxTokens: 4096, SupportsVision: false},                           // #nosec G101 // 测试 provider 表，env 名非密钥
-		{Key: "qwen", BaseURL: "https://dashscope.aliyuncs.com/compatible-mode/v1", DefaultModel: "qwen3-max", APIKeyEnv: "QWEN_API_KEY", MaxTokens: 4096, SupportsVision: false},                       // #nosec G101 // 枚举字面量，非凭证
+		{Code: "deepseek", BaseURL: "https://api.deepseek.com", DefaultModel: "deepseek-chat", APIKeyEnv: "DEEPSEEK_API_KEY", MaxTokens: 4096, SupportsVision: false},                                    // #nosec G101 // 枚举字面量，非凭证
+		{Code: "anthropic", Type: ProviderTypeAnthropic, BaseURL: "https://api.anthropic.com", DefaultModel: "claude-sonnet-4-6", APIKeyEnv: "ANTHROPIC_API_KEY", MaxTokens: 8192, SupportsVision: true}, // #nosec G101 // 测试 provider 表，env 名非密钥
+		{Code: "openai", BaseURL: "https://api.openai.com/v1", DefaultModel: "gpt-4o", APIKeyEnv: "OPENAI_API_KEY", MaxTokens: 4096, SupportsVision: true},                                               // #nosec G101 // 枚举字面量，非凭证
+		{Code: "moonshot", BaseURL: "https://api.moonshot.cn/v1", DefaultModel: "kimi-k2-0905-preview", APIKeyEnv: "MOONSHOT_API_KEY", MaxTokens: 4096, SupportsVision: false},                           // #nosec G101 // 测试 provider 表，env 名非密钥
+		{Code: "qwen", BaseURL: "https://dashscope.aliyuncs.com/compatible-mode/v1", DefaultModel: "qwen3-max", APIKeyEnv: "QWEN_API_KEY", MaxTokens: 4096, SupportsVision: false},                       // #nosec G101 // 枚举字面量，非凭证
 	}
 	pool := NewClientPool()
 	for _, p := range providers {
-		t.Run(p.Key, func(t *testing.T) {
+		t.Run(p.Code, func(t *testing.T) {
 			t.Setenv(p.APIKeyEnv, "fake-key") // #nosec G101 // 测试 provider 表，env 名非密钥
 			g, err := BuildProvider(context.Background(), p, pool)
 			if err != nil {
-				t.Fatalf("build %s: %v", p.Key, err)
+				t.Fatalf("build %s: %v", p.Code, err)
 			}
 			if g.Model() == "" {
-				t.Fatalf("%s model empty", p.Key)
+				t.Fatalf("%s model empty", p.Code)
 			}
 		})
 	}
@@ -206,7 +206,7 @@ func TestBuildProvider_MissingKey(t *testing.T) {
 
 // TestBuildProvider_UnknownType：未知 provider type 报错
 func TestBuildProvider_UnknownType(t *testing.T) {
-	p := llmcfg.Provider{Key: "weird", Type: "no_such_type", DefaultModel: "m", APIKeyEnv: "WEIRD_KEY"} // #nosec G101 // 测试 provider 表，env 名非密钥
+	p := llmcfg.Provider{Code: "weird", Type: "no_such_type", DefaultModel: "m", APIKeyEnv: "WEIRD_KEY"} // #nosec G101 // 测试 provider 表，env 名非密钥
 	t.Setenv("WEIRD_KEY", "fake-key")
 	if _, err := BuildProvider(context.Background(), p, NewClientPool()); err == nil {
 		t.Fatal("未知 type 应报错")

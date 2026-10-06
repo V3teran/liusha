@@ -24,7 +24,7 @@ import (
 
 // providerStore 是探测适配器对 llmstore 的窄依赖：据 key 取已存 provider（多级缓存）。
 type providerStore interface {
-	ProviderByKey(ctx context.Context, key string) (llmcfg.Provider, error)
+	ProviderByCode(ctx context.Context, key string) (llmcfg.Provider, error)
 }
 
 // providerTester 实现 httpapi.ProviderTester。
@@ -53,9 +53,9 @@ func (t *providerTester) resolveKey(ctx context.Context, spec httpapi.ProviderPr
 	if spec.APIKey != "" {
 		return spec.APIKey, nil // 前端直填明文（新建/更换密钥），直接用
 	}
-	stored, err := t.store.ProviderByKey(ctx, spec.Key)
+	stored, err := t.store.ProviderByCode(ctx, spec.Code)
 	if err != nil {
-		return "", fmt.Errorf("取已存 provider %q 失败: %w", spec.Key, err)
+		return "", fmt.Errorf("取已存 provider %q 失败: %w", spec.Code, err)
 	}
 	key, err := llmcfg.ResolveAPIKey(stored, t.dec) // 解密 or env 回退（旧数据路径）
 	if err != nil {
@@ -67,7 +67,7 @@ func (t *providerTester) resolveKey(ctx context.Context, spec httpapi.ProviderPr
 // providerFromSpec 用表单当前值组装待测 provider，MaxTokens 强制 1（测试只需能通就行，省 token）。
 func providerFromSpec(spec httpapi.ProviderProbeSpec) llmcfg.Provider {
 	return llmcfg.Provider{
-		Key:          spec.Key,
+		Code:         spec.Code,
 		Type:         spec.Type,
 		BaseURL:      spec.BaseURL,
 		DefaultModel: spec.DefaultModel,
