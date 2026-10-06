@@ -51,7 +51,7 @@ type ConsumerTask struct {
 type AgentTraffic struct {
 	ID              int64
 	TaskID          string
-	AgentID         string // 哪个 agent 发的（可空）
+	AgentRunID      string // 产生该流量的认知轮次 agent_run.id（可空；列名 agent_run_id）
 	Identity        string // 身份戳（drive_browser identity / 登录账号；CLI 为空）
 	Tool            string // 工具戳（browser / curl / sqlmap…；external 为空）
 	Host            string
@@ -71,7 +71,7 @@ type AgentTraffic struct {
 type AgentSummary struct {
 	ID         int64
 	TaskID     string
-	AgentID    string
+	AgentRunID string
 	Identity   string
 	Tool       string
 	Host       string

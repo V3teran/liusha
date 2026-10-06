@@ -20,7 +20,7 @@ import (
 //
 // 身份关联：
 //
-//	ExecutorID             internal 入口填（sandbox 自产流量归属的 agent run；ingestor 反查 task_id）。
+//	AgentRunID             internal 入口填（sandbox 自产流量归属的 agent run；ingestor 反查 task_id）。
 //	                     external（passive）入口为空。
 //	Source               'external'（8888 passive 入口）/ 'internal'（sandbox 自产）。
 //
@@ -51,7 +51,7 @@ import (
 //	Timestamp       捕获时间（host 本地时钟，UTC）
 type TrafficSnapshot struct {
 	ID              string              `json:"id"`
-	AgentID         string              `json:"agent_run_id,omitempty"`
+	AgentRunID      string              `json:"agent_run_id,omitempty"`
 	Source          string              `json:"source"`
 	Identity        string              `json:"identity,omitempty"`
 	Tool            string              `json:"tool,omitempty"`

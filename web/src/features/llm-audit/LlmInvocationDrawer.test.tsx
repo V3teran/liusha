@@ -7,7 +7,7 @@ function makeDetail(overrides: Partial<LLMInvocationDetail> = {}): LLMInvocation
   return {
     id: 1,
     request_id: 'req-abc-123',
-    agent_id: null,
+    agent_run_id: null,
     task_id: 'task-1',
     provider: 'openai',
     model: 'gpt-5',

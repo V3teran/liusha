@@ -24,7 +24,7 @@ const heartbeatThrottleMs = 10_000
 
 // toolRecordInterceptor returns a registry.Interceptor that records every tool
 // call to toolinvocation.Store and throttles task heartbeats.
-func (h handler) toolRecordInterceptor(executorID, taskID string) registry.Interceptor {
+func (h handler) toolRecordInterceptor(agentRunID, taskID string) registry.Interceptor {
 	lastBeatMs := new(atomic.Int64)
 	return func(ctx context.Context, t registry.Tool, args []byte, next registry.ExecuteFunc) (registry.ToolResult, error) {
 		h.logger.Debug().
@@ -49,7 +49,7 @@ func (h handler) toolRecordInterceptor(executorID, taskID string) registry.Inter
 				preview = preview[:512]
 			}
 			invID, appendErr := h.toolCalls.Append(ctx, toolinvocation.Invocation{
-				AgentRunID:    executorID,
+				AgentRunID:    agentRunID,
 				TaskID:        taskID,
 				ToolName:      t.Name(),
 				Args:          json.RawMessage(args),
@@ -106,7 +106,7 @@ func (h handler) handleCognition(
 	brief string,
 ) error {
 	if brief == "" {
-		return h.failTask(ctx, p.AgentID, fmt.Errorf("任务缺少 brief"))
+		return h.failTask(ctx, p.AgentRunID, fmt.Errorf("任务缺少 brief"))
 	}
 
 	taskID := p.TaskID
@@ -125,7 +125,7 @@ func (h handler) handleCognition(
 		TaskID: taskID,
 	})
 	if err != nil {
-		return h.failTask(ctx, p.AgentID, fmt.Errorf("sandboxMgr.Acquire(task=%s): %w", taskID, err))
+		return h.failTask(ctx, p.AgentRunID, fmt.Errorf("sandboxMgr.Acquire(task=%s): %w", taskID, err))
 	}
 	defer func() {
 		if err := h.sandboxMgr.Release(context.Background(), sb); err != nil {
@@ -142,7 +142,7 @@ func (h handler) handleCognition(
 	// 执行四Agent认知循环
 	report, err := h.runCognition(ctx, taskID, virtualHost, brief, sb.Client)
 	if err != nil {
-		return h.failTask(ctx, p.AgentID, err)
+		return h.failTask(ctx, p.AgentRunID, err)
 	}
 
 	h.logger.Info().

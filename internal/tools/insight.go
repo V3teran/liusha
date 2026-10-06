@@ -272,16 +272,16 @@ func (t *writeInsightTool) Execute(ctx context.Context, args json.RawMessage) (r
 	}
 
 	entry := insight.Insight{
-		Category:      insight.Category(a.Category),
-		Priority:      insight.Priority(a.Priority),
-		Confidence:    insight.Confidence(a.Confidence),
-		Summary:       a.Summary,
-		Body:          a.Body,
-		Tags:          a.Tags,
-		SourceTaskID:  t.deps.TaskID,
-		SourceAgentID: t.deps.AgentID,
-		CreatedAt:     time.Now(),
-		UpdatedAt:     time.Now(),
+		Category:         insight.Category(a.Category),
+		Priority:         insight.Priority(a.Priority),
+		Confidence:       insight.Confidence(a.Confidence),
+		Summary:          a.Summary,
+		Body:             a.Body,
+		Tags:             a.Tags,
+		SourceTaskID:     t.deps.TaskID,
+		SourceAgentRunID: t.deps.AgentRunID,
+		CreatedAt:        time.Now(),
+		UpdatedAt:        time.Now(),
 	}
 
 	if err := t.deps.Insights.Append(ctx, task.AssignmentID, entry); err != nil {

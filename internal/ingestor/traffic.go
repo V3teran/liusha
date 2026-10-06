@@ -64,7 +64,7 @@ type Traffic struct {
 	agg           *aggregator         // 按 host 攒批窗口（Redis）
 	proxyStore    *traffic.ProxyStore // 代理捕获流量落库 + 领取
 	agentStore    *traffic.AgentStore // agent 自产流量落库
-	executors     *agentrun.Store     // internal 流量反查 agent→task_id
+	agentRuns     *agentrun.Store     // internal 流量反查 run→task_id
 	conversations ConversationCreator // 建 passive task 会话流（nil 跳过）
 	enq           *worker.Client
 	logger        zerolog.Logger
@@ -80,7 +80,7 @@ type Deps struct {
 	Tasks         *task.Store
 	ProxyStore    *traffic.ProxyStore
 	AgentStore    *traffic.AgentStore
-	Agents        *agentrun.Store
+	AgentRuns     *agentrun.Store
 	Conversations ConversationCreator
 	Enqueuer      *worker.Client
 	Logger        zerolog.Logger
@@ -89,8 +89,8 @@ type Deps struct {
 // NewTraffic 构造并 ensure consumer group 存在。
 func NewTraffic(ctx context.Context, deps Deps) (*Traffic, error) {
 	if deps.Redis == nil || deps.Assignments == nil || deps.Tasks == nil || deps.ProxyStore == nil ||
-		deps.AgentStore == nil || deps.Agents == nil || deps.Enqueuer == nil {
-		return nil, errors.New("ingestor.NewTraffic: redis/assignments/tasks/proxyStore/agentStore/executors/enqueuer 必填")
+		deps.AgentStore == nil || deps.AgentRuns == nil || deps.Enqueuer == nil {
+		return nil, errors.New("ingestor.NewTraffic: redis/assignments/tasks/proxyStore/agentStore/agentRuns/enqueuer 必填")
 	}
 	if strings.TrimSpace(deps.Stream) == "" {
 		return nil, errors.New("ingestor.NewTraffic: stream 必填（应来自 cfg.Proxy.StreamName）")
@@ -114,7 +114,7 @@ func NewTraffic(ctx context.Context, deps Deps) (*Traffic, error) {
 		agg:           newAggregator(deps.Redis, prefix, deps.Cfg.AggregateBatchSize, window),
 		proxyStore:    deps.ProxyStore,
 		agentStore:    deps.AgentStore,
-		executors:     deps.Agents,
+		agentRuns:     deps.AgentRuns,
 		conversations: deps.Conversations,
 		enq:           deps.Enqueuer,
 		logger:        deps.Logger,
@@ -360,17 +360,17 @@ func (t *Traffic) spawnPassiveTask(ctx context.Context, host string) {
 // handleInternalSnap 处理 agent sandbox 自产流量：反查 agent 得 task_id，落 agent_traffic，不 enqueue。
 //
 // source=internal 唯一来源：browser-svc.py 持 CDP 连接，把 chromium 的 Document/XHR/Fetch（含真实
-// 认证凭证位置）→ POST /internal/v1/flows/ingest → snap.Source="internal" + snap.AgentID。
+// 认证凭证位置）→ POST /internal/v1/flows/ingest → snap.Source="internal" + snap.AgentRunID。
 // 反查 agent 表得 task_id 写 agent_traffic。不 enqueue：agent 自己挖的流量回头触发分析会自激震荡。
 func (t *Traffic) handleInternalSnap(ctx context.Context, snap *proxy.TrafficSnapshot) {
-	if snap.AgentID == "" {
+	if snap.AgentRunID == "" {
 		t.logger.Warn().Str("host", snap.Host).Str("uri", snap.URI).
 			Msg("internal 流量缺 executor_id，丢弃（browser-svc.py session→executor 归属异常？）")
 		return
 	}
-	run, err := t.executors.GetByID(ctx, snap.AgentID)
+	run, err := t.agentRuns.GetByID(ctx, snap.AgentRunID)
 	if err != nil {
-		t.logger.Warn().Err(err).Str("agent_id", snap.AgentID).
+		t.logger.Warn().Err(err).Str("agent_run_id", snap.AgentRunID).
 			Msg("internal 流量反查 executor 失败，丢弃（executor 已被清理 / 跨进程脏数据？）")
 		return
 	}
@@ -379,7 +379,7 @@ func (t *Traffic) handleInternalSnap(ctx context.Context, snap *proxy.TrafficSna
 	respH, _ := json.Marshal(snap.ResponseHeaders)
 	trafficID, err := t.agentStore.Append(ctx, traffic.AgentTraffic{
 		TaskID:          run.TaskID,
-		AgentID:         snap.AgentID,
+		AgentRunID:      snap.AgentRunID,
 		Identity:        snap.Identity,
 		Tool:            snap.Tool,
 		Host:            snap.Host,
@@ -398,7 +398,7 @@ func (t *Traffic) handleInternalSnap(ctx context.Context, snap *proxy.TrafficSna
 		return
 	}
 	t.logger.Info().
-		Str("task_id", run.TaskID).Str("agent_id", snap.AgentID).Int64("traffic_id", trafficID).
+		Str("task_id", run.TaskID).Str("agent_run_id", snap.AgentRunID).Int64("traffic_id", trafficID).
 		Str("method", snap.Method).Str("url", snap.URI).
 		Msg("internal 流量已入 agent_traffic（不触发 trafficAnalysis）")
 }
@@ -447,16 +447,16 @@ func (t *Traffic) enqueuePassive(ctx context.Context, taskID, convID, host strin
 	// payload 只带一段 brief 文本（见 D5）：流量驱动无用户手打 brief，用 host 作 brief——
 	// runner handler 据此走派发，从 brief 抽 host 回填。
 	payloadInput, _ := json.Marshal(map[string]any{"brief": host})
-	hid, err := t.executors.Create(ctx, agentrun.NewParams{
+	hid, err := t.agentRuns.Create(ctx, agentrun.NewParams{
 		TaskID: taskID,
 		Role:   "traffic-analysis",
 		Input:  payloadInput,
 	})
 	if err != nil {
-		return fmt.Errorf("executors.Create: %w", err)
+		return fmt.Errorf("agentRuns.Create: %w", err)
 	}
 	if _, _, err := t.enq.Enqueue(ctx, worker.RoleExecutor, worker.Payload{
-		AgentID:        hid,
+		AgentRunID:     hid,
 		TaskID:         taskID,
 		ConversationID: convID,
 		Input:          payloadInput,

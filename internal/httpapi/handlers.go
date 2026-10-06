@@ -173,14 +173,14 @@ func scanHandler(api ScanAPI) gin.HandlerFunc {
 			return
 		}
 
-		taskID, agentID, err := api.CreateScan(c.Request.Context(), brief)
+		taskID, agentRunID, err := api.CreateScan(c.Request.Context(), brief)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{
-			"task_id":  taskID,
-			"agent_id": agentID,
+			"task_id":      taskID,
+			"agent_run_id": agentRunID,
 		})
 	}
 }

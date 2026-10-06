@@ -22,7 +22,7 @@ import (
 	"syscall"
 	"time"
 
-	agentstore "github.com/V3teran/liusha/internal/agentrun"
+	"github.com/V3teran/liusha/internal/agentrun"
 	"github.com/V3teran/liusha/internal/assignment"
 	"github.com/V3teran/liusha/internal/bus"
 	"github.com/V3teran/liusha/internal/cachestore"
@@ -77,7 +77,7 @@ type runnerStores struct {
 	tasks         *task.Store
 	assignments   *assignment.Store
 	conversations *conversation.Store
-	executors     *agentstore.Store
+	agentRuns     *agentrun.Store
 	findings      *finding.Store
 	graph         *explorationgraph.Store
 	toolCalls     *toolinvocation.Store
@@ -170,7 +170,7 @@ func main() {
 	})
 
 	h := handler{
-		executors:  stores.executors,
+		agentRuns:  stores.agentRuns,
 		tasks:      stores.tasks,
 		findings:   stores.findings,
 		corpus:     stores.corpus,
@@ -278,7 +278,7 @@ func newRunnerStores(pool *pgxpool.Pool, cfg config.Config) *runnerStores {
 		tasks:         task.NewStore(pool),
 		assignments:   assignment.NewStore(pool),
 		conversations: conversation.NewStore(pool),
-		executors:     agentstore.NewStore(pool),
+		agentRuns:     agentrun.NewStore(pool),
 		findings:      finding.NewStore(pool),
 		graph:         explorationgraph.NewStore(pool), // L3 探索图持久层（onboard 落 KindObjective 节点）
 		toolCalls:     toolinvocation.NewStore(pool),
@@ -402,7 +402,7 @@ func startTrafficIngestor(ctx context.Context, rdb *redis.Client, cfg config.Con
 		Tasks:         stores.tasks,
 		ProxyStore:    stores.proxyStore,
 		AgentStore:    stores.agentStore,
-		Agents:        stores.executors,
+		AgentRuns:     stores.agentRuns,
 		Conversations: stores.conversations, // passive 聚合建 task 后建会话流
 		Enqueuer:      wc,
 		Logger:        logger,

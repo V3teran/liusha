@@ -38,12 +38,12 @@ func newTestCronRunner(t *testing.T) (*cronRunner, *pgxpool.Pool) {
 		assignments: assignments,
 		tasks:       tasks,
 		proxyStore:  traffic.NewProxyStore(pool),
-		executors:   agentRuns,
+		agentRuns:   agentRuns,
 		enq:         enq,
 		scan: &scanAdapter{
 			assignments:   assignments,
 			tasks:         tasks,
-			executors:     executorRuns,
+			agentRuns:     agentRuns,
 			enq:           enq,
 			maxRunTimeout: time.Minute,
 		},
@@ -113,7 +113,7 @@ func TestFireDue_ActiveSchedule_ExpandsTaskAndAgent(t *testing.T) {
 		t.Fatalf("克隆的 assignment 应回指模板 id，got %+v", asg.ScheduleID)
 	}
 
-	runs, err := r.executors.ListByTask(ctx, found.ID, 10)
+	runs, err := r.agentRuns.ListByTask(ctx, found.ID, 10)
 	if err != nil {
 		t.Fatalf("list executor runs: %v", err)
 	}
@@ -158,7 +158,7 @@ func TestFireDue_PassiveSchedule_ClaimsUnconsumedTraffic(t *testing.T) {
 		t.Fatalf("应展开出 host=%q 的 passive task，got %+v", host, tasks)
 	}
 
-	runs, err := r.executors.ListByTask(ctx, found.ID, 10)
+	runs, err := r.agentRuns.ListByTask(ctx, found.ID, 10)
 	if err != nil {
 		t.Fatalf("list executor runs: %v", err)
 	}

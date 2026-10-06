@@ -109,7 +109,7 @@ func newIngestHandler(sink internalSink, token string, logger zerolog.Logger) ht
 
 		snap := &proxy.TrafficSnapshot{
 			ID:              "cdp-" + req.ExecutorID + "-" + ts.Format("20060102T150405.000000000"),
-			AgentID:         req.ExecutorID,
+			AgentRunID:      req.ExecutorID,
 			Source:          "internal",
 			Identity:        req.Identity,
 			Tool:            req.Tool,

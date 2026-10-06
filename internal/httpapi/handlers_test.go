@@ -282,7 +282,7 @@ type fakeScan struct {
 	gotBrief                 string
 	calls                    int
 	err                      error
-	retTaskID, retExecutorID string
+	retTaskID, retAgentRunID string
 }
 
 func (f *fakeScan) CreateScan(_ context.Context, brief string) (string, string, error) {
@@ -295,7 +295,7 @@ func (f *fakeScan) CreateScan(_ context.Context, brief string) (string, string, 
 	if taskID == "" {
 		taskID = "task-id"
 	}
-	tid := f.retExecutorID
+	tid := f.retAgentRunID
 	if tid == "" {
 		tid = "agent-id"
 	}
@@ -325,13 +325,13 @@ func TestScan_Created(t *testing.T) {
 	}
 	var out struct {
 		TaskID     string `json:"task_id"`
-		ExecutorID string `json:"agent_id"`
+		AgentRunID string `json:"agent_run_id"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if out.TaskID != "task-id" || out.ExecutorID != "agent-id" {
-		t.Fatalf("ids: tid=%q hid=%q", out.TaskID, out.ExecutorID)
+	if out.TaskID != "task-id" || out.AgentRunID != "agent-id" {
+		t.Fatalf("ids: tid=%q run=%q", out.TaskID, out.AgentRunID)
 	}
 	if fs.calls != 1 {
 		t.Fatalf("calls=%d, want 1", fs.calls)

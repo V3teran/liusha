@@ -122,7 +122,7 @@ func llmInvocationsHandler(api InvocationsAPI) gin.HandlerFunc {
 			items = append(items, gin.H{
 				"id":            v.ID,
 				"request_id":    v.RequestID,
-				"agent_id":      v.AgentRunID,
+				"agent_run_id":  v.AgentRunID,
 				"task_id":       v.TaskID,
 				"provider":      v.Provider,
 				"model":         v.Model,
@@ -176,7 +176,7 @@ func llmInvocationDetailHandler(api InvocationsAPI) gin.HandlerFunc {
 		c.JSON(http.StatusOK, gin.H{
 			"id":            v.ID,
 			"request_id":    v.RequestID,
-			"agent_id":      v.AgentRunID,
+			"agent_run_id":  v.AgentRunID,
 			"task_id":       v.TaskID,
 			"provider":      v.Provider,
 			"model":         v.Model,

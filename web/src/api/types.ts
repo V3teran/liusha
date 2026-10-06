@@ -331,7 +331,7 @@ export interface FindingListResponse {
 export interface LLMInvocationSummary {
   id: number
   request_id: string // 跨系统关联键（db 侧 gen_random_uuid() 生成）
-  agent_id: string | null
+  agent_run_id: string | null
   task_id: string | null
   provider: string
   model: string

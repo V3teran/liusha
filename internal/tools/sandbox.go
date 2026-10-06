@@ -63,7 +63,7 @@ func (t *runCommandTool) Execute(ctx context.Context, args json.RawMessage) (reg
 
 	req := sandbox.ExecRequest{
 		TaskID:         t.deps.TaskID,
-		AgentID:        t.deps.AgentID,
+		AgentID:        t.deps.AgentRunID,
 		Command:        a.Command,
 		TimeoutSeconds: a.TimeoutSeconds,
 		Tag:            a.Tag,
@@ -232,7 +232,7 @@ func (t *driveBrowserTool) Execute(ctx context.Context, args json.RawMessage) (r
 	execOnce := func(cmd string) (sandbox.ExecResult, error) {
 		return t.deps.Sandbox.Exec(ctx, sandbox.ExecRequest{
 			TaskID:         t.deps.TaskID,
-			AgentID:        t.deps.AgentID,
+			AgentID:        t.deps.AgentRunID,
 			Command:        cmd,
 			TimeoutSeconds: a.TimeoutSeconds,
 			Tag:            "drive_browser",

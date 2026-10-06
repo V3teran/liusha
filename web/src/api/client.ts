@@ -325,11 +325,11 @@ export async function abortTask(id: string): Promise<void> {
 
 /**
  * 发起主动扫描。brief 为一句话自然语言任务简报，后端整段透传给 agent LLM。
- * @returns owner_id 与 agent_id（据此查任务进度 / llm 审计）
+ * @returns owner_id 与 agent_run_id（据此查任务进度 / llm 审计）
  */
 export async function startActiveScan(
   brief: string
-): Promise<{ owner_id: string; agent_id: string }> {
+): Promise<{ owner_id: string; agent_run_id: string }> {
   return post('/scan/active', { brief })
 }
 
