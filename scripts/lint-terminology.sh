@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# lint-terminology.sh：术语契约门禁（docs/glossary.md 的机器可执行形态）。
+# lint-terminology.sh：术语契约门禁。
 #
 # 用法：
 #   scripts/lint-terminology.sh            # 检查模式：发现残留退出 1（CI / make lint 用）
 #   scripts/lint-terminology.sh count      # 报数模式：仅输出各术语残留计数（循环自检用）
 #
-# 规则与豁免清单见 docs/glossary.md；豁免与本脚本的模式列表必须同步维护。
+# 规则与豁免清单即下方 FORBIDDEN 列表（含语义备忘）。
 set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -22,12 +22,11 @@ SCAN_ARGS=(
 EXCLUDES=(
   ':!db/migrations/**'      # 历史迁移不可编辑
   ':!deployments/**'        # 容器镜像契约（LIUSHA_AGENT_ID 等）
-  ':!docs/glossary.md'      # 契约本身必须引用废弃名
   ':!scripts/lint-terminology.sh'
   ':!web/dist/**' ':!**/node_modules/**'
 )
 
-# 禁用术语 → 现行术语（与 docs/glossary.md 同步）。
+# 禁用术语（旧架构残留，全称匹配大小写不敏感）。
 # 注意：lead（情报线索）/ lesson（历史沿革注释）/ engagement（英文领域用语）为允许术语，不进禁用表。
 FORBIDDEN=(
   '知识图谱'
@@ -57,7 +56,7 @@ done
 
 echo "TOTAL_RESIDUAL=$total"
 if [ "$MODE" != "count" ] && [ "$total" != "0" ]; then
-  echo "术语门禁未通过：见 docs/glossary.md 的现行术语映射。"
+  echo "术语门禁未通过：存在废弃术语残留，见上方清单。"
   exit 1
 fi
 exit 0
