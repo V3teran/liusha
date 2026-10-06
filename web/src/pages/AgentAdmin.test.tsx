@@ -38,7 +38,6 @@ function h(o: Partial<AgentConfig> = {}): AgentConfig {
   return {
     id: 'h1',
     code: 'recon',
-    kind: 'executor',
     name: '侦察智能体',
     description: '',
     system_prompt: 'charter',
@@ -97,12 +96,6 @@ describe('AgentAdmin', () => {
     await userEvent.click(screen.getByText('保存'))
     await waitFor(() => expect(mSave).toHaveBeenCalled())
     expect(mSave.mock.calls[0][0].function_tools).toEqual(['read_findings', 'write_finding'])
-  })
-
-  it('规划者显示规划徽章', async () => {
-    mList.mockResolvedValue(paged([h({ kind: 'planner', name: '规划者' })]))
-    render(<AgentAdmin />)
-    expect(await screen.findByText('规划')).toBeTruthy()
   })
 
   it('删除走确认后调 deleteAgent', async () => {

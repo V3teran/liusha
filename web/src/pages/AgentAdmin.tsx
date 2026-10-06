@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { listAgentsPaged } from '@/api/client'
 import { saveAgent, deleteAgent, listToolCandidates, listSkillCandidates } from '@/api/config'
-import type { AgentConfig, AgentKind, Skill, Tool } from '@/api/types'
+import type { AgentConfig, Skill, Tool } from '@/api/types'
 import { Badge } from '@/components/ui/badge'
 import { ConfigListShell, ConfigRow } from '@/features/config/ConfigListShell'
 import { usePagedList } from '@/features/config/usePagedList'
@@ -15,12 +15,11 @@ const fetchAgents = async (page: number, size: number, q: string) => {
   return { items: res.agents, total: res.total }
 }
 
-// 新建智能体空白初值。kind 默认 executor（执行者）。
+// 新建智能体空白初值。
 function blankAgent(): AgentConfig {
   return {
     id: '',
     code: '',
-    kind: 'executor',
     name: '',
     description: '',
     system_prompt: '',
@@ -130,10 +129,7 @@ export function AgentAdmin() {
             dimmed={!h.enabled}
             onClick={() => setDraft(h)}
             right={
-              <div className="flex flex-shrink-0 items-center gap-2">
-                <Badge variant="outline">{{ planner: '规划', executor: '执行', evaluator: '评估', monitor: '监察' }[h.kind] ?? h.kind}</Badge>
-                {!h.enabled && <Badge variant="outline">已停用</Badge>}
-              </div>
+              !h.enabled ? <Badge variant="outline">已停用</Badge> : undefined
             }
           />
         ))}
@@ -164,18 +160,6 @@ export function AgentAdmin() {
                             disabled={!!draft.id}
                             onChange={(e) => patch({ code: e.target.value })}
                           />
-                        </Field>
-                        <Field label="类型">
-                          <select
-                            className={INPUT_CLASS}
-                            value={draft.kind}
-                            onChange={(e) => patch({ kind: e.target.value as AgentKind })}
-                          >
-                            <option value="planner">规划者（planner）</option>
-                            <option value="executor">执行者（executor）</option>
-                            <option value="evaluator">评估者（evaluator）</option>
-                            <option value="monitor">监察者（monitor）</option>
-                          </select>
                         </Field>
                       </div>
                       <Field label="名称">

@@ -51,7 +51,7 @@ func main() {
 	}
 	fmt.Printf("Agent 总数: %d\n", len(agents))
 	for _, a := range agents {
-		fmt.Printf("  - %s (%s): %s\n", a.Code, a.Kind, a.Name)
+		fmt.Printf("  - %s: %s\n", a.Code, a.Name)
 		fmt.Printf("    Skills: %v\n", a.Skills)
 	}
 

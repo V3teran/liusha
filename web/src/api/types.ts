@@ -82,17 +82,14 @@ export interface ConversationUsage {
    小写键（Go gin.H DTO：agentJSON 单点序列化）。
    ============================================================ */
 
-// 智能体种类：认知循环四角色（planner 规划 / executor 执行 / evaluator 验证 / monitor 监察）
-export type AgentKind = 'planner' | 'executor' | 'evaluator' | 'monitor'
-
 // AgentConfig 是智能体全字段形态。function_tools/cli_tools/skills 后端保证非 nil。
+// 角色以 code 寻址（planner/executor/evaluator/monitor 四个固定 code），无独立种类字段。
 //   - function_tools：内置函数工具集（进程内原生函数 code 列表）
 //   - cli_tools     ：外置 CLI 工具集（tools.yaml 名字，严格白名单），空 = 不装配任何外置工具
 //   - skills        ：可访问 skill 裸名白名单（渐进式加载：声明的进 system prompt 技能索引并可 read_skill）
 export interface AgentConfig {
   id: string
   code: string
-  kind: AgentKind
   name: string
   description: string
   system_prompt: string

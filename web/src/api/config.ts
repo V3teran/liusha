@@ -27,7 +27,6 @@ export async function listAgentConfigs(): Promise<AgentConfig[]> {
 export async function saveAgent(h: AgentConfig): Promise<AgentConfig> {
   const body = {
     code: h.code,
-    kind: h.kind,
     name: h.name,
     description: h.description,
     system_prompt: h.system_prompt,

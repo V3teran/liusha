@@ -29,8 +29,6 @@ import (
 type executorStore interface {
 	GetByID(ctx context.Context, id string) (agent.Agent, error)
 	GetByCode(ctx context.Context, code string) (agent.Agent, error)
-	GetPlanner(ctx context.Context) (agent.Agent, error)
-	GetExecutor(ctx context.Context) (agent.Agent, error)
 	Update(ctx context.Context, code string, p agent.UpdateParams) (agent.Agent, error)
 	UpdateComplexity(ctx context.Context, id, complexity string) (agent.Agent, error)
 	List(ctx context.Context, onlyEnabled bool) ([]agent.Agent, error)
@@ -73,13 +71,6 @@ func newWithStores(hn executorStore, sk skillStore, cache *cachestore.Cache) *St
 }
 
 // ── 缓存键（L1/L2 同键，统一前缀 configstore:）───────────────────────────
-
-// keyplanner / keyExecutor 是两个哨兵键（无参），分别缓存全局唯一的 Planner 和 Executor
-// 与 enabled 领域池。任一 agent 存/删即失效二者（见 SaveExecutor/DeleteExecutor）。
-const (
-	keyplanner  = "configstore:executor:planner"
-	keyExecutor = "configstore:executor:executor"
-)
 
 func keyExecutorID(id string) string           { return "configstore:executor:id:" + id }
 func keyExecutorCode(code string) string       { return "configstore:executor:code:" + code }
@@ -159,29 +150,6 @@ func (s *Store) ComplexityByCode(ctx context.Context, code string) (complexity s
 	return res.Complexity, res.Found, nil
 }
 
-// EnabledDomainExecutors 返回全部 enabled 领域操作员（运行时子代理池），缓存于哨兵键。
-func (s *Store) EnabledDomainExecutors(ctx context.Context) ([]agent.Agent, error) {
-	return cachestore.ReadThrough(ctx, s.cache, keyExecutor,
-		func([]agent.Agent) []string { return []string{keyExecutor} },
-		func(ctx context.Context) ([]agent.Agent, error) {
-			executor, err := s.executors.GetExecutor(ctx)
-			if err != nil {
-				return nil, err
-			}
-			return []agent.Agent{executor}, nil
-		})
-}
-
-// Planner 取全局唯一编排操作员（kind='planner' AND enabled，见 D1），缓存于哨兵键。
-// Planner 返回缓存的 planner 配置（哨兵键）。
-func (s *Store) Planner(ctx context.Context) (agent.Agent, error) {
-	return cachestore.ReadThrough(ctx, s.cache, keyplanner,
-		func(agent.Agent) []string { return []string{keyplanner} },
-		func(ctx context.Context) (agent.Agent, error) {
-			return s.executors.GetPlanner(ctx)
-		})
-}
-
 // ── 全量列表读（L1/L2 缓存，按 onlyEnabled 分键）─────────────────────────
 
 // ListExecutors 全量列表读，走多级缓存（按 onlyEnabled 分键）。任一操作员写即失效两键。
@@ -214,14 +182,12 @@ func (s *Store) CountExecutors(ctx context.Context, p agent.ListParams) (int, er
 // 失效的键由写方直接列出（与 ReadThrough 的 fillKeys 对应），无 per-resource 语义 switch。
 
 // agentKeys 是一次操作员写/删要清的全部缓存键：id 键 + code 键 + complexity 键
-// （code 路，热路径路由用）+ 两个哨兵键（提/降 planner 或 enabled/kind 变动影响领域池）
-// + 两个全量列表键。失效集是各 ReadThrough 回填键的超集（decode 失败即硬错，
-// 回填键载荷类型必须一致；失效键不受此限）。
+// （code 路，热路径路由用）+ 两个全量列表键。失效集是各 ReadThrough 回填键的超集
+// （decode 失败即硬错，回填键载荷类型必须一致；失效键不受此限）。
 // complexity/code 键随此一并失效——全部写入口都经此，保证移档/改配即时生效。
 func agentKeys(id, code string) []string {
 	return []string{
 		keyExecutorID(id), keyExecutorCode(code), keyExecutorComplexity(code),
-		keyplanner, keyExecutor,
 		keyAgentsList(true), keyAgentsList(false),
 	}
 }

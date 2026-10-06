@@ -25,7 +25,7 @@ import (
 )
 
 // agentFront 是 agents/*.md frontmatter 的解析目标。
-// id 用作稳定引用键 code；kind∈{planner,executor,evaluator}；body 取 markdown 正文。
+// id 用作稳定引用键 code（四角色即四个固定 code）；body 取 markdown 正文。
 // function_tools 是内置函数工具（进程内原生函数 code 列表）。
 // cli_tools 是外置 CLI 工具集（tools.yaml 名字），严格白名单，空=不装配任何外部工具。
 // skills 是 Agent 可访问的 skill 裸名列表（= skills/<分类>/<名字> 的目录名，
@@ -35,12 +35,11 @@ type agentFront struct {
 	ID            string   `yaml:"id"`
 	Name          string   `yaml:"name"`
 	Description   string   `yaml:"description"`
-	Kind          string   `yaml:"kind"`
 	FunctionTools []string `yaml:"function_tools"`
 	CliTools      []string `yaml:"cli_tools"`
 	Skills        []string `yaml:"skills"`
 	MaxIterations int      `yaml:"max_iterations"`
-	Tier          string   `yaml:"tier"` // 能力档 heavy|vision|light（空 → store 落 DEFAULT 'heavy'）
+	Tier          string   `yaml:"tier"` // 复杂度档 simple|medium|complex（列名 complexity，历史改名残留）
 }
 
 var (
@@ -167,7 +166,7 @@ func importExecutors(ctx context.Context, dir string, h *agent.Store, force bool
 			return nil, fmt.Errorf("查操作员 %q: %w", code, err)
 		}
 		systemPrompt := string(body)
-		if _, err := h.Upsert(ctx, code, f.Kind, f.Name, f.Description, systemPrompt, agent.UpdateParams{
+		if _, err := h.Upsert(ctx, code, f.Name, f.Description, systemPrompt, agent.UpdateParams{
 			FunctionTools: &f.FunctionTools,
 			CliTools:      &f.CliTools,
 			Skills:        &f.Skills,
