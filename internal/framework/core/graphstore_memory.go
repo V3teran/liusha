@@ -113,10 +113,6 @@ func (s *InMemoryGraphStore) UpdateNode(_ context.Context, id string, update Gra
 		node.State = update.State
 	}
 
-	if update.Confidence != nil {
-		node.Confidence = *update.Confidence
-	}
-
 	if update.Metadata != nil {
 		for k, v := range update.Metadata {
 			node.Metadata[k] = v

@@ -27,14 +27,14 @@ func TestTaskIsolation(t *testing.T) {
 
 	store := NewStore(pool)
 
-	taskA := "task-a"
-	taskB := "task-b"
+	taskA := "aaaaaaa1-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+	taskB := "bbbbbbb2-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
 
 	// taskA 创建 action 节点
 	complexity := ComplexitySimple
 	stateOpen := StateOpen
 	moveA := Node{
-		ID:         "action-a",
+		ID:         "11111111-1111-4111-8111-111111111111",
 		TaskID:     taskA,
 		Kind:       core.KindAction,
 		Content:    json.RawMessage(`{"instruction":"测试 taskA 的目标"}`),
@@ -49,7 +49,7 @@ func TestTaskIsolation(t *testing.T) {
 
 	// taskB 创建 action 节点
 	moveB := Node{
-		ID:         "action-b",
+		ID:         "22222222-2222-4222-8222-222222222222",
 		TaskID:     taskB,
 		Kind:       core.KindAction,
 		Content:    json.RawMessage(`{"instruction":"测试 taskB 的目标"}`),
@@ -66,13 +66,13 @@ func TestTaskIsolation(t *testing.T) {
 	actionsA, err := store.ListOpenActions(ctx, taskA)
 	require.NoError(t, err)
 	assert.Len(t, actionsA, 1)
-	assert.Equal(t, "action-a", actionsA[0].ID)
+	assert.Equal(t, "11111111-1111-4111-8111-111111111111", actionsA[0].ID)
 
 	// taskB 只能看到自己的 action
 	actionsB, err := store.ListOpenActions(ctx, taskB)
 	require.NoError(t, err)
 	assert.Len(t, actionsB, 1)
-	assert.Equal(t, "action-b", actionsB[0].ID)
+	assert.Equal(t, "22222222-2222-4222-8222-222222222222", actionsB[0].ID)
 }
 
 // TestCompleteDataFlow 测试完整数据流：move → observation → discovery
@@ -87,13 +87,13 @@ func TestCompleteDataFlow(t *testing.T) {
 
 	store := NewStore(pool)
 
-	taskID := "task-flow"
+	taskID := "ccccccc3-cccc-4ccc-8ccc-cccccccccccc"
 
 	// 1. 创建 move
 	complexity := ComplexityModerate
 	stateOpen := StateOpen
 	move := Node{
-		ID:         "action-1",
+		ID:         "33333333-3333-4333-8333-333333333333",
 		TaskID:     taskID,
 		Kind:       core.KindAction,
 		Content:    json.RawMessage(`{"instruction":"扫描目标端点"}`),
@@ -112,7 +112,7 @@ func TestCompleteDataFlow(t *testing.T) {
 
 	confidence := ConfidenceUnverified
 	observation := Node{
-		ID:         "obs-1",
+		ID:         "55555555-5555-4555-8555-555555555555",
 		TaskID:     taskID,
 		Kind:       core.KindObservation,
 		Content:    json.RawMessage(`{"detail":"发现目录 /admin"}`),
@@ -139,7 +139,7 @@ func TestCompleteDataFlow(t *testing.T) {
 	// 3. 验证通过 → 晋升为 discovery
 	verifiedConf := ConfidenceVerified
 	discovery := Node{
-		ID:         "disc-1",
+		ID:         "66666666-6666-4666-8666-666666666666",
 		TaskID:     taskID,
 		Kind:       core.KindResult,
 		Content:    json.RawMessage(`{"type":"vulnerability","severity":"medium"}`),
@@ -171,7 +171,7 @@ func TestCompleteDataFlow(t *testing.T) {
 	discoveries, err := store.ListResults(ctx, taskID)
 	require.NoError(t, err)
 	assert.Len(t, discoveries, 1)
-	assert.Equal(t, "disc-1", discoveries[0].ID)
+	assert.Equal(t, "66666666-6666-4666-8666-666666666666", discoveries[0].ID)
 }
 
 // TestMoveDependency 测试 Move 依赖关系
@@ -186,14 +186,14 @@ func TestMoveDependency(t *testing.T) {
 
 	store := NewStore(pool)
 
-	taskID := "task-dep"
+	taskID := "ddddddd4-dddd-4ddd-8ddd-dddddddddddd"
 
 	complexity := ComplexitySimple
 	stateOpen := StateOpen
 
 	// move-1：无依赖
 	move1 := Node{
-		ID:         "action-1",
+		ID:         "33333333-3333-4333-8333-333333333333",
 		TaskID:     taskID,
 		Kind:       core.KindAction,
 		Content:    json.RawMessage(`{"instruction":"第一步：扫描"}`),
@@ -208,13 +208,13 @@ func TestMoveDependency(t *testing.T) {
 
 	// move-2：依赖 move-1
 	move2 := Node{
-		ID:         "action-2",
+		ID:         "44444444-4444-4444-8444-444444444444",
 		TaskID:     taskID,
 		Kind:       core.KindAction,
 		Content:    json.RawMessage(`{"instruction":"第二步：利用"}`),
 		State:      &stateOpen,
 		Complexity: &complexity,
-		DependsOn:  []string{"action-1"},
+		DependsOn:  []string{"33333333-3333-4333-8333-333333333333"},
 		Priority:   PriorityMedium,
 		CreatedAt:  time.Now(),
 		UpdatedAt:  time.Now(),
@@ -228,14 +228,14 @@ func TestMoveDependency(t *testing.T) {
 	assert.Len(t, actions, 2)
 
 	// move-1 完成
-	err = store.UpdateActionStateWithReason(ctx, "action-1", StateDone, nil)
+	err = store.UpdateActionStateWithReason(ctx, "33333333-3333-4333-8333-333333333333", StateDone, nil)
 	require.NoError(t, err)
 
 	// 再次查询，只有 move-2 (move-1 已 done)
 	actions, err = store.ListOpenActions(ctx, taskID)
 	require.NoError(t, err)
 	assert.Len(t, actions, 1)
-	assert.Equal(t, "action-2", actions[0].ID)
+	assert.Equal(t, "44444444-4444-4444-8444-444444444444", actions[0].ID)
 }
 
 // setupTestDB 启动一次性 Postgres 容器（含全部迁移），并清理图谱表保证测试隔离。

@@ -65,13 +65,6 @@ func (s *Store) CreateNode(ctx context.Context, node Node) (string, error) {
 		UpdatedAt: node.UpdatedAt,
 	}
 
-	// 添加可选字段
-	if node.Owner != "" {
-		graphNode.Metadata["owner"] = node.Owner
-	}
-	if len(node.Tags) > 0 {
-		graphNode.Metadata["tags"] = node.Tags
-	}
 	if len(node.Metadata) > 0 {
 		graphNode.Metadata["business_metadata"] = node.Metadata
 	}
@@ -284,18 +277,6 @@ func (s *Store) graphNodeToNode(graphNode *core.GraphNode) (*Node, error) {
 	if sourceID, ok := graphNode.Metadata["source_id"].(string); ok {
 		node.SourceID = sourceID
 	}
-	if owner, ok := graphNode.Metadata["owner"].(string); ok {
-		node.Owner = owner
-	}
-	if tags, ok := graphNode.Metadata["tags"].([]interface{}); ok {
-		strTags := make([]string, 0, len(tags))
-		for _, tag := range tags {
-			if str, ok := tag.(string); ok {
-				strTags = append(strTags, str)
-			}
-		}
-		node.Tags = strTags
-	}
 	if priority, ok := graphNode.Metadata["priority"].(string); ok {
 		node.Priority = Priority(priority)
 	}
@@ -331,13 +312,20 @@ func (s *Store) graphNodeToNode(graphNode *core.GraphNode) (*Node, error) {
 		node.BlockedReason = &blockedReason
 	}
 
-	// Confidence
-	if graphNode.Confidence >= 0.8 {
-		conf := ConfidenceVerified
-		node.Confidence = &conf
-	} else if graphNode.Confidence > 0 {
-		conf := ConfidenceUnverified
-		node.Confidence = &conf
+	// Confidence：写侧只对 observation/result 设浮点（0.0=refuted/0.5=unverified/1.0=verified），
+	// 其余 kind 恒为 0（无置信度语义），不映射。
+	if _, has := graphNode.Metadata["_confidence"]; has {
+		switch graphNode.Confidence {
+		case 1.0:
+			conf := ConfidenceVerified
+			node.Confidence = &conf
+		case 0.5:
+			conf := ConfidenceUnverified
+			node.Confidence = &conf
+		default:
+			conf := ConfidenceRefuted
+			node.Confidence = &conf
+		}
 	}
 
 	return node, nil

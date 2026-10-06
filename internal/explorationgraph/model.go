@@ -121,15 +121,12 @@ type Node struct {
 
 	// 通用字段
 	Priority   Priority        `json:"priority"` // critical/high/medium/low
-	Owner      string          `json:"owner,omitempty"`
 	SourceType SourceType      `json:"source_type"`
 	SourceID   string          `json:"source_id"`
-	Tags       []string        `json:"tags,omitempty"`
 	Metadata   json.RawMessage `json:"metadata,omitempty"`
 
-	CreatedAt   time.Time  `json:"created_at"`
-	UpdatedAt   time.Time  `json:"updated_at"`
-	CompletedAt *time.Time `json:"completed_at,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 // Edge 是探索图的关系边（5 种关系）

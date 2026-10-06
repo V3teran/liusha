@@ -129,9 +129,6 @@ type GraphNodeUpdate struct {
 	// State 更新状态（空字符串表示不更新）
 	State string `json:"state,omitempty"`
 
-	// Confidence 更新置信度（nil 表示不更新）
-	Confidence *float64 `json:"confidence,omitempty"`
-
 	// ExpectedVersion 是乐观锁的期望版本号（nil 表示不检查版本）
 	// 如果提供，则只有当前版本与 ExpectedVersion 匹配时才会更新
 	ExpectedVersion *int64 `json:"expected_version,omitempty"`
