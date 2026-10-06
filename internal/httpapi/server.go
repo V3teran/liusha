@@ -86,8 +86,9 @@ type Deps struct {
 	// 由 cmd/api 注入 *controlplane.Store（人工干预接口）。
 	ControlPlane ControlPlaneAPI
 	// SkillStore 为 nil 时 Skill 配置路由（/skills 系列）不注册。
-	// 由 cmd/api 注入 *skillstore.Store（自动满足 SkillAPI 窄接口）。
-	// Skill 是 Agent 可访问的知识库文档（工具手册、漏洞检测指南等）。
+	// 由 cmd/api 注入 *cache.Store（cfgcache：L1/L2/DB 多级缓存 + 写失效广播，
+	// 自动满足 SkillAPI 窄接口）。Skill 是 Agent 可访问的知识库文档
+	//（工具手册、漏洞检测指南等）；运行时 runner 经同一 cfgcache 读（read_skill）。
 	SkillStore SkillAPI
 	// ExplorationGraph 为 nil 时探索图 API 路由（/tasks/:id/graph|nodes|stats）不注册。
 	// Phase 1: 探索图 API（e2e 测试迁移专用）。
