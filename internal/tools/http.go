@@ -34,6 +34,7 @@ var httpRequestSchema = json.RawMessage(`{
     "method":         {"type": "string", "enum": ["GET","POST","PUT","DELETE","PATCH","HEAD","OPTIONS"], "description": "HTTP 方法，默认 GET"},
     "headers":        {"type": "object", "description": "请求头 key→value（可选）"},
     "body":           {"type": "string", "description": "请求体（可选）"},
+    "identity":       {"type": ["string", "null"], "description": "使用指定身份的凭证（identity 名称），null 表示匿名请求（不注入任何凭证），省略则注入所有可用凭证"},
     "timeout_seconds": {"type": "integer", "description": "超时秒数，默认 30，上限 120"}
   },
   "required": ["url"]
@@ -126,6 +127,7 @@ type httpRequestArgs struct {
 	Method         string            `json:"method"`
 	Headers        map[string]string `json:"headers"`
 	Body           string            `json:"body"`
+	Identity       *string           `json:"identity"` // nil=所有凭证, "name"=仅该身份, ""=匿名(无凭证)
 	TimeoutSeconds int               `json:"timeout_seconds"`
 }
 
@@ -143,6 +145,13 @@ func (t *httpRequestTool) applyStoredCredentials(ctx context.Context, a *httpReq
 	if t.deps.Creds == nil {
 		return nil
 	}
+
+	// 处理 identity 参数
+	if a.Identity != nil && *a.Identity == "" {
+		// identity="" 表示匿名请求，不注入任何凭证
+		return nil
+	}
+
 	host := hostOf(a.URL)
 	if host == "" {
 		return nil
@@ -151,12 +160,17 @@ func (t *httpRequestTool) applyStoredCredentials(ctx context.Context, a *httpReq
 	if err != nil || len(ids) == 0 {
 		return nil // 库异常/空：不阻塞请求，会话头走 jar 兜底
 	}
+
 	// task 域过滤：只注入本 task 的自动会话身份 + host 级共享身份（无 task: 前缀）。
 	// 其他 task 的会话身份（task:别的任务:session）对本人不可见——共享库下的隔离边界。
 	mine := sessionIdentityName(t.deps.TaskID)
 	filtered := ids[:0]
 	for _, id := range ids {
 		if strings.HasPrefix(id.Name, sessionIdentityPrefix) && id.Name != mine {
+			continue
+		}
+		// 如果指定了 identity，只保留该身份
+		if a.Identity != nil && id.Name != *a.Identity {
 			continue
 		}
 		filtered = append(filtered, id)

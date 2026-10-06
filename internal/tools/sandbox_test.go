@@ -10,7 +10,7 @@ import (
 	"github.com/V3teran/liusha/internal/sandbox"
 )
 
-// fakeSandboxClient 按预设脚本回放 Exec 结果——browser_use 的 CLI 输出语义测试夹具。
+// fakeSandboxClient 按预设脚本回放 Exec 结果——drive_browser 的 CLI 输出语义测试夹具。
 type fakeSandboxClient struct {
 	responses []sandbox.ExecResult
 	calls     int
@@ -30,7 +30,7 @@ func (f *fakeSandboxClient) Close() error { return nil }
 
 func runBrowserTool(t *testing.T, client sandbox.Client, args string) string {
 	t.Helper()
-	tool := newBrowserUseTool(Deps{Sandbox: client}, 5*time.Second, false)
+	tool := newDriveBrowserTool(Deps{Sandbox: client}, 5*time.Second, false)
 	res, err := tool.Execute(context.Background(), json.RawMessage(args))
 	if err != nil {
 		t.Fatalf("执行失败: %v", err)
@@ -40,7 +40,7 @@ func runBrowserTool(t *testing.T, client sandbox.Client, args string) string {
 
 // 元素编号失效（页面已变化）时输出必须可行动：指引先 state 重建编号再操作。
 // 这是浏览器驱动错误恢复的通用契约，不依赖任何具体站点。
-func TestBrowserUse_StaleElementHint(t *testing.T) {
+func TestDriveBrowser_StaleElementHint(t *testing.T) {
 	fake := &fakeSandboxClient{responses: []sandbox.ExecResult{
 		{Stdout: "error: Element index 3 not found - page may have changed\n[exit_code: 0]"},
 	}}
@@ -54,7 +54,7 @@ func TestBrowserUse_StaleElementHint(t *testing.T) {
 }
 
 // 正常输出不附加指引（避免噪音稀释）。
-func TestBrowserUse_NoHintOnSuccess(t *testing.T) {
+func TestDriveBrowser_NoHintOnSuccess(t *testing.T) {
 	fake := &fakeSandboxClient{responses: []sandbox.ExecResult{
 		{Stdout: "viewport: 1920x1080\n[0] button 登录\n[exit_code: 0]"},
 	}}
@@ -67,9 +67,9 @@ func TestBrowserUse_NoHintOnSuccess(t *testing.T) {
 // 退化态自愈：watchdog 签名 → 自动 reset 一次并重试原命令，成功则返回重试结果。
 
 // L1 自愈：退化 → reset → 重试成功。
-func TestBrowserUse_WatchdogSelfHealL1(t *testing.T) {
+func TestDriveBrowser_WatchdogSelfHealL1(t *testing.T) {
 	fake := &fakeSandboxClient{responses: []sandbox.ExecResult{
-		{Stdout: "Error: Event handler browser_use.browser.watchdog_base.BrowserSession timed out after 30.0s", ExitCode: 1}, // 原命令退化
+		{Stdout: "Error: Event handler drive_browser.browser.watchdog_base.BrowserSession timed out after 30.0s", ExitCode: 1}, // 原命令退化
 		{Stdout: "ok"}, // L1 reset
 		{Stdout: "url: http://target/\n[exit_code: 0]"}, // 重试成功
 	}}
@@ -89,9 +89,9 @@ func TestBrowserUse_WatchdogSelfHealL1(t *testing.T) {
 }
 
 // L2 自愈：reset 救不回（daemon wedged）→ 杀 daemon 冷启动 → 重试成功。
-func TestBrowserUse_WatchdogSelfHealL2(t *testing.T) {
+func TestDriveBrowser_WatchdogSelfHealL2(t *testing.T) {
 	fake := &fakeSandboxClient{responses: []sandbox.ExecResult{
-		{Stdout: "Error: Event handler browser_use.browser.watchdog_base timed out", ExitCode: 1}, // 原命令退化
+		{Stdout: "Error: Event handler drive_browser.browser.watchdog_base timed out", ExitCode: 1}, // 原命令退化
 		{Stdout: "ok"}, // L1 reset
 		{Stdout: "Error: ...watchdog_base timed out", ExitCode: 1}, // L1 后仍退化
 		{Stdout: ""}, // L2 pkill
@@ -110,7 +110,7 @@ func TestBrowserUse_WatchdogSelfHealL2(t *testing.T) {
 }
 
 // 两级都失败：不无限自愈，保留完整诊断。
-func TestBrowserUse_WatchdogSelfHealExhausted(t *testing.T) {
+func TestDriveBrowser_WatchdogSelfHealExhausted(t *testing.T) {
 	fake := &fakeSandboxClient{responses: []sandbox.ExecResult{
 		{Stdout: "Error: ...watchdog_base... timed out", ExitCode: 1}, // 原命令
 		{Stdout: "ok"}, // L1 reset
@@ -128,12 +128,12 @@ func TestBrowserUse_WatchdogSelfHealExhausted(t *testing.T) {
 }
 
 // AGENT_ID 按 action 隔离 tab：并行执行 action 时（engine 已把 actionID 挂入
-// ctx），browser_use 命令必须带 AGENT_ID 前缀，否则多个 action 共抢同一 tab。
-func TestBrowserUse_AgentIDTabIsolation(t *testing.T) {
+// ctx），drive_browser 命令必须带 AGENT_ID 前缀，否则多个 action 共抢同一 tab。
+func TestDriveBrowser_AgentIDTabIsolation(t *testing.T) {
 	fake := &fakeSandboxClient{responses: []sandbox.ExecResult{
 		{Stdout: "url: http://t/\n[exit_code: 0]"},
 	}}
-	tool := newBrowserUseTool(Deps{Sandbox: fake}, 5*time.Second, false)
+	tool := newDriveBrowserTool(Deps{Sandbox: fake}, 5*time.Second, false)
 	ctx := WithActionContext(context.Background(), "act-123")
 	res, err := tool.Execute(ctx, json.RawMessage(`{"action":"open","url":"http://t/"}`))
 	if err != nil || res.Error != "" {
@@ -145,7 +145,7 @@ func TestBrowserUse_AgentIDTabIsolation(t *testing.T) {
 
 	// 无 action 上下文（如 judge 复核侧）：不带 AGENT_ID（CLI 默认 default tab）
 	fake2 := &fakeSandboxClient{responses: []sandbox.ExecResult{{Stdout: "ok"}}}
-	tool2 := newBrowserUseTool(Deps{Sandbox: fake2}, 5*time.Second, false)
+	tool2 := newDriveBrowserTool(Deps{Sandbox: fake2}, 5*time.Second, false)
 	_, _ = tool2.Execute(context.Background(), json.RawMessage(`{"action":"state"}`))
 	if strings.Contains(fake2.commands[0], "AGENT_ID") {
 		t.Fatalf("无 action 上下文不应带 AGENT_ID, got %s", fake2.commands[0])
@@ -154,16 +154,16 @@ func TestBrowserUse_AgentIDTabIsolation(t *testing.T) {
 
 // P2：浏览器身份 task 域化——IDENTITY 必为 "{taskID}-{身份名}"（跨任务/跨身份
 // 双隔离的 cookie jar 边界），身份名非法字符清洗（要进 socket 文件名）。
-func TestBrowserUse_TaskScopedIdentity(t *testing.T) {
+func TestDriveBrowser_TaskScopedIdentity(t *testing.T) {
 	fake := &fakeSandboxClient{responses: []sandbox.ExecResult{{Stdout: "ok"}}}
-	tool := newBrowserUseTool(Deps{Sandbox: fake, TaskID: "t-42"}, 5*time.Second, false)
+	tool := newDriveBrowserTool(Deps{Sandbox: fake, TaskID: "t-42"}, 5*time.Second, false)
 	_, _ = tool.Execute(context.Background(), json.RawMessage(`{"action":"state"}`))
 	if !strings.Contains(fake.commands[0], `IDENTITY="t-42-default"`) {
 		t.Fatalf("默认身份应为 {taskID}-default, got %s", fake.commands[0])
 	}
 
 	fake2 := &fakeSandboxClient{responses: []sandbox.ExecResult{{Stdout: "ok"}}}
-	tool2 := newBrowserUseTool(Deps{Sandbox: fake2, TaskID: "t-42"}, 5*time.Second, false)
+	tool2 := newDriveBrowserTool(Deps{Sandbox: fake2, TaskID: "t-42"}, 5*time.Second, false)
 	_, _ = tool2.Execute(context.Background(), json.RawMessage(`{"action":"state","identity":"admin/foo 户"}`))
 	if !strings.Contains(fake2.commands[0], `IDENTITY="t-42-admin-foo--"`) {
 		t.Fatalf("身份名非法字符应清洗为 -, got %s", fake2.commands[0])
@@ -171,7 +171,7 @@ func TestBrowserUse_TaskScopedIdentity(t *testing.T) {
 
 	// 无 taskID（如 judge 复核侧）：裸身份名，不带任务前缀
 	fake3 := &fakeSandboxClient{responses: []sandbox.ExecResult{{Stdout: "ok"}}}
-	tool3 := newBrowserUseTool(Deps{Sandbox: fake3}, 5*time.Second, false)
+	tool3 := newDriveBrowserTool(Deps{Sandbox: fake3}, 5*time.Second, false)
 	_, _ = tool3.Execute(context.Background(), json.RawMessage(`{"action":"state","identity":"admin"}`))
 	if !strings.Contains(fake3.commands[0], `IDENTITY="admin"`) {
 		t.Fatalf("无 taskID 应为裸身份名, got %s", fake3.commands[0])

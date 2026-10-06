@@ -5,7 +5,7 @@
 //   - skills/tooling/<name>/SKILL.md 是"是否有详细手册"——独立可选
 //
 // agent 在每个 turn 把本 Manifest 渲染成 tooling_catalog 段塞进 SystemPrompt（Tier 1 索引），
-// LLM 看到全集就知道"沙箱有哪些工具"。详细手册仍走 read_tooling_skill(name) 按需读 SKILL.md。
+// LLM 看到全集就知道"沙箱有哪些工具"。详细手册仍走 read_skill(name) 按需读 SKILL.md。
 package manifest
 
 import (
@@ -59,7 +59,7 @@ func (m *Manifest) ByCategory() map[string][]Tool {
 	return out
 }
 
-// Names 返回所有工具名（字典序）——供 read_tooling_skill / catalog lint 等使用。
+// Names 返回所有工具名（字典序）——供 read_skill / catalog lint 等使用。
 func (m *Manifest) Names() []string {
 	out := make([]string, 0, len(m.Tools))
 	for _, t := range m.Tools {

@@ -118,7 +118,7 @@ func TestStore_Update(t *testing.T) {
 	}
 
 	newPrompt := "# new prompt"
-	newTools := []string{"browser_use"}
+	newTools := []string{"drive_browser"}
 	updated, err := s.Update(ctx, "c", UpdateParams{
 		SystemPrompt:  &newPrompt,
 		FunctionTools: &newTools,
@@ -129,7 +129,7 @@ func TestStore_Update(t *testing.T) {
 	if updated.SystemPrompt != newPrompt {
 		t.Fatalf("system_prompt 未更新: %q", updated.SystemPrompt)
 	}
-	if len(updated.FunctionTools) != 1 || updated.FunctionTools[0] != "browser_use" {
+	if len(updated.FunctionTools) != 1 || updated.FunctionTools[0] != "drive_browser" {
 		t.Fatalf("function_tools 未更新: %+v", updated.FunctionTools)
 	}
 	if !updated.UpdatedAt.After(before.UpdatedAt) {

@@ -60,6 +60,7 @@ func (l *Loader) Index() ([]string, error) {
 		if err := yaml.Unmarshal(front, &meta); err != nil {
 			return fmt.Errorf("yaml 解析 %s: %w", path, err)
 		}
+		meta.Key = name // 寻址名=目录名（与 metaCache key 一致）
 		// metaCache 不含 Body，省内存（多 skill 时尤其重要）
 		l.metaCache.Store(name, &meta)
 		names = append(names, name)
@@ -95,6 +96,7 @@ func (l *Loader) Load(name string) (*Card, error) {
 		return nil, fmt.Errorf("yaml 解析 %s: %w", full, err)
 	}
 	card.Body = string(body)
+	card.Key = name
 
 	l.cardCache.Store(name, &card)
 	return &card, nil

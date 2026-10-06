@@ -7,7 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/V3teran/liusha/internal/corpus"
 	"github.com/V3teran/liusha/internal/registry"
 )
 
@@ -81,62 +80,4 @@ func (t *searchCorpusTool) Execute(ctx context.Context, args json.RawMessage) (r
 		fmt.Fprintf(&sb, "## [%d] %s\n%s\n\n", i+1, e.Title, e.Content)
 	}
 	return registry.ToolResult{Output: sb.String()}, nil
-}
-
-// ─── write_corpus ────────────────────────────────────────────────────────────
-
-var writeCorpusSchema = json.RawMessage(`{
-  "type": "object",
-  "properties": {
-    "title":   {"type": "string", "description": "知识条目标题（简短精准）。"},
-    "content": {"type": "string", "description": "知识正文（可复用打法/经验/教训）。"},
-    "tags":    {"type": "array", "items": {"type": "string"}, "description": "标签列表（漏洞类型/工具名等）。"}
-  },
-  "required": ["title", "content"]
-}`)
-
-type writeCorpusTool struct {
-	registry.BaseTool
-	deps Deps
-}
-
-func newWriteCorpusTool(deps Deps, timeout time.Duration, safe bool) *writeCorpusTool {
-	t := &writeCorpusTool{deps: deps}
-	t.SetTimeout(timeout)
-	t.SetConcurrencySafe(safe)
-	return t
-}
-
-func (t *writeCorpusTool) Name() string      { return "write_corpus" }
-func (t *writeCorpusTool) ShortDesc() string { return "向知识库沉淀可复用知识" }
-func (t *writeCorpusTool) Desc() string {
-	return "向跨目标长期知识库沉淀一条可复用知识（有质量门槛，防噪音）。"
-}
-func (t *writeCorpusTool) Schema() json.RawMessage { return writeCorpusSchema }
-
-func (t *writeCorpusTool) Execute(ctx context.Context, args json.RawMessage) (registry.ToolResult, error) {
-	var a struct {
-		Title   string   `json:"title"`
-		Content string   `json:"content"`
-		Tags    []string `json:"tags"`
-	}
-	if err := json.Unmarshal(args, &a); err != nil {
-		return registry.ToolResult{Error: "write_corpus: 解析参数失败: " + err.Error()}, nil
-	}
-	if a.Title == "" || a.Content == "" {
-		return registry.ToolResult{Error: "write_corpus: title 和 content 必填"}, nil
-	}
-
-	entry := corpus.Entry{
-		Title:        a.Title,
-		Content:      a.Content,
-		Tags:         a.Tags,
-		Source:       corpus.SourceAgent,
-		SourceTaskID: t.deps.TaskID,
-	}
-	saved, err := t.deps.Corpus.Add(ctx, entry)
-	if err != nil {
-		return registry.ToolResult{Error: fmt.Sprintf("write_corpus: %v", err)}, nil
-	}
-	return registry.ToolResult{Output: fmt.Sprintf("知识条目已写入: id=%s title=%q", saved.ID, saved.Title)}, nil
 }

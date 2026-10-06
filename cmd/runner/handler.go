@@ -10,7 +10,6 @@ import (
 	"github.com/hibiken/asynq"
 	"github.com/rs/zerolog"
 
-	"github.com/V3teran/liusha/internal/agent"
 	"github.com/V3teran/liusha/internal/agentrun"
 	"github.com/V3teran/liusha/internal/bus"
 	cfgcache "github.com/V3teran/liusha/internal/cache"
@@ -62,8 +61,7 @@ type handler struct {
 	// 工具装配依赖（与 prompt 拼装共用）
 	creds         credential.Provider
 	toolCalls     *toolinvocation.Store
-	toolingLoader *skill.Loader
-	vulnLoader    *skill.Loader
+	skills        *skill.StoreReader // skill 渐进式加载后端（DB 事实源 + cfgcache 三级缓存）；cognition 按 agent.skills 声明建白名单视图
 	toolsManifest *manifest.Manifest
 
 	cfgStore *cfgcache.Store
@@ -76,9 +74,6 @@ type handler struct {
 	checkpointer core.Checkpointer
 	eventBus     bus.Bus // 统一事件总线
 	controlPlane *controlplane.Store
-
-	// 新增：Agent 配置存储
-	agentCfgStore *agent.Store
 }
 
 // onboard 用域注册表解析 brief 目标，并完成三件 best-effort 副作用：

@@ -101,12 +101,22 @@ func (g *openAICompatGen) GenerateWithOpts(ctx context.Context, msgs []Message, 
 
 	resp, err := g.client.CreateChatCompletion(ctx, req)
 	if err != nil {
-		return Result{}, fmt.Errorf("openai-compat generate: %w", wrapOpenAICompatErr(err))
+		// 增强错误信息：包含消息数量等上下文，便于排查
+		return Result{}, fmt.Errorf("openai-compat generate (provider=%s, model=%s, msg_count=%d, tool_count=%d): %w",
+			g.provider, g.model, len(openaiMsgs), len(openaiTools), wrapOpenAICompatErr(err))
 	}
 	if len(resp.Choices) == 0 {
 		return Result{}, fmt.Errorf("openai-compat generate: 0 choices returned")
 	}
 	return fromOpenAIResponse(resp, g.provider, g.model), nil
+}
+
+// min 辅助函数
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 // toOpenAIMessages 把内部 Message 转成 sashabaranov ChatCompletionMessage。
@@ -126,6 +136,26 @@ func (g *openAICompatGen) GenerateWithOpts(ctx context.Context, msgs []Message, 
 // MultiContent 路径下 SDK 强制 Content/MultiContent 互斥（ErrContentFieldsMisused），
 // 因此走 MultiContent 时 Content 必须空——vision provider 不撞 DeepSeek 兼容场景。
 func toOpenAIMessages(in []Message, supportsVision bool) ([]openai.ChatCompletionMessage, error) {
+	// 前置验证：防止非法 messages 导致 API 400 错误
+	if len(in) == 0 {
+		return nil, fmt.Errorf("messages 不能为空")
+	}
+	for i, m := range in {
+		// 验证 role 非空
+		if m.Role == "" {
+			return nil, fmt.Errorf("message[%d]: role 不能为空", i)
+		}
+		// 验证 tool_calls 的 arguments 是合法 JSON
+		for j, tc := range m.ToolCalls {
+			if len(tc.Arguments) > 0 {
+				var temp interface{}
+				if err := json.Unmarshal(tc.Arguments, &temp); err != nil {
+					return nil, fmt.Errorf("message[%d].tool_calls[%d]: arguments 不是合法 JSON: %w", i, j, err)
+				}
+			}
+		}
+	}
+
 	out := make([]openai.ChatCompletionMessage, 0, len(in))
 
 	// pendingImages 累积 tool 结果里的图片块，待 flush 成一条 user message。
@@ -180,7 +210,8 @@ func toOpenAIMessages(in []Message, supportsVision bool) ([]openai.ChatCompletio
 			content := m.Content
 			// 兼容 DeepSeek 等严格 OpenAI 协议实现：每条 message 必须含 content 字段（OpenAI 协议默认 omitempty）。
 			// 涵盖：assistant+tool_calls 时 content 空 / tool_result Output 为空 / 其它边角空 content。
-			if content == "" {
+			// 特殊处理：如果这条消息将会有 tool_calls，不要设置空格（有些 provider 如 GLM 要求为空字符串）
+			if content == "" && len(m.ToolCalls) == 0 {
 				content = " "
 			}
 			om.Content = content

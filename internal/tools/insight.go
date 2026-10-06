@@ -4,11 +4,181 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/V3teran/liusha/internal/insight"
 	"github.com/V3teran/liusha/internal/registry"
 )
+
+// ─── read_insights ───────────────────────────────────────────────────────────
+
+var readInsightsSchema = json.RawMessage(`{
+  "type": "object",
+  "properties": {
+    "category": {
+      "type": "string",
+      "enum": ["target", "credential", "infrastructure", "business", "obstacle", "result", "note"],
+      "description": "过滤类别（可选）"
+    },
+    "priority": {
+      "type": "string",
+      "enum": ["critical", "high", "medium", "low"],
+      "description": "最低优先级（可选，例如 high 会返回 high 和 critical）"
+    },
+    "confidence": {
+      "type": "string",
+      "enum": ["confirmed", "probable", "possible"],
+      "description": "最低置信度（可选，例如 probable 会返回 probable 和 confirmed）"
+    },
+    "tags": {
+      "type": "array",
+      "items": {"type": "string"},
+      "description": "标签过滤（可选，返回包含任一标签的洞察）"
+    },
+    "limit": {
+      "type": "integer",
+      "description": "最多返回条数，默认 20，最大 100"
+    }
+  }
+}`)
+
+type readInsightsTool struct {
+	registry.BaseTool
+	deps Deps
+}
+
+func newReadInsightsTool(deps Deps, timeout time.Duration, safe bool) *readInsightsTool {
+	t := &readInsightsTool{deps: deps}
+	t.SetTimeout(timeout)
+	t.SetConcurrencySafe(safe)
+	return t
+}
+
+func (t *readInsightsTool) Name() string { return "read_insights" }
+func (t *readInsightsTool) ShortDesc() string {
+	return "查询黑板上的协作情报"
+}
+func (t *readInsightsTool) Desc() string {
+	return "从黑板读取其他 agent 写入的情报，用于了解目标信息、可用凭证、基础设施发现、业务逻辑、遇到的障碍等。"
+}
+func (t *readInsightsTool) Schema() json.RawMessage { return readInsightsSchema }
+
+func (t *readInsightsTool) Execute(ctx context.Context, args json.RawMessage) (registry.ToolResult, error) {
+	var a struct {
+		Category   string   `json:"category"`
+		Priority   string   `json:"priority"`
+		Confidence string   `json:"confidence"`
+		Tags       []string `json:"tags"`
+		Limit      int      `json:"limit"`
+	}
+	if err := json.Unmarshal(args, &a); err != nil {
+		return registry.ToolResult{Error: "read_insights: 解析参数失败: " + err.Error()}, nil
+	}
+
+	if a.Limit <= 0 {
+		a.Limit = 20
+	}
+	if a.Limit > 100 {
+		a.Limit = 100
+	}
+
+	if t.deps.Insights == nil {
+		return registry.ToolResult{Error: "read_insights: Insights 未配置"}, nil
+	}
+
+	// 查询洞察 - 使用 TaskID 作为 assignmentID
+	var insights []insight.Insight
+	var err error
+
+	if a.Category != "" {
+		insights, err = t.deps.Insights.ListByCategory(ctx, t.deps.TaskID, insight.Category(a.Category), a.Limit*2)
+	} else if a.Priority != "" {
+		insights, err = t.deps.Insights.ListByPriority(ctx, t.deps.TaskID, insight.Priority(a.Priority), a.Limit*2)
+	} else {
+		insights, err = t.deps.Insights.List(ctx, t.deps.TaskID, a.Limit*2)
+	}
+
+	if err != nil {
+		return registry.ToolResult{Error: fmt.Sprintf("read_insights: %v", err)}, nil
+	}
+
+	// 后置过滤
+	filtered := insights
+	if a.Confidence != "" {
+		filtered = filterByConfidence(filtered, insight.Confidence(a.Confidence))
+	}
+	if len(a.Tags) > 0 {
+		filtered = filterByTags(filtered, a.Tags)
+	}
+
+	// 限制结果数量
+	if len(filtered) > a.Limit {
+		filtered = filtered[:a.Limit]
+	}
+
+	if len(filtered) == 0 {
+		return registry.ToolResult{Output: "未找到匹配的洞察。"}, nil
+	}
+
+	// 格式化输出
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("找到 %d 条洞察：\n\n", len(filtered)))
+	for i, ins := range filtered {
+		sb.WriteString(fmt.Sprintf("【%d】%s [%s | %s | %s]\n", i+1, ins.Summary, ins.Category, ins.Priority, ins.Confidence))
+		if ins.Body != "" {
+			sb.WriteString(fmt.Sprintf("    %s\n", ins.Body))
+		}
+		if len(ins.Tags) > 0 {
+			sb.WriteString(fmt.Sprintf("    标签: %s\n", strings.Join(ins.Tags, ", ")))
+		}
+		sb.WriteString("\n")
+	}
+
+	return registry.ToolResult{Output: sb.String()}, nil
+}
+
+// filterByConfidence 按最低置信度过滤（返回 >= minConfidence 的洞察）
+func filterByConfidence(insights []insight.Insight, minConfidence insight.Confidence) []insight.Insight {
+	order := map[insight.Confidence]int{
+		insight.ConfidenceConfirmed: 3,
+		insight.ConfidenceProbable:  2,
+		insight.ConfidencePossible:  1,
+	}
+	minLevel := order[minConfidence]
+	if minLevel == 0 {
+		return insights
+	}
+
+	var result []insight.Insight
+	for _, ins := range insights {
+		if order[ins.Confidence] >= minLevel {
+			result = append(result, ins)
+		}
+	}
+	return result
+}
+
+// filterByTags 按标签过滤（返回包含任一标签的洞察）
+func filterByTags(insights []insight.Insight, tags []string) []insight.Insight {
+	tagSet := make(map[string]struct{}, len(tags))
+	for _, t := range tags {
+		tagSet[t] = struct{}{}
+	}
+
+	var result []insight.Insight
+	for _, ins := range insights {
+		for _, t := range ins.Tags {
+			if _, ok := tagSet[t]; ok {
+				result = append(result, ins)
+				break
+			}
+		}
+	}
+	return result
+}
+
+// ─── write_insight ───────────────────────────────────────────────────────────
 
 var writeLeadSchema = json.RawMessage(`{
   "type": "object",

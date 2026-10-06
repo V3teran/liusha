@@ -100,9 +100,9 @@ func (t *runCommandTool) Execute(ctx context.Context, args json.RawMessage) (reg
 	}, nil
 }
 
-// ─── browser_use ─────────────────────────────────────────────────────────────
+// ─── drive_browser ─────────────────────────────────────────────────────────────
 
-// browserUseSchema 与沙箱内 browser-use CLI 的原子子命令一一对应（open/state/click/...）。
+// driveBrowserSchema 与沙箱内 browser-use CLI 的原子子命令一一对应（open/state/click/...）。
 // 驱动方式：open 打开页面 → state 取带元素编号的 DOM → click/input 按编号操作 → state 复查。
 //
 // 【设计备忘·登录态导出（缓做）】浏览器登录态导出进 credential store 时，
@@ -111,7 +111,7 @@ func (t *runCommandTool) Execute(ctx context.Context, args json.RawMessage) (reg
 // 位置——必须按 store 的 headers/query/body 三位置完整导出，不能只导 cookie。
 // 实施需给沙箱镜像 browser-use CLI 加导出子命令并重建镜像；先验证 http_request
 // 凭证自动注入（用户预录入路径）能否独立打通登录链路，再决定是否上马。
-var browserUseSchema = json.RawMessage(`{
+var driveBrowserSchema = json.RawMessage(`{
   "type": "object",
   "properties": {
     "action": {
@@ -137,27 +137,30 @@ var browserUseSchema = json.RawMessage(`{
   "required": ["action"]
 }`)
 
-type browserUseTool struct {
+type driveBrowserTool struct {
 	registry.BaseTool
 	deps Deps
 }
 
-func newBrowserUseTool(deps Deps, timeout time.Duration, safe bool) *browserUseTool {
-	t := &browserUseTool{deps: deps}
+func newDriveBrowserTool(deps Deps, timeout time.Duration, safe bool) *driveBrowserTool {
+	t := &driveBrowserTool{deps: deps}
 	t.SetTimeout(timeout)
 	t.SetConcurrencySafe(safe)
 	return t
 }
 
-func (t *browserUseTool) Name() string { return "browser_use" }
-func (t *browserUseTool) ShortDesc() string {
+func (t *driveBrowserTool) Name() string { return "drive_browser" }
+func (t *driveBrowserTool) ShortDesc() string {
 	return "用真实浏览器操作目标页面（原子操作）"
 }
-func (t *browserUseTool) Desc() string {
-	return "用真实 chromium 浏览器操作目标页面。open 打开 URL → state 取带元素编号的 DOM 快照 → " +
-		"click/input 按编号交互 → state 复查。可 eval JS、get html/title、wait 条件。复用 identity 登录态。"
+func (t *driveBrowserTool) Desc() string {
+	return "用真实 chromium 浏览器操作目标页面（open → state 取带编号 DOM → click/input → state 复查；可 eval JS/get html）。" +
+		"【使用时机——仅以下场景才用浏览器】① 漏洞本体需要 JS 执行才成立（DOM XSS、原型链污染）；" +
+		"② 目标是 SPA/强 JS 渲染，纯请求看不到内容；③ 需要真实点击/交互触发（按钮触发的存储 XSS 等）。" +
+		"纯请求级操作（发请求/改参数/重放/fuzz/普通表单登录）一律用 http_request——更快、可并发、可精确重放。" +
+		"浏览器慢、重、易碎（daemon 依赖），非必要不使用。"
 }
-func (t *browserUseTool) Schema() json.RawMessage { return browserUseSchema }
+func (t *driveBrowserTool) Schema() json.RawMessage { return driveBrowserSchema }
 
 // shellJoin 把子命令参数逐个 shell 引号包裹后拼接（防注入/防空格断词）。
 func shellJoin(parts ...string) string {
@@ -171,7 +174,7 @@ func shellJoin(parts ...string) string {
 	return strings.Join(quoted, " ")
 }
 
-func (t *browserUseTool) Execute(ctx context.Context, args json.RawMessage) (registry.ToolResult, error) {
+func (t *driveBrowserTool) Execute(ctx context.Context, args json.RawMessage) (registry.ToolResult, error) {
 	var a struct {
 		Action      string `json:"action"`
 		URL         string `json:"url"`
@@ -192,10 +195,10 @@ func (t *browserUseTool) Execute(ctx context.Context, args json.RawMessage) (reg
 		TimeoutSeconds int `json:"timeout_seconds"`
 	}
 	if err := json.Unmarshal(args, &a); err != nil {
-		return registry.ToolResult{Error: "browser_use: 解析参数失败: " + err.Error()}, nil
+		return registry.ToolResult{Error: "drive_browser: 解析参数失败: " + err.Error()}, nil
 	}
 	if a.Action == "" {
-		return registry.ToolResult{Error: "browser_use: action 必填（open/state/click/input/type/select/hover/dblclick/rightclick/scroll/back/keys/wait/eval/get/screenshot）。" +
+		return registry.ToolResult{Error: "drive_browser: action 必填（open/state/click/input/type/select/hover/dblclick/rightclick/scroll/back/keys/wait/eval/get/screenshot）。" +
 			"浏览器驱动循环：open URL → state（带编号 DOM）→ click/input 编号 → state 复查"}, nil
 	}
 	if a.TimeoutSeconds <= 0 {
@@ -213,7 +216,7 @@ func (t *browserUseTool) Execute(ctx context.Context, args json.RawMessage) (reg
 	switch a.Action {
 	case "open":
 		if a.URL == "" {
-			return registry.ToolResult{Error: "browser_use: open 需要 url"}, nil
+			return registry.ToolResult{Error: "drive_browser: open 需要 url"}, nil
 		}
 		argParts = shellJoin(a.URL)
 	case "state", "back", "screenshot":
@@ -224,21 +227,21 @@ func (t *browserUseTool) Execute(ctx context.Context, args json.RawMessage) (reg
 		} else if a.Index != nil {
 			argParts = shellJoin(strconv.Itoa(*a.Index))
 		} else {
-			return registry.ToolResult{Error: "browser_use: click 需要 index（或 x+y 坐标）"}, nil
+			return registry.ToolResult{Error: "drive_browser: click 需要 index（或 x+y 坐标）"}, nil
 		}
 	case "input", "select":
 		if a.Index == nil || a.Text == "" {
-			return registry.ToolResult{Error: "browser_use: " + a.Action + " 需要 index 和 text"}, nil
+			return registry.ToolResult{Error: "drive_browser: " + a.Action + " 需要 index 和 text"}, nil
 		}
 		argParts = shellJoin(strconv.Itoa(*a.Index), a.Text)
 	case "type":
 		if a.Text == "" {
-			return registry.ToolResult{Error: "browser_use: type 需要 text"}, nil
+			return registry.ToolResult{Error: "drive_browser: type 需要 text"}, nil
 		}
 		argParts = shellJoin(a.Text)
 	case "hover", "dblclick", "rightclick":
 		if a.Index == nil {
-			return registry.ToolResult{Error: "browser_use: " + a.Action + " 需要 index"}, nil
+			return registry.ToolResult{Error: "drive_browser: " + a.Action + " 需要 index"}, nil
 		}
 		argParts = shellJoin(strconv.Itoa(*a.Index))
 	case "scroll":
@@ -249,12 +252,12 @@ func (t *browserUseTool) Execute(ctx context.Context, args json.RawMessage) (reg
 		argParts = shellJoin(dir, itoa(a.Amount))
 	case "keys":
 		if a.Keys == "" {
-			return registry.ToolResult{Error: "browser_use: keys 需要 keys（如 Enter）"}, nil
+			return registry.ToolResult{Error: "drive_browser: keys 需要 keys（如 Enter）"}, nil
 		}
 		argParts = shellJoin(a.Keys)
 	case "wait":
 		if a.Text == "" {
-			return registry.ToolResult{Error: "browser_use: wait 需要 text（selector 或 text 条件值）"}, nil
+			return registry.ToolResult{Error: "drive_browser: wait 需要 text（selector 或 text 条件值）"}, nil
 		}
 		by := a.By
 		if by == "" {
@@ -267,7 +270,7 @@ func (t *browserUseTool) Execute(ctx context.Context, args json.RawMessage) (reg
 		argParts = shellJoin(by, a.Text, "--timeout-ms", strconv.Itoa(tm))
 	case "eval":
 		if a.JS == "" {
-			return registry.ToolResult{Error: "browser_use: eval 需要 js 表达式"}, nil
+			return registry.ToolResult{Error: "drive_browser: eval 需要 js 表达式"}, nil
 		}
 		argParts = shellJoin(a.JS)
 	case "get":
@@ -277,7 +280,7 @@ func (t *browserUseTool) Execute(ctx context.Context, args json.RawMessage) (reg
 		}
 		argParts = shellJoin(g)
 	default:
-		return registry.ToolResult{Error: "browser_use: 未知 action " + a.Action}, nil
+		return registry.ToolResult{Error: "drive_browser: 未知 action " + a.Action}, nil
 	}
 
 	// 身份/动作经环境变量注入：
@@ -301,12 +304,12 @@ func (t *browserUseTool) Execute(ctx context.Context, args json.RawMessage) (reg
 			AgentID:        t.deps.AgentID,
 			Command:        cmd,
 			TimeoutSeconds: a.TimeoutSeconds,
-			Tag:            "browser_use",
+			Tag:            "drive_browser",
 		})
 	}
 	res, err := execOnce(command)
 	if err != nil {
-		return registry.ToolResult{Error: fmt.Sprintf("browser_use: 沙箱执行失败: %v", err)}, nil
+		return registry.ToolResult{Error: fmt.Sprintf("drive_browser: 沙箱执行失败: %v", err)}, nil
 	}
 
 	// 分级自愈：browser-use 常驻 daemon 跨长任务可能进入退化态（watchdog 超时类
@@ -372,7 +375,7 @@ func (t *browserUseTool) Execute(ctx context.Context, args json.RawMessage) (reg
 		Output: output,
 		Signal: &registry.Signal{
 			Kind:     registry.SignalCmdOutput,
-			ToolName: "browser_use",
+			ToolName: "drive_browser",
 			Content:  truncateOutput(output, 2048),
 			Detail:   output,
 		},
@@ -423,7 +426,7 @@ func BrowserCleanupScript(taskID string) string {
 func browserDegraded(res sandbox.ExecResult) bool {
 	return strings.Contains(res.Stdout, "watchdog") ||
 		strings.Contains(res.Stderr, "watchdog") ||
-		strings.Contains(res.Stdout, "Event handler browser_use.browser")
+		strings.Contains(res.Stdout, "Event handler drive_browser.browser")
 }
 
 // truncateOutput 截断命令输出以适配 Signal.Content 上限。

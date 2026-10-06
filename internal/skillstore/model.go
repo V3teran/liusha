@@ -8,16 +8,16 @@ import "time"
 
 // Skill 是 skill 配置表的 Go 表示。
 type Skill struct {
-	ID          string
-	Code        string // 如 "tooling/browser-use", "vuln/dom-xss"
-	Category    string // tooling / vuln
-	Name        string
-	Description string
-	Body        string // Markdown 正文
-	IsBuiltin   bool
-	Enabled     bool
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
+	ID          string    `json:"id"`
+	Code        string    `json:"code"`      // 裸名寻址键（= 种子目录名，如 browser-use / dom-xss）
+	Category    string    `json:"category"`  // tooling / vuln
+	Name        string    `json:"name"`
+	Description string    `json:"description"`
+	Body        string    `json:"body"` // Markdown 正文
+	IsBuiltin   bool      `json:"is_builtin"`
+	Enabled     bool      `json:"enabled"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
 }
 
 // UpdateParams 是 Store.Update 的入参。

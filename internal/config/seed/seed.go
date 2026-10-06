@@ -28,7 +28,9 @@ import (
 // id 用作稳定引用键 code；kind∈{planner,executor,evaluator}；body 取 markdown 正文。
 // function_tools 是内置函数工具（进程内原生函数 code 列表）。
 // cli_tools 是外置 CLI 工具集（tools.yaml 名字），严格白名单，空=不装配任何外部工具。
-// skills 是 Agent 可访问的 Skill code 列表（如 ["tooling/browser-use", "vuln/dom-xss"]）。
+// skills 是 Agent 可访问的 skill 裸名列表（= skills/<分类>/<名字> 的目录名，
+// 如 ["bac", "browser-use", "dom-xss"]）——渐进式加载的白名单：声明的进
+// system prompt 技能索引（Tier 1）并可经 read_skill 拉正文（Tier 2）。
 type agentFront struct {
 	ID            string   `yaml:"id"`
 	Name          string   `yaml:"name"`
@@ -61,21 +63,50 @@ func splitFrontmatter(raw []byte) ([]byte, []byte, error) {
 	return r[:idx], bytes.TrimLeft(r[idx+len(closeMark):], "\n\r"), nil
 }
 
+// SkillsSeed 是一次 skill 种子导入的结果，供调用方（api 启动 / reseed）做缓存失效。
+type SkillsSeed struct {
+	Inserted []string // 新插入的 skill code
+	Upserted []string // 强制覆盖写入的 skill code（仅 force 语义）
+	Pruned   []string // 清理的死行 code（文件里已不存在的内置 skill）
+}
+
+// Touched 汇总全部被写动过的 code（insert/upsert/prune 并集）。
+func (r SkillsSeed) Touched() []string {
+	out := make([]string, 0, len(r.Inserted)+len(r.Upserted)+len(r.Pruned))
+	out = append(out, r.Inserted...)
+	out = append(out, r.Upserted...)
+	out = append(out, r.Pruned...)
+	return out
+}
+
+// Result 是一次 Import 的整体结果。
+type Result struct {
+	Agents []string // 写入的 agent code（insert 或 force）
+	Skills SkillsSeed
+}
+
 // Import 把 dir 下的 agent 和 skill 配置 insert-only 首填进 DB。
-// 按 code 判存在→仅不存在才 Create；已存在跳过（绝不覆盖 DB 事实源）。
+// 按 code 判存在→仅不存在才 Create；已存在跳过（前端对配置的修改是 DB 事实源，
+// 绝不被启动覆盖）。同时清理文件里已删除的内置 skill 死行（目录改名/删除的残留）。
+// 返回写动清单供调用方失效多级缓存。
 func Import(
 	ctx context.Context,
 	dir string,
 	h *agent.Store,
 	s *skill.Store,
-) error {
-	if _, err := importExecutors(ctx, filepath.Join(dir, "agents"), h, false); err != nil {
-		return fmt.Errorf("import executors: %w", err)
+) (Result, error) {
+	var res Result
+	agents, err := importExecutors(ctx, filepath.Join(dir, "agents"), h, false)
+	if err != nil {
+		return res, fmt.Errorf("import executors: %w", err)
 	}
-	if err := importSkills(ctx, filepath.Join(dir, "skills"), s); err != nil {
-		return fmt.Errorf("import skills: %w", err)
+	res.Agents = agents
+	skillsRes, err := importSkills(ctx, filepath.Join(dir, "skills"), s, false)
+	if err != nil {
+		return res, fmt.Errorf("import skills: %w", err)
 	}
-	return nil
+	res.Skills = skillsRes
+	return res, nil
 }
 
 // notFound 判定 GetByCode/GetByID 的「不存在」——store 用 %w 包了 pgx.ErrNoRows。
@@ -157,12 +188,16 @@ func ImportAgentsForce(ctx context.Context, dir string, h *agent.Store) ([]strin
 	return importExecutors(ctx, filepath.Join(dir, "agents"), h, true)
 }
 
-// ImportSkills 补齐 skills（insert-only，不覆盖已存在项）。供 reseed 工具复用。
-func ImportSkills(ctx context.Context, dir string, s *skill.Store) error {
-	if err := importSkills(ctx, filepath.Join(dir, "skills"), s); err != nil {
-		return fmt.Errorf("import skills: %w", err)
-	}
-	return nil
+// ImportSkills insert-only 补齐 skills（不覆盖已存在项，含死行清理）。供 reseed 工具复用。
+func ImportSkills(ctx context.Context, dir string, s *skill.Store) (SkillsSeed, error) {
+	return importSkills(ctx, filepath.Join(dir, "skills"), s, false)
+}
+
+// ImportSkillsForce 把 skills/**/*.md 以强制覆盖语义写入内置行（reset 语义）：
+// code 冲突覆盖 name/description/body/category 并复位 enabled。用户自建
+// （is_builtin=false）不动。与 ImportAgentsForce 配对，仅供 reseed。
+func ImportSkillsForce(ctx context.Context, dir string, s *skill.Store) (SkillsSeed, error) {
+	return importSkills(ctx, filepath.Join(dir, "skills"), s, true)
 }
 
 func strPtr(s string) *string { return &s }
@@ -174,55 +209,66 @@ type skillFront struct {
 	Category    string `yaml:"category"` // tooling / vuln
 }
 
-// importSkills 扫 dir/**/*.md（递归），按 code(=相对路径去.md) insert-only 建 Skill。
-// 例如：skills/tooling/browser-use/SKILL.md → code="tooling/browser-use"
-func importSkills(ctx context.Context, dir string, s *skill.Store) error {
+// importSkills 扫 dir/**/*.md（递归）同步 skill 表：
+//   - code = SKILL.md 所在目录名（裸名，如 browser-use）——与 agent.skills 声明、
+//     read_skill 寻址同一命名空间
+//   - category = 相对路径首段（tooling/vuln），frontmatter 显式声明优先
+//   - insert-only：已存在跳过（前端对内置 skill 的正文/启停修改跨重启保留）；
+//     force=true（reseed reset 语义）则 UpsertBuiltin 强制覆盖内置行
+//   - 死行清理：文件里已不存在的内置行（目录改名/删除残留）prune 回收；
+//     用户自建行永不被 prune。种子目录整体缺失（files 空）时跳过 prune——
+//     不能因镜像漏拷种子就把 DB 清空
+func importSkills(ctx context.Context, dir string, s *skill.Store, force bool) (SkillsSeed, error) {
+	var res SkillsSeed
 	files, err := walkFiles(dir, ".md")
 	if err != nil {
-		return err
+		return res, err
 	}
+
+	type seenSkill struct {
+		category string
+		sk       skill.Skill
+	}
+	seen := make(map[string]seenSkill, len(files))
+
 	for _, path := range files {
 		raw, err := os.ReadFile(path) // #nosec G304 // 路径来自进程配置/种子目录，非用户输入
 		if err != nil {
-			return fmt.Errorf("读取 %s: %w", path, err)
+			return res, fmt.Errorf("读取 %s: %w", path, err)
 		}
 		front, body, err := splitFrontmatter(raw)
 		if err != nil {
-			return fmt.Errorf("解析 %s: %w", path, err)
+			return res, fmt.Errorf("解析 %s: %w", path, err)
 		}
 		var f skillFront
 		if err := yaml.Unmarshal(front, &f); err != nil {
-			return fmt.Errorf("解析 %s frontmatter: %w", path, err)
+			return res, fmt.Errorf("解析 %s frontmatter: %w", path, err)
 		}
 
-		// code = 相对 dir 的路径去掉 /SKILL.md 后缀
-		// 例如：skills/tooling/browser-use/SKILL.md → tooling/browser-use
+		// code = SKILL.md 所在目录名（裸名）；category = 相对路径首段。
+		// 例：skills/tooling/browser-use/SKILL.md → code=browser-use, category=tooling
 		rel, err := filepath.Rel(dir, path)
 		if err != nil {
-			return fmt.Errorf("计算相对路径 %s: %w", path, err)
+			return res, fmt.Errorf("计算相对路径 %s: %w", path, err)
 		}
-		code := strings.TrimSuffix(rel, "/SKILL.md")
-		code = strings.TrimSuffix(code, "\\SKILL.md") // Windows
-		code = filepath.ToSlash(code)                 // 统一使用 / 分隔符
+		segments := strings.Split(filepath.ToSlash(rel), "/")
+		if len(segments) < 2 {
+			return res, fmt.Errorf("%s: 种子 skill 必须位于 <category>/<name>/SKILL.md 目录结构", path)
+		}
+		code := segments[len(segments)-2]
+		if code == "" {
+			return res, fmt.Errorf("%s: skill 目录名为空", path)
+		}
+		if _, dup := seen[code]; dup {
+			return res, fmt.Errorf("skill 裸名冲突: %q 在种子目录中重复出现", code)
+		}
 
-		// 推断 category（从 code 第一段提取，如 tooling/browser-use → tooling）
 		category := f.Category
 		if category == "" {
-			parts := strings.Split(code, "/")
-			if len(parts) > 0 {
-				category = parts[0]
-			}
+			category = segments[0]
 		}
 
-		// 检查是否已存在
-		if _, err := s.GetByCode(ctx, code); err == nil {
-			continue // 已存在→跳过（insert-only）
-		} else if !notFound(err) {
-			return fmt.Errorf("查 skill %q: %w", code, err)
-		}
-
-		// 创建 Skill
-		skill := skill.Skill{
+		sk := skill.Skill{
 			Code:        code,
 			Category:    category,
 			Name:        f.Name,
@@ -231,9 +277,52 @@ func importSkills(ctx context.Context, dir string, s *skill.Store) error {
 			IsBuiltin:   true,
 			Enabled:     true,
 		}
-		if _, err := s.Create(ctx, skill); err != nil {
-			return fmt.Errorf("建 skill %q: %w", code, err)
+		seen[code] = seenSkill{category: category, sk: sk}
+	}
+
+	keepCodes := make([]string, 0, len(seen))
+	for code := range seen {
+		keepCodes = append(keepCodes, code)
+	}
+	sortStrings(keepCodes)
+
+	for _, code := range keepCodes {
+		item := seen[code]
+		if force {
+			// reset 语义：内置行强制覆盖（前端对内置的临时修改被种子重置）。
+			if _, err := s.UpsertBuiltin(ctx, item.sk); err != nil {
+				return res, fmt.Errorf("强制覆盖 skill %q: %w", code, err)
+			}
+			res.Upserted = append(res.Upserted, code)
+			continue
+		}
+		if _, err := s.GetByCode(ctx, code); err == nil {
+			continue // 已存在→跳过（insert-only，DB 是事实源）
+		} else if !notFound(err) {
+			return res, fmt.Errorf("查 skill %q: %w", code, err)
+		}
+		if _, err := s.Create(ctx, item.sk); err != nil {
+			return res, fmt.Errorf("建 skill %q: %w", code, err)
+		}
+		res.Inserted = append(res.Inserted, code)
+	}
+
+	// 死行清理：仅在种子目录有文件时执行（目录缺失≠全部删除）。
+	if len(files) > 0 {
+		pruned, err := s.PruneBuiltinNotIn(ctx, keepCodes)
+		if err != nil {
+			return res, fmt.Errorf("清理内置 skill 死行: %w", err)
+		}
+		res.Pruned = pruned
+	}
+	return res, nil
+}
+
+// sortStrings 简易排序（避免引入 sort 包；切片小开销可忽略）。
+func sortStrings(ss []string) {
+	for i := 1; i < len(ss); i++ {
+		for j := i; j > 0 && ss[j-1] > ss[j]; j-- {
+			ss[j-1], ss[j] = ss[j], ss[j-1]
 		}
 	}
-	return nil
 }
