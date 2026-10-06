@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { listAgentsPaged } from '@/api/client'
-import { saveAgent, deleteAgent, listToolCandidates } from '@/api/config'
-import type { AgentConfig, AgentKind, Tool } from '@/api/types'
+import { saveAgent, deleteAgent, listToolCandidates, listSkillCandidates } from '@/api/config'
+import type { AgentConfig, AgentKind, Skill, Tool } from '@/api/types'
 import { Badge } from '@/components/ui/badge'
 import { ConfigListShell, ConfigRow } from '@/features/config/ConfigListShell'
 import { usePagedList } from '@/features/config/usePagedList'
@@ -15,7 +15,7 @@ const fetchAgents = async (page: number, size: number, q: string) => {
   return { items: res.agents, total: res.total }
 }
 
-// 新建智能体空白初值。kind 默认 executor（领域智能体）。
+// 新建智能体空白初值。kind 默认 executor（执行者）。
 function blankAgent(): AgentConfig {
   return {
     id: '',
@@ -23,11 +23,12 @@ function blankAgent(): AgentConfig {
     kind: 'executor',
     name: '',
     description: '',
-    body: '',
+    system_prompt: '',
     function_tools: [],
     cli_tools: [],
+    skills: [],
     max_iterations: DEFAULT_MAX_ITERATIONS,
-    tier: 'heavy',
+    complexity: 'medium',
     enabled: true,
   }
 }
@@ -40,6 +41,7 @@ export function AgentAdmin() {
   // 工具候选：函数工具 / CLI 工具两套全量目录，一次性拉取供勾选。
   const [functionTools, setFunctionTools] = useState<Tool[]>([])
   const [cliTools, setCliTools] = useState<Tool[]>([])
+  const [skills, setSkills] = useState<Skill[]>([])
   const [draft, setDraft] = useState<AgentConfig | null>(null)
   const [saving, setSaving] = useState(false)
 
@@ -50,12 +52,15 @@ export function AgentAdmin() {
     void listToolCandidates('cli')
       .then(setCliTools)
       .catch(() => setCliTools([]))
+    void listSkillCandidates()
+      .then(setSkills)
+      .catch(() => setSkills([]))
   }, [])
 
   const patch = (p: Partial<AgentConfig>) => setDraft((d) => (d ? { ...d, ...p } : d))
 
-  // 切换 function_tools / cli_tools 里某工具的选中态（不可变：返回新数组）。
-  const toggleTool = (field: 'function_tools' | 'cli_tools', name: string) =>
+  // 切换 function_tools / cli_tools / skills 里某项的选中态（不可变：返回新数组）。
+  const toggleTool = (field: 'function_tools' | 'cli_tools' | 'skills', name: string) =>
     setDraft((d) =>
       d
         ? {
@@ -126,7 +131,7 @@ export function AgentAdmin() {
             onClick={() => setDraft(h)}
             right={
               <div className="flex flex-shrink-0 items-center gap-2">
-                <Badge variant="outline">{h.kind === 'planner' ? '编排' : '领域'}</Badge>
+                <Badge variant="outline">{{ planner: '规划', executor: '执行', evaluator: '评估', monitor: '监察' }[h.kind] ?? h.kind}</Badge>
                 {!h.enabled && <Badge variant="outline">已停用</Badge>}
               </div>
             }
@@ -166,8 +171,10 @@ export function AgentAdmin() {
                             value={draft.kind}
                             onChange={(e) => patch({ kind: e.target.value as AgentKind })}
                           >
-                            <option value="executor">领域智能体</option>
-                            <option value="planner">编排智能体</option>
+                            <option value="planner">规划者（planner）</option>
+                            <option value="executor">执行者（executor）</option>
+                            <option value="evaluator">评估者（evaluator）</option>
+                            <option value="monitor">监察者（monitor）</option>
                           </select>
                         </Field>
                       </div>
@@ -195,17 +202,17 @@ export function AgentAdmin() {
                         />
                       </Field>
                       <Field
-                        label="能力档"
-                        hint="决定该智能体的 LLM 路由档位：重推理 / 多模态 / 轻任务。在「模型」页把每档指到某个部署。"
+                        label="复杂度档"
+                        hint="决定该智能体的 LLM 路由档位：轻量快答 / 标准推理 / 深度推理。在「模型」页把每档指到某个部署。"
                       >
                         <select
                           className={INPUT_CLASS}
-                          value={draft.tier}
-                          onChange={(e) => patch({ tier: e.target.value })}
+                          value={draft.complexity}
+                          onChange={(e) => patch({ complexity: e.target.value })}
                         >
-                          <option value="heavy">重推理（heavy）</option>
-                          <option value="vision">多模态（vision）</option>
-                          <option value="light">轻任务（light）</option>
+                          <option value="simple">轻量快答（simple）</option>
+                          <option value="medium">标准推理（medium）</option>
+                          <option value="complex">深度推理（complex）</option>
                         </select>
                       </Field>
                       <label className="flex items-center gap-2 text-[13px] text-text">
@@ -223,11 +230,11 @@ export function AgentAdmin() {
                   value: 'prompt',
                   label: '系统提示词',
                   content: (
-                    <Field label="系统提示词" hint="该智能体运行时的 system prompt">
+                    <Field label="系统提示词" hint="该智能体运行时的 system prompt（种子=agents/*.md，改后经多级缓存即时生效）">
                       <textarea
                         className={INPUT_CLASS + ' min-h-[22rem] resize-y font-mono'}
-                        value={draft.body}
-                        onChange={(e) => patch({ body: e.target.value })}
+                        value={draft.system_prompt}
+                        onChange={(e) => patch({ system_prompt: e.target.value })}
                       />
                     </Field>
                   ),
@@ -252,6 +259,17 @@ export function AgentAdmin() {
                           selected={draft.cli_tools}
                           onToggle={(name) => toggleTool('cli_tools', name)}
                           emptyHint="无可用外部工具目录"
+                        />
+                      </Field>
+                      <Field
+                        label="技能集（skills）"
+                        hint="渐进式加载白名单：勾选的 skill 进 system prompt 技能索引，可被 read_skill 读取；不勾=不装配"
+                      >
+                        <ToolPicker
+                          catalog={skills.map((sk) => ({ name: sk.code, category: sk.category, description: sk.description, kind: 'function' as const, sort_order: 0 }))}
+                          selected={draft.skills}
+                          onToggle={(name) => toggleTool('skills', name)}
+                          emptyHint="无可用 skill 目录（知识库页可新建）"
                         />
                       </Field>
                     </div>

@@ -33,7 +33,7 @@ export function Composer({ convId, scanning, onStarted, onAppended, onStop }: Co
       if (convId) {
         // followUp 前快照 seq——user 消息 seq 必 > 此（发送后才新增）；后续 SSE 推高 lastSeq 不影响此快照值。
         const beforeSeq = lastSeq
-        const r = await followUp(convId, brief, '')
+        const r = await followUp(convId, brief)
         setBrief('')
         setBusyMsg(r.intent === 'qa' ? '正在回答…' : '已触发扫描')
         onAppended(beforeSeq)

@@ -22,7 +22,7 @@ export function StepTools({ tools, sub = false }: StepToolsProps) {
   const callCount = calls > 0 ? calls : tools.length
 
   // 工具预览：按类别聚合「次数」——计数用「次」(callCount 总次数)反映工作量，预览用
-  // 「类别 ×次数」(run_command ×5、browser_use ×2)反映干了啥+各几次。只数 tool_call(发起)，不重复算结果。
+  // 「类别 ×次数」(run_command ×5、drive_browser ×2)反映干了啥+各几次。只数 tool_call(发起)，不重复算结果。
   const counts: Record<string, number> = {}
   for (const t of tools) {
     if (t.Metadata?.Kind !== 'tool_call') continue

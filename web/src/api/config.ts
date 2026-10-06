@@ -9,6 +9,7 @@
 import { get, post, put, patch, getApiKey } from './client'
 import type {
   AgentConfig,
+  Skill,
   Tool,
   ToolKind,
   ToolDetail,
@@ -22,18 +23,19 @@ export async function listAgentConfigs(): Promise<AgentConfig[]> {
   return (await get<{ agents: AgentConfig[] }>('/executors')).agents
 }
 
-/** 保存操作员：有 id 走 PUT，否则 POST。 */
+/** 保存操作员：有 id 走 PUT，否则 POST。键名与后端 agentBody 严格对齐。 */
 export async function saveAgent(h: AgentConfig): Promise<AgentConfig> {
   const body = {
     code: h.code,
     kind: h.kind,
     name: h.name,
     description: h.description,
-    body: h.body,
+    system_prompt: h.system_prompt,
     function_tools: h.function_tools,
     cli_tools: h.cli_tools,
+    skills: h.skills,
     max_iterations: h.max_iterations,
-    tier: h.tier,
+    complexity: h.complexity,
     enabled: h.enabled,
   }
   const res = h.id
@@ -43,12 +45,17 @@ export async function saveAgent(h: AgentConfig): Promise<AgentConfig> {
 }
 
 /**
- * 改操作员能力档（分档页「每档选 agent」移档用）：只 PATCH tier 单字段，
- * 不整体 upsert——避免用列表快照覆盖别处刚改的 body/工具。返回回读的完整 executor。
+ * 改操作员复杂度档（分档页移档用）：只 PATCH complexity 单字段，
+ * 不整体 upsert——避免用列表快照覆盖别处刚改的配置。返回回读的完整 executor。
  */
-export async function saveAgentTier(id: string, tier: string): Promise<AgentConfig> {
-  const res = await patch<{ agent: AgentConfig }>(`/executors/${id}/tier`, { tier })
+export async function saveAgentComplexity(id: string, complexity: string): Promise<AgentConfig> {
+  const res = await patch<{ agent: AgentConfig }>(`/executors/${id}/tier`, { complexity })
   return res.agent
+}
+
+/** 拉 skill 目录全量（GET /skills），供 AgentAdmin skills 多选器候选。 */
+export async function listSkillCandidates(): Promise<Skill[]> {
+  return get<Skill[]>('/skills')
 }
 
 /** 删除操作员；被引用时后端 409 → 抛带中文原因的错。 */

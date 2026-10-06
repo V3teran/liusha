@@ -82,24 +82,26 @@ export interface ConversationUsage {
    小写键（Go gin.H DTO：agentJSON 单点序列化）。
    ============================================================ */
 
-// 智能体种类：planner（规划型，读图产出 Move）/ executor（执行型，执行 Move 产出 Attempt）
-export type AgentKind = 'planner' | 'executor'
+// 智能体种类：认知循环四角色（planner 规划 / executor 执行 / evaluator 验证 / monitor 监察）
+export type AgentKind = 'planner' | 'executor' | 'evaluator' | 'monitor'
 
-// AgentConfig 是智能体全字段形态。function_tools/cli_tools 后端保证非 nil。
+// AgentConfig 是智能体全字段形态。function_tools/cli_tools/skills 后端保证非 nil。
 //   - function_tools：内置函数工具集（进程内原生函数 code 列表）
 //   - cli_tools     ：外置 CLI 工具集（tools.yaml 名字，严格白名单），空 = 不装配任何外置工具
+//   - skills        ：可访问 skill 裸名白名单（渐进式加载：声明的进 system prompt 技能索引并可 read_skill）
 export interface AgentConfig {
   id: string
   code: string
   kind: AgentKind
   name: string
   description: string
-  body: string
+  system_prompt: string
   function_tools: string[]
   cli_tools: string[]
+  skills: string[]
   max_iterations: number
-  // tier 能力档：heavy(重推理) | vision(多模态) | light(轻任务)。决定该智能体 LLM 路由的第一跳档位。
-  tier: string
+  // complexity 复杂度档：simple | medium | complex。决定该智能体 LLM 路由的第一跳档位。
+  complexity: string
   enabled: boolean
   created_at?: string
   updated_at?: string
@@ -110,6 +112,21 @@ export type ToolKind = 'function' | 'cli'
 
 // Tool 是工具目录一项（GET /tools 列表、AgentAdmin function_tools/cli_tools 多选器候选）。
 // 源出代码（函数注册表 + tools.yaml），DB 为启动期同步的只读目录。
+// Skill 是知识库 skill 一项（GET /skills 列表，AgentAdmin skills 多选器候选）。
+// code = 裸名寻址键（= 种子目录名，如 browser-use / dom-xss），agent.skills 声明与 read_skill 都用它。
+export interface Skill {
+  id: string
+  code: string
+  category: string
+  name: string
+  description: string
+  body: string
+  is_builtin: boolean
+  enabled: boolean
+  created_at?: string
+  updated_at?: string
+}
+
 export interface Tool {
   name: string
   kind: ToolKind
@@ -192,9 +209,11 @@ export interface RoutingResponse {
 }
 
 // 三个能力档 + 唯一保留槽的字面常量（与后端 llmcfg.TierHeavy/TierVision/TierLight/RoleFallback 对齐）。
-export const TIER_HEAVY = 'heavy'
-export const TIER_VISION = 'vision'
-export const TIER_LIGHT = 'light'
+// 复杂度档（与后端 llmcfg ComplexitySimple/Medium/Complex 对齐）：
+// 同时是 llm_role_route.role 的路由键——「能力分档」页按它分组建 provider。
+export const COMPLEXITY_SIMPLE = 'simple'
+export const COMPLEXITY_MEDIUM = 'medium'
+export const COMPLEXITY_COMPLEX = 'complex'
 export const ROLE_FALLBACK = '__fallback__'
 
 /* ============================================================

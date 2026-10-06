@@ -24,20 +24,25 @@ describe('config API 客户端', () => {
     const fn = mockFetch(200, { agent: { id: 'h1' } })
     const h: AgentConfig = {
       id: '',
-      code: 'recon',
-      kind: 'domain',
-      name: '侦察',
+      code: 'executor',
+      kind: 'executor',
+      name: '执行者',
       description: '',
-      body: 'B',
-      function_tools: ['http_get'],
+      system_prompt: 'SP',
+      function_tools: ['http_request'],
       cli_tools: ['nmap', 'nuclei'],
+      skills: ['dom-xss', 'bac'],
       max_iterations: 12,
+      complexity: 'medium',
       enabled: true,
-    }
+    } as AgentConfig
     await saveAgent(h)
     const body = JSON.parse(fn.mock.calls[0][1].body)
-    expect(body.kind).toBe('domain')
-    expect(body.function_tools).toEqual(['http_get'])
+    // 键名与后端 agentBody 契约严格一致（system_prompt/complexity/skills）。
+    expect(body.system_prompt).toBe('SP')
+    expect(body.complexity).toBe('medium')
+    expect(body.skills).toEqual(['dom-xss', 'bac'])
+    expect(body.function_tools).toEqual(['http_request'])
     expect(body.cli_tools).toEqual(['nmap', 'nuclei'])
     expect(body.max_iterations).toBe(12)
   })
