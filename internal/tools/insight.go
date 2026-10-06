@@ -87,19 +87,25 @@ func (t *readInsightsTool) Execute(ctx context.Context, args json.RawMessage) (r
 		return registry.ToolResult{Error: "read_insights: Insights 未配置"}, nil
 	}
 
-	// 查询洞察 - 使用 TaskID 作为 assignmentID
-	var insights []insight.Insight
-	var err error
-
-	switch {
-	case a.Category != "":
-		insights, err = t.deps.Insights.ListByCategory(ctx, t.deps.TaskID, insight.Category(a.Category), a.Limit*2)
-	case a.Priority != "":
-		insights, err = t.deps.Insights.ListByPriority(ctx, t.deps.TaskID, insight.Priority(a.Priority), a.Limit*2)
-	default:
-		insights, err = t.deps.Insights.List(ctx, t.deps.TaskID, a.Limit*2)
+	// 黑板按 assignment 归档：write_insight 以 task.AssignmentID 落库，
+	// 读取必须解析同一个 assignment（曾误用 TaskID 过滤，永远查空）。
+	if t.deps.Tasks == nil {
+		return registry.ToolResult{Error: "read_insights: Tasks 未配置"}, nil
+	}
+	task, err := t.deps.Tasks.GetByID(ctx, t.deps.TaskID)
+	if err != nil {
+		return registry.ToolResult{Error: fmt.Sprintf("read_insights: 查询 task 失败: %v", err)}, nil
 	}
 
+	var insights []insight.Insight
+	switch {
+	case a.Category != "":
+		insights, err = t.deps.Insights.ListByCategory(ctx, task.AssignmentID, insight.Category(a.Category), a.Limit*2)
+	case a.Priority != "":
+		insights, err = t.deps.Insights.ListByPriority(ctx, task.AssignmentID, insight.Priority(a.Priority), a.Limit*2)
+	default:
+		insights, err = t.deps.Insights.List(ctx, task.AssignmentID, a.Limit*2)
+	}
 	if err != nil {
 		return registry.ToolResult{Error: fmt.Sprintf("read_insights: %v", err)}, nil
 	}

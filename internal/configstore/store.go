@@ -24,8 +24,8 @@ import (
 	"github.com/V3teran/liusha/internal/skillstore"
 )
 
-// executorStore 是 configstore 依赖的 agent 底层能力（*agent.Store 满足）。
-type executorStore interface {
+// agentStore 是 configstore 依赖的 agent 底层能力（*agent.Store 满足）。
+type agentStore interface {
 	GetByID(ctx context.Context, id string) (agent.Agent, error)
 	GetByCode(ctx context.Context, code string) (agent.Agent, error)
 	Update(ctx context.Context, code string, p agent.UpdateParams) (agent.Agent, error)
@@ -48,9 +48,9 @@ type skillStore interface {
 
 // Store 编排 agent 和 skill 的多级读写：底层 DB store + 共享 cachestore 内核。
 type Store struct {
-	executors executorStore
-	skills    skillStore
-	cache     *cachestore.Cache
+	agents agentStore
+	skills skillStore
+	cache  *cachestore.Cache
 }
 
 // New 用 pgxpool + 共享 cachestore 构造 Store（生产装配用）。
@@ -64,19 +64,19 @@ func New(pool *pgxpool.Pool, cache *cachestore.Cache) *Store {
 }
 
 // newWithStores 用已构造的底层 store 装配（测试注入 mock 用）。
-func newWithStores(hn executorStore, sk skillStore, cache *cachestore.Cache) *Store {
-	return &Store{executors: hn, skills: sk, cache: cache}
+func newWithStores(hn agentStore, sk skillStore, cache *cachestore.Cache) *Store {
+	return &Store{agents: hn, skills: sk, cache: cache}
 }
 
 // ── 缓存键（L1/L2 同键，统一前缀 configstore:）───────────────────────────
 
-func keyExecutorID(id string) string     { return "configstore:executor:id:" + id }
-func keyExecutorCode(code string) string { return "configstore:executor:code:" + code }
+func keyAgentID(id string) string     { return "configstore:agent:id:" + id }
+func keyAgentCode(code string) string { return "configstore:agent:code:" + code }
 
 // keyAgentsList 是全量列表读的缓存键，按 onlyEnabled 分两键（有界）。
 // 任一 agent 写即失效其资源的两个 list 键（enabled 变动会跨 true/false 两表）。
 func keyAgentsList(onlyEnabled bool) string {
-	return "configstore:executors:list:" + boolKey(onlyEnabled)
+	return "configstore:agents:list:" + boolKey(onlyEnabled)
 }
 
 // boolKey 把 onlyEnabled 稳定映射为键后缀。
@@ -93,10 +93,10 @@ func boolKey(b bool) string {
 
 // ExecutorByID 按 uuid 读操作员（CRUD :id）。
 func (s *Store) ExecutorByID(ctx context.Context, id string) (agent.Agent, error) {
-	return cachestore.ReadThrough(ctx, s.cache, keyExecutorID(id),
-		func(h agent.Agent) []string { return []string{keyExecutorID(h.ID)} },
+	return cachestore.ReadThrough(ctx, s.cache, keyAgentID(id),
+		func(h agent.Agent) []string { return []string{keyAgentID(h.ID)} },
 		func(ctx context.Context) (agent.Agent, error) {
-			return s.executors.GetByID(ctx, id)
+			return s.agents.GetByID(ctx, id)
 		})
 }
 
@@ -112,12 +112,12 @@ func (s *Store) ExecutorByCode(ctx context.Context, code string) (agent.Agent, e
 // 经 agentKeys 失效 code 键，前端改配置 → 总线广播 → runner 清 L1 → 下次读到新值。
 // runner 的认知循环每任务经此读四 agent 配置（热路径，L1 命中为主）。
 func (s *Store) AgentByCode(ctx context.Context, code string) (agent.Agent, error) {
-	return cachestore.ReadThrough(ctx, s.cache, keyExecutorCode(code),
+	return cachestore.ReadThrough(ctx, s.cache, keyAgentCode(code),
 		func(h agent.Agent) []string {
-			return []string{keyExecutorCode(h.Code), keyExecutorID(h.ID)}
+			return []string{keyAgentCode(h.Code), keyAgentID(h.ID)}
 		},
 		func(ctx context.Context) (agent.Agent, error) {
-			return s.executors.GetByCode(ctx, code)
+			return s.agents.GetByCode(ctx, code)
 		})
 }
 
@@ -128,7 +128,7 @@ func (s *Store) ListExecutors(ctx context.Context, onlyEnabled bool) ([]agent.Ag
 	return cachestore.ReadThrough(ctx, s.cache, keyAgentsList(onlyEnabled),
 		func([]agent.Agent) []string { return []string{keyAgentsList(onlyEnabled)} },
 		func(ctx context.Context) ([]agent.Agent, error) {
-			return s.executors.List(ctx, onlyEnabled)
+			return s.agents.List(ctx, onlyEnabled)
 		})
 }
 
@@ -139,12 +139,12 @@ func (s *Store) ListExecutors(ctx context.Context, onlyEnabled bool) ([]agent.Ag
 
 // ListExecutorsPaged 直穿底层 store：搜索 + 分页（配置管理页）。
 func (s *Store) ListExecutorsPaged(ctx context.Context, p agent.ListParams) ([]agent.Agent, error) {
-	return s.executors.ListPaged(ctx, p)
+	return s.agents.ListPaged(ctx, p)
 }
 
 // CountExecutors 直穿底层 store：与 ListExecutorsPaged 同过滤的总数。
 func (s *Store) CountExecutors(ctx context.Context, p agent.ListParams) (int, error) {
-	return s.executors.CountList(ctx, p)
+	return s.agents.CountList(ctx, p)
 }
 
 // ── 写（前端 CRUD 走这里，保证跨进程一致）─────────────────────────────
@@ -157,14 +157,14 @@ func (s *Store) CountExecutors(ctx context.Context, p agent.ListParams) (int, er
 // complexity/code 键随此一并失效——全部写入口都经此，保证移档/改配即时生效。
 func agentKeys(id, code string) []string {
 	return []string{
-		keyExecutorID(id), keyExecutorCode(code),
+		keyAgentID(id), keyAgentCode(code),
 		keyAgentsList(true), keyAgentsList(false),
 	}
 }
 
 // UpdateExecutor 更新Agent配置（只能更新SystemPrompt、Skills和工具）。
 func (s *Store) UpdateExecutor(ctx context.Context, code string, p agent.UpdateParams) (agent.Agent, error) {
-	h, err := s.executors.Update(ctx, code, p)
+	h, err := s.agents.Update(ctx, code, p)
 	if err != nil {
 		return agent.Agent{}, err
 	}
@@ -177,7 +177,7 @@ func (s *Store) UpdateExecutor(ctx context.Context, code string, p agent.UpdateP
 // UpdateExecutorComplexity 只改单个 agent 的复杂度档位（分档页移档用），失效其缓存键——
 // runner 被动清 L1，下次 For(role) 经 ComplexityByCode 读到新档。不碰 agent 其余字段。
 func (s *Store) UpdateExecutorComplexity(ctx context.Context, id, complexity string) (agent.Agent, error) {
-	h, err := s.executors.UpdateComplexity(ctx, id, complexity)
+	h, err := s.agents.UpdateComplexity(ctx, id, complexity)
 	if err != nil {
 		return agent.Agent{}, err
 	}
@@ -191,7 +191,7 @@ func (s *Store) UpdateExecutorComplexity(ctx context.Context, id, complexity str
 
 // UpdateAgent 更新任意 Agent 配置，失效缓存
 func (s *Store) UpdateAgent(ctx context.Context, id string, p agent.UpdateParams) (agent.Agent, error) {
-	h, err := s.executors.Update(ctx, id, p)
+	h, err := s.agents.Update(ctx, id, p)
 	if err != nil {
 		return agent.Agent{}, err
 	}
@@ -316,7 +316,7 @@ func (s *Store) InvalidateAgents(ctx context.Context, codes ...string) error {
 		if code == "" {
 			continue
 		}
-		h, err := s.executors.GetByCode(ctx, code)
+		h, err := s.agents.GetByCode(ctx, code)
 		if err != nil {
 			continue // 行不存在：无旧缓存可失效，跳过
 		}

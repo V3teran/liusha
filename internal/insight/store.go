@@ -37,6 +37,9 @@ func (s *Store) Append(ctx context.Context, assignmentID string, insight Insight
 	if insight.Confidence == "" {
 		insight.Confidence = ConfidencePossible
 	}
+	if insight.Tags == nil {
+		insight.Tags = []string{}
+	}
 
 	query := `
 		INSERT INTO insight (

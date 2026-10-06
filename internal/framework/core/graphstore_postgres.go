@@ -18,18 +18,17 @@ import (
 // - GraphNode → exploration_node 表
 // - GraphEdge → exploration_edge 表
 //
-// 字段映射：
-// - GraphNode.ID → exploration_node.id
-// - GraphNode.Kind → exploration_node.kind
+// 字段映射（0157 定稿后仅保留 9 列，唯一事实源 = content + metadata）：
+// - GraphNode.ID → exploration_node.id (uuid)
+// - GraphNode.TaskID（经 Metadata["task_id"]）→ exploration_node.task_id (uuid，查询维度)
+// - GraphNode.Kind → exploration_node.kind（查询维度）
 // - GraphNode.Content → exploration_node.content (JSONB)
-// - GraphNode.Metadata → exploration_node.metadata (JSONB)
-// - GraphNode.State → exploration_node.state
-// - GraphNode.Confidence → 存储在 metadata["_confidence"] 中（因为表中 confidence 是 TEXT 类型）
-// - GraphNode.CreatedAt → exploration_node.created_at
-// - GraphNode.UpdatedAt → exploration_node.updated_at
+// - GraphNode.Metadata → exploration_node.metadata (JSONB，含 _confidence 等扩展位)
+// - GraphNode.State → exploration_node.state（查询维度）
+// - GraphNode.CreatedAt/UpdatedAt/Version → 同名列
 //
-// 注意：exploration_node 表有一些业务特定的 NOT NULL 字段（task_id, source_type, source_id），
-// 这些字段通过 Metadata 传递，或使用合理的默认值。
+// confidence 以浮点存 metadata["_confidence"]（observation/result 恒写，含 0.0=refuted）——
+// 曾另有有损 text 列（≥0.8 折算 verified），已删除。
 type PostgresGraphStore struct {
 	pool      *pgxpool.Pool
 	nodeTable string // 节点表名（默认 exploration_node）
@@ -59,40 +58,16 @@ func (s *PostgresGraphStore) CreateNode(ctx context.Context, node *GraphNode) er
 		return errors.New("node kind cannot be empty")
 	}
 
-	// 从 Metadata 中提取业务字段
-	taskID := s.extractString(node.Metadata, "task_id", "default")
-	sourceType := s.extractString(node.Metadata, "source_type", "system")
-	sourceID := s.extractString(node.Metadata, "source_id", "framework")
-	priority := s.extractInt(node.Metadata, "priority", 50)
-	owner := s.extractStringPtr(node.Metadata, "owner")
+	// task_id 是唯一的列级归属维度（经 metadata 传递，见字段映射）
+	taskID := s.extractString(node.Metadata, "task_id", "")
+	if taskID == "" {
+		return errors.New("node metadata.task_id is required")
+	}
 
-	// 将 GraphNode.Confidence (float64) 存储到 metadata 中
 	metadata := s.cloneMetadata(node.Metadata)
-	if node.Confidence > 0 {
-		metadata["_confidence"] = node.Confidence
-	}
-
-	// Action 特定字段
-	var complexity *string
-	var dependsOn []string
-	var blockedReason *string
-	var roadmapStep *float64
-	if node.Kind == string(KindAction) {
-		c := s.extractString(node.Metadata, "complexity", "simple")
-		complexity = &c
-		dependsOn = s.extractStringArray(node.Metadata, "depends_on")
-		blockedReason = s.extractStringPtr(node.Metadata, "blocked_reason")
-		roadmapStep = s.extractFloat64Ptr(node.Metadata, "roadmap_step")
-	}
-
-	// Observation/Evaluation/Result 特定字段（表中的 confidence 字段）
-	var dbConfidence *string
+	// confidence 以浮点存 metadata（observation/result 恒写，0.0=refuted 不再丢失）
 	if node.Kind == string(KindObservation) || node.Kind == string(KindResult) {
-		conf := "unverified"
-		if node.Confidence >= 0.8 {
-			conf = "verified"
-		}
-		dbConfidence = &conf
+		metadata["_confidence"] = node.Confidence
 	}
 
 	metadataJSON, err := json.Marshal(metadata)
@@ -103,18 +78,14 @@ func (s *PostgresGraphStore) CreateNode(ctx context.Context, node *GraphNode) er
 	query := `
 		INSERT INTO ` + s.nodeTable + ` (
 			id, task_id, kind, content,
-			state, complexity, depends_on, blocked_reason, roadmap_step,
-			confidence, version,
-			priority, owner, source_type, source_id,
-			tags, metadata,
+			state, version,
+			metadata,
 			created_at, updated_at
 		) VALUES (
 			$1, $2, $3, $4,
-			$5, $6, $7, $8, $9,
-			$10, $11,
-			$12, $13, $14, $15,
-			$16, $17,
-			$18, $19
+			$5, $6,
+			$7,
+			$8, $9
 		)
 	`
 
@@ -135,17 +106,7 @@ func (s *PostgresGraphStore) CreateNode(ctx context.Context, node *GraphNode) er
 		node.Kind,
 		node.Content,
 		nullString(node.State),
-		complexity,
-		dependsOn,
-		blockedReason,
-		roadmapStep,
-		dbConfidence,
 		version,
-		priority,
-		owner,
-		sourceType,
-		sourceID,
-		[]string{}, // tags
 		metadataJSON,
 		now,
 		now,
@@ -166,14 +127,14 @@ func (s *PostgresGraphStore) GetNode(ctx context.Context, id string) (*GraphNode
 
 	query := `
 		SELECT
-			id, kind, content, state, confidence, version,
+			id, kind, content, state, version,
 			metadata, created_at, updated_at
 		FROM ` + s.nodeTable + `
 		WHERE id = $1
 	`
 
 	var node GraphNode
-	var state, dbConfidence *string
+	var state *string
 	var metadataJSON []byte
 
 	err := s.pool.QueryRow(ctx, query, id).Scan(
@@ -181,7 +142,6 @@ func (s *PostgresGraphStore) GetNode(ctx context.Context, id string) (*GraphNode
 		&node.Kind,
 		&node.Content,
 		&state,
-		&dbConfidence,
 		&node.Version,
 		&metadataJSON,
 		&node.CreatedAt,
@@ -205,18 +165,8 @@ func (s *PostgresGraphStore) GetNode(ctx context.Context, id string) (*GraphNode
 		node.Metadata = make(map[string]interface{})
 	}
 
-	// 恢复字段
 	if state != nil {
 		node.State = *state
-	}
-
-	// 从 metadata 中恢复 confidence
-	if conf, ok := node.Metadata["_confidence"].(float64); ok {
-		node.Confidence = conf
-	} else if dbConfidence != nil && *dbConfidence == "verified" {
-		node.Confidence = 1.0
-	} else if dbConfidence != nil && *dbConfidence == "unverified" {
-		node.Confidence = 0.5
 	}
 
 	return &node, nil
@@ -252,16 +202,6 @@ func (s *PostgresGraphStore) UpdateNode(ctx context.Context, id string, update G
 		}
 		setParts = append(setParts, fmt.Sprintf("metadata = $%d", argIndex))
 		args = append(args, metadataJSON)
-		argIndex++
-	}
-
-	if update.Confidence != nil {
-		// 更新 metadata 中的 _confidence
-		// 注意：这里需要先读取当前 metadata，然后更新
-		// 为了简化，我们使用 JSONB 操作符
-		setParts = append(setParts, fmt.Sprintf("metadata = metadata || $%d::jsonb", argIndex))
-		confidenceJSON := fmt.Sprintf(`{"_confidence": %f}`, *update.Confidence)
-		args = append(args, confidenceJSON)
 		argIndex++
 	}
 
@@ -360,16 +300,21 @@ func (s *PostgresGraphStore) ListNodes(ctx context.Context, query GraphNodeQuery
 	}
 
 	if query.MinConfidence > 0 {
-		// 需要从 metadata 中提取 _confidence
+		// confidence 存于 metadata["_confidence"]（浮点）
 		whereParts = append(whereParts, fmt.Sprintf(
 			"(metadata->>'_confidence')::float >= $%d", argIndex))
 		args = append(args, query.MinConfidence)
 		argIndex++
 	}
 
-	// Filters（自定义过滤条件）
+	// Filters：task_id 走列（有索引），其余支持 metadata.xxx 路径
 	for key, value := range query.Filters {
-		// 支持 metadata.xxx 路径
+		if key == "task_id" {
+			whereParts = append(whereParts, fmt.Sprintf("task_id = $%d", argIndex))
+			args = append(args, value)
+			argIndex++
+			continue
+		}
 		if strings.HasPrefix(key, "metadata.") {
 			field := strings.TrimPrefix(key, "metadata.")
 			whereParts = append(whereParts, fmt.Sprintf(
@@ -411,7 +356,7 @@ func (s *PostgresGraphStore) ListNodes(ctx context.Context, query GraphNodeQuery
 
 	sqlQuery := fmt.Sprintf(`
 		SELECT
-			id, kind, content, state, confidence, version,
+			id, kind, content, state, version,
 			metadata, created_at, updated_at
 		FROM `+s.nodeTable+`
 		%s
@@ -428,7 +373,7 @@ func (s *PostgresGraphStore) ListNodes(ctx context.Context, query GraphNodeQuery
 	var nodes []*GraphNode
 	for rows.Next() {
 		var node GraphNode
-		var state, dbConfidence *string
+		var state *string
 		var metadataJSON []byte
 
 		err := rows.Scan(
@@ -436,7 +381,6 @@ func (s *PostgresGraphStore) ListNodes(ctx context.Context, query GraphNodeQuery
 			&node.Kind,
 			&node.Content,
 			&state,
-			&dbConfidence,
 			&node.Version,
 			&metadataJSON,
 			&node.CreatedAt,
@@ -456,18 +400,8 @@ func (s *PostgresGraphStore) ListNodes(ctx context.Context, query GraphNodeQuery
 			node.Metadata = make(map[string]interface{})
 		}
 
-		// 恢复字段
 		if state != nil {
 			node.State = *state
-		}
-
-		// 从 metadata 中恢复 confidence
-		if conf, ok := node.Metadata["_confidence"].(float64); ok {
-			node.Confidence = conf
-		} else if dbConfidence != nil && *dbConfidence == "verified" {
-			node.Confidence = 1.0
-		} else if dbConfidence != nil && *dbConfidence == "unverified" {
-			node.Confidence = 0.5
 		}
 
 		nodes = append(nodes, &node)
@@ -867,66 +801,6 @@ func (s *PostgresGraphStore) extractString(m map[string]interface{}, key, defaul
 		return v
 	}
 	return defaultValue
-}
-
-func (s *PostgresGraphStore) extractStringPtr(m map[string]interface{}, key string) *string {
-	if m == nil {
-		return nil
-	}
-	if v, ok := m[key].(string); ok {
-		return &v
-	}
-	return nil
-}
-
-func (s *PostgresGraphStore) extractFloat64Ptr(m map[string]interface{}, key string) *float64 {
-	if m == nil {
-		return nil
-	}
-	if v, ok := m[key].(float64); ok {
-		return &v
-	}
-	if v, ok := m[key].(float32); ok {
-		f := float64(v)
-		return &f
-	}
-	if v, ok := m[key].(int); ok {
-		f := float64(v)
-		return &f
-	}
-	return nil
-}
-
-func (s *PostgresGraphStore) extractInt(m map[string]interface{}, key string, defaultValue int) int {
-	if m == nil {
-		return defaultValue
-	}
-	if v, ok := m[key].(int); ok {
-		return v
-	}
-	if v, ok := m[key].(float64); ok {
-		return int(v)
-	}
-	return defaultValue
-}
-
-func (s *PostgresGraphStore) extractStringArray(m map[string]interface{}, key string) []string {
-	if m == nil {
-		return nil
-	}
-	if v, ok := m[key].([]string); ok {
-		return v
-	}
-	if v, ok := m[key].([]interface{}); ok {
-		result := make([]string, 0, len(v))
-		for _, item := range v {
-			if s, ok := item.(string); ok {
-				result = append(result, s)
-			}
-		}
-		return result
-	}
-	return nil
 }
 
 func (s *PostgresGraphStore) cloneMetadata(m map[string]interface{}) map[string]interface{} {
