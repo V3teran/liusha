@@ -76,3 +76,6 @@ __pycache__/
 # go build 游离二进制（补充）
 /liusha-runner
 /corpus-import
+
+# ZCode 会话工作目录
+/.zcode/
