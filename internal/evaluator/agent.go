@@ -102,7 +102,11 @@ func (a *Agent) Run(ctx context.Context) error {
 	a.logger.Info().
 		Str("task_id", a.taskID).
 		Dur("poll_interval", a.pollInterval).
-		Msg("Evaluator Agent 启动（轮询模式）")
+		Msg("Evaluator Agent 启动（混合模式：事件驱动 + 轮询兜底）")
+
+	// 订阅事件总线
+	sub := a.eventBus.SubscribeTask(a.taskID)
+	defer sub.Cancel()
 
 	// 并发控制（信号量）
 	sem := make(chan struct{}, a.maxConcurrent)
@@ -122,12 +126,85 @@ func (a *Agent) Run(ctx context.Context) error {
 			a.inFlight.Wait()
 			return ctx.Err()
 
+		case event := <-sub.Events():
+			// 事件驱动：立即处理新 observation
+			a.handleEvent(ctx, event, sem)
+
 		case <-ticker.C:
+			// 轮询兜底：检查遗漏的 observation
 			if err := a.pollAndVerify(ctx, sem); err != nil {
 				a.logger.Error().Err(err).Msg("轮询验证失败")
 			}
 		}
 	}
+}
+
+// handleEvent 处理事件总线推送的事件（事件驱动）
+func (a *Agent) handleEvent(ctx context.Context, event bus.Event, sem chan struct{}) {
+	// 只处理 EventAttemptGenerated
+	if event.Type != bus.EventAttemptGenerated {
+		return
+	}
+
+	// 从 Payload 提取 attempt
+	attemptData, ok := event.Payload["attempt"]
+	if !ok {
+		a.logger.Warn().
+			Str("event_type", string(event.Type)).
+			Msg("EventAttemptGenerated 缺少 attempt")
+		return
+	}
+
+	// 类型断言为 Attempt（executor 发布的是 evaluator.Attempt）
+	attempt, ok := attemptData.(Attempt)
+	if !ok {
+		a.logger.Warn().
+			Str("event_type", string(event.Type)).
+			Str("attempt_type", fmt.Sprintf("%T", attemptData)).
+			Msg("attempt 类型不匹配")
+		return
+	}
+
+	observationID := attempt.NodeID
+
+	a.logger.Info().
+		Str("observation_id", observationID).
+		Str("action_id", event.ActionID).
+		Msg("收到 EventAttemptGenerated，立即验证")
+
+	// 去重检查：是否已处理过此 observation
+	a.processedObsMu.Lock()
+	if a.processedObs[observationID] {
+		a.processedObsMu.Unlock()
+		a.logger.Debug().
+			Str("observation_id", observationID).
+			Msg("observation 已处理过，跳过")
+		return
+	}
+	// 标记为已处理
+	a.processedObs[observationID] = true
+	a.processedObsMu.Unlock()
+
+	// 异步验证（通过信号量控制并发）
+	a.inFlight.Add(1)
+	go func() {
+		defer a.inFlight.Done()
+
+		// 获取信号量
+		sem <- struct{}{}
+		defer func() { <-sem }()
+
+		a.logger.Info().
+			Str("observation_id", observationID).
+			Msg("开始验证 observation")
+
+		if err := a.verifyObservation(ctx, observationID, attempt); err != nil {
+			a.logger.Error().
+				Err(err).
+				Str("observation_id", observationID).
+				Msg("验证失败")
+		}
+	}()
 }
 
 // pollAndVerify 执行一轮轮询：查询未验证的 observation 节点并启动验证
