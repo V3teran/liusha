@@ -47,5 +47,5 @@ func (c *Coordinator) Execute(ctx context.Context, action explorationgraph.Node)
 		Str("action_id", action.ID).
 		Msg("[COORDINATOR] Execute called")
 
-	return c.engine.Execute(ctx, action, c.taskID, c.host)
+	return c.engine.Execute(ctx, action)
 }

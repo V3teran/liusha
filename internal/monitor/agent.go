@@ -52,7 +52,7 @@ type Config struct {
 	FunctionTools []string // function_tools 白名单（agent 配置；nil=全量，空=空集）
 
 	SystemPrompt  string // 角色章程（agent.system_prompt，运维经前端可调；空=不渲染）
-	MaxIterations int    // ReAct 迭代上限（agent.max_iterations；0=不设限，基线 10 生效）
+	MaxIterations int    // ReAct 迭代上限（agent.max_iterations；0=不设限）
 
 	// Checkpoint 配置（可选）
 	Checkpointer     core.Checkpointer        // nil 表示禁用 checkpoint
@@ -117,6 +117,11 @@ func (a *Agent) Run(ctx context.Context) error {
 	ticker := time.NewTicker(a.interval)
 	defer ticker.Stop()
 
+	// ✅ 启动时立即评估一次（消除 6 分钟首评盲区）
+	if err := a.evaluate(ctx); err != nil {
+		a.logger.Error().Err(err).Msg("首次评估失败")
+	}
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -147,7 +152,7 @@ func (a *Agent) evaluate(ctx context.Context) error {
 		Objective:     objective,
 		SystemPrompt:  systemPrompt,
 		LLMProvider:   a.provider,
-		MaxIterations: capIterations(10, a.maxIt), // 监察不需要太多轮；agent.max_iterations 只能更紧
+		MaxIterations: a.maxIt, // 迭代上限 = agent.max_iterations（配置即事实；0=不设限）
 		Temperature:   0.3,                        // 较低温度，确保稳定性
 		MaxTokens:     4000,
 		// Monitor 窗口最小（原框架 Monitor 预设口径 10）——业务预设已按分层下沉到业务侧。
@@ -212,14 +217,6 @@ func (a *Agent) buildSystemPrompt() string {
 	}
 	return "你是监察 Agent：调 get_global_state 获取全局状态，分析指标后经 publish_decision 发布决策" +
 		"（type=kill_action 需带 action_id；type=request_replan 请求重规划）。保守决策，数据驱动。"
-}
-
-// capIterations 基线与 agent.max_iterations 上限取小（0=不设限）。
-func capIterations(base, upper int) int {
-	if upper > 0 && base > upper {
-		return upper
-	}
-	return base
 }
 
 // ============================================

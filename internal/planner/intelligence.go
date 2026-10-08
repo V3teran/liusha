@@ -24,7 +24,7 @@ type Intelligence struct {
 	logger     zerolog.Logger
 	charter    string         // 角色章程（agent.system_prompt，运维经前端可调；空=不渲染）
 	complexity llm.Complexity // LLM 档位（agent.complexity，文档 complexity 种子 → 三级缓存读）
-	maxIt      int            // ReAct 迭代上限（agent.max_iterations；0=不设限，基线 6 生效）
+	maxIt      int            // ReAct 迭代上限（agent.max_iterations；0=不设限）
 }
 
 // NewIntelligence 创建智能规划器
@@ -42,7 +42,6 @@ func (i *Intelligence) WithSystemPrompt(charter string) *Intelligence {
 }
 
 // WithMaxIterations 注入 ReAct 迭代上限（agent.max_iterations；0=不设限）。
-// 上限语义：只能收紧不能放宽。
 func (i *Intelligence) WithMaxIterations(n int) *Intelligence {
 	i.maxIt = n
 	return i
@@ -123,7 +122,7 @@ func (i *Intelligence) Plan(ctx context.Context, graph *explorationgraph.Store, 
 		Objective:            prompt,
 		SystemPrompt:         i.buildPlannerSystemPrompt(),
 		LLMProvider:          provider,
-		MaxIterations:        i.capIterations(6), // 规划是短决策循环：观察→(深挖)→出规划
+		MaxIterations:        i.maxIt, // 迭代上限 = agent.max_iterations（配置即事实；0=不设限）
 		MaxTokens:            4000,
 		MessageModifierChain: runtime.NewDefaultModifierChain(20),
 	})
@@ -422,14 +421,6 @@ func (i *Intelligence) buildPlannerSystemPrompt() string {
 	return "你是渗透测试的探索规划专家：基于上下文摘要规划下一批 Action" +
 		"（1-5 个，depends_on 只引用已知 ID），输出 JSON：" +
 		`{"should_continue": true, "reasoning": "...", "actions": [{"type": "...", "instruction": "...", "complexity": "...", "priority": "...", "reason": "...", "depends_on": [], "metadata": {}}]}`
-}
-
-// capIterations 基线与 agent.max_iterations 上限取小（0=不设限）。
-func (i *Intelligence) capIterations(base int) int {
-	if i.maxIt > 0 && base > i.maxIt {
-		return i.maxIt
-	}
-	return base
 }
 
 // parsePlanningResponse 从 ReAct 最终答案解析规划 JSON。

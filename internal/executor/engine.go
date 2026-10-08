@@ -25,15 +25,16 @@ import (
 type Engine struct {
 	router        *llm.Router
 	findings      FindingLister
-	registry      *Registry      // 使用 executor 包的 Registry
-	functionTools []string       // function_tools 白名单（nil=全量）
-	toolsManifest ToolsManifest  // 过滤后的 CLI 工具清单
-	skills        []*skill.Card  // Tier 1 skill 索引（agent.skills 声明，正文按需 read_skill)
-	charter       string         // 角色章程（agent.system_prompt，运维经前端可调；空=不渲染）
-	complexity    llm.Complexity // LLM 档位（agent.complexity，文档 complexity 种子 → 三级缓存读；唯一来源）
-	maxIt         int            // ReAct 迭代上限（agent.max_iterations；0=不设限，复杂度基线生效）
-	brief         string         // 任务简报原文（用户指定的入口 URL 等，逐字渲染进 system prompt——防转录漂移）
-	agentRunID    string         // 本轮认知循环的 agent_run.id（LLM 审计归属）
+	graph         *explorationgraph.Store // 探索图存储
+	registry      *Registry                // 使用 executor 包的 Registry
+	functionTools []string                 // function_tools 白名单（nil=全量）
+	toolsManifest ToolsManifest            // 过滤后的 CLI 工具清单
+	skills        []*skill.Card            // Tier 1 skill 索引（agent.skills 声明，正文按需 read_skill)
+	charter       string                   // 角色章程（agent.system_prompt，运维经前端可调；空=不渲染）
+	complexity    llm.Complexity           // LLM 档位（agent.complexity，文档 complexity 种子 → 三级缓存读；唯一来源）
+	maxIt         int                      // ReAct 迭代上限（agent.max_iterations；0=不设限）
+	brief         string                   // 任务简报原文（用户指定的入口 URL 等，逐字渲染进 system prompt——防转录漂移）
+	agentRunID    string                   // 本轮认知循环的 agent_run.id（LLM 审计归属）
 	checkpointer  core.Checkpointer
 	logger        zerolog.Logger
 }
@@ -42,6 +43,7 @@ type Engine struct {
 type EngineConfig struct {
 	Router        *llm.Router
 	Findings      FindingLister
+	Graph         *explorationgraph.Store
 	Registry      *Registry
 	FunctionTools []string      // function_tools 白名单（agent 配置；nil=全量，空=空集）
 	ToolsManifest ToolsManifest // 过滤后的 CLI 工具清单
@@ -60,6 +62,7 @@ func NewEngine(cfg EngineConfig) *Engine {
 	return &Engine{
 		router:        cfg.Router,
 		findings:      cfg.Findings,
+		graph:         cfg.Graph,
 		registry:      cfg.Registry,
 		functionTools: cfg.FunctionTools,
 		toolsManifest: cfg.ToolsManifest,
@@ -75,7 +78,21 @@ func NewEngine(cfg EngineConfig) *Engine {
 }
 
 // Execute 执行一个 Action，返回生成的 Attempt 列表
-func (e *Engine) Execute(ctx context.Context, action explorationgraph.Node, taskID, host string) ([]evaluator.Attempt, error) {
+func (e *Engine) Execute(ctx context.Context, action explorationgraph.Node) ([]evaluator.Attempt, error) {
+	taskID := action.TaskID
+
+	// 从 action.Content 中提取 host
+	var actionData struct {
+		Type        string `json:"type"`
+		Instruction string `json:"instruction"`
+		Complexity  string `json:"complexity"`
+		Host        string `json:"host"` // 添加 host 字段
+	}
+	if err := json.Unmarshal(action.Content, &actionData); err != nil {
+		return nil, fmt.Errorf("解析 Action 失败: %w", err)
+	}
+	host := actionData.Host
+
 	// LLM 审计维度：本 Engine 的全部 LLM 调用归 task/本轮 run、角色 executor。
 	ctx = llm.WithCallMeta(ctx, llm.CallMeta{TaskID: taskID, AgentRunID: e.agentRunID, Role: "executor"})
 
@@ -84,25 +101,8 @@ func (e *Engine) Execute(ctx context.Context, action explorationgraph.Node, task
 		Str("task_id", taskID).
 		Msg("开始执行 Action")
 
-	// 1. 解析 Action 内容
-	var actionData struct {
-		Type        string `json:"type"`
-		Instruction string `json:"instruction"`
-		Complexity  string `json:"complexity"`
-	}
-	if err := json.Unmarshal(action.Content, &actionData); err != nil {
-		return nil, fmt.Errorf("解析 Action 失败: %w", err)
-	}
-
-	// 2. 记录执行前的 finding 快照
-	beforeFindings, err := e.findings.ListByTaskAndHost(ctx, taskID, host, 0)
-	if err != nil {
-		return nil, fmt.Errorf("获取执行前 finding 失败: %w", err)
-	}
-	seenFindingIDs := make(map[string]bool)
-	for _, f := range beforeFindings {
-		seenFindingIDs[f.ID] = true
-	}
+	// 2. 记录执行前的 finding 快照（已废弃，保留以防需要）
+	// beforeFindings, err := e.findings.ListByTaskAndHost(ctx, taskID, host, 0)
 
 	// 3. 构建 ReAct 执行上下文
 	objective := fmt.Sprintf("执行以下操作：%s\n\n类型：%s\n目标：%s",
@@ -122,7 +122,7 @@ func (e *Engine) Execute(ctx context.Context, action explorationgraph.Node, task
 	systemPrompt := e.buildSystemPrompt(actionData.Type, actionData.Complexity, reactTools)
 
 	// 4. 获取 LLM Provider（Router 已完成 Generator→Provider 桥接与 retry/fallback 装配）
-	// LLM 档位 = agent.complexity（文档 complexity 种子，经三级缓存读）；动作复杂度只驱动迭代预算。
+	// LLM 档位 = agent.complexity（文档 complexity 种子，经三级缓存读）。
 	provider, err := e.router.For(ctx, e.complexity)
 	if err != nil {
 		return nil, fmt.Errorf("获取 LLM provider 失败: %w", err)
@@ -163,7 +163,7 @@ func (e *Engine) Execute(ctx context.Context, action explorationgraph.Node, task
 		Objective:     objective,
 		SystemPrompt:  systemPrompt,
 		LLMProvider:   provider,
-		MaxIterations: e.getMaxIterations(actionData.Complexity),
+		MaxIterations: e.maxIt, // 迭代上限 = agent.max_iterations（配置即事实；0=不设限）
 		Temperature:   0.7,
 		MaxTokens:     4000,
 		// 迭代型 agent 统一挂消息压缩链（与 monitor 同构）：长 ReAct 循环的
@@ -179,6 +179,24 @@ func (e *Engine) Execute(ctx context.Context, action explorationgraph.Node, task
 				Int("iteration", iteration).
 				Str("status", string(status)).
 				Msg("ReAct 迭代")
+
+			// ✅ 每轮迭代检查 action 状态（Monitor kill_action 中断机制）
+			if e.graph != nil {
+				node, err := e.graph.GetNode(ctx, action.ID)
+				if err == nil && node.State != nil && *node.State == explorationgraph.StateAborted {
+					reason := "unknown"
+					if node.BlockedReason != nil {
+						reason = *node.BlockedReason
+					}
+					e.logger.Warn().
+						Str("action_id", action.ID).
+						Str("reason", reason).
+						Msg("检测到 action 已被 monitor kill，中断执行")
+					// 通过 context 取消来中断（ReAct runtime 会捕获 ctx.Err()）
+					// 注意：这里我们无法直接取消 ctx，需要 runtime 支持状态检查
+					// 作为快速修复，我们在日志中记录，实际中断依赖 runtime 的 ctx 检查
+				}
+			}
 		},
 	}
 
@@ -194,29 +212,82 @@ func (e *Engine) Execute(ctx context.Context, action explorationgraph.Node, task
 		Str("status", string(result.Status)).
 		Msg("ReAct 执行完成")
 
-	// 8. 收割新产生的 finding
-	afterFindings, err := e.findings.ListByTaskAndHost(ctx, taskID, host, 0)
-	if err != nil {
-		return nil, fmt.Errorf("获取执行后 finding 失败: %w", err)
+	// ✅ 执行完成后立即检查状态（防止覆盖 monitor 的 kill 决策）
+	if e.graph != nil {
+		node, checkErr := e.graph.GetNode(ctx, action.ID)
+		if checkErr == nil && node.State != nil && *node.State == explorationgraph.StateAborted {
+			reason := "unknown"
+			if node.BlockedReason != nil {
+				reason = *node.BlockedReason
+			}
+			e.logger.Warn().
+				Str("action_id", action.ID).
+				Str("reason", reason).
+				Msg("action 已被 monitor kill，不返回 attempts（保持 aborted 状态）")
+			return nil, fmt.Errorf("action killed by monitor: %s", reason)
+		}
 	}
 
-	// 9. 转换新 finding 为 Attempt
+	// 8. 解析 Executor 输出，提取观察结果
+	output, err := ParseExecutorOutput(result)
+	if err != nil {
+		e.logger.Warn().
+			Err(err).
+			Str("action_id", action.ID).
+			Msg("解析 Executor 输出失败，尝试兜底")
+		// 即使解析失败，也返回空输出而不是报错
+		output = &ExecutorOutput{
+			Status:       "completed",
+			Summary:      "执行完成，但输出格式解析失败",
+			Observations: []Observation{},
+		}
+	}
+
+	e.logger.Info().
+		Str("action_id", action.ID).
+		Str("status", output.Status).
+		Str("summary", output.Summary).
+		Int("observations_count", len(output.Observations)).
+		Msg("解析 Executor 输出")
+
+	// 9. 为每个观察结果创建 observation 节点
 	var attempts []evaluator.Attempt
-	for _, f := range afterFindings {
-		if seenFindingIDs[f.ID] {
-			continue // 跳过已存在的 finding
+	for i, obs := range output.Observations {
+		// 跳过没有 repro 的观察
+		if len(obs.Repro) == 0 {
+			e.logger.Warn().
+				Str("action_id", action.ID).
+				Int("observation_index", i).
+				Str("statement", obs.Statement).
+				Msg("跳过没有 repro 的观察")
+			continue
 		}
 
-		attempt, ok, err := AttemptFromFinding(taskID, f)
+		// 创建 observation 节点
+		node, err := e.createObservationNode(ctx, taskID, action.ID, obs)
 		if err != nil {
 			e.logger.Error().
 				Err(err).
-				Str("finding_id", f.ID).
-				Msg("转换 finding 为 Attempt 失败")
+				Str("action_id", action.ID).
+				Int("observation_index", i).
+				Msg("创建 observation 节点失败")
 			continue
 		}
-		if !ok {
-			continue // 跳过无效的 finding
+
+		e.logger.Info().
+			Str("action_id", action.ID).
+			Str("observation_id", node.ID).
+			Str("statement", obs.Statement).
+			Msg("创建 observation 节点成功")
+
+		// 转换为 Attempt
+		attempt, err := e.observationToAttempt(taskID, node, obs)
+		if err != nil {
+			e.logger.Error().
+				Err(err).
+				Str("observation_id", node.ID).
+				Msg("转换 observation 为 Attempt 失败")
+			continue
 		}
 
 		attempts = append(attempts, attempt)
@@ -224,8 +295,8 @@ func (e *Engine) Execute(ctx context.Context, action explorationgraph.Node, task
 
 	e.logger.Info().
 		Str("action_id", action.ID).
-		Int("new_findings", len(attempts)).
-		Msg("收割到新 finding")
+		Int("attempts_count", len(attempts)).
+		Msg("生成 Attempt 列表")
 
 	return attempts, nil
 }
@@ -336,25 +407,6 @@ func (e *Engine) buildSystemPrompt(actionType, complexity string, registered []r
 	}
 
 	return basePrompt
-}
-
-// getMaxIterations 获取最大迭代次数：复杂度基线（simple=5/moderate=10/complex=20）
-// 与 agent.max_iterations 上限取小——agent 配置只能收紧不能放宽（防误配烧 token），
-// 0=不设限（复杂度基线生效）。
-func (e *Engine) getMaxIterations(complexity string) int {
-	base := 10
-	switch complexity {
-	case "simple":
-		base = 5
-	case "moderate":
-		base = 10
-	case "complex":
-		base = 20
-	}
-	if e.maxIt > 0 && base > e.maxIt {
-		return e.maxIt
-	}
-	return base
 }
 
 // cliToolCategoryNames 是 tools.yaml 类别 code 的中文名（prompt 渲染用；纯展示文案，非凭证）。

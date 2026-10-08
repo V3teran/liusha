@@ -253,7 +253,9 @@ func (a *Agent) planActions(ctx context.Context) error {
 		Msg("Planner.Plan 返回")
 
 	if len(actions) == 0 {
-		a.logger.Info().Msg("Planner 未生成新 Action")
+		a.logger.Info().Msg("Planner 未生成新 Action（任务收敛）")
+		// ✅ 发布任务收敛事件，触发 CompletionDetector 停止任务
+		a.eventBus.PublishTaskConverged(a.taskID, "planner: no more actions to generate")
 		return nil
 	}
 

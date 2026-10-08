@@ -105,7 +105,7 @@ skills:
   - bac
   - browser-use
   - dom-xss
-max_iterations: 30
+max_iterations: 50
 complexity: complex
 ---
 

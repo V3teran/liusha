@@ -5,21 +5,17 @@ package executor
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"sync"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 
 	"github.com/V3teran/liusha/internal/bus"
 	"github.com/V3teran/liusha/internal/constants"
-	"github.com/V3teran/liusha/internal/evaluator"
 	"github.com/V3teran/liusha/internal/explorationgraph"
 	"github.com/V3teran/liusha/internal/framework/core"
 	"github.com/V3teran/liusha/internal/framework/runtime"
-	"github.com/V3teran/liusha/internal/tools"
 )
 
 // Agent 是事件驱动的执行器 Agent
@@ -297,6 +293,19 @@ func (a *Agent) executeAction(
 	// 执行 Action（调用 Interface）
 	attempts, execErr := a.executor.Execute(ctx, action)
 
+	// ✅ 执行完成后检查是否已被 monitor kill（防止覆盖 aborted 状态）
+	currentNode, checkErr := a.graph.GetNode(ctx, action.ID)
+	if checkErr == nil && currentNode.State != nil && *currentNode.State == explorationgraph.StateAborted {
+		a.logger.Warn().
+			Str("action_id", action.ID).
+			Msg("action 已被 monitor kill，跳过状态更新（保持 aborted）")
+		// 返回原始执行错误（如果有），或特定的 killed 错误
+		if execErr != nil {
+			return execErr
+		}
+		return fmt.Errorf("action killed by monitor")
+	}
+
 	// 更新状态
 	if execErr != nil {
 		errMsg := execErr.Error()
@@ -327,18 +336,7 @@ func (a *Agent) executeAction(
 	report.Attempts += len(attempts)
 	a.reportMu.Unlock()
 
-	// 创建 Observation 节点（新增逻辑）
-	if err := a.createObservation(ctx, action, attempts, execErr); err != nil {
-		a.logger.Error().Err(err).Str("action_id", action.ID).Msg("创建 Observation 失败")
-		// 不返回错误，继续执行流程
-	}
-
-	// 收割观察提议（新架构晋升链的入口）：write_observation(repro=...) 的在途假设
-	// 转成 Attempt 交复现门——finding 只能由 evaluator 写，而没有本收割时 Attempt
-	// 只源自 finding，首条 finding 无人生产，晋升链死锁。
-	attempts = append(attempts, a.harvestObservationProposals(ctx, action.ID)...)
-
-	// 先发布所有 AttemptsGenerated 事件（通知 EvaluatorAgent）
+	// 发布所有 AttemptsGenerated 事件（通知 EvaluatorAgent）
 	for _, attempt := range attempts {
 		a.eventBus.PublishAttemptGenerated(a.taskID, action.ID, attempt)
 	}
@@ -360,179 +358,6 @@ func (a *Agent) executeAction(
 // 不再按时间窗全表扫——并行执行时窗口重叠会导致同一假设被双收割/双验证/双 finding。
 // 收割层只认域信封、不解析域内形状（归一化委托 tools.NormalizeReproEnvelope），
 // Primitives = 信封整体透传，复现门按 domain 分发。
-// 无配方的观察不收割——无米之炊不可复现，橡皮图章不可坐实。
-func (a *Agent) harvestObservationProposals(ctx context.Context, actionID string) []evaluator.Attempt {
-	nodes, err := a.graph.ListNodesByKind(ctx, a.taskID, core.KindObservation)
-	if err != nil {
-		a.logger.Warn().Err(err).Str("task_id", a.taskID).Msg("收割观察提议失败")
-		return nil
-	}
-	// 本 action 的产出集合（generates 边）：仅收割精确归属的观察
-	owned := make(map[string]bool)
-	if edges, eErr := a.graph.ListEdgesForAPI(ctx, a.taskID); eErr == nil {
-		for _, e := range edges {
-			if e.SrcID == actionID && e.Rel == explorationgraph.RelGenerates {
-				owned[e.DstID] = true
-			}
-		}
-	} else {
-		a.logger.Warn().Err(eErr).Str("action_id", actionID).Msg("读边失败，本轮收割跳过（下轮兜底）")
-		return nil
-	}
-
-	var attempts []evaluator.Attempt
-	for _, n := range nodes {
-		if !owned[n.ID] {
-			continue
-		}
-
-		var content struct {
-			Statement string          `json:"statement"`
-			Severity  string          `json:"severity"`
-			Repro     json.RawMessage `json:"repro"`
-		}
-		if err := json.Unmarshal(n.Content, &content); err != nil || len(content.Repro) == 0 {
-			continue
-		}
-
-		// 信封归一化（兼容历史形状；分域校验在此把关）。失败仅告警跳过——
-		// write_observation 写入时已校验过，此处失败只可能是存量脏数据。
-		envelope, _, nErr := tools.NormalizeReproEnvelope(content.Repro)
-		if nErr != nil {
-			a.logger.Warn().
-				Err(nErr).Str("task_id", a.taskID).Str("node_id", n.ID).
-				Msg("跳过无法归一化的 repro")
-			continue
-		}
-
-		severity := content.Severity
-		if severity == "" {
-			severity = "medium"
-		}
-		attContent, err := json.Marshal(map[string]string{
-			"summary":  content.Statement,
-			"severity": severity,
-			"host":     "unknown",
-		})
-		if err != nil {
-			continue
-		}
-
-		attempts = append(attempts, evaluator.Attempt{
-			TaskID:     a.taskID,
-			NodeID:     n.ID,
-			Kind:       core.KindResult,
-			Primitives: envelope,
-			Content:    attContent,
-			Priority:   "medium",
-		})
-	}
-
-	if len(attempts) > 0 {
-		a.logger.Info().Str("task_id", a.taskID).Int("proposals", len(attempts)).
-			Msg("收割到带复现配方的观察提议")
-	}
-	return attempts
-}
-
-// createObservation 创建 Observation 节点记录执行结果
-func (a *Agent) createObservation(
-	ctx context.Context,
-	action explorationgraph.Node,
-	attempts []evaluator.Attempt,
-	execErr error,
-) error {
-	// 构建 Observation 内容
-	content := map[string]interface{}{
-		"action_id":      action.ID,
-		"action_type":    extractActionType(action.Content),
-		"execution_time": time.Now().Format(time.RFC3339),
-		"success":        execErr == nil,
-		"attempts_count": len(attempts),
-	}
-
-	if execErr != nil {
-		content["error"] = execErr.Error()
-		content["status"] = "failed"
-	} else {
-		content["status"] = "completed"
-	}
-
-	// 如果有 attempts，记录摘要信息
-	if len(attempts) > 0 {
-		findingSummaries := make([]string, 0, len(attempts))
-		for _, att := range attempts {
-			// 从 Attempt.Content 中提取摘要
-			var attContent map[string]interface{}
-			if err := json.Unmarshal(att.Content, &attContent); err == nil {
-				if summary, ok := attContent["summary"].(string); ok {
-					findingSummaries = append(findingSummaries, summary)
-				}
-			}
-		}
-		content["findings"] = findingSummaries
-	}
-
-	contentJSON, err := json.Marshal(content)
-	if err != nil {
-		return fmt.Errorf("marshal observation content: %w", err)
-	}
-
-	// 创建 Observation 节点
-	unverified := explorationgraph.ConfidenceUnverified
-	observationID := uuid.New().String()
-
-	observation := explorationgraph.Node{
-		ID:         observationID,
-		TaskID:     a.taskID,
-		Kind:       core.KindObservation,
-		Content:    contentJSON,
-		Confidence: &unverified,
-		Priority:   action.Priority,
-		SourceType: explorationgraph.SourceExecutor,
-		SourceID:   action.ID,
-		CreatedAt:  time.Now(),
-		UpdatedAt:  time.Now(),
-	}
-
-	_, err = a.graph.CreateNode(ctx, observation)
-	if err != nil {
-		return fmt.Errorf("create observation node: %w", err)
-	}
-
-	// 创建边：Action → Observation
-	err = a.graph.CreateEdge(ctx, &core.GraphEdge{
-		From:      action.ID,
-		To:        observationID,
-		Relation:  string(core.RelationGenerates),
-		CreatedAt: time.Now(),
-	})
-	if err != nil {
-		a.logger.Error().Err(err).Msg("创建 Action → Observation 边失败")
-		// 不返回错误，节点已创建
-	}
-
-	a.logger.Info().
-		Str("observation_id", observationID).
-		Str("action_id", action.ID).
-		Bool("success", execErr == nil).
-		Int("attempts", len(attempts)).
-		Msg("Observation 节点已创建")
-
-	return nil
-}
-
-// extractActionType 从 Action.Content 中提取类型
-func extractActionType(content json.RawMessage) string {
-	var data map[string]interface{}
-	if err := json.Unmarshal(content, &data); err != nil {
-		return "unknown"
-	}
-	if t, ok := data["type"].(string); ok {
-		return t
-	}
-	return "unknown"
-}
 
 // getCompletedActionIDs 获取已完成的 Action ID 集合
 func (a *Agent) getCompletedActionIDs(ctx context.Context) (map[string]bool, error) {

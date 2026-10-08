@@ -72,6 +72,9 @@ func (s *Store) CreateNode(ctx context.Context, node Node) (string, error) {
 	// Action 专用字段
 	if node.State != nil {
 		graphNode.State = string(*node.State)
+	} else if node.Kind == core.KindAction {
+		// Action 节点必须有 state，默认为 open
+		graphNode.State = string(StateOpen)
 	}
 	if node.Complexity != nil {
 		graphNode.Metadata["complexity"] = string(*node.Complexity)
@@ -512,4 +515,47 @@ func (s *Store) GetStatsForAPI(ctx context.Context, taskID string) (map[string]i
 	}
 
 	return stats, nil
+}
+
+// RecoverOrphanedActions 恢复孤儿 action（runner 重启时调用）
+//
+// 将所有处于 running 状态的 action 重置为 failed，原因是 runner 重启导致执行中断。
+// 这防止了 action 永远停留在 running 状态而无法被重新调度。
+func (s *Store) RecoverOrphanedActions(ctx context.Context) (int, error) {
+	if s.pool == nil {
+		return 0, fmt.Errorf("RecoverOrphanedActions requires direct DB access (pool is nil)")
+	}
+
+	query := `
+		UPDATE exploration_node
+		SET
+			state = 'failed',
+			metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object(
+				'failure_reason', 'Runner 重启导致执行中断',
+				'recovered_at', NOW()
+			)
+		WHERE kind = 'action' AND state = 'running'
+		RETURNING id
+	`
+
+	rows, err := s.pool.Query(ctx, query)
+	if err != nil {
+		return 0, fmt.Errorf("update orphaned actions: %w", err)
+	}
+	defer rows.Close()
+
+	count := 0
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return count, fmt.Errorf("scan recovered action id: %w", err)
+		}
+		count++
+	}
+
+	if err := rows.Err(); err != nil {
+		return count, fmt.Errorf("iterate recovered actions: %w", err)
+	}
+
+	return count, nil
 }

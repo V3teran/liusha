@@ -122,6 +122,13 @@ func main() {
 	stores := newRunnerStores(pool, cfg)
 	defer func() { _ = stores.calls.Close() }()
 
+	// 恢复孤儿 action（runner 重启时，将 running 状态的 action 标记为 failed）
+	if recovered, err := stores.graph.RecoverOrphanedActions(ctx); err != nil {
+		logger.Error().Err(err).Msg("failed to recover orphaned actions")
+	} else if recovered > 0 {
+		logger.Info().Int("count", recovered).Msg("recovered orphaned actions from previous runner instance")
+	}
+
 	embedder, reranker := newCorpusEmbedder(logger)
 
 	// Asynq Client
@@ -236,6 +243,19 @@ func main() {
 	go runHealthGateway(hs, logger)
 
 	startTaskReaper(trafficCtx, stores.tasks, cfg, logger)
+
+	// 启动 action 恢复监控器（定期检测卡住的 running action）
+	recoveryMonitor := explorationgraph.NewRecoveryMonitor(
+		stores.graph,
+		logger,
+		30*time.Second, // 每 30 秒检查一次
+		3*time.Minute,  // 超过 3 分钟无更新的 action 视为卡住
+	)
+	go func() {
+		if err := recoveryMonitor.Start(trafficCtx); err != nil && err != context.Canceled {
+			logger.Error().Err(err).Msg("action recovery monitor stopped")
+		}
+	}()
 
 	go func() {
 		logger.Info().Msg("asynq server starting")

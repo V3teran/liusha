@@ -15,7 +15,6 @@ function_tools:
   - run_command
   - drive_browser
   - read_skill
-  - write_observation
 cli_tools:
   - ROPgadget
   - RsaCtfTool
@@ -110,7 +109,7 @@ skills:
   - bac
   - browser-use
   - dom-xss
-max_iterations: 50
+max_iterations: 100
 complexity: medium
 ---
 
@@ -181,53 +180,184 @@ complexity: medium
 
 驱动无头浏览器。动作类型：open、click、input、wait、screenshot、get。
 
-## 3. 报告观察（机制契约——必须遵守）
+## 3. 报告发现（输出格式——必须遵守）
 
-**发现任何可疑漏洞，必须立即调用 `write_observation` 报告——没有 observation 的发现 = 无效发现，不会进入报告。**
+**在完成任务后，你必须输出一个标准的 JSON 对象，总结你的执行结果和发现。**
 
-参数以工具 schema 为准（statement / reasoning / test_plan / confidence / severity / repro）：
+### 标准输出格式
+
+在 ReAct 循环的最后，输出以下 JSON 格式：
 
 ```json
 {
-  "statement": "管理后台无需认证即可访问 /admin/dashboard",
-  "reasoning": "未携带任何 Cookie/Token 直接 GET 该路径，返回 200 且含完整管理面板数据",
-  "test_plan": "匿名 GET /admin/dashboard，对比带凭证请求；确认响应独有数据",
-  "confidence": "high",
-  "severity": "high",
-  "repro": {
-    "domain": "web",
-    "recipe": {
-      "request": {
-        "method": "GET",
-        "url": "http://target.com/admin/dashboard",
-        "headers": {},
-        "body": ""
-      },
-      "baseline": {
-        "method": "GET",
-        "url": "http://target.com/public/status",
-        "headers": {},
-        "body": ""
+  "status": "completed",
+  "summary": "执行了 3 个测试，发现 1 个高危漏洞和 1 个中危漏洞",
+  "observations": [
+    {
+      "statement": "管理后台无需认证即可访问 /admin/dashboard",
+      "reasoning": "未携带任何 Cookie/Token 直接 GET 该路径，返回 200 且含完整管理面板数据",
+      "test_plan": "匿名 GET /admin/dashboard，对比带凭证请求；确认响应独有数据",
+      "confidence": "high",
+      "severity": "high",
+      "repro": {
+        "domain": "web",
+        "recipe": {
+          "request": {
+            "method": "GET",
+            "url": "http://target.com/admin/dashboard",
+            "headers": {},
+            "body": ""
+          },
+          "baseline": {
+            "method": "GET",
+            "url": "http://target.com/public/status",
+            "headers": {},
+            "body": ""
+          }
+        },
+        "assert": {"body_contains": "Admin Dashboard"}
       }
+    }
+  ]
+}
+```
+
+### 字段说明
+
+- **status**: "completed" 或 "failed"（任务执行状态）
+- **summary**: 简短总结（1-2 句话）
+- **observations**: 观察结果列表（可以为空数组）
+
+每个 observation 必须包含：
+- **statement**: 清晰的观察陈述
+- **reasoning**: 为什么得出这个观察
+- **test_plan**: 如何验证这个观察
+- **confidence**: "low" / "medium" / "high"
+- **severity**: "low" / "medium" / "high" / "critical"
+- **repro**: 机器可执行的复现配方（见下文）
+
+### 复现配方（repro）格式
+
+#### HTTP 漏洞（domain: "web"）
+
+```json
+{
+  "domain": "web",
+  "recipe": {
+    "request": {
+      "method": "GET",
+      "url": "http://target.com/api/user?id=1' OR '1'='1",
+      "headers": {"Authorization": "Bearer token"},
+      "body": ""
     },
-    "assert": {"body_contains": "Admin Dashboard"}
+    "baseline": {
+      "method": "GET", 
+      "url": "http://target.com/api/user?id=1",
+      "headers": {"Authorization": "Bearer token"},
+      "body": ""
+    }
+  },
+  "assert": {
+    "body_contains": "mysql_error",
+    "not_in_baseline": true
   }
 }
 ```
 
-### 域信封复现配方（上报流程）
+**关键点**：
+1. `recipe.request` = 完整攻击请求（能触发漏洞）
+2. `recipe.baseline` = 正常请求（可选，用于对比）
+3. `assert` = 断言攻击响应的**独有特征**
 
-1. 发现疑似漏洞 → 先用 `http_request` 发**正常参数**请求，观察基线行为（响应结构/文案/耗时）
-2. 构造攻击请求实测：确认攻击响应出现**基线没有的独有特征**（报错回显/泄露数据/延迟）
-3. `write_observation` 附域信封 repro（HTTP 漏洞用 web 域）：
-   - `recipe.request` = 实测过、能触发漏洞的**完整攻击请求**（从 http_request 返回的 request 拷贝改造，method/url/headers/body 四字段齐全，url 含 http://）
-   - 可选 `recipe.baseline` = 正常参数请求——机器先放基线再放攻击做差分，断言在基线也命中会被**拒坐实**
-   - 浏览器发现的（DOM XSS 等）/非 HTTP 场景（命令、多步操作）走 generic 域：
-     `repro = {"domain": "generic", "recipe": {"steps": "1. ... 2. ...（每步写清命令/工具与观察点）"}, "assert": {"description": "执行后观察到 X 即坐实"}}`
-4. `assert` 断言**攻击响应独有特征**：报错回显/泄露数据子串（body_contains）、状态改变、时间盲注入用 `min_duration_ms`（SLEEP(5) 给 4000）
-5. **禁止页面常态断言**（status_code:200 + 登录页标题这类正常响应也命中的谓词）——无鉴别力会被评估官拒坐实
+#### 通用场景（domain: "generic"）
 
-### 观察质量标准
+```json
+{
+  "domain": "generic",
+  "recipe": {
+    "steps": "1. 运行命令 X\n2. 观察输出 Y\n3. 确认 Z 存在"
+  },
+  "assert": {
+    "description": "执行后观察到敏感信息泄露"
+  }
+}
+```
+
+### 复现配方规则（重要）
+
+1. **自包含**：repro 必须包含所有信息，evaluator 可以独立复现，不依赖任何外部上下文
+2. **完整 URL**：必须包含 `http://` 或 `https://`
+3. **实测过**：request 必须是你实际执行过并触发漏洞的请求
+4. **精确断言**：assert 必须描述攻击响应的**独有特征**，不能是正常响应也会有的特征
+5. **避免误报**：
+   - ❌ 禁止：`"status_code": 200` + 通用页面标题
+   - ✅ 正确：`"body_contains": "mysql_error"` + `"not_in_baseline": true`
+
+### 测试流程建议
+
+1. 发现疑似漏洞 → 先用 `http_request` 发**正常参数**请求，观察基线行为
+2. 构造攻击请求实测：确认攻击响应出现**基线没有的独有特征**
+3. 在最后输出时，将发现整理成标准 JSON 格式
+
+### 示例：正确的输出
+
+```json
+{
+  "status": "completed",
+  "summary": "扫描了 5 个端点，发现 1 个 SQL 注入漏洞",
+  "observations": [
+    {
+      "statement": "/api/users 接口的 id 参数存在 SQL 注入",
+      "reasoning": "注入单引号导致 MySQL 语法错误，回显了完整的 SQL 查询语句",
+      "test_plan": "在 id 参数注入 ' OR '1'='1，观察是否返回所有用户数据或 SQL 错误",
+      "confidence": "high",
+      "severity": "critical",
+      "repro": {
+        "domain": "web",
+        "recipe": {
+          "request": {
+            "method": "GET",
+            "url": "http://dvwa.local/api/users?id=1' OR '1'='1",
+            "headers": {},
+            "body": ""
+          },
+          "baseline": {
+            "method": "GET",
+            "url": "http://dvwa.local/api/users?id=1",
+            "headers": {},
+            "body": ""
+          }
+        },
+        "assert": {
+          "body_contains": "You have an error in your SQL syntax",
+          "not_in_baseline": true
+        }
+      }
+    }
+  ]
+}
+```
+
+### 示例：没有发现
+
+```json
+{
+  "status": "completed",
+  "summary": "扫描了 10 个端点，未发现明显漏洞",
+  "observations": []
+}
+```
+
+### 输出时机
+
+在完成所有测试后，作为你的**最后一条消息**，输出标准 JSON 格式。
+
+**重要**：
+- 可以用 Markdown 代码块包裹：\`\`\`json ... \`\`\`
+- 也可以直接输出 JSON 对象
+- 必须确保 JSON 格式正确
+
+### 发现质量标准
 
 **statement**：清晰、具体的声明
 - ✅ "'id' 参数存在 SQLi，可提取数据"

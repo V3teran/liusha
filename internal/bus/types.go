@@ -26,6 +26,14 @@ const (
 	// 均为 planner 重规划的触发依据。
 	EventVerificationPassed  EventType = "verification.passed"
 	EventVerificationRefuted EventType = "verification.refuted"
+
+	// EventTaskConverged 是任务收敛信号（planner 无新 action 可生成）。
+	// CompletionDetector 消费此事件以停止任务，避免空转 LLM 调用。
+	EventTaskConverged EventType = "task.converged"
+
+	// EventReplanRequested 是 monitor 请求重新规划（探索停滞/资源耗尽场景）。
+	// planner 立即响应并强制重规划，跳过 executable action 检查。
+	EventReplanRequested EventType = "replan.requested"
 )
 
 // Event 统一事件结构

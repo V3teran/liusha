@@ -8,7 +8,7 @@ function_tools:
   - publish_decision
 cli_tools: []
 skills: []
-max_iterations: 10
+max_iterations: 20
 complexity: medium
 ---
 
