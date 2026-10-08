@@ -17,6 +17,7 @@ import (
 	"github.com/V3teran/liusha/internal/framework/core"
 	"github.com/V3teran/liusha/internal/framework/llm"
 	"github.com/V3teran/liusha/internal/framework/runtime"
+	"github.com/V3teran/liusha/internal/monitor/metrics"
 	"github.com/V3teran/liusha/internal/registry"
 )
 
@@ -37,6 +38,9 @@ type Agent struct {
 	// Checkpoint 系统
 	checkpointer     core.Checkpointer
 	checkpointPolicy runtime.CheckpointPolicy
+
+	// 时间序列指标收集器
+	metricsCollector *metrics.MetricsCollector
 }
 
 // Config 是 Monitor Agent 的配置。
@@ -69,10 +73,13 @@ func New(cfg Config) *Agent {
 	// 创建 ReAct 运行时
 	reactRuntime := runtime.NewReActRuntime()
 
+	// 创建指标收集器
+	metricsCollector := metrics.NewMetricsCollector(cfg.Graph, cfg.TaskID, cfg.Logger)
+
 	// 注册监察工具（function_tools 白名单过滤；nil=全量，空=空集）
 	var registryTools []registry.Tool
 	if registry.Allows(cfg.FunctionTools, "get_global_state") {
-		registryTools = append(registryTools, NewGetGlobalStateTool(cfg.Graph, cfg.TaskID))
+		registryTools = append(registryTools, NewGetGlobalStateTool(cfg.Graph, cfg.TaskID, metricsCollector))
 	}
 	if registry.Allows(cfg.FunctionTools, "publish_decision") {
 		registryTools = append(registryTools, NewPublishDecisionTool(cfg.Graph, cfg.EventBus, cfg.TaskID))
@@ -102,6 +109,7 @@ func New(cfg Config) *Agent {
 		maxIt:            cfg.MaxIterations,
 		checkpointer:     cfg.Checkpointer,
 		checkpointPolicy: checkpointPolicy,
+		metricsCollector: metricsCollector,
 	}
 }
 
@@ -140,6 +148,11 @@ func (a *Agent) Run(ctx context.Context) error {
 // evaluate 执行一次全局评估（使用 ReActRuntime）
 func (a *Agent) evaluate(ctx context.Context) error {
 	a.logger.Info().Msg("starting global evaluation with ReActRuntime")
+
+	// 更新时间序列指标
+	if err := a.metricsCollector.Update(ctx); err != nil {
+		a.logger.Warn().Err(err).Msg("更新指标失败，继续评估")
+	}
 
 	// 构建评估目标
 	objective := a.buildEvaluationObjective()
@@ -234,6 +247,10 @@ type GlobalState struct {
 	// 计算"已运行多少分钟"，20 分钟 kill 职责形同虚设）。决策变量必须显式喂给
 	// 决策者，不能指望它做时间戳算术。
 	RunningActions []RunningActionView `json:"running_actions"`
+
+	// Metrics 是时间窗口指标（P5）
+	// 用于判断"每小时 <3 actions"、"超过 1 小时无新 Result"等场景
+	Metrics metrics.Metrics `json:"metrics"`
 }
 
 // RunningActionView 是 running 动作的监察视图。

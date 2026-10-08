@@ -11,6 +11,7 @@ import (
 	"github.com/V3teran/liusha/internal/constants"
 	"github.com/V3teran/liusha/internal/explorationgraph"
 	"github.com/V3teran/liusha/internal/framework/core"
+	"github.com/V3teran/liusha/internal/monitor/metrics"
 	"github.com/V3teran/liusha/internal/registry"
 )
 
@@ -21,15 +22,17 @@ import (
 // GetGlobalStateTool 把探索图全局态势（objectives/actions/results 摘要）喂给 LLM。
 type GetGlobalStateTool struct {
 	registry.BaseTool
-	graph  *explorationgraph.Store
-	taskID string
+	graph            *explorationgraph.Store
+	taskID           string
+	metricsCollector *metrics.MetricsCollector
 }
 
 // NewGetGlobalStateTool 构造全局态势工具。
-func NewGetGlobalStateTool(graph *explorationgraph.Store, taskID string) *GetGlobalStateTool {
+func NewGetGlobalStateTool(graph *explorationgraph.Store, taskID string, metricsCollector *metrics.MetricsCollector) *GetGlobalStateTool {
 	t := &GetGlobalStateTool{
-		graph:  graph,
-		taskID: taskID,
+		graph:            graph,
+		taskID:           taskID,
+		metricsCollector: metricsCollector,
 	}
 	t.SetTimeout(constants.ToolTimeoutLong)
 	t.SetConcurrencySafe(true)
@@ -86,6 +89,7 @@ func (t *GetGlobalStateTool) Execute(ctx context.Context, _ json.RawMessage) (re
 		Actions:        allActions,
 		Findings:       findings,
 		RunningActions: runningActionViews(allActions, time.Now()),
+		Metrics:        t.metricsCollector.GetMetrics(),
 	}
 
 	// 序列化为 JSON
