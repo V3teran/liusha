@@ -199,7 +199,19 @@ func (s *Store) UpdateNodeContent(ctx context.Context, id string, content json.R
 }
 
 // UpdateActionStateWithReason 更新 action 状态和阻塞原因
+// ✅ P1-B 根治方案：添加 CAS 保护，防止覆盖 aborted 状态
 func (s *Store) UpdateActionStateWithReason(ctx context.Context, id string, state State, blockedReason *string) error {
+	// ✅ 先检查当前状态（防止覆盖 aborted）
+	current, err := s.GetNode(ctx, id)
+	if err != nil {
+		return fmt.Errorf("get current state before update: %w", err)
+	}
+
+	// ✅ aborted 是终态，不允许覆盖（除非目标状态也是 aborted）
+	if current.State != nil && *current.State == StateAborted && state != StateAborted {
+		return fmt.Errorf("cannot overwrite aborted state (current: aborted, target: %s)", state)
+	}
+
 	update := core.GraphNodeUpdate{
 		State: string(state),
 	}

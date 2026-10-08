@@ -75,7 +75,7 @@ func New(cfg Config) *Agent {
 		registryTools = append(registryTools, NewGetGlobalStateTool(cfg.Graph, cfg.TaskID))
 	}
 	if registry.Allows(cfg.FunctionTools, "publish_decision") {
-		registryTools = append(registryTools, NewPublishDecisionTool(cfg.Graph, cfg.TaskID))
+		registryTools = append(registryTools, NewPublishDecisionTool(cfg.Graph, cfg.EventBus, cfg.TaskID))
 	}
 	for _, tool := range registryTools {
 		if err := reactRuntime.RegisterTool(tool); err != nil {

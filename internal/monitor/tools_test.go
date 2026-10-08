@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/V3teran/liusha/internal/bus"
 	"github.com/V3teran/liusha/internal/explorationgraph"
 	"github.com/V3teran/liusha/internal/framework/core"
 )
@@ -70,7 +71,8 @@ func TestGetGlobalStateTool_SumsExplorationState(t *testing.T) {
 func TestPublishDecisionTool_KillAction_AppliesStateChange(t *testing.T) {
 	graph := newGraphWithActions(t)
 	ctx := context.Background()
-	tool := NewPublishDecisionTool(graph, "t1")
+	eventBus := bus.New(ctx)
+	tool := NewPublishDecisionTool(graph, eventBus, "t1")
 
 	out, err := tool.Execute(ctx, []byte(
 		`{"type":"kill_action","action_id":"a-open","reason":"监察发现无效循环"}`))
@@ -87,7 +89,8 @@ func TestPublishDecisionTool_KillAction_AppliesStateChange(t *testing.T) {
 func TestPublishDecisionTool_RequestReplan(t *testing.T) {
 	graph := newGraphWithActions(t)
 	ctx := context.Background()
-	tool := NewPublishDecisionTool(graph, "t1")
+	eventBus := bus.New(ctx)
+	tool := NewPublishDecisionTool(graph, eventBus, "t1")
 
 	out, err := tool.Execute(ctx, json.RawMessage(`{"type":"request_replan","reason":"当前方向停滞"}`))
 	require.NoError(t, err)
@@ -97,7 +100,8 @@ func TestPublishDecisionTool_RequestReplan(t *testing.T) {
 func TestPublishDecisionTool_Validation(t *testing.T) {
 	graph := newGraphWithActions(t)
 	ctx := context.Background()
-	tool := NewPublishDecisionTool(graph, "t1")
+	eventBus := bus.New(ctx)
+	tool := NewPublishDecisionTool(graph, eventBus, "t1")
 
 	cases := []struct {
 		name, args, wantErr string

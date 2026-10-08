@@ -7,8 +7,10 @@ import (
 	"math"
 	"time"
 
+	"github.com/V3teran/liusha/internal/bus"
 	"github.com/V3teran/liusha/internal/constants"
 	"github.com/V3teran/liusha/internal/explorationgraph"
+	"github.com/V3teran/liusha/internal/framework/core"
 	"github.com/V3teran/liusha/internal/registry"
 )
 
@@ -127,17 +129,18 @@ func runningActionViews(actions []explorationgraph.Node, now time.Time) []Runnin
 // PublishDecisionTool 是 monitor 的决策出口（kill_action 落探索图状态变更）。
 type PublishDecisionTool struct {
 	registry.BaseTool
-	graph  *explorationgraph.Store
-	taskID string
+	graph    *explorationgraph.Store
+	eventBus bus.Bus // ✅ P2：需要 eventBus 发布 replan 事件
+	taskID   string
 }
 
-// NewPublishDecisionTool 构造决策发布工具。kill_action 的生效路径是探索图
-// 状态变更：action 置 aborted 后 executor 不再认领（CanExecute 只认 open）；
-// request_replan 无需显式事件——planner 以 10s 轮询兜底重规划。
-func NewPublishDecisionTool(graph *explorationgraph.Store, taskID string) *PublishDecisionTool {
+// NewPublishDecisionTool 构造决策发布工具。
+// ✅ P2：添加 eventBus 参数以支持 request_replan 事件发布
+func NewPublishDecisionTool(graph *explorationgraph.Store, eventBus bus.Bus, taskID string) *PublishDecisionTool {
 	t := &PublishDecisionTool{
-		graph:  graph,
-		taskID: taskID,
+		graph:    graph,
+		eventBus: eventBus,
+		taskID:   taskID,
 	}
 	t.SetTimeout(constants.ToolTimeoutMedium)
 	t.SetConcurrencySafe(false) // 决策操作不能并发
@@ -201,7 +204,7 @@ func (t *PublishDecisionTool) Execute(ctx context.Context, args json.RawMessage)
 	}
 
 	// kill_action 直接落探索图状态：aborted 后 executor 不再认领（CanExecute 只认 open）。
-	// request_replan 由 planner 的 10s 轮询兜底重规划吸收，无需显式事件。
+	// ✅ P2：request_replan 发布事件 + 写入图的 metadata
 	if decision.Type == "kill_action" && t.graph != nil {
 		reason := decision.Reason
 		if err := t.graph.UpdateActionStateWithReason(ctx, decision.ActionID, explorationgraph.StateAborted, &reason); err != nil {
@@ -209,14 +212,61 @@ func (t *PublishDecisionTool) Execute(ctx context.Context, args json.RawMessage)
 		}
 	}
 
+	// ✅ P2：request_replan 落地
+	if decision.Type == "request_replan" {
+		// 1. 写入图的 metadata（供审计和后续查询）
+		if err := t.writeReplanRequest(ctx, decision.Reason); err != nil {
+			return registry.ToolResult{Error: fmt.Sprintf("write replan request: %v", err)}, nil
+		}
+
+		// 2. 发布事件（强制 Planner 立即重规划）
+		t.eventBus.PublishReplanRequested(t.taskID, decision.Reason)
+	}
+
 	result := map[string]interface{}{
 		"type":    decision.Type,
 		"reason":  decision.Reason,
-		"applied": decision.Type == "kill_action",
+		"applied": decision.Type == "kill_action" || decision.Type == "request_replan",
 	}
 	if decision.ActionID != "" {
 		result["action_id"] = decision.ActionID
 	}
 	resultJSON, _ := json.Marshal(result)
 	return registry.ToolResult{Output: string(resultJSON)}, nil
+}
+
+// writeReplanRequest 将 monitor 的重规划请求写入 objective 的 metadata
+func (t *PublishDecisionTool) writeReplanRequest(ctx context.Context, reason string) error {
+	// 获取 objective
+	objectives, err := t.graph.ListNodesByKind(ctx, t.taskID, core.KindObjective)
+	if err != nil {
+		return fmt.Errorf("list objectives: %w", err)
+	}
+	if len(objectives) == 0 {
+		return fmt.Errorf("no objective found for task %s", t.taskID)
+	}
+
+	// 构造 metadata
+	metadata := map[string]interface{}{
+		"monitor_replan_request": map[string]interface{}{
+			"reason":       reason,
+			"requested_at": time.Now().Format(time.RFC3339),
+		},
+	}
+
+	// 合并到现有 content
+	var content map[string]interface{}
+	if err := json.Unmarshal(objectives[0].Content, &content); err != nil {
+		// 如果解析失败，创建新的
+		content = make(map[string]interface{})
+	}
+	content["monitor_request"] = metadata
+
+	newContent, err := json.Marshal(content)
+	if err != nil {
+		return fmt.Errorf("marshal content: %w", err)
+	}
+
+	// 更新图
+	return t.graph.UpdateNodeContent(ctx, objectives[0].ID, newContent)
 }
