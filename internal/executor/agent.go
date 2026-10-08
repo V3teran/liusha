@@ -293,20 +293,7 @@ func (a *Agent) executeAction(
 	// 执行 Action（调用 Interface）
 	attempts, execErr := a.executor.Execute(ctx, action)
 
-	// ✅ 执行完成后检查是否已被 monitor kill（防止覆盖 aborted 状态）
-	currentNode, checkErr := a.graph.GetNode(ctx, action.ID)
-	if checkErr == nil && currentNode.State != nil && *currentNode.State == explorationgraph.StateAborted {
-		a.logger.Warn().
-			Str("action_id", action.ID).
-			Msg("action 已被 monitor kill，跳过状态更新（保持 aborted）")
-		// 返回原始执行错误（如果有），或特定的 killed 错误
-		if execErr != nil {
-			return execErr
-		}
-		return fmt.Errorf("action killed by monitor")
-	}
-
-	// 更新状态
+	// 更新状态（P1-B：图层 CAS 保护已防止覆盖 aborted，无需额外检查）
 	if execErr != nil {
 		errMsg := execErr.Error()
 		if err := a.graph.UpdateActionStateWithReason(

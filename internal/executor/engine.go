@@ -212,7 +212,8 @@ func (e *Engine) Execute(ctx context.Context, action explorationgraph.Node) ([]e
 		Str("status", string(result.Status)).
 		Msg("ReAct 执行完成")
 
-	// ✅ 执行完成后立即检查状态（防止覆盖 monitor 的 kill 决策）
+	// ✅ 执行完成后检查状态（早期检测，避免后续无用处理）
+	// P1-B：图层已有 CAS 保护，这里仅作优化（提前返回错误而非等到状态更新时失败）
 	if e.graph != nil {
 		node, checkErr := e.graph.GetNode(ctx, action.ID)
 		if checkErr == nil && node.State != nil && *node.State == explorationgraph.StateAborted {
@@ -223,7 +224,7 @@ func (e *Engine) Execute(ctx context.Context, action explorationgraph.Node) ([]e
 			e.logger.Warn().
 				Str("action_id", action.ID).
 				Str("reason", reason).
-				Msg("action 已被 monitor kill，不返回 attempts（保持 aborted 状态）")
+				Msg("action 已被 monitor kill，提前返回（图层 CAS 已保护状态）")
 			return nil, fmt.Errorf("action killed by monitor: %s", reason)
 		}
 	}

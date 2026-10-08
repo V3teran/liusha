@@ -137,6 +137,18 @@ func (a *Agent) handleEvent(ctx context.Context, event bus.Event) error {
 			Msg("收到 VerificationRefuted 事件，触发调整规划")
 		return a.planActions(ctx)
 
+	case bus.EventReplanRequested:
+		// ✅ P2：Monitor 请求重规划
+		reason := ""
+		if r, ok := event.Payload["reason"].(string); ok {
+			reason = r
+		}
+		a.logger.Info().
+			Str("task_id", a.taskID).
+			Str("reason", reason).
+			Msg("收到 Monitor 重规划请求，强制重规划")
+		return a.forcePlanActions(ctx, reason)
+
 	default:
 		// 忽略其他事件
 		return nil
@@ -259,7 +271,12 @@ func (a *Agent) planActions(ctx context.Context) error {
 		return nil
 	}
 
-	// 将新 Action 写入探索图
+	// 将新 Action 写入探索图（使用提取的公共方法）
+	return a.writeActionsFromPlan(ctx, actions)
+}
+
+// writeActionsFromPlan 将 planner 返回的 action nodes 写入图（保持原有逻辑）
+func (a *Agent) writeActionsFromPlan(ctx context.Context, actions []explorationgraph.Node) error {
 	a.logger.Info().
 		Int("action_count", len(actions)).
 		Msg("准备写入 Actions 到探索图")
@@ -554,4 +571,33 @@ type ContinuationAction struct {
 	Priority    core.Priority // 优先级
 	TriggeredBy []string      // 触发此动作的 Result ID 列表
 	Reasoning   string        // 为什么需要这个动作
+}
+
+// forcePlanActions 强制重规划（跳过 executable action 检查）
+// 用于 Monitor 请求重规划的场景（探索停滞、资源耗尽等）
+func (a *Agent) forcePlanActions(ctx context.Context, monitorReason string) error {
+	a.logger.Info().
+		Str("task_id", a.taskID).
+		Str("monitor_reason", monitorReason).
+		Msg("强制重规划（Monitor 触发）")
+
+	// 直接调用 Plan，不检查 executable actions
+	actions, err := a.planner.Plan(ctx, a.graph, a.taskID, a.functionTools)
+	if err != nil {
+		return fmt.Errorf("forced plan: %w", err)
+	}
+
+	a.logger.Info().
+		Int("action_count", len(actions)).
+		Str("monitor_reason", monitorReason).
+		Msg("强制重规划完成")
+
+	if len(actions) == 0 {
+		a.logger.Info().Msg("强制重规划未生成新 Action（任务收敛）")
+		a.eventBus.PublishTaskConverged(a.taskID, "planner: no more actions after forced replan")
+		return nil
+	}
+
+	// 写入探索图（复用现有逻辑）
+	return a.writeActionsFromPlan(ctx, actions)
 }
