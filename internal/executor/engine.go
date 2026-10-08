@@ -26,15 +26,15 @@ type Engine struct {
 	router        *llm.Router
 	findings      FindingLister
 	graph         *explorationgraph.Store // 探索图存储
-	registry      *Registry                // 使用 executor 包的 Registry
-	functionTools []string                 // function_tools 白名单（nil=全量）
-	toolsManifest ToolsManifest            // 过滤后的 CLI 工具清单
-	skills        []*skill.Card            // Tier 1 skill 索引（agent.skills 声明，正文按需 read_skill)
-	charter       string                   // 角色章程（agent.system_prompt，运维经前端可调；空=不渲染）
-	complexity    llm.Complexity           // LLM 档位（agent.complexity，文档 complexity 种子 → 三级缓存读；唯一来源）
-	maxIt         int                      // ReAct 迭代上限（agent.max_iterations；0=不设限）
-	brief         string                   // 任务简报原文（用户指定的入口 URL 等，逐字渲染进 system prompt——防转录漂移）
-	agentRunID    string                   // 本轮认知循环的 agent_run.id（LLM 审计归属）
+	registry      *Registry               // 使用 executor 包的 Registry
+	functionTools []string                // function_tools 白名单（nil=全量）
+	toolsManifest ToolsManifest           // 过滤后的 CLI 工具清单
+	skills        []*skill.Card           // Tier 1 skill 索引（agent.skills 声明，正文按需 read_skill)
+	charter       string                  // 角色章程（agent.system_prompt，运维经前端可调；空=不渲染）
+	complexity    llm.Complexity          // LLM 档位（agent.complexity，文档 complexity 种子 → 三级缓存读；唯一来源）
+	maxIt         int                     // ReAct 迭代上限（agent.max_iterations；0=不设限）
+	brief         string                  // 任务简报原文（用户指定的入口 URL 等，逐字渲染进 system prompt——防转录漂移）
+	agentRunID    string                  // 本轮认知循环的 agent_run.id（LLM 审计归属）
 	checkpointer  core.Checkpointer
 	logger        zerolog.Logger
 }

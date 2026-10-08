@@ -6,12 +6,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/V3teran/liusha/internal/bus"
 	"github.com/V3teran/liusha/internal/explorationgraph"
 	"github.com/V3teran/liusha/internal/framework/core"
+	"github.com/V3teran/liusha/internal/monitor/metrics"
 )
 
 // monitor 的两个工具是监察决策的出入口：
@@ -53,7 +55,11 @@ func TestGetGlobalStateTool_SumsExplorationState(t *testing.T) {
 	graph := newGraphWithActions(t)
 	ctx := context.Background()
 
-	tool := NewGetGlobalStateTool(graph, "t1")
+	// 创建 metrics collector
+	logger := zerolog.New(zerolog.NewTestWriter(t))
+	metricsCollector := metrics.NewMetricsCollector(graph, "t1", logger)
+
+	tool := NewGetGlobalStateTool(graph, "t1", metricsCollector)
 	out, err := tool.Execute(ctx, []byte(`{}`))
 	require.NoError(t, err)
 	require.Empty(t, out.Error)

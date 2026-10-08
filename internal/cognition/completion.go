@@ -162,7 +162,9 @@ func (d *CompletionDetector) checkCompletion() (Result, bool) {
 	if d.manualAbort.Load() {
 		reason := "manual_abort"
 		if v := d.abortReason.Load(); v != nil {
-			reason = v.(string)
+			if s, ok := v.(string); ok && s != "" {
+				reason = s
+			}
 		}
 		return d.makeResult(reason), true
 	}

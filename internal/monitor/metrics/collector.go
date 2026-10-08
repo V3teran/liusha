@@ -177,7 +177,7 @@ func (c *MetricsCollector) GetMetrics() Metrics {
 
 // Metrics 是指标快照
 type Metrics struct {
-	ActionRatePerHour    float64 `json:"action_rate_per_hour"`     // 每小时 action 数
-	ResultRatePerHour    float64 `json:"result_rate_per_hour"`     // 每小时 result 数
-	AvgResultActionRatio float64 `json:"avg_result_action_ratio"`  // 平均 result/action 比率
+	ActionRatePerHour    float64 `json:"action_rate_per_hour"`    // 每小时 action 数
+	ResultRatePerHour    float64 `json:"result_rate_per_hour"`    // 每小时 result 数
+	AvgResultActionRatio float64 `json:"avg_result_action_ratio"` // 平均 result/action 比率
 }

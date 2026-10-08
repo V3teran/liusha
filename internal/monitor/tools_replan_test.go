@@ -227,7 +227,8 @@ func TestPublishDecision_MultipleReplanRequests(t *testing.T) {
 	require.NoError(t, err)
 
 	var content map[string]interface{}
-	json.Unmarshal(node.Content, &content)
+	err = json.Unmarshal(node.Content, &content)
+	require.NoError(t, err)
 
 	monitorReq := content["monitor_request"].(map[string]interface{})
 	replanReq := monitorReq["monitor_replan_request"].(map[string]interface{})

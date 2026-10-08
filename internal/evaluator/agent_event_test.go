@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/rs/zerolog"
 
 	"github.com/V3teran/liusha/internal/bus"
 	"github.com/V3teran/liusha/internal/explorationgraph"
@@ -55,7 +55,7 @@ func TestEvaluatorAgent_EventDriven(t *testing.T) {
 
 	// 在后台启动 agent（会因为 nil evaluator 失败，但我们只关心事件订阅）
 	go func() {
-		agent.Run(ctx)
+		_ = agent.Run(ctx)
 	}()
 
 	// 等待 agent 启动

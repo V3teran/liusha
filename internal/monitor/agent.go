@@ -166,7 +166,7 @@ func (a *Agent) evaluate(ctx context.Context) error {
 		SystemPrompt:  systemPrompt,
 		LLMProvider:   a.provider,
 		MaxIterations: a.maxIt, // 迭代上限 = agent.max_iterations（配置即事实；0=不设限）
-		Temperature:   0.3,                        // 较低温度，确保稳定性
+		Temperature:   0.3,     // 较低温度，确保稳定性
 		MaxTokens:     4000,
 		// Monitor 窗口最小（原框架 Monitor 预设口径 10）——业务预设已按分层下沉到业务侧。
 		MessageModifierChain: runtime.NewDefaultModifierChain(10),

@@ -19,9 +19,10 @@ type Bucket struct {
 // 采用固定大小的时间桶（如 10 分钟），保留最近 N 个桶（如 6 个桶 = 1 小时）。
 //
 // 示例：
-//   window := NewSlidingWindow(10*time.Minute, 1*time.Hour)
-//   window.Add(1)  // 添加一个事件
-//   rate := window.Rate()  // 计算每小时速率
+//
+//	window := NewSlidingWindow(10*time.Minute, 1*time.Hour)
+//	window.Add(1)  // 添加一个事件
+//	rate := window.Rate()  // 计算每小时速率
 type SlidingWindow struct {
 	buckets    []Bucket
 	bucketSize time.Duration // 每个桶的时间跨度（如 10 分钟）

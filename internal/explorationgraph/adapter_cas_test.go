@@ -20,9 +20,9 @@ func TestUpdateActionStateWithReason_CannotOverwriteAborted(t *testing.T) {
 	taskID := "test-task"
 	stateOpen := StateOpen
 	action, err := graph.CreateNode(ctx, Node{
-		TaskID: taskID,
-		Kind:   core.KindAction,
-		State:  &stateOpen,
+		TaskID:  taskID,
+		Kind:    core.KindAction,
+		State:   &stateOpen,
 		Content: []byte(`{"instruction":"test action"}`),
 	})
 	require.NoError(t, err)
@@ -61,9 +61,9 @@ func TestUpdateActionStateWithReason_CannotOverwriteAbortedWithFailed(t *testing
 	taskID := "test-task"
 	stateOpen := StateOpen
 	action, err := graph.CreateNode(ctx, Node{
-		TaskID: taskID,
-		Kind:   core.KindAction,
-		State:  &stateOpen,
+		TaskID:  taskID,
+		Kind:    core.KindAction,
+		State:   &stateOpen,
 		Content: []byte(`{"instruction":"test"}`),
 	})
 	require.NoError(t, err)
@@ -96,9 +96,9 @@ func TestUpdateActionStateWithReason_NormalTransitions(t *testing.T) {
 	taskID := "test-task"
 	stateOpen := StateOpen
 	action, err := graph.CreateNode(ctx, Node{
-		TaskID: taskID,
-		Kind:   core.KindAction,
-		State:  &stateOpen,
+		TaskID:  taskID,
+		Kind:    core.KindAction,
+		State:   &stateOpen,
 		Content: []byte(`{"instruction":"test"}`),
 	})
 	require.NoError(t, err)
@@ -130,9 +130,9 @@ func TestUpdateActionStateWithReason_AbortedToAborted(t *testing.T) {
 	taskID := "test-task"
 	stateOpen := StateOpen
 	action, err := graph.CreateNode(ctx, Node{
-		TaskID: taskID,
-		Kind:   core.KindAction,
-		State:  &stateOpen,
+		TaskID:  taskID,
+		Kind:    core.KindAction,
+		State:   &stateOpen,
 		Content: []byte(`{"instruction":"test"}`),
 	})
 	require.NoError(t, err)
@@ -164,9 +164,9 @@ func TestUpdateActionStateWithReason_ConcurrentKill(t *testing.T) {
 	taskID := "test-task"
 	stateRunning := StateRunning
 	action, err := graph.CreateNode(ctx, Node{
-		TaskID: taskID,
-		Kind:   core.KindAction,
-		State:  &stateRunning,
+		TaskID:  taskID,
+		Kind:    core.KindAction,
+		State:   &stateRunning,
 		Content: []byte(`{"instruction":"test"}`),
 	})
 	require.NoError(t, err)

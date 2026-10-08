@@ -22,9 +22,9 @@ func TestExecutor_AbortedStateNotOverwritten(t *testing.T) {
 	taskID := "test-task"
 	stateOpen := explorationgraph.StateOpen
 	action, err := graph.CreateNode(ctx, explorationgraph.Node{
-		TaskID: taskID,
-		Kind:   core.KindAction,
-		State:  &stateOpen,
+		TaskID:  taskID,
+		Kind:    core.KindAction,
+		State:   &stateOpen,
 		Content: []byte(`{"instruction":"test action","host":"test.local"}`),
 	})
 	require.NoError(t, err)
@@ -75,9 +75,9 @@ func TestExecutor_NormalFlowNotAffected(t *testing.T) {
 	taskID := "test-task"
 	stateOpen := explorationgraph.StateOpen
 	action, err := graph.CreateNode(ctx, explorationgraph.Node{
-		TaskID: taskID,
-		Kind:   core.KindAction,
-		State:  &stateOpen,
+		TaskID:  taskID,
+		Kind:    core.KindAction,
+		State:   &stateOpen,
 		Content: []byte(`{"instruction":"test","host":"test.local"}`),
 	})
 	require.NoError(t, err)
@@ -113,9 +113,9 @@ func TestExecutor_AbortedDetectionTiming(t *testing.T) {
 	taskID := "test-task"
 	stateOpen := explorationgraph.StateOpen
 	action, err := graph.CreateNode(ctx, explorationgraph.Node{
-		TaskID: taskID,
-		Kind:   core.KindAction,
-		State:  &stateOpen,
+		TaskID:  taskID,
+		Kind:    core.KindAction,
+		State:   &stateOpen,
 		Content: []byte(`{"instruction":"test","host":"test.local"}`),
 	})
 	require.NoError(t, err)
@@ -128,7 +128,7 @@ func TestExecutor_AbortedDetectionTiming(t *testing.T) {
 	go func() {
 		time.Sleep(50 * time.Millisecond)
 		reason := "killed during execution"
-		graph.UpdateActionStateWithReason(ctx, action, explorationgraph.StateAborted, &reason)
+		_ = graph.UpdateActionStateWithReason(ctx, action, explorationgraph.StateAborted, &reason)
 	}()
 
 	// 模拟执行持续 100ms
@@ -143,7 +143,7 @@ func TestExecutor_AbortedDetectionTiming(t *testing.T) {
 		// 不执行状态更新
 	} else {
 		// 未被 kill，正常更新
-		graph.UpdateActionStateWithReason(ctx, action, explorationgraph.StateDone, nil)
+		_ = graph.UpdateActionStateWithReason(ctx, action, explorationgraph.StateDone, nil)
 	}
 
 	// 验证最终状态
