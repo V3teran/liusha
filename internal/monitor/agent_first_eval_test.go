@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/rs/zerolog"
+	"github.com/stretchr/testify/assert"
 
 	"github.com/V3teran/liusha/internal/bus"
 	"github.com/V3teran/liusha/internal/explorationgraph"
@@ -143,8 +143,8 @@ func TestMonitor_ShortTaskCoverage(t *testing.T) {
 
 	// 场景 2：任务 10 分钟完成
 	taskDuration = 10 * time.Minute
-	evaluationsBefore = int(taskDuration / evaluationInterval)     // 10/6 = 1 次
-	evaluationsAfter = 1 + int(taskDuration/evaluationInterval)    // 1 + 1 = 2 次
+	evaluationsBefore = int(taskDuration / evaluationInterval)  // 10/6 = 1 次
+	evaluationsAfter = 1 + int(taskDuration/evaluationInterval) // 1 + 1 = 2 次
 
 	t.Logf("✅ 中等任务覆盖改善：从 %d 次提升到 %d 次", evaluationsBefore, evaluationsAfter)
 }
