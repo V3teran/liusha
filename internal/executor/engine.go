@@ -3,7 +3,6 @@ package executor
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
@@ -79,227 +78,55 @@ func NewEngine(cfg EngineConfig) *Engine {
 
 // Execute 执行一个 Action，返回生成的 Attempt 列表
 func (e *Engine) Execute(ctx context.Context, action explorationgraph.Node) ([]evaluator.Attempt, error) {
-	taskID := action.TaskID
-
-	// 从 action.Content 中提取 host
-	var actionData struct {
-		Type        string `json:"type"`
-		Instruction string `json:"instruction"`
-		Complexity  string `json:"complexity"`
-		Host        string `json:"host"` // 添加 host 字段
-	}
-	if err := json.Unmarshal(action.Content, &actionData); err != nil {
-		return nil, fmt.Errorf("解析 Action 失败: %w", err)
-	}
-	host := actionData.Host
-
-	// LLM 审计维度：本 Engine 的全部 LLM 调用归 task/本轮 run、角色 executor。
-	ctx = llm.WithCallMeta(ctx, llm.CallMeta{TaskID: taskID, AgentRunID: e.agentRunID, Role: "executor"})
-
-	e.logger.Info().
-		Str("action_id", action.ID).
-		Str("task_id", taskID).
-		Msg("开始执行 Action")
-
-	// 2. 记录执行前的 finding 快照（已废弃，保留以防需要）
-	// beforeFindings, err := e.findings.ListByTaskAndHost(ctx, taskID, host, 0)
-
-	// 3. 构建 ReAct 执行上下文
-	objective := fmt.Sprintf("执行以下操作：%s\n\n类型：%s\n目标：%s",
-		actionData.Instruction,
-		actionData.Type,
-		host)
-
-	// function_tools 白名单先过滤（prompt 与 ReAct 注册共用同一结果，宣传=事实）
-	// function_tools 白名单过滤（nil=全量，空=空集——严格白名单，与 cli_tools 语义一致）。
-	// prompt 工具清单与 ReAct 注册共用同一结果。
-	var reactTools []registry.Tool
-	for _, t := range e.registry.WrappedTools() {
-		if registry.Allows(e.functionTools, t.Name()) {
-			reactTools = append(reactTools, t)
-		}
-	}
-	systemPrompt := e.buildSystemPrompt(actionData.Type, actionData.Complexity, reactTools)
-
-	// 4. 获取 LLM Provider（Router 已完成 Generator→Provider 桥接与 retry/fallback 装配）
-	// LLM 档位 = agent.complexity（文档 complexity 种子，经三级缓存读）。
-	provider, err := e.router.For(ctx, e.complexity)
+	// 1. 解析 action 内容
+	actionData, err := e.parseActionContent(action)
 	if err != nil {
-		return nil, fmt.Errorf("获取 LLM provider 失败: %w", err)
+		return nil, err
 	}
 
-	// 挂当前 Action ID：write_observation/write_evidence 据此建归属边。
+	// 2. 设置 LLM 审计上下文
+	ctx = llm.WithCallMeta(ctx, llm.CallMeta{
+		TaskID:     action.TaskID,
+		AgentRunID: e.agentRunID,
+		Role:       "executor",
+	})
+
+	// 3. 设置 action 上下文（供工具使用）
 	ctx = tools.WithActionContext(ctx, action.ID)
 
-	// 5. 创建 ReAct Runtime 并注册工具
-	reactRuntime := runtime.NewReActRuntime()
-	tools := reactTools
-
 	e.logger.Info().
-		Int("tool_count", len(tools)).
 		Str("action_id", action.ID).
-		Msg("🔧 开始注册工具到 ReAct runtime")
+		Str("task_id", action.TaskID).
+		Msg("开始执行 Action")
 
-	if len(tools) == 0 {
-		e.logger.Error().
-			Str("action_id", action.ID).
-			Msg("❌ 严重错误：没有可用工具！Executor 无法执行任何操作")
-		// 仍然继续执行，但会失败
+	// 4. 准备工具列表
+	reactTools := e.prepareReActTools()
+
+	// 5. 构建 ReAct 配置
+	reactConfig, err := e.buildReActConfigWithMonitoring(ctx, action, actionData, reactTools)
+	if err != nil {
+		return nil, err
 	}
 
-	for _, tool := range tools {
-		e.logger.Debug().
-			Str("tool_name", tool.Name()).
-			Str("action_id", action.ID).
-			Msg("注册工具")
-
-		if err := reactRuntime.RegisterTool(tool); err != nil {
-			return nil, fmt.Errorf("注册工具 %s 失败: %w", tool.Name(), err)
-		}
-	}
-
-	// 6. 配置 ReAct 执行
-	reactConfig := &runtime.ReActConfig{
-		Objective:     objective,
-		SystemPrompt:  systemPrompt,
-		LLMProvider:   provider,
-		MaxIterations: e.maxIt, // 迭代上限 = agent.max_iterations（配置即事实；0=不设限）
-		Temperature:   0.7,
-		MaxTokens:     4000,
-		// 迭代型 agent 统一挂消息压缩链（与 monitor 同构）：长 ReAct 循环的
-		// 消息历史无限增长会顶爆上下文窗口，滚动压缩保最近 N 条（executor 窗口 15）。
-		MessageModifierChain: runtime.NewDefaultModifierChain(15),
-
-		// Checkpoint 集成（Action 级别不需要：nil+nil 即禁用，见 ReActConfig 契约）
-		TaskID: taskID,
-
-		OnIteration: func(iteration int, status runtime.IterationStatus) {
-			e.logger.Debug().
-				Str("action_id", action.ID).
-				Int("iteration", iteration).
-				Str("status", string(status)).
-				Msg("ReAct 迭代")
-
-			// ✅ 每轮迭代检查 action 状态（Monitor kill_action 中断机制）
-			if e.graph != nil {
-				node, err := e.graph.GetNode(ctx, action.ID)
-				if err == nil && node.State != nil && *node.State == explorationgraph.StateAborted {
-					reason := "unknown"
-					if node.BlockedReason != nil {
-						reason = *node.BlockedReason
-					}
-					e.logger.Warn().
-						Str("action_id", action.ID).
-						Str("reason", reason).
-						Msg("检测到 action 已被 monitor kill，中断执行")
-					// 通过 context 取消来中断（ReAct runtime 会捕获 ctx.Err()）
-					// 注意：这里我们无法直接取消 ctx，需要 runtime 支持状态检查
-					// 作为快速修复，我们在日志中记录，实际中断依赖 runtime 的 ctx 检查
-				}
-			}
-		},
+	// 6. 创建 ReAct Runtime 并注册工具
+	reactRuntime := runtime.NewReActRuntime()
+	if err := e.registerReActTools(reactRuntime, reactTools, action.ID); err != nil {
+		return nil, err
 	}
 
 	// 7. 执行 ReAct 循环
-	result, err := reactRuntime.Run(ctx, reactConfig)
+	result, err := e.executeReActRuntime(ctx, reactRuntime, reactConfig, action.ID)
 	if err != nil {
-		return nil, fmt.Errorf("ReAct 执行失败: %w", err)
+		return nil, err
 	}
 
-	e.logger.Info().
-		Str("action_id", action.ID).
-		Int("iterations", result.Iterations).
-		Str("status", string(result.Status)).
-		Msg("ReAct 执行完成")
-
-	// ✅ 执行完成后检查状态（早期检测，避免后续无用处理）
-	// P1-B：图层已有 CAS 保护，这里仅作优化（提前返回错误而非等到状态更新时失败）
-	if e.graph != nil {
-		node, checkErr := e.graph.GetNode(ctx, action.ID)
-		if checkErr == nil && node.State != nil && *node.State == explorationgraph.StateAborted {
-			reason := "unknown"
-			if node.BlockedReason != nil {
-				reason = *node.BlockedReason
-			}
-			e.logger.Warn().
-				Str("action_id", action.ID).
-				Str("reason", reason).
-				Msg("action 已被 monitor kill，提前返回（图层 CAS 已保护状态）")
-			return nil, fmt.Errorf("action killed by monitor: %s", reason)
-		}
+	// 8. 检查是否被 monitor kill（早期退出优化）
+	if err := e.checkActionAborted(ctx, action.ID); err != nil {
+		return nil, err
 	}
 
-	// 8. 解析 Executor 输出，提取观察结果
-	output, err := ParseExecutorOutput(result)
-	if err != nil {
-		e.logger.Warn().
-			Err(err).
-			Str("action_id", action.ID).
-			Msg("解析 Executor 输出失败，尝试兜底")
-		// 即使解析失败，也返回空输出而不是报错
-		output = &ExecutorOutput{
-			Status:       "completed",
-			Summary:      "执行完成，但输出格式解析失败",
-			Observations: []Observation{},
-		}
-	}
-
-	e.logger.Info().
-		Str("action_id", action.ID).
-		Str("status", output.Status).
-		Str("summary", output.Summary).
-		Int("observations_count", len(output.Observations)).
-		Msg("解析 Executor 输出")
-
-	// 9. 为每个观察结果创建 observation 节点
-	var attempts []evaluator.Attempt
-	for i, obs := range output.Observations {
-		// 跳过没有 repro 的观察
-		if len(obs.Repro) == 0 {
-			e.logger.Warn().
-				Str("action_id", action.ID).
-				Int("observation_index", i).
-				Str("statement", obs.Statement).
-				Msg("跳过没有 repro 的观察")
-			continue
-		}
-
-		// 创建 observation 节点
-		node, err := e.createObservationNode(ctx, taskID, action.ID, obs)
-		if err != nil {
-			e.logger.Error().
-				Err(err).
-				Str("action_id", action.ID).
-				Int("observation_index", i).
-				Msg("创建 observation 节点失败")
-			continue
-		}
-
-		e.logger.Info().
-			Str("action_id", action.ID).
-			Str("observation_id", node.ID).
-			Str("statement", obs.Statement).
-			Msg("创建 observation 节点成功")
-
-		// 转换为 Attempt
-		attempt, err := e.observationToAttempt(taskID, node, obs)
-		if err != nil {
-			e.logger.Error().
-				Err(err).
-				Str("observation_id", node.ID).
-				Msg("转换 observation 为 Attempt 失败")
-			continue
-		}
-
-		attempts = append(attempts, attempt)
-	}
-
-	e.logger.Info().
-		Str("action_id", action.ID).
-		Int("attempts_count", len(attempts)).
-		Msg("生成 Attempt 列表")
-
-	return attempts, nil
+	// 9. 处理输出并生成 Attempts
+	return e.processExecutorOutput(ctx, action, result)
 }
 
 // buildSystemPrompt 组装 executor system prompt：
