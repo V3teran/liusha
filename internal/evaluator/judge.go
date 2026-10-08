@@ -73,8 +73,7 @@ func (j *RouterJudge) WithSystemPrompt(charter string) *RouterJudge {
 	return j
 }
 
-// WithMaxIterations 注入 ReAct 迭代上限（agent.max_iterations；0=不设限，
-// 默认基线 8 生效）。上限语义：只能收紧不能放宽。
+// WithMaxIterations 注入 ReAct 迭代上限（agent.max_iterations；0=不设限）。
 func (j *RouterJudge) WithMaxIterations(n int) *RouterJudge {
 	j.maxIt = n
 	return j
@@ -91,14 +90,6 @@ func (j *RouterJudge) WithComplexity(complexity string) *RouterJudge {
 func (j *RouterJudge) WithExtraTools(ts []registry.Tool) *RouterJudge {
 	j.extraTools = append(j.extraTools, ts...)
 	return j
-}
-
-// capIterations 基线 8 与 agent.max_iterations 上限取小（0=不设限）。
-func (j *RouterJudge) capIterations(base int) int {
-	if j.maxIt > 0 && base > j.maxIt {
-		return j.maxIt
-	}
-	return base
 }
 
 // Judge 实现 LLMJudge：ReAct 循环内 LLM 自主调重放工具采证，FinalAnswer 为裁决 JSON。
@@ -134,7 +125,7 @@ func (j *RouterJudge) Judge(
 		Objective:            j.buildObjective(hypothesis, recipe, initialEvidence),
 		SystemPrompt:         j.systemPrompt(),
 		LLMProvider:          provider,
-		MaxIterations:        j.capIterations(8), // 自主差分实验需要轮次：复核预跑 + 基线/攻击各放 + 对比裁决
+		MaxIterations:        j.maxIt, // 迭代上限 = agent.max_iterations（配置即事实；0=不设限）
 		MaxTokens:            1500,
 		MessageModifierChain: runtime.NewDefaultModifierChain(10),
 	})

@@ -193,7 +193,7 @@ func (h handler) runCognition(
 		Skills:        skillCards(ctx, executorSkillView, h.logger, "executor"), // Tier 1 skill 索引（正文按需 read_skill）
 		SystemPrompt:  executorCfg.SystemPrompt,                                 // 角色章程（agent.system_prompt，前端可调）
 		Complexity:    executorCfg.Complexity,                                   // LLM 档位（agent.complexity，文档 complexity 种子）
-		MaxIterations: executorCfg.MaxIterations,                                // ReAct 迭代上限（0=复杂度基线生效）
+		MaxIterations: executorCfg.MaxIterations,                                // ReAct 迭代上限（0=不设限）
 		Brief:         brief,                                                    // 任务简报逐字进 executor system prompt（入口锚定）
 		Checkpointer:  h.checkpointer,
 		Logger:        h.logger,
@@ -223,13 +223,15 @@ func (h handler) runCognition(
 		WithAgentRunID(agentRunID)
 
 	evaluatorAgent := evaluator.NewAgent(evaluator.AgentConfig{
-		TaskID:     taskID,
-		AgentRunID: agentRunID,
-		Evaluator:  promoter,
-		EventBus:   h.eventBus,
-		Logger:     h.logger.With().Str("component", "evaluator_agent").Logger(),
+		TaskID:        taskID,
+		AgentRunID:    agentRunID,
+		Evaluator:     promoter,
+		EventBus:      h.eventBus,
+		Graph:         h.graph,
+		Logger:        h.logger.With().Str("component", "evaluator_agent").Logger(),
 		// 验证并发：每个验证 = 机器复放 + 一轮 judge ReAct（LLM 账单随并发线性放大）
 		MaxConcurrent: 3,
+		PollInterval:  5 * time.Second, // 每 5 秒轮询一次未验证的 observation
 	})
 
 	// 5. 创建 PlannerAgent

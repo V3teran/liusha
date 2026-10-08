@@ -84,7 +84,7 @@ echo "===== 2/6 清空 db / redis ====="
 # 会永久堆积）、traffic_task（流量认领映射）。config 表（agent/skill/tool/llm_*/system_setting）
 # 是 seed insert-only 语义，绝不能 truncate。
 if ! docker exec "$PG_CONTAINER" psql -U liusha -d liusha -c \
-    "TRUNCATE TABLE finding, corpus, insight, task_control_event, traffic_task, llm_invocation, tool_invocation, audit_log, agent_run, proxy_traffic, agent_traffic, conversation, task, assignment, cron_schedule, checkpoints, exploration_node, exploration_edge, exploration_verification, exploration_roadmap_step RESTART IDENTITY CASCADE;"; then
+    "TRUNCATE TABLE finding, corpus, insight, task_control_event, traffic_task, llm_invocation, tool_invocation, audit_log, agent_run, proxy_traffic, agent_traffic, conversation, task, assignment, cron_schedule, checkpoints, exploration_node, exploration_edge, exploration_verification RESTART IDENTITY CASCADE;"; then
   echo "  ✗ postgres TRUNCATE 失败 — 看上面 psql 错误（常见原因：容器不在 / schema 不一致 / migrate 未跑）"
   exit 1
 fi

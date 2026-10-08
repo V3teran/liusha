@@ -317,7 +317,7 @@ func (s stubJudge) Judge(_ context.Context, _ string, _, _ json.RawMessage, _ Re
 
 // 同一配方（字节级相同）只裁一次：第二次进门的 Attempt 直接跳过——
 // 不再烧 judge、不再重复写 finding。
-func TestAgent_VerifyAttemptDeduplicatesSameRecipe(t *testing.T) {
+func TestAgent_VerifyObservationDeduplicatesSameRecipe(t *testing.T) {
 	w := &fakeGraphStore{verID: "ver-d1"}
 	fw := &fakeFindingWriter{}
 	promoter := New(w, fakeReplayer{res: Result{Evaluation: json.RawMessage(`{"url":"http://t/x","assert_passed":true}`)}}, fw).
@@ -330,10 +330,10 @@ func TestAgent_VerifyAttemptDeduplicatesSameRecipe(t *testing.T) {
 	})
 
 	att := baseAttempt()
-	if err := a.verifyAttempt(context.Background(), "act-1", att); err != nil {
+	if err := a.verifyObservation(context.Background(), "act-1", att); err != nil {
 		t.Fatalf("首次验证应成功: %v", err)
 	}
-	if err := a.verifyAttempt(context.Background(), "act-2", att); err != nil {
+	if err := a.verifyObservation(context.Background(), "act-2", att); err != nil {
 		t.Fatalf("重复配方应跳过而非报错: %v", err)
 	}
 	if len(w.verifications) != 1 || len(w.nodes) != 1 || len(fw.findings) != 1 {
@@ -344,7 +344,7 @@ func TestAgent_VerifyAttemptDeduplicatesSameRecipe(t *testing.T) {
 	// 不同配方不受影响
 	other := baseAttempt()
 	other.Primitives = json.RawMessage(`{"domain":"web","recipe":{"request":{"method":"GET","url":"http://t/y","headers":{},"body":""}},"assert":{"body_contains":["leaked-secret"]}}`)
-	if err := a.verifyAttempt(context.Background(), "act-3", other); err != nil {
+	if err := a.verifyObservation(context.Background(), "act-3", other); err != nil {
 		t.Fatalf("新配方应正常验证: %v", err)
 	}
 	if len(w.verifications) != 2 {
@@ -468,13 +468,13 @@ func TestAgent_VerifyConcurrencyDoesNotBlockEventLoop(t *testing.T) {
 
 	start := time.Now()
 	// 两个 attempt 背靠背进验证（第二个必须能立即入队而非阻塞发送方）
-	go func() { _ = a.verifyAttempt(context.Background(), "act-1", baseAttempt()) }()
-	go func() { _ = a.verifyAttempt(context.Background(), "act-2", baseAttempt()) }()
+	go func() { _ = a.verifyObservation(context.Background(), "act-1", baseAttempt()) }()
+	go func() { _ = a.verifyObservation(context.Background(), "act-2", baseAttempt()) }()
 	// 主线程立即做一次去重查询——若事件循环被卡（旧实现语义在事件循环取号），
 	// 这里照样能即时返回
 	_, _ = a.adjudicatedLookup("anything")
 
-	// 轮询等待两个验证都完成（直接调用 verifyAttempt 不经 Run 的信号量，二者并行）
+	// 轮询等待两个验证都完成（直接调用 verifyObservation 不经 Run 的信号量，二者并行）
 	deadline := time.Now().Add(3 * time.Second)
 	for w.VerificationCount() < 2 {
 		if time.Now().After(deadline) {

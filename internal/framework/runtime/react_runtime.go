@@ -43,7 +43,7 @@ type ReActConfig struct {
 	// LLM 提供者
 	LLMProvider llm.Provider
 
-	// 最大迭代次数（防止无限循环）
+	// 最大迭代次数（防止无限循环；<=0 = 不设限，上限由调用方配置唯一决定）
 	MaxIterations int
 
 	// 初始消息历史（可选，用于多轮对话）
@@ -192,9 +192,7 @@ func (c *ReActConfig) Validate() error {
 		return fmt.Errorf("LLM 提供者不能为空")
 	}
 
-	if c.MaxIterations <= 0 {
-		return fmt.Errorf("最大迭代次数必须大于 0")
-	}
+	// MaxIterations<=0 合法：= 不设限（上限完全由调用方配置决定，运行时不二次封顶）。
 
 	if c.Temperature < 0 || c.Temperature > 1 {
 		return fmt.Errorf("温度参数必须在 0-1 之间")

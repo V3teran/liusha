@@ -208,9 +208,23 @@ func TestReActRuntime_CheckpointRestore(t *testing.T) {
 		t.Errorf("Expected at least 4 iterations after restore, got %d", result2.Iterations)
 	}
 
-	// 验证消息历史包含恢复前的内容
-	if len(result2.MessageHistory) < len(result1.MessageHistory) {
-		t.Error("Expected restored message history to include previous messages")
+	// 验证消息历史包含恢复前的内容。
+	// 注意：run1 达到 MaxIterations 后会触发强制总结（追加总结 prompt + 总结回复两条消息），
+	// 而恢复点是第 3 轮迭代的检查点（总结前快照），因此不能直接与 result1 全量历史比较，
+	// 以检查点快照长度为基准断言。
+	cp, err := checkpointer.Load(ctx, lastCheckpoint)
+	if err != nil {
+		t.Fatalf("Load checkpoint failed: %v", err)
+	}
+	var snap struct {
+		MessageHistory []llm.Message `json:"message_history"`
+	}
+	if err := json.Unmarshal(cp.StateSnapshot, &snap); err != nil {
+		t.Fatalf("Deserialize checkpoint snapshot failed: %v", err)
+	}
+	if len(result2.MessageHistory) < len(snap.MessageHistory) {
+		t.Errorf("Expected restored message history (%d messages) to include checkpoint snapshot (%d messages)",
+			len(result2.MessageHistory), len(snap.MessageHistory))
 	}
 }
 
