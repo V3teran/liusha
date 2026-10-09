@@ -69,131 +69,61 @@ func (r *DefaultReActRuntime) ClearHistory() {
 
 // Run 运行 ReAct 循环
 func (r *DefaultReActRuntime) Run(ctx context.Context, config *ReActConfig) (*ReActResult, error) {
-	// 验证配置
+	// 1. 验证配置
 	if err := config.Validate(); err != nil {
 		return nil, fmt.Errorf("配置验证失败: %w", err)
 	}
 
-	// 初始化结果
-	result := &ReActResult{
-		MessageHistory: make([]llm.Message, 0),
-		Trace:          make([]*IterationTrace, 0),
-		Status:         ReActStatusSuccess,
-		CheckpointIDs:  make([]core.CheckpointID, 0),
+	// 2. 初始化结果
+	result := initializeResult()
+
+	// 3. 恢复或初始化执行状态
+	startIteration, err := r.restoreFromCheckpoint(ctx, config, result)
+	if err != nil {
+		return nil, err
+	}
+	if startIteration == 1 {
+		r.initializeNewExecution(config, result)
 	}
 
-	// 起始迭代编号
-	startIteration := 1
-
-	// 恢复：如果指定了检查点，从中恢复
-	if config.RestoreFromCheckpoint != "" && config.Checkpointer != nil {
-		checkpoint, err := config.Checkpointer.Load(ctx, config.RestoreFromCheckpoint)
-		if err != nil {
-			return nil, fmt.Errorf("load checkpoint failed: %w", err)
-		}
-		if checkpoint == nil { // 自定义 Checkpointer 未按契约返回 ErrCheckpointNotFound 时的防御
-			return nil, fmt.Errorf("load checkpoint failed: checkpoint %s not found", config.RestoreFromCheckpoint)
-		}
-
-		// 反序列化状态
-		var state struct {
-			MessageHistory []llm.Message     `json:"message_history"`
-			Trace          []*IterationTrace `json:"trace"`
-			Iteration      int               `json:"iteration"`
-		}
-		if err := json.Unmarshal(checkpoint.StateSnapshot, &state); err != nil {
-			return nil, fmt.Errorf("deserialize checkpoint state failed: %w", err)
-		}
-
-		// 恢复消息历史和轨迹
-		result.MessageHistory = state.MessageHistory
-		result.Trace = state.Trace
-		result.RestoredFromCheckpoint = config.RestoreFromCheckpoint
-		result.RestoredIteration = state.Iteration
-
-		// 从下一次迭代继续
-		startIteration = state.Iteration + 1
-	} else {
-		// 新执行：加载初始历史
-		if len(config.InitialHistory) > 0 {
-			result.MessageHistory = append(result.MessageHistory, config.InitialHistory...)
-		} else {
-			r.mu.RLock()
-			result.MessageHistory = append(result.MessageHistory, r.messageHistory...)
-			r.mu.RUnlock()
-		}
-
-		// 添加系统提示
-		if config.SystemPrompt != "" {
-			result.AddSystemMessage(config.SystemPrompt)
-		}
-
-		// 添加用户目标
-		result.AddUserMessage(config.Objective)
-	}
-
-	// ReAct 循环（从 startIteration 开始）。MaxIterations<=0 = 不设限：
-	// 迭代上限唯一来源是调用方配置（agent.max_iterations），运行时不做二次封顶。
+	// 4. ReAct 循环：从 startIteration 开始迭代
 	unbounded := config.MaxIterations <= 0
 	for iteration := startIteration; unbounded || iteration <= config.MaxIterations; iteration++ {
+		// 4.1 检查上下文取消
 		if err := ctx.Err(); err != nil {
 			result.Status = ReActStatusCancelled
 			result.Error = err
 			return result, err
 		}
 
-		// 执行单次迭代
-		trace, shouldStop, err := r.runIteration(ctx, config, result, iteration)
-		result.Trace = append(result.Trace, trace)
-		result.Iterations = iteration
+		// 4.2 执行单次迭代
+		trace, shouldStop, err := r.executeIteration(ctx, config, result, iteration)
 
-		// 回调：迭代完成
-		if config.OnIteration != nil {
-			config.OnIteration(iteration, trace.Status)
-		}
+		// 4.3 处理检查点
+		r.handleCheckpoint(ctx, config, result, iteration, trace)
 
-		// Checkpoint 保存时机
-		if config.Checkpointer != nil && config.CheckpointPolicy != nil {
-			if config.CheckpointPolicy.ShouldSave(iteration, trace) {
-				cpID, err := r.saveCheckpoint(ctx, config, result, iteration)
-				if err != nil {
-					// 保存失败不中断执行；错误暴露在结果上供调用方审计
-					result.LastCheckpointError = err
-				} else {
-					result.CheckpointID = cpID
-					result.CheckpointIDs = append(result.CheckpointIDs, cpID)
-				}
-			}
-		}
-
+		// 4.4 处理错误
 		if err != nil {
 			result.Status = ReActStatusError
 			result.Error = err
 			return result, err
 		}
 
+		// 4.5 检查是否应该停止
 		if shouldStop {
 			break
 		}
 
+		// 4.6 检查是否达到最大迭代次数
 		if !unbounded && iteration >= config.MaxIterations {
 			result.Status = ReActStatusMaxIterations
-			// 达到最大迭代次数，强制要求 LLM 输出最终总结
-			if err := r.forceFinalSummary(ctx, config, result); err != nil {
-				// 强制总结失败不算致命错误，继续处理
-				result.LastCheckpointError = fmt.Errorf("force final summary failed: %w", err)
-			}
+			r.handleMaxIterationsReached(ctx, config, result)
 			break
 		}
 	}
 
-	// 提取最终答案
-	result.FinalAnswer = result.ExtractFinalAnswer()
-
-	// 保存消息历史到运行时
-	r.mu.Lock()
-	r.messageHistory = result.MessageHistory
-	r.mu.Unlock()
+	// 5. 完成结果处理
+	r.finalizeResult(result)
 
 	return result, nil
 }
