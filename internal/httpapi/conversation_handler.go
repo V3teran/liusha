@@ -296,84 +296,28 @@ func streamHandler(convs ConversationsAPI, stream EventStream) gin.HandlerFunc {
 		afterSeq := parseAfterSeq(c)
 		sseLog.Info().Str("conv", convID).Int64("after_seq", afterSeq).Msg("SSE 连接建立")
 
-		c.Header("Content-Type", "text/event-stream")
-		c.Header("Cache-Control", "no-cache")
-		c.Header("Connection", "keep-alive")
-		c.Header("X-Accel-Buffering", "no") // 禁 nginx 缓冲，保证实时
+		// 1. 设置 SSE 响应头
+		setupSSEHeaders(c)
 
-		flusher, ok := c.Writer.(http.Flusher)
+		// 2. 验证 Flusher 支持
+		flusher, ok := validateFlusher(c, convID)
 		if !ok {
-			sseLog.Error().Str("conv", convID).Msg("SSE: ResponseWriter 不支持 Flusher")
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "streaming unsupported"})
 			return
 		}
-		// SSE 长连接：清除 http.Server.WriteTimeout，否则数十秒后连接被切断。
-		// gin responseWriter 实现 Unwrap，ResponseController 可达底层 conn；不支持则降级。
-		_ = http.NewResponseController(c.Writer).SetWriteDeadline(time.Time{})
 
-		// 先订阅，避免补历史与订阅之间漏事件。
+		// 3. 订阅实时事件（先订阅，避免补历史与订阅之间漏事件）
 		sub := stream.Subscribe(ctx, convID)
 		defer func() { _ = sub.Close() }()
 		sseLog.Debug().Str("conv", convID).Msg("SSE: 已订阅 redis channel")
 
-		// 补历史（after_seq / Last-Event-ID 之后）。
-		lastSeq := afterSeq
-		history, err := convs.ListMessages(ctx, convID, lastSeq, 2000)
+		// 4. 补发历史消息
+		lastSeq, err := replayHistory(ctx, c, convs, convID, afterSeq, flusher)
 		if err != nil {
-			sseLog.Error().Err(err).Str("conv", convID).Msg("SSE: 补历史失败")
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-		for _, m := range history {
-			writeSSEMessage(c.Writer, m.Seq, m)
-			lastSeq = m.Seq
-		}
-		flusher.Flush()
-		sseLog.Info().Str("conv", convID).Int("history", len(history)).Int64("last_seq", lastSeq).
-			Msg("SSE: 补历史完成，进入实时转发")
 
-		// 实时：按 seq>lastSeq 去重转发。
-		var live, deltas, dups int
-		for {
-			select {
-			case <-ctx.Done():
-				sseLog.Info().Str("conv", convID).Int("live", live).Int("deltas", deltas).Int("dups", dups).
-					Msg("SSE: 客户端断开（ctx done）")
-				return
-			case payload, ok := <-sub.Events():
-				if !ok {
-					sseLog.Warn().Str("conv", convID).Int("live", live).Int("deltas", deltas).
-						Msg("SSE: redis 订阅 channel 关闭")
-					return
-				}
-				// 流式推理增量：瞬时帧（无 seq、不落库），写命名事件 event:delta，前端单独累积，不参与 seq 去重。
-				var probe struct {
-					Delta bool `json:"delta"`
-				}
-				_ = json.Unmarshal(payload, &probe)
-				if probe.Delta {
-					writeSSEEvent(c.Writer, "delta", payload)
-					flusher.Flush()
-					deltas++
-					continue
-				}
-				var m conversation.Message
-				if err := json.Unmarshal(payload, &m); err != nil {
-					sseLog.Warn().Err(err).Str("conv", convID).Msg("SSE: 实时帧 unmarshal 失败，跳过")
-					continue
-				}
-				if m.Seq <= lastSeq {
-					dups++
-					continue // 与补历史重叠，跳过
-				}
-				writeSSERaw(c.Writer, m.Seq, payload)
-				lastSeq = m.Seq
-				live++
-				sseLog.Debug().Str("conv", convID).Int64("seq", m.Seq).Str("kind", string(m.Kind)).
-					Str("role", string(m.Role)).Msg("SSE: 实时转发一帧")
-				flusher.Flush()
-			}
-		}
+		// 5. 实时转发事件流
+		forwardRealtimeEvents(ctx, c, sub, convID, lastSeq, flusher)
 	}
 }
 
