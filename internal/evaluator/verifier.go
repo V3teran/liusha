@@ -141,153 +141,69 @@ type replayRecord struct {
 //
 // 库不 log，错误上抛由 caller 记录（与 explorationgraph.Store 一致）。
 func (v *PromotionEvaluator) Promote(ctx context.Context, a Attempt) (*explorationgraph.Node, error) {
-	if a.TaskID == "" {
-		return nil, fmt.Errorf("verifier: Attempt.TaskID 必填")
-	}
-	if a.Kind == "" {
-		return nil, fmt.Errorf("verifier: Attempt.Kind 必填")
-	}
-	if v.replayer == nil {
-		return nil, fmt.Errorf("verifier: 无 Replayer，无法复现晋升")
+	// 1. 验证输入
+	if err := v.validateAttempt(a); err != nil {
+		return nil, err
 	}
 
-	// 重放闭包：预跑与裁决官每次 replay_for_verification 都经此——完整证据链在此记录，
-	// 裁决官复放的中间观察不再只活在 judge 的 ReAct 上下文里。
+	// 2. 创建重放闭包
 	var replays []replayRecord
-	replay := func(rctx context.Context, phase string) (Result, error) {
-		res, err := v.replayer.Replay(rctx, a.Primitives)
-		rec := replayRecord{Phase: phase, DurationMs: res.DurationMs}
-		if err != nil {
-			rec.Error = err.Error()
-		} else {
-			rec.Evidence = res.Evaluation
-		}
-		replays = append(replays, rec)
-		return res, err
-	}
+	replay := v.createReplayFunction(a, &replays)
 
-	res, err := replay(ctx, "prerun")
+	// 3. 预跑阶段
+	res, err := v.executePrerun(ctx, replay)
 	if err != nil {
-		return nil, fmt.Errorf("verifier: 复现执行失败: %w", err)
+		return nil, err
 	}
 
-	// 裁决：LLM 是唯一判定权持有者（机器只采证不判定）。judge 未装配/调用失败 = 本次
-	// 未裁决，返回错误——绝不回退机器断言（谓词判不了漏洞语义，回退即橡皮图章）。
-	if v.judge == nil {
-		return nil, fmt.Errorf("verifier: 无 LLM 裁决器，无法晋升（机器不持判定权）")
-	}
-	var hyp string
-	var c struct {
-		Statement string `json:"statement"`
-	}
-	if json.Unmarshal(a.Content, &c) == nil {
-		hyp = c.Statement
+	// 4. 提取假设
+	hyp := extractHypothesis(a)
+
+	// 5. 机器护栏检查
+	if node, shouldContinue, err := v.checkMachineGuard(ctx, a, hyp, res, replays); !shouldContinue {
+		return node, err
 	}
 
-	// 机器护栏：executor 声明的断言全部未命中 = 配方声称的特征根本没出现，不存在任何
-	// 支持坐实的机器证据。此时直接 refuted、不进 judge（e2e 实测：judge 在
-	// assert_passed=false 且 404 的证据下仍输出 confirmed——LLM 会违背裁决语义，
-	// 机器兜底）。这是机器证伪而非机器坐实：LLM 只拥有 confirmed 的判定权，
-	// refuted 是保守缺省，不违反判定权分层。
-	if !assertPassedInEvidence(res.Evaluation) {
-		return v.refuteEarly(ctx, a, hyp, res, replays)
+	// 6. LLM 裁决
+	verdict, reasoning, err := v.executeLLMJudge(ctx, a, hyp, res, replay)
+	if err != nil {
+		return nil, err
 	}
 
-	verdict, reasoning, jErr := v.judge.Judge(ctx, hyp, a.Primitives, res.Evaluation,
-		func(rctx context.Context) (Result, error) { return replay(rctx, "judge") })
-	if jErr != nil {
-		return nil, fmt.Errorf("verifier: LLM 裁决失败（本次未裁决，不回退机器）: %w", jErr)
-	}
-	confirmed := verdict == VerdictConfirmed // 唯一坐实来源
+	// 7. 聚合证据
+	final, evaluation := aggregateEvidence(res, verdict, reasoning, replays)
 
-	// 证据聚合：最后一次成功重放的证据为主体，附裁决理由与完整重放链（含失败记录）。
-	// generic 域无机器重放通道，裁决官的执行轨迹与结论就以 reasoning + replays[] 为审计面。
-	final := res
-	for _, rec := range replays {
-		if rec.Error == "" && len(rec.Evidence) > 0 {
-			final = Result{Evaluation: rec.Evidence, DurationMs: rec.DurationMs}
-		}
-	}
-	evaluation := withReplayLog(final.Evaluation, verdict, reasoning, replays)
-
-	// 证据链：无论坐实与否都落 exploration_verification（refuted 也留档供审计/复盘）。
-	// 这是复放证据的唯一归宿——evaluator 不往图写观察节点（图的写权限不变式）。
-	// nodeID 预先分配：坐实时它成为晋升 result 节点的 ID（verification.node_id 回指），
-	// 证伪时它是未落图的占位（审计仍可定位本次裁决对象）。
+	// 8. 处理裁决结果
 	nodeID := uuid.New().String()
 	outcome := explorationgraph.OutcomeRefuted
-	if confirmed {
+	if verdict == VerdictConfirmed {
 		outcome = explorationgraph.OutcomeConfirmed
 	}
-	verID, err := v.graph.RecordVerification(ctx, explorationgraph.Verification{
-		ID:         uuid.New().String(),
-		TaskID:     a.TaskID,
-		NodeID:     nodeID, // 预分配，即使证伪也记录（审计需要）
-		Primitives: a.Primitives,
-		Outcome:    outcome,
-		Evaluation: evaluation,
-		DurationMs: final.DurationMs,
-		CreatedAt:  time.Now(),
-	})
+
+	// 9. 记录验证到审计链
+	verID, err := v.recordVerification(ctx, a, nodeID, outcome, evaluation, final.DurationMs)
 	if err != nil {
-		return nil, fmt.Errorf("verifier: 记录 verification 失败: %w", err)
+		return nil, err
 	}
 
-	// 审判标记：在假设节点上回写 verification_outcome——图可回答"这个假设试过没有、
-	// 结果如何"（防死假设复活循环：planner/executor 读图可见已裁决）。仅 metadata
-	// 浅合并，不新建节点（写权限不变式保持）。失败不阻塞裁决（标记是增强非门）。
-	if a.NodeID != "" {
-		mark := map[string]interface{}{
-			"verification_id":      verID,
-			"verification_outcome": outcome,
-			"verification_at":      time.Now().Format(time.RFC3339),
-		}
-		if confirmed {
-			mark["promoted_node"] = nodeID
-		}
-		if b, mErr := json.Marshal(mark); mErr == nil {
-			if uErr := v.graph.UpdateNodeMetadata(ctx, a.NodeID, b); uErr != nil && v.logger != nil {
-				v.logger.Warn().Err(uErr).Str("node_id", a.NodeID).Msg("假设节点审判标记写入失败（不影响裁决）")
-			}
-		}
-	}
+	// 10. 在假设节点上回写审判标记
+	v.markHypothesisNode(ctx, a, verID, outcome, nodeID, verdict == VerdictConfirmed)
 
-	// 证伪：不进图。铁律——图只存坐实态。
-	if !confirmed {
+	// 11. 如果被证伪，返回 nil
+	if verdict == VerdictRefuted {
 		return nil, nil
 	}
 
-	// 坐实：晋升成 verified 节点（evaluator 对图的唯一写权限）
-	verified := explorationgraph.ConfidenceVerified
-	node := explorationgraph.Node{
-		ID:         nodeID,
-		TaskID:     a.TaskID,
-		Kind:       a.Kind,
-		Content:    a.Content,
-		Confidence: &verified,
-		Priority:   explorationgraph.Priority(a.Priority),
-		SourceType: explorationgraph.SourceEvaluator,
-		SourceID:   verID,
-		CreatedAt:  time.Now(),
-		UpdatedAt:  time.Now(),
-	}
-
-	_, err = v.graph.CreateNode(ctx, node)
+	// 12. 创建已验证节点
+	node, err := v.createVerifiedNode(ctx, a, nodeID, verID)
 	if err != nil {
-		return nil, fmt.Errorf("verifier: 晋升节点失败: %w", err)
+		return nil, err
 	}
 
-	// 验证通过，写入 finding 表（未验证的不进 finding 表）
-	if v.findings != nil {
-		if err := v.writeFinding(ctx, node, a, final); err != nil {
-			// finding 写入失败不阻塞晋升（节点已进图），但不能静默吞掉
-			if v.logger != nil {
-				v.logger.Warn().Err(err).Str("node_id", node.ID).Msg("finding 写入失败（节点已晋升，不影响图状态）")
-			}
-		}
-	}
+	// 13. 写入 finding 表
+	v.writeFindingIfNeeded(ctx, *node, a, final)
 
-	return &node, nil
+	return node, nil
 }
 
 // withReplayLog 把最终证据、裁决理由与完整重放链（预跑 + 裁决官复放，含失败）聚合成一份审计 JSON。
