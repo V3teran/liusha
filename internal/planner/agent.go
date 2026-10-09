@@ -169,109 +169,33 @@ func (a *Agent) planActions(ctx context.Context) error {
 
 	a.logger.Debug().Str("task_id", a.taskID).Msg("开始规划 Action")
 
-	// 1. 只分析新出现的 Results（水位过滤，避免重复 LLM 调用）
-	results, err := a.graph.ListNodesByKind(ctx, a.taskID, core.KindResult)
-	if err == nil && len(results) > 0 {
-		fresh := make([]explorationgraph.Node, 0, len(results))
-		for _, r := range results {
-			if !a.analyzedResultIDs[r.ID] {
-				fresh = append(fresh, r)
-			}
-		}
-		if len(fresh) > 0 {
-			a.logger.Info().
-				Int("fresh_count", len(fresh)).
-				Int("total_count", len(results)).
-				Msg("检测到新 Results，先进行分析")
-
-			if err := a.analyzeAndProcessResults(ctx, fresh); err != nil {
-				a.logger.Error().Err(err).Msg("分析 Results 失败")
-				// 不返回错误，继续生成 Actions
-			} else {
-				for _, r := range fresh {
-					a.analyzedResultIDs[r.ID] = true
-				}
-			}
-		}
+	// 1. 分析新出现的 Results
+	if err := a.analyzeNewResults(ctx); err != nil {
+		// 继续执行，不中断
 	}
 
-	// 2. 检查是否已有可执行的 Action（而不是仅检查 open actions）
-	openActions, err := a.graph.ListOpenActions(ctx, a.taskID)
+	// 2. 检查是否已有可执行的 Action
+	hasExecutable, err := a.checkExecutableActions(ctx)
 	if err != nil {
-		return fmt.Errorf("list open actions: %w", err)
+		return err
 	}
-
-	// 获取已完成的 action（用于依赖检查）
-	completedNodes, err := a.graph.ListNodesByKind(ctx, a.taskID, core.KindAction)
-	if err != nil {
-		return fmt.Errorf("list actions: %w", err)
-	}
-
-	// 过滤出已完成的 action
-	var completedActions []explorationgraph.Node
-	for _, node := range completedNodes {
-		if node.State != nil && *node.State == explorationgraph.StateDone {
-			completedActions = append(completedActions, node)
-		}
-	}
-
-	// 构建已完成的 action ID 集合
-	completed := make(map[string]bool)
-	for _, action := range completedActions {
-		completed[action.ID] = true
-	}
-
-	// 检查是否有可执行的 action（依赖已满足）
-	var executableActions []explorationgraph.Node
-	for _, action := range openActions {
-		if action.CanExecute(completed) {
-			executableActions = append(executableActions, action)
-		}
-	}
-
-	if len(executableActions) > 0 {
-		a.logger.Debug().
-			Int("open_count", len(openActions)).
-			Int("executable_count", len(executableActions)).
-			Msg("已有可执行 Action，跳过规划")
+	if hasExecutable {
 		return nil
 	}
 
-	// 如果有 open actions 但都不可执行（全部 blocked），记录警告
-	if len(openActions) > 0 {
-		a.logger.Warn().
-			Int("blocked_count", len(openActions)).
-			Msg("所有 open actions 都被依赖阻塞，尝试生成新规划")
-	}
-
-	// 调用 Planner 生成新的 Action（传入 taskID）
-	a.logger.Info().Msg("即将调用 a.planner.Plan()")
-	actions, err := a.planner.Plan(ctx, a.graph, a.taskID, a.functionTools)
-
-	a.logger.Info().
-		Bool("has_error", err != nil).
-		Int("actions_len", len(actions)).
-		Msg("a.planner.Plan() 返回")
-
+	// 3. 生成新的 Actions
+	actions, err := a.generateNewActions(ctx)
 	if err != nil {
-		a.logger.Error().
-			Err(err).
-			Msg("Plan() 调用失败")
-		return fmt.Errorf("plan: %w", err)
+		return err
 	}
 
-	a.logger.Info().
-		Int("action_count", len(actions)).
-		Msg("Planner.Plan 返回")
-
+	// 4. 如果没有生成新 Action，发布收敛事件
 	if len(actions) == 0 {
-		a.logger.Info().Msg("Planner 未生成新 Action（任务收敛）")
-		// ✅ 发布任务收敛事件，触发 CompletionDetector 停止任务
-		a.eventBus.PublishTaskConverged(a.taskID, "planner: no more actions to generate")
+		a.handleNoActions()
 		return nil
 	}
 
-	// 将新 Action 写入探索图（使用提取的公共方法）
+	// 5. 将新 Action 写入探索图
 	return a.writeActionsFromPlan(ctx, actions)
 }
 
