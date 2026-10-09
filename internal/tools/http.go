@@ -14,7 +14,6 @@ import (
 	"github.com/V3teran/liusha/internal/credential"
 
 	"github.com/V3teran/liusha/internal/registry"
-	"github.com/V3teran/liusha/internal/traffic"
 )
 
 // ─── http_request ────────────────────────────────────────────────────────────
@@ -384,121 +383,42 @@ func (t *httpRequestTool) Desc() string {
 func (t *httpRequestTool) Schema() json.RawMessage { return httpRequestSchema }
 
 func (t *httpRequestTool) Execute(ctx context.Context, args json.RawMessage) (registry.ToolResult, error) {
+	// 1. 解析并验证参数
 	var a httpRequestArgs
 	if err := json.Unmarshal(args, &a); err != nil {
 		return registry.ToolResult{Error: "http_request: 解析参数失败: " + err.Error()}, nil
 	}
-	if a.URL == "" {
-		return registry.ToolResult{Error: "http_request: url 必填"}, nil
-	}
-	if a.Method == "" {
-		a.Method = http.MethodGet
-	}
-	if a.TimeoutSeconds <= 0 {
-		a.TimeoutSeconds = 30
-	}
-	if a.TimeoutSeconds > httpReqMaxTimeout {
-		a.TimeoutSeconds = httpReqMaxTimeout
+	if errMsg := validateAndNormalizeArgs(&a); errMsg != nil {
+		return registry.ToolResult{Error: *errMsg}, nil
 	}
 
-	// 凭证注入（②）：凭证库中该 host 的全部身份 × 全部凭证（数量、位置均不定）
-	// 按位置注入。优先级：显式传入的键 > 库（身份名序先到先得）> jar 缓存兜底。
-	applied := t.applyStoredCredentials(ctx, &a)
-
-	req, err := http.NewRequestWithContext(ctx, a.Method, a.URL, strings.NewReader(a.Body))
+	// 2. 构建 HTTP 请求
+	req, applied, err := t.buildHTTPRequest(ctx, &a)
 	if err != nil {
-		return registry.ToolResult{Error: "http_request: 构造请求失败: " + err.Error()}, nil
-	}
-	for k, v := range a.Headers {
-		req.Header.Set(k, v)
-	}
-	// jar 兜底：库读取失败或库中尚无 Cookie 项时，用进程内缓存补会话头。
-	if req.Header.Get("Cookie") == "" {
-		if ch := t.cookieHeader(req.URL.Host); ch != "" {
-			req.Header.Set("Cookie", ch)
-		}
-	}
-	if a.Body != "" && req.Header.Get("Content-Type") == "" {
-		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		return registry.ToolResult{Error: "http_request: 构建请求失败: " + err.Error()}, nil
 	}
 
-	client := &http.Client{
-		Timeout: time.Duration(a.TimeoutSeconds) * time.Second,
-		// 不自动跳转：跳转会隐藏 30x 语义（认证绕过判定依赖原始响应码）。
-		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
-			return http.ErrUseLastResponse
-		},
-	}
-
-	start := time.Now()
-	resp, err := client.Do(req)
-	durMs := int(time.Since(start).Milliseconds())
+	// 3. 执行 HTTP 请求
+	resp, durMs, err := executeHTTPRequest(ctx, req, a.TimeoutSeconds)
 	if err != nil {
-		return registry.ToolResult{Error: "http_request: 请求失败: " + err.Error()}, nil
+		return registry.ToolResult{Error: "http_request: " + err.Error()}, nil
 	}
-	defer func() { _ = resp.Body.Close() }()
+	defer resp.Body.Close()
 
-	// 响应 Set-Cookie 入 jar（缓存）+ 变更时合并写入凭证库（事实源，③B）。
-	t.storeCookies(req.URL.Host, resp.Cookies())
-	t.syncSessionToStore(ctx, req.URL.Host)
-
-	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20)) // 上限 1MiB
-
-	// 抓流入弹药库（best-effort：落库失败不阻塞请求本身，但 LLM 拿不到 traffic_id）
-	trafficID := int64(0)
-	if t.deps.AgentStore != nil {
-		reqHeaders, _ := json.Marshal(flattenHeaders(req.Header))
-		respHeaders, _ := json.Marshal(flattenHeaders(resp.Header))
-		id, appendErr := t.deps.AgentStore.Append(ctx, traffic.AgentTraffic{
-			TaskID:          t.deps.TaskID,
-			AgentRunID:      t.deps.AgentRunID,
-			Tool:            "http_request",
-			Method:          a.Method,
-			URL:             a.URL,
-			RequestHeaders:  reqHeaders,
-			RequestBody:     []byte(a.Body),
-			StatusCode:      resp.StatusCode,
-			ResponseHeaders: respHeaders,
-			ResponseBody:    respBody,
-			DurationMs:      durMs,
-		})
-		if appendErr != nil {
-			// 记录失败只影响复现能力，不影响本次观测
-			_ = appendErr
-		}
-		trafficID = id
+	// 4. 读取响应体
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return registry.ToolResult{Error: "http_request: 读取响应失败: " + err.Error()}, nil
 	}
 
-	snippet := respBody
-	if len(snippet) > httpRespBodySnippet {
-		snippet = snippet[:httpRespBodySnippet]
-	}
+	// 5. 处理响应 Cookie
+	t.handleResponseCookies(ctx, req, resp)
 
-	// 返回完整的 request/response 信息，供 write_observation 构造自包含的 repro。
-	// request.headers 回显实际发送的最终 headers（含自动补的 Content-Type 与会话
-	// Cookie）——LLM 拷贝此对象构造 repro.request 才能忠实重放。
-	out, _ := json.Marshal(map[string]interface{}{
-		"traffic_id": trafficID,
-		"session": map[string]interface{}{
-			"cookies":             t.sessionCookieNames(req.URL.Host),
-			"applied_credentials": applied, // [{identity,position,key}]——值不回显
-		},
-		"request": map[string]interface{}{
-			"method":  a.Method,
-			"url":     a.URL,
-			"headers": flattenHeaders(req.Header),
-			"body":    a.Body,
-		},
-		"response": map[string]interface{}{
-			"status_code":  resp.StatusCode,
-			"headers":      flattenHeaders(resp.Header),
-			"body":         string(snippet),
-			"truncated":    len(respBody) > len(snippet),
-			"duration_ms":  durMs,
-			"content_type": resp.Header.Get("Content-Type"),
-		},
-	})
-	return registry.ToolResult{Output: string(out)}, nil
+	// 6. 记录流量到弹药库
+	trafficID := t.recordTraffic(ctx, req, resp, &a, respBody, durMs)
+
+	// 7. 构建并返回结果
+	return t.buildToolResult(req, resp, &a, respBody, durMs, trafficID, applied), nil
 }
 
 // flattenHeaders 把 http.Header 摊平成单值 map（多值取第一个）——agent_traffic 的
