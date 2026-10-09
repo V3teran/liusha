@@ -1,17 +1,12 @@
 package server
 
 import (
-	"context"
 	"encoding/base64"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"strings"
-	"syscall"
 	"time"
 
 	"github.com/V3teran/liusha/internal/sandbox"
@@ -49,121 +44,34 @@ var execWaitDelay = 10 * time.Second
 //
 // 并发安全：sandbox-server 是 per-agent-run 容器进程，本来就是单线程串行处理 /exec。
 func (s *Server) handleExec(w http.ResponseWriter, r *http.Request) {
+	// 1. 解析并验证请求
 	var req sandbox.ExecRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "decode request: %v", err)
 		return
 	}
-	if req.TaskID == "" {
-		writeError(w, http.StatusBadRequest, "task_id required")
-		return
-	}
-	if req.AgentID == "" {
-		writeError(w, http.StatusBadRequest, "agent_id required")
-		return
-	}
-	if !isPathSafe(req.TaskID) {
-		writeError(w, http.StatusBadRequest, "task_id must be [A-Za-z0-9._-]{1,64}")
-		return
-	}
-	if !isPathSafe(req.AgentID) {
-		writeError(w, http.StatusBadRequest, "agent_id must be [A-Za-z0-9._-]{1,64}")
-		return
-	}
-	if req.Command == "" {
-		writeError(w, http.StatusBadRequest, "command required")
-		return
-	}
-	if req.TimeoutSeconds <= 0 {
-		writeError(w, http.StatusBadRequest, "timeout_seconds must be > 0")
+	if !validateExecRequest(&req, w) {
 		return
 	}
 
-	// task + agent 两层隔离
-	taskRoot := filepath.Join(liushaRoot, req.TaskID)
-	agentRoot := filepath.Join(taskRoot, req.AgentID)
-	workspaceDir := filepath.Join(agentRoot, "workspace")
-	outputDir := filepath.Join(agentRoot, "output")
-	profileDir := filepath.Join(taskRoot, "profile") // Task 共享
-
-	// 创建所有必要目录
-	for _, dir := range []string{workspaceDir, outputDir, profileDir} {
-		if err := os.MkdirAll(dir, 0o750); err != nil {
-			writeError(w, http.StatusInternalServerError, "mkdir %s: %v", dir, err)
-			return
-		}
+	// 2. 创建执行目录
+	workspaceDir, outputDir, profileDir, ok := setupExecDirs(&req, w)
+	if !ok {
+		return
 	}
 
-	// 记录命令开始时间——collectAttachments 用此过滤"本次 exec 新增/修改"的文件
-	// （per-agent 隔离后仍需 modtime 过滤：同 agent 多次 exec 旧文件不重复返）。
-	// 减 1s 余量：很多 Linux 文件系统 mtime 是秒级粒度（写入瞬间的 mtime 被截断到整秒，
-	// 可能落在纳秒精度的 now() 之前），不留余量会把本次刚写的文件误判为历史而丢掉
-	// （macOS APFS 纳秒 mtime 不触发，故只在 Linux 复现）。代价仅是极偶发重复返同 agent 1s 内旧文件，远轻于丢文件。
-	execStart := time.Now().Add(-time.Second)
-
-	// 命令超时控制——r.Context() 让客户端断开/取消能传到 sh 子进程
+	// 3. 构建执行命令
 	timeout := time.Duration(req.TimeoutSeconds) * time.Second
-	cmdCtx, cancel := context.WithTimeout(r.Context(), timeout)
-	defer cancel()
+	execStart := time.Now()
+	cmd, cmdCtx := buildExecCommand(r.Context(), &req, workspaceDir, outputDir, profileDir, timeout)
 
-	cmd := exec.CommandContext(cmdCtx, "sh", "-c", req.Command) // #nosec G204 // 沙箱本职：执行用户提交的容器内命令
-	cmd.Dir = workspaceDir
-	cmd.Env = append(os.Environ(),
-		"LIUSHA_TASK_ID="+req.TaskID,
-		"LIUSHA_AGENT_ID="+req.AgentID,
-		"LIUSHA_WORKSPACE="+workspaceDir,
-		"LIUSHA_OUTPUT="+outputDir,
-		"LIUSHA_PROFILE="+profileDir,
-		"HOME="+profileDir,
-		"OUTPUT_DIR="+outputDir, // 向后兼容
-	)
+	// 4. 执行命令
+	stdout, stderr, exitCode, timedOut := executeCommand(cmd, cmdCtx)
 
-	// 让 sh 成为新进程组 leader；ctx 超时时 cmd.Cancel 杀整个进程组——
-	// 防止 sh 被 SIGKILL 后子进程（sqlmap/tail/...）孤儿化继续持有 stdout pipe，
-	// 导致 cmd.Wait() 阻塞至子进程自然结束（e2e 实测踩过 600s timeout 但 wall time 28min）。
-	// 用负 PID 是 POSIX kill(2) 进程组语义。
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	cmd.Cancel = func() error {
-		return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
-	}
+	// 5. 构建结果
+	res := buildExecResult(stdout, stderr, exitCode, timedOut, outputDir, execStart)
 
-	// WaitDelay 兜底进程组 SIGKILL 救不了的悬挂：LLM 跑 RFI 测试服务器（`python3 -m http.server &`
-	// 之类）把长命子进程放后台，sh 立即退出但孤儿子进程继续持有 stdout pipe writer end →
-	// cmd.Wait() 会傻等 stdio copy goroutine 退出（即子进程自然结束）才返回。真实扫描实测：
-	// http.server 永不退 → handleExec 挂到 client 31min timeout（"Client.Timeout exceeded
-	// while awaiting headers"）→ run_command 报错 → 整个 active run abort。
-	// 设 WaitDelay 后：进程退出 / ctx 取消起算，最多再等 execWaitDelay 就强制关 pipe 让 Wait 返回；
-	// 孤儿子进程留在容器内（容器销毁时统一回收），exec 不再被它拖死到 client timeout。
-	cmd.WaitDelay = execWaitDelay
-
-	var stdout, stderr strings.Builder
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
-	runErr := cmd.Run()
-
-	res := sandbox.ExecResult{
-		Stdout: stdout.String(),
-		Stderr: stderr.String(),
-	}
-	if runErr != nil {
-		var ee *exec.ExitError
-		if errors.As(runErr, &ee) {
-			res.ExitCode = ee.ExitCode()
-		} else {
-			res.ExitCode = -1
-		}
-	}
-	if errors.Is(cmdCtx.Err(), context.DeadlineExceeded) {
-		res.TimedOut = true
-	}
-
-	// 扫描产物——命令崩溃也扫，半成品有诊断价值。
-	// 仅返本次 exec 新增/修改文件（modtime > execStart），避免共享目录下历史文件重复返。
-	files, warnings := collectAttachments(outputDir, execStart)
-	res.Files = files
-	res.Warnings = warnings
-
+	// 6. 返回结果
 	writeJSON(w, http.StatusOK, res)
 }
 
