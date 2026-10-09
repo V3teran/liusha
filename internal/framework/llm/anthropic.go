@@ -308,108 +308,24 @@ func fromAnthropicResponse(resp *anthropic.Message, provider, model string) Resu
 // StreamChat 流式生成：text/thinking 增量 + 聚合 tool_call + done（带 SDK Accumulate 的 usage）。
 // maxTokens ≤ 0 时走构造时的配置默认。
 func (g *anthropicGen) StreamChat(ctx context.Context, msgs []Message, tools []ToolSchema, maxTokens int) (<-chan StreamEvent, error) {
-	systemBlocks, anthropicMsgs, err := toAnthropicMessages(msgs)
-	if err != nil {
-		return nil, fmt.Errorf("convert messages: %w", err)
-	}
-	anthropicTools, err := toAnthropicTools(tools)
-	if err != nil {
-		return nil, fmt.Errorf("convert tools: %w", err)
-	}
-
+	// 1. 确定最大 token 数
 	mt := g.maxTokens
 	if maxTokens > 0 {
 		mt = int64(maxTokens)
 	}
 
-	params := anthropic.MessageNewParams{
-		Model:     g.model,
-		MaxTokens: mt,
-		Messages:  anthropicMsgs,
-	}
-	if len(systemBlocks) > 0 {
-		params.System = systemBlocks
-	}
-	if len(anthropicTools) > 0 {
-		params.Tools = anthropicTools
+	// 2. 准备请求参数
+	params, err := prepareAnthropicRequest(msgs, tools, g.model, mt)
+	if err != nil {
+		return nil, err
 	}
 
+	// 3. 创建流式请求
 	stream := g.client.Messages.NewStreaming(ctx, params)
 
+	// 4. 创建事件通道并启动处理
 	ch := make(chan StreamEvent, 32)
-	go func() {
-		defer close(ch)
-		defer func() {
-			_ = stream.Close() // 忽略 Close 错误
-		}()
-
-		var acc anthropic.Message
-		toolArgs := map[int64][]byte{}
-
-		emit := func(e StreamEvent) bool {
-			select {
-			case ch <- e:
-				return true
-			case <-ctx.Done():
-				return false
-			}
-		}
-
-		for stream.Next() {
-			event := stream.Current()
-			_ = acc.Accumulate(event)
-
-			switch ev := event.AsAny().(type) {
-			case anthropic.ContentBlockDeltaEvent:
-				switch d := ev.Delta.AsAny().(type) {
-				case anthropic.TextDelta:
-					if d.Text != "" {
-						if !emit(StreamEvent{Kind: StreamText, Content: d.Text}) {
-							return
-						}
-					}
-				case anthropic.ThinkingDelta:
-					if d.Thinking != "" {
-						if !emit(StreamEvent{Kind: StreamThinking, Content: d.Thinking}) {
-							return
-						}
-					}
-				case anthropic.InputJSONDelta:
-					toolArgs[ev.Index] = append(toolArgs[ev.Index], []byte(d.PartialJSON)...)
-				}
-			case anthropic.ContentBlockStartEvent:
-				if _, ok := ev.ContentBlock.AsAny().(anthropic.ToolUseBlock); ok {
-					toolArgs[ev.Index] = []byte{}
-				}
-			case anthropic.ContentBlockStopEvent:
-				if int(ev.Index) < len(acc.Content) {
-					if tu, ok := acc.Content[ev.Index].AsAny().(anthropic.ToolUseBlock); ok {
-						args := toolArgs[ev.Index]
-						if len(args) == 0 {
-							args = []byte("{}")
-						}
-						tc := &ToolCall{ID: tu.ID, Name: tu.Name, Arguments: json.RawMessage(args)}
-						delete(toolArgs, ev.Index)
-						if !emit(StreamEvent{Kind: StreamToolCall, Tool: tc}) {
-							return
-						}
-					}
-				}
-			}
-		}
-
-		if err := stream.Err(); err != nil {
-			emit(StreamEvent{Kind: StreamError, Err: wrapAnthropicErr(err)})
-			return
-		}
-
-		u := Usage{
-			InTokens:     int(acc.Usage.InputTokens),
-			OutTokens:    int(acc.Usage.OutputTokens),
-			CachedTokens: int(acc.Usage.CacheReadInputTokens),
-		}
-		emit(StreamEvent{Kind: StreamDone, Usage: &u})
-	}()
+	go processAnthropicStream(ctx, stream, ch)
 
 	return ch, nil
 }
