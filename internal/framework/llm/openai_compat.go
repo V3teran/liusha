@@ -15,7 +15,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"strings"
 
 	openai "github.com/sashabaranov/go-openai"
@@ -380,114 +379,21 @@ func fromOpenAIResponse(resp openai.ChatCompletionResponse, provider, model stri
 // StreamChat 流式生成：事件含 text 增量、聚合后的 tool_call、done（带 usage 估算）。
 // maxTokens ≤ 0 时走构造时的配置默认。支持 ctx 取消（事件通道随当前事件后关闭）。
 func (g *openAICompatGen) StreamChat(ctx context.Context, msgs []Message, tools []ToolSchema, maxTokens int) (<-chan StreamEvent, error) {
-	openaiMsgs, err := toOpenAIMessages(msgs, g.supportsVision)
+	// 1. 准备请求参数
+	creq, err := prepareOpenAICompatRequest(msgs, tools, g.model, maxTokens, g.maxTokens, g.supportsVision)
 	if err != nil {
-		return nil, fmt.Errorf("convert messages: %w", err)
-	}
-	openaiTools, err := toOpenAITools(tools)
-	if err != nil {
-		return nil, fmt.Errorf("convert tools: %w", err)
+		return nil, err
 	}
 
-	creq := openai.ChatCompletionRequest{
-		Model:    g.model,
-		Messages: openaiMsgs,
-		Stream:   true,
-	}
-	if len(openaiTools) > 0 {
-		creq.Tools = openaiTools
-	}
-	mt := g.maxTokens
-	if maxTokens > 0 {
-		mt = maxTokens
-	}
-	if mt > 0 {
-		creq.MaxTokens = mt
-	}
-
+	// 2. 创建流式请求
 	stream, err := g.client.CreateChatCompletionStream(ctx, creq)
 	if err != nil {
 		return nil, wrapOpenAICompatErr(err)
 	}
 
+	// 3. 启动异步处理
 	ch := make(chan StreamEvent, 32)
-	go func() {
-		defer close(ch)
-		defer func() {
-			_ = stream.Close() // Close 可能返回错误，忽略
-		}()
-
-		partial := map[int]*ToolCall{}
-
-		emit := func(e StreamEvent) bool {
-			select {
-			case ch <- e:
-				return true
-			case <-ctx.Done():
-				return false
-			}
-		}
-
-		for {
-			chunk, err := stream.Recv()
-			if errors.Is(err, io.EOF) {
-				break
-			}
-			if err != nil {
-				emit(StreamEvent{Kind: StreamError, Err: wrapOpenAICompatErr(err)})
-				return
-			}
-			if len(chunk.Choices) == 0 {
-				continue
-			}
-			delta := chunk.Choices[0].Delta
-
-			if delta.Content != "" {
-				if !emit(StreamEvent{Kind: StreamText, Content: delta.Content}) {
-					return
-				}
-			}
-
-			for _, tc := range delta.ToolCalls {
-				if tc.Index == nil {
-					continue
-				}
-				i := *tc.Index
-				if _, ok := partial[i]; !ok {
-					partial[i] = &ToolCall{ID: tc.ID, Name: tc.Function.Name, Arguments: []byte("")}
-				} else {
-					if tc.ID != "" {
-						partial[i].ID = tc.ID
-					}
-					if tc.Function.Name != "" {
-						partial[i].Name = tc.Function.Name
-					}
-				}
-				partial[i].Arguments = append(partial[i].Arguments, []byte(tc.Function.Arguments)...)
-			}
-
-			if chunk.Choices[0].FinishReason == openai.FinishReasonToolCalls ||
-				chunk.Choices[0].FinishReason == openai.FinishReasonStop {
-				for i := 0; i < len(partial); i++ {
-					tc, ok := partial[i]
-					if !ok {
-						continue
-					}
-					if len(tc.Arguments) == 0 {
-						tc.Arguments = []byte("{}")
-					}
-					if !emit(StreamEvent{Kind: StreamToolCall, Tool: tc}) {
-						return
-					}
-				}
-				break
-			}
-		}
-
-		// OpenAI 流式 chunk 不返回 usage，发空 Usage
-		u := Usage{}
-		emit(StreamEvent{Kind: StreamDone, Usage: &u})
-	}()
+	go processOpenAICompatStream(ctx, stream, ch)
 
 	return ch, nil
 }
