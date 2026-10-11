@@ -11,6 +11,7 @@ import (
 	"github.com/V3teran/liusha/internal/evaluator"
 	"github.com/V3teran/liusha/internal/explorationgraph"
 	"github.com/V3teran/liusha/internal/framework/core"
+	"github.com/google/uuid"
 )
 
 // stubReplayer 按预设结论回应复现——集成测试只评估"门 + 真 store"咬合，不测真实复现。
@@ -42,9 +43,20 @@ func TestEvaluator_PromoteAgainstRealStore(t *testing.T) {
 	}()
 
 	mkAttempt := func(loc string) evaluator.Attempt {
+		// 晋升门落 observation → result 溯源边 + 审计链 node_id：假设节点必须真实在图，
+		// 且 ID 是合法 uuid（exploration_verification.node_id 为 uuid 列）。
+		hypID := uuid.New().String()
+		if _, err := store.CreateNode(ctx, explorationgraph.Node{
+			ID:      hypID,
+			TaskID:  taskID,
+			Kind:    core.KindObservation,
+			Content: json.RawMessage(`{"statement":"SQLi at ` + loc + `","repro":{}}`),
+		}); err != nil {
+			t.Fatalf("预建假设节点失败: %v", err)
+		}
 		return evaluator.Attempt{
 			TaskID:     taskID,
-			NodeID:     "lead-" + loc,
+			NodeID:     hypID,
 			Kind:       core.KindResult,
 			Primitives: json.RawMessage(`{"request":{"method":"GET","url":"http://` + loc + `/api?id=1","headers":{},"body":""},"assert":{"body_contains":["leaked"]}}`),
 			Content:    json.RawMessage(`{"severity":"high","host":"` + loc + `","summary":"SQLi at ` + loc + `"}`),
@@ -124,14 +136,26 @@ func TestEvaluator_WritesOnlyResultNodes(t *testing.T) {
 		v := evaluator.New(store, stubReplayer{res: evaluator.Result{
 			Evaluation: json.RawMessage(`{"url":"http://t.local/x"}`), DurationMs: 5,
 		}}, nil).WithJudge(replayJudgeITest{verdict: verdict})
+
+		// 晋升门会落 observation → result 溯源边：被裁决的假设节点必须真实在图
+		hypID := uuid.New().String()
+		if _, err := store.CreateNode(ctx, explorationgraph.Node{
+			ID:      hypID,
+			TaskID:  taskID,
+			Kind:    core.KindObservation,
+			Content: json.RawMessage(`{"statement":"s","repro":{}}`),
+		}); err != nil {
+			return nil, err
+		}
+
 		return v.Promote(ctx, evaluator.Attempt{
-			TaskID: taskID, NodeID: "hyp-1", Kind: core.KindResult,
+			TaskID: taskID, NodeID: hypID, Kind: core.KindResult,
 			Primitives: json.RawMessage(`{"domain":"web","recipe":{"request":{"method":"GET","url":"http://t.local/x","headers":{},"body":""}},"assert":{"body_contains":["y"]}}`),
 			Content:    json.RawMessage(`{"summary":"s","severity":"high"}`),
 		})
 	}
 
-	// 坐实：图中新增恰好 1 个节点，且是 result。
+	// 坐实：evaluator 恰好写 1 个 result 节点（测试预建的假设 observation 不算——那是 executor 的写权）。
 	node, err := promote(evaluator.VerdictConfirmed)
 	if err != nil {
 		t.Fatalf("坐实 Promote: %v", err)
@@ -144,8 +168,20 @@ func TestEvaluator_WritesOnlyResultNodes(t *testing.T) {
 		`SELECT array_agg(kind ORDER BY created_at) FROM exploration_node WHERE task_id=$1`, taskID).Scan(&kinds); err != nil {
 		t.Fatalf("查节点: %v", err)
 	}
-	if len(kinds) != 1 || kinds[0] != "result" {
-		t.Errorf("evaluator 应只写 1 个 result 节点（不得写 observation）, got %v", kinds)
+	if len(kinds) != 2 || kinds[0] != "observation" || kinds[1] != "result" {
+		t.Errorf("坐实后应只有假设 observation（executor 写）+ 晋升 result（evaluator 写）, got %v", kinds)
+	}
+
+	// 晋升溯源边：observation → result（generates），result 不是图孤儿。
+	var edgeCount int
+	if err := pool.QueryRow(ctx, `
+		SELECT count(*) FROM exploration_edge
+		WHERE task_id=$1 AND src_id = (SELECT id FROM exploration_node WHERE task_id=$1 AND kind='observation' ORDER BY created_at LIMIT 1)
+		  AND dst_id = $2 AND rel='generates'`, taskID, node.ID).Scan(&edgeCount); err != nil {
+		t.Fatalf("查溯源边: %v", err)
+	}
+	if edgeCount != 1 {
+		t.Errorf("晋升应落 observation → result 的 generates 溯源边, got %d", edgeCount)
 	}
 
 	// 审计链：2 条 verification（坐实+证伪），各含 2 次重放（预跑+裁决复放）。
@@ -157,8 +193,8 @@ func TestEvaluator_WritesOnlyResultNodes(t *testing.T) {
 		`SELECT count(*) FROM exploration_node WHERE task_id=$1`, taskID).Scan(&refutedNodes); err != nil {
 		t.Fatalf("查节点数: %v", err)
 	}
-	if refutedNodes != 1 {
-		t.Errorf("证伪不应新增节点（应仍为 1）, got %d", refutedNodes)
+	if refutedNodes != 3 {
+		t.Errorf("证伪不应由 evaluator 新增节点（仅新增测试预建的第二个假设）, got %d", refutedNodes)
 	}
 	var verCount, replayCount int
 	if err := pool.QueryRow(ctx, `

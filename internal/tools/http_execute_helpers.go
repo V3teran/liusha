@@ -121,7 +121,7 @@ func (t *httpRequestTool) buildToolResult(req *http.Request, resp *http.Response
 		snippet = snippet[:httpRespBodySnippet]
 	}
 
-	// 返回完整的 request/response 信息，供 write_observation 构造自包含的 repro
+	// 返回完整的 request/response 信息，供 executor 构造自包含的 repro
 	out, _ := json.Marshal(map[string]interface{}{
 		"traffic_id": trafficID,
 		"session": map[string]interface{}{

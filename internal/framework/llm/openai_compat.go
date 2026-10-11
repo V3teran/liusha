@@ -75,6 +75,15 @@ func (g *openAICompatGen) Generate(ctx context.Context, msgs []Message, tools []
 
 // GenerateWithOpts 实现 OptionsGenerator：按调用透传采样温度等可选参数。
 func (g *openAICompatGen) GenerateWithOpts(ctx context.Context, msgs []Message, tools []ToolSchema, opts GenOpts) (Result, error) {
+	// 前置校验 messages 格式，防止 API 400 错误
+	if err := validateMessagesForAPI(msgs); err != nil {
+		// 尝试降级修复
+		msgs = truncateMessagesToFit(msgs, 20) // 保留最近 20 轮对话
+		if err := validateMessagesForAPI(msgs); err != nil {
+			return Result{}, fmt.Errorf("messages 校验失败且无法修复: %w", err)
+		}
+	}
+
 	openaiMsgs, err := toOpenAIMessages(msgs, g.supportsVision)
 	if err != nil {
 		return Result{}, fmt.Errorf("convert messages: %w", err)
@@ -100,14 +109,187 @@ func (g *openAICompatGen) GenerateWithOpts(ctx context.Context, msgs []Message, 
 
 	resp, err := g.client.CreateChatCompletion(ctx, req)
 	if err != nil {
-		// 增强错误信息：包含消息数量等上下文，便于排查
-		return Result{}, fmt.Errorf("openai-compat generate (provider=%s, model=%s, msg_count=%d, tool_count=%d): %w",
-			g.provider, g.model, len(openaiMsgs), len(openaiTools), wrapOpenAICompatErr(err))
+		// 增强错误信息：消息数量 + roles 形状摘要，便于远程排障（4xx 多为序列形状问题）
+		return Result{}, fmt.Errorf("openai-compat generate (provider=%s, model=%s, msg_count=%d, tool_count=%d, shape=%s): %w",
+			g.provider, g.model, len(openaiMsgs), len(openaiTools), messageShape(openaiMsgs), wrapOpenAICompatErr(err))
 	}
 	if len(resp.Choices) == 0 {
 		return Result{}, fmt.Errorf("openai-compat generate: 0 choices returned")
 	}
 	return fromOpenAIResponse(resp, g.provider, g.model), nil
+}
+
+// messageShape 把消息序列压成紧凑形状摘要（如 "sys,user,a(2),t,t"），
+// 随 4xx 错误输出——远程排障时不用回放就能看出序列形状。
+func messageShape(msgs []openai.ChatCompletionMessage) string {
+	parts := make([]string, 0, len(msgs))
+	for _, m := range msgs {
+		switch m.Role {
+		case openai.ChatMessageRoleSystem:
+			parts = append(parts, "sys")
+		case openai.ChatMessageRoleUser:
+			parts = append(parts, "user")
+		case openai.ChatMessageRoleAssistant:
+			if len(m.ToolCalls) > 0 {
+				parts = append(parts, fmt.Sprintf("a(%d)", len(m.ToolCalls)))
+			} else {
+				parts = append(parts, "a")
+			}
+		case openai.ChatMessageRoleTool:
+			parts = append(parts, "t")
+		default:
+			parts = append(parts, m.Role)
+		}
+	}
+	const maxParts = 40
+	if len(parts) > maxParts {
+		parts = append(parts[:maxParts], "…")
+	}
+	return strings.Join(parts, ",")
+}
+
+// validateMessagesForAPI 校验 messages 数组是否符合 OpenAI 协议规范（GLM 等严格实现）。
+//
+// 检查规则：// 1. 不允许连续的 assistant 消息（会触发 GLM "messages 参数非法"）
+// 2. assistant 含 tool_calls 时，后续必须跟对应数量的 tool 消息
+// 3. tool 消息必须有 tool_call_id 且与前面的 tool_call.id 匹配
+func validateMessagesForAPI(msgs []Message) error {
+	if len(msgs) == 0 {
+		return nil
+	}
+
+	// 跟踪待回应的 tool_call IDs
+	pendingToolCallIDs := make(map[string]bool)
+
+	// 规则 4：首条非 system 消息必须是 user（部分严格实现要求对话从用户轮开始，
+	// 历史压缩把窗口起点对齐到 assistant 时会触发 400 "messages 参数非法"）
+	for _, m := range msgs {
+		if m.Role == RoleSystem {
+			continue
+		}
+		if m.Role != RoleUser {
+			return fmt.Errorf("首条非 system 消息是 %s（要求 user）——严格实现会 400", m.Role)
+		}
+		break
+	}
+
+	for i, m := range msgs {
+		// 规则 1：检查连续 assistant
+		if i > 0 && m.Role == RoleAssistant && msgs[i-1].Role == RoleAssistant {
+			return fmt.Errorf("message[%d]: 不允许连续 assistant 消息（会触发 GLM API 400）", i)
+		}
+
+		// 规则 2：assistant 有 tool_calls 时，记录待回应的 IDs
+		if m.Role == RoleAssistant && len(m.ToolCalls) > 0 {
+			for _, tc := range m.ToolCalls {
+				if tc.ID == "" {
+					return fmt.Errorf("message[%d]: tool_call 缺少 ID", i)
+				}
+				pendingToolCallIDs[tc.ID] = true
+			}
+		}
+
+		// 规则 3：tool 消息必须匹配前面的 tool_call_id
+		if m.Role == RoleTool {
+			if m.ToolCallID == "" {
+				return fmt.Errorf("message[%d]: tool 消息缺少 tool_call_id", i)
+			}
+			if !pendingToolCallIDs[m.ToolCallID] {
+				return fmt.Errorf("message[%d]: tool_call_id=%s 没有对应的 tool_call", i, m.ToolCallID)
+			}
+			delete(pendingToolCallIDs, m.ToolCallID)
+		}
+	}
+
+	// 未回应的 tool_calls（末尾 assistant 带 tool_calls 但结果未追加）是合法的
+	// 中间构建状态，不判错——调用方随后会补上 tool 消息。
+
+	return nil
+}
+
+// truncateMessagesToFit 截断 messages 保留最近 N 轮对话（降级策略）。
+//
+// 保留逻辑：
+// - system 消息永远保留
+// - 保留最近 maxRounds 轮 user/assistant/tool 交互
+// - 确保 tool_calls 和 tool 消息配对完整（关键修复：向前扫描找到完整的 assistant.tool_calls）
+func truncateMessagesToFit(msgs []Message, maxRounds int) []Message {
+	if len(msgs) <= maxRounds*2 {
+		return msgs
+	}
+
+	// 分离 system 和对话消息
+	var systemMsgs []Message
+	var conversationMsgs []Message
+
+	for _, m := range msgs {
+		if m.Role == RoleSystem {
+			systemMsgs = append(systemMsgs, m)
+		} else {
+			conversationMsgs = append(conversationMsgs, m)
+		}
+	}
+
+	// 保留最近的对话消息（确保 tool_calls 完整）
+	startIdx := len(conversationMsgs) - maxRounds*2
+	if startIdx < 0 {
+		startIdx = 0
+	}
+
+	// 向前扫描，找到一个安全的截断点：
+	// 1. 不能从 tool 消息开始（必须包含它对应的 assistant.tool_calls）
+	// 2. 找到最近的一个 assistant 消息（有 tool_calls）或 user 消息作为起点
+	for startIdx > 0 {
+		msg := conversationMsgs[startIdx]
+
+		// 如果是 tool 消息，必须向前找到对应的 assistant.tool_calls
+		if msg.Role == RoleTool {
+			startIdx--
+			continue
+		}
+
+		// 如果是 assistant 且有 tool_calls，检查后面是否有对应的 tool 消息
+		if msg.Role == RoleAssistant && len(msg.ToolCalls) > 0 {
+			// 收集这个 assistant 的所有 tool_call IDs
+			toolCallIDs := make(map[string]bool)
+			for _, tc := range msg.ToolCalls {
+				toolCallIDs[tc.ID] = true
+			}
+
+			// 向后扫描，检查是否所有 tool_call 都有对应的 tool 消息
+			allMatched := true
+			for j := startIdx + 1; j < len(conversationMsgs); j++ {
+				if conversationMsgs[j].Role == RoleTool {
+					delete(toolCallIDs, conversationMsgs[j].ToolCallID)
+				} else if conversationMsgs[j].Role == RoleAssistant {
+					// 遇到下一个 assistant，停止检查
+					break
+				}
+			}
+
+			// 如果还有未匹配的 tool_call，说明截断点在 tool_calls 中间，需要继续向前
+			if len(toolCallIDs) > 0 {
+				allMatched = false
+			}
+
+			if allMatched {
+				break // 找到了安全的截断点
+			}
+		}
+
+		// user 消息总是安全的截断点
+		if msg.Role == RoleUser {
+			break
+		}
+
+		startIdx--
+	}
+
+	result := make([]Message, 0, len(systemMsgs)+len(conversationMsgs)-startIdx)
+	result = append(result, systemMsgs...)
+	result = append(result, conversationMsgs[startIdx:]...)
+
+	return result
 }
 
 // toOpenAIMessages 把内部 Message 转成 sashabaranov ChatCompletionMessage。

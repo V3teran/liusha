@@ -55,6 +55,11 @@ type Config struct {
 
 	FunctionTools []string // function_tools 白名单（agent 配置；nil=全量，空=空集）
 
+	// Activity 返回 action 距最近一次工具活动的时长（可选）。提供后
+	// get_global_state 会向决策者暴露 idle_minutes——kill 判据从
+	// "运行时长"升级为"活动停摆时长"，避免冤杀长时深挖的活跃 action。
+	Activity func(actionID string) (time.Duration, bool)
+
 	SystemPrompt  string // 角色章程（agent.system_prompt，运维经前端可调；空=不渲染）
 	MaxIterations int    // ReAct 迭代上限（agent.max_iterations；0=不设限）
 
@@ -79,7 +84,9 @@ func New(cfg Config) *Agent {
 	// 注册监察工具（function_tools 白名单过滤；nil=全量，空=空集）
 	var registryTools []registry.Tool
 	if registry.Allows(cfg.FunctionTools, "get_global_state") {
-		registryTools = append(registryTools, NewGetGlobalStateTool(cfg.Graph, cfg.TaskID, metricsCollector))
+		tool := NewGetGlobalStateTool(cfg.Graph, cfg.TaskID, metricsCollector)
+		tool.activity = cfg.Activity
+		registryTools = append(registryTools, tool)
 	}
 	if registry.Allows(cfg.FunctionTools, "publish_decision") {
 		registryTools = append(registryTools, NewPublishDecisionTool(cfg.Graph, cfg.EventBus, cfg.TaskID))
@@ -213,7 +220,7 @@ func (a *Agent) buildEvaluationObjective() string {
 - publish_decision：发布监察决策
 
 评估标准：
-- get_global_state 的 running_actions[].running_minutes 给出每个执行中动作的已运行分钟数——超过 20 分钟的应果断 kill_action（不 kill 会占死执行通道）
+- kill_action 只看活动停摆：running_actions[].idle_minutes 超过 25 分钟（远超单次长 LLM 生成）才果断 kill——idle_minutes=-1 表示还没开始干活，超过 10 分钟无活动同样可 kill；running_minutes 长但 idle_minutes 小的动作正在正常深挖，绝不可 kill
 - 大量 failed Actions → 考虑 replan
 - 缺乏进展 → 考虑 replan
 
@@ -221,15 +228,15 @@ func (a *Agent) buildEvaluationObjective() string {
 }
 
 // buildSystemPrompt 组装监察 system prompt：
-// 角色章程（agent.system_prompt——DB 事实源，种子 = agents/monitor.md 正文，前端可调）
-// + 空正文单句兜底。机制契约（kill_action/request_replan 决策 schema）由章程承载，
-// 改契约 = 改 agents/monitor.md + make reseed。
+// 角色章程（agent.system_prompt——DB 事实源，种子 = agents/monitor.md 正文，前端可调）。
+// 机制契约（kill_action/request_replan 决策 schema）由章程承载，
+// 改契约 = 改 agents/monitor.md + make reseed。charter 为空时返回空，由 ReAct.Run 报错。
 func (a *Agent) buildSystemPrompt() string {
-	if c := strings.TrimSpace(a.systemPrompt); c != "" {
-		return c
+	charter := strings.TrimSpace(a.systemPrompt)
+	if charter == "" {
+		return "" // 让 ReAct.Run 报错，强制运维配置
 	}
-	return "你是监察 Agent：调 get_global_state 获取全局状态，分析指标后经 publish_decision 发布决策" +
-		"（type=kill_action 需带 action_id；type=request_replan 请求重规划）。保守决策，数据驱动。"
+	return charter
 }
 
 // ============================================
@@ -258,6 +265,9 @@ type RunningActionView struct {
 	ID             string  `json:"id"`
 	Instruction    string  `json:"instruction"`
 	RunningMinutes float64 `json:"running_minutes"`
+	// IdleMinutes 是距最近一次工具活动的分钟数；-1 = 尚无任何工具活动
+	//（还没开始干活），与"干着干着停了"是两种完全不同的处置依据。
+	IdleMinutes float64 `json:"idle_minutes"`
 }
 
 // Decision 是监察决策。

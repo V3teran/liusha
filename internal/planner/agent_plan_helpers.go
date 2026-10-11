@@ -46,18 +46,17 @@ func (a *Agent) analyzeNewResults(ctx context.Context) error {
 	return nil
 }
 
-// getCompletedActionMap 获取已完成的 Action ID 集合
+// getCompletedActionMap 获取已完成的 Action ID 集合（状态投影，不拉载荷）
 func (a *Agent) getCompletedActionMap(ctx context.Context) (map[string]bool, error) {
-	completedNodes, err := a.graph.ListNodesByKind(ctx, a.taskID, core.KindAction)
+	states, err := a.graph.ListActionStates(ctx, a.taskID)
 	if err != nil {
-		return nil, fmt.Errorf("list actions: %w", err)
+		return nil, fmt.Errorf("list action states: %w", err)
 	}
 
-	// 过滤出已完成的 action
-	completed := make(map[string]bool)
-	for _, node := range completedNodes {
-		if node.State != nil && *node.State == explorationgraph.StateDone {
-			completed[node.ID] = true
+	completed := make(map[string]bool, len(states))
+	for id, state := range states {
+		if state == explorationgraph.StateDone {
+			completed[id] = true
 		}
 	}
 
@@ -132,8 +131,34 @@ func (a *Agent) generateNewActions(ctx context.Context) ([]explorationgraph.Node
 }
 
 // handleNoActions 处理没有生成新 Action 的情况
+// handleNoActions 处理 planner 未生成新 Action 的情况。
+//
+// "本轮无新计划" ≠ "任务收敛"：图上还有非终态 action（running/open/blocked）
+// 时，planner 返回空只是对在途执行的等待——发布收敛会终止整个认知循环、
+// 掐断在途执行与裁决。只有图上再无任何未完结工作且 planner 也没有新方向，
+// 才是真正的收敛。
 func (a *Agent) handleNoActions() {
-	a.logger.Info().Msg("Planner 未生成新 Action（任务收敛）")
-	// ✅ 发布任务收敛事件，触发 CompletionDetector 停止任务
-	a.eventBus.PublishTaskConverged(a.taskID, "planner: no more actions to generate")
+	if a.hasUnsettledWork() {
+		a.logger.Info().Msg("Planner 暂无新 Action，但仍有在途/待执行动作——等待其产出，不收敛")
+		return
+	}
+
+	a.logger.Info().Msg("Planner 未生成新 Action 且图上无未完结动作（任务收敛）")
+	a.eventBus.PublishTaskConverged(a.taskID, "planner: no actions and no unsettled work in graph")
+}
+
+// hasUnsettledWork 判断图上是否还有非终态 action（running/open/blocked）。
+// 判定失败保守返回 true（宁可多跑，不误终止任务）。
+func (a *Agent) hasUnsettledWork() bool {
+	states, err := a.graph.ListActionStates(context.Background(), a.taskID)
+	if err != nil {
+		a.logger.Warn().Err(err).Msg("读取 action 状态失败，保守视为仍有未完结工作")
+		return true
+	}
+	for _, state := range states {
+		if !state.IsTerminal() {
+			return true
+		}
+	}
+	return false
 }

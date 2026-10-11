@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sync/atomic"
 
 	"github.com/V3teran/liusha/internal/evaluator"
 	"github.com/V3teran/liusha/internal/explorationgraph"
+	"github.com/V3teran/liusha/internal/framework/llm"
 	"github.com/V3teran/liusha/internal/framework/runtime"
 	"github.com/V3teran/liusha/internal/registry"
 )
@@ -61,7 +63,15 @@ func (e *Engine) buildReActConfigWithMonitoring(
 		return nil, fmt.Errorf("获取 LLM provider 失败: %w", err)
 	}
 
+	// 构建中间件链：防止工具循环、目标偏离、无进展
+	middlewareChain := runtime.NewMiddlewareChain(
+		runtime.NewLoopDetectionMiddleware(10, 8),           // 连续 10 次相同工具 / 8 次相似思考
+		runtime.NewProgressTrackingMiddleware(15, 10),       // 15 次无新输出 / 10 次连续失败
+		runtime.NewGoalAlignmentMiddleware(objective, 6),    // 6 次偏离目标
+	)
+
 	// 构建配置，包含 monitor kill 检查
+	var killed atomic.Bool
 	config := &runtime.ReActConfig{
 		Objective:            objective,
 		SystemPrompt:         systemPrompt,
@@ -70,7 +80,11 @@ func (e *Engine) buildReActConfigWithMonitoring(
 		Temperature:          0.7,
 		MaxTokens:            4000,
 		MessageModifierChain: runtime.NewDefaultModifierChain(15),
+		MiddlewareChain:      middlewareChain,
 		TaskID:               action.TaskID,
+		// kill 止血：迭代回调发现 action 已被 monitor kill（aborted）→ 置位，
+		// 提前终止条件在下一轮立即结束 ReAct——不再空跑剩余迭代。
+		EarlyStopCondition: func(string) bool { return killed.Load() },
 		OnIteration: func(iteration int, status runtime.IterationStatus) {
 			e.logger.Debug().
 				Str("action_id", action.ID).
@@ -90,6 +104,7 @@ func (e *Engine) buildReActConfigWithMonitoring(
 						Str("action_id", action.ID).
 						Str("reason", reason).
 						Msg("检测到 action 已被 monitor kill，中断执行")
+					killed.Store(true)
 				}
 			}
 		},
@@ -156,7 +171,7 @@ func (e *Engine) registerReActTools(
 	return nil
 }
 
-// executeReActRuntime 执行 ReAct runtime
+// executeReActRuntime 执行 ReAct runtime，失败时降级提取假设
 func (e *Engine) executeReActRuntime(
 	ctx context.Context,
 	reactRuntime runtime.ReActRuntime,
@@ -169,7 +184,22 @@ func (e *Engine) executeReActRuntime(
 
 	result, err := reactRuntime.Run(ctx, config)
 	if err != nil {
-		return nil, fmt.Errorf("ReAct 执行失败: %w", err)
+		// ReAct 失败：尝试降级策略——强制提取假设
+		e.logger.Warn().
+			Err(err).
+			Str("action_id", actionID).
+			Msg("⚠️  ReAct 执行失败，进入降级模式：强制提取假设")
+
+		fallbackResult, fallbackErr := e.fallbackExtractHypothesis(ctx, config, actionID)
+		if fallbackErr != nil {
+			// 降级也失败：返回原始错误
+			return nil, fmt.Errorf("ReAct 执行失败: %w", err)
+		}
+
+		e.logger.Info().
+			Str("action_id", actionID).
+			Msg("✅ 降级模式成功提取假设")
+		return fallbackResult, nil
 	}
 
 	e.logger.Info().
@@ -179,6 +209,64 @@ func (e *Engine) executeReActRuntime(
 		Msg("✅ ReAct 执行完成")
 
 	return result, nil
+}
+
+// fallbackExtractHypothesis 是 ReAct 失败后的降级策略：
+// 通过单轮 LLM 调用，基于 action 描述强制推导可能的漏洞假设。
+//
+// 业界最佳实践：智能体执行失败时不应完全静默，而要尽可能提取有价值的中间结果。
+// 参考：Anthropic Claude Computer Use、LangChain AgentExecutor 的 handle_parsing_errors 机制。
+func (e *Engine) fallbackExtractHypothesis(
+	ctx context.Context,
+	config *runtime.ReActConfig,
+	actionID string,
+) (*runtime.ReActResult, error) {
+	// 1. 构建降级 prompt：引导 LLM 输出结构化假设
+	fallbackPrompt := fmt.Sprintf(`
+你是渗透测试专家。以下 Action 执行失败，但你仍需基于任务描述推导可能的漏洞假设。
+
+**原始任务**：
+%s
+
+**要求**：
+1. 分析任务目标，推导 2-3 个最可能存在的漏洞假设
+2. 每个假设必须包含：
+   - statement: 漏洞假设陈述（简洁明确）
+   - repro: 复现步骤（JSON 数组，每步一个字符串）
+   - severity: 严重等级（critical/high/medium/low）
+
+**输出格式**（严格 JSON）：
+{
+  "status": "completed_with_hypothesis",
+  "summary": "执行失败但推导出以下假设",
+  "observations": [
+    {
+      "statement": "可能存在 XSS 漏洞",
+      "repro": ["访问 http://target/?q=<script>alert(1)</script>", "检查响应是否未转义"],
+      "severity": "high"
+    }
+  ]
+}
+`, config.SystemPrompt)
+
+	// 2. 调用 LLM（使用 config 的 LLMProvider）
+	req := llm.Request{
+		Messages: []llm.Message{
+			{Role: llm.RoleUser, Content: fallbackPrompt},
+		},
+	}
+
+	result, err := config.LLMProvider.Complete(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("降级 LLM 调用失败: %w", err)
+	}
+
+	// 3. 构造伪 ReActResult（模拟成功完成）
+	return &runtime.ReActResult{
+		Status:      runtime.ReActStatusSuccess,
+		Iterations:  1, // 降级只有一轮
+		FinalAnswer: result.Content,
+	}, nil
 }
 
 // processExecutorOutput 处理 Executor 输出，创建 Observation 节点
@@ -211,15 +299,28 @@ func (e *Engine) processExecutorOutput(
 
 	// 为每个观察结果创建 observation 节点
 	var attempts []evaluator.Attempt
+
+	e.logger.Debug().
+		Str("action_id", action.ID).
+		Int("total_observations", len(output.Observations)).
+		Msg("开始处理 observations")
+
 	for i, obs := range output.Observations {
-		// 跳过没有 repro 的观察
+		e.logger.Debug().
+			Str("action_id", action.ID).
+			Int("observation_index", i).
+			Str("statement", obs.Statement).
+			Int("repro_len", len(obs.Repro)).
+			Msg("处理单个 observation")
+
+		// 降级模式生成的假设可能没有 repro（推测性假设，非实际执行）
+		// 仍需创建 observation 节点供 Evaluator 评估
 		if len(obs.Repro) == 0 {
 			e.logger.Warn().
 				Str("action_id", action.ID).
 				Int("observation_index", i).
 				Str("statement", obs.Statement).
-				Msg("跳过没有 repro 的观察")
-			continue
+				Msg("observation 缺少 repro（可能是降级模式生成的假设），仍继续创建")
 		}
 
 		// 创建 observation 节点

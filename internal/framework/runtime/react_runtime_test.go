@@ -257,8 +257,9 @@ func TestReActRuntime_EarlyStopCondition(t *testing.T) {
 	assert.Equal(t, 1, result.Iterations)
 }
 
-// TestReActRuntime_MessageHistory 测试消息历史保留
-func TestReActRuntime_MessageHistory(t *testing.T) {
+// TestReActRuntime_RunIsolationAndContinuation 验证 Run 的自包含语义：
+// 复用同一运行时的多次 Run 互不串扰；跨 Run 延续必须显式经 InitialHistory 传入。
+func TestReActRuntime_RunIsolationAndContinuation(t *testing.T) {
 	runtime := NewReActRuntime()
 
 	mockProvider := &mockLLMProvider{
@@ -277,21 +278,27 @@ func TestReActRuntime_MessageHistory(t *testing.T) {
 	config.Objective = "问题1"
 	result1, err := runtime.Run(context.Background(), config)
 	require.NoError(t, err)
+	require.NotEmpty(t, result1.MessageHistory)
 
-	// 验证历史被保留
-	history := runtime.GetMessageHistory()
-	assert.Greater(t, len(history), 0)
-
-	// 第二轮对话（应该包含第一轮的历史）
+	// 第二轮对话（同一运行时）：不得隐式携带第一轮历史
 	mockProvider.callIndex = 0
 	mockProvider.responses[0].Content = "回答2"
 	config.Objective = "问题2"
-
 	result2, err := runtime.Run(context.Background(), config)
 	require.NoError(t, err)
 
-	// 验证第二轮包含第一轮的历史
-	assert.Greater(t, len(result2.MessageHistory), len(result1.MessageHistory))
+	// 两次 Run 历史长度一致（各含 system + user + assistant）
+	assert.Equal(t, len(result1.MessageHistory), len(result2.MessageHistory),
+		"复用同一运行时不得隐式携带上一轮历史")
+
+	// 显式延续：InitialHistory 携带第一轮历史
+	mockProvider.callIndex = 0
+	config.InitialHistory = result1.MessageHistory
+	config.Objective = "追问"
+	result3, err := runtime.Run(context.Background(), config)
+	require.NoError(t, err)
+	assert.Greater(t, len(result3.MessageHistory), len(result1.MessageHistory),
+		"显式 InitialHistory 延续应包含传入的历史")
 }
 
 // TestReActRuntime_ContextCancellation 测试上下文取消

@@ -65,9 +65,6 @@ func BuildTools(deps Deps, names []string) []registry.Tool {
 	}
 
 	// exploration graph（写入观察和证据，快速且安全）
-	if deps.Graph != nil {
-		add(newWriteObservationTool(deps, constants.ToolTimeoutMedium, true))
-	}
 
 	if len(names) == 0 {
 		return all

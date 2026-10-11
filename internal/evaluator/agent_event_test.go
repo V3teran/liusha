@@ -142,8 +142,9 @@ func TestEvaluatorAgent_EventSubscription(t *testing.T) {
 	}
 }
 
-// TestEvaluatorAgent_HandleEvent_Deduplication 测试 handleEvent 的去重逻辑
-func TestEvaluatorAgent_HandleEvent_Deduplication(t *testing.T) {
+// TestEvaluatorAgent_InFlightGuard 测试事件与轮询并发触发同一假设时的
+// 在途防重入：tryAcquire 先到先得，release 后可再次进入。
+func TestEvaluatorAgent_InFlightGuard(t *testing.T) {
 	ctx := context.Background()
 
 	// 创建依赖
@@ -153,44 +154,27 @@ func TestEvaluatorAgent_HandleEvent_Deduplication(t *testing.T) {
 
 	// 创建 agent
 	agent := &Agent{
-		taskID:       taskID,
-		graph:        graph,
-		eventBus:     eventBus,
-		logger:       zerolog.New(zerolog.NewTestWriter(t)),
-		processedObs: make(map[string]bool),
+		taskID:    taskID,
+		graph:     graph,
+		eventBus:  eventBus,
+		logger:    zerolog.New(zerolog.NewTestWriter(t)),
+		verifying: map[string]bool{},
 	}
 
-	// 模拟已处理的 observation
 	observationID := "obs-1"
 
-	// 第一次：未处理
-	agent.processedObsMu.Lock()
-	isProcessed1 := agent.processedObs[observationID]
-	agent.processedObsMu.Unlock()
-	assert.False(t, isProcessed1, "初始状态应该未处理")
+	// 第一次：成功占用
+	assert.True(t, agent.tryAcquire(observationID), "初始状态应可占用")
 
-	// 标记为已处理（模拟 handleEvent 的行为）
-	agent.processedObsMu.Lock()
-	agent.processedObs[observationID] = true
-	agent.processedObsMu.Unlock()
+	// 第二次：在途，拒绝并发重入
+	assert.False(t, agent.tryAcquire(observationID), "在途假设不得重复进入验证")
 
-	// 第二次：应该被标记为已处理
-	agent.processedObsMu.Lock()
-	isProcessed2 := agent.processedObs[observationID]
-	agent.processedObsMu.Unlock()
-	assert.True(t, isProcessed2, "应该标记为已处理")
+	// 释放后：可再次占用（裁决出错重试路径）
+	agent.release(observationID)
+	assert.True(t, agent.tryAcquire(observationID), "释放后应可再次占用")
 
-	// 验证去重逻辑（尝试再次标记，应该返回 true）
-	agent.processedObsMu.Lock()
-	alreadyProcessed := agent.processedObs[observationID]
-	if !alreadyProcessed {
-		agent.processedObs[observationID] = true
-	}
-	count := len(agent.processedObs)
-	agent.processedObsMu.Unlock()
+	// 互不干扰：其他假设不受影响
+	assert.True(t, agent.tryAcquire("obs-2"), "不同假设互不阻塞")
 
-	assert.True(t, alreadyProcessed, "去重检查应该返回 true")
-	assert.Equal(t, 1, count, "应该只有一个条目")
-
-	t.Log("✅ 去重机制工作正常")
+	t.Log("✅ 在途防重入机制工作正常")
 }

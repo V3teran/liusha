@@ -24,6 +24,7 @@ package evaluator
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/url"
 	"time"
@@ -41,10 +42,12 @@ import (
 //
 // 图的写权限不变式：planner 写 objective/action，executor 写 observation，
 // evaluator 只**新建** result（晋升）；对既有假设节点仅做 metadata 审判标记
-// （verification_outcome），不新建节点。复放证据不走图——落 exploration_verification 审计链。
+// （verification_outcome + confidence），不新建节点。复放证据不走图——
+// 落 exploration_verification 审计链。
 type graphWriter interface {
 	RecordVerification(ctx context.Context, v explorationgraph.Verification) (string, error)
 	CreateNode(ctx context.Context, n explorationgraph.Node) (string, error)
+	CreateNodeWithEdges(ctx context.Context, n explorationgraph.Node, edges []explorationgraph.Edge) error
 	UpdateNodeMetadata(ctx context.Context, id string, metadata json.RawMessage) error
 }
 
@@ -81,6 +84,11 @@ const (
 	VerdictConfirmed = "confirmed"
 	VerdictRefuted   = "refuted"
 )
+
+// ErrAssertNotDiscriminative 是复现方的"质量拒绝"哨兵：断言无鉴别力
+// （自指、基线同样命中等）——配方被证明无法构成漏洞证据。这不是门故障
+// （可重试），而是对这条假设的**证伪裁决**：走审计链留档，不走重试上限。
+var ErrAssertNotDiscriminative = errors.New("assert not discriminative")
 
 // PromotionEvaluator 是 Observation→图节点的晋升门。
 type PromotionEvaluator struct {
@@ -153,6 +161,10 @@ func (v *PromotionEvaluator) Promote(ctx context.Context, a Attempt) (*explorati
 	// 3. 预跑阶段
 	res, err := v.executePrerun(ctx, replay)
 	if err != nil {
+		// 质量拒绝（断言无鉴别力）是对假设的证伪裁决：留审计链，不走重试
+		if errors.Is(err, ErrAssertNotDiscriminative) {
+			return v.refuteByQualityGate(ctx, a, err)
+		}
 		return nil, err
 	}
 
@@ -181,7 +193,7 @@ func (v *PromotionEvaluator) Promote(ctx context.Context, a Attempt) (*explorati
 	}
 
 	// 9. 记录验证到审计链
-	verID, err := v.recordVerification(ctx, a, nodeID, outcome, evaluation, final.DurationMs)
+	verID, err := v.recordVerification(ctx, a, outcome, evaluation, final.DurationMs)
 	if err != nil {
 		return nil, err
 	}
@@ -223,6 +235,40 @@ func assertPassedInEvidence(evidence json.RawMessage) bool {
 	return *e.AssertPassed
 }
 
+// refuteByQualityGate 把"断言无鉴别力"的质量拒绝落成正式证伪：审计链留档
+// （带 quality_gate 标记与拒绝理由）、假设节点 confidence 流转为 refuted。
+// 语义区别于 invalid_recipe（门故障止损）：这是裁决结论——配方证明了
+// 命中不构成漏洞证据。
+func (v *PromotionEvaluator) refuteByQualityGate(ctx context.Context, a Attempt, cause error) (*explorationgraph.Node, error) {
+	evaluation, _ := json.Marshal(map[string]interface{}{
+		"quality_gate": true,
+		"reason":       cause.Error(),
+		"phase":        "prerun",
+	})
+
+	verID, err := v.graph.RecordVerification(ctx, explorationgraph.Verification{
+		ID:         uuid.New().String(),
+		TaskID:     a.TaskID,
+		NodeID:     a.NodeID,
+		Primitives: a.Primitives,
+		Outcome:    explorationgraph.OutcomeRefuted,
+		Evaluation: evaluation,
+		CreatedAt:  time.Now(),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("verifier: 质量拒绝留档失败: %w", err)
+	}
+
+	v.markHypothesisNode(ctx, a, verID, explorationgraph.OutcomeRefuted, "", false)
+	if v.logger != nil {
+		v.logger.Info().
+			Str("node_id", a.NodeID).
+			Str("reason", cause.Error()).
+			Msg("质量门证伪（断言无鉴别力）")
+	}
+	return nil, nil
+}
+
 // refuteEarly 断言未命中时的机器证伪路径：落 verification 审计（不打扰 judge）、
 // 给假设节点打 refuted 标记、发布 refuted 事件语义（node=nil）。
 func (v *PromotionEvaluator) refuteEarly(
@@ -236,7 +282,7 @@ func (v *PromotionEvaluator) refuteEarly(
 	verID, err := v.graph.RecordVerification(ctx, explorationgraph.Verification{
 		ID:         uuid.New().String(),
 		TaskID:     a.TaskID,
-		NodeID:     uuid.New().String(),
+		NodeID:     a.NodeID,
 		Primitives: a.Primitives,
 		Outcome:    explorationgraph.OutcomeRefuted,
 		Evaluation: evaluation,
@@ -254,6 +300,7 @@ func (v *PromotionEvaluator) refuteEarly(
 			"verification_id":      verID,
 			"verification_outcome": explorationgraph.OutcomeRefuted,
 			"verification_at":      time.Now().Format(time.RFC3339),
+			"confidence":           explorationgraph.ConfidenceRefuted,
 			"refuted_by":           "machine_guard",
 		})
 		if uErr := v.graph.UpdateNodeMetadata(ctx, a.NodeID, mark); uErr != nil && v.logger != nil {

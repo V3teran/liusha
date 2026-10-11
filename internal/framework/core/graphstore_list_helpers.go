@@ -28,14 +28,6 @@ func buildWhereClause(query GraphNodeQuery) (string, []interface{}, int) {
 		argIndex++
 	}
 
-	if query.MinConfidence > 0 {
-		// confidence 存于 metadata["_confidence"]（浮点）
-		whereParts = append(whereParts, fmt.Sprintf(
-			"(metadata->>'_confidence')::float >= $%d", argIndex))
-		args = append(args, query.MinConfidence)
-		argIndex++
-	}
-
 	// Filters：task_id 走列（有索引），其余支持 metadata.xxx 路径
 	for key, value := range query.Filters {
 		if key == "task_id" {

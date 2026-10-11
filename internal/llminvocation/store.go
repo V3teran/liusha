@@ -428,6 +428,17 @@ func (s *Store) CountByTask(ctx context.Context, taskID string, f ListFilter) (i
 	return total, nil
 }
 
+// DeleteOlderThan 删除 created_at 早于 cutoff 的调用记录，返回删除行数。
+// 记录含完整 prompt/response 敏感载荷，留存策略由调用方周期执行（如每日）。
+// 删除前调用方应先 Flush()，保证 buffer 内的新记录不被误删窗口漏算。
+func (s *Store) DeleteOlderThan(ctx context.Context, cutoff time.Time) (int64, error) {
+	tag, err := s.pool.Exec(ctx, `DELETE FROM llm_invocation WHERE created_at < $1`, cutoff)
+	if err != nil {
+		return 0, fmt.Errorf("delete llm_invocation older than %s: %w", cutoff.Format(time.RFC3339), err)
+	}
+	return tag.RowsAffected(), nil
+}
+
 // Facets 是筛选下拉的候选值（该 task 下实际出现过的 role / model 去重集合）。
 type Facets struct {
 	Roles  []string

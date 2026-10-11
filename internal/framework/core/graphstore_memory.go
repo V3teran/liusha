@@ -25,15 +25,14 @@ func NewInMemoryGraphStore() GraphStore {
 // copyGraphNode 深拷贝节点（含全部字段），避免调用方与 store 内部状态共享引用。
 func copyGraphNode(node *GraphNode) *GraphNode {
 	nodeCopy := &GraphNode{
-		ID:         node.ID,
-		Kind:       node.Kind,
-		Content:    append([]byte(nil), node.Content...),
-		State:      node.State,
-		Confidence: node.Confidence,
-		Version:    node.Version,
-		Metadata:   make(map[string]interface{}),
-		CreatedAt:  node.CreatedAt,
-		UpdatedAt:  node.UpdatedAt,
+		ID:        node.ID,
+		Kind:      node.Kind,
+		Content:   append([]byte(nil), node.Content...),
+		State:     node.State,
+		Version:   node.Version,
+		Metadata:  make(map[string]interface{}),
+		CreatedAt: node.CreatedAt,
+		UpdatedAt: node.UpdatedAt,
 	}
 
 	for k, v := range node.Metadata {
@@ -126,7 +125,7 @@ func (s *InMemoryGraphStore) UpdateNode(_ context.Context, id string, update Gra
 	return nil
 }
 
-// CompareAndSwapState 原子更新节点状态（使用乐观锁）
+// CompareAndSwapState 原子更新节点状态（单锁内完成条件检查与写入）。
 func (s *InMemoryGraphStore) CompareAndSwapState(_ context.Context, taskID, nodeID string, expectedState, newState string) (bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -138,7 +137,6 @@ func (s *InMemoryGraphStore) CompareAndSwapState(_ context.Context, taskID, node
 
 	// 检查 taskID（如果提供）
 	if taskID != "" {
-		// 从 metadata 中获取 task_id
 		if node.Metadata != nil {
 			if tid, ok := node.Metadata["task_id"].(string); ok && tid != taskID {
 				return false, nil // 不属于该任务
@@ -200,11 +198,6 @@ func (s *InMemoryGraphStore) ListNodes(_ context.Context, query GraphNodeQuery) 
 			continue
 		}
 
-		// 过滤最小置信度（0 表示不过滤）
-		if query.MinConfidence > 0 && node.Confidence < query.MinConfidence {
-			continue
-		}
-
 		// 过滤 Metadata
 		match := true
 		for k, v := range query.Filters {
@@ -237,10 +230,35 @@ func (s *InMemoryGraphStore) ListNodes(_ context.Context, query GraphNodeQuery) 
 	return result, nil
 }
 
+// CreateNodeWithEdges 创建节点及边，失败时回滚本次已写入的部分——
+// 与 Postgres 事务实现保持一致的"全有或全无"语义。
+func (s *InMemoryGraphStore) CreateNodeWithEdges(ctx context.Context, node *GraphNode, edges []*GraphEdge) error {
+	if err := s.CreateNode(ctx, node); err != nil {
+		return err
+	}
+	created := make([]*GraphEdge, 0, len(edges))
+	for _, edge := range edges {
+		if err := s.CreateEdge(ctx, edge); err != nil {
+			// 回滚：删除已建的边与节点
+			for _, e := range created {
+				_ = s.DeleteEdge(ctx, e.From, e.To, e.Relation)
+			}
+			_ = s.DeleteNode(ctx, node.ID)
+			return err
+		}
+		created = append(created, edge)
+	}
+	return nil
+}
+
 // CreateEdge 创建边
 func (s *InMemoryGraphStore) CreateEdge(_ context.Context, edge *GraphEdge) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	if edge.TaskID == "" {
+		return fmt.Errorf("edge task_id cannot be empty")
+	}
 
 	// 检查节点是否存在
 	if _, exists := s.nodes[edge.From]; !exists {
@@ -253,6 +271,7 @@ func (s *InMemoryGraphStore) CreateEdge(_ context.Context, edge *GraphEdge) erro
 
 	// 深拷贝
 	edgeCopy := &GraphEdge{
+		TaskID:   edge.TaskID,
 		From:     edge.From,
 		To:       edge.To,
 		Relation: edge.Relation,
@@ -261,6 +280,14 @@ func (s *InMemoryGraphStore) CreateEdge(_ context.Context, edge *GraphEdge) erro
 
 	for k, v := range edge.Metadata {
 		edgeCopy.Metadata[k] = v
+	}
+
+	// 幂等：同 (task_id, from, relation, to) 已存在则跳过
+	for _, existing := range s.edges {
+		if existing.TaskID == edge.TaskID && existing.From == edge.From &&
+			existing.Relation == edge.Relation && existing.To == edge.To {
+			return nil
+		}
 	}
 
 	s.edges = append(s.edges, edgeCopy)
@@ -275,6 +302,11 @@ func (s *InMemoryGraphStore) ListEdges(_ context.Context, query GraphEdgeQuery) 
 	result := make([]*GraphEdge, 0)
 
 	for _, edge := range s.edges {
+		// 过滤 TaskID
+		if query.TaskID != "" && edge.TaskID != query.TaskID {
+			continue
+		}
+
 		// 过滤 From
 		if query.From != "" && edge.From != query.From {
 			continue
@@ -292,6 +324,7 @@ func (s *InMemoryGraphStore) ListEdges(_ context.Context, query GraphEdgeQuery) 
 
 		// 深拷贝
 		edgeCopy := &GraphEdge{
+			TaskID:   edge.TaskID,
 			From:     edge.From,
 			To:       edge.To,
 			Relation: edge.Relation,
@@ -337,102 +370,3 @@ func (s *InMemoryGraphStore) DeleteEdge(_ context.Context, from, to, relation st
 	return nil
 }
 
-// Traverse 遍历图
-func (s *InMemoryGraphStore) Traverse(_ context.Context, startID string, query GraphTraverseQuery) ([]*GraphNode, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	if _, exists := s.nodes[startID]; !exists {
-		return nil, fmt.Errorf("%w: start node %s", ErrGraphNodeNotFound, startID)
-	}
-
-	visited := make(map[string]bool)
-	result := make([]*GraphNode, 0)
-
-	// nodeMatches 判断节点是否满足 NodeFilter（不阻断遍历，仅决定是否进入结果集）
-	nodeMatches := func(node *GraphNode) bool {
-		if query.NodeFilter == nil {
-			return true
-		}
-		if query.NodeFilter.Kind != "" && node.Kind != query.NodeFilter.Kind {
-			return false
-		}
-		if query.NodeFilter.State != "" && node.State != query.NodeFilter.State {
-			return false
-		}
-		return true
-	}
-
-	var traverse func(nodeID string, depth int)
-	traverse = func(nodeID string, depth int) {
-		// 检查深度限制
-		if query.MaxDepth > 0 && depth > query.MaxDepth {
-			return
-		}
-
-		// 检查是否已访问
-		if visited[nodeID] {
-			return
-		}
-
-		visited[nodeID] = true
-		node := s.nodes[nodeID]
-
-		// NodeFilter 只过滤结果集；子节点遍历不受影响，
-		// 否则起点不匹配时会整棵子树被剪掉。
-		if nodeMatches(node) {
-			result = append(result, copyGraphNode(node))
-		}
-
-		// 遍历子节点（根据方向）
-		for _, edge := range s.edges {
-			var nextNodeID string
-			matched := false
-
-			// 根据方向匹配边
-			switch query.Direction {
-			case GraphTraverseOut, "":
-				if edge.From == nodeID {
-					nextNodeID = edge.To
-					matched = true
-				}
-			case GraphTraverseIn:
-				if edge.To == nodeID {
-					nextNodeID = edge.From
-					matched = true
-				}
-			case GraphTraverseBoth:
-				if edge.From == nodeID {
-					nextNodeID = edge.To
-					matched = true
-				} else if edge.To == nodeID {
-					nextNodeID = edge.From
-					matched = true
-				}
-			}
-
-			if !matched {
-				continue
-			}
-
-			// 过滤边关系
-			if len(query.Relations) > 0 {
-				found := false
-				for _, rel := range query.Relations {
-					if edge.Relation == rel {
-						found = true
-						break
-					}
-				}
-				if !found {
-					continue
-				}
-			}
-
-			traverse(nextNodeID, depth+1)
-		}
-	}
-
-	traverse(startID, 0)
-	return result, nil
-}

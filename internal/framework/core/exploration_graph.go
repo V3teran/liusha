@@ -43,7 +43,7 @@ const (
 	RelationGenerates RelationKind = "generates"
 
 	// RelationConfirms 表示确认关系（evidence → observation）
-	// 语义：executor 侧证据（write_evidence，content.type=evidence 的 observation）确认假设
+	// 语义：executor 侧证据（content.type=evidence 的 observation）确认假设
 	RelationConfirms RelationKind = "confirms"
 
 	// RelationRefutes 表示反驳关系（evidence → observation）
@@ -122,43 +122,6 @@ const (
 
 	// PriorityLow 低（P3）
 	PriorityLow Priority = "low"
-)
-
-// EvaluationOutcome 是评估的结论
-type EvaluationOutcome string
-
-const (
-	// OutcomeConfirmed 确认为真
-	OutcomeConfirmed EvaluationOutcome = "confirmed"
-
-	// OutcomeRefuted 确认为假
-	OutcomeRefuted EvaluationOutcome = "refuted"
-
-	// OutcomeUncertain 不确定
-	OutcomeUncertain EvaluationOutcome = "uncertain"
-
-	// OutcomePartial 部分正确
-	OutcomePartial EvaluationOutcome = "partial"
-)
-
-// ActionComplexity 是动作的复杂度
-type ActionComplexity int
-
-const (
-	// ComplexityTrivial 简单（<1 分钟）
-	ComplexityTrivial ActionComplexity = 1
-
-	// ComplexitySimple 简单（1-5 分钟）
-	ComplexitySimple ActionComplexity = 2
-
-	// ComplexityModerate 中等（5-30 分钟）
-	ComplexityModerate ActionComplexity = 3
-
-	// ComplexityComplex 复杂（30 分钟-2 小时）
-	ComplexityComplex ActionComplexity = 4
-
-	// ComplexityVeryComplex 非常复杂（>2 小时）
-	ComplexityVeryComplex ActionComplexity = 5
 )
 
 // IsTerminal 判断动作状态是否为终态

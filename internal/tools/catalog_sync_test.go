@@ -8,7 +8,6 @@ import (
 
 	"github.com/V3teran/liusha/internal/corpus"
 	"github.com/V3teran/liusha/internal/credential"
-	"github.com/V3teran/liusha/internal/explorationgraph"
 	"github.com/V3teran/liusha/internal/finding"
 	"github.com/V3teran/liusha/internal/insight"
 	"github.com/V3teran/liusha/internal/registry"
@@ -68,7 +67,6 @@ func TestFunctionToolCatalogSync(t *testing.T) {
 		AgentStore: &traffic.AgentStore{},
 		Creds:      noOpCredProvider{},
 		Sandbox:    noOpSandbox{},
-		Graph:      &explorationgraph.Store{},
 		Skills:     skillSet,
 	}
 

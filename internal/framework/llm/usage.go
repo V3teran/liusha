@@ -82,6 +82,9 @@ func (p *instrumentedProvider) Complete(ctx context.Context, req Request) (Respo
 
 	rec := p.baseRecord(meta, false)
 	rec.LatencyMs = int(time.Since(start).Milliseconds())
+	// messages 无论成败都留存：失败现场（哪些消息触发 4xx）是排障第一证据，
+	// 只记成功等于审计在最需要的地方失明。
+	rec.Messages, _ = json.Marshal(req.Messages)
 	if err != nil {
 		rec.Err = err.Error()
 	} else {
@@ -89,7 +92,6 @@ func (p *instrumentedProvider) Complete(ctx context.Context, req Request) (Respo
 		rec.OutTokens = resp.Usage.OutTokens
 		rec.CachedTokens = resp.Usage.CachedTokens
 		rec.FinishReason = resp.FinishReason
-		rec.Messages, _ = json.Marshal(req.Messages)
 		rec.Result, _ = json.Marshal(resp)
 	}
 	p.sink.RecordUsage(ctx, rec)
@@ -105,6 +107,7 @@ func (p *instrumentedProvider) Stream(ctx context.Context, req Request) (<-chan 
 		rec := p.baseRecord(meta, true)
 		rec.LatencyMs = int(time.Since(start).Milliseconds())
 		rec.Err = err.Error()
+		rec.Messages, _ = json.Marshal(req.Messages)
 		p.sink.RecordUsage(ctx, rec)
 		return ch, err
 	}

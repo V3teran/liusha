@@ -68,27 +68,27 @@ func TestReplay_RejectsNonDiscriminativeAssert(t *testing.T) {
 	r := NewReplayer()
 	shortSub := `{"request":{"method":"GET","url":"` + srv.URL + `","headers":{},"body":""},"assert":{"body_contains":["1","2","3"]}}`
 	if _, err := r.Replay(context.Background(), json.RawMessage(shortSub)); err == nil ||
-		!strings.Contains(err.Error(), "无鉴别力") {
+		!strings.Contains(err.Error(), "assert not discriminative") {
 		t.Fatalf("短子串断言应被拒（曾合规范进 finding 的假阳性形态）: err=%v", err)
 	}
 
 	bare200 := `{"request":{"method":"GET","url":"` + srv.URL + `","headers":{},"body":""},"assert":{"status_code":200}}`
 	if _, err := r.Replay(context.Background(), json.RawMessage(bare200)); err == nil ||
-		!strings.Contains(err.Error(), "无鉴别力") {
+		!strings.Contains(err.Error(), "assert not discriminative") {
 		t.Fatalf("裸 200（无 baseline）应被拒: err=%v", err)
 	}
 
 	// 有 baseline：常规状态码放行，鉴别力交运行时差分护栏
 	withBase := `{"request":{"method":"GET","url":"` + srv.URL + `","headers":{},"body":""},"baseline":{"method":"GET","url":"` + srv.URL + `?id=1","headers":{},"body":""},"assert":{"status_code":200}}`
 	if _, err := r.Replay(context.Background(), json.RawMessage(withBase)); err != nil &&
-		!strings.Contains(err.Error(), "无鉴别力") {
+		!strings.Contains(err.Error(), "assert not discriminative") {
 		t.Fatalf("有 baseline 时应交差分护栏裁决: err=%v", err)
 	}
 
 	// 非常态状态码单独可为信号：门放行（断言未命中是证据的一部分，裁决官据此 refuted）
 	teapot := `{"request":{"method":"GET","url":"` + srv.URL + `","headers":{},"body":""},"assert":{"status_code":500}}`
 	if res, err := r.Replay(context.Background(), json.RawMessage(teapot)); err != nil ||
-		strings.Contains(string(res.Evaluation), "无鉴别力") {
+		strings.Contains(string(res.Evaluation), "assert not discriminative") {
 		t.Fatalf("非常态状态码应放行（未命中仅是证据）: err=%v", err)
 	}
 }
@@ -130,7 +130,7 @@ func TestReplay_RejectsIndiscriminateAssertOnBaseline(t *testing.T) {
 	}
 	b, _ := json.Marshal(recipe)
 	_, err := r.Replay(context.Background(), b)
-	if err == nil || !strings.Contains(err.Error(), "无鉴别力") {
+	if err == nil || !strings.Contains(err.Error(), "assert not discriminative") {
 		t.Fatalf("基线同样命中的断言应被拒: err=%v", err)
 	}
 }

@@ -2,12 +2,37 @@ package llm
 
 import (
 	"fmt"
+	"net"
+	"net/http"
 	"sync"
+	"time"
 
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/option"
 	openai "github.com/sashabaranov/go-openai"
 )
+
+// llmHTTPClient 是 LLM 出站连接的共享 HTTP client。
+//
+// 超时只布在 Transport 各阶段（拨号/TLS/响应头），不设 Client.Timeout——
+// 流式响应可合法运行数分钟，整体超时会掐断活流。各阶段超时兜底的是
+// 连接黑洞（对端不握手/不回包），生成耗时的控制归业务侧单调用看门狗。
+func llmHTTPClient() *http.Client {
+	return &http.Client{
+		Transport: &http.Transport{
+			Proxy: http.ProxyFromEnvironment,
+			DialContext: (&net.Dialer{
+				Timeout:   30 * time.Second,
+				KeepAlive: 30 * time.Second,
+			}).DialContext,
+			TLSHandshakeTimeout:   10 * time.Second,
+			ResponseHeaderTimeout: 120 * time.Second,
+			IdleConnTimeout:       90 * time.Second,
+			MaxIdleConns:          100,
+			MaxIdleConnsPerHost:   10,
+		},
+	}
+}
 
 // ClientPool 按 (baseURL, key) 单例化底层 HTTP client（OpenAI compat / Anthropic），
 // 让 Generator 跨 task 共享 http 连接池，修复 v1 Factory 缓存 Generator
@@ -43,6 +68,7 @@ func (p *ClientPool) GetOrCreateOpenAI(baseURL, apiKey string) (*openai.Client, 
 	if baseURL != "" {
 		cfg.BaseURL = baseURL
 	}
+	cfg.HTTPClient = llmHTTPClient()
 	c := openai.NewClientWithConfig(cfg)
 	p.openai[key] = c
 	return c, nil
@@ -59,7 +85,7 @@ func (p *ClientPool) GetOrCreateAnthropic(baseURL, apiKey string) (*anthropic.Cl
 	if c, ok := p.anthropic[key]; ok {
 		return c, nil
 	}
-	opts := []option.RequestOption{option.WithAPIKey(apiKey)}
+	opts := []option.RequestOption{option.WithAPIKey(apiKey), option.WithHTTPClient(llmHTTPClient())}
 	if baseURL != "" {
 		opts = append(opts, option.WithBaseURL(baseURL))
 	}

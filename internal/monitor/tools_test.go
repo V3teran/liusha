@@ -144,7 +144,7 @@ func TestRunningActionViews(t *testing.T) {
 		mk("d-future", running, -5), // 时钟偏移防御：负时长归零
 	}
 
-	views := runningActionViews(actions, now)
+	views := (&GetGlobalStateTool{}).runningActionViews(actions, now)
 	if len(views) != 3 {
 		t.Fatalf("应只含 3 个 running 动作, got %d", len(views))
 	}

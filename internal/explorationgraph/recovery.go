@@ -54,7 +54,12 @@ func (m *RecoveryMonitor) Start(ctx context.Context) error {
 	}
 }
 
-// recover 检测并恢复卡住的 action
+// recover 检测并恢复卡住的 action。
+//
+// 活性判定用 task 级真实工作信号（最近的 LLM 调用或工具调用），不用
+// action.updated_at——action 进入 running 后执行期的迭代/工具活动不触碰
+// 该行，按它判死会把长 ReAct 的健康 action 误杀。task 在窗口内有任何
+// LLM/工具活动即视为在推进；两者都停摆超过 timeout 才判死。
 func (m *RecoveryMonitor) recover(ctx context.Context) error {
 	if m.store.pool == nil {
 		return fmt.Errorf("recovery requires direct DB access (pool is nil)")
@@ -65,13 +70,22 @@ func (m *RecoveryMonitor) recover(ctx context.Context) error {
 		SET
 			state = 'failed',
 			metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object(
-				'failure_reason', '执行超时（' || $1::text || '秒无更新）',
+				'failure_reason', '执行超时（' || $1::text || '秒无 LLM/工具活动）',
 				'recovered_at', NOW(),
 				'previous_state', 'running'
 			)
 		WHERE kind = 'action'
 		  AND state = 'running'
-		  AND updated_at < NOW() - $1 * INTERVAL '1 second'
+		  AND NOT EXISTS (
+			SELECT 1 FROM llm_invocation li
+			WHERE li.task_id = exploration_node.task_id
+			  AND li.created_at > NOW() - $1 * INTERVAL '1 second'
+		  )
+		  AND NOT EXISTS (
+			SELECT 1 FROM tool_invocation ti
+			WHERE ti.task_id = exploration_node.task_id
+			  AND ti.created_at > NOW() - $1 * INTERVAL '1 second'
+		  )
 		RETURNING id, task_id
 	`
 
@@ -93,7 +107,7 @@ func (m *RecoveryMonitor) recover(ctx context.Context) error {
 			Str("action_id", actionID).
 			Str("task_id", taskID).
 			Dur("timeout", m.timeout).
-			Msg("恢复卡住的 action")
+			Msg("恢复卡住的 action（task 无 LLM/工具活动）")
 		count++
 	}
 

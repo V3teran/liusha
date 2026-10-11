@@ -206,14 +206,34 @@ func (m *RollingWindowModifier) Modify(_ context.Context, messages []llm.Message
 		}
 	}
 
+	compacted := false
 	// 保留最近的窗口
 	if len(otherMessages) > m.windowSize {
-		otherMessages = otherMessages[len(otherMessages)-m.windowSize:]
+		cut := len(otherMessages) - m.windowSize
+		// 边界对齐一：窗口起点不得是 tool 消息——它的父 assistant(tool_calls) 已被
+		// 切掉，悬空的 tool 结果违反消息协议（tool_call_id 无引用），协议侧会整包
+		// 拒收。丢弃整组（assistant+其全部 tool 结果）是窗口压缩的不可再分单位。
+		for cut < len(otherMessages) && otherMessages[cut].Role == llm.RoleTool {
+			cut++
+		}
+		otherMessages = otherMessages[cut:]
+		compacted = true
 	}
 
 	// 系统消息 + 窗口内消息（显式新切片，避免 append 复用 systemMessages 底层数组）
-	result := make([]llm.Message, 0, len(systemMessages)+len(otherMessages))
+	result := make([]llm.Message, 0, len(systemMessages)+len(otherMessages)+1)
 	result = append(result, systemMessages...)
+
+	// 边界对齐二：压缩发生后窗口必须从 user 轮开始——部分严格实现要求首条
+	// 非 system 消息是 user，assistant 开头的窗口同样会被整包拒收。
+	// 占位 user 同时承担上下文连续性提示（告知模型前情被压缩）。
+	if compacted && (len(otherMessages) == 0 || otherMessages[0].Role != llm.RoleUser) {
+		result = append(result, llm.Message{
+			Role:    llm.RoleUser,
+			Content: "（更早的对话历史已按上下文窗口压缩，以下为最近的执行上下文）",
+		})
+	}
+
 	result = append(result, otherMessages...)
 	return result, nil
 }

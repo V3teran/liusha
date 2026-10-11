@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -23,12 +24,12 @@ import (
 // - GraphNode.TaskID（经 Metadata["task_id"]）→ exploration_node.task_id (uuid，查询维度)
 // - GraphNode.Kind → exploration_node.kind（查询维度）
 // - GraphNode.Content → exploration_node.content (JSONB)
-// - GraphNode.Metadata → exploration_node.metadata (JSONB，含 _confidence 等扩展位)
+// - GraphNode.Metadata → exploration_node.metadata (JSONB，含 confidence 枚举等扩展位)
 // - GraphNode.State → exploration_node.state（查询维度）
 // - GraphNode.CreatedAt/UpdatedAt/Version → 同名列
 //
-// confidence 以浮点存 metadata["_confidence"]（observation/result 恒写，含 0.0=refuted）——
-// 曾另有有损 text 列（≥0.8 折算 verified），已删除。
+// confidence 是验证生命周期枚举（unverified/verified/refuted），以枚举原文存
+// metadata["confidence"]——由复现门独占写权流转，非置信度数值。
 type PostgresGraphStore struct {
 	pool      *pgxpool.Pool
 	nodeTable string // 节点表名（默认 exploration_node）
@@ -46,8 +47,17 @@ func NewPostgresGraphStore(pool *pgxpool.Pool) *PostgresGraphStore {
 	return &PostgresGraphStore{pool: pool, nodeTable: defaultNodeTable, edgeTable: defaultEdgeTable}
 }
 
+// execer 抽象 pool 与 tx 共有的 Exec 能力，让节点/边 INSERT 可在事务内外复用。
+type execer interface {
+	Exec(ctx context.Context, sql string, args ...interface{}) (pgconn.CommandTag, error)
+}
+
 // CreateNode 创建新节点。
 func (s *PostgresGraphStore) CreateNode(ctx context.Context, node *GraphNode) error {
+	return s.insertNode(ctx, s.pool, node)
+}
+
+func (s *PostgresGraphStore) insertNode(ctx context.Context, db execer, node *GraphNode) error {
 	if node == nil {
 		return errors.New("node cannot be nil")
 	}
@@ -64,13 +74,7 @@ func (s *PostgresGraphStore) CreateNode(ctx context.Context, node *GraphNode) er
 		return errors.New("node metadata.task_id is required")
 	}
 
-	metadata := s.cloneMetadata(node.Metadata)
-	// confidence 以浮点存 metadata（observation/result 恒写，0.0=refuted 不再丢失）
-	if node.Kind == string(KindObservation) || node.Kind == string(KindResult) {
-		metadata["_confidence"] = node.Confidence
-	}
-
-	metadataJSON, err := json.Marshal(metadata)
+	metadataJSON, err := json.Marshal(node.Metadata)
 	if err != nil {
 		return fmt.Errorf("marshal metadata: %w", err)
 	}
@@ -100,7 +104,7 @@ func (s *PostgresGraphStore) CreateNode(ctx context.Context, node *GraphNode) er
 		version = 1
 	}
 
-	_, err = s.pool.Exec(ctx, query,
+	_, err = db.Exec(ctx, query,
 		node.ID,
 		taskID,
 		node.Kind,
@@ -289,7 +293,10 @@ func (s *PostgresGraphStore) ListNodes(ctx context.Context, query GraphNodeQuery
 	return executeListNodesQuery(ctx, s.pool, sqlQuery, args)
 }
 
-// CompareAndSwapState 原子更新节点状态（使用乐观锁）
+// CompareAndSwapState 原子性地比较并交换节点状态。
+// 单条 UPDATE 同时承担条件检查与写入（WHERE state = expectedState），
+// 不存在读-改-写窗口；version 由数据库触发器在同一语句内自增。
+// 返回 (true, nil) 表示更新成功；(false, nil) 表示状态不匹配或节点不存在。
 func (s *PostgresGraphStore) CompareAndSwapState(ctx context.Context, taskID, nodeID string, expectedState, newState string) (bool, error) {
 	if nodeID == "" {
 		return false, errors.New("node ID cannot be empty")
@@ -298,45 +305,47 @@ func (s *PostgresGraphStore) CompareAndSwapState(ctx context.Context, taskID, no
 		return false, errors.New("expectedState and newState cannot be empty")
 	}
 
-	// 先读取当前节点获取 version
-	node, err := s.GetNode(ctx, nodeID)
-	if err != nil {
-		return false, err
-	}
-
-	// 检查 taskID（如果提供）
-	if taskID != "" {
-		if node.Metadata != nil {
-			if tid, ok := node.Metadata["task_id"].(string); ok && tid != taskID {
-				return false, nil // 不属于该任务
-			}
-		}
-	}
-
-	// 检查状态是否匹配
-	if node.State != expectedState {
-		// 状态不匹配，CAS 失败
-		return false, nil
-	}
-
-	// 使用乐观锁更新状态
 	query := `
 		UPDATE ` + s.nodeTable + `
 		SET state = $1, updated_at = $2
-		WHERE id = $3 AND version = $4
+		WHERE id = $3 AND state = $4
 	`
+	args := []interface{}{newState, time.Now(), nodeID, expectedState}
 
-	result, err := s.pool.Exec(ctx, query, newState, time.Now(), nodeID, node.Version)
+	if taskID != "" {
+		query += ` AND task_id = $5`
+		args = append(args, taskID)
+	}
+
+	result, err := s.pool.Exec(ctx, query, args...)
 	if err != nil {
 		return false, fmt.Errorf("update state: %w", err)
 	}
 
-	// 如果没有更新任何行，说明 version 已经变化（被其他并发操作修改）
-	if result.RowsAffected() == 0 {
-		return false, nil
+	return result.RowsAffected() > 0, nil
+}
+
+// CreateNodeWithEdges 在单个事务内创建节点及其关联边。
+func (s *PostgresGraphStore) CreateNodeWithEdges(ctx context.Context, node *GraphNode, edges []*GraphEdge) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	if err := s.insertNode(ctx, tx, node); err != nil {
+		return err
+	}
+	for _, edge := range edges {
+		if err := s.insertEdge(ctx, tx, edge); err != nil {
+			return err
+		}
 	}
 
-	return true, nil
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit tx: %w", err)
+	}
+	return nil
 }
 
 // CreateEdge 创建边（幂等）。
@@ -348,17 +357,6 @@ func (s *PostgresGraphStore) extractString(m map[string]interface{}, key, defaul
 		return v
 	}
 	return defaultValue
-}
-
-func (s *PostgresGraphStore) cloneMetadata(m map[string]interface{}) map[string]interface{} {
-	if m == nil {
-		return make(map[string]interface{})
-	}
-	result := make(map[string]interface{}, len(m))
-	for k, v := range m {
-		result[k] = v
-	}
-	return result
 }
 
 func nullString(s string) *string {

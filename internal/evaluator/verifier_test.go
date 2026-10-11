@@ -22,6 +22,7 @@ type fakeGraphStore struct {
 	mu            sync.Mutex // 并发验证 goroutine 共享本 fake，写入需互斥
 	verifications []explorationgraph.Verification
 	nodes         []explorationgraph.Node
+	edges         []explorationgraph.Edge
 	metadata      map[string]json.RawMessage // nodeID → 最近一次 metadata 补丁
 	verID         string
 }
@@ -47,6 +48,15 @@ func (f *fakeGraphStore) CreateNode(_ context.Context, n explorationgraph.Node) 
 	n.ID = nodeID
 	f.nodes = append(f.nodes, n)
 	return nodeID, nil
+}
+
+func (f *fakeGraphStore) CreateNodeWithEdges(_ context.Context, n explorationgraph.Node, edges []explorationgraph.Edge) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	n.ID = "node-" + string(n.Kind)
+	f.nodes = append(f.nodes, n)
+	f.edges = append(f.edges, edges...)
+	return nil
 }
 
 func (f *fakeGraphStore) UpdateNodeMetadata(_ context.Context, id string, metadata json.RawMessage) error {
@@ -315,36 +325,61 @@ func (s stubJudge) Judge(_ context.Context, _ string, _, _ json.RawMessage, _ Re
 	return s.verdict, s.reasoning, nil
 }
 
-// 同一配方（字节级相同）只裁一次：第二次进门的 Attempt 直接跳过——
-// 不再烧 judge、不再重复写 finding。
+// 同一配方（字节级相同）只裁一次：第二次进门的 Attempt 沿用既有裁决——
+// 不再烧 judge、不再重复写 finding，假设节点标记同步流转。
 func TestAgent_VerifyObservationDeduplicatesSameRecipe(t *testing.T) {
 	w := &fakeGraphStore{verID: "ver-d1"}
 	fw := &fakeFindingWriter{}
 	promoter := New(w, fakeReplayer{res: Result{Evaluation: json.RawMessage(`{"url":"http://t/x","assert_passed":true}`)}}, fw).
 		WithJudge(stubJudge{verdict: VerdictConfirmed})
+
+	graph := explorationgraph.NewMemoryStore()
 	a := NewAgent(AgentConfig{
 		TaskID:    "t-dedup",
 		Evaluator: promoter,
 		EventBus:  bus.New(context.Background()),
+		Graph:     graph,
 		Logger:    zerolog.Nop(),
 	})
 
+	// 三个独立假设节点共用同一配方（第二、三个应命中去重）
+	for _, id := range []string{"obs-1", "obs-2", "obs-3"} {
+		_, err := graph.CreateNode(context.Background(), explorationgraph.Node{
+			ID:      id,
+			TaskID:  "t-dedup",
+			Kind:    core.KindObservation,
+			Content: json.RawMessage(`{"statement":"same hypothesis"}`),
+		})
+		if err != nil {
+			t.Fatalf("预建假设节点 %s 失败: %v", id, err)
+		}
+	}
+
 	att := baseAttempt()
-	if err := a.verifyObservation(context.Background(), "act-1", att); err != nil {
+	if err := a.verifyObservation(context.Background(), "obs-1", att); err != nil {
 		t.Fatalf("首次验证应成功: %v", err)
 	}
-	if err := a.verifyObservation(context.Background(), "act-2", att); err != nil {
-		t.Fatalf("重复配方应跳过而非报错: %v", err)
+	if err := a.verifyObservation(context.Background(), "obs-2", att); err != nil {
+		t.Fatalf("重复配方应沿用裁决而非报错: %v", err)
 	}
 	if len(w.verifications) != 1 || len(w.nodes) != 1 || len(fw.findings) != 1 {
 		t.Fatalf("同配方二次进门应被去重: ver=%d nodes=%d findings=%d",
 			len(w.verifications), len(w.nodes), len(fw.findings))
 	}
 
+	// 沿用裁决的假设节点：confidence 流转为 verified，轮询不再圈定
+	marked, err := graph.GetNode(context.Background(), "obs-2")
+	if err != nil {
+		t.Fatalf("读回沿用裁决的假设节点失败: %v", err)
+	}
+	if marked.Confidence == nil || *marked.Confidence != explorationgraph.ConfidenceVerified {
+		t.Fatalf("沿用裁决应把 confidence 流转为 verified, got %v", marked.Confidence)
+	}
+
 	// 不同配方不受影响
 	other := baseAttempt()
 	other.Primitives = json.RawMessage(`{"domain":"web","recipe":{"request":{"method":"GET","url":"http://t/y","headers":{},"body":""}},"assert":{"body_contains":["leaked-secret"]}}`)
-	if err := a.verifyObservation(context.Background(), "act-3", other); err != nil {
+	if err := a.verifyObservation(context.Background(), "obs-3", other); err != nil {
 		t.Fatalf("新配方应正常验证: %v", err)
 	}
 	if len(w.verifications) != 2 {

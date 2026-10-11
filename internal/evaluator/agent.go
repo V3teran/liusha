@@ -1,4 +1,4 @@
-// Package evaluator 提供验证层（Agent），负责验证 Observation 并决定是否晋升为 Evaluation/Result 节点
+// Package evaluator 提供验证层（Agent），负责验证 Observation 并决定是否晋升为 Result 节点
 package evaluator
 
 import (
@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -16,15 +17,30 @@ import (
 	"github.com/V3teran/liusha/internal/bus"
 	"github.com/V3teran/liusha/internal/explorationgraph"
 	"github.com/V3teran/liusha/internal/framework/llm"
+	"github.com/google/uuid"
 )
+
+// pollBatchSize 是单轮轮询最多圈定的待裁决假设数。裁决是重操作
+// （机器复放 + judge ReAct），轮询按批推进即可。
+const pollBatchSize = 32
+
+// maxVerifyAttempts 是同一假设的验证失败上限：超过后标记为裁决失败并出圈
+// （复现配方反复执行失败意味着配方损坏，重试无意义——烧 LLM 不解决问题）。
+const maxVerifyAttempts = 3
 
 // Agent 是持续运行的验证 Agent
 //
 // 职责：
-// - 主动轮询探索图中的 observation 节点
-// - 筛选未验证的 observation（没有对应 result 节点的）
+// - 事件驱动 + 轮询兜底地圈定未裁决的假设（observation，confidence=unverified）
 // - 经 PromotionEvaluator 复现门验证后晋升为 result 节点
 // - 发布 EventVerificationPassed/Refuted 事件
+//
+// 去重分两层：
+//   - 持久层：假设节点的 confidence（unverified → verified/refuted）是裁决
+//     状态的唯一事实源，进程重启后轮询按它圈定剩余工作，不重验已裁决项；
+//   - 进程层：inFlight 集合防止事件与轮询并发触发同一假设；adjudicated
+//     表按配方哈希去重——LLM 重提同一（字节级相同）配方时沿用既有裁决，
+//     不再烧 judge。
 type Agent struct {
 	taskID        string
 	agentRunID    string              // 本轮认知循环的 agent_run.id（LLM 审计归属）
@@ -39,16 +55,18 @@ type Agent struct {
 	// 会快速返回），避免停机后仍向 bus/图写事件的竞态。
 	inFlight sync.WaitGroup
 
-	// adjudicated 是配方哈希 → 已裁决结论的进程内去重表：LLM 会反复重提同一
-	// （或实质相同的）假设，每条都进复现门 = judge ReAct 成本翻倍 + confirmed
-	// 时重复写 finding。同一配方只裁一次；进程重启即清零（跨 run 去重靠图上的
-	// verification_outcome 标记让规划侧不再重提）。
+	// verifying 是在途假设集合（观察节点 ID），事件与轮询并发触发时先到先得。
+	verifyingMu sync.Mutex
+	verifying   map[string]bool
+
+	// verifyAttempts 记录各假设的验证失败次数（达上限后标记裁决失败出圈）。
+	verifyAttemptsMu sync.Mutex
+	verifyAttempts   map[string]int
+
+	// adjudicated 是配方哈希 → 已裁决结论的进程内去重表。
+	// 持久去重靠假设节点的 confidence 流转；本表只省"同配方重复进 judge"的钱。
 	adjudicatedMu sync.Mutex
 	adjudicated   map[string]string
-
-	// processedObs 记录已处理的 observation ID（防止重复处理）
-	processedObsMu sync.Mutex
-	processedObs   map[string]bool
 }
 
 // AgentConfig 配置
@@ -82,8 +100,9 @@ func NewAgent(cfg AgentConfig) *Agent {
 		maxConcurrent: cfg.MaxConcurrent,
 		pollInterval:  cfg.PollInterval,
 
-		adjudicated:  map[string]string{},
-		processedObs: map[string]bool{},
+		verifying:      map[string]bool{},
+		verifyAttempts: map[string]int{},
+		adjudicated:    map[string]string{},
 	}
 }
 
@@ -139,6 +158,24 @@ func (a *Agent) Run(ctx context.Context) error {
 	}
 }
 
+// tryAcquire 尝试把假设标记为"验证中"。返回 false 表示已在途，跳过。
+func (a *Agent) tryAcquire(observationID string) bool {
+	a.verifyingMu.Lock()
+	defer a.verifyingMu.Unlock()
+	if a.verifying[observationID] {
+		return false
+	}
+	a.verifying[observationID] = true
+	return true
+}
+
+// release 解除"验证中"标记（裁决落定或出错重试前调用）。
+func (a *Agent) release(observationID string) {
+	a.verifyingMu.Lock()
+	defer a.verifyingMu.Unlock()
+	delete(a.verifying, observationID)
+}
+
 // handleEvent 处理事件总线推送的事件（事件驱动）
 func (a *Agent) handleEvent(ctx context.Context, event bus.Event, sem chan struct{}) {
 	// 只处理 EventAttemptGenerated
@@ -172,27 +209,71 @@ func (a *Agent) handleEvent(ctx context.Context, event bus.Event, sem chan struc
 		Str("action_id", event.ActionID).
 		Msg("收到 EventAttemptGenerated，立即验证")
 
-	// 去重检查：是否已处理过此 observation
-	a.processedObsMu.Lock()
-	if a.processedObs[observationID] {
-		a.processedObsMu.Unlock()
+	a.dispatchVerification(ctx, observationID, attempt, sem)
+}
+
+// pollAndVerify 圈定待裁决假设（confidence=unverified）并逐个验证。
+func (a *Agent) pollAndVerify(ctx context.Context, sem chan struct{}) error {
+	observations, err := a.graph.ListObservationsByConfidence(
+		ctx, a.taskID, explorationgraph.ConfidenceUnverified, pollBatchSize)
+	if err != nil {
+		return fmt.Errorf("查询待裁决 observation 失败: %w", err)
+	}
+
+	if len(observations) == 0 {
+		return nil
+	}
+
+	a.logger.Debug().Int("count", len(observations)).Msg("发现待裁决 observation")
+
+	dispatched := 0
+	for _, obs := range observations {
+		// 解析 observation 中的 Attempt 数据
+		attempt, err := a.parseObservationToAttempt(obs)
+		if err != nil {
+			// 带 confidence=unverified 的假设必有 repro（写入侧不变式）；
+			// 解析失败意味着数据损坏，持续告警直到修复。
+			a.logger.Warn().Err(err).Str("obs_id", obs.ID).Msg("解析 observation 失败（疑似数据损坏）")
+			continue
+		}
+
+		a.dispatchVerification(ctx, obs.ID, attempt, sem)
+		dispatched++
+	}
+
+	if dispatched > 0 {
+		a.logger.Info().Int("count", dispatched).Msg("启动验证任务")
+	}
+
+	return nil
+}
+
+// dispatchVerification 异步验证单个假设（信号量控制并发，先到先得防重入）。
+func (a *Agent) dispatchVerification(ctx context.Context, observationID string, attempt Attempt, sem chan struct{}) {
+	// 先尝试获取 verifying 锁
+	if !a.tryAcquire(observationID) {
 		a.logger.Debug().
 			Str("observation_id", observationID).
-			Msg("observation 已处理过，跳过")
+			Msg("observation 验证中，跳过并发触发")
 		return
 	}
-	// 标记为已处理
-	a.processedObs[observationID] = true
-	a.processedObsMu.Unlock()
 
-	// 异步验证（通过信号量控制并发）
+	// 启动 goroutine，在其中获取信号量
 	a.inFlight.Add(1)
 	go func() {
 		defer a.inFlight.Done()
+		defer a.release(observationID) // 确保释放 verifying 锁
 
-		// 获取信号量
-		sem <- struct{}{}
-		defer func() { <-sem }()
+		// 获取信号量（可能阻塞，但不影响其他 observation 的调度）
+		select {
+		case sem <- struct{}{}:
+			defer func() { <-sem }()
+		case <-ctx.Done():
+			a.logger.Debug().
+				Str("observation_id", observationID).
+				Msg("等待信号量期间 ctx 取消，跳过验证")
+			return
+		}
 
 		a.logger.Info().
 			Str("observation_id", observationID).
@@ -202,106 +283,78 @@ func (a *Agent) handleEvent(ctx context.Context, event bus.Event, sem chan struc
 			a.logger.Error().
 				Err(err).
 				Str("observation_id", observationID).
-				Msg("验证失败")
+				Msg("验证失败（保持 unverified，下轮轮询重试）")
+			a.recordVerifyFailure(ctx, observationID, attempt, err)
 		}
 	}()
 }
 
-// pollAndVerify 执行一轮轮询：查询未验证的 observation 节点并启动验证
-func (a *Agent) pollAndVerify(ctx context.Context, sem chan struct{}) error {
-	// 1. 查询所有 observation 节点
-	observations, err := a.graph.ListNodesByKind(ctx, a.taskID, "observation")
+// recordVerifyFailure 记一次验证失败；达上限后把假设标记为裁决失败并出圈
+// （confidence=refuted + verification_outcome=invalid_recipe），轮询不再圈定，
+// 审计链留档失败原因。
+func (a *Agent) recordVerifyFailure(ctx context.Context, observationID string, attempt Attempt, cause error) {
+	if isTransientProviderError(cause) {
+		a.logger.Info().
+			Str("observation_id", observationID).
+			Msg("验证因 provider 瞬时故障失败（不计入失败上限）")
+		return
+	}
+
+	a.verifyAttemptsMu.Lock()
+	a.verifyAttempts[observationID]++
+	attempts := a.verifyAttempts[observationID]
+	a.verifyAttemptsMu.Unlock()
+
+	if attempts < maxVerifyAttempts {
+		return
+	}
+
+	a.logger.Warn().
+		Str("observation_id", observationID).
+		Int("attempts", attempts).
+		Msg("验证反复失败达上限，标记裁决失败出圈")
+
+	mark, mErr := json.Marshal(map[string]interface{}{
+		"verification_outcome": "invalid_recipe",
+		"confidence":           explorationgraph.ConfidenceRefuted,
+		"failure_reason":       cause.Error(),
+		"verify_attempts":      attempts,
+	})
+	if mErr != nil {
+		return
+	}
+	if uErr := a.graph.UpdateNodeMetadata(ctx, observationID, mark); uErr != nil {
+		a.logger.Error().Err(uErr).Str("observation_id", observationID).Msg("裁决失败标记写入失败")
+	}
+
+	// 审计链留档：invalid_recipe 也是裁决结论（该假设无法被本门裁决），
+	// 证伪/失败都落 exploration_verification，保证全链路可回放。
+	if _, vErr := a.graph.RecordVerification(ctx, explorationgraph.Verification{
+		ID:         uuid.New().String(),
+		TaskID:     a.taskID,
+		NodeID:     observationID,
+		Primitives: attempt.Primitives,
+		Outcome:    explorationgraph.OutcomeRefuted,
+		Evaluation: mustJSON(map[string]interface{}{
+			"invalid_recipe":  true,
+			"reason":          cause.Error(),
+			"verify_attempts": attempts,
+		}),
+		CreatedAt: time.Now(),
+	}); vErr != nil {
+		a.logger.Warn().Err(vErr).Str("observation_id", observationID).Msg("invalid_recipe 审计留档失败")
+	}
+
+	a.eventBus.PublishVerificationRefuted(a.taskID, observationID)
+}
+
+// mustJSON 序列化（失败回空对象——审计字段不阻塞主流程）。
+func mustJSON(v interface{}) json.RawMessage {
+	b, err := json.Marshal(v)
 	if err != nil {
-		return fmt.Errorf("查询 observation 节点失败: %w", err)
+		return json.RawMessage(`{}`)
 	}
-
-	if len(observations) == 0 {
-		a.logger.Debug().Msg("暂无 observation 节点")
-		return nil
-	}
-
-	a.logger.Debug().Int("count", len(observations)).Msg("发现 observation 节点")
-
-	// 2. 查询所有边，构建已处理的 observation 集合
-	edges, err := a.graph.ListEdgesForAPI(ctx, a.taskID)
-	if err != nil {
-		a.logger.Error().Err(err).Msg("查询边失败")
-		return fmt.Errorf("查询边失败: %w", err)
-	}
-
-	// 构建 observation -> result 的映射（通过 generates 边）
-	obsHasResult := make(map[string]bool)
-	for _, edge := range edges {
-		if edge.Rel == "generates" {
-			// 检查目标节点是否为 result
-			// 注意：这里假设 generates 边从 observation 指向 result
-			obsHasResult[edge.SrcID] = true
-		}
-	}
-
-	// 3. 筛选未处理的节点
-	newObservations := 0
-	for _, obs := range observations {
-		// 去重检查：是否已处理过此 observation
-		a.processedObsMu.Lock()
-		alreadyProcessed := a.processedObs[obs.ID]
-		a.processedObsMu.Unlock()
-
-		if alreadyProcessed {
-			continue
-		}
-
-		// 检查是否已有对应的 result 节点（通过边关系）
-		if obsHasResult[obs.ID] {
-			// 已有 result，标记为已处理
-			a.processedObsMu.Lock()
-			a.processedObs[obs.ID] = true
-			a.processedObsMu.Unlock()
-			continue
-		}
-
-		// 解析 observation 中的 Attempt 数据
-		attempt, err := a.parseObservationToAttempt(obs)
-		if err != nil {
-			a.logger.Debug().Err(err).Str("obs_id", obs.ID).Msg("解析 observation 失败，跳过")
-			a.processedObsMu.Lock()
-			a.processedObs[obs.ID] = true
-			a.processedObsMu.Unlock()
-			continue
-		}
-
-		newObservations++
-
-		// 异步验证
-		a.inFlight.Add(1)
-		go func(obsID string, attempt Attempt) {
-			defer a.inFlight.Done()
-			sem <- struct{}{}
-			defer func() { <-sem }()
-
-			a.logger.Info().
-				Str("observation_id", obsID).
-				Msg("开始验证 observation")
-
-			if err := a.verifyObservation(ctx, obsID, attempt); err != nil {
-				a.logger.Error().
-					Err(err).
-					Str("observation_id", obsID).
-					Msg("验证失败")
-			}
-
-			// 标记为已处理
-			a.processedObsMu.Lock()
-			a.processedObs[obsID] = true
-			a.processedObsMu.Unlock()
-		}(obs.ID, attempt)
-	}
-
-	if newObservations > 0 {
-		a.logger.Info().Int("count", newObservations).Msg("启动验证任务")
-	}
-
-	return nil
+	return b
 }
 
 // parseObservationToAttempt 从 observation 节点解析出 Attempt
@@ -317,7 +370,7 @@ func (a *Agent) parseObservationToAttempt(obs explorationgraph.Node) (Attempt, e
 	}
 
 	if len(content.Repro) == 0 {
-		return Attempt{}, fmt.Errorf("observation 缺少 repro 字段（可能是执行状态记录，跳过）")
+		return Attempt{}, fmt.Errorf("observation 缺少 repro 字段")
 	}
 
 	// 设置默认 severity
@@ -345,19 +398,20 @@ func (a *Agent) parseObservationToAttempt(obs explorationgraph.Node) (Attempt, e
 	}, nil
 }
 
-// verifyObservation 验证单个 observation（原 verifyAttempt 的逻辑）
+// verifyObservation 验证单个 observation。
+// 裁决落定（坐实/证伪）后假设节点的 confidence 随之流转，轮询不再圈定；
+// 门本身出错则保持 unverified，下轮轮询自然重试。
 func (a *Agent) verifyObservation(ctx context.Context, observationID string, attempt Attempt) error {
 	startTime := time.Now()
 
-	// 去重：同一配方（字节级相同）已裁决过则跳过——不再烧 judge、不再重复写 finding。
+	// 去重：同一配方（字节级相同）已裁决过则沿用结论——不再烧 judge、不再重复写 finding。
 	hash := primitivesHash(attempt.Primitives)
 	if prev, seen := a.adjudicatedLookup(hash); seen {
 		a.logger.Info().
 			Str("observation_id", observationID).
-			Str("node_id", attempt.NodeID).
 			Str("previous_outcome", prev).
-			Msg("跳过已裁决配方（去重）")
-		return nil
+			Msg("同配方已裁决，沿用既有结论")
+		return a.adoptPriorVerdict(ctx, observationID, prev)
 	}
 
 	// 调用 PromotionEvaluator 验证
@@ -394,6 +448,36 @@ func (a *Agent) verifyObservation(ctx context.Context, observationID string, att
 	return nil
 }
 
+// adoptPriorVerdict 把既有裁决结论落到当前假设节点上（配方哈希命中的
+// 同配方假设）：confidence 与 verification_outcome 同步流转，并注明系沿用。
+func (a *Agent) adoptPriorVerdict(ctx context.Context, observationID, outcome string) error {
+	confidence := explorationgraph.ConfidenceRefuted
+	if outcome == string(explorationgraph.OutcomeConfirmed) {
+		confidence = explorationgraph.ConfidenceVerified
+	}
+
+	mark, err := json.Marshal(map[string]interface{}{
+		"verification_outcome": outcome,
+		"confidence":           confidence,
+		"verification_at":      time.Now().Format(time.RFC3339),
+		"verdict_source":       "same-recipe-dedup",
+	})
+	if err != nil {
+		return err
+	}
+
+	if err := a.graph.UpdateNodeMetadata(ctx, observationID, mark); err != nil {
+		return fmt.Errorf("沿用既有裁决写标记失败: %w", err)
+	}
+
+	if confidence == explorationgraph.ConfidenceVerified {
+		a.eventBus.PublishVerificationPassed(a.taskID, observationID)
+	} else {
+		a.eventBus.PublishVerificationRefuted(a.taskID, observationID)
+	}
+	return nil
+}
+
 func (a *Agent) adjudicatedLookup(hash string) (string, bool) {
 	a.adjudicatedMu.Lock()
 	defer a.adjudicatedMu.Unlock()
@@ -408,7 +492,7 @@ func (a *Agent) adjudicatedStore(hash, outcome string) {
 }
 
 // primitivesHash 对配方做字节级哈希（同一配方重提 = 同哈希；格式微差视为不同，
-// 由图上的 verification_outcome 标记兜底防复活）。
+// 由假设节点的 confidence 流转兜底防复活）。
 func primitivesHash(p json.RawMessage) string {
 	sum := sha256.Sum256(bytes.TrimSpace(p))
 	return hex.EncodeToString(sum[:])
@@ -420,4 +504,19 @@ func promoteOutcome(node *explorationgraph.Node) explorationgraph.VerifyOutcome 
 		return explorationgraph.OutcomeRefuted
 	}
 	return explorationgraph.OutcomeConfirmed
+}
+
+// isTransientProviderError 判断是否 provider 侧瞬时故障（限流/服务端过载）：
+// 重试有意义，不该计入配方损坏的止损上限。
+func isTransientProviderError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	for _, token := range []string{"429", "Too Many Requests", "rate limit", "速率限制", "529"} {
+		if strings.Contains(msg, token) {
+			return true
+		}
+	}
+	return false
 }

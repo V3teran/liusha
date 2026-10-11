@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/V3teran/liusha/internal/credential"
 	"github.com/V3teran/liusha/internal/evaluator"
 	"github.com/V3teran/liusha/internal/httpreplay"
 )
@@ -99,7 +100,7 @@ func (a Assertion) empty() bool {
 }
 
 // ReproEnvelope 是复现配方的域信封：evaluator/图/收割层只认信封，不解析 recipe 内部
-// （形状归各域——加新域晋升门零改动）。write_observation 写入时归一化成此结构。
+// （形状归各域——加新域晋升门零改动）。配方在引擎收割路径落图前归一化成此结构。
 type ReproEnvelope struct {
 	Domain string          `json:"domain"` // web / generic /（未来 binary/cloud/lateral…）
 	Recipe json.RawMessage `json:"recipe"` // 域自定义：web={request,baseline?}；generic={steps}
@@ -114,10 +115,115 @@ const (
 
 // Replayer 是 web+generic 双域的 evaluator.Replayer：按信封 domain 分发。
 // 不依赖任何流量存储——配方自包含（工具自发流量同样可复现）。
-type Replayer struct{}
+type Replayer struct {
+	creds credential.Provider // 可选：按 host 注入会话上下文（配方缺 Cookie 时补全）
+	host  string
+}
 
 // NewReplayer 构造域分发 Replayer（零依赖：配方自包含）。
 func NewReplayer() *Replayer { return &Replayer{} }
+
+// WithCredentials 注入凭据提供方与目标 host：web 重放请求缺会话头
+// （Cookie/Authorization）时，用凭据池里该 host 的首个身份补全——
+// 配方自包含是理想，LLM 漏写会话上下文时重放会打到登录页导致真实漏洞
+// 被误证伪。best-effort：查询失败按无凭据处理。
+func (r *Replayer) WithCredentials(creds credential.Provider, host string) *Replayer {
+	if creds != nil && host != "" {
+		r.creds = creds
+		r.host = host
+	}
+	return r
+}
+
+// injectSessionContext 给 recipe 的 request/baseline 补全会话头（缺才补，
+// 配方显式带的头优先）。
+func (r *Replayer) injectSessionContext(ctx context.Context, recipe json.RawMessage) json.RawMessage {
+	if r.creds == nil || len(recipe) == 0 {
+		return recipe
+	}
+	var rc struct {
+		Request  json.RawMessage `json:"request"`
+		Baseline json.RawMessage `json:"baseline"`
+	}
+	if json.Unmarshal(recipe, &rc) != nil || len(rc.Request) == 0 {
+		return recipe
+	}
+	identities, err := r.creds.GetIdentitiesByHost(ctx, r.host)
+	if err != nil || len(identities) == 0 {
+		return recipe
+	}
+	// 首个身份的 headers 型凭证拼成 Cookie/Authorization 头（配方已带的键不覆盖）
+	extra := map[string]string{}
+	for _, c := range identities[0].Credentials {
+		if c.Type != credential.TypeHeaders || c.Key == "" || c.Value == "" {
+			continue
+		}
+		extra[strings.ToLower(c.Key)] = c.Value
+	}
+	if len(extra) == 0 {
+		return recipe
+	}
+
+	apply := func(req json.RawMessage) (json.RawMessage, bool) {
+		var m map[string]json.RawMessage
+		if json.Unmarshal(req, &m) != nil {
+			return req, false
+		}
+		var headers map[string]string
+		if h, ok := m["headers"]; ok && len(h) > 0 {
+			_ = json.Unmarshal(h, &headers)
+		}
+		if headers == nil {
+			headers = map[string]string{}
+		}
+		changed := false
+		for k, v := range extra {
+			lk := strings.ToLower(k)
+			if _, exists := headers[lk]; exists {
+				continue // 配方显式带的凭证优先
+			}
+			// 无 Cookie 头且凭据是 Cookie 型整段时直接放 Cookie 键
+			headers[lk] = v
+			changed = true
+		}
+		if !changed {
+			return req, false
+		}
+		hb, err := json.Marshal(headers)
+		if err != nil {
+			return req, false
+		}
+		m["headers"] = hb
+		out, err := json.Marshal(m)
+		if err != nil {
+			return req, false
+		}
+		return out, true
+	}
+
+	changedAny := false
+	if req, ok := apply(rc.Request); ok {
+		rc.Request = req
+		changedAny = true
+	}
+	if len(rc.Baseline) > 0 {
+		if req, ok := apply(rc.Baseline); ok {
+			rc.Baseline = req
+			changedAny = true
+		}
+	}
+	if !changedAny {
+		return recipe
+	}
+	out, err := json.Marshal(map[string]json.RawMessage{
+		"request":  rc.Request,
+		"baseline": rc.Baseline,
+	})
+	if err != nil {
+		return recipe
+	}
+	return out
+}
 
 // replayEvidence 是落进 exploration_verification 的复现证据（基线/攻击双对照 + 断言明细）。
 type replayEvidence struct {
@@ -149,6 +255,7 @@ func (r *Replayer) Replay(ctx context.Context, primitives json.RawMessage) (eval
 	}
 	switch env.Domain {
 	case DomainWeb:
+		env.Recipe = r.injectSessionContext(ctx, env.Recipe)
 		return replayWebEnvelope(ctx, env)
 	case DomainGeneric:
 		return replayGeneric(env)
@@ -182,7 +289,7 @@ func replayWebEnvelope(ctx context.Context, env ReproEnvelope) (evaluator.Result
 }
 
 // replayLegacyWeb 历史格式兼容（顶层 request/assert、无信封）：按 web 配方处理。
-// 仅服务存量数据；write_observation 写入时已归一化成信封。
+// 仅服务存量数据；新写入在收割路径已归一化成信封。
 func replayLegacyWeb(ctx context.Context, primitives json.RawMessage) (evaluator.Result, error) {
 	var probe struct {
 		TrafficID     *int64          `json:"traffic_id"`
@@ -246,11 +353,11 @@ var commonSuccessCodes = map[int]bool{200: true, 301: true, 302: true, 304: true
 func assertDiscriminative(a Assertion, attackSrc httpreplay.Source, hasBaseline bool) error {
 	for _, want := range a.BodyContains {
 		if len(strings.TrimSpace(want)) < minBodyContainsLen {
-			return fmt.Errorf("无鉴别力断言——body_contains 子串 %q 短于 %d 字符（几乎必命中任意页面）。断言应捕捉攻击响应独有特征：报错回显/泄露数据的完整子串（如 SQL 错误片段、dump 出的字段值）", want, minBodyContainsLen)
+			return fmt.Errorf("%w: body_contains 子串 %q 短于 %d 字符（几乎必命中任意页面）。断言应捕捉攻击响应独有特征：报错回显/泄露数据的完整子串（如 SQL 错误片段、dump 出的字段值）", evaluator.ErrAssertNotDiscriminative, want, minBodyContainsLen)
 		}
 		// 自指检测：断言特征已内嵌在请求里（URL/path/host）——正常响应也必然包含它。
 		if strings.Contains(strings.ToLower(attackSrc.URL), strings.ToLower(strings.TrimSpace(want))) {
-			return fmt.Errorf("无鉴别力断言——body_contains 子串 %q 就是请求 URL 的组成部分（自指：正常响应也必命中）。断言应捕捉攻击响应独有特征，而不是页面本来就有的内容", want)
+			return fmt.Errorf("%w: body_contains 子串 %q 就是请求 URL 的组成部分（自指：正常响应也必命中）。断言应捕捉攻击响应独有特征，而不是页面本来就有的内容", evaluator.ErrAssertNotDiscriminative, want)
 		}
 	}
 	if hasBaseline {
@@ -261,7 +368,7 @@ func assertDiscriminative(a Assertion, attackSrc httpreplay.Source, hasBaseline 
 		strong = true // 非常态状态码（401/403/500…）本身可为信号
 	}
 	if !strong {
-		return fmt.Errorf("无鉴别力断言——无 baseline 时至少需要一个强谓词（body_contains/header_contains/min_duration_ms，或非 200/301/302/304 的 status_code）。页面常态断言（裸 status_code=200 类）命中不构成漏洞证据；建议附 baseline 良性对照")
+		return fmt.Errorf("%w: 无 baseline 时至少需要一个强谓词（body_contains/header_contains/min_duration_ms，或非 200/301/302/304 的 status_code）。页面常态断言（裸 status_code=200 类）命中不构成漏洞证据；建议附 baseline 良性对照", evaluator.ErrAssertNotDiscriminative)
 	}
 	return nil
 }
@@ -312,7 +419,7 @@ func replayWeb(ctx context.Context, recipe ReplayRecipe) (evaluator.Result, erro
 		}
 		baseline = &bres
 		if basePassed, _ := recipe.Assert.eval(bres, baseDur); basePassed {
-			return evaluator.Result{}, fmt.Errorf("web.Replayer: 无鉴别力断言——基线（良性请求）同样满足全部谓词，命中不构成漏洞证据（断言应捕捉攻击响应独有特征：报错回显/数据泄露/延迟）")
+			return evaluator.Result{}, fmt.Errorf("web.Replayer: %w——基线（良性请求）同样满足全部谓词，命中不构成漏洞证据（断言应捕捉攻击响应独有特征：报错回显/数据泄露/延迟）", evaluator.ErrAssertNotDiscriminative)
 		}
 	}
 

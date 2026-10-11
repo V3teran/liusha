@@ -4,8 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
+	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"golang.org/x/text/encoding/simplifiedchinese"
+	"golang.org/x/text/transform"
 )
 
 // previewMax 是 output_preview 列的最大字符数；超过截断。
@@ -34,10 +38,14 @@ func (s *Store) Append(ctx context.Context, v Invocation) (int64, error) {
 	if len(args) == 0 {
 		args = json.RawMessage("{}")
 	}
-	preview := truncateUTF8(v.OutputPreview, previewMax)
+
+	// 清洗 UTF-8：先修复非法字节，再截断
+	preview := sanitizeUTF8(v.OutputPreview)
+	preview = truncateUTF8(preview, previewMax)
+
 	var errMsg any
 	if v.ErrorMessage != "" {
-		errMsg = v.ErrorMessage
+		errMsg = sanitizeUTF8(v.ErrorMessage)
 	}
 
 	var id int64
@@ -78,6 +86,31 @@ func (s *Store) AggregateByTask(ctx context.Context, taskID string) (Aggregate, 
 		return Aggregate{}, fmt.Errorf("aggregate tool_invocation by task %s: %w", taskID, err)
 	}
 	return a, nil
+}
+
+// sanitizeUTF8 清洗字符串中的非法 UTF-8 字节序列。
+//
+// 策略：
+// 1. 如果已经是合法 UTF-8，直接返回
+// 2. 尝试从 GBK/GB2312 转换（常见的中文编码错误）
+// 3. 最后兜底：替换非法字节为 � (U+FFFD)
+//
+// 业界最佳实践：所有外部数据入库前必须保证 UTF-8 合法性。
+func sanitizeUTF8(s string) string {
+	// 快速路径：已经合法
+	if utf8.ValidString(s) {
+		return s
+	}
+
+	// 尝试 GBK → UTF-8 转换（常见场景：命令行输出是 GBK 编码）
+	decoder := simplifiedchinese.GBK.NewDecoder()
+	result, _, err := transform.String(decoder, s)
+	if err == nil && utf8.ValidString(result) {
+		return result
+	}
+
+	// 兜底：替换非法字节为替换字符
+	return strings.ToValidUTF8(s, "�")
 }
 
 // truncateUTF8 按字节上限截断，但保证不切到 multi-byte rune 中间——
