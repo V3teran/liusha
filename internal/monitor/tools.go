@@ -25,6 +25,10 @@ type GetGlobalStateTool struct {
 	graph            *explorationgraph.Store
 	taskID           string
 	metricsCollector *metrics.MetricsCollector
+	// activity 返回 action 距最近一次工具活动的时长（false=无记录）。
+	// 图上"无输出"是长 ReAct 执行期的正常形态，工具活动才是活性真信号——
+	// kill 决策必须看它，否则会把正在深挖的 action 当卡死冤杀。
+	activity func(actionID string) (time.Duration, bool)
 }
 
 // NewGetGlobalStateTool 构造全局态势工具。
@@ -88,7 +92,7 @@ func (t *GetGlobalStateTool) Execute(ctx context.Context, _ json.RawMessage) (re
 		Objective:      objective,
 		Actions:        allActions,
 		Findings:       findings,
-		RunningActions: runningActionViews(allActions, time.Now()),
+		RunningActions: t.runningActionViews(allActions, time.Now()),
 		Metrics:        t.metricsCollector.GetMetrics(),
 	}
 
@@ -103,7 +107,7 @@ func (t *GetGlobalStateTool) Execute(ctx context.Context, _ json.RawMessage) (re
 
 // runningActionViews 从动作列表抽取 running 态的监察视图。
 // 时长基准取 UpdatedAt（最近一次状态迁移时刻：open→running 时刷新）。
-func runningActionViews(actions []explorationgraph.Node, now time.Time) []RunningActionView {
+func (t *GetGlobalStateTool) runningActionViews(actions []explorationgraph.Node, now time.Time) []RunningActionView {
 	var views []RunningActionView
 	for _, a := range actions {
 		if a.State == nil || *a.State != explorationgraph.StateRunning {
@@ -117,11 +121,21 @@ func runningActionViews(actions []explorationgraph.Node, now time.Time) []Runnin
 		if mins < 0 {
 			mins = 0
 		}
-		views = append(views, RunningActionView{
+		view := RunningActionView{
 			ID:             a.ID,
 			Instruction:    c.Instruction,
 			RunningMinutes: math.Round(mins*10) / 10,
-		})
+		}
+		// 活动信号：距最近一次工具调用的分钟数（无记录=该 action 尚无工具活动，
+		// 以 -1 标注，让决策者知道这是"还没开始干活"而非"干着干着停了"）
+		if t.activity != nil {
+			if idle, ok := t.activity(a.ID); ok {
+				view.IdleMinutes = math.Round(idle.Minutes()*10) / 10
+			} else {
+				view.IdleMinutes = -1
+			}
+		}
+		views = append(views, view)
 	}
 	return views
 }

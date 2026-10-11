@@ -83,12 +83,15 @@ const (
 type Relation string
 
 // 探索图关系：动作产出观察、评估确认/反驳、结果使能后续动作等。
+// generates 是贯穿推导链的"产出"关系：
+// objective →(generates)→ action →(generates)→ observation →(generates)→ result。
 const (
-	RelGenerates Relation = "generates"  // action → observation（生成）
+	RelGenerates Relation = "generates"  // 上游产出下游（推导链）
 	RelConfirms  Relation = "confirms"   // evaluation → result（确认）
 	RelRefutes   Relation = "refutes"    // evaluation → observation（反驳）
 	RelEnables   Relation = "enables"    // result → action（使能）
 	RelDependsOn Relation = "depends_on" // action → action（依赖）
+	RelTriggers  Relation = "triggers"   // result → objective/action（结果触发新方向/后续动作）
 )
 
 // SourceType 是节点的来源类型

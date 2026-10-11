@@ -118,9 +118,12 @@ func TestMessageModifierChain(t *testing.T) {
 			t.Fatalf("Apply failed: %v", err)
 		}
 
-		// 验证窗口截断生效
-		if len(result) != 3 { // 系统消息 + 2条
-			t.Errorf("expected 3 messages, got %d", len(result))
+		// 验证窗口截断生效：system + 占位 user（起点非 user 时补）+ 2 条
+		if len(result) != 4 {
+			t.Errorf("expected 4 messages, got %d", len(result))
+		}
+		if result[1].Role != llm.RoleUser {
+			t.Errorf("压缩后窗口起点应为占位 user, got %s", result[1].Role)
 		}
 	})
 
@@ -143,9 +146,9 @@ func TestMessageModifierChain(t *testing.T) {
 			t.Fatalf("Apply failed: %v", err)
 		}
 
-		// 跳过失败的修改器，截断应该仍然生效
-		if len(result) != 3 {
-			t.Errorf("expected 3 messages after skipping failed modifier, got %d", len(result))
+		// 跳过失败的修改器，截断应该仍然生效（含占位 user）
+		if len(result) != 4 {
+			t.Errorf("expected 4 messages after skipping failed modifier, got %d", len(result))
 		}
 	})
 }

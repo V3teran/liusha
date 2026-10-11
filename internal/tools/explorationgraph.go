@@ -1,246 +1,16 @@
 package tools
 
+// 本文件承载复现配方的归一化设施（域信封解析/矫正/分域校验）。
+// 观察节点的唯一生产路径是 executor 引擎收割（ReAct 最终 JSON →
+// createObservationNode），归一化在落图前统一执行；曾有的
+// write_observation 白名单工具已随架构演化删除（0 调用实证）。
+
 import (
 	"context"
 	"encoding/json"
 	"fmt"
 	"strings"
-	"time"
-
-	"github.com/google/uuid"
-
-	"github.com/V3teran/liusha/internal/explorationgraph"
-	"github.com/V3teran/liusha/internal/framework/core"
-	"github.com/V3teran/liusha/internal/registry"
 )
-
-// ─── write_observation ────────────────────────────────────────────────────────
-
-// requestObjectSchema 是自包含 HTTP 请求的 JSON Schema 片段（repro.request/baseline 共用）。
-const requestObjectSchema = `{
-      "type": "object",
-      "description": "完整的自包含 HTTP 请求（完整 URL 含 http(s)://，payload 注入在 url/body 里）",
-      "properties": {
-        "method":  {"type": "string", "enum": ["GET","POST","PUT","DELETE","PATCH","HEAD","OPTIONS"]},
-        "url":     {"type": "string", "description": "完整 URL（含 http:// 或 https://，如 http://host/api?id=payload）"},
-        "headers": {"type": "object", "additionalProperties": {"type": "string"}, "description": "请求头（含 Content-Type/Cookie 等，可传 {}）"},
-        "body":    {"type": "string", "description": "请求体（GET 通常为空字符串）"}
-      },
-      "required": ["method", "url", "headers", "body"]
-    }`
-
-var writeObservationSchema = json.RawMessage(`{
-  "type": "object",
-  "properties": {
-    "statement": {
-      "type": "string",
-      "description": "假设陈述，如：'目标存在 SQL 注入漏洞'"
-    },
-    "reasoning": {
-      "type": "string",
-      "description": "提出假设的理由和推理过程"
-    },
-    "test_plan": {
-      "type": "string",
-      "description": "如何验证这个假设的计划"
-    },
-    "confidence": {
-      "type": "string",
-      "enum": ["low", "medium", "high"],
-      "description": "假设的初始置信度，默认 low"
-    },
-    "severity": {
-      "type": "string",
-      "enum": ["critical", "high", "medium", "low"],
-      "description": "若坐实，漏洞严重度（可选，默认 medium）"
-    },
-    "repro": {
-      "type": "object",
-      "description": "自包含复现配方（漏洞假设必填）——域信封 {domain, recipe, assert}，不依赖任何工具或流量库。web 域（HTTP 发现的漏洞）：recipe.request 是实测过、能触发漏洞特征的完整攻击请求（从 http_request 返回的 request 拷贝改造注入 payload），assert 断言攻击响应独有特征（报错回显/泄露数据/延迟），可选 recipe.baseline 良性对照供机器差分；时间盲用 min_duration_ms。generic 域（浏览器发现的漏洞如 DOM XSS、非 HTTP 场景如命令/多步操作/域渗透）：recipe.steps 自由文本写清执行步骤与判定观察点，assert.description 写坐实判据——评估官据此自主执行验证。",
-      "properties": {
-        "domain": {"type": "string", "enum": ["web", "generic"], "description": "复现域，默认 web"},
-        "recipe": {
-          "oneOf": [
-            {
-              "type": "object",
-              "description": "web 域配方",
-              "properties": {
-                "request": ` + requestObjectSchema + `,
-                "baseline": {
-                  "type": "object",
-                  "description": "可选：良性对照请求（正常参数版）。提供后机器先放基线再放攻击，断言在基线也命中即拒绝坐实（差分铁律）",
-                  "properties": {
-                    "method":  {"type": "string", "enum": ["GET","POST","PUT","DELETE","PATCH","HEAD","OPTIONS"]},
-                    "url":     {"type": "string", "description": "完整 URL（正常参数）"},
-                    "headers": {"type": "object", "additionalProperties": {"type": "string"}},
-                    "body":    {"type": "string"}
-                  }
-                }
-              },
-              "required": ["request"]
-            },
-            {
-              "type": "object",
-              "description": "generic 域配方（非 HTTP 场景）",
-              "properties": {
-                "steps": {"type": "string", "description": "自由文本执行步骤（命令/工具序列与判定观察点，评估官据此自主执行取证）"}
-              },
-              "required": ["steps"]
-            }
-          ]
-        },
-        "assert": {
-          "oneOf": [
-            {
-              "type": "object",
-              "description": "web 域断言：全部满足才算复现成功，至少一条；禁止页面常态断言（status_code:200+登录页标题类）",
-              "properties": {
-                "status_code":       {"type": "integer", "description": "期望响应码"},
-                "body_contains":     {"type": "array", "items": {"type": "string"}, "description": "响应体须含全部子串"},
-                "body_not_contains": {"type": "array", "items": {"type": "string"}, "description": "响应体须不含任一子串"},
-                "header_contains":   {"type": "object", "description": "响应头 key→子串"},
-                "min_duration_ms":   {"type": "integer", "description": "响应耗时至少 N 毫秒——时间盲注入证据（SLEEP(5) 给 4000）"}
-              }
-            },
-            {
-              "type": "object",
-              "description": "generic 域判据",
-              "properties": {
-                "description": {"type": "string", "description": "坐实判据的自然语言描述：执行 steps 后观察到什么才算坐实"}
-              },
-              "required": ["description"]
-            }
-          ]
-        }
-      },
-      "required": ["recipe", "assert"]
-    }
-  },
-  "required": ["statement", "reasoning"]
-}`)
-
-type writeObservationTool struct {
-	registry.BaseTool
-	deps Deps
-}
-
-func newWriteObservationTool(deps Deps, timeout time.Duration, safe bool) *writeObservationTool {
-	t := &writeObservationTool{deps: deps}
-	t.SetTimeout(timeout)
-	t.SetConcurrencySafe(safe)
-	return t
-}
-
-func (t *writeObservationTool) Name() string { return "write_observation" }
-func (t *writeObservationTool) ShortDesc() string {
-	return "⚠️【必须】报告发现的漏洞假设（附复现配方repro），未报告=无效发现"
-}
-func (t *writeObservationTool) Desc() string {
-	return "记录一个待验证的漏洞假设到探索图。必须包含自包含的复现配方（repro字段），evaluator会据此自主验证。未通过此工具报告的发现不会进入最终报告。"
-}
-func (t *writeObservationTool) Schema() json.RawMessage { return writeObservationSchema }
-
-func (t *writeObservationTool) Execute(ctx context.Context, args json.RawMessage) (registry.ToolResult, error) {
-	var input struct {
-		Statement  string          `json:"statement"`
-		Reasoning  string          `json:"reasoning"`
-		TestPlan   string          `json:"test_plan"`
-		Confidence string          `json:"confidence"`
-		Severity   string          `json:"severity"`
-		Repro      json.RawMessage `json:"repro"`
-	}
-	if err := json.Unmarshal(args, &input); err != nil {
-		return registry.ToolResult{Error: "参数解析失败"}, nil
-	}
-
-	if input.Statement == "" {
-		return registry.ToolResult{Error: "statement 不能为空"}, nil
-	}
-
-	// repro 归一化：分域校验 + 统一成域信封 {domain, recipe, assert} 后存储——
-	// 收割层/复现门从此只认信封，不再感知任何域内形状。
-	normalizeNote := ""
-	if len(input.Repro) > 0 {
-		normalized, note, nErr := NormalizeReproEnvelope(input.Repro)
-		if nErr != nil {
-			return registry.ToolResult{Error: nErr.Error()}, nil
-		}
-		input.Repro = normalized
-		normalizeNote = note
-	}
-
-	// 默认置信度
-	if input.Confidence == "" {
-		input.Confidence = "low"
-	}
-
-	// 构造 content（repro/severity 透传——executor agent 收割后交复现门裁决）
-	contentMap := map[string]interface{}{
-		"statement": input.Statement,
-		"reasoning": input.Reasoning,
-		"test_plan": input.TestPlan,
-	}
-	if input.Severity != "" {
-		contentMap["severity"] = input.Severity
-	}
-	if len(input.Repro) > 0 {
-		contentMap["repro"] = input.Repro
-	}
-	content, _ := json.Marshal(contentMap)
-
-	// 映射到 explorationgraph.Confidence
-	var confidence explorationgraph.Confidence
-	switch input.Confidence {
-	case "low":
-		confidence = "low"
-	case "medium":
-		confidence = "medium"
-	case "high":
-		confidence = "high"
-	default:
-		confidence = "low"
-	}
-
-	// 创建节点
-	node := explorationgraph.Node{
-		ID:         uuid.New().String(),
-		TaskID:     t.deps.TaskID,
-		Kind:       core.KindObservation,
-		Content:    content,
-		Confidence: &confidence,
-		Priority:   explorationgraph.PriorityMedium,
-		SourceType: explorationgraph.SourceExecutor,
-		SourceID:   t.deps.AgentRunID,
-		CreatedAt:  time.Now(),
-		UpdatedAt:  time.Now(),
-	}
-
-	// 写入探索图
-	id, err := t.deps.Graph.CreateNode(ctx, node)
-	if err != nil {
-		return registry.ToolResult{Error: fmt.Sprintf("创建节点失败: %v", err)}, nil
-	}
-
-	// 如果有当前 actionID，创建 action → observation 关系（GENERATES）。
-	// 边失败不中断节点创建（节点是主体），但要在输出中可见——静默吞掉会丢溯源。
-	warnings := ""
-	if actionID := getContextActionID(ctx); actionID != "" {
-		edge := explorationgraph.Edge{
-			TaskID:    t.deps.TaskID,
-			SrcID:     actionID,
-			Rel:       explorationgraph.RelGenerates,
-			DstID:     id,
-			CreatedAt: time.Now(),
-		}
-		if err := t.deps.Graph.CreateBusinessEdge(ctx, edge); err != nil {
-			warnings += fmt.Sprintf("\n⚠️ 归属边创建失败（action=%s）: %v", actionID, err)
-		}
-	}
-
-	return registry.ToolResult{
-		Output: fmt.Sprintf("Observation 创建成功\nID: %s\n陈述: %s\n置信度: %s%s%s", id, input.Statement, input.Confidence, normalizeNote, warnings),
-	}, nil
-}
 
 // NormalizeReproEnvelope 把 LLM 提交的 repro 归一化成域信封 {domain, recipe, assert} 并做分域校验。
 // 兼容历史形状：顶层 request/baseline/assert（无 domain）自动包装成 web 域信封；
@@ -248,6 +18,7 @@ func (t *writeObservationTool) Execute(ctx context.Context, args json.RawMessage
 // 归一化后存储——收割层与复现门只认信封，不感知任何域内形状。
 // 返回 (信封, 教学提示（可空）, 错误)。
 func NormalizeReproEnvelope(repro json.RawMessage) (json.RawMessage, string, error) {
+	repro = convertArrayRepro(repro)
 	flex, err := parseReproEnvelope(repro)
 	if err != nil {
 		return nil, "", err
@@ -382,6 +153,7 @@ func normalizeWebRepro(flex reproEnvelope) (recipe, assert json.RawMessage, err 
 		return nil, nil, fmt.Errorf("❌ repro 缺少 assert 字段。\n\n" +
 			"✅ web 域可用字段: status_code, body_contains, body_not_contains, header_contains, min_duration_ms")
 	}
+	assert = coerceWebAssertShape(assert)
 	if err := validateWebRequestRecipe(recipe); err != nil {
 		return nil, nil, err
 	}
@@ -389,6 +161,38 @@ func normalizeWebRepro(flex reproEnvelope) (recipe, assert json.RawMessage, err 
 		return nil, nil, err
 	}
 	return recipe, assert, nil
+}
+
+// coerceWebAssertShape 对 assert 做宽容形状矫正（LLM 输出形状不可靠，写入侧
+// 统一归一到复现门期望的类型）：body_contains/body_not_contains 传单个字符串
+// 时自动包装成单元素数组——schema 声明是数组但 LLM 常写标量，放任会到复现门
+// 才解析失败且该观察永远无法裁决。矫正不了的形状原样透传（门侧报错兜底）。
+func coerceWebAssertShape(assert json.RawMessage) json.RawMessage {
+	var raw map[string]json.RawMessage
+	if json.Unmarshal(assert, &raw) != nil {
+		return assert
+	}
+	listFields := []string{"body_contains", "body_not_contains"}
+	changed := false
+	for _, field := range listFields {
+		v, ok := raw[field]
+		if !ok || len(v) == 0 {
+			continue
+		}
+		trimmed := strings.TrimSpace(string(v))
+		if strings.HasPrefix(trimmed, `"`) && json.Valid(v) {
+			raw[field] = json.RawMessage("[" + trimmed + "]")
+			changed = true
+		}
+	}
+	if !changed {
+		return assert
+	}
+	b, err := json.Marshal(raw)
+	if err != nil {
+		return assert
+	}
+	return b
 }
 
 // normalizeGenericRepro 归一化 generic 域 repro：steps 非空 + assert.description 判据强制。
@@ -503,7 +307,7 @@ func teachWebAssertDiscriminative(recipe, assert json.RawMessage) error {
 	return nil
 }
 
-// ─── write_evidence ──────────────────────────────────────────────────────────
+// ─── action 上下文 ────────────────────────────────────────────────────────────
 
 // actionCtxKey 是当前执行 Action ID 的类型化 context 键（SA1029：禁止裸 string 键）。
 type actionCtxKey string
@@ -511,15 +315,45 @@ type actionCtxKey string
 const ctxActionID actionCtxKey = "current_action_id"
 
 // WithActionContext 把当前执行的 Action ID 挂进 ctx——engine 在把 ctx 交给 ReAct
-// runtime 前调用，write_observation/write_evidence 据此建 action→节点 的归属边。
+// runtime 前调用，归属边创建与监控活动追踪据此识别当前 action。
 func WithActionContext(ctx context.Context, actionID string) context.Context {
 	return context.WithValue(ctx, ctxActionID, actionID)
 }
 
-// getContextActionID 从 context 中获取当前 actionID（如果有）
-func getContextActionID(ctx context.Context) string {
+// ActionIDFromContext 从 context 中获取当前 actionID（监控活动追踪等跨包消费者用）。
+func ActionIDFromContext(ctx context.Context) string {
 	if actionID, ok := ctx.Value(ctxActionID).(string); ok {
 		return actionID
 	}
 	return ""
+}
+
+// getContextActionID 从 context 中获取当前 actionID（如果有）
+func getContextActionID(ctx context.Context) string {
+	return ActionIDFromContext(ctx)
+}
+
+// convertArrayRepro 把数组形状的历史配方（["step1", "step2", ...]）转换成
+// generic 域信封——LLM 偶尔把复现步骤写成字符串列表，直接交给结构体解析
+// 会失败且该观察永远无法裁决。数组内非字符串元素时原样返回（由分域校验
+// 给出可行动的报错）。
+func convertArrayRepro(repro json.RawMessage) json.RawMessage {
+	trimmed := strings.TrimSpace(string(repro))
+	if !strings.HasPrefix(trimmed, "[") {
+		return repro
+	}
+	var steps []string
+	if json.Unmarshal(repro, &steps) != nil || len(steps) == 0 {
+		return repro
+	}
+	envelope := map[string]interface{}{
+		"domain": "generic",
+		"recipe": map[string]string{"steps": strings.Join(steps, "\n")},
+		"assert": map[string]string{"description": "按步骤执行后观察到配方声称的漏洞特征"},
+	}
+	b, err := json.Marshal(envelope)
+	if err != nil {
+		return repro
+	}
+	return b
 }

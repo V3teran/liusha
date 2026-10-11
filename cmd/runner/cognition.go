@@ -140,8 +140,9 @@ func (h handler) runCognition(
 		h.logger.Warn().Err(rErr).Str("task_id", taskID).Msg("查询 agent_run 失败，tool_invocation 将不关联 run")
 	}
 
+	activities := newActivityTracker()
 	reg := registry.New()
-	reg.AddInterceptor(h.toolRecordInterceptor(agentRunID, taskID))
+	reg.AddInterceptor(h.toolRecordInterceptor(agentRunID, taskID, activities))
 	// 跨包工具依赖（executor 注册与 evaluator BuildTools 共用同一份，避免字面量漂移）
 	toolDeps := func(skillsView skill.Reader) tools.Deps {
 		return tools.Deps{
@@ -158,7 +159,6 @@ func (h handler) runCognition(
 			AgentStore: h.agentStore,
 			Creds:      h.creds,
 			Sandbox:    sb,         // run_command/drive_browser 依赖；nil 时这两个工具不注册
-			Graph:      h.graph,    // write_observation/write_evidence 依赖——晋升提议权的载体
 			Skills:     skillsView, // read_skill 依赖；声明为空时不注册
 		}
 	}
@@ -186,6 +186,7 @@ func (h handler) runCognition(
 	engine := executor.NewEngine(executor.EngineConfig{
 		Router:        h.router,
 		Findings:      h.findings,
+		Graph:         h.graph, // observation 落图与 kill 检查依赖；nil 会在产出观察时空指针崩溃
 		AgentRunID:    agentRunID, // LLM 审计归属本轮 run
 		Registry:      execRegistry,
 		FunctionTools: executorCfg.FunctionTools,                                // function_tools 白名单（nil=全量）
@@ -215,7 +216,9 @@ func (h handler) runCognition(
 
 	// 4. 创建 EvaluatorAgent：Replayer 零依赖（复现配方自包含完整 HTTP 请求，
 	// 不从 traffic 表取流量——工具自发流量同样可复现）。
-	replayer := executor.NewReplayer()
+	// 凭据池按 host 注入会话上下文：LLM 漏写 Cookie 的配方也能以登录态重放，
+	// 防真实漏洞因重放落到登录页而被机器护栏误证伪。
+	replayer := executor.NewReplayer().WithCredentials(h.creds, host)
 
 	promoter := evaluator.New(h.graph, replayer, h.findings).
 		WithJudge(judge). // ReAct 裁决官：replay_for_verification + CLI 复核工具
@@ -230,6 +233,7 @@ func (h handler) runCognition(
 		Graph:         h.graph,
 		Logger:        h.logger.With().Str("component", "evaluator_agent").Logger(),
 		// 验证并发：每个验证 = 机器复放 + 一轮 judge ReAct（LLM 账单随并发线性放大）
+		// 降低到 3 避免 GLM API 限流
 		MaxConcurrent: 3,
 		PollInterval:  5 * time.Second, // 每 5 秒轮询一次未验证的 observation
 	})
@@ -266,6 +270,7 @@ func (h handler) runCognition(
 		EventBus:      h.eventBus,
 		Provider:      provider,
 		Interval:      6 * time.Minute,
+		Activity:      activities.idleFor,
 		Logger:        h.logger.With().Str("component", "monitor_agent").Logger(),
 		Checkpointer:  h.checkpointer,
 	})

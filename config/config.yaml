@@ -68,6 +68,7 @@ llm:
     batch_size: 100                  # 累积此行数即触发 flush
     flush_interval_ms: 1000          # 兜底 flush 周期
     insert_timeout_sec: 5            # 单次 batch insert 超时
+    retention_days: 0                # 留存天数（记录含完整 prompt/response 敏感载荷）；0 = 永久留存
 
 # 仅供空库首次种子导入（insert-only，见上方 llm: 段说明）；DB 是事实源，改模型走前端「LLM 配置」页。
 providers:

@@ -52,6 +52,11 @@ type ReActConfig struct {
 	// 提前终止条件（返回 true 时停止循环）
 	EarlyStopCondition func(thought string) bool
 
+	// MaxConsecutiveToolFailures 是连续工具失败止损阈值：连续失败达到该数
+	// 即终止本轮 ReAct（环境有障碍时避免 LLM 无限挣扎烧 token），把已收集的
+	// 观察交回上层裁决。<=0 用默认值 8。
+	MaxConsecutiveToolFailures int
+
 	// 回调函数
 	OnThought     func(thought string)
 	OnAction      func(action *Action)
@@ -70,6 +75,9 @@ type ReActConfig struct {
 	// 消息预处理链（在 LLM 调用前对消息历史进行转换）
 	// 包括：消息压缩、字段注入、验证等
 	MessageModifierChain *MessageModifierChain
+
+	// 中间件链（在每次迭代前后执行，用于检测循环、目标偏离等异常）
+	MiddlewareChain *MiddlewareChain
 
 	// Checkpoint 支持
 	CheckpointPolicy      CheckpointPolicy  // 何时保存检查点（nil 表示不保存）
@@ -194,8 +202,10 @@ func (c *ReActConfig) Validate() error {
 
 	// MaxIterations<=0 合法：= 不设限（上限完全由调用方配置决定，运行时不二次封顶）。
 
-	if c.Temperature < 0 || c.Temperature > 1 {
-		return fmt.Errorf("温度参数必须在 0-1 之间")
+	// Temperature 合法下界为 0（贪心解码）；上界因协议族而异，
+	// 由 Provider 侧约束，运行时只拒绝负值。
+	if c.Temperature < 0 {
+		return fmt.Errorf("温度参数不能为负数")
 	}
 
 	return nil
@@ -233,22 +243,6 @@ func (r *ReActResult) AddToolMessage(toolCallID, content string) {
 		Content:    content,
 		ToolCallID: toolCallID,
 	})
-}
-
-// GetLastAssistantMessage 获取最后一条助手消息
-func (r *ReActResult) GetLastAssistantMessage() *llm.Message {
-	for i := len(r.MessageHistory) - 1; i >= 0; i-- {
-		if r.MessageHistory[i].Role == llm.RoleAssistant {
-			return &r.MessageHistory[i]
-		}
-	}
-	return nil
-}
-
-// HasToolCalls 检查最后一条助手消息是否包含工具调用
-func (r *ReActResult) HasToolCalls() bool {
-	lastMsg := r.GetLastAssistantMessage()
-	return lastMsg != nil && len(lastMsg.ToolCalls) > 0
 }
 
 // ExtractFinalAnswer 从消息历史中提取最终答案

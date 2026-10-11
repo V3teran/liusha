@@ -23,7 +23,7 @@ import (
 // 架构位置：它是 browser-svc.py（CDP capture）的对位物——容器内 mitm 抓流层缺失时
 // （Dockerfile 未装 mitmproxy），CLI 工具的 HTTP 无法进入复现弹药库。本工具把
 // executor 的 HTTP 操作收拢到 typed 通道：请求自动入 agent_traffic → LLM 拿到
-// traffic_id → write_observation(repro={traffic_id, assert}) → evaluator 重放坐实。
+// 流量回放取证 → executor 最终输出的 repro 引用完整请求 → 复现门重放坐实。
 // 晋升链的完整闭环依赖此工具提供的「可复现原语」。
 
 var httpRequestSchema = json.RawMessage(`{
@@ -376,7 +376,7 @@ func (t *httpRequestTool) ShortDesc() string {
 }
 func (t *httpRequestTool) Desc() string {
 	return "发送 HTTP 请求并返回完整的 request（method/url/headers/body）与 response——" +
-		"write_observation 据此构造自包含复现配方（HTTP 发现的漏洞从本工具返回的 request 拷贝改造；" +
+		"executor 据此构造自包含复现配方并随最终输出提交（HTTP 发现的漏洞从本工具返回的 request 拷贝改造；" +
 		"浏览器/非 HTTP 发现走 generic steps）。凭证库中该 host 的已录入凭证（headers/query/body 位置，" +
 		"数量与位置不定）自动注入，显式传入的键优先；响应 Set-Cookie 自动入库（identity=session)。"
 }

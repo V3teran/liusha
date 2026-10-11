@@ -11,6 +11,10 @@ import (
 
 // CreateEdge 创建边（幂等）。
 func (s *PostgresGraphStore) CreateEdge(ctx context.Context, edge *GraphEdge) error {
+	return s.insertEdge(ctx, s.pool, edge)
+}
+
+func (s *PostgresGraphStore) insertEdge(ctx context.Context, db execer, edge *GraphEdge) error {
 	if edge == nil {
 		return errors.New("edge cannot be nil")
 	}
@@ -20,11 +24,8 @@ func (s *PostgresGraphStore) CreateEdge(ctx context.Context, edge *GraphEdge) er
 	if edge.Relation == "" {
 		return errors.New("edge relation cannot be empty")
 	}
-
-	// 从 From 节点获取 task_id
-	taskID, err := s.getNodeTaskID(ctx, edge.From)
-	if err != nil {
-		return fmt.Errorf("get task_id from node %s: %w", edge.From, err)
+	if edge.TaskID == "" {
+		return errors.New("edge task_id cannot be empty")
 	}
 
 	attrsJSON, err := json.Marshal(edge.Metadata)
@@ -43,8 +44,8 @@ func (s *PostgresGraphStore) CreateEdge(ctx context.Context, edge *GraphEdge) er
 		now = edge.CreatedAt
 	}
 
-	_, err = s.pool.Exec(ctx, query,
-		taskID,
+	_, err = db.Exec(ctx, query,
+		edge.TaskID,
 		edge.From,
 		edge.Relation,
 		edge.To,
@@ -64,6 +65,12 @@ func (s *PostgresGraphStore) ListEdges(ctx context.Context, query GraphEdgeQuery
 	whereParts := []string{}
 	args := []interface{}{}
 	argIndex := 1
+
+	if query.TaskID != "" {
+		whereParts = append(whereParts, fmt.Sprintf("task_id = $%d", argIndex))
+		args = append(args, query.TaskID)
+		argIndex++
+	}
 
 	if query.From != "" {
 		whereParts = append(whereParts, fmt.Sprintf("src_id = $%d", argIndex))
@@ -95,7 +102,7 @@ func (s *PostgresGraphStore) ListEdges(ctx context.Context, query GraphEdgeQuery
 	}
 
 	sqlQuery := fmt.Sprintf(`
-		SELECT src_id, dst_id, rel, attrs, created_at
+		SELECT task_id, src_id, dst_id, rel, attrs, created_at
 		FROM `+s.edgeTable+`
 		%s
 		ORDER BY created_at DESC
@@ -114,6 +121,7 @@ func (s *PostgresGraphStore) ListEdges(ctx context.Context, query GraphEdgeQuery
 		var attrsJSON []byte
 
 		err := rows.Scan(
+			&edge.TaskID,
 			&edge.From,
 			&edge.To,
 			&edge.Relation,

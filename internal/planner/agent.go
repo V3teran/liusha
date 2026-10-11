@@ -169,9 +169,9 @@ func (a *Agent) planActions(ctx context.Context) error {
 
 	a.logger.Debug().Str("task_id", a.taskID).Msg("开始规划 Action")
 
-	// 1. 分析新出现的 Results
+	// 1. 分析新出现的 Results（失败仅记录：分析不是规划的前置硬依赖）
 	if err := a.analyzeNewResults(ctx); err != nil {
-		// 继续执行，不中断
+		a.logger.Warn().Err(err).Msg("分析新 Results 失败（继续规划）")
 	}
 
 	// 2. 检查是否已有可执行的 Action
@@ -199,21 +199,29 @@ func (a *Agent) planActions(ctx context.Context) error {
 	return a.writeActionsFromPlan(ctx, actions)
 }
 
-// writeActionsFromPlan 将 planner 返回的 action nodes 写入图（保持原有逻辑）
+// rootObjective 返回任务的根目标节点（创建序最早——根目标由任务入口创建，
+// planner 派生的次级目标晚于它）。规划产出的 Action 以根目标为章程归属。
+func (a *Agent) rootObjective(ctx context.Context) (explorationgraph.Node, error) {
+	objectives, err := a.graph.ListNodesByKind(ctx, a.taskID, core.KindObjective)
+	if err != nil {
+		return explorationgraph.Node{}, fmt.Errorf("获取 Objectives 失败: %w", err)
+	}
+	if len(objectives) == 0 {
+		return explorationgraph.Node{}, fmt.Errorf("当前无 Objective 节点")
+	}
+	return objectives[0], nil
+}
+
+// writeActionsFromPlan 将 planner 返回的 action 节点连同章程归属边
+// （根 objective → action）原子写入图。
 func (a *Agent) writeActionsFromPlan(ctx context.Context, actions []explorationgraph.Node) error {
 	a.logger.Info().
 		Int("action_count", len(actions)).
 		Msg("准备写入 Actions 到探索图")
 
-	// 获取当前 Objective（用于关联 Actions）
-	objectives, err := a.graph.ListNodesByKind(ctx, a.taskID, core.KindObjective)
+	primaryObjective, err := a.rootObjective(ctx)
 	if err != nil {
-		a.logger.Error().Err(err).Msg("获取 Objectives 失败")
-	}
-
-	var primaryObjectiveID string
-	if len(objectives) > 0 {
-		primaryObjectiveID = objectives[0].ID
+		a.logger.Error().Err(err).Msg("获取根 Objective 失败")
 	}
 
 	failed := 0
@@ -223,26 +231,30 @@ func (a *Agent) writeActionsFromPlan(ctx context.Context, actions []explorationg
 			Str("action_id", action.ID).
 			Msg("准备创建 Action")
 
-		// action 已经是完整的 Node，直接写入
-		if _, err := a.graph.CreateNode(ctx, action); err != nil {
-			failed++
-			a.logger.Error().
-				Err(err).
-				Str("action_id", action.ID).
-				Msg("写入 Action 失败")
-			continue
-		}
-
-		// 创建 Objective → Action 边
-		if primaryObjectiveID != "" {
-			if err := a.graph.CreateEdge(ctx, &core.GraphEdge{
-				From:      primaryObjectiveID,
-				To:        action.ID,
-				Relation:  string(core.RelationGenerates),
+		if primaryObjective.ID != "" {
+			edge := explorationgraph.Edge{
+				TaskID:    a.taskID,
+				SrcID:     primaryObjective.ID,
+				Rel:       explorationgraph.RelGenerates,
+				DstID:     action.ID,
 				CreatedAt: time.Now(),
-			}); err != nil {
-				a.logger.Error().Err(err).Msg("创建 Objective → Action 边失败")
-				// 不返回错误，节点已创建
+			}
+			if err := a.graph.CreateNodeWithEdges(ctx, action, []explorationgraph.Edge{edge}); err != nil {
+				failed++
+				a.logger.Error().
+					Err(err).
+					Str("action_id", action.ID).
+					Msg("写入 Action 失败")
+				continue
+			}
+		} else {
+			if _, err := a.graph.CreateNode(ctx, action); err != nil {
+				failed++
+				a.logger.Error().
+					Err(err).
+					Str("action_id", action.ID).
+					Msg("写入 Action 失败")
+				continue
 			}
 		}
 
@@ -316,7 +328,8 @@ func (a *Agent) analyzeAndProcessResults(ctx context.Context, results []explorat
 	return nil
 }
 
-// createNewObjectives 创建新的 Objective 节点
+// createNewObjectives 创建新的 Objective 节点，连同 Result → Objective 的
+// TRIGGERS 溯源边原子落图。
 func (a *Agent) createNewObjectives(ctx context.Context, objectives []NewObjective) error {
 	for _, obj := range objectives {
 		objID := uuid.New().String()
@@ -343,28 +356,23 @@ func (a *Agent) createNewObjectives(ctx context.Context, objectives []NewObjecti
 			UpdatedAt:  time.Now(),
 		}
 
-		if _, err := a.graph.CreateNode(ctx, node); err != nil {
+		edges := make([]explorationgraph.Edge, 0, len(obj.TriggeredBy))
+		for _, resultID := range obj.TriggeredBy {
+			edges = append(edges, explorationgraph.Edge{
+				TaskID:    a.taskID,
+				SrcID:     resultID,
+				Rel:       explorationgraph.RelTriggers,
+				DstID:     objID,
+				CreatedAt: time.Now(),
+			})
+		}
+
+		if err := a.graph.CreateNodeWithEdges(ctx, node, edges); err != nil {
 			a.logger.Error().
 				Err(err).
 				Str("objective_id", objID).
 				Msg("创建 Objective 节点失败")
 			continue
-		}
-
-		// 创建 Result → Objective 的 TRIGGERS 边
-		for _, resultID := range obj.TriggeredBy {
-			if err := a.graph.CreateEdge(ctx, &core.GraphEdge{
-				From:      resultID,
-				To:        objID,
-				Relation:  string(core.RelationTriggers),
-				CreatedAt: time.Now(),
-			}); err != nil {
-				a.logger.Error().
-					Err(err).
-					Str("result_id", resultID).
-					Str("objective_id", objID).
-					Msg("创建 Result → Objective 边失败")
-			}
 		}
 
 		a.logger.Info().
@@ -376,18 +384,13 @@ func (a *Agent) createNewObjectives(ctx context.Context, objectives []NewObjecti
 	return nil
 }
 
-// createContinuationActions 创建新的 Action 节点（在当前 Objective 下）
+// createContinuationActions 在根 Objective 下创建延续 Action 节点，
+// 章程归属边（objective → action）与触发溯源边（result → action）一并原子落图。
 func (a *Agent) createContinuationActions(ctx context.Context, actions []ContinuationAction) error {
-	// 获取当前 Objective
-	objectives, err := a.graph.ListNodesByKind(ctx, a.taskID, core.KindObjective)
+	currentObjective, err := a.rootObjective(ctx)
 	if err != nil {
-		return fmt.Errorf("获取当前 Objective 失败: %w", err)
+		return err
 	}
-	if len(objectives) == 0 {
-		return fmt.Errorf("当前无 Objective 节点")
-	}
-
-	currentObjective := objectives[0] // 主 Objective（创建序第一个，与 primaryObjectiveID 判定一致）
 
 	for _, action := range actions {
 		actionID := uuid.New().String()
@@ -416,42 +419,29 @@ func (a *Agent) createContinuationActions(ctx context.Context, actions []Continu
 			UpdatedAt:  time.Now(),
 		}
 
-		if _, err := a.graph.CreateNode(ctx, node); err != nil {
+		edges := []explorationgraph.Edge{{
+			TaskID:    a.taskID,
+			SrcID:     currentObjective.ID,
+			Rel:       explorationgraph.RelGenerates,
+			DstID:     actionID,
+			CreatedAt: time.Now(),
+		}}
+		for _, resultID := range action.TriggeredBy {
+			edges = append(edges, explorationgraph.Edge{
+				TaskID:    a.taskID,
+				SrcID:     resultID,
+				Rel:       explorationgraph.RelTriggers,
+				DstID:     actionID,
+				CreatedAt: time.Now(),
+			})
+		}
+
+		if err := a.graph.CreateNodeWithEdges(ctx, node, edges); err != nil {
 			a.logger.Error().
 				Err(err).
 				Str("action_id", actionID).
 				Msg("创建 Action 节点失败")
 			continue
-		}
-
-		// 创建 Objective → Action 的 GENERATES 边
-		if err := a.graph.CreateEdge(ctx, &core.GraphEdge{
-			From:      currentObjective.ID,
-			To:        actionID,
-			Relation:  string(core.RelationGenerates),
-			CreatedAt: time.Now(),
-		}); err != nil {
-			a.logger.Error().
-				Err(err).
-				Str("objective_id", currentObjective.ID).
-				Str("action_id", actionID).
-				Msg("创建 Objective → Action 边失败")
-		}
-
-		// 创建 Result → Action 的 TRIGGERS 边
-		for _, resultID := range action.TriggeredBy {
-			if err := a.graph.CreateEdge(ctx, &core.GraphEdge{
-				From:      resultID,
-				To:        actionID,
-				Relation:  string(core.RelationTriggers),
-				CreatedAt: time.Now(),
-			}); err != nil {
-				a.logger.Error().
-					Err(err).
-					Str("result_id", resultID).
-					Str("action_id", actionID).
-					Msg("创建 Result → Action 边失败")
-			}
 		}
 
 		a.logger.Info().
@@ -517,8 +507,14 @@ func (a *Agent) forcePlanActions(ctx context.Context, monitorReason string) erro
 		Msg("强制重规划完成")
 
 	if len(actions) == 0 {
-		a.logger.Info().Msg("强制重规划未生成新 Action（任务收敛）")
-		a.eventBus.PublishTaskConverged(a.taskID, "planner: no more actions after forced replan")
+		// 与 handleNoActions 同一收敛语义：图上仍有未完结工作时，
+		// "本轮无新计划"只是等待在途执行，绝不发布收敛终止任务。
+		if a.hasUnsettledWork() {
+			a.logger.Info().Msg("强制重规划未生成新 Action，但图上仍有未完结工作——等待其产出，不收敛")
+			return nil
+		}
+		a.logger.Info().Msg("强制重规划未生成新 Action 且图上无未完结动作（任务收敛）")
+		a.eventBus.PublishTaskConverged(a.taskID, "planner: no actions after forced replan and no unsettled work")
 		return nil
 	}
 

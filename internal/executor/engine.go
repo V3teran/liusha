@@ -134,7 +134,7 @@ func (e *Engine) Execute(ctx context.Context, action explorationgraph.Node) ([]e
 //	角色章程（agent.system_prompt——DB 事实源，种子 = agents/executor.md 正文，前端可调）
 //	+ 动态装配段（工具清单 / CLI 目录 / skill 索引 / actionType 指导 / 时间预期 / 任务简报）
 //
-// 章程是机制契约（write_observation/域信封 repro/assert 规则）的唯一载体：
+// 章程是机制契约（observations 输出契约 / 域信封 repro/assert 规则）的唯一载体：
 // 改契约 = 改 agents/executor.md + make reseed，代码不内置第二份静态模板。
 // DB 正文为空（新建 agent 未填）时单句兜底，防完全空 prompt 失能。
 func (e *Engine) buildSystemPrompt(actionType, complexity string, registered []registry.Tool) string {
@@ -146,31 +146,24 @@ func (e *Engine) buildSystemPrompt(actionType, complexity string, registered []r
 		toolSB.WriteString("（无可用工具——function_tools 白名单为空）\n")
 	}
 
-	var promptSB strings.Builder
-	if c := strings.TrimSpace(e.charter); c != "" {
-		promptSB.WriteString(c)
-	} else {
-		promptSB.WriteString("你是渗透测试执行专家：执行分配的动作，发现可疑漏洞立即用 write_observation 报告（附自包含 repro 配方，格式见工具 schema）。")
+	charter := strings.TrimSpace(e.charter)
+	if charter == "" {
+		// 兜底：返回默认提示（不应该发生，reseed 应该已配置）
+		e.logger.Warn().Msg("⚠️  executor system_prompt 为空，使用兜底配置")
+		charter = "你是多智能体系统中的执行者（Executor）。"
 	}
+
+	var promptSB strings.Builder
+	promptSB.WriteString(charter)
 	promptSB.WriteString("\n\n**可用工具**（只能用这些，其余名字不可用）：\n")
 	promptSB.WriteString(toolSB.String())
 	basePrompt := promptSB.String()
 
 	// ========== 添加过滤后的 CLI 工具清单 ==========
 	if e.toolsManifest != nil && len(e.toolsManifest.Tools) > 0 {
-		basePrompt += "**沙箱预装工具清单**（通过 run_command 调用）:\n"
-
+		basePrompt += "\n"
 		// 按能力轴分组渲染（cliToolCategoryOrder 权威序 + 未收录类别兜底）
 		basePrompt += renderCLICatalog(e.toolsManifest.ByCategory())
-
-		basePrompt += `
-**使用示例**：
-1. SQL 注入: run_command({"command": "sqlmap -u 'http://target/?id=1' --batch --dbs"})
-2. 端口扫描: run_command({"command": "nmap -sV -p80,443,8080 target.com"})
-3. 目录爆破: run_command({"command": "feroxbuster -u http://target/ -w /usr/share/wordlists/dirb/common.txt"})
-
-**重要提示**：必须实际调用工具执行测试，不要只做理论分析；每次调用后仔细分析结果再决定下一步。
-`
 	} else {
 		e.logger.Warn().Msg("⚠️  没有可用的 CLI 工具（cli_tools 未配置或为空）")
 	}
@@ -189,31 +182,30 @@ func (e *Engine) buildSystemPrompt(actionType, complexity string, registered []r
 	}
 	// ========================================================
 
-	// 根据 Action 类型添加特定指导
+	// 根据 Action 类型添加特定指导（领域无关）
 	switch actionType {
 	case "reconnaissance":
 		basePrompt += `
 **侦察任务指导**：
-- 使用 nmap、masscan 等工具进行端口扫描
-- 使用 dirsearch、ffuf 等工具进行目录枚举
+- 使用适当的工具进行信息收集
 - 收集服务版本、技术栈信息
 - 记录所有发现的端点和服务
 `
-	case "vulnerability_scan":
+	case "analysis":
 		basePrompt += `
-**漏洞扫描指导**：
-- 使用 nuclei、sqlmap 等专用扫描工具
-- 针对已知服务版本搜索 CVE
-- 测试常见漏洞类型（SQL注入、XSS、SSRF等）
-- 发现可疑漏洞立即用 write_observation 记录假设（附 repro 配方）
+**分析任务指导**：
+- 使用专用分析工具
+- 针对已知问题搜索相关信息
+- 测试常见配置错误
+- 发现可疑问题立即在最终输出的 observations 里记录假设（附 repro 配方）
 `
-	case "exploitation":
+	case "testing":
 		basePrompt += `
-**漏洞利用指导**：
-- 仔细验证漏洞存在性
-- 构造精准的 Payload
+**测试任务指导**：
+- 仔细验证问题存在性
+- 构造精准的测试用例
 - 避免破坏性操作
-- 成功利用后记录完整的复现步骤
+- 成功测试后记录完整的复现步骤
 `
 	}
 
@@ -306,13 +298,6 @@ func renderCLICatalog(categoryMap map[string][]manifest.Tool) string {
 	for _, cat := range remaining {
 		render(cat)
 	}
-	b.WriteString(`
-**使用示例**：
-1. SQL 注入: run_command({"command": "sqlmap -u 'http://target/?id=1' --batch --dbs"})
-2. 端口扫描: run_command({"command": "nmap -sV -p80,443,8080 target.com"})
-3. 目录爆破: run_command({"command": "feroxbuster -u http://target/ -w /usr/share/wordlists/dirb/common.txt"})
-
-**重要提示**：必须实际调用工具执行测试，不要只做理论分析；每次调用后仔细分析结果再决定下一步。
-`)
+	b.WriteString("\n**重要提示**：必须实际调用工具执行测试，不要只做理论分析；每次调用后仔细分析结果再决定下一步。\n")
 	return b.String()
 }

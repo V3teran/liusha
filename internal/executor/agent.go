@@ -5,6 +5,7 @@ package executor
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sync"
 	"time"
@@ -192,10 +193,18 @@ func (a *Agent) processAvailableActions(ctx context.Context, report *Report) err
 		return nil
 	}
 
-	// 获取已完成的 Action ID 集合
-	completed, err := a.getCompletedActionIDs(ctx)
+	// 全部 action 的状态投影（依赖判定只需要状态，不拉载荷）
+	states, err := a.graph.ListActionStates(ctx, a.taskID)
 	if err != nil {
-		return fmt.Errorf("get completed actions: %w", err)
+		return fmt.Errorf("list action states: %w", err)
+	}
+
+	// 已完成的 Action ID 集合（依赖满足判据）
+	completed := make(map[string]bool, len(states))
+	for id, state := range states {
+		if state == explorationgraph.StateDone {
+			completed[id] = true
+		}
 	}
 
 	a.logger.Debug().
@@ -277,7 +286,6 @@ func (a *Agent) executeAction(
 		action.ID,
 		explorationgraph.StateOpen,
 		explorationgraph.StateRunning,
-		nil,
 	)
 	if err != nil {
 		return fmt.Errorf("CAS to running: %w", err)
@@ -293,28 +301,45 @@ func (a *Agent) executeAction(
 	// 执行 Action（调用 Interface）
 	attempts, execErr := a.executor.Execute(ctx, action)
 
-	// 更新状态（P1-B：图层 CAS 保护已防止覆盖 aborted，无需额外检查）
+	// 终态标记用 CAS（running → done/failed）：执行期间外部裁决（恢复监控判死、
+	// monitor kill）可能已改写状态，迟到的执行结果不得覆盖外部决策。
 	if execErr != nil {
 		errMsg := execErr.Error()
-		if err := a.graph.UpdateActionStateWithReason(
-			ctx,
-			action.ID,
-			explorationgraph.StateFailed,
-			&errMsg,
-		); err != nil {
-			a.logger.Error().Err(err).Str("action_id", action.ID).Msg("标记失败状态失败")
+		ok, casErr := a.graph.CompareAndSwapActionState(
+			ctx, action.TaskID, action.ID,
+			explorationgraph.StateRunning, explorationgraph.StateFailed,
+		)
+		if casErr != nil {
+			a.logger.Error().Err(casErr).Str("action_id", action.ID).Msg("标记失败状态失败")
+			return execErr
+		}
+		if !ok {
+			a.logger.Warn().
+				Str("action_id", action.ID).
+				Msg("执行失败但状态已被外部改写（判死/kill），保留外部裁决")
+			return execErr
+		}
+		// CAS 成功后补失败原因（metadata 合并写，不影响已生效的 failed 状态）
+		if b, mErr := json.Marshal(map[string]string{"blocked_reason": errMsg}); mErr == nil {
+			if uErr := a.graph.UpdateNodeMetadata(ctx, action.ID, b); uErr != nil {
+				a.logger.Warn().Err(uErr).Str("action_id", action.ID).Msg("失败原因写入失败")
+			}
 		}
 		return execErr
 	}
 
-	// 标记为 done
-	if err := a.graph.UpdateActionStateWithReason(
-		ctx,
-		action.ID,
-		explorationgraph.StateDone,
-		nil,
-	); err != nil {
+	ok, err = a.graph.CompareAndSwapActionState(
+		ctx, action.TaskID, action.ID,
+		explorationgraph.StateRunning, explorationgraph.StateDone,
+	)
+	if err != nil {
 		a.logger.Error().Err(err).Str("action_id", action.ID).Msg("标记完成状态失败")
+	}
+	if !ok {
+		a.logger.Warn().
+			Str("action_id", action.ID).
+			Msg("执行完成但状态已被外部改写（判死/kill），保留外部裁决")
+		return nil
 	}
 
 	// 更新 report（并行执行下并发递增，加锁）
@@ -337,27 +362,6 @@ func (a *Agent) executeAction(
 		Msg("Action 执行完成")
 
 	return nil
-}
-
-// harvestObservationProposals 把指定 action 产出的、带复现配方的观察转成 Attempt。
-//
-// 归属判定按 action→observation 的 generates 边精确认领（write_observation 落边），
-// 不再按时间窗全表扫——并行执行时窗口重叠会导致同一假设被双收割/双验证/双 finding。
-// 收割层只认域信封、不解析域内形状（归一化委托 tools.NormalizeReproEnvelope），
-// Primitives = 信封整体透传，复现门按 domain 分发。
-
-// getCompletedActionIDs 获取已完成的 Action ID 集合
-func (a *Agent) getCompletedActionIDs(ctx context.Context) (map[string]bool, error) {
-	completed, err := a.graph.ListCompletedActions(ctx, a.taskID)
-	if err != nil {
-		return nil, err
-	}
-
-	result := make(map[string]bool, len(completed))
-	for _, action := range completed {
-		result[action.ID] = true
-	}
-	return result, nil
 }
 
 // shouldStop 判断是否应停止

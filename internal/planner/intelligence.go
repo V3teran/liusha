@@ -56,7 +56,8 @@ func (i *Intelligence) WithComplexity(complexity string) *Intelligence {
 
 // PlanningContext 规划上下文
 type PlanningContext struct {
-	Objective         string                  // 任务目标
+	Objective         string                  // 根目标描述（任务章程）
+	Objectives        []explorationgraph.Node // 全部目标（含派生方向）——规划面向全图
 	CompletedActions  []explorationgraph.Node // 已完成的 Action
 	PendingActions    []explorationgraph.Node // 待执行的 Action
 	Results           []explorationgraph.Node // 已确认的结果
@@ -117,6 +118,13 @@ func (i *Intelligence) Plan(ctx context.Context, graph *explorationgraph.Store, 
 	// 图工具经 ctx 取 task_id（类型化 key；工具侧用 TaskIDFromContext 读取）
 	ctx = WithTaskID(ctx, taskID)
 
+	// 构建中间件链：防止重复规划、无进展、目标偏离
+	middlewareChain := runtime.NewMiddlewareChain(
+		runtime.NewLoopDetectionMiddleware(8, 6),                      // 连续 8 次相同工具 / 6 次相似思考
+		runtime.NewProgressTrackingMiddleware(12, 8),                  // 12 次无新输出 / 8 次连续失败
+		runtime.NewGoalAlignmentMiddleware(planCtx.Objective, 5),      // 5 次偏离目标
+	)
+
 	// 3. 跑 ReAct：SystemPrompt 定角色与输出契约，Objective 带状态摘要
 	result, err := react.Run(ctx, &runtime.ReActConfig{
 		Objective:            prompt,
@@ -125,6 +133,7 @@ func (i *Intelligence) Plan(ctx context.Context, graph *explorationgraph.Store, 
 		MaxIterations:        i.maxIt, // 迭代上限 = agent.max_iterations（配置即事实；0=不设限）
 		MaxTokens:            4000,
 		MessageModifierChain: runtime.NewDefaultModifierChain(20),
+		MiddlewareChain:      middlewareChain,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("ReAct 规划失败: %w", err)
@@ -160,11 +169,13 @@ func (i *Intelligence) Plan(ctx context.Context, graph *explorationgraph.Store, 
 func (i *Intelligence) gatherContext(ctx context.Context, graph *explorationgraph.Store, taskID string) (*PlanningContext, error) {
 	planCtx := &PlanningContext{}
 
-	// 获取 Objective
+	// 全部目标（根目标 + 派生方向）都进规划视野
 	objectives, err := graph.ListNodesByKind(ctx, taskID, core.KindObjective)
 	if err != nil {
 		return nil, fmt.Errorf("获取 Objective 失败: %w", err)
 	}
+	planCtx.Objectives = objectives
+	// 根目标描述（创建序最早 = 任务入口创建的章程）
 	if len(objectives) > 0 {
 		var obj struct {
 			Description string `json:"description"`
@@ -240,7 +251,7 @@ func (i *Intelligence) buildPlanningPrompt(ctx *PlanningContext) string {
 	sb.WriteString(buildStopCriteria())
 
 	// 3. 任务目标
-	sb.WriteString(buildObjectiveSection(ctx.Objective))
+	sb.WriteString(buildObjectiveSection(ctx.Objective, ctx.Objectives))
 
 	// 4. 统计信息
 	sb.WriteString(buildStatisticsSection(ctx))

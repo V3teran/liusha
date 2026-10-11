@@ -43,16 +43,38 @@ func buildStopCriteria() string {
 	return sb.String()
 }
 
-// buildObjectiveSection 构建任务目标部分
-func buildObjectiveSection(objective string) string {
+// buildObjectiveSection 构建任务目标部分：根目标为章程，全部目标（含派生方向）逐条列出。
+func buildObjectiveSection(objective string, objectives []explorationgraph.Node) string {
 	var sb strings.Builder
-	sb.WriteString("## 任务目标\n")
+	sb.WriteString("## 任务目标（章程）\n")
 	if objective != "" {
 		sb.WriteString(objective)
 	} else {
 		sb.WriteString("（未指定明确目标）")
 	}
 	sb.WriteString("\n\n")
+
+	if len(objectives) > 1 {
+		sb.WriteString("### 全部目标（含派生方向）\n")
+		for i, obj := range objectives {
+			desc := ""
+			var c struct {
+				Description string `json:"description"`
+			}
+			if json.Unmarshal(obj.Content, &c) == nil {
+				desc = c.Description
+			}
+			if desc == "" {
+				continue
+			}
+			if i == 0 {
+				fmt.Fprintf(&sb, "- [根目标] %s\n", desc)
+			} else {
+				fmt.Fprintf(&sb, "- [派生目标] %s\n", desc)
+			}
+		}
+		sb.WriteString("\n")
+	}
 	return sb.String()
 }
 

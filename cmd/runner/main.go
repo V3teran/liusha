@@ -171,9 +171,11 @@ func main() {
 	controlPlaneStore := controlplane.NewStore(pool)
 
 	router := llm.NewRouterWithFallback(llmStack.llmStore.AsRouterStore(llmStack.keyCipher), newFallbackProviderFactory(llmStack.llmStore, llmStack.keyCipher))
-	// LLM 调用埋点：所有 For() 出的 Provider 都带 llm_invocation 审计（含失败）。
+	// LLM 调用装配：单步看门狗（step_llm_timeout_seconds——挂死的调用会阻塞
+	// Agent 事件循环，预算超时即失败）+ llm_invocation 审计（含失败）。
+	stepLLMTimeout := time.Duration(runnerCfg.StepLLMTimeoutSeconds) * time.Second
 	router.SetProviderWrapper(func(p llm.Provider) llm.Provider {
-		return llm.InstrumentProvider(p, usageSink{store: stores.calls})
+		return llm.InstrumentProvider(llm.WithCallTimeout(p, stepLLMTimeout), usageSink{store: stores.calls})
 	})
 
 	h := handler{
@@ -244,12 +246,18 @@ func main() {
 
 	startTaskReaper(trafficCtx, stores.tasks, cfg, logger)
 
-	// 启动 action 恢复监控器（定期检测卡住的 running action）
+	// llm_invocation 留存清理：记录含完整 prompt/response 敏感载荷，
+	// retention_days > 0 时每日删除到期行（0 = 永久留存，审计全量）。
+	// runner 单实例部署，天然承担单例清理职责。
+	startInvocationRetentionSweep(trafficCtx, stores.calls, cfg.LLM.Invocation, logger)
+
+	// 启动 action 恢复监控器（检测 task 级 LLM/工具活动全停摆的 running action）。
+	// 阈值必须超过单步 LLM 看门狗（一次长 LLM 调用是合法活动形态），再加缓冲。
 	recoveryMonitor := explorationgraph.NewRecoveryMonitor(
 		stores.graph,
 		logger,
 		30*time.Second, // 每 30 秒检查一次
-		3*time.Minute,  // 超过 3 分钟无更新的 action 视为卡住
+		time.Duration(runnerCfg.StepLLMTimeoutSeconds)*time.Second+time.Minute,
 	)
 	go func() {
 		if err := recoveryMonitor.Start(trafficCtx); err != nil && err != context.Canceled {
@@ -436,6 +444,50 @@ func startTrafficIngestor(ctx context.Context, rdb *redis.Client, cfg config.Con
 		}
 	}()
 	return trafficIngestor
+}
+
+// startInvocationRetentionSweep 启动 llm_invocation 留存清理循环（每日一次）。
+// 删除前先 Flush，避免 buffer 内的新记录与删除窗口竞争。
+func startInvocationRetentionSweep(ctx context.Context, calls *llminvocation.Store, cfg config.InvocationConfig, logger zerolog.Logger) {
+	if cfg.RetentionDays <= 0 {
+		logger.Info().Msg("llm_invocation 留存未配置（retention_days<=0，永久留存）")
+		return
+	}
+
+	go func() {
+		interval := 24 * time.Hour
+		logger.Info().
+			Int("retention_days", cfg.RetentionDays).
+			Dur("interval", interval).
+			Msg("llm_invocation 留存清理已启动")
+
+		sweep := func() {
+			if err := calls.Flush(ctx); err != nil {
+				logger.Warn().Err(err).Msg("留存清理前 flush 失败（仍继续删除到期行）")
+			}
+			cutoff := time.Now().AddDate(0, 0, -cfg.RetentionDays)
+			deleted, err := calls.DeleteOlderThan(ctx, cutoff)
+			if err != nil {
+				logger.Warn().Err(err).Msg("llm_invocation 留存清理失败")
+				return
+			}
+			if deleted > 0 {
+				logger.Info().Int64("deleted", deleted).Msg("llm_invocation 到期记录已清理")
+			}
+		}
+
+		sweep()
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				sweep()
+			}
+		}
+	}()
 }
 
 // startTaskReaper 启动 task 心跳探活循环（B2 进度探活）：task.heartbeat_at 由 agent 每次工具

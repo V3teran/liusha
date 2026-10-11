@@ -13,22 +13,25 @@ import (
 	"github.com/V3teran/liusha/internal/registry"
 )
 
-// DefaultReActRuntime 是 ReActRuntime 的默认实现
+// DefaultReActRuntime 是 ReActRuntime 的默认实现。
+// 一次 Run 是一次自包含执行：消息历史经 ReActConfig.InitialHistory 传入、
+// 经 ReActResult.MessageHistory 传出，运行时自身不跨 Run 保存对话状态——
+// 复用同一运行时的多次 Run 互不串扰，跨执行的延续由检查点机制承担。
 type DefaultReActRuntime struct {
 	mu sync.RWMutex
 
 	// 工具注册表
 	tools map[string]registry.Tool
 
-	// 消息历史（跨多次 Run 保留）
-	messageHistory []llm.Message
+	// consecutiveToolFailures 是本轮 Run 内连续工具失败计数（跨迭代累计，
+	// 成功即清零）——连续失败止损的依据。Run 开始时归零。
+	consecutiveToolFailures int
 }
 
 // NewReActRuntime 创建 ReAct 运行时
 func NewReActRuntime() *DefaultReActRuntime {
 	return &DefaultReActRuntime{
-		tools:          make(map[string]registry.Tool),
-		messageHistory: make([]llm.Message, 0),
+		tools: make(map[string]registry.Tool),
 	}
 }
 
@@ -49,24 +52,6 @@ func (r *DefaultReActRuntime) RegisterTool(tool registry.Tool) error {
 	return nil
 }
 
-// GetMessageHistory 获取消息历史
-func (r *DefaultReActRuntime) GetMessageHistory() []llm.Message {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-
-	history := make([]llm.Message, len(r.messageHistory))
-	copy(history, r.messageHistory)
-	return history
-}
-
-// ClearHistory 清空消息历史
-func (r *DefaultReActRuntime) ClearHistory() {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	r.messageHistory = make([]llm.Message, 0)
-}
-
 // Run 运行 ReAct 循环
 func (r *DefaultReActRuntime) Run(ctx context.Context, config *ReActConfig) (*ReActResult, error) {
 	// 1. 验证配置
@@ -82,6 +67,7 @@ func (r *DefaultReActRuntime) Run(ctx context.Context, config *ReActConfig) (*Re
 	if err != nil {
 		return nil, err
 	}
+	r.consecutiveToolFailures = 0
 	if startIteration == 1 {
 		r.initializeNewExecution(config, result)
 	}
@@ -97,7 +83,14 @@ func (r *DefaultReActRuntime) Run(ctx context.Context, config *ReActConfig) (*Re
 		}
 
 		// 4.2 执行单次迭代
-		trace, shouldStop, err := r.executeIteration(ctx, config, result, iteration)
+		trace, shouldStop, err := r.runIteration(ctx, config, result, iteration)
+		result.Trace = append(result.Trace, trace)
+		result.Iterations = iteration
+
+		// 回调：迭代完成
+		if config.OnIteration != nil {
+			config.OnIteration(iteration, trace.Status)
+		}
 
 		// 4.3 处理检查点
 		r.handleCheckpoint(ctx, config, result, iteration, trace)
@@ -123,7 +116,7 @@ func (r *DefaultReActRuntime) Run(ctx context.Context, config *ReActConfig) (*Re
 	}
 
 	// 5. 完成结果处理
-	r.finalizeResult(result)
+	result.FinalAnswer = result.ExtractFinalAnswer()
 
 	return result, nil
 }
@@ -142,6 +135,23 @@ func (r *DefaultReActRuntime) runIteration(
 		Status:       IterationStatusRunning,
 		Actions:      make([]*Action, 0),
 		Observations: make([]string, 0),
+	}
+
+	// 0. 中间件：BeforeIteration
+	if config.MiddlewareChain != nil {
+		state := r.buildIterationState(iteration, result, trace)
+		signal, err := config.MiddlewareChain.BeforeIteration(ctx, state)
+		if err != nil {
+			trace.Status = IterationStatusFailed
+			trace.EndTime = time.Now().UnixMilli()
+			return trace, false, fmt.Errorf("中间件 BeforeIteration 失败: %w", err)
+		}
+		if signal != nil && signal.ShouldStop {
+			trace.Status = IterationStatusComplete
+			trace.EndTime = time.Now().UnixMilli()
+			trace.Thought = fmt.Sprintf("中间件终止: %s - %s", signal.Reason, signal.Message)
+			return trace, true, nil
+		}
 	}
 
 	// 1. 调用 LLM（Thought + Action）
@@ -167,6 +177,13 @@ func (r *DefaultReActRuntime) runIteration(
 
 		// 添加助手消息
 		result.AddAssistantMessage(response.Content, nil)
+
+		// 中间件：AfterIteration（即使提前终止也要调用）
+		if config.MiddlewareChain != nil {
+			state := r.buildIterationState(iteration, result, trace)
+			config.MiddlewareChain.AfterIteration(ctx, state)
+		}
+
 		return trace, true, nil
 	}
 
@@ -178,6 +195,13 @@ func (r *DefaultReActRuntime) runIteration(
 
 		// 添加助手消息
 		result.AddAssistantMessage(response.Content, nil)
+
+		// 中间件：AfterIteration
+		if config.MiddlewareChain != nil {
+			state := r.buildIterationState(iteration, result, trace)
+			config.MiddlewareChain.AfterIteration(ctx, state)
+		}
+
 		return trace, true, nil
 	}
 
@@ -202,6 +226,9 @@ func (r *DefaultReActRuntime) runIteration(
 		observation, err := r.executeTool(ctx, toolCall)
 		if err != nil {
 			observation = fmt.Sprintf("工具执行失败: %s", err.Error())
+			r.consecutiveToolFailures++
+		} else {
+			r.consecutiveToolFailures = 0
 		}
 
 		trace.Observations = append(trace.Observations, observation)
@@ -215,10 +242,111 @@ func (r *DefaultReActRuntime) runIteration(
 		result.AddToolMessage(toolCall.ID, observation)
 	}
 
+	// 4. 连续工具失败止损：环境有障碍时 LLM 会反复换姿势重试同一堵墙，
+	// 及时终止把已收集的观察交回上层，防止无限挣扎。
+	if limit := r.toolFailureLimit(config); limit > 0 && r.consecutiveToolFailures >= limit {
+		summary := fmt.Sprintf(
+			"（连续 %d 次工具执行失败，达到止损阈值 %d——停止重试。请基于已收集的观察给出结论）",
+			r.consecutiveToolFailures, limit)
+		result.AddUserMessage(summary)
+		r.consecutiveToolFailures = 0
+		trace.Status = IterationStatusComplete
+		trace.EndTime = time.Now().UnixMilli()
+
+		// 中间件：AfterIteration
+		if config.MiddlewareChain != nil {
+			state := r.buildIterationState(iteration, result, trace)
+			config.MiddlewareChain.AfterIteration(ctx, state)
+		}
+
+		return trace, true, nil
+	}
+
 	trace.Status = IterationStatusComplete
 	trace.EndTime = time.Now().UnixMilli()
 
+	// 5. 中间件：AfterIteration
+	if config.MiddlewareChain != nil {
+		state := r.buildIterationState(iteration, result, trace)
+		signal, err := config.MiddlewareChain.AfterIteration(ctx, state)
+		if err != nil {
+			return trace, false, fmt.Errorf("中间件 AfterIteration 失败: %w", err)
+		}
+		if signal != nil && signal.ShouldStop {
+			// 中间件要求停止，添加说明消息
+			summary := fmt.Sprintf(
+				"（中间件检测到异常：%s - %s，终止执行）",
+				signal.Reason, signal.Message)
+			result.AddUserMessage(summary)
+			return trace, true, nil
+		}
+	}
+
 	return trace, false, nil
+}
+
+// buildIterationState 构建迭代状态快照供中间件使用。
+func (r *DefaultReActRuntime) buildIterationState(
+	iteration int,
+	result *ReActResult,
+	trace *IterationTrace,
+) *IterationState {
+	state := &IterationState{
+		Iteration:               iteration,
+		Thought:                 trace.Thought,
+		ToolCalls:               trace.Actions,
+		ConsecutiveToolFailures: r.consecutiveToolFailures,
+		IterationSucceeded:      trace.Status == IterationStatusComplete,
+		Metadata:                make(map[string]interface{}),
+	}
+
+	// 提取最近的工具名称（最近 20 次）
+	recentToolNames := make([]string, 0, 20)
+	for i := len(result.Trace) - 1; i >= 0 && len(recentToolNames) < 20; i-- {
+		for _, action := range result.Trace[i].Actions {
+			if action.ToolCall.Name != "" {
+				recentToolNames = append(recentToolNames, action.ToolCall.Name)
+				if len(recentToolNames) >= 20 {
+					break
+				}
+			}
+		}
+	}
+	// 加上当前迭代的工具
+	for _, action := range trace.Actions {
+		if action.ToolCall.Name != "" {
+			recentToolNames = append(recentToolNames, action.ToolCall.Name)
+		}
+	}
+	state.RecentToolNames = recentToolNames
+
+	// 提取最近的思考内容（最近 10 次）
+	recentThoughts := make([]string, 0, 10)
+	for i := len(result.Trace) - 1; i >= 0 && len(recentThoughts) < 10; i-- {
+		if result.Trace[i].Thought != "" {
+			recentThoughts = append(recentThoughts, result.Trace[i].Thought)
+		}
+	}
+	// 加上当前思考
+	if trace.Thought != "" {
+		recentThoughts = append(recentThoughts, trace.Thought)
+	}
+	state.RecentThoughts = recentThoughts
+
+	// 最后的观察
+	if len(trace.Observations) > 0 {
+		state.LastObservation = trace.Observations[len(trace.Observations)-1]
+	}
+
+	return state
+}
+
+// toolFailureLimit 返回止损阈值（未配置用默认 8）。
+func (r *DefaultReActRuntime) toolFailureLimit(config *ReActConfig) int {
+	if config.MaxConsecutiveToolFailures > 0 {
+		return config.MaxConsecutiveToolFailures
+	}
+	return 8
 }
 
 // callLLM 调用 LLM

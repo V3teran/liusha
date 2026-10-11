@@ -37,7 +37,6 @@ var FunctionToolCatalog = []FunctionToolMeta{
 	{"run_command", CatSandbox, "在沙箱内执行完整 shell 命令（管道/重定向/环境变量），跑外部 CLI 工具。"},
 	{"drive_browser", CatSandbox, "用真实 chromium 浏览器操作目标页面（登录/点击/读 DOM/跑 JS），复用登录态。"},
 	{"read_skill", CatSkill, "拉取一个 skill 的完整手册正文（可用名单见 system prompt 的技能索引段）。"},
-	{"write_observation", CatExplore, "向探索图写 Observation 节点：假设 + 证据 + 机器可复现配方（repro），晋升门的入口。"},
 	{"replay_for_verification", CatExplore, "重放复现配方取得机器证据（evaluator 裁决专用，绑定当前假设）。"},
 	{"observe_state", CatExplore, "深挖探索图当前状态（节点/边/依赖细节，planner 规划用）。"},
 	{"evaluate_progress", CatExplore, "探索图全局进展评估：完成率/失败分布/停滞检测（planner 规划用）。"},

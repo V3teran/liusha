@@ -26,20 +26,19 @@ import (
 )
 
 const (
-	pollInterval        = 15 * time.Second
-	defaultPollDeadline = 40 * time.Minute // 与 runner 的 agent run 超时对齐；让 main_task 在 e2e 超时前自然结束
-	dialTimeout         = 10 * time.Second
-	rawIOTimeout        = 100 * time.Second
+	pollInterval = 15 * time.Second
+	dialTimeout  = 10 * time.Second
+	rawIOTimeout = 100 * time.Second
 )
 
-// pollDeadline 从 ENV LIUSHA_E2E_POLL_DEADLINE_SECONDS 读取（开发期可调），缺省 40 分钟。
+// pollDeadline 从 ENV LIUSHA_E2E_POLL_DEADLINE_SECONDS 读取，缺省无超时（0 表示不限制）。
 func pollDeadline() time.Duration {
 	if v := os.Getenv("LIUSHA_E2E_POLL_DEADLINE_SECONDS"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
 			return time.Duration(n) * time.Second
 		}
 	}
-	return defaultPollDeadline
+	return 0 // 默认无超时限制
 }
 
 func main() {

@@ -93,7 +93,7 @@ func TestConcurrentActionClaim(t *testing.T) {
 	// 实例 1：尝试抢占
 	go func() {
 		success, err := store.CompareAndSwapActionState(ctx, taskID, actionID,
-			explorationgraph.StateOpen, explorationgraph.StateRunning, nil)
+			explorationgraph.StateOpen, explorationgraph.StateRunning)
 		if err != nil {
 			t.Errorf("实例1 CAS 失败: %v", err)
 			ch <- false
@@ -107,7 +107,7 @@ func TestConcurrentActionClaim(t *testing.T) {
 		// 确保实例 1 先执行
 		time.Sleep(10 * time.Millisecond)
 		success, err := store.CompareAndSwapActionState(ctx, taskID, actionID,
-			explorationgraph.StateOpen, explorationgraph.StateRunning, nil)
+			explorationgraph.StateOpen, explorationgraph.StateRunning)
 		if err != nil {
 			t.Errorf("实例2 CAS 失败: %v", err)
 			ch <- false

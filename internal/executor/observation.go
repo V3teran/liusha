@@ -11,9 +11,15 @@ import (
 	"github.com/V3teran/liusha/internal/evaluator"
 	"github.com/V3teran/liusha/internal/explorationgraph"
 	"github.com/V3teran/liusha/internal/framework/core"
+	"github.com/V3teran/liusha/internal/tools"
 )
 
-// createObservationNode 为观察结果创建 observation 节点
+// createObservationNode 为观察结果创建 observation 节点。
+//
+// 图级 Confidence 是验证生命周期裁决（复现门独占写权）：带 repro 的假设
+// 以 unverified 入图等待裁决；无 repro 的执行记录/证据不是假设，不参与
+// 该生命周期，不携带 Confidence。executor 的自评置信度（low/medium/high）
+// 是假设载荷的一部分，随 Content 落库。
 func (e *Engine) createObservationNode(
 	ctx context.Context,
 	taskID string,
@@ -27,11 +33,21 @@ func (e *Engine) createObservationNode(
 		"test_plan": obs.TestPlan,
 	}
 
+	if obs.Confidence != "" {
+		contentMap["confidence"] = obs.Confidence
+	}
 	if obs.Severity != "" {
 		contentMap["severity"] = obs.Severity
 	}
 
 	if len(obs.Repro) > 0 {
+		// 复现配方归一化：引擎收割路径落图前的统一归一化出口——形状漂移（标量断言、assert 误放 recipe 等）在此统一矫正，
+		// 复现门只认信封。矫正失败保留原始配方（门侧会以 invalid_recipe 终止重试，
+		// 而不是在这里静默丢观察）。
+		normalized, _, nErr := tools.NormalizeReproEnvelope(obs.Repro)
+		if nErr == nil {
+			obs.Repro = normalized
+		}
 		contentMap["repro"] = obs.Repro
 	}
 
@@ -40,56 +56,41 @@ func (e *Engine) createObservationNode(
 		return nil, fmt.Errorf("marshal content: %w", err)
 	}
 
-	// 映射 confidence
-	var confidence explorationgraph.Confidence
-	switch obs.Confidence {
-	case "low":
-		confidence = "low"
-	case "medium":
-		confidence = "medium"
-	case "high":
-		confidence = "high"
-	default:
-		confidence = "low"
-	}
-
-	// 创建节点
 	node := explorationgraph.Node{
 		ID:         uuid.New().String(),
 		TaskID:     taskID,
 		Kind:       core.KindObservation,
 		Content:    content,
-		Confidence: &confidence,
 		Priority:   explorationgraph.PriorityMedium,
 		SourceType: explorationgraph.SourceExecutor,
 		SourceID:   e.agentRunID,
 		CreatedAt:  time.Now(),
 		UpdatedAt:  time.Now(),
 	}
+	if len(obs.Repro) > 0 {
+		unverified := explorationgraph.ConfidenceUnverified
+		node.Confidence = &unverified
+	}
 
-	// 写入探索图
-	id, err := e.graph.CreateNode(ctx, node)
-	if err != nil {
+	// action → observation 关系边与节点原子落库（边失败即整体失败，
+	// 不产生失去归属的孤立观察）
+	if actionID != "" {
+		edge := explorationgraph.Edge{
+			TaskID:    taskID,
+			SrcID:     actionID,
+			Rel:       explorationgraph.RelGenerates,
+			DstID:     node.ID,
+			CreatedAt: time.Now(),
+		}
+		if err := e.graph.CreateNodeWithEdges(ctx, node, []explorationgraph.Edge{edge}); err != nil {
+			return nil, fmt.Errorf("create node with edges: %w", err)
+		}
+		return &node, nil
+	}
+
+	if _, err := e.graph.CreateNode(ctx, node); err != nil {
 		return nil, fmt.Errorf("create node: %w", err)
 	}
-
-	node.ID = id
-
-	// 创建 action → observation 关系（GENERATES）
-	edge := core.GraphEdge{
-		From:     actionID,
-		To:       id,
-		Relation: string(explorationgraph.RelGenerates),
-	}
-
-	if err := e.graph.CreateEdge(ctx, &edge); err != nil {
-		e.logger.Warn().
-			Err(err).
-			Str("action_id", actionID).
-			Str("observation_id", id).
-			Msg("创建边失败（不影响节点创建）")
-	}
-
 	return &node, nil
 }
 

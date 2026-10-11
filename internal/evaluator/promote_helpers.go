@@ -19,6 +19,9 @@ func (v *PromotionEvaluator) validateAttempt(a Attempt) error {
 	if a.Kind == "" {
 		return fmt.Errorf("verifier: Attempt.Kind 必填")
 	}
+	if a.NodeID == "" {
+		return fmt.Errorf("verifier: Attempt.NodeID 必填（审计链与审判标记都要指向被裁决的假设节点）")
+	}
 	if v.replayer == nil {
 		return fmt.Errorf("verifier: 无 Replayer，无法复现晋升")
 	}
@@ -109,11 +112,11 @@ func aggregateEvidence(res Result, verdict string, reasoning string, replays []r
 	return final, evaluation
 }
 
-// recordVerification 记录验证结果到审计链
+// recordVerification 记录验证结果到审计链。
+// node_id 指向被裁决的假设节点——审计链回答"谁被验证了"。
 func (v *PromotionEvaluator) recordVerification(
 	ctx context.Context,
 	a Attempt,
-	nodeID string,
 	outcome explorationgraph.VerifyOutcome,
 	evaluation []byte,
 	durationMs int64,
@@ -121,7 +124,7 @@ func (v *PromotionEvaluator) recordVerification(
 	verID, err := v.graph.RecordVerification(ctx, explorationgraph.Verification{
 		ID:         uuid.New().String(),
 		TaskID:     a.TaskID,
-		NodeID:     nodeID,
+		NodeID:     a.NodeID,
 		Primitives: a.Primitives,
 		Outcome:    outcome,
 		Evaluation: evaluation,
@@ -134,7 +137,9 @@ func (v *PromotionEvaluator) recordVerification(
 	return verID, nil
 }
 
-// markHypothesisNode 在假设节点上回写 verification_outcome 审判标记
+// markHypothesisNode 在假设节点上回写审判标记：verification_outcome 记录
+// 裁决溯源，confidence 同步流转（unverified → verified/refuted）——
+// 轮询方以 confidence=unverified 圈定待裁决集合，两个键必须一致更新。
 func (v *PromotionEvaluator) markHypothesisNode(
 	ctx context.Context,
 	a Attempt,
@@ -147,10 +152,16 @@ func (v *PromotionEvaluator) markHypothesisNode(
 		return
 	}
 
+	confidence := explorationgraph.ConfidenceRefuted
+	if confirmed {
+		confidence = explorationgraph.ConfidenceVerified
+	}
+
 	mark := map[string]interface{}{
 		"verification_id":      verID,
 		"verification_outcome": outcome,
 		"verification_at":      time.Now().Format(time.RFC3339),
+		"confidence":           confidence,
 	}
 	if confirmed {
 		mark["promoted_node"] = nodeID
@@ -166,7 +177,9 @@ func (v *PromotionEvaluator) markHypothesisNode(
 	}
 }
 
-// createVerifiedNode 创建已验证的节点
+// createVerifiedNode 创建已验证的 result 节点，并落 observation → result 的
+// generates 溯源边——推导链 objective →(generates)→ action →(generates)→
+// observation →(generates)→ result 全程可溯，result 不是图孤儿。
 func (v *PromotionEvaluator) createVerifiedNode(
 	ctx context.Context,
 	a Attempt,
@@ -187,8 +200,21 @@ func (v *PromotionEvaluator) createVerifiedNode(
 		UpdatedAt:  time.Now(),
 	}
 
-	_, err := v.graph.CreateNode(ctx, node)
-	if err != nil {
+	if a.NodeID != "" {
+		edge := explorationgraph.Edge{
+			TaskID:    a.TaskID,
+			SrcID:     a.NodeID,
+			Rel:       explorationgraph.RelGenerates,
+			DstID:     nodeID,
+			CreatedAt: time.Now(),
+		}
+		if err := v.graph.CreateNodeWithEdges(ctx, node, []explorationgraph.Edge{edge}); err != nil {
+			return nil, fmt.Errorf("verifier: 晋升节点失败: %w", err)
+		}
+		return &node, nil
+	}
+
+	if _, err := v.graph.CreateNode(ctx, node); err != nil {
 		return nil, fmt.Errorf("verifier: 晋升节点失败: %w", err)
 	}
 

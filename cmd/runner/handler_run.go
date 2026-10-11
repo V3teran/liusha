@@ -24,7 +24,7 @@ const heartbeatThrottleMs = 10_000
 
 // toolRecordInterceptor returns a registry.Interceptor that records every tool
 // call to toolinvocation.Store and throttles task heartbeats.
-func (h handler) toolRecordInterceptor(agentRunID, taskID string) registry.Interceptor {
+func (h handler) toolRecordInterceptor(agentRunID, taskID string, activities *activityTracker) registry.Interceptor {
 	lastBeatMs := new(atomic.Int64)
 	return func(ctx context.Context, t registry.Tool, args []byte, next registry.ExecuteFunc) (registry.ToolResult, error) {
 		h.logger.Debug().
@@ -76,6 +76,11 @@ func (h handler) toolRecordInterceptor(agentRunID, taskID string) registry.Inter
 				Str("tool_name", t.Name()).
 				Msg("h.toolCalls is nil, cannot record invocation")
 		}
+		// 活动打点：monitor 的 kill 判据依据（图上无输出 ≠ 卡死）
+		if activities != nil {
+			activities.touch(ctx)
+		}
+
 		// throttled heartbeat
 		if taskID != "" {
 			now := time.Now().UnixMilli()

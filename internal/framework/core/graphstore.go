@@ -48,6 +48,11 @@ type GraphStore interface {
 	// ListNodes 查询节点列表
 	ListNodes(ctx context.Context, query GraphNodeQuery) ([]*GraphNode, error)
 
+	// CreateNodeWithEdges 在单个事务内创建节点及其关联边：
+	// 任一写入失败则整体回滚，不留"节点在、边不在"的半一致态。
+	// edges 中的边引用该节点或图中已存在的节点。
+	CreateNodeWithEdges(ctx context.Context, node *GraphNode, edges []*GraphEdge) error
+
 	// ========================================
 	// 边操作
 	// ========================================
@@ -61,13 +66,6 @@ type GraphStore interface {
 	// DeleteEdge 删除边
 	DeleteEdge(ctx context.Context, from, to, relation string) error
 
-	// ========================================
-	// 图遍历
-	// ========================================
-
-	// Traverse 图遍历（BFS/DFS）
-	// 从 startID 开始，按照 query 指定的关系遍历
-	Traverse(ctx context.Context, startID string, query GraphTraverseQuery) ([]*GraphNode, error)
 }
 
 // GraphNode 是图节点的通用表示。
@@ -87,9 +85,6 @@ type GraphNode struct {
 	// State 是节点状态（如 "open", "running", "completed"）
 	State string `json:"state,omitempty"`
 
-	// Confidence 是置信度（0.0-1.0）
-	Confidence float64 `json:"confidence,omitempty"`
-
 	// CreatedAt 是创建时间
 	CreatedAt time.Time `json:"created_at"`
 
@@ -102,6 +97,9 @@ type GraphNode struct {
 
 // GraphEdge 是图边的通用表示。
 type GraphEdge struct {
+	// TaskID 是边所属任务的标识（边的归属维度，用于任务级查询）
+	TaskID string `json:"task_id"`
+
 	// From 是起始节点 ID
 	From string `json:"from"`
 
@@ -146,9 +144,6 @@ type GraphNodeQuery struct {
 	// 例如：{"metadata.task_id": "task-123"}
 	Filters map[string]interface{} `json:"filters,omitempty"`
 
-	// MinConfidence 最小置信度（0 表示不过滤）
-	MinConfidence float64 `json:"min_confidence,omitempty"`
-
 	// Limit 限制返回数量（0 表示不限制）
 	Limit int `json:"limit,omitempty"`
 
@@ -161,6 +156,9 @@ type GraphNodeQuery struct {
 
 // GraphEdgeQuery 是边查询条件。
 type GraphEdgeQuery struct {
+	// TaskID 按任务归属过滤（空字符串表示不过滤）
+	TaskID string `json:"task_id,omitempty"`
+
 	// From 起始节点 ID（空字符串表示不过滤）
 	From string `json:"from,omitempty"`
 
@@ -173,49 +171,6 @@ type GraphEdgeQuery struct {
 	// Limit 限制返回数量（0 表示不限制）
 	Limit int `json:"limit,omitempty"`
 }
-
-// GraphTraverseQuery 是图遍历查询条件。
-type GraphTraverseQuery struct {
-	// Relations 要遍历的关系类型列表（空表示所有关系）
-	Relations []string `json:"relations,omitempty"`
-
-	// Direction 遍历方向："out"（出边）/"in"（入边）/"both"（双向）
-	Direction GraphTraverseDirection `json:"direction"`
-
-	// MaxDepth 最大遍历深度（0 表示不限制）
-	MaxDepth int `json:"max_depth,omitempty"`
-
-	// NodeFilter 节点过滤条件（只返回满足条件的节点）
-	NodeFilter *GraphNodeQuery `json:"node_filter,omitempty"`
-
-	// Strategy 遍历策略："bfs"（广度优先）/"dfs"（深度优先）
-	Strategy GraphTraverseStrategy `json:"strategy"`
-}
-
-// GraphTraverseDirection 是遍历方向。
-type GraphTraverseDirection string
-
-const (
-	// GraphTraverseOut 沿出边遍历
-	GraphTraverseOut GraphTraverseDirection = "out"
-
-	// GraphTraverseIn 沿入边遍历
-	GraphTraverseIn GraphTraverseDirection = "in"
-
-	// GraphTraverseBoth 双向遍历
-	GraphTraverseBoth GraphTraverseDirection = "both"
-)
-
-// GraphTraverseStrategy 是遍历策略。
-type GraphTraverseStrategy string
-
-const (
-	// GraphTraverseBFS 广度优先遍历
-	GraphTraverseBFS GraphTraverseStrategy = "bfs"
-
-	// GraphTraverseDFS 深度优先遍历
-	GraphTraverseDFS GraphTraverseStrategy = "dfs"
-)
 
 // 错误定义
 var (

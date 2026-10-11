@@ -59,13 +59,9 @@ func (r *DefaultReActRuntime) restoreFromCheckpoint(
 
 // initializeNewExecution 初始化新执行的消息历史
 func (r *DefaultReActRuntime) initializeNewExecution(config *ReActConfig, result *ReActResult) {
-	// 加载初始历史
+	// 加载初始历史（可选，用于多轮对话）
 	if len(config.InitialHistory) > 0 {
 		result.MessageHistory = append(result.MessageHistory, config.InitialHistory...)
-	} else {
-		r.mu.RLock()
-		result.MessageHistory = append(result.MessageHistory, r.messageHistory...)
-		r.mu.RUnlock()
 	}
 
 	// 添加系统提示
@@ -75,26 +71,6 @@ func (r *DefaultReActRuntime) initializeNewExecution(config *ReActConfig, result
 
 	// 添加用户目标
 	result.AddUserMessage(config.Objective)
-}
-
-// executeIteration 执行单次迭代
-func (r *DefaultReActRuntime) executeIteration(
-	ctx context.Context,
-	config *ReActConfig,
-	result *ReActResult,
-	iteration int,
-) (*IterationTrace, bool, error) {
-	// 执行单次迭代
-	trace, shouldStop, err := r.runIteration(ctx, config, result, iteration)
-	result.Trace = append(result.Trace, trace)
-	result.Iterations = iteration
-
-	// 回调：迭代完成
-	if config.OnIteration != nil {
-		config.OnIteration(iteration, trace.Status)
-	}
-
-	return trace, shouldStop, err
 }
 
 // handleCheckpoint 处理检查点保存
@@ -134,15 +110,4 @@ func (r *DefaultReActRuntime) handleMaxIterationsReached(
 		// 强制总结失败不算致命错误，继续处理
 		result.LastCheckpointError = fmt.Errorf("force final summary failed: %w", err)
 	}
-}
-
-// finalizeResult 完成结果处理
-func (r *DefaultReActRuntime) finalizeResult(result *ReActResult) {
-	// 提取最终答案
-	result.FinalAnswer = result.ExtractFinalAnswer()
-
-	// 保存消息历史到运行时
-	r.mu.Lock()
-	r.messageHistory = result.MessageHistory
-	r.mu.Unlock()
 }

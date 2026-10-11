@@ -7,7 +7,6 @@ package tools
 import (
 	"github.com/V3teran/liusha/internal/corpus"
 	"github.com/V3teran/liusha/internal/credential"
-	"github.com/V3teran/liusha/internal/explorationgraph"
 	"github.com/V3teran/liusha/internal/finding"
 	"github.com/V3teran/liusha/internal/insight"
 	"github.com/V3teran/liusha/internal/sandbox"
@@ -32,7 +31,6 @@ type Deps struct {
 	ProxyStore *traffic.ProxyStore
 	AgentStore *traffic.AgentStore
 	Creds      credential.Provider
-	Sandbox    sandbox.Client          // Spawn 后注入，可 nil
-	Skills     skill.Reader            // skill 渐进式加载（按 agent.skills 建的白名单视图；nil 不注册 read_skill）
-	Graph      *explorationgraph.Store // 探索图 Store
+	Sandbox    sandbox.Client // Spawn 后注入，可 nil
+	Skills     skill.Reader   // skill 渐进式加载（按 agent.skills 建的白名单视图；nil 不注册 read_skill）
 }

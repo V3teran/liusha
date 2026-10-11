@@ -77,11 +77,11 @@ func TestStore_ActionStateManagement(t *testing.T) {
 	})
 
 	t.Run("CompareAndSwapActionState 并发抢占", func(t *testing.T) {
-		ok, err := store.CompareAndSwapActionState(ctx, "task-001", "action-open-2", StateOpen, StateRunning, nil)
+		ok, err := store.CompareAndSwapActionState(ctx, "task-001", "action-open-2", StateOpen, StateRunning)
 		require.NoError(t, err)
 		assert.True(t, ok, "状态匹配应抢占成功")
 
-		ok, err = store.CompareAndSwapActionState(ctx, "task-001", "action-open-2", StateOpen, StateRunning, nil)
+		ok, err = store.CompareAndSwapActionState(ctx, "task-001", "action-open-2", StateOpen, StateRunning)
 		require.NoError(t, err)
 		assert.False(t, ok, "状态不匹配 CAS 应失败")
 	})

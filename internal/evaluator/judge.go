@@ -121,6 +121,13 @@ func (j *RouterJudge) Judge(
 	// 审计标签（task/role/agent_run_id）由 evaluator agent 在 ctx 注入，此处继承不覆盖——
 	// 覆盖会丢 TaskID（ judge 落库行 task_id 曾恒 NULL）。
 
+	// 构建中间件链：防止验证循环、无进展
+	// 注意：Evaluator 不需要 GoalAlignment（验证任务目标固定）
+	middlewareChain := runtime.NewMiddlewareChain(
+		runtime.NewLoopDetectionMiddleware(12, 10),       // 连续 12 次相同工具 / 10 次相似思考
+		runtime.NewProgressTrackingMiddleware(20, 12),    // 20 次无新输出 / 12 次连续失败
+	)
+
 	result, err := react.Run(ctx, &runtime.ReActConfig{
 		Objective:            j.buildObjective(hypothesis, recipe, initialEvidence),
 		SystemPrompt:         j.systemPrompt(),
@@ -128,6 +135,7 @@ func (j *RouterJudge) Judge(
 		MaxIterations:        j.maxIt, // 迭代上限 = agent.max_iterations（配置即事实；0=不设限）
 		MaxTokens:            1500,
 		MessageModifierChain: runtime.NewDefaultModifierChain(10),
+		MiddlewareChain:      middlewareChain,
 	})
 	if err != nil {
 		return "", "", fmt.Errorf("judge: ReAct 失败: %w", err)
@@ -161,14 +169,15 @@ func (j *RouterJudge) buildObjective(hypothesis string, recipe, initialEvidence 
 //	+ CLI 目录（有 CLI 白名单时渲染，供独立复核经 run_command 调用）
 //
 // 机制契约（replay 工作方式、裁决 JSON 格式、因果硬规则）由章程承载——
-// 改契约 = 改 agents/evaluator.md + make reseed；正文为空时单句兜底防失能。
+// 改契约 = 改 agents/evaluator.md + make reseed。charter 为空时报错，强制运维填写。
 func (j *RouterJudge) systemPrompt() string {
-	var sb strings.Builder
-	if c := strings.TrimSpace(j.charter); c != "" {
-		sb.WriteString(c)
-	} else {
-		sb.WriteString("你是渗透测试结果的质量裁决官：先用 replay_for_verification 复核机器证据（domain=generic 时改用 run_command 自主取证），对比基线/攻击差分后自主裁决，宁可保守。裁决后只输出一个 JSON：{\"verdict\": \"confirmed|refuted\", \"confidence\": 0.0-1.0, \"reasoning\": \"...\"}")
+	charter := strings.TrimSpace(j.charter)
+	if charter == "" {
+		// 返回空字符串，让调用方的 ReAct.Run 抛出更明确的错误
+		return ""
 	}
+	var sb strings.Builder
+	sb.WriteString(charter)
 	// Tier 1 与 executor 同口径：read_skill 在白名单里才宣传（宣传=事实）。
 	if len(j.skills) > 0 && registry.Allows(j.functionTools, "read_skill") {
 		if idx := skill.RenderIndex(j.skills); idx != "" {

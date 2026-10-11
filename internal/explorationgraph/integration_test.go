@@ -251,3 +251,69 @@ func setupTestDB(t *testing.T) *pgxpool.Pool {
 
 	return pool
 }
+
+// TestCreateNodeWithEdgesAtomicity 验证 Postgres 事务复合写的全有或全无：
+// 边引用不存在的节点时整体回滚，不留孤立节点。
+func TestCreateNodeWithEdgesAtomicity(t *testing.T) {
+	if testing.Short() {
+		t.Skip("跳过集成测试")
+	}
+
+	ctx := context.Background()
+	pool := setupTestDB(t)
+	defer pool.Close()
+
+	store := NewStore(pool)
+
+	taskID := "55555555-5555-4555-8555-555555555555"
+	defer func() {
+		_, _ = pool.Exec(ctx, `DELETE FROM exploration_node WHERE task_id=$1`, taskID)
+	}()
+
+	stateOpen := StateOpen
+	action := Node{
+		ID:         "66666666-6666-4666-8666-666666666666",
+		TaskID:     taskID,
+		Kind:       core.KindAction,
+		Content:    json.RawMessage(`{"instruction":"scan"}`),
+		State:      &stateOpen,
+		SourceType: SourcePlanner,
+	}
+
+	// 正常路径：节点 + 归属边一并落地
+	objID := "77777777-7777-4777-8777-777777777777"
+	_, err := store.CreateNode(ctx, Node{
+		ID:         objID,
+		TaskID:     taskID,
+		Kind:       core.KindObjective,
+		Content:    json.RawMessage(`{"description":"root"}`),
+		State:      &stateOpen,
+		SourceType: SourceUser,
+	})
+	require.NoError(t, err)
+
+	edge := Edge{TaskID: taskID, SrcID: objID, Rel: RelGenerates, DstID: action.ID}
+	require.NoError(t, store.CreateNodeWithEdges(ctx, action, []Edge{edge}))
+
+	edges, err := store.ListEdgesForAPI(ctx, taskID)
+	require.NoError(t, err)
+	require.Len(t, edges, 1)
+	assert.Equal(t, objID, edges[0].SrcID)
+
+	// 失败路径：边引用幻影节点 → FK 拒绝 → 整体回滚
+	orphan := Node{
+		ID:         "88888888-8888-4888-8888-888888888888",
+		TaskID:     taskID,
+		Kind:       core.KindObservation,
+		Content:    json.RawMessage(`{"statement":"x"}`),
+		SourceType: SourceExecutor,
+	}
+	badEdge := Edge{TaskID: taskID, SrcID: "99999999-9999-4999-8999-999999999999", Rel: RelGenerates, DstID: orphan.ID}
+	err = store.CreateNodeWithEdges(ctx, orphan, []Edge{badEdge})
+	require.Error(t, err, "边引用幻影节点应触发 FK 拒绝")
+
+	var orphanCount int
+	require.NoError(t, pool.QueryRow(ctx,
+		`SELECT count(*) FROM exploration_node WHERE id=$1`, orphan.ID).Scan(&orphanCount))
+	assert.Equal(t, 0, orphanCount, "复合写失败后不得留下孤立节点（事务回滚）")
+}
