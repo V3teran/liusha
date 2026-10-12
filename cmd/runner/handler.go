@@ -1,0 +1,241 @@
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/hibiken/asynq"
+	"github.com/rs/zerolog"
+
+	"github.com/V3teran/liusha/internal/agentrun"
+	"github.com/V3teran/liusha/internal/bus"
+	"github.com/V3teran/liusha/internal/config"
+	"github.com/V3teran/liusha/internal/config/setting"
+	cfgstore "github.com/V3teran/liusha/internal/configstore"
+	"github.com/V3teran/liusha/internal/controlplane"
+	"github.com/V3teran/liusha/internal/conversation"
+	"github.com/V3teran/liusha/internal/corpus"
+	"github.com/V3teran/liusha/internal/credential"
+	"github.com/V3teran/liusha/internal/domain"
+	"github.com/V3teran/liusha/internal/explorationgraph"
+	"github.com/V3teran/liusha/internal/finding"
+	"github.com/V3teran/liusha/internal/framework/core"
+	"github.com/V3teran/liusha/internal/framework/llm"
+	"github.com/V3teran/liusha/internal/insight"
+	"github.com/V3teran/liusha/internal/llminvocation"
+	"github.com/V3teran/liusha/internal/ratelimit"
+	"github.com/V3teran/liusha/internal/sandbox"
+	"github.com/V3teran/liusha/internal/scanstream"
+	"github.com/V3teran/liusha/internal/skill"
+	"github.com/V3teran/liusha/internal/task"
+	"github.com/V3teran/liusha/internal/toolinvocation"
+	"github.com/V3teran/liusha/internal/tools/manifest"
+	"github.com/V3teran/liusha/internal/traffic"
+	"github.com/V3teran/liusha/internal/worker"
+)
+
+// handler 持有所有跨任务共享依赖。
+type handler struct {
+	agentRuns  *agentrun.Store
+	tasks      *task.Store
+	findings   *finding.Store
+	corpus     *corpus.Store
+	embedder   corpus.Embedder // Jina embed（可 nil，降级纯 sparse）
+	reranker   corpus.Reranker
+	insights   *insight.Store
+	proxyStore *traffic.ProxyStore
+	agentStore *traffic.AgentStore
+	calls      *llminvocation.Store
+	hostSem    *ratelimit.HostSemaphore
+	settings   *settingstore.Store
+	runnerCfg  config.RunnerConfig
+	sandboxMgr sandbox.Manager // 改为接口类型（支持 SingletonManager 和未来的其他实现）
+	logger     zerolog.Logger
+
+	// LLM 路由（tier → provider）
+	router *llm.Router
+
+	// 工具装配依赖（与 prompt 拼装共用）
+	creds         credential.Provider
+	toolCalls     *toolinvocation.Store
+	skills        *skill.StoreReader // skill 渐进式加载后端（DB 事实源 + cfgstore 三级缓存）；cognition 按 agent.skills 声明建白名单视图
+	toolsManifest *manifest.Manifest
+
+	cfgStore *cfgstore.Store
+
+	conversations  *conversation.Store
+	eventPublisher *scanstream.Publisher
+
+	profiles     *domain.Registry
+	graph        *explorationgraph.Store
+	checkpointer core.Checkpointer
+	eventBus     bus.Bus // 统一事件总线
+	controlPlane *controlplane.Store
+}
+
+// onboard 用域注册表解析 brief 目标，并完成三件 best-effort 副作用：
+//  1. 落 L3 探索图 KindObjective 节点（目标）；
+//  2. 回填 task.target_host 派生列；
+//  3. 返回 host key 供调用方下传。
+func (h handler) onboard(ctx context.Context, _, taskID, brief string) string {
+	refs, ok := h.profiles.Onboard(ctx, domain.BriefInput{Brief: brief})
+
+	h.logger.Info().
+		Str("task_id", taskID).
+		Str("brief", brief).
+		Bool("onboard_ok", ok).
+		Int("refs_count", len(refs)).
+		Msg("🔍 onboard 开始解析")
+
+	if !ok || len(refs) == 0 || refs[0].Locator == "" {
+		h.logger.Warn().
+			Str("task_id", taskID).
+			Bool("ok", ok).
+			Int("refs_len", len(refs)).
+			Msg("⚠️  onboard 解析失败，未创建 Objective")
+		return taskID
+	}
+
+	if h.graph != nil && taskID != "" {
+		for _, ref := range refs {
+			content, _ := json.Marshal(map[string]interface{}{
+				"target_ref":  ref,
+				"description": brief, // 添加 description 供 Planner 读取
+			})
+
+			// Objective 节点需要 state 字段（数据库约束 ck_state_by_kind 要求）
+			openState := explorationgraph.StateOpen
+
+			node := explorationgraph.Node{
+				ID:         uuid.New().String(),
+				TaskID:     taskID,
+				Kind:       core.KindObjective,
+				Content:    content,
+				State:      &openState, // 必须设置，否则违反数据库约束
+				Priority:   explorationgraph.PriorityMedium,
+				SourceType: "user",
+				SourceID:   "task_init",
+				CreatedAt:  time.Now(),
+				UpdatedAt:  time.Now(),
+			}
+
+			h.logger.Info().
+				Str("task_id", taskID).
+				Str("objective_id", node.ID).
+				Str("locator", ref.Locator).
+				Msg("✅ 准备创建 Objective 节点")
+
+			if _, err := h.graph.CreateNode(ctx, node); err != nil {
+				// 改进1: Fail-Fast - Objective 创建失败应该中止任务
+				h.logger.Error().Err(err).Str("task_id", taskID).
+					Str("locator", ref.Locator).Msg("❌ 创建 objective 节点失败 - 任务将无法正常执行")
+				return taskID // 返回原 taskID，但已记录严重错误
+			}
+			h.logger.Info().
+				Str("task_id", taskID).
+				Str("objective_id", node.ID).
+				Str("locator", ref.Locator).
+				Msg("✅ Objective 节点创建成功")
+		}
+	} else {
+		h.logger.Warn().
+			Str("task_id", taskID).
+			Bool("graph_nil", h.graph == nil).
+			Bool("taskID_empty", taskID == "").
+			Msg("⚠️  跳过创建 Objective：graph 为 nil 或 taskID 为空")
+	}
+
+	host := refs[0].Locator
+	if host != taskID {
+		if err := h.tasks.SetTargetHost(ctx, taskID, host); err != nil {
+			h.logger.Warn().Err(err).Str("task_id", taskID).Str("host", host).
+				Msg("回填 task.target_host 失败（不阻塞扫描）")
+		}
+	}
+	return host
+}
+
+const terminalWriteTimeout = 10 * time.Second
+
+func terminalCtx(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(ctx), terminalWriteTimeout)
+}
+
+func (h handler) failTask(ctx context.Context, agentRunID string, err error) error {
+	writeCtx, cancel := terminalCtx(ctx)
+	defer cancel()
+	if setErr := h.agentRuns.SetError(writeCtx, agentRunID, err.Error()); setErr != nil {
+		h.logger.Warn().Err(setErr).Str("agent_run_id", agentRunID).
+			Msg("SetError 失败（task 留在 running，原始错误已透传给 caller）")
+	}
+	return err
+}
+
+// handle 是单个 agent task 的处理入口。
+func (h handler) handle(ctx context.Context, p worker.Payload) (retErr error) {
+	taskStart := time.Now()
+	h.logger.Info().
+		Str("agent_run_id", p.AgentRunID).
+		Str("task_id", p.TaskID).
+		Str("role", string(p.Role)).
+		Msg("asynq task ▶ enter")
+	defer func() {
+		ev := h.logger.Info()
+		if retErr != nil {
+			ev = h.logger.Warn().Err(retErr)
+		}
+		ev.Str("agent_run_id", p.AgentRunID).
+			Str("task_id", p.TaskID).
+			Dur("duration", time.Since(taskStart)).
+			Msg("asynq task ◀ exit")
+	}()
+
+	if run, getErr := h.agentRuns.GetByID(ctx, p.AgentRunID); getErr == nil && run.Status != agentrun.StatusPending {
+		h.logger.Warn().
+			Str("agent_run_id", p.AgentRunID).
+			Str("status", string(run.Status)).
+			Msg("asynq task 已被处理过，跳过重试（防 PG 僵尸 + 矛盾态）")
+		return asynq.SkipRetry
+	}
+
+	if h.hostSem != nil {
+		if tk, tErr := h.tasks.GetByID(ctx, p.TaskID); tErr == nil && tk.TargetHost != "" {
+			rel, ok, semErr := h.hostSem.Acquire(ctx, tk.TargetHost)
+			switch {
+			case semErr != nil:
+				h.logger.Warn().Err(semErr).Str("host", tk.TargetHost).Msg("per-host 信号量 acquire 失败，放行不阻塞")
+			case !ok:
+				h.logger.Info().Str("host", tk.TargetHost).Str("task_id", p.TaskID).
+					Msg("per-host 并发已达上限，退避重试")
+				return fmt.Errorf("per-host 并发上限（host=%s），退避重试", tk.TargetHost)
+			default:
+				defer rel()
+			}
+		}
+	}
+
+	if err := h.agentRuns.SetRunning(ctx, p.AgentRunID); err != nil {
+		return err
+	}
+
+	var input struct {
+		Brief string `json:"brief"`
+	}
+	if err := json.Unmarshal(p.Input, &input); err != nil {
+		return h.failTask(ctx, p.AgentRunID, err)
+	}
+
+	// 设置超时
+	timeout := h.runnerCfg.AgentRunTimeoutSeconds
+	if timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, time.Duration(timeout)*time.Second)
+		defer cancel()
+	}
+
+	// 四Agent认知架构
+	return h.handleCognition(ctx, p, input.Brief)
+}

@@ -1,0 +1,368 @@
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"time"
+
+	"github.com/V3teran/liusha/internal/agent"
+	"github.com/V3teran/liusha/internal/cognition"
+	"github.com/V3teran/liusha/internal/evaluator"
+	"github.com/V3teran/liusha/internal/executor"
+	"github.com/V3teran/liusha/internal/explorationgraph"
+	"github.com/V3teran/liusha/internal/framework/core"
+	"github.com/V3teran/liusha/internal/framework/llm"
+	"github.com/V3teran/liusha/internal/monitor"
+	"github.com/V3teran/liusha/internal/planner"
+	"github.com/V3teran/liusha/internal/registry"
+	"github.com/V3teran/liusha/internal/sandbox"
+	"github.com/V3teran/liusha/internal/skill"
+	"github.com/V3teran/liusha/internal/tools"
+	"github.com/V3teran/liusha/internal/tools/manifest"
+	"github.com/google/uuid"
+	"github.com/rs/zerolog"
+)
+
+// runCognition drives a single assignment through the L4 cognition loop:
+// four independent agents (Planner, Executor, Evaluator, Monitor) coordinate via bus.Bus.
+// sb 是本任务独占的沙箱客户端；nil 表示无沙箱（run_command/drive_browser 不注册）。
+func (h handler) runCognition(
+	ctx context.Context,
+	taskID, host, brief string,
+	sb sandbox.Client,
+) (executor.Report, error) {
+	h.logger.Info().
+		Str("task_id", taskID).
+		Str("brief", brief).
+		Msg("[RUN_COGNITION] 启动四Agent架构")
+
+	if h.graph == nil || taskID == "" || h.eventBus == nil {
+		return executor.Report{}, fmt.Errorf("graph and eventBus are required")
+	}
+
+	// ========== 创建初始 Objective 节点（幂等：onboard 已建则跳过，防双根） ==========
+	if brief != "" {
+		if existing, listErr := h.graph.ListNodesByKind(ctx, taskID, core.KindObjective); listErr == nil && len(existing) > 0 {
+			h.logger.Info().
+				Str("task_id", taskID).
+				Int("existing_objectives", len(existing)).
+				Msg("根 Objective 已存在（onboard 创建），跳过重复创建")
+		} else {
+			rootID := uuid.New().String()
+			contentJSON, _ := json.Marshal(map[string]string{"brief": brief})
+
+			// 根据数据库约束，objective 类型节点必须有非空 state
+			initialState := explorationgraph.StateOpen
+
+			objectiveNode := explorationgraph.Node{
+				ID:         rootID,
+				TaskID:     taskID,
+				Kind:       core.KindObjective,
+				Content:    contentJSON,
+				State:      &initialState, // 必须设置 state
+				Priority:   explorationgraph.PriorityHigh,
+				SourceType: explorationgraph.SourceUser,
+				SourceID:   "task_init",
+			}
+
+			createdID, err := h.graph.CreateNode(ctx, objectiveNode)
+			if err != nil {
+				return executor.Report{}, fmt.Errorf("failed to create root objective: %w", err)
+			}
+			h.logger.Info().
+				Str("task_id", taskID).
+				Str("root_id", createdID).
+				Str("brief", brief).
+				Msg("✅ 已创建根 Objective 节点")
+		}
+	} else {
+		h.logger.Warn().
+			Str("task_id", taskID).
+			Msg("⚠️  任务 brief 为空，跳过创建根 Objective")
+	}
+	// ========================================================
+
+	// ========== 加载四 Agent 配置（function_tools/cli_tools/skills 白名单的事实源） ==========
+	// 经 cfgStore.AgentByCode 走 L1 内存 → L2 redis → DB 三级缓存；前端改配置
+	// → UpdateAgent 失效广播 → 本进程 L1 清 → 本任务即读新值。
+	getCfg := func(code string) agent.Agent {
+		cfg, err := h.cfgStore.AgentByCode(ctx, code)
+		if err != nil {
+			h.logger.Warn().Err(err).Str("code", code).Msg("⚠️  加载 agent 配置失败，使用空配置")
+			return agent.Agent{Code: code}
+		}
+		return cfg
+	}
+	executorCfg := getCfg("executor")
+	plannerCfg := getCfg("planner")
+	evaluatorCfg := getCfg("evaluator")
+	monitorCfg := getCfg("monitor")
+
+	h.logger.Info().
+		Strs("cli_tools", executorCfg.CliTools).
+		Int("cli_tools_count", len(executorCfg.CliTools)).
+		Strs("skills", executorCfg.Skills).
+		Msg("✅ Executor Agent 配置已加载")
+
+	// skill 渐进式加载视图：按各 agent 的 skills 声明从 DB 全集切白名单——
+	// Tier 1（frontmatter 索引进 system prompt）与 Tier 2（read_skill 正文）
+	// 共用同一视图，声明什么暴露什么（nil=未装配，DB 声明为空同样不装配）。
+	executorSkillView := skillView(h.skills, executorCfg.Skills)
+	evaluatorSkillView := skillView(h.skills, evaluatorCfg.Skills)
+
+	// ========== 新增：根据白名单过滤工具清单 ==========
+	var filteredManifest *manifest.Manifest
+	if h.toolsManifest != nil && len(executorCfg.CliTools) > 0 {
+		// ✅ 只保留白名单中的工具
+		filteredManifest = h.toolsManifest.FilterByNames(executorCfg.CliTools)
+
+		h.logger.Info().
+			Int("total_in_yaml", len(h.toolsManifest.Tools)).
+			Int("whitelisted", len(executorCfg.CliTools)).
+			Int("filtered_result", len(filteredManifest.Tools)).
+			Strs("tool_names", filteredManifest.Names()).
+			Msg("✅ CLI 工具已过滤（白名单机制）")
+	} else {
+		filteredManifest = &manifest.Manifest{Tools: []manifest.Tool{}}
+		h.logger.Warn().Msg("⚠️  未配置 cli_tools 或 tools.yaml 未加载，外部工具不可用")
+	}
+	// ========================================================
+
+	// 1. 创建 Registry 并注册工具；挂工具遥测 + 任务心跳 interceptor——
+	// 每次工具调用落 tool_invocation 并节流续命 task.heartbeat_at（reaper 判活依据）。
+	// AgentRunID 口径：tool_invocation.agent_run_id 外键指向 agent_run.id，
+	// 取本 task 的 run 行（api expandItem 建的那条）；查不到留空 → NULL。
+	agentRunID := ""
+	if runs, rErr := h.agentRuns.ListByTask(ctx, taskID, 1); rErr == nil && len(runs) > 0 {
+		agentRunID = runs[0].ID
+	} else if rErr != nil {
+		h.logger.Warn().Err(rErr).Str("task_id", taskID).Msg("查询 agent_run 失败，tool_invocation 将不关联 run")
+	}
+
+	activities := newActivityTracker()
+	reg := registry.New()
+	reg.AddInterceptor(h.toolRecordInterceptor(agentRunID, taskID, activities))
+	// 跨包工具依赖（executor 注册与 evaluator BuildTools 共用同一份，避免字面量漂移）
+	toolDeps := func(skillsView skill.Reader) tools.Deps {
+		return tools.Deps{
+			TaskID:     taskID,
+			AgentRunID: agentRunID,
+			Host:       host,
+			Tasks:      h.tasks,
+			Findings:   h.findings,
+			Corpus:     h.corpus,
+			Embedder:   h.embedder,
+			Reranker:   h.reranker,
+			Insights:   h.insights,
+			ProxyStore: h.proxyStore,
+			AgentStore: h.agentStore,
+			Creds:      h.creds,
+			Sandbox:    sb,         // run_command/drive_browser 依赖；nil 时这两个工具不注册
+			Skills:     skillsView, // read_skill 依赖；声明为空时不注册
+		}
+	}
+	tools.RegisterAll(reg, toolDeps(executorSkillView))
+
+	// 2. evaluator 裁决官的跨包工具：按其 function_tools 白名单从 BuildTools 取
+	// （run_command/list_traffic/view_traffic 等来自 tools 包；replay_for_verification 在 judge 本地）
+	var evaluatorCLImanifest *manifest.Manifest
+	if h.toolsManifest != nil && len(evaluatorCfg.CliTools) > 0 {
+		evaluatorCLImanifest = h.toolsManifest.FilterByNames(evaluatorCfg.CliTools)
+	}
+	judge := evaluator.NewRouterJudge(h.router, h.logger).
+		WithFunctionTools(evaluatorCfg.FunctionTools).
+		WithCLIManifest(evaluatorCLImanifest).
+		WithSkills(skillCards(ctx, evaluatorSkillView, h.logger, "evaluator")).
+		WithSystemPrompt(evaluatorCfg.SystemPrompt).
+		WithComplexity(evaluatorCfg.Complexity).
+		WithMaxIterations(evaluatorCfg.MaxIterations).
+		WithExtraTools(tools.BuildTools(toolDeps(evaluatorSkillView), evaluatorCfg.FunctionTools))
+
+	// 3. 包装为 executor Registry
+	execRegistry := executor.NewRegistry(reg)
+
+	// 3. 创建 Executor Engine
+	engine := executor.NewEngine(executor.EngineConfig{
+		Router:        h.router,
+		Findings:      h.findings,
+		Graph:         h.graph, // observation 落图与 kill 检查依赖；nil 会在产出观察时空指针崩溃
+		AgentRunID:    agentRunID, // LLM 审计归属本轮 run
+		Registry:      execRegistry,
+		FunctionTools: executorCfg.FunctionTools,                                // function_tools 白名单（nil=全量）
+		ToolsManifest: filteredManifest,                                         // CLI 工具清单（白名单过滤后）
+		Skills:        skillCards(ctx, executorSkillView, h.logger, "executor"), // Tier 1 skill 索引（正文按需 read_skill）
+		SystemPrompt:  executorCfg.SystemPrompt,                                 // 角色章程（agent.system_prompt，前端可调）
+		Complexity:    executorCfg.Complexity,                                   // LLM 档位（agent.complexity，文档 complexity 种子）
+		MaxIterations: executorCfg.MaxIterations,                                // ReAct 迭代上限（0=不设限）
+		Brief:         brief,                                                    // 任务简报逐字进 executor system prompt（入口锚定）
+		Checkpointer:  h.checkpointer,
+		Logger:        h.logger,
+	})
+
+	// 4. 创建 Coordinator（使用 Engine）
+	coord := executor.NewCoordinatorWithEngine(taskID, host, h.findings, engine, h.logger)
+
+	// 3. 创建 ExecutorAgent
+	executorAgent := executor.NewAgent(executor.AgentConfig{
+		TaskID:       taskID,
+		Graph:        h.graph,
+		Executor:     coord,
+		EventBus:     h.eventBus,
+		Logger:       h.logger.With().Str("component", "executor_agent").Logger(),
+		Checkpointer: h.checkpointer,
+		MaxParallel:  4, // 无依赖 action 并发执行（DAG 定可并行性；浏览器已按 action 隔离 tab）
+	})
+
+	// 4. 创建 EvaluatorAgent：Replayer 零依赖（复现配方自包含完整 HTTP 请求，
+	// 不从 traffic 表取流量——工具自发流量同样可复现）。
+	// 凭据池按 host 注入会话上下文：LLM 漏写 Cookie 的配方也能以登录态重放，
+	// 防真实漏洞因重放落到登录页而被机器护栏误证伪。
+	replayer := executor.NewReplayer().WithCredentials(h.creds, host)
+
+	promoter := evaluator.New(h.graph, replayer, h.findings).
+		WithJudge(judge). // ReAct 裁决官：replay_for_verification + CLI 复核工具
+		WithLogger(h.logger).
+		WithAgentRunID(agentRunID)
+
+	evaluatorAgent := evaluator.NewAgent(evaluator.AgentConfig{
+		TaskID:        taskID,
+		AgentRunID:    agentRunID,
+		Evaluator:     promoter,
+		EventBus:      h.eventBus,
+		Graph:         h.graph,
+		Logger:        h.logger.With().Str("component", "evaluator_agent").Logger(),
+		// 验证并发：每个验证 = 机器复放 + 一轮 judge ReAct（LLM 账单随并发线性放大）
+		// 降低到 3 避免 GLM API 限流
+		MaxConcurrent: 3,
+		PollInterval:  5 * time.Second, // 每 5 秒轮询一次未验证的 observation
+	})
+
+	// 5. 创建 PlannerAgent
+	intelligence := planner.NewIntelligence(h.router, h.logger).
+		WithSystemPrompt(plannerCfg.SystemPrompt).
+		WithComplexity(plannerCfg.Complexity).
+		WithMaxIterations(plannerCfg.MaxIterations)
+
+	plannerAgent := planner.NewAgent(planner.AgentConfig{
+		TaskID:        taskID,
+		AgentRunID:    agentRunID,
+		Graph:         h.graph,
+		Planner:       intelligence,
+		EventBus:      h.eventBus,
+		Logger:        h.logger.With().Str("component", "planner_agent").Logger(),
+		FunctionTools: plannerCfg.FunctionTools,
+	})
+
+	// 6. 创建 MonitorAgent（LLM 档位 = agent.complexity，文档 complexity 种子经三级缓存读）
+	provider, err := h.router.For(ctx, llm.ParseComplexity(monitorCfg.Complexity))
+	if err != nil {
+		return executor.Report{}, fmt.Errorf("failed to get provider for monitor: %w", err)
+	}
+
+	monitorAgent := monitor.New(monitor.Config{
+		TaskID:        taskID,
+		AgentRunID:    agentRunID,
+		FunctionTools: monitorCfg.FunctionTools,
+		SystemPrompt:  monitorCfg.SystemPrompt,
+		MaxIterations: monitorCfg.MaxIterations,
+		Graph:         h.graph,
+		EventBus:      h.eventBus,
+		Provider:      provider,
+		Interval:      6 * time.Minute,
+		Activity:      activities.idleFor,
+		Logger:        h.logger.With().Str("component", "monitor_agent").Logger(),
+		Checkpointer:  h.checkpointer,
+	})
+
+	// 7. 创建完成检测器（持续探索模式）
+	detector := cognition.NewCompletionDetector(cognition.Config{
+		TaskID:        taskID,
+		Graph:         h.graph,
+		Bus:           h.eventBus,
+		Logger:        h.logger,
+		MaxSteps:      h.runnerCfg.MaxStepsPerTask, // 0 表示无限制
+		CheckInterval: 5 * time.Second,
+	})
+
+	// 8. 启动四个 Agent（异步；启停封装成 agentLifecycle 供控制平面 pause/resume 复用）
+	lifecycle := newAgentLifecycle(ctx, h.logger, taskID, []agentSpec{
+		{name: "planner", start: plannerAgent.Run},
+		{name: "executor", start: executorAgent.Run},
+		{name: "evaluator", start: evaluatorAgent.Run},
+		{name: "monitor", start: monitorAgent.Run},
+	})
+
+	lifecycle.Start()
+	defer lifecycle.Stop()
+
+	// 任务结束浏览器清理（P3）：本任务身份前缀的 daemon/chromium 逐个优雅
+	// reset——共享容器下立即释放内存（不等容器空闲回收），且只动本任务的身份
+	// （并发任务的其他身份不受影响）。best-effort，失败仅告警。
+	defer func() {
+		if script := tools.BrowserCleanupScript(taskID); script != "" && sb != nil {
+			cctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			if res, err := sb.Exec(cctx, sandbox.ExecRequest{
+				TaskID: taskID, AgentID: "cleanup", Command: script, TimeoutSeconds: 30,
+			}); err != nil {
+				h.logger.Warn().Err(err).Str("task_id", taskID).Msg("浏览器清理执行失败（best-effort）")
+			} else {
+				h.logger.Info().Str("task_id", taskID).Int("exit_code", res.ExitCode).Msg("任务结束浏览器身份已清理")
+			}
+		}
+	}()
+
+	// 8.5 控制平面消费者：轮询 task_control_event（pause/resume/terminate/adjust_goal/inject）
+	if h.controlPlane != nil {
+		stopConsumer := startControlConsumer(ctx, taskID, h.controlPlane, h.graph, detector, lifecycle, h.logger)
+		defer stopConsumer()
+	}
+
+	h.logger.Info().Str("task_id", taskID).Msg("四个 Agent 已启动，等待任务完成")
+
+	// 9. 阻塞等待完成检测，随后停止所有 Agent（浏览器清理 defer 依赖 agents 已停）
+	result := detector.Start(ctx)
+	lifecycle.Stop()
+
+	h.logger.Info().
+		Str("task_id", taskID).
+		Int("steps", result.Steps).
+		Int("promoted", result.Promoted).
+		Str("stop_why", result.StopWhy).
+		Dur("duration", result.Duration).
+		Msg("认知循环完成")
+
+	return executor.Report{
+		Steps:    result.Steps,
+		Promoted: result.Promoted,
+		Attempts: result.Attempts,
+		StopWhy:  result.StopWhy,
+	}, nil
+}
+
+// skillView 按 agent.skills 声明从 DB 全集建白名单视图（渐进式加载两层共用）。
+// 后端未装配或声明为空 → 返回 nil 接口（read_skill 不注册、Tier 1 不渲染）——
+// 语义与 function_tools/cli_tools 白名单一致：声明什么装配什么。
+func skillView(src skill.Reader, declared []string) skill.Reader {
+	if src == nil || len(declared) == 0 {
+		return nil
+	}
+	return skill.Allow(src, declared)
+}
+
+// skillCards 取视图的 Tier 1 索引（frontmatter 列表，经多级缓存读），
+// 供 engine/judge 渲染进 system prompt。读失败告警并降级为空索引
+// （任务不因此中断，但 LLM 将没有技能目录——配置链路需检查）。
+func skillCards(ctx context.Context, r skill.Reader, logger zerolog.Logger, agentCode string) []*skill.Card {
+	if r == nil {
+		return nil
+	}
+	cards, err := r.Metas(ctx)
+	if err != nil {
+		logger.Warn().Err(err).Str("agent", agentCode).
+			Msg("skill 索引读取失败，本任务技能目录为空（read_skill 单条读可能仍可用）")
+		return nil
+	}
+	return cards
+}
