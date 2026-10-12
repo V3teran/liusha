@@ -4,7 +4,7 @@
 --   仅 HTTP headers/query/body 注入位）、lead（Redis key 按 host）三处各自绑死单 host + HTTP，
 --   物理上无法表示二进制（无 host）、云（资产是 ARN）、多阶段横向（多主机 + 立足点）。
 --
--- 业界实践：BloodHound（AD 攻击图）、Incalmo（attack-state 抽象）、ARTEX（exploration graph）
+-- 业界实践：BloodHound（AD 攻击图）、Incalmo（attack-state 抽象）、ARTEX（探索图）
 --   持久化的都是「已确证的世界状态」（资产/身份/可达性），不是过程细节。本表遵循同一边界：
 --   只记结果状态里程碑，绝不记过程（gdb 单步、每条 HTTP 报文归 investigation-trace 投影 + traffic 存储）。
 --

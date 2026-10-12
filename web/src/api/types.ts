@@ -317,12 +317,6 @@ export interface FindingListResponse {
 }
 
 /* ============================================================
-  nodes: AttackGraphNode[]
-  edges: AttackGraphEdge[]
-  verifications: AttackGraphVerification[]
-}
-
-/* ============================================================
    LLM 审计（GET /llm/invocations/:task_id，扁平 items + id 游标分页）
    列表/详情接口分离：列表不带 messages/result（大字段，未用不传），
    详情走 GET /llm/invocations/:task_id/invocation/:id 按需拉。
