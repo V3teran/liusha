@@ -163,8 +163,8 @@ func (e *Engine) buildSystemPrompt(actionType, complexity string, registered []r
 	// ========== 添加过滤后的 CLI 工具清单 ==========
 	if e.toolsManifest != nil && len(e.toolsManifest.Tools) > 0 {
 		basePrompt += "\n"
-		// 按能力轴分组渲染（cliToolCategoryOrder 权威序 + 未收录类别兜底）
-		basePrompt += renderCLICatalog(e.toolsManifest.ByCategory())
+		// 按能力轴分组渲染（从 manifest.Categories 读取顺序和名称）
+		basePrompt += renderCLICatalog(e.toolsManifest.ByCategory(), e.toolsManifest)
 	} else {
 		e.logger.Warn().Msg("⚠️  没有可用的 CLI 工具（cli_tools 未配置或为空）")
 	}
@@ -230,65 +230,29 @@ func (e *Engine) buildSystemPrompt(actionType, complexity string, registered []r
 	return basePrompt
 }
 
-// cliToolCategoryNames 是 tools.yaml 类别 code 的中文名（prompt 渲染用；纯展示文案，非凭证）。
-var cliToolCategoryNames = map[string]string{ // #nosec G101 // 类别展示名映射，非凭证
-	"recon":           "侦察（资产/服务/技术栈发现）",
-	"discovery":       "内容/参数发现",
-	"vulnscan":        "自动化模板漏扫",
-	"injection":       "注入类专项",
-	"deserialization": "反序列化 payload 生成",
-	"auth":            "认证/凭证攻击",
-	"oob":             "带外回调检测",
-	"sast":            "源码静态分析",
-	"reverse":         "二进制静态逆向",
-	"pwn":             "二进制动态利用",
-	"cloud":           "云平台攻击",
-	"container":       "容器/K8s 攻击",
-	"exploitation":    "利用框架/拿初始 shell",
-	"post-exploit":    "后渗透（横向/隧道/提权）",
-	"crypto":          "密码学攻击",
-	"forensics":       "取证",
-	"stego":           "隐写术",
-	"cracking":        "哈希/密码破解",
-	"runtime":         "语言运行时（现场编译/执行）",
-	"browser":         "无头浏览器自动化",
-	"utility":         "通用胶水（HTTP/JSON/脚本）",
-}
-
-// cliToolCategoryOrder 是类别渲染的权威顺序，与
-// deployments/tool-images/pentools/tools.yaml 的分区一致
-// （PTES 流水线序：侦察 → 发现 → 漏扫 → 注入 → … → 运行时 → 浏览器 → 通用）。
-var cliToolCategoryOrder = []string{
-	"recon", "discovery", "vulnscan", "injection", "deserialization", "auth",
-	"oob", "sast", "reverse", "pwn", "cloud", "container",
-	"exploitation", "post-exploit", "crypto", "forensics", "stego",
-	"cracking", "runtime", "browser", "utility",
-}
-
-// renderCLICatalog 把过滤后的 CLI 工具清单按类别渲染进 prompt：
-// 先按权威顺序，再兜底渲染清单里新出现、上表未收录的类别（防漏渲染）。
-func renderCLICatalog(categoryMap map[string][]manifest.Tool) string {
+// renderCLICatalog 把过滤后的 CLI 工具清单按类别渲染进 prompt。
+// 使用 manifest.Categories 的顺序和名称，避免硬编码。
+func renderCLICatalog(categoryMap map[string][]manifest.Tool, m *manifest.Manifest) string {
 	var b strings.Builder
 	b.WriteString("**沙箱预装工具清单**（通过 run_command 调用）:\n")
-	render := func(cat string) {
-		tools, ok := categoryMap[cat]
+
+	catByCode := m.CategoryByCode()
+	seen := make(map[string]bool, len(categoryMap))
+
+	// 按 manifest 定义的顺序渲染
+	for _, cat := range m.OrderedCategories() {
+		tools, ok := categoryMap[cat.Code]
 		if !ok || len(tools) == 0 {
-			return
+			continue
 		}
-		name := cliToolCategoryNames[cat]
-		if name == "" {
-			name = cat
-		}
-		fmt.Fprintf(&b, "\n**%s**:\n", name)
+		seen[cat.Code] = true
+		fmt.Fprintf(&b, "\n**%s**:\n", cat.Name)
 		for _, tool := range tools {
 			fmt.Fprintf(&b, "- %s: %s\n", tool.Name, tool.Description)
 		}
 	}
-	seen := make(map[string]bool, len(categoryMap))
-	for _, cat := range cliToolCategoryOrder {
-		render(cat)
-		seen[cat] = true
-	}
+
+	// 兜底：渲染未在 categories 中定义的类别
 	remaining := make([]string, 0, len(categoryMap))
 	for cat := range categoryMap {
 		if !seen[cat] {
@@ -297,8 +261,20 @@ func renderCLICatalog(categoryMap map[string][]manifest.Tool) string {
 	}
 	sort.Strings(remaining)
 	for _, cat := range remaining {
-		render(cat)
+		tools := categoryMap[cat]
+		if len(tools) == 0 {
+			continue
+		}
+		name := cat
+		if c, ok := catByCode[cat]; ok {
+			name = c.Name
+		}
+		fmt.Fprintf(&b, "\n**%s**:\n", name)
+		for _, tool := range tools {
+			fmt.Fprintf(&b, "- %s: %s\n", tool.Name, tool.Description)
+		}
 	}
+
 	b.WriteString("\n**重要提示**：必须实际调用工具执行测试，不要只做理论分析；每次调用后仔细分析结果再决定下一步。\n")
 	return b.String()
 }

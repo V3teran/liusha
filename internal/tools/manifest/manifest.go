@@ -19,9 +19,10 @@ import (
 // Tool 是单个沙箱预装工具的清单条目。
 // 字段命名遵循 MCP / OpenAI Function Calling / OpenAPI 业界惯例（name + description）。
 type Tool struct {
-	Name        string `yaml:"name"`
-	Category    string `yaml:"category"`
-	Description string `yaml:"description"`
+	Name        string   `yaml:"name"`
+	Category    string   `yaml:"category"`
+	Description string   `yaml:"description"`
+	Examples    []string `yaml:"examples,omitempty"` // 可选：使用示例，供 agent 学习
 }
 
 // Category 是工具分类的元数据（显示名称和渲染顺序）。
@@ -65,6 +66,25 @@ func (m *Manifest) ByCategory() map[string][]Tool {
 		sort.Slice(out[k], func(i, j int) bool { return out[k][i].Name < out[k][j].Name })
 	}
 	return out
+}
+
+// CategoryByCode 返回按 code 索引的分类元数据（O(1) 查询）。
+func (m *Manifest) CategoryByCode() map[string]Category {
+	out := make(map[string]Category, len(m.Categories))
+	for _, c := range m.Categories {
+		out[c.Code] = c
+	}
+	return out
+}
+
+// OrderedCategories 返回按 order 字段排序的分类列表（用于渲染）。
+func (m *Manifest) OrderedCategories() []Category {
+	sorted := make([]Category, len(m.Categories))
+	copy(sorted, m.Categories)
+	sort.Slice(sorted, func(i, j int) bool {
+		return sorted[i].Order < sorted[j].Order
+	})
+	return sorted
 }
 
 // Names 返回所有工具名（字典序）——供 read_skill / catalog lint 等使用。
