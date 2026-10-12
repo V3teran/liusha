@@ -24,9 +24,17 @@ type Tool struct {
 	Description string `yaml:"description"`
 }
 
+// Category 是工具分类的元数据（显示名称和渲染顺序）。
+type Category struct {
+	Code  string `yaml:"code"`
+	Name  string `yaml:"name"`
+	Order int    `yaml:"order"`
+}
+
 // Manifest 是 tools.yaml 解析后的全集。
 type Manifest struct {
-	Tools []Tool `yaml:"tools"`
+	Categories []Category `yaml:"categories"`
+	Tools      []Tool     `yaml:"tools"`
 }
 
 // Load 从 yaml 文件加载 Manifest；返回 error 时调用方应 fail-fast——
@@ -74,9 +82,10 @@ func (m *Manifest) Names() []string {
 //   - names 非空 = 只保留名字在白名单里的工具（操作员专精：只给它这几把刀）。
 //
 // 白名单里不存在的名字静默忽略（配置漂移不致命）。
+// Categories 元数据保持不变（过滤不影响分类定义）。
 func (m *Manifest) FilterByNames(names []string) *Manifest {
 	if len(names) == 0 {
-		return &Manifest{Tools: []Tool{}}
+		return &Manifest{Categories: m.Categories, Tools: []Tool{}}
 	}
 	allow := make(map[string]struct{}, len(names))
 	for _, n := range names {
@@ -88,5 +97,53 @@ func (m *Manifest) FilterByNames(names []string) *Manifest {
 			out = append(out, t)
 		}
 	}
-	return &Manifest{Tools: out}
+	return &Manifest{Categories: m.Categories, Tools: out}
+}
+
+// CategoryOrder 返回分类的渲染顺序（按 order 字段排序）。
+// 未在 categories 中定义的分类会被追加到末尾（字典序）。
+func (m *Manifest) CategoryOrder() []string {
+	// 构建 code -> order 映射
+	orderMap := make(map[string]int, len(m.Categories))
+	for _, cat := range m.Categories {
+		orderMap[cat.Code] = cat.Order
+	}
+
+	// 收集所有使用中的分类
+	usedCategories := make(map[string]bool)
+	for _, t := range m.Tools {
+		usedCategories[t.Category] = true
+	}
+
+	// 分为两组：有序的和未定义的
+	var ordered []string
+	var undefined []string
+	for cat := range usedCategories {
+		if _, ok := orderMap[cat]; ok {
+			ordered = append(ordered, cat)
+		} else {
+			undefined = append(undefined, cat)
+		}
+	}
+
+	// 按 order 排序已定义的
+	sort.Slice(ordered, func(i, j int) bool {
+		return orderMap[ordered[i]] < orderMap[ordered[j]]
+	})
+
+	// 未定义的按字典序排序
+	sort.Strings(undefined)
+
+	return append(ordered, undefined...)
+}
+
+// CategoryName 返回分类的显示名称。
+// 如果分类未在 categories 中定义，返回 code 本身。
+func (m *Manifest) CategoryName(code string) string {
+	for _, cat := range m.Categories {
+		if cat.Code == code {
+			return cat.Name
+		}
+	}
+	return code
 }
