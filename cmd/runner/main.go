@@ -395,6 +395,14 @@ func newLLMStack(pool *pgxpool.Pool, cache *cachestore.Cache, logger zerolog.Log
 	// 文件仅是首次导入的种子（seed 导入在别处），进程运行期一律走 DB/缓存（见 D6/D7）。
 	cfgStore := cfgstore.New(pool, cache)
 
+	// 启动自检：验证所有 agent 的 system_prompt 已正确加载
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := cfgStore.ValidateAgentConfigs(ctx); err != nil {
+		logger.Fatal().Err(err).Msg("Agent 配置验证失败")
+	}
+	logger.Info().Msg("✅ Agent 配置验证通过（executor/planner/evaluator/monitor）")
+
 	// LLM 配置事实源：llm.Router 运行期按 tier 解析 provider 部署即读它（多级缓存）。
 	// api 进程改「LLM 配置」模块后经 cachestore 广播失效，runner 下次 For(tier) 即读到最新部署。
 	// agent.tier 覆盖 agent→tier 第一跳（0107）：agent 在「智能体」页改档后，api 经 cachestore

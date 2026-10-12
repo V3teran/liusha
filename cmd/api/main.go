@@ -102,6 +102,18 @@ func main() {
 	// runner 进程被动失效其 L1。
 	cfgStore := cfgstore.New(pool, cache)
 
+	// 启动自检：验证所有 agent 的 system_prompt 已正确加载
+	// （在 seed.Import 之后验证，确保种子已导入）
+	// 注意：这里延迟到 seed.Import 之后再验证
+	validateAgentConfigs := func() {
+		validateCtx, validateCancel := context.WithTimeout(ctx, 10*time.Second)
+		defer validateCancel()
+		if err := cfgStore.ValidateAgentConfigs(validateCtx); err != nil {
+			logger.Fatal().Err(err).Msg("Agent 配置验证失败")
+		}
+		logger.Info().Msg("✅ Agent 配置验证通过（executor/planner/evaluator/monitor）")
+	}
+
 	// LLM 配置多级缓存 Store（provider 部署 / 别名 / 角色路由）。既是「模型模块」CRUD 后端，
 	// 又是两个 LLM 工厂运行期 role→provider 解析的事实源（复用同一 cache 实例）。
 	cfgAgentStore := agent.NewStore(pool)
@@ -138,6 +150,9 @@ func main() {
 			Strs("skills_pruned", seedRes.Skills.Pruned).
 			Msg("配置种子首填完成")
 	}
+
+	// 种子导入完成后，验证 agent 配置
+	validateAgentConfigs()
 
 	// LLM 配置种子（insert-only）：把 config.yaml 的 providers:/llm.* 首填进
 	// llm_provider/alias/role_route，空库时建默认路由。已存在的行整行跳过（DB 事实源）。
