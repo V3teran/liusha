@@ -5,8 +5,8 @@ echo "===== 第1轮：架构遗留问题检查 ====="
 echo ""
 
 echo "1. 检查旧命名残留..."
-echo "   - knowledge graph 相关:"
-grep -r "knowledge.*graph\|KnowledgeGraph" --include="*.go" --include="*.md" internal/ cmd/ agents/ 2>/dev/null | wc -l
+echo "   - 探索图相关旧术语 (attack-graph/knowledge-graph):"
+grep -r "attack.*graph\|knowledge.*graph\|AttackGraph\|KnowledgeGraph" --include="*.go" --include="*.md" internal/ cmd/ agents/ 2>/dev/null | wc -l
 
 echo "   - 其他旧概念:"
 grep -r "oldconcept\|deprecated\|TODO.*rename" --include="*.go" internal/ cmd/ 2>/dev/null | head -5

@@ -98,7 +98,7 @@ export function ExplorationGraphPage() {
     setLoading(true)
     setError('')
     try {
-      const resp = await fetch(`/api/v1/tasks/${taskId}/graph`, {
+      const resp = await fetch(`/api/v1/tasks/${taskId}/exploration/graph`, {
         headers: { 'X-API-Key': localStorage.getItem('liusha_api_key') || '' }
       })
       if (!resp.ok) {

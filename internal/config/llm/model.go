@@ -120,7 +120,7 @@ const RoleFallback = "__fallback__"
 //     planner / exploitation：active 链路需 browser-use 截图 + 深度规划 → complex
 //     traffic-analysis      ：passive 流量逐批挖洞，标准推理 → medium
 //   - 轻量路由 key（非 agent，无 DB 行、无 UI，仅借名路由到 simple 档）：
-//     inspector：意图分类 + attack-graph 摘要复用（cmd/api）
+//     inspector：意图分类 + 探索图摘要复用（cmd/api）
 //     compactor：ReAct 会话历史压缩（cmd/runner）
 var agentComplexityTable = map[string]string{
 	"planner":          ComplexityComplex,
