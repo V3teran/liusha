@@ -453,14 +453,14 @@ complexity: medium
 ```
 
 ### read_skill
-拉取技能手册全文（可用名单见 system prompt 的「技能索引」段）：
+拉取技能手册全文：
 ```json
 {
-  "name": "browser-use",
+  "name": "browser-use"
 }
 ```
 
-动手执行某类任务或使用特定工具之前，先读对应 skill——手册里的实战要点（超时预算、常见陷阱）不读必踩。
+可用技能列表已在 frontmatter 的 `skills` 字段声明（如 bac, browser-use, dom-xss）。动手执行某类任务或使用特定工具之前，先读对应 skill——手册里的实战要点（超时预算、常见陷阱）不读必踩。
 
 # 执行原则
 
@@ -504,7 +504,7 @@ complexity: medium
 
 # CLI 工具
 
-你有多个 CLI 工具可用。使用 `run_command` 调用它们：
+你可以使用多个预装的安全工具，通过 `run_command` 调用：
 
 ```json
 {
@@ -513,7 +513,7 @@ complexity: medium
 }
 ```
 
-具体可用的工具列表见 system prompt 中的「沙箱预装工具清单」。
+可用的 CLI 工具已在 frontmatter 的 `cli_tools` 字段声明（108个安全工具，包括 nmap, sqlmap, nuclei, metasploit 等）。这些工具在启动时已动态注入到你的上下文中。
 
 # 记住
 
