@@ -82,21 +82,38 @@ tools:
   - name: subfinder
     category: recon
     description: 子域名被动枚举（多源 OSINT）。零接触目标，只查公网情报源（crt.sh/passive DNS）。
+    examples:
+      - "subfinder -d example.com -silent"
+      - "subfinder -d example.com -all -o subdomains.txt"
   - name: httpx
     category: recon
     description: HTTP 探活 + 指纹 + tech detection。subfinder 之后必跑过滤死域。
+    examples:
+      - "cat subdomains.txt | httpx -silent"
+      - "httpx -u https://example.com -title -tech-detect -status-code"
   - name: katana
     category: recon
     description: 现代 Web 爬虫——爬一个起点 url 拿全部站内链接 + JS 解析的 endpoint。
+    examples:
+      - "katana -u https://example.com -silent"
+      - "katana -u https://example.com -d 3 -jc -kf all -o endpoints.txt"
   - name: nmap
     category: recon
     description: 端口扫描 + 服务指纹 + NSE 脚本（半个漏扫器）。发现主端口外的高危服务用。
+    examples:
+      - "nmap -sV -p80,443,8080 example.com"
+      - "nmap -sV -sC -p- --min-rate=1000 192.168.1.1"
   - name: wafw00f
     category: recon
     description: WAF 指纹识别（CloudFlare/Akamai/AWS WAF/F5）——选 sqlmap --tamper / dalfox bypass 前先跑。
+    examples:
+      - "wafw00f https://example.com"
   - name: masscan
     category: recon
     description: 超高速端口扫描——比 nmap 快 1000x（6 分钟扫全网 IPv4），先用它快速发现开放端口，再用 nmap -A 深度探测存活端口。适合大范围 C 段扫描。
+    examples:
+      - "masscan 192.168.1.0/24 -p80,443,8080 --rate=10000"
+      - "masscan 10.0.0.0/8 -p1-65535 --rate=100000 -oL scan.txt"
   - name: fscan
     category: recon
     description: 国产内网综合扫描（一键打点）——集成端口扫描 + 服务爆破 + 漏洞检测（MS17-010/Redis/SMB/FTP/MySQL），内网横向首选，一条命令拿下全 C 段资产。
