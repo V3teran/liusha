@@ -148,9 +148,10 @@ func (e *Engine) buildSystemPrompt(actionType, complexity string, registered []r
 
 	charter := strings.TrimSpace(e.charter)
 	if charter == "" {
-		// 兜底：返回默认提示（不应该发生，reseed 应该已配置）
-		e.logger.Warn().Msg("⚠️  executor system_prompt 为空，使用兜底配置")
-		charter = "你是多智能体系统中的执行者（Executor）。"
+		// 强制运维配置：charter 为空时返回空串，让 ReAct.Run 报错
+		// （与 monitor/evaluator 对齐，避免硬编码兜底文案与 agents/executor.md 不同步）
+		e.logger.Error().Msg("executor system_prompt 为空，请运行 make reseed")
+		return ""
 	}
 
 	var promptSB strings.Builder

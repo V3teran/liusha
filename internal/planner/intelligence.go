@@ -281,15 +281,15 @@ func (i *Intelligence) buildPlanningPrompt(ctx *PlanningContext) string {
 }
 
 // buildPlannerSystemPrompt 组装规划 system prompt：
-// 角色章程（agent.system_prompt——DB 事实源，种子 = agents/planner.md 正文，前端可调）
-// + 空正文单句兜底。输出 JSON 契约由章程承载，改契约 = 改 agents/planner.md + make reseed。
+// 角色章程（agent.system_prompt——DB 事实源，种子 = agents/planner.md 正文，前端可调）。
+// 输出 JSON 契约由章程承载，改契约 = 改 agents/planner.md + make reseed。
+// charter 为空时返回空串，让 ReAct.Run 报错，强制运维配置。
 func (i *Intelligence) buildPlannerSystemPrompt() string {
-	if c := strings.TrimSpace(i.charter); c != "" {
-		return c
+	charter := strings.TrimSpace(i.charter)
+	if charter == "" {
+		return "" // 让 ReAct.Run 报错，强制运维配置
 	}
-	return "你是渗透测试的探索规划专家：基于上下文摘要规划下一批 Action" +
-		"（1-5 个，depends_on 只引用已知 ID），输出 JSON：" +
-		`{"should_continue": true, "reasoning": "...", "actions": [{"type": "...", "instruction": "...", "complexity": "...", "priority": "...", "reason": "...", "depends_on": [], "metadata": {}}]}`
+	return charter
 }
 
 // parsePlanningResponse 从 ReAct 最终答案解析规划 JSON。
