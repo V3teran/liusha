@@ -14,15 +14,15 @@ import (
 	"time"
 )
 
-// Role 是消息的发言角色（对齐 LLM 消息角色）。
-type Role string
+// ConversationRole 是消息的发言角色（对齐 LLM 消息角色）。
+type ConversationRole string
 
 // 会话消息角色。
 const (
-	RoleUser      Role = "user"
-	RoleAssistant Role = "assistant"
-	RoleSystem    Role = "system"
-	RoleTool      Role = "tool"
+	RoleUser      ConversationRole = "user"
+	RoleAssistant ConversationRole = "assistant"
+	RoleSystem    ConversationRole = "system"
+	RoleTool      ConversationRole = "tool"
 )
 
 // Kind 区分普通会话消息与 agent 过程事件。
@@ -60,7 +60,7 @@ type Message struct {
 	Seq            int64 // 全局自增，会话内稳定顺序键（SSE 高频事件不依赖时间戳精度）
 	ID             string
 	ConversationID string
-	Role           Role
+	Role           ConversationRole
 	Kind           Kind
 	Content        string
 	Metadata       json.RawMessage // 可空——event 的结构化详情（tool name/args、finding id…）

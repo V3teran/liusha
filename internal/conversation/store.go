@@ -217,7 +217,7 @@ const msgCols = "seq, id, conversation_id, role, kind, content, metadata, create
 //
 // 不开事务：append + touch updated_at 两条 Exec，与项目"保持简单不上事务"一致——
 // touch 失败仅影响列表排序，不影响消息已落库。
-func (s *Store) AppendMessage(ctx context.Context, convID string, role Role, kind Kind, content string, metadata json.RawMessage) (Message, error) {
+func (s *Store) AppendMessage(ctx context.Context, convID string, role ConversationRole, kind Kind, content string, metadata json.RawMessage) (Message, error) {
 	row := s.pool.QueryRow(ctx, `
 		INSERT INTO message (conversation_id, role, kind, content, metadata)
 		VALUES ($1, $2, $3, $4, $5)

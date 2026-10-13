@@ -165,7 +165,7 @@ func (r *cronRunner) expandTrafficItem(ctx context.Context, assignmentID string,
 		AgentRunID: hid,
 		TaskID:     tk.ID,
 		Input:      payloadInput,
-		Role:       worker.RoleExecutor,
+		TaskRole:   worker.RoleExecutor,
 	}); err != nil {
 		return fmt.Errorf("enqueue: %w", err)
 	}

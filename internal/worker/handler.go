@@ -18,30 +18,30 @@ type Payload struct {
 	// ConversationID 关联本任务所属会话（阶段B 会话发起时填）；asynq 自动入口为空——
 	// 空则 runner 不发过程事件、不落 conversation message（纯后台扫描）。
 	ConversationID string          `json:"conversation_id,omitempty"`
-	Role           Role            `json:"role"`
+	TaskRole       TaskRole        `json:"role"` // asynq 队列路由角色
 	Input          json.RawMessage `json:"input,omitempty"`
 }
 
 // RoleHandler 处理一个反序列化好的 Payload。
 type RoleHandler func(ctx context.Context, p Payload) error
 
-// Mux 按 Role 路由 asynq 任务到对应 handler。
+// Mux 按 TaskRole 路由 asynq 任务到对应 handler。
 type Mux struct {
-	handlers map[Role]RoleHandler
+	handlers map[TaskRole]RoleHandler
 }
 
 // NewMux 创建一个空的 Mux。
 func NewMux() *Mux {
-	return &Mux{handlers: make(map[Role]RoleHandler)}
+	return &Mux{handlers: make(map[TaskRole]RoleHandler)}
 }
 
 // Register 注册 role 对应的 handler。重复注册会覆盖旧值。
-func (m *Mux) Register(role Role, h RoleHandler) {
+func (m *Mux) Register(role TaskRole, h RoleHandler) {
 	m.handlers[role] = h
 }
 
 // AsynqMux 返回一个 asynq.ServeMux：
-// 把所有 TaskTypeRun 任务反序列化为 Payload，并按 Role 分发到注册的 handler。
+// 把所有 TaskTypeRun 任务反序列化为 Payload，并按 TaskRole 分发到注册的 handler。
 // 未注册的 role 或 payload 损坏时返回 asynq.SkipRetry，避免重试风暴。
 func (m *Mux) AsynqMux() *asynq.ServeMux {
 	mux := asynq.NewServeMux()
@@ -50,7 +50,7 @@ func (m *Mux) AsynqMux() *asynq.ServeMux {
 		if err := json.Unmarshal(t.Payload(), &p); err != nil {
 			return asynq.SkipRetry
 		}
-		h, ok := m.handlers[p.Role]
+		h, ok := m.handlers[p.TaskRole]
 		if !ok {
 			return asynq.SkipRetry
 		}

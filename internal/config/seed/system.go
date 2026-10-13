@@ -58,7 +58,7 @@ func importRuntimeSettings(ctx context.Context, cfg config.Config, s *settingsto
 	if err := s.SaveRuntime(ctx, settingstore.RuntimeSettings{
 		StepToolTimeoutSeconds: cfg.Toolruntime.StepToolTimeoutSeconds,
 		RunTailBytes:           cfg.Sandbox.RunTailBytes,
-		FindingsLimitInPrompt:  cfg.Session.FindingsLimitInPrompt,
+		FindingsLimitInPrompt:  cfg.PromptLimits.FindingsLimitInPrompt,
 	}); err != nil {
 		return fmt.Errorf("写 runtime 组: %w", err)
 	}
