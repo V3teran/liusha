@@ -133,7 +133,7 @@ func buildResponseFormat() string {
 	sb.WriteString("  \"reasoning\": \"详细说明你的判断逻辑：当前方向是否穷尽？为什么选择新方向/延续？\",\n")
 	sb.WriteString("  \"new_objectives\": [\n")
 	sb.WriteString("    {\n")
-	sb.WriteString("      \"description\": \"本质不同的新方向（不同入口/攻击链/资产）\",\n")
+	sb.WriteString("      \"description\": \"本质不同的新方向（不同入口/利用链/资产）\",\n")
 	sb.WriteString("      \"priority\": \"high\",\n")
 	sb.WriteString("      \"triggered_by\": [\"result_id_1\"],\n")
 	sb.WriteString("      \"reasoning\": \"为什么需要切换到这个新方向\"\n")

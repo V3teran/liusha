@@ -202,7 +202,7 @@ func buildRefutedHypothesesSection(hypotheses []string) string {
 	for _, h := range hypotheses {
 		fmt.Fprintf(&sb, "- %s\n", h)
 	}
-	sb.WriteString("\n**注意**：以上假设均经真实复现验证被否定。除非你有实质不同的新证据或新方法，否则不要再生成同方向的攻击动作。\n\n")
+	sb.WriteString("\n**注意**：以上假设均经真实复现验证被否定。除非你有实质不同的新证据或新方法，否则不要再生成同方向的利用动作。\n\n")
 	return sb.String()
 }
 

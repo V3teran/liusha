@@ -156,7 +156,7 @@ func (j *RouterJudge) buildObjective(hypothesis string, recipe, initialEvidence 
 	sb.WriteString(stringOrEmpty(recipe))
 	sb.WriteString("\n\n## 配方预跑证据（机器采集，参考——须自主二次验证）\n")
 	sb.WriteString(stringOrEmpty(initialEvidence))
-	sb.WriteString("\n\n先用 replay_for_verification 复核机器证据；证据含 baseline_* 字段时对比基线/攻击差分（一致即无差分）；")
+	sb.WriteString("\n\n先用 replay_for_verification 复核机器证据；证据含 baseline_* 字段时对比基线/利用请求差分（一致即无差分）；")
 	sb.WriteString("证据标注 domain=generic（无机器重放通道）时改用 run_command 按 recipe 步骤自主执行取证；")
 	sb.WriteString("需要独立取证时用 run_command（如 curl 重放配方 request、用正常参数做对照）。基于你亲见的证据裁决。")
 	return sb.String()

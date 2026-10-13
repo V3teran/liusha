@@ -28,7 +28,7 @@ var activeProfiles = map[string]activeProfile{
 	//
 	// - MinObjectives=1: 单根 objective（onboard 幂等去重后每任务 1 个根目标；
 	//   次级目标由 Result 派生——0 result 时 1 即诚实上限，阈值 2 是双根 bug 时代的失真标定）
-	// - MinActions=10: 综合扫描需要更多探索动作（recon + 多种攻击）
+	// - MinActions=10: 综合扫描需要更多探索动作（recon + 多种利用方式）
 	// - MinResults=3: 2026-10-02 按实测重标（LLM 裁决晋升链全通后单轮实产 4 result；
 	//   5 是晋升链断裂时代的拍脑袋值——refute 率高是质量闸门正常工作，不该用高阈值逼迫放水）
 	"full": {

@@ -52,7 +52,7 @@ func (r SelfContainedRequest) toSource() (httpreplay.Source, error) {
 }
 
 // ReplayRecipe 是 web 域的 L1 复现原语（evaluator.Attempt.Primitives 的形状）。
-// 机器可判的坐实配方：完整攻击请求 + 断言，可选良性基线做差分对照。
+// 机器可判的坐实配方：完整利用请求 + 断言，可选良性基线做差分对照。
 // Resolve 非空时，主请求前先发一个准备请求抽新鲜值注入——专治 replay 时无法
 // 复用的服务器现造值（opaque-id / nonce / 过期 token）。
 type ReplayRecipe struct {
@@ -225,18 +225,18 @@ func (r *Replayer) injectSessionContext(ctx context.Context, recipe json.RawMess
 	return out
 }
 
-// replayEvidence 是落进 exploration_verification 的复现证据（基线/攻击双对照 + 断言明细）。
+// replayEvidence 是落进 exploration_verification 的复现证据（基线/利用请求双对照 + 断言明细）。
 type replayEvidence struct {
 	Method string `json:"method"`
 	URL    string `json:"url"`
-	// 基线（配方提供 baseline 时的良性对照）与攻击（配方 request 原样重发）的双对照——
+	// 基线（配方提供 baseline 时的良性对照）与利用请求（配方 request 原样重发）的双对照——
 	// 裁决官据此看差分。
 	HasBaseline     bool              `json:"has_baseline"`
 	BaselineStatus  int               `json:"baseline_status_code,omitempty"`
 	BaselineDurMs   int64             `json:"baseline_duration_ms,omitempty"`
 	BaselineBodyLen int               `json:"baseline_body_len,omitempty"`
-	AttackStatus    int               `json:"attack_status_code"`
-	AttackDurMs     int64             `json:"attack_duration_ms"`
+	ExploitStatus   int               `json:"exploit_status_code"`
+	ExploitDurMs    int64             `json:"exploit_duration_ms"`
 	RespHeaders     map[string]string `json:"response_headers"`
 	RespBodyLen     int               `json:"response_body_len"`
 	RespBodySnip    string            `json:"response_body_snippet"`
@@ -350,13 +350,13 @@ var commonSuccessCodes = map[int]bool{200: true, 301: true, 302: true, 304: true
 //     ——正常响应必命中，坐实即假阳性，e2e 实测）；
 //   - 无 baseline 时，断言须含至少一个强谓词（body_contains/header_contains/min_duration_ms）
 //     或非常态状态码——裸 {status_code:200} 这类页面常态断言直接拒绝。
-func assertDiscriminative(a Assertion, attackSrc httpreplay.Source, hasBaseline bool) error {
+func assertDiscriminative(a Assertion, exploitSrc httpreplay.Source, hasBaseline bool) error {
 	for _, want := range a.BodyContains {
 		if len(strings.TrimSpace(want)) < minBodyContainsLen {
-			return fmt.Errorf("%w: body_contains 子串 %q 短于 %d 字符（几乎必命中任意页面）。断言应捕捉攻击响应独有特征：报错回显/泄露数据的完整子串（如 SQL 错误片段、dump 出的字段值）", evaluator.ErrAssertNotDiscriminative, want, minBodyContainsLen)
+			return fmt.Errorf("%w: body_contains 子串 %q 短于 %d 字符（几乎必命中任意页面）。断言应捕捉利用响应独有特征：报错回显/泄露数据的完整子串（如 SQL 错误片段、dump 出的字段值）", evaluator.ErrAssertNotDiscriminative, want, minBodyContainsLen)
 		}
 		// 自指检测：断言特征已内嵌在请求里（URL/path/host）——正常响应也必然包含它。
-		if strings.Contains(strings.ToLower(attackSrc.URL), strings.ToLower(strings.TrimSpace(want))) {
+		if strings.Contains(strings.ToLower(exploitSrc.URL), strings.ToLower(strings.TrimSpace(want))) {
 			return fmt.Errorf("%w: body_contains 子串 %q 就是请求 URL 的组成部分（自指：正常响应也必命中）。断言应捕捉攻击响应独有特征，而不是页面本来就有的内容", evaluator.ErrAssertNotDiscriminative, want)
 		}
 	}
@@ -373,18 +373,18 @@ func assertDiscriminative(a Assertion, attackSrc httpreplay.Source, hasBaseline 
 	return nil
 }
 
-// replayWeb web 域机器复放：结构校验 → 鉴别力守卫 → resolve 注入 → baseline 差分护栏 → 攻击重发 → 采证。
+// replayWeb web 域机器复放：结构校验 → 鉴别力守卫 → resolve 注入 → baseline 差分护栏 → 利用请求重发 → 采证。
 func replayWeb(ctx context.Context, recipe ReplayRecipe) (evaluator.Result, error) {
 	// 空断言不可坐实：机器无从判定即无法晋升（拒绝橡皮图章）。
 	if recipe.Assert.empty() {
 		return evaluator.Result{}, fmt.Errorf("web.Replayer: assert 为空，无坐实谓词（至少给一条 status_code/body_contains/body_not_contains/header_contains/min_duration_ms）")
 	}
 	// 结构先行（request 形状），语义随后（断言鉴别力）——错误信息指向首个真问题。
-	attackSrc, err := recipe.Request.toSource()
+	exploitSrc, err := recipe.Request.toSource()
 	if err != nil {
 		return evaluator.Result{}, fmt.Errorf("web.Replayer: request 非法——%w", err)
 	}
-	if dErr := assertDiscriminative(recipe.Assert, attackSrc, recipe.Baseline != nil); dErr != nil {
+	if dErr := assertDiscriminative(recipe.Assert, exploitSrc, recipe.Baseline != nil); dErr != nil {
 		return evaluator.Result{}, fmt.Errorf("web.Replayer: %w", dErr)
 	}
 
@@ -395,7 +395,7 @@ func replayWeb(ctx context.Context, recipe ReplayRecipe) (evaluator.Result, erro
 			return evaluator.Result{}, rErr
 		}
 		injected := injectResolved(recipe.Request, name, val)
-		attackSrc, err = injected.toSource()
+		exploitSrc, err = injected.toSource()
 		if err != nil {
 			return evaluator.Result{}, fmt.Errorf("web.Replayer: resolve 注入后 request 非法——%w", err)
 		}
@@ -403,7 +403,7 @@ func replayWeb(ctx context.Context, recipe ReplayRecipe) (evaluator.Result, erro
 
 	// 差分复现铁律（业界基线对照法）：配方提供 baseline 时先放良性基线，
 	// 断言在基线上也全命中 = 断言无鉴别力（正常响应即满足），拒绝坐实。
-	// 坐实的唯一形态：攻击响应呈现基线没有的特征（报错回显/泄露数据/延迟）。
+	// 坐实的唯一形态：利用响应呈现基线没有的特征（报错回显/泄露数据/延迟）。
 	var baseline *httpreplay.Result
 	var baseDur int64
 	if recipe.Baseline != nil {
@@ -419,13 +419,13 @@ func replayWeb(ctx context.Context, recipe ReplayRecipe) (evaluator.Result, erro
 		}
 		baseline = &bres
 		if basePassed, _ := recipe.Assert.eval(bres, baseDur); basePassed {
-			return evaluator.Result{}, fmt.Errorf("web.Replayer: %w——基线（良性请求）同样满足全部谓词，命中不构成漏洞证据（断言应捕捉攻击响应独有特征：报错回显/数据泄露/延迟）", evaluator.ErrAssertNotDiscriminative)
+			return evaluator.Result{}, fmt.Errorf("web.Replayer: %w——基线（良性请求）同样满足全部谓词，命中不构成漏洞证据（断言应捕捉利用响应独有特征：报错回显/数据泄露/延迟）", evaluator.ErrAssertNotDiscriminative)
 		}
 	}
 
-	// 攻击：配方 request 原样重发。
+	// 利用请求：配方 request 原样重发。
 	start := time.Now()
-	res, err := httpreplay.Replay(ctx, attackSrc, httpreplay.Mods{})
+	res, err := httpreplay.Replay(ctx, exploitSrc, httpreplay.Mods{})
 	dur := time.Since(start).Milliseconds()
 	if err != nil {
 		return evaluator.Result{}, fmt.Errorf("web.Replayer: 重发失败: %w", err)
@@ -438,8 +438,8 @@ func replayWeb(ctx context.Context, recipe ReplayRecipe) (evaluator.Result, erro
 		Method:        res.Method,
 		URL:           res.URL,
 		HasBaseline:   baseline != nil,
-		AttackStatus:  res.StatusCode,
-		AttackDurMs:   dur,
+		ExploitStatus: res.StatusCode,
+		ExploitDurMs:  dur,
 		RespHeaders:   res.ResponseHeaders,
 		RespBodyLen:   len(res.ResponseBody),
 		RespBodySnip:  snippet(res.ResponseBody, evidenceBodySnip),
