@@ -152,7 +152,7 @@ ingestor:
   retry_delay_ms: 500               # XREADGROUP 失败重试延迟
   recreate_group_delay_ms: 500      # NOGROUP 自愈重建后等待 ms
 
-# ---- prompt_limits 参数（agent prompt 上限；合表后 passive task 是有界批分析）----
+# ---- prompt_limits 参数（agent prompt 上限，用于控制 prompt 拼装时的数据量）----
 prompt_limits:
   # agent user prompt 拼装上限（避免 prompt 膨胀；超出 LLM 用 read_findings 工具按需查）
   findings_limit_in_prompt: 1000    # 该 host finding DB 读上限安全闸（全量注入不截断；超长由压缩器处理）

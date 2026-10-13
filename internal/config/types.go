@@ -164,7 +164,7 @@ type IngestorConfig struct {
 	RetryDelayMs         int    `mapstructure:"retry_delay_ms"`
 	RecreateGroupDelayMs int    `mapstructure:"recreate_group_delay_ms"`
 
-	// passive 聚合器参数（§6.2）：同 host 攒批建 passive task。
+	// 流量聚合器参数：同 host 攒批建 task。
 	// AggregateBatchSize：一批多少条 proxy_traffic 触发建 task（默认 20；~一个用户操作单元的 XHR 量级）。
 	// AggregateWindowSeconds：距首条超此秒数即触发（默认 10；先到先触发）。
 	AggregateBatchSize     int `mapstructure:"aggregate_batch_size"`
@@ -172,7 +172,6 @@ type IngestorConfig struct {
 }
 
 // PromptLimitsConfig 是 agent prompt 上限参数。
-// （合表后 passive task 是有界批分析、跑完即终态，无常驻会话，故原 TTL 参数已删。）
 type PromptLimitsConfig struct {
 	// agent user prompt 拼装时的上限（避免 prompt 膨胀）。
 	// FindingsLimitInPrompt：该 host 已有 finding 段的 DB 读上限安全闸（取够高，正常扫描全量注入；
