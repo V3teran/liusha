@@ -19,16 +19,16 @@ import (
 // 调用方应路由到 vision_provider 或 fail-fast。
 var ErrVisionUnsupported = errors.New("llm: provider 不支持 vision，含图 message 需路由到 vision_provider")
 
-// Role 是消息角色。
-type Role string
+// MessageRole 是 LLM 消息角色。
+type MessageRole string
 
 // RoleUser 等枚举定义。
 const (
 	// RoleSystem 等枚举消息角色（OpenAI/Anthropic 协议通用四态）。
-	RoleSystem    Role = "system"
-	RoleUser      Role = "user"
-	RoleAssistant Role = "assistant"
-	RoleTool      Role = "tool"
+	RoleSystem    MessageRole = "system"
+	RoleUser      MessageRole = "user"
+	RoleAssistant MessageRole = "assistant"
+	RoleTool      MessageRole = "tool"
 )
 
 // Message 是一次会话中的一条消息。
@@ -36,7 +36,7 @@ const (
 // Content 与 ContentParts 互斥：纯文本走 Content（默认路径）；含图/多模态走 ContentParts。
 // ContentParts 非空时 provider 必须支持 vision；否则返 ErrVisionUnsupported。
 type Message struct {
-	Role         Role          `json:"role"`
+	Role         MessageRole   `json:"role"`
 	Content      string        `json:"content,omitempty"`
 	ContentParts []ContentPart `json:"content_parts,omitempty"`
 	Name         string        `json:"name,omitempty"`

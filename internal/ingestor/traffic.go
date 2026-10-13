@@ -38,7 +38,7 @@ import (
 // 让前端会话有"发起了什么"的锚点（对齐 active 的 brief 首条消息）。
 type ConversationCreator interface {
 	CreateConversation(ctx context.Context, title, taskID string) (conversation.Conversation, error)
-	AppendMessage(ctx context.Context, convID string, role conversation.Role, kind conversation.Kind, content string, metadata json.RawMessage) (conversation.Message, error)
+	AppendMessage(ctx context.Context, convID string, role conversation.ConversationRole, kind conversation.Kind, content string, metadata json.RawMessage) (conversation.Message, error)
 }
 
 // internalQueueSize 是进程内 internal 流量队列容量。
@@ -460,7 +460,7 @@ func (t *Traffic) enqueuePassive(ctx context.Context, taskID, convID, host strin
 		TaskID:         taskID,
 		ConversationID: convID,
 		Input:          payloadInput,
-		Role:           worker.RoleExecutor,
+		TaskRole:       worker.RoleExecutor,
 	}); err != nil {
 		return fmt.Errorf("enq.Enqueue: %w", err)
 	}

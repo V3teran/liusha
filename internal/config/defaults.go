@@ -13,7 +13,7 @@ func (c *Config) ApplyDefaults() {
 	c.LLM = applyLLMDefaults(c.LLM)
 	c.Proxy = applyProxyDefaults(c.Proxy)
 	c.Ingestor = applyIngestorDefaults(c.Ingestor)
-	c.Session = applySessionDefaults(c.Session)
+	c.PromptLimits = applyPromptLimitsDefaults(c.PromptLimits)
 	c.Credential = applyCredentialDefaults(c.Credential)
 	c.Skills = applySkillsDefaults(c.Skills)
 	c.Agents = applyAgentsDefaults(c.Agents)
@@ -213,7 +213,7 @@ func applyIngestorDefaults(c IngestorConfig) IngestorConfig {
 	return c
 }
 
-func applySessionDefaults(c SessionConfig) SessionConfig {
+func applyPromptLimitsDefaults(c PromptLimitsConfig) PromptLimitsConfig {
 	if c.FindingsLimitInPrompt == 0 {
 		c.FindingsLimitInPrompt = 1000 // 安全闸（正常扫描全量注入，不截断；超长交 ① 压缩）
 	}

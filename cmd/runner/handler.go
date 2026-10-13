@@ -180,7 +180,7 @@ func (h handler) handle(ctx context.Context, p worker.Payload) (retErr error) {
 	h.logger.Info().
 		Str("agent_run_id", p.AgentRunID).
 		Str("task_id", p.TaskID).
-		Str("role", string(p.Role)).
+		Str("role", string(p.TaskRole)).
 		Msg("asynq task ▶ enter")
 	defer func() {
 		ev := h.logger.Info()

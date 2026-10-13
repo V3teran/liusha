@@ -13,7 +13,7 @@ import (
 //nolint:revive // 别名块共享一条说明，为每个别名重复 doc 无信息量。
 type (
 	ClientPool   = llm.ClientPool
-	Role         = llm.Role
+	Role         = llm.MessageRole
 	Message      = llm.Message
 	ContentPart  = llm.ContentPart
 	ImageContent = llm.ImageContent

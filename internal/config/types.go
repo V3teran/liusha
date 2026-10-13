@@ -17,7 +17,7 @@ type Config struct {
 	Providers   map[string]ProviderConfig `mapstructure:"providers"`
 	Proxy       ProxyConfig               `mapstructure:"proxy"`
 	Ingestor    IngestorConfig            `mapstructure:"ingestor"`
-	Session     SessionConfig             `mapstructure:"session"`
+	PromptLimits PromptLimitsConfig       `mapstructure:"prompt_limits"`
 	Credential  CredentialConfig          `mapstructure:"credential"`
 	Skills      SkillsConfig              `mapstructure:"skills"`
 	Agents      AgentsConfig              `mapstructure:"agents_dir"`
@@ -171,9 +171,9 @@ type IngestorConfig struct {
 	AggregateWindowSeconds int `mapstructure:"aggregate_window_seconds"`
 }
 
-// SessionConfig 是 agent prompt 上限参数。
-// （合表后 passive task 是有界批分析、跑完即终态，无常驻监控会话，故原 sweeper/TTL 参数已删。）
-type SessionConfig struct {
+// PromptLimitsConfig 是 agent prompt 上限参数。
+// （合表后 passive task 是有界批分析、跑完即终态，无常驻会话，故原 TTL 参数已删。）
+type PromptLimitsConfig struct {
 	// agent user prompt 拼装时的上限（避免 prompt 膨胀）。
 	// FindingsLimitInPrompt：该 host 已有 finding 段的 DB 读上限安全闸（取够高，正常扫描全量注入；
 	// 不在此 top-N 截断，prompt 超长由 ① summarization 统一压缩，agent 仍可 read_findings 取全）。

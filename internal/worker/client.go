@@ -8,7 +8,7 @@ import (
 	"github.com/hibiken/asynq"
 )
 
-// Client 是 asynq 生产者的薄封装，按 Role 路由到对应队列，并以 Payload.AgentRunID 实现幂等。
+// Client 是 asynq 生产者的薄封装，按 TaskRole 路由到对应队列，并以 Payload.AgentRunID 实现幂等。
 type Client struct {
 	c *asynq.Client
 }
@@ -27,12 +27,12 @@ func (c *Client) Close() error { return c.c.Close() }
 // opts 透传给 asynq.NewTask（如 asynq.MaxRetry(0) 用于 active planner禁止重试——
 // active 4h × asynq 默认 25 retry = 4 天死循环，且 retry 接管必弄 PG 僵尸态）。
 // 返回 (asynq 分配的 task ID, queue 名, error)。
-func (c *Client) Enqueue(ctx context.Context, role Role, p Payload, opts ...asynq.Option) (string, string, error) {
+func (c *Client) Enqueue(ctx context.Context, role TaskRole, p Payload, opts ...asynq.Option) (string, string, error) {
 	if p.AgentRunID == "" {
 		return "", "", fmt.Errorf("worker: payload.AgentRunID 不能为空")
 	}
-	// Role 字段以 role 参数为准；强制覆盖，确保消费端路由与队列名一致。
-	p.Role = role
+	// TaskRole 字段以 role 参数为准；强制覆盖，确保消费端路由与队列名一致。
+	p.TaskRole = role
 
 	body, err := json.Marshal(p)
 	if err != nil {
