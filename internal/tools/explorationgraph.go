@@ -290,7 +290,7 @@ func teachWebAssertDiscriminative(recipe, assert json.RawMessage) error {
 	for _, want := range ac.BodyContains {
 		if len(strings.TrimSpace(want)) < 4 {
 			return fmt.Errorf("❌ 无鉴别力断言——body_contains 子串 %q 过短（几乎必命中任意页面）。\n\n"+
-				"✅ 断言应捕捉攻击响应独有特征：报错回显/泄露数据的完整子串（如 \"SQL syntax error\"、dump 出的字段值）", want)
+				"✅ 断言应捕捉利用响应独有特征：报错回显/泄露数据的完整子串（如 \"SQL syntax error\"、dump 出的字段值）", want)
 		}
 	}
 	if hasBaseline {

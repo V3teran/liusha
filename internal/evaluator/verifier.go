@@ -65,8 +65,8 @@ type Replayer interface {
 
 // Result 是一次复现采集的客观证据（机器不判定坐实——语义裁决权全在 LLMJudge）。
 type Result struct {
-	Evaluation json.RawMessage // 基线/攻击双对照证据 + executor 声明预期的核验明细（参考）
-	DurationMs int64           // 攻击重放耗时
+	Evaluation json.RawMessage // 基线/利用请求双对照证据 + executor 声明预期的核验明细（参考）
+	DurationMs int64           // 利用请求重放耗时
 }
 
 // Attempt 是一次晋升尝试的输入：要复现什么、坐实后落成哪种节点、落在哪。
