@@ -72,6 +72,14 @@ const (
 	SessionIdentityName   = "session" // 身份名（与前缀拼接成完整 field）
 )
 
+// IsAutoSessionIdentity 判别自动会话身份（task: 前缀）与持久录入身份：
+// 自动身份是某次浏览器/HTTP 会话的即时快照（JS 设置的 cookie 不产生
+// Set-Cookie，快照可能停在中间状态）；持久身份是 LLM/用户显式录入的
+// 权威凭据。消费方（复放注入等）在多身份间选择时应持久优先。
+func IsAutoSessionIdentity(name string) bool {
+	return strings.HasPrefix(name, sessionIdentityPrefix)
+}
+
 // sessionIdentityName 返回本 task 的自动会话身份名（taskID 空时退化为全局名，
 // 供无任务上下文的调用方如 judge 复核侧使用）。
 func sessionIdentityName(taskID string) string {
