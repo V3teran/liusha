@@ -231,6 +231,19 @@ func (a *Agent) handleEvent(ctx context.Context, event bus.Event, sem chan struc
 		return
 	}
 
+	// 无配方的 Attempt 不是可裁决假设——执行记录（降级模式推测、上下文结论）
+	// 不参与验证生命周期（图级 confidence 只属于带 repro 的假设）。放行会让
+	// 它们在裁决门里必然失败：烧掉裁决预算、以 invalid_recipe 污染 refuted
+	// 分类（planner 会把执行记录误读成"可重试的失败假设"）、审计链还会因
+	// 空 primitives 违反 NOT NULL 丢记录。执行记录保持 confidence 为空，
+	// 留在图上作审计面。
+	if len(attempt.Primitives) == 0 {
+		a.logger.Info().
+			Str("observation_id", attempt.NodeID).
+			Msg("Attempt 无复现配方（执行记录非假设），不进入裁决生命周期")
+		return
+	}
+
 	observationID := attempt.NodeID
 
 	a.logger.Info().
@@ -392,7 +405,7 @@ func (a *Agent) recordVerifyFailure(ctx context.Context, observationID string, a
 		ID:         uuid.New().String(),
 		TaskID:     a.taskID,
 		NodeID:     observationID,
-		Primitives: attempt.Primitives,
+		Primitives: coalescePrimitives(attempt.Primitives),
 		Outcome:    explorationgraph.OutcomeRefuted,
 		Evaluation: mustJSON(map[string]interface{}{
 			"invalid_recipe":  true,
@@ -405,6 +418,15 @@ func (a *Agent) recordVerifyFailure(ctx context.Context, observationID string, a
 	}
 
 	a.eventBus.PublishVerificationRefuted(a.taskID, observationID)
+}
+
+// coalescePrimitives 把空配方归一为空对象：primitives 落库列 NOT NULL，
+// 审计记录绝不能因载荷形状静默丢失（曾致 7 条 invalid_recipe 裁决零审计可查）。
+func coalescePrimitives(p json.RawMessage) json.RawMessage {
+	if len(p) == 0 {
+		return json.RawMessage(`{}`)
+	}
+	return p
 }
 
 // mustJSON 序列化（失败回空对象——审计字段不阻塞主流程）。
