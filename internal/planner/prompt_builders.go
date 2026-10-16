@@ -1,6 +1,8 @@
 package planner
 
 import (
+	"github.com/V3teran/liusha/internal/evaluator"
+
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -196,13 +198,13 @@ func buildResultsSection(results []explorationgraph.Node) string {
 // 原因字面量与 evaluator 包的 refute_reason 常量保持一致（metadata JSON 契约）。
 func refuteReasonHint(reason string) string {
 	switch reason {
-	case "not_reproducible":
+	case evaluator.RefuteNotReproducible:
 		return "（复现失败：配方或上下文问题——可换配方/换方法重试，不要原样重提）"
-	case "invalid_recipe":
+	case evaluator.RefuteInvalidRecipe:
 		return "（配方损坏：可换有效配方重试）"
-	case "assert_not_discriminative":
+	case evaluator.RefuteAssertNotDiscriminative:
 		return "（断言无鉴别力被质量门拒绝：换捕捉利用响应独有特征的断言重提）"
-	case "not_a_vuln":
+	case evaluator.RefuteNotAVuln:
 		return "（已复现但经裁决不构成漏洞：此方向作废，除非有实质新证据）"
 	default:
 		return "（经真实复现验证被否定：不要原样重提）"

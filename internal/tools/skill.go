@@ -61,20 +61,29 @@ func (t *readSkillTool) Execute(ctx context.Context, args json.RawMessage) (regi
 		// 附上本视图可见的候选名，帮 LLM 一次纠偏（白名单外的名字在这里被拦下）。
 		var sb strings.Builder
 		fmt.Fprintf(&sb, "read_skill: %v", err)
-		if metas, mErr := t.skills.Metas(ctx); mErr == nil && len(metas) > 0 {
+		if candidates := visibleSkillNames(ctx, t.skills); candidates != "" {
 			sb.WriteString("；可用: ")
-			for i, m := range metas {
-				if i > 0 {
-					sb.WriteString(", ")
-				}
-				if m.Key != "" {
-					sb.WriteString(m.Key)
-				} else {
-					sb.WriteString(m.Name)
-				}
-			}
+			sb.WriteString(candidates)
 		}
 		return registry.ToolResult{Error: sb.String()}, nil
 	}
 	return registry.ToolResult{Output: card.Body}, nil
+}
+
+// visibleSkillNames 把视图可见的 skill 寻址名拼成逗号串（Key 优先，缺 Key 退
+// 显示名）；读取失败或视图为空返回空串。
+func visibleSkillNames(ctx context.Context, r skill.Reader) string {
+	metas, err := r.Metas(ctx)
+	if err != nil || len(metas) == 0 {
+		return ""
+	}
+	names := make([]string, 0, len(metas))
+	for _, m := range metas {
+		if m.Key != "" {
+			names = append(names, m.Key)
+		} else {
+			names = append(names, m.Name)
+		}
+	}
+	return strings.Join(names, ", ")
 }

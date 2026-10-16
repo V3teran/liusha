@@ -44,7 +44,7 @@ func (a *Agent) planActions(ctx context.Context) error {
 
 	// 4. 如果没有生成新 Action，发布收敛事件
 	if len(actions) == 0 {
-		a.handleNoActions()
+		a.handleNoActions(ctx)
 		return nil
 	}
 

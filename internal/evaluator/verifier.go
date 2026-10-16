@@ -139,6 +139,7 @@ const (
 	RefuteNotReproducible         = "not_reproducible"          // 机器护栏：断言未命中/复放失败——配方或上下文问题，可换配方重试
 	RefuteNotAVuln                = "not_a_vuln"                // 裁决官语义证伪：复现了但不构成漏洞——方向作废
 	RefuteAssertNotDiscriminative = "assert_not_discriminative" // 质量门：断言无鉴别力，配方无法构成证据——须换断言重提
+	RefuteInvalidRecipe           = "invalid_recipe"            // 确定性配方缺陷：重放必然同样失败，快速终局出圈
 )
 
 // verificationTier 从域信封判定验证档位。evaluator 不 import executor（会成环），
