@@ -111,7 +111,7 @@ func main() {
 		if err := cfgStore.ValidateAgentConfigs(validateCtx); err != nil {
 			logger.Fatal().Err(err).Msg("Agent 配置验证失败")
 		}
-		logger.Info().Msg("✅ Agent 配置验证通过（executor/planner/evaluator/monitor）")
+		logger.Info().Msg("Agent 配置验证通过（executor/planner/evaluator/monitor）")
 	}
 
 	// LLM 配置多级缓存 Store（provider 部署 / 别名 / 角色路由）。既是「模型模块」CRUD 后端，

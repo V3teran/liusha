@@ -38,7 +38,7 @@ type CompletionDetector struct {
 	manualAbort   atomic.Bool
 	abortReason   atomic.Value // string
 	paused        atomic.Bool  // 控制平面 pause：冻结完成判定（agent 由消费者启停）
-	converged     atomic.Bool  // ✅ 任务收敛标志（planner 无新 action 可生成）
+	converged     atomic.Bool  // 任务收敛标志（planner 无新 action 可生成）
 
 	completionCh chan Result
 }
@@ -144,7 +144,7 @@ func (d *CompletionDetector) handleEvent(event bus.Event) {
 			Msg("结果晋升")
 
 	case bus.EventTaskConverged:
-		// ✅ Planner 无新 action 可生成，标记任务收敛
+		// Planner 无新 action 可生成，标记任务收敛
 		reason := "unknown"
 		if r, ok := event.Payload["reason"].(string); ok {
 			reason = r
@@ -174,7 +174,7 @@ func (d *CompletionDetector) checkCompletion() (Result, bool) {
 		return Result{}, false
 	}
 
-	// 2. ✅ 任务收敛（planner 无新 action 可生成）
+	// 2. 任务收敛（planner 无新 action 可生成）
 	if d.converged.Load() {
 		d.logger.Info().Msg("任务收敛，停止探索")
 		return d.makeResult("task_converged"), true

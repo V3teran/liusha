@@ -148,12 +148,12 @@ func (t *GetGlobalStateTool) runningActionViews(actions []explorationgraph.Node,
 type PublishDecisionTool struct {
 	registry.BaseTool
 	graph    *explorationgraph.Store
-	eventBus bus.Bus // ✅ P2：需要 eventBus 发布 replan 事件
+	eventBus bus.Bus // P2：需要 eventBus 发布 replan 事件
 	taskID   string
 }
 
 // NewPublishDecisionTool 构造决策发布工具。
-// ✅ P2：添加 eventBus 参数以支持 request_replan 事件发布
+// P2：添加 eventBus 参数以支持 request_replan 事件发布
 func NewPublishDecisionTool(graph *explorationgraph.Store, eventBus bus.Bus, taskID string) *PublishDecisionTool {
 	t := &PublishDecisionTool{
 		graph:    graph,
@@ -222,7 +222,7 @@ func (t *PublishDecisionTool) Execute(ctx context.Context, args json.RawMessage)
 	}
 
 	// kill_action 直接落探索图状态：aborted 后 executor 不再认领（CanExecute 只认 open）。
-	// ✅ P2：request_replan 发布事件 + 写入图的 metadata
+	// P2：request_replan 发布事件 + 写入图的 metadata
 	if decision.Type == "kill_action" && t.graph != nil {
 		reason := decision.Reason
 		if err := t.graph.UpdateActionStateWithReason(ctx, decision.ActionID, explorationgraph.StateAborted, &reason); err != nil {
@@ -230,7 +230,7 @@ func (t *PublishDecisionTool) Execute(ctx context.Context, args json.RawMessage)
 		}
 	}
 
-	// ✅ P2：request_replan 落地
+	// P2：request_replan 落地
 	if decision.Type == "request_replan" {
 		// 1. 写入图的 metadata（供审计和后续查询）
 		if err := t.writeReplanRequest(ctx, decision.Reason); err != nil {

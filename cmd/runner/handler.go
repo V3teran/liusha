@@ -77,7 +77,7 @@ type handler struct {
 }
 
 // onboard 用域注册表解析 brief 目标，并完成三件 best-effort 副作用：
-//  1. 落 L3 探索图 KindObjective 节点（目标）；
+//  1. 落探索图 KindObjective 节点（目标）；
 //  2. 回填 task.target_host 派生列；
 //  3. 返回 host key 供调用方下传。
 func (h handler) onboard(ctx context.Context, _, taskID, brief string) string {
@@ -88,14 +88,14 @@ func (h handler) onboard(ctx context.Context, _, taskID, brief string) string {
 		Str("brief", brief).
 		Bool("onboard_ok", ok).
 		Int("refs_count", len(refs)).
-		Msg("🔍 onboard 开始解析")
+		Msg("onboard 开始解析")
 
 	if !ok || len(refs) == 0 || refs[0].Locator == "" {
 		h.logger.Warn().
 			Str("task_id", taskID).
 			Bool("ok", ok).
 			Int("refs_len", len(refs)).
-			Msg("⚠️  onboard 解析失败，未创建 Objective")
+			Msg(" onboard 解析失败，未创建 Objective")
 		return taskID
 	}
 
@@ -126,26 +126,26 @@ func (h handler) onboard(ctx context.Context, _, taskID, brief string) string {
 				Str("task_id", taskID).
 				Str("objective_id", node.ID).
 				Str("locator", ref.Locator).
-				Msg("✅ 准备创建 Objective 节点")
+				Msg("准备创建 Objective 节点")
 
 			if _, err := h.graph.CreateNode(ctx, node); err != nil {
 				// 改进1: Fail-Fast - Objective 创建失败应该中止任务
 				h.logger.Error().Err(err).Str("task_id", taskID).
-					Str("locator", ref.Locator).Msg("❌ 创建 objective 节点失败 - 任务将无法正常执行")
+					Str("locator", ref.Locator).Msg("创建 objective 节点失败 - 任务将无法正常执行")
 				return taskID // 返回原 taskID，但已记录严重错误
 			}
 			h.logger.Info().
 				Str("task_id", taskID).
 				Str("objective_id", node.ID).
 				Str("locator", ref.Locator).
-				Msg("✅ Objective 节点创建成功")
+				Msg("Objective 节点创建成功")
 		}
 	} else {
 		h.logger.Warn().
 			Str("task_id", taskID).
 			Bool("graph_nil", h.graph == nil).
 			Bool("taskID_empty", taskID == "").
-			Msg("⚠️  跳过创建 Objective：graph 为 nil 或 taskID 为空")
+			Msg(" 跳过创建 Objective：graph 为 nil 或 taskID 为空")
 	}
 
 	host := refs[0].Locator

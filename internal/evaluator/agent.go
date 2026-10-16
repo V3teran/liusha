@@ -462,7 +462,7 @@ func (a *Agent) parseObservationToAttempt(obs explorationgraph.Node) (Attempt, e
 		return Attempt{}, fmt.Errorf("observation 缺少 repro 字段")
 	}
 
-	// ✅ 归一化repro：处理数组格式、缺失domain等历史兼容问题
+	// 归一化repro：处理数组格式、缺失domain等历史兼容问题
 	// 防止Replayer解析失败（json: cannot unmarshal array into Go value of type executor.ReproEnvelope）
 	normalized, hint, err := tools.NormalizeReproEnvelope(content.Repro)
 	if err != nil {
@@ -505,7 +505,7 @@ func (a *Agent) parseObservationToAttempt(obs explorationgraph.Node) (Attempt, e
 		TaskID:     a.taskID,
 		NodeID:     obs.ID,
 		Kind:       "result",   // 晋升为 result 节点
-		Primitives: normalized, // ✅ 使用归一化后的repro
+		Primitives: normalized, // 使用归一化后的repro
 		Content:    attContent,
 		Priority:   "medium",
 	}, nil

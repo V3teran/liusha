@@ -372,10 +372,8 @@ func (a *Agent) shouldStop(report *Report) bool {
 		return true
 	}
 
-	// TODO: 可以添加更多停止条件
-	// - 无待执行 Action 且超过一定时间无新 Action
-	// - 收到外部停止信号
-
+	// 其余停止条件不在本层：「无新 Action 且图收敛」由 planner 发布收敛事件、
+	// completion detector 判定；「外部停止」走控制平面 terminate → detector.Abort。
 	return false
 }
 

@@ -120,7 +120,7 @@ func (e *Engine) buildReActConfigWithMonitoring(
 - 不要把纯过程性记录（"访问了某页"、"请求返回 200"）写成 observation
 - 如果没有发现问题时，observations 可以是空数组 []
 - 漏洞 observation 必须包含完整的repro复现步骤
-- ⚠️ 重要：domain="web"时，assert必须包含至少一个机器可验证的字段：
+- 重要：domain="web"时，assert必须包含至少一个机器可验证的字段：
   * body_contains: 响应体必须包含的字符串数组（推荐）
   * status_code: 期望的HTTP状态码（数字）
   * header_contains: 响应头必须包含的字段，格式为对象 {"Header-Name": "substring"}，不是数组
@@ -197,7 +197,7 @@ func (e *Engine) registerReActTools(
 	if len(tools) == 0 {
 		e.logger.Error().
 			Str("action_id", actionID).
-			Msg("❌ 严重错误：没有可用工具！Executor 无法执行任何操作")
+			Msg("严重错误：没有可用工具！Executor 无法执行任何操作")
 		// 仍然继续执行，但会失败
 	}
 
@@ -224,7 +224,7 @@ func (e *Engine) executeReActRuntime(
 ) (*runtime.ReActResult, error) {
 	e.logger.Info().
 		Str("action_id", actionID).
-		Msg("🚀 开始执行 ReAct")
+		Msg("开始执行 ReAct")
 
 	result, err := reactRuntime.Run(ctx, config)
 	if err != nil {
@@ -232,7 +232,7 @@ func (e *Engine) executeReActRuntime(
 		e.logger.Warn().
 			Err(err).
 			Str("action_id", actionID).
-			Msg("⚠️  ReAct 执行失败，进入降级模式：强制提取假设")
+			Msg(" ReAct 执行失败，进入降级模式：强制提取假设")
 
 		fallbackResult, fallbackErr := e.fallbackExtractHypothesis(ctx, config, actionID)
 		if fallbackErr != nil {
@@ -242,7 +242,7 @@ func (e *Engine) executeReActRuntime(
 
 		e.logger.Info().
 			Str("action_id", actionID).
-			Msg("✅ 降级模式成功提取假设")
+			Msg("降级模式成功提取假设")
 		return fallbackResult, nil
 	}
 
@@ -250,7 +250,7 @@ func (e *Engine) executeReActRuntime(
 		Str("action_id", actionID).
 		Int("iterations", result.Iterations).
 		Str("status", string(result.Status)).
-		Msg("✅ ReAct 执行完成")
+		Msg("ReAct 执行完成")
 
 	return result, nil
 }
@@ -342,37 +342,7 @@ func (e *Engine) processExecutorOutput(
 		Msg("解析 Executor 输出")
 
 	// 收集 ExecutionTrace（治本方案的核心）
-	// 从 agent_traffic 读取这个 action 产生的所有 HTTP 流量
-	var trace ExecutionTrace
-	if e.traceCollector != nil {
-		trace, err = e.traceCollector.CollectTrace(ctx, action.TaskID, action.ID)
-		if err != nil {
-			e.logger.Warn().
-				Err(err).
-				Str("action_id", action.ID).
-				Msg("收集 ExecutionTrace 失败，使用空 trace")
-			// 使用空 trace，不影响流程
-			trace = ExecutionTrace{
-				Traffic: []TrafficRecord{},
-				Session: SessionState{Cookies: make(map[string]string)},
-				Meta:    TraceMeta{},
-			}
-		} else {
-			e.logger.Info().
-				Str("action_id", action.ID).
-				Int("traffic_count", trace.Meta.TotalCount).
-				Msg("成功收集 ExecutionTrace")
-		}
-	} else {
-		e.logger.Warn().
-			Str("action_id", action.ID).
-			Msg("TraceCollector 未配置，无法收集 trace")
-		trace = ExecutionTrace{
-			Traffic: []TrafficRecord{},
-			Session: SessionState{Cookies: make(map[string]string)},
-			Meta:    TraceMeta{},
-		}
-	}
+	trace := e.collectTrace(ctx, action)
 
 	// 为每个观察结果创建 observation 节点
 	var attempts []evaluator.Attempt
@@ -382,85 +352,10 @@ func (e *Engine) processExecutorOutput(
 		Int("total_observations", len(output.Observations)).
 		Msg("开始处理 observations")
 
-	for i, obs := range output.Observations {
-		e.logger.Debug().
-			Str("action_id", action.ID).
-			Int("observation_index", i).
-			Str("statement", obs.Statement).
-			Int("repro_len", len(obs.Repro)).
-			Msg("处理单个 observation")
-
-		// 降级模式生成的假设可能没有 repro（推测性假设，非实际执行）
-		// 仍需创建 observation 节点供 Evaluator 评估
-		if len(obs.Repro) == 0 {
-			e.logger.Warn().
-				Str("action_id", action.ID).
-				Int("observation_index", i).
-				Str("statement", obs.Statement).
-				Msg("observation 缺少 repro（可能是降级模式生成的假设），仍继续创建")
+	for _, obs := range output.Observations {
+		if attempt := e.harvestObservation(ctx, action, obs, trace); attempt != nil {
+			attempts = append(attempts, *attempt)
 		}
-
-		// 附加 ExecutionTrace 到 observation：裁决官看到的是完整执行轨迹，
-		// 而不是 executor 转述的不可靠结论
-		obs.ExecutionTrace = &trace
-
-		e.logger.Debug().
-			Str("action_id", action.ID).
-			Int("observation_index", i).
-			Int("trace_traffic_count", trace.Meta.TotalCount).
-			Msg("已附加 ExecutionTrace 到 observation")
-
-		// 配方归一化在循环内做一次、节点与 Attempt 共用同一结果——归一化
-		// 若藏在节点构造内部，矫正结果不会传回 obs，事件路径的 Attempt
-		// 会携带原始破碎形状（数组信封/标量断言）直通复现门被确定性杀死，
-		// 而节点上存的却是修复后的配方：同一观察两条消费路径各说各话
-		// （e2e 实测 4 条真漏洞假设因此冤死）。矫正失败保留原始配方，
-		// 由门侧以 invalid_recipe 终局——归一化不是万能的，但必须对所有
-		// 消费路径一致。
-		if normalized, note, nErr := tools.NormalizeReproEnvelope(obs.Repro); nErr == nil {
-			obs.Repro = normalized
-			if note != "" {
-				e.logger.Info().
-					Str("action_id", action.ID).
-					Int("observation_index", i).
-					Msg("repro 形状已矫正：" + note)
-			}
-		} else {
-			e.logger.Warn().
-				Str("action_id", action.ID).
-				Int("observation_index", i).
-				Err(nErr).
-				Msg("repro 归一化失败，保留原始配方（门侧将以 invalid_recipe 终局）")
-		}
-
-		// 创建 observation 节点
-		node, err := e.createObservationNode(ctx, action.TaskID, action.ID, obs)
-		if err != nil {
-			e.logger.Error().
-				Err(err).
-				Str("action_id", action.ID).
-				Int("observation_index", i).
-				Msg("创建 observation 节点失败")
-			continue
-		}
-
-		e.logger.Info().
-			Str("action_id", action.ID).
-			Str("observation_id", node.ID).
-			Str("statement", obs.Statement).
-			Msg("创建 observation 节点成功")
-
-		// 转换为 Attempt
-		attempt, err := e.observationToAttempt(action.TaskID, node, obs)
-		if err != nil {
-			e.logger.Error().
-				Err(err).
-				Str("observation_id", node.ID).
-				Msg("转换 observation 为 Attempt 失败")
-			continue
-		}
-
-		attempts = append(attempts, attempt)
 	}
 
 	e.logger.Info().
@@ -469,4 +364,99 @@ func (e *Engine) processExecutorOutput(
 		Msg("Executor 输出处理完成")
 
 	return attempts, nil
+}
+
+// collectTrace 从 agent_traffic 读取该 action 的完整 HTTP 轨迹；未配置收集器
+// 或收集失败时返回空 trace（不阻塞观察收割）。
+func (e *Engine) collectTrace(ctx context.Context, action explorationgraph.Node) ExecutionTrace {
+	empty := ExecutionTrace{
+		Traffic: []TrafficRecord{},
+		Session: SessionState{Cookies: make(map[string]string)},
+		Meta:    TraceMeta{},
+	}
+	if e.traceCollector == nil {
+		e.logger.Warn().
+			Str("action_id", action.ID).
+			Msg("TraceCollector 未配置，无法收集 trace")
+		return empty
+	}
+	trace, err := e.traceCollector.CollectTrace(ctx, action.TaskID, action.ID)
+	if err != nil {
+		e.logger.Warn().
+			Err(err).
+			Str("action_id", action.ID).
+			Msg("收集 ExecutionTrace 失败，使用空 trace")
+		return empty
+	}
+	e.logger.Info().
+		Str("action_id", action.ID).
+		Int("traffic_count", trace.Meta.TotalCount).
+		Msg("成功收集 ExecutionTrace")
+	return trace
+}
+
+// harvestObservation 收割单个观察：归一化配方 → 落 observation 节点 → 转 Attempt。
+// 任一步失败返回 nil（单条观察失败不中止同 action 的其余观察）。
+func (e *Engine) harvestObservation(
+	ctx context.Context,
+	action explorationgraph.Node,
+	obs Observation,
+	trace ExecutionTrace,
+) *evaluator.Attempt {
+	// 降级模式生成的假设可能没有 repro（推测性假设，非实际执行）
+	// 仍需创建 observation 节点供 Evaluator 评估
+	if len(obs.Repro) == 0 {
+		e.logger.Warn().
+			Str("action_id", action.ID).
+			Str("statement", obs.Statement).
+			Msg("observation 缺少 repro（可能是降级模式生成的假设），仍继续创建")
+	}
+
+	// 附加 ExecutionTrace：裁决官看到的是完整执行轨迹，而不是 executor
+	// 转述的不可靠结论
+	obs.ExecutionTrace = &trace
+
+	// 配方归一化在此做一次、节点与 Attempt 共用同一结果——归一化若藏在
+	// 节点构造内部，矫正结果不会传回 obs，事件路径的 Attempt 会携带原始
+	// 破碎形状（数组信封/标量断言）直通复现门被确定性杀死，而节点上存的
+	// 却是修复后的配方：同一观察两条消费路径各说各话（e2e 实测 4 条真漏洞
+	// 假设因此冤死）。矫正失败保留原始配方，由门侧以 invalid_recipe 终局
+	// ——归一化不是万能的，但必须对所有消费路径一致。
+	if normalized, note, nErr := tools.NormalizeReproEnvelope(obs.Repro); nErr == nil {
+		obs.Repro = normalized
+		if note != "" {
+			e.logger.Info().
+				Str("action_id", action.ID).
+				Msg("repro 形状已矫正：" + note)
+		}
+	} else {
+		e.logger.Warn().
+			Str("action_id", action.ID).
+			Err(nErr).
+			Msg("repro 归一化失败，保留原始配方（门侧将以 invalid_recipe 终局）")
+	}
+
+	node, err := e.createObservationNode(ctx, action.TaskID, action.ID, obs)
+	if err != nil {
+		e.logger.Error().
+			Err(err).
+			Str("action_id", action.ID).
+			Msg("创建 observation 节点失败")
+		return nil
+	}
+	e.logger.Info().
+		Str("action_id", action.ID).
+		Str("observation_id", node.ID).
+		Str("statement", obs.Statement).
+		Msg("创建 observation 节点成功")
+
+	attempt, err := e.observationToAttempt(action.TaskID, node, obs)
+	if err != nil {
+		e.logger.Error().
+			Err(err).
+			Str("observation_id", node.ID).
+			Msg("转换 observation 为 Attempt 失败")
+		return nil
+	}
+	return &attempt
 }

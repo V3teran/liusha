@@ -16,14 +16,14 @@ func buildAnalysisHeader() string {
 // buildActionCountWarning 根据 Action 数量构建警告信息
 func buildActionCountWarning(actionCount int) string {
 	var sb strings.Builder
-	sb.WriteString("⚠️ **核心原则：保持探索路线多样性，避免单一方向过载**\n\n")
+	sb.WriteString("**核心原则：保持探索路线多样性，避免单一方向过载**\n\n")
 	fmt.Fprintf(&sb, "**当前探索状态**：当前 Objective 下已有 **%d 个 Actions**。\n", actionCount)
 
 	switch {
 	case actionCount > 50:
-		sb.WriteString("⚠️ **警告：Actions 数量过多（>50）**，当前方向很可能已穷尽或陷入无效循环。**强烈建议生成 new_objectives（切换到新方向）**。\n\n")
+		sb.WriteString("**警告：Actions 数量过多（>50）**，当前方向很可能已穷尽或陷入无效循环。**强烈建议生成 new_objectives（切换到新方向）**。\n\n")
 	case actionCount > 20:
-		sb.WriteString("⚠️ **注意：Actions 数量较多（>20）**，如果目标仍未达成，**倾向于生成 new_objectives（切换到新方向）**。\n\n")
+		sb.WriteString("**注意：Actions 数量较多（>20）**，如果目标仍未达成，**倾向于生成 new_objectives（切换到新方向）**。\n\n")
 	default:
 		sb.WriteString("当前方向探索适中，可根据 Results 内容决定是继续深挖还是切换方向。\n\n")
 	}
@@ -99,9 +99,9 @@ func buildDecisionGuide() string {
 	sb.WriteString("  - 不同探索链（如从一种方法切换到另一种完全不同的方法）\n")
 	sb.WriteString("  - 不同资源类型（如从一类资源切换到另一类资源）\n\n")
 	sb.WriteString("new_objectives 示例：\n")
-	sb.WriteString("- ❌ 错误：\"继续探索当前路径\"（这是延续，不是新方向）\n")
-	sb.WriteString("- ✅ 正确：\"探索备用路径的可访问性\"（不同入口点）\n")
-	sb.WriteString("- ✅ 正确：\"测试其他功能模块的可用性\"（不同探索链）\n\n")
+	sb.WriteString("- 错误：\"继续探索当前路径\"（这是延续，不是新方向）\n")
+	sb.WriteString("- 正确：\"探索备用路径的可访问性\"（不同入口点）\n")
+	sb.WriteString("- 正确：\"测试其他功能模块的可用性\"（不同探索链）\n\n")
 
 	// new_actions 条件
 	sb.WriteString("#### 生成 new_actions（当前方向延续）的条件：\n")
@@ -111,8 +111,8 @@ func buildDecisionGuide() string {
 	sb.WriteString("  - 需要尝试新方法变种\n")
 	sb.WriteString("  - 发现可利用的细节\n\n")
 	sb.WriteString("new_actions 示例：\n")
-	sb.WriteString("- ✅ 正确：\"探索发现的新参数的可能值\"\n")
-	sb.WriteString("- ✅ 正确：\"在特定字段尝试其他输入方法\"\n\n")
+	sb.WriteString("- 正确：\"探索发现的新参数的可能值\"\n")
+	sb.WriteString("- 正确：\"在特定字段尝试其他输入方法\"\n\n")
 
 	// 空响应
 	sb.WriteString("### 4. 什么都不生成也是正常的\n")
