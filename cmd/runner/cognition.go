@@ -189,7 +189,7 @@ func (h handler) runCognition(
 	engine := executor.NewEngine(executor.EngineConfig{
 		Router:         h.router,
 		Findings:       h.findings,
-		Graph:          h.graph, // observation 落图与 kill 检查依赖；nil 会在产出观察时空指针崩溃
+		Graph:          h.graph,    // observation 落图与 kill 检查依赖；nil 会在产出观察时空指针崩溃
 		AgentRunID:     agentRunID, // LLM 审计归属本轮 run
 		Registry:       execRegistry,
 		FunctionTools:  executorCfg.FunctionTools,                                // function_tools 白名单（nil=全量）
@@ -230,12 +230,12 @@ func (h handler) runCognition(
 		WithAgentRunID(agentRunID)
 
 	evaluatorAgent := evaluator.NewAgent(evaluator.AgentConfig{
-		TaskID:        taskID,
-		AgentRunID:    agentRunID,
-		Evaluator:     promoter,
-		EventBus:      h.eventBus,
-		Graph:         h.graph,
-		Logger:        h.logger.With().Str("component", "evaluator_agent").Logger(),
+		TaskID:     taskID,
+		AgentRunID: agentRunID,
+		Evaluator:  promoter,
+		EventBus:   h.eventBus,
+		Graph:      h.graph,
+		Logger:     h.logger.With().Str("component", "evaluator_agent").Logger(),
 		// 验证并发：每个验证 = 机器复放 + 一轮 judge ReAct（LLM 账单随并发线性放大）
 		// 降低到 3 避免 GLM API 限流
 		MaxConcurrent: 3,

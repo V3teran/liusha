@@ -8,7 +8,6 @@ import (
 	"github.com/spf13/viper"
 )
 
-
 // Load 从 path 读取 YAML，应用 LIUSHA_ ENV 覆盖，反序列化、应用默认值并校验。
 // Load 读配置 + 应用默认 + 完整校验（含 LLM provider key 在环境变量里非空）。
 // 调 LLM 的进程（runner / api）用它。

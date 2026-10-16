@@ -227,8 +227,8 @@ func (a *scanAdapter) enqueuePlannerRun(ctx context.Context, taskID, conversatio
 		TaskID:         taskID,
 		ConversationID: conversationID, // 阶段B：会话发起时非空 → runner 发过程事件
 		// 场景 code：runner 据此数据驱动派发引擎/操作员编排
-		Input: payloadInput,
-		TaskRole:  worker.RoleExecutor,
+		Input:    payloadInput,
+		TaskRole: worker.RoleExecutor,
 	}, asynq.MaxRetry(0), asynq.Timeout(a.maxRunTimeout)); err != nil {
 		return "", fmt.Errorf("enqueue: %w", err)
 	}

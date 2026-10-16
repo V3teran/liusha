@@ -2,8 +2,7 @@ package tools
 
 import (
 	"context"
-	"os"
-	"path/filepath"
+	"fmt"
 	"testing"
 
 	"github.com/V3teran/liusha/internal/corpus"
@@ -43,20 +42,8 @@ func (noOpSandbox) Close() error { return nil }
 // 事实源，经 config/tool.Reconcile 入库）与 BuildTools 实际构造集严格双向一致。
 // evaluator 包本地注册的 replay_for_verification 以白名单追加比对。
 func TestFunctionToolCatalogSync(t *testing.T) {
-	// 一个最小 skill 目录，让 read_skill 进入注册集（空视图不注册）。
-	root := t.TempDir()
-	skillDir := filepath.Join(root, "probe")
-	if err := os.MkdirAll(skillDir, 0o750); err != nil {
-		t.Fatalf("mkdir: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"),
-		[]byte("---\nname: probe\ndescription: p\n---\n正文"), 0o600); err != nil {
-		t.Fatalf("write SKILL.md: %v", err)
-	}
-	skillSet := skill.NewSet(map[string]string{"tooling": root})
-	if _, err := skillSet.Index(); err != nil {
-		t.Fatalf("skill index: %v", err)
-	}
+	// 一个最小 skill 视图，让 read_skill 进入注册集（空视图不注册）。
+	skillSet := &singleCardReader{card: &skill.Card{Key: "probe", Name: "probe", Description: "p", Body: "正文"}}
 
 	deps := Deps{
 		Tasks:      &task.Store{},
@@ -96,4 +83,20 @@ func TestFunctionToolCatalogSync(t *testing.T) {
 			t.Errorf("已注册工具不在 catalog（漏登记）: %s", name)
 		}
 	}
+}
+
+// singleCardReader 是 skill.Reader 的最小替身：单张卡片的内存视图。
+type singleCardReader struct {
+	card *skill.Card
+}
+
+func (r *singleCardReader) Metas(context.Context) ([]*skill.Card, error) {
+	return []*skill.Card{r.card}, nil
+}
+
+func (r *singleCardReader) Load(_ context.Context, name string) (*skill.Card, error) {
+	if name == r.card.Key {
+		return r.card, nil
+	}
+	return nil, fmt.Errorf("skill %q 不存在", name)
 }

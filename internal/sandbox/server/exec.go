@@ -63,7 +63,8 @@ func (s *Server) handleExec(w http.ResponseWriter, r *http.Request) {
 	// 3. 构建执行命令
 	timeout := time.Duration(req.TimeoutSeconds) * time.Second
 	execStart := time.Now()
-	cmd, cmdCtx := buildExecCommand(r.Context(), &req, workspaceDir, outputDir, profileDir, timeout)
+	cmd, cmdCtx, cancel := buildExecCommand(r.Context(), &req, workspaceDir, outputDir, profileDir, timeout)
+	defer cancel()
 
 	// 4. 执行命令
 	stdout, stderr, exitCode, timedOut := executeCommand(cmd, cmdCtx)

@@ -58,7 +58,7 @@ type Agent struct {
 	inFlight sync.WaitGroup
 
 	// verifying 是在途假设集合（观察节点 ID → 锁定时间），事件与轮询并发触发时先到先得。
-	// ✅ P0修复：记录锁定时间，支持超时检测
+	// 记录锁定时间，支持超时检测
 	verifyingMu sync.Mutex
 	verifying   map[string]time.Time
 
@@ -115,10 +115,10 @@ func NewAgent(cfg AgentConfig) *Agent {
 		maxConcurrent: cfg.MaxConcurrent,
 		pollInterval:  cfg.PollInterval,
 
-		verifying:      map[string]time.Time{}, // ✅ P0修复：改为记录时间
+		verifying:      map[string]time.Time{}, // 改为记录时间
 		verifyAttempts: map[string]int{},
 		adjudicated:    map[string]priorVerdict{},
-		lockTimeout:    10 * time.Minute, // ✅ P0修复：验证锁超时时间
+		lockTimeout:    10 * time.Minute, // 验证锁超时时间
 	}
 }
 
@@ -175,7 +175,7 @@ func (a *Agent) Run(ctx context.Context) error {
 }
 
 // tryAcquire 尝试把假设标记为"验证中"。返回 false 表示已在途，跳过。
-// ✅ P0修复：添加锁超时检测，如果锁已超时则强制释放并重新获取
+// 添加锁超时检测，如果锁已超时则强制释放并重新获取
 func (a *Agent) tryAcquire(observationID string) bool {
 	a.verifyingMu.Lock()
 	defer a.verifyingMu.Unlock()
@@ -312,7 +312,7 @@ func (a *Agent) dispatchVerification(ctx context.Context, observationID string, 
 	go func() {
 		defer a.inFlight.Done()
 
-		// ✅ P0修复：添加panic recovery，确保defer a.release()一定执行
+		// 添加panic recovery，确保defer a.release()一定执行
 		defer func() {
 			if r := recover(); r != nil {
 				a.logger.Error().
@@ -475,7 +475,7 @@ func (a *Agent) parseObservationToAttempt(obs explorationgraph.Node) (Attempt, e
 			Msg("repro 归一化提示")
 	}
 
-	// ✅ P0修复：web domain的assert降级处理
+	// web domain的assert降级处理
 	// 如果web domain的assert只有description，缺少机器可验证字段（body_contains/status_code等），
 	// 则自动降级为generic domain，避免验证失败
 	normalized = a.downgradeWebAssertIfNeeded(obs.ID, normalized)
@@ -513,9 +513,8 @@ func (a *Agent) parseObservationToAttempt(obs explorationgraph.Node) (Attempt, e
 
 // downgradeWebAssertIfNeeded 检查web domain的assert是否完整，如果不完整则降级为generic。
 //
-// P0修复：部分observation的assert只有description（人类可读），缺少body_contains/status_code等
-// 机器可验证字段，导致web replayer报错"assert为空"。这里自动降级为generic domain，
-// 由judge LLM进行语义裁决，而不是直接失败。
+// web 域 assert 只有 description（人类可读）而缺机器可验证字段时，复放门
+// 无从判定——降级为 generic 域由裁决官语义取证兜底，而不是必然证伪。
 func (a *Agent) downgradeWebAssertIfNeeded(obsID string, repro json.RawMessage) json.RawMessage {
 	var env struct {
 		Domain string          `json:"domain"`
@@ -601,7 +600,7 @@ func (a *Agent) verifyObservation(ctx context.Context, observationID string, att
 		return a.adoptPriorVerdict(ctx, observationID, prev)
 	}
 
-	// ✅ P0修复：设置验证超时时间为10分钟（从默认5分钟增加）
+	// 设置验证超时时间为10分钟（从默认5分钟增加）
 	// LLM验证可能需要较长时间（复现+裁决），避免过早超时
 	verifyCtx, cancel := context.WithTimeout(ctx, 10*time.Minute)
 	defer cancel()
@@ -609,7 +608,7 @@ func (a *Agent) verifyObservation(ctx context.Context, observationID string, att
 	// 调用 PromotionEvaluator 验证
 	node, err := a.evaluator.Promote(verifyCtx, attempt)
 	if err != nil {
-		// ✅ P0修复：区分超时错误和其他错误
+		// 区分超时错误和其他错误
 		if isContextTimeoutError(err) {
 			a.logger.Warn().
 				Err(err).
@@ -763,7 +762,7 @@ func isTransientProviderError(err error) bool {
 }
 
 // isContextTimeoutError 判断错误是否为context超时错误
-// ✅ P0修复：用于区分超时错误和其他错误，超时错误不计入失败次数
+// 用于区分超时错误和其他错误，超时错误不计入失败次数
 func isContextTimeoutError(err error) bool {
 	if err == nil {
 		return false

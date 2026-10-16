@@ -84,8 +84,8 @@ type Relation string
 // 探索图关系：动作产出观察、结果触发新方向、动作间依赖。
 // generates 是贯穿推导链的"产出"关系：
 // objective →(generates)→ action →(generates)→ observation →(generates)→ result。
-// （confirms/refutes 已随 evaluation 节点废弃删除：executor 侧证据归 observation
-// 载荷，坐实/证伪裁决归 exploration_verification 审计链。）
+// （不存在证据确认/反驳类关系：executor 侧证据归 observation 载荷，
+// 坐实/证伪裁决归 exploration_verification 审计链。）
 const (
 	RelGenerates Relation = "generates"  // 上游产出下游（推导链）
 	RelEnables   Relation = "enables"    // result → action（使能，预留）
@@ -224,20 +224,6 @@ func NormalizePriority(s string) Priority {
 	case "high":
 		return PriorityHigh
 	case "low":
-		return PriorityLow
-	default:
-		return PriorityMedium
-	}
-}
-
-// PriorityFromSeverity 把漏洞 severity 映射到优先级（info 归 low，未知归 medium）。
-func PriorityFromSeverity(severity string) Priority {
-	switch strings.ToLower(strings.TrimSpace(severity)) {
-	case "critical":
-		return PriorityCritical
-	case "high":
-		return PriorityHigh
-	case "low", "info":
 		return PriorityLow
 	default:
 		return PriorityMedium

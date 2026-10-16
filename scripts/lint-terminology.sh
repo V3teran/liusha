@@ -20,10 +20,10 @@ SCAN_ARGS=(
 
 # 排除路径（契约保留区 / 工具自身 / 第三方产物）
 EXCLUDES=(
-  ':!db/migrations/**'      # 历史迁移不可编辑
-  ':!deployments/**'        # 容器镜像契约（LIUSHA_AGENT_ID 等）
+  ':!db/migrations'         # 历史迁移不可编辑（目录形式，** 通配在 git pathspec 排除里不生效）
+  ':!deployments'        # 容器镜像契约（LIUSHA_AGENT_ID 等）
   ':!scripts/lint-terminology.sh'
-  ':!web/dist/**' ':!**/node_modules/**'
+  ':!web/dist' ':!**/node_modules'
 )
 
 # 禁用术语（旧架构残留，全称匹配大小写不敏感）。
@@ -32,12 +32,17 @@ FORBIDDEN=(
   '知识图谱'
   '认知图'
   '世界模型'
+  '攻击图'
   'knowledge[-_ ]\?graph'
   'KnowledgeGraph'
   'knowledgegraph'
   'KnowledgeGraphPage'
   'worldmodel'
   'WorldModel'
+  'replayLegacyWeb'
+  'observation_v[0-9]'
+  'KeyRequestMarkers'
+  'P0修复'
 )
 
 MODE="${1:-check}"

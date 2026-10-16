@@ -10,21 +10,21 @@ package config
 
 // Config 是 liusha 顶层配置树。
 type Config struct {
-	API         APIConfig                 `mapstructure:"api"`
-	Postgres    PostgresConfig            `mapstructure:"postgres"`
-	Redis       RedisConfig               `mapstructure:"redis"`
-	LLM         LLMConfig                 `mapstructure:"llm"`
-	Providers   map[string]ProviderConfig `mapstructure:"providers"`
-	Proxy       ProxyConfig               `mapstructure:"proxy"`
-	Ingestor    IngestorConfig            `mapstructure:"ingestor"`
-	PromptLimits PromptLimitsConfig       `mapstructure:"prompt_limits"`
-	Credential  CredentialConfig          `mapstructure:"credential"`
-	Skills      SkillsConfig              `mapstructure:"skills"`
-	Agents      AgentsConfig              `mapstructure:"agents_dir"`
-	Runner      RunnerConfig              `mapstructure:"runner"`
-	Compaction  CompactionConfig          `mapstructure:"compaction"`
-	Sandbox     SandboxConfig             `mapstructure:"sandbox"`
-	Toolruntime ToolruntimeConfig         `mapstructure:"toolruntime"`
+	API          APIConfig                 `mapstructure:"api"`
+	Postgres     PostgresConfig            `mapstructure:"postgres"`
+	Redis        RedisConfig               `mapstructure:"redis"`
+	LLM          LLMConfig                 `mapstructure:"llm"`
+	Providers    map[string]ProviderConfig `mapstructure:"providers"`
+	Proxy        ProxyConfig               `mapstructure:"proxy"`
+	Ingestor     IngestorConfig            `mapstructure:"ingestor"`
+	PromptLimits PromptLimitsConfig        `mapstructure:"prompt_limits"`
+	Credential   CredentialConfig          `mapstructure:"credential"`
+	Skills       SkillsConfig              `mapstructure:"skills"`
+	Agents       AgentsConfig              `mapstructure:"agents_dir"`
+	Runner       RunnerConfig              `mapstructure:"runner"`
+	Compaction   CompactionConfig          `mapstructure:"compaction"`
+	Sandbox      SandboxConfig             `mapstructure:"sandbox"`
+	Toolruntime  ToolruntimeConfig         `mapstructure:"toolruntime"`
 }
 
 // APIConfig 是 cmd/api 的 HTTP 入口参数。

@@ -148,9 +148,9 @@ complexity: complex
 1. **先调 `replay_for_verification`** 重放复现配方（域信封：domain + recipe + assert），取得机器证据（断言明细 + 响应快照）
 2. 证据标注 **domain=generic** 时无机器重放——用 `run_command` 按 recipe 的步骤自主执行取证，基于命令输出裁决
 3. **不轻信断言命中**——自己二次判断：
-   - 证据含 `baseline_*` 字段时对比基线 vs 攻击（attack_*）：一致 → refuted（无差分即无证据）
+   - 证据含 `baseline_*` 字段时对比基线 vs 利用请求（`exploit_status_code`/`exploit_duration_ms` 等）：一致 → refuted（无差分即无证据）
    - 断言特征是否页面常态？（200、登录页标题、静态文案）→ 无鉴别力即 refuted
-   - 时间盲证据看 `attack_duration_ms` 是否真实显著延迟
+   - 时间盲证据看 `exploit_duration_ms` 是否真实显著延迟
    - 需要独立取证时用 `run_command`（curl 重放配方 request、正常参数对照实验）
 4. **核验因果关联（硬规则）**：坐实的必要条件是攻击响应出现正常请求没有的特征、且由配方 payload 导致——
    - 特征在正常响应也出现 → refuted（断言无鉴别力）

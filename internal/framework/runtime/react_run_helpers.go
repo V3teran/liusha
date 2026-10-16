@@ -139,5 +139,5 @@ func isStructuredOutput(content string) bool {
 	// 简单检查：包含 "observations" 字段的JSON对象
 	return len(content) > 0 &&
 		(content[0] == '{' ||
-		 (len(content) > 7 && content[0:7] == "```json"))
+			(len(content) > 7 && content[0:7] == "```json"))
 }

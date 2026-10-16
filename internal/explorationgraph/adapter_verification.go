@@ -32,4 +32,3 @@ func (s *Store) RecordVerification(ctx context.Context, v Verification) (string,
 
 	return v.ID, nil
 }
-

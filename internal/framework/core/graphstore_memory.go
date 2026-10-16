@@ -369,4 +369,3 @@ func (s *InMemoryGraphStore) DeleteEdge(_ context.Context, from, to, relation st
 	s.edges = newEdges
 	return nil
 }
-

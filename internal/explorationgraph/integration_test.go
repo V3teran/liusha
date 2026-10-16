@@ -75,7 +75,7 @@ func TestTaskIsolation(t *testing.T) {
 	assert.Equal(t, "22222222-2222-4222-8222-222222222222", actionsB[0].ID)
 }
 
-// TestCompleteDataFlow 测试完整数据流：move → observation → discovery
+// TestCompleteDataFlow 测试完整数据流：action → observation → result
 func TestCompleteDataFlow(t *testing.T) {
 	if testing.Short() {
 		t.Skip("跳过集成测试")
@@ -136,9 +136,9 @@ func TestCompleteDataFlow(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// 3. 验证通过 → 晋升为 discovery
+	// 3. 验证通过 → 晋升为 result（复现门产出的唯一终态节点）
 	verifiedConf := ConfidenceVerified
-	discovery := Node{
+	result := Node{
 		ID:         "66666666-6666-4666-8666-666666666666",
 		TaskID:     taskID,
 		Kind:       core.KindResult,
@@ -150,13 +150,13 @@ func TestCompleteDataFlow(t *testing.T) {
 		CreatedAt:  time.Now(),
 		UpdatedAt:  time.Now(),
 	}
-	_, err = store.CreateNode(ctx, discovery)
+	_, err = store.CreateNode(ctx, result)
 	require.NoError(t, err)
 
-	// 创建边：observation generates discovery（晋升溯源——evaluator 落的推导链边）
+	// 创建边：observation generates result（晋升溯源——evaluator 落的推导链边）
 	err = store.CreateBusinessEdge(ctx, Edge{
 		SrcID:     observation.ID,
-		DstID:     discovery.ID,
+		DstID:     result.ID,
 		Rel:       RelGenerates,
 		TaskID:    taskID,
 		CreatedAt: time.Now(),
@@ -167,15 +167,15 @@ func TestCompleteDataFlow(t *testing.T) {
 	err = store.UpdateActionStateWithReason(ctx, move.ID, StateDone, nil)
 	require.NoError(t, err)
 
-	// 验证 verified discoveries
-	discoveries, err := store.ListResults(ctx, taskID)
+	// 验证已晋升的 result
+	results, err := store.ListResults(ctx, taskID)
 	require.NoError(t, err)
-	assert.Len(t, discoveries, 1)
-	assert.Equal(t, "66666666-6666-4666-8666-666666666666", discoveries[0].ID)
+	assert.Len(t, results, 1)
+	assert.Equal(t, "66666666-6666-4666-8666-666666666666", results[0].ID)
 }
 
-// TestMoveDependency 测试 Move 依赖关系
-func TestMoveDependency(t *testing.T) {
+// TestActionDependency 测试 action 依赖关系（depends_on 满足才可执行）
+func TestActionDependency(t *testing.T) {
 	if testing.Short() {
 		t.Skip("跳过集成测试")
 	}

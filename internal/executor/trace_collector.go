@@ -54,10 +54,9 @@ func (tc *TraceCollector) CollectTrace(ctx context.Context, taskID, actionID str
 	if len(summaries) == 0 {
 		tc.logger.Warn().Msg("没有找到 traffic 记录")
 		return ExecutionTrace{
-			Traffic:     []TrafficRecord{},
-			Session:     SessionState{Cookies: make(map[string]string)},
-			KeyRequests: KeyRequestMarkers{},
-			Meta:        TraceMeta{TotalCount: 0},
+			Traffic: []TrafficRecord{},
+			Session: SessionState{Cookies: make(map[string]string)},
+			Meta:    TraceMeta{TotalCount: 0},
 		}, nil
 	}
 

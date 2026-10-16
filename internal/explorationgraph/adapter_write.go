@@ -155,4 +155,3 @@ func (s *Store) UpdateActionStateWithReason(ctx context.Context, id string, stat
 func (s *Store) CompareAndSwapActionState(ctx context.Context, taskID, actionID string, expectedState, newState State) (bool, error) {
 	return s.graphStore.CompareAndSwapState(ctx, taskID, actionID, string(expectedState), string(newState))
 }
-
