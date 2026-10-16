@@ -244,6 +244,13 @@ func (a *Agent) handleEvent(ctx context.Context, event bus.Event, sem chan struc
 		return
 	}
 
+	// 门侧归一化：与轮询路径（parseObservationToAttempt）对称——裁决入口
+	// 永远不信任生产侧的形状。矫正失败保留原样，复放会以确定性错误终局，
+	// 归一化只救该救的，不掩盖真损坏。
+	if normalized, _, nErr := tools.NormalizeReproEnvelope(attempt.Primitives); nErr == nil {
+		attempt.Primitives = normalized
+	}
+
 	observationID := attempt.NodeID
 
 	a.logger.Info().

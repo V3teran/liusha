@@ -11,6 +11,7 @@ import (
 	"github.com/V3teran/liusha/internal/framework/llm"
 	"github.com/V3teran/liusha/internal/framework/runtime"
 	"github.com/V3teran/liusha/internal/registry"
+	"github.com/V3teran/liusha/internal/tools"
 )
 
 // ActionData 是从 action.Content 解析出的数据
@@ -410,6 +411,29 @@ func (e *Engine) processExecutorOutput(
 			Int("observation_index", i).
 			Int("trace_traffic_count", trace.Meta.TotalCount).
 			Msg("已附加 ExecutionTrace 到 observation")
+
+		// 配方归一化在循环内做一次、节点与 Attempt 共用同一结果——归一化
+		// 若藏在节点构造内部，矫正结果不会传回 obs，事件路径的 Attempt
+		// 会携带原始破碎形状（数组信封/标量断言）直通复现门被确定性杀死，
+		// 而节点上存的却是修复后的配方：同一观察两条消费路径各说各话
+		// （e2e 实测 4 条真漏洞假设因此冤死）。矫正失败保留原始配方，
+		// 由门侧以 invalid_recipe 终局——归一化不是万能的，但必须对所有
+		// 消费路径一致。
+		if normalized, note, nErr := tools.NormalizeReproEnvelope(obs.Repro); nErr == nil {
+			obs.Repro = normalized
+			if note != "" {
+				e.logger.Info().
+					Str("action_id", action.ID).
+					Int("observation_index", i).
+					Msg("repro 形状已矫正：" + note)
+			}
+		} else {
+			e.logger.Warn().
+				Str("action_id", action.ID).
+				Int("observation_index", i).
+				Err(nErr).
+				Msg("repro 归一化失败，保留原始配方（门侧将以 invalid_recipe 终局）")
+		}
 
 		// 创建 observation 节点
 		node, err := e.createObservationNode(ctx, action.TaskID, action.ID, obs)
