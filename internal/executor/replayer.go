@@ -5,12 +5,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/V3teran/liusha/internal/credential"
 	"github.com/V3teran/liusha/internal/evaluator"
 	"github.com/V3teran/liusha/internal/httpreplay"
+	"github.com/V3teran/liusha/internal/tools"
 )
 
 // SelfContainedRequest 是自包含的完整 HTTP 请求（repro.request 的形状）。
@@ -152,6 +154,17 @@ func (r *Replayer) injectSessionContext(ctx context.Context, recipe json.RawMess
 	if err != nil || len(identities) == 0 {
 		return recipe
 	}
+	// 多身份时持久优先、名称破平——HGetAll 返回序任意，盲取 [0] 曾把任务
+	// 临时会话（security 停在 impossible 的浏览器快照）注入复放，把 DVWA
+	// 全部假设打到修复版难度上整体证伪。持久身份是显式录入的权威凭据；
+	// 自动会话快照只在无持久身份时兜底。
+	sort.SliceStable(identities, func(i, j int) bool {
+		pi, pj := tools.IsAutoSessionIdentity(identities[i].Name), tools.IsAutoSessionIdentity(identities[j].Name)
+		if pi != pj {
+			return !pi // 持久在前
+		}
+		return identities[i].Name < identities[j].Name
+	})
 	// 首个身份的 headers 型凭证拼成 Cookie/Authorization 头（配方已带的键不覆盖）
 	extra := map[string]string{}
 	for _, c := range identities[0].Credentials {
@@ -166,7 +179,8 @@ func (r *Replayer) injectSessionContext(ctx context.Context, recipe json.RawMess
 
 	apply := func(req json.RawMessage) (json.RawMessage, bool) {
 		var m map[string]json.RawMessage
-		if json.Unmarshal(req, &m) != nil {
+		// "null" 合法 JSON 会解出 nil map 不报错——后续 m["headers"]= 会 panic
+		if err := json.Unmarshal(req, &m); err != nil || m == nil {
 			return req, false
 		}
 		var headers map[string]string
