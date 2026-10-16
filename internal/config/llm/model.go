@@ -16,7 +16,11 @@
 // 安全：APIKeyEnv 只存**环境变量名**，密钥值永不落库。
 package llmcfg
 
-import "time"
+import (
+	"time"
+
+	"github.com/V3teran/liusha/internal/constants"
+)
 
 // Provider type 常量（与 llm_provider.type CHECK 一致）。
 const (
@@ -123,11 +127,11 @@ const RoleFallback = "__fallback__"
 //     inspector：意图分类 + 探索图摘要复用（cmd/api）
 //     compactor：ReAct 会话历史压缩（cmd/runner）
 var agentComplexityTable = map[string]string{
-	"planner":          ComplexityComplex,
-	"exploitation":     ComplexityComplex,
-	"traffic-analysis": ComplexityMedium,
-	"inspector":        ComplexitySimple,
-	"compactor":        ComplexitySimple,
+	constants.AgentCodePlanner: ComplexityComplex,
+	"exploitation":             ComplexityComplex,
+	"traffic-analysis":         ComplexityMedium,
+	"inspector":                ComplexitySimple,
+	"compactor":                ComplexitySimple,
 }
 
 // AgentComplexity 把 agent-role 映射到复杂度档位；未归档的 role 一律落 ComplexityMedium（隐式默认档）。

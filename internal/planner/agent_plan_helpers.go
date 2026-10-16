@@ -190,8 +190,8 @@ func isRetriableError(err error) bool {
 // 时，planner 返回空只是对在途执行的等待——发布收敛会终止整个认知循环、
 // 掐断在途执行与裁决。只有图上再无任何未完结工作且 planner 也没有新方向，
 // 才是真正的收敛。
-func (a *Agent) handleNoActions() {
-	if a.hasUnsettledWork() {
+func (a *Agent) handleNoActions(ctx context.Context) {
+	if a.hasUnsettledWork(ctx) {
 		a.logger.Info().Msg("Planner 暂无新 Action，但仍有在途/待执行动作——等待其产出，不收敛")
 		return
 	}
@@ -202,8 +202,8 @@ func (a *Agent) handleNoActions() {
 
 // hasUnsettledWork 判断图上是否还有非终态 action（running/open/blocked）。
 // 判定失败保守返回 true（宁可多跑，不误终止任务）。
-func (a *Agent) hasUnsettledWork() bool {
-	states, err := a.graph.ListActionStates(context.Background(), a.taskID)
+func (a *Agent) hasUnsettledWork(ctx context.Context) bool {
+	states, err := a.graph.ListActionStates(ctx, a.taskID)
 	if err != nil {
 		a.logger.Warn().Err(err).Msg("读取 action 状态失败，保守视为仍有未完结工作")
 		return true

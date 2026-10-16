@@ -393,8 +393,8 @@ func (a *Agent) recordVerifyFailure(ctx context.Context, observationID string, a
 		Msg("验证反复失败达上限，标记裁决失败出圈")
 
 	mark, mErr := json.Marshal(map[string]interface{}{
-		"verification_outcome": "invalid_recipe",
-		"refute_reason":        "invalid_recipe",
+		"verification_outcome": RefuteInvalidRecipe,
+		"refute_reason":        RefuteInvalidRecipe,
 		"confidence":           explorationgraph.ConfidenceRefuted,
 		"failure_reason":       cause.Error(),
 		"verify_attempts":      attempts,

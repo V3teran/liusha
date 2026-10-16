@@ -3,13 +3,19 @@ package cache
 import (
 	"context"
 	"fmt"
+	"github.com/V3teran/liusha/internal/constants"
 	"strings"
 )
 
 // ValidateAgentConfigs 验证所有必需的 agent 配置是否完整。
 // 在进程启动时调用，确保关键配置已加载（避免运行时才发现 charter 为空）。
 func (s *Store) ValidateAgentConfigs(ctx context.Context) error {
-	requiredAgents := []string{"executor", "planner", "evaluator", "monitor"}
+	requiredAgents := []string{
+		constants.AgentCodeExecutor,
+		constants.AgentCodePlanner,
+		constants.AgentCodeEvaluator,
+		constants.AgentCodeMonitor,
+	}
 
 	var errors []string
 	for _, code := range requiredAgents {

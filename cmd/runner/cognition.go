@@ -8,6 +8,7 @@ import (
 
 	"github.com/V3teran/liusha/internal/agent"
 	"github.com/V3teran/liusha/internal/cognition"
+	"github.com/V3teran/liusha/internal/constants"
 	"github.com/V3teran/liusha/internal/evaluator"
 	"github.com/V3teran/liusha/internal/executor"
 	"github.com/V3teran/liusha/internal/explorationgraph"
@@ -167,10 +168,10 @@ func (h handler) loadAgentConfigs(ctx context.Context) agentConfigs {
 		return cfg
 	}
 	return agentConfigs{
-		executor:  getCfg("executor"),
-		planner:   getCfg("planner"),
-		evaluator: getCfg("evaluator"),
-		monitor:   getCfg("monitor"),
+		executor:  getCfg(constants.AgentCodeExecutor),
+		planner:   getCfg(constants.AgentCodePlanner),
+		evaluator: getCfg(constants.AgentCodeEvaluator),
+		monitor:   getCfg(constants.AgentCodeMonitor),
 	}
 }
 
@@ -279,7 +280,7 @@ func (h handler) assembleStack(
 		Graph:         h.graph,
 		EventBus:      h.eventBus,
 		Provider:      provider,
-		Interval:      6 * time.Minute,
+		Interval:      constants.MonitorInterval,
 		Activity:      activities.idleFor,
 		Logger:        h.logger.With().Str("component", "monitor_agent").Logger(),
 		Checkpointer:  h.checkpointer,

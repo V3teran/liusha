@@ -25,7 +25,7 @@ func (a *Agent) forcePlanActions(ctx context.Context, monitorReason string) erro
 	if len(actions) == 0 {
 		// 与 handleNoActions 同一收敛语义：图上仍有未完结工作时，
 		// "本轮无新计划"只是等待在途执行，绝不发布收敛终止任务。
-		if a.hasUnsettledWork() {
+		if a.hasUnsettledWork(ctx) {
 			a.logger.Info().Msg("强制重规划未生成新 Action，但图上仍有未完结工作——等待其产出，不收敛")
 			return nil
 		}

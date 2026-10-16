@@ -276,7 +276,7 @@ func (i *Intelligence) gatherContext(ctx context.Context, graph *explorationgrap
 			VerificationOutcome string `json:"verification_outcome"`
 			RefuteReason        string `json:"refute_reason"`
 		}
-		if json.Unmarshal(obs.Metadata, &m) != nil || m.VerificationOutcome != "refuted" {
+		if json.Unmarshal(obs.Metadata, &m) != nil || m.VerificationOutcome != string(explorationgraph.OutcomeRefuted) {
 			continue
 		}
 		var c struct {

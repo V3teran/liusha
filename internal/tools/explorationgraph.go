@@ -56,7 +56,7 @@ func NormalizeReproEnvelope(repro json.RawMessage) (json.RawMessage, string, err
 		"assert": assert,
 	})
 	if err != nil {
-		return nil, "", fmt.Errorf("repro 归一化失败: %v", err)
+		return nil, "", fmt.Errorf("repro 归一化失败: %w", err)
 	}
 	return out, note, nil
 }
@@ -77,7 +77,7 @@ type reproEnvelope struct {
 func parseReproEnvelope(repro json.RawMessage) (reproEnvelope, error) {
 	var flex reproEnvelope
 	if err := json.Unmarshal(repro, &flex); err != nil {
-		return flex, fmt.Errorf("repro 解析失败: %v", err)
+		return flex, fmt.Errorf("repro 解析失败: %w", err)
 	}
 	if flex.TrafficID != nil || len(flex.Modifications) > 0 {
 		return flex, fmt.Errorf("旧格式 repro（traffic_id + modifications）已废弃。\n\n" +
@@ -141,7 +141,7 @@ func normalizeWebRepro(flex reproEnvelope) (recipe, assert json.RawMessage, err 
 		}
 		b, mErr := json.Marshal(wrapped)
 		if mErr != nil {
-			return nil, nil, fmt.Errorf("repro 归一化失败: %v", mErr)
+			return nil, nil, fmt.Errorf("repro 归一化失败: %w", mErr)
 		}
 		recipe = b
 	default:
@@ -295,7 +295,7 @@ func normalizeGenericRepro(flex reproEnvelope) (recipe, assert json.RawMessage, 
 	case flex.Steps != "":
 		b, mErr := json.Marshal(map[string]string{"steps": flex.Steps})
 		if mErr != nil {
-			return nil, nil, fmt.Errorf("repro 归一化失败: %v", mErr)
+			return nil, nil, fmt.Errorf("repro 归一化失败: %w", mErr)
 		}
 		recipe = b
 	}
@@ -335,7 +335,7 @@ func validateWebRequestRecipe(recipe json.RawMessage) error {
 		} `json:"request"`
 	}
 	if err := json.Unmarshal(recipe, &rc); err != nil {
-		return fmt.Errorf("web 域 recipe 解析失败: %v", err)
+		return fmt.Errorf("web 域 recipe 解析失败: %w", err)
 	}
 	req := rc.Request
 	var missing []string
