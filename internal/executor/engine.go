@@ -169,7 +169,7 @@ func (e *Engine) buildSystemPrompt(actionType, complexity string, registered []r
 		// 按能力轴分组渲染（从 manifest.Categories 读取顺序和名称）
 		basePrompt += renderCLICatalog(e.toolsManifest.ByCategory(), e.toolsManifest)
 	} else {
-		e.logger.Warn().Msg("⚠️  没有可用的 CLI 工具（cli_tools 未配置或为空）")
+		e.logger.Warn().Msg("没有可用的 CLI 工具（cli_tools 未配置或为空）")
 	}
 	// ========================================================
 

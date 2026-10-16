@@ -86,7 +86,7 @@ func buildStatisticsSection(ctx *PlanningContext) string {
 	fmt.Fprintf(&sb, "- 进行中 Actions: %d\n", len(ctx.PendingActions))
 	fmt.Fprintf(&sb, "- 已确认 Results: %d\n", len(ctx.Results))
 	if len(ctx.CompletedActions) >= 20 {
-		sb.WriteString("- ⚠️ 提示：当前方向已探索较深，建议评估是否应该切换方向\n")
+		sb.WriteString("- 提示：当前方向已探索较深，建议评估是否应该切换方向\n")
 	}
 	sb.WriteString("\n")
 	return sb.String()

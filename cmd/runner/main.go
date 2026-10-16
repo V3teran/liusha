@@ -308,7 +308,7 @@ func newRunnerStores(pool *pgxpool.Pool, cfg config.Config) *runnerStores {
 		conversations: conversation.NewStore(pool),
 		agentRuns:     agentrun.NewStore(pool),
 		findings:      finding.NewStore(pool),
-		graph:         explorationgraph.NewStore(pool), // L3 探索图持久层（onboard 落 KindObjective 节点）
+		graph:         explorationgraph.NewStore(pool), // 探索图持久层（onboard 落 KindObjective 节点）
 		toolCalls:     toolinvocation.NewStore(pool),
 		proxyStore:    traffic.NewProxyStore(pool), // 代理捕获流量（passive，按 host）
 		agentStore:    traffic.NewAgentStore(pool), // agent 自产流量（active，按 task）
@@ -401,7 +401,7 @@ func newLLMStack(pool *pgxpool.Pool, cache *cachestore.Cache, logger zerolog.Log
 	if err := cfgStore.ValidateAgentConfigs(ctx); err != nil {
 		logger.Fatal().Err(err).Msg("Agent 配置验证失败")
 	}
-	logger.Info().Msg("✅ Agent 配置验证通过（executor/planner/evaluator/monitor）")
+	logger.Info().Msg("Agent 配置验证通过（executor/planner/evaluator/monitor）")
 
 	// LLM 配置事实源：llm.Router 运行期按 tier 解析 provider 部署即读它（多级缓存）。
 	// api 进程改「LLM 配置」模块后经 cachestore 广播失效，runner 下次 For(tier) 即读到最新部署。

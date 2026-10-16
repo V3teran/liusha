@@ -73,7 +73,7 @@ func (a *Agent) handleEvent(ctx context.Context, event bus.Event) error {
 		return a.planActions(ctx)
 
 	case bus.EventReplanRequested:
-		// ✅ P2：Monitor 请求重规划
+		// P2：Monitor 请求重规划
 		reason := ""
 		if r, ok := event.Payload["reason"].(string); ok {
 			reason = r

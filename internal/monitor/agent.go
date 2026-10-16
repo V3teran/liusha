@@ -132,7 +132,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	ticker := time.NewTicker(a.interval)
 	defer ticker.Stop()
 
-	// ✅ 启动时立即评估一次（消除 6 分钟首评盲区）
+	// 启动时立即评估一次（消除 6 分钟首评盲区）
 	if err := a.evaluate(ctx); err != nil {
 		a.logger.Error().Err(err).Msg("首次评估失败")
 	}

@@ -27,7 +27,7 @@ func (h *warmPoolHandler) handle(ctx context.Context, p worker.Payload) error {
 	h.logger.Info().
 		Str("agent_run_id", p.AgentRunID).
 		Str("task_id", p.TaskID).
-		Msg("🚀 warm pool handler: task started")
+		Msg("warm pool handler: task started")
 
 	// 1. Acquire sandbox
 	sb, err := h.sandboxMgr.Acquire(ctx, sandbox.AcquireRequest{
@@ -45,7 +45,7 @@ func (h *warmPoolHandler) handle(ctx context.Context, p worker.Payload) error {
 	h.logger.Info().
 		Str("sandbox_id", sb.ID).
 		Str("task_id", p.TaskID).
-		Msg("✅ sandbox acquired")
+		Msg("sandbox acquired")
 
 	// 2. 解析输入
 	var input struct {
@@ -61,10 +61,10 @@ func (h *warmPoolHandler) handle(ctx context.Context, p worker.Payload) error {
 	// 3. 构造命令
 	command := input.Command
 	if command == "" && input.Brief != "" {
-		command = fmt.Sprintf("echo '=== Warm Pool Test ===' && echo 'Brief: %s' && pwd && ls -la && echo '✅ Test completed'", input.Brief)
+		command = fmt.Sprintf("echo '=== Warm Pool Test ===' && echo 'Brief: %s' && pwd && ls -la && echo 'Test completed'", input.Brief)
 	}
 	if command == "" {
-		command = "echo '=== Warm Pool Sandbox ===' && pwd && uname -a && echo '✅ Ready'"
+		command = "echo '=== Warm Pool Sandbox ===' && pwd && uname -a && echo 'Ready'"
 	}
 
 	// 4. 执行命令
@@ -82,7 +82,7 @@ func (h *warmPoolHandler) handle(ctx context.Context, p worker.Payload) error {
 		Int("exit_code", result.ExitCode).
 		Str("stdout", result.Stdout).
 		Str("stderr", result.Stderr).
-		Msg("✅ command executed")
+		Msg("command executed")
 
 	return nil
 }

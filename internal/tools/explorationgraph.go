@@ -40,11 +40,11 @@ func NormalizeReproEnvelope(repro json.RawMessage) (json.RawMessage, string, err
 	case "generic":
 		recipe, assert, err = normalizeGenericRepro(flex)
 	case "":
-		return nil, "", fmt.Errorf("❌ repro 缺少 domain 信封。\n\n" +
-			"✅ web 域：{\"domain\": \"web\", \"recipe\": {\"request\": {\"method\",\"url\",\"headers\",\"body\"}}, \"assert\": {...}}\n" +
-			"✅ generic 域（非 HTTP）：{\"domain\": \"generic\", \"recipe\": {\"steps\": \"...\"}, \"assert\": {\"description\": \"...\"}}")
+		return nil, "", fmt.Errorf("repro 缺少 domain 信封。\n\n" +
+			"web 域：{\"domain\": \"web\", \"recipe\": {\"request\": {\"method\",\"url\",\"headers\",\"body\"}}, \"assert\": {...}}\n" +
+			"generic 域（非 HTTP）：{\"domain\": \"generic\", \"recipe\": {\"steps\": \"...\"}, \"assert\": {\"description\": \"...\"}}")
 	default:
-		return nil, "", fmt.Errorf("❌ 未知复现域 %q（已支持: web, generic）", domain)
+		return nil, "", fmt.Errorf("未知复现域 %q（已支持: web, generic）", domain)
 	}
 	if err != nil {
 		return nil, "", err
@@ -80,8 +80,8 @@ func parseReproEnvelope(repro json.RawMessage) (reproEnvelope, error) {
 		return flex, fmt.Errorf("repro 解析失败: %v", err)
 	}
 	if flex.TrafficID != nil || len(flex.Modifications) > 0 {
-		return flex, fmt.Errorf("❌ 旧格式 repro（traffic_id + modifications）已废弃。\n\n" +
-			"✅ 请提供域信封：\n" +
+		return flex, fmt.Errorf("旧格式 repro（traffic_id + modifications）已废弃。\n\n" +
+			"请提供域信封：\n" +
 			"{\"domain\": \"web\", \"recipe\": {\"request\": {\"method\",\"url\",\"headers\",\"body\"}}, \"assert\": {...}}\n" +
 			"或 generic 域：{\"domain\": \"generic\", \"recipe\": {\"steps\": \"...\"}, \"assert\": {\"description\": \"...\"}}")
 	}
@@ -145,13 +145,13 @@ func normalizeWebRepro(flex reproEnvelope) (recipe, assert json.RawMessage, err 
 		}
 		recipe = b
 	default:
-		return nil, nil, fmt.Errorf("❌ web 域 repro 缺少 recipe.request。\n\n" +
-			"✅ 正确格式：{\"domain\": \"web\", \"recipe\": {\"request\": {\"method\": \"GET\", \"url\": \"http://host/api?id=payload\", \"headers\": {}, \"body\": \"\"}}, \"assert\": {\"body_contains\": [...]}}")
+		return nil, nil, fmt.Errorf("web 域 repro 缺少 recipe.request。\n\n" +
+			"正确格式：{\"domain\": \"web\", \"recipe\": {\"request\": {\"method\": \"GET\", \"url\": \"http://host/api?id=payload\", \"headers\": {}, \"body\": \"\"}}, \"assert\": {\"body_contains\": [...]}}")
 	}
 	assert = flex.Assert
 	if len(assert) == 0 {
-		return nil, nil, fmt.Errorf("❌ repro 缺少 assert 字段。\n\n" +
-			"✅ web 域可用字段: status_code, body_contains, body_not_contains, header_contains, min_duration_ms")
+		return nil, nil, fmt.Errorf("repro 缺少 assert 字段。\n\n" +
+			"web 域可用字段: status_code, body_contains, body_not_contains, header_contains, min_duration_ms")
 	}
 	assert = coerceWebAssertShape(assert)
 	if err := validateWebRequestRecipe(recipe); err != nil {
@@ -300,26 +300,26 @@ func normalizeGenericRepro(flex reproEnvelope) (recipe, assert json.RawMessage, 
 		recipe = b
 	}
 	if len(recipe) == 0 {
-		return nil, nil, fmt.Errorf("❌ generic 域 repro 缺少 recipe.steps。\n\n" +
-			"✅ 正确格式：{\"domain\": \"generic\", \"recipe\": {\"steps\": \"1. 登录后台 2. 执行 ... 3. 观察 ...\"}, \"assert\": {\"description\": \"看到 X 即坐实\"}}")
+		return nil, nil, fmt.Errorf("generic 域 repro 缺少 recipe.steps。\n\n" +
+			"正确格式：{\"domain\": \"generic\", \"recipe\": {\"steps\": \"1. 登录后台 2. 执行 ... 3. 观察 ...\"}, \"assert\": {\"description\": \"看到 X 即坐实\"}}")
 	}
 	var rc struct {
 		Steps string `json:"steps"`
 	}
 	if err := json.Unmarshal(recipe, &rc); err == nil && strings.TrimSpace(rc.Steps) == "" {
-		return nil, nil, fmt.Errorf("❌ generic 域 recipe.steps 不能为空——评估官据此自主执行，无步骤即无可复现")
+		return nil, nil, fmt.Errorf("generic 域 recipe.steps 不能为空——裁决官据此自主执行，无步骤即无可复现")
 	}
 	assert = flex.Assert
 	if len(assert) == 0 {
-		return nil, nil, fmt.Errorf("❌ repro 缺少 assert 字段。\n\n" +
-			"✅ generic 域判据：{\"description\": \"执行 steps 后观察到什么才算坐实\"}")
+		return nil, nil, fmt.Errorf("repro 缺少 assert 字段。\n\n" +
+			"generic 域判据：{\"description\": \"执行 steps 后观察到什么才算坐实\"}")
 	}
 	var ac struct {
 		Description string `json:"description"`
 	}
 	if err := json.Unmarshal(assert, &ac); err != nil || strings.TrimSpace(ac.Description) == "" {
-		return nil, nil, fmt.Errorf("❌ generic 域 assert.description 不能为空——判据缺失即橡皮图章。\n\n" +
-			"✅ 正确格式：{\"description\": \"执行 steps 后观察到 X 且正常路径无法出现，即坐实\"}")
+		return nil, nil, fmt.Errorf("generic 域 assert.description 不能为空——判据缺失即橡皮图章。\n\n" +
+			"正确格式：{\"description\": \"执行 steps 后观察到 X 且正常路径无法出现，即坐实\"}")
 	}
 	return recipe, assert, nil
 }
@@ -335,7 +335,7 @@ func validateWebRequestRecipe(recipe json.RawMessage) error {
 		} `json:"request"`
 	}
 	if err := json.Unmarshal(recipe, &rc); err != nil {
-		return fmt.Errorf("❌ web 域 recipe 解析失败: %v", err)
+		return fmt.Errorf("web 域 recipe 解析失败: %v", err)
 	}
 	req := rc.Request
 	var missing []string
@@ -352,11 +352,11 @@ func validateWebRequestRecipe(recipe json.RawMessage) error {
 		missing = append(missing, "body")
 	}
 	if len(missing) > 0 {
-		return fmt.Errorf("❌ recipe.request 缺少必需字段: %v\n\n"+
-			"✅ request 必须四字段齐全（headers 可 {}、body 可 \"\"），url 须含 http:// 或 https://", missing)
+		return fmt.Errorf("recipe.request 缺少必需字段: %v\n\n"+
+			"request 必须四字段齐全（headers 可 {}、body 可 \"\"），url 须含 http:// 或 https://", missing)
 	}
 	if !strings.HasPrefix(req.URL, "http://") && !strings.HasPrefix(req.URL, "https://") {
-		return fmt.Errorf("❌ url 必须是完整 URL（包含 http:// 或 https://），当前 %q", req.URL)
+		return fmt.Errorf("url 必须是完整 URL（包含 http:// 或 https://），当前 %q", req.URL)
 	}
 	return nil
 }
@@ -381,8 +381,8 @@ func teachWebAssertDiscriminative(recipe, assert json.RawMessage) error {
 	}
 	for _, want := range ac.BodyContains {
 		if len(strings.TrimSpace(want)) < 4 {
-			return fmt.Errorf("❌ 无鉴别力断言——body_contains 子串 %q 过短（几乎必命中任意页面）。\n\n"+
-				"✅ 断言应捕捉利用响应独有特征：报错回显/泄露数据的完整子串（如 \"SQL syntax error\"、dump 出的字段值）", want)
+			return fmt.Errorf("无鉴别力断言——body_contains 子串 %q 过短（几乎必命中任意页面）。\n\n"+
+				"断言应捕捉利用响应独有特征：报错回显/泄露数据的完整子串（如 \"SQL syntax error\"、dump 出的字段值）", want)
 		}
 	}
 	if hasBaseline {
@@ -393,8 +393,8 @@ func teachWebAssertDiscriminative(recipe, assert json.RawMessage) error {
 		strong = true
 	}
 	if !strong {
-		return fmt.Errorf("❌ 无鉴别力断言——无 baseline 时至少一个强谓词（body_contains/header_contains/min_duration_ms 或非 200/301/302/304 状态码）。\n\n" +
-			"✅ 裸 status_code=200 类页面常态断言会被复现门拒绝坐实；建议附 recipe.baseline 良性对照")
+		return fmt.Errorf("无鉴别力断言——无 baseline 时至少一个强谓词（body_contains/header_contains/min_duration_ms 或非 200/301/302/304 状态码）。\n\n" +
+			"裸 status_code=200 类页面常态断言会被复现门拒绝坐实；建议附 recipe.baseline 良性对照")
 	}
 	return nil
 }
