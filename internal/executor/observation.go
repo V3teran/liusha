@@ -46,9 +46,8 @@ func (e *Engine) createObservationNode(
 	}
 
 	if len(obs.Repro) > 0 {
-		// 复现配方归一化：引擎收割路径落图前的统一归一化出口——形状漂移（标量断言、assert 误放 recipe 等）在此统一矫正，
-		// 复现门只认信封。矫正失败保留原始配方（门侧会以 invalid_recipe 终止重试，
-		// 而不是在这里静默丢观察）。
+		// 幂等再归一：收割循环已统一矫正并让 Attempt 共用同一结果，此处
+		// 只兜底防未来新调用方绕过循环——对已归一化信封是恒等操作
 		normalized, _, nErr := tools.NormalizeReproEnvelope(obs.Repro)
 		if nErr == nil {
 			obs.Repro = normalized
