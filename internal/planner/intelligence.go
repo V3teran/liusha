@@ -4,6 +4,7 @@ package planner
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -25,8 +26,12 @@ type Intelligence struct {
 	charter    string         // 角色章程（agent.system_prompt，运维经前端可调；空=不渲染）
 	complexity llm.Complexity // LLM 档位（agent.complexity，文档 complexity 种子 → 三级缓存读）
 	maxIt      int            // ReAct 迭代上限（agent.max_iterations；0=不设限）
-	timeout    time.Duration  // 单次规划超时（0=不设限；默认 3 分钟）
+	timeout    time.Duration  // 单次规划超时基准（0=不设限；默认 3 分钟）
+	budget     time.Duration  // 当前生效的规划预算：随连续 deadline 失败自适应放大，成功后回落
 }
+
+// maxBudgetFactor 是自适应预算的放大上限（基准的倍数）——无界放大等于取消保护。
+const maxBudgetFactor = 3
 
 // NewIntelligence 创建智能规划器
 func NewIntelligence(router *llm.Router, logger zerolog.Logger) *Intelligence {
@@ -34,6 +39,7 @@ func NewIntelligence(router *llm.Router, logger zerolog.Logger) *Intelligence {
 		router:  router,
 		logger:  logger.With().Str("component", "planner_intelligence").Logger(),
 		timeout: 3 * time.Minute, // 默认单次规划超时 3 分钟
+		budget:  3 * time.Minute,
 	}
 }
 
@@ -106,13 +112,16 @@ type PlanningResponse struct {
 func (i *Intelligence) Plan(ctx context.Context, graph *explorationgraph.Store, taskID string, functionTools []string) ([]explorationgraph.Node, error) {
 	i.logger.Info().Str("task_id", taskID).Msg("开始智能规划")
 
-	// 添加超时保护（防止 LLM 调用无限挂起）
-	if i.timeout > 0 {
+	// 超时保护（防止 LLM 调用无限挂起）+ 自适应预算：deadline 型失败（LLM 慢速期
+	// 预算耗尽）用同一预算重试是确定性失败——预算随连续超时翻倍、封顶基准
+	// maxBudgetFactor 倍，任一次成功即回落。调用方的重试阶梯只退避间隔，
+	// 退避不了预算本身。
+	if i.budget > 0 {
 		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, i.timeout)
+		ctx, cancel = context.WithTimeout(ctx, i.budget)
 		defer cancel()
 		i.logger.Debug().
-			Str("timeout", i.timeout.String()).
+			Str("timeout", i.budget.String()).
 			Msg("规划超时保护已启用")
 	}
 
@@ -184,8 +193,10 @@ func (i *Intelligence) Plan(ctx context.Context, graph *explorationgraph.Store, 
 - 每个action必须包含type、instruction和complexity`,
 	})
 	if err != nil {
+		i.adaptBudget(err)
 		return nil, fmt.Errorf("ReAct 规划失败: %w", err)
 	}
+	i.budget = i.timeout // 成功即回落基准预算
 
 	// 4. 解析最终答案为 PlanningResponse
 	response, err := i.parsePlanningResponse(result.FinalAnswer)
@@ -366,6 +377,25 @@ func (i *Intelligence) parsePlanningResponse(content string) (*PlanningResponse,
 	}
 
 	return &response, nil
+}
+
+// adaptBudget 在 deadline 型失败后放大下一轮规划预算（翻倍，封顶基准
+// maxBudgetFactor 倍）；非 deadline 失败不动预算。Intelligence 由单个
+// planner goroutine 串行使用，无并发竞争。
+func (i *Intelligence) adaptBudget(err error) {
+	if !errors.Is(err, context.DeadlineExceeded) || i.timeout <= 0 {
+		return
+	}
+	ceiling := i.timeout * maxBudgetFactor
+	if i.budget < ceiling {
+		i.budget *= 2
+		if i.budget > ceiling {
+			i.budget = ceiling
+		}
+	}
+	i.logger.Warn().
+		Str("budget", i.budget.String()).
+		Msg("规划预算耗尽（LLM 慢速期），下一轮预算已放大")
 }
 
 // filterValidDependencies 过滤依赖 ID 中的非法值——LLM 可能编造非 UUID 的依赖
