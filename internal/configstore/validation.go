@@ -39,9 +39,3 @@ func (s *Store) ValidateAgentConfigs(ctx context.Context) error {
 
 // ValidateAgentSystemPrompt 验证单个 agent 的 system_prompt 是否非空。
 // 用于动态验证（如前端更新配置后）。
-func ValidateAgentSystemPrompt(agent string, systemPrompt string) error {
-	if strings.TrimSpace(systemPrompt) == "" {
-		return fmt.Errorf("agent %s 的 system_prompt 不能为空", agent)
-	}
-	return nil
-}

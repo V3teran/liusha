@@ -72,7 +72,7 @@ func executeHTTPRequest(ctx context.Context, req *http.Request, timeoutSeconds i
 	start := time.Now()
 	resp, err := client.Do(req)
 	durMs := int(time.Since(start).Milliseconds())
-	
+
 	return resp, durMs, err
 }
 
@@ -91,7 +91,7 @@ func (t *httpRequestTool) recordTraffic(ctx context.Context, req *http.Request, 
 
 	reqHeaders, _ := json.Marshal(flattenHeaders(req.Header))
 	respHeaders, _ := json.Marshal(flattenHeaders(resp.Header))
-	
+
 	trafficID, appendErr := t.deps.AgentStore.Append(ctx, traffic.AgentTraffic{
 		TaskID:          t.deps.TaskID,
 		AgentRunID:      t.deps.AgentRunID,
@@ -105,12 +105,12 @@ func (t *httpRequestTool) recordTraffic(ctx context.Context, req *http.Request, 
 		ResponseBody:    respBody,
 		DurationMs:      durMs,
 	})
-	
+
 	if appendErr != nil {
 		// 记录失败只影响复现能力，不影响本次观测
 		return 0
 	}
-	
+
 	return trafficID
 }
 
@@ -143,6 +143,6 @@ func (t *httpRequestTool) buildToolResult(req *http.Request, resp *http.Response
 			"content_type": resp.Header.Get("Content-Type"),
 		},
 	})
-	
+
 	return registry.ToolResult{Output: string(out)}
 }

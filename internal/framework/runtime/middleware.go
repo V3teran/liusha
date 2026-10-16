@@ -149,18 +149,3 @@ func (c *MiddlewareChain) AfterIteration(ctx context.Context, state *IterationSt
 	}
 	return nil, nil
 }
-
-// NoopMiddleware 是空操作中间件，用于测试或占位。
-type NoopMiddleware struct{}
-
-func (m *NoopMiddleware) Name() string {
-	return "noop"
-}
-
-func (m *NoopMiddleware) BeforeIteration(ctx context.Context, state *IterationState) (*StopSignal, error) {
-	return nil, nil
-}
-
-func (m *NoopMiddleware) AfterIteration(ctx context.Context, state *IterationState) (*StopSignal, error) {
-	return nil, nil
-}

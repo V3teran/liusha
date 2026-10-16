@@ -28,7 +28,7 @@ func prepareOpenAICompatRequest(msgs []Message, tools []ToolSchema, model string
 	if len(openaiTools) > 0 {
 		creq.Tools = openaiTools
 	}
-	
+
 	mt := defaultMaxTokens
 	if maxTokens > 0 {
 		mt = maxTokens

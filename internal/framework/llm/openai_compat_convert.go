@@ -256,4 +256,3 @@ func fromOpenAIResponse(resp openai.ChatCompletionResponse, provider, model stri
 	}
 	return res
 }
-

@@ -119,4 +119,3 @@ func (s *Store) convertGraphEdgesToEdges(graphEdges []*core.GraphEdge, taskID st
 	}
 	return edges
 }
-

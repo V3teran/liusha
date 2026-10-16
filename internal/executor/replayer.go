@@ -247,7 +247,9 @@ type replayEvidence struct {
 const evidenceBodySnip = 2048 // 证据里响应体截断长度
 
 // Replay 实现 evaluator.Replayer：按域信封分发。
-// web=机器确定性重放采证；generic=配方回显（裁决官自主执行）；无信封=legacy web 嗅探。
+// web=机器确定性重放采证；generic=配方回显（裁决官自主执行）。
+// 配方在收割路径已统一归一化为信封（tools.NormalizeReproEnvelope），
+// 复现门只认信封、不再嗅探历史裸格式。
 func (r *Replayer) Replay(ctx context.Context, primitives json.RawMessage) (evaluator.Result, error) {
 	var env ReproEnvelope
 	if err := json.Unmarshal(primitives, &env); err != nil {
@@ -260,7 +262,7 @@ func (r *Replayer) Replay(ctx context.Context, primitives json.RawMessage) (eval
 	case DomainGeneric:
 		return replayGeneric(env)
 	case "":
-		return replayLegacyWeb(ctx, primitives)
+		return evaluator.Result{}, fmt.Errorf("Replayer: 缺少 domain 信封（{\"domain\": \"web\"|\"generic\", \"recipe\": ..., \"assert\": ...}）")
 	default:
 		return evaluator.Result{}, fmt.Errorf("Replayer: 未知域 %q（已支持: %s, %s）", env.Domain, DomainWeb, DomainGeneric)
 	}
@@ -286,29 +288,6 @@ func replayWebEnvelope(ctx context.Context, env ReproEnvelope) (evaluator.Result
 		return evaluator.Result{}, fmt.Errorf("web.Replayer: 解析 assert 失败: %w", err)
 	}
 	return replayWeb(ctx, ReplayRecipe{Request: core.Request, Baseline: core.Baseline, Assert: assert})
-}
-
-// replayLegacyWeb 历史格式兼容（顶层 request/assert、无信封）：按 web 配方处理。
-// 仅服务存量数据；新写入在收割路径已归一化成信封。
-func replayLegacyWeb(ctx context.Context, primitives json.RawMessage) (evaluator.Result, error) {
-	var probe struct {
-		TrafficID     *int64          `json:"traffic_id"`
-		Modifications json.RawMessage `json:"modifications"`
-		Request       json.RawMessage `json:"request"`
-	}
-	if json.Unmarshal(primitives, &probe) == nil {
-		if probe.TrafficID != nil || len(probe.Modifications) > 0 {
-			return evaluator.Result{}, fmt.Errorf("web.Replayer: 旧格式配方（traffic_id/modifications）已废弃——请提供域信封 {\"domain\":\"web\",\"recipe\":{\"request\":...},\"assert\":{...}}")
-		}
-		if len(probe.Request) == 0 {
-			return evaluator.Result{}, fmt.Errorf("Replayer: 缺少 domain 信封（{\"domain\": \"web\"|\"generic\", \"recipe\": ..., \"assert\": ...}）")
-		}
-	}
-	var recipe ReplayRecipe
-	if err := json.Unmarshal(primitives, &recipe); err != nil {
-		return evaluator.Result{}, fmt.Errorf("web.Replayer: 解析复现配方失败: %w", err)
-	}
-	return replayWeb(ctx, recipe)
 }
 
 // replayGeneric 无机器重放通道：配方原样回显给裁决官（其经 run_command 按 recipe 步骤
@@ -346,7 +325,7 @@ var commonSuccessCodes = map[int]bool{200: true, 301: true, 302: true, 304: true
 
 // assertDiscriminative 闸门鉴别力守卫（假阳性第一道机器防线）：
 //   - body_contains 每个子串须 ≥ minBodyContainsLen 个字符（修剪后按字节计）
-//   注意：已移除自指检查和无 baseline 的强谓词检查，让 LLM Judge 做最终判断
+//     注意：已移除自指检查和无 baseline 的强谓词检查，让 LLM Judge 做最终判断
 func assertDiscriminative(a Assertion, exploitSrc httpreplay.Source, hasBaseline bool) error {
 	for _, want := range a.BodyContains {
 		if len(strings.TrimSpace(want)) < minBodyContainsLen {
@@ -355,24 +334,24 @@ func assertDiscriminative(a Assertion, exploitSrc httpreplay.Source, hasBaseline
 		// 移除自指检测：让 LLM Judge 判断这种情况
 		// 原因：有些合理的场景可能被误伤（如检查 payload 回显）
 		/*
-		if strings.Contains(strings.ToLower(exploitSrc.URL), strings.ToLower(strings.TrimSpace(want))) {
-			return fmt.Errorf("%w: body_contains 子串 %q 就是请求 URL 的组成部分（自指：正常响应也必命中）。断言应捕捉攻击响应独有特征，而不是页面本来就有的内容", evaluator.ErrAssertNotDiscriminative, want)
-		}
+			if strings.Contains(strings.ToLower(exploitSrc.URL), strings.ToLower(strings.TrimSpace(want))) {
+				return fmt.Errorf("%w: body_contains 子串 %q 就是请求 URL 的组成部分（自指：正常响应也必命中）。断言应捕捉攻击响应独有特征，而不是页面本来就有的内容", evaluator.ErrAssertNotDiscriminative, want)
+			}
 		*/
 	}
 	// 移除无 baseline 时的强谓词检查
 	// 让 LLM Judge 判断 status_code=200 是否有意义
 	/*
-	if hasBaseline {
-		return nil // 有良性对照：鉴别力由运行时基线差分护栏判定
-	}
-	strong := len(a.BodyContains) > 0 || len(a.HeaderContains) > 0 || a.MinDurationMs != nil
-	if !strong && a.StatusCode != nil && !commonSuccessCodes[*a.StatusCode] {
-		strong = true // 非常态状态码（401/403/500…）本身可为信号
-	}
-	if !strong {
-		return fmt.Errorf("%w: 无 baseline 时至少需要一个强谓词（body_contains/header_contains/min_duration_ms，或非 200/301/302/304 的 status_code）。页面常态断言（裸 status_code=200 类）命中不构成漏洞证据；建议附 baseline 良性对照", evaluator.ErrAssertNotDiscriminative)
-	}
+		if hasBaseline {
+			return nil // 有良性对照：鉴别力由运行时基线差分护栏判定
+		}
+		strong := len(a.BodyContains) > 0 || len(a.HeaderContains) > 0 || a.MinDurationMs != nil
+		if !strong && a.StatusCode != nil && !commonSuccessCodes[*a.StatusCode] {
+			strong = true // 非常态状态码（401/403/500…）本身可为信号
+		}
+		if !strong {
+			return fmt.Errorf("%w: 无 baseline 时至少需要一个强谓词（body_contains/header_contains/min_duration_ms，或非 200/301/302/304 的 status_code）。页面常态断言（裸 status_code=200 类）命中不构成漏洞证据；建议附 baseline 良性对照", evaluator.ErrAssertNotDiscriminative)
+		}
 	*/
 	return nil
 }
@@ -426,9 +405,9 @@ func replayWeb(ctx context.Context, recipe ReplayRecipe) (evaluator.Result, erro
 		// 原因：Executor 生成的断言质量不稳定，机器护栏过早证伪导致 LLM Judge 无法运行
 		// LLM Judge 会看到完整的 exploit 和 baseline 响应，能更智能地判断攻击是否成功
 		/*
-		if basePassed, _ := recipe.Assert.eval(bres, baseDur); basePassed {
-			return evaluator.Result{}, fmt.Errorf("web.Replayer: %w——基线（良性请求）同样满足全部谓词，命中不构成漏洞证据（断言应捕捉利用响应独有特征：报错回显/数据泄露/延迟）", evaluator.ErrAssertNotDiscriminative)
-		}
+			if basePassed, _ := recipe.Assert.eval(bres, baseDur); basePassed {
+				return evaluator.Result{}, fmt.Errorf("web.Replayer: %w——基线（良性请求）同样满足全部谓词，命中不构成漏洞证据（断言应捕捉利用响应独有特征：报错回显/数据泄露/延迟）", evaluator.ErrAssertNotDiscriminative)
+			}
 		*/
 	}
 

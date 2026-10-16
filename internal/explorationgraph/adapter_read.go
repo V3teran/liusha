@@ -79,7 +79,7 @@ func (s *Store) ListObservationsByConfidence(ctx context.Context, taskID string,
 	query := core.GraphNodeQuery{
 		Kind: string(core.KindObservation),
 		Filters: map[string]interface{}{
-			"task_id":            taskID,
+			"task_id":             taskID,
 			"metadata.confidence": string(confidence),
 		},
 		OrderBy: "created_at",
@@ -178,4 +178,3 @@ func (s *Store) GetObjective(ctx context.Context, taskID string) (ObjectiveNode,
 
 	return obj, nil
 }
-

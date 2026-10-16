@@ -15,7 +15,7 @@ func prepareAnthropicRequest(msgs []Message, tools []ToolSchema, model anthropic
 	if err != nil {
 		return anthropic.MessageNewParams{}, fmt.Errorf("convert messages: %w", err)
 	}
-	
+
 	anthropicTools, err := toAnthropicTools(tools)
 	if err != nil {
 		return anthropic.MessageNewParams{}, fmt.Errorf("convert tools: %w", err)
@@ -26,7 +26,7 @@ func prepareAnthropicRequest(msgs []Message, tools []ToolSchema, model anthropic
 		MaxTokens: maxTokens,
 		Messages:  anthropicMsgs,
 	}
-	
+
 	if len(systemBlocks) > 0 {
 		params.System = systemBlocks
 	}

@@ -75,7 +75,7 @@ type Result struct {
 type Attempt struct {
 	TaskID     string          // = assignment_id，图归属（一次交战一个图）
 	NodeID     string          // 溯源到的源节点 ID（可空）
-	Kind       core.NodeKind   // 坐实后的节点类型（observation/discovery）
+	Kind       core.NodeKind   // 坐实后的节点类型（result）
 	Primitives json.RawMessage // 要回放的 L1 原语序列
 	Content    json.RawMessage // 坐实后写入节点的载荷（severity/taxonomy/evidence…）
 	Priority   string          // 优先级（critical/high/medium/low）

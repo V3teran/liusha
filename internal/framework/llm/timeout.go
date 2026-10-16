@@ -58,5 +58,5 @@ func (p *timeoutProvider) CountTokens(ctx context.Context, req Request) (int, er
 	return p.inner.CountTokens(ctx, req)
 }
 
-func (p *timeoutProvider) ModelID() string     { return p.inner.ModelID() }
+func (p *timeoutProvider) ModelID() string    { return p.inner.ModelID() }
 func (p *timeoutProvider) ProviderID() string { return p.inner.ProviderID() }

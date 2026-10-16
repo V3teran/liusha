@@ -63,10 +63,11 @@ func setupExecDirs(req *sandbox.ExecRequest, w http.ResponseWriter) (workspaceDi
 	return workspaceDir, outputDir, profileDir, true
 }
 
-// buildExecCommand 构建执行命令
-func buildExecCommand(ctx context.Context, req *sandbox.ExecRequest, workspaceDir, outputDir, profileDir string, timeout time.Duration) (*exec.Cmd, context.Context) {
-	cmdCtx, _ := context.WithTimeout(ctx, timeout)
-	
+// buildExecCommand 构建执行命令。返回的 cancel 必须由调用方在命令结束后
+// 调用（通常是 defer），否则定时器句柄泄漏到请求生命周期之外。
+func buildExecCommand(ctx context.Context, req *sandbox.ExecRequest, workspaceDir, outputDir, profileDir string, timeout time.Duration) (*exec.Cmd, context.Context, context.CancelFunc) {
+	cmdCtx, cancel := context.WithTimeout(ctx, timeout)
+
 	cmd := exec.CommandContext(cmdCtx, "sh", "-c", req.Command) // #nosec G204
 	cmd.Dir = workspaceDir
 	cmd.Env = append(os.Environ(),
@@ -85,7 +86,7 @@ func buildExecCommand(ctx context.Context, req *sandbox.ExecRequest, workspaceDi
 	}
 	cmd.WaitDelay = execWaitDelay
 
-	return cmd, cmdCtx
+	return cmd, cmdCtx, cancel
 }
 
 // executeCommand 执行命令并捕获输出

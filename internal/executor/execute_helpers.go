@@ -353,10 +353,9 @@ func (e *Engine) processExecutorOutput(
 				Msg("收集 ExecutionTrace 失败，使用空 trace")
 			// 使用空 trace，不影响流程
 			trace = ExecutionTrace{
-				Traffic:     []TrafficRecord{},
-				Session:     SessionState{Cookies: make(map[string]string)},
-				KeyRequests: KeyRequestMarkers{},
-				Meta:        TraceMeta{},
+				Traffic: []TrafficRecord{},
+				Session: SessionState{Cookies: make(map[string]string)},
+				Meta:    TraceMeta{},
 			}
 		} else {
 			e.logger.Info().
@@ -369,10 +368,9 @@ func (e *Engine) processExecutorOutput(
 			Str("action_id", action.ID).
 			Msg("TraceCollector 未配置，无法收集 trace")
 		trace = ExecutionTrace{
-			Traffic:     []TrafficRecord{},
-			Session:     SessionState{Cookies: make(map[string]string)},
-			KeyRequests: KeyRequestMarkers{},
-			Meta:        TraceMeta{},
+			Traffic: []TrafficRecord{},
+			Session: SessionState{Cookies: make(map[string]string)},
+			Meta:    TraceMeta{},
 		}
 	}
 
@@ -402,8 +400,8 @@ func (e *Engine) processExecutorOutput(
 				Msg("observation 缺少 repro（可能是降级模式生成的假设），仍继续创建")
 		}
 
-		// 附加 ExecutionTrace 到 observation（治本方案的核心）
-		// Evaluator 将使用这个完整的 trace 进行验证，而不是依赖不可靠的 repro
+		// 附加 ExecutionTrace 到 observation：裁决官看到的是完整执行轨迹，
+		// 而不是 executor 转述的不可靠结论
 		obs.ExecutionTrace = &trace
 
 		e.logger.Debug().

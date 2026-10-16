@@ -96,28 +96,28 @@ func (i *Intelligence) AnalyzeResults(ctx context.Context, graph *explorationgra
 // buildAnalysisPrompt 构建 Result 分析 prompt
 func (i *Intelligence) buildAnalysisPrompt(currentObjective explorationgraph.Node, results []explorationgraph.Node, actionCount int) string {
 	var sb strings.Builder
-	
+
 	// 1. 头部
 	sb.WriteString(buildAnalysisHeader())
-	
+
 	// 2. Action 数量警告
 	sb.WriteString(buildActionCountWarning(actionCount))
-	
+
 	// 3. 当前 Objective
 	sb.WriteString(buildCurrentObjectiveSection(currentObjective))
-	
+
 	// 4. 已有 Results
 	sb.WriteString(buildAnalysisResultsSection(results))
-	
+
 	// 5. 决策流程指导
 	sb.WriteString(buildDecisionGuide())
-	
+
 	// 6. 响应格式
 	sb.WriteString(buildResponseFormat())
-	
+
 	// 7. 关键提示
 	sb.WriteString(buildKeyReminders())
-	
+
 	return sb.String()
 }
 

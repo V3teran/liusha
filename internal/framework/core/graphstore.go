@@ -65,7 +65,6 @@ type GraphStore interface {
 
 	// DeleteEdge 删除边
 	DeleteEdge(ctx context.Context, from, to, relation string) error
-
 }
 
 // GraphNode 是图节点的通用表示。

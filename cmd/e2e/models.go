@@ -52,22 +52,3 @@ func (ac AcceptanceCriteria) DiagnosticMessage(stats GraphStats) string {
 
 	return msg
 }
-
-// IsStuck 检测任务是否卡住（无进展）
-func IsStuck(stats GraphStats) bool {
-	// 如果有 objective 但没有 action，说明 Planner 生成目标后 Executor 没动
-	if stats.Objectives > 0 && stats.Actions == 0 {
-		return true
-	}
-
-	return false
-}
-
-// StuckReason 返回卡住的原因
-func StuckReason(stats GraphStats) string {
-	if stats.Objectives > 0 && stats.Actions == 0 {
-		return fmt.Sprintf("Planner 已生成 %d 个目标，但 Executor 未执行任何动作", stats.Objectives)
-	}
-
-	return ""
-}
