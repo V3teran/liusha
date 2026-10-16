@@ -35,44 +35,47 @@ type Engine struct {
 	brief         string                  // 任务简报原文（用户指定的入口 URL 等，逐字渲染进 system prompt——防转录漂移）
 	agentRunID    string                  // 本轮认知循环的 agent_run.id（LLM 审计归属）
 	checkpointer  core.Checkpointer
+	traceCollector *TraceCollector        // trace 收集器（从 agent_traffic 构建完整执行轨迹）
 	logger        zerolog.Logger
 }
 
 // EngineConfig 配置
 type EngineConfig struct {
-	Router        *llm.Router
-	Findings      FindingLister
-	Graph         *explorationgraph.Store
-	Registry      *Registry
-	FunctionTools []string      // function_tools 白名单（agent 配置；nil=全量，空=空集）
-	ToolsManifest ToolsManifest // 过滤后的 CLI 工具清单
-	Skills        []*skill.Card // agent.skills 声明的 skill 索引（Tier 1；渐进式加载的目录层）
-	SystemPrompt  string        // 角色章程（agent.system_prompt 正文；渲染进 prompt 开头，空=跳过）
-	Complexity    string        // LLM 档位（agent.complexity，simple|medium|complex；空回退 medium）
-	MaxIterations int           // ReAct 迭代上限（agent.max_iterations；0=不设限）
-	Brief         string        // 任务简报原文（可选；渲染进 system prompt 作入口锚定）
-	AgentRunID    string        // 本轮认知循环的 agent_run.id（LLM 审计归属；空 = 审计行不挂 run）
-	Checkpointer  core.Checkpointer
-	Logger        zerolog.Logger
+	Router         *llm.Router
+	Findings       FindingLister
+	Graph          *explorationgraph.Store
+	Registry       *Registry
+	FunctionTools  []string      // function_tools 白名单（agent 配置；nil=全量，空=空集）
+	ToolsManifest  ToolsManifest // 过滤后的 CLI 工具清单
+	Skills         []*skill.Card // agent.skills 声明的 skill 索引（Tier 1；渐进式加载的目录层）
+	SystemPrompt   string        // 角色章程（agent.system_prompt 正文；渲染进 prompt 开头，空=跳过）
+	Complexity     string        // LLM 档位（agent.complexity，simple|medium|complex；空回退 medium）
+	MaxIterations  int           // ReAct 迭代上限（agent.max_iterations；0=不设限）
+	Brief          string        // 任务简报原文（可选；渲染进 system prompt 作入口锚定）
+	AgentRunID     string        // 本轮认知循环的 agent_run.id（LLM 审计归属；空 = 审计行不挂 run）
+	Checkpointer   core.Checkpointer
+	TraceCollector *TraceCollector // trace 收集器（从 agent_traffic 构建完整执行轨迹）
+	Logger         zerolog.Logger
 }
 
 // NewEngine 创建执行引擎
 func NewEngine(cfg EngineConfig) *Engine {
 	return &Engine{
-		router:        cfg.Router,
-		findings:      cfg.Findings,
-		graph:         cfg.Graph,
-		registry:      cfg.Registry,
-		functionTools: cfg.FunctionTools,
-		toolsManifest: cfg.ToolsManifest,
-		skills:        cfg.Skills,
-		charter:       cfg.SystemPrompt,
-		complexity:    llm.ParseComplexity(cfg.Complexity),
-		maxIt:         cfg.MaxIterations,
-		brief:         cfg.Brief,
-		agentRunID:    cfg.AgentRunID,
-		checkpointer:  cfg.Checkpointer,
-		logger:        cfg.Logger.With().Str("component", "executor_engine").Logger(),
+		router:         cfg.Router,
+		findings:       cfg.Findings,
+		graph:          cfg.Graph,
+		registry:       cfg.Registry,
+		functionTools:  cfg.FunctionTools,
+		toolsManifest:  cfg.ToolsManifest,
+		skills:         cfg.Skills,
+		charter:        cfg.SystemPrompt,
+		complexity:     llm.ParseComplexity(cfg.Complexity),
+		maxIt:          cfg.MaxIterations,
+		brief:          cfg.Brief,
+		agentRunID:     cfg.AgentRunID,
+		checkpointer:   cfg.Checkpointer,
+		traceCollector: cfg.TraceCollector,
+		logger:         cfg.Logger.With().Str("component", "executor_engine").Logger(),
 	}
 }
 

@@ -44,16 +44,19 @@ func (f *fakeGraphStore) RecordVerification(_ context.Context, v explorationgrap
 func (f *fakeGraphStore) CreateNode(_ context.Context, n explorationgraph.Node) (string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	nodeID := "node-" + string(n.Kind)
-	n.ID = nodeID
+	if n.ID == "" {
+		n.ID = "node-" + string(n.Kind)
+	}
 	f.nodes = append(f.nodes, n)
-	return nodeID, nil
+	return n.ID, nil
 }
 
 func (f *fakeGraphStore) CreateNodeWithEdges(_ context.Context, n explorationgraph.Node, edges []explorationgraph.Edge) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	n.ID = "node-" + string(n.Kind)
+	if n.ID == "" {
+		n.ID = "node-" + string(n.Kind)
+	}
 	f.nodes = append(f.nodes, n)
 	f.edges = append(f.edges, edges...)
 	return nil
@@ -67,6 +70,18 @@ func (f *fakeGraphStore) UpdateNodeMetadata(_ context.Context, id string, metada
 	}
 	f.metadata[id] = metadata
 	return nil
+}
+
+func (f *fakeGraphStore) ListResults(_ context.Context, _ string) ([]explorationgraph.Node, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var results []explorationgraph.Node
+	for _, n := range f.nodes {
+		if n.Kind == core.KindResult {
+			results = append(results, n)
+		}
+	}
+	return results, nil
 }
 
 // fakeReplayer 按预设结论回应复现。
@@ -266,9 +281,9 @@ func TestPromote_MachineGuardRefutesWhenAssertFails(t *testing.T) {
 	w := &fakeGraphStore{verID: "ver-mg1"}
 	fw := &fakeFindingWriter{}
 	judgeCalled := false
-	j := judgeFunc(func(context.Context, string, json.RawMessage, json.RawMessage, ReplayFunc) (string, string, error) {
+	j := judgeFunc(func(context.Context, string, json.RawMessage, json.RawMessage, ReplayFunc) (Verdict, error) {
 		judgeCalled = true
-		return VerdictConfirmed, "不该被调到", nil
+		return Verdict{Verdict: VerdictConfirmed, Reasoning: "不该被调到"}, nil
 	})
 	failed := Result{Evaluation: json.RawMessage(`{"url":"http://t/x","assert_passed":false,"assert_reasons":["body 缺 \"<script>\" ✗"],"attack_status_code":404}`)}
 	v := New(w, fakeReplayer{res: failed}, fw).WithJudge(j)
@@ -310,19 +325,20 @@ func TestPromote_MachineGuardPassesThrough(t *testing.T) {
 	}
 }
 
-type judgeFunc func(context.Context, string, json.RawMessage, json.RawMessage, ReplayFunc) (string, string, error)
+type judgeFunc func(context.Context, string, json.RawMessage, json.RawMessage, ReplayFunc) (Verdict, error)
 
-func (f judgeFunc) Judge(ctx context.Context, hyp string, recipe, ev json.RawMessage, replay ReplayFunc) (string, string, error) {
+func (f judgeFunc) Judge(ctx context.Context, hyp string, recipe, ev json.RawMessage, replay ReplayFunc) (Verdict, error) {
 	return f(ctx, hyp, recipe, ev, replay)
 }
 
 type stubJudge struct {
-	verdict   string
-	reasoning string
+	verdict     string
+	reasoning   string
+	fingerprint *FindingFingerprint
 }
 
-func (s stubJudge) Judge(_ context.Context, _ string, _, _ json.RawMessage, _ ReplayFunc) (string, string, error) {
-	return s.verdict, s.reasoning, nil
+func (s stubJudge) Judge(_ context.Context, _ string, _, _ json.RawMessage, _ ReplayFunc) (Verdict, error) {
+	return Verdict{Verdict: s.verdict, Reasoning: s.reasoning, Fingerprint: s.fingerprint}, nil
 }
 
 // 同一配方（字节级相同）只裁一次：第二次进门的 Attempt 沿用既有裁决——
@@ -394,12 +410,12 @@ type replayJudge struct {
 	times   int
 }
 
-func (s *replayJudge) Judge(_ context.Context, _ string, _, _ json.RawMessage, replay ReplayFunc) (string, string, error) {
+func (s *replayJudge) Judge(_ context.Context, _ string, _, _ json.RawMessage, replay ReplayFunc) (Verdict, error) {
 	s.replay = replay
 	for i := 0; i < s.times; i++ {
 		_, _ = replay(context.Background())
 	}
-	return s.verdict, "自主复放后裁决", nil
+	return Verdict{Verdict: s.verdict, Reasoning: "自主复放后裁决"}, nil
 }
 
 // 裁决官复放的审计落 verification.evidence.replays（预跑 + 每次裁决复放），
@@ -480,8 +496,8 @@ func TestPromote_RefutedWritesNoNodes(t *testing.T) {
 
 type errJudge struct{}
 
-func (errJudge) Judge(_ context.Context, _ string, _, _ json.RawMessage, _ ReplayFunc) (string, string, error) {
-	return "", "", errors.New("judge down")
+func (errJudge) Judge(_ context.Context, _ string, _, _ json.RawMessage, _ ReplayFunc) (Verdict, error) {
+	return Verdict{}, errors.New("judge down")
 }
 
 // 并发语义：信号量取号在工作协程内——验证占满并发时事件循环不被阻塞
@@ -532,5 +548,95 @@ func (s slowReplayer) Replay(ctx context.Context, _ json.RawMessage) (Result, er
 		return s.res, nil
 	case <-ctx.Done():
 		return Result{}, ctx.Err()
+	}
+}
+
+// 语义去重：同一漏洞（同指纹）的第二次确认折叠为既有发现的佐证——
+// 不新建 result、不重写 finding，假设节点标记 duplicate_of 并指向既有发现。
+func TestPromote_SemanticDedupFoldsDuplicateConfirmations(t *testing.T) {
+	w := &fakeGraphStore{verID: "ver-d1"}
+	fw := &fakeFindingWriter{}
+	fp := &FindingFingerprint{
+		Class: "reflected_xss", Method: "GET", Host: "t.local:8080", Path: "/vuln/xss_r/", Param: "name",
+	}
+	replayRes := Result{Evaluation: json.RawMessage(`{"url":"http://t.local:8080/vuln/xss_r/?name=p","assert_passed":true}`), DurationMs: 5}
+
+	first := New(w, fakeReplayer{res: replayRes}, fw).
+		WithJudge(stubJudge{verdict: VerdictConfirmed, reasoning: "首次坐实", fingerprint: fp})
+	node1, err := first.Promote(context.Background(), baseAttempt())
+	if err != nil || node1 == nil {
+		t.Fatalf("首次确认应晋升: node=%v err=%v", node1, err)
+	}
+	if len(w.nodes) != 1 || len(fw.findings) != 1 {
+		t.Fatalf("首次确认应建 1 节点 + 1 finding: nodes=%d findings=%d", len(w.nodes), len(fw.findings))
+	}
+
+	// 不同假设（不同源节点/不同陈述）但同指纹的第二次确认
+	secondAttempt := baseAttempt()
+	secondAttempt.NodeID = "node-source-2"
+	second := New(w, fakeReplayer{res: replayRes}, fw).
+		WithJudge(stubJudge{verdict: VerdictConfirmed, reasoning: "换 payload 再证", fingerprint: fp})
+	node2, err := second.Promote(context.Background(), secondAttempt)
+	if err != nil {
+		t.Fatalf("重复确认不应报错: %v", err)
+	}
+	if node2 == nil || node2.ID != node1.ID {
+		t.Fatalf("重复确认应返回既有发现: node2=%v want=%v", node2, node1)
+	}
+	if len(w.nodes) != 1 {
+		t.Fatalf("同指纹不得新建节点: nodes=%d", len(w.nodes))
+	}
+	if len(fw.findings) != 1 {
+		t.Fatalf("同指纹不得重写 finding: findings=%d", len(fw.findings))
+	}
+
+	// 假设节点标记：confirmed + duplicate_of + promoted_node 指向既有发现
+	var mark struct {
+		Confidence          string `json:"confidence"`
+		VerificationOutcome string `json:"verification_outcome"`
+		DuplicateOf         string `json:"duplicate_of"`
+		PromotedNode        string `json:"promoted_node"`
+	}
+	if raw := w.metadata["node-source-2"]; raw == nil || json.Unmarshal(raw, &mark) != nil {
+		t.Fatalf("第二假设应有审判标记: %+v", w.metadata["node-source-2"])
+	}
+	if mark.Confidence != "verified" || mark.VerificationOutcome != "confirmed" ||
+		mark.DuplicateOf != node1.ID || mark.PromotedNode != node1.ID {
+		t.Fatalf("标记形状不符: %+v", mark)
+	}
+
+	// 审计链：第二次 verification 带 duplicate_of
+	if len(w.verifications) != 2 {
+		t.Fatalf("应有 2 条审计: %d", len(w.verifications))
+	}
+	var ev struct {
+		DuplicateOf string `json:"duplicate_of"`
+	}
+	if json.Unmarshal(w.verifications[1].Evaluation, &ev) != nil || ev.DuplicateOf != node1.ID {
+		t.Fatalf("第二条审计应带 duplicate_of: %s", w.verifications[1].Evaluation)
+	}
+}
+
+// 指纹缺失（裁决官没给 finding 字段）时去重静默降级——照常晋升，不因缺指纹丢发现。
+func TestPromote_MissingFingerprintPromotesNormally(t *testing.T) {
+	w := &fakeGraphStore{verID: "ver-d2"}
+	v := New(w, fakeReplayer{res: Result{Evaluation: json.RawMessage(`{"assert_passed":true}`)}}, &fakeFindingWriter{}).
+		WithJudge(stubJudge{verdict: VerdictConfirmed, reasoning: "无指纹"})
+	node, err := v.Promote(context.Background(), baseAttempt())
+	if err != nil || node == nil {
+		t.Fatalf("缺指纹应照常晋升: node=%v err=%v", node, err)
+	}
+}
+
+// 指纹规范形：大小写/尾斜杠/空白从宽归一——同义报告必须同键。
+func TestFindingFingerprintKeyNormalization(t *testing.T) {
+	a := &FindingFingerprint{Class: "Reflected_XSS", Method: "get", Host: "T.Local:8080", Path: "/vuln/xss_r/", Param: " Name "}
+	b := &FindingFingerprint{Class: "reflected_xss", Method: "GET", Host: "t.local:8080", Path: "/vuln/xss_r", Param: "name"}
+	if a.Key() == "" || a.Key() != b.Key() {
+		t.Fatalf("同义指纹应同键: %q vs %q", a.Key(), b.Key())
+	}
+	c := &FindingFingerprint{Class: "stored_xss", Method: "GET", Host: "t.local:8080", Path: "/vuln/xss_r", Param: "name"}
+	if c.Key() == a.Key() {
+		t.Fatal("不同类别不得同键")
 	}
 }

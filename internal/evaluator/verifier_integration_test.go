@@ -24,8 +24,8 @@ func (s stubReplayer) Replay(context.Context, json.RawMessage) (evaluator.Result
 // verdictJudge 固定裁决（集成测试只测 store 咬合，语义裁决由单测覆盖）。
 type verdictJudge struct{ verdict string }
 
-func (j verdictJudge) Judge(context.Context, string, json.RawMessage, json.RawMessage, evaluator.ReplayFunc) (string, string, error) {
-	return j.verdict, "集成测试固定裁决", nil
+func (j verdictJudge) Judge(context.Context, string, json.RawMessage, json.RawMessage, evaluator.ReplayFunc) (evaluator.Verdict, error) {
+	return evaluator.Verdict{Verdict: j.verdict, Reasoning: "集成测试固定裁决"}, nil
 }
 
 // TestEvaluator_PromoteAgainstRealStore 用真 explorationgraph.Store 跑晋升门，证明：
@@ -113,9 +113,9 @@ func TestEvaluator_PromoteAgainstRealStore(t *testing.T) {
 // replayJudgeITest 裁决前自主复放一次（模拟 RouterJudge 的 replay_for_verification）。
 type replayJudgeITest struct{ verdict string }
 
-func (j replayJudgeITest) Judge(_ context.Context, _ string, _, _ json.RawMessage, replay evaluator.ReplayFunc) (string, string, error) {
+func (j replayJudgeITest) Judge(_ context.Context, _ string, _, _ json.RawMessage, replay evaluator.ReplayFunc) (evaluator.Verdict, error) {
 	_, _ = replay(context.Background())
-	return j.verdict, "集成测试复放后裁决", nil
+	return evaluator.Verdict{Verdict: j.verdict, Reasoning: "集成测试复放后裁决"}, nil
 }
 
 // TestEvaluator_WritesOnlyResultNodes 真 store 下锁定图的写权限不变式：

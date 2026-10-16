@@ -153,11 +153,11 @@ func TestCompleteDataFlow(t *testing.T) {
 	_, err = store.CreateNode(ctx, discovery)
 	require.NoError(t, err)
 
-	// 创建边：observation supports discovery
+	// 创建边：observation generates discovery（晋升溯源——evaluator 落的推导链边）
 	err = store.CreateBusinessEdge(ctx, Edge{
 		SrcID:     observation.ID,
 		DstID:     discovery.ID,
-		Rel:       RelConfirms,
+		Rel:       RelGenerates,
 		TaskID:    taskID,
 		CreatedAt: time.Now(),
 	})

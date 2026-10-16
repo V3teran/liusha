@@ -65,9 +65,9 @@ func (e *Engine) buildReActConfigWithMonitoring(
 
 	// 构建中间件链：防止工具循环、目标偏离、无进展
 	middlewareChain := runtime.NewMiddlewareChain(
-		runtime.NewLoopDetectionMiddleware(10, 8),           // 连续 10 次相同工具 / 8 次相似思考
-		runtime.NewProgressTrackingMiddleware(15, 10),       // 15 次无新输出 / 10 次连续失败
-		runtime.NewGoalAlignmentMiddleware(objective, 6),    // 6 次偏离目标
+		runtime.NewLoopDetectionMiddleware(10, 8),        // 连续 10 次相同工具 / 8 次相似思考
+		runtime.NewProgressTrackingMiddleware(15, 10),    // 15 次无新输出 / 10 次连续失败
+		runtime.NewGoalAlignmentMiddleware(objective, 6), // 6 次偏离目标
 	)
 
 	// 构建配置，包含 monitor kill 检查
@@ -82,6 +82,49 @@ func (e *Engine) buildReActConfigWithMonitoring(
 		MessageModifierChain: runtime.NewDefaultModifierChain(15),
 		MiddlewareChain:      middlewareChain,
 		TaskID:               action.TaskID,
+		// Executor 的结构化输出格式
+		OutputFormatPrompt: "你刚才完成了测试任务，现在需要输出结构化的观察结果。",
+		OutputFormatSchema: `请输出以下JSON格式：
+
+` + "```json\n" + `{
+  "status": "completed",
+  "summary": "简要总结你完成的工作",
+  "observations": [
+    {
+      "statement": "你发现的具体问题或观察（例如：发现XSS漏洞）",
+      "reasoning": "你为什么得出这个结论",
+      "test_plan": "如何验证这个发现",
+      "confidence": "low/medium/high",
+      "severity": "low/medium/high/critical",
+      "repro": {
+        "domain": "web",
+        "recipe": {
+          "request": {
+            "method": "GET",
+            "url": "http://example.com/vulnerable",
+            "headers": {"Cookie": "session=abc"},
+            "body": ""
+          }
+        },
+        "assert": {
+          "body_contains": ["<script>alert(1)</script>", "XSS"],
+          "status_code": 200
+        }
+      }
+    }
+  ]
+}
+` + "```\n\n" + `说明：
+- observations 只放两类内容：(1) 漏洞假设——必须带完整 repro；(2) 关键执行结论（如认证已建立/攻击面确认等对后续动作有决策价值的上下文）——不带 repro 字段
+- 不要把纯过程性记录（"访问了某页"、"请求返回 200"）写成 observation
+- 如果没有发现问题时，observations 可以是空数组 []
+- 漏洞 observation 必须包含完整的repro复现步骤
+- ⚠️ 重要：domain="web"时，assert必须包含至少一个机器可验证的字段：
+  * body_contains: 响应体必须包含的字符串数组（推荐）
+  * status_code: 期望的HTTP状态码（数字）
+  * header_contains: 响应头必须包含的字段，格式为对象 {"Header-Name": "substring"}，不是数组
+  * body_not_contains: 响应体必须不含的字符串数组（如未跳登录页=认证绕过坐实）
+- 不要只写description，必须提供具体的断言条件`,
 		// kill 止血：迭代回调发现 action 已被 monitor kill（aborted）→ 置位，
 		// 提前终止条件在下一轮立即结束 ReAct——不再空跑剩余迭代。
 		EarlyStopCondition: func(string) bool { return killed.Load() },
@@ -297,6 +340,41 @@ func (e *Engine) processExecutorOutput(
 		Int("observations_count", len(output.Observations)).
 		Msg("解析 Executor 输出")
 
+	// 收集 ExecutionTrace（治本方案的核心）
+	// 从 agent_traffic 读取这个 action 产生的所有 HTTP 流量
+	var trace ExecutionTrace
+	if e.traceCollector != nil {
+		trace, err = e.traceCollector.CollectTrace(ctx, action.TaskID, action.ID)
+		if err != nil {
+			e.logger.Warn().
+				Err(err).
+				Str("action_id", action.ID).
+				Msg("收集 ExecutionTrace 失败，使用空 trace")
+			// 使用空 trace，不影响流程
+			trace = ExecutionTrace{
+				Traffic:     []TrafficRecord{},
+				Session:     SessionState{Cookies: make(map[string]string)},
+				KeyRequests: KeyRequestMarkers{},
+				Meta:        TraceMeta{},
+			}
+		} else {
+			e.logger.Info().
+				Str("action_id", action.ID).
+				Int("traffic_count", trace.Meta.TotalCount).
+				Msg("成功收集 ExecutionTrace")
+		}
+	} else {
+		e.logger.Warn().
+			Str("action_id", action.ID).
+			Msg("TraceCollector 未配置，无法收集 trace")
+		trace = ExecutionTrace{
+			Traffic:     []TrafficRecord{},
+			Session:     SessionState{Cookies: make(map[string]string)},
+			KeyRequests: KeyRequestMarkers{},
+			Meta:        TraceMeta{},
+		}
+	}
+
 	// 为每个观察结果创建 observation 节点
 	var attempts []evaluator.Attempt
 
@@ -322,6 +400,16 @@ func (e *Engine) processExecutorOutput(
 				Str("statement", obs.Statement).
 				Msg("observation 缺少 repro（可能是降级模式生成的假设），仍继续创建")
 		}
+
+		// 附加 ExecutionTrace 到 observation（治本方案的核心）
+		// Evaluator 将使用这个完整的 trace 进行验证，而不是依赖不可靠的 repro
+		obs.ExecutionTrace = &trace
+
+		e.logger.Debug().
+			Str("action_id", action.ID).
+			Int("observation_index", i).
+			Int("trace_traffic_count", trace.Meta.TotalCount).
+			Msg("已附加 ExecutionTrace 到 observation")
 
 		// 创建 observation 节点
 		node, err := e.createObservationNode(ctx, action.TaskID, action.ID, obs)

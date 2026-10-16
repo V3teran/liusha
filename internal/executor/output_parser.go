@@ -16,15 +16,7 @@ type ExecutorOutput struct {
 	Observations []Observation `json:"observations"` // 观察结果列表
 }
 
-// Observation 是单个观察结果的结构（通用）
-type Observation struct {
-	Statement  string          `json:"statement"`  // 观察陈述
-	Reasoning  string          `json:"reasoning"`  // 推理过程
-	TestPlan   string          `json:"test_plan"`  // 验证计划
-	Confidence string          `json:"confidence"` // low/medium/high
-	Severity   string          `json:"severity"`   // low/medium/high/critical
-	Repro      json.RawMessage `json:"repro"`      // 复现配方
-}
+// 注意：Observation 定义在 observation_v2.go
 
 // ParseExecutorOutput 从 ReAct 结果中解析 Executor 的输出
 func ParseExecutorOutput(result *runtime.ReActResult) (*ExecutorOutput, error) {

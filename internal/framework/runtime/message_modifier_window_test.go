@@ -10,7 +10,7 @@ import (
 )
 
 // mkMsg 构造单条消息。
-func mkMsg(role llm.Role, content string) llm.Message {
+func mkMsg(role llm.MessageRole, content string) llm.Message {
 	return llm.Message{Role: role, Content: content}
 }
 

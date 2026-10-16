@@ -27,6 +27,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -37,18 +38,19 @@ import (
 	"github.com/V3teran/liusha/internal/framework/core"
 )
 
-// graphWriter 是 Evaluator 依赖的探索图写入子集：收窄依赖 + 便于测试替身。
+// graphStore 是 Evaluator 依赖的探索图读写子集：收窄依赖 + 便于测试替身。
 // *explorationgraph.Store 自动满足本接口。
 //
 // 图的写权限不变式：planner 写 objective/action，executor 写 observation，
 // evaluator 只**新建** result（晋升）；对既有假设节点仅做 metadata 审判标记
 // （verification_outcome + confidence），不新建节点。复放证据不走图——
-// 落 exploration_verification 审计链。
-type graphWriter interface {
+// 落 exploration_verification 审计链。ListResults 供晋升前的语义去重对照。
+type graphStore interface {
 	RecordVerification(ctx context.Context, v explorationgraph.Verification) (string, error)
 	CreateNode(ctx context.Context, n explorationgraph.Node) (string, error)
 	CreateNodeWithEdges(ctx context.Context, n explorationgraph.Node, edges []explorationgraph.Edge) error
 	UpdateNodeMetadata(ctx context.Context, id string, metadata json.RawMessage) error
+	ListResults(ctx context.Context, taskID string) ([]explorationgraph.Node, error)
 }
 
 // findingWriter 是 Evaluator 依赖的 finding 写入子集：验证通过后才能写入 finding 表。
@@ -79,11 +81,78 @@ type Attempt struct {
 	Priority   string          // 优先级（critical/high/medium/low）
 }
 
-// Verdict 是 LLM 裁决的三态结论。
+// Verdict 是 LLM 裁决的两态结论字面量。
 const (
 	VerdictConfirmed = "confirmed"
 	VerdictRefuted   = "refuted"
 )
+
+// Verdict 是裁决官的终裁输出：结论 + 置信 + 理由 + 结构化指纹（坐实时给出，
+// 晋升门据此做语义去重）。
+type Verdict struct {
+	Verdict     string              // confirmed / refuted
+	Confidence  float64             // 0-1，裁决官自评
+	Reasoning   string              // 一句话裁决理由（引用亲见差分）
+	Fingerprint *FindingFingerprint // 坐实时的发现指纹；缺失则该发现不参与语义去重
+}
+
+// FindingFingerprint 是漏洞发现的语义指纹：判定权持有者对"什么洞、在哪个位置"
+// 的结构化回答。同类漏洞在同一位置的重复确认共享同一规范形——晋升门据此把
+// 第二次及以后的确认折叠为既有发现的佐证，不再新建 result、不再重写 finding。
+type FindingFingerprint struct {
+	Class  string `json:"class"`  // 漏洞类别，小写 snake_case（reflected_xss / stored_xss / sql_injection…）
+	Method string `json:"method"` // 请求方法
+	Host   string `json:"host"`   // 目标主机（含端口）
+	Path   string `json:"path"`   // URL 路径（不含 query）
+	Param  string `json:"param"`  // 注入点（参数名/头名/正文字段）；无明确注入点留空
+}
+
+// Key 返回规范形指纹串（比较与落库唯一用它）。归一化方向一律从宽：
+// 大小写折叠、路径去尾斜杠——去重的目标是合并同义报告，不是区分书写差异。
+func (f *FindingFingerprint) Key() string {
+	if f == nil {
+		return ""
+	}
+	norm := func(s string) string { return strings.ToLower(strings.TrimSpace(s)) }
+	return strings.Join([]string{
+		norm(f.Class),
+		norm(f.Method),
+		norm(f.Host),
+		strings.TrimSuffix(norm(f.Path), "/"),
+		norm(f.Param),
+	}, "|")
+}
+
+// fingerprintMetadataKey 是 result 节点 metadata 中指纹的落库键。
+const fingerprintMetadataKey = "finding_fingerprint"
+
+// 验证档位（verification_tier）：结论成色的显式标记，下游（报告/前端/planner）
+// 据此分级消费——judge_only 的结论没经过机器复放通道，含金量低于全门。
+const (
+	TierFullGate  = "full_gate"  // 机器复放采证 + LLM 终裁（web 域）
+	TierJudgeOnly = "judge_only" // 无机器重放通道，裁决官自主取证自主终裁（generic 域，含 web assert 不完整的降级配方）
+)
+
+// 反驳原因（refute_reason）：区分"证据没拿到"与"拿到了证据但不构成漏洞"——
+// planner 据此决定是换配方重试还是方向作废，两者处置不同。
+const (
+	RefuteNotReproducible         = "not_reproducible"          // 机器护栏：断言未命中/复放失败——配方或上下文问题，可换配方重试
+	RefuteNotAVuln                = "not_a_vuln"                // 裁决官语义证伪：复现了但不构成漏洞——方向作废
+	RefuteAssertNotDiscriminative = "assert_not_discriminative" // 质量门：断言无鉴别力，配方无法构成证据——须换断言重提
+)
+
+// verificationTier 从域信封判定验证档位。evaluator 不 import executor（会成环），
+// 域字面量与 executor.ReproEnvelope 的 domain 约定保持一致：web 有机器重放通道；
+// generic（含 web assert 不完整、被 evaluator agent 降级改写的配方）无机器通道。
+func verificationTier(primitives json.RawMessage) string {
+	var env struct {
+		Domain string `json:"domain"`
+	}
+	if err := json.Unmarshal(primitives, &env); err != nil || env.Domain == "generic" {
+		return TierJudgeOnly
+	}
+	return TierFullGate
+}
 
 // ErrAssertNotDiscriminative 是复现方的"质量拒绝"哨兵：断言无鉴别力
 // （自指、基线同样命中等）——配方被证明无法构成漏洞证据。这不是门故障
@@ -92,7 +161,7 @@ var ErrAssertNotDiscriminative = errors.New("assert not discriminative")
 
 // PromotionEvaluator 是 Observation→图节点的晋升门。
 type PromotionEvaluator struct {
-	graph    graphWriter
+	graph    graphStore
 	replayer Replayer
 	findings findingWriter   // 验证通过后写入 finding 表
 	judge    LLMJudge        // 可选：LLM 语义裁决（生产必配；nil=纯机器断言，供测试/降级）
@@ -103,7 +172,7 @@ type PromotionEvaluator struct {
 }
 
 // New 构造 Evaluator。replayer 为 nil 时 Promote 会报错（无复现能力即无晋升）。
-func New(graph graphWriter, replayer Replayer, findings findingWriter) *PromotionEvaluator {
+func New(graph graphStore, replayer Replayer, findings findingWriter) *PromotionEvaluator {
 	return &PromotionEvaluator{
 		graph:    graph,
 		replayer: replayer,
@@ -143,7 +212,7 @@ type replayRecord struct {
 // Promote 把一条 Observation 过复现门晋升成探索图节点。
 //
 // 返回值语义：
-//   - (node, nil)  复现坐实，已晋升成 verified 节点；
+//   - (node, nil)  复现坐实，已晋升成 verified 节点（node 为新建或沿用的既有发现）；
 //   - (nil, nil)   复现证伪，未进图（证据已留 exploration_verification 供审计）——非错误；
 //   - (nil, err)   门本身出错（复现执行/落库失败）。
 //
@@ -170,6 +239,7 @@ func (v *PromotionEvaluator) Promote(ctx context.Context, a Attempt) (*explorati
 
 	// 4. 提取假设
 	hyp := extractHypothesis(a)
+	tier := verificationTier(a.Primitives)
 
 	// 5. 机器护栏检查
 	if node, shouldContinue, err := v.checkMachineGuard(ctx, a, hyp, res, replays); !shouldContinue {
@@ -177,45 +247,119 @@ func (v *PromotionEvaluator) Promote(ctx context.Context, a Attempt) (*explorati
 	}
 
 	// 6. LLM 裁决
-	verdict, reasoning, err := v.executeLLMJudge(ctx, a, hyp, res, replay)
+	verdict, err := v.executeLLMJudge(ctx, a, hyp, res, replay)
 	if err != nil {
 		return nil, err
 	}
 
 	// 7. 聚合证据
-	final, evaluation := aggregateEvidence(res, verdict, reasoning, replays)
+	final, evaluation := aggregateEvidence(res, tier, verdict.Verdict, verdict.Reasoning, replays)
 
-	// 8. 处理裁决结果
-	nodeID := uuid.New().String()
-	outcome := explorationgraph.OutcomeRefuted
-	if verdict == VerdictConfirmed {
-		outcome = explorationgraph.OutcomeConfirmed
+	// 8. 坐实先查语义去重：同一漏洞（同指纹）的再次确认折叠为既有发现的佐证
+	fingerprintKey := verdict.Fingerprint.Key()
+	var duplicate *explorationgraph.Node
+	if verdict.Verdict == VerdictConfirmed && fingerprintKey != "" {
+		duplicate, err = v.findConfirmedDuplicate(ctx, a.TaskID, fingerprintKey)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if duplicate != nil {
+		evaluation = withDuplicateInfo(evaluation, duplicate.ID, fingerprintKey)
 	}
 
-	// 9. 记录验证到审计链
+	// 9. 处理裁决结果并记录验证到审计链
+	outcome := explorationgraph.OutcomeRefuted
+	if verdict.Verdict == VerdictConfirmed {
+		outcome = explorationgraph.OutcomeConfirmed
+	}
 	verID, err := v.recordVerification(ctx, a, outcome, evaluation, final.DurationMs)
 	if err != nil {
 		return nil, err
 	}
 
 	// 10. 在假设节点上回写审判标记
-	v.markHypothesisNode(ctx, a, verID, outcome, nodeID, verdict == VerdictConfirmed)
+	mark := hypothesisMark{
+		verID:        verID,
+		outcome:      outcome,
+		confirmed:    verdict.Verdict == VerdictConfirmed,
+		tier:         tier,
+		promotedNode: "",
+	}
+	switch {
+	case verdict.Verdict == VerdictRefuted:
+		mark.refuteReason = RefuteNotAVuln
+	case duplicate != nil:
+		mark.promotedNode = duplicate.ID
+		mark.duplicateOf = duplicate.ID
+	}
+	v.markHypothesisNode(ctx, a, mark)
 
-	// 11. 如果被证伪，返回 nil
-	if verdict == VerdictRefuted {
+	// 11. 证伪：不进图
+	if verdict.Verdict == VerdictRefuted {
 		return nil, nil
 	}
 
-	// 12. 创建已验证节点
-	node, err := v.createVerifiedNode(ctx, a, nodeID, verID)
+	// 12. 语义重复：既有发现即归属——不新建节点、不重写 finding，
+	// 返回既有节点让上游事件指向它（新证据已在审计链 replays 里）。
+	if duplicate != nil {
+		if v.logger != nil {
+			v.logger.Info().
+				Str("node_id", a.NodeID).
+				Str("duplicate_of", duplicate.ID).
+				Str("fingerprint", fingerprintKey).
+				Msg("同指纹发现已存在，本次确认折叠为佐证")
+		}
+		return duplicate, nil
+	}
+
+	// 13. 创建已验证节点（指纹随 metadata 落库，供后续去重对照）
+	nodeID := uuid.New().String()
+	node, err := v.createVerifiedNode(ctx, a, nodeID, verID, fingerprintKey)
 	if err != nil {
 		return nil, err
 	}
 
-	// 13. 写入 finding 表
+	// 14. 写入 finding 表
 	v.writeFindingIfNeeded(ctx, *node, a, final)
 
 	return node, nil
+}
+
+// findConfirmedDuplicate 在既有 verified result 中查找同指纹发现。
+// 对照键是裁决官产出的语义指纹；未带指纹的历史 result 不参与对照
+// （缺失指纹的发现保持原样，不影响其地位）。
+func (v *PromotionEvaluator) findConfirmedDuplicate(ctx context.Context, taskID, key string) (*explorationgraph.Node, error) {
+	results, err := v.graph.ListResults(ctx, taskID)
+	if err != nil {
+		return nil, fmt.Errorf("verifier: 语义去重查询既有 result 失败: %w", err)
+	}
+	for i := range results {
+		var m struct {
+			Fingerprint string `json:"finding_fingerprint"`
+		}
+		if json.Unmarshal(results[i].Metadata, &m) != nil || m.Fingerprint == "" {
+			continue
+		}
+		if m.Fingerprint == key {
+			return &results[i], nil
+		}
+	}
+	return nil, nil
+}
+
+// withDuplicateInfo 把语义去重归属并入审计 JSON（解析失败退回原证据）。
+func withDuplicateInfo(evaluation json.RawMessage, existingID, key string) json.RawMessage {
+	merged := map[string]interface{}{}
+	if json.Unmarshal(evaluation, &merged) != nil {
+		return evaluation
+	}
+	merged["duplicate_of"] = existingID
+	merged["finding_fingerprint"] = key
+	if b, err := json.Marshal(merged); err == nil {
+		return b
+	}
+	return evaluation
 }
 
 // withReplayLog 把最终证据、裁决理由与完整重放链（预跑 + 裁决官复放，含失败）聚合成一份审计 JSON。
@@ -241,9 +385,11 @@ func assertPassedInEvidence(evidence json.RawMessage) bool {
 // 命中不构成漏洞证据。
 func (v *PromotionEvaluator) refuteByQualityGate(ctx context.Context, a Attempt, cause error) (*explorationgraph.Node, error) {
 	evaluation, _ := json.Marshal(map[string]interface{}{
-		"quality_gate": true,
-		"reason":       cause.Error(),
-		"phase":        "prerun",
+		"quality_gate":      true,
+		"refute_reason":     RefuteAssertNotDiscriminative,
+		"verification_tier": verificationTier(a.Primitives),
+		"reason":            cause.Error(),
+		"phase":             "prerun",
 	})
 
 	verID, err := v.graph.RecordVerification(ctx, explorationgraph.Verification{
@@ -259,7 +405,13 @@ func (v *PromotionEvaluator) refuteByQualityGate(ctx context.Context, a Attempt,
 		return nil, fmt.Errorf("verifier: 质量拒绝留档失败: %w", err)
 	}
 
-	v.markHypothesisNode(ctx, a, verID, explorationgraph.OutcomeRefuted, "", false)
+	v.markHypothesisNode(ctx, a, hypothesisMark{
+		verID:        verID,
+		outcome:      explorationgraph.OutcomeRefuted,
+		confirmed:    false,
+		tier:         verificationTier(a.Primitives),
+		refuteReason: RefuteAssertNotDiscriminative,
+	})
 	if v.logger != nil {
 		v.logger.Info().
 			Str("node_id", a.NodeID).
@@ -277,7 +429,8 @@ func (v *PromotionEvaluator) refuteEarly(
 ) (*explorationgraph.Node, error) {
 	const verdict = VerdictRefuted
 	const reasoning = "机器护栏：复现断言全部未命中（配方声称的特征未出现），无支持坐实的证据，不经裁决官直接证伪"
-	evaluation := withReplayLog(res.Evaluation, verdict, reasoning, replays)
+	tier := verificationTier(a.Primitives)
+	evaluation := withReplayLog(res.Evaluation, tier, verdict, reasoning, replays)
 
 	verID, err := v.graph.RecordVerification(ctx, explorationgraph.Verification{
 		ID:         uuid.New().String(),
@@ -299,6 +452,8 @@ func (v *PromotionEvaluator) refuteEarly(
 		mark, _ := json.Marshal(map[string]interface{}{
 			"verification_id":      verID,
 			"verification_outcome": explorationgraph.OutcomeRefuted,
+			"verification_tier":    tier,
+			"refute_reason":        RefuteNotReproducible,
 			"verification_at":      time.Now().Format(time.RFC3339),
 			"confidence":           explorationgraph.ConfidenceRefuted,
 			"refuted_by":           "machine_guard",
@@ -310,7 +465,7 @@ func (v *PromotionEvaluator) refuteEarly(
 	return nil, nil
 }
 
-func withReplayLog(evaluation json.RawMessage, verdict, reasoning string, replays []replayRecord) json.RawMessage {
+func withReplayLog(evaluation json.RawMessage, tier, verdict, reasoning string, replays []replayRecord) json.RawMessage {
 	merged := map[string]interface{}{}
 	if len(evaluation) > 0 {
 		if err := json.Unmarshal(evaluation, &merged); err != nil {
@@ -318,6 +473,9 @@ func withReplayLog(evaluation json.RawMessage, verdict, reasoning string, replay
 		}
 	}
 	merged["verdict"] = verdict
+	if tier != "" {
+		merged["verification_tier"] = tier
+	}
 	if reasoning != "" {
 		merged["reasoning"] = reasoning
 	}
@@ -371,10 +529,11 @@ func (v *PromotionEvaluator) writeFinding(ctx context.Context, node explorationg
 	}
 
 	evaluation, err := json.Marshal(map[string]interface{}{
-		"node_id":         node.ID,
-		"verification_id": node.SourceID,
-		"evaluation":      res.Evaluation,
-		"duration_ms":     res.DurationMs,
+		"node_id":           node.ID,
+		"verification_id":   node.SourceID,
+		"verification_tier": verificationTier(attempt.Primitives), // 结论成色：full_gate/judge_only
+		"evaluation":        res.Evaluation,
+		"duration_ms":       res.DurationMs,
 	})
 	if err != nil {
 		return fmt.Errorf("marshal evaluation: %w", err)

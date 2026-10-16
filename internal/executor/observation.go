@@ -40,6 +40,11 @@ func (e *Engine) createObservationNode(
 		contentMap["severity"] = obs.Severity
 	}
 
+	// 保存 ExecutionTrace（治本方案的核心）
+	if obs.ExecutionTrace != nil {
+		contentMap["execution_trace"] = obs.ExecutionTrace
+	}
+
 	if len(obs.Repro) > 0 {
 		// 复现配方归一化：引擎收割路径落图前的统一归一化出口——形状漂移（标量断言、assert 误放 recipe 等）在此统一矫正，
 		// 复现门只认信封。矫正失败保留原始配方（门侧会以 invalid_recipe 终止重试，

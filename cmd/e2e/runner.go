@@ -28,7 +28,7 @@ func runActiveProfiles(ctx context.Context, profs []activeProfile, apiBase, apiK
 			Msg("active chat scan dispatched")
 
 		// 使用探索图轮询（直接查询数据库）
-		if err := pollTaskWithGraphStats(ctx, kgClient, taskID, ap.acceptance, &logger); err != nil {
+		if err := pollTaskWithGraphStats(ctx, kgClient, pool, taskID, ap.acceptance, &logger); err != nil {
 			return fmt.Errorf("active profile %s: %w", ap.name, err)
 		}
 

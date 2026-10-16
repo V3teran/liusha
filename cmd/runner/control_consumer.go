@@ -101,6 +101,11 @@ func startControlConsumer(
 ) (stop func()) {
 	logger = logger.With().Str("component", "control_consumer").Str("task_id", taskID).Logger()
 	done := make(chan struct{})
+	// stopCh 让 stop 函数能主动叫停消费循环。只有 ctx.Done() 一个退出条件
+	// 是不够的：认知循环被 terminate 中止后 ctx 依然存活（它归 asynq 任务，
+	// 不随 detector 中止取消），stop 函数若只等 goroutine 自然退出就会
+	// 永久阻塞——defer 链卡死在第一环，任务终态永远落不了库（e2e 实测）。
+	stopCh := make(chan struct{})
 
 	logx.Go(logger, "control-consumer", func() {
 		defer close(done)
@@ -110,6 +115,8 @@ func startControlConsumer(
 		for {
 			select {
 			case <-ctx.Done():
+				return
+			case <-stopCh:
 				return
 			case <-ticker.C:
 			}
@@ -136,7 +143,10 @@ func startControlConsumer(
 		}
 	})
 
-	return func() { <-done }
+	return func() {
+		close(stopCh)
+		<-done
+	}
 }
 
 // handleControlEvent 处理单条控制事件。

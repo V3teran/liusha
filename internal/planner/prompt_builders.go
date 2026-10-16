@@ -191,18 +191,36 @@ func buildResultsSection(results []explorationgraph.Node) string {
 	return sb.String()
 }
 
-// buildRefutedHypothesesSection 构建已证伪假设部分
-func buildRefutedHypothesesSection(hypotheses []string) string {
+// refuteReasonHint 把反驳原因翻译成规划指令：配方类失败（证据没拿到）可换姿势
+// 重试，语义证伪（证据到了但不构成漏洞）才是方向作废——两者处置不同。
+// 原因字面量与 evaluator 包的 refute_reason 常量保持一致（metadata JSON 契约）。
+func refuteReasonHint(reason string) string {
+	switch reason {
+	case "not_reproducible":
+		return "（复现失败：配方或上下文问题——可换配方/换方法重试，不要原样重提）"
+	case "invalid_recipe":
+		return "（配方损坏：可换有效配方重试）"
+	case "assert_not_discriminative":
+		return "（断言无鉴别力被质量门拒绝：换捕捉利用响应独有特征的断言重提）"
+	case "not_a_vuln":
+		return "（已复现但经裁决不构成漏洞：此方向作废，除非有实质新证据）"
+	default:
+		return "（经真实复现验证被否定：不要原样重提）"
+	}
+}
+
+// buildRefutedHypothesesSection 构建已证伪假设部分（含反驳原因分类）
+func buildRefutedHypothesesSection(hypotheses []RefutedHypothesis) string {
 	if len(hypotheses) == 0 {
 		return ""
 	}
 
 	var sb strings.Builder
-	sb.WriteString("## 已被证伪的假设（复现门裁决，禁止原样重提）\n")
+	sb.WriteString("## 已被证伪的假设（复现门裁决）\n")
 	for _, h := range hypotheses {
-		fmt.Fprintf(&sb, "- %s\n", h)
+		fmt.Fprintf(&sb, "- %s %s\n", h.Statement, refuteReasonHint(h.Reason))
 	}
-	sb.WriteString("\n**注意**：以上假设均经真实复现验证被否定。除非你有实质不同的新证据或新方法，否则不要再生成同方向的利用动作。\n\n")
+	sb.WriteString("\n**注意**：语义证伪（not_a_vuln）的假设禁止同方向重提；复现失败类（not_reproducible/invalid_recipe/assert_not_discriminative）允许换配方换断言再试，但都不要原样重提。\n\n")
 	return sb.String()
 }
 

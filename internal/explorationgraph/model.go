@@ -15,12 +15,11 @@
 // - result: 坐实的最终结果（有 confidence=verified，仅复现门产出）
 //
 // 关系边界：
-// - GENERATES: action → observation（动作生成观察/假设/证据）
-// - CONFIRMS: evidence → observation（executor 侧证据确认假设）
-// - REFUTES: evidence → observation（executor 侧证据反驳假设）
-// - TRIGGERS: result → objective/action（planner：结果触发新目标/后续动作）
-// - DEPENDS_ON: action → action（动作依赖动作）
-// - ENABLES / BELONGS_TO: 预留语义，当前无生产者
+//   - GENERATES: objective → action、action → observation（动作生成观察/假设/证据）、
+//     observation → result（复现门晋升溯源）
+//   - TRIGGERS: result → objective/action（planner：结果触发新目标/后续动作）
+//   - DEPENDS_ON: action → action（动作依赖动作）
+//   - ENABLES / BELONGS_TO: 预留语义，当前无生产者
 package explorationgraph
 
 import (
@@ -82,14 +81,14 @@ const (
 // Relation 是边的关系类型（5 种，全大写）
 type Relation string
 
-// 探索图关系：动作产出观察、评估确认/反驳、结果使能后续动作等。
+// 探索图关系：动作产出观察、结果触发新方向、动作间依赖。
 // generates 是贯穿推导链的"产出"关系：
 // objective →(generates)→ action →(generates)→ observation →(generates)→ result。
+// （confirms/refutes 已随 evaluation 节点废弃删除：executor 侧证据归 observation
+// 载荷，坐实/证伪裁决归 exploration_verification 审计链。）
 const (
 	RelGenerates Relation = "generates"  // 上游产出下游（推导链）
-	RelConfirms  Relation = "confirms"   // evaluation → result（确认）
-	RelRefutes   Relation = "refutes"    // evaluation → observation（反驳）
-	RelEnables   Relation = "enables"    // result → action（使能）
+	RelEnables   Relation = "enables"    // result → action（使能，预留）
 	RelDependsOn Relation = "depends_on" // action → action（依赖）
 	RelTriggers  Relation = "triggers"   // result → objective/action（结果触发新方向/后续动作）
 )
