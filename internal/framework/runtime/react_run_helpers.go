@@ -111,3 +111,33 @@ func (r *DefaultReActRuntime) handleMaxIterationsReached(
 		result.LastCheckpointError = fmt.Errorf("force final summary failed: %w", err)
 	}
 }
+
+// handleNormalCompletion 处理正常完成（LLM停止调用工具）的情况
+// 确保输出格式符合下游解析器的期望
+func (r *DefaultReActRuntime) handleNormalCompletion(
+	ctx context.Context,
+	config *ReActConfig,
+	result *ReActResult,
+) {
+	// 检查最后一条助手消息是否已经是结构化JSON格式
+	if len(result.MessageHistory) > 0 {
+		lastMsg := result.MessageHistory[len(result.MessageHistory)-1]
+		if lastMsg.Role == llm.RoleAssistant && isStructuredOutput(lastMsg.Content) {
+			// 已经是结构化输出，无需再次处理
+			return
+		}
+	}
+
+	// LLM自然停止但未输出结构化格式，强制要求输出JSON
+	if err := r.forceStructuredOutput(ctx, config, result); err != nil {
+		result.LastCheckpointError = fmt.Errorf("force structured output failed: %w", err)
+	}
+}
+
+// isStructuredOutput 检查内容是否已经是结构化JSON输出
+func isStructuredOutput(content string) bool {
+	// 简单检查：包含 "observations" 字段的JSON对象
+	return len(content) > 0 &&
+		(content[0] == '{' ||
+		 (len(content) > 7 && content[0:7] == "```json"))
+}

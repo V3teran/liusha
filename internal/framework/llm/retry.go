@@ -56,10 +56,14 @@ const (
 // Classify 按优先级解析 error：
 //  1. *HTTPError 显式类型直接读 Code
 //  2. net.Error.Timeout()
-//  3. EOF / connection reset / i/o timeout 等网络词
+//  3. EOF / connection reset / i/o timeout / DNS 解析失败等网络词
 //  4. err.Error() 启发式包含状态码（部分 provider 不在 error 结构里暴露 code）
 //
 // 不能识别的一律 ClassOther（不重试）。
+//
+// 本函数是全系统网络瞬时错误的**唯一分类事实源**：planner 的重试判定、
+// evaluator 的瞬时故障豁免都经 IsTransient 委托到这里——业务侧不再自维护
+// 关键词表（曾因三处词表各自漂移，DNS 抖动被误判为不可重试错误）。
 func Classify(err error) ErrorClass {
 	if err == nil {
 		return ClassOther
@@ -75,13 +79,32 @@ func Classify(err error) ErrorClass {
 	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
 		return ClassNet
 	}
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+		// 取消不是瞬时故障（调用方主动放弃），重试无意义；
+		// 超时是瞬时故障（预算耗尽），换一次机会有意义。
+		if errors.Is(err, context.Canceled) {
+			return ClassOther
+		}
+		return ClassNet
+	}
 	msg := err.Error()
 	low := strings.ToLower(msg)
 	if strings.Contains(low, "connection reset") ||
 		strings.Contains(low, "connection refused") ||
 		strings.Contains(low, "connection closed") ||
 		strings.Contains(low, "i/o timeout") ||
-		strings.Contains(low, "eof") {
+		strings.Contains(low, "eof") ||
+		strings.Contains(low, "dial tcp") ||
+		strings.Contains(low, "no such host") ||
+		strings.Contains(low, "server misbehaving") ||
+		strings.Contains(low, "network unreachable") ||
+		strings.Contains(low, "broken pipe") ||
+		strings.Contains(low, "tls handshake timeout") {
+		return ClassNet
+	}
+	if strings.Contains(low, "context deadline exceeded") ||
+		strings.Contains(low, "timeout") ||
+		strings.Contains(low, "deadline exceeded") {
 		return ClassNet
 	}
 	if strings.Contains(msg, "429") {
@@ -96,6 +119,13 @@ func Classify(err error) ErrorClass {
 		}
 	}
 	return ClassOther
+}
+
+// IsTransient 报告错误是否为瞬时故障（网络抖动 / 限流 / 服务端过载 / 超时）——
+// 重试有意义。业务侧（planner 重试、evaluator 止损豁免）统一经此判定，
+// 不再各自维护关键词表。
+func IsTransient(err error) bool {
+	return Classify(err) != ClassOther
 }
 
 // ClassifyCode 按 HTTP 状态码分类。

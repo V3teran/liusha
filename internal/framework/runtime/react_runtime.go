@@ -84,6 +84,12 @@ type ReActConfig struct {
 	Checkpointer          core.Checkpointer // 检查点存储（nil 表示不保存）
 	TaskID                string            // 关联任务 ID（用于检查点）
 	RestoreFromCheckpoint core.CheckpointID // 从指定检查点恢复（空表示新执行）
+
+	// 结构化输出格式（可选）
+	// 当 LLM 自然停止但输出格式不符合预期时，用于强制要求输出特定格式
+	// 如果为空，使用通用的文本总结格式
+	OutputFormatPrompt string // 输出格式的 prompt 模板
+	OutputFormatSchema string // JSON Schema 示例（嵌入到 prompt 中）
 }
 
 // ReActResult 是 ReAct 循环的执行结果

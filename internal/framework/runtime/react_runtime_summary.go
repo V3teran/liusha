@@ -47,3 +47,53 @@ func (r *DefaultReActRuntime) forceFinalSummary(
 
 	return nil
 }
+
+// forceStructuredOutput 强制要求 LLM 输出结构化格式
+// 当 LLM 自然停止但未输出符合期望格式的内容时调用
+func (r *DefaultReActRuntime) forceStructuredOutput(
+	ctx context.Context,
+	config *ReActConfig,
+	result *ReActResult,
+) error {
+	// 检查是否配置了输出格式
+	if config.OutputFormatPrompt == "" && config.OutputFormatSchema == "" {
+		// 没有配置特定格式，使用通用总结
+		return r.forceFinalSummary(ctx, config, result)
+	}
+
+	// 构造结构化输出 prompt
+	var promptBuilder string
+	if config.OutputFormatPrompt != "" {
+		promptBuilder = config.OutputFormatPrompt
+	} else {
+		promptBuilder = "你刚才完成了任务，但是输出格式不符合系统要求。\n\n请按照以下格式输出："
+	}
+
+	if config.OutputFormatSchema != "" {
+		promptBuilder += "\n\n" + config.OutputFormatSchema
+	}
+
+	promptBuilder += "\n\n要求：\n1. 必须是有效的JSON格式\n2. 基于你刚才执行的所有操作输出\n3. 不要再调用工具，立即输出JSON\n\n现在请输出："
+
+	result.AddUserMessage(promptBuilder)
+
+	// 调用 LLM 获取结构化输出（不允许工具调用）
+	request := llm.Request{
+		Messages:  result.MessageHistory,
+		MaxTokens: config.MaxTokens,
+	}
+	if config.Temperature > 0 {
+		t := config.Temperature
+		request.Temperature = &t
+	}
+
+	resp, err := config.LLMProvider.Complete(ctx, request)
+	if err != nil {
+		return fmt.Errorf("force structured output LLM call failed: %w", err)
+	}
+
+	// 将结构化输出添加到消息历史
+	result.AddAssistantMessage(resp.Content, nil)
+
+	return nil
+}

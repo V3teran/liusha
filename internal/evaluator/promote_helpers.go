@@ -91,24 +91,25 @@ func (v *PromotionEvaluator) executeLLMJudge(
 	hyp string,
 	res Result,
 	replay func(context.Context, string) (Result, error),
-) (string, string, error) {
-	verdict, reasoning, err := v.judge.Judge(ctx, hyp, a.Primitives, res.Evaluation,
+) (Verdict, error) {
+	verdict, err := v.judge.Judge(ctx, hyp, a.Primitives, res.Evaluation,
 		func(rctx context.Context) (Result, error) { return replay(rctx, "judge") })
 	if err != nil {
-		return "", "", fmt.Errorf("verifier: LLM 裁决失败（本次未裁决，不回退机器）: %w", err)
+		return Verdict{}, fmt.Errorf("verifier: LLM 裁决失败（本次未裁决，不回退机器）: %w", err)
 	}
-	return verdict, reasoning, nil
+	return verdict, nil
 }
 
-// aggregateEvidence 聚合证据：最后一次成功重放的证据为主体
-func aggregateEvidence(res Result, verdict string, reasoning string, replays []replayRecord) (Result, []byte) {
+// aggregateEvidence 聚合证据：最后一次成功重放的证据为主体（验证档位随审计
+// 载荷落库，下游据此区分结论成色）。
+func aggregateEvidence(res Result, tier, verdict string, reasoning string, replays []replayRecord) (Result, []byte) {
 	final := res
 	for _, rec := range replays {
 		if rec.Error == "" && len(rec.Evidence) > 0 {
 			final = Result{Evaluation: rec.Evidence, DurationMs: rec.DurationMs}
 		}
 	}
-	evaluation := withReplayLog(final.Evaluation, verdict, reasoning, replays)
+	evaluation := withReplayLog(final.Evaluation, tier, verdict, reasoning, replays)
 	return final, evaluation
 }
 
@@ -137,34 +138,49 @@ func (v *PromotionEvaluator) recordVerification(
 	return verID, nil
 }
 
+// hypothesisMark 是假设节点审判标记的完整载荷：验证溯源、结论、成色与归属。
+type hypothesisMark struct {
+	verID        string
+	outcome      explorationgraph.VerifyOutcome
+	promotedNode string // 本次新建或沿用的 result 节点 ID
+	confirmed    bool
+	tier         string
+	refuteReason string
+	duplicateOf  string // 非空 = 语义重复（同指纹确认折叠为既有发现的佐证）
+}
+
 // markHypothesisNode 在假设节点上回写审判标记：verification_outcome 记录
 // 裁决溯源，confidence 同步流转（unverified → verified/refuted）——
 // 轮询方以 confidence=unverified 圈定待裁决集合，两个键必须一致更新。
 func (v *PromotionEvaluator) markHypothesisNode(
 	ctx context.Context,
 	a Attempt,
-	verID string,
-	outcome explorationgraph.VerifyOutcome,
-	nodeID string,
-	confirmed bool,
+	m hypothesisMark,
 ) {
 	if a.NodeID == "" {
 		return
 	}
 
 	confidence := explorationgraph.ConfidenceRefuted
-	if confirmed {
+	if m.confirmed {
 		confidence = explorationgraph.ConfidenceVerified
 	}
 
 	mark := map[string]interface{}{
-		"verification_id":      verID,
-		"verification_outcome": outcome,
+		"verification_id":      m.verID,
+		"verification_outcome": m.outcome,
+		"verification_tier":    m.tier,
 		"verification_at":      time.Now().Format(time.RFC3339),
 		"confidence":           confidence,
 	}
-	if confirmed {
-		mark["promoted_node"] = nodeID
+	if m.refuteReason != "" {
+		mark["refute_reason"] = m.refuteReason
+	}
+	if m.confirmed && m.promotedNode != "" {
+		mark["promoted_node"] = m.promotedNode
+	}
+	if m.duplicateOf != "" {
+		mark["duplicate_of"] = m.duplicateOf
 	}
 
 	b, mErr := json.Marshal(mark)
@@ -180,11 +196,13 @@ func (v *PromotionEvaluator) markHypothesisNode(
 // createVerifiedNode 创建已验证的 result 节点，并落 observation → result 的
 // generates 溯源边——推导链 objective →(generates)→ action →(generates)→
 // observation →(generates)→ result 全程可溯，result 不是图孤儿。
+// fingerprintKey 非空时随 metadata 落库，作为后续语义去重的对照键。
 func (v *PromotionEvaluator) createVerifiedNode(
 	ctx context.Context,
 	a Attempt,
 	nodeID string,
 	verID string,
+	fingerprintKey string,
 ) (*explorationgraph.Node, error) {
 	verified := explorationgraph.ConfidenceVerified
 	node := explorationgraph.Node{
@@ -198,6 +216,11 @@ func (v *PromotionEvaluator) createVerifiedNode(
 		SourceID:   verID,
 		CreatedAt:  time.Now(),
 		UpdatedAt:  time.Now(),
+	}
+	if fingerprintKey != "" {
+		if b, err := json.Marshal(map[string]string{fingerprintMetadataKey: fingerprintKey}); err == nil {
+			node.Metadata = b
+		}
 	}
 
 	if a.NodeID != "" {

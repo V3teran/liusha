@@ -25,13 +25,15 @@ type Intelligence struct {
 	charter    string         // 角色章程（agent.system_prompt，运维经前端可调；空=不渲染）
 	complexity llm.Complexity // LLM 档位（agent.complexity，文档 complexity 种子 → 三级缓存读）
 	maxIt      int            // ReAct 迭代上限（agent.max_iterations；0=不设限）
+	timeout    time.Duration  // 单次规划超时（0=不设限；默认 3 分钟）
 }
 
 // NewIntelligence 创建智能规划器
 func NewIntelligence(router *llm.Router, logger zerolog.Logger) *Intelligence {
 	return &Intelligence{
-		router: router,
-		logger: logger.With().Str("component", "planner_intelligence").Logger(),
+		router:  router,
+		logger:  logger.With().Str("component", "planner_intelligence").Logger(),
+		timeout: 3 * time.Minute, // 默认单次规划超时 3 分钟
 	}
 }
 
@@ -54,6 +56,21 @@ func (i *Intelligence) WithComplexity(complexity string) *Intelligence {
 	return i
 }
 
+// WithTimeout 注入单次规划超时（0=不设限；默认 3 分钟）。
+func (i *Intelligence) WithTimeout(timeout time.Duration) *Intelligence {
+	i.timeout = timeout
+	return i
+}
+
+// RefutedHypothesis 是被复现门证伪的假设：反驳原因区分"证据没拿到"
+// （not_reproducible/invalid_recipe——配方或上下文问题）与"拿到了证据但
+// 不构成漏洞"（not_a_vuln/assert_not_discriminative——语义/质量问题），
+// 规划器据此决定换配方重试还是放弃方向。
+type RefutedHypothesis struct {
+	Statement string
+	Reason    string
+}
+
 // PlanningContext 规划上下文
 type PlanningContext struct {
 	Objective         string                  // 根目标描述（任务章程）
@@ -62,7 +79,7 @@ type PlanningContext struct {
 	PendingActions    []explorationgraph.Node // 待执行的 Action
 	Results           []explorationgraph.Node // 已确认的结果
 	FailedActions     []explorationgraph.Node // 失败的 Action
-	RefutedHypotheses []string                // 已被复现门证伪的假设陈述（防止复读）
+	RefutedHypotheses []RefutedHypothesis     // 已被复现门证伪的假设（含反驳原因，防止复读）
 }
 
 // ActionProposal LLM 返回的 Action 提案
@@ -88,6 +105,16 @@ type PlanningResponse struct {
 // 落图仍由 agent.go 单点执行（转换 + 依赖过滤 + 事件发布），ReAct 只负责决策。
 func (i *Intelligence) Plan(ctx context.Context, graph *explorationgraph.Store, taskID string, functionTools []string) ([]explorationgraph.Node, error) {
 	i.logger.Info().Str("task_id", taskID).Msg("开始智能规划")
+
+	// 添加超时保护（防止 LLM 调用无限挂起）
+	if i.timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, i.timeout)
+		defer cancel()
+		i.logger.Debug().
+			Str("timeout", i.timeout.String()).
+			Msg("规划超时保护已启用")
+	}
 
 	// 1. 收集规划上下文（作为首条输入的紧凑摘要；细节靠工具按需深挖）
 	planCtx, err := i.gatherContext(ctx, graph, taskID)
@@ -120,9 +147,9 @@ func (i *Intelligence) Plan(ctx context.Context, graph *explorationgraph.Store, 
 
 	// 构建中间件链：防止重复规划、无进展、目标偏离
 	middlewareChain := runtime.NewMiddlewareChain(
-		runtime.NewLoopDetectionMiddleware(8, 6),                      // 连续 8 次相同工具 / 6 次相似思考
-		runtime.NewProgressTrackingMiddleware(12, 8),                  // 12 次无新输出 / 8 次连续失败
-		runtime.NewGoalAlignmentMiddleware(planCtx.Objective, 5),      // 5 次偏离目标
+		runtime.NewLoopDetectionMiddleware(8, 6),                 // 连续 8 次相同工具 / 6 次相似思考
+		runtime.NewProgressTrackingMiddleware(12, 8),             // 12 次无新输出 / 8 次连续失败
+		runtime.NewGoalAlignmentMiddleware(planCtx.Objective, 5), // 5 次偏离目标
 	)
 
 	// 3. 跑 ReAct：SystemPrompt 定角色与输出契约，Objective 带状态摘要
@@ -134,6 +161,27 @@ func (i *Intelligence) Plan(ctx context.Context, graph *explorationgraph.Store, 
 		MaxTokens:            4000,
 		MessageModifierChain: runtime.NewDefaultModifierChain(20),
 		MiddlewareChain:      middlewareChain,
+		// Planner 的结构化输出格式
+		OutputFormatPrompt: "你是规划者（Planner），需要输出下一批要执行的Action。",
+		OutputFormatSchema: `请输出以下JSON格式：
+
+` + "```json\n" + `{
+  "should_continue": true,
+  "reasoning": "为什么需要继续/停止",
+  "actions": [
+    {
+      "type": "reconnaissance/vulnerability_scan/exploitation",
+      "instruction": "具体要做什么",
+      "complexity": "trivial/moderate/complex",
+      "priority": "low/medium/high/critical",
+      "depends_on": []
+    }
+  ]
+}
+` + "```\n\n" + `说明：
+- should_continue: 如果任务还未完成，设为true；如果已完成目标或无法继续，设为false
+- actions: 要执行的action列表，如果should_continue=false则为空数组[]
+- 每个action必须包含type、instruction和complexity`,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("ReAct 规划失败: %w", err)
@@ -215,6 +263,7 @@ func (i *Intelligence) gatherContext(ctx context.Context, graph *explorationgrap
 
 	// 获取已被复现门证伪的假设（evaluator 的 verification_outcome 标记）——
 	// 规划器对"哪条路已试死"的权威事实源，防同方向反复重提（复读机）。
+	// refute_reason 一并带出：复现失败类可换配方重试，语义证伪类才是方向作废。
 	refutedObservations, err := graph.ListNodesByKind(ctx, taskID, core.KindObservation)
 	if err != nil {
 		return nil, fmt.Errorf("获取 Observation 失败: %w", err)
@@ -225,6 +274,7 @@ func (i *Intelligence) gatherContext(ctx context.Context, graph *explorationgrap
 		}
 		var m struct {
 			VerificationOutcome string `json:"verification_outcome"`
+			RefuteReason        string `json:"refute_reason"`
 		}
 		if json.Unmarshal(obs.Metadata, &m) != nil || m.VerificationOutcome != "refuted" {
 			continue
@@ -233,7 +283,10 @@ func (i *Intelligence) gatherContext(ctx context.Context, graph *explorationgrap
 			Statement string `json:"statement"`
 		}
 		if json.Unmarshal(obs.Content, &c) == nil && c.Statement != "" {
-			planCtx.RefutedHypotheses = append(planCtx.RefutedHypotheses, c.Statement)
+			planCtx.RefutedHypotheses = append(planCtx.RefutedHypotheses, RefutedHypothesis{
+				Statement: c.Statement,
+				Reason:    m.RefuteReason,
+			})
 		}
 	}
 

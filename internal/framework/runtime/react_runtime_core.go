@@ -99,6 +99,8 @@ func (r *DefaultReActRuntime) Run(ctx context.Context, config *ReActConfig) (*Re
 
 		// 4.5 检查是否应该停止
 		if shouldStop {
+			// 正常停止时强制输出结构化总结
+			r.handleNormalCompletion(ctx, config, result)
 			break
 		}
 

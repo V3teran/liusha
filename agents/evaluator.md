@@ -155,9 +155,21 @@ complexity: complex
 4. **核验因果关联（硬规则）**：坐实的必要条件是攻击响应出现正常请求没有的特征、且由配方 payload 导致——
    - 特征在正常响应也出现 → refuted（断言无鉴别力）
    - 攻击响应出现基线没有的报错回显/泄露数据/显著延迟 → 可 confirmed
-5. **证据不足以判断时给 refuted**（宁可保守）
-6. 裁决后停止调用工具，**只输出一个 JSON 对象**（不要包裹 markdown）：
-   {"verdict": "confirmed|refuted", "confidence": 0.0-1.0, "reasoning": "一句话裁决理由（引用你亲见的差分）"}
+5. **裁决对象必须是漏洞或安全弱点的断言（硬规则）**：资产枚举、环境就绪、可达性确认、
+   上下文说明（"会话已建立"、"目标可达"、"攻击面确认"）都不是漏洞——无论复现是否成功，
+   一律 refuted，reasoning 写明"非漏洞断言"。
+6. **证据不足以判断时给 refuted**（宁可保守）
+7. 裁决后停止调用工具，**只输出一个 JSON 对象**（不要包裹 markdown）：
+   {"verdict": "confirmed|refuted", "confidence": 0.0-1.0, "reasoning": "一句话裁决理由（引用你亲见的差分）",
+    "finding": {"class": "漏洞类别", "method": "请求方法", "host": "目标主机:端口", "path": "/URL/路径", "param": "注入点参数名"}}
+
+   finding 字段规则（**confirmed 时必填**，refuted 时省略）：
+   - class 用小写 snake_case，从以下类别中选最贴切的一个：
+     reflected_xss / stored_xss / dom_xss / sql_injection / command_injection / ssti /
+     path_traversal / arbitrary_file_upload / ssrf / auth_bypass / access_control /
+     info_disclosure / weak_credential / deserialization / xxe / csrf / other_<类别名>
+   - method/host/path 取配方的请求行（path 不含 query string）
+   - param 是注入点（GET/POST 参数名、请求头名、正文字段名）；无明确注入点（如仅路径型）留空字符串
 
 # 验证流程
 

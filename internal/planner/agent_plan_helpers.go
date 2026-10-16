@@ -3,9 +3,11 @@ package planner
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/V3teran/liusha/internal/explorationgraph"
 	"github.com/V3teran/liusha/internal/framework/core"
+	"github.com/V3teran/liusha/internal/framework/llm"
 )
 
 // analyzeNewResults 分析新出现的 Results
@@ -108,26 +110,77 @@ func (a *Agent) checkExecutableActions(ctx context.Context) (bool, error) {
 
 // generateNewActions 调用 Planner 生成新的 Actions
 func (a *Agent) generateNewActions(ctx context.Context) ([]explorationgraph.Node, error) {
-	a.logger.Info().Msg("即将调用 a.planner.Plan()")
-	actions, err := a.planner.Plan(ctx, a.graph, a.taskID, a.functionTools)
+	const (
+		maxRetries = 3
+		baseDelay  = 5 * time.Second
+	)
 
-	a.logger.Info().
-		Bool("has_error", err != nil).
-		Int("actions_len", len(actions)).
-		Msg("a.planner.Plan() 返回")
+	var actions []explorationgraph.Node
+	var lastErr error
 
-	if err != nil {
-		a.logger.Error().
-			Err(err).
-			Msg("Plan() 调用失败")
-		return nil, fmt.Errorf("plan: %w", err)
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		if attempt > 0 {
+			delay := baseDelay * time.Duration(1<<uint(attempt-1)) // 指数退避：5s, 10s, 20s
+			a.logger.Warn().
+				Err(lastErr).
+				Int("attempt", attempt).
+				Dur("retry_delay", delay).
+				Msg("Planner 调用失败，等待重试")
+
+			select {
+			case <-time.After(delay):
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+		}
+
+		a.logger.Info().
+			Int("attempt", attempt+1).
+			Int("max_attempts", maxRetries+1).
+			Msg("即将调用 a.planner.Plan()")
+
+		actions, lastErr = a.planner.Plan(ctx, a.graph, a.taskID, a.functionTools)
+
+		a.logger.Info().
+			Bool("has_error", lastErr != nil).
+			Int("actions_len", len(actions)).
+			Int("attempt", attempt+1).
+			Msg("a.planner.Plan() 返回")
+
+		if lastErr == nil {
+			a.logger.Info().
+				Int("action_count", len(actions)).
+				Int("attempts_used", attempt+1).
+				Msg("Planner.Plan 成功")
+			return actions, nil
+		}
+
+		// 判断是否应该重试
+		if !isRetriableError(lastErr) {
+			a.logger.Error().
+				Err(lastErr).
+				Msg("Plan() 调用失败（不可重试错误）")
+			return nil, fmt.Errorf("plan: %w", lastErr)
+		}
+
+		a.logger.Warn().
+			Err(lastErr).
+			Int("attempt", attempt+1).
+			Msg("Plan() 调用失败（可重试错误）")
 	}
 
-	a.logger.Info().
-		Int("action_count", len(actions)).
-		Msg("Planner.Plan 返回")
+	a.logger.Error().
+		Err(lastErr).
+		Int("total_attempts", maxRetries+1).
+		Msg("Plan() 调用失败（重试耗尽）")
+	return nil, fmt.Errorf("plan: 重试 %d 次后仍失败: %w", maxRetries+1, lastErr)
+}
 
-	return actions, nil
+// isRetriableError 判断错误是否可重试——委托给框架层 llm.IsTransient
+// （网络抖动/限流/服务端过载/超时的唯一分类事实源，含 DNS 解析失败等
+// dial 类瞬时错误；业务侧不再自维护关键词表，避免两处漂移）。
+func isRetriableError(err error) bool {
+	return llm.IsTransient(err)
 }
 
 // handleNoActions 处理没有生成新 Action 的情况

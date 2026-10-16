@@ -143,3 +143,48 @@ func TestNormalizeReproEnvelope_AssertPromotedFromRecipe(t *testing.T) {
 		t.Fatalf("recipe 内的 assert 应被剔除: %s", env.Recipe)
 	}
 }
+
+// TestNormalizeReproEnvelope_HeaderContainsArray 回归：LLM 把 header_contains
+// 写成数组时归一化成 map——形状放任会在复现门解析失败，该观察永远无法裁决
+// （e2e 实测同一形状漂移连烧 3 次验证预算后 invalid_recipe 出圈）。
+func TestNormalizeReproEnvelope_HeaderContainsArray(t *testing.T) {
+	// 对象数组形状
+	in := `{"domain":"web","recipe":{"request":{"method":"GET","url":"http://t/x","headers":{},"body":""}},"assert":{"header_contains":[{"X-Flag":"admin"}],"status_code":"200"}}`
+	out, _, err := NormalizeReproEnvelope(json.RawMessage(in))
+	if err != nil {
+		t.Fatalf("normalize: %v", err)
+	}
+	var env struct {
+		Assert struct {
+			HeaderContains map[string]string `json:"header_contains"`
+			StatusCode     *int              `json:"status_code"`
+		} `json:"assert"`
+	}
+	if err := json.Unmarshal(out, &env); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if env.Assert.HeaderContains["x-flag"] != "admin" {
+		t.Fatalf("header_contains 数组应合并成 map: %+v", env.Assert.HeaderContains)
+	}
+	if env.Assert.StatusCode == nil || *env.Assert.StatusCode != 200 {
+		t.Fatalf("status_code 数字字符串应转数字: %+v", env.Assert.StatusCode)
+	}
+
+	// 字符串数组形状（"K: v"）
+	in2 := `{"domain":"web","recipe":{"request":{"method":"GET","url":"http://t/x","headers":{},"body":""}},"assert":{"header_contains":["Set-Cookie: admin=1"]}}`
+	out2, _, err := NormalizeReproEnvelope(json.RawMessage(in2))
+	if err != nil {
+		t.Fatalf("normalize2: %v", err)
+	}
+	env2 := struct {
+		Assert struct {
+			HeaderContains map[string]string `json:"header_contains"`
+		} `json:"assert"`
+	}{}
+	if err := json.Unmarshal(out2, &env2); err != nil {
+		t.Fatalf("unmarshal2: %v", err)
+	}
+	if env2.Assert.HeaderContains["set-cookie"] != "admin=1" {
+		t.Fatalf("字符串数组应按 k: v 拆解: %+v", env2.Assert.HeaderContains)
+	}
+}

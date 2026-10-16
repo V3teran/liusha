@@ -26,7 +26,7 @@ type ReplayFunc func(ctx context.Context) (Result, error)
 
 // LLMJudge 是晋升门的语义裁决器接口（ReAct 实现 + 测试 stub）。
 type LLMJudge interface {
-	Judge(ctx context.Context, hypothesis string, recipe, initialEvidence json.RawMessage, replay ReplayFunc) (verdict, reasoning string, err error)
+	Judge(ctx context.Context, hypothesis string, recipe, initialEvidence json.RawMessage, replay ReplayFunc) (Verdict, error)
 }
 
 // RouterJudge 经 ReAct runtime 跑语义裁决：工具（replay_for_verification）+ 终裁 JSON。
@@ -98,22 +98,22 @@ func (j *RouterJudge) Judge(
 	hypothesis string,
 	recipe, initialEvidence json.RawMessage,
 	replay ReplayFunc,
-) (string, string, error) {
+) (Verdict, error) {
 	provider, err := j.router.For(ctx, j.complexity)
 	if err != nil {
-		return "", "", fmt.Errorf("judge: 获取 provider: %w", err)
+		return Verdict{}, fmt.Errorf("judge: 获取 provider: %w", err)
 	}
 
 	react := runtime.NewReActRuntime()
 	if replay != nil && registry.Allows(j.functionTools, "replay_for_verification") {
 		if err := react.RegisterTool(newReplayTool(replay)); err != nil {
-			return "", "", fmt.Errorf("judge: 注册 replay_for_verification 失败: %w", err)
+			return Verdict{}, fmt.Errorf("judge: 注册 replay_for_verification 失败: %w", err)
 		}
 	}
 	for _, t := range j.extraTools {
 		if registry.Allows(j.functionTools, t.Name()) {
 			if err := react.RegisterTool(t); err != nil {
-				return "", "", fmt.Errorf("judge: 注册工具 %s 失败: %w", t.Name(), err)
+				return Verdict{}, fmt.Errorf("judge: 注册工具 %s 失败: %w", t.Name(), err)
 			}
 		}
 	}
@@ -124,8 +124,8 @@ func (j *RouterJudge) Judge(
 	// 构建中间件链：防止验证循环、无进展
 	// 注意：Evaluator 不需要 GoalAlignment（验证任务目标固定）
 	middlewareChain := runtime.NewMiddlewareChain(
-		runtime.NewLoopDetectionMiddleware(12, 10),       // 连续 12 次相同工具 / 10 次相似思考
-		runtime.NewProgressTrackingMiddleware(20, 12),    // 20 次无新输出 / 12 次连续失败
+		runtime.NewLoopDetectionMiddleware(12, 10),    // 连续 12 次相同工具 / 10 次相似思考
+		runtime.NewProgressTrackingMiddleware(20, 12), // 20 次无新输出 / 12 次连续失败
 	)
 
 	result, err := react.Run(ctx, &runtime.ReActConfig{
@@ -138,7 +138,7 @@ func (j *RouterJudge) Judge(
 		MiddlewareChain:      middlewareChain,
 	})
 	if err != nil {
-		return "", "", fmt.Errorf("judge: ReAct 失败: %w", err)
+		return Verdict{}, fmt.Errorf("judge: ReAct 失败: %w", err)
 	}
 	return parseVerdict(result.FinalAnswer)
 }
@@ -159,6 +159,8 @@ func (j *RouterJudge) buildObjective(hypothesis string, recipe, initialEvidence 
 	sb.WriteString("\n\n先用 replay_for_verification 复核机器证据；证据含 baseline_* 字段时对比基线/利用请求差分（一致即无差分）；")
 	sb.WriteString("证据标注 domain=generic（无机器重放通道）时改用 run_command 按 recipe 步骤自主执行取证；")
 	sb.WriteString("需要独立取证时用 run_command（如 curl 重放配方 request、用正常参数做对照）。基于你亲见的证据裁决。")
+	sb.WriteString("\n\n裁决对象必须是漏洞或安全弱点的断言；资产枚举、环境就绪、可达性等非安全断言一律 refuted。")
+	sb.WriteString("confirmed 时必须附 finding 字段（class/method/host/path/param），供系统对同一漏洞去重。")
 	return sb.String()
 }
 
@@ -194,24 +196,30 @@ func (j *RouterJudge) systemPrompt() string {
 	return sb.String()
 }
 
-// parseVerdict 从 FinalAnswer 提取裁决 JSON。
-func parseVerdict(content string) (string, string, error) {
+// parseVerdict 从 FinalAnswer 提取裁决 JSON（含坐实发现的结构化指纹）。
+func parseVerdict(content string) (Verdict, error) {
 	if content == "" {
-		return "", "", fmt.Errorf("judge: 裁决输出为空")
+		return Verdict{}, fmt.Errorf("judge: 裁决输出为空")
 	}
 	var v struct {
-		Verdict    string  `json:"verdict"`
-		Confidence float64 `json:"confidence"`
-		Reasoning  string  `json:"reasoning"`
+		Verdict     string              `json:"verdict"`
+		Confidence  float64             `json:"confidence"`
+		Reasoning   string              `json:"reasoning"`
+		Fingerprint *FindingFingerprint `json:"finding"`
 	}
 	if err := json.Unmarshal([]byte(llm.ExtractJSON(content)), &v); err != nil {
-		return "", "", fmt.Errorf("judge: 解析裁决失败: %w (输出: %.200s)", err, content)
+		return Verdict{}, fmt.Errorf("judge: 解析裁决失败: %w (输出: %.200s)", err, content)
 	}
 	switch v.Verdict {
 	case VerdictConfirmed, VerdictRefuted:
-		return v.Verdict, v.Reasoning, nil
+		return Verdict{
+			Verdict:     v.Verdict,
+			Confidence:  v.Confidence,
+			Reasoning:   v.Reasoning,
+			Fingerprint: v.Fingerprint,
+		}, nil
 	default:
-		return "", "", fmt.Errorf("judge: 未知 verdict %q", v.Verdict)
+		return Verdict{}, fmt.Errorf("judge: 未知 verdict %q", v.Verdict)
 	}
 }
 

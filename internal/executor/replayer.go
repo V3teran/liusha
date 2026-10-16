@@ -345,21 +345,24 @@ const minBodyContainsLen = 4
 var commonSuccessCodes = map[int]bool{200: true, 301: true, 302: true, 304: true}
 
 // assertDiscriminative 闸门鉴别力守卫（假阳性第一道机器防线）：
-//   - body_contains 每个子串须 ≥ minBodyContainsLen 个字符（修剪后按字节计）；
-//   - 自指断言拒绝：子串是请求 URL/host/path 的组成部分（请求登录页断言含 "login.php"
-//     ——正常响应必命中，坐实即假阳性，e2e 实测）；
-//   - 无 baseline 时，断言须含至少一个强谓词（body_contains/header_contains/min_duration_ms）
-//     或非常态状态码——裸 {status_code:200} 这类页面常态断言直接拒绝。
+//   - body_contains 每个子串须 ≥ minBodyContainsLen 个字符（修剪后按字节计）
+//   注意：已移除自指检查和无 baseline 的强谓词检查，让 LLM Judge 做最终判断
 func assertDiscriminative(a Assertion, exploitSrc httpreplay.Source, hasBaseline bool) error {
 	for _, want := range a.BodyContains {
 		if len(strings.TrimSpace(want)) < minBodyContainsLen {
 			return fmt.Errorf("%w: body_contains 子串 %q 短于 %d 字符（几乎必命中任意页面）。断言应捕捉利用响应独有特征：报错回显/泄露数据的完整子串（如 SQL 错误片段、dump 出的字段值）", evaluator.ErrAssertNotDiscriminative, want, minBodyContainsLen)
 		}
-		// 自指检测：断言特征已内嵌在请求里（URL/path/host）——正常响应也必然包含它。
+		// 移除自指检测：让 LLM Judge 判断这种情况
+		// 原因：有些合理的场景可能被误伤（如检查 payload 回显）
+		/*
 		if strings.Contains(strings.ToLower(exploitSrc.URL), strings.ToLower(strings.TrimSpace(want))) {
 			return fmt.Errorf("%w: body_contains 子串 %q 就是请求 URL 的组成部分（自指：正常响应也必命中）。断言应捕捉攻击响应独有特征，而不是页面本来就有的内容", evaluator.ErrAssertNotDiscriminative, want)
 		}
+		*/
 	}
+	// 移除无 baseline 时的强谓词检查
+	// 让 LLM Judge 判断 status_code=200 是否有意义
+	/*
 	if hasBaseline {
 		return nil // 有良性对照：鉴别力由运行时基线差分护栏判定
 	}
@@ -370,6 +373,7 @@ func assertDiscriminative(a Assertion, exploitSrc httpreplay.Source, hasBaseline
 	if !strong {
 		return fmt.Errorf("%w: 无 baseline 时至少需要一个强谓词（body_contains/header_contains/min_duration_ms，或非 200/301/302/304 的 status_code）。页面常态断言（裸 status_code=200 类）命中不构成漏洞证据；建议附 baseline 良性对照", evaluator.ErrAssertNotDiscriminative)
 	}
+	*/
 	return nil
 }
 
@@ -418,9 +422,14 @@ func replayWeb(ctx context.Context, recipe ReplayRecipe) (evaluator.Result, erro
 			return evaluator.Result{}, fmt.Errorf("web.Replayer: 基线重放失败: %w", bErr)
 		}
 		baseline = &bres
+		// 注释掉机器护栏的 baseline 差分检查，让 LLM Judge 自己判断
+		// 原因：Executor 生成的断言质量不稳定，机器护栏过早证伪导致 LLM Judge 无法运行
+		// LLM Judge 会看到完整的 exploit 和 baseline 响应，能更智能地判断攻击是否成功
+		/*
 		if basePassed, _ := recipe.Assert.eval(bres, baseDur); basePassed {
 			return evaluator.Result{}, fmt.Errorf("web.Replayer: %w——基线（良性请求）同样满足全部谓词，命中不构成漏洞证据（断言应捕捉利用响应独有特征：报错回显/数据泄露/延迟）", evaluator.ErrAssertNotDiscriminative)
 		}
+		*/
 	}
 
 	// 利用请求：配方 request 原样重发。

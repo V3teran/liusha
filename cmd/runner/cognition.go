@@ -182,22 +182,26 @@ func (h handler) runCognition(
 	// 3. 包装为 executor Registry
 	execRegistry := executor.NewRegistry(reg)
 
+	// 3.5. 创建 TraceCollector（治本方案：收集完整执行轨迹）
+	traceCollector := executor.NewTraceCollector(h.agentStore, h.logger)
+
 	// 3. 创建 Executor Engine
 	engine := executor.NewEngine(executor.EngineConfig{
-		Router:        h.router,
-		Findings:      h.findings,
-		Graph:         h.graph, // observation 落图与 kill 检查依赖；nil 会在产出观察时空指针崩溃
-		AgentRunID:    agentRunID, // LLM 审计归属本轮 run
-		Registry:      execRegistry,
-		FunctionTools: executorCfg.FunctionTools,                                // function_tools 白名单（nil=全量）
-		ToolsManifest: filteredManifest,                                         // CLI 工具清单（白名单过滤后）
-		Skills:        skillCards(ctx, executorSkillView, h.logger, "executor"), // Tier 1 skill 索引（正文按需 read_skill）
-		SystemPrompt:  executorCfg.SystemPrompt,                                 // 角色章程（agent.system_prompt，前端可调）
-		Complexity:    executorCfg.Complexity,                                   // LLM 档位（agent.complexity，文档 complexity 种子）
-		MaxIterations: executorCfg.MaxIterations,                                // ReAct 迭代上限（0=不设限）
-		Brief:         brief,                                                    // 任务简报逐字进 executor system prompt（入口锚定）
-		Checkpointer:  h.checkpointer,
-		Logger:        h.logger,
+		Router:         h.router,
+		Findings:       h.findings,
+		Graph:          h.graph, // observation 落图与 kill 检查依赖；nil 会在产出观察时空指针崩溃
+		AgentRunID:     agentRunID, // LLM 审计归属本轮 run
+		Registry:       execRegistry,
+		FunctionTools:  executorCfg.FunctionTools,                                // function_tools 白名单（nil=全量）
+		ToolsManifest:  filteredManifest,                                         // CLI 工具清单（白名单过滤后）
+		Skills:         skillCards(ctx, executorSkillView, h.logger, "executor"), // Tier 1 skill 索引（正文按需 read_skill）
+		SystemPrompt:   executorCfg.SystemPrompt,                                 // 角色章程（agent.system_prompt，前端可调）
+		Complexity:     executorCfg.Complexity,                                   // LLM 档位（agent.complexity，文档 complexity 种子）
+		MaxIterations:  executorCfg.MaxIterations,                                // ReAct 迭代上限（0=不设限）
+		Brief:          brief,                                                    // 任务简报逐字进 executor system prompt（入口锚定）
+		Checkpointer:   h.checkpointer,
+		TraceCollector: traceCollector, // 治本方案：从 agent_traffic 构建完整执行轨迹
+		Logger:         h.logger,
 	})
 
 	// 4. 创建 Coordinator（使用 Engine）
