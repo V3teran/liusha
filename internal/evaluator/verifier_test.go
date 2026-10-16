@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -638,5 +639,116 @@ func TestFindingFingerprintKeyNormalization(t *testing.T) {
 	c := &FindingFingerprint{Class: "stored_xss", Method: "GET", Host: "t.local:8080", Path: "/vuln/xss_r", Param: "name"}
 	if c.Key() == a.Key() {
 		t.Fatal("不同类别不得同键")
+	}
+}
+
+// 无配方的 Attempt 不得进入裁决生命周期：执行记录（上下文结论/降级推测）
+// 保持 confidence 为空，不烧裁决预算、不污染 refuted 分类。
+// 回归背景：e2e 实测 7 条无 repro 的上下文记录被事件路径拖进裁决门，
+// 以 invalid_recipe 终局后审计链又因空 primitives 违反 NOT NULL 丢记录。
+func TestAgent_EventPathSkipsAttemptsWithoutRecipe(t *testing.T) {
+	w := &fakeGraphStore{verID: "ver-nr1"}
+	promoter := New(w, fakeReplayer{res: Result{Evaluation: json.RawMessage(`{}`)}}, &fakeFindingWriter{}).
+		WithJudge(stubJudge{verdict: VerdictConfirmed})
+	b := bus.New(context.Background())
+	a := NewAgent(AgentConfig{
+		TaskID:    "t-norepro",
+		Evaluator: promoter,
+		EventBus:  b,
+		Logger:    zerolog.Nop(),
+	})
+
+	a.handleEvent(context.Background(), bus.Event{
+		Type:     bus.EventAttemptGenerated,
+		TaskID:   "t-norepro",
+		ActionID: "act-1",
+		Payload: map[string]interface{}{
+			"attempt": Attempt{TaskID: "t-norepro", NodeID: "obs-record", Kind: "result"},
+		},
+	}, make(chan struct{}, 1))
+
+	if w.VerificationCount() != 0 {
+		t.Fatalf("无配方 Attempt 不得触发验证: %d", w.VerificationCount())
+	}
+	if len(w.metadata) != 0 {
+		t.Fatalf("无配方 Attempt 不得改写节点标记: %+v", w.metadata)
+	}
+
+	// 对照组：带配方的 Attempt 照常进入裁决
+	withRepro := baseAttempt()
+	withRepro.NodeID = "obs-hypothesis"
+	a.handleEvent(context.Background(), bus.Event{
+		Type:     bus.EventAttemptGenerated,
+		TaskID:   "t-norepro",
+		ActionID: "act-1",
+		Payload:  map[string]interface{}{"attempt": withRepro},
+	}, make(chan struct{}, 1))
+
+	deadline := time.Now().Add(3 * time.Second)
+	for w.VerificationCount() < 1 {
+		if time.Now().After(deadline) {
+			t.Fatalf("带配方 Attempt 应完成验证, got %d", w.VerificationCount())
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+// invalid_recipe 终局的审计链不得因空 primitives 丢失：空配方以空对象留档。
+func TestAgent_InvalidRecipeAuditSurvivesEmptyPrimitives(t *testing.T) {
+	promoter := New(&fakeGraphStore{verID: "ver-nr2"}, fakeReplayer{err: fmt.Errorf("Replayer: 解析域信封失败: unexpected end of JSON input")}, &fakeFindingWriter{}).
+		WithJudge(stubJudge{verdict: VerdictRefuted})
+
+	// coalescePrimitives 是审计不丢记录的修复行：空配方归一为空对象
+	// （primitives 落库列 NOT NULL，nil 会违反约束静默丢整条审计）。
+	if got := coalescePrimitives(nil); string(got) != `{}` {
+		t.Fatalf("nil 应归一为空对象: %s", got)
+	}
+	if got := coalescePrimitives(json.RawMessage(`{"domain":"web"}`)); string(got) != `{"domain":"web"}` {
+		t.Fatalf("非空应原样透传: %s", got)
+	}
+
+	// 终局路径整体走通：确定性配方缺陷单次即出圈，节点标记落库（内存图）
+	memGraph := explorationgraph.NewMemoryStore()
+	a2 := NewAgent(AgentConfig{
+		TaskID:    "t-empty",
+		Evaluator: promoter,
+		EventBus:  bus.New(context.Background()),
+		Graph:     memGraph,
+		Logger:    zerolog.Nop(),
+	})
+	// 生产不变式：被裁决的观察节点由 executor 先落图
+	unverified := explorationgraph.ConfidenceUnverified
+	if _, err := memGraph.CreateNode(context.Background(), explorationgraph.Node{
+		ID:         "obs-empty",
+		TaskID:     "t-empty",
+		Kind:       core.KindObservation,
+		Content:    json.RawMessage(`{"statement":"s"}`),
+		Confidence: &unverified,
+	}); err != nil {
+		t.Fatalf("建观察节点失败: %v", err)
+	}
+	empty := baseAttempt()
+	empty.NodeID = "obs-empty"
+	empty.Primitives = nil
+	if err := a2.verifyObservation(context.Background(), "obs-empty", empty); err == nil {
+		t.Fatal("空配方复现应失败")
+	} else {
+		a2.recordVerifyFailure(context.Background(), "obs-empty", empty, err)
+	}
+
+	obs, err := memGraph.GetNode(context.Background(), "obs-empty")
+	if err != nil || obs == nil {
+		t.Fatalf("观察节点应存在: %v", err)
+	}
+	var mark struct {
+		RefuteReason string `json:"refute_reason"`
+	}
+	if json.Unmarshal(obs.Metadata, &mark) != nil || mark.RefuteReason != "invalid_recipe" {
+		t.Fatalf("确定性缺陷应带 invalid_recipe 标记: %+v", obs.Metadata)
+	}
+	// confidence 是图级类型化键（读取时提到 Node.Confidence）——
+	// 终局出圈后节点不再是 unverified，轮询不再圈定
+	if obs.Confidence == nil || *obs.Confidence != explorationgraph.ConfidenceRefuted {
+		t.Fatalf("节点 confidence 应流转为 refuted: %+v", obs.Confidence)
 	}
 }
