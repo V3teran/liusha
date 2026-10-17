@@ -12,7 +12,7 @@ import (
 	"github.com/V3teran/liusha/internal/explorationgraph"
 	"github.com/V3teran/liusha/internal/framework/core"
 	"github.com/V3teran/liusha/internal/proxy"
-	"github.com/V3teran/liusha/internal/tools"
+	"github.com/V3teran/liusha/internal/repro"
 )
 
 // createObservationNode 为观察结果创建 observation 节点
@@ -49,7 +49,7 @@ func (e *Engine) createObservationNode(
 
 	// 保存复现配方（仅对 vulnerability 有意义）
 	if len(obs.Repro) > 0 {
-		normalized, _, nErr := tools.NormalizeReproEnvelope(obs.Repro)
+		normalized, _, nErr := repro.NormalizeReproEnvelope(obs.Repro)
 		if nErr == nil {
 			obs.Repro = normalized
 		}

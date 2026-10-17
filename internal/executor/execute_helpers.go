@@ -11,7 +11,7 @@ import (
 	"github.com/V3teran/liusha/internal/framework/llm"
 	"github.com/V3teran/liusha/internal/framework/runtime"
 	"github.com/V3teran/liusha/internal/registry"
-	"github.com/V3teran/liusha/internal/tools"
+	"github.com/V3teran/liusha/internal/repro"
 )
 
 // ActionData 是从 action.Content 解析出的数据
@@ -443,7 +443,7 @@ func (e *Engine) harvestObservation(
 	// 却是修复后的配方：同一观察两条消费路径各说各话（e2e 实测 4 条真漏洞
 	// 假设因此冤死）。矫正失败保留原始配方，由门侧以 invalid_recipe 终局
 	// ——归一化不是万能的，但必须对所有消费路径一致。
-	if normalized, note, nErr := tools.NormalizeReproEnvelope(obs.Repro); nErr == nil {
+	if normalized, note, nErr := repro.NormalizeReproEnvelope(obs.Repro); nErr == nil {
 		obs.Repro = normalized
 		if note != "" {
 			e.logger.Info().

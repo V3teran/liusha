@@ -35,10 +35,8 @@ import (
 	"github.com/V3teran/liusha/internal/credential"
 	"github.com/V3teran/liusha/internal/cryptx"
 	"github.com/V3teran/liusha/internal/db"
-	"github.com/V3teran/liusha/internal/domain"
 	"github.com/V3teran/liusha/internal/embedding"
 	"github.com/V3teran/liusha/internal/envx"
-	"github.com/V3teran/liusha/internal/executor"
 	"github.com/V3teran/liusha/internal/explorationgraph"
 	"github.com/V3teran/liusha/internal/finding"
 	"github.com/V3teran/liusha/internal/framework/llm"
@@ -136,7 +134,6 @@ func main() {
 	defer func() { _ = wc.Close() }()
 
 	skills := newRunnerSkills(logger)
-	profiles := newDomainRegistry(logger)
 	launcher := newSandboxLauncher(ctx, cfg, runnerCfg, logger)
 
 	// Sandbox 管理器：热池模式（空闲 30 分钟后自动回收）
@@ -204,7 +201,6 @@ func main() {
 		cfgStore:       llmStack.cfgStore,
 		conversations:  stores.conversations,
 		eventPublisher: scanstream.NewPublisher(rdb),
-		profiles:       profiles,
 		graph:          stores.graph,
 		checkpointer:   stores.checkpointer,
 		eventBus:       eventBus,
@@ -349,14 +345,6 @@ func newRunnerSkills(logger zerolog.Logger) *runnerSkills {
 	return &runnerSkills{toolsManifest: toolsManifest}
 }
 
-// newDomainRegistry 注册 L2 域适配 Profile。
-// 加新域 = New 一个 Profile 并 Register，此处外无核心改动（架构试金石）。
-func newDomainRegistry(logger zerolog.Logger) *domain.Registry {
-	profiles := domain.NewRegistry()
-	profiles.Register(executor.New())
-	logger.Info().Strs("domains", profiles.Domains()).Msg("domain profiles registered")
-	return profiles
-}
 
 // newSandboxLauncher 构造容器化沙箱启动器并清理上次崩溃残留的孤儿容器。
 //

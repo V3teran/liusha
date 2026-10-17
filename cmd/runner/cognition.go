@@ -12,6 +12,7 @@ import (
 	"github.com/V3teran/liusha/internal/evaluator"
 	"github.com/V3teran/liusha/internal/executor"
 	"github.com/V3teran/liusha/internal/explorationgraph"
+	"github.com/V3teran/liusha/internal/finding"
 	"github.com/V3teran/liusha/internal/framework/core"
 	"github.com/V3teran/liusha/internal/framework/llm"
 	"github.com/V3teran/liusha/internal/monitor"
@@ -384,10 +385,13 @@ func (h handler) buildEvaluatorAgent(
 		WithMaxIterations(cfg.MaxIterations).
 		WithExtraTools(tools.BuildTools(toolDeps(skillsView), cfg.FunctionTools))
 
-	promoter := evaluator.New(h.graph, executor.NewReplayer().WithCredentials(h.creds, host), h.findings).
+	// 复现晋升门：域交付管道（finding.ClaimSink）与指纹归一（finding 形状）
+	// 由领域包注入——通用门对领域零感知
+	promoter := evaluator.New(h.graph, executor.NewReplayer().WithCredentials(h.creds, host),
+		finding.NewClaimSink(h.findings, agentRunID)).
 		WithJudge(judge). // ReAct 裁决官：replay_for_verification + CLI 复核工具
-		WithLogger(h.logger).
-		WithAgentRunID(agentRunID)
+		WithFingerprintCodec(finding.FingerprintNormalizer{}).
+		WithLogger(h.logger)
 
 	return evaluator.NewAgent(evaluator.AgentConfig{
 		TaskID:     taskID,

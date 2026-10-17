@@ -1,4 +1,4 @@
-package tools
+package repro
 
 // 本文件承载复现配方的归一化设施（域信封解析/矫正/分域校验）。
 // 观察节点的唯一生产路径是 executor 引擎收割（ReAct 最终 JSON →
@@ -6,12 +6,15 @@ package tools
 // write_observation 白名单工具已随架构演化删除（0 调用实证）。
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"strings"
 )
 
+// Package repro 承载复现配方的域信封契约：归一化、矫正、分域校验。
+// 它是纯函数叶子包（零内部依赖），executor 收割侧与 evaluator 裁决门
+// 共同依赖——同一配方契约，两条消费路径各说各话曾致真假设冤死。
+//
 // NormalizeReproEnvelope 把 LLM 提交的 repro 归一化成域信封 {domain, recipe, assert} 并做分域校验。
 // 兼容历史形状：顶层 request/baseline/assert（无 domain）自动包装成 web 域信封；
 // assert 误放进 recipe 时自动提升（返回的教学提示随工具输出回给 LLM）。
@@ -397,32 +400,6 @@ func teachWebAssertDiscriminative(recipe, assert json.RawMessage) error {
 			"裸 status_code=200 类页面常态断言会被复现门拒绝坐实；建议附 recipe.baseline 良性对照")
 	}
 	return nil
-}
-
-// ─── action 上下文 ────────────────────────────────────────────────────────────
-
-// actionCtxKey 是当前执行 Action ID 的类型化 context 键（SA1029：禁止裸 string 键）。
-type actionCtxKey string
-
-const ctxActionID actionCtxKey = "current_action_id"
-
-// WithActionContext 把当前执行的 Action ID 挂进 ctx——engine 在把 ctx 交给 ReAct
-// runtime 前调用，归属边创建与监控活动追踪据此识别当前 action。
-func WithActionContext(ctx context.Context, actionID string) context.Context {
-	return context.WithValue(ctx, ctxActionID, actionID)
-}
-
-// ActionIDFromContext 从 context 中获取当前 actionID（监控活动追踪等跨包消费者用）。
-func ActionIDFromContext(ctx context.Context) string {
-	if actionID, ok := ctx.Value(ctxActionID).(string); ok {
-		return actionID
-	}
-	return ""
-}
-
-// getContextActionID 从 context 中获取当前 actionID（如果有）
-func getContextActionID(ctx context.Context) string {
-	return ActionIDFromContext(ctx)
 }
 
 // convertArrayRepro 把数组形状的历史配方（["step1", "step2", ...]）转换成
