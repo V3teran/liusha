@@ -194,6 +194,7 @@ complexity: medium
   "summary": "执行了 3 个测试，发现 1 个高优先级问题和 1 个中优先级问题",
   "observations": [
     {
+      "category": "hypothesis",
       "statement": "后台接口无需认证即可访问",
       "reasoning": "未携带任何认证凭据直接访问，返回成功且含完整数据",
       "test_plan": "匿名访问目标接口，对比带凭证请求；确认响应独有数据",
@@ -228,13 +229,25 @@ complexity: medium
 - **summary**: 简短总结（1-2 句话）
 - **observations**: 观察结果列表（可以为空数组）
 
-每个 observation 必须包含：
-- **statement**: 清晰的观察陈述
-- **reasoning**: 为什么得出这个观察
-- **test_plan**: 如何验证这个观察
+每个 observation 必须包含 **category**，两类内容的生命周期完全不同：
+
+**category="hypothesis"（待裁决的主张）**——断言存在某种可复现的现象，只有这类会被独立验证并可能成为正式发现：
+- **statement**: 清晰的主张陈述
+- **reasoning**: 为什么得出这个主张
+- **test_plan**: 如何验证这个主张
 - **confidence**: "low" / "medium" / "high"
 - **severity**: "low" / "medium" / "high" / "critical"
-- **repro**: 机器可执行的复现配方（见下文）
+- **repro**: 机器可执行的复现配方（见下文）——**必须有**，无配方的主张无从裁决
+
+**category="fact"（已确认的事实）**——对后续动作有决策价值的世界状态，写入即被规划层直接采信：
+- **statement**: 事实陈述（如"会话已建立且某机制由 X 控制"、"目标存在 Y"）
+- **reasoning**: 依据来自哪个实测输出
+- **confidence**: "low" / "medium" / "high"
+- 不带 **repro**、不带 **severity**
+
+分类纪律：只推测未实测的东西不要标 hypothesis（没有配方会被拒绝落图）；
+不要把纯过程性记录（"访问了某页"、"请求返回 200"）写成 fact——只记对
+规划有决策价值的结论。
 
 ### 复现配方（repro）格式
 

@@ -38,18 +38,18 @@ func TestObservationOwnership_ByGeneratesEdgeAtWriteTime(t *testing.T) {
 
 	// 各 action 走 Engine 写入路径：建观察节点 + 落归属边 + 转 Attempt
 	nodeA, err := engine.createObservationNode(ctx, taskID, "act-A",
-		Observation{Statement: "A 的假设", Category: CategoryVulnerability, Repro: envelope})
+		Observation{Statement: "A 的假设", Category: CategoryHypothesis, Repro: envelope})
 	if err != nil {
 		t.Fatalf("创建 act-A 观察节点失败: %v", err)
 	}
 	attA, err := engine.observationToAttempt(taskID, nodeA,
-		Observation{Statement: "A 的假设", Category: CategoryVulnerability, Repro: envelope})
+		Observation{Statement: "A 的假设", Category: CategoryHypothesis, Repro: envelope})
 	if err != nil {
 		t.Fatalf("转换 act-A Attempt 失败: %v", err)
 	}
 
 	nodeB, err := engine.createObservationNode(ctx, taskID, "act-B",
-		Observation{Statement: "B 的假设", Category: CategoryVulnerability, Repro: envelope})
+		Observation{Statement: "B 的假设", Category: CategoryHypothesis, Repro: envelope})
 	if err != nil {
 		t.Fatalf("创建 act-B 观察节点失败: %v", err)
 	}
@@ -153,5 +153,72 @@ func TestProcessExecutorOutput_NormalizationPropagatesToAttempt(t *testing.T) {
 	}
 	if string(content.Repro) != string(attempts[0].Primitives) {
 		t.Fatalf("节点与 Attempt 配方形状不一致:\nnode=%s\nattempt=%s", content.Repro, attempts[0].Primitives)
+	}
+}
+
+// 生命周期分流不变式：hypothesis 进裁决管道（unverified + Attempt），
+// fact 写入即终态（factual、零 Attempt）——result 只承载经裁决坐实的主张，
+// 事实永远不伪装成 result。
+func TestHarvestObservation_CategoryLifecycleSplit(t *testing.T) {
+	graph := explorationgraph.NewMemoryStore()
+	e := NewEngine(EngineConfig{Graph: graph, Logger: zerolog.Nop()})
+	action := explorationgraph.Node{
+		ID: "act-split", TaskID: "t-split", Kind: core.KindAction,
+		Content: json.RawMessage(`{"type":"testing","instruction":"i"}`),
+	}
+	if _, err := graph.CreateNode(context.Background(), action); err != nil {
+		t.Fatalf("建 action 失败: %v", err)
+	}
+
+	// fact：落图为 factual 终态，无 Attempt
+	fact := Observation{
+		Category:   CategoryFact,
+		Statement:  "会话已建立且过滤机制由 X 控制",
+		Confidence: "high",
+	}
+	factAttempt := e.harvestObservation(context.Background(), action, fact, ExecutionTrace{})
+	if factAttempt != nil {
+		t.Fatal("fact 不得产出 Attempt（不进裁决管道）")
+	}
+	factNodes, _ := graph.ListNodesByKind(context.Background(), "t-split", core.KindObservation)
+	if len(factNodes) != 1 {
+		t.Fatalf("fact 应落图 1 个观察: %d", len(factNodes))
+	}
+	if factNodes[0].Confidence == nil || *factNodes[0].Confidence != explorationgraph.ConfidenceFactual {
+		t.Fatalf("fact 图级状态应为 factual 终态: %+v", factNodes[0].Confidence)
+	}
+
+	// hypothesis：unverified + Attempt
+	hyp := Observation{
+		Category:  CategoryHypothesis,
+		Statement: "X 参数存在可复现的注入现象",
+		Repro:     json.RawMessage(`{"domain":"generic","recipe":{"steps":"1. 发请求 2. 观察回显"},"assert":{"description":"看到回显"}}`),
+	}
+	hypAttempt := e.harvestObservation(context.Background(), action, hyp, ExecutionTrace{})
+	if hypAttempt == nil {
+		t.Fatal("hypothesis 应产出 Attempt（进裁决管道）")
+	}
+	hypNodes, _ := graph.ListNodesByKind(context.Background(), "t-split", core.KindObservation)
+	if len(hypNodes) != 2 {
+		t.Fatalf("hypothesis 应落图: %d", len(hypNodes))
+	}
+	for _, n := range hypNodes {
+		if n.ID == hypAttempt.NodeID && (n.Confidence == nil || *n.Confidence != explorationgraph.ConfidenceUnverified) {
+			t.Fatalf("hypothesis 图级状态应为 unverified: %+v", n.Confidence)
+		}
+	}
+
+	// 无配方的 hypothesis：落图前降级为 fact（无配方的主张无从裁决）
+	speculative := Observation{
+		Category:  CategoryHypothesis,
+		Statement: "未实测的推测",
+	}
+	specAttempt := e.harvestObservation(context.Background(), action, speculative, ExecutionTrace{})
+	if specAttempt != nil {
+		t.Fatal("无配方 hypothesis 不得产出 Attempt")
+	}
+	all, _ := graph.ListNodesByKind(context.Background(), "t-split", core.KindObservation)
+	if len(all) != 3 {
+		t.Fatalf("推测应降级为 fact 落图: %d", len(all))
 	}
 }

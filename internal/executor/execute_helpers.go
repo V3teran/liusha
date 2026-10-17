@@ -92,7 +92,8 @@ func (e *Engine) buildReActConfigWithMonitoring(
   "summary": "简要总结你完成的工作",
   "observations": [
     {
-      "statement": "你发现的具体问题或观察（例如：发现XSS漏洞）",
+      "category": "hypothesis",
+      "statement": "你断言存在、且可复现验证的主张（例如：name 参数存在反射型 XSS）",
       "reasoning": "你为什么得出这个结论",
       "test_plan": "如何验证这个发现",
       "confidence": "low/medium/high",
@@ -112,14 +113,22 @@ func (e *Engine) buildReActConfigWithMonitoring(
           "status_code": 200
         }
       }
+    },
+    {
+      "category": "fact",
+      "statement": "已确认的世界状态信息（例如：会话已建立、某机制由 X 控制、目标存在 Y）",
+      "reasoning": "依据是什么（来自哪个实测输出）",
+      "confidence": "low/medium/high"
     }
   ]
 }
 ` + "```\n\n" + `说明：
-- observations 只放两类内容：(1) 漏洞假设——必须带完整 repro；(2) 关键执行结论（如认证已建立/攻击面确认等对后续动作有决策价值的上下文）——不带 repro 字段
+- 每条 observation 必须带 category，两类内容：
+  * hypothesis：待裁决的主张——断言存在可复现的现象，必须带完整 repro；只有这类会被独立验证并可能成为正式发现
+  * fact：已确认的事实/关键执行结论（对后续动作有决策价值的世界状态）——不带 repro，直接进图供规划参考
 - 不要把纯过程性记录（"访问了某页"、"请求返回 200"）写成 observation
-- 如果没有发现问题时，observations 可以是空数组 []
-- 漏洞 observation 必须包含完整的repro复现步骤
+- 没有值得记录的内容时，observations 可以是空数组 []
+- hypothesis 必须包含完整的 repro 复现步骤；只推测未实测的东西不要标 hypothesis
 - 重要：domain="web"时，assert必须包含至少一个机器可验证的字段：
   * body_contains: 响应体必须包含的字符串数组（推荐）
   * status_code: 期望的HTTP状态码（数字）
@@ -403,21 +412,23 @@ func (e *Engine) harvestObservation(
 	obs Observation,
 	trace ExecutionTrace,
 ) *evaluator.Attempt {
-	// 降级模式生成的假设可能没有 repro（推测性假设，非实际执行）
-	// 仍需创建 observation 节点供 Evaluator 评估
-	if len(obs.Repro) == 0 {
+	// 降级模式产出的推测没有实测支撑：作为事实（低置信线索）落图供
+	// planner 参考——绝不作为主张（无配方会在落图时被拒）。
+	if obs.Category == CategoryHypothesis && len(obs.Repro) == 0 {
 		e.logger.Warn().
 			Str("action_id", action.ID).
 			Str("statement", obs.Statement).
-			Msg("observation 缺少 repro（可能是降级模式生成的假设），仍继续创建")
+			Msg("hypothesis 缺少 repro，降级为 fact 落图（无配方的主张无从裁决）")
+		obs.Category = CategoryFact
 	}
 
-	// 如果未指定 Category，根据 Repro 是否存在推断默认类型
+	// LLM 漏写 category 时按形状推断：有配方即主张（可裁决），无配方即
+	// 事实（无从裁决）。契约已显式教 category，这里只是兜底。
 	if obs.Category == "" {
 		if len(obs.Repro) > 0 {
-			obs.Category = CategoryVulnerability // 有复现配方，默认为漏洞
+			obs.Category = CategoryHypothesis
 		} else {
-			obs.Category = CategoryFact // 无复现配方，默认为事实记录
+			obs.Category = CategoryFact
 		}
 	}
 
@@ -457,7 +468,14 @@ func (e *Engine) harvestObservation(
 		Str("action_id", action.ID).
 		Str("observation_id", node.ID).
 		Str("statement", obs.Statement).
+		Str("category", string(obs.Category)).
 		Msg("创建 observation 节点成功")
+
+	// 只有假设进裁决管道（Attempt → 复现门）；事实是终态，无 Attempt、
+	// 无事件、无晋升——planner 直接从图上读。
+	if obs.Category != CategoryHypothesis {
+		return nil
+	}
 
 	attempt, err := e.observationToAttempt(action.TaskID, node, obs)
 	if err != nil {

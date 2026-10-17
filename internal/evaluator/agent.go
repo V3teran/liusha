@@ -17,7 +17,6 @@ import (
 
 	"github.com/V3teran/liusha/internal/bus"
 	"github.com/V3teran/liusha/internal/explorationgraph"
-	"github.com/V3teran/liusha/internal/framework/core"
 	"github.com/V3teran/liusha/internal/framework/llm"
 	"github.com/V3teran/liusha/internal/tools"
 	"github.com/google/uuid"
@@ -262,81 +261,42 @@ func (a *Agent) handleEvent(ctx context.Context, event bus.Event, sem chan struc
 	a.dispatchVerification(ctx, observationID, attempt, sem)
 }
 
-// pollAndProcess 圈定待处理观察（confidence != verified/refuted）并按类型路由
+// pollAndVerify 圈定待裁决假设（confidence=unverified）并逐个过复现门。
 //
-// 路由规则：
-// - unverified：过复现验证门
-// - factual：直接晋升为已验证 result
-// - indicative：作为支撑信息记录（暂不晋升，供后续关联分析）
-func (a *Agent) pollAndProcess(ctx context.Context, sem chan struct{}) error {
-	// 圈定所有待处理的观察（状态为 unverified/factual/indicative）
+// evaluator 的管辖范围只有假设：事实（factual）是 executor 写入即终态的
+// 观察，出处即信任，无流转、无晋升、不消耗裁决预算——planner 直接从图
+// 读取。result 节点因此只承载经裁决坐实的主张，不承载事实。
+func (a *Agent) pollAndVerify(ctx context.Context, sem chan struct{}) error {
 	observations, err := a.graph.ListObservationsByConfidence(
 		ctx, a.taskID, explorationgraph.ConfidenceUnverified, pollBatchSize)
 	if err != nil {
-		return fmt.Errorf("查询 unverified 观察失败: %w", err)
+		return fmt.Errorf("查询待裁决 observation 失败: %w", err)
 	}
-
-	// 同时圈定 factual 观察
-	factualObs, err := a.graph.ListObservationsByConfidence(
-		ctx, a.taskID, explorationgraph.ConfidenceFactual, pollBatchSize)
-	if err != nil {
-		return fmt.Errorf("查询 factual 观察失败: %w", err)
-	}
-	observations = append(observations, factualObs...)
-
-	// 同时圈定 indicative 观察
-	indicativeObs, err := a.graph.ListObservationsByConfidence(
-		ctx, a.taskID, explorationgraph.ConfidenceIndicative, pollBatchSize)
-	if err != nil {
-		return fmt.Errorf("查询 indicative 观察失败: %w", err)
-	}
-	observations = append(observations, indicativeObs...)
 
 	if len(observations) == 0 {
 		return nil
 	}
 
-	a.logger.Debug().Int("count", len(observations)).Msg("发现待处理观察")
+	a.logger.Debug().Int("count", len(observations)).Msg("发现待裁决 observation")
 
 	dispatched := 0
 	for _, obs := range observations {
-		// 根据 confidence 类型路由处理
-		if obs.Confidence == nil {
-			continue // 无 confidence，跳过
+		// 带 confidence=unverified 的假设必有 repro（写入侧不变式）；
+		// 解析失败意味着数据损坏，持续告警直到修复。
+		attempt, err := a.parseObservationToAttempt(obs)
+		if err != nil {
+			a.logger.Warn().Err(err).Str("obs_id", obs.ID).Msg("解析 observation 失败（疑似数据损坏）")
+			continue
 		}
-
-		switch *obs.Confidence {
-		case explorationgraph.ConfidenceUnverified:
-			// 漏洞：需过复现验证门
-			attempt, err := a.parseObservationToAttempt(obs)
-			if err != nil {
-				a.logger.Warn().Err(err).Str("obs_id", obs.ID).Msg("解析 unverified 观察失败")
-				continue
-			}
-			a.dispatchVerification(ctx, obs.ID, attempt, sem)
-			dispatched++
-
-		case explorationgraph.ConfidenceFactual:
-			// 事实：直接晋升
-			a.dispatchPromoteFact(ctx, obs, sem)
-			dispatched++
-
-		case explorationgraph.ConfidenceIndicative:
-			// 指标：暂不主动晋升，但可由 evaluator 关联到相关 result
-			a.logger.Debug().Str("obs_id", obs.ID).Msg("indicative 观察，暂不处理（支撑分析）")
-		}
+		a.dispatchVerification(ctx, obs.ID, attempt, sem)
+		dispatched++
 	}
 
 	if dispatched > 0 {
-		a.logger.Info().Int("count", dispatched).Msg("启动处理任务")
+		a.logger.Info().Int("count", dispatched).Msg("启动验证任务")
 	}
 
 	return nil
-}
-
-// pollAndVerify 兼容旧代码，转发到 pollAndProcess
-func (a *Agent) pollAndVerify(ctx context.Context, sem chan struct{}) error {
-	return a.pollAndProcess(ctx, sem)
 }
 
 // dispatchVerification 异步验证单个假设（信号量控制并发，先到先得防重入）。
@@ -389,100 +349,6 @@ func (a *Agent) dispatchVerification(ctx context.Context, observationID string, 
 			a.recordVerifyFailure(ctx, observationID, attempt, err)
 		}
 	}()
-}
-
-// dispatchPromoteFact 异步晋升事实类观察（不需复现验证，直接创建 result）
-func (a *Agent) dispatchPromoteFact(ctx context.Context, obs explorationgraph.Node, sem chan struct{}) {
-	if !a.tryAcquire(obs.ID) {
-		a.logger.Debug().
-			Str("observation_id", obs.ID).
-			Msg("事实观察处理中，跳过并发触发")
-		return
-	}
-
-	a.inFlight.Add(1)
-	go func() {
-		defer a.inFlight.Done()
-
-		defer func() {
-			if r := recover(); r != nil {
-				a.logger.Error().
-					Interface("panic", r).
-					Str("observation_id", obs.ID).
-					Msg("晋升事实goroutine panic，已捕获并释放锁")
-			}
-		}()
-
-		defer a.release(obs.ID)
-
-		// 事实观察不需等信号量（无网络 I/O），直接处理
-		if err := a.promoteFact(ctx, obs); err != nil {
-			a.logger.Error().
-				Err(err).
-				Str("observation_id", obs.ID).
-				Msg("晋升事实失败")
-		}
-	}()
-}
-
-// promoteFact 将 factual 观察直接晋升为 verified result
-func (a *Agent) promoteFact(ctx context.Context, obs explorationgraph.Node) error {
-	startTime := time.Now()
-
-	// 创建 result 节点（复用 observation 的内容）
-	verified := explorationgraph.ConfidenceVerified
-	resultNode := explorationgraph.Node{
-		ID:         uuid.New().String(),
-		TaskID:     obs.TaskID,
-		Kind:       core.KindResult,
-		Content:    obs.Content, // 复用 observation 的内容
-		Priority:   obs.Priority,
-		Confidence: &verified,
-		SourceType: explorationgraph.SourceEvaluator,
-		SourceID:   a.agentRunID,
-		CreatedAt:  time.Now(),
-		UpdatedAt:  time.Now(),
-	}
-
-	// 创建 observation → result 的关系边
-	edge := explorationgraph.Edge{
-		TaskID:    obs.TaskID,
-		SrcID:     obs.ID,
-		Rel:       explorationgraph.RelGenerates,
-		DstID:     resultNode.ID,
-		CreatedAt: time.Now(),
-	}
-
-	if err := a.graph.CreateNodeWithEdges(ctx, resultNode, []explorationgraph.Edge{edge}); err != nil {
-		return fmt.Errorf("创建 result 节点失败: %w", err)
-	}
-
-	// 记录审计链（事实的晋升过程）
-	verification := explorationgraph.Verification{
-		ID:      uuid.New().String(),
-		TaskID:  obs.TaskID,
-		NodeID:  obs.ID,
-		Outcome: explorationgraph.OutcomeConfirmed,
-		Evaluation: mustJSON(map[string]interface{}{
-			"type":     "fact_promotion",
-			"promoted": true,
-		}),
-		CreatedAt: time.Now(),
-	}
-	if _, err := a.graph.RecordVerification(ctx, verification); err != nil {
-		a.logger.Warn().Err(err).Str("observation_id", obs.ID).Msg("事实晋升审计记录失败")
-	}
-
-	a.logger.Info().
-		Str("observation_id", obs.ID).
-		Str("result_id", resultNode.ID).
-		Int64("duration_ms", time.Since(startTime).Milliseconds()).
-		Msg("事实观察晋升为 result")
-
-	// 发布晋升事件
-	a.eventBus.PublishVerificationPassed(a.taskID, resultNode.ID)
-
-	return nil
 }
 
 // recordVerifyFailure 记一次验证失败；达上限后把假设标记为裁决失败并出圈

@@ -18,10 +18,9 @@ import (
 // createObservationNode 为观察结果创建 observation 节点
 //
 // 图级 Confidence 由 Category 完全决定（不由 executor 赋值）：
-// - vulnerability + repro → unverified（待复现验证）
-// - vulnerability 无 repro → 不创建（配方缺失）
-// - fact → factual（直接确认，不需验证）
-// - indicator → indicative（指标，支撑分析）
+// - hypothesis + repro → unverified（待复现门裁决）
+// - hypothesis 无 repro → 不创建（无配方即无从裁决的主张，不落图）
+// - fact → factual（写入即终态：信任来自执行轨迹出处，无需裁决）
 func (e *Engine) createObservationNode(
 	ctx context.Context,
 	taskID string,
@@ -30,10 +29,10 @@ func (e *Engine) createObservationNode(
 ) (*explorationgraph.Node, error) {
 	// 构造 content
 	contentMap := map[string]interface{}{
-		"statement":  obs.Statement,
-		"category":   obs.Category,
-		"reasoning":  obs.Reasoning,
-		"test_plan":  obs.TestPlan,
+		"statement": obs.Statement,
+		"category":  obs.Category,
+		"reasoning": obs.Reasoning,
+		"test_plan": obs.TestPlan,
 	}
 
 	if obs.Severity != "" {
@@ -74,25 +73,18 @@ func (e *Engine) createObservationNode(
 		UpdatedAt:  time.Now(),
 	}
 
-	// 【关键】根据 Category 和配方情况设置图级 Confidence
+	// 图级 Confidence 由 Category 决定（假设必须有可裁决的复现配方）
 	switch obs.Category {
-	case CategoryVulnerability:
-		// 漏洞必须有复现配方
+	case CategoryHypothesis:
 		if len(obs.Repro) == 0 {
-			return nil, fmt.Errorf("vulnerability observation requires repro")
+			return nil, fmt.Errorf("hypothesis observation requires repro")
 		}
 		unverified := explorationgraph.ConfidenceUnverified
 		node.Confidence = &unverified
 
 	case CategoryFact:
-		// 事实无需验证，直接确认
 		factual := explorationgraph.Confidence(explorationgraph.ConfidenceFactual)
 		node.Confidence = &factual
-
-	case CategoryIndicator:
-		// 指标作为支撑信息
-		indicative := explorationgraph.Confidence(explorationgraph.ConfidenceIndicative)
-		node.Confidence = &indicative
 
 	default:
 		return nil, fmt.Errorf("unknown observation category: %s", obs.Category)
@@ -161,37 +153,34 @@ func (e *Engine) observationToAttempt(
 // 观察载荷与执行轨迹（Observation / ExecutionTrace / TraceBuilder）
 // ─────────────────────────────────────────────────────────────
 
-// ObservationCategory 对观察的分类，决定晋升流程
+// ObservationCategory 是观察的分类，决定它走哪条生命周期。
 //
-// - 漏洞：待验证的安全假设，需要机器复现+LLM裁决
-// - 事实：已确认的信息（端口开放、服务版本、资源存在等），无需验证直接晋升
-// - 指标：可疑的信号（异常流量、模式匹配、行为异常等），作为支撑证据保留
+//   - hypothesis：待裁决的主张——断言存在某种可复现的现象，必须携带机器
+//     可执行的复现配方（repro），经复现门裁决后才成为 result
+//   - fact：已确认的世界状态信息（资源存在、机制生效、状态已建立等），
+//     写入即终态，执行轨迹即出处，不经任何裁决
 type ObservationCategory string
 
 const (
-	CategoryVulnerability ObservationCategory = "vulnerability" // 漏洞
-	CategoryFact          ObservationCategory = "fact"          // 事实
-	CategoryIndicator     ObservationCategory = "indicator"     // 指标
+	CategoryHypothesis ObservationCategory = "hypothesis" // 待裁决主张
+	CategoryFact       ObservationCategory = "fact"       // 终态事实
 )
 
-// Observation 是执行器的观察结果
-//
-// 设计原则：
-// - 携带完整的上下文（执行轨迹、推理过程、测试计划）
-// - 由 Category 决定晋升流程（不同类型走不同验证路径）
-// - Confidence 由 createObservationNode 根据 Category 设置，不由 executor 赋值
-// - ExecutionTrace 记录原始执行数据，evaluator 以此复现
+// Observation 是执行器从环境感知到的一条断言：要么是待裁决的主张
+// （hypothesis，附复现配方），要么是终态事实（fact，附执行轨迹出处）。
+// 图级 confidence 由 createObservationNode 按 Category 设置，executor
+// 的自评置信度只进载荷（executor_confidence），不进图状态。
 type Observation struct {
 	// Statement：观察的陈述
 	Statement string `json:"statement"`
 
-	// Category：观察分类（决定晋升流程）
+	// Category：观察分类（决定生命周期：hypothesis 过裁决门 / fact 终态）
 	Category ObservationCategory `json:"category"`
 
 	// Reasoning：为什么做出这个观察
 	Reasoning string `json:"reasoning"`
 
-	// Severity：严重性评估（仅对 vulnerability 有意义）
+	// Severity：严重性评估（仅对 hypothesis 有意义）
 	// 取值：low / medium / high / critical
 	Severity string `json:"severity,omitempty"`
 
@@ -203,16 +192,13 @@ type Observation struct {
 	// TestPlan：验证计划说明
 	TestPlan string `json:"test_plan,omitempty"`
 
-	// Repro：复现配方（仅对 vulnerability 有意义）
+	// Repro：复现配方（仅对 hypothesis 有意义——无配方的主张无从裁决）
 	// 形式：JSON，由域定义（web=HTTP请求序列，generic=自由形式等）
 	Repro json.RawMessage `json:"repro,omitempty"`
 
-	// ExecutionTrace：完整执行轨迹
-	// 包含所有 HTTP 流量、会话状态、元数据等
+	// ExecutionTrace：完整执行轨迹（所有请求响应、会话状态、元数据）——
+	// 假设的裁决依据，事实的出处
 	ExecutionTrace *ExecutionTrace `json:"execution_trace,omitempty"`
-
-	// Trace：另一种执行轨迹表示（兼容性）
-	Trace ExecutionTrace `json:"trace"`
 }
 
 // ExecutionTrace 记录 Executor 执行时的完整轨迹
