@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"regexp"
 	"encoding/json"
 	"fmt"
 	"time"
@@ -19,7 +20,6 @@ import (
 	"github.com/V3teran/liusha/internal/conversation"
 	"github.com/V3teran/liusha/internal/corpus"
 	"github.com/V3teran/liusha/internal/credential"
-	"github.com/V3teran/liusha/internal/domain"
 	"github.com/V3teran/liusha/internal/explorationgraph"
 	"github.com/V3teran/liusha/internal/finding"
 	"github.com/V3teran/liusha/internal/framework/core"
@@ -69,40 +69,51 @@ type handler struct {
 	conversations  *conversation.Store
 	eventPublisher *scanstream.Publisher
 
-	profiles     *domain.Registry
 	graph        *explorationgraph.Store
 	checkpointer core.Checkpointer
 	eventBus     bus.Bus // 统一事件总线
 	controlPlane *controlplane.Store
 }
 
-// onboard 用域注册表解析 brief 目标，并完成三件 best-effort 副作用：
+// hostRe 匹配 brief 里的 http(s) 目标（含端口）——任务装配层的入口记账：
+// 抽出首个 host 作 target_host 派生列与凭据池键。认知机械不做文本抽取。
+var hostRe = regexp.MustCompile(`https?://([^/\s]+)`)
+
+// onboard 从 brief 抽取目标 host 并完成三件 best-effort 副作用：
 //  1. 落探索图 KindObjective 节点（目标）；
 //  2. 回填 task.target_host 派生列；
 //  3. 返回 host key 供调用方下传。
 func (h handler) onboard(ctx context.Context, _, taskID, brief string) string {
-	refs, ok := h.profiles.Onboard(ctx, domain.BriefInput{Brief: brief})
+	matches := hostRe.FindAllStringSubmatch(brief, -1)
+	hosts := make([]string, 0, len(matches))
+	seen := map[string]bool{}
+	for _, m := range matches {
+		if h := m[1]; h != "" && !seen[h] {
+			seen[h] = true
+			hosts = append(hosts, h)
+		}
+	}
+	ok := len(hosts) > 0
 
 	h.logger.Info().
 		Str("task_id", taskID).
 		Str("brief", brief).
 		Bool("onboard_ok", ok).
-		Int("refs_count", len(refs)).
+		Int("hosts_found", len(hosts)).
 		Msg("onboard 开始解析")
 
-	if !ok || len(refs) == 0 || refs[0].Locator == "" {
+	if !ok {
 		h.logger.Warn().
 			Str("task_id", taskID).
 			Bool("ok", ok).
-			Int("refs_len", len(refs)).
-			Msg(" onboard 解析失败，未创建 Objective")
+			Msg("onboard 解析失败，未创建 Objective")
 		return taskID
 	}
 
 	if h.graph != nil && taskID != "" {
-		for _, ref := range refs {
+		for _, targetHost := range hosts {
 			content, _ := json.Marshal(map[string]interface{}{
-				"target_ref":  ref,
+				"target_host": targetHost,
 				"description": brief, // 添加 description 供 Planner 读取
 			})
 
@@ -125,19 +136,19 @@ func (h handler) onboard(ctx context.Context, _, taskID, brief string) string {
 			h.logger.Info().
 				Str("task_id", taskID).
 				Str("objective_id", node.ID).
-				Str("locator", ref.Locator).
+				Str("host", targetHost).
 				Msg("准备创建 Objective 节点")
 
 			if _, err := h.graph.CreateNode(ctx, node); err != nil {
 				// 改进1: Fail-Fast - Objective 创建失败应该中止任务
 				h.logger.Error().Err(err).Str("task_id", taskID).
-					Str("locator", ref.Locator).Msg("创建 objective 节点失败 - 任务将无法正常执行")
+					Str("host", targetHost).Msg("创建 objective 节点失败 - 任务将无法正常执行")
 				return taskID // 返回原 taskID，但已记录严重错误
 			}
 			h.logger.Info().
 				Str("task_id", taskID).
 				Str("objective_id", node.ID).
-				Str("locator", ref.Locator).
+				Str("host", targetHost).
 				Msg("Objective 节点创建成功")
 		}
 	} else {
@@ -148,7 +159,7 @@ func (h handler) onboard(ctx context.Context, _, taskID, brief string) string {
 			Msg(" 跳过创建 Objective：graph 为 nil 或 taskID 为空")
 	}
 
-	host := refs[0].Locator
+	host := hosts[0]
 	if host != taskID {
 		if err := h.tasks.SetTargetHost(ctx, taskID, host); err != nil {
 			h.logger.Warn().Err(err).Str("task_id", taskID).Str("host", host).

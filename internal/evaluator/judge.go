@@ -202,10 +202,10 @@ func parseVerdict(content string) (Verdict, error) {
 		return Verdict{}, fmt.Errorf("judge: 裁决输出为空")
 	}
 	var v struct {
-		Verdict     string              `json:"verdict"`
-		Confidence  float64             `json:"confidence"`
-		Reasoning   string              `json:"reasoning"`
-		Fingerprint *FindingFingerprint `json:"finding"`
+		Verdict     string          `json:"verdict"`
+		Confidence  float64         `json:"confidence"`
+		Reasoning   string          `json:"reasoning"`
+		Fingerprint json.RawMessage `json:"finding"`
 	}
 	if err := json.Unmarshal([]byte(llm.ExtractJSON(content)), &v); err != nil {
 		return Verdict{}, fmt.Errorf("judge: 解析裁决失败: %w (输出: %.200s)", err, content)

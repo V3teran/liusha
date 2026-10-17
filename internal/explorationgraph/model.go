@@ -203,13 +203,6 @@ func (n *Node) IsVerified() bool {
 	return *n.Confidence == ConfidenceVerified
 }
 
-// TargetRef 是多态目标引用（域适配层使用）
-type TargetRef struct {
-	Domain  string `json:"domain"`   // 域标识（web/binary/cloud/lateral）
-	RefKind string `json:"ref_kind"` // 引用类型（endpoint/file/instance/host）
-	Locator string `json:"locator"`  // 定位符（URL/文件路径/实例 ID/IP）
-}
-
 // ObjectiveNode 是任务目标节点的简化表示（供 Monitor 等读取）
 type ObjectiveNode struct {
 	ID   string

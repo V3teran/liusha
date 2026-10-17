@@ -18,7 +18,7 @@ import (
 	"github.com/V3teran/liusha/internal/bus"
 	"github.com/V3teran/liusha/internal/explorationgraph"
 	"github.com/V3teran/liusha/internal/framework/llm"
-	"github.com/V3teran/liusha/internal/tools"
+	"github.com/V3teran/liusha/internal/repro"
 	"github.com/google/uuid"
 )
 
@@ -247,7 +247,7 @@ func (a *Agent) handleEvent(ctx context.Context, event bus.Event, sem chan struc
 	// 门侧归一化：与轮询路径（parseObservationToAttempt）对称——裁决入口
 	// 永远不信任生产侧的形状。矫正失败保留原样，复放会以确定性错误终局，
 	// 归一化只救该救的，不掩盖真损坏。
-	if normalized, _, nErr := tools.NormalizeReproEnvelope(attempt.Primitives); nErr == nil {
+	if normalized, _, nErr := repro.NormalizeReproEnvelope(attempt.Primitives); nErr == nil {
 		attempt.Primitives = normalized
 	}
 
@@ -466,7 +466,7 @@ func (a *Agent) parseObservationToAttempt(obs explorationgraph.Node) (Attempt, e
 
 	// 归一化repro：处理数组格式、缺失domain等历史兼容问题
 	// 防止Replayer解析失败（json: cannot unmarshal array into Go value of type executor.ReproEnvelope）
-	normalized, hint, err := tools.NormalizeReproEnvelope(content.Repro)
+	normalized, hint, err := repro.NormalizeReproEnvelope(content.Repro)
 	if err != nil {
 		return Attempt{}, fmt.Errorf("归一化 repro 失败: %w", err)
 	}

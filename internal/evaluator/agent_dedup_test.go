@@ -103,7 +103,7 @@ func TestIsDeterministicRecipeError(t *testing.T) {
 // （result 只承载经裁决坐实的主张）。
 func TestPollAndVerify_OnlyPicksUnverified(t *testing.T) {
 	w := &fakeGraphStore{verID: "ver-boundary"}
-	promoter := New(w, fakeReplayer{res: Result{Evaluation: json.RawMessage(`{"assert_passed":true}`)}}, &fakeFindingWriter{}).
+	promoter := New(w, fakeReplayer{res: Result{Evaluation: json.RawMessage(`{"assert_passed":true}`)}}, &fakeClaimSink{}).
 		WithJudge(stubJudge{verdict: VerdictConfirmed})
 	b := bus.New(context.Background())
 	memGraph := explorationgraph.NewMemoryStore()

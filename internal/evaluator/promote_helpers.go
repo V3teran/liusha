@@ -218,7 +218,7 @@ func (v *PromotionEvaluator) createVerifiedNode(
 		UpdatedAt:  time.Now(),
 	}
 	if fingerprintKey != "" {
-		if b, err := json.Marshal(map[string]string{fingerprintMetadataKey: fingerprintKey}); err == nil {
+		if b, err := json.Marshal(map[string]string{claimFingerprintMetadataKey: fingerprintKey}); err == nil {
 			node.Metadata = b
 		}
 	}
@@ -242,23 +242,4 @@ func (v *PromotionEvaluator) createVerifiedNode(
 	}
 
 	return &node, nil
-}
-
-// writeFindingIfNeeded 写入 finding 表（如果配置了）
-func (v *PromotionEvaluator) writeFindingIfNeeded(
-	ctx context.Context,
-	node explorationgraph.Node,
-	a Attempt,
-	final Result,
-) {
-	if v.findings == nil {
-		return
-	}
-
-	if err := v.writeFinding(ctx, node, a, final); err != nil {
-		// finding 写入失败不阻塞晋升（节点已进图），但不能静默吞掉
-		if v.logger != nil {
-			v.logger.Warn().Err(err).Str("node_id", node.ID).Msg("finding 写入失败（节点已晋升，不影响图状态）")
-		}
-	}
 }

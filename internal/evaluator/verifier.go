@@ -26,15 +26,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/url"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 
 	"github.com/V3teran/liusha/internal/explorationgraph"
-	"github.com/V3teran/liusha/internal/finding"
 	"github.com/V3teran/liusha/internal/framework/core"
 )
 
@@ -53,10 +50,34 @@ type graphStore interface {
 	ListResults(ctx context.Context, taskID string) ([]explorationgraph.Node, error)
 }
 
-// findingWriter 是 Evaluator 依赖的 finding 写入子集：验证通过后才能写入 finding 表。
-// *finding.Store 自动满足本接口。
-type findingWriter interface {
-	Save(ctx context.Context, f finding.VulnFinding) (finding.VulnFinding, error)
+// ConfirmedClaim 是复现门坐实一条主张后交给域适配层的完整交付输入：
+// 通用字段透传（陈述/证据/配方/成色），领域解释（评级、定位、指纹形状）
+// 全部归域侧——门的产出是领域中立的"坐实主张"。
+type ConfirmedClaim struct {
+	TaskID         string
+	ResultNodeID   string          // 晋升产生的 result 节点
+	VerificationID string          // 审计链回指
+	Statement      string          // 主张陈述
+	Severity       string          // 载荷自带的影响评级（可空，域侧解释与兜底）
+	HostHint       string          // 载荷自带的位置提示（可空，域侧可重抽）
+	Target         json.RawMessage // 载荷自带的目标引用（可空）
+	Evidence       json.RawMessage // 复现证据（基线/利用双对照 + 断言明细）
+	Repro          json.RawMessage // 复现配方
+	Tier           string          // 验证档位 full_gate/judge_only
+	DurationMs     int64
+}
+
+// ClaimSink 是坐实主张的交付管道：安全域把它落成 finding，其他域各有
+// 各的交付物。nil 容忍（不交付，供测试）。
+type ClaimSink interface {
+	Record(ctx context.Context, claim ConfirmedClaim) error
+}
+
+// FingerprintNormalizer 把裁决官输出的原始指纹归一成规范键——指纹形状
+// 由域定义（章程教给裁决官），归一逻辑随形状走，也归域。nil 容忍
+// （不启用语义去重）。
+type FingerprintNormalizer interface {
+	CanonicalKey(raw json.RawMessage) (string, bool)
 }
 
 // Replayer 是 domain-specific 复现执行器。Evaluator 把"复现"委托给它，自身不碰域细节。
@@ -87,44 +108,17 @@ const (
 	VerdictRefuted   = "refuted"
 )
 
-// Verdict 是裁决官的终裁输出：结论 + 置信 + 理由 + 结构化指纹（坐实时给出，
-// 晋升门据此做语义去重）。
+// Verdict 是裁决官的终裁输出：结论 + 置信 + 理由 + 结构化指纹（坐实时
+// 按章程契约给出）。指纹对门是不透明 blob——形状与归一归域适配层。
 type Verdict struct {
-	Verdict     string              // confirmed / refuted
-	Confidence  float64             // 0-1，裁决官自评
-	Reasoning   string              // 一句话裁决理由（引用亲见差分）
-	Fingerprint *FindingFingerprint // 坐实时的发现指纹；缺失则该发现不参与语义去重
+	Verdict     string          // confirmed / refuted
+	Confidence  float64         // 0-1，裁决官自评
+	Reasoning   string          // 一句话裁决理由（引用亲见差分）
+	Fingerprint json.RawMessage // 域教的结构化指纹；空 = 不参与语义去重
 }
 
-// FindingFingerprint 是漏洞发现的语义指纹：判定权持有者对"什么洞、在哪个位置"
-// 的结构化回答。同类漏洞在同一位置的重复确认共享同一规范形——晋升门据此把
-// 第二次及以后的确认折叠为既有发现的佐证，不再新建 result、不再重写 finding。
-type FindingFingerprint struct {
-	Class  string `json:"class"`  // 漏洞类别，小写 snake_case（reflected_xss / stored_xss / sql_injection…）
-	Method string `json:"method"` // 请求方法
-	Host   string `json:"host"`   // 目标主机（含端口）
-	Path   string `json:"path"`   // URL 路径（不含 query）
-	Param  string `json:"param"`  // 注入点（参数名/头名/正文字段）；无明确注入点留空
-}
-
-// Key 返回规范形指纹串（比较与落库唯一用它）。归一化方向一律从宽：
-// 大小写折叠、路径去尾斜杠——去重的目标是合并同义报告，不是区分书写差异。
-func (f *FindingFingerprint) Key() string {
-	if f == nil {
-		return ""
-	}
-	norm := func(s string) string { return strings.ToLower(strings.TrimSpace(s)) }
-	return strings.Join([]string{
-		norm(f.Class),
-		norm(f.Method),
-		norm(f.Host),
-		strings.TrimSuffix(norm(f.Path), "/"),
-		norm(f.Param),
-	}, "|")
-}
-
-// fingerprintMetadataKey 是 result 节点 metadata 中指纹的落库键。
-const fingerprintMetadataKey = "finding_fingerprint"
+// claimFingerprintMetadataKey 是 result 节点 metadata 中指纹规范键的落库键。
+const claimFingerprintMetadataKey = "claim_fingerprint"
 
 // 验证档位（verification_tier）：结论成色的显式标记，下游（报告/前端/planner）
 // 据此分级消费——judge_only 的结论没经过机器复放通道，含金量低于全门。
@@ -164,28 +158,25 @@ var ErrAssertNotDiscriminative = errors.New("assert not discriminative")
 type PromotionEvaluator struct {
 	graph    graphStore
 	replayer Replayer
-	findings findingWriter   // 验证通过后写入 finding 表
-	judge    LLMJudge        // 可选：LLM 语义裁决（生产必配；nil=纯机器断言，供测试/降级）
-	logger   *zerolog.Logger // 可选：finding 写入失败等非致命错误经此告警
-	// agentRunID 归属的 agent_run.id（finding.agent_task_id NOT NULL）；
-	// 洞察链上 executor 侧 run 由装配方注入，空则写库会失败并告警。
-	agentRunID *string
+	sink     ClaimSink             // 坐实主张的交付管道（域适配层注入；nil 不交付）
+	codec    FingerprintNormalizer // 指纹归一（域适配层注入；nil 不启用语义去重）
+	judge    LLMJudge              // LLM 语义裁决（生产必配）
+	logger   *zerolog.Logger       // 非致命错误（交付失败等）经此告警
 }
 
 // New 构造 Evaluator。replayer 为 nil 时 Promote 会报错（无复现能力即无晋升）。
-func New(graph graphStore, replayer Replayer, findings findingWriter) *PromotionEvaluator {
+func New(graph graphStore, replayer Replayer, sink ClaimSink) *PromotionEvaluator {
 	return &PromotionEvaluator{
 		graph:    graph,
 		replayer: replayer,
-		findings: findings,
+		sink:     sink,
 	}
 }
 
-// WithAgentRunID 注入归属 agent_run.id（finding 表 NOT NULL 外键）。链式。
-func (v *PromotionEvaluator) WithAgentRunID(runID string) *PromotionEvaluator {
-	if runID != "" {
-		v.agentRunID = &runID
-	}
+// WithFingerprintCodec 注入域指纹归一器（链式）。语义去重依赖它把裁决官
+// 的原始指纹归一成规范键；不注入则同指纹主张不做折叠。
+func (v *PromotionEvaluator) WithFingerprintCodec(codec FingerprintNormalizer) *PromotionEvaluator {
+	v.codec = codec
 	return v
 }
 
@@ -256,10 +247,16 @@ func (v *PromotionEvaluator) Promote(ctx context.Context, a Attempt) (*explorati
 	// 7. 聚合证据
 	final, evaluation := aggregateEvidence(res, tier, verdict.Verdict, verdict.Reasoning, replays)
 
-	// 8. 坐实先查语义去重：同一漏洞（同指纹）的再次确认折叠为既有发现的佐证
-	fingerprintKey := verdict.Fingerprint.Key()
+	// 8. 坐实先查语义去重：同一主张（同指纹规范键）的再次确认折叠为既有
+	// 发现的佐证。指纹形状与归一归域适配层；无归一器或形状损坏则不折叠。
+	fingerprintKey := ""
+	if v.codec != nil && verdict.Verdict == VerdictConfirmed && len(verdict.Fingerprint) > 0 {
+		if key, ok := v.codec.CanonicalKey(verdict.Fingerprint); ok {
+			fingerprintKey = key
+		}
+	}
 	var duplicate *explorationgraph.Node
-	if verdict.Verdict == VerdictConfirmed && fingerprintKey != "" {
+	if fingerprintKey != "" {
 		duplicate, err = v.findConfirmedDuplicate(ctx, a.TaskID, fingerprintKey)
 		if err != nil {
 			return nil, err
@@ -321,14 +318,59 @@ func (v *PromotionEvaluator) Promote(ctx context.Context, a Attempt) (*explorati
 		return nil, err
 	}
 
-	// 14. 写入 finding 表
-	v.writeFindingIfNeeded(ctx, *node, a, final)
+	// 14. 交付：坐实主张交给域适配管道（安全域落 finding，他域各有交付物）
+	v.deliverClaim(ctx, a, *node, verID, final, tier)
 
 	return node, nil
 }
 
-// findConfirmedDuplicate 在既有 verified result 中查找同指纹发现。
-// 对照键是裁决官产出的语义指纹；未带指纹的历史 result 不参与对照
+// deliverClaim 把坐实主张交给交付管道。交付失败不回滚晋升（图状态是
+// 事实源），只告警——与既有的非致命错误口径一致。
+func (v *PromotionEvaluator) deliverClaim(
+	ctx context.Context,
+	a Attempt,
+	node explorationgraph.Node,
+	verID string,
+	res Result,
+	tier string,
+) {
+	if v.sink == nil || node.Kind != core.KindResult {
+		return
+	}
+
+	var content struct {
+		Summary  string          `json:"summary"`
+		Severity string          `json:"severity"`
+		Host     string          `json:"host"`
+		Target   json.RawMessage `json:"target"`
+	}
+	if err := json.Unmarshal(node.Content, &content); err != nil {
+		if v.logger != nil {
+			v.logger.Warn().Err(err).Str("node_id", node.ID).Msg("交付载荷解析失败（节点已晋升，不影响图状态）")
+		}
+		return
+	}
+
+	err := v.sink.Record(ctx, ConfirmedClaim{
+		TaskID:         node.TaskID,
+		ResultNodeID:   node.ID,
+		VerificationID: verID,
+		Statement:      content.Summary,
+		Severity:       content.Severity,
+		HostHint:       content.Host,
+		Target:         content.Target,
+		Evidence:       res.Evaluation,
+		Repro:          a.Primitives,
+		Tier:           tier,
+		DurationMs:     res.DurationMs,
+	})
+	if err != nil && v.logger != nil {
+		v.logger.Warn().Err(err).Str("node_id", node.ID).Msg("坐实主张交付失败（节点已晋升，不影响图状态）")
+	}
+}
+
+// findConfirmedDuplicate 在既有 verified result 中查找同指纹主张。
+// 对照键是域归一后的指纹规范键；未带指纹的历史 result 不参与对照
 // （缺失指纹的发现保持原样，不影响其地位）。
 func (v *PromotionEvaluator) findConfirmedDuplicate(ctx context.Context, taskID, key string) (*explorationgraph.Node, error) {
 	results, err := v.graph.ListResults(ctx, taskID)
@@ -337,7 +379,7 @@ func (v *PromotionEvaluator) findConfirmedDuplicate(ctx context.Context, taskID,
 	}
 	for i := range results {
 		var m struct {
-			Fingerprint string `json:"finding_fingerprint"`
+			Fingerprint string `json:"claim_fingerprint"`
 		}
 		if json.Unmarshal(results[i].Metadata, &m) != nil || m.Fingerprint == "" {
 			continue
@@ -356,7 +398,7 @@ func withDuplicateInfo(evaluation json.RawMessage, existingID, key string) json.
 		return evaluation
 	}
 	merged["duplicate_of"] = existingID
-	merged["finding_fingerprint"] = key
+	merged["claim_fingerprint"] = key
 	if b, err := json.Marshal(merged); err == nil {
 		return b
 	}
@@ -487,70 +529,4 @@ func withReplayLog(evaluation json.RawMessage, tier, verdict, reasoning string, 
 		return evaluation
 	}
 	return out
-}
-
-// writeFinding 将验证通过的节点写入 finding 表（仅 Result 类节点）。
-func (v *PromotionEvaluator) writeFinding(ctx context.Context, node explorationgraph.Node, attempt Attempt, res Result) error {
-	// 只有 Result 类节点（包含漏洞）才写入 finding 表
-	if node.Kind != core.KindResult {
-		return nil
-	}
-
-	// 解析 node.Content 提取漏洞信息
-	var content struct {
-		Summary  string          `json:"summary"`
-		Severity string          `json:"severity"`
-		Host     string          `json:"host"`
-		Target   json.RawMessage `json:"target"`
-	}
-	if err := json.Unmarshal(node.Content, &content); err != nil {
-		return fmt.Errorf("解析节点内容失败: %w", err)
-	}
-
-	if content.Summary == "" {
-		content.Summary = fmt.Sprintf("Verified vulnerability (node %s)", node.ID)
-	}
-	if content.Severity == "" {
-		content.Severity = "medium" // 默认中危
-	}
-	hostFromEvidence := func(ev json.RawMessage) string {
-		var e struct {
-			URL string `json:"url"`
-		}
-		if json.Unmarshal(ev, &e) == nil && e.URL != "" {
-			if u, pErr := url.Parse(e.URL); pErr == nil && u.Host != "" {
-				return u.Host
-			}
-		}
-		return "unknown"
-	}
-
-	if content.Host == "" || content.Host == "unknown" {
-		content.Host = hostFromEvidence(res.Evaluation) // 从复现证据的 URL 抽真实 host
-	}
-
-	evaluation, err := json.Marshal(map[string]interface{}{
-		"node_id":           node.ID,
-		"verification_id":   node.SourceID,
-		"verification_tier": verificationTier(attempt.Primitives), // 结论成色：full_gate/judge_only
-		"evaluation":        res.Evaluation,
-		"duration_ms":       res.DurationMs,
-	})
-	if err != nil {
-		return fmt.Errorf("marshal evaluation: %w", err)
-	}
-
-	f := finding.VulnFinding{
-		TaskID:     node.TaskID,
-		AgentRunID: v.agentRunID,
-		Host:       content.Host,
-		Summary:    content.Summary,
-		Severity:   content.Severity,
-		Evaluation: evaluation,
-		Target:     content.Target,
-		Repro:      attempt.Primitives, // 复现配方
-	}
-
-	_, err = v.findings.Save(ctx, f)
-	return err
 }
