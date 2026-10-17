@@ -42,7 +42,7 @@ func TestParseObservationToAttemptContentShape(t *testing.T) {
 		ID:      "obs-1",
 		TaskID:  "task-1",
 		Kind:    core.KindObservation,
-		Content: json.RawMessage(`{"statement":"S 存在漏洞","severity":"high","confidence":"high","repro":{"domain":"generic","recipe":{"steps":["curl x"]},"assert":{"description":"d"}}}`),
+		Content: json.RawMessage(`{"statement":"S 存在漏洞","severity":"high","executor_confidence":"high","repro":{"domain":"generic","recipe":{"steps":["curl x"]},"assert":{"description":"d"}}}`),
 	}
 	att, err := a.parseObservationToAttempt(obs)
 	if err != nil {
