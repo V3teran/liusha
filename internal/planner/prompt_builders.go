@@ -193,6 +193,23 @@ func buildResultsSection(results []explorationgraph.Node) string {
 	return sb.String()
 }
 
+// buildFactsSection 构建已确认世界状态部分——规划基底：已建立的会话、
+// 已探明的机制、已确认的资源。事实由执行轨迹背书（写入即终态），直接
+// 消费即可，禁止把已确认的事实重做成探索动作。
+func buildFactsSection(facts []Fact) string {
+	if len(facts) == 0 {
+		return ""
+	}
+
+	var sb strings.Builder
+	sb.WriteString("## 已确认的世界状态（直接可用，无需重新探索）\n")
+	for _, f := range facts {
+		fmt.Fprintf(&sb, "- %s\n", f.Statement)
+	}
+	sb.WriteString("\n**注意**：以上事实已确认成立。规划时直接利用（如复用已建立的会话、沿已探明的机制推导），不要生成重复确认它们的动作。\n\n")
+	return sb.String()
+}
+
 // refuteReasonHint 把反驳原因翻译成规划指令：配方类失败（证据没拿到）可换姿势
 // 重试，语义证伪（证据到了但不构成漏洞）才是方向作废——两者处置不同。
 // 原因字面量与 evaluator 包的 refute_reason 常量保持一致（metadata JSON 契约）。

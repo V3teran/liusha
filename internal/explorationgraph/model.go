@@ -65,8 +65,7 @@ const (
 	ConfidenceUnverified = core.ConfidenceUnverified
 	ConfidenceVerified   = core.ConfidenceVerified
 	ConfidenceRefuted    = core.ConfidenceRefuted
-	ConfidenceFactual    = "factual"
-	ConfidenceIndicative = "indicative"
+	ConfidenceFactual    = core.ConfidenceFactual
 )
 
 // Priority 是节点的优先级（类型别名，指向 core.Priority）

@@ -1,13 +1,16 @@
 package evaluator
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"testing"
+	"time"
 
 	"github.com/rs/zerolog"
 
+	"github.com/V3teran/liusha/internal/bus"
 	"github.com/V3teran/liusha/internal/explorationgraph"
 	"github.com/V3teran/liusha/internal/framework/core"
 )
@@ -92,5 +95,55 @@ func TestIsDeterministicRecipeError(t *testing.T) {
 		if isDeterministicRecipeError(fmt.Errorf("%s", s)) {
 			t.Errorf("不应判为确定性缺陷: %s", s)
 		}
+	}
+}
+
+// evaluator 管辖边界不变式：轮询只圈 unverified 假设——事实（factual）
+// 是 executor 写入即终态的观察，出处即信任，不消耗裁决预算、永不晋升
+// （result 只承载经裁决坐实的主张）。
+func TestPollAndVerify_OnlyPicksUnverified(t *testing.T) {
+	w := &fakeGraphStore{verID: "ver-boundary"}
+	promoter := New(w, fakeReplayer{res: Result{Evaluation: json.RawMessage(`{"assert_passed":true}`)}}, &fakeFindingWriter{}).
+		WithJudge(stubJudge{verdict: VerdictConfirmed})
+	b := bus.New(context.Background())
+	memGraph := explorationgraph.NewMemoryStore()
+	a := NewAgent(AgentConfig{TaskID: "t-boundary", Evaluator: promoter, EventBus: b, Graph: memGraph, Logger: zerolog.Nop()})
+
+	buildObs := func(id, statement string, conf explorationgraph.Confidence) explorationgraph.Node {
+		c := conf
+		return explorationgraph.Node{
+			ID: id, TaskID: "t-boundary", Kind: core.KindObservation,
+			Content:    json.RawMessage(`{"statement":"` + statement + `","repro":{"domain":"generic","recipe":{"steps":"s"},"assert":{"description":"d"}}}`),
+			Confidence: &c,
+		}
+	}
+
+	// 三种状态并存：只有 unverified 应被圈定
+	for _, obs := range []explorationgraph.Node{
+		buildObs("obs-hyp", "待裁决假设", explorationgraph.ConfidenceUnverified),
+		buildObs("obs-fact", "已确认事实", explorationgraph.ConfidenceFactual),
+		buildObs("obs-done", "已裁决", explorationgraph.ConfidenceRefuted),
+	} {
+		if _, err := memGraph.CreateNode(context.Background(), obs); err != nil {
+			t.Fatalf("建观察失败: %v", err)
+		}
+	}
+
+	sem := make(chan struct{}, 1)
+	if err := a.pollAndVerify(context.Background(), sem); err != nil {
+		t.Fatalf("pollAndVerify: %v", err)
+	}
+
+	deadline := time.Now().Add(3 * time.Second)
+	for w.VerificationCount() < 1 {
+		if time.Now().After(deadline) {
+			t.Fatalf("unverified 假设应被裁决, got %d", w.VerificationCount())
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	// 裁决只发生 1 次：fact/refuted 不进队列
+	time.Sleep(100 * time.Millisecond)
+	if w.VerificationCount() != 1 {
+		t.Fatalf("只有 unverified 应进裁决管道: %d", w.VerificationCount())
 	}
 }

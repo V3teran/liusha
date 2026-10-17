@@ -93,27 +93,26 @@ const (
 	ActionStateAborted ActionState = "aborted"
 )
 
-// ObservationConfidence 是观察的状态，控制晋升流程
+// ObservationConfidence 是观察的图级状态。探索图是领域中立的认知架构：
+// 这里只有「主张」与「事实」，领域语义（如安全场景的漏洞）由章程与
+// 领域存储承载，不进图本体。
 //
-// 设计原则：
-// - unverified：待验证的漏洞假设，需过复现门
-// - verified：已通过复现门验证的漏洞
-// - refuted：复现门证伪的漏洞
-// - factual：无需验证的事实（端口、服务版本等），直接晋升
-// - indicative：可疑指标（流量异常、模式匹配等），作为佐证信息
+// 两条互不重叠的生命周期：
+//   - 假设（category=hypothesis）：unverified → verified/refuted，流转由
+//     evaluator 复现门独占；verified 的唯一产物是 result 节点——result
+//     只承载经裁决坐实的主张，事实永远不晋升为 result。
+//   - 事实（category=fact）：factual 写入即终态，无流转——事实是世界
+//     状态断言，信任来自执行轨迹出处而非复现；planner 直接消费。
 type ObservationConfidence string
 
 const (
-	// 漏洞生命周期
-	ConfidenceUnverified ObservationConfidence = "unverified" // 待验证
-	ConfidenceVerified   ObservationConfidence = "verified"   // 已验证
+	// 假设生命周期（evaluator 复现门独占流转）
+	ConfidenceUnverified ObservationConfidence = "unverified" // 待裁决
+	ConfidenceVerified   ObservationConfidence = "verified"   // 已坐实（result）
 	ConfidenceRefuted    ObservationConfidence = "refuted"    // 已证伪
 
-	// 事实类
+	// 事实终态（executor 写入即终态）
 	ConfidenceFactual ObservationConfidence = "factual" // 已确认事实
-
-	// 指标类
-	ConfidenceIndicative ObservationConfidence = "indicative" // 可疑指标
 )
 
 // Priority 是节点的优先级
@@ -161,14 +160,14 @@ func (c ObservationConfidence) IsRefuted() bool {
 	return c == ConfidenceRefuted
 }
 
-// IsVulnerabilityToBeTested 判断是否是待验证的漏洞
+// IsVulnerabilityToBeTested 判断是否是待复现门裁决的漏洞假设。
 func (c ObservationConfidence) IsVulnerabilityToBeTested() bool {
 	return c == ConfidenceUnverified
 }
 
-// IsFactOrIndicator 判断是否是事实或指标（无需复现验证）
-func (c ObservationConfidence) IsFactOrIndicator() bool {
-	return c == ConfidenceFactual || c == ConfidenceIndicative
+// IsFact 判断是否是事实终态（executor 写入即终态，无流转）。
+func (c ObservationConfidence) IsFact() bool {
+	return c == ConfidenceFactual
 }
 
 // String 返回节点类型的字符串表示

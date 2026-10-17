@@ -103,10 +103,22 @@ func (t *ObserveStateTool) Execute(ctx context.Context, argsJSON json.RawMessage
 		actions = filtered
 	}
 
-	// 查询发现
+	// 查询发现（经裁决坐实的主张）
 	findings, err := t.graph.ListNodesByKind(ctx, taskID, core.KindResult)
 	if err != nil {
 		return registry.ToolResult{Error: fmt.Sprintf("load findings: %v", err)}, nil
+	}
+
+	// 查询已确认的世界状态（fact 观察终态）
+	observations, err := t.graph.ListNodesByKind(ctx, taskID, core.KindObservation)
+	if err != nil {
+		return registry.ToolResult{Error: fmt.Sprintf("load observations: %v", err)}, nil
+	}
+	var facts []explorationgraph.Node
+	for _, obs := range observations {
+		if obs.Confidence != nil && *obs.Confidence == explorationgraph.ConfidenceFactual {
+			facts = append(facts, obs)
+		}
 	}
 
 	// 格式化输出
@@ -132,6 +144,15 @@ func (t *ObserveStateTool) Execute(ctx context.Context, argsJSON json.RawMessage
 		output += fmt.Sprintf("- %s: %d\n", state, count)
 	}
 	output += "\n"
+
+	// 已确认的世界状态（规划基底）
+	if len(facts) > 0 {
+		output += fmt.Sprintf("### 已确认事实 (%d)\n", len(facts))
+		for _, f := range facts {
+			output += fmt.Sprintf("- %s\n", string(f.Content))
+		}
+		output += "\n"
+	}
 
 	// 发现
 	output += fmt.Sprintf("### 发现 (%d)\n", len(findings))

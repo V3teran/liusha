@@ -77,15 +77,22 @@ type RefutedHypothesis struct {
 	Reason    string
 }
 
+// Fact 是已确认的世界状态断言（观察的终态类别）：会话已建立、某机制由
+// 什么控制、资源是否存在——规划的基底，直接消费、无需验证。
+type Fact struct {
+	Statement string
+}
+
 // PlanningContext 规划上下文
 type PlanningContext struct {
 	Objective         string                  // 根目标描述（任务章程）
 	Objectives        []explorationgraph.Node // 全部目标（含派生方向）——规划面向全图
 	CompletedActions  []explorationgraph.Node // 已完成的 Action
 	PendingActions    []explorationgraph.Node // 待执行的 Action
-	Results           []explorationgraph.Node // 已确认的结果
+	Results           []explorationgraph.Node // 已确认的结果（经裁决坐实的主张）
 	FailedActions     []explorationgraph.Node // 失败的 Action
 	RefutedHypotheses []RefutedHypothesis     // 已被复现门证伪的假设（含反驳原因，防止复读）
+	Facts             []Fact                  // 已确认的世界状态（规划基底，直接消费）
 }
 
 // ActionProposal LLM 返回的 Action 提案
@@ -272,6 +279,24 @@ func (i *Intelligence) gatherContext(ctx context.Context, graph *explorationgrap
 	}
 	planCtx.Results = results
 
+	// 获取已确认的世界状态（fact 观察是写入即终态，无流转）——规划的
+	// 基底：已建立的会话、已探明的机制、已确认的资源，直接拿来用。
+	factObservations, err := graph.ListNodesByKind(ctx, taskID, core.KindObservation)
+	if err != nil {
+		return nil, fmt.Errorf("获取 Observation 失败: %w", err)
+	}
+	for _, obs := range factObservations {
+		if obs.Confidence == nil || *obs.Confidence != explorationgraph.ConfidenceFactual {
+			continue
+		}
+		var c struct {
+			Statement string `json:"statement"`
+		}
+		if json.Unmarshal(obs.Content, &c) == nil && c.Statement != "" {
+			planCtx.Facts = append(planCtx.Facts, Fact{Statement: c.Statement})
+		}
+	}
+
 	// 获取已被复现门证伪的假设（evaluator 的 verification_outcome 标记）——
 	// 规划器对"哪条路已试死"的权威事实源，防同方向反复重提（复读机）。
 	// refute_reason 一并带出：复现失败类可换配方重试，语义证伪类才是方向作废。
@@ -331,6 +356,9 @@ func (i *Intelligence) buildPlanningPrompt(ctx *PlanningContext) string {
 
 	// 8. 已确认的发现
 	sb.WriteString(buildResultsSection(ctx.Results))
+
+	// 8.5 已确认的世界状态（规划基底）
+	sb.WriteString(buildFactsSection(ctx.Facts))
 
 	// 9. 已被证伪的假设
 	sb.WriteString(buildRefutedHypothesesSection(ctx.RefutedHypotheses))
