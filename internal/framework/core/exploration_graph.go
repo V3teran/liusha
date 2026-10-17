@@ -93,18 +93,27 @@ const (
 	ActionStateAborted ActionState = "aborted"
 )
 
-// ObservationConfidence 是观察的置信度
+// ObservationConfidence 是观察的状态，控制晋升流程
+//
+// 设计原则：
+// - unverified：待验证的漏洞假设，需过复现门
+// - verified：已通过复现门验证的漏洞
+// - refuted：复现门证伪的漏洞
+// - factual：无需验证的事实（端口、服务版本等），直接晋升
+// - indicative：可疑指标（流量异常、模式匹配等），作为佐证信息
 type ObservationConfidence string
 
 const (
-	// ConfidenceUnverified 未验证
-	ConfidenceUnverified ObservationConfidence = "unverified"
+	// 漏洞生命周期
+	ConfidenceUnverified ObservationConfidence = "unverified" // 待验证
+	ConfidenceVerified   ObservationConfidence = "verified"   // 已验证
+	ConfidenceRefuted    ObservationConfidence = "refuted"    // 已证伪
 
-	// ConfidenceVerified 已验证
-	ConfidenceVerified ObservationConfidence = "verified"
+	// 事实类
+	ConfidenceFactual ObservationConfidence = "factual" // 已确认事实
 
-	// ConfidenceRefuted 已证伪
-	ConfidenceRefuted ObservationConfidence = "refuted"
+	// 指标类
+	ConfidenceIndicative ObservationConfidence = "indicative" // 可疑指标
 )
 
 // Priority 是节点的优先级
@@ -142,14 +151,24 @@ func (s ActionState) IsActive() bool {
 	return s == ActionStateRunning
 }
 
-// IsVerified 判断观察是否已验证
+// IsVerified 判断观察是否已验证（通过复现门或已确认事实）
 func (c ObservationConfidence) IsVerified() bool {
-	return c == ConfidenceVerified
+	return c == ConfidenceVerified || c == ConfidenceFactual
 }
 
 // IsRefuted 判断观察是否已证伪
 func (c ObservationConfidence) IsRefuted() bool {
 	return c == ConfidenceRefuted
+}
+
+// IsVulnerabilityToBeTested 判断是否是待验证的漏洞
+func (c ObservationConfidence) IsVulnerabilityToBeTested() bool {
+	return c == ConfidenceUnverified
+}
+
+// IsFactOrIndicator 判断是否是事实或指标（无需复现验证）
+func (c ObservationConfidence) IsFactOrIndicator() bool {
+	return c == ConfidenceFactual || c == ConfidenceIndicative
 }
 
 // String 返回节点类型的字符串表示

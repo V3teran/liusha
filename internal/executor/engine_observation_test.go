@@ -38,18 +38,18 @@ func TestObservationOwnership_ByGeneratesEdgeAtWriteTime(t *testing.T) {
 
 	// 各 action 走 Engine 写入路径：建观察节点 + 落归属边 + 转 Attempt
 	nodeA, err := engine.createObservationNode(ctx, taskID, "act-A",
-		Observation{Statement: "A 的假设", Repro: envelope})
+		Observation{Statement: "A 的假设", Category: CategoryVulnerability, Repro: envelope})
 	if err != nil {
 		t.Fatalf("创建 act-A 观察节点失败: %v", err)
 	}
 	attA, err := engine.observationToAttempt(taskID, nodeA,
-		Observation{Statement: "A 的假设", Repro: envelope})
+		Observation{Statement: "A 的假设", Category: CategoryVulnerability, Repro: envelope})
 	if err != nil {
 		t.Fatalf("转换 act-A Attempt 失败: %v", err)
 	}
 
 	nodeB, err := engine.createObservationNode(ctx, taskID, "act-B",
-		Observation{Statement: "B 的假设", Repro: envelope})
+		Observation{Statement: "B 的假设", Category: CategoryVulnerability, Repro: envelope})
 	if err != nil {
 		t.Fatalf("创建 act-B 观察节点失败: %v", err)
 	}
