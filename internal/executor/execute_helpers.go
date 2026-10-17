@@ -93,7 +93,7 @@ func (e *Engine) buildReActConfigWithMonitoring(
   "observations": [
     {
       "category": "hypothesis",
-      "statement": "你断言存在、且可复现验证的主张（例如：name 参数存在反射型 XSS）",
+      "statement": "主张陈述：什么位置、什么条件、出现什么可复现现象",
       "reasoning": "你为什么得出这个结论",
       "test_plan": "如何验证这个发现",
       "confidence": "low/medium/high",
@@ -103,20 +103,20 @@ func (e *Engine) buildReActConfigWithMonitoring(
         "recipe": {
           "request": {
             "method": "GET",
-            "url": "http://example.com/vulnerable",
+            "url": "http://example.com/target",
             "headers": {"Cookie": "session=abc"},
             "body": ""
           }
         },
         "assert": {
-          "body_contains": ["<script>alert(1)</script>", "XSS"],
+          "body_contains": ["主张成立的独有特征子串"],
           "status_code": 200
         }
       }
     },
     {
       "category": "fact",
-      "statement": "已确认的世界状态信息（例如：会话已建立、某机制由 X 控制、目标存在 Y）",
+      "statement": "事实陈述：已确认的世界状态（含出处指向哪个实测输出）",
       "reasoning": "依据是什么（来自哪个实测输出）",
       "confidence": "low/medium/high"
     }
@@ -133,7 +133,7 @@ func (e *Engine) buildReActConfigWithMonitoring(
   * body_contains: 响应体必须包含的字符串数组（推荐）
   * status_code: 期望的HTTP状态码（数字）
   * header_contains: 响应头必须包含的字段，格式为对象 {"Header-Name": "substring"}，不是数组
-  * body_not_contains: 响应体必须不含的字符串数组（如未跳登录页=认证绕过坐实）
+  * body_not_contains: 响应体必须不含的字符串数组（主张成立的反向特征）
 - 不要只写description，必须提供具体的断言条件`,
 		// kill 止血：迭代回调发现 action 已被 monitor kill（aborted）→ 置位，
 		// 提前终止条件在下一轮立即结束 ReAct——不再空跑剩余迭代。
@@ -265,28 +265,28 @@ func (e *Engine) executeReActRuntime(
 }
 
 // fallbackExtractHypothesis 是 ReAct 失败后的降级策略：
-// 通过单轮 LLM 调用，基于 action 描述强制推导可能的漏洞假设。
-//
-// 业界最佳实践：智能体执行失败时不应完全静默，而要尽可能提取有价值的中间结果。
-// 参考：Anthropic Claude Computer Use、LangChain AgentExecutor 的 handle_parsing_errors 机制。
+// 通过单轮 LLM 调用，基于任务目标推导仍值得独立验证的假设——执行失败
+// 不等于一无所获，能给出复现步骤的推测交给裁决门去实测。角色与领域
+// 语义由章程承载（SystemPrompt 已含），这里只教降级任务本身。
 func (e *Engine) fallbackExtractHypothesis(
 	ctx context.Context,
 	config *runtime.ReActConfig,
 	actionID string,
 ) (*runtime.ReActResult, error) {
-	// 1. 构建降级 prompt：引导 LLM 输出结构化假设
+	// 1. 构建降级 prompt：以任务目标为据推导假设（不是 SystemPrompt——
+	// 角色章程已在 provider 侧生效，这里喂任务本体）
 	fallbackPrompt := fmt.Sprintf(`
-你是渗透测试专家。以下 Action 执行失败，但你仍需基于任务描述推导可能的漏洞假设。
+以下 Action 执行失败，但任务目标仍可能推导出值得独立验证的假设。
 
-**原始任务**：
+**任务目标**：
 %s
 
 **要求**：
-1. 分析任务目标，推导 2-3 个最可能存在的漏洞假设
+1. 分析任务目标，推导 2-3 个最可能成立的待验证假设（必须能给出复现步骤，纯猜测不要）
 2. 每个假设必须包含：
-   - statement: 漏洞假设陈述（简洁明确）
+   - statement: 主张陈述（简洁明确：什么位置、什么条件、什么现象）
    - repro: 复现步骤（JSON 数组，每步一个字符串）
-   - severity: 严重等级（critical/high/medium/low）
+   - severity: 影响等级（critical/high/medium/low）
 
 **输出格式**（严格 JSON）：
 {
@@ -294,13 +294,14 @@ func (e *Engine) fallbackExtractHypothesis(
   "summary": "执行失败但推导出以下假设",
   "observations": [
     {
-      "statement": "可能存在 XSS 漏洞",
-      "repro": ["访问 http://target/?q=<script>alert(1)</script>", "检查响应是否未转义"],
+      "category": "hypothesis",
+      "statement": "X 输入在响应中原样出现，未经过任何处理",
+      "repro": ["构造带唯一标记的输入访问目标", "检查响应中标记是否原样保留"],
       "severity": "high"
     }
   ]
 }
-`, config.SystemPrompt)
+`, config.Objective)
 
 	// 2. 调用 LLM（使用 config 的 LLMProvider）
 	req := llm.Request{

@@ -70,7 +70,7 @@ func (i *Intelligence) WithTimeout(timeout time.Duration) *Intelligence {
 
 // RefutedHypothesis 是被复现门证伪的假设：反驳原因区分"证据没拿到"
 // （not_reproducible/invalid_recipe——配方或上下文问题）与"拿到了证据但
-// 不构成漏洞"（not_a_vuln/assert_not_discriminative——语义/质量问题），
+// 主张不成立"（claim_invalid/assert_not_discriminative——语义/质量问题），
 // 规划器据此决定换配方重试还是放弃方向。
 type RefutedHypothesis struct {
 	Statement string
@@ -186,7 +186,7 @@ func (i *Intelligence) Plan(ctx context.Context, graph *explorationgraph.Store, 
   "reasoning": "为什么需要继续/停止",
   "actions": [
     {
-      "type": "reconnaissance/vulnerability_scan/exploitation",
+      "type": "reconnaissance/analysis/testing",
       "instruction": "具体要做什么",
       "complexity": "trivial/moderate/complex",
       "priority": "low/medium/high/critical",
