@@ -15,12 +15,13 @@ import (
 	"github.com/V3teran/liusha/internal/tools"
 )
 
-// createObservationNode 为观察结果创建 observation 节点。
+// createObservationNode 为观察结果创建 observation 节点
 //
-// 图级 Confidence 是验证生命周期裁决（复现门独占写权）：带 repro 的假设
-// 以 unverified 入图等待裁决；无 repro 的执行记录/证据不是假设，不参与
-// 该生命周期，不携带 Confidence。executor 的自评置信度（low/medium/high）
-// 是假设载荷的一部分，随 Content 落库。
+// 图级 Confidence 由 Category 完全决定（不由 executor 赋值）：
+// - vulnerability + repro → unverified（待复现验证）
+// - vulnerability 无 repro → 不创建（配方缺失）
+// - fact → factual（直接确认，不需验证）
+// - indicator → indicative（指标，支撑分析）
 func (e *Engine) createObservationNode(
 	ctx context.Context,
 	taskID string,
@@ -29,26 +30,26 @@ func (e *Engine) createObservationNode(
 ) (*explorationgraph.Node, error) {
 	// 构造 content
 	contentMap := map[string]interface{}{
-		"statement": obs.Statement,
-		"reasoning": obs.Reasoning,
-		"test_plan": obs.TestPlan,
+		"statement":  obs.Statement,
+		"category":   obs.Category,
+		"reasoning":  obs.Reasoning,
+		"test_plan":  obs.TestPlan,
 	}
 
-	if obs.Confidence != "" {
-		contentMap["confidence"] = obs.Confidence
-	}
 	if obs.Severity != "" {
 		contentMap["severity"] = obs.Severity
 	}
+	if obs.Confidence != "" {
+		contentMap["executor_confidence"] = obs.Confidence // 改名区分图级 confidence
+	}
 
-	// 保存 ExecutionTrace（完整执行轨迹）
+	// 保存执行轨迹
 	if obs.ExecutionTrace != nil {
 		contentMap["execution_trace"] = obs.ExecutionTrace
 	}
 
+	// 保存复现配方（仅对 vulnerability 有意义）
 	if len(obs.Repro) > 0 {
-		// 幂等再归一：收割循环已统一矫正并让 Attempt 共用同一结果，此处
-		// 只兜底防未来新调用方绕过循环——对已归一化信封是恒等操作
 		normalized, _, nErr := tools.NormalizeReproEnvelope(obs.Repro)
 		if nErr == nil {
 			obs.Repro = normalized
@@ -72,13 +73,32 @@ func (e *Engine) createObservationNode(
 		CreatedAt:  time.Now(),
 		UpdatedAt:  time.Now(),
 	}
-	if len(obs.Repro) > 0 {
+
+	// 【关键】根据 Category 和配方情况设置图级 Confidence
+	switch obs.Category {
+	case CategoryVulnerability:
+		// 漏洞必须有复现配方
+		if len(obs.Repro) == 0 {
+			return nil, fmt.Errorf("vulnerability observation requires repro")
+		}
 		unverified := explorationgraph.ConfidenceUnverified
 		node.Confidence = &unverified
+
+	case CategoryFact:
+		// 事实无需验证，直接确认
+		factual := explorationgraph.Confidence(explorationgraph.ConfidenceFactual)
+		node.Confidence = &factual
+
+	case CategoryIndicator:
+		// 指标作为支撑信息
+		indicative := explorationgraph.Confidence(explorationgraph.ConfidenceIndicative)
+		node.Confidence = &indicative
+
+	default:
+		return nil, fmt.Errorf("unknown observation category: %s", obs.Category)
 	}
 
-	// action → observation 关系边与节点原子落库（边失败即整体失败，
-	// 不产生失去归属的孤立观察）
+	// action → observation 关系边与节点原子落库
 	if actionID != "" {
 		edge := explorationgraph.Edge{
 			TaskID:    taskID,
@@ -141,37 +161,58 @@ func (e *Engine) observationToAttempt(
 // 观察载荷与执行轨迹（Observation / ExecutionTrace / TraceBuilder）
 // ─────────────────────────────────────────────────────────────
 
-// Observation 是 Executor 的观察结果
+// ObservationCategory 对观察的分类，决定晋升流程
+//
+// - 漏洞：待验证的安全假设，需要机器复现+LLM裁决
+// - 事实：已确认的信息（端口开放、服务版本、资源存在等），无需验证直接晋升
+// - 指标：可疑的信号（异常流量、模式匹配、行为异常等），作为支撑证据保留
+type ObservationCategory string
+
+const (
+	CategoryVulnerability ObservationCategory = "vulnerability" // 漏洞
+	CategoryFact          ObservationCategory = "fact"          // 事实
+	CategoryIndicator     ObservationCategory = "indicator"     // 指标
+)
+
+// Observation 是执行器的观察结果
 //
 // 设计原则：
-//   - 不依赖 Executor 生成的断言（断言容易错）
-//   - 传递完整的执行轨迹（Evaluator 看到 Executor 看到的一切）
-//   - Evaluator 用 LLM 理解整个过程，做出判断
+// - 携带完整的上下文（执行轨迹、推理过程、测试计划）
+// - 由 Category 决定晋升流程（不同类型走不同验证路径）
+// - Confidence 由 createObservationNode 根据 Category 设置，不由 executor 赋值
+// - ExecutionTrace 记录原始执行数据，evaluator 以此复现
 type Observation struct {
-	// Statement：观察陈述（Executor 的发现）
+	// Statement：观察的陈述
 	Statement string `json:"statement"`
 
-	// Reasoning：Executor 的推理过程
+	// Category：观察分类（决定晋升流程）
+	Category ObservationCategory `json:"category"`
+
+	// Reasoning：为什么做出这个观察
 	Reasoning string `json:"reasoning"`
 
-	// Severity：严重性评估
-	Severity string `json:"severity"` // low/medium/high/critical
+	// Severity：严重性评估（仅对 vulnerability 有意义）
+	// 取值：low / medium / high / critical
+	Severity string `json:"severity,omitempty"`
 
-	// Confidence：Executor 的置信度
-	Confidence string `json:"confidence"` // low/medium/high
+	// Confidence：executor 的置信度评估
+	// 取值：low / medium / high
+	// 注：这是 executor 的主观评分，不是图级的 confidence 状态
+	Confidence string `json:"confidence,omitempty"`
 
-	// TestPlan：验证计划（兼容旧代码）
+	// TestPlan：验证计划说明
 	TestPlan string `json:"test_plan,omitempty"`
 
-	// Repro：复现配方（兼容旧代码，已废弃，使用 Trace）
+	// Repro：复现配方（仅对 vulnerability 有意义）
+	// 形式：JSON，由域定义（web=HTTP请求序列，generic=自由形式等）
 	Repro json.RawMessage `json:"repro,omitempty"`
 
-	// Trace：完整的执行轨迹（核心）
-	// Evaluator 用这个完整复现 Executor 的执行环境
-	Trace ExecutionTrace `json:"trace"`
-
-	// ExecutionTrace：指针形式（用于动态附加）
+	// ExecutionTrace：完整执行轨迹
+	// 包含所有 HTTP 流量、会话状态、元数据等
 	ExecutionTrace *ExecutionTrace `json:"execution_trace,omitempty"`
+
+	// Trace：另一种执行轨迹表示（兼容性）
+	Trace ExecutionTrace `json:"trace"`
 }
 
 // ExecutionTrace 记录 Executor 执行时的完整轨迹

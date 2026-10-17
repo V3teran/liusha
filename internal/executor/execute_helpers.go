@@ -412,6 +412,15 @@ func (e *Engine) harvestObservation(
 			Msg("observation 缺少 repro（可能是降级模式生成的假设），仍继续创建")
 	}
 
+	// 如果未指定 Category，根据 Repro 是否存在推断默认类型
+	if obs.Category == "" {
+		if len(obs.Repro) > 0 {
+			obs.Category = CategoryVulnerability // 有复现配方，默认为漏洞
+		} else {
+			obs.Category = CategoryFact // 无复现配方，默认为事实记录
+		}
+	}
+
 	// 附加 ExecutionTrace：裁决官看到的是完整执行轨迹，而不是 executor
 	// 转述的不可靠结论
 	obs.ExecutionTrace = &trace
