@@ -190,18 +190,16 @@ func (e *Engine) buildSystemPrompt(actionType, complexity string, registered []r
 	switch actionType {
 	case "reconnaissance":
 		basePrompt += `
-**侦察任务指导**：
-- 使用适当的工具进行信息收集
-- 收集服务版本、技术栈信息
-- 记录所有发现的端点和服务
+**信息收集任务指导**：
+- 使用适当的工具收集目标的基础事实
+- 把对后续动作有决策价值的结论记入 observations（category=fact）
 `
 	case "analysis":
 		basePrompt += `
 **分析任务指导**：
 - 使用专用分析工具
-- 针对已知问题搜索相关信息
-- 测试常见配置错误
-- 发现可疑问题立即在最终输出的 observations 里记录假设（附 repro 配方）
+- 针对已知线索搜索相关信息
+- 发现可疑现象立即在最终输出的 observations 里记录假设（附 repro 配方）
 `
 	case "testing":
 		basePrompt += `

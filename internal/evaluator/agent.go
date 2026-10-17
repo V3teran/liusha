@@ -482,12 +482,9 @@ func (a *Agent) parseObservationToAttempt(obs explorationgraph.Node) (Attempt, e
 	// 则自动降级为generic domain，避免验证失败
 	normalized = a.downgradeWebAssertIfNeeded(obs.ID, normalized)
 
-	// 设置默认 severity / confidence——与 executor 侧 observationToAttempt
-	// 同口径：两条路径（事件直发 / 轮询重建）构造的 Attempt 载荷形状一致。
+	// severity 缺省交领域交付层补（finding 映射处有默认）——通用裁决层
+	// 不制造领域评级的默认值；confidence 是 executor 自评载荷，缺省 low。
 	severity := content.Severity
-	if severity == "" {
-		severity = "medium"
-	}
 	confidence := content.Confidence
 	if confidence == "" {
 		confidence = "low"

@@ -117,12 +117,9 @@ func (e *Engine) observationToAttempt(
 	node *explorationgraph.Node,
 	obs Observation,
 ) (evaluator.Attempt, error) {
-	// 设置默认值
+	// severity 缺省交领域交付层补（finding 映射处有默认）——通用执行层
+	// 不制造领域评级的默认值；confidence 是 executor 自评载荷，缺省 low。
 	severity := obs.Severity
-	if severity == "" {
-		severity = "medium"
-	}
-
 	confidence := obs.Confidence
 	if confidence == "" {
 		confidence = "low"

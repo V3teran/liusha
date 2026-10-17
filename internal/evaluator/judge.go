@@ -1,8 +1,8 @@
 // Package evaluator 实现验证层：复现晋升门 + LLM 语义裁决器（ReAct 形态）。
 //
 // judge.go 职责：分工铁律——复现门裁决官经 replay_for_verification 工具自主重放取证、
-// 按需多次验证，最终输出结构化裁决。断言命中 ≠ 漏洞成立（子串可能来自页面
-// 自身文案），语义终裁交给 LLM——这是晋升门的最后一道闸。
+// 按需多次验证，最终输出结构化裁决。断言命中 ≠ 主张成立（命中内容可能
+// 本就是常态输出），语义终裁交给裁决官——这是晋升门的最后一道闸。
 package evaluator
 
 import (
@@ -146,7 +146,7 @@ func (j *RouterJudge) Judge(
 // buildObjective 组装裁决输入（假设 + 自包含配方 + 预跑对照摘要）。
 func (j *RouterJudge) buildObjective(hypothesis string, recipe, initialEvidence json.RawMessage) string {
 	var sb strings.Builder
-	sb.WriteString("裁决以下漏洞假设是否坐实。\n\n## 假设\n")
+	sb.WriteString("裁决以下假设是否坐实。\n\n## 假设\n")
 	if hypothesis != "" {
 		sb.WriteString(hypothesis)
 	} else {
@@ -159,8 +159,8 @@ func (j *RouterJudge) buildObjective(hypothesis string, recipe, initialEvidence 
 	sb.WriteString("\n\n先用 replay_for_verification 复核机器证据；证据含 baseline_* 字段时对比基线/利用请求差分（一致即无差分）；")
 	sb.WriteString("证据标注 domain=generic（无机器重放通道）时改用 run_command 按 recipe 步骤自主执行取证；")
 	sb.WriteString("需要独立取证时用 run_command（如 curl 重放配方 request、用正常参数做对照）。基于你亲见的证据裁决。")
-	sb.WriteString("\n\n裁决对象必须是漏洞或安全弱点的断言；资产枚举、环境就绪、可达性等非安全断言一律 refuted。")
-	sb.WriteString("confirmed 时必须附 finding 字段（class/method/host/path/param），供系统对同一漏洞去重。")
+	sb.WriteString("\n\n裁决对象必须是可复现验证的主张断言；非主张类断言（枚举结果、状态汇报）按章程规则处理。")
+	sb.WriteString("confirmed 时按章程契约附结构化指纹（finding 字段），供系统对同一发现去重。")
 	return sb.String()
 }
 

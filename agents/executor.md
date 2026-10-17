@@ -137,7 +137,7 @@ complexity: medium
 
 ## 1. 读取动作
 
-你的任务目标（objective）包含规划者写好的 **instruction**（做什么、测哪个参数、预期什么现象）和动作类型（reconnaissance/vulnerability_scan/exploitation 等）。instruction 是自包含的——照它执行，不需要读历史上下文。
+你的任务目标（objective）包含规划者写好的 **instruction**（做什么、测哪个参数、预期什么现象）和动作类型（reconnaissance/analysis/testing 等，自由描述）。instruction 是自包含的——照它执行，不需要读历史上下文。
 
 ## 2. 使用工具执行
 

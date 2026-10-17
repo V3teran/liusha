@@ -221,8 +221,8 @@ func refuteReasonHint(reason string) string {
 		return "（配方损坏：可换有效配方重试）"
 	case evaluator.RefuteAssertNotDiscriminative:
 		return "（断言无鉴别力被质量门拒绝：换捕捉利用响应独有特征的断言重提）"
-	case evaluator.RefuteNotAVuln:
-		return "（已复现但经裁决不构成漏洞：此方向作废，除非有实质新证据）"
+	case evaluator.RefuteClaimInvalid:
+		return "（复现成立但主张不成立：此方向作废，除非有实质新证据）"
 	default:
 		return "（经真实复现验证被否定：不要原样重提）"
 	}
@@ -239,7 +239,7 @@ func buildRefutedHypothesesSection(hypotheses []RefutedHypothesis) string {
 	for _, h := range hypotheses {
 		fmt.Fprintf(&sb, "- %s %s\n", h.Statement, refuteReasonHint(h.Reason))
 	}
-	sb.WriteString("\n**注意**：语义证伪（not_a_vuln）的假设禁止同方向重提；复现失败类（not_reproducible/invalid_recipe/assert_not_discriminative）允许换配方换断言再试，但都不要原样重提。\n\n")
+	sb.WriteString("\n**注意**：语义证伪（claim_invalid）的假设禁止同方向重提；复现失败类（not_reproducible/invalid_recipe/assert_not_discriminative）允许换配方换断言再试，但都不要原样重提。\n\n")
 	return sb.String()
 }
 
@@ -256,12 +256,10 @@ func buildPlanningRequirements() string {
 	sb.WriteString("- 横向扩展到相关领域\n")
 	sb.WriteString("- 只有在确实无法继续时才设置 should_continue=false\n\n")
 
-	sb.WriteString("**Action 类型参考**：\n")
+	sb.WriteString("**Action 类型参考**（自由描述，用于执行指导分派）：\n")
 	sb.WriteString("- reconnaissance: 信息收集\n")
 	sb.WriteString("- analysis: 分析研究\n")
-	sb.WriteString("- verification: 验证测试\n")
-	sb.WriteString("- exploration: 深度探索\n")
-	sb.WriteString("- expansion: 横向扩展\n\n")
+	sb.WriteString("- testing: 实测验证\n\n")
 
 	sb.WriteString("**复杂度级别**：\n")
 	sb.WriteString("- simple: 简单操作（快速执行）\n")

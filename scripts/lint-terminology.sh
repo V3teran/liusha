@@ -43,6 +43,8 @@ FORBIDDEN=(
   'observation_v[0-9]'
   'KeyRequestMarkers'
   'P0修复'
+  'not_a_vuln'
+  'vulnerability_scan'
 )
 
 MODE="${1:-check}"
