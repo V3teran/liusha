@@ -249,6 +249,11 @@ complexity: medium
 不要把纯过程性记录（"访问了某页"、"请求返回 200"）写成 fact——只记对
 规划有决策价值的结论。
 
+信息去向三分（各写各的位置，不要重复记录）：
+- **本任务的世界状态**（会话已建立、机制已探明）→ observation 的 fact
+- **可复用的凭据**（拿到登录态/密钥）→ write_credential 落凭据池
+- **跨任务可复用的模式**（某类目标的通用特征）→ write_insight
+
 ### 复现配方（repro）格式
 
 #### HTTP 漏洞（domain: "web"）
@@ -423,7 +428,7 @@ complexity: medium
 类别：target、credential、infrastructure、business、data、result、obstacle、note
 
 ### write_insight
-与团队分享情报：
+与团队分享**跨任务可复用**的情报模式（如"某类组件默认无认证"）：
 ```json
 {
   "category": "infrastructure",

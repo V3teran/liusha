@@ -45,6 +45,8 @@ FORBIDDEN=(
   'P0修复'
   'not_a_vuln'
   'vulnerability_scan'
+  'indicative'
+  'domain\.Profile'
 )
 
 MODE="${1:-check}"

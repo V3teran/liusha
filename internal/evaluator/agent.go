@@ -452,7 +452,7 @@ func (a *Agent) parseObservationToAttempt(obs explorationgraph.Node) (Attempt, e
 	var content struct {
 		Statement  string          `json:"statement"`
 		Severity   string          `json:"severity"`
-		Confidence string          `json:"confidence"`
+		Confidence string          `json:"executor_confidence"` // executor 自评置信度的载荷键（图级 confidence 另有其位）
 		Repro      json.RawMessage `json:"repro"`
 	}
 
