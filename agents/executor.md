@@ -229,9 +229,23 @@ complexity: medium
 - **summary**: 简短总结（1-2 句话）
 - **observations**: 观察结果列表（可以为空数组）
 
-每个 observation 必须包含 **category**，两类内容的生命周期完全不同：
+每个 observation 必须包含 **category**，三类内容的生命周期完全不同：
 
-**category="hypothesis"（待裁决的主张）**——断言存在某种可复现的现象，只有这类会被独立验证并可能成为正式发现：
+**category="state"（状态信息）**——环境的客观事实，执行后直接确认，写入即终态：
+- **statement**: 状态陈述（如"目标开放端口 22, 80, 443"、"技术栈为 nginx 1.18.0"）
+- **reasoning**: 依据来自哪个实测输出
+- **confidence**: "low" / "medium" / "high"
+- 通常不带 **repro**、不带 **severity**
+
+**category="issue"（确定的问题）**——已确认的问题、异常、障碍，写入即终态：
+- **statement**: 问题陈述（如"发现 .git 目录泄露"、"CORS 配置为 *"）
+- **reasoning**: 为什么这是一个问题
+- **test_plan**: 如何验证这个问题（可选）
+- **confidence**: "low" / "medium" / "high"
+- **severity**: "low" / "medium" / "high" / "critical"
+- **repro**: 可选（用于复现或深度验证）
+
+**category="hypothesis"（待验证推测）**——需要通过复现配方验证的推测性断言，只有这类会被独立验证并可能成为正式发现：
 - **statement**: 清晰的主张陈述
 - **reasoning**: 为什么得出这个主张
 - **test_plan**: 如何验证这个主张
@@ -239,18 +253,15 @@ complexity: medium
 - **severity**: "low" / "medium" / "high" / "critical"
 - **repro**: 机器可执行的复现配方（见下文）——**必须有**，无配方的主张无从裁决
 
-**category="fact"（已确认的事实）**——对后续动作有决策价值的世界状态，写入即被规划层直接采信：
-- **statement**: 事实陈述（如"会话已建立且某机制由 X 控制"、"目标存在 Y"）
-- **reasoning**: 依据来自哪个实测输出
-- **confidence**: "low" / "medium" / "high"
-- 不带 **repro**、不带 **severity**
-
-分类纪律：只推测未实测的东西不要标 hypothesis（没有配方会被拒绝落图）；
-不要把纯过程性记录（"访问了某页"、"请求返回 200"）写成 fact——只记对
-规划有决策价值的结论。
+分类纪律：
+- **state** 用于客观事实（端口、服务、版本、路径）
+- **issue** 用于确定的问题（信息泄露、配置弱点、默认配置）
+- **hypothesis** 用于待验证推测（SQL 注入、XSS、RCE、认证绕过）
+- 只推测未实测的东西不要标 hypothesis（没有配方会被拒绝落图）
+- 不要把纯过程性记录（"访问了某页"、"请求返回 200"）写成 state——只记对规划有决策价值的结论
 
 信息去向三分（各写各的位置，不要重复记录）：
-- **本任务的世界状态**（会话已建立、机制已探明）→ observation 的 fact
+- **本任务的世界状态**（会话已建立、机制已探明）→ observation 的 state
 - **可复用的凭据**（拿到登录态/密钥）→ write_credential 落凭据池
 - **跨任务可复用的模式**（某类目标的通用特征）→ write_insight
 
@@ -325,6 +336,7 @@ complexity: medium
   "summary": "扫描了 5 个接口，发现 1 个高优先级问题",
   "observations": [
     {
+      "category": "hypothesis",
       "statement": "/api/users 接口的 id 参数存在注入漏洞",
       "reasoning": "注入特殊字符导致错误响应，回显了内部错误信息",
       "test_plan": "在 id 参数注入特殊字符，观察是否返回异常数据或错误",
