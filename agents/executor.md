@@ -265,6 +265,79 @@ complexity: medium
 - **可复用的凭据**（拿到登录态/密钥）→ write_credential 落凭据池
 - **跨任务可复用的模式**（某类目标的通用特征）→ write_insight
 
+### 何时写入 Insight
+
+发现重要信息时，**必须调用 write_insight** 写入跨任务知识库。
+
+**必须写入的场景**：
+
+**state 类：跨任务可用的关键状态**
+- ✅ 关键路径/接口（/admin、/api/internal、/debug）
+- ✅ 服务版本信息（nginx 1.18.0、Apache 2.4.41）
+- ✅ 技术栈识别（Spring Boot、Redis、MySQL 5.7）
+- ✅ 认证机制（JWT、Session、OAuth2）
+- ❌ 普通响应（200 OK、404 Not Found）
+- ❌ 过程性记录（访问了某页、请求返回 200）
+
+**issue 类：确定的安全问题**
+- ✅ 信息泄露（.git 目录、.env 文件、备份文件、源码泄露）
+- ✅ 安全配置问题（CORS=*、默认凭证、弱密码）
+- ✅ 已知漏洞（CVE-xxx、组件过期）
+- ✅ 敏感信息暴露（API key、密钥、内部路径）
+- ❌ 临时障碍（端口拒绝、超时、速率限制）
+- ❌ 不确定的异常（需要用 hypothesis 验证）
+
+**示例**：
+
+```json
+{
+  "status": "completed",
+  "summary": "发现 .git 目录泄露和技术栈信息",
+  "observations": [
+    {
+      "category": "issue",
+      "statement": "发现 .git 目录泄露",
+      "severity": "medium",
+      "reasoning": "通过访问 /.git/config 确认存在完整 git 仓库"
+    },
+    {
+      "category": "state",
+      "statement": "目标使用 nginx 1.18.0 + PHP 7.4",
+      "reasoning": "从 Server 响应头和错误页面确认"
+    }
+  ],
+  "tool_calls": [
+    {
+      "name": "write_insight",
+      "arguments": {
+        "category": "issue",
+        "severity": "medium",
+        "priority": "high",
+        "summary": "目标存在 .git 目录泄露",
+        "body": "通过访问 /.git/config 确认存在完整 git 仓库，可能泄露源码和敏感配置",
+        "tags": ["git-leak", "info-disclosure"]
+      }
+    },
+    {
+      "name": "write_insight",
+      "arguments": {
+        "category": "structure",
+        "priority": "medium",
+        "summary": "目标技术栈：nginx 1.18.0 + PHP 7.4",
+        "body": "从 Server 响应头确认 nginx 1.18.0，从错误页面确认 PHP 7.4",
+        "tags": ["tech-stack", "nginx", "php"]
+      }
+    }
+  ]
+}
+```
+
+**写入时机**：
+- 在输出最终结果时，与 observations 一起输出 tool_calls
+- issue 类 observation **必须写** insight
+- state 类 observation 中的**关键信息必须写** insight
+- hypothesis 类 observation **不需要写** insight（等 evaluator 确认后再写）
+
 ### 复现配方（repro）格式
 
 #### HTTP 漏洞（domain: "web"）

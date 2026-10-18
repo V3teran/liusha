@@ -11,6 +11,8 @@ function_tools:
   - drive_browser
   - read_skill
   - replay_for_verification
+  - read_insights
+  - write_insight
 cli_tools:
   - ROPgadget
   - RsaCtfTool
@@ -256,6 +258,35 @@ observation 有效且可复现：你按工作方式取得了攻击响应独有�
 reasoning 示例："成功复现注入漏洞。特殊字符返回全部记录，正常参数请求无此数据——3 种 payload 差分一致。"
 
 系统自动创建 **Result 节点**并链接到 observation，finding 进入交付报告。
+
+**重要**：确认发现后，**必须调用 write_insight** 将其写入跨任务知识库：
+
+```json
+{
+  "verdict": "confirmed",
+  "reasoning": "...",
+  "tool_calls": [
+    {
+      "name": "write_insight",
+      "arguments": {
+        "category": "issue",
+        "severity": "high",
+        "priority": "critical",
+        "summary": "SQL injection in /api/users endpoint",
+        "body": "成功复现注入漏洞。特殊字符返回全部记录...",
+        "tags": ["sqli", "verified", "critical"]
+      }
+    }
+  ]
+}
+```
+
+**何时写 insight**：
+- ✅ verdict = "confirmed" 时**必须写**
+- ✅ severity 从 observation 的 severity 获取
+- ✅ priority 根据严重性和影响面判断
+- ✅ summary 简洁描述发现
+- ✅ body 包含验证细节和证据
 
 ### refuted（驳倒）
 
