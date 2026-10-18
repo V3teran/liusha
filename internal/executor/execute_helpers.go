@@ -419,17 +419,17 @@ func (e *Engine) harvestObservation(
 		e.logger.Warn().
 			Str("action_id", action.ID).
 			Str("statement", obs.Statement).
-			Msg("hypothesis 缺少 repro，降级为 fact 落图（无配方的主张无从裁决）")
-		obs.Category = CategoryFact
+			Msg("hypothesis 缺少 repro，降级为 state 落图（无配方的主张无从裁决）")
+		obs.Category = CategoryState
 	}
 
 	// LLM 漏写 category 时按形状推断：有配方即主张（可裁决），无配方即
-	// 事实（无从裁决）。契约已显式教 category，这里只是兜底。
+	// 状态（无从裁决）。契约已显式教 category，这里只是兜底。
 	if obs.Category == "" {
 		if len(obs.Repro) > 0 {
 			obs.Category = CategoryHypothesis
 		} else {
-			obs.Category = CategoryFact
+			obs.Category = CategoryState
 		}
 	}
 

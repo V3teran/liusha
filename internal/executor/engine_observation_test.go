@@ -157,7 +157,7 @@ func TestProcessExecutorOutput_NormalizationPropagatesToAttempt(t *testing.T) {
 }
 
 // 生命周期分流不变式：hypothesis 进裁决管道（unverified + Attempt），
-// fact 写入即终态（factual、零 Attempt）——result 只承载经裁决坐实的主张，
+// state 写入即终态（factual、零 Attempt）——result 只承载经裁决坐实的主张，
 // 事实永远不伪装成 result。
 func TestHarvestObservation_CategoryLifecycleSplit(t *testing.T) {
 	graph := explorationgraph.NewMemoryStore()
@@ -170,22 +170,22 @@ func TestHarvestObservation_CategoryLifecycleSplit(t *testing.T) {
 		t.Fatalf("建 action 失败: %v", err)
 	}
 
-	// fact：落图为 factual 终态，无 Attempt
-	fact := Observation{
-		Category:   CategoryFact,
+	// state：落图为 factual 终态，无 Attempt
+	state := Observation{
+		Category:   CategoryState,
 		Statement:  "会话已建立且过滤机制由 X 控制",
 		Confidence: "high",
 	}
-	factAttempt := e.harvestObservation(context.Background(), action, fact, ExecutionTrace{})
-	if factAttempt != nil {
-		t.Fatal("fact 不得产出 Attempt（不进裁决管道）")
+	stateAttempt := e.harvestObservation(context.Background(), action, state, ExecutionTrace{})
+	if stateAttempt != nil {
+		t.Fatal("state 不得产出 Attempt（不进裁决管道）")
 	}
-	factNodes, _ := graph.ListNodesByKind(context.Background(), "t-split", core.KindObservation)
-	if len(factNodes) != 1 {
-		t.Fatalf("fact 应落图 1 个观察: %d", len(factNodes))
+	stateNodes, _ := graph.ListNodesByKind(context.Background(), "t-split", core.KindObservation)
+	if len(stateNodes) != 1 {
+		t.Fatalf("state 应落图 1 个观察: %d", len(stateNodes))
 	}
-	if factNodes[0].Confidence == nil || *factNodes[0].Confidence != explorationgraph.ConfidenceFactual {
-		t.Fatalf("fact 图级状态应为 factual 终态: %+v", factNodes[0].Confidence)
+	if stateNodes[0].Confidence == nil || *stateNodes[0].Confidence != explorationgraph.ConfidenceFactual {
+		t.Fatalf("state 图级状态应为 factual 终态: %+v", stateNodes[0].Confidence)
 	}
 
 	// hypothesis：unverified + Attempt
@@ -208,7 +208,7 @@ func TestHarvestObservation_CategoryLifecycleSplit(t *testing.T) {
 		}
 	}
 
-	// 无配方的 hypothesis：落图前降级为 fact（无配方的主张无从裁决）
+	// 无配方的 hypothesis：落图前降级为 state（无配方的主张无从裁决）
 	speculative := Observation{
 		Category:  CategoryHypothesis,
 		Statement: "未实测的推测",
@@ -219,6 +219,6 @@ func TestHarvestObservation_CategoryLifecycleSplit(t *testing.T) {
 	}
 	all, _ := graph.ListNodesByKind(context.Background(), "t-split", core.KindObservation)
 	if len(all) != 3 {
-		t.Fatalf("推测应降级为 fact 落图: %d", len(all))
+		t.Fatalf("推测应降级为 state 落图: %d", len(all))
 	}
 }

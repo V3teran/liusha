@@ -18,7 +18,7 @@ var readInsightsSchema = json.RawMessage(`{
   "properties": {
     "category": {
       "type": "string",
-      "enum": ["target", "credential", "infrastructure", "business", "obstacle", "result", "note"],
+      "enum": ["entity", "access", "structure", "behavior", "issue", "note"],
       "description": "过滤类别（可选）"
     },
     "priority": {
@@ -192,8 +192,8 @@ var writeLeadSchema = json.RawMessage(`{
   "properties": {
     "category": {
       "type": "string",
-      "enum": ["target", "credential", "infrastructure", "business", "data", "result", "obstacle", "note"],
-      "description": "信息分类：target（目标）/credential（凭证）/infrastructure（基础设施）/business（业务逻辑）/data（数据）/finding（发现）/obstacle（障碍）/note（笔记）"
+      "enum": ["entity", "access", "structure", "behavior", "issue", "note"],
+      "description": "信息分类：entity（实体）/access（访问）/structure（结构）/behavior（行为）/issue（问题）/note（备注）"
     },
     "priority": {
       "type": "string",
@@ -206,6 +206,11 @@ var writeLeadSchema = json.RawMessage(`{
       "enum": ["possible", "probable", "confirmed"],
       "default": "possible",
       "description": "置信度：possible（可能）/probable（很可能）/confirmed（已确认）"
+    },
+    "severity": {
+      "type": "string",
+      "enum": ["low", "medium", "high", "critical"],
+      "description": "严重性（仅 category=issue 时使用）：low（低）/medium（中）/high（高）/critical（严重）"
     },
     "summary": {
       "type": "string",
@@ -249,6 +254,7 @@ func (t *writeInsightTool) Execute(ctx context.Context, args json.RawMessage) (r
 		Category   string   `json:"category"`
 		Priority   string   `json:"priority"`
 		Confidence string   `json:"confidence"`
+		Severity   string   `json:"severity"`
 		Summary    string   `json:"summary"`
 		Body       string   `json:"body"`
 		Tags       []string `json:"tags"`
@@ -290,21 +296,30 @@ func (t *writeInsightTool) Execute(ctx context.Context, args json.RawMessage) (r
 		UpdatedAt:        time.Now(),
 	}
 
+	// severity 仅对 category=issue 有意义
+	if a.Severity != "" && entry.Category == insight.CategoryIssue {
+		normalizedSeverity := normalizeSeverity(a.Severity)
+		entry.Severity = &normalizedSeverity
+	}
+
 	if err := t.deps.Insights.Append(ctx, task.AssignmentID, entry); err != nil {
 		return registry.ToolResult{Error: fmt.Sprintf("write_insight: %v", err)}, nil
 	}
 
-	return registry.ToolResult{
-		Output: fmt.Sprintf("情报已写入黑板: [%s/%s/%s] %s", a.Category, a.Priority, a.Confidence, a.Summary),
-	}, nil
+	outputMsg := fmt.Sprintf("情报已写入黑板: [%s/%s/%s] %s", a.Category, a.Priority, a.Confidence, a.Summary)
+	if entry.Severity != nil {
+		outputMsg = fmt.Sprintf("情报已写入黑板: [%s/%s/%s/severity=%s] %s", a.Category, a.Priority, a.Confidence, *entry.Severity, a.Summary)
+	}
+
+	return registry.ToolResult{Output: outputMsg}, nil
 }
 
-// normalizeCategory/normalizePriority/normalizeConfidence 把 LLM 自由输出归一到
+// normalizeCategory/normalizePriority/normalizeConfidence/normalizeSeverity 把 LLM 自由输出归一到
 // insight 表 CHECK 约束的枚举集——越界值直接撞 DB 约束只会把报错抛回 LLM。
 func normalizeCategory(s string) insight.Category {
 	switch insight.Category(s) {
-	case insight.CategoryTarget, insight.CategoryCredential, insight.CategoryInfrastructure,
-		insight.CategoryBusiness, insight.CategoryData, insight.CategoryObstacle:
+	case insight.CategoryEntity, insight.CategoryAccess, insight.CategoryStructure,
+		insight.CategoryBehavior, insight.CategoryIssue, insight.CategoryNote:
 		return insight.Category(s)
 	default:
 		return insight.CategoryNote
@@ -326,5 +341,14 @@ func normalizeConfidence(s string) insight.Confidence {
 		return insight.Confidence(s)
 	default:
 		return insight.ConfidencePossible
+	}
+}
+
+func normalizeSeverity(s string) string {
+	switch s {
+	case "low", "medium", "high", "critical":
+		return s
+	default:
+		return "medium"
 	}
 }

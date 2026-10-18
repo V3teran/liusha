@@ -20,7 +20,8 @@ import (
 // 图级 Confidence 由 Category 完全决定（不由 executor 赋值）：
 // - hypothesis + repro → unverified（待复现门裁决）
 // - hypothesis 无 repro → 不创建（无配方即无从裁决的主张，不落图）
-// - fact → factual（写入即终态：信任来自执行轨迹出处，无需裁决）
+// - issue → unverified（确定的问题，可选 repro 用于验证或复现）
+// - state → factual（写入即终态：信任来自执行轨迹出处，无需裁决）
 func (e *Engine) createObservationNode(
 	ctx context.Context,
 	taskID string,
@@ -73,16 +74,24 @@ func (e *Engine) createObservationNode(
 		UpdatedAt:  time.Now(),
 	}
 
-	// 图级 Confidence 由 Category 决定（假设必须有可裁决的复现配方）
+	// 图级 Confidence 由 Category 决定
 	switch obs.Category {
 	case CategoryHypothesis:
+		// hypothesis 必须有 repro
 		if len(obs.Repro) == 0 {
 			return nil, fmt.Errorf("hypothesis observation requires repro")
 		}
 		unverified := explorationgraph.ConfidenceUnverified
 		node.Confidence = &unverified
 
-	case CategoryFact:
+	case CategoryIssue:
+		// issue 是确定的问题，直接设为 factual（不需要验证）
+		// 如果有 repro，可用于后续复现或深度验证
+		factual := explorationgraph.Confidence(explorationgraph.ConfidenceFactual)
+		node.Confidence = &factual
+
+	case CategoryState:
+		// state 是客观事实，写入即终态
 		factual := explorationgraph.Confidence(explorationgraph.ConfidenceFactual)
 		node.Confidence = &factual
 
@@ -152,32 +161,43 @@ func (e *Engine) observationToAttempt(
 
 // ObservationCategory 是观察的分类，决定它走哪条生命周期。
 //
-//   - hypothesis：待裁决的主张——断言存在某种可复现的现象，必须携带机器
-//     可执行的复现配方（repro），经复现门裁决后才成为 result
-//   - fact：已确认的世界状态信息（资源存在、机制生效、状态已建立等），
+//   - state：客观状态信息——环境的客观事实，执行后直接确认
 //     写入即终态，执行轨迹即出处，不经任何裁决
+//     映射到 insight: entity/access/structure/behavior
+//
+//   - issue：确定的问题/异常——已确认的问题、异常、障碍
+//     写入即终态，可选 repro 用于复现或深度验证
+//     映射到 insight: issue（不需要 evaluator 验证）
+//
+//   - hypothesis：待验证推测——需要通过复现配方验证的推测性断言
+//     必须携带 repro，经复现门裁决后才成为 result
+//     映射到 insight: issue（经过 evaluator 验证）
 type ObservationCategory string
 
 const (
-	CategoryHypothesis ObservationCategory = "hypothesis" // 待裁决主张
-	CategoryFact       ObservationCategory = "fact"       // 终态事实
+	CategoryState      ObservationCategory = "state"      // 状态信息
+	CategoryIssue      ObservationCategory = "issue"      // 问题/异常
+	CategoryHypothesis ObservationCategory = "hypothesis" // 待验证推测
 )
 
-// Observation 是执行器从环境感知到的一条断言：要么是待裁决的主张
-// （hypothesis，附复现配方），要么是终态事实（fact，附执行轨迹出处）。
+// Observation 是执行器从环境感知到的一条断言：
+//   - state：客观状态（无需验证）
+//   - issue：确定的问题（无需验证，但可能有 repro）
+//   - hypothesis：待验证推测（必须有 repro）
+//
 // 图级 confidence 由 createObservationNode 按 Category 设置，executor
 // 的自评置信度只进载荷（executor_confidence），不进图状态。
 type Observation struct {
 	// Statement：观察的陈述
 	Statement string `json:"statement"`
 
-	// Category：观察分类（决定生命周期：hypothesis 过裁决门 / fact 终态）
+	// Category：观察分类（决定生命周期）
 	Category ObservationCategory `json:"category"`
 
 	// Reasoning：为什么做出这个观察
 	Reasoning string `json:"reasoning"`
 
-	// Severity：严重性评估（仅对 hypothesis 有意义）
+	// Severity：严重性评估（仅对 issue/hypothesis 有意义）
 	// 取值：low / medium / high / critical
 	Severity string `json:"severity,omitempty"`
 
@@ -189,7 +209,10 @@ type Observation struct {
 	// TestPlan：验证计划说明
 	TestPlan string `json:"test_plan,omitempty"`
 
-	// Repro：复现配方（仅对 hypothesis 有意义——无配方的主张无从裁决）
+	// Repro：复现配方
+	//   - hypothesis：必须（无配方的推测无从裁决）
+	//   - issue：可选（用于复现或深度验证）
+	//   - state：通常不需要
 	// 形式：JSON，由域定义（web=HTTP请求序列，generic=自由形式等）
 	Repro json.RawMessage `json:"repro,omitempty"`
 

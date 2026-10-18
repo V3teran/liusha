@@ -8,22 +8,38 @@ import (
 	"github.com/V3teran/liusha/internal/explorationgraph"
 )
 
-// Category 是洞察的信息分类
+// Category 是洞察的信息分类（领域中立，无冗余）
 type Category string
 
-// CategoryCredential 等枚举定义。
 const (
-	// CategoryTarget 是目标信息；CategoryCredential 是凭证信息。
-	// 信息类
-	CategoryTarget         Category = "target"         // 目标信息
-	CategoryCredential     Category = "credential"     // CategoryCredential 凭证信息
-	CategoryInfrastructure Category = "infrastructure" // 基础设施
-	CategoryBusiness       Category = "business"       // 业务逻辑
-	CategoryData           Category = "data"           // 数据特征
+	// CategoryEntity 实体信息
+	// - 探索对象及其内容：主机、服务、端点、数据、配置
+	// - 合并原 target（目标）+ data（数据）
+	CategoryEntity Category = "entity"
 
-	// CategoryObstacle 是障碍；CategoryNote 是笔记。
-	CategoryObstacle Category = "obstacle" // 障碍
-	CategoryNote     Category = "note"     // 笔记
+	// CategoryAccess 访问方式
+	// - 如何访问实体：凭证、认证、授权、入口
+	// - 原 credential 改名
+	CategoryAccess Category = "access"
+
+	// CategoryStructure 结构信息
+	// - 系统的组织方式：架构、拓扑、层次、依赖
+	// - 原 infrastructure 改名
+	CategoryStructure Category = "structure"
+
+	// CategoryBehavior 行为信息
+	// - 系统的运作方式：逻辑、流程、机制、交互
+	// - 原 business 改名
+	CategoryBehavior Category = "behavior"
+
+	// CategoryIssue 问题与障碍
+	// - 异常、问题、障碍、限制
+	// - 合并原 anomaly + obstacle
+	CategoryIssue Category = "issue"
+
+	// CategoryNote 备注笔记
+	// - 无法归类的其他信息、备注、观察
+	CategoryNote Category = "note"
 )
 
 // Priority 类型使用 explorationgraph.Priority（统一定义）
@@ -63,6 +79,11 @@ type Insight struct {
 	Category   Category   `json:"category"`
 	Priority   Priority   `json:"priority"`
 	Confidence Confidence `json:"confidence"`
+
+	// 严重性（仅 category=issue 时有意义）
+	// - 区别于 priority（优先级）：severity 是技术评估，priority 是业务决策
+	// - 例如：低严重性 + 高暴露 = 高优先级
+	Severity *string `json:"severity,omitempty"` // low/medium/high/critical
 
 	// 内容
 	Summary string   `json:"summary"`
