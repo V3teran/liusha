@@ -236,11 +236,6 @@ func (r *retryProvider) retry529(ctx context.Context, req Request, lastErr error
 	return Response{}, lastErr
 }
 
-// Stream 不在重试层包装：流式调用建立连接后出错由调用方决策是否重跑。
-func (r *retryProvider) Stream(ctx context.Context, req Request) (<-chan StreamEvent, error) {
-	return r.primary.Stream(ctx, req)
-}
-
 // CountTokens 走与 Complete 相同的分类策略（一次退避重试）。
 func (r *retryProvider) CountTokens(ctx context.Context, req Request) (int, error) {
 	if err := ctx.Err(); err != nil {

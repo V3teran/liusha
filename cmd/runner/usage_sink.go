@@ -32,8 +32,6 @@ func (s usageSink) RecordUsage(ctx context.Context, r llm.UsageRecord) {
 		OutTokens:    r.OutTokens,
 		CachedTokens: r.CachedTokens,
 		LatencyMs:    r.LatencyMs,
-		TTFTMs:       r.TTFTMs,
-		IsStream:     r.IsStream,
 		FinishReason: r.FinishReason,
 		Error:        r.Err,
 		Role:         r.Role,

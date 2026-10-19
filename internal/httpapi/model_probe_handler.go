@@ -38,7 +38,7 @@ type ProviderProbeResult struct {
 }
 
 // ProviderTester 对一个 provider 规格做实连验证 / 拉取可用模型列表。
-// cmd/api 注入闭合 llmstore（取已存密钥，多级缓存）+ cryptx（解密）+ internal/llm（建 client 发请求）的适配器。
+// cmd/api 注入闭合 llmstore（取已存密钥，多级缓存）+ cryptx（解密）+ framework/llm（建 client 发请求）的适配器。
 // 为 nil 时两端点不注册（见 server.go）。
 type ProviderTester interface {
 	// TestProvider 发一条最小 chat completion。连接失败（401/404/超时/网络）体现在 Result.OK/ErrMsg，

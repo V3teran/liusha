@@ -1,6 +1,6 @@
 // usage.go — Provider 调用埋点（UsageRecorder）。
 //
-// 权威口径（llminvocation 表约定）：每次 Complete/Stream 调用（含失败）落一行，
+// 权威口径（llminvocation 表约定）：每次 Complete 调用（含失败）落一行，
 // 供 token 用量 / 路由 / 延迟审计。装饰器只依赖本包类型 + 最小 Sink 接口，
 // 业务侧（cmd/runner）用适配器接到 llminvocation.Store——框架不 import 业务包。
 //
@@ -23,8 +23,6 @@ type UsageRecord struct {
 	OutTokens    int
 	CachedTokens int
 	LatencyMs    int
-	TTFTMs       int // 仅流式非 0
-	IsStream     bool
 	FinishReason string
 	Err          string
 	Role         string // 调用者角色（planner/executor/monitor/chat 等），空 = 未分类
@@ -80,7 +78,7 @@ func (p *instrumentedProvider) Complete(ctx context.Context, req Request) (Respo
 
 	resp, err := p.inner.Complete(ctx, req)
 
-	rec := p.baseRecord(meta, false)
+	rec := p.baseRecord(meta)
 	rec.LatencyMs = int(time.Since(start).Milliseconds())
 	// messages 无论成败都留存：失败现场（哪些消息触发 4xx）是排障第一证据，
 	// 只记成功等于审计在最需要的地方失明。
@@ -98,57 +96,6 @@ func (p *instrumentedProvider) Complete(ctx context.Context, req Request) (Respo
 	return resp, err
 }
 
-func (p *instrumentedProvider) Stream(ctx context.Context, req Request) (<-chan StreamEvent, error) {
-	meta := CallMetaFromCtx(ctx)
-	start := time.Now()
-
-	ch, err := p.inner.Stream(ctx, req)
-	if err != nil {
-		rec := p.baseRecord(meta, true)
-		rec.LatencyMs = int(time.Since(start).Milliseconds())
-		rec.Err = err.Error()
-		rec.Messages, _ = json.Marshal(req.Messages)
-		p.sink.RecordUsage(ctx, rec)
-		return ch, err
-	}
-
-	out := make(chan StreamEvent, 16)
-	go func() {
-		defer close(out)
-		var (
-			ttft   int
-			usage  Usage
-			finish string
-		)
-		for ev := range ch {
-			if ttft == 0 && ev.Kind == StreamText {
-				ttft = int(time.Since(start).Milliseconds())
-			}
-			if ev.Kind == StreamDone && ev.Usage != nil {
-				usage = *ev.Usage
-			}
-			if ev.Kind == StreamError {
-				if ev.Err != nil {
-					finish = "error: " + ev.Err.Error()
-				} else {
-					finish = "error"
-				}
-			}
-			out <- ev
-		}
-		rec := p.baseRecord(meta, true)
-		rec.LatencyMs = int(time.Since(start).Milliseconds())
-		rec.TTFTMs = ttft
-		rec.InTokens = usage.InTokens
-		rec.OutTokens = usage.OutTokens
-		rec.CachedTokens = usage.CachedTokens
-		rec.FinishReason = finish
-		rec.Messages, _ = json.Marshal(req.Messages)
-		p.sink.RecordUsage(ctx, rec)
-	}()
-	return out, nil
-}
-
 func (p *instrumentedProvider) CountTokens(ctx context.Context, req Request) (int, error) {
 	return p.inner.CountTokens(ctx, req)
 }
@@ -156,11 +103,10 @@ func (p *instrumentedProvider) CountTokens(ctx context.Context, req Request) (in
 func (p *instrumentedProvider) ModelID() string    { return p.inner.ModelID() }
 func (p *instrumentedProvider) ProviderID() string { return p.inner.ProviderID() }
 
-func (p *instrumentedProvider) baseRecord(meta CallMeta, isStream bool) UsageRecord {
+func (p *instrumentedProvider) baseRecord(meta CallMeta) UsageRecord {
 	return UsageRecord{
 		Provider:   p.inner.ProviderID(),
 		Model:      p.inner.ModelID(),
-		IsStream:   isStream,
 		Role:       meta.Role,
 		TaskID:     meta.TaskID,
 		AgentRunID: meta.AgentRunID,

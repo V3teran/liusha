@@ -118,7 +118,6 @@ export function LlmInvocationDrawer({ open, detail, loading, error, onOpenChange
                     </dd>
                     <dt className="text-xs text-muted">响应耗时</dt>
                     <dd className="font-mono text-[12.5px] text-text">
-                      {detail.is_stream && detail.ttft_ms > 0 && `首字 ${humanDuration(detail.ttft_ms)} · `}
                       总时长 {humanDuration(detail.latency_ms)}
                       {isTimeout(detail) ? (
                         <span className="font-semibold text-sev-critical"> · 看门狗超时</span>
@@ -128,8 +127,6 @@ export function LlmInvocationDrawer({ open, detail, loading, error, onOpenChange
                     </dd>
                     <dt className="text-xs text-muted">结束原因</dt>
                     <dd className="font-mono text-[12.5px] text-text">{detail.finish_reason || '—'}</dd>
-                    <dt className="text-xs text-muted">传输</dt>
-                    <dd className="text-[12.5px] text-text">{detail.is_stream ? '流式' : '非流式'}</dd>
                     {detail.agent_run_id && (
                       <>
                         <dt className="text-xs text-muted">agent</dt>

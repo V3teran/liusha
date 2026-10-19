@@ -33,8 +33,8 @@ import (
 	"github.com/V3teran/liusha/internal/envx"
 	"github.com/V3teran/liusha/internal/explorationgraph"
 	"github.com/V3teran/liusha/internal/finding"
+	fwllm "github.com/V3teran/liusha/internal/framework/llm"
 	"github.com/V3teran/liusha/internal/httpapi"
-	"github.com/V3teran/liusha/internal/llm"
 	"github.com/V3teran/liusha/internal/llminvocation"
 	"github.com/V3teran/liusha/internal/llmstore"
 	"github.com/V3teran/liusha/internal/logx"
@@ -48,6 +48,21 @@ import (
 
 	"github.com/hibiken/asynq"
 )
+
+// retryOptionsFromConfig 把 yaml 配置（秒数列表 + 毫秒）翻译成框架退避表。
+// 任一字段为 0 由框架构造器逐项兜底为 DefaultRetryOptions。
+func retryOptionsFromConfig(c config.RetryConfig) fwllm.RetryOptions {
+	return fwllm.RetryOptions{
+		MaxRetries429: c.Max429,
+		MaxRetries529: c.Max529,
+		MaxRetries5xx: c.Max5xx,
+		MaxRetriesNet: c.MaxNet,
+		Backoff429:    config.AsDurations(c.Backoff429Seconds),
+		Backoff5xx:    config.AsDurations(c.Backoff5xxSeconds),
+		BackoffNet:    config.AsDurations(c.BackoffNetSeconds),
+		Backoff529:    time.Duration(c.Backoff529Millisec) * time.Millisecond,
+	}
+}
 
 func main() {
 	logger := logx.New("api")
@@ -203,13 +218,16 @@ func main() {
 
 	// 多轮问答/意图分类依赖：light provider 路由 + 问答读 finding + SSE publish。
 	// llmKeyCipher 解密 provider 的加密密钥（migration 0103），构造 client 前才解密，不进缓存。
-	router := llm.NewRouterWithOptions(llm.NewFactory(llmStore, llmKeyCipher), llm.RetryOptionsFromConfig(cfg.LLM.Retry))
+	router := &roleRouter{router: fwllm.NewRouterWithFallbackOpts(
+		llmStore.AsRouterStore(llmKeyCipher),
+		llmstore.NewFallbackProviderFactory(llmStore, llmKeyCipher),
+		retryOptionsFromConfig(cfg.LLM.Retry))}
 	publisher := scanstream.NewPublisher(rdb)
 	adapter := &scanAdapter{assignments: assignmentStore, tasks: taskStore, agentRuns: agentRunStore, enq: enq, audit: auditStore, conversations: convStore, router: router, findings: findStore, publisher: publisher, maxRunTimeout: time.Duration(cfg.Runner.AgentRunTimeoutSeconds) * time.Second}
 
 	// provider 实连探测（前端「LLM 配置」页「测试连接」+ 模型下拉探测）：闭合 llmStore（取已存密钥走
 	// 多级缓存）+ llmKeyCipher（解密）+ 独立 ClientPool（不与 router 内部池耦合，探测是低频交互路径）。
-	providerTester := newProviderTester(llmStore, llmKeyCipher, llm.NewClientPool())
+	providerTester := newProviderTester(llmStore, llmKeyCipher, fwllm.NewClientPool())
 
 	// cron Scheduler（§4.2/§10 P4）：轮询 cron_schedule 到点模板 → 克隆 assignment → 展开 task。
 	// 单副本够用；ctx 随进程关停取消（无需独立 shutdown 时限——轮询循环立即退出，无 in-flight 状态要收尾）。

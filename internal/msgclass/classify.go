@@ -5,7 +5,7 @@ import (
 	"context"
 	"strings"
 
-	"github.com/V3teran/liusha/internal/llm"
+	llm "github.com/V3teran/liusha/internal/framework/llm"
 )
 
 // MessageKind 是消息类别。

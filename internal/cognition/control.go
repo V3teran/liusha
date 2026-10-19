@@ -1,92 +1,25 @@
-package main
+// control.go 控制平面消费：轮询 task_control_event，把人工干预
+// （terminate/pause/resume/adjust_goal/inject_action）翻译成对循环的操作。
+
+package cognition
 
 import (
 	"context"
 	"encoding/json"
-	"sync"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 
-	"github.com/V3teran/liusha/internal/cognition"
-	"github.com/V3teran/liusha/internal/config/llm"
 	"github.com/V3teran/liusha/internal/controlplane"
 	"github.com/V3teran/liusha/internal/explorationgraph"
 	"github.com/V3teran/liusha/internal/framework/core"
-	fwllm "github.com/V3teran/liusha/internal/framework/llm"
-	"github.com/V3teran/liusha/internal/llmstore"
 	"github.com/V3teran/liusha/internal/logx"
 )
 
 // controlPollInterval 是控制平面事件的轮询周期。
 // 与完成检测器的检查节奏（5s）对齐：人工干预的生效延迟上限 ≈ 一个周期。
 const controlPollInterval = 5 * time.Second
-
-// agentLifecycle 抽象四 agent 的启停，供 pause/resume 与主流程复用。
-// pause 必须 Stop（等待全部退出）后再返回，避免与 bus 的 task 级共享通道
-// 关闭时序竞争；Resume 重新 Start（各 agent Run 自带重新订阅）。
-// 控制平面消费者与主流程会并发调用 Start/Stop：互斥锁串行化，
-// WaitGroup 的 Add/Wait 全部收在持锁区间内，规避 Add-after-Wait 误用。
-type agentLifecycle struct {
-	mu      sync.Mutex
-	parent  context.Context
-	logger  zerolog.Logger
-	taskID  string
-	agents  []agentSpec
-	wg      sync.WaitGroup
-	cancel  context.CancelFunc
-	running bool
-}
-
-// agentSpec 是单个受管 agent 的启动入口。
-type agentSpec struct {
-	name  string
-	start func(ctx context.Context) error
-}
-
-// newAgentLifecycle 构造生命周期管理器，管理给定的 agent 集。
-func newAgentLifecycle(parent context.Context, logger zerolog.Logger, taskID string, agents []agentSpec) *agentLifecycle {
-	return &agentLifecycle{parent: parent, logger: logger, taskID: taskID, agents: agents}
-}
-
-// Start 幂等启动全部 agent（已在运行时为 no-op）。
-func (l *agentLifecycle) Start() {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	if l.running {
-		return
-	}
-	agentCtx, cancel := context.WithCancel(l.parent)
-	l.cancel = cancel
-	l.running = true
-	for _, ag := range l.agents {
-		l.runAgent(agentCtx, ag)
-	}
-}
-
-// runAgent 在 lifecycle 的 WaitGroup 下启动单个 agent goroutine（仅 Start 内调用）。
-func (l *agentLifecycle) runAgent(agentCtx context.Context, ag agentSpec) {
-	l.wg.Add(1)
-	logx.Go(l.logger, ag.name+"-agent", func() {
-		defer l.wg.Done()
-		if err := ag.start(agentCtx); err != nil && agentCtx.Err() == nil {
-			l.logger.Error().Err(err).Str("task_id", l.taskID).Msg(ag.name + " agent 异常退出")
-		}
-	})
-}
-
-// Stop 幂等停止：cancel 后等待全部 agent 退出。
-func (l *agentLifecycle) Stop() {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	if !l.running {
-		return
-	}
-	l.cancel()
-	l.wg.Wait()
-	l.running = false
-}
 
 // startControlConsumer 轮询消费控制平面事件，返回停止函数。
 // 每个事件独立处理并回写 processed/failed 状态，单条失败不拖累后续事件。
@@ -95,7 +28,7 @@ func startControlConsumer(
 	taskID string,
 	store *controlplane.Store,
 	graph *explorationgraph.Store,
-	detector *cognition.CompletionDetector,
+	detector *CompletionDetector,
 	agents *agentLifecycle,
 	logger zerolog.Logger,
 ) (stop func()) {
@@ -154,7 +87,7 @@ func handleControlEvent(
 	ctx context.Context,
 	taskID string,
 	graph *explorationgraph.Store,
-	detector *cognition.CompletionDetector,
+	detector *CompletionDetector,
 	agents *agentLifecycle,
 	ev controlplane.ControlEvent,
 	logger zerolog.Logger,
@@ -295,28 +228,3 @@ func mustJSON(v interface{}) json.RawMessage {
 type errInvalidPayload string
 
 func (e errInvalidPayload) Error() string { return string(e) }
-
-// newFallbackProviderFactory 构造 runner 侧的全局备胎 Provider 工厂：
-// primary 重试耗尽（429/529）后由框架 retry 切到保留 role __fallback__ 的部署。
-// 备胎用独立 ClientPool（与 primary 池解耦，避免互持连接放大故障面），
-// 且工厂自身不套 retry（框架约定：fallback 不再二次退避）。
-func newFallbackProviderFactory(store *llmstore.Store, cipher llmcfg.KeyDecrypter) fwllm.RouterFallbackFactory {
-	return func(ctx context.Context) (fwllm.Provider, error) {
-		p, err := store.ProviderForFallback(ctx)
-		if err != nil {
-			return nil, err
-		}
-		key, err := llmcfg.ResolveAPIKey(p, cipher)
-		if err != nil {
-			return nil, err
-		}
-		g, err := fwllm.BuildGeneratorWithKey(ctx, fwllm.ProviderSpec{
-			Code: p.Code, Type: p.Type, BaseURL: p.BaseURL, Model: p.DefaultModel,
-			APIKey: key, MaxTokens: p.MaxTokens, SupportsVision: p.SupportsVision,
-		}, fwllm.NewClientPool())
-		if err != nil {
-			return nil, err
-		}
-		return fwllm.NewProvider(g), nil
-	}
-}

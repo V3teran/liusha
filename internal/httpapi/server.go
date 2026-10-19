@@ -60,7 +60,7 @@ type Deps struct {
 	// 由 cmd/api 注入 *cryptx.Cipher（自动满足），密钥来自 LIUSHA_LLM_KEY_SECRET（fail-fast）。
 	KeyEncrypter KeyEncrypter
 	// ProviderTester 为 nil 时实连探测路由（POST /models/providers/test|list-models）不注册。
-	// 由 cmd/api 注入闭合 llmstore（取已存密钥走多级缓存）+ cryptx（解密）+ internal/llm（建 client 发请求）的适配器。
+	// 由 cmd/api 注入闭合 llmstore（取已存密钥走多级缓存）+ cryptx（解密）+ framework/llm（建 client 发请求）的适配器。
 	// 测试连接发一条最小 chat completion；模型探测 GET {base_url}/models——都是即时反馈，不落库。
 	ProviderTester ProviderTester
 	// Settings 为 nil 时系统配置路由（/settings 系列）不注册。

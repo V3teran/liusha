@@ -76,6 +76,7 @@ test-integration:
 
 lint: lint-terminology
 	go vet ./...
+	golangci-lint run ./...
 	gofmt -l . | grep -v vendor | tee /dev/stderr | (! read)
 
 # 术语契约门禁（scripts/lint-terminology.sh 的 FORBIDDEN 列表）：旧架构命名残留即失败

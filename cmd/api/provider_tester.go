@@ -1,6 +1,6 @@
 // Package main: provider 实连探测适配器，满足 httpapi.ProviderTester 窄接口。
 //
-// 装配 llmstore（取已存密钥，走内存/redis/DB 多级缓存）+ cryptx（解密）+ internal/llm
+// 装配 llmstore（取已存密钥，走内存/redis/DB 多级缓存）+ cryptx（解密）+ framework/llm
 // （建 client 发请求）。测试连接发一条最小 chat completion 验证 base_url+key+model；
 // 模型探测 GET {base_url}/models 拉可用模型名。
 //
@@ -18,8 +18,8 @@ import (
 	"time"
 
 	"github.com/V3teran/liusha/internal/config/llm"
+	fwllm "github.com/V3teran/liusha/internal/framework/llm"
 	"github.com/V3teran/liusha/internal/httpapi"
-	"github.com/V3teran/liusha/internal/llm"
 )
 
 // providerStore 是探测适配器对 llmstore 的窄依赖：据 key 取已存 provider（多级缓存）。
@@ -31,12 +31,12 @@ type providerStore interface {
 type providerTester struct {
 	store providerStore
 	dec   llmcfg.KeyDecrypter // 解密已存 provider 的密文密钥
-	pool  *llm.ClientPool     // 复用共享 HTTP client（与运行期同池）
+	pool  *fwllm.ClientPool   // 复用共享 HTTP client（与运行期同池）
 	http  *http.Client        // list-models 的裸 HTTP 探测用（带超时）
 }
 
 // newProviderTester 装配探测适配器。dec/store/pool 缺任一则不应注册路由（cmd/api 负责判空）。
-func newProviderTester(store providerStore, dec llmcfg.KeyDecrypter, pool *llm.ClientPool) *providerTester {
+func newProviderTester(store providerStore, dec llmcfg.KeyDecrypter, pool *fwllm.ClientPool) *providerTester {
 	return &providerTester{
 		store: store,
 		dec:   dec,
@@ -83,7 +83,10 @@ func (t *providerTester) TestProvider(ctx context.Context, spec httpapi.Provider
 		return httpapi.ProviderProbeResult{}, err
 	}
 	p := providerFromSpec(spec)
-	gen, err := llm.BuildProviderWithKey(ctx, p, t.pool, key)
+	gen, err := fwllm.BuildGeneratorWithKey(ctx, fwllm.ProviderSpec{
+		Code: p.Code, Type: p.Type, BaseURL: p.BaseURL, Model: p.DefaultModel,
+		APIKey: key, MaxTokens: p.MaxTokens, SupportsVision: p.SupportsVision,
+	}, t.pool)
 	if err != nil {
 		return httpapi.ProviderProbeResult{}, fmt.Errorf("构造 client 失败: %w", err)
 	}
@@ -92,7 +95,7 @@ func (t *providerTester) TestProvider(ctx context.Context, spec httpapi.Provider
 	defer cancel()
 
 	start := time.Now()
-	_, genErr := gen.Generate(cctx, []llm.Message{{Role: llm.RoleUser, Content: "ping"}}, nil)
+	_, genErr := gen.Generate(cctx, []fwllm.Message{{Role: fwllm.RoleUser, Content: "ping"}}, nil)
 	latency := time.Since(start).Milliseconds()
 
 	if genErr != nil {

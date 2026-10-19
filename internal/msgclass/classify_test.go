@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/V3teran/liusha/internal/llm"
+	llm "github.com/V3teran/liusha/internal/framework/llm"
 )
 
 type fakeGen struct {
