@@ -1,14 +1,13 @@
-// Package agentrun 实现 executor 表持久化层：每次 executor ReAct 运行对应一行。
+// Package agentrun 实现 agent_run 表持久化层：每次 Agent 运行实例对应一行。
 // 状态机 pending → running → done | error | aborted。
 //
 // 命名层级：
 //   - task = 业务"扫描任务"（用户视角的 task，mode 区分 active/passive）
-//   - agent 表 = 每次 agent ReAct 运行的记录（planner 或 exploitation），挂 task_id
-//   - role 列 = trafficAnalysis / planner / exploitation
+//   - agent_run 表 = 每次 Agent 运行实例的记录（planner/executor/evaluator/monitor），挂 task_id
+//   - agent 表 = Agent 配置定义（code/name/body/tools），存储 Agent 章程
+//   - role 列 = Agent 角色（planner/executor/evaluator/monitor）
 //
-// （planner_id 等树关系列已于 0153 审计清理：认知循环为平级四 agent，无父子 run 树）
-//   - dispatcher 编排路径下 exploitation 是进程内临时 Actor，不单独建 executor 行，
-//     故 planner_id 多为 NULL。该列保留供前端按树渲染。
+// 注：认知循环为平级四 Agent，无父子层级关系。
 package agentrun
 
 import (
@@ -28,7 +27,7 @@ const (
 	StatusError   Status = "error"
 )
 
-// Run 是 agent 表行的 Go 表示——每次 agent ReAct 运行的状态快照。
+// Run 是 agent_run 表行的 Go 表示——每次 Agent 运行实例的状态快照。
 // Result 在终态前为空 jsonb '{}'。
 type Run struct {
 	ID        string
