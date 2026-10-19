@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -363,10 +364,40 @@ func (g providerGen) Generate(ctx context.Context, msgs []fwllm.Message, tools [
 	if err != nil {
 		return fwllm.Result{}, err
 	}
+	return g.resultOf(resp), nil
+}
+
+// resultOf 把非流式 Response 收敛成 Generator Result（附 provider/model 归属）。
+func (g providerGen) resultOf(resp fwllm.Response) fwllm.Result {
 	return fwllm.Result{
 		Content: resp.Content, ToolCalls: resp.ToolCalls, Usage: resp.Usage,
 		FinishReason: resp.FinishReason, Provider: g.p.ProviderID(), Model: g.p.ModelID(),
-	}, nil
+	}
+}
+
+// generateStream 流式生成：文本增量即时回调 onDelta（provider 不支持流式时退化
+// 为无增量的一次性返回）。返回值与 generate 同构。
+func (r roleRouter) generateStream(ctx context.Context, role string, msgs []fwllm.Message, tools []fwllm.ToolSchema, onDelta func(chunk string)) (fwllm.Result, error) {
+	p, err := r.router.For(ctx, fwllm.ParseComplexity(llmcfg.AgentComplexity(role)))
+	if err != nil {
+		return fwllm.Result{}, err
+	}
+	ch, err := p.Stream(ctx, fwllm.Request{Messages: msgs, Tools: tools})
+	if err != nil {
+		if errors.Is(err, fwllm.ErrStreamingUnsupported) {
+			resp, cerr := p.Complete(ctx, fwllm.Request{Messages: msgs, Tools: tools})
+			if cerr != nil {
+				return fwllm.Result{}, cerr
+			}
+			return providerGen{p: p}.resultOf(resp), nil
+		}
+		return fwllm.Result{}, err
+	}
+	resp, err := fwllm.CollectStream(ctx, ch, onDelta)
+	if err != nil {
+		return fwllm.Result{}, err
+	}
+	return providerGen{p: p}.resultOf(resp), nil
 }
 
 // generator 解析 role 对应的 Generator（Provider 已在 Router 侧包好 retry/fallback）。
@@ -385,6 +416,16 @@ func (a *scanAdapter) Generate(ctx context.Context, msgs []fwllm.Message, tools 
 		return fwllm.Result{}, err
 	}
 	return g.Generate(ctx, msgs, tools)
+}
+
+// GenerateStream 满足 chat/qa.Deps：流式生成（inspector 档），增量回调给调用方广播。
+func (a *scanAdapter) GenerateStream(ctx context.Context, msgs []fwllm.Message, tools []fwllm.ToolSchema, onDelta func(chunk string)) (fwllm.Result, error) {
+	return a.router.generateStream(ctx, "inspector", msgs, tools, onDelta)
+}
+
+// PublishDelta 满足 chat/qa.Deps：广播一帧回答增量（agent_name=assistant）。
+func (a *scanAdapter) PublishDelta(ctx context.Context, conversationID, text string) error {
+	return a.publisher.PublishDelta(ctx, conversationID, "assistant", text)
 }
 
 // AppendAssistant 满足 qa.Deps：落 assistant 消息，返回 SSE payload。

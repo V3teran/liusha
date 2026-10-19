@@ -5,15 +5,29 @@ interface ConversationState {
   messages: Message[]
   seqSet: Set<number>
   lastSeq: number
-  // 流式推理活动气泡：SSE event:delta 逐 chunk 累积的文本；最终 reasoning 消息到达即清空。
-  // eino 串行执行，同一时刻至多一个 ChatModel 在流式，单缓冲足够（无需按 streamID 分桶）。
-  liveReasoning: string
-  // 当前流式推理所属 agent 名（delta 帧带 agent_name）——驱动活动气泡按 agent 取色 + 标签，
-  // 与落定的推理卡样式一致（否则流式为中性灰、落定变彩色）。
-  liveAgentName: string
+  // 流式思考活动气泡：按 agent 分道（认知循环四 agent 并发思考 + 聊天助手）。
+  // liveStreams 是 agent → 已累积文本；liveOrder 记录首现序（渲染保序）。
+  // 道 = agent_name（delta 帧携带；聊天助手为 assistant），终态消息到达即清对应道：
+  // agent 推理道由 kind=reasoning 终态清、聊天道由 assistant 完整消息清。
+  liveStreams: Record<string, string>
+  liveOrder: string[]
   ingest(m: Message): void
   appendReasoningDelta(chunk: string, agentName?: string): void
   reset(): void
+}
+
+// 终态消息清哪条道：agent 推理终态（metadata.kind=reasoning）清该 agent 的道，
+// 聊天助手完整回复（role=assistant 的普通消息）清 assistant 道。
+function clearedLane(m: Message): string | undefined {
+  if (m.Metadata?.Kind === 'reasoning') return m.Metadata.AgentName || undefined
+  if (m.Kind === 'message' && m.Role === 'assistant') return 'assistant'
+  return undefined
+}
+
+function dropLane(streams: Record<string, string>, order: string[], lane: string) {
+  const next = { ...streams }
+  delete next[lane]
+  return { liveStreams: next, liveOrder: order.filter((k) => k !== lane) }
 }
 
 // 按 seq 有序去重持有当前会话的消息。SSE 补历史 + 实时可能重叠，靠 seq 去重。
@@ -21,19 +35,16 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
   messages: [],
   seqSet: new Set<number>(),
   lastSeq: 0,
-  liveReasoning: '',
-  liveAgentName: '',
+  liveStreams: {},
+  liveOrder: [],
 
   ingest(m: Message) {
-    const { seqSet, messages } = get()
+    const { seqSet, messages, liveStreams, liveOrder } = get()
     // 重复消息直接返回（seq 去重）。
     if (seqSet.has(m.Seq)) return
 
     const nextSeqSet = new Set(seqSet)
     nextSeqSet.add(m.Seq)
-
-    // 推理消息（最终帧）落定 → 清空活动气泡，由正式推理卡接管渲染。
-    const clearsLive = m.Metadata?.Kind === 'reasoning'
 
     // 二分查找插入位置以保持升序。
     // 事件多数尾部追加，但补历史可能乱序到达。
@@ -50,31 +61,38 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
     const nextMessages = messages.slice()
     nextMessages.splice(lo, 0, m)
 
+    const lane = clearedLane(m)
+    const lanes = lane ? dropLane(liveStreams, liveOrder, lane) : { liveStreams, liveOrder }
+
     set({
       messages: nextMessages,
       seqSet: nextSeqSet,
       lastSeq: m.Seq > get().lastSeq ? m.Seq : get().lastSeq,
-      ...(clearsLive ? { liveReasoning: '', liveAgentName: '' } : {}),
+      ...lanes,
     })
   },
 
-  // appendReasoningDelta 累积一段流式推理增量（驱动逐字打字机活动气泡）。
-  // agentName 随首个 chunk 带入，驱动气泡按 agent 取色 + 标签。
+  // appendReasoningDelta 累积一段思考增量到该 agent 的道（无 agent_name 归 assistant），
+  // 驱动逐字打字机活动气泡；新道进 liveOrder 尾部。
   appendReasoningDelta(chunk: string, agentName?: string) {
     if (!chunk) return
-    set((state) => ({
-      liveReasoning: state.liveReasoning + chunk,
-      liveAgentName: agentName ?? state.liveAgentName,
-    }))
+    const lane = agentName?.trim() || 'assistant'
+    set((state) => {
+      const existed = lane in state.liveStreams
+      return {
+        liveStreams: { ...state.liveStreams, [lane]: (state.liveStreams[lane] || '') + chunk },
+        liveOrder: existed ? state.liveOrder : [...state.liveOrder, lane],
+      }
+    })
   },
 
   reset() {
     set({
       messages: [],
-      seqSet: new Set(),
+      seqSet: new Set<number>(),
       lastSeq: 0,
-      liveReasoning: '',
-      liveAgentName: '',
+      liveStreams: {},
+      liveOrder: [],
     })
   },
 }))

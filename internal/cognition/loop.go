@@ -19,6 +19,7 @@ import (
 	cfgstore "github.com/V3teran/liusha/internal/configstore"
 	"github.com/V3teran/liusha/internal/constants"
 	"github.com/V3teran/liusha/internal/controlplane"
+	"github.com/V3teran/liusha/internal/conversation"
 	"github.com/V3teran/liusha/internal/corpus"
 	"github.com/V3teran/liusha/internal/credential"
 	"github.com/V3teran/liusha/internal/evaluator"
@@ -30,8 +31,10 @@ import (
 	"github.com/V3teran/liusha/internal/insight"
 	"github.com/V3teran/liusha/internal/monitor"
 	"github.com/V3teran/liusha/internal/planner"
+	"github.com/V3teran/liusha/internal/reasoning"
 	"github.com/V3teran/liusha/internal/registry"
 	"github.com/V3teran/liusha/internal/sandbox"
+	"github.com/V3teran/liusha/internal/scanstream"
 	"github.com/V3teran/liusha/internal/skill"
 	"github.com/V3teran/liusha/internal/task"
 	"github.com/V3teran/liusha/internal/toolinvocation"
@@ -71,19 +74,23 @@ type Deps struct {
 	AgentStore *traffic.AgentStore
 
 	MaxStepsPerTask int // 0 = 完成检测器步数无限制
+
+	// 会话思考流（四 agent 推理实时进时间线）：两者齐备且 conversationID 非空才启用。
+	Conversations  *conversation.Store
+	EventPublisher *scanstream.Publisher
 }
 
 // Run 驱动一次任务的认知循环：四个平级 Agent（planner/executor/evaluator/monitor）
 // 经 bus 广播协作，探索图为共享状态面，CompletionDetector 判定收敛后返回报告。
 // sb 是本任务独占的沙箱客户端；nil 表示无沙箱（run_command/drive_browser 不注册）。
-func Run(ctx context.Context, d *Deps, taskID, host, brief string, sb sandbox.Client) (executor.Report, error) {
-	return d.run(ctx, taskID, host, brief, sb)
+func Run(ctx context.Context, d *Deps, taskID, host, brief, conversationID string, sb sandbox.Client) (executor.Report, error) {
+	return d.run(ctx, taskID, host, brief, conversationID, sb)
 }
 
 // run 是 Run 的内部实现（拆一层让 Run 的签名稳定、内部演进不惊动调用方）。
 func (d *Deps) run(
 	ctx context.Context,
-	taskID, host, brief string,
+	taskID, host, brief, conversationID string,
 	sb sandbox.Client,
 ) (executor.Report, error) {
 	d.Logger.Info().
@@ -99,10 +106,12 @@ func (d *Deps) run(
 		return executor.Report{}, err
 	}
 
-	stack, err := d.assembleStack(ctx, taskID, host, brief, sb)
+	stack, err := d.assembleStack(ctx, taskID, host, brief, conversationID, sb)
 	if err != nil {
 		return executor.Report{}, err
 	}
+	// 思考流随循环关闭：冲刷未发增量（终态消息由各 agent 的 Done 落）。
+	defer stack.thoughts.Close()
 
 	// 启动四个 Agent（异步；启停封装成 agentLifecycle 供控制平面 pause/resume 复用）
 	lifecycle := newAgentLifecycle(ctx, d.Logger, taskID, []agentSpec{
@@ -230,6 +239,7 @@ func (d *Deps) loadAgentConfigs(ctx context.Context) agentConfigs {
 
 // cognitionStack 是一次认知循环装配的产物：四 Agent 与完成检测器。
 type cognitionStack struct {
+	thoughts       *reasoning.Stream // 会话思考流（Close 冲刷残留增量）
 	detector       *CompletionDetector
 	executorAgent  *executor.Agent
 	evaluatorAgent *evaluator.Agent
@@ -241,10 +251,13 @@ type cognitionStack struct {
 // 线性依赖链，按 Agent 分 constructors，各自独立可读。
 func (d *Deps) assembleStack(
 	ctx context.Context,
-	taskID, host, brief string,
+	taskID, host, brief, conversationID string,
 	sb sandbox.Client,
 ) (*cognitionStack, error) {
 	cfgs := d.loadAgentConfigs(ctx)
+
+	// 会话思考流：四 agent 的推理增量实时进时间线（无会话时 no-op）。
+	thoughts := reasoning.NewStream(d.EventPublisher, d.Conversations, conversationID, d.Logger)
 
 	d.Logger.Info().
 		Strs("cli_tools", cfgs.executor.CliTools).
@@ -298,17 +311,18 @@ func (d *Deps) assembleStack(
 
 	// executor：Engine（ReAct）→ Coordinator → Agent
 	executorAgent := d.buildExecutorAgent(ctx, taskID, host, brief, agentRunID, cfgs.executor,
-		filteredManifest, executorSkillView, executor.NewRegistry(reg))
+		filteredManifest, executorSkillView, executor.NewRegistry(reg), thoughts.TapFor("executor"))
 
 	// evaluator：裁决官（ReAct judge）→ 复现晋升门 → Agent
 	evaluatorAgent := d.buildEvaluatorAgent(ctx, taskID, host, agentRunID, cfgs.evaluator,
-		evaluatorSkillView, toolDeps)
+		evaluatorSkillView, toolDeps, thoughts.TapFor("evaluator"))
 
 	// planner
 	intelligence := planner.NewIntelligence(d.Router, d.Logger).
 		WithSystemPrompt(cfgs.planner.SystemPrompt).
 		WithComplexity(cfgs.planner.Complexity).
-		WithMaxIterations(cfgs.planner.MaxIterations)
+		WithMaxIterations(cfgs.planner.MaxIterations).
+		WithThoughts(thoughts.TapFor("planner"))
 	plannerAgent := planner.NewAgent(planner.AgentConfig{
 		TaskID:        taskID,
 		AgentRunID:    agentRunID,
@@ -325,6 +339,7 @@ func (d *Deps) assembleStack(
 		return nil, fmt.Errorf("failed to get provider for monitor: %w", err)
 	}
 	monitorAgent := monitor.New(monitor.Config{
+		Thoughts:      thoughts.TapFor("monitor"),
 		TaskID:        taskID,
 		AgentRunID:    agentRunID,
 		FunctionTools: cfgs.monitor.FunctionTools,
@@ -349,6 +364,7 @@ func (d *Deps) assembleStack(
 	})
 
 	return &cognitionStack{
+		thoughts:       thoughts,
 		detector:       detector,
 		executorAgent:  executorAgent,
 		evaluatorAgent: evaluatorAgent,
@@ -381,6 +397,7 @@ func (d *Deps) buildExecutorAgent(
 	filteredManifest *manifest.Manifest,
 	skillsView skill.Reader,
 	execRegistry *executor.Registry,
+	thoughts reasoning.Tap,
 ) *executor.Agent {
 	traceCollector := executor.NewTraceCollector(d.AgentStore, d.Logger)
 	engine := executor.NewEngine(executor.EngineConfig{
@@ -398,6 +415,7 @@ func (d *Deps) buildExecutorAgent(
 		Brief:          brief,                                             // 任务简报逐字进 executor system prompt（入口锚定）
 		Checkpointer:   d.Checkpointer,
 		TraceCollector: traceCollector, // 从 agent_traffic 构建完整执行轨迹
+		Thoughts:       thoughts,       // 思考流（nil=不流式）
 		Logger:         d.Logger,
 	})
 	coord := executor.NewCoordinatorWithEngine(taskID, host, d.Findings, engine, d.Logger)
@@ -423,6 +441,7 @@ func (d *Deps) buildEvaluatorAgent(
 	cfg agent.Agent,
 	skillsView skill.Reader,
 	toolDeps func(skill.Reader) tools.Deps,
+	thoughts reasoning.Tap,
 ) *evaluator.Agent {
 	var evaluatorCLImanifest *manifest.Manifest
 	if d.ToolsManifest != nil && len(cfg.CliTools) > 0 {
@@ -435,6 +454,7 @@ func (d *Deps) buildEvaluatorAgent(
 		WithSystemPrompt(cfg.SystemPrompt).
 		WithComplexity(cfg.Complexity).
 		WithMaxIterations(cfg.MaxIterations).
+		WithThoughts(thoughts).
 		WithExtraTools(tools.BuildTools(toolDeps(skillsView), cfg.FunctionTools))
 
 	// 复现晋升门：域交付管道（finding.ClaimSink）与指纹归一（finding 形状）

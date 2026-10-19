@@ -14,8 +14,13 @@ import (
 
 // Deps 是纯聊天所需的最小依赖（cmd/api 注入实现；是 qa.Deps 去掉 FindingsSummary 的子集）。
 type Deps interface {
-	// Generate 调便宜 LLM。
+	// Generate 调便宜 LLM（一次性返回全文）。
 	Generate(ctx context.Context, msgs []llm.Message, tools []llm.ToolSchema) (llm.Result, error)
+	// GenerateStream 流式生成：文本增量即时回调 onDelta（provider 不支持流式时
+	// 退化为一次完整回调或不回调），返回值与 Generate 同构。
+	GenerateStream(ctx context.Context, msgs []llm.Message, tools []llm.ToolSchema, onDelta func(chunk string)) (llm.Result, error)
+	// PublishDelta 广播一帧回答增量（SSE 打字机；丢帧无害，终态消息兜底）。
+	PublishDelta(ctx context.Context, conversationID, text string) error
 	// AppendAssistant 落 assistant 消息（KindMessage），返回该消息的 SSE JSON payload。
 	AppendAssistant(ctx context.Context, conversationID, content string) ([]byte, error)
 	// Publish 把消息 payload 推 SSE。
@@ -33,10 +38,13 @@ const systemPrompt = `你是渗透测试助手，正在与用户闲聊或答疑�
 
 // Answer 用通用助手回答用户消息 → 落 assistant 消息 + publish SSE。不读 finding、不触发扫描。
 func (s *Service) Answer(ctx context.Context, conversationID, message string) error {
-	res, err := s.deps.Generate(ctx, []llm.Message{
+	// 流式生成：增量即时广播（打字机），全文以落库的 assistant 消息为准。
+	res, err := s.deps.GenerateStream(ctx, []llm.Message{
 		{Role: llm.RoleSystem, Content: systemPrompt},
 		{Role: llm.RoleUser, Content: message},
-	}, nil)
+	}, nil, func(chunk string) {
+		_ = s.deps.PublishDelta(ctx, conversationID, chunk)
+	})
 	if err != nil {
 		return fmt.Errorf("生成回答: %w", err)
 	}

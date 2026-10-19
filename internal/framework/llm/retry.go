@@ -236,6 +236,12 @@ func (r *retryProvider) retry529(ctx context.Context, req Request, lastErr error
 	return Response{}, lastErr
 }
 
+// Stream 直通 primary：流式会话中途失败时已产出的事件无法收回，重试语义
+// （整体重跑）由调用方决策，重试层不替它决定。
+func (r *retryProvider) Stream(ctx context.Context, req Request) (<-chan StreamEvent, error) {
+	return r.primary.Stream(ctx, req)
+}
+
 // CountTokens 走与 Complete 相同的分类策略（一次退避重试）。
 func (r *retryProvider) CountTokens(ctx context.Context, req Request) (int, error) {
 	if err := ctx.Err(); err != nil {

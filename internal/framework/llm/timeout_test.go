@@ -21,6 +21,9 @@ func (s *slowProvider) Complete(ctx context.Context, _ Request) (Response, error
 	}
 }
 
+func (s *slowProvider) Stream(_ context.Context, _ Request) (<-chan StreamEvent, error) {
+	return nil, ErrStreamingUnsupported
+}
 func (s *slowProvider) CountTokens(_ context.Context, _ Request) (int, error) { return 0, nil }
 func (s *slowProvider) ModelID() string                                       { return "slow" }
 func (s *slowProvider) ProviderID() string                                    { return "slow" }

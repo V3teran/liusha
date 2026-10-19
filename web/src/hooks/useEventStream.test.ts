@@ -127,21 +127,21 @@ describe('useEventStream', () => {
     handle.close()
   })
 
-  it('event:delta 帧累积进 store.liveReasoning，带 agent_name', async () => {
+  it('event:delta 帧按 agent 分道累积进 store.liveStreams', async () => {
     const store = useConversationStore.getState()
     const handle = openEventStream('conv-5', store)
     await flush()
 
     MockES.last.listeners['delta']({
-      data: JSON.stringify({ delta: true, text: '正在分析', agent_name: 'exploitation' }),
+      data: JSON.stringify({ delta: true, text: '正在分析', agent_name: 'executor' }),
     })
     MockES.last.listeners['delta']({
-      data: JSON.stringify({ delta: true, text: '中…' }),
+      data: JSON.stringify({ delta: true, text: '中…', agent_name: 'executor' }),
     })
 
     const state = useConversationStore.getState()
-    expect(state.liveReasoning).toBe('正在分析中…')
-    expect(state.liveAgentName).toBe('exploitation')
+    expect(state.liveStreams).toEqual({ executor: '正在分析中…' })
+    expect(state.liveOrder).toEqual(['executor'])
 
     handle.close()
   })
@@ -153,7 +153,7 @@ describe('useEventStream', () => {
 
     MockES.last.listeners['delta']({ data: 'not json' })
 
-    expect(useConversationStore.getState().liveReasoning).toBe('')
+    expect(useConversationStore.getState().liveStreams).toEqual({})
     handle.close()
   })
 

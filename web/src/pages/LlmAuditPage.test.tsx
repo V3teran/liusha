@@ -75,7 +75,7 @@ function setupDefaultMocks() {
     items: [makeSummary()],
   })
   mockedGetLLMInvocationStat.mockResolvedValue(makeStat())
-  mockedGetLLMInvocationFacets.mockResolvedValue({ task_id: 'owner-1', roles: ['planner', 'exploitation'], models: ['gpt-5'] })
+  mockedGetLLMInvocationFacets.mockResolvedValue({ task_id: 'owner-1', roles: ['planner', 'executor'], models: ['gpt-5'] })
 }
 
 // React Query 需要 Provider；筛选/分页状态走 URL 需要 Router。retry:false 避免测试里
@@ -123,14 +123,14 @@ describe('LlmAuditPage', () => {
       total: 1,
       page: 1,
       size: 50,
-      items: [makeSummary({ role: 'exploitation', model: 'gpt-5-mini' })],
+      items: [makeSummary({ role: 'executor', model: 'gpt-5-mini' })],
     })
     renderPage()
     await user.click(screen.getByText(/pick:/))
 
-    // "exploitation" 同时出现在角色筛选下拉的 <option> 和表格行标签中，用行内定位区分。
+    // "executor" 同时出现在角色筛选下拉的 <option> 和表格行标签中，用行内定位区分。
     const row = await screen.findByLabelText(/查看调用详情/)
-    expect(within(row).getByText('利用')).toBeTruthy() // agentLabel('exploitation')
+    expect(within(row).getByText('执行')).toBeTruthy() // agentLabel('executor')
     expect(within(row).getByText('gpt-5-mini')).toBeTruthy()
   })
 
@@ -139,7 +139,7 @@ describe('LlmAuditPage', () => {
     setupDefaultMocks()
     renderPage()
     await user.click(screen.getByText(/pick:/))
-    await screen.findByText('exploitation') // role 下拉候选（原始英文 id）
+    await screen.findByText('executor') // role 下拉候选（原始英文 id）
     mockedListLLMInvocations.mockClear()
 
     const roleSelect = screen.getByText('全部角色').closest('select')!
@@ -160,7 +160,7 @@ describe('LlmAuditPage', () => {
     setupDefaultMocks()
     renderPage()
     await user.click(screen.getByText(/pick:/))
-    await screen.findByText('exploitation')
+    await screen.findByText('executor')
     mockedListLLMInvocations.mockClear()
 
     const checkbox = screen.getByRole('checkbox')
@@ -182,7 +182,7 @@ describe('LlmAuditPage', () => {
     mockedGetLLMInvocationFacets.mockResolvedValue({ task_id: 'owner-1', roles: [], models: [] })
     mockedListLLMInvocations
       .mockResolvedValueOnce({ task_id: 'owner-1', total: 150, page: 1, size: 50, items: [makeSummary({ id: 1 })] })
-      .mockResolvedValueOnce({ task_id: 'owner-1', total: 150, page: 2, size: 50, items: [makeSummary({ id: 2, role: 'exploitation' })] })
+      .mockResolvedValueOnce({ task_id: 'owner-1', total: 150, page: 2, size: 50, items: [makeSummary({ id: 2, role: 'executor' })] })
 
     renderPage()
     await user.click(screen.getByText(/pick:/))
@@ -194,7 +194,7 @@ describe('LlmAuditPage', () => {
     await waitFor(() =>
       expect(mockedListLLMInvocations).toHaveBeenLastCalledWith('owner-1', 2, 50, expect.anything()),
     )
-    expect(await screen.findByText('利用')).toBeTruthy() // agentLabel('exploitation')
+    expect(await screen.findByText('执行')).toBeTruthy() // agentLabel('executor')
 
     const prevBtn = screen.getByRole('button', { name: '上一页' })
     await user.click(prevBtn)

@@ -24,6 +24,24 @@ func (f *fakeDeps) Generate(_ context.Context, msgs []llm.Message, _ []llm.ToolS
 	return llm.Result{Content: f.genReply}, nil
 }
 
+// GenerateStream 模拟流式：把整段回复切成三块逐段回调（覆盖打字机链路）。
+func (f *fakeDeps) GenerateStream(_ context.Context, msgs []llm.Message, _ []llm.ToolSchema, onDelta func(chunk string)) (llm.Result, error) {
+	res, err := f.Generate(context.Background(), msgs, nil)
+	if err != nil {
+		return res, err
+	}
+	if onDelta != nil {
+		runes := []rune(res.Content)
+		step := len(runes)/3 + 1
+		for i := 0; i < len(runes); i += step {
+			onDelta(string(runes[i : i+step]))
+		}
+	}
+	return res, nil
+}
+
+func (f *fakeDeps) PublishDelta(_ context.Context, _, _ string) error { return nil }
+
 func (f *fakeDeps) AppendAssistant(_ context.Context, _, content string) ([]byte, error) {
 	f.appended = content
 	return json.Marshal(map[string]string{"content": content})

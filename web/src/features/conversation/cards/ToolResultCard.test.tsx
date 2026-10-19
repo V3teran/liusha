@@ -45,7 +45,7 @@ describe('ToolResultCard', () => {
 
   it('有 agentName 时显示中文标签', () => {
     render(<ToolResultCard tool="x" result="ok" durationMs={1} err="" agentName="planner" />)
-    expect(screen.getByText('编排')).toBeTruthy()
+    expect(screen.getByText('规划')).toBeTruthy()
   })
 
   it('无结果无错误时预览为空字符串（不崩）', () => {

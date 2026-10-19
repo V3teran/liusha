@@ -18,11 +18,13 @@ import (
 	"github.com/V3teran/liusha/internal/framework/llm"
 	"github.com/V3teran/liusha/internal/framework/runtime"
 	"github.com/V3teran/liusha/internal/monitor/metrics"
+	"github.com/V3teran/liusha/internal/reasoning"
 	"github.com/V3teran/liusha/internal/registry"
 )
 
 // Agent 是独立的监察 Agent。
 type Agent struct {
+	thoughts     reasoning.Tap // 思考流出口（nil=不流式）
 	taskID       string
 	agentRunID   string // 本轮认知循环的 agent_run.id（LLM 审计归属）
 	graph        *explorationgraph.Store
@@ -60,8 +62,9 @@ type Config struct {
 	// "运行时长"升级为"活动停摆时长"，避免冤杀长时深挖的活跃 action。
 	Activity func(actionID string) (time.Duration, bool)
 
-	SystemPrompt  string // 角色章程（agent.system_prompt，运维经前端可调；空=不渲染）
-	MaxIterations int    // ReAct 迭代上限（agent.max_iterations；0=不设限）
+	SystemPrompt  string        // 角色章程（agent.system_prompt，运维经前端可调；空=不渲染）
+	MaxIterations int           // ReAct 迭代上限（agent.max_iterations；0=不设限）
+	Thoughts      reasoning.Tap // 思考流出口（认知循环注入；nil=不流式）
 
 	// Checkpoint 配置（可选）
 	Checkpointer     core.Checkpointer        // nil 表示禁用 checkpoint
@@ -117,6 +120,7 @@ func New(cfg Config) *Agent {
 		checkpointer:     cfg.Checkpointer,
 		checkpointPolicy: checkpointPolicy,
 		metricsCollector: metricsCollector,
+		thoughts:         cfg.Thoughts,
 	}
 }
 
@@ -192,10 +196,16 @@ func (a *Agent) evaluate(ctx context.Context) error {
 		},
 	}
 
-	// 运行 ReAct 循环
+	// 运行 ReAct 循环（思考流出口非空时逐段回调增量）
+	if a.thoughts != nil {
+		config.OnThoughtDelta = a.thoughts.Delta
+	}
 	result, err := a.reactRuntime.Run(ctx, config)
 	if err != nil {
 		return fmt.Errorf("ReAct runtime execution: %w", err)
+	}
+	if a.thoughts != nil {
+		a.thoughts.Done(result.FinalAnswer)
 	}
 
 	a.logger.Info().

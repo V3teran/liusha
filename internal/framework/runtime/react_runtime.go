@@ -58,10 +58,15 @@ type ReActConfig struct {
 	MaxConsecutiveToolFailures int
 
 	// 回调函数
-	OnThought     func(thought string)
-	OnAction      func(action *Action)
-	OnObservation func(observation string)
-	OnIteration   func(iteration int, status IterationStatus)
+	OnThought func(thought string)
+	// OnThoughtDelta 是思考文本的流式增量回调（驱动前端打字机）。非空时本轮
+	// 调用走 Provider.Stream 并逐段回调；Provider 不支持流式时自动降级 Complete
+	// （此时只有整段 OnThought，无增量）。与 OnThought 的分工：Delta 逐段、
+	// Thought 每轮一次携完整文本。
+	OnThoughtDelta func(chunk string)
+	OnAction       func(action *Action)
+	OnObservation  func(observation string)
+	OnIteration    func(iteration int, status IterationStatus)
 
 	// 温度参数（0-1，控制随机性）
 	Temperature float64

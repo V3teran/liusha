@@ -21,7 +21,7 @@ export interface ScanEvent {
   DurationMs: number
   Err: string
   Text: string // reasoning 的推理文字
-  AgentName: string // reasoning：产出该推理的 agent 名（planner/exploitation/reconnaissance）
+  AgentName: string // reasoning：产出该推理的 agent 名（planner/executor/evaluator/monitor；聊天助手为 assistant）
   InTokens: number // reasoning：本次 LLM 输入 token
   OutTokens: number // reasoning：本次 LLM 输出 token
   LatencyMs: number // reasoning：本次 LLM 耗时(ms)

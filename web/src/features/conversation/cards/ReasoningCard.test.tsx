@@ -16,8 +16,8 @@ describe('ReasoningCard', () => {
   })
 
   it('有 agentName 时显示中文标签', () => {
-    render(<ReasoningCard text="x" agentName="exploitation" />)
-    expect(screen.getByText('利用')).toBeTruthy()
+    render(<ReasoningCard text="x" agentName="evaluator" />)
+    expect(screen.getByText('裁决')).toBeTruthy()
   })
 
   it('无 agentName 时不渲染标签 chip', () => {

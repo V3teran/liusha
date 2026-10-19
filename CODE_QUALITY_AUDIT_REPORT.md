@@ -137,3 +137,56 @@ Deps 组装的薄适配。理由：包名与领域核心概念（认知循环）
 
 - 修改 43 个文件，新增 1 个测试文件，删除 3 个未提交的错误产物文件，还原 2 个被误改的历史迁移，文件改名 1 个（set.go→view.go）。
 - 所有修复均通过全量单元 + 集成测试验证（集成套件在本轮开始时因迁移链损坏完全不可用，已恢复）。
+
+---
+
+## 第 4 轮：四 Agent 流式聊天接通（2026-10-19 晚）
+
+前三轮发现「对话模块流式」是三段各自建好但从未接通的半成品（前端打字机 UI / SSE delta 转发 /
+provider 流式适配）。本轮按预定方案首次端到端接通，无兼容层、无死路径：
+
+### 数据流（单一口径）
+```
+ReAct runtime（四 agent 唯一 LLM 收口点）
+  └ OnThoughtDelta(每 token 增量) → reasoning.Tap.Delta
+      └ reasoning.Stream：按 agent 分桶，150ms 窗口合批
+          └ scanstream.PublishDelta（Redis Pub/Sub，不持久化，丢帧无害）
+              └ api SSE handler 转发 event:delta（带 agent_name）
+                  └ 前端 store 按 agent 分道 → 每道一个打字机气泡
+每轮 ReAct 结束 → Tap.Done(终稿)
+  ├ 先冲刷该 agent 残留增量（保序）
+  ├ 落 conversation message（kind=event + metadata{kind:reasoning,agent_name}）→ PG 真相源
+  └ 广播终态消息 → 前端清空该 agent 的气泡，由正式推理卡接管
+```
+
+### 各层变更
+- **framework/llm**：Provider.Stream + StreamEvent 恢复（自 7330701f^ 适配）——本次接到了真实
+  消费者；新增类型化 `ErrStreamingUnsupported`（替代旧字符串匹配降级）与共享聚合器
+  `CollectStream`（runtime 与 api 聚合口径唯一）。
+- **runtime**：`ReActConfig.OnThoughtDelta`——回调存在即走流式（无独立开关可失步），provider
+  无流式能力自动降级 Complete（行为面无感）。
+- **internal/reasoning（新包）**：会话级思考流聚合器。按 agent 分桶合批（150ms）、保序广播、
+  终稿落库截断（4000 runes）、无会话（convID 空）整体 no-op。
+- **四 agent**：executor（EngineConfig）/ planner（Intelligence.WithThoughts）/ evaluator
+  （RouterJudge.WithThoughts）/ monitor（Config）各注入 Tap；Run 成功/降级路径均收束 Done。
+- **cognition**：Deps 增加 Conversations + EventPublisher（原 handler 死字段接活）；
+  ConversationID 从 asynq payload 贯通至循环；循环结束 defer Close 冲刷残留。
+- **api 聊天/QA**：roleRouter.generateStream（流式 + 降级）+ scanAdapter.PublishDelta
+  （agent_name=assistant）；chat/qa Service 改用 GenerateStream，全文仍以落库 assistant 消息为准。
+- **前端**：store 单气泡 → 按 agent 分道（liveStreams + liveOrder）；终态消息按道清空
+  （reasoning 终态清 agent 道、assistant 完整消息清聊天道）；TimelineThread 每道一个
+  LiveThoughtLane（agent 道=推理卡形态、assistant 道=答复块形态）；配色表旧角色
+  （reconnaissance/exploitation/traffic-analysis）→ 四角色 + assistant。
+- **顺带清掉**：useTypewriter/agentColor/types 里描述旧角色与旧框架的陈旧注释。
+
+### 行为说明（如实）
+- 增量帧不持久化（与 scanstream「PG 是唯一真相源」设计一致）：断线期间的打字内容丢失，
+  重连由终态消息补齐——气泡清空 + 完整卡呈现。
+- 四 agent 并发时时间线以 executor 为主（高频）、monitor 最稀（6 分钟/轮）。
+- 工具调用/观察不进思考流（工具审计页已有完整视图）；如需在气泡内加动作标记，是
+  一行增量的后续项。
+
+### 验证
+单元(-race) + 集成(testcontainers) + make lint（golangci-lint 0）+ 术语门禁 0 残留 +
+前端 464/464 全绿。新增测试：runtime 流式/降级 ×2、reasoning 合批/终态/no-op/截断 ×5、
+前端分道/清道/多气泡并发渲染、chat/qa 流式替身。

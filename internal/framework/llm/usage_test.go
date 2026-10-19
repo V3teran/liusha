@@ -15,6 +15,9 @@ func (p *metaStubProvider) ModelID() string    { return "stub-model" }
 func (p *metaStubProvider) Complete(_ context.Context, _ Request) (Response, error) {
 	return p.Response, nil
 }
+func (p *metaStubProvider) Stream(_ context.Context, _ Request) (<-chan StreamEvent, error) {
+	return nil, ErrStreamingUnsupported
+}
 func (p *metaStubProvider) CountTokens(_ context.Context, _ Request) (int, error) {
 	return 0, nil
 }

@@ -13,8 +13,12 @@ import (
 type Deps interface {
 	// FindingsSummary 返回该 (conversationID, taskID) 关联 owner 的 finding 文本摘要。
 	FindingsSummary(ctx context.Context, conversationID, taskID string) (string, error)
-	// Generate 调便宜 LLM。
+	// Generate 调便宜 LLM（一次性返回全文）。
 	Generate(ctx context.Context, msgs []llm.Message, tools []llm.ToolSchema) (llm.Result, error)
+	// GenerateStream 流式生成：文本增量即时回调 onDelta。
+	GenerateStream(ctx context.Context, msgs []llm.Message, tools []llm.ToolSchema, onDelta func(chunk string)) (llm.Result, error)
+	// PublishDelta 广播一帧回答增量（SSE 打字机）。
+	PublishDelta(ctx context.Context, conversationID, text string) error
 	// AppendAssistant 落 assistant 消息（KindMessage），返回该消息的 SSE JSON payload。
 	AppendAssistant(ctx context.Context, conversationID, content string) ([]byte, error)
 	// Publish 把消息 payload 推 SSE。
@@ -38,10 +42,13 @@ func (s *Service) Answer(ctx context.Context, conversationID, taskID, question s
 	if err != nil {
 		return fmt.Errorf("读 finding: %w", err)
 	}
-	res, err := s.deps.Generate(ctx, []llm.Message{
+	// 流式生成：增量即时广播（打字机），全文以落库的 assistant 消息为准。
+	res, err := s.deps.GenerateStream(ctx, []llm.Message{
 		{Role: llm.RoleSystem, Content: systemPrompt},
 		{Role: llm.RoleUser, Content: "已挖到的 finding：\n" + findings + "\n\n用户问题：" + question},
-	}, nil)
+	}, nil, func(chunk string) {
+		_ = s.deps.PublishDelta(ctx, conversationID, chunk)
+	})
 	if err != nil {
 		return fmt.Errorf("生成回答: %w", err)
 	}

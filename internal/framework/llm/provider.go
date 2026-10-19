@@ -1,7 +1,7 @@
 // Package llm 是框架层 LLM 抽象——Provider 契约 + 类型事实源 + 协议适配器。
 //
 // 分层（Ports & Adapters）：
-//   - 本包定义 Provider 契约（Complete/CountTokens）与全部线类型
+//   - 本包定义 Provider 契约（Complete/Stream/CountTokens）与全部线类型
 //     （Message/ToolCall/Usage...），并持有唯一的协议适配器实现
 //     （openai_compat / anthropic，血统为生产验证过的 4 月版本）。
 //   - 业务侧（cmd/api 等）按 role 归档（llmcfg.AgentComplexity）后走本包 Router；
@@ -12,6 +12,7 @@ package llm
 
 import (
 	"context"
+	"errors"
 )
 
 // Provider 是 LLM 调用的统一抽象。实现者负责协议差异屏蔽。
@@ -20,6 +21,12 @@ import (
 type Provider interface {
 	// Complete 发起单次非流式调用，等待完整响应。
 	Complete(ctx context.Context, req Request) (Response, error)
+
+	// Stream 发起流式调用，返回事件通道：文本增量 / 聚合后的完整工具调用 /
+	// 收尾（带 usage）。调用方消费直到通道关闭；出错时通道发出 StreamError
+	// 事件后关闭。底层 Generator 无流式能力时返回 ErrStreamingUnsupported
+	// （调用方可据此降级 Complete）。
+	Stream(ctx context.Context, req Request) (<-chan StreamEvent, error)
 
 	// CountTokens 计算 req 的输入 token 数（OpenAI 兼容层为本地估算）。
 	// 不消耗生成配额。
@@ -31,6 +38,35 @@ type Provider interface {
 	// ProviderID 返回 provider 标识，如 "anthropic" / "openai"。
 	ProviderID() string
 }
+
+// StreamEventKind 是流式事件的类型。
+type StreamEventKind string
+
+const (
+	// StreamText 是文本增量事件。
+	StreamText StreamEventKind = "text"
+	// StreamThinking 是思考增量事件（anthropic 扩展思考流）。
+	StreamThinking StreamEventKind = "thinking"
+	// StreamToolCall 是聚合完成后的完整工具调用事件。
+	StreamToolCall StreamEventKind = "tool_call"
+	// StreamDone 是正常收尾事件（携带 Usage）。
+	StreamDone StreamEventKind = "done"
+	// StreamError 是异常收尾事件（Err 非空）。
+	StreamError StreamEventKind = "error"
+)
+
+// StreamEvent 是流式调用的一帧事件。
+type StreamEvent struct {
+	Kind    StreamEventKind
+	Content string    // StreamText/StreamThinking 有效
+	Tool    *ToolCall // StreamToolCall 有效
+	Usage   *Usage    // StreamDone 有效
+	Err     error     // StreamError 有效
+}
+
+// ErrStreamingUnsupported 表示底层 Generator 无流式能力（桥接层判定），
+// 调用方可用 errors.Is 识别并降级为 Complete。
+var ErrStreamingUnsupported = errors.New("llm: streaming unsupported by generator")
 
 // Request 是一次 LLM 调用的完整输入。
 type Request struct {

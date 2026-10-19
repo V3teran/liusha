@@ -59,7 +59,7 @@ func (h handler) handleCognition(
 		Msg("sandbox acquired for task")
 
 	// 执行四Agent认知循环
-	report, err := h.runCognition(ctx, taskID, virtualHost, brief, sb.Client)
+	report, err := h.runCognition(ctx, taskID, virtualHost, brief, p.ConversationID, sb.Client)
 	if err != nil {
 		return h.failTask(ctx, p.AgentRunID, err)
 	}
