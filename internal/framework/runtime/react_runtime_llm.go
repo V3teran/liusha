@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/V3teran/liusha/internal/framework/llm"
@@ -48,8 +49,15 @@ func (r *DefaultReActRuntime) callLLM(
 		request.Tools = r.convertToolsToLLMFormat()
 	}
 
-	// 调用 LLM（非流式 Complete）。
-	response, err := config.LLMProvider.Complete(ctx, request)
+	// 调用 LLM：装配了思考增量回调时走流式（逐段回调 + 聚合出同构 Response），
+	// Provider 不支持流式则降级非流式 Complete。
+	var response llm.Response
+	var err error
+	if config.OnThoughtDelta != nil {
+		response, err = r.callLLMStreaming(ctx, config, request)
+	} else {
+		response, err = config.LLMProvider.Complete(ctx, request)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -82,3 +90,22 @@ func (r *DefaultReActRuntime) convertToolsToLLMFormat() []llm.ToolSchema {
 }
 
 // parseLLMResponse 解析 LLM 响应
+
+// callLLMStreaming 流式调用并聚合为完整响应：文本增量即时回调 OnThoughtDelta，
+// 聚合口径与非流式一致（framework CollectStream 单一事实源）。Provider 无流式
+// 能力时降级 Complete（该轮无增量回调，只有整段 OnThought）。
+func (r *DefaultReActRuntime) callLLMStreaming(
+	ctx context.Context,
+	config *ReActConfig,
+	request llm.Request,
+) (llm.Response, error) {
+	ch, err := config.LLMProvider.Stream(ctx, request)
+	if err != nil {
+		if errors.Is(err, llm.ErrStreamingUnsupported) {
+			// 降级不记日志：本轮 OnThought 仍有整段回调，行为面无感。
+			return config.LLMProvider.Complete(ctx, request)
+		}
+		return llm.Response{}, err
+	}
+	return llm.CollectStream(ctx, ch, config.OnThoughtDelta)
+}

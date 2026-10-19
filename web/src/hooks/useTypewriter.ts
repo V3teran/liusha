@@ -2,10 +2,9 @@ import { useEffect, useRef, useState } from 'react'
 
 // useTypewriter：把「目标文本」平滑地逐字揭示成「显示文本」，与目标文本的到达节奏解耦。
 //
-// 为什么需要：后端 reasoning 流经 eino ReAct 图的 stateModelWrapper 时被 ConcatMessageStream
-// 同步拍平（逐 token 在 eino 内部就被抽干缓冲），到前端时整段 delta 在几毫秒内涌出——直接绑
-// liveReasoning 会让气泡整块蹦出、没有逐字效果。业界通行做法（ChatGPT/Claude UI）是本地打字机
-// 动画：网络整块到达没关系，前端按稳定节奏逐字揭示。rAF 驱动，backlog 越大揭示越快（永不长时间
+// 为什么需要：后端把思考增量按 150ms 窗口合批发到前端（封顶实时通道帧率），一帧含多个
+// token——直接渲染会让气泡一跳一蹦、没有逐字效果。本地打字机动画把「网络到达节奏」与
+// 「揭示节奏」解耦：前端按稳定速率逐字揭示，rAF 驱动，backlog 越大揭示越快（永不长时间
 // 落后），到达即追平后自动 idle。
 //
 // prefers-reduced-motion：直接吐全文，不做动画（无障碍）。

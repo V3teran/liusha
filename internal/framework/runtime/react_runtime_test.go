@@ -28,6 +28,9 @@ func (m *mockLLMProvider) Complete(_ context.Context, _ llm.Request) (llm.Respon
 	return resp, nil
 }
 
+func (m *mockLLMProvider) Stream(_ context.Context, _ llm.Request) (<-chan llm.StreamEvent, error) {
+	return nil, llm.ErrStreamingUnsupported
+}
 func (m *mockLLMProvider) CountTokens(_ context.Context, _ llm.Request) (int, error) {
 	return 0, nil
 }

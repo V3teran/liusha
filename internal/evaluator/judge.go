@@ -16,6 +16,7 @@ import (
 
 	"github.com/V3teran/liusha/internal/framework/llm"
 	"github.com/V3teran/liusha/internal/framework/runtime"
+	"github.com/V3teran/liusha/internal/reasoning"
 	"github.com/V3teran/liusha/internal/registry"
 	"github.com/V3teran/liusha/internal/skill"
 	"github.com/V3teran/liusha/internal/tools/manifest"
@@ -33,6 +34,7 @@ type LLMJudge interface {
 type RouterJudge struct {
 	router        *llm.Router
 	logger        zerolog.Logger
+	thoughts      reasoning.Tap      // 思考流出口（认知循环注入；nil=不流式）
 	functionTools []string           // function_tools 白名单（nil=全量；空=空集）
 	extraTools    []registry.Tool    // 装配层注入的额外工具（run_command 等白名单工具——跨包工具由 cognition 构造）
 	cliManifest   *manifest.Manifest // CLI 工具目录（cli_tools 过滤后；渲染进 SystemPrompt 供 run_command 调用）
@@ -70,6 +72,12 @@ func (j *RouterJudge) WithSkills(cards []*skill.Card) *RouterJudge {
 // WithSystemPrompt 注入角色章程（agent.system_prompt 正文，前端可编辑）。
 func (j *RouterJudge) WithSystemPrompt(charter string) *RouterJudge {
 	j.charter = charter
+	return j
+}
+
+// WithThoughts 注入思考流出口（nil=不流式）。
+func (j *RouterJudge) WithThoughts(tap reasoning.Tap) *RouterJudge {
+	j.thoughts = tap
 	return j
 }
 
@@ -128,17 +136,25 @@ func (j *RouterJudge) Judge(
 		runtime.NewProgressTrackingMiddleware(20, 12), // 20 次无新输出 / 12 次连续失败
 	)
 
+	var onThoughtDelta func(string)
+	if j.thoughts != nil {
+		onThoughtDelta = j.thoughts.Delta
+	}
 	result, err := react.Run(ctx, &runtime.ReActConfig{
 		Objective:            j.buildObjective(hypothesis, recipe, initialEvidence),
 		SystemPrompt:         j.systemPrompt(),
 		LLMProvider:          provider,
 		MaxIterations:        j.maxIt, // 迭代上限 = agent.max_iterations（配置即事实；0=不设限）
+		OnThoughtDelta:       onThoughtDelta,
 		MaxTokens:            1500,
 		MessageModifierChain: runtime.NewDefaultModifierChain(10),
 		MiddlewareChain:      middlewareChain,
 	})
 	if err != nil {
 		return Verdict{}, fmt.Errorf("judge: ReAct 失败: %w", err)
+	}
+	if j.thoughts != nil {
+		j.thoughts.Done(result.FinalAnswer)
 	}
 	return parseVerdict(result.FinalAnswer)
 }

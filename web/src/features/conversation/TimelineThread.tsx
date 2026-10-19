@@ -72,20 +72,18 @@ function cardCopyText(r: Exclude<ThreadRow, { kind: 'divider' | 'tools' }>): str
 //   - 工具调用聚成独立缩进行（StepTools），不折进推理卡；答复走左侧 ReplyBlock，与用户块对称。
 export function TimelineThread() {
   const messages = useConversationStore((s) => s.messages)
-  const liveReasoning = useConversationStore((s) => s.liveReasoning)
-  const liveAgentName = useConversationStore((s) => s.liveAgentName)
+  const liveStreams = useConversationStore((s) => s.liveStreams)
+  const liveOrder = useConversationStore((s) => s.liveOrder)
   const elRef = useRef<HTMLDivElement>(null)
   const [atBottom, setAtBottom] = useState(true)
   const [unread, setUnread] = useState(0)
   const prevLenRef = useRef(0)
   const { copiedKey, copy } = useCopyToClipboard()
 
-  const typedReasoning = useTypewriter(liveReasoning)
   const rows = buildThreadRows(messages, { dayKey, dayLabel })
-  // 是否编排模式：会话里出现过 planner 归属的消息 = 存在调度者，子代理才缩进。
-  // passive/chatmodel 单 agent 模式无 planner，主 agent 平铺不缩进。流式态也纳入判断。
+  // 是否编排模式：会话里出现过 planner 归属的消息（或 planner 道正在流式）= 存在调度者。
   const hasplanner =
-    liveAgentName === 'planner' || messages.some((m) => m.Metadata?.AgentName === 'planner')
+    liveOrder.includes('planner') || messages.some((m) => m.Metadata?.AgentName === 'planner')
   // 未读计数以「渲染行(动态)」为单位（非原始消息条数）：一次推理+工具调用后端落 3 条消息，
   // 渲染只成 2 行（想 + 折叠工具组），数原始消息会与用户实际看到的行数对不上。divider 不计。
   const activityCount = rows.reduce((n, r) => (r.kind === 'divider' ? n : n + 1), 0)
@@ -129,10 +127,7 @@ export function TimelineThread() {
 
   useEffect(() => {
     stickToBottom()
-  }, [typedReasoning, stickToBottom])
-
-  const liveIsSub = isSubAgent(liveAgentName, hasplanner)
-  const liveColor = agentAccent(liveAgentName)
+  }, [liveOrder, liveStreams, stickToBottom])
 
   return (
     <div className="relative flex min-h-0 flex-1 flex-col">
@@ -207,14 +202,13 @@ export function TimelineThread() {
           )
         })}
 
-        {/* 流式活动节点：与落定节点同布局（agent 卡），逐字打字机揭示 */}
-        {liveReasoning && (
-          <div data-live-node aria-hidden="true">
-            <AgentCard icon={Brain} accent={liveColor.accent} soft={liveColor.soft} sub={liveIsSub}>
-              <ReasoningCard text={typedReasoning} agentName={liveAgentName || undefined} streaming />
-            </AgentCard>
+        {/* 流式活动节点：每条思考道一个气泡（四 agent 并发 + 聊天助手），各自逐字揭示。
+            aria-hidden：内容随后由终态卡完整呈现，避免读屏重复播报。 */}
+        {liveOrder.map((lane) => (
+          <div key={lane} data-live-node aria-hidden="true">
+            <LiveThoughtLane agentName={lane} text={liveStreams[lane]} hasplanner={hasplanner} />
           </div>
-        )}
+        ))}
       </div>
 
       {!atBottom && (
@@ -275,4 +269,27 @@ function renderCard(r: Exclude<ThreadRow, { kind: 'divider' | 'tools' }>) {
     default:
       return null
   }
+}
+
+// LiveThoughtLane 是一条流式思考道：agent 道与落定推理卡同布局（AgentCard + 打字机）；
+// assistant 道是聊天助手的打字回复，与落定答复块（ReplyBlock）同形态。
+function LiveThoughtLane({
+  agentName,
+  text,
+  hasplanner,
+}: {
+  agentName: string
+  text: string
+  hasplanner: boolean
+}) {
+  const typed = useTypewriter(text)
+  if (agentName === 'assistant') {
+    return <ReplyBlock content={typed} copied={false} onCopy={() => {}} />
+  }
+  const color = agentAccent(agentName)
+  return (
+    <AgentCard icon={Brain} accent={color.accent} soft={color.soft} sub={isSubAgent(agentName, hasplanner)}>
+      <ReasoningCard text={typed} agentName={agentName} streaming />
+    </AgentCard>
+  )
 }

@@ -13,7 +13,7 @@ import (
 // 装配链是历史 bug 高发区，独立成包后可脱离 asynq/handler 单测。
 func (h handler) runCognition(
 	ctx context.Context,
-	taskID, host, brief string,
+	taskID, host, brief, conversationID string,
 	sb sandbox.Client,
 ) (executor.Report, error) {
 	return cognition.Run(ctx, &cognition.Deps{
@@ -42,5 +42,8 @@ func (h handler) runCognition(
 		AgentStore: h.agentStore,
 
 		MaxStepsPerTask: h.runnerCfg.MaxStepsPerTask,
-	}, taskID, host, brief, sb)
+
+		Conversations:  h.conversations,
+		EventPublisher: h.eventPublisher,
+	}, taskID, host, brief, conversationID, sb)
 }

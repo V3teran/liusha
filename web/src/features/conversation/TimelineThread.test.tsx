@@ -55,7 +55,7 @@ describe('TimelineThread', () => {
     const s = useConversationStore.getState()
     s.ingest(userMsg(1, 'hi'))
     s.ingest(reasoningMsg(2, 'planner', '分派')) // 编排模式：存在调度者
-    s.ingest(toolCallMsg(3, 'exploitation'))
+    s.ingest(toolCallMsg(3, 'executor'))
     const { container } = render(<TimelineThread />)
     expect(screen.getByText(/1 次工具调用/)).toBeTruthy()
   })
@@ -64,9 +64,9 @@ describe('TimelineThread', () => {
     const s = useConversationStore.getState()
     s.ingest(userMsg(1, 'hi'))
     s.ingest(reasoningMsg(2, 'planner', '分派')) // 编排模式：存在调度者
-    s.ingest(reasoningMsg(3, 'reconnaissance', '扫端口'))
+    s.ingest(reasoningMsg(3, 'executor', '执行注入测试'))
     const { container } = render(<TimelineThread />)
-    expect(screen.getAllByText('侦察').length).toBeGreaterThan(0) // ReasoningCard 内 agent 领头
+    expect(screen.getAllByText('执行').length).toBeGreaterThan(0) // ReasoningCard 内 agent 领头
     expect(container.querySelector(SUB_INDENT)).toBeTruthy()
   })
 
@@ -78,30 +78,40 @@ describe('TimelineThread', () => {
     expect(container.querySelector(SUB_INDENT)).toBeFalsy()
   })
 
-  it('passive 单 agent 模式：无 planner 时主 agent（traffic-analysis）不缩进', () => {
+  it('无 planner 时其余 agent 不缩进（无调度者即无主从）', () => {
     const s = useConversationStore.getState()
     s.ingest(userMsg(1, 'hi'))
-    s.ingest(reasoningMsg(2, 'traffic-analysis', '分析流量'))
-    s.ingest(toolCallMsg(3, 'traffic-analysis'))
+    s.ingest(reasoningMsg(2, 'monitor', '巡查任务'))
+    s.ingest(toolCallMsg(3, 'monitor'))
     const { container } = render(<TimelineThread />)
     // 无调度者 → 不构成主从关系 → 平铺，不出现子代理缩进。
     expect(container.querySelector(SUB_INDENT)).toBeFalsy()
-    expect(screen.getAllByText('流量分析').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('监察').length).toBeGreaterThan(0)
   })
 
-  it('流式推理节点：liveReasoning 设置时展示带 agent 配色的活动节点', () => {
+  it('流式思考道：增量到达时展示带 agent 配色的活动节点', () => {
     const s = useConversationStore.getState()
-    s.appendReasoningDelta('分析中…', 'traffic-analysis')
+    s.appendReasoningDelta('分析中…', 'evaluator')
     const { container } = render(<TimelineThread />)
     const card = container.querySelector('[data-card="reasoning"]')
     expect(card).toBeTruthy()
-    expect(screen.getAllByText('流量分析').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('裁决').length).toBeGreaterThan(0)
+  })
+
+  it('多条思考道并发渲染（四 agent 并发场景）', () => {
+    const s = useConversationStore.getState()
+    s.appendReasoningDelta('规划…', 'planner')
+    s.appendReasoningDelta('执行…', 'executor')
+    const { container } = render(<TimelineThread />)
+    expect(container.querySelectorAll('[data-live-node]')).toHaveLength(2)
+    expect(screen.getAllByText('规划').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('执行').length).toBeGreaterThan(0)
   })
 
   it('流式推理节点为子代理时也缩进（pl-6）', () => {
     const s = useConversationStore.getState()
     s.ingest(reasoningMsg(1, 'planner', '分派')) // 编排模式：存在调度者
-    s.appendReasoningDelta('分析中…', 'exploitation')
+    s.appendReasoningDelta('分析中…', 'executor')
     const { container } = render(<TimelineThread />)
     const liveRow = container.querySelector('[data-live-node]')
     expect(liveRow?.querySelector(SUB_INDENT)).toBeTruthy()
@@ -115,7 +125,7 @@ describe('TimelineThread', () => {
     expect(liveRow?.querySelector(SUB_INDENT)).toBeFalsy()
   })
 
-  it('无 liveReasoning 时不渲染活动节点', () => {
+  it('无思考道时不渲染活动节点', () => {
     const { container } = render(<TimelineThread />)
     expect(container.querySelector('[data-live-node]')).toBeFalsy()
   })

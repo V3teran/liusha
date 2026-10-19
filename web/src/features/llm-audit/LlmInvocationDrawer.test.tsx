@@ -46,10 +46,10 @@ describe('LlmInvocationDrawer', () => {
   })
 
   it('detail 存在时渲染 role/model/元信息 KV', () => {
-    const detail = makeDetail({ role: 'exploitation', model: 'gpt-5-mini', provider: 'anthropic' })
+    const detail = makeDetail({ role: 'executor', model: 'gpt-5-mini', provider: 'anthropic' })
     render(<LlmInvocationDrawer open detail={detail} loading={false} error="" onOpenChange={vi.fn()} />)
-    // 头部角色显示中文标签（agentLabel('exploitation') === '利用'），不再是原始英文 id。
-    expect(screen.getByText('利用')).toBeTruthy()
+    // 头部角色显示中文标签（agentLabel('executor') === '执行'），不再是原始英文 id。
+    expect(screen.getByText('执行')).toBeTruthy()
     expect(screen.getByText('gpt-5-mini')).toBeTruthy()
     expect(screen.getByText(/anthropic/)).toBeTruthy()
     expect(screen.getByText('req-abc-123')).toBeTruthy()

@@ -1,9 +1,9 @@
 // Package llm 的 Generator→Provider 桥。
 //
 // 归一后本包只有一套协议适配器（openai_compat / anthropic，实现 Generator），
-// Provider 契约由本桥承载：Complete 直转 Generate；CountTokens 走
+// Provider 契约由本桥承载：Complete 直转 Generate；Stream/CountTokens 走
 // 可选能力接口——适配器实现了就支持，未实现返回明确错误而非静默降级。
-// Package llm 的 Generator→Provider 桥：Complete 直转 Generate，CountTokens 走可选能力接口。
+// Package llm 的 Generator→Provider 桥：Complete 直转 Generate，Stream/CountTokens 走可选能力接口。
 package llm
 
 import (
@@ -14,6 +14,11 @@ import (
 // TokenCountingGenerator 是 token 计数的可选能力（openai 为本地估算，anthropic 走专用端点）。
 type TokenCountingGenerator interface {
 	CountTokens(ctx context.Context, messages []Message, tools []ToolSchema) (int, error)
+}
+
+// StreamChatGenerator 是 Generator 的流式可选能力（协议适配器实现）。
+type StreamChatGenerator interface {
+	StreamChat(ctx context.Context, messages []Message, tools []ToolSchema, maxTokens int) (<-chan StreamEvent, error)
 }
 
 // NewProvider 把 Generator 适配成 Provider。
@@ -42,6 +47,14 @@ func (p *generatorProvider) Complete(ctx context.Context, req Request) (Response
 		Usage:        res.Usage,
 		FinishReason: res.FinishReason,
 	}, nil
+}
+
+func (p *generatorProvider) Stream(ctx context.Context, req Request) (<-chan StreamEvent, error) {
+	sg, ok := p.g.(StreamChatGenerator)
+	if !ok {
+		return nil, fmt.Errorf("%s/%s: %w", p.g.Provider(), p.g.Model(), ErrStreamingUnsupported)
+	}
+	return sg.StreamChat(ctx, req.Messages, req.Tools, req.MaxTokens)
 }
 
 func (p *generatorProvider) CountTokens(ctx context.Context, req Request) (int, error) {

@@ -41,6 +41,9 @@ func (p *testMockProvider) Complete(_ context.Context, _ llm.Request) (llm.Respo
 	return resp, nil
 }
 
+func (p *testMockProvider) Stream(_ context.Context, _ llm.Request) (<-chan llm.StreamEvent, error) {
+	return nil, llm.ErrStreamingUnsupported
+}
 func (p *testMockProvider) CountTokens(_ context.Context, _ llm.Request) (int, error) {
 	return 100, nil
 }

@@ -305,6 +305,23 @@ func fromAnthropicResponse(resp *anthropic.Message, provider, model string) Resu
 
 // ─── CountTokens（Provider 桥接用可选能力） ────────────────────────────────────
 
+// StreamChat 流式生成：text/thinking 增量 + 聚合 tool_call + done（带 SDK Accumulate 的 usage）。
+// maxTokens ≤ 0 时走构造时的配置默认。
+func (g *anthropicGen) StreamChat(ctx context.Context, msgs []Message, tools []ToolSchema, maxTokens int) (<-chan StreamEvent, error) {
+	mt := g.maxTokens
+	if maxTokens > 0 {
+		mt = int64(maxTokens)
+	}
+	params, err := prepareAnthropicRequest(msgs, tools, g.model, mt)
+	if err != nil {
+		return nil, err
+	}
+	stream := g.client.Messages.NewStreaming(ctx, params)
+	ch := make(chan StreamEvent, 32)
+	go processAnthropicStream(ctx, stream, ch)
+	return ch, nil
+}
+
 // CountTokens 走 Anthropic 专用 count_tokens 端点精确计算（不消耗生成配额）。
 func (g *anthropicGen) CountTokens(ctx context.Context, msgs []Message, tools []ToolSchema) (int, error) {
 	systemBlocks, anthropicMsgs, err := toAnthropicMessages(msgs)

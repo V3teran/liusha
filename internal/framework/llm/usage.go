@@ -96,6 +96,52 @@ func (p *instrumentedProvider) Complete(ctx context.Context, req Request) (Respo
 	return resp, err
 }
 
+func (p *instrumentedProvider) Stream(ctx context.Context, req Request) (<-chan StreamEvent, error) {
+	meta := CallMetaFromCtx(ctx)
+	start := time.Now()
+
+	ch, err := p.inner.Stream(ctx, req)
+	if err != nil {
+		rec := p.baseRecord(meta)
+		rec.LatencyMs = int(time.Since(start).Milliseconds())
+		rec.Err = err.Error()
+		rec.Messages, _ = json.Marshal(req.Messages)
+		p.sink.RecordUsage(ctx, rec)
+		return ch, err
+	}
+
+	out := make(chan StreamEvent, 16)
+	go func() {
+		defer close(out)
+		var (
+			usage  Usage
+			finish string
+		)
+		for ev := range ch {
+			if ev.Kind == StreamDone && ev.Usage != nil {
+				usage = *ev.Usage
+			}
+			if ev.Kind == StreamError {
+				if ev.Err != nil {
+					finish = "error: " + ev.Err.Error()
+				} else {
+					finish = "error"
+				}
+			}
+			out <- ev
+		}
+		rec := p.baseRecord(meta)
+		rec.LatencyMs = int(time.Since(start).Milliseconds())
+		rec.InTokens = usage.InTokens
+		rec.OutTokens = usage.OutTokens
+		rec.CachedTokens = usage.CachedTokens
+		rec.FinishReason = finish
+		rec.Messages, _ = json.Marshal(req.Messages)
+		p.sink.RecordUsage(ctx, rec)
+	}()
+	return out, nil
+}
+
 func (p *instrumentedProvider) CountTokens(ctx context.Context, req Request) (int, error) {
 	return p.inner.CountTokens(ctx, req)
 }

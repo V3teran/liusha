@@ -4,9 +4,9 @@ import { SpawnCard } from './SpawnCard'
 
 describe('SpawnCard', () => {
   it('派发开始态：显示目标 agent 与 brief', () => {
-    render(<SpawnCard args={JSON.stringify({ subagent_type: 'reconnaissance', description: '扫描目标站点' })} />)
+    render(<SpawnCard args={JSON.stringify({ subagent_type: 'executor', description: '扫描目标站点' })} />)
     expect(screen.getByText('派发')).toBeTruthy()
-    expect(screen.getByText('侦察')).toBeTruthy()
+    expect(screen.getByText('执行')).toBeTruthy()
     expect(screen.getByText('扫描目标站点')).toBeTruthy()
   })
 

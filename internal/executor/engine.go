@@ -14,6 +14,7 @@ import (
 	"github.com/V3teran/liusha/internal/framework/core"
 	"github.com/V3teran/liusha/internal/framework/llm"
 	"github.com/V3teran/liusha/internal/framework/runtime"
+	"github.com/V3teran/liusha/internal/reasoning"
 	"github.com/V3teran/liusha/internal/registry"
 	"github.com/V3teran/liusha/internal/skill"
 	"github.com/V3teran/liusha/internal/tools"
@@ -36,6 +37,7 @@ type Engine struct {
 	agentRunID     string                  // 本轮认知循环的 agent_run.id（LLM 审计归属）
 	checkpointer   core.Checkpointer
 	traceCollector *TraceCollector // trace 收集器（从 agent_traffic 构建完整执行轨迹）
+	thoughts       reasoning.Tap   // 思考流出口（nil=不流式）
 	logger         zerolog.Logger
 }
 
@@ -55,7 +57,9 @@ type EngineConfig struct {
 	AgentRunID     string        // 本轮认知循环的 agent_run.id（LLM 审计归属；空 = 审计行不挂 run）
 	Checkpointer   core.Checkpointer
 	TraceCollector *TraceCollector // trace 收集器（从 agent_traffic 构建完整执行轨迹）
-	Logger         zerolog.Logger
+	// Thoughts 是思考流出口（认知循环注入 reasoning.Tap；nil=不流式）。
+	Thoughts reasoning.Tap
+	Logger   zerolog.Logger
 }
 
 // NewEngine 创建执行引擎
@@ -65,6 +69,7 @@ func NewEngine(cfg EngineConfig) *Engine {
 		findings:       cfg.Findings,
 		graph:          cfg.Graph,
 		registry:       cfg.Registry,
+		thoughts:       cfg.Thoughts,
 		functionTools:  cfg.FunctionTools,
 		toolsManifest:  cfg.ToolsManifest,
 		skills:         cfg.Skills,
