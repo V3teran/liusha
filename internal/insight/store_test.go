@@ -1,3 +1,5 @@
+//go:build integration
+
 package insight_test
 
 import (
@@ -5,22 +7,16 @@ import (
 	"testing"
 	"time"
 
+	"github.com/V3teran/liusha/internal/dbtest"
 	"github.com/V3teran/liusha/internal/insight"
-	"github.com/V3teran/liusha/internal/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestStore_ListByRelatedNode(t *testing.T) {
-	if testing.Short() {
-		t.Skip("跳过集成测试")
-	}
-
-	pool := testutil.MustPool(t)
-	defer pool.Close()
-
-	store := insight.NewStore(pool)
 	ctx := context.Background()
+	pool := dbtest.NewPgPool(t)
+	store := insight.NewStore(pool)
 
 	// 清理测试数据
 	_, err := pool.Exec(ctx, "DELETE FROM insight WHERE assignment_id LIKE 'test-assignment-%'")
@@ -29,6 +25,10 @@ func TestStore_ListByRelatedNode(t *testing.T) {
 	assignmentID := "test-assignment-related-node"
 	nodeID1 := "node-123"
 	nodeID2 := "node-456"
+
+	t.Cleanup(func() {
+		_, _ = pool.Exec(ctx, "DELETE FROM insight WHERE assignment_id = $1", assignmentID)
+	})
 
 	// 创建测试数据
 	insights := []insight.Insight{
@@ -108,8 +108,4 @@ func TestStore_ListByRelatedNode(t *testing.T) {
 		_, err = store.ListByRelatedNode(ctx, assignmentID, "", 10)
 		assert.Error(t, err, "nodeID 为空应该报错")
 	})
-
-	// 清理
-	_, err = pool.Exec(ctx, "DELETE FROM insight WHERE assignment_id = $1", assignmentID)
-	require.NoError(t, err)
 }
